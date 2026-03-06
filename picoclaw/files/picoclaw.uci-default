@@ -1,0 +1,8 @@
+#!/bin/sh
+
+
+
+/etc/init.d/picoclaw enable
+/etc/init.d/picoclaw start
+rm -f /tmp/luci*
+exit 0

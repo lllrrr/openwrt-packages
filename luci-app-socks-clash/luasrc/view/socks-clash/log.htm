@@ -1,0 +1,549 @@
+﻿<%# SocksClash Log Page -%>
+
+    <%+header%>
+
+        <style>
+            .sc-log-container {
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                max-width: 1400px;
+                margin: 0 auto;
+                padding: 24px;
+            }
+
+            .sc-log-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 24px;
+                flex-wrap: wrap;
+                gap: 16px;
+            }
+
+            .sc-log-title {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+
+            .sc-log-icon {
+                width: 48px;
+                height: 48px;
+                background: linear-gradient(135deg, #6366f1, #4f46e5);
+                border-radius: 12px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 24px;
+                color: white;
+            }
+
+            .sc-log-title h2 {
+                font-size: 24px;
+                font-weight: 700;
+                color: #1e293b;
+                margin: 0;
+            }
+
+            .sc-log-controls {
+                display: flex;
+                gap: 12px;
+            }
+
+            .sc-log-btn {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+
+            .sc-log-btn-primary {
+                background: linear-gradient(135deg, #6366f1, #4f46e5);
+                color: white;
+            }
+
+            .sc-log-btn-primary:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+            }
+
+            .sc-log-btn-outline {
+                background: white;
+                color: #6366f1;
+                border: 2px solid #6366f1;
+            }
+
+            .sc-log-btn-outline:hover {
+                background: #6366f1;
+                color: white;
+            }
+
+            .sc-log-btn-danger {
+                background: linear-gradient(135deg, #ef4444, #dc2626);
+                color: white;
+            }
+
+            .sc-log-btn-danger:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 14px rgba(239, 68, 68, 0.4);
+            }
+
+            .sc-log-card {
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+                overflow: hidden;
+            }
+
+            .sc-log-card-header {
+                padding: 16px 24px;
+                background: #f8fafc;
+                border-bottom: 1px solid #e2e8f0;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .sc-log-filters {
+                display: flex;
+                gap: 12px;
+                align-items: center;
+            }
+
+            .sc-log-filter-label {
+                font-size: 13px;
+                font-weight: 500;
+                color: #64748b;
+            }
+
+            .sc-log-filter-select {
+                padding: 8px 12px;
+                border: 1px solid #e2e8f0;
+                border-radius: 6px;
+                font-size: 13px;
+                color: #1e293b;
+                background: white;
+                cursor: pointer;
+            }
+
+            .sc-log-filter-select:focus {
+                outline: none;
+                border-color: #6366f1;
+            }
+
+            .sc-log-search {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 8px 12px;
+                background: white;
+                border: 1px solid #e2e8f0;
+                border-radius: 6px;
+            }
+
+            .sc-log-search input {
+                border: none;
+                outline: none;
+                font-size: 13px;
+                width: 200px;
+            }
+
+            .sc-log-content {
+                height: 600px;
+                overflow-y: auto;
+                background: #0f172a;
+                padding: 16px;
+                font-family: 'Monaco', 'Consolas', 'Courier New', monospace;
+                font-size: 13px;
+                line-height: 1.6;
+            }
+
+            .sc-log-line {
+                padding: 4px 8px;
+                border-radius: 4px;
+                margin-bottom: 2px;
+                display: flex;
+                gap: 12px;
+                transition: background 0.2s ease;
+            }
+
+            .sc-log-line:hover {
+                background: rgba(255, 255, 255, 0.05);
+            }
+
+            .sc-log-time {
+                color: #64748b;
+                white-space: nowrap;
+                min-width: 180px;
+            }
+
+            .sc-log-level {
+                font-weight: 600;
+                min-width: 60px;
+                text-transform: uppercase;
+            }
+
+            .sc-log-level-info {
+                color: #3b82f6;
+            }
+
+            .sc-log-level-warning {
+                color: #f59e0b;
+            }
+
+            .sc-log-level-error {
+                color: #ef4444;
+            }
+
+            .sc-log-level-debug {
+                color: #8b5cf6;
+            }
+
+            .sc-log-message {
+                color: #e2e8f0;
+                word-break: break-all;
+            }
+
+            .sc-log-empty {
+                text-align: center;
+                padding: 60px 20px;
+                color: #64748b;
+            }
+
+            .sc-log-empty-icon {
+                font-size: 48px;
+                margin-bottom: 16px;
+                opacity: 0.5;
+            }
+
+            .sc-log-footer {
+                padding: 16px 24px;
+                background: #f8fafc;
+                border-top: 1px solid #e2e8f0;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .sc-log-stats {
+                font-size: 13px;
+                color: #64748b;
+            }
+
+            .sc-log-stats span {
+                font-weight: 600;
+                color: #1e293b;
+            }
+
+            .sc-auto-scroll-toggle {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 13px;
+                color: #64748b;
+            }
+
+            .sc-toggle {
+                position: relative;
+                width: 44px;
+                height: 24px;
+                background: #e2e8f0;
+                border-radius: 12px;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+
+            .sc-toggle.active {
+                background: #6366f1;
+            }
+
+            .sc-toggle::after {
+                content: '';
+                position: absolute;
+                width: 18px;
+                height: 18px;
+                background: white;
+                border-radius: 50%;
+                top: 3px;
+                left: 3px;
+                transition: all 0.3s ease;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            }
+
+            .sc-toggle.active::after {
+                left: 23px;
+            }
+
+            @keyframes fadeIn {
+                from {
+                    opacity: 0;
+                    transform: translateY(-5px);
+                }
+
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+
+            .sc-log-line {
+                animation: fadeIn 0.3s ease;
+            }
+        </style>
+
+        <div class="sc-log-container">
+            <div class="sc-log-header">
+                <div class="sc-log-title">
+                    <div class="sc-log-icon">📜</div>
+                    <h2>
+                        SocksClash 日志
+                    </h2>
+                </div>
+                <div class="sc-log-controls">
+                    <button class="sc-log-btn sc-log-btn-primary" onclick="refreshLog()">
+                        <span>🔄</span>
+                        刷新
+                    </button>
+                    <button class="sc-log-btn sc-log-btn-danger" onclick="clearLog()">
+                        <span>🗑️</span>
+                        清空
+                    </button>
+                    <button class="sc-log-btn sc-log-btn-outline" onclick="downloadLog()">
+                        <span>⬇️</span>
+                        下载
+                    </button>
+                </div>
+            </div>
+
+            <div class="sc-log-card">
+                <div class="sc-log-card-header">
+                    <div class="sc-log-filters">
+                        <span class="sc-log-filter-label">
+                            过滤：
+                        </span>
+                        <select class="sc-log-filter-select" id="level-filter" onchange="filterLogs()">
+                            <option value="all">
+                                所有级别
+                            </option>
+                            <option value="error">
+                                错误
+                            </option>
+                            <option value="warning">
+                                警告
+                            </option>
+                            <option value="info">
+                                信息
+                            </option>
+                            <option value="debug">
+                                调试
+                            </option>
+                        </select>
+                    </div>
+                    <div class="sc-log-search">
+                        <span>🔍</span>
+                        <input type="text" id="log-search" placeholder="搜索日志..." oninput="filterLogs()">
+                    </div>
+                </div>
+
+                <div class="sc-log-content" id="log-content">
+                    <div class="sc-log-empty">
+                        <div class="sc-log-empty-icon">📋</div>
+                        <div>
+                            加载日志中...
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sc-log-footer">
+                    <div class="sc-log-stats">
+                        总行数： <span id="log-count">0</span>
+                    </div>
+                    <div style="display: flex; gap: 24px;">
+                        <div class="sc-auto-scroll-toggle">
+                            <span>自动刷新</span>
+                            <div class="sc-toggle active" id="auto-refresh-toggle" onclick="toggleAutoRefresh()"></div>
+                        </div>
+                        <div class="sc-auto-scroll-toggle">
+                            <span>自动滚动</span>
+                            <div class="sc-toggle active" id="auto-scroll-toggle" onclick="toggleAutoScroll()"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            var allLogs = [];
+            var autoScroll = true;
+            var autoRefresh = true;
+            var logInterval;
+            var lastLogHash = '';
+
+            function parseLogLine(line) {
+                var level = 'info';
+                var time = '';
+                var message = line;
+
+                // Try to extract timestamp
+                var timeMatch = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/);
+                if (timeMatch) {
+                    time = timeMatch[1];
+                    message = line.substring(time.length).trim();
+                }
+
+                // Detect level from Chinese markers
+                if (message.includes('[错误]') || message.includes('error') || message.includes('失败')) {
+                    level = 'error';
+                    message = message.replace('[错误]', '').trim();
+                } else if (message.includes('[警告]') || message.includes('warn')) {
+                    level = 'warning';
+                    message = message.replace('[警告]', '').trim();
+                } else if (message.includes('[成功]')) {
+                    level = 'info';
+                    message = message.replace('[成功]', '✓ ').trim();
+                } else if (message.includes('[信息]')) {
+                    level = 'info';
+                    message = message.replace('[信息]', '').trim();
+                } else if (message.includes('[调试]') || message.includes('debug')) {
+                    level = 'debug';
+                    message = message.replace('[调试]', '').trim();
+                }
+
+                return { time: time, level: level, message: message };
+            }
+
+            function simpleHash(str) {
+                var hash = 0;
+                for (var i = 0; i < str.length; i++) {
+                    var char = str.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash = hash & hash;
+                }
+                return hash.toString();
+            }
+
+            function renderLogs(logs) {
+                var container = document.getElementById('log-content');
+
+                if (logs.length === 0) {
+                    container.innerHTML = '<div class="sc-log-empty"><div class="sc-log-empty-icon">📋</div><div>暂无日志</div></div>';
+                    document.getElementById('log-count').textContent = '0';
+                    return;
+                }
+
+                var html = '';
+                logs.forEach(function (log) {
+                    var levelClass = 'sc-log-level-' + log.level;
+                    var levelText = log.level === 'error' ? '错误' :
+                        log.level === 'warning' ? '警告' :
+                            log.level === 'debug' ? '调试' : '信息';
+
+                    html += '<div class="sc-log-line">';
+                    html += '<span class="sc-log-time">' + (log.time || '--') + '</span>';
+                    html += '<span class="sc-log-level ' + levelClass + '">' + levelText + '</span>';
+                    html += '<span class="sc-log-message">' + escapeHtml(log.message) + '</span>';
+                    html += '</div>';
+                });
+
+                container.innerHTML = html;
+                document.getElementById('log-count').textContent = logs.length;
+
+                if (autoScroll) {
+                    container.scrollTop = container.scrollHeight;
+                }
+            }
+
+            function escapeHtml(text) {
+                var div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            function filterLogs() {
+                var levelFilter = document.getElementById('level-filter').value;
+                var searchText = document.getElementById('log-search').value.toLowerCase();
+
+                var filtered = allLogs.filter(function (log) {
+                    var levelMatch = levelFilter === 'all' || log.level === levelFilter;
+                    var searchMatch = !searchText || log.message.toLowerCase().includes(searchText);
+                    return levelMatch && searchMatch;
+                });
+
+                renderLogs(filtered);
+            }
+
+            function refreshLog() {
+                XHR.get('<%=luci.dispatcher.build_url("admin/services/socks-clash/get_log")%>', null, function (xhr, data) {
+                    if (data && data.log) {
+                        // 检查日志是否有变化
+                        var newHash = simpleHash(data.log);
+                        if (newHash === lastLogHash) {
+                            return; // 日志没有变化，不刷新
+                        }
+                        lastLogHash = newHash;
+
+                        var lines = data.log.split('\n').filter(function (line) { return line.trim(); });
+                        allLogs = lines.map(parseLogLine);
+                        filterLogs();
+                    }
+                });
+            }
+
+            function clearLog() {
+                if (confirm('确定要清空所有日志吗？')) {
+                    XHR.get('<%=luci.dispatcher.build_url("admin/services/socks-clash/clear_log")%>', null, function (xhr, data) {
+                        allLogs = [];
+                        lastLogHash = '';
+                        renderLogs([]);
+                    });
+                }
+            }
+
+            function downloadLog() {
+                var content = allLogs.map(function (log) {
+                    return log.time + ' [' + log.level.toUpperCase() + '] ' + log.message;
+                }).join('\n');
+
+                var blob = new Blob([content], { type: 'text/plain' });
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = 'socks-clash-' + new Date().toISOString().slice(0, 10) + '.log';
+                a.click();
+                URL.revokeObjectURL(url);
+            }
+
+            function toggleAutoScroll() {
+                autoScroll = !autoScroll;
+                var toggle = document.getElementById('auto-scroll-toggle');
+                toggle.classList.toggle('active', autoScroll);
+            }
+
+            function toggleAutoRefresh() {
+                autoRefresh = !autoRefresh;
+                var toggle = document.getElementById('auto-refresh-toggle');
+                toggle.classList.toggle('active', autoRefresh);
+
+                if (autoRefresh) {
+                    logInterval = setInterval(refreshLog, 5000);
+                } else {
+                    clearInterval(logInterval);
+                }
+            }
+
+            document.addEventListener('DOMContentLoaded', function () {
+                refreshLog();
+                logInterval = setInterval(refreshLog, 5000); // 改为5秒刷新一次
+            });
+
+            window.addEventListener('beforeunload', function () {
+                clearInterval(logInterval);
+            });
+        </script>
+
+        <%+footer%>

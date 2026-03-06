@@ -1,0 +1,15 @@
+<%+header%>
+<h2><%:MyDomain Status%></h2>
+<div id="content"></div>
+<script>
+require(['luci', 'view/mydomain/status'], function(luci, View) {
+	var view = new View();
+	view.render().then(function(html) {
+		document.getElementById('content').appendChild(html);
+	}).catch(function(error) {
+		console.error('Error rendering view:', error);
+		document.getElementById('content').innerHTML = '<div class="error">Failed to render view: ' + error.message + '</div>';
+	});
+});
+</script>
+<%+footer%>

@@ -1,0 +1,36 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=10
+
+USE_PROCD=1
+
+start_service() {
+    # Start DDNS update service
+    procd_open_instance
+    procd_set_param command /usr/bin/mydomain-update
+    procd_set_param respawn "${respawn_threshold:-3600}" "${respawn_timeout:-5}" "${respawn_retry:-5}"
+    procd_close_instance
+    
+    # Start certificate renewal service
+    procd_open_instance
+    procd_set_param command /usr/bin/mydomain-cert
+    procd_set_param respawn "${respawn_threshold:-3600}" "${respawn_timeout:-5}" "${respawn_retry:-5}"
+    procd_close_instance
+    
+    # Start proxy service
+    procd_open_instance
+    procd_set_param command /usr/bin/mydomain-proxy
+    procd_set_param respawn "${respawn_threshold:-3600}" "${respawn_timeout:-5}" "${respawn_retry:-5}"
+    procd_close_instance
+}
+
+stop_service() {
+    # Stop all services
+    killall mydomain-update mydomain-cert mydomain-proxy 2>/dev/null
+}
+
+reload_service() {
+    stop_service
+    start_service
+}

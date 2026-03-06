@@ -1,0 +1,1052 @@
+<%+header%>
+
+<%
+local dsp = require "luci.dispatcher"
+local sys = require "luci.sys"
+local util = require("luci.util")
+local json = require("luci.jsonc")
+local uci = require("luci.model.uci").cursor()
+
+-- 从openvpn-admin.lua模块获取配置函数
+local openvpn_admin = require "luci.controller.openvpn-admin"
+local admin_config = openvpn_admin.get_admin_config()
+local instance = admin_config.openvpn_instance
+
+-- 获取服务器配置信息
+local proto = ""
+local ddns = "" -- 默认值为空
+local port = "" -- 默认值为空
+
+-- 尝试从uci配置中获取实际值，使用配置中的实例名称
+local uci_output = sys.exec(string.format("uci -q get openvpn.%s.proto 2>/dev/null", instance))
+if uci_output and uci_output ~= "" then
+    proto = util.trim(uci_output)
+end
+
+local uci_ddns = sys.exec(string.format("uci -q get openvpn.%s.ddns 2>/dev/null", instance))
+if uci_ddns and uci_ddns ~= "" then
+    ddns = util.trim(uci_ddns)
+end
+
+local uci_port = sys.exec(string.format("uci -q get openvpn.%s.port 2>/dev/null", instance))
+if uci_port and uci_port ~= "" then
+    port = util.trim(uci_port)
+end
+
+-- 默认客户端名和文件名为空
+local default_client_name = ""
+local default_filename = ""
+%>
+
+<div class="cbi-map" id="cbi-openvpn-client">
+    <!-- 页面标题 -->
+    <h2 name="content">OpenVPN 客户端管理</h2>
+    
+    <!-- 页面说明 -->
+    <div class="cbi-map-descr">生成和下载OpenVPN客户端配置文件</div>
+    
+    <!-- 第一个表单：客户端信息 -->
+    <div class="cbi-section form-section-first">
+        <h3>客户端信息</h3>
+        <div class="cbi-section-node">
+            <!-- 客户端名输入 -->
+            <div class="cbi-value" id="cbi-openvpn-client-name">
+                <label class="cbi-value-title" for="client-name">客户端名 (证书名)</label>
+                <div class="cbi-value-field">
+                    <div class="form-input-with-description">
+                        <input type="text" class="cbi-input-text" id="client-name" 
+                               placeholder="例如: client1" value="<%=default_client_name%>" />
+                        <span class="input-description">客户端的唯一标识，将用于证书生成</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 文件名输入 -->
+            <div class="cbi-value cbi-value-last" id="cbi-openvpn-client-filename">
+                <label class="cbi-value-title" for="client-filename">文件名 (.ovpn)</label>
+                <div class="cbi-value-field">
+                    <div class="form-input-with-description">
+                        <input type="text" class="cbi-input-text" id="client-filename" 
+                               placeholder="例如: client1.ovpn" value="<%=default_filename%>" />
+                        <span class="input-description">客户端配置文件的名称，将以.ovpn扩展名保存</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 第二个表单：客户端配置 -->
+    <div class="cbi-section form-section-second">
+        <h3>客户端配置</h3>
+        <div class="cbi-section-node">
+            <!-- 协议 -->
+            <div class="cbi-value" id="cbi-openvpn-client-proto">
+                <label class="cbi-value-title" for="client-proto">协议</label>
+                <div class="cbi-value-field">
+                    <div class="form-input-with-description">
+                        <input type="text" class="cbi-input-text" id="client-proto" 
+                               value="<%=proto%>" readonly />
+                        <span class="input-description">协议类型，从服务器配置中获取</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 域名/ip 端口 -->
+            <div class="cbi-value cbi-value-last" id="cbi-openvpn-client-remote">
+                <label class="cbi-value-title" for="client-remote">域名/IP 端口</label>
+                <div class="cbi-value-field">
+                    <div class="form-input-with-description">
+                        <input type="text" class="cbi-input-text" id="client-remote" 
+                               value="<%=ddns%> <%=port%>" readonly />
+                        <span class="input-description">服务器地址和端口，从服务器配置中获取</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 操作按钮区域 -->
+    <div class="cbi-page-actions">
+        <div class="button-row-left">
+            <input class="btn cbi-button cbi-button-apply" type="button" value="生成并下载.ovpn" onclick="generateClientConfig()" />
+        </div>
+        <div class="button-row-right">
+            <input class="btn cbi-button cbi-button-reset" type="button" value="重置证书" onclick="resetClientCertificate()" />
+            <button class="btn cbi-button cbi-button-settings" type="button" onclick="window.location.href='<%=dsp.build_url("admin/vpn/openvpn-admin/settings")%>'">
+                <%:设置%>
+            </button>
+        </div>
+    </div>
+    <div class="cbi-map-descr2">注意：重置证书：使用EasyRSA工具重新初始化PKI系统，重新生成OpenVPN的PKI证书体系，之前的客户端都失效。</div>
+    <div class="cbi-map-descr2">用途：证书到期或需要重新生成证书时使用</div>
+    
+    <!-- 黑名单管理 -->
+    <div class="cbi-section" style="margin-top: 0px;">
+        <h3 style="margin-bottom: 3px; margin-top: 0;"><%:客户端黑名单管理%></h3>
+        <div class="cbi-section-descr" style="margin-bottom: -40px; margin-top: -20px; padding: 0; line-height: 1.2;">
+            <p style="margin: 0;">
+                <% if admin_config.blacklist_enabled then %>
+                    <%:管理被禁止连接的客户端列表，基于证书CN。%>
+                <% else %>
+                    <span style="color: #dc3545;"><%:黑名单功能已禁用，请在设置中启用。%></span>
+                <% end %>
+            </p>
+        </div>
+        
+        <!-- 黑名单列表 -->
+        <div class="cbi-section-node">
+            <div id="blacklist-cn-container">
+                <% if admin_config.blacklist_enabled then %>
+                <table class="table cbi-section-table" id="blacklist-cn-table" style="display: none;">
+                    <thead>
+                        <tr class="cbi-section-table-titles">
+                            <th class="cbi-section-table-cell text-center" style="width: 15%;"><%:客户端CN%></th>
+                            <th class="cbi-section-table-cell text-center" style="width: 15%;"><%:添加时间%></th>
+                            <th class="cbi-section-table-cell text-center" style="width: 15%;"><%:过期时间%></th>
+                            <th class="cbi-section-table-cell text-center" style="width: 15%;"><%:剩余时间%></th>
+                            <th class="cbi-section-table-cell text-center" style="width: 15%;"><%:原因%></th>
+                            <th class="cbi-section-table-cell text-center" style="width: 10%;"><%:时长%></th>
+                            <th class="cbi-section-table-cell text-center" style="width: 15%;"><%:操作%></th>
+                        </tr>
+                    </thead>
+                    <tbody class="cbi-section-table-row" id="blacklist-cn-body">
+                    </tbody>
+                    <!-- 添加行 - 始终显示在表格底部 -->
+                    <tfoot id="blacklist-add-row">
+                        <tr class="cbi-section-table-row">
+                            <td class="cbi-value-field text-center">
+                                <input type="text" class="cbi-input-text add-cn-input" 
+                                       placeholder="输入CN" style="width: 90%;" />
+                            </td>
+                            <td class="cbi-value-field text-center">-</td>
+                            <td class="cbi-value-field text-center">-</td>
+                            <td class="cbi-value-field text-center">-</td>
+                            <td class="cbi-value-field text-center">手动添加</td>
+                            <td class="cbi-value-field text-center">
+                                <select class="cbi-input-select add-duration-select" style="width: 90%;">
+                                    <option value="1min">1分钟</option>
+                                    <option value="5min" selected>5分钟</option>
+                                    <option value="10min">10分钟</option>
+                                    <option value="1hour">1小时</option>
+                                    <option value="permanent">永久</option>
+                                </select>
+                            </td>
+                            <td class="cbi-value-field text-center">
+                                <button class="btn cbi-button cbi-button-action" onclick="addNewBlacklist()">
+                                    <%:添加%>
+                                </button>
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+                <div class="cbi-section-descr" id="empty-blacklist-cn">
+                    <p style="margin: 0 0 8px 0;"><strong><%:黑名单为空%></strong></p>
+                    <p style="margin: 0 0 12px 0;"><%:没有被禁止连接的客户端。%></p>
+                    <!-- 空状态时显示添加表单 -->
+                    <div style="margin-top: 15px; padding: 15px; background-color: #f8f9fa; border-radius: 4px;">
+                        <h4 style="margin-top: 0; margin-bottom: 10px;"><%:添加黑名单条目%></h4>
+                        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                            <div style="flex: 1;">
+                                <input type="text" class="cbi-input-text" id="empty-cn-input" 
+                                       placeholder="输入客户端CN" style="width: 100%;" />
+                            </div>
+                            <div>
+                                <select class="cbi-input-select" id="empty-duration-select" style="width: 120px;">
+                                    <option value="1min">1分钟</option>
+                                    <option value="5min" selected>5分钟</option>
+                                    <option value="10min">10分钟</option>
+                                    <option value="1hour">1小时</option>
+                                    <option value="permanent">永久</option>
+                                </select>
+                            </div>
+                            <div>
+                                <button class="btn cbi-button cbi-button-action" onclick="addFromEmpty()">
+                                    <%:添加%>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <% else %>
+                <div class="cbi-section-descr">
+                    <p style="margin: 0 0 8px 0;"><strong><%:黑名单功能已禁用%></strong></p>
+                    <p style="margin: 0 0 12px 0;"><%:请在设置页面启用黑名单功能。%></p>
+                    <div style="margin-top: 15px;">
+                        <button class="btn cbi-button cbi-button-settings" type="button" onclick="window.location.href='<%=dsp.build_url("admin/vpn/openvpn-admin/settings")%>'">
+                            <%:前往设置%>
+                        </button>
+                    </div>
+                </div>
+                <% end %>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style type="text/css">
+/* 调整输入框宽度 */
+.cbi-input-text {
+    width: 300px;
+    min-width: 300px;    
+
+}
+
+/* 调整备注字体颜色 */
+.cbi-map-descr2 {
+      color: red;  /* 将文字设为红色 */
+      font-weight: bold; /* 增加字体加粗，让警告更醒目 */
+      text-align: right; /* 文字靠右对齐 */
+      margin-top: 0px; 
+      line-height: 2;
+}
+    
+/* 只读输入框样式 */
+.cbi-input-text[readonly] {
+    background-color: #f8f9fa;
+    color: #6c757d;
+    cursor: not-allowed;
+}
+
+/* 美化：输入框与描述在同一行 */
+.form-input-with-description {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    width: 100%;
+}
+
+.input-description {
+    color: #666;
+    font-size: 12px;
+    white-space: nowrap;
+    max-width: 350px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 0;
+}
+
+/* 表单标题样式 */
+.form-section-first h3,
+.form-section-second h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    font-size: 16px;
+    color: #333;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 8px;
+}
+
+/* 第一个表单样式 */
+.form-section-first {
+    margin-bottom: 20px;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+/* 第二个表单样式 */
+.form-section-second {
+    margin-bottom: 20px;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 1px;
+}
+
+/* 深色模式支持 */
+body.dark-mode .input-description {
+    color: #aaa;
+}
+
+body.dark-mode .cbi-input-text[readonly] {
+    background-color: #2d2d2d;
+    color: #aaa;
+}
+
+body.dark-mode .form-section-first h3,
+body.dark-mode .form-section-second h3 {
+    color: #ddd;
+    border-bottom-color: #444;
+}
+
+/* 响应式设计 */
+@media (max-width: 992px) {
+    .form-input-with-description {
+        flex-wrap: wrap;
+        gap: 5px;
+    }
+    
+    .cbi-input-text {
+        width: 100%;
+        min-width: auto;
+    }
+    
+    .input-description {
+        white-space: normal;
+        max-width: 100%;
+        padding-left: 5px;
+    }
+}
+
+/* 确保页面内容清晰可见 */
+.cbi-section-node {
+    padding: 10px 0;
+}
+
+/* 第一个表单的行高 - 50px */
+.form-section-first .cbi-value {
+    padding: 8px 0;
+    border-bottom: 0px solid #eee;
+    display: flex;
+    align-items: center;
+    height: 50px;
+}
+
+/* 第二个表单的行高 - 30px */
+.form-section-second .cbi-value {
+    padding: 8px 0;
+    border-bottom: 0px solid #eee;
+    display: flex;
+    align-items: center;
+    height: 50px;
+}
+
+.cbi-value:last-child {
+    border-bottom: none;
+}
+
+.cbi-value-title {
+    min-width: 150px;
+    padding-right: 15px;
+    font-weight: bold;
+}
+
+.cbi-value-field {
+    flex: 1;
+}
+
+/* 深色模式适配 */
+body.dark-mode .cbi-value {
+    border-bottom-color: #444;
+}
+
+body.dark-mode .cbi-value-title {
+    color: #ddd;
+}
+
+/* 按钮布局样式 */
+.cbi-page-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: -40px;
+    margin-bottom: 0px;
+}
+
+.button-row-left {
+    align-self: flex-start;
+    margin-left: 400px;
+}
+
+.button-row-right {
+    align-self: flex-end;
+    display: flex;
+    gap: 10px;
+}
+
+/* 按钮样式 */
+.btn.cbi-button {
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    border-radius: 4px;
+    border: 1px solid transparent;
+}
+
+.cbi-button-apply {
+    background-color: #007bff;
+    color: white;
+    border-color: #007bff;
+}
+
+.cbi-button-apply:hover {
+    background-color: #0056b3;
+    border-color: #0056b3;
+}
+
+.cbi-button-reset {
+    background-color: #dc3545;
+    color: white;
+    border-color: #dc3545;
+}
+
+.cbi-button-reset:hover {
+    background-color: #c82333;
+    border-color: #c82333;
+}
+
+.cbi-button-settings {
+    background-color: #FF9800 !important;
+    color: white !important;
+    border: 1px solid #F57C00 !important;
+    padding: 10px 20px;
+    font-weight: bold;
+}
+
+.cbi-button-settings:hover {
+    background-color: #F57C00 !important;
+    color: white !important;
+}
+
+/* 黑名单管理样式 */
+.add-cn-input, .add-duration-select {
+    font-size: 12px;
+    padding: 4px 6px;
+}
+
+#blacklist-add-row input,
+#blacklist-add-row select {
+    margin: 0;
+}
+
+.cbi-section-node {
+    margin-top: 10px;
+}
+
+/* 深色模式适配 */
+body.dark-mode .cbi-section-node {
+    background-color: #2d2d2d;
+    border-color: #444;
+}
+
+body.dark-mode .add-cn-input,
+body.dark-mode .add-duration-select {
+    background-color: #333;
+    color: #ddd;
+    border-color: #555;
+}
+
+/* 深色模式按钮样式 */
+body.dark-mode .cbi-button-apply {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+}
+
+body.dark-mode .cbi-button-reset {
+    background-color: #dc3545;
+    border-color: #dc3545;
+}
+
+body.dark-mode .cbi-button-settings {
+    background-color: #FF9800 !important;
+    border-color: #F57C00 !important;
+}
+
+body.dark-mode .cbi-button-action {
+    background-color: #4CAF50 !important;
+    border-color: #388E3C !important;
+}
+
+/* 空状态下的添加表单样式 */
+#empty-blacklist-cn .cbi-input-text,
+#empty-blacklist-cn .cbi-input-select {
+    font-size: 13px;
+    padding: 6px 8px;
+}
+
+#empty-blacklist-cn h4 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-size: 15px;
+    color: #333;
+}
+
+body.dark-mode #empty-blacklist-cn h4 {
+    color: #ddd;
+}
+
+/* 黑名单标题和描述间距优化 */
+#cbi-openvpn-client .cbi-section h3 {
+    margin-top: 0;
+    margin-bottom: -10px;
+    padding-bottom: 4px;
+}
+
+#cbi-openvpn-client .cbi-section-descr {
+    margin-top: 0;
+    margin-bottom: 4px;
+    padding: 0;
+    line-height: 1.2;
+}
+
+#cbi-openvpn-client .cbi-section-descr p {
+    margin: 0;
+}
+
+/* 重置进度提示样式 */
+#reset-progress {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #fff;
+    padding: 20px;
+    border: 2px solid #dc3545;
+    border-radius: 10px;
+    z-index: 9999;
+    box-shadow: 0 0 20px rgba(0,0,0,0.3);
+    text-align: center;
+    min-width: 300px;
+}
+
+#reset-progress h3 {
+    color: #dc3545;
+    margin-top: 0;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+#reset-progress .spinner {
+    width: 40px;
+    height: 40px;
+    margin: 0 auto;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #dc3545;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+</style>
+
+<script type="text/javascript">
+//<![CDATA[
+
+// 页面加载完成后初始化
+document.addEventListener('DOMContentLoaded', function() {
+    // 监听客户端名输入框变化，同步更新文件名
+    var clientNameInput = document.getElementById('client-name');
+    var fileNameInput = document.getElementById('client-filename');
+    
+    clientNameInput.addEventListener('input', function() {
+        var clientName = this.value.trim();
+        if (clientName) {
+            // 确保文件名以.ovpn结尾
+            if (!clientName.toLowerCase().endsWith('.ovpn')) {
+                fileNameInput.value = clientName + '.ovpn';
+            } else {
+                fileNameInput.value = clientName;
+            }
+        } else {
+            fileNameInput.value = '';
+        }
+    });
+    
+    // 加载黑名单列表（如果启用）
+    var blacklistContainer = document.getElementById('blacklist-cn-container');
+    var blacklistDisabledMessage = blacklistContainer.querySelector('.cbi-section-descr');
+    
+    if (!blacklistDisabledMessage || !blacklistDisabledMessage.textContent.includes('已禁用')) {
+        loadBlacklist();
+    }
+});
+
+// 生成并下载客户端配置
+function generateClientConfig() {
+    var filename = document.getElementById('client-filename').value.trim();
+    var clientName = document.getElementById('client-name').value.trim();
+    
+    if (!clientName) {
+        alert('请填写客户端名称');
+        document.getElementById('client-name').focus();
+        return;
+    }
+    
+    // 验证客户端名称格式
+    if (!/^[\w_\-]+$/.test(clientName)) {
+        alert('客户端名称格式不正确，只允许字母、数字、下划线、短横线');
+        document.getElementById('client-name').focus();
+        return;
+    }
+    
+    // 验证文件名格式
+    if (filename) {
+        if (!/^[\w_\-\.]+$/.test(filename)) {
+            alert('文件名格式不正确');
+            document.getElementById('client-filename').focus();
+            return;
+        }
+        if (!filename.toLowerCase().endsWith('.ovpn')) {
+            filename = filename + '.ovpn';
+            document.getElementById('client-filename').value = filename;
+        }
+    } else {
+        filename = clientName + '.ovpn';
+        document.getElementById('client-filename').value = filename;
+    }
+    
+    var confirmMessage = '确认要生成客户端配置吗？\n\n';
+    confirmMessage += '客户端名称: ' + clientName + '\n';
+    confirmMessage += '配置文件: ' + filename + '\n\n';
+    confirmMessage += '如果该客户端的证书不存在，将自动生成新证书。';
+    
+    if (!confirm(confirmMessage)) {
+        return;
+    }
+    
+    // 显示生成中提示
+    var oldButtonText = document.querySelector('.cbi-button-apply').value;
+    document.querySelector('.cbi-button-apply').value = '生成中...';
+    document.querySelector('.cbi-button-apply').disabled = true;
+    
+    // 准备请求数据
+    var formData = new FormData();
+    formData.append('client_name', clientName);
+    formData.append('filename', filename);
+    
+    // 发送生成请求
+    fetch('<%=dsp.build_url("admin/vpn/openvpn-admin/generate_client_config")%>', {
+        method: 'POST',
+        body: formData
+    })
+    .then(function(response) {
+        if (!response.ok) {
+            throw new Error('网络响应错误: ' + response.status);
+        }
+        return response.json();
+    })
+    .then(function(result) {
+        // 恢复按钮状态
+        document.querySelector('.cbi-button-apply').value = oldButtonText;
+        document.querySelector('.cbi-button-apply').disabled = false;
+        
+        if (result.success) {
+            alert(result.message);
+            
+            // 下载生成的配置文件
+            if (result.download_url) {
+                // 创建一个隐藏的iframe来下载文件
+                var iframe = document.createElement('iframe');
+                iframe.style.display = 'none';
+                iframe.src = result.download_url;
+                document.body.appendChild(iframe);
+                
+                // 清理iframe
+                setTimeout(function() {
+                    document.body.removeChild(iframe);
+                }, 5000);
+            }
+        } else {
+            alert('生成失败: ' + result.message);
+        }
+    })
+    .catch(function(error) {
+        // 恢复按钮状态
+        document.querySelector('.cbi-button-apply').value = oldButtonText;
+        document.querySelector('.cbi-button-apply').disabled = false;
+        
+        alert('生成失败: ' + error.message);
+    });
+}
+
+// 重置证书
+function resetClientCertificate() {
+    var clientName = document.getElementById('client-name').value.trim();
+    
+    if (clientName) {
+        var confirmMessage = '确认要重置客户端 "' + clientName + '" 的证书吗？\n\n';
+        confirmMessage += '这将重新生成该客户端的证书，原有证书将失效。';
+        
+        if (!confirm(confirmMessage)) {
+            return;
+        }
+        
+        // 重置单个客户端证书
+        resetSingleClientCertificate(clientName);
+    } else {
+        // 重置所有证书
+        resetAllCertificates();
+    }
+}
+
+// 重置所有证书 - 修改确认输入为yes，不区分大小写
+function resetAllCertificates() {
+    // 显示详细的警告信息
+    var warningMessage = '⚠️ 警告：此操作将重置所有OpenVPN证书！\n\n';
+    warningMessage += '将执行以下操作：\n';
+    warningMessage += '✅ 重新初始化PKI系统\n';
+    warningMessage += '✅ 重新生成CA证书\n';
+    warningMessage += '✅ 重新生成服务器证书\n';
+    warningMessage += '✅ 重新生成所有客户端证书\n';
+    warningMessage += '✅ 重启OpenVPN服务\n\n';
+    warningMessage += '⚠️ 重要影响：\n';
+    warningMessage += '• 所有现有客户端都将无法连接\n';
+    warningMessage += '• 必须重新分发所有客户端配置文件\n\n';
+    warningMessage += '请输入 "yes" 以确认此操作（不区分大小写）：';
+    
+    var userInput = prompt(warningMessage);
+    
+    // 不区分大小写比较
+    if (userInput && userInput.toLowerCase() === 'yes') {
+        // 显示进度提示
+        var progressDiv = document.createElement('div');
+        progressDiv.id = 'reset-progress';
+        progressDiv.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);' +
+                                    'background:#fff;padding:20px;border:2px solid #dc3545;' +
+                                    'border-radius:10px;z-index:9999;box-shadow:0 0 20px rgba(0,0,0,0.3);' +
+                                    'text-align:center;min-width:300px;';
+        progressDiv.innerHTML = '<h3 style="color:#dc3545;margin-top:0;">正在重置证书...</h3>' +
+                               '<p>请耐心等待，这可能需要1-2分钟。</p>' +
+                               '<div style="margin:15px 0;">' +
+                               '<div class="spinner" style="width:40px;height:40px;margin:0 auto;border:4px solid #f3f3f3;' +
+                               'border-top:4px solid #dc3545;border-radius:50%;animation:spin 1s linear infinite;"></div>' +
+                               '</div>' +
+                               '<style>@keyframes spin{0%{transform:rotate(0deg);}100%{transform:rotate(360deg);}}</style>';
+        document.body.appendChild(progressDiv);
+        
+        // 禁用重置按钮防止重复点击
+        var resetButton = document.querySelector('.cbi-button-reset');
+        if (resetButton) {
+            resetButton.disabled = true;
+            resetButton.value = '重置中...';
+        }
+        
+        // 执行重置
+        fetch('<%=dsp.build_url("admin/vpn/openvpn-admin/reset_all_certificates")%>', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            }
+        })
+        .then(function(response) {
+            if (!response.ok) {
+                throw new Error('网络响应错误: ' + response.status);
+            }
+            return response.json();
+        })
+        .then(function(result) {
+            // 移除进度提示
+            var progressDiv = document.getElementById('reset-progress');
+            if (progressDiv) {
+                document.body.removeChild(progressDiv);
+            }
+            
+            if (result.success) {
+                // 显示成功消息
+                var successMsg = '证书重置已启动！\n\n' +
+                               '脚本已成功启动，正在后台运行。\n' +
+                               '所有证书将重新生成，OpenVPN服务将自动重启。\n\n' +
+                               '日志文件: /tmp/renewcert.log\n' +
+                               '状态文件: /tmp/openvpn_status.log\n\n' +
+                               '页面将在3秒后刷新...';
+                
+                alert(successMsg);
+                
+                // 刷新页面
+                setTimeout(function() {
+                    location.reload();
+                }, 3000);
+            } else {
+                // 显示详细错误信息
+                var errorMsg = '重置失败: ' + result.message;
+                if (result.debug_info) {
+                    errorMsg += '\n\n调试信息:\n';
+                    for (var key in result.debug_info) {
+                        if (result.debug_info.hasOwnProperty(key)) {
+                            errorMsg += key + ': ' + result.debug_info[key] + '\n';
+                        }
+                    }
+                }
+                alert(errorMsg);
+                
+                // 恢复按钮状态
+                if (resetButton) {
+                    resetButton.disabled = false;
+                    resetButton.value = '重置证书';
+                }
+            }
+        })
+        .catch(function(error) {
+            // 移除进度提示
+            var progressDiv = document.getElementById('reset-progress');
+            if (progressDiv) {
+                document.body.removeChild(progressDiv);
+            }
+            
+            alert('重置失败: ' + error.message + '\n\n请检查网络连接或系统日志。');
+            
+            // 恢复按钮状态
+            if (resetButton) {
+                resetButton.disabled = false;
+                resetButton.value = '重置证书';
+            }
+        });
+    } else {
+        alert('操作已取消');
+    }
+}
+
+// 重置单个客户端证书 - 简化版
+function resetSingleClientCertificate(clientName) {
+    alert('单个客户端证书重置功能暂未实现。\n\n' +
+          '您可以：\n' +
+          '1. 删除客户端"' + clientName + '"的证书文件\n' +
+          '2. 重新生成该客户端的配置（将自动创建新证书）\n\n' +
+          '或者使用"重置所有证书"功能。');
+}
+
+// 添加新黑名单
+function addNewBlacklist() {
+    var cnInput = document.querySelector('.add-cn-input');
+    var durationSelect = document.querySelector('.add-duration-select');
+    
+    if (!cnInput || !durationSelect) return;
+    
+    var cn = cnInput.value.trim();
+    var duration = durationSelect.value;
+    
+    addBlacklistEntry(cn, duration, cnInput, durationSelect);
+}
+
+// 从空状态添加黑名单
+function addFromEmpty() {
+    var cnInput = document.getElementById('empty-cn-input');
+    var durationSelect = document.getElementById('empty-duration-select');
+    
+    if (!cnInput || !durationSelect) return;
+    
+    var cn = cnInput.value.trim();
+    var duration = durationSelect.value;
+    
+    addBlacklistEntry(cn, duration, cnInput, durationSelect);
+}
+
+// 添加黑名单条目的通用函数
+function addBlacklistEntry(cn, duration, cnInput, durationSelect) {
+    if (!cn) {
+        alert('请输入客户端CN');
+        if (cnInput) cnInput.focus();
+        return;
+    }
+    
+    // 验证CN格式
+    if (!/^[\w_\-\.]+$/.test(cn)) {
+        alert('客户端CN格式不正确，只允许字母、数字、下划线、短横线和点');
+        if (cnInput) cnInput.focus();
+        return;
+    }
+    
+    if (confirm('确认要将客户端 "' + cn + '" 添加到黑名单吗？')) {
+        var formData = new FormData();
+        formData.append('cn', cn);
+        formData.append('duration', duration);
+        
+        fetch('<%=dsp.build_url("admin/vpn/openvpn-admin/add_to_blacklist")%>', {
+            method: 'POST',
+            body: formData
+        })
+        .then(function(response) {
+            if (!response.ok) {
+                throw new Error('网络响应错误: ' + response.status);
+            }
+            return response.json();
+        })
+        .then(function(result) {
+            if (result.success) {
+                alert(result.message);
+                // 刷新黑名单列表
+                loadBlacklist();
+                // 清空输入
+                if (cnInput) cnInput.value = '';
+                if (durationSelect) durationSelect.value = '5min';
+            } else {
+                alert('添加失败: ' + result.message);
+            }
+        })
+        .catch(function(error) {
+            alert('添加失败: ' + error.message);
+        });
+    }
+}
+
+// 从黑名单中移除客户端
+function removeFromBlacklist(cn) {
+    if (!cn) return;
+    
+    if (confirm('确认要从黑名单中移除客户端 "' + cn + '" 吗？')) {
+        var formData = new FormData();
+        formData.append('cn', cn);
+        
+        fetch('<%=dsp.build_url("admin/vpn/openvpn-admin/remove_from_blacklist_cn")%>', {
+            method: 'POST',
+            body: formData
+        })
+        .then(function(response) {
+            if (!response.ok) {
+                throw new Error('网络响应错误: ' + response.status);
+            }
+            return response.json();
+        })
+        .then(function(result) {
+            if (result.success) {
+                alert(result.message);
+                // 刷新黑名单列表
+                loadBlacklist();
+            } else {
+                alert('移除失败: ' + result.message);
+            }
+        })
+        .catch(function(error) {
+            alert('移除失败: ' + error.message);
+        });
+    }
+}
+
+// 加载黑名单列表
+function loadBlacklist() {
+    fetch('<%=dsp.build_url("admin/vpn/openvpn-admin/get_blacklist_cn")%>')
+        .then(function(response) {
+            if (!response.ok) {
+                throw new Error('网络响应错误: ' + response.status);
+            }
+            return response.json();
+        })
+        .then(function(result) {
+            if (result.success) {
+                updateBlacklistTable(result.data);
+            } else {
+                console.warn('获取黑名单失败:', result.message);
+                // 如果黑名单功能被禁用，显示相应消息
+                if (result.message && result.message.includes('已禁用')) {
+                    var container = document.getElementById('blacklist-cn-container');
+                    if (container) {
+                        container.innerHTML = '<div class="cbi-section-descr">' +
+                            '<p style="margin: 0 0 8px 0;"><strong><%:黑名单功能已禁用%></strong></p>' +
+                            '<p style="margin: 0 0 12px 0;"><%:请在设置页面启用黑名单功能。%></p>' +
+                            '<div style="margin-top: 15px;">' +
+                            '<button class="btn cbi-button cbi-button-settings" type="button" onclick="window.location.href=\'<%=dsp.build_url("admin/vpn/openvpn-admin/settings")%>\'">' +
+                            '<%:前往设置%>' +
+                            '</button>' +
+                            '</div>' +
+                            '</div>';
+                    }
+                }
+            }
+        })
+        .catch(function(error) {
+            console.error('加载黑名单失败:', error);
+        });
+}
+
+// 更新黑名单表格
+function updateBlacklistTable(blacklist) {
+    var container = document.getElementById('blacklist-cn-container');
+    var table = document.getElementById('blacklist-cn-table');
+    var tbody = document.getElementById('blacklist-cn-body');
+    var emptyDiv = document.getElementById('empty-blacklist-cn');
+    var addRow = document.getElementById('blacklist-add-row');
+    
+    if (!blacklist || blacklist.length === 0) {
+        if (table) table.style.display = 'none';
+        if (emptyDiv) emptyDiv.style.display = 'block';
+        return;
+    }
+    
+    if (table) table.style.display = '';
+    if (emptyDiv) emptyDiv.style.display = 'none';
+    
+    if (tbody) {
+        tbody.innerHTML = '';
+        
+        blacklist.forEach(function(entry, i) {
+            var row = document.createElement('tr');
+            row.className = 'cbi-section-table-row cbi-rowstyle-' + ((i % 2) + 1);
+            
+            // 格式化时长
+            var durationText = '';
+            if (entry.duration) {
+                if (entry.duration >= 31536000) {
+                    durationText = '永久';
+                } else if (entry.duration >= 3600) {
+                    durationText = Math.floor(entry.duration / 3600) + '小时';
+                } else if (entry.duration >= 60) {
+                    durationText = Math.floor(entry.duration / 60) + '分钟';
+                } else {
+                    durationText = entry.duration + '秒';
+                }
+            }
+            
+            row.innerHTML = `
+                <td class="cbi-value-field text-center">${escapeHtml(entry.cn || 'N/A')}</td>
+                <td class="cbi-value-field text-center">${escapeHtml(entry.added_time_formatted || 'N/A')}</td>
+                <td class="cbi-value-field text-center">${escapeHtml(entry.expiry_time_formatted || 'N/A')}</td>
+                <td class="cbi-value-field text-center">${escapeHtml(entry.remaining_time || 'N/A')}</td>
+                <td class="cbi-value-field text-center">${escapeHtml(entry.reason || '未知')}</td>
+                <td class="cbi-value-field text-center">${durationText}</td>
+                <td class="cbi-value-field text-center">
+                    <button class="btn cbi-button cbi-button-remove" onclick="removeFromBlacklist('${escapeHtml(entry.cn)}')">
+                        <%:移除%>
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+        
+        // 确保添加行显示
+        if (addRow) {
+            addRow.style.display = '';
+        }
+    }
+}
+
+// HTML转义函数
+function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+//]]>
+</script>
+
+<%+footer%>

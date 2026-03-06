@@ -1,0 +1,2 @@
+config owq-wol 'global'
+	option interface 'br-lan'

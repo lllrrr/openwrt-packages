@@ -1,0 +1,796 @@
+<%+header%>
+<script src="<%=resource%>/httping/echarts.min.js"></script>
+
+<style>
+    /* 容器样式 */
+    .toolbar-container {
+        background: var(--toolbar-bg, #f8f8f8);
+        padding: 15px;
+        border-radius: 6px;
+        border: 1px solid var(--border-color, #ddd);
+        margin-bottom: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        box-sizing: border-box;
+        width: 100%;
+    }
+
+    .chart-wrapper {
+        background: var(--chart-bg, #fff);
+        padding: 15px;
+        border-radius: 6px;
+        border: 1px solid var(--border-color, #ddd);
+        margin-bottom: 20px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        position: relative;
+        box-sizing: border-box;
+        overflow: hidden;
+        width: 100%;
+    }
+
+    .chart-div {
+        width: 100%;
+        min-width: 0;
+        height: 500px;
+        box-sizing: border-box;
+    }
+
+    /* 按钮组与输入框样式 */
+    .control-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+    }
+
+    .control-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        align-items: center;
+    }
+
+    input[type="datetime-local"] {
+        padding: 5px;
+        border: 1px solid var(--border-color, #ccc);
+        border-radius: 4px;
+        background: var(--input-bg, #fff);
+        color: var(--text-color, #333);
+        box-sizing: border-box;
+    }
+
+    .checkbox-label {
+        font-size: 13px;
+        color: var(--text-color);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        user-select: none;
+        line-height: 1;
+    }
+
+    .checkbox-label input {
+        margin: 0;
+        padding: 0;
+        width: 14px;
+        height: 14px;
+        position: relative;
+        top: -1px;
+    }
+
+    /* 服务器筛选标签样式 */
+    .server-filter-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        padding-top: 10px;
+        border-top: 1px solid var(--border-color);
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .server-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 13px;
+        cursor: pointer;
+        border: 1px solid var(--border-color);
+        background: var(--chip-bg, #eee);
+        color: var(--text-color, #333);
+        transition: all 0.2s;
+        user-select: none;
+    }
+
+    .server-chip.active {
+        background: #0069d6;
+        color: #fff;
+        border-color: #0069d6;
+        box-shadow: 0 2px 4px rgba(0, 105, 214, 0.3);
+    }
+
+    .server-chip:hover {
+        opacity: 0.9;
+    }
+
+    /* 丢包率颜色定义 */
+    .loss-text {
+        margin-left: 2px;
+        font-weight: bold;
+    }
+
+    .loss-good {
+        color: #3ba272;
+    }
+
+    .loss-med {
+        color: #faad14;
+    }
+
+    .loss-bad {
+        color: #ff4d4f;
+    }
+
+    .server-chip.active .loss-good {
+        color: #d9f7be;
+    }
+
+    .server-chip.active .loss-med {
+        color: #fffb8f;
+    }
+
+    .server-chip.active .loss-bad {
+        color: #ffccc7;
+    }
+
+    /* 深浅模式 CSS 变量 */
+    :root {
+        --toolbar-bg: #f8f8f8;
+        --chart-bg: #fff;
+        --border-color: #ddd;
+        --text-color: #333;
+        --input-bg: #fff;
+        --chip-bg: #f0f0f0;
+    }
+
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --toolbar-bg: #2a2a2a;
+            --chart-bg: #333;
+            --border-color: #444;
+            --text-color: #eee;
+            --input-bg: #444;
+            --chip-bg: #444;
+        }
+    }
+
+    .cbi-button-custom {
+        padding: 6px 12px;
+        cursor: pointer;
+        border-radius: 4px;
+        font-size: 13px;
+        border: 1px solid transparent;
+        transition: all 0.2s;
+    }
+
+    .btn-neutral {
+        background: #eee;
+        color: #333;
+    }
+
+    .btn-active {
+        background: #0069d6;
+        color: #fff;
+    }
+
+    @media (prefers-color-scheme: dark) {
+        .btn-neutral {
+            background: #444;
+            color: #eee;
+            border-color: #555;
+        }
+    }
+
+    .status-text {
+        font-size: 12px;
+        color: var(--text-color);
+        opacity: 0.7;
+        margin-left: 10px;
+    }
+</style>
+
+<h2>
+    <%=translate("网络延迟趋势图")%>
+</h2>
+
+<div class="toolbar-container">
+    <div class="control-row">
+        <div class="control-group" id="preset-buttons">
+            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(1, this)">1小时</button>
+            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(6, this)">6小时</button>
+            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(12, this)">12小时</button>
+            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(24, this)">24小时</button>
+            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(168, this)">7天</button>
+            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(720, this)">1月</button>
+            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(4320, this)">6月</button>
+            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(8760, this)">1年</button>
+        </div>
+
+        <div class="control-group">
+            <label class="checkbox-label">
+                <input type="checkbox" id="auto-refresh-check" onchange="toggleAutoRefresh()" checked>
+                <span>自动刷新 (10s)</span>
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" id="clip-peaks-check" onchange="toggleClipping()">
+                <span>削峰 (平滑)</span>
+            </label>
+        </div>
+    </div>
+
+    <div class="control-row">
+        <div class="control-group">
+            <span style="color: var(--text-color); font-size: 13px;">自定义范围:</span>
+            <input type="datetime-local" id="start-time">
+            <span style="color: var(--text-color);">-</span>
+            <input type="datetime-local" id="end-time">
+            <button class="cbi-button-custom btn-active" onclick="setCustomTime()">查询</button>
+            <span class="status-text" id="status-text">就绪</span>
+        </div>
+    </div>
+
+    <div class="server-filter-container" id="server-filters">
+        <span style="color: var(--text-color); font-size: 13px; padding: 6px 0;">服务器筛选:</span>
+    </div>
+</div>
+
+<div class="chart-wrapper">
+    <div id="main-chart" class="chart-div"></div>
+</div>
+
+<script type="text/javascript">
+    var api_url = '<%=luci.dispatcher.build_url("admin", "services", "httping", "get_data")%>';
+    var myChart = null;
+    var cachedData = [];
+    var activeServers = new Set();
+    
+    // 【优化】从 UCI 读取服务器顺序
+    var serverOrder = [
+        <%
+            local uci = require "luci.model.uci".cursor()
+            local servers = {}
+            uci:foreach("httping", "server", function(s)
+                if s.name then
+                    table.insert(servers, '"' .. s.name:gsub('"', '\\"') .. '"')
+                end
+            end)
+            write(table.concat(servers, ","))
+        %>
+    ];
+
+    var refreshTimer = null;
+    var currentRelativeHours = 12;
+    var isCustomMode = false;
+    var isClippingMode = false;
+
+    var colorPalette = [
+        '#A6D96A', // Green (Cpu0 style)
+        '#F46D43', // Red (Cpu1 style)
+        '#4575B4', // Blue (Cpu2 style)
+        '#FDAE61', // Orange (Cpu3 style)
+        '#D9EF8B', '#FEE08B', '#D73027', '#66BD63', '#1A9850', '#313695'
+    ];
+
+    function isDarkMode() { return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches; }
+
+    function getChartTheme() {
+        var isDark = isDarkMode();
+        return {
+            textColor: isDark ? '#ccc' : '#333',
+            lineColor: isDark ? '#444' : '#ccc',
+            splitLine: isDark ? 'rgba(255, 255, 255, 0.08)' : '#eee',
+            tooltipBg: isDark ? 'rgba(40, 40, 40, 0.95)' : 'rgba(255,255,255,0.9)'
+        };
+    }
+
+    function initChart() {
+        var chartDom = document.getElementById('main-chart');
+        if (myChart != null && myChart != "" && myChart != undefined) {
+            myChart.dispose();
+        }
+        myChart = echarts.init(chartDom);
+
+        if (window.ResizeObserver) {
+            var ro = new ResizeObserver(function (entries) {
+                myChart.resize();
+            });
+            ro.observe(chartDom);
+            ro.observe(document.querySelector('.chart-wrapper'));
+        } else {
+            setTimeout(function () { myChart.resize(); }, 500);
+        }
+    }
+
+    // 增加 preserveZoom 参数
+    function processAndRender(rawData, preserveZoom) {
+        cachedData = rawData || [];
+
+        var groupedData = {};     // 存放 EMA 平滑后的线图数据
+        var rawScatterData = {};  // 存放原始数据的散点图数据 (用于背景弱化显示)
+        var lossData = {};
+        var serverStats = {};
+
+        // 分组整理数据
+        var serverGroups = {};
+
+        cachedData.forEach(function (item) {
+            if (!serverGroups[item.server_name]) serverGroups[item.server_name] = [];
+            serverGroups[item.server_name].push(item);
+
+            if (!serverStats[item.server_name]) serverStats[item.server_name] = { total: 0, loss: 0 };
+            serverStats[item.server_name].total++;
+            if (item.duration === null) serverStats[item.server_name].loss++;
+        });
+
+        Object.keys(serverGroups).forEach(function(serverName) {
+            var items = serverGroups[serverName];
+            groupedData[serverName] = [];
+            rawScatterData[serverName] = [];
+            lossData[serverName] = [];
+            
+            // ---------------------------------------------------------
+            // 步骤1：数据预处理（提取有效数值序列，方便滤波）
+            // ---------------------------------------------------------
+            // 为了进行移动中位数滤波，我们需要一个连续的数值数组
+            // 但数据中可能包含 NULL (丢包)，我们需要处理这种情况
+            // 策略：遇到丢包时，打断滤波序列
+            
+            var segments = [];
+            var currentSegment = [];
+            
+            for (var i = 0; i < items.length; i++) {
+                var item = items[i];
+                var ts = item.timestamp * 1000;
+                
+                if (item.duration !== null) {
+                    currentSegment.push({
+                        ts: ts,
+                        val: item.duration,
+                        origIndex: i
+                    });
+                } else {
+                    // 遇到丢包，记录丢包点
+                    lossData[serverName].push([ts, 0]);
+                    
+                    // 结束当前段
+                    if (currentSegment.length > 0) {
+                        segments.push(currentSegment);
+                        currentSegment = [];
+                    }
+                }
+            }
+            if (currentSegment.length > 0) segments.push(currentSegment);
+            
+            // ---------------------------------------------------------
+            // 步骤2 & 3：对每一段进行 [中位数滤波] -> [EMA平滑]
+            // ---------------------------------------------------------
+            // EMA 参数配置
+            var alpha = 0.25; 
+            
+            segments.forEach(function(segment) {
+                var segmentLen = segment.length;
+                if (segmentLen === 0) return;
+                
+                var lastEma = null;
+                
+                for (var k = 0; k < segmentLen; k++) {
+                    var rawVal = segment[k].val;
+                    var ts = segment[k].ts;
+                    var processedVal = rawVal;
+                    
+                    if (isClippingMode) {
+                        // === A. 移动中位数去噪 (5点窗口) ===
+                        // 取前后各2点，共5点求中位数
+                        var windowVals = [];
+                        for (var w = -2; w <= 2; w++) {
+                            var idx = k + w;
+                            if (idx >= 0 && idx < segmentLen) {
+                                windowVals.push(segment[idx].val);
+                            }
+                        }
+                        
+                        // 排序取中位数
+                        windowVals.sort(function(a, b) { return a - b; });
+                        var medianVal = windowVals[Math.floor(windowVals.length / 2)];
+                        
+                        // === B. EMA 平滑 ===
+                        // 对 "去噪后的值(medianVal)" 进行平滑
+                        if (lastEma === null) {
+                            processedVal = medianVal;
+                        } else {
+                            processedVal = (medianVal * alpha) + (lastEma * (1 - alpha));
+                        }
+                        lastEma = processedVal;
+                        
+                        // 存入平滑线数据
+                        groupedData[serverName].push({
+                            value: [ts, processedVal],
+                            rawVal: rawVal,  // 原始值用于 Tooltip
+                            isEma: true
+                        });
+                        
+                        // 存入背景散点 (显示原始数据)
+                        rawScatterData[serverName].push([ts, rawVal]);
+                        
+                    } else {
+                        // 非平滑模式：直接使用原始值
+                        groupedData[serverName].push({
+                            value: [ts, rawVal],
+                            rawVal: rawVal,
+                            isEma: false
+                        });
+                    }
+                }
+            });
+        });
+
+        renderFilterChips(serverStats);
+        // 传递 rawScatterData 给渲染函数
+        updateChartDisplay(groupedData, rawScatterData, lossData, preserveZoom);
+    }
+
+    function renderFilterChips(stats) {
+        var container = document.getElementById('server-filters');
+
+        container.innerHTML = '<span style="color: var(--text-color); font-size: 13px; padding: 6px 0;">服务器筛选:</span>';
+
+        // 【优化】按配置顺序遍历
+        serverOrder.forEach(function (name) {
+            if (!stats[name]) return; // 如果没有该服务器的数据，跳过
+
+            var total = stats[name].total;
+            var lossVal = total > 0 ? (stats[name].loss / total * 100) : 0;
+            var lossRateStr = lossVal.toFixed(2);
+
+            var chip = document.createElement('div');
+
+            chip.className = 'server-chip ' + (activeServers.has(name) ? 'active' : '');
+            chip.onclick = function () { toggleServer(name, this); };
+
+            var badgeClass = 'loss-good';
+            if (lossVal > 10) {
+                badgeClass = 'loss-bad';
+            } else if (lossVal >= 5) {
+                badgeClass = 'loss-med';
+            }
+
+            chip.innerHTML = `${name}<span class="loss-text ${badgeClass}">(${lossRateStr}%)</span>`;
+
+            container.appendChild(chip);
+        });
+        
+        // 处理可能存在的未在配置中但有数据的旧数据
+        Object.keys(stats).forEach(function(name) {
+             if (serverOrder.indexOf(name) === -1) {
+                  // ... logic to render unknown servers if needed
+             }
+        });
+    }
+
+    function toggleServer(name, element) {
+        if (activeServers.has(name)) {
+            activeServers.delete(name);
+            element.classList.remove('active');
+        } else {
+            activeServers.add(name);
+            element.classList.add('active');
+        }
+        processAndRender(cachedData, true);
+    }
+
+    function toggleClipping() {
+        var checkbox = document.getElementById('clip-peaks-check');
+        isClippingMode = checkbox.checked;
+        processAndRender(cachedData, true);
+    }
+
+    // 核心修改：增加 rawScatterData 参数
+    function updateChartDisplay(groupedData, rawScatterData, lossData, preserveZoom) {
+        var theme = getChartTheme();
+        var seriesList = [];
+        var legendData = [];
+        var isFilterMode = activeServers.size > 0;
+
+        serverOrder.forEach(function (serverName, idx) {
+            if (!groupedData[serverName]) return; 
+
+            // 使用 idx (服务器在 serverOrder 中的固定位置) 来决定颜色
+            var currentColor = colorPalette[idx % colorPalette.length];
+
+            if (isFilterMode && !activeServers.has(serverName)) return;
+
+            legendData.push(serverName);
+
+            // 1. 背景原始散点 (仅在平滑模式下显示)
+            if (isClippingMode && rawScatterData[serverName]) {
+                seriesList.push({
+                    name: serverName + ' (raw)',
+                    type: 'scatter',
+                    symbolSize: 3, // 小点
+                    itemStyle: { 
+                        color: currentColor,
+                        opacity: 0.25 // 弱化显示
+                    },
+                    data: rawScatterData[serverName],
+                    silent: true, // 不响应鼠标事件，避免 Tooltip 闪烁
+                    z: 1 //由于层级低，会在线图下方
+                });
+            }
+
+            // 2. 主线图 (EMA 平滑)
+            seriesList.push({
+                name: serverName,
+                type: 'line',
+                connectNulls: false,
+                showSymbol: false,
+                smooth: true,
+                sampling: 'lttb',
+                itemStyle: { color: currentColor },
+                lineStyle: { width: 1 }, 
+                emphasis: {
+                    focus: 'series'
+                },
+                data: groupedData[serverName],
+                z: 5
+            });
+
+            // 3. 丢包点
+            if (lossData[serverName] && lossData[serverName].length > 0) {
+                seriesList.push({
+                    name: serverName + ' (丢包)',
+                    type: 'scatter',
+                    symbol: 'emptyCircle',
+                    symbolSize: 6,
+                    itemStyle: {
+                        color: '#ff4d4f',
+                        borderWidth: 2
+                    },
+                    data: lossData[serverName],
+                    showInLegend: false,
+                    tooltip: {
+                        formatter: function (params) {
+                            return `${params.marker}${serverName}: <b>丢包</b><br/>${params.axisValueLabel}`;
+                        }
+                    },
+                    z: 10
+                });
+            }
+        });
+
+        if (seriesList.length === 0 && isFilterMode) {
+            // silent
+        }
+
+        // 【关键逻辑】计算 Y 轴范围以使平滑曲线居中
+        var yAxisMin = null;
+        var yAxisMax = null;
+
+        if (isClippingMode) {
+            var lineMin = Infinity;
+            var lineMax = -Infinity;
+            var hasLineData = false;
+
+            // 仅遍历 Line 数据 (groupedData)
+            seriesList.forEach(function(series) {
+                if (series.type === 'line' && series.data && series.data.length > 0) {
+                    series.data.forEach(function(pt) {
+                        var val = pt.value ? pt.value[1] : null;
+                        if (val !== null && val !== undefined) {
+                            if (val < lineMin) lineMin = val;
+                            if (val > lineMax) lineMax = val;
+                            hasLineData = true;
+                        }
+                    });
+                }
+            });
+
+            if (hasLineData) {
+                var range = lineMax - lineMin;
+                if (range <= 0) range = lineMax * 0.1 || 5; 
+                
+                // 上下各留 0.8 倍 Range 的 Padding，使曲线处于中间 1/2.6 区域
+                var padding = range * 0.8;
+                
+                yAxisMin = Math.max(0, lineMin - padding);
+                yAxisMax = lineMax + padding;
+            }
+        }
+
+        // 【关键逻辑】获取当前缩放状态
+        var startZoom = 0;
+        var endZoom = 100;
+        if (preserveZoom && myChart) {
+            var currentOpt = myChart.getOption();
+            if (currentOpt && currentOpt.dataZoom && currentOpt.dataZoom.length > 0) {
+                startZoom = currentOpt.dataZoom[0].start;
+                endZoom = currentOpt.dataZoom[0].end;
+            }
+        }
+
+        var option = {
+            backgroundColor: 'transparent',
+            tooltip: {
+                trigger: 'axis',
+                backgroundColor: theme.tooltipBg,
+                textStyle: { color: theme.textColor },
+                formatter: function (params) {
+                    var html = params[0].axisValueLabel + '<br/>';
+                    params.forEach(item => {
+                        if (item.seriesType === 'line') {
+                            var val, rawVal, displayHtml;
+                            val = item.data.value[1];
+
+                            if (item.data.isEma) {
+                                rawVal = item.data.rawVal;
+                                // 显示格式：EMA值 (原始: Raw值)
+                                displayHtml = `<b>${val.toFixed(1)} ms</b> <span style="color:#aaa;font-size:11px;">(EMA平滑, 原始: ${rawVal.toFixed(1)})</span>`;
+                            } else {
+                                displayHtml = `<b>${val.toFixed(1)} ms</b>`;
+                            }
+
+                            var colorSpan = `<span style="display:inline-block;margin-right:5px;border-radius:10px;width:10px;height:10px;background-color:${item.color};"></span>`;
+                            html += `${colorSpan}${item.seriesName}: ${displayHtml}<br/>`;
+                        } else if (item.seriesType === 'scatter' && item.seriesName.indexOf('(丢包)') > -1) {
+                            var serverName = item.seriesName.replace(' (丢包)', '');
+                            var time = item.axisValueLabel;
+                            var colorSpan = `<span style="display:inline-block;margin-right:5px;border-radius:10px;width:10px;height:10px;background-color:${item.color};"></span>`;
+                            html += `${colorSpan}${serverName}(${time}): <b>丢包</b><br/>`;
+                        }
+                    });
+                    return html;
+                }
+            },
+            legend: {
+                data: legendData,
+                bottom: 0,
+                textStyle: { color: theme.textColor }
+            },
+            grid: {
+                left: '10', right: '30', top: '40', bottom: '10%',
+                containLabel: true
+            },
+            xAxis: {
+                type: 'time',
+                boundaryGap: false,
+                axisLabel: { color: theme.textColor },
+                axisLine: { lineStyle: { color: theme.lineColor } },
+                splitLine: { show: false }
+            },
+            yAxis: {
+                type: 'value',
+                scale: true,
+                axisLabel: { color: theme.textColor, formatter: '{value} ms' },
+                splitLine: { lineStyle: { color: theme.splitLine } },
+                // 自动适应数据范围，平滑模式下使用手动计算的范围以居中显示
+                min: yAxisMin !== null ? Math.floor(yAxisMin / 10) * 10 : function(value) {
+                    return Math.floor(value.min / 10) * 10;
+                },
+                max: yAxisMax !== null ? Math.ceil(yAxisMax / 10) * 10 : function(value) {
+                    return Math.ceil(value.max / 10) * 10;
+                }
+            },
+            // 【关键逻辑】应用缩放状态
+            dataZoom: [
+                { type: 'inside', start: startZoom, end: endZoom },
+                { type: 'slider', start: startZoom, end: endZoom, bottom: 25, height: 20 }
+            ],
+            series: seriesList
+        };
+
+        myChart.setOption(option, true);
+    }
+
+    // 增加 isSilent 和 isRefresh 参数
+    // isRefresh = true 代表是自动刷新或局部更新，需要保持 Zoom
+    function fetchData(startTs, endTs, isSilent) {
+        if (!myChart) initChart();
+
+        if (!isSilent) {
+            myChart.showLoading({ text: '加载数据中...', color: '#0069d6', textColor: getChartTheme().textColor });
+            document.getElementById('status-text').innerText = "加载中...";
+        }
+
+        fetch(api_url + '?start=' + startTs + '&end=' + endTs)
+            .then(res => res.json())
+            .then(json => {
+                document.getElementById('status-text').innerText = "更新于 " + new Date().toLocaleTimeString();
+                if (!isSilent) myChart.hideLoading();
+                // 关键点：如果是静默刷新(自动刷新)，则传入 true 以保持 Zoom
+                processAndRender(json, isSilent);
+            })
+            .catch(err => {
+                console.error(err);
+                document.getElementById('status-text').innerText = "加载失败";
+                if (!isSilent) myChart.hideLoading();
+            });
+    }
+
+    function setRelativeTime(hours, btnElement) {
+        isCustomMode = false;
+        currentRelativeHours = hours;
+
+        var buttons = document.querySelectorAll('#preset-buttons button');
+        buttons.forEach(b => { b.classList.remove('btn-active'); b.classList.add('btn-neutral'); });
+        if (btnElement) { btnElement.classList.remove('btn-neutral'); btnElement.classList.add('btn-active'); }
+
+        // 切换时间段时，通常希望重置视图，所以 isSilent=false
+        performQuery(false);
+    }
+
+    function setCustomTime() {
+        isCustomMode = true;
+        var buttons = document.querySelectorAll('#preset-buttons button');
+        buttons.forEach(b => { b.classList.remove('btn-active'); b.classList.add('btn-neutral'); });
+        performQuery(false);
+    }
+
+    function performQuery(isSilent) {
+        var start, end;
+        if (isCustomMode) {
+            var startVal = document.getElementById('start-time').value;
+            var endVal = document.getElementById('end-time').value;
+            if (!startVal || !endVal) return;
+            start = Math.floor(new Date(startVal).getTime() / 1000);
+            end = Math.floor(new Date(endVal).getTime() / 1000);
+        } else {
+            end = Math.floor(Date.now() / 1000);
+            start = end - (currentRelativeHours * 3600);
+
+            var toLocalISO = function (ts) {
+                var d = new Date(ts * 1000);
+                var offset = d.getTimezoneOffset() * 60000;
+                return new Date(d.getTime() - offset).toISOString().slice(0, 16);
+            };
+            document.getElementById('start-time').value = toLocalISO(start);
+            document.getElementById('end-time').value = toLocalISO(end);
+        }
+        fetchData(start, end, isSilent);
+    }
+
+    function toggleAutoRefresh() {
+        var checkbox = document.getElementById('auto-refresh-check');
+        if (refreshTimer) {
+            clearInterval(refreshTimer);
+            refreshTimer = null;
+        }
+        if (checkbox.checked) {
+            refreshTimer = setInterval(function () {
+                // 自动刷新：传入 true (isSilent)，在 fetchData 中会透传给 processAndRender 开启 preserveZoom
+                performQuery(true);
+            }, 10000);
+        }
+    }
+
+    window.matchMedia('(prefers-color-scheme: dark)').addListener(function (e) {
+        if (myChart) performQuery(true);
+    });
+
+    window.addEventListener('resize', function () { if (myChart) myChart.resize(); });
+
+    document.addEventListener('DOMContentLoaded', function () {
+        initChart();
+        var buttons = document.querySelectorAll('#preset-buttons button');
+        if (buttons.length > 2) {
+            setRelativeTime(12, buttons[2]);
+        } else {
+            setRelativeTime(1, buttons[0]);
+        }
+        toggleAutoRefresh();
+    });
+</script>
+<%+footer%>

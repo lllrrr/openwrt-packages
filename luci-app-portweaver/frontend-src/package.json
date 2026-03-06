@@ -1,0 +1,27 @@
+{
+  "name": "luci-app-portweaver-ui",
+  "version": "1.0.0",
+  "description": "LuCI PortWeaver UI TypeScript source",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "rsbuild build",
+    "check": "biome check",
+    "dev": "rsbuild dev",
+    "dev:remote": "tsx scripts/dev-remote.ts",
+    "preview": "rsbuild preview",
+    "format": "biome format --write",
+    "lint": "biome lint --write --unsafe"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.11",
+    "@dotenvx/dotenvx": "^1.51.4",
+    "@rsbuild/core": "^1.7.2",
+    "@types/node": "^20.19.29",
+    "@types/ssh2": "^1.15.5",
+    "chokidar": "^5.0.0",
+    "ssh2": "^1.17.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

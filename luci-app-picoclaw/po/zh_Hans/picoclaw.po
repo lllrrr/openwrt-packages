@@ -1,0 +1,183 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+msgid "PicoClaw"
+msgstr "PicoClaw AI助手"
+
+msgid "PicoClaw is an ultra-lightweight AI Assistant. Tiny, Fast, and Deployable anywhere."
+msgstr "PicoClaw是一个超轻量级AI助手，体积小、速度快、可部署在任何地方。"
+
+msgid "Base Setting"
+msgstr "基本设置"
+
+msgid "Manual Settings"
+msgstr "手动设置"
+
+msgid "Basic Settings"
+msgstr "基本设置"
+
+msgid "Gateway Settings"
+msgstr "网关设置"
+
+msgid "Agent Settings"
+msgstr "代理设置"
+
+msgid "Heartbeat Settings"
+msgstr "心跳设置"
+
+msgid "Status check error"
+msgstr "状态检查错误"
+
+msgid "Checking status..."
+msgstr "检查状态..."
+
+msgid "Open Web Interface"
+msgstr "打开Web界面"
+
+msgid "Log"
+msgstr "日志"
+
+msgid "Clear Logs..."
+msgstr "清除日志..."
+
+msgid "Logs cleared successfully!"
+msgstr "日志清除成功！"
+
+msgid "Clear Logs"
+msgstr "清除日志"
+
+msgid "NOT RUNNING"
+msgstr "未运行"
+
+msgid "RUNNING"
+msgstr "运行中"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "Delayed Start (seconds)"
+msgstr "开机延时启动（秒）"
+
+msgid "Listen Address"
+msgstr "监听地址"
+
+msgid "Listen Port"
+msgstr "监听端口"
+
+msgid "Workspace Path"
+msgstr "工作目录路径"
+
+msgid "Restrict to workspace"
+msgstr "限制在工作目录"
+
+msgid "When enabled, the agent can only access files within the workspace directory."
+msgstr "启用后，代理只能访问工作目录内的文件。"
+
+msgid "Enable Heartbeat"
+msgstr "启用心跳"
+
+msgid "Heartbeat Interval (minutes)"
+msgstr "心跳间隔（分钟）"
+
+msgid "Refresh every 5 seconds."
+msgstr "每5秒刷新一次。"
+
+msgid "Log is clean."
+msgstr "日志为空。"
+
+msgid "Log file does not exist."
+msgstr "日志文件不存在。"
+
+msgid "Failed to clear log."
+msgstr "清除日志失败。"
+
+msgid "Edit config.json directly. After saving, PicoClaw will be automatically restarted."
+msgstr "直接编辑 config.json 配置文件。保存后 PicoClaw 将自动重启。"
+
+msgid "Save & Apply"
+msgstr "保存并应用"
+
+msgid "Format JSON"
+msgstr "格式化 JSON"
+
+msgid "JSON format valid"
+msgstr "JSON 格式正确"
+
+msgid "JSON format error"
+msgstr "JSON 格式错误"
+
+msgid "Config saved, PicoClaw restarting..."
+msgstr "配置已保存，PicoClaw 正在重启..."
+
+msgid "Save failed"
+msgstr "保存失败"
+
+msgid "Unknown error"
+msgstr "未知错误"
+
+msgid "Saving..."
+msgstr "保存中..."
+
+msgid "Config Reference"
+msgstr "配置参考"
+
+msgid "📝 Manual Settings"
+msgstr "📝 手动设置"
+
+msgid "Edit the raw <code>config.json</code> using the advanced CodeMirror editor. The service restarts automatically upon saving."
+msgstr "使用高级 CodeMirror 编辑器直接修改 <code>config.json</code> 源文件。保存后服务将自动重启。"
+
+msgid "⚙️ Basic Settings"
+msgstr "⚙️ 基础设置"
+
+msgid "Enable PicoClaw"
+msgstr "启用 PicoClaw"
+
+msgid "Enable the PicoClaw background daemon."
+msgstr "启用 PicoClaw 后台守护程序。"
+
+msgid "Delay the startup of the service to wait for network readiness."
+msgstr "延迟服务的启动以等待网络就绪。"
+
+msgid "🌐 Gateway Settings"
+msgstr "🌐 网关设置"
+
+msgid "The IP address the API server will bind to (0.0.0.0 for all interfaces)."
+msgstr "API 服务器绑定的 IP 地址（0.0.0.0 表示所有接口）。"
+
+msgid "The port number for the PicoClaw local API dashboard."
+msgstr "PicoClaw 本地 API 控制面板的端口号。"
+
+msgid "🤖 Agent Settings"
+msgstr "🤖 Agent 设置"
+
+msgid "Absolute path to store AI memories, chats, tasks, and configurations. E.g., /opt/picoclaw/workspace"
+msgstr "存储 AI 记忆、对话、任务和配置的绝对路径。例如：/opt/picoclaw/workspace"
+
+msgid "Restrict to workspace (Sandbox)"
+msgstr "限制在工作目录 (沙盒模式)"
+
+msgid "Highly recommended. Prevents the AI from reading/modifying files outside the workspace directory."
+msgstr "强烈建议开启。防止 AI 读取或修改工作目录之外的系统文件。"
+
+msgid "❤️ Heartbeat Settings"
+msgstr "❤️ 心跳设置"
+
+msgid "Send periodic keep-alive signals for active channels (e.g., Telegram, Discord)."
+msgstr "为活跃的通讯渠道（如 Telegram, Discord）发送定期的保活信号。"
+
+msgid "JSON Formatted"
+msgstr "JSON 已格式化"
+
+msgid "JSON Error"
+msgstr "JSON 格式错误"
+
+
+msgid "Loading..."
+msgstr "加载中..."
+
+msgid "Collecting data ..."
+msgstr "正在收集数据..."
+
+msgid "Unknown error: %s"
+msgstr "未知错误：%s"

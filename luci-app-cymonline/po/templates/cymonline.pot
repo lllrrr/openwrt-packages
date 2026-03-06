@@ -1,0 +1,130 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the luci-app-cymonline package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-cymonline\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-12-18 20:54+0800\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: luasrc/controller/cymonline.lua:12
+msgid "Online Users"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Online User Management"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Refresh Interval"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "seconds"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Loading..."
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Set Speed Limit"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Upload Limit (Kbps, 0=unlimited)"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Download Limit (Kbps, 0=unlimited)"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Cancel"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Save"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Status"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Hostname"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "IP Address"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "MAC Address"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Traffic"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Speed Limit"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Remark"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Actions"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Online"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Offline"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Unknown"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Unlimited"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Limit"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Delete"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "No online devices"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Device"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "Confirm delete this device record?"
+msgstr ""
+
+#: luasrc/view/cymonline/status.htm
+msgid "(including remarks and speed limit settings)"
+msgstr ""

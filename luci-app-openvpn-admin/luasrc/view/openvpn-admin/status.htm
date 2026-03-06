@@ -1,0 +1,1482 @@
+<%+header%>
+
+<%
+local dsp = require "luci.dispatcher"
+local util = require("luci.util")
+local sys = require("luci.sys")
+local uci = require("luci.model.uci").cursor()
+
+-- 从openvpn-admin.lua模块获取配置
+local openvpn_admin = require "luci.controller.openvpn-admin"
+local admin_config = openvpn_admin.get_admin_config()
+
+-- 获取实例名称（从openvpn-admin配置）
+local openvpn_instance = admin_config.openvpn_instance or "myvpn"
+
+-- 从openvpn配置读取management信息
+local management_ip = ""
+local management_port = ""
+local management_socket = ""
+local management_display = "未配置"
+local management_active = false
+
+-- 检查实例是否在openvpn配置中存在
+if openvpn_instance and openvpn_instance ~= "" then
+    -- 从UCI读取management配置
+    local mgmt_config = uci:get("openvpn", openvpn_instance, "management")
+    
+    if mgmt_config and mgmt_config ~= "" then
+        -- 检查是否为Unix Socket格式（以/开头）
+        if mgmt_config:match("^/") then
+            -- 提取纯socket路径（去掉后面的 "unix" 关键字）
+            local pure_path = mgmt_config:match("^(/[^%s]+)")
+            if pure_path then
+                management_socket = pure_path
+                management_display = "management Unix Socket: " .. management_socket
+                
+                -- 检查socket文件是否存在
+                if sys.call("test -S " .. management_socket .. " 2>/dev/null") == 0 then
+                    -- 使用 management_send_command 测试连接
+                    -- 修改1：添加 pcall 保护，防止 management_send_command 抛出异常
+                    local success, test_output = pcall(function()
+                        return openvpn_admin.management_send_command("status 2")
+                    end)
+                    
+                    if success and test_output and test_output ~= "" then
+                        -- 修改2：更精确的检测逻辑
+                        if test_output:match(">INFO:") or 
+                           test_output:match("OpenVPN Management") or 
+                           test_output:match("TITLE,OpenVPN") or
+                           test_output:match("SUCCESS") then
+                            management_active = true
+                            management_display = management_display .. " ✓ (已连接)"
+                        else
+                            management_display = management_display .. " ✗ (连接失败 - 返回数据异常)"
+                            -- 调试信息（可选，正式环境可删除）
+                            -- nixio.syslog("debug", "management输出: " .. tostring(test_output))
+                        end
+                    else
+                        if not success then
+                            management_display = management_display .. " ✗ (连接异常: " .. tostring(test_output) .. ")"
+                        else
+                            management_display = management_display .. " ✗ (无响应)"
+                        end
+                    end
+                else
+                    management_display = management_display .. " ✗ (文件不存在)"
+                end
+            else
+                management_display = "Socket路径格式错误: " .. mgmt_config
+            end
+        else
+            -- 兼容旧的TCP格式
+            local parts = {}
+            for part in mgmt_config:gmatch("%S+") do
+                table.insert(parts, part)
+            end
+            if #parts >= 2 then
+                management_ip = parts[1]
+                management_port = parts[2]
+                management_display = "TCP: " .. management_ip .. ":" .. management_port .. " (不建议使用)"
+                
+                -- 添加TCP格式的检测（可选）
+                if management_ip == "127.0.0.1" and management_port then
+                    local tcp_check = sys.call("echo 'status 2' | nc " .. management_ip .. " " .. management_port .. " 2>/dev/null | head -1 | wc -l")
+                    if tcp_check and tcp_check > 0 then
+                        management_active = true
+                        management_display = management_display .. " ✓ (已连接 - TCP模式)"
+                    else
+                        management_display = management_display .. " ✗ (连接失败)"
+                    end
+                end
+            else
+                management_display = "配置格式错误: " .. mgmt_config
+            end
+        end
+    else
+        management_display = "实例 " .. openvpn_instance .. " 未配置management选项"
+    end
+else
+    management_display = "未配置openvpn_instance"
+end
+
+-- 获取openvpn配置路径
+local openvpn_config_path = admin_config.openvpn_config_path or ""
+
+-- 获取刷新间隔设置
+local refresh_enabled = admin_config.refresh_enabled
+local refresh_interval = admin_config.refresh_interval
+if not refresh_interval or refresh_interval < 1 or refresh_interval > 300 then
+    refresh_interval = 1
+end
+
+-- 获取刷新选项的选中状态
+local refresh_options = {
+    ["0"] = refresh_interval == 0 and "selected" or "",
+    ["1"] = refresh_interval == 1 and "selected" or "",
+    ["3"] = refresh_interval == 3 and "selected" or "",
+    ["5"] = refresh_interval == 5 and "selected" or "",
+    ["10"] = refresh_interval == 10 and "selected" or "",
+    ["15"] = refresh_interval == 15 and "selected" or "",
+    ["30"] = refresh_interval == 30 and "selected" or "",
+    ["custom"] = ""
+}
+
+-- 检查是否为自定义间隔（不在预设选项中）
+if refresh_interval > 0 and refresh_interval ~= 1 and refresh_interval ~= 3 and 
+   refresh_interval ~= 5 and refresh_interval ~= 10 and refresh_interval ~= 15 and 
+   refresh_interval ~= 30 then
+    refresh_options["custom"] = "selected"
+end
+%>
+
+<div class="cbi-map" id="cbi-openvpn-admin">
+    <!-- 页面标题 -->
+    <h2 name="content" style="margin-bottom: 0px;"><%:OpenVPN连接状态%></h2>
+    
+    <!-- 版本信息区域 -->
+    <div class="info-box compact">
+        <p style="margin: 2px 0;">
+            <strong><%:OpenVPN版本%>:</strong> 
+            <span id="openvpn-version"><%=version or "N/A"%></span>
+        </p>
+        <p style="margin: 2px 0;">
+             <strong><%:openvpn配置%>:</strong> 
+             <span><%=openvpn_config_path%></span>
+             <span style="color: #28a745;">(数据来源:openvpn-admin)✓</span>
+        </p>
+        <p style="margin: 2px 0;">
+             <strong><%:当前实例%>:</strong> 
+             <span><%=openvpn_instance%></span>
+             <span style="color: #28a745;">(数据来源:openvpn-admin)✓</span>
+        </p>
+        <p style="margin: 2px 0;">
+            <strong><%:数据来源%>:</strong> 
+            <% if management_active then %>
+                <span style="color: #28a745;"><%=management_display%></span>
+            <% else %>
+                <span style="color: #dc3545;"><%=management_display%></span>
+            <% end %>
+        </p>
+        <p style="margin: 2px 0;">
+            <strong><%:最后活动时间%>:</strong> 
+            <span id="last-activity"><%=last_activity or "N/A"%></span>
+        </p>
+        <p style="margin: 2px 0;">
+            <strong><%:配置状态%>:</strong> 
+            <% if refresh_enabled then %>
+                <span style="color: #28a745;">自动刷新已启用 (<%=refresh_interval%>秒)</span>
+            <% else %>
+                <span style="color: #dc3545;">自动刷新已禁用</span>
+            <% end %>
+        </p>
+    </div>
+    
+    <!-- OpenVPN服务状态 -->
+    <div class="cbi-section" style="margin-top: 0px;">
+        <div class="cbi-section-node">
+            <div class="service-status-box compact">
+                <span id="service-status-text" class="status-text status-<%=service_status or "stopped"%>">
+                    <% if service_status == "running" then %>
+                        <%:OpenVPN 服务器 运行中%>
+                    <% else %>
+                        <%:OpenVPN 服务器 未运行%>
+                    <% end %>
+                </span>
+                <span id="service-action">
+                    <% if service_status == "running" then %>
+                        <button class="btn cbi-button cbi-button-negative" onclick="stopService()">
+                            <%:停止%>
+                        </button>
+                    <% else %>
+                        <button class="btn cbi-button cbi-button-action" onclick="startService()">
+                            <%:启动%>
+                        </button>
+                    <% end %>
+                </span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 自动刷新控制 -->
+    <div class="controls-box compact">
+        <div class="refresh-controls">
+            <strong style="margin-right: 10px;"><%:自动刷新状态%>:</strong>
+            <select id="refresh-interval" class="cbi-input-select" onchange="changeRefreshInterval(this.value)">
+                <option value="0" <%=refresh_options["0"]%>><%:已禁用%></option>
+                <option value="1" <%=refresh_options["1"]%>>1秒</option>
+                <option value="3" <%=refresh_options["3"]%>>3秒</option>
+                <option value="5" <%=refresh_options["5"]%>>5秒</option>
+                <option value="10" <%=refresh_options["10"]%>>10秒</option>
+                <option value="15" <%=refresh_options["15"]%>>15秒</option>
+                <option value="30" <%=refresh_options["30"]%>>30秒</option>
+                <option value="custom" <%=refresh_options["custom"]%>><%:自定义%></option>
+            </select>
+            <input type="number" id="custom-interval" class="cbi-input-text" 
+                   style="width: 60px; margin-left: 5px; <% if refresh_options["custom"] == "selected" then %>display: inline-block;<% else %>display: none;<% end %>" 
+                   min="1" max="300" placeholder="秒数" 
+                   value="<% if refresh_options["custom"] == "selected" then %><%=refresh_interval%><% end %>"
+                   onchange="setCustomInterval(this.value)">
+            <span id="refresh-countdown" style="margin-left: 10px; font-weight: bold; <% if refresh_enabled and refresh_interval > 0 then %>display: inline;<% else %>display: none;<% end %>">
+                (<span id="countdown"><%=refresh_interval%></span>秒)
+            </span>
+            <span style="margin-left: 15px; color: #666; font-size: 12px;">
+                <%:注意：只有在此页面打开时才会刷新，关闭页面后自动停止。%>
+            </span>
+        </div>
+        <div class="action-buttons">
+            <button class="cbi-button cbi-input-refresh refresh-blue-btn" type="button" onclick="refreshStatus()">
+                <%:手动刷新%>
+            </button>
+            <button class="cbi-button cbi-button-settings" type="button" onclick="window.location.href='<%=dsp.build_url("admin/vpn/openvpn-admin/settings")%>'">
+                <%:设置%>
+            </button>
+        </div>
+    </div>
+    
+    <!-- 已连接客户端 -->
+    <div class="cbi-section">
+        <h3 style="margin-top: 10px; margin-bottom: 8px;"><%:已连接客户端%> (<span id="connected-count"><%=total_connected%></span>)</h3>
+        <div class="cbi-section-node">
+            <% if connected_clients and #connected_clients > 0 then %>
+            <table class="table cbi-section-table" id="connected-clients-table">
+                <thead>
+                    <tr class="cbi-section-table-titles">
+                        <th class="cbi-section-table-cell text-center" style="width: 4%;"><%:ID%></th>
+                        <th class="cbi-section-table-cell text-center" style="width: 10%;"><%:客户端名称%></th>
+                        <th class="cbi-section-table-cell text-center" style="width: 18%;"><%:IP地址%></th>
+                        <th class="cbi-section-table-cell text-center" style="width: 10%;"><%:虚拟地址%></th>
+                        <th class="cbi-section-table-cell text-center" style="width: 10%;"><%:实时流量%></th>
+                        <th class="cbi-section-table-cell text-center" style="width: 8%;"><%:接收数据%></th>
+                        <th class="cbi-section-table-cell text-center" style="width: 8%;"><%:发送数据%></th>
+                        <th class="cbi-section-table-cell text-center" style="width: 8%;"><%:数据总计%></th>
+                        <th class="cbi-section-table-cell text-center" style="width: 10%;"><%:连接时间%></th>
+                        <th class="cbi-section-table-cell text-center" style="width: 10%;"><%:连接时长%></th>
+                        <th class="cbi-section-table-cell text-center" style="width: 6%;"><%:操作%></th>
+                    </tr>
+                </thead>
+                <tbody class="cbi-section-table-row" id="connected-clients-body">
+                    <% for i, client in ipairs(connected_clients) do 
+                       -- 确保client对象有必要的字段
+                       local client_name = client.name or "N/A"
+                       local real_address = client.real_address or "N/A"
+                       local client_id = client.client_id or "N/A"
+                       local virtual_address = client.virtual_address or "N/A"
+                       local connect_time_formatted = client.connect_time_formatted or "N/A"
+                       local duration = client.duration or "N/A"
+                       local bytes_received = client.bytes_received or 0
+                       local bytes_sent = client.bytes_sent or 0
+                       local total_data = bytes_received + bytes_sent
+                    %>
+                    <tr class="cbi-section-table-row cbi-rowstyle-<%=i%2+1%>">
+                        <td class="cbi-value-field text-center" style="width: 4%;"><%=client_id%></td>
+                        <td class="cbi-value-field text-center" style="width: 10%;"><%=client_name%></td>
+                        <td class="cbi-value-field text-center" style="width: 18%;"><%=real_address%></td>
+                        <td class="cbi-value-field text-center" style="width: 10%;"><%=virtual_address%></td>
+                        <td class="cbi-value-field text-center" style="width: 10%;">
+                            <span id="real-time-<%=i%>" class="real-time-flow">
+                                <span class="real-time-recv">↓ 0 B/s</span><br>
+                                <span class="real-time-sent">↑ 0 B/s</span>
+                            </span>
+                        </td>
+                        <td class="cbi-value-field text-center" style="width: 8%;"><%=format_bytes(bytes_received)%></td>
+                        <td class="cbi-value-field text-center" style="width: 8%;"><%=format_bytes(bytes_sent)%></td>
+                        <td class="cbi-value-field text-center" style="width: 8%;"><%=calculate_total_data(bytes_received, bytes_sent)%></td>
+                        <td class="cbi-value-field text-center" style="width: 10%;"><%=connect_time_formatted%></td>
+                        <td class="cbi-value-field text-center" style="width: 10%;"><%=duration%></td>
+                        <td class="cbi-value-field text-center" style="width: 6%;">
+                            <button class="btn cbi-button-negative disconnect-red-btn" 
+                                    data-client-name="<%=client_name%>"
+                                    data-client-address="<%=real_address%>"
+                                    data-client-id="<%=client_id%>"
+                                    onclick="return disconnectClient(this, event)">
+                                <%:断开%>
+                            </button>
+                        </td>
+                    </tr>
+                    <% end %>
+                </tbody>
+            </table>
+            <% else %>
+            <div class="cbi-section-descr">
+                <p><strong><%:没有客户端连接%></strong></p>
+                <p><%:当前没有OpenVPN客户端连接到服务器。%></p>
+            </div>
+            <% end %>
+        </div>
+    </div>
+    
+    <!-- 连接记录 -->
+    <div class="cbi-section">
+        <h3 style="margin-top: 20px; margin-bottom: 8px;"><%:连接记录%> (最近<%=admin_config.history_size or 20%>条)</h3>
+        <div class="cbi-section-node">
+            <% if connection_history and #connection_history > 0 then %>
+            <table class="table cbi-section-table" id="connection-history-table">
+                <thead>
+                    <tr class="cbi-section-table-titles">
+                        <th class="cbi-section-table-cell text-center" style="width: 10%;"><%:客户端名称%></th>
+                        <th class="cbi-section-table-cell text-center" style="width: 18%;"><%:客户端IP%></th>
+                        <th class="cbi-section-table-cell text-center" style="width: 10%;"><%:本地IP%></th>
+                        <th class="cbi-section-table-cell text-center" style="width: 8%;"><%:接收数据%></th>
+                        <th class="cbi-section-table-cell text-center" style="width: 8%;"><%:发送数据%></th>
+                        <th class="cbi-section-table-cell text-center" style="width: 8%;"><%:总流量%></th>
+                        <th class="cbi-section-table-cell text-center" style="width: 12%;"><%:连接时间%></th>
+                        <th class="cbi-section-table-cell text-center" style="width: 12%;"><%:断开时间%></th>
+                        <th class="cbi-section-table-cell text-center" style="width: 10%;"><%:连接时长%></th>
+                        <th class="cbi-section-table-cell text-center" style="width: 6%;"><%:状态%></th>
+                    </tr>
+                </thead>
+                <tbody class="cbi-section-table-row" id="connection-history-body">
+                    <% for i, record in ipairs(connection_history) do 
+                       -- 确保record对象有必要的字段
+                       local record_name = record.name or "N/A"
+                       local real_address = record.real_address or "N/A"
+                       local virtual_address = record.virtual_address or "N/A"
+                       local connect_time_formatted = record.connect_time_formatted or "N/A"
+                       local disconnect_time_formatted = record.disconnect_time_formatted or "-"
+                       local duration = record.duration or "N/A"
+                       local bytes_received = record.bytes_received or 0
+                       local bytes_sent = record.bytes_sent or 0
+                       local total_data = bytes_received + bytes_sent
+                       local is_connected = record.is_connected or false
+                    %>
+                    <tr class="cbi-section-table-row cbi-rowstyle-<%=i%2+1%>">
+                        <td class="cbi-value-field text-center" style="width: 10%;"><%=record_name%></td>
+                        <td class="cbi-value-field text-center" style="width: 18%;"><%=real_address%></td>
+                        <td class="cbi-value-field text-center" style="width: 10%;"><%=virtual_address%></td>
+                        <td class="cbi-value-field text-center" style="width: 8%;"><%=format_bytes(bytes_received)%></td>
+                        <td class="cbi-value-field text-center" style="width: 8%;"><%=format_bytes(bytes_sent)%></td>
+                        <td class="cbi-value-field text-center" style="width: 8%;"><%=calculate_total_data(bytes_received, bytes_sent)%></td>
+                        <td class="cbi-value-field text-center" style="width: 12%;"><%=connect_time_formatted%></td>
+                        <td class="cbi-value-field text-center" style="width: 12%;"><%=disconnect_time_formatted%></td>
+                        <td class="cbi-value-field text-center" style="width: 10%;"><%=duration%></td>
+                        <td class="cbi-value-field text-center" style="width: 6%;">
+                            <% if is_connected then %>
+                            <span class="status-online"><%:在线%></span>
+                            <% else %>
+                            <span class="status-offline"><%:离线%></span>
+                            <% end %>
+                        </td>
+                    </tr>
+                    <% end %>
+                </tbody>
+            </table>
+            <% else %>
+            <div class="cbi-section-descr">
+                <p><strong><%:暂无连接记录%></strong></p>
+                <p><%:当有客户端连接时，这里会显示连接记录。%></p>
+            </div>
+            <% end %>
+        </div>
+    </div>
+    
+    <!-- 客户端黑名单 -->
+    <div class="cbi-section">
+        <h3 style="margin-top: 5px; margin-bottom: -35px;"><%:客户端黑名单%> (<span id="blacklist-cn-count">0</span>)</h3>
+        <div class="cbi-section-descr" style="margin-top: 5px; margin-bottom: 1px;">
+            <p><%:被禁止连接的客户端列表，基于证书CN。%></p>
+        </div>
+        <div class="cbi-section-node">
+            <div id="blacklist-cn-container">
+                <table class="table cbi-section-table" id="blacklist-cn-table" style="display: none;">
+                    <thead>
+                        <tr class="cbi-section-table-titles">
+                            <th class="cbi-section-table-cell text-center" style="width: 15%;"><%:客户端CN%></th>
+                            <th class="cbi-section-table-cell text-center" style="width: 15%;"><%:添加时间%></th>
+                            <th class="cbi-section-table-cell text-center" style="width: 15%;"><%:过期时间%></th>
+                            <th class="cbi-section-table-cell text-center" style="width: 15%;"><%:剩余时间%></th>
+                            <th class="cbi-section-table-cell text-center" style="width: 15%;"><%:原因%></th>
+                            <th class="cbi-section-table-cell text-center" style="width: 10%;"><%:时长%></th>
+                            <th class="cbi-section-table-cell text-center" style="width: 15%;"><%:操作%></th>
+                        </tr>
+                    </thead>
+                    <tbody class="cbi-section-table-row" id="blacklist-cn-body">
+                    </tbody>
+                </table>
+                <div class="cbi-section-descr" id="empty-blacklist-cn">
+                    <p><strong><%:黑名单为空%></strong></p>
+                    <p><%:没有被禁止连接的客户端。%></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style type="text/css">
+/* 自定义样式 */
+.info-box.compact {
+    margin: 3px 0;
+    padding: 6px 8px;
+    background-color: var(--info-box-bg, #f8f9fa);
+    border-radius: 3px;
+    border: 1px solid var(--info-box-border, #dee2e6);
+}
+
+.service-status-box.compact {
+    padding: 6px 8px;
+    background-color: var(--info-box-bg, #f8f9fa);
+    border-radius: 3px;
+    border: 1px solid var(--info-box-border, #dee2e6);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: -5px;  /* 表格向上 */
+}
+
+/* 自动刷新控制区域 - 修复深色模式兼容性 */
+.controls-box.compact {
+    margin: 5px 0 8px 0;
+    padding: 10px;
+    background-color: var(--controls-bg-color, #f8f9fa);
+    border-radius: 3px;
+    border: 1px solid var(--controls-border-color, #dee2e6);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: -5px;  /* 表格向上 */
+}
+
+.controls-box.compact strong {
+    color: var(--controls-text-color, #333);
+}
+
+.refresh-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.action-buttons {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* 按钮样式 */
+.refresh-blue-btn {
+    background-color: #2196F3 !important; /* 蓝色 */
+    color: #ffffff !important;
+    border-color: #1976D2 !important;
+    padding: 5px 12px;
+    font-weight: bold;
+}
+
+.cbi-button-settings {
+    background-color: #FF9800 !important; /* 橙色 */
+    color: white !important;
+    border: 1px solid #F57C00 !important;
+    padding: 5px 12px;
+    font-weight: bold;
+}
+
+.cbi-button-settings:hover {
+    background-color: #F57C00 !important;
+    color: white !important;
+}
+
+.disconnect-red-btn {
+    background-color: #f44336 !important; /* 红色 */
+    color: white !important;
+    border: 1px solid #d32f2f !important;
+    padding: 4px 6px !important;
+    font-size: 11px !important;
+    font-weight: bold;
+    min-width: 45px;
+}
+
+.disconnect-red-btn:hover {
+    background-color: #d32f2f !important;
+    color: white !important;
+}
+
+.cbi-button-negative {
+    background-color: #f44336 !important; /* 红色 */
+    color: white !important;
+    border: 1px solid #d32f2f !important;
+    padding: 4px 8px;
+    font-weight: bold;
+}
+
+.cbi-button-negative:hover {
+    background-color: #d32f2f !important;
+    color: white !important;
+}
+
+.cbi-button-action {
+    background-color: #4CAF50 !important; /* 绿色 */
+    color: white !important;
+    border: 1px solid #388E3C !important;
+    padding: 4px 8px;
+    font-weight: bold;
+}
+
+.cbi-button-action:hover {
+    background-color: #388E3C !important;
+    color: white !important;
+}
+
+.cbi-button-remove {
+    background-color: #ff9800 !important; /* 橙色 */
+    color: white !important;
+    border: 1px solid #f57c00 !important;
+    padding: 4px 8px !important;
+    font-size: 11px !important;
+    font-weight: bold;
+    min-width: 45px;
+}
+
+.cbi-button-remove:hover {
+    background-color: #f57c00 !important;
+    color: white !important;
+}
+
+/* 状态文本样式 */
+.status-text {
+    font-weight: bold;
+    font-style: italic;   /* 新增斜体 */
+    margin: 0 10px;
+    font-size: 15px;
+    margin-top: -5px;  /* 表格向上 */
+}
+
+.status-running {
+    color: var(--status-running-color, #28a745);
+}
+
+.status-stopped {
+    color: var(--status-stopped-color, #dc3545);
+}
+
+.status-online {
+    color: #28a745;
+    font-weight: bold;
+}
+
+.status-offline {
+    color: #dc3545;
+    font-weight: bold;
+}
+
+/* 表格样式 - 字体增大2px */
+.text-center {
+    text-align: center !important;
+    
+}
+
+.cbi-section-table {
+    width: 100%;
+    margin-bottom: 10px;
+    border-collapse: collapse;
+    font-size: 15px; /* 原来12px，增大2px */
+    margin-top: -15px;  /* 表格向上 */
+}
+
+.cbi-section-table-titles {
+    background-color: var(--table-header-bg, #f5f5f5);
+}
+
+body.dark-mode .cbi-section-table-titles {
+    background-color: #3d3d3d;
+    color: #ddd;
+}
+
+.cbi-section-table-cell, .cbi-value-field {
+    padding: 5px 5px; /* 调整内边距适应字体增大 */
+    border: 1px solid var(--border-color, #ddd);
+    text-align: center;
+}
+
+body.dark-mode .cbi-section-table-cell,
+body.dark-mode .cbi-value-field {
+    border-color: #444;
+}
+
+.cbi-rowstyle-1 {
+    background-color: var(--row-bg-1, #fff);
+}
+
+.cbi-rowstyle-2 {
+    background-color: var(--row-bg-2, #f9f9f9);
+}
+
+body.dark-mode .cbi-rowstyle-1 {
+    background-color: #2d2d2d;
+}
+
+body.dark-mode .cbi-rowstyle-2 {
+    background-color: #363636;
+}
+
+/* 实时流量样式 */
+.real-time-flow {
+    font-size: 11px;
+    line-height: 1.2;
+}
+
+.real-time-recv {
+    color: #4CAF50;
+    font-weight: bold;
+}
+
+.real-time-sent {
+    color: #2196F3;
+    font-weight: bold;
+}
+
+/* IP地址单元格样式 - 恢复正常字体，不缩小 */
+.ip-address-cell {
+    font-size: 15px; /* 与其他单元格字体一致 */
+    word-break: break-all;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 倒计时样式 */
+#refresh-countdown {
+    color: var(--countdown-color, #2196F3);
+    font-weight: bold;
+}
+
+/* 下拉选择框和输入框样式 */
+.cbi-input-select {
+    padding: 4px 8px;
+    border: 1px solid #ccc;
+    border-radius: 2px;
+    background-color: white;
+    color: #333;
+    font-size: 13px;
+}
+
+.cbi-input-text {
+    padding: 4px 8px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background-color: white;
+    color: #333;
+    font-size: 13px;
+}
+
+/* 深色模式支持 */
+body.dark-mode .info-box.compact,
+body.dark-mode .service-status-box.compact,
+body.dark-mode .controls-box.compact {
+    background-color: #2d2d2d;
+    border-color: #444;
+    color: #ddd;
+}
+
+body.dark-mode .controls-box.compact strong {
+    color: #ddd;
+}
+
+body.dark-mode .status-running {
+    color: #4CAF50;
+}
+
+body.dark-mode .status-stopped {
+    color: #F44336;
+}
+
+body.dark-mode .status-online {
+    color: #4CAF50;
+}
+
+body.dark-mode .status-offline {
+    color: #F44336;
+}
+
+body.dark-mode .real-time-recv {
+    color: #81C784;
+}
+
+body.dark-mode .real-time-sent {
+    color: #64B5F6;
+}
+
+body.dark-mode .cbi-button-negative {
+    background-color: #f44336 !important;
+    border-color: #d32f2f !important;
+}
+
+body.dark-mode .cbi-button-action {
+    background-color: #4CAF50 !important;
+    border-color: #388E3C !important;
+}
+
+body.dark-mode .cbi-button-settings {
+    background-color: #FF9800 !important;
+    border-color: #F57C00 !important;
+}
+
+body.dark-mode .cbi-button-remove {
+    background-color: #ff9800 !important;
+    border-color: #f57c00 !important;
+}
+
+body.dark-mode .cbi-input-select,
+body.dark-mode .cbi-input-text {
+    background-color: #333;
+    color: #ddd;
+    border-color: #555;
+}
+
+body.dark-mode #refresh-countdown {
+    color: #64b5f6;
+}
+
+/* 为深色模式定义的CSS变量 */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --info-box-bg: #2d2d2d;
+        --info-box-border: #444;
+        --controls-bg-color: #2d2d2d;
+        --controls-border-color: #444;
+        --controls-text-color: #ddd;
+        --countdown-color: #64b5f6;
+        --border-color: #444;
+        --status-running-color: #4CAF50;
+        --status-stopped-color: #F44336;
+        --table-header-bg: #3d3d3d;
+        --row-bg-1: #2d2d2d;
+        --row-bg-2: #363636;
+    }
+}
+
+/* LuCI深色模式支持 */
+body.dark-mode {
+    --info-box-bg: #2d2d2d;
+    --info-box-border: #444;
+    --controls-bg-color: #2d2d2d;
+    --controls-border-color: #444;
+    --controls-text-color: #ddd;
+    --countdown-color: #64b5f6;
+    --border-color: #444;
+    --status-running-color: #4CAF50;
+    --status-stopped-color: #F44336;
+    --table-header-bg: #3d3d3d;
+    --row-bg-1: #2d2d2d;
+    --row-bg-2: #363636;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .controls-box.compact {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    
+    .action-buttons {
+        width: 100%;
+        justify-content: flex-start;
+    }
+    
+    .cbi-section-table {
+        font-size: 11px;
+    }
+    
+    .cbi-section-table-cell, .cbi-value-field {
+        padding: 3px 3px;
+    }
+    
+    .disconnect-red-btn {
+        padding: 2px 4px !important;
+        font-size: 10px !important;
+        min-width: 40px;
+    }
+    
+    .cbi-button-remove {
+        padding: 2px 4px !important;
+        font-size: 10px !important;
+        min-width: 40px;
+    }
+}
+</style>
+
+<script type="text/javascript">
+//<![CDATA[
+// 全局变量
+var refreshInterval = <%=refresh_interval%>; // 从配置中读取
+var refreshTimer = null;
+var countdownTimer = null;
+var countdownValue = <%=refresh_interval%>;
+var previousClientsData = {}; // 存储上一次的客户端数据用于计算实时流量
+var refreshEnabled = <%=refresh_enabled and "true" or "false"%>; // 从配置中读取
+
+// 启动OpenVPN服务
+function startService() {
+    if (confirm('<%:确认要启动OpenVPN服务吗？%>')) {
+        XHR.post('<%=dsp.build_url("admin/vpn/openvpn-admin/start_service")%>', null,
+            function(x, data) {
+                if(x && x.status == 200) {
+                    var result = JSON.parse(x.responseText);
+                    if (result.success) {
+                        alert(result.message);
+                        refreshStatus();
+                    } else {
+                        alert('<%:启动失败%>: ' + result.message);
+                    }
+                }
+            }
+        );
+    }
+}
+
+// 停止OpenVPN服务（新增）
+function stopService() {
+    if (confirm('<%:确认要停止OpenVPN服务吗？这将断开所有客户端的连接。%>')) {
+        XHR.post('<%=dsp.build_url("admin/vpn/openvpn-admin/stop_service")%>', null,
+            function(x, data) {
+                if(x && x.status == 200) {
+                    var result = JSON.parse(x.responseText);
+                    if (result.success) {
+                        alert(result.message);
+                        refreshStatus();
+                    } else {
+                        alert('<%:停止失败%>: ' + result.message);
+                    }
+                }
+            }
+        );
+    }
+}
+
+// 断开客户端连接 - 简化版
+function disconnectClient(button, event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    
+    // 从按钮的data属性获取客户端信息
+    var clientName = button.getAttribute('data-client-name');
+    var clientIP = button.getAttribute('data-client-address');
+    var clientId = button.getAttribute('data-client-id');
+    
+    console.log('断开连接参数:', {clientName, clientIP, clientId});
+    
+    // 验证参数
+    if (!clientName || clientName === "" || clientName === "N/A") {
+        alert('客户端名称无效');
+        return false;
+    }
+    
+    // 创建确认消息
+    var confirmMessage = '确认要断开客户端 "' + clientName + '" 的连接吗？\n\n';
+    confirmMessage += '断开后该客户端将被加入黑名单，5分钟内禁止重新连接。';
+    
+    if (!confirm(confirmMessage)) {
+        return false;
+    }
+    
+    // 禁用按钮防止重复点击
+    button.disabled = true;
+    button.textContent = "断开中...";
+    
+    // 准备表单数据
+    var formData = new FormData();
+    formData.append('client_name', clientName);
+    formData.append('real_address', clientIP || '');
+    formData.append('client_id', clientId || '');
+    
+    console.log('发送断开连接请求，数据:', {
+        client_name: clientName,
+        real_address: clientIP,
+        client_id: clientId
+    });
+    
+    // 使用fetch API发送请求
+    fetch('<%=dsp.build_url("admin/vpn/openvpn-admin/disconnect_client")%>', {
+        method: 'POST',
+        body: formData
+    })
+    .then(function(response) {
+        if (!response.ok) {
+            throw new Error('网络响应错误: ' + response.status);
+        }
+        return response.json();
+    })
+    .then(function(result) {
+        console.log('断开连接响应:', result);
+        
+        if (result.success) {
+            alert(result.message);
+            // 刷新状态
+            refreshStatus();
+        } else {
+            alert('断开连接失败: ' + result.message);
+            // 恢复按钮状态
+            button.disabled = false;
+            button.textContent = "断开";
+        }
+    })
+    .catch(function(error) {
+        console.error('断开连接错误:', error);
+        alert('断开连接失败: ' + error.message);
+        // 恢复按钮状态
+        button.disabled = false;
+        button.textContent = "断开";
+    });
+    
+    return false; // 阻止默认行为
+}
+
+// 从黑名单中移除客户端
+function removeFromBlacklist(cn) {
+    if (!cn || cn === "") return;
+    
+    if (confirm('确认要从黑名单中移除客户端 "' + cn + '" 吗？')) {
+        var formData = new FormData();
+        formData.append('cn', cn);
+        
+        fetch('<%=dsp.build_url("admin/vpn/openvpn-admin/remove_from_blacklist_cn")%>', {
+            method: 'POST',
+            body: formData
+        })
+        .then(function(response) {
+            if (!response.ok) {
+                throw new Error('网络响应错误: ' + response.status);
+            }
+            return response.json();
+        })
+        .then(function(result) {
+            if (result.success) {
+                alert(result.message);
+                refreshStatus(); // 刷新状态
+            } else {
+                alert('移除失败: ' + result.message);
+            }
+        })
+        .catch(function(error) {
+            alert('移除失败: ' + error.message);
+        });
+    }
+}
+
+// 解码HTML实体
+function decodeHtmlEntity(str) {
+    if (!str) return '';
+    var textarea = document.createElement('textarea');
+    textarea.innerHTML = str;
+    return textarea.value;
+}
+
+// 计算实时流量
+function calculateRealTimeFlow(currentClients) {
+    var currentTime = new Date().getTime() / 1000; // 当前时间戳（秒）
+    
+    // 初始化结果数组
+    var realTimeFlows = [];
+    
+    // 遍历当前客户端
+    for (var i = 0; i < currentClients.length; i++) {
+        var client = currentClients[i];
+        var clientKey = client.name + '|' + client.real_address + '|' + client.client_id;
+        
+        // 检查是否有上一次的数据
+        if (previousClientsData[clientKey]) {
+            var prevData = previousClientsData[clientKey];
+            var timeDiff = currentTime - prevData.timestamp;
+            
+            if (timeDiff > 0) {
+                // 计算接收和发送的速率
+                var recvDiff = (client.bytes_received || 0) - prevData.bytes_received;
+                var sentDiff = (client.bytes_sent || 0) - prevData.bytes_sent;
+                
+                var recvRate = recvDiff / timeDiff;
+                var sentRate = sentDiff / timeDiff;
+                
+                realTimeFlows.push({
+                    index: i,
+                    recvRate: recvRate,
+                    sentRate: sentRate
+                });
+            }
+        }
+        
+        // 更新上一次的数据
+        previousClientsData[clientKey] = {
+            bytes_received: client.bytes_received || 0,
+            bytes_sent: client.bytes_sent || 0,
+            timestamp: currentTime
+        };
+    }
+    
+    return realTimeFlows;
+}
+
+// 格式化流量速率
+function formatFlowRate(bytesPerSecond) {
+    if (!bytesPerSecond || bytesPerSecond <= 0) return '0 B/s';
+    
+    var units = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+    var i = 0;
+    var rate = bytesPerSecond;
+    
+    while (rate >= 1024 && i < units.length - 1) {
+        rate /= 1024;
+        i++;
+    }
+    
+    return rate.toFixed(2) + ' ' + units[i];
+}
+
+// 更新实时流量显示
+function updateRealTimeFlow(realTimeFlows) {
+    for (var i = 0; i < realTimeFlows.length; i++) {
+        var flow = realTimeFlows[i];
+        var elementId = 'real-time-' + (flow.index + 1);
+        var element = document.getElementById(elementId);
+        
+        if (element) {
+            // 只在显示时添加箭头，每个流量一个箭头
+            var recvArrow = '↓ ';
+            var sentArrow = '↑ ';
+            
+            element.innerHTML = '<span class="real-time-recv">' + recvArrow + formatFlowRate(flow.recvRate) + '</span><br>' +
+                               '<span class="real-time-sent">' + sentArrow + formatFlowRate(flow.sentRate) + '</span>';
+        }
+    }
+}
+
+// 更改刷新间隔
+function changeRefreshInterval(value) {
+    var customInput = document.getElementById('custom-interval');
+    
+    if (value === 'custom') {
+        customInput.style.display = 'inline-block';
+        customInput.focus();
+        return;
+    } else {
+        customInput.style.display = 'none';
+    }
+    
+    var interval = parseInt(value);
+    if (interval === 0) {
+        stopAutoRefresh();
+        document.getElementById('refresh-countdown').style.display = 'none';
+        refreshEnabled = false;
+    } else {
+        refreshInterval = interval;
+        countdownValue = interval;
+        document.getElementById('refresh-countdown').style.display = 'inline';
+        refreshEnabled = true;
+        startAutoRefresh();
+    }
+}
+
+// 设置自定义间隔
+function setCustomInterval(value) {
+    var interval = parseInt(value);
+    if (interval >= 1 && interval <= 300) {
+        refreshInterval = interval;
+        countdownValue = interval;
+        document.getElementById('refresh-interval').value = 'custom';
+        refreshEnabled = true;
+        startAutoRefresh();
+    } else {
+        alert('<%:请输入1-300之间的数字%>');
+    }
+}
+
+// 开始自动刷新
+function startAutoRefresh() {
+    if (!refreshEnabled) return;
+    
+    stopAutoRefresh();
+    
+    updateCountdown();
+    
+    countdownTimer = setInterval(function() {
+        countdownValue--;
+        document.getElementById('countdown').textContent = countdownValue;
+        
+        if (countdownValue <= 0) {
+            refreshStatus();
+            countdownValue = refreshInterval;
+            document.getElementById('countdown').textContent = countdownValue;
+        }
+    }, 1000);
+}
+
+// 停止自动刷新
+function stopAutoRefresh() {
+    if (refreshTimer) {
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+    }
+    if (countdownTimer) {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+    }
+}
+
+// 更新倒计时显示
+function updateCountdown() {
+    document.getElementById('countdown').textContent = countdownValue;
+}
+
+// 刷新状态
+function refreshStatus() {
+    XHR.get('<%=dsp.build_url("admin/vpn/openvpn-admin/get_status")%>', null,
+        function(x, data) {
+            if(x && x.status == 200) {
+                var result = JSON.parse(x.responseText);
+                if (result.success) {
+                    updateStatus(result.data);
+                }
+            }
+        }
+    );
+}
+
+// 更新状态显示
+function updateStatus(data) {
+    // 更新最后活动时间
+    if (data.last_activity) {
+        document.getElementById('last-activity').textContent = data.last_activity;
+    }
+    
+    // 更新OpenVPN版本
+    if (data.version && typeof data.version === 'string') {
+        document.getElementById('openvpn-version').textContent = data.version;
+    }
+    
+    // 更新服务状态
+    const statusSpan = document.getElementById('service-status-text');
+    if (data.service_status) {
+        if (data.service_status === 'running') {
+            statusSpan.textContent = 'OpenVPN 服务器 运行中';
+            statusSpan.className = 'status-text status-running';
+            
+            const actionDisplay = document.getElementById('service-action');
+            if (actionDisplay) {
+                actionDisplay.innerHTML = '<button class="btn cbi-button cbi-button-negative" onclick="stopService()"><%:停止%></button>';
+            }
+        } else {
+            statusSpan.textContent = 'OpenVPN 服务器 未运行';
+            statusSpan.className = 'status-text status-stopped';
+            
+            const actionDisplay = document.getElementById('service-action');
+            if (actionDisplay) {
+                actionDisplay.innerHTML = '<button class="btn cbi-button cbi-button-action" onclick="startService()"><%:启动%></button>';
+            }
+        }
+    }
+    
+    // 更新已连接客户端数量
+    if (data.total_connected !== undefined) {
+        document.getElementById('connected-count').textContent = data.total_connected;
+    }
+    
+    // 计算实时流量
+    var realTimeFlows = calculateRealTimeFlow(data.connected_clients || []);
+    
+    // 更新已连接客户端表格
+    updateConnectedClientsTable(data.connected_clients || [], realTimeFlows);
+    
+    // 更新连接记录表格
+    updateConnectionHistoryTable(data.connection_history || []);
+    
+    // 更新黑名单显示
+    updateBlacklistCnTable(data.blacklist_cn || []);
+    
+    // 更新实时流量显示
+    updateRealTimeFlow(realTimeFlows);
+}
+
+// 更新已连接客户端表格
+function updateConnectedClientsTable(clients, realTimeFlows) {
+    const tbody = document.getElementById('connected-clients-body');
+    if (!tbody) return;
+    
+    if (clients.length === 0) {
+        const container = tbody.parentNode.parentNode;
+        if (container.querySelector('.cbi-section-descr')) {
+            return;
+        }
+        tbody.parentNode.style.display = 'none';
+        const newDiv = document.createElement('div');
+        newDiv.className = 'cbi-section-descr';
+        newDiv.innerHTML = '<p><strong><%:没有客户端连接%></strong></p><p><%:当前没有OpenVPN客户端连接到服务器。%></p>';
+        container.insertBefore(newDiv, tbody.parentNode);
+        
+        // 清空实时流量数据
+        previousClientsData = {};
+        return;
+    }
+    
+    tbody.parentNode.style.display = '';
+    
+    const container = tbody.parentNode.parentNode;
+    const descr = container.querySelector('.cbi-section-descr');
+    if (descr) {
+        container.removeChild(descr);
+    }
+    
+    tbody.innerHTML = '';
+    
+    // 创建实时流量映射，便于查找
+    var flowMap = {};
+    for (var i = 0; i < realTimeFlows.length; i++) {
+        var flow = realTimeFlows[i];
+        flowMap[flow.index] = flow;
+    }
+    
+    clients.forEach((client, i) => {
+        const row = document.createElement('tr');
+        row.className = 'cbi-section-table-row cbi-rowstyle-' + ((i % 2) + 1);
+        
+        // 获取实时流量
+        var recvArrow = '↓ ';
+        var sentArrow = '↑ ';
+        var recvRate = '0 B/s';
+        var sentRate = '0 B/s';
+        
+        if (flowMap[i]) {
+            recvRate = formatFlowRate(flowMap[i].recvRate);
+            sentRate = formatFlowRate(flowMap[i].sentRate);
+        }
+        
+        var realTimeHTML = '<span class="real-time-recv">' + recvArrow + recvRate + '</span><br>' +
+                          '<span class="real-time-sent">' + sentArrow + sentRate + '</span>';
+        
+        // 确保client对象有必要的属性
+        var clientName = client.name || 'N/A';
+        var realAddress = client.real_address || 'N/A';
+        var clientId = client.client_id || 'N/A';
+        var virtualAddress = client.virtual_address || 'N/A';
+        var connectTimeFormatted = client.connect_time_formatted || 'N/A';
+        var duration = client.duration || 'N/A';
+        var bytesReceived = client.bytes_received || 0;
+        var bytesSent = client.bytes_sent || 0;
+        
+        row.innerHTML = `
+            <td class="cbi-value-field text-center" style="width: 4%;">${escapeHtml(clientId)}</td>
+            <td class="cbi-value-field text-center" style="width: 10%;">${escapeHtml(clientName)}</td>
+            <td class="cbi-value-field text-center ip-address-cell" style="width: 18%;">${escapeHtml(realAddress)}</td>
+            <td class="cbi-value-field text-center" style="width: 10%;">${escapeHtml(virtualAddress)}</td>
+            <td class="cbi-value-field text-center" style="width: 10%;" id="real-time-${i + 1}">
+                ${realTimeHTML}
+            </td>
+            <td class="cbi-value-field text-center" style="width: 8%;">${formatBytes(bytesReceived)}</td>
+            <td class="cbi-value-field text-center" style="width: 8%;">${formatBytes(bytesSent)}</td>
+            <td class="cbi-value-field text-center" style="width: 8%;">${formatBytes(bytesReceived + bytesSent)}</td>
+            <td class="cbi-value-field text-center" style="width: 10%;">${escapeHtml(connectTimeFormatted)}</td>
+            <td class="cbi-value-field text-center" style="width: 10%;">${escapeHtml(duration)}</td>
+            <td class="cbi-value-field text-center" style="width: 6%;">
+                <button class="btn cbi-button-negative disconnect-red-btn" 
+                        data-client-name="${escapeHtml(clientName)}"
+                        data-client-address="${escapeHtml(realAddress)}"
+                        data-client-id="${escapeHtml(clientId)}"
+                        onclick="return disconnectClient(this, event)">
+                    <%:断开%>
+                </button>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+// 更新连接记录表格
+function updateConnectionHistoryTable(history) {
+    const tbody = document.getElementById('connection-history-body');
+    if (!tbody) return;
+    
+    if (history.length === 0) {
+        const container = tbody.parentNode.parentNode;
+        if (container.querySelector('.cbi-section-descr')) {
+            return;
+        }
+        tbody.parentNode.style.display = 'none';
+        const newDiv = document.createElement('div');
+        newDiv.className = 'cbi-section-descr';
+        newDiv.innerHTML = '<p><strong><%:暂无连接记录%></strong></p><p><%:当有客户端连接时，这里会显示连接记录。%></p>';
+        container.insertBefore(newDiv, tbody.parentNode);
+        return;
+    }
+    
+    tbody.parentNode.style.display = '';
+    
+    const container = tbody.parentNode.parentNode;
+    const descr = container.querySelector('.cbi-section-descr');
+    if (descr) {
+        container.removeChild(descr);
+    }
+    
+    tbody.innerHTML = '';
+    
+    history.forEach((record, i) => {
+        const row = document.createElement('tr');
+        row.className = 'cbi-section-table-row cbi-rowstyle-' + ((i % 2) + 1);
+        
+        // 确保record对象有必要的属性
+        var name = record.name || 'N/A';
+        var realAddress = record.real_address || 'N/A';
+        var virtualAddress = record.virtual_address || 'N/A';
+        var connectTimeFormatted = record.connect_time_formatted || 'N/A';
+        var disconnectTimeFormatted = record.disconnect_time_formatted || '-';
+        var duration = record.duration || 'N/A';
+        var bytesReceived = record.bytes_received || 0;
+        var bytesSent = record.bytes_sent || 0;
+        var isConnected = record.is_connected || false;
+        
+        const statusHTML = isConnected ? 
+            '<span class="status-online"><%:在线%></span>' : 
+            '<span class="status-offline"><%:离线%></span>';
+        
+        row.innerHTML = `
+            <td class="cbi-value-field text-center" style="width: 10%;">${escapeHtml(name)}</td>
+            <td class="cbi-value-field text-center ip-address-cell" style="width: 18%;">${escapeHtml(realAddress)}</td>
+            <td class="cbi-value-field text-center" style="width: 10%;">${escapeHtml(virtualAddress)}</td>
+            <td class="cbi-value-field text-center" style="width: 8%;">${formatBytes(bytesReceived)}</td>
+            <td class="cbi-value-field text-center" style="width: 8%;">${formatBytes(bytesSent)}</td>
+            <td class="cbi-value-field text-center" style="width: 8%;">${formatBytes(bytesReceived + bytesSent)}</td>
+            <td class="cbi-value-field text-center" style="width: 12%;">${escapeHtml(connectTimeFormatted)}</td>
+            <td class="cbi-value-field text-center" style="width: 12%;">${escapeHtml(disconnectTimeFormatted)}</td>
+            <td class="cbi-value-field text-center" style="width: 10%;">${escapeHtml(duration)}</td>
+            <td class="cbi-value-field text-center" style="width: 6%;">${statusHTML}</td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+// 更新黑名单显示（基于CN）
+function updateBlacklistCnTable(blacklist) {
+    const container = document.getElementById('blacklist-cn-container');
+    const table = document.getElementById('blacklist-cn-table');
+    const tbody = document.getElementById('blacklist-cn-body');
+    const emptyDiv = document.getElementById('empty-blacklist-cn');
+    const countSpan = document.getElementById('blacklist-cn-count');
+    
+    if (!blacklist || blacklist.length === 0) {
+        if (table) table.style.display = 'none';
+        if (emptyDiv) emptyDiv.style.display = 'block';
+        if (countSpan) countSpan.textContent = '0';
+        return;
+    }
+    
+    if (table) table.style.display = '';
+    if (emptyDiv) emptyDiv.style.display = 'none';
+    if (countSpan) countSpan.textContent = blacklist.length;
+    
+    if (tbody) {
+        tbody.innerHTML = '';
+        
+        blacklist.forEach((entry, i) => {
+            const row = document.createElement('tr');
+            row.className = 'cbi-section-table-row cbi-rowstyle-' + ((i % 2) + 1);
+            
+            // 格式化时长
+            var durationText = '';
+            if (entry.duration) {
+                if (entry.duration >= 31536000) {
+                    durationText = '永久';
+                } else if (entry.duration >= 3600) {
+                    durationText = Math.floor(entry.duration / 3600) + '小时';
+                } else if (entry.duration >= 60) {
+                    durationText = Math.floor(entry.duration / 60) + '分钟';
+                } else {
+                    durationText = entry.duration + '秒';
+                }
+            }
+            
+            row.innerHTML = `
+                <td class="cbi-value-field text-center" style="width: 15%;">${escapeHtml(entry.cn || 'N/A')}</td>
+                <td class="cbi-value-field text-center" style="width: 15%;">${escapeHtml(entry.added_time_formatted || 'N/A')}</td>
+                <td class="cbi-value-field text-center" style="width: 15%;">${escapeHtml(entry.expiry_time_formatted || 'N/A')}</td>
+                <td class="cbi-value-field text-center" style="width: 15%;">${escapeHtml(entry.remaining_time || 'N/A')}</td>
+                <td class="cbi-value-field text-center" style="width: 15%;">${escapeHtml(entry.reason || '未知')}</td>
+                <td class="cbi-value-field text-center" style="width: 10%;">${durationText}</td>
+                <td class="cbi-value-field text-center" style="width: 15%;">
+                    <button class="btn cbi-button cbi-button-remove" onclick="removeFromBlacklist('${escapeHtml(entry.cn)}')">
+                        <%:移除%>
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+}
+
+// 格式化字节数
+function formatBytes(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0;
+    while (bytes >= 1024 && i < units.length - 1) {
+        bytes /= 1024;
+        i++;
+    }
+    return bytes.toFixed(2) + ' ' + units[i];
+}
+
+// HTML转义函数
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 页面加载完成后初始化
+window.addEventListener('load', function() {
+    console.log('页面加载完成，初始化自动刷新...');
+    console.log('当前配置：刷新间隔=' + refreshInterval + '秒，刷新启用=' + refreshEnabled);
+    
+    // 从配置中获取刷新设置
+    var configRefreshInterval = <%=refresh_interval%>;
+    var configRefreshEnabled = <%=refresh_enabled and "true" or "false"%>;
+    
+    // 如果刷新间隔是自定义值且不在预设选项中，设置为自定义
+    var isCustomInterval = configRefreshInterval > 0 && 
+                          configRefreshInterval !== 1 && 
+                          configRefreshInterval !== 3 && 
+                          configRefreshInterval !== 5 && 
+                          configRefreshInterval !== 10 && 
+                          configRefreshInterval !== 15 && 
+                          configRefreshInterval !== 30;
+    
+    if (configRefreshEnabled && configRefreshInterval > 0) {
+        if (isCustomInterval) {
+            document.getElementById('refresh-interval').value = 'custom';
+            document.getElementById('custom-interval').value = configRefreshInterval;
+            document.getElementById('custom-interval').style.display = 'inline-block';
+        } else {
+            document.getElementById('refresh-interval').value = configRefreshInterval.toString();
+        }
+        
+        refreshInterval = configRefreshInterval;
+        countdownValue = configRefreshInterval;
+        document.getElementById('countdown').textContent = configRefreshInterval.toString();
+        
+        // 确保倒计时显示
+        document.getElementById('refresh-countdown').style.display = 'inline';
+        
+        // 启动自动刷新
+        startAutoRefresh();
+        
+        console.log('自动刷新已启动，间隔: ' + configRefreshInterval + '秒');
+    } else {
+        // 禁用自动刷新
+        document.getElementById('refresh-interval').value = '0';
+        document.getElementById('refresh-countdown').style.display = 'none';
+        refreshEnabled = false;
+        console.log('自动刷新已禁用');
+    }
+    
+    // 初始加载一次状态
+    refreshStatus();
+});
+
+// 页面卸载时停止自动刷新
+window.addEventListener('beforeunload', function() {
+    stopAutoRefresh();
+});
+
+//]]>
+</script>
+
+<%+footer%>

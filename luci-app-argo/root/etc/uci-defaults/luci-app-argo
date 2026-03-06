@@ -1,0 +1,24 @@
+#!/bin/sh
+# postinst script for luci-app-argo
+
+# Make init script executable
+chmod +x /etc/init.d/argo 2>/dev/null
+
+# Make RPC script executable  
+chmod +x /usr/libexec/rpcd/luci.argo 2>/dev/null
+
+# Create config directory
+mkdir -p /etc/argo
+
+# Enable service if configured
+if [ -f /etc/config/argo ]; then
+    enabled=$(uci -q get argo.config.enabled)
+    if [ "$enabled" = "1" ]; then
+        /etc/init.d/argo enable
+    fi
+fi
+
+# Reload rpcd to pick up new ACL
+/etc/init.d/rpcd reload 2>/dev/null
+
+exit 0

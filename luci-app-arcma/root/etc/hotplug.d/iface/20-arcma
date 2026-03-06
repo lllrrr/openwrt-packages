@@ -1,0 +1,33 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# arcma hotplug handler — /etc/hotplug.d/iface/20-arcma
+# Triggered by netifd on every interface IFUP/IFDOWN event
+
+[ "${ACTION}" = "ifup" ] || exit 0
+
+# Only proceed if arcma is enabled with hotplug trigger
+enabled=$(uci -q get arcma.global.enabled 2>/dev/null)
+[ "${enabled}" = "1" ] || exit 0
+
+trigger=$(uci -q get arcma.global.trigger 2>/dev/null)
+[ "${trigger}" = "boot" ] && exit 0   # boot-only mode: ignore hotplug
+
+# INTERFACE is the logical name (e.g. wan, lan), DEVICE is the physical name
+# When DEVICE is not set, derive from netifd
+DEV="${DEVICE}"
+if [ -z "${DEV}" ]; then
+	DEV=$(uci -q get "network.${INTERFACE}.device" 2>/dev/null)
+	[ -z "${DEV}" ] && DEV=$(uci -q get "network.${INTERFACE}.ifname" 2>/dev/null)
+fi
+[ -z "${DEV}" ] && exit 0
+
+# M5 fix: debounce rapid ifup events with a per-device lockfile (10s window)
+LOCK="/tmp/arcma_lock_${DEV}"
+if [ -f "${LOCK}" ]; then
+	exit 0
+fi
+touch "${LOCK}"
+( sleep 10; rm -f "${LOCK}" ) &
+
+# Apply arcma config for this specific device
+/usr/sbin/arcma uci-apply "${DEV}"

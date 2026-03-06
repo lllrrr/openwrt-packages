@@ -1,0 +1,535 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Project-Id-Version: luci-app-socks-clash 1.0.0\n"
+"PO-Revision-Date: 2024-12-20 09:00+0800\n"
+"Last-Translator: SocksClash Team\n"
+"Language-Team: Chinese (Simplified)\n"
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "SocksClash"
+msgstr "SocksClash 代理"
+
+msgid "Overview"
+msgstr "概览"
+
+msgid "Settings"
+msgstr "设置"
+
+msgid "Proxy Settings"
+msgstr "代理设置"
+
+msgid "Servers"
+msgstr "服务器"
+
+msgid "Rules"
+msgstr "规则"
+
+msgid "Logs"
+msgstr "日志"
+
+msgid "Start"
+msgstr "启动"
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "Restart"
+msgstr "重启"
+
+msgid "Service Status"
+msgstr "服务状态"
+
+msgid "Running"
+msgstr "运行中"
+
+msgid "Stopped"
+msgstr "已停止"
+
+msgid "SocksClash is active and running"
+msgstr "SocksClash 正在运行"
+
+msgid "SocksClash is not running"
+msgstr "SocksClash 未运行"
+
+msgid "Uptime"
+msgstr "运行时间"
+
+msgid "Mode"
+msgstr "模式"
+
+msgid "Core Version"
+msgstr "核心版本"
+
+msgid "Connections"
+msgstr "连接数"
+
+msgid "Proxy Addresses"
+msgstr "代理地址"
+
+msgid "Traffic"
+msgstr "流量"
+
+msgid "Upload"
+msgstr "上传"
+
+msgid "Download"
+msgstr "下载"
+
+msgid "Proxy Mode"
+msgstr "代理模式"
+
+msgid "Rule"
+msgstr "规则"
+
+msgid "Global"
+msgstr "全局"
+
+msgid "Direct"
+msgstr "直连"
+
+msgid "Quick Actions"
+msgstr "快捷操作"
+
+msgid "Dashboard"
+msgstr "仪表盘"
+
+msgid "Close Connections"
+msgstr "关闭连接"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "Log Level"
+msgstr "日志级别"
+
+msgid "Silent"
+msgstr "静默"
+
+msgid "Error"
+msgstr "错误"
+
+msgid "Warning"
+msgstr "警告"
+
+msgid "Info"
+msgstr "信息"
+
+msgid "Debug"
+msgstr "调试"
+
+msgid "General Settings"
+msgstr "常规设置"
+
+msgid "SocksClash Settings"
+msgstr "SocksClash 设置"
+
+msgid "Configure SocksClash proxy settings. This is a simplified proxy-only mode without DNS hijacking or transparent proxy."
+msgstr "配置 SocksClash 代理设置。这是一个简化的仅代理模式，不包含 DNS 劫持或透明代理功能。"
+
+msgid "Rule: Route based on rules | Global: All traffic through proxy | Direct: All direct connection"
+msgstr "规则：基于规则路由 | 全局：所有流量走代理 | 直连：所有流量直连"
+
+msgid "Allow LAN"
+msgstr "允许局域网"
+
+msgid "Allow connections from LAN devices"
+msgstr "允许局域网设备连接"
+
+msgid "Bind Address"
+msgstr "绑定地址"
+
+msgid "'*' for all interfaces, or specify an IP address"
+msgstr "'*' 表示所有接口，或指定一个 IP 地址"
+
+msgid "Enable IPv6"
+msgstr "启用 IPv6"
+
+msgid "Dashboard Settings"
+msgstr "仪表盘设置"
+
+msgid "Dashboard Port"
+msgstr "仪表盘端口"
+
+msgid "External controller port for dashboard access"
+msgstr "用于访问仪表盘的外部控制器端口"
+
+msgid "Dashboard Password"
+msgstr "仪表盘密码"
+
+msgid "Leave empty for no authentication"
+msgstr "留空则无需认证"
+
+msgid "Proxy Port Settings"
+msgstr "代理端口设置"
+
+msgid "Configure SOCKS5, HTTP, and Mixed proxy ports."
+msgstr "配置 SOCKS5、HTTP 和混合代理端口。"
+
+msgid "Enable SOCKS5 Proxy"
+msgstr "启用 SOCKS5 代理"
+
+msgid "SOCKS5 Port"
+msgstr "SOCKS5 端口"
+
+msgid "Enable HTTP Proxy"
+msgstr "启用 HTTP 代理"
+
+msgid "HTTP Port"
+msgstr "HTTP 端口"
+
+msgid "Enable Mixed Proxy"
+msgstr "启用混合代理"
+
+msgid "Mixed Port"
+msgstr "混合端口"
+
+msgid "Mixed port supports both SOCKS5 and HTTP protocols on the same port"
+msgstr "混合端口在同一端口上支持 SOCKS5 和 HTTP 两种协议"
+
+msgid "Usage Instructions"
+msgstr "使用说明"
+
+msgid "How to Use Proxy"
+msgstr "如何使用代理"
+
+msgid "Windows System Proxy"
+msgstr "Windows 系统代理"
+
+msgid "macOS System Proxy"
+msgstr "macOS 系统代理"
+
+msgid "iOS/Android"
+msgstr "iOS/Android"
+
+msgid "Browser Extension"
+msgstr "浏览器扩展"
+
+msgid "Command Line (curl)"
+msgstr "命令行 (curl)"
+
+msgid "Docker"
+msgstr "Docker"
+
+msgid "Tip:"
+msgstr "提示："
+
+msgid "Replace [Router IP] with your actual router IP address (usually 192.168.1.1 or similar). The mixed port (default 7893) supports both HTTP and SOCKS5 protocols."
+msgstr "将 [Router IP] 替换为您路由器的实际 IP 地址（通常是 192.168.1.1 或类似地址）。混合端口（默认 7893）同时支持 HTTP 和 SOCKS5 协议。"
+
+msgid "Proxy Servers"
+msgstr "代理服务器"
+
+msgid "Manage proxy server configurations. You can add, edit, or delete proxy servers here."
+msgstr "管理代理服务器配置。您可以在此添加、编辑或删除代理服务器。"
+
+msgid "Name"
+msgstr "名称"
+
+msgid "Type"
+msgstr "类型"
+
+msgid "Server"
+msgstr "服务器"
+
+msgid "Port"
+msgstr "端口"
+
+msgid "Server Address"
+msgstr "服务器地址"
+
+msgid "Cipher"
+msgstr "加密方式"
+
+msgid "Password"
+msgstr "密码"
+
+msgid "UUID"
+msgstr "UUID"
+
+msgid "Alter ID"
+msgstr "额外 ID"
+
+msgid "Network"
+msgstr "传输协议"
+
+msgid "TLS"
+msgstr "TLS"
+
+msgid "SNI"
+msgstr "SNI"
+
+msgid "Skip Certificate Verify"
+msgstr "跳过证书验证"
+
+msgid "WebSocket Path"
+msgstr "WebSocket 路径"
+
+msgid "WebSocket Host"
+msgstr "WebSocket 主机"
+
+msgid "gRPC Service Name"
+msgstr "gRPC 服务名"
+
+msgid "Routing Rules"
+msgstr "路由规则"
+
+msgid "Configure proxy routing rules."
+msgstr "配置代理路由规则。"
+
+msgid "Quick Rules"
+msgstr "快捷规则"
+
+msgid "Enable Rules"
+msgstr "启用规则"
+
+msgid "Predefined Rules"
+msgstr "预设规则"
+
+msgid "China IPs Direct"
+msgstr "中国 IP 直连"
+
+msgid "Route Chinese IPs directly without proxy"
+msgstr "中国 IP 直连不走代理"
+
+msgid "Private IPs Direct"
+msgstr "内网 IP 直连"
+
+msgid "Route private/LAN IPs directly"
+msgstr "内网/局域网 IP 直连"
+
+msgid "Final Rule"
+msgstr "最终规则"
+
+msgid "Default action for unmatched traffic"
+msgstr "未匹配流量的默认操作"
+
+msgid "Proxy"
+msgstr "代理"
+
+msgid "Reject"
+msgstr "拒绝"
+
+msgid "Custom Rules"
+msgstr "自定义规则"
+
+msgid "Value"
+msgstr "值"
+
+msgid "Action"
+msgstr "动作"
+
+msgid "SocksClash Logs"
+msgstr "SocksClash 日志"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "Clear"
+msgstr "清空"
+
+msgid "Filter:"
+msgstr "过滤："
+
+msgid "All Levels"
+msgstr "所有级别"
+
+msgid "Search logs..."
+msgstr "搜索日志..."
+
+msgid "Loading logs..."
+msgstr "加载日志中..."
+
+msgid "No logs available"
+msgstr "暂无日志"
+
+msgid "Total lines:"
+msgstr "总行数："
+
+msgid "Auto Scroll"
+msgstr "自动滚动"
+
+msgid "Are you sure you want to clear all logs?"
+msgstr "确定要清空所有日志吗？"
+
+msgid "Subscribe"
+msgstr "订阅"
+
+msgid "Config Subscribe"
+msgstr "配置订阅"
+
+msgid "Manage configuration subscriptions. You can add subscription links from your proxy providers."
+msgstr "管理配置订阅。您可以从代理服务商添加订阅链接。"
+
+msgid "Subscriptions"
+msgstr "订阅列表"
+
+msgid "Subscribe URL"
+msgstr "订阅地址"
+
+msgid "User Agent"
+msgstr "用户代理"
+
+msgid "Update Interval"
+msgstr "更新间隔"
+
+msgid "Manual"
+msgstr "手动"
+
+msgid "1 hour"
+msgstr "1 小时"
+
+msgid "6 hours"
+msgstr "6 小时"
+
+msgid "12 hours"
+msgstr "12 小时"
+
+msgid "24 hours"
+msgstr "24 小时"
+
+msgid "7 days"
+msgstr "7 天"
+
+msgid "Manual Update"
+msgstr "手动更新"
+
+msgid "Update Now"
+msgstr "立即更新"
+
+msgid "Update All Subscriptions"
+msgstr "更新所有订阅"
+
+msgid "SOCKS5 Proxy"
+msgstr "SOCKS5 代理"
+
+msgid "HTTP Proxy"
+msgstr "HTTP 代理"
+
+msgid "Mixed Proxy"
+msgstr "混合代理"
+
+msgid "Rule Mode"
+msgstr "规则模式"
+
+msgid "Global Mode"
+msgstr "全局模式"
+
+msgid "Direct Mode"
+msgstr "直连模式"
+
+msgid "Test All Proxies"
+msgstr "测试所有代理"
+
+msgid "Open External Dashboard"
+msgstr "打开外部仪表盘"
+
+msgid "Active Connections"
+msgstr "活跃连接"
+
+msgid "Upload Speed"
+msgstr "上传速度"
+
+msgid "Download Speed"
+msgstr "下载速度"
+
+msgid "Current Mode"
+msgstr "当前模式"
+
+msgid "Proxies"
+msgstr "代理节点"
+
+msgid "Host"
+msgstr "主机"
+
+msgid "Chain"
+msgstr "链路"
+
+msgid "Time"
+msgstr "时间"
+
+msgid "Close All"
+msgstr "关闭全部"
+
+msgid "Routing Rules"
+msgstr "路由规则"
+
+msgid "Payload"
+msgstr "匹配内容"
+
+msgid "Real-time Logs"
+msgstr "实时日志"
+
+msgid "Loading proxy groups..."
+msgstr "加载代理组中..."
+
+msgid "No proxy groups available"
+msgstr "无可用代理组"
+
+msgid "No proxy groups configured"
+msgstr "未配置代理组"
+
+msgid "No active connections"
+msgstr "无活跃连接"
+
+msgid "No rules configured"
+msgstr "未配置规则"
+
+msgid "Delay test started for all proxies"
+msgstr "已开始对所有代理进行延迟测试"
+
+msgid "Are you sure you want to close all connections?"
+msgstr "确定要关闭所有连接吗？"
+
+msgid "Control Panel"
+msgstr "控制面板"
+
+msgid "Rule"
+msgstr "规则"
+
+msgid "Global"
+msgstr "全局"
+
+msgid "Direct"
+msgstr "直连"
+
+msgid "Test Latency"
+msgstr "测速"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "Upload"
+msgstr "上传"
+
+msgid "Download"
+msgstr "下载"
+
+msgid "Connections"
+msgstr "连接"
+
+msgid "Loading..."
+msgstr "加载中..."
+
+msgid "Timeout"
+msgstr "超时"
+
+msgid "Error"
+msgstr "错误"
+
+msgid "Switched to"
+msgstr "切换至"
+
+msgid "Testing..."
+msgstr "测试中..."
+
+msgid "Clash is not running"
+msgstr "Clash 未运行"
+
+msgid "Failed to load proxies"
+msgstr "加载节点失败"
+
+msgid "Failed to switch mode"
+msgstr "切换模式失败"

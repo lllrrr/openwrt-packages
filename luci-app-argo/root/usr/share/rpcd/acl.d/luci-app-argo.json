@@ -1,0 +1,57 @@
+{
+    "luci-app-argo": {
+        "description": "Grant access for luci-app-argo",
+        "read": {
+            "cgi-io": [
+                "exec"
+            ],
+            "file": {
+                "/etc/argo/token": [
+                    "read"
+                ],
+                "/usr/bin/cloudflared": [
+                    "stat",
+                    "exec"
+                ],
+                "/etc/init.d/argo": [
+                    "stat",
+                    "exec"
+                ]
+            },
+            "ubus": {
+                "file": [
+                    "exec",
+                    "read"
+                ],
+                "luci.argo": [
+                    "get_status",
+                    "get_arch"
+                ],
+                "service": [
+                    "list"
+                ]
+            },
+            "uci": [
+                "argo"
+            ]
+        },
+        "write": {
+            "file": {
+                "/etc/argo/*": [
+                    "write"
+                ]
+            },
+            "ubus": {
+                "luci": [
+                    "setInitAction"
+                ],
+                "luci.argo": [
+                    "install"
+                ]
+            },
+            "uci": [
+                "argo"
+            ]
+        }
+    }
+}

@@ -1,0 +1,11 @@
+{
+	"luci-app-cloudflared": {
+		"description": "Grant UCI access for luci-app-cloudflared",
+		"read": {
+			"uci": [ "cloudflared" ]
+		},
+		"write": {
+			"uci": [ "cloudflared" ]
+		}
+	}
+}

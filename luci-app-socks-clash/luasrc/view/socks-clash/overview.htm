@@ -1,0 +1,450 @@
+﻿<%+header%>
+
+    <style>
+        :root {
+            --primary: #6366f1;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --dark: #1e293b;
+            --gray: #64748b;
+            --border: #e2e8f0;
+        }
+
+        .sc-page {
+            font-family: 'Inter', system-ui, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .sc-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .sc-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .sc-logo {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, var(--primary), #4f46e5);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: white;
+        }
+
+        .sc-title h1 {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--dark);
+            margin: 0;
+        }
+
+        .sc-controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        .sc-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .sc-btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .sc-btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .sc-btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .sc-btn-warning {
+            background: var(--warning);
+            color: white;
+        }
+
+        .sc-btn:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .sc-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .sc-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            border: 1px solid var(--border);
+        }
+
+        .sc-card-title {
+            font-size: 14px;
+            color: var(--gray);
+            margin-bottom: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .sc-status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .sc-status-running {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .sc-status-stopped {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .sc-info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sc-info-row:last-child {
+            border-bottom: none;
+        }
+
+        .sc-info-label {
+            color: var(--gray);
+            font-size: 14px;
+        }
+
+        .sc-info-value {
+            font-weight: 600;
+            color: var(--dark);
+            font-size: 14px;
+        }
+
+        .sc-proxy-box {
+            background: #f8fafc;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 8px;
+            font-family: monospace;
+            font-size: 13px;
+        }
+
+        .sc-proxy-type {
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        .sc-alert {
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .sc-alert-warning {
+            background: #fef3c7;
+            color: #92400e;
+            border: 1px solid #fcd34d;
+        }
+
+        .sc-alert-info {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #93c5fd;
+        }
+
+        .sc-toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: var(--dark);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s;
+            z-index: 1000;
+        }
+
+        .sc-toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+
+    <div class="sc-page">
+        <div class="sc-header">
+            <div class="sc-title">
+                <div class="sc-logo"><img src="/luci-static/resources/socks-clash/logo.png" alt="SocksClash"
+                        style="width: 48px; height: 48px; border-radius: 12px;"></div>
+                <div>
+                    <h1>SocksClash</h1>
+                    <div style="color: var(--gray); font-size: 13px;">简化的代理服务管理</div>
+                </div>
+            </div>
+            <div class="sc-controls">
+                <button class="sc-btn sc-btn-success" id="btn-start" onclick="startService()">
+                    <span>▶</span> 启动
+                </button>
+                <button class="sc-btn sc-btn-danger" id="btn-stop" onclick="stopService()">
+                    <span>■</span> 停止
+                </button>
+                <button class="sc-btn sc-btn-primary" onclick="restartService()">
+                    <span>↻</span> 重启
+                </button>
+            </div>
+        </div>
+
+        <!-- Core Alert -->
+        <div class="sc-alert sc-alert-warning" id="core-alert" style="display: none;">
+            <span>⚠️</span>
+            <div>
+                <strong>未检测到 Clash 内核</strong>
+                <div style="font-size: 13px; margin-top: 4px;">需要下载 Clash Meta 内核才能使用代理功能</div>
+            </div>
+            <button class="sc-btn sc-btn-warning" onclick="downloadCore()" style="margin-left: auto;">
+                <span>⬇️</span> 下载内核
+            </button>
+        </div>
+
+        <div class="sc-grid">
+            <!-- Status Card -->
+            <div class="sc-card">
+                <div class="sc-card-title">服务状态</div>
+                <div id="status-badge" class="sc-status-badge sc-status-stopped">
+                    <span>●</span> 已停止
+                </div>
+                <div style="margin-top: 16px;">
+                    <div class="sc-info-row">
+                        <span class="sc-info-label">内核版本</span>
+                        <span class="sc-info-value" id="core-version">未安装</span>
+                    </div>
+                    <div class="sc-info-row">
+                        <span class="sc-info-label">代理模式</span>
+                        <span class="sc-info-value" id="proxy-mode">--</span>
+                    </div>
+                    <div class="sc-info-row">
+                        <span class="sc-info-label">连接数</span>
+                        <span class="sc-info-value" id="conn-count">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Proxy Addresses -->
+            <div class="sc-card">
+                <div class="sc-card-title">代理地址</div>
+                <div id="proxy-addresses">
+                    <div class="sc-proxy-box">
+                        <span class="sc-proxy-type">SOCKS5:</span> <span id="addr-socks">--</span>
+                    </div>
+                    <div class="sc-proxy-box">
+                        <span class="sc-proxy-type">HTTP:</span> <span id="addr-http">--</span>
+                    </div>
+                    <div class="sc-proxy-box">
+                        <span class="sc-proxy-type">混合:</span> <span id="addr-mixed">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Traffic -->
+            <div class="sc-card">
+                <div class="sc-card-title">流量统计</div>
+                <div class="sc-info-row">
+                    <span class="sc-info-label">⬆️ 上传</span>
+                    <span class="sc-info-value" id="traffic-up">0 B/s</span>
+                </div>
+                <div class="sc-info-row">
+                    <span class="sc-info-label">⬇️ 下载</span>
+                    <span class="sc-info-value" id="traffic-down">0 B/s</span>
+                </div>
+            </div>
+
+            <!-- Quick Links -->
+            <div class="sc-card">
+                <div class="sc-card-title">快捷操作</div>
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <button class="sc-btn sc-btn-primary" onclick="openDashboard()">
+                        <span>🎛️</span> 打开控制面板
+                    </button>
+                    <button class="sc-btn" style="background: #f1f5f9; color: var(--dark);" onclick="downloadCore()">
+                        <span>⬇️</span> 下载/更新内核
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="sc-toast"></div>
+
+    <script type="text/javascript">
+        (function () {
+            var API_BASE = '';
+
+            function $(id) { return document.getElementById(id); }
+
+            function toast(msg) {
+                var t = $('toast');
+                t.textContent = msg;
+                t.classList.add('show');
+                setTimeout(function () { t.classList.remove('show'); }, 3000);
+            }
+
+            function formatBytes(bytes) {
+                if (!bytes) return '0 B';
+                var k = 1024, sizes = ['B', 'KB', 'MB', 'GB'];
+                var i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+            }
+
+            function updateStatus() {
+                XHR.get('<%=luci.dispatcher.build_url("admin/services/socks-clash/status")%>', null, function (x, data) {
+                    if (data) {
+                        var badge = $('status-badge');
+                        if (data.running) {
+                            badge.className = 'sc-status-badge sc-status-running';
+                            badge.innerHTML = '<span>●</span> 运行中';
+                            API_BASE = 'http://' + data.lan_ip + ':' + data.cn_port;
+                            updateTraffic();
+                        } else {
+                            badge.className = 'sc-status-badge sc-status-stopped';
+                            badge.innerHTML = '<span>●</span> 已停止';
+                        }
+
+                        $('proxy-mode').textContent = data.mode || '--';
+                        $('addr-socks').textContent = data.lan_ip + ':' + data.socks_port;
+                        $('addr-http').textContent = data.lan_ip + ':' + data.http_port;
+                        $('addr-mixed').textContent = data.lan_ip + ':' + data.mixed_port;
+                    }
+                });
+            }
+
+            function checkCore() {
+                XHR.get('<%=luci.dispatcher.build_url("admin/services/socks-clash/check_core")%>', null, function (x, data) {
+                    if (data) {
+                        if (data.exists) {
+                            $('core-version').textContent = data.version || '已安装';
+                            $('core-alert').style.display = 'none';
+                        } else {
+                            $('core-version').textContent = '未安装';
+                            $('core-alert').style.display = 'flex';
+                        }
+                    }
+                });
+            }
+
+            function updateTraffic() {
+                if (!API_BASE) return;
+                var xhr = new XMLHttpRequest();
+                xhr.open('GET', API_BASE + '/traffic', true);
+                xhr.onload = function () {
+                    if (xhr.status === 200) {
+                        var data = JSON.parse(xhr.responseText);
+                        $('traffic-up').textContent = formatBytes(data.up) + '/s';
+                        $('traffic-down').textContent = formatBytes(data.down) + '/s';
+                    }
+                };
+                xhr.send();
+
+                // Connections
+                var xhr2 = new XMLHttpRequest();
+                xhr2.open('GET', API_BASE + '/connections', true);
+                xhr2.onload = function () {
+                    if (xhr2.status === 200) {
+                        var data = JSON.parse(xhr2.responseText);
+                        $('conn-count').textContent = data.connections ? data.connections.length : 0;
+                    }
+                };
+                xhr2.send();
+            }
+
+            window.startService = function () {
+                toast('正在启动...');
+                XHR.get('<%=luci.dispatcher.build_url("admin/services/socks-clash/start")%>', null, function () {
+                    setTimeout(updateStatus, 1500);
+                    toast('启动命令已发送');
+                });
+            };
+
+            window.stopService = function () {
+                toast('正在停止...');
+                XHR.get('<%=luci.dispatcher.build_url("admin/services/socks-clash/stop")%>', null, function () {
+                    setTimeout(updateStatus, 1000);
+                    toast('已停止');
+                });
+            };
+
+            window.restartService = function () {
+                toast('正在重启...');
+                XHR.get('<%=luci.dispatcher.build_url("admin/services/socks-clash/restart")%>', null, function () {
+                    setTimeout(updateStatus, 2000);
+                    toast('重启命令已发送');
+                });
+            };
+
+            window.openDashboard = function () {
+                window.location.href = '<%=luci.dispatcher.build_url("admin/services/socks-clash/dashboard")%>';
+            };
+
+            window.downloadCore = function () {
+                toast('开始下载内核，请查看日志...');
+                XHR.get('<%=luci.dispatcher.build_url("admin/services/socks-clash/download_core")%>', null, function () {
+                    toast('下载任务已启动，请稍后刷新查看');
+                    setTimeout(checkCore, 10000);
+                });
+            };
+
+            // Init
+            updateStatus();
+            checkCore();
+            setInterval(updateStatus, 5000);
+            setInterval(function () {
+                if (API_BASE) updateTraffic();
+            }, 2000);
+        })();
+    </script>
+    <%+footer%>

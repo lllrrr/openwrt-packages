@@ -1,0 +1,659 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# arcma - Automatic Random Complete MAC Address changer
+# Zero external dependencies: requires only BusyBox sh, od, uci, ip (or ifconfig)
+# Compatible with OpenWrt 23.05+
+#
+# Usage: arcma <command> [options]
+#   arcma apply   [<iface> ...]   Apply random MAC (all interfaces if none specified)
+#   arcma restore [<iface> ...]   Restore original MAC
+#   arcma show    [<iface> ...]   Show current / original MAC info
+#   arcma list    [<type>]        List embedded OUI vendor names (type: router wlan eth console)
+#   arcma gen     [options]       Generate a MAC address and print it (no apply)
+#
+# Options for apply/gen:
+#   -m local           Locally-administered random (default)
+#   -m oui             Use vendor OUI prefix from embedded database
+#   -t <type>          OUI vendor type: router wlan eth console  (default: router)
+#   -v <VendorName>    OUI vendor name within type file
+#   -s <XX:XX:XX>      Specify OUI prefix manually
+#   -e                 Sequence mode: NIC part increments across multiple interfaces
+#   -p                 Persist: write MAC into uci network.<logical_iface>.macaddr
+
+VERSION="1.0.0"
+ARCMA_OUI_DIR="/usr/share/arcma/oui"
+ARCMA_STATE_DIR="/tmp/arcma_orig"
+
+# ──────────────────────────────────────────────────────────
+# Utility functions
+# ──────────────────────────────────────────────────────────
+
+# rand_hex <count>
+# Output <count> random lowercase hex characters from /dev/urandom via od
+rand_hex() {
+    local n="$1"
+    # od -An: no address, -N: read N bytes, -tx1: hex bytes separated by spaces
+    # We read ceil(n/2) bytes and take n chars
+    local bytes=$(( (n + 1) / 2 ))
+    od -An -N"${bytes}" -tx1 /dev/urandom 2>/dev/null \
+        | tr -d ' \n\t' \
+        | cut -c"1-${n}"
+}
+
+# rand_num <min> <max>   (inclusive)
+rand_num() {
+    local min="$1"
+    local max="$2"
+    local range=$(( max - min + 1 ))
+    local raw
+    raw=$(od -An -N2 -tu2 /dev/urandom 2>/dev/null | tr -d ' \n')
+    echo $(( raw % range + min ))
+}
+
+# mac_format <12hexchars>  →  XX:XX:XX:XX:XX:XX uppercase
+mac_format() {
+    local h="$1"
+    printf '%s:%s:%s:%s:%s:%s\n' \
+        "${h%??????????}" \
+        "$(echo "$h" | cut -c3-4)" \
+        "$(echo "$h" | cut -c5-6)" \
+        "$(echo "$h" | cut -c7-8)" \
+        "$(echo "$h" | cut -c9-10)" \
+        "$(echo "$h" | cut -c11-12)" \
+        | tr 'a-f' 'A-F'
+}
+
+# oui_strip <XX:XX:XX or XXXXXX>  →  6 lowercase hex chars
+oui_strip() {
+    echo "$1" | tr -d ':' | tr 'A-F' 'a-f' | cut -c1-6
+}
+
+# mac_strip <XX:XX:XX:XX:XX:XX>  →  12 lowercase hex chars
+mac_strip() {
+    echo "$1" | tr -d ':' | tr 'A-F' 'a-f'
+}
+
+# validate_oui_prefix <XX:XX:XX>
+validate_oui_prefix() {
+    case "$1" in
+        [0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# validate_mac_full <XX:XX:XX:XX:XX:XX>
+validate_mac_full() {
+    case "$1" in
+        [0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# ──────────────────────────────────────────────────────────
+# MAC generation
+# ──────────────────────────────────────────────────────────
+
+# gen_mac_local
+# Locally-administered (bit1=1) unicast (bit0=0) MAC, fully random NIC part
+gen_mac_local() {
+    local b0_hex
+    b0_hex=$(rand_hex 2)
+    local b0=$(( 0x${b0_hex} & 0xFE | 0x02 ))
+    local rest
+    rest=$(rand_hex 10)
+    mac_format "$(printf '%02x' "${b0}")${rest}"
+}
+
+# gen_mac_oui <oui_6hex>
+# Globally-unique OUI prefix + random NIC suffix
+gen_mac_oui() {
+    local oui
+    oui=$(oui_strip "$1")
+    local nic
+    nic=$(rand_hex 6)
+    mac_format "${oui}${nic}"
+}
+
+# gen_mac_oui_seq <oui_6hex> <index>
+# Sequence mode: NIC part is deterministic offset from a random base stored in $SEQ_BASE_NIC
+# SEQ_BASE_NIC must be initialised before first call
+gen_mac_oui_seq() {
+    local oui
+    oui=$(oui_strip "$1")
+    local idx="$2"
+    local base_int="0x${SEQ_BASE_NIC}"
+    local nic_int=$(( (base_int + idx) & 0xFFFFFF ))
+    local nic
+    nic=$(printf '%06x' "${nic_int}")
+    mac_format "${oui}${nic}"
+}
+
+# pick_oui <type> <vendorname>
+# Returns a random OUI prefix (XX:XX:XX uppercase) from the embedded database
+pick_oui() {
+    local type="$1"
+    local vendor="$2"
+    local file="${ARCMA_OUI_DIR}/${type}.txt"
+
+    [ -f "${file}" ] || { log_err "OUI type '${type}' not found in ${ARCMA_OUI_DIR}"; return 1; }
+
+    local line
+    line=$(grep -i "^${vendor}	" "${file}" 2>/dev/null | head -n1)
+    [ -z "${line}" ] && { log_err "Vendor '${vendor}' not found in ${type}.txt"; return 1; }
+
+    local oui_list
+    oui_list=$(echo "${line}" | cut -f2-)
+    # count entries
+    local count
+    count=$(echo "${oui_list}" | wc -w)
+    local pick
+    pick=$(rand_num 1 "${count}")
+    echo "${oui_list}" | tr ' ' '\n' | sed -n "${pick}p"
+}
+
+# ──────────────────────────────────────────────────────────
+# Interface enumeration
+# ──────────────────────────────────────────────────────────
+
+# list_physical_ifaces
+# Returns all physical (not virtual) network interfaces via sysfs
+list_physical_ifaces() {
+    local iface result=""
+    for iface in /sys/class/net/*; do
+        iface=$(basename "${iface}")
+        # Skip loopback
+        [ "${iface}" = "lo" ] && continue
+        # Only real hardware: has 'device' symlink (skips bridges, tunnels, vlans without HW)
+        if [ -e "/sys/class/net/${iface}/device" ]; then
+            result="${result} ${iface}"
+        fi
+    done
+    echo "${result}" | tr ' ' '\n' | grep -v '^$'
+}
+
+# get_current_mac <iface>
+get_current_mac() {
+    local iface="$1"
+    if [ -f "/sys/class/net/${iface}/address" ]; then
+        tr 'a-f' 'A-F' < "/sys/class/net/${iface}/address"
+    else
+        return 1
+    fi
+}
+
+# get_perm_mac <iface>
+# Read permanent (factory) MAC from sysfs (available since kernel 3.11)
+get_perm_mac() {
+    local iface="$1"
+    if [ -f "/sys/class/net/${iface}/permaddr" ]; then
+        tr 'a-f' 'A-F' < "/sys/class/net/${iface}/permaddr"
+    else
+        return 1
+    fi
+}
+
+# ──────────────────────────────────────────────────────────
+# MAC application
+# ──────────────────────────────────────────────────────────
+
+# set_mac <iface> <MAC>
+# Apply MAC using `ip` with BusyBox ifconfig fallback; brings iface down/up around the change.
+# Interface is always brought back UP even if the address change fails (C1 fix).
+set_mac() {
+    local iface="$1"
+    local mac="$2"
+    local ret=1
+
+    if ip link set dev "${iface}" down 2>/dev/null; then
+        ip link set dev "${iface}" address "${mac}"
+        ret=$?
+        ip link set dev "${iface}" up 2>/dev/null
+        return ${ret}
+    elif ifconfig "${iface}" down 2>/dev/null; then
+        ifconfig "${iface}" hw ether "${mac}"
+        ret=$?
+        ifconfig "${iface}" up 2>/dev/null
+        return ${ret}
+    else
+        log_err "Failed to bring ${iface} down; cannot change MAC"
+        return 1
+    fi
+}
+
+# ──────────────────────────────────────────────────────────
+# State persistence (save/restore original MACs)
+# ──────────────────────────────────────────────────────────
+
+# save_orig_mac <iface>
+# Saves the current MAC as the "original" if not already saved (idempotent)
+save_orig_mac() {
+    local iface="$1"
+    local state_file="${ARCMA_STATE_DIR}/${iface}"
+    mkdir -p "${ARCMA_STATE_DIR}"
+    if [ ! -f "${state_file}" ]; then
+        local perm
+        perm=$(get_perm_mac "${iface}")
+        if [ -n "${perm}" ]; then
+            echo "${perm}" > "${state_file}"
+        else
+            local cur
+            cur=$(get_current_mac "${iface}")
+            [ -n "${cur}" ] && echo "${cur}" > "${state_file}"
+        fi
+    fi
+}
+
+# get_orig_mac <iface>
+get_orig_mac() {
+    local iface="$1"
+    local state_file="${ARCMA_STATE_DIR}/${iface}"
+    if [ -f "${state_file}" ]; then
+        cat "${state_file}"
+    else
+        get_perm_mac "${iface}" || get_current_mac "${iface}"
+    fi
+}
+
+# persist_to_uci <iface_physical> <mac>
+# Write MAC into uci network: find logical interface whose device matches iface
+persist_to_uci() {
+    local dev="$1"
+    local mac="$2"
+    # M1 fix: escape dev for use in regex (handles vlan names like eth0.1)
+    local dev_esc
+    dev_esc=$(printf '%s' "${dev}" | sed 's/[\[\]\^\$\.\*\+\?\{\}\(\)|\\]/\\&/g')
+    # Find all uci network sections and check their 'device' or 'ifname' option
+    local section
+    section=$(uci show network 2>/dev/null \
+        | grep -E "\.device='?${dev_esc}'?|\.ifname='?${dev_esc}'?" \
+        | head -n1 \
+        | cut -d. -f2 \
+        | cut -d= -f1)
+    if [ -n "${section}" ]; then
+        uci set "network.${section}.macaddr=${mac}" && uci commit network
+        return 0
+    fi
+    return 1
+}
+
+# ──────────────────────────────────────────────────────────
+# Logging
+# ──────────────────────────────────────────────────────────
+
+log_info() { logger -t arcma -p daemon.info -- "$*"; echo "[arcma] $*"; }
+log_err()  { logger -t arcma -p daemon.err  -- "$*"; echo "[arcma] ERROR: $*" >&2; }
+
+# ──────────────────────────────────────────────────────────
+# Commands
+# ──────────────────────────────────────────────────────────
+
+# cmd_apply <options> [iface ...]
+cmd_apply() {
+    local mode="local" oui_type="router" oui_vendor="" oui_manual="" seq=0 persist=0
+    local ifaces=""
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -m)
+                [ $# -lt 2 ] && { log_err "-m requires a value"; return 1; }
+                mode="$2"; shift 2 ;;
+            -t)
+                [ $# -lt 2 ] && { log_err "-t requires a value"; return 1; }
+                oui_type="$2"; shift 2 ;;
+            -v)
+                [ $# -lt 2 ] && { log_err "-v requires a value"; return 1; }
+                oui_vendor="$2"; shift 2 ;;
+            -s)
+                [ $# -lt 2 ] && { log_err "-s requires a value"; return 1; }
+                oui_manual="$2"; shift 2 ;;
+            -e) seq=1;           shift   ;;
+            -p) persist=1;       shift   ;;
+            -*) log_err "Unknown option: $1"; return 1 ;;
+            *)  ifaces="${ifaces} $1"; shift ;;
+        esac
+    done
+
+    # Resolve interface list
+    if [ -z "${ifaces}" ] || echo "${ifaces}" | grep -q '\*'; then
+        ifaces=$(list_physical_ifaces)
+    fi
+    [ -z "${ifaces}" ] && { log_err "No interfaces found"; return 1; }
+
+    # Pre-resolve OUI for oui mode
+    local oui_prefix=""
+    if [ "${mode}" = "oui" ]; then
+        if [ -n "${oui_manual}" ]; then
+            validate_oui_prefix "${oui_manual}" || {
+                log_err "Invalid OUI prefix '${oui_manual}', expected XX:XX:XX"
+                return 1
+            }
+            oui_prefix="${oui_manual}"
+        else
+            [ -z "${oui_vendor}" ] && { log_err "-v <VendorName> required for oui mode"; return 1; }
+            oui_prefix=$(pick_oui "${oui_type}" "${oui_vendor}") || return 1
+        fi
+    elif [ "${mode}" = "static" ]; then
+        [ -n "${oui_manual}" ] || { log_err "-s <XX:XX:XX:XX:XX:XX> required for static mode"; return 1; }
+        validate_mac_full "${oui_manual}" || {
+            log_err "Invalid static MAC '${oui_manual}', expected XX:XX:XX:XX:XX:XX"
+            return 1
+        }
+    fi
+
+    # Sequence mode: generate a random 24-bit NIC base once (shared across all ifaces)
+    if [ "${seq}" = "1" ]; then
+        SEQ_BASE_NIC=$(rand_hex 6)
+    fi
+
+    local idx=0
+    for iface in ${ifaces}; do
+        # Skip non-existent interfaces
+        [ -e "/sys/class/net/${iface}" ] || { log_info "Skipping ${iface}: not found"; continue; }
+
+        # Save original MAC before first modification
+        save_orig_mac "${iface}"
+
+        # Generate new MAC
+        local new_mac=""
+        case "${mode}" in
+            local)
+                new_mac=$(gen_mac_local) ;;
+            oui)
+                if [ "${seq}" = "1" ]; then
+                    new_mac=$(gen_mac_oui_seq "${oui_prefix}" "${idx}")
+                else
+                    new_mac=$(gen_mac_oui "${oui_prefix}")
+                fi
+                ;;
+            static)
+                # static mode: oui_manual is the full 6-byte MAC
+                new_mac="${oui_manual}"
+                ;;
+            *)
+                log_err "Unknown mode: ${mode}"; return 1 ;;
+        esac
+
+        log_info "${iface}: ${mode} → ${new_mac}"
+        if set_mac "${iface}" "${new_mac}"; then
+            [ "${persist}" = "1" ] && persist_to_uci "${iface}" "${new_mac}"
+        else
+            log_err "${iface}: failed to apply MAC ${new_mac}"
+        fi
+        idx=$(( idx + 1 ))
+    done
+}
+
+# cmd_restore [iface ...]
+cmd_restore() {
+    local ifaces="$*"
+    [ -z "${ifaces}" ] || echo "${ifaces}" | grep -q '\*' && \
+        ifaces=$(list_physical_ifaces)
+
+    for iface in ${ifaces}; do
+        [ -e "/sys/class/net/${iface}" ] || continue
+        local orig
+        orig=$(get_orig_mac "${iface}")
+        if [ -z "${orig}" ]; then
+            log_info "${iface}: no saved original MAC, skipping"
+            continue
+        fi
+        log_info "${iface}: restoring → ${orig}"
+        set_mac "${iface}" "${orig}" || log_err "${iface}: restore failed"
+    done
+}
+
+# cmd_show [iface ...]
+cmd_show() {
+    local ifaces="$*"
+    [ -z "${ifaces}" ] || echo "${ifaces}" | grep -q '\*' && \
+        ifaces=$(list_physical_ifaces)
+
+    printf '%-12s  %-19s  %-19s  %s\n' "Interface" "Current MAC" "Original MAC" "Type"
+    printf '%-12s  %-19s  %-19s  %s\n' "---------" "-----------" "------------" "----"
+    for iface in ${ifaces}; do
+        [ -e "/sys/class/net/${iface}" ] || continue
+        local cur orig type
+        cur=$(get_current_mac "${iface}" 2>/dev/null || echo "N/A")
+        orig=$(get_orig_mac "${iface}" 2>/dev/null || echo "N/A")
+        # Determine if locally administered (C3 fix: guard against N/A / empty cur)
+        local first_byte=""
+        if [ "${cur}" != "N/A" ] && [ -n "${cur}" ]; then
+            first_byte=$(echo "${cur}" | cut -d: -f1 | tr 'A-F' 'a-f')
+        fi
+        if [ -n "${first_byte}" ] && [ "$(( 0x${first_byte} & 0x02 ))" -ne 0 ]; then
+            type="local-admin"
+        else
+            type="global-unique"
+        fi
+        printf '%-12s  %-19s  %-19s  %s\n' "${iface}" "${cur}" "${orig}" "${type}"
+    done
+}
+
+# cmd_list [type]
+cmd_list() {
+    local type="$1"
+    if [ -z "${type}" ]; then
+        echo "Available OUI types:"
+        for f in "${ARCMA_OUI_DIR}"/*.txt; do
+            [ -f "${f}" ] && echo "  $(basename "${f}" .txt)"
+        done
+        return
+    fi
+    local file="${ARCMA_OUI_DIR}/${type}.txt"
+    [ -f "${file}" ] || { log_err "Type '${type}' not found"; return 1; }
+    echo "Vendors in '${type}':"
+    grep -v '^#' "${file}" | cut -f1 | while read -r name; do
+        [ -n "${name}" ] && echo "  ${name}"
+    done
+}
+
+# cmd_gen [options]
+cmd_gen() {
+    local mode="local" oui_type="router" oui_vendor="" oui_manual="" seq=0
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -m)
+                [ $# -lt 2 ] && { log_err "-m requires a value"; return 1; }
+                mode="$2"; shift 2 ;;
+            -t)
+                [ $# -lt 2 ] && { log_err "-t requires a value"; return 1; }
+                oui_type="$2"; shift 2 ;;
+            -v)
+                [ $# -lt 2 ] && { log_err "-v requires a value"; return 1; }
+                oui_vendor="$2"; shift 2 ;;
+            -s)
+                [ $# -lt 2 ] && { log_err "-s requires a value"; return 1; }
+                oui_manual="$2"; shift 2 ;;
+            -e) seq=1;           shift   ;;
+            -*) log_err "Unknown option: $1"; return 1 ;;
+            *)  shift ;;
+        esac
+    done
+
+    case "${mode}" in
+        local)
+            gen_mac_local ;;
+        oui)
+            local oui_prefix
+            if [ -n "${oui_manual}" ]; then
+                validate_oui_prefix "${oui_manual}" || {
+                    log_err "Invalid OUI prefix '${oui_manual}', expected XX:XX:XX"
+                    return 1
+                }
+                oui_prefix="${oui_manual}"
+            else
+                [ -z "${oui_vendor}" ] && { log_err "-v <VendorName> required"; return 1; }
+                oui_prefix=$(pick_oui "${oui_type}" "${oui_vendor}") || return 1
+            fi
+            gen_mac_oui "${oui_prefix}" ;;
+        static)
+            [ -n "${oui_manual}" ] || { log_err "-s <XX:XX:XX:XX:XX:XX> required"; return 1; }
+            validate_mac_full "${oui_manual}" || {
+                log_err "Invalid static MAC '${oui_manual}', expected XX:XX:XX:XX:XX:XX"
+                return 1
+            }
+            echo "${oui_manual}" | tr 'a-f' 'A-F' ;;
+        *)
+            log_err "Unknown mode: ${mode}"; return 1 ;;
+    esac
+}
+
+# ──────────────────────────────────────────────────────────
+# UCI-driven batch apply (called by init.d/hotplug)
+# ──────────────────────────────────────────────────────────
+
+# uci_apply [iface_filter]
+# Reads /etc/config/arcma and applies per-section or global settings
+# M2+M3 fix: track applied_count separately from section_count so that
+# global fallback triggers when all sections are disabled OR none match filter.
+uci_apply() {
+    local filter="$1"
+
+    local enabled
+    enabled=$(uci -q get arcma.global.enabled 2>/dev/null)
+    [ "${enabled}" = "1" ] || return 0
+
+    # Process each 'iface' section
+    local section_count=0
+    local applied_count=0
+    while true; do
+        local sec_enabled sec_device sec_mode sec_oui_type sec_oui_vendor sec_oui_prefix sec_persist sec_seq
+        sec_enabled=$(uci -q get "arcma.@iface[${section_count}].enabled"    2>/dev/null)
+        sec_device=$(uci -q get  "arcma.@iface[${section_count}].device"     2>/dev/null)
+
+        # No more sections
+        [ -z "${sec_device}" ] && break
+
+        section_count=$(( section_count + 1 ))
+
+        # Skip disabled sections (M3: count section but don't count as applied)
+        [ "${sec_enabled}" != "1" ] && continue
+
+        # If a filter iface was specified (hotplug), only run matching section
+        # (M2: non-matching sections don't count as applied, allowing global fallback)
+        if [ -n "${filter}" ] && [ "${sec_device}" != "*" ] && [ "${sec_device}" != "${filter}" ]; then
+            continue
+        fi
+
+        sec_mode=$(uci -q get       "arcma.@iface[$((section_count-1))].mode"        2>/dev/null || echo "local")
+        sec_oui_type=$(uci -q get   "arcma.@iface[$((section_count-1))].oui_type"    2>/dev/null || echo "router")
+        sec_oui_vendor=$(uci -q get "arcma.@iface[$((section_count-1))].oui_vendor"  2>/dev/null)
+        sec_oui_prefix=$(uci -q get "arcma.@iface[$((section_count-1))].oui_prefix"  2>/dev/null)
+        sec_persist=$(uci -q get    "arcma.@iface[$((section_count-1))].persist"     2>/dev/null || echo "0")
+        sec_seq=$(uci -q get        "arcma.@iface[$((section_count-1))].sequence"    2>/dev/null || echo "0")
+
+        # Build apply args
+        local args="-m ${sec_mode}"
+        [ "${sec_mode}" = "oui" ] && {
+            [ -n "${sec_oui_prefix}" ] && args="${args} -s ${sec_oui_prefix}" \
+                || args="${args} -t ${sec_oui_type} -v ${sec_oui_vendor}"
+        }
+        [ "${sec_persist}" = "1" ] && args="${args} -p"
+        [ "${sec_seq}"     = "1" ] && args="${args} -e"
+
+        # Resolve device list
+        local devlist
+        if [ "${sec_device}" = "*" ]; then
+            devlist=$(list_physical_ifaces)
+        else
+            devlist="${sec_device}"
+        fi
+
+        # shellcheck disable=SC2086
+        cmd_apply ${args} ${devlist}
+        applied_count=$(( applied_count + 1 ))
+    done
+
+    # Fallback: no enabled iface section was applied (covers: no sections, all disabled, filter matched nothing)
+    if [ "${applied_count}" = "0" ]; then
+        local g_mode g_oui_type g_oui_vendor g_oui_prefix g_persist g_seq
+        g_mode=$(uci -q get       arcma.global.mode       2>/dev/null || echo "local")
+        g_oui_type=$(uci -q get   arcma.global.oui_type   2>/dev/null || echo "router")
+        g_oui_vendor=$(uci -q get arcma.global.oui_vendor 2>/dev/null)
+        g_oui_prefix=$(uci -q get arcma.global.oui_prefix 2>/dev/null)
+        g_persist=$(uci -q get    arcma.global.persist    2>/dev/null || echo "0")
+        g_seq=$(uci -q get        arcma.global.sequence   2>/dev/null || echo "0")
+
+        local args="-m ${g_mode}"
+        [ "${g_mode}" = "oui" ] && {
+            [ -n "${g_oui_prefix}" ] && args="${args} -s ${g_oui_prefix}" \
+                || args="${args} -t ${g_oui_type} -v ${g_oui_vendor}"
+        }
+        [ "${g_persist}" = "1" ] && args="${args} -p"
+        [ "${g_seq}"     = "1" ] && args="${args} -e"
+
+        # When filter is set (hotplug), apply only to that device; otherwise all interfaces
+        if [ -n "${filter}" ]; then
+            # shellcheck disable=SC2086
+            cmd_apply ${args} "${filter}"
+        else
+            local all_ifaces
+            all_ifaces=$(list_physical_ifaces)
+            # shellcheck disable=SC2086
+            cmd_apply ${args} ${all_ifaces}
+        fi
+    fi
+}
+
+# uci_restore [iface_filter]
+uci_restore() {
+    local filter="$1"
+    if [ -n "${filter}" ]; then
+        cmd_restore "${filter}"
+    else
+        cmd_restore
+    fi
+}
+
+# ──────────────────────────────────────────────────────────
+# Help
+# ──────────────────────────────────────────────────────────
+usage() {
+printf "arcma v%s — Automatic Random Complete MAC Address changer
+Zero external dependencies. Compatible with OpenWrt 23.05+
+
+Commands:
+  apply   [opts] [iface ...]   Change MAC addresses
+  restore [iface ...]          Restore original MACs
+  show    [iface ...]          Show current/original MAC info
+  list    [type]               List OUI types and vendor names
+  gen     [opts]               Generate and print a MAC (no apply)
+
+Options (apply / gen):
+  -m local            Locally-administered random (default)
+  -m oui              Use vendor OUI from embedded database
+  -m static           Use exact MAC from -s
+  -t <type>           OUI type: router wlan eth console  (default: router)
+  -v <Vendor>         Vendor name within type (e.g. Asus, Intel)
+  -s <XX:XX:XX>       Manual OUI prefix (or full MAC for static mode)
+  -e                  Sequence mode (NIC bytes increment across ifaces)
+  -p                  Persist MAC into uci network config
+
+Examples:
+  arcma apply                         # random local MAC on all ifaces
+  arcma apply -m oui -t router -v Asus eth0 eth1
+  arcma apply -m oui -t wlan -v Intel -e wlan0 wlan1
+  arcma restore
+  arcma show
+  arcma list router
+  arcma gen -m oui -t console -v Sony
+\n" "${VERSION}"
+}
+
+# ──────────────────────────────────────────────────────────
+# Entry point
+# ──────────────────────────────────────────────────────────
+CMD="$1"; shift
+case "${CMD}" in
+    apply)      cmd_apply "$@" ;;
+    restore)    cmd_restore "$@" ;;
+    show)       cmd_show "$@" ;;
+    list)       cmd_list "$@" ;;
+    gen)        cmd_gen "$@" ;;
+    uci-apply)  uci_apply "$@" ;;
+    uci-restore) uci_restore "$@" ;;
+    -V|--version) echo "arcma ${VERSION}" ;;
+    -h|--help|help) usage ;;
+    *) usage >&2; exit 1 ;;
+esac

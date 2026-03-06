@@ -1,0 +1,27 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+USE_PROCD=1
+
+migrate_db() {
+    local db_path
+    db_path=$(uci -q get httping.global.db_path) || db_path="/etc/httping_data.db"
+    
+    if [ -f "$db_path" ]; then
+        # Check if column 'type' exists
+        local has_type=$(sqlite3 "$db_path" "PRAGMA table_info(monitor_log);" | grep "|type|")
+        if [ -z "$has_type" ]; then
+            # Add column with default value 'httping' (updates existing rows too)
+            sqlite3 "$db_path" "ALTER TABLE monitor_log ADD COLUMN type TEXT DEFAULT 'httping';"
+        fi
+    fi
+}
+
+start_service() {
+    migrate_db
+
+    procd_open_instance
+    procd_set_param command /usr/bin/lua /usr/bin/httping-daemon.lua
+    procd_set_param respawn
+    procd_close_instance
+}

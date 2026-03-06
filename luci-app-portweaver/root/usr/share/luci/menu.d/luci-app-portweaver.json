@@ -1,0 +1,13 @@
+{
+	"admin/network/portweaver": {
+		"title": "PortWeaver",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "portweaver/config"
+		},
+		"depends": {
+			"acl": ["luci-app-portweaver"]
+		}
+	}
+}

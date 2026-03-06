@@ -1,0 +1,11 @@
+{
+	"luci-app-cymonline": {
+		"description": "Grant UCI access for luci-app-cymonline",
+		"read": {
+			"uci": [ "cymonline" ]
+		},
+		"write": {
+			"uci": [ "cymonline" ]
+		}
+	}
+}

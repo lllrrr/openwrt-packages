@@ -1,0 +1,2 @@
+config settings 'global'
+	option enabled '0'

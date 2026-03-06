@@ -1,0 +1,13 @@
+{
+  "admin/services/hev-socks5-tunnel": {
+    "title": "Hev Socks5 Tunnel",
+    "action": {
+      "type": "view",
+      "path": "hev-socks5-tunnel"
+    },
+    "depends": {
+      "acl": ["luci-app-hev-socks5-tunnel"],
+      "uci": {"hev-socks5-tunnel": true}
+    }
+  }
+}

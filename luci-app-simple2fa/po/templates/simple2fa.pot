@@ -1,0 +1,59 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-simple2fa\n"
+"POT-Creation-Date: 2024-12-18 21:00+0800\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Two-Factor Auth"
+msgstr ""
+
+msgid "Two-Factor Authentication"
+msgstr ""
+
+msgid "Enable 2FA to protect your router login."
+msgstr ""
+
+msgid "Settings"
+msgstr ""
+
+msgid "Enable Two-Factor Auth"
+msgstr ""
+
+msgid "Secret Key"
+msgstr ""
+
+msgid "If you cannot scan the QR code, enter this key manually."
+msgstr ""
+
+msgid "Refresh Secret"
+msgstr ""
+
+msgid "Warning: After refreshing, you must reconfigure all authenticator apps."
+msgstr ""
+
+msgid "Scan QR Code"
+msgstr ""
+
+msgid "Use Google Authenticator, Authy or Microsoft Auth to scan this QR code."
+msgstr ""
+
+msgid "Are you sure you want to refresh the secret key? This will invalidate your current authenticator setup."
+msgstr ""
+
+msgid "Copy"
+msgstr ""
+
+msgid "Copied!"
+msgstr ""
+
+msgid "2FA Token (Leave empty if not enabled)"
+msgstr ""
+
+msgid "Invalid 2FA token, please try again"
+msgstr ""

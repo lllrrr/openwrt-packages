@@ -1,0 +1,62 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-simple2fa\n"
+"POT-Creation-Date: 2024-12-18 21:00+0800\n"
+"PO-Revision-Date: 2024-12-18 21:00+0800\n"
+"Last-Translator: findnr\n"
+"Language-Team: Chinese (Simplified)\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Two-Factor Auth"
+msgstr "二次验证"
+
+msgid "Two-Factor Authentication"
+msgstr "双因素认证"
+
+msgid "Enable 2FA to protect your router login."
+msgstr "开启二次验证以保护您的路由器登录。"
+
+msgid "Settings"
+msgstr "设置"
+
+msgid "Enable Two-Factor Auth"
+msgstr "启用二次验证"
+
+msgid "Secret Key"
+msgstr "密钥"
+
+msgid "If you cannot scan the QR code, enter this key manually."
+msgstr "如果无法扫描二维码，请手动输入此密钥。"
+
+msgid "Refresh Secret"
+msgstr "刷新密钥"
+
+msgid "Warning: After refreshing, you must reconfigure all authenticator apps."
+msgstr "警告：刷新后，您必须重新配置所有身份验证器应用。"
+
+msgid "Scan QR Code"
+msgstr "扫描二维码"
+
+msgid "Use Google Authenticator, Authy or Microsoft Auth to scan this QR code."
+msgstr "请使用 Google Authenticator、Authy 或 Microsoft Auth 扫描此二维码。"
+
+msgid "Are you sure you want to refresh the secret key? This will invalidate your current authenticator setup."
+msgstr "确定要刷新密钥吗？这会导致您现有的验证器失效，需要重新扫码绑定。"
+
+msgid "Copy"
+msgstr "复制"
+
+msgid "Copied!"
+msgstr "已复制！"
+
+msgid "2FA Token (Leave empty if not enabled)"
+msgstr "验证码 (未启用留空)"
+
+msgid "Invalid 2FA token, please try again"
+msgstr "验证码错误，请重试"
+
+msgid "QR code generation failed or URL not configured"
+msgstr "二维码生成失败或未配置 URL"

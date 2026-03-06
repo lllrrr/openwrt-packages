@@ -1,0 +1,101 @@
+{
+    "luci-app-warp": {
+        "description": "Grant access to WARP configuration",
+        "read": {
+            "file": {
+                "/etc/config/warp": [
+                    "read"
+                ],
+                "/etc/warp/*": [
+                    "read"
+                ],
+                "/usr/bin/warp-manager": [
+                    "exec"
+                ],
+                "/usr/bin/logread": [
+                    "exec"
+                ],
+                "/usr/bin/wg": [
+                    "exec"
+                ],
+                "/bin/netstat": [
+                    "exec"
+                ],
+                "/bin/sh": [
+                    "exec"
+                ],
+                "/sbin/ip": [
+                    "exec"
+                ],
+                "/usr/sbin/iptables": [
+                    "exec"
+                ]
+            },
+            "uci": [
+                "warp"
+            ],
+            "ubus": {
+                "file": [
+                    "read",
+                    "stat",
+                    "exec"
+                ],
+                "luci": [
+                    "getInitList",
+                    "getLocaltime"
+                ],
+                "service": [
+                    "list"
+                ],
+                "uci": [
+                    "get"
+                ]
+            },
+            "process": [
+                "list",
+                "signal"
+            ]
+        },
+        "write": {
+            "file": {
+                "/etc/config/warp": [
+                    "write"
+                ],
+                "/etc/warp/*": [
+                    "write"
+                ],
+                "/usr/bin/warp-manager": [
+                    "exec"
+                ],
+                "/etc/init.d/warp": [
+                    "exec"
+                ],
+                "/bin/sh": [
+                    "exec"
+                ],
+                "/sbin/ip": [
+                    "exec"
+                ],
+                "/usr/sbin/iptables": [
+                    "exec"
+                ]
+            },
+            "uci": [
+                "warp"
+            ],
+            "ubus": {
+                "luci": [
+                    "setInitAction"
+                ],
+                "uci": [
+                    "add",
+                    "apply",
+                    "confirm",
+                    "delete",
+                    "order",
+                    "set"
+                ]
+            }
+        }
+    }
+}

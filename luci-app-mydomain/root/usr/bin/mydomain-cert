@@ -1,0 +1,114 @@
+#!/bin/sh
+
+# MyDomain Certificate Management Script
+# This script manages SSL/TLS certificates using ACME
+
+CONFIG_FILE="/etc/config/mydomain"
+LOG_FILE="/tmp/mydomain_cert.log"
+
+log_message() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+}
+
+renew_certificate() {
+    local domain=$1
+    local email=$2
+    local validation=$3
+    local dns_api=$4
+    local api_key=$5
+    local secret=$6
+    local cert_path=$7
+    local key_path=$8
+    local wildcard=$9
+    
+    local domain_arg="$domain"
+    if [ "$wildcard" = "1" ]; then
+        domain_arg="*.$domain"
+    fi
+    
+    case "$validation" in
+        "http")
+            # HTTP-01 validation
+            log_message "Renewing certificate for $domain using HTTP-01 validation"
+            acme --issue -d "$domain" --server letsencrypt --email "$email" \
+                --cert-file "$cert_path" --key-file "$key_path" --reloadCmd "service haproxy restart"
+            ;;
+        "dns")
+            # DNS-01 validation
+            log_message "Renewing certificate for $domain using DNS-01 validation"
+            case "$dns_api" in
+                "dnspod")
+                    acme --issue -d "$domain" --dns 01-dnspod --dnspod-token "$api_key" \
+                        --cert-file "$cert_path" --key-file "$key_path" --reloadCmd "service haproxy restart"
+                    ;;
+                "aliyun")
+                    acme --issue -d "$domain" --dns 01-aliyun --aliyun-credentials "$api_key,$secret" \
+                        --cert-file "$cert_path" --key-file "$key_path" --reloadCmd "service haproxy restart"
+                    ;;
+                "cloudflare")
+                    acme --issue -d "$domain" --dns 01-cloudflare --cf-key "$api_key" --cf-email "$secret" \
+                        --cert-file "$cert_path" --key-file "$key_path" --reloadCmd "service haproxy restart"
+                    ;;
+            esac
+            ;;
+        "manual")
+            log_message "Manual certificate management for $domain - no renewal"
+            ;;
+    esac
+}
+
+# Main certificate management logic
+. /lib/functions.sh
+
+config_load mydomain
+
+manage_certificate() {
+    local cfg="$1"
+    
+    config_get enabled "$cfg" enabled
+    config_get domain "$cfg" domain
+    config_get email "$cfg" email
+    config_get validation "$cfg" validation
+    config_get dns_api "$cfg" dns_api
+    config_get api_key "$cfg" api_key
+    config_get secret "$cfg" secret
+    config_get cert_path "$cfg" cert_path
+    config_get key_path "$cfg" key_path
+    config_get renew_interval "$cfg" renew_interval
+    config_get wildcard "$cfg" wildcard
+    
+    [ "$enabled" != "1" ] && return 0
+    [ -z "$domain" ] && return 0
+    [ -z "$email" ] && return 0
+    
+    [ -z "$renew_interval" ] && renew_interval=60
+    
+    # Check if renewal is needed
+    local renewal_needed=0
+    
+    if [ -f "$cert_path" ]; then
+        # Check certificate expiration
+        local cert_expires=$(openssl x509 -in "$cert_path" -noout -enddate | cut -d= -f2)
+        local cert_expires_epoch=$(date -d "$cert_expires" +%s)
+        local current_time=$(date +%s)
+        local days_until_expire=$(( (cert_expires_epoch - current_time) / 86400 ))
+        
+        if [ $days_until_expire -lt $renew_interval ]; then
+            renewal_needed=1
+        fi
+    else
+        # Certificate doesn't exist, need to create it
+        renewal_needed=1
+    fi
+    
+    if [ $renewal_needed -eq 1 ]; then
+        log_message "Renewing certificate for $domain"
+        renew_certificate "$domain" "$email" "$validation" "$dns_api" "$api_key" "$secret" "$cert_path" "$key_path" "$wildcard"
+    else
+        log_message "Certificate for $domain is still valid ($days_until_expire days remaining)"
+    fi
+}
+
+config_foreach manage_certificate certificate
+
+exit 0

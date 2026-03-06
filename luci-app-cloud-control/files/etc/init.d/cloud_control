@@ -1,0 +1,17 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+
+start() {
+    /usr/bin/cloud_control
+}
+
+stop() {
+    killall -9 cloud_control 2>/dev/null
+}
+
+restart() {
+    stop
+    sleep 1
+    start
+}

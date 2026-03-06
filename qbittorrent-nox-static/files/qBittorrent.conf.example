@@ -1,0 +1,4 @@
+
+[Preferences]
+WebUI\Username=admin
+WebUI\Password_PBKDF2="@ByteArray(AQZqAT5DvoDQrvPyLQGYSg==:KPWGGwYsbWNANl0klL1zX6fENUxDv2whaR3DbepXfREB2NgFoQ5xDhVEST0RUiwrFhkkd0QLcxCFGZir7xxRDQ==)"

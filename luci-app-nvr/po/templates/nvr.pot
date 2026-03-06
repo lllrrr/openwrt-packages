@@ -1,0 +1,155 @@
+# Network Video Recorder LuCI Application
+# Copyright (C) 2024
+# This file is distributed under the same license as the luci-app-nvr package.
+#
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "NVR"
+msgstr ""
+
+msgid "The luci-app for instead of network video recorder hardware."
+msgstr ""
+
+msgid "Network Video Recorder"
+msgstr ""
+
+msgid "Basic setting"
+msgstr ""
+
+msgid "Record daemon"
+msgstr ""
+
+msgid "camera source"
+msgstr ""
+
+msgid "hikvision"
+msgstr ""
+
+msgid "tplink"
+msgstr ""
+
+msgid "rtmp url"
+msgstr ""
+
+msgid "multiple types"
+msgstr ""
+
+msgid "camera list"
+msgstr ""
+
+msgid "one by one"
+msgstr ""
+
+msgid "batch add"
+msgstr ""
+
+msgid "camera ip address"
+msgstr ""
+
+msgid "click + to continue"
+msgstr ""
+
+msgid "start of the ip address"
+msgstr ""
+
+msgid "end of the ip address"
+msgstr ""
+
+msgid "camera username"
+msgstr ""
+
+msgid "camera password"
+msgstr ""
+
+msgid "rtmp url address"
+msgstr ""
+
+msgid "information"
+msgstr ""
+
+msgid "hikvision: rtsp://username:password@ip:554/h264/ch1/main/av_stream"
+msgstr ""
+
+msgid "tplink: rtsp://username:password@ip:554/stream1"
+msgstr ""
+
+msgid "rtsp/rtmp/http url address"
+msgstr ""
+
+msgid "adding one by one"
+msgstr ""
+
+msgid "data storage directory"
+msgstr ""
+
+msgid "storage disk name"
+msgstr ""
+
+msgid "set maximum disk space usage"
+msgstr ""
+
+msgid "single file duration"
+msgstr ""
+
+msgid "in seconds"
+msgstr ""
+
+msgid "allocate total storage space"
+msgstr ""
+
+msgid "in megabytes"
+msgstr ""
+
+msgid "total days of videos"
+msgstr ""
+
+msgid "looping writting to disk"
+msgstr ""
+
+msgid "only detect disk space"
+msgstr ""
+
+msgid "enable audio"
+msgstr ""
+
+msgid "whether to push stream"
+msgstr ""
+
+msgid "rtmp server application url"
+msgstr ""
+
+msgid "Action"
+msgstr ""
+
+msgid "One-click Record"
+msgstr ""
+
+msgid "One-click STOP Record"
+msgstr ""
+
+msgid "One-click Push stream"
+msgstr ""
+
+msgid "One-click STOP Push"
+msgstr ""
+
+msgid "Recording!"
+msgstr ""
+
+msgid "Pushing stream!"
+msgstr ""
+
+msgid "Not pushing!"
+msgstr ""
+
+msgid "Not recording!"
+msgstr ""
+
+msgid "Not running!"
+msgstr ""
+
+msgid "Collecting data..."
+msgstr ""

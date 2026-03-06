@@ -1,0 +1,23 @@
+{
+	"luci-app-owq-wol": {
+		"description": "Grant access to WOL, Ping, UCI, ARP/DHCP and Sysfs",
+		"read": {
+			"file": {
+				"/usr/bin/etherwake": [ "exec" ],
+				"/bin/ping": [ "exec" ],
+				"/sbin/uci": [ "exec" ],
+				"/proc/net/arp": [ "read" ],
+				"/tmp/dhcp.leases": [ "read" ],
+				"/sys/class/net": [ "list" ]
+			},
+			"uci": [ "owq-wol" ]
+		},
+		"write": {
+			"file": {
+				"/usr/bin/etherwake": [ "exec" ],
+				"/sbin/uci": [ "exec" ]
+			},
+			"uci": [ "owq-wol" ]
+		}
+	}
+}

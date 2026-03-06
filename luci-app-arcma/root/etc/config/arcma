@@ -1,0 +1,21 @@
+
+config arcma 'global'
+	option enabled '0'
+	option trigger 'both'
+	option mode 'local'
+	option oui_type 'router'
+	option oui_vendor 'Asus'
+	option oui_prefix ''
+	option sequence '0'
+	option persist '0'
+
+# Per-interface section example (uncomment to use):
+# config iface
+# 	option enabled '1'
+# 	option device '*'
+# 	option mode 'local'
+# 	option oui_type 'router'
+# 	option oui_vendor 'Asus'
+# 	option oui_prefix ''
+# 	option sequence '0'
+# 	option persist '0'

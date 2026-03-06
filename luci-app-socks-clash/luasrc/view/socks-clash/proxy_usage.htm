@@ -1,0 +1,181 @@
+﻿<%# Proxy Usage Instructions Template -%>
+
+    <div class="cbi-section">
+        <style>
+            .sc-usage-container {
+                background: linear-gradient(135deg, #f8fafc 0%, #e0e7ff 100%);
+                border-radius: 12px;
+                padding: 24px;
+                margin-top: 20px;
+            }
+
+            .sc-usage-title {
+                font-size: 18px;
+                font-weight: 600;
+                color: #1e293b;
+                margin-bottom: 20px;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+
+            .sc-usage-title-icon {
+                font-size: 24px;
+            }
+
+            .sc-usage-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                gap: 20px;
+            }
+
+            .sc-usage-card {
+                background: white;
+                border-radius: 10px;
+                padding: 20px;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            }
+
+            .sc-usage-card h4 {
+                font-size: 15px;
+                font-weight: 600;
+                color: #4f46e5;
+                margin: 0 0 12px 0;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .sc-usage-card pre {
+                background: #1e293b;
+                color: #e2e8f0;
+                padding: 12px;
+                border-radius: 6px;
+                font-size: 12px;
+                overflow-x: auto;
+                margin: 0;
+            }
+
+            .sc-usage-card p {
+                font-size: 13px;
+                color: #64748b;
+                margin: 12px 0 0 0;
+                line-height: 1.6;
+            }
+
+            .sc-usage-note {
+                background: #fef3c7;
+                border: 1px solid #f59e0b;
+                border-radius: 8px;
+                padding: 16px;
+                margin-top: 20px;
+                display: flex;
+                gap: 12px;
+                align-items: flex-start;
+            }
+
+            .sc-usage-note-icon {
+                font-size: 20px;
+            }
+
+            .sc-usage-note-content {
+                font-size: 13px;
+                color: #92400e;
+                line-height: 1.6;
+            }
+
+            .sc-usage-note-content strong {
+                color: #78350f;
+            }
+        </style>
+
+        <div class="sc-usage-container">
+            <div class="sc-usage-title">
+                <span class="sc-usage-title-icon">📖</span>
+                如何使用代理
+            </div>
+
+            <div class="sc-usage-grid">
+                <div class="sc-usage-card">
+                    <h4>🪟 Windows 系统代理
+                    </h4>
+                    <pre>Settings → Network & Internet → Proxy
+Manual proxy setup:
+  Address: [Router IP]
+  Port: 7890 (HTTP) or 7891 (SOCKS5)</pre>
+                    <p>
+                        <%:Enable "Use a proxy server" and enter the address above.%>
+                    </p>
+                </div>
+
+                <div class="sc-usage-card">
+                    <h4>🍎 macOS 系统代理
+                    </h4>
+                    <pre>System Preferences → Network → Advanced → Proxies
+Web Proxy (HTTP): [Router IP]:7890
+SOCKS Proxy: [Router IP]:7891</pre>
+                    <p>
+                        <%:Check the proxy types you want to use.%>
+                    </p>
+                </div>
+
+                <div class="sc-usage-card">
+                    <h4>📱 <%:iOS /Android%>
+                    </h4>
+                    <pre>WiFi Settings → [Your Network] → Configure Proxy
+Server: [Router IP]
+Port: 7890</pre>
+                    <p>
+                        <%:Set proxy to "Manual" and enter the details.%>
+                    </p>
+                </div>
+
+                <div class="sc-usage-card">
+                    <h4>🌐 浏览器扩展
+                    </h4>
+                    <pre>SwitchyOmega / FoxyProxy:
+  SOCKS5: [Router IP]:7891
+  HTTP: [Router IP]:7890</pre>
+                    <p>
+                        <%:Install a proxy extension and configure it with the above settings.%>
+                    </p>
+                </div>
+
+                <div class="sc-usage-card">
+                    <h4>💻 命令行 (curl)
+                    </h4>
+                    <pre># HTTP Proxy
+export http_proxy=http://[Router IP]:7890
+export https_proxy=http://[Router IP]:7890
+
+# SOCKS5 Proxy
+export ALL_PROXY=socks5://[Router IP]:7891</pre>
+                </div>
+
+                <div class="sc-usage-card">
+                    <h4>🐳 Docker
+                    </h4>
+                    <pre># ~/.docker/config.json
+{
+  "proxies": {
+    "default": {
+      "httpProxy": "http://[Router IP]:7890",
+      "httpsProxy": "http://[Router IP]:7890"
+    }
+  }
+}</pre>
+                </div>
+            </div>
+
+            <div class="sc-usage-note">
+                <span class="sc-usage-note-icon">💡</span>
+                <div class="sc-usage-note-content">
+                    <strong>
+                        提示：
+                    </strong>
+                    <%:Replace [Router IP] with your actual router IP address (usually 192.168.1.1 or similar). The
+                        mixed port (default 7893) supports both HTTP and SOCKS5 protocols.%>
+                </div>
+            </div>
+        </div>
+    </div>

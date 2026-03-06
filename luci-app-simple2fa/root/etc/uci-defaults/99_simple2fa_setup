@@ -1,0 +1,9 @@
+#!/bin/sh
+
+# Simple2FA: Setup script
+# Enable and start the service to handle CGI replacement
+
+/etc/init.d/simple2fa enable
+/etc/init.d/simple2fa start
+
+exit 0

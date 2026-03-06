@@ -1,0 +1,15 @@
+config global 'global'
+    option enabled '1'
+    option db_path '/etc/httping_data.db'
+
+config server
+    option name 'Baidu'
+    option url 'https://www.baidu.com'
+    option interval '10'
+    option enabled '1'
+
+config server
+    option name 'Google'
+    option url 'https://www.google.com'
+    option interval '10'
+    option enabled '1'

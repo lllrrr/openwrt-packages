@@ -1,0 +1,114 @@
+#!/bin/sh
+# RPC ubus helper for argo (cloudflared) operations
+
+. /usr/share/libubox/jshn.sh
+
+case "$1" in
+    list)
+        echo '{"get_status":{},"install":{},"get_arch":{}}'
+        ;;
+    call)
+        case "$2" in
+            get_status)
+                json_init
+                
+                # 检查是否安装
+                if [ -f "/usr/bin/cloudflared" ] && [ -x "/usr/bin/cloudflared" ]; then
+                    json_add_boolean "installed" 1
+                    version=$(/usr/bin/cloudflared --version 2>/dev/null | head -1)
+                    json_add_string "version" "$version"
+                else
+                    json_add_boolean "installed" 0
+                    json_add_string "version" ""
+                fi
+                
+                # 检查是否运行
+                if pgrep -f "/usr/bin/cloudflared" > /dev/null 2>&1; then
+                    json_add_boolean "running" 1
+                else
+                    json_add_boolean "running" 0
+                fi
+                
+                # 检查 Token 配置
+                token=$(uci -q get argo.config.token)
+                if [ -n "$token" ]; then
+                    json_add_boolean "token_configured" 1
+                elif [ -f "/etc/argo/token" ] && [ -s "/etc/argo/token" ]; then
+                    json_add_boolean "token_configured" 1
+                else
+                    json_add_boolean "token_configured" 0
+                fi
+                
+                json_dump
+                ;;
+                
+            get_arch)
+                json_init
+                arch=$(uname -m)
+                case "$arch" in
+                    x86_64)
+                        json_add_string "arch" "amd64"
+                        json_add_boolean "supported" 1
+                        ;;
+                    aarch64)
+                        json_add_string "arch" "arm64"
+                        json_add_boolean "supported" 1
+                        ;;
+                    armv7l|armv7)
+                        json_add_string "arch" "arm"
+                        json_add_boolean "supported" 1
+                        ;;
+                    *)
+                        json_add_string "arch" "$arch"
+                        json_add_boolean "supported" 0
+                        ;;
+                esac
+                json_dump
+                ;;
+                
+            install)
+                json_init
+                
+                # 获取架构
+                arch=$(uname -m)
+                case "$arch" in
+                    x86_64) arch="amd64" ;;
+                    aarch64) arch="arm64" ;;
+                    armv7l|armv7) arch="arm" ;;
+                    *)
+                        json_add_boolean "success" 0
+                        json_add_string "message" "Unsupported architecture: $arch"
+                        json_dump
+                        exit 0
+                        ;;
+                esac
+                
+                # 安装依赖
+                opkg update > /dev/null 2>&1
+                opkg install wget-ssl ca-certificates ca-bundle > /dev/null 2>&1
+                
+                # 下载二进制文件
+                download_url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${arch}"
+                
+                # 尝试下载
+                if wget -q --timeout=60 -O "/usr/bin/cloudflared.tmp" "$download_url" 2>/dev/null; then
+                    mv "/usr/bin/cloudflared.tmp" "/usr/bin/cloudflared"
+                    chmod +x /usr/bin/cloudflared
+                    mkdir -p /etc/argo
+                    
+                    json_add_boolean "success" 1
+                    json_add_string "message" "Installation complete"
+                else
+                    rm -f /usr/bin/cloudflared.tmp
+                    json_add_boolean "success" 0
+                    json_add_string "message" "Download failed. Please check network connection to GitHub."
+                fi
+                
+                json_dump
+                ;;
+            *)
+                echo '{"error":"Unknown method"}'
+                ;;
+        esac
+        ;;
+esac

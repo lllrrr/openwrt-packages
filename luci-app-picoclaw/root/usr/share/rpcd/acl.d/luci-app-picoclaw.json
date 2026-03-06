@@ -1,0 +1,62 @@
+{
+    "luci-app-picoclaw": {
+        "description": "Grant UCI access for luci-app-picoclaw",
+        "read": {
+            "uci": [
+                "*"
+            ],
+            "file": {
+                "/etc/init.d/picoclaw": [
+                    "exec"
+                ],
+                "/bin/pidof": [
+                    "exec"
+                ],
+                "/bin/ps": [
+                    "exec"
+                ],
+                "/bin/ash": [
+                    "exec"
+                ],
+                "/etc/picoclaw/config.json": [
+                    "read"
+                ],
+                "/var/log/picoclaw.log": [
+                    "read"
+                ]
+            },
+            "ubus": {
+                "rc": [
+                    "*"
+                ],
+                "service": [
+                    "list"
+                ],
+                "luci.picoclaw": [
+                    "*"
+                ],
+                "network.interface.*": [
+                    "status"
+                ],
+                "network": [
+                    "*"
+                ]
+            }
+        },
+        "write": {
+            "ubus": {
+                "luci.picoclaw": [
+                    "*"
+                ]
+            },
+            "file": {
+                "/etc/picoclaw/config.json": [
+                    "write"
+                ]
+            },
+            "uci": [
+                "*"
+            ]
+        }
+    }
+}

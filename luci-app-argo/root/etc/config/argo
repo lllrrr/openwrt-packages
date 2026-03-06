@@ -1,0 +1,3 @@
+config argo 'config'
+	option enabled '0'
+	option token ''

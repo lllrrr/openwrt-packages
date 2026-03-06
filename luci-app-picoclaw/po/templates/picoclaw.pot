@@ -1,0 +1,122 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+msgid "PicoClaw"
+msgstr ""
+
+msgid "PicoClaw is an ultra-lightweight AI Assistant. Tiny, Fast, and Deployable anywhere."
+msgstr ""
+
+msgid "Base Setting"
+msgstr ""
+
+msgid "Manual Settings"
+msgstr ""
+
+msgid "Basic Settings"
+msgstr ""
+
+msgid "Gateway Settings"
+msgstr ""
+
+msgid "Agent Settings"
+msgstr ""
+
+msgid "Heartbeat Settings"
+msgstr ""
+
+msgid "Status check error"
+msgstr ""
+
+msgid "Checking status..."
+msgstr ""
+
+msgid "Open Web Interface"
+msgstr ""
+
+msgid "Log"
+msgstr ""
+
+msgid "Clear Logs..."
+msgstr ""
+
+msgid "Logs cleared successfully!"
+msgstr ""
+
+msgid "Clear Logs"
+msgstr ""
+
+msgid "NOT RUNNING"
+msgstr ""
+
+msgid "RUNNING"
+msgstr ""
+
+msgid "Enable"
+msgstr ""
+
+msgid "Delayed Start (seconds)"
+msgstr ""
+
+msgid "Listen Address"
+msgstr ""
+
+msgid "Listen Port"
+msgstr ""
+
+msgid "Workspace Path"
+msgstr ""
+
+msgid "Restrict to workspace"
+msgstr ""
+
+msgid "When enabled, the agent can only access files within the workspace directory."
+msgstr ""
+
+msgid "Enable Heartbeat"
+msgstr ""
+
+msgid "Heartbeat Interval (minutes)"
+msgstr ""
+
+msgid "Refresh every 5 seconds."
+msgstr ""
+
+msgid "Log is clean."
+msgstr ""
+
+msgid "Log file does not exist."
+msgstr ""
+
+msgid "Failed to clear log."
+msgstr ""
+
+msgid "Edit config.json directly. After saving, PicoClaw will be automatically restarted."
+msgstr ""
+
+msgid "Save & Apply"
+msgstr ""
+
+msgid "Format JSON"
+msgstr ""
+
+msgid "JSON format valid"
+msgstr ""
+
+msgid "JSON format error"
+msgstr ""
+
+msgid "Config saved, PicoClaw restarting..."
+msgstr ""
+
+msgid "Save failed"
+msgstr ""
+
+msgid "Unknown error"
+msgstr ""
+
+msgid "Saving..."
+msgstr ""
+
+msgid "Config Reference"
+msgstr ""

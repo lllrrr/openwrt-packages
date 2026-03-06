@@ -1,0 +1,1043 @@
+<%+header%>
+
+<%
+local dsp = require "luci.dispatcher"
+local sys = require "luci.sys"
+local util = require("luci.util")
+local uci = require("luci.model.uci").cursor()
+
+-- 从openvpn-admin.lua模块获取配置
+local openvpn_admin = require "luci.controller.openvpn-admin"
+local admin_config = openvpn_admin.get_admin_config()
+
+-- 获取日志页面配置
+local logs_config = openvpn_admin.get_logs_config()
+
+-- 设置日志页面的默认刷新间隔
+local logs_refresh_interval = 0
+if logs_config.refresh_enabled and logs_config.refresh_interval > 0 then
+    logs_refresh_interval = logs_config.refresh_interval
+end
+
+-- 获取日志显示行数
+local logs_display_lines = logs_config.display_lines or 1000
+
+-- ===========================================
+-- 读取OpenVPN日志文件 - 彻底修复空行问题
+-- ===========================================
+local log_content = ""
+local log_exists = sys.call("test -f " .. admin_config.log_file .. " 2>/dev/null")
+
+if log_exists == 0 then
+    -- 使用tail命令读取最后N行
+    local cmd = "tail -" .. logs_display_lines .. " " .. admin_config.log_file .. " 2>/dev/null"
+    local content = sys.exec(cmd)
+    
+    if content and content ~= "" then
+        -- 第一步：统一换行符为\n
+        content = content:gsub("\r\n", "\n"):gsub("\r", "\n")
+        
+        -- 第二步：分割成行数组
+        local lines = {}
+        for line in content:gmatch("([^\n]+)") do
+            -- 去除每行首尾的空白字符
+            line = line:match("^%s*(.-)%s*$")
+            -- 只添加非空行
+            if line and line ~= "" then
+                table.insert(lines, line)
+            end
+        end
+        
+        -- 第三步：反转顺序（最新日志在最上面）
+        local reversed_lines = {}
+        for i = #lines, 1, -1 do
+            table.insert(reversed_lines, lines[i])
+        end
+        
+        -- 第四步：用换行符连接，确保每行后面只有一个换行符
+        -- 关键修复：使用string.char(10)确保是单个LF
+        log_content = table.concat(reversed_lines, string.char(10))
+        
+        -- 调试信息：记录行数
+        nixio.syslog("debug", "日志处理完成，原始行数: " .. #lines .. "，处理后行数: " .. #reversed_lines)
+    else
+        log_content = "日志文件为空或无法读取"
+    end
+else
+    log_content = "日志文件不存在: " .. admin_config.log_file
+end
+
+-- 计算日志内容行数（用于显示）
+local line_count = 0
+if log_content and log_content ~= "" then
+    -- 使用string.gmatch计数，确保准确
+    for _ in log_content:gmatch("[^\n]+") do
+        line_count = line_count + 1
+    end
+end
+
+-- 获取刷新选项的选中状态
+local refresh_options = {
+    ["0"] = logs_refresh_interval == 0 and "selected" or "",
+    ["1"] = logs_refresh_interval == 1 and "selected" or "",
+    ["5"] = logs_refresh_interval == 5 and "selected" or "",
+    ["10"] = logs_refresh_interval == 10 and "selected" or "",
+    ["30"] = logs_refresh_interval == 30 and "selected" or "",
+    ["60"] = logs_refresh_interval == 60 and "selected" or "",
+    ["custom"] = logs_refresh_interval > 0 and logs_refresh_interval ~= 1 and 
+                 logs_refresh_interval ~= 5 and logs_refresh_interval ~= 10 and 
+                 logs_refresh_interval ~= 30 and logs_refresh_interval ~= 60 and "selected" or ""
+}
+%>
+
+<div class="cbi-map" id="cbi-openvpn-logs">
+    <!-- =========================================== -->
+    <!-- 页面标题区域 -->
+    <!-- =========================================== -->
+    <h2 name="content" style="margin-bottom: 3px; margin-top: -5px;"><%:OpenVPN服务器日志%></h2>
+    
+    <!-- =========================================== -->
+    <!-- 信息展示区域 -->
+    <!-- =========================================== -->
+    <div class="info-box compact">
+        <p style="margin: 2px 0;">
+            <strong><%:日志文件%>:</strong> <%=admin_config.log_file%>
+        </p>
+        <p style="margin: 2px 0;">
+            <strong><%:配置文件%>:</strong> /etc/config/openvpn-admin
+        </p>
+        <p style="margin: 2px 0;">
+            <strong><%:显示顺序%>:</strong> <%:最新日志显示在最上面%>
+        </p>
+        <p style="margin: 2px 0;">
+            <strong><%:读取行数%>:</strong> <%=logs_display_lines%> 行
+        </p>
+        <p style="margin: 2px 0;">
+            <strong><%:实际显示%>:</strong> <%=line_count%> 行
+        </p>
+        <p style="margin: 2px 0;">
+            <strong><%:自动刷新%>:</strong> 
+            <% if logs_refresh_interval > 0 then %>
+                <span style="color: #28a745;">已启用 (<%=logs_refresh_interval%>秒)</span>
+            <% else %>
+                <span style="color: #dc3545;">已禁用</span>
+            <% end %>
+        </p>
+    </div>
+    
+    <!-- =========================================== -->
+    <!-- 操作控制区域 -->
+    <!-- =========================================== -->
+    <div class="controls-box compact">
+        <div class="refresh-controls">
+            <strong style="margin-right: 10px;"><%:自动刷新%>:</strong>
+            <select id="refresh-interval" class="cbi-input-select" onchange="changeRefreshInterval(this.value)">
+                <option value="0" <%=refresh_options["0"]%>><%:已禁用%></option>
+                <option value="1" <%=refresh_options["1"]%>>1秒</option>
+                <option value="5" <%=refresh_options["5"]%>>5秒</option>
+                <option value="10" <%=refresh_options["10"]%>>10秒</option>
+                <option value="30" <%=refresh_options["30"]%>>30秒</option>
+                <option value="60" <%=refresh_options["60"]%>>60秒</option>
+                <option value="custom" <%=refresh_options["custom"]%>><%:自定义%></option>
+            </select>
+            <input type="number" id="custom-interval" class="cbi-input-text" 
+                   style="width: 60px; margin-left: 5px; <%=refresh_options.custom == "selected" and "" or "display: none;"%>" 
+                   min="1" max="300" placeholder="秒数" 
+                   value="<%=refresh_options.custom == "selected" and logs_refresh_interval or ""%>"
+                   onchange="setCustomInterval(this.value)">
+            <span id="refresh-countdown" style="margin-left: 10px; font-weight: bold; <%=logs_refresh_interval > 0 and "" or "display: none;"%>">
+                (<span id="countdown"><%=logs_refresh_interval%></span>秒)
+            </span>
+        </div>
+        
+        <div class="action-buttons">
+            <button class="cbi-button cbi-input-remove clear-log-btn" type="button" onclick="clearLogs()">
+                <%:清空日志%>
+            </button>
+            <button class="cbi-button cbi-button-download" type="button" onclick="downloadLogs()">
+                <%:下载日志%>
+            </button>
+            <button class="cbi-button cbi-button-settings" type="button" onclick="window.location.href='<%=dsp.build_url("admin/vpn/openvpn-admin/settings")%>'">
+                <%:设置%>
+            </button>
+        </div>
+    </div>
+    
+    <!-- =========================================== -->
+    <!-- 字体大小控制区域 -->
+    <!-- =========================================== -->
+    <div class="font-size-controls">
+        <strong><%:日志字体大小%>:</strong>
+        <label class="font-size-option">
+            <input type="radio" name="font-size" value="small" onchange="changeFontSize('small')">
+            <span class="font-size-label">小</span>
+        </label>
+        <label class="font-size-option">
+            <input type="radio" name="font-size" value="medium" checked onchange="changeFontSize('medium')">
+            <span class="font-size-label">中</span>
+        </label>
+        <label class="font-size-option">
+            <input type="radio" name="font-size" value="large" onchange="changeFontSize('large')">
+            <span class="font-size-label">大</span>
+        </label>
+        <span id="font-size-indicator" style="margin-left: 15px; color: #666; font-size: 12px;">默认: 中</span>
+    </div>
+    
+    <!-- =========================================== -->
+    <!-- 日志显示区域 - 修复空行问题 -->
+    <!-- =========================================== -->
+    <div class="log-display-container">
+        <div class="log-display-header">
+            <span><%:OpenVPN日志内容%> (共<%=line_count%>行)</span>
+            <div class="log-controls">
+                <button class="cbi-button cbi-button-copy" onclick="copyLogs()">
+                    <span class="icon">⎘</span> <%:复制%>
+                </button>
+                <button class="cbi-button cbi-button-scroll" onclick="scrollToBottom()">
+                    <span class="icon">↓</span> <%:到底部%>
+                </button>
+                <button class="cbi-button cbi-button-scroll" onclick="scrollToTop()">
+                    <span class="icon">↑</span> <%:到顶部%>
+                </button>
+            </div>
+        </div>
+        <!-- 使用pre标签，但确保内容紧凑 -->
+        <div class="log-display-body" id="log-display-body">
+            <pre id="log-display-content" class="log-content"><%=luci.util.pcdata(log_content)%></pre>
+        </div>
+    </div>
+</div>
+
+<style type="text/css">
+/* =========================================== */
+/* 整体布局样式 */
+/* =========================================== */
+#cbi-openvpn-logs {
+    margin-top: 0px;
+}
+
+#cbi-openvpn-logs h2[name="content"] {
+    margin-bottom: 3px;
+    margin-top: 0px;
+}
+
+/* =========================================== */
+/* 信息框样式 */
+/* =========================================== */
+.info-box.compact {
+    margin: 2 0 2px 0;
+    padding: 6px 8px;
+    background-color: var(--info-box-bg, #f8f9fa);
+    border-radius: 3px;
+    border: 1px solid var(--info-box-border, #dee2e6);
+    color: var(--info-box-text, #333);
+    font-size: 12px;
+}
+
+.info-box.compact p {
+    margin: 1px 0;
+    line-height: 1.3;
+}
+
+/* =========================================== */
+/* 控制框样式 */
+/* =========================================== */
+.controls-box.compact {
+    margin: 2px 0 2px 0;
+    padding: 8px 10px;
+    background-color: var(--controls-bg-color, #f8f9fa);
+    border-radius: 3px;
+    border: 1px solid var(--controls-border-color, #dee2e6);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.controls-box.compact strong {
+    color: var(--controls-text-color, #333);
+    font-size: 12px;
+}
+
+.refresh-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 5px;
+    font-size: 12px;
+}
+
+.action-buttons {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* =========================================== */
+/* 字体大小控制样式 */
+/* =========================================== */
+.font-size-controls {
+    margin: 2px 0 2px 0;
+    padding: 8px 10px;
+    background-color: var(--controls-bg-color, #f8f9fa);
+    border-radius: 3px;
+    border: 1px solid var(--controls-border-color, #dee2e6);
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    font-size: 12px;
+}
+
+.font-size-controls strong {
+    color: var(--controls-text-color, #333);
+}
+
+.font-size-option {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+}
+
+.font-size-option input[type="radio"] {
+    margin: 0;
+    cursor: pointer;
+}
+
+.font-size-label {
+    color: var(--filter-option-color, #555);
+    font-size: 12px;
+}
+
+/* 字体大小样式类 */
+#log-display-content.font-small {
+    font-size: 12px !important;
+}
+
+#log-display-content.font-medium {
+    font-size: 16px !important;
+}
+
+#log-display-content.font-large {
+    font-size: 20px !important;
+}
+
+/* =========================================== */
+/* 按钮样式 */
+/* =========================================== */
+.clear-log-btn {
+    background-color: #f44336;
+    color: white;
+    border: 1px solid #d32f2f;
+    padding: 4px 8px !important;
+    font-weight: bold;
+    font-size: 12px;
+}
+
+.clear-log-btn:hover {
+    background-color: #d32f2f;
+    color: white;
+}
+
+.cbi-button-download {
+    background-color: #4CAF50;
+    color: white;
+    border: 1px solid #388E3C;
+    padding: 4px 8px !important;
+    font-weight: bold;
+    font-size: 12px;
+}
+
+.cbi-button-download:hover {
+    background-color: #388E3C;
+    color: white;
+}
+
+.cbi-button-settings {
+    background-color: #5E72E4 !important;
+    color: white !important;
+    border: 1px solid #5E72E4 !important;
+    padding: 4px 8px !important;
+    font-weight: bold;
+    font-size: 12px;
+}
+
+.cbi-button-settings:hover {
+    background-color: #F57C00 !important;
+    color: white !important;
+}
+
+/* =========================================== */
+/* 日志显示容器样式 - 关键修复部分 */
+/* =========================================== */
+.log-display-container {
+    border: 1px solid var(--border-color, #ddd);
+    border-radius: 4px;
+    background-color: var(--log-container-bg, #fff);
+    overflow: hidden;
+    margin-top: 1px;
+    margin-bottom: 8px;
+}
+
+.log-display-header {
+    padding: 6px 10px;
+    background-color: var(--log-header-bg, #f5f5f5);
+    border-bottom: 1px solid var(--border-color, #ddd);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: bold;
+    font-size: 13px;
+    color: var(--log-header-text, #333);
+}
+
+.log-controls {
+    display: flex;
+    gap: 5px;
+}
+
+.cbi-button-copy {
+    background-color: #4CAF50;
+    color: white;
+    border: 1px solid #388E3C;
+    padding: 3px 6px !important;
+    font-size: 11px;
+}
+
+.cbi-button-scroll {
+    background-color: #5E72E4;
+    color: white;
+    border: 1px solid #5E72E4;
+    padding: 3px 6px !important;
+    font-size: 11px;
+}
+
+/* 日志显示主体 - 关键修复 */
+.log-display-body {
+    overflow: auto;
+    max-height: 450px;
+    background-color: var(--log-body-bg, #ffffff);
+    color: var(--log-body-text, #333333);
+    font-family: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+    line-height: 1.3;
+    min-height: 20px;
+    padding: 0;  /* 移除内边距 */
+}
+
+/* pre标签样式 - 关键修复 */
+#log-display-content {
+    margin: 0;
+    padding: 10px;  /* 只在pre上保留内边距 */
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: inherit;
+    font-size: 16px;
+    line-height: 1.4;
+    background-color: transparent;
+    border: none;
+    display: block;
+    /* 确保没有额外的边距 */
+}
+
+/* 移除pre标签的所有默认样式 */
+pre {
+    margin: 0;
+    padding: 0;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* 确保pre内的内容没有额外间距 */
+pre, pre * {
+    margin: 0;
+    padding: 0;
+}
+
+/* =========================================== */
+/* 日志级别颜色样式 */
+/* =========================================== */
+.log-error { color: #ff6b6b; }
+.log-warn { color: #ffd93d; }
+.log-info { color: #6bcf7f; }
+.log-debug { color: #4dabf7; }
+.log-verbose { color: #9775fa; }
+
+/* 重要事件颜色 */
+.log-important-connect { color: #4CAF50; font-weight: bold; }
+.log-important-disconnect { color: #f44336; font-weight: bold; }
+.log-important-tls { color: #FF9800; font-weight: bold; }
+.log-important-data { color: #9C27B0; font-weight: bold; }
+
+/* =========================================== */
+/* 倒计时样式 */
+/* =========================================== */
+#refresh-countdown {
+    color: var(--countdown-color, #2196F3);
+    font-weight: bold;
+    font-size: 12px;
+}
+
+/* =========================================== */
+/* 表单元素样式 */
+/* =========================================== */
+.cbi-input-select {
+    padding: 3px 6px;
+    border: 1px solid var(--input-border, #ccc);
+    border-radius: 3px;
+    background-color: var(--input-bg, white);
+    color: var(--input-text, #333);
+    font-size: 12px;
+}
+
+.cbi-input-text {
+    padding: 3px 6px;
+    border: 1px solid var(--input-border, #ccc);
+    border-radius: 3px;
+    background-color: var(--input-bg, white);
+    color: var(--input-text, #333);
+    font-size: 12px;
+}
+
+/* =========================================== */
+/* 深色模式样式 */
+/* =========================================== */
+body.dark-mode {
+    --info-box-bg: #2d2d2d;
+    --info-box-border: #444;
+    --info-box-text: #ddd;
+    --controls-bg-color: #2d2d2d;
+    --controls-border-color: #444;
+    --controls-text-color: #ddd;
+    --filter-option-color: #aaa;
+    --border-color: #444;
+    --log-container-bg: #2d2d2d;
+    --log-header-bg: #3d3d3d;
+    --log-header-text: #ddd;
+    --log-body-bg: #1e1e1e;
+    --log-body-text: #d4d4d4;
+    --countdown-color: #64b5f6;
+    --input-bg: #333;
+    --input-text: #ddd;
+    --input-border: #555;
+}
+
+/* 深色模式下的按钮样式 */
+body.dark-mode .cbi-button-copy {
+    background-color: #2E7D32 !important;
+    border-color: #1B5E20 !important;
+}
+
+body.dark-mode .cbi-button-scroll {
+    background-color: #1565C0 !important;
+    border-color: #0D47A1 !important;
+}
+
+body.dark-mode .clear-log-btn {
+    background-color: #c62828 !important;
+    border-color: #b71c1c !important;
+}
+
+body.dark-mode .cbi-button-download {
+    background-color: #388E3C !important;
+    border-color: #2E7D32 !important;
+}
+
+body.dark-mode .cbi-button-settings {
+    background-color: #FF9800 !important;
+    border-color: #F57C00 !important;
+}
+
+/* 深色模式下的字体控制区域 */
+body.dark-mode .font-size-controls {
+    background-color: #2d2d2d;
+    border-color: #444;
+}
+
+body.dark-mode .font-size-controls strong {
+    color: #ddd;
+}
+
+body.dark-mode .font-size-label {
+    color: #aaa;
+}
+
+body.dark-mode #font-size-indicator {
+    color: #aaa !important;
+}
+
+/* 深色模式下的日志显示区域 */
+body.dark-mode .log-display-body {
+    background-color: #1e1e1e;
+    color: #d4d4d4;
+}
+
+body.dark-mode #log-display-content {
+    color: #d4d4d4;
+}
+
+/* 深色模式下的日志级别颜色 */
+body.dark-mode .log-error { color: #ff6b6b; }
+body.dark-mode .log-warn { color: #ffd93d; }
+body.dark-mode .log-info { color: #6bcf7f; }
+body.dark-mode .log-debug { color: #4dabf7; }
+body.dark-mode .log-verbose { color: #9775fa; }
+
+/* =========================================== */
+/* 响应式设计样式 */
+/* =========================================== */
+@media (max-width: 768px) {
+    .controls-box.compact {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    
+    .action-buttons {
+        width: 100%;
+        justify-content: flex-start;
+        gap: 5px;
+    }
+    
+    .font-size-controls {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+}
+</style>
+
+<script type="text/javascript">
+//<![CDATA[
+/* =========================================== */
+/* 全局变量定义 */
+/* =========================================== */
+
+// 自动刷新相关变量
+var refreshInterval = <%=logs_refresh_interval%>;
+var refreshTimer = null;
+var countdownTimer = null;
+var countdownValue = <%=logs_refresh_interval%>;
+var lastLogContent = "";
+var autoRefreshEnabled = <%=logs_refresh_interval > 0 and "true" or "false"%>;
+
+// 字体大小相关变量
+var currentFontSize = 'medium';
+
+/* =========================================== */
+/* 日志操作函数 */
+/* =========================================== */
+
+function clearLogs() {
+    if (confirm('确认要清空OpenVPN日志文件吗？此操作不可恢复。')) {
+        XHR.post('<%=dsp.build_url("admin/vpn/openvpn-admin/clear_logs")%>', null,
+            function(x, data) {
+                if(x && x.status == 200) {
+                    var result = JSON.parse(x.responseText);
+                    if (result.success) {
+                        alert(result.message);
+                        refreshLogs();
+                    } else {
+                        alert('清空失败: ' + result.message);
+                    }
+                } else {
+                    alert('网络错误');
+                }
+            }
+        );
+    }
+}
+
+function downloadLogs() {
+    var url = '<%=dsp.build_url("admin/vpn/openvpn-admin/download_logs")%>';
+    window.open(url, '_blank');
+}
+
+function copyLogs() {
+    var logContent = document.getElementById('log-display-content').textContent;
+    
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(logContent).then(function() {
+            alert('日志内容已复制到剪贴板');
+        }, function(err) {
+            fallbackCopyText(logContent);
+        });
+    } else {
+        fallbackCopyText(logContent);
+    }
+}
+
+function fallbackCopyText(text) {
+    var textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.opacity = "0";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    
+    try {
+        var successful = document.execCommand('copy');
+        if (successful) {
+            alert('日志内容已复制到剪贴板');
+        } else {
+            alert('复制失败，请手动选择并复制');
+        }
+    } catch (err) {
+        alert('复制失败: ' + err.toString());
+    }
+    
+    document.body.removeChild(textArea);
+}
+
+function scrollToBottom() {
+    var logBody = document.querySelector('.log-display-body');
+    if (logBody) {
+        logBody.scrollTop = logBody.scrollHeight;
+    }
+}
+
+function scrollToTop() {
+    var logBody = document.querySelector('.log-display-body');
+    if (logBody) {
+        logBody.scrollTop = 0;
+    }
+}
+
+/* =========================================== */
+/* 字体大小控制函数 */
+/* =========================================== */
+
+function changeFontSize(size) {
+    currentFontSize = size;
+    
+    var logContent = document.getElementById('log-display-content');
+    if (!logContent) return;
+    
+    logContent.classList.remove('font-small', 'font-medium', 'font-large');
+    
+    switch(size) {
+        case 'small':
+            logContent.classList.add('font-small');
+            document.getElementById('font-size-indicator').textContent = '小字体';
+            break;
+        case 'medium':
+            logContent.classList.add('font-medium');
+            document.getElementById('font-size-indicator').textContent = '中字体';
+            break;
+        case 'large':
+            logContent.classList.add('font-large');
+            document.getElementById('font-size-indicator').textContent = '大字体';
+            break;
+        default:
+            logContent.classList.add('font-medium');
+            document.getElementById('font-size-indicator').textContent = '中字体';
+    }
+    
+    try {
+        localStorage.setItem('openvpn-log-fontsize', size);
+    } catch (e) {
+        console.log('无法保存字体设置到localStorage');
+    }
+}
+
+function loadFontSizeSetting() {
+    try {
+        var savedSize = localStorage.getItem('openvpn-log-fontsize');
+        if (savedSize && (savedSize === 'small' || savedSize === 'medium' || savedSize === 'large')) {
+            var radioButtons = document.getElementsByName('font-size');
+            for (var i = 0; i < radioButtons.length; i++) {
+                if (radioButtons[i].value === savedSize) {
+                    radioButtons[i].checked = true;
+                    break;
+                }
+            }
+            changeFontSize(savedSize);
+        } else {
+            changeFontSize('medium');
+        }
+    } catch (e) {
+        console.log('无法读取localStorage，使用默认字体大小');
+        changeFontSize('medium');
+    }
+}
+
+/* =========================================== */
+/* 日志内容处理函数 - 修复空行问题 */
+/* =========================================== */
+
+function applyLogLevelColors(content) {
+    if (!content || typeof content !== 'string') return '';
+    
+    try {
+        // 先处理特殊的高亮
+        content = content.replace(/(Peer Connection Initiated)/g, '<span class="log-important-connect">$1</span>');
+        content = content.replace(/(client-instance exiting)/g, '<span class="log-important-disconnect">$1</span>');
+        content = content.replace(/(TLS:)/g, '<span class="log-important-tls">$1</span>');
+        content = content.replace(/(Data Channel:)/g, '<span class="log-important-data">$1</span>');
+        
+        // 替换不同级别的日志消息
+        content = content.replace(/\b(ERROR)\b/g, '<span class="log-error">$1</span>');
+        content = content.replace(/\b(WARNING)\b/g, '<span class="log-warn">$1</span>');
+        content = content.replace(/\b(INFO)\b/g, '<span class="log-info">$1</span>');
+        content = content.replace(/\b(DEBUG)\b/g, '<span class="log-debug">$1</span>');
+        content = content.replace(/\b(VERBOSE)\b/g, '<span class="log-verbose">$1</span>');
+    } catch (e) {
+        console.error('应用日志颜色时出错:', e);
+    }
+    
+    return content;
+}
+
+/* =========================================== */
+/* 自动刷新控制函数 */
+/* =========================================== */
+
+function changeRefreshInterval(value) {
+    var customInput = document.getElementById('custom-interval');
+    
+    if (value === 'custom') {
+        customInput.style.display = 'inline-block';
+        customInput.focus();
+        return;
+    } else {
+        customInput.style.display = 'none';
+    }
+    
+    var interval = parseInt(value);
+    if (interval === 0) {
+        stopAutoRefresh();
+        document.getElementById('refresh-countdown').style.display = 'none';
+        autoRefreshEnabled = false;
+    } else {
+        refreshInterval = interval;
+        countdownValue = interval;
+        document.getElementById('refresh-countdown').style.display = 'inline';
+        autoRefreshEnabled = true;
+        startAutoRefresh();
+    }
+}
+
+function setCustomInterval(value) {
+    var interval = parseInt(value);
+    if (interval >= 1 && interval <= 300) {
+        refreshInterval = interval;
+        countdownValue = interval;
+        document.getElementById('refresh-interval').value = 'custom';
+        autoRefreshEnabled = true;
+        startAutoRefresh();
+    } else {
+        alert('请输入1-300之间的数字');
+    }
+}
+
+function startAutoRefresh() {
+    if (!autoRefreshEnabled) return;
+    
+    stopAutoRefresh();
+    
+    updateCountdown();
+    
+    countdownTimer = setInterval(function() {
+        countdownValue--;
+        document.getElementById('countdown').textContent = countdownValue;
+        
+        if (countdownValue <= 0) {
+            refreshLogs();
+            countdownValue = refreshInterval;
+            document.getElementById('countdown').textContent = countdownValue;
+        }
+    }, 1000);
+}
+
+function stopAutoRefresh() {
+    if (refreshTimer) {
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+    }
+    if (countdownTimer) {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+    }
+}
+
+function updateCountdown() {
+    document.getElementById('countdown').textContent = countdownValue;
+}
+
+/* =========================================== */
+/* 日志数据获取和更新函数 - 关键修复 */
+/* =========================================== */
+
+function refreshLogs() {
+    XHR.get('<%=dsp.build_url("admin/vpn/openvpn-admin/get_logs")%>', null,
+        function(x, data) {
+            if (x && x.status == 200) {
+                try {
+                    var result = JSON.parse(x.responseText);
+                    if (result.success) {
+                        updateLogs(result.data);
+                    } else {
+                        console.warn('获取日志失败:', result.message);
+                        var displayElement = document.getElementById('log-display-content');
+                        if (displayElement) {
+                            displayElement.innerHTML = '<span style="color: red;">获取日志失败: ' + result.message + '</span>';
+                        }
+                    }
+                } catch (e) {
+                    console.error('解析JSON失败:', e);
+                    var displayElement = document.getElementById('log-display-content');
+                    if (displayElement) {
+                        displayElement.innerHTML = '<span style="color: red;">解析日志数据失败: ' + e.message + '</span>';
+                    }
+                }
+            } else {
+                console.error('网络错误:', x ? x.status : '未知');
+                var displayElement = document.getElementById('log-display-content');
+                if (displayElement) {
+                    displayElement.innerHTML = '<span style="color: red;">网络错误，无法获取日志</span>';
+                }
+            }
+        }
+    );
+}
+
+/**
+ * 更新日志显示 - 彻底修复空行问题
+ */
+function updateLogs(data) {
+    try {
+        if (data && data.log_content !== undefined) {
+            var logContent = data.log_content;
+            
+            // 关键修复：移除所有前导和尾随的空白行
+            logContent = logContent.replace(/^\s+|\s+$/g, '');
+            
+            // 检查内容是否变化
+            if (logContent === lastLogContent) {
+                return;
+            }
+            
+            lastLogContent = logContent;
+            
+            // 应用日志级别颜色
+            logContent = applyLogLevelColors(logContent);
+            
+            // 更新显示
+            var displayElement = document.getElementById('log-display-content');
+            if (displayElement) {
+                displayElement.innerHTML = logContent;
+                changeFontSize(currentFontSize);
+            }
+        } else {
+            console.warn('日志数据为空');
+            var displayElement = document.getElementById('log-display-content');
+            if (displayElement) {
+                displayElement.innerHTML = '<span style="color: orange;">日志数据为空</span>';
+            }
+        }
+    } catch (e) {
+        console.error('更新日志显示时出错:', e);
+        var displayElement = document.getElementById('log-display-content');
+        if (displayElement) {
+            displayElement.innerHTML = '<span style="color: red;">更新日志显示时出错: ' + e.message + '</span>';
+        }
+    }
+}
+
+/**
+ * 修复当前显示日志的空行问题
+ */
+function fixEmptyLines() {
+    var displayElement = document.getElementById('log-display-content');
+    if (!displayElement) return;
+    
+    var content = displayElement.textContent || displayElement.innerText;
+    if (!content) return;
+    
+    // 移除所有前导空白行
+    content = content.replace(/^\s+/, '');
+    
+    // 将连续的多个换行符替换为单个换行符
+    content = content.replace(/\n\s*\n/g, '\n');
+    
+    // 移除尾随空白行
+    content = content.replace(/\s+$/, '');
+    
+    var coloredContent = applyLogLevelColors(content);
+    displayElement.innerHTML = coloredContent;
+    changeFontSize(currentFontSize);
+}
+
+/* =========================================== */
+/* 页面初始化 */
+/* =========================================== */
+
+window.addEventListener('load', function() {
+    console.log('日志页面初始化...');
+    
+    try {
+        /* ----- 初始化自动刷新设置 ----- */
+        var configRefreshInterval = <%=logs_refresh_interval%>;
+        var configRefreshEnabled = <%=logs_refresh_interval > 0 and "true" or "false"%>;
+        
+        if (configRefreshEnabled) {
+            var isCustomInterval = configRefreshInterval > 0 && 
+                                  configRefreshInterval !== 1 && 
+                                  configRefreshInterval !== 5 && 
+                                  configRefreshInterval !== 10 && 
+                                  configRefreshInterval !== 30 && 
+                                  configRefreshInterval !== 60;
+            
+            if (isCustomInterval) {
+                document.getElementById('refresh-interval').value = 'custom';
+                document.getElementById('custom-interval').value = configRefreshInterval;
+                document.getElementById('custom-interval').style.display = 'inline-block';
+            } else {
+                document.getElementById('refresh-interval').value = configRefreshInterval.toString();
+            }
+            
+            refreshInterval = configRefreshInterval;
+            countdownValue = configRefreshInterval;
+            document.getElementById('countdown').textContent = configRefreshInterval.toString();
+            document.getElementById('refresh-countdown').style.display = 'inline';
+            
+            startAutoRefresh();
+            console.log('日志自动刷新已启动，间隔: ' + configRefreshInterval + '秒');
+        } else {
+            document.getElementById('refresh-interval').value = '0';
+            document.getElementById('refresh-countdown').style.display = 'none';
+            autoRefreshEnabled = false;
+            console.log('日志自动刷新已禁用');
+        }
+        
+        /* ----- 初始化字体大小设置 ----- */
+        loadFontSizeSetting();
+        
+        /* ----- 修复初始空行问题 ----- */
+        setTimeout(function() {
+            fixEmptyLines();
+        }, 100);
+        
+        /* ----- 保存初始内容作为对比 ----- */
+        var displayElement = document.getElementById('log-display-content');
+        if (displayElement) {
+            lastLogContent = (displayElement.textContent || displayElement.innerText).replace(/^\s+|\s+$/g, '');
+        }
+        
+    } catch (e) {
+        console.error('页面初始化时出错:', e);
+    }
+});
+
+window.addEventListener('beforeunload', function() {
+    stopAutoRefresh();
+});
+
+//]]>
+</script>
+
+<%+footer%>

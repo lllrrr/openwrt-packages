@@ -1,0 +1,32 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=10
+USE_PROCD=1
+
+SCRIPT_DIR="/usr/lib/cymonline"
+
+start_service() {
+	# Initialize traffic monitoring rules
+	"$SCRIPT_DIR/network.sh" init_traffic
+
+	# Restore speed limits from UCI config
+	"$SCRIPT_DIR/network.sh" restore_limits
+}
+
+stop_service() {
+	# Clean up traffic monitoring rules
+	"$SCRIPT_DIR/network.sh" cleanup_traffic
+
+	# Remove all speed limits
+	"$SCRIPT_DIR/network.sh" cleanup_limits
+}
+
+reload_service() {
+	stop_service
+	start_service
+}
+
+service_triggers() {
+	procd_add_reload_trigger "cymonline"
+}

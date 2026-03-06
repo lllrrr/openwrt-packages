@@ -1,0 +1,126 @@
+# Argo LuCI 中文翻译
+# Copyright (C) 2024
+# This file is distributed under the same license as the luci-app-argo package.
+
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: zh_CN\n"
+
+msgid "Argo Tunnel"
+msgstr "Argo 隧道"
+
+msgid "Cloudflare Tunnel (Argo) management interface. Uses Cloudflare remote managed tunnel, you need to create a tunnel in Cloudflare Zero Trust panel first to get Token."
+msgstr "Cloudflare Tunnel (Argo) 管理界面。使用 Cloudflare 远程管理隧道方式，需要先在 Cloudflare Zero Trust 面板创建隧道获取 Token。"
+
+msgid "Service Status"
+msgstr "服务状态"
+
+msgid "Running Status"
+msgstr "运行状态"
+
+msgid "Running"
+msgstr "运行中"
+
+msgid "Not Running"
+msgstr "未运行"
+
+msgid "Program Version"
+msgstr "程序版本"
+
+msgid "Not Installed"
+msgstr "未安装"
+
+msgid "Token Status"
+msgstr "Token 状态"
+
+msgid "Configured"
+msgstr "已配置"
+
+msgid "Not Configured"
+msgstr "未配置"
+
+msgid "Basic Settings"
+msgstr "基本设置"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "Tunnel Token"
+msgstr "隧道 Token"
+
+msgid "Token obtained after creating a tunnel in Cloudflare Zero Trust panel, a Base64 encoded string starting with eyJ."
+msgstr "在 Cloudflare Zero Trust 面板创建隧道后获取的 Token，以 eyJ 开头的 Base64 编码字符串。"
+
+msgid "Token Guide"
+msgstr "Token 获取指南"
+
+msgid "Steps"
+msgstr "操作步骤"
+
+msgid "Run Logs"
+msgstr "运行日志"
+
+msgid "View Logs"
+msgstr "查看日志"
+
+msgid "Refresh Logs"
+msgstr "刷新日志"
+
+msgid "Argo Logs"
+msgstr "Argo 日志"
+
+msgid "No logs yet"
+msgstr "暂无日志"
+
+msgid "Close"
+msgstr "关闭"
+
+msgid "Install Cloudflared"
+msgstr "安装 Cloudflared"
+
+msgid "Installation"
+msgstr "安装管理"
+
+msgid "Click to install cloudflared binary"
+msgstr "点击安装 cloudflared 二进制文件"
+
+msgid "Install"
+msgstr "安装"
+
+msgid "Reinstall"
+msgstr "重新安装"
+
+msgid "Installing..."
+msgstr "正在安装..."
+
+msgid "Installation complete!"
+msgstr "安装完成！"
+
+msgid "Installation failed!"
+msgstr "安装失败！"
+
+msgid "Architecture"
+msgstr "系统架构"
+
+msgid "Unsupported Architecture"
+msgstr "不支持的架构"
+
+msgid "Save & Apply"
+msgstr "保存并应用"
+
+msgid "Error"
+msgstr "错误"
+
+msgid "Please configure Token first"
+msgstr "请先配置 Token"
+
+msgid "Start Service"
+msgstr "启动服务"
+
+msgid "Stop Service"
+msgstr "停止服务"
+
+msgid "Restart Service"
+msgstr "重启服务"

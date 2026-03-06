@@ -1,0 +1,37 @@
+<%
+local sys = require "luci.sys"
+local http = require "luci.http"
+
+http.prepare_content("application/json")
+
+local load_avg = sys.exec("cat /proc/loadavg | awk '{print $1}'")
+load_avg = tonumber(load_avg) or 0
+local cpu_cores = tonumber(sys.exec("nproc 2>/dev/null")) or 1
+local load_percentage = math.floor((load_avg / cpu_cores) * 100 + 0.5)
+
+local memory_usage = sys.exec("free | grep Mem | awk '{printf \"%.0f\", $3/$2 * 100}'")
+memory_usage = tonumber(memory_usage) or 0
+
+local has_network = sys.call("ping -c 1 -W 1 223.5.5.5 > /dev/null 2>&1") == 0
+
+local drop_packets = sys.exec("iptables -L INPUT -nvx 2>/dev/null | grep -E 'DROP|REJECT' | awk '{sum += $1} END {print sum+0}'")
+drop_packets = tonumber(drop_packets) or 0
+
+local port_scan = sys.exec("logread | grep -i 'port.*scan\\|syn.*flood' | wc -l")
+port_scan = tonumber(port_scan) or 0
+
+local abnormal_conn = sys.exec("netstat -an 2>/dev/null | grep -E 'SYN_RECV|FIN_WAIT|TIME_WAIT' | wc -l")
+abnormal_conn = tonumber(abnormal_conn) or 0
+
+local response = {
+    load_percentage = load_percentage,
+    memory_usage = memory_usage,
+    has_network = has_network,
+    drop_packets = drop_packets,
+    port_scan = port_scan,
+    abnormal_conn = abnormal_conn,
+    timestamp = os.time()
+}
+
+http.write_json(response)
+%>

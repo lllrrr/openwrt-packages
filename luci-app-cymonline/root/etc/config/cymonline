@@ -1,0 +1,11 @@
+config settings 'main'
+	option interval '5'
+	option wan_iface 'eth0'
+	option lan_iface 'br-lan'
+
+# Example device entry (created automatically when user adds remarks/limits)
+# config device 'AA_BB_CC_DD_EE_FF'
+#	option mac 'AA:BB:CC:DD:EE:FF'
+#	option remark '我的手机'
+#	option limit_up '0'
+#	option limit_down '0'

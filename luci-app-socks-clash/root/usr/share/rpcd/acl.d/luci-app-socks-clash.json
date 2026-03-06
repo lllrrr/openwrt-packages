@@ -1,0 +1,22 @@
+{
+    "luci-app-socks-clash": {
+        "description": "Grant access to socks-clash configuration",
+        "read": {
+            "cbi": [ "socks-clash" ],
+            "file": {
+                "/etc/config/socks-clash": [ "read" ],
+                "/etc/socks-clash/*": [ "read" ],
+                "/tmp/socks-clash.log": [ "read" ]
+            },
+            "uci": [ "socks-clash" ]
+        },
+        "write": {
+            "cbi": [ "socks-clash" ],
+            "file": {
+                "/etc/config/socks-clash": [ "write" ],
+                "/etc/socks-clash/*": [ "write" ]
+            },
+            "uci": [ "socks-clash" ]
+        }
+    }
+}

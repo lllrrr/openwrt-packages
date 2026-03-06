@@ -1,0 +1,196 @@
+#!/bin/sh /etc/rc.common
+# SocksClash init script
+
+START=99
+STOP=10
+
+USE_PROCD=1
+PROG=/etc/socks-clash/core/clash
+CONFIG_FILE=/etc/socks-clash/config/config.yaml
+
+get_config() {
+    config_load socks-clash
+    config_get_bool enabled config enable 0
+    config_get socks_port config socks_port 7891
+    config_get http_port config http_port 7890
+    config_get mixed_port config mixed_port 7893
+    config_get cn_port config cn_port 9090
+    config_get log_level config log_level info
+    config_get mode config mode rule
+    config_get allow_lan config allow_lan 1
+    config_get bind_address config bind_address '*'
+    config_get ipv6 config ipv6 0
+    config_get dashboard_password config dashboard_password ''
+    config_get socks_enabled config socks_enabled 1
+    config_get http_enabled config http_enabled 1
+config_get mixed_enabled config mixed_enabled 0
+config_get coexist_with_openclash config coexist_with_openclash 0
+    config_get coexist_with_openclash config coexist_with_openclash 0
+}
+
+generate_config() {
+    local config_dir="/etc/socks-clash/config"
+    local config_file="$config_dir/config.yaml"
+    
+    mkdir -p "$config_dir"
+    
+    # Get LAN IP
+    local lan_ip=$(uci get network.lan.ipaddr 2>/dev/null | awk -F'/' '{print $1}')
+    [ -z "$lan_ip" ] && lan_ip="0.0.0.0"
+    
+    cat > "$config_file" <<EOF
+# SocksClash Configuration
+# Auto-generated - do not edit directly
+
+mixed-port: ${mixed_port}
+port: ${http_port}
+socks-port: ${socks_port}
+allow-lan: $([ "$allow_lan" = "1" ] && echo "true" || echo "false")
+bind-address: "${bind_address}"
+mode: ${mode}
+log-level: ${log_level}
+ipv6: $([ "$ipv6" = "1" ] && echo "true" || echo "false")
+
+external-controller: 0.0.0.0:${cn_port}
+EOF
+
+    if [ -n "$dashboard_password" ]; then
+        echo "secret: \"${dashboard_password}\"" >> "$config_file"
+    fi
+
+    # Add DNS configuration (proxy only mode - no hijacking)
+    cat >> "$config_file" <<EOF
+
+dns:
+  enable: false
+
+profile:
+  store-selected: true
+  store-fake-ip: false
+
+# Proxies - Add your proxy servers here
+proxies: []
+
+# Proxy Groups
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - DIRECT
+      - REJECT
+
+# Rules
+rules:
+  - GEOIP,CN,DIRECT
+  - MATCH,PROXY
+EOF
+
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [信息] 配置文件已生成: $config_file" >> /tmp/socks-clash.log
+}
+
+check_core() {
+    if [ ! -x "$PROG" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [错误] 未找到 Clash 内核: $PROG" >> /tmp/socks-clash.log
+        return 1
+    fi
+    return 0
+}
+
+start_service() {
+    get_config
+    local __openclash_running=0
+    if [ -x "/bin/pgrep" ]; then
+        if pgrep -f "/etc/openclash/core/clash" >/dev/null 2>&1; then
+            __openclash_running=1
+        fi
+    fi
+    if [ -z "$coexist_with_openclash" ]; then
+        coexist_with_openclash=0
+    fi
+    if [ "$coexist_with_openclash" -ne 1 ] && [ "$__openclash_running" -eq 1 ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [错误] OpenClash 已在运行，SocksClash 不能与之同时启动。请停止 OpenClash，或将 coexist_with_openclash 设置为 1 以启用共存模式。" >> /tmp/socks-clash.log
+        return 1
+    fi
+    if [ "$coexist_with_openclash" -eq 1 ] && [ "$__openclash_running" -eq 1 ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [警告] SocksClash 已在共存模式下运行，可能存在端口冲突。" >> /tmp/socks-clash.log
+    fi
+    # OpenClash coexistence guard
+    local __openclash_running=0
+    if [ -x "/bin/pgrep" ]; then
+        if pgrep -f "/etc/openclash/core/clash" >/dev/null 2>&1; then
+            __openclash_running=1
+        fi
+    fi
+    if [ -z "$coexist_with_openclash" ]; then
+        coexist_with_openclash=0
+    fi
+    if [ "$coexist_with_openclash" -ne 1 ] && [ "$__openclash_running" -eq 1 ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [错误] OpenClash 已在运行，SocksClash 不能与之同时启动。请停止 OpenClash，或将 coexist_with_openclash 设置为 1 以启用共存模式。" >> /tmp/socks-clash.log
+        return 1
+    fi
+    if [ "$coexist_with_openclash" -eq 1 ] && [ "$__openclash_running" -eq 1 ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [警告] SocksClash 已在共存模式下运行，可能存在端口冲突。" >> /tmp/socks-clash.log
+    fi
+    
+    if [ "$enabled" != "1" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [信息] SocksClash 已禁用" >> /tmp/socks-clash.log
+        return 0
+    fi
+    
+    if ! check_core; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [错误] 请先下载 Clash 内核" >> /tmp/socks-clash.log
+        return 1
+    fi
+    
+    # Generate configuration if not exists or needs update
+    generate_config
+    
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [信息] 正在启动 SocksClash..." >> /tmp/socks-clash.log
+    
+    procd_open_instance
+    procd_set_param command "$PROG" -d /etc/socks-clash/config
+    procd_set_param respawn
+    procd_set_param stdout 1
+    procd_set_param stderr 1
+    procd_set_param file "$CONFIG_FILE"
+    procd_close_instance
+    
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [成功] SocksClash 启动成功" >> /tmp/socks-clash.log
+    
+    # Log proxy information
+    if [ "$socks_enabled" = "1" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [信息] SOCKS5 代理: ${lan_ip}:${socks_port}" >> /tmp/socks-clash.log
+    fi
+    if [ "$http_enabled" = "1" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [信息] HTTP 代理: ${lan_ip}:${http_port}" >> /tmp/socks-clash.log
+    fi
+    if [ "$mixed_enabled" = "1" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [信息] 混合代理: ${lan_ip}:${mixed_port}" >> /tmp/socks-clash.log
+    fi
+}
+
+stop_service() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [信息] 正在停止 SocksClash..." >> /tmp/socks-clash.log
+    
+    # 强制杀死 clash 进程 (procd 有时无法正常停止)
+    killall -9 clash 2>/dev/null
+    
+    # 等待进程退出
+    sleep 1
+    
+    # 再次检查并杀死残留进程
+    if pgrep -f "/etc/socks-clash/core/clash" >/dev/null 2>&1; then
+        pkill -9 -f "/etc/socks-clash/core/clash" 2>/dev/null
+    fi
+    
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [信息] SocksClash 已停止" >> /tmp/socks-clash.log
+}
+
+reload_service() {
+    stop
+    start
+}
+
+service_triggers() {
+    procd_add_reload_trigger "socks-clash"
+}

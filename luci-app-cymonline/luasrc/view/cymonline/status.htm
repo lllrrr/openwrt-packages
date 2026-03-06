@@ -1,0 +1,494 @@
+<%+header%>
+
+	<style>
+		.cymonline-container {
+			padding: 20px;
+		}
+
+		.cymonline-header {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			margin-bottom: 20px;
+			padding: 15px;
+			background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+			border-radius: 10px;
+			color: white;
+		}
+
+		.cymonline-header h2 {
+			margin: 0;
+			font-size: 24px;
+			color: white;
+		}
+
+		.interval-setting {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+		}
+
+		.interval-setting input {
+			width: 60px;
+			padding: 4px;
+			border: 1px solid rgba(255, 255, 255, 0.3);
+			border-radius: 4px;
+			text-align: center;
+			background: rgba(255, 255, 255, 0.2);
+			color: white;
+		}
+
+		.device-table {
+			width: 100%;
+			border-collapse: collapse;
+			border-radius: 8px;
+			overflow: hidden;
+		}
+
+		.device-table th {
+			padding: 12px 10px;
+			text-align: left;
+			font-weight: 600;
+			border-bottom: 2px solid rgba(0, 0, 0, 0.05);
+		}
+
+		.device-table td {
+			padding: 10px;
+			border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+			vertical-align: middle;
+		}
+
+		.status-online {
+			color: #28a745;
+			font-weight: bold;
+		}
+
+		.status-blocked {
+			color: #dc3545;
+			font-weight: bold;
+		}
+
+		.status-offline {
+			color: #6c757d;
+		}
+
+		.traffic-cell {
+			font-family: monospace;
+			font-size: 13px;
+		}
+
+		.traffic-up {
+			color: #dc3545;
+		}
+
+		.traffic-down {
+			color: #28a745;
+		}
+
+		.limit-cell {
+			font-size: 12px;
+			color: #6c757d;
+		}
+
+		.limit-active {
+			color: #fd7e14;
+			font-weight: bold;
+		}
+
+		.remark-input {
+			width: 100%;
+			max-width: 120px;
+			padding: 4px 8px;
+			border: 1px solid rgba(0, 0, 0, 0.1);
+			border-radius: 4px;
+			font-size: 13px;
+			background: transparent;
+			color: inherit;
+		}
+
+		/* Modal */
+		.modal-overlay {
+			display: none;
+			position: fixed;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			background: rgba(0, 0, 0, 0.5);
+			z-index: 1000;
+			justify-content: center;
+			align-items: center;
+		}
+
+		.modal-overlay.active {
+			display: flex;
+		}
+
+		.modal-content {
+			padding: 25px;
+			border-radius: 10px;
+			min-width: 350px;
+			box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+			background: var(--background-color, #fff);
+			color: var(--text-color, #333);
+		}
+
+		.modal-title {
+			font-size: 18px;
+			font-weight: bold;
+			margin-bottom: 20px;
+		}
+
+		.modal-field {
+			margin-bottom: 15px;
+		}
+
+		.modal-field label {
+			display: block;
+			margin-bottom: 5px;
+			opacity: 0.8;
+		}
+
+		.modal-field input {
+			width: 100%;
+			padding: 10px;
+			border: 1px solid rgba(0, 0, 0, 0.1);
+			border-radius: 5px;
+			font-size: 14px;
+			background: transparent;
+			color: inherit;
+		}
+
+		.modal-actions {
+			display: flex;
+			justify-content: flex-end;
+			gap: 10px;
+			margin-top: 20px;
+		}
+
+		.loading {
+			text-align: center;
+			padding: 40px;
+			opacity: 0.6;
+		}
+
+		.mac-cell {
+			font-family: monospace;
+			font-size: 12px;
+			opacity: 0.7;
+		}
+	</style>
+
+	<div class="cymonline-container">
+		<div class="cymonline-header">
+			<h2>📡 <%:Online User Management%>
+			</h2>
+			<div class="interval-setting">
+				<span>
+					<%:Refresh Interval%>:
+				</span>
+				<input type="number" id="interval" min="1" max="60" value="5">
+				<span>
+					<%:seconds%>
+				</span>
+			</div>
+		</div>
+
+		<div id="device-list" class="cbi-section">
+			<div class="loading">
+				<%:Loading...%>
+			</div>
+		</div>
+	</div>
+
+	<!-- Limit Modal -->
+	<div class="modal-overlay" id="limit-modal">
+		<div class="modal-content">
+			<div class="modal-title">⚡ <%:Set Speed Limit%>
+			</div>
+			<div id="limit-device-info" style="margin-bottom: 15px; opacity: 0.8;"></div>
+			<input type="hidden" id="limit-mac">
+			<div class="modal-field">
+				<label>
+					<%:Upload Limit (Kbps, 0=unlimited)%>
+				</label>
+				<input type="number" id="limit-up" min="0" value="0">
+			</div>
+			<div class="modal-field">
+				<label>
+					<%:Download Limit (Kbps, 0=unlimited)%>
+				</label>
+				<input type="number" id="limit-down" min="0" value="0">
+			</div>
+			<div class="modal-actions">
+				<button class="cbi-button cbi-button-neutral" onclick="closeModal()">
+					<%:Cancel%>
+				</button>
+				<button class="cbi-button cbi-button-apply" onclick="saveLimit()">
+					<%:Save%>
+				</button>
+			</div>
+		</div>
+	</div>
+
+	<script>
+		(function () {
+			var API_BASE = '<%=luci.dispatcher.build_url("admin", "status", "cymonline", "api")%>';
+			var refreshTimer = null;
+			var trafficHistory = {};
+
+			function formatBytes(bytes) {
+				if (bytes === 0) return '0 B';
+				var k = 1024;
+				var sizes = ['B', 'K', 'M', 'G'];
+				var i = Math.floor(Math.log(bytes) / Math.log(k));
+				return (bytes / Math.pow(k, i)).toFixed(1) + ' ' + sizes[i];
+			}
+
+			function formatSpeed(bytesPerSec) {
+				if (bytesPerSec <= 0) return '--';
+				return formatBytes(bytesPerSec) + '/s';
+			}
+
+			function calculateSpeed(mac, rx, tx) {
+				var now = Date.now();
+				var prev = trafficHistory[mac];
+				trafficHistory[mac] = { rx: rx, tx: tx, time: now };
+
+				if (!prev) return { rxSpeed: 0, txSpeed: 0 };
+
+				var timeDiff = (now - prev.time) / 1000;
+				if (timeDiff <= 0) return { rxSpeed: 0, txSpeed: 0 };
+
+				return {
+					rxSpeed: Math.max(0, (rx - prev.rx) / timeDiff),
+					txSpeed: Math.max(0, (tx - prev.tx) / timeDiff)
+				};
+			}
+
+			function loadDevices() {
+				fetch(API_BASE + '/devices')
+					.then(function (r) { return r.json(); })
+					.then(function (data) {
+						renderDevices(data.devices);
+						if (data.settings && data.settings.interval) {
+							document.getElementById('interval').value = data.settings.interval;
+						}
+					})
+					.catch(function (e) {
+						console.error('Load error:', e);
+					});
+			}
+
+			function renderDevices(devices) {
+				var html = '<table class="device-table">';
+				html += '<thead><tr>';
+				html += '<th><%:Status%></th>';
+				html += '<th><%:Hostname%></th>';
+				html += '<th><%:IP Address%></th>';
+				html += '<th><%:MAC Address%></th>';
+				html += '<th><%:Traffic%></th>';
+				html += '<th><%:Speed Limit%></th>';
+				html += '<th><%:Remark%></th>';
+				html += '<th><%:Actions%></th>';
+				html += '</tr></thead><tbody>';
+
+				devices.forEach(function (d) {
+					var speed = d.online ? calculateSpeed(d.mac, d.rx_bytes, d.tx_bytes) : { rxSpeed: 0, txSpeed: 0 };
+
+					html += '<tr data-mac="' + d.mac + '">';
+
+					// Status
+					if (d.blocked) {
+						html += '<td><span class="status-blocked">🛑 <%:Blocked%></span></td>';
+					} else if (d.online) {
+						html += '<td><span class="status-online">🟢 <%:Online%></span></td>';
+					} else {
+						html += '<td><span class="status-offline">⚫ <%:Offline%></span></td>';
+					}
+
+					// Hostname
+					html += '<td>' + (d.hostname || '<em><%:Unknown%></em>') + '</td>';
+
+					// IP
+					html += '<td>' + (d.ip || '--') + '</td>';
+
+					// MAC
+					html += '<td class="mac-cell">' + d.mac + '</td>';
+
+					// Traffic
+					if (d.online) {
+						html += '<td class="traffic-cell">';
+						html += '<span class="traffic-up">↑' + formatSpeed(speed.txSpeed) + '</span> ';
+						html += '<span class="traffic-down">↓' + formatSpeed(speed.rxSpeed) + '</span>';
+						html += '</td>';
+					} else {
+						html += '<td class="traffic-cell">--</td>';
+					}
+
+					// Limit
+					if (d.limit_up > 0 || d.limit_down > 0) {
+						html += '<td class="limit-cell limit-active">';
+						html += '↑' + d.limit_up + 'K ↓' + d.limit_down + 'K';
+						html += '</td>';
+					} else {
+						html += '<td class="limit-cell"><%:Unlimited%></td>';
+					}
+
+					// Remark
+					html += '<td>';
+					html += '<input type="text" class="remark-input" value="' + (d.remark || '') + '" ';
+					html += 'data-mac="' + d.mac + '" onchange="saveRemark(this)">';
+					html += '</td>';
+
+					// Actions
+					html += '<td>';
+					if (d.blocked) {
+						html += '<button class="cbi-button cbi-button-apply" onclick="toggleBlock(\'' + d.mac + '\', 0)"><%:Unblock%></button> ';
+					} else {
+						html += '<button class="cbi-button cbi-button-remove" onclick="toggleBlock(\'' + d.mac + '\', 1)"><%:Block%></button> ';
+					}
+					if (d.online && !d.blocked) {
+						html += '<button class="cbi-button cbi-button-neutral" onclick="openLimit(\'' + d.mac + '\', \'' + (d.hostname || d.ip || d.mac) + '\', ' + d.limit_up + ', ' + d.limit_down + ')"><%:Limit%></button> ';
+					}
+					if (!d.online || d.remark || d.limit_up > 0 || d.limit_down > 0 || d.blocked) {
+						html += '<button class="cbi-button cbi-button-remove" onclick="deleteDevice(\'' + d.mac + '\')"><%:Delete%></button>';
+					}
+					html += '</td>';
+
+					html += '</tr>';
+				});
+
+				html += '</tbody></table>';
+
+				if (devices.length === 0) {
+					html = '<div class="loading"><%:No online devices%></div>';
+				}
+
+				document.getElementById('device-list').innerHTML = html;
+			}
+
+			window.saveRemark = function (input) {
+				var mac = input.getAttribute('data-mac');
+				var remark = input.value;
+
+				var formData = new FormData();
+				formData.append('mac', mac);
+				formData.append('remark', remark);
+
+				fetch(API_BASE + '/remark', {
+					method: 'POST',
+					body: formData
+				}).then(function (r) { return r.json(); })
+					.then(function (data) {
+						if (data.success) {
+							input.style.borderColor = '#28a745';
+							setTimeout(function () { input.style.borderColor = 'rgba(0,0,0,0.1)'; }, 1000);
+						}
+					});
+			};
+
+			window.toggleBlock = function (mac, action) {
+				var msg = action === 1 ? '<%:Confirm block this device from accessing internet?%>' : '<%:Confirm unblock this device?%>';
+				if (!confirm(msg)) {
+					return;
+				}
+
+				var formData = new FormData();
+				formData.append('mac', mac);
+				formData.append('action', action.toString());
+
+				fetch(API_BASE + '/block', {
+					method: 'POST',
+					body: formData
+				}).then(function (r) { return r.json(); })
+					.then(function (data) {
+						if (data.success) {
+							loadDevices();
+						}
+					});
+			};
+
+			window.openLimit = function (mac, name, up, down) {
+				document.getElementById('limit-mac').value = mac;
+				document.getElementById('limit-device-info').textContent = '<%:Device%>: ' + name + ' (' + mac + ')';
+				document.getElementById('limit-up').value = up || 0;
+				document.getElementById('limit-down').value = down || 0;
+				document.getElementById('limit-modal').classList.add('active');
+			};
+
+			window.closeModal = function () {
+				document.getElementById('limit-modal').classList.remove('active');
+			};
+
+			window.saveLimit = function () {
+				var mac = document.getElementById('limit-mac').value;
+				var up = document.getElementById('limit-up').value;
+				var down = document.getElementById('limit-down').value;
+
+				var formData = new FormData();
+				formData.append('mac', mac);
+				formData.append('up', up);
+				formData.append('down', down);
+
+				fetch(API_BASE + '/limit', {
+					method: 'POST',
+					body: formData
+				}).then(function (r) { return r.json(); })
+					.then(function (data) {
+						if (data.success) {
+							closeModal();
+							loadDevices();
+						}
+					});
+			};
+
+			window.deleteDevice = function (mac) {
+				if (!confirm('<%:Confirm delete this device record?%>\n<%:(including remarks and speed limit settings)%>')) {
+					return;
+				}
+
+				var formData = new FormData();
+				formData.append('mac', mac);
+
+				fetch(API_BASE + '/delete', {
+					method: 'POST',
+					body: formData
+				}).then(function (r) { return r.json(); })
+					.then(function (data) {
+						if (data.success) {
+							loadDevices();
+						}
+					});
+			};
+
+			function startRefresh() {
+				var interval = parseInt(document.getElementById('interval').value) || 5;
+				if (refreshTimer) clearInterval(refreshTimer);
+				refreshTimer = setInterval(loadDevices, interval * 1000);
+			}
+
+			document.getElementById('interval').addEventListener('change', function () {
+				var interval = parseInt(this.value) || 5;
+				if (interval < 1) interval = 1;
+				if (interval > 60) interval = 60;
+				this.value = interval;
+
+				// Save to server
+				var formData = new FormData();
+				formData.append('interval', interval);
+				fetch(API_BASE + '/settings', {
+					method: 'POST',
+					body: formData
+				});
+
+				startRefresh();
+			});
+
+			// Initial load
+			loadDevices();
+			startRefresh();
+		})();
+	</script>
+
+	<%+footer%>

@@ -1,0 +1,175 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: domain 1.0.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-01-01 00:00+0800\n"
+"PO-Revision-Date: 2026-01-01 00:00+0800\n"
+"Last-Translator: \n"
+"Language-Team: Chinese Simplified\n"
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "MyDomain Manager"
+msgstr "我的域名管理器"
+
+msgid "Dynamic DNS"
+msgstr "动态DNS"
+
+msgid "Reverse Proxy"
+msgstr "反向代理"
+
+msgid "Certificate Management"
+msgstr "证书管理"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Dynamic DNS Configuration"
+msgstr "动态DNS配置"
+
+msgid "Configure Dynamic DNS for your domains"
+msgstr "为您的域名配置动态DNS"
+
+msgid "DDNS Entries"
+msgstr "DDNS条目"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "Domain"
+msgstr "域名"
+
+msgid "DNS Provider"
+msgstr "DNS服务商"
+
+msgid "API Key"
+msgstr "API密钥"
+
+msgid "Secret"
+msgstr "密钥"
+
+msgid "Enable IPv4"
+msgstr "启用IPv4"
+
+msgid "Enable IPv6"
+msgstr "启用IPv6"
+
+msgid "Update Interval (minutes)"
+msgstr "更新间隔（分钟）"
+
+msgid "Record Type"
+msgstr "记录类型"
+
+msgid "Subdomain"
+msgstr "子域名"
+
+msgid "API URL"
+msgstr "API地址"
+
+msgid "Reverse Proxy Configuration"
+msgstr "反向代理配置"
+
+msgid "Configure Reverse Proxy with HAProxy"
+msgstr "使用HAProxy配置反向代理"
+
+msgid "Proxy Entries"
+msgstr "代理条目"
+
+msgid "Name"
+msgstr "名称"
+
+msgid "Frontend Port"
+msgstr "前端端口"
+
+msgid "Backend URL"
+msgstr "后端地址"
+
+msgid "Protocol"
+msgstr "协议"
+
+msgid "SSL Certificate"
+msgstr "SSL证书"
+
+msgid "ACL Rules"
+msgstr "访问控制规则"
+
+msgid "Load Balancing Algorithm"
+msgstr "负载均衡算法"
+
+msgid "Enable Health Check"
+msgstr "启用健康检查"
+
+msgid "Health Check URL"
+msgstr "健康检查地址"
+
+msgid "Certificate Management"
+msgstr "证书管理"
+
+msgid "Manage SSL/TLS certificates with ACME"
+msgstr "使用ACME管理SSL/TLS证书"
+
+msgid "Certificates"
+msgstr "证书"
+
+msgid "Email"
+msgstr "邮箱"
+
+msgid "Validation Method"
+msgstr "验证方式"
+
+msgid "DNS API"
+msgstr "DNS API"
+
+msgid "Certificate Path"
+msgstr "证书路径"
+
+msgid "Private Key Path"
+msgstr "私钥路径"
+
+msgid "Renewal Interval (days)"
+msgstr "续期间隔（天）"
+
+msgid "Wildcard Certificate"
+msgstr "通配符证书"
+
+msgid "Upload Certificate"
+msgstr "上传证书"
+
+msgid "Upload Private Key"
+msgstr "上传私钥"
+
+msgid "MyDomain Status"
+msgstr "我的域名状态"
+
+msgid "Dynamic DNS Status"
+msgstr "动态DNS状态"
+
+msgid "Reverse Proxy Status"
+msgstr "反向代理状态"
+
+msgid "Certificate Status"
+msgstr "证书状态"
+
+msgid "Yes"
+msgstr "是"
+
+msgid "No"
+msgstr "否"
+
+msgid "None"
+msgstr "无"
+
+msgid "Active"
+msgstr "活跃"
+
+msgid "Inactive"
+msgstr "非活跃"
+
+msgid "Valid"
+msgstr "有效"
+
+msgid "Invalid"
+msgstr "无效"

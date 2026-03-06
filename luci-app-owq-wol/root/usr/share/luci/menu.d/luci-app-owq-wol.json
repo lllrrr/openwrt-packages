@@ -1,0 +1,10 @@
+{
+	"admin/services/owq-wol": {
+		"title": "OWQ WOL",
+		"action": {
+			"type": "view",
+			"path": "owq-wol"
+		},
+		"order": 50
+	}
+}

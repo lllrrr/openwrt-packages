@@ -1,0 +1,1507 @@
+<%+header%>
+
+<%
+local dsp = require "luci.dispatcher"
+local sys = require "luci.sys"
+local util = require "luci.util"
+local uci = require("luci.model.uci").cursor()
+
+-- 从openvpn-admin.lua模块获取配置
+local openvpn_admin = require "luci.controller.openvpn-admin"
+local admin_config = openvpn_admin.get_admin_config()
+
+-- 获取实例名称
+local openvpn_instance = admin_config.openvpn_instance
+
+-- 获取openvpn配置路径
+local openvpn_config_path = admin_config.openvpn_config_path or ""
+
+-- 获取默认证书路径
+local cert_paths = admin_config.openvpn_pki or "/etc/openvpn/pki"
+%>
+
+<div class="cbi-map" id="cbi-openvpn-server">
+    <!-- 页面标题 -->
+    <h2 name="content"><%:OpenVPN服务器配置%></h2>
+    
+    <!-- 页面说明 -->
+    <div class="info-box">
+        <p><strong><%:功能说明%>:</strong></p>
+        <p><%:在此配置OpenVPN服务器参数。修改后点击"保存配置"按钮保存并应用新配置。%></p>
+        <p style="margin: 2px 0;">
+             <strong><%:openvpn配置%>:</strong> 
+             <span><%=openvpn_config_path%></span>
+             <span style="color: #28a745;">(数据来源:openvpn-admin)✓</span>
+        </p>
+        <p style="margin: 2px 0;">
+             <strong><%:证书存储路径%>:</strong> 
+             <span><%=cert_paths%></span>
+             <span style="color: #28a745;">(数据来源:openvpn-admin)✓</span>
+        </p>
+        <p style="margin: 2px 0;">
+             <strong><%:当前实例%>:</strong> 
+             <span><%=openvpn_instance%></span>
+             <span style="color: #28a745;">(数据来源:openvpn-admin)✓</span>
+        </p> 
+    </div>
+    
+    <!-- 配置表单 -->
+    <form class="cbi-map" id="openvpn-server-form" method="post">
+        <!-- 基本设置 -->
+        <div class="cbi-section">
+            <h3><%:基本设置%></h3>
+            <div class="cbi-section-node">
+                
+                <!-- 启用开关 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="enabled">启用OpenVPN</label>
+                    <div class="cbi-value-field">
+                        <div class="cbi-input-checkbox">
+                            <input type="checkbox" class="cbi-input-checkbox" id="enabled" 
+                                   name="enabled" value="1" />
+                            <label for="enabled"></label>
+                            <span class="input-description">启用或禁用OpenVPN服务</span>
+                        </div>
+                        
+                    </div>
+                </div>
+
+                <!-- OpenVPN实例名称 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="instance">实例名称</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text log-input" id="instance" 
+                                   name="instance" value="<%=openvpn_instance%>" readonly />
+                            <span class="input-description">OpenVPN配置中的实例名称</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 协议选择 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="proto">协议</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <select class="cbi-input-select narrow-input" id="proto" name="proto">
+                                <option value="udp">UDP</option>
+                                <option value="tcp">TCP</option>
+                                <option value="udp6">UDP6</option>
+                                <option value="tcp6">TCP6</option>
+                            </select>
+                            <span class="input-description">选择OpenVPN协议</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 端口 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="port">端口</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="number" class="cbi-input-text narrow-input" id="port" 
+                                   name="port" min="1" max="65535" value="1194" />
+                            <span class="input-description">OpenVPN服务监听端口</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 防火墙状态显示 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="firewall_status">防火墙状态:</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <span id="firewall-status" style="font-weight: bold; color: #28a745;">检查中...</span>
+                            <span class="input-description">OpenVPN端口的防火墙规则状态</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- DDNS/域名 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="ddns">DDNS/域名</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text standard-input" id="ddns" 
+                                   name="ddns" placeholder="example.com" />
+                            <span class="input-description">动态域名或固定域名</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 设备类型 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="dev">设备类型</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <select class="cbi-input-select log-input" id="dev" name="dev">
+                                <option value="tun">TUN（路由模式）</option>
+                                <option value="tap">TAP（桥接模式）</option>
+                            </select>
+                            <span class="input-description">虚拟网络设备类型</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 拓扑结构 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="topology">拓扑结构</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <select class="cbi-input-select log-input" id="topology" name="topology">
+                                <option value="subnet">子网（subnet）</option>
+                                <option value="net30">net30</option>
+                                <option value="p2p">点对点（p2p）</option>
+                            </select>
+                            <span class="input-description">虚拟网络拓扑结构</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 服务器网段 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="server">服务器网段</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text standard-input" id="server" 
+                                   name="server" value="10.8.0.0 255.255.255.0" />
+                            <span class="input-description">分配给客户端的IP地址池</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- IPv6设置 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="enable_ipv6">启用IPv6地址绑定</label>
+                    <div class="cbi-value-field">
+                        <div class="cbi-input-checkbox">
+                            <input type="checkbox" class="cbi-input-checkbox" id="enable_ipv6" 
+                                   name="enable_ipv6" value="1" />
+                            <label for="enable_ipv6"></label>
+                            <span class="input-description">启用IPv6地址绑定功能</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- IPv6本地地址 -->
+                <div class="cbi-value ipv6-option" id="local_container">
+                    <label class="cbi-value-title" for="local">IPv6本地地址</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text standard-input" id="local" 
+                                   name="local" value="240e:3b0:1609:bc7d:7198:2e51:4fff:15ee" />
+                            <span class="input-description">OpenVPN服务绑定的本地IPv6地址</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 证书路径设置 -->
+        <div class="cbi-section">
+            <h3><%:证书路径设置%></h3>
+            <div class="cbi-section-node">
+                <!-- CA证书路径 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="ca">CA证书路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text standard-input" id="ca" 
+                                   name="ca" value="<%=cert_paths%>/ca.crt" />
+                            <span class="input-description">CA根证书文件路径</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 服务器证书路径 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="cert">服务器证书路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text standard-input" id="cert" 
+                                   name="cert" value="<%=cert_paths%>/server.crt" />
+                            <span class="input-description">服务器证书文件路径</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 服务器私钥路径 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="key">服务器私钥路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text standard-input" id="key" 
+                                   name="key" value="<%=cert_paths%>/server.key" />
+                            <span class="input-description">服务器私钥文件路径</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- DH参数路径 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="dh">DH参数路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text standard-input" id="dh" 
+                                   name="dh" value="<%=cert_paths%>/dh.pem" />
+                            <span class="input-description">DH参数文件路径</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 高级设置 -->
+        <div class="cbi-section">
+            <h3><%:高级设置%></h3>
+            <div class="cbi-section-node">
+                <!-- 压缩算法 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="compress">压缩算法</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <select class="cbi-input-select log-input" id="compress" name="compress">
+                                <option value="">无压缩</option>
+                                <option value="lzo">LZO</option>
+                                <option value="lz4">LZ4</option>
+                                <option value="lz4-v2" selected="selected">LZ4-v2</option>
+                                <option value="compress">compress</option>
+                            </select>
+                            <span class="input-description">数据压缩算法</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 持久化密钥 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="persist_key">持久化密钥</label>
+                    <div class="cbi-value-field">
+                        <div class="cbi-input-checkbox">
+                            <input type="checkbox" class="cbi-input-checkbox" id="persist_key" 
+                                   name="persist_key" value="1" checked="checked />
+                            <label for="persist_key"></label>
+                            <span class="input-description">重启后保持密钥状态</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 持久化隧道 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="persist_tun">持久化隧道</label>
+                    <div class="cbi-value-field">
+                        <div class="cbi-input-checkbox">
+                            <input type="checkbox" class="cbi-input-checkbox" id="persist_tun" 
+                                   name="persist_tun" value="1" checked="checked />
+                            <label for="persist_tun"></label>
+                            <span class="input-description">重启后保持隧道状态</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 运行用户 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="user">运行用户</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text log-input" id="user" 
+                                   name="user" value="nobody" />
+                            <span class="input-description">OpenVPN进程运行用户</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 运行组 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="group">运行组</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text log-input" id="group" 
+                                   name="group" value="nogroup" />
+                            <span class="input-description">OpenVPN进程运行组</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 最大客户端数 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="max_clients">最大客户端数</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="number" class="cbi-input-text narrow-input" id="max_clients" 
+                                   name="max_clients" min="1" max="1000" value="10" />
+                            <span class="input-description">允许同时连接的最大客户端数量</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 保持连接 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="keepalive">保持连接</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text narrow-input" id="keepalive" 
+                                   name="keepalive" value="10 120" />
+                            <span class="input-description">心跳检测间隔，格式：ping ping-restart</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 日志级别 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="verb">日志级别</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <select class="cbi-input-select log-input" id="verb" name="verb">
+                                <option value="0">0 - 静默</option>
+                                <option value="1">1 - 最小</option>
+                                <option value="2">2 - 较少</option>
+                                <option value="3">3 - 标准</option>
+                                <option value="4">4 - 详细</option>
+                                <option value="5">5 - 调试</option>
+                                <option value="6">6 - 跟踪</option>
+                                <option value="7">7 - 极详细</option>
+                                <option value="8">8 - 最大</option>
+                                <option value="9">9 - 全日志</option>
+                            </select>
+                            <span class="input-description">日志详细程度</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 状态文件 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="status">状态文件路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text standard-input" id="status" 
+                                   name="status" value="/var/log/openvpn_status.log" />
+                            <span class="input-description">连接状态文件路径</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 日志文件 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="log">日志文件路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text standard-input" id="log" 
+                                   name="log" value="/tmp/openvpn.log" />
+                            <span class="input-description">日志文件路径</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 客户端推送配置 -->
+        <div class="cbi-section">
+            <h3><%:客户端推送配置%></h3>
+            <div class="cbi-section-descr">
+                <p><%:配置将推送给所有客户端的选项，每行一个配置项。%></p>
+                <p><%:格式示例: list push 'route 192.168.100.0 255.255.255.0'%></p>
+            </div>
+            <div class="cbi-section-node">
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="push_config">推送配置</label>
+                    <div class="cbi-value-field">
+                        <div class="push-config-container">
+                            <div id="push-config-entries">
+                                <!-- 动态添加的推送配置项 -->
+                            </div>
+                            <div class="push-config-actions">
+                                <button type="button" class="cbi-button cbi-button-add" onclick="addPushConfig()">
+                                    <span class="icon">+</span> <%:添加推送配置%>
+                                </button>
+                                <button type="button" class="cbi-button cbi-button-reset" onclick="resetPushConfig()">
+                                    <span class="icon">↺</span> <%:重置为默认%>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 自定义配置 -->
+        <div class="cbi-section">
+            <h3><%:自定义配置%></h3>
+            <div class="cbi-section-descr">
+                <p><%:添加、显示、删除默认配置没有的参数，需要完整输入。例如：option port '1011'%></p>
+                <p><%:每行一个配置项，输入框高度会根据内容自动调整。%></p>
+            </div>
+            <div class="cbi-section-node">
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="custom_config">自定义配置</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <textarea class="cbi-input-textarea auto-resize" id="custom_config" 
+                                      name="custom_config" rows="1" placeholder="<%:例如: option port '1011'%>"
+                                      style="width: 350px; min-width: 350px;"
+                                      oninput="autoResizeTextarea(this)"></textarea>
+                            <span class="input-description">完整配置项，每行一个</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Management接口设置 -->
+        <div class="cbi-section">
+            <h3><%:Management接口设置%></h3>
+
+            <!-- 这里做成和「客户端推送配置」一样的说明区域 -->
+            <div class="cbi-section-descr">
+                    <p><%:Unix Socket 通信路径，必须只填写路径。格式示例: /var/run/openvpn.sock  或: /var/run/openvpn.sock unix%></p>
+                    <p><span style="color:red;"><%:最后显示的都是：/var/run/openvpn.sock unix%><span style="color:red;"><%: 这是正常的。%></span></p>
+                </div>
+
+            <div class="cbi-section-node">
+
+                <!-- 启用Management接口 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="enable_management">启用Management接口</label>
+                    <div class="cbi-value-field">
+                        <div class="cbi-input-checkbox">
+                            <input type="checkbox" class="cbi-input-checkbox" id="enable_management" 
+                                   name="enable_management" value="1" />
+                            <label for="enable_management"></label>
+                            <span class="input-description">启用后可以在状态页面查看连接状态</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Management通信路径 -->
+                <div class="cbi-value management-option" id="management_path_container">
+                    <label class="cbi-value-title" for="management_path">Management通信路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text standard-input" id="management_path" 
+                                   name="management_path" value="/var/run/openvpn.sock" />
+                            <span class="input-description">Unix Socket 路径</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 断开连接后忘记客户端 -->
+                <div class="cbi-value management-option" id="management_forget_container">
+                    <label class="cbi-value-title" for="management_forget_disconnect">断开后忘记客户端</label>
+                    <div class="cbi-value-field">
+                        <div class="cbi-input-checkbox">
+                            <input type="checkbox" class="cbi-input-checkbox" id="management_forget_disconnect" 
+                                   name="management_forget_disconnect" value="1" checked="checked" />
+                            <label for="management_forget_disconnect"></label>
+                            <span class="input-description">断开连接后从管理接口移除客户端记录</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 黑名单设置 -->
+        <div class="cbi-section">
+            <h3><%:黑名单设置%></h3>
+            <div class="cbi-section-node">
+                <!-- 启用黑名单 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="enable_blacklist">启用黑名单功能</label>
+                    <div class="cbi-value-field">
+                        <div class="cbi-input-checkbox">
+                            <input type="checkbox" class="cbi-input-checkbox" id="enable_blacklist" 
+                                   name="enable_blacklist" value="1" />
+                            <label for="enable_blacklist"></label>
+                            <span class="input-description">启用客户端连接时的黑名单检查</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 黑名单脚本路径 -->
+                <div class="cbi-value blacklist-option" id="client_connect_container">
+                    <label class="cbi-value-title" for="client_connect">黑名单脚本路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text standard-input" id="client_connect" 
+                                   name="client_connect" value="/etc/openvpn/client-connect-cn.sh" />
+                            <span class="input-description">客户端连接时执行的脚本路径</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 脚本安全级别 -->
+                <div class="cbi-value blacklist-option" id="script_security_container">
+                    <label class="cbi-value-title" for="script_security">脚本安全级别</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <select class="cbi-input-select standard-input" id="script_security" name="script_security">
+                                <option value="0">0 - 不允许执行脚本</option>
+                                <option value="1">1 - 仅允许内置脚本</option>
+                                <option value="2">2 - 允许内置和部分外部脚本</option>
+                                <option value="3" selected="selected">3 - 允许所有脚本</option>
+                            </select>
+                            <span class="input-description">脚本执行的安全级别</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 操作按钮 -->
+        <div class="cbi-page-actions">
+            <input class="btn cbi-button cbi-button-apply" type="button" value="<%:保存配置%>" onclick="saveConfig()" />
+            <input class="btn cbi-button cbi-button-reload" type="button" value="<%:重新加载%>" onclick="location.reload()" />
+            <input class="btn cbi-button cbi-button-reset" type="button" value="<%:重置%>" onclick="resetConfig()" />
+        </div>
+    </form>
+</div>
+
+<style type="text/css">
+/* 样式保持与现有界面一致 */
+.cbi-value {
+    padding: 8px 0;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    align-items: center;
+    min-height: 0px;
+    margin-top: -10px;
+}
+
+.cbi-value:last-child {
+    border-bottom: none;
+}
+
+.cbi-value-title {
+    min-width: 200px;
+    padding-right: 15px;
+    font-weight: bold;
+}
+
+.cbi-value-field {
+    flex: 1;
+}
+
+.form-input-with-description {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    width: 100%;
+}
+
+.input-description {
+    color: #666;
+    font-size: 12px;
+    white-space: nowrap;
+    max-width: 500px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 0;
+}
+
+/* 窄输入框 - 用于协议、端口、压缩算法、最大客户端数、保持连接、Management端口 */
+.narrow-input {
+    width: 90px !important;
+    min-width: 90px !important;
+}
+
+/* 标准输入框 - 用于实例名称、服务器网段等大部分输入框 */
+.standard-input {
+    width: 300px !important;
+    min-width: 300px !important;
+}
+
+/* 日志输入框 - 保持现有宽度 */
+.log-input {
+    width: 160px !important;
+    min-width: 160px !important;
+}
+
+.cbi-input-text,
+.cbi-input-select {
+    min-height: 15px;
+}
+
+.cbi-input-textarea {
+    font-family: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    resize: vertical;
+    min-height: 60px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.cbi-input-text[readonly] {
+    background-color: #f8f9fa;
+    color: #6c757d;
+    cursor: not-allowed;
+}
+
+.cbi-input-checkbox {
+    margin-right: 5px;
+}
+
+.info-box {
+    margin: -10px 0;
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-radius: 3px;
+    border: 1px solid #dee2e6;
+}
+
+.cbi-section {
+    margin-bottom: -10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: -10px;
+}
+
+.cbi-section h3 {
+    margin: 0;
+    padding: 10px 15px;
+    background-color: #f5f5f5;
+    border-bottom: 1px solid #ddd;
+    font-size: 16px;
+}
+
+.cbi-section-descr {
+    padding: 10px 15px;
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #ddd;
+    font-size: 20px;
+    color: #666;
+    line-height: 0;  /* 添加行高设置，减少行距 */
+    margin-top: -15px;
+    margin-bottom: -10px;
+}
+
+.cbi-section-descr p {
+    margin: 3px 0;  /* 减少段落之间的间距 */
+    line-height: 0;  /* 设置段内行距 */
+    margin-top: -15px;
+    margin-bottom: -10px;
+}
+
+.cbi-section-node {
+    padding: 15px;
+}
+
+.cbi-page-actions {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.cbi-button {
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    border-radius: 4px;
+    border: 1px solid transparent;
+}
+
+.cbi-button-apply {
+    background-color: #007bff;
+    color: white;
+    border-color: #007bff;
+}
+
+.cbi-button-apply:hover {
+    background-color: #0056b3;
+    border-color: #0056b3;
+}
+
+.cbi-button-reset {
+    background-color: #dc3545;
+    color: white;
+    border-color: #dc3545;
+}
+
+.cbi-button-reset:hover {
+    background-color: #5a6268;
+    border-color: #545b62;
+}
+
+.cbi-button-reload {
+    background-color: #007bff;
+    color: white;
+    border-color: #007bff;
+}
+
+.cbi-button-reload:hover {
+    background-color: #0056b3;
+    border-color: #0056b3;
+}
+
+.cbi-button-add {
+    background-color: #5E72E4;
+    color: white;
+    border-color: #5E72E4;
+    padding: 5px 10px !important;
+    font-size: 12px !important;
+}
+
+.cbi-button-add:hover {
+    background-color: #138496;
+    border-color: #117a8b;
+}
+
+/* 推送配置容器 */
+.push-config-container {
+    width: 30%;
+}
+
+.push-config-entry {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+    gap: 10px;
+}
+
+.push-config-input {
+    flex: 1;
+    min-width: 200px;
+    font-family: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+    font-size: 12px;
+}
+
+.push-config-actions {
+    margin-top: 10px;
+    display: flex;
+    gap: 10px;
+}
+
+.remove-push-btn {
+    background-color: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    padding: 5px 10px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.remove-push-btn:hover {
+    background-color: #c82333;
+}
+
+/* 条件显示/隐藏 */
+.management-option,
+.blacklist-option,
+.ipv6-option {
+    display: none;
+}
+
+/* 深色模式支持 */
+body.dark-mode .cbi-value {
+    border-bottom-color: #444;
+}
+
+body.dark-mode .cbi-value-title {
+    color: #ddd;
+}
+
+body.dark-mode .input-description {
+    color: #aaa;
+}
+
+body.dark-mode .info-box {
+    background-color: #2d2d2d;
+    border-color: #444;
+    color: #ddd;
+}
+
+body.dark-mode .cbi-section {
+    border-color: #444;
+}
+
+body.dark-mode .cbi-section h3 {
+    background-color: #3d3d3d;
+    border-bottom-color: #444;
+    color: #ddd;
+}
+
+body.dark-mode .cbi-section-descr {
+    background-color: #2d2d2d;
+    border-bottom-color: #444;
+    color: #aaa;
+}
+
+body.dark-mode .cbi-input-text,
+body.dark-mode .cbi-input-select,
+body.dark-mode .cbi-input-textarea {
+    background-color: #333;
+    color: #ddd;
+    border-color: #555;
+}
+
+body.dark-mode .cbi-input-text[readonly] {
+    background-color: #2d2d2d;
+    color: #888;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .form-input-with-description {
+        flex-wrap: wrap;
+        gap: 5px;
+    }
+    
+    .cbi-input-text,
+    .cbi-input-select,
+    .cbi-input-textarea {
+        width: 100%;
+        min-width: auto;
+    }
+    
+    .narrow-input,
+    .standard-input,
+    .log-input {
+        width: 100% !important;
+        min-width: auto !important;
+    }
+    
+    .input-description {
+        white-space: normal;
+        max-width: 100%;
+        padding-left: 5px;
+    }
+    
+    .cbi-value-title {
+        min-width: 150px;
+    }
+    
+    .push-config-input {
+        min-width: auto;
+        width: 100%;
+    }
+    
+    .push-config-entry {
+        flex-wrap: wrap;
+    }
+}
+</style>
+
+<script type="text/javascript">
+//<![CDATA[
+
+// 全局变量
+var pushConfigCounter = 0;
+var defaultPushConfigs = [
+    "list push 'route 192.168.100.0 255.255.255.0'",
+    "list push 'redirect-gateway def1 bypass-dhcp'",
+    "list push 'dhcp-option DNS 192.168.100.10'",
+    "list push 'compress lz4-v2'"
+];
+
+// 页面加载完成后初始化
+window.addEventListener('load', function() {
+    // 加载配置
+    loadConfig();
+    
+    // 绑定复选框事件
+    document.getElementById('enable_management').addEventListener('change', function() {
+        toggleManagementOptions(this.checked);
+    });
+    
+    document.getElementById('enable_blacklist').addEventListener('change', function() {
+        toggleBlacklistOptions(this.checked);
+    });
+    
+    // 绑定IPv6复选框事件
+    document.getElementById('enable_ipv6').addEventListener('change', function() {
+        toggleIPv6Options(this.checked);
+    });
+    
+    // 绑定端口输入框变化事件，检查防火墙状态
+    document.getElementById('port').addEventListener('change', function() {
+        setTimeout(checkFirewallStatus, 500);
+    });
+    
+    // 页面加载后检查防火墙状态
+    setTimeout(checkFirewallStatus, 1000);
+});
+
+// 自动调整textarea高度
+function autoResizeTextarea(textarea) {
+    // 重置高度以获取正确的最小高度
+    textarea.style.height = 'auto';
+    
+    // 计算内容高度
+    var lineHeight = 20; // 每行高度估计值
+    var lines = textarea.value.split('\n').length;
+    var minHeight = lineHeight;
+    var newHeight = Math.max(minHeight, lines * lineHeight);
+    
+    // 限制最大高度
+    var maxHeight = 300;
+    textarea.style.height = Math.min(newHeight, maxHeight) + 'px';
+}
+
+// 显示/隐藏IPv6选项
+function toggleIPv6Options(show) {
+    var elements = document.querySelectorAll('.ipv6-option');
+    elements.forEach(function(el) {
+        el.style.display = show ? 'flex' : 'none';
+    });
+}
+
+// 显示/隐藏Management选项
+function toggleManagementOptions(show) {
+    var elements = document.querySelectorAll('.management-option');
+    elements.forEach(function(el) {
+        el.style.display = show ? 'flex' : 'none';
+    });
+}
+
+// 显示/隐藏黑名单选项
+function toggleBlacklistOptions(show) {
+    var elements = document.querySelectorAll('.blacklist-option');
+    elements.forEach(function(el) {
+        el.style.display = show ? 'flex' : 'none';
+    });
+}
+
+// 添加推送配置项
+function addPushConfig(value) {
+    pushConfigCounter++;
+    var container = document.getElementById('push-config-entries');
+    
+    var entryDiv = document.createElement('div');
+    entryDiv.className = 'push-config-entry';
+    entryDiv.id = 'push-entry-' + pushConfigCounter;
+    
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'cbi-input-text push-config-input';
+    input.name = 'push_' + pushConfigCounter;
+    input.placeholder = "例如: list push 'route 192.168.1.0 255.255.255.0'";
+    if (value) {
+        input.value = value;
+    }
+    
+    var removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'remove-push-btn';
+    removeBtn.innerHTML = '删除';
+    removeBtn.onclick = function() {
+        container.removeChild(entryDiv);
+    };
+    
+    entryDiv.appendChild(input);
+    entryDiv.appendChild(removeBtn);
+    container.appendChild(entryDiv);
+    
+    return input;
+}
+
+// 重置推送配置为默认值
+function resetPushConfig() {
+    if (confirm('确认要重置推送配置为默认值吗？')) {
+        var container = document.getElementById('push-config-entries');
+        container.innerHTML = '';
+        pushConfigCounter = 0;
+        
+        defaultPushConfigs.forEach(function(config) {
+            addPushConfig(config);
+        });
+    }
+}
+
+// 检查防火墙状态
+function checkFirewallStatus() {
+    var port = document.getElementById('port').value;
+    
+    if (!port || port.trim() === '') {
+        document.getElementById('firewall-status').textContent = '端口未设置';
+        document.getElementById('firewall-status').style.color = '#dc3545';
+        return;
+    }
+    
+    var portNum = parseInt(port, 10);
+    if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+        document.getElementById('firewall-status').textContent = '端口无效';
+        document.getElementById('firewall-status').style.color = '#dc3545';
+        return;
+    }
+    
+    fetch('<%=dsp.build_url("admin/vpn/openvpn-admin/check_firewall")%>?port=' + port, {
+        method: 'GET'
+    })
+    .then(function(response) {
+        if (!response.ok) {
+            throw new Error('网络响应错误: ' + response.status);
+        }
+        return response.json();
+    })
+    .then(function(result) {
+        var statusElement = document.getElementById('firewall-status');
+        if (result.success && result.exists) {
+            if (result.current_port && result.current_port !== port) {
+                statusElement.textContent = '已配置但端口不匹配 (当前: ' + result.current_port + ', 配置: ' + port + ')';
+                statusElement.style.color = '#ff9800';
+            } else {
+                statusElement.textContent = '已配置 (端口: ' + port + ')';
+                statusElement.style.color = '#28a745';
+            }
+        } else if (result.success && !result.exists) {
+            statusElement.textContent = '未配置 (保存配置时将自动添加)';
+            statusElement.style.color = '#dc3545';
+        } else {
+            statusElement.textContent = '检查失败: ' + (result.message || '未知错误');
+            statusElement.style.color = '#dc3545';
+        }
+    })
+    .catch(function(error) {
+        console.error('检查防火墙状态失败:', error);
+        var statusElement = document.getElementById('firewall-status');
+        statusElement.textContent = '检查失败: ' + error.message;
+        statusElement.style.color = '#dc3545';
+    });
+}
+
+// 加载配置
+function loadConfig() {
+    XHR.get('<%=dsp.build_url("admin/vpn/openvpn-admin/get_uci_config")%>', null,
+        function(x, data) {
+            if(x && x.status == 200) {
+                var result = JSON.parse(x.responseText);
+                if (result.success) {
+                    populateForm(result.data);
+                } else {
+                    alert('加载配置失败: ' + result.message);
+                }
+            }
+        }
+    );
+}
+
+// 填充表单数据
+function populateForm(data) {
+    // 基本设置
+    if (data.enabled !== undefined) {
+        document.getElementById('enabled').checked = data.enabled;
+    }
+    
+    if (data.proto) {
+        document.getElementById('proto').value = data.proto;
+    }
+    
+    if (data.port) {
+        document.getElementById('port').value = data.port;
+    }
+    
+    if (data.ddns) {
+        document.getElementById('ddns').value = data.ddns;
+    }
+    
+    if (data.dev) {
+        document.getElementById('dev').value = data.dev;
+    }
+    
+    if (data.topology) {
+        document.getElementById('topology').value = data.topology;
+    }
+    
+    if (data.server) {
+        document.getElementById('server').value = data.server;
+    }
+    
+    // 证书路径
+    if (data.ca) {
+        document.getElementById('ca').value = data.ca;
+    }
+    
+    if (data.cert) {
+        document.getElementById('cert').value = data.cert;
+    }
+    
+    if (data.key) {
+        document.getElementById('key').value = data.key;
+    }
+    
+    if (data.dh) {
+        document.getElementById('dh').value = data.dh;
+    }
+    
+    // 高级设置
+    if (data.compress !== undefined) {
+        document.getElementById('compress').value = data.compress;
+    }
+    
+    if (data.persist_key !== undefined) {
+        document.getElementById('persist_key').checked = data.persist_key;
+    }
+    
+    if (data.persist_tun !== undefined) {
+        document.getElementById('persist_tun').checked = data.persist_tun;
+    }
+    
+    if (data.user) {
+        document.getElementById('user').value = data.user;
+    }
+    
+    if (data.group) {
+        document.getElementById('group').value = data.group;
+    }
+    
+    if (data.max_clients) {
+        document.getElementById('max_clients').value = data.max_clients;
+    }
+    
+    if (data.keepalive) {
+        document.getElementById('keepalive').value = data.keepalive;
+    }
+    
+    if (data.verb) {
+        document.getElementById('verb').value = data.verb;
+    }
+    
+    if (data.status) {
+        document.getElementById('status').value = data.status;
+    }
+    
+    if (data.log) {
+        document.getElementById('log').value = data.log;
+    }
+    
+    // IPv6设置
+    var hasIPv6 = data.local && data.local !== "";
+    document.getElementById('enable_ipv6').checked = hasIPv6;
+    toggleIPv6Options(hasIPv6);
+    
+    if (data.local) {
+        document.getElementById('local').value = data.local;
+    }
+    
+    // Management接口
+    var hasManagement = data.management && data.management !== "";
+    document.getElementById('enable_management').checked = hasManagement;
+    toggleManagementOptions(hasManagement);
+    
+    if (hasManagement && data.management) {
+    // 直接使用management值作为路径
+    document.getElementById('management_path').value = data.management;
+    console.log('management_path: ' + data.management);
+} else {
+    // 设置默认Unix Socket路径
+    document.getElementById('management_path').value = "/var/run/openvpn.sock";
+}
+    
+    if (data.management_forget_disconnect !== undefined) {
+        document.getElementById('management_forget_disconnect').checked = data.management_forget_disconnect;
+    } else {
+        document.getElementById('management_forget_disconnect').checked = true;
+    }
+    
+    // 黑名单设置
+    var hasBlacklist = data.client_connect && data.client_connect !== "";
+    document.getElementById('enable_blacklist').checked = hasBlacklist;
+    toggleBlacklistOptions(hasBlacklist);
+    
+    if (data.client_connect) {
+        document.getElementById('client_connect').value = data.client_connect;
+    }
+    
+    if (data.script_security) {
+    document.getElementById('script_security').value = data.script_security;
+    } else if (data.enable_blacklist) {
+    // 修改：如果启用了黑名单但没有设置脚本安全级别，设置为默认值 3
+    document.getElementById('script_security').value = "3";
+    }
+    
+    // 推送配置 - 格式化为完整list push语句
+    var container = document.getElementById('push-config-entries');
+    container.innerHTML = '';
+    pushConfigCounter = 0;
+    
+    if (data.push && data.push.length > 0) {
+        data.push.forEach(function(pushItem) {
+            // 如果pushItem已经是完整的list push语句，直接使用
+            var fullPush = pushItem;
+            if (!pushItem.match(/^list push/)) {
+                // 如果不是完整的list push语句，添加前缀
+                fullPush = "list push '" + pushItem + "'";
+            }
+            addPushConfig(fullPush);
+        });
+    } else {
+        // 添加默认推送配置
+        defaultPushConfigs.forEach(function(config) {
+            addPushConfig(config);
+        });
+    }
+    
+    // 自定义配置 - 收集所有非标准配置项
+    setTimeout(function() {
+        collectCustomConfig(data);
+        // 加载配置后检查防火墙状态
+        checkFirewallStatus();
+    }, 100);
+}
+
+// 收集自定义配置
+function collectCustomConfig(data) {
+    var customConfig = [];
+    var standardFields = [
+        'enabled', 'proto', 'port', 'ddns', 'dev', 'topology', 'server',
+        'ca', 'dh', 'cert', 'key', 'persist_key', 'persist_tun', 'user',
+        'group', 'max_clients', 'keepalive', 'verb', 'status', 'log',
+        'compress', 'local', 'management', 'management_forget_disconnect',
+        'client_connect', 'script_security'
+    ];
+    
+    // 收集所有配置字段
+    var allConfig = data;
+    for (var key in allConfig) {
+        // 跳过标准字段、push列表和内部字段
+        if (standardFields.indexOf(key) === -1 && 
+            key !== 'push' && 
+            key !== 'cert_paths' && 
+            key !== 'enable_management' && 
+            key !== 'enable_blacklist' &&
+            key !== '__section' &&
+            key !== '__type') {
+            
+            var value = allConfig[key];
+            // 修改：检查是否是management_path字段（来自新界面的值）
+            if (key === 'management_path') {
+                // 这是新的Management路径字段，不添加到自定义配置
+                continue;
+            }
+            
+            // 修改：确保management字段不被添加到自定义配置
+            if (key === 'management' && standardFields.indexOf('management') !== -1) {
+                // management已经在标准字段中，不应该被添加
+                console.log('跳过management字段（标准字段）');
+                continue;
+            }
+            if (value && typeof value === 'string' && value !== '') {
+                // 构建配置行
+                customConfig.push("option " + key + " '" + value + "'");
+            }
+        }
+    }
+    
+    // 设置自定义配置文本框
+    var textarea = document.getElementById('custom_config');
+    if (customConfig.length > 0) {
+        textarea.value = customConfig.join('\n');
+    } else {
+        textarea.value = '';
+    }
+    
+    // 调整高度
+    autoResizeTextarea(textarea);
+}
+
+// 保存配置
+function saveConfig() {
+    // 检查端口是否有效
+    var portInput = document.getElementById('port');
+    var portValue = portInput.value.trim();
+    
+    if (!portValue || portValue === "") {
+        alert('请填写端口号');
+        portInput.focus();
+        return;
+    }
+    
+    // 检查IPv6是否启用
+    var enableIPv6 = document.getElementById('enable_ipv6').checked;
+    if (enableIPv6) {
+        console.log("IPv6已启用，保存配置后将执行IPv6脚本");
+    }
+    
+    var portNum = parseInt(portValue, 10);
+    if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+        alert('端口号必须在1-65535之间');
+        portInput.focus();
+        return;
+    }
+    
+    if (!confirm('确认要保存配置吗？保存后OpenVPN服务将会重启，防火墙端口规则也会相应更新。')) {
+        return;
+    }
+    
+    // 收集表单数据
+    var formData = new FormData();
+    
+    // 基本配置项
+    var configFields = [
+        'enabled', 'proto', 'port', 'ddns', 'dev', 'topology', 'server',
+        'ca', 'dh', 'cert', 'key', 'persist_key', 'persist_tun', 'user',
+        'group', 'max_clients', 'keepalive', 'verb', 'status', 'log',
+        'compress'
+    ];
+    
+    configFields.forEach(function(field) {
+        var element = document.getElementById(field);
+        if (element) {
+            if (element.type === 'checkbox') {
+                formData.append(field, element.checked ? '1' : '0');
+                console.log(field + ': ' + (element.checked ? '1' : '0'));
+            } else {
+                formData.append(field, element.value);
+                console.log(field + ': ' + element.value);
+            }
+        }
+    });
+    
+    // IPv6设置
+    var enableIPv6 = document.getElementById('enable_ipv6').checked;
+    formData.append('enable_ipv6', enableIPv6 ? '1' : '0');
+    console.log('enable_ipv6: ' + (enableIPv6 ? '1' : '0'));
+    
+    if (enableIPv6) {
+        var local_address = document.getElementById('local').value;
+        if (local_address) {
+            formData.append('local', local_address);
+            console.log('local: ' + local_address);
+        }
+    }
+    
+    // Management接口
+    var enableManagement = document.getElementById('enable_management').checked;
+formData.append('enable_management', enableManagement ? '1' : '0');
+console.log('enable_management: ' + (enableManagement ? '1' : '0'));
+
+if (enableManagement) {
+    // 获取Unix Socket路径 - 修改：使用management_path替代address和port
+    var management_path = document.getElementById('management_path').value;
+    if (management_path) {
+        formData.append('management_path', management_path);
+        console.log('management_path: ' + management_path);
+    }
+    
+    var management_forget = document.getElementById('management_forget_disconnect').checked;
+    formData.append('management_forget_disconnect', management_forget ? '1' : '0');
+    console.log('management_forget_disconnect: ' + (management_forget ? '1' : '0'));
+}
+    
+    // 黑名单设置
+    var enableBlacklist = document.getElementById('enable_blacklist').checked;
+    formData.append('enable_blacklist', enableBlacklist ? '1' : '0');
+    console.log('enable_blacklist: ' + (enableBlacklist ? '1' : '0'));
+    
+    if (enableBlacklist) {
+        var client_connect = document.getElementById('client_connect').value;
+        var script_security = document.getElementById('script_security').value;
+        if (client_connect) {
+            formData.append('client_connect', client_connect);
+            console.log('client_connect: ' + client_connect);
+        }
+        if (script_security) {
+            formData.append('script_security', script_security);
+            console.log('script_security: ' + script_security);
+        }
+    }
+    
+    // 推送配置 - 发送完整的list push语句（修改关键部分）
+    var pushInputs = document.querySelectorAll('input[name^="push_"]');
+    var pushIndex = 0;
+    pushInputs.forEach(function(input) {
+        if (input.value.trim() !== '') {
+            var pushValue = input.value;
+            
+            // 确保是完整的list push语句（如果用户删除了list push前缀，则添加）
+            if (!pushValue.match(/^list push\s+/)) {
+                pushValue = "list push '" + pushValue + "'";
+            }
+            
+            formData.append('push_' + pushIndex, pushValue);
+            console.log('push_' + pushIndex + ': ' + pushValue);
+            pushIndex++;
+        }
+    });
+    
+    // 自定义配置 - 添加到表单数据中（作为额外的字段）
+    var customConfigText = document.getElementById('custom_config').value;
+    if (customConfigText.trim() !== '') {
+        var lines = customConfigText.split('\n');
+        lines.forEach(function(line, index) {
+            if (line.trim() !== '') {
+                formData.append('custom_' + index, line);
+                console.log('custom_' + index + ': ' + line);
+            }
+        });
+    }
+    
+    // 发送请求
+    var url = '<%=dsp.build_url("admin/vpn/openvpn-admin/save_uci_config")%>';
+    console.log('正在发送请求到: ' + url);
+    
+    fetch(url, {
+        method: 'POST',
+        body: formData
+    })
+    .then(function(response) {
+        console.log('响应状态: ' + response.status);
+        if (response.ok) {
+            return response.json();
+        } else {
+            return response.text().then(function(text) {
+                throw new Error('网络响应错误: ' + response.status + ' - ' + text);
+            });
+        }
+    })
+    .then(function(result) {
+        console.log('响应数据: ', result);
+        if (result.success) {
+            alert(result.message);
+            // 3秒后重新加载配置并检查防火墙状态
+            setTimeout(function() {
+                loadConfig();
+                checkFirewallStatus();
+            }, 3000);
+        } else {
+            alert('保存失败: ' + result.message);
+        }
+    })
+    .catch(function(error) {
+        console.error('请求错误: ', error);
+        alert('保存失败: ' + error.message);
+    });
+}
+
+// 重置配置
+function resetConfig() {
+    if (confirm('确认要重置所有配置为默认值吗？未保存的修改将会丢失。')) {
+        // 重置表单
+        document.getElementById('openvpn-server-form').reset();
+        
+        // 重置推送配置
+        resetPushConfig();
+        
+        // 重置自定义配置
+        document.getElementById('custom_config').value = '';
+        autoResizeTextarea(document.getElementById('custom_config'));
+        
+        // 重置显示状态
+        toggleManagementOptions(document.getElementById('enable_management').checked);
+        toggleBlacklistOptions(document.getElementById('enable_blacklist').checked);
+        toggleIPv6Options(document.getElementById('enable_ipv6').checked);
+        
+        // 重置黑名单脚本级别
+        document.getElementById('script_security').value = "3";
+        
+        // 重置后检查防火墙状态
+        setTimeout(checkFirewallStatus, 500);
+        
+        // 设置压缩算法默认值
+        document.getElementById('compress').value = "lz4-v2";
+        
+        // 设置持久化选项默认值
+        document.getElementById('persist_key').checked = true;
+        document.getElementById('persist_tun').checked = true;
+
+        // 设置日志级别默认值（模板使用3 - 标准）
+        document.getElementById('verb').value = "3";
+        
+        alert('配置已重置为默认值，请点击"保存配置"应用更改。');
+    }
+}
+
+//]]>
+</script>
+
+<%+footer%>

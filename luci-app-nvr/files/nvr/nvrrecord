@@ -1,0 +1,65 @@
+#!/bin/sh
+. /usr/nvr/nvrcommon
+
+if ! ffmpeg -codecs 2>/dev/null | grep -q "D.H.264"; then
+    MSG="错误: 系统 ffmpeg 不支持 H.264。录像将无法进行！"
+    echo "$MSG"
+    # 发送到系统日志，方便用户在 iStoreOS 日志中看到
+    logger -t NVR "$MSG 请安装 ffmpeg-static 以获得支持。"
+    exit 1
+fi
+
+
+function main() {
+	test_totaldays
+	test_loopwrite
+	i=1 # 用数字通道号做路径，非常好。
+	for a in $_all_clients;do
+		theday="$(date +%Y-%m-%d)"
+		#thedir=$(echo $a | sed 's/\///g') #这个做路径非常不友好
+		thedir=${i} # 通道名目录
+		if [ ! -d "$_directory/$theday/$thedir" ];then
+			mkdir -p "$_directory/$theday/$thedir"
+		fi
+		if [ "$_source" = "hikvision" ];then
+			_input="rtsp://${_hik_user}:${_hik_pass}@${a}:554/h264/ch1/main/av_stream"
+		elif [ "$_source" = "tplink" ];then
+			_input="rtsp://${_tplink_user}:${_tplink_pass}@${a}:554/stream1"
+		elif [ "$_source" = "rtmp-url" ];then
+			_input="$a"
+		elif [ "$_source" = "multiple-types" ];then
+			_input="$a"
+		fi
+		#测试分区是否是fat分区
+		_disk_type=$(df -T "${_directory}" | awk '{print $2}' | head -n 2 | tail -n +2)
+		if echo "$_disk_type" | grep -iq "fat"; then
+			thename="$(date +%Y-%m-%d-%H-%M-%S)" #fat分区名字不能带冒号,否则无法创建文件
+		else
+			thename="$(date +%Y-%m-%d-%H:%M:%S)"
+		fi		
+		# 屏蔽强行结束功能，会导致录制的MP4视频无法播放。
+		#if [ ! -f "${_directory}/${theday}/${thedir}/${thename}.*" ];then
+		#	kill -9 "$(ps -w | grep ffmpeg | grep "${_input}" | grep -v grep | grep -v "\-f flv")"
+		#fi
+
+		if [ "$_enable_audio" -eq 1 ];then
+			ffmpeg -i "${_input}" -c copy -c:a aac -t ${_rec_time} "${_directory}/${theday}/${thedir}/${thename}.mp4" &
+			# 采用mp4有声录制。
+			ffmpeg -i "${_input}" -c copy -t ${_rec_time} "${_directory}/${theday}/${thedir}/${thename}.mp4" &
+		else
+			# 采用mp4无声录制。
+			ffmpeg -i "${_input}" -c copy -an -t ${_rec_time} "${_directory}/${theday}/${thedir}/${thename}.mp4" &
+		fi
+		i=$((i + 1))
+	done
+	sleep $(expr ${_rec_time} - 3)
+}
+
+while true;do
+	detect_disk
+	if [ "${_disk}" = "" ];then
+		main
+	else
+		sleep 10
+	fi
+done

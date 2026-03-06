@@ -1,0 +1,89 @@
+#!/usr/bin/ucode
+/*
+ * SPDX-License-Identifier: MIT
+ *
+ * Copyright (C) 2021-2026 LIKE2000-ART
+ */
+
+'use strict';
+
+import { access, error, lstat, popen, readfile, writefile } from 'fs';
+
+function get_current_version() {
+	if (!access('/usr/bin/picoclaw'))
+		return null;
+	
+	const fd = popen('/usr/bin/picoclaw version 2>&1');
+	if (fd) {
+		let version_output = fd.read('all');
+		fd.close();
+		
+		if (!version_output || length(version_output) === 0)
+			return null;
+		
+		try {
+			version_output = replace(trim(version_output), /^v/, '');
+			return version_output;
+		} catch(e) {
+			return null;
+		}
+	}
+	return null;
+}
+
+const methods = {
+	get_ver: {
+		call: function() {
+			let current_version = get_current_version();
+			if (!current_version)
+				return { ver: {}, error: 'picoclaw not found or version check failed' };
+			
+			return { ver: { version: current_version } };
+		}
+	},
+
+	get_status: {
+		call: function() {
+			const fd = popen('/usr/bin/picoclaw status 2>&1');
+			if (fd) {
+				let output = fd.read('all');
+				fd.close();
+				return { status: trim(output || '') };
+			}
+			return { status: 'unknown' };
+		}
+	},
+
+	get_config: {
+		call: function() {
+			const content = readfile('/etc/picoclaw/config.json');
+			if (content)
+				return { content: content };
+			return { content: '{}', error: 'config file not found' };
+		}
+	},
+
+	set_config: {
+		args: { content: '' },
+		call: function(req) {
+			const content = req.args?.content;
+			if (!content)
+				return { code: 1, stderr: 'no content provided' };
+
+			const rc = writefile('/etc/picoclaw/config.json', content);
+			if (rc == null)
+				return { code: 1, stderr: 'failed to write config file' };
+
+			const fd = popen('/etc/init.d/picoclaw restart 2>&1');
+			let restart_output = '';
+			if (fd) {
+				restart_output = fd.read('all') || '';
+				fd.close();
+			}
+
+			return { code: 0, stdout: 'config saved and picoclaw restarted', stderr: restart_output };
+		}
+	}
+};
+
+return { 'luci.picoclaw': methods };

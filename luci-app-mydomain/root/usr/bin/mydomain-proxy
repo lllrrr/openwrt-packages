@@ -1,0 +1,128 @@
+#!/bin/sh
+
+# MyDomain Reverse Proxy Configuration Script
+# This script generates HAProxy configuration and manages the service
+
+CONFIG_FILE="/etc/config/mydomain"
+HAPROXY_CONFIG="/etc/haproxy/haproxy.cfg"
+LOG_FILE="/tmp/mydomain_proxy.log"
+
+log_message() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+}
+
+generate_haproxy_config() {
+    local cfg_file="$1"
+    
+    # Start generating HAProxy configuration
+    cat > "$cfg_file" << EOF
+global
+    daemon
+    maxconn 4096
+    pidfile /var/run/haproxy.pid
+
+defaults
+    mode http
+    timeout connect 5000ms
+    timeout client 50000ms
+    timeout server 50000ms
+    option httplog
+    option dontlognull
+    log global
+
+frontend http_front
+    bind *:80
+    mode http
+    default_backend http_back
+
+EOF
+
+    . /lib/functions.sh
+    config_load mydomain
+    
+    add_proxy_backend() {
+        local cfg="$1"
+        
+        config_get enabled "$cfg" enabled
+        config_get name "$cfg" name
+        config_get frontend_port "$cfg" frontend_port
+        config_get backend_url "$cfg" backend_url
+        config_get protocol "$cfg" protocol
+        config_get cert "$cfg" cert
+        config_get acl_rules "$cfg" acl_rules
+        config_get lb_algorithm "$cfg" lb_algorithm
+        config_get health_check "$cfg" health_check
+        config_get health_check_url "$cfg" health_check_url
+        
+        [ "$enabled" != "1" ] && return 0
+        [ -z "$frontend_port" ] && return 0
+        [ -z "$backend_url" ] && return 0
+        
+        # Determine protocol
+        local mode="http"
+        local ssl_enabled=0
+        if [ "$protocol" = "https" ]; then
+            ssl_enabled=1
+        elif [ "$protocol" = "websocket" ]; then
+            # WebSocket can be handled in HTTP mode with proper configuration
+            ssl_enabled=0
+        fi
+        
+        # Add frontend
+        echo "frontend ${cfg}_front" >> "$cfg_file"
+        echo "    mode $mode" >> "$cfg_file"
+        
+        # Add SSL if needed
+        if [ $ssl_enabled -eq 1 ] && [ -n "$cert" ]; then
+            config_get cert_path "certificate" "$cert" "cert_path"
+            config_get key_path "certificate" "$cert" "key_path"
+            if [ -n "$cert_path" ] && [ -n "$key_path" ] && [ -f "$cert_path" ] && [ -f "$key_path" ]; then
+                echo "    bind *:$frontend_port ssl crt $cert_path" >> "$cfg_file"
+            fi
+        else
+            # Add non-SSL binding
+            echo "    bind *:$frontend_port" >> "$cfg_file"
+        fi
+        
+        # Add ACL rules if any
+        if [ -n "$acl_rules" ]; then
+            for rule in $acl_rules; do
+                echo "    acl ${cfg}_rule $rule" >> "$cfg_file"
+                echo "    use_backend ${cfg}_back if ${cfg}_rule" >> "$cfg_file"
+            done
+        fi
+        
+        echo "    default_backend ${cfg}_back" >> "$cfg_file"
+        echo "" >> "$cfg_file"
+        
+        # Add backend
+        echo "backend ${cfg}_back" >> "$cfg_file"
+        echo "    mode $mode" >> "$cfg_file"
+        echo "    balance $lb_algorithm" >> "$cfg_file"
+        
+        # Add server
+        echo "    server ${cfg}_server $backend_url check" >> "$cfg_file"
+        
+        # Add health check if enabled
+        if [ "$health_check" = "1" ] && [ -n "$health_check_url" ]; then
+            echo "    option httpchk GET $health_check_url" >> "$cfg_file"
+        fi
+        
+        echo "" >> "$cfg_file"
+    }
+    
+    config_foreach add_proxy_backend proxy
+}
+
+# Generate the HAProxy configuration
+generate_haproxy_config "$HAPROXY_CONFIG"
+
+# Restart HAProxy service
+if [ -f /etc/init.d/haproxy ]; then
+    /etc/init.d/haproxy restart
+    log_message "HAProxy configuration updated and service restarted"
+else
+    log_message "HAProxy not found, please install haproxy package"
+fi
+
+exit 0

@@ -1,0 +1,495 @@
+#!/bin/sh
+
+# OpenVPN IPv6地址自动更新脚本（主路由优先完整版）
+# 配置文件路径
+CONFIG_FILE="/etc/config/openvpn-admin"
+LOG_DIR="/tmp/openvpn-admin"
+LOG_FILE="$LOG_DIR/openvpn_ipv6.log"
+MAX_LOG_LINES=100
+
+# 检查接口是否有全局IPv6地址
+has_global_ipv6() {
+    local iface="$1"
+    ip -6 addr show dev "$iface" 2>/dev/null | grep -q 'inet6.*global'
+    return $?
+}
+
+# 查找WAN口类型接口
+find_wan_interface() {
+    log_message "查找WAN口类型接口"
+    
+    # 优先级1：常见WAN口名称（主路由特征）
+    local wan_priority_patterns="pppoe-wan ppp0 ppp1 wan wan6 eth1 eth2 enp1s0 enp2s0"
+    
+    for pattern in $wan_priority_patterns; do
+        # 检查接口是否存在
+        if ip link show "$pattern" >/dev/null 2>&1; then
+            log_message "找到WAN口模式接口: $pattern"
+            echo "$pattern"
+            return 0
+        fi
+    done
+    
+    # 优先级2：从网络配置中查找WAN接口
+    local uci_wan=$(uci -q get network.wan.ifname 2>/dev/null || echo "")
+    if [ -n "$uci_wan" ]; then
+        log_message "从UCI配置找到WAN接口: $uci_wan"
+        echo "$uci_wan"
+        return 0
+    fi
+    
+    # 优先级3：查找可能作为WAN的以太网接口
+    local potential_wan=$(find_potential_wan_interface)
+    if [ -n "$potential_wan" ]; then
+        log_message "找到潜在WAN口: $potential_wan"
+        echo "$potential_wan"
+        return 0
+    fi
+    
+    log_message "未找到WAN口类型接口"
+    echo ""
+}
+
+# 查找可能作为WAN的以太网接口
+find_potential_wan_interface() {
+    # 获取所有以太网接口
+    local ethernet_ifaces=$(ip -o link show 2>/dev/null | \
+        awk -F': ' '{print $2}' | \
+        grep -E '^(eth|eno|ens|enp)' | \
+        sed 's/@.*//' | sort -u)
+    
+    for iface in $ethernet_ifaces; do
+        # 检查是否在桥接中（LAN口通常在桥接中）
+        if ! command -v brctl >/dev/null 2>&1 || ! brctl show 2>/dev/null | grep -q "$iface"; then
+            # 不在桥接中，可能是WAN口
+            log_message "接口 $iface 不在桥接中，可能是WAN口"
+            echo "$iface"
+            return 0
+        else
+            log_message "接口 $iface 在桥接中，可能是LAN口"
+        fi
+    done
+    
+    echo ""
+}
+
+# 查找有公网IPv6的接口
+find_interface_with_public_ipv6() {
+    log_message "查找有公网IPv6的接口"
+    
+    local public_iface=""
+    local public_ipv6=""
+    
+    # 获取所有非虚拟接口
+    local interfaces=$(ip -o link show 2>/dev/null | \
+        awk -F': ' '{print $2}' | \
+        grep -v -E '^(lo|docker|veth|ip6tnl|tunl|sit|dummy|gre|gretap|erspan|siit|teql|tun|tap|wg|br-)' | \
+        sed 's/@.*//' | sort -u)
+    
+    for iface in $interfaces; do
+        log_message "检查接口 $iface 的公网IPv6地址"
+        
+        # 查找公网IPv6地址
+        local ipv6_addr=$(ip -6 addr show dev "$iface" 2>/dev/null | \
+            grep 'inet6.*global' | \
+            grep -v 'deprecated' | \
+            grep -E '240e:|2408:|2409:|2[0-9a-f][0-9a-f][0-9a-f]:|3[0-9a-f][0-9a-f][0-9a-f]:' | \
+            head -1)
+        
+        if [ -n "$ipv6_addr" ]; then
+            # 提取地址进行排序
+            local addr=$(echo "$ipv6_addr" | awk '{print $2}' | cut -d'/' -f1)
+            
+            # 优先选择中国运营商地址
+            if echo "$addr" | grep -q -E '^240e:|^2408:|^2409:'; then
+                log_message "找到中国运营商公网地址在 $iface: $addr"
+                echo "$iface"
+                return 0
+            elif [ -z "$public_iface" ]; then
+                public_iface="$iface"
+                public_ipv6="$addr"
+                log_message "记录全球公网地址在 $iface: $addr"
+            fi
+        fi
+    done
+    
+    if [ -n "$public_iface" ]; then
+        log_message "最终选择全球公网地址接口 $public_iface: $public_ipv6"
+        echo "$public_iface"
+        return 0
+    fi
+    
+    log_message "未找到有公网IPv6的接口"
+    echo ""
+}
+
+# 查找第一个有IPv6的接口
+find_first_interface_with_ipv6() {
+    log_message "查找第一个有全局IPv6的接口"
+    
+    for iface in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | grep -v -E '^(lo|docker|veth)'); do
+        iface=$(echo "$iface" | sed 's/@.*//')
+        
+        # 检查接口状态
+        local state=$(cat /sys/class/net/"$iface"/operstate 2>/dev/null || echo "down")
+        if [ "$state" = "up" ]; then
+            # 检查是否有全局IPv6地址
+            if has_global_ipv6 "$iface"; then
+                log_message "找到UP状态且有全局IPv6的接口: $iface"
+                echo "$iface"
+                return 0
+            fi
+        fi
+    done
+    
+    log_message "未找到有全局IPv6的UP接口"
+    echo ""
+}
+
+# 主路由优先选择默认接口
+select_default_interface() {
+    log_message "=== 开始智能选择默认接口（主路由优先）==="
+    
+    # 1. 如果用户通过hotplug指定了接口，优先使用
+    local hotplug_iface=$(uci -q get openvpn-admin.@settings[0].hotplug_interface 2>/dev/null || echo "")
+    local hotplug_enabled=$(uci -q get openvpn-admin.@settings[0].hotplug_enabled 2>/dev/null || echo "0")
+    
+    if [ "$hotplug_enabled" = "1" ] && [ -n "$hotplug_iface" ]; then
+        log_message "优先级1: 使用用户配置的Hotplug接口: $hotplug_iface"
+        echo "$hotplug_iface"
+        return 0
+    fi
+    
+    # 2. 优先选择WAN口类型接口（主路由优化）
+    log_message "优先级2: 查找WAN口类型接口..."
+    local wan_iface=$(find_wan_interface)
+    if [ -n "$wan_iface" ]; then
+        log_message "找到WAN口类型接口: $wan_iface"
+        # 检查是否有IPv6地址
+        if has_global_ipv6 "$wan_iface"; then
+            log_message "WAN口 $wan_iface 有全局IPv6地址"
+            echo "$wan_iface"
+            return 0
+        else
+            log_message "WAN口 $wan_iface 没有全局IPv6地址，继续查找"
+        fi
+    fi
+    
+    # 3. 查找有公网IPv6的任何接口
+    log_message "优先级3: 查找有公网IPv6的接口..."
+    local public_iface=$(find_interface_with_public_ipv6)
+    if [ -n "$public_iface" ]; then
+        log_message "找到有公网IPv6的接口: $public_iface"
+        echo "$public_iface"
+        return 0
+    fi
+    
+    # 4. 检查br-lan是否存在且有IPv6（旁路由兼容）
+    log_message "优先级4: 检查br-lan接口..."
+    if ip link show br-lan >/dev/null 2>&1; then
+        if has_global_ipv6 "br-lan"; then
+            log_message "br-lan接口有全局IPv6地址"
+            echo "br-lan"
+            return 0
+        else
+            log_message "br-lan接口没有全局IPv6地址"
+        fi
+    fi
+    
+    # 5. 查找第一个有IPv6的UP接口
+    log_message "优先级5: 查找有IPv6的UP接口..."
+    local first_iface=$(find_first_interface_with_ipv6)
+    if [ -n "$first_iface" ]; then
+        log_message "找到有IPv6的接口: $first_iface"
+        echo "$first_iface"
+        return 0
+    fi
+    
+    log_message "警告: 未找到合适的接口，使用默认br-lan"
+    echo "br-lan"
+}
+
+# 从配置读取参数
+get_config() {
+    log_message "=== 读取配置参数 ==="
+    
+    local section=$(uci -q get openvpn-admin.@settings[0] 2>/dev/null || echo "")
+    if [ -n "$section" ]; then
+        OPENVPN_SECTION=$(uci -q get openvpn-admin.$section.openvpn_instance 2>/dev/null || echo "myvpn")
+        MONITOR_INTERFACE=$(uci -q get openvpn-admin.$section.hotplug_interface 2>/dev/null)
+        USE_HOTPLUG=$(uci -q get openvpn-admin.$section.hotplug_enabled 2>/dev/null || echo "0")
+        
+        # 如果hotplug启用且有配置，使用配置的接口
+        if [ "$USE_HOTPLUG" = "1" ] && [ -n "$MONITOR_INTERFACE" ]; then
+            TARGET_INTERFACE="$MONITOR_INTERFACE"
+            log_message "使用用户配置的Hotplug接口: $TARGET_INTERFACE"
+        else
+            # 否则智能选择默认接口（主路由优先）
+            TARGET_INTERFACE=$(select_default_interface)
+            log_message "智能选择的主路由优先接口: $TARGET_INTERFACE"
+        fi
+    else
+        OPENVPN_SECTION="myvpn"
+        TARGET_INTERFACE=$(select_default_interface)
+        log_message "使用默认配置，智能选择接口: $TARGET_INTERFACE"
+    fi
+    
+    log_message "OpenVPN实例: $OPENVPN_SECTION"
+}
+
+# 获取指定接口的最佳IPv6地址
+get_best_ipv6_address() {
+    local interface="$1"
+    
+    if [ -z "$interface" ]; then
+        log_message "错误: 未指定接口"
+        echo ""
+        return 1
+    fi
+    
+    # 检查接口是否存在
+    if ! ip link show dev "$interface" >/dev/null 2>&1; then
+        log_message "错误: 接口 $interface 不存在"
+        echo ""
+        return 1
+    fi
+    
+    log_message "在接口 $interface 上查找IPv6地址"
+    
+    # 获取所有全局IPv6地址，使用临时文件避免子shell问题
+    local temp_file="/tmp/ipv6_addresses_$$"
+    ip -6 addr show dev "$interface" 2>/dev/null | \
+        grep 'inet6.*global' | \
+        grep -v 'deprecated' | \
+        awk '{print $2}' | \
+        cut -d'/' -f1 > "$temp_file"
+    
+    if [ ! -s "$temp_file" ]; then
+        rm -f "$temp_file" 2>/dev/null
+        log_message "接口 $interface 上没有全局IPv6地址"
+        echo ""
+        return 1
+    fi
+    
+    # 分析地址类型并选择最佳地址
+    local public_ipv6=""
+    local ula_ipv6=""
+    local first_ipv6=""
+    
+    log_message "分析IPv6地址类型..."
+    
+    # 使用文件读取
+    while IFS= read -r addr; do
+        if [ -z "$first_ipv6" ]; then
+            first_ipv6="$addr"
+            log_message "第一个地址: $addr"
+        fi
+        
+        # 检查地址类型
+        # 提取地址前缀（前4个字符）
+        local prefix=$(echo "$addr" | cut -d':' -f1)
+        
+        # 公网地址：240e::（电信）或 2408::（联通）或 2409::（移动）或 2xxx::/3 或 3xxx::/3
+        case $prefix in
+            240e|2408|2409)
+                if [ -z "$public_ipv6" ]; then
+                    public_ipv6="$addr"
+                    log_message "找到中国运营商公网地址: $addr"
+                fi
+                ;;
+            2???|3???)
+                if [ -z "$public_ipv6" ]; then
+                    public_ipv6="$addr"
+                    log_message "找到全球公网地址: $addr"
+                fi
+                ;;
+            # ULA地址：fdxx::/8
+            fd??)
+                if [ -z "$ula_ipv6" ]; then
+                    ula_ipv6="$addr"
+                    log_message "找到ULA地址: $addr"
+                fi
+                ;;
+            *)
+                log_message "其他地址类型: $addr"
+                ;;
+        esac
+    done < "$temp_file"
+    
+    rm -f "$temp_file" 2>/dev/null
+    
+    # 优先级：公网地址 > ULA地址 > 第一个地址
+    if [ -n "$public_ipv6" ]; then
+        log_message "选择公网地址: $public_ipv6"
+        echo "$public_ipv6"
+    elif [ -n "$ula_ipv6" ]; then
+        log_message "选择ULA地址: $ula_ipv6"
+        echo "$ula_ipv6"
+    elif [ -n "$first_ipv6" ]; then
+        log_message "选择第一个地址: $first_ipv6"
+        echo "$first_ipv6"
+    else
+        log_message "未找到合适的IPv6地址"
+        echo ""
+        return 1
+    fi
+}
+
+# 确保日志目录存在
+ensure_log_dir() {
+    mkdir -p "$LOG_DIR" 2>/dev/null
+}
+
+# 优化的日志函数
+log_message() {
+    ensure_log_dir
+    local message="$(date '+%Y-%m-%d %H:%M:%S') - $1"
+    local temp_file="${LOG_FILE}.tmp"
+    
+    # 如果日志文件存在且行数超过限制，保留最新的(MAX_LOG_LINES-1)行
+    if [ -f "$LOG_FILE" ]; then
+        tail -n $((MAX_LOG_LINES - 1)) "$LOG_FILE" > "$temp_file" 2>/dev/null
+    fi
+    
+    # 添加新日志
+    echo "$message" >> "$temp_file"
+    
+    # 替换原日志文件
+    mv "$temp_file" "$LOG_FILE" 2>/dev/null || true
+}
+
+# 获取当前IPv6地址
+get_current_ipv6() {
+    if [ -z "$TARGET_INTERFACE" ]; then
+        log_message "错误: 未设置目标接口"
+        echo ""
+        return 1
+    fi
+    
+    log_message "获取接口 $TARGET_INTERFACE 的IPv6地址"
+    get_best_ipv6_address "$TARGET_INTERFACE"
+}
+
+# 获取配置的IPv6地址
+get_configured_ipv6() {
+    local current_ip=$(uci -q get openvpn.$OPENVPN_SECTION.local 2>/dev/null)
+    log_message "当前OpenVPN配置的IPv6地址: ${current_ip:-未设置}"
+    echo "$current_ip"
+}
+
+# 检查OpenVPN是否启用了IPv6
+openvpn_has_ipv6() {
+    uci -q get openvpn.$OPENVPN_SECTION.local >/dev/null 2>&1
+    local has_ipv6=$?
+    if [ $has_ipv6 -eq 0 ]; then
+        log_message "OpenVPN已启用IPv6"
+    else
+        log_message "OpenVPN未启用IPv6"
+    fi
+    return $has_ipv6
+}
+
+# 检查OpenVPN服务状态
+check_openvpn_service() {
+    if pgrep -f "openvpn.*$OPENVPN_SECTION" >/dev/null 2>&1; then
+        log_message "OpenVPN服务正在运行"
+        return 0
+    else
+        log_message "OpenVPN服务未运行"
+        return 1
+    fi
+}
+
+# 重启OpenVPN服务
+restart_openvpn_service() {
+    log_message "正在重启OpenVPN服务..."
+    
+    # 先检查服务状态
+    if check_openvpn_service; then
+        log_message "停止OpenVPN服务"
+        /etc/init.d/openvpn stop >/dev/null 2>&1
+        sleep 2
+    fi
+    
+    log_message "启动OpenVPN服务"
+    /etc/init.d/openvpn start >/dev/null 2>&1
+    
+    # 等待服务启动
+    sleep 3
+    
+    if check_openvpn_service; then
+        log_message "OpenVPN服务重启成功"
+        return 0
+    else
+        log_message "警告: OpenVPN服务可能未成功启动"
+        return 1
+    fi
+}
+
+# 主逻辑
+main() {
+    log_message "===== OpenVPN IPv6地址更新脚本开始 ====="
+    
+    get_config
+    
+    current_ipv6=$(get_current_ipv6)
+    
+    if [ -z "$current_ipv6" ]; then
+        log_message "错误: 无法从接口 $TARGET_INTERFACE 获取IPv6地址"
+        log_message "===== 脚本结束 (失败) ====="
+        exit 1
+    fi
+    
+    log_message "当前最佳IPv6地址: $current_ipv6"
+    
+    # 检查OpenVPN是否启用了IPv6
+    if openvpn_has_ipv6; then
+        configured_ipv6=$(get_configured_ipv6)
+        
+        if [ -z "$configured_ipv6" ]; then
+            log_message "OpenVPN配置中无IPv6地址，设置为: $current_ipv6"
+            uci set openvpn.$OPENVPN_SECTION.local="$current_ipv6"
+            
+            if uci commit openvpn; then
+                log_message "配置保存成功"
+                
+                # 重启OpenVPN服务
+                restart_openvpn_service
+                
+                log_message "OpenVPN配置已更新"
+            else
+                log_message "错误: 配置保存失败"
+                log_message "===== 脚本结束 (失败) ====="
+                exit 1
+            fi
+        elif [ "$current_ipv6" != "$configured_ipv6" ]; then
+            log_message "IPv6地址变更: $configured_ipv6 -> $current_ipv6"
+            uci set openvpn.$OPENVPN_SECTION.local="$current_ipv6"
+            
+            if uci commit openvpn; then
+                log_message "配置保存成功"
+                
+                # 重启OpenVPN服务
+                restart_openvpn_service
+                
+                log_message "OpenVPN配置已更新"
+            else
+                log_message "错误: 配置保存失败"
+                log_message "===== 脚本结束 (失败) ====="
+                exit 1
+            fi
+        else
+            log_message "IPv6地址一致，无需更新"
+        fi
+    else
+        log_message "OpenVPN未启用IPv6，跳过地址更新"
+    fi
+    
+    log_message "===== 脚本结束 (成功) ====="
+}
+
+# 异常处理
+trap 'log_message "脚本被中断"; exit 1' INT TERM
+
+# 执行主函数
+main

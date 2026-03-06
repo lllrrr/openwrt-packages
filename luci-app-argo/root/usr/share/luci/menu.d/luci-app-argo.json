@@ -1,0 +1,18 @@
+{
+    "admin/services/argo": {
+        "title": "Argo 隧道",
+        "order": 90,
+        "action": {
+            "type": "view",
+            "path": "argo/argo"
+        },
+        "depends": {
+            "acl": [
+                "luci-app-argo"
+            ],
+            "uci": {
+                "argo": true
+            }
+        }
+    }
+}

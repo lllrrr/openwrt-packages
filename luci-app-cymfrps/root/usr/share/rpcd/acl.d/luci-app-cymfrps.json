@@ -1,0 +1,11 @@
+{
+	"luci-app-cymfrps": {
+		"description": "Grant UCI access for luci-app-cymfrps",
+		"read": {
+			"uci": [ "cymfrps" ]
+		},
+		"write": {
+			"uci": [ "cymfrps" ]
+		}
+	}
+}

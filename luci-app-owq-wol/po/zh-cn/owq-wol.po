@@ -1,0 +1,98 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+msgid "OWQ Visual WOL"
+msgstr "OWQ 可视化唤醒"
+
+msgid "Manage and wake up your LAN devices visually."
+msgstr "可视化管理并唤醒您的局域网设备。"
+
+msgid "Add New Device"
+msgstr "添加新设备"
+
+msgid "Device Name"
+msgstr "设备名称"
+
+msgid "MAC Address"
+msgstr "MAC 地址"
+
+msgid "IP Address"
+msgstr "IP 地址"
+
+msgid "Interface"
+msgstr "网络接口"
+
+msgid "Icon Type"
+msgstr "图标类型"
+
+msgid "Desktop PC"
+msgstr "台式电脑"
+
+msgid "NAS Server"
+msgstr "NAS 服务器"
+
+msgid "Laptop"
+msgstr "笔记本电脑"
+
+msgid "Add Device"
+msgstr "添加设备"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Wake"
+msgstr "唤醒"
+
+msgid "Delete"
+msgstr "删除"
+
+msgid "Waking up..."
+msgstr "正在唤醒..."
+
+msgid "Sending Magic Packet to %s..."
+msgstr "正在向 %s 发送魔术包..."
+
+msgid "Wake-up packet sent to %s via %s"
+msgstr "已通过 %s 向 %s 发送唤醒包"
+
+msgid "Failed: "
+msgstr "失败: "
+
+msgid "Confirm Delete"
+msgstr "确认删除"
+
+msgid "Are you sure you want to delete device \"%s\"?"
+msgstr "您确定要删除设备“%s”吗？"
+
+msgid "Deleting..."
+msgstr "正在删除..."
+
+msgid "Saving settings..."
+msgstr "正在保存设置..."
+
+msgid "Processing..."
+msgstr "处理中..."
+
+msgid "Scanning..."
+msgstr "正在扫描..."
+
+msgid "No active devices found."
+msgstr "未发现活跃设备。"
+
+msgid "Scan failed: "
+msgstr "扫描失败: "
+
+msgid "Scan LAN Devices"
+msgstr "扫描局域网设备"
+
+msgid "No IP"
+msgstr "无 IP"
+
+msgid "Device Name is required!"
+msgstr "设备名称必填！"
+
+msgid "Invalid MAC Address! Format: XX:XX:XX:XX:XX:XX"
+msgstr "MAC 地址格式错误！正确格式：XX:XX:XX:XX:XX:XX"
+
+msgid "Invalid IP Address!"
+msgstr "IP 地址格式错误！"

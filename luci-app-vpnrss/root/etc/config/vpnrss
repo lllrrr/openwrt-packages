@@ -1,0 +1,9 @@
+config global 'global'
+	option enabled '0'
+	option token ''
+
+# Example Node
+# config node
+# 	option alias 'My Server'
+# 	option link 'vmess://...'
+# 	option enable '1'

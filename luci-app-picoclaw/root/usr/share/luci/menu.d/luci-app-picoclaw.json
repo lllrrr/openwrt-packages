@@ -1,0 +1,41 @@
+{
+    "admin/services/picoclaw": {
+        "title": "PicoClaw",
+        "order": 59,
+        "action": {
+            "type": "firstchild"
+        },
+        "depends": {
+            "acl": [
+                "luci-app-picoclaw"
+            ],
+            "uci": {
+                "picoclaw": true
+            }
+        }
+    },
+    "admin/services/picoclaw/config": {
+        "title": "Base Setting",
+        "order": 10,
+        "action": {
+            "type": "view",
+            "path": "picoclaw/config"
+        }
+    },
+    "admin/services/picoclaw/manual": {
+        "title": "Manual Settings",
+        "order": 15,
+        "action": {
+            "type": "view",
+            "path": "picoclaw/manual"
+        }
+    },
+    "admin/services/picoclaw/log": {
+        "title": "Log",
+        "order": 20,
+        "action": {
+            "type": "view",
+            "path": "picoclaw/log"
+        }
+    }
+}

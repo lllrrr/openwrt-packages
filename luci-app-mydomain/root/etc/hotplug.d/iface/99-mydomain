@@ -1,0 +1,10 @@
+#!/bin/sh
+
+[ "$ACTION" = "ifup" ] || exit 0
+
+case "$INTERFACE" in
+    "wan")
+        # Run DDNS update when WAN interface comes up
+        /usr/bin/mydomain-update
+        ;;
+esac

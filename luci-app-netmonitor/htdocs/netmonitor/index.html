@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Network Monitor</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    
+    <script>
+        var netdataUrl = window.location.protocol + '//' + window.location.hostname + ':19999/dashboard.js';
+        document.write('<script src="' + netdataUrl + '"><\/script>');
+    </script>
+    
+    <script>
+        var netdataTheme = 'white';
+        var netdataPrepCallback = function() {
+            NETDATA.requiredCSS = [];
+        };
+    </script>
+    
+    <link rel="stylesheet" href="css/gaya.css">
+</head>
+
+<body>
+  <div class="blur-overlay" id="blurOverlay"></div>
+
+  <div class="main-content">
+    <div class="container">
+      <div class="top-ctrl">
+        <div class="ctrl-buttons" id="ctrlButtons">
+          <button class="btn" id="themeBtn"><span id="themeText">Light</span></button>
+          <button class="btn refresh-btn" id="refreshBtn">Refresh</button>
+          <button class="btn stats" id="statsBtn">Statistics</button>
+        </div>
+        <button class="ctrl-toggle" id="ctrlToggle">⚙</button>
+      </div>
+
+      <div class="toast" id="toast">
+        <span id="toastMsg"></span>
+      </div>
+
+      <header class="header">
+        <h1>Network Monitor</h1>
+        <p class="subtitle">Real-time Monitoring Dashboard</p>
+      </header>
+
+      <section class="section">
+        <h2 class="title">All Monitoring | One Dashboard</h2>
+        
+        <div class="grid-charts">
+          <div class="chart">
+            <div data-netdata="net.eth1" data-title="MODEM" data-chart-library="gauge" data-after="-100" data-width="100%" data-points="720" data-gauge-generate-gradient="[0,5,10,60,100]" data-gauge-gradient-percent-color-0="#fa709a" data-gauge-gradient-percent-color-5="#fa709a" data-gauge-gradient-percent-color-10="#f093fb" data-gauge-gradient-percent-color-60="#4facfe" data-gauge-gradient-percent-color-100="#43e97b" data-colors="#667eea"></div>
+          </div>
+          <div class="chart">
+            <div data-netdata="net.wwan0" data-title="RAKITAN" data-chart-library="gauge" data-after="-100" data-width="100%" data-points="720" data-gauge-generate-gradient="[0,5,10,60,100]" data-gauge-gradient-percent-color-0="#fa709a" data-gauge-gradient-percent-color-5="#fa709a" data-gauge-gradient-percent-color-10="#f093fb" data-gauge-gradient-percent-color-60="#4facfe" data-gauge-gradient-percent-color-100="#43e97b" data-colors="#f093fb"></div>
+          </div>
+          <div class="chart">
+            <div data-netdata="net.usb0" data-title="HP" data-chart-library="gauge" data-after="-100" data-width="100%" data-points="720" data-gauge-generate-gradient="[0,5,10,60,100]" data-gauge-gradient-percent-color-0="#fa709a" data-gauge-gradient-percent-color-5="#fa709a" data-gauge-gradient-percent-color-10="#f093fb" data-gauge-gradient-percent-color-60="#4facfe" data-gauge-gradient-percent-color-100="#43e97b" data-colors="#43e97b"></div>
+          </div>
+          <div class="chart">
+            <div data-netdata="net.br-lan" data-title="LAN" data-chart-library="gauge" data-after="-150" data-width="100%" data-points="720" data-colors="#667eea"></div>
+          </div>
+        </div>
+
+        <div class="charts2-container">
+          <div class="grid-charts2">
+            <div class="chart">
+              <div data-netdata="system.net" data-dimensions="received" data-chart-library="easypiechart" data-title="RECEIVED" data-width="100%" data-points="720" data-common-units="system.net.mainhead" data-colors="#4facfe"></div>
+            </div>
+            <div class="chart">
+              <div data-netdata="system.net" data-dimensions="sent" data-chart-library="easypiechart" data-title="SENT" data-width="100%" data-points="720" data-common-units="system.net.mainhead" data-colors="#f093fb"></div>
+            </div>
+            <div class="chart">
+              <div data-netdata="system.ram" data-dimensions="used|buffers|active|wired" data-chart-library="easypiechart" data-title="RAM" data-width="100%" data-points="720" data-colors="#667eea"></div>
+            </div>
+            <div class="chart">
+              <div data-netdata="system.cpu" data-chart-library="easypiechart" data-title="CPU" data-units="%" data-easypiechart-max-value="100" data-width="100%" data-points="720" data-colors="#43e97b"></div>
+            </div>
+            <div class="chart">
+              <div data-netdata="system.load" data-chart-library="easypiechart" data-title="LOAD" data-width="100%" data-points="720" data-colors="#ef4444"></div>
+            </div>
+            <div class="chart">
+              <div data-netdata="netfilter.conntrack_sockets" data-chart-library="easypiechart" data-title="CONNECTIONS" data-width="100%" data-points="720" data-colors="#fbbf24"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="stats-modal" id="statsModal">
+    <button class="close-btn" id="closeBtn">×</button>
+    
+    <h2 class="title">Network Statistics</h2>
+    <p class="subtitle" style="margin-bottom:1.25rem;">Historical network usage data</p>
+    
+    <div class="grid-btns">
+      <button class="chart-btn active" data-chart="summary">Summary</button>
+      <button class="chart-btn" data-chart="minutes">5 Minutes</button>
+      <button class="chart-btn" data-chart="hourly">Hourly</button>
+      <button class="chart-btn" data-chart="daily">Daily</button>
+      <button class="chart-btn" data-chart="monthly">Monthly</button>
+      <button class="chart-btn" data-chart="yearly">Yearly</button>
+    </div>
+    
+    <div class="img-cnt" id="imageContainer">
+      <img id="summary" class="chart-img" src="vnstati/br-lan_vnstat_s.png" alt="Network Summary" style="display:block">
+      <img id="minutes" class="chart-img" src="vnstati/br-lan_vnstat_5.png" alt="5 Minutes Stats">
+      <img id="hourly" class="chart-img" src="vnstati/br-lan_vnstat_h.png" alt="Hourly Stats">
+      <img id="daily" class="chart-img" src="vnstati/br-lan_vnstat_d.png" alt="Daily Stats">
+      <img id="monthly" class="chart-img" src="vnstati/br-lan_vnstat_m.png" alt="Monthly Stats">
+      <img id="yearly" class="chart-img" src="vnstati/br-lan_vnstat_y.png" alt="Yearly Stats">
+    </div>
+  </div>
+
+  <script src="js/quenx.js"></script>
+</body>
+</html>

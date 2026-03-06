@@ -1,0 +1,35 @@
+<% local util=require "luci.util" local url=self.otp_url or "" local svg="" if #url> 0 then
+    -- 调试模式：使用绝对路径，并记录错误日志到 /tmp/
+    local cmd = string.format("/usr/bin/qrencode -t SVG -o - %s 2>/tmp/simple2fa_qr.err", util.shellquote(url))
+    local f = io.popen(cmd)
+    if f then
+    svg = f:read("*a")
+    f:close()
+
+    -- 调试：记录输出内容
+    local dbg = io.open("/tmp/simple2fa_qr.out", "w")
+    if dbg then dbg:write(svg or "nil") dbg:close() end
+
+    if not (svg and svg:match("<svg")) then svg=nil end end end %>
+
+        <div class="cbi-value">
+            <label class="cbi-value-title">
+                <%=self.title%>
+            </label>
+            <div class="cbi-value-field">
+                <div style="background: white; padding: 5px; display: inline-block; border-radius: 5px;">
+                    <% if svg and #svg> 0 then %>
+                        <%=svg%>
+                            <% else %>
+                                <div class="cbi-section-error">
+                                    <%:QR code generation failed or URL not configured%>
+                                </div>
+                                <% end %>
+                </div>
+                <% if self.description then %>
+                    <div class="cbi-value-description">
+                        <%=self.description%>
+                    </div>
+                    <% end %>
+            </div>
+        </div>

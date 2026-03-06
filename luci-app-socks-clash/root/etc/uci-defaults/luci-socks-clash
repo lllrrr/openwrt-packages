@@ -1,0 +1,18 @@
+#!/bin/sh
+
+# Create directories
+mkdir -p /etc/socks-clash/config
+mkdir -p /etc/socks-clash/core
+
+# Set permissions
+chmod 755 /etc/init.d/socks-clash 2>/dev/null
+chmod -R 755 /usr/share/socks-clash/ 2>/dev/null
+
+# Clear LuCI cache
+rm -rf /tmp/luci-modulecache
+rm -f /tmp/luci-indexcache
+
+# Reload ubus
+ubus call service event '{"type":"config.change","data":{"package":"socks-clash"}}'
+
+exit 0

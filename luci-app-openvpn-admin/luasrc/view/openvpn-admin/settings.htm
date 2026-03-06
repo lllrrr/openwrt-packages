@@ -1,0 +1,2530 @@
+<%+header%>
+
+<%
+local dsp = require "luci.dispatcher"
+
+-- 从openvpn-admin.lua模块获取配置
+local openvpn_admin = require "luci.controller.openvpn-admin"
+local config = openvpn_admin.get_admin_config()
+local util = require "luci.util"
+%>
+
+<div class="cbi-map" id="cbi-openvpn-settings">
+    <!-- 页面标题 -->
+    <h2 name="content"><%:OpenVPN管理设置%></h2>
+    
+    <!-- 页面说明 -->
+    <div class="info-box">
+        <p><strong><%:功能说明%>:</strong></p>
+        <p><%:在此配置OpenVPN管理界面的行为设置。OpenVPN服务配置仍然从/etc/config/openvpn读取。%></p>
+        <p style="margin: 10px 0 0 0; padding-top: 8px; border-top: 1px solid #dee2e6;">
+            <strong><%:项目地址%>:</strong> 
+            <a href="https://github.com/hzy306016819/luci-app-openvpn-admin" 
+               target="_blank" 
+               style="color: #007bff; text-decoration: none;">
+               https://github.com/hzy306016819/luci-app-openvpn-admin
+            </a>
+            <span style="color: #28a745; margin-left: 5px;">(开源项目)</span>
+        </p>
+        <p style="margin: 10px 0 0 0; font-size: 12px; color: #666;">
+            <%:问题反馈请在GitHub提交Issue，欢迎贡献代码。%>
+        </p>
+    </div>
+    
+    <!-- 配置表单 -->
+    <form class="cbi-map" method="post" action="<%=dsp.build_url('admin/vpn/openvpn-admin/save_admin_config')%>">
+        <!-- 基本设置 -->
+        <div class="cbi-section">
+            <h3><%:基本设置%></h3>
+            <div class="cbi-section-node">
+                <!-- OpenVPN实例名称 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="openvpn_instance">OpenVPN实例名称</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text" id="openvpn_instance" 
+                                   name="openvpn_instance" value="<%=config.openvpn_instance or 'myvpn'%>" />
+                            <span class="input-description">OpenVPN配置中的实例名称，默认为myvpn</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- OpenVPN配置文件路径 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="openvpn_config_path">OpenVPN配置文件路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text" id="openvpn_config_path" 
+                                   name="openvpn_config_path" value="<%=config.openvpn_config_path or '/etc/config/openvpn'%>" />
+                            <span class="input-description">OpenVPN主配置文件路径</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- IPv6脚本设置 -->
+        <div class="cbi-section">
+            <h3><%:IPv6脚本设置%></h3>
+            <div class="cbi-section-node">
+                <!-- 启用IPv6脚本 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="ipv6_script_enabled">启用IPv6地址更新脚本</label>
+                    <div class="cbi-value-field">
+                        <div class="cbi-input-checkbox">
+                            <input type="checkbox" class="cbi-input-checkbox" id="ipv6_script_enabled" 
+                                   name="ipv6_script_enabled" value="1" <%=config.ipv6_script_enabled and "checked='checked'" or ""%> />
+                            <label for="ipv6_script_enabled"></label>
+                            <input type="hidden" name="ipv6_script_enabled_old" value="<%=config.ipv6_script_enabled and "1" or "0"%>">
+                            <span class="input-description">启用IPv6地址自动更新脚本，需要先配置IPv6脚本路径</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- IPv6脚本路径 -->
+                <div class="cbi-value ipv6-script-option">
+                    <label class="cbi-value-title" for="ipv6_script_path">IPv6脚本路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text" id="ipv6_script_path" 
+                                   name="ipv6_script_path" value="<%=config.ipv6_script_path or '/usr/bin/openvpn_ipv6'%>" />
+                            <span class="input-description">IPv6地址自动更新脚本路径</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- IPv6脚本运行间隔 -->
+                <div class="cbi-value ipv6-script-option">
+                    <label class="cbi-value-title" for="ipv6_script_interval">脚本运行间隔（分钟）</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="number" class="cbi-input-text" id="ipv6_script_interval" 
+                                   name="ipv6_script_interval" min="1" max="60" 
+                                   value="<%=config.ipv6_script_interval or 10%>" />
+                            <span class="input-description">IPv6脚本自动运行间隔，1-60分钟</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 检查脚本按钮 -->
+                <div class="cbi-value ipv6-script-option">
+                    <label class="cbi-value-title">脚本状态检查</label>
+                    <div class="cbi-value-field">
+                        <button type="button" class="cbi-button cbi-button-action" style="margin-right: 5px;" onclick="checkIpv6Script()">
+                            <%:检查脚本%>
+                        </button>
+                        <button type="button" class="cbi-button cbi-button-secondary" onclick="testIpv6Script()">
+                            <%:测试脚本%>
+                        </button>
+                        <span id="ipv6-script-status" style="margin-left: 10px; font-weight: bold;"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Hotplug系统设置 -->
+        <div class="cbi-section">
+            <h3><%:Hotplug系统设置%></h3>
+            <div class="cbi-section-descr">
+                <p style="margin: 2px 0 0 0; padding-top: 0px;"><%:使用hotplug系统监控网络接口变化，当接口状态改变时自动更新IPv6地址。%><br>
+                <%:建议选择获取ipv6的接口，没选对不会触发动作，主路由推荐监控pppoe-wan或wan接口，旁路由推荐监控lan6接口，ipV6自动从br-lan接口获取。%></p>
+            </div>
+            <div class="cbi-section-node">
+                <!-- 启用Hotplug -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="hotplug_enabled">启用Hotplug系统</label>
+                    <div class="cbi-value-field">
+                        <div class="cbi-input-checkbox">
+                            <input type="checkbox" class="cbi-input-checkbox" id="hotplug_enabled" 
+                                   name="hotplug_enabled" value="1" <%=config.hotplug_enabled and "checked='checked'" or ""%> />
+                            <label for="hotplug_enabled"></label>
+                            <input type="hidden" name="hotplug_enabled_old" value="<%=config.hotplug_enabled and "1" or "0"%>">
+                            <span class="input-description">启用hotplug系统监控网络接口变化</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 接口自动检测 -->
+<div class="cbi-value hotplug-option">
+    <label class="cbi-value-title">接口自动检测</label>
+    <div class="cbi-value-field">
+        <button type="button" class="cbi-button cbi-button-action" style="margin-right: 0px;" onclick="autoDetectInterface()">
+            <%:自动检测最佳接口%>
+        </button>
+        <span id="auto-detect-result" style="font-weight: bold;"></span>
+    </div>
+</div>
+
+<!-- 监控接口 -->
+<div class="cbi-value hotplug-option">
+    <label class="cbi-value-title" for="hotplug_interface">监控接口</label>
+    <div class="cbi-value-field">
+        <div class="form-input-with-description">
+            <select class="cbi-input-select" id="hotplug_interface" name="hotplug_interface">
+                <option value=""><%:请选择接口%></option>
+                <% if config.hotplug_interface and config.hotplug_interface ~= "" then %>
+                <option value="<%=config.hotplug_interface%>" selected>
+                    <%=config.hotplug_interface%>
+                </option>
+                <% end %>
+            </select>
+            <!-- 【修改】将刷新按钮移到这里，保持原有样式 -->
+            <button type="button" class="cbi-button cbi-button-secondary" onclick="loadAllInterfaces()" 
+                    style="margin-left: 5px; padding: 4px 8px; font-size: 12px;">
+                <%:刷新接口列表%>
+            </button>
+            <span class="input-description">选择要监控的网络接口</span>
+        </div>
+    </div>
+</div>
+
+                <!-- 【新增】获取IPv6地址接口 -->
+<div class="cbi-value hotplug-option">
+    <label class="cbi-value-title" for="hotplug_ipv6_interface">获取IPv6地址接口</label>
+    <div class="cbi-value-field">
+        <div class="form-input-with-description">
+            <select class="cbi-input-select" id="hotplug_ipv6_interface" name="hotplug_ipv6_interface"
+                    onchange="updateIpv6InterfaceAddress(this.value)">
+                <option value=""><%:请选择接口%></option>
+                <% if config.hotplug_ipv6_interface and config.hotplug_ipv6_interface ~= "" then %>
+                <option value="<%=config.hotplug_ipv6_interface%>" selected>
+                    <%=config.hotplug_ipv6_interface%>
+                </option>
+                <% else %>
+                <option value="auto" selected>auto（自动选择）</option>
+                <% end %>
+            </select>
+            <!-- 新增的手动触发Hotplug按钮 -->
+            <button type="button" class="cbi-button cbi-button-action" onclick="manualTriggerHotplug()" 
+                    style="margin-left: 5px; padding: 4px 8px; font-size: 12px; background-color: #17a2b8;">
+                <%:手动触发Hotplug%>
+            </button>
+            <span class="input-description">选择用于获取IPv6地址的接口，默认auto表示与监控接口相同</span>
+        </div>
+    </div>
+</div>
+                
+                <!-- IPv6地址显示 -->
+<div class="cbi-value hotplug-option">
+    <label class="cbi-value-title" for="hotplug_ipv6_address">接口IPv6地址</label>
+    <div class="cbi-value-field">
+        <div class="form-input-with-description">
+            <input type="text" class="cbi-input-text" id="hotplug_ipv6_address" 
+                   name="hotplug_ipv6_address" readonly 
+                   value="<%=config.hotplug_ipv6_address or ''%>" />
+            <button type="button" class="cbi-button cbi-button-secondary" onclick="refreshIpv6Address()" 
+                    style="margin-left: 5px; padding: 4px 8px; font-size: 12px;">
+                <%:刷新地址%>
+            </button>
+            <!-- 新增的立即更新按钮 -->
+            <button type="button" class="cbi-button cbi-button-action" onclick="updateOpenVpnIpv6()" 
+                    style="margin-left: 5px; padding: 4px 8px; font-size: 12px; background-color: #28a745;">
+                <%:立即更新%>
+            </button>
+            <span class="input-description">从【获取IPv6地址接口】获取的IPv6地址</span>
+        </div>
+    </div>
+</div>
+                
+                <!-- Hotplug脚本路径 -->
+                <div class="cbi-value hotplug-option">
+                    <label class="cbi-value-title" for="hotplug_script_path">Hotplug脚本路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text" id="hotplug_script_path" 
+                                   name="hotplug_script_path" value="<%=config.hotplug_script_path or '/etc/openvpn/openvpn_hotplug.sh'%>" />
+                            <span class="input-description">Hotplug系统脚本路径</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 防火墙规则自动更新 -->
+                <div class="cbi-value hotplug-option">
+                    <label class="cbi-value-title" for="hotplug_firewall_enabled">启用防火墙自动更新</label>
+                    <div class="cbi-value-field">
+                        <div class="cbi-input-checkbox">
+                            <input type="checkbox" class="cbi-input-checkbox" id="hotplug_firewall_enabled" 
+                                   name="hotplug_firewall_enabled" value="1" <%=config.hotplug_firewall_enabled and "checked='checked'" or ""%> />
+                            <label for="hotplug_firewall_enabled"></label>
+                            <input type="hidden" name="hotplug_firewall_enabled_old" value="<%=config.hotplug_firewall_enabled and "1" or "0"%>">
+                            <span class="input-description">自动更新防火墙规则以允许旁路由IPv6地址的OpenVPN流量放行</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 防火墙规则名称 -->
+                <div class="cbi-value hotplug-firewall-option">
+                    <label class="cbi-value-title" for="hotplug_firewall_name">防火墙规则名称</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text" id="hotplug_firewall_name" 
+                                   name="hotplug_firewall_name" value="<%=config.hotplug_firewall_name or 'openvpn_ipv6'%>" />
+                            <button type="button" class="cbi-button cbi-button-secondary" onclick="checkFirewallRule()" 
+                                    style="margin-left: 5px; padding: 4px 8px; font-size: 12px;">
+                                <%:检查规则%>
+                            </button>
+                            <span class="input-description">防火墙规则名称，用于旁路由IPv6流量放行</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 新增：防火墙规则目标IP（用于旁路由） -->
+                <div class="cbi-value hotplug-firewall-option">
+                    <label class="cbi-value-title" for="firewall_dest_ip">防火墙规则目标IP</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text" id="firewall_dest_ip" 
+                                   name="firewall_dest_ip" value="::1/128" />
+                            <button type="button" class="cbi-button cbi-button-secondary" onclick="updateFirewallDestIp()" 
+                                    style="margin-left: 5px; padding: 4px 8px; font-size: 12px;">
+                                <%:更新规则%>
+                            </button>
+                            <span class="input-description">旁路由IPv6地址（CIDR格式），默认::1/128，从现有规则自动读取</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 状态页面设置 -->
+        <div class="cbi-section">
+            <h3><%:状态页面设置%></h3>
+            <div class="cbi-section-node">
+                <!-- 自动刷新开关 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="refresh_enabled">启用自动刷新</label>
+                    <div class="cbi-value-field">
+                        <div class="cbi-input-checkbox">
+                            <input type="checkbox" class="cbi-input-checkbox" id="refresh_enabled" 
+                                   name="refresh_enabled" value="1" <%=config.refresh_enabled and "checked='checked'" or ""%> />
+                            <label for="refresh_enabled"></label>
+                            <input type="hidden" name="refresh_enabled_old" value="<%=config.refresh_enabled and "1" or "0"%>">
+                            <span class="input-description">启用状态页面的自动刷新功能</span>
+                        </div>                        
+                    </div>
+                </div>
+                
+                <!-- 刷新间隔 -->
+                <div class="cbi-value refresh-option">
+                    <label class="cbi-value-title" for="refresh_interval">自动刷新间隔（秒）</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="number" class="cbi-input-text" id="refresh_interval" 
+                                   name="refresh_interval" min="1" max="300" 
+                                   value="<%=config.refresh_interval or 1%>" />
+                            <span class="input-description">状态页面自动刷新的间隔时间，1-300秒</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 历史记录行数 -->
+                <div class="cbi-value refresh-option">
+                    <label class="cbi-value-title" for="history_size">连接历史记录行数</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="number" class="cbi-input-text" id="history_size" 
+                                   name="history_size" min="5" max="100" 
+                                   value="<%=config.history_size or 20%>" />
+                            <span class="input-description">显示最近连接记录的数量，5-100条</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 日志页面设置 -->
+        <div class="cbi-section">
+            <h3><%:日志页面设置%></h3>
+            <div class="cbi-section-node">
+                <!-- 日志自动刷新开关 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="logs_refresh_enabled">启用日志自动刷新</label>
+                    <div class="cbi-value-field">
+                        <div class="cbi-input-checkbox">
+                            <input type="checkbox" class="cbi-input-checkbox" id="logs_refresh_enabled" 
+                                   name="logs_refresh_enabled" value="1" <%=config.logs_refresh_enabled and "checked='checked'" or ""%> />
+                            <label for="logs_refresh_enabled"></label>
+                            <input type="hidden" name="logs_refresh_enabled_old" value="<%=config.logs_refresh_enabled and "1" or "0"%>">
+                            <span class="input-description">启用日志页面的自动刷新功能</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 日志刷新间隔 -->
+                <div class="cbi-value logs-refresh-option">
+                    <label class="cbi-value-title" for="logs_refresh_interval">日志刷新间隔（秒）</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="number" class="cbi-input-text" id="logs_refresh_interval" 
+                                   name="logs_refresh_interval" min="1" max="300" 
+                                   value="<%=config.logs_refresh_interval or 10%>" />
+                            <span class="input-description">日志页面自动刷新的间隔时间，1-300秒</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 日志显示行数 -->
+                <div class="cbi-value logs-refresh-option">
+                    <label class="cbi-value-title" for="logs_display_lines">日志显示行数</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="number" class="cbi-input-text" id="logs_display_lines" 
+                                   name="logs_display_lines" min="10" max="10000" 
+                                   value="<%=config.logs_display_lines or 100%>" />
+                            <span class="input-description">日志页面显示的日志行数，10-10000行</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 黑名单设置 -->
+<div class="cbi-section">
+    <h3><%:黑名单设置%></h3>
+    <div class="cbi-section-node">
+        <!-- 黑名单开关 -->
+        <div class="cbi-value">
+            <label class="cbi-value-title" for="blacklist_enabled">启用黑名单功能</label>
+            <div class="cbi-value-field">
+                <div class="cbi-input-checkbox">
+                    <input type="checkbox" class="cbi-input-checkbox" id="blacklist_enabled" 
+                           name="blacklist_enabled" value="1" <%=config.blacklist_enabled and "checked='checked'" or ""%> />
+                    <label for="blacklist_enabled"></label>
+                    <input type="hidden" name="blacklist_enabled_old" value="<%=config.blacklist_enabled and "1" or "0"%>">
+                    <span class="input-description">启用客户端黑名单功能</span>
+                </div>                        
+            </div>
+        </div>
+        
+        <!-- 黑名单时长 -->
+        <div class="cbi-value blacklist-option">
+            <label class="cbi-value-title" for="blacklist_duration">默认黑名单时长（秒）</label>
+            <div class="cbi-value-field">
+                <div class="form-input-with-description">
+                    <input type="number" class="cbi-input-text" id="blacklist_duration" 
+                           name="blacklist_duration" min="60" max="31536000" 
+                           value="<%=config.blacklist_duration or 300%>" />
+                    <span class="input-description">断开客户端后默认加入黑名单的时长</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 黑名单文件路径 -->
+        <div class="cbi-value blacklist-option">
+            <label class="cbi-value-title" for="blacklist_file">黑名单文件路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text" id="blacklist_file" 
+                                   name="blacklist_file" value="<%=config.blacklist_file or '/etc/openvpn/blacklist.json'%>" />
+                            <span class="input-description">黑名单数据存储文件路径</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 文件路径设置 -->
+        <div class="cbi-section">
+            <h3><%:文件路径设置%></h3>
+            <div class="cbi-section-node">
+                <!-- 日志文件路径 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="log_file">OpenVPN日志文件路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text" id="log_file" 
+                                   name="log_file" value="<%=config.log_file or '/tmp/openvpn.log'%>" />
+                            <span class="input-description">OpenVPN服务器日志文件路径</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 历史文件路径 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="history_file">连接历史文件路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text" id="history_file" 
+                                   name="history_file" value="<%=config.history_file or '/etc/openvpn/openvpn_connection_history.json'%>" />
+                            <span class="input-description">连接历史数据存储文件路径</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- EasyRSA路径 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="easyrsa_dir">EasyRSA目录路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text" id="easyrsa_dir" 
+                                   name="easyrsa_dir" value="<%=config.easyrsa_dir or '/etc/easy-rsa'%>" />
+                            <span class="input-description">EasyRSA工具目录路径</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- EasyRSA PKI路径 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="easyrsa_pki">EasyRSA PKI路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text" id="easyrsa_pki" 
+                                   name="easyrsa_pki" value="<%=config.easyrsa_pki or '/etc/easy-rsa/pki'%>" />
+                            <span class="input-description">EasyRSA PKI证书存储路径</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- OpenVPN PKI路径 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="openvpn_pki">OpenVPN PKI路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text" id="openvpn_pki" 
+                                   name="openvpn_pki" value="<%=config.openvpn_pki or '/etc/openvpn/pki'%>" />
+                            <span class="input-description">OpenVPN证书存储路径</span>
+                        </div>
+                    </div>
+                </div>                               
+            </div>
+        </div>
+        
+        <!-- 脚本路径设置 -->
+        <div class="cbi-section">
+            <h3><%:脚本路径设置%></h3>
+            <div class="cbi-section-node">
+                <!-- 生成客户端脚本路径 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="generate_client_script">生成客户端脚本路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text" id="generate_client_script" 
+                                   name="generate_client_script" value="<%=config.generate_client_script or '/etc/openvpn/generate-client.sh'%>" />
+                            <span class="input-description">生成客户端配置的脚本路径</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 重置证书脚本路径 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="renew_cert_script">重置证书脚本路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text" id="renew_cert_script" 
+                                   name="renew_cert_script" value="<%=config.renew_cert_script or '/etc/openvpn/renewcert.sh'%>" />
+                            <span class="input-description">重置所有证书的脚本路径</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 临时文件管理设置 -->
+        <div class="cbi-section">
+            <h3><%:临时文件管理设置%></h3>
+            <div class="cbi-section-node">
+                <!-- 启用清除垃圾文件 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="clean_garbage_enabled">启用清除垃圾文件</label>
+                    <div class="cbi-value-field">
+                        <div class="cbi-input-checkbox">
+                            <input type="checkbox" class="cbi-input-checkbox" id="clean_garbage_enabled" 
+                                   name="clean_garbage_enabled" value="1" <%=config.clean_garbage_enabled and "checked='checked'" or ""%> />
+                            <label for="clean_garbage_enabled"></label>
+                            <input type="hidden" name="clean_garbage_enabled_old" value="<%=config.clean_garbage_enabled and "1" or "0"%>">
+                            <span class="input-description">启用自动清除临时目录中的垃圾文件</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 临时文件目录 -->
+                <div class="cbi-value clean-garbage-option">
+                    <label class="cbi-value-title" for="temp_dir">临时文件目录</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text" id="temp_dir" 
+                                   name="temp_dir" value="<%=config.temp_dir or '/tmp/openvpn-admin'%>" />
+                            <span class="input-description">项目产生的临时文件存放目录</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 清除垃圾文件时间 -->
+                <div class="cbi-value clean-garbage-option">
+                    <label class="cbi-value-title" for="clean_garbage_time">清除垃圾文件时间</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text" id="clean_garbage_time" 
+                                   name="clean_garbage_time" value="<%=config.clean_garbage_time or '4:50'%>" />
+                            <span class="input-description">每天清除垃圾文件的时间，格式：HH:MM</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 清除垃圾文件脚本路径 -->
+                <div class="cbi-value clean-garbage-option">
+                    <label class="cbi-value-title" for="clean_garbage_script">清除垃圾文件脚本路径</label>
+                    <div class="cbi-value-field">
+                        <div class="form-input-with-description">
+                            <input type="text" class="cbi-input-text" id="clean_garbage_script" 
+                                   name="clean_garbage_script" value="<%=config.clean_garbage_script or '/etc/openvpn/clean-garbage.sh'%>" />
+                            <span class="input-description">清除垃圾文件的脚本路径</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 操作按钮 -->
+        <div class="cbi-page-actions">
+            <input class="btn cbi-button cbi-button-apply" type="submit" value="<%:保存设置%>" />
+            <input class="btn cbi-button cbi-button-reset" type="button" value="<%:重置为默认%>" onclick="resetToDefaults()" />
+        </div>
+    </form>
+    
+        <!-- Hotplug日志弹窗 -->
+<div id="hotplugLogModal" class="hotplug-log-modal">
+    <div class="hotplug-log-modal-content">
+        <div id="hotplugLogStatus" class="hotplug-log-status info">
+            正在等待Hotplug脚本启动...
+        </div>
+        <div id="hotplugLogContent" class="hotplug-log-modal-body">
+            <div style="text-align: center; padding: 20px;">
+                <div class="loading-spinner"></div>
+                <p>正在检测日志文件，请稍候...</p>
+            </div>
+        </div>
+        <div class="hotplug-log-modal-footer">
+            <button id="stopLogButton" class="btn-secondary" onclick="stopLogTail()">停止读取</button>
+            <button class="btn-primary" onclick="closeHotplugLogModal()">关闭</button>
+        </div>
+    </div>
+</div>
+</div>
+
+<style type="text/css">
+/* 样式保持与现有界面一致 */
+.cbi-value {
+    padding: 8px 0;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    align-items: center;
+    min-height: 10px;
+}
+
+.cbi-value:last-child {
+    border-bottom: none;
+}
+
+.cbi-value-title {
+    min-width: 200px;
+    padding-right: 15px;
+    font-weight: bold;
+}
+
+.cbi-value-field {
+    flex: 1;
+}
+
+.form-input-with-description {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    width: 100%;
+}
+
+.input-description {
+    color: #666;
+    font-size: 12px;
+    white-space: nowrap;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 0;
+}
+
+.cbi-input-text {
+    width: 100px;
+    min-width: 100px;
+    min-height: 15px;
+}
+
+.cbi-input-text[readonly] {
+    background-color: #f8f9fa;
+    color: #6c757d;
+    cursor: not-allowed;
+}
+
+.cbi-input-checkbox {
+    margin-right: 5px;
+}
+
+.info-box {
+    margin: -10px 0;
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-radius: 3px;
+    border: 1px solid #dee2e6;
+}
+
+.cbi-section {
+    margin-bottom: -10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: -10px;
+}
+
+.cbi-section h3 {
+    margin: 0;
+    padding: 10px 15px;
+    background-color: #f5f5f5;
+    border-bottom: 1px solid #ddd;
+    font-size: 16px;
+}
+
+.cbi-section-descr {
+    padding: 10px 15px;
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #ddd;
+    font-size: 13px;
+    color: #666;
+}
+
+.cbi-section-node {
+    padding: 15px;
+}
+
+.cbi-page-actions {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.cbi-button {
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    border-radius: 4px;
+    border: 1px solid transparent;
+}
+
+.cbi-button-apply {
+    background-color: #007bff;
+    color: white;
+    border-color: #007bff;
+}
+
+.cbi-button-apply:hover {
+    background-color: #0056b3;
+    border-color: #0056b3;
+}
+
+.cbi-button-reset {
+    background-color: #6c757d;
+    color: white;
+    border-color: #6c757d;
+}
+
+.cbi-button-reset:hover {
+    background-color: #5a6268;
+    border-color: #545b62;
+}
+
+.cbi-button-secondary {
+    background-color: #5E72E4;
+    color: white;
+    border-color: #5E72E4;
+    padding: 6px 12px !important;
+    font-size: 12px !important;
+}
+
+.cbi-button-secondary:hover {
+    background-color: #3377cc;
+    border-color: #3377cc;
+}
+
+/* 立即更新按钮特殊样式 */
+.cbi-button-action[onclick="updateOpenVpnIpv6()"] {
+    background-color: #28a745 !important;
+    border-color: #28a745 !important;
+}
+
+.cbi-button-action[onclick="updateOpenVpnIpv6()"]:hover {
+    background-color: #218838 !important;
+    border-color: #1e7e34 !important;
+}
+
+.cbi-button-action[onclick="updateOpenVpnIpv6()"]:disabled {
+    background-color: #6c757d !important;
+    border-color: #6c757d !important;
+    cursor: not-allowed;
+}
+
+/* 深色模式支持 */
+body.dark-mode .cbi-value {
+    border-bottom-color: #444;
+}
+
+body.dark-mode .cbi-value-title {
+    color: #ddd;
+}
+
+body.dark-mode .input-description {
+    color: #aaa;
+}
+
+body.dark-mode .info-box {
+    background-color: #2d2d2d;
+    border-color: #444;
+    color: #ddd;
+}
+
+body.dark-mode .cbi-section {
+    border-color: #444;
+}
+
+body.dark-mode .cbi-section h3 {
+    background-color: #3d3d3d;
+    border-bottom-color: #444;
+    color: #ddd;
+}
+
+body.dark-mode .cbi-section-descr {
+    background-color: #2d2d2d;
+    border-bottom-color: #444;
+    color: #aaa;
+}
+
+body.dark-mode .cbi-input-text {
+    background-color: #333;
+    color: #ddd;
+    border-color: #555;
+}
+
+body.dark-mode .cbi-input-text[readonly] {
+    background-color: #2d2d2d;
+    color: #888;
+}
+
+/* 条件显示/隐藏样式 */
+.ipv6-script-option,
+.hotplug-option,
+.refresh-option,
+.logs-refresh-option,
+.blacklist-option,
+.clean-garbage-option,
+.hotplug-firewall-option  {
+    display: none;
+}
+
+/* 新增：调整防火墙目标IP输入框宽度 */
+#firewall_dest_ip {
+    width: 300px !important;
+    min-width: 300px !important;
+    max-width: 300px !important;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .form-input-with-description {
+        flex-wrap: wrap;
+        gap: 5px;
+    }
+    
+    .cbi-input-text {
+        width: 100%;
+        min-width: auto;
+    }
+    
+    .input-description {
+        white-space: normal;
+        max-width: 100%;
+        padding-left: 5px;
+    }
+    
+    .cbi-value-title {
+        min-width: 150px;
+    }
+    
+    .cbi-button-secondary {
+        margin-top: 5px;
+        margin-left: 0 !important;
+    }
+}
+
+/* 调整监控接口选择框宽度 */
+#hotplug_interface {
+    width: 300px !important;
+    min-width: 300px !important;
+    max-width: 300px !important;
+}
+
+/* 调整监控接口选择框宽度 */
+#hotplug_ipv6_interface {
+    width: 300px !important;
+    min-width: 300px !important;
+    max-width: 300px !important;
+}
+
+/* 调整IPv6地址输入框宽度 */
+#hotplug_ipv6_address {
+    width: 300px !important;
+    min-width: 300px !important;
+    max-width: 300px !important;
+}
+
+/* 调整Hotplug脚本路径输入框宽度 */
+#hotplug_script_path {
+    width: 300px !important;
+    min-width: 300px !important;
+    max-width: 300px !important;
+}
+
+/* 调整按钮间距 */
+.cbi-button-secondary {
+    margin-left: 0px !important;
+}
+
+/* 调整标签宽度 */
+.cbi-value-title {
+    min-width: 130px !important;
+}
+
+/* 日志弹窗样式 —— 统一改为黑底白字，按钮风格统一 */
+.hotplug-log-modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.7); /* 遮罩更深一点 */
+}
+
+.hotplug-log-modal-content {
+    position: relative;
+    background-color: #000 !important; /* ������ 整体黑底 */
+    margin: 5% auto;
+    padding: 0;
+    border: 1px solid #444;
+    width: 80%;
+    max-width: 900px;
+    border-radius: 5px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+}
+
+.hotplug-log-modal-header {
+    padding: 15px 20px;
+    background-color: #000 !important; /* ������ 顶部黑灰底 */
+    color: #fff !important;            /* ������ 顶部文字白色 */
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.hotplug-log-modal-header h3 {
+    margin: 0;
+    color: #fff !important; /* ������ 标题白色 */
+    font-size: 18px;
+}
+
+/* ������ 关闭 × 按钮：和自动检测最佳接口同色 */
+.hotplug-log-modal-close {
+    color: #007bff !important; /* 与自动检测最佳接口按钮一致 */
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+}
+.hotplug-log-modal-close:hover {
+    color: #0056b3 !important;
+}
+
+/* ������ 日志内容：纯黑底、白字 */
+.hotplug-log-modal-body {
+    padding: 20px;
+    max-height: 500px;
+    overflow-y: auto;
+    background-color: #000 !important;
+    color: #fff !important;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.hotplug-log-modal-footer {
+    padding: 15px 20px;
+    background-color: #111 !important; /* ������ 底部黑底 */
+    border-bottom-left-radius: 5px;
+    border-bottom-right-radius: 5px;
+    text-align: right;
+    border-top: 1px solid #333;
+}
+
+/* ������ 底部两个按钮：统一用自动检测最佳接口同款蓝色 */
+.hotplug-log-modal-footer button {
+    padding: 8px 20px;
+    margin-left: 10px;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 14px;
+    background-color: #007bff !important;
+    color: #fff !important;
+}
+.hotplug-log-modal-footer button:hover {
+    background-color: #0056b3 !important;
+}
+
+/* ������ 状态条也统一黑底白字，去掉花里胡哨颜色 */
+.hotplug-log-status {
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 3px;
+    font-weight: bold;
+    background-color: #111 !important;
+    color: #fff !important;
+    border: 1px solid #333 !important;
+}
+
+/* 深色模式支持 */
+body.dark-mode .hotplug-log-modal-content {
+    background-color: #2d2d2d;
+    border-color: #444;
+}
+
+body.dark-mode .hotplug-log-modal-body {
+    background-color: #1a1a1a;
+    color: #e0e0e0;
+}
+
+body.dark-mode .hotplug-log-modal-footer {
+    background-color: #3d3d3d;
+    border-top-color: #555;
+}
+
+body.dark-mode .hotplug-log-status.info {
+    background-color: #1e3a3f;
+    color: #9fcdff;
+    border-color: #2b4a5a;
+}
+
+body.dark-mode .hotplug-log-status.success {
+    background-color: #1e3a2a;
+    color: #a3d9a5;
+    border-color: #2b5a35;
+}
+
+body.dark-mode .hotplug-log-status.error {
+    background-color: #3f2a2a;
+    color: #f9acac;
+    border-color: #5a3535;
+}
+
+body.dark-mode .hotplug-log-status.warning {
+    background-color: #3f3a1e;
+    color: #ffe68f;
+    border-color: #5a4f2b;
+}
+</style>
+
+<script type="text/javascript">
+//<![CDATA[
+// 页面加载完成后初始化
+document.addEventListener('DOMContentLoaded', function() {
+    // 检查是否需要加载接口列表
+    var select = document.getElementById('hotplug_interface');
+    var currentInterface = '<%=config.hotplug_interface or ""%>';
+    
+    // 如果选择框选项很少且有配置的接口，静默加载接口列表
+    if (select.options.length <= 1 && currentInterface) {
+        setTimeout(function() {
+            loadInterfacesSilently();
+        }, 800);
+    }
+    
+    // 如果有配置的接口，静默获取IPv6地址
+    if (currentInterface) {
+        setTimeout(function() {
+            var ipv6Interface = '<%=config.hotplug_ipv6_interface or "auto"%>';
+            if (ipv6Interface === 'auto' || !ipv6Interface) {
+                updateInterfaceIpv6Silently(currentInterface);
+            } else {
+                updateInterfaceIpv6Silently(ipv6Interface);
+            }
+        }, 1200);
+    }
+    
+    // 初始化各个选项的显示状态
+    toggleIpv6ScriptOptions(document.getElementById('ipv6_script_enabled').checked);
+    toggleHotplugOptions(document.getElementById('hotplug_enabled').checked);
+    toggleRefreshOptions(document.getElementById('refresh_enabled').checked);
+    toggleLogsRefreshOptions(document.getElementById('logs_refresh_enabled').checked);
+    toggleBlacklistOptions(document.getElementById('blacklist_enabled').checked);
+    toggleCleanGarbageOptions(document.getElementById('clean_garbage_enabled').checked);
+    toggleHotplugFirewallOptions(document.getElementById('hotplug_firewall_enabled').checked);
+    
+    // 绑定复选框事件来控制相关区域的显示/隐藏
+    
+    // IPv6脚本启用复选框
+    var ipv6ScriptCheckbox = document.getElementById('ipv6_script_enabled');
+    if (ipv6ScriptCheckbox) {
+        ipv6ScriptCheckbox.addEventListener('change', function() {
+            toggleIpv6ScriptOptions(this.checked);
+        });
+    }
+    
+    // Hotplug启用复选框
+var hotplugCheckbox = document.getElementById('hotplug_enabled');
+if (hotplugCheckbox) {
+    hotplugCheckbox.addEventListener('change', function() {
+        toggleHotplugOptions(this.checked);
+    });
+}
+    
+    // 自动刷新启用复选框
+    var refreshCheckbox = document.getElementById('refresh_enabled');
+    if (refreshCheckbox) {
+        refreshCheckbox.addEventListener('change', function() {
+            toggleRefreshOptions(this.checked);
+        });
+    }
+    
+    // 日志自动刷新启用复选框
+    var logsRefreshCheckbox = document.getElementById('logs_refresh_enabled');
+    if (logsRefreshCheckbox) {
+        logsRefreshCheckbox.addEventListener('change', function() {
+            toggleLogsRefreshOptions(this.checked);
+        });
+    }
+    
+    // 黑名单启用复选框
+    var blacklistCheckbox = document.getElementById('blacklist_enabled');
+    if (blacklistCheckbox) {
+        blacklistCheckbox.addEventListener('change', function() {
+            toggleBlacklistOptions(this.checked);
+        });
+    }
+    
+    // 清除垃圾文件启用复选框
+    var cleanGarbageCheckbox = document.getElementById('clean_garbage_enabled');
+    if (cleanGarbageCheckbox) {
+        cleanGarbageCheckbox.addEventListener('change', function() {
+            toggleCleanGarbageOptions(this.checked);
+        });
+    }
+    
+    // 防火墙规则启用复选框
+var firewallCheckbox = document.getElementById('hotplug_firewall_enabled');
+if (firewallCheckbox) {
+    firewallCheckbox.addEventListener('change', function() {
+        toggleHotplugFirewallOptions(this.checked);
+    });
+    // 【修改】不再在这里初始化显示状态，由toggleHotplugOptions统一管理
+}
+    
+    // 绑定表单提交事件
+    var form = document.querySelector('form');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            saveSettings();
+            return false;
+        });
+    }
+    
+    // 【新增】绑定hotplug_ipv6_interface的选择事件
+    var ipv6InterfaceSelect = document.getElementById('hotplug_ipv6_interface');
+    if (ipv6InterfaceSelect) {
+        ipv6InterfaceSelect.addEventListener('change', function() {
+            updateIpv6InterfaceAddress(this.value);
+        });
+    }
+    
+    // 【修改】当监控接口变化时，如果IPv6接口是auto，则更新IPv6地址
+    var monitorInterfaceSelect = document.getElementById('hotplug_interface');
+    if (monitorInterfaceSelect) {
+        monitorInterfaceSelect.addEventListener('change', function() {
+            var ipv6Interface = document.getElementById('hotplug_ipv6_interface').value;
+            if (ipv6Interface === 'auto' || !ipv6Interface) {
+                updateInterfaceIpv6(this.value);
+            }
+        });
+    }
+    
+    // 【新增】延迟检查现有防火墙规则
+    setTimeout(function() {
+        checkExistingFirewallRule();
+    }, 2000);
+});
+
+// 显示/隐藏IPv6脚本选项
+function toggleIpv6ScriptOptions(show) {
+    var elements = document.querySelectorAll('.ipv6-script-option');
+    elements.forEach(function(el) {
+        el.style.display = show ? 'flex' : 'none';
+    });
+}
+
+// 显示/隐藏Hotplug选项
+function toggleHotplugOptions(show) {
+    var elements = document.querySelectorAll('.hotplug-option');
+    elements.forEach(function(el) {
+        el.style.display = show ? 'flex' : 'none';
+    });
+    
+    // 【修复】当关闭Hotplug系统时，强制关闭并隐藏防火墙选项
+    if (!show) {
+        // 关闭防火墙自动更新复选框
+        var firewallCheckbox = document.getElementById('hotplug_firewall_enabled');
+        if (firewallCheckbox) {
+            firewallCheckbox.checked = false;
+        }
+        // 隐藏防火墙选项区域
+        toggleHotplugFirewallOptions(false);
+    } else {
+        // 【修复】当开启Hotplug系统时，根据实际配置显示防火墙选项
+        var firewallCheckbox = document.getElementById('hotplug_firewall_enabled');
+        if (firewallCheckbox) {
+            // 根据复选框的当前状态显示/隐藏防火墙选项
+            toggleHotplugFirewallOptions(firewallCheckbox.checked);
+        }
+    }
+}
+
+// 显示/隐藏Hotplug防火墙选项
+function toggleHotplugFirewallOptions(show) {
+    var elements = document.querySelectorAll('.hotplug-firewall-option');
+    elements.forEach(function(el) {
+        el.style.display = show ? 'flex' : 'none';
+    });
+}
+
+// 显示/隐藏刷新选项
+function toggleRefreshOptions(show) {
+    var elements = document.querySelectorAll('.refresh-option');
+    elements.forEach(function(el) {
+        el.style.display = show ? 'flex' : 'none';
+    });
+}
+
+// 显示/隐藏日志刷新选项
+function toggleLogsRefreshOptions(show) {
+    var elements = document.querySelectorAll('.logs-refresh-option');
+    elements.forEach(function(el) {
+        el.style.display = show ? 'flex' : 'none';
+    });
+}
+
+// 显示/隐藏黑名单选项
+function toggleBlacklistOptions(show) {
+    var elements = document.querySelectorAll('.blacklist-option');
+    elements.forEach(function(el) {
+        el.style.display = show ? 'flex' : 'none';
+    });
+}
+
+// 显示/隐藏清除垃圾文件选项
+function toggleCleanGarbageOptions(show) {
+    var elements = document.querySelectorAll('.clean-garbage-option');
+    elements.forEach(function(el) {
+        el.style.display = show ? 'flex' : 'none';
+    });
+}
+
+// 【新增】刷新所有接口列表
+function loadAllInterfaces() {
+    // 先加载监控接口列表
+    loadInterfaces().then(function() {
+        // 然后加载IPv6接口列表
+        loadInterfacesForIpv6();
+    }).catch(function(error) {
+        console.error('加载接口列表失败:', error);
+        alert('加载接口列表失败: ' + error.message);
+    });
+}
+
+// 【修改】loadInterfaces函数需要返回Promise
+function loadInterfaces() {
+    return new Promise(function(resolve, reject) {
+        fetch('<%=luci.dispatcher.build_url("admin/vpn/openvpn-admin/get_interfaces")%>', {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json'
+            }
+        })
+        .then(function(response) {
+            if (!response.ok) {
+                throw new Error('网络响应错误: ' + response.status);
+            }
+            return response.json();
+        })
+        .then(function(result) {
+            if (result.success) {
+                var select = document.getElementById('hotplug_interface');
+                var currentValue = '<%=config.hotplug_interface or ""%>';
+                
+                // 清空现有选项
+                select.innerHTML = '<option value=""><%:请选择接口%></option>';
+                
+                // 添加接口选项
+                if (result.interfaces && result.interfaces.length > 0) {
+                    var interfaceCount = 0;
+                    
+                    result.interfaces.forEach(function(iface) {
+                        if (iface.name && iface.name !== "loopback") {
+                            var option = document.createElement('option');
+                            option.value = iface.name;
+                            
+                            var displayText = iface.name;
+                            if (iface.description && iface.description !== "") {
+                                displayText += " - " + iface.description;
+                            }
+                            displayText += " (" + iface.status.toUpperCase() + ")";
+                            
+                            option.textContent = displayText;
+                            option.title = "协议: " + iface.proto + ", 设备: " + (iface.device || "无");
+                            
+                            if (iface.name === currentValue) {
+                                option.selected = true;
+                            }
+                            
+                            select.appendChild(option);
+                            interfaceCount++;
+                        }
+                    });
+                    
+                    // 如果当前值不在列表中，添加它
+                    if (currentValue && currentValue !== "") {
+                        var exists = false;
+                        for (var i = 0; i < select.options.length; i++) {
+                            if (select.options[i].value === currentValue) {
+                                exists = true;
+                                break;
+                            }
+                        }
+                        
+                        if (!exists) {
+                            var option = document.createElement('option');
+                            option.value = currentValue;
+                            option.textContent = currentValue + " (配置的接口)";
+                            option.selected = true;
+                            select.appendChild(option);
+                            interfaceCount++;
+                        }
+                    }
+                    
+                    resolve(interfaceCount);
+                } else {
+                    alert('未找到可用接口');
+                    resolve(0);
+                }
+            } else {
+                alert('加载接口列表失败: ' + result.message);
+                reject(new Error(result.message));
+            }
+        })
+        .catch(function(error) {
+            alert('加载接口列表失败: ' + error.message);
+            reject(error);
+        });
+    });
+}
+
+// 【修改】loadInterfacesForIpv6函数也需要返回Promise
+function loadInterfacesForIpv6() {
+    return new Promise(function(resolve, reject) {
+        fetch('<%=luci.dispatcher.build_url("admin/vpn/openvpn-admin/get_interfaces")%>', {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json'
+            }
+        })
+        .then(function(response) {
+            if (!response.ok) {
+                throw new Error('网络响应错误: ' + response.status);
+            }
+            return response.json();
+        })
+        .then(function(result) {
+            if (result.success) {
+                var select = document.getElementById('hotplug_ipv6_interface');
+                var currentValue = '<%=config.hotplug_ipv6_interface or "auto"%>';
+                
+                // 清空现有选项
+                select.innerHTML = '<option value=""><%:请选择接口%></option>';
+                
+                // 添加auto选项
+                var autoOption = document.createElement('option');
+                autoOption.value = 'auto';
+                autoOption.textContent = 'auto（自动选择）';
+                if (currentValue === 'auto') {
+                    autoOption.selected = true;
+                }
+                select.appendChild(autoOption);
+                
+                // 添加接口选项
+                if (result.interfaces && result.interfaces.length > 0) {
+                    var interfaceCount = 0;
+                    
+                    result.interfaces.forEach(function(iface) {
+                        if (iface.name && iface.name !== "loopback") {
+                            var option = document.createElement('option');
+                            option.value = iface.name;
+                            
+                            var displayText = iface.name;
+                            if (iface.description && iface.description !== "") {
+                                displayText += " - " + iface.description;
+                            }
+                            displayText += " (" + iface.status.toUpperCase() + ")";
+                            
+                            option.textContent = displayText;
+                            option.title = "协议: " + iface.proto + ", 设备: " + (iface.device || "无");
+                            
+                            if (iface.name === currentValue) {
+                                option.selected = true;
+                            }
+                            
+                            select.appendChild(option);
+                            interfaceCount++;
+                        }
+                    });
+                    
+                    resolve(interfaceCount);
+                } else {
+                    alert('未找到可用接口');
+                    resolve(0);
+                }
+            } else {
+                alert('加载接口列表失败: ' + result.message);
+                reject(new Error(result.message));
+            }
+        })
+        .catch(function(error) {
+            alert('加载接口列表失败: ' + error.message);
+            reject(error);
+        });
+    });
+}
+
+// 【新增】更新IPv6接口地址
+function updateIpv6InterfaceAddress(interface) {
+    if (!interface || interface === '' || interface === 'auto') {
+        // 如果选择auto或为空，则从监控接口获取
+        var monitorInterface = document.getElementById('hotplug_interface').value;
+        if (monitorInterface && monitorInterface !== '') {
+            updateInterfaceIpv6(monitorInterface);
+        } else {
+            document.getElementById('hotplug_ipv6_address').value = '';
+            document.getElementById('hotplug_ipv6_address').placeholder = '请先选择监控接口或指定IPv6接口';
+        }
+        return;
+    }
+    
+    updateInterfaceIpv6(interface);
+}
+
+// 【修改】刷新IPv6地址函数
+function refreshIpv6Address() {
+    var ipv6Interface = document.getElementById('hotplug_ipv6_interface').value;
+    
+    if (ipv6Interface === 'auto' || !ipv6Interface) {
+        // 使用监控接口
+        var monitorInterface = document.getElementById('hotplug_interface').value;
+        if (!monitorInterface) {
+            alert('请先选择监控接口');
+            return;
+        }
+        updateInterfaceIpv6(monitorInterface);
+    } else {
+        updateInterfaceIpv6(ipv6Interface);
+    }
+}
+
+// 【修改】自动检测接口逻辑
+function autoDetectInterface() {
+    var resultElement = document.getElementById('auto-detect-result');
+    resultElement.textContent = '检测中...';
+    resultElement.style.color = '#ff9800';
+    
+    fetch('<%=luci.dispatcher.build_url("admin/vpn/openvpn-admin/get_interfaces")%>', {
+        method: 'GET',
+        headers: {
+            'Accept': 'application/json'
+        }
+    })
+    .then(function(response) {
+        if (!response.ok) {
+            throw new Error('网络响应错误: ' + response.status);
+        }
+        return response.json();
+    })
+    .then(function(result) {
+        if (result.success && result.interfaces && result.interfaces.length > 0) {
+            var interfacePriority = [
+                // 第一优先级：主路由的PPPoE接口
+                { pattern: /^pppoe-wan$/, score: 100, desc: 'PPPoE主接口' },
+                { pattern: /^pppoe[0-9]*$/, score: 95, desc: 'PPPoE接口' },
+                
+                // 第二优先级：WAN接口
+                { pattern: /^wan$/, score: 90, desc: 'WAN主接口' },
+                { pattern: /^wan[0-9]+$/, score: 85, desc: 'WAN接口' },
+                
+                // 第三优先级：桥接接口（旁路由推荐）
+                { pattern: /^br-lan$/, score: 80, desc: '桥接LAN口' },
+                
+                // 第四优先级：逻辑接口
+                { pattern: /^lan6$/, score: 75, desc: 'IPv6 LAN逻辑接口' },
+                { pattern: /^lan$/, score: 70, desc: 'LAN逻辑接口' },
+                
+                // 第五优先级：其他接口
+                { pattern: /.*/, score: 50, desc: '其他接口' }
+            ];
+            
+            var bestInterface = null;
+            var bestScore = -1;
+            var interfaceDetails = '';
+            var interfaceStatus = '';
+            
+            var upInterfaces = [];
+            result.interfaces.forEach(function(iface) {
+                if (iface.status === 'up' && iface.name !== 'loopback') {
+                    upInterfaces.push(iface);
+                }
+            });
+            
+            if (upInterfaces.length === 0) {
+                upInterfaces = result.interfaces;
+            }
+            
+            // 【修改】为两个接口都找到最佳选择
+            var monitorInterface = null;
+            var ipv6Interface = null;
+            
+            upInterfaces.forEach(function(iface) {
+                var baseScore = (iface.status === 'up') ? 10 : 0;
+                
+                for (var i = 0; i < interfacePriority.length; i++) {
+                    var rule = interfacePriority[i];
+                    if (rule.pattern.test(iface.name)) {
+                        var score = rule.score + baseScore;
+                        
+                        if (iface.device && iface.device !== "") {
+                            score += 5;
+                        }
+                        
+                        // 分配接口类型
+                        if (!monitorInterface && (iface.name.match(/^pppoe/) || iface.name.match(/^wan/))) {
+                            // PPPoE/WAN接口适合做监控接口
+                            monitorInterface = iface.name;
+                        } else if (!ipv6Interface && (iface.name.match(/^br-lan/) || iface.name.match(/^lan6/))) {
+                            // 桥接/LAN6接口适合获取IPv6地址
+                            ipv6Interface = iface.name;
+                        }
+                        
+                        if (score > bestScore) {
+                            bestScore = score;
+                            if (!monitorInterface) monitorInterface = iface.name;
+                            if (!ipv6Interface) ipv6Interface = iface.name;
+                            break;
+                        }
+                    }
+                }
+            });
+            
+            // 设置监控接口
+            if (monitorInterface) {
+                var monitorSelect = document.getElementById('hotplug_interface');
+                monitorSelect.value = monitorInterface;
+                
+                var displayText = '监控接口: ' + monitorInterface;
+                
+                // 设置IPv6获取接口
+                var ipv6Select = document.getElementById('hotplug_ipv6_interface');
+                if (ipv6Interface && ipv6Interface !== monitorInterface) {
+                    ipv6Select.value = ipv6Interface;
+                    displayText += ', IPv6接口: ' + ipv6Interface;
+                } else {
+                    ipv6Select.value = 'auto';
+                    displayText += ', IPv6接口: auto（自动）';
+                }
+                
+                resultElement.textContent = displayText;
+                resultElement.style.color = '#28a745';
+                
+                // 自动获取IPv6地址
+                refreshIpv6Address();
+            } else {
+                resultElement.textContent = '未找到合适的接口';
+                resultElement.style.color = '#dc3545';
+            }
+        } else {
+            resultElement.textContent = '未找到可用接口';
+            resultElement.style.color = '#dc3545';
+        }
+    })
+    .catch(function(error) {
+        resultElement.textContent = '检测失败: ' + error.message;
+        resultElement.style.color = '#dc3545';
+    });
+}
+
+// 静默加载接口列表（不显示弹窗）
+function loadInterfacesSilently() {
+    fetch('<%=luci.dispatcher.build_url("admin/vpn/openvpn-admin/get_interfaces")%>', {
+        method: 'GET',
+        headers: {
+            'Accept': 'application/json'
+        }
+    })
+    .then(function(response) {
+        if (!response.ok) {
+            console.error('网络响应错误:', response.status);
+            return;
+        }
+        return response.json();
+    })
+    .then(function(result) {
+        if (result && result.success) {
+            var select = document.getElementById('hotplug_interface');
+            var currentValue = '<%=config.hotplug_interface or ""%>';
+            
+            // 只在选择框选项很少时才更新
+            if (select.options.length <= 1) {
+                // 清空现有选项
+                select.innerHTML = '<option value=""><%:请选择接口%></option>';
+                
+                // 添加接口选项
+                if (result.interfaces && result.interfaces.length > 0) {
+                    result.interfaces.forEach(function(iface) {
+                        var option = document.createElement('option');
+                        option.value = iface.name;
+                        option.textContent = iface.display;
+                        
+                        if (iface.name === currentValue) {
+                            option.selected = true;
+                        }
+                        
+                        select.appendChild(option);
+                    });
+                    console.log('接口列表静默加载成功: ' + result.interfaces.length + ' 个接口');
+                }
+            }
+            
+            // 同时静默加载IPv6接口列表
+            var ipv6Select = document.getElementById('hotplug_ipv6_interface');
+            var ipv6CurrentValue = '<%=config.hotplug_ipv6_interface or "auto"%>';
+            
+            if (ipv6Select.options.length <= 2) { // auto选项 + 请选择接口
+                ipv6Select.innerHTML = '<option value=""><%:请选择接口%></option>';
+                
+                // 添加auto选项
+                var autoOption = document.createElement('option');
+                autoOption.value = 'auto';
+                autoOption.textContent = 'auto（自动选择）';
+                if (ipv6CurrentValue === 'auto') {
+                    autoOption.selected = true;
+                }
+                ipv6Select.appendChild(autoOption);
+                
+                // 添加接口选项
+                if (result.interfaces && result.interfaces.length > 0) {
+                    result.interfaces.forEach(function(iface) {
+                        if (iface.name && iface.name !== "loopback") {
+                            var option = document.createElement('option');
+                            option.value = iface.name;
+                            option.textContent = iface.display;
+                            
+                            if (iface.name === ipv6CurrentValue) {
+                                option.selected = true;
+                            }
+                            
+                            ipv6Select.appendChild(option);
+                        }
+                    });
+                    console.log('IPv6接口列表静默加载成功');
+                }
+            }
+        } else if (result) {
+            console.error('加载接口列表失败:', result.message);
+        }
+    })
+    .catch(function(error) {
+        console.error('加载接口列表失败:', error.message);
+    });
+}
+
+// 静默更新接口的IPv6地址
+function updateInterfaceIpv6Silently(interface) {
+    if (!interface || interface === '') {
+        return;
+    }
+    
+    var url = '<%=luci.dispatcher.build_url("admin/vpn/openvpn-admin/get_interface_ipv6")%>';
+    var params = new URLSearchParams();
+    params.append('interface', interface);
+    
+    fetch(url + '?' + params.toString(), {
+        method: 'GET',
+        headers: {
+            'Accept': 'application/json'
+        }
+    })
+    .then(function(response) {
+        if (!response.ok) {
+            console.error('网络响应错误:', response.status);
+            return;
+        }
+        return response.json();
+    })
+    .then(function(result) {
+        if (result && result.success && result.ipv6_address) {
+            document.getElementById('hotplug_ipv6_address').value = result.ipv6_address;
+            console.log('静默获取IPv6地址成功: ' + result.ipv6_address);
+        }
+    })
+    .catch(function(error) {
+        console.error('静默获取IPv6地址失败:', error.message);
+    });
+}
+
+// 更新接口的IPv6地址
+function updateInterfaceIpv6(interface) {
+    if (!interface || interface === '') {
+        document.getElementById('hotplug_ipv6_address').value = '';
+        document.getElementById('hotplug_ipv6_address').placeholder = '请先选择接口';
+        return;
+    }
+    
+    var url = '<%=luci.dispatcher.build_url("admin/vpn/openvpn-admin/get_interface_ipv6")%>';
+    var params = new URLSearchParams();
+    params.append('interface', interface);
+    
+    // 显示加载状态
+    var ipv6Input = document.getElementById('hotplug_ipv6_address');
+    ipv6Input.value = '获取中...';
+    
+    fetch(url + '?' + params.toString(), {
+        method: 'GET',
+        headers: {
+            'Accept': 'application/json'
+        }
+    })
+    .then(function(response) {
+        if (!response.ok) {
+            throw new Error('网络响应错误: ' + response.status);
+        }
+        return response.json();
+    })
+    .then(function(result) {
+        if (result.success) {
+            ipv6Input.value = result.ipv6_address;
+            if (!result.ipv6_address) {
+                ipv6Input.placeholder = '未检测到IPv6地址';
+            }
+        } else {
+            ipv6Input.value = '';
+            ipv6Input.placeholder = result.message || '获取失败';
+            console.log('获取IPv6地址失败: ' + result.message);
+        }
+    })
+    .catch(function(error) {
+        ipv6Input.value = '';
+        ipv6Input.placeholder = '网络错误: ' + error.message;
+        console.error('获取IPv6地址失败: ' + error.message);
+    });
+}
+
+// 检查IPv6脚本
+function checkIpv6Script() {
+    var scriptPath = document.getElementById('ipv6_script_path').value;
+    
+    if (!scriptPath || scriptPath.trim() === '') {
+        document.getElementById('ipv6-script-status').textContent = '脚本路径不能为空';
+        document.getElementById('ipv6-script-status').style.color = '#dc3545';
+        return;
+    }
+    
+    var url = '<%=luci.dispatcher.build_url("admin/vpn/openvpn-admin/check_ipv6_script")%>';
+    var params = new URLSearchParams();
+    params.append('path', scriptPath);
+    
+    fetch(url + '?' + params.toString(), {
+        method: 'GET',
+        headers: {
+            'Accept': 'application/json'
+        }
+    })
+    .then(function(response) {
+        if (!response.ok) {
+            return response.text().then(function(text) {
+                throw new Error('网络响应错误: ' + response.status + ' - ' + (text.substring(0, 100) || '无内容'));
+            });
+        }
+        
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            return response.text().then(function(text) {
+                throw new Error('服务器返回的不是JSON数据: ' + contentType);
+            });
+        }
+        
+        return response.json();
+    })
+    .then(function(result) {
+        var statusElement = document.getElementById('ipv6-script-status');
+        
+        if (result.success) {
+            if (result.exists) {
+                statusElement.textContent = '✓ 脚本存在';
+                statusElement.style.color = '#28a745';
+                
+                if (result.executable) {
+                    statusElement.textContent += ' (可执行)';
+                } else {
+                    statusElement.textContent += ' (不可执行)';
+                }
+                
+                if (result.message) {
+                    statusElement.textContent += ' - ' + result.message;
+                }
+            } else {
+                statusElement.textContent = '✗ 脚本不存在: ' + scriptPath;
+                statusElement.style.color = '#dc3545';
+                if (result.message) {
+                    statusElement.textContent += ' - ' + result.message;
+                }
+            }
+        } else {
+            statusElement.textContent = '✗ 检查失败: ' + (result.message || '未知错误');
+            statusElement.style.color = '#dc3545';
+        }
+    })
+    .catch(function(error) {
+        console.error('检查脚本失败:', error);
+        var statusElement = document.getElementById('ipv6-script-status');
+        statusElement.textContent = '✗ 检查失败: ' + error.message;
+        statusElement.style.color = '#dc3545';
+    });
+}
+
+// 检查旁路由IPv6防火墙规则是否存在（修改：调用新的专用接口）
+function checkFirewallRule() {
+    var ruleName = document.getElementById('hotplug_firewall_name').value;
+    
+    if (!ruleName || ruleName.trim() === '') {
+        alert('防火墙规则名称不能为空');
+        return;
+    }
+    
+    // 修改：使用新的旁路由专用接口，不影响原有OpenVPN服务防火墙功能
+    var url = '<%=luci.dispatcher.build_url("admin/vpn/openvpn-admin/check_ipv6_firewall")%>';
+    var params = new URLSearchParams();
+    params.append('name', ruleName);
+    
+    fetch(url + '?' + params.toString(), {
+        method: 'GET',
+        headers: {
+            'Accept': 'application/json'
+        }
+    })
+    .then(function(response) {
+        if (!response.ok) {
+            throw new Error('网络响应错误: ' + response.status);
+        }
+        return response.json();
+    })
+    .then(function(result) {
+        if (result.success) {
+            var message = '旁路由IPv6防火墙规则 "' + ruleName + '" ';
+            
+            if (result.exists) {
+                message += '已存在\n\n';
+                message += '规则详细信息：\n';
+                message += '• 规则名称: ' + (result.rule_info.name || ruleName) + '\n';
+                message += '• 源区域: ' + (result.rule_info.src || '未设置') + '\n';
+                message += '• 目标区域: ' + (result.rule_info.dest || '未设置') + '\n';
+                message += '• 协议: ' + (result.rule_info.proto || '未设置') + '\n';
+                message += '• 目标端口: ' + (result.rule_info.dest_port || '未设置') + '\n';
+                message += '• 目标IP: ' + (result.rule_info.dest_ip || '未设置') + '\n';
+                message += '• 动作: ' + (result.rule_info.target || '未设置') + '\n';
+                message += '• 状态: ' + (result.rule_info.enabled === "1" ? '启用' : '禁用');
+                
+                // 如果有目标IP，更新输入框显示
+                if (result.rule_info.dest_ip) {
+                    if (Array.isArray(result.rule_info.dest_ip)) {
+                        document.getElementById('firewall_dest_ip').value = result.rule_info.dest_ip[0] || '::1/128';
+                    } else {
+                        document.getElementById('firewall_dest_ip').value = result.rule_info.dest_ip;
+                    }
+                }
+                
+                if (confirm(message + '\n\n是否要删除此规则？')) {
+                    deleteFirewallRule(ruleName);
+                }
+            } else {
+                message += '不存在';
+                
+                if (confirm(message + '\n\n是否要创建默认的旁路由IPv6防火墙规则？\n\n默认规则配置：\n' +
+                    '• 源区域: wan\n' +
+                    '• 目标区域: lan\n' +
+                    '• 协议: udp tcp（同时支持TCP和UDP）\n' +
+                    '• 目标端口: 1194\n' +
+                    '• 目标IP: ::1/128（IPv6环回地址）\n' +
+                    '• 动作: ACCEPT\n' +
+                    '• 源IP: ::/0（所有IPv6地址）')) {
+                    createDefaultFirewallRule(ruleName);
+                }
+            }
+        } else {
+            alert('检查失败: ' + result.message);
+        }
+    })
+    .catch(function(error) {
+        alert('检查失败: ' + error.message);
+    });
+}
+
+// 创建默认旁路由IPv6防火墙规则（修改：使用新的专用接口）
+function createDefaultFirewallRule(ruleName) {
+    var destIp = document.getElementById('firewall_dest_ip').value || '::1/128';
+    
+    var formData = new FormData();
+    formData.append('dest_ip', destIp);  // 使用输入框中的值或默认值
+    
+    // 修改：使用新的旁路由专用接口
+    fetch('<%=luci.dispatcher.build_url("admin/vpn/openvpn-admin/create_ipv6_firewall")%>', {
+        method: 'POST',
+        body: formData
+    })
+    .then(function(response) {
+        if (!response.ok) {
+            throw new Error('网络响应错误: ' + response.status);
+        }
+        return response.json();
+    })
+    .then(function(result) {
+        if (result.success) {
+            var message = '旁路由IPv6防火墙规则创建成功: ' + ruleName + 
+                  '\n\n规则已创建，配置如下：\n' +
+                  '• 规则名称: ' + ruleName + '\n' +
+                  '• 源区域: wan\n' +
+                  '• 目标区域: lan\n' +
+                  '• 协议: udp tcp（同时支持TCP和UDP）\n' +
+                  '• 目标端口: 1194\n' +
+                  '• 目标IP: ' + destIp + '\n' +
+                  '• 动作: ACCEPT\n' +
+                  '• 源IP: ::/0（所有IPv6地址）\n\n' +
+                  '注意：\n' +
+                  '1. 此规则与OpenVPN服务无关，仅用于主路由给旁路由放行IPv6流量\n' +
+                  '2. 如需修改配置（如端口、目标IP等），请在防火墙页面调整\n' +
+                  '3. 目标IP请根据实际旁路由IPv6地址修改';
+            
+            alert(message);
+        } else {
+            alert('创建失败: ' + result.message);
+        }
+    })
+    .catch(function(error) {
+        alert('创建失败: ' + error.message);
+    });
+}
+
+// 测试IPv6脚本
+function testIpv6Script() {
+    var scriptPath = document.getElementById('ipv6_script_path').value;
+    
+    if (!scriptPath || scriptPath.trim() === '') {
+        alert('请先填写脚本路径');
+        return;
+    }
+    
+    // 创建临时表单
+    var formData = new FormData();
+    formData.append('path', scriptPath);
+    
+    fetch('<%=luci.dispatcher.build_url("admin/vpn/openvpn-admin/check_ipv6_script")%>', {
+        method: 'POST',
+        body: formData
+    })
+    .then(function(response) {
+        return response.json();
+    })
+    .then(function(result) {
+        if (result.success && result.exists) {
+            if (confirm('脚本存在，是否立即执行测试？')) {
+                // 执行脚本
+                fetch('<%=luci.dispatcher.build_url("admin/vpn/openvpn-admin/run_ipv6_script")%>', {
+                    method: 'POST'
+                })
+                .then(function(response) {
+                    return response.json();
+                })
+                .then(function(runResult) {
+                    if (runResult.success) {
+                        alert('脚本执行成功！请检查OpenVPN配置是否更新。');
+                    } else {
+                        alert('脚本执行失败: ' + runResult.message);
+                    }
+                })
+                .catch(function(error) {
+                    alert('请求执行脚本失败: ' + error.message);
+                });
+            }
+        } else {
+            alert('脚本不存在或无效，无法测试');
+        }
+    })
+    .catch(function(error) {
+        alert('测试脚本失败: ' + error.message);
+    });
+}
+
+// 保存设置
+function saveSettings() {
+    // 确保未选中的复选框也有值（值为0）
+    var checkboxes = document.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(function(checkbox) {
+        if (!checkbox.checked) {
+            // 检查是否已经有隐藏字段
+            var existingHidden = checkbox.parentNode.querySelector('input[type="hidden"][name="' + checkbox.name + '"]');
+            if (!existingHidden) {
+                // 添加隐藏字段来传递未选中的值
+                var hiddenInput = document.createElement('input');
+                hiddenInput.type = 'hidden';
+                hiddenInput.name = checkbox.name;
+                hiddenInput.value = '0';
+                checkbox.parentNode.appendChild(hiddenInput);
+            }
+        }
+    });
+    
+    if (confirm('确认要保存设置吗？保存后相关服务可能会重启。')) {
+        var form = document.querySelector('form');
+        var formData = new FormData(form);
+        
+        // 显示保存中状态
+        var saveButton = document.querySelector('input[type="submit"]');
+        var originalText = saveButton.value;
+        saveButton.value = '保存中...';
+        saveButton.disabled = true;
+        
+        fetch(form.action, {
+            method: 'POST',
+            body: formData
+        })
+        .then(function(response) {
+            if (!response.ok) {
+                throw new Error('网络响应错误: ' + response.status);
+            }
+            return response.json();
+        })
+        .then(function(result) {
+            if (result.success) {
+                alert('设置保存成功！页面将重新加载。');
+                setTimeout(function() {
+                    location.reload();
+                }, 1500);
+            } else {
+                alert('保存失败: ' + result.message);
+                saveButton.value = originalText;
+                saveButton.disabled = false;
+            }
+        })
+        .catch(function(error) {
+            alert('保存失败: ' + error.message);
+            saveButton.value = originalText;
+            saveButton.disabled = false;
+        });
+    }
+}
+
+// 重置为默认值
+function resetToDefaults() {
+    if (confirm('确认要重置所有设置为默认值吗？未保存的修改将会丢失。')) {
+        // 基本设置
+        document.getElementById('openvpn_instance').value = 'myvpn';
+        document.getElementById('openvpn_config_path').value = '/etc/config/openvpn';
+        
+        // IPv6脚本设置
+        document.getElementById('ipv6_script_enabled').checked = false;
+        document.getElementById('ipv6_script_path').value = '/etc/openvpn/openvpn_ipv6';
+        document.getElementById('ipv6_script_interval').value = '10';
+        
+        // Hotplug系统设置
+        document.getElementById('hotplug_enabled').checked = false;
+        document.getElementById('hotplug_interface').value = '';
+        document.getElementById('hotplug_ipv6_interface').value = 'auto';  // 【新增】设置默认值为auto
+        document.getElementById('hotplug_ipv6_address').value = '';
+        document.getElementById('hotplug_script_path').value = '/etc/openvpn/openvpn_hotplug.sh';
+        
+        // 清空接口下拉列表
+        var select = document.getElementById('hotplug_interface');
+        if (select) {
+            select.innerHTML = '<option value=""><%:请选择接口%></option>';
+        }
+        
+        // 清空IPv6接口下拉列表
+        var ipv6Select = document.getElementById('hotplug_ipv6_interface');
+        if (ipv6Select) {
+            ipv6Select.innerHTML = '<option value=""><%:请选择接口%></option>';
+            var autoOption = document.createElement('option');
+            autoOption.value = 'auto';
+            autoOption.textContent = 'auto（自动选择）';
+            autoOption.selected = true;
+            ipv6Select.appendChild(autoOption);
+        }
+        
+        // 状态页面设置
+        document.getElementById('refresh_enabled').checked = true;
+        document.getElementById('refresh_interval').value = '1';
+        document.getElementById('history_size').value = '20';
+        
+        // 日志页面设置
+        document.getElementById('logs_refresh_enabled').checked = true;
+        document.getElementById('logs_refresh_interval').value = '10';
+        document.getElementById('logs_display_lines').value = '1000';
+        
+        // 黑名单设置
+        document.getElementById('blacklist_enabled').checked = true;
+        document.getElementById('blacklist_duration').value = '300';
+        document.getElementById('blacklist_file').value = '/etc/openvpn/blacklist.json';
+        
+        // 文件路径设置
+        document.getElementById('log_file').value = '/tmp/openvpn.log';
+        document.getElementById('history_file').value = '/etc/openvpn/openvpn_connection_history.json';
+        document.getElementById('easyrsa_dir').value = '/etc/easy-rsa';
+        document.getElementById('easyrsa_pki').value = '/etc/easy-rsa/pki';
+        document.getElementById('openvpn_pki').value = '/etc/openvpn/pki';
+        
+        // 脚本路径设置
+        document.getElementById('generate_client_script').value = '/etc/openvpn/generate-client.sh';
+        document.getElementById('renew_cert_script').value = '/etc/openvpn/renewcert.sh';
+        
+        // 临时文件管理设置
+        document.getElementById('temp_dir').value = '/tmp/openvpn-admin';
+        document.getElementById('clean_garbage_enabled').checked = false;
+        document.getElementById('clean_garbage_time').value = '4:50';
+        document.getElementById('clean_garbage_script').value = '/etc/openvpn/clean-garbage.sh';
+        
+        alert('设置已重置为默认值，请点击"保存设置"应用更改。');
+    }
+}
+
+// 新增：删除旁路由IPv6防火墙规则
+function deleteFirewallRule(ruleName) {
+    if (!confirm('确认要删除旁路由IPv6防火墙规则 "' + ruleName + '" 吗？\n\n删除后将无法通过此规则放行旁路由IPv6流量。')) {
+        return;
+    }
+    
+    fetch('<%=luci.dispatcher.build_url("admin/vpn/openvpn-admin/delete_ipv6_firewall")%>', {
+        method: 'POST'
+    })
+    .then(function(response) {
+        if (!response.ok) {
+            throw new Error('网络响应错误: ' + response.status);
+        }
+        return response.json();
+    })
+    .then(function(result) {
+        if (result.success) {
+            alert('旁路由IPv6防火墙规则 "' + ruleName + '" 已删除');
+            // 重置目标IP输入框为默认值
+            document.getElementById('firewall_dest_ip').value = '::1/128';
+        } else {
+            alert('删除失败: ' + result.message);
+        }
+    })
+    .catch(function(error) {
+        alert('删除失败: ' + error.message);
+    });
+}
+
+// 新增：立即更新OpenVPN的IPv6地址
+function updateOpenVpnIpv6() {
+    var currentIpv6 = document.getElementById('hotplug_ipv6_address').value;
+    
+    if (!currentIpv6 || currentIpv6 === '') {
+        alert('当前IPv6地址为空，请先刷新地址');
+        return;
+    }
+    
+    // 显示加载状态
+    var updateBtn = event.target;
+    var originalText = updateBtn.textContent;
+    updateBtn.textContent = '更新中...';
+    updateBtn.disabled = true;
+    
+    // 获取实例名
+    var instance = document.getElementById('openvpn_instance').value || 'myvpn';
+    
+    // 调用后端接口比较并更新IPv6地址
+    fetch('<%=luci.dispatcher.build_url("admin/vpn/openvpn-admin/compare_and_update_ipv6")%>', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: 'ipv6_address=' + encodeURIComponent(currentIpv6) + '&instance=' + encodeURIComponent(instance)
+    })
+    .then(function(response) {
+        if (!response.ok) {
+            throw new Error('网络响应错误: ' + response.status);
+        }
+        return response.json();
+    })
+    .then(function(result) {
+        if (result.success) {
+            if (result.need_update) {
+                // 地址不同，需要更新
+                var message = result.message + '\n\n' +
+                             '当前接口地址: ' + currentIpv6 + '\n' +
+                             'OpenVPN配置地址: ' + (result.configured_ipv6 || '未配置') + '\n\n' +
+                             '是否立即重启OpenVPN服务使配置生效？';
+                
+                if (confirm(message)) {
+                    // 用户确认重启
+                    restartOpenVpnAfterUpdate();
+                } else {
+                    alert('IPv6地址已更新，但未重启OpenVPN服务。\n请手动重启OpenVPN服务使配置生效。');
+                }
+            } else {
+                // 地址相同，无需更新
+                alert('IPv6地址一致，无需更新\n当前地址: ' + currentIpv6);
+            }
+        } else {
+            alert('更新失败: ' + result.message);
+        }
+    })
+    .catch(function(error) {
+        alert('请求失败: ' + error.message);
+    })
+    .finally(function() {
+        // 恢复按钮状态
+        updateBtn.textContent = originalText;
+        updateBtn.disabled = false;
+    });
+}
+
+// 重启OpenVPN服务
+function restartOpenVpnAfterUpdate() {
+    var restartBtn = document.querySelector('input[type="submit"]');
+    var originalText = restartBtn ? restartBtn.value : '保存设置';
+    
+    if (restartBtn) {
+        restartBtn.value = '重启中...';
+        restartBtn.disabled = true;
+    }
+    
+    fetch('<%=luci.dispatcher.build_url("admin/vpn/openvpn-admin/restart_openvpn")%>', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        }
+    })
+    .then(function(response) {
+        if (!response.ok) {
+            throw new Error('网络响应错误: ' + response.status);
+        }
+        return response.json();
+    })
+    .then(function(result) {
+        if (result.success) {
+            alert('OpenVPN服务重启成功！\n' + (result.message || ''));
+        } else {
+            alert('OpenVPN服务重启失败: ' + result.message);
+        }
+    })
+    .catch(function(error) {
+        alert('重启请求失败: ' + error.message);
+    })
+    .finally(function() {
+        if (restartBtn) {
+            restartBtn.value = originalText;
+            restartBtn.disabled = false;
+        }
+    });
+}
+
+// 新增：更新防火墙规则的目标IP
+function updateFirewallDestIp() {
+    var destIp = document.getElementById('firewall_dest_ip').value.trim();
+    var ruleName = document.getElementById('hotplug_firewall_name').value;
+    
+    if (!destIp || destIp === '') {
+        alert('请输入目标IP地址（CIDR格式）\n例如：240e:3b1:169b:66b0::1/64 或 ::1/128');
+        return;
+    }
+    
+    if (!ruleName || ruleName.trim() === '') {
+        alert('防火墙规则名称不能为空');
+        return;
+    }
+    
+    // 验证IPv6 CIDR格式
+    if (!isValidIPv6CIDR(destIp)) {
+        alert('请输入有效的IPv6 CIDR格式地址\n例如：240e:3b1:169b:66b0::1/64 或 ::1/128');
+        return;
+    }
+    
+    if (!confirm('确认要更新旁路由IPv6防火墙规则 "' + ruleName + '" 的目标IP为：\n' + destIp + ' ?')) {
+        return;
+    }
+    
+    var formData = new FormData();
+    formData.append('dest_ip', destIp);
+    
+    fetch('<%=luci.dispatcher.build_url("admin/vpn/openvpn-admin/create_ipv6_firewall")%>', {
+        method: 'POST',
+        body: formData
+    })
+    .then(function(response) {
+        if (!response.ok) {
+            throw new Error('网络响应错误: ' + response.status);
+        }
+        return response.json();
+    })
+    .then(function(result) {
+        if (result.success) {
+            alert('旁路由IPv6防火墙规则 "' + ruleName + '" 已更新\n目标IP: ' + destIp);
+        } else {
+            alert('更新失败: ' + result.message);
+        }
+    })
+    .catch(function(error) {
+        alert('更新失败: ' + error.message);
+    });
+}
+
+// 新增：验证IPv6 CIDR格式
+function isValidIPv6CIDR(cidr) {
+    // 简单验证IPv6 CIDR格式
+    var ipv6cidrRegex = /^([0-9a-fA-F]{1,4}:){1,7}[0-9a-fA-F]{0,4}\/\d{1,3}$|^::\/\d{1,3}$/;
+    return ipv6cidrRegex.test(cidr);
+}
+
+// 新增：检查现有防火墙规则并显示目标IP
+function checkExistingFirewallRule() {
+    var ruleName = document.getElementById('hotplug_firewall_name').value;
+    
+    if (!ruleName || ruleName.trim() === '') {
+        return;
+    }
+    
+    var url = '<%=luci.dispatcher.build_url("admin/vpn/openvpn-admin/check_ipv6_firewall")%>';
+    var params = new URLSearchParams();
+    params.append('name', ruleName);
+    
+    fetch(url + '?' + params.toString(), {
+        method: 'GET',
+        headers: {
+            'Accept': 'application/json'
+        }
+    })
+    .then(function(response) {
+        if (!response.ok) {
+            return; // 静默失败
+        }
+        return response.json();
+    })
+    .then(function(result) {
+        if (result.success && result.exists && result.rule_info.dest_ip) {
+            // 显示现有的目标IP
+            if (Array.isArray(result.rule_info.dest_ip)) {
+                document.getElementById('firewall_dest_ip').value = result.rule_info.dest_ip[0] || '::1/128';
+            } else {
+                document.getElementById('firewall_dest_ip').value = result.rule_info.dest_ip;
+            }
+            console.log('从现有规则读取目标IP: ' + document.getElementById('firewall_dest_ip').value);
+        }
+    })
+    .catch(function(error) {
+        // 静默失败
+    });
+}
+
+// 日志轮询相关变量
+var logPollingInterval = null;
+var lastLogSize = 0;
+var logPollingActive = false;
+
+// 手动触发Hotplug系统
+function manualTriggerHotplug() {
+    var monitorInterface = document.getElementById('hotplug_interface').value;
+    
+    if (!monitorInterface || monitorInterface === '') {
+        alert('请先选择监控接口');
+        return;
+    }
+    
+    // 检查Hotplug是否启用
+    var hotplugEnabled = document.getElementById('hotplug_enabled').checked;
+    if (!hotplugEnabled) {
+        if (!confirm('Hotplug系统当前未启用，确定要手动触发吗？')) {
+            return;
+        }
+    }
+    
+    // 显示弹窗
+    showHotplugLogModal();
+    
+    // 开始检测日志文件
+    startLogPolling();
+    
+    // 调用后端接口手动触发Hotplug
+    fetch('<%=luci.dispatcher.build_url("admin/vpn/openvpn-admin/manual_trigger_hotplug")%>', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: 'interface=' + encodeURIComponent(monitorInterface)
+    })
+    .then(function(response) {
+        if (!response.ok) {
+            throw new Error('网络响应错误: ' + response.status);
+        }
+        return response.json();
+    })
+    .then(function(result) {
+        if (result.success) {
+            updateLogStatus('Hotplug脚本已启动，进程PID: ' + (result.pid || '未知'), 'success');
+        } else {
+            updateLogStatus('启动失败: ' + result.message, 'error');
+            stopLogTail();
+        }
+    })
+    .catch(function(error) {
+        updateLogStatus('请求失败: ' + error.message, 'error');
+        stopLogTail();
+    });
+}
+
+// 显示Hotplug日志弹窗
+function showHotplugLogModal() {
+    var modal = document.getElementById('hotplugLogModal');
+    modal.style.display = 'block';
+    
+    // 重置日志内容
+    document.getElementById('hotplugLogContent').innerHTML = '';
+    document.getElementById('hotplugLogStatus').className = 'hotplug-log-status info';
+    document.getElementById('hotplugLogStatus').innerHTML = '正在等待Hotplug脚本启动...';
+    
+    // 重置变量
+    lastLogSize = 0;
+}
+
+// 关闭Hotplug日志弹窗
+function closeHotplugLogModal() {
+    stopLogTail();
+    document.getElementById('hotplugLogModal').style.display = 'none';
+}
+
+// 开始轮询日志
+function startLogPolling() {
+    if (logPollingActive) return;
+    
+    logPollingActive = true;
+    lastLogSize = 0;
+    
+    // 立即检查一次
+    fetchLogContent();
+    
+    // 设置定时轮询（每1秒）
+    logPollingInterval = setInterval(fetchLogContent, 1000);
+}
+
+// 停止轮询日志
+function stopLogTail() {
+    if (logPollingInterval) {
+        clearInterval(logPollingInterval);
+        logPollingInterval = null;
+    }
+    logPollingActive = false;
+    
+    var stopButton = document.getElementById('stopLogButton');
+    if (stopButton) {
+        stopButton.innerHTML = '已停止';
+        stopButton.disabled = true;
+    }
+}
+
+// 获取日志内容
+function fetchLogContent() {
+    fetch('<%=luci.dispatcher.build_url("admin/vpn/openvpn-admin/get_hotplug_log")%>', {
+        method: 'GET',
+        headers: {
+            'Accept': 'application/json'
+        }
+    })
+    .then(function(response) {
+        if (!response.ok) {
+            throw new Error('网络响应错误: ' + response.status);
+        }
+        return response.json();
+    })
+    .then(function(result) {
+        if (result.success) {
+            var logContent = document.getElementById('hotplugLogContent');
+            var statusDiv = document.getElementById('hotplugLogStatus');
+            
+            if (result.log_exists) {
+                // 更新状态
+                statusDiv.className = 'hotplug-log-status success';
+                statusDiv.innerHTML = '日志文件存在，正在实时显示...';
+                
+                // 更新日志内容
+                if (result.log_content) {
+                    // 如果日志大小发生变化，更新内容
+                    if (result.log_size !== lastLogSize) {
+                        logContent.innerHTML = result.log_content.replace(/\n/g, '<br>');
+                        // 自动滚动到底部
+                        logContent.scrollTop = logContent.scrollHeight;
+                        lastLogSize = result.log_size;
+                    }
+                }
+            } else {
+                // 日志文件不存在，显示等待状态
+                statusDiv.className = 'hotplug-log-status warning';
+                statusDiv.innerHTML = '等待日志文件创建... (已等待 ' + Math.floor((Date.now() - result.start_time) / 1000) + ' 秒)';
+                
+                if (!logContent.innerHTML.includes('等待日志文件')) {
+                    logContent.innerHTML = '<div style="text-align: center; padding: 20px;">' +
+                        '<div class="loading-spinner" style="margin: 0 auto;"></div>' +
+                        '<p>正在等待日志文件创建，请稍候...</p>' +
+                        '<p style="font-size: 12px; color: #888;">如果长时间无响应，请检查Hotplug配置</p>' +
+                        '</div>';
+                }
+            }
+        } else {
+            updateLogStatus('获取日志失败: ' + result.message, 'error');
+        }
+    })
+    .catch(function(error) {
+        console.error('获取日志失败:', error);
+    });
+}
+
+// 更新日志状态
+function updateLogStatus(message, type) {
+    var statusDiv = document.getElementById('hotplugLogStatus');
+    statusDiv.className = 'hotplug-log-status ' + type;
+    statusDiv.innerHTML = message;
+}
+
+// 点击弹窗外区域关闭
+window.onclick = function(event) {
+    var modal = document.getElementById('hotplugLogModal');
+    if (event.target == modal) {
+        closeHotplugLogModal();
+    }
+}
+
+//]]>
+</script>
+
+<%+footer%>

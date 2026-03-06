@@ -1,0 +1,125 @@
+# Argo LuCI English Translations Template
+# Copyright (C) 2024
+# This file is distributed under the same license as the luci-app-argo package.
+
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Argo Tunnel"
+msgstr ""
+
+msgid "Cloudflare Tunnel (Argo) management interface. Uses Cloudflare remote managed tunnel, you need to create a tunnel in Cloudflare Zero Trust panel first to get Token."
+msgstr ""
+
+msgid "Service Status"
+msgstr ""
+
+msgid "Running Status"
+msgstr ""
+
+msgid "Running"
+msgstr ""
+
+msgid "Not Running"
+msgstr ""
+
+msgid "Program Version"
+msgstr ""
+
+msgid "Not Installed"
+msgstr ""
+
+msgid "Token Status"
+msgstr ""
+
+msgid "Configured"
+msgstr ""
+
+msgid "Not Configured"
+msgstr ""
+
+msgid "Basic Settings"
+msgstr ""
+
+msgid "Enable"
+msgstr ""
+
+msgid "Tunnel Token"
+msgstr ""
+
+msgid "Token obtained after creating a tunnel in Cloudflare Zero Trust panel, a Base64 encoded string starting with eyJ."
+msgstr ""
+
+msgid "Token Guide"
+msgstr ""
+
+msgid "Steps"
+msgstr ""
+
+msgid "Run Logs"
+msgstr ""
+
+msgid "View Logs"
+msgstr ""
+
+msgid "Refresh Logs"
+msgstr ""
+
+msgid "Argo Logs"
+msgstr ""
+
+msgid "No logs yet"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Install Cloudflared"
+msgstr ""
+
+msgid "Installation"
+msgstr ""
+
+msgid "Click to install cloudflared binary"
+msgstr ""
+
+msgid "Install"
+msgstr ""
+
+msgid "Reinstall"
+msgstr ""
+
+msgid "Installing..."
+msgstr ""
+
+msgid "Installation complete!"
+msgstr ""
+
+msgid "Installation failed!"
+msgstr ""
+
+msgid "Architecture"
+msgstr ""
+
+msgid "Unsupported Architecture"
+msgstr ""
+
+msgid "Save & Apply"
+msgstr ""
+
+msgid "Error"
+msgstr ""
+
+msgid "Please configure Token first"
+msgstr ""
+
+msgid "Start Service"
+msgstr ""
+
+msgid "Stop Service"
+msgstr ""
+
+msgid "Restart Service"
+msgstr ""

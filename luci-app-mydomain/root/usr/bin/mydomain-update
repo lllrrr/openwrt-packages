@@ -1,0 +1,261 @@
+#!/bin/sh
+
+# MyDomain DDNS Update Script
+# This script updates DNS records for configured domains
+
+CONFIG_FILE="/etc/config/mydomain"
+LOG_FILE="/tmp/mydomain_ddns.log"
+
+log_message() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+}
+
+get_public_ip() {
+    local ipv4_url="http://ip.3322.net"
+    local ipv6_url="http://v6.ipv6-test.com/api/myip.php"
+    
+    if [ "$1" = "ipv4" ]; then
+        curl -s --connect-timeout 10 "$ipv4_url" | grep -E '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'
+    elif [ "$1" = "ipv6" ]; then
+        curl -s --connect-timeout 10 "$ipv6_url" | grep -E '^[0-9a-fA-F:]*:[0-9a-fA-F:]*:[0-9a-fA-F:]*$'
+    fi
+}
+
+update_dnspod() {
+    local domain=$1
+    local subdomain=$2
+    local ip=$3
+    local api_key=$4
+    local record_type=$5
+    
+    local record_id=$(curl -s "https://dnsapi.cn/Record.List" \
+        -d "login_token=$api_key" \
+        -d "format=json" \
+        -d "domain=$domain" \
+        -d "sub_domain=$subdomain" | \
+        jsonfilter -e "@.records[0].id")
+    
+    if [ -n "$record_id" ]; then
+        curl -s "https://dnsapi.cn/Record.Ddns" \
+            -d "login_token=$api_key" \
+            -d "format=json" \
+            -d "domain=$domain" \
+            -d "record_id=$record_id" \
+            -d "sub_domain=$subdomain" \
+            -d "record_line=默认" \
+            -d "value=$ip" \
+            -d "record_type=$record_type" > /dev/null
+        log_message "Updated $subdomain.$domain to $ip via DNSPod"
+    else
+        log_message "Failed to find record ID for $subdomain.$domain"
+    fi
+}
+
+update_aliyun() {
+    # Aliyun DNS update implementation
+    # This is a simplified example - full implementation would require proper signature calculation
+    log_message "Aliyun DNS update not fully implemented in this example"
+}
+
+update_cloudflare() {
+    local domain=$1
+    local subdomain=$2
+    local ip=$3
+    local api_key=$4
+    local email=$5
+    
+    # Get zone ID
+    local zone_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=$domain" \
+        -H "X-Auth-Email: $email" \
+        -H "X-Auth-Key: $api_key" \
+        -H "Content-Type: application/json" | \
+        jsonfilter -e "@.result[0].id")
+    
+    if [ -n "$zone_id" ]; then
+        # Get record ID
+        local record_name="$subdomain"
+        [ "$subdomain" = "@" ] && record_name="$domain" || record_name="$subdomain.$domain"
+        
+        local record_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records?type=A&name=$record_name" \
+            -H "X-Auth-Email: $email" \
+            -H "X-Auth-Key: $api_key" \
+            -H "Content-Type: application/json" | \
+            jsonfilter -e "@.result[0].id")
+        
+        if [ -n "$record_id" ]; then
+            # Update DNS record
+            curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records/$record_id" \
+                -H "X-Auth-Email: $email" \
+                -H "X-Auth-Key: $api_key" \
+                -H "Content-Type: application/json" \
+                --data "{\"type\":\"A\",\"name\":\"$record_name\",\"content\":\"$ip\",\"ttl\":120}" > /dev/null
+            log_message "Updated $record_name to $ip via Cloudflare"
+        else
+            log_message "Failed to find record ID for $record_name"
+        fi
+    else
+        log_message "Failed to find zone ID for $domain"
+    fi
+}
+
+update_custom() {
+    local api_url=$1
+    local domain=$2
+    local subdomain=$3
+    local ip=$4
+    local api_key=$5
+    local secret=$6
+    
+    # Custom API update - implementation depends on specific API
+    # This is a placeholder for custom DNS API integration
+    log_message "Custom DNS update for $subdomain.$domain to $ip"
+}
+
+# Main update logic
+. /lib/functions.sh
+
+config_load mydomain
+
+update_ddns_entry() {
+    local cfg="$1"
+    
+    config_get enabled "$cfg" enabled
+    config_get domain "$cfg" domain
+    config_get provider "$cfg" provider
+    config_get api_key "$cfg" api_key
+    config_get secret "$cfg" secret
+    config_get ipv4 "$cfg" ipv4
+    config_get ipv6 "$cfg" ipv6
+    config_get interval "$cfg" interval
+    config_get record_type "$cfg" record_type
+    config_get subdomain "$cfg" subdomain
+    config_get api_url "$cfg" api_url
+    
+    [ "$enabled" != "1" ] && return 0
+    
+    [ -z "$interval" ] && interval=30
+    
+    # Check if update is needed based on interval
+    local last_update_file="/tmp/mydomain_ddns_${cfg}.timestamp"
+    local current_time=$(date +%s)
+    local last_update=0
+    
+    if [ -f "$last_update_file" ]; then
+        last_update=$(cat "$last_update_file")
+    fi
+    
+    local time_diff=$((current_time - last_update))
+    local interval_seconds=$((interval * 60))
+    
+    if [ $time_diff -lt $interval_seconds ]; then
+        log_message "Skipping update for $cfg - interval not reached"
+        return 0
+    fi
+    
+    # Update IPv4 if enabled
+    if [ "$ipv4" = "1" ]; then
+        local current_ipv4=$(get_public_ip "ipv4")
+        local last_ipv4_file="/tmp/mydomain_ddns_${cfg}_ipv4"
+        
+        if [ -f "$last_ipv4_file" ]; then
+            local last_ipv4=$(cat "$last_ipv4_file")
+            if [ "$current_ipv4" != "$last_ipv4" ]; then
+                log_message "IPv4 changed from $last_ipv4 to $current_ipv4 for $cfg"
+                
+                case "$provider" in
+                    "dnspod")
+                        update_dnspod "$domain" "$subdomain" "$current_ipv4" "$api_key" "A"
+                        ;;
+                    "aliyun")
+                        update_aliyun "$domain" "$subdomain" "$current_ipv4" "$api_key"
+                        ;;
+                    "cloudflare")
+                        update_cloudflare "$domain" "$subdomain" "$current_ipv4" "$api_key" "$secret"
+                        ;;
+                    "custom")
+                        update_custom "$api_url" "$domain" "$subdomain" "$current_ipv4" "$api_key" "$secret"
+                        ;;
+                esac
+                
+                echo "$current_ipv4" > "$last_ipv4_file"
+            fi
+        else
+            log_message "Initial IPv4 update for $cfg to $current_ipv4"
+            
+            case "$provider" in
+                "dnspod")
+                    update_dnspod "$domain" "$subdomain" "$current_ipv4" "$api_key" "A"
+                    ;;
+                "aliyun")
+                    update_aliyun "$domain" "$subdomain" "$current_ipv4" "$api_key"
+                    ;;
+                "cloudflare")
+                    update_cloudflare "$domain" "$subdomain" "$current_ipv4" "$api_key" "$secret"
+                    ;;
+                "custom")
+                    update_custom "$api_url" "$domain" "$subdomain" "$current_ipv4" "$api_key" "$secret"
+                    ;;
+            esac
+            
+            echo "$current_ipv4" > "$last_ipv4_file"
+        fi
+    fi
+    
+    # Update IPv6 if enabled
+    if [ "$ipv6" = "1" ]; then
+        local current_ipv6=$(get_public_ip "ipv6")
+        local last_ipv6_file="/tmp/mydomain_ddns_${cfg}_ipv6"
+        
+        if [ -n "$current_ipv6" ] && [ "$current_ipv6" != "null" ]; then
+            if [ -f "$last_ipv6_file" ]; then
+                local last_ipv6=$(cat "$last_ipv6_file")
+                if [ "$current_ipv6" != "$last_ipv6" ]; then
+                    log_message "IPv6 changed from $last_ipv6 to $current_ipv6 for $cfg"
+                    
+                    case "$provider" in
+                        "dnspod")
+                            update_dnspod "$domain" "$subdomain" "$current_ipv6" "$api_key" "AAAA"
+                            ;;
+                        "aliyun")
+                            # Aliyun IPv6 update
+                            ;;
+                        "cloudflare")
+                            # Cloudflare IPv6 update
+                            ;;
+                        "custom")
+                            # Custom IPv6 update
+                            ;;
+                    esac
+                    
+                    echo "$current_ipv6" > "$last_ipv6_file"
+                fi
+            else
+                log_message "Initial IPv6 update for $cfg to $current_ipv6"
+                
+                case "$provider" in
+                    "dnspod")
+                        update_dnspod "$domain" "$subdomain" "$current_ipv6" "$api_key" "AAAA"
+                        ;;
+                    "aliyun")
+                        # Aliyun IPv6 update
+                        ;;
+                    "cloudflare")
+                        # Cloudflare IPv6 update
+                        ;;
+                    "custom")
+                        # Custom IPv6 update
+                        ;;
+                esac
+                
+                echo "$current_ipv6" > "$last_ipv6_file"
+            fi
+        fi
+    fi
+    
+    # Update timestamp
+    echo "$current_time" > "$last_update_file"
+}
+
+config_foreach update_ddns_entry ddns
+
+exit 0

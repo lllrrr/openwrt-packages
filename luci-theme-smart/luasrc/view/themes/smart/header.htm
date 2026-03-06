@@ -1,0 +1,34 @@
+<%#
+	Smart (luci-theme-smart) is a clean HTML5 theme for LuCI.
+
+	luci-theme-smart
+	Copyright © 2025 Beomjun Kang <kals323@gmail.com>
+
+	Have a bug? Please create an issue here on GitHub!
+	https://github.com/Beomjun/luci-theme-smart/issues
+
+	Licensed to the public under the GNU GPL v3.0
+-%>
+
+<%
+	local http = require "luci.http"
+	local util = require "luci.util"
+	local dispatcher = require "luci.dispatcher"
+	local node = dispatcher.context.dispatched
+
+	local boardInfo = util.ubus("system", "board")
+
+	http.prepare_content("text/html")
+%>
+<!DOCTYPE html>
+<html lang="<%=luci.i18n.context.lang%>">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, viewport-fit=cover" />
+	<title><%=striptags( (boardInfo.hostname or "?") .. ( (node and node.title) and ' - ' .. translate(node.title) or '')) %> - LuCI</title>
+	<link rel="stylesheet" href="<%=media%>/css/pure.css<%# ?v=PKG_VERSION %>">
+	<link rel="shortcut icon" href="<%=media%>/favicon.ico">
+    <link rel="manifest" href="<%=media%>/manifest.json">
+</head>
+
+<body>
