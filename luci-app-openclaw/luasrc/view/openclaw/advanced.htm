@@ -1,0 +1,98 @@
+<%#
+ luci-app-openclaw — 终端配置页面 (简洁版)
+-%>
+<%+header%>
+
+<%
+local uci = require "luci.model.uci".cursor()
+local pty_port = uci:get("openclaw", "main", "pty_port") or "18793"
+%>
+
+<style type="text/css">
+.oc-page-header { margin: 0 0 16px 0; }
+.oc-page-header h2 { font-size: 18px; font-weight: 600; color: #333; margin: 0 0 6px 0; }
+.oc-page-header p { font-size: 13px; color: #666; margin: 0; line-height: 1.6; }
+
+.oc-terminal-wrap {
+	border: 2px solid #2d333b;
+	border-radius: 8px;
+	overflow: hidden;
+	background: #1a1b26;
+}
+
+#oc-terminal-iframe { width: 100%; height: 600px; border: none; display: block; }
+
+.oc-terminal-loading {
+	display: flex; align-items: center; justify-content: center;
+	height: 200px; color: #7aa2f7; font-size: 14px; background: #1a1b26;
+}
+</style>
+
+<div class="oc-page-header">
+	<h2>⚙️ 终端配置</h2>
+	<p>通过内嵌的交互式终端 (oc-config) 进行 OpenClaw 的完整配置管理。支持 AI 模型配置、消息渠道设置、健康检查等。</p>
+</div>
+
+<div class="oc-terminal-wrap">
+	<div id="oc-terminal-container">
+		<div class="oc-terminal-loading" id="oc-terminal-loading">
+			⏳ 正在连接配置终端...
+		</div>
+	</div>
+</div>
+
+<script type="text/javascript">
+//<![CDATA[
+(function() {
+	var ptyPort = '<%=pty_port%>';
+	var statusUrl = '<%=luci.dispatcher.build_url("admin", "services", "openclaw", "status_api")%>';
+	var tokenUrl = '<%=luci.dispatcher.build_url("admin", "services", "openclaw", "get_token")%>';
+	var container = document.getElementById('oc-terminal-container');
+	var loading = document.getElementById('oc-terminal-loading');
+	var ptyToken = '';
+
+	function checkAndLoadTerminal() {
+		// 先获取 PTY token
+		(new XHR()).get(tokenUrl, null, function(tx) {
+			try {
+				var td = JSON.parse(tx.responseText);
+				ptyToken = td.pty_token || '';
+			} catch(e) {}
+
+			(new XHR()).get(statusUrl, null, function(x) {
+				try {
+					var d = JSON.parse(x.responseText);
+					if (d.pty_running) {
+						showIframe();
+					} else {
+						loading.innerHTML = '❌ 配置终端未运行<br/>' +
+							'<span style="font-size:12px;color:#999;">请先在「基本设置」中启用并启动服务。</span>';
+					}
+				} catch(e) {
+					loading.textContent = '检查终端状态失败';
+				}
+			});
+		});
+	}
+
+	function showIframe() {
+		var proto = window.location.protocol;
+		var host = window.location.hostname;
+		var url = proto + '//' + host + ':' + ptyPort + '/';
+		if (ptyToken) url += '?pty_token=' + encodeURIComponent(ptyToken);
+
+		loading.style.display = 'none';
+
+		var iframe = document.createElement('iframe');
+		iframe.id = 'oc-terminal-iframe';
+		iframe.src = url;
+		iframe.setAttribute('allowfullscreen', 'true');
+		container.appendChild(iframe);
+	}
+
+	checkAndLoadTerminal();
+})();
+//]]>
+</script>
+
+<%+footer%>

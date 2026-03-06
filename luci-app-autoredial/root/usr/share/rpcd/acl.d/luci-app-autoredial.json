@@ -1,0 +1,11 @@
+{
+    "luci-app-autoredial": {
+        "description": "Grant access to autoredial configuration",
+        "read": {
+            "uci": [ "autoredial" ]
+        },
+        "write": {
+            "uci": [ "autoredial" ]
+        }
+    }
+}

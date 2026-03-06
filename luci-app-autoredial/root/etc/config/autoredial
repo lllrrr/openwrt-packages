@@ -1,0 +1,7 @@
+config config 'config'
+    option enabled '0'
+    option method 'ping'
+    option target '119.29.29.29'
+    option interface 'wan'
+    option interval '30'
+    option count '3'

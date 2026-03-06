@@ -1,0 +1,14 @@
+{
+    "admin/services/autoredial": {
+        "title": "自动重拨",
+        "order": 60,
+        "action": {
+            "type": "view",
+            "path": "autoredial"
+        },
+        "depends": {
+            "acl": [ "luci-app-autoredial" ],
+            "uci": { "autoredial": true }
+        }
+    }
+}
