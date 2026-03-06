@@ -17,16 +17,16 @@ return view.extend({
     load: function () {
         return Promise.all([
             uci.load('warp'),
-            L.resolveDefault(fs.exec('/usr/bin/wg', ['show', 'warp']), { code: 1, stdout: '' }),
-            L.resolveDefault(fs.stat('/etc/warp/account.json'), null),
+            L.resolveDefault(fs.exec('/bin/sh', ['-c', 'ip link show | grep tun']), { code: 1, stdout: '' }),
+            L.resolveDefault(fs.stat('/etc/warp/config.json'), null),
             L.resolveDefault(fs.exec('/bin/netstat', ['-tln']), { stdout: '' })
         ]);
     },
 
     pollStatus: function () {
         return Promise.all([
-            L.resolveDefault(fs.exec('/usr/bin/wg', ['show', 'warp']), { code: 1, stdout: '' }),
-            L.resolveDefault(fs.stat('/etc/warp/account.json'), null),
+            L.resolveDefault(fs.exec('/bin/sh', ['-c', 'ip link show | grep tun']), { code: 1, stdout: '' }),
+            L.resolveDefault(fs.stat('/etc/warp/config.json'), null),
             L.resolveDefault(fs.exec('/bin/netstat', ['-tln']), { stdout: '' })
         ]).then(L.bind(function (data) {
             this.updateStatusDisplay(data);
@@ -38,8 +38,7 @@ return view.extend({
         var accountExists = data[1] !== null;
         var netstatOutput = data[2].stdout || '';
 
-        var isRunning = wgOutput.indexOf('interface: warp') !== -1;
-        var hasHandshake = wgOutput.indexOf('latest handshake') !== -1;
+        var isRunning = wgOutput.indexOf('tun') !== -1;
         var socksPort = uci.get('warp', 'config', 'socks_port') || '1080';
         var socksRunning = netstatOutput.indexOf(':' + socksPort) !== -1;
 
@@ -58,9 +57,9 @@ return view.extend({
         }
 
         if (connEl) {
-            connEl.innerHTML = hasHandshake
+            connEl.innerHTML = isRunning
                 ? '<span class="badge success">已连接</span>'
-                : (isRunning ? '<span class="badge warning">连接中...</span>' : '<span class="badge error">未连接</span>');
+                : '<span class="badge error">未连接</span>';
         }
 
         if (accountEl) {
@@ -75,15 +74,12 @@ return view.extend({
                 : '<span class="badge warning">未启动</span>';
         }
 
-        // 解析握手时间和流量
         if (handshakeEl) {
-            var handshakeMatch = wgOutput.match(/latest handshake: ([^\n]+)/);
-            handshakeEl.textContent = handshakeMatch ? handshakeMatch[1] : '-';
+            handshakeEl.textContent = isRunning ? _('MASQUE 协议无需握手') : '-';
         }
 
         if (transferEl) {
-            var transferMatch = wgOutput.match(/transfer: ([^\n]+)/);
-            transferEl.textContent = transferMatch ? transferMatch[1] : '-';
+            transferEl.textContent = '-';
         }
     },
 
@@ -164,8 +160,8 @@ return view.extend({
         var wgOutput = data[1].stdout || '';
         var accountExists = data[2] !== null;
 
-        var isRunning = wgOutput.indexOf('interface: warp') !== -1;
-        var hasHandshake = wgOutput.indexOf('latest handshake') !== -1;
+        var isRunning = wgOutput.indexOf('tun') !== -1;
+        var hasHandshake = isRunning;
 
         var ipv4 = uci.get('warp', 'config', 'address_v4') || '-';
         var ipv6 = uci.get('warp', 'config', 'address_v6') || '-';

@@ -83,21 +83,3 @@ msgstr "WARP+ License Key"
 
 msgid "Enter WARP+ License Key to upgrade"
 msgstr "如果您有WARP+ License Key，可以在此输入以升级到WARP+"
-
-msgid "Private Key"
-msgstr "私钥"
-
-msgid "WireGuard Private Key (Auto-generated)"
-msgstr "WireGuard 私钥（自动生成，通常不需要手动修改）"
-
-msgid "Public Key"
-msgstr "公钥"
-
-msgid "WireGuard Public Key"
-msgstr "WireGuard 公钥"
-
-msgid "Reserved Bytes"
-msgstr "Reserved 字节"
-
-msgid "WARP Reserved Bytes"
-msgstr "WARP Reserved 字节"

@@ -18,8 +18,8 @@ return view.extend({
     load: function () {
         return Promise.all([
             uci.load('warp'),
-            L.resolveDefault(fs.exec('/usr/bin/wg', ['show', 'warp']), { stdout: '' }),
-            L.resolveDefault(fs.read('/etc/warp/account.json'), null)
+            L.resolveDefault(fs.exec('/bin/sh', ['-c', 'ip link show | grep tun']), { stdout: '' }),
+            L.resolveDefault(fs.read('/etc/warp/config.json'), null)
         ]);
     },
 
@@ -39,14 +39,13 @@ return view.extend({
         o = s.option(form.DummyValue, '_status', _('服务状态'));
         o.rawhtml = true;
         o.cfgvalue = function () {
-            var isRunning = wgStatus.indexOf('interface: warp') !== -1;
-            var hasHandshake = wgStatus.indexOf('latest handshake') !== -1;
+            var isRunning = wgStatus.indexOf('tun') !== -1;
 
             var status = '<span style="color: ' + (isRunning ? '#28a745' : '#dc3545') + '; font-weight: bold;">';
             status += isRunning ? '✓ 运行中' : '✗ 已停止';
             status += '</span>';
 
-            if (isRunning && hasHandshake) {
+            if (isRunning) {
                 status += ' | <span style="color: #28a745;">已连接</span>';
             }
 
@@ -156,21 +155,6 @@ return view.extend({
         o.password = true;
         o.rmempty = true;
         o.description = _('如果您有WARP+ License Key，可以在此输入以升级');
-
-        // 高级设置
-        s = m.section(form.NamedSection, 'config', 'warp', _('高级设置'));
-        s.anonymous = true;
-
-        o = s.option(form.Value, 'private_key', _('私钥'));
-        o.password = true;
-        o.rmempty = true;
-
-        o = s.option(form.Value, 'public_key', _('公钥'));
-        o.rmempty = true;
-        o.readonly = true;
-
-        o = s.option(form.Value, 'reserved', _('Reserved 字节'));
-        o.rmempty = true;
 
         return m.render();
     }

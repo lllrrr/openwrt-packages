@@ -1,5 +1,5 @@
 #!/bin/sh
-# 一键安装脚本
+# 一键安装脚�?
 # Copyright (C) 2024
 
 set -e
@@ -11,19 +11,19 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 echo -e "${BLUE}"
-echo "╔═══════════════════════════════════════════╗"
-echo "║     Cloudflare WARP for OpenWrt           ║"
-echo "║         一键安装脚本                       ║"
-echo "╚═══════════════════════════════════════════╝"
+echo "╔═══════════════════════════════════════════�?
+echo "�?    Cloudflare WARP for OpenWrt           �?
+echo "�?        一键安装脚�?                      �?
+echo "╚═══════════════════════════════════════════�?
 echo -e "${NC}"
 
 # 检查是否为root
 [ "$(id -u)" != "0" ] && {
-    echo -e "${RED}错误: 请使用root权限运行此脚本${NC}"
+    echo -e "${RED}错误: 请使用root权限运行此脚�?{NC}"
     exit 1
 }
 
-# 检查系统
+# 检查系�?
 check_system() {
     if [ ! -f /etc/openwrt_release ]; then
         echo -e "${RED}错误: 此脚本仅支持OpenWrt系统${NC}"
@@ -40,8 +40,8 @@ install_deps() {
     
     opkg update
     
-    # 安装WireGuard
-    opkg install wireguard-tools kmod-wireguard luci-proto-wireguard
+    # 安装usque (MASQUE 客户�?
+    opkg install usque
     
     # 安装其他依赖
     opkg install curl jsonfilter
@@ -60,7 +60,7 @@ install_app() {
     
     # 复制文件（这里需要根据实际情况修改）
     # 假设从GitHub下载
-    REPO_URL="https://raw.githubusercontent.com/your-repo/luci-app-warp/main"
+    REPO_URL="https://raw.githubusercontent.com/hxzlplp7/luci-app-warp/main"
     
     # 下载核心脚本
     curl -sL "${REPO_URL}/root/usr/bin/warp-manager" -o /usr/bin/warp-manager
@@ -86,7 +86,7 @@ register_account() {
     read -p "是否现在注册WARP账户? [Y/n] " choice
     case "$choice" in
         [Nn]*)
-            echo "跳过注册，您可以稍后在LuCI界面中注册"
+            echo "跳过注册，您可以稍后在LuCI界面中注�?
             ;;
         *)
             /usr/bin/warp-manager register
@@ -94,7 +94,7 @@ register_account() {
     esac
 }
 
-# 主流程
+# 主流�?
 main() {
     check_system
     install_deps
@@ -102,20 +102,20 @@ main() {
     register_account
     
     echo ""
-    echo -e "${GREEN}═══════════════════════════════════════════${NC}"
+    echo -e "${GREEN}══════════════════════════════════════════�?{NC}"
     echo -e "${GREEN}安装完成!${NC}"
     echo ""
-    echo "请访问 LuCI 界面:"
+    echo "请访�?LuCI 界面:"
     echo "  服务 -> Cloudflare WARP"
     echo ""
     echo "或使用命令行:"
-    echo "  warp-manager status    # 查看状态"
+    echo "  warp-manager status    # 查看状�?
     echo "  warp-manager register  # 注册账户"
     echo "  warp-manager test      # 测试连接"
     echo ""
     echo "启动服务:"
     echo "  /etc/init.d/warp start"
-    echo -e "${GREEN}═══════════════════════════════════════════${NC}"
+    echo -e "${GREEN}══════════════════════════════════════════�?{NC}"
 }
 
 main

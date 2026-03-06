@@ -1,5 +1,4 @@
-#!/bin/sh
-# Cloudflare WARP Manager for OpenWrt
+# Cloudflare WARP Manager for OpenWrt (usque edition)
 # Copyright (C) 2024
 # SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -12,9 +11,9 @@ NC='\033[0m'
 
 # 配置路径
 CONFIG_DIR="/etc/warp"
-ACCOUNT_FILE="$CONFIG_DIR/account.json"
-WGCF_PROFILE="$CONFIG_DIR/wgcf-profile.conf"
+ACCOUNT_FILE="$CONFIG_DIR/config.json"
 UCI_CONFIG="/etc/config/warp"
+USQUE_BIN="/usr/bin/usque"
 
 # Cloudflare WARP API
 CF_API="https://api.cloudflareclient.com/v0a2158"
@@ -30,100 +29,61 @@ generate_install_id() {
     head -c 8 /dev/urandom | md5sum | head -c 11
 }
 
-# 生成WireGuard密钥对
+# 生成WireGuard密钥�?
 generate_keypair() {
     PRIVATE_KEY=$(wg genkey)
     PUBLIC_KEY=$(echo "$PRIVATE_KEY" | wg pubkey)
     echo "$PRIVATE_KEY|$PUBLIC_KEY"
 }
 
+}
+
 # 注册WARP账户
 register_account() {
-    echo -e "${BLUE}正在注册 Cloudflare WARP 账户...${NC}"
+    echo -e "${BLUE}正在使用 usque 注册 Cloudflare WARP 账户...${NC}"
     
+    if [ ! -x "$USQUE_BIN" ]; then
+        echo -e "${RED}找不�?usque 执行文件 ($USQUE_BIN)，请检查安�?{NC}"
+        return 1
+    fi
+
     # 创建配置目录
     mkdir -p "$CONFIG_DIR"
+    cd "$CONFIG_DIR" || return 1
     
-    # 生成密钥对
-    KEYPAIR=$(generate_keypair)
-    PRIVATE_KEY=$(echo "$KEYPAIR" | cut -d'|' -f1)
-    PUBLIC_KEY=$(echo "$KEYPAIR" | cut -d'|' -f2)
+    # 使用 usque 注册
+    # usque 默认在当前目录保�?config.json
+    rm -f config.json
+    $USQUE_BIN register
     
-    # 生成设备信息
-    DEVICE_ID=$(generate_device_id)
-    INSTALL_ID=$(generate_install_id)
-    FCM_TOKEN="${INSTALL_ID}:APA91b$(head -c 100 /dev/urandom | base64 | tr -d '\n' | head -c 134)"
-    
-    # 构建注册请求
-    REQUEST_BODY=$(cat <<EOF
-{
-    "key": "$PUBLIC_KEY",
-    "install_id": "$INSTALL_ID",
-    "fcm_token": "$FCM_TOKEN",
-    "tos": "$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")",
-    "model": "OpenWrt",
-    "serial_number": "$DEVICE_ID",
-    "type": "Android",
-    "locale": "zh_CN"
-}
-EOF
-)
-    
-    # 发送注册请求
-    RESPONSE=$(curl -s -X POST "$REG_URL" \
-        -H "Content-Type: application/json" \
-        -H "CF-Client-Version: a-6.11-2223" \
-        -d "$REQUEST_BODY")
-    
-    # 检查响应
-    if echo "$RESPONSE" | grep -q '"result"'; then
-        echo -e "${RED}注册失败: $RESPONSE${NC}"
+    if [ ! -f "config.json" ]; then
+        echo -e "${RED}注册失败: 未能生成 config.json${NC}"
         return 1
     fi
     
-    # 解析响应
-    ACCOUNT_ID=$(echo "$RESPONSE" | jsonfilter -e '@.id')
-    TOKEN=$(echo "$RESPONSE" | jsonfilter -e '@.token')
-    ADDRESS_V4=$(echo "$RESPONSE" | jsonfilter -e '@.config.interface.addresses.v4')
-    ADDRESS_V6=$(echo "$RESPONSE" | jsonfilter -e '@.config.interface.addresses.v6')
-    CLIENT_ID=$(echo "$RESPONSE" | jsonfilter -e '@.config.client_id')
+    # 解析生成的配�?
+    ACCOUNT_ID=$(jsonfilter -i config.json -e '@.id' 2>/dev/null)
+    ADDRESS_V4=$(jsonfilter -i config.json -e '@.ipv4' 2>/dev/null)
+    ADDRESS_V6=$(jsonfilter -i config.json -e '@.ipv6' 2>/dev/null)
     
-    if [ -z "$ACCOUNT_ID" ] || [ -z "$TOKEN" ]; then
-        echo -e "${RED}无法解析注册响应${NC}"
-        echo "$RESPONSE"
+    if [ -z "$ACCOUNT_ID" ]; then
+        echo -e "${RED}无法解析生成�?config.json，注册可能未成功${NC}"
         return 1
     fi
     
-    # 转换client_id为reserved字节
-    if [ -n "$CLIENT_ID" ]; then
-        # Base64解码并转为十进制
-        RESERVED=$(echo "$CLIENT_ID" | base64 -d 2>/dev/null | od -An -tu1 | tr -s ' ' ',' | sed 's/^,//;s/,$//')
-    fi
-    
-    # 保存账户信息
-    cat > "$ACCOUNT_FILE" <<EOF
-{
-    "account_id": "$ACCOUNT_ID",
-    "token": "$TOKEN",
-    "private_key": "$PRIVATE_KEY",
-    "public_key": "$PUBLIC_KEY",
-    "address_v4": "$ADDRESS_V4",
-    "address_v6": "$ADDRESS_V6",
-    "client_id": "$CLIENT_ID",
-    "reserved": "$RESERVED"
-}
-EOF
-    
-    # 更新UCI配置
-    uci set warp.config.private_key="$PRIVATE_KEY"
-    uci set warp.config.public_key="$PUBLIC_KEY"
+    # 更新UCI配置 (不再需�?private_key �?WireGuard 属�?
     uci set warp.config.address_v4="$ADDRESS_V4"
     uci set warp.config.address_v6="$ADDRESS_V6"
-    uci set warp.config.reserved="$RESERVED"
+    
+    # 删除旧的 wg 设置
+    uci delete warp.config.private_key 2>/dev/null
+    uci delete warp.config.public_key 2>/dev/null
+    uci delete warp.config.reserved 2>/dev/null
+    
     uci commit warp
     
     echo -e "${GREEN}注册成功!${NC}"
-    echo "账户ID: $ACCOUNT_ID"
+    echo "设备ID: $ACCOUNT_ID"
     echo "IPv4地址: $ADDRESS_V4"
     echo "IPv6地址: $ADDRESS_V6"
     
@@ -140,12 +100,12 @@ apply_license() {
     fi
     
     if [ ! -f "$ACCOUNT_FILE" ]; then
-        echo -e "${RED}未找到账户信息，请先注册${NC}"
+        echo -e "${RED}未找到配置信息，请先注册${NC}"
         return 1
     fi
     
-    ACCOUNT_ID=$(jsonfilter -i "$ACCOUNT_FILE" -e '@.account_id')
-    TOKEN=$(jsonfilter -i "$ACCOUNT_FILE" -e '@.token')
+    ACCOUNT_ID=$(jsonfilter -i "$ACCOUNT_FILE" -e '@.id')
+    TOKEN=$(jsonfilter -i "$ACCOUNT_FILE" -e '@.access_token')
     
     echo -e "${BLUE}正在应用 License Key...${NC}"
     
@@ -165,72 +125,64 @@ apply_license() {
     fi
 }
 
-# 获取账户状态
+# 获取账户状�?
 get_status() {
-    echo -e "${BLUE}=== WARP 状态 ===${NC}"
+    echo -e "${BLUE}=== WARP (usque) 状�?===${NC}"
     
-    # 检查接口状态
-    if ip link show warp >/dev/null 2>&1; then
-        echo -e "接口状态: ${GREEN}已启用${NC}"
+    # 检查进程状�?
+    if pgrep -f "$USQUE_BIN nativetun" >/dev/null; then
+        echo -e "进程状�? ${GREEN}运行�?{NC}"
         
-        # 获取WireGuard状态
-        WG_STATUS=$(wg show warp 2>/dev/null)
-        if [ -n "$WG_STATUS" ]; then
-            LATEST_HANDSHAKE=$(echo "$WG_STATUS" | grep "latest handshake" | awk '{print $3, $4, $5, $6}')
-            TX_BYTES=$(echo "$WG_STATUS" | grep "transfer" | awk '{print $2, $3}')
-            RX_BYTES=$(echo "$WG_STATUS" | grep "transfer" | awk '{print $5, $6}')
-            
-            if [ -n "$LATEST_HANDSHAKE" ]; then
-                echo -e "连接状态: ${GREEN}已连接${NC}"
-                echo "最后握手: $LATEST_HANDSHAKE"
-                echo "发送: $TX_BYTES"
-                echo "接收: $RX_BYTES"
-            else
-                echo -e "连接状态: ${YELLOW}等待握手${NC}"
-            fi
+        # 检查接�?
+        USQUE_INTERFACE=$(ip link show | grep 'tun' | awk -F': ' '{print $2}' | grep -E '^tun[0-9]+' | head -n 1)
+        if [ -n "$USQUE_INTERFACE" ]; then
+             echo -e "接口状�? ${GREEN}已连�?($USQUE_INTERFACE)${NC}"
+        else
+             echo -e "接口状�? ${YELLOW}等待接口就绪${NC}"
         fi
     else
-        echo -e "接口状态: ${RED}未启用${NC}"
+        echo -e "服务状�? ${RED}未运�?{NC}"
     fi
     
-    # 检查账户信息
+    # 检查账户信�?
     if [ -f "$ACCOUNT_FILE" ]; then
-        ACCOUNT_ID=$(jsonfilter -i "$ACCOUNT_FILE" -e '@.account_id' 2>/dev/null)
-        ADDRESS_V4=$(jsonfilter -i "$ACCOUNT_FILE" -e '@.address_v4' 2>/dev/null)
-        ADDRESS_V6=$(jsonfilter -i "$ACCOUNT_FILE" -e '@.address_v6' 2>/dev/null)
+        ACCOUNT_ID=$(jsonfilter -i "$ACCOUNT_FILE" -e '@.id' 2>/dev/null)
+        ADDRESS_V4=$(jsonfilter -i "$ACCOUNT_FILE" -e '@.ipv4' 2>/dev/null)
+        ADDRESS_V6=$(jsonfilter -i "$ACCOUNT_FILE" -e '@.ipv6' 2>/dev/null)
         
         echo ""
         echo -e "${BLUE}=== 账户信息 ===${NC}"
-        echo "账户ID: ${ACCOUNT_ID:-未注册}"
+        echo "设备ID: ${ACCOUNT_ID:-未注册}"
         echo "IPv4: ${ADDRESS_V4:-无}"
         echo "IPv6: ${ADDRESS_V6:-无}"
     else
         echo ""
-        echo -e "${YELLOW}未找到账户信息，请先运行注册${NC}"
+        echo -e "${YELLOW}未找到配置文件，请先运行注册${NC}"
     fi
     
-    # 检查全局代理状态
+    # 检查全局代理状�?
     echo ""
     echo -e "${BLUE}=== 代理设置 ===${NC}"
     GLOBAL_PROXY=$(uci -q get warp.config.global_proxy)
     BYPASS_CHINA=$(uci -q get warp.config.bypass_china)
     
-    [ "$GLOBAL_PROXY" = "1" ] && echo -e "全局代理: ${GREEN}开启${NC}" || echo -e "全局代理: ${YELLOW}关闭${NC}"
-    [ "$BYPASS_CHINA" = "1" ] && echo -e "绕过中国IP: ${GREEN}开启${NC}" || echo -e "绕过中国IP: ${YELLOW}关闭${NC}"
+    [ "$GLOBAL_PROXY" = "1" ] && echo -e "全局代理: ${GREEN}开�?{NC}" || echo -e "全局代理: ${YELLOW}关闭${NC}"
+    [ "$BYPASS_CHINA" = "1" ] && echo -e "绕过中国IP: ${GREEN}开�?{NC}" || echo -e "绕过中国IP: ${YELLOW}关闭${NC}"
 }
 
 # 测试连接
 test_connection() {
     echo -e "${BLUE}正在测试 WARP 连接...${NC}"
     
-    if ! ip link show warp >/dev/null 2>&1; then
-        echo -e "${RED}WARP 接口未启用${NC}"
+    USQUE_INTERFACE=$(ip link show | grep 'tun' | awk -F': ' '{print $2}' | grep -E '^tun[0-9]+' | head -n 1)
+    if [ -z "$USQUE_INTERFACE" ]; then
+        echo -e "${RED}WARP (usque) TUN 接口未启�?{NC}"
         return 1
     fi
     
     # 测试Cloudflare Trace
-    echo "测试 Cloudflare Trace..."
-    TRACE=$(curl -s --interface warp --max-time 10 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null)
+    echo "测试 Cloudflare Trace via $USQUE_INTERFACE..."
+    TRACE=$(curl -s --interface "$USQUE_INTERFACE" --max-time 10 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null)
     
     if [ -n "$TRACE" ]; then
         WARP_STATUS=$(echo "$TRACE" | grep "warp=" | cut -d'=' -f2)
@@ -238,7 +190,7 @@ test_connection() {
         LOC=$(echo "$TRACE" | grep "loc=" | cut -d'=' -f2)
         
         echo -e "${GREEN}连接成功!${NC}"
-        echo "WARP状态: $WARP_STATUS"
+        echo "WARP状�? $WARP_STATUS"
         echo "出口IP: $IP"
         echo "位置: $LOC"
         return 0
@@ -250,57 +202,36 @@ test_connection() {
 
 # 重置账户
 reset_account() {
-    echo -e "${YELLOW}警告: 这将删除当前账户信息并重新注册${NC}"
+    echo -e "${YELLOW}警告: 这将删除当前配置文件并重新注�?{NC}"
     
     # 停止服务
     /etc/init.d/warp stop 2>/dev/null
     
-    # 删除账户文件
+    # 删除配置
     rm -f "$ACCOUNT_FILE"
-    rm -f "$WGCF_PROFILE"
     
     # 清除UCI配置
-    uci set warp.config.private_key=""
-    uci set warp.config.public_key=""
+    uci delete warp.config.private_key 2>/dev/null
+    uci delete warp.config.public_key 2>/dev/null
+    uci delete warp.config.reserved 2>/dev/null
     uci set warp.config.address_v4=""
     uci set warp.config.address_v6=""
-    uci set warp.config.reserved=""
     uci set warp.config.license_key=""
     uci commit warp
     
-    echo -e "${GREEN}账户已重置${NC}"
+    echo -e "${GREEN}账户已重�?{NC}"
 }
 
 # 导出配置
 export_config() {
     if [ ! -f "$ACCOUNT_FILE" ]; then
-        echo -e "${RED}未找到账户信息${NC}"
+        echo -e "${RED}未找到配置信�?{NC}"
         return 1
     fi
-    
-    PRIVATE_KEY=$(jsonfilter -i "$ACCOUNT_FILE" -e '@.private_key')
-    ADDRESS_V4=$(jsonfilter -i "$ACCOUNT_FILE" -e '@.address_v4')
-    ADDRESS_V6=$(jsonfilter -i "$ACCOUNT_FILE" -e '@.address_v6')
-    DNS=$(uci -q get warp.config.dns)
-    ENDPOINT=$(uci -q get warp.config.endpoint)
-    MTU=$(uci -q get warp.config.mtu)
-    
-    cat <<EOF
-[Interface]
-PrivateKey = $PRIVATE_KEY
-Address = $ADDRESS_V4/32, $ADDRESS_V6/128
-DNS = ${DNS:-1.1.1.1}
-MTU = ${MTU:-1280}
-
-[Peer]
-PublicKey = bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=
-AllowedIPs = 0.0.0.0/0, ::/0
-Endpoint = ${ENDPOINT:-engage.cloudflareclient.com:2408}
-PersistentKeepalive = 25
-EOF
+    cat "$ACCOUNT_FILE"
 }
 
-# 主函数
+# 主函�?
 main() {
     case "$1" in
         register)
@@ -327,7 +258,7 @@ main() {
             echo "命令说明:"
             echo "  register    - 注册新的WARP账户"
             echo "  license     - 应用License Key升级到WARP+"
-            echo "  status      - 查看当前状态"
+            echo "  status      - 查看当前状�?
             echo "  test        - 测试WARP连接"
             echo "  reset       - 重置账户"
             echo "  export      - 导出WireGuard配置"

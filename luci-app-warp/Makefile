@@ -4,7 +4,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-warp
-PKG_VERSION:=1.2.4
+PKG_VERSION:=1.3.0
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=hxzlplp7
@@ -16,13 +16,13 @@ define Package/$(PKG_NAME)
   SECTION:=luci
   CATEGORY:=LuCI
   SUBMENU:=3. Applications
-  TITLE:=LuCI support for Cloudflare WARP
-  DEPENDS:=+luci-base +wireguard-tools +luci-proto-wireguard +curl +jsonfilter
+  TITLE:=LuCI support for Cloudflare WARP via usque
+  DEPENDS:=+luci-base +curl +jsonfilter +usque
   PKGARCH:=all
 endef
 
 define Package/$(PKG_NAME)/description
-  LuCI interface for managing Cloudflare WARP via WireGuard with global proxy support.
+  LuCI interface for managing Cloudflare WARP via usque (MASQUE protocol) with global proxy support.
   Features include auto registration, global traffic proxy, China IP bypass, 
   SOCKS5 proxy, pre-proxy support, and WARP+ license upgrade.
 endef
