@@ -19,7 +19,9 @@ return view.extend({
             uci.load('warp'),
             L.resolveDefault(fs.exec('/bin/sh', ['-c', 'ip link show | grep tun']), { code: 1, stdout: '' }),
             L.resolveDefault(fs.stat('/etc/warp/config.json'), null),
-            L.resolveDefault(fs.exec('/bin/netstat', ['-tln']), { stdout: '' })
+            L.resolveDefault(fs.exec('/bin/netstat', ['-tln']), { stdout: '' }),
+            L.resolveDefault(fs.exec('/bin/cat', ['/proc/net/dev']), { stdout: '' }),
+            L.resolveDefault(fs.exec('/bin/cat', ['/var/run/warp/tun_iface']), { stdout: '' })
         ]);
     },
 
@@ -27,20 +29,51 @@ return view.extend({
         return Promise.all([
             L.resolveDefault(fs.exec('/bin/sh', ['-c', 'ip link show | grep tun']), { code: 1, stdout: '' }),
             L.resolveDefault(fs.stat('/etc/warp/config.json'), null),
-            L.resolveDefault(fs.exec('/bin/netstat', ['-tln']), { stdout: '' })
+            L.resolveDefault(fs.exec('/bin/netstat', ['-tln']), { stdout: '' }),
+            L.resolveDefault(fs.exec('/bin/cat', ['/proc/net/dev']), { stdout: '' }),
+            L.resolveDefault(fs.exec('/bin/cat', ['/var/run/warp/tun_iface']), { stdout: '' })
         ]).then(L.bind(function (data) {
             this.updateStatusDisplay(data);
         }, this));
+    },
+
+    formatSize: function (size) {
+        if (isNaN(size) || size <= 0) return '0 B';
+        var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        var i = 0;
+        while (size >= 1024 && i < units.length - 1) {
+            size /= 1024;
+            i++;
+        }
+        return size.toFixed(2) + ' ' + units[i];
     },
 
     updateStatusDisplay: function (data) {
         var wgOutput = data[0].stdout || '';
         var accountExists = data[1] !== null;
         var netstatOutput = data[2].stdout || '';
+        var netDevOutput = data[3].stdout || '';
+        var tunIfaceName = (data[4].stdout || '').trim();
 
-        var isRunning = wgOutput.indexOf('tun') !== -1;
+        var tunName = tunIfaceName || (wgOutput.match(/tun[0-9]+/) || [null])[0];
+        var isRunning = tunName !== null && wgOutput.indexOf(tunName) !== -1;
+        
         var socksPort = uci.get('warp', 'config', 'socks_port') || '1080';
         var socksRunning = netstatOutput.indexOf(':' + socksPort) !== -1;
+
+        // 解析流量
+        var rxBytes = 0, txBytes = 0;
+        if (tunName && netDevOutput) {
+            var devLines = netDevOutput.split('\n');
+            for (var i = 0; i < devLines.length; i++) {
+                if (devLines[i].indexOf(tunName + ':') !== -1) {
+                    var stats = devLines[i].trim().split(/:?\s+/);
+                    rxBytes = parseInt(stats[1]) || 0;
+                    txBytes = parseInt(stats[9]) || 0;
+                    break;
+                }
+            }
+        }
 
         // 更新状态显示
         var statusEl = document.getElementById('warp-status');
@@ -57,9 +90,12 @@ return view.extend({
         }
 
         if (connEl) {
-            connEl.innerHTML = isRunning
+            // 如果有接收到流量，认为已连接
+            var isConnected = isRunning && rxBytes > 0;
+            connEl.innerHTML = isConnected
                 ? '<span class="badge success">已连接</span>'
-                : '<span class="badge error">未连接</span>';
+                : (isRunning ? '<span class="badge warning">连接中...</span>'
+                    : '<span class="badge error">未连接</span>');
         }
 
         if (accountEl) {
@@ -79,7 +115,7 @@ return view.extend({
         }
 
         if (transferEl) {
-            transferEl.textContent = '-';
+            transferEl.textContent = 'RX: ' + this.formatSize(rxBytes) + ' | TX: ' + this.formatSize(txBytes);
         }
     },
 

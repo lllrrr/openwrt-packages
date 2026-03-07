@@ -7,7 +7,7 @@
 return view.extend({
     load: function() {
         return Promise.all([
-            L.resolveDefault(fs.exec('/usr/bin/logread', ['-e', 'warp']), { stdout: '' })
+            L.resolveDefault(fs.exec('/sbin/logread', ['-e', 'warp|usque']), { stdout: '' })
         ]);
     },
 
@@ -31,7 +31,7 @@ return view.extend({
         poll.add(L.bind(function() {
             var checkbox = document.getElementById('auto-refresh');
             if (checkbox && checkbox.checked) {
-                return fs.exec('/usr/bin/logread', ['-e', 'warp']).then(function(res) {
+                                return fs.exec('/sbin/logread', ['-e', 'warp|usque']).then(function(res) {
                     var textarea = document.getElementById('syslog');
                     if (textarea) {
                         textarea.value = res.stdout || _('No log data available');
@@ -55,7 +55,7 @@ return view.extend({
                         E('button', {
                             'class': 'btn cbi-button cbi-button-action',
                             'click': function() {
-                                return fs.exec('/usr/bin/logread', ['-e', 'warp']).then(function(res) {
+                return fs.exec('/sbin/logread', ['-e', 'warp|usque']).then(function(res) {
                                     var textarea = document.getElementById('syslog');
                                     if (textarea) {
                                         textarea.value = res.stdout || _('No log data available');

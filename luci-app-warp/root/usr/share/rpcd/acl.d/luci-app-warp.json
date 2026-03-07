@@ -12,13 +12,19 @@
                 "/usr/bin/warp-manager": [
                     "exec"
                 ],
-                "/usr/bin/logread": [
+                "/sbin/logread": [
+                    "exec"
+                ],
+                "/usr/sbin/logread": [
                     "exec"
                 ],
                 "/usr/bin/wg": [
                     "exec"
                 ],
                 "/bin/netstat": [
+                    "exec"
+                ],
+                "/bin/cat": [
                     "exec"
                 ],
                 "/bin/sh": [
