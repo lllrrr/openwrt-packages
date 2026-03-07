@@ -4,6 +4,36 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [1.0.8] - 2026-03-07
+
+### 修复第三方模型配置导致 Gateway 崩溃 & 新增 Coding Plan 套餐支持
+
+#### 修复
+- **EACCES 权限错误** (#8): Web PTY 以 root 运行，创建的目录 (`sessions/`, `auth-profiles.json` 等) 归 root 所有，Gateway 以 `openclaw` 用户运行时无法写入，报 `EACCES: permission denied, mkdir`
+  - `oc-config.sh`: `auth_set_apikey`、`json_set`、备份目录创建后均执行 `chown openclaw:openclaw`
+  - `web-pty.js`: 子进程退出时自动 `chown -R openclaw:openclaw` 整个数据目录
+- **第三方模型 404/405 错误** (#11, #13, #14, #15): DeepSeek、xAI Grok、Groq 等 OpenAI 兼容提供商配置后返回 404/405
+  - 根因: 这些提供商缺少 `register_custom_provider` 调用，未写入 `baseUrl` 导致 Gateway 请求发到错误地址
+  - 修复: 为 DeepSeek、xAI、Groq 快速配置补充 `register_custom_provider` 调用
+- **API 类型错误导致 Gateway 崩溃**: `register_custom_provider` 中 `api` 值设为 `openai-chat-completions`，但该值在 OpenClaw v2026.3.2 中不存在
+  - 正确值为 `openai-completions`，错误值会导致 Gateway 启动时 JSON schema 校验失败，进入 crash loop
+  - 有效 api 类型: `openai-completions` | `openai-responses` | `openai-codex-responses` | `anthropic-messages` | `google-generative-ai` | `github-copilot` | `bedrock-converse-stream` | `ollama`
+
+#### 新增
+- **阿里云 Coding Plan 套餐快速配置**: 千问配置菜单新增 Coding Plan 选项 (选项 c，默认推荐)
+  - Provider: `bailian`，Base URL: `https://coding.dashscope.aliyuncs.com/v1`
+  - 一键注册套餐内全部模型: qwen3.5-plus、qwen3-coder-plus、qwen3-coder-next、qwen3-max、MiniMax-M2.5、glm-5、glm-4.7、kimi-k2.5
+  - contextWindow / maxTokens 按阿里云官方文档设定 (最大 100万上下文)
+  - 参考: [阿里云 Coding Plan 文档](https://help.aliyun.com/zh/model-studio/openclaw-coding-plan)
+
+#### 变更
+- **千问配置菜单重构**: 从 2 种模式扩展为 3 种
+  - `a)` Qwen Portal OAuth (官方向导)
+  - `b)` 百炼按量付费 API Key (`sk-xxx` + `dashscope.aliyuncs.com`)
+  - `c)` Coding Plan 套餐 (`sk-sp-xxx` + `coding.dashscope.aliyuncs.com`) ★ 默认推荐
+  - 明确提示两套 API Key / Base URL 不互通
+- **`register_custom_provider` 增强**: 新增可选参数 `context_window` (默认 128000) 和 `max_tokens` (默认 32000)
+
 ## [1.0.7] - 2026-03-06
 
 ### 修复依赖包名错误 & 补充 GNU tar 依赖 (感谢 [@esir](https://github.com/esirplayground) 建议)

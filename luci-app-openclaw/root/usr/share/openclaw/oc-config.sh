@@ -6,7 +6,7 @@
 
 # ── 颜色 ──
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
 
 # ── 端口检查兼容函数 (ss 或 netstat) ──
 # check_port_listening <port> — 检查端口是否在监听，返回 0/1
@@ -175,11 +175,13 @@ register_and_set_model() {
 }
 
 # ── 注册自定义提供商 (需要 baseUrl 的 OpenAI 兼容提供商) ──
-# 用法: register_custom_provider <provider_name> <base_url> <api_key> <model_id> [model_display_name]
+# 用法: register_custom_provider <provider_name> <base_url> <api_key> <model_id> [model_display_name] [context_window] [max_tokens]
 # 例: register_custom_provider dashscope https://dashscope.aliyuncs.com/compatible-mode/v1 sk-xxx qwen-max "Qwen Max"
+# 例: register_custom_provider bailian https://coding.dashscope.aliyuncs.com/v1 sk-sp-xxx qwen3.5-plus "qwen3.5-plus" 1000000 65536
 register_custom_provider() {
 	local provider_name="$1" base_url="$2" api_key="$3" model_id="$4" model_display="${5:-$4}"
-	_RCP_PROV="$provider_name" _RCP_URL="$base_url" _RCP_KEY="$api_key" _RCP_MID="$model_id" _RCP_MNAME="$model_display" "$NODE_BIN" -e "
+	local ctx_window="${6:-128000}" max_tok="${7:-32000}"
+	_RCP_PROV="$provider_name" _RCP_URL="$base_url" _RCP_KEY="$api_key" _RCP_MID="$model_id" _RCP_MNAME="$model_display" _RCP_CTX="$ctx_window" _RCP_MAXTOK="$max_tok" "$NODE_BIN" -e "
 		const fs=require('fs');
 		let d={};
 		try{d=JSON.parse(fs.readFileSync('${CONFIG_FILE}','utf8'));}catch(e){}
@@ -190,17 +192,55 @@ register_custom_provider() {
 		d.models.providers[prov]={
 			baseUrl:process.env._RCP_URL,
 			apiKey:process.env._RCP_KEY,
-			api:'openai-responses',
+			api:'openai-completions',
 			models:[{
 				id:process.env._RCP_MID,
 				name:process.env._RCP_MNAME,
 				reasoning:false,
 				input:['text','image'],
 				cost:{input:0,output:0,cacheRead:0,cacheWrite:0},
-				contextWindow:128000,
-				maxTokens:32000
+				contextWindow:parseInt(process.env._RCP_CTX)||128000,
+				maxTokens:parseInt(process.env._RCP_MAXTOK)||32000
 			}]
 		};
+		fs.writeFileSync('${CONFIG_FILE}',JSON.stringify(d,null,2));
+	" 2>/dev/null
+	chown openclaw:openclaw "$CONFIG_FILE" 2>/dev/null || true
+}
+
+# ── 注册 Coding Plan 提供商 (多模型批量注册) ──
+# 用法: register_codingplan_provider <api_key>
+# 按阿里云官方文档注册 bailian 提供商，包含所有 Coding Plan 套餐支持的模型
+register_codingplan_provider() {
+	local api_key="$1"
+	_RCP_KEY="$api_key" "$NODE_BIN" -e "
+		const fs=require('fs');
+		let d={};
+		try{d=JSON.parse(fs.readFileSync('${CONFIG_FILE}','utf8'));}catch(e){}
+		if(!d.models)d.models={};
+		if(!d.models.providers)d.models.providers={};
+		d.models.mode='merge';
+		d.models.providers['bailian']={
+			baseUrl:'https://coding.dashscope.aliyuncs.com/v1',
+			apiKey:process.env._RCP_KEY,
+			api:'openai-completions',
+			models:[
+				{id:'qwen3.5-plus',name:'qwen3.5-plus',reasoning:false,input:['text','image'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:1000000,maxTokens:65536},
+				{id:'qwen3-coder-plus',name:'qwen3-coder-plus',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:1000000,maxTokens:65536},
+				{id:'qwen3-coder-next',name:'qwen3-coder-next',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:262144,maxTokens:65536},
+				{id:'qwen3-max-2026-01-23',name:'qwen3-max-2026-01-23',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:262144,maxTokens:65536},
+				{id:'MiniMax-M2.5',name:'MiniMax-M2.5',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:204800,maxTokens:131072},
+				{id:'glm-5',name:'glm-5',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:202752,maxTokens:16384},
+				{id:'glm-4.7',name:'glm-4.7',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:202752,maxTokens:16384},
+				{id:'kimi-k2.5',name:'kimi-k2.5',reasoning:false,input:['text','image'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:262144,maxTokens:32768}
+			]
+		};
+		if(!d.agents)d.agents={};
+		if(!d.agents.defaults)d.agents.defaults={};
+		if(!d.agents.defaults.models)d.agents.defaults.models={};
+		['qwen3.5-plus','qwen3-coder-plus','qwen3-coder-next','qwen3-max-2026-01-23','MiniMax-M2.5','glm-5','glm-4.7','kimi-k2.5'].forEach(m=>{
+			d.agents.defaults.models['bailian/'+m]={};
+		});
 		fs.writeFileSync('${CONFIG_FILE}',JSON.stringify(d,null,2));
 	" 2>/dev/null
 	chown openclaw:openclaw "$CONFIG_FILE" 2>/dev/null || true
@@ -357,7 +397,7 @@ configure_model() {
 	echo -e "  ${CYAN}5)${NC} OpenRouter (聚合多家模型)"
 	echo -e "  ${CYAN}6)${NC} DeepSeek (DeepSeek-V3/R1)"
 	echo -e "  ${CYAN}7)${NC} GitHub Copilot (需要 Copilot 订阅)"
-	echo -e "  ${CYAN}8)${NC} 阿里云通义千问 Qwen (Portal/API)"
+	echo -e "  ${CYAN}8)${NC} 阿里云通义千问 Qwen (Portal/API/Coding Plan)"
 	echo -e "  ${CYAN}9)${NC} xAI Grok (Grok-3/3-mini)"
 	echo -e "  ${CYAN}10)${NC} Groq (Llama 4, Llama 3.3)"
 	echo -e "  ${CYAN}11)${NC} 硅基流动 SiliconFlow"
@@ -510,7 +550,6 @@ configure_model() {
 			echo ""
 			prompt_with_default "请输入 DeepSeek API Key" "" api_key
 			if [ -n "$api_key" ]; then
-				auth_set_apikey deepseek "$api_key"
 				echo ""
 				echo -e "  ${CYAN}可用模型:${NC}"
 				echo -e "    ${CYAN}a)${NC} deepseek-chat     — DeepSeek-V3 (通用对话)"
@@ -524,6 +563,8 @@ configure_model() {
 					c) prompt_with_default "请输入模型名称" "deepseek-chat" model_name ;;
 					*) model_name="deepseek-chat" ;;
 				esac
+				auth_set_apikey deepseek "$api_key"
+				register_custom_provider deepseek "https://api.deepseek.com/v1" "$api_key" "$model_name" "$model_name"
 				register_and_set_model "deepseek/${model_name}"
 				echo -e "  ${GREEN}✅ DeepSeek 已配置，活跃模型: deepseek/${model_name}${NC}"
 			fi
@@ -582,13 +623,15 @@ configure_model() {
 		8)
 			echo ""
 			echo -e "  ${BOLD}阿里云通义千问 Qwen 配置${NC}"
-			echo -e "  ${YELLOW}使用 OpenClaw 官方 Qwen Portal 认证插件${NC}"
 			echo ""
 			echo -e "  ${CYAN}配置方式:${NC}"
-			echo -e "    ${CYAN}a)${NC} 通过官方向导配置 (推荐)"
-			echo -e "    ${CYAN}b)${NC} 通过 API Key 手动配置 (兼容 OpenAI 格式)"
+			echo -e "    ${CYAN}a)${NC} 通过官方向导配置 (Qwen Portal OAuth)"
+			echo -e "    ${CYAN}b)${NC} 百炼按量付费 API Key (sk-xxx, 按 token 计费)"
+			echo -e "    ${CYAN}c)${NC} ${GREEN}Coding Plan 套餐${NC} (sk-sp-xxx, 按套餐抵扣额度) ${GREEN}★ 推荐${NC}"
 			echo ""
-			prompt_with_default "请选择" "b" qwen_mode
+			echo -e "  ${DIM}提示: Coding Plan 套餐和百炼按量付费的 API Key / Base URL 不互通，请勿混用${NC}"
+			echo ""
+			prompt_with_default "请选择" "c" qwen_mode
 			case "$qwen_mode" in
 				a)
 					echo ""
@@ -599,11 +642,13 @@ configure_model() {
 					echo ""
 					ask_restart
 					;;
-				b|*)
+				b)
 					echo ""
+					echo -e "  ${BOLD}百炼按量付费配置${NC}"
 					echo -e "  ${YELLOW}获取 API Key: https://dashscope.console.aliyun.com/apiKey${NC}"
+					echo -e "  ${DIM}Base URL: https://dashscope.aliyuncs.com/compatible-mode/v1${NC}"
 					echo ""
-					prompt_with_default "请输入阿里云 API Key (sk-...)" "" api_key
+					prompt_with_default "请输入百炼 API Key (sk-...)" "" api_key
 					if [ -n "$api_key" ]; then
 						echo ""
 						echo -e "  ${CYAN}可用模型:${NC}"
@@ -625,7 +670,49 @@ configure_model() {
 						auth_set_apikey dashscope "$api_key"
 						register_custom_provider dashscope "https://dashscope.aliyuncs.com/compatible-mode/v1" "$api_key" "$model_name" "$model_name"
 						register_and_set_model "dashscope/${model_name}"
-						echo -e "  ${GREEN}✅ 通义千问已配置，活跃模型: dashscope/${model_name}${NC}"
+						echo -e "  ${GREEN}✅ 通义千问已配置 (按量付费)，活跃模型: dashscope/${model_name}${NC}"
+					fi
+					;;
+				c|*)
+					echo ""
+					echo -e "  ${BOLD}Coding Plan 套餐配置${NC}"
+					echo -e "  ${YELLOW}订阅套餐: https://bailian.console.aliyun.com/cn-beijing/?tab=model#/efm/coding_plan${NC}"
+					echo -e "  ${YELLOW}获取专属 API Key: 在上方页面获取 Coding Plan 专属 Key (sk-sp-...)${NC}"
+					echo -e "  ${DIM}Base URL: https://coding.dashscope.aliyuncs.com/v1${NC}"
+					echo -e "  ${DIM}文档: https://help.aliyun.com/zh/model-studio/openclaw-coding-plan${NC}"
+					echo ""
+					prompt_with_default "请输入 Coding Plan 专属 API Key (sk-sp-...)" "" api_key
+					if [ -n "$api_key" ]; then
+						echo ""
+						echo -e "  ${CYAN}可用模型:${NC}"
+						echo -e "    ${CYAN}a)${NC} qwen3.5-plus        — Qwen3.5 Plus (推荐, 100万上下文)"
+						echo -e "    ${CYAN}b)${NC} qwen3-coder-plus    — Qwen3 Coder Plus (代码专用, 100万上下文)"
+						echo -e "    ${CYAN}c)${NC} qwen3-coder-next    — Qwen3 Coder Next"
+						echo -e "    ${CYAN}d)${NC} qwen3-max-2026-01-23 — Qwen3 Max"
+						echo -e "    ${CYAN}e)${NC} MiniMax-M2.5        — MiniMax M2.5"
+						echo -e "    ${CYAN}f)${NC} glm-5               — 智谱 GLM-5"
+						echo -e "    ${CYAN}g)${NC} kimi-k2.5           — Kimi K2.5"
+						echo -e "    ${CYAN}h)${NC} 手动输入模型名"
+						echo ""
+						prompt_with_default "请选择默认模型" "a" model_choice
+						case "$model_choice" in
+							a) model_name="qwen3.5-plus" ;;
+							b) model_name="qwen3-coder-plus" ;;
+							c) model_name="qwen3-coder-next" ;;
+							d) model_name="qwen3-max-2026-01-23" ;;
+							e) model_name="MiniMax-M2.5" ;;
+							f) model_name="glm-5" ;;
+							g) model_name="kimi-k2.5" ;;
+							h) prompt_with_default "请输入模型名称" "qwen3.5-plus" model_name ;;
+							*) model_name="qwen3.5-plus" ;;
+						esac
+						echo ""
+						echo -e "  ${CYAN}正在注册 Coding Plan 提供商 (含全部可用模型)...${NC}"
+						auth_set_apikey bailian "$api_key"
+						register_codingplan_provider "$api_key"
+						register_and_set_model "bailian/${model_name}"
+						echo -e "  ${GREEN}✅ Coding Plan 已配置，活跃模型: bailian/${model_name}${NC}"
+						echo -e "  ${DIM}提示: 套餐内全部模型已注册，可随时在 WebChat 中通过 /model 切换${NC}"
 					fi
 					;;
 			esac
@@ -637,7 +724,6 @@ configure_model() {
 			echo ""
 			prompt_with_default "请输入 xAI API Key" "" api_key
 			if [ -n "$api_key" ]; then
-				auth_set_apikey xai "$api_key"
 				echo ""
 				echo -e "  ${CYAN}可用模型:${NC}"
 				echo -e "    ${CYAN}a)${NC} grok-3       — Grok 3 旗舰"
@@ -651,6 +737,8 @@ configure_model() {
 					c) prompt_with_default "请输入模型名称" "grok-3" model_name ;;
 					*) model_name="grok-3" ;;
 				esac
+				auth_set_apikey xai "$api_key"
+				register_custom_provider xai "https://api.x.ai/v1" "$api_key" "$model_name" "$model_name"
 				register_and_set_model "xai/${model_name}"
 				echo -e "  ${GREEN}✅ xAI Grok 已配置，活跃模型: xai/${model_name}${NC}"
 			fi
@@ -663,7 +751,6 @@ configure_model() {
 			echo ""
 			prompt_with_default "请输入 Groq API Key" "" api_key
 			if [ -n "$api_key" ]; then
-				auth_set_apikey groq "$api_key"
 				echo ""
 				echo -e "  ${CYAN}可用模型:${NC}"
 				echo -e "    ${CYAN}a)${NC} llama-4-maverick-17b-128e  — Llama 4 Maverick (推荐)"
@@ -679,6 +766,8 @@ configure_model() {
 					d) prompt_with_default "请输入模型名称" "llama-4-maverick-17b-128e" model_name ;;
 					*) model_name="llama-4-maverick-17b-128e" ;;
 				esac
+				auth_set_apikey groq "$api_key"
+				register_custom_provider groq "https://api.groq.com/openai/v1" "$api_key" "$model_name" "$model_name"
 				register_and_set_model "groq/${model_name}"
 				echo -e "  ${GREEN}✅ Groq 已配置，活跃模型: groq/${model_name}${NC}"
 			fi
