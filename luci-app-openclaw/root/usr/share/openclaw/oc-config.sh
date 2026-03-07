@@ -144,7 +144,31 @@ auth_set_apikey() {
 		d.profiles[process.env._AP_PROFILE]={
 			type:'api_key',
 			provider:process.env._AP_PROVIDER,
-			token:process.env._AP_KEY
+			key:process.env._AP_KEY
+		};
+		fs.writeFileSync(f,JSON.stringify(d,null,2));
+	" 2>/dev/null
+	chown openclaw:openclaw "$auth_file" 2>/dev/null || true
+}
+
+# ── GitHub Copilot Token 写入 auth-profiles.json (type:token) ──
+# GitHub Copilot 使用 token 类型而非 api_key，OpenClaw 会自动兑换 Copilot session token
+# 用法: auth_set_copilot_token <github_token>
+auth_set_copilot_token() {
+	local github_token="$1"
+	local auth_dir="${OC_STATE_DIR}/agents/main/agent"
+	local auth_file="${auth_dir}/auth-profiles.json"
+	mkdir -p "$auth_dir"
+	chown -R openclaw:openclaw "${OC_STATE_DIR}/agents" 2>/dev/null || true
+	_AP_TOKEN="$github_token" "$NODE_BIN" -e "
+		const fs=require('fs'),f='${auth_file}';
+		let d={version:1,profiles:{},usageStats:{}};
+		try{d=JSON.parse(fs.readFileSync(f,'utf8'));}catch(e){}
+		if(!d.profiles)d.profiles={};
+		d.profiles['github-copilot:github']={
+			type:'token',
+			provider:'github-copilot',
+			token:process.env._AP_TOKEN
 		};
 		fs.writeFileSync(f,JSON.stringify(d,null,2));
 	" 2>/dev/null
@@ -465,15 +489,19 @@ configure_model() {
 				echo -e "  ${CYAN}可用模型:${NC}"
 				echo -e "    ${CYAN}a)${NC} claude-sonnet-4-20250514   — Claude Sonnet 4 (推荐)"
 				echo -e "    ${CYAN}b)${NC} claude-opus-4-20250514     — Claude Opus 4 顶级推理"
-				echo -e "    ${CYAN}c)${NC} claude-haiku-4-20250514    — Claude Haiku 4 轻量快速"
-				echo -e "    ${CYAN}d)${NC} 手动输入模型名"
+				echo -e "    ${CYAN}c)${NC} claude-haiku-4-5           — Claude Haiku 4.5 轻量快速"
+				echo -e "    ${CYAN}d)${NC} claude-sonnet-4.5          — Claude Sonnet 4.5"
+				echo -e "    ${CYAN}e)${NC} claude-sonnet-4.6          — Claude Sonnet 4.6"
+				echo -e "    ${CYAN}f)${NC} 手动输入模型名"
 				echo ""
 				prompt_with_default "请选择模型" "a" model_choice
 				case "$model_choice" in
 					a) model_name="claude-sonnet-4-20250514" ;;
 					b) model_name="claude-opus-4-20250514" ;;
-					c) model_name="claude-haiku-4-20250514" ;;
-					d) prompt_with_default "请输入模型名称" "claude-sonnet-4-20250514" model_name ;;
+					c) model_name="claude-haiku-4-5" ;;
+					d) model_name="claude-sonnet-4-5" ;;
+					e) model_name="claude-sonnet-4-6" ;;
+					f) prompt_with_default "请输入模型名称" "claude-sonnet-4-20250514" model_name ;;
 					*) model_name="claude-sonnet-4-20250514" ;;
 				esac
 				register_and_set_model "anthropic/${model_name}"
@@ -490,19 +518,21 @@ configure_model() {
 				auth_set_apikey google "$api_key"
 				echo ""
 				echo -e "  ${CYAN}可用模型:${NC}"
-				echo -e "    ${CYAN}a)${NC} gemini-2.5-pro       — 旗舰推理 (推荐)"
-				echo -e "    ${CYAN}b)${NC} gemini-2.5-flash     — 快速均衡"
-				echo -e "    ${CYAN}c)${NC} gemini-2.5-flash-lite — 极速低成本"
-				echo -e "    ${CYAN}d)${NC} gemini-3-flash       — Gemini 3 预览版"
-				echo -e "    ${CYAN}e)${NC} 手动输入模型名"
+				echo -e "    ${CYAN}a)${NC} gemini-2.5-pro           — 旗舰推理 (推荐)"
+				echo -e "    ${CYAN}b)${NC} gemini-2.5-flash         — 快速均衡"
+				echo -e "    ${CYAN}c)${NC} gemini-2.5-flash-lite    — 极速低成本"
+				echo -e "    ${CYAN}d)${NC} gemini-3-flash-preview   — Gemini 3 Flash 预览"
+				echo -e "    ${CYAN}e)${NC} gemini-3-pro-preview     — Gemini 3 Pro 预览"
+				echo -e "    ${CYAN}f)${NC} 手动输入模型名"
 				echo ""
 				prompt_with_default "请选择模型" "a" model_choice
 				case "$model_choice" in
 					a) model_name="gemini-2.5-pro" ;;
 					b) model_name="gemini-2.5-flash" ;;
 					c) model_name="gemini-2.5-flash-lite" ;;
-					d) model_name="gemini-3-flash" ;;
-					e) prompt_with_default "请输入模型名称" "gemini-2.5-pro" model_name ;;
+					d) model_name="gemini-3-flash-preview" ;;
+					e) model_name="gemini-3-pro-preview" ;;
+					f) prompt_with_default "请输入模型名称" "gemini-2.5-pro" model_name ;;
 					*) model_name="gemini-2.5-pro" ;;
 				esac
 				register_and_set_model "google/${model_name}"
@@ -573,53 +603,56 @@ configure_model() {
 			echo ""
 			echo -e "  ${BOLD}GitHub Copilot 配置${NC}"
 			echo -e "  ${YELLOW}需要有效的 GitHub Copilot 订阅 (Free/Pro/Business 均可)${NC}"
-			echo -e "  ${YELLOW}使用 OAuth 自动认证，无需手动输入 Token${NC}"
 			echo ""
-			echo -e "  ${CYAN}配置方式:${NC}"
-			echo -e "    ${CYAN}a)${NC} 通过 OAuth 授权登录 (推荐)"
-			echo -e "    ${CYAN}b)${NC} 手动输入 GitHub Token (ghp_...)"
+			echo -e "  ${CYAN}启动 GitHub Copilot OAuth 登录 (Device Flow)...${NC}"
+			echo -e "  ${DIM}请在浏览器中打开显示的 URL，输入授权码完成登录${NC}"
 			echo ""
-			prompt_with_default "请选择" "a" copilot_mode
-			case "$copilot_mode" in
-				a)
-					echo ""
-					echo -e "  ${CYAN}启用 Copilot Proxy 插件...${NC}"
-					enable_auth_plugins
-					echo -e "  ${CYAN}启动 GitHub Copilot OAuth 授权...${NC}"
-					oc_cmd models auth login --provider copilot-proxy --set-default || echo -e "  ${YELLOW}OAuth 授权已退出${NC}"
-					echo ""
-					ask_restart
-					return
-					;;
-				b|*)
-					echo ""
-					echo -e "  ${YELLOW}获取 Token: https://github.com/settings/tokens (需 copilot 权限)${NC}"
-					echo ""
-					prompt_with_default "请输入 GitHub Token (ghp_...)" "" api_key
-					if [ -n "$api_key" ]; then
-						auth_set_apikey github-copilot "$api_key" "github-copilot:github"
-						echo ""
-						echo -e "  ${CYAN}可用模型:${NC}"
-						echo -e "    ${CYAN}a)${NC} github-copilot/claude-sonnet-4 — Claude Sonnet 4 (推荐)"
-						echo -e "    ${CYAN}b)${NC} github-copilot/gpt-5.2         — GPT-5.2"
-						echo -e "    ${CYAN}c)${NC} github-copilot/gemini-2.5-pro  — Gemini 2.5 Pro"
-						echo -e "    ${CYAN}d)${NC} github-copilot/o3              — o3"
-						echo -e "    ${CYAN}e)${NC} 手动输入模型名"
-						echo ""
-						prompt_with_default "请选择模型" "a" model_choice
-						case "$model_choice" in
-							a) model_name="github-copilot/claude-sonnet-4" ;;
-							b) model_name="github-copilot/gpt-5.2" ;;
-							c) model_name="github-copilot/gemini-2.5-pro" ;;
-							d) model_name="github-copilot/o3" ;;
-							e) prompt_with_default "请输入模型名称" "github-copilot/claude-sonnet-4" model_name ;;
-							*) model_name="github-copilot/claude-sonnet-4" ;;
-						esac
-						register_and_set_model "$model_name"
-						echo -e "  ${GREEN}✅ GitHub Copilot 已配置，活跃模型: ${model_name}${NC}"
-					fi
-					;;
-			esac
+			if oc_cmd models auth login-github-copilot --yes; then
+				echo ""
+				echo -e "  ${GREEN}✅ GitHub Copilot OAuth 认证成功${NC}"
+				echo ""
+				echo -e "  ${CYAN}选择默认模型:${NC}"
+				echo ""
+				echo -e "  ${CYAN}── GPT 系列 ──${NC}"
+				echo -e "    ${CYAN}a)${NC}  github-copilot/gpt-4.1           — GPT-4.1 ${GREEN}(推荐)${NC}"
+				echo -e "    ${CYAN}b)${NC}  github-copilot/gpt-4o            — GPT-4o"
+				echo -e "    ${CYAN}c)${NC}  github-copilot/gpt-5             — GPT-5"
+				echo -e "    ${CYAN}d)${NC}  github-copilot/gpt-5-mini        — GPT-5 mini"
+				echo -e "    ${CYAN}e)${NC}  github-copilot/gpt-5.1           — GPT-5.1"
+				echo -e "    ${CYAN}f)${NC}  github-copilot/gpt-5.2           — GPT-5.2"
+				echo -e "    ${CYAN}g)${NC}  github-copilot/gpt-5.2-codex     — GPT-5.2 Codex"
+				echo ""
+				echo -e "  ${CYAN}── Claude 系列 ──${NC}"
+				echo -e "    ${CYAN}h)${NC}  github-copilot/claude-sonnet-4   — Claude Sonnet 4"
+				echo -e "    ${CYAN}i)${NC}  github-copilot/claude-sonnet-4.5 — Claude Sonnet 4.5"
+				echo -e "    ${CYAN}j)${NC}  github-copilot/claude-sonnet-4.6 — Claude Sonnet 4.6"
+				echo ""
+				echo -e "  ${CYAN}── Gemini 系列 ──${NC}"
+				echo -e "    ${CYAN}k)${NC}  github-copilot/gemini-2.5-pro    — Gemini 2.5 Pro"
+				echo ""
+				echo -e "    ${CYAN}m)${NC}  手动输入模型名"
+				echo ""
+				prompt_with_default "请选择模型" "a" model_choice
+				case "$model_choice" in
+					a) model_name="github-copilot/gpt-4.1" ;;
+					b) model_name="github-copilot/gpt-4o" ;;
+					c) model_name="github-copilot/gpt-5" ;;
+					d) model_name="github-copilot/gpt-5-mini" ;;
+					e) model_name="github-copilot/gpt-5.1" ;;
+					f) model_name="github-copilot/gpt-5.2" ;;
+					g) model_name="github-copilot/gpt-5.2-codex" ;;
+					h) model_name="github-copilot/claude-sonnet-4" ;;
+					i) model_name="github-copilot/claude-sonnet-4.5" ;;
+					j) model_name="github-copilot/claude-sonnet-4.6" ;;
+					k) model_name="github-copilot/gemini-2.5-pro" ;;
+					m) prompt_with_default "请输入模型名称" "github-copilot/gpt-4.1" model_name ;;
+					*) model_name="github-copilot/gpt-4.1" ;;
+				esac
+				register_and_set_model "$model_name"
+				echo -e "  ${GREEN}✅ 活跃模型已设置: ${model_name}${NC}"
+			else
+				echo -e "  ${YELLOW}OAuth 授权已退出或失败${NC}"
+			fi
 			;;
 		8)
 			echo ""
@@ -757,19 +790,26 @@ configure_model() {
 			if [ -n "$api_key" ]; then
 				echo ""
 				echo -e "  ${CYAN}可用模型:${NC}"
-				echo -e "    ${CYAN}a)${NC} grok-3       — Grok 3 旗舰"
-				echo -e "    ${CYAN}b)${NC} grok-3-mini  — Grok 3 Mini"
-				echo -e "    ${CYAN}c)${NC} 手动输入模型名"
+				echo -e "    ${CYAN}a)${NC} grok-4              — Grok 4 旗舰 (推荐)"
+				echo -e "    ${CYAN}b)${NC} grok-4-fast         — Grok 4 Fast"
+				echo -e "    ${CYAN}c)${NC} grok-3              — Grok 3"
+				echo -e "    ${CYAN}d)${NC} grok-3-fast         — Grok 3 Fast"
+				echo -e "    ${CYAN}e)${NC} grok-3-mini         — Grok 3 Mini"
+				echo -e "    ${CYAN}f)${NC} grok-3-mini-fast    — Grok 3 Mini Fast"
+				echo -e "    ${CYAN}g)${NC} 手动输入模型名"
 				echo ""
 				prompt_with_default "请选择模型" "a" model_choice
 				case "$model_choice" in
-					a) model_name="grok-3" ;;
-					b) model_name="grok-3-mini" ;;
-					c) prompt_with_default "请输入模型名称" "grok-3" model_name ;;
-					*) model_name="grok-3" ;;
+					a) model_name="grok-4" ;;
+					b) model_name="grok-4-fast" ;;
+					c) model_name="grok-3" ;;
+					d) model_name="grok-3-fast" ;;
+					e) model_name="grok-3-mini" ;;
+					f) model_name="grok-3-mini-fast" ;;
+					g) prompt_with_default "请输入模型名称" "grok-4" model_name ;;
+					*) model_name="grok-4" ;;
 				esac
 				auth_set_apikey xai "$api_key"
-				register_custom_provider xai "https://api.x.ai/v1" "$api_key" "$model_name" "$model_name"
 				register_and_set_model "xai/${model_name}"
 				echo -e "  ${GREEN}✅ xAI Grok 已配置，活跃模型: xai/${model_name}${NC}"
 			fi
@@ -784,21 +824,26 @@ configure_model() {
 			if [ -n "$api_key" ]; then
 				echo ""
 				echo -e "  ${CYAN}可用模型:${NC}"
-				echo -e "    ${CYAN}a)${NC} llama-4-maverick-17b-128e  — Llama 4 Maverick (推荐)"
-				echo -e "    ${CYAN}b)${NC} llama-3.3-70b-versatile   — Llama 3.3 70B"
-				echo -e "    ${CYAN}c)${NC} llama-3.1-8b-instant      — Llama 3.1 8B (极速)"
-				echo -e "    ${CYAN}d)${NC} 手动输入模型名"
+				echo -e "    ${CYAN}a)${NC} meta-llama/llama-4-maverick-17b-128e-instruct  — Llama 4 Maverick (推荐)"
+				echo -e "    ${CYAN}b)${NC} meta-llama/llama-4-scout-17b-16e-instruct      — Llama 4 Scout"
+				echo -e "    ${CYAN}c)${NC} moonshotai/kimi-k2-instruct                    — Kimi K2"
+				echo -e "    ${CYAN}d)${NC} qwen/qwen3-32b                                 — 通义千问 Qwen3 32B"
+				echo -e "    ${CYAN}e)${NC} llama-3.3-70b-versatile                         — Llama 3.3 70B"
+				echo -e "    ${CYAN}f)${NC} llama-3.1-8b-instant                            — Llama 3.1 8B (极速)"
+				echo -e "    ${CYAN}g)${NC} 手动输入模型名"
 				echo ""
 				prompt_with_default "请选择模型" "a" model_choice
 				case "$model_choice" in
-					a) model_name="llama-4-maverick-17b-128e" ;;
-					b) model_name="llama-3.3-70b-versatile" ;;
-					c) model_name="llama-3.1-8b-instant" ;;
-					d) prompt_with_default "请输入模型名称" "llama-4-maverick-17b-128e" model_name ;;
-					*) model_name="llama-4-maverick-17b-128e" ;;
+					a) model_name="meta-llama/llama-4-maverick-17b-128e-instruct" ;;
+					b) model_name="meta-llama/llama-4-scout-17b-16e-instruct" ;;
+					c) model_name="moonshotai/kimi-k2-instruct" ;;
+					d) model_name="qwen/qwen3-32b" ;;
+					e) model_name="llama-3.3-70b-versatile" ;;
+					f) model_name="llama-3.1-8b-instant" ;;
+					g) prompt_with_default "请输入模型名称" "meta-llama/llama-4-maverick-17b-128e-instruct" model_name ;;
+					*) model_name="meta-llama/llama-4-maverick-17b-128e-instruct" ;;
 				esac
 				auth_set_apikey groq "$api_key"
-				register_custom_provider groq "https://api.groq.com/openai/v1" "$api_key" "$model_name" "$model_name"
 				register_and_set_model "groq/${model_name}"
 				echo -e "  ${GREEN}✅ Groq 已配置，活跃模型: groq/${model_name}${NC}"
 			fi
@@ -1644,11 +1689,10 @@ main_menu() {
 		echo -e "  ${CYAN}2)${NC} 🤖 配置 AI 模型提供商"
 		echo -e "  ${CYAN}3)${NC} 🔄 设定当前活跃模型"
 		echo -e "  ${CYAN}4)${NC} 📡 配置消息渠道 (Telegram/Discord/飞书/Slack)"
-		echo -e "  ${CYAN}5)${NC} 🤝 Telegram 配对助手"
-		echo -e "  ${CYAN}6)${NC} 🔍 健康检查 / 诊断"
-		echo -e "  ${CYAN}7)${NC} 🔄 重启 Gateway"
-		echo -e "  ${CYAN}8)${NC} 📝 查看原始配置文件"
-		echo -e "  ${CYAN}9)${NC} ⚠️  恢复默认配置"
+		echo -e "  ${CYAN}5)${NC} 🔍 健康检查 / 诊断"
+		echo -e "  ${CYAN}6)${NC} 🔄 重启 Gateway"
+		echo -e "  ${CYAN}7)${NC} 📝 查看原始配置文件"
+		echo -e "  ${CYAN}8)${NC} ⚠️  恢复默认配置"
 		echo -e "  ${CYAN}0)${NC} 退出"
 		echo ""
 		prompt_with_default "请选择" "1" menu_choice
@@ -1658,10 +1702,9 @@ main_menu() {
 			2) configure_model ;;
 			3) set_active_model ;;
 			4) configure_channels ;;
-			5) telegram_pairing ;;
-			6) health_check ;;
-			7) restart_gateway ;;
-			8)
+			5) health_check ;;
+			6) restart_gateway ;;
+			7)
 				echo ""
 				echo -e "  ${CYAN}配置文件路径: ${CONFIG_FILE}${NC}"
 				echo ""
@@ -1677,7 +1720,7 @@ main_menu() {
 					ask_restart
 				fi
 				;;
-			9) reset_to_defaults ;;
+			8) reset_to_defaults ;;
 			0)
 				echo -e "  ${GREEN}再见！${NC}"
 				exit 0
