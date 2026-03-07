@@ -1,0 +1,125 @@
+# Easy MWAN3 LuCI Application
+# Copyright (C) 2024 PengCong226
+# This file is distributed under the same license as the luci-app-easy-mwan3 package.
+#
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Easy MWAN3"
+msgstr ""
+
+msgid "Easy MWAN3 Configurator"
+msgstr ""
+
+msgid "A simplified, intelligent interface for configuring MWAN3 Load Balancing."
+msgstr ""
+
+msgid "Global Settings"
+msgstr ""
+
+msgid "Enable Easy MWAN3"
+msgstr ""
+
+msgid "Load Balancing Mode"
+msgstr ""
+
+msgid "Balanced (Weighted)"
+msgstr ""
+
+msgid "Failover (Active/Backup)"
+msgstr ""
+
+msgid "Balance mode distributes traffic across all interfaces. Failover mode uses primary interface and switches to backup on failure."
+msgstr ""
+
+msgid "Participating Interfaces"
+msgstr ""
+
+msgid "Select WAN interfaces to participate in load balancing."
+msgstr ""
+
+msgid "Advanced Device Policies"
+msgstr ""
+
+msgid "Define custom routing policies for specific devices."
+msgstr ""
+
+msgid "Source IP/Device"
+msgstr ""
+
+msgid "IP address or device to apply policy to."
+msgstr ""
+
+msgid "Policy"
+msgstr ""
+
+msgid "Default (Follow Global)"
+msgstr ""
+
+msgid "Force WAN Only"
+msgstr ""
+
+msgid "Force WAN2 Only"
+msgstr ""
+
+msgid "Select routing policy for this device."
+msgstr ""
+
+msgid "Comment"
+msgstr ""
+
+msgid "Optional description"
+msgstr ""
+
+msgid "Status"
+msgstr ""
+
+msgid "Current Connection Status"
+msgstr ""
+
+msgid "Interface"
+msgstr ""
+
+msgid "Uptime"
+msgstr ""
+
+msgid "Load (gw)"
+msgstr ""
+
+msgid "Loading..."
+msgstr ""
+
+msgid "No interfaces configured"
+msgstr ""
+
+msgid "Failed to load status"
+msgstr ""
+
+msgid "JavaScript is required for real-time status updates"
+msgstr ""
+
+msgid "Incompatible Firewall"
+msgstr ""
+
+msgid "Your system is using firewall4 (fw4), which is incompatible with MWAN3."
+msgstr ""
+
+msgid "MWAN3 only supports iptables/firewall3 (fw3). It will not work correctly on your system."
+msgstr ""
+
+msgid "Please consider one of the following options:"
+msgstr ""
+
+msgid "Use Policy Based Routing (pbr) instead"
+msgstr ""
+
+msgid "Downgrade to firewall3 (fw3) by installing iptables and firewall3 packages"
+msgstr ""
+
+msgid "More information about MWAN3"
+msgstr ""
+
+msgid "Warning: MWAN3 service is not enabled!"
+msgstr ""

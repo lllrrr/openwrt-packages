@@ -1,0 +1,126 @@
+# Chinese (Simplified) translation for luci-app-easy-mwan3
+# Copyright (C) 2024 PengCong226
+# This file is distributed under the same license as the luci-app-easy-mwan3 package.
+#
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: zh_Hans\n"
+
+msgid "Easy MWAN3"
+msgstr "MWAN3 极简助手"
+
+msgid "Easy MWAN3 Configurator"
+msgstr "MWAN3 极简配置器"
+
+msgid "A simplified, intelligent interface for configuring MWAN3 Load Balancing."
+msgstr "简化、智能的 MWAN3 负载均衡配置界面。"
+
+msgid "Global Settings"
+msgstr "全局设置"
+
+msgid "Enable Easy MWAN3"
+msgstr "启用 Easy MWAN3"
+
+msgid "Load Balancing Mode"
+msgstr "负载均衡模式"
+
+msgid "Balanced (Weighted)"
+msgstr "均衡模式（加权）"
+
+msgid "Failover (Active/Backup)"
+msgstr "主备模式（活动/备份）"
+
+msgid "Balance mode distributes traffic across all interfaces. Failover mode uses primary interface and switches to backup on failure."
+msgstr "均衡模式将流量分配到所有接口。主备模式使用主接口，故障时切换到备份接口。"
+
+msgid "Participating Interfaces"
+msgstr "参与接口"
+
+msgid "Select WAN interfaces to participate in load balancing."
+msgstr "选择参与负载均衡的 WAN 接口。"
+
+msgid "Advanced Device Policies"
+msgstr "高级设备策略"
+
+msgid "Define custom routing policies for specific devices."
+msgstr "为特定设备定义自定义路由策略。"
+
+msgid "Source IP/Device"
+msgstr "源 IP/设备"
+
+msgid "IP address or device to apply policy to."
+msgstr "应用策略的 IP 地址或设备。"
+
+msgid "Policy"
+msgstr "策略"
+
+msgid "Default (Follow Global)"
+msgstr "默认（跟随全局）"
+
+msgid "Force WAN Only"
+msgstr "强制走 WAN"
+
+msgid "Force WAN2 Only"
+msgstr "强制走 WAN2"
+
+msgid "Select routing policy for this device."
+msgstr "为此设备选择路由策略。"
+
+msgid "Comment"
+msgstr "备注"
+
+msgid "Optional description"
+msgstr "可选描述"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Current Connection Status"
+msgstr "当前连接状态"
+
+msgid "Interface"
+msgstr "接口"
+
+msgid "Uptime"
+msgstr "在线时间"
+
+msgid "Load (gw)"
+msgstr "负载（网关）"
+
+msgid "Loading..."
+msgstr "加载中..."
+
+msgid "No interfaces configured"
+msgstr "未配置接口"
+
+msgid "Failed to load status"
+msgstr "加载状态失败"
+
+msgid "JavaScript is required for real-time status updates"
+msgstr "实时状态更新需要 JavaScript"
+
+msgid "Incompatible Firewall"
+msgstr "防火墙不兼容"
+
+msgid "Your system is using firewall4 (fw4), which is incompatible with MWAN3."
+msgstr "您的系统使用的是 firewall4 (fw4)，与 MWAN3 不兼容。"
+
+msgid "MWAN3 only supports iptables/firewall3 (fw3). It will not work correctly on your system."
+msgstr "MWAN3 仅支持 iptables/firewall3 (fw3)，在您的系统上无法正常工作。"
+
+msgid "Please consider one of the following options:"
+msgstr "请考虑以下选项："
+
+msgid "Use Policy Based Routing (pbr) instead"
+msgstr "改用策略路由 (pbr)"
+
+msgid "Downgrade to firewall3 (fw3) by installing iptables and firewall3 packages"
+msgstr "通过安装 iptables 和 firewall3 包降级到 firewall3 (fw3)"
+
+msgid "More information about MWAN3"
+msgstr "更多关于 MWAN3 的信息"
+
+msgid "Warning: MWAN3 service is not enabled!"
+msgstr "警告：MWAN3 服务未启用！"

@@ -1,0 +1,9 @@
+config global 'global'
+    option enabled '0'
+    option mode 'balance'
+    list members ''
+
+config rule
+    option src_ip ''
+    option policy 'default'
+    option comment ''

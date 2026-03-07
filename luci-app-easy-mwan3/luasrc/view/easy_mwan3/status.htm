@@ -6,19 +6,58 @@
         <div id="mwan3_status_table">
             <em><%:Loading...%></em>
         </div>
+        <noscript>
+            <p class="error"><%:JavaScript is required for real-time status updates%></p>
+        </noscript>
     </fieldset>
 </div>
 <script type="text/javascript">//<![CDATA[
-    XHR.poll(5, '<%=luci.dispatcher.build_url("admin/network/easy_mwan3/status")%>', null,
+    function escapeHtml(text) {
+        if (!text) return '';
+        var div = document.createElement('div');
+        div.appendChild(document.createTextNode(String(text)));
+        return div.innerHTML;
+    }
+    
+    function renderStatusTable(st) {
+        var tb = document.getElementById('mwan3_status_table');
+        if (!tb) return;
+        
+        if (!st || st.length === 0) {
+            tb.innerHTML = '<p><%:No interfaces configured%></p>';
+            return;
+        }
+        
+        var html = '<table class="cbi-section-table">';
+        html += '<tr>';
+        html += '<th><%:Interface%></th>';
+        html += '<th><%:Status%></th>';
+        html += '<th><%:Uptime%></th>';
+        html += '<th><%:Load (gw)%></th>';
+        html += '</tr>';
+        
+        for (var i = 0; i < st.length; i++) {
+            html += '<tr>';
+            html += '<td>' + escapeHtml(st[i].iface) + '</td>';
+            html += '<td>' + escapeHtml(st[i].status) + '</td>';
+            html += '<td>' + escapeHtml(st[i].uptime) + '</td>';
+            html += '<td>' + escapeHtml(st[i].load) + '</td>';
+            html += '</tr>';
+        }
+        
+        html += '</table>';
+        tb.innerHTML = html;
+    }
+    
+    XHR.poll(10, '<%=luci.dispatcher.build_url("admin/network/easy_mwan3/status")%>', null,
         function(x, st) {
-            var tb = document.getElementById('mwan3_status_table');
-            if (st && tb) {
-                var html = '<table class="cbi-section-table"><tr><th>Interface</th><th>Status</th><th>Uptime</th><th>Load (gw)</th></tr>';
-                for (var i = 0; i < st.length; i++) {
-                    html += '<tr><td>' + st[i].iface + '</td><td>' + st[i].status + '</td><td>' + st[i].uptime + '</td><td>' + st[i].load + '</td></tr>';
+            if (x && x.status === 200) {
+                renderStatusTable(st);
+            } else {
+                var tb = document.getElementById('mwan3_status_table');
+                if (tb) {
+                    tb.innerHTML = '<p class="error"><%:Failed to load status%></p>';
                 }
-                html += '</table>';
-                tb.innerHTML = html;
             }
         }
     );

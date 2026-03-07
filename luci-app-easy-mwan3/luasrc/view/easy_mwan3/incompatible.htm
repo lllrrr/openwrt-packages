@@ -1,0 +1,20 @@
+<%+header%>
+<h2 name="content"><%:Easy MWAN3%></h2>
+<div class="cbi-map">
+    <fieldset class="cbi-section">
+        <legend><%:Incompatible Firewall%></legend>
+        <div class="cbi-section-node">
+            <div class="cbi-value error">
+                <p><strong><%:Your system is using firewall4 (fw4), which is incompatible with MWAN3.%></strong></p>
+                <p><%:MWAN3 only supports iptables/firewall3 (fw3). It will not work correctly on your system.%></p>
+                <p><%:Please consider one of the following options:%></p>
+                <ul>
+                    <li><%:Use Policy Based Routing (pbr) instead%></li>
+                    <li><%:Downgrade to firewall3 (fw3) by installing iptables and firewall3 packages%></li>
+                </ul>
+                <p><a href="https://openwrt.org/docs/guide-user/network/wan/multiwan/mwan3"><%:More information about MWAN3%></a></p>
+            </div>
+        </div>
+    </fieldset>
+</div>
+<%+footer%>

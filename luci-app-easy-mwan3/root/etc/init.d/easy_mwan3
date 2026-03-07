@@ -1,0 +1,39 @@
+#!/bin/sh /etc/rc.common
+# Easy MWAN3 init script
+
+START=99
+STOP=10
+
+USE_PROCD=1
+
+start_service() {
+    # 检查是否启用
+    local enabled=$(uci -q get easy_mwan3.global.enabled)
+    if [ "$enabled" != "1" ]; then
+        return 0
+    fi
+    
+    # 检查 mwan3 是否安装
+    if [ ! -f /etc/init.d/mwan3 ]; then
+        logger -t easy_mwan3 "Error: mwan3 is not installed"
+        return 1
+    fi
+    
+    # 应用配置到 mwan3
+    /usr/bin/easy_mwan3_apply.sh
+    
+    logger -t easy_mwan3 "Service started"
+}
+
+stop_service() {
+    logger -t easy_mwan3 "Service stopped"
+}
+
+reload_service() {
+    stop
+    start
+}
+
+service_triggers() {
+    procd_add_reload_trigger "easy_mwan3"
+}

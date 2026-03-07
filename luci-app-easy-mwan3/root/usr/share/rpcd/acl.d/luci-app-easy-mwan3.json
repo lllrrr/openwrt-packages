@@ -1,0 +1,11 @@
+{
+	"luci-app-easy-mwan3": {
+		"description": "Grant UCI access for luci-app-easy-mwan3",
+		"read": {
+			"uci": [ "easy_mwan3" ]
+		},
+		"write": {
+			"uci": [ "easy_mwan3" ]
+		}
+	}
+}
