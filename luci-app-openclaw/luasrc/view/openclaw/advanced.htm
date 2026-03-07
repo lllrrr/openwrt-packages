@@ -87,7 +87,31 @@ local pty_port = uci:get("openclaw", "main", "pty_port") or "18793"
 		iframe.id = 'oc-terminal-iframe';
 		iframe.src = url;
 		iframe.setAttribute('allowfullscreen', 'true');
+		iframe.setAttribute('allow', 'clipboard-read; clipboard-write');
+		// 防止 LuCI 父页面键盘事件干扰 iframe 内的终端输入
+		iframe.addEventListener('load', function() {
+			try { iframe.contentWindow.focus(); } catch(e) {}
+		});
 		container.appendChild(iframe);
+		// 点击 iframe 区域时确保 focus 在 iframe 内
+		container.addEventListener('click', function() {
+			try { iframe.contentWindow.focus(); } catch(e) {}
+		});
+
+		// 当 iframe 获得焦点时，阻止 LuCI 父页面的键盘事件处理
+		// 防止按键（如 Enter/数字键）触发 LuCI 的导航或表单提交
+		var termWrap = document.querySelector('.oc-terminal-wrap');
+		if (termWrap) {
+			termWrap.addEventListener('keydown', function(e) { e.stopPropagation(); }, true);
+			termWrap.addEventListener('keypress', function(e) { e.stopPropagation(); }, true);
+			termWrap.addEventListener('keyup', function(e) { e.stopPropagation(); }, true);
+		}
+
+		// 停止 LuCI 的 XHR.poll (如果存在)，防止 session 超时检测导致页面跳转
+		// LuCI 的 footer.htm 可能启动了 uci.changes 轮询
+		if (window.XHR && XHR.halt) {
+			try { XHR.halt(); } catch(e) {}
+		}
 	}
 
 	checkAndLoadTerminal();

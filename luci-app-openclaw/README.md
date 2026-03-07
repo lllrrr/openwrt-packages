@@ -16,8 +16,8 @@
 | 架构 | x86_64 或 aarch64 (ARM64) |
 | C 库 | glibc 或 musl（自动检测） |
 | 依赖 | luci-compat, luci-base, curl, openssl-util |
-| 存储 | 1.5GB 以上可用空间 |
-| 内存 | 推荐 2GB 及以上 |
+| 存储 | **1.5GB 以上可用空间** |
+| 内存 | 推荐 1GB 及以上 |
 
 ### 🖥️ 兼容性矩阵
 
@@ -167,38 +167,6 @@ luci-app-openclaw/
 │   └── build_run.sh                  # .run 安装包构建
 └── .github/workflows/build.yml       # GitHub Actions
 ```
-
-## ❓ 常见问题
-
-**安装后 LuCI 菜单没有出现**
-
-```bash
-rm -f /tmp/luci-indexcache /tmp/luci-modulecache/*
-```
-
-刷新浏览器即可。
-
-**提示缺少依赖 luci-compat**
-
-```bash
-opkg update && opkg install luci-compat
-```
-
-**Node.js 下载失败**
-
-网络问题，可指定国内镜像：
-
-```bash
-NODE_MIRROR=https://npmmirror.com/mirrors/node openclaw-env setup
-```
-
-**是否支持 ARM 路由器**
-
-支持 aarch64（ARM64），包括晶晨 S905 系列、Raspberry Pi 4/5、R4S/R5S 等。ARM64 musl 设备使用项目自托管的 Node.js 包，自带完整依赖库，不依赖系统库版本。**不支持** 32 位 ARM（armv7l/armv6l），Node.js 22 没有 32 位预编译包。
-
-**ARM64 设备安装后 Node.js 显示 Segmentation fault**
-
-旧版 OpenWrt（如 22.03）的系统 musl 版本较低，与新版 Node.js 不兼容。请确保使用最新版本的 `openclaw-env`（v1.0.1+），它会自动下载包含独立 musl 链接器的自托管 Node.js 包。
 
 ## 🤝 贡献
 

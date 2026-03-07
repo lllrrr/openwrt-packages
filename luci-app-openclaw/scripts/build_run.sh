@@ -29,9 +29,10 @@ trap "rm -rf '$STAGING'" EXIT
 install_files() {
 	local dest="$1"
 
-	# UCI config
+	# UCI config (仅首次安装时部署默认配置; 升级时保留用户配置)
+	# 安装器会在解压后检测并跳过已有配置, 见 install.sh 中的逻辑
 	mkdir -p "$dest/etc/config"
-	cp "$PKG_DIR/root/etc/config/openclaw" "$dest/etc/config/"
+	cp "$PKG_DIR/root/etc/config/openclaw" "$dest/etc/config/openclaw.default"
 
 	# UCI defaults
 	mkdir -p "$dest/etc/uci-defaults"
@@ -111,6 +112,15 @@ echo "正在安装文件..."
 ARCHIVE=$(awk '/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }' "$0")
 tail -n +$ARCHIVE "$0" | tar xzf - -C / 2>/dev/null
 
+# UCI 配置文件保护: 升级时不覆盖用户已有配置
+if [ -f /etc/config/openclaw ] && [ -f /etc/config/openclaw.default ]; then
+	# 已有配置, 移除默认文件 (保留用户配置)
+	rm -f /etc/config/openclaw.default
+elif [ -f /etc/config/openclaw.default ]; then
+	# 首次安装, 使用默认配置
+	mv /etc/config/openclaw.default /etc/config/openclaw
+fi
+
 # 注册到 opkg，使 iStore 和 opkg 能识别此包
 PKG="luci-app-openclaw"
 PKG_VER="__PKG_VERSION__"
@@ -178,6 +188,16 @@ fi
 
 # 清除 LuCI 缓存
 rm -f /tmp/luci-indexcache /tmp/luci-modulecache/* 2>/dev/null
+rm -f /tmp/luci-indexcache.*.json 2>/dev/null
+
+# 重启 Web PTY 服务 (使其加载新文件和新 token)
+# PTY 是 procd 管理的实例, kill 后 procd 会自动 respawn
+PTY_PID=$(pgrep -f 'web-pty.js' 2>/dev/null | head -1)
+if [ -n "$PTY_PID" ]; then
+	echo "重启配置终端服务..."
+	kill "$PTY_PID" 2>/dev/null
+	sleep 1
+fi
 
 echo ""
 echo "✅ 安装完成！"
@@ -200,7 +220,8 @@ install_files "$STAGING/payload"
 
 echo "[2/4] 生成文件列表..."
 # 生成安装文件列表 (供 opkg 卸载时使用)
-FILE_LIST=$(cd "$STAGING/payload" && find . -type f | sed 's|^\./|/|' | sort)
+# 注: openclaw.default 安装后会变为 openclaw, 文件列表中记录最终路径
+FILE_LIST=$(cd "$STAGING/payload" && find . -type f | sed 's|^\./|/|' | sed 's|/etc/config/openclaw.default|/etc/config/openclaw|' | sort)
 echo "  共 $(echo "$FILE_LIST" | wc -l | tr -d ' ') 个文件"
 
 echo "[3/4] 创建安装器..."

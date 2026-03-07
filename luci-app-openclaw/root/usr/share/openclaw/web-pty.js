@@ -106,10 +106,27 @@ class PtySession {
     this.alive = true;
     this._spawnFailCount = 0;
     this._MAX_SPAWN_RETRIES = 5;
+    this._pingTimer = null;
+    this._pongReceived = true;
     activeSessions++;
     console.log(`[oc-config] Session created (active: ${activeSessions}/${MAX_SESSIONS})`);
     this._setupWSReader();
+    this._startPing();
     this._spawnPty();
+  }
+
+  // WebSocket ping/pong 保活 (每 25 秒发一次 ping)
+  _startPing() {
+    this._pingTimer = setInterval(() => {
+      if (!this.alive) { clearInterval(this._pingTimer); return; }
+      if (!this._pongReceived) {
+        console.log('[oc-config] Pong timeout, closing connection');
+        this._cleanup();
+        return;
+      }
+      this._pongReceived = false;
+      try { this.socket.write(encodeWSFrame(Buffer.alloc(0), 0x09)); } catch(e) { this._cleanup(); }
+    }, 25000);
   }
 
   _setupWSReader() {
@@ -123,6 +140,7 @@ class PtySession {
         else if (frame.opcode === 0x02 && this.proc && this.proc.stdin.writable) this.proc.stdin.write(frame.data);
         else if (frame.opcode === 0x08) { console.log('[oc-config] WS close frame received'); this._cleanup(); }
         else if (frame.opcode === 0x09) this.socket.write(encodeWSFrame(frame.data, 0x0a));
+        else if (frame.opcode === 0x0a) { this._pongReceived = true; }
       }
     });
     this.socket.on('close', (hadError) => { console.log(`[oc-config] Socket closed, hadError=${hadError}`); this._cleanup(); });
@@ -140,6 +158,10 @@ class PtySession {
       else if (msg.type === 'resize') {
         this.cols = msg.cols || 80; this.rows = msg.rows || 24;
         if (this.proc && this.proc.pid) { try { process.kill(-this.proc.pid, 'SIGWINCH'); } catch(e){} }
+      }
+      else if (msg.type === 'ping') {
+        // 应用层心跳: 客户端定期发送 ping，服务端回复 pong 保持连接活跃
+        this.socket.write(encodeWSFrame(JSON.stringify({ type: 'pong' }), 0x01));
       }
     } catch(e) { if (this.proc && this.proc.stdin.writable) this.proc.stdin.write(text); }
   }
@@ -205,6 +227,7 @@ class PtySession {
 
   _cleanup() {
     if (!this.alive) return; this.alive = false;
+    if (this._pingTimer) { clearInterval(this._pingTimer); this._pingTimer = null; }
     activeSessions = Math.max(0, activeSessions - 1);
     console.log(`[oc-config] Session ended (active: ${activeSessions}/${MAX_SESSIONS})`);
     if (this.proc) { try { process.kill(-this.proc.pid, 'SIGTERM'); } catch(e){} try { this.proc.kill('SIGTERM'); } catch(e){} }
@@ -252,10 +275,12 @@ function handleUpgrade(req, socket, head) {
   if (req.url !== '/ws' && !req.url.startsWith('/ws?')) { socket.destroy(); return; }
 
   // 认证: 验证查询参数中的 token
-  if (AUTH_TOKEN) {
+  // 每次连接时实时读取 UCI token (安装/升级可能重新生成 token)
+  const currentToken = loadAuthToken() || AUTH_TOKEN;
+  if (currentToken) {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const clientToken = url.searchParams.get('token') || '';
-    if (clientToken !== AUTH_TOKEN) {
+    if (clientToken !== currentToken) {
       console.log(`[oc-config] WS auth failed from ${socket.remoteAddress}`);
       socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
       socket.destroy();

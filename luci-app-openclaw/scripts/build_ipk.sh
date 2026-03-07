@@ -102,7 +102,10 @@ cat > "$CTRL_DIR/postinst" << 'EOF'
 #!/bin/sh
 [ -n "${IPKG_INSTROOT}" ] || {
 	( . /etc/uci-defaults/99-openclaw ) && rm -f /etc/uci-defaults/99-openclaw
-	rm -f /tmp/luci-indexcache /tmp/luci-modulecache/* 2>/dev/null
+	rm -f /tmp/luci-indexcache /tmp/luci-modulecache/* /tmp/luci-indexcache.*.json 2>/dev/null
+	# 重启 Web PTY (使其加载新文件和新 token)
+	PTY_PID=$(pgrep -f 'web-pty.js' 2>/dev/null | head -1)
+	[ -n "$PTY_PID" ] && kill "$PTY_PID" 2>/dev/null || true
 	exit 0
 }
 EOF

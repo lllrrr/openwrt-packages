@@ -5,8 +5,7 @@ m = Map("openclaw", "OpenClaw AI 网关",
 	"OpenClaw 是一个 AI 编程代理网关，支持 GitHub Copilot、Claude、GPT、Gemini 等大模型以及 Telegram、Discord 等多种消息渠道。")
 
 -- 隐藏底部的「保存并应用」「保存」「复位」按钮 (本页无可编辑的 UCI 选项)
-m.submit = false
-m.reset = false
+m.pageaction = false
 
 -- ═══════════════════════════════════════════
 -- 状态面板
@@ -28,6 +27,8 @@ act.cfgvalue = function(self, section)
 	local update_url = luci.dispatcher.build_url("admin", "services", "openclaw", "do_update")
 	local upgrade_log_url = luci.dispatcher.build_url("admin", "services", "openclaw", "upgrade_log")
 	local uninstall_url = luci.dispatcher.build_url("admin", "services", "openclaw", "uninstall")
+	local plugin_upgrade_url = luci.dispatcher.build_url("admin", "services", "openclaw", "plugin_upgrade")
+	local plugin_upgrade_log_url = luci.dispatcher.build_url("admin", "services", "openclaw", "plugin_upgrade_log")
 	local html = {}
 
 	-- 按钮区域
@@ -239,7 +240,7 @@ act.cfgvalue = function(self, section)
 	html[#html+1] = 'else{msgs.push("<span style=\\"color:green\\">✅ OpenClaw: v"+r.current+" (已是最新)</span>");}'
 	-- 插件版本检查
 	html[#html+1] = 'if(r.plugin_current){'
-	html[#html+1] = 'if(r.plugin_has_update){msgs.push("<span style=\\"color:#e36209\\">� 插件: v"+r.plugin_current+" → v"+r.plugin_latest+" (有新版本，请到 GitHub 下载更新)</span>");}'
+	html[#html+1] = 'if(r.plugin_has_update){msgs.push("<span style=\\"color:#e36209\\">🔌 插件: v"+r.plugin_current+" → v"+r.plugin_latest+" (有新版本)</span>");}'
 	html[#html+1] = 'else if(r.plugin_latest){msgs.push("<span style=\\"color:green\\">✅ 插件: v"+r.plugin_current+" (已是最新)</span>");}'
 	html[#html+1] = 'else{msgs.push("<span style=\\"color:#999\\">🔌 插件: v"+r.plugin_current+" (无法检查最新版本)</span>");}'
 	html[#html+1] = '}'
@@ -249,10 +250,12 @@ act.cfgvalue = function(self, section)
 	html[#html+1] = 'act.style.display="block";'
 	html[#html+1] = 'act.innerHTML=\'<button class="btn cbi-button cbi-button-apply" type="button" onclick="ocDoUpdate()" id="btn-do-update">⬆️ 立即升级 OpenClaw</button>\';'
 	html[#html+1] = '}'
-	-- 插件有更新时添加 GitHub 链接
+	-- 插件有更新时: 一键升级按钮 + GitHub 下载链接
 	html[#html+1] = 'if(r.plugin_has_update){'
 	html[#html+1] = 'act.style.display="block";'
-	html[#html+1] = 'act.innerHTML=(act.innerHTML||"")+\' <a href="https://github.com/10000ge10000/luci-app-openclaw/releases/latest" target="_blank" rel="noopener" class="btn cbi-button cbi-button-action" style="text-decoration:none;">📥 下载插件 v\'+r.plugin_latest+\'</a>\';'
+	html[#html+1] = 'window._pluginLatestVer=r.plugin_latest;'
+	html[#html+1] = 'act.innerHTML=(act.innerHTML||"")+\' <button class="btn cbi-button cbi-button-apply" type="button" onclick="ocPluginUpgrade()" id="btn-plugin-upgrade">⬆️ 升级插件 v\'+r.plugin_latest+\'</button>\';'
+	html[#html+1] = 'act.innerHTML=act.innerHTML+\' <a href="https://github.com/10000ge10000/luci-app-openclaw/releases/latest" target="_blank" rel="noopener" class="btn cbi-button cbi-button-action" style="text-decoration:none;">📥 手动下载</a>\';'
 	html[#html+1] = '}'
 	html[#html+1] = '}catch(e){el.innerHTML="<span style=\\"color:red\\">❌ 检测失败</span>";}'
 	html[#html+1] = '});}'
@@ -326,6 +329,87 @@ act.cfgvalue = function(self, section)
 	html[#html+1] = 'resultEl.innerHTML="<div style=\\"border:1px solid #f5c6cb;background:#ffeef0;padding:12px 16px;border-radius:6px;\\">"+'
 	html[#html+1] = '"<strong style=\\"color:#cf222e;font-size:14px;\\">❌ 升级失败</strong><br/>"+'
 	html[#html+1] = '"<span style=\\"color:#555;font-size:13px;\\">请查看上方日志了解详情。也可在终端查看：<code>cat /tmp/openclaw-upgrade.log</code></span><br/>"+'
+	html[#html+1] = '"<button class=\\"btn cbi-button cbi-button-apply\\" type=\\"button\\" onclick=\\"location.reload()\\" style=\\"margin-top:10px;\\">🔄 刷新页面</button></div>";'
+	html[#html+1] = '}'
+	html[#html+1] = '}'
+
+	-- ═══ 插件一键升级 ═══
+	html[#html+1] = 'var _pluginUpgradeTimer=null;'
+
+	html[#html+1] = 'function ocPluginUpgrade(){'
+	html[#html+1] = 'var ver=window._pluginLatestVer;'
+	html[#html+1] = 'if(!ver){alert("无法获取最新版本号");return;}'
+	html[#html+1] = 'if(!confirm("确定要升级插件到 v"+ver+"？\\n\\n升级会替换插件文件并清除 LuCI 缓存，不会影响正在运行的 OpenClaw 服务。"))return;'
+	html[#html+1] = 'var btn=document.getElementById("btn-plugin-upgrade");'
+	html[#html+1] = 'var panel=document.getElementById("setup-log-panel");'
+	html[#html+1] = 'var logEl=document.getElementById("setup-log-content");'
+	html[#html+1] = 'var titleEl=document.getElementById("setup-log-title");'
+	html[#html+1] = 'var statusEl=document.getElementById("setup-log-status");'
+	html[#html+1] = 'var resultEl=document.getElementById("setup-log-result");'
+	html[#html+1] = 'btn.disabled=true;btn.textContent="⏳ 正在升级插件...";'
+	html[#html+1] = 'panel.style.display="block";'
+	html[#html+1] = 'logEl.textContent="正在启动插件升级...\\n";'
+	html[#html+1] = 'titleEl.textContent="📋 插件升级日志";'
+	html[#html+1] = 'statusEl.innerHTML="<span style=\\"color:#7aa2f7;\\">⏳ 插件升级中...</span>";'
+	html[#html+1] = 'resultEl.style.display="none";'
+	html[#html+1] = '(new XHR()).get("' .. plugin_upgrade_url .. '?version="+encodeURIComponent(ver),null,function(x){'
+	html[#html+1] = 'try{JSON.parse(x.responseText);}catch(e){}'
+	html[#html+1] = 'ocPollPluginUpgradeLog();'
+	html[#html+1] = '});'
+	html[#html+1] = '}'
+
+	-- 轮询插件升级日志 (带容错: 安装时文件被替换可能导致API暂时不可用)
+	html[#html+1] = 'var _pluginPollErrors=0;'
+	html[#html+1] = 'function ocPollPluginUpgradeLog(){'
+	html[#html+1] = 'if(_pluginUpgradeTimer)clearInterval(_pluginUpgradeTimer);'
+	html[#html+1] = '_pluginPollErrors=0;'
+	html[#html+1] = '_pluginUpgradeTimer=setInterval(function(){'
+	html[#html+1] = '(new XHR()).get("' .. plugin_upgrade_log_url .. '",null,function(x){'
+	html[#html+1] = 'try{'
+	html[#html+1] = 'var r=JSON.parse(x.responseText);'
+	html[#html+1] = '_pluginPollErrors=0;'
+	html[#html+1] = 'var logEl=document.getElementById("setup-log-content");'
+	html[#html+1] = 'var statusEl=document.getElementById("setup-log-status");'
+	html[#html+1] = 'if(r.log)logEl.textContent=r.log;'
+	html[#html+1] = 'logEl.scrollTop=logEl.scrollHeight;'
+	html[#html+1] = 'if(r.state==="running"){'
+	html[#html+1] = 'statusEl.innerHTML="<span style=\\"color:#7aa2f7;\\">⏳ 插件升级中...</span>";'
+	html[#html+1] = '}else if(r.state==="success"){'
+	html[#html+1] = 'clearInterval(_pluginUpgradeTimer);_pluginUpgradeTimer=null;'
+	html[#html+1] = 'ocPluginUpgradeDone(true);'
+	html[#html+1] = '}else if(r.state==="failed"){'
+	html[#html+1] = 'clearInterval(_pluginUpgradeTimer);_pluginUpgradeTimer=null;'
+	html[#html+1] = 'ocPluginUpgradeDone(false);'
+	html[#html+1] = '}'
+	html[#html+1] = '}catch(e){'
+	html[#html+1] = '_pluginPollErrors++;'
+	html[#html+1] = 'if(_pluginPollErrors>=8){'
+	html[#html+1] = 'clearInterval(_pluginUpgradeTimer);_pluginUpgradeTimer=null;'
+	html[#html+1] = 'ocPluginUpgradeDone(true);'
+	html[#html+1] = '}'
+	html[#html+1] = '}'
+	html[#html+1] = '});'
+	html[#html+1] = '},2000);'
+	html[#html+1] = '}'
+
+	-- 插件升级完成处理
+	html[#html+1] = 'function ocPluginUpgradeDone(ok){'
+	html[#html+1] = 'var btn=document.getElementById("btn-plugin-upgrade");'
+	html[#html+1] = 'var statusEl=document.getElementById("setup-log-status");'
+	html[#html+1] = 'var resultEl=document.getElementById("setup-log-result");'
+	html[#html+1] = 'if(btn){btn.disabled=false;btn.textContent="⬆️ 升级插件";}'
+	html[#html+1] = 'resultEl.style.display="block";'
+	html[#html+1] = 'if(ok){'
+	html[#html+1] = 'statusEl.innerHTML="<span style=\\"color:#1a7f37;\\">✅ 插件升级完成</span>";'
+	html[#html+1] = 'resultEl.innerHTML="<div style=\\"border:1px solid #c6e9c9;background:#e6f7e9;padding:12px 16px;border-radius:6px;\\">"+'
+	html[#html+1] = '"<strong style=\\"color:#1a7f37;font-size:14px;\\">🎉 插件升级成功！</strong><br/>"+'
+	html[#html+1] = '"<span style=\\"color:#555;font-size:13px;line-height:1.8;\\">插件文件已更新，OpenClaw 服务不受影响。请刷新页面加载新版界面。</span><br/>"+'
+	html[#html+1] = '"<button class=\\"btn cbi-button cbi-button-apply\\" type=\\"button\\" onclick=\\"location.reload()\\" style=\\"margin-top:10px;\\">🔄 刷新页面</button></div>";'
+	html[#html+1] = '}else{'
+	html[#html+1] = 'statusEl.innerHTML="<span style=\\"color:#cf222e;\\">❌ 插件升级失败</span>";'
+	html[#html+1] = 'resultEl.innerHTML="<div style=\\"border:1px solid #f5c6cb;background:#ffeef0;padding:12px 16px;border-radius:6px;\\">"+'
+	html[#html+1] = '"<strong style=\\"color:#cf222e;font-size:14px;\\">❌ 插件升级失败</strong><br/>"+'
+	html[#html+1] = '"<span style=\\"color:#555;font-size:13px;\\">请查看上方日志了解详情。也可手动执行：<code>cat /tmp/openclaw-plugin-upgrade.log</code></span><br/>"+'
 	html[#html+1] = '"<button class=\\"btn cbi-button cbi-button-apply\\" type=\\"button\\" onclick=\\"location.reload()\\" style=\\"margin-top:10px;\\">🔄 刷新页面</button></div>";'
 	html[#html+1] = '}'
 	html[#html+1] = '}'

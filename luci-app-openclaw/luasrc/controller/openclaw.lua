@@ -64,6 +64,12 @@ function index()
 
 	-- 获取网关 Token API (仅认证用户可访问)
 	entry({"admin", "services", "openclaw", "get_token"}, call("action_get_token"), nil).leaf = true
+
+	-- 插件升级 API
+	entry({"admin", "services", "openclaw", "plugin_upgrade"}, call("action_plugin_upgrade"), nil).leaf = true
+
+	-- 插件升级日志 API (轮询)
+	entry({"admin", "services", "openclaw", "plugin_upgrade_log"}, call("action_plugin_upgrade_log"), nil).leaf = true
 end
 
 -- ═══════════════════════════════════════════
@@ -465,4 +471,125 @@ function action_get_token()
 	local pty_token = uci:get("openclaw", "main", "pty_token") or ""
 	http.prepare_content("application/json")
 	http.write_json({ token = token, pty_token = pty_token })
+end
+
+-- ═══════════════════════════════════════════
+-- 插件升级 API (后台下载 .run 并执行)
+-- 参数: version — 目标版本号 (如 1.0.8)
+-- ═══════════════════════════════════════════
+function action_plugin_upgrade()
+	local http = require "luci.http"
+	local sys = require "luci.sys"
+
+	local version = http.formvalue("version") or ""
+	if version == "" then
+		http.prepare_content("application/json")
+		http.write_json({ status = "error", message = "缺少版本号参数" })
+		return
+	end
+
+	-- 安全检查: version 只允许数字和点
+	if not version:match("^[%d%.]+$") then
+		http.prepare_content("application/json")
+		http.write_json({ status = "error", message = "版本号格式无效" })
+		return
+	end
+
+	-- 清理旧日志和状态
+	sys.exec("rm -f /tmp/openclaw-plugin-upgrade.log /tmp/openclaw-plugin-upgrade.pid /tmp/openclaw-plugin-upgrade.exit")
+
+	-- 后台执行: 下载 .run 并执行安装
+	local run_url = "https://github.com/10000ge10000/luci-app-openclaw/releases/download/v" .. version .. "/luci-app-openclaw_" .. version .. ".run"
+	-- 使用 curl 下载 (-L 跟随重定向), 然后 sh 执行
+	sys.exec(string.format(
+		"( echo '正在下载插件 v%s ...' > /tmp/openclaw-plugin-upgrade.log; " ..
+		"curl -sL --connect-timeout 15 --max-time 120 -o /tmp/luci-app-openclaw-update.run '%s' >> /tmp/openclaw-plugin-upgrade.log 2>&1; " ..
+		"RC=$?; " ..
+		"if [ $RC -ne 0 ]; then " ..
+		"  echo '下载失败 (curl exit: '$RC')' >> /tmp/openclaw-plugin-upgrade.log; " ..
+		"  echo '如果无法访问 GitHub，请手动下载: %s' >> /tmp/openclaw-plugin-upgrade.log; " ..
+		"  echo $RC > /tmp/openclaw-plugin-upgrade.exit; " ..
+		"else " ..
+		"  FSIZE=$(wc -c < /tmp/luci-app-openclaw-update.run 2>/dev/null | tr -d ' '); " ..
+		"  echo \"下载完成 (${FSIZE} bytes)\" >> /tmp/openclaw-plugin-upgrade.log; " ..
+		"  if [ \"$FSIZE\" -lt 10000 ] 2>/dev/null; then " ..
+		"    echo '文件过小，可能下载失败或链接无效' >> /tmp/openclaw-plugin-upgrade.log; " ..
+		"    echo 1 > /tmp/openclaw-plugin-upgrade.exit; " ..
+		"  else " ..
+		"    echo '' >> /tmp/openclaw-plugin-upgrade.log; " ..
+		"    echo '正在安装...' >> /tmp/openclaw-plugin-upgrade.log; " ..
+		"    sh /tmp/luci-app-openclaw-update.run >> /tmp/openclaw-plugin-upgrade.log 2>&1; " ..
+		"    RC2=$?; echo $RC2 > /tmp/openclaw-plugin-upgrade.exit; " ..
+		"    if [ $RC2 -eq 0 ]; then " ..
+		"      echo '' >> /tmp/openclaw-plugin-upgrade.log; " ..
+		"      echo '✅ 插件升级完成！请刷新浏览器页面。' >> /tmp/openclaw-plugin-upgrade.log; " ..
+		"    else " ..
+		"      echo '安装执行失败 (exit: '$RC2')' >> /tmp/openclaw-plugin-upgrade.log; " ..
+		"    fi; " ..
+		"  fi; " ..
+		"  rm -f /tmp/luci-app-openclaw-update.run; " ..
+		"fi " ..
+		") & echo $! > /tmp/openclaw-plugin-upgrade.pid",
+		version, run_url, run_url
+	))
+
+	http.prepare_content("application/json")
+	http.write_json({
+		status = "ok",
+		message = "插件升级已在后台启动..."
+	})
+end
+
+-- ═══════════════════════════════════════════
+-- 插件升级日志轮询 API
+-- ═══════════════════════════════════════════
+function action_plugin_upgrade_log()
+	local http = require "luci.http"
+	local sys = require "luci.sys"
+
+	local log = ""
+	local f = io.open("/tmp/openclaw-plugin-upgrade.log", "r")
+	if f then
+		log = f:read("*a") or ""
+		f:close()
+	end
+
+	local running = false
+	local pid_file = io.open("/tmp/openclaw-plugin-upgrade.pid", "r")
+	if pid_file then
+		local pid = pid_file:read("*a"):gsub("%s+", "")
+		pid_file:close()
+		if pid ~= "" then
+			local check = sys.exec("kill -0 " .. pid .. " 2>/dev/null && echo yes || echo no"):gsub("%s+", "")
+			running = (check == "yes")
+		end
+	end
+
+	local exit_code = -1
+	if not running then
+		local exit_file = io.open("/tmp/openclaw-plugin-upgrade.exit", "r")
+		if exit_file then
+			local code = exit_file:read("*a"):gsub("%s+", "")
+			exit_file:close()
+			exit_code = tonumber(code) or -1
+		end
+	end
+
+	local state = "idle"
+	if running then
+		state = "running"
+	elseif exit_code == 0 then
+		state = "success"
+	elseif exit_code > 0 then
+		state = "failed"
+	end
+
+	http.prepare_content("application/json")
+	http.write_json({
+		status = "ok",
+		log = log,
+		state = state,
+		running = running,
+		exit_code = exit_code
+	})
 end

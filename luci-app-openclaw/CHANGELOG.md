@@ -4,6 +4,30 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [1.0.9] - 2026-03-08
+
+### 插件一键升级 & 百炼模型列表扩充
+
+#### 新增
+- **插件一键升级**: LuCI 界面"检测升级"发现新版后，可直接点击"⬆️ 升级插件"按钮完成在线升级
+  - 后台自动从 GitHub Releases 下载 `.run` 安装包并执行
+  - 实时升级日志显示，带容错处理 (安装过程替换 LuCI 文件导致 API 暂时不可用时自动判定成功)
+  - 同时保留"📥 手动下载"链接作为备选
+- **百炼按量付费模型列表扩充**: 从 4 个模型扩充至 16 个，按类别分组显示
+  - 千问商业版: qwen-max、qwen-plus (Qwen3.5)、qwen-flash (Qwen3.5)、qwen-turbo、qwen-long (1000万Token上下文)
+  - 千问Coder: qwen3-coder-plus (100万上下文)、qwen3-coder-flash
+  - 推理模型: qwq-plus
+  - 千问开源版: qwen3-235b-a22b、qwen3-32b、qwen3-30b-a3b
+  - 第三方模型: deepseek-r1、deepseek-v3、kimi-k2.5、glm-5、MiniMax-M2.5
+
+#### 修复
+- **CBI 底部按钮未隐藏**: "保存并应用/保存/复位"按钮在基本设置页仍然显示
+  - 根因: `m.submit = false` 和 `m.reset = false` 不被 CBI 框架识别
+  - 修复: 改为 `m.pageaction = false` (dispatcher.lua 第 294 行检查的正确属性)
+- **插件升级后配置管理无法连接**: 升级后 PTY WebSocket 一直转圈 "等待服务就绪"
+  - 根因: `.run` 安装器覆盖 `/etc/config/openclaw` 导致 `pty_token` 丢失，PTY 认证失败
+  - 修复: 升级时保留用户 UCI 配置 (仅首次安装部署默认配置)；安装后自动重启 PTY 服务
+
 ## [1.0.8] - 2026-03-07
 
 ### 修复第三方模型配置导致 Gateway 崩溃 & 新增 Coding Plan 套餐支持

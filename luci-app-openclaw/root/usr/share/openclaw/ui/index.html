@@ -138,6 +138,7 @@
   const MAX_RETRY = Infinity;
   let retryTimer = null;
   let wasEverConnected = false;
+  let pingTimer = null;
 
   console.log('[oc-config] protocol:', location.protocol);
   console.log('[oc-config] host:', location.host, 'port:', location.port);
@@ -146,6 +147,7 @@
 
   function connect() {
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+    if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
     if (ws) { try { ws.close(); } catch(e){} ws = null; }
 
     retryCount++;
@@ -191,30 +193,49 @@
     ws.onopen = function() {
       clearTimeout(connectTimeout);
       connected = true;
+      var isReconnect = wasEverConnected;
       wasEverConnected = true;
       retryCount = 0;
       loadingEl.classList.add('hidden');
       reconnectEl.classList.remove('show');
       statusEl.textContent = '● 已连接';
       statusEl.className = 'status connected';
+      // 重连时清屏，避免旧内容和新菜单混在一起
+      if (isReconnect) {
+        term.clear();
+        term.write('\x1b[33m⚡ 已重新连接，配置脚本已重新启动\x1b[0m\r\n\r\n');
+      }
       // 连接后重新 fit，确保尺寸正确
       setTimeout(doFit, 50);
       term.focus();
       try {
         ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
       } catch(e) {}
+      // 客户端心跳: 每 20 秒发送一次，防止连接被浏览器/代理超时关闭
+      if (pingTimer) clearInterval(pingTimer);
+      pingTimer = setInterval(function() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          try { ws.send(JSON.stringify({ type: 'ping' })); } catch(e) {}
+        }
+      }, 20000);
     };
 
     ws.onmessage = function(ev) {
       if (typeof ev.data === 'string') {
+        // 过滤掉服务端的 pong 心跳消息，不写入终端
+        if (ev.data.indexOf('"type":"pong"') !== -1) return;
         term.write(ev.data, function() { term.scrollToBottom(); });
       } else if (ev.data instanceof Blob) {
-        ev.data.text().then(function(text) { term.write(text, function() { term.scrollToBottom(); }); });
+        ev.data.text().then(function(text) {
+          if (text.indexOf('"type":"pong"') !== -1) return;
+          term.write(text, function() { term.scrollToBottom(); });
+        });
       }
     };
 
     ws.onclose = function(ev) {
       clearTimeout(connectTimeout);
+      if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
       connected = false;
       statusEl.textContent = '● 已断开';
       statusEl.className = 'status disconnected';

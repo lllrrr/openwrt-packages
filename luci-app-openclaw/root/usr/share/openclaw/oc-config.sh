@@ -589,6 +589,7 @@ configure_model() {
 					oc_cmd models auth login --provider copilot-proxy --set-default || echo -e "  ${YELLOW}OAuth 授权已退出${NC}"
 					echo ""
 					ask_restart
+					return
 					;;
 				b|*)
 					echo ""
@@ -641,6 +642,7 @@ configure_model() {
 					oc_cmd models auth login --provider qwen-portal --set-default || echo -e "  ${YELLOW}OAuth 授权已退出${NC}"
 					echo ""
 					ask_restart
+					return
 					;;
 				b)
 					echo ""
@@ -651,20 +653,49 @@ configure_model() {
 					prompt_with_default "请输入百炼 API Key (sk-...)" "" api_key
 					if [ -n "$api_key" ]; then
 						echo ""
-						echo -e "  ${CYAN}可用模型:${NC}"
-						echo -e "    ${CYAN}a)${NC} qwen-max        — 通义千问旗舰 (推荐)"
-						echo -e "    ${CYAN}b)${NC} qwen-plus       — 性价比之选"
-						echo -e "    ${CYAN}c)${NC} qwen-turbo      — 快速响应"
-						echo -e "    ${CYAN}d)${NC} qwen3-235b-a22b — Qwen3 235B MoE"
-						echo -e "    ${CYAN}e)${NC} 手动输入模型名"
+						echo -e "  ${CYAN}── 千问商业版 ──${NC}"
+						echo -e "    ${CYAN}a)${NC}  qwen-max             — 千问Max 旗舰模型 (推荐)"
+						echo -e "    ${CYAN}b)${NC}  qwen-plus            — 千问Plus 均衡之选 (已升级Qwen3.5)"
+						echo -e "    ${CYAN}c)${NC}  qwen-flash           — 千问Flash 速度最快 (已升级Qwen3.5)"
+						echo -e "    ${CYAN}d)${NC}  qwen-turbo           — 千问Turbo 经济实惠"
+						echo -e "    ${CYAN}e)${NC}  qwen-long            — 千问Long 超长上下文 (1000万Token)"
+						echo -e "  ${CYAN}── 千问Coder ──${NC}"
+						echo -e "    ${CYAN}f)${NC}  qwen3-coder-plus     — 代码专用旗舰 (100万上下文)"
+						echo -e "    ${CYAN}g)${NC}  qwen3-coder-flash    — 代码专用极速"
+						echo -e "  ${CYAN}── 推理模型 ──${NC}"
+						echo -e "    ${CYAN}h)${NC}  qwq-plus             — QwQ推理模型 (数学/代码强化)"
+						echo -e "  ${CYAN}── 千问开源版 ──${NC}"
+						echo -e "    ${CYAN}i)${NC}  qwen3-235b-a22b      — Qwen3 235B MoE"
+						echo -e "    ${CYAN}j)${NC}  qwen3-32b            — Qwen3 32B"
+						echo -e "    ${CYAN}k)${NC}  qwen3-30b-a3b        — Qwen3 30B MoE"
+						echo -e "  ${CYAN}── 第三方模型 ──${NC}"
+						echo -e "    ${CYAN}l)${NC}  deepseek-r1           — DeepSeek R1 推理"
+						echo -e "    ${CYAN}m)${NC}  deepseek-v3           — DeepSeek V3"
+						echo -e "    ${CYAN}n)${NC}  kimi-k2.5            — Kimi K2.5"
+						echo -e "    ${CYAN}o)${NC}  glm-5                — 智谱 GLM-5"
+						echo -e "    ${CYAN}p)${NC}  MiniMax-M2.5         — MiniMax M2.5"
+						echo -e "  ${CYAN}────────────${NC}"
+						echo -e "    ${CYAN}z)${NC}  手动输入模型名"
 						echo ""
 						prompt_with_default "请选择模型" "a" model_choice
 						case "$model_choice" in
 							a) model_name="qwen-max" ;;
 							b) model_name="qwen-plus" ;;
-							c) model_name="qwen-turbo" ;;
-							d) model_name="qwen3-235b-a22b" ;;
-							e) prompt_with_default "请输入模型名称" "qwen-max" model_name ;;
+							c) model_name="qwen-flash" ;;
+							d) model_name="qwen-turbo" ;;
+							e) model_name="qwen-long" ;;
+							f) model_name="qwen3-coder-plus" ;;
+							g) model_name="qwen3-coder-flash" ;;
+							h) model_name="qwq-plus" ;;
+							i) model_name="qwen3-235b-a22b" ;;
+							j) model_name="qwen3-32b" ;;
+							k) model_name="qwen3-30b-a3b" ;;
+							l) model_name="deepseek-r1" ;;
+							m) model_name="deepseek-v3" ;;
+							n) model_name="kimi-k2.5" ;;
+							o) model_name="glm-5" ;;
+							p) model_name="MiniMax-M2.5" ;;
+							z) prompt_with_default "请输入模型名称" "qwen-max" model_name ;;
 							*) model_name="qwen-max" ;;
 						esac
 						auth_set_apikey dashscope "$api_key"
@@ -935,7 +966,7 @@ configure_model() {
 		0) return ;;
 	esac
 
-	if [ "$choice" != "0" ] && [ "$choice" != "1" ] && [ "$choice" != "8" ]; then
+	if [ "$choice" != "0" ] && [ "$choice" != "1" ]; then
 		echo ""
 		ask_restart
 	fi
