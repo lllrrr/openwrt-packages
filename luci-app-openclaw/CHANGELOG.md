@@ -4,6 +4,19 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [1.0.10] - 2026-03-08
+
+### 新增腾讯云大模型 Coding Plan 套餐支持
+
+#### 新增
+- **腾讯云 Coding Plan 套餐**: 新增菜单选项 13，支持一键配置腾讯云大模型 Coding Plan 套餐
+  - Base URL: `https://api.lkeap.cloud.tencent.com/coding/v3`，Provider: `lkeap`
+  - 支持全部 8 个套餐模型: tc-code-latest (智能路由)、hunyuan-t1、hunyuan-turbos、hunyuan-2.0-thinking、hunyuan-2.0-instruct、glm-5、kimi-k2.5、minimax-m2.5
+  - 按类别分组展示: 智能推荐 / 推理模型 / 旗舰模型 / 第三方模型
+
+#### 修复
+- **Coding Plan 配置信息修正**: 订阅地址更正为官方页面，移除不必要的 Base URL 显示
+
 ## [1.0.9] - 2026-03-08
 
 ### 插件一键升级 & 百炼模型列表扩充

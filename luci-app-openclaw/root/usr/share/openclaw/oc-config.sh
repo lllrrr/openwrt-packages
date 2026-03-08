@@ -270,6 +270,45 @@ register_codingplan_provider() {
 	chown openclaw:openclaw "$CONFIG_FILE" 2>/dev/null || true
 }
 
+# ── 注册腾讯云 Coding Plan 提供商 (多模型批量注册) ──
+# 用法: register_lkeap_codingplan_provider <api_key>
+# 按腾讯云官方文档 (https://cloud.tencent.com/document/product/1772/128949) 注册
+# provider name: lkeap, Base URL: https://api.lkeap.cloud.tencent.com/coding/v3
+register_lkeap_codingplan_provider() {
+	local api_key="$1"
+	_RCP_KEY="$api_key" "$NODE_BIN" -e "
+		const fs=require('fs');
+		let d={};
+		try{d=JSON.parse(fs.readFileSync('${CONFIG_FILE}','utf8'));}catch(e){}
+		if(!d.models)d.models={};
+		if(!d.models.providers)d.models.providers={};
+		d.models.mode='merge';
+		d.models.providers['lkeap']={
+			baseUrl:'https://api.lkeap.cloud.tencent.com/coding/v3',
+			apiKey:process.env._RCP_KEY,
+			api:'openai-completions',
+			models:[
+				{id:'tc-code-latest',name:'Auto (智能匹配最优模型)',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:128000,maxTokens:8192},
+				{id:'hunyuan-2.0-instruct',name:'Tencent HY 2.0 Instruct',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:128000,maxTokens:16000},
+				{id:'hunyuan-2.0-thinking',name:'Tencent HY 2.0 Think',reasoning:true,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:128000,maxTokens:64000},
+				{id:'hunyuan-t1',name:'Hunyuan-T1',reasoning:true,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:32000,maxTokens:64000},
+				{id:'hunyuan-turbos',name:'Hunyuan-TurboS',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:32000,maxTokens:16000},
+				{id:'minimax-m2.5',name:'MiniMax-M2.5',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:204800,maxTokens:131072},
+				{id:'kimi-k2.5',name:'Kimi-K2.5',reasoning:false,input:['text','image'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:262144,maxTokens:32768},
+				{id:'glm-5',name:'GLM-5',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:202752,maxTokens:8192}
+			]
+		};
+		if(!d.agents)d.agents={};
+		if(!d.agents.defaults)d.agents.defaults={};
+		if(!d.agents.defaults.models)d.agents.defaults.models={};
+		['tc-code-latest','hunyuan-2.0-instruct','hunyuan-2.0-thinking','hunyuan-t1','hunyuan-turbos','minimax-m2.5','kimi-k2.5','glm-5'].forEach(m=>{
+			d.agents.defaults.models['lkeap/'+m]={};
+		});
+		fs.writeFileSync('${CONFIG_FILE}',JSON.stringify(d,null,2));
+	" 2>/dev/null
+	chown openclaw:openclaw "$CONFIG_FILE" 2>/dev/null || true
+}
+
 # ── 辅助函数 ──
 
 # 清理输入: 去除 ANSI 转义序列、不可见字符，只保留 ASCII 可打印字符
@@ -426,7 +465,8 @@ configure_model() {
 	echo -e "  ${CYAN}10)${NC} Groq (Llama 4, Llama 3.3)"
 	echo -e "  ${CYAN}11)${NC} 硅基流动 SiliconFlow"
 	echo -e "  ${CYAN}12)${NC} Ollama (本地模型，无需 API Key)"
-	echo -e "  ${CYAN}13)${NC} 自定义 OpenAI 兼容 API"
+	echo -e "  ${CYAN}13)${NC} 腾讯云 Coding Plan (HY T1/TurboS/GLM-5/Kimi)"
+	echo -e "  ${CYAN}14)${NC} 自定义 OpenAI 兼容 API"
 	echo -e "  ${CYAN}0)${NC} 返回"
 	echo ""
 	prompt_with_default "请选择" "1" choice
@@ -994,6 +1034,55 @@ configure_model() {
 			fi
 			;;
 		13)
+			echo ""
+			echo -e "  ${BOLD}腾讯云大模型 Coding Plan 套餐配置${NC}"
+			echo ""
+			echo -e "  ${YELLOW}订阅/管理套餐: https://hunyuan.cloud.tencent.com/#/app/subscription${NC}"
+			echo -e "  ${YELLOW}获取 API Key: 在上方页面创建 Coding Plan 专属 Key (sk-sp-...)${NC}"
+			echo -e "  ${DIM}文档: https://cloud.tencent.com/document/product/1772/128947${NC}"
+			echo ""
+			prompt_with_default "请输入 Coding Plan API Key (sk-sp-...)" "" api_key
+			if [ -n "$api_key" ]; then
+				echo ""
+				echo -e "  ${CYAN}可用模型 (Coding Plan 套餐内):${NC}"
+				echo -e "  ${CYAN}── 智能推荐 ──${NC}"
+				echo -e "    ${CYAN}a)${NC} tc-code-latest        — 自动路由 (由平台选择最佳模型) ${GREEN}★ 推荐${NC}"
+				echo -e "  ${CYAN}── 推理模型 ──${NC}"
+				echo -e "    ${CYAN}b)${NC} hunyuan-t1            — 混元 T1 深度推理"
+				echo -e "    ${CYAN}c)${NC} hunyuan-2.0-thinking  — 混元 2.0 Thinking"
+				echo -e "  ${CYAN}── 旗舰模型 ──${NC}"
+				echo -e "    ${CYAN}d)${NC} hunyuan-turbos        — 混元 TurboS 旗舰"
+				echo -e "    ${CYAN}e)${NC} hunyuan-2.0-instruct  — 混元 2.0 Instruct"
+				echo -e "  ${CYAN}── 第三方模型 ──${NC}"
+				echo -e "    ${CYAN}f)${NC} glm-5                 — 智谱 GLM-5"
+				echo -e "    ${CYAN}g)${NC} kimi-k2.5             — Moonshot Kimi K2.5"
+				echo -e "    ${CYAN}h)${NC} minimax-m2.5          — MiniMax M2.5"
+				echo -e "  ${CYAN}────────────${NC}"
+				echo -e "    ${CYAN}z)${NC} 手动输入模型名"
+				echo ""
+				prompt_with_default "请选择默认模型" "a" model_choice
+				case "$model_choice" in
+					a) model_name="tc-code-latest" ;;
+					b) model_name="hunyuan-t1" ;;
+					c) model_name="hunyuan-2.0-thinking" ;;
+					d) model_name="hunyuan-turbos" ;;
+					e) model_name="hunyuan-2.0-instruct" ;;
+					f) model_name="glm-5" ;;
+					g) model_name="kimi-k2.5" ;;
+					h) model_name="minimax-m2.5" ;;
+					z) prompt_with_default "请输入模型名称" "tc-code-latest" model_name ;;
+					*) model_name="tc-code-latest" ;;
+				esac
+				echo ""
+				echo -e "  ${CYAN}正在注册腾讯云 Coding Plan 提供商 (含全部套餐模型)...${NC}"
+				auth_set_apikey lkeap "$api_key"
+				register_lkeap_codingplan_provider "$api_key"
+				register_and_set_model "lkeap/${model_name}"
+				echo -e "  ${GREEN}✅ 腾讯云 Coding Plan 已配置，活跃模型: lkeap/${model_name}${NC}"
+				echo -e "  ${DIM}提示: 套餐内全部模型已注册，可随时在 WebChat 中通过 /model 切换${NC}"
+			fi
+			;;
+		14)
 			echo ""
 			echo -e "  ${BOLD}自定义 OpenAI 兼容 API${NC}"
 			echo -e "  ${YELLOW}支持任何兼容 OpenAI API 格式的服务商${NC}"
