@@ -4,6 +4,14 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [1.0.11] - 2026-03-09
+
+### 修复 Telegram 配对后无法使用的严重 Bug
+
+#### 修复
+- **Telegram 配置流程**: Token 保存后强制重启网关（不再可选），确保 Bot Token 立即生效后再进入配对流程
+- **Telegram 配对流程**: 配对成功后自动重启网关，确保配对关系立即生效，用户可以直接开始对话
+
 ## [1.0.10] - 2026-03-08
 
 ### 新增腾讯云大模型 Coding Plan 套餐支持

@@ -1246,8 +1246,9 @@ configure_telegram() {
 		fi
 		echo -e "  ${GREEN}✅ Telegram Bot Token 已保存${NC}"
 
-		# 重启 Gateway 使 Token 生效
-		ask_restart
+		# 重启 Gateway 使 Token 生效 (必须重启，否则 Bot 无法连接 Telegram)
+		echo -e "  ${CYAN}正在重启 Gateway 使 Token 生效...${NC}"
+		restart_gateway
 
 		# Token 保存且 Gateway 重启后，自动进入配对流程
 		echo ""
@@ -1410,10 +1411,19 @@ telegram_pairing() {
 			local approve=$(oc_cmd pairing approve telegram "$manual_code" 2>&1)
 			if echo "$approve" | grep -qi "approved\|success\|ok"; then
 				echo -e "  ${GREEN}${BOLD}🎉 Telegram 配对成功！${NC}"
+				paired=1
 			else
 				echo -e "  ${YELLOW}配对失败: $approve${NC}"
 			fi
 		fi
+	fi
+
+	# 配对成功后重启网关，使配对关系立即生效
+	if [ "$paired" -eq 1 ]; then
+		echo ""
+		echo -e "  ${CYAN}正在重启 Gateway 使配对生效...${NC}"
+		restart_gateway
+		echo -e "  ${GREEN}✅ 现在可以在 Telegram 中与 Bot 对话了！${NC}"
 	fi
 }
 
