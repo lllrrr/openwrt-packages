@@ -90,8 +90,10 @@ for i in $(seq 1 $COUNT); do
     uci set mwan3.$LOGICAL_IF.interval='5'
     uci set mwan3.$LOGICAL_IF.down='3'
     uci set mwan3.$LOGICAL_IF.up='3'
-    uci add_list mwan3.$LOGICAL_IF.track_ip='114.114.114.114'
+    uci add_list mwan3.$LOGICAL_IF.track_ip='180.76.76.76'
     uci add_list mwan3.$LOGICAL_IF.track_ip='223.5.5.5'
+    uci add_list mwan3.$LOGICAL_IF.track_ip='223.6.6.6'
+    uci add_list mwan3.$LOGICAL_IF.track_ip='119.29.29.29'
 
     # Member
     uci set mwan3.$MWAN_MEMBER=member
