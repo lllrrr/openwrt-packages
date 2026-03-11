@@ -7,7 +7,6 @@ PKG_RELEASE:=1
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/LazuliKao/portweaver.git
 PKG_SOURCE_VERSION:=HEAD
-PKG_MIRROR_HASH:=2ef3cef58cb22255fc4eb6be240f3db09209b205d8e814d9c585094c4e3e5b38
 
 PKG_LICENSE:=GPL-3.0
 PKG_LICENSE_FILES:=LICENSE
@@ -28,7 +27,7 @@ define Package/portweaver
   CATEGORY:=Network
   TITLE:=Port forwarding and NAT traversal tool
   URL:=https://github.com/LazuliKao/portweaver
-  DEPENDS:=+libuci
+  DEPENDS:=+libuci @!mips && !mipsel
   PROVIDES:=portweaver-impl
 endef
 
@@ -59,15 +58,16 @@ PKG_INSTALL_DIR_FULL := $(PKG_INSTALL_DIR)-full
 PKG_INSTALL_DIR_LITE := $(PKG_INSTALL_DIR)-lite
 
 # Macro: build one variant
-# $(1) = zig binary, $(2) = extra flags, $(3) = install prefix
+# $(1) = extra flags, $(2) = install prefix
 define BuildVariant
+	ZIG_BIN=$$(if [ -f "$(ZIG)" ]; then echo "$(ZIG)"; else echo "$(PKG_BUILD_DIR)/zig-tmp/zig-x86_64-linux-0.15.2/zig"; fi); \
 	cd $(PKG_BUILD_DIR) && \
-	$(1) build \
+	$$ZIG_BIN build \
 		-Dtarget=$(ZIG_TARGET) \
 		-Dcpu=$(if $(CPU_TYPE),$(CPU_TYPE),baseline) \
 		-Doptimize=$(ZIG_OPTIMIZE) \
-		$(2) \
-		--prefix $(3)
+		$(1) \
+		--prefix $(2)
 endef
 
 define Build/Compile
@@ -78,24 +78,13 @@ define Build/Compile
 		cd $(PKG_BUILD_DIR)/zig-tmp && \
 		wget -q -O zig.tar.xz https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz && \
 		tar xf zig.tar.xz; \
-		$(call BuildVariant, \
-			$(PKG_BUILD_DIR)/zig-tmp/zig-x86_64-linux-0.15.2/zig, \
-			-Duci=true -Dubus=true -Dfrpc=true -Dfrps=true -Dddns=true, \
-			$(PKG_INSTALL_DIR_FULL)); \
-		$(call BuildVariant, \
-			$(PKG_BUILD_DIR)/zig-tmp/zig-x86_64-linux-0.15.2/zig, \
-			-Duci=true -Dubus=true -Dfrpc=false -Dfrps=false -Dddns=false, \
-			$(PKG_INSTALL_DIR_LITE)); \
-	else \
-		$(call BuildVariant, \
-			$(ZIG), \
-			-Duci=true -Dubus=true -Dfrpc=true -Dfrps=true -Dddns=true, \
-			$(PKG_INSTALL_DIR_FULL)); \
-		$(call BuildVariant, \
-			$(ZIG), \
-			-Duci=true -Dubus=true -Dfrpc=false -Dfrps=false -Dddns=false, \
-			$(PKG_INSTALL_DIR_LITE)); \
 	fi
+$(if $(CONFIG_PACKAGE_portweaver),
+	$(call BuildVariant, -Duci=true -Dubus=true -Dfrpc=true -Dfrps=true -Dddns=true, $(PKG_INSTALL_DIR_FULL))
+)
+$(if $(CONFIG_PACKAGE_portweaver-lite),
+	$(call BuildVariant, -Duci=true -Dubus=true -Dfrpc=false -Dfrps=false -Dddns=false, $(PKG_INSTALL_DIR_LITE))
+)
 endef
 
 define Package/portweaver/install
