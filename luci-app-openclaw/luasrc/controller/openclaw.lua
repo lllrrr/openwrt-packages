@@ -1,32 +1,6 @@
 -- luci-app-openclaw — LuCI Controller
 module("luci.controller.openclaw", package.seeall)
 
--- 公共辅助: 获取 OpenClaw 版本号
-local function get_openclaw_version()
-	local sys = require "luci.sys"
-	-- 优先从 package.json 读取版本号 (轻量)，避免每次启动 node 进程
-	local dirs = {
-		"/opt/openclaw/global/lib/node_modules/openclaw",
-		"/opt/openclaw/global/node_modules/openclaw",
-	}
-	-- pnpm 版本目录
-	local pnpm_glob = sys.exec("ls -d /opt/openclaw/global/*/node_modules/openclaw 2>/dev/null"):gsub("%s+$", "")
-	for d in pnpm_glob:gmatch("[^\n]+") do
-		dirs[#dirs + 1] = d
-	end
-	for _, d in ipairs(dirs) do
-		local pkg = d .. "/package.json"
-		local f = io.open(pkg, "r")
-		if f then
-			local content = f:read("*a")
-			f:close()
-			local ver = content:match('"version"%s*:%s*"([^"]+)"')
-			if ver and ver ~= "" then return ver end
-		end
-	end
-	return ""
-end
-
 function index()
 	-- 主入口: 服务 → OpenClaw (🧠 作为菜单图标)
 	local page = entry({"admin", "services", "openclaw"}, alias("admin", "services", "openclaw", "basic"), _("OpenClaw"), 90)
@@ -50,14 +24,8 @@ function index()
 	-- 安装/升级日志 API (轮询)
 	entry({"admin", "services", "openclaw", "setup_log"}, call("action_setup_log"), nil).leaf = true
 
-	-- 版本检查 API
+	-- 版本检查 API (仅检查插件版本)
 	entry({"admin", "services", "openclaw", "check_update"}, call("action_check_update"), nil).leaf = true
-
-	-- 执行升级 API
-	entry({"admin", "services", "openclaw", "do_update"}, call("action_do_update"), nil).leaf = true
-
-	-- 升级日志 API (轮询)
-	entry({"admin", "services", "openclaw", "upgrade_log"}, call("action_upgrade_log"), nil).leaf = true
 
 	-- 卸载运行环境 API
 	entry({"admin", "services", "openclaw", "uninstall"}, call("action_uninstall"), nil).leaf = true
@@ -99,7 +67,6 @@ function action_status()
 		memory_kb = 0,
 		uptime = "",
 		node_version = "",
-		openclaw_version = "",
 		plugin_version = "",
 	}
 
@@ -117,12 +84,6 @@ function action_status()
 		f:close()
 		local node_ver = sys.exec(node_bin .. " --version 2>/dev/null"):gsub("%s+", "")
 		result.node_version = node_ver
-	end
-
-	-- 检查 OpenClaw 版本
-	local oc_ver = get_openclaw_version()
-	if oc_ver and oc_ver ~= "" then
-		result.openclaw_version = "v" .. oc_ver
 	end
 
 	-- 网关端口检查
@@ -306,18 +267,7 @@ function action_check_update()
 	local http = require "luci.http"
 	local sys = require "luci.sys"
 
-	-- 当前 OpenClaw 版本
-	local current = get_openclaw_version()
-
-	-- 最新 OpenClaw 版本 (从 npm registry 查询)
-	local latest = sys.exec("PATH=/opt/openclaw/node/bin:/opt/openclaw/global/bin:$PATH npm view openclaw version 2>/dev/null"):gsub("%s+", "")
-
-	local has_update = false
-	if current ~= "" and latest ~= "" and current ~= latest then
-		has_update = true
-	end
-
-	-- 插件版本检查 (从 GitHub API 获取最新 release tag)
+	-- 插件版本检查 (从 GitHub API 获取最新 release tag + release notes)
 	local plugin_current = ""
 	local pf = io.open("/usr/share/openclaw/VERSION", "r")
 		or io.open("/root/luci-app-openclaw/VERSION", "r")
@@ -327,108 +277,38 @@ function action_check_update()
 	end
 
 	local plugin_latest = ""
+	local release_notes = ""
 	local plugin_has_update = false
-	-- 仅在请求参数含 check_plugin=1 或 quick=1 时检查插件版本
-	local check_plugin = http.formvalue("check_plugin") or ""
-	local quick = http.formvalue("quick") or ""
-	if check_plugin == "1" or quick == "1" then
-		-- 使用 GitHub API 获取最新 release tag (轻量, 不下载任何文件)
-		local gh_resp = sys.exec("curl -sf --connect-timeout 5 --max-time 10 'https://api.github.com/repos/10000ge10000/luci-app-openclaw/releases/latest' 2>/dev/null | grep -o '\"tag_name\"[[:space:]]*:[[:space:]]*\"[^\"]*\"' | head -1 | cut -d'\"' -f4")
-		gh_resp = gh_resp:gsub("%s+", "")
-		if gh_resp ~= "" then
-			-- tag 可能是 v1.0.3 或 1.0.3
-			plugin_latest = gh_resp:gsub("^v", "")
+
+	-- 使用 GitHub API 获取最新 release (tag + body)
+	local gh_json = sys.exec("curl -sf --connect-timeout 5 --max-time 10 'https://api.github.com/repos/10000ge10000/luci-app-openclaw/releases/latest' 2>/dev/null")
+	if gh_json and gh_json ~= "" then
+		-- 提取 tag_name
+		local tag = gh_json:match('"tag_name"%s*:%s*"([^"]+)"')
+		if tag and tag ~= "" then
+			plugin_latest = tag:gsub("^v", ""):gsub("%s+", "")
 		end
-		if plugin_current ~= "" and plugin_latest ~= "" and plugin_current ~= plugin_latest then
-			plugin_has_update = true
+		-- 提取 body (release notes), 处理 JSON 转义
+		-- 结束引号后可能紧跟 \n、空格、, 或 }，用宽松匹配
+		local body = gh_json:match('"body"%s*:%s*"(.-)"[,}%]\n ]')
+		if body and body ~= "" then
+			-- 还原 JSON 转义: \n \r \" \\
+			body = body:gsub("\\n", "\n"):gsub("\\r", ""):gsub('\\"', '"'):gsub("\\\\", "\\")
+			release_notes = body
 		end
+	end
+
+	if plugin_current ~= "" and plugin_latest ~= "" and plugin_current ~= plugin_latest then
+		plugin_has_update = true
 	end
 
 	http.prepare_content("application/json")
 	http.write_json({
 		status = "ok",
-		current = current,
-		latest = latest,
-		has_update = has_update,
 		plugin_current = plugin_current,
 		plugin_latest = plugin_latest,
-		plugin_has_update = plugin_has_update
-	})
-end
-
--- ═══════════════════════════════════════════
--- 执行升级 API (后台执行 + 日志轮询)
--- ═══════════════════════════════════════════
-function action_do_update()
-	local http = require "luci.http"
-	local sys = require "luci.sys"
-
-	-- 清理旧日志和状态
-	sys.exec("rm -f /tmp/openclaw-upgrade.log /tmp/openclaw-upgrade.pid /tmp/openclaw-upgrade.exit")
-
-	-- 后台执行升级，升级完成后自动重启服务
-	sys.exec("( /usr/bin/openclaw-env upgrade > /tmp/openclaw-upgrade.log 2>&1; RC=$?; echo $RC > /tmp/openclaw-upgrade.exit; if [ $RC -eq 0 ]; then echo '' >> /tmp/openclaw-upgrade.log; echo '正在重启服务...' >> /tmp/openclaw-upgrade.log; /etc/init.d/openclaw restart >> /tmp/openclaw-upgrade.log 2>&1; echo '  [✓] 服务已重启' >> /tmp/openclaw-upgrade.log; fi ) & echo $! > /tmp/openclaw-upgrade.pid")
-
-	http.prepare_content("application/json")
-	http.write_json({
-		status = "ok",
-		message = "升级已在后台启动，请查看升级日志..."
-	})
-end
-
--- ═══════════════════════════════════════════
--- 升级日志轮询 API
--- ═══════════════════════════════════════════
-function action_upgrade_log()
-	local http = require "luci.http"
-	local sys = require "luci.sys"
-
-	-- 读取日志内容
-	local log = ""
-	local f = io.open("/tmp/openclaw-upgrade.log", "r")
-	if f then
-		log = f:read("*a") or ""
-		f:close()
-	end
-
-	-- 检查进程是否还在运行
-	local running = false
-	local pid_file = io.open("/tmp/openclaw-upgrade.pid", "r")
-	if pid_file then
-		local pid = pid_file:read("*a"):gsub("%s+", "")
-		pid_file:close()
-		if pid ~= "" then
-			local check = sys.exec("kill -0 " .. pid .. " 2>/dev/null && echo yes || echo no"):gsub("%s+", "")
-			running = (check == "yes")
-		end
-	end
-
-	-- 读取退出码
-	local exit_code = -1
-	if not running then
-		local exit_file = io.open("/tmp/openclaw-upgrade.exit", "r")
-		if exit_file then
-			local code = exit_file:read("*a"):gsub("%s+", "")
-			exit_file:close()
-			exit_code = tonumber(code) or -1
-		end
-	end
-
-	-- 判断状态
-	local state = "idle"
-	if running then
-		state = "running"
-	elseif exit_code == 0 then
-		state = "success"
-	elseif exit_code > 0 then
-		state = "failed"
-	end
-
-	http.prepare_content("application/json")
-	http.write_json({
-		state = state,
-		exit_code = exit_code,
-		log = log
+		plugin_has_update = plugin_has_update,
+		release_notes = release_notes
 	})
 end
 
@@ -512,8 +392,14 @@ function action_plugin_upgrade()
 		"else " ..
 		"  FSIZE=$(wc -c < /tmp/luci-app-openclaw-update.run 2>/dev/null | tr -d ' '); " ..
 		"  echo \"下载完成 (${FSIZE} bytes)\" >> /tmp/openclaw-plugin-upgrade.log; " ..
+		"  FHEAD=$(head -c 9 /tmp/luci-app-openclaw-update.run 2>/dev/null); " ..
 		"  if [ \"$FSIZE\" -lt 10000 ] 2>/dev/null; then " ..
-		"    echo '文件过小，可能下载失败或链接无效' >> /tmp/openclaw-plugin-upgrade.log; " ..
+		"    if [ \"$FHEAD\" = 'Not Found' ]; then " ..
+		"      echo '❌ GitHub 返回 \"Not Found\"，可能是网络被拦截（GFW）或 Release 资产不存在' >> /tmp/openclaw-plugin-upgrade.log; " ..
+		"    else " ..
+		"      echo '❌ 文件过小，可能 GitHub 访问受限或网络异常' >> /tmp/openclaw-plugin-upgrade.log; " ..
+		"    fi; " ..
+		"    echo '请检查路由器是否能访问 github.com，或手动下载后安装: %s' >> /tmp/openclaw-plugin-upgrade.log; " ..
 		"    echo 1 > /tmp/openclaw-plugin-upgrade.exit; " ..
 		"  else " ..
 		"    echo '' >> /tmp/openclaw-plugin-upgrade.log; " ..
@@ -530,7 +416,7 @@ function action_plugin_upgrade()
 		"  rm -f /tmp/luci-app-openclaw-update.run; " ..
 		"fi " ..
 		") & echo $! > /tmp/openclaw-plugin-upgrade.pid",
-		version, run_url, run_url
+		version, run_url, run_url, run_url
 	))
 
 	http.prepare_content("application/json")

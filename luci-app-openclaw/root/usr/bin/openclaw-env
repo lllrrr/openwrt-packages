@@ -224,7 +224,27 @@ download_node() {
 		rm -rf "/overlay/upper${NODE_BASE}" 2>/dev/null
 	fi
 	ensure_mkdir "$NODE_BASE"
-	tar xf "$tmp_file" -C "$NODE_BASE" --strip-components=1
+	# 兼容 BusyBox tar (不支持 --strip-components) 和 GNU tar
+	# 方法: 先解压到临时目录，再移动顶层子目录内容到目标目录
+	if tar --strip-components=1 -xf "$tmp_file" -C "$NODE_BASE" 2>/dev/null; then
+		: # GNU tar 成功
+	else
+		# BusyBox tar 回退: 解压到临时目录后手动移动
+		local tmp_extract="/tmp/node-extract-$$"
+		ensure_mkdir "$tmp_extract"
+		tar xf "$tmp_file" -C "$tmp_extract"
+		# 找顶层目录 (node-vX.X.X-linux-xxx)
+		local top_dir
+		top_dir=$(ls "$tmp_extract" 2>/dev/null | head -1)
+		if [ -n "$top_dir" ] && [ -d "$tmp_extract/$top_dir" ]; then
+			cp -a "$tmp_extract/$top_dir/." "$NODE_BASE/"
+		else
+			log_error "解压后未找到顶层目录，安装失败"
+			rm -rf "$tmp_extract"
+			exit 1
+		fi
+		rm -rf "$tmp_extract"
+	fi
 	rm -f "$tmp_file"
 
 	# 验证

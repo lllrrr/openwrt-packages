@@ -4,6 +4,20 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [1.0.12] - 2026-03-11
+
+### 移除 OpenClaw 版本检测 & 修复 BusyBox tar 兼容性
+
+#### 变更
+- **「检测升级」按钮**: 不再检查 OpenClaw (npm) 版本，仅检查插件 (luci-app-openclaw) 是否有新版本
+- **「检测升级」显示更新内容**: 检测到新插件版本时，直接展示该版本的 Release Notes，告知用户升级了什么
+- **状态面板**: 移除「OpenClaw」版本显示行，保留 Node.js 和插件版本
+- **内部清理**: 移除 `get_openclaw_version()` 函数、`action_do_update`、`action_upgrade_log` 等已废弃后端 API
+
+#### 修复
+- **BusyBox tar 兼容性** (#18, #30): `openclaw-env` 安装 Node.js 时的解压命令优先使用 GNU tar `--strip-components=1`；若不支持则自动回退到 BusyBox tar 兼容方式（解压到临时目录后移动），无需用户手动安装 `tar`
+- **插件升级网络错误提示**: 下载后检测文件内容，若 GitHub 返回 `Not Found`（GFW 拦截等情况）则显示明确提示，并附手动下载链接
+
 ## [1.0.11] - 2026-03-09
 
 ### 修复 Telegram 配对后无法使用的严重 Bug
