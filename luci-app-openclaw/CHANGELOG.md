@@ -4,6 +4,64 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [1.0.14] - 2026-03-12
+
+### 备份管理增强 & QQ 机器人支持
+
+#### 新增
+- **备份列表可视化**: LuCI「💾 备份/恢复」对话框现在展示所有备份的结构化列表：
+  - 📄 仅配置 / 📦 完整备份 类型标签（从 manifest.json 读取 `onlyConfig` 字段精确判断）
+  - 备份时间、文件大小
+  - 每个备份支持**单独恢复**和**删除**操作
+  - 创建/删除备份后列表自动刷新
+- **备份删除 API**: Controller 新增 `action=delete` 操作（含路径穿越安全校验）
+- **QQ 机器人配置**: `oc-config.sh` 渠道菜单新增「QQ 机器人」选项（选项 1，推荐国内用户），支持：
+  - 自动安装 `@tencent-connect/openclaw-qqbot` 插件
+  - App ID / App Secret 输入校验
+  - 通过 `openclaw channels add` CLI 一键配置
+- **消息渠道状态显示**: 状态面板新增「消息渠道」行，自动检测已配置的渠道（QQ、Telegram、Discord、飞书、Slack）
+
+#### 变更
+- **备份恢复**: 从"从最新备份恢复"改为在列表中选择任意备份进行恢复
+- **描述文本**: 各页面描述新增"QQ"渠道说明
+
+#### 修复
+- **JS 语法错误导致所有按钮失效**: 备份对话框 HTML 被错误地插入 `<script>` 标签内部，导致 JavaScript 语法错误。修复: 在对话框 HTML 前后正确分割 `<script>` 标签
+
+## [1.0.13] - 2026-03-12
+
+### 适配 OpenClaw v2026.3.8 & 新增备份/恢复功能
+
+#### 新增
+- **配置备份/恢复**: LuCI 基本设置页「💾 备份/恢复」按钮，弹出对话框支持：
+  - 📄 仅配置文件备份（~2KB，包含模型、渠道、插件设置）
+  - 📦 完整备份（配置 + 状态数据）
+  - 🔄 从最新备份恢复配置（自动重启服务）
+- **Shell 备份菜单**: `oc-config.sh` 主菜单新增「8) 💾 备份/还原配置」，支持：
+  - 创建仅配置 / 完整备份
+  - 验证备份完整性 (`openclaw backup verify`)
+  - 列出已有备份文件
+  - 从最新备份恢复配置（交互确认 + 自动重启）
+- **命令行备份**: `oc-config.sh --backup` 快捷参数，适合 cron 定时任务
+- **OpenClaw 版本显示**: 状态面板新增 OpenClaw 版本行（从 package.json 读取）
+
+#### 修复
+- **备份文件路径**: 备份文件统一保存到 `~/.openclaw/backups/` 目录（OpenClaw CLI 默认输出到 CWD）
+- **完整备份失败**: 含未注册插件的 channel ID 时，`backup create` 因 config invalid 失败；改用 `--no-include-workspace` 跳过工作区发现
+
+#### 变更
+- **OC_TESTED_VERSION**: 2026.3.2 → 2026.3.8
+- **Control UI iframe 资源查找**: `patch_iframe_headers()` 扩展搜索路径，覆盖 `$NODE_BASE/lib/node_modules`、pnpm 全局存储，并使用 `readlink -f` 解析 v2026.3.8 新增的符号链接资源路径
+- **Gateway 入口查找**: `get_oc_entry()` 新增 `readlink -f` 符号链接解析，兼容 v2026.3.8 的 bundled 插件优先级调整
+- **配置同步清理**: `sync_uci_to_json()` 自动删除 v2026.3.7/3.8 已废弃的配置字段：
+  - `gateway.controlUi.dangerouslyAllowCors`
+  - `gateway.controlUi.dangerouslyAllowRemoteConnections`
+  - `commands.ownerDisplay`
+
+#### 兼容性说明
+- **v2026.3.7 BREAKING CHANGE**: `gateway.auth.mode` 必须显式指定（不再有默认值）。本插件已在 v1.0.3 起始终写入 `"mode": "token"`，无需用户操作
+- **v2026.3.8**: Control UI 资源分发改为符号链接方式，本版本已完整适配
+
 ## [1.0.12] - 2026-03-11
 
 ### 移除 OpenClaw 版本检测 & 修复 BusyBox tar 兼容性

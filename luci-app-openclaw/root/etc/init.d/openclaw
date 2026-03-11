@@ -41,6 +41,15 @@ for ver_dir in "${OC_GLOBAL}"/*/node_modules/openclaw; do
 $ver_dir"
 done
 
+# v2026.3.8: 跟随符号链接解析真实包路径 (pnpm store / symlinked wrappers)
+for link_dir in "${OC_GLOBAL}/lib/node_modules/openclaw" "${OC_GLOBAL}/node_modules/openclaw"; do
+	[ -L "$link_dir" ] && {
+		local real_dir=$(readlink -f "$link_dir" 2>/dev/null)
+		[ -n "$real_dir" ] && [ -d "$real_dir" ] && search_dirs="$search_dirs
+$real_dir"
+	}
+done
+
 local d _tmpf
 _tmpf=$(mktemp)
 echo "$search_dirs" > "$_tmpf"
@@ -61,13 +70,17 @@ rm -f "$_tmpf"
 
 patch_iframe_headers() {
 # 移除 OpenClaw 网关的 X-Frame-Options 和 frame-ancestors 限制，允许 LuCI iframe 嵌入
+# v2026.3.8: 资产路径可能通过符号链接解析，需同时搜索 OC_GLOBAL 和 NODE_BASE
 local gw_js
-for f in $(find "${OC_GLOBAL}" -name "gateway-cli-*.js" -type f 2>/dev/null); do
-	if grep -q "X-Frame-Options.*DENY" "$f" 2>/dev/null; then
-		sed -i "s|res.setHeader(\"X-Frame-Options\", \"DENY\");|// res.setHeader(\"X-Frame-Options\", \"DENY\"); // patched by luci-app-openclaw|g" "$f"
-		sed -i "s|\"frame-ancestors 'none'\"|\"frame-ancestors *\"|g" "$f"
-		logger -t openclaw "Patched iframe headers in $f"
-	fi
+for search_root in "${OC_GLOBAL}" "${NODE_BASE}/lib"; do
+	[ -d "$search_root" ] || continue
+	for f in $(find "$search_root" -name "gateway-cli-*.js" -type f 2>/dev/null); do
+		if grep -q "X-Frame-Options.*DENY" "$f" 2>/dev/null; then
+			sed -i "s|res.setHeader(\"X-Frame-Options\", \"DENY\");|// res.setHeader(\"X-Frame-Options\", \"DENY\"); // patched by luci-app-openclaw|g" "$f"
+			sed -i "s|\"frame-ancestors 'none'\"|\"frame-ancestors *\"|g" "$f"
+			logger -t openclaw "Patched iframe headers in $f"
+		fi
+	done
 done
 }
 
@@ -135,8 +148,13 @@ d.acp.dispatch.enabled=false;
 // v2026.3.2: tools.profile 默认改为 messaging，路由器场景需强制 coding
 if(!d.tools)d.tools={};
 d.tools.profile='coding';
+// 禁用 OpenClaw 内置更新检查，防止 Control UI 显示升级横幅
+if(!d.update)d.update={};
+d.update.checkOnStart=false;
 // v2026.3.2: 迁移 Ollama provider 到原生 API
 if(d.models&&d.models.providers&&d.models.providers.ollama){const ol=d.models.providers.ollama;if(ol.api==='openai-chat-completions'||ol.api==='openai-completions')ol.api='ollama';if(ol.baseUrl&&ol.baseUrl.endsWith('/v1'))ol.baseUrl=ol.baseUrl.replace(/\/v1$/,'');if(ol.apiKey==='ollama')ol.apiKey='ollama-local';}
+// v2026.3.7: 清理已废弃的顶层配置键 (loadConfig() 现在会严格校验)
+['cli','commands.native','commands.nativeSkills','commands.ownerDisplay'].forEach(k=>{const ks=k.split('.');let o=d;for(let i=0;i<ks.length-1;i++){if(!o[ks[i]])return;o=o[ks[i]];}delete o[ks[ks.length-1]];});
 fs.writeFileSync(f,JSON.stringify(d,null,2));
 " 2>/dev/null
 fi

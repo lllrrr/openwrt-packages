@@ -30,7 +30,7 @@ msgstr "高级配置"
 # ═══════════════════════════════════════════
 
 msgid "OpenClaw is an AI coding agent gateway that supports GitHub Copilot, Claude, GPT, Gemini and various messaging channels."
-msgstr "OpenClaw 是一个 AI 编程代理网关，支持 GitHub Copilot、Claude、GPT、Gemini 等大模型以及多种消息渠道。"
+msgstr "OpenClaw 是一个 AI 编程代理网关，支持 GitHub Copilot、Claude、GPT、Gemini 等大模型以及 QQ、Telegram、Discord 等多种消息渠道。"
 
 msgid "Enable"
 msgstr "启用"

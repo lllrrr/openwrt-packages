@@ -404,7 +404,14 @@ show_current_config() {
 	local dc_token=$(json_get channels.discord.botToken)
 	local fs_appid=$(json_get channels.feishu.appId)
 	local sk_token=$(json_get channels.slack.botToken)
+	local qq_appid=$(json_get channels.qqbot.appId)
 
+	if [ -n "$qq_appid" ]; then
+		local qq_short=$(echo "$qq_appid" | cut -c1-8)
+		echo -e "${GREEN}│${NC}  QQ (qqbot) ......... ${GREEN}✅ 已配置${NC} (AppID: ${qq_short}...)"
+	else
+		echo -e "${GREEN}│${NC}  QQ (qqbot) ......... ${YELLOW}❌ 未配置${NC}"
+	fi
 	if [ -n "$tg_token" ]; then
 		local tg_short=$(echo "$tg_token" | cut -c1-12)
 		echo -e "${GREEN}│${NC}  Telegram ............ ${GREEN}✅ 已配置${NC} (${tg_short}...)"
@@ -1181,6 +1188,128 @@ set_active_model() {
 }
 
 # ══════════════════════════════════════════════════════════════
+# 配置 QQ 机器人 (通过 qqbot 插件 @tencent-connect/openclaw-qqbot)
+# ══════════════════════════════════════════════════════════════
+configure_qq() {
+	echo ""
+	echo -e "  ${BOLD}🐧 QQ 机器人配置${NC}"
+	echo ""
+
+	# 检查 qqbot 插件是否已安装
+	local plugin_installed=0
+	if [ -n "$OC_ENTRY" ] && [ -x "$NODE_BIN" ]; then
+		local plugin_check=$(oc_cmd plugins list 2>/dev/null | grep -i "qqbot" | grep -i "loaded\|disabled")
+		if [ -n "$plugin_check" ]; then
+			plugin_installed=1
+			echo -e "  ${GREEN}✅ qqbot 插件已安装${NC}"
+		fi
+	fi
+
+	if [ "$plugin_installed" -eq 0 ]; then
+		echo -e "  ${YELLOW}⚠️  qqbot 插件尚未安装${NC}"
+		echo -e "  QQ 渠道需要先安装 qqbot 插件才能使用。"
+		echo ""
+		prompt_with_default "是否立即安装 qqbot 插件? (y/n)" "y" install_qqbot
+		if confirm_yes "$install_qqbot"; then
+			echo -e "  ${CYAN}正在安装 @tencent-connect/openclaw-qqbot ...${NC}"
+			echo -e "  ${DIM}(首次安装可能需要几分钟)${NC}"
+			local install_out
+			install_out=$(oc_cmd plugins install @tencent-connect/openclaw-qqbot@latest 2>&1)
+			local install_rc=$?
+			if [ $install_rc -eq 0 ]; then
+				echo -e "  ${GREEN}✅ qqbot 插件安装成功${NC}"
+				plugin_installed=1
+			else
+				echo -e "  ${RED}❌ 插件安装失败 (exit: $install_rc)${NC}"
+				echo -e "  ${DIM}${install_out}${NC}" | tail -5
+				echo ""
+				echo -e "  ${YELLOW}请手动安装: openclaw plugins install @tencent-connect/openclaw-qqbot@latest${NC}"
+				return
+			fi
+		else
+			echo -e "  ${YELLOW}已跳过插件安装。请先安装 qqbot 插件后再配置。${NC}"
+			echo -e "  ${CYAN}安装命令: openclaw plugins install @tencent-connect/openclaw-qqbot@latest${NC}"
+			return
+		fi
+	fi
+
+	echo ""
+	echo -e "  ${YELLOW}获取 App ID 和 App Secret 步骤:${NC}"
+	echo -e "  1. 前往 ${CYAN}QQ 开放平台${NC}: ${CYAN}https://q.qq.com/qqbot/openclaw/login.html${NC}"
+	echo -e "  2. 用手机 QQ 扫码注册/登录"
+	echo -e "  3. 进入 QQ 机器人页面 → 点击「创建机器人」"
+	echo -e "  4. 创建完成后，复制页面中的 ${CYAN}App ID${NC} 和 ${CYAN}App Secret${NC}"
+	echo ""
+	echo -e "  ${RED}⚠️  注意: App Secret 不支持二次查看（会强制重置），请妥善保存！${NC}"
+	echo ""
+
+	local current_appid=$(json_get channels.qqbot.appId)
+	if [ -n "$current_appid" ]; then
+		echo -e "  ${GREEN}当前已配置 App ID: ${current_appid}${NC}"
+	fi
+
+	prompt_with_default "请输入 QQ 机器人 App ID" "" qq_appid
+	prompt_with_default "请输入 QQ 机器人 App Secret" "" qq_secret
+	qq_appid=$(sanitize_input "$qq_appid" | tr -d '[:space:]')
+	qq_secret=$(sanitize_input "$qq_secret" | tr -d '[:space:]')
+
+	if [ -n "$qq_appid" ] && [ -n "$qq_secret" ]; then
+		# App ID 应为纯数字
+		if ! printf '%s' "$qq_appid" | grep -qE '^[0-9]+$'; then
+			echo -e "  ${RED}❌ App ID 格式错误，应为纯数字${NC}"
+			return
+		fi
+
+		# App Secret 基本格式检查 (非空即可，长度通常 32 位)
+		if [ ${#qq_secret} -lt 10 ]; then
+			echo -e "  ${YELLOW}⚠️  App Secret 长度过短（${#qq_secret} 字符），请确认是否完整粘贴。${NC}"
+			prompt_with_default "是否仍然保存? (y/n)" "n" force_save
+			if ! confirm_yes "$force_save"; then
+				echo -e "  ${YELLOW}已取消，配置未保存。${NC}"
+				return
+			fi
+		fi
+
+		# 使用 openclaw CLI 一键配置 (推荐方式)
+		echo -e "  ${CYAN}正在配置 qqbot 渠道...${NC}"
+		local add_out
+		add_out=$(oc_cmd channels add --channel qqbot --token "${qq_appid}:${qq_secret}" 2>&1)
+		local add_rc=$?
+
+		if [ $add_rc -ne 0 ]; then
+			echo -e "  ${YELLOW}CLI 配置未成功，尝试直接写入配置文件...${NC}"
+			# 回退: 直接写入 JSON 配置
+			json_set channels.qqbot.enabled true
+			json_set channels.qqbot.appId "$qq_appid"
+			json_set channels.qqbot.clientSecret "$qq_secret"
+			chown openclaw:openclaw "$CONFIG_FILE" 2>/dev/null || true
+		fi
+
+		# 保存后验证
+		local saved_appid=$(json_get channels.qqbot.appId)
+		if [ -z "$saved_appid" ]; then
+			echo -e "  ${RED}❌ 配置保存异常! 请检查配置文件${NC}"
+			return
+		fi
+
+		echo -e "  ${GREEN}✅ QQ 机器人配置已保存${NC}"
+		echo -e "  ${CYAN}   App ID: ${qq_appid}${NC}"
+		echo ""
+		echo -e "  ${YELLOW}提示:${NC}"
+		echo -e "  • 配置完成后需重启 Gateway 使配置生效"
+		echo -e "  • 如果机器人回复「该机器人去火星了」，请检查 App ID 和 App Secret 是否正确"
+		echo -e "  • 当前不建议将 QQ 机器人添加进 QQ 群聊"
+		echo -e "  • 插件升级: ${CYAN}openclaw plugins update openclaw-qqbot${NC}"
+		echo ""
+
+		# 重启 Gateway 使配置生效
+		ask_restart
+	else
+		echo -e "  ${YELLOW}信息不完整，已取消。${NC}"
+	fi
+}
+
+# ══════════════════════════════════════════════════════════════
 # 配置 Telegram
 # ══════════════════════════════════════════════════════════════
 configure_telegram() {
@@ -1435,23 +1564,25 @@ configure_channels() {
 		echo ""
 		echo -e "  ${BOLD}📡 配置消息渠道${NC}"
 		echo ""
-		echo -e "  ${CYAN}1)${NC} Telegram  ${GREEN}(最常用，推荐)${NC}"
-		echo -e "  ${CYAN}2)${NC} Discord"
-		echo -e "  ${CYAN}3)${NC} 飞书 (Feishu)"
-		echo -e "  ${CYAN}4)${NC} Slack"
-		echo -e "  ${CYAN}5)${NC} WhatsApp  ${YELLOW}(需通过 Web 控制台扫码)${NC}"
-		echo -e "  ${CYAN}6)${NC} Telegram 配对助手"
-		echo -e "  ${CYAN}7)${NC} 官方完整渠道配置向导"
+		echo -e "  ${CYAN}1)${NC} QQ 机器人  ${GREEN}(腾讯QQ，推荐国内用户)${NC}"
+		echo -e "  ${CYAN}2)${NC} Telegram  ${GREEN}(最常用，推荐)${NC}"
+		echo -e "  ${CYAN}3)${NC} Discord"
+		echo -e "  ${CYAN}4)${NC} 飞书 (Feishu)"
+		echo -e "  ${CYAN}5)${NC} Slack"
+		echo -e "  ${CYAN}6)${NC} WhatsApp  ${YELLOW}(需通过 Web 控制台扫码)${NC}"
+		echo -e "  ${CYAN}7)${NC} Telegram 配对助手"
+		echo -e "  ${CYAN}8)${NC} 官方完整渠道配置向导"
 		echo -e "  ${CYAN}0)${NC} 返回主菜单"
 		echo ""
 		prompt_with_default "请选择" "1" ch_choice
 
 		case "$ch_choice" in
-			1) configure_telegram ;;
-			2) configure_discord ;;
-			3) configure_feishu ;;
-			4) configure_slack ;;
-			5)
+			1) configure_qq ;;
+			2) configure_telegram ;;
+			3) configure_discord ;;
+			4) configure_feishu ;;
+			5) configure_slack ;;
+			6)
 				echo ""
 				echo -e "  ${YELLOW}WhatsApp 需要通过 Web 控制台扫码配对:${NC}"
 				local gw_token=$(json_get gateway.auth.token)
@@ -1460,8 +1591,8 @@ configure_channels() {
 				echo -e "  ${CYAN}http://<你的路由器IP>:${gw_port}/?token=${gw_token}${NC}"
 				echo -e "  打开后进入 Channels → WhatsApp 扫码即可。"
 				;;
-			6) telegram_pairing ;;
-			7)
+			7) telegram_pairing ;;
+			8)
 				echo ""
 				echo -e "  ${CYAN}启动官方渠道配置向导...${NC}"
 				(oc_cmd configure --section channels) || echo -e "  ${YELLOW}配置向导已退出${NC}"
@@ -1777,6 +1908,141 @@ reset_to_defaults() {
 # ══════════════════════════════════════════════════════════════
 # 主菜单
 # ══════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════
+# 备份/还原配置菜单 (v2026.3.8+ openclaw backup create/verify)
+# ══════════════════════════════════════════════════════════════
+backup_restore_menu() {
+	echo ""
+	echo -e "  ${BOLD}💾 备份/还原配置${NC}"
+	echo ""
+	echo -e "  ${CYAN}1)${NC} 创建配置备份 (仅配置文件)"
+	echo -e "  ${CYAN}2)${NC} 创建完整备份 (配置 + 状态数据)"
+	echo -e "  ${CYAN}3)${NC} 验证最新备份"
+	echo -e "  ${CYAN}4)${NC} 查看备份列表"
+	echo -e "  ${CYAN}5)${NC} 从最新备份恢复配置"
+	echo -e "  ${CYAN}0)${NC} 返回主菜单"
+	echo ""
+	prompt_with_default "请选择" "1" backup_choice
+
+	# 备份目录 (openclaw backup create 输出到 CWD)
+	local backup_dir="${OC_STATE_DIR}/backups"
+	mkdir -p "$backup_dir" 2>/dev/null
+
+	case "$backup_choice" in
+		1)
+			echo -e "  ${CYAN}正在创建配置备份...${NC}"
+			local out
+			out=$(cd "$backup_dir" && oc_cmd backup create --only-config --no-include-workspace 2>&1)
+			local rc=$?
+			echo "$out"
+			if [ $rc -eq 0 ] && echo "$out" | grep -q "\.tar\.gz"; then
+				echo -e "  ${GREEN}✅ 配置备份已创建${NC}"
+			else
+				echo -e "  ${YELLOW}⚠️  备份功能需要 OpenClaw v2026.3.8+${NC}"
+				echo -e "  ${DIM}如果备份命令不可用，可手动备份: cp ${CONFIG_FILE} ${CONFIG_FILE}.bak${NC}"
+			fi
+			;;
+		2)
+			echo -e "  ${CYAN}正在创建完整备份...${NC}"
+			echo -e "  ${DIM}(包含配置和状态数据，可能需要较长时间)${NC}"
+			local out
+			out=$(cd "$backup_dir" && HOME="$backup_dir" oc_cmd backup create --no-include-workspace 2>&1)
+			local rc=$?
+			echo "$out"
+			# 完整备份可能输出到 HOME，尝试移动到 backup_dir
+			for f in "${OC_DATA}"/*-openclaw-backup.tar.gz; do
+				[ -f "$f" ] && mv "$f" "$backup_dir/" 2>/dev/null
+			done
+			if [ $rc -eq 0 ] && echo "$out" | grep -q "\.tar\.gz"; then
+				echo -e "  ${GREEN}✅ 完整备份已创建${NC}"
+			else
+				echo -e "  ${YELLOW}⚠️  备份失败${NC}"
+				echo -e "  ${DIM}提示: 如果配置文件有校验警告，完整备份可能受限。请使用选项 1 (仅配置文件) 备份${NC}"
+			fi
+			;;
+		3)
+			local latest=$(ls -t "${backup_dir}"/*-openclaw-backup.tar.gz 2>/dev/null | head -1)
+			if [ -z "$latest" ]; then
+				# 也检查旧位置
+				latest=$(ls -t "${OC_STATE_DIR}"/*-openclaw-backup.tar.gz "${OC_DATA}"/*-openclaw-backup.tar.gz 2>/dev/null | head -1)
+			fi
+			if [ -z "$latest" ]; then
+				echo -e "  ${YELLOW}未找到备份文件，请先创建备份${NC}"
+			else
+				echo -e "  ${CYAN}验证备份: ${latest}${NC}"
+				oc_cmd backup verify "$latest" 2>&1
+			fi
+			;;
+		4)
+			echo ""
+			if [ -d "$backup_dir" ]; then
+				local count=$(ls "${backup_dir}"/*-openclaw-backup.tar.gz 2>/dev/null | wc -l)
+				if [ "$count" -gt 0 ] 2>/dev/null; then
+					echo -e "  ${BOLD}备份文件列表:${NC}"
+					ls -lh "${backup_dir}"/*-openclaw-backup.tar.gz 2>/dev/null | while read line; do
+						echo -e "  ${DIM}${line}${NC}"
+					done
+				else
+					echo -e "  ${YELLOW}暂无备份文件${NC}"
+				fi
+			else
+				echo -e "  ${YELLOW}暂无备份文件${NC}"
+			fi
+			echo ""
+			echo -e "  ${DIM}备份目录: ${backup_dir}${NC}"
+			;;
+		5)
+			local latest=$(ls -t "${backup_dir}"/*-openclaw-backup.tar.gz 2>/dev/null | head -1)
+			if [ -z "$latest" ]; then
+				echo -e "  ${YELLOW}未找到备份文件，请先创建备份${NC}"
+			else
+				echo -e "  ${CYAN}将从以下备份恢复:${NC}"
+				echo -e "  ${DIM}${latest}${NC}"
+				echo ""
+				echo -e "  ${YELLOW}⚠️  这会还原备份中的所有配置和数据文件到原路径！${NC}"
+				prompt_with_default "确认恢复? (y/N)" "N" confirm_restore
+				if [ "$confirm_restore" = "y" ] || [ "$confirm_restore" = "Y" ]; then
+					# 验证备份中 openclaw.json 有效
+					local tmp_json="/tmp/oc-restore-check.json"
+					tar -xzf "$latest" --wildcards '*/openclaw.json' -O > "$tmp_json" 2>/dev/null
+					if [ ! -s "$tmp_json" ] || ! "$NODE_BIN" -e "JSON.parse(require('fs').readFileSync('${tmp_json}','utf8'))" 2>/dev/null; then
+						rm -f "$tmp_json"
+						echo -e "  ${RED}❌ 备份中的配置文件无效，恢复已取消${NC}"
+					else
+						rm -f "$tmp_json"
+						# 备份当前配置
+						cp -f "$CONFIG_FILE" "${CONFIG_FILE}.pre-restore" 2>/dev/null
+						# 获取备份名前缀
+						local backup_name=$(tar -tzf "$latest" 2>/dev/null | head -1 | cut -d/ -f1)
+						if [ -z "$backup_name" ]; then
+							echo -e "  ${RED}❌ 备份文件格式无法识别${NC}"
+						else
+							echo -e "  ${DIM}正在还原文件...${NC}"
+							# 停止服务
+							/etc/init.d/openclaw stop >/dev/null 2>&1
+							sleep 2
+							# 提取 payload 到根目录 (还原到原始绝对路径)
+							tar -xzf "$latest" --strip-components=3 -C / "${backup_name}/payload/posix/" 2>&1
+							# 修复权限
+							chown -R openclaw:openclaw /opt/openclaw/data/.openclaw 2>/dev/null
+							echo -e "  ${GREEN}✅ 配置和数据已完整恢复！原配置已保存为 openclaw.json.pre-restore${NC}"
+							echo ""
+							prompt_with_default "是否重启服务使配置生效? (Y/n)" "Y" do_restart
+							if [ "$do_restart" != "n" ] && [ "$do_restart" != "N" ]; then
+								restart_gateway
+							fi
+						fi
+					fi
+				else
+					echo -e "  ${DIM}已取消${NC}"
+				fi
+			fi
+			;;
+		0|"") return ;;
+		*) echo -e "  ${YELLOW}无效选择${NC}" ;;
+	esac
+}
+
 main_menu() {
 	while true; do
 		echo ""
@@ -1787,11 +2053,12 @@ main_menu() {
 		echo -e "  ${CYAN}1)${NC} 📋 查看当前配置"
 		echo -e "  ${CYAN}2)${NC} 🤖 配置 AI 模型提供商"
 		echo -e "  ${CYAN}3)${NC} 🔄 设定当前活跃模型"
-		echo -e "  ${CYAN}4)${NC} 📡 配置消息渠道 (Telegram/Discord/飞书/Slack)"
+		echo -e "  ${CYAN}4)${NC} 📡 配置消息渠道 (QQ/Telegram/Discord/飞书/Slack)"
 		echo -e "  ${CYAN}5)${NC} 🔍 健康检查 / 诊断"
 		echo -e "  ${CYAN}6)${NC} 🔄 重启 Gateway"
 		echo -e "  ${CYAN}7)${NC} 📝 查看原始配置文件"
-		echo -e "  ${CYAN}8)${NC} ⚠️  恢复默认配置"
+		echo -e "  ${CYAN}8)${NC} 💾 备份/还原配置"
+		echo -e "  ${CYAN}9)${NC} ⚠️  恢复默认配置"
 		echo -e "  ${CYAN}0)${NC} 退出"
 		echo ""
 		prompt_with_default "请选择" "1" menu_choice
@@ -1819,7 +2086,8 @@ main_menu() {
 					ask_restart
 				fi
 				;;
-			8) reset_to_defaults ;;
+			8) backup_restore_menu ;;
+			9) reset_to_defaults ;;
 			0)
 				echo -e "  ${GREEN}再见！${NC}"
 				exit 0
@@ -1849,6 +2117,12 @@ case "${1:-}" in
 		;;
 	--restart)
 		restart_gateway
+		;;
+	--backup)
+		bk_dir="${OC_STATE_DIR}/backups"
+		mkdir -p "$bk_dir" 2>/dev/null
+		echo -e "${CYAN}正在创建配置备份...${NC}"
+		cd "$bk_dir" && oc_cmd backup create --only-config --no-include-workspace 2>&1
 		;;
 	--status)
 		show_current_config

@@ -38,6 +38,9 @@ function index()
 
 	-- 插件升级日志 API (轮询)
 	entry({"admin", "services", "openclaw", "plugin_upgrade_log"}, call("action_plugin_upgrade_log"), nil).leaf = true
+
+	-- 配置备份 API (v2026.3.8+: openclaw backup create/verify)
+	entry({"admin", "services", "openclaw", "backup"}, call("action_backup"), nil).leaf = true
 end
 
 -- ═══════════════════════════════════════════
@@ -67,6 +70,7 @@ function action_status()
 		memory_kb = 0,
 		uptime = "",
 		node_version = "",
+		oc_version = "",
 		plugin_version = "",
 	}
 
@@ -84,6 +88,25 @@ function action_status()
 		f:close()
 		local node_ver = sys.exec(node_bin .. " --version 2>/dev/null"):gsub("%s+", "")
 		result.node_version = node_ver
+	end
+
+	-- OpenClaw 版本 (从 package.json 读取)
+	local oc_dirs = {
+		"/opt/openclaw/global/lib/node_modules/openclaw",
+		"/opt/openclaw/global/node_modules/openclaw",
+		"/opt/openclaw/node/lib/node_modules/openclaw",
+	}
+	for _, d in ipairs(oc_dirs) do
+		local pf = io.open(d .. "/package.json", "r")
+		if pf then
+			local pj = pf:read("*a")
+			pf:close()
+			local ver = pj:match('"version"%s*:%s*"([^"]+)"')
+			if ver and ver ~= "" then
+				result.oc_version = ver
+				break
+			end
+		end
 	end
 
 	-- 网关端口检查
@@ -112,6 +135,27 @@ function action_status()
 		local model = content:match('"primary"%s*:%s*"([^"]+)"')
 		if model and model ~= "" then
 			result.active_model = model
+		end
+
+		-- 读取已配置的渠道列表
+		local channels = {}
+		if content:match('"qqbot"%s*:%s*{') and content:match('"appId"%s*:%s*"[^"]+"') then
+			channels[#channels+1] = "QQ"
+		end
+		if content:match('"telegram"%s*:%s*{') and content:match('"botToken"%s*:%s*"[^"]+"') then
+			channels[#channels+1] = "Telegram"
+		end
+		if content:match('"discord"%s*:%s*{') then
+			channels[#channels+1] = "Discord"
+		end
+		if content:match('"feishu"%s*:%s*{') then
+			channels[#channels+1] = "飞书"
+		end
+		if content:match('"slack"%s*:%s*{') then
+			channels[#channels+1] = "Slack"
+		end
+		if #channels > 0 then
+			result.channels = table.concat(channels, ", ")
 		end
 	end
 
@@ -478,4 +522,277 @@ function action_plugin_upgrade_log()
 		running = running,
 		exit_code = exit_code
 	})
+end
+
+-- ═══════════════════════════════════════════
+-- 配置备份 API (v2026.3.8+)
+-- action=create: 创建配置备份
+-- action=verify:  验证最新备份
+-- action=list:    列出现有备份(含类型/大小)
+-- action=delete:  删除指定备份文件
+-- ═══════════════════════════════════════════
+function action_backup()
+	local http = require "luci.http"
+	local sys = require "luci.sys"
+	local action = http.formvalue("action") or "create"
+
+	local node_bin = "/opt/openclaw/node/bin/node"
+	local oc_entry = ""
+
+	-- 查找 openclaw 入口
+	local search_dirs = {
+		"/opt/openclaw/global/lib/node_modules/openclaw",
+		"/opt/openclaw/global/node_modules/openclaw",
+		"/opt/openclaw/node/lib/node_modules/openclaw",
+	}
+	for _, d in ipairs(search_dirs) do
+		if nixio.fs.stat(d .. "/openclaw.mjs", "type") then
+			oc_entry = d .. "/openclaw.mjs"
+			break
+		elseif nixio.fs.stat(d .. "/dist/cli.js", "type") then
+			oc_entry = d .. "/dist/cli.js"
+			break
+		end
+	end
+
+	if oc_entry == "" then
+		http.prepare_content("application/json")
+		http.write_json({ status = "error", message = "OpenClaw 未安装，无法执行备份操作" })
+		return
+	end
+
+	local env_prefix = string.format(
+		"HOME=/opt/openclaw/data OPENCLAW_HOME=/opt/openclaw/data " ..
+		"OPENCLAW_STATE_DIR=/opt/openclaw/data/.openclaw " ..
+		"OPENCLAW_CONFIG_PATH=/opt/openclaw/data/.openclaw/openclaw.json " ..
+		"PATH=/opt/openclaw/node/bin:/opt/openclaw/global/bin:$PATH "
+	)
+
+	-- 备份目录 (openclaw backup create 输出到 CWD，需要 cd)
+	local backup_dir = "/opt/openclaw/data/.openclaw/backups"
+	local cd_prefix = "mkdir -p " .. backup_dir .. " && cd " .. backup_dir .. " && "
+
+	-- ── 辅助: 解析单个备份文件的 manifest 信息 ──
+	local function parse_backup_info(filepath)
+		local filename = filepath:match("([^/]+)$") or filepath
+		-- 文件大小
+		local st = nixio.fs.stat(filepath)
+		local size = st and st.size or 0
+		-- 从文件名提取时间戳: 2026-03-11T18-28-43.149Z-openclaw-backup.tar.gz
+		local ts = filename:match("^(%d%d%d%d%-%d%d%-%d%dT%d%d%-%d%d%-%d%d%.%d+Z)")
+		local display_time = ""
+		if ts then
+			-- 2026-03-11T18-28-43.149Z -> 2026-03-11 18:28:43
+			display_time = ts:gsub("T", " "):gsub("(%d%d)%-(%d%d)%-(%d%d)%.%d+Z", "%1:%2:%3")
+		end
+		-- 读取 manifest.json 判断备份类型
+		local backup_type = "unknown"
+		local manifest_json = sys.exec(
+			"tar --wildcards -xzf " .. filepath .. " '*/manifest.json' -O 2>/dev/null"
+		)
+		if manifest_json and manifest_json ~= "" then
+			-- 简单字符串匹配，避免依赖 JSON 库
+			if manifest_json:match('"onlyConfig"%s*:%s*true') then
+				backup_type = "config"
+			elseif manifest_json:match('"onlyConfig"%s*:%s*false') then
+				backup_type = "full"
+			end
+		else
+			-- 无法读取 manifest，通过文件大小推断
+			if size < 50000 then
+				backup_type = "config"
+			else
+				backup_type = "full"
+			end
+		end
+		-- 格式化大小
+		local size_str
+		if size >= 1073741824 then
+			size_str = string.format("%.1f GB", size / 1073741824)
+		elseif size >= 1048576 then
+			size_str = string.format("%.1f MB", size / 1048576)
+		elseif size >= 1024 then
+			size_str = string.format("%.1f KB", size / 1024)
+		else
+			size_str = tostring(size) .. " B"
+		end
+		return {
+			filename = filename,
+			filepath = filepath,
+			size = size,
+			size_str = size_str,
+			time = display_time,
+			backup_type = backup_type
+		}
+	end
+
+	if action == "create" then
+		local only_config = http.formvalue("only_config") or "1"
+		local backup_cmd
+		if only_config == "1" then
+			backup_cmd = cd_prefix .. env_prefix .. node_bin .. " " .. oc_entry .. " backup create --only-config --no-include-workspace 2>&1"
+		else
+			backup_cmd = cd_prefix .. "HOME=" .. backup_dir .. " " .. env_prefix .. node_bin .. " " .. oc_entry .. " backup create --no-include-workspace 2>&1"
+		end
+		local output = sys.exec(backup_cmd)
+		-- 完整备份可能输出到 HOME，移动到 backup_dir
+		sys.exec("mv /opt/openclaw/data/*-openclaw-backup.tar.gz " .. backup_dir .. "/ 2>/dev/null")
+		-- 提取备份文件路径
+		local backup_path = output:match("([%S]+%.tar%.gz)")
+		http.prepare_content("application/json")
+		http.write_json({
+			status = "ok",
+			action = "create",
+			output = output,
+			backup_path = backup_path or ""
+		})
+	elseif action == "verify" then
+		-- 找到最新的备份文件
+		local latest = sys.exec("ls -t " .. backup_dir .. "/*-openclaw-backup.tar.gz 2>/dev/null | head -1"):gsub("%s+", "")
+		if latest == "" then
+			http.prepare_content("application/json")
+			http.write_json({ status = "error", message = "未找到备份文件，请先创建备份" })
+			return
+		end
+		local output = sys.exec(env_prefix .. node_bin .. " " .. oc_entry .. " backup verify " .. latest .. " 2>&1")
+		http.prepare_content("application/json")
+		http.write_json({
+			status = "ok",
+			action = "verify",
+			output = output,
+			backup_path = latest
+		})
+	elseif action == "restore" then
+		-- 支持指定文件名，不指定则用最新
+		local target_file = http.formvalue("file") or ""
+		local restore_path = ""
+		if target_file ~= "" then
+			-- 安全: 只允许文件名，不允许路径穿越
+			target_file = target_file:match("([^/]+)$") or ""
+			if target_file:match("%-openclaw%-backup%.tar%.gz$") then
+				restore_path = backup_dir .. "/" .. target_file
+			end
+		end
+		if restore_path == "" or not nixio.fs.stat(restore_path, "type") then
+			-- fallback 到最新
+			restore_path = sys.exec("ls -t " .. backup_dir .. "/*-openclaw-backup.tar.gz 2>/dev/null | head -1"):gsub("%s+", "")
+		end
+		if restore_path == "" then
+			http.prepare_content("application/json")
+			http.write_json({ status = "error", message = "未找到备份文件，请先创建备份" })
+			return
+		end
+		local oc_data_dir = "/opt/openclaw/data/.openclaw"
+		local config_path = oc_data_dir .. "/openclaw.json"
+
+		-- 1) 先验证备份中的 openclaw.json 是否有效
+		local check_cmd = "tar -xzf " .. restore_path .. " --wildcards '*/openclaw.json' -O 2>/dev/null"
+		local json_content = sys.exec(check_cmd)
+		if not json_content or json_content == "" then
+			http.prepare_content("application/json")
+			http.write_json({ status = "error", message = "备份文件中未找到 openclaw.json" })
+			return
+		end
+		-- 写入临时文件并用 node 验证
+		local tmpfile = "/tmp/oc-restore-check.json"
+		local f = io.open(tmpfile, "w")
+		if f then f:write(json_content); f:close() end
+		local check = sys.exec(node_bin .. " -e \"try{JSON.parse(require('fs').readFileSync('" .. tmpfile .. "','utf8'));console.log('OK')}catch(e){console.log('FAIL')}\" 2>/dev/null"):gsub("%s+", "")
+		os.remove(tmpfile)
+		if check ~= "OK" then
+			http.prepare_content("application/json")
+			http.write_json({ status = "error", message = "备份文件中的配置无效，恢复已取消" })
+			return
+		end
+
+		-- 2) 备份当前配置
+		sys.exec("cp -f " .. config_path .. " " .. config_path .. ".pre-restore 2>/dev/null")
+
+		-- 3) 获取备份名前缀 (如: 2026-03-11T18-21-17.209Z-openclaw-backup)
+		--    备份结构: <backup_name>/payload/posix/<绝对路径>
+		local first_entry = sys.exec("tar -tzf " .. restore_path .. " 2>/dev/null | head -1"):gsub("%s+", "")
+		local backup_name = first_entry:match("^([^/]+)/") or ""
+		if backup_name == "" then
+			http.prepare_content("application/json")
+			http.write_json({ status = "error", message = "备份文件格式无法识别" })
+			return
+		end
+		local payload_prefix = backup_name .. "/payload/posix/"
+		-- strip 3 层: <backup_name> / payload / posix
+		local strip_count = 3
+
+		-- 4) 停止服务
+		sys.exec("/etc/init.d/openclaw stop >/dev/null 2>&1")
+		-- 等待端口释放
+		sys.exec("sleep 2")
+
+		-- 5) 提取 payload 文件到根目录 (还原到原始绝对路径)
+		--    注: --wildcards 与 --strip-components 组合在某些 tar 版本不兼容
+		--    使用精确路径前缀代替 wildcards
+		local extract_cmd = string.format(
+			"tar -xzf %s --strip-components=%d -C / '%s' 2>&1",
+			restore_path, strip_count, payload_prefix
+		)
+		local extract_out = sys.exec(extract_cmd)
+
+		-- 6) 修复权限
+		sys.exec("chown -R openclaw:openclaw " .. oc_data_dir .. " 2>/dev/null")
+
+		-- 7) 重启服务
+		sys.exec("/etc/init.d/openclaw start >/dev/null 2>&1 &")
+
+		http.prepare_content("application/json")
+		http.write_json({
+			status = "ok",
+			action = "restore",
+			message = "已从备份完整恢复所有配置和数据，服务正在重启。原配置已保存为 openclaw.json.pre-restore",
+			backup_path = restore_path,
+			extract_output = extract_out or ""
+		})
+	elseif action == "list" then
+		-- 返回结构化的备份文件列表(含类型/大小/时间)
+		local files_raw = sys.exec("ls -t " .. backup_dir .. "/*-openclaw-backup.tar.gz 2>/dev/null"):gsub("%s+$", "")
+		local backups = {}
+		if files_raw ~= "" then
+			for fpath in files_raw:gmatch("[^\n]+") do
+				fpath = fpath:gsub("%s+", "")
+				if fpath ~= "" then
+					backups[#backups + 1] = parse_backup_info(fpath)
+				end
+				-- 最多返回 20 条
+				if #backups >= 20 then break end
+			end
+		end
+		http.prepare_content("application/json")
+		http.write_json({
+			status = "ok",
+			action = "list",
+			backups = backups
+		})
+	elseif action == "delete" then
+		local target_file = http.formvalue("file") or ""
+		-- 安全: 只允许文件名，不允许路径穿越
+		target_file = target_file:match("([^/]+)$") or ""
+		if target_file == "" or not target_file:match("%-openclaw%-backup%.tar%.gz$") then
+			http.prepare_content("application/json")
+			http.write_json({ status = "error", message = "无效的备份文件名" })
+			return
+		end
+		local del_path = backup_dir .. "/" .. target_file
+		if not nixio.fs.stat(del_path, "type") then
+			http.prepare_content("application/json")
+			http.write_json({ status = "error", message = "备份文件不存在" })
+			return
+		end
+		os.remove(del_path)
+		http.prepare_content("application/json")
+		http.write_json({
+			status = "ok",
+			action = "delete",
+			message = "已删除备份: " .. target_file
+		})
+	else
+		http.prepare_content("application/json")
+		http.write_json({ status = "error", message = "未知备份操作: " .. action })
+	end
 end

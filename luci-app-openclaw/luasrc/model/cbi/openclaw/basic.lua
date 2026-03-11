@@ -2,7 +2,7 @@
 local sys = require "luci.sys"
 
 m = Map("openclaw", "OpenClaw AI 网关",
-	"OpenClaw 是一个 AI 编程代理网关，支持 GitHub Copilot、Claude、GPT、Gemini 等大模型以及 Telegram、Discord 等多种消息渠道。")
+	"OpenClaw 是一个 AI 编程代理网关，支持 GitHub Copilot、Claude、GPT、Gemini 等大模型以及 QQ、Telegram、Discord 等多种消息渠道。")
 
 -- 隐藏底部的「保存并应用」「保存」「复位」按钮 (本页无可编辑的 UCI 选项)
 m.pageaction = false
@@ -35,6 +35,7 @@ act.cfgvalue = function(self, section)
 	html[#html+1] = '<button class="btn cbi-button cbi-button-action" type="button" onclick="ocServiceCtl(\'restart\')">🔄 重启服务</button>'
 	html[#html+1] = '<button class="btn cbi-button cbi-button-action" type="button" onclick="ocServiceCtl(\'stop\')">⏹️ 停止服务</button>'
 	html[#html+1] = '<span style="position:relative;display:inline-block;" id="btn-check-update-wrap"><button class="btn cbi-button cbi-button-action" type="button" onclick="ocCheckUpdate()" id="btn-check-update">🔍 检测升级</button><span id="update-dot" style="display:none;position:absolute;top:-2px;right:-2px;width:10px;height:10px;background:#e36209;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px #e36209;"></span></span>'
+	html[#html+1] = '<button class="btn cbi-button cbi-button-action" type="button" onclick="ocBackupRestore()" id="btn-backup" title="备份或恢复 OpenClaw 配置">💾 备份/恢复</button>'
 	html[#html+1] = '<button class="btn cbi-button cbi-button-remove" type="button" onclick="ocUninstall()" id="btn-uninstall" title="删除 Node.js、OpenClaw 运行环境及相关数据">🗑️ 卸载环境</button>'
 	html[#html+1] = '</div>'
 	html[#html+1] = '<div id="action-result" style="margin-top:8px;"></div>'
@@ -357,6 +358,146 @@ act.cfgvalue = function(self, section)
 	html[#html+1] = '"<button class=\\"btn cbi-button cbi-button-apply\\" type=\\"button\\" onclick=\\"location.reload()\\" style=\\"margin-top:8px;\\">🔄 刷新页面</button></div>";'
 	html[#html+1] = '}else{el.innerHTML="<span style=\\"color:red\\">❌ "+(r.message||"卸载失败")+"</span>";}'
 	html[#html+1] = '}catch(e){el.innerHTML="<span style=\\"color:red\\">❌ 请求失败</span>";}'
+	html[#html+1] = '});}'
+
+	-- ═══ 备份/恢复 对话框 + 功能 (v2026.3.8+ openclaw backup) ═══
+	local backup_url = luci.dispatcher.build_url("admin", "services", "openclaw", "backup")
+	-- 先关闭 script，插入对话框 HTML，再重新打开 script
+	html[#html+1] = '</script>'
+	-- 对话框 HTML (附加到按钮区域后面)
+	html[#html+1] = '<div id="oc-backup-dialog" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;align-items:center;justify-content:center;">'
+	html[#html+1] = '<div style="background:#fff;border-radius:12px;padding:24px 28px;max-width:520px;width:92%;box-shadow:0 8px 32px rgba(0,0,0,0.2);">'
+	html[#html+1] = '<h3 style="margin:0 0 16px 0;font-size:16px;color:#333;">💾 备份 / 恢复配置</h3>'
+	-- 备份操作区
+	html[#html+1] = '<div style="margin-bottom:16px;">'
+	html[#html+1] = '<div style="font-weight:600;font-size:13px;color:#555;margin-bottom:8px;">📤 创建备份</div>'
+	html[#html+1] = '<div style="display:flex;gap:10px;">'
+	html[#html+1] = '<button class="btn cbi-button cbi-button-apply" type="button" onclick="ocDoBackup(1)" id="btn-bk-config" style="font-size:12px;">📄 仅配置文件</button>'
+	html[#html+1] = '<button class="btn cbi-button cbi-button-action" type="button" onclick="ocDoBackup(0)" id="btn-bk-full" style="font-size:12px;">📦 配置 + 状态数据</button>'
+	html[#html+1] = '</div>'
+	html[#html+1] = '<div style="font-size:11px;color:#888;margin-top:6px;">仅配置文件 (~2KB) 包含模型、渠道、插件设置；完整备份含会话历史等状态数据（可能较大）</div>'
+	html[#html+1] = '</div>'
+	-- 备份列表区（恢复/删除在这里动态渲染）
+	html[#html+1] = '<div style="border-top:1px solid #eee;padding-top:14px;margin-bottom:16px;">'
+	html[#html+1] = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">'
+	html[#html+1] = '<div style="font-weight:600;font-size:13px;color:#555;">📥 现有备份</div>'
+	html[#html+1] = '<button class="btn cbi-button" type="button" onclick="ocLoadBackupList()" style="font-size:11px;padding:2px 10px;">🔄 刷新</button>'
+	html[#html+1] = '</div>'
+	html[#html+1] = '<div id="oc-backup-list" style="max-height:260px;overflow-y:auto;"></div>'
+	html[#html+1] = '</div>'
+	-- 操作结果提示区
+	html[#html+1] = '<div id="oc-backup-result" style="margin-bottom:14px;display:none;"></div>'
+	-- 关闭按钮
+	html[#html+1] = '<div style="display:flex;justify-content:flex-end;">'
+	html[#html+1] = '<button class="btn cbi-button" type="button" onclick="document.getElementById(\'oc-backup-dialog\').style.display=\'none\';" style="min-width:80px;">关闭</button>'
+	html[#html+1] = '</div>'
+	html[#html+1] = '</div></div>'
+
+	-- 重新打开 script 继续 JS 函数
+	html[#html+1] = '<script type="text/javascript">'
+
+	-- 打开备份/恢复对话框并加载列表
+	html[#html+1] = 'function ocBackupRestore(){'
+	html[#html+1] = 'var dlg=document.getElementById("oc-backup-dialog");'
+	html[#html+1] = 'dlg.style.display="flex";'
+	html[#html+1] = 'document.getElementById("oc-backup-result").style.display="none";'
+	html[#html+1] = 'ocLoadBackupList();'
+	html[#html+1] = '}'
+
+	-- 加载备份文件列表
+	html[#html+1] = 'function ocLoadBackupList(){'
+	html[#html+1] = 'var el=document.getElementById("oc-backup-list");'
+	html[#html+1] = 'el.innerHTML="<div style=\\"color:#7aa2f7;font-size:12px;padding:8px;\\">⏳ 加载备份列表...</div>";'
+	html[#html+1] = '(new XHR()).get("' .. backup_url .. '?action=list",null,function(x){'
+	html[#html+1] = 'try{var r=JSON.parse(x.responseText);'
+	html[#html+1] = 'if(r.status==="ok"&&r.backups&&r.backups.length>0){'
+	html[#html+1] = 'var h="<table style=\\"width:100%;border-collapse:collapse;font-size:12px;\\">";'
+	html[#html+1] = 'h+="<tr style=\\"background:#f6f8fa;border-bottom:2px solid #d0d7de;\\">"+'
+	html[#html+1] = '"<th style=\\"padding:6px 8px;text-align:left;\\">类型</th>"+'
+	html[#html+1] = '"<th style=\\"padding:6px 8px;text-align:left;\\">备份时间</th>"+'
+	html[#html+1] = '"<th style=\\"padding:6px 8px;text-align:right;\\">大小</th>"+'
+	html[#html+1] = '"<th style=\\"padding:6px 8px;text-align:center;\\">操作</th></tr>";'
+	html[#html+1] = 'for(var i=0;i<r.backups.length;i++){'
+	html[#html+1] = 'var b=r.backups[i];'
+	html[#html+1] = 'var typeBadge=b.backup_type==="config"?'
+	html[#html+1] = '"<span style=\\"background:#ddf4ff;color:#0969da;padding:2px 6px;border-radius:3px;font-size:11px;white-space:nowrap;\\">📄 仅配置</span>":'
+	html[#html+1] = '"<span style=\\"background:#fff8c5;color:#9a6700;padding:2px 6px;border-radius:3px;font-size:11px;white-space:nowrap;\\">📦 完整备份</span>";'
+	html[#html+1] = 'var rowBg=i%2===0?"#fff":"#f6f8fa";'
+	html[#html+1] = 'h+="<tr style=\\"border-bottom:1px solid #eee;background:"+rowBg+";\\">"+' -- 行开始
+	html[#html+1] = '"<td style=\\"padding:7px 8px;\\">"+typeBadge+"</td>"+' -- 类型
+	html[#html+1] = '"<td style=\\"padding:7px 8px;color:#555;white-space:nowrap;\\">"+b.time+"</td>"+' -- 时间
+	html[#html+1] = '"<td style=\\"padding:7px 8px;text-align:right;color:#666;white-space:nowrap;\\">"+b.size_str+"</td>"+' -- 大小
+	html[#html+1] = '"<td style=\\"padding:5px 8px;text-align:center;white-space:nowrap;\\">"+'
+	html[#html+1] = '"<button class=\\"btn cbi-button cbi-button-action\\" style=\\"font-size:11px;padding:1px 8px;margin-right:4px;\\" onclick=\\"ocRestoreBackup(\\x27"+b.filename+"\\x27)\\">恢复</button>"+'
+	html[#html+1] = '"<button class=\\"btn cbi-button cbi-button-remove\\" style=\\"font-size:11px;padding:1px 8px;\\" onclick=\\"ocDeleteBackup(\\x27"+b.filename+"\\x27)\\">删除</button>"+'
+	html[#html+1] = '"</td></tr>";'
+	html[#html+1] = '}'
+	html[#html+1] = 'h+="</table>";'
+	html[#html+1] = 'el.innerHTML=h;'
+	html[#html+1] = '}else if(r.status==="ok"){'
+	html[#html+1] = 'el.innerHTML="<div style=\\"color:#888;font-size:12px;padding:8px;text-align:center;\\">暂无备份，请先创建备份</div>";'
+	html[#html+1] = '}else{'
+	html[#html+1] = 'el.innerHTML="<div style=\\"color:#e36209;font-size:12px;padding:8px;\\">⚠️ "+(r.message||"获取列表失败")+"</div>";'
+	html[#html+1] = '}'
+	html[#html+1] = '}catch(e){el.innerHTML="<div style=\\"color:#e36209;font-size:12px;padding:8px;\\">⚠️ 无法加载列表</div>";}'
+	html[#html+1] = '});}'
+
+	-- 创建备份（创建完成后刷新列表）
+	html[#html+1] = 'function ocDoBackup(onlyConfig){'
+	html[#html+1] = 'var resEl=document.getElementById("oc-backup-result");'
+	html[#html+1] = 'var btnC=document.getElementById("btn-bk-config");'
+	html[#html+1] = 'var btnF=document.getElementById("btn-bk-full");'
+	html[#html+1] = 'btnC.disabled=true;btnF.disabled=true;'
+	html[#html+1] = 'resEl.style.display="block";'
+	html[#html+1] = 'resEl.innerHTML="<div style=\\"color:#7aa2f7;font-size:12px;padding:8px;\\">⏳ 正在创建备份..."+(onlyConfig?"（仅配置）":"（完整备份，可能需要较长时间）")+"</div>";'
+	html[#html+1] = '(new XHR()).get("' .. backup_url .. '?action=create&only_config="+onlyConfig,null,function(x){'
+	html[#html+1] = 'btnC.disabled=false;btnF.disabled=false;'
+	html[#html+1] = 'try{var r=JSON.parse(x.responseText);'
+	html[#html+1] = 'if(r.status==="ok"){'
+	html[#html+1] = 'resEl.innerHTML="<div style=\\"border:1px solid #c6e9c9;background:#e6f7e9;padding:10px 14px;border-radius:6px;font-size:12px;\\">"+'
+	html[#html+1] = '"<strong style=\\"color:#1a7f37;\\">✅ 备份完成</strong></div>";'
+	html[#html+1] = 'ocLoadBackupList();'
+	html[#html+1] = '}else{'
+	html[#html+1] = 'resEl.innerHTML="<div style=\\"color:#e36209;font-size:12px;padding:8px;\\">⚠️ "+(r.message||"备份失败")+"</div>";'
+	html[#html+1] = '}'
+	html[#html+1] = '}catch(e){resEl.innerHTML="<div style=\\"color:#e36209;font-size:12px;padding:8px;\\">⚠️ 备份功能需要 OpenClaw v2026.3.8+</div>";}'
+	html[#html+1] = '});}'
+
+	-- 恢复指定备份
+	html[#html+1] = 'function ocRestoreBackup(filename){'
+	html[#html+1] = 'if(!confirm("确定要从此备份恢复配置？\\n\\n"+filename+"\\n\\n当前 openclaw.json 将被备份中的版本覆盖，服务将自动重启。"))return;'
+	html[#html+1] = 'var resEl=document.getElementById("oc-backup-result");'
+	html[#html+1] = 'resEl.style.display="block";'
+	html[#html+1] = 'resEl.innerHTML="<div style=\\"color:#7aa2f7;font-size:12px;padding:8px;\\">⏳ 正在恢复配置...</div>";'
+	html[#html+1] = '(new XHR()).get("' .. backup_url .. '?action=restore&file="+encodeURIComponent(filename),null,function(x){'
+	html[#html+1] = 'try{var r=JSON.parse(x.responseText);'
+	html[#html+1] = 'if(r.status==="ok"){'
+	html[#html+1] = 'resEl.innerHTML="<div style=\\"border:1px solid #c6e9c9;background:#e6f7e9;padding:10px 14px;border-radius:6px;font-size:12px;\\">"+'
+	html[#html+1] = '"<strong style=\\"color:#1a7f37;\\">✅ 配置已恢复</strong><br/>"+'
+	html[#html+1] = '"<span style=\\"color:#555;\\">"+r.message+"</span><br/>"+'
+	html[#html+1] = '"<button class=\\"btn cbi-button cbi-button-apply\\" type=\\"button\\" onclick=\\"location.reload()\\" style=\\"margin-top:6px;font-size:12px;\\">🔄 刷新页面</button></div>";'
+	html[#html+1] = '}else{'
+	html[#html+1] = 'resEl.innerHTML="<div style=\\"color:#cf222e;font-size:12px;padding:8px;\\">❌ "+(r.message||"恢复失败")+"</div>";'
+	html[#html+1] = '}'
+	html[#html+1] = '}catch(e){resEl.innerHTML="<div style=\\"color:#cf222e;font-size:12px;padding:8px;\\">❌ 恢复失败，请检查日志</div>";}'
+	html[#html+1] = '});}'
+
+	-- 删除指定备份
+	html[#html+1] = 'function ocDeleteBackup(filename){'
+	html[#html+1] = 'if(!confirm("确定要删除此备份？\\n\\n"+filename+"\\n\\n删除后无法恢复。"))return;'
+	html[#html+1] = 'var resEl=document.getElementById("oc-backup-result");'
+	html[#html+1] = 'resEl.style.display="block";'
+	html[#html+1] = 'resEl.innerHTML="<div style=\\"color:#7aa2f7;font-size:12px;padding:8px;\\">⏳ 正在删除...</div>";'
+	html[#html+1] = '(new XHR()).get("' .. backup_url .. '?action=delete&file="+encodeURIComponent(filename),null,function(x){'
+	html[#html+1] = 'try{var r=JSON.parse(x.responseText);'
+	html[#html+1] = 'if(r.status==="ok"){'
+	html[#html+1] = 'resEl.innerHTML="<div style=\\"border:1px solid #c6e9c9;background:#e6f7e9;padding:10px 14px;border-radius:6px;font-size:12px;\\">"+'
+	html[#html+1] = '"<strong style=\\"color:#1a7f37;\\">✅ "+r.message+"</strong></div>";'
+	html[#html+1] = 'ocLoadBackupList();'
+	html[#html+1] = '}else{'
+	html[#html+1] = 'resEl.innerHTML="<div style=\\"color:#cf222e;font-size:12px;padding:8px;\\">❌ "+(r.message||"删除失败")+"</div>";'
+	html[#html+1] = '}'
+	html[#html+1] = '}catch(e){resEl.innerHTML="<div style=\\"color:#cf222e;font-size:12px;padding:8px;\\">❌ 删除失败</div>";}'
 	html[#html+1] = '});}'
 
 	-- 页面加载时静默检查是否有更新 (仅显示小红点提示)

@@ -13,7 +13,7 @@ set -e
 
 NODE_VERSION="${NODE_VERSION:-22.16.0}"
 # 经过验证的 OpenClaw 稳定版本 (更新此值需同步测试)
-OC_TESTED_VERSION="2026.3.2"
+OC_TESTED_VERSION="2026.3.8"
 # 用户可通过 OC_VERSION 环境变量覆盖安装版本
 OC_VERSION="${OC_VERSION:-}"
 NODE_BASE="/opt/openclaw/node"
