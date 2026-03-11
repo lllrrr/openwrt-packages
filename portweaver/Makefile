@@ -21,6 +21,7 @@ include $(INCLUDE_DIR)/package.mk
 # Zig configuration
 ZIG := $(STAGING_DIR_HOST)/bin/zig
 ZIG_TARGET := $(subst openwrt-,,$(GNU_TARGET_NAME))
+ZIG_OPTIMIZE ?= ReleaseSmall
 
 define Package/portweaver
   SECTION:=net
@@ -64,6 +65,7 @@ define BuildVariant
 	$(1) build \
 		-Dtarget=$(ZIG_TARGET) \
 		-Dcpu=$(if $(CPU_TYPE),$(CPU_TYPE),baseline) \
+		-Doptimize=$(ZIG_OPTIMIZE) \
 		$(2) \
 		--prefix $(3)
 endef
