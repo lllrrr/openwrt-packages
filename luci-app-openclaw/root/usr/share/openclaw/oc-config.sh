@@ -1195,13 +1195,33 @@ configure_qq() {
 	echo -e "  ${BOLD}🐧 QQ 机器人配置${NC}"
 	echo ""
 
-	# 检查 qqbot 插件是否已安装
+	# 检查 qqbot 插件是否已安装并正常加载
 	local plugin_installed=0
+	local plugin_blocked=0
+	local qqbot_ext_dir="${OC_STATE_DIR}/extensions/openclaw-qqbot"
 	if [ -n "$OC_ENTRY" ] && [ -x "$NODE_BIN" ]; then
-		local plugin_check=$(oc_cmd plugins list 2>/dev/null | grep -i "qqbot" | grep -i "loaded\|disabled")
-		if [ -n "$plugin_check" ]; then
+		local plugin_list=$(oc_cmd plugins list 2>&1)
+		# 在表格输出中查找含 qqbot 的行是否也包含 loaded
+		if echo "$plugin_list" | grep -i "qqbot" | grep -qi "loaded"; then
 			plugin_installed=1
-			echo -e "  ${GREEN}✅ qqbot 插件已安装${NC}"
+			echo -e "  ${GREEN}✅ qqbot 插件已安装并加载${NC}"
+		elif echo "$plugin_list" | grep -qi "plugin not found.*openclaw-qqbot\|suspicious ownership"; then
+			# 插件目录存在但被阻止 (权限问题或 stale config)
+			if [ -d "$qqbot_ext_dir" ]; then
+				plugin_blocked=1
+				echo -e "  ${YELLOW}⚠️  qqbot 插件已安装但未能正常加载${NC}"
+				echo -e "  ${CYAN}正在修复插件目录权限...${NC}"
+				chown -R root:root "$qqbot_ext_dir" 2>/dev/null
+				echo -e "  ${GREEN}✅ 权限已修复，重启 Gateway 后生效${NC}"
+				plugin_installed=1
+			fi
+		elif [ -d "$qqbot_ext_dir" ] && [ -f "${qqbot_ext_dir}/openclaw.plugin.json" ]; then
+			# 目录存在、有 plugin.json 但未出现在插件列表 — 修复权限
+			echo -e "  ${YELLOW}⚠️  qqbot 插件目录存在但未能加载${NC}"
+			echo -e "  ${CYAN}正在修复插件目录权限...${NC}"
+			chown -R root:root "$qqbot_ext_dir" 2>/dev/null
+			echo -e "  ${GREEN}✅ 权限已修复${NC}"
+			plugin_installed=1
 		fi
 	fi
 
@@ -1216,20 +1236,36 @@ configure_qq() {
 			local install_out
 			install_out=$(oc_cmd plugins install @tencent-connect/openclaw-qqbot@latest 2>&1)
 			local install_rc=$?
+
+			# 关键: 安装后立即修复插件目录权限为 root (OpenClaw 安全策略要求)
+			if [ -d "$qqbot_ext_dir" ]; then
+				chown -R root:root "$qqbot_ext_dir" 2>/dev/null
+			fi
+
 			if [ $install_rc -eq 0 ]; then
 				echo -e "  ${GREEN}✅ qqbot 插件安装成功${NC}"
 				plugin_installed=1
 			else
-				echo -e "  ${RED}❌ 插件安装失败 (exit: $install_rc)${NC}"
-				echo -e "  ${DIM}${install_out}${NC}" | tail -5
+				# 安装命令返回非零，可能是因为 config invalid (死锁)
+				# 检查插件目录是否实际已存在 (说明下载成功但校验报错)
+				if [ -d "$qqbot_ext_dir" ] && [ -f "${qqbot_ext_dir}/openclaw.plugin.json" ]; then
+					echo -e "  ${YELLOW}⚠️  插件已下载但加载校验未通过 (exit: $install_rc)${NC}"
+					echo -e "  ${CYAN}这通常是因为配置中已有 qqbot 设置但插件未被信任。${NC}"
+					echo -e "  ${CYAN}已自动修复权限，重启 Gateway 后应能正常加载。${NC}"
+					plugin_installed=1
+				else
+					echo -e "  ${RED}❌ 插件安装失败 (exit: $install_rc)${NC}"
+					echo -e "  ${DIM}${install_out}${NC}" | tail -5
+					echo ""
+					echo -e "  ${YELLOW}插件安装失败，但你仍然可以先配置 QQ 机器人参数。${NC}"
+					echo -e "  ${YELLOW}稍后可手动安装: openclaw plugins install @tencent-connect/openclaw-qqbot@latest${NC}"
+				fi
 				echo ""
-				echo -e "  ${YELLOW}请手动安装: openclaw plugins install @tencent-connect/openclaw-qqbot@latest${NC}"
-				return
 			fi
 		else
-			echo -e "  ${YELLOW}已跳过插件安装。请先安装 qqbot 插件后再配置。${NC}"
-			echo -e "  ${CYAN}安装命令: openclaw plugins install @tencent-connect/openclaw-qqbot@latest${NC}"
-			return
+			echo -e "  ${YELLOW}已跳过插件安装，继续配置 QQ 机器人参数。${NC}"
+			echo -e "  ${CYAN}稍后安装命令: openclaw plugins install @tencent-connect/openclaw-qqbot@latest${NC}"
+			echo ""
 		fi
 	fi
 

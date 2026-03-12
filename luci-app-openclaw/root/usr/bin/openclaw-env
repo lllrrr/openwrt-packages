@@ -11,7 +11,7 @@
 # ============================================================================
 set -e
 
-NODE_VERSION="${NODE_VERSION:-22.16.0}"
+NODE_VERSION="${NODE_VERSION:-22.15.1}"
 # 经过验证的 OpenClaw 稳定版本 (更新此值需同步测试)
 OC_TESTED_VERSION="2026.3.8"
 # 用户可通过 OC_VERSION 环境变量覆盖安装版本
@@ -145,7 +145,7 @@ download_node() {
 			return 0
 		fi
 		# ARM64 musl 使用 Alpine 打包，版本号可能不完全匹配
-		# 只要主版本号相同即认为兼容 (如 22.15.1 vs 22.16.0)
+		# 只要主版本号相同即认为兼容 (如 22.15.1 vs 22.15.0)
 		local cur_major=$(echo "$current_ver" | cut -d. -f1)
 		local want_major=$(echo "$node_ver" | cut -d. -f1)
 		if [ "$cur_major" = "$want_major" ]; then

@@ -16,8 +16,12 @@ apk add --no-cache nodejs npm xz icu-data-full patchelf
 ACTUAL_VER=$(node --version | sed 's/^v//')
 echo "Alpine Node.js version: v${ACTUAL_VER} (requested: v${NODE_VER})"
 
-# 打包为 portable tarball (与官方 tarball 相同结构)
-PKG_NAME="node-v${NODE_VER}-linux-arm64-musl"
+# 使用实际版本号作为文件名 (Alpine apk 的 nodejs 版本可能与请求版本不同)
+if [ "$ACTUAL_VER" != "$NODE_VER" ]; then
+	echo "WARNING: Actual version (${ACTUAL_VER}) differs from requested (${NODE_VER})"
+	echo "         Using actual version for package name"
+fi
+PKG_NAME="node-v${ACTUAL_VER}-linux-arm64-musl"
 PKG_DIR="/tmp/${PKG_NAME}"
 mkdir -p "${PKG_DIR}/bin" "${PKG_DIR}/lib/node_modules" "${PKG_DIR}/include/node"
 

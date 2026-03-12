@@ -12,8 +12,10 @@
 #   OPENLIST_PASS     — 登录密码
 #
 # 环境变量 (可选):
-#   OPENLIST_PATH     — 上传目标路径 (默认: /openclaw/releases)
+#   OPENLIST_PATH     — 上传根路径 (默认: /Quark)
 #   OPENLIST_TOKEN    — 直接提供 token, 跳过登录
+#   UPLOAD_MODE       — 上传模式: offline / online / auto (默认 auto)
+#                       auto 模式自动检测: 有 *_offline.run 则离线, 有 .run/.ipk 则在线
 # ============================================================================
 set -e
 
@@ -40,10 +42,39 @@ if [ -z "$OPENLIST_TOKEN" ] && { [ -z "$OPENLIST_USER" ] || [ -z "$OPENLIST_PASS
 	exit 1
 fi
 
-UPLOAD_PATH="${OPENLIST_PATH:-/openclaw/releases}"
+UPLOAD_ROOT="${OPENLIST_PATH:-/Quark}"
+UPLOAD_MODE="${UPLOAD_MODE:-auto}"
 PKG_VERSION=$(cat "$PKG_DIR/VERSION" 2>/dev/null | tr -d '[:space:]' || echo "unknown")
 
-# 去除 URL 末尾的 /
+# 去除路径末尾的 /
+UPLOAD_ROOT="${UPLOAD_ROOT%/}"
+
+# 自动检测上传模式
+if [ "$UPLOAD_MODE" = "auto" ]; then
+	if ls "$DIST_DIR"/*_offline.run >/dev/null 2>&1; then
+		UPLOAD_MODE="offline"
+	elif ls "$DIST_DIR"/*.run >/dev/null 2>&1 || ls "$DIST_DIR"/*.ipk >/dev/null 2>&1; then
+		UPLOAD_MODE="online"
+	else
+		echo "错误: 无法自动检测上传模式，dist 目录中无可识别文件"
+		exit 1
+	fi
+fi
+
+# 根据模式设置子目录和文件匹配规则
+case "$UPLOAD_MODE" in
+	offline)
+		UPLOAD_SUBDIR="openclaw-离线安装"
+		;;
+	online)
+		UPLOAD_SUBDIR="openclaw-在线安装"
+		;;
+	*)
+		echo "错误: 无效的 UPLOAD_MODE: $UPLOAD_MODE (可选: offline / online / auto)"
+		exit 1
+		;;
+esac
+
 OPENLIST_URL="${OPENLIST_URL%/}"
 
 log_info()  { echo "  [✓] $1"; }
@@ -134,15 +165,33 @@ echo "║      上传到 OpenList 网盘                                   ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 echo "  服务地址:  ${OPENLIST_URL}"
-echo "  上传路径:  ${UPLOAD_PATH}/v${PKG_VERSION}"
+echo "  上传模式:  ${UPLOAD_MODE}"
+echo "  上传路径:  ${UPLOAD_ROOT}/${UPLOAD_SUBDIR}/v${PKG_VERSION}"
 echo "  本地目录:  ${DIST_DIR}"
 echo ""
 
-# 检查是否有文件要上传
-RUN_FILES=$(find "$DIST_DIR" \( -name "*_offline.run" -o -name "README.txt" \) 2>/dev/null)
-if [ -z "$RUN_FILES" ]; then
-	echo "错误: 未找到构建产物"
-	echo "  请先运行: sh scripts/build_offline_run.sh"
+# 查找要上传的文件
+UPLOAD_FILES=""
+case "$UPLOAD_MODE" in
+	offline)
+		# 离线包: 仅 *_offline.run 文件
+		UPLOAD_FILES=$(find "$DIST_DIR" -name "*_offline.run" 2>/dev/null)
+		;;
+	online)
+		# 在线包: .run (非 offline) + .ipk
+		for f in "$DIST_DIR"/*.run "$DIST_DIR"/*.ipk; do
+			[ -f "$f" ] || continue
+			case "$(basename "$f")" in *_offline.run) continue ;; esac
+			UPLOAD_FILES="$UPLOAD_FILES $f"
+		done
+		UPLOAD_FILES=$(echo "$UPLOAD_FILES" | sed 's/^ //')
+		;;
+esac
+
+if [ -z "$UPLOAD_FILES" ]; then
+	echo "错误: 未找到可上传的文件"
+	echo "  模式: $UPLOAD_MODE"
+	echo "  目录: $DIST_DIR"
 	exit 1
 fi
 
@@ -150,16 +199,16 @@ fi
 TOKEN=$(get_token)
 
 # 创建远程目录
-REMOTE_DIR="${UPLOAD_PATH}/v${PKG_VERSION}"
+REMOTE_DIR="${UPLOAD_ROOT}/${UPLOAD_SUBDIR}/v${PKG_VERSION}"
 echo ""
 echo "创建远程目录: ${REMOTE_DIR}"
 create_remote_dir "$TOKEN" "$REMOTE_DIR"
 
-# 上传所有 .run 和 .sha256 文件
+# 上传文件
 echo ""
 echo "开始上传..."
 UPLOAD_COUNT=0
-for f in $RUN_FILES; do
+for f in $UPLOAD_FILES; do
 	upload_file "$TOKEN" "$f" "$REMOTE_DIR"
 	UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
 done

@@ -31,7 +31,7 @@ esac
 
 PKG_NAME="luci-app-openclaw"
 PKG_VERSION=$(cat "$PKG_DIR/VERSION" 2>/dev/null | tr -d '[:space:]' || echo "1.0.0")
-NODE_VERSION="${NODE_VERSION:-22.16.0}"
+NODE_VERSION="${NODE_VERSION:-22.15.1}"
 OC_VERSION=$(cat "$CACHE_DIR/openclaw/VERSION" 2>/dev/null | tr -d '[:space:]' || echo "2026.3.8")
 
 echo "╔══════════════════════════════════════════════════════════════╗"
@@ -218,6 +218,20 @@ ensure_mkdir() {
 }
 
 # ── 解压安装 ──
+
+# 先停止已有服务 (避免文件被占用导致覆盖安装失败)
+if [ -x /etc/init.d/openclaw ]; then
+	echo "停止已有服务..."
+	/etc/init.d/openclaw stop 2>/dev/null || true
+	# 等待进程退出和端口释放
+	sleep 2
+	# 确保 gateway 子进程也已退出
+	for pid in $(pgrep -f "openclaw-gateway|openclaw" 2>/dev/null); do
+		kill "$pid" 2>/dev/null
+	done
+	sleep 1
+fi
+
 echo ""
 echo "正在提取安装文件..."
 
