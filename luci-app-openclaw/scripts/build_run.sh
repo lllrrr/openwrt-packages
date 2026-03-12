@@ -80,7 +80,7 @@ create_installer() {
 set -e
 
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║       luci-app-openclaw — OpenClaw AI Gateway 插件          ║"
+echo "║       luci-app-openclaw — OpenClaw AI Gateway 插件           ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 

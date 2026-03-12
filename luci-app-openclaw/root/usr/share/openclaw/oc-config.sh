@@ -1519,7 +1519,7 @@ telegram_pairing() {
 
 	echo ""
 	echo -e "  ${GREEN}╔══════════════════════════════════════════════════╗${NC}"
-	echo -e "  ${GREEN}║  请在 Telegram 中向 Bot 发送 /start             ║${NC}"
+	echo -e "  ${GREEN}║  请在 Telegram 中向 Bot 发送 /start              ║${NC}"
 	echo -e "  ${GREEN}║  然后回到这里按回车，脚本自动检测配对请求        ║${NC}"
 	echo -e "  ${GREEN}╚══════════════════════════════════════════════════╝${NC}"
 	echo ""
@@ -2083,7 +2083,7 @@ main_menu() {
 	while true; do
 		echo ""
 		echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-		echo -e "${GREEN}║${NC}           ${BOLD}OpenClaw AI Gateway — OpenWrt 配置管理${NC}            ${GREEN}║${NC}"
+		echo -e "${GREEN}║${NC}           ${BOLD}OpenClaw AI Gateway — OpenWrt 配置管理${NC}             ${GREEN}║${NC}"
 		echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
 		echo ""
 		echo -e "  ${CYAN}1)${NC} 📋 查看当前配置"

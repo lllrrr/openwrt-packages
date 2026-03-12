@@ -12,7 +12,7 @@
 #       node-v22.15.1-linux-x64-musl.tar.xz
 #       node-v22.15.1-linux-arm64-musl.tar.xz
 #     openclaw/
-#       openclaw-deps-v<version>.tar.gz          (预安装的 node_modules, 跨架构通用)
+#       openclaw-deps-v<version>.tar.gz          (完整 node_modules, 跨架构通用, ~150MB)
 # ============================================================================
 set -e
 
@@ -78,7 +78,7 @@ download_file() {
 download_all_node() {
 	echo ""
 	echo "╔══════════════════════════════════════════════════════════════╗"
-	echo "║  [1/3] 下载 Node.js v${NODE_VERSION} (musl 架构)                     ║"
+	printf "║  [1/3] 下载 Node.js v%-8s (musl 架构)                     ║\n" "$NODE_VERSION"
 	echo "╚══════════════════════════════════════════════════════════════╝"
 	echo ""
 
@@ -110,7 +110,7 @@ download_all_node() {
 download_openclaw_deps() {
 	echo ""
 	echo "╔══════════════════════════════════════════════════════════════╗"
-	echo "║  [2/3] 下载 OpenClaw v${OC_VERSION} + 全部依赖                  ║"
+	printf "║  [2/3] 下载 OpenClaw v%-8s + 全部依赖                    ║\n" "$OC_VERSION"
 	echo "╚══════════════════════════════════════════════════════════════╝"
 	echo ""
 
@@ -184,66 +184,15 @@ download_openclaw_deps() {
 	fi
 	echo "  实际版本: v${actual_ver:-$OC_VERSION}"
 
-	# ── 精简 node_modules ──
-	echo ""
-	echo "=== 精简 node_modules ==="
-	local before_size=$(du -sm "$tmp_install/global" 2>/dev/null | awk '{print $1}')
-
-	# 删除不必要的文件以减小体积
-	find "$tmp_install/global" -type f \( \
-		-name "*.md" -o -name "*.markdown" -o \
-		-name "*.map" -o \
-		-name "*.ts" -not -name "*.d.ts" -o \
-		-name "CHANGELOG*" -o -name "CHANGES*" -o -name "HISTORY*" -o \
-		-name "AUTHORS*" -o -name "CONTRIBUTORS*" -o \
-		-name ".npmignore" -o -name ".eslintrc*" -o -name ".jshintrc" -o \
-		-name ".editorconfig" -o -name ".travis.yml" -o \
-		-name "Makefile" -o -name "Gruntfile*" -o -name "Gulpfile*" -o \
-		-name "*.test.js" -o -name "*.spec.js" -o \
-		-name "tsconfig.json" -o -name "tsconfig.*.json" -o \
-		-name ".prettierrc*" -o -name ".babelrc*" \
-	\) -delete 2>/dev/null || true
-
-	# 删除测试目录和文档目录
-	# 注意: 不删除 "doc", 因为某些包 (如 yaml) 的 dist/doc/ 是运行时代码
-	find "$tmp_install/global" -type d \( \
-		-name "test" -o -name "tests" -o -name "__tests__" -o \
-		-name "example" -o -name "examples" -o \
-		-name "docs" -o \
-		-name ".github" -o -name ".vscode" -o \
-		-name "benchmark" -o -name "benchmarks" \
-	\) -exec rm -rf {} + 2>/dev/null || true
-
-	# 删除 node-llama-cpp 等大型原生依赖 (musl 下不可用)
-	find "$tmp_install/global" -type d -name "node-llama-cpp" -exec rm -rf {} + 2>/dev/null || true
-	find "$tmp_install/global" -type d -name "llama-cpp" -exec rm -rf {} + 2>/dev/null || true
-
-	# 删除其他已知的大型非必要包
-	# koffi: FFI 库，~85MB 原生二进制，OpenWrt 上不需要
-	# playwright-core: 浏览器自动化，~10MB，路由器上不用
-	# @img/*: 图片处理原生模块
-	for big_pkg in koffi playwright-core @img; do
-		find "$tmp_install/global" -type d -name "$big_pkg" -path "*/node_modules/*" -exec rm -rf {} + 2>/dev/null || true
-	done
-
-	# 删除所有平台特定的预编译二进制 (.node 文件和 prebuilds 目录)
-	find "$tmp_install/global" -type d -name "prebuilds" -exec rm -rf {} + 2>/dev/null || true
-	find "$tmp_install/global" -type f -name "*.node" -delete 2>/dev/null || true
-
-	# 删除 .bin 目录中的符号链接 (安装时会重建)
-	# 保留 bin 目录但不保留符号链接
-	find "$tmp_install/global/lib/node_modules/.bin" -type l -delete 2>/dev/null || true
-	find "$tmp_install/global/node_modules/.bin" -type l -delete 2>/dev/null || true
-
-	local after_size=$(du -sm "$tmp_install/global" 2>/dev/null | awk '{print $1}')
-	log_info "精简完成: ${before_size}MB → ${after_size}MB (节省 $((before_size - after_size))MB)"
-
 	# ── 打包为通用 tarball ──
+	# 不精简 node_modules，保留全部功能（飞书/Slack/Discord 等平台 SDK）
+	# 依靠 gzip 压缩控制包大小: ~670MB → ~150MB
 	# 因为 openclaw 是纯 JS 包 (使用 --ignore-scripts)，node_modules 跨架构通用
 	echo ""
 	echo "=== 打包 OpenClaw 依赖 ==="
+	local install_size=$(du -sm "$tmp_install/global" 2>/dev/null | awk '{print $1}')
 	local tarball="$oc_dir/openclaw-deps-v${actual_ver:-$OC_VERSION}.tar.gz"
-	echo "  正在压缩 ${after_size}MB 数据到 tar.gz (可能需要数分钟)..."
+	echo "  正在压缩 ${install_size}MB 数据到 tar.gz (可能需要数分钟)..."
 	# 注意: 不在子 shell 中用 set -e, 避免 tar 在处理损坏的符号链接时意外退出
 	# --warning=no-file-changed: 忽略打包过程中文件被修改的警告
 	if ! tar czf "$tarball" -C "$tmp_install/global" . 2>&1; then
@@ -274,7 +223,7 @@ download_openclaw_deps() {
 generate_manifest() {
 	echo ""
 	echo "╔══════════════════════════════════════════════════════════════╗"
-	echo "║  [3/3] 生成构建清单                                       ║"
+	echo "║  [3/3] 生成构建清单                                          ║"
 	echo "╚══════════════════════════════════════════════════════════════╝"
 	echo ""
 
@@ -324,7 +273,7 @@ EOF
 
 # ── 主入口 ──
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║      OpenClaw 离线依赖下载器                                ║"
+echo "║      OpenClaw 离线依赖下载器                                 ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 echo "  Node.js:    v${NODE_VERSION}"
@@ -341,5 +290,5 @@ generate_manifest
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  ✅ 依赖下载完成！现在可以运行 build_offline_run.sh        ║"
+echo "║  ✅ 依赖下载完成！现在可以运行 build_offline_run.sh          ║"
 echo "╚══════════════════════════════════════════════════════════════╝"

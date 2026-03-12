@@ -35,7 +35,7 @@ NODE_VERSION="${NODE_VERSION:-22.15.1}"
 OC_VERSION=$(cat "$CACHE_DIR/openclaw/VERSION" 2>/dev/null | tr -d '[:space:]' || echo "2026.3.8")
 
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║      构建 OpenClaw 离线 .run 安装包                         ║"
+echo "║      构建 OpenClaw 离线 .run 安装包                          ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 echo "  插件版本:    v${PKG_VERSION}"
@@ -111,8 +111,8 @@ create_offline_installer() {
 set -e
 
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║   luci-app-openclaw — OpenClaw AI Gateway 离线安装器        ║"
-echo "║   包含 Node.js + OpenClaw 运行环境，无需联网               ║"
+echo "║   luci-app-openclaw — OpenClaw AI Gateway 离线安装器         ║"
+echo "║   包含 Node.js + OpenClaw 运行环境，无需联网                 ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 
@@ -454,16 +454,16 @@ trap - EXIT
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  ✅ 离线安装完成！                                         ║"
-echo "║                                                            ║"
-echo "║  Node.js + OpenClaw + LuCI 插件已全部安装                  ║"
-echo "║  无需再运行 openclaw-env setup                             ║"
-echo "║                                                            ║"
-echo "║  下一步:                                                   ║"
-echo "║    访问 LuCI → 服务 → OpenClaw 进行配置                   ║"
-echo "║    或执行: /etc/init.d/openclaw start                      ║"
-echo "║                                                            ║"
-echo "║  配置模型 API 密钥后即可使用，全程无需联网！               ║"
+echo "║  ✅ 离线安装完成！                                           ║"
+echo "║                                                              ║"
+echo "║  Node.js + OpenClaw + LuCI 插件已全部安装                    ║"
+echo "║  无需再运行 openclaw-env setup                               ║"
+echo "║                                                              ║"
+echo "║  下一步:                                                     ║"
+echo "║    访问 LuCI → 服务 → OpenClaw 进行配置                    ║"
+echo "║    或执行: /etc/init.d/openclaw start                        ║"
+echo "║                                                              ║"
+echo "║  配置模型 API 密钥后即可使用，全程无需联网！                 ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 
@@ -583,7 +583,7 @@ done
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  构建完成                                                   ║"
+echo "║  构建完成                                                    ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 echo "输出目录: $OUT_DIR"

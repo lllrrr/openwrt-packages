@@ -418,7 +418,7 @@ do_setup() {
 	fi
 
 	echo "╔══════════════════════════════════════════════════════════════╗"
-	echo "║            一万AI分享  OpenClaw 环境安装                    ║"
+	echo "║            一万AI分享  OpenClaw 环境安装                     ║"
 	echo "╚══════════════════════════════════════════════════════════════╝"
 	echo ""
 	echo "  架构:       $(uname -m)"
@@ -439,15 +439,15 @@ do_setup() {
 
 	echo ""
 	echo "╔══════════════════════════════════════════════════════════════╗"
-	echo "║  ✅ 安装完成！                                             ║"
-	echo "║                                                            ║"
-	echo "║  下一步:                                                   ║"
-	echo "║    uci set openclaw.main.enabled=1                         ║"
-	echo "║    uci commit openclaw                                     ║"
-	echo "║    /etc/init.d/openclaw enable                             ║"
-	echo "║    /etc/init.d/openclaw start                              ║"
-	echo "║                                                            ║"
-	echo "║  或在 LuCI → 服务 → OpenClaw 中启用                       ║"
+	echo "║  ✅ 安装完成！                                               ║"
+	echo "║                                                              ║"
+	echo "║  下一步:                                                     ║"
+	echo "║    uci set openclaw.main.enabled=1                           ║"
+	echo "║    uci commit openclaw                                       ║"
+	echo "║    /etc/init.d/openclaw enable                               ║"
+	echo "║    /etc/init.d/openclaw start                                ║"
+	echo "║                                                              ║"
+	echo "║  或在 LuCI → 服务 → OpenClaw 中启用                        ║"
 	echo "╚══════════════════════════════════════════════════════════════╝"
 }
 
@@ -498,7 +498,7 @@ do_check() {
 
 do_upgrade() {
 	echo "╔══════════════════════════════════════════════════════════════╗"
-	echo "║            一万AI分享  OpenClaw 升级                        ║"
+	echo "║            一万AI分享  OpenClaw 升级                         ║"
 	echo "╚══════════════════════════════════════════════════════════════╝"
 	echo ""
 
@@ -549,7 +549,7 @@ do_upgrade() {
 		fi
 		echo ""
 		echo "╔══════════════════════════════════════════════════════════════╗"
-		echo "║  ✅ 升级完成！                                             ║"
+		echo "║  ✅ 升级完成！                                               ║"
 		echo "╚══════════════════════════════════════════════════════════════╝"
 	else
 		log_error "升级验证失败，OpenClaw 入口文件未找到"
@@ -641,7 +641,7 @@ do_setup_offline() {
 	fi
 
 	echo "╔══════════════════════════════════════════════════════════════╗"
-	echo "║       一万AI分享  OpenClaw 离线安装                         ║"
+	echo "║       一万AI分享  OpenClaw 离线安装                          ║"
 	echo "╚══════════════════════════════════════════════════════════════╝"
 	echo ""
 	echo "  架构:       $(uname -m)"
@@ -711,15 +711,15 @@ do_setup_offline() {
 
 	echo ""
 	echo "╔══════════════════════════════════════════════════════════════╗"
-	echo "║  ✅ 离线安装完成！                                         ║"
-	echo "║                                                            ║"
-	echo "║  下一步:                                                   ║"
-	echo "║    uci set openclaw.main.enabled=1                         ║"
-	echo "║    uci commit openclaw                                     ║"
-	echo "║    /etc/init.d/openclaw enable                             ║"
-	echo "║    /etc/init.d/openclaw start                              ║"
-	echo "║                                                            ║"
-	echo "║  或在 LuCI → 服务 → OpenClaw 中启用                       ║"
+	echo "║  ✅ 离线安装完成！                                           ║"
+	echo "║                                                              ║"
+	echo "║  下一步:                                                     ║"
+	echo "║    uci set openclaw.main.enabled=1                           ║"
+	echo "║    uci commit openclaw                                       ║"
+	echo "║    /etc/init.d/openclaw enable                               ║"
+	echo "║    /etc/init.d/openclaw start                                ║"
+	echo "║                                                              ║"
+	echo "║  或在 LuCI → 服务 → OpenClaw 中启用                        ║"
 	echo "╚══════════════════════════════════════════════════════════════╝"
 }
 
