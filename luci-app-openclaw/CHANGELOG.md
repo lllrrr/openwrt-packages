@@ -4,6 +4,25 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [2.0.0-offline.1] - 2026-03-12
+
+### 🔌 离线安装支持 (offline-bundle 分支)
+
+#### 新增
+- **离线 .run 安装包**: 构建包含 Node.js + OpenClaw + LuCI 插件的全合一自解压包，用户**无需联网**即可完成安装
+- **全架构支持**: 同时构建 x86_64-musl、x86_64-glibc、aarch64-musl、aarch64-glibc 四种离线包
+- **依赖预下载脚本** (`scripts/download_deps.sh`): 在构建机上预下载所有离线依赖
+- **离线构建脚本** (`scripts/build_offline_run.sh`): 将预下载的依赖打包为各架构的离线 .run
+- **OpenList 网盘上传** (`scripts/upload_openlist.sh`): 支持将构建产物上传到 OpenList (AList) 网盘，方便国内用户分发
+- **GitHub Actions CI** (`.github/workflows/build-offline.yml`): 自动构建 + 发布 + 上传网盘
+- **openclaw-env setup-offline**: 新增离线安装命令，由 .run 安装器自动调用
+- **node_modules 精简**: 自动删除文档、测试、TypeScript 源码、node-llama-cpp 等非必要文件，减小 30%+ 体积
+- **磁盘空间预检查**: 安装前检测可用空间是否满足 500MB 最低要求
+- **架构/libc 自动检测**: 安装时自动校验当前设备是否匹配安装包架构
+
+#### 变更
+- **离线包不依赖 curl/openssl/git**: 离线安装模式下 opkg 注册的依赖简化为 luci-compat + luci-base
+
 ## [1.0.14] - 2026-03-12
 
 ### 备份管理增强 & QQ 机器人支持

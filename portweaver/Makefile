@@ -80,12 +80,12 @@ define Build/Compile
 		wget -q -O zig.tar.xz https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz && \
 		tar xf zig.tar.xz; \
 	fi
-$(if $(CONFIG_PACKAGE_portweaver),
-	$(call BuildVariant, -Duci=true -Dubus=true -Dfrpc=true -Dfrps=true -Dddns=true, $(PKG_INSTALL_DIR_FULL))
-)
-$(if $(CONFIG_PACKAGE_portweaver-lite),
-	$(call BuildVariant, -Duci=true -Dubus=true -Dfrpc=false -Dfrps=false -Dddns=false, $(PKG_INSTALL_DIR_LITE))
-)
+	@if [ "$(CONFIG_PACKAGE_portweaver)" = "y" ]; then \
+		$(call BuildVariant, -Duci=true -Dubus=true -Dfrpc=true -Dfrps=true -Dddns=true, $(PKG_INSTALL_DIR_FULL)); \
+	fi
+	@if [ "$(CONFIG_PACKAGE_portweaver-lite)" = "y" ]; then \
+		$(call BuildVariant, -Duci=true -Dubus=true -Dfrpc=false -Dfrps=false -Dddns=false, $(PKG_INSTALL_DIR_LITE)); \
+	fi
 endef
 
 define Package/portweaver/install
