@@ -538,7 +538,7 @@ build_one_variant() {
 	} > "$staging/install_final.sh"
 	mv "$staging/install_final.sh" "$staging/install.sh"
 
-	# [3] 打包 payload
+	# [3] 打包 payload (gzip 压缩, 减小 .run 文件体积)
 	echo "  [5/5] 打包..."
 	(cd "$payload" && tar czf "$staging/payload.tar.gz" .)
 

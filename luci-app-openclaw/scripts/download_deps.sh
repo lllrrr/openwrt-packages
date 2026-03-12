@@ -146,7 +146,17 @@ download_openclaw_deps() {
 	# 通用安装 (忽略平台特定编译脚本)
 	echo "=== 安装 OpenClaw 依赖 (通用包) ==="
 	mkdir -p "$tmp_install/global"
+
+	# ── 强制 npm 使用 musl 平台检测 ──
+	# 目标系统是 OpenWrt/iStoreOS (musl libc)，无论构建机是什么系统
+	# 在 glibc 系统 (如 GitHub Actions ubuntu-latest) 上，npm 默认安装 *-gnu 变体
+	# 的原生可选依赖 (如 @napi-rs/canvas-linux-x64-gnu)，比 *-musl 变体大得多
+	# 通过设置 npm_config_libc=musl 强制安装 musl 变体，确保跨平台一致的产物大小
+	export npm_config_os=linux
+	export npm_config_libc=musl
+
 	echo "  正在用 npm 安装 openclaw@${OC_VERSION}..."
+	echo "  npm 平台覆盖: os=${npm_config_os}, libc=${npm_config_libc}"
 	$NPM_CMD install -g "openclaw@${OC_VERSION}" \
 		--prefix="$tmp_install/global" \
 		--ignore-scripts \
