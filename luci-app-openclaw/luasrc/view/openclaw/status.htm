@@ -57,6 +57,8 @@
 .oc-badge-starting { background: #fff8c5; color: #9a6700; }
 .oc-badge-disabled { background: #f0f0f0; color: #656d76; }
 .oc-badge-unknown { background: #fff8c5; color: #9a6700; }
+.oc-badge-offline { background: #ddf4ff; color: #0969da; border: 1px solid #54aeff; }
+.oc-badge-online { background: #f0f0f0; color: #656d76; }
 .oc-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
 .oc-dot-green { background: #1a7f37; }
 .oc-dot-red { background: #cf222e; }
@@ -78,6 +80,7 @@
 			<tr><td>Node.js</td><td id="oc-st-node">-</td></tr>
 			<tr><td>OpenClaw</td><td id="oc-st-oc-ver">-</td></tr>
 			<tr><td>插件版本</td><td id="oc-st-plugin">-</td></tr>
+			<tr><td>安装方式</td><td id="oc-st-install-type">-</td></tr>
 		</table>
 	</div>
 </div>
@@ -147,6 +150,16 @@
 				document.getElementById('oc-st-node').textContent = d.node_version || '未安装';
 				document.getElementById('oc-st-oc-ver').textContent = d.oc_version ? ('v' + d.oc_version) : '未安装';
 				document.getElementById('oc-st-plugin').textContent = d.plugin_version ? ('v' + d.plugin_version) : '-';
+
+				var itEl = document.getElementById('oc-st-install-type');
+				if (d.install_type === 'offline') {
+					var tip = '📦 离线安装';
+					if (d.install_arch) tip += ' (' + d.install_arch + ')';
+					if (d.install_date) tip += '\n安装时间: ' + d.install_date;
+					itEl.innerHTML = '<span class="oc-badge oc-badge-offline" title="' + tip.replace(/"/g,'&quot;') + '">📦 离线版</span>';
+				} else {
+					itEl.innerHTML = '<span class="oc-badge oc-badge-online" title="通过网络在线安装">🌐 在线版</span>';
+				}
 
 			} catch(e) {
 				document.getElementById('oc-st-status').innerHTML = '<span class="oc-badge oc-badge-unknown">查询失败</span>';

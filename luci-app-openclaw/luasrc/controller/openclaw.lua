@@ -81,6 +81,18 @@ function action_status()
 		pvf:close()
 	end
 
+	-- 安装方式检测 (离线 / 在线)
+	local olf = io.open("/usr/share/openclaw/.offline-install", "r")
+	if olf then
+		local content = olf:read("*a")
+		olf:close()
+		result.install_type = "offline"
+		result.install_date = content:match("date=([^\n]+)") or ""
+		result.install_arch = content:match("arch=([^\n]+)") or ""
+	else
+		result.install_type = "online"
+	end
+
 	-- 检查 Node.js
 	local node_bin = "/opt/openclaw/node/bin/node"
 	local f = io.open(node_bin, "r")
