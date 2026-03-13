@@ -93,3 +93,13 @@ return view.extend({
 				log_textarea,
 				E('small', {}, _('Refresh every 5 seconds.').format(L.env.pollinterval)),
 				E('div', { 'class': 'cbi-section-actions cbi-section-actions-right' })
+			])
+
+
+		]);
+	},
+
+	handleSaveApply: null,
+	handleSave: null,
+	handleReset: null
+});

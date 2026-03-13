@@ -94,6 +94,17 @@ return view.extend({
 
             poll.start();
             return E('div', { class: 'cbi-section', id: 'status_bar' }, statusView );
+        }
+
+        s = m.section(form.NamedSection, 'config', 'watchdog', _(''));
+        s.tab('basic', _('Basic Settings'));
+        s.tab('blacklist', _('Black list'));
+        s.addremove = false;
+        s.anonymous = true;
+
+        o = s.taboption('basic', form.Flag, 'enable', _('Enabled'));
+        
+        o = s.taboption('basic', form.Value, 'sleeptime', _('Check Interval (s)'));
         o.rmempty = false;
         o.placeholder = '60';
         o.datatype = 'and(uinteger,min(10))';
