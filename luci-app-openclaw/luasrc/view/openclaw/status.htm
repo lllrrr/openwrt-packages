@@ -147,7 +147,7 @@
 				document.getElementById('oc-st-node').textContent = d.node_version || '未安装';
 				document.getElementById('oc-st-oc-ver').textContent = d.oc_version ? ('v' + d.oc_version) : '未安装';
 				document.getElementById('oc-st-plugin').textContent = d.plugin_version ? ('v' + d.plugin_version) : '-';
-
+                        } catch(e) {
 				document.getElementById('oc-st-status').innerHTML = '<span class="oc-badge oc-badge-unknown">查询失败</span>';
 			}
 		});

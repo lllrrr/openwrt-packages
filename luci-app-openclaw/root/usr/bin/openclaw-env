@@ -623,29 +623,30 @@ do_factory_reset() {
 	log_info "出厂设置已恢复，Gateway 重启中..."
 }
 
-# ── 离线安装 (从本地文件安装 Node.js + OpenClaw) ──
-		do_setup
-		;;
-		;;
-	check)
-		do_check
-		;;
-	upgrade)
-		do_upgrade
-		;;
-	node)
-		download_node "$NODE_VERSION"
-		;;
-	factory-reset)
-		do_factory_reset
-		;;
-	*)
-		echo ""
-		echo "  setup          — 完整安装 (下载 Node.js + pnpm + OpenClaw)"
-		echo "  check          — 检查环境状态"
-		echo "  upgrade        — 升级 OpenClaw 到最新版"
-		echo "  node           — 仅下载/更新 Node.js"
-		echo "  factory-reset  — 恢复出厂设置 (清除所有配置)"
-		exit 1
-		;;
+# ── 主入口 ──
+case "${1:-}" in
+setup)
+do_setup
+;;
+check)
+do_check
+;;
+upgrade)
+do_upgrade
+;;
+node)
+download_node "$NODE_VERSION"
+;;
+factory-reset)
+do_factory_reset
+;;
+*)
+echo ""
+echo "  setup          — 完整安装 (下载 Node.js + pnpm + OpenClaw)"
+echo "  check          — 检查环境状态"
+echo "  upgrade        — 升级 OpenClaw 到最新版"
+echo "  node           — 仅下载/更新 Node.js"
+echo "  factory-reset  — 恢复出厂设置 (清除所有配置)"
+exit 1
+;;
 esac
