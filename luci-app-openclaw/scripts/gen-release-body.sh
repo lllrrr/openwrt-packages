@@ -35,13 +35,6 @@ fi
   echo "opkg install luci-app-openclaw_${VER}-1_all.ipk"
   echo '```'
   echo ''
-  echo '**离线安装** (无需联网，包含全部依赖)'
-  echo '```bash'
-  echo '# 将对应架构的 *_offline.run 传到路由器'
-  echo 'scp luci-app-openclaw_*_offline.run root@路由器IP:/tmp/'
-  echo 'ssh root@路由器IP "sh /tmp/luci-app-openclaw_*_offline.run"'
-  echo '```'
-  echo ''
   echo '[使用文档](https://github.com/10000ge10000/luci-app-openclaw#readme) · [问题反馈](https://github.com/10000ge10000/luci-app-openclaw/issues) · [B站](https://space.bilibili.com/59438380) · [博客](https://blog.910501.xyz/)'
 } > "${OUT_DIR}/${VER}.md"
 

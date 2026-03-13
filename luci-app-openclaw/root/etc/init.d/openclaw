@@ -213,9 +213,9 @@ _ensure_port_free() {
 	local p="$1" max_wait="${2:-5}" i=0
 	while [ $i -lt $max_wait ]; do
 		if command -v ss >/dev/null 2>&1; then
-			ss -tlnp 2>/dev/null | grep -q ":${p} " || return 0
+			ss -tulnp 2>/dev/null | grep -q ":${p} " || return 0
 		else
-			netstat -tlnp 2>/dev/null | grep -q ":${p} " || return 0
+			netstat -tulnp 2>/dev/null | grep -q ":${p} " || return 0
 		fi
 		# 尝试杀掉占用端口的 gateway 进程
 		if [ $i -eq 0 ]; then
@@ -230,9 +230,9 @@ _ensure_port_free() {
 	# 最后手段: SIGKILL
 	local port_pid=""
 	if command -v ss >/dev/null 2>&1; then
-		port_pid=$(ss -tlnp 2>/dev/null | grep ":${p} " | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | head -1)
+		port_pid=$(ss -tulnp 2>/dev/null | grep ":${p} " | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | head -1)
 	else
-		port_pid=$(netstat -tlnp 2>/dev/null | grep ":${p} " | sed -n 's|.* \([0-9]*\)/.*|\1|p' | head -1)
+		port_pid=$(netstat -tulnp 2>/dev/null | grep ":${p} " | sed -n 's|.* \([0-9]*\)/.*|\1|p' | head -1)
 	fi
 	[ -n "$port_pid" ] && kill -9 "$port_pid" 2>/dev/null && sleep 1
 	return 0
@@ -313,9 +313,9 @@ done
 local wait_count=0
 while [ $wait_count -lt 8 ]; do
 	if command -v ss >/dev/null 2>&1; then
-		ss -tlnp 2>/dev/null | grep -q ":${port} " || break
+		ss -tulnp 2>/dev/null | grep -q ":${port} " || break
 	else
-		netstat -tlnp 2>/dev/null | grep -q ":${port} " || break
+		netstat -tulnp 2>/dev/null | grep -q ":${port} " || break
 	fi
 	sleep 1
 	wait_count=$((wait_count + 1))
@@ -325,9 +325,9 @@ done
 if [ $wait_count -ge 8 ]; then
 	local port_pid=""
 	if command -v ss >/dev/null 2>&1; then
-		port_pid=$(ss -tlnp 2>/dev/null | grep ":${port} " | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | head -1)
+		port_pid=$(ss -tulnp 2>/dev/null | grep ":${port} " | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | head -1)
 	else
-		port_pid=$(netstat -tlnp 2>/dev/null | grep ":${port} " | sed -n 's|.* \([0-9]*\)/.*|\1|p' | head -1)
+		port_pid=$(netstat -tulnp 2>/dev/null | grep ":${port} " | sed -n 's|.* \([0-9]*\)/.*|\1|p' | head -1)
 	fi
 	[ -n "$port_pid" ] && kill -9 "$port_pid" 2>/dev/null
 	sleep 1
@@ -336,6 +336,7 @@ fi
 
 service_triggers() {
 procd_add_reload_trigger "openclaw"
+
 }
 
 reload_service() {
@@ -362,9 +363,9 @@ port=$(uci -q get openclaw.main.port || echo "18789")
 # 必须先杀子进程释放端口，否则 procd respawn 的新实例会因端口冲突而崩溃
 local port_pid=""
 if command -v ss >/dev/null 2>&1; then
-	port_pid=$(ss -tlnp 2>/dev/null | grep ":${port} " | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | head -1)
+	port_pid=$(ss -tulnp 2>/dev/null | grep ":${port} " | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | head -1)
 else
-	port_pid=$(netstat -tlnp 2>/dev/null | grep ":${port} " | sed -n 's|.* \([0-9]*\)/.*|\1|p' | head -1)
+	port_pid=$(netstat -tulnp 2>/dev/null | grep ":${port} " | sed -n 's|.* \([0-9]*\)/.*|\1|p' | head -1)
 fi
 [ -n "$port_pid" ] && kill "$port_pid" 2>/dev/null
 
@@ -389,9 +390,9 @@ done
 local wait_count=0
 while [ $wait_count -lt 5 ]; do
 	if command -v ss >/dev/null 2>&1; then
-		ss -tlnp 2>/dev/null | grep -q ":${port} " || break
+		ss -tulnp 2>/dev/null | grep -q ":${port} " || break
 	else
-		netstat -tlnp 2>/dev/null | grep -q ":${port} " || break
+		netstat -tulnp 2>/dev/null | grep -q ":${port} " || break
 	fi
 	sleep 1
 	wait_count=$((wait_count + 1))
@@ -433,18 +434,18 @@ fi
 _check_port() {
 	local p="$1"
 	if command -v ss >/dev/null 2>&1; then
-		ss -tlnp 2>/dev/null | grep -q ":${p} "
+		ss -tulnp 2>/dev/null | grep -q ":${p} "
 	else
-		netstat -tlnp 2>/dev/null | grep -q ":${p} "
+		netstat -tulnp 2>/dev/null | grep -q ":${p} "
 	fi
 }
 
 _get_pid_by_port() {
 	local p="$1"
 	if command -v ss >/dev/null 2>&1; then
-		ss -tlnp 2>/dev/null | grep ":${p} " | head -1 | sed -n 's/.*pid=\([0-9]*\).*/\1/p'
+		ss -tulnp 2>/dev/null | grep ":${p} " | head -1 | sed -n 's/.*pid=\([0-9]*\).*/\1/p'
 	else
-		netstat -tlnp 2>/dev/null | grep ":${p} " | head -1 | sed 's|.* \([0-9]*\)/.*|\1|'
+		netstat -tulnp 2>/dev/null | grep ":${p} " | head -1 | sed 's|.* \([0-9]*\)/.*|\1|'
 	fi
 }
 

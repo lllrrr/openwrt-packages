@@ -3,7 +3,6 @@
 [![Bilibili](https://img.shields.io/badge/B%E7%AB%99-59438380-00a1d6?logo=bilibili)](https://space.bilibili.com/59438380)
 [![Blog](https://img.shields.io/badge/Blog-910501.xyz-orange)](https://blog.910501.xyz/)
 [![Build & Release](https://github.com/10000ge10000/luci-app-openclaw/actions/workflows/build.yml/badge.svg)](https://github.com/10000ge10000/luci-app-openclaw/actions/workflows/build.yml)
-[![Build Offline Bundle](https://github.com/10000ge10000/luci-app-openclaw/actions/workflows/build-offline.yml/badge.svg)](https://github.com/10000ge10000/luci-app-openclaw/actions/workflows/build-offline.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 
 [OpenClaw](https://github.com/nicepkg/openclaw) AI 网关的 OpenWrt LuCI 管理插件。
@@ -90,31 +89,6 @@ sh /etc/uci-defaults/99-openclaw
 rm -f /tmp/luci-indexcache /tmp/luci-modulecache/*
 ```
 
-### 方式五：离线安装包（无需联网）
-
-适用于**无法联网**的路由器。安装包中已包含 Node.js + OpenClaw 运行环境，全程离线完成。
-
-**下载离线包**（在联网的电脑上）：
-
-前往 [Releases](https://github.com/10000ge10000/luci-app-openclaw/releases) 页面下载对应架构的 `_offline.run` 文件：
-
-| 架构 | 文件名 |
-|------|--------|
-| x86_64 | `luci-app-openclaw_*_x86_64-musl_offline.run` |
-| aarch64 (ARM64) | `luci-app-openclaw_*_aarch64-musl_offline.run` |
-
-**传输到路由器并安装**：
-
-```bash
-# 从电脑传输到路由器（替换为实际文件名和路由器 IP）
-scp luci-app-openclaw_*_offline.run root@192.168.1.1:/tmp/
-
-# SSH 登录路由器后执行安装
-sh /tmp/luci-app-openclaw_*_offline.run
-```
-
-> **提示**：离线包约 130MB，ARM 设备上安装需要 3-5 分钟（主要是解压时间）。
-> 安装完成后无需再运行 `openclaw-env setup`，直接进入 LuCI 配置即可。
 
 ## 🔰 首次使用
 
@@ -146,13 +120,11 @@ luci-app-openclaw/
 ├── scripts/
 │   ├── build_ipk.sh                  # 本地 IPK 构建
 │   ├── build_run.sh                  # .run 安装包构建
-│   ├── build_offline_run.sh          # 离线 .run 安装包构建
 │   ├── download_deps.sh              # 下载离线依赖 (Node.js + OpenClaw)
 │   ├── upload_openlist.sh            # 上传到网盘 (OpenList)
 │   └── build-node-musl.sh            # 编译 Node.js musl 静态链接版本
 └── .github/workflows/
     ├── build.yml                     # 在线构建 + 发布
-    ├── build-offline.yml             # 离线包构建 + 发布
     └── build-node-musl.yml           # Node.js musl 构建
 ```
 

@@ -17,8 +17,6 @@
 - **离线 .run 安装包**: 构建包含 Node.js + OpenClaw + LuCI 插件的全合一自解压包，用户**无需联网**即可完成安装
 - **musl 架构支持**: 离线包支持 x86_64-musl、aarch64-musl 两种架构 (OpenWrt/iStoreOS 均使用 musl)
 - **依赖预下载脚本** (`scripts/download_deps.sh`): 在构建机上预下载所有离线依赖
-- **离线构建脚本** (`scripts/build_offline_run.sh`): 将预下载的依赖打包为各架构的离线 .run
-- **GitHub Actions CI** (`.github/workflows/build-offline.yml`): 离线包自动构建 + 发布
 - **node_modules 精简**: 自动删除文档、测试、TypeScript 源码等非必要文件，减小 30%+ 体积
 - **磁盘空间预检查**: 安装前检测可用空间是否满足 500MB 最低要求
 - **架构/libc 自动检测**: 安装时自动校验当前设备是否匹配安装包架构

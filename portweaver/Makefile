@@ -7,7 +7,7 @@ PKG_RELEASE:=1
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/LazuliKao/portweaver.git
 PKG_SOURCE_VERSION:=HEAD
-PKG_MIRROR_HASH:=2ef3cef58cb22255fc4eb6be240f3db09209b205d8e814d9c585094c4e3e5b38
+PKG_MIRROR_HASH:=e36b9820a971c35e006d27d05a1b0ae98b30b35f9078fa1a7767c5e18bfa31df
 
 PKG_LICENSE:=GPL-3.0
 PKG_LICENSE_FILES:=LICENSE
@@ -28,7 +28,7 @@ define Package/portweaver
   CATEGORY:=Network
   TITLE:=Port forwarding and NAT traversal tool
   URL:=https://github.com/LazuliKao/portweaver
-  DEPENDS:=+libuci
+  DEPENDS:=+libuci @!(TARGET_mips||TARGET_mipsel||TARGET_mips64||TARGET_mips64el)
   PROVIDES:=portweaver-impl
 endef
 

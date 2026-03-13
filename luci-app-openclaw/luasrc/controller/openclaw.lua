@@ -82,16 +82,6 @@ function action_status()
 	end
 
 	-- 安装方式检测 (离线 / 在线)
-	local olf = io.open("/usr/share/openclaw/.offline-install", "r")
-	if olf then
-		local content = olf:read("*a")
-		olf:close()
-		result.install_type = "offline"
-		result.install_date = content:match("date=([^\n]+)") or ""
-		result.install_arch = content:match("arch=([^\n]+)") or ""
-	else
-		result.install_type = "online"
-	end
 
 	-- 检查 Node.js
 	local node_bin = "/opt/openclaw/node/bin/node"
@@ -122,7 +112,8 @@ function action_status()
 	end
 
 	-- 网关端口检查
-	local gw_check = sys.exec("netstat -tlnp 2>/dev/null | grep -c ':" .. port .. " ' || echo 0"):gsub("%s+", "")
+	local gw_check_cmd = "if command -v ss >/dev/null 2>&1; then ss -tulnp 2>/dev/null | grep -c ':" .. port .. " ' || echo 0; else netstat -tulnp 2>/dev/null | grep -c ':" .. port .. " ' || echo 0; fi"
+		local gw_check = sys.exec(gw_check_cmd):gsub("%s+", "")
 	result.gateway_running = (tonumber(gw_check) or 0) > 0
 
 	-- 如果端口未监听但 procd 进程存在，说明正在启动中 (gateway 初始化需要数分钟)
@@ -134,7 +125,7 @@ function action_status()
 	end
 
 	-- PTY 端口检查
-	local pty_check = sys.exec("netstat -tlnp 2>/dev/null | grep -c ':" .. pty_port .. " ' || echo 0"):gsub("%s+", "")
+	local pty_check = sys.exec("netstat -tulnp 2>/dev/null | grep -c ':" .. pty_port .. " ' || echo 0"):gsub("%s+", "")
 	result.pty_running = (tonumber(pty_check) or 0) > 0
 
 	-- 读取当前活跃模型
@@ -173,7 +164,7 @@ function action_status()
 
 	-- PID 和内存
 	if result.gateway_running then
-		local pid = sys.exec("netstat -tlnp 2>/dev/null | awk '/:" .. port .. " /{split($NF,a,\"/\");print a[1];exit}'"):gsub("%s+", "")
+		local pid = sys.exec("netstat -tulnp 2>/dev/null | awk '/:" .. port .. " /{split($NF,a,\"/\");print a[1];exit}'"):gsub("%s+", "")
 		if pid and pid ~= "" then
 			result.pid = pid
 			-- 内存 (VmRSS from /proc)
