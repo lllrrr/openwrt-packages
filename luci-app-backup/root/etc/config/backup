@@ -1,0 +1,16 @@
+
+config config 'config'
+	option password 'hzy'
+
+config task
+	option name '系统配置'
+	option files '/etc/config/network /etc/config/wireless /etc/config/firewall'
+
+config task
+	option name 'passwall'
+	option files '/etc/config/passwall /etc/config/passwall_server'
+
+config task
+	option name 'lucky'
+	option files '/etc/config/lucky.daji/'
+

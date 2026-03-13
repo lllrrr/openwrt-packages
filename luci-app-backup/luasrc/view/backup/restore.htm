@@ -1,0 +1,189 @@
+<%#
+    LuCI - Lua Configuration Interface
+    Backup Restore View (Enhanced)
+-%>
+<% include("header") %>
+
+<div class="cbi-map">
+    <h2 name="content"><%:执行恢复%></h2>
+    <div class="cbi-map-descr">
+        <%:选择包含备份文件的目录，系统将自动检测 .tar.gz 和 .tar.gz.gpg 文件。支持批量选择和多文件恢复。%>
+    </div>
+
+    <!-- 步骤一：选择目录 -->
+    <fieldset class="cbi-section">
+        <legend><%:步骤一：选择备份目录%></legend>
+        <form method="post" action="<%=controller%>/admin/system/backup/restore">
+            <div class="cbi-value">
+                <label class="cbi-value-title"><%:备份目录路径%></label>
+                <div class="cbi-value-field">
+                    <input type="text" name="scan_dir" value="<%=current_dir%>" style="width: 300px;" />
+                    <input type="submit" class="cbi-button cbi-button-apply" value="<%:扫描文件%>" />
+                </div>
+            </div>
+        </form>
+    </fieldset>
+
+    <% if files and #files > 0 then %>
+    <!-- 步骤二：文件选择与操作 -->
+    <fieldset class="cbi-section">
+        <legend><%:步骤二：选择要恢复的文件%></legend>
+        <form method="post" action="<%=controller%>/admin/system/backup/restore" id="restore_form">
+            <input type="hidden" name="restore" value="1" />
+            
+            <!-- 密码区域 (带显示/隐藏功能) -->
+            <div class="cbi-value">
+                <label class="cbi-value-title"><%:加密密码%></label>
+                <div class="cbi-value-field">
+                    <div style="display: flex; align-items: center;">
+                        <input type="password" id="password_input" name="password" value="<%=password%>" style="width: 200px; margin-right: 10px;" />
+                        <button type="button" class="cbi-button cbi-button-neutral" onclick="togglePassword()" style="padding: 5px 10px;">
+                            <span id="pwd_icon">👁️</span> <span id="pwd_text"><%:显示%></span>
+                        </button>
+                    </div>
+                    <span class="cbi-value-description"><%:如果备份文件已加密 (.gpg)，请输入解密密码%></span>
+                </div>
+            </div>
+           
+            <!-- 文件列表 -->
+            <div class="cbi-value">
+                <label class="cbi-value-title"><%:文件列表%></label>
+                <div class="cbi-value-field">
+                    <table class="cbi-section-table" style="width: 100%;">
+                        <tr class="cbi-section-table-titles">
+                            <th class="cbi-section-table-cell" style="width: 5%; text-align: center;"><%:选择%></th>
+                            <th class="cbi-section-table-cell" style="width: 60%;"><%:文件名%></th>
+                            <th class="cbi-section-table-cell" style="width: 15%;"><%:大小%></th>
+                            <th class="cbi-section-table-cell" style="width: 20%;"><%:修改时间%></th>
+                        </tr>
+                        <% for i, f in ipairs(files) do %>
+                        <tr class="cbi-section-table-row cbi-rowstyle-<%=i % 2 + 1%>">
+                            <td style="text-align: center;">
+                                <input type="checkbox" class="restore-checkbox" name="restore_files" value="<%=f.path%>" onclick="updateCount()" />
+                            </td>
+                            <td><%=f.name%></td>
+                            <td><%=math.floor(f.size / 1024)%> KB</td>
+                            <td><%=os.date("%Y-%m-%d %H:%M:%S", f.mtime)%></td>
+                        </tr>
+                        <% end %>
+                    </table>
+                </div>
+            </div>
+			
+			<!-- 批量操作工具栏 -->
+            <div class="cbi-value">
+                <label class="cbi-value-title"><%:批量操作%></label>
+                <div class="cbi-value-field">
+                    <button type="button" class="cbi-button cbi-button-neutral" onclick="selectAll()"><%:全选%></button>
+                    <button type="button" class="cbi-button cbi-button-neutral" onclick="invertSelection()"><%:反选%></button>
+                    <button type="button" class="cbi-button cbi-button-neutral" onclick="deselectAll()"><%:取消选择%></button>
+                    <span style="margin-left: 15px; color: #666;" id="selection_count">(<%:已选择%>: 0)</span>
+                </div>
+            </div>
+
+            <!-- 提交按钮 -->
+            <div class="cbi-value">
+                <label class="cbi-value-title"></label>
+                <div class="cbi-value-field">
+                    <input type="submit" class="cbi-button cbi-button-important" value="<%:开始恢复%>" onclick="return confirmRestore()" />
+                    <span id="restore_status" style="margin-left: 10px; font-weight: bold;"></span>
+                </div>
+            </div>
+        </form>
+    </fieldset>
+    <% elseif current_dir then %>
+    <fieldset class="cbi-section">
+        <legend><%:扫描结果%></legend>
+        <p><%:在目录 "%s" 中未找到 .tar.gz 或 .tar.gz.gpg 格式的备份文件。%>: <%=current_dir%></p>
+    </fieldset>
+    <% end %>
+</div>
+
+<script type="text/javascript">//<![CDATA[
+    // 密码显示/隐藏切换
+    function togglePassword() {
+        var input = document.getElementById('password_input');
+        var icon = document.getElementById('pwd_icon');
+        var text = document.getElementById('pwd_text');
+        
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.innerHTML = '🙈';
+            text.innerHTML = '<%:隐藏%>';
+        } else {
+            input.type = 'password';
+            icon.innerHTML = '👁️';
+            text.innerHTML = '<%:显示%>';
+        }
+    }
+
+    // 全选
+    function selectAll() {
+        var checkboxes = document.querySelectorAll('.restore-checkbox');
+        checkboxes.forEach(function(cb) {
+            cb.checked = true;
+        });
+        updateCount();
+    }
+
+    // 取消全选
+    function deselectAll() {
+        var checkboxes = document.querySelectorAll('.restore-checkbox');
+        checkboxes.forEach(function(cb) {
+            cb.checked = false;
+        });
+        updateCount();
+    }
+
+    // 反选
+    function invertSelection() {
+        var checkboxes = document.querySelectorAll('.restore-checkbox');
+        checkboxes.forEach(function(cb) {
+            cb.checked = !cb.checked;
+        });
+        updateCount();
+    }
+
+    // 更新选中计数
+    function updateCount() {
+        var checkboxes = document.querySelectorAll('.restore-checkbox:checked');
+        document.getElementById('selection_count').innerHTML = '(<%:已选择%>: ' + checkboxes.length + ')';
+    }
+
+    // 提交前确认
+    function confirmRestore() {
+        var checkboxes = document.querySelectorAll('.restore-checkbox:checked');
+        if (checkboxes.length === 0) {
+            alert('<%:请至少选择一个备份文件%>');
+            return false;
+        }
+
+        if (!confirm('<%:确定要恢复选中的 %s 个文件吗？\n这将覆盖系统现有配置，操作不可逆！%>'.replace('%s', checkboxes.length))) {
+            return false;
+        }
+
+        var statusSpan = document.getElementById('restore_status');
+        statusSpan.innerHTML = '<%:正在恢复，请稍候...%>';
+        statusSpan.style.color = 'blue';
+        
+        var submitBtn = document.querySelector('input[type="submit"]');
+        submitBtn.disabled = true;
+        submitBtn.value = '<%:处理中...%>';
+        
+        return true;
+    }
+
+    // 初始化计数
+    document.addEventListener('DOMContentLoaded', function() {
+        updateCount();
+    });
+//]]></script>
+
+<style>
+
+.cbi-button-important { background: #5E72E4; color: white; border: 1px solid #5E72E4; }
+.cbi-button-neutral { background: #3498db; color: white; border: 1px solid #3498db; }
+
+</style>
+
+<% include("footer") %>

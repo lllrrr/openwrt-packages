@@ -1,0 +1,317 @@
+<%+header%>
+
+<div class="cbi-map" id="backup-settings">
+    <h2><a id="content" name="content"><%:智能备份恢复 - 设置%></a></h2>
+    
+    <div class="cbi-map-descr">
+        <%:备份任务文件:/etc/config/backup%>
+    </div>
+
+    <form method="post" action="<%=REQUEST_URI%>" id="settings_form">
+        <!-- 密码配置 -->
+        <div class="cbi-section">
+            <h3><%:GPG加密密码%></h3>
+            <div class="cbi-section-node">
+                <div class="cbi-value">
+                    <label class="cbi-value-title"><%:密码：%></label>
+                    <div class="cbi-value-field">
+                        <input type="password" class="cbi-input-text" id="password" name="password" 
+                               value="<%=luci.util.pcdata(password)%>" style="width: 300px;">
+                        <button type="button" class="cbi-button cbi-button-action" onclick="togglePassword(this)">
+                            <%:👁️显示%>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 任务管理 -->
+        <div class="cbi-section">
+            <h3>
+                <%:备份任务%>
+                <button type="button" class="cbi-button cbi-button-add" onclick="showAddModal()" style="margin-left: 10px;">
+                    + <%:新增%>
+                </button>
+            </h3>
+            
+            <div class="cbi-section-node">
+                <table class="cbi-section-table" style="border-collapse: collapse; width: 100%;">
+                    <tr class="cbi-section-table-titles">
+                        <th style="border: 1px solid #ddd; padding: 8px; text-align: center; background: #f5f5f5;"><%:任务名称%></th>
+                        <th style="border: 1px solid #ddd; padding: 8px; text-align: left; background: #f5f5f5;"><%:文件路径%></th>
+                        <th style="border: 1px solid #ddd; padding: 8px; text-align: center; background: #f5f5f5; width:120px"><%:操作%></th>
+                    </tr>
+                    
+                    <% for i, task in ipairs(tasks) do %>
+                    <tr class="cbi-section-table-row" id="task_<%=i%>">
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: center; vertical-align: middle;"><strong><%=luci.util.pcdata(task.name)%></strong></td>
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: middle;">
+                            <% for j, file in ipairs(task.files) do %>
+                            <div><%=luci.util.pcdata(file)%></div>
+                            <% end %>
+                        </td>
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: center; vertical-align: middle;">
+                            <button type="button" class="cbi-button cbi-button-edit" onclick='editTask(<%=i%>, <%=luci.jsonc.stringify(task)%>)'>
+                                <%:编辑%>
+                            </button>
+                            <button type="button" class="cbi-button cbi-button-remove" onclick='deleteTask(<%=i%>, "<%=luci.util.pcdata(task.name)%>")'>
+                                <%:删除%>
+                            </button>
+                        </td>
+                    </tr>
+                    <% end %>
+                </table>
+            </div>
+            
+            <input type="hidden" name="tasks" id="tasks" value="">
+        </div>
+
+        <!-- 保存按钮 -->
+        <div class="cbi-section">
+            <div class="cbi-section-node">
+                <div class="cbi-value">
+                    <div class="cbi-value-field">
+                        <input type="button" class="cbi-button cbi-button-apply" value="<%:保存配置%>" onclick="saveSettings()">
+                        <input type="button" class="cbi-button cbi-button-reset" value="<%:重置%>" onclick="location.reload()">
+                        <span id="status" style="margin-left: 20px;"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- 任务编辑模态框 -->
+<div id="taskModal" style="display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5);">
+    <div style="background:#fff; margin:10% auto; padding:20px; width:500px; border-radius:5px;">
+        <h3 id="modalTitle">新增任务</h3>
+        
+        <div class="cbi-value">
+            <label class="cbi-value-title">任务名称：</label>
+            <div class="cbi-value-field">
+                <input type="text" class="cbi-input-text" id="task_name" style="width:100%">
+            </div>
+        </div>
+        
+        <div class="cbi-value">
+            <label class="cbi-value-title">文件路径：</label>
+            <div class="cbi-value-field">
+                <div id="file_list"></div>
+                <button type="button" class="cbi-button cbi-button-add" onclick="addFileInput()">+ 添加路径</button>
+            </div>
+        </div>
+        
+        <div style="text-align:right; margin-top:20px;">
+            <button type="button" class="cbi-button cbi-button-apply" onclick="saveTask()">保存</button>
+            <button type="button" class="cbi-button cbi-button-reset" onclick="closeModal()">取消</button>
+        </div>
+    </div>
+</div>
+
+<script type="text/javascript">
+var tasks = <%=luci.jsonc.stringify(tasks)%>;
+var editingIndex = null;
+
+function togglePassword(btn) {
+    var input = document.getElementById('password');
+    if (input.type == 'password') {
+        input.type = 'text';
+        btn.innerHTML = '🙈隐藏';
+    } else {
+        input.type = 'password';
+        btn.innerHTML = '👁️显示';
+    }
+}
+
+function showAddModal() {
+    editingIndex = null;
+    document.getElementById('modalTitle').innerHTML = '新增任务';
+    document.getElementById('task_name').value = '';
+    document.getElementById('file_list').innerHTML = '';
+    addFileInput();
+    document.getElementById('taskModal').style.display = 'block';
+}
+
+function editTask(index, task) {
+    editingIndex = index;
+    document.getElementById('modalTitle').innerHTML = '编辑任务';
+    document.getElementById('task_name').value = task.name;
+    document.getElementById('file_list').innerHTML = '';
+    
+    if (task.files && task.files.length) {
+        for (var i = 0; i < task.files.length; i++) {
+            addFileInput(task.files[i]);
+        }
+    } else {
+        addFileInput();
+    }
+    
+    document.getElementById('taskModal').style.display = 'block';
+}
+
+function closeModal() {
+    document.getElementById('taskModal').style.display = 'none';
+}
+
+function addFileInput(value) {
+    var div = document.createElement('div');
+    div.style.marginBottom = '5px';
+    div.style.display = 'flex';
+    
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'cbi-input-text file-input';
+    input.style.flex = '1';
+    input.style.marginRight = '5px';
+    if (value) input.value = value;
+    
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cbi-button cbi-button-remove';
+    btn.innerHTML = '删除';
+    btn.onclick = function() { div.remove(); };
+    
+    div.appendChild(input);
+    div.appendChild(btn);
+    document.getElementById('file_list').appendChild(div);
+}
+
+function saveTask() {
+    var name = document.getElementById('task_name').value.trim();
+    if (!name) {
+        alert('请输入任务名称');
+        return;
+    }
+    
+    var files = [];
+    var inputs = document.querySelectorAll('.file-input');
+    for (var i = 0; i < inputs.length; i++) {
+        var val = inputs[i].value.trim();
+        if (val) files.push(val);
+    }
+    
+    if (!files.length) {
+        alert('请至少添加一个文件路径');
+        return;
+    }
+    
+    var task = { name: name, files: files };
+    
+    if (editingIndex !== null) {
+        tasks[editingIndex - 1] = task;
+    } else {
+        tasks.push(task);
+    }
+    
+    closeModal();
+    renderTasks();
+}
+
+function deleteTask(index, name) {
+    if (confirm('确定要删除任务 "' + name + '" 吗？')) {
+        tasks.splice(index - 1, 1);
+        renderTasks();
+    }
+}
+
+function renderTasks() {
+    var html = '';
+    for (var i = 0; i < tasks.length; i++) {
+        var task = tasks[i];
+        html += '<tr class="cbi-section-table-row">';
+        html += '<td style="border: 1px solid #ddd; padding: 8px; text-align: center; vertical-align: middle;"><strong>' + escapeHtml(task.name) + '</strong></td>';
+        html += '<td style="border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: middle;">';
+        for (var j = 0; j < task.files.length; j++) {
+            html += '<div>' + escapeHtml(task.files[j]) + '</div>';
+        }
+        html += '</td>';
+        html += '<td style="border: 1px solid #ddd; padding: 8px; text-align: center; vertical-align: middle;">';
+        html += '<button type="button" class="cbi-button cbi-button-edit" onclick="editTask(' + (i+1) + ', ' + JSON.stringify(task).replace(/'/g, "\\'") + ')">编辑</button> ';
+        html += '<button type="button" class="cbi-button cbi-button-remove" onclick="deleteTask(' + (i+1) + ', \'' + task.name.replace(/'/g, "\\'") + '\')">删除</button>';
+        html += '</td>';
+        html += '</tr>';
+    }
+    
+    var table = document.querySelector('.cbi-section-table');
+    if (table) {
+        table.innerHTML = '<tr class="cbi-section-table-titles">' +
+            '<th style="border: 1px solid #ddd; padding: 8px; text-align: center; background: #f5f5f5;">任务名称</th>' +
+            '<th style="border: 1px solid #ddd; padding: 8px; text-align: left; background: #f5f5f5;">文件路径</th>' +
+            '<th style="border: 1px solid #ddd; padding: 8px; text-align: center; background: #f5f5f5; width:120px">操作</th>' +
+            '</tr>' + html;
+    }
+}
+
+function escapeHtml(text) {
+    return String(text).replace(/[&<>"]/g, function(m) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m];
+    });
+}
+
+function saveSettings() {
+    var status = document.getElementById('status');
+    status.innerHTML = '正在保存...';
+    status.className = 'cbi-status-ok';
+    
+    var formData = new FormData();
+    formData.append('save', '1');
+    formData.append('password', document.getElementById('password').value);
+    formData.append('tasks', JSON.stringify(tasks));
+    
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '<%=REQUEST_URI%>', true);
+    
+    xhr.onload = function() {
+        if (xhr.status == 200) {
+            try {
+                var resp = JSON.parse(xhr.responseText);
+                if (resp.success) {
+                    status.innerHTML = '保存成功！';
+                    status.className = 'cbi-status-ok';
+                    setTimeout(function() { status.innerHTML = ''; }, 3000);
+                } else {
+                    status.innerHTML = '保存失败：' + resp.message;
+                    status.className = 'cbi-status-error';
+                }
+            } catch (e) {
+                status.innerHTML = '解析响应失败';
+                status.className = 'cbi-status-error';
+            }
+        } else {
+            status.innerHTML = '请求失败';
+            status.className = 'cbi-status-error';
+        }
+    };
+    
+    xhr.onerror = function() {
+        status.innerHTML = '网络错误';
+        status.className = 'cbi-status-error';
+    };
+    
+    xhr.send(formData);
+}
+</script>
+
+<style>
+.cbi-status-ok { color: #5E72E4; font-weight: bold; }
+.cbi-status-error { color: #c0392b; font-weight: bold; }
+.cbi-button { margin: 0 2px; padding: 3px 8px; border-radius: 3px; cursor: pointer; }
+.cbi-button-apply { background: #5E72E4; color: white; border: 1px solid #5E72E4; }
+.cbi-button-reset { background: #7f8c8d; color: white; border: 1px solid #7f8c8d; }
+.cbi-button-add { background: #5E72E4; color: white; border: 1px solid #5E72E4; }
+.cbi-button-edit { background: #f39c12; color: white; border: 1px solid #f39c12; }
+.cbi-button-remove { background: #e74c3c; color: white; border: 1px solid #e74c3c; }
+.cbi-button-action { background: #3498db; color: white; border: 1px solid #3498db; }
+.cbi-section-table { width: 100%; border-collapse: collapse; }
+.cbi-section-table th, 
+.cbi-section-table td { 
+    border: 1px solid #ddd; 
+    padding: 8px; 
+}
+.cbi-section-table th { 
+    background: #f5f5f5; 
+}
+.cbi-section-table tr:hover { background: #f9f9f9; }
+</style>
+
+<%+footer%>

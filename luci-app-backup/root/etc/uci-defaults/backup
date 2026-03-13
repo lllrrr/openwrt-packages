@@ -1,0 +1,44 @@
+#!/bin/sh
+
+# 设置备份脚本的可执行权限
+if [ -f "/etc/backup/backup.sh" ]; then
+    chmod +x /etc/backup/backup.sh
+fi
+
+if [ -f "/etc/backup/restore.sh" ]; then
+    chmod +x /etc/backup/restore.sh
+fi
+
+# 创建默认密码文件（如果不存在）
+if [ ! -f "/usr/bin/backup-password" ]; then
+    touch /usr/bin/backup-password
+    chmod 600 /usr/bin/backup-password
+fi
+
+# 创建备份目录
+mkdir -p /tmp/backup
+chmod 755 /tmp/backup
+
+# 设置默认配置文件（如果不存在）
+if [ ! -f "/etc/config/backup" ]; then
+    cat > /etc/config/backup <<EOF
+# Backup configuration file
+
+config backup 'config'
+	option password ''
+
+config task 'task1'
+	option name 'etc_config'
+	option files '/etc/config/'
+
+config task 'task2'
+	option name 'root_scripts'
+	option files '/root/'
+EOF
+fi
+
+# 清理 LuCI 缓存
+rm -f /tmp/luci-indexcache
+rm -f /tmp/luci-modulecache/*
+
+exit 0

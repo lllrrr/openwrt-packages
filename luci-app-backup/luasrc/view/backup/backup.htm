@@ -1,0 +1,610 @@
+<%+header%>
+
+<div class="cbi-map" id="backup">
+    <h2><a id="content" name="content"><%:智能备份恢复 - 执行备份%></a></h2>
+    
+    <div class="cbi-map-descr">
+        <%:选择已配置的任务进行备份，支持普通备份或加密备份。%>
+    </div>
+
+    <form method="post" action="<%=REQUEST_URI%>" id="backup_form">
+        <!-- 备份任务列表 -->
+        <div class="cbi-section">
+            <h3><%:选择备份任务%></h3>
+            <div class="cbi-section-descr">
+                <%:勾选需要备份的任务，展开后可选择具体文件。%>
+            </div>
+            
+            <div class="cbi-section-node">
+                <table class="cbi-section-table" style="table-layout: fixed; width: 100%;">
+                    <colgroup>
+                        <col style="width: 15%;">
+                        <col style="width: 85%;">
+                    </colgroup>
+                    <tr class="cbi-section-table-titles">
+                        <th class="cbi-section-table-cell" style="text-align: left;"><%:选择任务%></th>  <!-- 修改点1: 选择任务列居左 -->
+                        <th class="cbi-section-table-cell" style="text-align: left;"><%:包含文件/文件夹%></th>  <!-- 修改点2: 包含文件/文件夹列居左 -->
+                    </tr>
+                    
+                    <% for i, task in ipairs(tasks) do %>
+                    <tr class="cbi-section-table-row" id="task_row_<%=i%>">
+                        <!-- 选择和任务名称列 -->
+                        <td class="cbi-section-table-cell" style="vertical-align: top; width: 15%; text-align: left;">  <!-- 修改点3: 单元格内容居左 -->
+                            <div style="display: flex; align-items: center;">
+                                <input type="checkbox" class="cbi-input-checkbox task-checkbox" 
+                                       id="task_<%=i%>" data-task-index="<%=i%>" 
+                                       onclick="toggleTaskFiles(this, <%=i%>)" checked style="margin-right: 8px; flex-shrink: 0;">
+                                <label for="task_<%=i%>" class="task-name-label" onclick="toggleTaskFiles(document.getElementById('task_<%=i%>'), <%=i%>); return false;">
+                                    <strong><%=task.name%></strong>
+                                </label>
+                            </div>
+                        </td>
+                        
+                        <!-- 文件列表列 -->
+                        <td class="cbi-section-table-cell" style="width: 85%; text-align: left;">  <!-- 修改点4: 文件列表单元格居左 -->
+                            <div id="task_files_<%=i%>" class="task-files-container" style="display: block;">
+                                <% if task.files and #task.files > 0 then %>
+                                    <table class="cbi-section-table" style="margin: 0; border: none; width: 100%; table-layout: fixed;">
+                                        <colgroup>
+                                            <col style="width: 30px;">
+                                            <col>
+                                        </colgroup>
+                                        <% for j, file in ipairs(task.files) do %>
+                                        <tr class="cbi-section-table-row file-item" style="border-bottom: 1px dotted #ccc;">
+                                            <td style="width: 30px; padding: 2px 0 2px 2px; text-align: left;">
+                                                <input type="checkbox" class="cbi-input-checkbox file-checkbox task-<%=i%>-file" 
+                                                       name="selected_files" value="<%=task.name%>:<%=file%>"
+                                                       id="file_<%=i%>_<%=j%>" data-task="<%=i%>" 
+                                                       onclick="updateTaskCheckbox(<%=i%>)" checked
+                                                       style="margin: 0; vertical-align: middle;">
+                                            </td>
+                                            <td style="padding: 2px 0; text-align: left;">
+                                                <label for="file_<%=i%>_<%=j%>" class="file-label <%=file:match('/$') and 'folder' or 'file'%>" 
+                                                       style="display: inline-block; padding: 2px 0; margin: 0; line-height: 20px;">
+                                                    <img src="<%=resource%>/icons/<%=file:match('/$') and 'folder.png' or 'file.png'%>" 
+                                                         style="width: 16px; height: 16px; vertical-align: middle; margin-right: 3px;">
+                                                    <span class="file-path" style="vertical-align: middle;"><%=file%></span>
+                                                    <span class="cbi-badge <%=file:match('/$') and 'badge-folder' or 'badge-file'%>" style="vertical-align: middle; margin-left: 5px;">
+                                                        <%=file:match('/$') and '文件夹' or '文件'%>
+                                                    </span>
+                                                </label>
+                                            </td>
+                                        </tr>
+                                        <% end %>
+                                    </table>
+                                <% else %>
+                                    <em><%:没有配置文件%></em>
+                                <% end %>
+                            </div>
+                        </td>
+                    </tr>
+                    <% end %>
+                </table>
+            </div>
+            
+            <!-- 批量操作按钮 -->
+            <div class="cbi-section-node" style="margin-top: 10px;">
+                <div class="cbi-value">
+                    <label class="cbi-value-title"><%:批量操作：%></label>
+                    <div class="cbi-value-field">
+                        <input type="button" class="cbi-button cbi-button-apply" value="<%:全选所有任务%>" onclick="selectAllTasks()">
+                        <input type="button" class="cbi-button cbi-button-reset" value="<%:取消全选%>" onclick="deselectAllTasks()">
+                        <span style="margin-left: 20px;">
+                            <span id="selected_count" class="cbi-input-text" style="display: inline-block; width: auto; font-weight: bold; color: #0066CC;">0</span>
+                            <%:个文件已选择%>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 备份选项 -->
+        <div class="cbi-section">
+            <h3><%:备份选项%></h3>
+            
+            <div class="cbi-section-node">
+                <div class="cbi-value">
+                    <label class="cbi-value-title" style="line-height: 0px;">  <!-- 修改点5: 设置复选框标签的行高，使复选框位置向上微调 -->
+                        <input type="checkbox" class="cbi-input-checkbox" style="line-height: 0px;" id="enable_encrypt" name="encrypt" value="1" onchange="togglePasswordPath()">
+                        <%:启用GPG加密%>
+                    </label>
+                    <div class="cbi-value-field">
+                        <span class="cbi-value-description"><%:勾选后将对备份文件进行GPG加密（仅保留加密文件）%></span>
+                    </div>
+                </div>
+                
+                <div class="cbi-value" id="password_path_container" style="display: none;">
+                    <label class="cbi-value-title"><%:密码文件路径：%></label>
+                    <div class="cbi-value-field">
+                        <input type="text" class="cbi-input-text" id="password_path" value="/usr/bin/backup-password" readonly style="width: 300px;">
+                        <div class="cbi-value-description">
+                            <%:如需修改密码，请前往"备份设置"页面%>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 备份按钮和结果 -->
+        <div class="cbi-section">
+            <div class="cbi-section-node">
+                <div class="cbi-value">
+                    <label class="cbi-value-title"><%:执行备份：%></label>
+                    <div class="cbi-value-field">
+                        <input type="button" class="cbi-button cbi-button-apply" value="<%:开始备份%>" onclick="startBackup()">
+                        <span id="backup_status" style="margin-left: 20px;"></span>
+                    </div>
+                </div>
+                
+                <!-- 进度条 -->
+                <div class="cbi-value" id="progress_container" style="display: none;">
+                    <label class="cbi-value-title"><%:备份进度：%></label>
+                    <div class="cbi-value-field">
+                        <div class="progressbar" style="width: 300px;">
+                            <div id="progress_bar" class="progressbar-inner" style="width: 0%;">0%</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 结果区域 -->
+                <div class="cbi-value" id="backup_result" style="display: none;">
+                    <label class="cbi-value-title"><%:备份结果：%></label>
+                    <div class="cbi-value-field">
+                        <div class="cbi-section-error" id="backup_result_content" style="white-space: pre-wrap; word-wrap: break-word; max-height: 300px; overflow-y: auto; padding: 10px;">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+
+<script type="text/javascript">
+// 页面加载完成后初始化
+document.addEventListener('DOMContentLoaded', function() {
+    // 初始化所有任务复选框的状态
+    <% for i, task in ipairs(tasks) do %>
+    updateTaskCheckbox(<%=i%>);
+    <% end %>
+    updateSelectedCount();
+});
+
+// 切换任务的文件列表显示
+function toggleTaskFiles(checkbox, taskIndex) {
+    var container = document.getElementById('task_files_' + taskIndex);
+    
+    if (container) {
+        if (container.style.display === 'none') {
+            container.style.display = 'block';
+        } else {
+            container.style.display = 'none';
+        }
+    }
+}
+
+// 更新任务复选框状态
+function updateTaskCheckbox(taskIndex) {
+    var taskCheckbox = document.getElementById('task_' + taskIndex);
+    var fileCheckboxes = document.querySelectorAll('.task-' + taskIndex + '-file');
+    var checkedCount = 0;
+    var totalCount = fileCheckboxes.length;
+    
+    // 计算选中的文件数量
+    for (var i = 0; i < fileCheckboxes.length; i++) {
+        if (fileCheckboxes[i].checked) {
+            checkedCount++;
+        }
+    }
+    
+    // 根据选中文件数量设置任务复选框状态
+    if (checkedCount === 0) {
+        // 没有文件选中：取消勾选
+        taskCheckbox.checked = false;
+        taskCheckbox.indeterminate = false;
+    } else if (checkedCount === totalCount) {
+        // 所有文件选中：勾选
+        taskCheckbox.checked = true;
+        taskCheckbox.indeterminate = false;
+    } else {
+        // 部分文件选中：半选状态
+        taskCheckbox.checked = false;
+        taskCheckbox.indeterminate = true;
+    }
+}
+
+// 更新选中文件计数
+function updateSelectedCount() {
+    var fileCheckboxes = document.querySelectorAll('.file-checkbox:checked');
+    var countEl = document.getElementById('selected_count');
+    if (countEl) {
+        countEl.textContent = fileCheckboxes.length;
+    }
+}
+
+// 全选所有任务
+function selectAllTasks() {
+    var taskCheckboxes = document.querySelectorAll('.task-checkbox');
+    
+    for (var i = 0; i < taskCheckboxes.length; i++) {
+        var taskIndex = i + 1;
+        taskCheckboxes[i].checked = true;
+        taskCheckboxes[i].indeterminate = false;
+        
+        var fileCheckboxes = document.querySelectorAll('.task-' + taskIndex + '-file');
+        for (var j = 0; j < fileCheckboxes.length; j++) {
+            fileCheckboxes[j].checked = true;
+        }
+    }
+    
+    updateSelectedCount();
+}
+
+// 取消全选所有任务
+function deselectAllTasks() {
+    var taskCheckboxes = document.querySelectorAll('.task-checkbox');
+    
+    for (var i = 0; i < taskCheckboxes.length; i++) {
+        var taskIndex = i + 1;
+        taskCheckboxes[i].checked = false;
+        taskCheckboxes[i].indeterminate = false;
+        
+        var fileCheckboxes = document.querySelectorAll('.task-' + taskIndex + '-file');
+        for (var j = 0; j < fileCheckboxes.length; j++) {
+            fileCheckboxes[j].checked = false;
+        }
+    }
+    
+    updateSelectedCount();
+}
+
+// 显示/隐藏密码路径输入框
+function togglePasswordPath() {
+    var container = document.getElementById('password_path_container');
+    var encryptCheckbox = document.getElementById('enable_encrypt');
+    if (container) {
+        container.style.display = encryptCheckbox.checked ? 'block' : 'none';
+    }
+}
+
+// 开始备份
+function startBackup() {
+    var fileCheckboxes = document.querySelectorAll('.file-checkbox:checked');
+    
+    if (fileCheckboxes.length === 0) {
+        alert('<%:请至少选择一个要备份的文件%>');
+        return;
+    }
+    
+    // 显示备份状态
+    var statusEl = document.getElementById('backup_status');
+    var progressContainer = document.getElementById('progress_container');
+    var progressBar = document.getElementById('progress_bar');
+    
+    statusEl.innerHTML = '<%:正在备份中...%>';
+    statusEl.className = 'cbi-status-ok';
+    progressContainer.style.display = 'block';
+    progressBar.style.width = '0%';
+    progressBar.innerHTML = '0%';
+    
+    // 模拟进度条
+    var progress = 0;
+    var progressInterval = setInterval(function() {
+        if (progress < 90) {
+            progress += 10;
+            progressBar.style.width = progress + '%';
+            progressBar.innerHTML = progress + '%';
+        }
+    }, 500);
+    
+    // 提交表单
+    var form = document.getElementById('backup_form');
+    var formData = new FormData(form);
+    formData.append('backup', '1');
+    
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '<%=REQUEST_URI%>', true);
+    
+    xhr.onload = function() {
+        clearInterval(progressInterval);
+        
+        if (xhr.status === 200) {
+            var result = document.getElementById('backup_result');
+            var resultContent = document.getElementById('backup_result_content');
+            
+            progressBar.style.width = '100%';
+            progressBar.innerHTML = '100%';
+            
+            try {
+                var response = JSON.parse(xhr.responseText);
+                if (response.success) {
+                    statusEl.innerHTML = '<%:备份完成！%>';
+                    statusEl.className = 'cbi-status-ok';
+                    resultContent.className = 'cbi-section-ok';
+                    
+                    var resultHtml = '✓ <%:备份成功！%>\n\n';
+                    resultHtml += '<%:备份文件保存在：%> ' + response.file + '\n';
+                    resultHtml += '<%:详细信息：%> ' + response.message + '\n\n';
+                    
+                    var encrypt = document.getElementById('enable_encrypt').checked;
+                    if (encrypt) {
+                        resultHtml += '������ <%:加密方式：%> GPG AES256 <%:加密%>\n';
+                        resultHtml += '������ <%:密码文件：%> /usr/bin/backup-password\n';
+                    }
+                    
+                    resultContent.innerHTML = resultHtml.replace(/\n/g, '<br>');
+                } else {
+                    statusEl.innerHTML = '<%:备份失败%>';
+                    statusEl.className = 'cbi-status-error';
+                    resultContent.className = 'cbi-section-error';
+                    resultContent.innerHTML = '❌ <%:错误：%> ' + response.message;
+                }
+            } catch (e) {
+                statusEl.innerHTML = '<%:解析响应失败%>';
+                statusEl.className = 'cbi-status-error';
+                resultContent.className = 'cbi-section-error';
+                resultContent.innerHTML = '❌ <%:服务器返回：%><br>' + xhr.responseText.replace(/\n/g, '<br>');
+            }
+            
+            result.style.display = 'block';
+        } else {
+            clearInterval(progressInterval);
+            statusEl.innerHTML = '<%:请求失败%>';
+            statusEl.className = 'cbi-status-error';
+            progressBar.style.width = '0%';
+            progressBar.innerHTML = '0%';
+        }
+    };
+    
+    xhr.onerror = function() {
+        clearInterval(progressInterval);
+        statusEl.innerHTML = '<%:网络错误%>';
+        statusEl.className = 'cbi-status-error';
+        progressBar.style.width = '0%';
+        progressBar.innerHTML = '0%';
+    };
+    
+    xhr.send(formData);
+}
+
+// 文件复选框变化时更新计数和任务状态
+document.addEventListener('change', function(e) {
+    if (e.target && e.target.classList.contains('file-checkbox')) {
+        var taskIndex = e.target.getAttribute('data-task');
+        updateTaskCheckbox(taskIndex);
+        updateSelectedCount();
+    }
+});
+
+// 任务复选框变化时更新文件复选框
+document.addEventListener('change', function(e) {
+    if (e.target && e.target.classList.contains('task-checkbox')) {
+        var taskIndex = e.target.getAttribute('data-task-index');
+        var fileCheckboxes = document.querySelectorAll('.task-' + taskIndex + '-file');
+        var isChecked = e.target.checked;
+        
+        for (var i = 0; i < fileCheckboxes.length; i++) {
+            fileCheckboxes[i].checked = isChecked;
+        }
+        
+        e.target.indeterminate = false;
+        updateSelectedCount();
+    }
+});
+</script>
+
+<style type="text/css">
+/* 表格固定布局 */
+.cbi-section-table {
+    table-layout: fixed !important;
+    width: 100% !important;
+}
+
+/* 任务名称标签 */
+.task-name-label {
+    font-weight: bold;
+    color: #0066CC;
+    cursor: pointer;
+    padding: 3px 8px;
+    border-radius: 3px;
+    background-color: #f0f0f0;
+    display: inline-block;
+    transition: background-color 0.2s;
+    word-break: break-word;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: normal;
+    line-height: 1.3;
+}
+
+.task-name-label:hover {
+    background-color: #e0e0e0;
+}
+
+/* 文件列表容器 */
+.task-files-container {
+    background-color: #f9f9f9;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    padding: 4px 0 4px 2px;
+    margin: 5px 0;
+    overflow-x: auto;
+}
+
+/* 文件项样式 */
+.file-item:hover {
+    background-color: #f0f0f0;
+}
+
+/* 文件标签样式 */
+.file-label {
+    cursor: pointer;
+    display: inline-block;
+    padding: 2px 0;
+    margin: 0;
+    line-height: 20px;
+    white-space: normal;
+    word-break: break-word;
+}
+
+.file-label.folder {
+    color: #9b59b6;
+}
+
+.file-label.file {
+    color: #27ae60;
+}
+
+/* 文件路径文本 */
+.file-path {
+    vertical-align: middle;
+    word-break: break-word;
+}
+
+/* CBI徽章样式 */
+.cbi-badge {
+    display: inline-block;
+    padding: 2px 5px;
+    font-size: 10px;
+    font-weight: bold;
+    border-radius: 3px;
+    margin-left: 5px;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.badge-folder {
+    background-color: #9b59b6;
+    color: white;
+}
+
+.badge-file {
+    background-color: #27ae60;
+    color: white;
+}
+
+/* 复选框单元格样式 */
+.cbi-section-table .cbi-section-table td:first-child {
+    padding: 2px 0 2px 2px !important;
+    text-align: left !important;
+}
+
+/* 文件复选框样式 */
+.file-checkbox {
+    margin: 0 !important;
+    vertical-align: middle;
+}
+
+/* 进度条样式 */
+.progressbar {
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    height: 20px;
+    overflow: hidden;
+}
+
+.progressbar-inner {
+    background-color: #0066CC;
+    color: white;
+    text-align: center;
+    height: 100%;
+    line-height: 20px;
+    font-size: 11px;
+    transition: width 0.3s ease;
+}
+
+/* 状态样式 */
+.cbi-status-ok {
+    color: #27ae60;
+    font-weight: bold;
+}
+
+.cbi-status-error {
+    color: #c0392b;
+    font-weight: bold;
+}
+
+.cbi-section-ok {
+    background-color: #f0f9f0;
+    border: 1px solid #27ae60;
+    color: #27ae60;
+}
+
+.cbi-section-error {
+    background-color: #f9f0f0;
+    border: 1px solid #c0392b;
+    color: #c0392b;
+}
+
+/* 表格内部表格样式 */
+.cbi-section-table .cbi-section-table {
+    margin: 0;
+    border: none;
+    background-color: transparent;
+    table-layout: fixed;
+}
+
+/* 复选框样式 */
+.cbi-input-checkbox {
+    margin: 0 5px;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+
+/* 任务复选框样式 */
+.task-checkbox {
+    margin-right: 8px;
+}
+
+/* 按钮样式 */
+.cbi-button {
+    margin: 0 2px;
+}
+
+/* 选中计数显示 */
+#selected_count {
+    background-color: #f0f0f0;
+    padding: 2px 8px;
+    border-radius: 10px;
+    border: 1px solid #ccc;
+}
+
+/* 结果区域动画 */
+@keyframes cbi-fade-in {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+#backup_result {
+    animation: cbi-fade-in 0.3s ease;
+}
+
+/* 任务行样式 */
+.cbi-section-table-row td:first-child {
+    background-color: #fafafa;
+    border-right: 1px solid #e0e0e0;
+}
+
+/* 确保colgroup生效 */
+colgroup col {
+    width: inherit;
+}
+
+/* 防止内容撑大列宽 */
+.cbi-section-table td {
+    overflow: hidden;
+}
+
+/* 选择任务列内容容器 */
+.cbi-section-table td:first-child > div {
+    max-width: 100%;
+}
+
+/* 为半选状态添加特殊样式 */
+.task-checkbox:indeterminate {
+    background-color: #ffcc00;
+}
+</style>
+
+<%+footer%>
