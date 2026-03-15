@@ -1,14 +1,45 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-pushbot
-PKG_VERSION:=3.8.13
+PKG_VERSION:=3.8.16
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=tty228 <tty228@yeah.net>  zzsj0928
 
 LUCI_TITLE:=LuCI support for Pushbot
 LUCI_PKGARCH:=all
-LUCI_DEPENDS:=+bash +iputils-arping +curl +jq +aes-tool +smartmontools
+LUCI_DEPENDS:=+bash +iputils-arping +curl +jq +smartmontools \
+	+LUCI_APP_PUSHBOT_ENABLE_AES_TOOL:aes-tool
+
+define Package/$(PKG_NAME)/config
+	config LUCI_APP_PUSHBOT_ENABLE_AES_TOOL
+		bool "Include aes-tool (required for Bark GCM encryption)"
+		default n
+		help
+		  Install aes-tool for AES-GCM encryption support in Bark push.
+		  CBC/ECB encryption uses system openssl and does not need this.
+
+	config LUCI_APP_PUSHBOT_INCLUDE_OUI_DATA
+		bool "Include built-in MAC vendor database (OUI)"
+		default n
+		help
+		  Download and embed IEEE OUI data during compilation.
+		  This avoids needing to download it on the router at runtime.
+		  Adds approximately 1.8MB (full) to the package size.
+endef
+
+define Build/Prepare/luci-app-pushbot
+	if [ "$(CONFIG_LUCI_APP_PUSHBOT_INCLUDE_OUI_DATA)" = "y" ]; then \
+		echo ">>> Downloading IEEE OUI database..."; \
+		curl -sS --retry 3 -m 120 -o $(PKG_BUILD_DIR)/oui_raw.txt \
+			https://standards-oui.ieee.org/oui/oui.txt || \
+			{ echo "ERROR: Failed to download OUI database"; exit 1; }; \
+		mkdir -p $(PKG_BUILD_DIR)/root/usr/bin/pushbot; \
+		grep "base 16" $(PKG_BUILD_DIR)/oui_raw.txt > $(PKG_BUILD_DIR)/root/usr/bin/pushbot/oui_base.txt; \
+		rm -f $(PKG_BUILD_DIR)/oui_raw.txt; \
+		echo ">>> OUI database ready"; \
+	fi
+endef
 
 
 define Package/$(PKG_NAME)/install
