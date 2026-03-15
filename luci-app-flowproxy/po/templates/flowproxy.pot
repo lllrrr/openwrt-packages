@@ -1,0 +1,455 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+msgid "FlowProxy"
+msgstr ""
+
+msgid "Traffic diversion based on nftables rules for routing specific traffic to proxy software."
+msgstr ""
+
+msgid "Settings"
+msgstr ""
+
+msgid "Rules"
+msgstr ""
+
+msgid "Lists"
+msgstr ""
+
+msgid "Preview"
+msgstr ""
+
+msgid "Service Status"
+msgstr ""
+
+msgid "nftables Status"
+msgstr ""
+
+msgid "Proxy Server IP"
+msgstr ""
+
+msgid "Proxy Server IP Address"
+msgstr ""
+
+msgid "The IP address of the proxy server (e.g., 192.168.1.100)"
+msgstr ""
+
+msgid "Interface"
+msgstr ""
+
+msgid "Network Interface"
+msgstr ""
+
+msgid "Network interface for routing traffic"
+msgstr ""
+
+msgid "Traffic Mark"
+msgstr ""
+
+msgid "Mark value (fwmark) used to identify packets for diversion. 32-bit unsigned integer."
+msgstr ""
+
+msgid "Routing Table ID"
+msgstr ""
+
+msgid "Routing table ID used for diverted traffic. Default is 100. Do not modify unless you have specific requirements."
+msgstr ""
+
+msgid "IDs 0, 253, 254, 255 are reserved by the system."
+msgstr ""
+
+msgid "The network interface where the proxy server is located (usually LAN)."
+msgstr ""
+
+msgid "The server that has the proxy enabled and can forward IP traffic."
+msgstr ""
+
+msgid "The port of the DNS proxy service that provides DNS resolution for the local network."
+msgstr ""
+
+msgid "Enable"
+msgstr ""
+
+msgid "Running"
+msgstr ""
+
+msgid "Enabled (Not Running)"
+msgstr ""
+
+msgid "Disabled"
+msgstr ""
+
+msgid "Active chains: %s"
+msgstr ""
+
+msgid "No active chains"
+msgstr ""
+
+msgid "Log Settings"
+msgstr ""
+
+msgid "Log Level"
+msgstr ""
+
+msgid "Debug"
+msgstr ""
+
+msgid "Info"
+msgstr ""
+
+msgid "Warning"
+msgstr ""
+
+msgid "Error"
+msgstr ""
+
+msgid "Log Size (KB)"
+msgstr ""
+
+msgid "Maximum log file size in kilobytes"
+msgstr ""
+
+msgid "Log Count"
+msgstr ""
+
+msgid "Number of rotated log files to keep"
+msgstr ""
+
+msgid "Runtime Logs"
+msgstr ""
+
+msgid "Refresh"
+msgstr ""
+
+msgid "Clear Logs"
+msgstr ""
+
+msgid "No logs available"
+msgstr ""
+
+msgid "Are you sure you want to clear all logs?"
+msgstr ""
+
+msgid "Start"
+msgstr ""
+
+msgid "Stop"
+msgstr ""
+
+msgid "Restart"
+msgstr ""
+
+msgid "Basic Settings"
+msgstr ""
+
+msgid "enable flowproxy"
+msgstr ""
+
+msgid "to enable or disable TCP and UDP protocols, please go to the \"Rules\" page."
+msgstr ""
+
+msgid "current status"
+msgstr ""
+
+msgid "dns redirection"
+msgstr ""
+
+msgid "force upstream dns to proxy server"
+msgstr ""
+
+msgid "proxy server dns port"
+msgstr ""
+
+msgid "when enabled, dnsmasq will use the proxy server as the upstream dns server. \"dns redirect\" feature will be disabled.<br/>note: the \"enable flowproxy\" option must also be turned on for this to take effect."
+msgstr ""
+
+msgid "FlowProxy - Rules Management"
+msgstr ""
+
+msgid "Manage nftables rules priority and traffic diversion configuration."
+msgstr ""
+
+msgid "Traffic Rules"
+msgstr ""
+
+msgid "Rule Name"
+msgstr ""
+
+msgid "Enter rule name"
+msgstr ""
+
+msgid "Protocol"
+msgstr ""
+
+msgid "TCP & UDP"
+msgstr ""
+
+msgid "Priority"
+msgstr ""
+
+msgid "Lower value means higher priority (default: 100)"
+msgstr ""
+
+msgid "Basic Rules"
+msgstr ""
+
+msgid "Advanced Options"
+msgstr ""
+
+msgid "Skip by Source MAC"
+msgstr ""
+
+msgid "Skip proxy for source MAC addresses in the list"
+msgstr ""
+
+msgid "Skip by Source IP"
+msgstr ""
+
+msgid "Skip proxy for source IP addresses in the list"
+msgstr ""
+
+msgid "Skip by Destination IP"
+msgstr ""
+
+msgid "Skip proxy for destination IP addresses in the list"
+msgstr ""
+
+msgid "Skip Private IPs"
+msgstr ""
+
+msgid "Skip proxy for private IP ranges (RFC 1918)"
+msgstr ""
+
+msgid "Skip China IPs"
+msgstr ""
+
+msgid "Skip proxy for China IP ranges"
+msgstr ""
+
+msgid "Skip by Ports"
+msgstr ""
+
+msgid "Skip proxy for specific ports in the list"
+msgstr ""
+
+msgid "Custom nftables Rules"
+msgstr ""
+
+msgid "Additional nftables rules to append (one per line)"
+msgstr ""
+
+msgid "Rule Processing Order"
+msgstr ""
+
+msgid "Processing Flow"
+msgstr ""
+
+msgid "Check if destination is local/anycast/multicast → Return (no proxy)"
+msgstr ""
+
+msgid "Check source MAC against no_proxy_src_mac list → Return (no proxy)"
+msgstr ""
+
+msgid "Check if source IP is proxy server → Return (no proxy)"
+msgstr ""
+
+msgid "Check source IP against no_proxy_src_ip_v4 list → Return (no proxy)"
+msgstr ""
+
+msgid "Check destination IP against no_proxy_dst_ip_v4 list → Return (no proxy)"
+msgstr ""
+
+msgid "Check destination IP against private_dst_ip_v4 list → Return (no proxy)"
+msgstr ""
+
+msgid "Check destination IP against chnroute_dst_ip_v4 list → Return (no proxy)"
+msgstr ""
+
+msgid "Check destination port against port list → Return (no proxy)"
+msgstr ""
+
+msgid "Set firewall mark for transparent proxy"
+msgstr ""
+
+msgid "Note"
+msgstr ""
+
+msgid "Rules are processed in order. Traffic matching any \"return\" rule will bypass the proxy. Only traffic not matching any return rule will be marked for proxy."
+msgstr ""
+
+msgid "FlowProxy - Lists Management"
+msgstr ""
+
+msgid "Manage nftables set collections used by traffic rules."
+msgstr ""
+
+msgid "No Proxy Source MAC"
+msgstr ""
+
+msgid "Configuration"
+msgstr ""
+
+msgid "Elements"
+msgstr ""
+
+msgid "Description"
+msgstr ""
+
+msgid "MAC Addresses"
+msgstr ""
+
+msgid "Enter MAC addresses (e.g., aa:bb:cc:dd:ee:ff)"
+msgstr ""
+
+msgid "No Proxy Source IPv4"
+msgstr ""
+
+msgid "IPv4 Addresses"
+msgstr ""
+
+msgid "Enter IPv4 addresses or CIDR (e.g., 192.168.1.100 or 192.168.1.0/24)"
+msgstr ""
+
+msgid "No Proxy Destination IPv4"
+msgstr ""
+
+msgid "Enter IPv4 addresses or CIDR (e.g., 8.8.8.8 or 10.0.0.0/8)"
+msgstr ""
+
+msgid "Private IP Ranges"
+msgstr ""
+
+msgid "Auto Generate"
+msgstr ""
+
+msgid "Automatically generate private IP ranges (RFC 1918)"
+msgstr ""
+
+msgid "IPv4 Ranges"
+msgstr ""
+
+msgid "Private IP ranges (auto-generated if enabled)"
+msgstr ""
+
+msgid "China IP Ranges"
+msgstr ""
+
+msgid "IP List File"
+msgstr ""
+
+msgid "Path to file containing China IP ranges (one CIDR per line)"
+msgstr ""
+
+msgid "China IP ranges (loaded from file)"
+msgstr ""
+
+msgid "No Proxy TCP Ports"
+msgstr ""
+
+msgid "TCP Ports"
+msgstr ""
+
+msgid "Enter port numbers or ranges (e.g., 80, 443, 8080-8090)"
+msgstr ""
+
+msgid "No Proxy UDP Ports"
+msgstr ""
+
+msgid "UDP Ports"
+msgstr ""
+
+msgid "Enter port numbers or ranges (e.g., 53, 123, 5000-5010)"
+msgstr ""
+
+msgid "Quick Reference"
+msgstr ""
+
+msgid "List Name"
+msgstr ""
+
+msgid "Type"
+msgstr ""
+
+msgid "Usage"
+msgstr ""
+
+msgid "Source MAC addresses that bypass proxy"
+msgstr ""
+
+msgid "Source IPv4 addresses that bypass proxy"
+msgstr ""
+
+msgid "Destination IPv4 addresses that bypass proxy"
+msgstr ""
+
+msgid "Private IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)"
+msgstr ""
+
+msgid "China IP ranges loaded from file"
+msgstr ""
+
+msgid "TCP ports that bypass proxy"
+msgstr ""
+
+msgid "UDP ports that bypass proxy"
+msgstr ""
+
+msgid "FlowProxy - Configuration Preview"
+msgstr ""
+
+msgid "Preview the generated nftables configuration before applying."
+msgstr ""
+
+msgid "Current Status"
+msgstr ""
+
+msgid "Service Enabled"
+msgstr ""
+
+msgid "Yes"
+msgstr ""
+
+msgid "No"
+msgstr ""
+
+msgid "nftables Configuration"
+msgstr ""
+
+msgid "Refresh Preview"
+msgstr ""
+
+msgid "Copy to Clipboard"
+msgstr ""
+
+msgid "Configuration copied to clipboard"
+msgstr ""
+
+msgid "Route Rules Preview"
+msgstr ""
+
+msgid "(not configured)"
+msgstr ""
+
+msgid "Command Reference"
+msgstr ""
+
+msgid "Service Control"
+msgstr ""
+
+msgid "View nftables Rules"
+msgstr ""
+
+msgid "View Sets"
+msgstr ""
+
+msgid "Debug"
+msgstr ""
+
+msgid "Loading..."
+msgstr ""
+
+msgid "Loading logs..."
+msgstr ""
+
+msgid "Add rule"
+msgstr ""

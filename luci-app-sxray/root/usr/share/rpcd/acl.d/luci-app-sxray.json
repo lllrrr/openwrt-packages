@@ -1,0 +1,20 @@
+{
+	"luci-app-sxray": {
+		"description": "Grant access for luci-app-sxray",
+		"read": {
+			"file": {
+				"/etc/firewall.sxray": ["read"],
+				"/etc/sxray/*": ["read"]
+			},
+			"uci": ["dhcp", "firewall", "sxray"]
+		},
+		"write": {
+			"file": {
+				"/etc/sxray/*": ["write"],
+				"/etc/init.d/firewall": ["exec"],
+				"/etc/init.d/sxray": ["exec"]
+			},
+			"uci": ["dhcp", "firewall", "sxray"]
+		}
+	}
+}

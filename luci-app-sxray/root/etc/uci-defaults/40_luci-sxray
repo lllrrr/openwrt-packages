@@ -1,0 +1,90 @@
+#!/bin/sh
+#
+# Copyright 2019-2020 Xingwang Liao <kuoruan@gmail.com>
+# Licensed to the public under the MIT License.
+#
+
+# sxray main
+sxray=$(uci -q get sxray.main)
+if [ "x$sxray" != "xsxray" ] ; then
+	uci -q batch <<-EOF >/dev/null
+		add sxray sxray
+		rename sxray.@sxray[-1]="main"
+		set sxray.main.enabled="0"
+		commit sxray
+	EOF
+fi
+
+# dns
+dns=$(uci -q get sxray.main_dns)
+if [ "x$dns" != "xdns" ] ; then
+	uci -q batch <<-EOF >/dev/null
+		add sxray dns
+		rename sxray.@dns[-1]="main_dns"
+		set sxray.main_dns.enabled="0"
+		commit sxray
+	EOF
+fi
+
+# routing
+routing=$(uci -q get sxray.main_routing)
+if [ "x$routing" != "xrouting" ] ; then
+	uci -q batch <<-EOF >/dev/null
+		add sxray routing
+		rename sxray.@routing[-1]="main_routing"
+		set sxray.main_routing.enabled="0"
+		commit sxray
+	EOF
+fi
+
+# policy
+policy=$(uci -q get sxray.main_policy)
+if [ "x$policy" != "xpolicy" ] ; then
+	uci -q batch <<-EOF >/dev/null
+		add sxray policy
+		rename sxray.@policy[-1]="main_policy"
+		set sxray.main_policy.enabled="0"
+		commit sxray
+	EOF
+fi
+
+# reverse
+reverse=$(uci -q get sxray.main_reverse)
+if [ "x$reverse" != "xreverse" ] ; then
+	uci -q batch <<-EOF >/dev/null
+		add sxray reverse
+		rename sxray.@reverse[-1]="main_reverse"
+		set sxray.main_reverse.enabled="0"
+		commit sxray
+	EOF
+fi
+
+# transparent_proxy
+transparent_proxy=$(uci -q get sxray.main_transparent_proxy)
+if [ "x$transparent_proxy" != "xtransparent_proxy" ] ; then
+	uci -q batch <<-EOF >/dev/null
+		add sxray transparent_proxy
+		rename sxray.@transparent_proxy[-1]="main_transparent_proxy"
+		set sxray.main_transparent_proxy.redirect_port=""
+		commit sxray
+	EOF
+fi
+
+uci -q batch <<-EOF >/dev/null
+	delete ucitrack.@sxray[-1]
+	add ucitrack sxray
+	set ucitrack.@sxray[-1].init=sxray
+	commit ucitrack
+
+	delete firewall.sxray
+	set firewall.sxray=include
+	set firewall.sxray.type=script
+	set firewall.sxray.path=/etc/firewall.sxray
+	set firewall.sxray.family=any
+	set firewall.sxray.reload=1
+	commit firewall
+EOF
+
+rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
+
+exit 0

@@ -1,0 +1,142 @@
+<%#
+	Copyright 2019-2020 Xingwang Liao <kuoruan@gmail.com>
+	Licensed to the public under the MIT License.
+-%>
+
+<%
+local dsp = require "luci.dispatcher"
+-%>
+
+<div class="cbi-section">
+	<p id="sxray_status"><em><%:Collecting data...%></em></p>
+</div>
+
+<script type="text/javascript">//<![CDATA[
+	var versionCheckTimeout = null;
+
+	function checkVersion(file, coreType, callback) {
+		if (!file || file === '') {
+			callback({ valid: false, message: '<%:Core file path is empty%>' });
+			return;
+		}
+
+		(new XHR()).get('<%=dsp.build_url("admin/services/sxray/check-version")%>',
+			{ file: file, core_type: coreType },
+			function(x, data) {
+				if (x.status === 200 && data) {
+					callback(data);
+				} else {
+					callback({ valid: false, message: '<%:Failed to check version%>' });
+				}
+			}
+		);
+	}
+
+	function updateVersionDisplay(elementId, data) {
+		var s = document.getElementById(elementId);
+		if (!s) return;
+
+		var d = s.getElementsByClassName('cbi-value-description');
+		if (!d || d.length === 0) return;
+
+		if (data.valid) {
+			d[0].innerHTML = String.format('<span style="color: green;"><%:Version: %s%></span>', data.version);
+		} else {
+			d[0].innerHTML = String.format('<span style="color: red;">%s</span>', data.message);
+		}
+	}
+
+	function debounceCheckVersion(inputElement, coreType, elementId) {
+		if (versionCheckTimeout) {
+			clearTimeout(versionCheckTimeout);
+		}
+
+		versionCheckTimeout = setTimeout(function() {
+			var file = inputElement.value.trim();
+			updateVersionDisplay(elementId, { valid: false, message: '<%:Checking...%>' });
+			checkVersion(file, coreType, function(data) {
+				updateVersionDisplay(elementId, data);
+			});
+		}, 300);
+	}
+
+	function setupVersionCheckListeners() {
+		var xrayInput = document.getElementsByName('cbid.sxray.main.xray_file')[0];
+		var singBoxInput = document.getElementsByName('cbid.sxray.main.sing_box_file')[0];
+
+		if (xrayInput) {
+			xrayInput.addEventListener('input', function() {
+				debounceCheckVersion(this, 'xray', 'cbi-sxray-main-xray_file');
+			});
+			xrayInput.addEventListener('change', function() {
+				debounceCheckVersion(this, 'xray', 'cbi-sxray-main-xray_file');
+			});
+		}
+
+		if (singBoxInput) {
+			singBoxInput.addEventListener('input', function() {
+				debounceCheckVersion(this, 'sing-box', 'cbi-sxray-main-sing_box_file');
+			});
+			singBoxInput.addEventListener('change', function() {
+				debounceCheckVersion(this, 'sing-box', 'cbi-sxray-main-sing_box_file');
+			});
+		}
+	}
+
+	XHR.poll(5, '<%=dsp.build_url("admin/services/sxray/status")%>', null,
+		function (x, data)
+		{
+			if (x.status !== 200 || !data)
+			{
+				return;
+			}
+			var sxrayStatusElm = document.getElementById('sxray_status');
+			if (data.running) {
+				sxrayStatusElm.innerHTML = '<span style="color: green; font-weight: bold;"><%:Running%></span>';
+			} else {
+				sxrayStatusElm.innerHTML = '<span style="color: red; font-weight: bold;"><%:Not Running%></span>';
+			}
+		}
+	);
+
+	function updateVersionInfo(data) {
+		if (!data) {
+			return;
+		}
+
+		if (data.xray) {
+			updateVersionDisplay('cbi-sxray-main-xray_file', data.xray);
+		}
+
+		if (data.sing_box) {
+			updateVersionDisplay('cbi-sxray-main-sing_box_file', data.sing_box);
+		}
+	}
+
+	XHR.poll(5, '<%=dsp.build_url("admin/services/sxray/version")%>', null,
+		function (x, data)
+		{
+			if (x.status !== 200 || !data)
+			{
+				return;
+			}
+			updateVersionInfo(data);
+		}
+	);
+
+	(new XHR()).get('<%=dsp.build_url("admin/services/sxray/version")%>', null,
+		function(x, data)
+		{
+			if (x.status !== 200 || !data)
+			{
+				return;
+			}
+			updateVersionInfo(data);
+			setupVersionCheckListeners();
+		}
+	);
+
+	document.addEventListener('DOMContentLoaded', function() {
+		setTimeout(setupVersionCheckListeners, 500);
+	});
+//]]></script>
