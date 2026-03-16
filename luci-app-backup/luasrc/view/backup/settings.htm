@@ -25,6 +25,31 @@
             </div>
         </div>
 
+        <!-- 备份目录配置 -->
+        <div class="cbi-section">
+            <h3><%:备份目录%></h3>
+            <div class="cbi-section-node">
+                <div class="cbi-value">
+                    <label class="cbi-value-title"><%:备份文件保存目录：%></label>
+                    <div class="cbi-value-field">
+                        <input type="text" class="cbi-input-text" id="backup_dir" name="backup_dir" 
+                               value="<%=luci.util.pcdata(backup_dir or '/tmp/backup')%>" 
+                               style="width: 300px;" placeholder="/tmp/backup">
+                        <div class="cbi-value-description">
+                            <%:指定备份文件的保存目录，支持外部存储如 /mnt/sda1/backup%>
+                        </div>
+                    </div>
+                </div>
+                <div class="cbi-value">
+                    <label class="cbi-value-title"><%:可用空间：%></label>
+                    <div class="cbi-value-field">
+                        <span id="disk_space"><%=free_space or "未知"%></span>
+                        <span id="disk_check_status" style="margin-left: 10px; color: #666;"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- 任务管理 -->
         <div class="cbi-section">
             <h3>
@@ -256,6 +281,7 @@ function saveSettings() {
     var formData = new FormData();
     formData.append('save', '1');
     formData.append('password', document.getElementById('password').value);
+    formData.append('backup_dir', document.getElementById('backup_dir').value);
     formData.append('tasks', JSON.stringify(tasks));
     
     var xhr = new XMLHttpRequest();
@@ -290,6 +316,73 @@ function saveSettings() {
     
     xhr.send(formData);
 }
+
+// 实时更新磁盘空间显示
+document.getElementById('backup_dir').addEventListener('blur', function() {
+    var dir = this.value.trim();
+    var statusEl = document.getElementById('disk_check_status');
+    var spaceEl = document.getElementById('disk_space');
+    
+    if (!dir) {
+        dir = '/tmp/backup';
+    }
+    
+    statusEl.innerHTML = '检查中...';
+    statusEl.style.color = '#666';
+    
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '<%=REQUEST_URI%>?check_disk=1&dir=' + encodeURIComponent(dir), true);
+    
+    xhr.onload = function() {
+        if (xhr.status == 200) {
+            try {
+                var resp = JSON.parse(xhr.responseText);
+                if (resp.free_space) {
+                    spaceEl.innerHTML = resp.free_space;
+                    statusEl.innerHTML = '✓ 已更新';
+                    statusEl.style.color = '#27ae60';
+                } else {
+                    spaceEl.innerHTML = '未知';
+                    statusEl.innerHTML = '✗ 获取失败';
+                    statusEl.style.color = '#c0392b';
+                }
+            } catch (e) {
+                console.error('解析响应失败:', e);
+                spaceEl.innerHTML = '未知';
+                statusEl.innerHTML = '✗ 解析错误';
+                statusEl.style.color = '#c0392b';
+            }
+        } else {
+            spaceEl.innerHTML = '未知';
+            statusEl.innerHTML = '✗ 请求失败';
+            statusEl.style.color = '#c0392b';
+        }
+        
+        setTimeout(function() {
+            statusEl.innerHTML = '';
+        }, 3000);
+    };
+    
+    xhr.onerror = function() {
+        spaceEl.innerHTML = '未知';
+        statusEl.innerHTML = '✗ 网络错误';
+        statusEl.style.color = '#c0392b';
+        
+        setTimeout(function() {
+            statusEl.innerHTML = '';
+        }, 3000);
+    };
+    
+    xhr.send();
+});
+
+// 页面加载完成后也检查一次
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(function() {
+        var event = new Event('blur');
+        document.getElementById('backup_dir').dispatchEvent(event);
+    }, 500);
+});
 </script>
 
 <style>

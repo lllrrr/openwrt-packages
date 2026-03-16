@@ -1,6 +1,7 @@
 
 config config 'config'
-	option password 'hzy'
+	option password '111'
+	option backup_dir '/root/backup'
 
 config task
 	option name '系统配置'

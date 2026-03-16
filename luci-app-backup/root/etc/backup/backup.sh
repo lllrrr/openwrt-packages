@@ -7,13 +7,9 @@
 # ============================================
 
 # 配置
-BACKUP_DIR="/tmp/backup"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 LOG_FILE="/tmp/backup.log"
 PASSWORD_FILE="/usr/bin/backup-password"
-
-# 创建备份目录
-mkdir -p $BACKUP_DIR
 
 # 清空日志
 > $LOG_FILE
@@ -45,6 +41,16 @@ log "接收到原始数据: $input_data"
 if ! command -v jsonfilter >/dev/null 2>&1; then
     error_exit "系统缺少jsonfilter工具，请安装: opkg install jsonfilter"
 fi
+
+# 提取备份目录 - 新增
+BACKUP_DIR=$(echo "$input_data" | jsonfilter -e '@.backup_dir' 2>/dev/null)
+if [ -z "$BACKUP_DIR" ] || [ "$BACKUP_DIR" = "null" ]; then
+    BACKUP_DIR="/tmp/backup"
+fi
+log "备份目录: $BACKUP_DIR"
+
+# 创建备份目录
+mkdir -p $BACKUP_DIR
 
 # 提取加密选项
 encrypt=$(echo "$input_data" | jsonfilter -e '@.encrypt')

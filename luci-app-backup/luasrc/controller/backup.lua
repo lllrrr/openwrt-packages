@@ -31,15 +31,17 @@ end
 function action_backup()
     local tasks = get_tasks_from_uci()
     local password = get_password_from_uci()
+    local backup_dir = get_backup_dir_from_uci()
     
     if http.formvalue("backup") then
-        handle_backup_request(tasks, password)
+        handle_backup_request(tasks, password, backup_dir)
         return
     end
     
     local data = {
         tasks = tasks,
-        password = password
+        password = password,
+        backup_dir = backup_dir
     }
     
     http.prepare_content("text/html; charset=utf-8")
@@ -47,6 +49,46 @@ function action_backup()
 end
 
 function action_settings()
+    -- 如果是磁盘空间检查请求
+    if http.formvalue("check_disk") == "1" then
+        local dir = http.formvalue("dir")
+        if not dir or dir == "" then
+            dir = "/tmp/backup"
+        end
+        
+        local free_space = "未知"
+        
+        -- 创建目录（如果不存在）
+        if not fs.access(dir) then
+            fs.mkdir(dir)
+        end
+        
+        -- 获取磁盘空间
+        local handle = io.popen("df -h " .. dir .. " 2>/dev/null | awk 'NR==2 {print $4}'")
+        if handle then
+            local result = handle:read("*a")
+            handle:close()
+            
+            if result and result ~= "" then
+                free_space = result:gsub("%s+", "")
+            else
+                -- 备选方案：尝试获取根分区的空间
+                handle = io.popen("df -h / 2>/dev/null | awk 'NR==2 {print $4}'")
+                if handle then
+                    result = handle:read("*a")
+                    handle:close()
+                    if result and result ~= "" then
+                        free_space = result:gsub("%s+", "") .. " (根分区)"
+                    end
+                end
+            end
+        end
+        
+        http.prepare_content("application/json")
+        http.write(json.stringify({free_space = free_space}))
+        return
+    end
+    
     if http.formvalue("save") then
         handle_settings_save()
         return
@@ -54,10 +96,26 @@ function action_settings()
     
     local tasks = get_tasks_from_uci()
     local password = get_password_from_uci()
+    local backup_dir = get_backup_dir_from_uci()
+    
+    -- 获取当前目录的可用空间（页面加载时）
+    local free_space = "未知"
+    if backup_dir and backup_dir ~= "" then
+        local handle = io.popen("df -h " .. backup_dir .. " 2>/dev/null | awk 'NR==2 {print $4}'")
+        if handle then
+            local result = handle:read("*a")
+            handle:close()
+            if result and result ~= "" then
+                free_space = result:gsub("%s+", "")
+            end
+        end
+    end
     
     local data = {
         tasks = tasks,
-        password = password
+        password = password,
+        backup_dir = backup_dir,
+        free_space = free_space
     }
     
     http.prepare_content("text/html; charset=utf-8")
@@ -66,7 +124,7 @@ end
 
 function action_restore()
     local password = get_password_from_uci()
-    local default_dir = "/tmp/backup"
+    local default_dir = get_backup_dir_from_uci() or "/tmp/backup"
     
     if http.formvalue("restore") then
         handle_restore_request(password)
@@ -108,6 +166,11 @@ function get_password_from_uci()
     return password or ""
 end
 
+function get_backup_dir_from_uci()
+    local backup_dir = uci:get("backup", "config", "backup_dir")
+    return backup_dir or "/tmp/backup"
+end
+
 function save_tasks_to_uci(tasks)
     uci:delete_all("backup", "task")
     for i, task in ipairs(tasks) do
@@ -121,37 +184,36 @@ function save_tasks_to_uci(tasks)
 end
 
 function save_password_to_uci(password)
-    -- 保存密码到 UCI 配置文件
     uci:set("backup", "config", "password", password)
     uci:commit("backup")
-    
-    -- 同时保存密码到 /usr/bin/backup-password 文件
     save_password_to_file(password)
 end
 
--- 新增函数：保存密码到文件
+function save_backup_dir_to_uci(backup_dir)
+    if backup_dir and backup_dir ~= "" then
+        uci:set("backup", "config", "backup_dir", backup_dir)
+    else
+        uci:delete("backup", "config", "backup_dir")
+    end
+    uci:commit("backup")
+end
+
 function save_password_to_file(password)
     local password_file = "/usr/bin/backup-password"
     local backup_file = password_file .. ".bak"
     
-    -- 如果原文件存在，先备份
     if fs.access(password_file) then
         fs.copy(password_file, backup_file)
     end
     
-    -- 写入新密码到文件
     local fd = io.open(password_file, "w")
     if fd then
         fd:write(password)
-        fd:write("\n")  -- 添加换行符，使文件格式更规范
+        fd:write("\n")
         fd:close()
-        
-        -- 设置正确的权限 (755 或根据实际需求)
         os.execute("chmod 755 " .. password_file)
-        
         return true
     else
-        -- 写入失败，尝试恢复备份
         if fs.access(backup_file) then
             fs.copy(backup_file, password_file)
         end
@@ -166,7 +228,6 @@ function handle_settings_save()
     
     local password = http.formvalue("password")
     if password then
-        -- 先保存到 UCI
         uci:set("backup", "config", "password", password)
         local uci_ok, uci_err = pcall(function() uci:commit("backup") end)
         
@@ -174,12 +235,20 @@ function handle_settings_save()
             success = false
             table.insert(errors, "UCI密码保存失败")
         else
-            -- UCI保存成功后，再保存到文件
             local file_ok = save_password_to_file(password)
             if not file_ok then
                 success = false
                 table.insert(errors, "密码文件写入失败")
             end
+        end
+    end
+    
+    local backup_dir = http.formvalue("backup_dir")
+    if backup_dir then
+        local dir_ok, dir_err = pcall(function() save_backup_dir_to_uci(backup_dir) end)
+        if not dir_ok then
+            success = false
+            table.insert(errors, "备份目录保存失败")
         end
     end
     
@@ -206,7 +275,7 @@ function handle_settings_save()
     http.write(json.stringify({success = success, message = message}))
 end
 
-function handle_backup_request(tasks, password)
+function handle_backup_request(tasks, password, backup_dir)
     local selected_tasks = {}
     local encrypt = http.formvalue("encrypt") == "1"
     
@@ -241,7 +310,8 @@ function handle_backup_request(tasks, password)
     local post_data = {
         tasks = selected_tasks,
         encrypt = encrypt,
-        password = password
+        password = password,
+        backup_dir = backup_dir
     }
     
     local json_str = json.stringify(post_data)
