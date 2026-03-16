@@ -251,9 +251,9 @@
                         statusEl.className = 'cbi-status-ok';
                         resultContent.className = 'cbi-section-ok';
                         
-                        var resultHtml = '✓ <%:恢复成功！%>\n\n';
+                        var resultHtml = '✓ <%:恢复成功！%>\n';
                         resultHtml += '<%:成功恢复 %s 个文件%>\n'.replace('%s', checkboxes.length);
-                        resultHtml += '<%:详细信息：%> ' + (response.message || '') + '\n\n';
+                        resultHtml += '<%:详细信息：%> ' + (response.message || '') + '\n';
                         
                         // 添加解密信息
                         if (decrypt === '1') {

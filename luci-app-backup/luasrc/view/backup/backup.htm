@@ -321,14 +321,14 @@ function startBackup() {
                     statusEl.className = 'cbi-status-ok';
                     resultContent.className = 'cbi-section-ok';
                     
-                    var resultHtml = '✓ <%:备份成功！%>\n\n';
+                    var resultHtml = '✓ <%:备份成功！%>\n';
                     resultHtml += '<%:备份文件保存在：%> ' + response.file + '\n';
-                    resultHtml += '<%:详细信息：%> ' + response.message + '\n\n';
+                    resultHtml += '<%:详细信息：%> ' + response.message + '\n';
                     
                     var encrypt = document.getElementById('enable_encrypt').checked;
                     if (encrypt) {
-                        resultHtml += '������ <%:加密方式：%> GPG AES256 <%:加密%>\n';
-                        resultHtml += '������ <%:密码文件：%> /usr/bin/backup-password\n';
+                        resultHtml += '🔐<%:加密方式：%> GPG AES256 <%:加密%>\n';
+                        resultHtml += '🔑<%:密码文件：%> /usr/bin/backup-password\n';
                     }
                     
                     resultContent.innerHTML = resultHtml.replace(/\n/g, '<br>');
