@@ -4,39 +4,218 @@ msgstr ""
 "Project-Id-Version: luci-app-flowproxy\n"
 "Language: zh_Hans\n"
 
+msgid "(%d lines)"
+msgstr "(%d 行)"
+
+msgid "(n/a)"
+msgstr "(未知)"
+
+msgid "(no content / table not loaded)"
+msgstr "(无内容 / 列表未加载)"
+
+msgid "Action"
+msgstr "动作"
+
+msgid "Add rule"
+msgstr "添加规则"
+
+msgid "Clear Logs"
+msgstr "清空日志"
+
+msgid "Clear logs?"
+msgstr "确定要清空日志吗？"
+
+msgid "Copied"
+msgstr "已复制"
+
+msgid "Copy Config"
+msgstr "复制配置"
+
+msgid "Counter"
+msgstr "计数器"
+
+msgid "Current Status"
+msgstr "当前状态"
+
+msgid "Custom nftables sets"
+msgstr "自定义 nftables 集合"
+
+msgid "DNS Redirection"
+msgstr "DNS 转发"
+
+msgid "Download URL"
+msgstr "下载地址"
+
+msgid "Download failed"
+msgstr "下载失败"
+
+msgid "Downloading chnroute data..."
+msgstr "正在下载数据集..."
+
+msgid "Element Type"
+msgstr "元素类型"
+
+msgid "Elements"
+msgstr "元素列表"
+
+msgid "Enable FlowProxy"
+msgstr "启用代理分流"
+
+msgid "Enabled"
+msgstr "已启用"
+
+msgid "Error: %s"
+msgstr "错误: %s"
+
+msgid "Expecting: %s"
+msgstr "期望值: %s"
+
+msgid "File Path"
+msgstr "文件路径"
+
 msgid "FlowProxy"
 msgstr "代理分流"
 
-msgid "flowproxy"
-msgstr "代理分流"
+msgid "Force upstream DNS to proxy server"
+msgstr "强制上游 DNS 为代理服务器"
 
-msgid "Settings"
-msgstr "设置"
+msgid "Generated Config"
+msgstr "生成的配置"
 
-msgid "Rules"
-msgstr "规则"
+msgid "Invalid IPv4 address or CIDR"
+msgstr "无效的 IPv4 地址或 CIDR"
+
+msgid "Invalid MAC address"
+msgstr "无效的 MAC 地址"
+
+msgid "Invalid port or range"
+msgstr "无效的端口或端口范围"
 
 msgid "Lists"
 msgstr "名单"
 
-msgid "Preview"
-msgstr "预览"
+msgid "Live Runtime State"
+msgstr "实时运行状态"
+
+msgid "Log Level"
+msgstr "日志级别"
+
+msgid "Log Size (KB)"
+msgstr "日志文件大小 (KB)"
 
 msgid "Logs"
 msgstr "日志"
 
-# Settings & Common
-msgid "traffic diversion based on nftables rules. the service will automatically start/stop when you click \"save & apply\"."
-msgstr "基于 nftables 规则的流量分流。点击“保存并应用”后，服务将自动启动/停止。"
+msgid "LuCI Support for FlowProxy Traffic Diversion"
+msgstr "LuCI 支持 FlowProxy 流量分流"
 
-msgid "service status"
-msgstr "服务状态"
+msgid "Master switch updated."
+msgstr "总开关状态已更新。"
 
-msgid "current status"
-msgstr "当前状态"
+msgid "Match Type"
+msgstr "匹配类型"
 
-msgid "dns redirection"
-msgstr "DNS 转发"
+msgid "Match Value"
+msgstr "匹配值"
+
+msgid "Network interface"
+msgstr "网络接口"
+
+msgid "Please set download_url first"
+msgstr "请先设置下载 URL"
+
+msgid "Preview"
+msgstr "预览"
+
+msgid "Proxy server DNS port"
+msgstr "代理服务器 DNS 端口"
+
+msgid "Proxy server IP address"
+msgstr "代理服务器 IP 地址"
+
+msgid "Quick add:"
+msgstr "快速添加预设："
+
+msgid "Refresh Logs"
+msgstr "刷新日志"
+
+msgid "Refresh Status"
+msgstr "刷新实时状态"
+
+msgid "Routing Table ID"
+msgstr "路由表 ID"
+
+msgid "Rules"
+msgstr "规则"
+
+msgid "Set type mismatch: expected %s, got %s"
+msgstr "集合类型不匹配: 期望 %s, 实际为 %s"
+
+msgid "Settings"
+msgstr "设置"
+
+msgid "TCP Matching Rules"
+msgstr "TCP 匹配规则列表"
+
+msgid "Traffic Mark"
+msgstr "流量标记"
+
+msgid "Traffic diversion based on nftables rules. The service will automatically start/stop when you click \"Save & Apply\"."
+msgstr "基于 nftables 规则的流量分流。当你点击 “保存并应用” 后，服务将自动启动或停止。"
+
+msgid "UDP Matching Rules"
+msgstr "UDP 匹配规则列表"
+
+msgid "Update Chnroute"
+msgstr "立即更新数据集"
+
+msgid "Updated successfully."
+msgstr "数据集更新成功。"
+
+msgid "auto_generate"
+msgstr "自动生成"
+
+msgid "checking..."
+msgstr "检测中..."
+
+msgid "chnroute_dst_ip_v4"
+msgstr "中国大陆 IP"
+
+msgid "elements"
+msgstr "元素列表"
+
+msgid "enable protocol"
+msgstr "启用协议"
+
+msgid "loading logs..."
+msgstr "日志加载中..."
+
+msgid "loading..."
+msgstr "加载中..."
+
+msgid "no logs available"
+msgstr "暂无日志内容"
+
+msgid "no_proxy_dst_ip_v4"
+msgstr "不代理的目标 IP"
+
+msgid "no_proxy_dst_tcp_ports"
+msgstr "不代理的目标 TCP 端口"
+
+msgid "no_proxy_dst_udp_ports"
+msgstr "不代理的目标 UDP 端口"
+
+msgid "no_proxy_src_ip_v4"
+msgstr "不代理的源 IP"
+
+msgid "no_proxy_src_mac"
+msgstr "不代理的源 MAC"
+
+msgid "private_dst_ip_v4"
+msgstr "私有 IP"
+
+msgid "reset %s templates"
+msgstr "重置 %s 模版"
 
 msgid "running"
 msgstr "运行中"
@@ -44,282 +223,6 @@ msgstr "运行中"
 msgid "stopped"
 msgstr "已停止"
 
-msgid "disabled"
-msgstr "已禁用"
-
-msgid "checking..."
-msgstr "检测中..."
-
-msgid "active protocols"
-msgstr "生效协议"
-
-msgid "active proxy server ip address"
-msgstr "活动代理服务器 IP 地址"
-
-msgid "basic settings"
-msgstr "基础设置"
-
-msgid "enable flowproxy"
-msgstr "启用代理分流"
-
-msgid "to enable or disable TCP and UDP protocols, please go to the \"Rules\" page."
-msgstr "TCP 和 UDP 协议的开启或关闭，请到“规则”页面进行设置。"
-
-msgid "proxy server ip address"
-msgstr "代理服务器 IP 地址"
-
-msgid "The server that has the proxy enabled and can forward IP traffic."
-msgstr "已启用代理并能转发 IP 流量的服务器。"
-
-msgid "proxy server dns port"
-msgstr "代理服务器 DNS 端口"
-
-msgid "The port of the DNS proxy service that provides DNS resolution for the local network."
-msgstr "已启用 DNS 代理服务为内网提供 DNS 解析的端口。"
-
-msgid "network interface"
-msgstr "网络接口"
-
-msgid "The network interface where the proxy server is located (usually LAN)."
-msgstr "代理服务器所在的网络接口（通常为 LAN）。"
-
-msgid "Traffic Mark"
-msgstr "流量标记"
-
-msgid "Mark value (fwmark) used to identify packets for diversion. 32-bit unsigned integer."
-msgstr "用于标识分流数据包的标记值 (fwmark)。32 位无符号整数。"
-
-msgid "Routing Table ID"
-msgstr "路由表 ID"
-
-msgid "Routing table ID used for diverted traffic. Default is 100. Do not modify unless you have specific requirements."
-msgstr "这是路由表 ID（默认 100），如无特殊需求请勿修改。"
-
-msgid "IDs 0, 253, 254, 255 are reserved by the system."
-msgstr "ID 0, 253, 254, 255 已被系统预留。"
-
-msgid "flowproxy - preview & debug"
-msgstr "代理分流 - 预览与调试"
-
-msgid "view the generated configuration and live kernel state."
-msgstr "查看生成的配置和实时内核状态。"
-
-msgid "inspection tabs"
-msgstr "检查选项卡"
-
-msgid "generated config"
-msgstr "生成的配置"
-
-msgid "live runtime state"
-msgstr "实时运行状态"
-
-msgid "copy raw config"
-msgstr "复制原始内容"
-
-msgid "force upstream dns to proxy server"
-msgstr "强制上游 DNS 为代理服务器"
-
-msgid "when enabled, dnsmasq will use the proxy server as the upstream dns server. \"dns redirect\" feature will be disabled.<br/>note: the \"enable flowproxy\" option must also be turned on for this to take effect."
-msgstr "启用后，dnsmasq 将使用代理服务器作为上游 DNS 服务器。“DNS 重定向”功能将被禁用。<br/>注意：必须同时勾选“启用代理分流”才能生效。"
-
-msgid "proxy server dns port"
-msgstr "代理服务器 DNS 端口"
-
-# Rules Page
-msgid "flowproxy - rules"
-msgstr "代理分流 - 规则管理"
-
-msgid "Manage diversion rules, mainly used to define which traffic should bypass the proxy server."
-msgstr "管理分流规则，主要用于定义哪些流量不需要被分流到代理服务器。"
-
-msgid "quick templates"
-msgstr "快捷模版"
-
-msgid "Quick add:"
-msgstr "快速插入预设："
-
-msgid "matching rules"
-msgstr "匹配规则列表"
-
-msgid "TCP Matching Rules"
-msgstr "TCP 匹配规则列表"
-
-msgid "UDP Matching Rules"
-msgstr "UDP 匹配规则列表"
-
-msgid "enabled"
-msgstr "已启用"
-
-msgid "name"
-msgstr "名称"
-
-msgid "protocol"
-msgstr "协议"
-
-msgid "match type"
-msgstr "匹配类型"
-
-msgid "match value"
-msgstr "匹配值"
-
-msgid "counter"
-msgstr "计数器"
-
-msgid "action"
-msgstr "动作"
-
-msgid "TCP diversion master switch"
-msgstr "TCP 分流总开关"
-
-msgid "UDP diversion master switch"
-msgstr "UDP 分流总开关"
-
-msgid "enable protocol"
-msgstr "启用协议"
-
-msgid "Click to add to BOTH TCP and UDP lists"
-msgstr "点击以同时添加到 TCP 和 UDP 规则列表"
-
-msgid "Master switch updated. Click \"Save & Apply\" at the bottom to take effect."
-msgstr "总开关状态已更新。点击底部的“保存并应用”以正式生效。"
-
-msgid "Reset only %s rules"
-msgstr "仅重置 %s 规则"
-
-msgid "reset %s templates"
-msgstr "重置 %s 模版"
-
 msgid "this will delete ALL current %s rules and generate default templates. are you sure?"
 msgstr "这将删除当前所有 %s 规则并加载推荐的默认模版。确定吗？"
 
-msgid "really delete this rule?"
-msgstr "确定要删除这条规则吗？"
-
-# Lists Page
-msgid "flowproxy - lists"
-msgstr "代理分流 - 名单管理"
-
-msgid "manage nftables set collections. use the global \"save & apply\" button at the bottom to take effect."
-msgstr "管理 nftables set 集合。使用底部的全局“保存并应用”按钮以生效。"
-
-msgid "manage nftables set collections. you can use predefined lists or add custom ones at the bottom."
-msgstr "管理 nftables set 集合。您可以使用预设名单或在底部添加自定义名单。"
-
-msgid "elements"
-msgstr "元素列表"
-
-msgid "custom nftables sets"
-msgstr "自定义 nftables 集合"
-
-msgid "element type"
-msgstr "元素类型"
-
-msgid "auto_generate"
-msgstr "自动生成"
-
-msgid "file_path"
-msgstr "文件路径"
-
-msgid "download_url"
-msgstr "下载 URL"
-
-msgid "update chnroute"
-msgstr "立即更新数据集"
-
-msgid "Downloading chnroute data..."
-msgstr "正在下载数据集..."
-
-msgid "Chnroute data updated successfully."
-msgstr "数据集更新成功。"
-
-msgid "Please set download_url first"
-msgstr "请先设置下载 URL"
-
-msgid "Download failed"
-msgstr "下载失败"
-
-msgid "file lines count"
-msgstr "文件行数统计"
-
-msgid "lines"
-msgstr "行"
-
-msgid "file not found"
-msgstr "文件不存在"
-
-msgid "n/a"
-msgstr "不可用"
-
-# Preview & Debug
-msgid "flowproxy - preview"
-msgstr "代理分流 - 配置预览"
-
-msgid "flowproxy - preview & debug"
-msgstr "代理分流 - 预览与调试"
-
-msgid "inspection tabs"
-msgstr "检测项目"
-
-msgid "generated config"
-msgstr "生成的配置 (Preview)"
-
-msgid "live runtime state"
-msgstr "实时运行状态 (Live)"
-
-msgid "this is the nftables file generated based on your CURRENT rules (saved but maybe not applied)."
-msgstr "这是基于您当前已保存规则生成的 nftables 配置文件。"
-
-msgid "this shows the ACTUAL rules and routing policies currently active in the linux kernel."
-msgstr "这里展示的是当前 Linux 内核中真正生效的规则、策略和路由。"
-
-msgid "copy raw config"
-msgstr "复制原始配置"
-
-msgid "refresh status"
-msgstr "刷新实时状态"
-
-msgid "copied"
-msgstr "已复制"
-
-msgid "loading..."
-msgstr "加载中..."
-
-# Logs Page
-msgid "flowproxy - logs"
-msgstr "代理分流 - 日志查看"
-
-msgid "configure and view service runtime logs."
-msgstr "配置并查看服务运行日志。"
-
-msgid "log settings"
-msgstr "日志设置"
-
-msgid "log level"
-msgstr "日志级别"
-
-msgid "log size (kb)"
-msgstr "日志文件大小 (KB)"
-
-msgid "log count"
-msgstr "日志保留数量"
-
-msgid "log control"
-msgstr "日志控制"
-
-msgid "log output"
-msgstr "日志输出"
-
-msgid "refresh logs"
-msgstr "刷新日志"
-
-msgid "clear logs"
-msgstr "清空日志"
-
-msgid "no logs available"
-msgstr "暂无日志内容"
-
-msgid "really clear all service logs?"
-msgstr "确定要清空所有服务日志吗？"
-
-msgid "Add rule"
-msgstr "添加规则"

@@ -121,8 +121,42 @@ function save_tasks_to_uci(tasks)
 end
 
 function save_password_to_uci(password)
+    -- 保存密码到 UCI 配置文件
     uci:set("backup", "config", "password", password)
     uci:commit("backup")
+    
+    -- 同时保存密码到 /usr/bin/backup-password 文件
+    save_password_to_file(password)
+end
+
+-- 新增函数：保存密码到文件
+function save_password_to_file(password)
+    local password_file = "/usr/bin/backup-password"
+    local backup_file = password_file .. ".bak"
+    
+    -- 如果原文件存在，先备份
+    if fs.access(password_file) then
+        fs.copy(password_file, backup_file)
+    end
+    
+    -- 写入新密码到文件
+    local fd = io.open(password_file, "w")
+    if fd then
+        fd:write(password)
+        fd:write("\n")  -- 添加换行符，使文件格式更规范
+        fd:close()
+        
+        -- 设置正确的权限 (755 或根据实际需求)
+        os.execute("chmod 755 " .. password_file)
+        
+        return true
+    else
+        -- 写入失败，尝试恢复备份
+        if fs.access(backup_file) then
+            fs.copy(backup_file, password_file)
+        end
+        return false
+    end
 end
 
 function handle_settings_save()
@@ -132,14 +166,32 @@ function handle_settings_save()
     
     local password = http.formvalue("password")
     if password then
-        save_password_to_uci(password)
+        -- 先保存到 UCI
+        uci:set("backup", "config", "password", password)
+        local uci_ok, uci_err = pcall(function() uci:commit("backup") end)
+        
+        if not uci_ok then
+            success = false
+            table.insert(errors, "UCI密码保存失败")
+        else
+            -- UCI保存成功后，再保存到文件
+            local file_ok = save_password_to_file(password)
+            if not file_ok then
+                success = false
+                table.insert(errors, "密码文件写入失败")
+            end
+        end
     end
     
     local tasks_json = http.formvalue("tasks")
     if tasks_json and tasks_json ~= "" then
         local ok, tasks = pcall(json.parse, tasks_json)
         if ok and tasks then
-            save_tasks_to_uci(tasks)
+            local save_ok, save_err = pcall(function() save_tasks_to_uci(tasks) end)
+            if not save_ok then
+                success = false
+                table.insert(errors, "任务保存失败")
+            end
         else
             success = false
             table.insert(errors, "任务数据格式错误")

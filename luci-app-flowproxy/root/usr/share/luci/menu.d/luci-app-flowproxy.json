@@ -5,47 +5,7 @@
 		"index": 50,
 		"action": {
 			"type": "view",
-			"path": "flowproxy/settings"
-		}
-	},
-	"admin/services/flowproxy/settings": {
-		"title": "Settings",
-		"order": 10,
-		"action": {
-			"type": "view",
-			"path": "flowproxy/settings"
-		}
-	},
-	"admin/services/flowproxy/rules": {
-		"title": "Rules",
-		"order": 20,
-		"action": {
-			"type": "view",
-			"path": "flowproxy/rules"
-		}
-	},
-	"admin/services/flowproxy/lists": {
-		"title": "Lists",
-		"order": 30,
-		"action": {
-			"type": "view",
-			"path": "flowproxy/lists"
-		}
-	},
-	"admin/services/flowproxy/preview": {
-		"title": "Preview",
-		"order": 40,
-		"action": {
-			"type": "view",
-			"path": "flowproxy/preview"
-		}
-	},
-	"admin/services/flowproxy/logs": {
-		"title": "Logs",
-		"order": 50,
-		"action": {
-			"type": "view",
-			"path": "flowproxy/logs"
+			"path": "flowproxy/flowproxy"
 		}
 	}
 }

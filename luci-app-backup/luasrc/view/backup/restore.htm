@@ -81,12 +81,31 @@
                 </div>
             </div>
 
-            <!-- 提交按钮 -->
+            <!-- 恢复按钮和状态 -->
             <div class="cbi-value">
-                <label class="cbi-value-title"></label>
+                <label class="cbi-value-title"><%:执行恢复：%></label>
                 <div class="cbi-value-field">
-                    <input type="submit" class="cbi-button cbi-button-important" value="<%:开始恢复%>" onclick="return confirmRestore()" />
-                    <span id="restore_status" style="margin-left: 10px; font-weight: bold;"></span>
+                    <input type="button" class="cbi-button cbi-button-important" value="<%:开始恢复%>" onclick="startRestore()" />
+                    <span id="restore_status" style="margin-left: 20px;"></span>
+                </div>
+            </div>
+            
+            <!-- 进度条 (与backup.htm风格一致) -->
+            <div class="cbi-value" id="progress_container" style="display: none;">
+                <label class="cbi-value-title"><%:恢复进度：%></label>
+                <div class="cbi-value-field">
+                    <div class="progressbar" style="width: 300px;">
+                        <div id="progress_bar" class="progressbar-inner" style="width: 0%;">0%</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 结果区域 (与backup.htm风格一致) -->
+            <div class="cbi-value" id="restore_result" style="display: none;">
+                <label class="cbi-value-title"><%:恢复结果：%></label>
+                <div class="cbi-value-field">
+                    <div class="cbi-section-error" id="restore_result_content" style="white-space: pre-wrap; word-wrap: break-word; max-height: 300px; overflow-y: auto; padding: 10px;">
+                    </div>
                 </div>
             </div>
         </form>
@@ -150,27 +169,139 @@
         document.getElementById('selection_count').innerHTML = '(<%:已选择%>: ' + checkboxes.length + ')';
     }
 
-    // 提交前确认
-    function confirmRestore() {
+    // 开始恢复 (异步请求，类似backup.htm)
+    function startRestore() {
         var checkboxes = document.querySelectorAll('.restore-checkbox:checked');
+        
         if (checkboxes.length === 0) {
-            alert('<%:请至少选择一个备份文件%>');
-            return false;
+            alert('<%:请至少选择一个要恢复的文件%>');
+            return;
         }
-
+        
         if (!confirm('<%:确定要恢复选中的 %s 个文件吗？\n这将覆盖系统现有配置，操作不可逆！%>'.replace('%s', checkboxes.length))) {
-            return false;
+            return;
         }
-
-        var statusSpan = document.getElementById('restore_status');
-        statusSpan.innerHTML = '<%:正在恢复，请稍候...%>';
-        statusSpan.style.color = 'blue';
         
-        var submitBtn = document.querySelector('input[type="submit"]');
-        submitBtn.disabled = true;
-        submitBtn.value = '<%:处理中...%>';
+        // 显示恢复状态
+        var statusEl = document.getElementById('restore_status');
+        var progressContainer = document.getElementById('progress_container');
+        var progressBar = document.getElementById('progress_bar');
+        var resultContainer = document.getElementById('restore_result');
+        var resultContent = document.getElementById('restore_result_content');
         
-        return true;
+        // 隐藏之前的结果
+        resultContainer.style.display = 'none';
+        
+        statusEl.innerHTML = '<%:正在恢复中...%>';
+        statusEl.className = 'cbi-status-ok';
+        progressContainer.style.display = 'block';
+        progressBar.style.width = '0%';
+        progressBar.innerHTML = '0%';
+        
+        // 模拟进度条 (与backup.htm一致)
+        var progress = 0;
+        var progressInterval = setInterval(function() {
+            if (progress < 90) {
+                progress += 10;
+                progressBar.style.width = progress + '%';
+                progressBar.innerHTML = progress + '%';
+            }
+        }, 500);
+        
+        // 收集选中的文件
+        var selectedFiles = [];
+        checkboxes.forEach(function(cb) {
+            selectedFiles.push(cb.value);
+        });
+        
+        // 获取密码和解密选项
+        var password = document.getElementById('password_input').value;
+        var decrypt = (password && password.length > 0) ? '1' : '0';
+        
+        // 创建FormData
+        var formData = new FormData();
+        formData.append('restore', '1');
+        formData.append('decrypt', decrypt);
+        formData.append('password', password);
+        
+        // 添加选中的文件
+        selectedFiles.forEach(function(file) {
+            formData.append('restore_files', file);
+        });
+        
+        // 发送AJAX请求
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '<%=controller%>/admin/system/backup/restore', true);
+        
+        xhr.onload = function() {
+            clearInterval(progressInterval);
+            
+            if (xhr.status === 200) {
+                progressBar.style.width = '100%';
+                progressBar.innerHTML = '100%';
+                
+                try {
+                    var response = JSON.parse(xhr.responseText);
+                    
+                    // 显示结果区域
+                    resultContainer.style.display = 'block';
+                    
+                    if (response.success) {
+                        statusEl.innerHTML = '<%:恢复完成！%>';
+                        statusEl.className = 'cbi-status-ok';
+                        resultContent.className = 'cbi-section-ok';
+                        
+                        var resultHtml = '✓ <%:恢复成功！%>\n\n';
+                        resultHtml += '<%:成功恢复 %s 个文件%>\n'.replace('%s', checkboxes.length);
+                        resultHtml += '<%:详细信息：%> ' + (response.message || '') + '\n\n';
+                        
+                        // 添加解密信息
+                        if (decrypt === '1') {
+                            resultHtml += '🔐 <%:解密方式：%> GPG AES256 <%:解密%>\n';
+                            resultHtml += '🔑 <%:使用密码：%> ' + (password ? '******' : '<%:系统密码%>') + '\n';
+                        }
+                        
+                        resultContent.innerHTML = resultHtml.replace(/\n/g, '<br>');
+                    } else {
+                        statusEl.innerHTML = '<%:恢复失败,gpg格式的请确认密码是否正确%>';
+                        statusEl.className = 'cbi-status-error';
+                        resultContent.className = 'cbi-section-error';
+                        resultContent.innerHTML = '❌ <%:错误：%> ' + (response.message || '<%:未知错误%>');
+                    }
+                } catch (e) {
+                    statusEl.innerHTML = '<%:解析响应失败%>';
+                    statusEl.className = 'cbi-status-error';
+                    resultContent.className = 'cbi-section-error';
+                    resultContent.innerHTML = '❌ <%:服务器返回：%><br>' + xhr.responseText.replace(/\n/g, '<br>');
+                }
+            } else {
+                clearInterval(progressInterval);
+                statusEl.innerHTML = '<%:请求失败%>';
+                statusEl.className = 'cbi-status-error';
+                progressBar.style.width = '0%';
+                progressBar.innerHTML = '0%';
+                
+                // 显示错误
+                resultContainer.style.display = 'block';
+                resultContent.className = 'cbi-section-error';
+                resultContent.innerHTML = '❌ <%:HTTP错误：%> ' + xhr.status;
+            }
+        };
+        
+        xhr.onerror = function() {
+            clearInterval(progressInterval);
+            statusEl.innerHTML = '<%:网络错误%>';
+            statusEl.className = 'cbi-status-error';
+            progressBar.style.width = '0%';
+            progressBar.innerHTML = '0%';
+            
+            // 显示错误
+            resultContainer.style.display = 'block';
+            resultContent.className = 'cbi-section-error';
+            resultContent.innerHTML = '❌ <%:网络连接失败%>';
+        };
+        
+        xhr.send(formData);
     }
 
     // 初始化计数
@@ -180,10 +311,60 @@
 //]]></script>
 
 <style>
-
 .cbi-button-important { background: #5E72E4; color: white; border: 1px solid #5E72E4; }
 .cbi-button-neutral { background: #3498db; color: white; border: 1px solid #3498db; }
 
+/* 从backup.htm复制的样式 */
+.progressbar {
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    height: 20px;
+    overflow: hidden;
+}
+
+.progressbar-inner {
+    background-color: #0066CC;
+    color: white;
+    text-align: center;
+    height: 100%;
+    line-height: 20px;
+    font-size: 11px;
+    transition: width 0.3s ease;
+}
+
+/* 状态样式 */
+.cbi-status-ok {
+    color: #27ae60;
+    font-weight: bold;
+}
+
+.cbi-status-error {
+    color: #c0392b;
+    font-weight: bold;
+}
+
+.cbi-section-ok {
+    background-color: #f0f9f0;
+    border: 1px solid #27ae60;
+    color: #27ae60;
+}
+
+.cbi-section-error {
+    background-color: #f9f0f0;
+    border: 1px solid #c0392b;
+    color: #c0392b;
+}
+
+/* 结果区域动画 */
+@keyframes cbi-fade-in {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+#restore_result {
+    animation: cbi-fade-in 0.3s ease;
+}
 </style>
 
 <% include("footer") %>

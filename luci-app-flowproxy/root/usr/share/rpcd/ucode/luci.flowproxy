@@ -38,9 +38,23 @@ const methods = {
                 try {
                     let ubus_conn = connect();
                     if (ubus_conn) {
-                        let lan_status = ubus_conn.call('network.interface.lan', 'status');
-                        if (lan_status?.['ipv4-address']?.[0]) {
-                            lan_ip = lan_status['ipv4-address'][0].address;
+                        let ifaces = ubus_conn.call('network.interface', 'dump');
+                        if (type(ifaces?.interface) === 'array') {
+                            // 优先寻找名为 'lan' 的接口，或者寻找拥有 ipv4 地址的第一个非回环接口
+                            let fallback_ip = '';
+                            for (let iface in ifaces.interface) {
+                                if (iface.interface === 'lan' && iface['ipv4-address']?.[0]?.address) {
+                                    lan_ip = iface['ipv4-address'][0].address;
+                                    break;
+                                }
+                                if (!fallback_ip && iface.interface !== 'loopback' && iface['ipv4-address']?.[0]?.address) {
+                                    fallback_ip = iface['ipv4-address'][0].address;
+                                }
+                            }
+                            if (!lan_ip) lan_ip = fallback_ip;
+                        }
+                        
+                        if (lan_ip) {
                             system('mkdir -p /tmp/flowproxy');
                             writefile(IP_CACHE, lan_ip);
                         }
