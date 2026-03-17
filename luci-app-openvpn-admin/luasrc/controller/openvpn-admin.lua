@@ -301,6 +301,7 @@ function update_cron_job()
     return false
 end
 
+-- 修复：更新IPv6 cron任务 - 确保启用时添加，禁用时删除
 function update_ipv6_cron_job()
     local config = get_admin_config()
     local cron_file = "/etc/crontabs/root"
@@ -311,28 +312,49 @@ function update_ipv6_cron_job()
         cron_content = sys.exec("cat " .. cron_file .. " 2>/dev/null")
     end
     
-    -- 移除所有IPv6相关的行（包括注释）
-    local keywords = {"[Ii][Pp]v6", "openvpn_ipv6"}
+    -- 移除所有IPv6相关的行（包括注释和任务行）
+    -- 使用更精确的关键词匹配
+    local keywords = {"[Ii][Pp][Vv]6", "openvpn[_-]ipv6", "ipv6[_-]script", "openvpn_ipv6"}
     local new_lines = clean_cron_lines(cron_content, keywords)
     
-    -- 如果启用IPv6脚本，只添加任务行（不加注释）
+    -- 如果启用IPv6脚本，添加定时任务
     if config.ipv6_script_enabled and config.ipv6_script_path then
         local script_exists = sys.call("test -f " .. config.ipv6_script_path .. " 2>/dev/null") == 0
         
         if script_exists then
-            -- 只添加定时任务行，不加注释
-            table.insert(new_lines, string.format("*/%d * * * * %s 2>&1", 
-                config.ipv6_script_interval, config.ipv6_script_path))
-            
+            -- 确保脚本有执行权限
             sys.exec("chmod +x " .. config.ipv6_script_path .. " 2>/dev/null")
+            
+            -- 添加定时任务行
+            local cron_line = string.format("*/%d * * * * %s >/dev/null 2>&1", 
+                config.ipv6_script_interval, config.ipv6_script_path)
+            table.insert(new_lines, cron_line)
+            
+            nixio.syslog("info", "添加IPv6定时任务: " .. cron_line)
+        else
+            nixio.syslog("warning", "IPv6脚本不存在，无法添加定时任务: " .. config.ipv6_script_path)
         end
+    else
+        nixio.syslog("info", "IPv6脚本未启用，已移除所有相关定时任务")
     end
     
     -- 写入文件
     local temp_cron = "/tmp/root.cron.tmp"
     local fd = io.open(temp_cron, "w")
     if fd then
-        fd:write(table.concat(new_lines, "\n"))
+        -- 过滤空行
+        local non_empty_lines = {}
+        for _, line in ipairs(new_lines) do
+            if line and line ~= "" then
+                table.insert(non_empty_lines, line)
+            end
+        end
+        
+        fd:write(table.concat(non_empty_lines, "\n"))
+        -- 确保文件以换行符结尾
+        if #non_empty_lines > 0 then
+            fd:write("\n")
+        end
         fd:close()
         sys.exec("mv " .. temp_cron .. " " .. cron_file .. " 2>/dev/null")
         sys.exec("chmod 644 " .. cron_file .. " 2>/dev/null")
@@ -1926,7 +1948,12 @@ function index()
     -- AJAX接口：检查IPv6脚本是否存在
     entry({"admin", "vpn", "openvpn-admin", "check_ipv6_script"}, 
           call("action_check_ipv6_script"),  -- 修改函数名为action_check_ipv6_script
-          nil).leaf = true   
+          nil).leaf = true
+	
+	-- 新增AJAX接口：运行IPv6脚本
+    entry({"admin", "vpn", "openvpn-admin", "run_ipv6_script"}, 
+          call("action_run_ipv6_script"), 
+          nil).leaf = true
 end
 
 -- 获取网络接口列表
@@ -2300,87 +2327,114 @@ function action_get_interface_ipv6()
     http.write_json(result)
 end
 
--- 检查IPv6脚本函数
+-- 修复：检查IPv6脚本函数 - 增强兼容性
 function action_check_ipv6_script()
-    -- 这个版本完全手动处理，不依赖任何可能缺失的库
     local req = require "luci.http"
     
-    -- 立即设置响应类型
-    req.header("Content-Type", "text/plain")  -- 先设为文本
+    -- 设置响应类型
+    req.header("Content-Type", "application/json; charset=utf-8")
     
-    local result = {}
+    local result = {
+        success = false,
+        exists = false,
+        executable = false,
+        valid = false,
+        message = "",
+        path = ""
+    }
     
     -- 获取参数
-    local query_string = os.getenv("QUERY_STRING") or ""
-    local path = ""
+    local path = req.formvalue("path") or req.formvalue("path")
     
-    -- 手动解析查询字符串
-    for param in query_string:gmatch("[^&]+") do
-        local key, value = param:match("([^=]+)=?(.*)")
-        if key == "path" then
-            path = req.urldecode(value or "")
-            break
+    -- 如果通过GET方式获取
+    if not path or path == "" then
+        local query_string = os.getenv("QUERY_STRING") or ""
+        for param in query_string:gmatch("[^&]+") do
+            local key, value = param:match("([^=]+)=?(.*)")
+            if key == "path" then
+                path = req.urldecode(value or "")
+                break
+            end
         end
     end
     
     -- 如果路径为空，使用默认值
-    if path == "" then
+    if not path or path == "" then
         local config = get_admin_config()
         path = config.ipv6_script_path or "/etc/openvpn/openvpn_ipv6"
     end
     
+    result.path = path
+    
     -- 检查文件
-    local exists = os.execute("test -f " .. path .. " 2>/dev/null") == 0
-    local executable = os.execute("test -x " .. path .. " 2>/dev/null") == 0
-    local valid = false
+    local exists = (sys.call("test -f " .. path .. " 2>/dev/null") == 0)
+    result.exists = exists
     
     if exists then
+        -- 检查是否可执行
+        result.executable = (sys.call("test -x " .. path .. " 2>/dev/null") == 0)
+        
+        -- 检查是否为有效的shell脚本
         local f = io.open(path, "r")
         if f then
             local first_line = f:read("*l") or ""
             f:close()
-            if first_line:find("^#!/bin/sh") or first_line:find("^#!/bin/bash") then
-                valid = true
+            if first_line:match("^#!/bin/sh") or first_line:match("^#!/bin/bash") or first_line:match("^#!/bin/ash") then
+                result.valid = true
                 result.message = "有效的shell脚本"
             else
-                result.message = "不是有效的shell脚本"
+                result.message = "不是有效的shell脚本（首行不是#!/bin/sh、#!/bin/bash或#!/bin/ash）"
             end
         else
             result.message = "无法读取文件"
         end
+        
+        result.success = true
     else
         result.message = "文件不存在: " .. path
+        result.success = true  -- 仍然返回成功，只是文件不存在
     end
     
-    -- 构建结果
-    result.success = exists
-    result.exists = exists
-    result.executable = executable
-    result.valid = valid
-    result.path = path
+    req.write_json(result)
+end
+
+-- 新增：运行IPv6脚本函数
+function action_run_ipv6_script()
+    local req = require "luci.http"
     
-    -- 输出JSON（手动格式）
-    local json = string.format(
-        '{\n' ..
-        '  "success": %s,\n' ..
-        '  "exists": %s,\n' ..
-        '  "executable": %s,\n' ..
-        '  "valid": %s,\n' ..
-        '  "message": "%s",\n' ..
-        '  "path": "%s"\n' ..
-        '}',
-        tostring(result.success):lower(),
-        tostring(result.exists):lower(),
-        tostring(result.executable):lower(),
-        tostring(result.valid):lower(),
-        (result.message or ""):gsub('"', '\\"'),
-        (result.path or ""):gsub('"', '\\"')
-    )
+    -- 设置响应类型
+    req.header("Content-Type", "application/json; charset=utf-8")
     
-    req.header("Content-Type", "application/json")
-    req.write(json)
+    local result = {
+        success = false,
+        message = "",
+        output = ""
+    }
     
-    return
+    local config = get_admin_config()
+    local script_path = config.ipv6_script_path or "/etc/openvpn/openvpn_ipv6"
+    
+    -- 检查脚本是否存在
+    if sys.call("test -f " .. script_path .. " 2>/dev/null") ~= 0 then
+        result.message = "脚本不存在: " .. script_path
+        req.write_json(result)
+        return
+    end
+    
+    -- 确保脚本有执行权限
+    sys.exec("chmod +x " .. script_path .. " 2>/dev/null")
+    
+    -- 运行脚本并捕获输出
+    local output = sys.exec(script_path .. " 2>&1")
+    
+    -- 记录到系统日志
+    nixio.syslog("info", "OpenVPN IPv6脚本手动执行: " .. output)
+    
+    result.success = true
+    result.message = "脚本执行完成"
+    result.output = output
+    
+    req.write_json(result)
 end
 
 -- 设置页面
