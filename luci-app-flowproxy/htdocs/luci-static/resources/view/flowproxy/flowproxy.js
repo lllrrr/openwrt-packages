@@ -221,7 +221,7 @@ return L.view.extend({
                             uci.set('flowproxy', sid, 'match_value', p.val);
                             uci.set('flowproxy', sid, 'action', 'return');
                             uci.set('flowproxy', sid, 'counter', '0');
-                            return uci.save().then(function() {
+                            return Promise.resolve().then(function() {
                                 return m.load().then(function() {
                                     return refreshTable();
                                 });
@@ -267,7 +267,7 @@ return L.view.extend({
                             var defs = [ { t: 'custom', v: 'fib daddr type { unspec, local, anycast, multicast }' }, { t: 'src_mac', v: '@no_proxy_src_mac' }, { t: 'dst_ip', v: '@private_dst_ip_v4' }, { t: 'dst_ip', v: '@chnroute_dst_ip_v4' } ];
                             if (type === 'tcp_rule') defs.push({ t: 'dst_port', v: '@no_proxy_dst_tcp_ports' }); else if (type === 'udp_rule') defs.push({ t: 'dst_port', v: '@no_proxy_dst_udp_ports' });
                             defs.forEach(function(r) { var sid = uci.add('flowproxy', type); uci.set('flowproxy', sid, 'enabled', '1'); uci.set('flowproxy', sid, 'match_type', r.t); uci.set('flowproxy', sid, 'match_value', r.v); uci.set('flowproxy', sid, 'action', 'return'); uci.set('flowproxy', sid, 'counter', '0'); });
-                            return uci.save().then(function() {
+                            return Promise.resolve().then(function() {
                                 return m.load().then(function() {
                                     return refreshTable();
                                 });
@@ -331,8 +331,8 @@ return L.view.extend({
             };
             // 联动：当 match_type 改变时，强制触发 match_value 的校验
             match_type.onchange = function(ev, sid, val) {
-                var value_input = ss.lookupOption('match_value', sid)[0];
-                if (value_input) ui.post(function() { 
+                var value_input = m.lookupOption('match_value', sid)[0];
+                if (value_input) setTimeout(function() { 
                     var el = document.getElementById(value_input.cbid(sid));
                     if (el) {
                         var inputEl = el.tagName === 'INPUT' ? el : el.querySelector('input');
@@ -342,7 +342,7 @@ return L.view.extend({
                             inputEl.dispatchEvent(new CustomEvent('input', { bubbles: true }));
                         }
                     }
-                });
+                }, 0);
             };
             ss.option(form.Flag, 'counter', _('Counter')).width = '8%';
             o = ss.option(form.ListValue, 'action', _('Action')); o.value('return', 'return'); o.value('accept', 'accept'); o.value('drop', 'drop'); o.default = 'return'; o.width = '12%';
@@ -377,7 +377,11 @@ return L.view.extend({
         sc.subsection.option(form.Value, 'download_url', _('Download URL'));
         o = sc.subsection.option(form.Button, '_download', _('Update Chnroute')); o.inputstyle = 'apply';
         o.onclick = function(ev, sid) {
-            var url = uci.get('flowproxy', sid, 'download_url'), path = uci.get('flowproxy', sid, 'file_path') || '/usr/share/flowproxy/chnroute.txt';
+            var urlOpt = m.lookupOption('download_url', sid)[0];
+            var url = urlOpt ? urlOpt.formvalue(sid) : uci.get('flowproxy', sid, 'download_url');
+            var pathOpt = m.lookupOption('file_path', sid)[0];
+            var path = pathOpt ? pathOpt.formvalue(sid) : uci.get('flowproxy', sid, 'file_path');
+            if (!path) path = '/usr/share/flowproxy/chnroute.txt';
             if (!url) { ui.addNotification(null, E('p', _('Please set download_url first')), 'error'); return; }
             ui.showModal(null, [ E('p', { 'class': 'spinning', 'id': 'download-msg' }, [ _('Downloading chnroute data...') ]) ]);
             return fs.exec('/usr/bin/wget', ['-q', '-O', path, url, '--timeout=10', '--no-check-certificate']).then(function(res) {
