@@ -1,0 +1,36 @@
+@use "../base/variables" as v;
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 12px 14px;
+  border-bottom: 1px solid v.$smart-border;
+  text-align: left;
+  vertical-align: middle;
+}
+
+th {
+  background: v.$smart-surface-soft;
+  color: v.$smart-text-muted;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+tr:last-child td {
+  border-bottom: 0;
+}
+
+.table,
+.table.cbi-section-table {
+  overflow: hidden;
+}
+
+.cbi-section-table-row.selected,
+.cbi-rowstyle-1:hover,
+.cbi-rowstyle-2:hover {
+  background: rgb(37 99 235 / 4%);
+}

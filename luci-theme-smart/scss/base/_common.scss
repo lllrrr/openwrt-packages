@@ -1,0 +1,90 @@
+@use "variables" as v;
+@use "../helpers/mixins" as m;
+
+:root {
+  --smart-bg: #{v.$smart-bg};
+  --smart-surface: #{v.$smart-surface};
+  --smart-surface-soft: #{v.$smart-surface-soft};
+  --smart-border: #{v.$smart-border};
+  --smart-text: #{v.$smart-text};
+  --smart-text-muted: #{v.$smart-text-muted};
+  --smart-primary: #{v.$smart-primary};
+  --smart-primary-soft: #{v.$smart-primary-soft};
+  --smart-sidebar-width: #{v.$sidebar-width};
+  --smart-radius-lg: #{v.$radius-lg};
+  --smart-radius-md: #{v.$radius-md};
+  --smart-radius-sm: #{v.$radius-sm};
+  --smart-shadow: #{v.$smart-shadow};
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  background: v.$smart-bg;
+  color: v.$smart-text;
+  font-family: v.$font-family-sans;
+  line-height: 1.5;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+  height: auto;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  min-width: 0;
+}
+
+hr {
+  height: 1px;
+  margin: v.$space-5 0;
+  border: 0;
+  background: v.$smart-border;
+}
+
+code,
+pre {
+  font-family:
+    ui-monospace,
+    sfmono-regular,
+    "SF Mono",
+    menlo,
+    consolas,
+    monospace;
+}
+
+.hidden {
+  display: none !important;
+}

@@ -1,0 +1,11 @@
+@use "../base/variables" as v;
+@use "../helpers/mixins" as m;
+
+.smart-body {
+  min-height: 100vh;
+}
+
+.smart-layout {
+  display: flex;
+  min-height: 100vh;
+}

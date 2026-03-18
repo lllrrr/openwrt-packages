@@ -1,0 +1,22 @@
+{
+  "name": "luci-theme-smart",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SCSS build system for luci-theme-smart",
+  "scripts": {
+    "build:css": "sass --load-path=node_modules --no-source-map scss/style.scss htdocs/luci-static/smart/css/style.css",
+    "build:css:prod": "sass --style=compressed --load-path=node_modules --no-source-map scss/style.scss htdocs/luci-static/smart/css/style.css",
+    "watch:css": "sass --watch scss/style.scss:htdocs/luci-static/smart/css/style.css",
+    "lint:scss": "stylelint \"scss/**/*.scss\"",
+    "check:css": "npm run lint:scss && npm run build:css"
+  },
+  "devDependencies": {
+    "sass": "^1.98.0",
+    "stylelint": "^17.4.0",
+    "stylelint-config-standard-scss": "^17.0.0",
+    "stylelint-scss": "^7.0.0"
+  },
+  "dependencies": {
+    "purecss-sass": "^3.0.1"
+  }
+}

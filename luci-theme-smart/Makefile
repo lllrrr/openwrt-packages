@@ -7,8 +7,12 @@ include $(TOPDIR)/rules.mk
 
 LUCI_TITLE:=Smart Theme
 LUCI_DEPENDS:=
-PKG_VERSION:=0.1
+
+PKG_VERSION:=0.1.0
 PKG_RELEASE:=20260101
+
+PKG_MAINTAINER:=Beomjun Kang <kals323@gmail.com>
+PKG_LICENSE:=GPL-3.0-or-later
 
 include $(TOPDIR)/feeds/luci/luci.mk
 
