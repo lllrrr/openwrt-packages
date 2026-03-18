@@ -8,7 +8,7 @@ include $(TOPDIR)/rules.mk
 LUCI_TITLE:=Smart Theme
 LUCI_DEPENDS:=
 PKG_VERSION:=0.1
-PKG_RELEASE:=20250101
+PKG_RELEASE:=20260101
 
 include $(TOPDIR)/feeds/luci/luci.mk
 
