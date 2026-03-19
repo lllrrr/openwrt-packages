@@ -1,0 +1,13 @@
+{
+	"admin/status/connected": {
+		"title": "Connected",
+		"order": 2,
+		"action": {
+			"type": "view",
+			"path": "connected/index"
+		},
+		"depends": {
+			"acl": [ "luci-app-connected" ]
+		}
+	}
+}

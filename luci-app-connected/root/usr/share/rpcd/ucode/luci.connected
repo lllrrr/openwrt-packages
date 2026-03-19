@@ -1,0 +1,59 @@
+'use strict';
+
+import { popen } from 'fs';
+import { query } from 'resolv';
+
+function resolve_hostname(ip) {
+	let result = query(ip, { type: ['PTR'] });
+	let ptr = keys(result)?.[0];
+	let records = result?.[ptr]?.PTR;
+	if (records && length(records) > 0)
+		return replace(records[0], /\.home\.arpa\.?$/, '');
+	return '';
+}
+
+return {
+	'luci.connected': {
+		get_neighbours: {
+			args: {},
+			call: function(request) {
+				let fd = popen('ip -4 n');
+				let out = fd ? fd.read('all') : '';
+				if (fd) fd.close();
+
+				let entries = [];
+				for (let line in split(out, '\n')) {
+					if (!line || match(line, /FAILED|INCOMPLETE/))
+						continue;
+
+					let parts  = split(line, ' ');
+					let ip     = parts[0];
+					let device = parts[2];
+					let mac    = parts[4];
+					let state  = parts[5];
+
+					if (!ip || !device)
+						continue;
+
+					push(entries, {
+						ip:       ip,
+						mac:      mac,
+						state:    state,
+						device:   device,
+						hostname: resolve_hostname(ip)
+					});
+				}
+
+				return { result: entries };
+			}
+		},
+
+		flush_arp: {
+			args: {},
+			call: function(request) {
+				system('ip -4 neigh flush all');
+				return { result: 0 };
+			}
+		}
+	}
+};

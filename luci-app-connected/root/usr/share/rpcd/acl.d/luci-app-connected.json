@@ -1,0 +1,15 @@
+{
+	"luci-app-connected": {
+		"description": "Grant access to Connected Devices Viewer",
+		"read": {
+			"ubus": {
+				"luci.connected": [ "get_neighbours" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"luci.connected": [ "flush_arp" ]
+			}
+		}
+	}
+}

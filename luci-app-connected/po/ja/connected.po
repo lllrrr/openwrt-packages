@@ -1,0 +1,23 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+msgid "Connected"
+msgstr "接続済み"
+
+msgid "Flush ARP Table"
+msgstr "ARPテーブルをクリア"
+
+msgid "client(s)"
+msgstr "クライアント"
+
+msgid "IP Address"
+msgstr "IPアドレス"
+
+msgid "MAC Address"
+msgstr "MACアドレス"
+
+msgid "Hostname"
+msgstr "ホスト名"
+
+msgid "State"
+msgstr "状態"

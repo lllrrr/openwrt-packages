@@ -1,0 +1,23 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+msgid "Connected"
+msgstr "Verbunden"
+
+msgid "Flush ARP Table"
+msgstr "ARP-Tabelle leeren"
+
+msgid "client(s)"
+msgstr "Client(s)"
+
+msgid "IP Address"
+msgstr "IP-Adresse"
+
+msgid "MAC Address"
+msgstr "MAC-Adresse"
+
+msgid "Hostname"
+msgstr "Hostname"
+
+msgid "State"
+msgstr "Status"
