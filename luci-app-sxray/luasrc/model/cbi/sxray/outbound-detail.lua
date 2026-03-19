@@ -142,9 +142,10 @@ o = s:option(Value, "s_shadowsocks_port", "%s - %s" % { "Shadowsocks", translate
 o:depends("protocol", "shadowsocks")
 o.datatype = "port"
 
-o = s:option(ListValue, "s_shadowsocks_method", "%s - %s" % { "Shadowsocks", translate("Method") } )
+o = s:option(ListValue, "s_shadowsocks_method", "%s - %s" % { "Shadowsocks", translate("Method") })
 o:depends("protocol", "shadowsocks")
 o:value("")
+o:value("none")
 o:value("aes-256-cfb")
 o:value("aes-128-cfb")
 o:value("chacha20")

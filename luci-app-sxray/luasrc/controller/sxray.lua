@@ -64,9 +64,6 @@ function index()
 
 	entry({"admin", "services", "sxray", "version"}, call("action_version"))
 
-	entry({"admin", "services", "sxray", "check-version"},
-		call("action_check_version")).leaf = true
-
 	entry({"admin", "services", "sxray", "list-status"},
 		call("list_status")).leaf = true
 
@@ -80,6 +77,7 @@ function index()
 
 	entry({"admin", "services", "sxray", "import", "fetch"},
 		call("action_import_fetch")).leaf = true
+
 
 end
 
@@ -108,81 +106,63 @@ function action_status()
 	})
 end
 
-local function get_core_version(file, core_type)
-	if not file or file == "" then
-		return nil, "Core file path is empty"
-	end
-	if not fs.stat(file) then
-		return nil, "Core file not found"
-	end
-	if not fs.access(file, "rwx", "rx", "rx") then
-		fs.chmod(file, 755)
-	end
-
-	local version
-	local output
-
-	if core_type == "xray" then
-		output = util.trim(sys.exec(file .. " version 2>&1"))
-		if output and output ~= "" then
-			version = output:match("Xray%s+(%S+)") or output:match("Version:%s*(%S+)") or output:match("(%d+%.%d+%.%d+)")
-		end
-	else
-		output = util.trim(sys.exec(file .. " version 2>&1"))
-		if output and output ~= "" then
-			version = output:match("sing%-box%s+version%s+(%S+)") or output:match("(%d+%.[%d%.]+)")
-		end
-	end
-
-	if version and version ~= "" and not version:find("error", 1, true) and not version:find("fatal", 1, true) then
-		return version, nil
-	end
-	return nil, "Can't get core version"
-end
-
 function action_version()
 	local core_type = uci:get("sxray", "main", "core_type") or "xray"
-	local xray_file = uci:get("sxray", "main", "xray_file") or ""
-	local sing_box_file = uci:get("sxray", "main", "sing_box_file") or ""
-
-	if xray_file == "" then
-		xray_file = "/usr/bin/xray"
-	end
-	if sing_box_file == "" then
-		sing_box_file = "/usr/bin/sing-box"
+	local file
+	if core_type == "xray" then
+		file = uci:get("sxray", "main", "xray_file") or ""
+	else
+		file = uci:get("sxray", "main", "sing_box_file") or ""
 	end
 
-	local xray_version, xray_error = get_core_version(xray_file, "xray")
-	local sing_box_version, sing_box_error = get_core_version(sing_box_file, "sing-box")
+	local info
 
-	http.prepare_content("application/json")
-	http.write_json({
-		core_type = core_type,
-		xray = {
-			valid = xray_version ~= nil,
-			version = xray_version or "",
-			message = xray_error or ""
-		},
-		sing_box = {
-			valid = sing_box_version ~= nil,
-			version = sing_box_version or "",
-			message = sing_box_error or ""
+	if file == "" then
+		info = {
+			valid = false,
+			message = i18n.translate("Core file path is empty")
 		}
-	})
-end
+	elseif not fs.stat(file) then
+		info = {
+			valid = false,
+			message = i18n.translate("Core file not found")
+		}
+	else
+		if not fs.access(file, "rwx", "rx", "rx") then
+			fs.chmod(file, 755)
+		end
 
-function action_check_version()
-	local file = http.formvalue("file") or ""
-	local core_type = http.formvalue("core_type") or "xray"
+		local version
+		local cmd
+		if core_type == "xray" then
+			cmd = "%s version 2>&1" % file
+			version = util.trim(sys.exec(cmd))
+			if version ~= "" then
+				version = version:match("Xray (%S+)") or version:match("Version:%s*(%S+)") or version
+			end
+		else
+			cmd = "%s version 2>&1" % file
+			version = util.trim(sys.exec(cmd))
+			if version ~= "" then
+				version = version:match("sing%-box (%S+)") or version:match("version (%S+)") or version
+			end
+		end
 
-	local version, error_msg = get_core_version(file, core_type)
+		if version and version ~= "" and not version:find("error", 1, true) and not version:find("fatal", 1, true) then
+			info = {
+				valid = true,
+				version = version
+			}
+		else
+			info = {
+				valid = false,
+				message = i18n.translate("Can't get core version")
+			}
+		end
+	end
 
 	http.prepare_content("application/json")
-	http.write_json({
-		valid = version ~= nil,
-		version = version or "",
-		message = error_msg or ""
-	})
+	http.write_json(info)
 end
 
 function list_status(list_type)
@@ -309,6 +289,7 @@ function action_import_fetch()
 		return
 	end
 
+	-- Validate URL format
 	if not url:match("^https?://") then
 		result.error = i18n.translate("Invalid URL format")
 		http.prepare_content("application/json")
@@ -316,6 +297,7 @@ function action_import_fetch()
 		return
 	end
 
+	-- Download content from URL
 	local content = util.trim(sys.exec('curl -sL --connect-timeout 10 --max-time 30 "%s" 2>/dev/null' % { url }))
 
 	if content and content ~= "" then
@@ -328,3 +310,4 @@ function action_import_fetch()
 	http.prepare_content("application/json")
 	http.write_json(result)
 end
+

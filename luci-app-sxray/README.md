@@ -23,6 +23,7 @@ LuCI support for Xray/Sing-Box, integrating features from both luci-app-v2ray an
 - **OpenWrt 24.10 Compatibility**: Full support for latest OpenWrt version
 - **Firewall Backend Selection**: Manual choice between iptables and nftables
 - **Full Protocol Support**: All network protocols from both Xray and Sing-Box
+- **Shadowsocks/ShadowsocksR Encryption**: Support for "none" encryption method for unencrypted data transfer
 
 ## Installation
 
@@ -47,6 +48,19 @@ opkg install luci-app-sxray_*.ipk
 3. Set up nodes using the node list or subscription
 4. Configure global settings, DNS, routing, etc.
 5. For transparent proxy, choose between iptables and nftables
+
+### Encryption Methods
+
+#### Shadowsocks/ShadowsocksR Encryption
+Both Shadowsocks and ShadowsocksR protocols support the "none" encryption method:
+
+- **"none" Encryption**: When selected, data is transmitted without additional encryption
+  - Useful for debugging and testing purposes
+  - Can be used when the underlying transport layer already provides encryption (e.g., TLS)
+  - Maintains protocol compatibility with all other encryption methods
+  - Available in both inbound and outbound configuration
+
+**Note**: Using "none" encryption means your data will not be encrypted at the Shadowsocks/ShadowsocksR protocol layer. Ensure your overall security requirements are met, especially when using this method over untrusted networks.
 
 ## Project Structure
 
