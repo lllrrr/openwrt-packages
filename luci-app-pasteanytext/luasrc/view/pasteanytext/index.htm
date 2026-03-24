@@ -1,0 +1,744 @@
+<%+header%>
+
+<style>
+    .pasteanytext-container {
+        max-width: 900px;
+        margin: 20px auto;
+        padding: 20px;
+    }
+    
+    .panel {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        padding: 25px;
+        margin-bottom: 25px;
+    }
+    
+    .panel-title {
+        font-size: 20px;
+        font-weight: bold;
+        color: #333;
+        margin-bottom: 20px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #4CAF50;
+    }
+    
+    .form-group {
+        margin-bottom: 20px;
+    }
+    
+    .form-group label {
+        display: block;
+        font-weight: 600;
+        color: #555;
+        margin-bottom: 8px;
+        font-size: 14px;
+    }
+    
+    .form-control {
+        width: 100%;
+        padding: 12px;
+        border: 2px solid #e0e0e0;
+        border-radius: 6px;
+        font-size: 14px;
+        transition: border-color 0.3s;
+        box-sizing: border-box;
+    }
+    
+    .form-control:focus {
+        outline: none;
+        border-color: #4CAF50;
+    }
+    
+    textarea.form-control {
+        min-height: 150px;
+        resize: vertical;
+        font-family: 'Consolas', 'Monaco', monospace;
+    }
+    
+    .btn {
+        padding: 12px 30px;
+        border: none;
+        border-radius: 6px;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+        display: inline-block;
+    }
+    
+    .btn-primary {
+        background: #4CAF50;
+        color: white;
+    }
+    
+    .btn-primary:hover {
+        background: #45a049;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+    }
+    
+    .btn-info {
+        background: #2196F3;
+        color: white;
+    }
+    
+    .btn-info:hover {
+        background: #1976D2;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3);
+    }
+    
+    .btn-warning {
+        background: #FF9800;
+        color: white;
+    }
+    
+    .btn-warning:hover {
+        background: #F57C00;
+    }
+    
+    .records-container {
+        background: #f8f9fa;
+        border-radius: 6px;
+        padding: 15px;
+        max-height: 500px;
+        overflow-y: auto;
+    }
+    
+    .record-item {
+        background: white;
+        padding: 15px;
+        margin-bottom: 12px;
+        border-radius: 6px;
+        border-left: 4px solid #4CAF50;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        transition: all 0.3s;
+    }
+    
+    .record-item:hover {
+        transform: translateX(5px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    
+    .record-timestamp {
+        font-size: 12px;
+        color: #888;
+        margin-bottom: 8px;
+        font-weight: 600;
+    }
+    
+    .record-content {
+        font-size: 14px;
+        color: #333;
+        line-height: 1.6;
+        font-family: 'Consolas', 'Monaco', monospace;
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+    
+    .alert {
+        padding: 12px 20px;
+        border-radius: 6px;
+        margin-bottom: 20px;
+        display: none;
+        animation: slideDown 0.3s ease-out;
+    }
+    
+    @keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    .alert-success {
+        background: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+    }
+    
+    .alert-error {
+        background: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+    }
+    
+    .loading {
+        text-align: center;
+        padding: 40px;
+        color: #888;
+    }
+    
+    .spinner {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #4CAF50;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 20px;
+    }
+    
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    
+    .empty-state {
+        text-align: center;
+        padding: 40px;
+        color: #aaa;
+    }
+    
+    .empty-state-icon {
+        font-size: 48px;
+        margin-bottom: 15px;
+    }
+    
+    .config-section {
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        border-radius: 6px;
+        padding: 15px;
+        margin-bottom: 20px;
+    }
+    
+    .button-group {
+        display: flex;
+        gap: 10px;
+        margin-top: 15px;
+    }
+    
+    .search-box {
+        margin-bottom: 20px;
+    }
+    
+    .search-input {
+        width: 100%;
+        padding: 10px 15px;
+        border: 2px solid #e0e0e0;
+        border-radius: 6px;
+        font-size: 14px;
+        transition: border-color 0.3s;
+    }
+    
+    .search-input:focus {
+        outline: none;
+        border-color: #2196F3;
+    }
+    
+    .modal {
+        display: none;
+        position: fixed;
+        z-index: 10000;
+        left: 0 !important;
+        top: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        background-color: rgba(0,0,0,0.6) !important;
+        animation: fadeIn 0.3s;
+        overflow-y: auto;
+        padding: 20px 0;
+        box-sizing: border-box;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    
+    .modal-wrapper {
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        min-height: calc(100vh - 40px);
+        padding-top: 80px;
+        width: 100%;
+    }
+    
+    .modal-content {
+        background-color: white;
+        margin: 0 auto;
+        padding: 30px;
+        border-radius: 10px;
+        max-width: 800px;
+        width: calc(100% - 40px);
+        max-height: calc(100vh - 140px);
+        overflow-y: auto;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        position: relative;
+    }
+    
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        padding-bottom: 15px;
+        border-bottom: 2px solid #4CAF50;
+    }
+    
+    .modal-title {
+        font-size: 20px;
+        font-weight: bold;
+        color: #333;
+    }
+    
+    .close-btn {
+        font-size: 28px;
+        font-weight: bold;
+        color: #aaa;
+        cursor: pointer;
+        line-height: 1;
+    }
+    
+    .close-btn:hover {
+        color: #333;
+    }
+    
+    .modal-timestamp {
+        font-size: 14px;
+        color: #888;
+        margin-bottom: 15px;
+        padding: 10px;
+        background: #f8f9fa;
+        border-radius: 6px;
+    }
+    
+    .modal-textarea {
+        width: 100%;
+        min-height: 200px;
+        padding: 15px;
+        border: 2px solid #e0e0e0;
+        border-radius: 6px;
+        font-size: 14px;
+        font-family: 'Consolas', 'Monaco', monospace;
+        resize: vertical;
+        margin-bottom: 20px;
+    }
+    
+    .copy-btn {
+        background: #2196F3;
+        color: white;
+        padding: 12px 30px;
+        border: none;
+        border-radius: 6px;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+    
+    .copy-btn:hover {
+        background: #1976D2;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3);
+    }
+    
+    .record-item {
+        cursor: pointer;
+    }
+    
+    .record-item:hover {
+        transform: translateX(5px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        background: #f0f8ff;
+    }
+    
+    .highlight {
+        background-color: yellow;
+        color: #000;
+    }
+</style>
+
+<div class="pasteanytext-container">
+    <div class="panel">
+        <div class="panel-title">📋 PasteAnyText - 文本传送</div>
+        
+        <div id="alertBox" class="alert"></div>
+        
+        <div class="form-group">
+            <label for="textContent">输入要发送的文本内容：</label>
+            <textarea id="textContent" class="form-control" placeholder="在此输入文本内容..."></textarea>
+        </div>
+        
+        <div class="button-group">
+            <button class="btn btn-primary" onclick="sendText()">📤 发送文本</button>
+            <button class="btn btn-info" onclick="loadRecords()">🔄 刷新接收</button>
+            <button class="btn btn-warning" onclick="clearText()">🗑️ 清空输入</button>
+        </div>
+    </div>
+    
+    <div class="panel">
+        <div class="panel-title">⚙️ 配置设置</div>
+        
+        <div class="form-group">
+            <label for="filePath">临时文件路径：</label>
+            <input type="text" id="filePath" class="form-control" value="/etc/pasteanytext_donotdelete.txt" placeholder="/etc/pasteanytext_donotdelete.txt">
+        </div>
+        
+        <div class="form-group">
+            <label for="maxRecords">最大记录条数（1-10000）：</label>
+            <input type="number" id="maxRecords" class="form-control" value="1000" min="1" max="10000" placeholder="1-10000">
+            <small style="color: #888;">💡 提示：可输入范围 1-10000，超出范围将提示错误</small>
+        </div>
+        
+        <button class="btn btn-primary" onclick="saveConfig()">💾 保存配置</button>
+    </div>
+    
+    <div class="panel">
+        <div class="panel-title">📨 接收记录（最新在前）</div>
+        
+        <div class="search-box">
+            <input type="text" id="searchInput" class="search-input" placeholder="🔍 搜索记录内容..." onkeyup="searchRecords()">
+        </div>
+        
+        <div id="recordsContainer" class="records-container">
+            <div class="loading">
+                <div class="spinner"></div>
+                <div>加载中...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 查看详情弹窗 -->
+<div id="detailModal" class="modal">
+    <div class="modal-wrapper">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">📄 记录详情</div>
+                <span class="close-btn" onclick="closeModal()">&times;</span>
+            </div>
+            <div id="modalTimestamp" class="modal-timestamp"></div>
+            <textarea id="modalContent" class="modal-textarea" readonly></textarea>
+            <button class="btn copy-btn" onclick="copyContent()">📋 完整复制</button>
+        </div>
+    </div>
+</div>
+
+<script type="text/javascript">
+    //<![CDATA[
+    
+    // 存储所有记录
+    var allRecords = [];
+    
+    function showAlert(message, type) {
+        var alertBox = document.getElementById('alertBox');
+        alertBox.textContent = message;
+        alertBox.className = 'alert alert-' + type;
+        alertBox.style.display = 'block';
+        
+        setTimeout(function() {
+            alertBox.style.display = 'none';
+        }, 3000);
+    }
+    
+    function sendText() {
+        var content = document.getElementById('textContent').value.trim();
+        
+        if (!content) {
+            showAlert('请输入要发送的文本内容！', 'error');
+            return;
+        }
+        
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/cgi-bin/luci/admin/services/pasteanytext/send', true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                var response = JSON.parse(xhr.responseText);
+                if (response.success) {
+                    showAlert(response.message, 'success');
+                    document.getElementById('textContent').value = '';
+                    loadRecords();
+                } else {
+                    showAlert(response.message || '发送失败', 'error');
+                }
+            } else {
+                showAlert('发送失败，请重试', 'error');
+            }
+        };
+        
+        xhr.onerror = function() {
+            showAlert('网络错误', 'error');
+        };
+        
+        xhr.send('content=' + encodeURIComponent(content));
+    }
+    
+    function loadRecords() {
+        var recordsContainer = document.getElementById('recordsContainer');
+        recordsContainer.innerHTML = '<div class="loading"><div class="spinner"></div><div>加载中...</div></div>';
+        
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '/cgi-bin/luci/admin/services/pasteanytext/receive', true);
+        
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                try {
+                    var response = JSON.parse(xhr.responseText);
+                    if (response.success) {
+                        allRecords = response.records || [];
+                        displayRecords(response.records);
+                        console.log('记录加载成功，共', response.records ? response.records.length : 0, '条');
+                    } else {
+                        recordsContainer.innerHTML = '<div class="empty-state">加载失败</div>';
+                        console.error('记录加载失败:', response.message);
+                    }
+                } catch (e) {
+                    recordsContainer.innerHTML = '<div class="empty-state">数据格式错误</div>';
+                    console.error('解析记录响应失败:', e);
+                }
+            } else {
+                recordsContainer.innerHTML = '<div class="empty-state">加载失败，请重试</div>';
+                console.error('HTTP 请求失败:', xhr.status);
+            }
+        };
+        
+        xhr.onerror = function() {
+            recordsContainer.innerHTML = '<div class="empty-state">网络错误</div>';
+            console.error('网络错误，无法加载记录');
+        };
+        
+        xhr.send();
+    }
+    
+    function displayRecords(records) {
+        var recordsContainer = document.getElementById('recordsContainer');
+        
+        if (!records || records.length === 0) {
+            recordsContainer.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div><div>暂无记录</div></div>';
+            return;
+        }
+        
+        var html = '';
+        for (var i = 0; i < records.length; i++) {
+            var record = records[i];
+            // 更健壮的时间戳解析 - 增强版
+            var timestamp = '未知时间';
+            var content = record;
+            
+            // 严格匹配标准格式 [YYYY-MM-DD HH:MM:SS] content
+            var strictMatch = record.match(/^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s+(.*)$/s);
+            if (strictMatch && strictMatch[1]) {
+                timestamp = strictMatch[1];
+                content = strictMatch[2];
+            } else {
+                // 尝试宽松匹配 [任意内容] 后面有内容
+                var looseMatch = record.match(/^\[([^\]]+)\]\s*(.*)$/s);
+                if (looseMatch && looseMatch[1] && looseMatch[1].length >= 15 && looseMatch[1].length <= 25) {
+                    // 长度在 15-25 之间的可能是时间戳
+                    timestamp = looseMatch[1];
+                    content = looseMatch[2];
+                } else {
+                    // 最后尝试简单提取
+                    var simpleMatch = record.match(/\[(.*?)\]/);
+                    if (simpleMatch && simpleMatch[1]) {
+                        timestamp = simpleMatch[1];
+                        content = record.substring(record.indexOf(']') + 1).trim();
+                    }
+                }
+            }
+            
+            html += '<div class="record-item" onclick="viewRecord(' + i + ')">';
+            html += '<div class="record-timestamp">⏰ ' + timestamp + '</div>';
+            html += '<div class="record-content">' + escapeHtml(content.substring(0, 100)) + 
+                    (content.length > 100 ? '...' : '') + '</div>';
+            html += '</div>';
+        }
+        
+        recordsContainer.innerHTML = html;
+    }
+    
+    function viewRecord(index) {
+        if (index < 0 || index >= allRecords.length) return;
+        
+        var record = allRecords[index];
+        // 使用相同的解析逻辑
+        var timestamp = '未知时间';
+        var content = record;
+        
+        // 严格匹配标准格式 [YYYY-MM-DD HH:MM:SS] content
+        var strictMatch = record.match(/^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s+(.*)$/s);
+        if (strictMatch && strictMatch[1]) {
+            timestamp = strictMatch[1];
+            content = strictMatch[2];
+        } else {
+            // 尝试宽松匹配
+            var looseMatch = record.match(/^\[([^\]]+)\]\s*(.*)$/s);
+            if (looseMatch && looseMatch[1] && looseMatch[1].length >= 15 && looseMatch[1].length <= 25) {
+                timestamp = looseMatch[1];
+                content = looseMatch[2];
+            } else {
+                // 简单提取
+                var simpleMatch = record.match(/\[(.*?)\]/);
+                if (simpleMatch && simpleMatch[1]) {
+                    timestamp = simpleMatch[1];
+                    content = record.substring(record.indexOf(']') + 1).trim();
+                }
+            }
+        }
+        
+        document.getElementById('modalTimestamp').textContent = '⏰ 时间：' + timestamp;
+        document.getElementById('modalContent').value = content;
+        
+        // 将弹窗移动到 body 下，避免被父容器限制
+        var modal = document.getElementById('detailModal');
+        document.body.appendChild(modal);
+        
+        modal.style.display = 'block';
+        document.body.style.overflow = 'hidden'; // 防止背景滚动
+    }
+    
+    function closeModal() {
+        var modal = document.getElementById('detailModal');
+        modal.style.display = 'none';
+        document.body.style.overflow = ''; // 恢复背景滚动
+        
+        // 将弹窗移回原位置（可选，保持 DOM 整洁）
+        // var originalContainer = document.querySelector('.pasteanytext-container');
+        // originalContainer.appendChild(modal);
+    }
+    
+    function copyContent() {
+        var textarea = document.getElementById('modalContent');
+        textarea.select();
+        textarea.setSelectionRange(0, textarea.value.length);
+        
+        try {
+            document.execCommand('copy');
+            showAlert('已完整复制到剪贴板！', 'success');
+        } catch (err) {
+            // Fallback for modern browsers
+            navigator.clipboard.writeText(textarea.value).then(function() {
+                showAlert('已完整复制到剪贴板！', 'success');
+            }, function(err) {
+                showAlert('复制失败，请手动复制', 'error');
+            });
+        }
+    }
+    
+    function searchRecords() {
+        var searchText = document.getElementById('searchInput').value.toLowerCase().trim();
+        
+        if (!searchText) {
+            displayRecords(allRecords);
+            return;
+        }
+        
+        var filtered = allRecords.filter(function(record) {
+            return record.toLowerCase().indexOf(searchText) !== -1;
+        });
+        
+        displayRecords(filtered);
+    }
+    
+    function escapeHtml(text) {
+        var div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    function clearText() {
+        document.getElementById('textContent').value = '';
+    }
+
+    function saveConfig() {
+        var filePath = document.getElementById('filePath').value.trim();
+        var maxRecords = document.getElementById('maxRecords').value;
+
+        // 后端已经处理默认值，这里仅作前端提示
+        if (!filePath) {
+            showAlert('文件路径不能为空！', 'error');
+            return;
+        }
+
+        var maxNum = parseInt(maxRecords);
+        if (isNaN(maxNum) || maxNum < 1 || maxNum > 10000) {
+            showAlert('记录条数必须在 1-10000 之间！', 'error');
+            return;
+        }
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/cgi-bin/luci/admin/services/pasteanytext/config_save', true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                var response = JSON.parse(xhr.responseText);
+                if (response.success) {
+                    showAlert(response.message, 'success');
+                    loadRecords(); // 保存后刷新记录
+                } else {
+                    showAlert(response.message || '保存失败', 'error');
+                }
+            } else {
+                showAlert('保存失败，请重试', 'error');
+            }
+        };
+
+        xhr.onerror = function() {
+            showAlert('网络错误', 'error');
+        };
+
+        var params = 'file_path=' + encodeURIComponent(filePath) +
+            '&max_records=' + encodeURIComponent(maxRecords);
+        xhr.send(params);
+    }
+    
+    function loadConfig() {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '/cgi-bin/luci/admin/services/pasteanytext/config_get', true);
+        
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                try {
+                    var response = JSON.parse(xhr.responseText);
+                    if (response.success) {
+                        document.getElementById('filePath').value = response.file_path || '/etc/pasteanytext_donotdelete.txt';
+                        document.getElementById('maxRecords').value = response.max_records || '1000';
+                        console.log('配置加载成功:', response);
+                    } else {
+                        console.error('配置加载失败:', response.message);
+                    }
+                } catch (e) {
+                    console.error('解析配置响应失败:', e);
+                }
+            } else {
+                console.error('HTTP 请求失败:', xhr.status);
+            }
+        };
+        
+        xhr.onerror = function() {
+            console.error('网络错误，无法加载配置');
+        };
+        
+        xhr.send();
+    }
+
+    // 页面加载时只读取配置，不调用 saveConfig()
+    window.addEventListener('load', function() {
+        loadConfig();
+        loadRecords();
+    });
+    
+    // 点击弹窗外部关闭
+    window.onclick = function(event) {
+        var modal = document.getElementById('detailModal');
+        if (event.target == modal || event.target.classList.contains('modal-wrapper')) {
+            closeModal();
+        }
+    }
+    
+    //]]>
+</script>
+
+<%+footer%>

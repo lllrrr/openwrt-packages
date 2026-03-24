@@ -1,0 +1,33 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2024 OpenWrt.org
+
+START=95
+
+use_procd=1
+
+start_service() {
+    # 检查配置文件是否存在，不存在则创建
+    if [ ! -f "/etc/config/pasteanytext" ]; then
+        cat > /etc/config/pasteanytext << 'EOF'
+config config
+    option file_path '/etc/pasteanytext_donotdelete.txt'
+    option max_records '1000'
+EOF
+    fi
+    
+    # 创建临时文件（如果不存在）
+    local file_path=$(uci -q get pasteanytext.@config[0].file_path)
+    file_path=${file_path:-/etc/pasteanytext_donotdelete.txt}
+    
+    if [ ! -f "$file_path" ]; then
+        touch "$file_path"
+        chmod 644 "$file_path"
+    fi
+}
+
+stop_service() {
+    # 可选：停止时清理临时文件
+    # local file_path=$(uci -q get pasteanytext.@config[0].file_path)
+    # rm -f "$file_path"
+    return 0
+}
