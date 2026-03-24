@@ -1,0 +1,35 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2014 OpenWrt.org
+
+START=99
+USE_PROCD=1
+
+start_service() {
+  local ENABLED VNT_PATH CONFIG_PATH WORKDIR
+
+  ENABLED=$(uci -q get vnt2.@main[0].enabled)
+  VNT_PATH=$(uci -q get vnt2.@main[0].vnt_path)
+  CONFIG_PATH=$(uci -q get vnt2.@main[0].config_path)
+  WORKDIR=$(uci -q get vnt2.@main[0].log_path)
+
+  [ -z "$WORKDIR" ] && WORKDIR=/tmp
+  [ -d "$WORKDIR" ] || mkdir -p "$WORKDIR"
+
+  if [ -z "$ENABLED" ] || [ "$ENABLED" != "1" ]; then
+      return 0
+  fi
+
+  procd_open_instance
+  procd_set_param command sh -c "cd $WORKDIR; $VNT_PATH --conf $CONFIG_PATH"
+  procd_set_param stdout /dev/null
+  procd_set_param stderr /dev/null
+  procd_set_param file /etc/config/vnt2
+  procd_set_param file $CONFIG_PATH
+  procd_set_param respawn -1 5 0 10
+  procd_set_param reload_signal HUP
+  procd_close_instance
+}
+
+service_triggers() {
+    procd_add_reload_trigger "vnt2"
+}

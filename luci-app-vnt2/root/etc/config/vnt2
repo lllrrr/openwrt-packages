@@ -1,0 +1,7 @@
+
+config main
+	option vnt_path '/usr/bin/vnt2-cli'
+	option config_path '/etc/vnt2/config.toml'
+	option log_path '/tmp'
+	option enabled '0'
+
