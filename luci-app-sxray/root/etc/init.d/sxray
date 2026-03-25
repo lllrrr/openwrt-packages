@@ -8,10 +8,19 @@ START=99
 USE_PROCD=1
 
 NAME=sxray
+CORE_TYPE=""
+VALID_CORE_TYPES="xray sing-box"
+
 CONFIG_FOLDER=/var/etc/$NAME
+CONFIG_FOLDER_XRAY=/var/etc/${NAME}_xray
+CONFIG_FOLDER_SING_BOX=/var/etc/${NAME}_singbox
 
 FILE_SXRAY_DNSMASQ=/tmp/dnsmasq.d/$NAME
 FILE_SXRAY_DNSMASQ_CACHE=/tmp/$NAME.dnsmasq.cache
+FILE_SXRAY_DNSMASQ_XRAY=/tmp/dnsmasq.d/${NAME}_xray
+FILE_SXRAY_DNSMASQ_SING_BOX=/tmp/dnsmasq.d/${NAME}_singbox
+FILE_SXRAY_DNSMASQ_CACHE_XRAY=/tmp/${NAME}_xray.dnsmasq.cache
+FILE_SXRAY_DNSMASQ_CACHE_SING_BOX=/tmp/${NAME}_singbox.dnsmasq.cache
 
 IPSET_SRC_IGNORE_V4=sxray_src_ignore_v4
 IPSET_SRC_IGNORE_V6=sxray_src_ignore_v6
@@ -20,6 +29,20 @@ IPSET_DST_PROXY_V6=sxray_dst_proxy_v6
 IPSET_SRC_DIRECT_V4=sxray_src_direct_v4
 IPSET_DST_DIRECT_V4=sxray_dst_direct_v4
 IPSET_DST_DIRECT_V6=sxray_dst_direct_v6
+IPSET_SRC_IGNORE_V4_XRAY=sxray_src_ignore_v4_xray
+IPSET_SRC_IGNORE_V6_XRAY=sxray_src_ignore_v6_xray
+IPSET_DST_PROXY_V4_XRAY=sxray_dst_proxy_v4_xray
+IPSET_DST_PROXY_V6_XRAY=sxray_dst_proxy_v6_xray
+IPSET_SRC_DIRECT_V4_XRAY=sxray_src_direct_v4_xray
+IPSET_DST_DIRECT_V4_XRAY=sxray_dst_direct_v4_xray
+IPSET_DST_DIRECT_V6_XRAY=sxray_dst_direct_v6_xray
+IPSET_SRC_IGNORE_V4_SING_BOX=sxray_src_ignore_v4_singbox
+IPSET_SRC_IGNORE_V6_SING_BOX=sxray_src_ignore_v6_singbox
+IPSET_DST_PROXY_V4_SING_BOX=sxray_dst_proxy_v4_singbox
+IPSET_DST_PROXY_V6_SING_BOX=sxray_dst_proxy_v6_singbox
+IPSET_SRC_DIRECT_V4_SING_BOX=sxray_src_direct_v4_singbox
+IPSET_DST_DIRECT_V4_SING_BOX=sxray_dst_direct_v4_singbox
+IPSET_DST_DIRECT_V6_SING_BOX=sxray_dst_direct_v6_singbox
 
 OUTBOUND_SERVERS_V4=
 OUTBOUND_SERVERS_V6=
@@ -44,7 +67,13 @@ fi
 _log() {
 	local level="$1" ; shift
 	local msg="$@"
-	logger -p "daemon.$level" -t "$NAME" "$msg"
+	local log_tag="$NAME"
+	
+	if [ -n "$CORE_TYPE" ] ; then
+		log_tag="${NAME}_${CORE_TYPE}"
+	fi
+	
+	logger -p "daemon.$level" -t "$log_tag" "$msg"
 
 	echo "[$level] $msg" >&2
 }
@@ -55,6 +84,46 @@ _info() {
 
 _err() {
 	_log "err" $@
+}
+
+set_core_type() {
+	local type="$1"
+	
+	for valid_type in $VALID_CORE_TYPES ; do
+		if [ "x$type" = "x$valid_type" ] ; then
+			CORE_TYPE="$type"
+			return 0
+		fi
+	done
+	
+	_err "Invalid core type: $type. Valid types: $VALID_CORE_TYPES"
+	return 1
+}
+
+get_core_specific_vars() {
+	if [ "x$CORE_TYPE" = "xxray" ] ; then
+		CONFIG_FOLDER="$CONFIG_FOLDER_XRAY"
+		FILE_SXRAY_DNSMASQ="$FILE_SXRAY_DNSMASQ_XRAY"
+		FILE_SXRAY_DNSMASQ_CACHE="$FILE_SXRAY_DNSMASQ_CACHE_XRAY"
+		IPSET_SRC_IGNORE_V4="$IPSET_SRC_IGNORE_V4_XRAY"
+		IPSET_SRC_IGNORE_V6="$IPSET_SRC_IGNORE_V6_XRAY"
+		IPSET_DST_PROXY_V4="$IPSET_DST_PROXY_V4_XRAY"
+		IPSET_DST_PROXY_V6="$IPSET_DST_PROXY_V6_XRAY"
+		IPSET_SRC_DIRECT_V4="$IPSET_SRC_DIRECT_V4_XRAY"
+		IPSET_DST_DIRECT_V4="$IPSET_DST_DIRECT_V4_XRAY"
+		IPSET_DST_DIRECT_V6="$IPSET_DST_DIRECT_V6_XRAY"
+	elif [ "x$CORE_TYPE" = "xsing-box" ] ; then
+		CONFIG_FOLDER="$CONFIG_FOLDER_SING_BOX"
+		FILE_SXRAY_DNSMASQ="$FILE_SXRAY_DNSMASQ_SING_BOX"
+		FILE_SXRAY_DNSMASQ_CACHE="$FILE_SXRAY_DNSMASQ_CACHE_SING_BOX"
+		IPSET_SRC_IGNORE_V4="$IPSET_SRC_IGNORE_V4_SING_BOX"
+		IPSET_SRC_IGNORE_V6="$IPSET_SRC_IGNORE_V6_SING_BOX"
+		IPSET_DST_PROXY_V4="$IPSET_DST_PROXY_V4_SING_BOX"
+		IPSET_DST_PROXY_V6="$IPSET_DST_PROXY_V6_SING_BOX"
+		IPSET_SRC_DIRECT_V4="$IPSET_SRC_DIRECT_V4_SING_BOX"
+		IPSET_DST_DIRECT_V4="$IPSET_DST_DIRECT_V4_SING_BOX"
+		IPSET_DST_DIRECT_V6="$IPSET_DST_DIRECT_V6_SING_BOX"
+	fi
 }
 
 get_value_from_json() {
@@ -171,7 +240,14 @@ dns_server_section_validate() {
 	uci_validate_section "$NAME" "dns_server" "$1" \
 		'address:string' \
 		'port:port' \
-		'domains:list(string)'
+		'domains:list(string)' \
+		'tag:string' \
+		'strategy:or("prefer_ipv4", "prefer_ipv6", "ipv4_only", "ipv6_only")' \
+		'detour:string' \
+		'domain_resolver:string' \
+		'client_subnet:string' \
+		'inet4_range:string' \
+		'inet6_range:string'
 }
 
 routing_section_validate() {
@@ -195,7 +271,15 @@ routing_rule_section_validate() {
 		'protocol:list(or("http", "tls", "bittorrent"))' \
 		'attrs:string' \
 		'outbound_tag:string' \
-		'balancer_tag:string'
+		'balancer_tag:string' \
+		'action:or("default", "accept", "reject", "reject-dns", "reject-tls", "reject-http", "reject-quic", "sniff", "sniff-dns", "resolve", "resolve-image", "resolve-video", "route", "route4", "route6", "route-domains", "route-image", "route-video", "proxy", "direct", "block")' \
+		'rule_set:list(string)' \
+		'rule_set_ipcidr_match_source:bool:0' \
+		'query_type:list(string)' \
+		'strategy:string' \
+		'override_address:string' \
+		'override_port:port' \
+		'default_domain_resolver:string'
 }
 
 routing_balancer_section_validate() {
@@ -280,6 +364,15 @@ inbound_section_validate() {
 		'ss_tls_cert_usage:or("encipherment", "verify", "issue")' \
 		'ss_tls_cert_file:string' \
 		'ss_tls_key_file:string' \
+		's_hysteria2_password:string' \
+		's_hysteria2_obfs_password:string' \
+		's_hysteria2_obfs_type:or("none", "salamander")' \
+		's_hysteria2_address:host' \
+		's_hysteria2_port:port' \
+		's_hysteria2_insecure:bool:0' \
+		's_hysteria2_server_name:string' \
+		's_hysteria2_up_mbps:uinteger' \
+		's_hysteria2_down_mbps:uinteger' \
 		'ss_tcp_header_type:or("none", "http")' \
 		'ss_tcp_header_request_version:string' \
 		'ss_tcp_header_request_method:string:GET' \
@@ -366,8 +459,25 @@ outbound_section_validate() {
 		's_wireguard_dns:list(string)' \
 		's_wireguard_mtu:uinteger' \
 		's_wireguard_reserved:list(uinteger)' \
+		's_juicity_address:host' \
+		's_juicity_port:port' \
+		's_juicity_uuid:string' \
+		's_juicity_password:string' \
+		's_juicity_congestion_control:or("bbr", "cubic")' \
+		's_juicity_insecure:bool:0' \
+		's_juicity_server_name:string' \
+		's_juicity_alpn:string' \
 		's_loopback_tag:string' \
 		's_loopback_inbound_tag:string' \
+		's_hysteria2_address:host' \
+		's_hysteria2_port:port' \
+		's_hysteria2_password:string' \
+		's_hysteria2_obfs_password:string' \
+		's_hysteria2_obfs_type:or("none", "salamander")' \
+		's_hysteria2_up_mbps:uinteger' \
+		's_hysteria2_down_mbps:uinteger' \
+		's_hysteria2_insecure:bool:0' \
+		's_hysteria2_server_name:string' \
 		'ss_network:or("tcp", "kcp", "ws", "http", "domainsocket", "quic")' \
 		'ss_security:or("none", "tls")' \
 		'ss_tls_server_name:host' \
@@ -376,7 +486,7 @@ outbound_section_validate() {
 		'ss_tls_allow_insecure_ciphers:bool:0' \
 		'ss_tls_disable_system_root:bool:0' \
 		'ss_tls_cert_usage:or("encipherment", "verify", "issue")' \
-		'ss_tls_cert_fiile:string' \
+		'ss_tls_cert_file:string' \
 		'ss_tls_key_file:string' \
 		'ss_tcp_header_type:or("none", "http")' \
 		'ss_tcp_header_request_version:string' \
@@ -408,7 +518,11 @@ outbound_section_validate() {
 		'stream_settings:string' \
 		'proxy_settings_tag:string' \
 		'mux_enabled:bool:0' \
-		'mux_concurrency:uinteger:8'
+		'mux_concurrency:uinteger:8' \
+		'domain_resolver:string' \
+		'domain_resolver_server:string' \
+		'domain_resolver_strategy:or("prefer_ipv4", "prefer_ipv6", "ipv4_only", "ipv6_only")' \
+		'domain_resolver_rewrite_ttl:uinteger'
 }
 
 add_sxray_redirect_rules() {
@@ -642,11 +756,74 @@ destroy_sxray_ipset() {
 	EOF
 }
 
+# 为核心类型创建独立的 ipset
+create_core_specific_ipset() {
+	if [ -z "$CORE_TYPE" ] ; then
+		return 1
+	fi
+
+	# https://en.wikipedia.org/wiki/Reserved_IP_addresses
+	local reserved_v4="$(cat >&1 <<-EOF
+		0.0.0.0/8
+		10.0.0.0/8
+		100.64.0.0/10
+		127.0.0.0/8
+		169.254.0.0/16
+		172.16.0.0/12
+		192.0.0.0/24
+		192.0.2.0/24
+		192.88.99.0/24
+		192.168.0.0/16
+		198.18.0.0/15
+		198.51.100.0/24
+		203.0.113.0/24
+		224.0.0.0/4
+		240.0.0.0/4
+		255.255.255.255
+	EOF
+	)"
+
+	local reserved_v6="$(cat >&1 <<-EOF
+		::
+		::/128
+		::1/128
+		::ffff:0:0/96
+		::ffff:0:0:0/96
+		64:ff9b::/96
+		100::/64
+		2001::/32
+		2001:20::/28
+		2001:db8::/32
+		2002::/16
+		fc00::/7
+		fe80::/10
+		ff00::/8
+	EOF
+	)"
+
+	local outbound_v4="$OUTBOUND_SERVERS_V4"
+	local outbound_v6="$OUTBOUND_SERVERS_V6"
+
+	ipset -! restore <<-EOF 2>/dev/null
+		create $IPSET_SRC_IGNORE_V4 hash:ip hashsize 64 family inet timeout 0
+		create $IPSET_SRC_IGNORE_V6 hash:ip hashsize 64 family inet6 timeout 0
+		create $IPSET_DST_PROXY_V4 hash:net hashsize 64 family inet timeout 604800
+		create $IPSET_DST_PROXY_V6 hash:net hashsize 64 family inet6 timeout 604800
+		create $IPSET_SRC_DIRECT_V4 hash:net hashsize 64 family inet timeout 0
+		create $IPSET_DST_DIRECT_V4 hash:net hashsize 64 family inet timeout 604800
+		create $IPSET_DST_DIRECT_V6 hash:net hashsize 64 family inet6 timeout 604800
+		$(echo "$reserved_v4" | sed "s/.*/add $IPSET_DST_DIRECT_V4 & timeout 0/")
+		$(echo "$reserved_v6" | sed "s/.*/add $IPSET_DST_DIRECT_V6 & timeout 0/")
+		$(echo "$outbound_v4" | grep -v "^$" | sed "s/.*/add $IPSET_DST_DIRECT_V4 & timeout 0/")
+		$(echo "$outbound_v6" | grep -v "^$" | sed "s/.*/add $IPSET_DST_DIRECT_V6 & timeout 0/")
+	EOF
+}
+
 init_rules_for_listfile() {
 	local direct_list_dns="$1"
 	local proxy_list_dns="$2"
 
-	echo "# AUTO-GENERATED FILE. DO NOT MODIFY." >"$FILE_V2RAY_DNSMASQ_CACHE"
+	echo "# AUTO-GENERATED FILE. DO NOT MODIFY." >"$FILE_SXRAY_DNSMASQ_CACHE"
 
 	# For direct list
 	local direct_content
@@ -667,12 +844,12 @@ init_rules_for_listfile() {
 			echo "$direct_content" | \
 				grep -oE "([0-9a-zA-Z_-]+\.)+[a-zA-Z]{2,}$" | \
 				sed "s|.*|server=/&/$direct_list_dns\nipset=/&/$IPSET_DST_DIRECT_V4,$IPSET_DST_DIRECT_V6|" \
-				>>"$FILE_V2RAY_DNSMASQ_CACHE"
+				>>"$FILE_SXRAY_DNSMASQ_CACHE"
 		else
 			echo "$direct_content" | \
 				grep -oE "([0-9a-zA-Z_-]+\.)+[a-zA-Z]{2,}$" | \
 				sed "s|.*|ipset=/&/$IPSET_DST_DIRECT_V4,$IPSET_DST_DIRECT_V6|" \
-				>>"$FILE_V2RAY_DNSMASQ_CACHE"
+				>>"$FILE_SXRAY_DNSMASQ_CACHE"
 		fi
 	fi
 
@@ -695,12 +872,12 @@ init_rules_for_listfile() {
 			echo "$proxy_content" | \
 				grep -oE "([0-9a-zA-Z_-]+\.)+[a-zA-Z]{2,}$" | \
 				sed "s|.*|server=/&/$proxy_list_dns\nipset=/&/$IPSET_DST_PROXY_V4,$IPSET_DST_PROXY_V6|" \
-				>>"$FILE_V2RAY_DNSMASQ_CACHE"
+				>>"$FILE_SXRAY_DNSMASQ_CACHE"
 		else
 			echo "$proxy_content" | \
 				grep -oE "([0-9a-zA-Z_-]+\.)+[a-zA-Z]{2,}$" | \
 				sed "s|.*|ipset=/&/$IPSET_DST_PROXY_V4,$IPSET_DST_PROXY_V6|" \
-				>>"$FILE_V2RAY_DNSMASQ_CACHE"
+				>>"$FILE_SXRAY_DNSMASQ_CACHE"
 		fi
 	fi
 
@@ -725,6 +902,69 @@ gracefully_restart_dnsmasq() {
 	fi
 }
 
+# 将 DNS 地址解析为 sing-box 新格式
+# 输入: address (如 "1.1.1.1", "tcp://1.1.1.1", "tls://1.1.1.1", "https://dns.google/dns-query")
+# 输出: 通过全局变量 DNS_TYPE, DNS_SERVER, DNS_PATH
+parse_dns_address() {
+	local addr="$1"
+	DNS_TYPE=""
+	DNS_SERVER=""
+	DNS_PATH=""
+
+	# 解析协议类型
+	case "$addr" in
+		tcp://*)
+			DNS_TYPE="tcp"
+			addr="${addr#tcp://}"
+			;;
+		tls://*)
+			DNS_TYPE="tls"
+			addr="${addr#tls://}"
+			;;
+		https://*|http://*)
+			DNS_TYPE="https"
+			addr="${addr#https://}"
+			addr="${addr#http://}"
+			;;
+		quic://*)
+			DNS_TYPE="quic"
+			addr="${addr#quic://}"
+			;;
+		h3://*)
+			DNS_TYPE="h3"
+			addr="${addr#h3://}"
+			;;
+		dhcp://*)
+			DNS_TYPE="dhcp"
+			addr="${addr#dhcp://}"
+			;;
+		fakeip://*|fakeip)
+			DNS_TYPE="fakeip"
+			return 0
+			;;
+		local|localhost)
+			DNS_TYPE="local"
+			return 0
+			;;
+		rcode://*)
+			DNS_TYPE="rcode"
+			DNS_PATH="${addr#rcode://}"
+			return 0
+			;;
+		*)
+			DNS_TYPE="udp"
+			;;
+	esac
+
+	# 解析服务器地址和路径
+	if echo "$addr" | grep -q '/'; then
+		DNS_SERVER="${addr%%/*}"
+		DNS_PATH="/${addr#*/}"
+	else
+		DNS_SERVER="$addr"
+	fi
+}
+
 add_dns_settings() {
 	local section="${1}_dns"
 
@@ -745,20 +985,23 @@ add_dns_settings() {
 	test -n "$client_ip" && \
 		json_add_string "clientIp" "$client_ip"
 
-	if [ -n "$hosts" ] ; then
-		json_add_object "hosts"
+	# sing-box 新格式不支持 hosts 字段，仅 xray 支持
+	if [ "x$core_type" != "xsing-box" ] ; then
+		if [ -n "$hosts" ] ; then
+			json_add_object "hosts"
 
-		local h
-		for h in $hosts ; do
-			local domain="$(echo "$h" | cut -d'|' -f1)"
-			local ip="$(echo "$h" | cut -d'|' -f2)"
+			local h
+			for h in $hosts ; do
+				local domain="$(echo "$h" | cut -d'|' -f1)"
+				local ip="$(echo "$h" | cut -d'|' -f2)"
 
-			if [ -n "$domain" ] && [ -n "$ip" ] ; then
-				json_add_string "$domain" "$ip"
-			fi
-		done
+				if [ -n "$domain" ] && [ -n "$ip" ] ; then
+					json_add_string "$domain" "$ip"
+				fi
+			done
 
-		json_close_object # hosts
+			json_close_object # hosts
+		fi
 	fi
 
 	if [ -n "$servers" ] ; then
@@ -770,30 +1013,75 @@ add_dns_settings() {
 					continue
 				fi
 
-				if [ -z "$port" ] && [ -z "$domains" ] ; then
-					json_add_string "" "$address"
-				else
+				# sing-box 使用新格式，xray 使用旧格式
+				if [ "x$core_type" = "xsing-box" ] ; then
+					# sing-box 新格式
+					parse_dns_address "$address"
+
 					json_add_object ""
-					json_add_string "address" "$address"
+					json_add_string "type" "$DNS_TYPE"
+
+					test -n "$tag" && \
+						json_add_string "tag" "$tag"
+
+					if [ -n "$DNS_SERVER" ] ; then
+						json_add_string "server" "$DNS_SERVER"
+					fi
+
+					if [ -n "$DNS_PATH" ] ; then
+						json_add_string "path" "$DNS_PATH"
+					fi
 
 					if [ -n "$port" ] ; then
-						json_add_int "port" "$port"
-					else
-						json_add_int "port" "53"
+						json_add_int "server_port" "$port"
 					fi
 
-					if [ -n "$domains" ] ; then
-						json_add_array "domains"
+					test -n "$strategy" && \
+						json_add_string "strategy" "$strategy"
+					test -n "$detour" && \
+						json_add_string "detour" "$detour"
+					test -n "$domain_resolver" && \
+						json_add_string "domain_resolver" "$domain_resolver"
+					test -n "$client_subnet" && \
+						json_add_string "client_subnet" "$client_subnet"
 
-						local d
-						for d in $domains ; do
-							json_add_string "" "$d"
-						done
-
-						json_close_array # domains
+					if [ "$DNS_TYPE" = "fakeip" ] ; then
+						test -n "$inet4_range" && \
+							json_add_string "inet4_range" "$inet4_range"
+						test -n "$inet6_range" && \
+							json_add_string "inet6_range" "$inet6_range"
 					fi
+
+					# sing-box 新格式不支持 domains 字段，需要使用 DNS rules
 
 					json_close_object
+				else
+					# xray 旧格式
+					if [ -z "$port" ] && [ -z "$domains" ] ; then
+						json_add_string "" "$address"
+					else
+						json_add_object ""
+						json_add_string "address" "$address"
+
+						if [ -n "$port" ] ; then
+							json_add_int "port" "$port"
+						else
+							json_add_int "port" "53"
+						fi
+
+						if [ -n "$domains" ] ; then
+							json_add_array "domains"
+
+							local d
+							for d in $domains ; do
+								json_add_string "" "$d"
+							done
+
+							json_close_array # domains
+						fi
+
+						json_close_object
+					fi
 				fi
 			fi
 		done
@@ -817,10 +1105,167 @@ add_routing_settings() {
 		return 0
 	fi
 
-	json_add_object "routing"
+	# sing-box 使用 route，xray 使用 routing
+	if [ "x$core_type" = "xsing-box" ] ; then
+		json_add_object "route"
 
-	test -n "$domain_strategy" && \
-		json_add_string "domainStrategy" "$domain_strategy"
+		if [ -n "$outbounds" ] ; then
+			local first_outbound_tag=""
+			for os in $outbounds ; do
+				first_outbound_tag="$(uci -q get sxray.$os.tag 2>/dev/null)"
+				if [ -n "$first_outbound_tag" ] ; then
+					break
+				fi
+			done
+			if [ -n "$first_outbound_tag" ] ; then
+				json_add_string "final" "$first_outbound_tag"
+			fi
+		fi
+	else
+		json_add_object "routing"
+
+		test -n "$domain_strategy" && \
+			json_add_string "domainStrategy" "$domain_strategy"
+	fi
+
+	local all_geoip_tags=""
+	local all_geosite_tags=""
+
+	if [ -n "$rules" ] ; then
+		local rs
+		for rs in $rules ; do
+			if routing_rule_section_validate "$rs" ; then
+				if [ -n "$ip" ] ; then
+					local i
+					for i in $ip ; do
+						case "$i" in
+							geoip:*)
+								local geoip_name="${i#geoip:}"
+								case " $all_geoip_tags " in
+									*" $geoip_name "*) ;;
+									*) all_geoip_tags="${all_geoip_tags}${all_geoip_tags:+ }$geoip_name" ;;
+								esac
+								;;
+							geosite:*)
+								local geosite_name="${i#geosite:}"
+								case " $all_geosite_tags " in
+									*" $geosite_name "*) ;;
+									*) all_geosite_tags="${all_geosite_tags}${all_geosite_tags:+ }$geosite_name" ;;
+								esac
+								;;
+						esac
+					done
+				fi
+			fi
+		done
+	fi
+
+	if [ "x$core_type" = "xsing-box" ] ; then
+		json_add_array "rule_set"
+
+		if echo " $all_geoip_tags " | grep -q " private " ; then
+			json_add_object ""
+			json_add_string "tag" "geoip-private"
+			json_add_string "type" "inline"
+			json_add_array "rules"
+			json_add_object ""
+			json_add_string "source_ip_cidr" "10.0.0.0/8"
+			json_close_object
+			json_add_object ""
+			json_add_string "source_ip_cidr" "172.16.0.0/12"
+			json_close_object
+			json_add_object ""
+			json_add_string "source_ip_cidr" "192.168.0.0/16"
+			json_close_object
+			json_add_object ""
+			json_add_string "source_ip_cidr" "169.254.0.0/16"
+			json_close_object
+			json_add_object ""
+			json_add_string "source_ip_cidr" "127.0.0.0/8"
+			json_close_object
+			json_add_object ""
+			json_add_string "source_ip_cidr" "224.0.0.0/4"
+			json_close_object
+			json_add_object ""
+			json_add_string "source_ip_cidr" "255.255.255.255/32"
+			json_close_object
+			json_close_array
+			json_close_object
+		fi
+
+		local geoip_dir
+		geoip_dir=$(uci -q get sxray.@global_rules[0].v2ray_location_asset 2>/dev/null || echo "/usr/share/v2ray/")
+		geoip_dir="${geoip_dir%/}"
+
+		local g
+		for g in $all_geoip_tags ; do
+			case "$g" in
+				private) ;;
+				cn)
+					json_add_object ""
+					json_add_string "tag" "geoip-cn"
+					json_add_string "type" "inline"
+					json_add_array "rules"
+					json_add_object ""
+					json_add_string "source_ip_cidr" "1.0.1.0/24"
+					json_close_object
+					json_add_object ""
+					json_add_string "source_ip_cidr" "1.0.8.0/21"
+					json_close_object
+					json_add_object ""
+					json_add_string "source_ip_cidr" "1.0.32.0/19"
+					json_close_object
+					json_add_object ""
+					json_add_string "source_ip_cidr" "1.68.0.0/14"
+					json_close_object
+					json_add_object ""
+					json_add_string "source_ip_cidr" "1.72.0.0/13"
+					json_close_object
+					json_add_object ""
+					json_add_string "source_ip_cidr" "36.0.0.0/9"
+					json_close_object
+					json_add_object ""
+					json_add_string "source_ip_cidr" "42.0.0.0/7"
+					json_close_object
+					json_close_array
+					json_close_object
+					;;
+				*)
+					if [ -f "$geoip_dir/geoip-$g.srs" ] ; then
+						json_add_object ""
+						json_add_string "tag" "geoip-$g"
+						json_add_string "type" "local"
+						json_add_string "format" "source"
+						json_add_string "path" "$geoip_dir/geoip-$g.srs"
+						json_close_object
+					fi
+					;;
+			esac
+		done
+
+		for g in $all_geosite_tags ; do
+			if [ -f "$geoip_dir/geosite-$g.srs" ] ; then
+				json_add_object ""
+				json_add_string "tag" "geosite-$g"
+				json_add_string "type" "local"
+				json_add_string "format" "source"
+				json_add_string "path" "$geoip_dir/geosite-$g.srs"
+				json_close_object
+			else
+				json_add_object ""
+				json_add_string "tag" "geosite-$g"
+				json_add_string "type" "inline"
+				json_add_array "rules"
+				json_add_object ""
+				json_add_string "domain" "geosite:$g"
+				json_close_object
+				json_close_array
+				json_close_object
+			fi
+		done
+
+		json_close_array # rule_set
+	fi
 
 	if [ -n "$rules" ] ; then
 		json_add_array "rules"
@@ -830,7 +1275,10 @@ add_routing_settings() {
 			if routing_rule_section_validate "$rs" ; then
 				json_add_object ""
 
-				json_add_string "type" "$type"
+				# sing-box 新格式不需要 type 字段
+				if [ "x$core_type" != "xsing-box" ] ; then
+					json_add_string "type" "$type"
+				fi
 
 				if [ -n "$domain" ] ; then
 					json_add_array "domain"
@@ -844,18 +1292,69 @@ add_routing_settings() {
 				fi
 
 				if [ -n "$ip" ] ; then
-					json_add_array "ip"
+					if [ "x$core_type" = "xsing-box" ] ; then
+						local ipcidr_list=""
+						local rule_set_list=""
 
-					local i
-					for i in $ip ; do
-						json_add_string "" "$i"
-					done
+						local i
+						for i in $ip ; do
+							case "$i" in
+								geoip:*)
+									local geoip_name="${i#geoip:}"
+									rule_set_list="${rule_set_list}${rule_set_list:+ }geoip-$geoip_name"
+									;;
+								geosite:*)
+									local geosite_name="${i#geosite:}"
+									rule_set_list="${rule_set_list}${rule_set_list:+ }geosite-$geosite_name"
+									;;
+								*)
+									ipcidr_list="${ipcidr_list}${ipcidr_list:+ }$i"
+									;;
+							esac
+						done
 
-					json_close_array # ip
+						if [ -n "$ipcidr_list" ] ; then
+							json_add_array "ip_cidr"
+							for i in $ipcidr_list ; do
+								json_add_string "" "$i"
+							done
+							json_close_array # ip_cidr
+						fi
+
+						if [ -n "$rule_set_list" ] ; then
+							json_add_array "rule_set"
+							for i in $rule_set_list ; do
+								json_add_string "" "$i"
+							done
+							json_close_array # rule_set
+						fi
+					else
+						json_add_array "ip"
+						local i
+						for i in $ip ; do
+							json_add_string "" "$i"
+						done
+						json_close_array # ip
+					fi
 				fi
 
 				if [ -n "$port" ] ; then
-					json_add_string "port" "$(echo "$port" | tr -s ' ' ',')"
+					# sing-box port 需要是数字或数字数组
+					if [ "x$core_type" = "xsing-box" ] ; then
+						# 检查是否包含逗号（多个端口）
+						if echo "$port" | grep -q ',' ; then
+							json_add_array "port"
+							local p_item
+							for p_item in $(echo "$port" | tr ',' ' ') ; do
+								json_add_int "" "$p_item"
+							done
+							json_close_array # port
+						else
+							json_add_int "port" "$port"
+						fi
+					else
+						json_add_string "port" "$(echo "$port" | tr -s ' ' ',')"
+					fi
 				fi
 
 				if [ -n "$network" ] ; then
@@ -863,14 +1362,19 @@ add_routing_settings() {
 				fi
 
 				if [ -n "$source" ] ; then
-					json_add_array "source"
+					# sing-box 使用 source_ip_cidr，xray 使用 source
+					if [ "x$core_type" = "xsing-box" ] ; then
+						json_add_array "source_ip_cidr"
+					else
+						json_add_array "source"
+					fi
 
 					local s
 					for s in $source ; do
 						json_add_string "" "$s"
 					done
 
-					json_close_array # source
+					json_close_array # source/source_ip_cidr
 				fi
 
 				if [ -n "$user" ] ; then
@@ -884,15 +1388,29 @@ add_routing_settings() {
 					json_close_array # user
 				fi
 
-				if [ -n "$inbound_tag" ] ; then
-					json_add_array "inboundTag"
+				# 根据核心类型使用不同的字段名
+				if [ "x$core_type" = "xsing-box" ] ; then
+					if [ -n "$inbound_tag" ] ; then
+						json_add_array "inbound"
 
-					local it
-					for it in $inbound_tag ; do
-						json_add_string "" "$it"
-					done
+						local it
+						for it in $inbound_tag ; do
+							json_add_string "" "$it"
+						done
 
-					json_close_array # inboundTag
+						json_close_array # inbound
+					fi
+				else
+					if [ -n "$inbound_tag" ] ; then
+						json_add_array "inboundTag"
+
+						local it
+						for it in $inbound_tag ; do
+							json_add_string "" "$it"
+						done
+
+						json_close_array # inboundTag
+					fi
 				fi
 
 				if [ -n "$protocol" ] ; then
@@ -906,10 +1424,55 @@ add_routing_settings() {
 
 				test -n "$attrs" && \
 					json_add_string "attrs" "$attrs"
-				test -n "$outbound_tag" && \
-					json_add_string "outboundTag" "$outbound_tag"
-				test -n "$balancer_tag" && \
-					json_add_string "balancerTag" "$balancer_tag"
+
+				# 根据核心类型使用不同字段名
+				if [ "x$core_type" = "xsing-box" ] ; then
+					test -n "$outbound_tag" && \
+						json_add_string "outbound" "$outbound_tag"
+					test -n "$balancer_tag" && \
+						json_add_string "balancer" "$balancer_tag"
+				else
+					test -n "$outbound_tag" && \
+						json_add_string "outboundTag" "$outbound_tag"
+					test -n "$balancer_tag" && \
+						json_add_string "balancerTag" "$balancer_tag"
+				fi
+
+				# sing-box 新格式支持
+				if [ "x$core_type" = "xsing-box" ] ; then
+					test -n "$action" && \
+						json_add_string "action" "$action"
+
+					if [ -n "$rule_set" ] ; then
+						json_add_array "rule_set"
+						local rs_item
+						for rs_item in $rule_set ; do
+							json_add_string "" "$rs_item"
+						done
+						json_close_array # rule_set
+					fi
+
+					test "x$rule_set_ipcidr_match_source" = "x1" && \
+						json_add_boolean "rule_set_ipcidr_match_source" "1"
+
+					if [ -n "$query_type" ] ; then
+						json_add_array "query_type"
+						local qt
+						for qt in $query_type ; do
+							json_add_string "" "$qt"
+						done
+						json_close_array # query_type
+					fi
+
+					test -n "$strategy" && \
+						json_add_string "strategy" "$strategy"
+					test -n "$override_address" && \
+						json_add_string "override_address" "$override_address"
+					test -n "$override_port" && \
+						json_add_int "override_port" "$override_port"
+					test -n "$default_domain_resolver" && \
+						json_add_string "default_domain_resolver" "$default_domain_resolver"
+				fi
 
 				json_close_object
 			fi
@@ -1070,8 +1633,114 @@ add_inbound_setting() {
 
 	test -n "$listen" && \
 		json_add_string "listen" "$listen"
-	json_add_int "port" "$port"
-	json_add_string "protocol" "$protocol"
+
+	# 根据核心类型使用不同的字段名和端口字段名
+	if [ "x$core_type" = "xsing-box" ] ; then
+		json_add_string "type" "$protocol"
+		json_add_int "listen_port" "$port"
+	else
+		json_add_string "protocol" "$protocol"
+		json_add_int "port" "$port"
+	fi
+
+	if [ "x$core_type" = "xsing-box" ] ; then
+		add_inbound_setting_singbox "$section" "$protocol"
+	else
+		add_inbound_setting_xray "$section" "$protocol"
+	fi
+}
+
+add_inbound_setting_singbox() {
+	local section="$1"
+	local protocol="$2"
+
+	case "${protocol:-x}" in
+		"http")
+			test -n "$s_http_account_user" && \
+				json_add_string "username" "$s_http_account_user"
+			test -n "$s_http_account_pass" && \
+				json_add_string "password" "$s_http_account_pass"
+			test -n "$s_http_user_level" && \
+				json_add_int "user_level" "$s_http_user_level"
+			;;
+		"socks")
+			test -n "$s_socks_account_user" && \
+				json_add_string "username" "$s_socks_account_user"
+			test -n "$s_socks_account_pass" && \
+				json_add_string "password" "$s_socks_account_pass"
+			test -n "$s_socks_user_level" && \
+				json_add_int "user_level" "$s_socks_user_level"
+			;;
+		"vmess")
+			if [ -n "$s_vmess_client_id" ] ; then
+				json_add_array "users"
+				json_add_object ""
+				json_add_string "uuid" "$s_vmess_client_id"
+				test -n "$s_vmess_client_alter_id" && \
+					json_add_int "alterId" "$s_vmess_client_alter_id"
+				test -n "$s_vmess_client_email" && \
+					json_add_string "email" "$s_vmess_client_email"
+				test -n "$s_vmess_client_user_level" && \
+					json_add_int "level" "$s_vmess_client_user_level"
+				json_close_object
+				json_close_array # users
+			fi
+			;;
+	esac
+
+	test -n "$ss_network" && \
+		json_add_string "network" "$ss_network"
+
+	if [ "x$ss_security" = "xtls" ] ; then
+		json_add_object "tls"
+		json_add_boolean "enabled" "1"
+		test -n "$ss_tls_server_name" && \
+			json_add_string "server_name" "$ss_tls_server_name"
+		if [ -n "$ss_tls_alpn" ] ; then
+			json_add_array "alpn"
+			json_add_string "" "$ss_tls_alpn"
+			json_close_array
+		fi
+		test "x$ss_tls_allow_insecure" = "x1" && \
+			json_add_boolean "insecure" "1"
+		json_close_object # tls
+	fi
+
+	if [ -n "$port" ] && [ "x$port" = "x$TRANSPARENT_PROXY_PORT" ] ; then
+		if [ "x$TRANSPARENT_PROXY_USE_TPROXY" = "x1" ] ; then
+			json_add_string "tproxy" "tproxy"
+		else
+			json_add_string "tproxy" "redirect"
+		fi
+	else
+		test -n "$ss_sockopt_tcp_fast_open" && \
+			json_add_boolean "tcp_fast_open" "$ss_sockopt_tcp_fast_open"
+		test -n "$ss_sockopt_tproxy" && \
+			json_add_string "tproxy" "$ss_sockopt_tproxy"
+	fi
+
+	test -n "$tag" && \
+		json_add_string "tag" "$tag"
+
+	test -n "$sniffing_enabled" && \
+		json_add_boolean "sniff" "$sniffing_enabled"
+
+	if [ -n "$allocate_strategy" ] ; then
+		json_add_object "allocate"
+		json_add_string "strategy" "$allocate_strategy"
+		test -n "$allocate_refresh" && \
+			json_add_int "refresh" "$allocate_refresh"
+		test -n "$allocate_concurrency" && \
+			json_add_int "concurrency" "$allocate_concurrency"
+		json_close_object # allocate
+	fi
+
+	json_close_object
+}
+
+add_inbound_setting_xray() {
+	local section="$1"
+	local protocol="$2"
 
 	case "${protocol:-x}" in
 		"dokodemo-door")
@@ -1254,10 +1923,10 @@ add_inbound_setting() {
 		json_add_boolean "disableSystemRoot" "$ss_tls_disable_system_root"
 
 		json_add_array "certificates"
-		if [ -n "$ss_tls_cert_fiile" ] ; then
+		if [ -n "$ss_tls_cert_file" ] ; then
 			json_add_object ""
 
-			json_add_string "certificateFile" "$ss_tls_cert_fiile"
+			json_add_string "certificateFile" "$ss_tls_cert_file"
 			json_add_string "keyFile" "$ss_tls_key_file"
 			test -n "$ss_tls_cert_usage" && \
 				json_add_string "usage" "$ss_tls_cert_usage"
@@ -1465,27 +2134,26 @@ add_inbound_setting() {
 	test -n "$tag" && \
 		json_add_string "tag" "$tag"
 
-	json_add_object "sniffing"
-
-	json_add_boolean "enabled" "$sniffing_enabled"
-
-	if [ -n "$sniffing_dest_override" ] ; then
-		json_add_array "destOverride"
-		local d
-		for d in $sniffing_dest_override ; do
-			json_add_string "" "$d"
-		done
-		json_close_array # destOverride
+	if [ "x$sniffing_enabled" = "x1" ] ; then
+		json_add_object "sniffing"
+		json_add_boolean "enabled" "$sniffing_enabled"
+		if [ -n "$sniffing_dest_override" ] ; then
+			json_add_array "destOverride"
+			local d
+			for d in $sniffing_dest_override ; do
+				json_add_string "" "$d"
+			done
+			json_close_array # destOverride
+		fi
+		json_close_object # sniffing
 	fi
-
-	json_close_object # sniffing
 
 	if [ -n "$allocate_strategy" ] ; then
 		json_add_object "allocate"
 		json_add_string "strategy" "$allocate_strategy"
 		test -n "$allocate_refresh" && \
 			json_add_int "refresh" "$allocate_refresh"
-		test -n "$allocate_concurrency" &&	\
+		test -n "$allocate_concurrency" && \
 			json_add_int "concurrency" "$allocate_concurrency"
 		json_close_object # allocate
 	fi
@@ -1505,47 +2173,73 @@ add_outbound_setting() {
 
 	test -n "$send_through" && \
 		json_add_string "sendThrough" "$send_through"
-	json_add_string "protocol" "$protocol"
+
+	# 根据核心类型使用不同的字段名和协议名称
+	local outbound_type="$protocol"
+	if [ "x$core_type" = "xsing-box" ] ; then
+		case "$protocol" in
+			"freedom") outbound_type="direct" ;;
+			"blackhole") outbound_type="block" ;;
+		esac
+		json_add_string "type" "$outbound_type"
+	else
+		json_add_string "protocol" "$protocol"
+	fi
 
 	case "${protocol:-x}" in
 		"blackhole")
-			json_add_object "settings"
+			if [ "x$core_type" = "xsing-box" ] ; then
+				# sing-box block 类型不需要 settings
+				:
+			else
+				json_add_object "settings"
 
-			if [ -n "$s_blackhole_reponse_type" ] ; then
-				json_add_object "response"
-				json_add_string "type" "$s_blackhole_reponse_type"
-				json_close_object # response
+				if [ -n "$s_blackhole_reponse_type" ] ; then
+					json_add_object "response"
+					json_add_string "type" "$s_blackhole_reponse_type"
+					json_close_object # response
+				fi
+
+				json_close_object # settings
 			fi
-
-			json_close_object # settings
 			;;
 		"dns")
-			json_add_object "settings"
+			if [ "x$core_type" = "xsing-box" ] ; then
+				# sing-box dns 出站不需要 settings
+				:
+			else
+				json_add_object "settings"
 
-			test -n "$s_dns_network" && \
-				json_add_string "network" "$s_dns_network"
+				test -n "$s_dns_network" && \
+					json_add_string "network" "$s_dns_network"
 
-			if [ -n "$s_dns_address" ] ; then
-				json_add_string "address" "$s_dns_address"
-				append_server_address "$s_dns_address"
+				if [ -n "$s_dns_address" ] ; then
+					json_add_string "address" "$s_dns_address"
+					append_server_address "$s_dns_address"
+				fi
+
+				test -n "$s_dns_port" && \
+					json_add_int "port" "$s_dns_port"
+
+				json_close_object # settings
 			fi
-
-			test -n "$s_dns_port" && \
-				json_add_int "port" "$s_dns_port"
-
-			json_close_object # settings
 			;;
 		"freedom")
-			json_add_object "settings"
+			if [ "x$core_type" = "xsing-box" ] ; then
+				# sing-box direct 类型不需要 settings
+				:
+			else
+				json_add_object "settings"
 
-			test -n "$s_freedom_domain_strategy" && \
-				json_add_string "domainStrategy" "$s_freedom_domain_strategy"
-			test -n "$s_freedom_redirect" && \
-				json_add_string "redirect" "$s_freedom_redirect"
-			test -n "$s_freedom_user_level" && \
-				json_add_int "userLevel" "$s_freedom_user_level"
+				test -n "$s_freedom_domain_strategy" && \
+					json_add_string "domainStrategy" "$s_freedom_domain_strategy"
+				test -n "$s_freedom_redirect" && \
+					json_add_string "redirect" "$s_freedom_redirect"
+				test -n "$s_freedom_user_level" && \
+					json_add_int "userLevel" "$s_freedom_user_level"
 
-			json_close_object # settings
+				json_close_object # settings
+			fi
 			;;
 		"http")
 			json_add_object "settings"
@@ -1737,6 +2431,85 @@ add_outbound_setting() {
 
 			json_close_object # settings
 			;;
+		"juicity")
+			test -n "$s_juicity_address" && \
+				json_add_string "server" "$s_juicity_address"
+			test -n "$s_juicity_port" && \
+				json_add_int "server_port" "$s_juicity_port"
+			test -n "$s_juicity_uuid" && \
+				json_add_string "uuid" "$s_juicity_uuid"
+			test -n "$s_juicity_password" && \
+				json_add_string "password" "$s_juicity_password"
+			test -n "$s_juicity_congestion_control" && \
+				json_add_string "congestion_control" "$s_juicity_congestion_control"
+
+			json_add_object "tls"
+			json_add_boolean "enabled" "1"
+			test -n "$s_juicity_server_name" && \
+				json_add_string "server_name" "$s_juicity_server_name"
+			test "x$s_juicity_insecure" = "x1" && \
+				json_add_boolean "insecure" "1"
+			if [ -n "$s_juicity_alpn" ] ; then
+				json_add_array "alpn"
+				json_add_string "" "$s_juicity_alpn"
+				json_close_array
+			fi
+			json_close_object # tls
+			;;
+		"hysteria2")
+			if [ "x$core_type" = "xsing-box" ] ; then
+				test -n "$s_hysteria2_address" && \
+					json_add_string "server" "$s_hysteria2_address"
+				test -n "$s_hysteria2_port" && \
+					json_add_int "server_port" "$s_hysteria2_port"
+				test -n "$s_hysteria2_password" && \
+					json_add_string "password" "$s_hysteria2_password"
+
+				test -n "$s_hysteria2_up_mbps" && \
+					json_add_int "up_mbps" "$s_hysteria2_up_mbps"
+				test -n "$s_hysteria2_down_mbps" && \
+					json_add_int "down_mbps" "$s_hysteria2_down_mbps"
+
+				if [ "x$s_hysteria2_obfs_type" != "xnone" ] && [ -n "$s_hysteria2_obfs_password" ] ; then
+					json_add_object "obfs"
+					json_add_string "type" "$s_hysteria2_obfs_type"
+					json_add_string "password" "$s_hysteria2_obfs_password"
+					json_close_object # obfs
+				fi
+
+				# hysteria2 必须启用 TLS
+				json_add_object "tls"
+				json_add_boolean "enabled" "1"
+				test -n "$s_hysteria2_server_name" && \
+					json_add_string "server_name" "$s_hysteria2_server_name"
+				test "x$s_hysteria2_insecure" = "x1" && \
+					json_add_boolean "insecure" "1"
+				test "x$ss_tls_allow_insecure_ciphers" = "x1" && \
+					json_add_boolean "allow_insecure_ciphers" "1"
+				test "x$ss_tls_disable_system_root" = "x1" && \
+					json_add_boolean "disable_system_root" "1"
+				if [ -n "$ss_tls_alpn" ] ; then
+					json_add_array "alpn"
+					json_add_string "" "$ss_tls_alpn"
+					json_close_array
+				fi
+				json_close_object # tls
+			else
+				json_add_object "settings"
+
+				test -n "$s_hysteria2_password" && \
+					json_add_string "password" "$s_hysteria2_password"
+
+				if [ "x$s_hysteria2_obfs_type" != "xnone" ] && [ -n "$s_hysteria2_obfs_password" ] ; then
+					json_add_object "obfs"
+					json_add_string "type" "$s_hysteria2_obfs_type"
+					json_add_string "password" "$s_hysteria2_obfs_password"
+					json_close_object # obfs
+				fi
+
+				json_close_object # settings
+			fi
+			;;
 		"loopback")
 			json_add_object "settings"
 
@@ -1747,234 +2520,258 @@ add_outbound_setting() {
 			;;
 	esac
 
-	json_add_object "streamSettings"
-	test -n "$ss_network" && \
-		json_add_string "network" "$ss_network"
+	# 根据核心类型生成不同的 TLS 配置格式
+	if [ "x$core_type" = "xsing-box" ] ; then
+		# sing-box 新格式：tls 对象
+		if [ "x$ss_security" = "xtls" ] ; then
+			json_add_object "tls"
+			json_add_boolean "enabled" "1"
 
-	test -n "$ss_security" && \
-		json_add_string "security" "$ss_security"
+			test -n "$ss_tls_server_name" && \
+				json_add_string "server_name" "$ss_tls_server_name"
 
-	if [ "x$ss_security" = "xtls" ] ; then
-		json_add_object "tlsSettings"
-
-		test -n "$ss_tls_server_name" && \
-			json_add_string "serverName" "$ss_tls_server_name"
-
-		if [ -n "$ss_tls_alpn" ] ; then
-			json_add_array "alpn"
-			json_add_string "" "$ss_tls_alpn"
-			json_close_array
-		fi
-
-		json_add_boolean "allowInsecure" "$ss_tls_allow_insecure"
-		json_add_boolean "allowInsecureCiphers" "$ss_tls_allow_insecure_ciphers"
-		json_add_boolean "disableSystemRoot" "$ss_tls_disable_system_root"
-
-		json_add_array "certificates"
-		if [ -n "$ss_tls_cert_fiile" ] ; then
-			json_add_object ""
-			json_add_string "certificateFile" "$ss_tls_cert_fiile"
-			json_add_string "keyFile" "$ss_tls_key_file"
-			test -n "$ss_tls_cert_usage" && \
-				json_add_string "usage" "$ss_tls_cert_usage"
-			json_close_object
-		fi
-		json_close_array # certificates
-
-		json_close_object # tlsSettings
-	fi
-
-	case "${ss_network:-x}" in
-		"tcp")
-			json_add_object "tcpSettings"
-
-			if [ -n "$ss_tcp_header_type" ] ; then
-				json_add_object "header"
-				json_add_string "type" "$ss_tcp_header_type"
-
-				if [ "$ss_tcp_header_type" = "http" ] ; then
-					json_add_object "request"
-					test -n "$ss_tcp_header_request_version" && \
-						json_add_string "version" "$ss_tcp_header_request_version"
-					json_add_string "method" "$ss_tcp_header_request_method"
-
-					if [ -n "$ss_tcp_header_request_path" ] ; then
-						json_add_array "path"
-						json_add_string "" "$ss_tcp_header_request_path"
-						json_close_array
-					fi
-
-					if [ -n "$ss_tcp_header_request_headers" ] ; then
-						json_add_object "headers"
-
-						handle_request_header() {
-							local h="$1"
-
-							local name="$(echo "$h" | cut -d'=' -f1)"
-							local value="$(echo "$h" | cut -d'=' -f2)"
-
-							if [ -n "$name" ] && [ -n "$value" ] ; then
-								json_add_array "$name"
-								json_add_string "" "$value"
-								json_close_array
-							fi
-						}
-						config_list_foreach "$section" "ss_tcp_header_request_headers" handle_request_header
-
-						json_close_object # headers
-					fi
-
-					json_close_object # request
-
-					json_add_object "response"
-					test -n "$ss_tcp_header_response_version" && \
-						json_add_string "version" "$ss_tcp_header_response_version"
-					test -n "$ss_tcp_header_response_status" && \
-						json_add_string "status" "$ss_tcp_header_response_status"
-					test -n "$ss_tcp_header_response_reason" && \
-						json_add_string "reason" "$ss_tcp_header_response_reason"
-
-					if [ -n "$ss_tcp_header_response_headers" ] ; then
-						json_add_object "headers"
-
-						handle_response_header() {
-							local h="$1"
-
-							local name="$(echo "$h" | cut -d'=' -f1)"
-							local value="$(echo "$h" | cut -d'=' -f2)"
-
-							if [ -n "$name" ] && [ -n "$value" ] ; then
-								json_add_array "$name"
-								json_add_string "" "$value"
-								json_close_array
-							fi
-						}
-						config_list_foreach "$section" "ss_tcp_header_response_headers" handle_response_header
-
-						json_close_object # headers
-					fi
-
-					json_close_object # response
-				fi
-
-				json_close_object # header
+			if [ -n "$ss_tls_alpn" ] ; then
+				json_add_array "alpn"
+				json_add_string "" "$ss_tls_alpn"
+				json_close_array
 			fi
 
-			json_close_object # tcpSettings
-			;;
-		"kcp")
-			json_add_object "kcpSettings"
+			test "x$ss_tls_allow_insecure" = "x1" && \
+				json_add_boolean "insecure" "1"
 
-			test -n "$ss_kcp_mtu" && \
-				json_add_int "mtu" "$ss_kcp_mtu"
-			test -n "$ss_kcp_tti" && \
-				json_add_int "tti" "$ss_kcp_tti"
-			test -n "$ss_kcp_uplink_capacity" && \
-				json_add_int "uplinkCapacity" "$ss_kcp_uplink_capacity"
-			test -n "$ss_kcp_downlink_capacity" && \
-				json_add_int "downlinkCapacity" "$ss_kcp_downlink_capacity"
+			json_close_object # tls
+		fi
+	else
+		# xray 格式：streamSettings 对象
+		json_add_object "streamSettings"
+		test -n "$ss_network" && \
+			json_add_string "network" "$ss_network"
 
-			json_add_boolean "congestion" "$ss_kcp_congestion"
+		test -n "$ss_security" && \
+			json_add_string "security" "$ss_security"
 
-			test -n "$ss_kcp_read_buffer_size" && \
-				json_add_int "readBufferSize" "$ss_kcp_read_buffer_size"
-			test -n "$ss_kcp_write_buffer_size" && \
-				json_add_int "writeBufferSize" "$ss_kcp_write_buffer_size"
+		if [ "x$ss_security" = "xtls" ] ; then
+			json_add_object "tlsSettings"
 
-			if [ -n "$ss_kcp_header_type" ] ; then
-				json_add_object "header"
-				json_add_string "type" "$ss_kcp_header_type"
+			test -n "$ss_tls_server_name" && \
+				json_add_string "serverName" "$ss_tls_server_name"
+
+			if [ -n "$ss_tls_alpn" ] ; then
+				json_add_array "alpn"
+				json_add_string "" "$ss_tls_alpn"
+				json_close_array
+			fi
+
+			json_add_boolean "allowInsecure" "$ss_tls_allow_insecure"
+			json_add_boolean "allowInsecureCiphers" "$ss_tls_allow_insecure_ciphers"
+			json_add_boolean "disableSystemRoot" "$ss_tls_disable_system_root"
+
+			json_add_array "certificates"
+			if [ -n "$ss_tls_cert_file" ] ; then
+				json_add_object ""
+				json_add_string "certificateFile" "$ss_tls_cert_file"
+				json_add_string "keyFile" "$ss_tls_key_file"
+				test -n "$ss_tls_cert_usage" && \
+					json_add_string "usage" "$ss_tls_cert_usage"
 				json_close_object
 			fi
+			json_close_array # certificates
 
-			json_close_object # kcpSettings
-			;;
-		"ws")
-			json_add_object "wsSettings"
+			json_close_object # tlsSettings
+		fi
 
-			test -n "$ss_websocket_path" && \
-				json_add_string "path" "$ss_websocket_path"
+		case "${ss_network:-x}" in
+			"tcp")
+				json_add_object "tcpSettings"
 
-			if [ -n "$ss_websocket_headers" ] ; then
-				json_add_object "headers"
+				if [ -n "$ss_tcp_header_type" ] ; then
+					json_add_object "header"
+					json_add_string "type" "$ss_tcp_header_type"
 
-				handle_websocket_header() {
-					local h="$1"
+					if [ "$ss_tcp_header_type" = "http" ] ; then
+						json_add_object "request"
+						test -n "$ss_tcp_header_request_version" && \
+							json_add_string "version" "$ss_tcp_header_request_version"
+						json_add_string "method" "$ss_tcp_header_request_method"
 
-					local name="$(echo "$h" | cut -d'=' -f1)"
-					local value="$(echo "$h" | cut -d'=' -f2)"
+						if [ -n "$ss_tcp_header_request_path" ] ; then
+							json_add_array "path"
+							json_add_string "" "$ss_tcp_header_request_path"
+							json_close_array
+						fi
 
-					if [ -n "$name" ] && [ -n "$value" ] ; then
-						json_add_string "$name" "$value"
+						if [ -n "$ss_tcp_header_request_headers" ] ; then
+							json_add_object "headers"
+
+							handle_request_header() {
+								local h="$1"
+
+								local name="$(echo "$h" | cut -d'=' -f1)"
+								local value="$(echo "$h" | cut -d'=' -f2)"
+
+								if [ -n "$name" ] && [ -n "$value" ] ; then
+									json_add_array "$name"
+									json_add_string "" "$value"
+									json_close_array
+								fi
+							}
+							config_list_foreach "$section" "ss_tcp_header_request_headers" handle_request_header
+
+							json_close_object # headers
+						fi
+
+						json_close_object # request
+
+						json_add_object "response"
+						test -n "$ss_tcp_header_response_version" && \
+							json_add_string "version" "$ss_tcp_header_response_version"
+						test -n "$ss_tcp_header_response_status" && \
+							json_add_string "status" "$ss_tcp_header_response_status"
+						test -n "$ss_tcp_header_response_reason" && \
+							json_add_string "reason" "$ss_tcp_header_response_reason"
+
+						if [ -n "$ss_tcp_header_response_headers" ] ; then
+							json_add_object "headers"
+
+							handle_response_header() {
+								local h="$1"
+
+								local name="$(echo "$h" | cut -d'=' -f1)"
+								local value="$(echo "$h" | cut -d'=' -f2)"
+
+								if [ -n "$name" ] && [ -n "$value" ] ; then
+									json_add_array "$name"
+									json_add_string "" "$value"
+									json_close_array
+								fi
+							}
+							config_list_foreach "$section" "ss_tcp_header_response_headers" handle_response_header
+
+							json_close_object # headers
+						fi
+
+						json_close_object # response
 					fi
-				}
-				config_list_foreach "$section" "ss_websocket_headers" handle_websocket_header
 
-				json_close_object # headers
-			fi
+					json_close_object # header
+				fi
 
-			json_close_object # wsSettings
-			;;
-		"http")
-			json_add_object "httpSettings"
+				json_close_object # tcpSettings
+				;;
+			"kcp")
+				json_add_object "kcpSettings"
 
-			if [ -n "$ss_http_host" ] ; then
-				json_add_array "host"
+				test -n "$ss_kcp_mtu" && \
+					json_add_int "mtu" "$ss_kcp_mtu"
+				test -n "$ss_kcp_tti" && \
+					json_add_int "tti" "$ss_kcp_tti"
+				test -n "$ss_kcp_uplink_capacity" && \
+					json_add_int "uplinkCapacity" "$ss_kcp_uplink_capacity"
+				test -n "$ss_kcp_downlink_capacity" && \
+					json_add_int "downlinkCapacity" "$ss_kcp_downlink_capacity"
 
-				local h
-				for h in $ss_http_host ; do
-					json_add_string "" "$h"
-				done
+				json_add_boolean "congestion" "$ss_kcp_congestion"
 
-				json_close_array # host
-			fi
+				test -n "$ss_kcp_read_buffer_size" && \
+					json_add_int "readBufferSize" "$ss_kcp_read_buffer_size"
+				test -n "$ss_kcp_write_buffer_size" && \
+					json_add_int "writeBufferSize" "$ss_kcp_write_buffer_size"
 
-			test -n "$ss_http_path" && \
-				json_add_string "path" "$ss_http_path"
+				if [ -n "$ss_kcp_header_type" ] ; then
+					json_add_object "header"
+					json_add_string "type" "$ss_kcp_header_type"
+					json_close_object
+				fi
 
-			json_close_object # httpSettings
-			;;
-		"domainsocket")
-			json_add_object "dsSettings"
+				json_close_object # kcpSettings
+				;;
+			"ws")
+				json_add_object "wsSettings"
 
-			test -n "$ss_domainsocket_path" && \
-				json_add_string "path" "$ss_domainsocket_path"
+				test -n "$ss_websocket_path" && \
+					json_add_string "path" "$ss_websocket_path"
 
-			json_close_object # dsSettings
-			;;
-		"quic")
-			json_add_object "quicSettings"
+				if [ -n "$ss_websocket_headers" ] ; then
+					json_add_object "headers"
 
-			test -n "$ss_quic_security" && \
-				json_add_string "security" "$ss_quic_security"
-			test -n "$ss_quic_key" && \
-				json_add_string "key" "$ss_quic_key"
+					handle_websocket_header() {
+						local h="$1"
 
-			if [ -n "$ss_quic_header_type" ] ; then
-				json_add_object "header"
-				json_add_string "type" "$ss_quic_header_type"
-				json_close_object # header
-			fi
+						local name="$(echo "$h" | cut -d'=' -f1)"
+						local value="$(echo "$h" | cut -d'=' -f2)"
 
-			json_close_object # quicSettings
-			;;
-	esac
+						if [ -n "$name" ] && [ -n "$value" ] ; then
+							json_add_string "$name" "$value"
+						fi
+					}
+					config_list_foreach "$section" "ss_websocket_headers" handle_websocket_header
 
-	json_add_object "sockopt"
+					json_close_object # headers
+				fi
 
-	if [ -n "$TRANSPARENT_PROXY_PORT" ] ; then
-		json_add_int "mark" "255"
-	else
-		test -n "$ss_sockopt_mark" && \
-			json_add_int "mark" "$ss_sockopt_mark"
+				json_close_object # wsSettings
+				;;
+			"http")
+				json_add_object "httpSettings"
+
+				if [ -n "$ss_http_host" ] ; then
+					json_add_array "host"
+
+					local h
+					for h in $ss_http_host ; do
+						json_add_string "" "$h"
+					done
+
+					json_close_array # host
+				fi
+
+				test -n "$ss_http_path" && \
+					json_add_string "path" "$ss_http_path"
+
+				json_close_object # httpSettings
+				;;
+			"domainsocket")
+				json_add_object "dsSettings"
+
+				test -n "$ss_domainsocket_path" && \
+					json_add_string "path" "$ss_domainsocket_path"
+
+				json_close_object # dsSettings
+				;;
+			"quic")
+				json_add_object "quicSettings"
+
+				test -n "$ss_quic_security" && \
+					json_add_string "security" "$ss_quic_security"
+				test -n "$ss_quic_key" && \
+					json_add_string "key" "$ss_quic_key"
+
+				if [ -n "$ss_quic_header_type" ] ; then
+					json_add_object "header"
+					json_add_string "type" "$ss_quic_header_type"
+					json_close_object # header
+				fi
+
+				json_close_object # quicSettings
+				;;
+		esac
+
+		json_add_object "sockopt"
+
+		if [ -n "$TRANSPARENT_PROXY_PORT" ] ; then
+			json_add_int "mark" "255"
+		else
+			test -n "$ss_sockopt_mark" && \
+				json_add_int "mark" "$ss_sockopt_mark"
+		fi
+
+		test -n "$ss_sockopt_tcp_fast_open" && \
+			json_add_boolean "tcpFastOpen" "$ss_sockopt_tcp_fast_open"
+
+		json_close_object # sockopt
+
+		json_close_object # streamSettings
 	fi
-
-	test -n "$ss_sockopt_tcp_fast_open" && \
-		json_add_boolean "tcpFastOpen" "$ss_sockopt_tcp_fast_open"
-
-	json_close_object # sockopt
-
-	json_close_object # streamSettings
 
 	test -n "$tag" && \
 		json_add_string "tag" "$tag"
@@ -1990,6 +2787,23 @@ add_outbound_setting() {
 		json_add_boolean "enabled" "1"
 		json_add_int "concurrency" "$mux_concurrency"
 		json_close_object # mux
+	fi
+
+	# sing-box 新格式：domain_resolver 支持
+	if [ "x$core_type" = "xsing-box" ] ; then
+		if [ -n "$domain_resolver" ] ; then
+			if [ -n "$domain_resolver_server" ] || [ -n "$domain_resolver_strategy" ] || [ -n "$domain_resolver_rewrite_ttl" ] ; then
+				json_add_object "domain_resolver"
+				json_add_string "server" "$domain_resolver"
+				test -n "$domain_resolver_strategy" && \
+					json_add_string "strategy" "$domain_resolver_strategy"
+				test -n "$domain_resolver_rewrite_ttl" && \
+					json_add_int "rewrite_ttl" "$domain_resolver_rewrite_ttl"
+				json_close_object # domain_resolver
+			else
+				json_add_string "domain_resolver" "$domain_resolver"
+			fi
+		fi
 	fi
 
 	json_close_object
@@ -2060,7 +2874,11 @@ setup_transparent_proxy() {
 		return $?
 	fi
 
-	create_sxray_ipset
+	if [ -n "$CORE_TYPE" ] ; then
+		create_core_specific_ipset
+	else
+		create_sxray_ipset
+	fi
 	init_rules_for_listfile "$direct_list_dns" "$proxy_list_dns"
 
 	local ext_args
@@ -2108,11 +2926,11 @@ setup_transparent_proxy() {
 				if [ -n "$proxy_list_dns" ] ; then
 					echo "$gfwlist" | \
 						sed "s|.*|server=/&/$proxy_list_dns\nipset=/&/$IPSET_DST_PROXY_V4,$IPSET_DST_PROXY_V6|" \
-						>> "$FILE_V2RAY_DNSMASQ_CACHE"
+						>> "$FILE_SXRAY_DNSMASQ_CACHE"
 				else
 					echo "$gfwlist" | \
 						sed "s|.*|ipset=/&/$IPSET_DST_PROXY_V4,$IPSET_DST_PROXY_V6|" \
-						>> "$FILE_V2RAY_DNSMASQ_CACHE"
+						>> "$FILE_SXRAY_DNSMASQ_CACHE"
 				fi
 			fi
 
@@ -2127,14 +2945,14 @@ setup_transparent_proxy() {
 		ext_args="--dport 0:1023 $ext_args"
 	fi
 
-	if [ -n "$(cat "$FILE_V2RAY_DNSMASQ_CACHE" | grep -v "^$" | grep -v "^#")" ] ; then
-		local dir="$(dirname "$FILE_V2RAY_DNSMASQ")"
+	if [ -n "$(cat "$FILE_SXRAY_DNSMASQ_CACHE" 2>/dev/null | grep -v "^$" | grep -v "^#")" ] ; then
+		local dir="$(dirname "$FILE_SXRAY_DNSMASQ")"
 		test -d "$dir" || mkdir -p "$dir"
-		cat "$FILE_V2RAY_DNSMASQ_CACHE" >"$FILE_V2RAY_DNSMASQ" 2>/dev/null
+		cat "$FILE_SXRAY_DNSMASQ_CACHE" >"$FILE_SXRAY_DNSMASQ" 2>/dev/null
 		DNSMASQ_RESTART_EXPECTED=1
 	fi
 
-	rm -f "$FILE_V2RAY_DNSMASQ_CACHE"
+	rm -f "$FILE_SXRAY_DNSMASQ_CACHE"
 
 	local lan_devices lan_ipaddrs
 
@@ -2158,9 +2976,9 @@ setup_transparent_proxy() {
 			if [ -n "$ipaddrs" ] ; then
 				for ipaddr in $ipaddrs ; do
 					if [ -n "$lan_ipaddrs" ] ; then
-						lan_ipaddrs="$ipaddr"
-					else
 						lan_ipaddrs="$lan_ipaddrs $ipaddr"
+					else
+						lan_ipaddrs="$ipaddr"
 					fi
 				done
 			fi
@@ -2192,6 +3010,27 @@ setup_transparent_proxy_nftables() {
 	local NFTSET_DST_DIRECT="sxray_dst_direct"
 	local NFTSET_DST_PROXY="sxray_dst_proxy"
 	local NFTSET_SRC_DIRECT="sxray_src_direct"
+	local FW_MARK=1
+	local FW_TABLE=100
+
+	# 如果指定了核心类型，使用核心特定的 nftables 表和标记
+	if [ -n "$CORE_TYPE" ] ; then
+		if [ "x$CORE_TYPE" = "xxray" ] ; then
+			NFT_TABLE="inet sxray_xray"
+			NFTSET_DST_DIRECT="sxray_dst_direct_xray"
+			NFTSET_DST_PROXY="sxray_dst_proxy_xray"
+			NFTSET_SRC_DIRECT="sxray_src_direct_xray"
+			FW_MARK=1
+			FW_TABLE=100
+		else
+			NFT_TABLE="inet sxray_singbox"
+			NFTSET_DST_DIRECT="sxray_dst_direct_singbox"
+			NFTSET_DST_PROXY="sxray_dst_proxy_singbox"
+			NFTSET_SRC_DIRECT="sxray_src_direct_singbox"
+			FW_MARK=10
+			FW_TABLE=101
+		fi
+	fi
 
 	if ! nft list table $NFT_TABLE >/dev/null 2>&1; then
 		nft add table $NFT_TABLE
@@ -2209,10 +3048,10 @@ setup_transparent_proxy_nftables() {
 		. /lib/functions/network.sh
 	fi
 	if [ "x$TRANSPARENT_PROXY_USE_TPROXY" = "x1" ] ; then
-		ip rule add fwmark 1 lookup 100 2>/dev/null
-		ip route add local 0.0.0.0/0 dev lo table 100 2>/dev/null
+		ip rule add fwmark $FW_MARK lookup $FW_TABLE 2>/dev/null
+		ip route add local 0.0.0.0/0 dev lo table $FW_TABLE 2>/dev/null
 
-		nft add rule $NFT_TABLE mangle meta mark set 0x1 udp dport 53 tproxy to :$port 2>/dev/null
+		nft add rule $NFT_TABLE mangle meta mark set 0x$FW_MARK udp dport 53 tproxy to :$port 2>/dev/null
 		
 		if [ -n "$lan_ifaces" ] ; then
 			local lan
@@ -2220,7 +3059,7 @@ setup_transparent_proxy_nftables() {
 				local device
 				network_get_device device "$lan"
 				if [ -n "$device" ] ; then
-					nft add rule $NFT_TABLE mangle iifname "$device" meta mark set 0x1 udp dport 53 tproxy to :$port 2>/dev/null
+					nft add rule $NFT_TABLE mangle iifname "$device" meta mark set 0x$FW_MARK udp dport 53 tproxy to :$port 2>/dev/null
 				fi
 			done
 		else
@@ -2262,10 +3101,22 @@ clear_transparent_proxy() {
 		rm -f "$FILE_SXRAY_DNSMASQ"
 		DNSMASQ_RESTART_EXPECTED=1
 	fi
+	
+	# 清理核心类型特定的 dnsmasq 配置
+	if [ -s "$FILE_SXRAY_DNSMASQ_XRAY" ] ; then
+		rm -f "$FILE_SXRAY_DNSMASQ_XRAY"
+		DNSMASQ_RESTART_EXPECTED=1
+	fi
+	if [ -s "$FILE_SXRAY_DNSMASQ_SING_BOX" ] ; then
+		rm -f "$FILE_SXRAY_DNSMASQ_SING_BOX"
+		DNSMASQ_RESTART_EXPECTED=1
+	fi
 }
 
 clear_sxray_nftables_rules() {
 	local NFT_TABLE="inet sxray"
+	local NFT_TABLE_XRAY="inet sxray_xray"
+	local NFT_TABLE_SING_BOX="inet sxray_singbox"
 
 	if nft list table $NFT_TABLE >/dev/null 2>&1; then
 		nft flush chain $NFT_TABLE dstnat 2>/dev/null
@@ -2273,9 +3124,19 @@ clear_sxray_nftables_rules() {
 		nft flush chain $NFT_TABLE output 2>/dev/null
 		nft delete table $NFT_TABLE 2>/dev/null
 	fi
+	
+	# 清理核心类型特定的 nftables 表
+	if nft list table $NFT_TABLE_XRAY >/dev/null 2>&1; then
+		nft delete table $NFT_TABLE_XRAY 2>/dev/null
+	fi
+	if nft list table $NFT_TABLE_SING_BOX >/dev/null 2>&1; then
+		nft delete table $NFT_TABLE_SING_BOX 2>/dev/null
+	fi
 
 	ip rule del fwmark 1 lookup 100 2>/dev/null
+	ip rule del fwmark 10 lookup 101 2>/dev/null
 	ip route del local 0.0.0.0/0 dev lo table 100 2>/dev/null
+	ip route del local 0.0.0.0/0 dev lo table 101 2>/dev/null
 
 	_info "Cleared nftables rules"
 }
@@ -2293,6 +3154,11 @@ start_instance() {
 		return 0
 	fi
 
+	# 如果指定了核心类型，只启动匹配的实例
+	if [ -n "$CORE_TYPE" ] && [ "x$core_type" != "x$CORE_TYPE" ] ; then
+		return 0
+	fi
+
 	local core_file
 	if [ "x$core_type" = "xsing-box" ] ; then
 		core_file="$sing_box_file"
@@ -2306,6 +3172,17 @@ start_instance() {
 	fi
 
 	test -x "$core_file" || chmod 755 "$core_file"
+
+	# 根据核心类型设置配置文件夹路径
+	local instance_config_folder="$CONFIG_FOLDER"
+	if [ -z "$CORE_TYPE" ] ; then
+		# 如果没有通过命令行指定核心类型，根据 UCI 配置中的 core_type 设置路径
+		if [ "x$core_type" = "xsing-box" ] ; then
+			instance_config_folder="$CONFIG_FOLDER_SING_BOX"
+		else
+			instance_config_folder="$CONFIG_FOLDER_XRAY"
+		fi
+	fi
 
 	local temp_config
 
@@ -2338,66 +3215,14 @@ start_instance() {
 
 		temp_config="$config_file"
 	else
-		test -d "$CONFIG_FOLDER" || mkdir -p "$CONFIG_FOLDER"
+		test -d "$instance_config_folder" || mkdir -p "$instance_config_folder"
+		temp_config="$instance_config_folder/sxray.${section}.json"
 
-		temp_config="$CONFIG_FOLDER/sxray.${section}.json"
-
-		local old_ns
-		json_set_namespace "$section" old_ns
-		json_init
-
-		json_add_object "log"
-
-		test -n "$access_log" && \
-			json_add_string "access" "$access_log"
-
-		if [ -n "$loglevel" ] && [ "$loglevel" != "none" ] ; then
-			json_add_string "loglevel" "$loglevel"
-			json_add_string "error" "$error_log"
+		if [ "x$core_type" = "xsing-box" ] ; then
+			generate_singbox_config "$section" "$temp_config"
+		else
+			generate_xray_config "$section" "$temp_config"
 		fi
-
-		json_close_object # log
-
-		if [ "x$stats_enabled" = "x1" ] ; then
-			json_add_object "stats"
-			json_close_object # stats
-		fi
-
-		add_dns_settings "$section"
-		add_routing_settings "$section"
-		add_policy_settings "$section"
-		add_reverse_settings "$section"
-
-		if [ "x$transport_enabled" = "x1" ] ; then
-			add_transport_settings
-		fi
-
-		if [ -n "$inbounds" ] ; then
-			json_add_array "inbounds"
-
-			local is
-			for is in $inbounds ; do
-				add_inbound_setting "$is"
-			done
-
-			json_close_array # inbounds
-		fi
-
-		if [ -n "$outbounds" ] ; then
-			json_add_array "outbounds"
-
-			local os
-			for os in $outbounds ; do
-				add_outbound_setting "$os"
-			done
-
-			json_close_array # outbounds
-		fi
-
-		json_dump -i >"$temp_config"
-
-		json_cleanup
-		json_set_namespace "$old_ns"
 
 		if [ ! -s "$temp_config" ] ; then
 			_err "Error when create config file: $temp_config"
@@ -2432,21 +3257,12 @@ start_instance() {
 	procd_set_param env GODEBUG=madvdontneed=1
 	procd_set_param env GOGC=50
 	# 设置 Go 内存软限制 (Go 1.19+)，使用系统内存的百分比
-	local gomemlimit=""
 	if [ "$mem_percentage" -gt "0" ] ; then
-		local mem_total_kb="$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
+		local mem_total_kb
+		mem_total_kb="$(awk '/MemTotal/ {print $2}' /proc/meminfo)" && \
 		if [ -n "$mem_total_kb" ] ; then
-			gomemlimit="$(expr $mem_total_kb \* $mem_percentage \* 1024 / 100)B"
+			local gomemlimit="$(expr $mem_total_kb \* $mem_percentage \* 1024 / 100)B"
 			procd_set_param env GOMEMLIMIT="$gomemlimit"
-		fi
-	fi
-
-	if [ "$mem_percentage" -gt "0" ] ; then
-		local mem_total="$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
-		if [ -n "$mem_total" ] ; then
-			local use_mem="$(expr $mem_total \* $mem_percentage \* 10)"
-			# 不设置地址空间限制(as)，防止Go程序无法保留虚拟内存
-			# procd_append_param limits as="$use_mem $use_mem"
 		fi
 	fi
 
@@ -2458,6 +3274,11 @@ start_instance() {
 }
 
 start_service() {
+	# 如果指定了核心类型，设置核心特定的变量
+	if [ -n "$CORE_TYPE" ] ; then
+		get_core_specific_vars
+	fi
+
 	# 设置系统级内存过度分配，解决 Go 程序 "failed to reserve page summary memory" 错误
 	# 这必须在启动 xray/sing-box 之前设置
 	if [ -w /proc/sys/vm/overcommit_memory ]; then
@@ -2492,10 +3313,241 @@ stop_service() {
 		return 0
 	fi
 
+	# 如果指定了核心类型，设置核心特定的变量
+	if [ -n "$CORE_TYPE" ] ; then
+		get_core_specific_vars
+	fi
+
 	clear_transparent_proxy
 	gracefully_restart_dnsmasq
 
 	test -d "$CONFIG_FOLDER" && rm -rf "$CONFIG_FOLDER"
+
+	# 清理各个核心类型的配置文件夹
+	test -d "$CONFIG_FOLDER_XRAY" && rm -rf "$CONFIG_FOLDER_XRAY"
+	test -d "$CONFIG_FOLDER_SING_BOX" && rm -rf "$CONFIG_FOLDER_SING_BOX"
+}
+
+EXTRA_COMMANDS="xray singbox generate"
+EXTRA_HELP="	xray		Manage xray core only
+	singbox		Manage sing-box core only
+	generate	Generate configuration files"
+
+generate() {
+	local cmd="$1"
+	shift
+
+	case "$cmd" in
+		"config")
+			local section="${1:-main}"
+			local output_file=""
+			local validate="1"
+
+			while [ $# -gt 0 ]; do
+				case "$1" in
+					-o|--output)
+						output_file="$2"
+						shift 2
+						;;
+					--no-validate)
+						validate=""
+						shift
+						;;
+					*)
+						section="$1"
+						shift
+						;;
+				esac
+			done
+
+			local config_file="$CONFIG_FOLDER_SING_BOX/sxray.${section}.json"
+			test -d "$CONFIG_FOLDER_SING_BOX" || mkdir -p "$CONFIG_FOLDER_SING_BOX"
+
+			set_core_type "sing-box" || return 1
+			get_core_specific_vars
+
+			if ! generate_singbox_config "$section" "$config_file" ; then
+				_err "Failed to generate sing-box config for section: $section"
+				return 1
+			fi
+
+			if [ ! -s "$config_file" ] ; then
+				_err "Generated config file is empty: $config_file"
+				return 1
+			fi
+
+			if [ -n "$validate" ] ; then
+				local core_file
+				core_file="$(uci get sxray.${section}.sing_box_file 2>/dev/null)"
+				core_file="${core_file:-/usr/bin/sing-box}"
+
+				if [ -z "$core_file" ] || [ ! -s "$core_file" ] ; then
+					_err "Invalid sing-box core file: $core_file"
+					return 1
+				fi
+
+				if ! ( eval "$core_file check --config=\"$config_file\" 2>&1" ) ; then
+					_err "Config validation failed"
+					return 1
+				fi
+			fi
+
+			if [ -n "$output_file" ] ; then
+				if ! cp "$config_file" "$output_file" ; then
+					_err "Failed to copy config to: $output_file"
+					return 1
+				fi
+				echo "Configuration saved to: $output_file"
+			else
+				cat "$config_file"
+			fi
+			;;
+		*)
+			echo "Usage: $NAME generate config <section> [-o|--output <file>] [--no-validate]"
+			echo ""
+			echo "Generate sing-box configuration from UCI config"
+			echo ""
+			echo "Arguments:"
+			echo "  <section>          Config section name (default: main)"
+			echo "  -o, --output <file>  Write output to file instead of stdout"
+			echo "  --no-validate       Skip config validation"
+			return 1
+			;;
+	esac
+}
+
+generate_xray_config() {
+	local section="$1"
+	local config_file="$2"
+
+	local old_ns
+	json_set_namespace "$section" old_ns
+	json_init
+
+	json_add_object "log"
+	test -n "$access_log" && \
+		json_add_string "access" "$access_log"
+	if [ -n "$loglevel" ] && [ "$loglevel" != "none" ] ; then
+		json_add_string "loglevel" "$loglevel"
+		json_add_string "error" "$error_log"
+	fi
+	json_close_object # log
+
+	if [ "x$stats_enabled" = "x1" ] ; then
+		json_add_object "stats"
+		json_close_object # stats
+	fi
+
+	add_dns_settings "$section"
+	add_routing_settings "$section"
+	add_policy_settings "$section"
+	add_reverse_settings "$section"
+
+	if [ "x$transport_enabled" = "x1" ] ; then
+		add_transport_settings
+	fi
+
+	if [ -n "$inbounds" ] ; then
+		json_add_array "inbounds"
+		local is
+		for is in $inbounds ; do
+			add_inbound_setting "$is"
+		done
+		json_close_array # inbounds
+	fi
+
+	if [ -n "$outbounds" ] ; then
+		json_add_array "outbounds"
+		local os
+		for os in $outbounds ; do
+			add_outbound_setting "$os"
+		done
+		json_close_array # outbounds
+	fi
+
+	json_dump -i >"$config_file"
+	json_cleanup
+	json_set_namespace "$old_ns"
+}
+
+generate_singbox_config() {
+	local section="$1"
+	local config_file="$2"
+
+	CORE_TYPE="sing-box"
+	core_type="sing-box"
+	local old_ns
+	json_set_namespace "$section" old_ns
+	json_init
+
+	json_add_object "log"
+	if [ -n "$access_log" ] ; then
+		json_add_string "output" "$access_log"
+	fi
+	if [ -n "$loglevel" ] && [ "$loglevel" != "none" ] ; then
+		json_add_string "level" "$loglevel"
+	fi
+	json_close_object # log
+
+	if [ "x$stats_enabled" = "x1" ] ; then
+		json_add_object "stats"
+		json_close_object # stats
+	fi
+
+	add_dns_settings "$section"
+	add_routing_settings "$section"
+	add_policy_settings "$section"
+	add_reverse_settings "$section"
+
+	if [ "x$transport_enabled" = "x1" ] ; then
+		add_transport_settings
+	fi
+
+	if [ -n "$inbounds" ] ; then
+		json_add_array "inbounds"
+		local is
+		for is in $inbounds ; do
+			add_inbound_setting "$is"
+		done
+		json_close_array # inbounds
+	fi
+
+	if [ -n "$outbounds" ] ; then
+		json_add_array "outbounds"
+		local os
+		for os in $outbounds ; do
+			add_outbound_setting "$os"
+		done
+
+		if [ "x$core_type" = "xsing-box" ] && [ -n "$domain_strategy" ] && [ "$domain_strategy" != "AsIs" ] ; then
+			json_add_object ""
+			json_add_string "tag" "direct"
+			json_add_string "type" "direct"
+			json_close_object
+		fi
+
+		json_close_array # outbounds
+	fi
+
+	json_dump -i >"$config_file"
+	json_cleanup
+	json_set_namespace "$old_ns"
+}
+
+xray() {
+	set_core_type "xray" || return 1
+	get_core_specific_vars
+	_info "Using xray core with config folder: $CONFIG_FOLDER"
+	shift
+	"$@"
+}
+
+singbox() {
+	set_core_type "sing-box" || return 1
+	get_core_specific_vars
+	_info "Using sing-box core with config folder: $CONFIG_FOLDER"
+	shift
+	"$@"
 }
 
 service_triggers() {

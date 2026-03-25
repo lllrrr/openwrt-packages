@@ -56,11 +56,19 @@ function detect_format(content)
 	if content:find("^{") and content:find("}$") then
 		local ok, parsed = pcall(jsonc.parse, content)
 		if ok and parsed then
-			if parsed.inbounds or parsed.outbounds then
-				return "xray_json"
+			if parsed.route or parsed.inbounds then
+				local hasSingboxField = parsed.route or parsed.dns or parsed.logging
+				local hasXRayField = parsed.routing or parsed.policy or parsed.stats
+
+				if hasSingboxField or (parsed.inbounds and parsed.outbounds and not hasXRayField) then
+					return "singbox_json"
+				end
+				if hasXRayField or parsed.api or parsed.secret then
+					return "xray_json"
+				end
 			end
 			if parsed.inbounds or parsed.outbounds then
-				return "singbox_json"
+				return "xray_json"
 			end
 		end
 	end
