@@ -5,7 +5,7 @@ START=99
 USE_PROCD=1
 
 start_service() {
-  local ENABLED VNT_PATH CONFIG_PATH WORKDIR
+  local ENABLED VNT_PATH CONFIG_PATH WORKDIR LOG_FILE
 
   ENABLED=$(uci -q get vnt2.@main[0].enabled)
   VNT_PATH=$(uci -q get vnt2.@main[0].vnt_path)
@@ -14,6 +14,9 @@ start_service() {
 
   [ -z "$WORKDIR" ] && WORKDIR=/tmp
   [ -d "$WORKDIR" ] || mkdir -p "$WORKDIR"
+
+  # 设置日志文件路径
+  LOG_FILE="${WORKDIR}/vnt2.log"
 
   if [ -z "$ENABLED" ] || [ "$ENABLED" != "1" ]; then
       return 0
@@ -24,9 +27,15 @@ start_service() {
       return 1
   fi
 
-  if [ -z "$CONFIG_PATH" ] || [ ! -f "$CONFIG_PATH" ]; then
-      echo "vnt2: config file not found: $CONFIG_PATH" >&2
+  if [ -z "$CONFIG_PATH" ]; then
+      echo "vnt2: config path not configured" >&2
       return 1
+  fi
+
+  # 检查配置文件目录是否存在
+  local CONFIG_DIR=$(dirname "$CONFIG_PATH")
+  if [ ! -d "$CONFIG_DIR" ]; then
+      mkdir -p "$CONFIG_DIR"
   fi
 
   procd_open_instance
@@ -36,7 +45,7 @@ start_service() {
   procd_set_param stderr 1
   procd_set_param file /etc/config/vnt2
   procd_set_param file "$CONFIG_PATH"
-  procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-5} ${respawn_retry:-5}
+  procd_set_param respawn ${respawn_threshold:-36} ${respawn_timeout:-5} ${respawn_retry:-5}
   procd_set_param reload_signal HUP
   procd_close_instance
 }

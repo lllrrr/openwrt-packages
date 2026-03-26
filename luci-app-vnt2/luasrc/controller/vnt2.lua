@@ -15,6 +15,9 @@ function index()
 
 end
 
+-- 最大配置文件大小（1MB）
+local MAX_CONFIG_SIZE = 1024 * 1024
+
 function action_save_config()
    local http    = require("luci.http")
    local uci     = require("luci.model.uci").cursor()
@@ -25,6 +28,13 @@ function action_save_config()
    if not content then
       http.status(400, "Bad Request")
       http.write("missing parameters")
+      return
+   end
+
+   -- 检查配置文件大小，防止大文件攻击
+   if #content > MAX_CONFIG_SIZE then
+      http.status(400, "Bad Request")
+      http.write("config file too large (max 1MB)")
       return
    end
 

@@ -15,9 +15,13 @@ function o.cfgvalue(self, section)
     local status_output = luci.sys.exec("/etc/init.d/vnt2 status 2>/dev/null") or ""
     local lower_out = status_output:lower()
 
-    -- 先判断 "not running"，再判断 "running"，防止误判
-    local is_running = lower_out:find("not running") == nil
-                       and lower_out:find("running") ~= nil
+    -- 正确判断服务运行状态：优先检查 "not running"，其次检查 "running"
+    local is_running = false
+    if lower_out:find("not running") then
+        is_running = false
+    elseif lower_out:find("running") then
+        is_running = true
+    end
 
     if is_running then
         return [[
