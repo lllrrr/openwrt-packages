@@ -6,14 +6,13 @@
 
 include $(TOPDIR)/rules.mk
 
+PKG_NAME:=luci-app-vnt2
 PKG_VERSION:=2.0.0
 PKG_RELEASE:=1
 
 LUCI_TITLE:=LuCI support for VNT2
 LUCI_DEPENDS:=+kmod-tun +luci-compat
 LUCI_PKGARCH:=all
-
-PKG_NAME:=luci-app-vnt2
 
 define Package/$(PKG_NAME)/description
 LuCI web interface for VNT2 client
@@ -22,7 +21,6 @@ endef
 
 define Package/$(PKG_NAME)/conffiles
 	/etc/vnt2/config.toml
-
 endef
 
 define Package/$(PKG_NAME)/postinst
@@ -32,18 +30,14 @@ define Package/$(PKG_NAME)/postinst
 exit 0
 endef
 
-
-
-
 define Package/$(PKG_NAME)/prerm
 #!/bin/sh
-/etc/init.d/vnt2 stop >/dev/null 2>&1
+/etc/init.d/vnt2 stop >/dev/null 2>&1 || true
 /etc/init.d/vnt2 disable >/dev/null 2>&1 || true
-
 exit 0
-
 endef
 
 include $(TOPDIR)/feeds/luci/luci.mk
 
 # call BuildPackage - OpenWrt buildroot signature
+$(eval $(call BuildPackage,$(PKG_NAME)))

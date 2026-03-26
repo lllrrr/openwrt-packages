@@ -1,27 +1,24 @@
-require("luci.i18n")
-local _ = luci.i18n.translate
-
 local m, s, o
 
 m = Map("vnt2", _("VNT2.0 客户端"))
 
--- ========== 新增：服务运行状态展示（基础配置标签页最上方） ==========
+-- ========== 服务运行状态展示 ==========
 s = m:section(TypedSection, "main", _("客户端运行状态"))
 s.addremove = false
 s.anonymous = true
-s.template = "cbi/nullsection"  -- 无额外样式，仅展示内容
+s.template = "cbi/nullsection"
 
--- 展示状态（带颜色和图标，醒目）
 o = s:option(DummyValue, "service_status", "")
 o.rawhtml = true
 
 function o.cfgvalue(self, section)
-    -- 执行 status 命令，捕获输出（重定向错误输出到空，避免干扰）
     local status_output = luci.sys.exec("/etc/init.d/vnt2 status 2>/dev/null") or ""
-    
-    -- 判断是否包含 "running"（不区分大小写更稳妥）
-    local is_running = (status_output:lower():find("running", 1, true) ~= nil) and (status_output:lower():find("not", 1, true) == nil)
-    
+    local lower_out = status_output:lower()
+
+    -- 先判断 "not running"，再判断 "running"，防止误判
+    local is_running = lower_out:find("not running") == nil
+                       and lower_out:find("running") ~= nil
+
     if is_running then
         return [[
             <div style="padding: 10px; background-color: #f0fff4; border: 1px solid #28a745; border-radius: 4px; margin-bottom: 15px;">
@@ -41,16 +38,14 @@ function o.cfgvalue(self, section)
     end
 end
 
--- ========== 标签页1：基础配置（完全保留你的原有逻辑） ==========
+-- ========== 基础配置 ==========
 s = m:section(TypedSection, "main", _("基本配置"))
-s.addremove = false  -- 不允许添加/删除配置节
-s.anonymous = true   -- 匿名配置节（无需命名）
+s.addremove = false
+s.anonymous = true
 
-
--- ---------------------- 子标签1：基本配置 ----------------------
 s:tab("basic", _("基本配置"))
 
--- 1. 运行状态勾选框
+-- 1. 运行状态
 o = s:taboption("basic", Flag, "enabled", _("运行"))
 o.default = o.disabled
 o.rmempty = false
@@ -73,7 +68,7 @@ o.datatype = "string"
 o.rmempty = false
 o.default = "/tmp"
 
--- ---------------------- 子标签2：配置文件编辑（纯HTML+横向滚动+独立保存按钮） ----------------------
+-- ========== 配置文件编辑（子标签） ==========
 s:tab("editor", _("配置文件编辑"))
 
 o = s:taboption("editor", DummyValue, "config_editor_html", "")
@@ -81,14 +76,14 @@ o.rawhtml = true
 o.cfgvalue = function(self, section)
     local uci = require("luci.model.uci").cursor()
     local config_path = uci:get("vnt2", "@main[0]", "config_path")
-    
+
     local content = ""
     local f = io.open(config_path, "r")
     if f then
         content = f:read("*a")
         f:close()
     else
-        content = "# 错误：无法读取配置文件 → " .. config_path .. "\n"
+        content = "# 错误：无法读取配置文件 → " .. (config_path or "") .. "\n"
     end
 
     content = content:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;")
@@ -136,7 +131,6 @@ o.cfgvalue = function(self, section)
 }
 </style>
 
-<input type="hidden" id="config_path" value="]] .. config_path .. [[">
 <button id="save_config_btn">]] .. _("保存配置文件") .. [[</button>
 <span id="save_tip">]] .. _("保存成功！") .. [[</span>
 
@@ -147,74 +141,76 @@ o.cfgvalue = function(self, section)
 <script>
 document.getElementById('save_config_btn').addEventListener('click', function() {
     var content = document.getElementById('custom_config_editor').value;
-    var path = document.getElementById('config_path').value;
 
     var xhr = new XMLHttpRequest();
-    xhr.open('POST', window.location.href, true);
+    xhr.open('POST', '/cgi-bin/luci/admin/vpn/vnt2/save_config', true);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
     xhr.onload = function() {
         if (xhr.status === 200) {
             var tip = document.getElementById('save_tip');
             tip.style.display = 'inline';
             setTimeout(function() { tip.style.display = 'none'; }, 2000);
+        } else {
+            alert('保存失败：' + xhr.responseText);
         }
     };
-    xhr.send('save_config=1&content=' + encodeURIComponent(content) + '&path=' + encodeURIComponent(path));
+    xhr.onerror = function() {
+        alert('保存请求失败，请检查网络连接。');
+    };
+    xhr.send('content=' + encodeURIComponent(content));
 });
 </script>
 ]]
 end
 
--- ========== 新增：VNT2 服务信息展示 ==========
+-- ========== 节点信息 ==========
 s = m:section(TypedSection, "main", _("节点信息"))
 s.anonymous = true
 s.addremove = false
 s.template = "cbi/nullsection"
 
-o = s:option(DummyValue, "info_table", _(""))
+o = s:option(DummyValue, "info_table", "")
 o.rawhtml = true
 
--- 获取并格式化info命令输出的函数
 local function get_vnt2_info()
-    local cmd = "vnt-ctrl info 2>/dev/null"
-    local handle = io.popen(cmd, 'r')
-    
+    local handle = io.popen("vnt-ctrl info 2>/dev/null", "r")
+
     if not handle then
         return '<span style="color:red; font-weight:bold;">执行命令失败</span>'
     end
-    
-    local content = handle:read('*a')
+
+    local content = handle:read("*a")
     handle:close()
-    
-    if content == "" then
+
+    if not content or content == "" then
         return '<span style="color:#666; font-weight:bold;">暂无信息</span>'
     end
 
-    -- 清理 ANSI 与特殊字符
+    -- 清理 ANSI 转义
     content = content:gsub("\27%[%d+m", "")
     content = content:gsub("\27%[%d+;%d+m", "")
     content = content:gsub("\r", "")
 
-    -- 清理空行
+    -- 去除空行
     local lines = {}
     for line in content:gmatch("[^\n]+") do
-        local tl = line:gsub("^%s+",""):gsub("%s+$","")
+        local tl = line:gsub("^%s+", ""):gsub("%s+$", "")
         if tl ~= "" then
             table.insert(lines, tl)
         end
     end
     content = table.concat(lines, "\n")
 
-    -- HTML转义（安全）
+    -- HTML 转义
     content = content:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;")
 
-    -- 高亮 Online、数字
+    -- 高亮关键词
     content = content:gsub("Online (%d+ms)", '<span style="color:#0c0">Online %1</span>')
     content = content:gsub("Unknown", '<span style="color:#f33">Unknown</span>')
 
     return content
 end
--- 配置显示内容
+
 function o.cfgvalue(self, section)
     local txt = get_vnt2_info()
     return [[
@@ -239,64 +235,54 @@ function o.cfgvalue(self, section)
 ]]
 end
 
-
-
-
--- ========== 标签页2：集群节点状态 ==========
+-- ========== 节点列表 ==========
 s = m:section(TypedSection, "main", _("节点列表"))
 s.anonymous = true
 s.addremove = false
-s.template = "cbi/nullsection"  -- 修正：移除tblsection，改用无样式模板
-s.extedit = nil
+s.template = "cbi/nullsection"
 
-o = s:option(DummyValue, "client_list", _(""))  -- 修正：添加翻译函数
+o = s:option(DummyValue, "client_list", "")
 o.rawhtml = true
 
 local function get_vnt2_clients()
-    local cmd = "vnt-ctrl clients 2>/dev/null"
-    local handle = io.popen(cmd, 'r')
-    
+    local handle = io.popen("vnt-ctrl clients 2>/dev/null", "r")
+
     if not handle then
         return '<span style="color:red; font-weight:bold;">执行命令失败</span>'
     end
-    
-    local content = handle:read('*a')
+
+    local content = handle:read("*a")
     handle:close()
-    
-    if content == "" then
+
+    if not content or content == "" then
         return '<span style="color:#666; font-weight:bold;">暂无客户端</span>'
     end
 
-    -- 过滤ANSI
+    -- 清理 ANSI 转义
     content = content:gsub("\27%[%d+m", "")
     content = content:gsub("\27%[%d+;%d+m", "")
     content = content:gsub("\r", "")
 
-    -- 跳过第一行空行，只留有效行
+    -- 去除空行
     local lines = {}
-    local idx = 1
     for line in content:gmatch("[^\n]+") do
-        if idx > 0 then
-            local tl = line:gsub("^%s+",""):gsub("%s+$","")
-            if tl ~= "" then
-                table.insert(lines, tl)
-            end
+        local tl = line:gsub("^%s+", ""):gsub("%s+$", "")
+        if tl ~= "" then
+            table.insert(lines, tl)
         end
-        idx = idx + 1
     end
     content = table.concat(lines, "\n")
 
-    -- 不转HTML，原样输出（交给外层pre处理）
+    -- HTML 转义
     content = content:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;")
 
-    -- 颜色高亮（不破坏格式）
+    -- 高亮关键词
     content = content:gsub("true", '<span style="color:#0c0">true</span>')
     content = content:gsub("false", '<span style="color:#f33">false</span>')
 
     return content
 end
 
--- 修正：改用cfgvalue函数，每次页面刷新都会重新获取数据
 function o.cfgvalue(self, section)
     local txt = get_vnt2_clients()
     return [[
@@ -321,31 +307,4 @@ function o.cfgvalue(self, section)
 ]]
 end
 
--- ====================== 仅独立保存按钮逻辑（安全、不报错） ======================
-if luci.http.formvalue("save_config") then
-    local content = tostring(luci.http.formvalue("content") or "")
-    local path    = tostring(luci.http.formvalue("path") or "")
-
-    if #content > 512 * 1024 then
-        luci.http.status(400, "Config too large")
-        return
-    end
-
-    local uci = require("luci.model.uci").cursor()
-    local cfg_path = uci:get("vnt2", "@main[0]", "config_path") or "/etc/vnt2/config.toml"
-
-    if path == cfg_path then
-        local f = io.open(path, "w")
-        if f then
-            f:write(content)
-            f:close()
-            luci.sys.call("/etc/init.d/vnt2 restart >/dev/null 2>&1")
-        end
-    end
-
-    luci.http.status(200, "OK")
-    return
-end
-
 return m
-
