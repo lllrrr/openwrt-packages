@@ -8,13 +8,14 @@ local fs = api.fs
 local split = api.split
 
 local local_version = api.get_app_version("sing-box"):match("[^v]+")
-local version_ge_1_13_0 = api.compare_versions(local_version, ">=", "1.13.0")
 
 local GEO_VAR = {
 	OK = nil,
 	DIR = nil,
 	SITE_PATH = nil,
 	IP_PATH = nil,
+	SITE_DB_PATH = nil,
+	SITE_CN_DB_PATH = nil,
 	SITE_TAGS = {},
 	IP_TAGS = {},
 	TO_SRS_PATH = "/tmp/etc/" .. appname .."_tmp/singbox_srss/"
@@ -31,6 +32,8 @@ function check_geoview()
 		GEO_VAR.DIR = GEO_VAR.DIR or (uci:get(appname, "@global_rules[0]", "v2ray_location_asset") or "/usr/share/v2ray/"):match("^(.*)/")
 		GEO_VAR.SITE_PATH = GEO_VAR.SITE_PATH or (GEO_VAR.DIR .. "/geosite.dat")
 		GEO_VAR.IP_PATH = GEO_VAR.IP_PATH or (GEO_VAR.DIR .. "/geoip.dat")
+		GEO_VAR.SITE_DB_PATH = GEO_VAR.SITE_DB_PATH or (GEO_VAR.DIR .. "/geosite.db")
+		GEO_VAR.SITE_CN_DB_PATH = GEO_VAR.SITE_CN_DB_PATH or (GEO_VAR.DIR .. "/geosite-cn.db")
 		if not fs.access(GEO_VAR.TO_SRS_PATH) then
 			fs.mkdir(GEO_VAR.TO_SRS_PATH)
 		end
@@ -58,6 +61,35 @@ function geo_convert_srs(var)
 	end
 end
 
+function verify_geosite_db()
+	local result = {
+		geosite_db_ok = false,
+		geosite_cn_db_ok = false,
+		geosite_db_path = GEO_VAR.SITE_DB_PATH,
+		geosite_cn_db_path = GEO_VAR.SITE_CN_DB_PATH
+	}
+	local bin = api.finded_com("geoview")
+	if not bin then
+		api.log("！！！警告：缺少 Geoview 组件，无法验证数据库文件！")
+		return result
+	end
+	if fs.access(GEO_VAR.SITE_DB_PATH) then
+		local cmd = string.format("%q -type geosite -action list -input %q 2>/dev/null", bin, GEO_VAR.SITE_DB_PATH)
+		local output = sys.exec(cmd)
+		if output and #output > 0 then
+			result.geosite_db_ok = true
+		end
+	end
+	if fs.access(GEO_VAR.SITE_CN_DB_PATH) then
+		local cmd = string.format("%q -type geosite -action list -input %q 2>/dev/null", bin, GEO_VAR.SITE_CN_DB_PATH)
+		local output = sys.exec(cmd)
+		if output and #output > 0 then
+			result.geosite_cn_db_ok = true
+		end
+	end
+	return result
+end
+
 local function convert_geofile()
 	if check_geoview() ~= 1 then
 		return
@@ -76,9 +108,29 @@ local function convert_geofile()
 			end
 		end
 	end
+	local function convert_db(db_path, prefix, tags)
+		if next(tags) and fs.access(db_path) then
+			local md5_file = GEO_VAR.TO_SRS_PATH .. prefix .. ".db.md5"
+			local new_md5 = sys.exec("md5sum " .. db_path .. " 2>/dev/null | awk '{print $1}'"):gsub("\n", "")
+			local old_md5 = sys.exec("[ -f " .. md5_file .. " ] && head -n 1 " .. md5_file .. " | tr -d ' \t\n' || echo ''")
+			if new_md5 ~= "" and new_md5 ~= old_md5 then
+				sys.call("printf '%s' " .. new_md5 .. " > " .. md5_file)
+				sys.call("rm -rf " .. GEO_VAR.TO_SRS_PATH .. prefix .. "-*.srs" )
+			end
+			for k in pairs(tags) do
+				geo_convert_srs({["geo_path"] = db_path, ["prefix"] = prefix, ["rule_name"] = k})
+			end
+		end
+	end
 	--api.log("Sing-Box 规则集转换：")
 	convert(GEO_VAR.SITE_PATH, "geosite", GEO_VAR.SITE_TAGS)
 	convert(GEO_VAR.IP_PATH, "geoip", GEO_VAR.IP_TAGS)
+	if fs.access(GEO_VAR.SITE_DB_PATH) then
+		convert_db(GEO_VAR.SITE_DB_PATH, "geosite", GEO_VAR.SITE_TAGS)
+	end
+	if fs.access(GEO_VAR.SITE_CN_DB_PATH) then
+		convert_db(GEO_VAR.SITE_CN_DB_PATH, "geosite-cn", {["cn"] = true})
+	end
 end
 
 function gen_outbound(flag, node, tag, proxy_table)

@@ -398,22 +398,6 @@ o = s:option(Value, "s_hysteria2_down_mbps", "%s - %s" % { "Hysteria2", translat
 o:depends("protocol", "hysteria2")
 o.datatype = "uinteger"
 
-o = s:option(Value, "s_hysteria2_server_name", "%s - %s" % { "Hysteria2 TLS", translate("Server name") })
-o:depends("protocol", "hysteria2")
-
-o = s:option(Flag, "s_hysteria2_insecure", "%s - %s" % { "Hysteria2 TLS", translate("Allow insecure") })
-o:depends("protocol", "hysteria2")
-
-o = s:option(Value, "ss_tls_alpn", "%s - %s" % { "Hysteria2 TLS", "ALPN" })
-o:depends("protocol", "hysteria2")
-o.placeholder = "h3"
-
-o = s:option(Flag, "ss_tls_allow_insecure_ciphers", "%s - %s" % { "Hysteria2 TLS", translate("Allow insecure ciphers") })
-o:depends("protocol", "hysteria2")
-
-o = s:option(Flag, "ss_tls_disable_system_root", "%s - %s" % { "Hysteria2 TLS", translate("Disable system root") })
-o:depends("protocol", "hysteria2")
-
 -- Settings - TUIC
 o = s:option(Value, "s_tuic_address", "%s - %s" % { "TUIC", translate("Address") })
 o:depends("protocol", "tuic")

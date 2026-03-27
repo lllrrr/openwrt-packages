@@ -64,6 +64,8 @@ function index()
 
 	entry({"admin", "services", "sxray", "version"}, call("action_version"))
 
+	entry({"admin", "services", "sxray", "check-version"}, call("action_check_version"))
+
 	entry({"admin", "services", "sxray", "list-status"},
 		call("list_status")).leaf = true
 
@@ -114,6 +116,60 @@ function action_version()
 	else
 		file = uci:get("sxray", "main", "sing_box_file") or ""
 	end
+
+	local info
+
+	if file == "" then
+		info = {
+			valid = false,
+			message = i18n.translate("Core file path is empty")
+		}
+	elseif not fs.stat(file) then
+		info = {
+			valid = false,
+			message = i18n.translate("Core file not found")
+		}
+	else
+		if not fs.access(file, "rwx", "rx", "rx") then
+			fs.chmod(file, 755)
+		end
+
+		local version
+		local cmd
+		if core_type == "xray" then
+			cmd = "%s version 2>&1" % file
+			version = util.trim(sys.exec(cmd))
+			if version ~= "" then
+				version = version:match("Xray (%S+)") or version:match("Version:%s*(%S+)") or version
+			end
+		else
+			cmd = "%s version 2>&1" % file
+			version = util.trim(sys.exec(cmd))
+			if version ~= "" then
+				version = version:match("sing%-box (%S+)") or version:match("version (%S+)") or version
+			end
+		end
+
+		if version and version ~= "" and not version:find("error", 1, true) and not version:find("fatal", 1, true) then
+			info = {
+				valid = true,
+				version = version
+			}
+		else
+			info = {
+				valid = false,
+				message = i18n.translate("Can't get core version")
+			}
+		end
+	end
+
+	http.prepare_content("application/json")
+	http.write_json(info)
+end
+
+function action_check_version()
+	local file = http.formvalue("file") or ""
+	local core_type = http.formvalue("core_type") or "xray"
 
 	local info
 

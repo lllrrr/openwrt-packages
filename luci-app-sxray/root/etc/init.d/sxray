@@ -82,6 +82,63 @@ _info() {
 	_log "info" $@
 }
 
+verify_geosite_db() {
+	local geoip_dir="${1}"
+	local result=0
+	local srs_path="/tmp/etc/sxray_tmp/singbox_srss"
+
+	if [ -f "${geoip_dir}/geosite.db" ]; then
+		_info "geosite.db found at: ${geoip_dir}/geosite.db"
+		if command -v geoview >/dev/null 2>&1; then
+			local output=$(geoview -type geosite -action list -input "${geoip_dir}/geosite.db" 2>/dev/null)
+			if [ -n "$output" ]; then
+				_info "geosite.db integrity verified successfully"
+				local cn_count=$(echo "$output" | grep -c "^cn$" || true)
+				if [ "$cn_count" -gt 0 ]; then
+					_info "geosite.db contains 'cn' category"
+				fi
+			else
+				_err "geosite.db integrity check failed"
+				result=1
+			fi
+		else
+			_info "geoview not found, skipping integrity verification for geosite.db"
+		fi
+		if [ -d "$srs_path" ]; then
+			local srs_count=$(ls -1 "$srs_path"/geosite-*.srs 2>/dev/null | wc -l)
+			if [ "$srs_count" -gt 0 ]; then
+				_info "Found $srs_count geosite .srs files generated from .db files"
+			fi
+		fi
+	else
+		_info "geosite.db not found at: ${geoip_dir}/geosite.db"
+		result=1
+	fi
+
+	if [ -f "${geoip_dir}/geosite-cn.db" ]; then
+		_info "geosite-cn.db found at: ${geoip_dir}/geosite-cn.db"
+		if command -v geoview >/dev/null 2>&1; then
+			local output=$(geoview -type geosite -action list -input "${geoip_dir}/geosite-cn.db" 2>/dev/null)
+			if [ -n "$output" ]; then
+				_info "geosite-cn.db integrity verified successfully"
+				if [ -d "$srs_path" ] && [ -f "$srs_path/geosite-cn-cn.srs" ]; then
+					_info "geosite-cn.srs successfully generated from geosite-cn.db"
+				fi
+			else
+				_err "geosite-cn.db integrity check failed"
+				result=1
+			fi
+		else
+			_info "geoview not found, skipping integrity verification for geosite-cn.db"
+		fi
+	else
+		_info "geosite-cn.db not found at: ${geoip_dir}/geosite-cn.db"
+		result=1
+	fi
+
+	return $result
+}
+
 _err() {
 	_log "err" $@
 }
@@ -369,8 +426,6 @@ inbound_section_validate() {
 		's_hysteria2_obfs_type:or("none", "salamander")' \
 		's_hysteria2_address:host' \
 		's_hysteria2_port:port' \
-		's_hysteria2_insecure:bool:0' \
-		's_hysteria2_server_name:string' \
 		's_hysteria2_up_mbps:uinteger' \
 		's_hysteria2_down_mbps:uinteger' \
 		'ss_tcp_header_type:or("none", "http")' \
@@ -476,8 +531,6 @@ outbound_section_validate() {
 		's_hysteria2_obfs_type:or("none", "salamander")' \
 		's_hysteria2_up_mbps:uinteger' \
 		's_hysteria2_down_mbps:uinteger' \
-		's_hysteria2_insecure:bool:0' \
-		's_hysteria2_server_name:string' \
 		'ss_network:or("tcp", "kcp", "ws", "http", "domainsocket", "quic")' \
 		'ss_security:or("none", "tls")' \
 		'ss_tls_server_name:host' \
@@ -1021,8 +1074,12 @@ add_dns_settings() {
 					json_add_object ""
 					json_add_string "type" "$DNS_TYPE"
 
-					test -n "$tag" && \
-						json_add_string "tag" "$tag"
+					# 如果没有 tag，自动生成一个
+					local dns_tag="$tag"
+					if [ -z "$dns_tag" ] ; then
+						dns_tag="dns-$(echo "$address" | md5sum | cut -c1-8)"
+					fi
+					json_add_string "tag" "$dns_tag"
 
 					if [ -n "$DNS_SERVER" ] ; then
 						json_add_string "server" "$DNS_SERVER"
@@ -1121,6 +1178,27 @@ add_routing_settings() {
 				json_add_string "final" "$first_outbound_tag"
 			fi
 		fi
+
+		# 添加 default_domain_resolver，使用第一个 DNS 服务器
+		local dns_section="${section%_routing}_dns"
+		local dns_servers="$(uci -q get sxray.$dns_section.servers 2>/dev/null)"
+		if [ -n "$dns_servers" ] ; then
+			# 直接使用第一个 DNS 服务器（因为现在所有 DNS 服务器都有 tag）
+			local first_dns_server="$(echo $dns_servers | awk '{print $1}')"
+			if [ -n "$first_dns_server" ] ; then
+				local dns_tag="$(uci -q get sxray.$first_dns_server.tag 2>/dev/null)"
+				if [ -n "$dns_tag" ] ; then
+					json_add_string "default_domain_resolver" "$dns_tag"
+				else
+					# 如果 UCI 中没有 tag，使用自动生成的 tag
+					local dns_address="$(uci -q get sxray.$first_dns_server.address 2>/dev/null)"
+					if [ -n "$dns_address" ] ; then
+						dns_tag="dns-$(echo "$dns_address" | md5sum | cut -c1-8)"
+						json_add_string "default_domain_resolver" "$dns_tag"
+					fi
+				fi
+			fi
+		fi
 	else
 		json_add_object "routing"
 
@@ -1132,6 +1210,10 @@ add_routing_settings() {
 	local all_geosite_tags=""
 
 	if [ -n "$rules" ] ; then
+		local geoip_dir
+		geoip_dir=$(uci -q get sxray.@global_rules[0].v2ray_location_asset 2>/dev/null || echo "/usr/share/v2ray/")
+		geoip_dir="${geoip_dir%/}"
+
 		local rs
 		for rs in $rules ; do
 			if routing_rule_section_validate "$rs" ; then
@@ -1148,10 +1230,14 @@ add_routing_settings() {
 								;;
 							geosite:*)
 								local geosite_name="${i#geosite:}"
-								case " $all_geosite_tags " in
-									*" $geosite_name "*) ;;
-									*) all_geosite_tags="${all_geosite_tags}${all_geosite_tags:+ }$geosite_name" ;;
-								esac
+								if [ -f "$geoip_dir/geosite-$geosite_name.srs" ] ; then
+									case " $all_geosite_tags " in
+										*" $geosite_name "*) ;;
+										*) all_geosite_tags="${all_geosite_tags}${all_geosite_tags:+ }$geosite_name" ;;
+									esac
+								else
+									_info "geosite-$geosite_name.srs not found, skipping geosite:$geosite_name in routing rules"
+								fi
 								;;
 						esac
 					done
@@ -1169,25 +1255,25 @@ add_routing_settings() {
 			json_add_string "type" "inline"
 			json_add_array "rules"
 			json_add_object ""
-			json_add_string "source_ip_cidr" "10.0.0.0/8"
+			json_add_string "ip_cidr" "10.0.0.0/8"
 			json_close_object
 			json_add_object ""
-			json_add_string "source_ip_cidr" "172.16.0.0/12"
+			json_add_string "ip_cidr" "172.16.0.0/12"
 			json_close_object
 			json_add_object ""
-			json_add_string "source_ip_cidr" "192.168.0.0/16"
+			json_add_string "ip_cidr" "192.168.0.0/16"
 			json_close_object
 			json_add_object ""
-			json_add_string "source_ip_cidr" "169.254.0.0/16"
+			json_add_string "ip_cidr" "169.254.0.0/16"
 			json_close_object
 			json_add_object ""
-			json_add_string "source_ip_cidr" "127.0.0.0/8"
+			json_add_string "ip_cidr" "127.0.0.0/8"
 			json_close_object
 			json_add_object ""
-			json_add_string "source_ip_cidr" "224.0.0.0/4"
+			json_add_string "ip_cidr" "224.0.0.0/4"
 			json_close_object
 			json_add_object ""
-			json_add_string "source_ip_cidr" "255.255.255.255/32"
+			json_add_string "ip_cidr" "255.255.255.255/32"
 			json_close_object
 			json_close_array
 			json_close_object
@@ -1207,25 +1293,25 @@ add_routing_settings() {
 					json_add_string "type" "inline"
 					json_add_array "rules"
 					json_add_object ""
-					json_add_string "source_ip_cidr" "1.0.1.0/24"
+					json_add_string "ip_cidr" "1.0.1.0/24"
 					json_close_object
 					json_add_object ""
-					json_add_string "source_ip_cidr" "1.0.8.0/21"
+					json_add_string "ip_cidr" "1.0.8.0/21"
 					json_close_object
 					json_add_object ""
-					json_add_string "source_ip_cidr" "1.0.32.0/19"
+					json_add_string "ip_cidr" "1.0.32.0/19"
 					json_close_object
 					json_add_object ""
-					json_add_string "source_ip_cidr" "1.68.0.0/14"
+					json_add_string "ip_cidr" "1.68.0.0/14"
 					json_close_object
 					json_add_object ""
-					json_add_string "source_ip_cidr" "1.72.0.0/13"
+					json_add_string "ip_cidr" "1.72.0.0/13"
 					json_close_object
 					json_add_object ""
-					json_add_string "source_ip_cidr" "36.0.0.0/9"
+					json_add_string "ip_cidr" "36.0.0.0/9"
 					json_close_object
 					json_add_object ""
-					json_add_string "source_ip_cidr" "42.0.0.0/7"
+					json_add_string "ip_cidr" "42.0.0.0/7"
 					json_close_object
 					json_close_array
 					json_close_object
@@ -1251,16 +1337,6 @@ add_routing_settings() {
 				json_add_string "format" "source"
 				json_add_string "path" "$geoip_dir/geosite-$g.srs"
 				json_close_object
-			else
-				json_add_object ""
-				json_add_string "tag" "geosite-$g"
-				json_add_string "type" "inline"
-				json_add_array "rules"
-				json_add_object ""
-				json_add_string "domain" "geosite:$g"
-				json_close_object
-				json_close_array
-				json_close_object
 			fi
 		done
 
@@ -1269,6 +1345,17 @@ add_routing_settings() {
 
 	if [ -n "$rules" ] ; then
 		json_add_array "rules"
+
+		# sing-box 1.11.0+ 需要 sniff action
+		if [ "x$core_type" = "xsing-box" ] ; then
+			json_add_object ""
+			json_add_string "action" "sniff"
+			json_close_object
+		fi
+
+		local geoip_dir
+		geoip_dir=$(uci -q get sxray.@global_rules[0].v2ray_location_asset 2>/dev/null || echo "/usr/share/v2ray/")
+		geoip_dir="${geoip_dir%/}"
 
 		local rs
 		for rs in $rules ; do
@@ -1280,32 +1367,65 @@ add_routing_settings() {
 					json_add_string "type" "$type"
 				fi
 
+				local all_rule_set=""
+				local domain_list=""
+
 				if [ -n "$domain" ] ; then
-					json_add_array "domain"
+					if [ "x$core_type" = "xsing-box" ] ; then
+						local d
+						for d in $domain ; do
+							case "$d" in
+								geosite:*)
+									local geosite_name="${d#geosite:}"
+									if [ -f "$geoip_dir/geosite-$geosite_name.srs" ] ; then
+										all_rule_set="${all_rule_set}${all_rule_set:+ }geosite-$geosite_name"
+									else
+										_info "geosite-$geosite_name.srs not found, skipping in domain rule"
+									fi
+									;;
+								*)
+									domain_list="${domain_list}${domain_list:+ }$d"
+									;;
+							esac
+						done
 
-					local d
-					for d in $domain ; do
-						json_add_string "" "$d"
-					done
+						if [ -n "$domain_list" ] ; then
+							json_add_array "domain"
+							for d in $domain_list ; do
+								json_add_string "" "$d"
+							done
+							json_close_array # domain
+						fi
+					else
+						json_add_array "domain"
 
-					json_close_array # domain
+						local d
+						for d in $domain ; do
+							json_add_string "" "$d"
+						done
+
+						json_close_array # domain
+					fi
 				fi
 
 				if [ -n "$ip" ] ; then
 					if [ "x$core_type" = "xsing-box" ] ; then
 						local ipcidr_list=""
-						local rule_set_list=""
 
 						local i
 						for i in $ip ; do
 							case "$i" in
 								geoip:*)
 									local geoip_name="${i#geoip:}"
-									rule_set_list="${rule_set_list}${rule_set_list:+ }geoip-$geoip_name"
+									all_rule_set="${all_rule_set}${all_rule_set:+ }geoip-$geoip_name"
 									;;
 								geosite:*)
 									local geosite_name="${i#geosite:}"
-									rule_set_list="${rule_set_list}${rule_set_list:+ }geosite-$geosite_name"
+									if [ -f "$geoip_dir/geosite-$geosite_name.srs" ] ; then
+										all_rule_set="${all_rule_set}${all_rule_set:+ }geosite-$geosite_name"
+									else
+										_info "geosite-$geosite_name.srs not found, skipping in ip rule"
+									fi
 									;;
 								*)
 									ipcidr_list="${ipcidr_list}${ipcidr_list:+ }$i"
@@ -1320,14 +1440,6 @@ add_routing_settings() {
 							done
 							json_close_array # ip_cidr
 						fi
-
-						if [ -n "$rule_set_list" ] ; then
-							json_add_array "rule_set"
-							for i in $rule_set_list ; do
-								json_add_string "" "$i"
-							done
-							json_close_array # rule_set
-						fi
 					else
 						json_add_array "ip"
 						local i
@@ -1336,6 +1448,15 @@ add_routing_settings() {
 						done
 						json_close_array # ip
 					fi
+				fi
+
+				if [ "x$core_type" = "xsing-box" ] && [ -n "$all_rule_set" ] ; then
+					json_add_array "rule_set"
+					local i
+					for i in $all_rule_set ; do
+						json_add_string "" "$i"
+					done
+					json_close_array # rule_set
 				fi
 
 				if [ -n "$port" ] ; then
@@ -1427,8 +1548,13 @@ add_routing_settings() {
 
 				# 根据核心类型使用不同字段名
 				if [ "x$core_type" = "xsing-box" ] ; then
-					test -n "$outbound_tag" && \
-						json_add_string "outbound" "$outbound_tag"
+					# sing-box 1.11.0+ 不再支持 DNS outbound，需要转换为 direct
+					local final_outbound="$outbound_tag"
+					if [ "x$outbound_tag" = "xdns_out" ] ; then
+						final_outbound="direct"
+					fi
+					test -n "$final_outbound" && \
+						json_add_string "outbound" "$final_outbound"
 					test -n "$balancer_tag" && \
 						json_add_string "balancer" "$balancer_tag"
 				else
@@ -1722,8 +1848,9 @@ add_inbound_setting_singbox() {
 	test -n "$tag" && \
 		json_add_string "tag" "$tag"
 
-	test -n "$sniffing_enabled" && \
+	if [ "x$core_type" != "xsing-box" ] && [ -n "$sniffing_enabled" ] ; then
 		json_add_boolean "sniff" "$sniffing_enabled"
+	fi
 
 	if [ -n "$allocate_strategy" ] ; then
 		json_add_object "allocate"
@@ -2169,6 +2296,11 @@ add_outbound_setting() {
 		return 1
 	fi
 
+	if [ "x$core_type" = "xsing-box" ] && [ "x$protocol" = "xdns" ] ; then
+		_info "DNS outbound is deprecated in sing-box 1.11.0+, skipping..."
+		return 0
+	fi
+
 	json_add_object ""
 
 	test -n "$send_through" && \
@@ -2205,7 +2337,6 @@ add_outbound_setting() {
 			;;
 		"dns")
 			if [ "x$core_type" = "xsing-box" ] ; then
-				# sing-box dns 出站不需要 settings
 				:
 			else
 				json_add_object "settings"
@@ -2476,38 +2607,24 @@ add_outbound_setting() {
 					json_add_string "password" "$s_hysteria2_obfs_password"
 					json_close_object # obfs
 				fi
-
-				# hysteria2 必须启用 TLS
 				json_add_object "tls"
 				json_add_boolean "enabled" "1"
-				test -n "$s_hysteria2_server_name" && \
-					json_add_string "server_name" "$s_hysteria2_server_name"
-				test "x$s_hysteria2_insecure" = "x1" && \
-					json_add_boolean "insecure" "1"
-				test "x$ss_tls_allow_insecure_ciphers" = "x1" && \
-					json_add_boolean "allow_insecure_ciphers" "1"
-				test "x$ss_tls_disable_system_root" = "x1" && \
-					json_add_boolean "disable_system_root" "1"
+				test -n "$ss_tls_server_name" && \
+					json_add_string "server_name" "$ss_tls_server_name"
 				if [ -n "$ss_tls_alpn" ] ; then
 					json_add_array "alpn"
 					json_add_string "" "$ss_tls_alpn"
 					json_close_array
 				fi
+				test "x$ss_tls_allow_insecure" = "x1" && \
+					json_add_boolean "insecure" "1"
+				test "x$ss_tls_disable_system_root" = "x1" && \
+					json_add_boolean "disable_system_root" "1"
+				test -n "$ss_tls_cert_file" && \
+					json_add_string "certificate" "$ss_tls_cert_file"
+				test -n "$ss_tls_key_file" && \
+					json_add_string "key" "$ss_tls_key_file"
 				json_close_object # tls
-			else
-				json_add_object "settings"
-
-				test -n "$s_hysteria2_password" && \
-					json_add_string "password" "$s_hysteria2_password"
-
-				if [ "x$s_hysteria2_obfs_type" != "xnone" ] && [ -n "$s_hysteria2_obfs_password" ] ; then
-					json_add_object "obfs"
-					json_add_string "type" "$s_hysteria2_obfs_type"
-					json_add_string "password" "$s_hysteria2_obfs_password"
-					json_close_object # obfs
-				fi
-
-				json_close_object # settings
 			fi
 			;;
 		"loopback")
@@ -2519,6 +2636,13 @@ add_outbound_setting() {
 			json_close_object # settings
 			;;
 	esac
+
+	if [ "x$protocol" = "xhysteria2" ] ; then
+			test -n "$tag" && \
+				json_add_string "tag" "$tag"
+			json_close_object
+			return 0
+		fi
 
 	# 根据核心类型生成不同的 TLS 配置格式
 	if [ "x$core_type" = "xsing-box" ] ; then
@@ -3173,6 +3297,17 @@ start_instance() {
 
 	test -x "$core_file" || chmod 755 "$core_file"
 
+	# 验证geosite数据库文件完整性（仅对sing-box核心）
+	if [ "x$core_type" = "xsing-box" ] ; then
+		local geoip_dir
+		geoip_dir=$(uci -q get sxray.@global_rules[0].v2ray_location_asset 2>/dev/null || echo "/usr/share/v2ray/")
+		geoip_dir="${geoip_dir%/}"
+		if [ -d "$geoip_dir" ] ; then
+			_info "Verifying geosite database files for sing-box core..."
+			verify_geosite_db "$geoip_dir"
+		fi
+	fi
+
 	# 根据核心类型设置配置文件夹路径
 	local instance_config_folder="$CONFIG_FOLDER"
 	if [ -z "$CORE_TYPE" ] ; then
@@ -3363,6 +3498,12 @@ generate() {
 			local config_file="$CONFIG_FOLDER_SING_BOX/sxray.${section}.json"
 			test -d "$CONFIG_FOLDER_SING_BOX" || mkdir -p "$CONFIG_FOLDER_SING_BOX"
 
+			config_load "$NAME"
+			if ! sxray_section_validate "$section" ; then
+				_err "Invalid config section: $section"
+				return 1
+			fi
+
 			set_core_type "sing-box" || return 1
 			get_core_specific_vars
 
@@ -3515,11 +3656,16 @@ generate_singbox_config() {
 	if [ -n "$outbounds" ] ; then
 		json_add_array "outbounds"
 		local os
+		local has_direct=0
 		for os in $outbounds ; do
+			local proto="$(uci -q get sxray.$os.protocol 2>/dev/null)"
+			if [ "x$proto" = "xfreedom" ] ; then
+				has_direct=1
+			fi
 			add_outbound_setting "$os"
 		done
 
-		if [ "x$core_type" = "xsing-box" ] && [ -n "$domain_strategy" ] && [ "$domain_strategy" != "AsIs" ] ; then
+		if [ "x$core_type" = "xsing-box" ] && [ "$has_direct" = "0" ] ; then
 			json_add_object ""
 			json_add_string "tag" "direct"
 			json_add_string "type" "direct"
