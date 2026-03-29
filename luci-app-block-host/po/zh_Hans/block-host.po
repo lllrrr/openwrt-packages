@@ -1,0 +1,26 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8\nPlural-Forms: nplurals=1; plural=0;\nLanguage: zh_Hans\n"
+
+#: usr/lib/lua/luci/view/block-host/overview.js:10
+msgid "Host Blocker"
+msgstr "主机封锁器"
+
+#: usr/lib/lua/luci/view/block-host/overview.js:11
+msgid "Block specified hosts by hostname using nftables. Devices will be blocked from accessing the network."
+msgstr "使用 nftables 封锁指定主机名的设备。被封锁的设备将无法访问网络。"
+
+#: usr/lib/lua/luci/view/block-host/overview.js:15
+msgid "Settings"
+msgstr "设置"
+
+#: usr/lib/lua/luci/view/block-host/overview.js:17
+msgid "Enable"
+msgstr "启用"
+
+#: usr/lib/lua/luci/view/block-host/overview.js:21
+msgid "Target Hostnames"
+msgstr "目标主机名"
+
+#: usr/lib/lua/luci/view/block-host/overview.js:22
+msgid "Enter hostnames to block, separated by spaces. Do not use commas."
+msgstr "输入要封锁的主机名，用空格分隔。不要使用逗号。"

@@ -1,0 +1,13 @@
+#!/bin/sh
+
+[ -z "${IPKG_INSTROOT}" ] || [ -f "${IPKG_INSTROOT}/lib/functions.sh" ] || exit 0
+
+. /lib/functions/ucidef.sh
+
+# 设置权限
+chmod +x /usr/bin/bind_and_block.sh
+
+# 启用并启动服务
+/etc/init.d/block_host enable
+
+exit 0

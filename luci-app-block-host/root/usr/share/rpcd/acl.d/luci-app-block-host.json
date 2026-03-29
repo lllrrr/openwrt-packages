@@ -1,0 +1,11 @@
+{
+    "luci-app-hostblocker": {
+        "description": "Grant access to block host configuration",
+        "read": {
+            "uci": [ "block_host" ]
+        },
+        "write": {
+            "uci": [ "block_host" ]
+        }
+    }
+}

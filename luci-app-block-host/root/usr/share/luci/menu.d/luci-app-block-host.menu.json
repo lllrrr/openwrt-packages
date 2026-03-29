@@ -1,0 +1,14 @@
+{
+    "admin/services/block_host": {
+        "title": "Host Blocker",
+        "action": {
+            "type": "view",
+            "path": "block-host/overview"
+        },
+        "depends": {
+            "acl": [
+                "luci-app-hostblocker"
+            ]
+        }
+    }
+}

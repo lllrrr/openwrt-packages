@@ -1,0 +1,11 @@
+Package: luci-app-hostblocker
+Version: 1.0.0-1
+Architecture: all
+Section: luci
+Priority: optional
+Maintainer: Your Name <your.email@example.com>
+Source: luci-app-hostblocker
+Description: LuCI support for blocking hosts by hostname
+  This package provides a LuCI web interface for blocking network access by hostname.
+  It uses nftables to block specified hosts from accessing the network.
+Depends: nftables, luci-base

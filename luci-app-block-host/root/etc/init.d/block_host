@@ -1,0 +1,21 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+
+USE_PROCD=1
+
+start_service() {
+    # 如果启用，则运行脚本
+    enabled=$(uci -q get block_host.config.enabled)
+    [ "$enabled" = "1" ] && /usr/bin/bind_and_block.sh
+}
+
+stop_service() {
+    # 停止时删除 nftables 表
+    nft delete table inet filter_block 2>/dev/null
+}
+
+reload_service() {
+    stop_service
+    start_service
+}
