@@ -1,0 +1,183 @@
+#!/bin/sh /etc/rc.common
+
+START=85
+STOP=15
+USE_PROCD=1
+
+PROG=/usr/bin/hysteria2-ppp
+CONFIG_DIR=/var/run/hysteria
+CONFIG_FILE=$CONFIG_DIR/config.yaml
+
+config_load_hysteria() {
+	config_load "hysteria"
+}
+
+yaml_quote() {
+	# Single-quote a YAML string value, escaping embedded single quotes
+	local val="$1"
+	val=$(echo "$val" | sed "s/'/''/g")
+	echo "'$val'"
+}
+
+_has_pppd_args=0
+
+emit_pppd_arg() {
+	if [ "$_has_pppd_args" = "0" ]; then
+		echo "  pppdArgs:" >> "$CONFIG_FILE"
+		_has_pppd_args=1
+	fi
+	echo "    - $(yaml_quote "$1")" >> "$CONFIG_FILE"
+}
+
+generate_config() {
+	local enabled config_file
+	local server auth
+	local tls_sni tls_insecure tls_pin_sha256 tls_ca
+	local transport_hop_interval
+	local bandwidth_up bandwidth_down
+	local obfs_type obfs_password
+	local fast_open lazy
+	local camouflage_enabled camouflage_secret camouflage_server_ip
+	local ppp_enabled ppp_mtu pppd_path data_streams
+
+	# Main section
+	config_get enabled main enabled "0"
+	[ "$enabled" = "1" ] || return 1
+
+	config_get config_file main config_file ""
+	if [ -n "$config_file" ]; then
+		# Use raw YAML file directly
+		ln -sf "$config_file" "$CONFIG_FILE"
+		return 0
+	fi
+
+	# Client section
+	config_get server client server ""
+	if [ -z "$server" ]; then
+		echo "hysteria: server address is required" >&2
+		return 1
+	fi
+	config_get auth client auth ""
+	config_get tls_sni client tls_sni ""
+	config_get_bool tls_insecure client tls_insecure 0
+	config_get tls_pin_sha256 client tls_pin_sha256 ""
+	config_get tls_ca client tls_ca ""
+	config_get transport_hop_interval client transport_hop_interval ""
+	config_get bandwidth_up client bandwidth_up ""
+	config_get bandwidth_down client bandwidth_down ""
+	config_get obfs_type client obfs_type ""
+	config_get obfs_password client obfs_password ""
+	config_get_bool fast_open client fast_open 0
+	config_get_bool lazy client lazy 0
+
+	# Camouflage section
+	config_get_bool camouflage_enabled camouflage enabled 0
+	config_get camouflage_secret camouflage secret ""
+	config_get camouflage_server_ip camouflage server_ip ""
+
+	# PPP section
+	config_get_bool ppp_enabled ppp enabled 1
+	config_get ppp_mtu ppp mtu ""
+	config_get pppd_path ppp pppd_path "/usr/sbin/pppd"
+	config_get data_streams ppp data_streams "0"
+
+	# Generate YAML
+	cat > "$CONFIG_FILE" <<-YAML
+server: $(yaml_quote "$server")
+YAML
+
+	[ -n "$auth" ] && echo "auth: $(yaml_quote "$auth")" >> "$CONFIG_FILE"
+
+	# TLS
+	if [ -n "$tls_sni" ] || [ "$tls_insecure" = "1" ] || [ -n "$tls_pin_sha256" ] || [ -n "$tls_ca" ]; then
+		echo "tls:" >> "$CONFIG_FILE"
+		[ -n "$tls_sni" ] && echo "  sni: $(yaml_quote "$tls_sni")" >> "$CONFIG_FILE"
+		[ "$tls_insecure" = "1" ] && echo "  insecure: true" >> "$CONFIG_FILE"
+		[ -n "$tls_pin_sha256" ] && echo "  pinSHA256: $(yaml_quote "$tls_pin_sha256")" >> "$CONFIG_FILE"
+		[ -n "$tls_ca" ] && echo "  ca: $(yaml_quote "$tls_ca")" >> "$CONFIG_FILE"
+	fi
+
+	# Transport
+	if [ -n "$transport_hop_interval" ]; then
+		cat >> "$CONFIG_FILE" <<-YAML
+transport:
+  type: udp
+  udp:
+    hopInterval: $(yaml_quote "$transport_hop_interval")
+YAML
+	fi
+
+	# Obfuscation
+	if [ -n "$obfs_type" ]; then
+		cat >> "$CONFIG_FILE" <<-YAML
+obfs:
+  type: $(yaml_quote "$obfs_type")
+  salamander:
+    password: $(yaml_quote "$obfs_password")
+YAML
+	fi
+
+	# Bandwidth
+	if [ -n "$bandwidth_up" ] || [ -n "$bandwidth_down" ]; then
+		echo "bandwidth:" >> "$CONFIG_FILE"
+		[ -n "$bandwidth_up" ] && echo "  up: $(yaml_quote "$bandwidth_up")" >> "$CONFIG_FILE"
+		[ -n "$bandwidth_down" ] && echo "  down: $(yaml_quote "$bandwidth_down")" >> "$CONFIG_FILE"
+	fi
+
+	# fastOpen / lazy
+	[ "$fast_open" = "1" ] && echo "fastOpen: true" >> "$CONFIG_FILE"
+	[ "$lazy" = "1" ] && echo "lazy: true" >> "$CONFIG_FILE"
+
+	# Camouflage
+	if [ "$camouflage_enabled" = "1" ] && [ -n "$camouflage_secret" ]; then
+		echo "camouflage:" >> "$CONFIG_FILE"
+		echo "  secret: $(yaml_quote "$camouflage_secret")" >> "$CONFIG_FILE"
+		[ -n "$camouflage_server_ip" ] && echo "  serverIP: $(yaml_quote "$camouflage_server_ip")" >> "$CONFIG_FILE"
+	fi
+
+	# PPP
+	if [ "$ppp_enabled" = "1" ]; then
+		echo "ppp:" >> "$CONFIG_FILE"
+		[ -n "$ppp_mtu" ] && [ "$ppp_mtu" != "0" ] && echo "  mtu: $ppp_mtu" >> "$CONFIG_FILE"
+		echo "  pppdPath: $(yaml_quote "$pppd_path")" >> "$CONFIG_FILE"
+		_has_pppd_args=0
+		config_list_foreach ppp pppd_args emit_pppd_arg
+		echo "  dataStreams: $data_streams" >> "$CONFIG_FILE"
+	fi
+
+	chmod 600 "$CONFIG_FILE"
+	return 0
+}
+
+start_service() {
+	config_load_hysteria
+
+	mkdir -p "$CONFIG_DIR"
+	chmod 700 "$CONFIG_DIR"
+
+	# Remove stale symlink or file
+	rm -f "$CONFIG_FILE"
+
+	generate_config || return 1
+
+	procd_open_instance hysteria
+	procd_set_param command "$PROG" client -c "$CONFIG_FILE"
+	procd_set_param respawn 3600 5 0
+	procd_set_param file /etc/config/hysteria
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+}
+
+stop_service() {
+	rm -f "$CONFIG_FILE"
+}
+
+reload_service() {
+	stop
+	start
+}
+
+service_triggers() {
+	procd_add_reload_trigger "hysteria"
+}

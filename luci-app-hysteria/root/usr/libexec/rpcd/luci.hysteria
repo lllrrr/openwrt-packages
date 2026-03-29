@@ -1,0 +1,27 @@
+#!/bin/sh
+
+case "$1" in
+	list)
+		echo '{"get_status":{},"get_log":{"lines":50}}'
+		;;
+	call)
+		case "$2" in
+			get_status)
+				PID=$(pgrep -f '/usr/bin/hysteria2-ppp')
+				if [ -n "$PID" ]; then
+					printf '{"running":true,"pid":%d}' "$PID"
+				else
+					echo '{"running":false,"pid":0}'
+				fi
+				;;
+			get_log)
+				LINES=$(jsonfilter -s "$(cat)" -e '$.lines' 2>/dev/null)
+				[ -z "$LINES" ] && LINES=50
+				LOG=$(logread -e hysteria 2>/dev/null | tail -n "$LINES" | \
+					sed 's/\\/\\\\/g;s/"/\\"/g' | \
+					awk '{printf "%s\\n", $0}')
+				printf '{"log":"%s"}' "$LOG"
+				;;
+		esac
+		;;
+esac

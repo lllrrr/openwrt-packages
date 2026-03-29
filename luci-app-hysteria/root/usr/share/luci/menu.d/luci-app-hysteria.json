@@ -1,0 +1,38 @@
+{
+	"admin/vpn/hysteria": {
+		"title": "Hysteria2",
+		"order": 80,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [
+				"luci-app-hysteria"
+			]
+		}
+	},
+	"admin/vpn/hysteria/general": {
+		"title": "General",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "hysteria/general"
+		}
+	},
+	"admin/vpn/hysteria/ppp": {
+		"title": "PPP",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "hysteria/ppp"
+		}
+	},
+	"admin/vpn/hysteria/status": {
+		"title": "Status",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "hysteria/status"
+		}
+	}
+}

@@ -1,0 +1,21 @@
+{
+	"luci-app-hysteria": {
+		"description": "Grant UCI and RPC access for Hysteria2 PPP VPN",
+		"read": {
+			"ubus": {
+				"luci.hysteria": [
+					"get_status",
+					"get_log"
+				]
+			},
+			"uci": [
+				"hysteria"
+			]
+		},
+		"write": {
+			"uci": [
+				"hysteria"
+			]
+		}
+	}
+}

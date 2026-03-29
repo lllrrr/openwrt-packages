@@ -1,0 +1,17 @@
+#!/bin/sh
+
+uci -q batch <<-EOF >/dev/null
+	set hysteria.main=hysteria
+	set hysteria.main.enabled='0'
+	set hysteria.main.config_file=''
+	set hysteria.client=client
+	set hysteria.camouflage=camouflage
+	set hysteria.camouflage.enabled='0'
+	set hysteria.ppp=ppp
+	set hysteria.ppp.enabled='1'
+	set hysteria.ppp.pppd_path='/usr/sbin/pppd'
+	set hysteria.ppp.data_streams='0'
+	commit hysteria
+EOF
+
+exit 0

@@ -1,0 +1,170 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+msgid "Hysteria2"
+msgstr ""
+
+msgid "Hysteria2 PPP VPN client configuration."
+msgstr ""
+
+msgid "Service"
+msgstr ""
+
+msgid "Enable"
+msgstr ""
+
+msgid "Custom config file"
+msgstr ""
+
+msgid "Path to a raw YAML config file. Leave empty to use the settings below."
+msgstr ""
+
+msgid "Server Connection"
+msgstr ""
+
+msgid "Server address"
+msgstr ""
+
+msgid "Authentication"
+msgstr ""
+
+msgid "Password for server authentication."
+msgstr ""
+
+msgid "TLS SNI"
+msgstr ""
+
+msgid "Server Name Indication. Auto-detected from server address if empty."
+msgstr ""
+
+msgid "Skip TLS verification"
+msgstr ""
+
+msgid "Disable certificate verification. Not recommended for production use."
+msgstr ""
+
+msgid "TLS certificate pin"
+msgstr ""
+
+msgid "SHA-256 hash of the server certificate for pinning."
+msgstr ""
+
+msgid "Custom CA certificate"
+msgstr ""
+
+msgid "Path to a custom CA certificate file."
+msgstr ""
+
+msgid "Upload bandwidth"
+msgstr ""
+
+msgid "Download bandwidth"
+msgstr ""
+
+msgid "Obfuscation type"
+msgstr ""
+
+msgid "None"
+msgstr ""
+
+msgid "Salamander"
+msgstr ""
+
+msgid "Obfuscation password"
+msgstr ""
+
+msgid "Port hopping interval"
+msgstr ""
+
+msgid "Interval for UDP port hopping. Leave empty to disable."
+msgstr ""
+
+msgid "Fast Open"
+msgstr ""
+
+msgid "Accept connections immediately without waiting for server acknowledgement."
+msgstr ""
+
+msgid "Lazy mode"
+msgstr ""
+
+msgid "Only connect to the server when data arrives."
+msgstr ""
+
+msgid "Camouflage"
+msgstr ""
+
+msgid "Enable camouflage"
+msgstr ""
+
+msgid "Obfuscate QUIC connection IDs using a pre-shared key."
+msgstr ""
+
+msgid "Pre-shared key"
+msgstr ""
+
+msgid "Base64-encoded pre-shared key for QUIC DCID generation."
+msgstr ""
+
+msgid "Server IP"
+msgstr ""
+
+msgid "Real server IP address for camouflage DCID generation."
+msgstr ""
+
+msgid "PPP Settings"
+msgstr ""
+
+msgid "PPP over Hysteria2 tunnel configuration."
+msgstr ""
+
+msgid "PPP Client"
+msgstr ""
+
+msgid "Enable PPP"
+msgstr ""
+
+msgid "MTU"
+msgstr ""
+
+msgid "Maximum transmission unit. Leave empty for auto-detection (range: 576-1500). Auto-detection accounts for QUIC, UDP, and obfuscation overhead."
+msgstr ""
+
+msgid "auto"
+msgstr ""
+
+msgid "pppd path"
+msgstr ""
+
+msgid "Path to the pppd executable."
+msgstr ""
+
+msgid "pppd arguments"
+msgstr ""
+
+msgid "Custom arguments for pppd. Leave empty to use hysteria defaults (nodetach, local, +ipv6, multilink, lcp-echo-interval 0). Only set if you need to override."
+msgstr ""
+
+msgid "Data streams"
+msgstr ""
+
+msgid "Number of parallel QUIC streams. 0 uses datagram mode (recommended for most setups). Values greater than 0 enable multilink mode with that many streams."
+msgstr ""
+
+msgid "Hysteria2 Status"
+msgstr ""
+
+msgid "Service status"
+msgstr ""
+
+msgid "Running"
+msgstr ""
+
+msgid "Stopped"
+msgstr ""
+
+msgid "PID"
+msgstr ""
+
+msgid "Log"
+msgstr ""
