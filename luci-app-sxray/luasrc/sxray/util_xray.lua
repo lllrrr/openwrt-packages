@@ -1086,6 +1086,21 @@ function gen_config(var)
 			end
 			if not tag then tag = node[".name"] end
 			if node then
+				-- Check for duplicate tag and auto-rename if needed
+				local original_tag = tag
+				local tag_suffix = 1
+				while true do
+					local tag_exists = false
+					for _, existing_outbound in ipairs(outbounds) do
+						if existing_outbound.tag == tag then
+							tag_exists = true
+							break
+						end
+					end
+					if not tag_exists then break end
+					tag = original_tag .. "_" .. tag_suffix
+					tag_suffix = tag_suffix + 1
+				end
 				if proxy_table.chain_proxy == "1" or proxy_table.chain_proxy == "2" then
 					node.chain_proxy = proxy_table.chain_proxy
 					node.preproxy_node = proxy_table.chain_proxy == "1" and proxy_table.preproxy_node

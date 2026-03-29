@@ -89,10 +89,19 @@ function detect_format(content)
 	return "unknown"
 end
 
-local function processData(szType, content, core_type)
+local function get_default_core_type()
+	if has_singbox then
+		return "sing-box"
+	elseif has_xray then
+		return "xray"
+	end
+	return nil
+end
+
+local function processData(szType, content)
 	local result = {
 		type = "outbound",
-		core_type = core_type
+		core_type = get_default_core_type()
 	}
 
 	if szType == 'ssr' then
@@ -122,9 +131,9 @@ local function processData(szType, content, core_type)
 
 	elseif szType == 'vmess' then
 		local info = jsonParse(content)
-		if core_type == "sing-box" and has_singbox then
+		if has_singbox then
 			result.core_type = 'sing-box'
-		elseif core_type == "xray" and has_xray then
+		elseif has_xray then
 			result.core_type = "xray"
 		else
 			return nil, "No suitable core available for VMess"
@@ -447,9 +456,9 @@ local function processData(szType, content, core_type)
 		end
 
 	elseif szType == "vless" then
-		if core_type == "sing-box" and has_singbox then
+		if has_singbox then
 			result.core_type = 'sing-box'
-		elseif core_type == "xray" and has_xray then
+		elseif has_xray then
 			result.core_type = "xray"
 		else
 			return nil, "No suitable core available for VLESS"
@@ -663,8 +672,9 @@ local function processData(szType, content, core_type)
 		result.hysteria2_tls_pinSHA256 = params.pinSHA256
 		result.hysteria2_hop = params.mport
 
-		if (core_type == "sing-box" and has_singbox) or (core_type == "xray" and has_xray) then
-			local is_singbox = core_type == "sing-box" and has_singbox
+		local default_core = get_default_core_type()
+		if (default_core == "sing-box" and has_singbox) or (default_core == "xray" and has_xray) then
+			local is_singbox = default_core == "sing-box" and has_singbox
 			result.core_type = is_singbox and 'sing-box' or 'xray'
 			result.protocol = "hysteria2"
 			if params["obfs-password"] or params["obfs_password"] then
@@ -753,7 +763,7 @@ local function processData(szType, content, core_type)
 	return result
 end
 
-local function parse_vmess_uri(uri, core_type)
+local function parse_vmess_uri(uri)
 	local content = uri:match("^vmess://(.+)$")
 	if not content then
 		return nil, "Invalid VMess URI"
@@ -769,66 +779,66 @@ local function parse_vmess_uri(uri, core_type)
 		return nil, "Invalid VMess JSON"
 	end
 
-	return processData('vmess', decoded, core_type)
+	return processData('vmess', decoded)
 end
 
-local function parse_vless_uri(uri, core_type)
+local function parse_vless_uri(uri)
 	local content = uri:match("^vless://(.+)$")
 	if not content then
 		return nil, "Invalid VLESS URI"
 	end
-	return processData('vless', content, core_type)
+	return processData('vless', content)
 end
 
-local function parse_ss_uri(uri, core_type)
+local function parse_ss_uri(uri)
 	local content = uri:match("^ss://(.+)$")
 	if not content then
 		return nil, "Invalid Shadowsocks URI"
 	end
-	return processData('ss', content, core_type)
+	return processData('ss', content)
 end
 
-local function parse_trojan_uri(uri, core_type)
+local function parse_trojan_uri(uri)
 	local content = uri:match("^trojan://(.+)$")
 	if not content then
 		return nil, "Invalid Trojan URI"
 	end
-	return processData('trojan', content, core_type)
+	return processData('trojan', content)
 end
 
-local function parse_hysteria_uri(uri, core_type)
+local function parse_hysteria_uri(uri)
 	local content = uri:match("^hysteria://(.+)$")
 	if not content then
 		return nil, "Invalid Hysteria URI"
 	end
-	return processData('hysteria', content, core_type)
+	return processData('hysteria', content)
 end
 
-local function parse_hysteria2_uri(uri, core_type)
+local function parse_hysteria2_uri(uri)
 	local content = uri:match("^hy2://(.+)$") or uri:match("^hysteria2://(.+)$")
 	if not content then
 		return nil, "Invalid Hysteria2 URI"
 	end
-	return processData('hysteria2', content, core_type)
+	return processData('hysteria2', content)
 end
 
-local function parse_tuic_uri(uri, core_type)
+local function parse_tuic_uri(uri)
 	local content = uri:match("^tuic://(.+)$")
 	if not content then
 		return nil, "Invalid TUIC URI"
 	end
-	return processData('tuic', content, core_type)
+	return processData('tuic', content)
 end
 
-local function parse_ssr_uri(uri, core_type)
+local function parse_ssr_uri(uri)
 	local content = uri:match("^ssr://(.+)$")
 	if not content then
 		return nil, "Invalid ShadowsocksR URI"
 	end
-	return processData('ssr', content, core_type)
+	return processData('ssr', content)
 end
 
-local function parse_uri_list(content, core_type)
+local function parse_uri_list(content)
 	local outbounds = {}
 	local errors = {}
 
@@ -838,21 +848,21 @@ local function parse_uri_list(content, core_type)
 			local result, err
 
 			if line:find("^vmess://") then
-				result, err = parse_vmess_uri(line, core_type)
+				result, err = parse_vmess_uri(line)
 			elseif line:find("^vless://") then
-				result, err = parse_vless_uri(line, core_type)
+				result, err = parse_vless_uri(line)
 			elseif line:find("^trojan://") then
-				result, err = parse_trojan_uri(line, core_type)
+				result, err = parse_trojan_uri(line)
 			elseif line:find("^ss://") then
-				result, err = parse_ss_uri(line, core_type)
+				result, err = parse_ss_uri(line)
 			elseif line:find("^ssr://") then
-				result, err = parse_ssr_uri(line, core_type)
+				result, err = parse_ssr_uri(line)
 			elseif line:find("^hysteria://") then
-				result, err = parse_hysteria_uri(line, core_type)
+				result, err = parse_hysteria_uri(line)
 			elseif line:find("^hysteria2://") or line:find("^hy2://") then
-				result, err = parse_hysteria2_uri(line, core_type)
+				result, err = parse_hysteria2_uri(line)
 			elseif line:find("^tuic://") then
-				result, err = parse_tuic_uri(line, core_type)
+				result, err = parse_tuic_uri(line)
 			end
 
 			if result then
@@ -869,7 +879,7 @@ local function parse_uri_list(content, core_type)
 	}
 end
 
-local function parse_xray_json(content, core_type)
+local function parse_xray_json(content)
 	local ok, data = pcall(jsonc.parse, content)
 	if not ok or not data then
 		return nil, "Invalid JSON format"
@@ -912,7 +922,7 @@ local function parse_xray_json(content, core_type)
 	return result
 end
 
-local function parse_singbox_json(content, core_type)
+local function parse_singbox_json(content)
 	local ok, data = pcall(jsonc.parse, content)
 	if not ok or not data then
 		return nil, "Invalid JSON format"
@@ -952,7 +962,7 @@ local function parse_singbox_json(content, core_type)
 	return result
 end
 
-function parse_config(content, format, core_type)
+function parse_config(content, format)
 	content = trim(content)
 	if not content or content == "" then
 		return nil, "Empty content"
@@ -967,13 +977,13 @@ function parse_config(content, format, core_type)
 	end
 
 	if format == "uri_list" then
-		return parse_uri_list(content, core_type)
+		return parse_uri_list(content)
 	elseif format == "xray_json" then
-		return parse_xray_json(content, core_type)
+		return parse_xray_json(content)
 	elseif format == "singbox_json" then
-		return parse_singbox_json(content, core_type)
+		return parse_singbox_json(content)
 	elseif format == "vmess_qr" then
-		return parse_uri_list(content, core_type)
+		return parse_uri_list(content)
 	end
 
 	return nil, "Unsupported format: " .. format
@@ -993,11 +1003,11 @@ function save_config(data)
 			uci:set(appname, section, "protocol", outbound.protocol or "")
 			uci:set(appname, section, "alias", outbound.alias or "Unnamed")
 
-			if outbound.core_type then
-				uci:set(appname, "main", "core_type", outbound.core_type)
-			end
-
 			local protocol = outbound.protocol
+
+			if outbound.core_type then
+				uci:set(appname, section, "core_type", outbound.core_type)
+			end
 
 			if protocol == "vmess" then
 				if outbound.address then uci:set(appname, section, "s_vmess_address", outbound.address) end

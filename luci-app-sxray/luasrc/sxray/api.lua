@@ -23,10 +23,15 @@ TMP_IFACE_PATH = TMP_PATH .. "/iface"
 
 function log(...)
 	local result = os.date("%Y-%m-%d %H:%M:%S: ") .. table.concat({...}, " ")
-	local f, err = io.open(LOG_FILE, "a")
-	if f and err == nil then
-		f:write(result .. "\n")
-		f:close()
+	local f = io.open(LOG_FILE, "a")
+	if f then
+		local ok, err = pcall(function()
+			f:write(result .. "\n")
+			f:close()
+		end)
+		if not ok then
+			io.stderr:write("log: failed to write: " .. tostring(err) .. "\n")
+		end
 	end
 end
 
@@ -346,8 +351,15 @@ function strToTable(str)
 	if str == nil or type(str) ~= "string" then
 		return {}
 	end
-
-	return loadstring("return " .. str)()
+	local func, err = loadstring("return " .. str)
+	if not func then
+		return {}
+	end
+	local ok, result = pcall(func)
+	if not ok then
+		return {}
+	end
+	return result or {}
 end
 
 function is_normal_node(e)

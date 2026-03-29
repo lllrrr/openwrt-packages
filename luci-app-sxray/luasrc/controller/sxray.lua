@@ -257,7 +257,6 @@ end
 function action_import_parse()
 	local content = http.formvalue("content")
 	local format = http.formvalue("format") or "auto"
-	local core_type = uci:get("sxray", "main", "core_type") or "xray"
 
 	local result = {
 		success = false,
@@ -278,7 +277,7 @@ function action_import_parse()
 		format = import_util.detect_format(content)
 	end
 
-	local parse_result, err_msg = import_util.parse_config(content, format, core_type)
+	local parse_result, err_msg = import_util.parse_config(content, format)
 
 	if parse_result then
 		result.success = true

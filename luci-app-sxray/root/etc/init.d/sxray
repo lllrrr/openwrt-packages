@@ -54,6 +54,174 @@ TRANSPARENT_PROXY_ADDITION=
 
 DNSMASQ_RESTART_EXPECTED=0
 
+GEO_DB_DIR=/usr/share/sxray
+GEO_SRS_DIR=/usr/share/sxray
+GEO_SINGBOX_CONFIG_DIR=/var/etc/sxray_singbox
+
+convert_geo_to_srs() {
+	local geo_type="$1"
+	local db_file="$2"
+	local category="$3"
+	local output_file="$4"
+
+	local singbox_bin="$(which sing-box 2>/dev/null)"
+	if [ -z "$singbox_bin" ] || [ ! -x "$singbox_bin" ] ; then
+		_err "sing-box not found, cannot convert $db_file"
+		return 1
+	fi
+
+	local db_dir="$(dirname "$db_file")"
+	local temp_srs="${output_file}.tmp"
+
+	local main_db_file=""
+	case "$geo_type" in
+		geosite)
+			main_db_file="$db_dir/geosite.db"
+			;;
+		geoip)
+			main_db_file="$db_file"
+			;;
+		*)
+			_err "Unknown geo type: $geo_type"
+			return 1
+			;;
+	esac
+
+	if [ ! -f "$main_db_file" ] ; then
+		_err "Main database file not found: $main_db_file"
+		return 1
+	fi
+
+	case "$geo_type" in
+		geosite)
+			"$singbox_bin" geosite export -f "$main_db_file" "$category" -o "$temp_srs" 2>/dev/null
+			;;
+		geoip)
+			"$singbox_bin" geoip export -f "$main_db_file" "$category" -o "$temp_srs" 2>/dev/null
+			;;
+	esac
+
+	if [ -f "$temp_srs" ] && [ -s "$temp_srs" ] ; then
+		mv -f "$temp_srs" "$output_file"
+		_info "Converted $geo_type-$category: $main_db_file -> $output_file"
+		return 0
+	else
+		rm -f "$temp_srs"
+		_err "Failed to convert $geo_type-$category from $main_db_file"
+		return 1
+	fi
+}
+
+detect_srs_format() {
+	local srs_file="$1"
+
+	if [ ! -f "$srs_file" ] || [ ! -s "$srs_file" ] ; then
+		echo "binary"
+		return
+	fi
+
+	local first_byte=$(head -c 1 "$srs_file" | od -An -tx1 | tr -d ' ')
+	case "$first_byte" in
+		7f)
+			echo "binary"
+			;;
+		*)
+			echo "source"
+			;;
+	esac
+}
+
+batch_convert_geo_files() {
+	local geo_type="$1"
+	local db_dir="${2:-$GEO_DB_DIR}"
+	local srs_dir="${3:-$GEO_SRS_DIR}"
+
+	local db_pattern=""
+	local prefix=""
+	case "$geo_type" in
+		geosite)
+			db_pattern="geosite-*.db"
+			prefix="geosite"
+			;;
+		geoip)
+			db_pattern="geoip-*.db"
+			prefix="geoip"
+			;;
+		*)
+			_err "Unknown geo type: $geo_type"
+			return 1
+			;;
+	esac
+
+	local main_db=""
+	case "$geo_type" in
+		geosite)
+			main_db="$db_dir/geosite.db"
+			;;
+		geoip)
+			main_db="$db_dir/geoip.db"
+			;;
+	esac
+
+	if [ ! -f "$main_db" ] ; then
+		_info "Main $geo_type database not found: $main_db"
+		return 1
+	fi
+
+	if [ ! -d "$srs_dir" ] ; then
+		mkdir -p "$srs_dir" 2>/dev/null || {
+			_err "Cannot create srs directory: $srs_dir"
+			return 1
+		}
+	fi
+
+	local converted=0
+	local failed=0
+
+	if [ ! -d "$db_dir" ] ; then
+		_err "Database directory not found: $db_dir"
+		return 1
+	fi
+
+	if [ ! -d "$srs_dir" ] ; then
+		mkdir -p "$srs_dir" 2>/dev/null || {
+			_err "Cannot create srs directory: $srs_dir"
+			return 1
+		}
+	fi
+
+	_info "Scanning for $geo_type .db files in: $db_dir"
+	local db_files=$(find "$db_dir" -maxdepth 1 -name "$db_pattern" -type f 2>/dev/null)
+	[ -z "$db_files" ] && _info "No $geo_type .db files found" && return 0
+
+	for db_file in $db_files ; do
+		local basename="$(basename "$db_file")"
+		local category="${basename#${prefix}-}"
+		category="${category%.db}"
+
+		[ -z "$category" ] && continue
+
+		local srs_file="$srs_dir/${prefix}-${category}.srs"
+
+		_info "Found $basename, category: $category"
+
+		if [ -f "$srs_file" ] && [ -s "$srs_file" ] ; then
+			_info "$geo_type-$category.srs already exists, skipping"
+			continue
+		fi
+
+		if convert_geo_to_srs "$geo_type" "$db_file" "$category" "$srs_file" ; then
+			converted=$((converted + 1))
+		else
+			failed=$((failed + 1))
+		fi
+	done
+
+	_info "Batch conversion complete: $converted succeeded, $failed failed"
+	[ $failed -gt 0 ] && return 1
+	return 0
+}
+
 if [ -r /usr/share/libubox/jshn.sh ] ; then
 	. /usr/share/libubox/jshn.sh
 elif [ -r /lib/functions/jshn.sh ] ; then
@@ -85,31 +253,9 @@ _info() {
 verify_geosite_db() {
 	local geoip_dir="${1}"
 	local result=0
-	local srs_path="/tmp/etc/sxray_tmp/singbox_srss"
 
 	if [ -f "${geoip_dir}/geosite.db" ]; then
 		_info "geosite.db found at: ${geoip_dir}/geosite.db"
-		if command -v geoview >/dev/null 2>&1; then
-			local output=$(geoview -type geosite -action list -input "${geoip_dir}/geosite.db" 2>/dev/null)
-			if [ -n "$output" ]; then
-				_info "geosite.db integrity verified successfully"
-				local cn_count=$(echo "$output" | grep -c "^cn$" || true)
-				if [ "$cn_count" -gt 0 ]; then
-					_info "geosite.db contains 'cn' category"
-				fi
-			else
-				_err "geosite.db integrity check failed"
-				result=1
-			fi
-		else
-			_info "geoview not found, skipping integrity verification for geosite.db"
-		fi
-		if [ -d "$srs_path" ]; then
-			local srs_count=$(ls -1 "$srs_path"/geosite-*.srs 2>/dev/null | wc -l)
-			if [ "$srs_count" -gt 0 ]; then
-				_info "Found $srs_count geosite .srs files generated from .db files"
-			fi
-		fi
 	else
 		_info "geosite.db not found at: ${geoip_dir}/geosite.db"
 		result=1
@@ -117,20 +263,6 @@ verify_geosite_db() {
 
 	if [ -f "${geoip_dir}/geosite-cn.db" ]; then
 		_info "geosite-cn.db found at: ${geoip_dir}/geosite-cn.db"
-		if command -v geoview >/dev/null 2>&1; then
-			local output=$(geoview -type geosite -action list -input "${geoip_dir}/geosite-cn.db" 2>/dev/null)
-			if [ -n "$output" ]; then
-				_info "geosite-cn.db integrity verified successfully"
-				if [ -d "$srs_path" ] && [ -f "$srs_path/geosite-cn-cn.srs" ]; then
-					_info "geosite-cn.srs successfully generated from geosite-cn.db"
-				fi
-			else
-				_err "geosite-cn.db integrity check failed"
-				result=1
-			fi
-		else
-			_info "geoview not found, skipping integrity verification for geosite-cn.db"
-		fi
 	else
 		_info "geosite-cn.db not found at: ${geoip_dir}/geosite-cn.db"
 		result=1
@@ -141,6 +273,19 @@ verify_geosite_db() {
 
 _err() {
 	_log "err" $@
+}
+
+get_geoip_dir() {
+	local geoip_dir=""
+	if [ -d /usr/share/sxray ] ; then
+		geoip_dir="/usr/share/sxray"
+	elif [ -d /root/usr/share/sxray ] ; then
+		geoip_dir="/root/usr/share/sxray"
+	else
+		geoip_dir=$(uci -q get sxray.@global_rules[0].v2ray_location_asset 2>/dev/null)
+		[ -z "$geoip_dir" ] && geoip_dir="/usr/share/v2ray/"
+	fi
+	echo "${geoip_dir%/}"
 }
 
 set_core_type() {
@@ -1210,13 +1355,29 @@ add_routing_settings() {
 	local all_geosite_tags=""
 
 	if [ -n "$rules" ] ; then
-		local geoip_dir
-		geoip_dir=$(uci -q get sxray.@global_rules[0].v2ray_location_asset 2>/dev/null || echo "/usr/share/v2ray/")
-		geoip_dir="${geoip_dir%/}"
+		geoip_dir=$(get_geoip_dir)
 
 		local rs
 		for rs in $rules ; do
 			if routing_rule_section_validate "$rs" ; then
+				if [ -n "$domain" ] ; then
+					local d
+					for d in $domain ; do
+						case "$d" in
+							geosite:*)
+								local geosite_name="${d#geosite:}"
+								if [ -f "$geoip_dir/geosite-$geosite_name.db" ] || [ -f "$geoip_dir/geosite-$geosite_name.srs" ] ; then
+									case " $all_geosite_tags " in
+										*" $geosite_name "*) ;;
+										*) all_geosite_tags="${all_geosite_tags}${all_geosite_tags:+ }$geosite_name" ;;
+									esac
+								else
+									_info "geosite-$geosite_name files not found, skipping geosite:$geosite_name in routing rules"
+								fi
+								;;
+						esac
+					done
+				fi
 				if [ -n "$ip" ] ; then
 					local i
 					for i in $ip ; do
@@ -1230,13 +1391,38 @@ add_routing_settings() {
 								;;
 							geosite:*)
 								local geosite_name="${i#geosite:}"
-								if [ -f "$geoip_dir/geosite-$geosite_name.srs" ] ; then
+								if [ -f "$geoip_dir/geosite-$geosite_name.db" ] || [ -f "$geoip_dir/geosite-$geosite_name.srs" ] ; then
 									case " $all_geosite_tags " in
 										*" $geosite_name "*) ;;
 										*) all_geosite_tags="${all_geosite_tags}${all_geosite_tags:+ }$geosite_name" ;;
 									esac
 								else
-									_info "geosite-$geosite_name.srs not found, skipping geosite:$geosite_name in routing rules"
+									_info "geosite-$geosite_name files not found, skipping geosite:$geosite_name in routing rules"
+								fi
+								;;
+						esac
+					done
+				fi
+				if [ -n "$rule_set" ] ; then
+					local r
+					for r in $rule_set ; do
+						case "$r" in
+							geoip-*)
+								local geoip_name="${r#geoip-}"
+								case " $all_geoip_tags " in
+									*" $geoip_name "*) ;;
+									*) all_geoip_tags="${all_geoip_tags}${all_geoip_tags:+ }$geoip_name" ;;
+								esac
+								;;
+							geosite-*)
+								local geosite_name="${r#geosite-}"
+								if [ -f "$geoip_dir/geosite-$geosite_name.db" ] || [ -f "$geoip_dir/geosite-$geosite_name.srs" ] ; then
+									case " $all_geosite_tags " in
+										*" $geosite_name "*) ;;
+										*) all_geosite_tags="${all_geosite_tags}${all_geosite_tags:+ }$geosite_name" ;;
+									esac
+								else
+									_info "geosite-$geosite_name files not found, skipping $r in routing rules"
 								fi
 								;;
 						esac
@@ -1280,50 +1466,100 @@ add_routing_settings() {
 		fi
 
 		local geoip_dir
-		geoip_dir=$(uci -q get sxray.@global_rules[0].v2ray_location_asset 2>/dev/null || echo "/usr/share/v2ray/")
-		geoip_dir="${geoip_dir%/}"
+		geoip_dir=$(get_geoip_dir)
 
 		local g
 		for g in $all_geoip_tags ; do
 			case "$g" in
 				private) ;;
 				cn)
-					json_add_object ""
-					json_add_string "tag" "geoip-cn"
-					json_add_string "type" "inline"
-					json_add_array "rules"
-					json_add_object ""
-					json_add_string "ip_cidr" "1.0.1.0/24"
-					json_close_object
-					json_add_object ""
-					json_add_string "ip_cidr" "1.0.8.0/21"
-					json_close_object
-					json_add_object ""
-					json_add_string "ip_cidr" "1.0.32.0/19"
-					json_close_object
-					json_add_object ""
-					json_add_string "ip_cidr" "1.68.0.0/14"
-					json_close_object
-					json_add_object ""
-					json_add_string "ip_cidr" "1.72.0.0/13"
-					json_close_object
-					json_add_object ""
-					json_add_string "ip_cidr" "36.0.0.0/9"
-					json_close_object
-					json_add_object ""
-					json_add_string "ip_cidr" "42.0.0.0/7"
-					json_close_object
-					json_close_array
-					json_close_object
+					if [ -f "$geoip_dir/geoip-cn.srs" ] ; then
+						local srs_format="$(detect_srs_format "$geoip_dir/geoip-cn.srs")"
+						json_add_object ""
+						json_add_string "tag" "geoip-cn"
+						json_add_string "type" "local"
+						json_add_string "format" "$srs_format"
+						json_add_string "path" "$geoip_dir/geoip-cn.srs"
+						json_close_object
+					elif [ -f "$geoip_dir/geoip-cn.db" ] ; then
+						local singbox_bin="$(which sing-box 2>/dev/null)"
+						if [ -n "$singbox_bin" ] && [ -x "$singbox_bin" ] ; then
+							local srs_file="$geoip_dir/geoip-cn.srs"
+							"$singbox_bin" geoip export -f "$geoip_dir/geoip.db" "cn" -o "$srs_file" 2>/dev/null
+							if [ -f "$srs_file" ] ; then
+								local srs_format="$(detect_srs_format "$srs_file")"
+								json_add_object ""
+								json_add_string "tag" "geoip-cn"
+								json_add_string "type" "local"
+								json_add_string "format" "$srs_format"
+								json_add_string "path" "$srs_file"
+								json_close_object
+							else
+								_err "Failed to convert geoip-cn to .srs format, skipping"
+							fi
+						else
+							_err "sing-box not found, cannot convert geoip-cn"
+						fi
+					else
+						json_add_object ""
+						json_add_string "tag" "geoip-cn"
+						json_add_string "type" "inline"
+						json_add_array "rules"
+						json_add_object ""
+						json_add_string "ip_cidr" "1.0.1.0/24"
+						json_close_object
+						json_add_object ""
+						json_add_string "ip_cidr" "1.0.8.0/21"
+						json_close_object
+						json_add_object ""
+						json_add_string "ip_cidr" "1.0.32.0/19"
+						json_close_object
+						json_add_object ""
+						json_add_string "ip_cidr" "1.68.0.0/14"
+						json_close_object
+						json_add_object ""
+						json_add_string "ip_cidr" "1.72.0.0/13"
+						json_close_object
+						json_add_object ""
+						json_add_string "ip_cidr" "36.0.0.0/9"
+						json_close_object
+						json_add_object ""
+						json_add_string "ip_cidr" "42.0.0.0/7"
+						json_close_object
+						json_close_array
+						json_close_object
+					fi
 					;;
 				*)
 					if [ -f "$geoip_dir/geoip-$g.srs" ] ; then
+						local srs_format="$(detect_srs_format "$geoip_dir/geoip-$g.srs")"
 						json_add_object ""
 						json_add_string "tag" "geoip-$g"
 						json_add_string "type" "local"
-						json_add_string "format" "source"
+						json_add_string "format" "$srs_format"
 						json_add_string "path" "$geoip_dir/geoip-$g.srs"
 						json_close_object
+					elif [ -f "$geoip_dir/geoip-$g.db" ] ; then
+						local singbox_bin="$(which sing-box 2>/dev/null)"
+						if [ -n "$singbox_bin" ] && [ -x "$singbox_bin" ] ; then
+							local srs_file="$geoip_dir/geoip-$g.srs"
+							_info "Converting geoip-$g.db to .srs format using sing-box..."
+							"$singbox_bin" geoip export -f "$geoip_dir/geoip.db" "$g" -o "$srs_file" 2>/dev/null
+							if [ -f "$srs_file" ] ; then
+								local srs_format="$(detect_srs_format "$srs_file")"
+								_info "Successfully converted geoip-$g.db to .srs format (format: $srs_format)"
+								json_add_object ""
+								json_add_string "tag" "geoip-$g"
+								json_add_string "type" "local"
+								json_add_string "format" "$srs_format"
+								json_add_string "path" "$srs_file"
+								json_close_object
+							else
+								_err "Failed to convert geoip-$g.db to .srs format, skipping"
+							fi
+						else
+							_err "sing-box not found, cannot use .db file for geoip-$g, please install sing-box or use .srs file"
+						fi
 					fi
 					;;
 			esac
@@ -1331,12 +1567,34 @@ add_routing_settings() {
 
 		for g in $all_geosite_tags ; do
 			if [ -f "$geoip_dir/geosite-$g.srs" ] ; then
+				local srs_format="$(detect_srs_format "$geoip_dir/geosite-$g.srs")"
 				json_add_object ""
 				json_add_string "tag" "geosite-$g"
 				json_add_string "type" "local"
-				json_add_string "format" "source"
+				json_add_string "format" "$srs_format"
 				json_add_string "path" "$geoip_dir/geosite-$g.srs"
 				json_close_object
+			elif [ -f "$geoip_dir/geosite-$g.db" ] ; then
+				local singbox_bin="$(which sing-box 2>/dev/null)"
+				if [ -n "$singbox_bin" ] && [ -x "$singbox_bin" ] ; then
+					local srs_file="$geoip_dir/geosite-$g.srs"
+					_info "Converting geosite-$g.db to .srs format using sing-box..."
+					"$singbox_bin" geosite export -f "$geoip_dir/geosite.db" "$g" -o "$srs_file" 2>/dev/null
+					if [ -f "$srs_file" ] ; then
+						local srs_format="$(detect_srs_format "$srs_file")"
+						_info "Successfully converted geosite-$g.db to .srs format (format: $srs_format)"
+						json_add_object ""
+						json_add_string "tag" "geosite-$g"
+						json_add_string "type" "local"
+						json_add_string "format" "$srs_format"
+						json_add_string "path" "$srs_file"
+						json_close_object
+					else
+						_err "Failed to convert geosite-$g.db to .srs format, skipping"
+					fi
+				else
+					_err "sing-box not found, cannot use .db file for geosite-$g, please install sing-box or use .srs file"
+				fi
 			fi
 		done
 
@@ -1354,12 +1612,27 @@ add_routing_settings() {
 		fi
 
 		local geoip_dir
-		geoip_dir=$(uci -q get sxray.@global_rules[0].v2ray_location_asset 2>/dev/null || echo "/usr/share/v2ray/")
-		geoip_dir="${geoip_dir%/}"
+		geoip_dir=$(get_geoip_dir)
 
 		local rs
 		for rs in $rules ; do
 			if routing_rule_section_validate "$rs" ; then
+				local has_condition=""
+				test -n "$domain" && has_condition=1
+				test -n "$ip" && has_condition=1
+				test -n "$port" && has_condition=1
+				test -n "$network" && has_condition=1
+				test -n "$source" && has_condition=1
+				test -n "$user" && has_condition=1
+				test -n "$inbound_tag" && has_condition=1
+				test -n "$protocol" && has_condition=1
+				test -n "$rule_set" && has_condition=1
+				test -n "$attrs" && has_condition=1
+				if [ -z "$has_condition" ] ; then
+					_info "Skipping routing rule $rs: no match condition"
+					continue
+				fi
+
 				json_add_object ""
 
 				# sing-box 新格式不需要 type 字段
@@ -1377,10 +1650,10 @@ add_routing_settings() {
 							case "$d" in
 								geosite:*)
 									local geosite_name="${d#geosite:}"
-									if [ -f "$geoip_dir/geosite-$geosite_name.srs" ] ; then
+									if [ -f "$geoip_dir/geosite-$geosite_name.db" ] || [ -f "$geoip_dir/geosite-$geosite_name.srs" ] ; then
 										all_rule_set="${all_rule_set}${all_rule_set:+ }geosite-$geosite_name"
 									else
-										_info "geosite-$geosite_name.srs not found, skipping in domain rule"
+										_info "geosite-$geosite_name files not found, skipping in domain rule"
 									fi
 									;;
 								*)
@@ -1421,10 +1694,10 @@ add_routing_settings() {
 									;;
 								geosite:*)
 									local geosite_name="${i#geosite:}"
-									if [ -f "$geoip_dir/geosite-$geosite_name.srs" ] ; then
+									if [ -f "$geoip_dir/geosite-$geosite_name.db" ] || [ -f "$geoip_dir/geosite-$geosite_name.srs" ] ; then
 										all_rule_set="${all_rule_set}${all_rule_set:+ }geosite-$geosite_name"
 									else
-										_info "geosite-$geosite_name.srs not found, skipping in ip rule"
+										_info "geosite-$geosite_name files not found, skipping in ip rule"
 									fi
 									;;
 								*)
@@ -3300,8 +3573,7 @@ start_instance() {
 	# 验证geosite数据库文件完整性（仅对sing-box核心）
 	if [ "x$core_type" = "xsing-box" ] ; then
 		local geoip_dir
-		geoip_dir=$(uci -q get sxray.@global_rules[0].v2ray_location_asset 2>/dev/null || echo "/usr/share/v2ray/")
-		geoip_dir="${geoip_dir%/}"
+		geoip_dir=$(get_geoip_dir)
 		if [ -d "$geoip_dir" ] ; then
 			_info "Verifying geosite database files for sing-box core..."
 			verify_geosite_db "$geoip_dir"
@@ -3463,10 +3735,74 @@ stop_service() {
 	test -d "$CONFIG_FOLDER_SING_BOX" && rm -rf "$CONFIG_FOLDER_SING_BOX"
 }
 
-EXTRA_COMMANDS="xray singbox generate"
+EXTRA_COMMANDS="xray singbox generate convert"
 EXTRA_HELP="	xray		Manage xray core only
 	singbox		Manage sing-box core only
-	generate	Generate configuration files"
+	generate	Generate configuration files
+	convert		Convert .db files to .srs format"
+
+convert() {
+	local cmd="$1"
+	shift
+
+	local geo_type="${1:-geosite}"
+	local db_dir="${2:-$GEO_DB_DIR}"
+	local srs_dir="${3:-$GEO_SRS_DIR}"
+
+	case "$cmd" in
+		"geosite")
+			_info "Converting geosite files: $db_dir -> $srs_dir"
+			batch_convert_geo_files "geosite" "$db_dir" "$srs_dir"
+			;;
+		"geoip")
+			_info "Converting geoip files: $db_dir -> $srs_dir"
+			batch_convert_geo_files "geoip" "$db_dir" "$srs_dir"
+			;;
+		"all")
+			_info "Converting all geo files: $db_dir -> $srs_dir"
+			batch_convert_geo_files "geosite" "$db_dir" "$srs_dir"
+			batch_convert_geo_files "geoip" "$db_dir" "$srs_dir"
+			;;
+		"list")
+			local singbox_bin="$(which sing-box 2>/dev/null)"
+			if [ -z "$singbox_bin" ] || [ ! -x "$singbox_bin" ] ; then
+				_err "sing-box not found"
+				return 1
+			fi
+			echo "=== Geosite categories ==="
+			"$singbox_bin" geosite list -f "$db_dir/geosite.db" 2>/dev/null || _err "Failed to list geosite categories"
+			echo ""
+			echo "=== Geoip categories ==="
+			"$singbox_bin" geoip list -f "$db_dir/geoip.db" 2>/dev/null || _err "Failed to list geoip categories"
+			echo ""
+			echo "=== Existing .srs files ==="
+			ls -lh "$srs_dir"/*.srs 2>/dev/null || echo "No .srs files found"
+			;;
+		"verify")
+			_info "Verifying .srs files in: $srs_dir"
+			local count=$(ls -1 "$srs_dir"/*.srs 2>/dev/null | wc -l)
+			if [ "$count" -gt 0 ] ; then
+				_info "Found $count .srs files"
+				ls -lh "$srs_dir"/*.srs 2>/dev/null
+			else
+				_err "No .srs files found in $srs_dir"
+			fi
+			;;
+		*)
+			_info "Usage: convert <geosite|geoip|all|list|verify> [db_dir] [srs_dir]"
+			_info "  Default db_dir: $GEO_DB_DIR"
+			_info "  Default srs_dir: $GEO_SRS_DIR"
+			_info ""
+			_info "Examples:"
+			_info "  convert list"
+			_info "  convert geosite"
+			_info "  convert all"
+			_info "  convert verify"
+			_info "  convert geosite /custom/db/path /custom/srs/path"
+			return 1
+			;;
+	esac
+}
 
 generate() {
 	local cmd="$1"
