@@ -1,3 +1,27 @@
+# 改名公告
+#### 2021年04月25日 起luci-app-serverchand 改名为 luci-app-pushbot
+
+如需拉取编译
+请把：
+
+`# git clone https://github.com/zzsj0928/luci-app-serverchand package/luci-app-serverchand`
+
+改为
+
+`git clone https://github.com/zzsj0928/luci-app-pushbot package/luci-app-pushbot`
+
+并把 .config 中
+
+`CONFIG_PACKAGE_luci-app-serverchand=y`
+
+改为
+
+`CONFIG_PACKAGE_luci-app-pushbot=y`
+
+注意：本次改名需要提前备份serverchand配置，并于PushBot中重新配置。
+
+再次谢谢各位支持
+
 # 申明
 - 本插件由[tty228/luci-app-serverchan](https://github.com/tty228/luci-app-serverchan)原创.
 - 因微信推送存在诸多弊端（无法分开聊天工具与功能性消息推送，通知内不显示内容，内容需要点开才能查看等）,
@@ -47,7 +71,6 @@
 - 无人值守任务
 
 #### 说明
-- 本插件依赖 bash，请确保系统已安装 bash
 - 潘多拉系统、或不支持 sh 的系统，请将脚本开头 `#!/bin/sh` 改为 `#!/bin/bash`，或手动安装 `sh`
 - 追新是没有意义的，没有问题没必要更新，上班事情忙完了，摸鱼又不会摸，只能靠写几行 bug ，才能缓解无聊这样子
 
