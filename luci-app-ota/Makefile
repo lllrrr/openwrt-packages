@@ -1,20 +1,15 @@
-# Copyright (C) 2020 Lienol <lawlienol@gmail.com>
-#
+# See /LICENSE for more information.
 # This is free software, licensed under the GNU General Public License v3.
-#
 
 include $(TOPDIR)/rules.mk
 
-PKG_NAME:=luci-app-socat
-PKG_VERSION:=1.1
-PKG_RELEASE:=1
-
-PKG_MAINTAINER:=Lienol <lawlienol@gmail.com> \
-		sbwml <admin@cooluc.com>
-
-LUCI_TITLE:=LuCI support for Socat
-LUCI_DEPENDS:=+socat
+LUCI_TITLE:=LuCI support for OTA upgrade
 LUCI_PKGARCH:=all
+LUCI_DEPENDS:=+otahelper +jsonfilter
+PKG_VERSION:=1.3
+PKG_RELEASE:=1
+PKG_MAINTAINER:=jjm2473 <jjm2473@gmail.com> \
+		sbwml <admin@cooluc.com>
 
 include $(TOPDIR)/feeds/luci/luci.mk
 
