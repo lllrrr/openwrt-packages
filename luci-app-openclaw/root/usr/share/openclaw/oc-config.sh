@@ -578,6 +578,14 @@ show_current_config() {
 	echo -e "${GREEN}├──────────────────────────────────────────────────────────┤${NC}"
 	echo -e "${GREEN}│${NC}  ${BOLD}渠道配置状态${NC}"
 
+	# 检测微信渠道
+	local wechat_ext_dir="${OC_STATE_DIR}/extensions/openclaw-weixin"
+	if [ -d "$wechat_ext_dir" ] && [ -f "${wechat_ext_dir}/openclaw.plugin.json" ]; then
+		echo -e "${GREEN}│${NC}  微信 .............. ${GREEN}✅ 已配置${NC}"
+	else
+		echo -e "${GREEN}│${NC}  微信 .............. ${YELLOW}❌ 未配置${NC}"
+	fi
+
 	local tg_token=$(json_get channels.telegram.botToken)
 	local dc_token=$(json_get channels.discord.botToken)
 	local fs_appid=$(json_get channels.feishu.appId)
@@ -1910,8 +1918,10 @@ configure_channels() {
 		echo ""
 		echo -e "  ${BOLD}📡 配置消息渠道${NC}"
 		echo ""
-		echo -e "  ${CYAN}1)${NC} QQ 机器人  ${GREEN}(腾讯QQ，推荐国内用户)${NC}"
-		echo -e "  ${CYAN}2)${NC} Telegram  ${GREEN}(最常用，推荐)${NC}"
+		echo -e "  ${CYAN}提示: 微信配置请使用 LuCI 界面「微信配置」菜单${NC}"
+		echo ""
+		echo -e "  ${CYAN}1)${NC} QQ 机器人  ${GREEN}(腾讯QQ)${NC}"
+		echo -e "  ${CYAN}2)${NC} Telegram  ${GREEN}(最常用)${NC}"
 		echo -e "  ${CYAN}3)${NC} Discord"
 		echo -e "  ${CYAN}4)${NC} 飞书 (Feishu)"
 		echo -e "  ${CYAN}5)${NC} Slack"
