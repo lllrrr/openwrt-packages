@@ -110,22 +110,26 @@ end
 
 function action_version()
 	local core_type = uci:get("sxray", "main", "core_type") or "xray"
-	local file
-	if core_type == "xray" then
-		file = uci:get("sxray", "main", "xray_file") or ""
-	else
-		file = uci:get("sxray", "main", "sing_box_file") or ""
-	end
+	local xray_file = uci:get("sxray", "main", "xray_file") or ""
+	local sing_box_file = uci:get("sxray", "main", "sing_box_file") or ""
 
-	local info
+	local result = {}
 
+	result.xray = get_core_version_info(xray_file, "xray")
+	result.sing_box = get_core_version_info(sing_box_file, "sing-box")
+
+	http.prepare_content("application/json")
+	http.write_json(result)
+end
+
+function get_core_version_info(file, core_type)
 	if file == "" then
-		info = {
+		return {
 			valid = false,
 			message = i18n.translate("Core file path is empty")
 		}
 	elseif not fs.stat(file) then
-		info = {
+		return {
 			valid = false,
 			message = i18n.translate("Core file not found")
 		}
@@ -146,25 +150,22 @@ function action_version()
 			cmd = "%s version 2>&1" % file
 			version = util.trim(sys.exec(cmd))
 			if version ~= "" then
-				version = version:match("sing%-box (%S+)") or version:match("version (%S+)") or version
+				version = version:match("sing%-box version (%S+)") or version:match("version (%S+)") or version
 			end
 		end
 
 		if version and version ~= "" and not version:find("error", 1, true) and not version:find("fatal", 1, true) then
-			info = {
+			return {
 				valid = true,
 				version = version
 			}
 		else
-			info = {
+			return {
 				valid = false,
 				message = i18n.translate("Can't get core version")
 			}
 		end
 	end
-
-	http.prepare_content("application/json")
-	http.write_json(info)
 end
 
 function action_check_version()
@@ -200,7 +201,7 @@ function action_check_version()
 			cmd = "%s version 2>&1" % file
 			version = util.trim(sys.exec(cmd))
 			if version ~= "" then
-				version = version:match("sing%-box (%S+)") or version:match("version (%S+)") or version
+				version = version:match("sing%-box version (%S+)") or version:match("version (%S+)") or version
 			end
 		end
 
