@@ -20,7 +20,8 @@
     "noFallthroughCasesInSwitch": true,
     "jsx": "react",
     "jsxFactory": "createJsxElement",
-    "jsxFragmentFactory": "createJsxElement.Fragment"
+    "jsxFragmentFactory": "createJsxElement.Fragment",
+    "types": ["@lazulikao/luci-types"]
   },
   "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules", "dist"]

@@ -14,6 +14,9 @@ importers:
       '@dotenvx/dotenvx':
         specifier: ^1.59.1
         version: 1.59.1
+      '@lazulikao/luci-types':
+        specifier: github:LazuliKao/luci-types
+        version: https://codeload.github.com/LazuliKao/luci-types/tar.gz/10641f2c916c59a4faa8a75dbd83afce8487f27e
       '@rsbuild/core':
         specifier: ^1.7.5
         version: 1.7.5
@@ -269,6 +272,10 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@lazulikao/luci-types@https://codeload.github.com/LazuliKao/luci-types/tar.gz/10641f2c916c59a4faa8a75dbd83afce8487f27e':
+    resolution: {tarball: https://codeload.github.com/LazuliKao/luci-types/tar.gz/10641f2c916c59a4faa8a75dbd83afce8487f27e}
+    version: 0.1.0
 
   '@module-federation/error-codes@0.22.0':
     resolution: {integrity: sha512-xF9SjnEy7vTdx+xekjPCV5cIHOGCkdn3pIxo9vU7gEZMIw0SvAEdsy6Uh17xaCpm8V0FWvR0SZoK9Ik6jGOaug==}
@@ -718,6 +725,8 @@ snapshots:
 
   '@esbuild/win32-x64@0.27.2':
     optional: true
+
+  '@lazulikao/luci-types@https://codeload.github.com/LazuliKao/luci-types/tar.gz/10641f2c916c59a4faa8a75dbd83afce8487f27e': {}
 
   '@module-federation/error-codes@0.22.0': {}
 
