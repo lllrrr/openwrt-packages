@@ -7,7 +7,7 @@ PKG_RELEASE:=1
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/LazuliKao/portweaver.git
 PKG_SOURCE_VERSION:=HEAD
-PKG_MIRROR_HASH:=8e5d0f6c5ee0d6720080ce59f054d3f50a30f4d02a6ffaf658a8c4e4ecbb620c
+PKG_MIRROR_HASH:=622bdbb706fabf3cfdce7167ec9b4348da9ab1e019ddea725733a0488a9d7f05
 
 PKG_LICENSE:=GPL-3.0
 PKG_LICENSE_FILES:=LICENSE
@@ -73,7 +73,6 @@ endef
 define Package/portweaver/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/bin/portweaver $(1)/usr/bin/portweaver
-	$(INSTALL_BIN) ./files/log-processor.sh $(1)/usr/bin/portweaver-log-processor
 
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_DATA) ./files/portweaver.config $(1)/etc/config/portweaver

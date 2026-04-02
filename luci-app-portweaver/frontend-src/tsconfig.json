@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
-    "target": "es5",
-    "module": "es2022",
+    "target": "es6",
+    "module": "node16",
     "lib": ["ES2024", "DOM"],
     "outDir": "./dist",
     "rootDir": "./",
@@ -9,7 +9,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "moduleResolution": "node",
+    "moduleResolution": "node16",
     "resolveJsonModule": true,
     "declaration": true,
     "declarationMap": true,

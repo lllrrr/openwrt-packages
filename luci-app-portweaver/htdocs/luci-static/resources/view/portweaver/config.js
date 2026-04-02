@@ -6,7 +6,7 @@
 
 // UNUSED EXPORTS: main
 
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@swc+helpers@0.5.18/node_modules/@swc/helpers/esm/_define_property.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@swc+helpers@0.5.20/node_modules/@swc/helpers/esm/_define_property.js
 function _define_property(obj, key, value) {
     if (key in obj) {
         Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true });
@@ -16,7 +16,7 @@ function _define_property(obj, key, value) {
 }
 
 
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@swc+helpers@0.5.18/node_modules/@swc/helpers/esm/_object_spread.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@swc+helpers@0.5.20/node_modules/@swc/helpers/esm/_object_spread.js
 
 
 function _object_spread(target) {
@@ -41,7 +41,7 @@ function _object_spread(target) {
 }
 
 
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@swc+helpers@0.5.18/node_modules/@swc/helpers/esm/_object_spread_props.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@swc+helpers@0.5.20/node_modules/@swc/helpers/esm/_object_spread_props.js
 function _object_spread_props_ownKeys(object, enumerableOnly) {
     var keys = Object.keys(object);
 
@@ -71,79 +71,113 @@ function _object_spread_props(target, source) {
 }
 
 
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@swc+helpers@0.5.20/node_modules/@swc/helpers/esm/_object_without_properties_loose.js
+function _object_without_properties_loose(source, excluded) {
+    if (source == null) return {};
+
+    var target = {}, sourceKeys = Object.getOwnPropertyNames(source), key, i;
+    for (i = 0; i < sourceKeys.length; i++) {
+        key = sourceKeys[i];
+        if (excluded.indexOf(key) >= 0) continue;
+        if (!Object.prototype.propertyIsEnumerable.call(source, key)) continue;
+        target[key] = source[key];
+    }
+
+    return target;
+}
+
+
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@swc+helpers@0.5.20/node_modules/@swc/helpers/esm/_object_without_properties.js
+
+
+function _object_without_properties(source, excluded) {
+    if (source == null) return {};
+
+    var target = {}, sourceKeys, key, i;
+    if (typeof Reflect !== "undefined" && Reflect.ownKeys) {
+        sourceKeys = Reflect.ownKeys(Object(source));
+        for (i = 0; i < sourceKeys.length; i++) {
+            key = sourceKeys[i];
+            if (excluded.indexOf(key) >= 0) continue;
+            if (!Object.prototype.propertyIsEnumerable.call(source, key)) continue;
+            target[key] = source[key];
+        }
+
+        return target;
+    }
+
+    target = _object_without_properties_loose(source, excluded);
+    if (Object.getOwnPropertySymbols) {
+        sourceKeys = Object.getOwnPropertySymbols(source);
+        for (i = 0; i < sourceKeys.length; i++) {
+            key = sourceKeys[i];
+            if (excluded.indexOf(key) >= 0) continue;
+            if (!Object.prototype.propertyIsEnumerable.call(source, key)) continue;
+            target[key] = source[key];
+        }
+    }
+
+    return target;
+}
+
+
+
 ;// CONCATENATED MODULE: ./utils/jsx-factory.ts
 
 
-const JSXFragment = Symbol.for("jsx.fragment");
-function normalizeChildren(input) {
-    let out = arguments.length > 1 && arguments[1] !== void 0 ? arguments[1] : [];
-    for (const child of input){
-        if (child == null || typeof child === "boolean") continue;
-        if (Array.isArray(child)) normalizeChildren(child, out);
-        else out.push(child);
+
+const Fragment = Symbol.for("jsx.fragment");
+function jsx_factory_o(o, n) {
+    let s = n || {}, { children: l } = s, f = _object_without_properties(s, [
+        "children"
+    ]), i = function e(t) {
+        let r = arguments.length > 1 && void 0 !== arguments[1] ? arguments[1] : [];
+        for (let o of t)null != o && "boolean" != typeof o && (Array.isArray(o) ? e(o, r) : r.push(o));
+        return r;
+    }(null == l ? [] : Array.isArray(l) ? l : [
+        l
+    ]);
+    if (o === Fragment) {
+        let e = document.createDocumentFragment();
+        return e.append(...i), e;
     }
-    return out;
-}
-function jsx_factory_createJsxElement(tag, props) {
-    for(var _len = arguments.length, children = new Array(_len > 2 ? _len - 2 : 0), _key = 2; _key < _len; _key++){
-        children[_key - 2] = arguments[_key];
-    }
-    const filteredChildren = normalizeChildren(children);
-    if (tag === JSXFragment) {
-        const fragment = document.createDocumentFragment();
-        fragment.append(...filteredChildren);
-        return fragment;
-    }
-    if (typeof tag === "function") return tag(_object_spread_props(_object_spread({}, props), {
-        children: filteredChildren
+    if ("function" == typeof o) return o(_object_spread_props(_object_spread({}, f), {
+        children: i
     }));
-    if (props) {
-        const eventHandlers = {};
-        for (const [key, value] of Object.entries(props)){
-            if (key.startsWith("on") && typeof value === "function") {
-                eventHandlers[key] = value;
-                delete props[key];
-            } else if (typeof value === "boolean") {
-                if (value) props[key] = key;
-                else delete props[key];
-            }
-        }
-        const element = props === null || Object.keys(props).length === 0 ? filteredChildren.length > 1 ? E(tag, {}, filteredChildren) : E(tag, {}, filteredChildren[0]) : filteredChildren.length > 1 ? E(tag, props, filteredChildren) : E(tag, props, filteredChildren[0]);
-        for (const [eventName, handler] of Object.entries(eventHandlers)){
-            const eventType = eventName.slice(2).toLowerCase();
-            element.addEventListener(eventType, handler);
-        }
-        return element;
+    let c = {}, p = _object_spread({}, f);
+    for (let [e, t] of Object.entries(p))e.startsWith("on") && "function" == typeof t ? (c[e] = t, delete p[e]) : "boolean" == typeof t && (t ? p[e] = e : delete p[e]);
+    let a = Object.keys(p).length > 0 ? i.length > 1 ? E(o, p, i) : E(o, p, i[0]) : i.length > 1 ? E(o, {}, i) : E(o, {}, i[0]);
+    for (let [e, t] of Object.entries(c)){
+        let r = e.slice(2).toLowerCase();
+        a.addEventListener(r, t);
     }
-    if (props === null) props = {};
-    if (filteredChildren.length > 1) return E(tag, props, filteredChildren);
-    else return E(tag, props, filteredChildren[0]);
+    return a;
 }
-jsx_factory_createJsxElement.Fragment = JSXFragment;
-globalThis.createJsxElement = jsx_factory_createJsxElement;
+function jsx(e, t) {
+    return jsx_factory_o(e, t);
+}
+function jsxs(e, t) {
+    return jsx_factory_o(e, t);
+}
+function jsxDEV(e, t) {
+    return jsx_factory_o(e, t);
+}
+
+;// CONCATENATED MODULE: ./utils/jsx-factory/jsx-runtime.ts
+
 
 ;// CONCATENATED MODULE: ./utils/formatters.ts
 function formatBytes() {
-    let bytes = arguments.length > 0 && arguments[0] !== void 0 ? arguments[0] : 0;
-    if (bytes < 1024) return "".concat(bytes, " B");
-    if (bytes < 1048576) return "".concat((bytes / 1024).toFixed(2), " KiB");
-    if (bytes < 1073741824) return "".concat((bytes / 1048576).toFixed(2), " MiB");
-    return "".concat((bytes / 1073741824).toFixed(2), " GiB");
+    let o = arguments.length > 0 && void 0 !== arguments[0] ? arguments[0] : 0;
+    return o < 1024 ? "".concat(o, " B") : o < 1048576 ? "".concat((o / 1024).toFixed(2), " KiB") : o < 1073741824 ? "".concat((o / 1048576).toFixed(2), " MiB") : "".concat((o / 1073741824).toFixed(2), " GiB");
 }
 function formatUptime() {
-    let seconds = arguments.length > 0 && arguments[0] !== void 0 ? arguments[0] : 0;
-    const days = Math.floor(seconds / 86400);
-    const hours = Math.floor(seconds % 86400 / 3600);
-    const mins = Math.floor(seconds % 3600 / 60);
-    const sec = seconds % 60;
-    if (days > 0) return "".concat(days, "d ").concat(hours, "h");
-    if (hours > 0) return "".concat(hours, "h ").concat(mins, "m");
-    return "".concat(mins, "m").concat(sec, "s");
+    let o = arguments.length > 0 && void 0 !== arguments[0] ? arguments[0] : 0, t = Math.floor(o / 86400), n = Math.floor(o % 86400 / 3600), e = Math.floor(o % 3600 / 60);
+    return t > 0 ? "".concat(t, "d ").concat(n, "h") : n > 0 ? "".concat(n, "h ").concat(e, "m") : "".concat(e, "m").concat(o % 60, "s");
 }
-function getErrorMessage(error_code) {
-    if (error_code === undefined || error_code === 0) return null;
-    const messages = {
-        "0": _("OK"),
+function getErrorMessage(o) {
+    return void 0 === o || 0 === o ? null : ({
+        0: _("OK"),
         "-1": _("Memory allocation failed"),
         "-2": _("Failed to bind to port"),
         "-3": _("Address or port already in use (EADDRINUSE)"),
@@ -160,147 +194,113 @@ function getErrorMessage(error_code) {
         "-99": _("Cannot assign requested address"),
         "-100": _("Network is down"),
         "-101": _("Network is unreachable")
-    };
-    return messages[String(error_code)] || "Unknown error (code: ".concat(error_code, ")");
+    })[String(o)] || "Unknown error (code: ".concat(o, ")");
 }
-function translateStatus(str) {
-    if (!str) return str;
-    if (str === "running") return _("Running");
-    if (str === "stopped") return _("Stopped");
-    if (str === "degraded") return _("Degraded");
-    if (str === "failed") return _("Failed");
-    if (str === "error") return _("Error");
-    if (str === "unknown") return _("Unknown");
-    return str;
+function translateStatus(o) {
+    return o ? "running" === o ? _("Running") : "stopped" === o ? _("Stopped") : "degraded" === o ? _("Degraded") : "failed" === o ? _("Failed") : "error" === o ? _("Error") : "unknown" === o ? _("Unknown") : o : o;
 }
 
 ;// CONCATENATED MODULE: ./utils/rpc-client.ts
-function createRpcClient(rpc) {
-    const listProjects = rpc.declare({
+function createRpcClient(e) {
+    let t = e.declare({
         object: "portweaver",
         method: "list_projects"
-    });
-    const setEnabled = rpc.declare({
+    }), r = e.declare({
         object: "portweaver",
         method: "set_enabled",
         params: [
             "id",
             "enabled"
         ]
-    });
-    const getFrpcInfo = rpc.declare({
+    }), a = e.declare({
         object: "portweaver",
         method: "get_frpc_info",
         params: [
             "id"
         ]
-    });
-    const clearFrpcLogs = rpc.declare({
+    }), o = e.declare({
         object: "portweaver",
         method: "clear_frpc_logs",
         params: [
             "id"
         ]
-    });
-    const getFrpcProxyStats = rpc.declare({
+    }), c = e.declare({
         object: "portweaver",
         method: "get_frpc_proxy_stats",
         params: [
             "id"
         ]
-    });
-    const getDdnsStatus = rpc.declare({
+    }), d = e.declare({
         object: "portweaver",
         method: "get_ddns_status"
-    });
-    const getDdnsInfo = rpc.declare({
+    }), p = e.declare({
         object: "portweaver",
         method: "get_ddns_info",
         params: [
             "name"
         ]
-    });
-    const clearDdnsLogs = rpc.declare({
+    }), s = e.declare({
         object: "portweaver",
         method: "clear_ddns_logs",
         params: [
             "name"
         ]
-    });
-    const getFrpsInfo = rpc.declare({
+    }), l = e.declare({
         object: "portweaver",
         method: "get_frps_info",
         params: [
             "id"
         ]
-    });
-    const clearFrpsLogs = rpc.declare({
+    }), _ = e.declare({
         object: "portweaver",
         method: "clear_frps_logs",
         params: [
             "id"
         ]
     });
-    const getFrpsProxyStats = rpc.declare({
-        object: "portweaver",
-        method: "get_frps_proxy_stats",
-        params: [
-            "id"
-        ]
-    });
-    const getFullStatus = rpc.declare({
-        object: "portweaver",
-        method: "get_full_status"
-    });
     return {
-        listProjects,
-        setEnabled,
-        getFrpcInfo,
-        getFrpcProxyStats,
-        clearFrpcLogs,
-        getDdnsStatus,
-        getDdnsInfo,
-        clearDdnsLogs,
-        getFrpsInfo,
-        clearFrpsLogs,
-        getFrpsProxyStats,
-        getFullStatus
+        listProjects: t,
+        setEnabled: r,
+        getFrpcInfo: a,
+        getFrpcProxyStats: c,
+        clearFrpcLogs: o,
+        getDdnsStatus: d,
+        getDdnsInfo: p,
+        clearDdnsLogs: s,
+        getFrpsInfo: l,
+        clearFrpsLogs: _,
+        getFrpsProxyStats: e.declare({
+            object: "portweaver",
+            method: "get_frps_proxy_stats",
+            params: [
+                "id"
+            ]
+        }),
+        getFullStatus: e.declare({
+            object: "portweaver",
+            method: "get_full_status"
+        })
     };
 }
 const rpcClient = createRpcClient(L.rpc);
 
 ;// CONCATENATED MODULE: ./utils/theme-utils.ts
-/**
- * Detects the current theme (dark/light mode) based on body background color
- * and returns appropriate color values for UI elements.
- *
- * This function analyzes the computed background color of the document body
- * to determine if the current theme is dark or light, then returns suitable
- * colors for selection backgrounds and line numbers that work well with
- * the detected theme.
- *
- * @returns {ThemeColors} Object containing theme information and color values
- */ function getThemeColors() {
+function getThemeColors() {
     try {
-        const bodyBg = getComputedStyle(document.body).backgroundColor;
-        const match = bodyBg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-        if (match) {
-            const r = parseInt(match[1], 10);
-            const g = parseInt(match[2], 10);
-            const b = parseInt(match[3], 10);
-            const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-            const isDark = luminance < 128;
+        let e = getComputedStyle(document.body).backgroundColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (e) {
+            let t = parseInt(e[1], 10), o = parseInt(e[2], 10), r = parseInt(e[3], 10), n = 0.299 * t + 0.587 * o + 0.114 * r < 128;
             return {
-                isDark,
-                selectionBg: isDark ? "rgba(66, 165, 245, 0.2)" : "#e3f2fd",
-                lineNumberColor: isDark ? "#aaa" : "#999"
+                isDark: n,
+                selectionBg: n ? "rgba(66, 165, 245, 0.2)" : "#e3f2fd",
+                lineNumberColor: n ? "#aaa" : "#999"
             };
         }
-    } catch (_e) {
+    } catch (e) {
         console.warn("Failed to detect theme, using light mode defaults");
     }
     return {
-        isDark: false,
+        isDark: !1,
         selectionBg: "#e3f2fd",
         lineNumberColor: "#999"
     };
@@ -311,449 +311,383 @@ const rpcClient = createRpcClient(L.rpc);
 
 
 
+
+
+
 class Client {
-    applyFullStatus(fullStatus) {
-        var _ref;
-        var _fullStatus_ddns, _fullStatus_ddns1, _fullStatus_ddns2, _fullStatus_frp, _fullStatus_frp1;
-        if (!fullStatus) return;
-        this.globalStatus = {
-            status: fullStatus.status,
-            total_projects: fullStatus.total_projects,
-            active_ports: fullStatus.active_ports,
-            uptime: fullStatus.uptime,
-            total_bytes_in: fullStatus.total_bytes_in,
-            total_bytes_out: fullStatus.total_bytes_out
-        };
-        this.projectStatuses = (fullStatus.projects || []).map((project)=>({
-                enabled: project.enabled,
-                status: project.status,
-                startup_status: project.startup_status,
-                error_code: project.error_code,
-                active_ports: project.active_ports,
-                bytes_in: project.bytes_in,
-                bytes_out: project.bytes_out,
-                forwarders: project.forwarders
-            }));
-        this.frpStatus = this.buildFrpStatus(fullStatus);
-        this.ddnsGlobalStatus = {
-            ddns_enabled: !!((_fullStatus_ddns = fullStatus.ddns) === null || _fullStatus_ddns === void 0 ? void 0 : _fullStatus_ddns.enabled),
-            ddns_version: (_ref = (_fullStatus_ddns1 = fullStatus.ddns) === null || _fullStatus_ddns1 === void 0 ? void 0 : _fullStatus_ddns1.version) !== null && _ref !== void 0 ? _ref : null
-        };
-        this.ddnsInstances = ((_fullStatus_ddns2 = fullStatus.ddns) === null || _fullStatus_ddns2 === void 0 ? void 0 : _fullStatus_ddns2.instances) || [];
-        this.frpClientNodes = ((_fullStatus_frp = fullStatus.frp) === null || _fullStatus_frp === void 0 ? void 0 : _fullStatus_frp.clients) || [];
-        this.frpServerNodes = ((_fullStatus_frp1 = fullStatus.frp) === null || _fullStatus_frp1 === void 0 ? void 0 : _fullStatus_frp1.servers) || [];
-        this.events = fullStatus.events || [];
+    applyFullStatus(t) {
+        var e, s, l, n, r, a;
+        t && (this.globalStatus = {
+            status: t.status,
+            total_projects: t.total_projects,
+            active_ports: t.active_ports,
+            uptime: t.uptime,
+            total_bytes_in: t.total_bytes_in,
+            total_bytes_out: t.total_bytes_out
+        }, this.projectStatuses = (t.projects || []).map((t)=>({
+                enabled: t.enabled,
+                status: t.status,
+                startup_status: t.startup_status,
+                error_code: t.error_code,
+                active_ports: t.active_ports,
+                bytes_in: t.bytes_in,
+                bytes_out: t.bytes_out,
+                forwarders: t.forwarders
+            })), this.frpStatus = this.buildFrpStatus(t), this.ddnsGlobalStatus = {
+            ddns_enabled: !!(null == (s = t.ddns) ? void 0 : s.enabled),
+            ddns_version: null != (e = null == (l = t.ddns) ? void 0 : l.version) ? e : null
+        }, this.ddnsInstances = (null == (n = t.ddns) ? void 0 : n.instances) || [], this.frpClientNodes = (null == (r = t.frp) ? void 0 : r.clients) || [], this.frpServerNodes = (null == (a = t.frp) ? void 0 : a.servers) || [], this.events = t.events || []);
     }
-    applyProjectList(projects) {
-        if (!projects || projects.length === 0) return;
-        const merged = projects.map((project, index)=>{
-            var _ref, _project_enabled, _ref1, _project_status, _project_startup_status, _project_error_code, _project_active_ports, _project_bytes_in, _project_bytes_out, _project_forwarders;
-            const existing = this.projectStatuses[index];
+    applyProjectList(t) {
+        if (!t || 0 === t.length) return;
+        let e = t.map((t, e)=>{
+            var s, l, n, r, a, i, o, d, c, u;
+            let p = this.projectStatuses[e];
             return {
-                enabled: (_ref = (_project_enabled = project.enabled) !== null && _project_enabled !== void 0 ? _project_enabled : existing === null || existing === void 0 ? void 0 : existing.enabled) !== null && _ref !== void 0 ? _ref : false,
-                status: (_ref1 = (_project_status = project.status) !== null && _project_status !== void 0 ? _project_status : existing === null || existing === void 0 ? void 0 : existing.status) !== null && _ref1 !== void 0 ? _ref1 : "unknown",
-                startup_status: (_project_startup_status = project.startup_status) !== null && _project_startup_status !== void 0 ? _project_startup_status : existing === null || existing === void 0 ? void 0 : existing.startup_status,
-                error_code: (_project_error_code = project.error_code) !== null && _project_error_code !== void 0 ? _project_error_code : existing === null || existing === void 0 ? void 0 : existing.error_code,
-                active_ports: (_project_active_ports = project.active_ports) !== null && _project_active_ports !== void 0 ? _project_active_ports : existing === null || existing === void 0 ? void 0 : existing.active_ports,
-                bytes_in: (_project_bytes_in = project.bytes_in) !== null && _project_bytes_in !== void 0 ? _project_bytes_in : existing === null || existing === void 0 ? void 0 : existing.bytes_in,
-                bytes_out: (_project_bytes_out = project.bytes_out) !== null && _project_bytes_out !== void 0 ? _project_bytes_out : existing === null || existing === void 0 ? void 0 : existing.bytes_out,
-                forwarders: (_project_forwarders = project.forwarders) !== null && _project_forwarders !== void 0 ? _project_forwarders : existing === null || existing === void 0 ? void 0 : existing.forwarders
+                enabled: null != (s = null != (l = t.enabled) ? l : null == p ? void 0 : p.enabled) && s,
+                status: null != (n = null != (r = t.status) ? r : null == p ? void 0 : p.status) ? n : "unknown",
+                startup_status: null != (a = t.startup_status) ? a : null == p ? void 0 : p.startup_status,
+                error_code: null != (i = t.error_code) ? i : null == p ? void 0 : p.error_code,
+                active_ports: null != (o = t.active_ports) ? o : null == p ? void 0 : p.active_ports,
+                bytes_in: null != (d = t.bytes_in) ? d : null == p ? void 0 : p.bytes_in,
+                bytes_out: null != (c = t.bytes_out) ? c : null == p ? void 0 : p.bytes_out,
+                forwarders: null != (u = t.forwarders) ? u : null == p ? void 0 : p.forwarders
             };
         });
-        if (merged.length > 0) this.projectStatuses = merged;
+        e.length > 0 && (this.projectStatuses = e);
     }
-    buildFrpStatus(fullStatus) {
-        const frp = fullStatus.frp;
-        const frpEnabled = !!(frp === null || frp === void 0 ? void 0 : frp.enabled);
-        const frpVersion = frp === null || frp === void 0 ? void 0 : frp.version;
-        const frpcNodes = (frp === null || frp === void 0 ? void 0 : frp.clients) || [];
-        const frpsNodes = (frp === null || frp === void 0 ? void 0 : frp.servers) || [];
-        const frpcClientCount = frpcNodes.reduce((total, node)=>total + (node.client_count || 0), 0);
-        const frpsClientCount = frpsNodes.reduce((total, node)=>total + (node.client_count || 0), 0);
-        const frpsProxyCount = frpsNodes.reduce((total, node)=>total + (node.proxy_count || 0), 0);
-        const frpsServerCount = frpsNodes.reduce((total, node)=>total + (node.server_count || 0), 0);
-        const frpcStatus = {
-            enabled: frpEnabled,
-            status: this.aggregateFrpStatus(frpcNodes.map((node)=>node.status)),
-            last_error: this.pickFirstError(frpcNodes.map((node)=>node.last_error)),
-            client_count: frpcClientCount
-        };
-        const frpsStatus = {
-            enabled: frpEnabled,
-            status: this.aggregateFrpStatus(frpsNodes.map((node)=>node.status)),
-            last_error: this.pickFirstError(frpsNodes.map((node)=>node.last_error)),
-            client_count: frpsClientCount,
-            proxy_count: frpsProxyCount,
-            server_count: frpsServerCount
+    buildFrpStatus(t) {
+        let e = t.frp, s = !!(null == e ? void 0 : e.enabled), l = null == e ? void 0 : e.version, n = (null == e ? void 0 : e.clients) || [], r = (null == e ? void 0 : e.servers) || [], a = n.reduce((t, e)=>t + (e.client_count || 0), 0), i = r.reduce((t, e)=>t + (e.client_count || 0), 0), o = r.reduce((t, e)=>t + (e.proxy_count || 0), 0), d = r.reduce((t, e)=>t + (e.server_count || 0), 0), c = {
+            enabled: s,
+            status: this.aggregateFrpStatus(n.map((t)=>t.status)),
+            last_error: this.pickFirstError(n.map((t)=>t.last_error)),
+            client_count: a
+        }, u = {
+            enabled: s,
+            status: this.aggregateFrpStatus(r.map((t)=>t.status)),
+            last_error: this.pickFirstError(r.map((t)=>t.last_error)),
+            client_count: i,
+            proxy_count: o,
+            server_count: d
         };
         return {
-            frp_enabled: frpEnabled,
-            frp_version: frpVersion,
-            frpc: frpcStatus,
-            frps: frpsStatus
+            frp_enabled: s,
+            frp_version: l,
+            frpc: c,
+            frps: u
         };
     }
-    aggregateFrpStatus(statuses) {
-        const normalized = statuses.filter(Boolean);
-        if (normalized.some((status)=>status === "error")) return "error";
-        if (normalized.some((status)=>status === "connected" || status === "running")) return "running";
-        if (normalized.some((status)=>status === "connecting")) return "running";
-        return normalized.length > 0 ? "stopped" : "stopped";
+    aggregateFrpStatus(t) {
+        let e = t.filter(Boolean);
+        return e.some((t)=>"error" === t) ? "error" : e.some((t)=>"connected" === t || "running" === t) || e.some((t)=>"connecting" === t) ? "running" : (e.length, "stopped");
     }
-    pickFirstError(errors) {
-        return errors.find((error)=>!!error) || undefined;
+    pickFirstError(t) {
+        return t.find((t)=>!!t) || void 0;
     }
-    getProjectIndex(section_id) {
-        const sections = L.uci.sections("portweaver", "project");
-        for(let i = 0; i < sections.length; i++){
-            if (sections[i][".name"] === section_id) return i;
-        }
+    getProjectIndex(t) {
+        let e = L.uci.sections("portweaver", "project");
+        for(let s = 0; s < e.length; s++)if (e[s][".name"] === t) return s;
         return -1;
     }
-    getProjectStatus(section_id) {
-        const idx = this.getProjectIndex(section_id);
-        return idx >= 0 && this.projectStatuses && this.projectStatuses[idx] ? this.projectStatuses[idx] : null;
+    getProjectStatus(t) {
+        let e = this.getProjectIndex(t);
+        return e >= 0 && this.projectStatuses && this.projectStatuses[e] ? this.projectStatuses[e] : null;
     }
-    renderStatusElements(status, _section_id) {
-        if (!status) return [
-            /*#__PURE__*/ createJsxElement("span", {
-                style: "color: gray;"
-            }, _("N/A"))
+    renderStatusElements(t, n) {
+        if (!t) return [
+            jsx("span", {
+                style: "color: gray;",
+                children: _("N/A")
+            })
         ];
-        const startupFailed = status.startup_status === "failed";
-        const statusColor = status.status === "running" && !startupFailed ? "green" : "#dc3545";
-        let errorMessage = null;
-        if (startupFailed && status.error_code !== undefined && status.error_code !== 0) errorMessage = getErrorMessage(status.error_code);
-        const statusBadgeAttrs = {
+        let a = "failed" === t.startup_status, d = "running" !== t.status || a ? "#dc3545" : "green", c = null;
+        a && void 0 !== t.error_code && 0 !== t.error_code && (c = getErrorMessage(t.error_code));
+        let u = {
             class: "ifacebadge",
             style: ""
         };
-        if (errorMessage) {
-            statusBadgeAttrs.title = errorMessage;
-            statusBadgeAttrs.style += " cursor: help;";
-        }
-        const statusElements = [
-            /*#__PURE__*/ createJsxElement("div", null, /*#__PURE__*/ createJsxElement("span", statusBadgeAttrs, /*#__PURE__*/ createJsxElement("strong", {
-                style: "font-size: 1em; font-weight: 600; color: ".concat(statusColor, ";")
-            }, translateStatus(startupFailed ? "failed" : status.status || "unknown"))))
+        c && (u.title = c, u.style += " cursor: help;");
+        let p = [
+            jsx("div", {
+                children: jsx("span", _object_spread_props(_object_spread({}, u), {
+                    children: jsx("strong", {
+                        style: "font-size: 1em; font-weight: 600; color: ".concat(d, ";"),
+                        children: translateStatus(a ? "failed" : t.status || "unknown")
+                    })
+                }))
+            })
         ];
-        if (errorMessage && status.status !== "stopped") statusElements.push(/*#__PURE__*/ createJsxElement("small", {
-            style: "color: #dc3545; margin-top: 0.3em;"
-        }, "\u26A0 ".concat(errorMessage)));
+        if (c && "stopped" !== t.status) p.push(jsx("small", {
+            style: "color: #dc3545; margin-top: 0.3em;",
+            children: "\u26A0 ".concat(c)
+        }));
         else {
-            const elements = [];
-            if ((status.active_ports || 0) > 0) elements.push(/*#__PURE__*/ createJsxElement("span", null, _("Ports: %d").format(status.active_ports || 0)));
-            if (status.bytes_in || 0 || status.bytes_out || 0) {
-                if (elements.length > 0) elements.push(/*#__PURE__*/ createJsxElement("br", null));
-                elements.push(/*#__PURE__*/ createJsxElement("span", null, "\u2193 " + formatBytes(status.bytes_in || 0) + " \u2191 " + formatBytes(status.bytes_out || 0)));
-            }
-            if (status.forwarders && status.forwarders.length > 0) {
-                if (elements.length > 0) elements.push(/*#__PURE__*/ createJsxElement("br", null));
-                elements.push(this.renderForwarderStats(status.forwarders));
-            }
-            if (elements.length > 0) statusElements.push(/*#__PURE__*/ createJsxElement("small", null, elements));
+            let e = [];
+            (t.active_ports || 0) > 0 && e.push(jsx("span", {
+                children: _("Ports: %d").format(t.active_ports || 0)
+            })), (t.bytes_in || t.bytes_out) && (e.length > 0 && e.push(jsx("br", {})), e.push(jsx("span", {
+                children: "\u2193 " + formatBytes(t.bytes_in || 0) + " \u2191 " + formatBytes(t.bytes_out || 0)
+            }))), t.forwarders && t.forwarders.length > 0 && (e.length > 0 && e.push(jsx("br", {})), e.push(this.renderForwarderStats(t.forwarders))), e.length > 0 && p.push(jsx("small", {
+                children: e
+            }));
         }
-        return statusElements;
+        return p;
     }
-    renderForwarderStats(forwarders) {
-        const themeColors = getThemeColors();
-        const borderColor = themeColors.isDark ? "#333" : "#eee";
-        const bgColor = themeColors.isDark ? "#222" : "#f8f9fa";
-        const textColor = themeColors.isDark ? "#ccc" : "#6c757d";
-        const rows = forwarders.map((f)=>/*#__PURE__*/ createJsxElement("div", {
-                style: "display: flex; gap: 0.5em; padding: 0.15em 0; font-size: 0.9em; border-bottom: 1px solid ".concat(borderColor, ";")
-            }, /*#__PURE__*/ createJsxElement("span", {
-                style: "min-width: 35px; color: ".concat(textColor, ";")
-            }, f.protocol.toUpperCase()), /*#__PURE__*/ createJsxElement("span", {
-                style: "min-width: 45px;"
-            }, ":", f.local_port), /*#__PURE__*/ createJsxElement("span", {
-                style: "color: #28a745;"
-            }, "\u2193".concat(formatBytes(f.bytes_in))), /*#__PURE__*/ createJsxElement("span", {
-                style: "color: #dc3545;"
-            }, "\u2191".concat(formatBytes(f.bytes_out)))));
-        return /*#__PURE__*/ createJsxElement("div", {
-            style: "margin-top: 0.3em; padding: 0.3em; background: ".concat(bgColor, "; border-radius: 3px; max-height: 80px; overflow-y: auto;")
-        }, rows);
+    renderForwarderStats(t) {
+        let e = getThemeColors(), s = e.isDark ? "#333" : "#eee", a = e.isDark ? "#222" : "#f8f9fa", i = e.isDark ? "#ccc" : "#6c757d", o = t.map((t)=>jsxs("div", {
+                style: "display: flex; gap: 0.5em; padding: 0.15em 0; font-size: 0.9em; border-bottom: 1px solid ".concat(s, ";"),
+                children: [
+                    jsx("span", {
+                        style: "min-width: 35px; color: ".concat(i, ";"),
+                        children: t.protocol.toUpperCase()
+                    }),
+                    jsxs("span", {
+                        style: "min-width: 45px;",
+                        children: [
+                            ":",
+                            t.local_port
+                        ]
+                    }),
+                    jsx("span", {
+                        style: "color: #28a745;",
+                        children: "\u2193".concat(formatBytes(t.bytes_in))
+                    }),
+                    jsx("span", {
+                        style: "color: #dc3545;",
+                        children: "\u2191".concat(formatBytes(t.bytes_out))
+                    })
+                ]
+            }));
+        return jsx("div", {
+            style: "margin-top: 0.3em; padding: 0.3em; background: ".concat(a, "; border-radius: 3px; max-height: 80px; overflow-y: auto;"),
+            children: o
+        });
     }
-    updateFrpCard(status, globalVersion, enabledEl, versionEl, statusEl, infoEl, errorEl) {
-        let type = arguments.length > 7 && arguments[7] !== void 0 ? arguments[7] : "frpc";
-        const isEnabled = (status === null || status === void 0 ? void 0 : status.enabled) || false;
-        if (enabledEl) {
-            enabledEl.textContent = isEnabled ? _("Enabled") : _("Disabled");
-            enabledEl.style.color = isEnabled ? "#28a745" : "#6c757d";
-        }
-        if (versionEl) versionEl.textContent = isEnabled && globalVersion ? globalVersion : "";
-        if (statusEl) {
-            if (isEnabled && (status === null || status === void 0 ? void 0 : status.status)) {
-                let statusText = status.status;
-                let color = "#6c757d";
-                switch(status.status){
-                    case "running":
-                        statusText = _("Running");
-                        color = "#28a745";
-                        break;
-                    case "stopped":
-                        statusText = _("Stopped");
-                        color = "#dc3545";
-                        break;
-                    case "error":
-                        statusText = _("Error");
-                        color = "#dc3545";
-                        break;
-                }
-                statusEl.textContent = statusText;
-                statusEl.style.color = color;
-                statusEl.style.display = "block";
-            } else statusEl.style.display = "none";
-        }
-        if (infoEl) {
-            if (isEnabled) {
-                const parts = [];
-                if ((status === null || status === void 0 ? void 0 : status.client_count) !== undefined) parts.push("".concat(status.client_count, " ").concat(_("clients")));
-                if (type === "frps") {
-                    const frpsStatus = status;
-                    if (frpsStatus.proxy_count !== undefined) parts.push("".concat(frpsStatus.proxy_count, " ").concat(_("proxies")));
-                    if (frpsStatus.server_count !== undefined) parts.push("".concat(frpsStatus.server_count, " ").concat(_("servers")));
-                }
-                infoEl.textContent = parts.join(" | ");
-                infoEl.style.display = parts.length > 0 ? "block" : "none";
-            } else infoEl.style.display = "none";
-        }
-        if (errorEl) {
-            if (status === null || status === void 0 ? void 0 : status.last_error) {
-                const truncated = status.last_error.length > 50 ? "".concat(status.last_error.substring(0, 47), "...") : status.last_error;
-                errorEl.title = status.last_error;
-                errorEl.innerHTML = "";
-                errorEl.appendChild(/*#__PURE__*/ createJsxElement("strong", {
-                    style: "font-size: 0.95em; font-weight: 600; color: #dc3545;"
-                }, truncated));
-                errorEl.style.display = "block";
-            } else errorEl.style.display = "none";
-        }
+    updateFrpCard(t, e, s, n, r, a, i) {
+        let o = arguments.length > 7 && void 0 !== arguments[7] ? arguments[7] : "frpc", d = (null == t ? void 0 : t.enabled) || !1;
+        if (s && (s.textContent = d ? _("Enabled") : _("Disabled"), s.style.color = d ? "#28a745" : "#6c757d"), n && (n.textContent = d && e ? e : ""), r) if (d && (null == t ? void 0 : t.status)) {
+            let e = t.status, s = "#6c757d";
+            switch(t.status){
+                case "running":
+                    e = _("Running"), s = "#28a745";
+                    break;
+                case "stopped":
+                    e = _("Stopped"), s = "#dc3545";
+                    break;
+                case "error":
+                    e = _("Error"), s = "#dc3545";
+            }
+            r.textContent = e, r.style.color = s, r.style.display = "block";
+        } else r.style.display = "none";
+        if (a) if (d) {
+            let e = [];
+            (null == t ? void 0 : t.client_count) !== void 0 && e.push("".concat(t.client_count, " ").concat(_("clients"))), "frps" === o && (void 0 !== t.proxy_count && e.push("".concat(t.proxy_count, " ").concat(_("proxies"))), void 0 !== t.server_count && e.push("".concat(t.server_count, " ").concat(_("servers")))), a.textContent = e.join(" | "), a.style.display = e.length > 0 ? "block" : "none";
+        } else a.style.display = "none";
+        if (i) if (null == t ? void 0 : t.last_error) {
+            let e = t.last_error.length > 50 ? "".concat(t.last_error.substring(0, 47), "...") : t.last_error;
+            i.title = t.last_error, i.innerHTML = "", i.appendChild(jsx("strong", {
+                style: "font-size: 0.95em; font-weight: 600; color: #dc3545;",
+                children: e
+            })), i.style.display = "block";
+        } else i.style.display = "none";
     }
     updateProjectHealthIndicator() {
-        var _this_projectStatuses, _this_statusPanel;
-        const enabledProjects = ((_this_projectStatuses = this.projectStatuses) === null || _this_projectStatuses === void 0 ? void 0 : _this_projectStatuses.filter((p)=>p.enabled)) || [];
-        const runningProjects = enabledProjects.filter((p)=>p.status === "running");
-        const healthElem = (_this_statusPanel = this.statusPanel) === null || _this_statusPanel === void 0 ? void 0 : _this_statusPanel.projectHealthEl;
-        if (healthElem) {
-            const healthColor = runningProjects.length === enabledProjects.length ? "#28a745" : runningProjects.length > 0 ? "#ffc107" : "#dc3545";
-            healthElem.innerHTML = "";
-            healthElem.appendChild(/*#__PURE__*/ createJsxElement("span", null, /*#__PURE__*/ createJsxElement("strong", {
-                style: "font-size: 1.1em; font-weight: 600; color: ".concat(healthColor, ";")
-            }, runningProjects.length, " / ", enabledProjects.length), /*#__PURE__*/ createJsxElement("div", {
-                style: "font-size: 0.85em; color: #6c757d; margin-top: 0.3em;"
-            }, _("projects running"))));
+        var t, e;
+        let s = (null == (t = this.projectStatuses) ? void 0 : t.filter((t)=>t.enabled)) || [], r = s.filter((t)=>"running" === t.status), a = null == (e = this.statusPanel) ? void 0 : e.projectHealthEl;
+        if (a) {
+            let t = r.length === s.length ? "#28a745" : r.length > 0 ? "#ffc107" : "#dc3545";
+            a.innerHTML = "", a.appendChild(jsxs("span", {
+                children: [
+                    jsxs("strong", {
+                        style: "font-size: 1.1em; font-weight: 600; color: ".concat(t, ";"),
+                        children: [
+                            r.length,
+                            " / ",
+                            s.length
+                        ]
+                    }),
+                    jsx("div", {
+                        style: "font-size: 0.85em; color: #6c757d; margin-top: 0.3em;",
+                        children: _("projects running")
+                    })
+                ]
+            }));
         }
     }
     updateActivityLog() {
-        var _this_statusPanel;
-        const logContainer = (_this_statusPanel = this.statusPanel) === null || _this_statusPanel === void 0 ? void 0 : _this_statusPanel.activityLogContainer;
-        if (logContainer && this.events && this.events.length > 0) {
-            const recentEvents = this.events.slice(-5).reverse();
-            logContainer.innerHTML = "";
-            for (const event of recentEvents)logContainer.appendChild(this.renderEventRow(event));
+        var t;
+        let e = null == (t = this.statusPanel) ? void 0 : t.activityLogContainer;
+        if (e && this.events && this.events.length > 0) {
+            let t = this.events.slice(-5).reverse();
+            for (let s of (e.innerHTML = "", t))e.appendChild(this.renderEventRow(s));
         }
     }
-    renderEventRow(event) {
-        const eventColors = {
+    renderEventRow(t) {
+        let e = {
             project_started: "#28a745",
             project_stopped: "#6c757d",
             frp_error: "#dc3545",
             frp_connected: "#28a745",
             frp_disconnected: "#ffc107",
             config_changed: "#17a2b8"
-        };
-        const eventIcons = {
+        }[t.type] || "#6c757d", s = {
             project_started: "\u25B6",
             project_stopped: "\u23F9",
             frp_error: "\u26A0",
             frp_connected: "\uD83D\uDD17",
             frp_disconnected: "\uD83D\uDD0C",
             config_changed: "\u2699"
-        };
-        const color = eventColors[event.type] || "#6c757d";
-        const icon = eventIcons[event.type] || "\u2022";
-        const time = this.formatTimestamp(event.timestamp);
-        const truncatedMessage = event.message.length > 60 ? "".concat(event.message.substring(0, 57), "...") : event.message;
-        return /*#__PURE__*/ createJsxElement("div", {
-            style: "display: flex; align-items: flex-start; padding: 0.3em 0; border-bottom: 1px solid #eee; font-size: 0.85em;"
-        }, /*#__PURE__*/ createJsxElement("span", {
-            style: "color: ".concat(color, "; margin-right: 0.5em; flex-shrink: 0;")
-        }, icon), /*#__PURE__*/ createJsxElement("span", {
-            style: "color: #6c757d; margin-right: 0.5em; flex-shrink: 0; min-width: 70px;"
-        }, time), /*#__PURE__*/ createJsxElement("span", {
-            style: "flex: 1; word-break: break-word;",
-            title: event.message
-        }, truncatedMessage));
+        }[t.type] || "\u2022", r = this.formatTimestamp(t.timestamp), a = t.message.length > 60 ? "".concat(t.message.substring(0, 57), "...") : t.message;
+        return jsxs("div", {
+            style: "display: flex; align-items: flex-start; padding: 0.3em 0; border-bottom: 1px solid #eee; font-size: 0.85em;",
+            children: [
+                jsx("span", {
+                    style: "color: ".concat(e, "; margin-right: 0.5em; flex-shrink: 0;"),
+                    children: s
+                }),
+                jsx("span", {
+                    style: "color: #6c757d; margin-right: 0.5em; flex-shrink: 0; min-width: 70px;",
+                    children: r
+                }),
+                jsx("span", {
+                    style: "flex: 1; word-break: break-word;",
+                    title: t.message,
+                    children: a
+                })
+            ]
+        });
     }
-    formatTimestamp(timestamp) {
-        const date = new Date(timestamp);
-        const hours = date.getHours().toString().padStart(2, "0");
-        const minutes = date.getMinutes().toString().padStart(2, "0");
-        const seconds = date.getSeconds().toString().padStart(2, "0");
-        return "".concat(hours, ":").concat(minutes, ":").concat(seconds);
+    formatTimestamp(t) {
+        let e = new Date(t), s = e.getHours().toString().padStart(2, "0"), l = e.getMinutes().toString().padStart(2, "0"), n = e.getSeconds().toString().padStart(2, "0");
+        return "".concat(s, ":").concat(l, ":").concat(n);
     }
-    constructor(fullStatus){
-        _define_property(this, "projectStatuses", void 0);
-        _define_property(this, "globalStatus", void 0);
-        _define_property(this, "frpStatus", void 0);
-        _define_property(this, "ddnsGlobalStatus", void 0);
-        _define_property(this, "events", void 0);
-        // References to UI elements provided by StatusPanel and config
-        _define_property(this, "statusPanel", void 0);
-        _define_property(this, "projectContainers", {});
-        _define_property(this, "_lastPollTime", 0);
-        _define_property(this, "ddnsInstances", []);
-        _define_property(this, "frpClientNodes", []);
-        _define_property(this, "frpServerNodes", []);
-        this.projectStatuses = [];
-        this.globalStatus = {};
-        this.frpStatus = {};
-        this.ddnsGlobalStatus = {
-            ddns_enabled: false,
+    constructor(e){
+        _define_property(this, "projectStatuses", void 0), _define_property(this, "globalStatus", void 0), _define_property(this, "frpStatus", void 0), _define_property(this, "ddnsGlobalStatus", void 0), _define_property(this, "events", void 0), _define_property(this, "statusPanel", void 0), _define_property(this, "projectContainers", {}), _define_property(this, "_lastPollTime", 0), _define_property(this, "ddnsInstances", []), _define_property(this, "frpClientNodes", []), _define_property(this, "frpServerNodes", []), this.projectStatuses = [], this.globalStatus = {}, this.frpStatus = {}, this.ddnsGlobalStatus = {
+            ddns_enabled: !1,
             ddns_version: null
-        };
-        this.events = [];
-        this.applyFullStatus(fullStatus);
-        L.Poll.add(async ()=>{
+        }, this.events = [], this.applyFullStatus(e), L.Poll.add(async ()=>{
             try {
-                var _this_statusPanel, _this_statusPanel1, _this_statusPanel2, _this_statusPanel3, _this_statusPanel4, _this_statusPanel5, _this_statusPanel6, _this_statusPanel7, _this_statusPanel8, _this_statusPanel9, _this_statusPanel10, _this_statusPanel11, _this_statusPanel12;
-                const prevBytesIn = this.globalStatus.total_bytes_in || 0;
-                const prevBytesOut = this.globalStatus.total_bytes_out || 0;
-                const nowMs = Date.now();
-                const [latestStatus, listProjects] = await Promise.all([
+                var t, e, s, i, c, u, p, h, f, v, g, b, y, m, S;
+                let P = this.globalStatus.total_bytes_in || 0, E = this.globalStatus.total_bytes_out || 0, j = Date.now(), [x, w] = await Promise.all([
                     rpcClient.getFullStatus(),
                     rpcClient.listProjects()
                 ]);
-                if (latestStatus) this.applyFullStatus(latestStatus);
-                if (listProjects === null || listProjects === void 0 ? void 0 : listProjects.projects) this.applyProjectList(listProjects.projects);
-                const statusColors = {
+                if (x && this.applyFullStatus(x), (null == w ? void 0 : w.projects) && this.applyProjectList(w.projects), (null == (t = this.statusPanel) ? void 0 : t.statusValueEl) && (this.statusPanel.statusValueEl.textContent = translateStatus(this.globalStatus.status) || "-", this.statusPanel.statusValueEl.style.color = ({
                     running: "green",
                     stopped: "red",
                     degraded: "orange"
-                };
-                if ((_this_statusPanel = this.statusPanel) === null || _this_statusPanel === void 0 ? void 0 : _this_statusPanel.statusValueEl) {
-                    this.statusPanel.statusValueEl.textContent = translateStatus(this.globalStatus.status) || "-";
-                    this.statusPanel.statusValueEl.style.color = statusColors[this.globalStatus.status || ""] || "gray";
-                }
-                if ((_this_statusPanel1 = this.statusPanel) === null || _this_statusPanel1 === void 0 ? void 0 : _this_statusPanel1.totalProjectsEl) this.statusPanel.totalProjectsEl.textContent = String(this.globalStatus.total_projects || 0);
-                if ((_this_statusPanel2 = this.statusPanel) === null || _this_statusPanel2 === void 0 ? void 0 : _this_statusPanel2.activePortsEl) this.statusPanel.activePortsEl.textContent = String(this.globalStatus.active_ports || 0);
-                if ((_this_statusPanel3 = this.statusPanel) === null || _this_statusPanel3 === void 0 ? void 0 : _this_statusPanel3.uptimeEl) this.statusPanel.uptimeEl.textContent = formatUptime(this.globalStatus.uptime || 0);
-                if ((_this_statusPanel4 = this.statusPanel) === null || _this_statusPanel4 === void 0 ? void 0 : _this_statusPanel4.trafficInEl) this.statusPanel.trafficInEl.textContent = formatBytes(this.globalStatus.total_bytes_in || 0);
-                if ((_this_statusPanel5 = this.statusPanel) === null || _this_statusPanel5 === void 0 ? void 0 : _this_statusPanel5.trafficOutEl) this.statusPanel.trafficOutEl.textContent = formatBytes(this.globalStatus.total_bytes_out || 0);
-                if (this.statusPanel) {
-                    this.updateFrpCard(this.frpStatus.frpc, this.frpStatus.frp_version, this.statusPanel.frpcEnabledEl, this.statusPanel.frpcVersionEl, this.statusPanel.frpcStatusEl, this.statusPanel.frpcInfoEl, this.statusPanel.frpcErrorEl, "frpc");
-                    this.updateFrpCard(this.frpStatus.frps, this.frpStatus.frp_version, this.statusPanel.frpsEnabledEl, this.statusPanel.frpsVersionEl, this.statusPanel.frpsStatusEl, this.statusPanel.frpsInfoEl, this.statusPanel.frpsErrorEl, "frps");
-                }
-                if ((_this_statusPanel6 = this.statusPanel) === null || _this_statusPanel6 === void 0 ? void 0 : _this_statusPanel6.ddnsEnabledEl) {
-                    this.statusPanel.ddnsEnabledEl.textContent = this.ddnsGlobalStatus.ddns_enabled ? _("Enabled") : _("Disabled");
-                    this.statusPanel.ddnsEnabledEl.style.color = this.ddnsGlobalStatus.ddns_enabled ? "#28a745" : "#6c757d";
-                }
-                if (((_this_statusPanel7 = this.statusPanel) === null || _this_statusPanel7 === void 0 ? void 0 : _this_statusPanel7.ddnsVersionEl) && this.ddnsGlobalStatus.ddns_version) this.statusPanel.ddnsVersionEl.textContent = this.ddnsGlobalStatus.ddns_version;
-                this.updateProjectHealthIndicator();
-                this.updateActivityLog();
-                // Traffic rate
-                if (((_this_statusPanel8 = this.statusPanel) === null || _this_statusPanel8 === void 0 ? void 0 : _this_statusPanel8.trafficRateInEl) && this.statusPanel.trafficRateOutEl) {
-                    if (this._lastPollTime > 0) {
-                        const elapsed = (nowMs - this._lastPollTime) / 1000;
-                        if (elapsed > 0) {
-                            const rateIn = Math.max(0, (this.globalStatus.total_bytes_in || 0) - prevBytesIn) / elapsed;
-                            const rateOut = Math.max(0, (this.globalStatus.total_bytes_out || 0) - prevBytesOut) / elapsed;
-                            this.statusPanel.trafficRateInEl.textContent = "".concat(formatBytes(rateIn), "/s");
-                            this.statusPanel.trafficRateOutEl.textContent = "".concat(formatBytes(rateOut), "/s");
-                        }
+                })[this.globalStatus.status || ""] || "gray"), (null == (e = this.statusPanel) ? void 0 : e.totalProjectsEl) && (this.statusPanel.totalProjectsEl.textContent = String(this.globalStatus.total_projects || 0)), (null == (s = this.statusPanel) ? void 0 : s.activePortsEl) && (this.statusPanel.activePortsEl.textContent = String(this.globalStatus.active_ports || 0)), (null == (i = this.statusPanel) ? void 0 : i.uptimeEl) && (this.statusPanel.uptimeEl.textContent = formatUptime(this.globalStatus.uptime || 0)), (null == (c = this.statusPanel) ? void 0 : c.trafficInEl) && (this.statusPanel.trafficInEl.textContent = formatBytes(this.globalStatus.total_bytes_in || 0)), (null == (u = this.statusPanel) ? void 0 : u.trafficOutEl) && (this.statusPanel.trafficOutEl.textContent = formatBytes(this.globalStatus.total_bytes_out || 0)), this.statusPanel && (this.updateFrpCard(this.frpStatus.frpc, this.frpStatus.frp_version, this.statusPanel.frpcEnabledEl, this.statusPanel.frpcVersionEl, this.statusPanel.frpcStatusEl, this.statusPanel.frpcInfoEl, this.statusPanel.frpcErrorEl, "frpc"), this.updateFrpCard(this.frpStatus.frps, this.frpStatus.frp_version, this.statusPanel.frpsEnabledEl, this.statusPanel.frpsVersionEl, this.statusPanel.frpsStatusEl, this.statusPanel.frpsInfoEl, this.statusPanel.frpsErrorEl, "frps")), (null == (p = this.statusPanel) ? void 0 : p.ddnsEnabledEl) && (this.statusPanel.ddnsEnabledEl.textContent = this.ddnsGlobalStatus.ddns_enabled ? _("Enabled") : _("Disabled"), this.statusPanel.ddnsEnabledEl.style.color = this.ddnsGlobalStatus.ddns_enabled ? "#28a745" : "#6c757d"), (null == (h = this.statusPanel) ? void 0 : h.ddnsVersionEl) && this.ddnsGlobalStatus.ddns_version && (this.statusPanel.ddnsVersionEl.textContent = this.ddnsGlobalStatus.ddns_version), this.updateProjectHealthIndicator(), this.updateActivityLog(), (null == (f = this.statusPanel) ? void 0 : f.trafficRateInEl) && this.statusPanel.trafficRateOutEl && this._lastPollTime > 0) {
+                    let t = (j - this._lastPollTime) / 1000;
+                    if (t > 0) {
+                        let e = Math.max(0, (this.globalStatus.total_bytes_in || 0) - P) / t, s = Math.max(0, (this.globalStatus.total_bytes_out || 0) - E) / t;
+                        this.statusPanel.trafficRateInEl.textContent = "".concat(formatBytes(e), "/s"), this.statusPanel.trafficRateOutEl.textContent = "".concat(formatBytes(s), "/s");
                     }
                 }
-                this._lastPollTime = nowMs;
-                // Project list
-                if ((_this_statusPanel9 = this.statusPanel) === null || _this_statusPanel9 === void 0 ? void 0 : _this_statusPanel9.projectListEl) {
-                    const projectSections = L.uci.sections("portweaver", "project") || [];
-                    const projectListEl = this.statusPanel.projectListEl;
-                    projectListEl.innerHTML = "";
-                    if (projectSections.length === 0) projectListEl.appendChild(/*#__PURE__*/ createJsxElement("span", {
-                        style: "color: #6c757d;"
-                    }, _("No projects")));
-                    else for(let i = 0; i < projectSections.length; i++){
-                        const sec = projectSections[i];
-                        const name = sec.name || sec[".name"] || "#".concat(i + 1);
-                        const ps = this.projectStatuses[i];
-                        const color = (ps === null || ps === void 0 ? void 0 : ps.status) === "running" ? "#28a745" : (ps === null || ps === void 0 ? void 0 : ps.status) === "stopped" ? "#dc3545" : "#6c757d";
-                        projectListEl.appendChild(/*#__PURE__*/ createJsxElement("div", {
-                            style: "display: flex; justify-content: space-between; font-size: 0.85em; padding: 0.15em 0;"
-                        }, /*#__PURE__*/ createJsxElement("span", null, name), /*#__PURE__*/ createJsxElement("span", {
-                            style: "color: ".concat(color, ";")
-                        }, translateStatus((ps === null || ps === void 0 ? void 0 : ps.status) || "unknown"))));
+                if (this._lastPollTime = j, null == (v = this.statusPanel) ? void 0 : v.projectListEl) {
+                    let t = L.uci.sections("portweaver", "project") || [], e = this.statusPanel.projectListEl;
+                    if (e.innerHTML = "", 0 === t.length) e.appendChild(jsx("span", {
+                        style: "color: #6c757d;",
+                        children: _("No projects")
+                    }));
+                    else for(let s = 0; s < t.length; s++){
+                        let r = t[s], a = r.name || r[".name"] || "#".concat(s + 1), i = this.projectStatuses[s], d = (null == i ? void 0 : i.status) === "running" ? "#28a745" : (null == i ? void 0 : i.status) === "stopped" ? "#dc3545" : "#6c757d";
+                        e.appendChild(jsxs("div", {
+                            style: "display: flex; justify-content: space-between; font-size: 0.85em; padding: 0.15em 0;",
+                            children: [
+                                jsx("span", {
+                                    children: a
+                                }),
+                                jsx("span", {
+                                    style: "color: ".concat(d, ";"),
+                                    children: translateStatus((null == i ? void 0 : i.status) || "unknown")
+                                })
+                            ]
+                        }));
                     }
                 }
-                // FRPC proxies (per client node)
-                if ((_this_statusPanel10 = this.statusPanel) === null || _this_statusPanel10 === void 0 ? void 0 : _this_statusPanel10.frpcProxiesEl) {
-                    var _this_frpStatus_frpc;
-                    const frpcProxiesEl = this.statusPanel.frpcProxiesEl;
-                    frpcProxiesEl.innerHTML = "";
-                    if (!((_this_frpStatus_frpc = this.frpStatus.frpc) === null || _this_frpStatus_frpc === void 0 ? void 0 : _this_frpStatus_frpc.enabled) || this.frpClientNodes.length === 0) frpcProxiesEl.appendChild(/*#__PURE__*/ createJsxElement("span", {
-                        style: "color: #6c757d;"
-                    }, _("disabled")));
-                    else for (const node of this.frpClientNodes){
-                        const color = node.status === "connected" ? "#28a745" : "#dc3545";
-                        frpcProxiesEl.appendChild(/*#__PURE__*/ createJsxElement("div", {
-                            style: "display: flex; justify-content: space-between; font-size: 0.85em; padding: 0.15em 0;"
-                        }, /*#__PURE__*/ createJsxElement("span", null, node.name), /*#__PURE__*/ createJsxElement("span", {
-                            style: "color: ".concat(color, ";")
-                        }, "".concat(node.client_count, " ").concat(_("clients")))));
+                if (null == (g = this.statusPanel) ? void 0 : g.frpcProxiesEl) {
+                    let t = this.statusPanel.frpcProxiesEl;
+                    if (t.innerHTML = "", (null == (m = this.frpStatus.frpc) ? void 0 : m.enabled) && 0 !== this.frpClientNodes.length) for (let e of this.frpClientNodes){
+                        let s = "connected" === e.status ? "#28a745" : "#dc3545";
+                        t.appendChild(jsxs("div", {
+                            style: "display: flex; justify-content: space-between; font-size: 0.85em; padding: 0.15em 0;",
+                            children: [
+                                jsx("span", {
+                                    children: e.name
+                                }),
+                                jsx("span", {
+                                    style: "color: ".concat(s, ";"),
+                                    children: "".concat(e.client_count, " ").concat(_("clients"))
+                                })
+                            ]
+                        }));
                     }
+                    else t.appendChild(jsx("span", {
+                        style: "color: #6c757d;",
+                        children: _("disabled")
+                    }));
                 }
-                // FRPS active proxies (per server node)
-                if ((_this_statusPanel11 = this.statusPanel) === null || _this_statusPanel11 === void 0 ? void 0 : _this_statusPanel11.frpsProxiesEl) {
-                    var _this_frpStatus_frps;
-                    const frpsProxiesEl = this.statusPanel.frpsProxiesEl;
-                    frpsProxiesEl.innerHTML = "";
-                    if (!((_this_frpStatus_frps = this.frpStatus.frps) === null || _this_frpStatus_frps === void 0 ? void 0 : _this_frpStatus_frps.enabled) || this.frpServerNodes.length === 0) frpsProxiesEl.appendChild(/*#__PURE__*/ createJsxElement("span", {
-                        style: "color: #6c757d;"
-                    }, _("disabled")));
-                    else for (const node of this.frpServerNodes)frpsProxiesEl.appendChild(/*#__PURE__*/ createJsxElement("div", {
-                        style: "display: flex; justify-content: space-between; font-size: 0.85em; padding: 0.15em 0;"
-                    }, /*#__PURE__*/ createJsxElement("span", null, node.name), /*#__PURE__*/ createJsxElement("span", {
-                        style: "color: #6c757d;"
-                    }, "".concat(node.proxy_count, " proxies"))));
+                if (null == (b = this.statusPanel) ? void 0 : b.frpsProxiesEl) {
+                    let t = this.statusPanel.frpsProxiesEl;
+                    if (t.innerHTML = "", (null == (S = this.frpStatus.frps) ? void 0 : S.enabled) && 0 !== this.frpServerNodes.length) for (let e of this.frpServerNodes)t.appendChild(jsxs("div", {
+                        style: "display: flex; justify-content: space-between; font-size: 0.85em; padding: 0.15em 0;",
+                        children: [
+                            jsx("span", {
+                                children: e.name
+                            }),
+                            jsx("span", {
+                                style: "color: #6c757d;",
+                                children: "".concat(e.proxy_count, " proxies")
+                            })
+                        ]
+                    }));
+                    else t.appendChild(jsx("span", {
+                        style: "color: #6c757d;",
+                        children: _("disabled")
+                    }));
                 }
-                // DDNS entries
-                if ((_this_statusPanel12 = this.statusPanel) === null || _this_statusPanel12 === void 0 ? void 0 : _this_statusPanel12.ddnsHealthEl) {
-                    const ddnsHealthEl = this.statusPanel.ddnsHealthEl;
-                    ddnsHealthEl.innerHTML = "";
-                    if (!this.ddnsGlobalStatus.ddns_enabled) ddnsHealthEl.appendChild(/*#__PURE__*/ createJsxElement("span", {
-                        style: "color: #6c757d;"
-                    }, _("disabled")));
-                    else if (this.ddnsInstances.length === 0) ddnsHealthEl.appendChild(/*#__PURE__*/ createJsxElement("span", {
-                        style: "color: #6c757d;"
-                    }, _("No entries")));
-                    else for (const inst of this.ddnsInstances){
-                        const color = inst.status === "success" ? "#28a745" : inst.status === "error" ? "#dc3545" : "#6c757d";
-                        ddnsHealthEl.appendChild(/*#__PURE__*/ createJsxElement("div", {
-                            style: "display: flex; justify-content: space-between; font-size: 0.85em; padding: 0.15em 0;"
-                        }, /*#__PURE__*/ createJsxElement("span", null, inst.name), /*#__PURE__*/ createJsxElement("span", {
-                            style: "color: ".concat(color, ";")
-                        }, inst.status)));
+                if (null == (y = this.statusPanel) ? void 0 : y.ddnsHealthEl) {
+                    let t = this.statusPanel.ddnsHealthEl;
+                    if (t.innerHTML = "", this.ddnsGlobalStatus.ddns_enabled) if (0 === this.ddnsInstances.length) t.appendChild(jsx("span", {
+                        style: "color: #6c757d;",
+                        children: _("No entries")
+                    }));
+                    else for (let e of this.ddnsInstances){
+                        let s = "success" === e.status ? "#28a745" : "error" === e.status ? "#dc3545" : "#6c757d";
+                        t.appendChild(jsxs("div", {
+                            style: "display: flex; justify-content: space-between; font-size: 0.85em; padding: 0.15em 0;",
+                            children: [
+                                jsx("span", {
+                                    children: e.name
+                                }),
+                                jsx("span", {
+                                    style: "color: ".concat(s, ";"),
+                                    children: e.status
+                                })
+                            ]
+                        }));
                     }
+                    else t.appendChild(jsx("span", {
+                        style: "color: #6c757d;",
+                        children: _("disabled")
+                    }));
                 }
                 (()=>{
-                    const sections = L.uci.sections("portweaver", "project") || [];
-                    for(let i = 0; i < sections.length; i++){
-                        const section_id = sections[i][".name"];
-                        if (!section_id) continue;
-                        const status = this.getProjectStatus(section_id);
-                        const section = this.projectContainers[section_id];
-                        if (!section) continue;
-                        const newStatusElements = this.renderStatusElements(status, section_id);
-                        const newContainer = /*#__PURE__*/ createJsxElement("div", {
-                            id: "project-status-".concat(section_id)
-                        }, newStatusElements);
-                        section.replaceWith(newContainer);
-                        this.projectContainers[section_id] = newContainer;
+                    let t = L.uci.sections("portweaver", "project") || [];
+                    for(let e = 0; e < t.length; e++){
+                        let s = t[e][".name"];
+                        if (!s) continue;
+                        let n = this.getProjectStatus(s), r = this.projectContainers[s];
+                        if (!r) continue;
+                        let a = this.renderStatusElements(n, s), i = jsx("div", {
+                            id: "project-status-".concat(s),
+                            children: a
+                        });
+                        r.replaceWith(i), this.projectContainers[s] = i;
                     }
                 })();
-            } catch (err) {
-                console.warn("Auto-refresh failed:", err);
+            } catch (t) {
+                console.warn("Auto-refresh failed:", t);
             }
         }, 3);
     }
@@ -762,143 +696,90 @@ class Client {
 ;// CONCATENATED MODULE: ./components/Dialog.tsx
 
 
+
 class Dialog {
     render() {
-        if (this.overlay) return this.overlay;
-        this.titleEl = /*#__PURE__*/ createJsxElement("h2", {
-            style: "margin: 0; font-size: 1.25rem; font-weight: 600;"
-        }, _("Dialog"));
-        this.contentEl = /*#__PURE__*/ createJsxElement("div", {
+        return this.overlay || (this.titleEl = jsx("h2", {
+            style: "margin: 0; font-size: 1.25rem; font-weight: 600;",
+            children: _("Dialog")
+        }), this.contentEl = jsx("div", {
             style: "overflow-y: auto; max-height: 70vh;"
-        });
-        this.confirmBtn = /*#__PURE__*/ createJsxElement("button", {
+        }), this.confirmBtn = jsx("button", {
             type: "button",
             class: "cbi-button cbi-button-positive",
-            onclick: ()=>this.close(true)
-        });
-        this.cancelBtn = /*#__PURE__*/ createJsxElement("button", {
+            onclick: ()=>this.close(!0)
+        }), this.cancelBtn = jsx("button", {
             type: "button",
             class: "cbi-button cbi-button-neutral",
-            onclick: ()=>this.close(false)
-        });
-        this.footerEl = /*#__PURE__*/ createJsxElement("div", {
-            style: "display: flex; justify-content: flex-end; gap: 0.5rem;"
-        }, this.cancelBtn, this.confirmBtn);
-        this.container = /*#__PURE__*/ createJsxElement("div", {
+            onclick: ()=>this.close(!1)
+        }), this.footerEl = jsxs("div", {
+            style: "display: flex; justify-content: flex-end; gap: 0.5rem;",
+            children: [
+                this.cancelBtn,
+                this.confirmBtn
+            ]
+        }), this.container = jsxs("div", {
             role: "dialog",
             "aria-modal": "true",
-            style: "display: flex; flex-direction: column; max-width: 90%; min-width: 320px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border-radius: 4px; animation: fadeIn 0.2s ease-out;"
-        }, this.titleEl, this.contentEl, this.footerEl);
-        this.overlay = /*#__PURE__*/ createJsxElement("div", {
-            style: "position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 9999; display: none; align-items: center; justify-content: center; background-color: rgba(0,0,0,0.5); backdrop-filter: blur(2px);"
-        }, this.container);
-        return this.overlay;
+            style: "display: flex; flex-direction: column; max-width: 90%; min-width: 320px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border-radius: 4px; animation: fadeIn 0.2s ease-out;",
+            children: [
+                this.titleEl,
+                this.contentEl,
+                this.footerEl
+            ]
+        }), this.overlay = jsx("div", {
+            style: "position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 9999; display: none; align-items: center; justify-content: center; background-color: rgba(0,0,0,0.5); backdrop-filter: blur(2px);",
+            children: this.container
+        })), this.overlay;
     }
     updateTheme() {
         if (!this.container || !this.titleEl || !this.contentEl || !this.footerEl) return;
-        const theme = getThemeColors();
-        const isDark = theme.isDark;
-        const bg = isDark ? "#2d2d2d" : "#ffffff";
-        const text = isDark ? "#e0e0e0" : "#333333";
-        const border = isDark ? "#404040" : "#e0e0e0";
-        const footerBg = isDark ? "#252525" : "#f8f9fa";
-        this.container.style.backgroundColor = bg;
-        this.container.style.color = text;
-        this.titleEl.style.borderBottom = "1px solid ".concat(border);
-        this.titleEl.style.padding = "1rem 1.5rem";
-        this.contentEl.style.padding = "1.5rem";
-        this.footerEl.style.backgroundColor = footerBg;
-        this.footerEl.style.borderTop = "1px solid ".concat(border);
-        this.footerEl.style.padding = "1rem 1.5rem";
-        this.footerEl.style.borderBottomLeftRadius = "4px";
-        this.footerEl.style.borderBottomRightRadius = "4px";
+        let t = getThemeColors().isDark, e = t ? "#404040" : "#e0e0e0";
+        this.container.style.backgroundColor = t ? "#2d2d2d" : "#ffffff", this.container.style.color = t ? "#e0e0e0" : "#333333", this.titleEl.style.borderBottom = "1px solid ".concat(e), this.titleEl.style.padding = "1rem 1.5rem", this.contentEl.style.padding = "1.5rem", this.footerEl.style.backgroundColor = t ? "#252525" : "#f8f9fa", this.footerEl.style.borderTop = "1px solid ".concat(e), this.footerEl.style.padding = "1rem 1.5rem", this.footerEl.style.borderBottomLeftRadius = "4px", this.footerEl.style.borderBottomRightRadius = "4px";
     }
-    open(options) {
-        if (!this.overlay) this.render();
-        this.updateTheme();
-        if (this.titleEl) {
-            if (options.title === undefined) {
-                this.titleEl.textContent = options.type === "alert" ? _("Alert") : _("Confirm");
-                this.titleEl.style.display = "";
-            } else if (options.title === null) this.titleEl.style.display = "none";
-            else {
-                this.titleEl.textContent = options.title;
-                this.titleEl.style.display = "";
-            }
-        }
-        if (this.contentEl) {
+    open(t) {
+        if (this.overlay || this.render(), this.updateTheme(), this.titleEl && (void 0 === t.title ? (this.titleEl.textContent = "alert" === t.type ? _("Alert") : _("Confirm"), this.titleEl.style.display = "") : null === t.title ? this.titleEl.style.display = "none" : (this.titleEl.textContent = t.title, this.titleEl.style.display = "")), this.contentEl) {
             this.contentEl.textContent = "";
-            const msg = options.message;
-            if (Array.isArray(msg)) msg.forEach((m)=>{
-                var _this_contentEl, _this_contentEl1;
-                if (typeof m === "string") (_this_contentEl = this.contentEl) === null || _this_contentEl === void 0 ? void 0 : _this_contentEl.appendChild(document.createTextNode(m));
-                else (_this_contentEl1 = this.contentEl) === null || _this_contentEl1 === void 0 ? void 0 : _this_contentEl1.appendChild(m);
-            });
-            else if (typeof msg === "string") this.contentEl.textContent = msg;
-            else this.contentEl.appendChild(msg);
+            let e = t.message;
+            Array.isArray(e) ? e.forEach((t)=>{
+                var e, i;
+                "string" == typeof t ? null == (e = this.contentEl) || e.appendChild(document.createTextNode(t)) : null == (i = this.contentEl) || i.appendChild(t);
+            }) : "string" == typeof e ? this.contentEl.textContent = e : this.contentEl.appendChild(e);
         }
-        if (this.confirmBtn) this.confirmBtn.textContent = options.confirmText || _("OK");
-        if (this.cancelBtn) {
-            this.cancelBtn.textContent = options.cancelText || _("Cancel");
-            this.cancelBtn.style.display = options.type === "alert" ? "none" : "";
-        }
-        if (this.overlay) this.overlay.style.display = "flex";
-        setTimeout(()=>{
-            if (this.confirmBtn) this.confirmBtn.focus();
-        }, 50);
-        document.addEventListener("keydown", this.handleKeydown);
-        return new Promise((resolve)=>{
-            this.resolve = resolve;
+        return this.confirmBtn && (this.confirmBtn.textContent = t.confirmText || _("OK")), this.cancelBtn && (this.cancelBtn.textContent = t.cancelText || _("Cancel"), this.cancelBtn.style.display = "alert" === t.type ? "none" : ""), this.overlay && (this.overlay.style.display = "flex"), setTimeout(()=>{
+            this.confirmBtn && this.confirmBtn.focus();
+        }, 50), document.addEventListener("keydown", this.handleKeydown), new Promise((t)=>{
+            this.resolve = t;
         });
     }
-    close(result) {
-        if (this.overlay) this.overlay.style.display = "none";
-        document.removeEventListener("keydown", this.handleKeydown);
-        if (this.resolve) {
-            this.resolve(result);
-            this.resolve = null;
-        }
+    close(t) {
+        this.overlay && (this.overlay.style.display = "none"), document.removeEventListener("keydown", this.handleKeydown), this.resolve && (this.resolve(t), this.resolve = null);
     }
     constructor(){
-        _define_property(this, "overlay", null);
-        _define_property(this, "container", null);
-        _define_property(this, "titleEl", null);
-        _define_property(this, "contentEl", null);
-        _define_property(this, "footerEl", null);
-        _define_property(this, "confirmBtn", null);
-        _define_property(this, "cancelBtn", null);
-        _define_property(this, "resolve", null);
-        _define_property(this, "handleKeydown", (e)=>{
-            if (e.key === "Escape") this.close(false);
+        _define_property(this, "overlay", null), _define_property(this, "container", null), _define_property(this, "titleEl", null), _define_property(this, "contentEl", null), _define_property(this, "footerEl", null), _define_property(this, "confirmBtn", null), _define_property(this, "cancelBtn", null), _define_property(this, "resolve", null), _define_property(this, "handleKeydown", (t)=>{
+            "Escape" === t.key && this.close(!1);
         });
     }
 }
 
 ;// CONCATENATED MODULE: ./modules/dialog.tsx
 
-const dialog = new Dialog();
-let isMounted = false;
-function ensureMounted() {
-    if (isMounted) return;
-    if (document.body) {
-        document.body.appendChild(dialog.render());
-        isMounted = true;
-    }
+let dialog_e = new Dialog(), dialog_o = !1;
+function dialog_t() {
+    !dialog_o && document.body && (document.body.appendChild(dialog_e.render()), dialog_o = !0);
 }
-function dialog_alert(message, title) {
-    ensureMounted();
-    return dialog.open({
+function dialog_alert(n, o) {
+    return dialog_t(), dialog_e.open({
         type: "alert",
-        message,
-        title
+        message: n,
+        title: o
     });
 }
-function dialog_confirm(message, title) {
-    ensureMounted();
-    return dialog.open({
+function dialog_confirm(n, o) {
+    return dialog_t(), dialog_e.open({
         type: "confirm",
-        message,
-        title
+        message: n,
+        title: o
     });
 }
 
@@ -908,95 +789,69 @@ function dialog_confirm(message, title) {
 
 
 
-const REGEX_IP = /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g;
-const REGEX_LOG_TIMESTAMP = /\d{4}[-/]\d{2}[-/]\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d{3})?/g;
-const REGEX_ERROR = /\b(error|fail|failed|exception)\b/gi;
-const REGEX_SUCCESS = /\b(success|ok|done|complete)\b/gi;
-const REGEX_UUID = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+
+let LogViewerCore_a = /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, LogViewerCore_h = /\d{4}[-/]\d{2}[-/]\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d{3})?/g, LogViewerCore_c = /\b(error|fail|failed|exception)\b/gi, LogViewerCore_d = /\b(success|ok|done|complete)\b/gi, LogViewerCore_p = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 class LogViewerCore {
-    highlightLog(text) {
-        const matches = [];
-        const collect = (regex, render)=>{
-            let m;
-            while(m = regex.exec(text))matches.push({
-                start: m.index,
-                end: m.index + m[0].length,
-                render
+    highlightLog(t) {
+        let e = [], i = (i, s)=>{
+            let o;
+            for(; o = i.exec(t);)e.push({
+                start: o.index,
+                end: o.index + o[0].length,
+                render: s
             });
         };
-        collect(REGEX_IP, (s)=>/*#__PURE__*/ createJsxElement("strong", null, s));
-        collect(REGEX_ERROR, (s)=>/*#__PURE__*/ createJsxElement("strong", null, s));
-        collect(REGEX_LOG_TIMESTAMP, (s)=>/*#__PURE__*/ createJsxElement("span", {
-                style: "font-weight: 300; opacity: 0.7;"
-            }, s));
-        collect(REGEX_SUCCESS, (s)=>/*#__PURE__*/ createJsxElement("strong", null, s));
-        collect(REGEX_UUID, (s)=>/*#__PURE__*/ createJsxElement("code", null, s));
-        // 按开始位置排序
-        matches.sort((a, b)=>a.start - b.start);
-        // 如果有重叠，只保留最长（或最先定义的）
-        const resolved = [];
-        let lastEnd = -1;
-        for (const m of matches)if (m.start >= lastEnd) {
-            resolved.push(m);
-            lastEnd = m.end;
-        }
-        // 生成 JSX segments
-        const output = [];
-        let cursor = 0;
-        let key = 0;
-        for (const m of resolved){
-            if (cursor < m.start) output.push(text.slice(cursor, m.start));
-            output.push(m.render(text.slice(m.start, m.end), key++));
-            cursor = m.end;
-        }
-        if (cursor < text.length) output.push(text.slice(cursor));
-        return output;
+        i(LogViewerCore_a, (t)=>jsx("strong", {
+                children: t
+            })), i(LogViewerCore_c, (t)=>jsx("strong", {
+                children: t
+            })), i(LogViewerCore_h, (t)=>jsx("span", {
+                style: "font-weight: 300; opacity: 0.7;",
+                children: t
+            })), i(LogViewerCore_d, (t)=>jsx("strong", {
+                children: t
+            })), i(LogViewerCore_p, (t)=>jsx("code", {
+                children: t
+            })), e.sort((t, e)=>t.start - e.start);
+        let o = [], l = -1;
+        for (let t of e)t.start >= l && (o.push(t), l = t.end);
+        let n = [], r = 0, u = 0;
+        for (let e of o)r < e.start && n.push(t.slice(r, e.start)), n.push(e.render(t.slice(e.start, e.end), u++)), r = e.end;
+        return r < t.length && n.push(t.slice(r)), n;
     }
     applyFilters() {
-        let filtered = this.logs;
+        let t = this.logs;
         if (this.searchFilter.trim()) {
-            const query = this.searchFilter.toLowerCase();
-            filtered = filtered.filter((log)=>log.toLowerCase().includes(query));
+            let e = this.searchFilter.toLowerCase();
+            t = t.filter((t)=>t.toLowerCase().includes(e));
         }
-        this.filteredLogs = filtered;
+        this.filteredLogs = t;
     }
-    toggleLineSelection(index) {
-        if (this.selectedLines.has(index)) this.selectedLines.delete(index);
-        else this.selectedLines.add(index);
+    toggleLineSelection(t) {
+        this.selectedLines.has(t) ? this.selectedLines.delete(t) : this.selectedLines.add(t);
     }
-    selectRange(endIndex) {
-        if (this.selectedLines.size === 0) {
-            this.selectedLines.add(endIndex);
-            return;
-        }
-        const indices = Array.from(this.selectedLines);
-        const startIndex = Math.max(...indices);
-        const min = Math.min(startIndex, endIndex);
-        const max = Math.max(startIndex, endIndex);
-        for(let i = min; i <= max; i++)this.selectedLines.add(i);
+    selectRange(t) {
+        if (0 === this.selectedLines.size) return void this.selectedLines.add(t);
+        let e = Math.max(...Array.from(this.selectedLines)), i = Math.min(e, t), s = Math.max(e, t);
+        for(let t = i; t <= s; t++)this.selectedLines.add(t);
     }
     exportAll() {
-        const text = this.logs.join("\n");
-        const blob = new Blob([
-            text
+        let t = new Blob([
+            this.logs.join("\n")
         ], {
             type: "text/plain"
-        });
-        const url = URL.createObjectURL(blob);
-        const a = /*#__PURE__*/ createJsxElement("a", {
-            href: url,
-            download: "".concat(this.props.name, "-logs.txt")
-        }, _("Download Logs"));
-        a.click();
-        URL.revokeObjectURL(url);
+        }), e = URL.createObjectURL(t);
+        jsx("a", {
+            href: e,
+            download: "".concat(this.props.name, "-logs.txt"),
+            children: _("Download Logs")
+        }).click(), URL.revokeObjectURL(e);
     }
     toggleWrap() {
-        this.wrapText = !this.wrapText;
-        if (this.logContainer) this.logContainer.style.whiteSpace = this.wrapText ? "pre-wrap" : "pre";
-        if (this.wrapButton) this.wrapButton.textContent = this.wrapText ? _("WRAP: ON") : _("WRAP: OFF");
+        this.wrapText = !this.wrapText, this.logContainer && (this.logContainer.style.whiteSpace = this.wrapText ? "pre-wrap" : "pre"), this.wrapButton && (this.wrapButton.textContent = this.wrapText ? _("WRAP: ON") : _("WRAP: OFF"));
     }
     render() {
-        const statusColor = {
+        let t = {
             running: "#4CAF50",
             connected: "#4CAF50",
             connecting: "#FFC107",
@@ -1004,99 +859,124 @@ class LogViewerCore {
             stopped: "#9E9E9E",
             unavailable: "#9E9E9E"
         }[this.status] || "#9E9E9E";
-        this.statusSpan = /*#__PURE__*/ createJsxElement("span", {
-            style: "display: inline-block; padding: 0.25em 0.6em; border-radius: 3px; background: ".concat(statusColor, "; color: white; font-weight: 600; font-size: 0.85em;")
-        }, this.status);
-        this.errorSpan = /*#__PURE__*/ createJsxElement("div", {
-            style: this.lastError ? "color: #F44336; margin-top: 0.3em; display:block" : "color: #F44336; margin-top: 0.3em; display:none"
-        }, this.lastError);
-        this.searchInput = /*#__PURE__*/ createJsxElement("input", {
+        this.statusSpan = jsx("span", {
+            style: "display: inline-block; padding: 0.25em 0.6em; border-radius: 3px; background: ".concat(t, "; color: white; font-weight: 600; font-size: 0.85em;"),
+            children: this.status
+        }), this.errorSpan = jsx("div", {
+            style: this.lastError ? "color: #F44336; margin-top: 0.3em; display:block" : "color: #F44336; margin-top: 0.3em; display:none",
+            children: this.lastError
+        }), this.searchInput = jsx("input", {
             type: "text",
             class: "cbi-input-text",
             placeholder: _("Search logs..."),
             style: "flex: 1; min-width: 150px; max-width: 400px;",
-            oninput: (e)=>{
-                const target = e.target;
-                this.searchFilter = target.value;
-                this.applyFilters();
-                this.updateDisplay();
+            oninput: (t)=>{
+                let e = t.target;
+                this.searchFilter = e.value, this.applyFilters(), this.updateDisplay();
             }
         });
-        const refreshButton = /*#__PURE__*/ createJsxElement("button", {
+        let e = jsx("button", {
             type: "button",
             class: "cbi-button cbi-button-neutral",
-            onclick: ()=>this.fetchLogs()
-        }, _("REFRESH"));
-        this.pauseButton = /*#__PURE__*/ createJsxElement("button", {
-            type: "button",
-            class: "cbi-button cbi-button-neutral",
-            onclick: ()=>{
-                this.isPaused = !this.isPaused;
-                if (this.pauseButton) this.pauseButton.textContent = this.isPaused ? _("PAUSED") : _("PAUSE");
-                if (this.isPaused) this.stopPolling();
-                else this.startPolling();
-            }
-        }, _("PAUSE"));
-        this.followButton = /*#__PURE__*/ createJsxElement("button", {
+            onclick: ()=>this.fetchLogs(),
+            children: _("REFRESH")
+        });
+        this.pauseButton = jsx("button", {
             type: "button",
             class: "cbi-button cbi-button-neutral",
             onclick: ()=>{
-                this.isFollowing = !this.isFollowing;
-                if (this.followButton) this.followButton.textContent = this.isFollowing ? _("FOLLOW: ON") : _("FOLLOW: OFF");
-            }
-        }, _("FOLLOW: ON"));
-        this.wrapButton = /*#__PURE__*/ createJsxElement("button", {
+                this.isPaused = !this.isPaused, this.pauseButton && (this.pauseButton.textContent = this.isPaused ? _("PAUSED") : _("PAUSE")), this.isPaused ? this.stopPolling() : this.startPolling();
+            },
+            children: _("PAUSE")
+        }), this.followButton = jsx("button", {
             type: "button",
             class: "cbi-button cbi-button-neutral",
-            onclick: ()=>this.toggleWrap()
-        }, _("WRAP: OFF"));
-        this.logContainer = /*#__PURE__*/ createJsxElement("div", {
+            onclick: ()=>{
+                this.isFollowing = !this.isFollowing, this.followButton && (this.followButton.textContent = this.isFollowing ? _("FOLLOW: ON") : _("FOLLOW: OFF"));
+            },
+            children: _("FOLLOW: ON")
+        }), this.wrapButton = jsx("button", {
+            type: "button",
+            class: "cbi-button cbi-button-neutral",
+            onclick: ()=>this.toggleWrap(),
+            children: _("WRAP: OFF")
+        }), this.logContainer = jsx("div", {
             class: "log-container",
-            style: "flex: 1; overflow-x: auto; overflow-y: auto; padding: 1em; font-family: monospace, monospace; font-size: 0.9em; line-height: 1.4; white-space: pre; min-height: 200px;"
-        }, this.logs.length === 0 ? _("No logs available") : null);
-        const copyButton = /*#__PURE__*/ createJsxElement("button", {
+            style: "flex: 1; overflow-x: auto; overflow-y: auto; padding: 1em; font-family: monospace, monospace; font-size: 0.9em; line-height: 1.4; white-space: pre; min-height: 200px;",
+            children: 0 === this.logs.length ? _("No logs available") : null
+        });
+        let i = jsx("button", {
             type: "button",
             class: "cbi-button",
-            onclick: ()=>this.copyToClipboard()
-        }, _("COPY"));
-        const copySelectedButton = /*#__PURE__*/ createJsxElement("button", {
+            onclick: ()=>this.copyToClipboard(),
+            children: _("COPY")
+        }), l = jsx("button", {
             type: "button",
             class: "cbi-button cbi-button-positive",
             onclick: async ()=>{
-                if (this.selectedLines.size > 0) await this.copyToClipboard();
-                else await dialog_alert(_("No lines selected"));
-            }
-        }, _("COPY SELECTED"));
-        const exportButton = /*#__PURE__*/ createJsxElement("button", {
+                this.selectedLines.size > 0 ? await this.copyToClipboard() : await dialog_alert(_("No lines selected"));
+            },
+            children: _("COPY SELECTED")
+        }), r = jsx("button", {
             type: "button",
             class: "cbi-button cbi-button-positive",
-            onclick: ()=>this.exportAll()
-        }, _("EXPORT"));
-        const clearButton = /*#__PURE__*/ createJsxElement("button", {
+            onclick: ()=>this.exportAll(),
+            children: _("EXPORT")
+        }), a = jsx("button", {
             type: "button",
             class: "cbi-button",
             onclick: async ()=>await this.clearLogs(),
-            style: "background: #dc3545; color: white;"
-        }, _("CLEAR"));
-        this.searchBar = /*#__PURE__*/ createJsxElement("div", {
-            style: "padding: 0.5em 1em; display: flex; gap: 0.5em; align-items: center; flex-wrap: wrap; min-height: 2.5em;"
-        }, this.searchInput, refreshButton, this.pauseButton, this.followButton, this.wrapButton);
-        this.footer = /*#__PURE__*/ createJsxElement("div", {
+            style: "background: #dc3545; color: white;",
+            children: _("CLEAR")
+        });
+        return this.searchBar = jsxs("div", {
+            style: "padding: 0.5em 1em; display: flex; gap: 0.5em; align-items: center; flex-wrap: wrap; min-height: 2.5em;",
+            children: [
+                this.searchInput,
+                e,
+                this.pauseButton,
+                this.followButton,
+                this.wrapButton
+            ]
+        }), this.footer = jsxs("div", {
             class: "button-row",
-            style: "padding: 1em; display: flex; gap: 0.5em; justify-content: flex-end; flex-wrap: wrap; min-height: 2.5em;"
-        }, copyButton, copySelectedButton, exportButton, clearButton);
-        this.header = /*#__PURE__*/ createJsxElement("div", {
-            style: "padding: 1em; border-bottom: 1px solid #dee2e6; display: flex; justify-content: space-between; align-items: center;"
-        }, /*#__PURE__*/ createJsxElement("div", null, /*#__PURE__*/ createJsxElement("h4", {
-            style: "margin: 0; font-size: 1.2em; font-weight: 600;"
-        }, this.props.title), /*#__PURE__*/ createJsxElement("div", {
-            style: "font-size: 0.85em; color: #6c757d; margin-top: 0.3em;"
-        }, _("Status:"), " ", this.statusSpan, this.errorSpan)));
-        const content = /*#__PURE__*/ createJsxElement("div", {
+            style: "padding: 1em; display: flex; gap: 0.5em; justify-content: flex-end; flex-wrap: wrap; min-height: 2.5em;",
+            children: [
+                i,
+                l,
+                r,
+                a
+            ]
+        }), this.header = jsx("div", {
+            style: "padding: 1em; border-bottom: 1px solid #dee2e6; display: flex; justify-content: space-between; align-items: center;",
+            children: jsxs("div", {
+                children: [
+                    jsx("h4", {
+                        style: "margin: 0; font-size: 1.2em; font-weight: 600;",
+                        children: this.props.title
+                    }),
+                    jsxs("div", {
+                        style: "font-size: 0.85em; color: #6c757d; margin-top: 0.3em;",
+                        children: [
+                            _("Status:"),
+                            " ",
+                            this.statusSpan,
+                            this.errorSpan
+                        ]
+                    })
+                ]
+            })
+        }), jsxs("div", {
             class: "log-viewer-core",
-            style: "width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden;"
-        }, this.props.showHeader ? this.header : null, this.searchBar, this.applyScrollbarStyles(), this.logContainer, this.footer);
-        return content;
+            style: "width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden;",
+            children: [
+                this.props.showHeader ? this.header : null,
+                this.searchBar,
+                this.applyScrollbarStyles(),
+                this.logContainer,
+                this.footer
+            ]
+        });
     }
     getSearchBar() {
         return this.searchBar;
@@ -1108,63 +988,39 @@ class LogViewerCore {
         return this.footer;
     }
     init() {
-        this.updateDisplay();
-        this.startPolling();
+        this.updateDisplay(), this.startPolling();
     }
     destroy() {
-        this.stopPolling();
-        this.logContainer = null;
-        this.statusSpan = null;
-        this.errorSpan = null;
-        this.searchInput = null;
-        this.pauseButton = null;
-        this.followButton = null;
-        this.wrapButton = null;
-        this.searchBar = null;
-        this.footer = null;
-        this.header = null;
+        this.stopPolling(), this.logContainer = null, this.statusSpan = null, this.errorSpan = null, this.searchInput = null, this.pauseButton = null, this.followButton = null, this.wrapButton = null, this.searchBar = null, this.footer = null, this.header = null;
     }
     startPolling() {
-        this.fetchLogs();
-        if (this.pollInterval) clearInterval(this.pollInterval);
-        this.pollInterval = window.setInterval(()=>{
-            if (!this.isPaused) this.fetchLogs();
+        this.fetchLogs(), this.pollInterval && clearInterval(this.pollInterval), this.pollInterval = window.setInterval(()=>{
+            this.isPaused || this.fetchLogs();
         }, 3000);
     }
     stopPolling() {
-        if (this.pollInterval) {
-            clearInterval(this.pollInterval);
-            this.pollInterval = null;
-        }
+        this.pollInterval && (clearInterval(this.pollInterval), this.pollInterval = null);
     }
     fetchLogs() {
-        this.props.fetcher(this.props.name).then((response)=>{
-            this.status = response.status || "unavailable";
-            this.lastError = response.last_error || "";
-            this.logs = response.logs || [];
-            this.applyFilters();
-            this.updateDisplay();
-        }).catch((err)=>{
-            console.error("Failed to fetch logs:", err);
-            this.status = "error";
-            this.lastError = _("Failed to fetch logs");
-            this.updateDisplay();
+        this.props.fetcher(this.props.name).then((t)=>{
+            this.status = t.status || "unavailable", this.lastError = t.last_error || "", this.logs = t.logs || [], this.applyFilters(), this.updateDisplay();
+        }).catch((t)=>{
+            console.error("Failed to fetch logs:", t), this.status = "error", this.lastError = _("Failed to fetch logs"), this.updateDisplay();
         });
     }
     applyScrollbarStyles() {
-        const themeColors = getThemeColors();
+        let t = getThemeColors();
         if (!this.logContainer) return;
-        const scrollbarTrack = themeColors.isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.08)";
-        const scrollbarThumb = themeColors.isDark ? "rgba(255, 255, 255, 0.35)" : "rgba(0, 0, 0, 0.4)";
-        const scrollbarThumbHover = themeColors.isDark ? "rgba(255, 255, 255, 0.5)" : "rgba(0, 0, 0, 0.6)";
-        const scrollbarThumbActive = themeColors.isDark ? "rgba(255, 255, 255, 0.7)" : "rgba(0, 0, 0, 0.8)";
-        return /*#__PURE__*/ createJsxElement("style", null, "\n      .log-container::-webkit-scrollbar {\n        width: 10px;\n        height: 10px;\n      }\n      .log-container::-webkit-scrollbar-track {\n        background: ".concat(scrollbarTrack, ";\n        border-radius: 5px;\n      }\n      .log-container::-webkit-scrollbar-thumb {\n        background: ").concat(scrollbarThumb, ";\n        border-radius: 5px;\n        border: 2px solid ").concat(scrollbarTrack, ";\n      }\n      .log-container::-webkit-scrollbar-thumb:hover {\n        background: ").concat(scrollbarThumbHover, ";\n      }\n      .log-container::-webkit-scrollbar-thumb:active {\n        background: ").concat(scrollbarThumbActive, ";\n      }\n      .log-container::-webkit-scrollbar-corner {\n        background: ").concat(scrollbarTrack, ";\n      }\n      .log-container {\n        scrollbar-width: auto;\n        scrollbar-color: ").concat(scrollbarThumb, " ").concat(scrollbarTrack, ";\n      }\n    "));
+        let e = t.isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.08)", i = t.isDark ? "rgba(255, 255, 255, 0.35)" : "rgba(0, 0, 0, 0.4)", o = t.isDark ? "rgba(255, 255, 255, 0.5)" : "rgba(0, 0, 0, 0.6)", n = t.isDark ? "rgba(255, 255, 255, 0.7)" : "rgba(0, 0, 0, 0.8)";
+        return jsx("style", {
+            children: "\n      .log-container::-webkit-scrollbar {\n        width: 10px;\n        height: 10px;\n      }\n      .log-container::-webkit-scrollbar-track {\n        background: ".concat(e, ";\n        border-radius: 5px;\n      }\n      .log-container::-webkit-scrollbar-thumb {\n        background: ").concat(i, ";\n        border-radius: 5px;\n        border: 2px solid ").concat(e, ";\n      }\n      .log-container::-webkit-scrollbar-thumb:hover {\n        background: ").concat(o, ";\n      }\n      .log-container::-webkit-scrollbar-thumb:active {\n        background: ").concat(n, ";\n      }\n      .log-container::-webkit-scrollbar-corner {\n        background: ").concat(e, ";\n      }\n      .log-container {\n        scrollbar-width: auto;\n        scrollbar-color: ").concat(i, " ").concat(e, ";\n      }\n    ")
+        });
     }
     updateDisplay() {
-        const themeColors = getThemeColors();
+        let t = getThemeColors();
         if (this.statusSpan) {
             this.statusSpan.textContent = this.status;
-            const backgroundColor = {
+            let t = {
                 running: "#4CAF50",
                 connected: "#4CAF50",
                 connecting: "#FFC107",
@@ -1172,124 +1028,83 @@ class LogViewerCore {
                 stopped: "#9E9E9E",
                 unavailable: "#9E9E9E"
             }[this.status] || "#9E9E9E";
-            this.statusSpan.setAttribute("style", "display: inline-block; padding: 0.25em 0.6em; border-radius: 3px; background: ".concat(backgroundColor, "; color: white; font-weight: 600; font-size: 0.85em;"));
+            this.statusSpan.setAttribute("style", "display: inline-block; padding: 0.25em 0.6em; border-radius: 3px; background: ".concat(t, "; color: white; font-weight: 600; font-size: 0.85em;"));
         }
-        if (this.errorSpan) {
-            if (this.lastError) {
-                this.errorSpan.style.display = "";
-                this.errorSpan.textContent = this.lastError;
-            } else this.errorSpan.style.display = "none";
-        }
-        if (this.logContainer) {
-            const wasAtBottom = this.logContainer.scrollHeight - this.logContainer.scrollTop <= this.logContainer.clientHeight + 50;
-            while(this.logContainer.firstChild)this.logContainer.removeChild(this.logContainer.firstChild);
-            if (this.filteredLogs.length === 0) {
-                const noLogs = /*#__PURE__*/ createJsxElement("div", {
-                    style: "color: ".concat(themeColors.lineNumberColor, "; text-align: center; padding: 2em; font-family: monospace;")
-                }, this.searchFilter ? _("No logs match your search") : _("No logs available"));
-                this.logContainer.appendChild(noLogs);
+        if (this.errorSpan && (this.lastError ? (this.errorSpan.style.display = "", this.errorSpan.textContent = this.lastError) : this.errorSpan.style.display = "none"), this.logContainer) {
+            let e = this.logContainer.scrollHeight - this.logContainer.scrollTop <= this.logContainer.clientHeight + 50;
+            for(; this.logContainer.firstChild;)this.logContainer.removeChild(this.logContainer.firstChild);
+            if (0 === this.filteredLogs.length) {
+                let e = jsx("div", {
+                    style: "color: ".concat(t.lineNumberColor, "; text-align: center; padding: 2em; font-family: monospace;"),
+                    children: this.searchFilter ? _("No logs match your search") : _("No logs available")
+                });
+                this.logContainer.appendChild(e);
             } else {
-                const lineNumberWidth = "".concat(this.filteredLogs.length.toString().length, ".5ch");
-                this.filteredLogs.forEach((log, index)=>{
-                    var _this_logContainer;
-                    const isSelected = this.selectedLines.has(index);
-                    (_this_logContainer = this.logContainer) === null || _this_logContainer === void 0 ? void 0 : _this_logContainer.appendChild(/*#__PURE__*/ createJsxElement("div", {
-                        onclick: (e)=>{
-                            e.preventDefault();
-                            if (e.ctrlKey || e.metaKey) this.toggleLineSelection(index);
-                            else if (e.shiftKey && this.selectedLines.size > 0) this.selectRange(index);
-                            else {
-                                this.selectedLines.clear();
-                                this.toggleLineSelection(index);
-                            }
-                            this.updateDisplay();
+                let e = "".concat(this.filteredLogs.length.toString().length, ".5ch");
+                this.filteredLogs.forEach((i, l)=>{
+                    var n;
+                    let r = this.selectedLines.has(l);
+                    null == (n = this.logContainer) || n.appendChild(jsxs("div", {
+                        onclick: (t)=>{
+                            t.preventDefault(), t.ctrlKey || t.metaKey ? this.toggleLineSelection(l) : t.shiftKey && this.selectedLines.size > 0 ? this.selectRange(l) : (this.selectedLines.clear(), this.toggleLineSelection(l)), this.updateDisplay();
                         },
-                        style: "cursor: pointer; user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; padding: 0.15em 0.25em; ".concat(isSelected ? "background: ".concat(themeColors.selectionBg, ";") : "", " font-family: monospace, monospace; font-size: 0.9em; line-height: 1.4; display: flex; align-items: flex-start;")
-                    }, /*#__PURE__*/ createJsxElement("span", {
-                        style: "color: ".concat(themeColors.lineNumberColor, "; margin-right: 1ch; min-width: ").concat(lineNumberWidth, "; display: inline-block; text-align: right; flex-shrink: 0;")
-                    }, index + 1), /*#__PURE__*/ createJsxElement("span", null, this.highlightLog(log))));
+                        style: "cursor: pointer; user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; padding: 0.15em 0.25em; ".concat(r ? "background: ".concat(t.selectionBg, ";") : "", " font-family: monospace, monospace; font-size: 0.9em; line-height: 1.4; display: flex; align-items: flex-start;"),
+                        children: [
+                            jsx("span", {
+                                style: "color: ".concat(t.lineNumberColor, "; margin-right: 1ch; min-width: ").concat(e, "; display: inline-block; text-align: right; flex-shrink: 0;"),
+                                children: l + 1
+                            }),
+                            jsx("span", {
+                                children: this.highlightLog(i)
+                            })
+                        ]
+                    }));
                 });
             }
-            if (this.isFollowing && wasAtBottom) this.logContainer.scrollTop = this.logContainer.scrollHeight;
+            this.isFollowing && e && (this.logContainer.scrollTop = this.logContainer.scrollHeight);
         }
     }
     async copyToClipboard() {
-        let text = "";
-        if (this.selectedLines.size > 0) {
-            // Copy selected lines from filteredLogs (what user sees)
-            const indices = Array.from(this.selectedLines).sort((a, b)=>a - b);
-            text = indices.map((i)=>this.filteredLogs[i]).join("\n");
-        } else // Copy all original logs (not filtered)
-        text = this.logs.join("\n");
-        let useModernClipboard = false;
+        let t = "";
+        t = this.selectedLines.size > 0 ? Array.from(this.selectedLines).sort((t, e)=>t - e).map((t)=>this.filteredLogs[t]).join("\n") : this.logs.join("\n");
+        let e = !1;
         try {
-            if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-                navigator.clipboard.writeText("");
-                useModernClipboard = true;
-            }
-        } catch (_e) {
-            useModernClipboard = false;
+            navigator.clipboard && "function" == typeof navigator.clipboard.writeText && (navigator.clipboard.writeText(""), e = !0);
+        } catch (t) {
+            e = !1;
         }
-        if (useModernClipboard) navigator.clipboard.writeText(text).then(async ()=>{
+        if (e) navigator.clipboard.writeText(t).then(async ()=>{
             await dialog_alert(_("Logs copied to clipboard"));
-        }).catch(async (err)=>{
-            console.error("Failed to copy logs:", err);
-            await dialog_alert(_("Failed to copy logs"));
+        }).catch(async (t)=>{
+            console.error("Failed to copy logs:", t), await dialog_alert(_("Failed to copy logs"));
         });
         else {
-            const textarea = /*#__PURE__*/ createJsxElement("textarea", {
-                style: "position: fixed; opacity: 0; display: none;"
-            }, text);
-            document.body.appendChild(textarea);
-            textarea.select();
+            let e = jsx("textarea", {
+                style: "position: fixed; opacity: 0; display: none;",
+                children: t
+            });
+            document.body.appendChild(e), e.select();
             try {
-                const success = document.execCommand("copy");
-                if (success) await dialog_alert(_("Logs copied to clipboard"));
-                else throw new Error("execCommand failed");
-            } catch (err) {
-                console.error("Failed to copy logs:", err);
-                await dialog_alert(_("Failed to copy logs - please select and copy manually"));
+                if (document.execCommand("copy")) await dialog_alert(_("Logs copied to clipboard"));
+                else throw Error("execCommand failed");
+            } catch (t) {
+                console.error("Failed to copy logs:", t), await dialog_alert(_("Failed to copy logs - please select and copy manually"));
             } finally{
-                document.body.removeChild(textarea);
+                document.body.removeChild(e);
             }
         }
     }
     async clearLogs() {
-        if (await dialog_confirm(_("Are you sure you want to clear the logs?"))) this.props.clearer(this.props.name).then(()=>{
-            this.logs = [];
-            this.filteredLogs = [];
-            this.selectedLines.clear();
-            this.updateDisplay();
-        }).catch(async (err)=>{
-            console.error("Failed to clear logs:", err);
-            await dialog_alert(_("Failed to clear logs"));
+        await dialog_confirm(_("Are you sure you want to clear the logs?")) && this.props.clearer(this.props.name).then(()=>{
+            this.logs = [], this.filteredLogs = [], this.selectedLines.clear(), this.updateDisplay();
+        }).catch(async (t)=>{
+            console.error("Failed to clear logs:", t), await dialog_alert(_("Failed to clear logs"));
         });
     }
-    constructor(props){
-        var _props_showHeader;
-        _define_property(this, "props", void 0);
-        _define_property(this, "logContainer", null);
-        _define_property(this, "statusSpan", null);
-        _define_property(this, "errorSpan", null);
-        _define_property(this, "searchInput", null);
-        _define_property(this, "pauseButton", null);
-        _define_property(this, "followButton", null);
-        _define_property(this, "wrapButton", null);
-        _define_property(this, "status", "unavailable");
-        _define_property(this, "logs", []);
-        _define_property(this, "lastError", "");
-        _define_property(this, "pollInterval", null);
-        _define_property(this, "searchFilter", "");
-        _define_property(this, "filteredLogs", []);
-        _define_property(this, "isPaused", false);
-        _define_property(this, "isFollowing", true);
-        _define_property(this, "selectedLines", new Set());
-        _define_property(this, "wrapText", false);
-        _define_property(this, "searchBar", null);
-        _define_property(this, "footer", null);
-        _define_property(this, "header", null);
-        this.props = _object_spread_props(_object_spread({}, props), {
-            showHeader: (_props_showHeader = props.showHeader) !== null && _props_showHeader !== void 0 ? _props_showHeader : true
+    constructor(s){
+        var o;
+        _define_property(this, "props", void 0), _define_property(this, "logContainer", null), _define_property(this, "statusSpan", null), _define_property(this, "errorSpan", null), _define_property(this, "searchInput", null), _define_property(this, "pauseButton", null), _define_property(this, "followButton", null), _define_property(this, "wrapButton", null), _define_property(this, "status", "unavailable"), _define_property(this, "logs", []), _define_property(this, "lastError", ""), _define_property(this, "pollInterval", null), _define_property(this, "searchFilter", ""), _define_property(this, "filteredLogs", []), _define_property(this, "isPaused", !1), _define_property(this, "isFollowing", !0), _define_property(this, "selectedLines", new Set()), _define_property(this, "wrapText", !1), _define_property(this, "searchBar", null), _define_property(this, "footer", null), _define_property(this, "header", null), this.props = _object_spread_props(_object_spread({}, s), {
+            showHeader: null == (o = s.showHeader) || o
         });
     }
 }
@@ -1299,133 +1114,129 @@ class LogViewerCore {
 
 
 
+
 class LogViewerDialog {
     render() {
         this.core = new LogViewerCore(_object_spread_props(_object_spread({}, this.props), {
-            showHeader: false
-        }));
-        this.core.render();
-        const statusColor = "#9E9E9E";
-        this.statusSpan = /*#__PURE__*/ createJsxElement("span", {
-            style: "display: inline-block; padding: 0.25em 0.6em; border-radius: 3px; background: ".concat(statusColor, "; color: white; font-weight: 600; font-size: 0.85em;")
-        }, _("unavailable"));
-        this.errorSpan = /*#__PURE__*/ createJsxElement("div", {
+            showHeader: !1
+        })), this.core.render(), this.statusSpan = jsx("span", {
+            style: "display: inline-block; padding: 0.25em 0.6em; border-radius: 3px; background: ".concat("#9E9E9E", "; color: white; font-weight: 600; font-size: 0.85em;"),
+            children: _("unavailable")
+        }), this.errorSpan = jsx("div", {
             style: "color: #F44336; margin-top: 0.3em; display:none"
         });
-        const header = /*#__PURE__*/ createJsxElement("div", {
-            style: "padding: 1em; border-bottom: 1px solid #dee2e6; display: flex; justify-content: space-between; align-items: center;"
-        }, /*#__PURE__*/ createJsxElement("div", null, /*#__PURE__*/ createJsxElement("h4", {
-            style: "margin: 0; font-size: 1.2em; font-weight: 600;"
-        }, this.props.title), /*#__PURE__*/ createJsxElement("div", {
-            style: "font-size: 0.85em; color: #6c757d; margin-top: 0.3em;"
-        }, _("Status:"), this.statusSpan, this.errorSpan)), /*#__PURE__*/ createJsxElement("button", {
-            type: "button",
-            onclick: ()=>this.close(),
-            style: "background: none; border: none; font-size: 1.5em; cursor: pointer; color: #6c757d;"
-        }, "\xd7"));
-        const searchBar = this.core.getSearchBar();
-        const logContainer = this.core.getLogContainer();
-        const footer = this.core.getFooter();
-        const closeFooterButton = /*#__PURE__*/ createJsxElement("button", {
+        let t = jsxs("div", {
+            style: "padding: 1em; border-bottom: 1px solid #dee2e6; display: flex; justify-content: space-between; align-items: center;",
+            children: [
+                jsxs("div", {
+                    children: [
+                        jsx("h4", {
+                            style: "margin: 0; font-size: 1.2em; font-weight: 600;",
+                            children: this.props.title
+                        }),
+                        jsxs("div", {
+                            style: "font-size: 0.85em; color: #6c757d; margin-top: 0.3em;",
+                            children: [
+                                _("Status:"),
+                                this.statusSpan,
+                                this.errorSpan
+                            ]
+                        })
+                    ]
+                }),
+                jsx("button", {
+                    type: "button",
+                    onclick: ()=>this.close(),
+                    style: "background: none; border: none; font-size: 1.5em; cursor: pointer; color: #6c757d;",
+                    children: "\xd7"
+                })
+            ]
+        }), n = this.core.getSearchBar(), l = this.core.getLogContainer(), a = this.core.getFooter(), d = jsx("button", {
             type: "button",
             class: "cbi-button",
-            onclick: ()=>this.close()
-        }, _("Close"));
-        const dialogFooter = /*#__PURE__*/ createJsxElement("div", {
+            onclick: ()=>this.close(),
+            children: _("Close")
+        }), h = jsxs("div", {
             class: "button-row",
-            style: "padding: 1em; display: flex; gap: 0.5em; justify-content: flex-end; flex-wrap: wrap; min-height: 2.5em;"
-        }, /*#__PURE__*/ createJsxElement("span", null, footer ? Array.from(footer.children) : null), /*#__PURE__*/ createJsxElement("span", null, closeFooterButton));
-        const content = /*#__PURE__*/ createJsxElement("div", {
+            style: "padding: 1em; display: flex; gap: 0.5em; justify-content: flex-end; flex-wrap: wrap; min-height: 2.5em;",
+            children: [
+                jsx("span", {
+                    children: a ? Array.from(a.children) : null
+                }),
+                jsx("span", {
+                    children: d
+                })
+            ]
+        }), p = jsxs("div", {
             class: "modal cbi-modal cbi-section-node",
             role: "dialog",
             "aria-modal": "true",
-            style: "width: 95vw; max-width: 1200px; max-height: 90vh; display: grid; grid-template-rows: auto auto 1fr auto;"
-        }, /*#__PURE__*/ createJsxElement("div", null, " ", header), /*#__PURE__*/ createJsxElement("div", null, searchBar), /*#__PURE__*/ createJsxElement("div", {
-            style: "max-height: min(calc(85vh - 220px), 100vh); border: 1px solid var(--cbi-border-color); border-radius: 4px; overflow: hidden; width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden;"
-        }, logContainer), /*#__PURE__*/ createJsxElement("div", null, " ", dialogFooter));
-        this.modal = /*#__PURE__*/ createJsxElement("div", {
+            style: "width: 95vw; max-width: 1200px; max-height: 90vh; display: grid; grid-template-rows: auto auto 1fr auto;",
+            children: [
+                jsxs("div", {
+                    children: [
+                        " ",
+                        t
+                    ]
+                }),
+                jsx("div", {
+                    children: n
+                }),
+                jsx("div", {
+                    style: "max-height: min(calc(85vh - 220px), 100vh); border: 1px solid var(--cbi-border-color); border-radius: 4px; overflow: hidden; width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden;",
+                    children: l
+                }),
+                jsxs("div", {
+                    children: [
+                        " ",
+                        h
+                    ]
+                })
+            ]
+        });
+        return this.modal = jsx("div", {
             style: "position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;",
-            onclick: (e)=>{
-                if (e.target === e.currentTarget) this.close();
-            }
-        }, content);
-        return this.modal;
+            onclick: (t)=>{
+                t.target === t.currentTarget && this.close();
+            },
+            children: p
+        }), this.modal;
     }
     open() {
         if (this.isOpen) return;
-        this.isOpen = true;
-        const node = this.render();
-        document.body.appendChild(node);
-        if (this.core) {
-            this.core.init();
-            this.startStatusPolling();
-        }
+        this.isOpen = !0;
+        let t = this.render();
+        document.body.appendChild(t), this.core && (this.core.init(), this.startStatusPolling());
     }
     close() {
-        var _this_modal_parentElement, _this_modal;
-        if (!this.isOpen) return;
-        this.isOpen = false;
-        this.stopStatusPolling();
-        if (this.core) this.core.destroy();
-        (_this_modal = this.modal) === null || _this_modal === void 0 ? void 0 : (_this_modal_parentElement = _this_modal.parentElement) === null || _this_modal_parentElement === void 0 ? void 0 : _this_modal_parentElement.removeChild(this.modal);
-        this.modal = null;
-        this.core = null;
-        this.statusSpan = null;
-        this.errorSpan = null;
+        var t, e;
+        this.isOpen && (this.isOpen = !1, this.stopStatusPolling(), this.core && this.core.destroy(), null == (e = this.modal) || null == (t = e.parentElement) || t.removeChild(this.modal), this.modal = null, this.core = null, this.statusSpan = null, this.errorSpan = null);
     }
     startStatusPolling() {
-        this.updateStatus();
-        if (this.pollInterval) clearInterval(this.pollInterval);
-        this.pollInterval = window.setInterval(()=>{
+        this.updateStatus(), this.pollInterval && clearInterval(this.pollInterval), this.pollInterval = window.setInterval(()=>{
             this.updateStatus();
         }, 3000);
     }
     stopStatusPolling() {
-        if (this.pollInterval) {
-            clearInterval(this.pollInterval);
-            this.pollInterval = null;
-        }
+        this.pollInterval && (clearInterval(this.pollInterval), this.pollInterval = null);
     }
     updateStatus() {
-        if (!this.core) return;
-        this.props.fetcher(this.props.name).then((response)=>{
-            const status = response.status || "unavailable";
-            const lastError = response.last_error || "";
-            const statusColor = {
+        this.core && this.props.fetcher(this.props.name).then((t)=>{
+            let e = t.status || "unavailable", i = t.last_error || "";
+            this.statusSpan && (this.statusSpan.textContent = e, this.statusSpan.setAttribute("style", "display: inline-block; padding: 0.25em 0.6em; border-radius: 3px; background: ".concat({
                 running: "#4CAF50",
                 connected: "#4CAF50",
                 connecting: "#FFC107",
                 error: "#F44336",
                 stopped: "#9E9E9E",
                 unavailable: "#9E9E9E"
-            }[status] || "#9E9E9E";
-            if (this.statusSpan) {
-                this.statusSpan.textContent = status;
-                this.statusSpan.setAttribute("style", "display: inline-block; padding: 0.25em 0.6em; border-radius: 3px; background: ".concat(statusColor, "; color: white; font-weight: 600; font-size: 0.85em;"));
-            }
-            if (this.errorSpan) {
-                if (lastError) {
-                    this.errorSpan.style.display = "block";
-                    this.errorSpan.textContent = lastError;
-                } else this.errorSpan.style.display = "none";
-            }
-        }).catch((err)=>{
-            console.error("Failed to fetch status:", err);
-            if (this.statusSpan) {
-                this.statusSpan.textContent = _("error");
-                this.statusSpan.setAttribute("style", "display: inline-block; padding: 0.25em 0.6em; border-radius: 3px; background: #F44336; color: white; font-weight: 600; font-size: 0.85em;");
-            }
+            }[e] || "#9E9E9E", "; color: white; font-weight: 600; font-size: 0.85em;"))), this.errorSpan && (i ? (this.errorSpan.style.display = "block", this.errorSpan.textContent = i) : this.errorSpan.style.display = "none");
+        }).catch((t)=>{
+            console.error("Failed to fetch status:", t), this.statusSpan && (this.statusSpan.textContent = _("error"), this.statusSpan.setAttribute("style", "display: inline-block; padding: 0.25em 0.6em; border-radius: 3px; background: #F44336; color: white; font-weight: 600; font-size: 0.85em;"));
         });
     }
-    constructor(props){
-        _define_property(this, "props", void 0);
-        _define_property(this, "core", null);
-        _define_property(this, "modal", null);
-        _define_property(this, "isOpen", false);
-        _define_property(this, "statusSpan", null);
-        _define_property(this, "errorSpan", null);
-        _define_property(this, "pollInterval", null);
-        this.props = props;
+    constructor(e){
+        _define_property(this, "props", void 0), _define_property(this, "core", null), _define_property(this, "modal", null), _define_property(this, "isOpen", !1), _define_property(this, "statusSpan", null), _define_property(this, "errorSpan", null), _define_property(this, "pollInterval", null), this.props = e;
     }
 }
 
@@ -1433,146 +1244,111 @@ class LogViewerDialog {
 
 
 
+
 class ProxyStatsViewer {
     getStatsColors() {
-        const { isDark } = getThemeColors();
+        let { isDark: t } = getThemeColors();
         return {
-            borderColor: isDark ? "#404040" : "#ddd",
-            bgColor: isDark ? "#1e1e1e" : "#ffffff",
-            innerBgColor: isDark ? "#2d2d2d" : "#f8f9fa",
-            textColor: isDark ? "#e0e0e0" : "#333333",
-            mutedTextColor: isDark ? "#aaa" : "#6c757d",
-            successColor: isDark ? "#4CAF50" : "#28a745",
-            errorColor: isDark ? "#FF5252" : "#dc3545",
-            rowBorderColor: isDark ? "#333" : "#eee"
+            borderColor: t ? "#404040" : "#ddd",
+            bgColor: t ? "#1e1e1e" : "#ffffff",
+            innerBgColor: t ? "#2d2d2d" : "#f8f9fa",
+            textColor: t ? "#e0e0e0" : "#333333",
+            mutedTextColor: t ? "#aaa" : "#6c757d",
+            successColor: t ? "#4CAF50" : "#28a745",
+            errorColor: t ? "#FF5252" : "#dc3545",
+            rowBorderColor: t ? "#333" : "#eee"
         };
     }
     render() {
-        const colors = this.getStatsColors();
-        const container = /*#__PURE__*/ createJsxElement("div", {
-            style: "padding: 12px; border: 1px solid ".concat(colors.borderColor, "; border-radius: 4px; background-color: ").concat(colors.bgColor, ";")
+        let t = this.getStatsColors(), r = jsx("div", {
+            style: "padding: 12px; border: 1px solid ".concat(t.borderColor, "; border-radius: 4px; background-color: ").concat(t.bgColor, ";")
         });
-        this.loadingEl = /*#__PURE__*/ createJsxElement("div", {
-            style: "font-size: 14px; color: ".concat(colors.textColor, ";")
-        }, _("Loading stats..."));
-        container.appendChild(this.loadingEl);
-        this.errorEl = /*#__PURE__*/ createJsxElement("div", {
-            style: "color: ".concat(colors.errorColor, "; font-size: 14px; display: none;")
-        });
-        container.appendChild(this.errorEl);
-        this.statsEl = /*#__PURE__*/ createJsxElement("div", {
-            style: "display: none; color: ".concat(colors.textColor, ";")
-        });
-        container.appendChild(this.statsEl);
-        this.fetchStats();
-        this.refreshInterval = window.setInterval(()=>this.fetchStats(), this.refreshRate);
-        this.visibilityHandler = ()=>this.handleVisibilityChange();
-        document.addEventListener("visibilitychange", this.visibilityHandler);
-        return container;
+        return this.loadingEl = jsx("div", {
+            style: "font-size: 14px; color: ".concat(t.textColor, ";"),
+            children: _("Loading stats...")
+        }), r.appendChild(this.loadingEl), this.errorEl = jsx("div", {
+            style: "color: ".concat(t.errorColor, "; font-size: 14px; display: none;")
+        }), r.appendChild(this.errorEl), this.statsEl = jsx("div", {
+            style: "display: none; color: ".concat(t.textColor, ";")
+        }), r.appendChild(this.statsEl), this.fetchStats(), this.refreshInterval = window.setInterval(()=>this.fetchStats(), this.refreshRate), this.visibilityHandler = ()=>this.handleVisibilityChange(), document.addEventListener("visibilitychange", this.visibilityHandler), r;
     }
     handleVisibilityChange() {
-        if (document.hidden) this.isPaused = true;
-        else {
-            this.isPaused = false;
-            this.fetchStats();
-        }
+        document.hidden ? this.isPaused = !0 : (this.isPaused = !1, this.fetchStats());
     }
     async fetchStats() {
-        if (this.isPaused) return;
-        try {
-            const stats = await this.rpcClient.getFrpcProxyStats(this.clientId);
-            const currentStats = JSON.stringify(stats);
-            if (currentStats === this.lastStats) return;
-            this.lastStats = currentStats;
-            this.retryCount = 0;
-            if (this.loadingEl) this.loadingEl.style.display = "none";
-            if (this.errorEl) this.errorEl.style.display = "none";
-            if (this.statsEl) {
-                this.statsEl.style.display = "block";
-                this.statsEl.textContent = "";
-                const proxies = stats.proxies || [];
-                if (!Array.isArray(proxies) || proxies.length === 0) {
-                    const colors = this.getStatsColors();
-                    this.statsEl.appendChild(/*#__PURE__*/ createJsxElement("div", {
-                        style: "font-size: 14px; color: ".concat(colors.textColor, ";")
-                    }, _("No proxies configured")));
+        if (!this.isPaused) try {
+            let t = await this.rpcClient.getFrpcProxyStats(this.clientId), s = JSON.stringify(t);
+            if (s === this.lastStats) return;
+            if (this.lastStats = s, this.retryCount = 0, this.loadingEl && (this.loadingEl.style.display = "none"), this.errorEl && (this.errorEl.style.display = "none"), this.statsEl) {
+                this.statsEl.style.display = "block", this.statsEl.textContent = "";
+                let s = t.proxies || [];
+                if (!Array.isArray(s) || 0 === s.length) {
+                    let t = this.getStatsColors();
+                    this.statsEl.appendChild(jsx("div", {
+                        style: "font-size: 14px; color: ".concat(t.textColor, ";"),
+                        children: _("No proxies configured")
+                    }));
                     return;
                 }
-                const colors = this.getStatsColors();
-                const hasError = proxies.some((p)=>p.err && p.err.length > 0 || p.status === "error");
-                const statusColor = hasError ? colors.errorColor : colors.successColor;
-                const statusText = hasError ? _("error") : _("running");
-                const statusBadge = /*#__PURE__*/ createJsxElement("div", {
-                    style: "margin-bottom: 8px;"
-                }, /*#__PURE__*/ createJsxElement("span", {
-                    class: "ifacebadge",
-                    style: "font-size: 1em; font-weight: 600; color: ".concat(statusColor, ";")
-                }, translateStatus(statusText)));
-                this.statsEl.appendChild(statusBadge);
-                const countEl = /*#__PURE__*/ createJsxElement("small", {
-                    style: "display: block; margin-bottom: 4px; color: ".concat(colors.textColor, ";")
-                }, /*#__PURE__*/ createJsxElement("span", null, _("Proxies: %d").format(proxies.length)), /*#__PURE__*/ createJsxElement("br", null));
-                this.statsEl.appendChild(countEl);
-                const container = /*#__PURE__*/ createJsxElement("div", {
-                    style: "margin-top: 0.3em; padding: 0.3em; background: ".concat(colors.innerBgColor, "; border-radius: 3px; max-height: 80px; overflow-y: auto;")
-                }, proxies.map((proxy)=>{
-                    var _proxy_cfg;
-                    return /*#__PURE__*/ createJsxElement("div", {
-                        style: "display: flex; gap: 0.5em; padding: 0.15em 0; font-size: 0.9em; border-bottom: 1px solid ".concat(colors.rowBorderColor, ";")
-                    }, /*#__PURE__*/ createJsxElement("span", {
-                        style: "min-width: 35px; color: ".concat(colors.mutedTextColor, ";")
-                    }, proxy.type.toUpperCase()), /*#__PURE__*/ createJsxElement("span", {
-                        style: "min-width: 45px; color: ".concat(colors.textColor, ";")
-                    }, ":".concat(((_proxy_cfg = proxy.cfg) === null || _proxy_cfg === void 0 ? void 0 : _proxy_cfg.remotePort) || proxy.remote_addr || "N/A")), /*#__PURE__*/ createJsxElement("span", {
-                        style: "color: ".concat(colors.successColor, ";")
-                    }, "\u21930 B"), /*#__PURE__*/ createJsxElement("span", {
-                        style: "color: ".concat(colors.errorColor, ";")
-                    }, "\u21910 B"));
-                }));
-                this.statsEl.appendChild(container);
+                let o = this.getStatsColors(), l = s.some((t)=>t.err && t.err.length > 0 || "error" === t.status), n = l ? o.errorColor : o.successColor, a = l ? _("error") : _("running"), d = jsx("div", {
+                    style: "margin-bottom: 8px;",
+                    children: jsx("span", {
+                        class: "ifacebadge",
+                        style: "font-size: 1em; font-weight: 600; color: ".concat(n, ";"),
+                        children: translateStatus(a)
+                    })
+                });
+                this.statsEl.appendChild(d);
+                let h = jsxs("small", {
+                    style: "display: block; margin-bottom: 4px; color: ".concat(o.textColor, ";"),
+                    children: [
+                        jsx("span", {
+                            children: _("Proxies: %d").format(s.length)
+                        }),
+                        jsx("br", {})
+                    ]
+                });
+                this.statsEl.appendChild(h);
+                let c = jsx("div", {
+                    style: "margin-top: 0.3em; padding: 0.3em; background: ".concat(o.innerBgColor, "; border-radius: 3px; max-height: 80px; overflow-y: auto;"),
+                    children: s.map((t)=>{
+                        var s;
+                        return jsxs("div", {
+                            style: "display: flex; gap: 0.5em; padding: 0.15em 0; font-size: 0.9em; border-bottom: 1px solid ".concat(o.rowBorderColor, ";"),
+                            children: [
+                                jsx("span", {
+                                    style: "min-width: 35px; color: ".concat(o.mutedTextColor, ";"),
+                                    children: t.type.toUpperCase()
+                                }),
+                                jsx("span", {
+                                    style: "min-width: 45px; color: ".concat(o.textColor, ";"),
+                                    children: ":".concat((null == (s = t.cfg) ? void 0 : s.remotePort) || t.remote_addr || "N/A")
+                                }),
+                                jsx("span", {
+                                    style: "color: ".concat(o.successColor, ";"),
+                                    children: "\u21930 B"
+                                }),
+                                jsx("span", {
+                                    style: "color: ".concat(o.errorColor, ";"),
+                                    children: "\u21910 B"
+                                })
+                            ]
+                        });
+                    })
+                });
+                this.statsEl.appendChild(c);
             }
-        } catch (error) {
-            this.retryCount++;
-            if (this.retryCount < this.maxRetries) {
-                const backoffDelay = Math.min(1000 * 2 ** this.retryCount, 30000);
-                setTimeout(()=>this.fetchStats(), backoffDelay);
-                return;
-            }
-            if (this.loadingEl) this.loadingEl.style.display = "none";
-            if (this.errorEl) {
-                this.errorEl.style.display = "block";
-                this.errorEl.textContent = _("Error: %s").format(error instanceof Error ? error.message : _("Unknown error"));
-            }
+        } catch (t) {
+            if (this.retryCount++, this.retryCount < this.maxRetries) return void setTimeout(()=>this.fetchStats(), Math.min(1000 * 2 ** this.retryCount, 30000));
+            this.loadingEl && (this.loadingEl.style.display = "none"), this.errorEl && (this.errorEl.style.display = "block", this.errorEl.textContent = _("Error: %s").format(t instanceof Error ? t.message : _("Unknown error")));
         }
     }
     destroy() {
-        if (this.refreshInterval !== null) {
-            clearInterval(this.refreshInterval);
-            this.refreshInterval = null;
-        }
-        if (this.visibilityHandler) {
-            document.removeEventListener("visibilitychange", this.visibilityHandler);
-            this.visibilityHandler = null;
-        }
-        this.isPaused = true;
+        null !== this.refreshInterval && (clearInterval(this.refreshInterval), this.refreshInterval = null), this.visibilityHandler && (document.removeEventListener("visibilitychange", this.visibilityHandler), this.visibilityHandler = null), this.isPaused = !0;
     }
-    constructor(props){
-        var _props_refreshInterval;
-        _define_property(this, "clientId", void 0);
-        _define_property(this, "rpcClient", void 0);
-        _define_property(this, "statsEl", null);
-        _define_property(this, "errorEl", null);
-        _define_property(this, "loadingEl", null);
-        _define_property(this, "refreshInterval", null);
-        _define_property(this, "refreshRate", void 0);
-        _define_property(this, "isPaused", false);
-        _define_property(this, "visibilityHandler", null);
-        _define_property(this, "lastStats", "");
-        _define_property(this, "retryCount", 0);
-        _define_property(this, "maxRetries", 3);
-        this.clientId = props.clientId;
-        this.rpcClient = props.rpcClient;
-        this.refreshRate = (_props_refreshInterval = props.refreshInterval) !== null && _props_refreshInterval !== void 0 ? _props_refreshInterval : 5000;
+    constructor(e){
+        var r;
+        _define_property(this, "clientId", void 0), _define_property(this, "rpcClient", void 0), _define_property(this, "statsEl", null), _define_property(this, "errorEl", null), _define_property(this, "loadingEl", null), _define_property(this, "refreshInterval", null), _define_property(this, "refreshRate", void 0), _define_property(this, "isPaused", !1), _define_property(this, "visibilityHandler", null), _define_property(this, "lastStats", ""), _define_property(this, "retryCount", 0), _define_property(this, "maxRetries", 3), this.clientId = e.clientId, this.rpcClient = e.rpcClient, this.refreshRate = null != (r = e.refreshInterval) ? r : 5000;
     }
 }
 
@@ -1581,1923 +1357,1389 @@ class ProxyStatsViewer {
 
 
 
-const frpc_form = L.form;
-function getStatusColors() {
-    const { isDark } = getThemeColors();
-    // Dark mode adjustments for better visibility
-    const connectedColor = isDark ? "#4CAF50" : "#4CAF50"; // Green works well in both
-    const connectingColor = isDark ? "#FFD700" : "#FFC107"; // Brighter gold for dark mode
-    const errorColor = isDark ? "#FF5252" : "#F44336"; // Brighter red for dark mode
-    const inactiveColor = isDark ? "#BDBDBD" : "#9E9E9E"; // Lighter gray for dark mode
+
+let frpc_l = L.form;
+function frpc_i() {
+    let { isDark: e } = getThemeColors(), t = e ? "#BDBDBD" : "#9E9E9E";
     return {
-        connected: connectedColor,
-        connecting: connectingColor,
-        error: errorColor,
-        stopped: inactiveColor,
-        unavailable: inactiveColor
+        connected: "#4CAF50",
+        connecting: e ? "#FFD700" : "#FFC107",
+        error: e ? "#FF5252" : "#F44336",
+        stopped: t,
+        unavailable: t
     };
 }
-const STATUS_LABELS = {
+let frpc_s = {
     connected: _("Connected"),
     connecting: _("Connecting"),
     error: _("Error"),
     stopped: _("Stopped"),
     unavailable: _("Unavailable")
-};
-const nodeStatuses = {};
-const frpc_statusElements = {};
-const actionButtons = {};
-/* export default */ function modules_frpc(_m, s, tab_id) {
-    let o;
-    o = s.taboption(tab_id, frpc_form.SectionValue, "_frpc_nodes", frpc_form.GridSection, "frpc_node");
-    const ss = o.subsection;
-    ss.anonymous = true;
-    ss.addremove = true;
-    ss.sortable = true;
-    ss.cloneable = true;
-    ss.sectiontitle = (section_id)=>L.uci.get("portweaver", section_id, "name") || section_id || _("Unnamed node");
-    o = ss.option(frpc_form.Flag, "enabled", _("Enable"));
-    o.modalonly = true;
-    o.default = "1";
-    o.rmempty = false;
-    o = ss.option(frpc_form.Value, "name", _("Node Name"));
-    o.modalonly = true;
-    o.rmempty = false;
-    o.datatype = "string";
-    o.placeholder = "node1";
-    o.validate = (section_id, value)=>{
-        if (!value || String(value).trim() === "") return _("Node name is required");
-        if (!/^[a-zA-Z0-9_-]+$/.test(String(value).trim())) return _("Node name must contain only alphanumeric characters, underscore, or hyphen");
-        const sections = L.uci.sections("portweaver", "frpc_node");
-        const trimmedValue = String(value).trim();
-        for (const sec of sections){
-            if (sec[".name"] === section_id) continue;
-            const existingName = sec.name;
-            if (existingName && existingName.trim() === trimmedValue) return _("Node name already exists. Please choose a different name.");
-        }
-        return true;
-    };
-    o = ss.option(frpc_form.DummyValue, "status", _("Status"));
-    o.modalonly = false;
-    o.textvalue = (section_id)=>{
-        const info = nodeStatuses[section_id] || {
-            status: "unavailable"
-        };
-        const colors = getStatusColors();
-        const statusColor = colors[info.status] || colors.unavailable;
-        const statusText = {
-            connected: _("Connected"),
-            connecting: _("Connecting"),
-            error: _("Error"),
-            stopped: _("Stopped"),
-            unavailable: _("Unavailable")
-        }[info.status] || info.status;
-        const container = /*#__PURE__*/ createJsxElement("span", {
-            style: "display:flex; align-items:center;"
-        }, /*#__PURE__*/ createJsxElement("span", {
-            style: "display:inline-block; width:12px; height:12px; border-radius:50%; background-color:".concat(statusColor, "; margin-right:8px;")
-        }), /*#__PURE__*/ createJsxElement("span", null, statusText));
-        frpc_statusElements[section_id] = container;
-        return container;
-    };
-    o = ss.option(frpc_form.Flag, "enabled", _("Enabled"));
-    o.modalonly = false;
-    o.default = "1";
-    o.editable = true;
-    o = ss.option(frpc_form.Value, "server", _("FRP Server Address"));
-    o.modalonly = true;
-    o.rmempty = false;
-    o.datatype = "host";
-    o.placeholder = "1.2.3.4";
-    o.validate = (_section_id, value)=>{
-        if (!value || String(value).trim() === "") return _("Server address is required");
-        return true;
-    };
-    o = ss.option(frpc_form.Value, "port", _("FRP Server Port"));
-    o.modalonly = true;
-    o.rmempty = false;
-    o.datatype = "port";
-    o.placeholder = "7000";
-    o.validate = (_section_id, value)=>{
-        if (!value || String(value).trim() === "") return _("Server port is required");
-        const port = parseInt(value, 10);
-        if (Number.isNaN(port) || port < 1 || port > 65535) return _("Port must be between 1 and 65535");
-        return true;
-    };
-    o = ss.option(frpc_form.Value, "token", _("Authentication Token"));
-    o.modalonly = true;
-    o.password = true;
-    o.rmempty = true;
-    o.placeholder = "optional token for authentication";
-    o = ss.option(frpc_form.ListValue, "log_level", _("Log Level"));
-    o.modalonly = true;
-    o.rmempty = true;
-    o.default = "info";
-    o.value("trace", "Trace");
-    o.value("debug", "Debug");
-    o.value("info", "Info");
-    o.value("warn", "Warning");
-    o.value("error", "Error");
-    o = ss.option(frpc_form.Flag, "use_encryption", _("Enable Encryption"));
-    o.modalonly = true;
-    o.rmempty = false;
-    o.default = "1";
-    o = ss.option(frpc_form.Flag, "use_compression", _("Enable Compression"));
-    o.modalonly = true;
-    o.rmempty = false;
-    o.default = "1";
-    o = ss.option(frpc_form.DummyValue, "actions", _("Actions"));
-    o.modalonly = false;
-    o.textvalue = (section_id)=>{
-        var _nodeStatuses_section_id;
-        const isRunning = (((_nodeStatuses_section_id = nodeStatuses[section_id]) === null || _nodeStatuses_section_id === void 0 ? void 0 : _nodeStatuses_section_id.status) || "stopped") !== "stopped";
-        const btn = /*#__PURE__*/ createJsxElement("button", {
-            type: "button",
-            class: "cbi-button cbi-button-action",
-            onclick: ()=>{
-                const nodeName = L.uci.get("portweaver", section_id, "name");
-                const logViewer = new LogViewerDialog({
-                    name: nodeName,
-                    title: _("FRP Logs - %s").format(nodeName),
-                    fetcher: async ()=>await rpcClient.getFrpcInfo(nodeName),
-                    clearer: async ()=>await rpcClient.clearFrpcLogs(nodeName)
-                });
-                logViewer.open();
-            },
-            disabled: !isRunning
-        }, _("View Logs"));
-        actionButtons[section_id] = btn;
-        return btn;
-    };
-    o = ss.option(frpc_form.DummyValue, "proxy_stats", _("Proxy Stats"));
-    o.modalonly = false;
-    o.textvalue = (section_id)=>{
-        const nodeName = L.uci.get("portweaver", section_id, "name");
-        const container = /*#__PURE__*/ createJsxElement("div", {
-            style: "display: flex; gap: 8px; flex-wrap: wrap;"
-        });
-        // Create stats viewer for the client (now shows all proxies)
-        const statsViewer = new ProxyStatsViewer({
-            clientId: nodeName,
-            rpcClient: rpcClient
-        });
-        const statsEl = statsViewer.render();
-        statsEl.style.cssText = "flex: 1; min-width: 300px; ".concat(statsEl.style.cssText);
-        container.appendChild(statsEl);
-        return container;
-    };
-    async function pollFrpStatus() {
+}, frpc_d = {}, frpc_c = {}, frpc_u = {};
+/* export default */ function frpc(r, p, m) {
+    let y, f = (y = p.taboption(m, frpc_l.SectionValue, "_frpc_nodes", frpc_l.GridSection, "frpc_node")).subsection;
+    async function g() {
         try {
-            const sections = await L.uci.sections("portweaver", "frpc_node");
-            const promises = sections.map((sec)=>{
-                const nodeName = sec.name;
-                return rpcClient.getFrpcInfo(nodeName).then((res)=>{
-                    var _res_status;
-                    var _nodeStatuses_sec_name;
-                    const oldStatus = (_nodeStatuses_sec_name = nodeStatuses[sec[".name"]]) === null || _nodeStatuses_sec_name === void 0 ? void 0 : _nodeStatuses_sec_name.status;
-                    const rawStatus = (_res_status = res.status) !== null && _res_status !== void 0 ? _res_status : "unavailable";
-                    const newStatus = [
+            let e = (await L.uci.sections("portweaver", "frpc_node")).map((e)=>{
+                let t = e.name;
+                return rpcClient.getFrpcInfo(t).then((t)=>{
+                    var o, a;
+                    let n = null == (a = frpc_d[e[".name"]]) ? void 0 : a.status, r = null != (o = t.status) ? o : "unavailable", l = [
                         "connected",
                         "connecting",
                         "error",
                         "stopped",
                         "unavailable"
-                    ].includes(rawStatus) ? rawStatus : "unavailable";
-                    nodeStatuses[sec[".name"]] = {
-                        status: newStatus,
-                        last_error: res.last_error || ""
-                    };
-                    if (oldStatus !== newStatus) {
-                        const container = frpc_statusElements[sec[".name"]];
-                        if (container && container.childNodes.length >= 2) {
-                            const indicator = container.childNodes[0];
-                            const textSpan = container.childNodes[1];
-                            // Get fresh theme colors at update time
-                            const colors = getStatusColors();
-                            const statusColor = colors[newStatus] || colors.unavailable;
-                            indicator.style.backgroundColor = statusColor;
-                            indicator.style.backgroundColor = statusColor;
-                            const statusText = STATUS_LABELS[newStatus] || newStatus;
-                            textSpan.textContent = statusText;
+                    ].includes(r) ? r : "unavailable";
+                    if (frpc_d[e[".name"]] = {
+                        status: l,
+                        last_error: t.last_error || ""
+                    }, n !== l) {
+                        let t = frpc_c[e[".name"]];
+                        if (t && t.childNodes.length >= 2) {
+                            let e = t.childNodes[0], o = t.childNodes[1], a = frpc_i(), n = a[l] || a.unavailable;
+                            e.style.backgroundColor = n, e.style.backgroundColor = n, o.textContent = frpc_s[l] || l;
                         }
-                        const actionBtn = actionButtons[sec[".name"]];
-                        if (actionBtn) {
-                            const isRunning = newStatus !== "stopped";
-                            actionBtn.disabled = !isRunning;
-                        }
+                        let o = frpc_u[e[".name"]];
+                        o && (o.disabled = "stopped" === l);
                     }
                 }).catch(()=>{
-                    nodeStatuses[sec[".name"]] = {
+                    frpc_d[e[".name"]] = {
                         status: "error",
                         last_error: "Failed to fetch status"
                     };
-                    const container = frpc_statusElements[sec[".name"]];
-                    if (container && container.childNodes.length >= 2) {
-                        const indicator = container.childNodes[0];
-                        const textSpan = container.childNodes[1];
-                        indicator.style.backgroundColor = "#F44336";
-                        textSpan.textContent = _("Error");
+                    let t = frpc_c[e[".name"]];
+                    if (t && t.childNodes.length >= 2) {
+                        let e = t.childNodes[0], o = t.childNodes[1];
+                        e.style.backgroundColor = "#F44336", o.textContent = _("Error");
                     }
-                    const actionBtn = actionButtons[sec[".name"]];
-                    if (actionBtn) actionBtn.disabled = true;
+                    let o = frpc_u[e[".name"]];
+                    o && (o.disabled = !0);
                 });
             });
-            await Promise.all(promises);
+            await Promise.all(e);
         } catch (e) {
             console.error("Polling for FRP status failed:", e);
         }
     }
-    pollFrpStatus();
-    L.Poll.add(pollFrpStatus, 5);
+    f.anonymous = !0, f.addremove = !0, f.sortable = !0, f.cloneable = !0, f.sectiontitle = (e)=>L.uci.get("portweaver", e, "name") || e || _("Unnamed node"), (y = f.option(frpc_l.Flag, "enabled", _("Enable"))).modalonly = !0, y.default = "1", y.rmempty = !1, (y = f.option(frpc_l.Value, "name", _("Node Name"))).modalonly = !0, y.rmempty = !1, y.datatype = "string", y.placeholder = "node1", y.validate = (e, t)=>{
+        if (!t || "" === String(t).trim()) return _("Node name is required");
+        if (!/^[a-zA-Z0-9_-]+$/.test(String(t).trim())) return _("Node name must contain only alphanumeric characters, underscore, or hyphen");
+        let o = L.uci.sections("portweaver", "frpc_node"), a = String(t).trim();
+        for (let t of o){
+            if (t[".name"] === e) continue;
+            let o = t.name;
+            if (o && o.trim() === a) return _("Node name already exists. Please choose a different name.");
+        }
+        return !0;
+    }, (y = f.option(frpc_l.DummyValue, "status", _("Status"))).modalonly = !1, y.textvalue = (o)=>{
+        let a = frpc_d[o] || {
+            status: "unavailable"
+        }, n = frpc_i(), r = n[a.status] || n.unavailable, l = {
+            connected: _("Connected"),
+            connecting: _("Connecting"),
+            error: _("Error"),
+            stopped: _("Stopped"),
+            unavailable: _("Unavailable")
+        }[a.status] || a.status, s = jsxs("span", {
+            style: "display:flex; align-items:center;",
+            children: [
+                jsx("span", {
+                    style: "display:inline-block; width:12px; height:12px; border-radius:50%; background-color:".concat(r, "; margin-right:8px;")
+                }),
+                jsx("span", {
+                    children: l
+                })
+            ]
+        });
+        return frpc_c[o] = s, s;
+    }, (y = f.option(frpc_l.Flag, "enabled", _("Enabled"))).modalonly = !1, y.default = "1", y.editable = !0, (y = f.option(frpc_l.Value, "server", _("FRP Server Address"))).modalonly = !0, y.rmempty = !1, y.datatype = "host", y.placeholder = "1.2.3.4", y.validate = (e, t)=>!!t && "" !== String(t).trim() || _("Server address is required"), (y = f.option(frpc_l.Value, "port", _("FRP Server Port"))).modalonly = !0, y.rmempty = !1, y.datatype = "port", y.placeholder = "7000", y.validate = (e, t)=>{
+        if (!t || "" === String(t).trim()) return _("Server port is required");
+        let o = parseInt(t, 10);
+        return !Number.isNaN(o) && !(o < 1) && !(o > 65535) || _("Port must be between 1 and 65535");
+    }, (y = f.option(frpc_l.Value, "token", _("Authentication Token"))).modalonly = !0, y.password = !0, y.rmempty = !0, y.placeholder = "optional token for authentication", (y = f.option(frpc_l.ListValue, "log_level", _("Log Level"))).modalonly = !0, y.rmempty = !0, y.default = "info", y.value("trace", "Trace"), y.value("debug", "Debug"), y.value("info", "Info"), y.value("warn", "Warning"), y.value("error", "Error"), (y = f.option(frpc_l.Flag, "use_encryption", _("Enable Encryption"))).modalonly = !0, y.rmempty = !1, y.default = "1", (y = f.option(frpc_l.Flag, "use_compression", _("Enable Compression"))).modalonly = !0, y.rmempty = !1, y.default = "1", (y = f.option(frpc_l.DummyValue, "actions", _("Actions"))).modalonly = !1, y.textvalue = (t)=>{
+        var a;
+        let r = jsx("button", {
+            type: "button",
+            class: "cbi-button cbi-button-action",
+            onclick: ()=>{
+                let e = L.uci.get("portweaver", t, "name");
+                new LogViewerDialog({
+                    name: e,
+                    title: _("FRP Logs - %s").format(e),
+                    fetcher: async ()=>await rpcClient.getFrpcInfo(e),
+                    clearer: async ()=>await rpcClient.clearFrpcLogs(e)
+                }).open();
+            },
+            disabled: "stopped" === ((null == (a = frpc_d[t]) ? void 0 : a.status) || "stopped"),
+            children: _("View Logs")
+        });
+        return frpc_u[t] = r, r;
+    }, (y = f.option(frpc_l.DummyValue, "proxy_stats", _("Proxy Stats"))).modalonly = !1, y.textvalue = (t)=>{
+        let o = L.uci.get("portweaver", t, "name"), r = jsx("div", {
+            style: "display: flex; gap: 8px; flex-wrap: wrap;"
+        }), l = new ProxyStatsViewer({
+            clientId: o,
+            rpcClient: rpcClient
+        }).render();
+        return l.style.cssText = "flex: 1; min-width: 300px; ".concat(l.style.cssText), r.appendChild(l), r;
+    }, g(), L.Poll.add(g, 5);
 }
 
 ;// CONCATENATED MODULE: ./modules/frps.tsx
 
 
 
-const frps_form = L.form;
-function frps_getStatusColors() {
-    const { isDark } = getThemeColors();
-    // Dark mode adjustments for better visibility
-    const connectedColor = isDark ? "#4CAF50" : "#4CAF50"; // Green works well in both
-    const connectingColor = isDark ? "#FFD700" : "#FFC107"; // Brighter gold for dark mode
-    const errorColor = isDark ? "#FF5252" : "#F44336"; // Brighter red for dark mode
-    const inactiveColor = isDark ? "#BDBDBD" : "#9E9E9E"; // Lighter gray for dark mode
+
+let frps_r = L.form;
+function frps_l() {
+    let { isDark: e } = getThemeColors(), t = "#4CAF50", o = e ? "#BDBDBD" : "#9E9E9E";
     return {
-        running: connectedColor,
-        connected: connectedColor,
-        connecting: connectingColor,
-        error: errorColor,
-        stopped: inactiveColor,
-        unavailable: inactiveColor
+        running: t,
+        connected: t,
+        connecting: e ? "#FFD700" : "#FFC107",
+        error: e ? "#FF5252" : "#F44336",
+        stopped: o,
+        unavailable: o
     };
 }
-const frps_STATUS_LABELS = {
+let frps_i = {
     running: _("Running"),
     connected: _("Connected"),
     connecting: _("Connecting"),
     error: _("Error"),
     stopped: _("Stopped"),
     unavailable: _("Unavailable")
-};
-const frps_nodeStatuses = {};
-const frps_statusElements = {};
-const frps_actionButtons = {};
-/* export default */ function modules_frps(_m, s, tab_id) {
-    let o;
-    o = s.taboption(tab_id, frps_form.SectionValue, "_frps_nodes", frps_form.GridSection, "frps_node");
-    const ss = o.subsection;
-    ss.anonymous = true;
-    ss.addremove = true;
-    ss.sortable = true;
-    ss.cloneable = true;
-    ss.sectiontitle = (section_id)=>L.uci.get("portweaver", section_id, "name") || section_id || _("Unnamed FRPS node");
-    o = ss.option(frps_form.Flag, "enabled", _("Enable"));
-    o.modalonly = true;
-    o.default = "1";
-    o.rmempty = false;
-    o = ss.option(frps_form.Value, "name", _("Node Name"));
-    o.modalonly = true;
-    o.rmempty = false;
-    o.datatype = "string";
-    o.placeholder = "frps_node1";
-    o.validate = (section_id, value)=>{
-        if (!value || String(value).trim() === "") return _("Node name is required");
-        if (!/^[a-zA-Z0-9_-]+$/.test(String(value).trim())) return _("Node name must contain only alphanumeric characters, underscore, or hyphen");
-        const sections = L.uci.sections("portweaver", "frps_node");
-        const trimmedValue = String(value).trim();
-        for (const sec of sections){
-            if (sec[".name"] === section_id) continue;
-            const existingName = sec.name;
-            if (existingName && existingName.trim() === trimmedValue) return _("Node name already exists. Please choose a different name.");
-        }
-        return true;
-    };
-    o = ss.option(frps_form.DummyValue, "status", _("Status"));
-    o.modalonly = false;
-    o.textvalue = (section_id)=>{
-        const info = frps_nodeStatuses[section_id] || {
-            status: "unavailable"
-        };
-        const colors = frps_getStatusColors();
-        const statusColor = colors[info.status] || colors.unavailable;
-        const statusText = {
-            running: _("Running"),
-            connected: _("Connected"),
-            connecting: _("Connecting"),
-            error: _("Error"),
-            stopped: _("Stopped"),
-            unavailable: _("Unavailable")
-        }[info.status] || info.status;
-        const container = /*#__PURE__*/ createJsxElement("span", {
-            style: "display:flex; align-items:center;"
-        }, /*#__PURE__*/ createJsxElement("span", {
-            style: "display:inline-block; width:12px; height:12px; border-radius:50%; background-color:".concat(statusColor, "; margin-right:8px;")
-        }), /*#__PURE__*/ createJsxElement("span", null, statusText));
-        frps_statusElements[section_id] = container;
-        return container;
-    };
-    o = ss.option(frps_form.Flag, "enabled", _("Enabled"));
-    o.modalonly = false;
-    o.default = "1";
-    o.editable = true;
-    o = ss.option(frps_form.Value, "bind_port", _("Bind Port"));
-    o.modalonly = true;
-    o.rmempty = false;
-    o.datatype = "port";
-    o.placeholder = "7000";
-    o.validate = (_section_id, value)=>{
-        if (!value || String(value).trim() === "") return _("Bind port is required");
-        const port = parseInt(value, 10);
-        if (Number.isNaN(port) || port < 1 || port > 65535) return _("Port must be between 1 and 65535");
-        return true;
-    };
-    o = ss.option(frps_form.Value, "bind_addr", _("Bind Address"));
-    o.modalonly = true;
-    o.rmempty = true;
-    o.datatype = "host";
-    o.placeholder = "0.0.0.0";
-    o.default = "0.0.0.0";
-    o = ss.option(frps_form.Value, "auth_token", _("Authentication Token"));
-    o.modalonly = true;
-    o.password = true;
-    o.rmempty = true;
-    o.placeholder = "optional token for authentication";
-    o = ss.option(frps_form.Value, "allow_ports", _("Allow Ports"));
-    o.modalonly = true;
-    o.rmempty = true;
-    o.placeholder = "10000-20000 or 8080,8081,8082";
-    o.description = _("Port range or list of ports that clients can use. e.g., '10000-20000' or '8080,8081,8082'");
-    o = ss.option(frps_form.Flag, "tcp_mux", _("TCP Mux"));
-    o.modalonly = true;
-    o.rmempty = true;
-    o.default = "1";
-    o.description = _("Enable TCP multiplexing for better performance");
-    o = ss.option(frps_form.Value, "max_pool_count", _("Max Pool Count"));
-    o.modalonly = true;
-    o.rmempty = true;
-    o.datatype = "uinteger";
-    o.placeholder = "5";
-    o.description = _("Maximum connection pool size per proxy");
-    o = ss.option(frps_form.Value, "max_ports_per_client", _("Max Ports Per Client"));
-    o.modalonly = true;
-    o.rmempty = true;
-    o.datatype = "uinteger";
-    o.placeholder = "0";
-    o.description = _("Maximum number of ports per client (0 = unlimited)");
-    o = ss.option(frps_form.ListValue, "log_level", _("Log Level"));
-    o.modalonly = true;
-    o.rmempty = true;
-    o.default = "info";
-    o.value("trace", "Trace");
-    o.value("debug", "Debug");
-    o.value("info", "Info");
-    o.value("warn", "Warning");
-    o.value("error", "Error");
-    o = ss.option(frps_form.Value, "dashboard_addr", _("Dashboard Address"));
-    o.modalonly = true;
-    o.rmempty = true;
-    o.datatype = "host";
-    o.placeholder = "0.0.0.0";
-    o.default = "0.0.0.0";
-    o = ss.option(frps_form.Value, "dashboard_port", _("Dashboard Port"));
-    o.modalonly = true;
-    o.rmempty = true;
-    o.datatype = "port";
-    o.placeholder = "7500";
-    o.validate = (_section_id, value)=>{
-        if (!value || String(value).trim() === "") return true;
-        const port = parseInt(value, 10);
-        if (Number.isNaN(port) || port < 1 || port > 65535) return _("Port must be between 1 and 65535");
-        return true;
-    };
-    o = ss.option(frps_form.Value, "dashboard_user", _("Dashboard User"));
-    o.modalonly = true;
-    o.rmempty = true;
-    o.placeholder = "admin";
-    o.depends("dashboard_port", /\S+/);
-    o = ss.option(frps_form.Value, "dashboard_pwd", _("Dashboard Password"));
-    o.modalonly = true;
-    o.password = true;
-    o.rmempty = true;
-    o.placeholder = "admin";
-    o.depends("dashboard_port", /\S+/);
-    o = ss.option(frps_form.DummyValue, "actions", _("Actions"));
-    o.modalonly = false;
-    o.textvalue = (section_id)=>{
-        var _nodeStatuses_section_id;
-        const isRunning = (((_nodeStatuses_section_id = frps_nodeStatuses[section_id]) === null || _nodeStatuses_section_id === void 0 ? void 0 : _nodeStatuses_section_id.status) || "stopped") !== "stopped";
-        const btn = /*#__PURE__*/ createJsxElement("button", {
-            type: "button",
-            class: "cbi-button cbi-button-action",
-            onclick: ()=>{
-                const nodeName = L.uci.get("portweaver", section_id, "name");
-                const logViewer = new LogViewerDialog({
-                    name: nodeName,
-                    title: _("FRPS Logs - %s").format(nodeName),
-                    fetcher: async ()=>await rpcClient.getFrpsInfo(nodeName),
-                    clearer: async ()=>await rpcClient.clearFrpsLogs(nodeName)
-                });
-                logViewer.open();
-            },
-            disabled: !isRunning
-        }, _("View Logs"));
-        frps_actionButtons[section_id] = btn;
-        return btn;
-    };
-    async function pollFrpsStatus() {
+}, frps_d = {}, frps_s = {}, frps_p = {};
+/* export default */ function frps(n, u, m) {
+    let c, b = (c = u.taboption(m, frps_r.SectionValue, "_frps_nodes", frps_r.GridSection, "frps_node")).subsection;
+    async function y() {
         try {
-            const sections = await L.uci.sections("portweaver", "frps_node");
-            const promises = sections.map((sec)=>{
-                const nodeName = sec.name;
-                return rpcClient.getFrpsInfo(nodeName).then((res)=>{
-                    var _res_status;
-                    var _nodeStatuses_sec_name;
-                    const oldStatus = (_nodeStatuses_sec_name = frps_nodeStatuses[sec[".name"]]) === null || _nodeStatuses_sec_name === void 0 ? void 0 : _nodeStatuses_sec_name.status;
-                    const rawStatus = (_res_status = res.status) !== null && _res_status !== void 0 ? _res_status : "unavailable";
-                    const newStatus = [
+            let e = (await L.uci.sections("portweaver", "frps_node")).map((e)=>{
+                let t = e.name;
+                return rpcClient.getFrpsInfo(t).then((t)=>{
+                    var o, a;
+                    let n = null == (a = frps_d[e[".name"]]) ? void 0 : a.status, r = null != (o = t.status) ? o : "unavailable", u = [
                         "running",
                         "connected",
                         "connecting",
                         "error",
                         "stopped",
                         "unavailable"
-                    ].includes(rawStatus) ? rawStatus : "unavailable";
-                    frps_nodeStatuses[sec[".name"]] = {
-                        status: newStatus,
-                        last_error: res.last_error || ""
-                    };
-                    if (oldStatus !== newStatus) {
-                        const container = frps_statusElements[sec[".name"]];
-                        if (container && container.childNodes.length >= 2) {
-                            const indicator = container.childNodes[0];
-                            const textSpan = container.childNodes[1];
-                            // Get fresh theme colors at update time
-                            const colors = frps_getStatusColors();
-                            const statusColor = colors[newStatus] || colors.unavailable;
-                            indicator.style.backgroundColor = statusColor;
-                            const statusText = frps_STATUS_LABELS[newStatus] || newStatus;
-                            textSpan.textContent = statusText;
+                    ].includes(r) ? r : "unavailable";
+                    if (frps_d[e[".name"]] = {
+                        status: u,
+                        last_error: t.last_error || ""
+                    }, n !== u) {
+                        let t = frps_s[e[".name"]];
+                        if (t && t.childNodes.length >= 2) {
+                            let e = t.childNodes[0], o = t.childNodes[1], a = frps_l(), n = a[u] || a.unavailable;
+                            e.style.backgroundColor = n, o.textContent = frps_i[u] || u;
                         }
-                        const actionBtn = frps_actionButtons[sec[".name"]];
-                        if (actionBtn) {
-                            const isRunning = newStatus !== "stopped";
-                            actionBtn.disabled = !isRunning;
-                        }
+                        let o = frps_p[e[".name"]];
+                        o && (o.disabled = "stopped" === u);
                     }
                 }).catch(()=>{
-                    frps_nodeStatuses[sec[".name"]] = {
+                    frps_d[e[".name"]] = {
                         status: "error",
                         last_error: "Failed to fetch status"
                     };
-                    const container = frps_statusElements[sec[".name"]];
-                    if (container && container.childNodes.length >= 2) {
-                        const indicator = container.childNodes[0];
-                        const textSpan = container.childNodes[1];
-                        indicator.style.backgroundColor = "#F44336";
-                        textSpan.textContent = _("Error");
+                    let t = frps_s[e[".name"]];
+                    if (t && t.childNodes.length >= 2) {
+                        let e = t.childNodes[0], o = t.childNodes[1];
+                        e.style.backgroundColor = "#F44336", o.textContent = _("Error");
                     }
-                    const actionBtn = frps_actionButtons[sec[".name"]];
-                    if (actionBtn) actionBtn.disabled = true;
+                    let o = frps_p[e[".name"]];
+                    o && (o.disabled = !0);
                 });
             });
-            await Promise.all(promises);
+            await Promise.all(e);
         } catch (e) {
             console.error("Polling for FRPS status failed:", e);
         }
     }
-    pollFrpsStatus();
-    L.Poll.add(pollFrpsStatus, 5);
+    b.anonymous = !0, b.addremove = !0, b.sortable = !0, b.cloneable = !0, b.sectiontitle = (e)=>L.uci.get("portweaver", e, "name") || e || _("Unnamed FRPS node"), (c = b.option(frps_r.Flag, "enabled", _("Enable"))).modalonly = !0, c.default = "1", c.rmempty = !1, (c = b.option(frps_r.Value, "name", _("Node Name"))).modalonly = !0, c.rmempty = !1, c.datatype = "string", c.placeholder = "frps_node1", c.validate = (e, t)=>{
+        if (!t || "" === String(t).trim()) return _("Node name is required");
+        if (!/^[a-zA-Z0-9_-]+$/.test(String(t).trim())) return _("Node name must contain only alphanumeric characters, underscore, or hyphen");
+        let o = L.uci.sections("portweaver", "frps_node"), a = String(t).trim();
+        for (let t of o){
+            if (t[".name"] === e) continue;
+            let o = t.name;
+            if (o && o.trim() === a) return _("Node name already exists. Please choose a different name.");
+        }
+        return !0;
+    }, (c = b.option(frps_r.DummyValue, "status", _("Status"))).modalonly = !1, c.textvalue = (o)=>{
+        let a = frps_d[o] || {
+            status: "unavailable"
+        }, n = frps_l(), r = n[a.status] || n.unavailable, i = {
+            running: _("Running"),
+            connected: _("Connected"),
+            connecting: _("Connecting"),
+            error: _("Error"),
+            stopped: _("Stopped"),
+            unavailable: _("Unavailable")
+        }[a.status] || a.status, p = jsxs("span", {
+            style: "display:flex; align-items:center;",
+            children: [
+                jsx("span", {
+                    style: "display:inline-block; width:12px; height:12px; border-radius:50%; background-color:".concat(r, "; margin-right:8px;")
+                }),
+                jsx("span", {
+                    children: i
+                })
+            ]
+        });
+        return frps_s[o] = p, p;
+    }, (c = b.option(frps_r.Flag, "enabled", _("Enabled"))).modalonly = !1, c.default = "1", c.editable = !0, (c = b.option(frps_r.Value, "bind_port", _("Bind Port"))).modalonly = !0, c.rmempty = !1, c.datatype = "port", c.placeholder = "7000", c.validate = (e, t)=>{
+        if (!t || "" === String(t).trim()) return _("Bind port is required");
+        let o = parseInt(t, 10);
+        return !Number.isNaN(o) && !(o < 1) && !(o > 65535) || _("Port must be between 1 and 65535");
+    }, (c = b.option(frps_r.Value, "bind_addr", _("Bind Address"))).modalonly = !0, c.rmempty = !0, c.datatype = "host", c.placeholder = "0.0.0.0", c.default = "0.0.0.0", (c = b.option(frps_r.Value, "auth_token", _("Authentication Token"))).modalonly = !0, c.password = !0, c.rmempty = !0, c.placeholder = "optional token for authentication", (c = b.option(frps_r.Value, "allow_ports", _("Allow Ports"))).modalonly = !0, c.rmempty = !0, c.placeholder = "10000-20000 or 8080,8081,8082", c.description = _("Port range or list of ports that clients can use. e.g., '10000-20000' or '8080,8081,8082'"), (c = b.option(frps_r.Flag, "tcp_mux", _("TCP Mux"))).modalonly = !0, c.rmempty = !0, c.default = "1", c.description = _("Enable TCP multiplexing for better performance"), (c = b.option(frps_r.Value, "max_pool_count", _("Max Pool Count"))).modalonly = !0, c.rmempty = !0, c.datatype = "uinteger", c.placeholder = "5", c.description = _("Maximum connection pool size per proxy"), (c = b.option(frps_r.Value, "max_ports_per_client", _("Max Ports Per Client"))).modalonly = !0, c.rmempty = !0, c.datatype = "uinteger", c.placeholder = "0", c.description = _("Maximum number of ports per client (0 = unlimited)"), (c = b.option(frps_r.ListValue, "log_level", _("Log Level"))).modalonly = !0, c.rmempty = !0, c.default = "info", c.value("trace", "Trace"), c.value("debug", "Debug"), c.value("info", "Info"), c.value("warn", "Warning"), c.value("error", "Error"), (c = b.option(frps_r.Value, "dashboard_addr", _("Dashboard Address"))).modalonly = !0, c.rmempty = !0, c.datatype = "host", c.placeholder = "0.0.0.0", c.default = "0.0.0.0", (c = b.option(frps_r.Value, "dashboard_port", _("Dashboard Port"))).modalonly = !0, c.rmempty = !0, c.datatype = "port", c.placeholder = "7500", c.validate = (e, t)=>{
+        if (!t || "" === String(t).trim()) return !0;
+        let o = parseInt(t, 10);
+        return !Number.isNaN(o) && !(o < 1) && !(o > 65535) || _("Port must be between 1 and 65535");
+    }, (c = b.option(frps_r.Value, "dashboard_user", _("Dashboard User"))).modalonly = !0, c.rmempty = !0, c.placeholder = "admin", c.depends("dashboard_port", /\S+/), (c = b.option(frps_r.Value, "dashboard_pwd", _("Dashboard Password"))).modalonly = !0, c.password = !0, c.rmempty = !0, c.placeholder = "admin", c.depends("dashboard_port", /\S+/), (c = b.option(frps_r.DummyValue, "actions", _("Actions"))).modalonly = !1, c.textvalue = (t)=>{
+        var n;
+        let r = jsx("button", {
+            type: "button",
+            class: "cbi-button cbi-button-action",
+            onclick: ()=>{
+                let e = L.uci.get("portweaver", t, "name");
+                new LogViewerDialog({
+                    name: e,
+                    title: _("FRPS Logs - %s").format(e),
+                    fetcher: async ()=>await rpcClient.getFrpsInfo(e),
+                    clearer: async ()=>await rpcClient.clearFrpsLogs(e)
+                }).open();
+            },
+            disabled: "stopped" === ((null == (n = frps_d[t]) ? void 0 : n.status) || "stopped"),
+            children: _("View Logs")
+        });
+        return frps_p[t] = r, r;
+    }, y(), L.Poll.add(y, 5);
 }
 
 ;// CONCATENATED MODULE: ./components/ValidatedInput.tsx
 
-/**
- * 创建带验证的通用 input 元素
- * @param options 配置选项
- * @returns 返回 input 元素
- */ function ValidatedInput(options) {
-    const { type = "text", className = "", value = "", placeholder = "", style = "", disabled = false, onValidate, dataAttributes = {}, validateOn = "both" } = options;
-    const dataAttrs = {};
-    Object.entries(dataAttributes).forEach((param)=>{
-        let [key, val] = param;
-        dataAttrs["data-".concat(key)] = val;
+
+function ValidatedInput_r(r) {
+    let { type: n = "text", className: a = "", value: o = "", placeholder: s = "", style: d = "", disabled: l = !1, onValidate: i, dataAttributes: c = {}, validateOn: p = "both" } = r, u = {};
+    Object.entries(c).forEach((e)=>{
+        let [t, r] = e;
+        u["data-".concat(t)] = r;
     });
-    const input = /*#__PURE__*/ createJsxElement("input", _object_spread({
-        type: type,
-        class: className,
-        value: value,
-        placeholder: placeholder,
-        style: style,
-        disabled: disabled
-    }, dataAttrs));
-    const validate = ()=>{
-        if (onValidate) {
-            const isValid = onValidate(input.value.trim());
-            if (!isValid) input.style.setProperty("border-color", "red", "important");
-            else input.style.borderColor = "";
-        }
+    let b = jsx("input", _object_spread({
+        type: n,
+        class: a,
+        value: o,
+        placeholder: s,
+        style: d,
+        disabled: l
+    }, u)), h = ()=>{
+        i && (i(b.value.trim()) ? b.style.borderColor = "" : b.style.setProperty("border-color", "red", "important"));
     };
-    const clearValidation = ()=>{
-        input.style.borderColor = "";
-    };
-    if (validateOn === "input") input.addEventListener("input", validate);
-    else if (validateOn === "blur") {
-        input.addEventListener("input", clearValidation);
-        input.addEventListener("blur", validate);
-    } else if (validateOn === "change") input.addEventListener("change", validate);
-    else if (validateOn === "both") {
-        input.addEventListener("input", validate);
-        input.addEventListener("change", validate);
-    }
-    return input;
+    return "input" === p ? b.addEventListener("input", h) : "blur" === p ? (b.addEventListener("input", ()=>{
+        b.style.borderColor = "";
+    }), b.addEventListener("blur", h)) : "change" === p ? b.addEventListener("change", h) : "both" === p && (b.addEventListener("input", h), b.addEventListener("change", h)), b;
 }
 
 ;// CONCATENATED MODULE: ./components/FrpNodeSelector.tsx
 
 
-/**
- * 创建可复用的 FRP 节点选择器 UI
- * @param options 配置选项
- * @returns 返回容器元素和选中节点的 getter 函数
- */ function createFrpNodeSelector(options) {
-    const { selectedNodes, onChange, checkboxClass = "frp-node-checkbox", portInputClass = "frp-node-port", containerStyle } = options;
-    const frp_sections = L.uci.sections("portweaver", "frpc_node") || [];
-    const node_map = {};
-    // 解析已选择的节点
-    for (const item of selectedNodes){
-        const parts = item.split(":");
-        const node = parts[0];
-        const port = parts[1] || "";
-        node_map[node] = port;
+
+function createFrpNodeSelector(e) {
+    let { selectedNodes: n, onChange: a, checkboxClass: l = "frp-node-checkbox", portInputClass: o = "frp-node-port", containerStyle: d } = e, s = L.uci.sections("portweaver", "frpc_node") || [], c = {};
+    for (let e of n){
+        let t = e.split(":"), r = t[0], i = t[1] || "";
+        c[r] = i;
     }
-    const checkboxes = [];
-    const portInputs = new Map();
-    const updateHandler = ()=>{
-        const values = [];
-        for (const cb of checkboxes)if (cb.checked) {
-            const node = cb.getAttribute("data-node");
-            const port_inp = portInputs.get(node);
-            const port = port_inp ? port_inp.value.trim() : "";
-            if (port) values.push("".concat(node, ":").concat(port));
-            else values.push(node);
+    let p = [], u = new Map(), h = ()=>{
+        let e = [];
+        for (let t of p)if (t.checked) {
+            let r = t.getAttribute("data-node"), i = u.get(r), n = i ? i.value.trim() : "";
+            n ? e.push("".concat(r, ":").concat(n)) : e.push(r);
         }
-        if (onChange) onChange(values);
-    };
-    const container = /*#__PURE__*/ createJsxElement("div", {
-        style: containerStyle || ""
+        a && a(e);
+    }, f = jsx("div", {
+        style: d || ""
     });
-    if (frp_sections.length === 0) {
-        const emptyMsg = _("No FRP nodes configured");
-        container.appendChild(/*#__PURE__*/ createJsxElement("em", {
-            style: "color: #999;"
-        }, emptyMsg));
+    if (0 === s.length) {
+        let e = _("No FRP nodes configured");
+        f.appendChild(jsx("em", {
+            style: "color: #999;",
+            children: e
+        }));
     } else {
-        const table = /*#__PURE__*/ createJsxElement("table", {
+        let e = jsx("table", {
             class: "table",
             style: "margin: 0; width: auto;"
         });
-        for (const frp_section of frp_sections){
-            const node_name = String(frp_section.name || frp_section[".name"]);
-            if (!node_name) continue;
-            const is_checked = Object.hasOwn(node_map, node_name);
-            const port_value = node_map[node_name] || "";
-            const is_enabled = frp_section.enabled !== "0";
-            const warning = /*#__PURE__*/ createJsxElement("span", {
-                style: "color: #e6a23c; margin-left: 8px; font-size: 0.9em; display: ".concat(is_checked && !is_enabled ? "" : "none", ";")
-            }, "\u26A0", " ", _("Warning: FRP node '%s' is disabled.").format(node_name));
-            const checkbox = /*#__PURE__*/ createJsxElement("input", {
+        for (let n of s){
+            let a = String(n.name || n[".name"]);
+            if (!a) continue;
+            let d = Object.hasOwn(c, a), s = c[a] || "", f = "0" !== n.enabled, g = jsxs("span", {
+                style: "color: #e6a23c; margin-left: 8px; font-size: 0.9em; display: ".concat(d && !f ? "" : "none", ";"),
+                children: [
+                    "\u26A0",
+                    " ",
+                    _("Warning: FRP node '%s' is disabled.").format(a)
+                ]
+            }), m = jsx("input", {
                 type: "checkbox",
-                class: checkboxClass,
-                "data-node": node_name,
-                checked: is_checked,
+                class: l,
+                "data-node": a,
+                checked: d,
                 style: "margin-right: 8px;"
-            });
-            const port_input = /*#__PURE__*/ createJsxElement(ValidatedInput, {
+            }), y = jsx(ValidatedInput_r, {
                 type: "text",
-                className: portInputClass,
-                value: port_value,
+                className: o,
+                value: s,
                 placeholder: _("default port"),
                 style: "min-width: 100px !important; width: calc(100% - 80px) !important; margin-left: 10px;",
-                disabled: !is_checked,
+                disabled: !d,
                 dataAttributes: {
-                    node: node_name
+                    node: a
                 },
-                onValidate: (value)=>{
-                    if (!value) return true; // 空值视为有效
-                    const p = parseInt(value, 10);
-                    return !Number.isNaN(p) && p >= 1 && p <= 65535;
+                onValidate: (e)=>{
+                    if (!e) return !0;
+                    let t = parseInt(e, 10);
+                    return !Number.isNaN(t) && t >= 1 && t <= 65535;
                 }
             });
-            checkboxes.push(checkbox);
-            portInputs.set(node_name, port_input);
-            const port_input_area = /*#__PURE__*/ createJsxElement("td", {
-                style: "padding: 4px 8px; border: none;".concat(is_checked ? "" : "display: none;")
-            }, /*#__PURE__*/ createJsxElement("span", {
-                style: "margin-right: 5px; color: #666;"
-            }, _("Port:")), port_input);
-            checkbox.addEventListener("change", (ev)=>{
-                const element = ev.currentTarget;
-                port_input.disabled = !element.checked;
-                port_input_area.style.display = element.checked ? "" : "none";
-                if (!element.checked) port_input.value = "";
-                if (!is_enabled) warning.style.display = element.checked ? "" : "none";
-                updateHandler();
+            p.push(m), u.set(a, y);
+            let v = jsxs("td", {
+                style: "padding: 4px 8px; border: none;".concat(d ? "" : "display: none;"),
+                children: [
+                    jsx("span", {
+                        style: "margin-right: 5px; color: #666;",
+                        children: _("Port:")
+                    }),
+                    y
+                ]
             });
-            port_input.addEventListener("change", updateHandler);
-            const row = /*#__PURE__*/ createJsxElement("div", null, /*#__PURE__*/ createJsxElement("tr", null, /*#__PURE__*/ createJsxElement("td", {
-                style: "padding: 4px 8px; border: none;"
-            }, checkbox, /*#__PURE__*/ createJsxElement("span", {
-                style: "cursor: pointer; font-weight: normal; margin: 0;"
-            }, node_name)), port_input_area), warning);
-            table.appendChild(row);
+            m.addEventListener("change", (e)=>{
+                let t = e.currentTarget;
+                y.disabled = !t.checked, v.style.display = t.checked ? "" : "none", t.checked || (y.value = ""), f || (g.style.display = t.checked ? "" : "none"), h();
+            }), y.addEventListener("change", h);
+            let b = jsxs("div", {
+                children: [
+                    jsxs("tr", {
+                        children: [
+                            jsxs("td", {
+                                style: "padding: 4px 8px; border: none;",
+                                children: [
+                                    m,
+                                    jsx("span", {
+                                        style: "cursor: pointer; font-weight: normal; margin: 0;",
+                                        children: a
+                                    })
+                                ]
+                            }),
+                            v
+                        ]
+                    }),
+                    g
+                ]
+            });
+            e.appendChild(b);
         }
-        container.appendChild(table);
+        f.appendChild(e);
     }
-    // 验证逻辑
-    let validationError = "";
-    let isValidFlag = true;
-    const validate = (value)=>{
-        // 验证值的格式：应该是空或空格分隔的 "node:port" 对
-        if (!value) {
-            validationError = "";
-            isValidFlag = true;
-            return;
-        }
-        const valueStr = Array.isArray(value) ? value.join(" ") : String(value);
-        const parts = valueStr.split(/\s+/).filter(Boolean);
-        for (const part of parts){
-            const [node, port] = part.split(":");
-            // 检查节点名称是否为空
-            if (!node) {
-                validationError = _("Invalid FRP node format");
-                isValidFlag = false;
-                return;
-            }
-            // 如果指定了端口，验证端口号
-            if (port) {
-                const portNum = parseInt(port, 10);
-                if (Number.isNaN(portNum) || portNum < 1 || portNum > 65535) {
-                    validationError = _("Port must be a number between 1 and 65535");
-                    isValidFlag = false;
-                    return;
-                }
-            }
-        }
-        validationError = "";
-        isValidFlag = true;
-    };
-    // 返回容器和获取当前选中节点的函数
+    let g = "", m = !0;
     return {
-        container,
+        container: f,
         getSelectedNodes: ()=>{
-            const values = [];
-            for (const cb of checkboxes)if (cb.checked) {
-                const node = cb.getAttribute("data-node");
-                const port_inp = portInputs.get(node);
-                const port = port_inp ? port_inp.value.trim() : "";
-                values.push(port ? "".concat(node, ":").concat(port) : node);
+            let e = [];
+            for (let t of p)if (t.checked) {
+                let r = t.getAttribute("data-node"), i = u.get(r), n = i ? i.value.trim() : "";
+                e.push(n ? "".concat(r, ":").concat(n) : r);
             }
-            return values;
+            return e;
         },
         isValid: ()=>{
-            const nodes = [];
-            for (const cb of checkboxes)if (cb.checked) {
-                const node = cb.getAttribute("data-node");
-                const port_inp = portInputs.get(node);
-                const port = port_inp ? port_inp.value.trim() : "";
-                nodes.push(port ? "".concat(node, ":").concat(port) : node);
+            let e = [];
+            for (let t of p)if (t.checked) {
+                let r = t.getAttribute("data-node"), i = u.get(r), n = i ? i.value.trim() : "";
+                e.push(n ? "".concat(r, ":").concat(n) : r);
             }
-            validate(nodes);
-            return isValidFlag;
+            return ((e)=>{
+                if (!e) {
+                    g = "", m = !0;
+                    return;
+                }
+                for (let t of (Array.isArray(e) ? e.join(" ") : String(e)).split(/\s+/).filter(Boolean)){
+                    let [e, r] = t.split(":");
+                    if (!e) {
+                        g = _("Invalid FRP node format"), m = !1;
+                        return;
+                    }
+                    if (r) {
+                        let e = parseInt(r, 10);
+                        if (Number.isNaN(e) || e < 1 || e > 65535) {
+                            g = _("Port must be a number between 1 and 65535"), m = !1;
+                            return;
+                        }
+                    }
+                }
+                g = "", m = !0;
+            })(e), m;
         },
-        getValidationError: ()=>{
-            return validationError || "";
-        }
+        getValidationError: ()=>g || ""
     };
 }
-class FrpNodeSelector extends L.form.Value {
-    renderWidget(section_id, _option_index, cfgvalue) {
-        const current_value = Array.isArray(cfgvalue) ? cfgvalue : typeof cfgvalue === "string" ? String(cfgvalue).split(/\s+/).filter(Boolean) : [];
-        const widget_id = this.cbid(section_id);
-        let hiddenInput;
-        const selector = createFrpNodeSelector({
-            selectedNodes: current_value,
-            onChange: (nodes)=>{
-                hiddenInput.value = nodes.join(" ");
+class FrpNodeSelector_n extends L.form.Value {
+    renderWidget(e, r, i) {
+        let n, a = Array.isArray(i) ? i : "string" == typeof i ? String(i).split(/\s+/).filter(Boolean) : [], l = this.cbid(e), o = createFrpNodeSelector({
+            selectedNodes: a,
+            onChange: (e)=>{
+                n.value = e.join(" ");
             },
             checkboxClass: "frp-node-checkbox",
             portInputClass: "frp-node-port"
-        });
-        const { container: selectorContainer } = selector;
-        // 保存验证函数引用
+        }), { container: d } = o;
         this.selectorValidation = {
-            isValid: selector.isValid,
-            getValidationError: selector.getValidationError
-        };
-        hiddenInput = /*#__PURE__*/ createJsxElement("input", {
+            isValid: o.isValid,
+            getValidationError: o.getValidationError
+        }, n = jsx("input", {
             type: "hidden",
-            id: widget_id,
-            name: widget_id,
-            value: current_value.join(" ")
+            id: l,
+            name: l,
+            value: a.join(" ")
         });
-        const container = /*#__PURE__*/ createJsxElement("div", {
+        let s = jsx("div", {
             class: "cbi-value-field"
         });
-        container.appendChild(selectorContainer);
-        container.appendChild(hiddenInput);
-        // 存储 hiddenInput 引用供 formvalue 方法使用
-        this.hiddenInput = hiddenInput;
-        const description = /*#__PURE__*/ createJsxElement("div", {
-            class: "cbi-value-description"
-        }, _("Select FRP nodes and optionally specify custom ports. Leave port empty to use default."));
-        container.appendChild(description);
-        return container;
+        s.appendChild(d), s.appendChild(n), this.hiddenInput = n;
+        let c = jsx("div", {
+            class: "cbi-value-description",
+            children: _("Select FRP nodes and optionally specify custom ports. Leave port empty to use default.")
+        });
+        return s.appendChild(c), s;
     }
-    cfgvalue(section_id) {
-        const value = L.uci.get("portweaver", section_id, "frpc_nodes");
-        if (Array.isArray(value)) return value;
-        if (typeof value === "string") return String(value).split(/\s+/).filter(Boolean);
-        return [];
+    cfgvalue(e) {
+        let t = L.uci.get("portweaver", e, "frpc_nodes");
+        return Array.isArray(t) ? t : "string" == typeof t ? String(t).split(/\s+/).filter(Boolean) : [];
     }
-    isChanged(section_id) {
-        let cfg = this.cfgvalue(section_id);
-        let form = this.formvalue(section_id);
-        if (!Array.isArray(cfg)) cfg = [];
-        if (!Array.isArray(form)) form = [];
-        if (cfg.length !== form.length) return true;
-        for(let i = 0; i < cfg.length; i++){
-            if (cfg[i] !== form[i]) return true;
-        }
-        return false;
+    isChanged(e) {
+        let t = this.cfgvalue(e), r = this.formvalue(e);
+        if (Array.isArray(t) || (t = []), Array.isArray(r) || (r = []), t.length !== r.length) return !0;
+        for(let e = 0; e < t.length; e++)if (t[e] !== r[e]) return !0;
+        return !1;
     }
-    formvalue(_section_id) {
+    formvalue(e) {
         if (this.hiddenInput) {
-            const result = this.hiddenInput.value.split(/\s+/).filter(Boolean);
-            return result.length > 0 ? result : [];
+            let e = this.hiddenInput.value.split(/\s+/).filter(Boolean);
+            return e.length > 0 ? e : [];
         }
         return [];
     }
-    write(section_id, formvalue) {
-        if (formvalue && formvalue.length > 0) return L.uci.set("portweaver", section_id, "frpc_nodes", formvalue);
-        else return L.uci.unset("portweaver", section_id, "frpc_nodes");
+    write(e, t) {
+        return t && t.length > 0 ? L.uci.set("portweaver", e, "frpc_nodes", t) : L.uci.unset("portweaver", e, "frpc_nodes");
     }
-    isValid(_section_id) {
-        // 复用 createFrpNodeSelector 中的验证逻辑
-        if (this.selectorValidation) return this.selectorValidation.isValid();
-        return true;
+    isValid(e) {
+        return !this.selectorValidation || this.selectorValidation.isValid();
     }
-    getValidationError(_section_id) {
-        // 复用 createFrpNodeSelector 中的验证逻辑
-        if (this.selectorValidation && !this.selectorValidation.isValid()) return this.selectorValidation.getValidationError() || _("Validation failed");
-        return "";
+    getValidationError(e) {
+        return this.selectorValidation && !this.selectorValidation.isValid() ? this.selectorValidation.getValidationError() || _("Validation failed") : "";
     }
-    constructor(...args){
-        super(...args), _define_property(this, "hiddenInput", void 0), _define_property(this, "selectorValidation", void 0);
+    constructor(...t){
+        super(...t), _define_property(this, "hiddenInput", void 0), _define_property(this, "selectorValidation", void 0);
     }
 }
-/* export default */ const components_FrpNodeSelector = (FrpNodeSelector);
+/* export default */ const FrpNodeSelector = (FrpNodeSelector_n);
 
 ;// CONCATENATED MODULE: ./components/PortMappingEditor.tsx
 
 
 
-class PortMappingEditor extends L.form.Value {
-    parseMapping(str) {
-        if (!str || typeof str !== "string") return null;
-        str = str.trim();
-        const mapping = {
+
+class PortMappingEditor_o extends L.form.Value {
+    parseMapping(t) {
+        if (!t || "string" != typeof t) return null;
+        t = t.trim();
+        let e = {
             listenPort: "",
             targetPort: "",
             frpNodes: [],
             protocol: "tcp"
-        };
-        const protocolMatch = str.match(/\/([a-z]+)$/);
-        if (protocolMatch) {
-            mapping.protocol = protocolMatch[1].toLowerCase();
-            str = str.substring(0, protocolMatch.index);
-        }
+        }, r = t.match(/\/([a-z]+)$/);
+        r && (e.protocol = r[1].toLowerCase(), t = t.substring(0, r.index));
         let i = 0;
-        while(str[i] === "["){
-            const end = str.indexOf("]", i);
-            if (end === -1) break;
-            const content = str.substring(i + 1, end);
-            if (content.indexOf(":") !== -1 || /[a-zA-Z_-]/.test(content)) {
-                mapping.frpNodes.push(content);
-                i = end + 1;
+        for(; "[" === t[i];){
+            let r = t.indexOf("]", i);
+            if (-1 === r) break;
+            let n = t.substring(i + 1, r);
+            if (-1 !== n.indexOf(":") || /[a-zA-Z_-]/.test(n)) {
+                e.frpNodes.push(n), i = r + 1;
                 continue;
             }
-            if (content.match(/^\d+(?:-\d+)?$/)) {
-                mapping.listenPort = content;
-                i = end + 1;
-                break;
-            }
+            n.match(/^\d+(?:-\d+)?$/) && (e.listenPort = n, i = r + 1);
             break;
         }
-        const rest = str.substring(i);
-        if (!mapping.listenPort) {
-            const parts0 = rest.split(":");
-            if (parts0.length >= 1) mapping.listenPort = parts0[0].trim().replace(/[[\]]/g, "");
-            if (parts0.length >= 2) mapping.targetPort = parts0[1].trim().replace(/[[\]]/g, "");
-        } else if (rest.startsWith(":")) mapping.targetPort = rest.substring(1).trim().replace(/[[\]]/g, "");
-        return mapping;
-    }
-    buildString(mapping) {
-        let result = "";
-        if (mapping.frpNodes && mapping.frpNodes.length > 0) mapping.frpNodes.forEach((node)=>{
-            result += "[".concat(node, "]");
-        });
-        if (mapping.listenPort) {
-            if (mapping.frpNodes && mapping.frpNodes.length > 0) result += "[".concat(mapping.listenPort, "]");
-            else result += mapping.listenPort;
+        let n = t.substring(i);
+        if (e.listenPort) n.startsWith(":") && (e.targetPort = n.substring(1).trim().replace(/[[\]]/g, ""));
+        else {
+            let t = n.split(":");
+            t.length >= 1 && (e.listenPort = t[0].trim().replace(/[[\]]/g, "")), t.length >= 2 && (e.targetPort = t[1].trim().replace(/[[\]]/g, ""));
         }
-        if (mapping.targetPort) result += ":".concat(mapping.targetPort);
-        if (mapping.protocol) result += "/".concat(mapping.protocol);
-        return result;
+        return e;
     }
-    renderWidget(section_id, _option_index, cfgvalue) {
+    buildString(t) {
+        let e = "";
+        return t.frpNodes && t.frpNodes.length > 0 && t.frpNodes.forEach((t)=>{
+            e += "[".concat(t, "]");
+        }), t.listenPort && (t.frpNodes && t.frpNodes.length > 0 ? e += "[".concat(t.listenPort, "]") : e += t.listenPort), t.targetPort && (e += ":".concat(t.targetPort)), t.protocol && (e += "/".concat(t.protocol)), e;
+    }
+    renderWidget(t, o, l) {
         this.errorDivRefs = [];
-        const current_values = Array.isArray(cfgvalue) ? cfgvalue : typeof cfgvalue === "string" ? String(cfgvalue).split(/\s+/).filter(Boolean) : [];
-        const widget_id = this.cbid(section_id);
-        const mappings_wrapper = /*#__PURE__*/ createJsxElement("div", {
-            id: "portmapping-wrapper-".concat(section_id)
-        });
-        // 存储每个行的元素引用
-        const rowRefs = [];
-        const updateHiddenValue = ()=>{
-            const values = [];
-            for (const ref of rowRefs){
-                const listen = ref.listenInput.value.trim();
-                const target = ref.targetInput.value.trim();
-                const protocol = ref.protocolSelect.value;
-                const frpNodes = ref.getSelectedNodes();
-                const temp = {
-                    listenPort: listen,
-                    targetPort: target,
-                    frpNodes: frpNodes,
-                    protocol: protocol
-                };
-                const str = this.buildString(temp);
-                if (str && listen && target) values.push(str);
+        let a = Array.isArray(l) ? l : "string" == typeof l ? String(l).split(/\s+/).filter(Boolean) : [], s = this.cbid(t), p = jsx("div", {
+            id: "portmapping-wrapper-".concat(t)
+        }), d = [], c = ()=>{
+            let t = [];
+            for (let e of d){
+                let r = e.listenInput.value.trim(), i = e.targetInput.value.trim(), n = e.protocolSelect.value, o = {
+                    listenPort: r,
+                    targetPort: i,
+                    frpNodes: e.getSelectedNodes(),
+                    protocol: n
+                }, l = this.buildString(o);
+                l && r && i && t.push(l);
             }
-            if (this.hiddenInput) this.hiddenInput.value = values.join(" ");
-        };
-        const renderMappingRow = (mapping_str, index)=>{
-            const mapping = this.parseMapping(mapping_str) || {
+            this.hiddenInput && (this.hiddenInput.value = t.join(" "));
+        }, u = (o, l)=>{
+            let a = this.parseMapping(o) || {
                 listenPort: "",
                 targetPort: "",
                 frpNodes: [],
                 protocol: "tcp"
-            };
-            const row_id = "portmapping-row-".concat(section_id, "-").concat(index);
-            let isTextMode = true;
-            const listenInput = /*#__PURE__*/ createJsxElement(ValidatedInput, {
+            }, s = "portmapping-row-".concat(t, "-").concat(l), p = !0, u = jsx(ValidatedInput_r, {
                 type: "text",
                 className: "listen-port-input",
-                value: mapping.listenPort,
+                value: a.listenPort,
                 placeholder: _("8080 or 8080-8090"),
                 style: "width: 70px; min-width: 50px; margin-right: 10px;",
                 dataAttributes: {
-                    index: String(index),
-                    section: section_id
+                    index: String(l),
+                    section: t
                 },
-                onValidate: (value)=>{
-                    if (!value.trim()) return false;
-                    return this.validatePortOrRange(value.trim());
-                }
-            });
-            const targetInput = /*#__PURE__*/ createJsxElement(ValidatedInput, {
+                onValidate: (t)=>!!t.trim() && this.validatePortOrRange(t.trim())
+            }), h = jsx(ValidatedInput_r, {
                 type: "text",
                 className: "target-port-input",
-                value: mapping.targetPort,
+                value: a.targetPort,
                 placeholder: _("80 or 80-90"),
                 style: "width: 70px; min-width: 50px; margin-right: 10px;",
                 dataAttributes: {
-                    index: String(index),
-                    section: section_id
+                    index: String(l),
+                    section: t
                 },
-                onValidate: (value)=>{
-                    if (!value.trim()) return false;
-                    return this.validatePortOrRange(value.trim());
-                }
-            });
-            const protocolSelect = /*#__PURE__*/ createJsxElement("select", {
+                onValidate: (t)=>!!t.trim() && this.validatePortOrRange(t.trim())
+            }), g = jsxs("select", {
                 class: "protocol-select",
-                "data-index": index,
-                "data-section": section_id,
-                style: "width: 100px; margin-right: 10px;"
-            }, /*#__PURE__*/ createJsxElement("option", {
-                value: "tcp",
-                selected: mapping.protocol === "tcp"
-            }, "TCP"), /*#__PURE__*/ createJsxElement("option", {
-                value: "udp",
-                selected: mapping.protocol === "udp"
-            }, "UDP"), /*#__PURE__*/ createJsxElement("option", {
-                value: "both",
-                selected: mapping.protocol === "both"
-            }, "Both"));
-            const textModeInput = /*#__PURE__*/ createJsxElement(ValidatedInput, {
+                "data-index": l,
+                "data-section": t,
+                style: "width: 100px; margin-right: 10px;",
+                children: [
+                    jsx("option", {
+                        value: "tcp",
+                        selected: "tcp" === a.protocol,
+                        children: "TCP"
+                    }),
+                    jsx("option", {
+                        value: "udp",
+                        selected: "udp" === a.protocol,
+                        children: "UDP"
+                    }),
+                    jsx("option", {
+                        value: "both",
+                        selected: "both" === a.protocol,
+                        children: "Both"
+                    })
+                ]
+            }), f = jsx(ValidatedInput_r, {
                 type: "text",
                 className: "text-mode-input",
-                value: mapping_str,
+                value: o,
                 placeholder: _("[8080][node1:9888]:80/tcp or 8080:80/tcp"),
                 style: "width: 100%; margin-bottom: 6px; padding: 5px; display: none;",
                 validateOn: "blur",
-                onValidate: (value)=>{
-                    const parsed = this.parseMapping(value);
-                    return !!parsed;
-                }
-            });
-            const previewDiv = /*#__PURE__*/ createJsxElement("div", {
+                onValidate: (t)=>!!this.parseMapping(t)
+            }), m = jsx("div", {
                 class: "portmapping-preview",
-                "data-index": index,
-                style: "margin-top: 6px; padding: 6px; border-left: 3px solid #0088cc; font-family: monospace; font-size: 12px;"
-            }, _("Preview: %s").format(this.buildString(mapping)));
-            const updatePreview = ()=>{
-                const listen = listenInput.value.trim();
-                const target = targetInput.value.trim();
-                const protocol = protocolSelect.value;
-                const frpNodes = getSelectedNodes();
-                const temp_mapping = {
-                    listenPort: listen,
-                    targetPort: target,
-                    frpNodes: frpNodes,
-                    protocol: protocol
-                };
-                const preview_str = this.buildString(temp_mapping);
-                previewDiv.textContent = _("Preview: %s").format(preview_str);
-                textModeInput.value = preview_str;
-            };
-            // 使用复用的 FRP 节点选择器组件
-            const selector = createFrpNodeSelector({
-                selectedNodes: mapping.frpNodes || [],
+                "data-index": l,
+                style: "margin-top: 6px; padding: 6px; border-left: 3px solid #0088cc; font-family: monospace; font-size: 12px;",
+                children: _("Preview: %s").format(this.buildString(a))
+            }), v = ()=>{
+                let t = u.value.trim(), e = h.value.trim(), r = g.value, i = x(), n = this.buildString({
+                    listenPort: t,
+                    targetPort: e,
+                    frpNodes: i,
+                    protocol: r
+                });
+                m.textContent = _("Preview: %s").format(n), f.value = n;
+            }, { container: b, getSelectedNodes: x, isValid: y, getValidationError: P } = createFrpNodeSelector({
+                selectedNodes: a.frpNodes || [],
                 onChange: ()=>{
-                    validateAndUpdate();
+                    F();
                 },
                 checkboxClass: "frp-node-checkbox-pm",
                 portInputClass: "frp-node-port-pm"
-            });
-            const { container: selectorContainer, getSelectedNodes, isValid: isFrpValid, getValidationError: getFrpError } = selector;
-            const frpContainer = /*#__PURE__*/ createJsxElement("div", {
+            }), w = jsx("div", {
                 class: "frp-nodes-select",
-                style: "display: block; margin-top: 6px;"
-            }, /*#__PURE__*/ createJsxElement("span", {
-                style: "display: block; margin-bottom: 6px; font-weight: bold;"
-            }, _("FRP Nodes (Optional):")));
-            frpContainer.appendChild(selectorContainer);
-            const errorDiv = /*#__PURE__*/ createJsxElement("div", {
+                style: "display: block; margin-top: 6px;",
+                children: jsx("span", {
+                    style: "display: block; margin-bottom: 6px; font-weight: bold;",
+                    children: _("FRP Nodes (Optional):")
+                })
+            });
+            w.appendChild(b);
+            let V = jsx("div", {
                 class: "portmapping-error",
-                "data-index": index,
+                "data-index": l,
                 style: "color: red; margin-top: 6px; font-size: 12px; display: none;"
             });
-            this.errorDivRefs.push(errorDiv);
-            const titleRow = /*#__PURE__*/ createJsxElement("div", {
-                style: "display: flex; gap: 10px; align-items: center;"
-            }, /*#__PURE__*/ createJsxElement("span", {
-                style: "min-width: 80px; font-weight: bold;"
-            }, _("Listen Port:")), listenInput, /*#__PURE__*/ createJsxElement("span", {
-                style: "min-width: 80px; font-weight: bold;"
-            }, _("Target Port:")), targetInput, /*#__PURE__*/ createJsxElement("span", {
-                style: "min-width: 60px; font-weight: bold;"
-            }, _("Protocol:")), protocolSelect);
-            const modeToggleBtn = /*#__PURE__*/ createJsxElement("button", {
+            this.errorDivRefs.push(V);
+            let I = jsxs("div", {
+                style: "display: flex; gap: 10px; align-items: center;",
+                children: [
+                    jsx("span", {
+                        style: "min-width: 80px; font-weight: bold;",
+                        children: _("Listen Port:")
+                    }),
+                    u,
+                    jsx("span", {
+                        style: "min-width: 80px; font-weight: bold;",
+                        children: _("Target Port:")
+                    }),
+                    h,
+                    jsx("span", {
+                        style: "min-width: 60px; font-weight: bold;",
+                        children: _("Protocol:")
+                    }),
+                    g
+                ]
+            }), N = jsx("button", {
                 type: "button",
                 class: "btn cbi-button cbi-button-edit",
-                style: "margin-right: 8px;"
-            }, _("Text Edit"));
-            const deleteBtn = /*#__PURE__*/ createJsxElement("button", {
+                style: "margin-right: 8px;",
+                children: _("Text Edit")
+            }), C = jsx("button", {
                 type: "button",
                 class: "btn cbi-button cbi-button-remove",
-                "data-index": index,
-                "data-section": section_id
-            }, _("Delete"));
-            const buttonRow = /*#__PURE__*/ createJsxElement("div", {
-                style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;"
-            }, /*#__PURE__*/ createJsxElement("div", null, modeToggleBtn), /*#__PURE__*/ createJsxElement("div", null, deleteBtn));
-            const row = /*#__PURE__*/ createJsxElement("div", {
-                id: row_id,
+                "data-index": l,
+                "data-section": t,
+                children: _("Delete")
+            }), E = jsxs("div", {
+                style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;",
+                children: [
+                    jsx("div", {
+                        children: N
+                    }),
+                    jsx("div", {
+                        children: C
+                    })
+                ]
+            }), R = jsxs("div", {
+                id: s,
                 class: "portmapping-row",
-                "data-index": index,
-                style: "margin-bottom: 10px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;"
-            }, buttonRow, titleRow, textModeInput, frpContainer, errorDiv, previewDiv);
-            const validateAndUpdate = ()=>{
-                const listen = listenInput.value.trim();
-                const target = targetInput.value.trim();
-                errorDiv.textContent = "";
-                errorDiv.style.display = "none";
-                let hasError = false;
-                if (listen && !this.validatePortOrRange(listen)) {
-                    errorDiv.textContent = _("Invalid listen port format");
-                    errorDiv.style.display = "block";
-                    hasError = true;
+                "data-index": l,
+                style: "margin-bottom: 10px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;",
+                children: [
+                    E,
+                    I,
+                    f,
+                    w,
+                    V,
+                    m
+                ]
+            }), F = ()=>{
+                let t = u.value.trim(), e = h.value.trim();
+                V.textContent = "", V.style.display = "none";
+                let r = !1;
+                if (t && !this.validatePortOrRange(t) && (V.textContent = _("Invalid listen port format"), V.style.display = "block", r = !0), r || !e || this.validatePortOrRange(e) || (V.textContent = _("Invalid target port format"), V.style.display = "block", r = !0), !r && t && e) {
+                    let i = this.parsePortRange(t), n = this.parsePortRange(e);
+                    i.length !== n.length && (V.textContent = _("Port ranges must have the same size"), V.style.display = "block", r = !0);
                 }
-                if (!hasError && target && !this.validatePortOrRange(target)) {
-                    errorDiv.textContent = _("Invalid target port format");
-                    errorDiv.style.display = "block";
-                    hasError = true;
-                }
-                if (!hasError && listen && target) {
-                    const listenPorts = this.parsePortRange(listen);
-                    const targetPorts = this.parsePortRange(target);
-                    if (listenPorts.length !== targetPorts.length) {
-                        errorDiv.textContent = _("Port ranges must have the same size");
-                        errorDiv.style.display = "block";
-                        hasError = true;
-                    }
-                }
-                if (!hasError && !isFrpValid()) {
-                    errorDiv.textContent = getFrpError();
-                    errorDiv.style.display = "block";
-                    hasError = true;
-                }
-                if (!hasError) updatePreview();
-                updateHiddenValue();
+                r || y() || (V.textContent = P(), V.style.display = "block", r = !0), r || v(), c();
             };
-            listenInput.oninput = validateAndUpdate;
-            listenInput.onchange = validateAndUpdate;
-            targetInput.oninput = validateAndUpdate;
-            targetInput.onchange = validateAndUpdate;
-            protocolSelect.onchange = validateAndUpdate;
-            textModeInput.onblur = (ev)=>{
-                const inputEl = ev.currentTarget;
-                if (!inputEl) return;
-                errorDiv.textContent = "";
-                errorDiv.style.display = "none";
-                const parsed = this.parseMapping(inputEl.value);
-                if (parsed) {
-                    const tempListenHandler = listenInput.oninput;
-                    const tempTargetHandler = targetInput.oninput;
-                    const tempProtocolHandler = protocolSelect.onchange;
-                    listenInput.oninput = null;
-                    targetInput.oninput = null;
-                    protocolSelect.onchange = null;
-                    listenInput.value = parsed.listenPort;
-                    targetInput.value = parsed.targetPort;
-                    protocolSelect.value = parsed.protocol;
-                    listenInput.oninput = tempListenHandler;
-                    targetInput.oninput = tempTargetHandler;
-                    protocolSelect.onchange = tempProtocolHandler;
-                    validateAndUpdate();
-                } else {
-                    errorDiv.textContent = _("Invalid port mapping format");
-                    errorDiv.style.display = "block";
-                }
-            };
-            function setDisplay(element, display) {
-                element.style.setProperty("display", display, "important");
+            function k(t, e) {
+                t.style.setProperty("display", e, "important");
             }
-            function updateVis() {
-                setDisplay(titleRow, isTextMode ? "none" : "flex");
-                setDisplay(frpContainer, isTextMode ? "none" : "block");
-                setDisplay(textModeInput, isTextMode ? "block" : "none");
-                setDisplay(previewDiv, isTextMode ? "none" : "block");
-                modeToggleBtn.textContent = isTextMode ? _("Visual Edit") : _("Text Edit");
+            function S() {
+                k(I, p ? "none" : "flex"), k(w, p ? "none" : "block"), k(f, p ? "block" : "none"), k(m, p ? "none" : "block"), N.textContent = p ? _("Visual Edit") : _("Text Edit");
             }
-            updateVis();
-            modeToggleBtn.onclick = (e)=>{
-                e.preventDefault();
-                isTextMode = !isTextMode;
-                updateVis();
-            };
-            deleteBtn.onclick = (e)=>{
-                e.preventDefault();
-                row.remove();
-                // 从 rowRefs 中移除当前行的引用
-                const idx = rowRefs.findIndex((ref)=>ref.listenInput === listenInput && ref.targetInput === targetInput && ref.protocolSelect === protocolSelect);
-                if (idx !== -1) rowRefs.splice(idx, 1);
-                updateHiddenValue();
-            };
-            return {
-                element: row,
-                listenInput,
-                targetInput,
-                protocolSelect,
-                getSelectedNodes
+            return u.oninput = F, u.onchange = F, h.oninput = F, h.onchange = F, g.onchange = F, f.onblur = (t)=>{
+                let e = t.currentTarget;
+                if (!e) return;
+                V.textContent = "", V.style.display = "none";
+                let r = this.parseMapping(e.value);
+                if (r) {
+                    let t = u.oninput, e = h.oninput, i = g.onchange;
+                    u.oninput = null, h.oninput = null, g.onchange = null, u.value = r.listenPort, h.value = r.targetPort, g.value = r.protocol, u.oninput = t, h.oninput = e, g.onchange = i, F();
+                } else V.textContent = _("Invalid port mapping format"), V.style.display = "block";
+            }, S(), N.onclick = (t)=>{
+                t.preventDefault(), p = !p, S();
+            }, C.onclick = (t)=>{
+                t.preventDefault(), R.remove();
+                let e = d.findIndex((t)=>t.listenInput === u && t.targetInput === h && t.protocolSelect === g);
+                -1 !== e && d.splice(e, 1), c();
+            }, {
+                element: R,
+                listenInput: u,
+                targetInput: h,
+                protocolSelect: g,
+                getSelectedNodes: x
             };
         };
-        for(let i = 0; i < current_values.length; i++){
-            const rowData = renderMappingRow(current_values[i], i);
-            rowRefs.push(rowData);
-            mappings_wrapper.appendChild(rowData.element);
+        for(let t = 0; t < a.length; t++){
+            let e = u(a[t], t);
+            d.push(e), p.appendChild(e.element);
         }
-        const addBtn = /*#__PURE__*/ createJsxElement("button", {
+        let h = jsx("button", {
             type: "button",
             class: "btn btn-sm btn-primary",
-            style: "margin-bottom: 10px;"
-        }, _("Add Port Mapping"));
-        addBtn.onclick = (e)=>{
-            e.preventDefault();
-            const new_index = rowRefs.length;
-            const rowData = renderMappingRow("", new_index);
-            rowRefs.push(rowData);
-            mappings_wrapper.appendChild(rowData.element);
-        };
-        const hiddenInput = /*#__PURE__*/ createJsxElement("input", {
-            type: "hidden",
-            name: widget_id,
-            value: current_values.join(" ")
+            style: "margin-bottom: 10px;",
+            children: _("Add Port Mapping")
         });
-        this.hiddenInput = hiddenInput;
-        const container = /*#__PURE__*/ createJsxElement("div", {
-            class: "cbi-value-field"
-        }, mappings_wrapper, addBtn, hiddenInput, /*#__PURE__*/ createJsxElement("div", {
-            class: "cbi-value-description"
-        }, _("Configure port forwarding rules. Listen Port and Target Port support single port (8080) or port range (8080-8090).")));
-        return container;
+        h.onclick = (t)=>{
+            t.preventDefault();
+            let e = u("", d.length);
+            d.push(e), p.appendChild(e.element);
+        };
+        let g = jsx("input", {
+            type: "hidden",
+            name: s,
+            value: a.join(" ")
+        });
+        return this.hiddenInput = g, jsxs("div", {
+            class: "cbi-value-field",
+            children: [
+                p,
+                h,
+                g,
+                jsx("div", {
+                    class: "cbi-value-description",
+                    children: _("Configure port forwarding rules. Listen Port and Target Port support single port (8080) or port range (8080-8090).")
+                })
+            ]
+        });
     }
-    cfgvalue(section_id) {
-        const value = L.uci.get("portweaver", section_id, "port_mapping");
-        if (Array.isArray(value)) return value;
-        if (typeof value === "string") return String(value).split(/\s+/).filter(Boolean);
-        return [];
+    cfgvalue(t) {
+        let e = L.uci.get("portweaver", t, "port_mapping");
+        return Array.isArray(e) ? e : "string" == typeof e ? String(e).split(/\s+/).filter(Boolean) : [];
     }
-    formvalue(_section_id) {
-        var _this_hiddenInput;
-        if ((_this_hiddenInput = this.hiddenInput) === null || _this_hiddenInput === void 0 ? void 0 : _this_hiddenInput.value) return this.hiddenInput.value.split(/\s+/).filter(Boolean);
-        return null;
+    formvalue(t) {
+        var e;
+        return (null == (e = this.hiddenInput) ? void 0 : e.value) ? this.hiddenInput.value.split(/\s+/).filter(Boolean) : null;
     }
-    write(section_id, formvalue) {
-        if (formvalue && formvalue.length > 0) return L.uci.set("portweaver", section_id, "port_mapping", formvalue);
-        else return L.uci.unset("portweaver", section_id, "port_mapping");
+    write(t, e) {
+        return e && e.length > 0 ? L.uci.set("portweaver", t, "port_mapping", e) : L.uci.unset("portweaver", t, "port_mapping");
     }
-    validate(_section_id, value) {
-        // 验证端口映射格式
-        if (!value) {
-            this.validationError = "";
-            this.isValidFlag = true;
+    validate(t, e) {
+        if (!e) {
+            this.validationError = "", this.isValidFlag = !0;
             return;
         }
-        const valueStr = Array.isArray(value) ? value.join(" ") : String(value);
-        const mappings = valueStr.split(/\s+/).filter(Boolean);
-        for (const mappingStr of mappings){
-            const parsed = this.parseMapping(mappingStr);
-            if (!parsed) {
-                this.validationError = _("Invalid port mapping format");
-                this.isValidFlag = false;
+        for (let t of (Array.isArray(e) ? e.join(" ") : String(e)).split(/\s+/).filter(Boolean)){
+            let e = this.parseMapping(t);
+            if (!e) {
+                this.validationError = _("Invalid port mapping format"), this.isValidFlag = !1;
                 return;
             }
-            // 验证监听端口
-            if (!parsed.listenPort) {
-                this.validationError = _("Listen port is required");
-                this.isValidFlag = false;
+            if (!e.listenPort) {
+                this.validationError = _("Listen port is required"), this.isValidFlag = !1;
                 return;
             }
-            if (!this.validatePortOrRange(parsed.listenPort)) {
-                this.validationError = _("Invalid listen port format. Use port (8080) or range (8080-8090)");
-                this.isValidFlag = false;
+            if (!this.validatePortOrRange(e.listenPort)) {
+                this.validationError = _("Invalid listen port format. Use port (8080) or range (8080-8090)"), this.isValidFlag = !1;
                 return;
             }
-            // 验证目标端口
-            if (!parsed.targetPort) {
-                this.validationError = _("Target port is required");
-                this.isValidFlag = false;
+            if (!e.targetPort) {
+                this.validationError = _("Target port is required"), this.isValidFlag = !1;
                 return;
             }
-            if (!this.validatePortOrRange(parsed.targetPort)) {
-                this.validationError = _("Invalid target port format. Use port (80) or range (80-90)");
-                this.isValidFlag = false;
+            if (!this.validatePortOrRange(e.targetPort)) {
+                this.validationError = _("Invalid target port format. Use port (80) or range (80-90)"), this.isValidFlag = !1;
                 return;
             }
-            // 验证端口范围匹配
-            const listenPorts = this.parsePortRange(parsed.listenPort);
-            const targetPorts = this.parsePortRange(parsed.targetPort);
-            if (listenPorts.length !== targetPorts.length) {
-                this.validationError = _("Listen port range and target port range must have the same size");
-                this.isValidFlag = false;
+            let r = this.parsePortRange(e.listenPort), i = this.parsePortRange(e.targetPort);
+            if (r.length !== i.length) {
+                this.validationError = _("Listen port range and target port range must have the same size"), this.isValidFlag = !1;
                 return;
             }
-            // 验证 FRP 节点
-            if (parsed.frpNodes && parsed.frpNodes.length > 0) for (const nodeStr of parsed.frpNodes){
-                const [node, port] = nodeStr.split(":");
-                if (!node) {
-                    this.validationError = _("Invalid FRP node format");
-                    this.isValidFlag = false;
+            if (e.frpNodes && e.frpNodes.length > 0) for (let t of e.frpNodes){
+                let [e, r] = t.split(":");
+                if (!e) {
+                    this.validationError = _("Invalid FRP node format"), this.isValidFlag = !1;
                     return;
                 }
-                if (port) {
-                    const portNum = parseInt(port, 10);
-                    if (Number.isNaN(portNum) || portNum < 1 || portNum > 65535) {
-                        this.validationError = _("FRP node port must be between 1 and 65535");
-                        this.isValidFlag = false;
+                if (r) {
+                    let t = parseInt(r, 10);
+                    if (Number.isNaN(t) || t < 1 || t > 65535) {
+                        this.validationError = _("FRP node port must be between 1 and 65535"), this.isValidFlag = !1;
                         return;
                     }
                 }
             }
-            // 验证协议
-            if (parsed.protocol && ![
+            if (e.protocol && ![
                 "tcp",
                 "udp",
                 "both"
-            ].includes(parsed.protocol)) {
-                this.validationError = _("Protocol must be `tcp`, `udp`, or `both`");
-                this.isValidFlag = false;
+            ].includes(e.protocol)) {
+                this.validationError = _("Protocol must be `tcp`, `udp`, or `both`"), this.isValidFlag = !1;
                 return;
             }
         }
-        this.validationError = "";
-        this.isValidFlag = true;
+        this.validationError = "", this.isValidFlag = !0;
     }
-    validatePortOrRange(portStr) {
-        // 验证单个端口或端口范围
-        if (!portStr) return false;
-        // 单个端口
-        if (/^\d+$/.test(portStr)) {
-            const port = parseInt(portStr, 10);
-            return port >= 1 && port <= 65535;
+    validatePortOrRange(t) {
+        if (!t) return !1;
+        if (/^\d+$/.test(t)) {
+            let e = parseInt(t, 10);
+            return e >= 1 && e <= 65535;
         }
-        // 端口范围
-        if (/^\d+-\d+$/.test(portStr)) {
-            const [start, end] = portStr.split("-").map((p)=>parseInt(p, 10));
-            return start >= 1 && start <= 65535 && end >= 1 && end <= 65535 && start <= end;
+        if (/^\d+-\d+$/.test(t)) {
+            let [e, r] = t.split("-").map((t)=>parseInt(t, 10));
+            return e >= 1 && e <= 65535 && r >= 1 && r <= 65535 && e <= r;
         }
-        return false;
+        return !1;
     }
-    parsePortRange(portStr) {
-        // 解析端口或端口范围，返回端口数组
-        if (/^\d+$/.test(portStr)) return [
-            parseInt(portStr, 10)
+    parsePortRange(t) {
+        if (/^\d+$/.test(t)) return [
+            parseInt(t, 10)
         ];
-        if (/^\d+-\d+$/.test(portStr)) {
-            const [start, end] = portStr.split("-").map((p)=>parseInt(p, 10));
-            const ports = [];
-            for(let i = start; i <= end; i++)ports.push(i);
-            return ports;
+        if (/^\d+-\d+$/.test(t)) {
+            let [e, r] = t.split("-").map((t)=>parseInt(t, 10)), i = [];
+            for(let t = e; t <= r; t++)i.push(t);
+            return i;
         }
         return [];
     }
-    isValid(section_id) {
-        var _this_isValidFlag;
-        for (const errorEl of this.errorDivRefs){
-            const isVisible = errorEl.style.display !== "none";
-            const hasText = errorEl.textContent && errorEl.textContent.trim() !== "";
-            if (isVisible && hasText) {
-                this.validationError = errorEl.textContent || _("Validation failed");
-                this.isValidFlag = false;
-                return false;
-            }
+    isValid(t) {
+        var e;
+        for (let t of this.errorDivRefs){
+            let e = "none" !== t.style.display, r = t.textContent && "" !== t.textContent.trim();
+            if (e && r) return this.validationError = t.textContent || _("Validation failed"), this.isValidFlag = !1, !1;
         }
-        const value = this.formvalue(section_id);
-        this.validate(section_id, value);
-        return (_this_isValidFlag = this.isValidFlag) !== null && _this_isValidFlag !== void 0 ? _this_isValidFlag : true;
+        let r = this.formvalue(t);
+        return this.validate(t, r), null == (e = this.isValidFlag) || e;
     }
-    getValidationError(section_id) {
-        if (!this.isValid(section_id)) return this.validationError || _("Validation failed");
-        return "";
+    getValidationError(t) {
+        return this.isValid(t) ? "" : this.validationError || _("Validation failed");
     }
-    constructor(...args){
-        super(...args), _define_property(this, "hiddenInput", void 0), _define_property(this, "errorDivRefs", []), _define_property(this, "validationError", ""), _define_property(this, "isValidFlag", true);
+    constructor(...e){
+        super(...e), _define_property(this, "hiddenInput", void 0), _define_property(this, "errorDivRefs", []), _define_property(this, "validationError", ""), _define_property(this, "isValidFlag", !0);
     }
 }
-/* export default */ const components_PortMappingEditor = (PortMappingEditor);
+/* export default */ const PortMappingEditor = (PortMappingEditor_o);
 
 ;// CONCATENATED MODULE: ./modules/config.tsx
 
 
-const config_form = L.form;
-const uci = L.uci;
-/* export default */ function config(_m, s, client, tab_id) {
-    let o;
-    o = s.taboption(tab_id, config_form.SectionValue, "_projects", config_form.GridSection, "project");
-    const ss = o.subsection;
-    ss.anonymous = true;
-    ss.addremove = true;
-    ss.sortable = true;
-    ss.cloneable = true;
-    ss.sectiontitle = (section_id)=>uci.get("portweaver", section_id, "remark") || _("Unnamed project");
-    o = ss.option(config_form.DummyValue, "_runtime_status", _("Status"));
-    o.modalonly = false;
-    o.textvalue = (section_id)=>{
-        const status = client.getProjectStatus(section_id);
-        const container = /*#__PURE__*/ createJsxElement("div", {
-            id: "project-status-".concat(section_id)
-        }, client.renderStatusElements(status, section_id));
-        client.projectContainers = client.projectContainers || {};
-        client.projectContainers[section_id] = container;
-        return container;
-    };
-    o = ss.option(config_form.Button, "_runtime_toggle", _("Toggle"));
-    o.modalonly = false;
-    o.editable = true;
-    o.inputtitle = (section_id)=>{
-        const status = client.getProjectStatus(section_id);
-        return (status === null || status === void 0 ? void 0 : status.enabled) ? _("Disable") : _("Enable");
-    };
-    o.onclick = (_ev, section_id)=>window.portweaverToggle(section_id);
-    o = ss.option(config_form.Flag, "enabled", _("Enabled"));
-    o.modalonly = false;
-    o.default = "1";
-    o.editable = true;
-    // Preview column
-    o = ss.option(config_form.DummyValue, "_preview", _("Overview"));
-    o.modalonly = false;
-    o.textvalue = (section_id)=>{
-        const protocol = uci.get("portweaver", section_id, "protocol") || "tcp";
-        const family = uci.get("portweaver", section_id, "family") || "any";
-        const listen_port = uci.get("portweaver", section_id, "listen_port") || "";
-        const target_address = uci.get("portweaver", section_id, "target_address") || "";
-        const target_port = uci.get("portweaver", section_id, "target_port") || "";
-        const port_mappings = L.toArray(uci.get("portweaver", section_id, "port_mapping"));
-        const src_zones = L.toArray(uci.get("portweaver", section_id, "src_zone"));
-        const dest_zones = L.toArray(uci.get("portweaver", section_id, "dest_zone"));
-        const proto_text = {
+
+let config_a = L.form, config_l = L.uci;
+/* export default */ function config(n, p, i, d) {
+    let s, u = (s = p.taboption(d, config_a.SectionValue, "_projects", config_a.GridSection, "project")).subsection;
+    u.anonymous = !0, u.addremove = !0, u.sortable = !0, u.cloneable = !0, u.sectiontitle = (e)=>config_l.get("portweaver", e, "remark") || _("Unnamed project"), (s = u.option(config_a.DummyValue, "_runtime_status", _("Status"))).modalonly = !1, s.textvalue = (t)=>{
+        let o = i.getProjectStatus(t), r = jsx("div", {
+            id: "project-status-".concat(t),
+            children: i.renderStatusElements(o, t)
+        });
+        return i.projectContainers = i.projectContainers || {}, i.projectContainers[t] = r, r;
+    }, (s = u.option(config_a.Button, "_runtime_toggle", _("Toggle"))).modalonly = !1, s.editable = !0, s.inputtitle = (e)=>{
+        let t = i.getProjectStatus(e);
+        return (null == t ? void 0 : t.enabled) ? _("Disable") : _("Enable");
+    }, s.onclick = (e, t)=>window.portweaverToggle(t), (s = u.option(config_a.Flag, "enabled", _("Enabled"))).modalonly = !1, s.default = "1", s.editable = !0, (s = u.option(config_a.DummyValue, "_preview", _("Overview"))).modalonly = !1, s.textvalue = (o)=>{
+        let r = config_l.get("portweaver", o, "protocol") || "tcp", a = config_l.get("portweaver", o, "family") || "any", n = config_l.get("portweaver", o, "listen_port") || "", p = config_l.get("portweaver", o, "target_address") || "", i = config_l.get("portweaver", o, "target_port") || "", d = L.toArray(config_l.get("portweaver", o, "port_mapping")), s = L.toArray(config_l.get("portweaver", o, "src_zone")), u = L.toArray(config_l.get("portweaver", o, "dest_zone")), m = {
             both: _("TCP and UDP"),
             tcp: _("TCP"),
             udp: _("UDP")
-        }[protocol] || String(protocol).toUpperCase();
-        const family_text = {
+        }[r] || String(r).toUpperCase(), c = {
             any: _("IPv4 and IPv6"),
             ipv4: _("IPv4"),
             ipv6: _("IPv6")
-        }[family] || family;
-        const lines = [];
-        lines.push(/*#__PURE__*/ createJsxElement("span", null, _("Incoming "), /*#__PURE__*/ createJsxElement("var", null, family_text), _(" protocol "), /*#__PURE__*/ createJsxElement("var", null, proto_text)));
-        if (src_zones.length > 0) {
-            const src_badges = src_zones.map((z)=>/*#__PURE__*/ createJsxElement("span", {
+        }[a] || a, g = [];
+        if (g.push(jsxs("span", {
+            children: [
+                _("Incoming "),
+                jsx("var", {
+                    children: c
+                }),
+                _(" protocol "),
+                jsx("var", {
+                    children: m
+                })
+            ]
+        })), s.length > 0) {
+            let o = s.map((t)=>jsx("span", {
                     class: "zonebadge",
-                    style: fwmodel.getZoneColorStyle(z)
-                }, /*#__PURE__*/ createJsxElement("strong", null, z || /*#__PURE__*/ createJsxElement("em", null, _("any zone")))));
-            lines.push(/*#__PURE__*/ createJsxElement("br", null));
-            lines.push(/*#__PURE__*/ createJsxElement("span", null, _("From "), ...src_badges));
+                    style: fwmodel.getZoneColorStyle(t),
+                    children: jsx("strong", {
+                        children: t || jsx("em", {
+                            children: _("any zone")
+                        })
+                    })
+                }));
+            g.push(jsx("br", {})), g.push(jsxs("span", {
+                children: [
+                    _("From "),
+                    ...o
+                ]
+            }));
         }
-        if (port_mappings.length > 0) {
-            lines.push(/*#__PURE__*/ createJsxElement("br", null));
-            lines.push(/*#__PURE__*/ createJsxElement("span", null, /*#__PURE__*/ createJsxElement("strong", {
-                style: "color: #09c;"
-            }, _("Multi-Port")), _(" - "), /*#__PURE__*/ createJsxElement("var", null, port_mappings.length), _(" mapping(s)")));
-            const first = port_mappings[0];
-            lines.push(/*#__PURE__*/ createJsxElement("br", null));
-            lines.push(/*#__PURE__*/ createJsxElement("span", null, _("e.g. "), /*#__PURE__*/ createJsxElement("var", null, first)));
-        } else if (listen_port) {
-            lines.push(/*#__PURE__*/ createJsxElement("br", null));
-            lines.push(/*#__PURE__*/ createJsxElement("span", null, _("Port "), /*#__PURE__*/ createJsxElement("var", null, listen_port)));
-        }
-        lines.push(/*#__PURE__*/ createJsxElement("br", null));
-        lines.push(/*#__PURE__*/ createJsxElement("span", null, /*#__PURE__*/ createJsxElement("var", {
-            "data-tooltip": "Forward"
-        }, _("Forward")), _(" to ")));
-        if (dest_zones.length > 0) {
-            const dest_badges = dest_zones.map((z)=>/*#__PURE__*/ createJsxElement("span", {
+        if (d.length > 0) {
+            g.push(jsx("br", {})), g.push(jsxs("span", {
+                children: [
+                    jsx("strong", {
+                        style: "color: #09c;",
+                        children: _("Multi-Port")
+                    }),
+                    _(" - "),
+                    jsx("var", {
+                        children: d.length
+                    }),
+                    _(" mapping(s)")
+                ]
+            }));
+            let o = d[0];
+            g.push(jsx("br", {})), g.push(jsxs("span", {
+                children: [
+                    _("e.g. "),
+                    jsx("var", {
+                        children: o
+                    })
+                ]
+            }));
+        } else n && (g.push(jsx("br", {})), g.push(jsxs("span", {
+            children: [
+                _("Port "),
+                jsx("var", {
+                    children: n
+                })
+            ]
+        })));
+        if (g.push(jsx("br", {})), g.push(jsxs("span", {
+            children: [
+                jsx("var", {
+                    "data-tooltip": "Forward",
+                    children: _("Forward")
+                }),
+                _(" to ")
+            ]
+        })), u.length > 0) {
+            let t = u.map((t)=>jsx("span", {
                     class: "zonebadge",
-                    style: fwmodel.getZoneColorStyle(z)
-                }, /*#__PURE__*/ createJsxElement("strong", null, z || /*#__PURE__*/ createJsxElement("em", null, _("any zone")))));
-            lines.push(...dest_badges);
-            lines.push(_(" "));
+                    style: fwmodel.getZoneColorStyle(t),
+                    children: jsx("strong", {
+                        children: t || jsx("em", {
+                            children: _("any zone")
+                        })
+                    })
+                }));
+            g.push(...t), g.push(_(" "));
         }
-        if (target_address) lines.push(/*#__PURE__*/ createJsxElement("span", null, _("IP "), /*#__PURE__*/ createJsxElement("var", null, target_address)));
-        if (port_mappings.length === 0 && target_port) lines.push(/*#__PURE__*/ createJsxElement("span", null, _(" port "), /*#__PURE__*/ createJsxElement("var", null, target_port)));
-        return /*#__PURE__*/ createJsxElement("small", null, lines);
-    };
-    // Modal configuration fields
-    o = ss.option(config_form.Value, "remark", _("Remark"));
-    o.modalonly = true;
-    o.rmempty = false;
-    o.datatype = "string";
-    o.validate = (_section_id, value)=>{
-        if (!value || String(value).trim() === "") return _("This field is required");
-        return true;
-    };
-    o.placeholder = "My Project";
-    o = ss.option(config_form.Flag, "enabled", _("Enabled"));
-    o.modalonly = true;
-    o.default = "1";
-    o = ss.option(widgets.ZoneSelect, "src_zone", _("Source Zones"));
-    o.modalonly = true;
-    o.multiple = true;
-    o.nocreate = false;
-    o.allowlocal = false;
-    o.default = "wan";
-    o.rmempty = true;
-    o = ss.option(widgets.ZoneSelect, "dest_zone", _("Destination Zones"));
-    o.modalonly = true;
-    o.multiple = true;
-    o.nocreate = false;
-    o.allowlocal = false;
-    o.default = "lan";
-    o.rmempty = true;
-    o = ss.option(config_form.ListValue, "family", _("Address Family"));
-    o.modalonly = true;
-    o.value("any", _("IPv4 and IPv6"));
-    o.value("ipv4", "IPv4");
-    o.value("ipv6", "IPv6");
-    o.default = "any";
-    o = ss.option(config_form.Value, "target_address", _("Target Address"));
-    o.modalonly = true;
-    o.rmempty = false;
-    o.datatype = "host";
-    o.placeholder = "192.168.1.100";
-    o.validate = (_section_id, value)=>{
-        if (!value || String(value).trim() === "") return _("This field is required");
-        return true;
-    };
-    // Port mode switcher
-    o = ss.option(config_form.Flag, "use_port_mappings", _("Use Port Mappings Mode"));
-    o.modalonly = true;
-    o.rmempty = true;
-    o.default = "0";
-    o.description = _("Enable to configure multiple port mappings or port ranges. Disable for single port mode.");
-    // Single port mode
-    o = ss.option(config_form.ListValue, "protocol", _("Protocol"));
-    o.modalonly = true;
-    o.value("both", _("TCP and UDP"));
-    o.value("tcp", "TCP");
-    o.value("udp", "UDP");
-    o.default = "tcp";
-    o.depends("use_port_mappings", "0");
-    // FRP node selector component factory
-    o = ss.option(components_FrpNodeSelector, "frp_nodes", _("FRP Tunnels"));
-    o.modalonly = true;
-    o.rmempty = true;
-    o.depends("use_port_mappings", "0");
-    // Port Mapping Editor component factory
-    o = ss.option(components_PortMappingEditor, "port_mapping", _("Port Mappings"));
-    o.modalonly = true;
-    o.depends("use_port_mappings", "1");
-    o = ss.option(config_form.Value, "listen_port", _("Listen Port"));
-    o.modalonly = true;
-    o.datatype = "port";
-    o.placeholder = "8080";
-    o.depends("use_port_mappings", "0");
-    o.validate = (section_id, value)=>{
-        const use_mappings = uci.get("portweaver", section_id, "use_port_mappings");
-        if (use_mappings !== "1") {
-            if (!value || String(value).trim() === "") return _("This field is required in single port mode");
-        }
-        return true;
-    };
-    o = ss.option(config_form.Value, "target_port", _("Target Port"));
-    o.modalonly = true;
-    o.datatype = "port";
-    o.placeholder = "80";
-    o.depends("use_port_mappings", "0");
-    o.validate = (section_id, value)=>{
-        const use_mappings = uci.get("portweaver", section_id, "use_port_mappings");
-        if (use_mappings !== "1") {
-            if (!value || String(value).trim() === "") return _("This field is required in single port mode");
-        }
-        return true;
-    };
-    o = ss.option(config_form.Flag, "open_firewall_port", _("Open Firewall Port"));
-    o.modalonly = true;
-    o.default = "1";
-    o = ss.option(config_form.Flag, "enable_app_forward", _("Enable App Level Forward"));
-    o.modalonly = true;
-    o.default = "0";
-    o = ss.option(config_form.Flag, "reuseaddr", _("Reuse Address"));
-    o.modalonly = true;
-    o.default = "1";
-    o.depends("enable_app_forward", "1");
-    o = ss.option(config_form.Flag, "enable_stats", _("Enable Statistics"), _("Collect traffic statistics (bytes_in/bytes_out) using zero-cost atomic counters. \nNOTE: Mutually exclusive with firewall forwarding - enabling stats will disable add_firewall_forward."));
-    o.modalonly = true;
-    o.default = "0";
-    o.depends("enable_app_forward", "1");
-    o = ss.option(config_form.Flag, "add_firewall_forward", _("Add Firewall Forward"));
-    o.modalonly = true;
-    o.default = "1";
-    o.depends({
+        return p && g.push(jsxs("span", {
+            children: [
+                _("IP "),
+                jsx("var", {
+                    children: p
+                })
+            ]
+        })), 0 === d.length && i && g.push(jsxs("span", {
+            children: [
+                _(" port "),
+                jsx("var", {
+                    children: i
+                })
+            ]
+        })), jsx("small", {
+            children: g
+        });
+    }, (s = u.option(config_a.Value, "remark", _("Remark"))).modalonly = !0, s.rmempty = !1, s.datatype = "string", s.validate = (e, t)=>!!t && "" !== String(t).trim() || _("This field is required"), s.placeholder = "My Project", (s = u.option(config_a.Flag, "enabled", _("Enabled"))).modalonly = !0, s.default = "1", (s = u.option(widgets.ZoneSelect, "src_zone", _("Source Zones"))).modalonly = !0, s.multiple = !0, s.nocreate = !1, s.allowlocal = !1, s.default = "wan", s.rmempty = !0, (s = u.option(widgets.ZoneSelect, "dest_zone", _("Destination Zones"))).modalonly = !0, s.multiple = !0, s.nocreate = !1, s.allowlocal = !1, s.default = "lan", s.rmempty = !0, (s = u.option(config_a.ListValue, "family", _("Address Family"))).modalonly = !0, s.value("any", _("IPv4 and IPv6")), s.value("ipv4", "IPv4"), s.value("ipv6", "IPv6"), s.default = "any", (s = u.option(config_a.Value, "target_address", _("Target Address"))).modalonly = !0, s.rmempty = !1, s.datatype = "host", s.placeholder = "192.168.1.100", s.validate = (e, t)=>!!t && "" !== String(t).trim() || _("This field is required"), (s = u.option(config_a.Flag, "use_port_mappings", _("Use Port Mappings Mode"))).modalonly = !0, s.rmempty = !0, s.default = "0", s.description = _("Enable to configure multiple port mappings or port ranges. Disable for single port mode."), (s = u.option(config_a.ListValue, "protocol", _("Protocol"))).modalonly = !0, s.value("both", _("TCP and UDP")), s.value("tcp", "TCP"), s.value("udp", "UDP"), s.default = "tcp", s.depends("use_port_mappings", "0"), (s = u.option(FrpNodeSelector, "frp_nodes", _("FRP Tunnels"))).modalonly = !0, s.rmempty = !0, s.depends("use_port_mappings", "0"), (s = u.option(PortMappingEditor, "port_mapping", _("Port Mappings"))).modalonly = !0, s.depends("use_port_mappings", "1"), (s = u.option(config_a.Value, "listen_port", _("Listen Port"))).modalonly = !0, s.datatype = "port", s.placeholder = "8080", s.depends("use_port_mappings", "0"), s.validate = (e, t)=>"1" === config_l.get("portweaver", e, "use_port_mappings") || !!t && "" !== String(t).trim() || _("This field is required in single port mode"), (s = u.option(config_a.Value, "target_port", _("Target Port"))).modalonly = !0, s.datatype = "port", s.placeholder = "80", s.depends("use_port_mappings", "0"), s.validate = (e, t)=>"1" === config_l.get("portweaver", e, "use_port_mappings") || !!t && "" !== String(t).trim() || _("This field is required in single port mode"), (s = u.option(config_a.Flag, "open_firewall_port", _("Open Firewall Port"))).modalonly = !0, s.default = "1", (s = u.option(config_a.Flag, "enable_app_forward", _("Enable App Level Forward"))).modalonly = !0, s.default = "0", (s = u.option(config_a.Flag, "reuseaddr", _("Reuse Address"))).modalonly = !0, s.default = "1", s.depends("enable_app_forward", "1"), (s = u.option(config_a.Flag, "enable_stats", _("Enable Statistics"), _("Collect traffic statistics (bytes_in/bytes_out) using zero-cost atomic counters. \nNOTE: Mutually exclusive with firewall forwarding - enabling stats will disable add_firewall_forward."))).modalonly = !0, s.default = "0", s.depends("enable_app_forward", "1"), (s = u.option(config_a.Flag, "add_firewall_forward", _("Add Firewall Forward"))).modalonly = !0, s.default = "1", s.depends({
         enable_app_forward: "0"
-    });
-    o.depends({
+    }), s.depends({
         enable_app_forward: "1",
         enable_stats: "0"
-    });
-    o = ss.option(config_form.Flag, "preserve_source_ip", _("Preserve Source IP"), _("Add NAT rules, preserving the source IP address. \nNote: Only effective when 'Add Firewall Forward' is enabled."));
-    o.modalonly = true;
-    o.default = "0";
-    o.depends("add_firewall_forward", "1");
+    }), (s = u.option(config_a.Flag, "preserve_source_ip", _("Preserve Source IP"), _("Add NAT rules, preserving the source IP address. \nNote: Only effective when 'Add Firewall Forward' is enabled."))).modalonly = !0, s.default = "0", s.depends("add_firewall_forward", "1");
 }
 
 ;// CONCATENATED MODULE: ./components/StatusPanel.tsx
 
 
+
 class StatusPanel {
-    render(status, frpStatus, projectStatuses, events, ddnsGlobalStatus) {
-        const statusColor = {
+    render(t, n, d, l, a) {
+        let c, h, f, p, v, m, g, u, E, y, b, z, x, j, w, P, S, R, I, D, V, L, O, T, k, A, H = {
             running: "#28a745",
             stopped: "#dc3545",
             degraded: "#ffc107"
-        }[status.status || ""] || "#6c757d";
-        // Calculate project health stats
-        const enabledProjects = (projectStatuses === null || projectStatuses === void 0 ? void 0 : projectStatuses.filter((p)=>p.enabled)) || [];
-        const runningProjects = enabledProjects.filter((p)=>p.status === "running");
-        const hasEnabledProjects = enabledProjects.length > 0;
-        return /*#__PURE__*/ createJsxElement("div", null, /*#__PURE__*/ createJsxElement("div", {
-            style: "display: grid; grid-template-columns: repeat(3, 1fr); gap: 1em; margin-top: 0.5em;"
-        }, (()=>{
-            const statusValueEl = /*#__PURE__*/ createJsxElement("strong", {
-                style: "color: ".concat(statusColor, "; font-size: 1.1em; font-weight: 600;"),
-                id: "status-value"
-            }, translateStatus(status.status) || "-");
-            this.statusValueEl = statusValueEl;
-            return this.card(_("Status"), statusValueEl);
-        })(), (()=>{
-            const totalProjectsEl = /*#__PURE__*/ createJsxElement("strong", {
-                style: "font-size: 1.1em; font-weight: 600;",
-                id: "total-projects-value"
-            }, status.total_projects || 0);
-            this.totalProjectsEl = totalProjectsEl;
-            return this.card(_("Total Projects"), totalProjectsEl);
-        })(), (()=>{
-            const activePortsEl = /*#__PURE__*/ createJsxElement("strong", {
-                style: "font-size: 1.1em; font-weight: 600;",
-                id: "active-ports-value"
-            }, status.active_ports || 0);
-            this.activePortsEl = activePortsEl;
-            return this.card(_("Active Ports"), activePortsEl);
-        })(), (()=>{
-            const uptimeEl = /*#__PURE__*/ createJsxElement("strong", {
-                style: "font-size: 1.1em; font-weight: 600;",
-                id: "uptime-value"
-            }, formatUptime(status.uptime || 0));
-            this.uptimeEl = uptimeEl;
-            return this.card(_("Uptime"), uptimeEl);
-        })(), (()=>{
-            const trafficInEl = /*#__PURE__*/ createJsxElement("strong", {
-                style: "font-size: 1.1em; font-weight: 600;",
-                id: "traffic-in-value"
-            }, formatBytes(status.total_bytes_in || 0));
-            this.trafficInEl = trafficInEl;
-            return this.card(_("Traffic In"), trafficInEl);
-        })(), (()=>{
-            const trafficOutEl = /*#__PURE__*/ createJsxElement("strong", {
-                style: "font-size: 1.1em; font-weight: 600;",
-                id: "traffic-out-value"
-            }, formatBytes(status.total_bytes_out || 0));
-            this.trafficOutEl = trafficOutEl;
-            return this.card(_("Traffic Out"), trafficOutEl);
-        })(), hasEnabledProjects && this.card(_("Project Health"), /*#__PURE__*/ createJsxElement("div", {
-            id: "project-health-value"
-        }, /*#__PURE__*/ createJsxElement("strong", {
-            style: "font-size: 1.1em; font-weight: 600; color: ".concat(runningProjects.length === enabledProjects.length ? "#28a745" : runningProjects.length > 0 ? "#ffc107" : "#dc3545", ";")
-        }, runningProjects.length, " / ", enabledProjects.length), /*#__PURE__*/ createJsxElement("div", {
-            style: "font-size: 0.85em; color: #6c757d; margin-top: 0.3em;"
-        }, _("projects running")))), frpStatus && (()=>{
-            const frpc = frpStatus.frpc || {
-                enabled: false
-            };
-            const isEnabled = frpc.enabled;
-            const frpcEnabledEl = /*#__PURE__*/ createJsxElement("strong", {
-                style: "font-size: 1.1em; font-weight: 600; color: ".concat(isEnabled ? "#28a745" : "#6c757d", ";"),
-                id: "frpc-enabled-value"
-            }, isEnabled ? _("Enabled") : _("Disabled"));
-            this.frpcEnabledEl = frpcEnabledEl;
-            const frpcVersionEl = /*#__PURE__*/ createJsxElement("div", {
-                style: "font-size: 0.85em; color: #6c757d; margin-top: 0.3em;",
-                id: "frpc-version-value"
-            }, isEnabled && frpStatus.frp_version ? frpStatus.frp_version : "");
-            this.frpcVersionEl = frpcVersionEl;
-            const frpcStatusEl = /*#__PURE__*/ createJsxElement("div", {
-                style: "font-size: 0.85em; margin-top: 0.2em;",
-                id: "frpc-status-value"
-            });
-            this.frpcStatusEl = frpcStatusEl;
-            const frpcInfoEl = /*#__PURE__*/ createJsxElement("div", {
-                style: "font-size: 0.85em; color: #6c757d; margin-top: 0.2em;",
-                id: "frpc-info-value"
-            });
-            this.frpcInfoEl = frpcInfoEl;
-            const frpcErrorEl = /*#__PURE__*/ createJsxElement("div", {
-                style: "cursor: help; font-size: 0.85em; color: #dc3545; margin-top: 0.2em; display: none;",
-                id: "frpc-error-value"
-            });
-            this.frpcErrorEl = frpcErrorEl;
-            return this.card("FRPC", /*#__PURE__*/ createJsxElement("div", null, frpcEnabledEl, frpcVersionEl, frpcStatusEl, frpcInfoEl, frpcErrorEl));
-        })(), frpStatus && (()=>{
-            const frps = frpStatus.frps || {
-                enabled: false
-            };
-            const isEnabled = frps.enabled;
-            const frpsEnabledEl = /*#__PURE__*/ createJsxElement("strong", {
-                style: "font-size: 1.1em; font-weight: 600; color: ".concat(isEnabled ? "#28a745" : "#6c757d", ";"),
-                id: "frps-enabled-value"
-            }, isEnabled ? _("Enabled") : _("Disabled"));
-            this.frpsEnabledEl = frpsEnabledEl;
-            const frpsVersionEl = /*#__PURE__*/ createJsxElement("div", {
-                style: "font-size: 0.85em; color: #6c757d; margin-top: 0.3em;",
-                id: "frps-version-value"
-            }, isEnabled && frpStatus.frp_version ? frpStatus.frp_version : "");
-            this.frpsVersionEl = frpsVersionEl;
-            const frpsStatusEl = /*#__PURE__*/ createJsxElement("div", {
-                style: "font-size: 0.85em; margin-top: 0.2em;",
-                id: "frps-status-value"
-            });
-            this.frpsStatusEl = frpsStatusEl;
-            const frpsInfoEl = /*#__PURE__*/ createJsxElement("div", {
-                style: "font-size: 0.85em; color: #6c757d; margin-top: 0.2em;",
-                id: "frps-info-value"
-            });
-            this.frpsInfoEl = frpsInfoEl;
-            const frpsErrorEl = /*#__PURE__*/ createJsxElement("div", {
-                style: "cursor: help; font-size: 0.85em; color: #dc3545; margin-top: 0.2em; display: none;",
-                id: "frps-error-value"
-            });
-            this.frpsErrorEl = frpsErrorEl;
-            return this.card("FRPS", /*#__PURE__*/ createJsxElement("div", null, frpsEnabledEl, frpsVersionEl, frpsStatusEl, frpsInfoEl, frpsErrorEl));
-        })(), ddnsGlobalStatus && (()=>{
-            const ddnsEnabledEl = /*#__PURE__*/ createJsxElement("strong", {
-                style: "font-size: 1.1em; font-weight: 600; color: ".concat(ddnsGlobalStatus.ddns_enabled ? "#28a745" : "#6c757d", ";"),
-                id: "ddns-enabled-value"
-            }, ddnsGlobalStatus.ddns_enabled ? _("Enabled") : _("Disabled"));
-            this.ddnsEnabledEl = ddnsEnabledEl;
-            const ddnsVersionEl = ddnsGlobalStatus.ddns_version ? /*#__PURE__*/ createJsxElement("div", {
-                style: "font-size: 0.85em; color: #6c757d; margin-top: 0.3em;",
-                id: "ddns-version-value"
-            }, ddnsGlobalStatus.ddns_version) : null;
-            if (ddnsVersionEl) this.ddnsVersionEl = ddnsVersionEl;
-            return this.card(_("DDNS-GO"), /*#__PURE__*/ createJsxElement("div", null, ddnsEnabledEl, ddnsVersionEl));
-        })(), (()=>{
-            const trafficRateInEl = /*#__PURE__*/ createJsxElement("span", null, _("calculating"));
-            const trafficRateOutEl = /*#__PURE__*/ createJsxElement("span", null, _("calculating"));
-            this.trafficRateInEl = trafficRateInEl;
-            this.trafficRateOutEl = trafficRateOutEl;
-            return this.card(_("Traffic Rate"), /*#__PURE__*/ createJsxElement("div", null, /*#__PURE__*/ createJsxElement("div", {
-                style: "font-size: 0.85em;"
-            }, "\u2193 ", trafficRateInEl), /*#__PURE__*/ createJsxElement("div", {
-                style: "font-size: 0.85em;"
-            }, "\u2191 ", trafficRateOutEl)));
-        })(), (()=>{
-            const projectListEl = /*#__PURE__*/ createJsxElement("span", {
-                style: "color: #6c757d;"
-            }, _("loading"));
-            this.projectListEl = projectListEl;
-            return this.card(_("Project List"), projectListEl);
-        })(), (()=>{
-            const frpcProxiesEl = /*#__PURE__*/ createJsxElement("span", {
-                style: "color: #6c757d;"
-            }, _("loading"));
-            this.frpcProxiesEl = frpcProxiesEl;
-            return this.card(_("FRPC Proxies"), frpcProxiesEl);
-        })(), (()=>{
-            const frpsProxiesEl = /*#__PURE__*/ createJsxElement("span", {
-                style: "color: #6c757d;"
-            }, _("loading"));
-            this.frpsProxiesEl = frpsProxiesEl;
-            return this.card(_("FRPS Active Proxies"), frpsProxiesEl);
-        })(), (()=>{
-            const ddnsHealthEl = /*#__PURE__*/ createJsxElement("span", {
-                style: "color: #6c757d;"
-            }, _("loading"));
-            this.ddnsHealthEl = ddnsHealthEl;
-            return this.card(_("DDNS Entries"), ddnsHealthEl);
-        })()), events && events.length > 0 && this.renderActivityLog(events));
+        }[t.status || ""] || "#6c757d", C = (null == d ? void 0 : d.filter((t)=>t.enabled)) || [], F = C.filter((t)=>"running" === t.status), N = C.length > 0;
+        return jsxs("div", {
+            children: [
+                jsxs("div", {
+                    style: "display: grid; grid-template-columns: repeat(3, 1fr); gap: 1em; margin-top: 0.5em;",
+                    children: [
+                        (c = jsx("strong", {
+                            style: "color: ".concat(H, "; font-size: 1.1em; font-weight: 600;"),
+                            id: "status-value",
+                            children: translateStatus(t.status) || "-"
+                        }), this.statusValueEl = c, this.card(_("Status"), c)),
+                        (h = jsx("strong", {
+                            style: "font-size: 1.1em; font-weight: 600;",
+                            id: "total-projects-value",
+                            children: t.total_projects || 0
+                        }), this.totalProjectsEl = h, this.card(_("Total Projects"), h)),
+                        (f = jsx("strong", {
+                            style: "font-size: 1.1em; font-weight: 600;",
+                            id: "active-ports-value",
+                            children: t.active_ports || 0
+                        }), this.activePortsEl = f, this.card(_("Active Ports"), f)),
+                        (p = jsx("strong", {
+                            style: "font-size: 1.1em; font-weight: 600;",
+                            id: "uptime-value",
+                            children: formatUptime(t.uptime || 0)
+                        }), this.uptimeEl = p, this.card(_("Uptime"), p)),
+                        (v = jsx("strong", {
+                            style: "font-size: 1.1em; font-weight: 600;",
+                            id: "traffic-in-value",
+                            children: formatBytes(t.total_bytes_in || 0)
+                        }), this.trafficInEl = v, this.card(_("Traffic In"), v)),
+                        (m = jsx("strong", {
+                            style: "font-size: 1.1em; font-weight: 600;",
+                            id: "traffic-out-value",
+                            children: formatBytes(t.total_bytes_out || 0)
+                        }), this.trafficOutEl = m, this.card(_("Traffic Out"), m)),
+                        N && this.card(_("Project Health"), jsxs("div", {
+                            id: "project-health-value",
+                            children: [
+                                jsxs("strong", {
+                                    style: "font-size: 1.1em; font-weight: 600; color: ".concat(F.length === C.length ? "#28a745" : F.length > 0 ? "#ffc107" : "#dc3545", ";"),
+                                    children: [
+                                        F.length,
+                                        " / ",
+                                        C.length
+                                    ]
+                                }),
+                                jsx("div", {
+                                    style: "font-size: 0.85em; color: #6c757d; margin-top: 0.3em;",
+                                    children: _("projects running")
+                                })
+                            ]
+                        })),
+                        n && (g = (n.frpc || {
+                            enabled: !1
+                        }).enabled, u = jsx("strong", {
+                            style: "font-size: 1.1em; font-weight: 600; color: ".concat(g ? "#28a745" : "#6c757d", ";"),
+                            id: "frpc-enabled-value",
+                            children: g ? _("Enabled") : _("Disabled")
+                        }), this.frpcEnabledEl = u, E = jsx("div", {
+                            style: "font-size: 0.85em; color: #6c757d; margin-top: 0.3em;",
+                            id: "frpc-version-value",
+                            children: g && n.frp_version ? n.frp_version : ""
+                        }), this.frpcVersionEl = E, y = jsx("div", {
+                            style: "font-size: 0.85em; margin-top: 0.2em;",
+                            id: "frpc-status-value"
+                        }), this.frpcStatusEl = y, b = jsx("div", {
+                            style: "font-size: 0.85em; color: #6c757d; margin-top: 0.2em;",
+                            id: "frpc-info-value"
+                        }), this.frpcInfoEl = b, z = jsx("div", {
+                            style: "cursor: help; font-size: 0.85em; color: #dc3545; margin-top: 0.2em; display: none;",
+                            id: "frpc-error-value"
+                        }), this.frpcErrorEl = z, this.card("FRPC", jsxs("div", {
+                            children: [
+                                u,
+                                E,
+                                y,
+                                b,
+                                z
+                            ]
+                        }))),
+                        n && (x = (n.frps || {
+                            enabled: !1
+                        }).enabled, j = jsx("strong", {
+                            style: "font-size: 1.1em; font-weight: 600; color: ".concat(x ? "#28a745" : "#6c757d", ";"),
+                            id: "frps-enabled-value",
+                            children: x ? _("Enabled") : _("Disabled")
+                        }), this.frpsEnabledEl = j, w = jsx("div", {
+                            style: "font-size: 0.85em; color: #6c757d; margin-top: 0.3em;",
+                            id: "frps-version-value",
+                            children: x && n.frp_version ? n.frp_version : ""
+                        }), this.frpsVersionEl = w, P = jsx("div", {
+                            style: "font-size: 0.85em; margin-top: 0.2em;",
+                            id: "frps-status-value"
+                        }), this.frpsStatusEl = P, S = jsx("div", {
+                            style: "font-size: 0.85em; color: #6c757d; margin-top: 0.2em;",
+                            id: "frps-info-value"
+                        }), this.frpsInfoEl = S, R = jsx("div", {
+                            style: "cursor: help; font-size: 0.85em; color: #dc3545; margin-top: 0.2em; display: none;",
+                            id: "frps-error-value"
+                        }), this.frpsErrorEl = R, this.card("FRPS", jsxs("div", {
+                            children: [
+                                j,
+                                w,
+                                P,
+                                S,
+                                R
+                            ]
+                        }))),
+                        a && (I = jsx("strong", {
+                            style: "font-size: 1.1em; font-weight: 600; color: ".concat(a.ddns_enabled ? "#28a745" : "#6c757d", ";"),
+                            id: "ddns-enabled-value",
+                            children: a.ddns_enabled ? _("Enabled") : _("Disabled")
+                        }), this.ddnsEnabledEl = I, (D = a.ddns_version ? jsx("div", {
+                            style: "font-size: 0.85em; color: #6c757d; margin-top: 0.3em;",
+                            id: "ddns-version-value",
+                            children: a.ddns_version
+                        }) : null) && (this.ddnsVersionEl = D), this.card(_("DDNS-GO"), jsxs("div", {
+                            children: [
+                                I,
+                                D
+                            ]
+                        }))),
+                        (V = jsx("span", {
+                            children: _("calculating")
+                        }), L = jsx("span", {
+                            children: _("calculating")
+                        }), this.trafficRateInEl = V, this.trafficRateOutEl = L, this.card(_("Traffic Rate"), jsxs("div", {
+                            children: [
+                                jsxs("div", {
+                                    style: "font-size: 0.85em;",
+                                    children: [
+                                        "\u2193 ",
+                                        V
+                                    ]
+                                }),
+                                jsxs("div", {
+                                    style: "font-size: 0.85em;",
+                                    children: [
+                                        "\u2191 ",
+                                        L
+                                    ]
+                                })
+                            ]
+                        }))),
+                        (O = jsx("span", {
+                            style: "color: #6c757d;",
+                            children: _("loading")
+                        }), this.projectListEl = O, this.card(_("Project List"), O)),
+                        (T = jsx("span", {
+                            style: "color: #6c757d;",
+                            children: _("loading")
+                        }), this.frpcProxiesEl = T, this.card(_("FRPC Proxies"), T)),
+                        (k = jsx("span", {
+                            style: "color: #6c757d;",
+                            children: _("loading")
+                        }), this.frpsProxiesEl = k, this.card(_("FRPS Active Proxies"), k)),
+                        (A = jsx("span", {
+                            style: "color: #6c757d;",
+                            children: _("loading")
+                        }), this.ddnsHealthEl = A, this.card(_("DDNS Entries"), A))
+                    ]
+                }),
+                l && l.length > 0 && this.renderActivityLog(l)
+            ]
+        });
     }
-    truncateError(error, maxLen) {
-        if (error.length <= maxLen) return error;
-        return "".concat(error.substring(0, maxLen - 3), "...");
+    truncateError(t, e) {
+        return t.length <= e ? t : "".concat(t.substring(0, e - 3), "...");
     }
-    renderActivityLog(events) {
-        // Show last 5 events, most recent first
-        const recentEvents = events.slice(-5).reverse();
-        return /*#__PURE__*/ createJsxElement("div", {
-            style: "margin-top: 1em; border: 1px solid #dee2e6; border-radius: 4px; padding: 0.8em;"
-        }, /*#__PURE__*/ createJsxElement("div", {
-            style: "font-size: 0.9em; font-weight: 600; margin-bottom: 0.5em; color: #495057;"
-        }, _("Recent Activity")), (()=>{
-            const activityLogContainer = /*#__PURE__*/ createJsxElement("div", {
-                style: "max-height: 150px; overflow-y: auto;",
-                id: "activity-log-container"
-            }, recentEvents.map((event)=>this.renderEventRow(event)));
-            this.activityLogContainer = activityLogContainer;
-            return activityLogContainer;
-        })());
+    renderActivityLog(t) {
+        let r, s = t.slice(-5).reverse();
+        return jsxs("div", {
+            style: "margin-top: 1em; border: 1px solid #dee2e6; border-radius: 4px; padding: 0.8em;",
+            children: [
+                jsx("div", {
+                    style: "font-size: 0.9em; font-weight: 600; margin-bottom: 0.5em; color: #495057;",
+                    children: _("Recent Activity")
+                }),
+                (r = jsx("div", {
+                    style: "max-height: 150px; overflow-y: auto;",
+                    id: "activity-log-container",
+                    children: s.map((t)=>this.renderEventRow(t))
+                }), this.activityLogContainer = r, r)
+            ]
+        });
     }
-    renderEventRow(event) {
-        const eventColors = {
+    renderEventRow(t) {
+        let r = {
             project_started: "#28a745",
             project_stopped: "#6c757d",
             frp_error: "#dc3545",
             frp_connected: "#28a745",
             frp_disconnected: "#ffc107",
             config_changed: "#17a2b8"
-        };
-        const eventIcons = {
+        }[t.type] || "#6c757d", s = {
             project_started: "\u25B6",
             project_stopped: "\u23F9",
             frp_error: "\u26A0",
             frp_connected: "\uD83D\uDD17",
             frp_disconnected: "\uD83D\uDD0C",
             config_changed: "\u2699"
-        };
-        const color = eventColors[event.type] || "#6c757d";
-        const icon = eventIcons[event.type] || "\u2022";
-        const time = this.formatTimestamp(event.timestamp);
-        return /*#__PURE__*/ createJsxElement("div", {
-            style: "display: flex; align-items: flex-start; padding: 0.3em 0; border-bottom: 1px solid #eee; font-size: 0.85em;"
-        }, /*#__PURE__*/ createJsxElement("span", {
-            style: "color: ".concat(color, "; margin-right: 0.5em; flex-shrink: 0;")
-        }, icon), /*#__PURE__*/ createJsxElement("span", {
-            style: "color: #6c757d; margin-right: 0.5em; flex-shrink: 0; min-width: 70px;"
-        }, time), /*#__PURE__*/ createJsxElement("span", {
-            style: "flex: 1; word-break: break-word;",
-            title: event.message
-        }, this.truncateError(event.message, 60)));
+        }[t.type] || "\u2022", o = this.formatTimestamp(t.timestamp);
+        return jsxs("div", {
+            style: "display: flex; align-items: flex-start; padding: 0.3em 0; border-bottom: 1px solid #eee; font-size: 0.85em;",
+            children: [
+                jsx("span", {
+                    style: "color: ".concat(r, "; margin-right: 0.5em; flex-shrink: 0;"),
+                    children: s
+                }),
+                jsx("span", {
+                    style: "color: #6c757d; margin-right: 0.5em; flex-shrink: 0; min-width: 70px;",
+                    children: o
+                }),
+                jsx("span", {
+                    style: "flex: 1; word-break: break-word;",
+                    title: t.message,
+                    children: this.truncateError(t.message, 60)
+                })
+            ]
+        });
     }
-    formatTimestamp(timestamp) {
-        const date = new Date(timestamp);
-        const hours = date.getHours().toString().padStart(2, "0");
-        const minutes = date.getMinutes().toString().padStart(2, "0");
-        const seconds = date.getSeconds().toString().padStart(2, "0");
-        return "".concat(hours, ":").concat(minutes, ":").concat(seconds);
+    formatTimestamp(t) {
+        let e = new Date(t), i = e.getHours().toString().padStart(2, "0"), r = e.getMinutes().toString().padStart(2, "0"), s = e.getSeconds().toString().padStart(2, "0");
+        return "".concat(i, ":").concat(r, ":").concat(s);
     }
-    card(label, valueEl) {
-        return /*#__PURE__*/ createJsxElement("div", {
-            style: "border: 1px solid #dee2e6; padding: 0.8em; border-radius: 4px; background: transparent;"
-        }, /*#__PURE__*/ createJsxElement("div", {
-            style: "font-size: 0.85em; color: #6c757d; margin-bottom: 0.3em;"
-        }, label), valueEl);
+    card(t, r) {
+        return jsxs("div", {
+            style: "border: 1px solid #dee2e6; padding: 0.8em; border-radius: 4px; background: transparent;",
+            children: [
+                jsx("div", {
+                    style: "font-size: 0.85em; color: #6c757d; margin-bottom: 0.3em;",
+                    children: t
+                }),
+                r
+            ]
+        });
     }
     constructor(){
-        _define_property(this, "statusValueEl", void 0);
-        _define_property(this, "totalProjectsEl", void 0);
-        _define_property(this, "activePortsEl", void 0);
-        _define_property(this, "uptimeEl", void 0);
-        _define_property(this, "trafficInEl", void 0);
-        _define_property(this, "trafficOutEl", void 0);
-        _define_property(this, "projectHealthEl", void 0);
-        _define_property(this, "frpcEnabledEl", void 0);
-        _define_property(this, "frpcVersionEl", void 0);
-        _define_property(this, "frpcStatusEl", void 0);
-        _define_property(this, "frpcInfoEl", void 0);
-        _define_property(this, "frpcErrorEl", void 0);
-        _define_property(this, "frpsEnabledEl", void 0);
-        _define_property(this, "frpsVersionEl", void 0);
-        _define_property(this, "frpsStatusEl", void 0);
-        _define_property(this, "frpsInfoEl", void 0);
-        _define_property(this, "frpsErrorEl", void 0);
-        _define_property(this, "ddnsEnabledEl", void 0);
-        _define_property(this, "ddnsVersionEl", void 0);
-        _define_property(this, "activityLogContainer", void 0);
-        _define_property(this, "trafficRateInEl", void 0);
-        _define_property(this, "trafficRateOutEl", void 0);
-        _define_property(this, "projectListEl", void 0);
-        _define_property(this, "frpcProxiesEl", void 0);
-        _define_property(this, "frpsProxiesEl", void 0);
-        _define_property(this, "ddnsHealthEl", void 0);
+        _define_property(this, "statusValueEl", void 0), _define_property(this, "totalProjectsEl", void 0), _define_property(this, "activePortsEl", void 0), _define_property(this, "uptimeEl", void 0), _define_property(this, "trafficInEl", void 0), _define_property(this, "trafficOutEl", void 0), _define_property(this, "projectHealthEl", void 0), _define_property(this, "frpcEnabledEl", void 0), _define_property(this, "frpcVersionEl", void 0), _define_property(this, "frpcStatusEl", void 0), _define_property(this, "frpcInfoEl", void 0), _define_property(this, "frpcErrorEl", void 0), _define_property(this, "frpsEnabledEl", void 0), _define_property(this, "frpsVersionEl", void 0), _define_property(this, "frpsStatusEl", void 0), _define_property(this, "frpsInfoEl", void 0), _define_property(this, "frpsErrorEl", void 0), _define_property(this, "ddnsEnabledEl", void 0), _define_property(this, "ddnsVersionEl", void 0), _define_property(this, "activityLogContainer", void 0), _define_property(this, "trafficRateInEl", void 0), _define_property(this, "trafficRateOutEl", void 0), _define_property(this, "projectListEl", void 0), _define_property(this, "frpcProxiesEl", void 0), _define_property(this, "frpsProxiesEl", void 0), _define_property(this, "ddnsHealthEl", void 0);
     }
 }
 
 ;// CONCATENATED MODULE: ./modules/header.tsx
 
 
-const header_form = L.form;
-/* export default */ function modules_header(_m, s, client, tab_id) {
-    let o;
-    o = s.taboption(tab_id, header_form.Flag, "enabled", _("Enable PortWeaver"));
-    o.default = "1";
-    o.rmempty = false;
-    o = s.taboption(tab_id, header_form.DummyValue, "_runtime_status", _("Runtime Status"));
-    o.rawhtml = true;
-    o.cfgvalue = ()=>{
-        const panel = new StatusPanel();
-        client.statusPanel = panel;
-        return panel.render(client.globalStatus, client.frpStatus, client.projectStatuses, client.events, client.ddnsGlobalStatus);
+
+let header_o = L.form;
+/* export default */ function header(r, s, l, i) {
+    let u;
+    (u = s.taboption(i, header_o.Flag, "enabled", _("Enable PortWeaver"))).default = "1", u.rmempty = !1, (u = s.taboption(i, header_o.DummyValue, "_runtime_status", _("Runtime Status"))).rawhtml = !0, u.cfgvalue = ()=>{
+        let t = new StatusPanel();
+        return l.statusPanel = t, t.render(l.globalStatus, l.frpStatus, l.projectStatuses, l.events, l.ddnsGlobalStatus);
     };
-    const runtimeToggle = async (section_id)=>{
-        const idx = client.getProjectIndex(section_id);
-        if (idx < 0) {
-            L.ui.addNotification(null, /*#__PURE__*/ createJsxElement("p", null, _("Could not determine project index")), "error");
-            return Promise.resolve();
-        }
-        const status = client.getProjectStatus(section_id);
-        const newEnabled = !(status === null || status === void 0 ? void 0 : status.enabled);
+    let n = async (e)=>{
+        let o = l.getProjectIndex(e);
+        if (o < 0) return L.ui.addNotification(null, jsx("p", {
+            children: _("Could not determine project index")
+        }), "error"), Promise.resolve();
+        let r = l.getProjectStatus(e), s = !(null == r ? void 0 : r.enabled);
         try {
-            await rpcClient.setEnabled(idx, !!newEnabled);
-            L.ui.addNotification(null, /*#__PURE__*/ createJsxElement("p", null, _("Runtime state updated to: %s").format(newEnabled ? _("enabled") : _("disabled"))), "info");
-            const fullStatus = await rpcClient.getFullStatus();
-            if (fullStatus) {
-                client.globalStatus = {
-                    status: fullStatus.status,
-                    total_projects: fullStatus.total_projects,
-                    active_ports: fullStatus.active_ports,
-                    uptime: fullStatus.uptime,
-                    total_bytes_in: fullStatus.total_bytes_in,
-                    total_bytes_out: fullStatus.total_bytes_out
-                };
-                client.projectStatuses = (fullStatus.projects || []).map((p)=>({
-                        enabled: p.enabled,
-                        status: p.status,
-                        startup_status: p.startup_status,
-                        error_code: p.error_code,
-                        active_ports: p.active_ports,
-                        bytes_in: p.bytes_in,
-                        bytes_out: p.bytes_out,
-                        forwarders: p.forwarders
-                    }));
-            }
-            location.reload();
-        } catch (err) {
-            L.ui.addNotification(null, /*#__PURE__*/ createJsxElement("p", null, _("Failed to toggle runtime state: %s").format((err === null || err === void 0 ? void 0 : err.message) || String(err))), "error");
+            await rpcClient.setEnabled(o, !!s), L.ui.addNotification(null, jsx("p", {
+                children: _("Runtime state updated to: %s").format(s ? _("enabled") : _("disabled"))
+            }), "info");
+            let e = await rpcClient.getFullStatus();
+            e && (l.globalStatus = {
+                status: e.status,
+                total_projects: e.total_projects,
+                active_ports: e.active_ports,
+                uptime: e.uptime,
+                total_bytes_in: e.total_bytes_in,
+                total_bytes_out: e.total_bytes_out
+            }, l.projectStatuses = (e.projects || []).map((t)=>({
+                    enabled: t.enabled,
+                    status: t.status,
+                    startup_status: t.startup_status,
+                    error_code: t.error_code,
+                    active_ports: t.active_ports,
+                    bytes_in: t.bytes_in,
+                    bytes_out: t.bytes_out,
+                    forwarders: t.forwarders
+                }))), location.reload();
+        } catch (e) {
+            L.ui.addNotification(null, jsx("p", {
+                children: _("Failed to toggle runtime state: %s").format((null == e ? void 0 : e.message) || String(e))
+            }), "error");
         }
     };
-    window.portweaverToggle = runtimeToggle;
+    window.portweaverToggle = n;
 }
 
 ;// CONCATENATED MODULE: ./modules/logs.tsx
 
 
-const logs_form = L.form;
-const fs = L.fs;
-const ui = L.ui;
-const LOG_FILE = "/tmp/portweaver.log";
-let logViewerCore = null;
-/* export default */ function logs(_m, s, tab_id) {
-    let o;
-    o = s.taboption(tab_id, logs_form.Flag, "log_enabled", _("Enable Logging"));
-    o.default = "1";
-    o.rmempty = false;
-    o.description = _("Enable logging output to /tmp/portweaver.log");
-    o = s.taboption(tab_id, logs_form.Value, "max_log_size", _("Max Log Size (KB)"));
-    o.datatype = "uinteger";
-    o.default = "1024";
-    o.rmempty = false;
-    o.description = _("Maximum size of log file before rotation (default: 1024 KB = 1MB)");
-    o.placeholder = "1024";
-    o.depends("log_enabled", "1");
-    o = s.taboption(tab_id, logs_form.Value, "max_log_files", _("Max Log Backup Files"));
-    o.datatype = "uinteger";
-    o.default = "3";
-    o.rmempty = false;
-    o.description = _("Number of rotated log files to keep (default: 3)");
-    o.placeholder = "3";
-    o.depends("log_enabled", "1");
-    o = s.taboption(tab_id, logs_form.DummyValue, "_logs_viewer");
-    o.rawhtml = true;
-    const fetcher = async ()=>{
+
+let logs_o = L.form, logs_a = L.fs, logs_l = L.ui, logs_i = "/tmp/portweaver.log", logs_n = null;
+/* export default */ function logs(s, d, u) {
+    let c;
+    (c = d.taboption(u, logs_o.Flag, "log_enabled", _("Enable Logging"))).default = "1", c.rmempty = !1, c.description = _("Enable logging output to /tmp/portweaver.log"), (c = d.taboption(u, logs_o.Value, "max_log_size", _("Max Log Size (KB)"))).datatype = "uinteger", c.default = "1024", c.rmempty = !1, c.description = _("Maximum size of log file before rotation (default: 1024 KB = 1MB)"), c.placeholder = "1024", c.depends("log_enabled", "1"), (c = d.taboption(u, logs_o.Value, "max_log_files", _("Max Log Backup Files"))).datatype = "uinteger", c.default = "3", c.rmempty = !1, c.description = _("Number of rotated log files to keep (default: 3)"), c.placeholder = "3", c.depends("log_enabled", "1"), (c = d.taboption(u, logs_o.DummyValue, "_logs_viewer")).rawhtml = !0;
+    let p = async ()=>{
         try {
-            const content = await fs.read_direct(LOG_FILE, "text");
-            const lines = content.trim().split("\n").filter(Boolean);
+            let e = (await logs_a.read_direct(logs_i, "text")).trim().split("\n").filter(Boolean);
             return {
                 status: "running",
                 last_error: "",
-                logs: lines
+                logs: e
             };
-        } catch (err) {
-            if (err.toString().includes("NotFoundError")) return {
+        } catch (e) {
+            if (e.toString().includes("NotFoundError")) return {
                 status: "stopped",
                 last_error: _("Log file does not exist."),
                 logs: []
             };
-            else return {
+            return {
                 status: "error",
-                last_error: _("Error reading log: %s").format(err.toString()),
+                last_error: _("Error reading log: %s").format(e.toString()),
                 logs: []
             };
         }
-    };
-    const clearer = async ()=>{
+    }, f = async ()=>{
         try {
-            await fs.write(LOG_FILE, "");
-            ui.addNotification(null, E("p", _("Logs cleared successfully")), "info");
-        } catch (err) {
-            ui.addNotification(null, E("p", _("Failed to clear logs")), "error");
-            throw err;
+            await logs_a.write(logs_i, ""), logs_l.addNotification(null, E("p", _("Logs cleared successfully")), "info");
+        } catch (e) {
+            throw logs_l.addNotification(null, E("p", _("Failed to clear logs")), "error"), e;
         }
-    };
-    const restartService = async ()=>{
-        if (!await dialog_confirm(_("Are you sure you want to restart PortWeaver service?"))) return;
-        try {
-            await fs.exec("/etc/init.d/portweaver", [
+    }, g = async ()=>{
+        if (await dialog_confirm(_("Are you sure you want to restart PortWeaver service?"))) try {
+            await logs_a.exec("/etc/init.d/portweaver", [
                 "restart"
-            ]);
-            ui.addNotification(null, E("p", _("Service restarted successfully")), "info");
-        } catch (_err) {
-            ui.addNotification(null, E("p", _("Failed to restart service")), "error");
+            ]), logs_l.addNotification(null, E("p", _("Service restarted successfully")), "info");
+        } catch (e) {
+            logs_l.addNotification(null, E("p", _("Failed to restart service")), "error");
         }
     };
-    o.render = ()=>{
-        if (logViewerCore) logViewerCore.destroy();
-        logViewerCore = new LogViewerCore({
+    c.render = ()=>{
+        logs_n && logs_n.destroy();
+        let r = (logs_n = new LogViewerCore({
             name: "system",
             title: _("System Logs"),
-            fetcher: ()=>fetcher(),
-            clearer: ()=>clearer(),
-            showHeader: false
-        });
-        const coreElement = logViewerCore.render();
-        logViewerCore.init();
-        const restartButton = /*#__PURE__*/ createJsxElement("button", {
+            fetcher: ()=>p(),
+            clearer: ()=>f(),
+            showHeader: !1
+        })).render();
+        logs_n.init();
+        let o = jsx("button", {
             type: "button",
             class: "cbi-button cbi-button-apply",
-            onclick: ()=>restartService()
-        }, _("Restart Service"));
-        const footer = coreElement.querySelector(".button-row");
-        if (footer) {
-            var _clearButton_parentNode;
-            const clearButton = footer.querySelector("button:last-child");
-            if (clearButton) (_clearButton_parentNode = clearButton.parentNode) === null || _clearButton_parentNode === void 0 ? void 0 : _clearButton_parentNode.insertBefore(restartButton, clearButton);
-            else footer.appendChild(restartButton);
+            onclick: ()=>g(),
+            children: _("Restart Service")
+        }), a = r.querySelector(".button-row");
+        if (a) {
+            var l;
+            let e = a.querySelector("button:last-child");
+            e ? null == (l = e.parentNode) || l.insertBefore(o, e) : a.appendChild(o);
         }
-        return /*#__PURE__*/ createJsxElement("div", {
-            style: "height: max(calc(100vh - 800px), 500px); border: 1px solid var(--cbi-border-color); border-radius: 4px; overflow: hidden;"
-        }, coreElement);
+        return jsx("div", {
+            style: "height: max(calc(100vh - 800px), 500px); border: 1px solid var(--cbi-border-color); border-radius: 4px; overflow: hidden;",
+            children: r
+        });
     };
 }
 
 ;// CONCATENATED MODULE: ./modules/ddns.tsx
 
 
-const ddns_form = L.form;
-const ddns_uci = L.uci;
-const DNS_PROVIDERS = [
+
+let ddns_o = L.form, ddns_t = L.uci, ddns_n = [
     {
         value: "alidns",
         label: "Alibaba Cloud DNS"
@@ -3594,8 +2836,7 @@ const DNS_PROVIDERS = [
         value: "cloudflare",
         label: "Cloudflare"
     }
-];
-const GET_TYPES = [
+], ddns_d = [
     {
         value: "url",
         label: _("URL")
@@ -3608,8 +2849,7 @@ const GET_TYPES = [
         value: "cmd",
         label: _("Command")
     }
-];
-const TTL_OPTIONS = [
+], ddns_i = [
     {
         value: "60",
         label: _("%d minute").format(1)
@@ -3646,351 +2886,173 @@ const TTL_OPTIONS = [
         value: "86400",
         label: _("%d day").format(1)
     }
-];
-const ddnsStatuses = {};
-const ddns_statusElements = {};
-/* export default */ function ddns(_m, s, tab_id) {
-    let o;
-    o = s.taboption(tab_id, ddns_form.SectionValue, "_ddns_configs", ddns_form.GridSection, "ddns");
-    const ss = o.subsection;
-    ss.anonymous = true;
-    ss.addremove = true;
-    ss.sortable = true;
-    ss.sectiontitle = (section_id)=>ddns_uci.get("portweaver", section_id, "name") || _("Unnamed DDNS");
-    o = ss.option(ddns_form.DummyValue, "_status", _("Status"));
-    o.modalonly = false;
-    o.textvalue = (section_id)=>{
-        const name = ddns_uci.get("portweaver", section_id, "name");
-        const status = ddnsStatuses[name] || {
+], ddns_r = {}, ddns_s = {};
+/* export default */ function ddns(p, u, c) {
+    let m, v = (m = u.taboption(c, ddns_o.SectionValue, "_ddns_configs", ddns_o.GridSection, "ddns")).subsection;
+    for (let d of (v.anonymous = !0, v.addremove = !0, v.sortable = !0, v.sectiontitle = (e)=>ddns_t.get("portweaver", e, "name") || _("Unnamed DDNS"), (m = v.option(ddns_o.DummyValue, "_status", _("Status"))).modalonly = !1, m.textvalue = (a)=>{
+        let l = ddns_t.get("portweaver", a, "name"), o = ddns_r[l] || {
             status: "unknown",
             name: "",
             provider: "",
-            section: section_id
-        };
-        const statusColors = {
+            section: a
+        }, n = {
             success: "#4CAF50",
             updating: "#FFC107",
             error: "#F44336",
             disabled: "#9E9E9E",
             unknown: "#9E9E9E"
-        };
-        const statusLabels = {
+        }, d = {
             success: _("Success"),
             updating: _("Updating"),
             error: _("Error"),
             disabled: _("Disabled"),
             unknown: _("Unknown")
-        };
-        const statusColor = statusColors[status.status] || statusColors.unknown;
-        const statusText = statusLabels[status.status] || status.status;
-        const indicator = /*#__PURE__*/ createJsxElement("span", {
-            style: "display:inline-block; width:12px; height:12px; border-radius:50%; background-color:".concat(statusColor, "; margin-right:8px;")
-        });
-        const textSpan = /*#__PURE__*/ createJsxElement("span", null, statusText);
-        const container = /*#__PURE__*/ createJsxElement("div", {
+        }, i = n[o.status] || n.unknown, p = d[o.status] || o.status, u = jsx("span", {
+            style: "display:inline-block; width:12px; height:12px; border-radius:50%; background-color:".concat(i, "; margin-right:8px;")
+        }), c = jsx("span", {
+            children: p
+        }), m = jsx("div", {
             style: "display:flex; flex-direction:column; gap:4px;"
-        });
-        const statusRow = /*#__PURE__*/ createJsxElement("div", {
+        }), v = jsx("div", {
             style: "display:flex; align-items:center;"
         });
-        statusRow.appendChild(indicator);
-        statusRow.appendChild(textSpan);
-        container.appendChild(statusRow);
-        if (status.last_ip) {
-            const ipInfo = /*#__PURE__*/ createJsxElement("small", {
-                style: "color:#666;"
-            }, _("IP: %s").format(status.last_ip));
-            container.appendChild(ipInfo);
-        }
-        if (status.last_update > 0) {
-            const date = new Date(status.last_update * 1000);
-            const formattedTime = date.toLocaleString();
-            const updateInfo = /*#__PURE__*/ createJsxElement("small", {
-                style: "color:#666;"
-            }, _("Updated: %s").format(formattedTime));
-            container.appendChild(updateInfo);
-        }
-        if (status.message && status.status === "error") {
-            const errorMsg = /*#__PURE__*/ createJsxElement("small", {
-                style: "color:#F44336;",
-                title: status.message
-            }, status.message.length > 40 ? "".concat(status.message.substring(0, 37), "...") : status.message);
-            container.appendChild(errorMsg);
-        }
-        ddns_statusElements[name] = container;
-        return container;
-    };
-    o = ss.option(ddns_form.Flag, "enabled", _("Enabled"));
-    o.modalonly = false;
-    o.default = "1";
-    o.editable = true;
-    o = ss.option(ddns_form.DummyValue, "_provider", _("Provider"));
-    o.modalonly = false;
-    o.textvalue = (section_id)=>{
-        const provider = ddns_uci.get("portweaver", section_id, "dns_provider") || "";
-        const providerObj = DNS_PROVIDERS.find((p)=>p.value === provider);
-        return providerObj ? providerObj.label : provider || "-";
-    };
-    o = ss.option(ddns_form.DummyValue, "_domains", _("Domains"));
-    o.modalonly = false;
-    o.textvalue = (section_id)=>{
-        const ipv4Domains = ddns_uci.get("portweaver", section_id, "ipv4_domains") || "";
-        const ipv6Domains = ddns_uci.get("portweaver", section_id, "ipv6_domains") || "";
-        const domains = [
-            ipv4Domains,
-            ipv6Domains
-        ].filter(Boolean).join(", ").split(/[,\s]+/).filter(Boolean);
-        return domains.length > 0 ? domains.slice(0, 3).join(", ") : "-";
-    };
-    o = ss.option(ddns_form.DummyValue, "_actions", _("Actions"));
-    o.modalonly = false;
-    o.textvalue = (section_id)=>{
-        const viewLogsBtn = /*#__PURE__*/ createJsxElement("button", {
-            class: "btn cbi-button cbi-button-action",
-            type: "button"
-        }, _("View Logs"));
-        const nodeName = L.uci.get("portweaver", section_id, "name");
-        viewLogsBtn.onclick = ()=>{
-            const viewer = new LogViewerDialog({
-                name: nodeName,
-                title: _("DDNS Logs - %s").format(nodeName),
-                fetcher: (name)=>rpcClient.getDdnsInfo(name),
-                clearer: (name)=>rpcClient.clearDdnsLogs(name)
+        if (v.appendChild(u), v.appendChild(c), m.appendChild(v), o.last_ip) {
+            let a = jsx("small", {
+                style: "color:#666;",
+                children: _("IP: %s").format(o.last_ip)
             });
-            viewer.open();
-        };
-        return viewLogsBtn;
-    };
-    o = ss.option(ddns_form.Flag, "enabled", _("Enable"));
-    o.modalonly = true;
-    o.default = "1";
-    o.rmempty = false;
-    o = ss.option(ddns_form.Value, "name", _("Configuration Name"));
-    o.modalonly = true;
-    o.rmempty = false;
-    o.datatype = "string";
-    o.placeholder = "home";
-    o.validate = (_section_id, value)=>{
-        if (!value || String(value).trim() === "") return _("Configuration name is required");
-        return true;
-    };
-    o = ss.option(ddns_form.ListValue, "dns_provider", _("DNS Provider"));
-    o.modalonly = true;
-    o.rmempty = false;
-    for (const provider of DNS_PROVIDERS)o.value(provider.value, provider.label);
-    o.default = "cloudflare";
-    const dnsIdOption = ss.option(ddns_form.Value, "dns_id", _("DNS ID / API Key"));
-    dnsIdOption.modalonly = true;
-    dnsIdOption.rmempty = true;
-    dnsIdOption.placeholder = "API Key or Account ID";
-    dnsIdOption.description = _("Field name varies by provider: AccessKey ID (Aliyun), ID (DNSPod), API Key (Porkbun), etc.");
-    // Providers requiring DnsID (16 total)
-    dnsIdOption.depends("dns_provider", "alidns");
-    dnsIdOption.depends("dns_provider", "aliesa");
-    dnsIdOption.depends("dns_provider", "tencentcloud");
-    dnsIdOption.depends("dns_provider", "dnspod");
-    dnsIdOption.depends("dns_provider", "huaweicloud");
-    dnsIdOption.depends("dns_provider", "callback");
-    dnsIdOption.depends("dns_provider", "baiducloud");
-    dnsIdOption.depends("dns_provider", "porkbun");
-    dnsIdOption.depends("dns_provider", "godaddy");
-    dnsIdOption.depends("dns_provider", "trafficroute");
-    dnsIdOption.depends("dns_provider", "spaceship");
-    dnsIdOption.depends("dns_provider", "dnsla");
-    dnsIdOption.depends("dns_provider", "nowcn");
-    dnsIdOption.depends("dns_provider", "eranet");
-    dnsIdOption.depends("dns_provider", "edgeone");
-    dnsIdOption.depends("dns_provider", "name_com");
-    const dnsSecretOption = ss.option(ddns_form.Value, "dns_secret", _("DNS Secret / Token"));
-    dnsSecretOption.modalonly = true;
-    dnsSecretOption.password = true;
-    dnsSecretOption.rmempty = true;
-    dnsSecretOption.placeholder = "API Token or Secret Key";
-    dnsSecretOption.description = _("Field name varies by provider: Token (Cloudflare/DNSPod), AccessKey Secret (Aliyun), Password (Namecheap), etc.");
-    const dnsExtParamOption = ss.option(ddns_form.Value, "dns_ext_param", _("Extended Parameters"));
-    dnsExtParamOption.modalonly = true;
-    dnsExtParamOption.rmempty = true;
-    dnsExtParamOption.placeholder = "Team ID or additional parameters";
-    dnsExtParamOption.description = _("Additional provider-specific parameters (e.g., Team ID for Vercel)");
-    dnsExtParamOption.depends("dns_provider", "vercel");
-    o = ss.option(ddns_form.ListValue, "ttl", _("TTL (Time To Live)"));
-    o.modalonly = true;
-    o.rmempty = true;
-    o.default = "3600";
-    for (const ttl of TTL_OPTIONS)o.value(ttl.value, ttl.label);
-    o = ss.option(ddns_form.Flag, "ipv4_enable", _("Enable IPv4"));
-    o.modalonly = true;
-    o.default = "1";
-    o = ss.option(ddns_form.ListValue, "ipv4_get_type", _("IPv4 Get Method"));
-    o.modalonly = true;
-    o.depends("ipv4_enable", "1");
-    o.default = "url";
-    for (const type of GET_TYPES)o.value(type.value, type.label);
-    o = ss.option(ddns_form.Value, "ipv4_url", _("IPv4 URL"));
-    o.modalonly = true;
-    o.depends({
+            m.appendChild(a);
+        }
+        if (o.last_update > 0) {
+            let a = new Date(1000 * o.last_update).toLocaleString(), l = jsx("small", {
+                style: "color:#666;",
+                children: _("Updated: %s").format(a)
+            });
+            m.appendChild(l);
+        }
+        if (o.message && "error" === o.status) {
+            let a = jsx("small", {
+                style: "color:#F44336;",
+                title: o.message,
+                children: o.message.length > 40 ? "".concat(o.message.substring(0, 37), "...") : o.message
+            });
+            m.appendChild(a);
+        }
+        return ddns_s[l] = m, m;
+    }, (m = v.option(ddns_o.Flag, "enabled", _("Enabled"))).modalonly = !1, m.default = "1", m.editable = !0, (m = v.option(ddns_o.DummyValue, "_provider", _("Provider"))).modalonly = !1, m.textvalue = (e)=>{
+        let a = ddns_t.get("portweaver", e, "dns_provider") || "", l = ddns_n.find((e)=>e.value === a);
+        return l ? l.label : a || "-";
+    }, (m = v.option(ddns_o.DummyValue, "_domains", _("Domains"))).modalonly = !1, m.textvalue = (e)=>{
+        let a = [
+            ddns_t.get("portweaver", e, "ipv4_domains") || "",
+            ddns_t.get("portweaver", e, "ipv6_domains") || ""
+        ].filter(Boolean).join(", ").split(/[,\s]+/).filter(Boolean);
+        return a.length > 0 ? a.slice(0, 3).join(", ") : "-";
+    }, (m = v.option(ddns_o.DummyValue, "_actions", _("Actions"))).modalonly = !1, m.textvalue = (o)=>{
+        let t = jsx("button", {
+            class: "btn cbi-button cbi-button-action",
+            type: "button",
+            children: _("View Logs")
+        }), n = L.uci.get("portweaver", o, "name");
+        return t.onclick = ()=>{
+            new LogViewerDialog({
+                name: n,
+                title: _("DDNS Logs - %s").format(n),
+                fetcher: (e)=>rpcClient.getDdnsInfo(e),
+                clearer: (e)=>rpcClient.clearDdnsLogs(e)
+            }).open();
+        }, t;
+    }, (m = v.option(ddns_o.Flag, "enabled", _("Enable"))).modalonly = !0, m.default = "1", m.rmempty = !1, (m = v.option(ddns_o.Value, "name", _("Configuration Name"))).modalonly = !0, m.rmempty = !1, m.datatype = "string", m.placeholder = "home", m.validate = (e, a)=>!!a && "" !== String(a).trim() || _("Configuration name is required"), (m = v.option(ddns_o.ListValue, "dns_provider", _("DNS Provider"))).modalonly = !0, m.rmempty = !1, ddns_n))m.value(d.value, d.label);
+    m.default = "cloudflare";
+    let b = v.option(ddns_o.Value, "dns_id", _("DNS ID / API Key"));
+    b.modalonly = !0, b.rmempty = !0, b.placeholder = "API Key or Account ID", b.description = _("Field name varies by provider: AccessKey ID (Aliyun), ID (DNSPod), API Key (Porkbun), etc."), b.depends("dns_provider", "alidns"), b.depends("dns_provider", "aliesa"), b.depends("dns_provider", "tencentcloud"), b.depends("dns_provider", "dnspod"), b.depends("dns_provider", "huaweicloud"), b.depends("dns_provider", "callback"), b.depends("dns_provider", "baiducloud"), b.depends("dns_provider", "porkbun"), b.depends("dns_provider", "godaddy"), b.depends("dns_provider", "trafficroute"), b.depends("dns_provider", "spaceship"), b.depends("dns_provider", "dnsla"), b.depends("dns_provider", "nowcn"), b.depends("dns_provider", "eranet"), b.depends("dns_provider", "edgeone"), b.depends("dns_provider", "name_com");
+    let y = v.option(ddns_o.Value, "dns_secret", _("DNS Secret / Token"));
+    y.modalonly = !0, y.password = !0, y.rmempty = !0, y.placeholder = "API Token or Secret Key", y.description = _("Field name varies by provider: Token (Cloudflare/DNSPod), AccessKey Secret (Aliyun), Password (Namecheap), etc.");
+    let f = v.option(ddns_o.Value, "dns_ext_param", _("Extended Parameters"));
+    for (let e of (f.modalonly = !0, f.rmempty = !0, f.placeholder = "Team ID or additional parameters", f.description = _("Additional provider-specific parameters (e.g., Team ID for Vercel)"), f.depends("dns_provider", "vercel"), (m = v.option(ddns_o.ListValue, "ttl", _("TTL (Time To Live)"))).modalonly = !0, m.rmempty = !0, m.default = "3600", ddns_i))m.value(e.value, e.label);
+    for (let e of ((m = v.option(ddns_o.Flag, "ipv4_enable", _("Enable IPv4"))).modalonly = !0, m.default = "1", (m = v.option(ddns_o.ListValue, "ipv4_get_type", _("IPv4 Get Method"))).modalonly = !0, m.depends("ipv4_enable", "1"), m.default = "url", ddns_d))m.value(e.value, e.label);
+    for (let e of ((m = v.option(ddns_o.Value, "ipv4_url", _("IPv4 URL"))).modalonly = !0, m.depends({
         ipv4_enable: "1",
         ipv4_get_type: "url"
-    });
-    o.placeholder = "https://api.ipify.org";
-    o.datatype = "string";
-    o = ss.option(ddns_form.Value, "ipv4_net_interface", _("IPv4 Network Interface"));
-    o.modalonly = true;
-    o.depends({
+    }), m.placeholder = "https://api.ipify.org", m.datatype = "string", (m = v.option(ddns_o.Value, "ipv4_net_interface", _("IPv4 Network Interface"))).modalonly = !0, m.depends({
         ipv4_enable: "1",
         ipv4_get_type: "net_interface"
-    });
-    o.placeholder = "eth0";
-    o.datatype = "string";
-    o = ss.option(ddns_form.Value, "ipv4_cmd", _("IPv4 Command"));
-    o.modalonly = true;
-    o.depends({
+    }), m.placeholder = "eth0", m.datatype = "string", (m = v.option(ddns_o.Value, "ipv4_cmd", _("IPv4 Command"))).modalonly = !0, m.depends({
         ipv4_enable: "1",
         ipv4_get_type: "cmd"
-    });
-    o.placeholder = "curl -s https://api.ipify.org";
-    o.datatype = "string";
-    o = ss.option(ddns_form.TextValue, "ipv4_domains", _("IPv4 Domains"));
-    o.modalonly = true;
-    o.depends("ipv4_enable", "1");
-    o.rows = 3;
-    o.placeholder = "example.com\nwww.example.com";
-    o.description = _("One domain per line or comma-separated");
-    o = ss.option(ddns_form.Flag, "ipv6_enable", _("Enable IPv6"));
-    o.modalonly = true;
-    o.default = "0";
-    o = ss.option(ddns_form.ListValue, "ipv6_get_type", _("IPv6 Get Method"));
-    o.modalonly = true;
-    o.depends("ipv6_enable", "1");
-    o.default = "url";
-    for (const type of GET_TYPES)o.value(type.value, type.label);
-    o = ss.option(ddns_form.Value, "ipv6_url", _("IPv6 URL"));
-    o.modalonly = true;
-    o.depends({
-        ipv6_enable: "1",
-        ipv6_get_type: "url"
-    });
-    o.placeholder = "https://api6.ipify.org";
-    o.datatype = "string";
-    o = ss.option(ddns_form.Value, "ipv6_net_interface", _("IPv6 Network Interface"));
-    o.modalonly = true;
-    o.depends({
-        ipv6_enable: "1",
-        ipv6_get_type: "net_interface"
-    });
-    o.placeholder = "eth0";
-    o.datatype = "string";
-    o = ss.option(ddns_form.Value, "ipv6_cmd", _("IPv6 Command"));
-    o.modalonly = true;
-    o.depends({
-        ipv6_enable: "1",
-        ipv6_get_type: "cmd"
-    });
-    o.placeholder = "curl -s https://api6.ipify.org";
-    o.datatype = "string";
-    o = ss.option(ddns_form.Value, "ipv6_reg", _("IPv6 Regex"));
-    o.modalonly = true;
-    o.depends("ipv6_enable", "1");
-    o.rmempty = true;
-    o.placeholder = "([0-9a-fA-F:]+)";
-    o.description = _("Regular expression to extract IPv6 address from output");
-    o = ss.option(ddns_form.TextValue, "ipv6_domains", _("IPv6 Domains"));
-    o.modalonly = true;
-    o.depends("ipv6_enable", "1");
-    o.rows = 3;
-    o.placeholder = "example.com\nwww.example.com";
-    o.description = _("One domain per line or comma-separated");
-    o = ss.option(ddns_form.Value, "webhook_url", _("Webhook URL"));
-    o.modalonly = true;
-    o.rmempty = true;
-    o.placeholder = "https://example.com/webhook";
-    o.description = _("Optional webhook to call after successful update");
-    o = ss.option(ddns_form.TextValue, "webhook_body", _("Webhook Body"));
-    o.modalonly = true;
-    o.rmempty = true;
-    o.rows = 3;
-    o.placeholder = '{"ip": "{{ip}}", "domain": "{{domain}}"}';
-    o.description = _("JSON body for webhook (supports {{ip}} and {{domain}})");
-    o.depends({
-        webhook_url: /^.+$/
-    });
-    o = ss.option(ddns_form.TextValue, "webhook_headers", _("Webhook Headers"));
-    o.modalonly = true;
-    o.rmempty = true;
-    o.rows = 3;
-    o.placeholder = "Authorization: Bearer token\nContent-Type: application/json";
-    o.description = _("One header per line (Header: Value)");
-    o.depends({
-        webhook_url: /^.+$/
-    });
-    async function pollDdnsStatus() {
+    }), m.placeholder = "curl -s https://api.ipify.org", m.datatype = "string", (m = v.option(ddns_o.TextValue, "ipv4_domains", _("IPv4 Domains"))).modalonly = !0, m.depends("ipv4_enable", "1"), m.rows = 3, m.placeholder = "example.com\nwww.example.com", m.description = _("One domain per line or comma-separated"), (m = v.option(ddns_o.Flag, "ipv6_enable", _("Enable IPv6"))).modalonly = !0, m.default = "0", (m = v.option(ddns_o.ListValue, "ipv6_get_type", _("IPv6 Get Method"))).modalonly = !0, m.depends("ipv6_enable", "1"), m.default = "url", ddns_d))m.value(e.value, e.label);
+    async function h() {
         try {
-            const result = await rpcClient.getDdnsStatus();
-            const statuses = (result === null || result === void 0 ? void 0 : result.ddns_status) || [];
-            for (const status of statuses){
-                const oldStatus = ddnsStatuses[status.name];
-                ddnsStatuses[status.name] = status;
-                if (!oldStatus || oldStatus.status !== status.status || oldStatus.last_ip !== status.last_ip || oldStatus.last_update !== status.last_update) {
-                    const container = ddns_statusElements[status.name];
-                    if (container) {
-                        const statusColors = {
+            let a = await rpcClient.getDdnsStatus();
+            for (let l of (null == a ? void 0 : a.ddns_status) || []){
+                let a = ddns_r[l.name];
+                if (ddns_r[l.name] = l, !a || a.status !== l.status || a.last_ip !== l.last_ip || a.last_update !== l.last_update) {
+                    let a = ddns_s[l.name];
+                    if (a) {
+                        let o = {
                             success: "#4CAF50",
                             updating: "#FFC107",
                             error: "#F44336",
                             disabled: "#9E9E9E",
                             unknown: "#9E9E9E"
-                        };
-                        const statusLabels = {
+                        }, t = {
                             success: _("Success"),
                             updating: _("Updating"),
                             error: _("Error"),
                             disabled: _("Disabled"),
                             unknown: _("Unknown")
-                        };
-                        const statusColor = statusColors[status.status] || statusColors.unknown;
-                        const statusText = statusLabels[status.status] || status.status;
-                        // Clear container by removing all children
-                        while(container.firstChild)container.removeChild(container.firstChild);
-                        const statusRow = /*#__PURE__*/ createJsxElement("div", {
+                        }, n = o[l.status] || o.unknown, d = t[l.status] || l.status;
+                        for(; a.firstChild;)a.removeChild(a.firstChild);
+                        let i = jsx("div", {
                             style: "display:flex; align-items:center;"
+                        }), r = jsx("span", {
+                            style: "display:inline-block; width:12px; height:12px; border-radius:50%; background-color:".concat(n, "; margin-right:8px;")
+                        }), s = jsx("span", {
+                            children: d
                         });
-                        const indicator = /*#__PURE__*/ createJsxElement("span", {
-                            style: "display:inline-block; width:12px; height:12px; border-radius:50%; background-color:".concat(statusColor, "; margin-right:8px;")
-                        });
-                        const textSpan = /*#__PURE__*/ createJsxElement("span", null, statusText);
-                        statusRow.appendChild(indicator);
-                        statusRow.appendChild(textSpan);
-                        container.appendChild(statusRow);
-                        if (status.last_ip) {
-                            const ipInfo = /*#__PURE__*/ createJsxElement("small", {
-                                style: "color:#666;"
-                            }, _("IP: %s").format(status.last_ip));
-                            container.appendChild(ipInfo);
+                        if (i.appendChild(r), i.appendChild(s), a.appendChild(i), l.last_ip) {
+                            let o = jsx("small", {
+                                style: "color:#666;",
+                                children: _("IP: %s").format(l.last_ip)
+                            });
+                            a.appendChild(o);
                         }
-                        if (status.last_update > 0) {
-                            const date = new Date(status.last_update * 1000);
-                            const formattedTime = date.toLocaleString();
-                            const updateInfo = /*#__PURE__*/ createJsxElement("small", {
-                                style: "color:#666;"
-                            }, _("Updated: %s").format(formattedTime));
-                            container.appendChild(updateInfo);
+                        if (l.last_update > 0) {
+                            let o = new Date(1000 * l.last_update).toLocaleString(), t = jsx("small", {
+                                style: "color:#666;",
+                                children: _("Updated: %s").format(o)
+                            });
+                            a.appendChild(t);
                         }
-                        if (status.message && status.status === "error") {
-                            const errorMsg = /*#__PURE__*/ createJsxElement("small", {
+                        if (l.message && "error" === l.status) {
+                            let o = jsx("small", {
                                 style: "color:#F44336;",
-                                title: status.message
-                            }, status.message.length > 40 ? "".concat(status.message.substring(0, 37), "...") : status.message);
-                            container.appendChild(errorMsg);
+                                title: l.message,
+                                children: l.message.length > 40 ? "".concat(l.message.substring(0, 37), "...") : l.message
+                            });
+                            a.appendChild(o);
                         }
                     }
                 }
             }
-        } catch (err) {
-            console.warn("Failed to fetch DDNS statuses:", err);
+        } catch (e) {
+            console.warn("Failed to fetch DDNS statuses:", e);
         }
     }
-    pollDdnsStatus();
-    L.Poll.add(pollDdnsStatus, 5);
+    (m = v.option(ddns_o.Value, "ipv6_url", _("IPv6 URL"))).modalonly = !0, m.depends({
+        ipv6_enable: "1",
+        ipv6_get_type: "url"
+    }), m.placeholder = "https://api6.ipify.org", m.datatype = "string", (m = v.option(ddns_o.Value, "ipv6_net_interface", _("IPv6 Network Interface"))).modalonly = !0, m.depends({
+        ipv6_enable: "1",
+        ipv6_get_type: "net_interface"
+    }), m.placeholder = "eth0", m.datatype = "string", (m = v.option(ddns_o.Value, "ipv6_cmd", _("IPv6 Command"))).modalonly = !0, m.depends({
+        ipv6_enable: "1",
+        ipv6_get_type: "cmd"
+    }), m.placeholder = "curl -s https://api6.ipify.org", m.datatype = "string", (m = v.option(ddns_o.Value, "ipv6_reg", _("IPv6 Regex"))).modalonly = !0, m.depends("ipv6_enable", "1"), m.rmempty = !0, m.placeholder = "([0-9a-fA-F:]+)", m.description = _("Regular expression to extract IPv6 address from output"), (m = v.option(ddns_o.TextValue, "ipv6_domains", _("IPv6 Domains"))).modalonly = !0, m.depends("ipv6_enable", "1"), m.rows = 3, m.placeholder = "example.com\nwww.example.com", m.description = _("One domain per line or comma-separated"), (m = v.option(ddns_o.Value, "webhook_url", _("Webhook URL"))).modalonly = !0, m.rmempty = !0, m.placeholder = "https://example.com/webhook", m.description = _("Optional webhook to call after successful update"), (m = v.option(ddns_o.TextValue, "webhook_body", _("Webhook Body"))).modalonly = !0, m.rmempty = !0, m.rows = 3, m.placeholder = '{"ip": "{{ip}}", "domain": "{{domain}}"}', m.description = _("JSON body for webhook (supports {{ip}} and {{domain}})"), m.depends({
+        webhook_url: /^.+$/
+    }), (m = v.option(ddns_o.TextValue, "webhook_headers", _("Webhook Headers"))).modalonly = !0, m.rmempty = !0, m.rows = 3, m.placeholder = "Authorization: Bearer token\nContent-Type: application/json", m.description = _("One header per line (Header: Value)"), m.depends({
+        webhook_url: /^.+$/
+    }), h(), L.Poll.add(h, 5);
 }
 
 ;// CONCATENATED MODULE: ./main.tsx
@@ -4003,39 +3065,20 @@ const ddns_statusElements = {};
 
 
 
-const main_form = L.form;
-const main_uci = L.uci;
+let main_m = L.form, main_i = L.uci;
 class main extends L.view {
     async load() {
         return Promise.all([
-            main_uci.load("portweaver"),
-            main_uci.load("firewall"),
-            rpcClient.getFullStatus().then((res)=>res || {}).catch((err)=>{
-                console.warn("ubus get_full_status failed:", err);
-                return {};
-            })
+            main_i.load("portweaver"),
+            main_i.load("firewall"),
+            rpcClient.getFullStatus().then((r)=>r || {}).catch((r)=>(console.warn("ubus get_full_status failed:", r), {}))
         ]);
     }
-    render(data) {
-        const m = new main_form.Map("portweaver", _("PortWeaver"), _("Port forwarding and NAT traversal configuration"));
-        const s = m.section(main_form.NamedSection, "global", "portweaver");
-        s.anonymous = true;
-        s.addremove = false;
-        s.tab("settings", _("Global Settings"));
-        s.tab("projects", _("Port Forwarding"));
-        s.tab("ddns", _("DDNS"));
-        s.tab("frpc", _("FRP Tunnels"));
-        s.tab("frps", _("FRP Server"));
-        s.tab("logs", _("System Logs"));
-        const fullStatus = data[2];
-        const client = new Client(fullStatus);
-        modules_header(m, s, client, "settings");
-        config(m, s, client, "projects");
-        ddns(m, s, "ddns");
-        modules_frpc(m, s, "frpc");
-        modules_frps(m, s, "frps");
-        logs(m, s, "logs");
-        return m.render();
+    render(n) {
+        let i = new main_m.Map("portweaver", _("PortWeaver"), _("Port forwarding and NAT traversal configuration")), d = i.section(main_m.NamedSection, "global", "portweaver");
+        d.anonymous = !0, d.addremove = !1, d.tab("settings", _("Global Settings")), d.tab("projects", _("Port Forwarding")), d.tab("ddns", _("DDNS")), d.tab("frpc", _("FRP Tunnels")), d.tab("frps", _("FRP Server")), d.tab("logs", _("System Logs"));
+        let p = new Client(n[2]);
+        return header(i, d, p, "settings"), config(i, d, p, "projects"), ddns(i, d, "ddns"), frpc(i, d, "frpc"), frps(i, d, "frps"), logs(i, d, "logs"), i.render();
     }
 }
 

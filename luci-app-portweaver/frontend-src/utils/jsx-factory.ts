@@ -1,4 +1,7 @@
-export const JSXFragment = Symbol.for("jsx.fragment");
+/**
+ * JSX Fragment symbol
+ */
+export const Fragment = Symbol.for("jsx.fragment");
 
 function normalizeChildren(input: any[], out: any[] = []): any[] {
   for (const child of input) {
@@ -13,60 +16,73 @@ function normalizeChildren(input: any[], out: any[] = []): any[] {
   return out;
 }
 
-export function createJsxElement(
-  tag: any,
-  props: any,
-  ...children: any[]
-): Node {
-  const filteredChildren = normalizeChildren(children);
+function createJsxNode(type: any, config: any): Node {
+  const { children, ...props } = config || {};
 
-  if (tag === JSXFragment) {
+  const childArray =
+    children == null ? [] : Array.isArray(children) ? children : [children];
+  const filteredChildren = normalizeChildren(childArray);
+
+  if (type === Fragment) {
     const fragment = document.createDocumentFragment();
     fragment.append(...filteredChildren);
     return fragment;
   }
-  if (typeof tag === "function") {
-    return tag({ ...props, children: filteredChildren });
+
+  if (typeof type === "function") {
+    return type({ ...props, children: filteredChildren });
   }
 
-  if (props) {
-    const eventHandlers: Record<string, any> = {};
+  const eventHandlers: Record<string, any> = {};
+  const finalProps = { ...props };
 
-    for (const [key, value] of Object.entries(props)) {
-      if (key.startsWith("on") && typeof value === "function") {
-        eventHandlers[key] = value;
-        delete props[key];
-      } else if (typeof value === "boolean") {
-        if (value) {
-          props[key] = key;
-        } else {
-          delete props[key];
-        }
+  for (const [key, value] of Object.entries(finalProps)) {
+    if (key.startsWith("on") && typeof value === "function") {
+      eventHandlers[key] = value;
+      delete finalProps[key];
+    } else if (typeof value === "boolean") {
+      if (value) {
+        finalProps[key] = key;
+      } else {
+        delete finalProps[key];
       }
     }
-
-    const element =
-      props === null || Object.keys(props).length === 0
-        ? filteredChildren.length > 1
-          ? E(tag, {}, filteredChildren)
-          : E(tag, {}, filteredChildren[0])
-        : filteredChildren.length > 1
-          ? E(tag, props, filteredChildren)
-          : E(tag, props, filteredChildren[0]);
-
-    for (const [eventName, handler] of Object.entries(eventHandlers)) {
-      const eventType = eventName.slice(2).toLowerCase();
-      (element as HTMLElement).addEventListener(eventType, handler);
-    }
-
-    return element;
   }
 
-  if (props === null) {
-    props = {};
+  const hasProps = Object.keys(finalProps).length > 0;
+  const element = !hasProps
+    ? filteredChildren.length > 1
+      ? E(type, {}, filteredChildren)
+      : E(type, {}, filteredChildren[0])
+    : filteredChildren.length > 1
+      ? E(type, finalProps, filteredChildren)
+      : E(type, finalProps, filteredChildren[0]);
+
+  for (const [eventName, handler] of Object.entries(eventHandlers)) {
+    const eventType = eventName.slice(2).toLowerCase();
+    (element as HTMLElement).addEventListener(eventType, handler);
   }
-  if (filteredChildren.length > 1) return E(tag, props, filteredChildren);
-  else return E(tag, props, filteredChildren[0]);
+
+  return element;
 }
-createJsxElement.Fragment = JSXFragment;
-globalThis.createJsxElement = createJsxElement;
+
+/**
+ * JSX automatic runtime - production (single/no children)
+ */
+export function jsx(type: any, config: any): Node {
+  return createJsxNode(type, config);
+}
+
+/**
+ * JSX automatic runtime - production (multiple static children)
+ */
+export function jsxs(type: any, config: any): Node {
+  return createJsxNode(type, config);
+}
+
+/**
+ * JSX automatic runtime - development mode
+ */
+export function jsxDEV(type: any, config: any): Node {
+  return createJsxNode(type, config);
+}

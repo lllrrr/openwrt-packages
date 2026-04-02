@@ -43,10 +43,19 @@ export default defineConfig({
     htmlPlugin: false,
     swc: {
       jsc: {
+        parser: {
+          syntax: "typescript",
+          tsx: true,
+          decorators: true,
+        },
+        minify: {
+          compress: true,
+          mangle: {},
+        },
         transform: {
           react: {
-            pragma: "createJsxElement",
-            pragmaFrag: "createJsxElement.Fragment",
+            runtime: "automatic",
+            importSource: "/utils/jsx-factory",
             useBuiltins: true,
           },
           optimizer: {
