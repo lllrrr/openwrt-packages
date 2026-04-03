@@ -1,0 +1,17 @@
+{
+	"luci-app-naived": {
+		"description": "Grant UCI access for luci-app-naived",
+		"read": {
+			"file": {
+				"/etc/naived/*": [ "read" ]
+			},
+			"uci": ["naived"]
+		},
+		"write": {
+			"file": {
+				"/etc/naived/*": [ "write" ]
+			},
+			"uci": ["naived"]
+		}
+	}
+}

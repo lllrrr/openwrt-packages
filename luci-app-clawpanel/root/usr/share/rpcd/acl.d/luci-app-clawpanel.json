@@ -1,0 +1,11 @@
+{
+	"luci-app-clawpanel": {
+		"description": "Grant UCI access for luci-app-clawpanel",
+		"read": {
+			"uci": [ "clawpanel" ]
+		},
+		"write": {
+			"uci": [ "clawpanel" ]
+		}
+	}
+}

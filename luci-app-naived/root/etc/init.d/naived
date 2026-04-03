@@ -1,0 +1,1172 @@
+#!/bin/sh /etc/rc.common
+
+START=95
+STOP=15
+SERVICE_DAEMONIZE=1
+NAME=naived
+LOCK_FILE=/var/lock/naived.lock
+LOG_FILE=/var/log/naived.log
+TMP_PATH=/var/etc/naived
+TMP_BIN_PATH=$TMP_PATH/bin
+PERSIST_DIR="/usr/share/nftables.d/ruleset-post"
+PERSIST_FILE="$PERSIST_DIR/99-naived.nft"
+BACKUP_DIR="/etc/naived/naived-persist"
+BACKUP_FILE="$BACKUP_DIR/99-naived.save"
+# Configure DNSMASQ_CONF_DIR and TMP_DNSMASQ_PATH
+if [ -f /etc/openwrt_release ]; then
+    # Get the default DNSMASQ config ID
+    DEFAULT_DNSMASQ_CFGID="$(uci -q show "dhcp.@dnsmasq[0]" | awk 'NR==1 {split($0, conf, /[.=]/); print conf[2]}')"
+    # Extract the config directory path from conf-dir
+    if [ -f "/tmp/etc/dnsmasq.conf.$DEFAULT_DNSMASQ_CFGID" ]; then
+        DNSMASQ_CONF_DIR="$(awk -F '=' '/^conf-dir=/ {print $2}' "/tmp/etc/dnsmasq.conf.$DEFAULT_DNSMASQ_CFGID")"
+    else
+        DNSMASQ_CONF_DIR="/tmp/dnsmasq.d"
+    fi
+    # Set TMP_DNSMASQ_PATH and trim the trailing slash
+    TMP_DNSMASQ_PATH="${DNSMASQ_CONF_DIR%*/}/dnsmasq-naived.d"
+fi
+
+tcp_config_file=
+udp_config_file=
+shunt_config_file=
+local_config_file=
+shunt_dns_config_file=
+tmp_local_port=
+
+ARG_UDP=
+
+dns_port="5335"            #dns port
+china_dns_port="5333"      #china_dns_port
+tmp_dns_port="300"         #temporary port
+tmp_udp_port="301"         #udp temporary port
+tmp_udp_local_port="302"   #udp socks temporary port
+tmp_shunt_port="303"       #shunt temporary port
+tmp_shunt_local_port="304" #shunt socks temporary port
+tmp_shunt_dns_port="305"   #shunt temporary port
+tmp_tcp_local_port="306"   #tcp socks temporary port
+
+server_count=0
+redir_tcp=0
+redir_udp=0
+local_enable=0
+pdnsd_enable_flag=0
+
+USE_TABLES=""
+HAS_NFT=0
+HAS_IPSET=0
+HAS_FW4=0
+DNSMASQ_IPSET=0
+DNSMASQ_NFTSET=0
+
+switch_server=$1
+CRON_FILE=/etc/crontabs/root
+EXTRA_COMMANDS='reset'
+EXTRA_HELP="        reset   Reset to default settings"
+#extra_command "reset" "Reset to default settings"
+PS="/bin/busybox ps"
+
+uci_get_by_name() {
+	local ret=$(uci get $NAME.$1.$2 2>/dev/null)
+	echo ${ret:=$3}
+}
+
+uci_get_by_type() {
+	local ret=$(uci get $NAME.@$1[0].$2 2>/dev/null)
+	echo "${ret:=$3}"
+}
+
+uci_set_by_name() {
+	uci set $NAME.$1.$2=$3 2>/dev/null
+	uci commit $NAME
+}
+
+uci_set_by_type() {
+	uci set $NAME.@$1[0].$2=$3 2>/dev/null
+	uci commit $NAME
+}
+
+uci_get_by_cfgid() {
+	local ret=$(uci show $NAME.@$1[0].$2 | awk -F '.' '{print $2}' 2>/dev/null)
+	echo ${ret:=$3}
+}
+
+get_host_ip() {
+	local host=$(uci_get_by_name $1 server)
+	local ip=$host
+	if [ -z "$(echo $host | grep -E "([0-9]{1,3}[\.]){3}[0-9]{1,3}")" ]; then
+		if [ "$host" == "${host#*:[0-9a-fA-F]}" ]; then
+			ip=$(resolveip -4 -t 3 $host | awk 'NR==1{print}')
+			[ -z "$ip" ] && ip=$(curl -sSL "http://119.29.29.29/d?dn=$host" | awk -F ';' '{print $1}')
+		fi
+	fi
+	[ -z "$ip" ] || uci_set_by_name $1 ip $ip
+	[ -n "$ip" ] || ip="$(uci_get_by_name $1 ip "ERROR")"
+
+	local chinadns="$(uci_get_by_type global chinadns_forward)"
+	if [ -n "$chinadns" ] && [ "$ip" != "$host" ]; then
+		grep -q "$host" "$TMP_DNSMASQ_PATH/chinadns_fixed_server.conf" 2>"/dev/null" || \
+			echo -e "address=/$host/$ip" >> "$TMP_DNSMASQ_PATH/chinadns_fixed_server.conf"
+	fi
+
+	echo $ip
+}
+
+clean_log() {
+	local logsnum=$(cat $LOG_FILE 2>/dev/null | wc -l)
+	[ "$logsnum" -gt 1000 ] && {
+		echo "$(date "+%Y-%m-%d %H:%M:%S") Log file too long, truncating." >$LOG_FILE
+	}
+}
+
+echolog() {
+	local d="$(date "+%Y-%m-%d %H:%M:%S")"
+	echo -e "$d: $*" >>$LOG_FILE
+}
+
+add_cron() {
+	touch $CRON_FILE
+	sed -i '/naived.log/d' $CRON_FILE
+	crontab $CRON_FILE
+}
+
+del_cron() {
+	touch $CRON_FILE
+	sed -i '/naived.log/d' $CRON_FILE
+	crontab $CRON_FILE
+	clean_log
+}
+
+set_lock() {
+	exec 1000>"$LOCK_FILE"
+	flock -xn 1000
+}
+
+unset_lock() {
+	flock -u 1000
+	rm -rf "$LOCK_FILE"
+}
+
+unlock() {
+	failcount=1
+	while [ "$failcount" -le 10 ]; do
+		if [ -f "$LOCK_FILE" ]; then
+			let "failcount++"
+			sleep 1s
+			[ "$failcount" -ge 10 ] && unset_lock
+		else
+			break
+		fi
+	done
+}
+
+_exit() {
+	local rc=$1
+	unset_lock
+	exit ${rc}
+}
+
+first_type() {
+	type -t -p "/bin/${1}" -p "/usr/bin/${1}" -p "${TMP_BIN_PATH}/${1}" -p "${1}" "$@" | head -n1
+}
+
+ln_start_bin() {
+	local file_func=${1}
+	local ln_name=${2}
+	shift 2
+	if [ "${file_func%%/*}" != "${file_func}" ]; then
+		[ ! -L "${file_func}" ] && {
+			ln -s "${file_func}" "${TMP_BIN_PATH}/${ln_name}" >/dev/null 2>&1
+			file_func="${TMP_BIN_PATH}/${ln_name}"
+		}
+		[ -x "${file_func}" ] || echolog "$(readlink ${file_func}) is not executable, unable to start:${file_func} $*"
+	fi
+	#echo "${file_func} $*" >&2
+	[ -x "${file_func}" ] || {
+		echolog "${file_func} not found, unable to start..."
+		echolog "-----------end------------"
+		_exit 2
+	}
+	ulimit -n 1000000
+	${file_func:-echolog "  - ${ln_name}"} "$@" >/dev/null 2>&1 &
+}
+
+check_run_environment() {
+	local dnsmasq_info=$(dnsmasq -v 2>/dev/null)
+	local dnsmasq_ver=$(echo "$dnsmasq_info" | sed -n '1s/.*version \([0-9.]*\).*/\1/p')
+
+	DNSMASQ_IPSET=0; [[ "$dnsmasq_info" == *" ipset"* ]] && DNSMASQ_IPSET=1
+	DNSMASQ_NFTSET=0; [[ "$dnsmasq_info" == *" nftset"* ]] && DNSMASQ_NFTSET=1
+	HAS_IPSET=$(command -v ipset >/dev/null && echo 1 || echo 0)
+	HAS_FW4=$(command -v fw4 >/dev/null && echo 1 || echo 0)
+	HAS_NFT=$(command -v nft >/dev/null && echo 1 || echo 0)
+
+	# Always use nftables
+	USE_TABLES="nftables"
+
+	local dep_list="kmod-nft-socket kmod-nft-tproxy kmod-nft-nat"
+	local file_path="/usr/lib/opkg/info"
+	local file_ext=".control"
+	[ -d "/lib/apk/packages" ] && { file_path="/lib/apk/packages"; file_ext=".list"; }
+
+	local v_num=$(echo "$dnsmasq_ver" | tr -cd '0-9')
+	if [ "${v_num:-0}" -lt 290 ]; then
+		echolog "Notice: Dnsmasq ($dnsmasq_ver) is below 2.90; upgrading is recommended for stability."
+	fi
+	local pkg
+	for pkg in $dep_list; do
+		if [ ! -s "${file_path}/${pkg}${file_ext}" ]; then
+			echolog "Warning: ${USE_TABLES} transparent proxy is missing required dependency ${pkg}!"
+		fi
+	done
+}
+
+add_dns_into_ipset() {
+	case "$1" in
+	gfw) ipset add gfwlist ${2%:*} 2>/dev/null ;;
+	oversea) ipset add oversea ${2%:*} 2>/dev/null ;;
+	*) ipset add ss_spec_wan_ac ${2%:*} nomatch 2>/dev/null ;;
+	esac
+}
+
+start_dns() {
+	local naived_dns="$(uci_get_by_type global pdnsd_enable 0)"
+	local dnsproxy_dnsserver="$(uci_get_by_type global parse_method)"
+	if [ -n "$dnsproxy_dnsserver" ] && [ "$dnsproxy_dnsserver" != "parse_file" ]; then
+		dnsserver="$(uci_get_by_type global dnsproxy_tunnel_forward 8.8.4.4:53)"
+	elif [ -n "$naived_dns" ] && [ "$naived_dns" = "6" ]; then
+		dnsserver="$(uci_get_by_type global chinadns_ng_tunnel_forward 8.8.4.4:53)"
+	else
+		dnsserver="$(uci_get_by_type global tunnel_forward 8.8.4.4:53)"
+	fi
+	local run_mode="$(uci_get_by_type global run_mode)"
+
+	if [ "$naived_dns" != "0" ]; then
+		if [ "$HAS_IPSET" -eq 1 ]; then
+			if [ -n "$dnsserver" ]; then
+				add_dns_into_ipset $run_mode $dnsserver
+			fi
+		fi
+		case "$naived_dns" in
+		1)
+			ln_start_bin $(first_type dns2tcp) dns2tcp -L 127.0.0.1#$dns_port -R ${dnsserver/:/#}
+			pdnsd_enable_flag=1
+			;;
+			4)
+			;;
+		5)
+			dnsproxy_ipv6="$(uci_get_by_type global dnsproxy_ipv6)"
+			if [ "$dnsproxy_ipv6" -eq "1" ]; then
+				disabled_ipv6="--ipv6-disabled"
+			fi
+			if [ "$dnsproxy_dnsserver" != "parse_file" ]; then
+				ln_start_bin $(first_type dnsproxy) dnsproxy -l 127.0.0.1 -p $tmp_dns_port  -p $dns_port -u $dnsserver $disabled_ipv6 --cache --cache-min-ttl=3600
+			else
+				dnsproxy_dnsserver_file="$TMP_PATH/dnsproxy_dns.list"
+				cleaned_file="$TMP_PATH/cleaned_dns.list"
+				temp_file="$TMP_PATH/temp_dns.list"
+				> "$cleaned_file"
+				# Sanitize input and deduplicate entries
+				while IFS= read -r line || [ -n "$line" ]; do
+				    line=$(echo "$line" | sed -E 's/^[ \t\r]+//; s/[ \t\r]+$//')
+					[ -z "$line" ] && continue
+					echo "$line" | grep -qE '^#' && continue
+					echo "$line" >> "$cleaned_file"
+				done < "/etc/naived/dnsproxy_dns.list"
+				# Compute the MD5 of the cleaned file
+				cleaned_md5=$(md5sum "$cleaned_file" | awk '{print $1}')
+				if [ ! -f "$dnsproxy_dnsserver_file" ]; then
+				    cp "$cleaned_file" "$dnsproxy_dnsserver_file"
+				else
+				    target_md5=$(md5sum "$dnsproxy_dnsserver_file" | awk '{print $1}')
+					if [ "$cleaned_md5" != "$target_md5" ]; then
+					    > "$temp_file"
+					    # Keep entries that still exist in the cleaned file (deduplicated)
+					    while IFS= read -r line; do
+						    line=$(echo "$line" | sed -E 's/^[ \t\r]+//; s/[ \t\r]+$//')
+						    if grep -qixF "$line" "$cleaned_file" && ! grep -qixF "$line" "$temp_file"; then
+							    echo "$line" >> "$temp_file"
+						    fi
+						done < "$dnsproxy_dnsserver_file"
+						# Add entries that are only present in the cleaned file (deduplicated)
+						while IFS= read -r line; do
+						    line=$(echo "$line" | sed -E 's/^[ \t\r]+//; s/[ \t\r]+$//')
+							if ! grep -qixF "$line" "$temp_file"; then
+							    echo "$line" >> "$temp_file"
+							fi
+						done < "$cleaned_file"
+						temp_md5=$(md5sum "$temp_file" | awk '{print $1}')
+						if [ "$temp_md5" != "$target_md5" ]; then
+						    mv "$temp_file" "$dnsproxy_dnsserver_file"
+						else
+						    rm -f "$temp_file"
+						fi
+					fi
+				fi
+				rm -f "$cleaned_file"
+
+				if [ -n "$dnsproxy_dnsserver_file" ] && [ -s "$dnsproxy_dnsserver_file" ]; then
+					local upstreams_logic_mode="$(uci_get_by_type global upstreams_logic_mode)"
+					ln_start_bin $(first_type dnsproxy) dnsproxy -l 127.0.0.1 -p $tmp_dns_port  -p $dns_port -u $dnsproxy_dnsserver_file $disabled_ipv6 --cache --cache-min-ttl=3600 --upstream-mode=$upstreams_logic_mode
+				fi
+			fi
+			echolog "DNSPROXY query and cache Started!"
+			pdnsd_enable_flag=5
+			;;
+		6)
+			local chinadns_ng_proto="$(uci_get_by_type global chinadns_ng_proto)"
+			local chinadns_ng_dns=""
+			# Iterate over each DNS server
+			IFS=','  # Use comma as the separator
+			for chinadns_ng_server in $dnsserver; do
+				# Process a single server address
+				local chinadns_ng_ip="${chinadns_ng_server%%:*}"
+				local chinadns_ng_port="${chinadns_ng_server##*:}"
+				[ "$chinadns_ng_ip" = "$chinadns_ng_port" ] && chinadns_ng_port="53"
+				chinadns_ng_tls_port="853"
+				# Format the server address based on protocol
+				case "$chinadns_ng_proto" in
+					"none")
+            					chinadns_ng_server="${chinadns_ng_ip}#${chinadns_ng_port}"
+            					;;
+					"tls")
+            					chinadns_ng_server="${chinadns_ng_proto}://${chinadns_ng_ip}#${chinadns_ng_tls_port}"
+            					;;
+					*)
+            					chinadns_ng_server="${chinadns_ng_proto}://${chinadns_ng_ip}#${chinadns_ng_port}"
+            					;;
+				esac
+				# Append to the argument list
+				chinadns_ng_dns="${chinadns_ng_dns} -t ${chinadns_ng_server}"
+			done
+			unset IFS  # Restore the default separator
+			dnsserver="$chinadns_ng_dns"
+			ln_start_bin $(first_type chinadns-ng) chinadns-ng -b 127.0.0.1 -l $tmp_dns_port -l $dns_port -p 3 -d gfw $dnsserver -N --filter-qtype 64,65 -f -r --cache 4096 --cache-stale 86400 --cache-refresh 20
+			echolog "ChinaDNS-NG query and cache Started!"
+			pdnsd_enable_flag=6
+			;;
+		esac
+
+		if [ "$run_mode" = "router" ]; then
+			local chinadns="$(uci_get_by_type global chinadns_forward)"
+			if [ -n "$chinadns" ]; then
+				local wandns="$(ifstatus wan | jsonfilter -e '@["dns-server"][0]' || echo "119.29.29.29")"
+				case "$chinadns" in
+				"wan") chinadns="$wandns" ;;
+				"wan_114") chinadns="$wandns,114.114.114.114" ;;
+				esac
+
+				ln_start_bin $(first_type chinadns-ng) chinadns-ng -l $china_dns_port -4 china -p 3 -c ${chinadns/:/#} -t 127.0.0.1#$dns_port -N -f -r
+
+				cat <<-EOF >> "$TMP_DNSMASQ_PATH/chinadns_fixed_server.conf"
+					no-poll
+					no-resolv
+					server=127.0.0.1#$china_dns_port
+				EOF
+			fi
+		fi
+	fi
+
+	if [ "$(uci_get_by_type global apple_optimization 1)" == "1" ]; then
+		local new_appledns="$(uci_get_by_type global apple_dns)"
+		if [ -n "$new_appledns" ]; then		
+			sed -i 's/[[:space:]]//g' /etc/naived/applechina.conf # Remove all whitespace
+			local old_appledns=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' /etc/naived/applechina.conf | sort -u)
+			if [ -n "$old_appledns" ] && [ "$old_appledns" != "$new_appledns" ]; then
+				sed -i "s,$(printf '%s' "$old_appledns"),$(printf '%s' "$new_appledns"),g" /etc/naived/applechina.conf
+			fi
+		fi
+		echolog "Loading Apple mainland China CDN optimization rules."
+		cp -f /etc/naived/applechina.conf $TMP_DNSMASQ_PATH/
+		echolog "Apple mainland China CDN optimization rules loaded."
+	fi
+}
+
+gen_config_file() { #server1 type2 code3 local_port4 socks_port5 chain6 threads5
+	case "$3" in
+	1)
+		config_file=$tcp_config_file
+		;;
+	2)
+		config_file=$udp_config_file
+		;;
+	3)
+		if [ -n "$tmp_local_port" ]; then
+			local tmp_port=$tmp_local_port
+		else
+			local tmp_port=$tmp_shunt_local_port
+		fi
+		config_file=$shunt_config_file
+		;;
+	4)
+		local ss_protocol="socks"
+		config_file=$local_config_file
+		;;
+	esac
+	case "$2" in
+	naiveproxy)
+		case "$3" in
+		1)
+			lua /usr/share/naived/gen_config.lua $1 redir $4 >$config_file
+			;;
+		3)
+			lua /usr/share/naived/gen_config.lua $1 redir $4 >$config_file
+			lua /usr/share/naived/gen_config.lua $1 socks $tmp_port >$shunt_dns_config_file
+			;;
+		4)
+			lua /usr/share/naived/gen_config.lua $1 socks $4 >$config_file
+			;;
+		esac
+		;;
+	socks5)
+		sh /usr/share/naived/genred2config.sh $config_file $2 $mode $4 \
+			"$(uci_get_by_name $1 server)" \
+			"$(uci_get_by_name $1 server_port)" \
+			"$(uci_get_by_name $1 auth_enable 0)" \
+			"$(uci_get_by_name $1 username)" \
+			"$(uci_get_by_name $1 password)"
+		;;
+	esac
+	sed -i 's/\\//g' $TMP_PATH/*-naived-*.json #>/dev/null > 2>&1
+}
+
+start_udp() {
+	local type=$(uci_get_by_name $UDP_RELAY_SERVER type)
+	redir_udp=1
+	case "$type" in
+	naiveproxy)
+		echolog "NaiveProxy UDP TPROXY Relay not supported!"
+		redir_udp=0
+		ARG_UDP=""
+		;;
+	socks5)
+		gen_config_file $UDP_RELAY_SERVER $type 2 $tmp_udp_port
+		ln_start_bin $(first_type redsocks2) redsocks2 -c $udp_config_file
+		echolog "UDP TPROXY Relay:Socks5 REDIRECT/TPROXY Started!"
+		;;
+	esac
+}
+
+shunt_dns_command() {
+	local shunt_dns_mode="$(uci_get_by_type global shunt_dns_mode)"
+	local shunt_dnsproxy_dnsserver="$(uci_get_by_type global shunt_parse_method)"
+	if [ -n "$shunt_dnsproxy_dnsserver" ] && [ "$shunt_dnsproxy_dnsserver" != "parse_file" ]; then
+		shunt_dnsserver="$(uci_get_by_type global dnsproxy_shunt_forward 8.8.4.4:53)"
+	elif [ -n "shunt_dns_mode" ] && [ "$shunt_dns_mode" = "5" ]; then
+		shunt_dnsserver="$(uci_get_by_type global chinadns_ng_shunt_dnsserver 8.8.4.4:53)"
+	else
+		shunt_dnsserver="$(uci_get_by_type global shunt_dnsserver 8.8.4.4:53)"
+	fi
+	local tmp_port=$1
+	case "$shunt_dns_mode" in
+	1)
+		;;
+	4)
+		shunt_dnsproxy_ipv6="$(uci_get_by_type global shunt_dnsproxy_ipv6)"
+		if [ "$shunt_dnsproxy_ipv6" -eq "1" ]; then
+			shunt_disabled_ipv6="--ipv6-disabled"
+		fi
+		if [ "$shunt_dnsproxy_dnsserver" != "parse_file" ]; then
+			ln_start_bin $(first_type dnsproxy) dnsproxy -l 127.0.0.1 -p $tmp_port -p $tmp_shunt_dns_port -u $shunt_dnsserver $shunt_disabled_ipv6 --cache --cache-min-ttl=3600
+		else
+			shunt_dnsproxy_dnsserver_file="$TMP_PATH/dnsproxy_dns.list"
+			cleaned_file="$TMP_PATH/cleaned_dns_servers.list"
+			temp_file="$TMP_PATH/temp_dns_servers.list"
+			> "$cleaned_file"
+			# Sanitize input and deduplicate entries
+			while IFS= read -r line || [ -n "$line" ]; do
+			    line=$(echo "$line" | sed -E 's/^[ \t\r]+//; s/[ \t\r]+$//')
+				[ -z "$line" ] && continue
+				echo "$line" | grep -qE '^#' && continue
+				echo "$line" >> "$cleaned_file"
+			done < "/etc/naived/dnsproxy_dns.list"
+			# Compute the MD5 of the cleaned file
+			cleaned_md5=$(md5sum "$cleaned_file" | awk '{print $1}')
+			if [ ! -f "$shunt_dnsproxy_dnsserver_file" ]; then
+			    cp "$cleaned_file" "$shunt_dnsproxy_dnsserver_file"
+			else
+			    target_md5=$(md5sum "$shunt_dnsproxy_dnsserver_file" | awk '{print $1}')
+				if [ "$cleaned_md5" != "$target_md5" ]; then
+				    > "$temp_file"
+					# Keep entries that still exist in the cleaned file (deduplicated)
+					while IFS= read -r line; do
+					    line=$(echo "$line" | sed -E 's/^[ \t\r]+//; s/[ \t\r]+$//')
+						if grep -qixF "$line" "$cleaned_file" && ! grep -qixF "$line" "$temp_file"; then
+						    echo "$line" >> "$temp_file"
+						fi
+					done < "$shunt_dnsproxy_dnsserver_file"
+					# Add entries that are only present in the cleaned file (deduplicated)
+					while IFS= read -r line; do
+					    line=$(echo "$line" | sed -E 's/^[ \t\r]+//; s/[ \t\r]+$//')
+						if ! grep -qixF "$line" "$temp_file"; then
+						    echo "$line" >> "$temp_file"
+						fi
+					done < "$cleaned_file"
+					temp_md5=$(md5sum "$temp_file" | awk '{print $1}')
+					if [ "$temp_md5" != "$target_md5" ]; then
+					    mv "$temp_file" "$shunt_dnsproxy_dnsserver_file"
+					else
+						rm -f "$temp_file"
+					fi
+				fi
+			fi
+			rm -f "$cleaned_file"
+			
+			if [ -n "$shunt_dnsproxy_dnsserver_file" ] && [ -s "$shunt_dnsproxy_dnsserver_file" ]; then
+				local shunt_upstreams_logic_mode="$(uci_get_by_type global shunt_upstreams_logic_mode)"
+				ln_start_bin $(first_type dnsproxy) dnsproxy -l 127.0.0.1 -p $tmp_port -p $tmp_shunt_dns_port -u $shunt_dnsproxy_dnsserver_file $shunt_disabled_ipv6 --cache --cache-min-ttl=3600 --upstream-mode=$shunt_upstreams_logic_mode
+			fi
+		fi
+		echolog "DNSPROXY shunt query and cache Started!"
+		;;
+	5)
+		local chinadns_ng_shunt_proto="$(uci_get_by_type global chinadns_ng_shunt_proto)"
+		local chinadns_ng_shunt_dns=""
+		# Iterate over each DNS server
+		IFS=','  # Use comma as the separator
+		for chinadns_ng_shunt_server in $shunt_dnsserver; do
+			# Process a single server address
+			local chinadns_ng_shunt_ip="${chinadns_ng_shunt_server%%:*}"
+			local chinadns_ng_shunt_port="${chinadns_ng_shunt_server##*:}"
+			[ "$chinadns_ng_shunt_ip" = "$chinadns_ng_shunt_port" ] && chinadns_ng_shunt_port="53"
+			chinadns_ng_shunt_tls_port="853"
+			# Format the server address based on protocol
+			case "$chinadns_ng_shunt_proto" in
+				"none")
+            				chinadns_ng_shunt_server="${chinadns_ng_shunt_ip}#${chinadns_ng_shunt_port}"
+            				;;
+				"tls")
+            				chinadns_ng_shunt_server="${chinadns_ng_shunt_proto}://${chinadns_ng_shunt_ip}#${chinadns_ng_shunt_tls_port}"
+            				;;
+				*)
+            				chinadns_ng_shunt_server="${chinadns_ng_shunt_proto}://${chinadns_ng_shunt_ip}#${chinadns_ng_shunt_port}"
+            				;;
+			esac
+			# Append to the argument list
+			chinadns_ng_shunt_dns="${chinadns_ng_shunt_dns} -t ${chinadns_ng_shunt_server}"
+		done
+		unset IFS  # Restore the default separator
+		shunt_dnsserver="$chinadns_ng_shunt_dns"
+		# Start chinadns-ng
+		ln_start_bin $(first_type chinadns-ng) chinadns-ng -b 127.0.0.1 -l $tmp_port -l $tmp_shunt_dns_port -p 3 -d gfw $shunt_dnsserver -N --filter-qtype 64,65 -f -r --cache 4096 --cache-stale 86400 --cache-refresh 20
+		echolog "ChinaDNS-NG shunt query and cache Started!"
+		;;
+	esac
+}
+
+shunt_dns_config_file_port() {
+    if [ "$LOCAL_SERVER" == "$SHUNT_SERVER" ]; then
+        # Netflix and the global SOCKS node are the same
+        if [ "$(uci_get_by_type socks5_proxy socks5_auth nil)" != "noauth" ]; then
+            # The global SOCKS node uses authentication, so Netflix shunt must use a new
+            # unauthenticated SOCKS port instead of auth-based access.
+            # Allocate a dedicated Netflix DNS port.
+            local port=$tmp_shunt_local_port
+            jq --arg port "$port" '.inbounds |= .[0:1] + [{"protocol":"socks","port":($port | tonumber),"settings":{"udp":true,"auth":"noauth"}}] + .[1:]' "$shunt_config_file" > "$shunt_config_file.tmp" && mv "$shunt_config_file.tmp" $shunt_config_file
+            echo $port  # Return the allocated port
+            return 0  # Success
+        else
+            sed -i -e '/"mixed"/d' $shunt_config_file
+        fi
+    else
+        # Netflix and the global SOCKS node are different
+        if [ "$(uci_get_by_type socks5_proxy socks5_auth nil)" != "noauth" ]; then
+            # The global SOCKS node uses authentication, so Netflix shunt needs an
+            # unauthenticated SOCKS configuration.
+            # Remove password-based auth for the Netflix DNS port.
+            sed -i \
+                   -e '/"mixed"/d' \
+                   -e 's/"auth"\s*:\s*"password"/\"auth\": \"noauth\"/g' \
+                   -e '/"accounts": \[/,/\]/d' $shunt_config_file
+        else
+            sed -i -e '/"mixed"/d' $shunt_config_file
+        fi
+    fi
+    # Use the provided port
+    echo $1  # Return the provided port
+    return 0  # Success
+}
+
+start_shunt() {
+	local type=$(uci_get_by_name $SHUNT_SERVER type)
+	case "$type" in
+	naiveproxy)
+		gen_config_file $SHUNT_SERVER $type 3 $tmp_shunt_port
+		ln_start_bin $(first_type naive) naive --config $shunt_config_file
+		if [ -n "$tmp_local_port" ]; then
+			local tmp_port=$tmp_local_port
+		else
+			local tmp_port=$tmp_shunt_local_port
+			ln_start_bin $(first_type naive) naive --config $shunt_dns_config_file
+		fi
+		shunt_dns_command $tmp_port
+		echolog "shunt:$($(first_type "naive") --version 2>&1 | head -1) Started!"
+		redir_udp=0
+		;;
+	# socks5)
+	# 	if [ "$(uci_get_by_name $SHUNT_SERVER auth_enable 0)" == "1" ]; then
+	# 		local auth="-a $(uci_get_by_name $SHUNT_SERVER username) -k $(uci_get_by_name $SHUNT_SERVER password)"
+	# 	fi
+	# 	ln_start_bin $(first_type ipt2socks) ipt2socks $shunt_config_file -R -4 -s $(uci_get_by_name $SHUNT_SERVER server) -p $(uci_get_by_name $SHUNT_SERVER server_port) -l $tmp_shunt_port $auth
+	# 	#gen_config_file $SHUNT_SERVER $type 3 $tmp_shunt_port
+	# 	#ln_start_bin $(first_type redsocks2) redsocks2 -c $shunt_config_file
+	# 	if [ -n "$tmp_local_port" ]; then
+	# 		local tmp_port=$tmp_local_port
+	# 	else
+	# 		local tmp_port=$tmp_shunt_local_port
+	# 		ln_start_bin $(first_type microsocks) microsocks -i 127.0.0.1 -p $tmp_port shunt-dns-naived
+	# 	fi
+	# 	shunt_dns_command $tmp_port
+	# 	echolog "shunt:$type REDIRECT/TPROXY Started!"
+	# 	;;
+	*)
+		gen_config_file $SHUNT_SERVER $type 3 $tmp_shunt_port
+		ln_start_bin $(first_type redsocks2) redsocks2 -c $shunt_config_file
+		if [ -n "$tmp_local_port" ]; then
+			local tmp_port=$tmp_local_port
+		else
+			local tmp_port=$tmp_shunt_local_port
+			ln_start_bin $(first_type microsocks) microsocks -i 127.0.0.1 -p $tmp_port shunt-dns-naived
+		fi
+		shunt_dns_command $tmp_port
+		echolog "shunt:$type REDIRECT/TPROXY Started!"
+		;;
+	esac
+	return 0
+}
+
+start_local() {
+	[ "$LOCAL_SERVER" = "nil" ] && return 1
+	local local_port=$(uci_get_by_type socks5_proxy local_port)
+	[ "$LOCAL_SERVER" == "$SHUNT_SERVER" ] && tmp_local_port=$local_port
+	local type=$(uci_get_by_name $LOCAL_SERVER type)
+	case "$type" in
+	naiveproxy)
+		gen_config_file $LOCAL_SERVER $type 4 $local_port
+		ln_start_bin $(first_type naive) naive --config $local_config_file
+		echolog "Global_Socks5:$($(first_type naive) --version | head -1) Started!"
+		;;
+	*)
+		[ -e /proc/sys/net/ipv6 ] && local listenip='-i ::'
+		ln_start_bin $(first_type microsocks) microsocks $listenip -p $local_port tcp-udp-naived-local
+		echolog "Global_Socks5:$type Started!"
+		;;
+	esac
+	local_enable=1
+	return 0
+}
+
+Start_Run() {
+	if [ "$(uci_get_by_type global threads 0)" == "0" ]; then
+		local threads=$(cat /proc/cpuinfo | grep 'processor' | wc -l)
+	else
+		local threads=$(uci_get_by_type global threads)
+	fi
+	if [ "$_local" == "1" ]; then
+		local socks_port=$(uci_get_by_type socks5_proxy local_port)
+		tcp_config_file=$TMP_PATH/local-naived-retcp.json
+		[ "$mode" == "tcp,udp" ] && tcp_config_file=$TMP_PATH/local-udp-naived-retcp.json
+		#[ "$mode" == "tcp,udp" ] && {
+		#	if [ "$USE_TABLES" = "nftables" ]; then
+		#		# nftables / fw4
+		#		tcp_config_file=$TMP_PATH/local-nft-naived-retcp.json
+		#	fi
+		#}
+	fi
+	local tcp_port=$(uci_get_by_name $GLOBAL_SERVER local_port)
+	local type=$(uci_get_by_name $GLOBAL_SERVER type)
+	case "$type" in
+	naiveproxy)
+		gen_config_file $GLOBAL_SERVER $type 1 $tcp_port
+		ln_start_bin $(first_type naive) naive $tcp_config_file
+		echolog "Main node:$($(first_type naive) --version 2>&1 | head -1) , $threads Threads Started!"
+		;;
+	socks5)
+		if [ "$(uci_get_by_name $GLOBAL_SERVER auth_enable 0)" == "1" ]; then
+			local auth="-a $(uci_get_by_name $GLOBAL_SERVER username) -k $(uci_get_by_name $GLOBAL_SERVER password)"
+		fi
+		ln_start_bin $(first_type ipt2socks) ipt2socks $tcp_config_file -R -4 -j $threads -s $(uci_get_by_name $GLOBAL_SERVER server) -p $(uci_get_by_name $GLOBAL_SERVER server_port) -l $tcp_port $auth
+		#gen_config_file $GLOBAL_SERVER $type 1 $tcp_port
+		#for i in $(seq 1 $threads); do
+		#	ln_start_bin $(first_type redsocks2) redsocks2 -c $tcp_config_file
+		#done
+		echolog "Main node:Socks5 REDIRECT/TPROXY $threads Threads Started!"
+		;;
+	esac
+	redir_tcp=1
+	return 0
+}
+
+load_config() {
+	if [ -z "$switch_server" ]; then
+		GLOBAL_SERVER=$(uci_get_by_type global global_server nil)
+	else
+		GLOBAL_SERVER=$switch_server
+	fi
+	if [ "$(uci_get_by_type socks5_proxy enabled 0)" == "1" ]; then
+		# Only read the value when global SOCKS is enabled
+		LOCAL_SERVER=$(uci_get_by_type socks5_proxy server nil)
+	else
+		# Set to nil when the feature is disabled
+		LOCAL_SERVER=nil
+	fi
+	if [ "$GLOBAL_SERVER" == "nil" ]; then
+		mode="tcp,udp"
+		_local="2"
+		local_config_file=$TMP_PATH/tcp-udp-naived-local.json
+		start_local
+		return 1
+	fi
+	UDP_RELAY_SERVER=$(uci_get_by_type global udp_relay_server nil)
+	if [ "$(uci_get_by_type global netflix_enable 0)" == "1" ]; then
+		# Only read the value when Netflix shunt is enabled
+		SHUNT_SERVER=$(uci_get_by_type global netflix_server nil)
+	else
+		# Set to nil when the feature is disabled
+		SHUNT_SERVER=nil
+	fi
+	#tcp_config_file=$TMP_PATH/tcp-udp-dual-naived-retcp.json
+	tcp_config_file=$TMP_PATH/tcp-only-naived-retcp.json
+	case "$UDP_RELAY_SERVER" in
+	nil)
+		#mode="tcp,udp"
+		mode="tcp"
+		ARG_UDP=""
+		udp_config_file=""
+		;;
+	$GLOBAL_SERVER | same)
+		mode="tcp,udp"
+		tcp_config_file=$TMP_PATH/tcp-udp-naived-retcp.json
+		ARG_UDP="-u"
+		UDP_RELAY_SERVER=$GLOBAL_SERVER
+		;;
+	*)
+		mode="udp"
+		udp_config_file=$TMP_PATH/udp-only-naived-reudp.json
+		ARG_UDP="-U"
+		start_udp
+		#mode="tcp,udp"
+		mode="tcp"
+		;;
+	esac
+	case "$LOCAL_SERVER" in
+	nil)
+		_local="0"
+		;;
+	$GLOBAL_SERVER | same)
+		_local="1"
+		LOCAL_SERVER=$GLOBAL_SERVER
+		local_config_file=$TMP_PATH/tcp-udp-naived-local.json
+		start_local
+		local_enable=0
+		;;
+	$SHUNT_SERVER)
+		_local="3"
+		local_config_file=$TMP_PATH/tcp-udp-naived-local.json
+		start_local
+		;;
+	*)
+		_local="2"
+		local_config_file=$TMP_PATH/tcp-udp-naived-local.json
+		start_local
+		;;
+	esac
+	case "$SHUNT_SERVER" in
+	nil)
+		shunt="0"
+		;;
+	$GLOBAL_SERVER | same)
+		shunt="1"
+		SHUNT_SERVER=$GLOBAL_SERVER
+		;;
+	$LOCAL_SERVER)
+		shunt="$tmp_shunt_port"
+		shunt_config_file=$TMP_PATH/tcp-udp-naived-local.json
+		shunt_dns_config_file=$TMP_PATH/shunt-dns-naived.json
+		start_shunt
+		;;
+	*)
+		shunt="$tmp_shunt_port"
+		shunt_config_file=$TMP_PATH/shunt-naived-retcp.json
+		shunt_dns_config_file=$TMP_PATH/shunt-dns-naived.json
+		start_shunt
+		;;
+	esac
+	return 0
+}
+
+check_server() {
+	ENABLE_SERVER=$(uci_get_by_type global global_server nil)
+	if [ "$ENABLE_SERVER" == "nil" ]; then
+		return 1
+	else
+		local STYPE=$(uci_get_by_name $ENABLE_SERVER type nil)
+		if [ "$STYPE" == "nil" ]; then
+			local CFGID=$(uci_get_by_cfgid servers type nil)
+			if [ "$CFGID" == "nil" ]; then
+				uci_set_by_type global global_server 'nil'
+			else
+				uci_set_by_type global global_server $CFGID
+			fi
+			/etc/init.d/naived restart
+		fi
+	fi
+}
+
+start_server() {
+	[ "$(uci_get_by_type server_global enable_server 0)" == "0" ] && return 0
+	server_service() {
+		[ "$(uci_get_by_name $1 enable 0)" == "0" ] && return 1
+		let server_count=server_count+1
+		if [ "$server_count" == "1" ]; then
+			# nftables / fw4
+			if nft list table inet fw4 >/dev/null 2>&1; then
+				if ! nft list chain inet fw4 SSR-SERVER-RULE >/dev/null 2>&1; then
+					nft add chain inet fw4 SSR-SERVER-RULE 2>/dev/null
+				fi
+				if ! nft list chain inet fw4 input 2>/dev/null | grep -q "jump SSR-SERVER-RULE"; then
+					nft insert rule inet fw4 input jump SSR-SERVER-RULE comment \"SSR Server Input Hook\" 2>/dev/null
+				fi
+				nft flush chain inet fw4 SSR-SERVER-RULE 2>/dev/null
+			fi
+		fi
+		local type=$(uci_get_by_name $1 type)
+		case "$type" in
+		socks5)
+			[ -e /proc/sys/net/ipv6 ] && local listenip='-i ::'
+			local username=$(uci_get_by_name $1 username)
+			local password=$(uci_get_by_name $1 password)
+			local auth_opts=""
+			if [ -n "$username" ] && [ -n "$password" ]; then
+				auth_opts="-u $username -P $password"
+			fi
+			ln_start_bin $(first_type microsocks) microsocks $listenip -p $(uci_get_by_name $1 server_port) -1 $auth_opts naived-server$server_count
+			echolog "Server:Socks5 Server$server_count Started!"
+			;;
+		esac
+		server_port=$(uci_get_by_name $1 server_port)
+		# nftables / fw4
+		nft add rule inet fw4 SSR-SERVER-RULE tcp dport $server_port accept
+		nft add rule inet fw4 SSR-SERVER-RULE udp dport $server_port accept
+		return 0
+	}
+	gen_serv_include() {
+		local FWI=$(uci get firewall.naived.path 2>/dev/null)
+		[ -n "$FWI" ] || return 0
+		if [ ! -f $FWI ]; then
+			echo '#!/bin/sh' >$FWI
+		fi
+		# nftables / fw4
+		cat <<-'EOF' >>"$FWI"
+			# Ensure the table exists
+			if nft list table inet fw4 >/dev/null 2>&1; then
+				# Create the SSR-SERVER-RULE chain if it does not exist
+				if ! nft list chain inet fw4 SSR-SERVER-RULE >/dev/null 2>&1; then
+					nft add chain inet fw4 SSR-SERVER-RULE 2>/dev/null
+				fi
+				# Jump from the input chain to SSR-SERVER-RULE if missing
+				if ! nft list chain inet fw4 input | grep -q 'jump SSR-SERVER-RULE'; then
+					nft insert rule inet fw4 input jump SSR-SERVER-RULE comment \"SSR Server Input Hook\" 2>/dev/null
+				fi
+				# Flush the chain if it already exists
+				nft flush chain inet fw4 SSR-SERVER-RULE 2>/dev/null
+			fi
+		EOF
+	}
+
+	config_load $NAME
+	config_foreach server_service server_config
+	gen_serv_include
+	return 0
+}
+
+start_switch() {
+	if [ "$(uci_get_by_type global enable_switch 0)" == "1" ]; then
+		if [ -z "$switch_server" ]; then
+			local switch_time=$(uci_get_by_type global switch_time)s
+			local switch_timeout=$(uci_get_by_type global switch_timeout)
+			service_start /usr/bin/naived-switch start $switch_time $switch_timeout
+		fi
+	fi
+}
+
+start_monitor() {
+	if [ $(uci_get_by_type global monitor_enable 1) == "1" ]; then
+		let total_count=server_count+redir_tcp+redir_udp+local_enable+pdnsd_enable_flag
+		if [ $total_count -gt 0 ]; then
+			service_start /usr/bin/naived-monitor $server_count $redir_tcp $redir_udp $local_enable $pdnsd_enable_flag
+		fi
+	fi
+}
+
+start_xhttp_addr() {
+	local xhttp_addr_file="/etc/naived/xhttp_address.txt"
+	local tmp_file="/tmp/.xhttp_addr.tmp"
+
+	# Collect all xhttp_extra addresses, remove blanks, and sort uniquely
+	{
+		for sec in "$GLOBAL_SERVER" "$SHUNT_SERVER" "$UDP_RELAY_SERVER"; do
+			local extra
+			extra=$(uci_get_by_name "$sec" xhttp_extra)
+			[ -n "$extra" ] && \
+				echo "$extra" | sed -n 's/.*"address":[[:space:]]*"\([^"]*\)".*/\1/p'
+		done
+	} | grep -v '^$' | sort -u > "$tmp_file"
+
+	# Remove the old file and exit when no xhttp_extra addresses are present
+	if [ ! -s "$tmp_file" ]; then
+		[ -f "$xhttp_addr_file" ] && rm -f "$xhttp_addr_file"
+		rm -f "$tmp_file"
+		return 0
+	fi
+
+	# Compare MD5 hashes to detect xhttp_extra address changes
+	local md5_new md5_old
+	md5_new=$(md5sum "$tmp_file" | awk '{print $1}')
+	if [ -f "$xhttp_addr_file" ]; then
+		md5_old=$(md5sum "$xhttp_addr_file" | awk '{print $1}')
+	else
+		md5_old=""
+	fi
+
+	# Update the xhttp_extra address file when the MD5 differs
+	if [ "$md5_new" != "$md5_old" ]; then
+		mv -f "$tmp_file" "$xhttp_addr_file"
+		logger -t naived-xhttp "xhttp_address.txt updated"
+	else
+		rm -f "$tmp_file"
+	fi
+}
+
+start_rules() {
+	local server=$(get_host_ip $GLOBAL_SERVER)
+	local local_port=$(uci_get_by_name $GLOBAL_SERVER local_port)
+	local lan_ac_ips=$(uci_get_by_type access_control lan_ac_ips)
+	local lan_ac_mode=$(uci_get_by_type access_control lan_ac_mode)
+	if [ "$redir_udp" == "1" ]; then
+		local udp_server=$(get_host_ip $UDP_RELAY_SERVER)
+		local udp_local_port=$tmp_udp_port
+	fi
+	if [ "$shunt" != "0" ]; then
+		local shunt_ip=$(get_host_ip $SHUNT_SERVER)
+	fi
+	if [ -n "$lan_ac_ips" ]; then
+		case "$lan_ac_mode" in
+		w | W | b | B) local ac_ips="$lan_ac_mode$lan_ac_ips" ;;
+		esac
+	fi
+	gfwmode() {
+		case "$(uci_get_by_type global run_mode)" in
+		gfw) echo "-g" ;;
+		router) echo "-r" ;;
+		oversea) echo "-c" ;;
+		all) echo "-z" ;;
+		esac
+	}
+	if [ "$(uci_get_by_type global dports)" == "3" ]; then
+		local custom_ports=$(uci_get_by_name $GLOBAL_SERVER custom_ports)  # custom_ports stores user-defined ports
+		if [ -n "$custom_ports" ]; then
+			local proxyport="-m multiport --dports $custom_ports"
+		fi
+	else
+		if [ "$(uci_get_by_type global dports 1)" == "2" ]; then
+			local proxyport="-m multiport --dports 22,53,587,465,995,993,143,80,443,853,9418"
+		fi
+	fi
+
+	get_arg_out() {
+		case "$(uci_get_by_type access_control router_proxy 1)" in
+		1) echo "-o" ;;
+		2) echo "-O" ;;
+		esac
+	}
+	ARG_A="-A"
+	# Restore nft persistence rules
+	if [ -f "$BACKUP_FILE" ]; then
+		mkdir -p "$PERSIST_DIR"
+		mv "$BACKUP_FILE" "$PERSIST_FILE"
+		rm -rf "$BACKUP_DIR"
+	fi
+	sh /usr/share/naived/gfw2ipset.sh
+	sh /usr/bin/naived-rules \
+		-s "$server" \
+		-l "$local_port" \
+		-S "$udp_server" \
+		-L "$udp_local_port" \
+		-a "$ac_ips" \
+		-i "/etc/naived/china_ip.txt" \
+		-b "$(uci_get_by_type access_control wan_bp_ips)" \
+		-w "$(uci_get_by_type access_control wan_fw_ips)" \
+		-B "$(uci_get_by_type access_control lan_bp_ips)" \
+		-p "$(uci_get_by_type access_control lan_fp_ips)" \
+		-G "$(uci_get_by_type access_control lan_gm_ips)" \
+		-m "$(uci_get_by_type access_control Interface)" \
+		-D "$proxyport" \
+		-F "$shunt" \
+		-N "$shunt_ip" \
+		-M "$(uci_get_by_type global netflix_proxy 0)" \
+		-I "/etc/naived/netflixip.list" \
+		$(get_arg_out) $(gfwmode) $ARG_UDP $ARG_A
+
+	return $?
+}
+
+start() {
+	set_lock
+	echolog "----------start------------"
+	mkdir -p /var/run /var/lock /var/log $DNSMASQ_CONF_DIR $TMP_BIN_PATH $TMP_DNSMASQ_PATH
+	echo "conf-dir=${TMP_DNSMASQ_PATH}" >"$DNSMASQ_CONF_DIR/dnsmasq-naived.conf"
+	check_run_environment
+	if load_config; then
+		Start_Run
+		start_xhttp_addr
+		start_rules
+		start_dns
+		# Restore ipsets after rule creation
+		if [ "$HAS_IPSET" -eq 1 ]; then
+			for setname in gfwlist china blacklist whitelist netflix; do
+				[ "$setname" = "gfwlist" ] && [ "$run_mode" != "gfw" ] && continue
+				if [ -f "/tmp/naived_save/${setname}.save" ]; then
+					ipset restore -! < "/tmp/naived_save/${setname}.save" 2>/dev/null
+				fi
+			done
+		fi
+		add_cron
+		start_switch
+	else
+		echolog "Main node not started, loading blocked-domain rules."
+		cat /etc/naived/deny.list | sed '/^$/d' | sed '/#/d' | sed "/.*/s/.*/address=\/&\//" >$TMP_DNSMASQ_PATH/denylist.conf
+		echolog "Blocked-domain rules loaded."
+		if [ "$(uci_get_by_type global adblock 0)" == "1" ]; then
+			echolog "Main node not started, loading ad-block rules."
+			cp -f /etc/naived/ad.conf $TMP_DNSMASQ_PATH/
+			if [ -f "$TMP_DNSMASQ_PATH/ad.conf" ]; then
+				# Optimize: Batch filter using grep instead of looping sed
+				for list_file in /etc/naived/black.list /etc/naived/white.list /etc/naived/deny.list; do
+					if [ -s "$list_file" ]; then
+						# Clean list file (remove comments and empty lines)
+						grep -vE '^\s*#|^\s*$' "$list_file" > "${list_file}.clean"
+						if [ -s "${list_file}.clean" ]; then
+							grep -v -F -f "${list_file}.clean" "$TMP_DNSMASQ_PATH/ad.conf" > "$TMP_DNSMASQ_PATH/ad.conf.tmp"
+							mv "$TMP_DNSMASQ_PATH/ad.conf.tmp" "$TMP_DNSMASQ_PATH/ad.conf"
+						fi
+						rm -f "${list_file}.clean"
+					fi
+				done
+			fi
+			echolog "Ad-block rules loaded."
+		fi
+	fi
+	/etc/init.d/dnsmasq restart >/dev/null 2>&1
+	check_server
+	# Save the current server for nftables persistence
+	local CURRENT_SERVER="$(uci_get_by_type global global_server nil)"
+	if [ "$CURRENT_SERVER" != "nil" ]; then
+		uci set naived.@global[0].old_global_server="$CURRENT_SERVER"
+		uci commit naived
+	fi
+	start_server
+	start_monitor
+	clean_log
+	echolog "-----------end------------"
+	unset_lock
+}
+
+boot() {
+	echolog "boot!"
+	mkdir -p /var/run /var/lock /var/log $DNSMASQ_CONF_DIR $TMP_BIN_PATH $TMP_DNSMASQ_PATH
+	start
+}
+
+stop() {
+	unlock
+	set_lock
+	check_run_environment
+	# Save ipsets before stopping to preserve transparent proxy state
+	if [ "$HAS_IPSET" -eq 1 ]; then
+		mkdir -p /tmp/naived_save
+		local run_mode="$(uci_get_by_type global run_mode)"
+		if [ "$run_mode" = "gfw" ]; then
+			ipset save gfwlist > /tmp/naived_save/gfwlist.save 2>/dev/null
+		fi
+		for setname in china blacklist whitelist netflix; do
+			ipset save $setname > /tmp/naived_save/$setname.save 2>/dev/null
+		done
+	fi
+	# Save nft rules before stopping to preserve transparent proxy state
+	if [ -f "$PERSIST_FILE" ]; then
+		mkdir -p "$BACKUP_DIR"
+		mv "$PERSIST_FILE" "$BACKUP_FILE"
+	fi
+	sh /usr/bin/naived-rules -K
+	local OLD_SERVER="$(uci_get_by_type global old_global_server nil)"
+	local NEW_SERVER="$(uci_get_by_type global global_server nil)"
+	if [ "$OLD_SERVER" != "nil" ] && [ "$NEW_SERVER" != "nil" ] && [ "$OLD_SERVER" != "$NEW_SERVER" ]; then
+		sh /usr/bin/naived-rules -X
+	fi
+	uci delete naived.@global[0].old_global_server 2>/dev/null
+	uci commit naived
+	sh /usr/bin/naived-rules -f
+	local srulecount=0
+	# nftables / fw4
+	#local srulecount=$(nft list ruleset 2>/dev/null | grep -c 'SSR-SERVER-RULE')
+	if nft list chain inet fw4 SSR-SERVER-RULE >/dev/null 2>&1; then
+		srulecount=$(nft list chain inet fw4 SSR-SERVER-RULE | grep SSR-SERVER-RULE | wc -l)
+	fi
+	if [ $srulecount -gt 0 ]; then
+		# nftables / fw4
+		if nft list table inet fw4 >/dev/null 2>&1; then
+			if nft list chain inet fw4 SSR-SERVER-RULE >/dev/null 2>&1; then
+				for handle in $(nft --handle list chain inet fw4 input 2>/dev/null | \
+					grep 'jump SSR-SERVER-RULE' | awk '{for(i=1;i<=NF;i++) if($i=="handle") print $(i+1)}'); do
+					nft delete rule inet fw4 input handle $handle 2>/dev/null || true
+				done
+				nft flush chain inet fw4 SSR-SERVER-RULE 2>/dev/null || true
+				nft delete chain inet fw4 SSR-SERVER-RULE 2>/dev/null || true
+			fi
+		fi
+	fi
+	if [ -z "$switch_server" ]; then
+		$PS -w | grep -v "grep" | grep naived-switch | awk '{print $1}' | xargs kill -9 >/dev/null 2>&1 &
+		rm -f /var/lock/naived-switch.lock
+	fi
+	$PS -w | grep -v "grep" | grep naived-monitor | awk '{print $1}' | xargs kill -9 >/dev/null 2>&1 &
+	$PS -w | grep -v "grep" | grep naived-rules | awk '{print $1}' | xargs kill -9 >/dev/null 2>&1 &
+	$PS -w | grep -v "grep" | grep "sleep 0000" | awk '{print $1}' | xargs kill -9 >/dev/null 2>&1 &
+	( \
+		# Graceful kill first, so programs have the chance to stop its subprocesses
+		$PS -w | grep -v "grep" | grep "$TMP_PATH" | awk '{print $1}' | xargs kill >/dev/null 2>&1 ; \
+		sleep 3s; \
+		# Force kill hanged programs
+		$PS -w | grep -v "grep" | grep "$TMP_PATH" | awk '{print $1}' | xargs kill -9 >/dev/null 2>&1 ; \
+	)
+	rm -f /var/lock/naived-monitor.lock
+	if [ "$(uci -q get "dhcp.@dnsmasq[0]._unused_naived_changed")" = "1" ]; then
+		uci -q del "dhcp.@dnsmasq[0].noresolv"
+		uci -q del_list "dhcp.@dnsmasq[0].server"="127.0.0.1#$china_dns_port"
+		uci -q rename "dhcp.@dnsmasq[0]._orig_noresolv"="noresolv"
+		uci -q rename "dhcp.@dnsmasq[0]._orig_server"="server"
+		uci -q del "dhcp.@dnsmasq[0]._unused_naived_changed"
+		uci -q commit "dhcp"
+	fi
+	if [ -f "$DNSMASQ_CONF_DIR/dnsmasq-naived.conf" ]; then
+		rm -rf $DNSMASQ_CONF_DIR/dnsmasq-naived.conf \
+			$TMP_DNSMASQ_PATH \
+			$TMP_PATH/*-naived-*.json \
+			$TMP_PATH/naived-server*.json \
+			$TMP_PATH/*-config-*.json
+
+		/etc/init.d/dnsmasq restart >/dev/null 2>&1
+	fi
+	del_cron
+	unset_lock
+}
+
+reset() {
+	stop
+	set_lock
+	rm -rf /etc/config/naived $LOG_FILE
+	[ -f "/etc/naived/xhttp_address.txt" ] && rm -f /etc/naived/xhttp_address.txt
+	touch /etc/config/naived $LOG_FILE
+	cp /usr/share/naived/naived.config /etc/config/naived
+	unset_lock
+}

@@ -1,0 +1,1742 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-naived\n"
+"POT-Creation-Date: 2026-03-31 13:21+0800\n"
+"PO-Revision-Date: 2026-03-31 13:21+0800\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid ""
+"\"1-3\" is for segmentation at TCP layer, applying to the beginning 1 to 3 "
+"data writes by the client. \"tlshello\" is for TLS client hello packet "
+"fragmentation."
+msgstr ""
+"\"1-3\" 是在TCP层进行分段，适用于客户端开始1到3次数据写入。\"tlshello\" 是TLS"
+"客户端hello包分片。"
+
+msgid "%s Node Use Type"
+msgstr "%s节点使用类型"
+
+msgid "%s Node Use Version"
+msgstr "%s节点使用版本"
+
+msgid "0"
+msgstr ""
+
+msgid "1 Thread"
+msgstr "1线程"
+
+msgid "128 Threads"
+msgstr "128线程"
+
+msgid "16"
+msgstr ""
+
+msgid "16 Threads"
+msgstr "16线程"
+
+msgid "2 Threads"
+msgstr "2线程"
+
+msgid "32 Threads"
+msgstr "32线程"
+
+msgid "360"
+msgstr ""
+
+msgid "360 Security DNS (China Telecom) (101.226.4.6)"
+msgstr ""
+
+msgid "360 Security DNS (China Unicom) (123.125.81.6)"
+msgstr ""
+
+msgid "4 Threads"
+msgstr "4线程"
+
+msgid "64 Threads"
+msgstr "64线程"
+
+msgid "8"
+msgstr ""
+
+msgid "8 Threads"
+msgstr "8线程"
+
+msgid "<font style='color:red'>"
+msgstr ""
+
+msgid "<font><b>"
+msgstr ""
+
+msgid "<h3>Support SS/SSR/NAIVEPROXY/SOCKS5 etc.</h3>"
+msgstr ""
+
+msgid "<ul><li>"
+msgstr ""
+
+msgid "Access Control"
+msgstr "访问控制"
+
+msgid "AdGuard DNSCrypt SDNS"
+msgstr ""
+
+msgid "Advanced Settings"
+msgstr "高级设置"
+
+msgid "Advertising Data"
+msgstr ""
+
+msgid "AliYun Public DNS (223.5.5.5)"
+msgstr ""
+
+msgid "Alias"
+msgstr "别名"
+
+msgid "Alias(optional)"
+msgstr "别名（可选）"
+
+#, fuzzy
+msgid "All Ports"
+msgstr "本地端口"
+
+msgid "Allow all except listed"
+msgstr "允许除列表外的所有"
+
+msgid "Allow listed only"
+msgstr "仅允许列表中的"
+
+msgid "AlterId"
+msgstr ""
+
+#, fuzzy
+msgid "Anti-pollution DNS Server"
+msgstr "DNS防污染"
+
+#, fuzzy
+msgid "Anti-pollution DNS Server For Shunt Mode"
+msgstr "分流模式DNS查询模式"
+
+msgid "Apple Domains DNS"
+msgstr ""
+
+msgid "Apple Domains Data"
+msgstr ""
+
+msgid "Apple Domains Update url"
+msgstr ""
+
+msgid "Apple domains optimization"
+msgstr ""
+
+msgid "Apply"
+msgstr "应用"
+
+#, fuzzy
+msgid "Are you sure you want to restore the client to default settings?"
+msgstr "您想将客户端恢复到默认设置吗？"
+
+msgid "Auto Switch"
+msgstr "自动切换"
+
+msgid "Auto Threads"
+msgstr "自动线程"
+
+msgid "Auto Update"
+msgstr "自动更新"
+
+msgid "Auto Update Server subscription, GFW list and CHN route"
+msgstr "自动更新服务器订阅、GFW列表和中国路由"
+
+msgid "BBR"
+msgstr ""
+
+msgid "BRUTAL"
+msgstr ""
+
+msgid "Backup and Restore"
+msgstr "备份和恢复"
+
+msgid "Backup or Restore Client and Server Configurations."
+msgstr "备份或恢复客户端和服务器配置。"
+
+msgid "Baidu Connectivity"
+msgstr ""
+
+msgid "Baidu Public DNS (180.76.76.76)"
+msgstr ""
+
+msgid "Base64 sstr failed."
+msgstr ""
+
+msgid "BitTorrent (uTP)"
+msgstr ""
+
+msgid "Black Domain List"
+msgstr "黑名单域名列表"
+
+msgid "Bloom Filter"
+msgstr ""
+
+msgid "Bypass Domain List"
+msgstr "绕过域名列表"
+
+msgid "CLOSE WIN"
+msgstr ""
+
+msgid "CNNIC SDNS (1.2.4.8)"
+msgstr ""
+
+msgid "CUBIC"
+msgstr ""
+
+msgid "Camouflage Domain"
+msgstr ""
+
+msgid "Camouflage Type"
+msgstr ""
+
+msgid "Certificate fingerprint"
+msgstr ""
+
+msgid "Check Connect"
+msgstr "检查连接"
+
+msgid "Check Server"
+msgstr "检查服务器"
+
+msgid "Check Server Port"
+msgstr "检查服务器端口"
+
+#, fuzzy
+msgid "Check Try Count"
+msgstr "检查连接"
+
+msgid "Check timout(second)"
+msgstr ""
+
+msgid "Check..."
+msgstr "检查..."
+
+msgid "China IP Data"
+msgstr ""
+
+#, fuzzy
+msgid "ChinaDNS-NG query protocol"
+msgstr "使用ChinaDNS-NG查询和缓存"
+
+#, fuzzy
+msgid "ChinaDNS-NG shunt query protocol"
+msgstr "使用ChinaDNS-NG查询和缓存"
+
+#, fuzzy
+msgid "Chnroute Update url"
+msgstr "自动更新"
+
+msgid "Clang.CN"
+msgstr ""
+
+msgid "Clang.CN.CIDR"
+msgstr ""
+
+msgid "Clear logs"
+msgstr "清除日志"
+
+msgid "Click here to view or manage the DNS list file"
+msgstr ""
+
+msgid "Click to the page"
+msgstr ""
+
+msgid "Cloudflare DNS"
+msgstr ""
+
+msgid "Cloudflare DNS (1.1.1.1)"
+msgstr ""
+
+msgid "Cloudflare DNSCrypt SDNS"
+msgstr ""
+
+msgid "Collecting data..."
+msgstr "正在收集数据..."
+
+msgid "Configure XHTTP Extra Settings (JSON format), see:"
+msgstr "配置 XHTTP 额外设置（JSON格式），请参考："
+
+msgid "Congestion"
+msgstr ""
+
+msgid "Congestion control algorithm"
+msgstr ""
+
+msgid "Connect Error"
+msgstr "连接错误"
+
+msgid "Connect OK"
+msgstr "连接成功"
+
+msgid "Connection Timeout"
+msgstr "连接超时"
+
+msgid ""
+"Controls the policy used when performing DNS queries for ECH configuration."
+msgstr ""
+
+#, fuzzy
+msgid "Copy SSR to clipboard successfully."
+msgstr "无法复制SSR到剪贴板。"
+
+msgid "Create Backup File"
+msgstr "创建备份文件"
+
+#, fuzzy
+msgid "Create upload file error."
+msgstr "创建备份文件"
+
+msgid "Current Certificate Path"
+msgstr ""
+
+msgid "Custom"
+msgstr "自定义"
+
+msgid ""
+"Custom DNS Server (support: IP:Port or tls://IP:Port or https://IP/dns-query "
+"and other format)."
+msgstr ""
+"自定义DNS服务器（支持：IP:Port 或 tls://IP:Port 或 https://IP/dns-query 等格"
+"式）。"
+
+msgid "Custom DNS Server format as IP:PORT (default: 8.8.4.4:53)"
+msgstr "自定义DNS服务器格式为 IP:PORT（默认：8.8.4.4:53）"
+
+msgid "Custom DNS Server format as IP:PORT (default: disabled)"
+msgstr "自定义DNS服务器格式为 IP:PORT（默认：禁用）"
+
+msgid ""
+"Custom DNS Server format as tcp://IP:PORT or tls://DOMAIN:PORT (tcp://"
+"8.8.8.8 or tls://dns.google:853)"
+msgstr ""
+"自定义DNS服务器格式为 tcp://IP:PORT 或 tls://DOMAIN:PORT（tcp://8.8.8.8 或 "
+"tls://dns.google:853）"
+
+msgid "Custom Plugin Path"
+msgstr "自定义插件路径"
+
+msgid "Custom Ports"
+msgstr "自定义端口"
+
+#, fuzzy
+msgid "Customize Netflix IP Url"
+msgstr "仅Netflix IP"
+
+#, fuzzy
+msgid "DL Backup"
+msgstr "恢复备份"
+
+msgid "DNS"
+msgstr "DNS"
+
+msgid "DNS Anti-pollution"
+msgstr "DNS防污染"
+
+msgid "DNS Query Mode For Shunt Mode"
+msgstr "分流模式DNS查询模式"
+
+msgid "DNSPod Public DNS (119.29.29.29)"
+msgstr ""
+
+msgid "DTLS 1.2"
+msgstr ""
+
+msgid "Default"
+msgstr "默认"
+
+msgid "Default reject rejects traffic."
+msgstr ""
+
+msgid "Default value 0 indicatesno heartbeat."
+msgstr ""
+
+msgid ""
+"Default: disable. When entering a negative number, such as -1, The Mux "
+"module will not be used to carry TCP traffic."
+msgstr ""
+
+msgid ""
+"Default:16. When entering a negative number, such as -1, The Mux module will "
+"not be used to carry UDP traffic, Use original UDP transmission method of "
+"proxy protocol."
+msgstr ""
+
+msgid "Defines the upstreams logic mode"
+msgstr ""
+
+msgid ""
+"Defines the upstreams logic mode, possible values: load_balance, parallel, "
+"fastest_addr (default: load_balance)."
+msgstr ""
+
+msgid "Delay (ms)"
+msgstr ""
+
+msgid "Deny Domain List"
+msgstr "拒绝域名列表"
+
+msgid "Disable"
+msgstr "禁用"
+
+msgid "Disable ChinaDNS-NG"
+msgstr "禁用ChinaDNS-NG"
+
+#, fuzzy
+msgid "Disable IPv6 In MosDNS Query Mode (Shunt Mode)"
+msgstr "分流模式DNS查询模式"
+
+msgid "Disable IPv6 in MOSDNS query mode"
+msgstr ""
+
+msgid "Disable IPv6 query mode"
+msgstr ""
+
+msgid "Disable QUIC path MTU discovery"
+msgstr ""
+
+#, fuzzy
+msgid "Disable SNI"
+msgstr "禁用"
+
+msgid "Disable TCP No_delay"
+msgstr ""
+
+msgid "Dnsproxy Parse List"
+msgstr ""
+
+msgid "Do Reset"
+msgstr "执行重置"
+
+msgid "Do you want to restore the client to default settings?"
+msgstr "您想将客户端恢复到默认设置吗？"
+
+msgid "DoT upstream (Need use wolfssl version)"
+msgstr ""
+
+msgid "Domain Strategy"
+msgstr "域名策略"
+
+msgid "Domestic DNS Server"
+msgstr "国内DNS服务器"
+
+msgid "Downlink Capacity(Default:Mbps)"
+msgstr ""
+
+msgid "Dual-stack Listening Socket"
+msgstr ""
+
+msgid "ECH Config"
+msgstr ""
+
+msgid "ECH Query Policy"
+msgstr ""
+
+msgid "Early Data Header Name"
+msgstr ""
+
+#, fuzzy
+msgid "Edit ShadowSocksR Server"
+msgstr "ShadowSocks"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "Enable 0-RTT QUIC handshake"
+msgstr ""
+
+#, fuzzy
+msgid "Enable Authentication"
+msgstr "用户认证"
+
+msgid "Enable Auto Switch"
+msgstr "启用自动切换"
+
+#, fuzzy
+msgid "Enable ECH(optional)"
+msgstr "别名（可选）"
+
+#, fuzzy
+msgid "Enable Lazy Mode"
+msgstr "外部代理模式"
+
+msgid "Enable ML-DSA-65(optional)"
+msgstr ""
+
+msgid ""
+"Enable Multipath TCP, need to be enabled in both server and client "
+"configuration."
+msgstr ""
+
+msgid "Enable Mux.Cool"
+msgstr ""
+
+#, fuzzy
+msgid "Enable Netflix Mode"
+msgstr "Netflix节点"
+
+#, fuzzy
+msgid "Enable Obfuscation"
+msgstr "混淆类型"
+
+#, fuzzy
+msgid "Enable Plugin"
+msgstr "启用"
+
+msgid "Enable Port Hopping"
+msgstr ""
+
+msgid "Enable Server"
+msgstr "启用服务器"
+
+#, fuzzy
+msgid "Enable Transport Protocol Settings"
+msgstr "传输协议"
+
+msgid "Enable V2 protocol."
+msgstr ""
+
+msgid "Enable V3 protocol."
+msgstr ""
+
+msgid "Enable adblock"
+msgstr "启用广告拦截"
+
+msgid "Enable the SUoT protocol, requires server support."
+msgstr ""
+
+#, fuzzy
+msgid "Enable this option to configure XHTTP Extra (JSON format)."
+msgstr "配置 XHTTP 额外设置（JSON格式），请参考："
+
+msgid "Enabled Kernel virtual NIC TUN(optional)"
+msgstr ""
+
+#, fuzzy
+msgid "Enabled Mixed"
+msgstr "启用"
+
+msgid "Enabling TCP Fast Open Requires Server Support."
+msgstr ""
+
+msgid "Encrypt Method"
+msgstr "加密方法"
+
+msgid "Enter Custom Ports"
+msgstr "输入自定义端口"
+
+msgid "Every Day"
+msgstr "每天"
+
+msgid "Every Friday"
+msgstr "每周五"
+
+msgid "Every Monday"
+msgstr "每周一"
+
+msgid "Every Saturday"
+msgstr "每周六"
+
+msgid "Every Sunday"
+msgstr "每周日"
+
+msgid "Every Thursday"
+msgstr "每周四"
+
+msgid "Every Tuesday"
+msgstr "每周二"
+
+msgid "Every Wednesday"
+msgstr "每周三"
+
+msgid "Expecting: %s"
+msgstr ""
+
+msgid "External Proxy Mode"
+msgstr "外部代理模式"
+
+msgid "FORCE BRUTAL"
+msgstr ""
+
+msgid "Filter Words splited by /"
+msgstr ""
+
+msgid "Finger Print"
+msgstr ""
+
+msgid "Flow"
+msgstr ""
+
+msgid ""
+"For Apple domains equipped with Chinese mainland CDN, always responsive to "
+"Chinese CDN IP addresses"
+msgstr ""
+
+msgid "For specific usage, see:"
+msgstr ""
+
+msgid ""
+"Format as 10000:20000 or 10000-20000 Multiple groups are separated by commas "
+"(,)."
+msgstr ""
+
+msgid "Forward Netflix Proxy through Main Proxy"
+msgstr ""
+
+msgid "Fragment"
+msgstr "分片"
+
+msgid "Fragment Interval"
+msgstr "分片间隔"
+
+msgid "Fragment Length"
+msgstr "分片长度"
+
+msgid "Fragment Packets"
+msgstr "分片包"
+
+msgid "Fragmentation interval (ms)"
+msgstr "分片间隔（毫秒）"
+
+msgid "Fragmented packet length (byte)"
+msgstr "分片包长度（字节）"
+
+msgid "GFW List Data"
+msgstr ""
+
+msgid "GFW List Mode"
+msgstr ""
+
+#, fuzzy
+msgid "Game Mode Host List"
+msgstr "局域网绕过主机列表"
+
+msgid "Game Mode UDP Relay"
+msgstr ""
+
+msgid "Game Mode UDP Server"
+msgstr ""
+
+#, fuzzy
+msgid "Garbage collection interval(second)"
+msgstr "分片间隔（毫秒）"
+
+msgid "Garbage collection lifetime(second)"
+msgstr ""
+
+msgid "Global Client"
+msgstr "全局客户端"
+
+msgid "Global Mode"
+msgstr "全局模式"
+
+msgid "Global SOCKS5 Proxy Server"
+msgstr "全局SOCKS5代理服务器"
+
+msgid "Global Setting"
+msgstr "全局设置"
+
+msgid "Google Connectivity"
+msgstr ""
+
+msgid "Google DNSCrypt SDNS"
+msgstr ""
+
+msgid "Google Public DNS"
+msgstr "谷歌公共DNS"
+
+#, fuzzy
+msgid "Google Public DNS (8.8.4.4)"
+msgstr "谷歌公共DNS"
+
+#, fuzzy
+msgid "Google Public DNS (8.8.8.8)"
+msgstr "谷歌公共DNS"
+
+msgid "Grant UCI access for luci-app-naived"
+msgstr "授予luci-app-naived的UCI访问权限"
+
+msgid "Gun"
+msgstr ""
+
+#, fuzzy
+msgid "H2 Read Idle Timeout"
+msgstr "健康检查超时"
+
+#, fuzzy
+msgid "H2/gRPC Health Check"
+msgstr "健康检查超时"
+
+msgid "HTTP"
+msgstr "HTTP"
+
+msgid "HTTP Host"
+msgstr "HTTP主机"
+
+msgid "HTTP Path"
+msgstr "HTTP路径"
+
+msgid "HTTP/2 Host"
+msgstr "HTTP/2主机"
+
+msgid "HTTP/2 Path"
+msgstr "HTTP/2路径"
+
+msgid "Header"
+msgstr "头部"
+
+msgid "Health Check Timeout"
+msgstr "健康检查超时"
+
+#, fuzzy
+msgid "Heartbeat interval(second)"
+msgstr "分片间隔（毫秒）"
+
+msgid "Httpupgrade Host"
+msgstr ""
+
+msgid "Httpupgrade Path"
+msgstr ""
+
+msgid "Hysteria2"
+msgstr "Hysteria2"
+
+msgid "Hysterir QUIC parameters"
+msgstr ""
+
+msgid "IP Route Mode"
+msgstr "IP路由模式"
+
+msgid "IP Stack Preference"
+msgstr ""
+
+msgid "IP Type"
+msgstr "IP类型"
+
+msgid "If empty, Not change Apple domains parsing DNS (Default is empty)"
+msgstr ""
+
+msgid ""
+"If it is not empty, it indicates that the Client has enabled Encrypted "
+"Client, see:"
+msgstr ""
+
+msgid "If this option is not set, the socket behavior is platform dependent."
+msgstr ""
+
+msgid ""
+"If true, allowss insecure connection at TLS client, e.g., TLS server uses "
+"unverifiable certificates."
+msgstr ""
+
+msgid "If you have a self-signed certificate,please check the box"
+msgstr ""
+
+msgid "Import"
+msgstr "导入"
+
+msgid "Import configuration information successfully."
+msgstr "成功导入配置信息。"
+
+msgid "Initial Windows Size"
+msgstr ""
+
+msgid "Interface"
+msgstr "接口"
+
+msgid "Interface control"
+msgstr "接口控制"
+
+msgid "Invalid JSON format"
+msgstr "无效的JSON格式"
+
+msgid "Invalid format."
+msgstr "无效格式。"
+
+msgid "KcpTun"
+msgstr ""
+
+#, fuzzy
+msgid "KcpTun Enable"
+msgstr "启用"
+
+msgid "KcpTun Param"
+msgstr ""
+
+#, fuzzy
+msgid "KcpTun Password"
+msgstr "密码"
+
+msgid "KcpTun Port"
+msgstr ""
+
+#, fuzzy
+msgid "KcpTun Version"
+msgstr "Socks版本"
+
+msgid "LAN Access Control"
+msgstr "局域网访问控制"
+
+msgid "LAN Bypassed Host List"
+msgstr "局域网绕过主机列表"
+
+msgid "LAN Force Proxy Host List"
+msgstr "局域网强制代理主机列表"
+
+msgid "LAN Host List"
+msgstr "局域网主机列表"
+
+msgid "LAN IP AC"
+msgstr "局域网IP访问控制"
+
+msgid "Level 3 Public DNS (209.244.0.3)"
+msgstr ""
+
+msgid "Level 3 Public DNS (209.244.0.4)"
+msgstr ""
+
+msgid "Level 3 Public DNS (4.2.2.1)"
+msgstr ""
+
+msgid "Level 3 Public DNS (4.2.2.2)"
+msgstr ""
+
+msgid "Level 3 Public DNS (4.2.2.3)"
+msgstr ""
+
+msgid "Level 3 Public DNS (4.2.2.4)"
+msgstr ""
+
+msgid "Level 3 Public DNS-1 (209.244.0.3-4)"
+msgstr ""
+
+msgid "Level 3 Public DNS-2 (4.2.2.1-2)"
+msgstr ""
+
+msgid "Level 3 Public DNS-3 (4.2.2.3-4)"
+msgstr ""
+
+msgid "Limit the maximum number of splits."
+msgstr ""
+
+msgid "Listen only on the given interface or, if unspecified, on all"
+msgstr ""
+
+msgid "Local Port"
+msgstr "本地端口"
+
+msgid "Local Servers"
+msgstr "本地服务器"
+
+msgid "Local addresses"
+msgstr "本地地址"
+
+msgid "Log"
+msgstr "日志"
+
+msgid "Loukky/gfwlist-by-loukky"
+msgstr ""
+
+#, fuzzy
+msgid "ML-DSA-65 Public key"
+msgstr "公钥"
+
+msgid "MPTCP"
+msgstr ""
+
+msgid "MTU"
+msgstr ""
+
+msgid "Main Server"
+msgstr "主服务器"
+
+msgid "Max Early Data"
+msgstr ""
+
+msgid "Max Split"
+msgstr ""
+
+msgid "Maximum packet size the socks5 server can receive from external"
+msgstr ""
+
+msgid ""
+"Min value is 1, Max value is 1024. When omitted or set to 0, Will same path "
+"as TCP traffic."
+msgstr ""
+
+msgid ""
+"Min value is 1, Max value is 128. When omitted or set to 0, it equals 8."
+msgstr ""
+
+msgid "Mixed as an alias of socks, default:Enabled."
+msgstr ""
+
+msgid "Move down"
+msgstr "下移"
+
+msgid "Move up"
+msgstr "上移"
+
+msgid "Muitiple DNS server can saperate with ','"
+msgstr ""
+
+msgid "Multi"
+msgstr "多线程"
+
+msgid "Multi Threads Option"
+msgstr "多线程选项"
+
+msgid "Mux"
+msgstr "多路复用"
+
+msgid "NEO DEV HOST"
+msgstr ""
+
+msgid "NOT RUNNING"
+msgstr "未运行"
+
+msgid "NaiveProxy"
+msgstr "NaiveProxy"
+
+msgid "Nanjing Xinfeng 114DNS (114.114.114.114)"
+msgstr ""
+
+msgid "Netflix Domain List"
+msgstr "Netflix域名列表"
+
+#, fuzzy
+msgid "Netflix IP Data"
+msgstr "仅Netflix IP"
+
+msgid "Netflix IP Only"
+msgstr "仅Netflix IP"
+
+msgid "Netflix Node"
+msgstr "Netflix节点"
+
+#, fuzzy
+msgid "Netflix and AWS"
+msgstr "Netflix节点"
+
+msgid "Network Tunnel"
+msgstr "网络隧道"
+
+msgid "Network interface to use"
+msgstr "要使用的网络接口"
+
+msgid "New Reno"
+msgstr ""
+
+msgid "No Check"
+msgstr "不检查"
+
+msgid "No new data!"
+msgstr "没有新数据！"
+
+msgid "No specify upload file."
+msgstr "未指定上传文件。"
+
+msgid "Noise"
+msgstr ""
+
+msgid "None"
+msgstr "无"
+
+msgid "Not Running"
+msgstr "未运行"
+
+msgid "Not exist"
+msgstr "不存在"
+
+msgid ""
+"Note: Restoring configurations across different versions may cause "
+"compatibility issues."
+msgstr ""
+
+msgid "Number of early established connections to reduce latency."
+msgstr ""
+
+msgid "Obfs"
+msgstr "混淆"
+
+msgid "Obfs param (optional)"
+msgstr "混淆参数（可选）"
+
+msgid "Obfuscate password (optional)"
+msgstr "混淆密码（可选）"
+
+msgid "Obfuscation Password"
+msgstr "混淆密码"
+
+msgid "Obfuscation Type"
+msgstr "混淆类型"
+
+msgid "Once set, connects only when the server’s chain fingerprint matches."
+msgstr ""
+
+msgid "Only Common Ports"
+msgstr "仅常用端口"
+
+msgid "Only when Socks5 Auth Mode is password valid, Mandatory."
+msgstr ""
+
+msgid "Only when Socks5 Auth Mode is password valid, Not mandatory."
+msgstr ""
+
+msgid "OpenDNS"
+msgstr ""
+
+msgid "OpenDNS (208.67.220.220)"
+msgstr ""
+
+msgid "OpenDNS (208.67.222.222)"
+msgstr ""
+
+msgid "Oversea Mode"
+msgstr "海外模式"
+
+msgid "Oversea Mode DNS-1 (114.114.114.114)"
+msgstr ""
+
+msgid "Oversea Mode DNS-2 (114.114.115.115)"
+msgstr ""
+
+msgid "Packet"
+msgstr "数据包"
+
+msgid "Password"
+msgstr "密码"
+
+msgid "Paste sharing link here"
+msgstr "在此粘贴分享链接"
+
+#, fuzzy
+msgid "Peer public key"
+msgstr "公钥"
+
+msgid "Perform reset"
+msgstr ""
+
+msgid "Permit Without Stream"
+msgstr ""
+
+msgid "Ping Latency"
+msgstr "Ping延迟"
+
+msgid "Please confirm the current certificate path"
+msgstr ""
+
+msgid "Please fill in reset"
+msgstr ""
+
+msgid "Plugin Opts"
+msgstr "插件选项"
+
+msgid "Port Hopping Interval(Unit:Second)"
+msgstr "端口跳跃间隔（单位：秒）"
+
+msgid "Port hopping range"
+msgstr "端口跳跃范围"
+
+msgid "Pre-connections"
+msgstr "预连接"
+
+#, fuzzy
+msgid "Pre-shared key"
+msgstr "私钥"
+
+msgid "Prefer firewall tools"
+msgstr "首选防火墙工具"
+
+msgid "Private key"
+msgstr "私钥"
+
+msgid "Protocol"
+msgstr "协议"
+
+msgid "Protocol param (optional)"
+msgstr "协议参数（可选）"
+
+msgid "Proxy Ports"
+msgstr "代理端口"
+
+msgid "Public key"
+msgstr "公钥"
+
+#, fuzzy
+msgid "QUIC Key"
+msgstr "QUIC安全"
+
+msgid "QUIC Security"
+msgstr "QUIC安全"
+
+msgid "QUIC initConnReceiveWindow"
+msgstr ""
+
+msgid "QUIC initStreamReceiveWindow"
+msgstr ""
+
+msgid "QUIC maxConnReceiveWindow"
+msgstr ""
+
+msgid "QUIC maxIdleTimeout(Unit:second)"
+msgstr ""
+
+msgid "QUIC maxStreamReceiveWindow"
+msgstr ""
+
+msgid "Quad9 DNSCrypt SDNS"
+msgstr ""
+
+msgid "REALITY"
+msgstr "REALITY"
+
+msgid "RST Backup"
+msgstr "恢复备份"
+
+msgid "RUNNING"
+msgstr "运行中"
+
+msgid "Read Buffer Size"
+msgstr "读缓冲区大小"
+
+msgid "Really reset all changes?"
+msgstr "真的要重置所有更改吗？"
+
+msgid "Reapply"
+msgstr "重新应用"
+
+msgid "Records"
+msgstr "记录"
+
+msgid "Redirect traffic to this network interface"
+msgstr "将流量重定向到此网络接口"
+
+msgid "Refresh Data"
+msgstr "刷新数据"
+
+msgid "Refresh Error!"
+msgstr "刷新错误！"
+
+msgid "Refresh OK!"
+msgstr "刷新成功！"
+
+msgid "Refresh..."
+msgstr "刷新..."
+
+msgid "Regular update (Hour)"
+msgstr "定期更新（小时）"
+
+msgid "Regular update (Min)"
+msgstr "定期更新（分钟）"
+
+msgid "Reno"
+msgstr ""
+
+msgid "Reserved bytes(optional)"
+msgstr ""
+
+msgid "Reset complete"
+msgstr "重置完成"
+
+msgid "Reset to defaults"
+msgstr "重置为默认值"
+
+msgid "Resolve Dns Mode"
+msgstr ""
+
+msgid "Restart Service"
+msgstr "重启服务"
+
+msgid "Restart Naived"
+msgstr "重启Naived"
+
+msgid "Restore Backup File"
+msgstr "恢复备份文件"
+
+msgid "Restore to default configuration"
+msgstr "恢复为默认配置"
+
+msgid "Running"
+msgstr "运行中"
+
+msgid "Running Mode"
+msgstr "运行模式"
+
+msgid "SS URL base64 sstr format not recognized."
+msgstr ""
+
+msgid "SSR Client"
+msgstr "SSR客户端"
+
+msgid "SSR Server"
+msgstr "SSR服务器"
+
+msgid "Same as Global Server"
+msgstr "与全局服务器相同"
+
+msgid "Save Words splited by /"
+msgstr ""
+
+msgid "Select DNS parse Mode"
+msgstr ""
+
+#, fuzzy
+msgid "Selection ShadowSocks Node Use Version."
+msgstr "ShadowSocks-rust版本"
+
+msgid "Self-signed Certificate"
+msgstr ""
+
+msgid "Server"
+msgstr "服务器"
+
+msgid "Server Address"
+msgstr "服务器地址"
+
+msgid "Server Count"
+msgstr "服务器数量"
+
+msgid "Server Node Type"
+msgstr "服务器节点类型"
+
+msgid "Server Port"
+msgstr "服务器端口"
+
+msgid "Server Setting"
+msgstr "服务器设置"
+
+msgid "Server Type"
+msgstr "服务器类型"
+
+msgid "Server failsafe auto swith and custom update settings"
+msgstr ""
+
+msgid "Servers Nodes"
+msgstr "服务器节点"
+
+msgid "Servers subscription and manage"
+msgstr "服务器订阅和管理"
+
+msgid "Session Ticket"
+msgstr ""
+
+msgid "Set Single DNS"
+msgstr ""
+
+#, fuzzy
+msgid "Shadow-TLS"
+msgstr "ShadowSocks"
+
+msgid "Shadow-TLS ChainPoxy type"
+msgstr ""
+
+msgid "ShadowSocks"
+msgstr "ShadowSocks"
+
+msgid "ShadowSocks-libev Version"
+msgstr "ShadowSocks-libev版本"
+
+msgid "ShadowSocks-rust Version"
+msgstr "ShadowSocks-rust版本"
+
+msgid "Naived"
+msgstr "Naived"
+
+msgid "Naived Settings"
+msgstr "Naived设置"
+
+msgid "Shadowsocks password"
+msgstr "Shadowsocks密码"
+
+msgid "ShadowsocksR"
+msgstr "ShadowsocksR"
+
+msgid "Short ID"
+msgstr ""
+
+#, fuzzy
+msgid "Socket Connected"
+msgstr "检查连接"
+
+msgid "Socks"
+msgstr "Socks"
+
+msgid "Socks Version"
+msgstr "Socks版本"
+
+msgid "Socks protocol auth methods, default:noauth."
+msgstr ""
+
+msgid "Socks5"
+msgstr "Socks5"
+
+msgid "Socks5 Auth Mode"
+msgstr "Socks5认证模式"
+
+msgid "Socks5 Password"
+msgstr "Socks5密码"
+
+msgid "Socks5 User"
+msgstr "Socks5用户"
+
+msgid "Specifically for edit dnsproxy DNS parse files."
+msgstr ""
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Support AdGuardHome and DNSMASQ format list"
+msgstr ""
+
+msgid "Switch check cycly(second)"
+msgstr "切换检查周期（秒）"
+
+msgid "TCP Fast Open"
+msgstr "TCP快速打开"
+
+msgid ""
+"TCP fragments, which can deceive the censorship system in some cases, such "
+"as bypassing SNI blacklists."
+msgstr ""
+
+msgid "TCP upstream"
+msgstr ""
+
+msgid "TLS"
+msgstr "TLS"
+
+msgid "TLS 1.3 Strict mode"
+msgstr "TLS 1.3严格模式"
+
+msgid "TLS ALPN"
+msgstr "TLS ALPN"
+
+msgid "TLS Certificate Name (CertName)"
+msgstr "TLS证书名称（CertName）"
+
+msgid "TLS Chain Fingerprint (SHA256)"
+msgstr "TLS链指纹（SHA256）"
+
+msgid "TLS Host"
+msgstr "TLS主机"
+
+msgid "TLS is used to verify the leaf certificate name."
+msgstr ""
+
+msgid "TTI"
+msgstr ""
+
+msgid "TUIC"
+msgstr "TUIC"
+
+msgid "TUIC ALPN"
+msgstr "TUIC ALPN"
+
+msgid "TUIC Server IP Address"
+msgstr "TUIC服务器IP地址"
+
+msgid "TUIC User Password"
+msgstr "TUIC用户密码"
+
+msgid "TUIC User UUID"
+msgstr "TUIC用户UUID"
+
+msgid "TUIC receive window"
+msgstr ""
+
+msgid "TUIC send window"
+msgstr ""
+
+msgid "TWNIC-101 DNSCrypt SDNS"
+msgstr ""
+
+msgid ""
+"The client has not configured mldsa65Verify, but it will not perform the "
+"\"additional verification\" step and can still connect normally, see:"
+msgstr ""
+
+msgid ""
+"The configured type also applies to the core specified when manually "
+"importing nodes."
+msgstr ""
+
+msgid "The content entered is incorrect!"
+msgstr ""
+
+msgid "The keep-alive period.(Unit:second)"
+msgstr ""
+
+msgid "Through proxy update"
+msgstr ""
+
+msgid "Through proxy update list, Not Recommended"
+msgstr ""
+
+msgid "Timeout for establishing a connection to server(second)"
+msgstr ""
+
+msgid "Tips: Dnsproxy DNS Parse List Path:"
+msgstr ""
+
+msgid "To Bottom"
+msgstr "到底部"
+
+msgid "To Top"
+msgstr "到顶部"
+
+msgid "Total Records:"
+msgstr "总记录数："
+
+msgid "Transport"
+msgstr "传输"
+
+msgid "Transport Protocol"
+msgstr "传输协议"
+
+msgid "Trojan"
+msgstr "Trojan"
+
+msgid "Type"
+msgstr "类型"
+
+msgid "UDP"
+msgstr "UDP"
+
+msgid ""
+"UDP noise, Under some circumstances it can bypass some UDP based protocol "
+"restrictions."
+msgstr ""
+
+msgid "UDP over TCP"
+msgstr "UDP over TCP"
+
+msgid "UDP relay mode"
+msgstr "UDP中继模式"
+
+#, fuzzy
+msgid "UDP upstream"
+msgstr "UDP中继模式"
+
+msgid "UDP/TCP upstream"
+msgstr ""
+
+msgid "UL Restore"
+msgstr "上传恢复"
+
+msgid "Unable to copy SSR to clipboard."
+msgstr "无法复制SSR到剪贴板。"
+
+msgid "Unknown"
+msgstr "未知"
+
+msgid "Update cycle (Day/Week)"
+msgstr "更新周期（天/周）"
+
+msgid "Uplink Capacity(Default:Mbps)"
+msgstr ""
+
+msgid "Upload"
+msgstr "上传"
+
+msgid "Use ChinaDNS-NG query and cache"
+msgstr "使用ChinaDNS-NG查询和缓存"
+
+msgid "Use DNS List File"
+msgstr "使用DNS列表文件"
+
+msgid "Use DNS from WAN"
+msgstr "使用WAN的DNS"
+
+msgid "Use DNS from WAN and 114DNS"
+msgstr "使用WAN和114DNS"
+
+msgid "Use DNS2SOCKS query and cache"
+msgstr "使用DNS2SOCKS查询和缓存"
+
+msgid "Use DNS2SOCKS-RUST query and cache"
+msgstr "使用DNS2SOCKS-RUST查询和缓存"
+
+msgid "Use DNS2TCP query"
+msgstr "使用DNS2TCP查询"
+
+msgid "Use DNSPROXY query and cache"
+msgstr "使用DNSPROXY查询和缓存"
+
+msgid "Use Local DNS Service listen port 5335"
+msgstr "使用本地DNS服务监听端口5335"
+
+msgid "Use MOSDNS query (Not Support Oversea Mode)"
+msgstr ""
+
+msgid "Use MosDNS query"
+msgstr "使用MosDNS查询"
+
+msgid ""
+"Use it together with the DNS disguised type. You can fill in any domain."
+msgstr ""
+
+msgid "User cancelled."
+msgstr "用户取消。"
+
+msgid "User-Agent"
+msgstr "用户代理"
+
+msgid "Userinfo format error."
+msgstr ""
+
+msgid "Username"
+msgstr "用户名"
+
+msgid "Users Authentication"
+msgstr "用户认证"
+
+msgid "Using incorrect encryption mothod may causes service fail to start"
+msgstr ""
+
+msgid "VLESS"
+msgstr "VLESS"
+
+msgid "VLESS Encryption"
+msgstr "VLESS加密"
+
+msgid "VMess"
+msgstr "VMess"
+
+msgid "VideoCall (SRTP)"
+msgstr ""
+
+msgid ""
+"Virtual NIC TUN of Linux kernel can be used only when system supports and "
+"have root permission. If used, IPv6 routing table 1023 is occupied."
+msgstr ""
+
+msgid "Vmess Protocol"
+msgstr "Vmess协议"
+
+msgid "Vmess UUID"
+msgstr "Vmess UUID"
+
+msgid "Vmess/VLESS ID (UUID)"
+msgstr "Vmess/VLESS ID（UUID）"
+
+msgid "WAN Force Proxy IP"
+msgstr "WAN强制代理IP"
+
+msgid "WAN IP AC"
+msgstr "WAN IP访问控制"
+
+msgid "WAN White List IP"
+msgstr "WAN白名单IP"
+
+msgid "WebSocket Host"
+msgstr "WebSocket主机"
+
+msgid "WebSocket Path"
+msgstr "WebSocket路径"
+
+msgid "WechatVideo"
+msgstr ""
+
+msgid "When disabled shunt mode, will same time stopped shunt service."
+msgstr ""
+
+msgid "When disabled, all AAAA requests are not resolved."
+msgstr ""
+
+msgid "When two or more DNS servers are deployed, enable this function."
+msgstr ""
+
+msgid ""
+"When use DNS list file, please ensure list file exists and is formatted "
+"correctly."
+msgstr ""
+
+msgid "WireGuard"
+msgstr "WireGuard"
+
+msgid "Wireguard allows only traffic from specific source IP."
+msgstr ""
+
+msgid "Wireguard reserved bytes."
+msgstr ""
+
+msgid "Write Buffer Size"
+msgstr "写缓冲区大小"
+
+msgid "XHTTP Extra"
+msgstr "XHTTP额外"
+
+msgid "XHTTP Host"
+msgstr "XHTTP主机"
+
+msgid "XHTTP Mode"
+msgstr "XHTTP模式"
+
+msgid "XHTTP Path"
+msgstr "XHTTP路径"
+
+msgid "adblock_url"
+msgstr ""
+
+msgid "aes-128-gcm"
+msgstr "aes-128-gcm"
+
+msgid "allow"
+msgstr "允许"
+
+msgid "allow: Allows use Mux connection."
+msgstr ""
+
+msgid "allowInsecure"
+msgstr "允许不安全"
+
+#, fuzzy
+msgid "allowedIPs(optional)"
+msgstr "别名（可选）"
+
+msgid "android"
+msgstr ""
+
+msgid "anti-AD"
+msgstr ""
+
+msgid "chacha20-poly1305"
+msgstr "chacha20-poly1305"
+
+msgid "china-operator-ip"
+msgstr ""
+
+msgid "chrome"
+msgstr ""
+
+msgid "cloudflare-dns.com DNSCrypt SDNS"
+msgstr ""
+
+msgid "comment_tcpcongestion_disable"
+msgstr ""
+
+msgid "concurrency"
+msgstr ""
+
+msgid "custom_tcpcongestion"
+msgstr ""
+
+msgid "disable"
+msgstr "禁用"
+
+msgid "dns.sb DNSCrypt SDNS"
+msgstr ""
+
+msgid "edge"
+msgstr ""
+
+msgid "fastest_addr"
+msgstr "最快地址"
+
+msgid "felixonmars/dnsmasq-china-list"
+msgstr ""
+
+msgid "firefox"
+msgstr ""
+
+msgid "gRPC Idle Timeout"
+msgstr ""
+
+#, fuzzy
+msgid "gRPC Mode"
+msgstr "XHTTP模式"
+
+msgid "gRPC Service Name"
+msgstr ""
+
+msgid "gfwlist Update url"
+msgstr ""
+
+msgid "gfwlist/gfwlist"
+msgstr ""
+
+msgid "ios"
+msgstr ""
+
+msgid "load_balance"
+msgstr "负载均衡"
+
+msgid "lossless UDP relay using QUIC streams"
+msgstr ""
+
+msgid "native UDP characteristics"
+msgstr ""
+
+msgid "nfip_url"
+msgstr ""
+
+msgid "none"
+msgstr "无"
+
+msgid "obfs-local"
+msgstr ""
+
+msgid "parallel"
+msgstr "并行"
+
+msgid "qq"
+msgstr ""
+
+msgid "random"
+msgstr "随机"
+
+msgid "randomized"
+msgstr "随机化"
+
+msgid "reject"
+msgstr "拒绝"
+
+msgid "safari"
+msgstr ""
+
+msgid "shadow-TLS SNI"
+msgstr ""
+
+msgid "shadow-tls"
+msgstr ""
+
+#, fuzzy
+msgid "shadowTLS protocol Version"
+msgstr "ShadowSocks-libev版本"
+
+msgid "skip"
+msgstr "跳过"
+
+msgid ""
+"skip: Not use Mux module to carry UDP 443 traffic, Use original UDP "
+"transmission method of proxy protocol."
+msgstr ""
+
+msgid "spiderX"
+msgstr ""
+
+msgid "v2fly/domain-list-community"
+msgstr ""
+
+msgid "valid address:port"
+msgstr "有效地址:端口"
+
+msgid "warning! Please do not reuse the port!"
+msgstr "警告！请不要重复使用端口！"
+
+msgid "xudpConcurrency"
+msgstr ""
+
+msgid "xudpProxyUDP443"
+msgstr ""

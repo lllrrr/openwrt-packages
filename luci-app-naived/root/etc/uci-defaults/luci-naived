@@ -1,0 +1,46 @@
+#!/bin/sh
+
+if [ -e "/etc/config/ucitrack" ]; then
+    uci -q batch <<-EOF
+        delete ucitrack.@naived[-1]
+        add ucitrack naived
+        set ucitrack.@naived[-1].init=naived
+        commit ucitrack
+EOF
+fi
+
+uci -q batch <<-EOF
+	delete firewall.naived
+	set firewall.naived=include
+	set firewall.naived.type=script
+	set firewall.naived.path=/var/etc/naived.include
+	$(command -v fw4 >/dev/null 2>&1 || echo "set firewall.naived.reload=1")
+	commit firewall
+EOF
+
+rm -rf /etc/config/naived-opkg /etc/naived/*opkg
+touch /etc/naived/china_ip.txt
+touch /etc/naived/deny.list
+touch /etc/naived/white.list
+touch /etc/naived/black.list
+touch /etc/naived/netflix.list
+touch /etc/naived/netflixip.list
+touch /etc/naived/gfw_base.conf
+touch /etc/naived/gfw_list.conf
+touch /etc/naived/oversea_list.conf
+touch /etc/naived/ad.conf
+touch /etc/config/naived
+
+
+[ -s "/etc/config/naived" ] || /etc/init.d/naived reset
+
+if [ -s "/etc/uwsgi/vassals/luci-webui.ini" ];then
+	limit=$(cat /etc/uwsgi/vassals/luci-webui.ini  | grep -Eo "limit-as.*"|grep -Eo "[0-9]+")
+	[ $limit -lt 5000 ] && sed -i '/limit-as/c\limit-as = 5000' /etc/uwsgi/vassals/luci-webui.ini && \
+	/etc/init.d/uwsgi restart
+fi
+
+
+rm -f /tmp/luci-indexcache /tmp/luci-indexcache.*
+rm -rf /tmp/luci-modulecache/
+exit 0

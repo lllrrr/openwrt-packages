@@ -1,0 +1,529 @@
+#!/usr/bin/ucode
+
+'use strict';
+
+import { access, popen, glob, readfile, writefile, stat, unlink } from 'fs';
+import { cursor } from 'uci';
+
+function escapeShellArg(s) {
+	return "'" + replace(s + '', "'", "'\\''") + "'";
+}
+
+const BINARY_PATHS = [
+'/usr/bin/mihomo',
+'/usr/bin/clash-meta',
+'/usr/bin/clash',
+'/etc/clash/clash'
+];
+
+const LOG_PATHS = [
+'/var/log/clash.log',
+'/var/log/clash/clash.log',
+'/tmp/clash.log',
+'/usr/share/clash/clash.txt'
+];
+
+const CONFIG_DIRS = [
+{ path: '/usr/share/clash/config/sub',    type: '1' },
+{ path: '/usr/share/clash/config/upload', type: '2' },
+{ path: '/usr/share/clash/config/custom', type: '3' }
+];
+
+const LIST_FILE = '/usr/share/clashbackup/confit_list.conf';
+const SUB_DIR   = '/usr/share/clash/config/sub';
+
+function find_binary() {
+for (let path in BINARY_PATHS)
+if (access(path, 'x')) return path;
+return '';
+}
+
+function read_first_line(path) {
+if (!access(path, 'r')) return '';
+let content = readfile(path);
+return content ? trim(split(content, '\n')[0] || '') : '';
+}
+
+function uci_get(pkg, sec, opt) {
+let c = cursor();
+c.load(pkg);
+return c.get(pkg, sec, opt) || '';
+}
+
+function is_running() {
+let p = popen("for f in /proc/[0-9]*/exe; do readlink \"$f\" 2>/dev/null; done | grep -qE '/mihomo$|/clash-meta$|/clash$'; echo $?");
+if (!p) return false;
+let r = trim(p.read('all')); p.close();
+return r === '0';
+}
+
+function get_local_ip() {
+let p = popen("ip route get 1.1.1.1 2>/dev/null | grep -o 'src [0-9.]*' | awk '{print $2}'");
+if (!p) return '';
+let ip = trim(p.read('all'));
+p.close();
+return ip;
+}
+
+function get_core_version(binary) {
+if (!binary) return '';
+let p = popen(escapeShellArg(binary) + ' -v 2>&1 | head -1');
+if (!p) return '';
+let v = trim(p.read('all'));
+p.close();
+return v;
+}
+
+function detect_firewall_backend() {
+if (system('command -v fw4 >/dev/null 2>&1') == 0) return 'fw4';
+if (system('command -v firewall >/dev/null 2>&1') == 0) return 'fw3';
+return '';
+}
+
+function detect_missing_fw4_tools() {
+let missing = [];
+if (system('command -v fw4 >/dev/null 2>&1') != 0) push(missing, 'fw4');
+if (system('command -v nft >/dev/null 2>&1') != 0) push(missing, 'nft');
+if (system('command -v ip >/dev/null 2>&1') != 0) push(missing, 'ip');
+return missing;
+}
+
+function get_profiles() {
+let profiles = [];
+let dirs = ['/etc/clash/profiles', '/etc/clash'];
+for (let dir in dirs) {
+if (!access(dir, 'r')) continue;
+for (let f in (glob(dir + '/*.yaml') || [])) {
+let name = replace(f, dir + '/', '');
+if (name && name != 'config.yaml' && !length(filter(profiles, x => x == name)))
+push(profiles, name);
+}
+if (length(profiles) > 0) break;
+}
+return profiles;
+}
+
+function get_log_content() {
+for (let path in LOG_PATHS) {
+if (!access(path, 'r')) continue;
+let p = popen("tail -300 " + escapeShellArg(path));
+if (p) { let c = p.read('all'); p.close(); return c; }
+}
+return '';
+}
+
+function list_config_files() {
+let configs = [];
+for (let dir in CONFIG_DIRS) {
+for (let f in (glob(dir.path + '/*.yaml') || []))
+push(configs, replace(f, dir.path + '/', ''));
+for (let f in (glob(dir.path + '/*.yml') || []))
+push(configs, replace(f, dir.path + '/', ''));
+}
+return sort(configs);
+}
+
+function get_current_config() {
+let use_config = uci_get('clash', 'config', 'use_config');
+return replace(use_config, /^.*\//, '');
+}
+
+function get_cpu_arch() {
+let p = popen("opkg status libc 2>/dev/null | grep Architecture | awk -F': ' '{print $2}'");
+if (!p) return '';
+let arch = trim(p.read('all'));
+p.close();
+return arch;
+}
+
+function read_subscriptions() {
+let rows = [];
+if (!access(LIST_FILE, 'r')) return rows;
+let content = readfile(LIST_FILE) || '';
+for (let line in split(content, '\n')) {
+line = trim(line);
+if (!line) continue;
+let parts = split(line, '#');
+if (length(parts) < 2) continue;
+let name = trim(parts[0]);
+let url  = trim(parts[1]);
+let typ  = length(parts) > 2 ? trim(parts[2]) : 'clash';
+if (name && url) push(rows, { name, url, type: typ });
+}
+sort(rows, (a, b) => a.name > b.name ? 1 : -1);
+return rows;
+}
+
+const methods = {
+version: {
+call: function() {
+let binary = find_binary();
+return {
+app:    read_first_line('/usr/share/clash/luci_version'),
+core:   get_core_version(binary),
+binary: binary
+};
+}
+},
+
+status: {
+call: function() {
+let c = cursor();
+c.load('clash');
+let binary      = find_binary();
+let running     = is_running();
+let local_ip    = get_local_ip();
+let dash_port   = c.get('clash', 'config', 'dash_port') || '9090';
+let dash_pass   = c.get('clash', 'config', 'dash_pass') || '';
+let mode_value  = c.get('clash', 'config', 'tun_mode') == '1'
+                    ? (c.get('clash', 'config', 'stack') == 'mixed' ? 'mixed' : 'tun')
+                    : 'fake-ip';
+let proxy_mode  = c.get('clash', 'config', 'p_mode') || 'rule';
+let conf_path   = c.get('clash', 'config', 'use_config') || '';
+let panel_type  = c.get('clash', 'config', 'dashboard_panel') || 'metacubexd';
+let dashboard_installed = !!access('/etc/clash/dashboard/index.html', 'r');
+let yacd_installed      = !!access('/usr/share/clash/yacd/index.html', 'r');
+return {
+running,
+local_ip,
+dash_port,
+dash_pass,
+mode_value,
+proxy_mode,
+conf_path:  replace(conf_path, /^.*\//, ''),
+panel_type,
+dashboard_installed,
+yacd_installed,
+core_version: get_core_version(binary),
+app_version:  read_first_line('/usr/share/clash/luci_version')
+};
+}
+},
+
+reload: {
+call: function() {
+return { success: system('service clash reload >/dev/null 2>&1') == 0 };
+}
+},
+
+restart: {
+call: function() {
+return { success: system('service clash restart >/dev/null 2>&1') == 0 };
+}
+},
+
+start: {
+call: function() {
+system("uci set clash.config.enable='1' && uci commit clash");
+return { success: system('service clash start >/dev/null 2>&1') == 0 || is_running() };
+}
+},
+
+stop: {
+call: function() {
+system("uci set clash.config.enable='0' && uci commit clash");
+return { success: system('service clash stop >/dev/null 2>&1') == 0 || !is_running() };
+}
+},
+
+set_mode: {
+args: { mode: 'mode' },
+call: function(req) {
+let mode = req.args?.mode || 'fake-ip';
+if (mode != 'fake-ip' && mode != 'tun' && mode != 'mixed')
+return { error: 'invalid mode' };
+let c = cursor(); c.load('clash');
+if (mode == 'tun' || mode == 'mixed') {
+c.set('clash', 'config', 'tun_mode', '1');
+c.set('clash', 'config', 'stack', mode == 'mixed' ? 'mixed' : 'system');
+c.set('clash', 'config', 'enable_udp', '1');
+c.set('clash', 'config', 'enhanced_mode', 'fake-ip');
+} else {
+c.set('clash', 'config', 'tun_mode', '0');
+c.set('clash', 'config', 'enhanced_mode', 'fake-ip');
+}
+c.commit('clash');
+if (is_running()) system('service clash restart >/dev/null 2>&1');
+return { success: true };
+}
+},
+
+set_proxy_mode: {
+args: { mode: 'mode' },
+call: function(req) {
+let mode = req.args?.mode || 'rule';
+if (mode != 'rule' && mode != 'global' && mode != 'direct')
+return { error: 'invalid mode' };
+let c = cursor(); c.load('clash');
+c.set('clash', 'config', 'p_mode', mode);
+c.commit('clash');
+if (is_running()) system('service clash restart >/dev/null 2>&1');
+return { success: true };
+}
+},
+
+set_panel: {
+args: { name: 'name' },
+call: function(req) {
+let name = req.args?.name || 'metacubexd';
+if (name != 'metacubexd' && name != 'yacd' && name != 'zashboard' && name != 'razord')
+name = 'metacubexd';
+let c = cursor(); c.load('clash');
+c.set('clash', 'config', 'dashboard_panel', name);
+c.commit('clash');
+return { success: true };
+}
+},
+
+update_panel: {
+args: { name: 'name' },
+call: function(req) {
+let name = req.args?.name || 'metacubexd';
+system("sh /usr/share/clash/panel_download.sh " + escapeShellArg(name) + " >/dev/null 2>&1 &");
+return { success: true };
+}
+},
+
+list_configs: {
+call: function() {
+return { configs: list_config_files(), current: get_current_config() };
+}
+},
+
+set_config: {
+args: { name: 'name' },
+call: function(req) {
+let name = req.args?.name || '';
+if (!name) return { error: 'missing name' };
+let found_path = '';
+let found_type = '';
+for (let dir in CONFIG_DIRS) {
+let candidate = dir.path + '/' + name;
+if (access(candidate, 'r')) { found_path = candidate; found_type = dir.type; break; }
+}
+if (!found_path) return { error: 'not found' };
+let c = cursor(); c.load('clash');
+c.set('clash', 'config', 'use_config', found_path);
+c.set('clash', 'config', 'config_type', found_type);
+c.commit('clash');
+if (is_running()) system('service clash restart >/dev/null 2>&1');
+return { success: true };
+}
+},
+
+get_cpu_arch: {
+call: function() {
+return { arch: get_cpu_arch() };
+}
+},
+
+download_core: {
+call: function() {
+system('sh /usr/share/clash/core_download.sh >>/usr/share/clash/clash.txt 2>&1 &');
+return { success: true };
+}
+},
+
+update_geoip: {
+call: function() {
+system('sh /usr/share/clash/geoip.sh >/tmp/geoip_update.txt 2>&1 &');
+return { success: true };
+}
+},
+
+get_log_status: {
+call: function() {
+let core_updating  = !!access('/var/run/core_update', 'r');
+let geoip_updating = !!access('/var/run/geoip_update', 'r');
+let p = popen("tail -5 /tmp/clash_update.txt 2>/dev/null");
+let core_log = ''; if (p) { core_log = trim(p.read('all')); p.close(); }
+let p2 = popen("tail -5 /tmp/geoip_update.txt 2>/dev/null");
+let geoip_log = ''; if (p2) { geoip_log = trim(p2.read('all')); p2.close(); }
+return { core_updating, geoip_updating, core_log, geoip_log };
+}
+},
+
+list_profiles: {
+call: function() {
+return { profiles: get_profiles() };
+}
+},
+
+read_log: {
+call: function() {
+return { content: get_log_content() };
+}
+},
+
+read_real_log: {
+call: function() {
+return { content: trim(readfile('/usr/share/clash/clash_real.txt') || '') };
+}
+},
+
+clear_log: {
+call: function() {
+for (let path in LOG_PATHS) {
+if (!access(path, 'r')) continue;
+return { success: writefile(path, '') !== null };
+}
+return { success: false };
+}
+},
+
+read_update_log: {
+call: function() {
+let p = popen("tail -300 /usr/share/clash/clash.txt 2>/dev/null");
+let content = '';
+if (p) { content = p.read('all'); p.close(); }
+return { content };
+}
+},
+
+clear_update_log: {
+call: function() {
+return { success: writefile('/usr/share/clash/clash.txt', '') !== null };
+}
+},
+
+read_geoip_log: {
+call: function() {
+let p = popen("tail -300 /tmp/geoip_update.txt 2>/dev/null");
+let content = '';
+if (p) { content = p.read('all'); p.close(); }
+return { content };
+}
+},
+
+clear_geoip_log: {
+call: function() {
+return { success: writefile('/tmp/geoip_update.txt', '') !== null };
+}
+},
+
+capabilities: {
+call: function() {
+return {
+backend:           detect_firewall_backend(),
+missing_fw4_tools: detect_missing_fw4_tools(),
+has_mihomo:        !!access('/usr/bin/mihomo', 'x'),
+has_clash_meta:    !!access('/usr/bin/clash-meta', 'x'),
+has_builtin_core:  !!access('/etc/clash/clash', 'x')
+};
+}
+},
+
+list_subscriptions: {
+call: function() {
+let active = uci_get('clash', 'config', 'use_config');
+let active_name = replace(active, /^.*\//, '');
+let rows = read_subscriptions();
+for (let row in rows) {
+let fi = stat(SUB_DIR + '/' + row.name);
+row.mtime    = fi ? strftime('%Y-%m-%d %H:%M', fi.mtime) : null;
+row.size     = fi ? (int(fi.size / 1024) + ' KB') : null;
+row.has_file = !!fi;
+row.active   = (row.name == active_name);
+}
+return { subs: rows, active: active_name };
+}
+},
+
+list_dir_files: {
+args: { type: 'type' },
+call: function(req) {
+let type_map = { '2': '/usr/share/clash/config/upload', '3': '/usr/share/clash/config/custom' };
+let dir = type_map[req.args?.type || '2'];
+if (!dir) return { files: [] };
+let active = uci_get('clash', 'config', 'use_config');
+let active_name = replace(active, /^.*\//, '');
+let files = [];
+let all = (glob(dir + '/*.yaml') || []).concat(glob(dir + '/*.yml') || []);
+for (let f in all) {
+let name = replace(f, dir + '/', '');
+let fi   = stat(f);
+push(files, {
+name,
+mtime:  fi ? strftime('%Y-%m-%d %H:%M', fi.mtime) : null,
+size:   fi ? (int(fi.size / 1024) + ' KB') : null,
+active: name == active_name
+});
+}
+sort(files, (a, b) => a.name > b.name ? 1 : -1);
+return { files, active: active_name };
+}
+},
+
+delete_config: {
+args: { name: 'name', type: 'type' },
+call: function(req) {
+let name = req.args?.name || '';
+let type = req.args?.type || '1';
+if (!name) return { error: 'missing name' };
+if (index(name, '..') >= 0 || index(name, '/') >= 0) return { error: 'invalid name' };
+let type_map = { '1': SUB_DIR, '2': '/usr/share/clash/config/upload', '3': '/usr/share/clash/config/custom' };
+let dir = type_map[type] || SUB_DIR;
+unlink(dir + '/' + name);
+if (type == '1' && access(LIST_FILE, 'r')) {
+let content = readfile(LIST_FILE) || '';
+let lines = filter(split(content, '\n'), l => index(l, name + '#') != 0);
+writefile(LIST_FILE, join('\n', lines));
+}
+return { success: true };
+}
+},
+
+update_china_ip: {
+call: function() {
+let c = cursor(); c.load('clash');
+let url4 = c.get('clash', 'config', 'china_ip_url')   || 'https://ispip.clang.cn/all_cn.txt';
+let url6 = c.get('clash', 'config', 'china_ipv6_url') || 'https://ispip.clang.cn/all_cn_ipv6.txt';
+system("curl -fsSL " + escapeShellArg(url4) + " -o /usr/share/clash/china_ip.txt   >>/usr/share/clash/clash.txt 2>&1 &");
+system("curl -fsSL " + escapeShellArg(url6) + " -o /usr/share/clash/china_ipv6.txt >>/usr/share/clash/clash.txt 2>&1 &");
+return { success: true };
+}
+},
+
+download_subs: {
+call: function() {
+system('sh /usr/share/clash/clash.sh >>/usr/share/clash/clash.txt 2>&1 &');
+return { success: true };
+}
+},
+
+update_sub: {
+args: { name: 'name' },
+call: function(req) {
+let name = req.args?.name || '';
+if (!name) return { error: 'missing name' };
+let c = cursor(); c.load('clash');
+c.set('clash', 'config', 'config_update_name', name);
+c.commit('clash');
+system('sh /usr/share/clash/update.sh >>/usr/share/clash/clash.txt 2>&1 &');
+return { success: true };
+}
+},
+
+read_config_file: {
+args: { path: 'path' },
+call: function(req) {
+let path = req.args?.path || '';
+if (!path || !match(path, /^\/usr\/share\/clash\/config\//) || index(path, '..') >= 0) return { error: 'invalid path' };
+if (!access(path, 'r')) return { error: 'not found' };
+return { content: readfile(path) || '' };
+}
+},
+
+write_config_file: {
+args: { path: 'path', content: 'content' },
+call: function(req) {
+let path    = req.args?.path    || '';
+let content = req.args?.content || '';
+if (!path || !match(path, /^\/usr\/share\/clash\/config\//) || index(path, '..') >= 0) return { error: 'invalid path' };
+writefile(path, content);
+return { success: true };
+}
+}
+};
+
+return { 'luci.clash': methods };

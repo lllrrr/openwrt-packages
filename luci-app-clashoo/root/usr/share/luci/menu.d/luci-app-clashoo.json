@@ -1,0 +1,33 @@
+{
+  "admin/services/clash": {
+    "title": "Clashoo",
+    "order": 50,
+    "action": { "type": "firstchild" },
+    "icon": "/luci-static/clash/logo.png"
+  },
+  "admin/services/clash/overview": {
+    "title": "概览",
+    "order": 10,
+    "action": { "type": "view", "path": "clash/overview" }
+  },
+  "admin/services/clash/app": {
+    "title": "代理配置",
+    "order": 20,
+    "action": { "type": "view", "path": "clash/app" }
+  },
+  "admin/services/clash/config_manager": {
+    "title": "配置管理",
+    "order": 30,
+    "action": { "type": "view", "path": "clash/config" }
+  },
+  "admin/services/clash/dns_settings": {
+    "title": "DNS 设置",
+    "order": 40,
+    "action": { "type": "view", "path": "clash/dns" }
+  },
+  "admin/services/clash/system": {
+    "title": "系统设置",
+    "order": 50,
+    "action": { "type": "view", "path": "clash/system" }
+  }
+}

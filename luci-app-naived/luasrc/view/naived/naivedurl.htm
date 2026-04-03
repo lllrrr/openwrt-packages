@@ -1,0 +1,161 @@
+<%+cbi/valueheader%>
+<%
+local map = self.map
+-%>
+<script type="text/javascript">
+//<![CDATA[
+
+function import_share_url(btn, urlname, sid) {
+	var s = document.getElementById(urlname + '-status');
+	if (!s) return false;
+	var share_url = prompt("<%:Paste sharing link here%>", "");
+	if (share_url == null || share_url == "") {
+		s.innerHTML = "<font style=\'color:red\'><%:User cancelled.%></font>";
+		return false;
+	}
+	s.innerHTML = "";
+	share_url = share_url.replace(/&([a-zA-Z]+);/g, '&').replace(/\s*#\s*/, '#').trim();
+	var scheme_parts = share_url.split('://');
+	var event = document.createEvent("HTMLEvents");
+	event.initEvent("change", true, true);
+
+	switch (scheme_parts[0]) {
+	case "naive":
+	case "naiveproxy":
+		var url0 = (scheme_parts[1] || "");
+		var param = "";
+
+		// Split off the # alias first
+		var hashIndex = url0.indexOf("#");
+		if (hashIndex >= 0) {
+			param = url0.substring(hashIndex + 1);
+			url0 = url0.substring(0, hashIndex);
+		}
+
+		// URL decode
+		url0 = decodeURIComponent(url0);
+
+		// Parse username:password@server:port
+		var atIndex = url0.indexOf("@");
+		if (atIndex < 0) {
+			s.innerHTML = "<font style='color:red'><%:Invalid naiveproxy URL format.%></font>";
+			return false;
+		}
+
+		var userInfo = url0.substring(0, atIndex);
+		var serverPart = url0.substring(atIndex + 1);
+
+		// Handle an optional scheme (https://)
+		if (serverPart.indexOf("https://") === 0) {
+			serverPart = serverPart.substring(8);
+		} else if (serverPart.indexOf("http://") === 0) {
+			serverPart = serverPart.substring(7);
+		}
+
+		// Split server:port
+		var colonIndex = serverPart.lastIndexOf(":");
+		if (colonIndex < 0) {
+			s.innerHTML = "<font style='color:red'><%:Invalid naiveproxy URL format.%></font>";
+			return false;
+		}
+
+		var server = serverPart.substring(0, colonIndex);
+		var port = serverPart.substring(colonIndex + 1);
+
+		// Split username:password
+		var userColonIndex = userInfo.indexOf(":");
+		if (userColonIndex < 0) {
+			s.innerHTML = "<font style='color:red'><%:Invalid naiveproxy URL format.%></font>";
+			return false;
+		}
+
+		var username = userInfo.substring(0, userColonIndex);
+		var password = userInfo.substring(userColonIndex + 1);
+
+		// Assign values
+		document.getElementsByName('cbid.naived.' + sid + '.type')[0].value = "naiveproxy";
+		document.getElementsByName('cbid.naived.' + sid + '.type')[0].dispatchEvent(event);
+		document.getElementsByName('cbid.naived.' + sid + '.server')[0].value = server;
+		document.getElementsByName('cbid.naived.' + sid + '.server_port')[0].value = port;
+		document.getElementsByName('cbid.naived.' + sid + '.username')[0].value = username;
+		document.getElementsByName('cbid.naived.' + sid + '.password')[0].value = password;
+
+		if (param != undefined) {
+			document.getElementsByName('cbid.naived.' + sid + '.alias')[0].value = decodeURIComponent(param);
+		}
+		s.innerHTML = "<font style=\'color:green\'><%:Import configuration information successfully.%></font>";
+		return false;
+	case "socks5":
+	case "socks":
+		var url0 = (scheme_parts[1] || "");
+		var param = "";
+
+		// Split off the # alias first
+		var hashIndex = url0.indexOf("#");
+		if (hashIndex >= 0) {
+			param = url0.substring(hashIndex + 1);
+			url0 = url0.substring(0, hashIndex);
+		}
+
+		// URL decode
+		url0 = decodeURIComponent(url0);
+
+		// Parse username:password@server:port
+		var atIndex = url0.indexOf("@");
+		if (atIndex < 0) {
+			// No authentication
+			var serverPart = url0;
+			var colonIndex = serverPart.lastIndexOf(":");
+			if (colonIndex < 0) {
+				s.innerHTML = "<font style='color:red'><%:Invalid socks5 URL format.%></font>";
+				return false;
+			}
+			var server = serverPart.substring(0, colonIndex);
+			var port = serverPart.substring(colonIndex + 1);
+
+			document.getElementsByName('cbid.naived.' + sid + '.type')[0].value = "socks5";
+			document.getElementsByName('cbid.naived.' + sid + '.type')[0].dispatchEvent(event);
+			document.getElementsByName('cbid.naived.' + sid + '.server')[0].value = server;
+			document.getElementsByName('cbid.naived.' + sid + '.server_port')[0].value = port;
+		} else {
+			// Authentication enabled
+			var userInfo = url0.substring(0, atIndex);
+			var serverPart = url0.substring(atIndex + 1);
+
+			var colonIndex = serverPart.lastIndexOf(":");
+			if (colonIndex < 0) {
+				s.innerHTML = "<font style='color:red'><%:Invalid socks5 URL format.%></font>";
+				return false;
+			}
+			var server = serverPart.substring(0, colonIndex);
+			var port = serverPart.substring(colonIndex + 1);
+
+			var userColonIndex = userInfo.indexOf(":");
+			var username = userInfo.substring(0, userColonIndex);
+			var password = userInfo.substring(userColonIndex + 1);
+
+			document.getElementsByName('cbid.naived.' + sid + '.type')[0].value = "socks5";
+			document.getElementsByName('cbid.naived.' + sid + '.type')[0].dispatchEvent(event);
+			document.getElementsByName('cbid.naived.' + sid + '.server')[0].value = server;
+			document.getElementsByName('cbid.naived.' + sid + '.server_port')[0].value = port;
+			document.getElementsByName('cbid.naived.' + sid + '.auth_enable')[0].checked = true;
+			document.getElementsByName('cbid.naived.' + sid + '.auth_enable')[0].dispatchEvent(event);
+			document.getElementsByName('cbid.naived.' + sid + '.username')[0].value = username;
+			document.getElementsByName('cbid.naived.' + sid + '.password')[0].value = password;
+		}
+
+		if (param != undefined) {
+			document.getElementsByName('cbid.naived.' + sid + '.alias')[0].value = decodeURIComponent(param);
+		}
+		s.innerHTML = "<font style=\'color:green\'><%:Import configuration information successfully.%></font>";
+		return false;
+	default:
+		s.innerHTML = "<font style=\'color:red\'><%:Invalid format.%></font>";
+		return false;
+	}
+}
+//]]>
+</script>
+<input type="button" class="btn cbi-button cbi-button-apply" value="<%:Import%>" onclick="return import_share_url(this, '<%=self.option%>', '<%=self.value%>')" />
+<span id="<%=self.option%>-status"></span>
+<%+cbi/valuefooter%>

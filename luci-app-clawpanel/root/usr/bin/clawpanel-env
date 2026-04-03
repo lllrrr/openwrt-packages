@@ -1,0 +1,222 @@
+#!/bin/sh
+# clawpanel-env - auto install ClawPanel from GitHub releases
+# Env vars:
+#   CP_BASE_PATH      installation base path
+#   CP_VERSION       optional fixed version like pro-v5.3.3; empty/latest = detect
+#   CP_OPENCLAW_DIR optional OpenClaw data dir; if empty, auto-derived
+
+set -e
+
+CP_BASE_PATH="${CP_BASE_PATH:-}"
+CP_VERSION="${CP_VERSION:-latest}"
+CP_OPENCLAW_DIR="${CP_OPENCLAW_DIR:-}"
+
+[ "$(id -u)" = "0" ] || { echo "Error: must run as root"; exit 1; }
+[ -n "$CP_BASE_PATH" ] || { echo "Error: CP_BASE_PATH not set"; exit 1; }
+
+get_arch() {
+    case "$(uname -m)" in
+        aarch64|arm64) echo "arm64" ;;
+        x86_64) echo "amd64" ;;
+        armv7l|armv7) echo "armv7" ;;
+        armv6l|armv6) echo "armv6" ;;
+        i386|i686) echo "amd64" ;;
+        *) echo "" ;;
+    esac
+}
+
+CP_ARCH="$(get_arch)"
+[ -n "$CP_ARCH" ] || { echo "Error: unsupported arch: $(uname -m)"; exit 1; }
+
+check_disk() {
+    local path="$1"
+    local needed_mb="${2:-100}"
+    if [ -d "$path" ]; then
+        local avail_mb
+        avail_mb=$(df -m "$path" 2>/dev/null | tail -1 | awk '{print $4}')
+        if [ -n "$avail_mb" ] && [ "$avail_mb" -lt "$needed_mb" ]; then
+            echo "Error: not enough disk space. Available ${avail_mb}MB, need ${needed_mb}MB"
+            return 1
+        fi
+    else
+        echo "Error: path does not exist: $path"
+        return 1
+    fi
+}
+
+is_elf() {
+    [ -f "$1" ] || return 1
+    local first4=""
+    first4=$(od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n\r')
+    [ -n "$first4" ] || first4=$(od -A n -t x1 -N 4 "$1" 2>/dev/null | tr -d ' \n\r')
+    [ "$first4" = "7f454c46" ] && return 0
+    # Fallback: large file is likely a real binary (don't fail the script)
+    local fsize
+    fsize=$(wc -c < "$1" 2>/dev/null || echo 0)
+    [ -n "$fsize" ] && [ "$fsize" -gt 20000000 ]
+}
+
+get_latest_pro_version() {
+    if [ -n "$CP_VERSION" ] && [ "$CP_VERSION" != "latest" ]; then
+        printf '%s' "$CP_VERSION"
+        return
+    fi
+    local ver
+    ver=$(curl -sL --max-time 10 \
+        "https://api.github.com/repos/zhaoxinyi02/ClawPanel/releases" \
+        | grep -o '"tag_name"[^,]*' \
+        | grep '"tag_name"' \
+        | head -1 \
+        | cut -d'"' -f4 \
+        | grep '^pro-' \
+        || true)
+    if [ -z "$ver" ]; then
+        echo "Error: failed to fetch latest version from GitHub API (network issue or rate limit)" >&2
+        printf '%s' "pro-v5.3.3"
+    else
+        printf '%s' "$ver"
+    fi
+}
+
+get_download_url() {
+    local ver="$1"
+    local arch="$2"
+    local file_ver
+    file_ver=$(echo "$ver" | sed 's/^pro-v/v/;s/^lite-v/v/')
+    printf '%s' "https://github.com/zhaoxinyi02/ClawPanel/releases/download/${ver}/clawpanel-${file_ver}-linux-${arch}"
+}
+
+download_binary() {
+    local url="$1"
+    local dest="$2"
+    local tmpfile="/tmp/clawpanel_download_$$"
+    echo "Downloading from: $url"
+
+    local http_code
+    http_code=$(curl -sL --fail --connect-timeout 15 --max-time 1800 \
+        -o "$tmpfile" -w "%{http_code}" "$url" 2>/dev/null || true)
+    if [ "$http_code" != "200" ]; then
+        rm -f "$tmpfile"
+        echo "Error: download failed (HTTP ${http_code:-unknown})"
+        return 1
+    fi
+
+    local fsize
+    fsize=$(wc -c < "$tmpfile" 2>/dev/null || echo 0)
+    if [ -z "$fsize" ] || [ "$fsize" -lt 5000000 ]; then
+        rm -f "$tmpfile"
+        echo "Error: downloaded file too small (${fsize} bytes)"
+        return 1
+    fi
+
+    if ! is_elf "$tmpfile"; then
+        local bad_size
+        bad_size=$(wc -c < "$tmpfile" 2>/dev/null || echo 0)
+        echo "Error: downloaded file is not a valid ELF binary (size: ${bad_size} bytes)"
+        return 1
+    fi
+
+    mv -f "$tmpfile" "$dest"
+    chmod +x "$dest"
+    echo "Downloaded: $(echo "$fsize" | awk '{printf "%.1f MB", $1/1024/1024}') -> $dest"
+}
+
+do_setup() {
+    local cp_install_path="${CP_BASE_PATH}/clawpanel"
+    local cp_data="${cp_install_path}/data"
+    local cp_binary="${cp_install_path}/clawpanel"
+    # OpenClaw 目录：优先使用环境变量指定值，否则默认放在安装路径下
+    local openclaw_dir="${CP_OPENCLAW_DIR:-${CP_BASE_PATH}/.openclaw}"
+    local openclaw_app="${cp_install_path}/app"
+    local openclaw_work="${cp_install_path}/work"
+    local cp_port="19527"
+
+    echo "=== ClawPanel Setup ==="
+    echo "Install path: $cp_install_path"
+    echo "Data path: $cp_data"
+    echo "OpenClaw dir: $openclaw_dir"
+    echo "App dir: $openclaw_app"
+    echo "Work dir: $openclaw_work"
+    echo "Port: $cp_port"
+    echo "Architecture: $CP_ARCH"
+
+    check_disk "$CP_BASE_PATH" 100 || exit 1
+    mkdir -p "$CP_BASE_PATH" "$cp_install_path" "$cp_data" "$openclaw_dir" "$openclaw_app" "$openclaw_work"
+
+    echo "Detecting latest pro version..."
+    local version
+    version=$(get_latest_pro_version)
+    echo "Using version: $version"
+
+    local url
+    url=$(get_download_url "$version" "$CP_ARCH")
+    download_binary "$url" "$cp_binary" || exit 1
+
+    # 直接使用 GitHub API 版本号，不用 binary --version（后者会联网检测更新，可能卡住）
+    local actual_ver="$version"
+    echo "$actual_ver" > "${cp_install_path}/.version"
+    echo "Version: $actual_ver"
+
+    # 保存到 UCI（供 init.d 后续启动使用）
+    uci set clawpanel.main.enabled='1'
+    uci set clawpanel.main.install_path="$CP_BASE_PATH"
+    uci set clawpanel.main.openclaw_dir="$openclaw_dir"
+    uci set clawpanel.main.port="$cp_port"
+    uci set clawpanel.main.version="$actual_ver"
+    uci commit clawpanel 2>/dev/null || true
+
+    # 用 printf 写 clawpanel.json（避免 heredoc 的变量展开问题）
+    printf '{\n' > "${cp_data}/clawpanel.json"
+    printf '  "port": %s,\n' "$cp_port" >> "${cp_data}/clawpanel.json"
+    printf '  "dataDir": "%s",\n' "$cp_data" >> "${cp_data}/clawpanel.json"
+    printf '  "openClawDir": "%s",\n' "$openclaw_dir" >> "${cp_data}/clawpanel.json"
+    printf '  "openClawApp": "%s",\n' "$openclaw_app" >> "${cp_data}/clawpanel.json"
+    printf '  "openClawWork": "%s",\n' "$openclaw_work" >> "${cp_data}/clawpanel.json"
+    printf '  "edition": "pro",\n' >> "${cp_data}/clawpanel.json"
+    printf '  "jwtSecret": "clawpanel-secret-change-me",\n' >> "${cp_data}/clawpanel.json"
+    printf '  "adminToken": "clawpanel",\n' >> "${cp_data}/clawpanel.json"
+    printf '  "debug": false\n' >> "${cp_data}/clawpanel.json"
+    printf '}\n' >> "${cp_data}/clawpanel.json"
+    echo "Config written: ${cp_data}/clawpanel.json"
+
+    # 启动 ClawPanel（init 脚本会在启动前再次写入正确的 clawpanel.json）
+    echo "Starting ClawPanel..."
+    /etc/init.d/clawpanel enable 2>/dev/null || true
+
+    # 先停掉旧进程
+    killall -9 clawpanel 2>/dev/null || true
+
+    # 等待端口释放
+    local i=0
+    while [ $i -lt 15 ]; do
+        if ! netstat -tulnp 2>/dev/null | grep -q ":${cp_port} " ; then
+            break
+        fi
+        sleep 1
+        i=$((i + 1))
+    done
+
+    # 读取版本号（去掉 pro- 前缀，因为 clawpanel --updater-standalone 不识别）
+    local cp_ver
+    cp_ver=$(cat "${cp_install_path}/.version" 2>/dev/null | tr -d '[:space:]' | sed 's/^pro-v//;s/^lite-v//')
+    [ -z "$cp_ver" ] && cp_ver="5.3.3"
+
+    # Use bash -c to background (nohup doesn't exist on iStoreOS)
+    /bin/bash -c "$cp_binary >> /tmp/clawpanel_startup.log 2>&1 &"
+    echo "Service PID: $!"
+
+    echo ""
+    echo "=== Installation Complete ==="
+    echo "Binary: $cp_binary"
+    echo "Config: ${cp_data}/clawpanel.json"
+    echo "OpenClaw dir: $openclaw_dir"
+    echo "Service start command issued, use /wait_running to verify"
+    echo ""
+    echo "Hint: if service is not running yet, wait 10s then run:"
+    echo "  /etc/init.d/clawpanel status"
+}
+
+case "${1:-setup}" in
+    setup) do_setup ;;
+    *) echo "Usage: $0 [setup]"; exit 1 ;;
+esac

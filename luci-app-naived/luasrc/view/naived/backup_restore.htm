@@ -1,0 +1,152 @@
+<div class="cbi-value" id="_backup_div">
+    <label class="cbi-value-title"><%:Create Backup File%></label>
+    <div class="cbi-value-field">
+        <input class="btn cbi-button cbi-button-save" type="button" onclick="dl_backup()" value="<%:DL Backup%>" />
+    </div>
+</div>
+
+<div class="cbi-value" id="_upload_div">
+	<label class="cbi-value-title"><%:Restore Backup File%></label>
+	<div class="cbi-value-field">
+		<input class="btn cbi-button cbi-button-apply" type="button" id="upload-btn" value="<%:RST Backup%>" />
+	</div>
+</div>
+
+<div class="cbi-value" id="_reset_div">
+    <label class="cbi-value-title"><%:Restore to default configuration%></label>
+    <div class="cbi-value-field">
+        <input class="btn cbi-button cbi-button-remove" type="button" onclick="do_reset()" value="<%:Do Reset%>" />
+    </div>
+</div>
+
+<div id="upload-modal" class="up-modal" style="display:none;">
+	<div class="up-modal-content">
+		<h3><%:Restore Backup File%></h3>
+		<div class="cbi-value" id="_upload_div">
+			<div class="up-cbi-value-field">
+				<input class="cbi-input-file" type="file" id="ulfile" name="ulfile" accept=".tar.gz" required />
+				<br />
+				<div class="up-button-container">
+					<input class="btn cbi-button cbi-button-apply" type="submit" value="<%:UL Restore%>" />
+					<input class="btn cbi-button cbi-button-remove" type="button" id="upload-close" value="<%:CLOSE WIN%>" />
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<style>
+.up-modal {
+	position: fixed;
+	left: 50%;
+	top: 50%;
+	transform: translate(-50%, -50%);
+	background: white;
+	padding: 20px;
+	border: 2px solid #ccc;
+	box-shadow: 0 0 10px rgba(0,0,0,0.5);
+	z-index: 1000;
+}
+
+.up-modal-content {
+	width: 100%;
+	max-width: 400px;
+	text-align: center;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+}
+
+.up-button-container {
+	display: flex;
+	justify-content: space-between;
+	width: 100%;
+	max-width: 250px;
+}
+
+.up-cbi-value-field {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	width: 100%;
+}
+</style>
+
+<script>
+    // JavaScript version of the url helper
+    function url(...args) {
+        let url = "/cgi-bin/luci/admin/services/naived";
+        for (let i = 0; i < args.length; i++) {
+            if (args[i] !== "") {
+                url += "/" + args[i];
+            }
+        }
+        return url;
+    }
+
+    // Upload button click handler
+    document.getElementById("upload-btn").addEventListener("click", function() {
+        document.getElementById("upload-modal").style.display = "block";
+    });
+
+    // Close the upload modal
+    document.getElementById("upload-close").addEventListener("click", function() {
+        document.getElementById("upload-modal").style.display = "none";
+    });
+
+    // Backup download helper
+    function dl_backup(btn) {
+        fetch(url("backup"), {  // use the JavaScript version of the url helper
+            method: 'POST',
+            credentials: 'same-origin'
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error("Backup failed!");
+            }
+            const filename = response.headers.get("X-Backup-Filename");
+            if (!filename) {
+                return;
+            }
+            return response.blob().then(blob => ({ blob, filename }));
+        })
+        .then(result => {
+            if (!result) return;
+            const { blob, filename } = result;
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        })
+        .catch(error => alert(error.message));
+    }
+
+    // Restore factory defaults
+    function do_reset(btn) {
+        if (confirm("<%: Do you want to restore the client to default settings?%>")) {
+            setTimeout(function () {
+                if (confirm("<%: Are you sure you want to restore the client to default settings?%>")) {
+                    // Clear logs
+                    var xhr1 = new XMLHttpRequest();
+                    xhr1.open("GET", url("clear_log"), true);  // use the JavaScript version of the url helper
+                    xhr1.send();
+                    // Reset settings
+                    var xhr2 = new XMLHttpRequest();
+                    xhr2.open("GET", url("reset"), true);  // use the JavaScript version of the url helper
+                    xhr2.send();
+                    // Handle the response
+                    xhr2.onload = function() {
+                        if (xhr2.status === 200) {
+                            window.location.href = url("reset");
+                        }
+                    };
+                }
+            }, 1000);
+        }
+    }
+</script>
