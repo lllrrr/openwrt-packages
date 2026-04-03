@@ -45,7 +45,6 @@ let sparkTx = new Array(SPARK_LEN).fill(0);
 
 		const link       = document.createElement('link');
 		link.rel         = 'stylesheet';
-		link.dataset.netstatssCss = '1';
 		link.setAttribute('data-netstat-css', '1');
 		link.href        = '/luci-static/resources/netstat/' + file + '?t=' + Date.now();
 		document.head.appendChild(link);
@@ -225,14 +224,18 @@ function createRateBox(label, value, unit, extraClass, colorVar, sparkValues, pe
 
 function createStatBox(label, value, unit, extraClass) {
 	const cls = 'netstat-box' + (extraClass ? ' ' + extraClass : '');
-	return E('div', { class: cls }, [
-		E('div', { class: 'netstat-number' }, value),
-		unit ? E('div', { class: 'netstat-unit' }, unit) : null,
+	const box = E('div', { class: cls }, [
+		E('div', { class: 'ns-stat-value-row' }, [
+			E('div', { class: 'netstat-number' }, value),
+			unit ? E('div', { class: 'netstat-unit' }, unit) : null
+		].filter(Boolean)),
 		E('div', { class: 'netstat-label' }, label)
-	].filter(Boolean));
+	]);
+	return box;
 }
 
-function createStatusCard(status, ip, uptime) {
+
+function createStatusCard(status, ip) {
 	const up = status === 'Connected';
 	return E('div', { class: 'netstat-box netstat-center ' + (up ? 'is-up' : 'is-down') }, [
 		E('div', { class: 'netstat-center-title' }, _('Internet')),
@@ -240,11 +243,6 @@ function createStatusCard(status, ip, uptime) {
 		E('div', { class: 'netstat-center-sep' }),
 		E('div', { class: 'netstat-center-title' }, _('IP')),
 		E('div', { class: 'netstat-center-ip' }, ip || 'N/A'),
-		E('div', { class: 'netstat-center-sep' }),
-		E('div', { class: 'ns-uptime-row' }, [
-			iconUptime(),
-			E('span', { class: 'ns-uptime-text', id: 'ns-uptime-val' }, uptime)
-		])
 	]);
 }
 
@@ -269,50 +267,82 @@ function svgIcon(path, color) {
 function iconUptime() {
 	return svgIcon('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>', 'var(--ns-muted)');
 }
-// cpu/chip icon
-function iconCPU() {
-	return svgIcon('<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>', 'var(--ns-cpu-color)');
-}
 // database/memory icon
 function iconMem() {
 	return svgIcon('<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/>', 'var(--ns-mem-color)');
 }
-
-function makeBar(pct, id) {
-	const fill = E('div', { class: 'ns-bar-fill', id: id });
-	fill.style.width = Math.min(100, Math.max(0, pct)) + '%';
-	return E('div', { class: 'ns-bar-wrap' }, [fill]);
+// thermometer/temperature icon
+function iconTemp() {
+	return svgIcon('<path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/>', 'var(--ns-temp-color)');
+}
+// hard-drive/disk icon
+function iconDisk() {
+	return svgIcon('<line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/>', 'var(--ns-disk-color)');
 }
 
-function createInfoCard(cpuPct, memPct, memUsed, memTotal) {
+// Pill-style bar: filled background + "used MB / total MB (pct%)" text overlay
+function makePillBar(pct, used, total, fillId, textId) {
+	const clampedPct = Math.min(100, Math.max(0, pct));
+	const fill = E('div', { class: 'ns-pill-fill', id: fillId });
+	fill.style.width = clampedPct + '%';
+	const label = E('span', { class: 'ns-pill-text', id: textId },
+		used + ' / ' + total + ' (' + clampedPct + '%)');
+	return E('div', { class: 'ns-pill-bar' }, [fill, label]);
+}
+
+// Card 1: RAM + Storage pill bars
+function createInfoCard(memPct, memUsed, memTotal, diskPct, diskUsed, diskTotal) {
 	const card = E('div', { class: 'netstat-box netstat-info-card' });
 
-	// CPU row
-	const cpuRow = E('div', { class: 'ns-info-row' });
-	cpuRow.appendChild(iconCPU());
-	const cpuBlock = E('div', { class: 'ns-info-block ns-info-block-grow' });
-	const cpuTopRow = E('div', { class: 'ns-info-top-row' });
-	cpuTopRow.appendChild(E('div', { class: 'ns-info-value', id: 'ns-cpu-val' }, cpuPct + '%'));
-	cpuTopRow.appendChild(E('div', { class: 'ns-info-label' }, _('CPU')));
-	cpuBlock.appendChild(cpuTopRow);
-	cpuBlock.appendChild(makeBar(cpuPct, 'ns-cpu-bar'));
-	cpuRow.appendChild(cpuBlock);
-	card.appendChild(cpuRow);
-
-	card.appendChild(E('div', { class: 'netstat-center-sep' }));
-
-	// Memory row
+	// RAM row
 	const memRow = E('div', { class: 'ns-info-row' });
 	memRow.appendChild(iconMem());
 	const memBlock = E('div', { class: 'ns-info-block ns-info-block-grow' });
-	const memTopRow = E('div', { class: 'ns-info-top-row' });
-	memTopRow.appendChild(E('div', { class: 'ns-info-value', id: 'ns-mem-val' }, memPct + '%'));
-	memTopRow.appendChild(E('div', { class: 'ns-info-sublabel', id: 'ns-mem-sub' },
-		memUsed + '/' + memTotal + ' MB'));
-	memBlock.appendChild(memTopRow);
-	memBlock.appendChild(makeBar(memPct, 'ns-mem-bar'));
+	memBlock.appendChild(E('div', { class: 'ns-info-tag' }, _('RAM')));
+	memBlock.appendChild(makePillBar(memPct,
+		memUsed + ' MB', memTotal + ' MB', 'ns-mem-bar', 'ns-mem-sub'));
 	memRow.appendChild(memBlock);
 	card.appendChild(memRow);
+
+	card.appendChild(E('div', { class: 'netstat-center-sep' }));
+
+	// Storage row
+	const diskRow = E('div', { class: 'ns-info-row' });
+	diskRow.appendChild(iconDisk());
+	const diskBlock = E('div', { class: 'ns-info-block ns-info-block-grow' });
+	diskBlock.appendChild(E('div', { class: 'ns-info-tag' }, _('STORAGE')));
+	diskBlock.appendChild(makePillBar(diskPct,
+		diskUsed + ' MB', diskTotal + ' MB', 'ns-disk-bar', 'ns-disk-sub'));
+	diskRow.appendChild(diskBlock);
+	card.appendChild(diskRow);
+
+	return card;
+}
+
+// Card 2: CPU Temperature + Uptime
+function createTempCard(cpuTemp, uptime) {
+	const card = E('div', { class: 'netstat-box netstat-info-card' });
+
+	// Temp row
+	const tempRow = E('div', { class: 'ns-info-row' });
+	tempRow.appendChild(iconTemp());
+	const tempBlock = E('div', { class: 'ns-info-block ns-info-block-grow' });
+	const tempVal = cpuTemp != null ? cpuTemp + '°C' : 'N/A';
+	tempBlock.appendChild(E('div', { class: 'ns-info-value ns-temp-val', id: 'ns-temp-val' }, tempVal));
+	tempBlock.appendChild(E('div', { class: 'ns-info-tag' }, _('CPU TEMP')));
+	tempRow.appendChild(tempBlock);
+	card.appendChild(tempRow);
+
+	card.appendChild(E('div', { class: 'netstat-center-sep' }));
+
+	// Uptime row
+	const uptimeRow = E('div', { class: 'ns-info-row' });
+	uptimeRow.appendChild(iconUptime());
+	const uptimeBlock = E('div', { class: 'ns-info-block ns-info-block-grow' });
+	uptimeBlock.appendChild(E('div', { class: 'ns-info-value', id: 'ns-uptime-val' }, uptime));
+	uptimeBlock.appendChild(E('div', { class: 'ns-info-tag' }, _('UPTIME')));
+	uptimeRow.appendChild(uptimeBlock);
+	card.appendChild(uptimeRow);
 
 	return card;
 }
@@ -358,7 +388,7 @@ function updateContainer(container, data, dt) {
 	const peakTxFmt = formatRate(peakTx * 8);
 
 	const boxes = container.querySelectorAll('.netstat-box');
-	if (boxes.length < 6) return false; // stale, rebuild
+	if (boxes.length < 7) return false; // stale, rebuild
 
 	// download rate box
 	patchText(container, '.is-download .netstat-number', rxRate.number);
@@ -404,18 +434,26 @@ function updateContainer(container, data, dt) {
 		patchText(totals[1], '.netstat-unit',   totalTx[1] || '');
 	}
 
-	// uptime in status card, cpu+mem in info card
+	// uptime in status card
 	patchText(container, '#ns-uptime-val', formatUptime(data.uptime || 0));
-	patchText(container, '#ns-cpu-val',    (data.cpu_pct || 0) + '%');
-	patchText(container, '#ns-mem-val',    (data.mem_pct || 0) + '%');
-	patchText(container, '#ns-mem-sub',    (data.mem_used || 0) + '/' + (data.mem_total || 0) + ' MB');
 
-	// update bar widths via stable ids
-	const cpuFill = container.querySelector('#ns-cpu-bar');
-	if (cpuFill) cpuFill.style.width = Math.min(100, Math.max(0, data.cpu_pct || 0)) + '%';
+	// temp
+	const tempVal = data.cpu_temp != null ? data.cpu_temp + '°C' : 'N/A';
+	patchText(container, '#ns-temp-val', tempVal);
+
+	// pill bar: update fill width + text label
+	const memPct  = data.mem_pct  || 0;
+	const diskPct = data.disk_pct || 0;
 
 	const memFill = container.querySelector('#ns-mem-bar');
-	if (memFill) memFill.style.width = Math.min(100, Math.max(0, data.mem_pct || 0)) + '%';
+	if (memFill) memFill.style.width = Math.min(100, Math.max(0, memPct)) + '%';
+	patchText(container, '#ns-mem-sub',
+		(data.mem_used || 0) + ' MB / ' + (data.mem_total || 0) + ' MB (' + memPct + '%)');
+
+	const diskFill = container.querySelector('#ns-disk-bar');
+	if (diskFill) diskFill.style.width = Math.min(100, Math.max(0, diskPct)) + '%';
+	patchText(container, '#ns-disk-sub',
+		(data.disk_used || 0) + ' MB / ' + (data.disk_total || 0) + ' MB (' + diskPct + '%)');
 
 	return true;
 }
@@ -427,18 +465,23 @@ return baseclass.extend({
 	load() {
 		return fetchWithTimeout('/cgi-bin/luci/admin/tools/get_netdev_stats', 5000)
 			.then(r => ({
-				stats:     (r && r.stats)      || {},
-				ip:        (r && r.ip)         || 'N/A',
-				status:    (r && r.status)     || 'Disconnected',
-				uptime:    (r && r.uptime)     || 0,
-				cpu_pct:   (r && r.cpu_pct)    || 0,
-				mem_pct:   (r && r.mem_pct)    || 0,
-				mem_used:  (r && r.mem_used)   || 0,
-				mem_total: (r && r.mem_total)  || 0,
-				preferred: []
+				stats:      (r && r.stats)       || {},
+				ip:         (r && r.ip)          || 'N/A',
+				status:     (r && r.status)      || 'Disconnected',
+				uptime:     (r && r.uptime)      || 0,
+				cpu_pct:    (r && r.cpu_pct)     || 0,
+				cpu_temp:   (r && r.cpu_temp)    != null ? r.cpu_temp : null,
+				mem_pct:    (r && r.mem_pct)     || 0,
+				mem_used:   (r && r.mem_used)    || 0,
+				mem_total:  (r && r.mem_total)   || 0,
+				disk_pct:   (r && r.disk_pct)    || 0,
+				disk_used:  (r && r.disk_used)   || 0,
+				disk_total: (r && r.disk_total)  || 0,
+				preferred:  []
 			}))
 			.catch(() => ({ stats: {}, ip: 'N/A', status: 'Disconnected',
-			                uptime: 0, cpu_pct: 0, mem_pct: 0, mem_used: 0, mem_total: 0, preferred: [] }));
+			                uptime: 0, cpu_pct: 0, cpu_temp: null, mem_pct: 0, mem_used: 0, mem_total: 0,
+			                disk_pct: 0, disk_used: 0, disk_total: 0, preferred: [] }));
 	},
 
 	render(data) {
@@ -490,14 +533,17 @@ return baseclass.extend({
 		const ulTrend = E('span', { class: 'ns-trend ' + tTx.cls }, tTx.char);
 		ulBox.querySelector('.ns-rate-row').appendChild(ulTrend);
 
+		// Desktop order: DOWNLOAD | UPLOAD | TEMP | INTERNET STATUS | DISK+RAM | DOWNLOADED | UPLOADED
 		const row = E('div', { class: 'netstat-row' }, [
 			dlBox,
 			ulBox,
-			createStatusCard(data.status || 'Disconnected', data.ip, formatUptime(data.uptime || 0)),
-			createStatBox(_('downloaded'), totalRx[0], totalRx[1], 'is-total'),
-			createStatBox(_('uploaded'),   totalTx[0], totalTx[1], 'is-total'),
-			createInfoCard(data.cpu_pct || 0, data.mem_pct || 0,
-				data.mem_used || 0, data.mem_total || 0),
+			createTempCard(data.cpu_temp != null ? data.cpu_temp : null,
+				formatUptime(data.uptime || 0)),
+			createStatusCard(data.status || 'Disconnected', data.ip),
+			createInfoCard(data.mem_pct || 0, data.mem_used || 0, data.mem_total || 0,
+				data.disk_pct || 0, data.disk_used || 0, data.disk_total || 0),
+			createStatBox(_('downloaded'), totalRx[0], totalRx[1], 'is-total is-downloaded'),
+			createStatBox(_('uploaded'),   totalTx[0], totalTx[1], 'is-total is-uploaded'),
 		]);
 
 		const container = E('div', { class: 'stats-grid netstat-wrap' }, row);
@@ -513,18 +559,21 @@ return baseclass.extend({
 						last_time  = now2;
 
 						if (_container && _container.isConnected) {
-							const ok = updateContainer(_container, {
-								stats:     (r && r.stats)      || {},
-								ip:        (r && r.ip)         || 'N/A',
-								status:    (r && r.status)     || 'Disconnected',
-								uptime:    (r && r.uptime)     || 0,
-								cpu_pct:   (r && r.cpu_pct)    || 0,
-								mem_pct:   (r && r.mem_pct)    || 0,
-								mem_used:  (r && r.mem_used)   || 0,
-								mem_total: (r && r.mem_total)  || 0,
-								preferred: []
+							updateContainer(_container, {
+								stats:      (r && r.stats)       || {},
+								ip:         (r && r.ip)          || 'N/A',
+								status:     (r && r.status)      || 'Disconnected',
+								uptime:     (r && r.uptime)      || 0,
+								cpu_pct:    (r && r.cpu_pct)     || 0,
+								cpu_temp:   (r && r.cpu_temp)    != null ? r.cpu_temp : null,
+								mem_pct:    (r && r.mem_pct)     || 0,
+								mem_used:   (r && r.mem_used)    || 0,
+								mem_total:  (r && r.mem_total)   || 0,
+								disk_pct:   (r && r.disk_pct)    || 0,
+								disk_used:  (r && r.disk_used)   || 0,
+								disk_total: (r && r.disk_total)  || 0,
+								preferred:  []
 							}, dt2);
-							if (ok) return;
 						}
 					})
 					.catch(() => {})

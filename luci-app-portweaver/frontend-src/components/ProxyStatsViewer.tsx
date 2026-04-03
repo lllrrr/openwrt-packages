@@ -1,7 +1,7 @@
-import type { RpcClient } from "../utils/rpc-client";
-import type { FrpProxy } from "../types/portweaver/frp";
-import { getThemeColors } from "../utils/theme-utils";
-import { translateStatus } from "../utils/formatters";
+import type { RpcClient } from "@/utils/rpc-client";
+import type { FrpProxy } from "@/types/portweaver/frp";
+import { getThemeColors } from "@/utils/theme-utils";
+import { translateStatus } from "@/utils/formatters";
 
 interface ProxyStatsViewerProps {
   clientId: string;

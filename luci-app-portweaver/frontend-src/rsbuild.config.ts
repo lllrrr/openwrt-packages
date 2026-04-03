@@ -13,6 +13,9 @@ export default defineConfig({
       config: "./main.tsx",
     },
     tsconfigPath: "./tsconfig.json",
+    alias: {
+      "@": "./",
+    },
   },
   output: {
     // polyfill: "usage",

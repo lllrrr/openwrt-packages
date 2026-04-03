@@ -1,8 +1,9 @@
 export function formatBytes(bytes: number = 0): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1048576) return `${(bytes / 1024).toFixed(2)} KiB`;
-  if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(2)} MiB`;
-  return `${(bytes / 1073741824).toFixed(2)} GiB`;
+  if (bytes < 1024) return `${parseFloat(bytes.toFixed(2))} B`;
+  if (bytes < 1048576) return `${parseFloat((bytes / 1024).toFixed(2))} KiB`;
+  if (bytes < 1073741824)
+    return `${parseFloat((bytes / 1048576).toFixed(2))} MiB`;
+  return `${parseFloat((bytes / 1073741824).toFixed(2))} GiB`;
 }
 
 export function formatUptime(seconds: number = 0): string {

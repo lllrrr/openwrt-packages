@@ -169,11 +169,11 @@ function jsxDEV(e, t) {
 ;// CONCATENATED MODULE: ./utils/formatters.ts
 function formatBytes() {
     let o = arguments.length > 0 && void 0 !== arguments[0] ? arguments[0] : 0;
-    return o < 1024 ? "".concat(o, " B") : o < 1048576 ? "".concat((o / 1024).toFixed(2), " KiB") : o < 1073741824 ? "".concat((o / 1048576).toFixed(2), " MiB") : "".concat((o / 1073741824).toFixed(2), " GiB");
+    return o < 1024 ? "".concat(parseFloat(o.toFixed(2)), " B") : o < 1048576 ? "".concat(parseFloat((o / 1024).toFixed(2)), " KiB") : o < 1073741824 ? "".concat(parseFloat((o / 1048576).toFixed(2)), " MiB") : "".concat(parseFloat((o / 1073741824).toFixed(2)), " GiB");
 }
 function formatUptime() {
-    let o = arguments.length > 0 && void 0 !== arguments[0] ? arguments[0] : 0, t = Math.floor(o / 86400), n = Math.floor(o % 86400 / 3600), e = Math.floor(o % 3600 / 60);
-    return t > 0 ? "".concat(t, "d ").concat(n, "h") : n > 0 ? "".concat(n, "h ").concat(e, "m") : "".concat(e, "m").concat(o % 60, "s");
+    let o = arguments.length > 0 && void 0 !== arguments[0] ? arguments[0] : 0, t = Math.floor(o / 86400), e = Math.floor(o % 86400 / 3600), r = Math.floor(o % 3600 / 60);
+    return t > 0 ? "".concat(t, "d ").concat(e, "h") : e > 0 ? "".concat(e, "h ").concat(r, "m") : "".concat(r, "m").concat(o % 60, "s");
 }
 function getErrorMessage(o) {
     return void 0 === o || 0 === o ? null : ({
@@ -1912,7 +1912,7 @@ class PortMappingEditor_o extends L.form.Value {
                 targetPort: "",
                 frpNodes: [],
                 protocol: "tcp"
-            }, s = "portmapping-row-".concat(t, "-").concat(l), p = !0, u = jsx(ValidatedInput_r, {
+            }, s = "portmapping-row-".concat(t, "-").concat(l), p = !1, u = jsx(ValidatedInput_r, {
                 type: "text",
                 className: "listen-port-input",
                 value: a.listenPort,
@@ -2062,23 +2062,25 @@ class PortMappingEditor_o extends L.form.Value {
                 }
                 r || y() || (V.textContent = P(), V.style.display = "block", r = !0), r || v(), c();
             };
-            function k(t, e) {
+            u.oninput = F, u.onchange = F, h.oninput = F, h.onchange = F, g.onchange = F;
+            let k = ()=>{
+                let t = this.parseMapping(f.value);
+                if (t) {
+                    let e = u.oninput, r = h.oninput, i = g.onchange;
+                    u.oninput = null, h.oninput = null, g.onchange = null, u.value = t.listenPort, h.value = t.targetPort, g.value = t.protocol, u.oninput = e, h.oninput = r, g.onchange = i, F();
+                }
+            };
+            function S(t, e) {
                 t.style.setProperty("display", e, "important");
             }
-            function S() {
-                k(I, p ? "none" : "flex"), k(w, p ? "none" : "block"), k(f, p ? "block" : "none"), k(m, p ? "none" : "block"), N.textContent = p ? _("Visual Edit") : _("Text Edit");
+            function O() {
+                S(I, p ? "none" : "flex"), S(w, p ? "none" : "block"), S(f, p ? "block" : "none"), S(m, p ? "none" : "block"), N.textContent = p ? _("Visual Edit") : _("Text Edit");
             }
-            return u.oninput = F, u.onchange = F, h.oninput = F, h.onchange = F, g.onchange = F, f.onblur = (t)=>{
+            return f.oninput = k, f.onblur = (t)=>{
                 let e = t.currentTarget;
-                if (!e) return;
-                V.textContent = "", V.style.display = "none";
-                let r = this.parseMapping(e.value);
-                if (r) {
-                    let t = u.oninput, e = h.oninput, i = g.onchange;
-                    u.oninput = null, h.oninput = null, g.onchange = null, u.value = r.listenPort, h.value = r.targetPort, g.value = r.protocol, u.oninput = t, h.oninput = e, g.onchange = i, F();
-                } else V.textContent = _("Invalid port mapping format"), V.style.display = "block";
-            }, S(), N.onclick = (t)=>{
-                t.preventDefault(), p = !p, S();
+                e && (V.textContent = "", V.style.display = "none", this.parseMapping(e.value) ? k() : (V.textContent = _("Invalid port mapping format"), V.style.display = "block"));
+            }, O(), N.onclick = (t)=>{
+                t.preventDefault(), p && k(), p = !p, O(), p && v();
             }, C.onclick = (t)=>{
                 t.preventDefault(), R.remove();
                 let e = d.findIndex((t)=>t.listenInput === u && t.targetInput === h && t.protocolSelect === g);
@@ -3064,21 +3066,20 @@ let ddns_o = L.form, ddns_t = L.uci, ddns_n = [
 
 
 
-
-let main_m = L.form, main_i = L.uci;
+let main_m = L.form, main_d = L.uci;
 class main extends L.view {
     async load() {
         return Promise.all([
-            main_i.load("portweaver"),
-            main_i.load("firewall"),
+            main_d.load("portweaver"),
+            main_d.load("firewall"),
             rpcClient.getFullStatus().then((r)=>r || {}).catch((r)=>(console.warn("ubus get_full_status failed:", r), {}))
         ]);
     }
     render(n) {
-        let i = new main_m.Map("portweaver", _("PortWeaver"), _("Port forwarding and NAT traversal configuration")), d = i.section(main_m.NamedSection, "global", "portweaver");
-        d.anonymous = !0, d.addremove = !1, d.tab("settings", _("Global Settings")), d.tab("projects", _("Port Forwarding")), d.tab("ddns", _("DDNS")), d.tab("frpc", _("FRP Tunnels")), d.tab("frps", _("FRP Server")), d.tab("logs", _("System Logs"));
+        let d = new main_m.Map("portweaver", _("PortWeaver"), _("Port forwarding and NAT traversal configuration")), i = d.section(main_m.NamedSection, "global", "portweaver");
+        i.anonymous = !0, i.addremove = !1, i.tab("settings", _("Global Settings")), i.tab("projects", _("Port Forwarding")), i.tab("ddns", _("DDNS")), i.tab("frpc", _("FRP Tunnels")), i.tab("frps", _("FRP Server")), i.tab("logs", _("System Logs"));
         let p = new Client(n[2]);
-        return header(i, d, p, "settings"), config(i, d, p, "projects"), ddns(i, d, "ddns"), frpc(i, d, "frpc"), frps(i, d, "frps"), logs(i, d, "logs"), i.render();
+        return header(d, i, p, "settings"), config(d, i, p, "projects"), ddns(d, i, "ddns"), frpc(d, i, "frpc"), frps(d, i, "frps"), logs(d, i, "logs"), d.render();
     }
 }
 

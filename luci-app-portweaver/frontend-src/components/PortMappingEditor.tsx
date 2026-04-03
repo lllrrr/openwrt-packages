@@ -141,7 +141,7 @@ class PortMappingEditor extends L.form.Value {
         protocol: "tcp",
       };
       const row_id = `portmapping-row-${section_id}-${index}`;
-      let isTextMode = true;
+      let isTextMode = false;
 
       const listenInput = (
         <ValidatedInput
@@ -382,14 +382,8 @@ class PortMappingEditor extends L.form.Value {
       targetInput.onchange = validateAndUpdate;
       protocolSelect.onchange = validateAndUpdate;
 
-      textModeInput.onblur = (ev: Event) => {
-        const inputEl = ev.currentTarget as HTMLInputElement | null;
-        if (!inputEl) return;
-
-        errorDiv.textContent = "";
-        errorDiv.style.display = "none";
-
-        const parsed = this.parseMapping(inputEl.value);
+      const syncFromTextMode = () => {
+        const parsed = this.parseMapping(textModeInput.value);
         if (parsed) {
           const tempListenHandler = listenInput.oninput;
           const tempTargetHandler = targetInput.oninput;
@@ -408,6 +402,20 @@ class PortMappingEditor extends L.form.Value {
           protocolSelect.onchange = tempProtocolHandler;
 
           validateAndUpdate();
+        }
+      };
+
+      textModeInput.oninput = syncFromTextMode;
+      textModeInput.onblur = (ev: Event) => {
+        const inputEl = ev.currentTarget as HTMLInputElement | null;
+        if (!inputEl) return;
+
+        errorDiv.textContent = "";
+        errorDiv.style.display = "none";
+
+        const parsed = this.parseMapping(inputEl.value);
+        if (parsed) {
+          syncFromTextMode();
         } else {
           errorDiv.textContent = _("Invalid port mapping format");
           errorDiv.style.display = "block";
@@ -428,8 +436,16 @@ class PortMappingEditor extends L.form.Value {
       updateVis();
       modeToggleBtn.onclick = (e: MouseEvent) => {
         e.preventDefault();
+        // If switching FROM text mode TO visual mode, sync before switching
+        if (isTextMode) {
+          syncFromTextMode();
+        }
         isTextMode = !isTextMode;
         updateVis();
+        // If switching FROM visual mode TO text mode, ensure text input is updated
+        if (isTextMode) {
+          updatePreview();
+        }
       };
 
       deleteBtn.onclick = (e: MouseEvent) => {

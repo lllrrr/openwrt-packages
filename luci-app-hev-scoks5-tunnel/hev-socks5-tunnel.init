@@ -3,24 +3,30 @@
 USE_PROCD=1
 START=99
 
-PROG="/usr/bin/hev-socks5-tunnel"
+BIN="/usr/bin/hev-socks5-tunnel"
 CONF="hev-socks5-tunnel"
 HST_YML="/etc/hev-socks5-tunnel/main.yml"
 
 start_service() {
-    generate_config
-
     local enabled
     config_load "$CONF"
     config_get_bool enabled "config" "enabled" "0"
     [ "$enabled" = "1" ] || return 0
 
-    procd_open_instance
-    procd_set_param command " $PROG" "$HST_YML"
+    generate_config
+
+    procd_open_instance "$CONF"
+    procd_set_param command "$BIN" "$HST_YML"
     procd_set_param file "$HST_YML"
 
     procd_set_param limits core="unlimited"
-	procd_set_param limits nofile="1000000 1000000"
+    local limit_nofile
+    config_get limit_nofile config misc_limit_nofile
+    if [ -n "$limit_nofile" ]; then
+        procd_set_param limits nofile="$limit_nofile $limit_nofile"
+    else
+        procd_set_param limits nofile="1000000 1000000"
+    fi
     procd_set_param stderr 1
     procd_set_param stdout 1
     procd_set_param respawn
@@ -33,68 +39,93 @@ stop_service() {
 }
 
 service_triggers() {
+    procd_add_reload_trigger "$CONF"
     procd_add_config_trigger "$CONF"
 }
 
 generate_config() {
-    local enabled
-    config_load "$CONF"
-    config_get_bool enabled "config" "enabled" "0"
-    [ "$enabled" = "1" ] || return 0
-
     local \
-        t_name t_mtu t_ipv4 t_ipv6 \
-        s_addr s_port s_udp s_user s_pass \
-        dns_en dns_addr dns_port dns_net dns_mask \
-        log_lvl log_file
+        t_name t_mtu t_mq t_ipv4 t_ipv6 t_post_up t_pre_down \
+        s_addr s_port s_udp s_pipeline s_udp_addr s_mark s_user s_pass \
+        dns_en dns_addr dns_port dns_net dns_mask dns_cache \
+        log_lvl log_file \
+        misc_task_stack misc_tcp_buf misc_udp_recv_buf misc_udp_copy_buf \
+        misc_max_sess misc_conn_to misc_tcp_rw_to misc_udp_rw_to \
+        misc_pid_file misc_limit_nofile
 
-    config_get t_name main tunnel_name "tun0"
-    config_get t_mtu main tunnel_mtu "8500"
-    config_get t_ipv4 main tunnel_ipv4 "198.18.0.1"
-    config_get t_ipv6 main tunnel_ipv6 "fc00::1"
+    # Tunnel basic
+    config_get t_name config tunnel_name "tun0"
+    config_get t_mtu config tunnel_mtu "8500"
+    config_get_bool t_mq config tunnel_multi_queue 0
+    config_get t_ipv4 config tunnel_ipv4 "198.18.0.1"
+    config_get t_ipv6 config tunnel_ipv6 "fc00::1"
+    config_get t_post_up config tunnel_post_up_script ""
+    config_get t_pre_down config tunnel_pre_down_script ""
 
-    config_get s_addr main socks5_address "127.0.0.1"
-    config_get s_port main socks5_port "1080"
-    config_get s_udp main socks5_udp "udp"
-    config_get s_user main socks5_username ""
-    config_get s_pass main socks5_password ""
+    # SOCKS5
+    config_get s_addr config socks5_address "127.0.0.1"
+    config_get s_port config socks5_port "1080"
+    config_get s_udp config socks5_udp "udp"
+    config_get_bool s_pipeline config socks5_handshake_with_pipeline 0
+    config_get s_udp_addr config socks5_udp_address ""
+    config_get s_mark config socks5_mark ""
+    config_get s_user config socks5_username ""
+    config_get s_pass config socks5_password ""
 
-    config_get_bool dns_en main mapdns_enabled 0
-    config_get dns_addr main mapdns_address "198.18.0.2"
-    config_get dns_port main mapdns_port "53"
-    config_get dns_net main mapdns_network "100.64.0.0"
-    config_get dns_mask main mapdns_netmask "255.192.0.0"
+    # Mapped DNS
+    config_get_bool dns_en config mapdns_enabled 0
+    config_get dns_addr config mapdns_address "198.18.0.2"
+    config_get dns_port config mapdns_port "53"
+    config_get dns_net config mapdns_network "100.64.0.0"
+    config_get dns_mask config mapdns_netmask "255.192.0.0"
+    config_get dns_cache config mapdns_cache_size ""
 
-    config_get log_lvl main log_level "warn"
-    config_get log_file main log_file "stderr"
+    # Logging
+    config_get log_lvl config log_level "warn"
+    config_get log_file config log_file "stderr"
 
-    # Ensure config directory exists
-    mkdir -p "$(dirname "$HST_YML")"
+    # Misc performance
+    config_get misc_task_stack config misc_task_stack_size ""
+    config_get misc_tcp_buf config misc_tcp_buffer_size ""
+    config_get misc_udp_recv_buf config misc_udp_recv_buffer_size ""
+    config_get misc_udp_copy_buf config misc_udp_copy_buffer_nums ""
+    config_get misc_max_sess config misc_max_session_count ""
+    config_get misc_conn_to config misc_connect_timeout ""
+    config_get misc_tcp_rw_to config misc_tcp_read_write_timeout ""
+    config_get misc_udp_rw_to config misc_udp_read_write_timeout ""
+    config_get misc_pid_file config misc_pid_file ""
+    config_get misc_limit_nofile config misc_limit_nofile ""
 
-    # Generate YAML config
+    # Build YAML content using a single cat
     cat > "$HST_YML" <<EOF
 tunnel:
   name: $t_name
   mtu: $t_mtu
-  multi-queue: false
+  multi-queue: $( [ "$t_mq" = "1" ] && echo "true" || echo "false" )
   ipv4: $t_ipv4
   ipv6: '$t_ipv6'
+EOF
+
+    # Add optional tunnel scripts
+    [ -n "$t_post_up" ] && echo "  post-up-script: $t_post_up" >> "$HST_YML"
+    [ -n "$t_pre_down" ] && echo "  pre-down-script: $t_pre_down" >> "$HST_YML"
+
+    # SOCKS5 section
+    cat >> "$HST_YML" <<EOF
 
 socks5:
   port: $s_port
   address: $s_addr
   udp: '$s_udp'
+  pipeline: $( [ "$s_pipeline" = "1" ] && echo "true" || echo "false" )
 EOF
 
-    # Optional authentication
-    if [ -n "$s_user" ]; then
-        echo "username: '$s_user'" >> "$HST_YML"
-    fi
-    if [ -n "$s_pass" ]; then
-        echo "password: '$s_pass'" >> "$HST_YML"
-    fi
+    [ -n "$s_udp_addr" ] && echo "  udp-address: $s_udp_addr" >> "$HST_YML"
+    [ -n "$s_mark" ] && [ "$s_mark" != "0" ] && echo "  mark: $s_mark" >> "$HST_YML"
+    [ -n "$s_user" ] && echo "  username: '$s_user'" >> "$HST_YML"
+    [ -n "$s_pass" ] && echo "  password: '$s_pass'" >> "$HST_YML"
 
-    # Optional MapDNS
+    # Mapped DNS section (if enabled)
     if [ "$dns_en" = "1" ]; then
         cat >> "$HST_YML" <<EOF
 
@@ -104,16 +135,32 @@ mapdns:
   network: $dns_net
   netmask: $dns_mask
 EOF
+        [ -n "$dns_cache" ] && echo "  cache-size: $dns_cache" >> "$HST_YML"
     fi
 
-    # Miscellaneous settings
+    # Misc section
     cat >> "$HST_YML" <<EOF
 
 misc:
+EOF
+
+    # Only add entries that are non-empty
+    [ -n "$misc_task_stack" ] && echo "  task-stack-size: $misc_task_stack" >> "$HST_YML"
+    [ -n "$misc_tcp_buf" ] && echo "  tcp-buffer-size: $misc_tcp_buf" >> "$HST_YML"
+    [ -n "$misc_udp_recv_buf" ] && echo "  udp-recv-buffer-size: $misc_udp_recv_buf" >> "$HST_YML"
+    [ -n "$misc_udp_copy_buf" ] && echo "  udp-copy-buffer-nums: $misc_udp_copy_buf" >> "$HST_YML"
+    [ -n "$misc_max_sess" ] && echo "  max-session-count: $misc_max_sess" >> "$HST_YML"
+    [ -n "$misc_conn_to" ] && echo "  connect-timeout: $misc_conn_to" >> "$HST_YML"
+    [ -n "$misc_tcp_rw_to" ] && echo "  tcp-read-write-timeout: $misc_tcp_rw_to" >> "$HST_YML"
+    [ -n "$misc_udp_rw_to" ] && echo "  udp-read-write-timeout: $misc_udp_rw_to" >> "$HST_YML"
+    [ -n "$misc_pid_file" ] && echo "  pid-file: $misc_pid_file" >> "$HST_YML"
+    [ -n "$misc_limit_nofile" ] && echo "  limit-nofile: $misc_limit_nofile" >> "$HST_YML"
+
+    # Always include log settings (they have defaults)
+    cat >> "$HST_YML" <<EOF
   log-file: $log_file
   log-level: $log_lvl
 EOF
 
     chmod 600 "$HST_YML"
 }
-

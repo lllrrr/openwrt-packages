@@ -1,105 +1,192 @@
-msgid ""
-msgstr ""
-"Content-Type: text/plain; charset=UTF-8\n"
-"Project-Id-Version: PACKAGE VERSION\n"
-"Last-Translator: Automatically generated\n"
-"Language-Team: none\n"
-"Language: zh_Hans\n"
-"MIME-Version: 1.0\n"
-"Content-Transfer-Encoding: 8bit\n"
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:29
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:31
+msgid "hev-socks5-tunnel"
+msgstr "Hev Socks5 隧道"
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:30
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:29
 msgid "RUNNING"
-msgstr "运行中"
+msgstr "已运行"
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:32
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:31
 msgid "NOT RUNNING"
 msgstr "未运行"
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:62
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:40
+msgid "Hev Socks5 Tunnel"
+msgstr "Hev Socks5 隧道"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:41
+msgid "Hev Socks5 Tunnel - A tunnel over Socks5 proxy."
+msgstr "Hev Socks5 隧道 - 基于 Socks5 代理的隧道。"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:55
+msgid "Collecting data..."
+msgstr "正在收集数据..."
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:63
+msgid "General"
+msgstr "基本设置"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:66
 msgid "Enable"
-msgstr "开启"
+msgstr "启用"
 
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:69
-msgid "Tunnel"
-msgstr "隧道"
-
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:71
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:71
 msgid "Interface Name"
-msgstr "隧道接口名称"
+msgstr "接口名称"
 
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:75
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:75
 msgid "MTU"
 msgstr "MTU"
 
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:80
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:81
+msgid "Multi-queue"
+msgstr "多队列"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:85
 msgid "IPv4 Address"
 msgstr "IPv4 地址"
 
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:85
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:90
 msgid "IPv6 Address"
 msgstr "IPv6 地址"
 
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:90
-msgid "SOCKS5 Server"
-msgstr "SOCKS5 服务器"
-
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:93
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:96
 msgid "Server Address"
 msgstr "服务器地址"
 
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:98
-msgid "Server Port"
-msgstr "服务器端口"
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:101
+msgid "Port"
+msgstr "端口"
 
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:103
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:106
 msgid "UDP Relay Mode"
 msgstr "UDP 中继模式"
 
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:108
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:107
+msgid "TCP"
+msgstr "TCP"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:108
+msgid "UDP"
+msgstr "UDP"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:111
+msgid "Enable Handshake with Pipeline"
+msgstr "启用流水线握手"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:114
 msgid "Username (optional)"
-msgstr "用户名 (可选)"
+msgstr "用户名（可选）"
 
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:111
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:117
 msgid "Password (optional)"
-msgstr "密码 (可选)"
+msgstr "密码（可选）"
 
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:116
-msgid "Mapped DNS"
-msgstr "Mapped DNS"
-
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:118
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:122
 msgid "Enable Mapped DNS"
-msgstr "启用Mapped DNS"
+msgstr "启用映射 DNS"
 
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:121
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:125
 msgid "DNS Address"
 msgstr "DNS 地址"
 
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:126
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:130
 msgid "DNS Port"
 msgstr "DNS 端口"
 
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:131
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:135
 msgid "IP Network Base"
 msgstr "IP 网络基址"
 
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:136
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:140
 msgid "Network Mask"
 msgstr "网络掩码"
 
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:142
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:146
 msgid "Advanced"
-msgstr "高级"
+msgstr "高级设置"
 
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:144
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:149
+msgid "Post-up Script"
+msgstr "启动后脚本"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:153
+msgid "Pre-down Script"
+msgstr "停止前脚本"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:158
+msgid "Override UDP Address (optional)"
+msgstr "覆盖 UDP 地址（可选）"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:163
+msgid "Socket Mark"
+msgstr "套接字标记"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:169
+msgid "DNS Cache Size"
+msgstr "DNS 缓存大小"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:175
+msgid "Task Stack Size (bytes)"
+msgstr "任务栈大小（字节）"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:180
+msgid "TCP Buffer Size (bytes)"
+msgstr "TCP 缓冲区大小（字节）"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:185
+msgid "UDP Recv Buffer Size (bytes)"
+msgstr "UDP 接收缓冲区大小（字节）"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:190
+msgid "UDP Copy Buffer Count"
+msgstr "UDP 复制缓冲区数量"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:195
+msgid "Max Session Count (0 = unlimited)"
+msgstr "最大会话数（0 表示无限制）"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:200
+msgid "Connect Timeout (ms)"
+msgstr "连接超时（毫秒）"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:205
+msgid "TCP Read/Write Timeout (ms)"
+msgstr "TCP 读写超时（毫秒）"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:210
+msgid "UDP Read/Write Timeout (ms)"
+msgstr "UDP 读写超时（毫秒）"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:215
+msgid "PID File (daemon mode)"
+msgstr "PID 文件（守护进程模式）"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:219
+msgid "Limit NOFILE (ulimit -n)"
+msgstr "限制 NOFILE（ulimit -n）"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:225
 msgid "Log Level"
-msgstr "日志等级"
+msgstr "日志级别"
 
-#: applications/luci-app-hev-socks5-tunnel/htdocs/luci-static/resources/view/hev-socks5-tunnel.js:151
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:226
+msgid "Debug"
+msgstr "调试"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:227
+msgid "Info"
+msgstr "信息"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:228
+msgid "Warn"
+msgstr "警告"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:229
+msgid "Error"
+msgstr "错误"
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:232
 msgid "Log File"
-msgstr "日志文件路径"
-
-#: applications/luci-app-hev-socks5-tunnel\root\usr\share\rpcd\acl.d\luci-app-hev-socks5-tunnel.json:3
-msgid "Grant UCI access for luci-app-hev-socks5-tunnel"
-msgstr "授予 luci-app-hev-socks5-tunnel 访问 UCI 配置的权限"
+msgstr "日志文件"

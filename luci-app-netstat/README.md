@@ -5,7 +5,6 @@
 **A professional network statistics application for OpenWrt LuCI**
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL%203.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.0.0-success.svg)](Makefile)
 ![OpenWrt Compatible](https://img.shields.io/badge/OpenWrt-Compatible-brightgreen)
 
 [Features](#features) • [Installation](#installation) • [Usage](#usage) • [Development](#development) • [License](#license)
@@ -15,9 +14,8 @@
 ---
 
 ## Overview
-![Dashboard Preview](images/dash.png)
+![Dashboard Preview](images/luci-app-netstat.png)
 
-![Network Preview](images/network.png)
 
 
 **luci-app-netstat** is a modern, feature-rich LuCI application that provides comprehensive network traffic statistics and monitoring for OpenWrt routers. It leverages `vnstat` for accurate traffic monitoring and presents the data through an intuitive web interface.

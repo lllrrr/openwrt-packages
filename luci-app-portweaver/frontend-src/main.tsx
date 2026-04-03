@@ -1,5 +1,3 @@
-import "./utils/jsx-factory";
-
 import { Client } from "./modules/client";
 import type { FullStatusResponse } from "./types/portweaver";
 import frpc from "./modules/frpc";

@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "es6",
-    "module": "node16",
+    "module": "ESNext",
     "lib": ["ES2024", "DOM"],
     "outDir": "./dist",
     "rootDir": "./",
@@ -9,7 +9,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "moduleResolution": "node16",
+    "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "declaration": true,
     "declarationMap": true,
@@ -21,7 +21,10 @@
     "jsx": "react",
     "jsxFactory": "createJsxElement",
     "jsxFragmentFactory": "createJsxElement.Fragment",
-    "types": ["@lazulikao/luci-types"]
+    "types": ["@lazulikao/luci-types"],
+    "paths": {
+      "@/*": ["./*"]
+    }
   },
   "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules", "dist"]

@@ -1,24 +1,33 @@
-msgid ""
-msgstr "Content-Type: text/plain; charset=UTF-8"
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:29 applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:31
+msgid "hev-socks5-tunnel"
+msgstr ""
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:30
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:29
 msgid "RUNNING"
 msgstr ""
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:32
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:31
 msgid "NOT RUNNING"
 msgstr ""
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:56
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:40
+msgid "Hev Socks5 Tunnel"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:41
+msgid "Hev Socks5 Tunnel - A tunnel over Socks5 proxy."
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:55
 msgid "Collecting data..."
 msgstr ""
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:65
-msgid "Enable"
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:63
+msgid "General"
 msgstr ""
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:69
-msgid "Tunnel"
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:66
+msgid "Enable"
 msgstr ""
 
 #: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:71
@@ -29,74 +38,154 @@ msgstr ""
 msgid "MTU"
 msgstr ""
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:80
-msgid "IPv4 Address"
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:81
+msgid "Multi-queue"
 msgstr ""
 
 #: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:85
-msgid "IPv6 Address"
+msgid "IPv4 Address"
 msgstr ""
 
 #: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:90
-msgid "SOCKS5 Server"
+msgid "IPv6 Address"
 msgstr ""
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:93
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:96
 msgid "Server Address"
 msgstr ""
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:98
-msgid "Server Port"
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:101
+msgid "Port"
 msgstr ""
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:103
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:106
 msgid "UDP Relay Mode"
 msgstr ""
 
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:107
+msgid "TCP"
+msgstr ""
+
 #: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:108
-msgid "Username (optional)"
+msgid "UDP"
 msgstr ""
 
 #: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:111
+msgid "Enable Handshake with Pipeline"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:114
+msgid "Username (optional)"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:117
 msgid "Password (optional)"
 msgstr ""
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:116
-msgid "Mapped DNS"
-msgstr ""
-
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:118
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:122
 msgid "Enable Mapped DNS"
 msgstr ""
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:121
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:125
 msgid "DNS Address"
 msgstr ""
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:126
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:130
 msgid "DNS Port"
 msgstr ""
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:131
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:135
 msgid "IP Network Base"
 msgstr ""
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:136
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:140
 msgid "Network Mask"
 msgstr ""
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:142
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:146
 msgid "Advanced"
 msgstr ""
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:144
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:149
+msgid "Post-up Script"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:153
+msgid "Pre-down Script"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:158
+msgid "Override UDP Address (optional)"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:163
+msgid "Socket Mark"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:169
+msgid "DNS Cache Size"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:175
+msgid "Task Stack Size (bytes)"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:180
+msgid "TCP Buffer Size (bytes)"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:185
+msgid "UDP Recv Buffer Size (bytes)"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:190
+msgid "UDP Copy Buffer Count"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:195
+msgid "Max Session Count (0 = unlimited)"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:200
+msgid "Connect Timeout (ms)"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:205
+msgid "TCP Read/Write Timeout (ms)"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:210
+msgid "UDP Read/Write Timeout (ms)"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:215
+msgid "PID File (daemon mode)"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:219
+msgid "Limit NOFILE (ulimit -n)"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:225
 msgid "Log Level"
 msgstr ""
 
-#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:151
-msgid "Log File"
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:226
+msgid "Debug"
 msgstr ""
 
-#: applications/luci-app-hev-socks5-tunnel\root\usr\share\rpcd\acl.d\luci-app-hev-socks5-tunnel.json:3
-msgid "Grant UCI access for luci-app-hev-socks5-tunnel"
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:227
+msgid "Info"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:228
+msgid "Warn"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:229
+msgid "Error"
+msgstr ""
+
+#: applications/luci-app-hev-socks5-tunnel\htdocs\luci-static\resources\view\hev-socks5-tunnel.js:232
+msgid "Log File"
 msgstr ""
