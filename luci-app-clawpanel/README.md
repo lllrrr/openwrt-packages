@@ -1,8 +1,14 @@
 # luci-app-clawpanel
 
-**OpenWrt / iStoreOS LuCI 管理插件 — ClawPanel 可视化面板**
+**OpenWrt / iStoreOS LuCI 管理插件 — ClawPanel 可视化面板 / Ai Openclaw **
 
 通过 LuCI 网页后台，在 OpenWrt / iStoreOS 路由器上一键安装、启停、升级和卸载 ClawPanel（OpenClaw AI 助手管理面板）。
+
+---
+
+## 图片展示
+<img width="1904" height="886" alt="截图1" src="images/tu1.png" />
+<img width="1904" height="886" alt="截图2" src="images/tu2.png" />
 
 ---
 
@@ -87,7 +93,7 @@ CI 每次 main 分支 push 会自动构建三个架构的 ipk（未经正式发�
 
 ### 方式三：手动文件部署（适用于干净系统）
 
-**适合场景**：路由器没有 git，且 Release 暂无 ipk 文件。
+**适合场景**：路由器没有网络下载能力，或需要自定义安装路径。
 
 **操作步骤**：
 
@@ -122,6 +128,22 @@ rm -f /tmp/luci-indexcache /tmp/luci-modulecache/* 2>/dev/null
 ```
 
 > ⚠️ **必须上传到 `/overlay/upper/`**（持久化层），禁止直接上传到 `/` 或 `/tmp`，否则重启后文件丢失。
+
+---
+
+## 一键安装/卸载
+
+路由器有网络时，可以使用一行命令：
+
+```bash
+# 安装（一键）
+curl -fsSL https://raw.githubusercontent.com/a10463981/luci-app-clawpanel/main/install.sh | bash
+
+# 卸载（保留数据）
+curl -fsSL https://raw.githubusercontent.com/a10463981/luci-app-clawpanel/main/uninstall.sh | bash
+```
+
+安装脚本会自动检测 CPU 架构并下载对应版本。
 
 ---
 
