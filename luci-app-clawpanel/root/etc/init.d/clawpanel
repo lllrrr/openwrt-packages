@@ -73,6 +73,9 @@ start_service() {
     # Use bash -c to background (nohup doesn't exist on iStoreOS)
     (
         export HOME="/root"
+        # 修复 Node.js ICU 数据路径（解决 Unicode 正则表达式崩溃问题）
+        export NODE_ICU_DATA="/opt/node22/share/icu"
+        export LD_LIBRARY_PATH="/opt/node22/lib:$LD_LIBRARY_PATH"
         /bin/bash -c "$CP_BIN >> /tmp/clawpanel.log 2>&1 &"
     )
 

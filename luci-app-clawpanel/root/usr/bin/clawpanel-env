@@ -121,6 +121,37 @@ download_binary() {
     echo "Downloaded: $(echo "$fsize" | awk '{printf "%.1f MB", $1/1024/1024}') -> $dest"
 }
 
+detect_openclaw_app() {
+    # 优先查找已安装的 OpenClaw（含 node_modules/tslog 的才是完整的）
+    local candidate=""
+    # 查找 npm 全局安装的 openclaw
+    if [ -x "/opt/node22/bin/node" ] || [ -x "/usr/local/bin/node" ]; then
+        local npm_root
+        npm_root=$(/opt/node22/bin/node /opt/node22/bin/npm root -g 2>/dev/null || echo "")
+        if [ -z "$npm_root" ] && [ -x "/usr/local/bin/node" ]; then
+            npm_root=$(/usr/local/bin/node /usr/local/bin/npm root -g 2>/dev/null || echo "")
+        fi
+        if [ -n "$npm_root" ] && [ -d "$npm_root/openclaw" ]; then
+            candidate="$npm_root/openclaw"
+        fi
+    fi
+    # 查找 /opt/*/lib/node_modules/openclaw
+    if [ -z "$candidate" ]; then
+        for dir in /opt/node22 /opt/node23 /usr/local; do
+            if [ -d "$dir/lib/node_modules/openclaw" ]; then
+                candidate="$dir/lib/node_modules/openclaw"
+                break
+            fi
+        done
+    fi
+    # 如果找到有 node_modules 的 openclaw，返回它；否则返回默认路径
+    if [ -n "$candidate" ] && [ -d "$candidate/node_modules" ]; then
+        echo "$candidate"
+    else
+        echo ""
+    fi
+}
+
 do_setup() {
     local cp_install_path="${CP_BASE_PATH}/clawpanel"
     local cp_data="${cp_install_path}/data"
@@ -165,12 +196,51 @@ do_setup() {
     uci set clawpanel.main.version="$actual_ver"
     uci commit clawpanel 2>/dev/null || true
 
+    # 确保 node/npm 在 LuCI PATH 中可见（LuCI CGI 使用 /sbin:/usr/sbin:/bin:/usr/bin）
+    # 使用 readlink -f 解析符号链接，确保 npm wrapper 的相对路径正确
+    if [ -f /opt/node22/bin/node ]; then
+        mkdir -p /opt/node22/bin
+        # 修复 npm wrapper 的符号链接问题（ICU 路径计算依赖真实路径）
+        cat > /opt/node22/bin/npm << 'NPMEOF'
+#!/bin/sh
+SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+BASE="$(cd "$(dirname "$SELF")/.." && pwd)"
+export NODE_ICU_DATA="${BASE}/share/icu"
+export PATH="${BASE}/bin:${PATH}"
+exec "${BASE}/bin/node" "${BASE}/lib/node_modules/npm/bin/npm-cli.js" "$@"
+NPMEOF
+        chmod +x /opt/node22/bin/npm
+        ln -sf /opt/node22/bin/node /usr/bin/node
+        ln -sf /opt/node22/bin/npm /usr/bin/npm
+        ln -sf /opt/node22/bin/npm /usr/local/bin/npm 2>/dev/null || true
+    fi
+
+    # 修复 Node.js ICU 数据路径：创建全局可访问的 ICU 软链接
+    if [ -d /opt/node22/share/icu ]; then
+        mkdir -p /usr/local/share
+        ln -sf /opt/node22/share/icu /usr/local/share/icu
+    fi
+
+    # 删除 iStoreOS 旧版 openclaw（路径冲突且无 node_modules，会导致 tslog 报错）
+    if [ -d /usr/lib/node_modules/openclaw ] && [ ! -d /usr/lib/node_modules/openclaw/node_modules ]; then
+        echo "Removing broken /usr/lib/node_modules/openclaw (old version without node_modules)..."
+        rm -rf /usr/lib/node_modules/openclaw
+    fi
+
+    # 查找正确的 OpenClaw 安装路径（需要含 node_modules/tslog）
+    local detected_app
+    detected_app=$(detect_openclaw_app)
+    if [ -z "$detected_app" ]; then
+        detected_app="${cp_install_path}/app"
+    fi
+    echo "OpenClaw app: $detected_app"
+
     # 用 printf 写 clawpanel.json（避免 heredoc 的变量展开问题）
     printf '{\n' > "${cp_data}/clawpanel.json"
     printf '  "port": %s,\n' "$cp_port" >> "${cp_data}/clawpanel.json"
     printf '  "dataDir": "%s",\n' "$cp_data" >> "${cp_data}/clawpanel.json"
     printf '  "openClawDir": "%s",\n' "$openclaw_dir" >> "${cp_data}/clawpanel.json"
-    printf '  "openClawApp": "%s",\n' "$openclaw_app" >> "${cp_data}/clawpanel.json"
+    printf '  "openClawApp": "%s",\n' "$detected_app" >> "${cp_data}/clawpanel.json"
     printf '  "openClawWork": "%s",\n' "$openclaw_work" >> "${cp_data}/clawpanel.json"
     printf '  "edition": "pro",\n' >> "${cp_data}/clawpanel.json"
     printf '  "jwtSecret": "clawpanel-secret-change-me",\n' >> "${cp_data}/clawpanel.json"
