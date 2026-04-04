@@ -6,7 +6,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-clawpanel
-PKG_VERSION:=1.1.2
+PKG_VERSION:=1.1.5
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=a10463981 <a10463981@users.noreply.github.com>
@@ -50,6 +50,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) ./root/etc/init.d/clawpanel $(1)/etc/init.d/clawpanel
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) ./root/usr/bin/clawpanel-env $(1)/usr/bin/clawpanel-env
+	chmod 755 $(1)/usr/bin/clawpanel-env
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller
 	$(INSTALL_DATA) ./luasrc/controller/clawpanel.lua $(1)/usr/lib/lua/luci/controller/clawpanel.lua
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/model/cbi/clawpanel

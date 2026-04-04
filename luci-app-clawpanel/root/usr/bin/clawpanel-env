@@ -167,12 +167,98 @@ detect_node_dir() {
 }
 
 
+
+# 自动安装 Node.js
+install_node() {
+    local ARCH="$(uname -m)"
+    case "$ARCH" in
+        aarch64|arm64) TARGET_ARCH="aarch64" ;;
+        x86_64) TARGET_ARCH="x86_64" ;;
+        armv7l|armv7) TARGET_ARCH="armv7" ;;
+        *) echo "Unsupported arch: $ARCH"; return 1 ;;
+    esac
+    local NODE_VERSION="v22.15.1"
+    local NODE_TGZ="/tmp/node-${TARGET_ARCH}.tar.xz"
+    local NODE_DIR="${CP_BASE_PATH}/${CP_STORAGE_SUBDIR}/node"
+    echo "Downloading Node.js $NODE_VERSION for $TARGET_ARCH..."
+    mkdir -p "$NODE_DIR"
+    local URL="https://nodejs.org/download/release/${NODE_VERSION}/node-${NODE_VERSION}-linux-${TARGET_ARCH}.tar.xz"
+    if ! curl -fsSL --connect-timeout 15 -o "$NODE_TGZ" "$URL" 2>/dev/null; then
+        URL="https://npmmirror.com/mirrors/node/${NODE_VERSION}/node-${NODE_VERSION}-linux-${TARGET_ARCH}.tar.xz"
+        curl -fsSL --connect-timeout 15 -o "$NODE_TGZ" "$URL" || { echo "Failed to download Node.js"; return 1; }
+    fi
+    echo "Extracting Node.js..."
+    tar -xJf "$NODE_TGZ" -C "$(dirname "$NODE_DIR")" 2>/dev/null || { echo "Failed to extract"; rm -f "$NODE_TGZ"; return 1; }
+    local EXTD=""
+    for d in "$(dirname $NODE_DIR)"/node-*; do [ -d "$d" ] && EXTD="$d" && break; done
+    [ -n "$EXTD" ] && [ "$EXTD" != "$NODE_DIR" ] && { mv "$EXTD" "$NODE_DIR" 2>/dev/null || ln -sf "$EXTD" "$NODE_DIR"; }
+    ln -sf "${NODE_DIR}/bin/node" /usr/local/bin/node
+    ln -sf "${NODE_DIR}/bin/npm" /usr/local/bin/npm
+    cat > "${NODE_DIR}/bin/npm" << 'NPMWRAP'
+#!/bin/sh
+SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+BASE="$(cd "$(dirname "$SELF")/.." && pwd)"
+export NODE_ICU_DATA="${BASE}/share/icu"
+export PATH="${BASE}/bin:${PATH}"
+exec "${BASE}/bin/node" "${BASE}/lib/node_modules/npm/bin/npm-cli.js" "$@"
+NPMWRAP
+    chmod +x "${NODE_DIR}/bin/npm" && ln -sf "${NODE_DIR}/bin/npm" /usr/local/bin/npm
+    [ -d "${NODE_DIR}/share/icu" ] && mkdir -p /usr/local/share && ln -sf "${NODE_DIR}/share/icu" /usr/local/share/icu 2>/dev/null || true
+    rm -f "$NODE_TGZ"
+    echo "Node.js installed: $NODE_DIR/bin/node --version"
+}
+
+
+# 自动安装 OpenClaw
+install_openclaw() {
+    local NODE_DIR="${CP_BASE_PATH}/${CP_STORAGE_SUBDIR}/node"
+    local NPM_DIR="${CP_BASE_PATH}/${CP_STORAGE_SUBDIR}/openclaw-npm"
+    export PATH="${NODE_DIR}/bin:$PATH"
+    export NODE_ICU_DATA="${NODE_DIR}/share/icu"
+    mkdir -p "$NPM_DIR"
+    echo "Installing OpenClaw..."
+    npm install -g openclaw --prefix "$NPM_DIR" --registry https://registry.npmmirror.com 2>&1 | tail -3 || {
+        npm install -g openclaw --prefix "$NPM_DIR" 2>&1 | tail -3 || {
+            echo "OpenClaw npm install failed"; return 1; }
+    }
+    # 创建符号链接
+    mkdir -p /usr/local/lib/node_modules
+    local OCPATH="$NPM_DIR/lib/node_modules/openclaw"
+    if [ -d "$OCPATH" ]; then
+        rm -rf /usr/local/lib/node_modules/openclaw
+        ln -sf "$OCPATH" /usr/local/lib/node_modules/openclaw
+        echo "OpenClaw installed: $(command -v openclaw 2>/dev/null || echo $OCPATH/openclaw.mjs)"
+    else
+        echo "OpenClaw installation incomplete"
+        return 1
+    fi
+}
+
 do_setup() {
     # 检测 Node.js 目录
     local NODE_DIR
     NODE_DIR=$(detect_node_dir)
-    [ -z "$NODE_DIR" ] && { echo "Error: Node.js not found"; exit 1; }
+    
+    # 如果找不到 Node.js，自动安装
+    if [ -z "$NODE_DIR" ] || [ ! -x "$NODE_DIR/bin/node" ]; then
+        echo "Node.js not found, installing..."
+        install_node
+        NODE_DIR=$(detect_node_dir)
+    fi
+    
+    [ -z "$NODE_DIR" ] && { echo "Error: Node.js installation failed"; exit 1; }
     echo "Node.js detected: $NODE_DIR"
+    
+    # 检测 OpenClaw，不存在则自动安装
+    local OPENCLAW_APP
+    OPENCLAW_APP=$(detect_openclaw_app)
+    if [ -z "$OPENCLAW_APP" ] || [ ! -f "$OPENCLAW_APP/openclaw.mjs" ]; then
+        echo "OpenClaw not found, installing..."
+        install_openclaw
+        OPENCLAW_APP=$(detect_openclaw_app)
+    fi
+    [ -z "$OPENCLAW_APP" ] && { echo "Error: OpenClaw installation failed"; exit 1; }
+    echo "OpenClaw detected: $OPENCLAW_APP"
 
     local cp_install_path="${CP_BASE_PATH}/clawpanel"
     local cp_data="${cp_install_path}/data"
