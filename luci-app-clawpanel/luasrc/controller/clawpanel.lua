@@ -94,13 +94,14 @@ function action_status()
 		enabled = enabled,
 		port = port,
 		install_path = install_path,
+		openclaw_dir = uci:get("clawpanel", "main", "openclaw_dir") or "",
+		openclaw_work = uci:get("clawpanel", "main", "openclaw_work") or "",
 		panel_running = false,
 		pid = "",
 		memory_kb = 0,
 		uptime = "",
 		panel_version = "",
 		installed_version = "",
-		openclaw_dir = uci:get("clawpanel", "main", "openclaw_dir") or "",
 		disk_free = ""
 	}
 

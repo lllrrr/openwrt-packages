@@ -1,15 +1,21 @@
 #!/bin/sh
 # clawpanel-env - auto install ClawPanel from GitHub releases
 # Env vars:
-#   CP_BASE_PATH      installation base path
-#   CP_VERSION       optional fixed version like pro-v5.3.3; empty/latest = detect
-#   CP_OPENCLAW_DIR optional OpenClaw data dir; if empty, auto-derived
+#   CP_BASE_PATH       installation base path (required)
+#   CP_VERSION        optional fixed version like pro-v5.3.3; empty/latest = detect
+#   CP_OPENCLAW_DIR  optional OpenClaw data dir; if empty, auto-derived
+#   CP_OPENCLAW_NPM   optional OpenClaw npm dir; if empty, auto-detect
+#   CP_NODE_DIR       optional Node.js dir; if empty, auto-detect
+#   CP_STORAGE_SUBDIR optional storage subdir; default: clawpanel-storage
 
 set -e
 
 CP_BASE_PATH="${CP_BASE_PATH:-}"
 CP_VERSION="${CP_VERSION:-latest}"
 CP_OPENCLAW_DIR="${CP_OPENCLAW_DIR:-}"
+CP_OPENCLAW_NPM="${CP_OPENCLAW_NPM:-}"
+CP_NODE_DIR="${CP_NODE_DIR:-}"
+CP_STORAGE_SUBDIR="${CP_STORAGE_SUBDIR:-clawpanel-storage}"
 
 [ "$(id -u)" = "0" ] || { echo "Error: must run as root"; exit 1; }
 [ -n "$CP_BASE_PATH" ] || { echo "Error: CP_BASE_PATH not set"; exit 1; }
@@ -122,37 +128,52 @@ download_binary() {
 }
 
 detect_openclaw_app() {
+    # 检测 Node.js 目录
+    local _ND; _ND=$(detect_node_dir)
     # 优先查找已安装的 OpenClaw（含 node_modules/tslog 的才是完整的）
     local candidate=""
     # 查找 npm 全局安装的 openclaw
-    if [ -x "/opt/node22/bin/node" ] || [ -x "/usr/local/bin/node" ]; then
-        local npm_root
-        npm_root=$(/opt/node22/bin/node /opt/node22/bin/npm root -g 2>/dev/null || echo "")
+    if [ -n "$_ND" ] && [ -x "$_ND/bin/node" ]; then
+        local npm_root; npm_root=$($_ND/bin/node $_ND/bin/npm root -g 2>/dev/null || echo "")
         if [ -z "$npm_root" ] && [ -x "/usr/local/bin/node" ]; then
             npm_root=$(/usr/local/bin/node /usr/local/bin/npm root -g 2>/dev/null || echo "")
         fi
-        if [ -n "$npm_root" ] && [ -d "$npm_root/openclaw" ]; then
-            candidate="$npm_root/openclaw"
-        fi
+        [ -n "$npm_root" ] && [ -d "$npm_root/openclaw" ] && candidate="$npm_root/openclaw"
     fi
-    # 查找 /opt/*/lib/node_modules/openclaw
+    # 查找新版 install.sh 结构或标准路径
     if [ -z "$candidate" ]; then
-        for dir in /opt/node22 /opt/node23 /usr/local; do
-            if [ -d "$dir/lib/node_modules/openclaw" ]; then
-                candidate="$dir/lib/node_modules/openclaw"
-                break
-            fi
+        for dir in "${CP_BASE_PATH}/${CP_STORAGE_SUBDIR}/openclaw-npm" "/usr/local/lib/node_modules" "$_ND/lib/node_modules"; do
+            [ -d "$dir/openclaw" ] && [ -d "$dir/openclaw/node_modules" ] && { candidate="$dir/openclaw"; break; }
         done
     fi
-    # 如果找到有 node_modules 的 openclaw，返回它；否则返回默认路径
-    if [ -n "$candidate" ] && [ -d "$candidate/node_modules" ]; then
-        echo "$candidate"
-    else
-        echo ""
-    fi
+    # 返回找到的路径（含 node_modules 才有效）
+    [ -n "$candidate" ] && [ -d "$candidate/node_modules" ] && echo "$candidate" || echo ""
 }
 
+
+# 检测 Node.js 目录（支持多种安装方式）
+detect_node_dir() {
+    # 1. 环境变量指定
+    [ -n "$CP_NODE_DIR" ] && [ -x "$CP_NODE_DIR/bin/node" ] && { echo "$CP_NODE_DIR"; return; }
+    # 2. 新版 install.sh 结构
+    [ -x "${CP_BASE_PATH}/${CP_STORAGE_SUBDIR}/node/bin/node" ] && { echo "${CP_BASE_PATH}/${CP_STORAGE_SUBDIR}/node"; return; }
+    # 3. 旧版 $NODE_DIR
+    [ -x "$NODE_DIR/bin/node" ] && { echo "$NODE_DIR"; return; }
+    # 4. 从 PATH 找
+    local np=$(command -v node 2>/dev/null); [ -n "$np" ] && { local nr=$(readlink -f "$np" 2>/dev/null); local nd=$(dirname "$(dirname $nr)"); [ -x "$nd/bin/node" ] && { echo "$nd"; return; }; }
+    # 5. 查找其他位置
+    for d in /usr/local /usr; do [ -x "$d/bin/node" ] && { echo "$d"; return; }; done
+    echo ""
+}
+
+
 do_setup() {
+    # 检测 Node.js 目录
+    local NODE_DIR
+    NODE_DIR=$(detect_node_dir)
+    [ -z "$NODE_DIR" ] && { echo "Error: Node.js not found"; exit 1; }
+    echo "Node.js detected: $NODE_DIR"
+
     local cp_install_path="${CP_BASE_PATH}/clawpanel"
     local cp_data="${cp_install_path}/data"
     local cp_binary="${cp_install_path}/clawpanel"
@@ -192,16 +213,17 @@ do_setup() {
     uci set clawpanel.main.enabled='1'
     uci set clawpanel.main.install_path="$CP_BASE_PATH"
     uci set clawpanel.main.openclaw_dir="$openclaw_dir"
+    uci set clawpanel.main.openclaw_work="$openclaw_work"
     uci set clawpanel.main.port="$cp_port"
     uci set clawpanel.main.version="$actual_ver"
     uci commit clawpanel 2>/dev/null || true
 
     # 确保 node/npm 在 LuCI PATH 中可见（LuCI CGI 使用 /sbin:/usr/sbin:/bin:/usr/bin）
     # 使用 readlink -f 解析符号链接，确保 npm wrapper 的相对路径正确
-    if [ -f /opt/node22/bin/node ]; then
-        mkdir -p /opt/node22/bin
+    if [ -f $NODE_DIR/bin/node ]; then
+        mkdir -p $NODE_DIR/bin
         # 修复 npm wrapper 的符号链接问题（ICU 路径计算依赖真实路径）
-        cat > /opt/node22/bin/npm << 'NPMEOF'
+        cat > $NODE_DIR/bin/npm << 'NPMEOF'
 #!/bin/sh
 SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"
 BASE="$(cd "$(dirname "$SELF")/.." && pwd)"
@@ -209,17 +231,28 @@ export NODE_ICU_DATA="${BASE}/share/icu"
 export PATH="${BASE}/bin:${PATH}"
 exec "${BASE}/bin/node" "${BASE}/lib/node_modules/npm/bin/npm-cli.js" "$@"
 NPMEOF
-        chmod +x /opt/node22/bin/npm
-        ln -sf /opt/node22/bin/node /usr/bin/node
-        ln -sf /opt/node22/bin/npm /usr/bin/npm
-        ln -sf /opt/node22/bin/npm /usr/local/bin/npm 2>/dev/null || true
+        chmod +x $NODE_DIR/bin/npm
+        ln -sf $NODE_DIR/bin/node /usr/bin/node
+        ln -sf $NODE_DIR/bin/npm /usr/bin/npm
+        ln -sf $NODE_DIR/bin/npm /usr/local/bin/npm 2>/dev/null || true
     fi
 
     # 修复 Node.js ICU 数据路径：创建全局可访问的 ICU 软链接
-    if [ -d /opt/node22/share/icu ]; then
+    if [ -d $NODE_DIR/share/icu ]; then
         mkdir -p /usr/local/share
-        ln -sf /opt/node22/share/icu /usr/local/share/icu
+        ln -sf $NODE_DIR/share/icu /usr/local/share/icu
     fi
+
+    # 添加 PATH 配置到 profile.d（让交互式 shell 也能访问 node/npm）
+    mkdir -p /etc/profile.d
+    cat > /etc/profile.d/node.sh << 'NODEPROFILE'
+#!/bin/sh
+export PATH="$NODE_DIR/bin:$PATH"
+export NODE_ICU_DATA="$NODE_DIR/share/icu"
+export LD_LIBRARY_PATH="$NODE_DIR/lib:$LD_LIBRARY_PATH"
+NODEPROFILE
+    chmod +x /etc/profile.d/node.sh
+    echo "Profile script installed: /etc/profile.d/node.sh"
 
     # 删除 iStoreOS 旧版 openclaw（路径冲突且无 node_modules，会导致 tslog 报错）
     if [ -d /usr/lib/node_modules/openclaw ] && [ ! -d /usr/lib/node_modules/openclaw/node_modules ]; then
@@ -270,6 +303,18 @@ NPMEOF
     local cp_ver
     cp_ver=$(cat "${cp_install_path}/.version" 2>/dev/null | tr -d '[:space:]' | sed 's/^pro-v//;s/^lite-v//')
     [ -z "$cp_ver" ] && cp_ver="5.3.3"
+
+    # 创建 OpenClaw wrapper（设置 NODE_ICU_DATA，解决 Unicode 正则崩溃）
+    mkdir -p /usr/local/bin
+    cat > /usr/local/bin/openclaw << 'OPENCLAWWRAP'
+#!/bin/sh
+export NODE_ICU_DATA="$NODE_DIR/share/icu"
+export LD_LIBRARY_PATH="$NODE_DIR/lib:$LD_LIBRARY_PATH"
+export PATH="$NODE_DIR/bin:$PATH"
+exec $NODE_DIR/bin/node /usr/local/lib/node_modules/openclaw/openclaw.mjs "$@"
+OPENCLAWWRAP
+    chmod +x /usr/local/bin/openclaw
+    ln -sf /usr/local/bin/openclaw /usr/bin/openclaw 2>/dev/null || true
 
     # Use bash -c to background (nohup doesn't exist on iStoreOS)
     /bin/bash -c "$cp_binary >> /tmp/clawpanel_startup.log 2>&1 &"

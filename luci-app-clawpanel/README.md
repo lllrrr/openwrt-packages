@@ -136,14 +136,23 @@ rm -f /tmp/luci-indexcache /tmp/luci-modulecache/* 2>/dev/null
 路由器有网络时，可以使用一行命令：
 
 ```bash
-# 安装（一键）
+# 安装（一键，完整依赖链）
 curl -fsSL https://raw.githubusercontent.com/a10463981/luci-app-clawpanel/main/install.sh | bash
+
+# 手动指定外部存储
+curl -fsSL https://raw.githubusercontent.com/a10463981/luci-app-clawpanel/main/install.sh | bash -s /mnt/sda1
 
 # 卸载（保留数据）
 curl -fsSL https://raw.githubusercontent.com/a10463981/luci-app-clawpanel/main/uninstall.sh | bash
 ```
 
-安装脚本会自动检测 CPU 架构并下载对应版本。
+安装脚本会自动：
+1. 检测 CPU 架构 (aarch64/x86_64/armv7l)
+2. **自动扫描并选择最大空间的外部存储挂载点**（无需手动指定）
+3. 安装完整依赖链：Node.js → npm → Git → Python3 → OpenClaw → ClawPanel
+4. 所有数据保存在外部存储，系统重装后恢复即可
+
+> 💡 **自动存储检测**：脚本会扫描 `/mnt/*`、`/ext/*`、`/storage/*` 等挂载点，自动选择最大可用空间的外部存储。无需手动指定路径。
 
 ---
 
@@ -183,13 +192,16 @@ http://192.168.1.1:19527
 
 ## 数据目录说明
 
-| 目录 | 内容 |
-|---|---|
-| `{安装路径}/clawpanel/` | ClawPanel 程序二进制和版本文件 |
-| `{安装路径}/clawpanel/data/` | 运行时数据（clawpanel.json 配置文件）|
-| `{安装路径}/.openclaw/` | OpenClaw 引擎配置和插件数据 |
+> ⚠️ **所有数据均保存在外部存储的 `clawpanel-storage/` 子目录下**，避免与挂载盘中其他数据混在一起。
 
-> 💡 重装 OpenWrt 系统后，只需重新安装本插件并指向同一挂载点，程序和数据会自动恢复。
+| 外部存储子目录 | 内容 |
+|---|---|
+| `{挂载点}/clawpanel-storage/node/` | Node.js v22 二进制 |
+| `{挂载点}/clawpanel-storage/openclaw-npm/` | OpenClaw npm 包 (含 node_modules) |
+| `{挂载点}/clawpanel-storage/.openclaw/` | OpenClaw 工作区配置 |
+| `{挂载点}/clawpanel-storage/clawpanel/` | ClawPanel 程序二进制和数据 |
+
+> 💡 **重装 OpenWrt 系统后**：重新安装 IPK 插件 + 运行一键安装脚本，所有数据自动恢复，无需手动配置。
 
 ---
 
@@ -201,6 +213,8 @@ luci-app-clawpanel/
 ├── VERSION                          # 插件版本号
 ├── README.md                        # 中文说明
 ├── README_EN.md                     # English documentation
+├── install.sh                       # ⭐ 一键安装脚本（完整依赖链）
+├── uninstall.sh                     # 一键卸载脚本
 │
 ├── root/
 │   ├── etc/
@@ -225,31 +239,52 @@ luci-app-clawpanel/
 ## 架构图
 
 ```
-┌──────────────────────────────────────────────────────┐
-│                   OpenWrt 路由器                       │
-│                                                        │
-│   ┌──────────────┐      ┌─────────────────────────┐ │
-│   │ LuCI Web UI  │ ←──→ │ luci-app-clawpanel     │ │
-│   │  (浏览器)     │ UCI  │  (Lua Controller)       │ │
-│   └──────────────┘      └──────────┬──────────────┘ │
-│                                    │                  │
-│                      ┌─────────────▼──────────────┐  │
-│                      │ clawpanel-env  (Shell)    │  │
-│                      │  · 下载二进制              │  │
-│                      │  · 写入配置               │  │
-│                      │  · 启动服务               │  │
-│                      └─────────────┬──────────────┘  │
-│                                    │                  │
-│   ┌────────────────────────────────▼────────────────┐│
-│   │         ClawPanel  (:19527 + :19528)            ││
-│   │  Go 单二进制，Web 面板 + REST API + React 前端   ││
-│   │  数据目录: /mnt/sda1/clawpanel/data              ││
-│   │  OpenClaw: /mnt/sda1/.openclaw                  ││
-│   └─────────────────────────────────────────────────┘│
-└──────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                       OpenWrt 路由器                                 │
+│                                                                    │
+│   ┌──────────────┐      ┌─────────────────────────────────┐  │
+│   │ LuCI Web UI │ ←──→ │ luci-app-clawpanel (Lua)      │  │
+│   │   (浏览器)   │ UCI  │  · 安装向导 (clawpanel-env)    │  │
+│   └──────────────┘      │  · 启停管理 (init.d)           │  │
+│                          └──────────────┬──────────────────┘  │
+│                                             │                   │
+│                         ┌───────────────────▼──────────────────┐  │
+│                         │  install.sh (一键安装脚本)          │  │
+│                         │  · 自动检测外部存储挂载点            │  │
+│                         │  · 安装 Node.js + npm              │  │
+│                         │  · 安装 OpenClaw                   │  │
+│                         │  · 下载 ClawPanel 二进制           │  │
+│                         └───────────────────┬──────────────────┘  │
+│                                             │                   │
+│   ┌────────────────────────────────────────▼────────────────┐ │
+│   │                    ClawPanel (:19527 + :19528)          │ │
+│   │  Go 单二进制，Web 面板 + REST API + React 前端          │ │
+│   │  内嵌 OpenClaw Gateway                                  │ │
+│   └─────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────┘
+
+外部存储 (如 /mnt/sda1, /mnt/sdb1, /ext/disk 等，自动检测)
+└── /clawpanel-storage/          ← 所有数据在此子目录
+    ├── node/                    ← Node.js v22 (约 50MB)
+    ├── openclaw-npm/            ← OpenClaw npm 包 (约 700MB)
+    ├── .openclaw/               ← OpenClaw 工作区配置
+    ├── .openclaw-work/          ← OpenClaw 运行时数据
+    └── clawpanel/               ← ClawPanel Go 二进制 (约 30MB)
 ```
 
 ---
+## 版本历史
+
+| 版本 | 日期 | 说明 |
+|------|------|------|
+| **v1.1.2** | 2026-04-05 | clawpanel-env 通用路径支持 |
+| **v1.1.1** | 2026-04-05 | OpenClaw 工作目录支持 |
+| **v1.1.0** | 2026-04-05 | 通用发行版 - 自动检测外部存储 |
+| v1.0.3 | 2026-04-04 | 修复 Node.js 环境检测 |
+| v1.0.2 | 2026-04-04 | 修复安装报错 |
+| v1.0.1 | 2026-04-03 | 修复 nohup 问题 |
+| v1.0.0 | 2026-04-02 | 初始版本 |
+
 
 ## 相关链接
 

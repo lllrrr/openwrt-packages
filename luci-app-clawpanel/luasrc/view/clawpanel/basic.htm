@@ -45,6 +45,8 @@ basic.htm - ClawPanel 单页面 + 弹窗
 <tr><td>运行时间</td><td id="cp-up">-</td></tr>
 <tr><td>版本</td><td id="cp-ver">-</td></tr>
 <tr><td>安装路径</td><td id="cp-path">-</td></tr>
+<tr><td>OpenClaw 目录</td><td id="cp-openclaw-dir">-</td></tr>
+<tr><td>OpenClaw 工作区</td><td id="cp-openclaw-work">-</td></tr>
 <tr><td>剩余空间</td><td id="cp-disk">-</td></tr>
 </table>
 </div>
@@ -354,6 +356,8 @@ function cpReloadStatus() {
             $('cp-up').textContent = d.uptime || '-';
             $('cp-ver').textContent = d.panel_version || '未安装';
             $('cp-path').textContent = d.install_path || '-';
+            $('cp-openclaw-dir').textContent = d.openclaw_dir || '-';
+            $('cp-openclaw-work').textContent = d.openclaw_work || '-';
             $('cp-disk').textContent = d.disk_free ? (d.disk_free + ' 可用') : '-';
         } catch(e) {}
     }});
