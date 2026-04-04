@@ -6,7 +6,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-clawpanel
-PKG_VERSION:=1.0.0
+PKG_VERSION:=1.0.1
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=a10463981 <a10463981@users.noreply.github.com>
@@ -67,7 +67,9 @@ endef
 define Package/$(PKG_NAME)/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] || {
-	( . /etc/uci-defaults/99-clawpanel ) && rm -f /etc/uci-defaults/99-clawpanel
+	[ -f /etc/uci-defaults/99-clawpanel ] && {
+		( . /etc/uci-defaults/99-clawpanel ) && rm -f /etc/uci-defaults/99-clawpanel
+	}
 	rm -f /tmp/luci-indexcache /tmp/luci-modulecache/* 2>/dev/null
 	exit 0
 }
