@@ -58,6 +58,10 @@ function index()
 		call("action_uninstall_log"), nil).leaf = true
 	entry({"admin", "services", "clawpanel", "mounts"},
 		call("action_mounts"), nil).leaf = true
+	entry({"admin", "services", "clawpanel", "disks"},
+		call("action_disks"), nil).leaf = true
+	entry({"admin", "services", "clawpanel", "node_info"},
+		call("action_node_info"), nil).leaf = true
 	entry({"admin", "services", "clawpanel", "check_system"},
 		call("action_check_system"), nil).leaf = true
 	entry({"admin", "services", "clawpanel", "check_update"},
@@ -87,15 +91,20 @@ function action_status()
 
 	local port = uci:get("clawpanel", "main", "port") or "19527"
 	local enabled = uci:get("clawpanel", "main", "enabled") or "0"
+	local disk = uci:get("clawpanel", "main", "disk") or ""
 	local install_path = uci:get("clawpanel", "main", "install_path") or ""
-	local cp_bin = install_path ~= "" and (install_path .. "/clawpanel/clawpanel") or ""
 
 	local result = {
 		enabled = enabled,
 		port = port,
-		install_path = install_path,
+		disk = disk,
+		install_path = install_path,           -- /Configs 路径
+		configs_dir = disk,                 -- 存储盘（main.htm 显示用）
 		openclaw_dir = uci:get("clawpanel", "main", "openclaw_dir") or "",
 		openclaw_work = uci:get("clawpanel", "main", "openclaw_work") or "",
+		node_installed = false,
+		node_version = "",
+		openclaw_version = "",
 		panel_running = false,
 		pid = "",
 		memory_kb = 0,
@@ -105,7 +114,28 @@ function action_status()
 		disk_free = ""
 	}
 
-	if cp_bin ~= "" and install_path ~= "" then
+	-- Node.js 检测
+	local node_bin = nil
+	if os.execute("command -v node >/dev/null 2>&1") == 0 then node_bin = "node"
+	elseif os.execute("test -x /usr/local/bin/node") == 0 then node_bin = "/usr/local/bin/node"
+	elseif os.execute("test -x /usr/bin/node") == 0 then node_bin = "/usr/bin/node" end
+	if node_bin then
+		result.node_installed = true
+		result.node_version = trim(sh(node_bin .. " --version 2>/dev/null"))
+	end
+
+	-- OpenClaw 版本
+	if install_path ~= "" then
+		local ocmjs = trim(sh("find '" .. install_path .. "' -name 'openclaw.mjs' -path '*/node_modules/openclaw/*' 2>/dev/null | head -1"))
+		if ocmjs == "" then ocmjs = trim(sh("find /usr/local/lib/node_modules/openclaw -name 'openclaw.mjs' 2>/dev/null | head -1")) end
+		if ocmjs ~= "" and node_bin then
+			result.openclaw_version = trim(sh(node_bin .. " " .. ocmjs .. " --version 2>/dev/null"))
+		end
+	end
+
+	if install_path ~= "" then
+		local cp_bin = install_path ~= "" and (install_path .. "/clawpanel/clawpanel") or ""
+
 		-- Read .version file first (fast, written at install time)
 		local vf = io.open(install_path .. "/clawpanel/.version", "r")
 		if vf then
@@ -144,9 +174,23 @@ function action_status()
 		end
 	end
 
-	if install_path ~= "" then
-		local disk = trim(sh("df -h '" .. install_path .. "' | tail -1 | awk '{print $4}'"))
-		if disk and disk ~= "" then result.disk_free = disk end
+	if disk ~= "" then
+		local df_out = trim(sh("df -m '" .. disk .. "' 2>/dev/null | tail -1"))
+		local avail_mb = 0
+		for tok in df_out:gmatch("[^\n]+") do
+			local fields = {}
+			for w in tok:gmatch("%S+") do table.insert(fields, w) end
+			local mounted = fields[#fields] or ""
+			if #fields >= 6 and mounted == disk then
+				avail_mb = tonumber(fields[4]) or 0
+			end
+		end
+		if avail_mb > 0 then
+			result.disk_free = (avail_mb >= 1024) and (string.format("%.1f GB", avail_mb / 1024)) or (avail_mb .. " MB")
+		end
+	elseif install_path ~= "" then
+		local disk_str = trim(sh("df -h '" .. install_path .. "' | tail -1 | awk '{print $4}'"))
+		if disk_str and disk_str ~= "" then result.disk_free = disk_str end
 	end
 
 	http.prepare_content("application/json")
@@ -238,29 +282,43 @@ function action_service_ctl()
 	elseif action == "setup" then
 		sh("rm -f /tmp/clawpanel-setup.log /tmp/clawpanel-setup.pid /tmp/clawpanel-setup.exit")
 
-		local version = http.formvalue("version") or ""
-		local install_path = http.formvalue("install_path") or ""
-		install_path = install_path:gsub("[^%w%-%./]", ""):gsub("/+$", ""):gsub("%.%.", "")
+		-- disk: 存储盘挂载点（如 /mnt/sda1 或 /overlay）
+		local disk = http.formvalue("disk") or ""
+		disk = disk:gsub("[^%w%-%./]", ""):gsub("/+$", ""):gsub("%.%.", "")
 
-		-- 如果路径为空，clawpanel-env 会自动检测存储设备
-		-- 只需设置 install_path 为空字符串即可
-
-		local openclaw_dir = http.formvalue("openclaw_dir") or ""
-		openclaw_dir = openclaw_dir:gsub("[^%w%-%./]", ""):gsub("%.%.", "")
-		if openclaw_dir == "" then
-			openclaw_dir = install_path .. "/clawpanel/data"
+		if disk == "" then
+			http.prepare_content("application/json")
+			http.write_json({ status = "error", message = "disk cannot be empty" })
+			return
 		end
 
-		sh("uci set clawpanel.main.install_path='" .. install_path .. "'")
-		sh("uci set clawpanel.main.openclaw_dir='" .. openclaw_dir .. "'")
+		-- 允许 /overlay 但禁止真正的系统路径
+		local forbidden = {"/", "/rom", "/boot", "/proc", "/sys", "/dev", "/tmp", "/var", "/etc", "/root", "/usr", "/bin", "/sbin", "/lib"}
+		local is_forbidden = false
+		for _, fp in ipairs(forbidden) do
+			if disk == fp or disk:find("^" .. fp .. "/") then
+				is_forbidden = true
+				break
+			end
+		end
+		if is_forbidden then
+			http.prepare_content("application/json")
+			http.write_json({ status = "error", message = "System path forbidden: " .. disk })
+			return
+		end
+
+		-- 保存 disk 到 UCI（controller 读取此字段）
+		sh("uci set clawpanel.main.disk='" .. disk .. "'")
+		sh("uci set clawpanel.main.install_path='" .. disk .. "/Configs'")
 		sh("uci commit clawpanel 2>/dev/null")
 
+		local version = http.formvalue("version") or ""
 		local env_prefix = ""
 		if version ~= "" and version ~= "latest" then
 			env_prefix = "CP_VERSION=" .. version .. " "
 		end
 
-		sh("( " .. env_prefix .. "CP_BASE_PATH='" .. install_path .. "' CP_OPENCLAW_DIR='" .. openclaw_dir .. "' /usr/bin/clawpanel-env setup >> /tmp/clawpanel-setup.log 2>&1; echo $? > /tmp/clawpanel-setup.exit ) & echo $! > /tmp/clawpanel-setup.pid")
+		sh("( " .. env_prefix .. "CP_BASE_PATH='" .. disk .. "' /usr/bin/clawpanel-env setup >> /tmp/clawpanel-setup.log 2>&1; echo $? > /tmp/clawpanel-setup.exit ) & echo $! > /tmp/clawpanel-setup.pid")
 
 		http.prepare_content("application/json")
 		http.write_json({ status = "ok", message = "Installation started in background. Please wait..." })
@@ -387,6 +445,119 @@ function action_uninstall_log()
 	http.write_json({ log = log, completed = completed })
 end
 
+-- 列出可用存储盘（供 main.htm 新版 UI 使用）
+function action_disks()
+	local http = require "luci.http"
+	local uci = require "luci.model.uci".cursor()
+	local current_disk = uci:get("clawpanel", "main", "disk") or ""
+
+	local disks = {}
+	local f = io.open("/proc/mounts", "r")
+	if f then
+		for line in f:lines() do
+			local dev, mp, fs = line:match("^([^%s]+)%s+([^%s]+)%s+([^%s]+)")
+			if mp then
+				local is_system = false
+				local system_paths = {"/", "/rom", "/boot", "/proc", "/sys", "/dev", "/tmp", "/var", "/run"}
+				for _, sp in ipairs(system_paths) do
+					if mp == sp or mp:find("^" .. sp .. "/") then
+						is_system = true
+						break
+					end
+				end
+				-- 允许 ext4/vfat/overlay/btrfs 等，排除 tmpfs/devpts
+				if not is_system and fs ~= "tmpfs" and fs ~= "devpts" and fs ~= "devtmpfs"
+				   and fs ~= "sysfs" and fs ~= "proc" and fs ~= "cgroup2fs"
+				   and fs ~= "squashfs" and fs ~= "romfs" then
+					-- 获取可用空间（df -m 避免路径含 / 导致模式错误）
+					local df = io.popen("df -m '" .. mp .. "' 2>/dev/null | tail -1")
+					local df_out = df and df:read("*a") or ""
+					if df then df:close() end
+					local avail_mb = 0
+					local total_mb = 0
+					for tok in df_out:gmatch("[^\n]+") do
+						-- df -m 输出: Filesystem 1-blocks Used Available Use% Mounted
+						-- 用空格分割后第4列=Available，第5列=Use%，第6列+=Mounted
+						local fields = {}
+						for w in tok:gmatch("%S+") do table.insert(fields, w) end
+						-- 找到 Mounted 列（第6+个字段），检查是否匹配当前挂载点
+						local mounted = fields[#fields] or ""
+						if #fields >= 6 and mounted == mp then
+							avail_mb = tonumber(fields[4]) or 0
+							total_mb = tonumber(fields[2]) or 0
+						end
+					end
+					local size_str = ""
+					if total_mb >= 1024 then
+						size_str = string.format("%.1f GB", total_mb / 1024)
+					else
+						size_str = total_mb .. " MB"
+					end
+					if avail_mb >= 200 then
+						table.insert(disks, {
+							mount = mp,
+							fs = fs,
+							device = dev,
+							size = size_str,
+							avail_mb = avail_mb,
+							total_mb = total_mb,
+							is_current = (mp == current_disk)
+						})
+					end
+				end
+			end
+		end
+		f:close()
+	end
+
+	table.sort(disks, function(a, b) return a.avail_mb > b.avail_mb end)
+
+	http.prepare_content("application/json")
+	http.write_json({ disks = disks, current_disk = current_disk })
+end
+
+-- Node.js 系统信息
+function action_node_info()
+	local http = require "luci.http"
+
+	local result = {
+		installed = false,
+		version = "",
+		path = "",
+		npm_version = "",
+		arch = "",
+		suggested_version = ""
+	}
+
+	local node_bin = nil
+	if os.execute("command -v node >/dev/null 2>&1") == 0 then
+		node_bin = "node"
+	elseif os.execute("test -x /usr/local/bin/node") == 0 then
+		node_bin = "/usr/local/bin/node"
+	elseif os.execute("test -x /usr/bin/node") == 0 then
+		node_bin = "/usr/bin/node"
+	end
+
+	if node_bin then
+		result.installed = true
+		result.path = trim(sh("readlink -f " .. node_bin .. " 2>/dev/null"))
+		result.version = trim(sh(node_bin .. " --version 2>/dev/null"))
+		result.npm_version = trim(sh(node_bin .. " -e \"console.log(require('./package.json').version)\" /tmp/npm-pkg-tmp 2>/dev/null || " .. node_bin .. " -e \"try{const p=require.resolve('npm/package.json');console.log(require(p).version)}catch(e){}'\" 2>/dev/null || ''"))
+		result.arch = trim(sh("uname -m 2>/dev/null"))
+	end
+
+	-- 从 GitHub 获取 Node.js 最新 LTS 版本
+	local latest_lts = trim(sh("curl -sL --max-time 8 https://nodejs.org/dist/index.json 2>/dev/null | grep -o '\"version\":\"v[0-9][^\"]*lts[^\"]*\"' | head -1 | grep -o 'v[0-9][^ \"]*'"))
+	if latest_lts and latest_lts ~= "" then
+		result.suggested_version = latest_lts
+	else
+		result.suggested_version = "v22.15.1"
+	end
+
+	http.prepare_content("application/json")
+	http.write_json(result)
+end
+
 -- 列出系统外置存储挂载点（供 basic.htm 安装向导使用）
 function action_mounts()
 	local http = require "luci.http"
@@ -402,20 +573,36 @@ function action_mounts()
 			if mp then
 				-- 排除系统分区
 				local is_system = false
-				local system_paths = {"/", "/overlay", "/rom", "/boot", "/proc", "/sys", "/dev", "/tmp", "/var"}
+				-- 排除根分区、boot、proc/sys/dev 等系统路径
+				-- /overlay 保留：部分设备只有内置存储（无外置 USB），overlay 分区可作为备选
+				local system_paths = {"/", "/rom", "/boot", "/proc", "/sys", "/dev", "/tmp", "/var", "/run"}
 				for _, sp in ipairs(system_paths) do
 					if mp == sp or mp:find("^" .. sp .. "/") then
 						is_system = true
 						break
 					end
 				end
-				if not is_system and (fs == "ext4" or fs == "vfat" or fs == "ntfs" or fs == "exfat" or fs == "f2fs" or fs == "ubifs") then
+				-- 排除虚拟文件系统，明确列出常用存储文件系统类型
+				if not is_system and (
+					fs == "ext4" or fs == "vfat" or fs == "ntfs" or
+					fs == "exfat" or fs == "f2fs" or fs == "ubifs" or
+					fs == "overlay" or fs == "btrfs" or fs == "xfs"
+				) then
 					-- 获取可用空间
-					local df = io.popen("df -m '" .. mp .. "' 2>/dev/null")
+					local df = io.popen("df -m '" .. mp .. "' 2>/dev/null | tail -1")
 					local df_out = df and df:read("*a") or ""
 					if df then df:close() end
-					local avail_mb = tonumber(df_out:match("\n(%d+)%s+%d+%s+%d+%s+%d+%s+%d%%%s+" .. mp:gsub("/", "%%%/"))) or 0
-					local total_mb = tonumber(df_out:match("(%d+)%s+%d+%s+%d+%s+%d+%s+%d%%%s+" .. mp:gsub("/", "%%%/"))) or 0
+					local avail_mb = 0
+					local total_mb = 0
+					for tok in df_out:gmatch("[^\n]+") do
+						local fields = {}
+						for w in tok:gmatch("%S+") do table.insert(fields, w) end
+						local mounted = fields[#fields] or ""
+						if #fields >= 6 and mounted == mp then
+							avail_mb = tonumber(fields[4]) or 0
+							total_mb = tonumber(fields[2]) or 0
+						end
+					end
 					local size_str = ""
 					if total_mb > 1024 then
 						size_str = string.format("%.1f GB", total_mb / 1024)
@@ -445,7 +632,7 @@ end
 -- 安装前系统检查（内存、磁盘）
 function action_check_system()
 	local http = require "luci.http"
-	local install_path = http.formvalue("install_path") or ""
+	local disk = http.formvalue("disk") or ""
 
 	local memory_mb = 0
 	local f = io.open("/proc/meminfo", "r")
@@ -457,11 +644,18 @@ function action_check_system()
 	end
 
 	local disk_mb = 0
-	if install_path ~= "" then
-		local df = io.popen("df -m '" .. install_path .. "' 2>/dev/null")
+	if disk ~= "" then
+		local df = io.popen("df -m '" .. disk .. "' 2>/dev/null | tail -1")
 		local df_out = df and df:read("*a") or ""
 		if df then df:close() end
-		disk_mb = tonumber(df_out:match("\n(%d+)%s+%d+%s+%d+%s+%d+%s+%d%%%s+" .. install_path:gsub("/", "%%%/"))) or 0
+		for tok in df_out:gmatch("[^\n]+") do
+			local fields = {}
+			for w in tok:gmatch("%S+") do table.insert(fields, w) end
+			local mounted = fields[#fields] or ""
+			if #fields >= 6 and mounted == disk then
+				disk_mb = tonumber(fields[4]) or 0
+			end
+		end
 	end
 
 	local pass = (memory_mb >= 256) and (disk_mb >= 500)

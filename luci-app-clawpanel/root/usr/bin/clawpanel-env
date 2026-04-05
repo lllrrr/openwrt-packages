@@ -138,7 +138,7 @@ echo "  ├── clawpanel/          ← ClawPanel 程序"
 echo "  │    ├── data/          ← 配置 + 数据"
 echo "  │    └── clawpanel      ← Go 二进制"
 echo "  ├── openclaw/           ← OpenClaw npm 包"
-"  └── .openclaw/            ← OpenClaw 工作区"
+echo "  └── .openclaw/            ← OpenWrt 工作区"
 echo "  └── .openclaw-work/    ← OpenClaw 运行时"
 
 #===========================================================
