@@ -98,6 +98,7 @@ local lan_addr = sys.exec("cat /etc/config/network | grep -A 3 'config interface
         <button class="cp-btn cp-g" onclick="cpSvc('start')">▶ 启动</button>
         <button class="cp-btn cp-g" onclick="cpSvc('restart')">↻ 重启</button>
         <button class="cp-btn cp-g" onclick="cpSvc('stop')">■ 停止</button>
+        
         <button class="cp-btn cp-sv" onclick="cpOpenPanel()">🌐 打开面板</button>
         <button class="cp-btn cp-g" onclick="cpCheckUpdate()">🔍 检测升级</button>
         <button class="cp-btn cp-dg" onclick="cpShowUninstall()">🗑 卸载</button>
@@ -209,8 +210,17 @@ function $(id){return document.getElementById(id)}
 function cpAjax(url, onSuccess, onError) {
   var xhr = new XMLHttpRequest();
   xhr.open('GET', url, true);
+  // LuCI AJAX 需要带上 session cookie
+  try {
+    var match = document.cookie.match(/sysauth=([^;]+)/);
+    if (match) xhr.setRequestHeader('Cookie', 'sysauth=' + match[1]);
+  } catch(e) {}
+  // Try to include existing session
+  var m = document.cookie.match(/sysauth=([^;]+)/);
+  if (m) xhr.setRequestHeader('X-LuCI-Auth', 'login=' + m[1]);
   xhr.onreadystatechange = function() {
     if (xhr.readyState === 4) {
+      console.log('cpAjax response: status=' + xhr.status);
       if (xhr.status === 200) {
         try {
           var d = JSON.parse(xhr.responseText);
@@ -223,14 +233,16 @@ function cpAjax(url, onSuccess, onError) {
         var msg = '网络错误，请刷新页面';
         if (onError) onError(msg); else alert(msg);
       } else {
-        var msg = 'HTTP ' + xhr.status;
-        if (xhr.getResponseHeader('x-luci-login-required')) msg = '会话过期，请重新登录';
+        var msg = 'HTTP ' + xhr.status + ' ' + url;
+        if (xhr.getResponseHeader('x-luci-login-required')) {
+          msg = '会话过期！请刷新页面（F5）然后重新登录后再操作';
+        }
+        console.error('cpAjax error:', xhr.status, url);
         if (onError) onError(msg); else alert(msg);
       }
     }
   };
   xhr.send(null);
-}
 }
 
 function cpRefresh(){cpLoadStatus();cpLoadNode()}
@@ -263,15 +275,18 @@ function cpLoadNode(){
 }
 
 function cpSvc(a){
+  // DEBUG: Check if function is called
+  
   var t={start:'启动',restart:'重启',stop:'停止',enable:'启用',disable:'禁用'};
   var url = BASE+'/service_ctl?action='+a;
   cpShowRes('inf',(t[a]||a)+'请求已发送...');
+  console.log('Calling cpAjax with:', url);
   cpAjax(url, function(d){
     console.log('Service action success:', d);
     setTimeout(function(){cpLoadStatus();cpCloseRes()},2000);
   }, function(err){ cpCloseRes(); alert('操作失败: '+err); console.error('Service action error:', err); });
 }
-function cpOpenPanel(){window.open('http://'+_lan+':'+_port,'_blank')}
+function cpOpenPanel(){window.open('http://192.168.1.1:19527','_blank')}
 
 function cpShowRes(tp,msg){
   var el=$('cp-res');el.className='cp-res show '+tp;el.textContent=msg
@@ -391,17 +406,24 @@ function cpDoUninstall(){
   var btn=$('cp-un-btn'),res=$('cp-un-res');
   btn.disabled=true;btn.textContent='卸载中...';
   res.innerHTML='<span style="font-size:12px;color:#656d76">正在清理...</span>';
-  cpAjax(BASE+'/uninstall', function(){
+  cpAjax(BASE+'/uninstall', function(d){
+    if(d.status==='error'){
+      res.innerHTML='<span style="color:#cf222e">错误: '+d.message+'</span>';
+      btn.disabled=false;btn.textContent='确定卸载';return;
+    }
     if(_upt)clearInterval(_upt);
     _upt=setInterval(function(){
       cpAjax(BASE+'/uninstall_log', function(r){
-        if(r.completed){
+        if(r && r.completed){
           clearInterval(_upt);_upt=null;
           res.innerHTML='<div style="background:#dafbe1;border:1px solid #9fdcc5;padding:10px 14px;border-radius:6px;font-size:13px">卸载完成！正在刷新...</div>';
           setTimeout(function(){location.reload()},2000);
         }
       });
     },2000);
+  }, function(err){
+    res.innerHTML='<span style="color:#cf222e">请求失败: '+err+'</span>';
+    btn.disabled=false;btn.textContent='确定卸载';
   });
 }
 
@@ -429,6 +451,12 @@ function cpCloseModals(){
   if(_upt){clearInterval(_upt);_upt=null}
 }
 document.addEventListener('click',function(e){if(e.target.classList.contains('cp-modal'))cpCloseModals()});
-(function(){cpLoadStatus();cpLoadNode();setInterval(cpLoadStatus,8000)})();
+(function(){
+  console.log('Page loaded, calling cpLoadStatus and cpLoadNode');
+  try { cpLoadStatus(); } catch(e) { console.error('cpLoadStatus error:', e); }
+  try { cpLoadNode(); } catch(e) { console.error('cpLoadNode error:', e); }
+  setInterval(cpLoadStatus, 8000);
+  console.log('Auto-refresh set for 8s');
+})();
 </script>
 <%+footer%>

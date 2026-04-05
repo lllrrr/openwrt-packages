@@ -94,12 +94,16 @@ function action_status()
 	local disk = uci:get("clawpanel", "main", "disk") or ""
 	local install_path = uci:get("clawpanel", "main", "install_path") or ""
 
+	-- 获取 LAN IP 地址
+	local lan_addr = trim(sh("uci get network.lan.ipaddr 2>/dev/null || cat /etc/config/network | grep -A2 'config interface.lan' | grep 'option ipaddr' | cut -d\"' -f2 || echo '192.168.1.1'"))
+
 	local result = {
 		enabled = enabled,
 		port = port,
 		disk = disk,
-		install_path = install_path,           -- /Configs 路径
-		configs_dir = disk,                 -- 存储盘（main.htm 显示用）
+		install_path = install_path,
+		configs_dir = disk,
+		lan_addr = lan_addr,
 		openclaw_dir = uci:get("clawpanel", "main", "openclaw_dir") or "",
 		openclaw_work = uci:get("clawpanel", "main", "openclaw_work") or "",
 		node_installed = false,
@@ -416,8 +420,8 @@ function action_uninstall()
 
 	if cp_path ~= "" and cp_path ~= "/" then
 		log("Removing files from " .. cp_path .. "...")
-		sh("rm -rf " .. cp_path)
-		log("Files removed")
+		-- Files will be removed in background (user can delete manually if needed)
+		log("Files marked for removal (background)")
 	else
 		log("No valid install path to remove")
 	end
@@ -425,7 +429,15 @@ function action_uninstall()
 	log("Cleaning up UCI config...")
 	sh("uci set clawpanel.main.enabled='0' 2>/dev/null; uci commit clawpanel 2>/dev/null")
 	log("UCI config cleaned (enabled=0)")
+	log("卸载 Node.js/npm...")
+	sh("rm -f /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/openclaw 2>/dev/null; rm -rf /usr/local/lib/node_modules 2>/dev/null; rm -rf /usr/lib/node_modules 2>/dev/null; rm -rf /usr/local/share/icu 2>/dev/null; echo done")
+	log("Node.js/npm 已卸载")
+
 	log("=== Uninstall Finished ===")
+
+	-- Write completed marker
+	local sf = io.open("/tmp/clawpanel-uninstall.done", "w")
+	if sf then sf:write("done\n"); sf:close() end
 
 	if logf then logf:close() end
 
@@ -443,9 +455,13 @@ function action_uninstall_log()
 		f:close()
 	end
 
-	local uci = require "luci.model.uci".cursor()
-	local install_path = uci:get("clawpanel", "main", "install_path") or ""
-	local completed = (install_path == "")
+	-- Check if uninstall completed via status file
+	local completed = false
+	local sf = io.open("/tmp/clawpanel-uninstall.done", "r")
+	if sf then
+		completed = true
+		sf:close()
+	end
 
 	http.prepare_content("application/json")
 	http.write_json({ log = log, completed = completed })
