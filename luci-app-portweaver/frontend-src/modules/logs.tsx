@@ -1,5 +1,5 @@
-import { LogViewerCore } from "../components/LogViewerCore";
-import { confirm } from "../modules/dialog";
+import { LogViewerCore } from "@/components/LogViewerCore";
+import { confirm } from "@/modules/dialog";
 
 const form = L.form;
 const fs = L.fs;

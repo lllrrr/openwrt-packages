@@ -11,16 +11,16 @@ import type {
   FullStatusResponse,
   PortWeaverStatus,
   ProjectStatus,
-} from "../types/portweaver";
+} from "@/types/portweaver";
 import {
   formatBytes,
   formatUptime,
   getErrorMessage,
   translateStatus,
-} from "../utils/formatters";
-import { rpcClient } from "../utils/rpc-client";
-import { getThemeColors } from "../utils/theme-utils";
-import type { StatusPanel } from "../components/StatusPanel";
+} from "@/utils/formatters";
+import { rpcClient } from "@/utils/rpc-client";
+import { getThemeColors } from "@/utils/theme-utils";
+import type { StatusPanel } from "@/components/StatusPanel";
 export class Client {
   projectStatuses: ProjectStatus[];
   globalStatus: PortWeaverStatus;

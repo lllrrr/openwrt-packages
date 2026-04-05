@@ -1,7 +1,7 @@
-import { LogViewerDialog } from "../components/LogViewerDialog";
-import { ProxyStatsViewer } from "../components/ProxyStatsViewer";
-import { rpcClient } from "../utils/rpc-client";
-import { getThemeColors } from "../utils/theme-utils";
+import { LogViewerDialog } from "@/components/LogViewerDialog";
+import { ProxyStatsViewer } from "@/components/ProxyStatsViewer";
+import { rpcClient } from "@/utils/rpc-client";
+import { getThemeColors } from "@/utils/theme-utils";
 const form = L.form;
 
 type FrpState =

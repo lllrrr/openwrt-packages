@@ -91,9 +91,7 @@ class PortMappingEditor extends L.form.Value {
         : [];
 
     const widget_id = this.cbid(section_id);
-    const mappings_wrapper = (
-      <div id={`portmapping-wrapper-${section_id}`}></div>
-    ) as HTMLElement;
+    const mappings_wrapper = (<div></div>) as HTMLElement;
 
     // 存储每个行的元素引用
     const rowRefs: Array<{
@@ -140,8 +138,9 @@ class PortMappingEditor extends L.form.Value {
         frpNodes: [],
         protocol: "tcp",
       };
+      const initialTextModeValue = mapping_str ? this.buildString(mapping) : "";
       const row_id = `portmapping-row-${section_id}-${index}`;
-      let isTextMode = false;
+      let isTextMode = true;
 
       const listenInput = (
         <ValidatedInput
@@ -196,7 +195,7 @@ class PortMappingEditor extends L.form.Value {
         <ValidatedInput
           type="text"
           className="text-mode-input"
-          value={mapping_str}
+          value={initialTextModeValue}
           placeholder={_("[8080][node1:9888]:80/tcp or 8080:80/tcp")}
           style="width: 100%; margin-bottom: 6px; padding: 5px; display: none;"
           validateOn="blur"
@@ -230,25 +229,39 @@ class PortMappingEditor extends L.form.Value {
         };
         const preview_str = this.buildString(temp_mapping);
         previewDiv.textContent = _("Preview: %s").format(preview_str);
-        textModeInput.value = preview_str;
+        if (!isTextMode) {
+          textModeInput.value = preview_str;
+        }
       };
 
-      // 使用复用的 FRP 节点选择器组件
-      const selector = createFrpNodeSelector({
-        selectedNodes: mapping.frpNodes || [],
-        onChange: () => {
-          validateAndUpdate();
-        },
-        checkboxClass: "frp-node-checkbox-pm",
-        portInputClass: "frp-node-port-pm",
-      });
+      // 使用动态的 FRP 节点选择器组件来保证与文本模式的数据同步
+      let selectorContainer: HTMLElement = null as any;
+      let getSelectedNodes: () => string[] = null as any;
+      let isFrpValid: () => boolean = null as any;
+      let getFrpError: () => string = null as any;
 
-      const {
-        container: selectorContainer,
-        getSelectedNodes,
-        isValid: isFrpValid,
-        getValidationError: getFrpError,
-      } = selector;
+      const initOrUpdateFrp = (nodes: string[]) => {
+        const selector = createFrpNodeSelector({
+          selectedNodes: nodes,
+          onChange: () => {
+            validateAndUpdate();
+          },
+          checkboxClass: "frp-node-checkbox-pm",
+          portInputClass: "frp-node-port-pm",
+        });
+
+        selectorContainer?.parentNode?.replaceChild(
+          selector.container,
+          selectorContainer,
+        );
+
+        selectorContainer = selector.container;
+        getSelectedNodes = selector.getSelectedNodes;
+        isFrpValid = selector.isValid;
+        getFrpError = selector.getValidationError;
+      };
+
+      initOrUpdateFrp(mapping.frpNodes || []);
 
       const frpContainer = (
         <div class="frp-nodes-select" style="display: block; margin-top: 6px;">
@@ -397,6 +410,8 @@ class PortMappingEditor extends L.form.Value {
           targetInput.value = parsed.targetPort;
           protocolSelect.value = parsed.protocol as any;
 
+          initOrUpdateFrp(parsed.frpNodes || []);
+
           listenInput.oninput = tempListenHandler;
           targetInput.oninput = tempTargetHandler;
           protocolSelect.onchange = tempProtocolHandler;
@@ -415,6 +430,10 @@ class PortMappingEditor extends L.form.Value {
 
         const parsed = this.parseMapping(inputEl.value);
         if (parsed) {
+          const unifiedStr = this.buildString(parsed);
+          if (unifiedStr && unifiedStr !== inputEl.value) {
+            inputEl.value = unifiedStr;
+          }
           syncFromTextMode();
         } else {
           errorDiv.textContent = _("Invalid port mapping format");
@@ -444,7 +463,18 @@ class PortMappingEditor extends L.form.Value {
         updateVis();
         // If switching FROM visual mode TO text mode, ensure text input is updated
         if (isTextMode) {
-          updatePreview();
+          const listen = listenInput.value.trim();
+          const target = targetInput.value.trim();
+          const protocol = protocolSelect.value;
+          const frpNodes = getSelectedNodes();
+          const preview_str = this.buildString({
+            listenPort: listen,
+            targetPort: target,
+            frpNodes: frpNodes,
+            protocol: protocol,
+          });
+          textModeInput.value = preview_str;
+          previewDiv.textContent = _("Preview: %s").format(preview_str);
         }
       };
 
@@ -525,8 +555,10 @@ class PortMappingEditor extends L.form.Value {
     return [];
   }
   formvalue(_section_id: string) {
-    if (this.hiddenInput?.value)
-      return this.hiddenInput.value.split(/\s+/).filter(Boolean);
+    if (this.hiddenInput?.value) {
+      const parts = this.hiddenInput.value.split(/\s+/).filter(Boolean);
+      return Array.from(new Set(parts));
+    }
     return null;
   }
   write(section_id: string, formvalue: string | string[]) {

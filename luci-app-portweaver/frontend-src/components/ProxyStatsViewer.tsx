@@ -1,5 +1,5 @@
 import type { RpcClient } from "@/utils/rpc-client";
-import type { FrpProxy } from "@/types/portweaver/frp";
+import type { FrpcProxy as FrpProxy } from "@/types/portweaver/frpc";
 import { getThemeColors } from "@/utils/theme-utils";
 import { translateStatus } from "@/utils/formatters";
 

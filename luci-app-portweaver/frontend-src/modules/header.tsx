@@ -1,5 +1,5 @@
-import { StatusPanel } from "../components/StatusPanel";
-import { rpcClient } from "../utils/rpc-client";
+import { StatusPanel } from "@/components/StatusPanel";
+import { rpcClient } from "@/utils/rpc-client";
 const form = L.form;
 import type { Client } from "./client";
 

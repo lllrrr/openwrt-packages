@@ -1,6 +1,6 @@
-import { LogViewerDialog } from "../components/LogViewerDialog";
-import { rpcClient } from "../utils/rpc-client";
-import { getThemeColors } from "../utils/theme-utils";
+import { LogViewerDialog } from "@/components/LogViewerDialog";
+import { rpcClient } from "@/utils/rpc-client";
+import { getThemeColors } from "@/utils/theme-utils";
 const form = L.form;
 
 type FrpsState =

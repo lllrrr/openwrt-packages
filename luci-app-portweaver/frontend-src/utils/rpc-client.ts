@@ -1,8 +1,8 @@
-import type { FullStatusResponse, ProjectStatus } from "../types/portweaver";
+import type { FullStatusResponse, ProjectStatus } from "@/types/portweaver";
 import type { InfoResponse } from "./../types/portweaver/index";
-import type { DdnsStatusResponse } from "../types/portweaver/ddns";
-import type { FrpcProxyStats } from "../types/portweaver/frpc";
-import type { FrpsProxyStats } from "../types/portweaver/frps";
+import type { DdnsStatusResponse } from "@/types/portweaver/ddns";
+import type { FrpcProxyStats } from "@/types/portweaver/frpc";
+import type { FrpsProxyStats } from "@/types/portweaver/frps";
 
 export function createRpcClient(rpc: typeof L.rpc) {
   const listProjects = rpc.declare<{ projects: ProjectStatus[] }>({

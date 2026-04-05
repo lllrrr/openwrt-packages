@@ -1,5 +1,5 @@
-import FrpNodeSelector from "../components/FrpNodeSelector";
-import PortMappingEditor from "../components/PortMappingEditor";
+import FrpNodeSelector from "@/components/FrpNodeSelector";
+import PortMappingEditor from "@/components/PortMappingEditor";
 import type { Client } from "./client";
 const form = L.form;
 const uci = L.uci;

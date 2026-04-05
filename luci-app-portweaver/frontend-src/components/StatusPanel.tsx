@@ -4,12 +4,8 @@ import type {
   ProjectStatus,
   ActivityEvent,
   DdnsGlobalStatus,
-} from "../types/portweaver";
-import {
-  formatBytes,
-  formatUptime,
-  translateStatus,
-} from "../utils/formatters";
+} from "@/types/portweaver";
+import { formatBytes, formatUptime, translateStatus } from "@/utils/formatters";
 
 export class StatusPanel {
   public statusValueEl?: HTMLElement;

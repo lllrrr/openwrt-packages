@@ -1,4 +1,4 @@
-import { getThemeColors } from "../utils/theme-utils";
+import { getThemeColors } from "@/utils/theme-utils";
 
 export interface DialogOptions {
   title?: string;

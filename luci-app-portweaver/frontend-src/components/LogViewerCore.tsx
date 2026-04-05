@@ -1,5 +1,5 @@
-import { getThemeColors } from "../utils/theme-utils";
-import { alert, confirm } from "../modules/dialog";
+import { getThemeColors } from "@/utils/theme-utils";
+import { alert, confirm } from "@/modules/dialog";
 
 export interface LogInfo {
   status: string;

@@ -8,14 +8,14 @@ const luciRequires = `'use strict';
 `;
 
 export default defineConfig({
+  resolve: {
+    aliasStrategy: "prefer-tsconfig",
+  },
   source: {
     entry: {
       config: "./main.tsx",
     },
     tsconfigPath: "./tsconfig.json",
-    alias: {
-      "@": "./",
-    },
   },
   output: {
     // polyfill: "usage",

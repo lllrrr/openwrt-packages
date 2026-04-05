@@ -18,9 +18,8 @@
     "noUnusedParameters": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
-    "jsx": "react",
-    "jsxFactory": "createJsxElement",
-    "jsxFragmentFactory": "createJsxElement.Fragment",
+    "jsx": "react-jsx",
+    "jsxImportSource": "@/utils/jsx-factory",
     "types": ["@lazulikao/luci-types"],
     "paths": {
       "@/*": ["./*"]
