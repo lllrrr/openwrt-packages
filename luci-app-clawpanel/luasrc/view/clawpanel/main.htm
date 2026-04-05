@@ -255,7 +255,7 @@ function cpLoadStatus(){
     $('cp-s-mem').textContent=d.memory_kb>0?(d.memory_kb/1024).toFixed(1)+' MB':'-';
     $('cp-s-up').textContent=d.uptime||'-';
     $('cp-s-cv').textContent=d.panel_version||(d.install_path?'已安装':'-');
-    $('cp-s-ov').textContent=d.openclaw_version||(d.node_installed?'已安装':'-');
+    $('cp-s-ov').textContent=d.openclaw_version||'未安装';
     $('cp-s-cd').textContent=d.configs_dir||d.disk||'-';
     $('cp-s-df').textContent=d.disk_free?(d.disk_free+' 可用'):'-';
     $('cp-s-au').textContent=d.enabled==='1'?'✓ 已启用':'✕ 已禁用';

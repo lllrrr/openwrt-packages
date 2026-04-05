@@ -129,8 +129,9 @@ function action_status()
 	end
 
 	-- OpenClaw 版本
-	if install_path ~= "" then
-		local ocmjs = trim(sh("find '" .. install_path .. "' -name 'openclaw.mjs' -path '*/node_modules/openclaw/*' 2>/dev/null | head -1"))
+	local openclaw_dir = uci:get("clawpanel", "main", "openclaw_dir") or ""
+	if openclaw_dir ~= "" then
+		local ocmjs = trim(sh("find '" .. openclaw_dir .. "' -name 'openclaw.mjs' -path '*/node_modules/openclaw/*' 2>/dev/null | head -1"))
 		if ocmjs == "" then ocmjs = trim(sh("find /usr/local/lib/node_modules/openclaw -name 'openclaw.mjs' 2>/dev/null | head -1")) end
 		if ocmjs ~= "" and node_bin then
 			result.openclaw_version = trim(sh(node_bin .. " " .. ocmjs .. " --version 2>/dev/null"))

@@ -306,6 +306,7 @@ uci set clawpanel.main.disk="$CP_BASE_PATH"
 uci set clawpanel.main.install_path="$CONFIGS_DIR"
 uci set clawpanel.main.port='19527'
 uci set clawpanel.main.version="$LATEST"
+uci set clawpanel.main.openclaw_dir="$OPENCLAW_DIR"
 uci commit clawpanel 2>/dev/null || true
 log "UCI 配置"
 

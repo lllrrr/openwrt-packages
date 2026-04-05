@@ -404,6 +404,7 @@ OEOF
     uci set clawpanel.main.install_path="$CONFIGS_DIR"
     uci set clawpanel.main.port="$CP_PORT"
     uci set clawpanel.main.version="$CP_VER"
+    uci set clawpanel.main.openclaw_dir="$OPENCLAW_DIR"
     uci commit clawpanel 2>/dev/null || true
     done_ "UCI 配置"
 
