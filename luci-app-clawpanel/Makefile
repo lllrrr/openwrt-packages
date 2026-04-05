@@ -6,15 +6,15 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-clawpanel
-PKG_VERSION:=1.1.5
-PKG_RELEASE:=1
+PKG_VERSION:=1.2.0
+PKG_RELEASE:=2
 
 PKG_MAINTAINER:=a10463981 <a10463981@users.noreply.github.com>
 PKG_LICENSE:=CC-BY-NC-SA-4.0
 
 LUCI_TITLE:=ClawPanel AI 管理面板 LuCI 插件
 LUCI_DEPENDS:=+luci-compat +luci-base +curl +openssl-util +tar +libstdcpp6
-LUCI_PKGARCH:=all
+LUCI_PKGARCH:=$(PKG_ARCH)
 
 # 优先使用 luci.mk (feeds 模式), 不可用时回退 package.mk
 ifeq ($(wildcard $(TOPDIR)/feeds/luci/luci.mk),)
@@ -56,11 +56,8 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/model/cbi/clawpanel
 	$(INSTALL_DATA) ./luasrc/model/cbi/clawpanel/basic.lua $(1)/usr/lib/lua/luci/model/cbi/clawpanel/basic.lua
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/view/clawpanel
-	$(INSTALL_DATA) ./luasrc/view/clawpanel/status.htm $(1)/usr/lib/lua/luci/view/clawpanel/status.htm
 	$(INSTALL_DATA) ./luasrc/view/clawpanel/basic.htm $(1)/usr/lib/lua/luci/view/clawpanel/basic.htm
 	$(INSTALL_DATA) ./luasrc/view/clawpanel/main.htm $(1)/usr/lib/lua/luci/view/clawpanel/main.htm
-	$(INSTALL_DATA) ./luasrc/view/clawpanel/basic_install.htm $(1)/usr/lib/lua/luci/view/clawpanel/basic_install.htm
-	$(INSTALL_DATA) ./luasrc/view/clawpanel/basic_uninstall.htm $(1)/usr/lib/lua/luci/view/clawpanel/basic_uninstall.htm
 	$(INSTALL_DIR) $(1)/usr/share/clawpanel
 	$(INSTALL_DATA) ./VERSION $(1)/usr/share/clawpanel/VERSION
 endef

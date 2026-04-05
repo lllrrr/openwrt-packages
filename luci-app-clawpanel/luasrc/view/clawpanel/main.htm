@@ -28,6 +28,13 @@ if lan_addr == "" then lan_addr = "192.168.1.1" end
 .cp-badge-running{background:#e6f7e9;color:#1a7f37}
 .cp-badge-stopped{background:#fff0e6;color:#cf222e}
 .cp-badge-disabled{background:#f0f0f0;color:#656d76}
+#cp-storage-selector{margin-bottom:14px;padding:12px 16px;border:1px solid #e0e0e0;border-radius:8px;background:#fafafa}
+#cp-storage-selector label{font-size:13px;color:#555;font-weight:500}
+#cp-storage-selector select{width:280px;padding:6px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;margin-right:10px}
+#cp-storage-selector .storage-info{font-size:12px;color:#888;margin-top:6px}
+#cp-storage-selector .storage-info .si-item{margin-right:16px;display:inline-block}
+#cp-storage-selector .storage-warn{color:#cf222e;font-size:12px;margin-top:4px}
+#cp-storage-selector .storage-current{color:#1a7f37;font-size:12px;margin-top:4px}
 #cp-path{margin-bottom:14px}
 #cp-path label{font-size:13px;color:#555}
 #cp-path input{width:260px;padding:6px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px}
@@ -79,15 +86,31 @@ if lan_addr == "" then lan_addr = "192.168.1.1" end
 </table>
 </div>
 
+<!-- 存储设备选择器 -->
+<div id="cp-storage-selector">
+<label>存储设备：</label>
+<select id="f-storage" onchange="onStorageChange()">
+<option value="">— 自动检测（推荐）—</option>
+</select>
+<div class="storage-info" id="cp-storage-info">
+<span class="si-item" id="cp-si-size">总容量: -</span>
+<span class="si-item" id="cp-si-avail">可用: -</span>
+<span class="si-item" id="cp-si-fs">文件系统: -</span>
+</div>
+<div class="storage-warn" id="cp-storage-warn" style="display:none"></div>
+<div class="storage-current" id="cp-storage-current" style="display:none"></div>
+</div>
+
 <div id="cp-path">
 <label>ClawPanel 安装路径：</label>
 <input type="text" id="f-path" value="<%=install_path%>">
+<span style="font-size:12px;color:#888;margin-left:8px">所有文件将放在此路径下的 /Configs/clawpanel/ 子目录</span>
 </div>
 
 <div id="cp-openclaw-dir">
 <label>OpenClaw 数据目录：</label>
-<input type="text" id="f-openclaw-dir" value="<%=openclaw_dir%>" placeholder="留空则使用默认: &lt;安装路径&gt;/clawpanel/data/.openclaw">
-<span class="hint">OpenClaw 及其插件数据存放位置，建议放在外置存储</span>
+<input type="text" id="f-openclaw-dir" value="<%=openclaw_dir%>" placeholder="留空则使用默认: &lt;安装路径&gt;/Configs/clawpanel/openclaw">
+<span class="hint">OpenClaw 及其插件数据存放位置</span>
 </div>
 
 <div id="cp-actions">
@@ -102,13 +125,152 @@ if lan_addr == "" then lan_addr = "192.168.1.1" end
 
 <div id="cp-hint">
 <strong>安装提示：</strong> 打开 ClawPanel：<button class="cp-btn cp-btn-web" style="font-size:12px;padding:2px 10px" onclick="window.open('http://<%=lan_addr%>:<%=port%>', '_blank')">http://<%=lan_addr%>:<%=port%></button><br>
-<strong>建议路径：</strong>使用外置存储挂载点，如 <code>/mnt/sda1</code>、<code>/mnt/data</code>、<code>/storage</code>。
+<strong>目录结构：</strong>所有 ClawPanel 数据将存放在 <code>&lt;存储&gt;/Configs/clawpanel/</code> 下，包含程序文件、配置、日志和 OpenClaw 数据。
 </div>
 
 <script type="text/javascript">
 var BASE = '<%=luci.dispatcher.build_url("admin", "services", "clawpanel")%>';
 function $(id) { return document.getElementById(id); }
 
+// 当前挂载点列表
+var gMounts = [];
+var gDefaultInstalledPath = '<%=install_path%>';
+
+// ============================================================
+// 存储设备选择
+// ============================================================
+function loadMounts() {
+    var sel = $('f-storage');
+    sel.innerHTML = '<option value="">— 加载中… —</option>';
+
+    var x = new XMLHttpRequest();
+    x.open('GET', BASE + '/mounts', true);
+    x.onreadystatechange = function() {
+        if (x.readyState === 4) {
+            try {
+                var data = JSON.parse(x.responseText);
+                gMounts = data.mounts || [];
+                var curPath = data.current_install_path || '';
+                sel.innerHTML = '<option value="">— 自动检测（推荐）—</option>';
+
+                if (gMounts.length === 0) {
+                    var opt = document.createElement('option');
+                    opt.value = '/Configs';
+                    opt.textContent = '/Configs（内置存储，无外置设备）';
+                    sel.appendChild(opt);
+                } else {
+                    gMounts.forEach(function(m) {
+                        var label = m.mount + '  (' + m.size + '，可用 ' + formatSize(m.avail_mb) + ')';
+                        var opt = document.createElement('option');
+                        opt.value = m.mount;
+                        opt.textContent = label;
+                        // 如果是当前安装路径，选中
+                        if (m.is_current || curPath === m.mount || curPath === m.mount + '/Configs/clawpanel') {
+                            opt.selected = true;
+                        }
+                        sel.appendChild(opt);
+                    });
+                }
+
+                // 如果有当前安装路径，尝试匹配
+                if (curPath) {
+                    var found = false;
+                    for (var i = 0; i < gMounts.length; i++) {
+                        var mp = gMounts[i].mount;
+                        if (curPath === mp || curPath === mp + '/Configs/clawpanel' || curPath.indexOf(mp + '/') === 0) {
+                            sel.value = mp;
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found && curPath) {
+                        // 当前路径不在挂载点上，手动显示
+                        var opt = document.createElement('option');
+                        opt.value = curPath;
+                        opt.textContent = '当前: ' + curPath;
+                        opt.selected = true;
+                        sel.insertBefore(opt, sel.children[1]);
+                    }
+                }
+
+                onStorageChange();
+            } catch(e) {
+                sel.innerHTML = '<option value="">加载失败</option>';
+            }
+        }
+    };
+    x.send(null);
+}
+
+function formatSize(avail_mb) {
+    if (avail_mb >= 1024) {
+        return avail_mb.toFixed(1) + ' GB';
+    }
+    return avail_mb + ' MB';
+}
+
+function onStorageChange() {
+    var sel = $('f-storage');
+    var selVal = sel.value;
+    var infoDiv = $('cp-storage-info');
+    var warnDiv = $('cp-storage-warn');
+    var curDiv = $('cp-storage-current');
+    var pathInput = $('f-path');
+
+    warnDiv.style.display = 'none';
+    curDiv.style.display = 'none';
+
+    if (!selVal) {
+        // 自动检测：设置为空或 /Configs
+        infoDiv.innerHTML = '<span class="si-item">将自动选择可用空间最大的存储设备</span>';
+        pathInput.value = '';
+        return;
+    }
+
+    // 查找对应挂载点
+    var m = null;
+    for (var i = 0; i < gMounts.length; i++) {
+        if (gMounts[i].mount === selVal) { m = gMounts[i]; break; }
+    }
+
+    if (!m) {
+        // 未知路径
+        infoDiv.innerHTML = '<span class="si-item">路径: ' + selVal + '</span>';
+        pathInput.value = selVal + '/Configs/clawpanel';
+        return;
+    }
+
+    // 显示设备信息
+    infoDiv.innerHTML =
+        '<span class="si-item">总容量: ' + m.size + '</span>' +
+        '<span class="si-item">可用: ' + formatSize(m.avail_mb) + '</span>' +
+        '<span class="si-item">文件系统: ' + m.fs + '</span>';
+
+    // 建议安装路径
+    var suggestedPath = selVal + '/Configs/clawpanel';
+    pathInput.value = suggestedPath;
+
+    // 空间不足警告
+    if (m.avail_mb < 500) {
+        warnDiv.textContent = '警告：可用空间不足 500MB，建议清理后再安装！';
+        warnDiv.style.display = 'block';
+    } else if (m.avail_mb < 1000) {
+        warnDiv.textContent = '注意：可用空间小于 1GB，可能影响 OpenClaw 插件运行。';
+        warnDiv.style.display = 'block';
+    } else {
+        warnDiv.style.display = 'none';
+    }
+
+    // 显示是否当前安装路径
+    if (m.is_current || gDefaultInstalledPath.indexOf(selVal + '/') === 0) {
+        curDiv.textContent = '✓ 当前已安装在此设备上';
+        curDiv.style.display = 'block';
+    }
+}
+
+// ============================================================
+// 通用
+// ============================================================
 function showModal(title, status, content) {
     $('cp-modal-title').textContent = title;
     $('cp-modal-status').textContent = status || '';
@@ -120,6 +282,7 @@ function showModal(title, status, content) {
 function cpModalClose() {
     $('cp-modal').classList.remove('show');
     updateStatus();
+    loadMounts();
 }
 
 function xhr(url, cb) {
@@ -131,6 +294,9 @@ function xhr(url, cb) {
     x.send(null);
 }
 
+// ============================================================
+// 状态
+// ============================================================
 function updateStatus() {
     xhr(BASE + '/status_api', function(d) {
         var st = $('cp-st-status');
@@ -149,11 +315,17 @@ function updateStatus() {
     });
 }
 
+// ============================================================
+// 安装
+// ============================================================
 function doInstall() {
     var path = $('f-path').value.trim();
     var openclawDir = $('f-openclaw-dir').value.trim();
-    if (!path) { alert('请输入安装路径'); return; }
-    if (path === '/' || path.indexOf('/overlay') === 0 || path.indexOf('/proc') === 0 || path.indexOf('/sys') === 0 || path.indexOf('/dev') === 0 || path.indexOf('/etc') === 0) {
+    if (!path) {
+        // 自动检测：用自动检测存储
+        path = '';
+    }
+    if (path && (path === '/' || path.indexOf('/overlay') === 0 || path.indexOf('/proc') === 0 || path.indexOf('/sys') === 0 || path.indexOf('/dev') === 0 || path.indexOf('/etc') === 0)) {
         alert('系统路径被禁止，请使用外置存储路径'); return;
     }
     showModal('正在安装 ClawPanel...', '安装进行中...', '正在提交安装任务...');
@@ -175,6 +347,9 @@ function doInstall() {
     }, 2500);
 }
 
+// ============================================================
+// 服务控制
+// ============================================================
 function doSvc(action) {
     var titles = { restart: '重启 ClawPanel', stop: '停止 ClawPanel', start: '启动 ClawPanel' };
     var api = action === 'stop' ? '/wait_stopped' : '/wait_running';
@@ -193,6 +368,9 @@ function doSvc(action) {
     setTimeout(function() { clearInterval(poll); showModal('命令已发送', '超时', '操作已发送，请刷新查看结果。'); }, 30000);
 }
 
+// ============================================================
+// 卸载
+// ============================================================
 function doUninstall() {
     if (!confirm('确认卸载 ClawPanel？\n这将停止服务并删除所有文件。')) return;
     showModal('正在卸载', '执行中...', '正在初始化...');
@@ -210,6 +388,10 @@ function doUninstall() {
     setTimeout(function() { clearInterval(poll); showModal('卸载完成', '完成', '卸载操作已完成。'); }, 30000);
 }
 
+// ============================================================
+// 初始化
+// ============================================================
+loadMounts();
 updateStatus();
 setInterval(updateStatus, 5000);
 </script>

@@ -1,19 +1,19 @@
 #!/bin/sh
 # luci-app-clawpanel - UCI defaults
-# 首次安装时初始化 UCI 配置，不写死任何路径
+# 首次安装时初始化 UCI 配置
 
 . /lib/functions.sh
 
-[ -z "$(uci get clawpanel.main 2>/dev/null)" ] && {
-	uci add clawpanel main >/dev/null 2>&1
-}
+if [ -z "$(uci get clawpanel.main 2>/dev/null)" ]; then
+    uci add clawpanel main >/dev/null 2>&1
+fi
 
-# 所有路径均在首次安装时由用户设置，不在此预设默认值
 uci set clawpanel.main.enabled='0'
 uci set clawpanel.main.install_path=''
 uci set clawpanel.main.openclaw_dir=''
 uci set clawpanel.main.port='19527'
 uci set clawpanel.main.edition='pro'
+uci set clawpanel.main.version=''
 uci commit clawpanel
 
 exit 0

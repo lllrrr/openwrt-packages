@@ -242,11 +242,8 @@ function action_service_ctl()
 		local install_path = http.formvalue("install_path") or ""
 		install_path = install_path:gsub("[^%w%-%./]", ""):gsub("/+$", ""):gsub("%.%.", "")
 
-		if install_path == "" then
-			http.prepare_content("application/json")
-			http.write_json({ status = "error", message = "install_path cannot be empty" })
-			return
-		end
+		-- 如果路径为空，clawpanel-env 会自动检测存储设备
+		-- 只需设置 install_path 为空字符串即可
 
 		local openclaw_dir = http.formvalue("openclaw_dir") or ""
 		openclaw_dir = openclaw_dir:gsub("[^%w%-%./]", ""):gsub("%.%.", "")
