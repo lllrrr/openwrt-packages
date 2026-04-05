@@ -56,9 +56,7 @@ start_service() {
 
         # 找 OpenClaw mjs
         local OCMJS
-        OCMJS=$(find /Configs -name 'openclaw.mjs' -path '*/node_modules/openclaw/*' 2>/dev/null | head -1)
-        [ -z "$OCMJS" ] && OCMJS=$(find /usr/local/lib/node_modules/openclaw -name 'openclaw.mjs' 2>/dev/null | head -1)
-        [ -z "$OCMJS" ] && OCMJS="/usr/local/lib/node_modules/openclaw/openclaw.mjs"
+        OCMJS=$(find /usr/lib/node_modules/openclaw /usr/local/lib/node_modules/openclaw /Configs -name 'openclaw.mjs' 2>/dev/null | head -1)
 
         printf '{\n' > "$CLAWPANEL_DATA/clawpanel.json"
         printf '  "port": %s,\n' "$port" >> "$CLAWPANEL_DATA/clawpanel.json"
@@ -80,8 +78,8 @@ start_service() {
 
     (
         export HOME="/root"
-        export PATH="/usr/local/bin:$PATH"
-        export NODE_ICU_DATA="/usr/local/share/icu"
+        export PATH="/usr/bin:/usr/local/bin:$PATH"
+        export NODE_ICU_DATA="/usr/share/icu"
         export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
         setsid /bin/bash -c "$CLAWPANEL_BIN >> /tmp/clawpanel.log 2>&1 &"
     )
@@ -164,6 +162,6 @@ status_service() {
     fi
 
     echo ""
-    echo "Node.js: $(/usr/local/bin/node --version 2>/dev/null || echo 'NOT installed')"
-    echo "npm: $(/usr/local/bin/npm --version 2>/dev/null || echo 'NOT installed')"
+    echo "Node.js: $(command -v node >/dev/null 2>&1 && node --version || echo 'NOT installed')"
+    echo "npm: $(command -v npm >/dev/null 2>&1 && npm --version || echo 'NOT installed')"
 }

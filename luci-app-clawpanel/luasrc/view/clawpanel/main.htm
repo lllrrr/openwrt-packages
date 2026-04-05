@@ -216,16 +216,21 @@ function cpAjax(url, onSuccess, onError) {
           var d = JSON.parse(xhr.responseText);
           if (onSuccess) onSuccess(d);
         } catch(e) {
-          if (onError) onError('JSON parse error: ' + e);
-          else console.error('JSON parse error:', e, xhr.responseText);
+          var msg = 'JSON 解析失败: ' + e;
+          if (onError) onError(msg); else alert(msg);
         }
+      } else if (xhr.status === 0) {
+        var msg = '网络错误，请刷新页面';
+        if (onError) onError(msg); else alert(msg);
       } else {
-        if (onError) onError('HTTP ' + xhr.status + ': ' + url);
-        else console.error('HTTP error', xhr.status, url);
+        var msg = 'HTTP ' + xhr.status;
+        if (xhr.getResponseHeader('x-luci-login-required')) msg = '会话过期，请重新登录';
+        if (onError) onError(msg); else alert(msg);
       }
     }
   };
   xhr.send(null);
+}
 }
 
 function cpRefresh(){cpLoadStatus();cpLoadNode()}
@@ -259,10 +264,12 @@ function cpLoadNode(){
 
 function cpSvc(a){
   var t={start:'启动',restart:'重启',stop:'停止',enable:'启用',disable:'禁用'};
+  var url = BASE+'/service_ctl?action='+a;
   cpShowRes('inf',(t[a]||a)+'请求已发送...');
-  cpAjax(BASE+'/service_ctl?action='+a, function(){
+  cpAjax(url, function(d){
+    console.log('Service action success:', d);
     setTimeout(function(){cpLoadStatus();cpCloseRes()},2000);
-  });
+  }, function(err){ cpCloseRes(); alert('操作失败: '+err); console.error('Service action error:', err); });
 }
 function cpOpenPanel(){window.open('http://'+_lan+':'+_port,'_blank')}
 

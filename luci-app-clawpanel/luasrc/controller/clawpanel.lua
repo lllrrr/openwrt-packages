@@ -251,8 +251,12 @@ function action_service_ctl()
 	if action == "start" then
 		local install_path = uci:get("clawpanel", "main", "install_path") or ""
 		local cp_bin = install_path ~= "" and (install_path .. "/clawpanel/clawpanel") or ""
-		-- 直接用bash后台启动（nohup在iStoreOS上不存在）
-		sh("(export HOME=/root; /bin/bash -c '" .. cp_bin .. " >/tmp/clawpanel.log 2>&1&')")
+		if cp_bin == "" or not io.open(cp_bin, "r") then
+			http.prepare_content("application/json")
+			http.write_json({ status = "error", message = "ClawPanel binary not found. Please install first." })
+			return
+		end
+		sh("(export HOME=/root; " .. cp_bin .. " >/tmp/clawpanel.log 2>&1 &)")
 		http.prepare_content("application/json")
 		http.write_json({ status = "ok", message = "Starting..." })
 
@@ -265,7 +269,9 @@ function action_service_ctl()
 		local install_path = uci:get("clawpanel", "main", "install_path") or ""
 		local cp_bin = install_path ~= "" and (install_path .. "/clawpanel/clawpanel") or ""
 		sh("killall -9 clawpanel 2>/dev/null; sleep 1")
-		sh("(export HOME=/root; /bin/bash -c '" .. cp_bin .. " >/tmp/clawpanel.log 2>&1&')")
+		if cp_bin ~= "" and io.open(cp_bin, "r") then
+			sh("(export HOME=/root; " .. cp_bin .. " >/tmp/clawpanel.log 2>&1 &)")
+		end
 		http.prepare_content("application/json")
 		http.write_json({ status = "ok", message = "Restarting..." })
 
@@ -417,8 +423,8 @@ function action_uninstall()
 	end
 
 	log("Cleaning up UCI config...")
-	sh("uci revert clawpanel 2>/dev/null; uci commit clawpanel 2>/dev/null")
-	log("Cleanup complete")
+	sh("uci set clawpanel.main.enabled='0' 2>/dev/null; uci commit clawpanel 2>/dev/null")
+	log("UCI config cleaned (enabled=0)")
 	log("=== Uninstall Finished ===")
 
 	if logf then logf:close() end
@@ -542,7 +548,7 @@ function action_node_info()
 		result.installed = true
 		result.path = trim(sh("readlink -f " .. node_bin .. " 2>/dev/null"))
 		result.version = trim(sh(node_bin .. " --version 2>/dev/null"))
-		result.npm_version = trim(sh(node_bin .. " -e \"console.log(require('./package.json').version)\" /tmp/npm-pkg-tmp 2>/dev/null || " .. node_bin .. " -e \"try{const p=require.resolve('npm/package.json');console.log(require(p).version)}catch(e){}'\" 2>/dev/null || ''"))
+		result.npm_version = trim(sh("/usr/local/bin/npm --version 2>/dev/null"))
 		result.arch = trim(sh("uname -m 2>/dev/null"))
 	end
 
