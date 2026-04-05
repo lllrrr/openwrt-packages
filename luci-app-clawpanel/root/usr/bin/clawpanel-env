@@ -1,13 +1,12 @@
 #!/bin/sh
 #===========================================================
-#  clawpanel-env — ClawPanel 安装脚本 v3
-#  统一目录: /Configs/clawpanel /Configs/openclaw /Configs/.openclaw
-#  Node.js: 系统级安装到 /usr/local/bin/
+#  clawpanel-env — ClawPanel 安装脚本
+#  功能：安装 Node.js + npm + ClawPanel（跳过 OpenClaw）
 #===========================================================
-# ⚠️ 注意: 此文件用 sh (dash) 运行，不用 bash
-# ⚠️ 所有函数定义在全局，不用嵌套函数
 
-# 颜色（ASCII 安全，不依赖 ANSI 序列特性）
+#===========================================================
+# 颜色（ASCII 安全）
+#===========================================================
 RED='[✗]'; GREEN='[✓]'; YELLOW='[!]'; BLUE='[ℹ]'; CYAN='═══'; NC=''
 
 log()   { echo "$GREEN $1"; }
@@ -22,7 +21,8 @@ pr()    { echo "$BLUE ▸ $1"; }
 # 全局变量
 #===========================================================
 ARCH="$(uname -m)"
-# x86_64: 官方 Node.js (glibc)；aarch64/arm64: 用户 GitHub (musl)
+
+# 架构检测
 case "$ARCH" in
     x86_64)
         TARGET_ARCH_NODE="x64"
@@ -40,6 +40,7 @@ case "$ARCH" in
         ;;
 esac
 
+# 安装路径
 CP_BASE_PATH="${CP_BASE_PATH:-}"
 CP_VERSION="${CP_VERSION:-latest}"
 CONFIGS_DIR=""
@@ -50,9 +51,13 @@ OPENCLAW_DATA=""
 OPENCLAW_WORK=""
 CP_PORT="19527"
 
+# OpenClaw 安装状态（SKIP=1 表示跳过）
+OPENCLAW_SKIP=0
+
 #===========================================================
-# 工具函数（全局）
+# 工具函数
 #===========================================================
+
 # 检查磁盘空间
 check_disk() {
     local path="$1"
@@ -75,25 +80,20 @@ check_disk() {
 # 检查文件是否为 ELF
 is_elf() {
     [ -f "$1" ] || return 1
-    # 用 head 读 4 字节，避免 od/wc 工具不存在时报错
     local magic
     magic=$(head -c 4 "$1" 2>/dev/null | od -An -tx1 | tr -d ' \n')
     [ "$magic" = "7f454c46" ] && return 0
-    # Fallback: 文件大于 20MB
-    local sz
-    sz=$(wc -c < "$1" 2>/dev/null || echo 0)
-    [ -n "$sz" ] && [ "$sz" -gt 20000000 ]
+    return 1
 }
 
 # 检测已安装的 Node.js
-_detect_node() {
+detect_node() {
     local np
     np=$(command -v node 2>/dev/null)
     [ -n "$np" ] && [ -x "$np" ] && echo "$np" && return 0
     [ -x "/usr/local/bin/node" ] && echo "/usr/local/bin/node" && return 0
     [ -x "/opt/node23/bin/node" ] && echo "/opt/node23/bin/node" && return 0
     [ -x "/usr/bin/node" ] && echo "/usr/bin/node" && return 0
-    [ -x "/opt/node23/bin/node" ] && echo "/opt/node23/bin/node" && return 0
     return 1
 }
 
@@ -104,7 +104,7 @@ get_latest_pro_version() {
         return
     fi
     local ver
-    ver=$(curl -sL  \
+    ver=$(curl -sL --connect-timeout 10 \
         "https://api.github.com/repos/zhaoxinyi02/ClawPanel/releases" \
         | grep -o '"tag_name"[^,]*' | grep '"tag_name"' | head -1 \
         | cut -d'"' -f4 | grep '^pro-' | head -1 || true)
@@ -117,7 +117,7 @@ get_latest_pro_version() {
 }
 
 #===========================================================
-# 安装逻辑（setup 子命令）
+# 安装逻辑
 #===========================================================
 cmd_setup() {
     step "第一步: 检查环境"
@@ -131,7 +131,7 @@ cmd_setup() {
         err "CP_BASE_PATH 未设置（请从 LuCI 安装向导调用）"
         exit 1
     fi
-    CP_BASE_PATH="${CP_BASE_PATH%/}"  # 去掉末尾斜杠
+    CP_BASE_PATH="${CP_BASE_PATH%/}"
 
     # 禁止系统路径
     case "$CP_BASE_PATH" in
@@ -160,45 +160,26 @@ cmd_setup() {
     done_ "目录结构"
     echo "  ${CONFIGS_DIR}/"
     echo "  ├── clawpanel/          <- ClawPanel 程序"
-    echo "  │    ├── data/         <- 配置 + 数据"
-    echo "  │    └── clawpanel     <- Go 二进制"
+    echo "  │    └── data/         <- 配置 + 数据"
     echo "  ├── openclaw/          <- OpenClaw npm 包"
-    echo "  ├── .openclaw/         <- OpenClaw 工作区"
-    echo "  └── .openclaw-work/    <- 运行时目录"
+    echo "  ├── .openclaw/         <- 工作区"
+    echo "  └── .openclaw-work/    <- 运行时"
 
     #===========================================================
     step "第三步: 安装 Node.js（系统级）"
     #===========================================================
+
     # 检测已有 Node.js
-    existing_node=$(_detect_node) || true
+    existing_node=$(detect_node) || true
 
-    # npm wrapper: 使用 /usr/bin/npm（来自 musl Node.js 包）
-    mkdir -p /usr/local/bin
-    cat > /usr/local/bin/npm << NPMEOF
-#!/bin/sh
-SELF_DIR="/usr/bin"
-export NODE_ICU_DATA="/usr/share/icu"
-exec "${SELF_DIR}/node" "${SELF_DIR}/../lib/node_modules/npm/bin/npm-cli.js" "$@"
-NPMEOF
-    chmod +x /usr/local/bin/npm
-    cat > /usr/local/bin/npx << NPXEOF
-#!/bin/sh
-SELF_DIR="/usr/bin"
-export NODE_ICU_DATA="/usr/share/icu"
-exec "${SELF_DIR}/node" "${SELF_DIR}/../lib/node_modules/npm/bin/npx-cli.js" "$@"
-NPXEOF
-    chmod +x /usr/local/bin/npx
-    ln -sf /usr/bin/node /usr/local/bin/node 2>/dev/null || true
-    log "npm wrapper 已创建 ✓"
-
-
-    if [ -z "$existing_node" ]; then
+    if [ -n "$existing_node" ]; then
+        info "检测到已有 Node.js: $existing_node"
+        info "版本: $($existing_node --version 2>/dev/null)"
+    else
         # ClawPanel 要求 Node.js v22+
-        # 从 GitHub API 获取 a10463981/node-openwrt-arm64 的最新 v22 版本
+        pr "查询 GitHub 最新 v22 版本..."
         local NODE_VER
         if [ "$NODE_INSTALL_SOURCE" = "github" ]; then
-            # 从 releases HTML 页面解析最新 v22 版本（避免 API rate limit）
-            pr "查询 GitHub 最新 v22 版本..."
             NODE_VER=$(curl -sL --connect-timeout 10 \
                 "https://github.com/a10463981/node-openwrt-arm64/releases" 2>/dev/null \
                 | grep -o 'href="/a10463981/node-openwrt-arm64/releases/tag/[^"]*"' \
@@ -212,10 +193,9 @@ NPXEOF
             info "版本: $NODE_VER (ClawPanel 最低要求 v22)"
         fi
 
-        local NODE_TGZ="/tmp/node-${TARGET_ARCH_NODE}.tar.xz"
+        local NODE_TGZ="/tmp/node-${TARGET_ARCH_NODE}.tar.gz"
         pr "下载 Node.js ${NODE_VER} for ${TARGET_ARCH_NODE}..."
 
-        # x86_64: 官网 / npmmirror；aarch64/arm64: 用户 GitHub
         if [ "$NODE_INSTALL_SOURCE" = "official" ]; then
             pr "来源: npmmirror.com (官方 x64)"
             local NODE_URL="https://npmmirror.com/mirrors/node/${NODE_VER}/node-${NODE_VER}-linux-${TARGET_ARCH_NODE}.tar.xz"
@@ -239,15 +219,24 @@ NPXEOF
         fi
         log "下载完成"
 
-        # 解压到 /tmp，然后复制到 /usr/local
+        # 解压
         pr "解压到临时目录..."
         local NODE_EXTRACT="/tmp/node-extract-$$"
         mkdir -p "$NODE_EXTRACT"
-        tar -xJf "$NODE_TGZ" -C "$NODE_EXTRACT" || {
-            err "解压失败"
-            rm -f "$NODE_TGZ"; rm -rf "$NODE_EXTRACT"
-            exit 1
-        }
+
+        if [ "$NODE_INSTALL_SOURCE" = "official" ]; then
+            tar -xJf "$NODE_TGZ" -C "$NODE_EXTRACT" || {
+                err "解压失败（xz 格式）"
+                rm -f "$NODE_TGZ"; rm -rf "$NODE_EXTRACT"
+                exit 1
+            }
+        else
+            tar -xzf "$NODE_TGZ" -C "$NODE_EXTRACT" || {
+                err "解压失败（gz 格式）"
+                rm -f "$NODE_TGZ"; rm -rf "$NODE_EXTRACT"
+                exit 1
+            }
+        fi
 
         # 找到解压出来的目录
         local NODE_SRC=""
@@ -271,9 +260,7 @@ NPXEOF
         if [ -d "$NODE_SRC/share/icu" ]; then
             cp -a "$NODE_SRC/share/icu" /usr/local/share/ 2>/dev/null || true
         fi
-        chmod +x /usr/local/bin/node
-        chmod +x /usr/local/bin/npm
-        chmod +x /usr/local/bin/npx 2>/dev/null || true
+        chmod +x /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx 2>/dev/null || true
 
         rm -f "$NODE_TGZ"
         rm -rf "$NODE_EXTRACT"
@@ -284,6 +271,7 @@ NPXEOF
 
     # npm wrapper（解决 ICU 路径）
     pr "配置 npm wrapper..."
+    mkdir -p /usr/local/bin
     cat > /usr/local/bin/npm << 'NPMEOF'
 #!/bin/sh
 SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"
@@ -314,7 +302,7 @@ PROFILEOF
             info "$pkg 已安装: $($pkg --version 2>/dev/null | head -1)"
         else
             pr "安装 $pkg..."
-            opkg update 2>/dev/null && opkg install $pkg 2>/dev/null || {
+            opkg update >/dev/null 2>&1 && opkg install $pkg >/dev/null 2>&1 || {
                 warn "$pkg 安装失败，请在 LuCI 中手动安装: opkg install $pkg"
             }
             command -v $pkg >/dev/null 2>&1 && log "$pkg 安装成功" || warn "$pkg 可能未安装成功"
@@ -323,81 +311,13 @@ PROFILEOF
     done_ "基础工具"
 
     #===========================================================
-    step "第五步: 安装 OpenClaw（npm 包）"
+    # 第五步: OpenClaw（跳过，由用户手动安装）
     #===========================================================
-    export PATH="/usr/local/bin:$PATH"
-    export NODE_ICU_DATA="/usr/local/share/icu"
-    export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
-
-    if [ -d "${OPENCLAW_DIR}/node_modules/openclaw" ]; then
-        info "检测到已有 OpenClaw，跳过安装"
-    elif [ -d "/usr/local/lib/node_modules/openclaw" ]; then
-        info "使用系统全局 OpenClaw"
-    else
-        pr "安装 OpenClaw npm 包..."
-        mkdir -p "$OPENCLAW_DIR"
-
-        local NPM_OK=0
-        for registry in "https://registry.npmmirror.com" "https://registry.npmjs.org"; do
-            pr "尝试 npm 镜像: $registry"
-            /usr/local/bin/npm install -g openclaw \
-                --prefix "$OPENCLAW_DIR" \
-                --registry "$registry" \
-                2>&1 | tail -3 && NPM_OK=1 && break
-        done
-
-        if [ "$NPM_OK" != "1" ]; then
-            err "OpenClaw npm 安装失败"
-            exit 1
-        fi
-        log "OpenClaw 安装完成"
-    # Patch Unicode property escapes for this Node.js V8 build
-    # (\p{Extended_Pictographic} not supported in some V8 builds)
-    OPENCLAW_DIST="$(dirname "$OPENCLAW_MJS")/dist"
-    if [ -d "$OPENCLAW_DIST" ]; then
-        pr "Patch OpenClaw Unicode regex (V8 compatibility)..."
-        sed -i "s/\\p{Extended_Pictographic}/\\x{1F300}-\\x{1FAFF}/g" "$OPENCLAW_DIST"/ansi-*.js 2>/dev/null || true
-        sed -i "s/\\p{Regional_Indicator}//g" "$OPENCLAW_DIST"/ansi-*.js 2>/dev/null || true
-        sed -i "s/\\p{Extended_Pictographic}/\\x{1F300}-\\x{1FAFF}/g" "$OPENCLAW_DIST"/monitor-*.js 2>/dev/null || true
-        sed -i "s/\\p{Emoji_Modifier}/\\x{1F3FB}-\\x{1F3FF}/g" "$OPENCLAW_DIST"/monitor-*.js 2>/dev/null || true
-        sed -i "s/\\p{Emoji_Presentation}|\\p{Extended_Pictographic}/[\\x{1F000}-\\x{1FFFF}]/g" "$OPENCLAW_DIST"/pi-embedded-helpers-*.js 2>/dev/null || true
-        log "OpenClaw 兼容性修复完成"
-    fi
-
-    fi
-
-    # 找到 openclaw.mjs
-    local OPENCLAW_MJS=""
-    for p in \
-        "${OPENCLAW_DIR}/node_modules/openclaw/openclaw.mjs" \
-        "${OPENCLAW_DIR}/lib/node_modules/openclaw/openclaw.mjs" \
-        "/usr/local/lib/node_modules/openclaw/openclaw.mjs"; do
-        [ -f "$p" ] && OPENCLAW_MJS="$p" && break
-    done
-
-    if [ -z "$OPENCLAW_MJS" ]; then
-        err "找不到 openclaw.mjs"
-        ls "$OPENCLAW_DIR"/node_modules/openclaw/ 2>/dev/null || true
-        exit 1
-    fi
-    log "OpenClaw 入口: $OPENCLAW_MJS"
-
-    # 符号链接
-    mkdir -p /usr/local/lib/node_modules
-    rm -rf /usr/local/lib/node_modules/openclaw
-    ln -sf "$(dirname "$OPENCLAW_MJS")" /usr/local/lib/node_modules/openclaw
-
-    # openclaw 命令
-    cat > /usr/local/bin/openclaw << OCEOF
-#!/bin/sh
-export NODE_ICU_DATA="/usr/local/share/icu"
-export LD_LIBRARY_PATH="/usr/local/lib:\$LD_LIBRARY_PATH"
-export PATH="/usr/local/bin:\$PATH"
-exec /usr/local/bin/node "$OPENCLAW_MJS" "\$@"
-OCEOF
-    chmod +x /usr/local/bin/openclaw
-    ln -sf /usr/local/bin/openclaw /usr/bin/openclaw 2>/dev/null || true
-    done_ "OpenClaw 安装"
+    step "第五步: OpenClaw（跳过）"
+    info "OpenClaw CLI 已跳过，由用户稍后手动安装"
+    info "ClawPanel 主程序不受影响"
+    OPENCLAW_SKIP=1
+    done_ "第五步"
 
     #===========================================================
     step "第六步: 下载 ClawPanel Go 二进制"
@@ -415,12 +335,12 @@ OCEOF
         pr "下载: $URL"
         local TMP="/tmp/clawpanel_binary_$$"
         local HTTP_CODE
-        HTTP_CODE=$(curl -sL --fail --connect-timeout 15  \
+        HTTP_CODE=$(curl -sL --fail --connect-timeout 30 \
             -o "$TMP" -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
 
         if [ "$HTTP_CODE" != "200" ]; then
             rm -f "$TMP"
-            err "下载失败 (HTTP $HTTP_CODE): $URL"
+            err "下载失败 (HTTP $HTTP_CODE)"
             exit 1
         fi
 
@@ -432,7 +352,7 @@ OCEOF
 
         mv -f "$TMP" "${CLAWPANEL_DIR}/clawpanel"
         chmod +x "${CLAWPANEL_DIR}/clawpanel"
-        log "下载完成: $(wc -c < "${CLAWPANEL_DIR}/clawpanel" | awk '{printf "%.1f MB", $1/1024/1024}')"
+        log "下载完成: $(wc -c < "${CLAWPANEL_DIR}/clawpanel" 2>/dev/null | awk '{printf "%.1f MB", $1/1024/1024}')"
     fi
 
     echo "$CP_VER" > "${CLAWPANEL_DIR}/.version"
@@ -444,19 +364,23 @@ OCEOF
     #===========================================================
     pr "写入 clawpanel.json..."
     mkdir -p "$CLAWPANEL_DATA"
-    cat > "${CLAWPANEL_DATA}/clawpanel.json" << CEOF
+    cat > "${CLAWPANEL_DATA}/clawpanel.json" << 'CEOF'
 {
-  "port": ${CP_PORT},
-  "dataDir": "${CLAWPANEL_DATA}",
-  "openClawDir": "${OPENCLAW_DATA}",
-  "openClawApp": "$(dirname $OPENCLAW_MJS)",
-  "openClawWork": "${OPENCLAW_WORK}",
+  "port": 19527,
+  "dataDir": "%DATA_DIR%",
+  "openClawDir": "%OPENCLAW_DATA_DIR%",
+  "openClawApp": "",
+  "openClawWork": "%OPENCLAW_WORK_DIR%",
   "edition": "pro",
   "jwtSecret": "clawpanel-secret-change-me",
   "adminToken": "clawpanel",
   "debug": false
 }
 CEOF
+    # 替换占位符
+    sed -i "s|%DATA_DIR%|${CLAWPANEL_DATA}|g" "${CLAWPANEL_DATA}/clawpanel.json"
+    sed -i "s|%OPENCLAW_DATA_DIR%|${OPENCLAW_DATA}|g" "${CLAWPANEL_DATA}/clawpanel.json"
+    sed -i "s|%OPENCLAW_WORK_DIR%|${OPENCLAW_WORK}|g" "${CLAWPANEL_DATA}/clawpanel.json"
     done_ "clawpanel.json"
 
     pr "写入 openclaw.json..."
@@ -530,12 +454,15 @@ OEOF
     echo ""
     echo "数据目录: ${CONFIGS_DIR}"
     echo "  ├── clawpanel/        <- ClawPanel 程序"
-    echo "  ├── openclaw/        <- OpenClaw npm 包"
+    echo "  ├── openclaw/        <- OpenClaw npm 包（未安装）"
     echo "  ├── .openclaw/       <- 工作区"
-    echo "  └── .openclaw-work/   <- 运行时"
+    echo "  └── .openclaw-work/  <- 运行时"
     echo ""
     echo "访问地址: http://192.168.1.1:${CP_PORT}/"
     echo "令牌: clawpanel"
+    echo ""
+    echo "OpenClaw CLI 手动安装命令:"
+    echo "  npm install -g openclaw --prefix ${OPENCLAW_DIR} --registry https://registry.npmmirror.com"
     echo ""
 }
 
