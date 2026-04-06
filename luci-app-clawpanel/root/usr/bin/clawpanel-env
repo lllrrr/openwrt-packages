@@ -185,6 +185,7 @@ cmd_setup() {
         # ClawPanel 要求 Node.js v22+
         pr "查询 GitHub 最新 v22 版本..."
         local NODE_VER
+        # 用 Python 可靠地获取 GitHub 最新版本
         if [ "$NODE_INSTALL_SOURCE" = "github" ]; then
             NODE_VER=$(python3 -c "
 import subprocess, re
@@ -192,9 +193,9 @@ try:
     html = subprocess.check_output(['curl', '-sL', '--max-time', '15',
         'https://github.com/a10463981/node-openwrt-arm64/releases'],
         stderr=subprocess.DEVNULL).decode()
-    vs = re.findall(r'/releases/tag/(v\\d+[0-9.]+)', html)
+    vs = re.findall(r'/releases/tag/(v\d+[0-9.]+)', html)
     if vs:
-        latest = sorted(vs, key=lambda x: list(map(int, re.findall(r'\\d+', x))))[-1]
+        latest = sorted(vs, key=lambda x: list(map(int, re.findall(r'\d+', x))))[-1]
         print(latest)
     else:
         print('v22.15.1')
@@ -314,7 +315,7 @@ PROFILEOF
     #===========================================================
     for pkg in git python3; do
         if command -v $pkg >/dev/null 2>&1; then
-            info "$pkg 已安装: $($pkg --version 2>/dev/null | head -1)"
+            info "$pkg 已安装: $($pkg --version 2>/dev/null || sort -uV | tail -1)"
         else
             pr "安装 $pkg..."
             opkg update >/dev/null 2>&1 && opkg install $pkg >/dev/null 2>&1 || {
@@ -368,9 +369,13 @@ PROFILEOF
     }
     rm -f "$OC_TMP"
 
-    # npm install 处理 native addon
+    # npm install 处理 native addon（使用外置存储 + --ignore-scripts 跳过编译）
     if [ -f "$OPENCLAW_DIR/package.json" ]; then
-        ( cd "$OPENCLAW_DIR" && npm install --production --ignore-scripts 2>/dev/null || true )
+        mkdir -p "$OPENCLAW_DIR"
+        HOME=/root npm install -g openclaw \
+            --prefix "$OPENCLAW_DIR" \
+            --registry https://registry.npmmirror.com \
+            --ignore-scripts 2>&1 | tail -5 || true
     fi
 
     info "OpenClaw 安装完成: $OC_VER"
@@ -465,22 +470,6 @@ OEOF
     uci set clawpanel.main.version="$CP_VER"
     uci set clawpanel.main.openclaw_dir="$OPENCLAW_DIR"
     uci commit clawpanel 2>/dev/null || true
-
-    # 添加防火墙规则：允许 LAN 客户端访问 ClawPanel 面板端口
-    if ! grep -q "Allow-ClawPanel-LAN" /etc/config/firewall 2>/dev/null; then
-        cat >> /etc/config/firewall << 'FWRULE'
-
-# ClawPanel 面板端口 (19527) - LAN 访问
-config rule
-	option name 'Allow-ClawPanel-LAN'
-	option src 'lan'
-	option dest_port '${CP_PORT}'
-	option proto 'tcp'
-	option target 'ACCEPT'
-FWRULE
-        /etc/init.d/firewall reload >/dev/null 2>&1 || true
-    fi
-
     done_ "UCI 配置"
 
     #===========================================================

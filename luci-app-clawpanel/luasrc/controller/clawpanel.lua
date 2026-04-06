@@ -190,7 +190,9 @@ function index()
 		call("action_clawpanel_versions"), nil).leaf = true
 	entry({"admin", "services", "clawpanel", "node_latest"},
 		call("action_node_latest"), nil).leaf = true
-	entry({"admin", "services", "clawpanel", "upgrade_plugin"},
+	entry({"admin", "services", "clawpanel", "install_openclaw"}, call("action_install_openclaw"), nil).leaf = true
+entry({"admin", "services", "clawpanel", "install_openclaw_status"}, call("action_install_openclaw_status"), nil).leaf = true
+entry({"admin", "services", "clawpanel", "upgrade_plugin"},
 		call("action_upgrade_plugin"), nil).leaf = true
 end
 
@@ -830,21 +832,23 @@ end
 function action_plugin_versions()
 	local http = require "luci.http"
 
-	-- 获取所有 tag 并按 semver 排序
-	local tags_raw = trim(sh("git ls-remote --tags https://github.com/a10463981/luci-app-clawpanel 2>/dev/null | grep -v '{}' | awk -F'/' '{print $3}' | grep '^v' | sort -V | uniq"))
+	-- 已知版本列表（git ls-remote 在 OpenWrt 不支持 https，用硬编码）
+	local known = {
+		{raw="v1.3.1", version="1.3.1"},
+		{raw="v1.3.0", version="1.3.0"},
+		{raw="v1.2.6", version="1.2.6"},
+		{raw="v1.2.0", version="1.2.0"},
+		{raw="v1.1.0", version="1.1.0"},
+		{raw="v1.0.0", version="1.0.0"},
+	}
 	local versions = {}
-	for tag in tags_raw:gmatch("[^\n]+") do
-		local v = tag:gsub("^v", ""):gsub("[^%d%.]", "")
-		if v and v ~= "" then
-			table.insert(versions, { raw = tag, version = v })
-		end
-	end
+	for _, item in ipairs(known) do versions[#versions+1] = item end
 
 	-- 倒序（最新在前）
 	table.sort(versions, function(a, b)
-		-- 简单字符串版本比较
 		local function parse_ver(s)
-			local t={}; for w in s:gmatch("%d+") do table.insert(t, tonumber(w)) end
+			local t = {}
+			for w in s:gmatch("%d+") do t[#t+1] = tonumber(w) or 0 end
 			return t
 		end
 		local ta, tb = parse_ver(a.version), parse_ver(b.version)
@@ -856,7 +860,7 @@ function action_plugin_versions()
 		return false
 	end)
 
-	-- 获取本地版本
+	-- 读取本地版本
 	local local_ver = "1.0.0"
 	local vf = io.open("/usr/share/clawpanel/VERSION", "r")
 	if vf then
@@ -870,10 +874,6 @@ function action_plugin_versions()
 		local_version = local_ver
 	})
 end
-
---===========================================================
--- 获取所有 ClawPanel 版本（pro + lite）
---===========================================================
 function action_clawpanel_versions()
 	local http = require "luci.http"
 
@@ -1039,5 +1039,101 @@ function action_upgrade_plugin()
 		status = "ok",
 		message = "Plugin upgraded to v" .. version .. ". LuCI restarting...",
 		new_version = version
+	})
+end
+
+
+--===========================================================
+-- 手动安装 OpenClaw（绕过 ClawPanel 内置安装器的 koffi 编译问题）
+-- 使用 npm install --ignore-scripts 跳过 postinstall 编译
+--===========================================================
+function action_install_openclaw()
+	local http = require "luci.http"
+	local work_dir = http.formvalue("path") or "/root/.openclaw"
+	local LOG_FILE = "/tmp/openclaw_install.log"
+
+	-- 清理旧安装
+	sh("rm -rf " .. work_dir .. " 2>/dev/null; mkdir -p " .. work_dir .. " 2>/dev/null")
+
+	-- 写入日志
+	local lf = io.open(LOG_FILE, "w")
+	local function log(msg)
+		if lf then lf:write(msg.."\n"); lf:flush() end
+	end
+	log("==========================================")
+	log("手动安装 OpenClaw")
+	log("安装路径: " .. work_dir)
+	log("Node: " .. trim(sh("node --version 2>/dev/null")))
+	log("NPM: " .. trim(sh("npm --version 2>/dev/null")))
+	log("时间: " .. os.date("%Y-%m-%d %H:%M:%S"))
+
+	-- 后台执行 npm install
+	local cmd = string.format(
+		"setsid sh -c " ..
+		"'env HOME=/root npm install -g openclaw " ..
+		"--prefix %s " ..
+		"--registry https://registry.npmmirror.com " ..
+		"--ignore-scripts >> %s 2>&1' &",
+		work_dir, LOG_FILE)
+	log("执行: " .. cmd)
+	sh(cmd)
+	log("npm install 已后台启动")
+	if lf then lf:close() end
+
+	http.prepare_content("application/json")
+	http.write_json({
+		status = "ok",
+		message = "OpenClaw 安装已启动（后台执行，预计5-10分钟）",
+		log_file = LOG_FILE,
+		work_dir = work_dir
+	})
+end
+
+function action_install_openclaw_status()
+	local http = require "luci.http"
+	local LOG_FILE = "/tmp/openclaw_install.log"
+
+	-- 检查 npm 进程
+	local npm_pid = trim(sh("pgrep -f 'npm install' 2>/dev/null || echo ''"))
+
+	-- 检查 package.json（安装完成的标志）
+	local pkg_found = trim(sh("test -f /root/.openclaw/package.json && echo yes || echo no"))
+
+	local status, progress, message
+	if pkg_found == "yes" then
+		status = "done"
+		progress = 100
+		message = "安装完成！"
+	elseif npm_pid ~= "" then
+		status = "running"
+		progress = 50
+		message = "npm install 运行中 (PID: " .. npm_pid .. ")"
+	else
+		status = "running"
+		progress = 10
+		message = "等待 npm install 启动..."
+	end
+
+	-- 读取日志最后几行
+	local last_log = ""
+	local lf = io.open(LOG_FILE, "r")
+	if lf then
+		local lines = {}
+		for line in lf:lines() do table.insert(lines, line) end
+		lf:close()
+		local start = math.max(1, #lines - 8)
+		for i = start, #lines do
+			last_log = last_log .. lines[i] .. "\n"
+		end
+	end
+
+	http.prepare_content("application/json")
+	http.write_json({
+		status = status,
+		progress = progress,
+		message = message,
+		last_log = last_log,
+		pkg_found = pkg_found,
+		npm_pid = npm_pid
 	})
 end
