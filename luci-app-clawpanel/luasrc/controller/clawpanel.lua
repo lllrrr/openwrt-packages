@@ -192,6 +192,8 @@ function index()
 		call("action_node_latest"), nil).leaf = true
 	entry({"admin", "services", "clawpanel", "install_openclaw"}, call("action_install_openclaw"), nil).leaf = true
 entry({"admin", "services", "clawpanel", "install_openclaw_status"}, call("action_install_openclaw_status"), nil).leaf = true
+entry({"admin", "services", "clawpanel", "install_openclaw"}, call("action_install_openclaw"), nil).leaf = true
+entry({"admin", "services", "clawpanel", "install_openclaw_status"}, call("action_install_openclaw_status"), nil).leaf = true
 entry({"admin", "services", "clawpanel", "upgrade_plugin"},
 		call("action_upgrade_plugin"), nil).leaf = true
 end
@@ -1077,6 +1079,107 @@ function action_install_openclaw()
 		work_dir, LOG_FILE)
 	log("执行: " .. cmd)
 	sh(cmd)
+	log("npm install 已后台启动")
+	if lf then lf:close() end
+
+	http.prepare_content("application/json")
+	http.write_json({
+		status = "ok",
+		message = "OpenClaw 安装已启动（后台执行，预计5-10分钟）",
+		log_file = LOG_FILE,
+		work_dir = work_dir
+	})
+end
+
+function action_install_openclaw_status()
+	local http = require "luci.http"
+	local LOG_FILE = "/tmp/openclaw_install.log"
+
+	-- 检查 npm 进程
+	local npm_pid = trim(sh("pgrep -f 'npm install' 2>/dev/null || echo ''"))
+
+	-- 检查 package.json（安装完成的标志）
+	local pkg_found = trim(sh("test -f /root/.openclaw/package.json && echo yes || echo no"))
+
+	local status, progress, message
+	if pkg_found == "yes" then
+		status = "done"
+		progress = 100
+		message = "安装完成！"
+	elseif npm_pid ~= "" then
+		status = "running"
+		progress = 50
+		message = "npm install 运行中 (PID: " .. npm_pid .. ")"
+	else
+		status = "running"
+		progress = 10
+		message = "等待 npm install 启动..."
+	end
+
+	-- 读取日志最后几行
+	local last_log = ""
+	local lf = io.open(LOG_FILE, "r")
+	if lf then
+		local lines = {}
+		for line in lf:lines() do table.insert(lines, line) end
+		lf:close()
+		local start = math.max(1, #lines - 8)
+		for i = start, #lines do
+			last_log = last_log .. lines[i] .. "\n"
+		end
+	end
+
+	http.prepare_content("application/json")
+	http.write_json({
+		status = status,
+		progress = progress,
+		message = message,
+		last_log = last_log,
+		pkg_found = pkg_found,
+		npm_pid = npm_pid
+	})
+end
+
+--===========================================================
+-- 手动安装 OpenClaw（绕过 ClawPanel 内置安装器的 koffi 编译问题）
+-- 解决: npm install -g openclaw 在 OpenWrt 上 ENOSPC 和 koffi 编译失败
+-- 方案: --ignore-scripts 跳过 postinstall，缓存写到外置存储
+--===========================================================
+function action_install_openclaw()
+	local http = require "luci.http"
+	local work_dir = http.formvalue("path") or "/root/.openclaw"
+	local LOG_FILE = "/tmp/openclaw_install.log"
+
+	-- 清理旧安装，创建目录
+	os.execute("rm -rf " .. work_dir .. " 2>/dev/null; mkdir -p " .. work_dir .. " 2>/dev/null")
+
+	-- 把 npm 缓存写到外置存储（/mnt/sata1-1 有 200GB+）
+	local npm_cache_dir = "/mnt/sata1-1/.npm-cache"
+	os.execute("mkdir -p " .. npm_cache_dir .. " 2>/dev/null")
+
+	-- 写入初始日志
+	local lf = io.open(LOG_FILE, "w")
+	local function log(msg)
+		if lf then lf:write(msg.."\n"); lf:flush() end
+	end
+	log("==========================================")
+	log("手动安装 OpenClaw")
+	log("安装路径: " .. work_dir)
+	log("Node: " .. trim(sh("node --version 2>/dev/null")))
+	log("NPM: " .. trim(sh("npm --version 2>/dev/null")))
+	log("缓存目录: " .. npm_cache_dir)
+
+	-- 后台执行 npm install（用外置存储做 HOME 和 TMPDIR，避免 ENOSPC）
+	-- --ignore-scripts 跳过 koffi postinstall 编译
+	local cmd = string.format(
+		"setsid env HOME=%s TMPDIR=%s " ..
+		"/usr/local/bin/npm install -g openclaw " ..
+		"--prefix %s " ..
+		"--registry https://registry.npmmirror.com " ..
+		"--ignore-scripts >> %s 2>&1 &",
+		npm_cache_dir, npm_cache_dir, work_dir, LOG_FILE)
+	log("执行: " .. cmd)
+	os.execute(cmd)
 	log("npm install 已后台启动")
 	if lf then lf:close() end
 
