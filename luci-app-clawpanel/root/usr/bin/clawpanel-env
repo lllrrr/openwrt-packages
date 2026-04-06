@@ -80,7 +80,9 @@ check_disk() {
 # 检查文件是否为 ELF
 is_elf() {
     [ -f "$1" ] || return 1
-    head -c 4 "$1" 2>/dev/null | hexdump -C -v | head -1 | grep -q '7f 45 4c 46' && return 0
+    local magic
+    magic=$(head -c 4 "$1" 2>/dev/null | od -An -tx1 | tr -d ' \n')
+    [ "$magic" = "7f454c46" ] && return 0
     return 1
 }
 
@@ -185,23 +187,13 @@ cmd_setup() {
         # ClawPanel 要求 Node.js v22+
         pr "查询 GitHub 最新 v22 版本..."
         local NODE_VER
-        # 用 Python 可靠地获取 GitHub 最新版本
         if [ "$NODE_INSTALL_SOURCE" = "github" ]; then
-            NODE_VER=$(python3 -c "
-import subprocess, re
-try:
-    html = subprocess.check_output(['curl', '-sL', '--max-time', '15',
-        'https://github.com/a10463981/node-openwrt-arm64/releases'],
-        stderr=subprocess.DEVNULL).decode()
-    vs = re.findall(r'/releases/tag/(v\d+[0-9.]+)', html)
-    if vs:
-        latest = sorted(vs, key=lambda x: list(map(int, re.findall(r'\d+', x))))[-1]
-        print(latest)
-    else:
-        print('v22.15.1')
-except:
-    print('v22.15.1')
-" 2>/dev/null)
+            NODE_VER=$(curl -sL --connect-timeout 10 \
+                "https://github.com/a10463981/node-openwrt-arm64/releases" 2>/dev/null \
+                | grep -o 'href="/a10463981/node-openwrt-arm64/releases/tag/[^"]*"' \
+                | sed 's/.*tag\///;s/"//' \
+                | grep '^v22\.' \
+                | head -1) || true
             : "${NODE_VER:=v22.15.1}"
             info "版本: $NODE_VER (来源: a10463981/node-openwrt-arm64)"
         else
@@ -315,7 +307,7 @@ PROFILEOF
     #===========================================================
     for pkg in git python3; do
         if command -v $pkg >/dev/null 2>&1; then
-            info "$pkg 已安装: $($pkg --version 2>/dev/null || sort -uV | tail -1)"
+            info "$pkg 已安装: $($pkg --version 2>/dev/null | head -1)"
         else
             pr "安装 $pkg..."
             opkg update >/dev/null 2>&1 && opkg install $pkg >/dev/null 2>&1 || {
@@ -329,56 +321,10 @@ PROFILEOF
     #===========================================================
     # 第五步: OpenClaw（跳过，由用户手动安装）
     #===========================================================
-    # 第五步: 安装 OpenClaw（从 GitHub 实时获取最新版本）
-    #===========================================================
-    step "第五步: 安装 OpenClaw"
-
-    # 实时获取 a10463981/openclaw 最新版本
-    local OC_VER
-    OC_VER=$(curl -sL --connect-timeout 10 \
-        "https://github.com/a10463981/openclaw/releases/latest" 2>/dev/null \
-        | grep -o 'releases/tag/v[^"]*' | head -1 | sed 's|.*/tag/v|v|')
-    : "${OC_VER:=2026.4.5}"
-    info "OpenClaw 最新版本: $OC_VER（来源: GitHub a10463981/openclaw）"
-
-    # 下载 OpenClaw tarball
-    local OC_URL="https://registry.npmmirror.com/openclaw/-/openclaw-${OC_VER}.tgz"
-    local OC_TMP="/tmp/openclaw-${OC_VER}.tgz"
-    pr "下载: $OC_URL"
-    if ! curl -fsSL --connect-timeout 60 -o "$OC_TMP" "$OC_URL" 2>/dev/null; then
-        OC_URL="https://github.com/a10463981/openclaw/archive/refs/tags/v${OC_VER}.tar.gz"
-        curl -fsSL --connect-timeout 60 -o "$OC_TMP" "$OC_URL" 2>/dev/null || {
-            warn "OpenClaw 下载失败，跳过安装"
-            OPENCLAW_SKIP=1
-            done_ "第五步"
-            return 0
-        }
-    fi
-
-    mkdir -p "$OPENCLAW_DIR"
-    pr "解压安装到 $OPENCLAW_DIR ..."
-    tar -xzf "$OC_TMP" -C "$OPENCLAW_DIR" --strip-components=1 2>/dev/null || {
-        tar -xzf "$OC_TMP" -C /tmp 2>/dev/null
-        cp -r /tmp/package/* "$OPENCLAW_DIR/" 2>/dev/null || {
-            warn "解压失败，跳过"
-            rm -f "$OC_TMP"
-            OPENCLAW_SKIP=1
-            done_ "第五步"
-            return 0
-        }
-    }
-    rm -f "$OC_TMP"
-
-    # npm install 处理 native addon（使用外置存储 + --ignore-scripts 跳过编译）
-    if [ -f "$OPENCLAW_DIR/package.json" ]; then
-        mkdir -p "$OPENCLAW_DIR"
-        HOME=/root npm install -g openclaw \
-            --prefix "$OPENCLAW_DIR" \
-            --registry https://registry.npmmirror.com \
-            --ignore-scripts 2>&1 | tail -5 || true
-    fi
-
-    info "OpenClaw 安装完成: $OC_VER"
+    step "第五步: OpenClaw（跳过）"
+    info "OpenClaw CLI 已跳过，由用户稍后手动安装"
+    info "ClawPanel 主程序不受影响"
+    OPENCLAW_SKIP=1
     done_ "第五步"
 
     #===========================================================
@@ -470,6 +416,22 @@ OEOF
     uci set clawpanel.main.version="$CP_VER"
     uci set clawpanel.main.openclaw_dir="$OPENCLAW_DIR"
     uci commit clawpanel 2>/dev/null || true
+
+    # 添加防火墙规则：允许 LAN 客户端访问 ClawPanel 面板端口
+    if ! grep -q "Allow-ClawPanel-LAN" /etc/config/firewall 2>/dev/null; then
+        cat >> /etc/config/firewall << 'FWRULE'
+
+# ClawPanel 面板端口 (19527) - LAN 访问
+config rule
+	option name 'Allow-ClawPanel-LAN'
+	option src 'lan'
+	option dest_port '${CP_PORT}'
+	option proto 'tcp'
+	option target 'ACCEPT'
+FWRULE
+        /etc/init.d/firewall reload >/dev/null 2>&1 || true
+    fi
+
     done_ "UCI 配置"
 
     #===========================================================

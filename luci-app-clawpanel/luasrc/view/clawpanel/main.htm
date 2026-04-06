@@ -573,49 +573,47 @@ function cpCloseModals(){
   $('cp-un-modal').classList.remove('show');
   if(_pt){clearInterval(_pt);_pt=null}
   if(_upt){clearInterval(_upt);_upt=null}
-}
-
-function cpCloseOCModal(){
-  $('cp-oc-modal').classList.remove('show');
+  var _ocm=document.getElementById('cp-oc-modal');if(_ocm)_ocm.classList.remove('show');
 }
 function cpShowOpenClawInstall(){
-  $('cp-oc-modal').classList.add('show');
-  $('cp-oc-loading').style.display='block';
-  $('cp-oc-log-sec').style.display='none';
-  $('cp-oc-loading').textContent='准备安装...';
+  var el=document.getElementById('cp-oc-modal');
+  if(!el){
+    el=document.createElement('div');el.id='cp-oc-modal';el.className='cp-modal';
+    el.innerHTML="<div class=cp-box style=max-width:520px><div class=cp-mhdr><h3>🐝 手动安装 OpenClaw</h3><button class='cp-btn cp-gy cp-sm' onclick=cpCloseOCModal()>✕</button></div><div class=cp-mbody style='max-height:60vh;overflow-y:auto'><div class=cp-hint d style=margin-bottom:12px>⚠️ koffi 编译失败时，使用此方式安装。<br>路径: <code>/root/.openclaw</code></div><div id=cp-oc-loading style='text-align:center;padding:20px'>准备中...</div><div id=cp-oc-log-sec class=cp-sec style=display:none><div style=font-weight:600;margin-bottom:6px>📋 安装日志</div><div id=cp-oc-log-st class=cp-ls inf></div><pre id=cp-oc-log-content class=cp-log style=max-height:150px></pre></div></div><div class=cp-mfoot><button class=cp-btn cp-p id=cp-oc-do-btn onclick=cpDoOpenClawInstall()>▶ 开始安装</button><button class=cp-btn cp-o onclick=cpCloseOCModal()>关闭</button></div></div></div>";
+    document.body.appendChild(el);
+  }
+  el.classList.add('show');
+  var lo=document.getElementById('cp-oc-loading');var le=document.getElementById('cp-oc-log-content');var se=document.getElementById('cp-oc-log-st');var ls=document.getElementById('cp-oc-log-sec');
+  if(lo)lo.style.display='block';
+  if(ls)ls.style.display='none';
 }
+function cpCloseOCModal(){var el=document.getElementById('cp-oc-modal');if(el)el.classList.remove('show');}
 function cpDoOpenClawInstall(){
-  if(!confirm('确定手动安装 OpenClaw？'))return;
-  var se=$('cp-oc-log-st'),le=$('cp-oc-log-content'),lo=$('cp-oc-loading');
-  $('cp-oc-log-sec').style.display='block';
-  le.textContent='';
-  se.textContent='开始安装...';se.className='cp-ls inf';
-  lo.style.display='none';
-  function log(msg){le.textContent+='\n'+msg;le.scrollTop=le.scrollHeight;}
+  if(!confirm('手动安装 OpenClaw 到 /root/.openclaw？'))return;
+  var se=document.getElementById('cp-oc-log-st')||{};var le=document.getElementById('cp-oc-log-content')||{};var ls=document.getElementById('cp-oc-log-sec');
+  if(ls)ls.style.display='block';
+  if(le)le.textContent='';
+  if(se)se.textContent='开始安装...';
+  function log(m){if(le)le.textContent+='\n'+m;}
   log('手动安装 OpenClaw');
   log('路径: /root/.openclaw');
   var x=new XMLHttpRequest();
-  x.open('POST',BASE+'/install_openclaw',true);
+  x.open('POST','/cgi-bin/luci/admin/services/clawpanel/install_openclaw',true);
   x.setRequestHeader('Content-Type','application/json');
   x.onload=function(){
-    se.className='cp-ls '+(x.status===200?'ok':'er');
+    if(se)se.className='cp-ls '+(x.status===200?'ok':'er');
     try{
       var r=JSON.parse(x.responseText);
       log(r.message||'');
-      if(r.status==='ok'){
-        se.textContent='已启动！';
-        setTimeout(function(){cpLoadStatus();cpCloseOCModal()},3000);
-      }else{
-        se.textContent='失败: '+r.message;
-      }
-    }catch(e){
-      se.textContent='响应解析失败';
-    }
+      if(r.status==='ok'&&se)se.textContent='✅ 已启动！5秒后刷新...';
+      if(r.status==='ok')setTimeout(function(){location.reload()},5000);
+    }catch(e){log('解析失败');}
   };
-  x.onerror=function(){se.textContent='网络错误';se.className='cp-ls er';};
+  x.onerror=function(){if(se)se.textContent='网络错误';};
   x.send(JSON.stringify({path:'/root/.openclaw'}));
   log('请求已发送...');
 }
-
 </script>
+</div>
+
 <%+footer%>
