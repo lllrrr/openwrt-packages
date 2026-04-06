@@ -186,12 +186,21 @@ cmd_setup() {
         pr "查询 GitHub 最新 v22 版本..."
         local NODE_VER
         if [ "$NODE_INSTALL_SOURCE" = "github" ]; then
-            NODE_VER=$(curl -sL --connect-timeout 10 \
-                "https://github.com/a10463981/node-openwrt-arm64/releases" 2>/dev/null \
-                | grep -o 'href="/a10463981/node-openwrt-arm64/releases/tag/[^"]*"' \
-                | sed 's/.*tag\///;s/"//' \
-                | grep '^v22\.' \
-                | head -1) || true
+            NODE_VER=$(python3 -c "
+import subprocess, re
+try:
+    html = subprocess.check_output(['curl', '-sL', '--max-time', '15',
+        'https://github.com/a10463981/node-openwrt-arm64/releases'],
+        stderr=subprocess.DEVNULL).decode()
+    vs = re.findall(r'/releases/tag/(v\\d+[0-9.]+)', html)
+    if vs:
+        latest = sorted(vs, key=lambda x: list(map(int, re.findall(r'\\d+', x))))[-1]
+        print(latest)
+    else:
+        print('v22.15.1')
+except:
+    print('v22.15.1')
+" 2>/dev/null)
             : "${NODE_VER:=v22.15.1}"
             info "版本: $NODE_VER (来源: a10463981/node-openwrt-arm64)"
         else
@@ -319,10 +328,52 @@ PROFILEOF
     #===========================================================
     # 第五步: OpenClaw（跳过，由用户手动安装）
     #===========================================================
-    step "第五步: OpenClaw（跳过）"
-    info "OpenClaw CLI 已跳过，由用户稍后手动安装"
-    info "ClawPanel 主程序不受影响"
-    OPENCLAW_SKIP=1
+    # 第五步: 安装 OpenClaw（从 GitHub 实时获取最新版本）
+    #===========================================================
+    step "第五步: 安装 OpenClaw"
+
+    # 实时获取 a10463981/openclaw 最新版本
+    local OC_VER
+    OC_VER=$(curl -sL --connect-timeout 10 \
+        "https://github.com/a10463981/openclaw/releases/latest" 2>/dev/null \
+        | grep -o 'releases/tag/v[^"]*' | head -1 | sed 's|.*/tag/v|v|')
+    : "${OC_VER:=2026.4.5}"
+    info "OpenClaw 最新版本: $OC_VER（来源: GitHub a10463981/openclaw）"
+
+    # 下载 OpenClaw tarball
+    local OC_URL="https://registry.npmmirror.com/openclaw/-/openclaw-${OC_VER}.tgz"
+    local OC_TMP="/tmp/openclaw-${OC_VER}.tgz"
+    pr "下载: $OC_URL"
+    if ! curl -fsSL --connect-timeout 60 -o "$OC_TMP" "$OC_URL" 2>/dev/null; then
+        OC_URL="https://github.com/a10463981/openclaw/archive/refs/tags/v${OC_VER}.tar.gz"
+        curl -fsSL --connect-timeout 60 -o "$OC_TMP" "$OC_URL" 2>/dev/null || {
+            warn "OpenClaw 下载失败，跳过安装"
+            OPENCLAW_SKIP=1
+            done_ "第五步"
+            return 0
+        }
+    fi
+
+    mkdir -p "$OPENCLAW_DIR"
+    pr "解压安装到 $OPENCLAW_DIR ..."
+    tar -xzf "$OC_TMP" -C "$OPENCLAW_DIR" --strip-components=1 2>/dev/null || {
+        tar -xzf "$OC_TMP" -C /tmp 2>/dev/null
+        cp -r /tmp/package/* "$OPENCLAW_DIR/" 2>/dev/null || {
+            warn "解压失败，跳过"
+            rm -f "$OC_TMP"
+            OPENCLAW_SKIP=1
+            done_ "第五步"
+            return 0
+        }
+    }
+    rm -f "$OC_TMP"
+
+    # npm install 处理 native addon
+    if [ -f "$OPENCLAW_DIR/package.json" ]; then
+        ( cd "$OPENCLAW_DIR" && npm install --production --ignore-scripts 2>/dev/null || true )
+    fi
+
+    info "OpenClaw 安装完成: $OC_VER"
     done_ "第五步"
 
     #===========================================================
