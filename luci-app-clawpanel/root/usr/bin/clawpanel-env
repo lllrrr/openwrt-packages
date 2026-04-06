@@ -103,11 +103,19 @@ get_latest_pro_version() {
         echo "$CP_VERSION"
         return
     fi
+    # 从 GitHub API 获取最新 pro 版本（优先 latest API，回退遍历）
     local ver
     ver=$(curl -sL --connect-timeout 10 \
-        "https://api.github.com/repos/zhaoxinyi02/ClawPanel/releases" \
-        | grep -o '"tag_name"[^,]*' | grep '"tag_name"' | head -1 \
-        | cut -d'"' -f4 | grep '^pro-' | head -1 || true)
+        "https://api.github.com/repos/zhaoxinyi02/ClawPanel/releases/latest" \
+        2>/dev/null | grep -o '"tag_name"[^,]*' | head -1 \
+        | sed 's/.*"tag_name"[^"]*"//' | tr -d '":' | grep '^pro-' | head -1 || true)
+    if [ -z "$ver" ]; then
+        ver=$(curl -sL --connect-timeout 10 \
+            "https://api.github.com/repos/zhaoxinyi02/ClawPanel/releases?per_page=30" \
+            2>/dev/null | grep -o '"tag_name"[^,]*' \
+            | sed 's/.*"tag_name"[^"]*"//' | tr -d '":' \
+            | grep '^pro-' | head -1 || true)
+    fi
     if [ -z "$ver" ]; then
         warn "无法获取最新版本，使用 pro-v5.3.3"
         echo "pro-v5.3.3"
@@ -361,26 +369,28 @@ PROFILEOF
 
     #===========================================================
     step "第七步: 写入配置文件"
-    #===========================================================
+    # 写入 clawpanel.json（修复 v1.3.0: 包含 openClawApp 正确路径）
     pr "写入 clawpanel.json..."
     mkdir -p "$CLAWPANEL_DATA"
+    local OPENCLAW_APP="${OPENCLAW_DIR}/bin/openclaw.mjs"
     cat > "${CLAWPANEL_DATA}/clawpanel.json" << 'CEOF'
 {
-  "port": 19527,
-  "dataDir": "%DATA_DIR%",
-  "openClawDir": "%OPENCLAW_DATA_DIR%",
-  "openClawApp": "",
-  "openClawWork": "%OPENCLAW_WORK_DIR%",
+  "port": PORT_PLACEHOLDER,
+  "dataDir": "DATA_PLACEHOLDER",
+  "openClawDir": "OPENCLAW_DATA_PLACEHOLDER",
+  "openClawApp": "OPENCLAW_APP_PLACEHOLDER",
+  "openClawWork": "OPENCLAW_WORK_PLACEHOLDER",
   "edition": "pro",
   "jwtSecret": "clawpanel-secret-change-me",
   "adminToken": "clawpanel",
   "debug": false
 }
 CEOF
-    # 替换占位符
-    sed -i "s|%DATA_DIR%|${CLAWPANEL_DATA}|g" "${CLAWPANEL_DATA}/clawpanel.json"
-    sed -i "s|%OPENCLAW_DATA_DIR%|${OPENCLAW_DATA}|g" "${CLAWPANEL_DATA}/clawpanel.json"
-    sed -i "s|%OPENCLAW_WORK_DIR%|${OPENCLAW_WORK}|g" "${CLAWPANEL_DATA}/clawpanel.json"
+    sed -i "s|PORT_PLACEHOLDER|${CP_PORT}|g" "${CLAWPANEL_DATA}/clawpanel.json"
+    sed -i "s|DATA_PLACEHOLDER|${CLAWPANEL_DATA}|g" "${CLAWPANEL_DATA}/clawpanel.json"
+    sed -i "s|OPENCLAW_DATA_PLACEHOLDER|${OPENCLAW_DATA}|g" "${CLAWPANEL_DATA}/clawpanel.json"
+    sed -i "s|OPENCLAW_APP_PLACEHOLDER|${OPENCLAW_APP}|g" "${CLAWPANEL_DATA}/clawpanel.json"
+    sed -i "s|OPENCLAW_WORK_PLACEHOLDER|${OPENCLAW_WORK}|g" "${CLAWPANEL_DATA}/clawpanel.json"
     done_ "clawpanel.json"
 
     pr "写入 openclaw.json..."
@@ -406,27 +416,46 @@ OEOF
     uci set clawpanel.main.version="$CP_VER"
     uci set clawpanel.main.openclaw_dir="$OPENCLAW_DIR"
     uci commit clawpanel 2>/dev/null || true
+
+    # 添加防火墙规则：允许 LAN 客户端访问 ClawPanel 面板端口
+    if ! grep -q "Allow-ClawPanel-LAN" /etc/config/firewall 2>/dev/null; then
+        cat >> /etc/config/firewall << 'FWRULE'
+
+# ClawPanel 面板端口 (19527) - LAN 访问
+config rule
+	option name 'Allow-ClawPanel-LAN'
+	option src 'lan'
+	option dest_port '${CP_PORT}'
+	option proto 'tcp'
+	option target 'ACCEPT'
+FWRULE
+        /etc/init.d/firewall reload >/dev/null 2>&1 || true
+    fi
+
     done_ "UCI 配置"
 
     #===========================================================
     step "第九步: 启动服务"
     #===========================================================
     pr "停止旧进程..."
-    killall -9 clawpanel 2>/dev/null || true
+    pkill -9 -f 'clawpanel/clawpanel' 2>/dev/null || true
     sleep 1
 
     pr "注册开机自启..."
     /etc/init.d/clawpanel enable 2>/dev/null || true
 
-    pr "启动 ClawPanel..."
+    pr "启动 ClawPanel（setsid 脱离终端）..."
     export HOME="/root"
     export PATH="/usr/local/bin:$PATH"
     export NODE_ICU_DATA="/usr/local/share/icu"
     export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
 
-    setsid /bin/bash -c "
-        ${CLAWPANEL_DIR}/clawpanel >> /tmp/clawpanel.log 2>&1 &
-    " &
+    # 关键修复: 直接 setsid 启动，不用 bash -c 嵌套后台
+    # setsid 会创建新 session，进程完全脱离终端
+    setsid env HOME=/root PATH=/usr/local/bin:$PATH \
+        NODE_ICU_DATA=/usr/local/share/icu \
+        LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH \
+        ${CLAWPANEL_DIR}/clawpanel >> /tmp/clawpanel.log 2>&1 < /dev/null &
 
     pr "等待服务就绪（端口 $CP_PORT）..."
     local i=0

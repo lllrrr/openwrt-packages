@@ -1,167 +1,29 @@
 #!/bin/sh /etc/rc.common
-# luci-app-clawpanel — init script v3
-# 统一目录: /Configs/clawpanel /Configs/openclaw /Configs/.openclaw
-# Node.js 系统级: /usr/local/bin/node
-
+#===========================================================
+#  ClawPanel init.d — v1.3.0
+#  注意: start/stop/status 已弃用，统一由 controller 管理
+#  此脚本仅负责开机自启注册（enable/disable）
+#===========================================================
 USE_PROCD=0
 START=99
 STOP=10
 
-EXTRA_COMMANDS="setup status_service"
-EXTRA_HELP="    setup            install ClawPanel\n    status_service   show service status"
-
-_load_uci() {
-    # 磁盘挂载点（如 /mnt/sda1）
-    CP_BASE_PATH="$(uci -q get clawpanel.main.disk || echo '')"
-    # /Configs 目录（统一存放点）
-    CONFIGS_DIR="${CP_BASE_PATH}/Configs"
-    CLAWPANEL_DIR="${CONFIGS_DIR}/clawpanel"
-    CLAWPANEL_DATA="${CLAWPANEL_DIR}/data"
-    CLAWPANEL_BIN="${CLAWPANEL_DIR}/clawpanel"
-
-    local port
-    port="$(uci -q get clawpanel.main.port || echo '19527')"
-    port=$(echo "$port" | tr -cd '0-9')
-    [ -z "$port" ] && port=19527
-
-    return 0
-}
-
 start_service() {
-    _load_uci || return 1
-
-    config_load clawpanel
-    local enabled
-    config_get enabled main enabled "0"
-
-    [ "$enabled" = "1" ] || {
-        echo "ClawPanel: disabled in UCI"
-        return 0
-    }
-
-    [ -x "$CLAWPANEL_BIN" ] || {
-        echo "ClawPanel: binary not found at $CLAWPANEL_BIN"
-        return 1
-    }
-
-    # 确保目录存在
-    mkdir -p "$CLAWPANEL_DATA" 2>/dev/null
-
-    # 写入 clawpanel.json（仅首次）
-    if [ ! -f "$CLAWPANEL_DATA/clawpanel.json" ]; then
-        local port
-        port="$(uci -q get clawpanel.main.port || echo '19527')"
-        port=$(echo "$port" | tr -cd '0-9')
-        [ -z "$port" ] && port=19527
-
-        # 找 OpenClaw mjs
-        local OCMJS
-        OCMJS=$(find /usr/lib/node_modules/openclaw /usr/local/lib/node_modules/openclaw /Configs -name 'openclaw.mjs' 2>/dev/null | head -1)
-
-        printf '{\n' > "$CLAWPANEL_DATA/clawpanel.json"
-        printf '  "port": %s,\n' "$port" >> "$CLAWPANEL_DATA/clawpanel.json"
-        printf '  "dataDir": "%s",\n' "$CLAWPANEL_DATA" >> "$CLAWPANEL_DATA/clawpanel.json"
-        printf '  "openClawDir": "%s",\n' "${CP_BASE_PATH}/Configs/.openclaw" >> "$CLAWPANEL_DATA/clawpanel.json"
-        printf '  "openClawApp": "%s",\n' "$(dirname "$OCMJS")" >> "$CLAWPANEL_DATA/clawpanel.json"
-        printf '  "openClawWork": "%s",\n' "${CP_BASE_PATH}/Configs/.openclaw-work" >> "$CLAWPANEL_DATA/clawpanel.json"
-        printf '  "edition": "pro",\n' >> "$CLAWPANEL_DATA/clawpanel.json"
-        printf '  "jwtSecret": "clawpanel-secret-change-me",\n' >> "$CLAWPANEL_DATA/clawpanel.json"
-        printf '  "adminToken": "clawpanel",\n' >> "$CLAWPANEL_DATA/clawpanel.json"
-        printf '  "debug": false\n' >> "$CLAWPANEL_DATA/clawpanel.json"
-        printf '}\n' >> "$CLAWPANEL_DATA/clawpanel.json"
-    fi
-
-    # 停止旧进程
-    stop_service
-
-    echo "ClawPanel: starting $CLAWPANEL_BIN (data=$CLAWPANEL_DATA)"
-
-    (
-        export HOME="/root"
-        export PATH="/usr/bin:/usr/local/bin:$PATH"
-        export NODE_ICU_DATA="/usr/share/icu"
-        export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
-        setsid /bin/bash -c "$CLAWPANEL_BIN >> /tmp/clawpanel.log 2>&1 &"
-    )
-
-    # 等待端口
-    local port
-    port="$(uci -q get clawpanel.main.port || echo '19527')"
-    port=$(echo "$port" | tr -cd '0-9')
-    [ -z "$port" ] && port=19527
-
-    local i=0
-    while [ $i -lt 20 ]; do
-        if netstat -tulnp 2>/dev/null | grep -q ":${port} "; then
-            echo "ClawPanel: started (port=$port)"
-            return 0
-        fi
-        sleep 1
-        i=$((i + 1))
-    done
-
-    echo "ClawPanel: started (port $port may not be visible yet)"
+    # 由 controller 的 action_service_ctl 统一管理
+    # init.d 只做开机自启，不直接启动
     return 0
 }
 
 stop_service() {
-    _load_uci 2>/dev/null || true
-
-    for pid in $(pgrep -f "clawpanel" 2>/dev/null); do
-        kill "$pid" 2>/dev/null
-    done
-
-    local port
-    port="$(uci -q get clawpanel.main.port || echo '19527')"
-    port=$(echo "$port" | tr -cd '0-9')
-    [ -z "$port" ] && port=19527
-
-    local i=0
-    while [ $i -lt 10 ]; do
-        if ! netstat -tulnp 2>/dev/null | grep -q ":${port} " 2>/dev/null; then
-            break
-        fi
-        sleep 1
-        i=$((i + 1))
-    done
+    # 由 controller 统一杀进程
     return 0
 }
 
 reload_service() {
-    stop_service
-    sleep 1
-    start_service
+    return 0
 }
 
 status_service() {
-    _load_uci 2>/dev/null || true
-
-    local port
-    port="$(uci -q get clawpanel.main.port || echo '19527')"
-    local enabled
-    enabled="$(uci -q get clawpanel.main.enabled || echo '0')"
-
-    echo "=== ClawPanel Status ==="
-    echo "enabled: $enabled"
-    echo "disk (mount): $CP_BASE_PATH"
-    echo "configs_dir: $CONFIGS_DIR"
-    echo "binary: $CLAWPANEL_BIN"
-    echo "data_dir: $CLAWPANEL_DATA"
-    echo "port: $port"
-
-    if [ -x "$CLAWPANEL_BIN" ]; then
-        echo "binary_version: $(cat ${CLAWPANEL_DIR}/.version 2>/dev/null || echo 'unknown')"
-    else
-        echo "binary: NOT FOUND"
-    fi
-
-    if netstat -tulnp 2>/dev/null | grep -q ":${port} " 2>/dev/null; then
-        echo "status: RUNNING"
-    else
-        echo "status: NOT running"
-    fi
-
-    echo ""
-    echo "Node.js: $(command -v node >/dev/null 2>&1 && node --version || echo 'NOT installed')"
-    echo "npm: $(command -v npm >/dev/null 2>&1 && npm --version || echo 'NOT installed')"
+    # 由 controller API 提供状态
+    return 1
 }

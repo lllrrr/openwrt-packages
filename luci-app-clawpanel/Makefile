@@ -6,8 +6,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-clawpanel
-PKG_VERSION:=1.2.6
-PKG_RELEASE:=2
+PKG_VERSION:=1.3.1
+PKG_RELEASE:=1
 
 PKG_MAINTAINER:=a10463981 <a10463981@users.noreply.github.com>
 PKG_LICENSE:=CC-BY-NC-SA-4.0

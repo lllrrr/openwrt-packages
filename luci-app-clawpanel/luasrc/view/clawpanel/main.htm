@@ -1,6 +1,10 @@
 <%#
-main.htm — ClawPanel 统一管理面板 v2
-重构: /Configs 统一目录 + 存储选择器 + Node.js 系统级
+main.htm — ClawPanel 统一管理面板 v1.3.0
+核心改动：
+  1. OpenClaw 三态显示 (not_installed / broken / ready)
+  2. 按钮防抖（防连点导致重复调用）
+  3. restart 前先等待 stop 完成
+  4. 按钮遮罩层防重复点击
 -%>
 <%
 local uci = require("luci.model.uci").cursor()
@@ -15,20 +19,21 @@ local lan_addr = sys.exec("cat /etc/config/network | grep -A 3 'config interface
 .cp-card{background:#fff;border:1px solid #e1e4e8;border-radius:10px;margin-bottom:16px;overflow:hidden}
 .cp-hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:linear-gradient(135deg,#4a90d9,#357abd);color:#fff;font-size:14px;font-weight:600}
 .cp-body{padding:0}
-.cp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0}
+.cp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax:200px,1fr));gap:0}
 .cp-item{padding:10px 16px;border-bottom:1px solid #e1e4e8;border-right:1px solid #e1e4e8;font-size:13px}
 .cp-item:nth-child(even){border-right:none}
 .cp-item .lbl{color:#656d76;font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
 .cp-item .val{font-weight:600;color:#24292f;word-break:break-all;font-size:12px}
-.cp-item .val.ok{color:#1a7f37}.cp-item .val.err{color:#cf222e}
+.cp-item .val.ok{color:#1a7f37}.cp-item .val.err{color:#cf222e}.cp-item .val.warn{color:#9a6700}
 .cp-badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600}
-.cp-r{background:#dafbe1;color:#1a7f37}.cp-s{background:#ffebe9;color:#cf222e}.cp-u{background:#fff8c5;color:#9a6700}.cp-d{background:#f0f0f0;color:#656d76}
-.cp-btn{display:inline-flex;align-items:center;gap:4px;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;border:none;color:#fff;transition:opacity .15s}
-.cp-btn:hover{opacity:.85}.cp-btn:disabled{opacity:.5;cursor:not-allowed}
-.cp-p{background:#4a90d9}.cp-sv{background:#1a7f37}.cp-dg{background:#cf222e}.cp-g{background:#6c757d}.cp-o{background:transparent;color:#24292f;border:1px solid #e1e4e8}
+.cp-r{background:#dafbe1;color:#1a7f37}.cp-s{background:#ffebe9;color:#cf222e}.cp-u{background:#fff8c5;color:#9a6700}.cp-d{background:#f0f0f0;color:#656d76}.cp-g{background:#e8f0fe;color:#0550ae}
+.cp-btn{display:inline-flex;align-items:center;gap:4px;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;border:none;color:#fff;transition:opacity .15s;position:relative}
+.cp-btn:hover{opacity:.85}.cp-btn:disabled{opacity:.45;cursor:not-allowed}
+.cp-btn.busy{pointer-events:none}
+.cp-btn.busy::after{content:'';position:absolute;inset:0;background:rgba(255,255,255,.3);border-radius:inherit}
+.cp-p{background:#4a90d9}.cp-sv{background:#1a7f37}.cp-dg{background:#cf222e}.cp-gy{background:#6c757d}.cp-o{background:transparent;color:#24292f;border:1px solid #e1e4e8}
 .cp-group{display:flex;gap:6px;flex-wrap:wrap;padding:12px 16px}
 .cp-tree{font-family:monospace;font-size:12px;line-height:1.8;color:#24292f;padding:12px 16px;background:#f6f8fa;border-radius:6px;margin:0;white-space:pre}
-.cp-tree .d{color:#0550ae;font-weight:600}.cp-tree .n{color:#656d76}.cp-tree .v{color:#0a3069}.cp-tree .a{color:#8250df;font-size:11px}
 .cp-disk{display:flex;align-items:center;gap:12px;padding:10px 14px;border:2px solid #e1e4e8;border-radius:8px;cursor:pointer;transition:all .15s;margin-bottom:8px}
 .cp-disk:hover{border-color:#4a90d9;background:#f0f7ff}.cp-disk.sel{border-color:#4a90d9;background:#ddf4ff}
 .cp-disk .di{width:36px;height:36px;background:#e8f0fe;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
@@ -45,32 +50,31 @@ local lan_addr = sys.exec("cat /etc/config/network | grep -A 3 'config interface
 .cp-hint{background:#f0f7ff;border:1px solid #d0e8ff;border-radius:6px;padding:10px 14px;font-size:12px;line-height:1.7;color:#0550ae;margin-bottom:12px}
 .cp-hint.d{background:#fff0e6;border-color:#ffcdbe;color:#cf222e}
 .cp-res{padding:10px 16px;font-size:13px;margin-bottom:12px;border-radius:6px;display:none}.cp-res.show{display:block}.cp-res.ok{background:#dafbe1;color:#1a7f37;border:1px solid #9fdcc5}.cp-res.er{background:#ffebe9;color:#cf222e;border:1px solid #ffcdbe}.cp-res.inf{background:#f0f7ff;color:#4a90d9;border:1px solid #d0e8ff}
-.cp-ngrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px 16px}
-.cp-nitem{background:#f6f8fa;border-radius:8px;padding:10px 14px}
-.cp-nitem .nl{font-size:11px;color:#656d76;text-transform:uppercase;letter-spacing:.5px}
-.cp-nitem .nv{font-weight:600;font-size:13px;margin-top:2px;word-break:break-all}
-.cp-nitem .nv.ok{color:#1a7f37}.cp-nitem .nv.er{color:#cf222e}
-.cp-upd{display:flex;align-items:center;gap:10px;padding:10px 16px;background:#fff8c5;border:1px solid #d29922;border-radius:6px;font-size:13px;margin-bottom:12px}
-.cp-upd.u{background:#dafbe1;border-color:#9fdcc5}
 .cp-foot{padding:10px 16px;background:#f6f8fa;border-top:1px solid #e1e4e8;font-size:12px;color:#656d76}
 .cp-sec{border-top:1px solid #e1e4e8;padding-top:12px;margin-top:12px}
 .cp-preview{background:#f6f8fa;border:1px solid #e1e4e8;border-radius:8px;padding:12px 16px;margin-top:12px}
 .cp-preview-title{font-size:12px;font-weight:600;color:#656d76;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
 .cp-preview-path{font-family:monospace;font-size:12px;color:#0550ae;word-break:break-all}
+.cp-oc-status{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600}
+.cp-oc-status.ready{background:#dafbe1;color:#1a7f37}
+.cp-oc-status.broken{background:#fff0e6;color:#cf222e}
+.cp-oc-status.not_installed{background:#f0f0f0;color:#656d76}
+.cp-oc-status.installing{background:#fff8c5;color:#9a6700}
 </style>
 
 <div id="cp-app">
   <div class="cp-card">
     <div class="cp-hdr"><span>🤖 ClawPanel 服务状态</span><button class="cp-btn cp-g" onclick="cpRefresh()" style="background:rgba(255,255,255,.2);color:#fff">🔄 刷新</button></div>
     <div class="cp-body">
-      <div class="cp-grid" id="cp-st-grid">
+      <div class="cp-grid">
         <div class="cp-item"><div class="lbl">运行状态</div><div class="val" id="cp-s-st"><span class="cp-badge cp-u">加载中</span></div></div>
         <div class="cp-item"><div class="lbl">端口</div><div class="val" id="cp-s-port">-</div></div>
         <div class="cp-item"><div class="lbl">进程 PID</div><div class="val" id="cp-s-pid">-</div></div>
         <div class="cp-item"><div class="lbl">内存占用</div><div class="val" id="cp-s-mem">-</div></div>
         <div class="cp-item"><div class="lbl">运行时间</div><div class="val" id="cp-s-up">-</div></div>
         <div class="cp-item"><div class="lbl">ClawPanel 版本</div><div class="val" id="cp-s-cv">-</div></div>
-        <div class="cp-item"><div class="lbl">OpenClaw 版本</div><div class="val" id="cp-s-ov">-</div></div>
+        <div class="cp-item"><div class="lbl">Node.js</div><div class="val" id="cp-s-node">-</div></div>
+        <div class="cp-item"><div class="lbl">OpenClaw</div><div class="val" id="cp-s-oc">-</div></div>
         <div class="cp-item"><div class="lbl">Configs 目录</div><div class="val" id="cp-s-cd" style="font-size:11px">-</div></div>
         <div class="cp-item"><div class="lbl">剩余空间</div><div class="val ok" id="cp-s-df">-</div></div>
         <div class="cp-item"><div class="lbl">开机自启</div><div class="val" id="cp-s-au">-</div></div>
@@ -79,29 +83,17 @@ local lan_addr = sys.exec("cat /etc/config/network | grep -A 3 'config interface
   </div>
 
   <div class="cp-card">
-    <div class="cp-hdr"><span>⬡ Node.js 环境（系统级）</span><button class="cp-btn cp-o" onclick="cpLoadNode()" style="border-color:rgba(255,255,255,.4);color:#fff">检测</button></div>
-    <div class="cp-body">
-      <div class="cp-ngrid" id="cp-n-grid">
-        <div class="cp-nitem"><div class="nl">安装状态</div><div class="nv er" id="cp-n-ins">检测中...</div></div>
-        <div class="cp-nitem"><div class="nl">Node.js 版本</div><div class="nv" id="cp-n-ver">-</div></div>
-        <div class="cp-nitem"><div class="nl">npm 版本</div><div class="nv" id="cp-n-npm">-</div></div>
-        <div class="cp-nitem"><div class="nl">安装路径</div><div class="nv" id="cp-n-path" style="font-size:11px">-</div></div>
-      </div>
-    </div>
-    <div class="cp-foot">💡 Node.js 安装到系统路径（/usr/local/bin/node），OpenWrt 所有插件均可调用，非 ClawPanel 独占</div>
-  </div>
-
-  <div class="cp-card">
     <div class="cp-body" style="padding:12px 16px">
       <div class="cp-group">
-        <button class="cp-btn cp-p" onclick="cpShowInstall()">🚀 安装 / 重装</button>
-        <button class="cp-btn cp-g" onclick="cpSvc('start')">▶ 启动</button>
-        <button class="cp-btn cp-g" onclick="cpSvc('restart')">↻ 重启</button>
-        <button class="cp-btn cp-g" onclick="cpSvc('stop')">■ 停止</button>
-        
-        <button class="cp-btn cp-sv" onclick="cpOpenPanel()">🌐 打开面板</button>
-        <button class="cp-btn cp-g" onclick="cpCheckUpdate()">🔍 检测升级</button>
-        <button class="cp-btn cp-dg" onclick="cpShowUninstall()">🗑 卸载</button>
+        <button class="cp-btn cp-p" id="cp-btn-install" onclick="cpShowInstall()">🚀 安装 / 重装</button>
+        <button class="cp-btn cp-sv" id="cp-btn-start" onclick="cpSvc('start')">▶ 启动</button>
+        <button class="cp-btn cp-sv" id="cp-btn-restart" onclick="cpSvc('restart')">↻ 重启</button>
+        <button class="cp-btn cp-dg" id="cp-btn-stop" onclick="cpSvc('stop')">■ 停止</button>
+        <button class="cp-btn cp-gy" id="cp-btn-enable" onclick="cpSvc('enable')">⏻ 自启</button>
+        <button class="cp-btn cp-gy" id="cp-btn-disable" onclick="cpSvc('disable')">⊘ 禁用</button>
+        <button class="cp-btn cp-o" id="cp-btn-open" onclick="cpOpenPanel()">🌐 面板</button>
+        <button class="cp-btn cp-g" id="cp-btn-update" onclick="cpShowVersions()">🔍 版本</button>
+        <button class="cp-btn cp-dg" id="cp-btn-uninstall" onclick="cpShowUninstall()">🗑 卸载</button>
       </div>
       <div id="cp-res" class="cp-res"></div>
     </div>
@@ -116,22 +108,18 @@ local lan_addr = sys.exec("cat /etc/config/network | grep -A 3 'config interface
   <div class="cp-card">
     <div class="cp-hdr">📁 统一目录结构 /Configs</div>
     <div class="cp-body" style="padding:12px 16px">
-      <div class="cp-hint">所有 ClawPanel 和 OpenClaw 相关文件统一存放在 <strong>/Configs</strong> 目录下，便于管理、备份和迁移。系统级工具（Node.js/Git/npm）安装到系统路径，全局可用。</div>
+      <div class="cp-hint">所有 ClawPanel 和 OpenClaw 相关文件统一存放在 <strong>/Configs</strong> 目录下，便于管理、备份和迁移。</div>
       <pre class="cp-tree" id="cp-tree">
 <span class="n"># 选择存储盘后，目录结构如下（示例）:</span>
 <span class="n"># </span><span class="d" id="cp-tree-mnt">/mnt/sda1</span><span class="a">/</span><span class="d">Configs</span><span class="a">/</span>
 <span class="a">  ├─ </span><span class="d">clawpanel</span><span class="a">/          # ClawPanel 程序 + 数据</span>
 <span class="a">  │    ├─ </span><span class="v">clawpanel</span>      <span class="a"># Go 二进制</span>
 <span class="a">  │    └─ </span><span class="d">data</span><span class="a">/</span><span class="v">clawpanel.json</span>
-<span class="a">  ├─ </span><span class="d">openclaw</span><span class="a">/           # OpenClaw npm 包</span>
-<span class="a">  ├─ </span><span class="d">.openclaw</span><span class="a">/          # OpenClaw 工作区配置</span>
-<span class="a">  └─ </span><span class="d">.openclaw-work</span><span class="a">/  # 运行时目录</span>
-<span class="n"># 系统路径（全局可用）</span>
-<span class="n"># </span><span class="v">/usr/local/bin/node</span>     <span class="a"># Node.js 系统级入口</span>
-<span class="n"># </span><span class="v">/usr/local/bin/npm</span>      <span class="a"># npm</span>
-<span class="n"># </span><span class="v">/usr/local/bin/openclaw</span>  <span class="a"># OpenClaw CLI</span></pre>
+<span class="a">  ├─ </span><span class="d">openclaw</span><span class="a">/           # OpenClaw npm 包（可选）</span>
+<span class="a">  ├─ </span><span class="d">.openclaw</span><span class="a">/          # OpenClaw 工作区</span>
+<span class="a">  └─ </span><span class="d">.openclaw-work</span><span class="a">/  # 运行时目录</span></pre>
     </div>
-    <div class="cp-foot">📦 系统重装后：安装插件 → 运行 <code>CP_BASE_PATH=/mnt/sda1 sh install.sh</code> 即可恢复所有数据</div>
+    <div class="cp-foot">📦 系统重装后：安装插件 → 运行 <code>CP_BASE_PATH=/mnt/sda1 sh install.sh</code> 即可恢复</div>
   </div>
 
   <div class="cp-card">
@@ -145,7 +133,7 @@ local lan_addr = sys.exec("cat /etc/config/network | grep -A 3 'config interface
 <!-- 安装弹窗 -->
 <div class="cp-modal" id="cp-ins-modal">
 <div class="cp-box">
-  <div class="cp-mhdr"><h3>🚀 安装 ClawPanel</h3><button class="cp-btn cp-g cp-sm" onclick="cpCloseModals()">✕</button></div>
+  <div class="cp-mhdr"><h3>🚀 安装 ClawPanel</h3><button class="cp-btn cp-gy cp-sm" onclick="cpCloseModals()">✕</button></div>
   <div class="cp-mbody">
     <div style="margin-bottom:14px">
       <div style="font-weight:600;font-size:13px;margin-bottom:8px">📦 ClawPanel 版本</div>
@@ -189,7 +177,7 @@ local lan_addr = sys.exec("cat /etc/config/network | grep -A 3 'config interface
 <!-- 卸载确认弹窗 -->
 <div class="cp-modal" id="cp-un-modal">
 <div class="cp-box">
-  <div class="cp-mhdr"><h3 style="color:#cf222e">🗑 确认卸载 ClawPanel</h3><button class="cp-btn cp-g cp-sm" onclick="cpCloseModals()">✕</button></div>
+  <div class="cp-mhdr"><h3 style="color:#cf222e">🗑 确认卸载 ClawPanel</h3><button class="cp-btn cp-gy cp-sm" onclick="cpCloseModals()">✕</button></div>
   <div class="cp-mbody">
     <div class="cp-hint d" style="margin-bottom:12px">此操作将执行以下步骤：<ol style="margin:6px 0 0 0;padding-left:18px"><li>停止 ClawPanel 服务</li><li>禁用开机自启</li><li>删除 /Configs 目录（所有数据）</li><li>清除 UCI 配置</li></ol><strong>⚠️ 所有数据将被永久删除，不可恢复！</strong></div>
     <div style="background:#f6f8fa;border-radius:6px;padding:10px 14px;font-size:12px"><div style="color:#656d76;margin-bottom:4px">将删除以下目录：</div><div style="font-family:monospace;color:#0550ae" id="cp-un-path">/Configs/</div></div>
@@ -202,91 +190,169 @@ local lan_addr = sys.exec("cat /etc/config/network | grep -A 3 'config interface
 </div>
 </div>
 
+<!-- 版本选择弹窗 -->
+<div class="cp-modal" id="cp-ver-modal">
+<div class="cp-box" style="max-width:520px">
+  <div class="cp-mhdr"><h3>🔍 版本管理</h3><button class="cp-btn cp-gy cp-sm" onclick="cpCloseModals()">✕</button></div>
+  <div class="cp-mbody" style="max-height:60vh;overflow-y:auto">
+    <div id="cp-ver-loading" style="text-align:center;padding:20px;color:#656d76;font-size:13px">正在加载版本列表...</div>
+    <div id="cp-ver-list" style="display:none"></div>
+    <div id="cp-ver-log-sec" class="cp-sec" style="display:none;margin-top:12px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px">📋 升级日志</div>
+      <div id="cp-ver-log-st" class="cp-ls inf"></div>
+      <pre class="cp-log" id="cp-ver-log-content" style="max-height:150px"></pre>
+    </div>
+  </div>
+  <div class="cp-mfoot">
+    <button class="cp-btn cp-o" onclick="cpCloseModals()">关闭</button>
+  </div>
+</div>
+</div>
+
 <script>
 var BASE='<%=luci.dispatcher.build_url("admin","services","clawpanel")%>';
 var _selDisk='',_selVer='latest',_pt=null,_upt=null,_port='<%=port%>',_lan='<%=lan_addr%>';
+var _btnLocks={};
+
 function $(id){return document.getElementById(id)}
+
+function cpLockBtn(id){
+  _btnLocks[id]=true;
+  var btn=$(id);
+  if(btn){btn.classList.add('busy');btn.disabled=true}
+}
+function cpUnlockBtn(id){
+  _btnLocks[id]=false;
+  var btn=$(id);
+  if(btn){btn.classList.remove('busy');btn.disabled=false}
+}
+function cpIsLocked(id){return !!_btnLocks[id]}
 
 function cpAjax(url, onSuccess, onError) {
   var xhr = new XMLHttpRequest();
   xhr.open('GET', url, true);
-  // LuCI AJAX 需要带上 session cookie
   try {
     var match = document.cookie.match(/sysauth=([^;]+)/);
     if (match) xhr.setRequestHeader('Cookie', 'sysauth=' + match[1]);
   } catch(e) {}
-  // Try to include existing session
-  var m = document.cookie.match(/sysauth=([^;]+)/);
-  if (m) xhr.setRequestHeader('X-LuCI-Auth', 'login=' + m[1]);
   xhr.onreadystatechange = function() {
     if (xhr.readyState === 4) {
-      console.log('cpAjax response: status=' + xhr.status);
       if (xhr.status === 200) {
         try {
           var d = JSON.parse(xhr.responseText);
           if (onSuccess) onSuccess(d);
         } catch(e) {
-          var msg = 'JSON 解析失败: ' + e;
-          if (onError) onError(msg); else alert(msg);
+          if (onError) onError('JSON 解析失败: ' + e);
         }
       } else if (xhr.status === 0) {
-        var msg = '网络错误，请刷新页面';
-        if (onError) onError(msg); else alert(msg);
+        if (onError) onError('网络错误，请刷新页面');
       } else {
-        var msg = 'HTTP ' + xhr.status + ' ' + url;
-        if (xhr.getResponseHeader('x-luci-login-required')) {
-          msg = '会话过期！请刷新页面（F5）然后重新登录后再操作';
-        }
-        console.error('cpAjax error:', xhr.status, url);
-        if (onError) onError(msg); else alert(msg);
+        if (onError) onError('HTTP ' + xhr.status);
       }
     }
   };
   xhr.send(null);
 }
 
-function cpRefresh(){cpLoadStatus();cpLoadNode()}
+function cpRefresh(){cpLoadStatus()}
 function cpLoadStatus(){
   cpAjax(BASE+'/status_api', function(d){
-    var s=d.enabled==='1'&&d.panel_running?'<span class="cp-badge cp-r">运行中</span>':d.enabled==='1'?'<span class="cp-badge cp-s">已停止</span>':d.enabled==='0'?'<span class="cp-badge cp-d">已禁用</span>':'<span class="cp-badge cp-u">未知</span>';
-    $('cp-s-st').innerHTML=s;
+    var st='<span class="cp-badge cp-u">未知</span>';
+    if(d.enabled==='1'&&d.panel_running) st='<span class="cp-badge cp-r">运行中</span>';
+    else if(d.enabled==='1') st='<span class="cp-badge cp-s">已停止</span>';
+    else if(d.enabled==='0') st='<span class="cp-badge cp-d">已禁用</span>';
+    $('cp-s-st').innerHTML=st;
     $('cp-s-port').textContent=d.port||'-';
     $('cp-s-pid').textContent=d.pid||'-';
     $('cp-s-mem').textContent=d.memory_kb>0?(d.memory_kb/1024).toFixed(1)+' MB':'-';
     $('cp-s-up').textContent=d.uptime||'-';
     $('cp-s-cv').textContent=d.panel_version||(d.install_path?'已安装':'-');
-    $('cp-s-ov').textContent=d.openclaw_version||'未安装';
+
+    var nodeStr='-';
+    if(d.node_installed&&d.node_version) nodeStr='✓ '+escHtml(d.node_version);
+    else if(!d.node_installed) nodeStr='✕ 未安装';
+    $('cp-s-node').innerHTML='<span class="'+(d.node_installed?'ok':'err')+'">'+nodeStr+'</span>';
+
+    var oc=d.openclaw||{};
+    var ocBadge='';
+    if(oc.status==='ready'){
+      ocBadge='<span class="cp-oc-status ready">✓ '+escHtml(oc.version||'ok')+'</span>';
+    } else if(oc.status==='broken'){
+      ocBadge='<span class="cp-oc-status broken" title="'+escHtml(oc.reason||'')+'">⚠ 已损坏</span>';
+    } else if(oc.status==='installing'){
+      ocBadge='<span class="cp-oc-status installing">⚙ 安装中...</span>';
+    } else {
+      ocBadge='<span class="cp-oc-status not_installed">✕ 未安装</span>';
+    }
+    $('cp-s-oc').innerHTML=ocBadge;
+
     $('cp-s-cd').textContent=d.configs_dir||d.disk||'-';
     $('cp-s-df').textContent=d.disk_free?(d.disk_free+' 可用'):'-';
-    $('cp-s-au').textContent=d.enabled==='1'?'✓ 已启用':'✕ 已禁用';
-    $('cp-s-au').className='val '+(d.enabled==='1'?'ok':'err');
-    if(d.port){_port=d.port;$('cp-guide-port').textContent=d.port}
-    if(d.configs_dir||d.disk)$('cp-tree-mnt').textContent=d.configs_dir||d.disk||'/mnt/sda1'
-  });
-}
-function cpLoadNode(){
-  cpAjax(BASE+'/node_info', function(d){
-    var el=$('cp-n-ins');
-    if(d.installed){el.textContent='✓ 已安装';el.className='nv ok'}else{el.textContent='✕ 未安装';el.className='nv er'}
-    $('cp-n-ver').textContent=d.version||'-';
-    $('cp-n-npm').textContent=d.npm_version||'-';
-    $('cp-n-path').textContent=d.path||'-';
+    var auEl=$('cp-s-au');
+    if(d.enabled==='1'){auEl.textContent='✓ 已启用';auEl.className='val ok'}
+    else{auEl.textContent='✕ 已禁用';auEl.className='val err'}
+    var prev_lan=_lan;_lan=d.lan_addr||prev_lan||'192.168.1.1';_port=d.port||'19527';$('cp-guide-port').textContent=_port
+    if(d.configs_dir||d.disk)$('cp-tree-mnt').textContent=d.configs_dir||d.disk||'/mnt/sda1';
   });
 }
 
+function escHtml(s){if(!s)return'';return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+
 function cpSvc(a){
-  // DEBUG: Check if function is called
-  
-  var t={start:'启动',restart:'重启',stop:'停止',enable:'启用',disable:'禁用'};
-  var url = BASE+'/service_ctl?action='+a;
+  var id='cp-btn-'+a;
+  if(cpIsLocked(id)){return}
+  cpLockBtn(id);
+  var t={start:'启动',restart:'重启',stop:'停止',enable:'启用自启',disable:'禁用自启'};
   cpShowRes('inf',(t[a]||a)+'请求已发送...');
-  console.log('Calling cpAjax with:', url);
-  cpAjax(url, function(d){
-    console.log('Service action success:', d);
-    setTimeout(function(){cpLoadStatus();cpCloseRes()},2000);
-  }, function(err){ cpCloseRes(); alert('操作失败: '+err); console.error('Service action error:', err); });
+
+  if(a==='restart'){
+    cpAjax(BASE+'/service_ctl?action=stop', function(){
+      cpShowRes('inf','正在停止...');
+      var waitStop=setInterval(function(){
+        cpAjax(BASE+'/wait_stopped', function(r){
+          if(r.state==='stopped'){
+            clearInterval(waitStop);
+            cpShowRes('inf','已停止，正在启动...');
+            cpAjax(BASE+'/service_ctl?action=start', function(){
+              var waitStart=setInterval(function(){
+                cpAjax(BASE+'/wait_running', function(r2){
+                  if(r2.state==='running'){
+                    clearInterval(waitStart);
+                    cpShowRes('ok','重启成功！');
+                    setTimeout(function(){cpCloseRes();cpUnlockBtn(id);cpLoadStatus()},2000);
+                  }
+                });
+              },2000);
+              setTimeout(function(){clearInterval(waitStart);cpUnlockBtn(id);cpLoadStatus()},90000);
+            }, function(err){
+              clearInterval(waitStop);
+              cpUnlockBtn(id);
+              cpCloseRes();
+              alert('启动失败: '+err);
+            });
+          }
+        });
+      },1000);
+      setTimeout(function(){clearInterval(waitStop);cpUnlockBtn(id);cpLoadStatus()},30000);
+    }, function(err){
+      cpUnlockBtn(id);
+      cpCloseRes();
+      alert('停止失败: '+err);
+    });
+    return;
+  }
+
+  cpAjax(BASE+'/service_ctl?action='+a, function(d){
+    cpShowRes('ok',d.message||'操作成功');
+    setTimeout(function(){cpCloseRes();cpUnlockBtn(id);cpLoadStatus()},1500);
+  }, function(err){
+    cpUnlockBtn(id);
+    cpCloseRes();
+    alert('操作失败: '+err);
+  });
 }
-function cpOpenPanel(){window.open('http://192.168.1.1:19527','_blank')}
+
+function cpOpenPanel(){var panel_lan=_lan||'192.168.1.1';window.open('http://'+panel_lan+':'+_port,'_blank')}
 
 function cpShowRes(tp,msg){
   var el=$('cp-res');el.className='cp-res show '+tp;el.textContent=msg
@@ -317,15 +383,15 @@ function cpShowInstall(){
       var html='<div class="cp-disk'+(i===0?' sel':'')+'" onclick="cpSelDisk(\''+d.mount+'\',this)">';
       html+='<input type="radio" name="disk" value="'+d.mount+'" '+(i===0?'checked':'')+' class="dr">';
       html+='<div class="di">💾</div>';
-      html+='<div class="dd"><div class="dn">'+d.mount+' '+rec+'</div>';
-      html+='<div class="dm">设备: '+d.device+' | '+d.fs+' | 已用: '+us+' | 可用: <strong style="color:#1a7f37">'+as+'</strong></div>';
+      html+='<div class="dd"><div class="dn">'+escHtml(d.mount)+' '+rec+'</div>';
+      html+='<div class="dm">设备: '+escHtml(d.device||'')+' | '+escHtml(d.fs||'')+' | 已用: '+us+' | 可用: <strong style="color:#1a7f37">'+as+'</strong></div>';
       html+='<div class="cp-bar"><div class="cp-bf" style="width:'+Math.min(pct,100)+'%"></div></div></div></div>';
       el.innerHTML+=html;
     });
     _selDisk=r.disks[0]?r.disks[0].mount:'';
     cpUpdatePreview();
   }, function(err){
-    $('cp-disk-list').innerHTML='<div style="color:#cf222e;font-size:12px;text-align:center;padding:16px">加载失败: '+err+'</div>';
+    $('cp-disk-list').innerHTML='<div style="color:#cf222e;font-size:12px;text-align:center;padding:16px">加载失败: '+escHtml(err)+'</div>';
   });
 }
 
@@ -347,14 +413,14 @@ function cpUpdatePreview(){
   pv.style.display='block';
   pp.innerHTML=_selDisk+'/<strong>Configs</strong>/<br>'+
     _selDisk+'/Configs/<span style="color:#0550ae">clawpanel</span>/ ← ClawPanel 程序<br>'+
-    _selDisk+'/Configs/<span style="color:#0550ae">openclaw</span>/   ← OpenClaw npm 包<br>'+
+    _selDisk+'/Configs/<span style="color:#0550ae">openclaw</span>/   ← OpenClaw npm（可选）<br>'+
     _selDisk+'/Configs/<span style="color:#0550ae">.openclaw</span>/   ← 工作区<br>'+
     _selDisk+'/Configs/<span style="color:#0550ae">.openclaw-work</span>/ ← 运行时';
 }
 function cpDoInstall(){
   if(!_selDisk){alert('请先选择一个存储盘');return}
   var bad=['/','/rom','/boot','/proc','/sys','/dev','/opt','/tmp','/var','/etc','/root','/usr','/bin','/sbin','/lib'];
-  for(var i=0;i<bad.length;i++){if(_selDisk===bad[i]||_selDisk.indexOf(bad[i]+'/')===0){alert('禁止安装到系统分区！请选择外置存储。');return}}
+  for(var i=0;i<bad.length;i++){if(_selDisk===bad[i]||_selDisk.indexOf(bad[i]+'/')===0){alert('禁止安装到系统分区！');return}}
   var ver='';
   if(_selVer==='custom'){ver=$('cp-ver-custom').value.trim()}
   var btn=$('cp-cf-btn'),ls=$('cp-log-sec'),le=$('cp-log-content'),se=$('cp-log-st'),re=$('cp-log-result');
@@ -444,19 +510,70 @@ function cpCheckUpdate(){
   });
 }
 
+function cpShowVersions(){
+  $('cp-ver-modal').classList.add('show');
+  $('cp-ver-list').style.display='none';
+  $('cp-ver-loading').style.display='block';
+  $('cp-ver-log-sec').style.display='none';
+  cpAjax(BASE+'/plugin_versions', function(pv){
+    $('cp-ver-loading').style.display='none';
+    $('cp-ver-list').style.display='block';
+    var html='<div style="margin-bottom:12px">';
+    html+='<div style="font-weight:600;font-size:13px;margin-bottom:8px">📦 插件版本列表</div>';
+    html+='<div style="background:#f6f8fa;border-radius:6px;padding:8px 12px;font-size:12px;margin-bottom:10px">';
+    html+='<span style="color:#656d76">当前版本: </span><strong id="cp-ver-current">加载中...</strong></div>';
+    html+='<div style="display:flex;flex-direction:column;gap:6px" id="cp-ver-items">';
+    pv.versions.forEach(function(v){
+      var isCurrent=(v.version===pv.local_version);
+      var badge=isCurrent?'<span style="background:#dafbe1;color:#1a7f37;font-size:11px;padding:1px 8px;border-radius:10px;font-weight:600">当前</span>':'';
+      html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:'+(isCurrent?'#f0fff4':'#f6f8fa')+';border-radius:6px;border:1px solid '+(isCurrent?'#9fdcc5':'#e1e4e8')+'">';
+      html+='<div><span style="font-weight:600;font-size:13px">v'+escHtml(v.version)+'</span> '+badge+'</div>';
+      if(!isCurrent){
+        html+='<button class="cp-btn cp-p cp-sm" onclick="cpUpgradePlugin(\''+escHtml(v.version)+'\')">升级</button>';
+      }
+      html+='</div>';
+    });
+    html+='</div></div>';
+    $('cp-ver-list').innerHTML=html;
+    $('cp-ver-current').textContent=pv.local_version||'未知';
+  }, function(err){
+    $('cp-ver-loading').style.display='none';
+    $('cp-ver-loading').textContent='加载失败: '+escHtml(err);
+  });
+}
+
+function cpUpgradePlugin(version){
+  if(!confirm('确定升级到 v'+version+'？\nLuCI 将自动重启。'))return;
+  var ls=$('cp-ver-log-sec'),le=$('cp-ver-log-content'),se=$('cp-ver-log-st');
+  ls.style.display='block';
+  le.textContent='';
+  se.textContent='正在升级到 v'+version+'...';se.className='cp-ls inf';
+  cpAjax(BASE+'/upgrade_plugin?version='+encodeURIComponent(version), function(r){
+    if(r.status==='ok'){
+      se.textContent='✅ '+r.message;se.className='cp-ls ok';
+      le.textContent=(r.log||'')+'\n升级成功！页面将在 5 秒后刷新...';
+      setTimeout(function(){location.reload()},5000);
+    }else{
+      se.textContent='❌ '+r.message;se.className='cp-ls er';
+      if(r.log)le.textContent=r.log;
+    }
+  }, function(err){
+    se.textContent='请求失败: '+err;se.className='cp-ls er';
+  });
+}
+
+document.addEventListener('click',function(e){if(e.target.classList.contains('cp-modal'))cpCloseModals()});
+(function(){
+  cpLoadStatus();
+  setInterval(cpLoadStatus, 8000);
+})();
 function cpCloseModals(){
   $('cp-ins-modal').classList.remove('show');
   $('cp-un-modal').classList.remove('show');
   if(_pt){clearInterval(_pt);_pt=null}
   if(_upt){clearInterval(_upt);_upt=null}
 }
-document.addEventListener('click',function(e){if(e.target.classList.contains('cp-modal'))cpCloseModals()});
-(function(){
-  console.log('Page loaded, calling cpLoadStatus and cpLoadNode');
-  try { cpLoadStatus(); } catch(e) { console.error('cpLoadStatus error:', e); }
-  try { cpLoadNode(); } catch(e) { console.error('cpLoadNode error:', e); }
-  setInterval(cpLoadStatus, 8000);
-  console.log('Auto-refresh set for 8s');
-})();
 </script>
+</div>
+
 <%+footer%>
