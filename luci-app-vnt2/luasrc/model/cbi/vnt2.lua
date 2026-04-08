@@ -130,12 +130,40 @@ end
 local function validate_server(self, value)
 	value = trim(value)
 	if value == "" then
-		return nil, translate("服务器地址不能为空")
+		return value
 	end
-	if not value:match("^[a-zA-Z]+://") then
-		return nil, translate("服务器地址必须包含协议前缀，例如 quic://、tcp://、wss://")
+
+	if value:match("^[a-zA-Z][a-zA-Z0-9+.-]*://.+$") then
+		return value
 	end
-	return value
+
+	if value:match("^%d+%.%d+%.%d+%.%d+:%d+$") then
+		return value
+	end
+
+	if value:match("^%[[0-9a-fA-F:]+%]:%d+$") then
+		return value
+	end
+
+	if value:match("^[%w._-]+:%d+$") then
+		return value
+	end
+
+	return nil, translate("服务器地址格式错误，支持 host:port、IPv4:port、[IPv6]:port 或 quic://host:port 等格式")
+end
+
+local function validate_port_or_zero(self, value)
+	value = trim(value)
+	if value == "" then
+		return value
+	end
+
+	local n = tonumber(value)
+	if n and n >= 0 and n <= 65535 and tostring(math.floor(n)) == tostring(n) then
+		return tostring(math.floor(n))
+	end
+
+	return nil, translate("端口范围必须为 0~65535")
 end
 
 local function validate_input_rule(self, value)
@@ -171,12 +199,57 @@ local function validate_cert_mode(self, value)
 	return nil, translate("证书验证模式仅支持 skip、standard 或 finger:指纹")
 end
 
+local function normalized_list_values(value)
+	local result = {}
+
+	if type(value) == "string" then
+		value = { value }
+	end
+
+	if type(value) ~= "table" then
+		return result
+	end
+
+	for _, item in ipairs(value) do
+		item = trim(item)
+		if item ~= "" then
+			result[#result + 1] = item
+		end
+	end
+
+	return result
+end
+
+local function bind_dynamiclist(option)
+	option.cfgvalue = function(self, section)
+		local value = AbstractValue.cfgvalue(self, section)
+		local result = normalized_list_values(value)
+		if #result == 0 then
+			return nil
+		end
+		return result
+	end
+
+	option.write = function(self, section, value)
+		local values = normalized_list_values(value)
+		self.map.uci:delete(self.map.config, section, self.option)
+		for _, item in ipairs(values) do
+			self.map.uci:add_list(self.map.config, section, self.option, item)
+		end
+	end
+
+	option.remove = function(self, section)
+		self.map.uci:delete(self.map.config, section, self.option)
+	end
+end
+
 local cli_running = process_running("vnt2_cli")
 local web_running = process_running("vnt2_web")
 
 -- ==================== vnt2_cli ====================
 local s = m:section(TypedSection, "vnt2_cli", translate("vnt2_cli 客户端设置"))
 s.anonymous = true
+s.addremove = false
 
 s:tab("general", translate("基本设置"))
 s:tab("network", translate("网络与映射"))
@@ -186,7 +259,7 @@ s:tab("advanced", translate("高级设置"))
 s:tab("infos", translate("连接信息"))
 s:tab("upload", translate("上传程序"))
 
-local enabled = s:taboption("general", Flag, "enabled", translate("启用客户端"))
+local enabled = s:taboption("general", Flag, "enabled", translate("启用cli 客户端"))
 enabled.rmempty = false
 
 local restart_btn = s:taboption("general", Button, "_restart_cli", translate("重启客户端"))
@@ -215,6 +288,7 @@ local server = s:taboption("general", DynamicList, "server", translate("服务�
 server.rmempty = false
 server.placeholder = "quic://101.35.230.139:6660"
 server.validate = validate_server
+bind_dynamiclist(server)
 
 local ip = s:taboption("general", Value, "ip", translate("虚拟 IP"),
 	translate("留空则由服务端自动分配"))
@@ -259,15 +333,18 @@ local input = s:taboption("network", DynamicList, "input", translate("入栈监�
 	translate("格式：CIDR,目标虚拟IP，例如 192.168.1.0/24,10.26.0.2"))
 input.placeholder = "192.168.1.0/24,10.26.0.2"
 input.validate = validate_input_rule
+bind_dynamiclist(input)
 
 local output = s:taboption("network", DynamicList, "output", translate("出栈允许网段"),
 	translate("例如 0.0.0.0/0；用于限制可访问的目标网段"))
 output.placeholder = "0.0.0.0/0"
+bind_dynamiclist(output)
 
 local port_mapping = s:taboption("network", DynamicList, "port_mapping", translate("端口映射"),
 	translate("格式：协议://本地监听地址-目标虚拟IP-目标映射地址，例如 tcp://0.0.0.0:81-10.0.0.2-10.0.0.2:80"))
 port_mapping.placeholder = "tcp://0.0.0.0:81-10.0.0.2-10.0.0.2:80"
 port_mapping.validate = validate_port_mapping
+bind_dynamiclist(port_mapping)
 
 local allow_mapping = s:taboption("network", Flag, "allow_mapping", translate("允许作为端口映射出口"),
 	translate("开启后其他客户端可借助本机执行映射出口"))
@@ -292,19 +369,12 @@ vnt2_forward.widget = "checkbox"
 local udp_stun = s:taboption("stun", DynamicList, "udp_stun", translate("UDP STUN 列表"),
 	translate("不带端口时通常默认使用 3478"))
 udp_stun.placeholder = "stun.chat.bilibili.com:3478"
+bind_dynamiclist(udp_stun)
 
 local tcp_stun = s:taboption("stun", DynamicList, "tcp_stun", translate("TCP STUN 列表"),
 	translate("适用于 TCP / TLS / WSS 环境探测"))
 tcp_stun.placeholder = "stun.nextcloud.com:443"
-
-local auto_download_cli = s:taboption("advanced", Flag, "auto_download", translate("自动下载客户端程序"),
-	translate("启用后，当本地找不到 vnt2_cli / vnt2_ctrl 时，将自动识别当前 OpenWrt 架构并尝试从 GitHub Releases 下载；下载失败会自动回退到 /tmp 中已上传的程序"))
-auto_download_cli.rmempty = false
-auto_download_cli.default = auto_download_cli.enabled
-
-local download_tag_cli = s:taboption("advanced", Value, "download_tag", translate("客户端下载版本"),
-	translate("默认 latest，也可指定固定 tag，例如 v2.1.0"))
-download_tag_cli.placeholder = "latest"
+bind_dynamiclist(tcp_stun)
 
 local download_repo_cli = s:taboption("advanced", Value, "download_repo", translate("客户端下载仓库"),
 	translate("默认 vnt-dev/vnt，通常无需修改"))
@@ -333,12 +403,12 @@ mtu.datatype = "range(576,9000)"
 local ctrl_port = s:taboption("advanced", Value, "ctrl_port", translate("控制端口"),
 	translate("vnt2_ctrl 将通过该端口读取状态，设置 0 表示关闭"))
 ctrl_port.placeholder = "11233"
-ctrl_port.datatype = "port"
+ctrl_port.validate = validate_port_or_zero
 
 local tunnel_port = s:taboption("advanced", Value, "tunnel_port", translate("隧道端口"),
 	translate("用于 P2P 通信，0 表示自动分配"))
 tunnel_port.placeholder = "0"
-tunnel_port.datatype = "port"
+tunnel_port.validate = validate_port_or_zero
 
 local bind_dev = s:taboption("advanced", ListValue, "bind_dev", translate("绑定出口网卡"),
 	translate("当前 vnt2 原生参数未直接提供对应选项，此项作为扩展保留并由 init 脚本保存"))
@@ -472,14 +542,15 @@ upload_note.rawhtml = true
 upload_note.template = "vnt2/other_dvalue"
 
 -- ==================== vnt2_web ====================
-local w = m:section(TypedSection, "vnt2_web", translate("vnt2_web Web 管理设置"))
+local w = m:section(TypedSection, "vnt2_web", translate("vnt2_web 客户端设置"))
 w.anonymous = true
+w.addremove = false
 
 w:tab("general", translate("基本设置"))
 w:tab("advanced", translate("高级设置"))
 w:tab("upload", translate("上传程序"))
 
-local web_enabled = w:taboption("general", Flag, "enabled", translate("启用 Web 服务"))
+local web_enabled = w:taboption("general", Flag, "enabled", translate("启用web 客户端"))
 web_enabled.rmempty = false
 
 local web_restart = w:taboption("general", Button, "_restart_web", translate("重启 Web 服务"))
@@ -490,15 +561,6 @@ web_restart:depends("enabled", "1")
 web_restart.write = function()
 	sys.call("/etc/init.d/vnt2 restart >/dev/null 2>&1")
 end
-
-local auto_download_web = w:taboption("general", Flag, "auto_download", translate("自动下载 Web 程序"),
-	translate("启用后，当本地找不到 vnt2_web 时，将自动识别当前 OpenWrt 架构并尝试从 GitHub Releases 下载；下载失败会自动回退到 /tmp 中已上传的程序"))
-auto_download_web.rmempty = false
-auto_download_web.default = auto_download_web.enabled
-
-local download_tag_web = w:taboption("general", Value, "download_tag", translate("Web 下载版本"),
-	translate("默认 latest，也可指定固定 tag，例如 v2.1.0"))
-download_tag_web.placeholder = "latest"
 
 local download_repo_web = w:taboption("general", Value, "download_repo", translate("Web 下载仓库"),
 	translate("默认 vnt-dev/vnt，通常无需修改"))
@@ -524,10 +586,10 @@ local web_wan = w:taboption("general", Flag, "web_wan", translate("允许 WAN �
 	translate("仅当监听地址为 0.0.0.0 或 :: 时才会自动创建 WAN 放行规则"))
 web_wan.rmempty = false
 
-local open_web = w:taboption("general", Button, "_open_web", translate("打开原生 Web 页面"))
-open_web.inputtitle = translate("打开")
+local open_web = w:taboption("general", Button, "_open_web", translate("打开页面"),
+	translate("打开当前配置对应的 Web 管理页面，默认地址通常为 http://127.0.0.1:19099/"))
+open_web.inputtitle = translate("打开页面")
 open_web.inputstyle = "apply"
-open_web:depends("enabled", "1")
 open_web.write = function()
 	http.redirect(luci.dispatcher.build_url("admin", "vpn", "vnt2", "open_web"))
 end
