@@ -1,5 +1,5 @@
 {
-	"admin/services/socat": {
+	"admin/network/socat": {
 		"title": "Socat",
 		"action": {
 			"type": "view",
