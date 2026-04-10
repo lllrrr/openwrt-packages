@@ -11,14 +11,18 @@ function index()
 	end
 
 	entry({ "admin", "vpn", "vnt2" }, alias("admin", "vpn", "vnt2", "config"), _("VNT2"), 45).dependent = true
-	entry({ "admin", "vpn", "vnt2", "config" }, cbi("vnt2"), _("基本设置"), 46).leaf = true
-	entry({ "admin", "vpn", "vnt2", "client_log" }, cbi("vnt2_log"), _("客户端日志"), 47).leaf = true
+	entry({ "admin", "vpn", "vnt2", "config" }, cbi("vnt2"), _("基本设置"), 10).leaf = true
+	entry({ "admin", "vpn", "vnt2", "client_log" }, cbi("vnt2_log"), _("客户端日志"), 20).leaf = true
+	entry({ "admin", "vpn", "vnt2", "web_log" }, cbi("vnt2_web_log"), _("Web 日志"), 30).leaf = true
+	entry({ "admin", "vpn", "vnt2", "download_log" }, cbi("vnt2_download_log"), _("下载日志"), 40).leaf = true
 
 	entry({ "admin", "vpn", "vnt2", "status" }, call("act_status")).leaf = true
 	entry({ "admin", "vpn", "vnt2", "get_client_log" }, call("get_client_log")).leaf = true
 	entry({ "admin", "vpn", "vnt2", "clear_client_log" }, call("clear_client_log")).leaf = true
-	entry({ "admin", "vpn", "vnt2", "get_web_log" }, call("get_client_log")).leaf = true
-	entry({ "admin", "vpn", "vnt2", "clear_web_log" }, call("clear_client_log")).leaf = true
+	entry({ "admin", "vpn", "vnt2", "get_web_log" }, call("get_web_log")).leaf = true
+	entry({ "admin", "vpn", "vnt2", "clear_web_log" }, call("clear_web_log")).leaf = true
+	entry({ "admin", "vpn", "vnt2", "get_download_log" }, call("get_download_log")).leaf = true
+	entry({ "admin", "vpn", "vnt2", "clear_download_log" }, call("clear_download_log")).leaf = true
 
 	entry({ "admin", "vpn", "vnt2", "vnt2_info" }, call("vnt2_info")).leaf = true
 	entry({ "admin", "vpn", "vnt2", "vnt2_ips" }, call("vnt2_ips")).leaf = true
@@ -62,15 +66,23 @@ local function uci_list(stype, opt)
 		local v = s[opt]
 		if type(v) == "table" then
 			for _, item in ipairs(v) do
-				if trim(item) ~= "" then
-					values[#values + 1] = trim(item)
+				item = trim(item)
+				if item ~= "" then
+					values[#values + 1] = item
 				end
 			end
-		elseif type(v) == "string" and trim(v) ~= "" then
-			values[#values + 1] = trim(v)
+		elseif type(v) == "string" then
+			v = trim(v)
+			if v ~= "" then
+				values[#values + 1] = v
+			end
 		end
 	end)
 	return values
+end
+
+local function file_exists(path)
+	return path and path ~= "" and fs.access(path)
 end
 
 local function get_cli_bin()
@@ -95,10 +107,6 @@ end
 
 local function get_web_host()
 	return uci_first("vnt2_web", "web_host", "127.0.0.1")
-end
-
-local function file_exists(path)
-	return path and path ~= "" and fs.access(path)
 end
 
 local function get_pid_by_name(name)
@@ -179,8 +187,17 @@ local function get_local_tag(bin_path)
 	return trim(sys.exec(cmd))
 end
 
-local function get_cached_latest_tag()
-	local cache = "/tmp/vnt2_latest.tag"
+local function sanitize_cache_name(s)
+	return tostring(s or ""):gsub("[^%w%._-]", "_")
+end
+
+local function get_cached_latest_tag(repo)
+	repo = trim(repo)
+	if repo == "" then
+		repo = "vnt-dev/vnt"
+	end
+
+	local cache = "/tmp/vnt2_latest_" .. sanitize_cache_name(repo) .. ".tag"
 	local now = os.time() or 0
 
 	if fs.access(cache) then
@@ -190,7 +207,10 @@ local function get_cached_latest_tag()
 		end
 	end
 
-	local cmd = [=[curl -fsSL --connect-timeout 4 https://api.github.com/repos/vnt-dev/vnt/releases/latest 2>/dev/null | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1]=]
+	local cmd = string.format(
+		[=[curl -fsSL --connect-timeout 4 "https://api.github.com/repos/%s/releases/latest" 2>/dev/null | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1]=],
+		repo
+	)
 	local tag = trim(sys.exec(cmd))
 	if tag ~= "" then
 		fs.writefile(cache, tag)
@@ -233,10 +253,7 @@ local function parse_help_for_port_mode(bin_path)
 		return ""
 	end
 	local help = sys.exec(string.format("%s -h 2>&1", shell_quote(bin_path))) or ""
-	if help:match("%-%-port") then
-		return "--port"
-	end
-	if help:match("%-p, %-%-port") then
+	if help:match("%-%-port") or help:match("%-p, %-%-port") then
 		return "--port"
 	end
 	if help:match("%-%-ctrl%-port") then
@@ -321,9 +338,26 @@ local function summarize_cli_config()
 		servers = uci_list("vnt2_cli", "server"),
 		network_code = uci_first("vnt2_cli", "network_code", ""),
 		device_name = uci_first("vnt2_cli", "device_name", ""),
+		device_id = uci_first("vnt2_cli", "device_id", ""),
 		tun_name = uci_first("vnt2_cli", "tun_name", "vnt-tun"),
 		no_tun = uci_first("vnt2_cli", "no_tun", "0"),
-		ctrl_port = get_ctrl_port()
+		no_nat = uci_first("vnt2_cli", "no_nat", "0"),
+		ctrl_port = get_ctrl_port(),
+		auto_download = uci_first("vnt2_cli", "auto_download", "1"),
+		download_repo = uci_first("vnt2_cli", "download_repo", "vnt-dev/vnt"),
+		download_tag = uci_first("vnt2_cli", "download_tag", "latest")
+	}
+end
+
+local function summarize_web_config()
+	return {
+		host = get_web_host(),
+		port = get_web_port(),
+		wan = uci_first("vnt2_web", "web_wan", "0"),
+		log_level = uci_first("vnt2_web", "log_level", "info"),
+		auto_download = uci_first("vnt2_web", "auto_download", "1"),
+		download_repo = uci_first("vnt2_web", "download_repo", "vnt-dev/vnt"),
+		download_tag = uci_first("vnt2_web", "download_tag", "latest")
 	}
 end
 
@@ -332,6 +366,7 @@ function act_status()
 	local cli_pid = get_pid_by_path(get_cli_bin())
 	local web_pid = get_pid_by_path(get_web_bin())
 	local cli_cfg = summarize_cli_config()
+	local web_cfg = summarize_web_config()
 	local cli_dl = parse_state_file("/tmp/vnt2-download-cli.state")
 	local web_dl = parse_state_file("/tmp/vnt2-download-web.state")
 
@@ -347,17 +382,41 @@ function act_status()
 	e.web_ram = get_mem_usage(web_pid)
 	e.cli_tag = get_local_tag(get_cli_bin())
 	e.web_tag = get_local_tag(get_web_bin())
-	e.latest_tag = get_cached_latest_tag()
+	local latest_tag = ""
+	if cli_cfg.download_repo ~= "" then
+		latest_tag = get_cached_latest_tag(cli_cfg.download_repo)
+	end
+	if latest_tag == "" and web_cfg.download_repo ~= "" then
+		latest_tag = get_cached_latest_tag(web_cfg.download_repo)
+	end
+	if latest_tag == "" then
+		latest_tag = get_cached_latest_tag("vnt-dev/vnt")
+	end
+	e.latest_tag = latest_tag
 	e.ctrl_port = get_ctrl_port()
 	e.web_host = get_web_host()
 	e.web_port = get_web_port()
 	e.web_url = build_web_url()
+
 	e.cli_servers = cli_cfg.servers
 	e.cli_network_code = cli_cfg.network_code
 	e.cli_device_name = cli_cfg.device_name
+	e.cli_device_id = cli_cfg.device_id
 	e.cli_tun_name = cli_cfg.tun_name
 	e.cli_no_tun = cli_cfg.no_tun
+	e.cli_no_nat = cli_cfg.no_nat
+	e.cli_auto_download = cli_cfg.auto_download
+	e.cli_download_repo = cli_cfg.download_repo
+	e.cli_download_tag = cli_cfg.download_tag
+
+	e.web_log_level = web_cfg.log_level
+	e.web_wan = web_cfg.wan
+	e.web_auto_download = web_cfg.auto_download
+	e.web_download_repo = web_cfg.download_repo
+	e.web_download_tag = web_cfg.download_tag
+
 	e.cli_info_preview = e.cli_running and run_ctrl("info") or ""
+	e.cli_ips_preview = e.cli_running and run_ctrl("ips") or ""
 	e.download_log_size = #(get_log_content("/tmp/vnt2-download.log") or "")
 	e.cli_download = cli_dl
 	e.web_download = web_dl
@@ -365,32 +424,40 @@ function act_status()
 	json_write(e)
 end
 
-local function merge_logs(...)
-	local parts = {}
-	for _, path in ipairs({ ... }) do
-		local content = get_log_content(path)
-		if content ~= "" then
-			parts[#parts + 1] = content
-		end
+local function clear_log_file(path)
+	if not path or path == "" then
+		return
 	end
-	return table.concat(parts, "\n")
+	fs.writefile(path, "")
 end
 
 function get_client_log()
-	plain_write(merge_logs("/tmp/vnt2-cli.log", "/tmp/vnt2-web.log", "/tmp/vnt2-download.log"))
+	plain_write(get_log_content("/tmp/vnt2-cli.log"))
 end
 
 function clear_client_log()
-	sys.call("rm -f /tmp/vnt2-cli*.log /tmp/vnt2-web*.log /tmp/vnt2-download.log /tmp/vnt2-download-*.log /tmp/vnt2-download-cli.state /tmp/vnt2-download-web.state >/dev/null 2>&1")
+	clear_log_file("/tmp/vnt2-cli.log")
 	json_write({ ok = true })
 end
 
 function get_web_log()
-	get_client_log()
+	plain_write(get_log_content("/tmp/vnt2-web.log"))
 end
 
 function clear_web_log()
-	clear_client_log()
+	clear_log_file("/tmp/vnt2-web.log")
+	json_write({ ok = true })
+end
+
+function get_download_log()
+	plain_write(get_log_content("/tmp/vnt2-download.log"))
+end
+
+function clear_download_log()
+	clear_log_file("/tmp/vnt2-download.log")
+	fs.remove("/tmp/vnt2-download-cli.state")
+	fs.remove("/tmp/vnt2-download-web.state")
+	json_write({ ok = true })
 end
 
 function vnt2_info()

@@ -9,8 +9,8 @@ WEB_LOG="/tmp/vnt2-web.log"
 DOWNLOAD_LOG="/tmp/vnt2-download.log"
 CLI_TIME="/tmp/vnt2_cli_time"
 WEB_TIME="/tmp/vnt2_web_time"
-CLI_CONF_DIR="/etc/vnt2"
-CLI_CONF_DEFAULT="${CLI_CONF_DIR}/vnt2-cli.toml"
+CLI_CONF_DIR="/etc/config"
+CLI_CONF_DEFAULT="/etc/config/vnt2"
 CLI_CONF_FILE=""
 RUNTIME_FILE="/tmp/.vnt2_runtime"
 DOWNLOAD_CACHE_BASE="/tmp/vnt2-download-cache"
@@ -278,7 +278,7 @@ get_release_api_url() {
 	local tag="$2"
 
 	if [ -z "$repo" ]; then
-		repo="vnt-dev/vnts"
+		repo="vnt-dev/vnt"
 	fi
 
 	if [ -z "$tag" ] || [ "$tag" = "latest" ]; then
@@ -434,9 +434,9 @@ auto_download_bundle() {
 	}
 
 	config_get download_tag "$cfg" "download_tag" "latest"
-	config_get download_repo "$cfg" "download_repo" "vnt-dev/vnts"
+	config_get download_repo "$cfg" "download_repo" "vnt-dev/vnt"
 	[ -n "$download_tag" ] || download_tag="latest"
-	[ -n "$download_repo" ] || download_repo="vnt-dev/vnts"
+	[ -n "$download_repo" ] || download_repo="vnt-dev/vnt"
 
 	arch_name="$(detect_arch_name)"
 	arch_patterns="$(detect_arch_patterns "$arch_name")"
@@ -687,8 +687,8 @@ build_cli_config() {
 	local cfg="$1"
 	local network_code ip device_id device_name mtu tun_name
 	local no_punch rtx compress fec no_nat no_tun allow_mapping
-	local cert_mode ctrl_port tunnel_port password vnt2_forward
-	local bind_dev cli_conf_file cli_conf_dir
+	local cert_mode ctrl_port tunnel_port password
+	local bind_dev cli_conf_file cli_conf_dir vnt2_forward
 
 	local server_list input_list output_list mapping_list udp_stun_list tcp_stun_list
 	local server_args="" input_args="" output_args="" mapping_args="" udp_stun_args="" tcp_stun_args=""
@@ -738,7 +738,9 @@ build_cli_config() {
 	config_get ctrl_port "$cfg" "ctrl_port"
 	config_get tunnel_port "$cfg" "tunnel_port"
 	config_get password "$cfg" "password"
-	config_get vnt2_forward "$cfg" "vnt2_forward"
+	config_list_foreach "$cfg" vnt2_forward append_runtime_item vnt2_forward
+	vnt2_forward="$(sed -n 's/^vnt2_forward=//p' "${RUNTIME_FILE}" 2>/dev/null)"
+	vnt2_forward="$(trim_list "$vnt2_forward")"
 	config_get bind_dev "$cfg" "bind_dev"
 	config_get cli_conf_file "$cfg" "cli_conf_file" "${CLI_CONF_DEFAULT}"
 
@@ -801,7 +803,7 @@ build_cli_config() {
 
 start_cli_instance() {
 	local cfg="$1"
-	local enabled cli_bin tun_name no_tun forward_list bind_dev cli_conf_file
+	local enabled cli_bin ctrl_bin tun_name no_tun forward_list bind_dev cli_conf_file
 
 	config_get_bool enabled "$cfg" "enabled" "0"
 	if [ "$enabled" != "1" ]; then
@@ -810,10 +812,23 @@ start_cli_instance() {
 	fi
 
 	log_cli "开始启动"
-	cli_bin="$(prepare_binary "$cfg" "vnt2_cli_bin" "/usr/bin/vnt2_cli" "vnt2_cli" log_cli "$DOWNLOAD_CLI_STATE" "cli")" || {
-		log_cli "启动失败：未找到可执行文件，请上传或安装 vnt2_cli"
-		return 1
-	}
+	config_get cli_bin "$cfg" "vnt2_cli_bin" "/usr/bin/vnt2_cli"
+	config_get ctrl_bin "$cfg" "vnt2_ctrl_bin" "/usr/bin/vnt2_ctrl"
+
+	if ! ensure_exec "$cli_bin" || ! ensure_exec "$ctrl_bin"; then
+		log_cli "检测到 CLI/CTRL 程序不完整，尝试自动下载或回退到上传程序"
+		cli_bin="$(prepare_binary "$cfg" "vnt2_cli_bin" "/usr/bin/vnt2_cli" "vnt2_cli" log_cli "$DOWNLOAD_CLI_STATE" "cli")" || {
+			log_cli "启动失败：未找到完整的 vnt2_cli / vnt2_ctrl，请上传或安装程序"
+			return 1
+		}
+		ctrl_bin="$(uci -q get ${CONF}.${cfg}.vnt2_ctrl_bin)"
+		if ! ensure_exec "$ctrl_bin"; then
+			log_cli "启动失败：vnt2_ctrl 缺失，自动下载或上传回退未准备完整"
+			return 1
+		fi
+	else
+		log_cli "检测到现有 CLI/CTRL 程序完整：cli=${cli_bin} ctrl=${ctrl_bin}"
+	fi
 
 	config_get cli_conf_file "$cfg" "cli_conf_file" "${CLI_CONF_DEFAULT}"
 	[ -n "$cli_conf_file" ] || cli_conf_file="${CLI_CONF_DEFAULT}"
