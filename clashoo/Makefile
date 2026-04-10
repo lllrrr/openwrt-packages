@@ -1,16 +1,20 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=clashoo
-PKG_VERSION:=alpha-fa081fb
+PKG_SHORT_SHA:=fa081fb
+PKG_COMMIT_DATE:=2026.04.10
+
+PKG_VERSION:=$(PKG_COMMIT_DATE)~$(PKG_SHORT_SHA)
 PKG_RELEASE:=1
 
-PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
-PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION)
+PKG_SOURCE:=$(PKG_NAME)-alpha-$(PKG_SHORT_SHA).tar.gz
+PKG_SOURCE_SUBDIR:=$(PKG_NAME)-alpha-$(PKG_SHORT_SHA)
+PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-alpha-$(PKG_SHORT_SHA)
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/MetaCubeX/mihomo.git
 PKG_SOURCE_VERSION:=fa081fb16c010d535656f467d0cd9b8000eb14af
 PKG_MIRROR_HASH:=5d7c3b7878f1277e59469442ed30289343ffcf2662f06d247676f8cafd5bb8cf
-PKG_BUILD_VERSION:=alpha-fa081fb
+PKG_BUILD_VERSION:=alpha-$(PKG_SHORT_SHA)
 
 PKG_LICENSE:=GPL3.0+
 PKG_MAINTAINER:=kenzok8
@@ -76,7 +80,7 @@ endef
 
 define Package/clashoo/postinst
 #!/bin/sh
-if [ -z "$${IPKG_INSTROOT}" ]; then
+if [ -z "${IPKG_INSTROOT}" ]; then
 	[ -x /usr/bin/mihomo ] && [ ! -x /usr/bin/clash-meta ] && ln -sf /usr/bin/mihomo /usr/bin/clash-meta
 	/etc/init.d/clash disable 2>/dev/null
 fi
@@ -85,7 +89,7 @@ endef
 
 define Package/clashoo/prerm
 #!/bin/sh
-if [ -z "$${IPKG_INSTROOT}" ]; then
+if [ -z "${IPKG_INSTROOT}" ]; then
 	/etc/init.d/clash stop >/dev/null 2>&1
 	/etc/init.d/clash disable 2>/dev/null
 fi
