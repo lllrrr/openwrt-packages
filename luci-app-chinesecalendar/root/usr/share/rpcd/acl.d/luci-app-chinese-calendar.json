@@ -1,0 +1,5 @@
+{
+	"luci-app-chinese-calendar": {
+		"description": "Show Chinese calendar in overview page"
+	}
+}

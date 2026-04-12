@@ -1,0 +1,33 @@
+msgid ""
+msgstr ""
+"Language: zh\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Project-Id-Version: PACKAGE VERSION\n"
+"Last-Translator: Automatically generated\n"
+"Language-Team: none\n"
+"MIME-Version: 1.0\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Chinese Calendar"
+msgstr "中国农历"
+
+msgid "Lunar"
+msgstr "农历"
+
+msgid "GanZhi"
+msgstr "干支"
+
+msgid "Zodiac"
+msgstr "生肖"
+
+msgid "Solar Term"
+msgstr "节气"
+
+msgid "Holiday"
+msgstr "节日"
+
+msgid "Suitable"
+msgstr "宜"
+
+msgid "Avoidable"
+msgstr "忌"

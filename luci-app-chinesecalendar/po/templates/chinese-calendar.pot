@@ -1,0 +1,26 @@
+msgid ""
+msgstr ""
+
+msgid "Chinese Calendar"
+msgstr ""
+
+msgid "Lunar"
+msgstr ""
+
+msgid "GanZhi"
+msgstr ""
+
+msgid "Zodiac"
+msgstr ""
+
+msgid "Solar Term"
+msgstr ""
+
+msgid "Holiday"
+msgstr ""
+
+msgid "Suitable"
+msgstr ""
+
+msgid "Avoidable"
+msgstr ""
