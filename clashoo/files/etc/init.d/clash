@@ -169,6 +169,16 @@ DNS_STATE_NORESOLV_FILE="${DNS_STATE_DIR}/dnsmasq_noresolv.before"
 DNS_STATE_CACHE_FILE="${DNS_STATE_DIR}/dnsmasq_cachesize.before"
 DNS_STATE_RESOLV_FILE="${DNS_STATE_DIR}/dnsmasq_resolvfile.before"
 
+cleanup_legacy_startup_backups() {
+#===========================================================================================================================
+	# Historical backup artifacts can clutter LuCI "System -> Startup".
+	# Keep runtime clean by removing known obsolete backup filenames.
+	rm -f /etc/init.d/._clash \
+	      /etc/init.d/._* \
+	      /etc/init.d/*bak* >/dev/null 2>&1 || true
+#===========================================================================================================================
+}
+
 backup_dnsmasq_state() {
 #===========================================================================================================================
 	[ -f "$DNS_STATE_SERVER_FILE" ] && return 0
@@ -281,7 +291,7 @@ config_type=$(uci get clash.config.config_type 2>/dev/null)
 		auto_update_time=$(uci get clash.config.auto_update_time 2>/dev/null)
 		echo "$auto_update_time" | grep -Eq '^[0-9]+$' || auto_update_time=12
 		[ "$auto_update_time" -lt 1 ] && auto_update_time=12
-		[ -z "$(grep -w "/usr/share/clash/update_all.sh" "$CRON_FILE")" ] && echo "0 */$auto_update_time * * * sh /usr/share/clash/update_all.sh >/usr/share/clash/clash.txt 2>&1 &" >> "$CRON_FILE"
+		[ -z "$(grep -w "/usr/share/clash/update_all.sh" "$CRON_FILE")" ] && echo "0 */$auto_update_time * * * sh /usr/share/clash/update_all.sh >/dev/null 2>&1 &" >> "$CRON_FILE"
 	fi
 	
 	auto_geoip=$(uci get clash.config.auto_update_geoip 2>/dev/null)
@@ -330,21 +340,21 @@ log_msg "Checking Config file" "正在检查配置文件"
 
 if [ -f "$CONFIG_YAML_PATH" ] && [ -s "$CONFIG_YAML_PATH" ];then
 
-	cp $CONFIG_YAML_PATH $CONFIG_YAML 2>/dev/null
+	cp "$CONFIG_YAML_PATH" "$CONFIG_YAML" 2>/dev/null
 	
 elif [ ! -f "$CONFIG_YAML_PATH" ] && [ ! -f "$CONFIG_YAML" ];then
 
 		log_msg "No config found" "找不到配置文章"
 		sleep 5
 		echo "Clashoo" >$REAL_LOG
-		exit 0	
+		return 1	
 	
 elif [ ! -s "$CONFIG_YAML_PATH" ] && [ ! -s "$CONFIG_YAML" ];then
 
 		log_msg "Your Config File is Empty" "你的config.yaml有问题还是为了空"
 		sleep 5
 		echo "Clashoo" >$REAL_LOG
-		exit 0	
+		return 1	
 		
 fi
 
@@ -510,42 +520,133 @@ smart_inject() {
 	[ "${smart_collect:-0}" = "1" ] && collect_val="true" || collect_val="false"
 	collect_rate="${smart_collect_rate:-1}"
 
-	# Step 1: Replace type: url-test and type: load-balance with type: smart (4-space indent)
-	sed -i 's/^    type: url-test$/    type: smart/; s/^    type: load-balance$/    type: smart/' "$CONFIG_YAML" 2>/dev/null
+	# Prefer structured YAML mutation (OpenClash-like behavior) when yq exists.
+	if command -v yq >/dev/null 2>&1; then
+		export SMART_PRIORITY="${smart_priority:-}"
+		export SMART_PREFER_ASN="$prefer_asn_val"
+		export SMART_USELGBM="$lgbm_val"
+		export SMART_COLLECT="$collect_val"
+		export SMART_COLLECT_RATE="${collect_rate:-1}"
+		export SMART_COLLECT_SIZE="${smart_collect_size:-100}"
+		export SMART_LGBM_AUTO="$([ "${smart_lgbm_auto:-0}" = "1" ] && echo "true" || echo "false")"
+		export SMART_LGBM_URL="${smart_lgbm_url:-}"
+		export SMART_LGBM_INTERVAL="${smart_lgbm_interval:-72}"
 
-	# Step 2: Build policy-priority block into temp file (avoid multi-line awk -v issues)
+		if yq e '
+			.["proxy-groups"] = ((.["proxy-groups"] // []) | map(
+				if (.type == "url-test" or .type == "load-balance" or .type == "smart") then
+					.type = "smart" |
+					.["prefer-asn"] = (env(SMART_PREFER_ASN) == "true") |
+					.uselightgbm = (env(SMART_USELGBM) == "true") |
+					.collectdata = (env(SMART_COLLECT) == "true") |
+					.["sample-rate"] = (env(SMART_COLLECT_RATE) | tonumber) |
+					(if env(SMART_PRIORITY) != "" then .["policy-priority"] = env(SMART_PRIORITY) else del(.["policy-priority"]) end)
+				else .
+				end
+			)) |
+			(if env(SMART_COLLECT) == "true" then
+				.profile = (.profile // {}) |
+				.profile["smart-collector-size"] = (env(SMART_COLLECT_SIZE) | tonumber)
+			else
+				.
+			end) |
+			(if env(SMART_USELGBM) == "true" then
+				.["lgbm-auto-update"] = (env(SMART_LGBM_AUTO) == "true") |
+				.["lgbm-url"] = env(SMART_LGBM_URL) |
+				.["lgbm-update-interval"] = (env(SMART_LGBM_INTERVAL) | tonumber)
+			else
+				del(.["lgbm-auto-update"], .["lgbm-url"], .["lgbm-update-interval"])
+			end)
+		' "$CONFIG_YAML" > /tmp/_smart_inject.yaml 2>/dev/null; then
+			mv /tmp/_smart_inject.yaml "$CONFIG_YAML"
+			unset SMART_PRIORITY SMART_PREFER_ASN SMART_USELGBM SMART_COLLECT SMART_COLLECT_RATE
+			unset SMART_COLLECT_SIZE SMART_LGBM_AUTO SMART_LGBM_URL SMART_LGBM_INTERVAL
+			return 0
+		fi
+
+		unset SMART_PRIORITY SMART_PREFER_ASN SMART_USELGBM SMART_COLLECT SMART_COLLECT_RATE
+		unset SMART_COLLECT_SIZE SMART_LGBM_AUTO SMART_LGBM_URL SMART_LGBM_INTERVAL
+	fi
+
+	# Fallback path (no yq): line-based mutation with indentation-aware awk.
+	# Step 1: Replace any-indentation type: url-test/load-balance to type: smart
+	awk '
+	/^[ \t]*type:[ \t]*(url-test|load-balance)[ \t]*$/ {
+		sub(/type:[ \t]*(url-test|load-balance)[ \t]*$/, "type: smart")
+	}
+	{ print }
+	' "$CONFIG_YAML" > /tmp/_smart_type.yaml && mv /tmp/_smart_type.yaml "$CONFIG_YAML"
+
+	# Step 2: Build policy-priority value temp file (avoid quoting issues)
 	PRIORITY_TMP="/tmp/_smart_priority.txt"
 	printf '' > "$PRIORITY_TMP"
 	if [ -n "$smart_priority" ]; then
-		printf '    policy-priority: '"'"'%s'"'"'\n' "$smart_priority" > "$PRIORITY_TMP"
+		printf '%s\n' "$smart_priority" > "$PRIORITY_TMP"
 	fi
 
-	# Step 3: After each "    type: smart" line, inject smart fields via awk + getline
+	# Step 3: Inject smart fields after each "type: smart" with preserved indentation
 	awk -v pfile="$PRIORITY_TMP" \
 	    -v prefer_asn="$prefer_asn_val" \
 	    -v lgbm="$lgbm_val" \
 	    -v collect="$collect_val" \
 	    -v rate="$collect_rate" '
-	/^    type: smart$/ {
+	/^[ \t]*type:[ \t]*smart[ \t]*$/ {
+	    match($0, /^[ \t]*/)
+	    indent = substr($0, RSTART, RLENGTH)
 	    print
-	    while ((getline line < pfile) > 0) print line
+	    while ((getline line < pfile) > 0) {
+	        if (line != "")
+	            print indent "policy-priority: \047" line "\047"
+	    }
 	    close(pfile)
-	    print "    prefer-asn: " prefer_asn
-	    print "    uselightgbm: " lgbm
-	    print "    collectdata: " collect
-	    print "    sample-rate: " rate
+	    print indent "prefer-asn: " prefer_asn
+	    print indent "uselightgbm: " lgbm
+	    print indent "collectdata: " collect
+	    print indent "sample-rate: " rate
 	    next
 	}
 	{ print }
 	' "$CONFIG_YAML" > /tmp/_smart_inject.yaml && mv /tmp/_smart_inject.yaml "$CONFIG_YAML"
 	rm -f "$PRIORITY_TMP" 2>/dev/null
 
-	# Step 4: profile.smart-collector-size (under profile: section)
-	if grep -q '^profile:' "$CONFIG_YAML"; then
-		if grep -q '^  smart-collector-size:' "$CONFIG_YAML"; then
-			sed -i "s/^  smart-collector-size:.*/  smart-collector-size: ${smart_collect_size}/" "$CONFIG_YAML" 2>/dev/null
+	# Step 4: profile.smart-collector-size (preserve profile child indentation from source YAML)
+	if grep -q '^profile:[ 	]*$' "$CONFIG_YAML"; then
+		profile_indent="$(
+			awk '
+			/^profile:[ \t]*$/ {
+				while (getline > 0) {
+					if ($0 ~ /^[ \t]*$/) {
+						continue
+					}
+					if ($0 ~ /^[^ \t]/) {
+						break
+					}
+					match($0, /^[ \t]+/)
+					print substr($0, RSTART, RLENGTH)
+					exit
+				}
+			}
+			' "$CONFIG_YAML"
+		)"
+		[ -n "$profile_indent" ] || profile_indent="  "
+
+		if grep -q '^[ 	]*smart-collector-size:[ 	]*' "$CONFIG_YAML"; then
+			awk -v indent="$profile_indent" -v size="$smart_collect_size" '
+			/^[ \t]*smart-collector-size:[ \t]*/ {
+				print indent "smart-collector-size: " size
+				next
+			}
+			{ print }
+			' "$CONFIG_YAML" > /tmp/_smart_profile.yaml && mv /tmp/_smart_profile.yaml "$CONFIG_YAML"
 		else
-			sed -i "/^profile:/a\\  smart-collector-size: ${smart_collect_size}" "$CONFIG_YAML" 2>/dev/null
+			awk -v indent="$profile_indent" -v size="$smart_collect_size" '
+			/^profile:[ \t]*$/ {
+				print
+				print indent "smart-collector-size: " size
+				next
+			}
+			{ print }
+			' "$CONFIG_YAML" > /tmp/_smart_profile.yaml && mv /tmp/_smart_profile.yaml "$CONFIG_YAML"
 		fi
 	else
 		printf '\nprofile:\n  store-selected: true\n  smart-collector-size: %s\n' "$smart_collect_size" >> "$CONFIG_YAML"
@@ -957,6 +1058,8 @@ core=$(uci get clash.config.core 2>/dev/null)
 mode=$(uci get clash.config.mode 2>/dev/null)
 tun_mode=$(uci get clash.config.tun_mode 2>/dev/null)
 
+cleanup_legacy_startup_backups
+
 if _openclash_conflict; then
 	_log_runtime_error "OpenClash is enabled; skip Clashoo start to avoid firewall/DNS conflicts"
 	return 0
@@ -964,7 +1067,10 @@ fi
 if [ "${enable:-0}" -eq 1 ]; then
  	log_msg "Starting Client" "启动客户端"
 	sleep 1
-	select_config >/dev/null 2>&1
+	if ! select_config >/dev/null 2>&1; then
+		_log_runtime_error "Config file is missing or empty; please import a subscription/config first"
+		return 1
+	fi
 	sleep 1
 	
 	if ! _require_runtime_network_stack; then
