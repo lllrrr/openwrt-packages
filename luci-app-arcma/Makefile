@@ -13,10 +13,10 @@ LUCI_DESCRIPTION:=Automatically change MAC addresses of all network interfaces. 
 PKG_MAINTAINER:=arcma contributors
 PKG_LICENSE:=MIT
 
-# Only hard dependency is ip-tiny (provides `ip link`) which is part of
-# OpenWrt base since 21.02. On very minimal images ifconfig (busybox) is
+# Only hard dependency is ip-full (provides `ip link`). On very minimal
+# images ifconfig (busybox) is
 # the automatic fallback inside arcma.
-LUCI_DEPENDS:=+ip-tiny
+LUCI_DEPENDS:=+ip-full
 
 define Package/$(LUCI_NAME)/conffiles
 /etc/config/arcma
