@@ -325,6 +325,178 @@ get_release_api_url() {
 	fi
 }
 
+get_release_api_candidates() {
+	local repo="$1"
+	local tag="$2"
+	local resolved_tag normalized_tag
+
+	[ -n "$repo" ] || repo="vnt-dev/vnt"
+	resolved_tag="$(resolve_v2_release_tag "$repo" "$tag")"
+	normalized_tag="$(normalize_release_tag "$resolved_tag")"
+
+	if [ -z "$resolved_tag" ] || [ "$resolved_tag" = "latest" ]; then
+		echo "https://api.github.com/repos/${repo}/releases/latest"
+		return 0
+	fi
+
+	echo "https://api.github.com/repos/${repo}/releases/tags/${resolved_tag}"
+
+	if [ -n "$normalized_tag" ] && [ "$resolved_tag" = "$normalized_tag" ]; then
+		echo "https://api.github.com/repos/${repo}/releases/tags/v${normalized_tag}"
+	fi
+
+	echo "https://api.github.com/repos/${repo}/releases/latest"
+}
+
+extract_first_release_object() {
+	local src="$1"
+	local dst="$2"
+
+	awk '
+BEGIN {
+	in_array = 0
+	depth = 0
+	started = 0
+	out = ""
+}
+{
+	line = $0
+	if (!in_array) {
+		pos = index(line, "[")
+		if (pos > 0) {
+			in_array = 1
+			line = substr(line, pos + 1)
+		} else {
+			next
+		}
+	}
+	for (i = 1; i <= length(line); i++) {
+		c = substr(line, i, 1)
+		if (!started) {
+			if (c == "{") {
+				started = 1
+				depth = 1
+				out = "{"
+			}
+			continue
+		}
+		out = out c
+		if (c == "{") depth++
+		if (c == "}") {
+			depth--
+			if (depth == 0) {
+				print out
+				exit
+			}
+		}
+	}
+}
+' "$src" >"$dst"
+
+	[ -s "$dst" ]
+}
+
+extract_release_object_by_tag() {
+	local src="$1"
+	local dst="$2"
+	local wanted_tag="$3"
+
+	awk -v wanted="$wanted_tag" '
+BEGIN {
+	in_array = 0
+	depth = 0
+	started = 0
+	out = ""
+}
+{
+	line = $0
+	if (!in_array) {
+		pos = index(line, "[")
+		if (pos > 0) {
+			in_array = 1
+			line = substr(line, pos + 1)
+		} else {
+			next
+		}
+	}
+	for (i = 1; i <= length(line); i++) {
+		c = substr(line, i, 1)
+		if (!started) {
+			if (c == "{") {
+				started = 1
+				depth = 1
+				out = "{"
+			}
+			continue
+		}
+		out = out c
+		if (c == "{") depth++
+		if (c == "}") {
+			depth--
+			if (depth == 0) {
+				if (out ~ "\"tag_name\"[[:space:]]*:[[:space:]]*\"" wanted "\"") {
+					print out
+					exit
+				}
+				started = 0
+				out = ""
+			}
+		}
+	}
+}
+' "$src" >"$dst"
+
+	[ -s "$dst" ]
+}
+
+fetch_release_metadata() {
+	local repo="$1"
+	local tag="$2"
+	local json_file="$3"
+	local api_url response_tag candidate list_file resolved_tag normalized_tag
+
+	for candidate in $(get_release_api_candidates "$repo" "$tag"); do
+		log_download "尝试查询 GitHub Releases：${candidate}"
+		if download_file "$candidate" "$json_file"; then
+			response_tag="$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$json_file" | head -n1)"
+			if [ -n "$response_tag" ]; then
+				echo "$candidate"
+				return 0
+			fi
+		fi
+	done
+
+	list_file="${json_file}.list"
+	api_url="https://api.github.com/repos/${repo}/releases"
+	log_download "尝试查询 GitHub Releases 列表：${api_url}"
+	if download_file "$api_url" "$list_file"; then
+		resolved_tag="$(resolve_v2_release_tag "$repo" "$tag")"
+		normalized_tag="$(normalize_release_tag "$resolved_tag")"
+
+		if [ -z "$resolved_tag" ] || [ "$resolved_tag" = "latest" ]; then
+			if extract_first_release_object "$list_file" "$json_file"; then
+				echo "${api_url}#latest-from-list"
+				return 0
+			fi
+		else
+			if extract_release_object_by_tag "$list_file" "$json_file" "$resolved_tag"; then
+				echo "${api_url}#tag-from-list:${resolved_tag}"
+				return 0
+			fi
+			if [ -n "$normalized_tag" ] && extract_release_object_by_tag "$list_file" "$json_file" "v${normalized_tag}"; then
+				echo "${api_url}#tag-from-list:v${normalized_tag}"
+				return 0
+			fi
+			if extract_first_release_object "$list_file" "$json_file"; then
+				echo "${api_url}#fallback-first"
+				return 0
+			fi
+		fi
+	fi
+
+	return 1
+}
+
 select_release_asset() {
 	local json_file="$1"
 	local arch_patterns="$2"
@@ -480,6 +652,38 @@ extract_zip_asset() {
 	fi
 
 	return 1
+}
+
+validate_asset_file() {
+	local asset_file="$1"
+
+	[ -s "$asset_file" ] || return 1
+
+	case "$asset_file" in
+		*.zip)
+			if command -v unzip >/dev/null 2>&1; then
+				unzip -t "$asset_file" >/dev/null 2>&1 && return 0
+			fi
+			if command -v busybox >/dev/null 2>&1; then
+				busybox unzip -t "$asset_file" >/dev/null 2>&1 && return 0
+			fi
+			if command -v bsdtar >/dev/null 2>&1; then
+				bsdtar -tf "$asset_file" >/dev/null 2>&1 && return 0
+			fi
+			return 1
+		;;
+		*.tar.gz|*.tgz)
+			tar -tzf "$asset_file" >/dev/null 2>&1
+			return $?
+		;;
+		*.tar.xz)
+			tar -tJf "$asset_file" >/dev/null 2>&1
+			return $?
+		;;
+		*)
+			return 0
+		;;
+	esac
 }
 
 extract_release_asset() {
@@ -728,12 +932,14 @@ auto_download_bundle() {
 	write_download_state "$state_file" "querying" "正在查询 GitHub Releases" "" "$download_tag" "$arch_name" ""
 	log_download "开始查询 ${scope} 对应发行版：repo=${download_repo} tag=${download_tag} arch=${arch_name}"
 
-	if ! download_file "$api_url" "$json_file"; then
-		log_download "查询 GitHub Releases 失败：${api_url}"
+	api_url="$(fetch_release_metadata "$download_repo" "$download_tag" "$json_file")"
+	if [ -z "$api_url" ]; then
+		log_download "查询 GitHub Releases 失败：repo=${download_repo} tag=${download_tag}，已尝试 tags/${download_tag}、tags/v${download_tag}、latest、releases 列表接口"
 		write_download_state "$state_file" "failed" "查询 GitHub Releases 失败" "" "$download_tag" "$arch_name" ""
 		return 1
 	fi
 
+	log_download "GitHub Releases 查询成功：${api_url}"
 	release_tag="$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$json_file" | head -n1)"
 	release_tag="$(normalize_release_tag "$release_tag")"
 	[ -n "$release_tag" ] || release_tag="$download_tag"
@@ -748,21 +954,49 @@ auto_download_bundle() {
 	write_download_state "$state_file" "downloading" "正在下载发行资源" "$asset_name" "$release_tag" "$arch_name" ""
 	log_download "选中资源 ${asset_name}"
 
+	if [ -s "$asset_file" ]; then
+		if validate_asset_file "$asset_file"; then
+			log_download "复用已下载资源 ${asset_file}"
+		else
+			log_download "检测到缓存资源无效，删除后重新下载：${asset_file}"
+			rm -f "$asset_file"
+		fi
+	fi
+
 	if [ ! -s "$asset_file" ]; then
 		if ! download_file "$asset_url" "$asset_file"; then
 			log_download "下载发行资源失败：${asset_url}"
 			write_download_state "$state_file" "failed" "下载发行资源失败" "$asset_name" "$release_tag" "$arch_name" ""
 			return 1
 		fi
-	else
-		log_download "复用已下载资源 ${asset_file}"
+		if ! validate_asset_file "$asset_file"; then
+			log_download "下载后的发行资源无效或已损坏：${asset_file}"
+			rm -f "$asset_file"
+			write_download_state "$state_file" "failed" "下载的发行资源无效或已损坏" "$asset_name" "$release_tag" "$arch_name" ""
+			return 1
+		fi
 	fi
 
 	write_download_state "$state_file" "extracting" "正在解压或整理程序文件" "$asset_name" "$release_tag" "$arch_name" ""
 	if ! extract_release_asset "$asset_file" "$extracted_dir"; then
-		log_download "解压失败：${asset_file}"
-		write_download_state "$state_file" "failed" "解压发行资源失败" "$asset_name" "$release_tag" "$arch_name" ""
-		return 1
+		log_download "首次解压失败，删除缓存后重新下载重试：${asset_file}"
+		rm -f "$asset_file"
+		if ! download_file "$asset_url" "$asset_file"; then
+			log_download "重试下载发行资源失败：${asset_url}"
+			write_download_state "$state_file" "failed" "重试下载发行资源失败" "$asset_name" "$release_tag" "$arch_name" ""
+			return 1
+		fi
+		if ! validate_asset_file "$asset_file"; then
+			log_download "重试下载后的发行资源仍然无效：${asset_file}"
+			rm -f "$asset_file"
+			write_download_state "$state_file" "failed" "重试下载后的发行资源无效" "$asset_name" "$release_tag" "$arch_name" ""
+			return 1
+		fi
+		if ! extract_release_asset "$asset_file" "$extracted_dir"; then
+			log_download "解压失败：${asset_file}"
+			write_download_state "$state_file" "failed" "解压发行资源失败" "$asset_name" "$release_tag" "$arch_name" ""
+			return 1
+		fi
 	fi
 
 	case "$scope" in
