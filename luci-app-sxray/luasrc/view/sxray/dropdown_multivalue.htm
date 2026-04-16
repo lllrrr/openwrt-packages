@@ -1,0 +1,196 @@
+<%+cbi/valueheader%>
+<%
+local cbid = "cbid." .. self.config .. "." .. section .. "." .. self.option
+
+local values = {}
+for i, key in pairs(self.keylist) do
+	values[#values + 1] = {
+		key = key,
+		label = self.vallist[i] or key
+	}
+end
+
+local selected = {}
+local cval = self:cfgvalue(section)
+if type(cval) == "table" then
+	for _, v in pairs(cval) do
+		selected[v] = true
+	end
+elseif type(cval) == "string" then
+	for v in cval:gmatch("%S+") do
+		selected[v] = true
+	end
+end
+
+local selected_labels = {}
+for _, item in ipairs(values) do
+	if selected[item.key] then
+		selected_labels[#selected_labels + 1] = item.label
+	end
+end
+local display_text = #selected_labels > 0 and table.concat(selected_labels, " | ") or nil
+local item_count = #selected_labels
+local total_count = #values
+%>
+
+<div id="<%=cbid%>" class="dmv-wrap">
+	<div class="dmv-trigger" onclick="dmv_toggle('<%=cbid%>')">
+		<span class="dmv-display" id="<%=cbid%>.display">
+			<% if display_text then %>
+				<%=pcdata(display_text)%>
+			<% else %>
+				<span class="dmv-placeholder"><%:None selected%></span>
+			<% end %>
+		</span>
+		<span class="dmv-chevron"></span>
+		<span class="dmv-badge" id="<%=cbid%>.badge"><%=item_count%>/<%=total_count%></span>
+	</div>
+	<div class="dmv-panel" style="display:none;">
+		<ul class="dmv-list" id="<%=cbid%>.list">
+			<% for _, item in ipairs(values) do %>
+			<li class="dmv-item <% if selected[item.key] then %>dmv-checked<% else %>dmv-unchecked<% end %>" data-key="<%=pcdata(item.key)%>">
+				<label>
+					<span class="dmv-checkbox<% if selected[item.key] then %> dmv-checkbox-on<% end %>" id="<%=cbid%>.chk.<%=item.key%>">
+						<% if selected[item.key] then %><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg><% end %>
+					</span>
+					<input type="checkbox"
+						id="<%=cbid%>.cb.<%=item.key%>"
+						value="<%=pcdata(item.key)%>"
+						<% if selected[item.key] then %>checked<% end %>
+						onchange="dmv_update('<%=cbid%>', '<%=pcdata(item.key)%>', this.checked)" />
+					<span class="dmv-label"><%=pcdata(item.label)%></span>
+				</label>
+			</li>
+			<% end %>
+		</ul>
+	</div>
+	<select id="<%=cbid%>.ref" name="<%=cbid%>" multiple="multiple" style="display:none!important;" onchange="return false;">
+		<% for _, item in ipairs(values) do %>
+		<option value="<%=pcdata(item.key)%>" <% if selected[item.key] then %>selected<% end %>><%=pcdata(item.label)%></option>
+		<% end %>
+	</select>
+</div>
+
+<script type="text/javascript">
+//<![CDATA[
+(function(){
+	var CBID = "<%=cbid%>";
+
+	function dmv_toggle(id){
+		var p=document.querySelector('#'+CSS.escape(id)+' .dmv-panel');
+		p.style.display=p.style.display==='none'?'block':'none';
+	}
+
+	function dmv_syncSelect(id,key,checked){
+		var sel=document.getElementById(id+'.ref');
+		if(!sel)return;
+		for(var i=0;i<sel.options.length;i++){
+			if(sel.options[i].value===key){
+				sel.options[i].selected=checked;
+				break;
+			}
+		}
+	}
+
+	function dmv_update(id,key,checked){
+		dmv_syncSelect(id,key,checked);
+		var li=document.querySelector('#'+CSS.escape(id)+' .dmv-item[data-key="'+CSS.escape(key)+'"]');
+		if(!li)return;
+		var chk=li.querySelector('.dmv-checkbox');
+		var svg='<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
+		if(checked){
+			li.classList.remove('dmv-unchecked');li.classList.add('dmv-checked');
+			chk.classList.add('dmv-checkbox-on');chk.innerHTML=svg;
+		}else{
+			li.classList.remove('dmv-checked');li.classList.add('dmv-unchecked');
+			chk.classList.remove('dmv-checkbox-on');chk.innerHTML='';
+		}
+		dmv_refreshDisplay(id);
+	}
+
+	function dmv_refreshDisplay(id){
+		var c=document.getElementById(id);
+		var items=c.querySelectorAll('.dmv-item');
+		var labels=[],count=0;
+		items.forEach(function(it){
+			if(it.querySelector('input[type=checkbox]').checked){
+				labels.push(it.querySelector('.dmv-label').textContent);
+				count++;
+			}
+		});
+		var disp=c.querySelector('.dmv-display');
+		var badge=c.querySelector('.dmv-badge');
+		if(labels.length>0){
+			disp.textContent=labels.join(' | ');
+			disp.className='dmv-display';
+		}else{
+			disp.innerHTML='<span class="dmv-placeholder">None selected</span>';
+		}
+		badge.textContent=count+'/'+items.length;
+	}
+
+	window.dmv_toggle=dmv_toggle;
+	window.dmv_update=dmv_update;
+
+	document.addEventListener('click',function(e){
+		document.querySelectorAll('.dmv-wrap').forEach(function(w){
+			if(!w.contains(e.target)){
+				var p=w.querySelector('.dmv-panel');
+				if(p)p.style.display='none';
+			}
+		});
+	});
+})();
+//]]>
+</script>
+
+<style>
+.dmv-wrap{position:relative;display:inline-block;width:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;box-sizing:border-box}
+.dmv-trigger{
+	display:flex;align-items:center;justify-content:space-between;gap:8px;
+	padding:10px 14px;
+	background:#1e1e2e;border:1px solid #333;border-radius:10px;
+	cursor:pointer;user-select:none;min-height:22px;box-sizing:border-box
+}
+.dmv-trigger:hover{border-color:#555}
+.dmv-display{
+	flex:1;min-width:0;
+	color:#cdd6f4;font-size:14px;line-height:1.4;
+	word-break:break-all;white-space:normal;overflow:visible
+}
+.dmv-placeholder{color:#6c7086;font-style:italic;font-size:13px}
+.dmv-chevron{
+	width:0;height:0;flex-shrink:0;
+	border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid #89b4fa
+}
+.dmv-badge{
+	flex-shrink:0;font-size:11px;color:#a6adc8;background:#313244;
+	padding:2px 8px;border-radius:10px;line-height:1.4
+}
+.dmv-panel{
+	position:absolute;top:100%;left:0;right:0;z-index:9999;
+	background:#181825;border:1px solid #313244;border-radius:10px;
+	box-shadow:0 8px 32px rgba(0,0,0,.45);margin-top:4px;overflow:hidden;max-height:320px;display:flex;flex-direction:column
+}
+.dmv-list{list-style:none;margin:0;padding:4px;overflow-y:auto;flex:1}
+.dmv-item{margin:0 0 2px 0;padding:0;border-radius:8px}
+.dmv-item label{
+	display:flex;align-items:center;padding:10px 14px;cursor:pointer;margin:0;
+	border-radius:8px;transition:background .15s ease
+}
+.dmv-checked label{background:linear-gradient(135deg,#6c7086 0%,#7f849c 100%)}
+.dmv-unchecked label{background:transparent;border:1px solid #45475a}
+.dmv-unchecked label:hover{background:#1e1e2e}
+.dmv-checkbox{
+	display:inline-flex;align-items:center;justify-content:center;
+	width:22px;height:22px;border-radius:6px;
+	border:2px solid #585b70;background:transparent;
+	flex-shrink:0;margin-right:12px;transition:all .15s ease;box-sizing:border-box
+}
+.dmv-checkbox svg{width:16px;height:16px;fill:#1e1e2e;display:block}
+.dmv-checkbox-on{background:linear-gradient(135deg,#89b4fa 0%,#74c7ec 100%);border-color:transparent}
+.dmv-label{color:#cdd6f4;font-size:14px;line-height:1.4;letter-spacing:.01em}
+.dmv-item input[type="checkbox"]{position:absolute;opacity:0;pointer-events:none;width:0;height:0;margin:0}
+</style>
+
+<%+cbi/valuefooter%>

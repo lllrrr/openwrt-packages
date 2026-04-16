@@ -73,6 +73,7 @@ o.default = "iptables"
 
 o = s:option(MultiValue, "lan_ifaces", translate("LAN interfaces"), translate("Enable proxy on selected interfaces."))
 o:depends("enabled", "1")
+o.template = "sxray/dropdown_multivalue"
 o.delimiter = " "
 o.forcewrite = true
 o.cfgvalue = function(...)

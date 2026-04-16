@@ -83,6 +83,25 @@ local dsp = require "luci.dispatcher"
 		}
 	}
 
+	function setupCoreTypeChangeListener() {
+		var coreTypeSelect = document.getElementsByName('cbid.sxray.main.core_type')[0];
+		if (!coreTypeSelect) return;
+
+		coreTypeSelect.addEventListener('change', function() {
+			setTimeout(function() {
+				var xrayInput = document.getElementsByName('cbid.sxray.main.xray_file')[0];
+				var singBoxInput = document.getElementsByName('cbid.sxray.main.sing_box_file')[0];
+
+				if (xrayInput && xrayInput.value.trim()) {
+					debounceCheckVersion(xrayInput, 'xray', 'cbi-sxray-main-xray_file');
+				}
+				if (singBoxInput && singBoxInput.value.trim()) {
+					debounceCheckVersion(singBoxInput, 'sing-box', 'cbi-sxray-main-sing_box_file');
+				}
+			}, 100);
+		});
+	}
+
 	XHR.poll(5, '<%=dsp.build_url("admin/services/sxray/status")%>', null,
 		function (x, data)
 		{
@@ -133,10 +152,14 @@ local dsp = require "luci.dispatcher"
 			}
 			updateVersionInfo(data);
 			setupVersionCheckListeners();
+			setupCoreTypeChangeListener();
 		}
 	);
 
 	document.addEventListener('DOMContentLoaded', function() {
-		setTimeout(setupVersionCheckListeners, 500);
+		setTimeout(function() {
+			setupVersionCheckListeners();
+			setupCoreTypeChangeListener();
+		}, 500);
 	});
 //]]></script>
