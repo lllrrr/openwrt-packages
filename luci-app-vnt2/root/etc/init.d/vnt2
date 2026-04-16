@@ -1444,10 +1444,10 @@ prepare_server_runtime() {
 		return 1
 	fi
 
-	VNTS2_TCP_BIND="$(trim_value "$(toml_get_string "${SERVER_CONF_FILE}" "tcp")")"
-	VNTS2_QUIC_BIND="$(trim_value "$(toml_get_string "${SERVER_CONF_FILE}" "quic")")"
-	VNTS2_WS_BIND="$(trim_value "$(toml_get_string "${SERVER_CONF_FILE}" "ws")")"
-	VNTS2_WEB_BIND="$(trim_value "$(toml_get_string "${SERVER_CONF_FILE}" "web")")"
+	VNTS2_TCP_BIND="$(trim_value "$(toml_get_string "${SERVER_CONF_FILE}" "tcp_bind")")"
+	VNTS2_QUIC_BIND="$(trim_value "$(toml_get_string "${SERVER_CONF_FILE}" "quic_bind")")"
+	VNTS2_WS_BIND="$(trim_value "$(toml_get_string "${SERVER_CONF_FILE}" "ws_bind")")"
+	VNTS2_WEB_BIND="$(trim_value "$(toml_get_string "${SERVER_CONF_FILE}" "web_bind")")"
 
 	[ -n "${VNTS2_TCP_BIND}" ] || VNTS2_TCP_BIND="0.0.0.0:29872"
 	[ -n "${VNTS2_QUIC_BIND}" ] || VNTS2_QUIC_BIND="0.0.0.0:29872"
@@ -1530,9 +1530,9 @@ start_web_instance() {
 		return 1
 	}
 
-	config_get web_host "$cfg" "web_host" "127.0.0.1"
+	config_get web_host "$cfg" "web_host" "0.0.0.0"
 	config_get web_port "$cfg" "web_port" "19099"
-	config_get_bool web_wan "$cfg" "web_wan" "0"
+	config_get_bool web_wan "$cfg" "web_wan" "1"
 	config_get log_level "$cfg" "log_level" "info"
 
 	configure_web_firewall "$web_host" "$web_port" "$web_wan"
