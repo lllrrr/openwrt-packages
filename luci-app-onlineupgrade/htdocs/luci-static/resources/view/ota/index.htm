@@ -1,0 +1,45 @@
+
+<%+header%>
+<div style="padding:20px">
+<h2>OTA Upgrade V3</h2>
+
+<div>
+    <button onclick="startOTA()">Start Upgrade</button>
+</div>
+
+<h3>Firmware List</h3>
+<ul id="fw"></ul>
+
+<h3>Progress</h3>
+<pre id="log" style="background:#111;color:#0f0;height:300px;overflow:auto"></pre>
+</div>
+
+<script>
+async function loadFW(){
+    let r = await fetch("/cgi-bin/luci/admin/services/ota/firmware");
+    let j = await r.json();
+    let ul = document.getElementById("fw");
+    ul.innerHTML="";
+    (j.list||[]).forEach(i=>{
+        let li=document.createElement("li");
+        li.innerHTML=i.name+" - "+i.version;
+        ul.appendChild(li);
+    });
+}
+
+function startOTA(){
+    fetch("/cgi-bin/luci/admin/services/ota/start");
+    watch();
+}
+
+function watch(){
+    setInterval(async ()=>{
+        let r = await fetch("/cgi-bin/luci/admin/services/ota/status");
+        let j = await r.json();
+        document.getElementById("log").innerText = j.log;
+    },1000);
+}
+
+loadFW();
+</script>
+<%+footer%>
