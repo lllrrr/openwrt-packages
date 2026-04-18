@@ -1,14 +1,9 @@
 {
   "list": [
     {
-      "name": "ImmortalWrt",
-      "version": "23.05.2",
-      "url": "https://example.com/fw1.bin"
-    },
-    {
-      "name": "ImmortalWrt-dev",
-      "version": "snapshot",
-      "url": "https://example.com/fw2.bin"
+      "name": "Test Firmware",
+      "version": "1.0",
+      "url": "https://example.com/fw.bin"
     }
   ]
 }

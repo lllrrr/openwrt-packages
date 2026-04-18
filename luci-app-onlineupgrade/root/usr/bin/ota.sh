@@ -1,31 +1,35 @@
+
 #!/bin/sh
 
-LOG=/tmp/ota.log
-FW=/etc/ota/firmware.json
+STATE=/tmp/ota_state.json
+FW=/tmp/fw.bin
+URL="https://example.com/fw.bin"
 
-echo "" > $LOG
-
-log(){
-  echo "$1" >> $LOG
+update(){
+ echo "{\"state\":\"$1\",\"progress\":$2,\"msg\":\"$3\"}" > $STATE
+ ubus send ota.event "{\"state\":\"$1\",\"progress\":$2}"
 }
 
-log "OTA START"
+update CHECK 0 "Checking"
+
 sleep 1
 
-log "Checking firmware list..."
-sleep 1
+update DOWNLOADING 10 "Downloading"
+wget -O $FW $URL || {
+ update FAIL 0 "Download failed"
+ exit 1
+}
 
-log "Downloading firmware..."
-for i in 10 30 60 80 100
-do
-  log "progress=$i%"
-  sleep 1
-done
+update VERIFY 60 "Verifying"
+sha256sum $FW || {
+ update FAIL 0 "Checksum fail"
+ exit 1
+}
 
-log "Flashing system (sysupgrade simulation)..."
-sleep 2
+update FLASHING 80 "Flashing"
 
-log "Verifying checksum..."
-sleep 1
+# ⚠️ 真升级（测试先注释）
+# sysupgrade -n $FW
 
-log "SUCCESS: rebooting"
+update REBOOT 95 "Rebooting"
+reboot

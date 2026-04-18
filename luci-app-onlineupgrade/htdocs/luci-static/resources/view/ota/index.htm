@@ -1,45 +1,36 @@
 
 <%+header%>
-<div style="padding:20px">
-<h2>OTA Upgrade V3</h2>
+<h2>OTA V5.1</h2>
 
-<div>
-    <button onclick="startOTA()">Start Upgrade</button>
+<button onclick="start()">Start Upgrade</button>
+
+<div style="width:100%;background:#333;margin-top:10px">
+ <div id="bar" style="width:0%;background:#4caf50;color:#fff">0%</div>
 </div>
 
-<h3>Firmware List</h3>
-<ul id="fw"></ul>
-
-<h3>Progress</h3>
-<pre id="log" style="background:#111;color:#0f0;height:300px;overflow:auto"></pre>
-</div>
+<pre id="log"></pre>
 
 <script>
-async function loadFW(){
-    let r = await fetch("/cgi-bin/luci/admin/services/ota/firmware");
-    let j = await r.json();
-    let ul = document.getElementById("fw");
-    ul.innerHTML="";
-    (j.list||[]).forEach(i=>{
-        let li=document.createElement("li");
-        li.innerHTML=i.name+" - "+i.version;
-        ul.appendChild(li);
-    });
+const ws = new WebSocket("ws://" + location.host + "/ubus");
+
+ws.onmessage = (msg)=>{
+ const d = JSON.parse(msg.data);
+ if(d.method==="ota.event"){
+   let p = d.params.progress;
+   document.getElementById("bar").style.width = p+"%";
+   document.getElementById("bar").innerText = p+"%";
+ }
+};
+
+function start(){
+ fetch('/cgi-bin/luci/admin/services/ota/start');
 }
 
-function startOTA(){
-    fetch("/cgi-bin/luci/admin/services/ota/start");
-    watch();
-}
-
-function watch(){
-    setInterval(async ()=>{
-        let r = await fetch("/cgi-bin/luci/admin/services/ota/status");
-        let j = await r.json();
-        document.getElementById("log").innerText = j.log;
-    },1000);
-}
-
-loadFW();
+setInterval(async ()=>{
+ let r = await fetch('/cgi-bin/luci/admin/services/ota/state');
+ let j = await r.json();
+ document.getElementById("log").innerText = JSON.stringify(j,null,2);
+},1000);
 </script>
+
 <%+footer%>
