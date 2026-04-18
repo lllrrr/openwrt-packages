@@ -1,4 +1,0 @@
-{
-	"config": "luci_socat",
-	"init": "luci_socat"
-}

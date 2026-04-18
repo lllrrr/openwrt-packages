@@ -1,16 +1,10 @@
 {
 	"luci-app-ota": {
-		"description": "Grant access to OTA functionality",
+		"description": "Grant UCI access for luci-app-ota",
 		"read": {
-			"ubus": {
-				"luci.ota": [ "check", "progress" ]
-			},
 			"uci": [ "ota" ]
 		},
 		"write": {
-			"ubus": {
-				"luci.ota": [ "download", "cancel", "apply" ]
-			},
 			"uci": [ "ota" ]
 		}
 	}
