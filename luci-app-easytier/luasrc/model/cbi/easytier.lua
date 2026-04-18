@@ -2,6 +2,11 @@ local http = luci.http
 local nixio = require "nixio"
 
 m = Map("easytier")
+
+-- easytier-core
+s=m:section(TypedSection, "easytier")
+s.addremove=false
+s.anonymous=true
 s:tab("general", translate("General Settings"))
 s:tab("privacy", translate("Advanced Settings"))
 
