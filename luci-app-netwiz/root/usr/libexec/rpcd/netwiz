@@ -1,4 +1,5 @@
 #!/bin/sh
+
 case "$1" in
     list)
         echo '{ "set_network": { "mode": "string", "arg1": "string", "arg2": "string", "arg3": "string", "arg4": "string" } }'
@@ -7,38 +8,50 @@ case "$1" in
     call)
         case "$2" in
             set_network)
-                read -r input
+                input=$(cat)
                 mode=$(echo "$input" | jsonfilter -e '@.mode')
                 arg1=$(echo "$input" | jsonfilter -e '@.arg1')
                 arg2=$(echo "$input" | jsonfilter -e '@.arg2')
                 arg3=$(echo "$input" | jsonfilter -e '@.arg3')
                 arg4=$(echo "$input" | jsonfilter -e '@.arg4')
 
+                # 只要切换到非旁路由模式，强制清除 LAN 口网关残留，并开启 DHCP (ignore=0)
+                cleanup_lan_for_wan_modes() {
+                    uci delete network.lan.gateway 2>/dev/null
+                    uci delete network.lan.dns 2>/dev/null
+                    uci set dhcp.lan.ignore='0'
+                }
+
                 if [ "$mode" = "wan_dhcp" ]; then
+                    cleanup_lan_for_wan_modes
                     uci set network.wan.proto='dhcp'
-                    uci delete network.wan.ipaddr 2>/dev/null
-                    uci delete network.wan.gateway 2>/dev/null
-                    uci delete network.wan.netmask 2>/dev/null
                     uci commit network
+                    uci commit dhcp
                 elif [ "$mode" = "wan_static" ]; then
+                    cleanup_lan_for_wan_modes
                     uci set network.wan.proto='static'
                     uci set network.wan.ipaddr="$arg1"
                     uci set network.wan.gateway="$arg2"
                     uci set network.wan.netmask="$arg3"
                     uci commit network
+                    uci commit dhcp
                 elif [ "$mode" = "pppoe" ]; then
+                    cleanup_lan_for_wan_modes
                     uci set network.wan.proto='pppoe'
                     uci set network.wan.username="$arg1"
                     uci set network.wan.password="$arg2"
-                    uci delete network.wan.ipaddr 2>/dev/null
-                    uci delete network.wan.gateway 2>/dev/null
-                    uci delete network.wan.netmask 2>/dev/null
                     uci commit network
+                    uci commit dhcp
                 elif [ "$mode" = "lan" ]; then
                     uci set network.lan.proto='static'
                     uci set network.lan.ipaddr="$arg1"
                     uci set network.lan.netmask="$arg3"
-                    [ -n "$arg2" ] && uci set network.lan.gateway="$arg2" || uci delete network.lan.gateway 2>/dev/null
+                    if [ -n "$arg2" ]; then
+                        uci set network.lan.gateway="$arg2"
+                    else
+                        uci delete network.lan.gateway 2>/dev/null
+                    fi
+                    
                     if [ "$arg4" = "1" ]; then
                         uci set dhcp.lan.ignore='1'
                         [ -n "$arg2" ] && uci set network.lan.dns="$arg2"
@@ -51,7 +64,7 @@ case "$1" in
                 fi
                 
                 echo '{"result":0}'
-                # 倒数 3 秒后平滑重启，让前端有绝对充足的时间处理跳转
+                # 异步延迟重启，给前端留出返回成功响应的时间
                 ( sleep 3; /etc/init.d/network restart; /etc/init.d/dnsmasq restart ) >/dev/null 2>&1 &
                 exit 0
                 ;;

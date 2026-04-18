@@ -43,6 +43,7 @@ return view.extend({
             '.nw-form-area .cbi-value-title { text-align: left; font-weight: 600; color: #222; font-size: 15px; margin-bottom: 10px; }',
             '.nw-form-area input[type="text"], .nw-form-area input[type="password"] { width: 100%; box-sizing: border-box; padding: 12px 16px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 15px; outline: none; background: #f9fafb; color: #333; transition: border-color 0.2s; }',
             '.nw-form-area input:focus { border-color: #3b82f6; }',
+            'input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus, input:-webkit-autofill:active { -webkit-box-shadow: 0 0 0 1000px #f9fafb inset !important; -webkit-text-fill-color: #333 !important; transition: background-color 5000s ease-in-out 0s; }',
             '.nw-actions { margin-top: 35px; display: flex; justify-content: center; gap: 15px; }',
             '.nw-actions button { border-radius: 8px; padding: 10px 24px; font-weight: 500; font-size: 15px; cursor: pointer; border: none; }',
             '.nw-actions .cbi-button-apply { background: #10b981; color: white; transition: background 0.2s; }',
@@ -75,7 +76,7 @@ return view.extend({
 
             '<div class="nw-wrapper">',
             '  <div class="nw-header">',
-            '    <div class="nw-main-title">网 络 设 置 向 导 <span style="font-size:14px; background:#10b981; padding:4px 10px; border-radius:6px; vertical-align:middle;">V1.01 正式版</span></div>',
+            '    <div class="nw-main-title">网 络 设 置 向 导 <span style="font-size:14px; background:#10b981; padding:4px 10px; border-radius:6px; vertical-align:middle;">V1.07</span></div>',
             '    <p>「 纯净 · 安全 · 零破坏 」的极简网络配置</p>',
             '  </div>',
 
@@ -118,14 +119,14 @@ return view.extend({
             '          </div>',
             '        </div>',
             '        <div id="router-static-fields" style="display: none; margin-top: 10px; border-top: 1px dashed #e5e7eb; padding-top: 15px;">',
-            '          <div class="cbi-value"><label class="cbi-value-title">静态 IP</label><div class="cbi-value-field"><input type="text" id="router-ip" placeholder="例: 192.168.1.2"></div></div>',
-            '          <div class="cbi-value"><label class="cbi-value-title">网关</label><div class="cbi-value-field"><input type="text" id="router-gw" placeholder="例: 192.168.1.1"></div></div>',
+            '          <div class="cbi-value"><label class="cbi-value-title">静态 IP</label><div class="cbi-value-field"><input type="text" id="router-ip" placeholder="例: 192.168.1.2" autocomplete="new-password"></div></div>',
+            '          <div class="cbi-value"><label class="cbi-value-title">网关</label><div class="cbi-value-field"><input type="text" id="router-gw" placeholder="例: 192.168.1.1" autocomplete="new-password"></div></div>',
             '        </div>',
             '      </div>',
             '      <div id="fields-pppoe" style="display: none;">',
             '        <div class="nw-step-title">宽带账号信息</div>',
-            '        <div class="cbi-value"><label class="cbi-value-title">宽带账号</label><div class="cbi-value-field"><input type="text" id="pppoe-user" placeholder="请输入运营商提供的宽带账号"></div></div>',
-            '        <div class="cbi-value"><label class="cbi-value-title">宽带密码</label><div class="cbi-value-field"><input type="password" id="pppoe-pass" placeholder="请输入宽带密码"></div></div>',
+            '        <div class="cbi-value"><label class="cbi-value-title">宽带账号</label><div class="cbi-value-field"><input type="text" id="pppoe-user" placeholder="请输入运营商提供的宽带账号" autocomplete="new-password"></div></div>',
+            '        <div class="cbi-value"><label class="cbi-value-title">宽带密码</label><div class="cbi-value-field"><input type="password" id="pppoe-pass" placeholder="请输入宽带密码" autocomplete="new-password"></div></div>',
             '      </div>',
             '      <div id="fields-lan" style="display: none;">',
             '        <div class="nw-step-title">配置 LAN 口网络</div>',
@@ -133,14 +134,14 @@ return view.extend({
             '           <div style="font-weight: 600; color: #222; font-size: 16px;">启用旁路由模式</div>',
             '           <label class="nw-switch"><input type="checkbox" id="lan-bypass-toggle"><span class="nw-slider"></span></label>',
             '        </div>',
-            '        <div id="lan-bypass-warning" style="display:none; background: #fef2f2; color: #ef4444; padding: 12px; border-radius: 8px; font-size: 16px; margin-bottom: 15px; border: 1px solid #fecaca; line-height: 1.7; letter-spacing: 1px;">',
-            '           <b>旁路由模式开启：</b><br>1、DHCP 将会关闭，设备无法从本机获取 IP！设备需上级路由获取或手动设置静态 IP。<br>2、局域网网关必须填写上级主路由 IP。</b><br>3、本机 IP 如有变更，请确保访问设备与修改后ip同一网段，否则将<b style="color: rgb(5,150,105); font-size: 18px;">无法访问本路由器！',
+            '        <div id="lan-bypass-warning" style="display:none; background: #fef2f2; color: #ef4444; padding: 12px; border-radius: 8px; font-size: 14px; margin-bottom: 15px; border: 1px solid #fecaca; line-height: 1.7; letter-spacing: 1px;">',
+            '           <b>旁路由模式开启：</b><br>1、DHCP 将会关闭，设备无法从本机获取 IP。<br>2、网关必须填写上级主路由 IP。<br>3、本机 IP 如有变更，请确保访问端与修改后 IP 处于同一网段，否则将<b style="color: #059669;">无法访问本路由器</b>！',
             '        </div>',
-            '        <div id="lan-main-warning" style="background: #f0fdf4; color: #059669; padding: 12px; border-radius: 8px; font-size: 16px; margin-bottom: 15px; border: 1px solid #bbf7d0; line-height: 1.7; letter-spacing: 1px;">',
-            '           <b>主路由模式开启：</b><br>1、DHCP 将会开启，本机负责分配 IP！<br>2、正常情况局域网网关无需填写。<br>3、本机 IP 如有变更，请确保访问设备与修改后ip同一网段，否则将<b style="color: #dc2626; font-size: 18px;">无法访问本路由器</b>！',
+            '        <div id="lan-main-warning" style="background: #f0fdf4; color: #059669; padding: 12px; border-radius: 8px; font-size: 14px; margin-bottom: 15px; border: 1px solid #bbf7d0; line-height: 1.7; letter-spacing: 1px;">',
+            '           <b>主路由模式开启：</b><br>1、DHCP 将会开启，本机负责分配 IP。<br>2、主路由网关通常留空。<br>3、本机 IP 如有变更，请确保访问端与修改后 IP 处于同一网段，否则将<b style="color: #dc2626;">无法访问本路由器</b>！',
             '        </div>',
-            '        <div class="cbi-value"><label class="cbi-value-title">本机局域网 IP</label><div class="cbi-value-field"><input type="text" id="lan-ip" placeholder="例: 192.168.1.2"></div></div>',
-            '        <div class="cbi-value"><label class="cbi-value-title">局域网网关</label><div class="cbi-value-field"><input type="text" id="lan-gw" placeholder="主路由留空，旁路由必填"></div></div>',
+            '        <div class="cbi-value"><label class="cbi-value-title">本机局域网 IP</label><div class="cbi-value-field"><input type="text" id="lan-ip" placeholder="例: 192.168.1.2" autocomplete="new-password"></div></div>',
+            '        <div class="cbi-value"><label class="cbi-value-title">局域网网关</label><div class="cbi-value-field"><input type="text" id="lan-gw" placeholder="主路由留空，旁路由必填" autocomplete="new-password"></div></div>',
             '      </div>',
             '    </div>',
             '    <div class="nw-actions"><button id="btn-back-1" class="cbi-button cbi-button-reset">返回</button><button id="btn-next-2" class="cbi-button cbi-button-apply">下一步</button></div>',
@@ -153,8 +154,8 @@ return view.extend({
             '      <div id="confirm-mode-text" style="color: #fff; background: #3b82f6; padding: 20px; border-radius: 12px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); margin-top: 15px;"></div>',
             '      <div style="background-color: #f8fafc; padding: 15px; font-size: 13.5px; margin-top: 20px; border: 1px solid #e2e8f0; line-height: 1.7; color: #475569; border-radius: 12px;">',
             '        <div style="font-weight: bold; color: #0f172a; margin-bottom: 8px; font-size: 14.5px;">配置生效说明：</div>',
-            '        <div style="display: flex; gap: 8px;"><span style="color:#3b82f6;">•</span> <span>点击确认后，底层网络将自动重置并应用新配置。</span></div>',
-            '        <div style="display: flex; gap: 8px;"><span style="color:#10b981;">•</span> <span>若修改了局域网 IP，系统将在几秒后自动为您跳转。</span></div>',
+            '        <div style="display: flex; gap: 8px;"><span style="color:#3b82f6;">•</span> <span>点击确认后，底层网络将自动重启并应用新配置。</span></div>',
+            '        <div style="display: flex; gap: 8px;"><span style="color:#10b981;">•</span> <span>系统将在 10 秒后为您自动刷新或跳转。</span></div>',
             '      </div>',
             '    </div>',
             '    <div class="nw-actions"><button id="btn-back-2" class="cbi-button cbi-button-reset">返回</button><button id="btn-apply" class="cbi-button cbi-button-apply">确认应用</button></div>',
@@ -175,50 +176,76 @@ return view.extend({
         var modeTextEl = container.querySelector('#current-mode-text');
         var selectedMode = '';
 
-        Promise.all([
-            uci.load('network'),
-            uci.load('dhcp').catch(function(){})
-        ]).then(function() {
-            var wProto = String(uci.get('network', 'wan', 'proto') || '').trim().toLowerCase();
-            var wIp = String(uci.get('network', 'wan', 'ipaddr') || '未获取').trim();
-            var wGw = String(uci.get('network', 'wan', 'gateway') || '未获取').trim();
-
-            var lIp = String(uci.get('network', 'lan', 'ipaddr') || window.location.hostname).trim();
-            var lGw = String(uci.get('network', 'lan', 'gateway') || '未设置').trim();
-            var lIgnore = String(uci.get('dhcp', 'lan', 'ignore') || '').trim();
-            var isBypass = (lIgnore === '1' || lIgnore === 'true' || lIgnore === 'on' || lIgnore === 'yes');
-
-            var sTitle = "";
-            var sDetails = "";
-
-            if (isBypass) {
-                sTitle = "旁路由模式";
-                sDetails = "本机 IP: <span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;网关: <span class='nw-hl'>" + lGw + "</span>";
-            } else if (wProto === 'pppoe') {
-                var pUser = String(uci.get('network', 'wan', 'username') || '未设置').trim();
-                sTitle = "主路由 (宽带拨号)";
-                sDetails = "局域网 IP: <span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;拨号账号: <span class='nw-hl'>" + pUser + "</span>";
-            } else if (wProto === 'static') {
-                sTitle = "二级路由 (静态 IP)";
-                sDetails = "局域网: <span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;WAN IP: <span class='nw-hl'>" + wIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;网关: <span class='nw-hl'>" + wGw + "</span>";
-            } else if (wProto === 'dhcp') {
-                sTitle = "二级路由 (动态 DHCP)";
-                sDetails = "局域网 IP: <span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;WAN 状态: <span class='nw-hl'>自动获取中...</span>";
-            } else {
-                sTitle = "局域网模式";
-                sDetails = "局域网 IP: <span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;DHCP 服务: <span class='nw-hl'>正常开启</span>";
-            }
-
+        function updateStatusDisplay() {
             if (modeTextEl) {
-                modeTextEl.innerHTML = "<div style='font-size:17px; font-weight:600; margin-bottom:10px; color:#ffffff;'>" + sTitle + "</div>" +
-                                       "<div style='font-size:15px; font-weight:bold; color:#ffffff; font-family:monospace; letter-spacing:0.5px;'>" + sDetails + "</div>";
+                modeTextEl.innerHTML = "<div class='nw-spinner' style='width:30px; height:30px; border-width:3px; margin: 0 auto; border-top-color: #fff;'></div><div style='margin-top:10px; font-size:15px; font-weight:bold; color:#fff;'>读取底层配置中...</div>";
             }
-        }).catch(function() {
-            if (modeTextEl) modeTextEl.innerHTML = "<div style='color:#ef4444; font-weight:bold;'>无法读取系统底层配置</div>";
-        });
+            uci.unload('network');
+            uci.unload('dhcp');
+            
+            Promise.all([
+                uci.load('network'),
+                uci.load('dhcp').catch(function(){})
+            ]).then(function() {
+                var wProto = String(uci.get('network', 'wan', 'proto') || '').trim().toLowerCase();
+                var wIp = String(uci.get('network', 'wan', 'ipaddr') || '未获取').trim();
+                var wGw = String(uci.get('network', 'wan', 'gateway') || '未获取').trim();
+
+                var lIp = String(uci.get('network', 'lan', 'ipaddr') || window.location.hostname).trim();
+                var lGw = String(uci.get('network', 'lan', 'gateway') || '未设置').trim();
+                var lIgnore = String(uci.get('dhcp', 'lan', 'ignore') || '').trim();
+                var isBypass = (lIgnore === '1' || lIgnore === 'true' || lIgnore === 'on' || lIgnore === 'yes');
+
+                var sTitle = "";
+                var sDetails = "";
+
+                if (isBypass) {
+                    sTitle = "旁路由模式";
+                    sDetails = "本机 IP: <span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;网关: <span class='nw-hl'>" + lGw + "</span>";
+                } else if (wProto === 'pppoe') {
+                    var pUser = String(uci.get('network', 'wan', 'username') || '未设置').trim();
+                    sTitle = "主路由 (宽带拨号)";
+                    sDetails = "局域网 IP: <span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;拨号账号: <span class='nw-hl'>" + pUser + "</span>";
+                } else if (wProto === 'static') {
+                    sTitle = "二级路由 (静态 IP)";
+                    sDetails = "局域网 IP: <span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;WAN IP: <span class='nw-hl'>" + wIp + "</span>";
+                } else if (wProto === 'dhcp') {
+                    sTitle = "二级路由 (动态 DHCP)";
+                    sDetails = "局域网 IP: <span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;WAN 状态: <span class='nw-hl'>自动获取中...</span>";
+                } else {
+                    sTitle = "局域网模式";
+                    sDetails = "局域网 IP: <span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;DHCP 服务: <span class='nw-hl'>开启</span>";
+                }
+
+                if (modeTextEl) {
+                    modeTextEl.innerHTML = "<div style='font-size:17px; font-weight:600; margin-bottom:10px; color:#ffffff;'>" + sTitle + "</div>" +
+                                           "<div style='font-size:15px; font-weight:bold; color:#ffffff; font-family:monospace; letter-spacing:0.5px;'>" + sDetails + "</div>";
+                }
+            }).catch(function() {
+                if (modeTextEl) modeTextEl.innerHTML = "<div style='color:#ef4444; font-weight:bold;'>系统配置读取异常</div>";
+            });
+        }
+
+        updateStatusDisplay();
 
         function calculateNetmask(ip) { return '255.255.255.0'; }
 
+        // 💡 极其严格的格式校验器（防乱填）
+        function isValidIP(ip) {
+            if (!ip) return false;
+            var parts = ip.split('.');
+            if (parts.length !== 4) return false;
+            for (var i = 0; i < 4; i++) {
+                var num = parseInt(parts[i], 10);
+                if (isNaN(num) || num < 0 || num > 255 || String(num) !== parts[i]) return false;
+            }
+            if (parts[0] === '0' || parts[0] === '127') return false;
+            var lastPart = parseInt(parts[3], 10);
+            if (lastPart === 0 || lastPart === 255) return false;
+            return true;
+        }
+
+        // 💡 同网段拦截器
         function isSameSubnet(ip1, ip2) {
             if (!ip1 || !ip2) return false;
             var p1 = ip1.split('.');
@@ -293,7 +320,7 @@ return view.extend({
 
         container.querySelectorAll('.nw-card').forEach(function (card) {
             card.addEventListener('click', function () {
-                selectedMode = this.getAttribute('data-mode');
+                selectedMode = card.getAttribute('data-mode');
                 step1.style.display = 'none';
                 container.querySelector('#fields-router').style.display = (selectedMode === 'router') ? 'block' : 'none';
                 container.querySelector('#fields-pppoe').style.display = (selectedMode === 'pppoe') ? 'block' : 'none';
@@ -305,178 +332,160 @@ return view.extend({
         container.querySelector('#btn-back-1').addEventListener('click', function () { step2.style.display = 'none'; step1.style.display = 'block'; });
         container.querySelector('#btn-back-2').addEventListener('click', function () { step3.style.display = 'none'; step2.style.display = 'block'; });
 
+        // 💡 核心校验步骤 (加入 try-catch 防止崩溃无响应)
         container.querySelector('#btn-next-2').addEventListener('click', function () {
-            var rType = container.querySelector('input[name="router_type"]:checked').value;
-            var targetIp = '', targetGw = '', isBypass = false;
+            try {
+                var rTypeEl = container.querySelector('input[name="router_type"]:checked');
+                var rType = rTypeEl ? rTypeEl.value : 'dhcp';
+                var targetIp = '', targetGw = '', isBypass = false;
 
-            if (selectedMode === 'lan') {
-                targetIp = container.querySelector('#lan-ip').value.replace(/[^0-9\.]/g, '');
-                targetGw = container.querySelector('#lan-gw').value.replace(/[^0-9\.]/g, '');
-                isBypass = bypassToggle.checked;
-                
-                if (!targetIp) { openModal({title:'信息不完整', msg:'本机 IP 不能为空。', okText:'返回修改'}); return; }
-                
-                if (isBypass) {
-                    if (!targetGw) { openModal({title:'逻辑错误', msg:'开启【旁路由模式】时，必须填写上级主路由的【网关 IP】。', okText:'返回修改'}); return; }
-                    if (targetIp === targetGw) { openModal({title:'致命错误', msg:'旁路由的【本机 IP】绝不能与【网关】相同，否则会导致局域网死循环！', okText:'返回修改'}); return; }
-                    if (!isSameSubnet(targetIp, targetGw)) { openModal({title:'网段错误', msg:'旁路由的【本机 IP】必须与【网关】处于同一网段！<br>例如: IP 192.168.1.2，网关必须是 192.168.1.x。', okText:'返回修改'}); return; }
-                }
-                
-            } else if (selectedMode === 'router' && rType === 'static') {
-                targetIp = container.querySelector('#router-ip').value.replace(/[^0-9\.]/g, '');
-                targetGw = container.querySelector('#router-gw').value.replace(/[^0-9\.]/g, '');
-                
-                if (!targetIp || !targetGw) { openModal({title:'信息不完整', msg:'WAN 口静态 IP 和网关均不能为空。', okText:'返回修改'}); return; }
-                if (targetIp === targetGw) { openModal({title:'致命错误', msg:'WAN 口的【静态 IP】绝不能与上级【网关】相同！', okText:'返回修改'}); return; }
-                if (!isSameSubnet(targetIp, targetGw)) { openModal({title:'网段错误', msg:'WAN 口的【静态 IP】必须与上级【网关】处于同一网段！<br>例如：网关是 192.168.1.1，那静态 IP 必须填写 192.168.1.x。', okText:'返回修改'}); return; }
-                
-            } else if (selectedMode === 'pppoe') {
-                if (!(container.querySelector('#pppoe-user').value || '').trim() || !(container.querySelector('#pppoe-pass').value || '').trim()) { 
-                    openModal({title: '信息不完整', msg: '宽带账号和密码均不能为空。', okText: '返回修改'}); return; 
-                }
-            }
-
-            uci.unload('network');
-            uci.unload('dhcp');
-
-            Promise.all([
-                uci.load('network'),
-                uci.load('dhcp').catch(function(){}) 
-            ]).then(function() {
-                var wIp = String(uci.get('network', 'wan', 'ipaddr') || '').replace(/[^0-9\.]/g, '');
-                var wProto = String(uci.get('network', 'wan', 'proto') || '').trim();
-                var lIp = String(uci.get('network', 'lan', 'ipaddr') || '').replace(/[^0-9\.]/g, '');
-                if(!lIp) lIp = window.location.hostname;
-
-                var uniqueIps = [];
-                var interfaces = uci.sections('network', 'interface');
-                for (var i = 0; i < interfaces.length; i++) {
-                    var ip = String(interfaces[i].ipaddr || '').replace(/[^0-9\.]/g, '');
-                    if (ip && ip !== '127.0.0.1' && uniqueIps.indexOf(ip) === -1) {
-                        uniqueIps.push(ip);
+                if (selectedMode === 'lan') {
+                    targetIp = container.querySelector('#lan-ip').value.trim();
+                    targetGw = container.querySelector('#lan-gw').value.trim();
+                    isBypass = bypassToggle.checked;
+                    
+                    if (!targetIp) { openModal({title:'信息不完整', msg:'本机 IP 不能为空。', okText:'返回修改'}); return; }
+                    if (!isValidIP(targetIp)) { openModal({title:'IP 格式错误', msg:'您填写的本机 IP 不合法，请检查！', okText:'返回修改'}); return; }
+                    
+                    if (isBypass) {
+                        if (!targetGw) { openModal({title:'逻辑错误', msg:'开启旁路由模式必须填写上级网关 IP。', okText:'返回修改'}); return; }
+                        if (!isValidIP(targetGw)) { openModal({title:'网关格式错误', msg:'您填写的网关 IP 不合法，请检查！', okText:'返回修改'}); return; }
+                    } else {
+                        if (targetGw && !isValidIP(targetGw)) { openModal({title:'网关格式错误', msg:'您填写的网关 IP 不合法，请检查！', okText:'返回修改'}); return; }
+                    }
+                } else if (selectedMode === 'router' && rType === 'static') {
+                    targetIp = container.querySelector('#router-ip').value.trim();
+                    targetGw = container.querySelector('#router-gw').value.trim();
+                    
+                    if (!targetIp || !targetGw) { openModal({title:'信息不完整', msg:'静态 IP 和网关均不能为空。', okText:'返回修改'}); return; }
+                    if (!isValidIP(targetIp)) { openModal({title:'IP 格式错误', msg:'WAN 口 IP 不合法，请检查！', okText:'返回修改'}); return; }
+                    if (!isValidIP(targetGw)) { openModal({title:'网关格式错误', msg:'上级网关 IP 不合法，请检查！', okText:'返回修改'}); return; }
+                } else if (selectedMode === 'pppoe') {
+                    if (!(container.querySelector('#pppoe-user').value || '').trim() || !(container.querySelector('#pppoe-pass').value || '').trim()) { 
+                        openModal({title: '信息不完整', msg: '宽带账号和密码均不能为空。', okText: '返回修改'}); return; 
                     }
                 }
 
-                var lDhcp = String(uci.get('dhcp', 'lan', 'ignore') || '').trim();
-                if (lDhcp === '1' || lDhcp === 'true' || lDhcp === 'on' || lDhcp === 'yes') lDhcp = '1'; else lDhcp = '0';
-                var bypassStr = isBypass ? '1' : '0';
-
-                if ((selectedMode === 'lan' && targetIp === lIp && targetGw === String(uci.get('network', 'lan', 'gateway') || '') && bypassStr === lDhcp) || 
-                    (selectedMode === 'router' && rType === 'static' && targetIp === wIp && targetGw === String(uci.get('network', 'wan', 'gateway') || '')) ||
-                    (selectedMode === 'router' && rType === 'dhcp' && wProto === 'dhcp')) {
-                     openModal({title:'无需修改', msg:'您的设置与当前路由器配置完全一致。', okText:'退出首页', onOk: returnToStep1 }); 
-                     return;
-                }
-
-                var otherIps = uniqueIps.filter(function(ip) {
-                    if (selectedMode === 'lan' && ip === lIp) return false;
-                    if (selectedMode === 'router' && rType === 'static' && ip === wIp) return false;
-                    return true;
-                });
-
-                var conflictMsg = '';
-                for (var k = 0; k < otherIps.length; k++) {
-                    var existIp = otherIps[k];
-                    if (targetIp === existIp) {
-                        conflictMsg = '您填写的 IP ('+ targetIp +') 与路由器上的其他物理网口完全冲突！<br>请重新修改。';
-                        break;
+                uci.load('network').then(function() {
+                    var currentLanIp = String(uci.get('network', 'lan', 'ipaddr') || window.location.hostname).replace(/[^0-9\.]/g, '');
+                    var currentLanGw = String(uci.get('network', 'lan', 'gateway') || '').replace(/[^0-9\.]/g, '');
+                    
+                    var currentWanProto = String(uci.get('network', 'wan', 'proto') || '').trim();
+                    var currentWanIp = '';
+                    if (currentWanProto === 'static') {
+                        currentWanIp = String(uci.get('network', 'wan', 'ipaddr') || '').replace(/[^0-9\.]/g, '');
                     }
-                    if (isSameSubnet(targetIp, existIp)) {
-                        conflictMsg = '您填写的 IP 与路由器上的其他网口 (' + existIp + ') 处于同一网段 (' + existIp.substring(0, existIp.lastIndexOf('.')) + '.x)！<br>这会导致底层的路由死循环，请更换网段。';
-                        break;
+                    var currentWanGw = String(uci.get('network', 'wan', 'gateway') || '').replace(/[^0-9\.]/g, '');
+                    
+                    var lDhcp = String(uci.get('dhcp', 'lan', 'ignore') || '').trim();
+                    var currentBypass = (lDhcp === '1' || lDhcp === 'true' || lDhcp === 'on' || lDhcp === 'yes') ? '1' : '0';
+                    var newBypass = bypassToggle.checked ? '1' : '0';
+
+                    if ((selectedMode === 'lan' && targetIp === currentLanIp && targetGw === currentLanGw && newBypass === currentBypass) ||
+                        (selectedMode === 'router' && rType === 'static' && targetIp === currentWanIp && targetGw === currentWanGw) ||
+                        (selectedMode === 'router' && rType === 'dhcp' && currentWanProto === 'dhcp')) {
+                         openModal({title:'无需修改', msg:'您的设置与当前路由器底层配置完全一致。', okText:'退出首页', onOk: returnToStep1 });
+                         return;
                     }
-                }
 
-                if (conflictMsg) { 
-                    openModal({title: '网段冲突拦截', msg: conflictMsg, okText: '返回修改'}); return; 
-                }
-
-                var buildDetailHtml = function(title, pairs) {
-                    var h = "<div style='text-align:center; font-size:18px; margin-bottom:15px; text-shadow: 0 1px 2px rgba(0,0,0,0.2);'>" + title + "</div>";
-                    h += "<div style='background:rgba(0,0,0,0.15); border-radius:8px; padding:10px 15px; font-size:14.5px; text-align:left; font-weight:normal; line-height:1.8;'>";
-                    for (var i=0; i < pairs.length; i++) {
-                        h += "<div style='display:flex; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,0.1); padding:5px 0;'>" + 
-                             "<span style='opacity:0.85;'>" + pairs[i][0] + "</span>" + 
-                             "<span style='font-family:monospace; font-size:15px;'>" + pairs[i][1] + "</span></div>";
+                    if (selectedMode === 'router' && rType === 'static') {
+                        if (targetIp === currentLanIp) { openModal({title:'IP 冲突拦截', msg:'您填写的 WAN 口 IP 不能与本机现有的局域网 IP ('+currentLanIp+') 相同！', okText:'返回修改'}); return; }
+                        if (isSameSubnet(targetIp, currentLanIp)) { openModal({title:'网段冲突拦截', msg:'您填写的 WAN 口不能与局域网 ('+currentLanIp+') 处于同一网段！<br>这会导致路由器死循环，请更换网段。', okText:'返回修改'}); return; }
+                        if (targetIp === targetGw) { openModal({title:'逻辑错误', msg:'WAN 口静态 IP 绝不能与网关相同！', okText:'返回修改'}); return; }
+                        if (!isSameSubnet(targetIp, targetGw)) { 
+                            var gwPrefix = targetGw.substring(0, targetGw.lastIndexOf('.'));
+                            openModal({title:'网段错误', msg:'WAN 口的【静态 IP】必须与上级【网关】处于同一网段！<br>例如：网关是 ' + targetGw + '，那 IP 必须是 ' + gwPrefix + '.x。', okText:'返回修改'}); 
+                            return; 
+                        }
                     }
-                    h += "</div>";
-                    return h;
-                };
 
-                var goStep3 = function() {
-                    var modeText = "";
                     if (selectedMode === 'lan') {
                         if (isBypass) {
-                            modeText = buildDetailHtml("局域网 - 旁路由模式", [
-                                ["设备 IP", targetIp],
-                                ["子网掩码", "255.255.255.0"],
-                                ["上级网关", targetGw],
-                                ["DHCP 服务", "已关闭"]
-                            ]);
-                        } else {
-                            modeText = buildDetailHtml("局域网 - 主路由模式", [
-                                ["设备 IP", targetIp],
-                                ["子网掩码", "255.255.255.0"],
-                                ["本机网关", targetGw ? targetGw : "未填写 (推荐)"],
-                                ["DHCP 服务", "正常开启"]
-                            ]);
+                            if (targetIp === targetGw) { openModal({title:'致命错误', msg:'旁路由的【本机 IP】绝不能与【网关】相同！', okText:'返回修改'}); return; }
+                            if (!isSameSubnet(targetIp, targetGw)) { openModal({title:'网段错误', msg:'旁路由的【本机 IP】必须与【网关】处于同一网段！', okText:'返回修改'}); return; }
                         }
-                    } else if (selectedMode === 'router') {
-                        if (rType === 'static') {
-                            modeText = buildDetailHtml("二级路由 (静态 IP)", [
-                                ["WAN IP", targetIp],
-                                ["子网掩码", "255.255.255.0"],
-                                ["上级网关", targetGw]
-                            ]);
-                        } else {
-                            modeText = buildDetailHtml("二级路由 (动态 DHCP)", [
-                                ["获取方式", "自动获取 (DHCP)"],
-                                ["IP及网关", "由上级路由自动分配"]
-                            ]);
-                        }
-                    } else if (selectedMode === 'pppoe') {
-                        var user = container.querySelector('#pppoe-user').value;
-                        modeText = buildDetailHtml("宽带拨号 (PPPoE)", [
-                            ["宽带账号", user],
-                            ["宽带密码", "******"]
-                        ]);
+                        if (currentWanIp && targetIp === currentWanIp) { openModal({title:'IP 冲突拦截', msg:'局域网 IP 不能与现有的 WAN 口 IP ('+currentWanIp+') 相同！', okText:'返回修改'}); return; }
+                        if (currentWanIp && isSameSubnet(targetIp, currentWanIp)) { openModal({title:'网段冲突拦截', msg:'局域网不能与 WAN 口 ('+currentWanIp+') 处于同一网段！请更换网段。', okText:'返回修改'}); return; }
                     }
-                    
-                    confirmText.innerHTML = modeText;
-                    step2.style.display = 'none'; 
-                    step3.style.display = 'block';
-                };
 
-                if (selectedMode === 'lan' && !isBypass && targetGw !== '') {
-                    openModal({
-                        title: '主路由配置警告', 
-                        msg: '检测到您选择了【主路由模式】，却强行填写了【网关】。<br><br><b>在标准主路由下，网关必须留空。</b>乱填网关会导致设备无法正常分发网络导致全屋断网！<br><br>您确定要这么做吗？', 
-                        cancelText: '返回修改', onCancel: closeModal, 
-                        okText: '强行应用', isDanger: true, onOk: function() { closeModal(); goStep3(); }
-                    });
-                    return;
-                }
+                    var buildDetailHtml = function(title, pairs) {
+                        var h = "<div style='text-align:center; font-size:18px; margin-bottom:15px;'>" + title + "</div>";
+                        h += "<div style='background:rgba(0,0,0,0.15); border-radius:8px; padding:10px 15px; font-size:14.5px;'>";
+                        for (var i=0; i < pairs.length; i++) {
+                            h += "<div style='display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid rgba(255,255,255,0.1);'>" + 
+                                 "<span style='opacity:0.8;'>" + pairs[i][0] + "</span>" + 
+                                 "<span style='font-family:monospace;'>" + pairs[i][1] + "</span></div>";
+                        }
+                        h += "</div>";
+                        return h;
+                    };
 
-                goStep3();
+                    var goStep3 = function() {
+                        var modeText = "";
+                        if (selectedMode === 'lan') {
+                            modeText = buildDetailHtml(isBypass ? "局域网 - 旁路由模式" : "局域网 - 主路由模式", [
+                                ["设备 IP", targetIp], ["网关", targetGw || "未配置"], ["DHCP", isBypass ? "已关闭" : "正常开启"]
+                            ]);
+                        } else if (selectedMode === 'router') {
+                            if (rType === 'static') {
+                                modeText = buildDetailHtml("二级路由 (静态 IP)", [
+                                    ["WAN IP", targetIp],
+                                    ["子网掩码", "255.255.255.0"],
+                                    ["上级网关", targetGw]
+                                ]);
+                            } else {
+                                modeText = buildDetailHtml("二级路由 (动态 DHCP)", [
+                                    ["获取方式", "自动获取 (DHCP)"],
+                                    ["IP及网关", "由上级路由自动分配"]
+                                ]);
+                            }
+                        } else if (selectedMode === 'pppoe') {
+                            modeText = buildDetailHtml("宽带拨号 (PPPoE)", [
+                                ["账号", container.querySelector('#pppoe-user').value], ["密码", "已隐藏"]
+                            ]);
+                        }
+                        confirmText.innerHTML = modeText;
+                        step2.style.display = 'none'; 
+                        step3.style.display = 'block';
+                    };
 
-            }).catch(function() {
-                openModal({title:'状态读取异常', msg:'无法读取路由器底层配置，请刷新页面后重试。', okText:'好的'});
-            });
+                    if (selectedMode === 'lan' && !isBypass && targetGw !== '') {
+                        openModal({
+                            title: '主路由配置警告',
+                            msg: '检测到您选择了【主路由模式】，却强行填写了【网关】。<br><br><b>在标准主路由下，网关必须留空。</b>乱填网关会导致设备无法正常分发网络，进而导致全屋断网！<br><br>您确定要这么做吗？',
+                            cancelText: '返回修改', onCancel: closeModal,
+                            okText: '强行应用', isDanger: true, onOk: function() { closeModal(); goStep3(); }
+                        });
+                        return;
+                    }
+
+                    goStep3();
+
+                }).catch(function(e) {
+                    openModal({title:'系统异常', msg:'无法读取底层配置进行校验，请刷新网页重试。', okText:'关闭'});
+                });
+
+            } catch (err) {
+                console.error("NetWiz Logic Error: ", err);
+                openModal({title:'代码运行错误', msg:'抱歉，发生了意外的逻辑错误。请强制刷新页面 (Ctrl+F5) 后重试。', okText:'关闭'});
+            }
         });
 
         container.querySelector('#btn-apply').addEventListener('click', function () {
             var actualMode = selectedMode, arg1 = '', arg2 = '', arg3 = '', arg4 = '';
+            var rTypeEl = container.querySelector('input[name="router_type"]:checked');
+            var rType = rTypeEl ? rTypeEl.value : 'dhcp';
+            
             if (selectedMode === 'lan') {
-                arg1 = container.querySelector('#lan-ip').value.replace(/[^0-9\.]/g, '');
-                arg2 = container.querySelector('#lan-gw').value.replace(/[^0-9\.]/g, '');
+                arg1 = container.querySelector('#lan-ip').value.trim();
+                arg2 = container.querySelector('#lan-gw').value.trim();
                 arg3 = calculateNetmask(arg1);
-                arg4 = container.querySelector('#lan-bypass-toggle').checked ? '1' : '0';
+                arg4 = bypassToggle.checked ? '1' : '0';
             } else if (selectedMode === 'router') {
-                var rType = container.querySelector('input[name="router_type"]:checked').value;
                 actualMode = (rType === 'dhcp') ? 'wan_dhcp' : 'wan_static';
                 if(rType === 'static') {
-                    arg1 = container.querySelector('#router-ip').value.replace(/[^0-9\.]/g, '');
-                    arg2 = container.querySelector('#router-gw').value.replace(/[^0-9\.]/g, '');
+                    arg1 = container.querySelector('#router-ip').value.trim();
+                    arg2 = container.querySelector('#router-gw').value.trim();
                     arg3 = calculateNetmask(arg1);
                 }
             } else if (selectedMode === 'pppoe') {
@@ -484,21 +493,20 @@ return view.extend({
                 arg2 = container.querySelector('#pppoe-pass').value;
             }
 
-            openModal({title:'正在下发指令', msg:'正在请求路由器写入底层配置...', spin:true});
+            openModal({title:'正在下发配置', msg:'请求写入中，请稍候...', spin:true});
             
             var startTime = Date.now();
             var rpcDone = false;
             
             var handleSuccess = function() {
-                if (selectedMode === 'lan' && arg1) {
-                    openModal({
-                        title: '配置已生效', 
-                        msg: '正在为您跳转至新管理地址：<br><b>' + arg1 + '</b>', 
-                        spin: true
-                    });
-                    setTimeout(function() { window.location.href = 'http://' + arg1; }, 5000);
+                var currentHost = window.location.hostname;
+                
+                if (selectedMode === 'lan' && arg1 && arg1 !== currentHost) {
+                    openModal({ title: '配置已生效', msg: '检测到本机 IP 已变更。<br>即将为您跳转至新管理地址：<br><b>' + arg1 + '</b>', spin: true });
+                    setTimeout(function() { window.location.href = 'http://' + arg1; }, 10000);
                 } else {
-                    openModal({title: '配置已生效', msg: '网络设置已成功更新。', okText: '完成', onOk: function(){ location.reload(); }});
+                    openModal({ title: '正在应用配置', msg: '底层网络正在重置，请稍候...<br><br><span style="font-size: 14px; color: #555;">(系统将在 10 秒后自动刷新并展示最新状态)</span>', spin: true });
+                    setTimeout(function() { location.reload(); }, 10000); 
                 }
             };
             
@@ -511,9 +519,8 @@ return view.extend({
                     rpcDone = true;
                     openModal({
                         title: '❌ 写入失败', 
-                        msg: '底层调用被拒绝！可能是系统插件权限 (ACL) 配置有误，请重新安装该插件或重新登录后台。<br><br><span style="font-size:12px; color:#888;">系统错误码: ' + (e.message || 'Permission Denied') + '</span>', 
-                        okText: '关闭',
-                        isDanger: true
+                        msg: '底层调用异常，请尝试重新登录后台或检查权限配置。<br><small>错误码：' + (e.message || 'Unknown') + '</small>', 
+                        okText: '关闭', isDanger: true
                     });
                 } else {
                     rpcDone = true;
@@ -521,11 +528,7 @@ return view.extend({
                 }
             });
 
-            setTimeout(function() {
-                if (!rpcDone) {
-                    handleSuccess();
-                }
-            }, 4000);
+            setTimeout(function() { if (!rpcDone) handleSuccess(); }, 8000);
         });
     }
 });
