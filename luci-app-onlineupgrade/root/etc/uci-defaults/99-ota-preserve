@@ -1,0 +1,18 @@
+#!/bin/sh
+
+# 定义需要保护的文件列表
+FILES_TO_KEEP="
+/usr/lib/lua/luci/controller/ota.lua
+/usr/lib/lua/luci/view/ota/index.htm
+/etc/config/ota
+/usr/bin/ota.sh
+/usr/share/rpcd/acl.d/luci-app-onlineupgrade.json
+"
+
+for file in $FILES_TO_KEEP; do
+    if [ -f "$file" ]; then
+        grep -q "$file" /etc/sysupgrade.conf || echo "$file" >> /etc/sysupgrade.conf
+    fi
+done
+
+exit 0

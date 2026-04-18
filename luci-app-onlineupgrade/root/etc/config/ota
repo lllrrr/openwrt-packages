@@ -1,3 +1,7 @@
-
-config ota 'main'
-    option url 'https://example.com/firmware.json'
+config ota 'settings'
+	option url 'https://api.github.com/repos/YOUR_USER/YOUR_REPO/releases/latest'
+	option auto_update '0'
+	option backup_plugins '1'
+	option download_proxy '0'  # 0: 直连, 1: 开启加速
+	option custom_proxy_url 'https://mirror.ghproxy.com/'
+	option github_token ''

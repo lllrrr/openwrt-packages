@@ -1,9 +1,9 @@
 {
 	"luci-app-netwiz": {
-		"description": "Grant access to NetWiz RPC procedures",
+		"description": "Grant access to Network Wizard RPC",
 		"read": {
 			"ubus": {
-				"netwiz": [ "list" ]
+				"netwiz": [ "set_network" ]
 			}
 		},
 		"write": {

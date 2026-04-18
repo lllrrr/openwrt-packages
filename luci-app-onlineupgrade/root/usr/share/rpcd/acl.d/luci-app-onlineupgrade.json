@@ -1,0 +1,18 @@
+{
+    "luci-app-onlineupgrade": {
+        "description": "OTA 插件执行权限",
+        "read": {
+            "file": {
+                "/tmp/ota_state.json": [ "read" ]
+            }
+        },
+        "write": {
+            "exec": {
+                "/usr/bin/ota.sh": [ "launch" ]
+            },
+            "file": {
+                "/tmp/ota_state.json": [ "write" ]
+            }
+        }
+    }
+}

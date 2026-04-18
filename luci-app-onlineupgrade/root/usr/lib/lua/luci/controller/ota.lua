@@ -1,25 +1,19 @@
--- 注意：新版 LuCI 必须移除 module("luci.controller.ota", package.seeall)
 local m = {}
 
 function m.index()
     local page = entry({"admin", "services", "ota"}, alias("admin", "services", "ota", "client"), _("OTA 升级"), 60)
     page.dependent = true
-
     entry({"admin", "services", "ota", "client"}, template("ota/index"), _("固件升级"), 10).leaf = true
     entry({"admin", "services", "ota", "config"}, cbi("ota"), _("设置"), 20).leaf = true
-
-    -- API 映射
     entry({"admin", "services", "ota", "info"}, call("get_info")).leaf = true
     entry({"admin", "services", "ota", "check_update"}, call("get_remote_info")).leaf = true
     entry({"admin", "services", "ota", "start"}, call("start_upgrade")).leaf = true
     entry({"admin", "services", "ota", "state"}, call("get_state")).leaf = true
 end
 
--- 获取实时状态 (读取 ota.sh 写入的临时文件)
 function m.get_state()
     local fs = require "nixio.fs"
     local data = fs.readfile("/tmp/ota_state.json")
-    
     luci.http.prepare_content("application/json")
     if data and #data > 5 then 
         luci.http.write(data)
@@ -28,41 +22,29 @@ function m.get_state()
     end
 end
 
--- 启动升级脚本
 function m.start_upgrade()
     local selected_file = luci.http.formvalue("filename")
-    
-    -- 清理旧状态
     os.execute("rm -f /tmp/ota_state.json")
-    
-    -- 检查是否已经在运行
     local is_running = os.execute("pgrep -f /usr/bin/ota.sh > /dev/null")
     if is_running == 0 then
         luci.http.prepare_content("application/json")
         luci.http.write_json({ok = false, msg = "升级程序已在后台运行"})
         return
     end
-
     local cmd = "/usr/bin/ota.sh"
     if selected_file and selected_file ~= "" then
-        -- 过滤危险字符，防止命令注入
+        -- 增加简单的转义处理，防止注入
         cmd = cmd .. " '" .. selected_file:gsub("'", "") .. "'"
     end
-    
-    -- 异步后台执行，重定向输出到日志文件
     os.execute(cmd .. " > /tmp/ota_build.log 2>&1 &")
-    
     luci.http.prepare_content("application/json")
     luci.http.write_json({ok = true})
 end
 
--- 获取本地硬件及版本信息
 function m.get_info()
     local sys = require "luci.sys"
     local platform = sys.exec("uname -m") or "Unknown"
     local version = sys.exec(". /etc/openwrt_release && echo $DISTRIB_DESCRIPTION")
-    if not version or version == "" then version = sys.exec("cat /etc/openwrt_version") end
-
     luci.http.prepare_content("application/json")
     luci.http.write_json({
         platform = platform:gsub("%s+", ""),
@@ -70,51 +52,35 @@ function m.get_info()
     })
 end
 
--- 从 GitHub 获取云端信息
 function m.get_remote_info()
     local uci = require "luci.model.uci".cursor()
     local url = uci:get("ota", "settings", "url")
-    local token = uci:get("ota", "settings", "github_token") or ""
-    
     local remote_ver = "N/A"
     local file_list = ""
     local changelog = ""
     
     if url and url ~= "" then
-        -- 构造请求头
-        local auth_header = (token ~= "") and string.format("--header='Authorization: token %s'", token) or ""
         local tmp_json = "/tmp/ota_remote.json"
-        
-        -- 执行远程获取 (增加 User-Agent 避免被拦截)
-        local code = os.execute(string.format("wget -qO %s %s --header='User-Agent: x' --timeout=5 '%s'", tmp_json, auth_header, url))
+        local code = os.execute(string.format("wget -qO %s --header='User-Agent: x' --timeout=5 '%s'", tmp_json, url))
         
         if code == 0 then
             local sys = require "luci.sys"
-            -- 解析版本号
-            local rv = sys.exec(string.format("jsonfilter -i %s -e '@.tag_name'", tmp_json))
-            remote_ver = (rv and rv ~= "") and rv:gsub("\n", "") or "Unknown"
-            
-            -- 解析更新日志
+            remote_ver = sys.exec(string.format("jsonfilter -i %s -e '@.tag_name'", tmp_json)) or "N/A"
             changelog = sys.exec(string.format("jsonfilter -i %s -e '@.body'", tmp_json)) or ""
-            
-            -- 【核心修正点】优化 grep 正则表达式的转义，确保只保留镜像后缀文件
-            -- 使用 [.] 替代 \. 可以减少 Lua 字符串格式化时的转义负担
-            file_list = sys.exec(string.format("jsonfilter -i %s -e '@.assets[*].name' | grep -E '[.](img[.]gz|img|bin)$'", tmp_json)) or ""
-            
+            file_list = sys.exec(string.format("jsonfilter -i %s -e '@.assets[*].name' | grep -E '\\.(img\\.gz|img|bin)$'", tmp_json)) or ""
             os.remove(tmp_json)
         else
-            remote_ver = "连接失败 (请检查网络或 Token)"
+            remote_ver = "连接失败"
         end
     end
 
-    -- 统一输出 JSON 结果
+    -- 统一在此处输出 JSON，不要在 if 分支里重复输出
     luci.http.prepare_content("application/json")
     luci.http.write_json({
-        remote_version = remote_ver,
+        remote_version = remote_ver:gsub("\n", ""),
         files = file_list,
         log = changelog
     })
 end
 
--- 必须返回这个 table 供 ucode/LuCI 调度
 return m
