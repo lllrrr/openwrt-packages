@@ -76,9 +76,9 @@ return view.extend({
             '<div class="nw-wrapper">',
             '  <div class="nw-header">',
             '    <div class="nw-main-title">网 络 设 置 向 导 <span style="font-size:14px; background:#10b981; padding:4px 10px; border-radius:6px; vertical-align:middle;">V1.01 正式版</span></div>',
-            '    <p>「 纯净 · 简单 · 零破坏 」的极简网络配置</p>',
+            '    <p>「 纯净 · 安全 · 零破坏 」的极简网络配置</p>',
             '  </div>',
-            
+
             '  <div id="nw-global-modal" style="display:none;">',
             '    <div class="nw-modal-box">',
             '      <div id="nw-global-spinner" class="nw-spinner" style="display:none;"></div>',
@@ -100,8 +100,7 @@ return view.extend({
             '      <div class="nw-card" data-mode="lan"><div class="nw-badge nw-badge-bypass">局网</div>',
             '        <div class="nw-card-title">局域网设置</div><span>修改设备内网 IP，或切换旁路由模式。</span></div>',
             '    </div>',
-            
-            // 💡 更新：这里更换了背景色 #5e72e4，加了阴影，并且读取中状态的颜色也改为了白色
+
             '    <div id="current-mode-display" style="margin-top: 45px; background: #5e72e4; padding: 20px 35px; border-radius: 12px; display: inline-block; box-shadow: 0 8px 20px rgba(94, 114, 228, 0.3); text-align: center; min-width: 320px;">',
             '       <div id="current-mode-text" style="color: #fff;"><div class="nw-spinner" style="width:30px; height:30px; border-width:3px; margin: 0 auto; border-top-color: #fff;"></div><div style="margin-top:10px; font-size:15px; font-weight:bold; color:#fff;">读取底层配置中...</div></div>',
             '    </div>',
@@ -134,11 +133,11 @@ return view.extend({
             '           <div style="font-weight: 600; color: #222; font-size: 16px;">启用旁路由模式</div>',
             '           <label class="nw-switch"><input type="checkbox" id="lan-bypass-toggle"><span class="nw-slider"></span></label>',
             '        </div>',
-            '        <div id="lan-bypass-warning" style="display:none; background: #fef2f2; color: #ef4444; padding: 12px; border-radius: 8px; font-size: 14px; margin-bottom: 15px; border: 1px solid #fecaca; line-height: 1.7; letter-spacing: 1px;">',
-            '           <b>旁路由模式开启：</b>本机的 DHCP 服务将被关闭。网关必须填写上级主路由 IP。如果本机IP改变，请确保与局域网同一网段，否则将<b style="color: #dc2626;">无法访问</b>本路由器。',
+            '        <div id="lan-bypass-warning" style="display:none; background: #fef2f2; color: #ef4444; padding: 12px; border-radius: 8px; font-size: 16px; margin-bottom: 15px; border: 1px solid #fecaca; line-height: 1.7; letter-spacing: 1px;">',
+            '           <b>旁路由模式开启：</b><br>1、DHCP 将会关闭，设备无法从本机获取 IP！设备需上级路由获取或手动设置静态 IP。<br>2、局域网网关必须填写上级主路由 IP。</b><br>3、本机 IP 如有变更，请确保访问设备与修改后ip同一网段，否则将<b style="color: rgb(5,150,105); font-size: 18px;">无法访问本路由器！',
             '        </div>',
-            '        <div id="lan-main-warning" style="background: #f0fdf4; color: #059669; padding: 12px; border-radius: 8px; font-size: 14px; margin-bottom: 15px; border: 1px solid #bbf7d0; line-height: 1.7; letter-spacing: 1px;">',
-            '           <b>主路由模式开启：</b>DHCP 服务正常开启。网关留空。如果本机IP改变，请确保与局域网同一网段，否则将<b style="color: #dc2626;">无法访问</b>本路由器。',
+            '        <div id="lan-main-warning" style="background: #f0fdf4; color: #059669; padding: 12px; border-radius: 8px; font-size: 16px; margin-bottom: 15px; border: 1px solid #bbf7d0; line-height: 1.7; letter-spacing: 1px;">',
+            '           <b>主路由模式开启：</b><br>1、DHCP 将会开启，本机负责分配 IP！<br>2、正常情况局域网网关无需填写。<br>3、本机 IP 如有变更，请确保访问设备与修改后ip同一网段，否则将<b style="color: #dc2626; font-size: 18px;">无法访问本路由器</b>！',
             '        </div>',
             '        <div class="cbi-value"><label class="cbi-value-title">本机局域网 IP</label><div class="cbi-value-field"><input type="text" id="lan-ip" placeholder="例: 192.168.1.2"></div></div>',
             '        <div class="cbi-value"><label class="cbi-value-title">局域网网关</label><div class="cbi-value-field"><input type="text" id="lan-gw" placeholder="主路由留空，旁路由必填"></div></div>',
@@ -146,7 +145,7 @@ return view.extend({
             '    </div>',
             '    <div class="nw-actions"><button id="btn-back-1" class="cbi-button cbi-button-reset">返回</button><button id="btn-next-2" class="cbi-button cbi-button-apply">下一步</button></div>',
             '  </div>',
-            
+
             '  <div id="step-3" class="nw-step" style="display: none;">',
             '    <div class="nw-confirm-board">',
             '      <div class="nw-step-title">网 络 配 置 确 认</div>',
@@ -178,12 +177,12 @@ return view.extend({
 
         Promise.all([
             uci.load('network'),
-            uci.load('dhcp').catch(function(){}) 
+            uci.load('dhcp').catch(function(){})
         ]).then(function() {
             var wProto = String(uci.get('network', 'wan', 'proto') || '').trim().toLowerCase();
             var wIp = String(uci.get('network', 'wan', 'ipaddr') || '未获取').trim();
             var wGw = String(uci.get('network', 'wan', 'gateway') || '未获取').trim();
-            
+
             var lIp = String(uci.get('network', 'lan', 'ipaddr') || window.location.hostname).trim();
             var lGw = String(uci.get('network', 'lan', 'gateway') || '未设置').trim();
             var lIgnore = String(uci.get('dhcp', 'lan', 'ignore') || '').trim();
@@ -211,7 +210,6 @@ return view.extend({
             }
 
             if (modeTextEl) {
-                // 💡 更新：这里将子标题的字体改为 15px, 粗体，且颜色提亮为 #ffffff
                 modeTextEl.innerHTML = "<div style='font-size:17px; font-weight:600; margin-bottom:10px; color:#ffffff;'>" + sTitle + "</div>" +
                                        "<div style='font-size:15px; font-weight:bold; color:#ffffff; font-family:monospace; letter-spacing:0.5px;'>" + sDetails + "</div>";
             }
