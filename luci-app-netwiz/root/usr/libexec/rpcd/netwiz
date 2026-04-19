@@ -18,14 +18,22 @@ case "$1" in
                 # 如果发现 mode 是更新指令，直接拦截执行热更新！
                 if [ "$mode" = "prepare_update" ]; then
                     echo '{"result":0}'
+                    # 每次开始下载前，先把可能残留的坏文件清理干净
                     rm -f /tmp/netwiz_update.*
                     cat << 'EOF' > /tmp/nw_dl.sh
 #!/bin/sh
 if command -v apk >/dev/null 2>&1; then PKG="apk"; else PKG="ipk"; fi
 URL="https://github.com/huchd0/luci-app-netwiz/releases/latest/download/luci-app-netwiz.${PKG}"
-wget -qO "/tmp/netwiz_update.${PKG}" --no-check-certificate -T 20 "$URL"
-if [ "$?" -eq 0 ] && [ -s "/tmp/netwiz_update.${PKG}" ]; then
+
+# 加入 --tries=3 允许断线重试 3 次，缩短超时时间避免死等
+wget -qO "/tmp/netwiz_update.${PKG}" --no-check-certificate --timeout=15 --tries=3 "$URL"
+
+# 💡 优化 3 (绝杀)：不仅检查是否下载了，要用 tar 测试压缩包是否完整未损坏！
+if [ "$?" -eq 0 ] && [ -s "/tmp/netwiz_update.${PKG}" ] && tar -tzf "/tmp/netwiz_update.${PKG}" >/dev/null 2>&1; then
     touch /tmp/netwiz_update.ready
+else
+    # 如果下载失败或包损坏，立刻把坏文件删掉，防止误触发安装
+    rm -f "/tmp/netwiz_update.${PKG}"
 fi
 rm -f /tmp/nw_dl.sh
 EOF
