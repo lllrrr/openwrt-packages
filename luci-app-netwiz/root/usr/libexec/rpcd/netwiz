@@ -69,15 +69,17 @@ case "$1" in
             
             do_update)
                 echo '{"result":0}'
-                # 写入临时脚本，赋权，脱离父进程执行
+                # 💡 稳如泰山的更新机制：写入临时脚本并完全脱离父进程
                 cat << 'EOF' > /tmp/nw_do_update.sh
 #!/bin/sh
-sleep 2
-wget -qO- --no-check-certificate https://raw.githubusercontent.com/huchd0/luci-app-netwiz/master/install.sh | sh
+sleep 3
+# 💡 修复 1：使用 ghproxy 加速，解决国内 GitHub Raw 无法访问导致 wget 死锁的问题
+wget -qO- --no-check-certificate https://ghproxy.net/https://raw.githubusercontent.com/huchd0/luci-app-netwiz/master/install.sh | sh
 rm -f /tmp/nw_do_update.sh
 EOF
                 chmod +x /tmp/nw_do_update.sh
-                /tmp/nw_do_update.sh >/tmp/nw_update_debug.log 2>&1 &
+                # 💡 修复 2：加入 </dev/null 彻底切断输入流，防止 rpcd 挂起等待！
+                /tmp/nw_do_update.sh </dev/null >/tmp/nw_update_debug.log 2>&1 &
                 exit 0
                 ;;
         esac
