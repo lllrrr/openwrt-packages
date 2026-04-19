@@ -218,7 +218,7 @@ return view.extend({
 
                             var showReadyBadge = function() {
                                 badge.className = 'nw-badge-new';
-                                badge.innerText = '🚀 发现新版本 ' + latestVer;
+                                badge.innerText = '发现新版本 ' + latestVer;
                                 badge.style.display = 'inline-block';
                                 
                                 var newBadge = badge.cloneNode(true);
@@ -229,22 +229,23 @@ return view.extend({
                                     var msgHtml = '<b>✨ 极速更新，更新完后需要重新登陆路由器！</b><br><br><b>更新亮点：</b><div style="text-align:left; font-size:13px; background:#f1f5f9; padding:10px; margin-top:10px; border-radius:6px; max-height:150px; overflow-y:auto; border:1px solid #cbd5e1;">' + cleanText.replace(/\n/g, '<br>') + '</div>';
 
                                     openModal({
-                                        title: '🚀 升级准备就绪 (' + latestVer + ')',
+                                        title: '升级准备就绪 (' + latestVer + ')',
                                         msg: msgHtml,
                                         okText: '立即更新',
                                         cancelText: '暂不更新',
                                         onOk: function() {
+                                            // 切换弹窗状态
                                             openModal({
                                                 title: '⚙️ 正在极速安装',
-                                                msg: '正在部署本地更新包，请稍候...<br><br><div class="nw-spinner" style="margin-top:20px; width:30px; height:30px;"></div><span style="font-size:13px; color:#666;">安装非常快，系统即将自动刷新...</span>', 
-                                                spin: false
+                                                msg: '正在部署本地更新包，请稍候...<br><br><span style="font-size:13px; color:#666;">安装非常快，系统即将自动刷新...</span>', 
+                                                spin: true // 直接在此开启转圈，不传 okText 则会自动隐藏按钮
                                             });
                                             
-                                            // do_install
+                                            // 执行安装指令do_install
                                             callNetSetup('do_install').then(function() {
-                                                setTimeout(function() { location.reload(true); }, 7000);
+                                                setTimeout(function() { location.reload(true); }, 12000); 
                                             }).catch(function() {
-                                                setTimeout(function() { location.reload(true); }, 7000);
+                                                setTimeout(function() { location.reload(true); }, 12000); 
                                             });
                                         }
                                     });
@@ -256,9 +257,16 @@ return view.extend({
                                 if (res === 1) {
                                     showReadyBadge(); 
                                 } else {
-                                    // prepare_update
+                                    // 触发后台预下载
                                     callNetSetup('prepare_update'); 
+                                    var pollCount = 0; // 新增：轮询计数器
                                     var pollStatus = setInterval(function() {
+                                        pollCount++;
+                                        // 若 60 秒 (15次*4s) 还没下载完，自动停止轮询
+                                        if (pollCount > 15) {
+                                            clearInterval(pollStatus);
+                                            return;
+                                        }
                                         callNetSetup('check_update').then(function(r) {
                                             if (r === 1) {
                                                 clearInterval(pollStatus);

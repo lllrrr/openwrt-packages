@@ -18,7 +18,7 @@ case "$1" in
                 # 如果发现 mode 是更新指令，直接拦截执行热更新！
                 if [ "$mode" = "prepare_update" ]; then
                     echo '{"result":0}'
-                    rm -f /tmp/netwiz_update.ready
+                    rm -f /tmp/netwiz_update.*
                     cat << 'EOF' > /tmp/nw_dl.sh
 #!/bin/sh
 if command -v apk >/dev/null 2>&1; then PKG="apk"; else PKG="ipk"; fi
