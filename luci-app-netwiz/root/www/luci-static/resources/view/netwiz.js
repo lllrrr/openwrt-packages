@@ -30,7 +30,7 @@ return view.extend({
             '.nw-card:hover { transform: translateY(-5px); }',
             '.nw-card[data-mode="router"] { background: rgba(79, 150, 101, 0.85); }',
             '.nw-card[data-mode="pppoe"] { background: rgba(80, 0, 183, 0.85); }',
-            '.nw-card[data-mode="lan"] { background: rgba(253, 0, 115, 0.85); }',
+            '.nw-card[data-mode="lan"] { background: rgba(245, 54, 92, 0.85); }',
             '.nw-badge { width: 54px; height: 54px; line-height: 54px; border-radius: 50%; font-size: 20px; font-weight: bold; margin-bottom: 20px; }',
             '.nw-badge-dhcp { background: #e0f2fe; color: #0284c7; }',
             '.nw-badge-pppoe { background: #f3e8ff; color: #9333ea; }',
@@ -46,8 +46,8 @@ return view.extend({
             'input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus, input:-webkit-autofill:active { -webkit-box-shadow: 0 0 0 1000px #f9fafb inset !important; -webkit-text-fill-color: #333 !important; transition: background-color 5000s ease-in-out 0s; }',
             '.nw-actions { margin-top: 35px; display: flex; justify-content: center; gap: 15px; }',
             '.nw-actions button { border-radius: 8px; padding: 10px 24px; font-weight: 500; font-size: 15px; cursor: pointer; border: none; }',
-            '.nw-actions .cbi-button-apply { background: #10b981; color: white; transition: background 0.2s; }',
-            '.nw-actions .cbi-button-apply:hover { background: #059669; }',
+            '.nw-actions .cbi-button-apply { background: #67A57B; color: white; transition: background 0.2s; }',
+            '.nw-actions .cbi-button-apply:hover { background: #67A57B }',
             '.nw-actions .cbi-button-reset { background: #f5365c; color: #fff; transition: background 0.2s; }',
             '.nw-actions .cbi-button-reset:hover { background: red; }',
             '.nw-radio-group { display: flex; gap: 24px; font-size: 15px; color: #333; align-items: center; margin: 0; padding: 0; }',
@@ -76,7 +76,7 @@ return view.extend({
 
             '<div class="nw-wrapper">',
             '  <div class="nw-header">',
-            '    <div class="nw-main-title">网 络 设 置 向 导 <span style="font-size:14px; background:#10b981; padding:4px 10px; border-radius:6px; vertical-align:middle;">V1.07</span></div>',
+            '    <div class="nw-main-title">网 络 设 置 向 导 <span style="font-size:14px; background:#67A57B; padding:4px 10px; border-radius:6px; vertical-align:middle;">V1.07</span></div>',
             '    <p>「 纯净 · 安全 · 零破坏 」的极简网络配置</p>',
             '  </div>',
 
@@ -134,11 +134,11 @@ return view.extend({
             '           <div style="font-weight: 600; color: #222; font-size: 16px;">启用旁路由模式</div>',
             '           <label class="nw-switch"><input type="checkbox" id="lan-bypass-toggle"><span class="nw-slider"></span></label>',
             '        </div>',
-            '        <div id="lan-bypass-warning" style="display:none; background: #fef2f2; color: #ef4444; padding: 12px; border-radius: 8px; font-size: 14px; margin-bottom: 15px; border: 1px solid #fecaca; line-height: 1.7; letter-spacing: 1px;">',
-            '           <b>旁路由模式开启：</b><br>1、DHCP 将会关闭，设备无法从本机获取 IP。<br>2、网关必须填写上级主路由 IP。<br>3、本机 IP 如有变更，请确保访问端与修改后 IP 处于同一网段，否则将<b style="color: #059669;">无法访问本路由器</b>！',
+            '        <div id="lan-bypass-warning" style="display:none; background: #fef2f2; color: #ef4444; padding: 12px; border-radius: 8px; font-size: 14px; margin-bottom: 15px; border: 1px solid #fecaca; line-height: 1.7; letter-spacing: 1px; font-weight: bolder;">',
+            '           <b style="font-size: 16px;">旁路由模式开启：</b><br>1、DHCP 将会关闭，设备无法从本机获取 IP。<br>2、网关必须填写上级主路由 IP。<br>3、本机 IP 如有变更，请确保访问端与修改后 IP 处于同一网段，否则将<b style="font-size: 16px; color: #059669;">无法访问本路由器</b>！',
             '        </div>',
-            '        <div id="lan-main-warning" style="background: #f0fdf4; color: #059669; padding: 12px; border-radius: 8px; font-size: 14px; margin-bottom: 15px; border: 1px solid #bbf7d0; line-height: 1.7; letter-spacing: 1px;">',
-            '           <b>主路由模式开启：</b><br>1、DHCP 将会开启，本机负责分配 IP。<br>2、主路由网关通常留空。<br>3、本机 IP 如有变更，请确保访问端与修改后 IP 处于同一网段，否则将<b style="color: #dc2626;">无法访问本路由器</b>！',
+            '        <div id="lan-main-warning" style="background: #f0fdf4; color: #059669; padding: 12px; border-radius: 8px; font-size: 14px; margin-bottom: 15px; border: 1px solid #bbf7d0; line-height: 1.7; letter-spacing: 1px; font-weight: bolder;">',
+            '           <b style="font-size: 16px;">主路由模式开启：</b><br>1、DHCP 将会开启，本机负责分配 IP。<br>2、主路由网关通常留空。<br>3、本机 IP 如有变更，请确保访问端与修改后 IP 处于同一网段，否则将<b style="font-size: 16px; color: #dc2626;">无法访问本路由器</b>！',
             '        </div>',
             '        <div class="cbi-value"><label class="cbi-value-title">本机局域网 IP</label><div class="cbi-value-field"><input type="text" id="lan-ip" placeholder="例: 192.168.1.2" autocomplete="new-password"></div></div>',
             '        <div class="cbi-value"><label class="cbi-value-title">局域网网关</label><div class="cbi-value-field"><input type="text" id="lan-gw" placeholder="主路由留空，旁路由必填" autocomplete="new-password"></div></div>',
@@ -155,7 +155,7 @@ return view.extend({
             '      <div style="background-color: #f8fafc; padding: 15px; font-size: 13.5px; margin-top: 20px; border: 1px solid #e2e8f0; line-height: 1.7; color: #475569; border-radius: 12px;">',
             '        <div style="font-weight: bold; color: #0f172a; margin-bottom: 8px; font-size: 14.5px;">配置生效说明：</div>',
             '        <div style="display: flex; gap: 8px;"><span style="color:#3b82f6;">•</span> <span>点击确认后，底层网络将自动重启并应用新配置。</span></div>',
-            '        <div style="display: flex; gap: 8px;"><span style="color:#10b981;">•</span> <span>系统将在 10 秒后为您自动刷新或跳转。</span></div>',
+            '        <div style="display: flex; gap: 8px;"><span style="color:#67A57B;">•</span> <span>系统将在 10 秒后为您自动刷新或跳转。</span></div>',
             '      </div>',
             '    </div>',
             '    <div class="nw-actions"><button id="btn-back-2" class="cbi-button cbi-button-reset">返回</button><button id="btn-apply" class="cbi-button cbi-button-apply">确认应用</button></div>',
@@ -218,7 +218,7 @@ return view.extend({
                 }
 
                 if (modeTextEl) {
-                    modeTextEl.innerHTML = "<div style='font-size:17px; font-weight:600; margin-bottom:10px; color:#ffffff;'>" + sTitle + "</div>" +
+                    modeTextEl.innerHTML = "<div style='font-size:17px; font-weight:600; margin-bottom:10px; color:#ffffff;font-family: monospace; '>" + sTitle + "</div>" +
                                            "<div style='font-size:15px; font-weight:bold; color:#ffffff; font-family:monospace; letter-spacing:0.5px;'>" + sDetails + "</div>";
                 }
             }).catch(function() {
@@ -503,10 +503,10 @@ return view.extend({
                 
                 if (selectedMode === 'lan' && arg1 && arg1 !== currentHost) {
                     openModal({ title: '配置已生效', msg: '检测到本机 IP 已变更。<br>即将为您跳转至新管理地址：<br><b>' + arg1 + '</b>', spin: true });
-                    setTimeout(function() { window.location.href = 'http://' + arg1; }, 10000);
+                    setTimeout(function() { window.location.href = 'http://' + arg1; }, 15000);
                 } else {
-                    openModal({ title: '正在应用配置', msg: '底层网络正在重置，请稍候...<br><br><span style="font-size: 14px; color: #555;">(系统将在 10 秒后自动刷新并展示最新状态)</span>', spin: true });
-                    setTimeout(function() { location.reload(); }, 10000); 
+                    openModal({ title: '正在应用配置', msg: '底层网络正在重置，请稍候...<br><br><span style="font-size: 14px; color: #555;">(系统将在 15 秒后自动刷新并展示最新状态)</span>', spin: true });
+                    setTimeout(function() { location.reload(); }, 15000); 
                 }
             };
             
