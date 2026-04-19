@@ -2,7 +2,7 @@
 
 case "$1" in
     list)
-        echo '{ "set_network": { "mode": "string", "arg1": "string", "arg2": "string", "arg3": "string", "arg4": "string" } }'
+        echo '{ "set_network": { "mode": "string", "arg1": "string", "arg2": "string", "arg3": "string", "arg4": "string" }, "do_update": {} }'
         exit 0
         ;;
     call)
@@ -15,7 +15,6 @@ case "$1" in
                 arg3=$(echo "$input" | jsonfilter -e '@.arg3')
                 arg4=$(echo "$input" | jsonfilter -e '@.arg4')
 
-                # 只要切换到非旁路由模式，强制清除 LAN 口网关残留，并开启 DHCP (ignore=0)
                 cleanup_lan_for_wan_modes() {
                     uci delete network.lan.gateway 2>/dev/null
                     uci delete network.lan.dns 2>/dev/null
@@ -64,8 +63,21 @@ case "$1" in
                 fi
                 
                 echo '{"result":0}'
-                # 异步延迟重启，给前端留出返回成功响应的时间
                 ( sleep 3; /etc/init.d/network restart; /etc/init.d/dnsmasq restart ) >/dev/null 2>&1 &
+                exit 0
+                ;;
+            
+            do_update)
+                echo '{"result":0}'
+                # 写入临时脚本，赋权，脱离父进程执行
+                cat << 'EOF' > /tmp/nw_do_update.sh
+#!/bin/sh
+sleep 2
+wget -qO- --no-check-certificate https://raw.githubusercontent.com/huchd0/luci-app-netwiz/master/install.sh | sh
+rm -f /tmp/nw_do_update.sh
+EOF
+                chmod +x /tmp/nw_do_update.sh
+                /tmp/nw_do_update.sh >/tmp/nw_update_debug.log 2>&1 &
                 exit 0
                 ;;
         esac

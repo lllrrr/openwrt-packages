@@ -1,0 +1,364 @@
+'use strict';
+'require view';
+'require form';
+'require uci';
+'require ui';
+'require poll';
+'require tools.clashoo as clashoo';
+
+var CSS = [
+  '.cl-wrap{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif}',
+  '.cl-tabs{display:flex;border-bottom:2px solid rgba(128,128,128,.15);margin-bottom:18px}',
+  '.cl-tab{padding:10px 20px;cursor:pointer;font-size:13px;opacity:.55;border-bottom:2px solid transparent;margin-bottom:-2px}',
+  '.cl-tab.active{opacity:1;border-bottom-color:currentColor;font-weight:600}',
+  '.cl-panel{display:none}.cl-panel.active{display:block}',
+  '.cl-section{margin-bottom:20px}',
+  '.cl-section h4{font-size:13px;font-weight:700;margin-bottom:10px;opacity:.7}',
+  '.cl-save-bar{display:flex;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(128,128,128,.15)}',
+  '.cl-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}',
+  '.cl-log-area{font-family:monospace;font-size:11px;opacity:.75;max-height:300px;overflow-y:auto;border:1px solid rgba(128,128,128,.2);border-radius:8px;padding:10px;white-space:pre-wrap;margin-top:8px}',
+  '.cl-log-tabs{display:flex;gap:8px;margin-bottom:8px}',
+  '.cl-log-tab{padding:4px 12px;border:1px solid rgba(128,128,128,.2);border-radius:20px;font-size:12px;cursor:pointer;opacity:.6}',
+  '.cl-log-tab.active{opacity:1;font-weight:600;background:rgba(128,128,128,.1)}',
+  /* 统一 form.Map 字体大小与 config 页一致 */
+  '.cl-panel .cbi-section>h3{font-size:13px !important;font-weight:600;margin-bottom:8px}',
+  '.cl-panel .cbi-value-title{font-size:13px !important}',
+  '.cl-panel .cbi-value-field input,.cl-panel .cbi-value-field select,.cl-panel .cbi-value-field textarea{font-size:13px !important}',
+  '.cl-panel .cbi-section-descr,.cl-panel .cbi-value-helptext{font-size:12px !important}',
+  '.cl-panel .cbi-section{margin-bottom:12px}',
+  '.cl-wrap .cbi-section>h3,.cl-wrap .cbi-value-title,.cl-wrap .cbi-section-descr,.cl-wrap .cbi-value-helptext{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif !important}',
+  '.cl-wrap .cbi-input-text,.cl-wrap .cbi-input-select,.cl-wrap select,.cl-wrap input,.cl-wrap textarea,.cl-wrap .btn,.cl-wrap .cbi-button{font-size:13px !important;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif !important}',
+  '.cl-wrap .btn,.cl-wrap .cbi-button{padding:4px 10px;line-height:1.35}'
+].join('');
+
+function saveCommitApplyAndRestart(m, successMsg) {
+  return m.save()
+    .then(function () { return clashoo.commitConfig(); })
+    .then(function () { return clashoo.restart(); })
+    .then(function () {
+      if (ui.changes && typeof ui.changes.apply === 'function') {
+        ui.changes.apply(false);
+        return;
+      }
+      if (ui.changes && typeof ui.changes.setIndicator === 'function')
+        ui.changes.setIndicator(0);
+      ui.addNotification(null, E('p', successMsg));
+      window.setTimeout(function () { location.reload(); }, 300);
+    });
+}
+
+return view.extend({
+  _tab:    'kernel',
+  _logTab: 'run',
+
+  load: function () {
+    return Promise.all([
+      clashoo.getCpuArch(),
+      clashoo.getLogStatus(),
+      clashoo.readLog(),
+      uci.load('clashoo')
+    ]);
+  },
+
+  render: function (data) {
+    var self      = this;
+    var cpuArch   = data[0] || '';
+    var logStatus = data[1] || {};
+    var runLog    = data[2] || '';
+
+    if (!document.getElementById('cl-css')) {
+      var s = document.createElement('style');
+      s.id = 'cl-css'; s.textContent = CSS;
+      document.head.appendChild(s);
+    }
+
+    var tabs = [
+      { id: 'kernel', label: '内核与数据' },
+      { id: 'rules',  label: '规则与控制' },
+      { id: 'logs',   label: '日志' }
+    ];
+    var tabEls = {}, panelEls = {};
+
+    var tabBar = E('div', { 'class': 'cl-tabs' },
+      tabs.map(function (t) {
+        var el = E('div', {
+          'class': 'cl-tab' + (self._tab === t.id ? ' active' : ''),
+          click: function () {
+            Object.keys(tabEls).forEach(function (k) {
+              tabEls[k].className   = 'cl-tab'   + (k === t.id ? ' active' : '');
+              panelEls[k].className = 'cl-panel' + (k === t.id ? ' active' : '');
+            });
+            self._tab = t.id;
+          }
+        }, t.label);
+        tabEls[t.id] = el;
+        return el;
+      })
+    );
+
+    var kernelPanel = E('div', { 'class': 'cl-panel' + (this._tab === 'kernel' ? ' active' : '') });
+    panelEls['kernel'] = kernelPanel;
+    this._buildKernelPanel(kernelPanel, cpuArch);
+
+    var rulesPanel = E('div', { 'class': 'cl-panel' + (this._tab === 'rules' ? ' active' : '') });
+    panelEls['rules'] = rulesPanel;
+    this._buildRulesForm(rulesPanel);
+
+    var logsPanel = E('div', { 'class': 'cl-panel' + (this._tab === 'logs' ? ' active' : '') },
+      this._buildLogsPanel(runLog)
+    );
+    panelEls['logs'] = logsPanel;
+
+    this._tabEls = tabEls;
+    this._panelEls = panelEls;
+    poll.add(L.bind(this._pollLogs, this), 8);
+
+    return E('div', { 'class': 'cl-wrap' }, [tabBar, kernelPanel, rulesPanel, logsPanel]);
+  },
+
+  _detectMihomoArch: function (raw) {
+    if (!raw) return '';
+    if (raw === 'x86_64')             return 'amd64';
+    if (/^aarch64/.test(raw))         return 'arm64';
+    if (/^armv7|^arm_cortex-a[7-9]|^arm_cortex-a1[0-9]/.test(raw)) return 'armv7';
+    if (/^armv6|^arm_cortex-a[56]/.test(raw))  return 'armv6';
+    if (/^arm/.test(raw))             return 'armv5';
+    if (/^i[3-6]86/.test(raw))        return '386';
+    if (/^mips64el/.test(raw))        return 'mips64le';
+    if (/^mips64/.test(raw))          return 'mips64';
+    if (/^mipsel/.test(raw))          return 'mipsle';
+    if (/^mips/.test(raw))            return 'mips';
+    return '';
+  },
+
+  _buildKernelPanel: function (container, cpuArch) {
+    var self = this;
+    var detectedArch = this._detectMihomoArch(cpuArch);
+    var m = new form.Map('clashoo', '', '');
+    var s, o;
+
+    s = m.section(form.NamedSection, 'config', 'clashoo', '后端核心');
+    s.addremove = false;
+    o = s.option(form.ListValue, 'core_type', '核心类型');
+    o.value('mihomo', 'mihomo（Clash Meta 内核）');
+    o.value('singbox', 'sing-box（需已安装并启用 clash_api）');
+    o.description = '切换后需重启服务；sing-box 需在 experimental.clash_api 中开启 Clash 兼容 API';
+
+    s = m.section(form.NamedSection, 'config', 'clashoo', '内核下载');
+    s.addremove = false;
+    o = s.option(form.ListValue, 'dcore', '版本类型');
+    o.value('2', 'mihomo（稳定版）'); o.value('3', 'mihomo（预发布版）');
+    o.value('4', 'sing-box（稳定版）'); o.value('5', 'sing-box（预发布版）');
+    o = s.option(form.ListValue, 'download_core', 'CPU 架构');
+    ['amd64','arm64','armv7','armv6','armv5','386','mips','mipsle','mips64','mips64le'].forEach(function(a){ o.value(a,a); });
+    if (detectedArch) o.default = detectedArch;
+    o.description = cpuArch
+      ? ('检测到系统架构：' + cpuArch + (detectedArch ? '  →  下载架构：' + detectedArch : '  （未知，请手动选择）'))
+      : '无法自动检测，请手动选择架构';
+    o = s.option(form.ListValue, 'download_source', '镜像源');
+    o.value('github', 'GitHub'); o.value('ghproxy', 'GHProxy');
+    o = s.option(form.DummyValue, '_dl_btn', '');
+    o.cfgvalue = function () {
+      var dlStatus = E('span', { style: 'font-size:12px;opacity:.65' }, '');
+      return E('div', { 'class': 'cl-actions', style: 'margin-top:0' }, [
+        E('button', {
+          'class': 'btn cbi-button-action',
+          click: function () {
+            dlStatus.textContent = '正在启动下载任务…';
+            m.save()
+              .then(function () { return clashoo.commitConfig(); })
+              .then(function () { return clashoo.clearUpdateLog(); })
+              .then(function () { return clashoo.downloadCore(); })
+              .then(function () {
+                dlStatus.textContent = '下载任务已启动，已切换到更新日志';
+                self._switchTab('logs');
+                if (self._activateLogTab)
+                  self._activateLogTab('update');
+              })
+              .catch(function (e) {
+                dlStatus.textContent = '';
+                ui.addNotification(null, E('p', '启动下载失败: ' + (e.message || e)));
+              });
+          }
+        }, '下载内核'),
+        dlStatus
+      ]);
+    };
+    o.write = function () {};
+
+    s = m.section(form.NamedSection, 'config', 'clashoo', 'GeoIP 与 GeoSite');
+    s.addremove = false;
+    o = s.option(form.Flag,  'auto_update_geoip',  '自动更新');
+    o = s.option(form.Value, 'auto_update_geoip_time',  '更新小时（0-23）');
+    o = s.option(form.Value, 'geoip_update_interval',   '更新间隔（天）');
+    o = s.option(form.ListValue, 'geodata_source', '数据源');
+    o.value('github', 'GitHub'); o.value('custom', '自定义');
+    o = s.option(form.DummyValue, '_geo_btn', '');
+    o.cfgvalue = function () {
+      return E('button', {
+        'class': 'btn cbi-button',
+        click: function () {
+          clashoo.updateGeoip().then(function () {
+            ui.addNotification(null, E('p', 'GeoIP 更新任务已启动'));
+          });
+        }
+      }, '立即更新 GeoIP');
+    };
+    o.write = function () {};
+
+    s = m.section(form.NamedSection, 'config', 'clashoo', '管理面板配置');
+    s.addremove = false;
+    o = s.option(form.Value, 'dash_port', '面板端口');
+    o.placeholder = '9090';
+    o = s.option(form.Value, 'dash_pass', '访问密钥');
+    o.placeholder = 'clashoo';
+    o = s.option(form.ListValue, 'dashboard_panel', '面板 UI');
+    ['metacubexd','yacd','zashboard','razord'].forEach(function(p){ o.value(p,p); });
+
+    m.render().then(function (node) {
+      container.appendChild(node);
+      container.appendChild(E('div', { 'class': 'cl-save-bar' }, [
+        E('button', { 'class': 'btn cbi-button', click: function () {
+          m.save().then(function () { return clashoo.commitConfig(); })
+            .then(function () { location.reload(); })
+            .catch(function (e) { ui.addNotification(null, E('p', '保存失败: ' + (e.message || e))); });
+        }}, '保存配置'),
+        E('button', { 'class': 'btn cbi-button-action', click: function () {
+          saveCommitApplyAndRestart(m, '配置已保存并重启服务')
+            .catch(function (e) { ui.addNotification(null, E('p', '操作失败: ' + (e.message || e))); });
+        }}, '应用配置')
+      ]));
+    });
+  },
+
+  _buildRulesForm: function (container) {
+    var m = new form.Map('clashoo', '', '');
+    var s, o;
+
+    s = m.section(form.NamedSection, 'config', 'clashoo', '绕过规则');
+    s.addremove = false;
+    o = s.option(form.Flag, 'cn_redirect',  '大陆 IP 绕过');
+    o = s.option(form.DynamicList, 'bypass_port',  '绕过端口');
+    o = s.option(form.DynamicList, 'bypass_dscp',  '绕过 DSCP 标记');
+    o = s.option(form.DynamicList, 'bypass_fwmark','绕过 FWMark');
+    o.description = '只影响外部已打标流量（如 WireGuard）。Clashoo 核心自身出站固定使用 0x162，与此无关。';
+
+    s = m.section(form.NamedSection, 'config', 'clashoo', '局域网控制');
+    s.addremove = false;
+    o = s.option(form.ListValue, 'access_control_mode', '访问控制');
+    o.value('all', '所有设备'); o.value('allow', '白名单'); o.value('deny', '黑名单');
+    o = s.option(form.DynamicList, 'access_control_list', 'IP 列表');
+
+    s = m.section(form.NamedSection, 'config', 'clashoo', '自动化任务');
+    s.addremove = false;
+    o = s.option(form.Flag,  'auto_update',   '定时更新 Clashoo 资源');
+    o = s.option(form.Value, 'auto_update_time',   '更新间隔（小时）');
+    o = s.option(form.Flag,  'auto_clear_log',    '定时清理日志');
+    o = s.option(form.Value, 'clear_time','清理间隔（小时）');
+
+    m.render().then(function (node) {
+      container.appendChild(node);
+      container.appendChild(E('div', { 'class': 'cl-save-bar' }, [
+        E('button', { 'class': 'btn cbi-button', click: function () {
+          m.save().then(function () { return clashoo.commitConfig(); })
+            .then(function () { location.reload(); })
+            .catch(function (e) { ui.addNotification(null, E('p', '保存失败: ' + (e.message || e))); });
+        }}, '保存配置'),
+        E('button', { 'class': 'btn cbi-button-action', click: function () {
+          saveCommitApplyAndRestart(m, '配置已保存并重启服务')
+            .catch(function (e) { ui.addNotification(null, E('p', '操作失败: ' + (e.message || e))); });
+        }}, '应用配置')
+      ]));
+    });
+  },
+
+  _buildLogsPanel: function (runLog) {
+    var self = this;
+    var logTypes = [
+      { id: 'run',    label: '运行日志',   read: clashoo.readLog.bind(clashoo),        clear: clashoo.clearLog.bind(clashoo) },
+      { id: 'update', label: '更新日志',   read: clashoo.readUpdateLog.bind(clashoo),  clear: clashoo.clearUpdateLog.bind(clashoo) },
+      { id: 'geoip',  label: 'GeoIP 日志', read: clashoo.readGeoipLog.bind(clashoo),   clear: clashoo.clearGeoipLog.bind(clashoo) }
+    ];
+
+    var logTabEls = {};
+    var logArea = E('div', { 'class': 'cl-log-area', id: 'cl-log-area' }, runLog || '（空）');
+
+    function activateLogTab(id) {
+      var logType = logTypes.find(function (lt) { return lt.id === id; }) || logTypes[0];
+      Object.keys(logTabEls).forEach(function (k) {
+        logTabEls[k].className = 'cl-log-tab' + (k === logType.id ? ' active' : '');
+      });
+      self._logTab = logType.id;
+      return logType.read().then(function (content) {
+        logArea.textContent = (content && content.trim()) ? content : '（空）';
+      });
+    }
+    this._activateLogTab = activateLogTab;
+
+    var logTabBar = E('div', { 'class': 'cl-log-tabs' },
+      logTypes.map(function (lt) {
+        var el = E('span', {
+          'class': 'cl-log-tab' + (self._logTab === lt.id ? ' active' : ''),
+          click: function () {
+            activateLogTab(lt.id);
+          }
+        }, lt.label);
+        logTabEls[lt.id] = el;
+        return el;
+      })
+    );
+
+    var currentType = function () {
+      return logTypes.find(function (lt) { return lt.id === self._logTab; }) || logTypes[0];
+    };
+
+    return [
+      logTabBar,
+      logArea,
+      E('div', { 'class': 'cl-actions', style: 'margin-top:8px' }, [
+        E('button', {
+          'class': 'btn cbi-button',
+          click: function () {
+            logArea.scrollTop = logArea.scrollHeight;
+          }
+        }, '滚动到底部'),
+        E('button', {
+          'class': 'btn cbi-button-negative',
+          click: function () {
+            if (!confirm('清空当前日志？')) return;
+            currentType().clear().then(function () { logArea.textContent = ''; });
+          }
+        }, '清空日志')
+      ])
+    ];
+  },
+
+  _pollLogs: function () {
+    if (this._tab !== 'logs') return Promise.resolve();
+    var self = this;
+    var logFns = {
+      run:    clashoo.readLog.bind(clashoo),
+      update: clashoo.readUpdateLog.bind(clashoo),
+      geoip:  clashoo.readGeoipLog.bind(clashoo)
+    };
+    var readFn = logFns[this._logTab] || logFns.run;
+    return readFn().then(function (content) {
+      var el = document.getElementById('cl-log-area');
+      if (el) el.textContent = (content && content.trim()) ? content : '（空）';
+    });
+  },
+
+  _switchTab: function (id) {
+    var tabEls = this._tabEls || {};
+    var panelEls = this._panelEls || {};
+    Object.keys(tabEls).forEach(function (k) {
+      tabEls[k].className = 'cl-tab' + (k === id ? ' active' : '');
+      panelEls[k].className = 'cl-panel' + (k === id ? ' active' : '');
+    });
+    this._tab = id;
+  },
+
+  handleSaveApply: null,
+  handleSave:      null,
+  handleReset:     null
+});
