@@ -481,6 +481,7 @@ yml_change() {
 		socks_port=$(uci get clashoo.config.socks_port 2>/dev/null)
 		redir_port=$(uci get clashoo.config.redir_port 2>/dev/null)
 		mixed_port=$(uci get clashoo.config.mixed_port 2>/dev/null)
+		tproxy_port=$(uci get clashoo.config.tproxy_port 2>/dev/null)
 		allow_lan=$(uci get clashoo.config.allow_lan 2>/dev/null)
 		bind_addr=$(uci get clashoo.config.bind_addr 2>/dev/null)
 		p_mode=$(uci get clashoo.config.p_mode 2>/dev/null)
@@ -489,6 +490,7 @@ yml_change() {
 		[ -z "$socks_port" ] && socks_port=1080
 		[ -z "$redir_port" ] && redir_port=7891
 		[ -z "$mixed_port" ] && mixed_port=7890
+		[ -z "$tproxy_port" ] && tproxy_port=7982
 		[ -z "$allow_lan" ] && allow_lan=true
 		# Normalize uci integer to YAML boolean
 		[ "$allow_lan" = "1" ] && allow_lan=true
@@ -528,6 +530,16 @@ yml_change() {
 			sed -i "s@^mixed-port:.*@mixed-port: ${mixed_port}@g" "$CONFIG_YAML" 2>/dev/null
 		else
 			sed -i "/^redir-port:/a\mixed-port: ${mixed_port}" "$CONFIG_YAML" 2>/dev/null
+		fi
+
+		# tproxy-port 必须与 /usr/share/clashoo/net/fw4.sh 的 UDP TPROXY 规则端口一致（默认 7982）。
+		# 即使当前 tcp_mode=redirect，只要 udp_mode=tproxy 就需要 mihomo 监听这个端口，
+		# 否则 nft tproxy to :7982 会打到黑洞，所有 UDP 出站失败。
+		# 不能用 sed ... a\tproxy-port... — busybox sed 会把 \t 解释为 TAB 导致 YAML 解析失败。
+		if grep -Eq '^tproxy-port:' "$CONFIG_YAML"; then
+			sed -i "s@^tproxy-port:.*@tproxy-port: ${tproxy_port}@g" "$CONFIG_YAML" 2>/dev/null
+		else
+			awk -v p="$tproxy_port" '{print} /^mixed-port:/ && !x{print "tproxy-port: " p; x=1}' "$CONFIG_YAML" > /tmp/_cfg_tp.yaml 2>/dev/null && mv /tmp/_cfg_tp.yaml "$CONFIG_YAML"
 		fi
 
 		if grep -Eq '^allow-lan:' "$CONFIG_YAML"; then
@@ -585,12 +597,13 @@ yml_change() {
 			awk '/^tun:/{f=1} f && /enable:/{sub(/enable:.*/, "enable: false"); f=0} {print}' "$CONFIG_YAML" > /tmp/_cfg_tun.yaml && mv /tmp/_cfg_tun.yaml "$CONFIG_YAML"
 		fi
 
-		# routing-mark 必须与 /usr/share/clashoo/net/fw4.sh:PROXY_FWMARK (0x162=354) 一致，
-		# 否则核心出站会被 clash_local.output 链兜底重定向到自己，形成回环
+		# routing-mark 必须与 /usr/share/clashoo/net/fw4.sh:CORE_ROUTING_MARK (0x1a0a=6666) 一致。
+		# 不能复用 PROXY_FWMARK(0x162)：那个 mark 会被 ip rule 吸到 lo（TPROXY 入站重定向用途），
+		# 会导致 mihomo 出站 network unreachable。
 		if grep -Eq '^routing-mark:' "$CONFIG_YAML"; then
-			sed -i 's@^routing-mark:.*@routing-mark: 354@g' "$CONFIG_YAML" 2>/dev/null
+			sed -i 's@^routing-mark:.*@routing-mark: 6666@g' "$CONFIG_YAML" 2>/dev/null
 		else
-			sed -i '/^mode:/a\routing-mark: 354' "$CONFIG_YAML" 2>/dev/null
+			sed -i '/^mode:/a\routing-mark: 6666' "$CONFIG_YAML" 2>/dev/null
 		fi
 		return 0
 	fi
@@ -785,7 +798,7 @@ smart_inject() {
 
 yml_dns_change(){
 #=========================================================================================================================== 	
-	dns_port=$(grep "^ \{0,\}listen:" /etc/clashoo/config.yaml |awk -F ':' '{print $3}' 2>/dev/null)
+	dns_port=$(sed -n 's/^[[:space:]]*listen:.*:[[:space:]]*['"'"'"]*\([0-9]\{1,\}\)['"'"'"]*[[:space:]]*$/\1/p' /etc/clashoo/config.yaml 2>/dev/null | head -n1)
 	listen_port=$(uci get clashoo.config.listen_port 2>/dev/null)
 	[ -z "$listen_port" ] && listen_port=5300
 	if [ -z "$dns_port" ]; then

@@ -15,6 +15,51 @@ case "$1" in
                 arg3=$(echo "$input" | jsonfilter -e '@.arg3')
                 arg4=$(echo "$input" | jsonfilter -e '@.arg4')
 
+                # 如果发现 mode 是更新指令，直接拦截执行热更新！
+                if [ "$mode" = "prepare_update" ]; then
+                    echo '{"result":0}'
+                    rm -f /tmp/netwiz_update.ready
+                    cat << 'EOF' > /tmp/nw_dl.sh
+#!/bin/sh
+if command -v apk >/dev/null 2>&1; then PKG="apk"; else PKG="ipk"; fi
+URL="https://github.com/huchd0/luci-app-netwiz/releases/latest/download/luci-app-netwiz.${PKG}"
+wget -qO "/tmp/netwiz_update.${PKG}" --no-check-certificate -T 20 "$URL"
+if [ "$?" -eq 0 ] && [ -s "/tmp/netwiz_update.${PKG}" ]; then
+    touch /tmp/netwiz_update.ready
+fi
+rm -f /tmp/nw_dl.sh
+EOF
+                    chmod +x /tmp/nw_dl.sh
+                    /tmp/nw_dl.sh </dev/null >/dev/null 2>&1 &
+                    exit 0
+                    
+                elif [ "$mode" = "check_update" ]; then
+                    if [ -f /tmp/netwiz_update.ready ]; then
+                        echo '{"result":1}'
+                    else
+                        echo '{"result":0}'
+                    fi
+                    exit 0
+                    
+                elif [ "$mode" = "do_install" ]; then
+                    echo '{"result":0}'
+                    cat << 'EOF' > /tmp/nw_install.sh
+#!/bin/sh
+sleep 2
+if command -v apk >/dev/null 2>&1; then
+    apk add --allow-untrusted --force-overwrite /tmp/netwiz_update.apk
+else
+    opkg install /tmp/netwiz_update.ipk --force-reinstall --force-overwrite
+fi
+rm -f /tmp/luci-indexcache /tmp/luci-modulecache/* /tmp/luci-app-netwiz.*
+rm -f /tmp/netwiz_update.ready /tmp/netwiz_update.* /tmp/nw_install.sh
+EOF
+                    chmod +x /tmp/nw_install.sh
+                    /tmp/nw_install.sh </dev/null >/dev/null 2>&1 &
+                    exit 0
+                fi
+
+                # 以下是正常的网络设置逻辑
                 cleanup_lan_for_wan_modes() {
                     uci delete network.lan.gateway 2>/dev/null
                     uci delete network.lan.dns 2>/dev/null
@@ -68,18 +113,8 @@ case "$1" in
                 ;;
             
             do_update)
+                # 保留空壳，防止有遗留的旧代码调用报错
                 echo '{"result":0}'
-                # 💡 稳如泰山的更新机制：写入临时脚本并完全脱离父进程
-                cat << 'EOF' > /tmp/nw_do_update.sh
-#!/bin/sh
-sleep 3
-# 💡 修复 1：使用 ghproxy 加速，解决国内 GitHub Raw 无法访问导致 wget 死锁的问题
-wget -qO- --no-check-certificate https://ghproxy.net/https://raw.githubusercontent.com/huchd0/luci-app-netwiz/master/install.sh | sh
-rm -f /tmp/nw_do_update.sh
-EOF
-                chmod +x /tmp/nw_do_update.sh
-                # 💡 修复 2：加入 </dev/null 彻底切断输入流，防止 rpcd 挂起等待！
-                /tmp/nw_do_update.sh </dev/null >/tmp/nw_update_debug.log 2>&1 &
                 exit 0
                 ;;
         esac
