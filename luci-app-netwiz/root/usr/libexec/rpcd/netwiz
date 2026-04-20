@@ -15,24 +15,30 @@ case "$1" in
                 arg3=$(echo "$input" | jsonfilter -e '@.arg3')
                 arg4=$(echo "$input" | jsonfilter -e '@.arg4')
 
-                # 如果发现 mode 是更新指令，直接拦截执行热更新！
+                # 💡 魔法拦截：如果发现 mode 是更新指令，直接拦截执行热更新！
                 if [ "$mode" = "prepare_update" ]; then
                     echo '{"result":0}'
-                    # 每次开始下载前，先把可能残留的坏文件清理干净
                     rm -f /tmp/netwiz_update.*
+                    
+                    # 🚀 核心修复 1：把前端传来的版本号（arg1）烙印在硬盘上 
+                    echo "$arg1" > /tmp/netwiz_update.version
+                    
                     cat << 'EOF' > /tmp/nw_dl.sh
 #!/bin/sh
 if command -v apk >/dev/null 2>&1; then PKG="apk"; else PKG="ipk"; fi
 URL="https://github.com/huchd0/luci-app-netwiz/releases/latest/download/luci-app-netwiz.${PKG}"
 
-# 加入 --tries=3 允许断线重试 3 次，缩短超时时间避免死等
-wget -qO "/tmp/netwiz_update.${PKG}" --no-check-certificate --timeout=15 --tries=3 "$URL"
+# 🚀 使用 for 循环代替 --tries，解决 OpenWrt 精简版 wget 报错问题 
+for i in 1 2 3; do
+    wget -qO "/tmp/netwiz_update.${PKG}" --no-check-certificate --timeout=15 "$URL"
+    if [ "$?" -eq 0 ] && [ -s "/tmp/netwiz_update.${PKG}" ]; then
+        touch /tmp/netwiz_update.ready
+        break
+    fi
+    sleep 2
+done
 
-# 💡 优化 3 (绝杀)：不仅检查是否下载了，要用 tar 测试压缩包是否完整未损坏！
-if [ "$?" -eq 0 ] && [ -s "/tmp/netwiz_update.${PKG}" ] && tar -tzf "/tmp/netwiz_update.${PKG}" >/dev/null 2>&1; then
-    touch /tmp/netwiz_update.ready
-else
-    # 如果下载失败或包损坏，立刻把坏文件删掉，防止误触发安装
+if [ ! -f /tmp/netwiz_update.ready ]; then
     rm -f "/tmp/netwiz_update.${PKG}"
 fi
 rm -f /tmp/nw_dl.sh
@@ -42,7 +48,8 @@ EOF
                     exit 0
                     
                 elif [ "$mode" = "check_update" ]; then
-                    if [ -f /tmp/netwiz_update.ready ]; then
+                    # 🚀 核心修复 2：双重校验！不但文件要就绪，钢印上的版本号也必须一致 [cite: 1, 2, 9]
+                    if [ -f /tmp/netwiz_update.ready ] && [ "$(cat /tmp/netwiz_update.version 2>/dev/null)" = "$arg1" ]; then
                         echo '{"result":1}'
                     else
                         echo '{"result":0}'
@@ -121,7 +128,6 @@ EOF
                 ;;
             
             do_update)
-                # 保留空壳，防止有遗留的旧代码调用报错
                 echo '{"result":0}'
                 exit 0
                 ;;
