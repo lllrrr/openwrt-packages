@@ -10,7 +10,7 @@
 'require uci';
 'require poll';
 
-var CURRENT_VERSION = 'v1.0.10';
+var CURRENT_VERSION = 'v1.0.15';
 
 // 保留这一个全能通道！
 var callNetSetup = rpc.declare({
@@ -18,6 +18,12 @@ var callNetSetup = rpc.declare({
     method: 'set_network',
     params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4'],
     expect: { result: 0 }
+});
+
+var getWanStatus = rpc.declare({
+    object: 'network.interface',
+    method: 'dump',
+    expect: { 'interface': [] }
 });
 
 return view.extend({
@@ -241,7 +247,7 @@ return view.extend({
                 badge = newBadge;
 
                 badge.addEventListener('click', function() {
-                    var msgHtml = '<b>发现新版本！更新后底层权限将重置，需重新登录。</b><br><br><b>更新亮点：</b><div style="text-align:left; font-size:13px; background:#f1f5f9; padding:10px; margin-top:10px; border-radius:6px; max-height:150px; overflow-y:auto; border:1px solid #cbd5e1;">' + cleanText.replace(/\n/g, '<br>') + '</div>';
+                    var msgHtml = '<b>✨ 发现新版本！更新后底层权限将重置，需重新登录。</b><br><br><b>更新亮点：</b><div style="text-align:left; font-size:13px; background:#f1f5f9; padding:10px; margin-top:10px; border-radius:6px; max-height:150px; overflow-y:auto; border:1px solid #cbd5e1;">' + cleanText.replace(/\n/g, '<br>') + '</div>';
 
                     openModal({
                         title: '升级准备就绪 (' + latestVer + ')',
@@ -253,7 +259,7 @@ return view.extend({
                             
                             openModal({
                                 title: '⚙️ 正在极速安装',
-                                msg: '新版本部署中，系统正在重置底层权限...<br><br><span style="font-size:13px; color:#10b981; font-weight:bold;">安装完成后，为确保安全，系统将要求您重新登录。</span><br><br><span style="font-size:12px; color:#666;">(网页将在 12 秒后自动跳转，若卡住请按 Ctrl+F5)</span>', 
+                                msg: '新版本部署中，底层权限系统正在重置...<br><br><span style="font-size:13px; color:#10b981; font-weight:bold;">安装完成后，为确保安全，系统将要求您重新登录。</span><br><br><span style="font-size:12px; color:#666;">(网页将在 12 秒后自动跳转，若卡住请按 Ctrl+F5)</span>', 
                                 spin: true 
                             });
 
@@ -274,7 +280,7 @@ return view.extend({
 
             var triggerDownload = function(latestVer, rawText) {
                 if (latestVer && compareVersions(latestVer, CURRENT_VERSION) > 0) {
-                    // 询问后端：包下载好了没？
+                    // 询问后端：包下载好了没
                     callNetSetup('check_update', latestVer).then(function(res) {
                         if (res === 1) {
                             showReadyBadge(latestVer, rawText);
@@ -321,19 +327,30 @@ return view.extend({
 
         function updateStatusDisplay() {
             if (modeTextEl) {
-                modeTextEl.innerHTML = "<div class='nw-spinner' style='width:30px; height:30px; border-width:3px; margin: 0 auto; border-top-color: #fff;'></div><div style='margin-top:10px; font-size:15px; font-weight:bold; color:#fff;'>读取底层配置中...</div>";
+                modeTextEl.innerHTML = "<div class='nw-spinner' style='width:30px; height:30px; border-width:3px; margin: 0 auto; border-top-color: #fff;'></div><div style='margin-top:10px; font-size:15px; font-weight:bold; color:#fff;'>读取配置与实时联网状态中...</div>";
             }
             uci.unload('network');
             uci.unload('dhcp');
 
             Promise.all([
                 uci.load('network'),
-                uci.load('dhcp').catch(function(){})
-            ]).then(function() {
+                uci.load('dhcp').catch(function(){}),
+                getWanStatus() // 获取所有接口的实时 dump 数据
+            ]).then(function(results) {
+                var ifaces = results[2] || [];
                 var wProto = String(uci.get('network', 'wan', 'proto') || '').trim().toLowerCase();
-                var wIp = String(uci.get('network', 'wan', 'ipaddr') || '未获取').trim();
-                var wGw = String(uci.get('network', 'wan', 'gateway') || '未获取').trim();
+                
+                // 💡 核心逻辑：在所有运行中的接口里，寻找那个正在负责上网的“真命天子”
+                var activeWan = ifaces.find(function(i) { 
+                    return i.interface === 'wan' || i.proto === wProto || i.device === 'eth0' || i.device === 'wan'; 
+                }) || {};
 
+                var isWanUp = activeWan.up === true;
+                // 提取真实分配到的公网/内网 IP
+                var liveWanIp = (activeWan['ipv4-address'] && activeWan['ipv4-address'][0]) ? activeWan['ipv4-address'][0].address : '';
+
+                // --- 后面的显示逻辑保持不变 ---
+                var wIp = String(uci.get('network', 'wan', 'ipaddr') || '未获取').trim();
                 var lIp = String(uci.get('network', 'lan', 'ipaddr') || window.location.hostname).trim();
                 var lGw = String(uci.get('network', 'lan', 'gateway') || '未设置').trim();
                 var lIgnore = String(uci.get('dhcp', 'lan', 'ignore') || '').trim();
@@ -341,6 +358,7 @@ return view.extend({
 
                 var sTitle = "";
                 var sDetails = "";
+                var statusBadge = "";
 
                 if (isBypass) {
                     sTitle = "旁路由模式";
@@ -348,24 +366,39 @@ return view.extend({
                 } else if (wProto === 'pppoe') {
                     var pUser = String(uci.get('network', 'wan', 'username') || '未设置').trim();
                     sTitle = "主路由 (宽带拨号)";
-                    sDetails = "局域网 IP: <span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;拨号账号: <span class='nw-hl'>" + pUser + "</span>";
-                } else if (wProto === 'static') {
-                    sTitle = "二级路由 (静态 IP)";
-                    sDetails = "局域网 IP: <span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;WAN IP: <span class='nw-hl'>" + wIp + "</span>";
+
+                    if (isWanUp && liveWanIp) {
+                        statusBadge = "<span style='font-size:12px; background:#10b981; color:#fff; padding:3px 8px; border-radius:12px; margin-left:12px; vertical-align:middle;'>拨号成功</span>";
+                        sDetails = "账号: <span class='nw-hl'>" + pUser + "</span>&nbsp;&nbsp;&nbsp;&nbsp;公网 IP: <span class='nw-hl'>" + liveWanIp + "</span>";
+                    } else {
+                        statusBadge = "<span style='font-size:12px; background:#ef4444; color:#fff; padding:3px 8px; border-radius:12px; margin-left:12px; vertical-align:middle;'>拨号中 / 未连接</span>";
+                        sDetails = "局域网 IP: <span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;账号: <span class='nw-hl'>" + pUser + "</span>";
+                    }
                 } else if (wProto === 'dhcp') {
                     sTitle = "二级路由 (动态 DHCP)";
-                    sDetails = "局域网 IP: <span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;WAN 状态: <span class='nw-hl'>自动获取中...</span>";
+                    if (isWanUp && liveWanIp) {
+                        statusBadge = "<span style='font-size:12px; background:#10b981; color:#fff; padding:3px 8px; border-radius:12px; margin-left:12px; vertical-align:middle;'>已获取 IP</span>";
+                        sDetails = "局域网 IP: <span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;WAN IP: <span class='nw-hl'>" + liveWanIp + "</span>";
+                    } else {
+                        statusBadge = "<span style='font-size:12px; background:#f59e0b; color:#fff; padding:3px 8px; border-radius:12px; margin-left:12px; vertical-align:middle;'>等待分配...</span>";
+                        sDetails = "局域网 IP: <span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;WAN 状态: <span class='nw-hl'>获取 IP 中</span>";
+                    }
+                } else if (wProto === 'static') {
+                    sTitle = "二级路由 (静态 IP)";
+                    statusBadge = isWanUp ? "<span style='font-size:12px; background:#10b981; color:#fff; padding:3px 8px; border-radius:12px; margin-left:12px; vertical-align:middle;'>接口已连接</span>" : "<span style='font-size:12px; background:#ef4444; color:#fff; padding:3px 8px; border-radius:12px; margin-left:12px; vertical-align:middle;'>未插入网线</span>";
+                    sDetails = "局域网 IP: <span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;WAN IP: <span class='nw-hl'>" + wIp + "</span>";
                 } else {
                     sTitle = "局域网模式";
                     sDetails = "局域网 IP: <span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;DHCP 服务: <span class='nw-hl'>开启</span>";
                 }
 
                 if (modeTextEl) {
-                    modeTextEl.innerHTML = "<div style='font-size:17px; font-weight:600; margin-bottom:10px; color:#ffffff;font-family: monospace; '>" + sTitle + "</div>" +
+                    modeTextEl.innerHTML = "<div style='font-size:17px; font-weight:600; margin-bottom:10px; color:#ffffff; font-family: monospace; display: flex; align-items: center; justify-content: center;'>" + sTitle + statusBadge + "</div>" +
                                            "<div style='font-size:15px; font-weight:bold; color:#ffffff; font-family:monospace; letter-spacing:0.5px;'>" + sDetails + "</div>";
                 }
-            }).catch(function() {
-                if (modeTextEl) modeTextEl.innerHTML = "<div style='color:#ef4444; font-weight:bold;'>系统配置读取异常</div>";
+            }).catch(function(err) {
+                console.error("Status Update Error:", err);
+                if (modeTextEl) modeTextEl.innerHTML = "<div style='color:#ef4444; font-weight:bold;'>系统状态读取异常</div>";
             });
         }
 
@@ -470,7 +503,6 @@ return view.extend({
             });
         });
 
-        // 💡 绑定：底部按钮和左上角返回箭头的事件监听
         container.querySelector('#btn-back-1').addEventListener('click', function () { step2.style.display = 'none'; step1.style.display = 'block'; });
         container.querySelector('#top-back-1').addEventListener('click', function () { step2.style.display = 'none'; step1.style.display = 'block'; });
 
@@ -596,7 +628,7 @@ return view.extend({
                     if (selectedMode === 'lan' && !isBypass && targetGw !== '') {
                         openModal({
                             title: '主路由配置警告',
-                            msg: '检测到您选择【主路由模式】，却填写了【网关】。<br><br><b>在标准主路由下，网关必须留空。</b>乱填网关会导致设备无法正常分发网络，进而导致全屋断网！<br><br>您确定要这么做吗？',
+                            msg: '检测到您选择了【主路由模式】，却强行填写了【网关】。<br><br><b>在标准主路由下，网关必须留空。</b>乱填网关会导致设备无法正常分发网络，进而导致全屋断网！<br><br>您确定要这么做吗？',
                             cancelText: '返回修改', onCancel: closeModal,
                             okText: '强行应用', isDanger: true, onOk: function() { closeModal(); goStep3(); }
                         });
