@@ -222,7 +222,7 @@ return view.extend({
             var badge = container.querySelector('#nw-update-badge');
             var now = Date.now();
             var cacheKey = 'nw_last_update_check';
-            var cacheExpiry = 6 * 60 * 60 * 1000; // 6 小时冷却时间
+            var cacheExpiry = 5 * 60 * 1000; // 5 分钟冷却时间
 
             // 1. 读取本地缓存记录
             var cached = JSON.parse(localStorage.getItem(cacheKey) || '{}');
@@ -241,7 +241,7 @@ return view.extend({
                 badge = newBadge;
 
                 badge.addEventListener('click', function() {
-                    var msgHtml = '<b>✨ 发现新版本！更新后底层权限将重置，需重新登录。</b><br><br><b>更新亮点：</b><div style="text-align:left; font-size:13px; background:#f1f5f9; padding:10px; margin-top:10px; border-radius:6px; max-height:150px; overflow-y:auto; border:1px solid #cbd5e1;">' + cleanText.replace(/\n/g, '<br>') + '</div>';
+                    var msgHtml = '<b>发现新版本！更新后底层权限将重置，需重新登录。</b><br><br><b>更新亮点：</b><div style="text-align:left; font-size:13px; background:#f1f5f9; padding:10px; margin-top:10px; border-radius:6px; max-height:150px; overflow-y:auto; border:1px solid #cbd5e1;">' + cleanText.replace(/\n/g, '<br>') + '</div>';
 
                     openModal({
                         title: '升级准备就绪 (' + latestVer + ')',
@@ -253,7 +253,7 @@ return view.extend({
                             
                             openModal({
                                 title: '⚙️ 正在极速安装',
-                                msg: '新版本部署中，底层权限系统正在重置...<br><br><span style="font-size:13px; color:#10b981; font-weight:bold;">安装完成后，为确保安全，系统将要求您重新登录。</span><br><br><span style="font-size:12px; color:#666;">(网页将在 12 秒后自动跳转，若卡住请按 Ctrl+F5)</span>', 
+                                msg: '新版本部署中，系统正在重置底层权限...<br><br><span style="font-size:13px; color:#10b981; font-weight:bold;">安装完成后，为确保安全，系统将要求您重新登录。</span><br><br><span style="font-size:12px; color:#666;">(网页将在 12 秒后自动跳转，若卡住请按 Ctrl+F5)</span>', 
                                 spin: true 
                             });
 
@@ -272,7 +272,6 @@ return view.extend({
                 });
             };
 
-            // 💡 3. 绝杀修复：独立封装下载逻辑！不管是走缓存还是查接口，都必须走这一步！
             var triggerDownload = function(latestVer, rawText) {
                 if (latestVer && compareVersions(latestVer, CURRENT_VERSION) > 0) {
                     // 询问后端：包下载好了没？
@@ -597,7 +596,7 @@ return view.extend({
                     if (selectedMode === 'lan' && !isBypass && targetGw !== '') {
                         openModal({
                             title: '主路由配置警告',
-                            msg: '检测到您选择了【主路由模式】，却强行填写了【网关】。<br><br><b>在标准主路由下，网关必须留空。</b>乱填网关会导致设备无法正常分发网络，进而导致全屋断网！<br><br>您确定要这么做吗？',
+                            msg: '检测到您选择【主路由模式】，却填写了【网关】。<br><br><b>在标准主路由下，网关必须留空。</b>乱填网关会导致设备无法正常分发网络，进而导致全屋断网！<br><br>您确定要这么做吗？',
                             cancelText: '返回修改', onCancel: closeModal,
                             okText: '强行应用', isDanger: true, onOk: function() { closeModal(); goStep3(); }
                         });

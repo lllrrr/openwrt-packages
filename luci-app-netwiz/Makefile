@@ -1,11 +1,12 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-netwiz
+# 下面这行不用管，自动替换
 PKG_VERSION:=1.0.1
 PKG_RELEASE:=1
 
-LUCI_TITLE:=NetWiz - Exclusive Safe Network Wizard
-LUCI_DEPENDS:=+luci-base +rpcd-mod-luci
+LUCI_TITLE:=NetWiz 极简网络设置向导，开箱即用，高效完成配置
+LUCI_DEPENDS:=+luci-base +luci-compat
 LUCI_PKGARCH:=all
 LUCI_LICENSE:=GPL-3.0
 
