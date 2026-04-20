@@ -7,6 +7,7 @@ PKG_RELEASE:=1
 LUCI_TITLE:=NetWiz - Exclusive Safe Network Wizard
 LUCI_DEPENDS:=+luci-base +rpcd-mod-luci
 LUCI_PKGARCH:=all
+LUCI_LICENSE:=GPL-3.0
 
 include $(TOPDIR)/feeds/luci/luci.mk
 
