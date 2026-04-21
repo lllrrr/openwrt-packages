@@ -10,28 +10,7 @@
 'require uci';
 'require poll';
 
-var RAW_VERSION = 'v1.0.0';
-
-function __cmp(v1, v2) {
-    var p1 = String(v1).replace(/[^0-9\.]/g, '').split('.');
-    var p2 = String(v2).replace(/[^0-9\.]/g, '').split('.');
-    var len = Math.max(p1.length, p2.length);
-    for (var i = 0; i < len; i++) {
-        var n1 = parseInt(p1[i] || 0, 10);
-        var n2 = parseInt(p2[i] || 0, 10);
-        if (n1 > n2) return 1;
-        if (n1 < n2) return -1;
-    }
-    return 0;
-}
-
-// 缓存版本号标记
-var cachedVer = localStorage.getItem('nw_ver');
-if (!cachedVer || __cmp(RAW_VERSION, cachedVer) > 0) {
-    cachedVer = RAW_VERSION;
-    localStorage.setItem('nw_ver', cachedVer);
-}
-var CURRENT_VERSION = cachedVer;
+var CURRENT_VERSION = 'v1.0.0';
 
 var callNetSetup = rpc.declare({
     object: 'netwiz',
@@ -178,10 +157,8 @@ var i18n = {
         'U_READY': 'Update Ready (',
         'U_BTN_NOW': 'Update Now',
         'U_BTN_LATER': 'Not Now',
-        'U_INST': 'Installing rapidly',
-        'U_INST_MSG': 'Deploying new version...<br><br><span style="font-size:13px; color:#10b981; font-weight:bold;">Installing in background, please do not close.</span><br><br><span style="font-size:12px; color:#666;">(Estimated 12 seconds)</span>',
-        'U_DONE_TIT': 'Update Complete',
-        'U_DONE_MSG': 'The new version has been installed in the background.<br><br><span style="color:#059669; font-weight:bold;">The red dot has been cleared.</span><br><br><small>Note: New features will take effect on your next login or manual refresh.</small>'
+        'U_INST': '⚙️ Installing rapidly',
+        'U_INST_MSG': 'Deploying new version...<br><br><span style="font-size:13px; color:#10b981; font-weight:bold;">For security, re-login is required after install.</span><br><br><span style="font-size:12px; color:#666;">(Auto-redirect in 12s. If frozen, press Ctrl+F5)</span>'
     },
     'zh-tw': {
         'TITLE': '網 路 設 置 精 靈',
@@ -282,7 +259,7 @@ var i18n = {
         'M_WARN_TIT': '主路由配置警告',
         'M_WARN_MSG': '檢測到您選擇了【主路由模式】，卻強行填寫了【閘道器】。<br><br><b>在標準主路由下，閘道器必須留空。</b>亂填閘道器會導致設備無法正常分發網路，進而導致全屋斷網！<br><br>您確定要這麼做嗎？',
         'M_WARN_BTN': '強行應用',
-        'M_SYS_ERR': '系統异常',
+        'M_SYS_ERR': '系統異常',
         'M_SYS_MSG': '無法讀取底層配置進行校驗，請刷新網頁重試。',
         'M_APP_TIT': '正在下發配置',
         'M_APP_MSG': '請求寫入中，請稍候...',
@@ -299,14 +276,12 @@ var i18n = {
         'M_HIDDEN': '已隱藏',
         'M_IP_GW': 'IP及閘道器',
         'M_AUTO_UP': '由上級路由自動分配',
-        'U_NEW': '發現新版本 ',
+        'U_NEW': '新版本 ',
         'U_READY': '升級準備就绪 (',
         'U_BTN_NOW': '立即更新',
         'U_BTN_LATER': '暫不更新',
-        'U_INST': '正在極速安裝',
-        'U_INST_MSG': '新版本部署中...<br><br><span style="font-size:13px; color:#10b981; font-weight:bold;">正在背景靜默安裝，請勿關閉頁面。</span><br><br><span style="font-size:12px; color:#666;">(預計需要 12 秒)</span>',
-        'U_DONE_TIT': '更新完成',
-        'U_DONE_MSG': '新版本已在背景安裝完畢。<br><br><span style="color:#059669; font-weight:bold;">介面已標記為最新，小紅點已消除。</span><br><br><small>註：新功能將在您下次重新登入或刷新時生效。</small>'
+        'U_INST': '⚙️ 正在極速安裝',
+        'U_INST_MSG': '新版本部署中，底層權限系統正在重置...<br><br><span style="font-size:13px; color:#10b981; font-weight:bold;">安裝完成後，為確保安全，系統將要求您重新登入。</span><br><br><span style="font-size:12px; color:#666;">(網頁將在 12 秒後自動跳轉，若卡住請按 Ctrl+F5)</span>'
     },
     'zh-cn': {
         'TITLE': '网 络 设 置 向 导',
@@ -424,14 +399,12 @@ var i18n = {
         'M_HIDDEN': '已隐藏',
         'M_IP_GW': 'IP及网关',
         'M_AUTO_UP': '由上级路由自动分配',
-        'U_NEW': '发现新版本 ',
+        'U_NEW': '新版本 ',
         'U_READY': '升级准备就绪 (',
         'U_BTN_NOW': '立即更新',
         'U_BTN_LATER': '暂不更新',
-        'U_INST': '正在极速安装',
-        'U_INST_MSG': '新版本部署中...<br><br><span style="font-size:13px; color:#10b981; font-weight:bold;">正在后台静默安装，请勿关闭页面。</span><br><br><span style="font-size:12px; color:#666;">(预计需要 12 秒)</span>',
-        'U_DONE_TIT': '更新完成',
-        'U_DONE_MSG': '新版本已在后台安装完毕。<br><br><span style="color:#059669; font-weight:bold;">界面已标记为最新，小红点已消除。</span><br><br><small>注：新功能将在您下次重新登录或刷新时生效。</small>'
+        'U_INST': '⚙️ 正在极速安装',
+        'U_INST_MSG': '新版本部署中，底层权限系统正在重置...<br><br><span style="font-size:13px; color:#10b981; font-weight:bold;">安装完成后，为确保安全，系统将要求您重新登录。</span><br><br><span style="font-size:12px; color:#666;">(网页将在 12 秒后自动跳转，若卡住请按 Ctrl+F5)</span>'
     }
 };
 
@@ -441,6 +414,7 @@ function _t(key) {
 
 return view.extend({
     render: function () {
+
         if (!document.querySelector('meta[name="viewport"]')) {
             var meta = document.createElement('meta');
             meta.name = 'viewport';
@@ -457,18 +431,10 @@ return view.extend({
             '.nw-header { text-align: center; margin-bottom: 40px; background-color: #5e72e4; padding: 25px; margin-top: -100px; border-radius: 0 0 15px 15px; position: relative; }',
             '.nw-main-title { font-size: 35px; font-weight: 600; margin-bottom: 10px; color: #ffffff; letter-spacing: 2px; }',
             '.nw-header p { color: #ffffff; font-size: 16px; opacity: 0.9; margin: 0; letter-spacing: 1px; }',
-            
+
             '#nw-lang-switch { position: absolute; top: -30px; right: 15px; z-index: 100; padding: 5px 10px; border-radius: 6px; background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.3); font-size: 13px; outline: none; cursor: pointer; backdrop-filter: blur(5px); transition: all 0.2s; }',
             '#nw-lang-switch:hover { background: rgba(255,255,255,0.25); }',
             '#nw-lang-switch option { color: #333; background: #fff; }',
-
-            /* 红点与悬浮提示 */
-            '#update-red-dot { display: none; position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; background-color: #ef4444; border-radius: 50%; box-shadow: 0 0 4px rgba(239, 68, 68, 0.8); animation: pulse-dot 2s infinite; pointer-events: none; }',
-            '@keyframes pulse-dot { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }',
-            '#update-tooltip { display: none; position: absolute; bottom: 130%; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: #fff; padding: 5px 10px; border-radius: 6px; font-size: 13px; white-space: nowrap; pointer-events: none; z-index: 100; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }',
-            '#update-tooltip::after { content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px; border-width: 5px; border-style: solid; border-color: rgba(0,0,0,0.8) transparent transparent transparent; }',
-            '#version-wrapper:hover #update-tooltip.has-update { display: block; animation: fadeIn 0.2s; }',
-            '@keyframes fadeIn { from { opacity: 0; transform: translate(-50%, 5px); } to { opacity: 1; transform: translate(-50%, 0); } }',
 
             '.nw-step { width: 100%; max-width: 750px; text-align: center; animation: slideUp 0.4s ease-out; }',
             '@keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }',
@@ -523,7 +489,7 @@ return view.extend({
             '.nw-modal-btn-danger:hover { background: #dc2626; }',
             '.nw-hl { color: #facc15; font-weight: bold; }',
 
-            /* 手机端 */
+            /* max-width: 768px */
             '@media screen and (max-width: 768px) {',
             '  .nw-wrapper { padding-top: 3vh; padding-bottom: 5vh; }',
             '  .nw-header { margin-top: -30px; padding: 20px 15px; width: 92%; box-sizing: border-box; border-radius: 12px; }',
@@ -543,6 +509,7 @@ return view.extend({
             '  #nw-global-modal .nw-modal-box { padding: 25px 20px; width: 85%; }',
             '  #nw-global-btn-wrap { flex-direction: row; gap: 12px; }',
             '  #nw-global-btn-wrap button { flex: 1; padding: 12px 0; margin: 0; }',
+
             '}',
             '</style>',
 
@@ -552,9 +519,9 @@ return view.extend({
             '    <option value="zh-tw">繁體中文</option>',
             '    <option value="en">English</option>',
             '  </select>',
-            
+
             '  <div class="nw-header">',
-            '    <div class="nw-main-title">{{TITLE}} <span id="version-wrapper" style="position:relative; font-size:14px; background:#67A57B; padding:4px 10px; border-radius:6px; vertical-align:middle; transition: all 0.3s; display:inline-block; cursor:default;">' + CURRENT_VERSION + '<span id="update-red-dot"></span><span id="update-tooltip"></span></span></div>',
+            '    <div class="nw-main-title">{{TITLE}} <span id="nw-version-span" style="position:relative; font-size:14px; background:#67A57B; padding:4px 10px; border-radius:6px; vertical-align:middle; cursor:pointer;">' + CURRENT_VERSION + '<span id="nw-red-dot" style="display:none; position:absolute; top:-4px; right:-4px; width:8px; height:8px; background-color:#ef4444; border-radius:50%; box-shadow:0 0 0 2px #5e72e4;"></span></span></div>',
             '    <p>{{SUBTITLE}}</p>',
             '  </div>',
 
@@ -660,6 +627,7 @@ return view.extend({
         var modeTextEl = container.querySelector('#current-mode-text');
         var selectedMode = '';
 
+        // 语言切換
         var langSwitch = container.querySelector('#nw-lang-switch');
         if (langSwitch) {
             langSwitch.value = curLang;
@@ -669,63 +637,58 @@ return view.extend({
             });
         }
 
-        // 检测更新
+        function compareVersions(v1, v2) {
+            var p1 = String(v1).replace(/[^0-9\.]/g, '').split('.');
+            var p2 = String(v2).replace(/[^0-9\.]/g, '').split('.');
+            var len = Math.max(p1.length, p2.length);
+            for (var i = 0; i < len; i++) {
+                var n1 = parseInt(p1[i] || 0, 10);
+                var n2 = parseInt(p2[i] || 0, 10);
+                if (n1 > n2) return 1;
+                if (n1 < n2) return -1;
+            }
+            return 0;
+        }
+
         function doUpdateCheck() {
             var now = Date.now();
             var cacheKey = 'nw_last_update_check';
-            var cacheExpiry = 5 * 60 * 1000;
+            var cacheExpiry = 10 * 60 * 1000;
             var cached = JSON.parse(localStorage.getItem(cacheKey) || '{}');
 
             var showReadyBadge = function(latestVer, rawText) {
                 var cleanText = rawText.split('---')[0].replace(/### ✨ 最新版发布/g, '').trim();
-                var verWrapper = container.querySelector('#version-wrapper');
-                var redDot = container.querySelector('#update-red-dot');
-                var tooltip = container.querySelector('#update-tooltip');
+                var redDot = container.querySelector('#nw-red-dot');
+                var versionSpan = container.querySelector('#nw-version-span');
 
-                if (__cmp(latestVer, CURRENT_VERSION) <= 0) return;
+                if (redDot && versionSpan) {
+                    redDot.style.display = 'block';
+                    var tooltipText = _t('U_NEW') + latestVer;
+                    versionSpan.title = tooltipText; // Hover triggers tooltip
+                    
+                    // Remove any existing event listeners by cloning
+                    var newVersionSpan = versionSpan.cloneNode(true);
+                    versionSpan.parentNode.replaceChild(newVersionSpan, versionSpan);
+                    versionSpan = newVersionSpan;
 
-                redDot.style.display = 'block';
-                tooltip.innerText = _t('U_NEW') + latestVer;
-                tooltip.className = 'has-update';
-                verWrapper.style.cursor = 'pointer';
-
-                // 防止重复绑定
-                var newWrapper = verWrapper.cloneNode(true);
-                verWrapper.parentNode.replaceChild(newWrapper, verWrapper);
-                verWrapper = newWrapper;
-
-                verWrapper.addEventListener('click', function() {
-                    openModal({
-                        title: _t('U_READY') + latestVer + ')',
-                        msg: '<b>' + _t('U_INST_MSG').split('<br><br>')[0] + '</b><br><br><div style="text-align:left; font-size:13px; background:#f1f5f9; padding:10px; margin-top:10px; border-radius:6px; max-height:150px; overflow-y:auto; border:1px solid #cbd5e1;">' + cleanText.replace(/\n/g, '<br>') + '</div>',
-                        okText: _t('U_BTN_NOW'), cancelText: _t('U_BTN_LATER'),
-                        onOk: function() {
-                            try { poll.stop(); } catch(e) {}
-                            openModal({ title: _t('U_INST'), msg: _t('U_INST_MSG'), spin: true });
-                            
-                            // 安装完成后的静默处理：直接消灭红点，不强刷
-                            var finishUpdate = function() { 
-                                localStorage.setItem('nw_ver', latestVer);
-                                localStorage.removeItem('nw_last_update_check');
-                                
-                                var vWrap = container.querySelector('#version-wrapper');
-                                if (vWrap) vWrap.innerHTML = latestVer; // 消除红点，换上新版本号
-
-                                openModal({ 
-                                    title: '✅ ' + _t('U_DONE_TIT'), 
-                                    msg: _t('U_DONE_MSG'), 
-                                    okText: _t('M_CLOSE'),
-                                    onOk: function() { container.querySelector('#nw-global-modal').style.display = 'none'; }
-                                });
-                            };
-                            callNetSetup('do_install').then(function() { setTimeout(finishUpdate, 12000); }).catch(function() { setTimeout(finishUpdate, 12000); });
-                        }
+                    versionSpan.addEventListener('click', function() {
+                        openModal({
+                            title: _t('U_READY') + latestVer + ')',
+                            msg: '<b>✨ ' + _t('U_INST_MSG').split('<br><br>')[0] + '</b><br><br><div style="text-align:left; font-size:13px; background:#f1f5f9; padding:10px; margin-top:10px; border-radius:6px; max-height:150px; overflow-y:auto; border:1px solid #cbd5e1;">' + cleanText.replace(/\n/g, '<br>') + '</div>',
+                            okText: _t('U_BTN_NOW'), cancelText: _t('U_BTN_LATER'),
+                            onOk: function() {
+                                try { poll.stop(); } catch(e) {}
+                                openModal({ title: _t('U_INST'), msg: _t('U_INST_MSG'), spin: true });
+                                var forceReload = function() { window.location.href = window.location.href.split('?')[0] + '?t=' + new Date().getTime(); };
+                                callNetSetup('do_install').then(function() { setTimeout(forceReload, 12000); }).catch(function() { setTimeout(forceReload, 12000); });
+                            }
+                        });
                     });
-                });
+                }
             };
 
             var triggerDownload = function(latestVer, rawText) {
-                if (latestVer && __cmp(latestVer, CURRENT_VERSION) > 0) {
+                if (latestVer && compareVersions(latestVer, CURRENT_VERSION) > 0) {
                     callNetSetup('check_update', latestVer).then(function(res) {
                         if (res === 1) showReadyBadge(latestVer, rawText);
                         else {
@@ -767,7 +730,6 @@ return view.extend({
             try { var val = uci.get(conf, sec, opt); return (val === null || val === undefined) ? def : String(val).trim(); } catch(e) { return def; }
         }
 
-        // 显示状态
         function updateStatusDisplay(isSilent) {
             try {
                 if (modeTextEl && !isSilent) {
@@ -781,7 +743,7 @@ return view.extend({
                     var rawIfaces = results[2] || {};
                     var ifaces = Array.isArray(rawIfaces.interface) ? rawIfaces.interface : (Array.isArray(rawIfaces) ? rawIfaces : []);
                     var wProto = safeUciGet('network', 'wan', 'proto', '').toLowerCase();
-                    
+
                     var activeWan = ifaces.find(function(i) { return i && (i.interface === 'wan' || i.proto === wProto || i.device === 'eth0' || i.device === 'wan'); }) || {};
                     var isWanUp = activeWan.up === true;
                     var liveWanIp = ((activeWan['ipv4-address'] && activeWan['ipv4-address'][0]) ? activeWan['ipv4-address'][0].address : '').split('/')[0];
@@ -800,7 +762,7 @@ return view.extend({
                     if (container.querySelector('#router-gw')) container.querySelector('#router-gw').value = (wGw !== _t('TXT_NOT_SET')) ? wGw : '';
                     if (container.querySelector('#lan-ip')) container.querySelector('#lan-ip').value = lIp;
                     if (container.querySelector('#lan-gw')) container.querySelector('#lan-gw').value = (lGw !== _t('TXT_NOT_SET')) ? lGw : '';
-                    
+
                     var bypassToggle = container.querySelector('#lan-bypass-toggle');
                     if (bypassToggle) {
                         bypassToggle.checked = isBypass;
@@ -842,7 +804,7 @@ return view.extend({
 
                     if (modeTextEl) {
                         modeTextEl.innerHTML = "<div style='font-size:17px; font-weight:600; margin-bottom:10px; color:#ffffff; font-family: monospace; display: flex; align-items: center; justify-content: center;'>" + sTitle + statusBadge + "</div>" +
-                                               "<div style='font-size:15px; font-weight:bold; color:#ffffff; font-family:monospace; letter-spacing:0.5px;'>" + sDetails + "</div>";
+                                                "<div style='font-size:15px; font-weight:bold; color:#ffffff; font-family:monospace; letter-spacing:0.5px;'>" + sDetails + "</div>";
                     }
                 }).catch(function(err) {
                     if (modeTextEl) modeTextEl.innerHTML = "<div style='color:#ef4444; font-weight:bold;'>" + _t('ERR_RD_SYS') + "</div>";
@@ -863,9 +825,9 @@ return view.extend({
         function calculateNetmask(ip) {
             if (!ip) return '255.255.255.0';
             var firstByte = parseInt(ip.split('.')[0], 10);
-            if (firstByte >= 1 && firstByte <= 126) return '255.0.0.0';       
-            if (firstByte >= 128 && firstByte <= 191) return '255.255.0.0';     
-            return '255.255.255.0'; 
+            if (firstByte >= 1 && firstByte <= 126) return '255.0.0.0';
+            if (firstByte >= 128 && firstByte <= 191) return '255.255.0.0';
+            return '255.255.255.0';
         }
 
         function isValidIP(ip) {
@@ -889,7 +851,6 @@ return view.extend({
             return false;
         }
 
-        // 弹窗
         function openModal(options) {
             var m = container.querySelector('#nw-global-modal');
             container.querySelector('#nw-global-title').innerHTML = options.title || '';
@@ -939,7 +900,6 @@ return view.extend({
         container.querySelector('#btn-back-2').addEventListener('click', function () { step3.style.display = 'none'; step2.style.display = 'block'; });
         container.querySelector('#top-back-2').addEventListener('click', function () { step3.style.display = 'none'; step2.style.display = 'block'; });
 
-        // 下一步检测
         container.querySelector('#btn-next-2').addEventListener('click', function () {
             try {
                 var rTypeEl = container.querySelector('input[name="router_type"]:checked');
@@ -1035,7 +995,6 @@ return view.extend({
             }
         });
 
-        // 提交配置
         container.querySelector('#btn-apply').addEventListener('click', function () {
             var actualMode = selectedMode, arg1 = '', arg2 = '', arg3 = '', arg4 = '';
             var rTypeEl = container.querySelector('input[name="router_type"]:checked');
@@ -1063,7 +1022,6 @@ return view.extend({
             
             var handleSuccess = function() {
                 var currentHost = window.location.hostname, cleanUrl = window.location.href.split('?')[0], ts = new Date().getTime();
-
                 if (selectedMode === 'lan' && arg1 && arg1 !== currentHost) {
                     openModal({ title: _t('M_SUCC_TIT'), msg: _t('M_SUCC_MSG1') + arg1 + _t('M_SUCC_MSG2'), spin: true });
                     setTimeout(function() { window.location.href = 'http://' + arg1 + '?v=' + ts; }, 15000);

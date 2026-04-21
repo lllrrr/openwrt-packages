@@ -16,11 +16,12 @@ case "$1" in
                 arg3=$(echo "$input" | jsonfilter -e '@.arg3')
                 arg4=$(echo "$input" | jsonfilter -e '@.arg4')
 
-                # 拦截执行热更新
+                # 发现 mode 是更新指令，直接拦截执行热更新
                 if [ "$mode" = "prepare_update" ]; then
                     echo '{"result":0}'
                     rm -f /tmp/netwiz_update.*
                     
+                    # 前端传来的版本号
                     echo "$arg1" > /tmp/netwiz_update.version
                     
                     cat << 'EOF' > /tmp/nw_dl.sh
@@ -30,12 +31,15 @@ URL="https://github.com/huchd0/luci-app-netwiz/releases/latest/download/luci-app
 PROXY_URL="https://mirror.ghproxy.com/${URL}"
 
 for i in 1 2 3; do
+    # 1. 先尝试官方直连
     wget -qO "/tmp/netwiz_update.${PKG}" --no-check-certificate --timeout=15 "$URL"
     
+    # 2. 官方直连失败，或者下载下来是空文件，立刻尝试加速代理
     if [ "$?" -ne 0 ] || [ ! -s "/tmp/netwiz_update.${PKG}" ]; then
         wget -qO "/tmp/netwiz_update.${PKG}" --no-check-certificate --timeout=15 "$PROXY_URL"
     fi
     
+    # 3. 只需确保文件存在且大于 0kb 即可
     if [ -s "/tmp/netwiz_update.${PKG}" ]; then
         touch /tmp/netwiz_update.ready
         break
@@ -53,6 +57,7 @@ EOF
                     exit 0
                     
                 elif [ "$mode" = "check_update" ]; then
+                    # 文件就绪，且版本号一致
                     if [ -f /tmp/netwiz_update.ready ] && [ "$(cat /tmp/netwiz_update.version 2>/dev/null)" = "$arg1" ]; then
                         echo '{"result":1}'
                     else
@@ -65,21 +70,12 @@ EOF
                     cat << 'EOF' > /tmp/nw_install.sh
 #!/bin/sh
 sleep 2
-
-# 防止文件被改动导致拒绝覆盖
-rm -f /www/luci-static/resources/view/netwiz.js
-rm -f /usr/libexec/rpcd/netwiz
-
-# 强制安装新包
 if command -v apk >/dev/null 2>&1; then
-    apk del luci-app-netwiz >/dev/null 2>&1
     apk add --allow-untrusted --force-overwrite /tmp/netwiz_update.apk
 else
-    opkg install /tmp/netwiz_update.ipk --force-reinstall --force-overwrite --force-maintainer
+    opkg install /tmp/netwiz_update.ipk --force-reinstall --force-overwrite
 fi
-
-# 核心：只清理缓存，绝对不重启服务，防止踢出登录
-rm -rf /tmp/luci-modulecache/ /tmp/luci-indexcache* /tmp/luci-app-netwiz.*
+rm -f /tmp/luci-indexcache /tmp/luci-modulecache/* /tmp/luci-app-netwiz.*
 rm -f /tmp/netwiz_update.ready /tmp/netwiz_update.* /tmp/nw_install.sh
 EOF
                     chmod +x /tmp/nw_install.sh
