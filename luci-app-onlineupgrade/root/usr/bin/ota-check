@@ -1,0 +1,12 @@
+#!/bin/sh
+
+# 必须确保路径正确，点号后面有空格
+. /etc/openwrt_release
+
+OS_NAME=$(echo "$DISTRIB_ID" | tr 'A-Z' 'a-z')
+TARGET_MAIN=${DISTRIB_TARGET%/*}
+TARGET_SUB=${DISTRIB_TARGET#*/}
+BOARD_ID=$(jsonfilter -e '@.model.id' < /etc/board.json | tr ',' '_')
+
+# 修正后的 printf，直接单行输出避免换行符导致的解析失败
+printf '{"os":"%s","main":"%s","sub":"%s","board":"%s"}\n' "$OS_NAME" "$TARGET_MAIN" "$TARGET_SUB" "$BOARD_ID"

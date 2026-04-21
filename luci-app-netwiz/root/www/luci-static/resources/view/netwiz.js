@@ -261,9 +261,9 @@ var i18n = {
         'M_WARN_TIT': '主路由配置警告',
         'M_WARN_MSG': '檢測到您選擇了【主路由模式】，卻強行填寫了【閘道器】。<br><br><b>在標準主路由下，閘道器必須留空。</b>亂填閘道器會導致設備無法正常分發網路，進而導致全屋斷網！<br><br>您確定要這麼做嗎？',
         'M_WARN_BTN': '強行應用',
-        'M_SYS_ERR': '系統異常',
+        'M_SYS_ERR': '系統异常',
         'M_SYS_MSG': '無法讀取底層配置進行校驗，請刷新網頁重試。',
-        'M_APP_TIT': '正在下发配置',
+        'M_APP_TIT': '正在下發配置',
         'M_APP_MSG': '請求寫入中，請稍候...',
         'M_SUCC_TIT': '配置已生效',
         'M_SUCC_MSG1': '由於 IP 已變更為 <b style="color:#3b82f6;">',
@@ -278,11 +278,11 @@ var i18n = {
         'M_HIDDEN': '已隱藏',
         'M_IP_GW': 'IP及閘道器',
         'M_AUTO_UP': '由上級路由自動分配',
-        'U_NEW': '新版本 ',
+        'U_NEW': '發現新版本 ',
         'U_READY': '升級準備就绪 (',
         'U_BTN_NOW': '立即更新',
         'U_BTN_LATER': '暫不更新',
-        'U_INST': '正在极速安装',
+        'U_INST': '正在極速安裝',
         'U_INST_MSG': '新版本部署中，底層權限系統正在重置...<br><br><span style="font-size:13px; color:#10b981; font-weight:bold;">安裝完成後，為確保安全，系統將要求您重新登入。</span><br><br><span style="font-size:12px; color:#666;">(網頁將在 15 秒後自動跳轉，若卡住請按 Ctrl+F5)</span>'
     },
     'zh-cn': {
@@ -416,18 +416,11 @@ function _t(key) {
 
 return view.extend({
     render: function () {
-        // 核心修复：检查 localStorage 强制刷新标记，使用 fetch 强制重载当前脚本覆盖浏览器死缓存
-        if (localStorage.getItem('nw_force_refresh') === '1') {
-            localStorage.removeItem('nw_force_refresh');
-            var jsPath = (typeof L !== 'undefined' && L.resource) ? L.resource('view/netwiz.js') : '/luci-static/resources/view/netwiz.js';
-            fetch(jsPath, { cache: 'reload' }).then(function() {
-                window.location.reload(true);
-            }).catch(function() {
-                window.location.reload(true);
-            });
-            var loadingNode = dom.create('div', { class: 'cbi-map', id: 'netwiz-container' });
-            loadingNode.innerHTML = '<div style="text-align:center; padding:100px; color:#fff; font-size:18px;">正在清理旧版本缓存...</div>';
-            return loadingNode;
+        if (!document.querySelector('meta[name="viewport"]')) {
+            var meta = document.createElement('meta');
+            meta.name = 'viewport';
+            meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0';
+            document.head.appendChild(meta);
         }
 
         var container = dom.create('div', { class: 'cbi-map', id: 'netwiz-container' });
@@ -439,13 +432,19 @@ return view.extend({
             '.nw-header { text-align: center; margin-bottom: 40px; background-color: #5e72e4; padding: 25px; margin-top: -100px; border-radius: 0 0 15px 15px; position: relative; }',
             '.nw-main-title { font-size: 35px; font-weight: 600; margin-bottom: 10px; color: #ffffff; letter-spacing: 2px; }',
             '.nw-header p { color: #ffffff; font-size: 16px; opacity: 0.9; margin: 0; letter-spacing: 1px; }',
-            '#nw-lang-switch { position: absolute; top: 15px; left: 15px; z-index: 100; padding: 5px 10px; border-radius: 6px; background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.3); font-size: 13px; outline: none; cursor: pointer; backdrop-filter: blur(5px); transition: all 0.2s; }',
+            
+            '#nw-lang-switch { position: absolute; top: -30px; right: 15px; z-index: 100; padding: 5px 10px; border-radius: 6px; background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.3); font-size: 13px; outline: none; cursor: pointer; backdrop-filter: blur(5px); transition: all 0.2s; }',
             '#nw-lang-switch:hover { background: rgba(255,255,255,0.25); }',
             '#nw-lang-switch option { color: #333; background: #fff; }',
-            '#nw-update-badge { position: absolute; top: 20px; right: -200px; white-space: nowrap; padding: 8px 16px; border-radius: 30px; font-size: 14px; font-weight: bold; cursor: pointer; transition: all 0.3s ease; z-index: 10; display: none; }',
-            '.nw-badge-new { background: #facc15 !important; color: #854d0e !important; border: 2px solid #eab308 !important; animation: pulse 2s infinite; }',
-            '.nw-badge-new:hover { transform: scale(1.05); background: #fde047 !important; }',
-            '@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(250, 204, 21, 0); } 100% { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0); } }',
+
+            /* 右上角红點與懸浮提示樣式 */
+            '#update-red-dot { display: none; position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; background-color: #ef4444; border-radius: 50%; box-shadow: 0 0 4px rgba(239, 68, 68, 0.8); animation: pulse-dot 2s infinite; pointer-events: none; }',
+            '@keyframes pulse-dot { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }',
+            '#update-tooltip { display: none; position: absolute; bottom: 130%; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: #fff; padding: 5px 10px; border-radius: 6px; font-size: 13px; white-space: nowrap; pointer-events: none; z-index: 100; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }',
+            '#update-tooltip::after { content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px; border-width: 5px; border-style: solid; border-color: rgba(0,0,0,0.8) transparent transparent transparent; }',
+            '#version-wrapper:hover #update-tooltip.has-update { display: block; animation: fadeIn 0.2s; }',
+            '@keyframes fadeIn { from { opacity: 0; transform: translate(-50%, 5px); } to { opacity: 1; transform: translate(-50%, 0); } }',
+
             '.nw-step { width: 100%; max-width: 750px; text-align: center; animation: slideUp 0.4s ease-out; }',
             '@keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }',
             '.nw-card-group { display: flex; gap: 40px; justify-content: center; flex-wrap: wrap; margin-top: 20px; }',
@@ -498,6 +497,28 @@ return view.extend({
             '.nw-modal-btn-danger { background: #ef4444; color: white; border: none; padding: 12px 30px; border-radius: 8px; font-size: 15px; cursor: pointer; flex: 1; transition: background 0.2s; }',
             '.nw-modal-btn-danger:hover { background: #dc2626; }',
             '.nw-hl { color: #facc15; font-weight: bold; }',
+
+            /* 響應式佈局 */
+            '@media screen and (max-width: 768px) {',
+            '  .nw-wrapper { padding-top: 3vh; padding-bottom: 5vh; }',
+            '  .nw-header { margin-top: -30px; padding: 20px 15px; width: 92%; box-sizing: border-box; border-radius: 12px; }',
+            '  .nw-main-title { font-size: 22px; }',
+            '  .nw-header p { font-size: 13px; }',
+            '  .nw-card-group { flex-direction: column; align-items: center; gap: 15px; margin-top: 15px; }',
+            '  .nw-card { width: 100%; max-width: 320px; padding: 25px 20px; text-align: center; }',
+            '  .nw-badge { margin-bottom: 15px; width: 48px; height: 48px; line-height: 48px; font-size: 18px; }',
+            '  .nw-form-area, .nw-confirm-board { width: 92%; padding: 25px 20px; box-sizing: border-box; }',
+            '  .nw-top-back { top: 12px; left: 12px; width: 32px; height: 32px; }',
+            '  .nw-step-title { font-size: 18px; margin-top: 15px; margin-bottom: 20px; }',
+            '  #current-mode-display { width: 92%; min-width: auto; padding: 15px; box-sizing: border-box; }',
+            '  #nw-lang-switch { font-size: 12px; padding: 4px 8px; }',
+            '  .nw-radio-group { flex-wrap: wrap; gap: 12px; }',
+            '  .nw-actions { width: 100%; margin: 20px auto 0; display: flex; flex-direction: row; gap: 12px; box-sizing: border-box; }',
+            '  .nw-actions button { flex: 1; padding: 12px 0; font-size: 15px; margin: 0; }',
+            '  #nw-global-modal .nw-modal-box { padding: 25px 20px; width: 85%; }',
+            '  #nw-global-btn-wrap { flex-direction: row; gap: 12px; }',
+            '  #nw-global-btn-wrap button { flex: 1; padding: 12px 0; margin: 0; }',
+            '}',
             '</style>',
 
             '<div class="nw-wrapper">',
@@ -508,8 +529,7 @@ return view.extend({
             '  </select>',
             
             '  <div class="nw-header">',
-            '    <div id="nw-update-badge"></div>',
-            '    <div class="nw-main-title">{{TITLE}} <span style="font-size:14px; background:#67A57B; padding:4px 10px; border-radius:6px; vertical-align:middle;">' + CURRENT_VERSION + '</span></div>',
+            '    <div class="nw-main-title">{{TITLE}} <span id="version-wrapper" style="position:relative; font-size:14px; background:#67A57B; padding:4px 10px; border-radius:6px; vertical-align:middle; transition: all 0.3s; display:inline-block; cursor:default;">' + CURRENT_VERSION + '<span id="update-red-dot"></span><span id="update-tooltip"></span></span></div>',
             '    <p>{{SUBTITLE}}</p>',
             '  </div>',
 
@@ -527,11 +547,11 @@ return view.extend({
 
             '  <div id="step-1" class="nw-step">',
             '    <div class="nw-card-group">',
-            '      <div class="nw-card" data-mode="router"><div class="nw-badge nw-badge-dhcp">路由</div>',
+            '      <div class="nw-card" data-mode="router"><div class="nw-badge nw-badge-dhcp">🌐</div>',
             '        <div class="nw-card-title">{{MODE_ROUTER_TITLE}}</div><span>{{MODE_ROUTER_DESC}}</span></div>',
-            '      <div class="nw-card" data-mode="pppoe"><div class="nw-badge nw-badge-pppoe">拨号</div>',
+            '      <div class="nw-card" data-mode="pppoe"><div class="nw-badge nw-badge-pppoe">🔑</div>',
             '        <div class="nw-card-title">{{MODE_PPPOE_TITLE}}</div><span>{{MODE_PPPOE_DESC}}</span></div>',
-            '      <div class="nw-card" data-mode="lan"><div class="nw-badge nw-badge-bypass">局网</div>',
+            '      <div class="nw-card" data-mode="lan"><div class="nw-badge nw-badge-bypass">💻</div>',
             '        <div class="nw-card-title">{{MODE_LAN_TITLE}}</div><span>{{MODE_LAN_DESC}}</span></div>',
             '    </div>',
 
@@ -543,7 +563,7 @@ return view.extend({
             '  <div id="step-2" class="nw-step" style="display: none;">',
             '    <div class="nw-form-area">',
             '      <div class="nw-top-back" id="top-back-1" title="{{BTN_HOME}}">',
-            '         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 5"></polyline></svg>',
+            '         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>',
             '      </div>',
             '      <div id="fields-router" style="display: none;">',
             '        <div class="nw-step-title">{{TITLE_WAN}}</div>',
@@ -582,7 +602,7 @@ return view.extend({
             '  <div id="step-3" class="nw-step" style="display: none;">',
             '    <div class="nw-confirm-board">',
             '      <div class="nw-top-back" id="top-back-2" title="{{BTN_EDIT}}">',
-            '         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 5"></polyline></svg>',
+            '         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>',
             '      </div>',
             '      <div class="nw-step-title">{{TITLE_CONFIRM}}</div>',
             '      <p style="color:#555; text-align:center;">{{DESC_CONFIRM}}</p>',
@@ -598,7 +618,6 @@ return view.extend({
             '</div>'
         ].join('');
 
-        // 注入语言文本
         for (var k in i18n['zh-cn']) {
             htmlTemplate = htmlTemplate.replace(new RegExp('\\{\\{' + k + '\\}\\}', 'g'), _t(k));
         }
@@ -616,7 +635,6 @@ return view.extend({
         var modeTextEl = container.querySelector('#current-mode-text');
         var selectedMode = '';
 
-        // 绑定下拉框语言切换功能
         var langSwitch = container.querySelector('#nw-lang-switch');
         if (langSwitch) {
             langSwitch.value = curLang;
@@ -640,7 +658,6 @@ return view.extend({
         }
 
         function doUpdateCheck() {
-            var badge = container.querySelector('#nw-update-badge');
             var now = Date.now();
             var cacheKey = 'nw_last_update_check';
             var cacheExpiry = 5 * 60 * 1000;
@@ -648,15 +665,24 @@ return view.extend({
 
             var showReadyBadge = function(latestVer, rawText) {
                 var cleanText = rawText.split('---')[0].replace(/### ✨ 最新版发布/g, '').trim();
-                badge.className = 'nw-badge-new';
-                badge.innerText = _t('U_NEW') + latestVer;
-                badge.style.display = 'inline-block';
+                
+                var verWrapper = container.querySelector('#version-wrapper');
+                var redDot = container.querySelector('#update-red-dot');
+                var tooltip = container.querySelector('#update-tooltip');
 
-                var newBadge = badge.cloneNode(true);
-                badge.parentNode.replaceChild(newBadge, badge);
-                badge = newBadge;
+                if (compareVersions(latestVer, CURRENT_VERSION) <= 0) return;
 
-                badge.addEventListener('click', function() {
+                redDot.style.display = 'block';
+                tooltip.innerText = _t('U_NEW') + latestVer;
+                tooltip.className = 'has-update';
+                verWrapper.style.cursor = 'pointer';
+
+                // 防止多次綁定點擊事件
+                var newWrapper = verWrapper.cloneNode(true);
+                verWrapper.parentNode.replaceChild(newWrapper, verWrapper);
+                verWrapper = newWrapper;
+
+                verWrapper.addEventListener('click', function() {
                     openModal({
                         title: _t('U_READY') + latestVer + ')',
                         msg: '<b>' + _t('U_INST_MSG').split('<br><br>')[0] + '</b><br><br><div style="text-align:left; font-size:13px; background:#f1f5f9; padding:10px; margin-top:10px; border-radius:6px; max-height:150px; overflow-y:auto; border:1px solid #cbd5e1;">' + cleanText.replace(/\n/g, '<br>') + '</div>',
@@ -664,16 +690,13 @@ return view.extend({
                         onOk: function() {
                             try { poll.stop(); } catch(e) {}
                             
-                            // 清理检测更新的缓存记录
                             localStorage.removeItem('nw_last_update_check');
 
                             openModal({ title: _t('U_INST'), msg: _t('U_INST_MSG'), spin: true });
                             var forceReload = function() { 
-                                // 设置永久性硬刷新标记，防止因重新登录导致标记丢失
-                                localStorage.setItem('nw_force_refresh', '1');
                                 window.location.href = window.location.href.split('?')[0] + '?t=' + new Date().getTime(); 
                             };
-                            callNetSetup('do_install').then(function() { setTimeout(forceReload, 12000); }).catch(function() { setTimeout(forceReload, 12000); });
+                            callNetSetup('do_install').then(function() { setTimeout(forceReload, 15000); }).catch(function() { setTimeout(forceReload, 15000); });
                         }
                     });
                 });
@@ -995,14 +1018,14 @@ return view.extend({
             if (selectedMode === 'lan') {
                 arg1 = container.querySelector('#lan-ip').value.trim();
                 arg2 = container.querySelector('#lan-gw').value.trim();
-                arg3 = calculateNetmask(arg1); // 计算掩码
+                arg3 = calculateNetmask(arg1);
                 arg4 = bypassToggle.checked ? '1' : '0';
             } else if (selectedMode === 'router') {
                 actualMode = (rType === 'dhcp') ? 'wan_dhcp' : 'wan_static';
                 if(rType === 'static') {
                     arg1 = container.querySelector('#router-ip').value.trim();
                     arg2 = container.querySelector('#router-gw').value.trim();
-                    arg3 = calculateNetmask(arg1); // 计算掩码
+                    arg3 = calculateNetmask(arg1);
                 }
             } else if (selectedMode === 'pppoe') {
                 arg1 = container.querySelector('#pppoe-user').value;
@@ -1014,9 +1037,6 @@ return view.extend({
             
             var handleSuccess = function() {
                 var currentHost = window.location.hostname, cleanUrl = window.location.href.split('?')[0], ts = new Date().getTime();
-                
-                // 设置永久性硬刷新标记，防止因重新登录导致标记丢失
-                localStorage.setItem('nw_force_refresh', '1');
 
                 if (selectedMode === 'lan' && arg1 && arg1 !== currentHost) {
                     openModal({ title: _t('M_SUCC_TIT'), msg: _t('M_SUCC_MSG1') + arg1 + _t('M_SUCC_MSG2'), spin: true });

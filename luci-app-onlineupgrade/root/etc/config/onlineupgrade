@@ -1,3 +1,0 @@
-
-config upgrade 'main'
-    option url 'https://example.com/firmware.json'

@@ -1,7 +1,45 @@
+# --- 基础全局设置 ---
 config ota 'settings'
-	option url 'https://api.github.com/repos/YOUR_USER/YOUR_REPO/releases/latest'
-	option auto_update '0'
-	option backup_plugins '1'
-	option download_proxy '0'  # 0: 直连, 1: 开启加速
-	option custom_proxy_url 'https://mirror.ghproxy.com/'
-	option github_token ''
+    # GitHub API 地址：脚本会自动从中解析 tag_name 和 assets 固件列表
+    option url 'https://api.github.com/repos/qsyqn1/immoralwrt-x86-64/releases/latest'
+    
+    # [新增] 自动化与检查开关
+    option auto_check '0'          # 定时检查更新开关 (1: 开启, 0: 关闭)
+    
+    # [核心] 容灾与恢复策略 (Safe-Flash)
+    option backup_plugins '1'      # 升级后是否自动重装第三方插件 (1: 开启)
+    
+    # [新增] 磁盘扩容策略
+    option auto_resize '0'         # 升级重启后是否自动扩展根分区至全盘 (x86/ARM 推荐开启)
+
+    # [新增] 启动配置冲突审计
+    option config_audit '0'  # <-- 确保这一行存在，默认设为 0 (关闭)
+
+    # 下载加速配置
+    option download_proxy '0'      # 是否启用 GitHub 下载加速 (1: 开启, 0: 直连)
+    option custom_proxy_url 'https://mirror.ghproxy.com/' # 加速前缀地址
+    
+    # 安全性：GitHub API 访问令牌
+    option github_token ''         # 访问私有仓库或突破 GitHub API 次数限制时填入
+
+    # [核心] 强制保留文件列表
+    # 每行一个绝对路径，这些文件即使在不勾选“保留配置”升级时也会被强制还原
+    option custom_files '/etc/config/network
+/etc/config/wireless
+/etc/shadow'
+
+# --- 推送通知设置 ---
+config ota 'notification'
+    option enabled '0'             # 是否开启推送通知服务 (1: 开启)
+    
+    # 通知通道类型支持：
+    # sct: Server酱 (微信)
+    # tg: Telegram Bot
+    # dingtalk: 钉钉机器人
+    option notify_type 'sct'
+    
+    # 各平台通用 Token (TG 为 Bot Token, SCT 为 SendKey)
+    option notify_token ''
+    
+    # 仅 Telegram 模式需要填写接收消息的 ID (个人或群组)
+    option notify_chatid ''

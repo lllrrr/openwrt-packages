@@ -75,8 +75,13 @@ if command -v apk >/dev/null 2>&1; then
 else
     opkg install /tmp/netwiz_update.ipk --force-reinstall --force-overwrite
 fi
-rm -f /tmp/luci-indexcache /tmp/luci-modulecache/* /tmp/luci-app-netwiz.*
+
+# 徹底清理 LuCI 快取並重啟服務，強迫瀏覽器拉取新文件
+rm -rf /tmp/luci-modulecache/ /tmp/luci-indexcache* /tmp/luci-app-netwiz.*
 rm -f /tmp/netwiz_update.ready /tmp/netwiz_update.* /tmp/nw_install.sh
+
+/etc/init.d/rpcd restart >/dev/null 2>&1
+/etc/init.d/uhttpd restart >/dev/null 2>&1
 EOF
                     chmod +x /tmp/nw_install.sh
                     /tmp/nw_install.sh </dev/null >/dev/null 2>&1 &

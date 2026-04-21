@@ -1,143 +1,361 @@
 <%+header%>
 
+<style>
+    /* 1. 基础全局标签样式 */
+    .label { padding: 4px 10px; border-radius: 4px; font-size: 0.9em; color: white; display: inline-block; font-weight: 500; }
+    .success { background-color: #2dce89; }
+    .info { background-color: #11cdef; }
+    .warning { background-color: #fb6340; }
+    .secondary { background-color: #888; }
+    
+    /* 2. 交互组件与布局 */
+    .cbi-input-select { height: auto !important; padding: 4px !important; }
+    .env-tag-group { display: flex; flex-wrap: wrap; gap: 6px; }
+    
+    /* 3. Safe-Flash 风险预警框样式 */
+    .risk-box { 
+        background: #fff4f2; 
+        border: 1px solid #ffccba; 
+        padding: 12px; 
+        border-radius: 6px; 
+        color: #d63031; 
+        font-size: 13px; 
+        margin-bottom: 15px;
+    }
+    .risk-box ul { margin: 8px 0 0 20px; padding: 0; }
+    .risk-box li { margin-bottom: 3px; font-family: monospace; }
+    
+    /* 4. 进度条美化 (通用) */
+    #progress_bar_container, #restore_panel { padding: 20px 10px; }
+    .progress-bg { width:100%; background:#eee; height:12px; border-radius: 6px; overflow: hidden; border: 1px solid #ddd; }
+    .progress-fill { 
+        width:0%; 
+        background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); 
+        height:100%; 
+        transition: width 0.5s ease-in-out; 
+    }
+    /* 恢复模式下的进度条颜色区别于升级模式 */
+    .restore-fill { background: linear-gradient(90deg, #667eea 0%, #764ba2 100%) !important; }
+    
+    /* 5. 响应式布局：适配手机端 */
+    @media screen and (max-width: 767px) {
+        .cbi-value {
+            display: flex !important;
+            flex-direction: column !important;
+            padding: 15px 12px !important;
+            border: 1px solid #ebedf2 !important;
+            border-radius: 8px !important;
+            margin-bottom: 12px !important;
+        }
+        .cbi-value-title { width: 100% !important; text-align: left !important; padding-bottom: 8px !important; font-weight: bold !important; }
+        .cbi-value-field { width: 100% !important; padding-left: 0 !important; }
+        .cbi-button, #start_btn { width: 100% !important; height: 44px !important; }
+    }
+</style>
+
 <div class="cbi-map">
     <h2 class="section-title">OTA 固件在线升级</h2>
-    <div class="cbi-map-descr">通过云端服务器获取最新的系统固件并执行自动刷写。</div>
+    <div class="cbi-map-descr">系统将自动识别您的硬件 DNA，并在升级前为您提供配置与插件保护建议。</div>
+
+    <fieldset class="cbi-section" id="restore_panel" style="display:none; border: 2px solid #764ba2;">
+        <legend style="color: #764ba2; font-weight: bold;">🔄 系统升级完成 - 正在恢复插件</legend>
+        <div class="cbi-section-node">
+            <div style="padding: 10px;">
+                <strong id="restore_label">正在初始化恢复环境...</strong>
+                <div class="progress-bg" style="margin-top:10px;">
+                    <div id="restore_bar" class="progress-fill restore-fill"></div>
+                </div>
+                <div style="margin-top: 5px; font-size: 12px; color: #666;" id="restore_pkg_name">准备安装...</div>
+            </div>
+        </div>
+    </fieldset>
 
     <fieldset class="cbi-section">
-        <legend>设备信息</legend>
+        <legend>版本识别状态</legend>
         <div class="cbi-section-node">
             <div class="cbi-value">
-                <label class="cbi-value-title">运行平台</label>
+                <label class="cbi-value-title">硬件 DNA / 当前版本</label>
                 <div class="cbi-value-field">
-                    <span class="label success" id="platform">正在读取...</span>
-                </div>
-            </div>
-            <div class="cbi-value">
-                <label class="cbi-value-title">当前版本</label>
-                <div class="cbi-value-field">
-                    <span class="label info" id="cur_ver">正在读取...</span>
+                    <div class="env-tag-group">
+                        <span class="label success" id="platform">读取中...</span>
+                        <span class="label info" id="board_id">-</span>
+                        <span class="label info" id="cur_ver">读取中...</span>
+                    </div>
                 </div>
             </div>
             <div class="cbi-value">
                 <label class="cbi-value-title">云端最新版本</label>
                 <div class="cbi-value-field">
-                    <span class="label" id="new_ver" style="background-color: #888;">正在检查...</span>
-                </div>
-            </div>
-            <div class="cbi-value">
-                <label class="cbi-value-title">可用固件格式</label>
-                <div class="cbi-value-field">
-                    <select id="file_selector" class="cbi-input-select" style="width:100%; font-family:monospace;">
-                        <option value="">正在获取云端列表...</option>
-                    </select>
-                    <div class="cbi-value-description">
-                        <span id="match_tip" style="color:#2dce89; font-weight:bold;">提示：系统将优先尝试自动匹配。</span><br>
-                        若自动匹配失败，请在上方列表中手动选择对应的 <strong>.img.gz</strong> 文件。
-                    </div>
+                    <span class="label secondary" id="new_ver">正在检查更新...</span>
                 </div>
             </div>
         </div>
     </fieldset>
 
-<fieldset class="cbi-section" id="changelog_field" style="display:none;">
-    <legend>版本更新说明</legend>
-    <div class="cbi-section-node">
-        <div style="padding:15px; background:#f4f5f7; border-radius:8px; white-space: pre-wrap; font-size:13px; color:#555;" id="changelog_text">
-        </div>
-    </div>
-</fieldset>
+    <fieldset class="cbi-section">
+        <legend>安全升级设置 (Safe-Flash)</legend>
+        <div class="cbi-section-node">
+            <div class="cbi-value">
+                <label class="cbi-value-title">保留当前配置</label>
+                <div class="cbi-value-field">
+                    <input type="checkbox" id="keep_config" checked="checked" />
+                    <label for="keep_config" style="cursor:pointer; padding-left:5px;">升级后尝试恢复网络、账号等系统设置 (建议开启)</label>
+                </div>
+            </div>
 
-<script>
-    // 在 fetch check_update 的回调里增加：
-    if (data.log) {
-        document.getElementById('changelog_field').style.display = 'block';
-        document.getElementById('changelog_text').innerText = data.log;
-    }
-</script>
+            <div class="cbi-value">
+                <label class="cbi-value-title">第三方插件保护</label>
+                <div class="cbi-value-field">
+                    <div id="risk_panel" class="risk-box" style="display:none;">
+                        <strong>⚠ 风险提示：</strong>检测到以下插件为手动安装，固件升级后可能丢失，请确保已知晓风险。
+                        <ul id="auto_detected_plugins"></ul>
+                    </div>
+                    
+                    <div style="margin-top:10px;">
+                        <label style="display:block; margin-bottom:5px; font-weight:bold;">手动指定需要恢复的插件包名 (每行一个):</label>
+                        <textarea id="manual_plugins" style="width:100%; height:80px; font-family:monospace; font-size:12px; border-radius:4px; padding:8px;" 
+                            placeholder="例如：&#10;luci-app-openclash&#10;luci-app-nextdns"></textarea>
+                        <div class="cbi-value-description">提示：升级脚本将在系统重启后尝试重新拉取并安装上述插件。</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cbi-value">
+                <label class="cbi-value-title">手动预防性备份</label>
+                <div class="cbi-value-field">
+                    <button class="cbi-button cbi-button-reset" type="button" onclick="downloadBackup()">立即下载备份 (.tar.gz)</button>
+                    <div class="cbi-value-description">强烈建议：在执行 OTA 前，先下载一份配置备份到您的本地电脑。</div>
+                </div>
+            </div>
+        </div>
+    </fieldset>
 
     <fieldset class="cbi-section">
-        <legend>升级任务</legend>
+        <legend>控制面板</legend>
         <div class="cbi-section-node">
+            <div class="cbi-value">
+                <label class="cbi-value-title">选择目标固件</label>
+                <div class="cbi-value-field">
+                    <select id="file_selector" class="cbi-input-select" style="width:100%;">
+                        <option value="">正在连接云端服务器...</option>
+                    </select>
+                </div>
+            </div>
+
             <div class="cbi-value">
                 <label class="cbi-value-title">任务状态</label>
                 <div class="cbi-value-field">
-                    <span id="status" style="font-weight: bold; color: #555;">IDLE (空闲)</span>
+                    <span id="status" style="font-weight: bold; color: #555;">准备就绪 (IDLE)</span>
                 </div>
             </div>
             
-            <div id="progress_bar_container" style="display:none; padding: 20px 10px;">
-                <div style="width:100%; background:#eee; height:12px; border-radius: 6px; overflow: hidden;">
-                    <div id="progress_bar" style="width:0%; background:linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); height:100%; transition: width 0.5s;"></div>
+            <div id="progress_bar_container" style="display:none;">
+                <div class="progress-bg">
+                    <div id="progress_bar" class="progress-fill"></div>
                 </div>
                 <div style="text-align: center; margin-top: 5px; font-size: 12px; color: #888;" id="progress_text">0%</div>
             </div>
         </div>
     </fieldset>
 
+    <fieldset class="cbi-section" id="audit_field" style="display:none;">
+        <legend style="color: #d63031;">⚠ 配置审计冲突报告</legend>
+        <div class="cbi-section-node">
+            <div style="padding: 10px; background: #fffbe6; border: 1px solid #ffe58f; color: #856404; font-size: 12px; margin-bottom: 5px;">
+                提示：以下内容为您当前的配置与新固件默认配置的差异。若继续，您的本地配置将被保留。
+            </div>
+            <textarea id="audit_content" readonly="readonly" style="width: 100%; height: 150px; background: #fafafa; color: #333; padding: 10px; font-size: 11px; font-family: monospace; border: 1px solid #ccc;"></textarea>
+        </div>
+    </fieldset>
+
+    <fieldset class="cbi-section" id="log_field" style="display:none;">
+        <legend>实时控制台</legend>
+        <div class="cbi-section-node">
+            <textarea id="log_content" readonly="readonly" style="width: 100%; height: 200px; background: #1a1a2e; color: #00ff41; padding: 12px; font-size: 11px; font-family: monospace;"></textarea>
+        </div>
+    </fieldset>
+
     <div class="cbi-page-actions">
-        <button class="cbi-button cbi-button-apply" id="start_btn" onclick="startUpgrade()">立即检查并升级</button>
+        <button class="cbi-button cbi-button-apply" id="start_btn" onclick="startUpgrade()">立即执行安全 OTA 升级</button>
     </div>
 </div>
 
-<style>
-    .label { padding: 2px 8px; border-radius: 4px; font-size: 0.9em; color: white; }
-    .success { background-color: #2dce89; }
-    .info { background-color: #11cdef; }
-    .cbi-input-select { height: auto !important; padding: 4px !important; }
-</style>
-
 <script type="text/javascript">
     let pollTimer = null;
-    let errorCount = 0;
+    let logTimer = null;
+    let restoreTimer = null;
+    let hasAlerted = false;
 
     document.addEventListener("DOMContentLoaded", function() {
-        // 1. 获取本地信息
-        fetch('<%=url("admin/services/ota/info")%>')
+        // 1. 获取设备 DNA 信息
+        fetch('<%=url("admin/system/ota/info")%>')
             .then(res => res.json())
             .then(data => {
                 document.getElementById('platform').innerText = data.platform || 'Unknown';
+                document.getElementById('board_id').innerText = data.board || 'Generic';
                 document.getElementById('cur_ver').innerText = data.version || 'Unknown';
             });
 
-        // 2. 获取云端信息
-        fetch('<%=url("admin/services/ota/check_update")%>')
+        // 2. 检查更新 & 识别第三方插件
+        fetch('<%=url("admin/system/ota/check_update")%>')
             .then(res => res.json())
             .then(data => {
                 const newVerEl = document.getElementById('new_ver');
-                const selector = document.getElementById('file_selector');
-
                 if (data.remote_version && data.remote_version !== "N/A") {
                     newVerEl.innerText = data.remote_version;
-                    newVerEl.style.backgroundColor = "#fb6340";
+                    newVerEl.className = "label warning";
+                } else {
+                    newVerEl.innerText = '当前已是最新版本';
+                    newVerEl.className = "label success";
                 }
 
-                selector.innerHTML = '<option value="">-- 自动匹配 (优先搜索 sysupgrade) --</option>';
+                if (data.user_packages && data.user_packages.length > 0) {
+                    document.getElementById('risk_panel').style.display = 'block';
+                    const listUl = document.getElementById('auto_detected_plugins');
+                    data.user_packages.forEach(pkg => {
+                        const li = document.createElement('li');
+                        li.innerText = pkg;
+                        listUl.appendChild(li);
+                    });
+                }
+
+                const selector = document.getElementById('file_selector');
+                selector.innerHTML = '<option value="">-- 自动匹配 (最佳兼容性) --</option>';
                 if (data.files) {
                     data.files.trim().split('\n').forEach(file => {
                         const name = file.trim();
-                        // 【优化点】前端正则二次过滤：只显示镜像格式
                         if (name && /\.(img\.gz|img|bin)$/i.test(name)) {
                             const opt = document.createElement('option');
-                            opt.value = name; 
-                            opt.text = name;
-                            if (name.includes('combined-efi')) opt.text += " (推荐项目)";
+                            opt.value = name; opt.text = name;
                             selector.add(opt);
                         }
                     });
                 }
             });
+
+        // 3. 启动重启后的插件恢复进度轮询
+        pollRestoreProgress();
     });
 
-    function pollState() {
-        fetch('<%=url("admin/services/ota/state")%>')
+    /**
+     * 重启后的插件恢复进度轮询 (新增)
+     */
+    function pollRestoreProgress() {
+        fetch('<%=url("admin/system/ota/restore_status")%>')
             .then(res => {
-                // 如果后端返回 403 或 500，且进度已经很高，说明系统已经在执行重启了
-                if (!res.ok) throw new Error(res.status);
-                return res.json();
+                if (res.status === 200) return res.json();
+                throw new Error('No task');
             })
             .then(data => {
-                errorCount = 0; // 重置错误计数
+                const panel = document.getElementById('restore_panel');
+                const bar = document.getElementById('restore_bar');
+                const label = document.getElementById('restore_label');
+                const pkgLab = document.getElementById('restore_pkg_name');
+
+                panel.style.display = 'block';
+                if (data.status === "DONE") {
+                    label.innerText = "✅ 所有插件已成功恢复！";
+                    bar.style.width = "100%";
+                    pkgLab.innerText = "任务已完成，系统运行正常。";
+                    setTimeout(() => { panel.style.display = 'none'; }, 10000); // 10秒后自动消失
+                } else {
+                    let pct = (data.current / data.total * 100).toFixed(0);
+                    label.innerText = "正在恢复插件 (" + pct + "%)";
+                    bar.style.width = pct + "%";
+                    pkgLab.innerText = "正在安装: " + (data.pkg || "...");
+                    setTimeout(pollRestoreProgress, 3000); // 继续轮询
+                }
+            })
+            .catch(e => { /* 无任务时不显示 */ });
+    }
+
+    /**
+     * 配置备份下载
+     */
+    function downloadBackup() {
+        window.location.href = '<%=url("admin/system/ota/backup")%>';
+    }
+
+    /**
+     * 启动升级前先检查审计报告 (新增整合)
+     */
+    function startUpgrade() {
+        const keepConfig = document.getElementById('keep_config').checked ? 1 : 0;
+        const manualPlugins = document.getElementById('manual_plugins').value;
+        const file = document.getElementById('file_selector').value;
+
+        // 执行核心升级请求前，先进行最后的审计确认
+        fetch('<%=url("admin/system/ota/audit_report")%>')
+            .then(res => res.text())
+            .then(auditContent => {
+                let warningMsg = `确认开始安全升级？\n\n1. 保留配置：${keepConfig ? '开启' : '关闭'}\n2. 目标固件：${file || '自动匹配'}`;
+                
+                // 如果审计报告不为空，则弹出差异预警
+                if (auditContent && auditContent.indexOf('差异内容') !== -1) {
+                    document.getElementById('audit_field').style.display = 'block';
+                    document.getElementById('audit_content').value = auditContent;
+                    if (!confirm("【警告】检测到配置冲突！\n\n新固件与当前系统的某些关键配置存在差异（如网络或防火墙）。已在页面下方显示具体差异。\n\n是否仍要继续升级？")) return;
+                } else {
+                    if (!confirm(warningMsg + "\n\n升级过程中请务必保持电源接通。")) return;
+                }
+
+                // 正式开始请求
+                executeUpgrade(keepConfig, file, manualPlugins);
+            })
+            .catch(() => {
+                // 如果接口报错（文件不存在），直接执行升级
+                executeUpgrade(keepConfig, file, manualPlugins);
+            });
+    }
+
+    /**
+     * 执行真正的升级动作
+     */
+    function executeUpgrade(keepConfig, file, manualPlugins) {
+        hasAlerted = false;
+        const btn = document.getElementById('start_btn');
+        btn.disabled = true;
+        btn.innerText = "正在同步设置...";
+
+        document.getElementById('progress_bar_container').style.display = 'block';
+        document.getElementById('log_field').style.display = 'block';
+
+        let url = '<%=url("admin/system/ota/start")%>' + "?keep=" + keepConfig + "&filename=" + encodeURIComponent(file);
+        
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'manual_plugins=' + encodeURIComponent(manualPlugins)
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.ok) {
+                pollTimer = setInterval(pollState, 2000);
+                logTimer = setInterval(pollLog, 1500);
+            } else {
+                alert("启动失败: " + data.msg);
+                btn.disabled = false;
+                btn.innerText = "立即执行安全 OTA 升级";
+            }
+        });
+    }
+
+    function pollLog() {
+        fetch('<%=url("admin/system/ota/log")%>')
+            .then(res => res.text())
+            .then(data => {
+                const logArea = document.getElementById('log_content');
+                if (data) {
+                    logArea.value = data;
+                    logArea.scrollTop = logArea.scrollHeight;
+                }
+            });
+    }
+
+    function pollState() {
+        fetch('<%=url("admin/system/ota/state")%>')
+            .then(res => res.json())
+            .then(data => {
                 const statusEl = document.getElementById('status');
                 const p = parseInt(data.progress || 0);
                 
@@ -145,67 +363,20 @@
                 document.getElementById('progress_bar').style.width = p + "%";
                 document.getElementById('progress_text').innerText = p + "%";
 
-                // 当状态为 SUCCESS 且进度 100 时，引导重启
-                if (data.state === "SUCCESS" && p >= 100) {
+                if (!hasAlerted && (data.state === "SUCCESS" || data.state === "FLASHING" || p >= 95)) {
+                    hasAlerted = true;
                     clearInterval(pollTimer);
-                    statusEl.innerText = "升级包已就绪，系统正在重启中...";
-                    setTimeout(() => {
-                        alert("固件刷写完成！系统正在重启，请于 2 分钟后刷新页面。");
-                        location.href = window.location.protocol + "//" + window.location.host;
-                    }, 2000);
+                    clearInterval(logTimer);
+                    statusEl.innerHTML = '<span style="color: #2dce89;">固件写入中，请等待设备重启...</span>';
+                    alert("刷写流程已启动！\n系统正在后台写入固件并准备重启。\n\n重启后，插件恢复程序将在后台自动运行，您可在本页面查看进度。");
+                    setTimeout(() => { location.href = "/"; }, 5000);
                 } else if (data.state === "ERROR") {
                     clearInterval(pollTimer);
-                    alert("错误: " + (data.msg || "升级过程中断"));
+                    clearInterval(logTimer);
+                    alert("升级中断: " + (data.msg || "未知错误"));
                     document.getElementById('start_btn').disabled = false;
                     document.getElementById('start_btn').innerText = "重试升级";
                 }
-            })
-            .catch(err => {
-                errorCount++;
-                const statusEl = document.getElementById('status');
-                const currentProgress = parseInt(document.getElementById('progress_text').innerText);
-
-                // 如果进度超过 90% 且连续多次通讯失败，说明路由器正在重启，uhttpd 已关闭
-                if (currentProgress >= 90 || errorCount > 5) {
-                    clearInterval(pollTimer);
-                    statusEl.innerText = "连接已断开，系统正在重启，请手动刷新页面。";
-                    statusEl.style.color = "#fb6340";
-                } else {
-                    statusEl.innerText = "正在等待后端响应 (" + errorCount + ")...";
-                }
-                console.warn("轮询异常:", err.message);
-            });
-    }
-
-    function startUpgrade() {
-        const selectedFile = document.getElementById('file_selector').value;
-        const btn = document.getElementById('start_btn');
-        
-        if (!confirm("确定开始升级吗？升级过程中请勿断电。")) return;
-
-        btn.disabled = true;
-        btn.innerText = "正在初始化...";
-        document.getElementById('progress_bar_container').style.display = 'block';
-
-        let startUrl = '<%=url("admin/services/ota/start")%>';
-        if (selectedFile) startUrl += "?filename=" + encodeURIComponent(selectedFile);
-
-        fetch(startUrl)
-            .then(res => res.json())
-            .then(data => {
-                if (data.ok) {
-                    errorCount = 0;
-                    if (pollTimer) clearInterval(pollTimer);
-                    pollTimer = setInterval(pollState, 2000);
-                } else {
-                    alert("启动失败: " + data.msg);
-                    btn.disabled = false;
-                    btn.innerText = "立即检查并升级";
-                }
-            })
-            .catch(err => {
-                alert("通讯失败，请检查网络权限或 ACL 配置文件。");
-                btn.disabled = false;
             });
     }
 </script>
