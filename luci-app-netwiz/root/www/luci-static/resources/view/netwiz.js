@@ -19,14 +19,14 @@ var callNetSetup = rpc.declare({
     expect: { result: 0 }
 });
 
-// 使用万能通配符，防止 ubus 数据异常导致页面崩溃
+// 使用万能通配符，防止数据异常导致页面崩溃
 var getWanStatus = rpc.declare({
     object: 'network.interface',
     method: 'dump',
-    expect: { '': {} }
+    expect: { '': {} } 
 });
 
-// 自动语言
+// 自动语言检测与记忆
 var savedLang = localStorage.getItem('nw_lang_override');
 var curLang = 'zh-cn';
 
@@ -278,7 +278,7 @@ var i18n = {
         'M_HIDDEN': '已隱藏',
         'M_IP_GW': 'IP及閘道器',
         'M_AUTO_UP': '由上級路由自動分配',
-        'U_NEW': '发现新版本 ',
+        'U_NEW': '新版本 ',
         'U_READY': '升級準備就绪 (',
         'U_BTN_NOW': '立即更新',
         'U_BTN_LATER': '暫不更新',
@@ -406,7 +406,7 @@ var i18n = {
         'U_BTN_NOW': '立即更新',
         'U_BTN_LATER': '暂不更新',
         'U_INST': '正在极速安装',
-        'U_INST_MSG': '新版本部署中，底层权限系统正在重置...<br><br><span style="font-size:13px; color:#10b981; font-weight:bold;">安装完成后，为确保安全，系统将要求您重新登录。</span><br><br><span style="font-size:12px; color:#666;">(网页将在 12 秒后自动跳转，若卡住请按 Ctrl+F5)</span>'
+        'U_INST_MSG': '新版本部署中，底层权限系统正在重置...<br><br><span style="font-size:13px; color:#10b981; font-weight:bold;">安装完成后，为确保安全，系统将要求您重新登录。</span><br><br><span style="font-size:12px; color:#666;">(网页将在 15 秒后自动跳转，若卡住请按 Ctrl+F5)</span>'
     }
 };
 
@@ -416,18 +416,18 @@ function _t(key) {
 
 return view.extend({
     render: function () {
-        // 击穿死缓存机制：检测到标记则强制硬刷新页面
-        if (sessionStorage.getItem('nw_force_refresh') === '1') {
-            sessionStorage.removeItem('nw_force_refresh');
-            window.location.reload(true);
-            return dom.create('div', { id: 'netwiz-container' }, 'Reloading...');
-        }
-
-        if (!document.querySelector('meta[name="viewport"]')) {
-            var meta = document.createElement('meta');
-            meta.name = 'viewport';
-            meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0';
-            document.head.appendChild(meta);
+        // 核心修复：检查 localStorage 强制刷新标记，使用 fetch 强制重载当前脚本覆盖浏览器死缓存
+        if (localStorage.getItem('nw_force_refresh') === '1') {
+            localStorage.removeItem('nw_force_refresh');
+            var jsPath = (typeof L !== 'undefined' && L.resource) ? L.resource('view/netwiz.js') : '/luci-static/resources/view/netwiz.js';
+            fetch(jsPath, { cache: 'reload' }).then(function() {
+                window.location.reload(true);
+            }).catch(function() {
+                window.location.reload(true);
+            });
+            var loadingNode = dom.create('div', { class: 'cbi-map', id: 'netwiz-container' });
+            loadingNode.innerHTML = '<div style="text-align:center; padding:100px; color:#fff; font-size:18px;">正在清理旧版本缓存...</div>';
+            return loadingNode;
         }
 
         var container = dom.create('div', { class: 'cbi-map', id: 'netwiz-container' });
@@ -439,7 +439,7 @@ return view.extend({
             '.nw-header { text-align: center; margin-bottom: 40px; background-color: #5e72e4; padding: 25px; margin-top: -100px; border-radius: 0 0 15px 15px; position: relative; }',
             '.nw-main-title { font-size: 35px; font-weight: 600; margin-bottom: 10px; color: #ffffff; letter-spacing: 2px; }',
             '.nw-header p { color: #ffffff; font-size: 16px; opacity: 0.9; margin: 0; letter-spacing: 1px; }',
-            '#nw-lang-switch { position: absolute; top: -15px; left: 15px; z-index: 100; padding: 5px 10px; border-radius: 6px; background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.3); font-size: 13px; outline: none; cursor: pointer; backdrop-filter: blur(5px); transition: all 0.2s; }',
+            '#nw-lang-switch { position: absolute; top: 15px; left: 15px; z-index: 100; padding: 5px 10px; border-radius: 6px; background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.3); font-size: 13px; outline: none; cursor: pointer; backdrop-filter: blur(5px); transition: all 0.2s; }',
             '#nw-lang-switch:hover { background: rgba(255,255,255,0.25); }',
             '#nw-lang-switch option { color: #333; background: #fff; }',
             '#nw-update-badge { position: absolute; top: 20px; right: -200px; white-space: nowrap; padding: 8px 16px; border-radius: 30px; font-size: 14px; font-weight: bold; cursor: pointer; transition: all 0.3s ease; z-index: 10; display: none; }',
@@ -498,28 +498,6 @@ return view.extend({
             '.nw-modal-btn-danger { background: #ef4444; color: white; border: none; padding: 12px 30px; border-radius: 8px; font-size: 15px; cursor: pointer; flex: 1; transition: background 0.2s; }',
             '.nw-modal-btn-danger:hover { background: #dc2626; }',
             '.nw-hl { color: #facc15; font-weight: bold; }',
-
-            '@media screen and (max-width: 768px) {',
-            '  .nw-wrapper { padding-top: 3vh; padding-bottom: 5vh; }',
-            '  .nw-header { margin-top: -30px; padding: 20px 15px; width: 92%; box-sizing: border-box; border-radius: 12px; }',
-            '  .nw-main-title { font-size: 22px; }',
-            '  .nw-header p { font-size: 13px; }',
-            '  .nw-card-group { flex-direction: column; align-items: center; gap: 15px; margin-top: 15px; }',
-            '  .nw-card { width: 100%; max-width: 320px; padding: 25px 20px; text-align: center; }',
-            '  .nw-badge { margin-bottom: 15px; width: 48px; height: 48px; line-height: 48px; font-size: 18px; }',
-            '  .nw-form-area, .nw-confirm-board { width: 92%; padding: 25px 20px; box-sizing: border-box; }',
-            '  .nw-top-back { top: 12px; left: 12px; width: 32px; height: 32px; }',
-            '  .nw-step-title { font-size: 18px; margin-top: 15px; margin-bottom: 20px; }',
-            '  #current-mode-display { width: 92%; min-width: auto; padding: 15px; box-sizing: border-box; }',
-            '  #nw-lang-switch { top: -15px; left: 2px; font-size: 12px; padding: 4px 8px; }',
-            '  .nw-actions { width: 92%; margin: 20px auto 0; gap: 10px; }',
-            '  .nw-actions button { padding: 12px 10px; font-size: 14px; flex: 1; }',
-            '  #nw-global-modal .nw-modal-box { padding: 25px 20px; width: 85%; }',
-            '  #nw-global-btn-wrap { flex-direction: column; gap: 10px; }',
-            '  #nw-global-btn-wrap button { width: 100%; padding: 12px; }',
-            '  #nw-update-badge { right: -30px; top: -40px;}',
-            '  .nw-radio-group { flex-wrap: wrap; gap: 12px; }',
-            '}',
             '</style>',
 
             '<div class="nw-wrapper">',
@@ -528,6 +506,7 @@ return view.extend({
             '    <option value="zh-tw">繁體中文</option>',
             '    <option value="en">English</option>',
             '  </select>',
+            
             '  <div class="nw-header">',
             '    <div id="nw-update-badge"></div>',
             '    <div class="nw-main-title">{{TITLE}} <span style="font-size:14px; background:#67A57B; padding:4px 10px; border-radius:6px; vertical-align:middle;">' + CURRENT_VERSION + '</span></div>',
@@ -564,7 +543,7 @@ return view.extend({
             '  <div id="step-2" class="nw-step" style="display: none;">',
             '    <div class="nw-form-area">',
             '      <div class="nw-top-back" id="top-back-1" title="{{BTN_HOME}}">',
-            '         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>',
+            '         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 5"></polyline></svg>',
             '      </div>',
             '      <div id="fields-router" style="display: none;">',
             '        <div class="nw-step-title">{{TITLE_WAN}}</div>',
@@ -603,7 +582,7 @@ return view.extend({
             '  <div id="step-3" class="nw-step" style="display: none;">',
             '    <div class="nw-confirm-board">',
             '      <div class="nw-top-back" id="top-back-2" title="{{BTN_EDIT}}">',
-            '         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>',
+            '         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 5"></polyline></svg>',
             '      </div>',
             '      <div class="nw-step-title">{{TITLE_CONFIRM}}</div>',
             '      <p style="color:#555; text-align:center;">{{DESC_CONFIRM}}</p>',
@@ -619,6 +598,7 @@ return view.extend({
             '</div>'
         ].join('');
 
+        // 注入语言文本
         for (var k in i18n['zh-cn']) {
             htmlTemplate = htmlTemplate.replace(new RegExp('\\{\\{' + k + '\\}\\}', 'g'), _t(k));
         }
@@ -636,7 +616,7 @@ return view.extend({
         var modeTextEl = container.querySelector('#current-mode-text');
         var selectedMode = '';
 
-        // 绑定语言切换事件
+        // 绑定下拉框语言切换功能
         var langSwitch = container.querySelector('#nw-lang-switch');
         if (langSwitch) {
             langSwitch.value = curLang;
@@ -679,18 +659,18 @@ return view.extend({
                 badge.addEventListener('click', function() {
                     openModal({
                         title: _t('U_READY') + latestVer + ')',
-                        msg: '<b> ' + _t('U_INST_MSG').split('<br><br>')[0] + '</b><br><br><div style="text-align:left; font-size:13px; background:#f1f5f9; padding:10px; margin-top:10px; border-radius:6px; max-height:150px; overflow-y:auto; border:1px solid #cbd5e1;">' + cleanText.replace(/\n/g, '<br>') + '</div>',
+                        msg: '<b>' + _t('U_INST_MSG').split('<br><br>')[0] + '</b><br><br><div style="text-align:left; font-size:13px; background:#f1f5f9; padding:10px; margin-top:10px; border-radius:6px; max-height:150px; overflow-y:auto; border:1px solid #cbd5e1;">' + cleanText.replace(/\n/g, '<br>') + '</div>',
                         okText: _t('U_BTN_NOW'), cancelText: _t('U_BTN_LATER'),
                         onOk: function() {
                             try { poll.stop(); } catch(e) {}
                             
-                            // 清理升级缓存，确保不会重复提示
+                            // 清理检测更新的缓存记录
                             localStorage.removeItem('nw_last_update_check');
 
                             openModal({ title: _t('U_INST'), msg: _t('U_INST_MSG'), spin: true });
-                            var forceReload = function() {
-                                // 硬刷新标记，更新完毕重新加载时彻底击穿浏览器缓存
-                                sessionStorage.setItem('nw_force_refresh', '1');
+                            var forceReload = function() { 
+                                // 设置永久性硬刷新标记，防止因重新登录导致标记丢失
+                                localStorage.setItem('nw_force_refresh', '1');
                                 window.location.href = window.location.href.split('?')[0] + '?t=' + new Date().getTime(); 
                             };
                             callNetSetup('do_install').then(function() { setTimeout(forceReload, 12000); }).catch(function() { setTimeout(forceReload, 12000); });
@@ -1015,14 +995,14 @@ return view.extend({
             if (selectedMode === 'lan') {
                 arg1 = container.querySelector('#lan-ip').value.trim();
                 arg2 = container.querySelector('#lan-gw').value.trim();
-                arg3 = calculateNetmask(arg1); // 智能算出子网掩码
+                arg3 = calculateNetmask(arg1); // 计算掩码
                 arg4 = bypassToggle.checked ? '1' : '0';
             } else if (selectedMode === 'router') {
                 actualMode = (rType === 'dhcp') ? 'wan_dhcp' : 'wan_static';
                 if(rType === 'static') {
                     arg1 = container.querySelector('#router-ip').value.trim();
                     arg2 = container.querySelector('#router-gw').value.trim();
-                    arg3 = calculateNetmask(arg1); // 智能算出子网掩码
+                    arg3 = calculateNetmask(arg1); // 计算掩码
                 }
             } else if (selectedMode === 'pppoe') {
                 arg1 = container.querySelector('#pppoe-user').value;
@@ -1034,20 +1014,16 @@ return view.extend({
             
             var handleSuccess = function() {
                 var currentHost = window.location.hostname, cleanUrl = window.location.href.split('?')[0], ts = new Date().getTime();
+                
+                // 设置永久性硬刷新标记，防止因重新登录导致标记丢失
+                localStorage.setItem('nw_force_refresh', '1');
+
                 if (selectedMode === 'lan' && arg1 && arg1 !== currentHost) {
                     openModal({ title: _t('M_SUCC_TIT'), msg: _t('M_SUCC_MSG1') + arg1 + _t('M_SUCC_MSG2'), spin: true });
-                    setTimeout(function() { 
-                        // 应用完毕自动写入硬刷新标记，切换 IP 登录后不卡死
-                        sessionStorage.setItem('nw_force_refresh', '1');
-                        window.location.href = 'http://' + arg1 + '?v=' + ts; 
-                    }, 15000);
+                    setTimeout(function() { window.location.href = 'http://' + arg1 + '?v=' + ts; }, 15000);
                 } else {
                     openModal({ title: _t('M_RST_TIT'), msg: _t('M_RST_MSG'), spin: true });
-                    setTimeout(function() { 
-                        // 重启网络完毕自动写入硬刷新标记
-                        sessionStorage.setItem('nw_force_refresh', '1');
-                        window.location.href = cleanUrl + '?v=' + ts; 
-                    }, 15000); 
+                    setTimeout(function() { window.location.href = cleanUrl + '?v=' + ts; }, 15000); 
                 }
             };
             
