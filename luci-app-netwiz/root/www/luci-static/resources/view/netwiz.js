@@ -10,7 +10,21 @@
 'require uci';
 'require poll';
 
-var CURRENT_VERSION = 'v1.0.0';
+// 当前版本号
+var CURRENT_VERSION = 'v1.0.16';
+
+function __cmp(v1, v2) {
+    var p1 = String(v1).replace(/[^0-9\.]/g, '').split('.');
+    var p2 = String(v2).replace(/[^0-9\.]/g, '').split('.');
+    var len = Math.max(p1.length, p2.length);
+    for (var i = 0; i < len; i++) {
+        var n1 = parseInt(p1[i] || 0, 10);
+        var n2 = parseInt(p2[i] || 0, 10);
+        if (n1 > n2) return 1;
+        if (n1 < n2) return -1;
+    }
+    return 0;
+}
 
 var callNetSetup = rpc.declare({
     object: 'netwiz',
@@ -157,8 +171,8 @@ var i18n = {
         'U_READY': 'Update Ready (',
         'U_BTN_NOW': 'Update Now',
         'U_BTN_LATER': 'Not Now',
-        'U_INST': '⚙️ Installing rapidly',
-        'U_INST_MSG': 'Deploying new version...<br><br><span style="font-size:13px; color:#10b981; font-weight:bold;">For security, re-login is required after install.</span><br><br><span style="font-size:12px; color:#666;">(Auto-redirect in 12s. If frozen, press Ctrl+F5)</span>'
+        'U_INST': 'Updating...',
+        'U_INST_MSG': 'Deploying new version in background...<br><br><span style="color:#059669; font-weight:bold;">You can close this window now.</span><br><br><small>New features will take effect on your next page refresh.</small>'
     },
     'zh-tw': {
         'TITLE': '網 路 設 置 精 靈',
@@ -240,8 +254,8 @@ var i18n = {
         'M_FMT_GW': '您填寫的閘道器 IP 不合法，請檢查！',
         'M_LOGIC_TIT': '邏輯錯誤',
         'M_LOGIC_BYP': '開啟旁路由模式必須填寫上級閘道器 IP。',
-        'M_SAME_GW': 'WAN 埠靜態 IP 絕不能與閘道器相同！',
-        'M_SAME_BYP': '旁路由的【本機 IP】絕不能與【閘道器】相同！',
+        'M_SAME_GW': 'WAN 埠靜態 IP 绝不能與閘道器相同！',
+        'M_SAME_BYP': '旁路由的【本機 IP】绝不能與【閘道器】相同！',
         'M_NO_MOD_TIT': '無需修改',
         'M_NO_MOD_MSG': '您的設定與當前路由器底層配置完全一致。',
         'M_EXIT': '退出首頁',
@@ -259,7 +273,7 @@ var i18n = {
         'M_WARN_TIT': '主路由配置警告',
         'M_WARN_MSG': '檢測到您選擇了【主路由模式】，卻強行填寫了【閘道器】。<br><br><b>在標準主路由下，閘道器必須留空。</b>亂填閘道器會導致設備無法正常分發網路，進而導致全屋斷網！<br><br>您確定要這麼做嗎？',
         'M_WARN_BTN': '強行應用',
-        'M_SYS_ERR': '系統異常',
+        'M_SYS_ERR': '系統异常',
         'M_SYS_MSG': '無法讀取底層配置進行校驗，請刷新網頁重試。',
         'M_APP_TIT': '正在下發配置',
         'M_APP_MSG': '請求寫入中，請稍候...',
@@ -276,12 +290,12 @@ var i18n = {
         'M_HIDDEN': '已隱藏',
         'M_IP_GW': 'IP及閘道器',
         'M_AUTO_UP': '由上級路由自動分配',
-        'U_NEW': '新版本 ',
-        'U_READY': '升級準備就绪 (',
+        'U_NEW': '發現新版本 ',
+        'U_READY': '升級準備就緒 (',
         'U_BTN_NOW': '立即更新',
         'U_BTN_LATER': '暫不更新',
-        'U_INST': '⚙️ 正在極速安裝',
-        'U_INST_MSG': '新版本部署中，底層權限系統正在重置...<br><br><span style="font-size:13px; color:#10b981; font-weight:bold;">安裝完成後，為確保安全，系統將要求您重新登入。</span><br><br><span style="font-size:12px; color:#666;">(網頁將在 12 秒後自動跳轉，若卡住請按 Ctrl+F5)</span>'
+        'U_INST': '正在更新...',
+        'U_INST_MSG': '新版本正在背景部署中...<br><br><span style="color:#059669; font-weight:bold;">您現在可以關閉此視窗並繼續操作。</span><br><br><small>新功能將在您下次重新整理頁面時自動生效。</small>'
     },
     'zh-cn': {
         'TITLE': '网 络 设 置 向 导',
@@ -399,12 +413,12 @@ var i18n = {
         'M_HIDDEN': '已隐藏',
         'M_IP_GW': 'IP及网关',
         'M_AUTO_UP': '由上级路由自动分配',
-        'U_NEW': '新版本 ',
+        'U_NEW': '发现新版本 ',
         'U_READY': '升级准备就绪 (',
         'U_BTN_NOW': '立即更新',
         'U_BTN_LATER': '暂不更新',
-        'U_INST': '⚙️ 正在极速安装',
-        'U_INST_MSG': '新版本部署中，底层权限系统正在重置...<br><br><span style="font-size:13px; color:#10b981; font-weight:bold;">安装完成后，为确保安全，系统将要求您重新登录。</span><br><br><span style="font-size:12px; color:#666;">(网页将在 12 秒后自动跳转，若卡住请按 Ctrl+F5)</span>'
+        'U_INST': '正在更新...',
+        'U_INST_MSG': '新版本正在后台部署中...<br><br><span style="color:#059669; font-weight:bold;">您现在可以关闭此窗口并继续操作。</span><br><br><small>新功能将在您下次刷新页面时自动生效。</small>'
     }
 };
 
@@ -412,9 +426,12 @@ function _t(key) {
     return (i18n[curLang] && i18n[curLang][key]) ? i18n[curLang][key] : (i18n['zh-cn'][key] || key);
 }
 
+// 清除之前测试遗留的脏缓存标记
+localStorage.removeItem('nw_ver');
+localStorage.removeItem('nw_force_refresh');
+
 return view.extend({
     render: function () {
-
         if (!document.querySelector('meta[name="viewport"]')) {
             var meta = document.createElement('meta');
             meta.name = 'viewport';
@@ -431,10 +448,18 @@ return view.extend({
             '.nw-header { text-align: center; margin-bottom: 40px; background-color: #5e72e4; padding: 25px; margin-top: -100px; border-radius: 0 0 15px 15px; position: relative; }',
             '.nw-main-title { font-size: 35px; font-weight: 600; margin-bottom: 10px; color: #ffffff; letter-spacing: 2px; }',
             '.nw-header p { color: #ffffff; font-size: 16px; opacity: 0.9; margin: 0; letter-spacing: 1px; }',
-
+            
             '#nw-lang-switch { position: absolute; top: -30px; right: 15px; z-index: 100; padding: 5px 10px; border-radius: 6px; background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.3); font-size: 13px; outline: none; cursor: pointer; backdrop-filter: blur(5px); transition: all 0.2s; }',
             '#nw-lang-switch:hover { background: rgba(255,255,255,0.25); }',
             '#nw-lang-switch option { color: #333; background: #fff; }',
+
+            /* 红点与悬浮提示 */
+            '#update-red-dot { display: none; position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; background-color: #ef4444; border-radius: 50%; box-shadow: 0 0 4px rgba(239, 68, 68, 0.8); animation: pulse-dot 2s infinite; pointer-events: none; }',
+            '@keyframes pulse-dot { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }',
+            '#update-tooltip { display: none; position: absolute; bottom: 130%; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: #fff; padding: 5px 10px; border-radius: 6px; font-size: 13px; white-space: nowrap; pointer-events: none; z-index: 100; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }',
+            '#update-tooltip::after { content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px; border-width: 5px; border-style: solid; border-color: rgba(0,0,0,0.8) transparent transparent transparent; }',
+            '#version-wrapper:hover #update-tooltip.has-update { display: block; animation: fadeIn 0.2s; }',
+            '@keyframes fadeIn { from { opacity: 0; transform: translate(-50%, 5px); } to { opacity: 1; transform: translate(-50%, 0); } }',
 
             '.nw-step { width: 100%; max-width: 750px; text-align: center; animation: slideUp 0.4s ease-out; }',
             '@keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }',
@@ -489,7 +514,7 @@ return view.extend({
             '.nw-modal-btn-danger:hover { background: #dc2626; }',
             '.nw-hl { color: #facc15; font-weight: bold; }',
 
-            /* max-width: 768px */
+            /* 手机端布局 */
             '@media screen and (max-width: 768px) {',
             '  .nw-wrapper { padding-top: 3vh; padding-bottom: 5vh; }',
             '  .nw-header { margin-top: -30px; padding: 20px 15px; width: 92%; box-sizing: border-box; border-radius: 12px; }',
@@ -503,13 +528,12 @@ return view.extend({
             '  .nw-step-title { font-size: 18px; margin-top: 15px; margin-bottom: 20px; }',
             '  #current-mode-display { width: 92%; min-width: auto; padding: 15px; box-sizing: border-box; }',
             '  #nw-lang-switch { font-size: 12px; padding: 4px 8px; }',
-            '  .nw-radio-group { flex-wrap: wrap; gap: 12px; }',
             '  .nw-actions { width: 100%; margin: 20px auto 0; display: flex; flex-direction: row; gap: 12px; box-sizing: border-box; }',
             '  .nw-actions button { flex: 1; padding: 12px 0; font-size: 15px; margin: 0; }',
             '  #nw-global-modal .nw-modal-box { padding: 25px 20px; width: 85%; }',
             '  #nw-global-btn-wrap { flex-direction: row; gap: 12px; }',
             '  #nw-global-btn-wrap button { flex: 1; padding: 12px 0; margin: 0; }',
-
+            '  .nw-radio-group { flex-wrap: wrap; gap: 12px; }',
             '}',
             '</style>',
 
@@ -519,9 +543,9 @@ return view.extend({
             '    <option value="zh-tw">繁體中文</option>',
             '    <option value="en">English</option>',
             '  </select>',
-
+            
             '  <div class="nw-header">',
-            '    <div class="nw-main-title">{{TITLE}} <span id="nw-version-span" style="position:relative; font-size:14px; background:#67A57B; padding:4px 10px; border-radius:6px; vertical-align:middle; cursor:pointer;">' + CURRENT_VERSION + '<span id="nw-red-dot" style="display:none; position:absolute; top:-4px; right:-4px; width:8px; height:8px; background-color:#ef4444; border-radius:50%; box-shadow:0 0 0 2px #5e72e4;"></span></span></div>',
+            '    <div class="nw-main-title">{{TITLE}} <span id="version-wrapper" style="position:relative; font-size:14px; background:#67A57B; padding:4px 10px; border-radius:6px; vertical-align:middle; transition: all 0.3s; display:inline-block; cursor:default;">' + CURRENT_VERSION + '<span id="update-red-dot"></span><span id="update-tooltip"></span></span></div>',
             '    <p>{{SUBTITLE}}</p>',
             '  </div>',
 
@@ -620,14 +644,10 @@ return view.extend({
     },
 
     bindEvents: function (container) {
-        var step1 = container.querySelector('#step-1');
-        var step2 = container.querySelector('#step-2');
-        var step3 = container.querySelector('#step-3');
-        var confirmText = container.querySelector('#confirm-mode-text');
-        var modeTextEl = container.querySelector('#current-mode-text');
+        var step1 = container.querySelector('#step-1'), step2 = container.querySelector('#step-2'), step3 = container.querySelector('#step-3');
+        var confirmText = container.querySelector('#confirm-mode-text'), modeTextEl = container.querySelector('#current-mode-text');
         var selectedMode = '';
 
-        // 语言切換
         var langSwitch = container.querySelector('#nw-lang-switch');
         if (langSwitch) {
             langSwitch.value = curLang;
@@ -637,64 +657,61 @@ return view.extend({
             });
         }
 
-        function compareVersions(v1, v2) {
-            var p1 = String(v1).replace(/[^0-9\.]/g, '').split('.');
-            var p2 = String(v2).replace(/[^0-9\.]/g, '').split('.');
-            var len = Math.max(p1.length, p2.length);
-            for (var i = 0; i < len; i++) {
-                var n1 = parseInt(p1[i] || 0, 10);
-                var n2 = parseInt(p2[i] || 0, 10);
-                if (n1 > n2) return 1;
-                if (n1 < n2) return -1;
-            }
-            return 0;
-        }
-
+        // 加入3分钟冷却防止页面未刷新时红点乱跳）
         function doUpdateCheck() {
-            var now = Date.now();
-            var cacheKey = 'nw_last_update_check';
-            var cacheExpiry = 10 * 60 * 1000;
+            var now = Date.now(), cacheKey = 'nw_last_update_check';
             var cached = JSON.parse(localStorage.getItem(cacheKey) || '{}');
+
+            var cooldown = parseInt(localStorage.getItem('nw_update_cooldown') || '0', 10);
+            if (now - cooldown < 3 * 60 * 1000) return;
 
             var showReadyBadge = function(latestVer, rawText) {
                 var cleanText = rawText.split('---')[0].replace(/### ✨ 最新版发布/g, '').trim();
-                var redDot = container.querySelector('#nw-red-dot');
-                var versionSpan = container.querySelector('#nw-version-span');
+                var verWrapper = container.querySelector('#version-wrapper'), redDot = container.querySelector('#update-red-dot'), tooltip = container.querySelector('#update-tooltip');
 
-                if (redDot && versionSpan) {
-                    redDot.style.display = 'block';
-                    var tooltipText = _t('U_NEW') + latestVer;
-                    versionSpan.title = tooltipText; // Hover triggers tooltip
-                    
-                    // Remove any existing event listeners by cloning
-                    var newVersionSpan = versionSpan.cloneNode(true);
-                    versionSpan.parentNode.replaceChild(newVersionSpan, versionSpan);
-                    versionSpan = newVersionSpan;
+                if (__cmp(latestVer, CURRENT_VERSION) <= 0) return;
 
-                    versionSpan.addEventListener('click', function() {
-                        openModal({
-                            title: _t('U_READY') + latestVer + ')',
-                            msg: '<b>✨ ' + _t('U_INST_MSG').split('<br><br>')[0] + '</b><br><br><div style="text-align:left; font-size:13px; background:#f1f5f9; padding:10px; margin-top:10px; border-radius:6px; max-height:150px; overflow-y:auto; border:1px solid #cbd5e1;">' + cleanText.replace(/\n/g, '<br>') + '</div>',
-                            okText: _t('U_BTN_NOW'), cancelText: _t('U_BTN_LATER'),
-                            onOk: function() {
-                                try { poll.stop(); } catch(e) {}
-                                openModal({ title: _t('U_INST'), msg: _t('U_INST_MSG'), spin: true });
-                                var forceReload = function() { window.location.href = window.location.href.split('?')[0] + '?t=' + new Date().getTime(); };
-                                callNetSetup('do_install').then(function() { setTimeout(forceReload, 12000); }).catch(function() { setTimeout(forceReload, 12000); });
-                            }
-                        });
+                redDot.style.display = 'block';
+                tooltip.innerText = _t('U_NEW') + latestVer;
+                tooltip.className = 'has-update';
+                verWrapper.style.cursor = 'pointer';
+
+                // 移除重复绑定
+                var newWrapper = verWrapper.cloneNode(true);
+                verWrapper.parentNode.replaceChild(newWrapper, verWrapper);
+                verWrapper = newWrapper;
+
+                verWrapper.addEventListener('click', function() {
+                    openModal({
+                        title: _t('U_READY') + latestVer + ')',
+                        msg: '<b>' + _t('U_INST_MSG').split('<br><br>')[0] + '</b><br><br><div style="text-align:left; font-size:13px; background:#f1f5f9; padding:10px; margin-top:10px; border-radius:6px; max-height:150px; overflow-y:auto; border:1px solid #cbd5e1;">' + cleanText.replace(/\n/g, '<br>') + '</div>',
+                        okText: _t('U_BTN_NOW'), cancelText: _t('U_BTN_LATER'),
+                        onOk: function() {
+                            try { poll.stop(); } catch(e) {}
+                            
+                            // 写入冷却时间，隐藏红点
+                            localStorage.setItem('nw_update_cooldown', Date.now());
+                            localStorage.removeItem('nw_last_update_check');
+                            
+                            redDot.style.display = 'none';
+                            verWrapper.style.cursor = 'default';
+                            verWrapper.replaceWith(verWrapper.cloneNode(true)); // 彻底移除事件
+
+                            // 弹出静默安装提示，不强制刷新
+                            openModal({ title: _t('U_INST'), msg: _t('U_INST_MSG'), okText: _t('M_CLOSE') });
+                            callNetSetup('do_install').catch(function(){});
+                        }
                     });
-                }
+                });
             };
 
             var triggerDownload = function(latestVer, rawText) {
-                if (latestVer && compareVersions(latestVer, CURRENT_VERSION) > 0) {
+                if (latestVer && __cmp(latestVer, CURRENT_VERSION) > 0) {
                     callNetSetup('check_update', latestVer).then(function(res) {
                         if (res === 1) showReadyBadge(latestVer, rawText);
                         else {
                             callNetSetup('prepare_update', latestVer);
-                            var pollCount = 0;
-                            var pollStatus = setInterval(function() {
+                            var pollCount = 0, pollStatus = setInterval(function() {
                                 pollCount++;
                                 if (pollCount > 15) { clearInterval(pollStatus); return; }
                                 callNetSetup('check_update', latestVer).then(function(r) {
@@ -706,7 +723,7 @@ return view.extend({
                 }
             };
 
-            if (cached.time && (now - cached.time < cacheExpiry) && cached.version) {
+            if (cached.time && (now - cached.time < 5 * 60 * 1000) && cached.version) {
                 triggerDownload(cached.version, cached.body || ''); return; 
             }
             fetch('https://api.github.com/repos/huchd0/luci-app-netwiz/releases?t=' + now, { cache: 'no-store' }).then(function(res) { return res.json(); }).then(function(data) {
@@ -718,43 +735,24 @@ return view.extend({
         }
         setTimeout(doUpdateCheck, 1500);
 
-        function safePromise(promise, fallback, timeoutMs) {
-            return new Promise(function(resolve) {
-                var timer = setTimeout(function() { resolve(fallback); }, timeoutMs || 3000);
-                if (!promise || !promise.then) { clearTimeout(timer); return resolve(fallback); }
-                promise.then(function(res) { clearTimeout(timer); resolve(res); }).catch(function() { clearTimeout(timer); resolve(fallback); });
-            });
-        }
-
-        function safeUciGet(conf, sec, opt, def) {
-            try { var val = uci.get(conf, sec, opt); return (val === null || val === undefined) ? def : String(val).trim(); } catch(e) { return def; }
-        }
+        function safePromise(p, f) { return new Promise(function(r) { var t = setTimeout(function() { r(f); }, 3000); if (!p || !p.then) { clearTimeout(t); return r(f); } p.then(function(res) { clearTimeout(t); r(res); }).catch(function() { clearTimeout(t); r(f); }); }); }
+        function safeUciGet(c, s, o, d) { try { var v = uci.get(c, s, o); return (v === null || v === undefined) ? d : String(v).trim(); } catch(e) { return d; } }
 
         function updateStatusDisplay(isSilent) {
             try {
-                if (modeTextEl && !isSilent) {
-                    modeTextEl.innerHTML = "<div class='nw-spinner' style='width:30px; height:30px; border-width:3px; margin: 0 auto; border-top-color: #fff;'></div><div style='margin-top:10px; font-size:15px; font-weight:bold; color:#fff;'>" + _t('LOADING_CONFIG') + "</div>";
-                }
+                if (modeTextEl && !isSilent) modeTextEl.innerHTML = "<div class='nw-spinner' style='width:30px; height:30px; border-width:3px; margin: 0 auto; border-top-color: #fff;'></div><div style='margin-top:10px; font-size:15px; font-weight:bold; color:#fff;'>" + _t('LOADING_CONFIG') + "</div>";
                 try { uci.unload('network'); uci.unload('dhcp'); } catch(e) {}
 
                 Promise.all([
-                    safePromise(uci.load('network'), null, 3000), safePromise(uci.load('dhcp'), null, 3000), safePromise(getWanStatus(), {}, 3000)
+                    safePromise(uci.load('network'), null), safePromise(uci.load('dhcp'), null), safePromise(getWanStatus(), {})
                 ]).then(function(results) {
-                    var rawIfaces = results[2] || {};
-                    var ifaces = Array.isArray(rawIfaces.interface) ? rawIfaces.interface : (Array.isArray(rawIfaces) ? rawIfaces : []);
+                    var rawIfaces = results[2] || {}, ifaces = Array.isArray(rawIfaces.interface) ? rawIfaces.interface : (Array.isArray(rawIfaces) ? rawIfaces : []);
                     var wProto = safeUciGet('network', 'wan', 'proto', '').toLowerCase();
-
                     var activeWan = ifaces.find(function(i) { return i && (i.interface === 'wan' || i.proto === wProto || i.device === 'eth0' || i.device === 'wan'); }) || {};
-                    var isWanUp = activeWan.up === true;
                     var liveWanIp = ((activeWan['ipv4-address'] && activeWan['ipv4-address'][0]) ? activeWan['ipv4-address'][0].address : '').split('/')[0];
                     var liveGw = activeWan.nexthop || (activeWan['ipv4-address'] && activeWan['ipv4-address'][0] ? activeWan['ipv4-address'][0].ptpaddress : '') || _t('TXT_GETTING');
-
-                    var wIp = safeUciGet('network', 'wan', 'ipaddr', _t('TXT_NOT_GOT')).split('/')[0];
-                    var wGw = safeUciGet('network', 'wan', 'gateway', _t('TXT_NOT_SET')); 
-                    var lIp = safeUciGet('network', 'lan', 'ipaddr', window.location.hostname).split('/')[0];
-                    var lGw = safeUciGet('network', 'lan', 'gateway', _t('TXT_NOT_SET'));
-                    var lIgnore = safeUciGet('dhcp', 'lan', 'ignore', '');
-                    var isBypass = (lIgnore === '1' || lIgnore === 'true' || lIgnore === 'on' || lIgnore === 'yes');
+                    var wIp = safeUciGet('network', 'wan', 'ipaddr', _t('TXT_NOT_GOT')).split('/')[0], wGw = safeUciGet('network', 'wan', 'gateway', _t('TXT_NOT_SET')); 
+                    var lIp = safeUciGet('network', 'lan', 'ipaddr', window.location.hostname).split('/')[0], lGw = safeUciGet('network', 'lan', 'gateway', _t('TXT_NOT_SET')), lIgnore = safeUciGet('dhcp', 'lan', 'ignore', ''), isBypass = (lIgnore === '1' || lIgnore === 'true' || lIgnore === 'on' || lIgnore === 'yes');
 
                     if (container.querySelector('#pppoe-user')) container.querySelector('#pppoe-user').value = safeUciGet('network', 'wan', 'username', '');
                     if (container.querySelector('#pppoe-pass')) container.querySelector('#pppoe-pass').value = safeUciGet('network', 'wan', 'password', '');
@@ -762,7 +760,7 @@ return view.extend({
                     if (container.querySelector('#router-gw')) container.querySelector('#router-gw').value = (wGw !== _t('TXT_NOT_SET')) ? wGw : '';
                     if (container.querySelector('#lan-ip')) container.querySelector('#lan-ip').value = lIp;
                     if (container.querySelector('#lan-gw')) container.querySelector('#lan-gw').value = (lGw !== _t('TXT_NOT_SET')) ? lGw : '';
-
+                    
                     var bypassToggle = container.querySelector('#lan-bypass-toggle');
                     if (bypassToggle) {
                         bypassToggle.checked = isBypass;
@@ -771,118 +769,33 @@ return view.extend({
                     }
 
                     var sTitle = "", sDetails = "", statusBadge = "";
+                    if (isBypass) { sTitle = _t('STAT_BYPASS'); sDetails = _t('TXT_DEV_IP') + "<span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;" + _t('TXT_UP_GW') + "<span class='nw-hl'>" + lGw + "</span>";
+                    } else if (wProto === 'pppoe') { sTitle = _t('STAT_MAIN_PPPOE');
+                        if (activeWan.up && liveWanIp) { statusBadge = "<span style='font-size:12px; background:#10b981; color:#fff; padding:3px 8px; border-radius:12px; margin-left:12px; vertical-align:middle;'>" + _t('BDG_SUCC') + "</span>"; sDetails = _t('TXT_PUB_IP') + "<span class='nw-hl'>" + liveWanIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;" + _t('TXT_REM_GW') + "<span class='nw-hl'>" + liveGw + "</span>";
+                        } else { statusBadge = "<span style='font-size:12px; background:#ef4444; color:#fff; padding:3px 8px; border-radius:12px; margin-left:12px; vertical-align:middle;'>" + _t('BDG_DIAL') + "</span>"; sDetails = _t('TXT_LAN_IP') + "<span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;" + _t('TXT_STATUS') + "<span class='nw-hl'>" + _t('TXT_WAIT_REM') + "</span>"; }
+                    } else if (wProto === 'dhcp') { sTitle = _t('STAT_SEC_DHCP');
+                        if (activeWan.up && liveWanIp) { statusBadge = "<span style='font-size:12px; background:#10b981; color:#fff; padding:3px 8px; border-radius:12px; margin-left:12px; vertical-align:middle;'>" + _t('BDG_GOT') + "</span>"; sDetails = _t('TXT_WAN_IP') + "<span class='nw-hl'>" + liveWanIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;" + _t('TXT_UP_GW') + "<span class='nw-hl'>" + liveGw + "</span>";
+                        } else { statusBadge = "<span style='font-size:12px; background:#f59e0b; color:#fff; padding:3px 8px; border-radius:12px; margin-left:12px; vertical-align:middle;'>" + _t('BDG_WAIT') + "</span>"; sDetails = _t('TXT_LAN_IP') + "<span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;" + _t('TXT_STATUS') + "<span class='nw-hl'>" + _t('TXT_GET_IP') + "</span>"; }
+                    } else if (wProto === 'static') { sTitle = _t('STAT_SEC_STATIC'); statusBadge = activeWan.up ? "<span style='font-size:12px; background:#10b981; color:#fff; padding:3px 8px; border-radius:12px; margin-left:12px; vertical-align:middle;'>" + _t('BDG_CONN') + "</span>" : "<span style='font-size:12px; background:#ef4444; color:#fff; padding:3px 8px; border-radius:12px; margin-left:12px; vertical-align:middle;'>" + _t('BDG_UNPLUG') + "</span>"; sDetails = _t('TXT_WAN_IP') + "<span class='nw-hl'>" + wIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;" + _t('TXT_UP_GW') + "<span class='nw-hl'>" + wGw + "</span>";
+                    } else { sTitle = _t('STAT_LAN'); sDetails = _t('TXT_LAN_IP') + "<span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;" + _t('TXT_DHCP_SRV') + "<span class='nw-hl'>" + _t('TXT_ON') + "</span>"; }
 
-                    if (isBypass) {
-                        sTitle = _t('STAT_BYPASS');
-                        sDetails = _t('TXT_DEV_IP') + "<span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;" + _t('TXT_UP_GW') + "<span class='nw-hl'>" + lGw + "</span>";
-                    } else if (wProto === 'pppoe') {
-                        sTitle = _t('STAT_MAIN_PPPOE');
-                        if (isWanUp && liveWanIp) {
-                            statusBadge = "<span style='font-size:12px; background:#10b981; color:#fff; padding:3px 8px; border-radius:12px; margin-left:12px; vertical-align:middle;'>" + _t('BDG_SUCC') + "</span>";
-                            sDetails = _t('TXT_PUB_IP') + "<span class='nw-hl'>" + liveWanIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;" + _t('TXT_REM_GW') + "<span class='nw-hl'>" + liveGw + "</span>";
-                        } else {
-                            statusBadge = "<span style='font-size:12px; background:#ef4444; color:#fff; padding:3px 8px; border-radius:12px; margin-left:12px; vertical-align:middle;'>" + _t('BDG_DIAL') + "</span>";
-                            sDetails = _t('TXT_LAN_IP') + "<span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;" + _t('TXT_STATUS') + "<span class='nw-hl'>" + _t('TXT_WAIT_REM') + "</span>";
-                        }
-                    } else if (wProto === 'dhcp') {
-                        sTitle = _t('STAT_SEC_DHCP');
-                        if (isWanUp && liveWanIp) {
-                            statusBadge = "<span style='font-size:12px; background:#10b981; color:#fff; padding:3px 8px; border-radius:12px; margin-left:12px; vertical-align:middle;'>" + _t('BDG_GOT') + "</span>";
-                            sDetails = _t('TXT_WAN_IP') + "<span class='nw-hl'>" + liveWanIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;" + _t('TXT_UP_GW') + "<span class='nw-hl'>" + liveGw + "</span>";
-                        } else {
-                            statusBadge = "<span style='font-size:12px; background:#f59e0b; color:#fff; padding:3px 8px; border-radius:12px; margin-left:12px; vertical-align:middle;'>" + _t('BDG_WAIT') + "</span>";
-                            sDetails = _t('TXT_LAN_IP') + "<span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;" + _t('TXT_STATUS') + "<span class='nw-hl'>" + _t('TXT_GET_IP') + "</span>";
-                        }
-                    } else if (wProto === 'static') {
-                        sTitle = _t('STAT_SEC_STATIC');
-                        statusBadge = isWanUp ? "<span style='font-size:12px; background:#10b981; color:#fff; padding:3px 8px; border-radius:12px; margin-left:12px; vertical-align:middle;'>" + _t('BDG_CONN') + "</span>" : "<span style='font-size:12px; background:#ef4444; color:#fff; padding:3px 8px; border-radius:12px; margin-left:12px; vertical-align:middle;'>" + _t('BDG_UNPLUG') + "</span>";
-                        sDetails = _t('TXT_WAN_IP') + "<span class='nw-hl'>" + wIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;" + _t('TXT_UP_GW') + "<span class='nw-hl'>" + wGw + "</span>";
-                    } else {
-                        sTitle = _t('STAT_LAN');
-                        sDetails = _t('TXT_LAN_IP') + "<span class='nw-hl'>" + lIp + "</span>&nbsp;&nbsp;&nbsp;&nbsp;" + _t('TXT_DHCP_SRV') + "<span class='nw-hl'>" + _t('TXT_ON') + "</span>";
-                    }
-
-                    if (modeTextEl) {
-                        modeTextEl.innerHTML = "<div style='font-size:17px; font-weight:600; margin-bottom:10px; color:#ffffff; font-family: monospace; display: flex; align-items: center; justify-content: center;'>" + sTitle + statusBadge + "</div>" +
-                                                "<div style='font-size:15px; font-weight:bold; color:#ffffff; font-family:monospace; letter-spacing:0.5px;'>" + sDetails + "</div>";
-                    }
-                }).catch(function(err) {
-                    if (modeTextEl) modeTextEl.innerHTML = "<div style='color:#ef4444; font-weight:bold;'>" + _t('ERR_RD_SYS') + "</div>";
-                });
-            } catch(fatalError) {
-                if (modeTextEl) modeTextEl.innerHTML = "<div style='color:#ef4444; font-weight:bold;'>" + _t('ERR_CRASH') + "</div>";
-            }
+                    if (modeTextEl) modeTextEl.innerHTML = "<div style='font-size:17px; font-weight:600; margin-bottom:10px; color:#ffffff; font-family: monospace; display: flex; align-items: center; justify-content: center;'>" + sTitle + statusBadge + "</div>" + "<div style='font-size:15px; font-weight:bold; color:#ffffff; font-family:monospace; letter-spacing:0.5px;'>" + sDetails + "</div>";
+                }).catch(function() { if (modeTextEl) modeTextEl.innerHTML = "<div style='color:#ef4444; font-weight:bold;'>" + _t('ERR_RD_SYS') + "</div>"; });
+            } catch(e) { if (modeTextEl) modeTextEl.innerHTML = "<div style='color:#ef4444; font-weight:bold;'>" + _t('ERR_CRASH') + "</div>"; }
         }
-
         updateStatusDisplay(false);
+        setInterval(function() { if (step1.style.display !== 'none' && container.querySelector('#nw-global-modal').style.display === 'none') updateStatusDisplay(true); }, 5000);
 
-        setInterval(function() {
-            if (step1.style.display !== 'none' && container.querySelector('#nw-global-modal').style.display === 'none') {
-                updateStatusDisplay(true);
-            }
-        }, 5000);
+        function calculateNetmask(ip) { if (!ip) return '255.255.255.0'; var b = parseInt(ip.split('.')[0], 10); if (b >= 1 && b <= 126) return '255.0.0.0'; if (b >= 128 && b <= 191) return '255.255.0.0'; return '255.255.255.0'; }
+        function isValidIP(ip) { if (!ip) return false; var p = ip.split('.'); if (p.length !== 4) return false; for (var i = 0; i < 4; i++) { var n = parseInt(p[i], 10); if (isNaN(n) || n < 0 || n > 255 || String(n) !== p[i]) return false; } if (p[0] === '0' || p[0] === '127') return false; var l = parseInt(p[3], 10); return (l !== 0 && l !== 255); }
+        function isSameSubnet(ip1, ip2) { if (!ip1 || !ip2) return false; var p1 = ip1.split('.'), p2 = ip2.split('.'); return (p1.length === 4 && p2.length === 4 && p1[0] === p2[0] && p1[1] === p2[1] && p1[2] === p2[2]); }
 
-        function calculateNetmask(ip) {
-            if (!ip) return '255.255.255.0';
-            var firstByte = parseInt(ip.split('.')[0], 10);
-            if (firstByte >= 1 && firstByte <= 126) return '255.0.0.0';
-            if (firstByte >= 128 && firstByte <= 191) return '255.255.0.0';
-            return '255.255.255.0';
-        }
-
-        function isValidIP(ip) {
-            if (!ip) return false;
-            var parts = ip.split('.');
-            if (parts.length !== 4) return false;
-            for (var i = 0; i < 4; i++) {
-                var num = parseInt(parts[i], 10);
-                if (isNaN(num) || num < 0 || num > 255 || String(num) !== parts[i]) return false;
-            }
-            if (parts[0] === '0' || parts[0] === '127') return false;
-            var lastPart = parseInt(parts[3], 10);
-            if (lastPart === 0 || lastPart === 255) return false;
-            return true;
-        }
-
-        function isSameSubnet(ip1, ip2) {
-            if (!ip1 || !ip2) return false;
-            var p1 = ip1.split('.'), p2 = ip2.split('.');
-            if (p1.length === 4 && p2.length === 4) return p1[0] === p2[0] && p1[1] === p2[1] && p1[2] === p2[2];
-            return false;
-        }
-
-        function openModal(options) {
-            var m = container.querySelector('#nw-global-modal');
-            container.querySelector('#nw-global-title').innerHTML = options.title || '';
-            container.querySelector('#nw-global-msg').innerHTML = options.msg || '';
-            container.querySelector('#nw-global-spinner').style.display = options.spin ? 'block' : 'none';
-            var btnWrap = container.querySelector('#nw-global-btn-wrap'), btnOk = container.querySelector('#nw-global-btn-ok'), btnCancel = container.querySelector('#nw-global-btn-cancel');
-            btnWrap.style.display = (options.okText || options.cancelText) ? 'flex' : 'none';
-            
-            if (options.okText) { 
-                btnOk.style.display = 'block'; btnOk.innerText = options.okText;
-                btnOk.className = options.isDanger ? 'nw-modal-btn-danger' : 'nw-modal-btn-ok';
-                btnOk.onclick = function() { if (options.onOk) options.onOk(); else m.style.display = 'none'; }; 
-            } else btnOk.style.display = 'none';
-
-            if (options.cancelText) { 
-                btnCancel.style.display = 'block'; btnCancel.innerText = options.cancelText; 
-                btnCancel.onclick = function() { if (options.onCancel) options.onCancel(); else m.style.display = 'none'; }; 
-            } else btnCancel.style.display = 'none';
-            m.style.display = 'flex';
-        }
-
+        function openModal(o) { var m = container.querySelector('#nw-global-modal'); container.querySelector('#nw-global-title').innerHTML = o.title || ''; container.querySelector('#nw-global-msg').innerHTML = o.msg || ''; container.querySelector('#nw-global-spinner').style.display = o.spin ? 'block' : 'none'; var w = container.querySelector('#nw-global-btn-wrap'), ok = container.querySelector('#nw-global-btn-ok'), can = container.querySelector('#nw-global-btn-cancel'); w.style.display = (o.okText || o.cancelText) ? 'flex' : 'none'; if (o.okText) { ok.style.display = 'block'; ok.innerText = o.okText; ok.className = o.isDanger ? 'nw-modal-btn-danger' : 'nw-modal-btn-ok'; ok.onclick = function() { if (o.onOk) o.onOk(); else m.style.display = 'none'; }; } else ok.style.display = 'none'; if (o.cancelText) { can.style.display = 'block'; can.innerText = o.cancelText; can.onclick = function() { if (o.onCancel) o.onCancel(); else m.style.display = 'none'; }; } else can.style.display = 'none'; m.style.display = 'flex'; }
         function returnToStep1() { container.querySelector('#nw-global-modal').style.display = 'none'; step3.style.display = 'none'; step2.style.display = 'none'; step1.style.display = 'block'; }
 
-        container.querySelectorAll('input[name="router_type"]').forEach(function(r) {
-            r.addEventListener('change', function() { container.querySelector('#router-static-fields').style.display = (this.value === 'static') ? 'block' : 'none'; });
-        });
-
+        container.querySelectorAll('input[name="router_type"]').forEach(function(r) { r.addEventListener('change', function() { container.querySelector('#router-static-fields').style.display = (this.value === 'static') ? 'block' : 'none'; }); });
         var bypassToggle = container.querySelector('#lan-bypass-toggle');
-        bypassToggle.addEventListener('change', function() {
-            container.querySelector('#lan-bypass-warning').style.display = this.checked ? 'block' : 'none';
-            container.querySelector('#lan-main-warning').style.display = this.checked ? 'none' : 'block';
-        });
+        bypassToggle.addEventListener('change', function() { container.querySelector('#lan-bypass-warning').style.display = this.checked ? 'block' : 'none'; container.querySelector('#lan-main-warning').style.display = this.checked ? 'none' : 'block'; });
 
         container.querySelectorAll('.nw-card').forEach(function (card) {
             card.addEventListener('click', function () {
@@ -902,144 +815,49 @@ return view.extend({
 
         container.querySelector('#btn-next-2').addEventListener('click', function () {
             try {
-                var rTypeEl = container.querySelector('input[name="router_type"]:checked');
-                var rType = rTypeEl ? rTypeEl.value : 'dhcp';
-                var targetIp = '', targetGw = '', isBypass = false;
-
-                if (selectedMode === 'lan') {
-                    targetIp = container.querySelector('#lan-ip').value.trim();
-                    targetGw = container.querySelector('#lan-gw').value.trim();
-                    isBypass = bypassToggle.checked;
-
+                var rType = container.querySelector('input[name="router_type"]:checked').value, targetIp = '', targetGw = '', isBypass = false;
+                if (selectedMode === 'lan') { targetIp = container.querySelector('#lan-ip').value.trim(); targetGw = container.querySelector('#lan-gw').value.trim(); isBypass = bypassToggle.checked;
                     if (!targetIp) { openModal({title: _t('M_INC_TIT'), msg: _t('M_INC_IP'), okText:_t('BTN_EDIT')}); return; }
                     if (!isValidIP(targetIp)) { openModal({title:_t('M_FMT_TIT'), msg:_t('M_FMT_IP'), okText:_t('BTN_EDIT')}); return; }
-                    if (isBypass) {
-                        if (!targetGw) { openModal({title:_t('M_LOGIC_TIT'), msg:_t('M_LOGIC_BYP'), okText:_t('BTN_EDIT')}); return; }
-                        if (!isValidIP(targetGw)) { openModal({title:_t('M_FMT_TIT'), msg:_t('M_FMT_GW'), okText:_t('BTN_EDIT')}); return; }
-                    } else if (targetGw && !isValidIP(targetGw)) { openModal({title:_t('M_FMT_TIT'), msg:_t('M_FMT_GW'), okText:_t('BTN_EDIT')}); return; }
-                } else if (selectedMode === 'router' && rType === 'static') {
-                    targetIp = container.querySelector('#router-ip').value.trim();
-                    targetGw = container.querySelector('#router-gw').value.trim();
-
+                    if (isBypass && (!targetGw || !isValidIP(targetGw))) { openModal({title: (targetGw?_t('M_FMT_TIT'):_t('M_LOGIC_TIT')), msg: (targetGw?_t('M_FMT_GW'):_t('M_LOGIC_BYP')), okText:_t('BTN_EDIT')}); return; }
+                } else if (selectedMode === 'router' && rType === 'static') { targetIp = container.querySelector('#router-ip').value.trim(); targetGw = container.querySelector('#router-gw').value.trim();
                     if (!targetIp || !targetGw) { openModal({title:_t('M_INC_TIT'), msg:_t('M_INC_WAN'), okText:_t('BTN_EDIT')}); return; }
-                    if (!isValidIP(targetIp)) { openModal({title:_t('M_FMT_TIT'), msg:_t('M_FMT_WAN'), okText:_t('BTN_EDIT')}); return; }
-                    if (!isValidIP(targetGw)) { openModal({title:_t('M_FMT_TIT'), msg:_t('M_FMT_GW'), okText:_t('BTN_EDIT')}); return; }
-                } else if (selectedMode === 'pppoe') {
-                    if (!(container.querySelector('#pppoe-user').value || '').trim() || !(container.querySelector('#pppoe-pass').value || '').trim()) { 
-                        openModal({title: _t('M_INC_TIT'), msg: _t('M_INC_PPPOE'), okText: _t('BTN_EDIT')}); return; 
-                    }
-                }
+                    if (!isValidIP(targetIp) || !isValidIP(targetGw)) { openModal({title:_t('M_FMT_TIT'), msg:(!isValidIP(targetIp)?_t('M_FMT_WAN'):_t('M_FMT_GW')), okText:_t('BTN_EDIT')}); return; }
+                } else if (selectedMode === 'pppoe') { if (!container.querySelector('#pppoe-user').value.trim() || !container.querySelector('#pppoe-pass').value.trim()) { openModal({title: _t('M_INC_TIT'), msg: _t('M_INC_PPPOE'), okText: _t('BTN_EDIT')}); return; } }
 
                 uci.load('network').then(function() {
-                    var currentLanIp = safeUciGet('network', 'lan', 'ipaddr', window.location.hostname).split('/')[0].replace(/[^0-9\.]/g, '');
-                    var currentLanGw = safeUciGet('network', 'lan', 'gateway', '').replace(/[^0-9\.]/g, '');
-                    var currentWanProto = safeUciGet('network', 'wan', 'proto', '').toLowerCase();
-                    var currentWanIp = (currentWanProto === 'static') ? safeUciGet('network', 'wan', 'ipaddr', '').split('/')[0].replace(/[^0-9\.]/g, '') : '';
-                    var currentWanGw = safeUciGet('network', 'wan', 'gateway', '').replace(/[^0-9\.]/g, '');
-                    var lDhcp = safeUciGet('dhcp', 'lan', 'ignore', '');
-                    var currentBypass = (lDhcp === '1' || lDhcp === 'true' || lDhcp === 'on' || lDhcp === 'yes') ? '1' : '0';
-                    var newBypass = bypassToggle.checked ? '1' : '0';
+                    var currentLanIp = safeUciGet('network', 'lan', 'ipaddr', window.location.hostname).split('/')[0], currentLanGw = safeUciGet('network', 'lan', 'gateway', ''), currentWanProto = safeUciGet('network', 'wan', 'proto', '').toLowerCase();
+                    var currentWanIp = (currentWanProto === 'static') ? safeUciGet('network', 'wan', 'ipaddr', '').split('/')[0] : '', currentWanGw = safeUciGet('network', 'wan', 'gateway', ''), currentBypass = (safeUciGet('dhcp', 'lan', 'ignore', '') === '1' ? '1' : '0'), newBypass = bypassToggle.checked ? '1' : '0';
+                    if ((selectedMode === 'lan' && targetIp === currentLanIp && targetGw === currentLanGw && newBypass === currentBypass) || (selectedMode === 'router' && rType === 'static' && targetIp === currentWanIp && targetGw === currentWanGw) || (selectedMode === 'router' && rType === 'dhcp' && currentWanProto === 'dhcp')) { openModal({title: _t('M_NO_MOD_TIT'), msg: _t('M_NO_MOD_MSG'), okText: _t('M_EXIT'), onOk: returnToStep1 }); return; }
+                    if (selectedMode === 'router' && rType === 'static') { if (targetIp === currentLanIp || isSameSubnet(targetIp, currentLanIp)) { openModal({title:_t('M_CFLT_TIT'), msg: (targetIp === currentLanIp ? _t('M_CFLT_IP1')+currentLanIp+_t('M_CFLT_IP2') : _t('M_CFLT_SUB1')+currentLanIp+_t('M_CFLT_SUB2')), okText:_t('BTN_EDIT')}); return; } if (targetIp === targetGw || !isSameSubnet(targetIp, targetGw)) { openModal({title:(targetIp===targetGw?_t('M_LOGIC_TIT'):_t('M_SUB_ERR_TIT')), msg:(targetIp===targetGw?_t('M_SAME_GW'):_t('M_SUB_ERR_WAN')+targetGw+_t('M_SUB_ERR_WAN2')+targetGw.substring(0, targetGw.lastIndexOf('.'))+'.x。'), okText:_t('BTN_EDIT')}); return; } }
+                    if (selectedMode === 'lan') { if (isBypass && (targetIp === targetGw || !isSameSubnet(targetIp, targetGw))) { openModal({title:(targetIp===targetGw?_t('M_LOGIC_TIT'):_t('M_SUB_ERR_TIT')), msg:(targetIp===targetGw?_t('M_SAME_BYP'):_t('M_SUB_ERR_BYP')), okText:_t('BTN_EDIT')}); return; } if (currentWanIp && (targetIp === currentWanIp || isSameSubnet(targetIp, currentWanIp))) { openModal({title:_t('M_CFLT_TIT'), msg:(targetIp===currentWanIp?_t('M_CFLT_LAN_IP1')+currentWanIp+_t('M_CFLT_IP2'):_t('M_CFLT_LAN_SUB1')+currentWanIp+_t('M_CFLT_SUB2')), okText:_t('BTN_EDIT')}); return; } }
 
-                    if ((selectedMode === 'lan' && targetIp === currentLanIp && targetGw === currentLanGw && newBypass === currentBypass) ||
-                        (selectedMode === 'router' && rType === 'static' && targetIp === currentWanIp && targetGw === currentWanGw) ||
-                        (selectedMode === 'router' && rType === 'dhcp' && currentWanProto === 'dhcp')) {
-                         openModal({title: _t('M_NO_MOD_TIT'), msg: _t('M_NO_MOD_MSG'), okText: _t('M_EXIT'), onOk: returnToStep1 }); return;
-                    }
-
-                    if (selectedMode === 'router' && rType === 'static') {
-                        if (targetIp === currentLanIp) { openModal({title:_t('M_CFLT_TIT'), msg:_t('M_CFLT_IP1')+currentLanIp+_t('M_CFLT_IP2'), okText:_t('BTN_EDIT')}); return; }
-                        if (isSameSubnet(targetIp, currentLanIp)) { openModal({title:_t('M_CFLT_TIT'), msg:_t('M_CFLT_SUB1')+currentLanIp+_t('M_CFLT_SUB2'), okText:_t('BTN_EDIT')}); return; }
-                        if (targetIp === targetGw) { openModal({title:_t('M_LOGIC_TIT'), msg:_t('M_SAME_GW'), okText:_t('BTN_EDIT')}); return; }
-                        if (!isSameSubnet(targetIp, targetGw)) { openModal({title:_t('M_SUB_ERR_TIT'), msg:_t('M_SUB_ERR_WAN') + targetGw + _t('M_SUB_ERR_WAN2') + targetGw.substring(0, targetGw.lastIndexOf('.')) + '.x。', okText:_t('BTN_EDIT')}); return; }
-                    }
-
-                    if (selectedMode === 'lan') {
-                        if (isBypass) {
-                            if (targetIp === targetGw) { openModal({title:_t('M_LOGIC_TIT'), msg:_t('M_SAME_BYP'), okText:_t('BTN_EDIT')}); return; }
-                            if (!isSameSubnet(targetIp, targetGw)) { openModal({title:_t('M_SUB_ERR_TIT'), msg:_t('M_SUB_ERR_BYP'), okText:_t('BTN_EDIT')}); return; }
-                        }
-                        if (currentWanIp && targetIp === currentWanIp) { openModal({title:_t('M_CFLT_TIT'), msg:_t('M_CFLT_LAN_IP1')+currentWanIp+_t('M_CFLT_IP2'), okText:_t('BTN_EDIT')}); return; }
-                        if (currentWanIp && isSameSubnet(targetIp, currentWanIp)) { openModal({title:_t('M_CFLT_TIT'), msg:_t('M_CFLT_LAN_SUB1')+currentWanIp+_t('M_CFLT_SUB2'), okText:_t('BTN_EDIT')}); return; }
-                    }
-
-                    var buildDetailHtml = function(title, pairs) {
-                        var h = "<div style='text-align:center; font-size:18px; margin-bottom:15px;'>" + title + "</div><div style='background:rgba(0,0,0,0.15); border-radius:8px; padding:10px 15px; font-size:14.5px;'>";
-                        for (var i=0; i < pairs.length; i++) h += "<div style='display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid rgba(255,255,255,0.1);'><span style='opacity:0.8;'>" + pairs[i][0] + "</span><span style='font-family:monospace;'>" + pairs[i][1] + "</span></div>";
-                        return h + "</div>";
-                    };
-
-                    if (selectedMode === 'lan') {
-                        confirmText.innerHTML = buildDetailHtml(isBypass ? _t('MODE_LAN_TITLE')+" - "+_t('STAT_BYPASS') : _t('MODE_LAN_TITLE')+" - "+_t('STAT_LAN'), [[_t('TXT_DEV_IP').replace(':',''), targetIp], [_t('LBL_GW'), targetGw || _t('TXT_NOT_SET')], ["DHCP", isBypass ? _t('TXT_OFF') : _t('TXT_ON')]]);
-                    } else if (selectedMode === 'router') {
-                        if (rType === 'static') confirmText.innerHTML = buildDetailHtml(_t('STAT_SEC_STATIC'), [[_t('TXT_WAN_IP').replace(':',''), targetIp], [_t('TXT_UP_GW').replace(':',''), targetGw]]);
-                        else confirmText.innerHTML = buildDetailHtml(_t('STAT_SEC_DHCP'), [[_t('LBL_CONN_TYPE'), _t('OPT_DHCP')], [_t('M_IP_GW'), _t('M_AUTO_UP')]]);
-                    } else if (selectedMode === 'pppoe') {
-                        confirmText.innerHTML = buildDetailHtml(_t('MODE_PPPOE_TITLE'), [[_t('M_ACCT'), container.querySelector('#pppoe-user').value], [_t('M_PWD'), _t('M_HIDDEN')]]);
-                    }
+                    var b = function(t, p) { var h = "<div style='text-align:center; font-size:18px; margin-bottom:15px;'>" + t + "</div><div style='background:rgba(0,0,0,0.15); border-radius:8px; padding:10px 15px; font-size:14.5px;'>"; for (var i=0; i < p.length; i++) h += "<div style='display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid rgba(255,255,255,0.1);'><span style='opacity:0.8;'>" + p[i][0] + "</span><span style='font-family:monospace;'>" + p[i][1] + "</span></div>"; return h + "</div>"; };
+                    if (selectedMode === 'lan') confirmText.innerHTML = b(isBypass ? _t('MODE_LAN_TITLE')+" - "+_t('STAT_BYPASS') : _t('MODE_LAN_TITLE')+" - "+_t('STAT_LAN'), [[_t('TXT_DEV_IP').replace(':',''), targetIp], [_t('LBL_GW'), targetGw || _t('TXT_NOT_SET')], ["DHCP", isBypass ? _t('TXT_OFF') : _t('TXT_ON')]]);
+                    else if (selectedMode === 'router') confirmText.innerHTML = (rType === 'static' ? b(_t('STAT_SEC_STATIC'), [[_t('TXT_WAN_IP').replace(':',''), targetIp], [_t('TXT_UP_GW').replace(':',''), targetGw]]) : b(_t('STAT_SEC_DHCP'), [[_t('LBL_CONN_TYPE'), _t('OPT_DHCP')], [_t('M_IP_GW'), _t('M_AUTO_UP')]]));
+                    else confirmText.innerHTML = b(_t('MODE_PPPOE_TITLE'), [[_t('M_ACCT'), container.querySelector('#pppoe-user').value], [_t('M_PWD'), _t('M_HIDDEN')]]);
                     
-                    if (selectedMode === 'lan' && !isBypass && targetGw !== '') {
-                        openModal({
-                            title: _t('M_WARN_TIT'), msg: _t('M_WARN_MSG'),
-                            cancelText: _t('BTN_EDIT'), onCancel: closeModal,
-                            okText: _t('M_WARN_BTN'), isDanger: true, onOk: function() { closeModal(); step2.style.display = 'none'; step3.style.display = 'block'; }
-                        });
-                        return;
-                    }
-
+                    if (selectedMode === 'lan' && !isBypass && targetGw !== '') { openModal({ title: _t('M_WARN_TIT'), msg: _t('M_WARN_MSG'), cancelText: _t('BTN_EDIT'), okText: _t('M_WARN_BTN'), isDanger: true, onOk: function() { m.style.display = 'none'; step2.style.display = 'none'; step3.style.display = 'block'; } }); return; }
                     step2.style.display = 'none'; step3.style.display = 'block';
-                }).catch(function(e) {
-                    openModal({title:_t('M_SYS_ERR'), msg:_t('M_SYS_MSG'), okText:_t('M_CLOSE')});
                 });
-            } catch (err) {
-                openModal({title:_t('ERR_RD_SYS'), msg:_t('ERR_CRASH'), okText:_t('M_CLOSE')});
-            }
+            } catch (e) { openModal({title:_t('ERR_RD_SYS'), msg:_t('ERR_CRASH'), okText:_t('M_CLOSE')}); }
         });
 
         container.querySelector('#btn-apply').addEventListener('click', function () {
-            var actualMode = selectedMode, arg1 = '', arg2 = '', arg3 = '', arg4 = '';
-            var rTypeEl = container.querySelector('input[name="router_type"]:checked');
-            var rType = rTypeEl ? rTypeEl.value : 'dhcp';
-            
-            if (selectedMode === 'lan') {
-                arg1 = container.querySelector('#lan-ip').value.trim();
-                arg2 = container.querySelector('#lan-gw').value.trim();
-                arg3 = calculateNetmask(arg1);
-                arg4 = bypassToggle.checked ? '1' : '0';
-            } else if (selectedMode === 'router') {
-                actualMode = (rType === 'dhcp') ? 'wan_dhcp' : 'wan_static';
-                if(rType === 'static') {
-                    arg1 = container.querySelector('#router-ip').value.trim();
-                    arg2 = container.querySelector('#router-gw').value.trim();
-                    arg3 = calculateNetmask(arg1);
-                }
-            } else if (selectedMode === 'pppoe') {
-                arg1 = container.querySelector('#pppoe-user').value;
-                arg2 = container.querySelector('#pppoe-pass').value;
-            }
+            var mode = selectedMode, a1 = '', a2 = '', a3 = '', a4 = '', rType = container.querySelector('input[name="router_type"]:checked').value;
+            if (selectedMode === 'lan') { a1 = container.querySelector('#lan-ip').value.trim(); a2 = container.querySelector('#lan-gw').value.trim(); a3 = calculateNetmask(a1); a4 = bypassToggle.checked ? '1' : '0';
+            } else if (selectedMode === 'router') { mode = (rType === 'dhcp') ? 'wan_dhcp' : 'wan_static'; if(rType === 'static') { a1 = container.querySelector('#router-ip').value.trim(); a2 = container.querySelector('#router-gw').value.trim(); a3 = calculateNetmask(a1); }
+            } else if (selectedMode === 'pppoe') { a1 = container.querySelector('#pppoe-user').value; a2 = container.querySelector('#pppoe-pass').value; }
 
             openModal({title:_t('M_APP_TIT'), msg:_t('M_APP_MSG'), spin:true});
-            var startTime = Date.now(), rpcDone = false;
-            
-            var handleSuccess = function() {
-                var currentHost = window.location.hostname, cleanUrl = window.location.href.split('?')[0], ts = new Date().getTime();
-                if (selectedMode === 'lan' && arg1 && arg1 !== currentHost) {
-                    openModal({ title: _t('M_SUCC_TIT'), msg: _t('M_SUCC_MSG1') + arg1 + _t('M_SUCC_MSG2'), spin: true });
-                    setTimeout(function() { window.location.href = 'http://' + arg1 + '?v=' + ts; }, 15000);
-                } else {
-                    openModal({ title: _t('M_RST_TIT'), msg: _t('M_RST_MSG'), spin: true });
-                    setTimeout(function() { window.location.href = cleanUrl + '?v=' + ts; }, 15000); 
-                }
+            var start = Date.now(), done = false;
+            var succ = function() {
+                var h = window.location.hostname, ts = new Date().getTime();
+                if (selectedMode === 'lan' && a1 && a1 !== h) { openModal({ title: _t('M_SUCC_TIT'), msg: _t('M_SUCC_MSG1') + a1 + _t('M_SUCC_MSG2'), spin: true }); setTimeout(function() { window.location.href = 'http://' + a1 + '?v=' + ts; }, 15000);
+                } else { openModal({ title: _t('M_RST_TIT'), msg: _t('M_RST_MSG'), spin: true }); setTimeout(function() { window.location.href = window.location.href.split('?')[0] + '?v=' + ts; }, 15000); }
             };
-            
-            callNetSetup(actualMode, arg1, arg2, arg3, arg4).then(function() {
-                rpcDone = true; handleSuccess();
-            }).catch(function(e){
-                if (Date.now() - startTime < 1500) {
-                    rpcDone = true;
-                    openModal({ title: _t('M_FAIL_TIT'), msg: _t('M_FAIL_MSG') + (e.message || 'Unknown') + '</small>', okText: _t('M_CLOSE'), isDanger: true });
-                } else { rpcDone = true; handleSuccess(); }
-            });
-            setTimeout(function() { if (!rpcDone) handleSuccess(); }, 8000);
+            callNetSetup(mode, a1, a2, a3, a4).then(function() { done = true; succ(); }).catch(function(e){ if (Date.now() - start < 1500) { done = true; openModal({ title: _t('M_FAIL_TIT'), msg: _t('M_FAIL_MSG') + (e.message || 'Unknown') + '</small>', okText: _t('M_CLOSE'), isDanger: true }); } else { done = true; succ(); } });
+            setTimeout(function() { if (!done) succ(); }, 8000);
         });
     }
 });

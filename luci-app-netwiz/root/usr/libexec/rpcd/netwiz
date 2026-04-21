@@ -16,12 +16,10 @@ case "$1" in
                 arg3=$(echo "$input" | jsonfilter -e '@.arg3')
                 arg4=$(echo "$input" | jsonfilter -e '@.arg4')
 
-                # 发现 mode 是更新指令，直接拦截执行热更新
+                # 拦截执行热更新
                 if [ "$mode" = "prepare_update" ]; then
                     echo '{"result":0}'
                     rm -f /tmp/netwiz_update.*
-                    
-                    # 前端传来的版本号
                     echo "$arg1" > /tmp/netwiz_update.version
                     
                     cat << 'EOF' > /tmp/nw_dl.sh
@@ -31,15 +29,10 @@ URL="https://github.com/huchd0/luci-app-netwiz/releases/latest/download/luci-app
 PROXY_URL="https://mirror.ghproxy.com/${URL}"
 
 for i in 1 2 3; do
-    # 1. 先尝试官方直连
     wget -qO "/tmp/netwiz_update.${PKG}" --no-check-certificate --timeout=15 "$URL"
-    
-    # 2. 官方直连失败，或者下载下来是空文件，立刻尝试加速代理
     if [ "$?" -ne 0 ] || [ ! -s "/tmp/netwiz_update.${PKG}" ]; then
         wget -qO "/tmp/netwiz_update.${PKG}" --no-check-certificate --timeout=15 "$PROXY_URL"
     fi
-    
-    # 3. 只需确保文件存在且大于 0kb 即可
     if [ -s "/tmp/netwiz_update.${PKG}" ]; then
         touch /tmp/netwiz_update.ready
         break
@@ -56,8 +49,8 @@ EOF
                     /tmp/nw_dl.sh </dev/null >/dev/null 2>&1 &
                     exit 0
                     
+                # 检查更新就绪
                 elif [ "$mode" = "check_update" ]; then
-                    # 文件就绪，且版本号一致
                     if [ -f /tmp/netwiz_update.ready ] && [ "$(cat /tmp/netwiz_update.version 2>/dev/null)" = "$arg1" ]; then
                         echo '{"result":1}'
                     else
@@ -65,25 +58,37 @@ EOF
                     fi
                     exit 0
                     
+                # 无感热重载
                 elif [ "$mode" = "do_install" ]; then
                     echo '{"result":0}'
                     cat << 'EOF' > /tmp/nw_install.sh
 #!/bin/sh
 sleep 2
+
+# 强制删除旧文件，防止保护机制触发
+rm -f /www/luci-static/resources/view/netwiz.js
+rm -f /usr/libexec/rpcd/netwiz
+
 if command -v apk >/dev/null 2>&1; then
+    apk del luci-app-netwiz >/dev/null 2>&1
     apk add --allow-untrusted --force-overwrite /tmp/netwiz_update.apk
 else
-    opkg install /tmp/netwiz_update.ipk --force-reinstall --force-overwrite
+    opkg install /tmp/netwiz_update.ipk --force-reinstall --force-overwrite --force-maintainer
 fi
-rm -f /tmp/luci-indexcache /tmp/luci-modulecache/* /tmp/luci-app-netwiz.*
+
+# 清理旧缓存
+rm -rf /tmp/luci-modulecache/ /tmp/luci-indexcache* /tmp/luci-app-netwiz.*
 rm -f /tmp/netwiz_update.ready /tmp/netwiz_update.* /tmp/nw_install.sh
+
+# 让后端重新生成JS版本号，且不会踢出登录！
+ubus call luci reload >/dev/null 2>&1
 EOF
                     chmod +x /tmp/nw_install.sh
                     /tmp/nw_install.sh </dev/null >/dev/null 2>&1 &
                     exit 0
                 fi
 
-                # 以下是正常的网络设置逻辑
+                # 正常网络设置逻辑
                 cleanup_lan_for_wan_modes() {
                     uci delete network.lan.gateway 2>/dev/null
                     uci delete network.lan.dns 2>/dev/null
