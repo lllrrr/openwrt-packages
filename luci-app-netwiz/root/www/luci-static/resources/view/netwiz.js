@@ -6,25 +6,7 @@
 'require view';
 'require dom';
 'require rpc';
-'require ui';
 'require uci';
-'require poll';
-
-// 当前版本号
-var CURRENT_VERSION = 'v1.0.16';
-
-function __cmp(v1, v2) {
-    var p1 = String(v1).replace(/[^0-9\.]/g, '').split('.');
-    var p2 = String(v2).replace(/[^0-9\.]/g, '').split('.');
-    var len = Math.max(p1.length, p2.length);
-    for (var i = 0; i < len; i++) {
-        var n1 = parseInt(p1[i] || 0, 10);
-        var n2 = parseInt(p2[i] || 0, 10);
-        if (n1 > n2) return 1;
-        if (n1 < n2) return -1;
-    }
-    return 0;
-}
 
 var callNetSetup = rpc.declare({
     object: 'netwiz',
@@ -119,8 +101,6 @@ var i18n = {
         'TXT_NOT_SET': 'Not set',
         'ERR_RD_SYS': 'System read error, anti-freeze triggered',
         'ERR_CRASH': 'Underlying crash intercepted, please force refresh',
-        'ERR_TIMEOUT': 'Reading config... (Anti-freeze active)',
-        'ERR_REQ': 'Requesting data... (Please wait)',
         'M_INC_TIT': 'Incomplete info',
         'M_INC_IP': 'Device IP cannot be empty.',
         'M_INC_WAN': 'Static IP and Gateway cannot be empty.',
@@ -166,13 +146,7 @@ var i18n = {
         'M_PWD': 'Password',
         'M_HIDDEN': 'Hidden',
         'M_IP_GW': 'IP & Gateway',
-        'M_AUTO_UP': 'Auto-assigned by upstream router',
-        'U_NEW': 'New version ',
-        'U_READY': 'Update Ready (',
-        'U_BTN_NOW': 'Update Now',
-        'U_BTN_LATER': 'Not Now',
-        'U_INST': 'Updating...',
-        'U_INST_MSG': 'Deploying new version in background...<br><br><span style="color:#059669; font-weight:bold;">You can close this window now.</span><br><br><small>New features will take effect on your next page refresh.</small>'
+        'M_AUTO_UP': 'Auto-assigned by upstream router'
     },
     'zh-tw': {
         'TITLE': '網 路 設 置 精 靈',
@@ -242,8 +216,6 @@ var i18n = {
         'TXT_NOT_SET': '未設置',
         'ERR_RD_SYS': '系統讀取異常，防卡死已觸發',
         'ERR_CRASH': '底層崩潰被攔截，請強制刷新',
-        'ERR_TIMEOUT': '讀取底層配置中... (防卡死機制生效中)',
-        'ERR_REQ': '正在請求資料... (請稍候)',
         'M_INC_TIT': '資訊不完整',
         'M_INC_IP': '本機 IP 不能為空。',
         'M_INC_WAN': '靜態 IP 和閘道器均不能為空。',
@@ -289,13 +261,7 @@ var i18n = {
         'M_PWD': '密碼',
         'M_HIDDEN': '已隱藏',
         'M_IP_GW': 'IP及閘道器',
-        'M_AUTO_UP': '由上級路由自動分配',
-        'U_NEW': '發現新版本 ',
-        'U_READY': '升級準備就緒 (',
-        'U_BTN_NOW': '立即更新',
-        'U_BTN_LATER': '暫不更新',
-        'U_INST': '正在更新...',
-        'U_INST_MSG': '新版本正在背景部署中...<br><br><span style="color:#059669; font-weight:bold;">您現在可以關閉此視窗並繼續操作。</span><br><br><small>新功能將在您下次重新整理頁面時自動生效。</small>'
+        'M_AUTO_UP': '由上級路由自動分配'
     },
     'zh-cn': {
         'TITLE': '网 络 设 置 向 导',
@@ -365,8 +331,6 @@ var i18n = {
         'TXT_NOT_SET': '未设置',
         'ERR_RD_SYS': '系统读取异常，防卡死已触发',
         'ERR_CRASH': '底层崩溃被拦截，请强制刷新',
-        'ERR_TIMEOUT': '读取底层配置中... (防卡死机制生效中)',
-        'ERR_REQ': '正在请求数据... (请稍候)',
         'M_INC_TIT': '信息不完整',
         'M_INC_IP': '本机 IP 不能为空。',
         'M_INC_WAN': '静态 IP 和网关均不能为空。',
@@ -412,13 +376,7 @@ var i18n = {
         'M_PWD': '密码',
         'M_HIDDEN': '已隐藏',
         'M_IP_GW': 'IP及网关',
-        'M_AUTO_UP': '由上级路由自动分配',
-        'U_NEW': '发现新版本 ',
-        'U_READY': '升级准备就绪 (',
-        'U_BTN_NOW': '立即更新',
-        'U_BTN_LATER': '暂不更新',
-        'U_INST': '正在更新...',
-        'U_INST_MSG': '新版本正在后台部署中...<br><br><span style="color:#059669; font-weight:bold;">您现在可以关闭此窗口并继续操作。</span><br><br><small>新功能将在您下次刷新页面时自动生效。</small>'
+        'M_AUTO_UP': '由上级路由自动分配'
     }
 };
 
@@ -426,9 +384,11 @@ function _t(key) {
     return (i18n[curLang] && i18n[curLang][key]) ? i18n[curLang][key] : (i18n['zh-cn'][key] || key);
 }
 
-// 清除之前测试遗留的脏缓存标记
+// 移除之前測試留下的髒快取
 localStorage.removeItem('nw_ver');
 localStorage.removeItem('nw_force_refresh');
+localStorage.removeItem('nw_last_update_check');
+localStorage.removeItem('nw_update_cooldown');
 
 return view.extend({
     render: function () {
@@ -452,14 +412,6 @@ return view.extend({
             '#nw-lang-switch { position: absolute; top: -30px; right: 15px; z-index: 100; padding: 5px 10px; border-radius: 6px; background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.3); font-size: 13px; outline: none; cursor: pointer; backdrop-filter: blur(5px); transition: all 0.2s; }',
             '#nw-lang-switch:hover { background: rgba(255,255,255,0.25); }',
             '#nw-lang-switch option { color: #333; background: #fff; }',
-
-            /* 红点与悬浮提示 */
-            '#update-red-dot { display: none; position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; background-color: #ef4444; border-radius: 50%; box-shadow: 0 0 4px rgba(239, 68, 68, 0.8); animation: pulse-dot 2s infinite; pointer-events: none; }',
-            '@keyframes pulse-dot { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }',
-            '#update-tooltip { display: none; position: absolute; bottom: 130%; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: #fff; padding: 5px 10px; border-radius: 6px; font-size: 13px; white-space: nowrap; pointer-events: none; z-index: 100; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }',
-            '#update-tooltip::after { content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px; border-width: 5px; border-style: solid; border-color: rgba(0,0,0,0.8) transparent transparent transparent; }',
-            '#version-wrapper:hover #update-tooltip.has-update { display: block; animation: fadeIn 0.2s; }',
-            '@keyframes fadeIn { from { opacity: 0; transform: translate(-50%, 5px); } to { opacity: 1; transform: translate(-50%, 0); } }',
 
             '.nw-step { width: 100%; max-width: 750px; text-align: center; animation: slideUp 0.4s ease-out; }',
             '@keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }',
@@ -514,7 +466,7 @@ return view.extend({
             '.nw-modal-btn-danger:hover { background: #dc2626; }',
             '.nw-hl { color: #facc15; font-weight: bold; }',
 
-            /* 手机端布局 */
+            /* 手機端佈局 */
             '@media screen and (max-width: 768px) {',
             '  .nw-wrapper { padding-top: 3vh; padding-bottom: 5vh; }',
             '  .nw-header { margin-top: -30px; padding: 20px 15px; width: 92%; box-sizing: border-box; border-radius: 12px; }',
@@ -545,7 +497,7 @@ return view.extend({
             '  </select>',
             
             '  <div class="nw-header">',
-            '    <div class="nw-main-title">{{TITLE}} <span id="version-wrapper" style="position:relative; font-size:14px; background:#67A57B; padding:4px 10px; border-radius:6px; vertical-align:middle; transition: all 0.3s; display:inline-block; cursor:default;">' + CURRENT_VERSION + '<span id="update-red-dot"></span><span id="update-tooltip"></span></span></div>',
+            '    <div class="nw-main-title">{{TITLE}}</div>',
             '    <p>{{SUBTITLE}}</p>',
             '  </div>',
 
@@ -648,6 +600,7 @@ return view.extend({
         var confirmText = container.querySelector('#confirm-mode-text'), modeTextEl = container.querySelector('#current-mode-text');
         var selectedMode = '';
 
+        // 語言切換
         var langSwitch = container.querySelector('#nw-lang-switch');
         if (langSwitch) {
             langSwitch.value = curLang;
@@ -656,84 +609,6 @@ return view.extend({
                 window.location.reload(); 
             });
         }
-
-        // 加入3分钟冷却防止页面未刷新时红点乱跳）
-        function doUpdateCheck() {
-            var now = Date.now(), cacheKey = 'nw_last_update_check';
-            var cached = JSON.parse(localStorage.getItem(cacheKey) || '{}');
-
-            var cooldown = parseInt(localStorage.getItem('nw_update_cooldown') || '0', 10);
-            if (now - cooldown < 3 * 60 * 1000) return;
-
-            var showReadyBadge = function(latestVer, rawText) {
-                var cleanText = rawText.split('---')[0].replace(/### ✨ 最新版发布/g, '').trim();
-                var verWrapper = container.querySelector('#version-wrapper'), redDot = container.querySelector('#update-red-dot'), tooltip = container.querySelector('#update-tooltip');
-
-                if (__cmp(latestVer, CURRENT_VERSION) <= 0) return;
-
-                redDot.style.display = 'block';
-                tooltip.innerText = _t('U_NEW') + latestVer;
-                tooltip.className = 'has-update';
-                verWrapper.style.cursor = 'pointer';
-
-                // 移除重复绑定
-                var newWrapper = verWrapper.cloneNode(true);
-                verWrapper.parentNode.replaceChild(newWrapper, verWrapper);
-                verWrapper = newWrapper;
-
-                verWrapper.addEventListener('click', function() {
-                    openModal({
-                        title: _t('U_READY') + latestVer + ')',
-                        msg: '<b>' + _t('U_INST_MSG').split('<br><br>')[0] + '</b><br><br><div style="text-align:left; font-size:13px; background:#f1f5f9; padding:10px; margin-top:10px; border-radius:6px; max-height:150px; overflow-y:auto; border:1px solid #cbd5e1;">' + cleanText.replace(/\n/g, '<br>') + '</div>',
-                        okText: _t('U_BTN_NOW'), cancelText: _t('U_BTN_LATER'),
-                        onOk: function() {
-                            try { poll.stop(); } catch(e) {}
-                            
-                            // 写入冷却时间，隐藏红点
-                            localStorage.setItem('nw_update_cooldown', Date.now());
-                            localStorage.removeItem('nw_last_update_check');
-                            
-                            redDot.style.display = 'none';
-                            verWrapper.style.cursor = 'default';
-                            verWrapper.replaceWith(verWrapper.cloneNode(true)); // 彻底移除事件
-
-                            // 弹出静默安装提示，不强制刷新
-                            openModal({ title: _t('U_INST'), msg: _t('U_INST_MSG'), okText: _t('M_CLOSE') });
-                            callNetSetup('do_install').catch(function(){});
-                        }
-                    });
-                });
-            };
-
-            var triggerDownload = function(latestVer, rawText) {
-                if (latestVer && __cmp(latestVer, CURRENT_VERSION) > 0) {
-                    callNetSetup('check_update', latestVer).then(function(res) {
-                        if (res === 1) showReadyBadge(latestVer, rawText);
-                        else {
-                            callNetSetup('prepare_update', latestVer);
-                            var pollCount = 0, pollStatus = setInterval(function() {
-                                pollCount++;
-                                if (pollCount > 15) { clearInterval(pollStatus); return; }
-                                callNetSetup('check_update', latestVer).then(function(r) {
-                                    if (r === 1) { clearInterval(pollStatus); showReadyBadge(latestVer, rawText); }
-                                }).catch(function(){});
-                            }, 4000);
-                        }
-                    }).catch(function(e) {});
-                }
-            };
-
-            if (cached.time && (now - cached.time < 5 * 60 * 1000) && cached.version) {
-                triggerDownload(cached.version, cached.body || ''); return; 
-            }
-            fetch('https://api.github.com/repos/huchd0/luci-app-netwiz/releases?t=' + now, { cache: 'no-store' }).then(function(res) { return res.json(); }).then(function(data) {
-                if (data && data.length > 0) {
-                    localStorage.setItem(cacheKey, JSON.stringify({ time: now, version: data[0].tag_name, body: data[0].body || '' }));
-                    triggerDownload(data[0].tag_name, data[0].body || '');
-                }
-            }).catch(function(e) {});
-        }
-        setTimeout(doUpdateCheck, 1500);
 
         function safePromise(p, f) { return new Promise(function(r) { var t = setTimeout(function() { r(f); }, 3000); if (!p || !p.then) { clearTimeout(t); return r(f); } p.then(function(res) { clearTimeout(t); r(res); }).catch(function() { clearTimeout(t); r(f); }); }); }
         function safeUciGet(c, s, o, d) { try { var v = uci.get(c, s, o); return (v === null || v === undefined) ? d : String(v).trim(); } catch(e) { return d; } }
@@ -813,6 +688,7 @@ return view.extend({
         container.querySelector('#btn-back-2').addEventListener('click', function () { step3.style.display = 'none'; step2.style.display = 'block'; });
         container.querySelector('#top-back-2').addEventListener('click', function () { step3.style.display = 'none'; step2.style.display = 'block'; });
 
+        // 點擊下一步校驗
         container.querySelector('#btn-next-2').addEventListener('click', function () {
             try {
                 var rType = container.querySelector('input[name="router_type"]:checked').value, targetIp = '', targetGw = '', isBypass = false;
@@ -843,6 +719,7 @@ return view.extend({
             } catch (e) { openModal({title:_t('ERR_RD_SYS'), msg:_t('ERR_CRASH'), okText:_t('M_CLOSE')}); }
         });
 
+        // 點擊確認應用
         container.querySelector('#btn-apply').addEventListener('click', function () {
             var mode = selectedMode, a1 = '', a2 = '', a3 = '', a4 = '', rType = container.querySelector('input[name="router_type"]:checked').value;
             if (selectedMode === 'lan') { a1 = container.querySelector('#lan-ip').value.trim(); a2 = container.querySelector('#lan-gw').value.trim(); a3 = calculateNetmask(a1); a4 = bypassToggle.checked ? '1' : '0';

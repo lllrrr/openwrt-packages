@@ -1,9 +1,10 @@
 #!/bin/sh
 # Copyright (C) 2026 huchd0 <https://github.com/huchd0/luci-app-netwiz>
 # Licensed under the GNU General Public License v3.0
+
 case "$1" in
     list)
-        echo '{ "set_network": { "mode": "string", "arg1": "string", "arg2": "string", "arg3": "string", "arg4": "string" }, "do_update": {} }'
+        echo '{ "set_network": { "mode": "string", "arg1": "string", "arg2": "string", "arg3": "string", "arg4": "string" } }'
         exit 0
         ;;
     call)
@@ -16,79 +17,6 @@ case "$1" in
                 arg3=$(echo "$input" | jsonfilter -e '@.arg3')
                 arg4=$(echo "$input" | jsonfilter -e '@.arg4')
 
-                # 拦截执行热更新
-                if [ "$mode" = "prepare_update" ]; then
-                    echo '{"result":0}'
-                    rm -f /tmp/netwiz_update.*
-                    echo "$arg1" > /tmp/netwiz_update.version
-                    
-                    cat << 'EOF' > /tmp/nw_dl.sh
-#!/bin/sh
-if command -v apk >/dev/null 2>&1; then PKG="apk"; else PKG="ipk"; fi
-URL="https://github.com/huchd0/luci-app-netwiz/releases/latest/download/luci-app-netwiz.${PKG}"
-PROXY_URL="https://mirror.ghproxy.com/${URL}"
-
-for i in 1 2 3; do
-    wget -qO "/tmp/netwiz_update.${PKG}" --no-check-certificate --timeout=15 "$URL"
-    if [ "$?" -ne 0 ] || [ ! -s "/tmp/netwiz_update.${PKG}" ]; then
-        wget -qO "/tmp/netwiz_update.${PKG}" --no-check-certificate --timeout=15 "$PROXY_URL"
-    fi
-    if [ -s "/tmp/netwiz_update.${PKG}" ]; then
-        touch /tmp/netwiz_update.ready
-        break
-    fi
-    sleep 2
-done
-
-if [ ! -f /tmp/netwiz_update.ready ]; then
-    rm -f "/tmp/netwiz_update.${PKG}"
-fi
-rm -f /tmp/nw_dl.sh
-EOF
-                    chmod +x /tmp/nw_dl.sh
-                    /tmp/nw_dl.sh </dev/null >/dev/null 2>&1 &
-                    exit 0
-                    
-                # 检查更新就绪
-                elif [ "$mode" = "check_update" ]; then
-                    if [ -f /tmp/netwiz_update.ready ] && [ "$(cat /tmp/netwiz_update.version 2>/dev/null)" = "$arg1" ]; then
-                        echo '{"result":1}'
-                    else
-                        echo '{"result":0}'
-                    fi
-                    exit 0
-                    
-                # 无感热重载
-                elif [ "$mode" = "do_install" ]; then
-                    echo '{"result":0}'
-                    cat << 'EOF' > /tmp/nw_install.sh
-#!/bin/sh
-sleep 2
-
-# 强制删除旧文件，防止保护机制触发
-rm -f /www/luci-static/resources/view/netwiz.js
-rm -f /usr/libexec/rpcd/netwiz
-
-if command -v apk >/dev/null 2>&1; then
-    apk del luci-app-netwiz >/dev/null 2>&1
-    apk add --allow-untrusted --force-overwrite /tmp/netwiz_update.apk
-else
-    opkg install /tmp/netwiz_update.ipk --force-reinstall --force-overwrite --force-maintainer
-fi
-
-# 清理旧缓存
-rm -rf /tmp/luci-modulecache/ /tmp/luci-indexcache* /tmp/luci-app-netwiz.*
-rm -f /tmp/netwiz_update.ready /tmp/netwiz_update.* /tmp/nw_install.sh
-
-# 让后端重新生成JS版本号，且不会踢出登录！
-ubus call luci reload >/dev/null 2>&1
-EOF
-                    chmod +x /tmp/nw_install.sh
-                    /tmp/nw_install.sh </dev/null >/dev/null 2>&1 &
-                    exit 0
-                fi
-
-                # 正常网络设置逻辑
                 cleanup_lan_for_wan_modes() {
                     uci delete network.lan.gateway 2>/dev/null
                     uci delete network.lan.dns 2>/dev/null
@@ -137,12 +65,8 @@ EOF
                 fi
                 
                 echo '{"result":0}'
+
                 ( sleep 3; /etc/init.d/network restart; /etc/init.d/dnsmasq restart ) >/dev/null 2>&1 &
-                exit 0
-                ;;
-            
-            do_update)
-                echo '{"result":0}'
                 exit 0
                 ;;
         esac
