@@ -149,7 +149,7 @@ var i18n = {
         'M_AUTO_UP': 'Auto-assigned by upstream router'
     },
     'zh-tw': {
-        'TITLE': '網 路 設 置 精 靈',
+        'TITLE': 'Netwiz 網 路 設 置 精 靈',
         'SUBTITLE': '「 純淨 · 安全 · 零破壞 」的極簡網路配置',
         'MODE_ROUTER_TITLE': '二級路由模式',
         'MODE_ROUTER_DESC': '上級網路撥號，本設備作為二級路由。',
@@ -264,7 +264,7 @@ var i18n = {
         'M_AUTO_UP': '由上級路由自動分配'
     },
     'zh-cn': {
-        'TITLE': '网 络 设 置 向 导',
+        'TITLE': 'Netwiz 网 络 设 置 向 导',
         'SUBTITLE': '「 纯净 · 安全 · 零破坏 」的极简网络配置',
         'MODE_ROUTER_TITLE': '二级路由模式',
         'MODE_ROUTER_DESC': '上级网络拨号，本设备作为二级路由。',
