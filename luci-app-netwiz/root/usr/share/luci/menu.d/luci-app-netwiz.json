@@ -1,12 +1,12 @@
 {
     "admin/system/netwiz": {
-        "title": "网络向导",
+        "title": "Network Wizard",
         "action": {
             "type": "view",
             "path": "netwiz"
         },
         "depends": {
-            "acl": [ "netwiz" ]
+            "acl": [ "luci-app-netwiz" ]
         },
         "order": 1
     }
