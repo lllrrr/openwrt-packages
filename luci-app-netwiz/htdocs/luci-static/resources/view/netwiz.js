@@ -115,7 +115,7 @@ var T = {
     'M_SUCC_MSG3': _('Note: You will need to log in again.'),
     'M_RST_TIT': _('Applying Configuration'),
     'M_RST_MSG': _('Underlying network is resetting, please wait...<br><br><span style="font-size: 14px; color: #555;">(If it does not automatically return in 15s, manually refresh)</span>'),
-    'M_FAIL_TIT': _('❌ Write Failed'), // 这里的符号属于翻译字典显示内容，予以保留
+    'M_FAIL_TIT': _('❌ Write Failed'),
     'M_FAIL_MSG': _('Underlying call exception, please try logging in again.'),
     'M_FAIL_CODE': _('Error code: {code}'),
     'M_CLOSE': _('Close'),
@@ -224,23 +224,18 @@ return view.extend({
             // 手机端响应式样式适配
             '@media screen and (max-width: 768px) {',
             '  .nw-wrapper { padding-top: 3vh; padding-bottom: 5vh; }',
-            /* 1. 頂部 */
-            '  .nw-header { margin: -30px auto 0 !important; padding: 20px 15px; width: 100% !important; max-width: 320px !important; box-sizing: border-box; border-radius: 12px; }',
+            '  .nw-header { margin: -30px auto 0 !important; padding: 20px 15px !important; width: 100% !important; max-width: 320px !important; box-sizing: border-box !important; border-radius: 12px; }',
             '  .nw-main-title { font-size: 22px; }',
             '  .nw-header p { font-size: 13px; }',
             '  .nw-card-group { flex-direction: column; align-items: center; gap: 15px; margin-top: 15px; }',
-            /* 2. 中間 */
-            '  .nw-card { width: 100% !important; max-width: 320px !important; padding: 25px 20px; text-align: center; box-sizing: border-box; margin: 0 auto; }',
+            '  .nw-card { width: 100% !important; max-width: 320px !important; padding: 25px 20px !important; text-align: center; box-sizing: border-box !important; margin: 0 auto !important; }',
             '  .nw-badge { margin-bottom: 15px; width: 48px; height: 48px; line-height: 48px; font-size: 18px; }',
-            /* 3. 表單 */
-            '  .nw-form-area, .nw-confirm-board { width: 100% !important; max-width: 320px !important; margin: 0 auto !important; padding: 25px 20px; box-sizing: border-box; }',
+            '  .nw-form-area, .nw-confirm-board { width: 100% !important; max-width: 320px !important; margin: 0 auto !important; padding: 25px 20px !important; box-sizing: border-box !important; }',
             '  .nw-top-back { top: 12px; left: 12px; width: 32px; height: 32px; }',
             '  .nw-step-title { font-size: 18px; margin-top: 15px; margin-bottom: 20px; }',
-            /* 4. 底部 */
-            '  #current-mode-display { width: 100% !important; max-width: 320px !important; margin: 20px auto 0 !important; padding: 15px; box-sizing: border-box; display: block !important; }',
-            /* 5. 按鈕 */
-            '  .nw-actions { width: 100% !important; max-width: 320px !important; margin: 20px auto 0 !important; display: flex; flex-direction: row; gap: 12px; box-sizing: border-box; }',
-            '  .nw-actions button { flex: 1; padding: 12px 0 !important; font-size: 15px; margin: 0; min-width: 0 !important; }',
+            '  #current-mode-display { width: 100% !important; max-width: 320px !important; min-width: 0 !important; margin: 20px auto 0 !important; padding: 15px !important; box-sizing: border-box !important; display: block !important; }',
+            '  .nw-actions { width: 100% !important; max-width: 320px !important; margin: 20px auto 0 !important; display: flex !important; flex-direction: row !important; gap: 12px !important; box-sizing: border-box !important; }',
+            '  .nw-actions button { flex: 1 !important; padding: 12px 0 !important; font-size: 15px !important; margin: 0 !important; min-width: 0 !important; box-sizing: border-box !important; }',
             '  #nw-global-modal .nw-modal-box { padding: 25px 20px; width: 85%; }',
             '  #nw-global-btn-wrap { flex-direction: row; gap: 12px; }',
             '  #nw-global-btn-wrap button { flex: 1; padding: 12px 0 !important; margin: 0 !important; }',
