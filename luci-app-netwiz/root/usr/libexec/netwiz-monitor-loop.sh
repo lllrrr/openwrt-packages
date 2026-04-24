@@ -19,19 +19,30 @@ check_wan_link() {
 }
 
 LAST_WAN_STATE=$(check_wan_link)
+# 🌟 新增：记录连续断开的次数
+DOWN_COUNT=0
+
 log "Service started. Monitoring WAN ($WAN_DEV) and LAN rollback timer."
 
 while true; do
-    # ---------------- 1. WAN 盲插监听 ----------------
+    # ---------------- 1. WAN 盲插监听 (带时间防抖算法) ----------------
     CURRENT_WAN_STATE=$(check_wan_link)
     
-    # 不重复触发！
-    if [ -f "$LOCK_FILE" ]; then
-        LAST_WAN_STATE="$CURRENT_WAN_STATE"
-    else
-        if [ "$LAST_WAN_STATE" = "down" ] && [ "$CURRENT_WAN_STATE" = "up" ]; then
-            log "WAN cable plug-in detected! Waking up autodetect engine."
-            /usr/libexec/netwiz-autodetect.sh >/dev/null 2>&1 </dev/null &
+    if [ ! -f "$LOCK_FILE" ]; then
+        if [ "$CURRENT_WAN_STATE" = "down" ]; then
+            DOWN_COUNT=$((DOWN_COUNT+1))
+        else
+            # 状态为 UP
+            if [ "$LAST_WAN_STATE" = "down" ]; then
+                # 🌟 核心防抖：只有断开时间超过 3 个周期（约 9 秒），才认定为人类物理拔插！
+                if [ "$DOWN_COUNT" -ge 3 ]; then
+                    log "Physical WAN plug-in confirmed (down for ${DOWN_COUNT} ticks). Waking up engine."
+                    /usr/libexec/netwiz-autodetect.sh >/dev/null 2>&1 </dev/null &
+                else
+                    log "Ignored short software interface bounce (down for ${DOWN_COUNT} ticks)."
+                fi
+            fi
+            DOWN_COUNT=0
         fi
         LAST_WAN_STATE="$CURRENT_WAN_STATE"
     fi
@@ -40,7 +51,7 @@ while true; do
     if [ -f /tmp/netwiz_rollback_time ]; then
         TARGET_IP=$(uci -q get network.lan.ipaddr | cut -d/ -f1)
         
-        # 后台扫描到有浏览器连上了新 IP 的 80/443 端口
+        # 终极雷达扫描
         if netstat -tn 2>/dev/null | grep -E "(^|[ \t:])${TARGET_IP}:(80|443)[ \t]+.*ESTABLISHED" >/dev/null; then
             log "SUCCESS: Radar detected browser access on $TARGET_IP. Defusing bomb autonomously."
             rm -f /tmp/netwiz_rollback_time /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
