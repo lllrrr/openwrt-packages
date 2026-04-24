@@ -49,17 +49,24 @@ while true; do
 
     # ---------------- 2. LAN 防失联雷达与炸弹 ----------------
     if [ -f /tmp/netwiz_rollback_time ] && [ -f /tmp/netwiz_target_ip ]; then
-        # 🌟 终极雷达：只认死命令纸条上的 IP
         TARGET_IP=$(cat /tmp/netwiz_target_ip)
         
-        if netstat -tn 2>/dev/null | grep -E "(^|[ \t:])${TARGET_IP}:(80|443)[ \t]+.*ESTABLISHED" >/dev/null; then
-            log "SUCCESS: Radar detected browser access on $TARGET_IP. Defusing bomb autonomously."
+        # 🌟 终极防干扰雷达：统计并发连接数！
+        CONN_COUNT=$(netstat -tn 2>/dev/null | grep -E "(^|[ \t:])${TARGET_IP}:(80|443)[ \t]+.*ESTABLISHED" | wc -l)
+        
+        # 🌟 只有并发连接数 >= 2 时，才认定是真实的浏览器打开了网页！
+        if [ "$CONN_COUNT" -ge 2 ]; then
+            log "SUCCESS: Radar detected real browser (Conns: $CONN_COUNT). Defusing autonomously."
             rm -f /tmp/netwiz_rollback_time /tmp/netwiz_target_ip /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
         else
+            if [ "$CONN_COUNT" -eq 1 ]; then
+                log "Ignored single-thread background probe. Waiting for real browser..."
+            fi
+            
             TARGET_TIME=$(cat /tmp/netwiz_rollback_time)
             CURRENT_TIME=$(date +%s)
             if [ "$CURRENT_TIME" -ge "$TARGET_TIME" ]; then
-                log "Time is up (120s)! No browser access to $TARGET_IP detected. BOOM!"
+                log "Time is up (120s)! Peak valid connections: $CONN_COUNT. BOOM!"
                 rm -f /tmp/netwiz_rollback_time /tmp/netwiz_target_ip
                 if [ -f /tmp/network.netwiz_bak ]; then
                     log "Restoring original network config..."
@@ -73,7 +80,7 @@ while true; do
                         /etc/init.d/dnsmasq restart
                         /etc/init.d/uhttpd restart
                         sleep 3
-                        echo "$(date '+%F %T') [Monitor] Rollback completely finished. Services restarted." >> /tmp/netwiz.log
+                        echo "$(date '+%F %T') [Monitor] Rollback completely finished." >> /tmp/netwiz.log
                     ) &
                 fi
             fi

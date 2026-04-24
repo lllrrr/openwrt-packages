@@ -345,3 +345,30 @@ msgstr "由上級路由自動分配"
 
 msgid "<b style=\"color:#ef4444;\">Please note:</b> If you do not successfully log in to the new IP within 2 minutes, the system will automatically restore the original settings."
 msgstr "<b style=\"color:#ef4444;\">防失聯保護：</b>若您未能在 2 分鐘內使用新 IP 開啟路由器的任意網頁，系統將自動回退至修改前的狀態。"
+
+msgid "Modifying LAN IP"
+msgstr "正在修改區域網路 IP"
+
+msgid "Switching to Bypass Mode"
+msgstr "正在切換至旁路由模式"
+
+msgid "Switching WAN to DHCP"
+msgstr "正在切換 WAN 埠為 DHCP (自動取得)"
+
+msgid "Switching WAN to Static IP"
+msgstr "正在切換 WAN 埠為靜態 IP"
+
+msgid "Applying PPPoE Dial-up"
+msgstr "正在套用 PPPoE 撥號"
+
+msgid "Writing configuration to system, please do not close the page..."
+msgstr "正在將設定寫入系統，請勿關閉頁面..."
+
+msgid "Knocking on the new IP door... Elapsed: "
+msgstr "正在嘗試連線新 IP... 已耗時："
+
+msgid "Waiting for network service to restart... Elapsed: "
+msgstr "正在等待網路服務重啟... 已耗時："
+
+msgid "Waiting for old IP to recover... Elapsed: "
+msgstr "正在等待舊 IP 恢復... 已耗時："

@@ -15,10 +15,10 @@ case "$1" in
     call)
         case "$2" in
             confirm)
-                # 前端发来确认信号，立刻撕毁炸弹纸条
-                if [ -f /tmp/netwiz_rollback_time ]; then
-                    rm -f /tmp/netwiz_rollback_time /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
-                    log "SUCCESS: Frontend accessed new IP. Bomb defused."
+                if [ -f /tmp/netwiz_rollback_time ] || [ -f /tmp/netwiz_target_ip ]; then
+                    # 确保四个文件被彻底删除干净，彻底解除
+                    rm -f /tmp/netwiz_rollback_time /tmp/netwiz_target_ip /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
+                    log "SUCCESS: Manual defuse triggered by frontend RPC!"
                 fi
                 echo '{"result":0}'
                 exit 0
