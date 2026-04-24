@@ -42,9 +42,10 @@ case "$1" in
 
                 if [ "$mode" = "lan" ] && [ -n "$arg1" ] && [ "$arg1" != "$CURRENT_LAN_IP" ]; then
                     log "LAN IP changed to $arg1. Arming 120s bomb."
-                    cp /etc/config/network /tmp/network.netwiz_bak
-                    cp /etc/config/dhcp /tmp/dhcp.netwiz_bak
-
+    
+                    cp /etc/config/network /etc/config/network.netwiz_bak
+                    cp /etc/config/dhcp /etc/config/dhcp.netwiz_bak
+    
                     echo "$arg1" > /tmp/netwiz_target_ip
                     echo $(($(date +%s) + 120)) > /tmp/netwiz_rollback_time
                 fi
