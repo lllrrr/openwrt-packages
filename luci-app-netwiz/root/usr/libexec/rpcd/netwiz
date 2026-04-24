@@ -1,6 +1,12 @@
 #!/bin/sh
 # Copyright (C) 2026 huchd0 <https://github.com/huchd0/luci-app-netwiz>
 # Licensed under the GNU General Public License v3.0
+LOG_FILE="/tmp/netwiz.log"
+
+log() {
+    echo "$(date '+%F %T') [RPC] $1" >> "$LOG_FILE"
+}
+
 case "$1" in
     list)
         echo '{ "set_network": { "mode": "string", "arg1": "string", "arg2": "string", "arg3": "string", "arg4": "string" }, "confirm": {} }'
@@ -8,16 +14,13 @@ case "$1" in
         ;;
     call)
         case "$2" in
-            # 🌟 前端页面成功加载时，会调用此接口拆弹
             confirm)
-                if [ -f /tmp/netwiz_pending_confirm ]; then
-                    rm -f /tmp/netwiz_pending_confirm /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
-                    logger -t Netwiz "SUCCESS: Bomb defused by frontend."
-                    echo '{"result":0}'
-                else
-                    logger -t Netwiz "WARNING: Confirm called but no pending bomb found."
-                    echo '{"result":0}'
+                # 前端发来确认信号，立刻撕毁炸弹纸条
+                if [ -f /tmp/netwiz_rollback_time ]; then
+                    rm -f /tmp/netwiz_rollback_time /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
+                    log "SUCCESS: Frontend accessed new IP. Bomb defused."
                 fi
+                echo '{"result":0}'
                 exit 0
                 ;;
                 
@@ -37,29 +40,13 @@ case "$1" in
                 
                 CURRENT_LAN_IP=$(uci -q get network.lan.ipaddr | cut -d/ -f1)
 
-                # 🌟 绝杀：使用独立临时脚本，彻底防止倒计时被系统误杀
                 if [ "$mode" = "lan" ] && [ -n "$arg1" ] && [ "$arg1" != "$CURRENT_LAN_IP" ]; then
-                    logger -t Netwiz "LAN IP changed to $arg1. Arming 2-min rollback timer."
-                    
+                    log "LAN IP changed to $arg1. Arming 120s bomb."
                     cp /etc/config/network /tmp/network.netwiz_bak
                     cp /etc/config/dhcp /tmp/dhcp.netwiz_bak
-                    touch /tmp/netwiz_pending_confirm
                     
-                    # 动态生成一个独立的拆弹脚本并扔到后台执行
-                    cat << 'EOF' > /tmp/netwiz_rollback_task.sh
-#!/bin/sh
-sleep 120
-if [ -f /tmp/netwiz_pending_confirm ]; then
-    logger -t Netwiz "Rollback triggered! No confirmation received within 2 minutes."
-    cp /tmp/network.netwiz_bak /etc/config/network
-    cp /tmp/dhcp.netwiz_bak /etc/config/dhcp
-    rm -f /tmp/netwiz_pending_confirm /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
-    /etc/init.d/network restart
-fi
-EOF
-                    chmod +x /tmp/netwiz_rollback_task.sh
-                    # 完全脱离当前进程链运行
-                    /tmp/netwiz_rollback_task.sh </dev/null >/dev/null 2>&1 &
+                    # 🌟 核心：计算当前时间 + 120秒 的时间戳，存入倒计时文件
+                    echo $(($(date +%s) + 120)) > /tmp/netwiz_rollback_time
                 fi
 
                 if [ "$mode" = "wan_dhcp" ]; then
