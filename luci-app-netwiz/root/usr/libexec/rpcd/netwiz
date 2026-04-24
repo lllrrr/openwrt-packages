@@ -1,7 +1,6 @@
 #!/bin/sh
 # Copyright (C) 2026 huchd0 <https://github.com/huchd0/luci-app-netwiz>
 # Licensed under the GNU General Public License v3.0
-
 case "$1" in
     list)
         echo '{ "set_network": { "mode": "string", "arg1": "string", "arg2": "string", "arg3": "string", "arg4": "string" }, "confirm": {} }'
@@ -9,20 +8,15 @@ case "$1" in
         ;;
     call)
         case "$2" in
+            # 🌟 前端页面成功加载时，会调用此接口拆弹
             confirm)
+                logger -t Netwiz "Frontend confirmed access. Canceling rollback."
                 rm -f /tmp/netwiz_pending_confirm /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
                 echo '{"result":0}'
                 exit 0
                 ;;
                 
             set_network)
-                chmod +x /etc/init.d/netwiz-recovery 2>/dev/null
-                /etc/init.d/netwiz-recovery enable 2>/dev/null
-                chmod +x /usr/libexec/netwiz-autodetect.sh 2>/dev/null
-                
-                # 赋予独立倒计时脚本执行权限
-                chmod +x /usr/libexec/netwiz-rollback.sh 2>/dev/null
-
                 input=$(cat)
                 mode=$(echo "$input" | jsonfilter -e '@.mode')
                 arg1=$(echo "$input" | jsonfilter -e '@.arg1')
@@ -38,16 +32,29 @@ case "$1" in
                 
                 CURRENT_LAN_IP=$(uci -q get network.lan.ipaddr | cut -d/ -f1)
 
+                # 🌟 绝杀：使用独立临时脚本，彻底防止倒计时被系统误杀
                 if [ "$mode" = "lan" ] && [ -n "$arg1" ] && [ "$arg1" != "$CURRENT_LAN_IP" ]; then
-                    TARGET_LAN_IP="$arg1"
-                    logger -t Netwiz "LAN IP changed to $TARGET_LAN_IP. Arming 2-min rollback timer."
+                    logger -t Netwiz "LAN IP changed to $arg1. Arming 2-min rollback timer."
                     
                     cp /etc/config/network /tmp/network.netwiz_bak
                     cp /etc/config/dhcp /tmp/dhcp.netwiz_bak
                     touch /tmp/netwiz_pending_confirm
                     
-                    # 启动守护进程
-                    /usr/libexec/netwiz-rollback.sh "$TARGET_LAN_IP" >/dev/null 2>&1 </dev/null &
+                    # 动态生成一个独立的拆弹脚本并扔到后台执行
+                    cat << 'EOF' > /tmp/netwiz_rollback_task.sh
+#!/bin/sh
+sleep 120
+if [ -f /tmp/netwiz_pending_confirm ]; then
+    logger -t Netwiz "Rollback triggered! No confirmation received within 2 minutes."
+    cp /tmp/network.netwiz_bak /etc/config/network
+    cp /tmp/dhcp.netwiz_bak /etc/config/dhcp
+    rm -f /tmp/netwiz_pending_confirm /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
+    /etc/init.d/network restart
+fi
+EOF
+                    chmod +x /tmp/netwiz_rollback_task.sh
+                    # 完全脱离当前进程链运行
+                    /tmp/netwiz_rollback_task.sh </dev/null >/dev/null 2>&1 &
                 fi
 
                 if [ "$mode" = "wan_dhcp" ]; then
@@ -79,7 +86,6 @@ case "$1" in
                     else
                         uci delete network.lan.gateway 2>/dev/null
                     fi
-                    
                     if [ "$arg4" = "1" ]; then
                         uci set dhcp.lan.ignore='1'
                         [ -n "$arg2" ] && uci set network.lan.dns="$arg2"
@@ -92,7 +98,6 @@ case "$1" in
                 fi
                 
                 echo '{"result":0}'
-
                 ( exec >/dev/null 2>&1 </dev/null; sleep 3; /etc/init.d/network restart; /etc/init.d/dnsmasq restart ) &
                 exit 0
                 ;;

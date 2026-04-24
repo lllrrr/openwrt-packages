@@ -4,7 +4,4 @@
 
 [ "$ACTION" = "change" ] || [ "$ACTION" = "add" ] || exit 0
 
-if [ "$(cat /sys/class/net/$INTERFACE/carrier 2>/dev/null)" = "1" ]; then
-
-    /usr/libexec/netwiz-autodetect.sh >/dev/null 2>&1 </dev/null &
-fi
+/usr/libexec/netwiz-autodetect.sh >/dev/null 2>&1 </dev/null &
