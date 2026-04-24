@@ -10,9 +10,14 @@ case "$1" in
         case "$2" in
             # 🌟 前端页面成功加载时，会调用此接口拆弹
             confirm)
-                logger -t Netwiz "Frontend confirmed access. Canceling rollback."
-                rm -f /tmp/netwiz_pending_confirm /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
-                echo '{"result":0}'
+                if [ -f /tmp/netwiz_pending_confirm ]; then
+                    rm -f /tmp/netwiz_pending_confirm /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
+                    logger -t Netwiz "SUCCESS: Bomb defused by frontend."
+                    echo '{"result":0}'
+                else
+                    logger -t Netwiz "WARNING: Confirm called but no pending bomb found."
+                    echo '{"result":0}'
+                fi
                 exit 0
                 ;;
                 

@@ -2,6 +2,11 @@
 # Copyright (C) 2026 huchd0 <https://github.com/huchd0/luci-app-netwiz>
 # Licensed under the GNU General Public License v3.0
 
-[ "$ACTION" = "change" ] || [ "$ACTION" = "add" ] || exit 0
+# 监听网卡
+[ "$ACTION" = "add" ] || [ "$ACTION" = "change" ] || exit 0
 
-/usr/libexec/netwiz-autodetect.sh >/dev/null 2>&1 </dev/null &
+# 只要有任何网卡物理通電
+if [ "$(cat /sys/class/net/$INTERFACE/carrier 2>/dev/null)" = "1" ]; then
+
+    ( sleep 2; /usr/libexec/netwiz-autodetect.sh ) &
+fi

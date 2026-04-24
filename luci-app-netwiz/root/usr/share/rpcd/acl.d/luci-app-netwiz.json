@@ -1,22 +1,14 @@
 {
     "luci-app-netwiz": {
-        "description": "Grant access to Network Setup Wizard",
+        "description": "Grant access to netwiz configuration scripts",
         "read": {
-            "uci": [
-                "network",
-                "dhcp"
-            ],
-            "ubus": {
-                "network.interface": [
-                    "dump"
-                ]
+            "rpc-methods": {
+                "netwiz": [ "confirm" ]
             }
         },
         "write": {
-            "ubus": {
-                "netwiz": [
-                    "set_network"
-                ]
+            "rpc-methods": {
+                "netwiz": [ "set_network", "confirm" ]
             }
         }
     }
