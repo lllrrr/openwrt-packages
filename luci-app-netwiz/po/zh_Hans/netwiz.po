@@ -343,5 +343,5 @@ msgstr "IP 与网关"
 msgid "Auto-assigned by upstream router"
 msgstr "由上级路由自动分配"
 
-msgid "<b style=\"color:#ef4444;\">Please note:</b> If you do not successfully log in to the new IP within 3 minutes, the system will automatically restore the original settings."
-msgstr "<b style=\"color:#ef4444;\">防失联保护：</b>若您未能在 3 分钟内使用新 IP 打开路由器的任意网页，系统将自动回退至修改前的状态。"
+msgid "<b style=\"color:#ef4444;\">Please note:</b> If you do not successfully log in to the new IP within 2 minutes, the system will automatically restore the original settings."
+msgstr "<b style=\"color:#ef4444;\">防失联保护：</b>若您未能在 2 分钟内使用新 IP 打开路由器的任意网页，系统将自动回退至修改前的状态。"

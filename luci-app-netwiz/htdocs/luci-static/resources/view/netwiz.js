@@ -113,6 +113,7 @@ var T = {
     'M_SUCC_MSG1': _('Since the IP has changed to {ip},'),
     'M_SUCC_MSG2': _('the system will attempt to redirect to the new address in 15 seconds.'),
     'M_SUCC_MSG3': _('Note: You will need to log in again.'),
+    'M_SUCC_MSG4': _('<b style="color:#ef4444;">Please note:</b> If you do not successfully log in to the new IP within 2 minutes, the system will automatically restore the original settings.'),
     'M_RST_TIT': _('Applying Configuration'),
     'M_RST_MSG': _('Underlying network is resetting, please wait...<br><br><span style="font-size: 14px; color: #555;">(If it does not automatically return in 15s, manually refresh)</span>'),
     'M_FAIL_TIT': _('❌ Write Failed'),
@@ -159,6 +160,13 @@ return view.extend({
             '.nw-wrapper { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; min-height: 80vh; padding-top: 10vh; padding-bottom: 10vh; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }',
             '.nw-header { text-align: center; margin-bottom: 40px; background-color: #5e72e4; padding: 25px; margin-top: -90px; border-radius: 0 0 15px 15px; position: relative; }',
             '.nw-main-title { font-size: 35px; font-weight: 600; margin-bottom: 10px; color: #ffffff; letter-spacing: 2px; }',
+
+            '.nw-title-wrap { position: relative; display: inline-block; cursor: pointer; }',
+            '.nw-version-tag { position: absolute; top: -50%; left: 50%; transform: translateX(-50%); background: rgba(15, 23, 42, 0.15); color: #f8fafc; font-size: 13px; font-weight: 500; padding: 5px 12px; border-radius: 6px; opacity: 0; pointer-events: none; transition: all 0.25s ease; font-family: monospace; z-index: 50; box-shadow: 0 4px 15px rgba(0,0,0,0.15); white-space: nowrap; border: 1px solid rgba(255,255,255,0.1); }',
+            '.nw-title-wrap:hover .nw-version-tag { opacity: 1; top: -70%; }',
+            /* red */
+            '.nw-version-dot { position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; background-color: #ef4444; border-radius: 50%; box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.9); display: block; }',
+
             '.nw-header p { color: #ffffff; font-size: 16px; opacity: 0.9; margin: 0; letter-spacing: 1px; }',
             '.nw-step { width: 100%; max-width: 750px; text-align: center; animation: slideUp 0.4s ease-out; }',
             '@keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }',
@@ -246,7 +254,10 @@ return view.extend({
             // 主界面 HTML 结构
             '<div class="nw-wrapper">',
             '  <div class="nw-header">',
-            '    <div class="nw-main-title">{{TITLE}}</div>',
+            '    <div class="nw-title-wrap">',
+            '      <div class="nw-main-title">{{TITLE}}</div>',
+            '      <div class="nw-version-tag">{{APP_VERSION}} <div class="nw-version-dot" style="display: none;"></div></div>',
+            '    </div>',
             '    <p>{{SUBTITLE}}</p>',
             '  </div>',
             '  <div id="nw-global-modal" style="display:none;">',
@@ -500,7 +511,7 @@ return view.extend({
                 var h = window.location.hostname, ts = new Date().getTime();
                 // 若修改了 LAN IP，尝试重定向至新地址
                 if (selectedMode === 'lan' && a1 && a1 !== h) { 
-                    var succHtml = T['M_SUCC_MSG1'].replace('{ip}', '<b style="color:#3b82f6;">' + a1 + '</b>') + '<br>' + T['M_SUCC_MSG2'] + '<br><br><small>' + T['M_SUCC_MSG3'] + '</small>';
+                    var succHtml = T['M_SUCC_MSG1'].replace('{ip}', '<b style="color:#3b82f6;">' + a1 + '</b>') + '<br>' + T['M_SUCC_MSG2'] + '<br><br><small>' + T['M_SUCC_MSG3'] + '</small><br><br><div style="background:#fef2f2; border:1px solid #fecaca; color:#ef4444; padding:10px; border-radius:8px; font-size:13px; line-height:1.5;">' + T['M_SUCC_MSG4'] + '</div>';
                     openModal({ title: T['M_SUCC_TIT'], msg: succHtml, spin: true }); 
                     setTimeout(function() { window.location.href = 'http://' + a1 + '?v=' + ts; }, 15000);
                 } else { 

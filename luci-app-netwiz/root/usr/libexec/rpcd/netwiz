@@ -41,26 +41,29 @@ case "$1" in
                     cp /etc/config/network /tmp/network.netwiz_bak
                     cp /etc/config/dhcp /tmp/dhcp.netwiz_bak
                     touch /tmp/netwiz_pending_confirm
-
+                    
+                    # 开启后台进程
                     (
+                        # 防止网络重启或前端断开时被误杀
+                        exec >/dev/null 2>&1 </dev/null
+                        
                         sleep 10
                         
-                        for i in $(seq 1 170); do
-                            if [ ! -f /tmp/netwiz_pending_confirm ]; then
-                                exit 0
-                            fi
-
-                            if netstat -tn 2>/dev/null | awk '{print $4, $6}' | grep -E ':(80|443) ESTABLISHED' >/dev/null; then
-                                logger -t Netwiz "Web access detected on new IP. Auto-confirming rollback."
+                        for i in $(seq 1 110); do
+                            if [ ! -f /tmp/netwiz_pending_confirm ]; then exit 0; fi
+                            
+                            # 🌟 新 IP 成功访问取消退回
+                            if netstat -tn 2>/dev/null | grep -E "(^|[ \t:])${arg1}:(80|443)[ \t]+.*ESTABLISHED" >/dev/null; then
+                                logger -t Netwiz "Web access detected precisely on new IP ($arg1). Auto-confirming rollback."
                                 rm -f /tmp/netwiz_pending_confirm /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
                                 exit 0
                             fi
                             sleep 1
                         done
 
-                        # 3 minutes
+                        # 3分钟到期，无情回退
                         if [ -f /tmp/netwiz_pending_confirm ]; then
-                            logger -t Netwiz "Rollback triggered! No web access detected within 3 minutes."
+                            logger -t Netwiz "Rollback triggered! No web access to $arg1 detected within 3 minutes."
                             cp /tmp/network.netwiz_bak /etc/config/network
                             cp /tmp/dhcp.netwiz_bak /etc/config/dhcp
                             rm -f /tmp/netwiz_pending_confirm /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
@@ -112,7 +115,7 @@ case "$1" in
                 
                 echo '{"result":0}'
 
-                ( sleep 3; /etc/init.d/network restart; /etc/init.d/dnsmasq restart ) >/dev/null 2>&1 &
+                ( exec >/dev/null 2>&1 </dev/null; sleep 3; /etc/init.d/network restart; /etc/init.d/dnsmasq restart ) &
                 exit 0
                 ;;
         esac

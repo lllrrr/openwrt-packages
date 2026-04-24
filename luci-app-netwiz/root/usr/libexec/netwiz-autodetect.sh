@@ -5,84 +5,72 @@
 LOCK_FILE="/var/run/netwiz_autodetect.lock"
 BAK_FILE="/etc/config/network.netwiz_bak"
 
-# 1. Concurrency lock to prevent multiple instances during rapid plug/unplug
-if [ -f "$LOCK_FILE" ]; then
-    exit 0
-fi
+if [ -f "$LOCK_FILE" ]; then exit 0; fi
 touch "$LOCK_FILE"
 trap "rm -f $LOCK_FILE" EXIT INT TERM
 
-check_internet() {
-    ping -c 2 -W 2 223.5.5.5 >/dev/null 2>&1
-    return $?
-}
-
-wait_for_ip() {
-    local max_wait=10
+# 最多等待 30 秒 (15次循环)，给足 PPPoE 拨号的时间
+wait_for_internet() {
+    local max_wait=15
     local i=0
     while [ $i -lt $max_wait ]; do
-        carrier=$(cat /sys/class/net/eth0/carrier 2>/dev/null)
-        if [ "$carrier" = "0" ]; then
-            return 1 # Cable unplugged
+        # 在拨号等待途中，网线被拔出，立刻中止探测！
+        if [ "$(cat /sys/class/net/eth0/carrier 2>/dev/null)" = "0" ]; then
+            return 1
         fi
-        if ifconfig eth0 | grep -q "inet addr"; then
-            sleep 2
+        # 只要能 Ping 通，立刻判定成功
+        if ping -c 1 -W 1 223.5.5.5 >/dev/null 2>&1; then
             return 0
         fi
-        sleep 1
+        sleep 2
         i=$((i+1))
     done
     return 1
 }
 
-# 2. Initial state check
-sleep 3
-if check_internet; then
-    rm -f "$LOCK_FILE"
+# 1. 初始状态检测，等待网卡获取到硬件信号
+sleep 5
+if wait_for_internet; then
     exit 0
 fi
 
-# 3. Power-loss fail-safe: Backup the current network configuration
+# 2. 备份【全局】网络状态,断电防呆预备
 cp /etc/config/network "$BAK_FILE"
 sync
 
 ORIG_PROTO=$(uci -q get network.wan.proto)
 HAS_PPPOE_USER=$(uci -q get network.wan.username)
-
 success=0
 
-# 4. Attempt A: Switch to DHCP
+# 3. 尝试 A: 自动获取 IP (DHCP)
 if [ "$ORIG_PROTO" != "dhcp" ]; then
     uci set network.wan.proto='dhcp'
     uci commit network
     /etc/init.d/network restart
     
-    if wait_for_ip; then
-        if check_internet; then
-            success=1
-        fi
+    if wait_for_internet; then
+        success=1
     fi
 fi
 
-# 5. Attempt B: Switch to PPPoE (if credentials exist)
+# 4. 尝试 B: PPPoE 拨号 (如果有账号残留)
 if [ "$success" -eq 0 ] && [ "$ORIG_PROTO" != "pppoe" ] && [ -n "$HAS_PPPOE_USER" ]; then
+    # 恢复全局配置，然后只修改为 PPPoE
     cp "$BAK_FILE" /etc/config/network
     uci set network.wan.proto='pppoe'
     uci commit network
     /etc/init.d/network restart
     
-    sleep 10
-    if check_internet; then
+    # 开始长达 30 秒的耐心等待...
+    if wait_for_internet; then
         success=1
     fi
 fi
 
-# 6. Ultimate fallback mechanism
+# 5. 终极回退机制 (全局时光倒流)
 if [ "$success" -eq 1 ]; then
-    # Detection successful, clean up backup
     rm -f "$BAK_FILE"
 else
-    # Detection failed, restore original config
     cp "$BAK_FILE" /etc/config/network
     rm -f "$BAK_FILE"
     /etc/init.d/network restart
