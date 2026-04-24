@@ -342,3 +342,6 @@ msgstr "IP 與閘道器"
 
 msgid "Auto-assigned by upstream router"
 msgstr "由上級路由自動分配"
+
+msgid "<b style=\"color:#ef4444;\">Please note:</b> If you do not successfully log in to the new IP within 3 minutes, the system will automatically restore the original settings."
+msgstr "<b style=\"color:#ef4444;\">防失聯保護：</b>若您未能在 3 分鐘內使用新 IP 開啟路由器的任意網頁，系統將自動回退至修改前的狀態。"

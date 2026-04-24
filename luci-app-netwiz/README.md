@@ -46,6 +46,42 @@ It is designed to be highly user-friendly for novices setting up secondary route
 
 ---
 
+```bash
+luci-app-netwiz/
+├── Makefile
+├── htdocs/
+│   └── luci-static/
+│       └── resources/
+│           └── view/
+│               └── netwiz.js              # Pure frontend JS code
+├── root/
+│   ├── etc/                               # 🌟 System-level config directory
+│   │   ├── hotplug.d/
+│   │   │   └── net/
+│   │   │       └── 99-netwiz-autoswitch   # 🌟 1. WAN cable hotplug listener
+│   │   └── init.d/
+│   │       └── netwiz-recovery            # 🌟 2. Power-loss fail-safe recovery service (Requires chmod +x)
+│   └── usr/
+│       ├── libexec/
+│       │   ├── netwiz-autodetect.sh       # 🌟 3. Core auto-detection logic engine (Requires chmod +x)
+│       │   └── rpcd/
+│       │       └── netwiz                 # Pure backend RPC script
+│       └── share/
+│           ├── luci/
+│           │   └── menu.d/
+│           │       └── luci-app-netwiz.json
+│           └── rpcd/
+│               └── acl.d/
+│                   └── luci-app-netwiz.json
+└── po/
+    ├── zh_Hans/
+    │   └── netwiz.po
+    └── zh_Hant/
+        └── netwiz.po
+```
+ 
+---
+
 ## 简体中文
 
 ### 📖简介

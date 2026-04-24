@@ -4,12 +4,22 @@
 
 case "$1" in
     list)
-        echo '{ "set_network": { "mode": "string", "arg1": "string", "arg2": "string", "arg3": "string", "arg4": "string" } }'
+        echo '{ "set_network": { "mode": "string", "arg1": "string", "arg2": "string", "arg3": "string", "arg4": "string" }, "confirm": {} }'
         exit 0
         ;;
     call)
         case "$2" in
+            confirm)
+                rm -f /tmp/netwiz_pending_confirm /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
+                echo '{"result":0}'
+                exit 0
+                ;;
+                
             set_network)
+                chmod +x /etc/init.d/netwiz-recovery 2>/dev/null
+                /etc/init.d/netwiz-recovery enable 2>/dev/null
+                chmod +x /usr/libexec/netwiz-autodetect.sh 2>/dev/null
+
                 input=$(cat)
                 mode=$(echo "$input" | jsonfilter -e '@.mode')
                 arg1=$(echo "$input" | jsonfilter -e '@.arg1')
@@ -22,6 +32,42 @@ case "$1" in
                     uci delete network.lan.dns 2>/dev/null
                     uci set dhcp.lan.ignore='0'
                 }
+                
+                CURRENT_LAN_IP=$(uci -q get network.lan.ipaddr | cut -d/ -f1)
+
+                if [ "$mode" = "lan" ] && [ -n "$arg1" ] && [ "$arg1" != "$CURRENT_LAN_IP" ]; then
+                    logger -t Netwiz "LAN IP changed from $CURRENT_LAN_IP to $arg1. Starting 3-min smart rollback timer."
+                    
+                    cp /etc/config/network /tmp/network.netwiz_bak
+                    cp /etc/config/dhcp /tmp/dhcp.netwiz_bak
+                    touch /tmp/netwiz_pending_confirm
+
+                    (
+                        sleep 10
+                        
+                        for i in $(seq 1 170); do
+                            if [ ! -f /tmp/netwiz_pending_confirm ]; then
+                                exit 0
+                            fi
+
+                            if netstat -tn 2>/dev/null | awk '{print $4, $6}' | grep -E ':(80|443) ESTABLISHED' >/dev/null; then
+                                logger -t Netwiz "Web access detected on new IP. Auto-confirming rollback."
+                                rm -f /tmp/netwiz_pending_confirm /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
+                                exit 0
+                            fi
+                            sleep 1
+                        done
+
+                        # 3 minutes
+                        if [ -f /tmp/netwiz_pending_confirm ]; then
+                            logger -t Netwiz "Rollback triggered! No web access detected within 3 minutes."
+                            cp /tmp/network.netwiz_bak /etc/config/network
+                            cp /tmp/dhcp.netwiz_bak /etc/config/dhcp
+                            rm -f /tmp/netwiz_pending_confirm /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
+                            /etc/init.d/network restart
+                        fi
+                    ) &
+                fi
 
                 if [ "$mode" = "wan_dhcp" ]; then
                     cleanup_lan_for_wan_modes
