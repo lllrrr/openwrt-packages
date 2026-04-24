@@ -19,6 +19,9 @@ case "$1" in
                 chmod +x /etc/init.d/netwiz-recovery 2>/dev/null
                 /etc/init.d/netwiz-recovery enable 2>/dev/null
                 chmod +x /usr/libexec/netwiz-autodetect.sh 2>/dev/null
+                
+                # 赋予独立倒计时脚本执行权限
+                chmod +x /usr/libexec/netwiz-rollback.sh 2>/dev/null
 
                 input=$(cat)
                 mode=$(echo "$input" | jsonfilter -e '@.mode')
@@ -36,40 +39,15 @@ case "$1" in
                 CURRENT_LAN_IP=$(uci -q get network.lan.ipaddr | cut -d/ -f1)
 
                 if [ "$mode" = "lan" ] && [ -n "$arg1" ] && [ "$arg1" != "$CURRENT_LAN_IP" ]; then
-                    logger -t Netwiz "LAN IP changed from $CURRENT_LAN_IP to $arg1. Starting 3-min smart rollback timer."
+                    TARGET_LAN_IP="$arg1"
+                    logger -t Netwiz "LAN IP changed to $TARGET_LAN_IP. Arming 2-min rollback timer."
                     
                     cp /etc/config/network /tmp/network.netwiz_bak
                     cp /etc/config/dhcp /tmp/dhcp.netwiz_bak
                     touch /tmp/netwiz_pending_confirm
                     
-                    # 开启后台进程
-                    (
-                        # 防止网络重启或前端断开时被误杀
-                        exec >/dev/null 2>&1 </dev/null
-                        
-                        sleep 10
-                        
-                        for i in $(seq 1 110); do
-                            if [ ! -f /tmp/netwiz_pending_confirm ]; then exit 0; fi
-                            
-                            # 🌟 新 IP 成功访问取消退回
-                            if netstat -tn 2>/dev/null | grep -E "(^|[ \t:])${arg1}:(80|443)[ \t]+.*ESTABLISHED" >/dev/null; then
-                                logger -t Netwiz "Web access detected precisely on new IP ($arg1). Auto-confirming rollback."
-                                rm -f /tmp/netwiz_pending_confirm /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
-                                exit 0
-                            fi
-                            sleep 1
-                        done
-
-                        # 3分钟到期，无情回退
-                        if [ -f /tmp/netwiz_pending_confirm ]; then
-                            logger -t Netwiz "Rollback triggered! No web access to $arg1 detected within 3 minutes."
-                            cp /tmp/network.netwiz_bak /etc/config/network
-                            cp /tmp/dhcp.netwiz_bak /etc/config/dhcp
-                            rm -f /tmp/netwiz_pending_confirm /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
-                            /etc/init.d/network restart
-                        fi
-                    ) &
+                    # 启动守护进程
+                    /usr/libexec/netwiz-rollback.sh "$TARGET_LAN_IP" >/dev/null 2>&1 </dev/null &
                 fi
 
                 if [ "$mode" = "wan_dhcp" ]; then

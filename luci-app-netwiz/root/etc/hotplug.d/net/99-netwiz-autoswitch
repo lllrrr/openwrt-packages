@@ -1,18 +1,10 @@
 #!/bin/sh
 # Copyright (C) 2026 huchd0 <https://github.com/huchd0/luci-app-netwiz>
 # Licensed under the GNU General Public License v3.0
-# 仅监听物理网卡链路状态的改变 (ACTION="change" 表示物理信号发生变化)
-[ "$ACTION" = "change" ] || exit 0
 
-# 核心判定：读取网卡芯片的 carrier 信号。1 表示确实插上了网线并通电协商成功
-[ "$(cat /sys/class/net/$INTERFACE/carrier 2>/dev/null)" = "1" ] || exit 0
+[ "$ACTION" = "change" ] || [ "$ACTION" = "add" ] || exit 0
 
-# 确认发生插拔的网卡，是我们在用的 WAN 口物理设备
-WAN_DEV=$(uci -q get network.wan.device)
-[ -z "$WAN_DEV" ] && WAN_DEV=$(uci -q get network.wan.ifname)
+if [ "$(cat /sys/class/net/$INTERFACE/carrier 2>/dev/null)" = "1" ]; then
 
-# 如果当前改变的物理网卡不是 WAN 口设备，则不干预
-[ "$INTERFACE" = "$WAN_DEV" ] || [ "$INTERFACE" = "wan" ] || exit 0
-
-# 只有在真正的网线物理插入、且是 WAN 口时，才触发智能探测
-/usr/libexec/netwiz-autodetect.sh &
+    /usr/libexec/netwiz-autodetect.sh >/dev/null 2>&1 </dev/null &
+fi
