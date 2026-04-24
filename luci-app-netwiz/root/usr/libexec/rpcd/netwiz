@@ -44,8 +44,8 @@ case "$1" in
                     log "LAN IP changed to $arg1. Arming 120s bomb."
                     cp /etc/config/network /tmp/network.netwiz_bak
                     cp /etc/config/dhcp /tmp/dhcp.netwiz_bak
-                    
-                    # 🌟 核心：计算当前时间 + 120秒 的时间戳，存入倒计时文件
+
+                    echo "$arg1" > /tmp/netwiz_target_ip
                     echo $(($(date +%s) + 120)) > /tmp/netwiz_rollback_time
                 fi
 
