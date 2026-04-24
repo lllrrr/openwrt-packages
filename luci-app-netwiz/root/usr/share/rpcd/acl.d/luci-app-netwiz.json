@@ -1,14 +1,14 @@
 {
-    "luci-app-netwiz": {
-        "description": "Grant access to netwiz configuration scripts",
+    "luci-access": {
+        "description": "Grant authenticated users full access to netwiz RPC",
         "read": {
-            "rpc-methods": {
-                "netwiz": [ "confirm" ]
+            "ubus": {
+                "netwiz": [ "*" ]
             }
         },
         "write": {
-            "rpc-methods": {
-                "netwiz": [ "set_network", "confirm" ]
+            "ubus": {
+                "netwiz": [ "*" ]
             }
         }
     }
