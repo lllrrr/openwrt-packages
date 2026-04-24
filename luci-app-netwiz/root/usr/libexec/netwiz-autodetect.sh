@@ -22,12 +22,21 @@ WAN_DEV=$(uci -q get network.wan.device)
 wait_for_internet() {
     local max_wait=20
     local i=0
+    local offline_strikes=0
+    
     while [ $i -lt $max_wait ]; do
-        # 探测途中发现网线被拔，直接中止
+        # 允许网络服务重启时的短暂断电。只有连续 3 次（6秒）没信号，才认定是真拔了网线！
         if ! ubus call network.device status "{\"name\":\"$WAN_DEV\"}" 2>/dev/null | grep -q '"carrier": true'; then
-            log "Cable unplugged during detection. Aborting."
+            offline_strikes=$((offline_strikes+1))
+        else
+            offline_strikes=0
+        fi
+        
+        if [ $offline_strikes -ge 3 ]; then
+            log "Cable physically unplugged (3 strikes). Aborting."
             return 1
         fi
+        
         if ping -c 1 -W 1 223.5.5.5 >/dev/null 2>&1; then return 0; fi
         sleep 2
         i=$((i+1))
@@ -55,6 +64,7 @@ if [ "$ORIG_PROTO" != "dhcp" ]; then
     uci set network.wan.proto='dhcp'
     uci commit network
     /etc/init.d/network restart
+    sleep 5 # 留出缓冲时间
     if wait_for_internet; then success=1; fi
 fi
 
@@ -64,6 +74,7 @@ if [ "$success" -eq 0 ] && [ "$ORIG_PROTO" != "pppoe" ] && [ -n "$HAS_PPPOE_USER
     uci set network.wan.proto='pppoe'
     uci commit network
     /etc/init.d/network restart
+    sleep 5 # 留出缓冲时间
     if wait_for_internet; then success=1; fi
 fi
 

@@ -90,7 +90,7 @@ case "$1" in
                 fi
                 
                 echo '{"result":0}'
-                ( exec >/dev/null 2>&1 </dev/null; sleep 3; /etc/init.d/network restart; /etc/init.d/dnsmasq restart ) &
+                ( exec >/dev/null 2>&1 </dev/null; sleep 3; /etc/init.d/network restart; /etc/init.d/dnsmasq restart; /etc/init.d/uhttpd restart ) &
                 exit 0
                 ;;
         esac
