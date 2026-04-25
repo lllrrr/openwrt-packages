@@ -12,6 +12,7 @@ var T = {
     'Network_Wizard': _('Network Wizard'),
     'TITLE': _('Netwiz NETWORK SETUP'),
     'SUBTITLE': _('Pure · Secure · Non-destructive Minimalist Config'),
+    'APP_VERSION': 'v1.0.0',
     'MODE_ROUTER_TITLE': _('Secondary Router Mode'),
     'MODE_ROUTER_DESC': _('Upstream network dials up, this device acts as a secondary router.'),
     'MODE_PPPOE_TITLE': _('PPPoE Dial-up'),
@@ -141,7 +142,13 @@ var T = {
     'MSG_PREP_ENV': _('Preparing environment...'),
     'MSG_TIMER': _('Rollback countdown: <b style="color:#f59e0b;">{sec}</b> / {total} s'),
     'MSG_SCOUT_OK': _('✅ Handshake successful'),
-    'MSG_REDIRECTING': _('Network connected! Automatically redirecting...')
+    'MSG_REDIRECTING': _('Network connected! Automatically redirecting...'),
+    
+    // 防失联手动操作面板字典
+    'BTN_CANCEL_MOD': _('Cancel Changes'),
+    'BTN_FORCE_APP': _('Force Apply'),
+    'MSG_REVERTING': _('Reverting configuration...'),
+    'MSG_WAIT_RESTORE': _('Please wait for the router to restore...')
 };
 
 // 声明后端的 RPC 接口调用
@@ -251,6 +258,13 @@ return view.extend({
             '.nw-modal-btn-danger:hover { background: #dc2626 !important; }',
             
             '.nw-hl { color: #facc15; font-weight: bold; margin-left: 6px; }',
+            
+            /* 新增：撤销进度条与决策按钮样式 */
+            '.nw-revert-container { width: 100%; height: 10px; background: #e2e8f0; border-radius: 6px; margin-top: 15px; overflow: hidden; position: relative; }',
+            '.nw-revert-bar { position: absolute; right: 0; top: 0; height: 100%; width: 0%; background: #10b981; transition: width 1.8s cubic-bezier(0.4, 0, 0.2, 1); }',
+            '.nw-decision-group { display: flex; gap: 15px; justify-content: center; margin-top: 5px; }',
+            '.nw-btn-safe { background: #10b981 !important; box-shadow: 0 4px 6px rgba(16,185,129,0.2) !important; }',
+            '.nw-btn-danger { background: #ef4444 !important; box-shadow: 0 4px 6px rgba(239,68,68,0.2) !important; }',
             
             // 手机端响应式样式适配
             '@media screen and (max-width: 768px) {',
@@ -555,18 +569,68 @@ return view.extend({
                 var sec = 0;
                 
                 if (selectedMode === 'lan' && a1 && a1 !== h) { 
-                    var bombTime = 120; // 120秒防失联倒计时
-                    var isProbing = false; // 并发锁
+                    var bombTime = 120, showBtnTime = 15, isProbing = false;
+
+                    // 🟢 撤销修改函数 (左侧绿色：时光倒流动画)
+                    var forceRevert = function() {
+                        clearInterval(countdownTimer);
+                        var msgBox = document.getElementById('nw-global-msg');
+                        
+                        // 切换为进度条界面
+                        msgBox.innerHTML = 
+                            '<div style="color:#10b981; font-weight:bold; font-size:16px; margin-bottom:10px;">' + T['MSG_REVERTING'] + '</div>' +
+                            '<div class="nw-revert-container"><div id="nw-bar" class="nw-revert-bar"></div></div>' +
+                            '<div style="color:#64748b; font-size:13px; margin-top:15px; font-weight:500;">' + T['MSG_WAIT_RESTORE'] + '</div>';
+                        
+                        // 触发右向左动画 (通过CSS right:0 定位)
+                        setTimeout(function() {
+                            var bar = document.getElementById('nw-bar');
+                            if (bar) bar.style.width = '100%';
+                        }, 50);
+
+                        // 动画结束回首页
+                        setTimeout(function() {
+                            window.location.href = 'http://' + h + '/cgi-bin/luci/admin/network/netwiz';
+                        }, 1900);
+                    };
+
+                    // 🔴 强制应用函数 (右侧红色：强拆定时装置)
+                    var forceDefuse = function() {
+                        clearInterval(countdownTimer);
+                        callNetDefuse().then(function() {
+                            document.getElementById('nw-status-text').innerHTML = '<span style="color:#3b82f6;">' + T['MSG_REDIRECTING'] + '</span>';
+                            setTimeout(function() { window.location.href = 'http://' + a1 + '/cgi-bin/luci/'; }, 500);
+                        }).catch(function() {
+                            // 即使报错，底层可能已经连通，照常尝试跳转
+                            document.getElementById('nw-status-text').innerHTML = '<span style="color:#3b82f6;">' + T['MSG_REDIRECTING'] + '</span>';
+                            setTimeout(function() { window.location.href = 'http://' + a1 + '/cgi-bin/luci/'; }, 500);
+                        });
+                    };
+
+                    // 初始化等待 UI，并植入左绿右红决策按钮组
+                    var msgHtml = 
+                        '<div style="font-size: 16px; margin-bottom: 12px;">' + T['LBL_TARGET'] + ' <b style="color:#3b82f6; font-size: 18px;">' + a1 + '</b></div>' +
+                        '<div id="nw-status-text" style="color: #10b981; font-size: 16px; font-weight: bold; margin-bottom: 10px;">' + T['MSG_WRITING'] + '</div>' +
+                        '<div id="nw-timer-text" style="color: #64748b; font-size: 14px; font-weight: bold; margin-bottom: 20px;">' + T['MSG_PREP_ENV'] + '</div>' +
+                        '<div id="nw-decision-ui" class="nw-decision-group" style="display:none;">' +
+                            '<button id="nw-btn-revert" class="cbi-button nw-btn-safe" style="flex:1; color:white !important; border:none !important; padding:10px !important; border-radius:8px !important; font-weight:600; cursor:pointer;">' + T['BTN_CANCEL_MOD'] + '</button>' +
+                            '<button id="nw-btn-force" class="cbi-button nw-btn-danger" style="flex:1; color:white !important; border:none !important; padding:10px !important; border-radius:8px !important; font-weight:600; cursor:pointer;">' + T['BTN_FORCE_APP'] + '</button>' +
+                        '</div>';
                     
-                    // 初始化等待 UI
-                    var msgHtml = '<div style="font-size: 16px; margin-bottom: 12px;">' + T['LBL_TARGET'] + ' <b style="color:#3b82f6; font-size: 18px;">' + a1 + '</b></div>' +
-                                  '<div id="nw-status-text" style="color: #10b981; font-size: 16px; font-weight: bold; margin-bottom: 10px;">' + T['MSG_WRITING'] + '</div>' +
-                                  '<div id="nw-timer-text" style="color: #64748b; font-size: 14px; font-weight: bold;">' + T['MSG_PREP_ENV'] + '</div>';
                     document.getElementById('nw-global-msg').innerHTML = msgHtml;
+
+                    var decisionUI = document.getElementById('nw-decision-ui');
+                    document.getElementById('nw-btn-revert').onclick = forceRevert;
+                    document.getElementById('nw-btn-force').onclick = forceDefuse;
 
                     var countdownTimer = setInterval(function() {
                         sec += 2;
                         
+                        // 15秒安全期过后显示决策按钮
+                        if (sec >= showBtnTime && decisionUI && decisionUI.style.display === 'none') {
+                            decisionUI.style.display = 'flex';
+                        }
+
                         if (sec <= bombTime) {
                             // 动态倒计时
                             document.getElementById('nw-timer-text').innerHTML = T['MSG_TIMER'].replace('{sec}', sec).replace('{total}', bombTime);
@@ -579,14 +643,7 @@ return view.extend({
                                 // 单线程探测
                                 fetch('http://' + a1 + '/luci-static/resources/view/netwiz.js?v=' + Date.now(), { mode: 'no-cors', cache: 'no-store' })
                                 .then(function() {
-                                    clearInterval(countdownTimer);
-                                    document.getElementById('nw-status-text').innerHTML = '<span style="color:#3b82f6;">' + T['MSG_REDIRECTING'] + '</span>';
-                                    document.getElementById('nw-timer-text').innerHTML = T['MSG_SCOUT_OK'];
-                                    
-                                    // 延時 0.8 秒
-                                    setTimeout(function() {
-                                        window.location.href = 'http://' + a1 + '/cgi-bin/luci/';
-                                    }, 800);
+                                    forceDefuse(); // 探测通了直接走强拆流程跳转
                                 }).catch(function() {
                                     // 探測失敗（网络不通），解锁，允許下一个周期探测
                                     setTimeout(function() { isProbing = false; }, 500);
@@ -594,22 +651,8 @@ return view.extend({
                             }
                         } 
                         else {
-                            // 120秒超時，真正失联，前端转为回滚
-                            clearInterval(countdownTimer);
-                            var rollbackSec = 0;
-                            var checkOldIpTimer = setInterval(function() {
-                                rollbackSec += 2;
-                                var rollbackHtml = '<div style="color:#ef4444; font-weight:bold; font-size:15px; margin-bottom:10px;">' + T['M_SUCC_ROLLBACK'] + '</div>' +
-                                                   '<div style="font-size:16px; color:#666; font-weight:bold;">' + T['MSG_WAIT_OLD'].replace('{sec}', rollbackSec) + '</div>';
-                                document.getElementById('nw-global-title').innerHTML = T['M_RST_TIT'];
-                                document.getElementById('nw-global-msg').innerHTML = rollbackHtml;
-
-                                fetch('http://' + h + '/cgi-bin/luci/?v=' + Date.now(), { mode: 'no-cors', cache: 'no-store' })
-                                .then(function() {
-                                    clearInterval(checkOldIpTimer);
-                                    window.location.reload();
-                                }).catch(function() {});
-                            }, 2000);
+                            // 120秒超時，真正失联，自动执行丝滑撤销动画
+                            forceRevert();
                         }
                     }, 2000);
 
