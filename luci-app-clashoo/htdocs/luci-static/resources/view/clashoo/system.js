@@ -203,10 +203,10 @@ return view.extend({
       var link = document.createElement('link');
       link.id = 'cl-css-ext';
       link.rel = 'stylesheet';
-      link.href = L.resource('view/clashoo/clashoo.css') + '?v=20260422ai';
+      link.href = L.resource('view/clashoo/clashoo.css') + '?v=20260425b1';
       document.head.appendChild(link);
     } else {
-      document.getElementById('cl-css-ext').href = L.resource('view/clashoo/clashoo.css') + '?v=20260422ai';
+      document.getElementById('cl-css-ext').href = L.resource('view/clashoo/clashoo.css') + '?v=20260425b1';
     }
 
     var tabs = [
@@ -301,8 +301,8 @@ return view.extend({
       ]);
     };
     o.write = function () {};
-    o = s.option(form.ListValue, 'download_source', '镜像源');
-    o.value('github', 'GitHub'); o.value('ghproxy', 'GHProxy');
+    o = s.option(form.ListValue, 'core_mirror_prefix', '镜像源');
+    o.value('', 'GitHub 直连'); o.value('https://gh-proxy.com/', 'GHProxy');
     o = s.option(form.DummyValue, '_dl_btn', '');
     o.cfgvalue = function () {
       var dlStatus = E('span', { style: 'font-size:12px;opacity:.65' }, '');
@@ -337,8 +337,8 @@ return view.extend({
     o = s.option(form.Flag,  'auto_update_geoip',  '自动更新');
     o = s.option(form.Value, 'auto_update_geoip_time',  '更新小时（0-23）');
     o = s.option(form.Value, 'geoip_update_interval',   '更新间隔（天）');
-    o = s.option(form.ListValue, 'geodata_source', '数据源');
-    o.value('github', 'GitHub'); o.value('custom', '自定义');
+    o = s.option(form.ListValue, 'geoip_source', '数据源');
+    o.value('2', 'GitHub'); o.value('4', '自定义');
     o = s.option(form.DummyValue, '_geo_btn', '');
     o.cfgvalue = function () {
       return E('button', {
@@ -386,7 +386,7 @@ return view.extend({
 
     s = m.section(form.NamedSection, 'config', 'clashoo', '绕过规则');
     s.addremove = false;
-    o = s.option(form.Flag, 'cn_redirect',  '大陆 IP 绕过');
+    o = s.option(form.Flag, 'bypass_china',  '大陆 IP 绕过');
     o = s.option(form.ListValue, 'bypass_port_mode', '绕过端口');
     o.value('all', '所有端口');
     o.value('common', '常用端口');
@@ -406,28 +406,34 @@ return view.extend({
 
     s = m.section(form.NamedSection, 'config', 'clashoo', '局域网控制');
     s.addremove = false;
-    o = s.option(form.ListValue, 'access_control_mode', '访问控制');
-    o.value('all', '所有设备'); o.value('allow', '白名单'); o.value('deny', '黑名单');
-    o = s.option(form.DynamicList, 'access_control_list', 'IP / MAC');
-    o.placeholder = '192.168.1.100 / AA:BB:CC:DD:EE:FF';
-    o.description = '从已发现的局域网设备下拉选择，也可手动输入 IP 或 MAC 地址。';
-    /* Populate dropdown options from DHCP/ARP hints */
-    var hints = self._hostHints || {};
+    o = s.option(form.ListValue, 'access_control', '访问控制');
+    o.value('0', '所有设备'); o.value('1', '白名单'); o.value('2', '黑名单');
+
+    /* Populate host hints for both IP list fields */
+    var hints = this._hostHints || {};
+    var hostOptions = [];
     var seen = {};
     Object.keys(hints).forEach(function (mac) {
       var h = hints[mac] || {};
-      var name = h.name || '';
-      var v4 = h.ipv4 || '';
       var macU = mac.toUpperCase();
-      if (v4 && !seen[v4]) {
-        seen[v4] = true;
-        o.value(v4, v4 + (name ? ' · ' + name : '') + ' (' + macU + ')');
-      }
-      if (!seen[macU]) {
-        seen[macU] = true;
-        o.value(macU, macU + (name ? ' · ' + name : '') + (v4 ? ' (' + v4 + ')' : ''));
-      }
+      var addrs = h.ipaddrs || (h.ipv4 ? [h.ipv4] : []);
+      addrs.forEach(function (ip) {
+        if (ip && !seen[ip]) {
+          seen[ip] = true;
+          hostOptions.push([ip, ip + ' (' + macU + ')']);
+        }
+      });
     });
+
+    o = s.option(form.DynamicList, 'proxy_lan_ips', 'IP白名单');
+    o.placeholder = '192.168.1.100';
+    o.depends('access_control', '1');
+    hostOptions.forEach(function (kv) { o.value(kv[0], kv[1]); });
+
+    o = s.option(form.DynamicList, 'reject_lan_ips', 'IP黑名单');
+    o.placeholder = '192.168.1.100';
+    o.depends('access_control', '2');
+    hostOptions.forEach(function (kv) { o.value(kv[0], kv[1]); });
 
     s = m.section(form.NamedSection, 'config', 'clashoo', '自动化任务');
     s.addremove = false;
@@ -508,7 +514,6 @@ return view.extend({
         E('button', {
           'class': 'btn cbi-button-negative',
           click: function () {
-            if (!confirm('清空当前日志？')) return;
             currentType().clear().then(function () { logArea.textContent = ''; });
           }
         }, '清空日志')

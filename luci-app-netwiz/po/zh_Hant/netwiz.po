@@ -379,5 +379,14 @@ msgstr "正在等待網路服務重啟... 已耗時：{sec}秒"
 msgid "Waiting for old IP to recover... Elapsed: {sec}s"
 msgstr "正在等待舊 IP 恢復... 已耗時：{sec}秒"
 
-msgid "New IP connected! Automatically defusing the rollback bomb..."
-msgstr "新 IP 已連通！正在自動拆除安全還原定時裝置..."
+msgid "Preparing environment..."
+msgstr "正在準備環境..."
+
+msgid "Rollback countdown: <b style=\"color:#f59e0b;\">{sec}</b> / {total} s"
+msgstr "防失聯倒數計時：<b style=\"color:#f59e0b;\">{sec}</b> / {total} 秒"
+
+msgid "✅ Handshake successful"
+msgstr "✅ 偵察握手成功"
+
+msgid "Network connected! Automatically redirecting..."
+msgstr "網路已連通！正在為您自動跳轉..."

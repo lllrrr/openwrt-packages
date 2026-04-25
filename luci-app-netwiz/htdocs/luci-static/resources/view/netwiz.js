@@ -138,7 +138,10 @@ var T = {
     'MSG_KNOCKING': _('Knocking on the new IP door... Elapsed: {sec}s'),
     'MSG_WAIT_NET': _('Waiting for network service to restart... Elapsed: {sec}s'),
     'MSG_WAIT_OLD': _('Waiting for old IP to recover... Elapsed: {sec}s'),
-    'MSG_DEFUSING': _('New IP connected! Automatically defusing the rollback bomb...')
+    'MSG_PREP_ENV': _('Preparing environment...'),
+    'MSG_TIMER': _('Rollback countdown: <b style="color:#f59e0b;">{sec}</b> / {total} s'),
+    'MSG_SCOUT_OK': _('✅ Handshake successful'),
+    'MSG_REDIRECTING': _('Network connected! Automatically redirecting...')
 };
 
 // 声明后端的 RPC 接口调用
@@ -390,7 +393,19 @@ return view.extend({
                     var wProto = safeUciGet('network', 'wan', 'proto', '').toLowerCase();
                     var activeWan = ifaces.find(function(i) { return i && (i.interface === 'wan' || i.proto === wProto || i.device === 'eth0' || i.device === 'wan'); }) || {};
                     var liveWanIp = ((activeWan['ipv4-address'] && activeWan['ipv4-address'][0]) ? activeWan['ipv4-address'][0].address : '').split('/')[0];
-                    var liveGw = activeWan.nexthop || (activeWan['ipv4-address'] && activeWan['ipv4-address'][0] ? activeWan['ipv4-address'][0].ptpaddress : '') || T['TXT_GETTING'];
+
+                    // 网关抓取(兼容 Static, DHCP, PPPoE)
+                    var liveGw = activeWan.nexthop || '';
+                    // 如果根目录没有，去路由表里找目标为 0.0.0.0 的默认网关 (DHCP)
+                    if (!liveGw && Array.isArray(activeWan.route)) { 
+                        var defaultRoute = activeWan.route.find(function(r) { return r.target === '0.0.0.0'; }); 
+                        if (defaultRoute) liveGw = defaultRoute.nexthop; 
+                    }
+                    // 尝试找点对点地址 (PPPoE)
+                    if (!liveGw && activeWan['ipv4-address'] && activeWan['ipv4-address'][0]) {
+                        liveGw = activeWan['ipv4-address'][0].ptpaddress || '';
+                    }
+                    liveGw = liveGw || T['TXT_GETTING'];
                     var wIp = safeUciGet('network', 'wan', 'ipaddr', T['TXT_NOT_GOT']).split('/')[0], wGw = safeUciGet('network', 'wan', 'gateway', T['TXT_NOT_SET']); 
                     var lIp = safeUciGet('network', 'lan', 'ipaddr', window.location.hostname).split('/')[0], lGw = safeUciGet('network', 'lan', 'gateway', T['TXT_NOT_SET']), lIgnore = safeUciGet('dhcp', 'lan', 'ignore', ''), isBypass = (lIgnore === '1' || lIgnore === 'true' || lIgnore === 'on' || lIgnore === 'yes');
 
@@ -534,8 +549,7 @@ return view.extend({
             
             var start = Date.now(), done = false;
             
-            // 3. 异步跳转逻辑
-            // 3. 带倒计时 UI 与手动拆弹的安全逻辑
+            // 3. 极致全自动版：静默探活 -> 自动跳转 -> 触发后端雷达拆弹
             var succ = function() {
                 var h = window.location.hostname;
                 var sec = 0;
@@ -543,36 +557,52 @@ return view.extend({
                 if (selectedMode === 'lan' && a1 && a1 !== h) { 
                     var bombTime = 120; // 120秒防失联倒计时
                     
+                    // 初始化等待 UI (没有任何按钮，完全自动化)
+                    var msgHtml = '<div style="font-size: 16px; margin-bottom: 12px;">' + T['LBL_TARGET'] + ' <b style="color:#3b82f6; font-size: 18px;">' + a1 + '</b></div>' +
+                                  '<div id="nw-status-text" style="color: #10b981; font-size: 16px; font-weight: bold; margin-bottom: 10px;">' + T['MSG_WRITING'] + '</div>' +
+                                  '<div id="nw-timer-text" style="color: #64748b; font-size: 14px; font-weight: bold;">' + T['MSG_PREP_ENV'] + '</div>';
+                    document.getElementById('nw-global-msg').innerHTML = msgHtml;
+
                     var countdownTimer = setInterval(function() {
-                        sec++;
-                        var remaining = bombTime - sec;
+                        sec += 2;
                         
-                        // 阶段 1：倒计时等待用户主动确认
-                        if (remaining > 0) {
-                            var msgHtml = '<div style="font-size: 16px; margin-bottom: 12px;">' + T['LBL_TARGET'] + ' <b style="color:#3b82f6; font-size: 18px;">' + a1 + '</b></div>' +
-                                          '<div style="color: #10b981; font-size: 15px; font-weight: bold; margin-bottom: 15px;">网络配置已下发，防失联保护中...</div>' +
-                                          '<div style="background: #fef2f2; border: 1px solid #fca5a5; padding: 10px; border-radius: 8px; margin-bottom: 20px;">' +
-                                          '  <div style="color: #ef4444; font-size: 14px; font-weight: bold; margin-bottom: 5px;">若倒计时结束前未进入新后台，将自动回退！</div>' +
-                                          '  <div style="color: #ef4444; font-size: 20px; font-weight: bold;">' + remaining + ' <span style="font-size: 14px;">秒</span></div>' +
-                                          '</div>' +
-                                          '<div style="color: #64748b; font-size: 13px; margin-bottom: 15px;">(若电脑未自动获取新 IP，请尝试重新插拔网线或重连 Wi-Fi)</div>' +
-                                          // 只有用户主动点击这个按钮，跳转过去，后端雷达才会抓到流量并拆弹！
-                                          '<button onclick="window.location.href=\'http://' + a1 + '/cgi-bin/luci/\'" style="background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; width: 100%; box-shadow: 0 4px 6px rgba(59,130,246,0.3);">我已连上，前往新后台</button>';
+                        if (sec <= bombTime) {
+                            // 动态更新倒计时
+                            document.getElementById('nw-timer-text').innerHTML = T['MSG_TIMER'].replace('{sec}', sec).replace('{total}', bombTime);
                             
-                            document.getElementById('nw-global-msg').innerHTML = msgHtml;
+                            // 延时 8 秒后开始探测（等待路由器重启 network 服务）
+                            if (sec >= 8) {
+                                document.getElementById('nw-status-text').innerHTML = '<span style="color:#f59e0b;">' + T['MSG_KNOCKING'].replace('{sec}', sec) + '</span>';
+                                
+                                // 侦察兵出动：静默探测新 IP (这只会产生 1 个 TCP 连接，不会被雷达误认)
+                                fetch('http://' + a1 + '/luci-static/resources/view/netwiz.js?v=' + Date.now(), { mode: 'no-cors', cache: 'no-store' })
+                                .then(function() {
+                                    clearInterval(countdownTimer);
+                                    
+                                    // 探活成功！路通了，准备带用户大部队跳转
+                                    document.getElementById('nw-status-text').innerHTML = '<span style="color:#3b82f6;">' + T['MSG_REDIRECTING'] + '</span>';
+                                    document.getElementById('nw-timer-text').innerHTML = T['MSG_SCOUT_OK'];
+                                    
+                                    // 延时 1 秒自动跳转。落地后产生的浏览器真实流量，将触发后端的 conns >= 2 雷达完成拆弹！
+                                    setTimeout(function() {
+                                        window.location.href = 'http://' + a1 + '/cgi-bin/luci/';
+                                    }, 1000);
+                                }).catch(function() {
+                                    // 还没通，保持沉默，等待下一个探测周期
+                                });
+                            }
                         } 
-                        // 阶段 2：时间到！用户没点按钮，前端开始配合后端回退
                         else {
+                            // 真失联：120秒超时，前端转为回滚状态并监控旧 IP
                             clearInterval(countdownTimer);
                             var rollbackSec = 0;
                             var checkOldIpTimer = setInterval(function() {
                                 rollbackSec += 2;
-                                var rollbackHtml = '<div style="color:#ef4444; font-weight:bold; font-size:16px; margin-bottom:10px;">时间到！正在执行安全回退...</div>' + 
-                                                   '<div style="font-size:15px; color:#666; font-weight:bold;">' + T['MSG_WAIT_OLD'].replace('{sec}', rollbackSec) + '</div>';
+                                var rollbackHtml = '<div style="color:#ef4444; font-weight:bold; font-size:15px; margin-bottom:10px;">' + T['M_SUCC_ROLLBACK'] + '</div>' +
+                                                   '<div style="font-size:16px; color:#666; font-weight:bold;">' + T['MSG_WAIT_OLD'].replace('{sec}', rollbackSec) + '</div>';
                                 document.getElementById('nw-global-title').innerHTML = T['M_RST_TIT'];
                                 document.getElementById('nw-global-msg').innerHTML = rollbackHtml;
 
-                                // 不断探测旧 IP，只要后端回退完成了，旧 IP 就会复活，页面自动刷新
                                 fetch('http://' + h + '/cgi-bin/luci/?v=' + Date.now(), { mode: 'no-cors', cache: 'no-store' })
                                 .then(function() {
                                     clearInterval(checkOldIpTimer);
@@ -580,10 +610,10 @@ return view.extend({
                                 }).catch(function() {});
                             }, 2000);
                         }
-                    }, 1000);
+                    }, 2000);
 
                 } else { 
-                    // 没改 IP 的情况，原地等待重启完成
+                    // 非 LAN IP 修改的等待逻辑（原地刷新）
                     var checkSameTimer = setInterval(function() {
                         sec += 2;
                         var waitNetMsg = '<div style="font-size: 16px; margin-bottom: 10px;">' + T['LBL_TARGET'] + ' ' + actionDetail + '</div><div style="color: #059669; font-size: 16px; font-weight: bold;">' + T['MSG_WAIT_NET'].replace('{sec}', sec) + '</div>';
@@ -598,13 +628,25 @@ return view.extend({
                 }
             };
 
-            callNetSetup(mode, a1, a2, a3, a4).then(function() { done = true; succ(); }).catch(function(e){ 
-                if (Date.now() - start < 1500) { 
-                    done = true; 
-                    var failHtml = T['M_FAIL_MSG'] + '<br><small>' + T['M_FAIL_CODE'].replace('{code}', (e.message || 'Unknown')) + '</small>';
+            callNetSetup(mode, a1, a2, a3, a4).then(function() { 
+                done = true; succ(); 
+            }).catch(function(e) { 
+                done = true;
+                var errMsg = e.message || '';
+                
+                // 网络断开、中止等预期内的错误，视为成功并进入探测流程
+                if (errMsg.indexOf('aborted') !== -1 || errMsg.indexOf('NetworkError') !== -1 || errMsg.indexOf('Failed to fetch') !== -1) {
+                    console.log("捕获到预期的网络断开，继续执行跳转探测逻辑...");
+                    succ();
+                } 
+                // 其他真实的底层逻辑报错（且发生得极快），才弹窗提示
+                else if (Date.now() - start < 1500) { 
+                    var failHtml = T['M_FAIL_MSG'] + '<br><small>' + T['M_FAIL_CODE'].replace('{code}', errMsg) + '</small>';
                     openModal({ title: T['M_FAIL_TIT'], msg: failHtml, okText: T['M_CLOSE'], isDanger: true }); 
-                } else { 
-                    done = true; succ(); 
+                } 
+                // 超过 1.5 秒的超时报错，大概率也是网络已断开，进入探测流程
+                else { 
+                    succ(); 
                 } 
             });
             setTimeout(function() { if (!done) succ(); }, 8000);

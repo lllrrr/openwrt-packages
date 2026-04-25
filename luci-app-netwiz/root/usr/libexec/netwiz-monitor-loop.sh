@@ -73,9 +73,9 @@ while true; do
         # 彻底排除局域网设备访问外网产生的 NAT 干扰
         conns=$(netstat -nt 2>/dev/null | grep "ESTABLISHED" | awk '{print $4}' | grep -E "(${TARGET_IP}:80$|${TARGET_IP}:443$)" | wc -l)
 
-        # 阈值设为 1：因为前端已经不再发探针，现在能建立连接的只有真实网页！
-        if [ "$conns" -ge 1 ]; then
-            log "成功：雷达检测到真实浏览器访问新 IP ($TARGET_IP)，自动拆除炸弹"
+        # 阈值设为 2：前端 JS 每 2 秒用 fetch 向新 IP 发送一次探测，在底层只会建立 1 个 TCP 连接防止解除定时
+        if [ "$conns" -ge 2 ]; then
+            log "成功：雷达检测到真实浏览器访问新 IP ($TARGET_IP)，自动解除定时"
             rm -f /tmp/netwiz_rollback_time /tmp/netwiz_target_ip /etc/config/network.netwiz_bak /etc/config/dhcp.netwiz_bak
         else
             log "等待用户浏览器跳转中... (目标连接数: $conns)"
