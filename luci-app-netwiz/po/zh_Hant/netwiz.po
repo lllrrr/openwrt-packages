@@ -378,3 +378,6 @@ msgstr "正在等待網路服務重啟... 已耗時：{sec}秒"
 
 msgid "Waiting for old IP to recover... Elapsed: {sec}s"
 msgstr "正在等待舊 IP 恢復... 已耗時：{sec}秒"
+
+msgid "New IP connected! Automatically defusing the rollback bomb..."
+msgstr "新 IP 已連通！正在自動拆除安全還原定時裝置..."

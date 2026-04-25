@@ -73,8 +73,8 @@ while true; do
         # 统计当前的浏览器并发连接数
         CONN_COUNT=$(netstat -tn 2>/dev/null | grep -E "(^|[ \t:])${TARGET_IP}:(80|443)[ \t]+.*ESTABLISHED" | wc -l)
         
-        # 如果连接数大于等于 2，认为是真实浏览器访问，自动拆弹
-        if [ "$CONN_COUNT" -ge 2 ]; then
+        # 如果连接数大于等于 5，认为是真实浏览器访问，自动拆弹
+        if [ "$CONN_COUNT" -ge 5 ]; then
             log "成功：雷达检测到浏览器访问，自动拆除炸弹"
             # 清理所有临时标志和闪存中的备份
             rm -f /tmp/netwiz_rollback_time /tmp/netwiz_target_ip /etc/config/network.netwiz_bak /etc/config/dhcp.netwiz_bak
