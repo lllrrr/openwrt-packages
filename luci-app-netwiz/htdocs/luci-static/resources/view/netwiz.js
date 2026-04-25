@@ -534,50 +534,45 @@ return view.extend({
             
             var start = Date.now(), done = false;
             
-            // 3. 异步探测与秒表读秒逻辑
+            // 3. 异步跳转逻辑
+            // 3. 带倒计时 UI 与手动拆弹的安全逻辑
             var succ = function() {
-                var h = window.location.hostname, ts = new Date().getTime();
+                var h = window.location.hostname;
                 var sec = 0;
                 
                 if (selectedMode === 'lan' && a1 && a1 !== h) { 
-                    var bombTime = 120 * 1000; 
-                    var checkInterval = 2000;  
-
-                    var checkNewIpTimer = setInterval(function() {
-                        var elapsed = Date.now() - start;
-                        sec += 2;
+                    var bombTime = 120; // 120秒防失联倒计时
+                    
+                    var countdownTimer = setInterval(function() {
+                        sec++;
+                        var remaining = bombTime - sec;
                         
-                        var knockingMsg = '<div style="font-size: 16px; margin-bottom: 10px;">' + T['LBL_TARGET'] + ' <b style="color:#3b82f6;">' + a1 + '</b></div><div style="color: #10b981; font-size: 16px; font-weight: bold;">' + T['MSG_KNOCKING'].replace('{sec}', sec) + '</div>';
-                        document.getElementById('nw-global-msg').innerHTML = knockingMsg;
-
-                        if (elapsed < bombTime) {
-                            // 探活与自动取消定时装置逻辑
-                            fetch('http://' + a1 + '/luci-static/resources/view/netwiz.js?v=' + ts, { mode: 'no-cors', cache: 'no-store' })
-                            .then(function() {
-                                clearInterval(checkNewIpTimer);
-                                
-                                // 探活成功！显示正在取消定时装置的提示
-                                document.getElementById('nw-global-msg').innerHTML = '<div style="font-size: 16px; margin-bottom: 10px;">' + T['LBL_TARGET'] + ' <b style="color:#3b82f6;">' + a1 + '</b></div><div style="color: #f59e0b; font-size: 16px; font-weight: bold;">' + T['MSG_DEFUSING'] + '</div>';
-                                
-                                // 强制前端发送 confirm RPC 指令，让后端拆除 120 秒回退定时装置
-                                // 如果这行代码因为网络策略没发出去，后端的 netstat 并发雷达作为保底，会在跳转后触发
-                                callNetDefuse().then(function() {
-                                    // 取消定时装置指令发送成功，跳转到新地址
-                                    window.location.href = 'http://' + a1 + '/cgi-bin/luci/';
-                                }).catch(function() {
-                                    // 即使 RPC 失败，也强行跳转，后端的并发雷达保底
-                                    window.location.href = 'http://' + a1 + '/cgi-bin/luci/';
-                                });
-                            }).catch(function() {});
-                        } else {
-                            clearInterval(checkNewIpTimer);
+                        // 阶段 1：倒计时等待用户主动确认
+                        if (remaining > 0) {
+                            var msgHtml = '<div style="font-size: 16px; margin-bottom: 12px;">' + T['LBL_TARGET'] + ' <b style="color:#3b82f6; font-size: 18px;">' + a1 + '</b></div>' +
+                                          '<div style="color: #10b981; font-size: 15px; font-weight: bold; margin-bottom: 15px;">网络配置已下发，防失联保护中...</div>' +
+                                          '<div style="background: #fef2f2; border: 1px solid #fca5a5; padding: 10px; border-radius: 8px; margin-bottom: 20px;">' +
+                                          '  <div style="color: #ef4444; font-size: 14px; font-weight: bold; margin-bottom: 5px;">若倒计时结束前未进入新后台，将自动回退！</div>' +
+                                          '  <div style="color: #ef4444; font-size: 20px; font-weight: bold;">' + remaining + ' <span style="font-size: 14px;">秒</span></div>' +
+                                          '</div>' +
+                                          '<div style="color: #64748b; font-size: 13px; margin-bottom: 15px;">(若电脑未自动获取新 IP，请尝试重新插拔网线或重连 Wi-Fi)</div>' +
+                                          // 只有用户主动点击这个按钮，跳转过去，后端雷达才会抓到流量并拆弹！
+                                          '<button onclick="window.location.href=\'http://' + a1 + '/cgi-bin/luci/\'" style="background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; width: 100%; box-shadow: 0 4px 6px rgba(59,130,246,0.3);">我已连上，前往新后台</button>';
+                            
+                            document.getElementById('nw-global-msg').innerHTML = msgHtml;
+                        } 
+                        // 阶段 2：时间到！用户没点按钮，前端开始配合后端回退
+                        else {
+                            clearInterval(countdownTimer);
                             var rollbackSec = 0;
                             var checkOldIpTimer = setInterval(function() {
                                 rollbackSec += 2;
-                                var rollbackHtml = '<div style="color:#ef4444; font-weight:bold; font-size:15px; margin-bottom:10px;">' + T['M_SUCC_ROLLBACK'] + '</div><div style="font-size:16px; color:#666; font-weight:bold;">' + T['MSG_WAIT_OLD'].replace('{sec}', rollbackSec) + '</div>';
+                                var rollbackHtml = '<div style="color:#ef4444; font-weight:bold; font-size:16px; margin-bottom:10px;">时间到！正在执行安全回退...</div>' + 
+                                                   '<div style="font-size:15px; color:#666; font-weight:bold;">' + T['MSG_WAIT_OLD'].replace('{sec}', rollbackSec) + '</div>';
                                 document.getElementById('nw-global-title').innerHTML = T['M_RST_TIT'];
                                 document.getElementById('nw-global-msg').innerHTML = rollbackHtml;
 
+                                // 不断探测旧 IP，只要后端回退完成了，旧 IP 就会复活，页面自动刷新
                                 fetch('http://' + h + '/cgi-bin/luci/?v=' + Date.now(), { mode: 'no-cors', cache: 'no-store' })
                                 .then(function() {
                                     clearInterval(checkOldIpTimer);
@@ -585,9 +580,10 @@ return view.extend({
                                 }).catch(function() {});
                             }, 2000);
                         }
-                    }, checkInterval);
+                    }, 1000);
 
                 } else { 
+                    // 没改 IP 的情况，原地等待重启完成
                     var checkSameTimer = setInterval(function() {
                         sec += 2;
                         var waitNetMsg = '<div style="font-size: 16px; margin-bottom: 10px;">' + T['LBL_TARGET'] + ' ' + actionDetail + '</div><div style="color: #059669; font-size: 16px; font-weight: bold;">' + T['MSG_WAIT_NET'].replace('{sec}', sec) + '</div>';

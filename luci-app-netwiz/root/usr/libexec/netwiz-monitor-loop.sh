@@ -65,48 +65,43 @@ while true; do
         LAST_WAN_STATE="$CURRENT_WAN_STATE"
     fi
 
-    # --- 2. LAN 接口防失联雷达与炸弹 (方案 B：持久化版) ---
+    # --- 2. LAN 接口防失联雷达与炸弹 ---
     if [ -f /tmp/netwiz_rollback_time ] && [ -f /tmp/netwiz_target_ip ]; then
-        # 获取目标 IP
-        TARGET_IP=$(cat /tmp/netwiz_target_ip)
+        # 获取我们刚刚修改的最新目标 IP
+        TARGET_IP=$(cat /tmp/netwiz_target_ip 2>/dev/null)
         
-        # 统计当前的浏览器并发连接数
-        CONN_COUNT=$(netstat -tn 2>/dev/null | grep -E "(^|[ \t:])${TARGET_IP}:(80|443)[ \t]+.*ESTABLISHED" | wc -l)
-        
-        # 如果连接数大于等于 5，认为是真实浏览器访问，自动拆弹
-        if [ "$CONN_COUNT" -ge 5 ]; then
-            log "成功：雷达检测到浏览器访问，自动拆除炸弹"
-            # 清理所有临时标志和闪存中的备份
+        # 彻底排除局域网设备访问外网产生的 NAT 干扰
+        conns=$(netstat -nt 2>/dev/null | grep "ESTABLISHED" | awk '{print $4}' | grep -E "(${TARGET_IP}:80$|${TARGET_IP}:443$)" | wc -l)
+
+        # 阈值设为 1：因为前端已经不再发探针，现在能建立连接的只有真实网页！
+        if [ "$conns" -ge 1 ]; then
+            log "成功：雷达检测到真实浏览器访问新 IP ($TARGET_IP)，自动拆除炸弹"
             rm -f /tmp/netwiz_rollback_time /tmp/netwiz_target_ip /etc/config/network.netwiz_bak /etc/config/dhcp.netwiz_bak
         else
-            # 如果只有 1 个连接，记录一下但不拆弹
-            if [ "$CONN_COUNT" -eq 1 ]; then
-                log "忽略单个后台探测连接，等待真实浏览器访问"
-            fi
+            log "等待用户浏览器跳转中... (目标连接数: $conns)"
             
-            # 检查时间是否到期
-            TARGET_TIME=$(cat /tmp/netwiz_rollback_time)
+            # 🌟 绝对安全的读取时间方式：剔除任何可能的空行或隐藏符号
+            TARGET_TIME=$(cat /tmp/netwiz_rollback_time 2>/dev/null | tr -cd '0-9')
             CURRENT_TIME=$(date +%s)
             
-            if [ "$CURRENT_TIME" -ge "$TARGET_TIME" ]; then
-                log "时间到！未检测到有效连接，开始执行回退"
+            # 只有读到了纯数字时间，且当前时间大于目标时间，才执行回退
+            if [ -n "$TARGET_TIME" ] && [ "$CURRENT_TIME" -ge "$TARGET_TIME" ]; then
+                log "时间到！未检测到任何浏览器访问，确认为失联，开始执行断电级别回退"
                 rm -f /tmp/netwiz_rollback_time /tmp/netwiz_target_ip
                 
-                # 从闪存 (/etc/config/) 中恢复之前的备份
                 if [ -f /etc/config/network.netwiz_bak ]; then
                     log "正在从闪存恢复原始配置"
                     cp /etc/config/network.netwiz_bak /etc/config/network
                     cp /etc/config/dhcp.netwiz_bak /etc/config/dhcp
                     rm -f /etc/config/network.netwiz_bak /etc/config/dhcp.netwiz_bak
                     
-                    # 在后台重启所有网络相关服务
                     (
                         exec >/dev/null 2>&1 </dev/null
                         /etc/init.d/network restart
                         /etc/init.d/dnsmasq restart
                         /etc/init.d/uhttpd restart
                         sleep 3
-                        echo "$(date '+%F %T') [Monitor] 回退操作已全部完成" >> /tmp/netwiz.log
+                        echo "$(date '+%F %T') [Monitor] 回退操作已全部完成" >> /etc/netwiz.log
                     ) &
                 fi
             fi
