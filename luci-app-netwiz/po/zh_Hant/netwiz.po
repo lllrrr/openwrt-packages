@@ -391,14 +391,17 @@ msgstr "✅ 偵察握手成功"
 msgid "Network connected! Automatically redirecting..."
 msgstr "網路已連通！正在為您自動跳轉..."
 
-msgid "Cancel Changes"
-msgstr "撤銷修改"
+msgid "Direct Force Apply"
+msgstr "強制生效 (不防失聯)"
 
-msgid "Force Apply"
-msgstr "強制應用"
+msgid "If enabled, NO rollback bomb will be planted. Changes apply permanently."
+msgstr "開啟後跳過 120 秒防失聯機制，配置立刻生效。"
 
-msgid "Reverting configuration..."
-msgstr "正在撤銷本次修改，恢復安全配置..."
+msgid "Safe mode bypassed. Applying permanently..."
+msgstr "已跳過防失聯機制，配置生效中..."
 
-msgid "Please wait for the router to restore..."
-msgstr "即將返回原地址，請等待路由器恢復網絡..."
+msgid "If IP changed, please update PC IP. Auto-redirecting when connected..."
+msgstr "若 IP 修改引發失聯，將設備 IP 改為同網段即可正常存取路由器，網路連通後將自動跳轉…"
+
+msgid "Waiting for router to abort changes and restore network..."
+msgstr "正在等待路由器放棄修改並恢復網絡..."
