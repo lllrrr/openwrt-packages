@@ -18,6 +18,13 @@ var CSS = [
   '.cl-sub-list th:nth-child(2),.cl-sub-list td:nth-child(2){width:72px}',
   '.cl-sub-list th:nth-child(3),.cl-sub-list td:nth-child(3){width:220px;text-align:right;white-space:nowrap}',
   '.cl-sub-url{border:1px solid rgba(128,128,128,.3);border-radius:6px;padding:8px 10px;width:100%;box-sizing:border-box;font-size:13px;margin-bottom:8px}',
+  '.cl-sub-traffic{margin-top:4px;font-size:11px;color:var(--cl-muted,#888)}',
+  '.cl-sub-traffic-bar{height:4px;border-radius:2px;background:rgba(128,128,128,.18);margin-top:3px;overflow:hidden}',
+  '.cl-sub-traffic-fill{height:100%;border-radius:2px;background:var(--primary-color,#0b68dd);transition:width .3s}',
+  '.cl-sub-traffic-fill.cl-traffic-warn{background:#f59e0b}',
+  '.cl-sub-traffic-fill.cl-traffic-danger{background:#ef4444}',
+  '.cl-sub-expire{font-size:11px;color:var(--cl-muted,#888);margin-top:2px}',
+  '.cl-sub-expire.cl-expire-soon{color:#f59e0b}',
   '.cl-btn-sm{padding:4px 10px;font-size:12px;border-radius:4px;cursor:pointer}',
   '.cl-section{margin-bottom:24px}',
   '.cl-section h4{font-size:1.15rem;font-weight:600;margin-bottom:10px;color:var(--title-color,var(--cl-muted));opacity:.95}',
@@ -82,6 +89,9 @@ var callApplyRewrite  = rpc.declare({ object: 'luci.clashoo', method: 'apply_rew
 var callFetchUrl      = rpc.declare({ object: 'luci.clashoo', method: 'fetch_rewrite_url',      params: ['url','name'], expect: {} });
 var callApplyTplUrl   = rpc.declare({ object: 'luci.clashoo', method: 'apply_template_with_url', params: ['template_source','sub_url','output_name','set_active'], expect: {} });
 var callMigrateSbProfile = rpc.declare({ object: 'luci.clashoo', method: 'migrate_singbox_profile', params: ['name'], expect: {} });
+var callSmartModelStatus = rpc.declare({ object: 'luci.clashoo', method: 'smart_model_status',  expect: {} });
+var callSmartUpgradeLgbm = rpc.declare({ object: 'luci.clashoo', method: 'smart_upgrade_lgbm',  expect: {} });
+var callSmartFlushCache  = rpc.declare({ object: 'luci.clashoo', method: 'smart_flush_cache',   expect: {} });
 
 function fastResolve(promise, timeoutMs, fallback) {
   var t = new Promise(function (resolve) {
@@ -179,7 +189,8 @@ return view.extend({
       fastResolve(callListDir('3'), 1200, { files: [] }),
       fastResolve(callListTemplates(), 1200, { files: [] }),
       fastResolve(loadUiState(), 1200, { core_type: 'mihomo', subscribe_url: '', config_name: '' }),
-      fastResolve(clashoo.listSingboxProfiles(), 1200, { profiles: [], active: '' })
+      fastResolve(clashoo.listSingboxProfiles(), 1200, { profiles: [], active: '' }),
+      fastResolve(callSmartModelStatus(), 1500, { has_model: false, version: '' })
     ]);
   },
 
@@ -191,7 +202,8 @@ return view.extend({
     var customFiles= (data[3] && data[3].files) || [];
     var tplFiles   = (data[4] && data[4].files) || [];
     var uiData     = data[5] || { core_type: 'mihomo', subscribe_url: '', config_name: '' };
-    var sbData     = data[6] || { profiles: [], active: '' };
+    var sbData          = data[6] || { profiles: [], active: '' };
+    var smartModelData  = data[7] || { has_model: false, version: '' };
     var coreType   = uiData.core_type || 'mihomo';
 
     if (!document.getElementById('cl-css')) {
@@ -247,7 +259,7 @@ return view.extend({
 
     var proxyPanel = E('div', { 'class': 'cl-panel' + (this._tab === 'proxy' ? ' active' : ''), id: 'cl-panel-proxy' });
     panelEls['proxy'] = proxyPanel;
-    this._buildProxyForm(proxyPanel);
+    this._buildProxyForm(proxyPanel, smartModelData);
 
     var dnsPanel = E('div', { 'class': 'cl-panel' + (this._tab === 'dns' ? ' active' : ''), id: 'cl-panel-dns' });
     panelEls['dns'] = dnsPanel;
@@ -297,15 +309,50 @@ return view.extend({
       }
     }, '下载订阅');
 
+    var fmtBytes = function (b) {
+      b = parseInt(b) || 0;
+      if (b >= 1e12) return (b / 1e12).toFixed(2) + ' TB';
+      if (b >= 1e9)  return (b / 1e9).toFixed(2)  + ' GB';
+      if (b >= 1e6)  return (b / 1e6).toFixed(1)  + ' MB';
+      return Math.round(b / 1e3) + ' KB';
+    };
+    var pad2 = function (n) { return n < 10 ? '0' + n : '' + n; };
+    var fmtExpire = function (ts) {
+      if (!ts || ts === 0) return '';
+      var d = new Date(ts * 1000);
+      return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+    };
+
     var subCards = subs.map(function (sub) {
       var nameNodes = [];
       if (sub.active) nameNodes.push(E('span', { 'class': 'cl-active-badge' }, '使用中'));
       nameNodes.push(E('span', { 'class': 'cl-file-name-text' }, safeText(sub.name)));
 
+      // 流量信息
+      var trafficEl = null, expireEl = null;
+      var total = parseInt(sub.sub_total) || 0;
+      if (total > 0) {
+        var used = (parseInt(sub.sub_upload) || 0) + (parseInt(sub.sub_download) || 0);
+        var pct  = Math.min(100, Math.round(used / total * 100));
+        var fillCls = 'cl-sub-traffic-fill' + (pct >= 90 ? ' cl-traffic-danger' : pct >= 75 ? ' cl-traffic-warn' : '');
+        var fillEl = E('div', { 'class': fillCls, 'style': 'width:' + pct + '%' });
+        trafficEl = E('div', { 'class': 'cl-sub-traffic' }, [
+          fmtBytes(used) + ' / ' + fmtBytes(total) + ' (' + pct + '%)',
+          E('div', { 'class': 'cl-sub-traffic-bar' }, [fillEl])
+        ]);
+      }
+      if (sub.sub_expire) {
+        var expStr = fmtExpire(sub.sub_expire);
+        var daysLeft = Math.ceil((sub.sub_expire * 1000 - Date.now()) / 86400000);
+        var expCls = 'cl-sub-expire' + (daysLeft <= 7 ? ' cl-expire-soon' : '');
+        expireEl = E('div', { 'class': expCls }, '到期：' + expStr + (daysLeft > 0 ? '（' + daysLeft + ' 天）' : '（已过期）'));
+      }
+
       return E('div', { 'class': 'cl-file-item' + (sub.active ? ' is-active' : '') }, [
         E('div', { 'class': 'cl-file-meta' }, [
           E('div', { 'class': 'cl-file-name' }, nameNodes),
-          E('div', { 'class': 'cl-file-size' }, safeText(sub.size))
+          E('div', { 'class': 'cl-file-size' }, safeText(sub.size)),
+          trafficEl, expireEl
         ]),
         E('div', { 'class': 'cl-file-actions' }, [
           E('button', {
@@ -536,9 +583,10 @@ return view.extend({
     return sections.filter(function (n) { return n !== null && n !== undefined; });
   },
 
-  _buildProxyForm: function (container) {
+  _buildProxyForm: function (container, modelStatus) {
     var m = new form.Map('clashoo', '', '');
     var s, o;
+    modelStatus = modelStatus || {};
 
     s = m.section(form.NamedSection, 'config', 'clashoo', '透明代理');
     s.addremove = false;
@@ -564,17 +612,47 @@ return view.extend({
     o = s.option(form.Value, 'redir_port',  'Redirect 端口');
     o = s.option(form.Value, 'tproxy_port', 'TPROXY 端口');
 
-    s = m.section(form.NamedSection, 'config', 'clashoo', '智能策略设置');
+    s = m.section(form.NamedSection, 'config', 'clashoo', 'Smart 策略设置');
     s.addremove = false;
-    o = s.option(form.Flag,  'smart_auto_switch',     '智能策略自动切换');
-    o = s.option(form.Value, 'smart_policy_priority', '节点权重加成');
+
+    o = s.option(form.Flag,  'smart_auto_switch', 'Smart 策略自动切换');
+    o.description = '自动切换 Url-test、Load-balance 策略组到 Smart 策略组';
+
+    o = s.option(form.Value, 'smart_policy_priority', 'Policy Priority（权重加成）');
     o.placeholder = 'Premium:0.9;SG:1.3';
     o.rmempty = true;
-    o.description = '数值 <1 调低这个策略的优先级，>1 调高，默认为 1；格式：策略名:权重 多条用分号分隔，支持正则，例如 Premium:0.9;SG:1.3';
-    o = s.option(form.Flag,  'smart_prefer_asn',      'ASN 优先');
-    o = s.option(form.Flag,  'smart_uselightgbm',     '启用 LightGBM 模型');
-    o = s.option(form.Flag,  'smart_collectdata',     '收集训练数据');
-    o = s.option(form.Flag,  'smart_lgbm_auto_update','自动更新模型');
+    o.description = '节点权重加成，<1 表示较低优先级，>1 表示较高优先级，默认为 1，匹配模式支持 Regex 和字符串';
+
+    o = s.option(form.Flag,  'smart_prefer_asn', 'ASN 优先');
+    o.description = '选择节点时强制查找并优先使用目标的 ASN 信息，以获得更稳定的体验';
+
+    o = s.option(form.Flag,  'smart_uselightgbm', '启用 LightGBM 模型');
+    o.description = '使用 LightGBM 模型来预测权重';
+
+    o = s.option(form.Flag,  'smart_collectdata', '收集训练数据');
+    o.description = '收集节点延迟数据供 LightGBM 模型训练';
+
+    o = s.option(form.Value, 'smart_collect_size', '训练数据量');
+    o.datatype = 'uinteger';
+    o.placeholder = '100';
+    o.description = 'smart-collector-size，最多保留的训练样本数，默认 100';
+
+    o = s.option(form.Value, 'smart_collect_rate', '采样率');
+    o.datatype = 'uinteger';
+    o.placeholder = '1';
+    o.description = 'sample-rate，1 = 每次测速都采样，调大可降低采集频率';
+
+    o = s.option(form.Flag,  'smart_lgbm_auto_update', '自动更新模型');
+
+    o = s.option(form.Value, 'smart_lgbm_update_interval', '更新间隔（小时）');
+    o.datatype = 'uinteger';
+    o.placeholder = '72';
+    o.description = '自动拉取新模型的周期，同时决定 cron 触发频率，默认 72 小时';
+
+    o = s.option(form.Value, 'smart_lgbm_url', '模型下载 URL');
+    o.placeholder = 'https://github.com/vernesong/mihomo/releases/download/LightGBM-Model/Model.bin';
+    o.rmempty = true;
+    o.description = 'LightGBM 模型文件下载地址，留空使用默认官方地址';
 
     var sa = m.section(form.TypedSection, 'authentication', '代理认证');
     sa.anonymous = true; sa.addremove = true;
@@ -584,6 +662,44 @@ return view.extend({
     m.render().then(function (node) {
       decorateControlWraps(node);
       container.appendChild(node);
+
+      // Smart section action buttons
+      var sections = node.querySelectorAll('.cbi-section');
+      var smartSec;
+      for (var i = 0; i < sections.length; i++) {
+        var h3 = sections[i].querySelector('h3');
+        if (h3 && h3.textContent.indexOf('Smart') >= 0) { smartSec = sections[i]; break; }
+      }
+      if (smartSec) {
+        var verText = modelStatus.has_model ? ('当前版本: ' + modelStatus.version) : '模型未安装';
+        var upgBtn = E('button', { 'class': 'btn cbi-button-action', 'click': function () {
+          upgBtn.disabled = true; upgBtn.textContent = '更新中...';
+          callSmartUpgradeLgbm().then(function () {
+            upgBtn.disabled = false; upgBtn.textContent = '检查并更新';
+            ui.addNotification(null, E('p', '模型更新任务已启动'));
+          }).catch(function () { upgBtn.disabled = false; upgBtn.textContent = '检查并更新'; });
+        }}, '检查并更新');
+        smartSec.appendChild(E('div', { 'class': 'cbi-value' }, [
+          E('label', { 'class': 'cbi-value-title' }, '更新模型'),
+          E('div', { 'class': 'cbi-value-field' }, [
+            E('div', { 'style': 'display:flex;align-items:center;gap:10px' }, [
+              upgBtn, E('span', { 'class': 'cl-hint' }, verText)
+            ])
+          ])
+        ]));
+        var flushBtn = E('button', { 'class': 'btn cbi-button', 'click': function () {
+          flushBtn.disabled = true;
+          callSmartFlushCache().then(function (res) {
+            flushBtn.disabled = false;
+            ui.addNotification(null, E('p', (res && res.success) ? 'Smart 缓存已清理' : '清理失败（mihomo 可能未运行）'));
+          }).catch(function () { flushBtn.disabled = false; });
+        }}, '清理');
+        smartSec.appendChild(E('div', { 'class': 'cbi-value' }, [
+          E('label', { 'class': 'cbi-value-title' }, '清理 Smart 缓存'),
+          E('div', { 'class': 'cbi-value-field' }, [flushBtn])
+        ]));
+      }
+
       container.appendChild(E('div', { 'class': 'cl-save-bar' }, [
         E('button', { 'class': 'btn cbi-button', click: function () {
           m.save().then(function () { return clashoo.commitConfig(); })
