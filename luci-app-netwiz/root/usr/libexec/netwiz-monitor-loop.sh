@@ -1,11 +1,23 @@
 #!/bin/sh
-# 定义日志和锁定文件路径
-LOG_FILE="/tmp/netwiz.log"
+# Copyright (C) 2026 huchd0 <https://github.com/huchd0/luci-app-netwiz>
+# Licensed under the GNU General Public License v3.0
+# 日志路存放在 /etc/ 下
+LOG_FILE="/etc/netwiz.log"
 LOCK_FILE="/var/run/netwiz_autodetect.lock"
 
-# 写日志的函数
+# 定义最大保留500行
+MAX_LINES=500
+
 log() {
+    # 写入新日志
     echo "$(date '+%F %T') [Monitor] $1" >> "$LOG_FILE"
+    
+    # 自动删除
+    # 日志超过 600 行时，自动删除，只保留最新的 500 行
+    if [ $(wc -l < "$LOG_FILE" 2>/dev/null || echo 0) -gt 600 ]; then
+        tail -n $MAX_LINES "$LOG_FILE" > "$LOG_FILE.tmp"
+        mv "$LOG_FILE.tmp" "$LOG_FILE"
+    fi
 }
 
 # 获取当前的 WAN 网卡名称

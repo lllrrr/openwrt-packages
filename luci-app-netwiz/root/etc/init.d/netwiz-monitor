@@ -1,11 +1,29 @@
 #!/bin/sh /etc/rc.common
+# Copyright (C) 2026 huchd0 <https://github.com/huchd0/luci-app-netwiz>
+# Licensed under the GNU General Public License v3.0
 
 START=99
 USE_PROCD=1
+LOG_FILE="/etc/netwiz.log"
+
+log() {
+    echo "$(date '+%F %T') [Service] $1" >> "$LOG_FILE"
+    # 超过 600 行自动清理，保留最新 500 行
+    if [ $(wc -l < "$LOG_FILE" 2>/dev/null || echo 0) -gt 600 ]; then
+        tail -n 500 "$LOG_FILE" > "$LOG_FILE.tmp"
+        mv "$LOG_FILE.tmp" "$LOG_FILE"
+    fi
+}
 
 start_service() {
+    log "Netwiz 后台守护进程已启动"
+    
     procd_open_instance
     procd_set_param command /usr/libexec/netwiz-monitor-loop.sh
     procd_set_param respawn
     procd_close_instance
+}
+
+stop_service() {
+    log "Netwiz 后台守护进程已停止"
 }

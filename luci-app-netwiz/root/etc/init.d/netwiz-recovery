@@ -1,19 +1,32 @@
 #!/bin/sh /etc/rc.common
 # Copyright (C) 2026 huchd0 <https://github.com/huchd0/luci-app-netwiz>
 # Licensed under the GNU General Public License v3.0
-
+# START=15 确保在 network 服务前或同步执行
 START=15
+LOG_FILE="/etc/netwiz.log"
 
 boot() {
+    # 发现残留备份说明测试中途异常断电
     if [ -f /etc/config/network.netwiz_bak ]; then
+        # 写入系统日志
         logger -t Netwiz "Power loss detected during test! Forcefully recovering network..."
+        
+        # 写入专属日志
+        echo "$(date '+%F %T') [Recovery] 检测到异常断电，正从闪存强制回退网络设置..." >> "$LOG_FILE"
         
         cp /etc/config/network.netwiz_bak /etc/config/network
         cp /etc/config/dhcp.netwiz_bak /etc/config/dhcp
         
-
+        # 清理所有残留标志
         rm -f /etc/config/network.netwiz_bak /etc/config/dhcp.netwiz_bak
         rm -f /tmp/netwiz_rollback_time /tmp/netwiz_target_ip
         
+        echo "$(date '+%F %T') [Recovery] 异常断电回退完成！" >> "$LOG_FILE"
+        
+        # 检查并清理过大日志
+        if [ $(wc -l < "$LOG_FILE" 2>/dev/null || echo 0) -gt 600 ]; then
+            tail -n 500 "$LOG_FILE" > "$LOG_FILE.tmp"
+            mv "$LOG_FILE.tmp" "$LOG_FILE"
+        fi
     fi
 }

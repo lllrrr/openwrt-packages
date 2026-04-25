@@ -8,13 +8,24 @@
 
 It is designed to be highly user-friendly for novices setting up secondary routers (DHCP/Static IP) or bypass routers.
 
-### Key Features
-* **Pure CSR Architecture:** Built with modern Client-Side Rendering.
-* **Safe Configuration:** Prevents routing loops and network conflicts (e.g., stops users from putting WAN and LAN in the same subnet).
-* **Bypass Router Mode (旁路由):** Auto-configures DHCP and gateway settings safely.
-* **Smooth UX:** Replaces traditional dirty hacks with standard `ubus call luci reload` to solve SPA cache issues without interrupting the user session.
-* **Multi-language:** Built-in i18n support (English, zh-Hans, zh-Hant).
-* **Strict ACL:** Frontend has zero direct write access to UCI. All modifications are safely encapsulated within the backend `rpcd` script.
+### 🌟 Key Features
+
+**🛡️ Enterprise-Grade Fail-Safes**
+* **Persistent Power-Loss Recovery:** Backups are written to non-volatile flash (`/etc/config`). An early-boot `init.d` script guarantees an automatic network restoration even if the router loses power mid-test.
+* **Smart Concurrency Radar (LAN Auto-Defuse):** The 120-second rollback bomb uses `netstat` to count concurrent connections, accurately distinguishing true browser access (Conns ≥ 2) from background IoT probes to prevent false-positive defusals.
+* **Smart WAN Auto-Detect (Anti-Jitter):** Features a time-based debounce algorithm that requires 3 continuous down-cycles to confirm a physical cable unplug, safely ignoring temporary software interface bounces.
+* **Flash-Friendly Safe Logging:** Includes a persistent, auto-trimming logging system (`/etc/netwiz.log`) that survives reboots but strictly caps file size to protect the router's flash memory lifespan.
+
+**⚙️ Core Architecture & Security**
+* **Zero-Zombie `procd` Daemon:** Replaces unreliable `hotplug` tricks with a single, ultra-lightweight native OpenWrt daemon (`netwiz-monitor`) that reads `ubus` states with near 0% CPU footprint.
+* **Strict ACL:** The frontend has zero direct write access to UCI. All modifications are safely encapsulated and validated within the backend `rpcd` script.
+* **Safe Configuration:** Strictly prevents routing loops and network conflicts (e.g., actively stops users from putting WAN and LAN in the same subnet).
+
+**🚀 Smooth UX & Frontend**
+* **Pure CSR Architecture:** Built with modern Client-Side Rendering for a blazing-fast, app-like experience.
+* **Asynchronous UI & Hot-Reload:** Eliminates traditional blind wait times. The UI asynchronously "knocks" on the new IP with a real-time stopwatch. The backend applies changes via `reload` instead of a full `restart` to prevent Wi-Fi dropouts.
+* **Bypass Router Mode:** One-click deployment that auto-configures complex DHCP, DNS, and gateway settings flawlessly.
+* **Multi-language:** Native built-in i18n support, automatically adapting to English, zh-Hans, and zh-Hant.
 
 ### Breadcrumb Trail
 * 👉 **System -> Network Wizard**。
@@ -54,32 +65,34 @@ chmod +x luci-app-netwiz/root/etc/init.d/netwiz-recovery
 
 ```bash
 luci-app-netwiz/
-├── Makefile                          # standard Makefile (package definition, dependencies)
+├── Makefile                                 # OpenWrt standard Makefile (package definition, dependencies)
+├── LICENSE                                  # Open-source license (declares code usage rights)
+├── Makefile                                 # OpenWrt/ImmortalWrt standard Makefile (package definition, dependencies)
 ├── htdocs/
 │   └── luci-static/
 │       └── resources/
 │           └── view/
-│               └── netwiz.js         # Frontend UI (Async radar, dynamic stopwatch, JS logic)
+│               └── netwiz.js                # Frontend UI (Async radar, dynamic stopwatch, JS logic)
 ├── po/
 │   ├── zh_Hans/
-│   │   └── netwiz.po                 # Simplified Chinese translation dictionary
+│   │   └── netwiz.po                        # Simplified Chinese translation dictionary
 │   └── zh_Hant/
-│       └── netwiz.po                 # Traditional Chinese translation dictionary
+│       └── netwiz.po                        # Traditional Chinese translation dictionary
 └── root/
     ├── etc/
     │   ├── init.d/
-    │   │   ├── netwiz-monitor        # Background daemon service for the monitor loop
-    │   │   └── netwiz-recovery       # Power-loss auto-recovery service (START=15)
+    │   │   ├── netwiz-monitor               # Background daemon service for the monitor loop
+    │   │   └── netwiz-recovery              # Power-loss auto-recovery service (START=15)
     │   └── share/
     │       └── rpcd/
     │           └── acl.d/
     │               └── luci-app-netwiz.json # RPC Access Control List (CRITICAL for frontend permissions)
     └── usr/
         ├── libexec/
-        │   ├── netwiz-autodetect.sh  # WAN protocol auto-detection engine (DHCP/PPPoE)
-        │   ├── netwiz-monitor-loop.sh# Core monitor daemon (Debounce, connection radar, rollback)
+        │   ├── netwiz-autodetect.sh         # WAN protocol auto-detection engine (DHCP/PPPoE)
+        │   ├── netwiz-monitor-loop.sh       # Core monitor daemon (Debounce, connection radar, rollback)
         │   └── rpcd/
-        │       └── netwiz            # Backend RPC interface (receives UI commands, writes configs)
+        │       └── netwiz                   # Backend RPC interface (receives UI commands, writes configs)
         └── share/
             └── luci/
                 └── menu.d/
@@ -87,15 +100,36 @@ luci-app-netwiz/
 ```
 ---
 
-<img width="680" alt="Image" src="https://github.com/user-attachments/assets/40905f7e-fa8b-4bc6-8bc8-846f81b3673c" />
-<img width="680" alt="Image" src="https://github.com/user-attachments/assets/7d056b14-9a88-4d0e-a0ea-2fae7a5f8233" />
-<img width="680" alt="Image" src="https://github.com/user-attachments/assets/2254dffb-bd82-40e0-9d58-0c9f90d60512" />
-<img width="680" alt="Image" src="https://github.com/user-attachments/assets/f2bd9091-2a1d-4b37-9104-3071dbf9d71a" />
-<img width="680" alt="Image" src="https://github.com/user-attachments/assets/01bbdd3a-ab4c-493f-adbd-09a5087f2de4" />
-<img width="680" alt="Image" src="https://github.com/user-attachments/assets/e02aefe9-51f8-4c15-8a93-932b48e4594d" />
-<img width="680" alt="Image" src="https://github.com/user-attachments/assets/52e42b52-11e3-4c61-87e6-17a689451be7" />
-<img width="680" alt="Image" src="https://github.com/user-attachments/assets/d55ff995-4e19-4fca-9059-60779777c4d9" />
-<img width="680" alt="Image" src="https://github.com/user-attachments/assets/a1593cdb-1384-4b78-af35-107fa7ed4f60" />
-<img width="680" alt="Image" src="https://github.com/user-attachments/assets/6b3b6aeb-8ed0-4612-a187-c7d8a40b0d67" />
+### 📊 Monitoring & Logging
+
+The plugin features a flash-friendly, persistent logging system (`/etc/netwiz.log`) equipped with a strict 600-line auto-trimming safety valve. This ensures complete observability across reboots without risking router flash memory degradation.
+
+You can monitor the system state and trace execution events via SSH:
+
+**1. Watch the Netwiz Exclusive Safe-Log:**
+
+```bash
+# Real-time monitoring (tracks Monitor, Engine, RPC, and Recovery events)
+tail -f /etc/netwiz.log
+```
+```bash
+# View the full log history
+cat /etc/netwiz.log
+```
+
+**2. Check System-Level Alerts:**
+Filter OpenWrt global system logs for Netwiz emergency alerts (e.g., Power-loss recovery triggers)
+
+```bash
+logread | grep Netwiz
+```
+
+<img width="680" alt="Image" src="https://github.com/user-attachments/assets/cce37944-d90a-4653-923c-d957812d8f37" />
+<img width="680" alt="Image" src="https://github.com/user-attachments/assets/f0bd7bf8-16b7-4955-9a83-55673a7bf66e" />
+<img width="680" alt="Image" src="https://github.com/user-attachments/assets/ea664013-9f76-49e3-b10f-8307dbb6fc24" />
+<img width="680" alt="Image" src="https://github.com/user-attachments/assets/5c0370fc-efd9-4e51-be3c-ed35233786d6" />
+<img width="680" alt="Image" src="https://github.com/user-attachments/assets/bd4afb47-0dec-4606-91a3-da47e99ca6e0" />
+<img width="680" alt="Image" src="https://github.com/user-attachments/assets/51c10c7b-85df-4f69-b456-ea7523696ae5" />
+<img width="680" alt="Image" src="https://github.com/user-attachments/assets/8603b708-59c6-4a6d-b953-a83a26b00ef9" />
 
 ---
