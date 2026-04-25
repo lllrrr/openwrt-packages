@@ -67,20 +67,37 @@ while true; do
 
     # --- 2. LAN 接口防失联雷达与炸弹 ---
     if [ -f /tmp/netwiz_rollback_time ] && [ -f /tmp/netwiz_target_ip ]; then
-        # 获取我们刚刚修改的最新目标 IP
         TARGET_IP=$(cat /tmp/netwiz_target_ip 2>/dev/null)
         
-        # 彻底排除局域网设备访问外网产生的 NAT 干扰
-        conns=$(netstat -nt 2>/dev/null | grep "ESTABLISHED" | awk '{print $4}' | grep -E "(${TARGET_IP}:80$|${TARGET_IP}:443$)" | wc -l)
+        # 不仅查并发数，还要强制校验「客户端 IP 子网」！
+        # 只有当您的电脑 IP (如 192.168.10.100) 和目标 IP (192.168.10.1) 在同一个 /24 网段时，才算有效连接！
+        conns=$(netstat -nt 2>/dev/null | awk -v tip="$TARGET_IP" '
+        BEGIN {
+            # 提取目标 IP 的前三段作为基准前缀 (例如 192.168.10.)
+            split(tip, p, ".")
+            prefix = p[1]"."p[2]"."p[3]"."
+        }
+        /ESTABLISHED/ {
+            if ($4 == tip":80" || $4 == tip":443") {
+                split($5, c, ":")
+                client_ip = c[1]
+                # 客户端 IP 的前缀不等于目标 IP 的前缀，直接无视！
+                if (substr(client_ip, 1, length(prefix)) == prefix) {
+                    count++
+                }
+            }
+        }
+        END { print count+0 }
+        ')
 
-        # 阈值设为 2：前端 JS 每 2 秒用 fetch 向新 IP 发送一次探测，在底层只会建立 1 个 TCP 连接防止解除定时
+        # 阈值依然是 2，完美过滤前端的单线程探针
         if [ "$conns" -ge 2 ]; then
-            log "成功：雷达检测到真实浏览器访问新 IP ($TARGET_IP)，自动解除定时"
+            log "成功：雷达检测到同网段真实浏览器访问新 IP ($TARGET_IP)，自动解除定时"
             rm -f /tmp/netwiz_rollback_time /tmp/netwiz_target_ip /etc/config/network.netwiz_bak /etc/config/dhcp.netwiz_bak
         else
-            log "等待用户浏览器跳转中... (目标连接数: $conns)"
-            
-            # 🌟 绝对安全的读取时间方式：剔除任何可能的空行或隐藏符号
+            log "等待用户浏览器跳转中... (当前有效目标连接数: $conns)"
+
+            # 读取时间方式：剔除任何可能的空行或隐藏符号
             TARGET_TIME=$(cat /tmp/netwiz_rollback_time 2>/dev/null | tr -cd '0-9')
             CURRENT_TIME=$(date +%s)
             

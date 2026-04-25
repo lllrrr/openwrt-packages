@@ -370,8 +370,8 @@ msgstr "正在套用 PPPoE 撥號"
 msgid "Writing configuration to system, please do not close the page..."
 msgstr "正在將設定寫入系統，請勿關閉頁面..."
 
-msgid "Knocking on the new IP door... Elapsed: {sec}s"
-msgstr "正在嘗試連線新 IP... 已耗時：{sec}秒"
+msgid "Connecting to new IP... Config will auto-rollback upon timeout."
+msgstr "正在嘗試連接新 IP... 失聯超時將會自動回滾配置"
 
 msgid "Waiting for network service to restart... Elapsed: {sec}s"
 msgstr "正在等待網路服務重啟... 已耗時：{sec}秒"
