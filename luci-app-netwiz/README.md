@@ -31,7 +31,7 @@ It is designed to be highly user-friendly for novices setting up secondary route
 
 ### Breadcrumb Trail
 * 👉 **primary menu entry appearing right before “Logout -> Network Wizard**。
-  (Placing the Network Setup Wizard right before "Logout" is a crucial UI choice for beginners and those needing rapid configuration. It provides an immediately visible, accessible starting point without forcing users to dig through complex, hard-core OpenWrt menus. Furthermore, this layout mirrors the standard, premium design found in mature routers like ASUS, TP-Link, and Xiaomi, instantly elevating your plugin's feel from a "geeky tool" to a professional-grade product.)
+  (Placing the Network Setup Wizard immediately before “Logout” is a deliberate UI decision that benefits both beginners and users seeking quick configuration. It offers a highly visible, easily accessible entry point, eliminating the need to navigate complex OpenWrt menus. Moreover, this layout aligns with the polished, user-centric design conventions adopted by established router brands such as ASUS, TP-Link, and Xiaomi.)
 
 🌐 **Secondary Router Mode (DHCP / Static IP)**
    * Use Case: When the upstream modem (ONT) already handles PPPoE dialing, or an existing primary router is present. This device operates as a secondary router or segmented subnet router.
