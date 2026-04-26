@@ -165,8 +165,8 @@ return view.extend({
             '<style>',
             // 强制显示滚动条占位
             'html, body, #maincontent, .main-right { overflow-y: scroll !important; scrollbar-gutter: stable !important; }',
-            '.nw-wrapper { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; min-height: 101vh; padding-top: 4vh; padding-bottom: 10vh; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }',
-            '.nw-header { text-align: center; margin-bottom: 40px; background-color: #5e72e4; padding: 25px; margin-top: 2px; border-radius: 16px; position: relative; width: 100%; max-width: 750px; box-sizing: border-box; box-shadow: 0 10px 25px rgba(94, 114, 228, 0.15); z-index: 20; }',
+            '.nw-wrapper { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; min-height: 101vh; padding-bottom: 10vh; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }',
+            '.nw-header { text-align: center; margin-bottom: 40px; background-color: #5e72e4; padding: 25px; border-radius: 16px; position: relative; width: 100%; max-width: 750px; box-sizing: border-box; box-shadow: 0 10px 25px rgba(94, 114, 228, 0.15); z-index: 20; }',
         
             '.nw-main-title { font-size: 35px; font-weight: 600; margin-bottom: 10px; color: #ffffff; letter-spacing: 2px; }',
             '.nw-title-wrap { position: relative; display: inline-block; cursor: pointer; }',
@@ -229,8 +229,8 @@ return view.extend({
             
             '@media screen and (max-width: 768px) {',
             '  .nw-wrapper { padding-top: 3vh; padding-bottom: 5vh; }',
-            '  .nw-header { margin: 0 auto 30px !important; padding: 20px 15px !important; width: 100% !important; max-width: 320px !important; box-sizing: border-box !important; border-radius: 12px; }',
-            '  .nw-main-title { font-size: 22px; }',
+            '  .nw-header { margin: -35px auto 15px !important; padding: 20px 15px !important; width: 100% !important; max-width: 320px !important; box-sizing: border-box !important; border-radius: 12px; }',
+            '  .nw-main-title { font-size: 22px; line-height: 1.3; }',
             '  .nw-header p { font-size: 13px; }',
             '  .nw-card-group { flex-direction: column; align-items: center; gap: 15px; margin-top: 0; }',
             '  .nw-card { width: 100% !important; max-width: 320px !important; padding: 25px 20px !important; text-align: center; box-sizing: border-box !important; margin: 0 auto !important; }',
@@ -314,11 +314,11 @@ return view.extend({
             '        <div class="nw-value"><label class="nw-value-title">{{LBL_LAN_IP}}</label><div class="nw-value-field"><input type="text" id="lan-ip" placeholder="{{PH_IP}}" autocomplete="new-password"></div></div>',
             '        <div class="nw-value"><label class="nw-value-title">{{LBL_LAN_GW}}</label><div class="nw-value-field"><input type="text" id="lan-gw" placeholder="{{PH_LAN_GW}}" autocomplete="new-password"></div></div>',
             '        <div style="display: flex; align-items: center; justify-content: space-between; padding: 15px 0 0 0; border-top: 1px solid #f1f5f9; margin-top: 15px;">',
-            '           <div>',
-            '               <div style="font-weight: 600; color: #222; font-size: 16px;">{{LBL_FORCE_APPLY}}</div>',
-            '               <div style="font-size: 12px; color: #64748b; margin-top: 4px;">{{DESC_FORCE_APPLY}}</div>',
+            '           <div style="flex: 1; padding-right: 15px; min-width: 0;">',
+            '               <div style="font-weight: 600; color: #222; font-size: 15px; word-break: break-word; line-height: 1.3;">{{LBL_FORCE_APPLY}}</div>',
+            '               <div style="font-size: 12px; color: #64748b; margin-top: 4px; word-break: break-word; line-height: 1.4;">{{DESC_FORCE_APPLY}}</div>',
             '           </div>',
-            '           <label class="nw-switch"><input type="checkbox" id="lan-force-toggle"><span class="nw-slider"></span></label>',
+            '           <label class="nw-switch" style="flex-shrink: 0;"><input type="checkbox" id="lan-force-toggle"><span class="nw-slider"></span></label>',
             '        </div>',
             '      </div>',
             '    </div>',
@@ -487,8 +487,8 @@ return view.extend({
                         // 防止没做任何修改就点应用
                         if ((selectedMode === 'lan' && targetIp === currentLanIp && targetGw === currentLanGw && newBypass === currentBypass) || (selectedMode === 'router' && rType === 'static' && targetIp === currentWanIp && targetGw === currentWanGw) || (selectedMode === 'router' && rType === 'dhcp' && currentWanProto === 'dhcp')) { openModal({title: T['M_NO_MOD_TIT'], msg: T['M_NO_MOD_MSG'], okText: T['M_EXIT'], onOk: returnToStep1 }); return; }
                         
-                        var b = function(t, p) { var h = "<div style='text-align:center; font-size:18px; margin-bottom:15px;'>" + t + "</div><div style='background:rgba(0,0,0,0.15); border-radius:8px; padding:10px 15px; font-size:14.5px;'>"; for (var i=0; i < p.length; i++) h += "<div style='display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid rgba(255,255,255,0.1);'><span style='opacity:0.8;'>" + p[i][0] + "</span><span style='font-family:monospace;'>" + p[i][1] + "</span></div>"; return h + "</div>"; };
-                        if (selectedMode === 'lan') confirmText.innerHTML = b(isBypass ? T['MODE_LAN_TITLE']+" - "+T['STAT_BYPASS'] : T['MODE_LAN_TITLE']+" - "+T['STAT_LAN'], [[T['TXT_DEV_IP'].replace(':',''), targetIp], [T['LBL_GW'], targetGw || T['TXT_NOT_SET']], ["DHCP", isBypass ? T['TXT_OFF'] : T['TXT_ON']]]);
+                        var b = function(t, p) { var h = "<div style='text-align:center; font-size:18px; margin-bottom:15px;'>" + t + "</div><div style='background:rgba(0,0,0,0.15); border-radius:8px; padding:10px 15px; font-size:14.5px;'>"; for (var i=0; i < p.length; i++) h += "<div style='display:flex; justify-content:space-between; align-items:flex-start; padding:5px 0; border-bottom:1px solid rgba(255,255,255,0.1); gap: 10px;'><span style='opacity:0.8; white-space:nowrap; flex-shrink:0;'>" + p[i][0] + "</span><span style='font-family:monospace; word-break:break-all; text-align:right;'>" + p[i][1] + "</span></div>"; return h + "</div>"; };
+                                                if (selectedMode === 'lan') confirmText.innerHTML = b(isBypass ? T['MODE_LAN_TITLE']+" - "+T['STAT_BYPASS'] : T['MODE_LAN_TITLE']+" - "+T['STAT_LAN'], [[T['TXT_DEV_IP'].replace(':',''), targetIp], [T['LBL_GW'], targetGw || T['TXT_NOT_SET']], ["DHCP", isBypass ? T['TXT_OFF'] : T['TXT_ON']]]);
                         else if (selectedMode === 'router') confirmText.innerHTML = (rType === 'static' ? b(T['STAT_SEC_STATIC'], [[T['TXT_WAN_IP'].replace(':',''), targetIp], [T['TXT_UP_GW'].replace(':',''), targetGw]]) : b(T['STAT_SEC_DHCP'], [[T['LBL_CONN_TYPE'], T['OPT_DHCP']], [T['M_IP_GW'], T['M_AUTO_UP']]]));
                         else confirmText.innerHTML = b(T['MODE_PPPOE_TITLE'], [[T['M_ACCT'], container.querySelector('#pppoe-user').value], [T['M_PWD'], T['M_HIDDEN']]]);
                         
