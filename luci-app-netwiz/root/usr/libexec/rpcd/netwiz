@@ -1,11 +1,13 @@
 #!/bin/sh
 # Copyright (C) 2026 huchd0 <https://github.com/huchd0/luci-app-netwiz>
 # Licensed under the GNU General Public License v3.0
-LOG_FILE="/etc/netwiz.log"
+
+# 将日志写入内存虚拟磁盘，防止频繁读写磨损路由器闪存
+LOG_FILE="/tmp/netwiz.log"
 
 log() {
     echo "$(date '+%F %T') [RPC] $1" >> "$LOG_FILE"
-    # 防止恶意狂点前端按钮刷爆日志
+    # 防止因异常狂点按钮导致日志撑爆内存，保留最后 500 行
     if [ $(wc -l < "$LOG_FILE" 2>/dev/null || echo 0) -gt 600 ]; then
         tail -n 500 "$LOG_FILE" > "$LOG_FILE.tmp"
         mv "$LOG_FILE.tmp" "$LOG_FILE"
@@ -14,17 +16,17 @@ log() {
 
 case "$1" in
     list)
-        # arg5 用于接收前端的安全开关状态
+        # 声明前端接口，arg5 用于接收是否跳过防失联机制的状态
         echo '{ "set_network": { "mode": "string", "arg1": "string", "arg2": "string", "arg3": "string", "arg4": "string", "arg5": "string" }, "confirm": {} }'
         exit 0
         ;;
     call)
         case "$2" in
             confirm)
+                # 前端网络恢复后发起确认，拆除炸弹
                 if [ -f /tmp/netwiz_rollback_time ] || [ -f /tmp/netwiz_target_ip ]; then
-                    # 确保四个文件被彻底删除干净，彻底解除定时装置
-                    rm -f /tmp/netwiz_rollback_time /tmp/netwiz_target_ip /etc/config/network.netwiz_bak /etc/config/dhcp.netwiz_bak
-                    log "成功：前端主动下发确认指令，已手动拆除回退定时装置"
+                    rm -f /tmp/netwiz_rollback_time /tmp/netwiz_target_ip /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
+                    log "成功：前端连通并下发确认指令，已手动拆除回退定时装置"
                 fi
                 echo '{"result":0}'
                 exit 0
@@ -36,8 +38,23 @@ case "$1" in
                 arg2=$(echo "$input" | jsonfilter -e '@.arg2')
                 arg3=$(echo "$input" | jsonfilter -e '@.arg3')
                 arg4=$(echo "$input" | jsonfilter -e '@.arg4')
-                arg5=$(echo "$input" | jsonfilter -e '@.arg5') # 接收 arg5
+                arg5=$(echo "$input" | jsonfilter -e '@.arg5') # 接收前端强行生效的开关状态
 
+                # 严格的后端正则校验，只允许数字和点，死死防住命令注入漏洞
+                validate_strict_ip() {
+                    if [ -n "$1" ] && ! echo "$1" | grep -Eq '^[0-9.]+$'; then
+                        log "安全拦截：参数 '$1' 包含非法字符，已拒绝底层操作"
+                        echo '{"result":1,"error":"Invalid format"}'
+                        exit 1
+                    fi
+                }
+
+                # 宽带拨号包含字母，所以排除 pppoe，对所有涉及 IP 的变量进行校验
+                [ "$mode" != "pppoe" ] && validate_strict_ip "$arg1"
+                validate_strict_ip "$arg2"
+                validate_strict_ip "$arg3"
+
+                # 切换网络模式前，清理容易产生冲突的遗留局域网配置
                 cleanup_lan_for_wan_modes() {
                     uci delete network.lan.gateway 2>/dev/null
                     uci delete network.lan.dns 2>/dev/null
@@ -46,19 +63,21 @@ case "$1" in
                 
                 CURRENT_LAN_IP=$(uci -q get network.lan.ipaddr | cut -d/ -f1)
 
-                # 根据 arg5 判断是否埋设防失联定时装置 (0代表不埋，1代表埋设)
+                # 修改局域网 IP 时，判断是否需要安放回退定时炸弹
                 if [ "$mode" = "lan" ] && [ -n "$arg1" ] && [ "$arg1" != "$CURRENT_LAN_IP" ]; then
                     if [ "$arg5" != "0" ]; then
-                        log "LAN IP 修改为 $arg1，安放 120 秒防失联回退定时装置"
-                        cp /etc/config/network /etc/config/network.netwiz_bak
-                        cp /etc/config/dhcp /etc/config/dhcp.netwiz_bak
+                        log "LAN IP 即将修改为 $arg1，安放 120 秒防失联回退装置"
+                        # [审核优化] 备份配置文件一律存放在 /tmp 下，绝不污染系统配置目录
+                        cp /etc/config/network /tmp/network.netwiz_bak
+                        cp /etc/config/dhcp /tmp/dhcp.netwiz_bak
                         echo "$arg1" > /tmp/netwiz_target_ip
                         echo $(($(date +%s) + 120)) > /tmp/netwiz_rollback_time
                     else
-                        log "LAN IP 修改为 $arg1，(直接生效模式) 跳过回退定时装置"
+                        log "LAN IP 即将修改为 $arg1，(用户选择了直接生效模式) 跳过回退装置"
                     fi
                 fi
 
+                # 写入配置阶段
                 if [ "$mode" = "wan_dhcp" ]; then
                     cleanup_lan_for_wan_modes
                     uci set network.wan.proto='dhcp'
@@ -88,6 +107,7 @@ case "$1" in
                     else
                         uci delete network.lan.gateway 2>/dev/null
                     fi
+                    # 处理 DHCP 服务的开关
                     if [ "$arg4" = "1" ]; then
                         uci set dhcp.lan.ignore='1'
                         [ -n "$arg2" ] && uci set network.lan.dns="$arg2"
@@ -99,6 +119,7 @@ case "$1" in
                     uci commit dhcp
                 fi
                 
+                # 响应前端并异步重启网络服务
                 echo '{"result":0}'
                 ( exec >/dev/null 2>&1 </dev/null; sleep 3; /etc/init.d/network restart; /etc/init.d/dnsmasq restart; /etc/init.d/uhttpd restart ) &
                 exit 0

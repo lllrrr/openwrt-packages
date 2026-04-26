@@ -1,7 +1,7 @@
 {
-	"admin/system/netwiz": {
+	"admin/netwiz": {
 		"title": "Network Wizard",
-		"order": 1,
+		"order": 99,
 		"action": {
 			"type": "view",
 			"path": "netwiz"
