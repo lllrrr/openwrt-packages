@@ -4,7 +4,9 @@
 
 ---
 ### Description
-`luci-app-netwiz` (Network Wizard) is a minimalist, safe, and non-destructive network configuration interface for OpenWrt/ImmortalWrt. 
+**NetWiz(luci-app-netwiz)** is a minimalist, safe, and non-destructive network configuration interface for OpenWrt/ImmortalWrt. 
+
+minimalist and ready out of the box. Built with rigorous, well-structured logic, it features an enterprise-grade LAN fail-safe mechanism, intelligent WAN protocol switching, smart validation, and automatic conflict detection for IPs, gateways, WAN, and LAN interfaces. The front-end delivers a smooth, fluid user experience, eliminating the traditional frustrations of “errors after saving” and frequent configuration conflicts.
 
 It is designed to be highly user-friendly for novices setting up secondary routers (DHCP/Static IP) or bypass routers.
 
@@ -28,7 +30,8 @@ It is designed to be highly user-friendly for novices setting up secondary route
 * **Multi-language:** Native built-in i18n support, automatically adapting to English, zh-Hans, and zh-Hant.
 
 ### Breadcrumb Trail
-* 👉 **A primary menu entry appearing right before “Logout -> Network Wizard**。
+* 👉 **primary menu entry appearing right before “Logout -> Network Wizard**。
+  (Placing the Network Setup Wizard right before "Logout" is a crucial UI choice for beginners and those needing rapid configuration. It provides an immediately visible, accessible starting point without forcing users to dig through complex, hard-core OpenWrt menus. Furthermore, this layout mirrors the standard, premium design found in mature routers like ASUS, TP-Link, and Xiaomi, instantly elevating your plugin's feel from a "geeky tool" to a professional-grade product.)
 
 🌐 **Secondary Router Mode (DHCP / Static IP)**
    * Use Case: When the upstream modem (ONT) already handles PPPoE dialing, or an existing primary router is present. This device operates as a secondary router or segmented subnet router.
