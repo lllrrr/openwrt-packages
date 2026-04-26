@@ -73,6 +73,9 @@ msgstr "請輸入寬頻密碼"
 msgid "Configure LAN"
 msgstr "設定區域網路 (LAN)"
 
+msgid "Bypass Safe Mode(Recommended OFF)"
+msgstr "繞過安全模式 (建議關閉，防失聯)"
+
 msgid "Enable Bypass Mode"
 msgstr "啟用旁路由模式"
 
@@ -391,13 +394,10 @@ msgstr "✅ 偵察握手成功"
 msgid "Network connected! Automatically redirecting..."
 msgstr "網路已連通！正在為您自動跳轉..."
 
-msgid "Direct Force Apply"
-msgstr "強制生效 (建議關閉，防失聯)"
-
-msgid "If enabled, NO rollback bomb will be planted. Changes apply permanently."
+msgid "If enabled, the 120s rollback timer is bypassed."
 msgstr "開啟後跳過 120 秒防失聯機制，配置立刻生效。"
 
-msgid "Safe mode bypassed. Applying permanently..."
+msgid "Safe mode bypassed. Applying immediately..."
 msgstr "已跳過防失聯機制，配置生效中..."
 
 msgid "If IP changed, please update PC IP. Auto-redirecting when connected..."
