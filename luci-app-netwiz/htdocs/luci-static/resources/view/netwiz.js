@@ -166,7 +166,7 @@ return view.extend({
             // 强制显示滚动条占位
             'html, body, #maincontent, .main-right { overflow-y: scroll !important; scrollbar-gutter: stable !important; }',
             '.nw-wrapper { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; min-height: 101vh; padding-top: 10vh; padding-bottom: 10vh; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }',
-            '.nw-header { text-align: center; margin-bottom: 40px; background-color: #5e72e4; padding: 25px; margin-top: -90px; border-radius: 0 0 15px 15px; position: relative; }',
+            '.nw-header { text-align: center; margin-bottom: 40px; background-color: #5e72e4; padding: 25px; margin-top: -75px; border-radius: 15px; position: relative; }',
             '.nw-main-title { font-size: 35px; font-weight: 600; margin-bottom: 10px; color: #ffffff; letter-spacing: 2px; }',
             '.nw-title-wrap { position: relative; display: inline-block; cursor: pointer; }',
             '.nw-version-tag { position: absolute; top: 50%; left: 50%; transform: translateX(-50%); background: rgba(15, 23, 42, 0.1); color: #f8fafc; font-size: 13px; font-weight: 600; padding: 5px 12px; border-radius: 6px; opacity: 0; pointer-events: none; transition: all 0.25s ease; font-family: monospace; z-index: 50; box-shadow: 0 4px 15px rgba(0,0,0,0.15); white-space: nowrap; border: 1px solid rgba(255,255,255,0.1); }',
@@ -225,6 +225,7 @@ return view.extend({
             '.nw-hl { color: #facc15; font-weight: bold; margin-left: 6px; }',
             
             '@media screen and (max-width: 768px) {',
+            '.nw-main-title { font-size: 20px; }',
             '  .nw-wrapper { padding-top: 3vh; padding-bottom: 5vh; }',
             '  .nw-header { margin: -30px auto 0 !important; padding: 20px 15px !important; width: 100% !important; max-width: 320px !important; border-radius: 12px; }',
             '  .nw-card { width: 100% !important; max-width: 320px !important; }',
