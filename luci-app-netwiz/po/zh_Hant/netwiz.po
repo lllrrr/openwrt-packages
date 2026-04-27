@@ -504,3 +504,18 @@ msgstr "如果強行指定的物理模式與網卡晶片實際支援的能力不
 
 msgid "Enable IPv6 (DHCPv6)"
 msgstr "啟用 IPv6 (DHCPv6)"
+
+msgid "Wi-Fi Status"
+msgstr "Wi-Fi 狀態"
+
+msgid "Smart Connect"
+msgstr "多頻合一"
+
+msgid "5G Wi-Fi Account"
+msgstr "5G Wi-Fi 帳號"
+
+msgid "2.4G Wi-Fi Account"
+msgstr "2.4G Wi-Fi 帳號"
+
+msgid "No Password"
+msgstr "無密碼"

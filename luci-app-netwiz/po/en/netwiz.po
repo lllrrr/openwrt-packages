@@ -504,3 +504,18 @@ msgstr "Forcibly modifying the wireless physical mode may cause the hardware dri
 
 msgid "Enable IPv6 (DHCPv6)"
 msgstr "Enable IPv6 (DHCPv6)"
+
+msgid "Wi-Fi Status"
+msgstr "Wi-Fi Status"
+
+msgid "Smart Connect"
+msgstr "Smart Connect"
+
+msgid "5G Wi-Fi Account"
+msgstr "5G Wi-Fi Account"
+
+msgid "2.4G Wi-Fi Account"
+msgstr "2.4G Wi-Fi Account"
+
+msgid "No Password"
+msgstr "No Password"
