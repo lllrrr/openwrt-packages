@@ -2,12 +2,10 @@
 # Copyright (C) 2026 huchd0 <https://github.com/huchd0/luci-app-netwiz>
 # Licensed under the GNU General Public License v3.0
 
-# 将日志写入内存虚拟磁盘，防止频繁读写磨损路由器闪存
 LOG_FILE="/tmp/netwiz.log"
 
 log() {
     echo "$(date '+%F %T') [RPC] $1" >> "$LOG_FILE"
-    # 防止因异常狂点按钮导致日志撑爆内存，保留最后 500 行
     if [ $(wc -l < "$LOG_FILE" 2>/dev/null || echo 0) -gt 600 ]; then
         tail -n 500 "$LOG_FILE" > "$LOG_FILE.tmp"
         mv "$LOG_FILE.tmp" "$LOG_FILE"
@@ -16,14 +14,23 @@ log() {
 
 case "$1" in
     list)
-        # 声明前端接口，arg5 用于接收是否跳过防失联机制的状态
-        echo '{ "set_network": { "mode": "string", "arg1": "string", "arg2": "string", "arg3": "string", "arg4": "string", "arg5": "string" }, "confirm": {} }'
+        echo '{ "set_network": { "mode": "string", "arg1": "string", "arg2": "string", "arg3": "string", "arg4": "string", "arg5": "string" }, "confirm": {}, "check_wifi": {} }'
         exit 0
         ;;
     call)
         case "$2" in
+            check_wifi)
+                has_wifi="false"
+                if [ -f /etc/config/wireless ] && grep -q "wifi-device" /etc/config/wireless; then
+                    has_wifi="true"
+                elif [ -n "$(ls -A /sys/class/net/wlan* 2>/dev/null)" ] || [ -n "$(ls -A /sys/class/net/ra* 2>/dev/null)" ] || [ -n "$(ls -A /sys/class/net/wl* 2>/dev/null)" ] || [ -n "$(ls -A /sys/class/net/ath* 2>/dev/null)" ]; then
+                    wifi config 
+                    [ -f /etc/config/wireless ] && has_wifi="true"
+                fi
+                echo "{\"has_wifi\":$has_wifi}"
+                exit 0
+                ;;
             confirm)
-                # 前端网络恢复后发起确认，拆除炸弹
                 if [ -f /tmp/netwiz_rollback_time ] || [ -f /tmp/netwiz_target_ip ]; then
                     rm -f /tmp/netwiz_rollback_time /tmp/netwiz_target_ip /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
                     log "成功：前端连通并下发确认指令，已手动拆除回退定时装置"
@@ -38,9 +45,8 @@ case "$1" in
                 arg2=$(echo "$input" | jsonfilter -e '@.arg2')
                 arg3=$(echo "$input" | jsonfilter -e '@.arg3')
                 arg4=$(echo "$input" | jsonfilter -e '@.arg4')
-                arg5=$(echo "$input" | jsonfilter -e '@.arg5') # 接收前端强行生效的开关状态
+                arg5=$(echo "$input" | jsonfilter -e '@.arg5')
 
-                # 严格的后端正则校验，只允许数字和点，死死防住命令注入漏洞
                 validate_strict_ip() {
                     if [ -n "$1" ] && ! echo "$1" | grep -Eq '^[0-9.]+$'; then
                         log "安全拦截：参数 '$1' 包含非法字符，已拒绝底层操作"
@@ -49,12 +55,10 @@ case "$1" in
                     fi
                 }
 
-                # 宽带拨号包含字母，所以排除 pppoe，对所有涉及 IP 的变量进行校验
-                [ "$mode" != "pppoe" ] && validate_strict_ip "$arg1"
-                validate_strict_ip "$arg2"
+                [ "$mode" != "pppoe" ] && [ "$mode" != "wifi" ] && validate_strict_ip "$arg1"
+                [ "$mode" != "wifi" ] && validate_strict_ip "$arg2"
                 validate_strict_ip "$arg3"
 
-                # 切换网络模式前，清理容易产生冲突的遗留局域网配置
                 cleanup_lan_for_wan_modes() {
                     uci delete network.lan.gateway 2>/dev/null
                     uci delete network.lan.dns 2>/dev/null
@@ -63,11 +67,9 @@ case "$1" in
                 
                 CURRENT_LAN_IP=$(uci -q get network.lan.ipaddr | cut -d/ -f1)
 
-                # 修改局域网 IP 时，判断是否需要安放回退定时炸弹
                 if [ "$mode" = "lan" ] && [ -n "$arg1" ] && [ "$arg1" != "$CURRENT_LAN_IP" ]; then
                     if [ "$arg5" != "0" ]; then
                         log "LAN IP 即将修改为 $arg1，安放 120 秒防失联回退装置"
-                        # [审核优化] 备份配置文件一律存放在 /tmp 下，绝不污染系统配置目录
                         cp /etc/config/network /tmp/network.netwiz_bak
                         cp /etc/config/dhcp /tmp/dhcp.netwiz_bak
                         echo "$arg1" > /tmp/netwiz_target_ip
@@ -77,49 +79,177 @@ case "$1" in
                     fi
                 fi
 
-                # 写入配置阶段
                 if [ "$mode" = "wan_dhcp" ]; then
-                    cleanup_lan_for_wan_modes
-                    uci set network.wan.proto='dhcp'
-                    uci commit network
-                    uci commit dhcp
+                    cleanup_lan_for_wan_modes; uci set network.wan.proto='dhcp'
+                    uci commit network; uci commit dhcp
                 elif [ "$mode" = "wan_static" ]; then
-                    cleanup_lan_for_wan_modes
-                    uci set network.wan.proto='static'
-                    uci set network.wan.ipaddr="$arg1"
-                    uci set network.wan.gateway="$arg2"
-                    uci set network.wan.netmask="$arg3"
-                    uci commit network
-                    uci commit dhcp
+                    cleanup_lan_for_wan_modes; uci set network.wan.proto='static'
+                    uci set network.wan.ipaddr="$arg1"; uci set network.wan.gateway="$arg2"
+                    uci set network.wan.netmask="$arg3"; uci commit network; uci commit dhcp
                 elif [ "$mode" = "pppoe" ]; then
-                    cleanup_lan_for_wan_modes
-                    uci set network.wan.proto='pppoe'
-                    uci set network.wan.username="$arg1"
-                    uci set network.wan.password="$arg2"
-                    uci commit network
-                    uci commit dhcp
+                    cleanup_lan_for_wan_modes; uci set network.wan.proto='pppoe'
+                    uci set network.wan.username="$arg1"; uci set network.wan.password="$arg2"
+                    uci commit network; uci commit dhcp
                 elif [ "$mode" = "lan" ]; then
-                    uci set network.lan.proto='static'
-                    uci set network.lan.ipaddr="$arg1"
-                    uci set network.lan.netmask="$arg3"
-                    if [ -n "$arg2" ]; then
-                        uci set network.lan.gateway="$arg2"
-                    else
-                        uci delete network.lan.gateway 2>/dev/null
-                    fi
-                    # 处理 DHCP 服务的开关
+                    uci set network.lan.proto='static'; uci set network.lan.ipaddr="$arg1"; uci set network.lan.netmask="$arg3"
+                    if [ -n "$arg2" ]; then uci set network.lan.gateway="$arg2"; else uci delete network.lan.gateway 2>/dev/null; fi
                     if [ "$arg4" = "1" ]; then
                         uci set dhcp.lan.ignore='1'
                         [ -n "$arg2" ] && uci set network.lan.dns="$arg2"
                     else
-                        uci set dhcp.lan.ignore='0'
-                        uci delete network.lan.dns 2>/dev/null
+                        uci set dhcp.lan.ignore='0'; uci delete network.lan.dns 2>/dev/null
                     fi
-                    uci commit network
-                    uci commit dhcp
+                    uci commit network; uci commit dhcp
+                elif [ "$mode" = "wifi" ]; then
+                    payload="$arg1"
+                    smart=$(echo "$payload" | jsonfilter -e '@.smart' || echo "false")
+
+                    log "========== 开始执行 Wi-Fi 阵列群组写入逻辑 =========="
+                    log "开始扫描并归类系统内的所有无线物理芯片..."
+                    
+                    # 无限芯片阵列
+                    list_2g=""
+                    list_5g=""
+                    dev_list=$(uci show wireless 2>/dev/null | grep '=wifi-device' | cut -d'.' -f2 | cut -d'=' -f1 || true)
+                    
+                    if [ -z "$dev_list" ]; then
+                        log "严重错误：未找到任何有效的物理无线网卡！"
+                        echo '{"result":1}'
+                        exit 1
+                    fi
+
+                    for dev in $dev_list; do
+                        hwmode=$(uci -q get wireless.$dev.hwmode | tr 'A-Z' 'a-z' || true)
+                        band=$(uci -q get wireless.$dev.band | tr 'A-Z' 'a-z' || true)
+                        path=$(uci -q get wireless.$dev.path || true)
+                        
+                        is_5g=0
+                        if echo "$hwmode" | grep -q "a"; then
+                            is_5g=1
+                        elif echo "$hwmode" | grep -qE "g|b"; then
+                            is_5g=0
+                        elif [ "$band" = "5g" ] || echo "$path" | grep -qi "pcie1" || echo "$path" | grep -qi "pcie2"; then
+                            is_5g=1
+                        fi
+
+                        if [ "$is_5g" = "1" ]; then
+                            list_5g="$list_5g $dev"
+                            log " -> 扫描到芯片 [$dev]: 划入 5G 阵列"
+                        else
+                            list_2g="$list_2g $dev"
+                            log " -> 扫描到芯片 [$dev]: 划入 2.4G 阵列"
+                        fi
+                    done
+
+                    log "开始清洗所有旧的 wifi-iface 网络接口..."
+                    while uci -q delete wireless.@wifi-iface[0]; do
+                        log "  - 成功清理一个历史接口残留"
+                    done
+
+                    configure_physical_radio() {
+                        local dev="$1"
+                        local ui_prefix="$2"
+                        local iface_name="$3"
+                        local intended_band="$4"
+                        
+                        local p_en=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.enabled" || echo "0")
+                        local p_ssid=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.ssid" || echo "")
+                        local p_key=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.key" || echo "")
+                        local p_enc=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.encryption" || echo "psk2+sae")
+                        
+                        uci set wireless.$iface_name=wifi-iface
+                        uci set wireless.$iface_name.device="$dev"
+                        uci set wireless.$iface_name.network="lan"
+                        uci set wireless.$iface_name.mode="ap"
+                        
+                        log "正在为芯片 [$dev] 注入目标配置: UI=[$ui_prefix], SSID=[$p_ssid], 启用=[$p_en]"
+                        
+                        # 无论启用与否，始终写入配置用于存储记忆
+                        if [ "$p_en" = "0" ]; then
+                            uci set wireless.$iface_name.disabled='1'
+                            log "  - [$dev] 对应接口已静默禁用"
+                        else
+                            uci set wireless.$iface_name.disabled='0'
+                            uci set wireless.$dev.disabled='0'
+                        fi
+
+                        [ -n "$p_ssid" ] && uci set wireless.$iface_name.ssid="$p_ssid"
+                        [ -n "$p_enc" ] && uci set wireless.$iface_name.encryption="$p_enc"
+                        [ -n "$p_key" ] && uci set wireless.$iface_name.key="$p_key"
+                            
+                        uci set wireless.$dev.channel='auto'
+                        local current_ht=$(uci -q get wireless.$dev.htmode || echo "")
+                        
+                        if [ "$intended_band" = "2g" ]; then
+                            if [ "$arg4" = "1" ]; then
+                                uci set wireless.$dev.hwmode='11b'
+                                uci set wireless.$dev.htmode='HT20'
+                                uci set wireless.$dev.band='2g' 2>/dev/null || true
+                                log "  - [$dev] 强行洗白为 2.4G (Legacy 11b, HT20)"
+                            else
+                                uci set wireless.$dev.hwmode='11g'
+                                uci set wireless.$dev.band='2g' 2>/dev/null || true
+                                echo "$current_ht" | grep -qi "HE" || uci set wireless.$dev.htmode='HT40'
+                                log "  - [$dev] 强行洗白为 2.4G (11g, HT40)"
+                            fi
+                        elif [ "$intended_band" = "5g" ]; then
+                            uci set wireless.$dev.hwmode='11a'
+                            uci set wireless.$dev.band='5g' 2>/dev/null || true
+                            echo "$current_ht" | grep -qi "HE" || uci set wireless.$dev.htmode='VHT80'
+                            log "  - [$dev] 强行洗白为 5G (11a, VHT80)"
+                        fi
+                    }
+
+                    chip_count=$(echo "$dev_list" | wc -w)
+
+                    if [ "$chip_count" -le 1 ]; then
+                        single_dev=$(echo "$dev_list" | awk '{print $1}')
+                        log "检测为 单芯片 架构: 唯一网卡 [$single_dev]"
+                        
+                        en_5g=$(echo "$payload" | jsonfilter -e "@.radio_5g.enabled" || echo "0")
+                        
+                        if [ "$smart" = "true" ]; then
+                             configure_physical_radio "$single_dev" "merged" "wifinet_0" "2g"
+                        elif [ "$en_5g" = "1" ]; then
+                             configure_physical_radio "$single_dev" "radio_5g" "wifinet_0" "5g"
+                        else
+                             configure_physical_radio "$single_dev" "radio_2g" "wifinet_0" "2g"
+                        fi
+                    else
+                        # 无限量多芯片逻辑！
+                        if [ "$smart" = "true" ]; then
+                            log " => [多频合一] 模式：将路由器上所有物理芯片统一为同一网络..."
+                            idx=0
+                            for dev in $dev_list; do
+                                if echo " $list_5g " | grep -q " $dev "; then
+                                    configure_physical_radio "$dev" "merged" "wifinet_$idx" "5g"
+                                else
+                                    configure_physical_radio "$dev" "merged" "wifinet_$idx" "2g"
+                                fi
+                                idx=$((idx + 1))
+                            done
+                        else
+                            log " => [分频独立] 模式：按阵列归属下发配置..."
+                            idx=0
+                            for dev in $list_2g; do
+                                configure_physical_radio "$dev" "radio_2g" "wifinet_2g_$idx" "2g"
+                                idx=$((idx + 1))
+                            done
+                            idx=0
+                            for dev in $list_5g; do
+                                configure_physical_radio "$dev" "radio_5g" "wifinet_5g_$idx" "5g"
+                                idx=$((idx + 1))
+                            done
+                        fi
+                    fi
+                    
+                    uci commit wireless
+                    log "========== Wi-Fi 写入逻辑执行完毕，准备重启网络 =========="
+                    echo '{"result":0}'
+                    ( exec >/dev/null 2>&1 </dev/null; sleep 2; wifi reload ) &
+                    exit 0
                 fi
                 
-                # 响应前端并异步重启网络服务
                 echo '{"result":0}'
                 ( exec >/dev/null 2>&1 </dev/null; sleep 3; /etc/init.d/network restart; /etc/init.d/dnsmasq restart; /etc/init.d/uhttpd restart ) &
                 exit 0

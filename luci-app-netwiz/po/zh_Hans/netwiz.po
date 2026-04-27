@@ -2,7 +2,7 @@ msgid ""
 msgstr "Content-Type: text/plain; charset=UTF-8\n"
 
 msgid "Network Wizard"
-msgstr "路由设置向导"
+msgstr "网络向导"
 
 msgid "Netwiz NETWORK SETUP"
 msgstr "路由设置向导"
@@ -405,3 +405,69 @@ msgstr "若 IP 修改引发失联，把设备 IP 改为同网段即可正常访�
 
 msgid "Waiting for router to abort changes and restore network..."
 msgstr "正在等待路由器放弃修改并恢复网络..."
+
+msgid "Wi-Fi Settings"
+msgstr "Wi-Fi 设置"
+
+msgid "Configure wireless network, SSID, and password."
+msgstr "配置无线网络名称、密码及加密方式。"
+
+msgid "Configure Wi-Fi"
+msgstr "配置 Wi-Fi"
+
+msgid "Smart Connect (All Bands)"
+msgstr "多频合一 (智能漫游)"
+
+msgid "Enable Wi-Fi"
+msgstr "启用 Wi-Fi"
+
+msgid "Enable 2.4G Wi-Fi"
+msgstr "启用 2.4G Wi-Fi"
+
+msgid "Enable 5G Wi-Fi"
+msgstr "启用 5G Wi-Fi"
+
+msgid "Network Name (SSID)"
+msgstr "无线网络名称 (SSID)"
+
+msgid "Wi-Fi Password"
+msgstr "Wi-Fi 密码"
+
+msgid "Encryption"
+msgstr "加密方式"
+
+msgid "Enable 802.11b (Legacy Mode)"
+msgstr "启用 802.11b (旧版兼容模式)"
+
+msgid "Only enable if very old IoT devices cannot connect."
+msgstr "仅在极旧的智能家居/物联网设备无法连接时才建议开启。"
+
+msgid "No Password (Open)"
+msgstr "无密码 (开放)"
+
+msgid "WPA2-PSK (Stable)"
+msgstr "WPA2-PSK (稳定兼容)"
+
+msgid "WPA3-SAE (Secure)"
+msgstr "WPA3-SAE (高安全性)"
+
+msgid "WPA2/WPA3 Mixed (Recommended)"
+msgstr "WPA2/WPA3 混合 (推荐)"
+
+msgid "2.4G Wi-Fi"
+msgstr "2.4G Wi-Fi"
+
+msgid "5G Wi-Fi"
+msgstr "5G Wi-Fi"
+
+msgid "SSID cannot be empty."
+msgstr "网络名称 (SSID) 不能为空。"
+
+msgid "Wi-Fi password must be at least 8 characters."
+msgstr "Wi-Fi 密码长度必须至少为 8 个字符。"
+
+msgid "Applying Wi-Fi Settings"
+msgstr "正在应用 Wi-Fi 设置"
+
+msgid "Smart Connect cannot be enabled because 802.11b (Legacy Mode) is active. Disable it in 2.4G settings first."
+msgstr "因已开启 802.11b 兼容模式，无法启用多频合一。请先在 2.4G 设置中将其关闭。"
