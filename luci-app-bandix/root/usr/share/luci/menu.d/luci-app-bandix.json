@@ -1,6 +1,6 @@
 {
 	"admin/network/bandix": {
-		"title": "Bandix",
+		"title": "流量监控",
 		"order": 90,
 		"action": {
 			"type": "alias",
