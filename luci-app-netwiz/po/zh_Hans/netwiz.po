@@ -2,10 +2,10 @@ msgid ""
 msgstr "Content-Type: text/plain; charset=UTF-8\n"
 
 msgid "Network Wizard"
-msgstr "路由向导"
+msgstr "网络向导"
 
 msgid "Netwiz NETWORK SETUP"
-msgstr "路由设置向导"
+msgstr "网络设置向导"
 
 msgid "Pure · Secure · Non-destructive Minimalist Config"
 msgstr "纯粹 · 安全 · 无损的极简配置"

@@ -107,7 +107,6 @@ case "$1" in
                     log "========== 开始执行 Wi-Fi 阵列群组写入逻辑 =========="
                     log "开始扫描并归类系统内的所有无线物理芯片..."
                     
-                    # 无限芯片阵列
                     list_2g=""
                     list_5g=""
                     dev_list=$(uci show wireless 2>/dev/null | grep '=wifi-device' | cut -d'.' -f2 | cut -d'=' -f1 || true)
@@ -164,7 +163,6 @@ case "$1" in
                         
                         log "正在为芯片 [$dev] 注入目标配置: UI=[$ui_prefix], SSID=[$p_ssid], 启用=[$p_en]"
                         
-                        # 无论启用与否，始终写入配置用于存储记忆
                         if [ "$p_en" = "0" ]; then
                             uci set wireless.$iface_name.disabled='1'
                             log "  - [$dev] 对应接口已静默禁用"
@@ -178,6 +176,9 @@ case "$1" in
                         [ -n "$p_key" ] && uci set wireless.$iface_name.key="$p_key"
                             
                         uci set wireless.$dev.channel='auto'
+                        
+                        # 提取原生硬件属性，准备防降级策略
+                        local current_hw=$(uci -q get wireless.$dev.hwmode || echo "")
                         local current_ht=$(uci -q get wireless.$dev.htmode || echo "")
                         
                         if [ "$intended_band" = "2g" ]; then
@@ -187,16 +188,40 @@ case "$1" in
                                 uci set wireless.$dev.band='2g' 2>/dev/null || true
                                 log "  - [$dev] 强行洗白为 2.4G (Legacy 11b, HT20)"
                             else
-                                uci set wireless.$dev.hwmode='11g'
+                                # 如果是 Wi-Fi 6 (ax) 或 Wi-Fi 7 (be)，坚决保留 hwmode！
+                                if echo "$current_hw" | grep -qEi "be|ax|g"; then
+                                    uci set wireless.$dev.hwmode="$current_hw"
+                                else
+                                    uci set wireless.$dev.hwmode='11g'
+                                fi
                                 uci set wireless.$dev.band='2g' 2>/dev/null || true
-                                echo "$current_ht" | grep -qi "HE" || uci set wireless.$dev.htmode='HT40'
-                                log "  - [$dev] 强行洗白为 2.4G (11g, HT40)"
+                                
+                                # 频宽防降级：保留 EHT(Wi-Fi 7) 和 HE(Wi-Fi 6)
+                                if echo "$current_ht" | grep -qEi "eht|he"; then
+                                    # 2.4G 跑 160MHz 或 80MHz 极易报错崩溃，安全将其正则替换为 40MHz
+                                    local safe_ht=$(echo "$current_ht" | sed -E 's/160|80/40/g')
+                                    uci set wireless.$dev.htmode="$safe_ht"
+                                else
+                                    uci set wireless.$dev.htmode='HT40'
+                                fi
+                                log "  - [$dev] 洗白为 2.4G ($(uci -q get wireless.$dev.hwmode), $(uci -q get wireless.$dev.htmode))"
                             fi
                         elif [ "$intended_band" = "5g" ]; then
-                            uci set wireless.$dev.hwmode='11a'
+                            # 如果是 Wi-Fi 7(be) / Wi-Fi 6(ax) / AC，保留 hwmode
+                            if echo "$current_hw" | grep -qEi "be|ax|ac"; then
+                                uci set wireless.$dev.hwmode="$current_hw"
+                            else
+                                uci set wireless.$dev.hwmode='11a'
+                            fi
                             uci set wireless.$dev.band='5g' 2>/dev/null || true
-                            echo "$current_ht" | grep -qi "HE" || uci set wireless.$dev.htmode='VHT80'
-                            log "  - [$dev] 强行洗白为 5G (11a, VHT80)"
+                            
+                            # 频宽防降级：如果有 EHT 或 HE，保留满血频宽！否则再用 VHT80 兜底。
+                            if echo "$current_ht" | grep -qEi "eht|he"; then
+                                uci set wireless.$dev.htmode="$current_ht"
+                            else
+                                uci set wireless.$dev.htmode='VHT80'
+                            fi
+                            log "  - [$dev] 洗白为 5G ($(uci -q get wireless.$dev.hwmode), $(uci -q get wireless.$dev.htmode))"
                         fi
                     }
 
@@ -216,9 +241,8 @@ case "$1" in
                              configure_physical_radio "$single_dev" "radio_2g" "wifinet_0" "2g"
                         fi
                     else
-                        # 无限量多芯片逻辑！
                         if [ "$smart" = "true" ]; then
-                            log " => [多频合一] 模式：将路由器上所有物理芯片统一为同一网络..."
+                            log " => [多频合一] 模式：将路由器上所有物理芯片统一编织为同一网络..."
                             idx=0
                             for dev in $dev_list; do
                                 if echo " $list_5g " | grep -q " $dev "; then
