@@ -210,17 +210,17 @@ return view.extend({
             '.nw-card-group { display: flex; gap: 25px; justify-content: center; flex-wrap: wrap; margin-top: 20px; width: 100%; box-sizing: border-box; }',
             '.nw-card { flex: 1; min-width: 170px; max-width: 220px; padding: 35px 20px; border-radius: 16px; cursor: pointer; backdrop-filter: blur(12px); border: 1px solid rgba(0,0,0,0.03); box-shadow: 0px 0px 15px 2px #b7b7b7; transition: all 0.25s ease; display: flex; flex-direction: column; align-items: center; box-sizing: border-box; }',
             '.nw-card:hover { transform: translateY(-5px); }',
-            '.nw-card[data-mode="router"] { background: rgba(79, 150, 101, 0.85); }',
-            '.nw-card[data-mode="pppoe"] { background: rgba(80, 0, 183, 0.85); }',
-            '.nw-card[data-mode="lan"] { background: rgba(245, 54, 92, 0.85); }',
-            '.nw-card[data-mode="wifi"] { background: rgba(245, 158, 11, 0.85); }', 
+            '.nw-card[data-mode="pppoe"] { background: rgba(79, 150, 101, 0.85); }',
+            '.nw-card[data-mode="wifi"] { background: rgba(245, 54, 92, 0.85); }', 
+            '.nw-card[data-mode="router"] { background: rgba(80, 0, 183, 0.85); }',
+            '.nw-card[data-mode="lan"] { background: rgba(245, 158, 11, 0.85); }',
             
             '.nw-badge { width: 54px; height: 54px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }',
             '.nw-badge svg { width: 26px; height: 26px; }',
-            '.nw-badge-dhcp { background: #e0f2fe; color: #0284c7; }',
-            '.nw-badge-pppoe { background: #f3e8ff; color: #9333ea; }',
-            '.nw-badge-bypass { background: #d1fae5; color: #059669; }',
-            '.nw-badge-wifi { background: #fef3c7; color: #d97706; }', 
+            '.nw-badge-pppoe { background: #fef3c7; color: #059669; }',
+            '.nw-badge-wifi { background: #f3e8ff; color: #0284c7; }', 
+            '.nw-badge-dhcp { background: #e0f2fe; color: #9333ea; }',
+            '.nw-badge-bypass { background: #d1fae5; color: #d97706; }',
             
             '.nw-card-title { font-size: 19px; margin: 0 0 10px 0; color: #ffffff; font-weight: 600; line-height: 1.2; }',
             '.nw-card span { font-size: 14.5px; color: #ffffff; line-height: 1.5; opacity: 0.9; }',
@@ -317,14 +317,23 @@ return view.extend({
             '  </div>',
             '  <div id="step-1" class="nw-step">',
             '    <div class="nw-card-group">',
-            '      <div class="nw-card" data-mode="router"><div class="nw-badge nw-badge-dhcp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><path d="M2 12h20"/></svg></div>',
-            '        <div class="nw-card-title">{{MODE_ROUTER_TITLE}}</div><span>{{MODE_ROUTER_DESC}}</span></div>',
+            
+            // 1. PPPoE拔号
             '      <div class="nw-card" data-mode="pppoe"><div class="nw-badge nw-badge-pppoe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg></div>',
             '        <div class="nw-card-title">{{MODE_PPPOE_TITLE}}</div><span>{{MODE_PPPOE_DESC}}</span></div>',
-            '      <div class="nw-card" data-mode="lan"><div class="nw-badge nw-badge-bypass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>',
-            '        <div class="nw-card-title">{{MODE_LAN_TITLE}}</div><span>{{MODE_LAN_DESC}}</span></div>',
+
+            // 2. Wi-Fi设置
             '      <div class="nw-card" id="card-wifi" data-mode="wifi" style="display: none;"><div class="nw-badge nw-badge-wifi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg></div>', 
             '        <div class="nw-card-title">{{MODE_WIFI_TITLE}}</div><span>{{MODE_WIFI_DESC}}</span></div>',
+
+            // 3. 二級路由模式
+            '      <div class="nw-card" data-mode="router"><div class="nw-badge nw-badge-dhcp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><path d="M2 12h20"/></svg></div>',
+            '        <div class="nw-card-title">{{MODE_ROUTER_TITLE}}</div><span>{{MODE_ROUTER_DESC}}</span></div>',
+
+            // 4. 局域网设置
+            '      <div class="nw-card" data-mode="lan"><div class="nw-badge nw-badge-bypass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>',
+            '        <div class="nw-card-title">{{MODE_LAN_TITLE}}</div><span>{{MODE_LAN_DESC}}</span></div>',
+            
             '    </div>',
             '    <div id="current-mode-display" style="margin-top: 45px; background: #5e72e4; padding: 20px 35px; border-radius: 12px; display: inline-block; box-shadow: 0 8px 20px rgba(94, 114, 228, 0.3); text-align: center; min-width: 320px;">',
             '       <div id="current-mode-text" style="color: #fff;"><div class="nw-spinner" style="width:30px; height:30px; border-width:3px; margin: 0 auto; border-top-color: #fff;"></div><div style="margin-top:10px; font-size:15px; font-weight:bold; color:#fff;">{{LOADING_CONFIG}}</div></div>',

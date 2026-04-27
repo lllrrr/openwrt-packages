@@ -75,7 +75,7 @@ case "$1" in
                         echo "$arg1" > /tmp/netwiz_target_ip
                         echo $(($(date +%s) + 120)) > /tmp/netwiz_rollback_time
                     else
-                        log "LAN IP 即将修改为 $arg1，(用户选择了直接生效模式) 跳过回退装置"
+                        log "LAN IP 即将修改为 $arg1，(选择了直接生效模式) 跳过回退装置"
                     fi
                 fi
 
@@ -157,7 +157,7 @@ case "$1" in
                         local p_enc=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.encryption" || echo "psk2+sae")
                         local p_hidden=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.hidden" || echo "0")
                         
-                        # 获取用戶強切的 Mode, 信道与宽频
+                        # 获取強切的 Mode, 信道与宽频
                         local p_mode=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.mode" || echo "auto")
                         local p_chan=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.channel" || echo "auto")
                         local p_bw=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.bandwidth" || echo "auto")
@@ -214,15 +214,15 @@ case "$1" in
                             elif [ "$p_mode" = "11n" ] || [ "$p_mode" = "11g" ]; then uci set wireless.$dev.htmode="HT${final_bw}"
                             else uci set wireless.$dev.htmode="HT20"; fi
                             
-                            log "  - ！！！危险警告：用户强制越权指定物理模式: $p_mode ！！！"
+                            log "  - ！！！危险警告：强制越权指定物理模式: $p_mode ！！！"
                         else
-                            # 自動洗白
+                            # 清洗
                             if [ "$intended_band" = "2g" ]; then
                                 if [ "$arg4" = "1" ]; then
                                     uci set wireless.$dev.hwmode='11b'
                                     uci set wireless.$dev.htmode='HT20'
                                     uci set wireless.$dev.band='2g' 2>/dev/null || true
-                                    log "  - [$dev] 强行洗白为 2.4G (Legacy 11b, HT20)"
+                                    log "  - [$dev] 强行清洗为 2.4G (Legacy 11b, HT20)"
                                 else
                                     if echo "$current_hw" | grep -qEi "be|ax|g"; then
                                         uci set wireless.$dev.hwmode="$current_hw"

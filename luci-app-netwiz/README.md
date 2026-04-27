@@ -18,6 +18,12 @@ It is designed to be highly user-friendly for novices setting up secondary route
 * **Smart WAN Auto-Detect (Anti-Jitter):** Features a time-based debounce algorithm that requires 3 continuous down-cycles to confirm a physical cable unplug, safely ignoring temporary software interface bounces.
 * **Flash-Friendly Safe Logging:** Includes a persistent, auto-trimming logging system (`/etc/netwiz.log`) that survives reboots but strictly caps file size to protect the router's flash memory lifespan.
 
+### 📶 Powerful Smart Wi-Fi Engine
+* **Infinite Chip Array Detection:** Breaks the rigid limits of traditional single/dual-chip plugins. Automatically scans and takes over all physical wireless adapters in the system. Perfectly adapts to single-band, dual-band, tri-band, or even multi-band routers, ensuring no hardware is left idle.
+* **Ultimate Low-Level Override:** Designed for incomplete, conflicting, or misconfigured underlying settings (e.g., a single chip stuck in 5G mode). Features an exclusive "Will Override Rule" that ignores residual hardware history, forcibly cleansing and rewriting the correct physical protocols and channels to guarantee a 100% successful application.
+* **Smart Bandwidth Unleashed:** Say goodbye to crippled networks! When applying configurations, it intelligently identifies hardware limits and silently maximizes channel width (e.g., boosting 2.4G to HT40 and 5G to VHT80). It safely preserves existing Wi-Fi 6 (HE) configurations, ensuring effortless gigabit speeds.
+* **Seamless Two-Way Data Sync:** When switching between "Smart Connect" and "Separate Bands", Wi-Fi passwords and SSIDs are intelligently synced back and forth, eliminating repetitive typing. Features historical config memory—retrieve your old password instantly even after disabling and re-enabling Wi-Fi.
+
 **⚙️ Core Architecture & Security**
 * **Zero-Zombie `procd` Daemon:** Replaces unreliable `hotplug` tricks with a single, ultra-lightweight native OpenWrt daemon (`netwiz-monitor`) that reads `ubus` states with near 0% CPU footprint.
 * **Strict ACL:** The frontend has zero direct write access to UCI. All modifications are safely encapsulated and validated within the backend `rpcd` script.
@@ -50,6 +56,10 @@ It is designed to be highly user-friendly for novices setting up secondary route
 **A simple, common example:**
    
    * You have a main router providing Wi-Fi and DHCP for your home. You add a bypass router and set only your laptop’s gateway to it. Now, your laptop’s traffic goes through the bypass router (e.g., for proxy or special routing), while all other devices continue using the main router normally. This way, you get advanced control on one device without affecting the rest of the network.
+
+📶 **Wi-Fi Settings (Smart Connect / Separate Bands)**
+* **Use Case**: Initial wireless network setup, or modifying the SSID, password, and encryption protocols for your whole-home network.
+* **Behavior**: Intelligently detects the number of underlying physical chips to dynamically render the UI. Supports one-click "Smart Connect (All Bands)" to build a seamless roaming network, or splits into independent 2.4G/5G networks. Perfectly backwards compatible with legacy 802.11b IoT devices.
 
 ### 💡 Execution Permissions Requirement (For GitHub Actions / Documentation)**
 
