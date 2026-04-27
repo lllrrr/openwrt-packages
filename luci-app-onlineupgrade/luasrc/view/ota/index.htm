@@ -5,7 +5,7 @@
     .label { padding: 4px 10px; border-radius: 4px; font-size: 0.9em; color: white; display: inline-block; font-weight: 500; }
     .success { background-color: #2dce89; }
     .info { background-color: #11cdef; }
-    .warning { background-color: #fb6340; }
+    .warning { background-color: #fb6340; } /* 预发布版本使用橙色 */
     .secondary { background-color: #888; }
     
     /* 2. 交互组件与布局 */
@@ -196,22 +196,35 @@
                 document.getElementById('cur_ver').innerText = data.version || 'Unknown';
             });
 
-        // 2. 检查更新 & 识别第三方插件
+        // 2. 检查更新 & 识别第三方插件 & 处理 Pre-release 识别
         fetch('<%=url("admin/system/ota/check_update")%>')
             .then(res => res.json())
             .then(data => {
                 const newVerEl = document.getElementById('new_ver');
-                if (data.remote_version && data.remote_version !== "N/A") {
+                
+                // 处理版本显示与 Pre-release 高亮逻辑
+                if (data.remote_version && data.remote_version !== "N/A" && data.remote_version !== "Cloud Connection Failed") {
                     newVerEl.innerText = data.remote_version;
-                    newVerEl.className = "label warning";
+                    
+                    // 如果版本号包含 Pre-release 关键字，使用橙色警告色，否则使用默认蓝色
+                    if (data.remote_version.indexOf('Pre-release') !== -1) {
+                        newVerEl.className = "label warning";
+                    } else {
+                        newVerEl.className = "label info";
+                    }
+                } else if (data.remote_version === "Cloud Connection Failed") {
+                    newVerEl.innerText = '云端连接失败';
+                    newVerEl.className = "label secondary";
                 } else {
                     newVerEl.innerText = '当前已是最新版本';
                     newVerEl.className = "label success";
                 }
 
+                // Safe-Flash: 手动安装插件识别展示
                 if (data.user_packages && data.user_packages.length > 0) {
                     document.getElementById('risk_panel').style.display = 'block';
                     const listUl = document.getElementById('auto_detected_plugins');
+                    listUl.innerHTML = ''; // 清空可能存在的旧数据
                     data.user_packages.forEach(pkg => {
                         const li = document.createElement('li');
                         li.innerText = pkg;
@@ -219,6 +232,7 @@
                     });
                 }
 
+                // 固件文件下拉选择器逻辑
                 const selector = document.getElementById('file_selector');
                 selector.innerHTML = '<option value="">-- 自动匹配 (最佳兼容性) --</option>';
                 if (data.files) {
@@ -238,7 +252,7 @@
     });
 
     /**
-     * 重启后的插件恢复进度轮询 (新增)
+     * 重启后的插件恢复进度轮询
      */
     function pollRestoreProgress() {
         fetch('<%=url("admin/system/ota/restore_status")%>')
@@ -277,20 +291,20 @@
     }
 
     /**
-     * 启动升级前先检查审计报告 (新增整合)
+     * 启动升级：包含审计检查逻辑
      */
     function startUpgrade() {
         const keepConfig = document.getElementById('keep_config').checked ? 1 : 0;
         const manualPlugins = document.getElementById('manual_plugins').value;
         const file = document.getElementById('file_selector').value;
 
-        // 执行核心升级请求前，先进行最后的审计确认
+        // 升级确认前拉取审计报告
         fetch('<%=url("admin/system/ota/audit_report")%>')
             .then(res => res.text())
             .then(auditContent => {
                 let warningMsg = `确认开始安全升级？\n\n1. 保留配置：${keepConfig ? '开启' : '关闭'}\n2. 目标固件：${file || '自动匹配'}`;
                 
-                // 如果审计报告不为空，则弹出差异预警
+                // 处理审计差异冲突
                 if (auditContent && auditContent.indexOf('差异内容') !== -1) {
                     document.getElementById('audit_field').style.display = 'block';
                     document.getElementById('audit_content').value = auditContent;
@@ -299,17 +313,16 @@
                     if (!confirm(warningMsg + "\n\n升级过程中请务必保持电源接通。")) return;
                 }
 
-                // 正式开始请求
                 executeUpgrade(keepConfig, file, manualPlugins);
             })
             .catch(() => {
-                // 如果接口报错（文件不存在），直接执行升级
+                // 若审计接口不可用，直接执行升级
                 executeUpgrade(keepConfig, file, manualPlugins);
             });
     }
 
     /**
-     * 执行真正的升级动作
+     * 执行核心升级 AJAX 动作
      */
     function executeUpgrade(keepConfig, file, manualPlugins) {
         hasAlerted = false;
@@ -363,6 +376,7 @@
                 document.getElementById('progress_bar').style.width = p + "%";
                 document.getElementById('progress_text').innerText = p + "%";
 
+                // 判断是否刷写完成
                 if (!hasAlerted && (data.state === "SUCCESS" || data.state === "FLASHING" || p >= 95)) {
                     hasAlerted = true;
                     clearInterval(pollTimer);

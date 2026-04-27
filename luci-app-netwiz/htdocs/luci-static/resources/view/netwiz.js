@@ -12,7 +12,7 @@ var T = {
     'Network_Wizard': _('Network Wizard'),
     'TITLE': _('Netwiz NETWORK SETUP'),
     'SUBTITLE': _('Pure · Secure · Non-destructive Minimalist Config'),
-    'APP_VERSION': 'v1.2.3', 
+    'APP_VERSION': 'v1.4.0', 
     'MODE_ROUTER_TITLE': _('Secondary Router Mode'),
     'MODE_ROUTER_DESC': _('Upstream network dials up, this device acts as a secondary router.'),
     'MODE_PPPOE_TITLE': _('PPPoE Dial-up'),
@@ -29,6 +29,13 @@ var T = {
     'LBL_SSID': _('Network Name (SSID)'),
     'LBL_WIFI_PASS': _('Wi-Fi Password'),
     'LBL_WIFI_ENC': _('Encryption'),
+    'LBL_ADVANCED': _('Advanced Settings'),
+    'LBL_ADVANCED_CLOSE': _('Hide Advanced'),
+    'LBL_HIDE_SSID': _('Hide Wi-Fi Name (SSID)'),
+    'LBL_CHANNEL': _('Channel'),
+    'LBL_BANDWIDTH': _('Channel Width'),
+    'LBL_MODE': _('Wireless Mode'),
+    'OPT_AUTO': _('Auto'),
     'LBL_LEGACY_B': _('Enable 802.11b (Legacy Mode)'),
     'DESC_LEGACY_B': _('Only enable if very old IoT devices cannot connect.'),
     'OPT_NONE': _('No Password (Open)'),
@@ -41,6 +48,8 @@ var T = {
     'M_PWD_SHORT': _('Wi-Fi password must be at least 8 characters.'),
     'ACT_WIFI': _('Applying Wi-Fi Settings'),
     'M_LEGACY_WARN': _('Smart Connect cannot be enabled because 802.11b (Legacy Mode) is active. Disable it in 2.4G settings first.'),
+    'M_MODE_WARN_TIT': _('⚠️ Severe Warning'),
+    'M_MODE_WARN_MSG': _('Forcibly modifying the wireless physical mode may cause the hardware driver to crash or the Wi-Fi to disappear permanently if the chip does not support it! It is highly recommended to keep it on [Auto].<br><br>Are you absolutely sure you want to change this?'),
     'LOADING_CONFIG': _('Reading underlying config...'),
     'BTN_HOME': _('Back to Home'),
     'TITLE_WAN': _('Configure WAN'),
@@ -260,6 +269,13 @@ return view.extend({
             '.nw-modal-btn-cancel { background: #f1f5f9 !important; color: #475569 !important; }',
             '.nw-modal-btn-cancel:hover { background: #e2e8f0 !important; transform: translateY(-2px) !important; box-shadow: 0 6px 15px rgba(0, 0, 0, 0.1) !important; }',
             '.nw-hl { color: #facc15; font-weight: bold; margin-left: 6px; }',
+            
+            /* 高级设置面板样式 */
+            '.nw-adv-btn { text-align: center; margin-top: 25px; cursor: pointer; color: #64748b; font-size: 14px; font-weight: bold; user-select: none; transition: color 0.25s ease; padding: 10px 0; border-top: 1px dashed #e2e8f0; }',
+            '.nw-adv-btn:hover { color: #3b82f6; }',
+            '.nw-adv-panel { background: rgba(241, 245, 249, 0.5); border-radius: 12px; padding: 20px; margin-top: 15px; border: 1px solid #e2e8f0; animation: fadeIn 0.3s ease; box-shadow: inset 0 2px 5px rgba(0,0,0,0.02); }',
+            '@keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }',
+
             '@media screen and (max-width: 768px) {',
             '  .nw-wrapper { padding-top: 3vh; padding-bottom: 5vh; }',
             '  .nw-header { margin: -35px auto 15px !important; padding: 20px 15px !important; width: 100% !important; max-width: 320px !important; box-sizing: border-box !important; border-radius: 12px; }',
@@ -344,6 +360,8 @@ return view.extend({
             '           <div style="font-weight: 600; color: #222; font-size: 16px;">{{LBL_SMART_CONN}}</div>',
             '           <label class="nw-switch"><input type="checkbox" id="wifi-smart-toggle"><span class="nw-slider"></span></label>',
             '        </div>',
+            
+            // --- 多频合一面板 ---
             '        <div id="wifi-smart-ui" style="display: none;">',
             '          <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 0 15px 0; border-bottom: 1px dashed #e2e8f0; margin-bottom: 15px;">',
             '             <label class="nw-value-title" style="margin:0 !important;">{{LBL_WIFI_SWITCH}}</label>',
@@ -351,25 +369,39 @@ return view.extend({
             '          </div>',
             '          <div class="nw-value"><label class="nw-value-title">{{LBL_SSID}}</label><div class="nw-value-field"><input type="text" id="wifi-smart-ssid" placeholder="My_WiFi"></div></div>',
             '          <div class="nw-value"><label class="nw-value-title">{{LBL_WIFI_PASS}}</label><div class="nw-value-field"><input type="text" id="wifi-smart-key" placeholder="min 8 chars"></div></div>',
-            '          <div class="nw-value"><label class="nw-value-title">{{LBL_WIFI_ENC}}</label><div class="nw-value-field">',
-            '            <select id="wifi-smart-enc"><option value="psk2+sae">{{OPT_PSK2SAE}}</option><option value="psk2">{{OPT_PSK2}}</option><option value="sae">{{OPT_SAE}}</option><option value="none">{{OPT_NONE}}</option></select>',
-            '          </div></div>',
+            '          <div class="nw-adv-btn">▼ {{LBL_ADVANCED}}</div>',
+            '          <div class="nw-adv-panel" style="display:none;">',
+            '             <div style="display: flex; align-items: center; justify-content: space-between; padding: 5px 0 15px 0; border-bottom: 1px dashed #cbd5e1; margin-bottom: 15px;">',
+            '                <label class="nw-value-title" style="margin:0 !important;">{{LBL_HIDE_SSID}}</label>',
+            '                <label class="nw-switch" style="flex-shrink:0;"><input type="checkbox" id="wifi-smart-hidden"><span class="nw-slider"></span></label>',
+            '             </div>',
+            '             <div class="nw-value"><label class="nw-value-title">{{LBL_WIFI_ENC}}</label><div class="nw-value-field">',
+            '               <select id="wifi-smart-enc"><option value="psk2+sae">{{OPT_PSK2SAE}}</option><option value="psk2">{{OPT_PSK2}}</option><option value="sae">{{OPT_SAE}}</option><option value="none">{{OPT_NONE}}</option></select>',
+            '             </div></div>',
+            '          </div>',
             '        </div>',
+
+            // --- 分开独立面板 (包含全局开关、高级设置、物理模式) ---
             '        <div id="wifi-split-ui" style="display: block;">',
+            '           <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 0 15px 0; margin-bottom: 15px; border-bottom: 1px dashed #e2e8f0;">',
+            '              <div style="display: flex; align-items: center; gap: 10px;">',
+            '                 <label class="nw-switch" style="flex-shrink:0; transform: scale(0.9); transform-origin: left;"><input type="checkbox" id="wifi-2g-en" checked><span class="nw-slider"></span></label>',
+            '                 <label class="nw-value-title" style="margin:0 !important; cursor: pointer;">{{LBL_WIFI_2G_EN}}</label>',
+            '              </div>',
+            '              <div style="display: flex; align-items: center; gap: 10px;">',
+            '                 <label class="nw-switch" style="flex-shrink:0; transform: scale(0.9); transform-origin: left;"><input type="checkbox" id="wifi-5g-en" checked><span class="nw-slider"></span></label>',
+            '                 <label class="nw-value-title" style="margin:0 !important; cursor: pointer;">{{LBL_WIFI_5G_EN}}</label>',
+            '              </div>',
+            '           </div>',
             '           <div id="wifi-tab-buttons" style="display:flex; gap:10px; margin-bottom:15px;">',
             '              <button id="tab-2g" style="flex:1; padding:10px; background:#3b82f6; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">{{TAB_2G}}</button>',
             '              <button id="tab-5g" style="flex:1; padding:10px; background:#f1f5f9; color:#475569; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">{{TAB_5G}}</button>',
             '           </div>',
+            
+            // --- 2.4G 面板 ---
             '           <div id="wifi-2g-form">',
-            '              <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 0 15px 0; border-bottom: 1px dashed #e2e8f0; margin-bottom: 15px;">',
-            '                 <label class="nw-value-title" style="margin:0 !important;">{{LBL_WIFI_2G_EN}}</label>',
-            '                 <label class="nw-switch" style="flex-shrink:0;"><input type="checkbox" id="wifi-2g-en" checked><span class="nw-slider"></span></label>',
-            '              </div>',
             '              <div class="nw-value"><label class="nw-value-title">{{LBL_SSID}} (2.4G)</label><div class="nw-value-field"><input type="text" id="wifi-2g-ssid"></div></div>',
             '              <div class="nw-value"><label class="nw-value-title">{{LBL_WIFI_PASS}} (2.4G)</label><div class="nw-value-field"><input type="text" id="wifi-2g-key"></div></div>',
-            '              <div class="nw-value"><label class="nw-value-title">{{LBL_WIFI_ENC}}</label><div class="nw-value-field">',
-            '                <select id="wifi-2g-enc"><option value="psk2+sae">{{OPT_PSK2SAE}}</option><option value="psk2">{{OPT_PSK2}}</option><option value="sae">{{OPT_SAE}}</option><option value="none">{{OPT_NONE}}</option></select>',
-            '              </div></div>',
             '              <div style="display: flex; align-items: center; justify-content: space-between; padding: 15px 0 0 0; border-top: 1px solid #f1f5f9; margin-top: 15px;">',
             '                 <div style="flex: 1; padding-right: 15px; min-width: 0;">',
             '                     <div style="font-weight: 600; color: #222; font-size: 15px; word-break: break-word; line-height: 1.3;">{{LBL_LEGACY_B}}</div>',
@@ -377,17 +409,50 @@ return view.extend({
             '                 </div>',
             '                 <label class="nw-switch" style="flex-shrink: 0;"><input type="checkbox" id="legacy-b-toggle"><span class="nw-slider"></span></label>',
             '              </div>',
-            '           </div>',
-            '           <div id="wifi-5g-form" style="display:none;">',
-            '              <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 0 15px 0; border-bottom: 1px dashed #e2e8f0; margin-bottom: 15px;">',
-            '                 <label class="nw-value-title" style="margin:0 !important;">{{LBL_WIFI_5G_EN}}</label>',
-            '                 <label class="nw-switch" style="flex-shrink:0;"><input type="checkbox" id="wifi-5g-en" checked><span class="nw-slider"></span></label>',
+            '              <div class="nw-adv-btn">▼ {{LBL_ADVANCED}}</div>',
+            '              <div class="nw-adv-panel" style="display:none;">',
+            '                 <div style="display: flex; align-items: center; justify-content: space-between; padding: 5px 0 15px 0; border-bottom: 1px dashed #cbd5e1; margin-bottom: 15px;">',
+            '                    <label class="nw-value-title" style="margin:0 !important;">{{LBL_HIDE_SSID}}</label>',
+            '                    <label class="nw-switch" style="flex-shrink:0;"><input type="checkbox" id="wifi-2g-hidden"><span class="nw-slider"></span></label>',
+            '                 </div>',
+            '                 <div class="nw-value"><label class="nw-value-title">{{LBL_WIFI_ENC}}</label><div class="nw-value-field">',
+            '                    <select id="wifi-2g-enc"><option value="psk2+sae">{{OPT_PSK2SAE}}</option><option value="psk2">{{OPT_PSK2}}</option><option value="sae">{{OPT_SAE}}</option><option value="none">{{OPT_NONE}}</option></select>',
+            '                 </div></div>',
+            '                 <div class="nw-value"><label class="nw-value-title">{{LBL_MODE}}</label><div class="nw-value-field">',
+            '                    <select id="wifi-2g-mode" data-prev="auto"><option value="auto">{{OPT_AUTO}}</option><option value="11be">11be (Wi-Fi 7)</option><option value="11ax">11ax (Wi-Fi 6)</option><option value="11g">11g (Wi-Fi 4/3)</option><option value="11b">11b (Legacy)</option></select>',
+            '                 </div></div>',
+            '                 <div class="nw-value"><label class="nw-value-title">{{LBL_CHANNEL}}</label><div class="nw-value-field">',
+            '                    <select id="wifi-2g-chan"><option value="auto">{{OPT_AUTO}}</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option><option value="13">13</option></select>',
+            '                 </div></div>',
+            '                 <div class="nw-value"><label class="nw-value-title">{{LBL_BANDWIDTH}}</label><div class="nw-value-field">',
+            '                    <select id="wifi-2g-bw"><option value="auto">{{OPT_AUTO}}</option><option value="20">20 MHz</option><option value="40">40 MHz</option></select>',
+            '                 </div></div>',
             '              </div>',
+            '           </div>',
+
+            // --- 5G 面板 ---
+            '           <div id="wifi-5g-form" style="display:none;">',
             '              <div class="nw-value"><label class="nw-value-title">{{LBL_SSID}} (5G)</label><div class="nw-value-field"><input type="text" id="wifi-5g-ssid"></div></div>',
             '              <div class="nw-value"><label class="nw-value-title">{{LBL_WIFI_PASS}} (5G)</label><div class="nw-value-field"><input type="text" id="wifi-5g-key"></div></div>',
-            '              <div class="nw-value"><label class="nw-value-title">{{LBL_WIFI_ENC}}</label><div class="nw-value-field">',
-            '                <select id="wifi-5g-enc"><option value="psk2+sae">{{OPT_PSK2SAE}}</option><option value="psk2">{{OPT_PSK2}}</option><option value="sae">{{OPT_SAE}}</option><option value="none">{{OPT_NONE}}</option></select>',
-            '              </div></div>',
+            '              <div class="nw-adv-btn">▼ {{LBL_ADVANCED}}</div>',
+            '              <div class="nw-adv-panel" style="display:none;">',
+            '                 <div style="display: flex; align-items: center; justify-content: space-between; padding: 5px 0 15px 0; border-bottom: 1px dashed #cbd5e1; margin-bottom: 15px;">',
+            '                    <label class="nw-value-title" style="margin:0 !important;">{{LBL_HIDE_SSID}}</label>',
+            '                    <label class="nw-switch" style="flex-shrink:0;"><input type="checkbox" id="wifi-5g-hidden"><span class="nw-slider"></span></label>',
+            '                 </div>',
+            '                 <div class="nw-value"><label class="nw-value-title">{{LBL_WIFI_ENC}}</label><div class="nw-value-field">',
+            '                    <select id="wifi-5g-enc"><option value="psk2+sae">{{OPT_PSK2SAE}}</option><option value="psk2">{{OPT_PSK2}}</option><option value="sae">{{OPT_SAE}}</option><option value="none">{{OPT_NONE}}</option></select>',
+            '                 </div></div>',
+            '                 <div class="nw-value"><label class="nw-value-title">{{LBL_MODE}}</label><div class="nw-value-field">',
+            '                    <select id="wifi-5g-mode" data-prev="auto"><option value="auto">{{OPT_AUTO}}</option><option value="11be">11be (Wi-Fi 7)</option><option value="11ax">11ax (Wi-Fi 6)</option><option value="11ac">11ac (Wi-Fi 5)</option><option value="11a">11a (Wi-Fi 4)</option></select>',
+            '                 </div></div>',
+            '                 <div class="nw-value"><label class="nw-value-title">{{LBL_CHANNEL}}</label><div class="nw-value-field">',
+            '                    <select id="wifi-5g-chan"><option value="auto">{{OPT_AUTO}}</option><option value="36">36</option><option value="40">40</option><option value="44">44</option><option value="48">48</option><option value="149">149</option><option value="153">153</option><option value="157">157</option><option value="161">161</option></select>',
+            '                 </div></div>',
+            '                 <div class="nw-value"><label class="nw-value-title">{{LBL_BANDWIDTH}}</label><div class="nw-value-field">',
+            '                    <select id="wifi-5g-bw"><option value="auto">{{OPT_AUTO}}</option><option value="20">20 MHz</option><option value="40">40 MHz</option><option value="80">80 MHz</option><option value="160">160 MHz</option></select>',
+            '                 </div></div>',
+            '              </div>',
             '           </div>',
             '        </div>',
             '      </div>',
@@ -448,33 +513,24 @@ return view.extend({
         function safePromise(p, f) { return new Promise(function(r) { var t = setTimeout(function() { r(f); }, 3000); if (!p || !p.then) { clearTimeout(t); return r(f); } p.then(function(res) { clearTimeout(t); r(res); }).catch(function() { clearTimeout(t); r(f); }); }); }
         function safeUciGet(c, s, o, d) { try { var v = uci.get(c, s, o); return (v === null || v === undefined) ? d : String(v).trim(); } catch(e) { return d; } }
 
-        // 安全校验
         Promise.all([
             callNetCheckWifi(),
-            safePromise(callSystemBoard(), {}) // 加入安全捕获防止 RPC 报错中断
+            safePromise(callSystemBoard(), {})
         ]).then(function(results) {
             var wifiRes = results[0];
             var boardRes = results[1] || {};
             var modelName = (boardRes.model || '').toLowerCase();
             
-            console.log("[Netwiz] 硬件状态探测 - WiFi结果:", wifiRes, "型号:", boardRes.model);
-            
-            // 判断是否真的有 WiFi 芯片
             var hasWifi = (wifiRes === true || (typeof wifiRes === 'object' && wifiRes && wifiRes.has_wifi === true));
-            
-            // 必须【同时】包含 'generic' 和 'unknown' 才判定为未激活。
             var isUnknownDevice = (modelName.indexOf('generic') !== -1 && modelName.indexOf('unknown') !== -1);
 
-            // 只有在“有芯片”且“设备已正确激活识别”的情况下，才显示配置卡片
             if (hasWifi && !isUnknownDevice) {
                 var wifiCard = container.querySelector('#card-wifi');
                 if (wifiCard) wifiCard.style.display = 'flex';
             } else if (isUnknownDevice) {
-                console.warn("[Netwiz] 警告: 设备型号为未激活状态 (" + boardRes.model + ")，为防止底层崩溃，已强制锁定并隐藏 Wi-Fi 配置入口。");
+                console.warn("[Netwiz] 警告: 设备未激活 (" + boardRes.model + ")，已锁定隐藏 Wi-Fi 配置。");
             }
-        }).catch(function(err) {
-            console.error("[Netwiz] 硬件联合探测失败:", err);
-        });
+        }).catch(function(err) {});
 
         function updateStatusDisplay(isSilent) {
             try {
@@ -505,9 +561,35 @@ return view.extend({
                     
                     if (!window._wifiLoaded) {
                         try {
-                            console.log("[Netwiz] ====== 开始读取底层 wireless 配置 ======");
                             var wDevs = uci.sections('wireless', 'wifi-device') || [];
                             var wIfaces = uci.sections('wireless', 'wifi-iface') || [];
+                            // --- 芯片字典控制台彩色列印 ---
+                            var getWifiGen = function(hw, ht) {
+                                hw = (hw || '').toLowerCase(); ht = (ht || '').toLowerCase();
+                                if (hw.indexOf('be') !== -1 || ht.indexOf('eht') !== -1) return 'Wi-Fi 7 (802.11be 极速)';
+                                if (hw.indexOf('ax') !== -1 || ht.indexOf('he') !== -1) return 'Wi-Fi 6 (802.11ax 高速)';
+                                if (hw.indexOf('ac') !== -1 || ht.indexOf('vht') !== -1) return 'Wi-Fi 5 (802.11ac 标准)';
+                                if (ht.indexOf('ht') !== -1 || hw.indexOf('n') !== -1) return 'Wi-Fi 4 (802.11n 基础)';
+                                if (hw.indexOf('g') !== -1) return 'Wi-Fi 3 (802.11g 老旧)';
+                                if (hw.indexOf('a') !== -1) return 'Wi-Fi 2 (802.11a 古董)';
+                                if (hw.indexOf('b') !== -1) return 'Wi-Fi 1 (802.11b 远古)';
+                                return '未知协议 (Unknown)';
+                            };
+
+                            if (wDevs.length > 0) {
+                                console.groupCollapsed("%c[Netwiz] 📡 芯片扫描報告", "color:#3b82f6; font-weight:bold; font-size:14px;");
+                                wDevs.forEach(function(dev) {
+                                    var gen = getWifiGen(dev.hwmode, dev.htmode);
+                                    var bd = (dev.band || '').toLowerCase();
+                                    var hw = (dev.hwmode || '').toLowerCase();
+                                    var bandStr = (bd === '5g' || hw.indexOf('a') !== -1) ? '5 GHz' : '2.4 GHz';
+                                    console.log("%c芯片 ID: %c" + dev['.name'] + " %c| 物理頻段: %c" + bandStr + " %c| 支持协议: %c" + gen, 
+                                        "color:#64748b", "color:#10b981; font-weight:bold", 
+                                        "color:#64748b", "color:#f59e0b; font-weight:bold",
+                                        "color:#64748b", "color:#ef4444; font-weight:bold");
+                                });
+                                console.groupEnd();
+                            }
 
                             var smartToggle = container.querySelector('#wifi-smart-toggle');
                             var legacyToggle = container.querySelector('#legacy-b-toggle');
@@ -532,15 +614,12 @@ return view.extend({
 
                                     var hwmode = (theDev.hwmode || '').toLowerCase();
                                     var band = (theDev.band || '').toLowerCase();
+                                    var htmode = (theDev.htmode || '').toLowerCase();
                                     
                                     var is5G = false;
-                                    if (hwmode.indexOf('a') !== -1) {
-                                        is5G = true;
-                                    } else if (hwmode.indexOf('b') !== -1 || hwmode.indexOf('g') !== -1) {
-                                        is5G = false;
-                                    } else {
-                                        is5G = (band === '5g');
-                                    }
+                                    if (hwmode.indexOf('a') !== -1) { is5G = true; } 
+                                    else if (hwmode.indexOf('b') !== -1 || hwmode.indexOf('g') !== -1) { is5G = false; } 
+                                    else { is5G = (band === '5g'); }
                                     var isLegacy = (hwmode === '11b');
 
                                     var theIface = findMainIfaceForDev(theDev['.name']);
@@ -548,6 +627,10 @@ return view.extend({
                                     var key = theIface.key || '';
                                     var enc = theIface.encryption || 'psk2+sae';
                                     var disabled = (theIface.disabled === '1');
+                                    var isHidden = (theIface.hidden === '1');
+                                    var chan = theDev.channel || 'auto';
+                                    var bwMatch = htmode.match(/\d+/);
+                                    var bw = bwMatch ? bwMatch[0] : 'auto';
 
                                     if (is5G) {
                                         container.querySelector('#wifi-5g-en').checked = !disabled;
@@ -555,6 +638,9 @@ return view.extend({
                                         container.querySelector('#wifi-5g-ssid').value = ssid;
                                         container.querySelector('#wifi-5g-key').value = key;
                                         container.querySelector('#wifi-5g-enc').value = enc;
+                                        container.querySelector('#wifi-5g-hidden').checked = isHidden;
+                                        var chanEl = container.querySelector('#wifi-5g-chan'); if(chanEl.querySelector('option[value="'+chan+'"]')) chanEl.value = chan;
+                                        var bwEl = container.querySelector('#wifi-5g-bw'); if(bwEl.querySelector('option[value="'+bw+'"]')) bwEl.value = bw;
                                         legacyToggle.checked = false;
                                     } else {
                                         container.querySelector('#wifi-2g-en').checked = !disabled;
@@ -562,6 +648,9 @@ return view.extend({
                                         container.querySelector('#wifi-2g-ssid').value = ssid;
                                         container.querySelector('#wifi-2g-key').value = key;
                                         container.querySelector('#wifi-2g-enc').value = enc;
+                                        container.querySelector('#wifi-2g-hidden').checked = isHidden;
+                                        var chanEl = container.querySelector('#wifi-2g-chan'); if(chanEl.querySelector('option[value="'+chan+'"]')) chanEl.value = chan;
+                                        var bwEl = container.querySelector('#wifi-2g-bw'); if(bwEl.querySelector('option[value="'+bw+'"]')) bwEl.value = bw;
                                         legacyToggle.checked = isLegacy;
                                     }
                                 } else {
@@ -576,11 +665,8 @@ return view.extend({
                                         else if (bd === '5g') is_5g_chip = true;
                                         else if (d.path && d.path.indexOf('pcie1') !== -1) is_5g_chip = true;
                                         
-                                        if (is_5g_chip) {
-                                            if (!dev5g) dev5g = d; 
-                                        } else {
-                                            if (!dev2g) dev2g = d;
-                                        }
+                                        if (is_5g_chip) { if (!dev5g) dev5g = d; } 
+                                        else { if (!dev2g) dev2g = d; }
                                     });
                                     if(!dev2g && wDevs.length > 0) dev2g = wDevs[0];
                                     if(!dev5g && wDevs.length > 1) dev5g = wDevs.find(d => d['.name'] !== dev2g['.name']);
@@ -589,13 +675,11 @@ return view.extend({
                                     var i5g = findMainIfaceForDev(dev5g ? dev5g['.name'] : 'none');
 
                                     var isLegacy = dev2g && dev2g.hwmode === '11b';
-                                    var s2 = i2g.ssid || '', k2 = i2g.key || '', e2 = i2g.encryption || 'psk2+sae', d2 = i2g.disabled === '1';
-                                    var s5 = i5g.ssid || '', k5 = i5g.key || '', e5 = i5g.encryption || 'psk2+sae', d5 = i5g.disabled === '1';
+                                    var s2 = i2g.ssid || '', k2 = i2g.key || '', e2 = i2g.encryption || 'psk2+sae', d2 = i2g.disabled === '1', h2 = i2g.hidden === '1';
+                                    var s5 = i5g.ssid || '', k5 = i5g.key || '', e5 = i5g.encryption || 'psk2+sae', d5 = i5g.disabled === '1', h5 = i5g.hidden === '1';
 
                                     var isSmart = (!isLegacy && s2 && s5 && s2 === s5 && k2 === k5 && e2 === e5);
                                     if (!s2 && !s5 && !d2 && !d5) isSmart = true;
-
-                                    console.log("[Netwiz] 判断多频合一状态:", isSmart);
 
                                     legacyToggle.checked = isLegacy;
                                     smartToggle.checked = isSmart;
@@ -605,25 +689,35 @@ return view.extend({
                                         container.querySelector('#wifi-smart-ssid').value = s2;
                                         container.querySelector('#wifi-smart-key').value = k2;
                                         container.querySelector('#wifi-smart-enc').value = e2;
+                                        container.querySelector('#wifi-smart-hidden').checked = h2;
                                     } else {
                                         container.querySelector('#wifi-2g-en').checked = !d2;
                                         container.querySelector('#wifi-2g-ssid').value = s2;
                                         container.querySelector('#wifi-2g-key').value = k2;
                                         container.querySelector('#wifi-2g-enc').value = e2;
+                                        container.querySelector('#wifi-2g-hidden').checked = h2;
+                                        if (dev2g) {
+                                            var chanEl2 = container.querySelector('#wifi-2g-chan'); if(chanEl2.querySelector('option[value="'+(dev2g.channel||'auto')+'"]')) chanEl2.value = (dev2g.channel||'auto');
+                                            var bwM2 = (dev2g.htmode||'').match(/\d+/); var bw2 = bwM2 ? bwM2[0] : 'auto';
+                                            var bwEl2 = container.querySelector('#wifi-2g-bw'); if(bwEl2.querySelector('option[value="'+bw2+'"]')) bwEl2.value = bw2;
+                                        }
 
                                         container.querySelector('#wifi-5g-en').checked = !d5;
                                         container.querySelector('#wifi-5g-ssid').value = s5;
                                         container.querySelector('#wifi-5g-key').value = k5;
                                         container.querySelector('#wifi-5g-enc').value = e5;
+                                        container.querySelector('#wifi-5g-hidden').checked = h5;
+                                        if (dev5g) {
+                                            var chanEl5 = container.querySelector('#wifi-5g-chan'); if(chanEl5.querySelector('option[value="'+(dev5g.channel||'auto')+'"]')) chanEl5.value = (dev5g.channel||'auto');
+                                            var bwM5 = (dev5g.htmode||'').match(/\d+/); var bw5 = bwM5 ? bwM5[0] : 'auto';
+                                            var bwEl5 = container.querySelector('#wifi-5g-bw'); if(bwEl5.querySelector('option[value="'+bw5+'"]')) bwEl5.value = bw5;
+                                        }
                                     }
                                     smartToggle.dispatchEvent(new Event('change'));
                                 }
                             }
-                            console.log("[Netwiz] ====== 配置文件读取完毕 ======");
                             window._wifiLoaded = true;
-                        } catch(ex) {
-                            console.error("[Netwiz] 读取配置文件发生错误:", ex);
-                        }
+                        } catch(ex) { }
                     }
 
                     var mkB = function(bg, txt) { return "<span style='font-size:12px; background:" + bg + "; color:#fff; padding:3px 10px; border-radius:12px; white-space:nowrap;'>" + txt + "</span>"; };
@@ -655,6 +749,44 @@ return view.extend({
         
         function returnToStep1() { container.querySelector('#nw-global-modal').style.display = 'none'; step3.style.display = 'none'; step2.style.display = 'none'; step1.style.display = 'block'; }
         
+        // 绑定高级折叠面板事件
+        container.querySelectorAll('.nw-adv-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var panel = this.nextElementSibling;
+                if (panel.style.display === 'none') {
+                    panel.style.display = 'block';
+                    this.innerHTML = '▲ ' + T['LBL_ADVANCED_CLOSE'];
+                } else {
+                    panel.style.display = 'none';
+                    this.innerHTML = '▼ ' + T['LBL_ADVANCED'];
+                }
+            });
+        });
+
+        // 模式选择防呆危险警告弹窗
+        var modeWarnHandler = function(e) {
+            var el = e.target;
+            if (el.value !== 'auto') {
+                openModal({
+                    title: T['M_MODE_WARN_TIT'],
+                    msg: T['M_MODE_WARN_MSG'],
+                    cancelText: T['M_CLOSE'],
+                    okText: T['M_WARN_BTN'],
+                    isDanger: true,
+                    onCancel: function() {
+                        el.value = 'auto'; // 恢复为 auto
+                        container.querySelector('#nw-global-modal').style.display = 'none';
+                    },
+                    onOk: function() {
+                        // 强制修改后，放行
+                        container.querySelector('#nw-global-modal').style.display = 'none';
+                    }
+                });
+            }
+        };
+        container.querySelector('#wifi-2g-mode').addEventListener('change', modeWarnHandler);
+        container.querySelector('#wifi-5g-mode').addEventListener('change', modeWarnHandler);
+
         container.querySelectorAll('input[name="router_type"]').forEach(function(r) { r.addEventListener('change', function() { container.querySelector('#router-static-fields').style.display = (this.value === 'static') ? 'block' : 'none'; }); });
         
         var bypassToggle = container.querySelector('#lan-bypass-toggle');
@@ -677,7 +809,6 @@ return view.extend({
             
             if (window._wifiLoaded) {
                 if (this.checked) {
-                    // 从【分开设定】切换为【多频合一】 -> 抓取分开面板的密码
                     var s2 = container.querySelector('#wifi-2g-ssid').value;
                     var k2 = container.querySelector('#wifi-2g-key').value;
                     var e2 = container.querySelector('#wifi-2g-enc').value;
@@ -697,7 +828,6 @@ return view.extend({
                     var en5 = container.querySelector('#wifi-5g-en').checked;
                     container.querySelector('#wifi-smart-en').checked = (en2 || en5);
                 } else {
-                    // 从【多频合一】切换回【分开设定】 -> 自动填充给子频段
                     var ss = container.querySelector('#wifi-smart-ssid').value;
                     var sk = container.querySelector('#wifi-smart-key').value;
                     var se = container.querySelector('#wifi-smart-enc').value;
@@ -901,20 +1031,29 @@ return view.extend({
                         enabled: container.querySelector('#wifi-smart-en').checked ? "1" : "0",
                         ssid: container.querySelector('#wifi-smart-ssid').value.trim(),
                         key: container.querySelector('#wifi-smart-key').value,
-                        encryption: container.querySelector('#wifi-smart-enc').value
+                        encryption: container.querySelector('#wifi-smart-enc').value,
+                        hidden: container.querySelector('#wifi-smart-hidden').checked ? "1" : "0"
                     };
                 } else {
                     payload.radio_2g = {
                         enabled: container.querySelector('#wifi-2g-en').checked ? "1" : "0",
                         ssid: container.querySelector('#wifi-2g-ssid').value.trim(),
                         key: container.querySelector('#wifi-2g-key').value,
-                        encryption: container.querySelector('#wifi-2g-enc').value
+                        encryption: container.querySelector('#wifi-2g-enc').value,
+                        hidden: container.querySelector('#wifi-2g-hidden').checked ? "1" : "0",
+                        mode: container.querySelector('#wifi-2g-mode').value,
+                        channel: container.querySelector('#wifi-2g-chan').value,
+                        bandwidth: container.querySelector('#wifi-2g-bw').value
                     };
                     payload.radio_5g = {
                         enabled: container.querySelector('#wifi-5g-en').checked ? "1" : "0",
                         ssid: container.querySelector('#wifi-5g-ssid').value.trim(),
                         key: container.querySelector('#wifi-5g-key').value,
-                        encryption: container.querySelector('#wifi-5g-enc').value
+                        encryption: container.querySelector('#wifi-5g-enc').value,
+                        hidden: container.querySelector('#wifi-5g-hidden').checked ? "1" : "0",
+                        mode: container.querySelector('#wifi-5g-mode').value,
+                        channel: container.querySelector('#wifi-5g-chan').value,
+                        bandwidth: container.querySelector('#wifi-5g-bw').value
                     };
                 }
                 a1 = JSON.stringify(payload);

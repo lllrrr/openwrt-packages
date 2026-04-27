@@ -1,7 +1,11 @@
 # --- 基础全局设置 ---
 config ota 'settings'
-    # GitHub API 地址：脚本会自动从中解析 tag_name 和 assets 固件列表
-    option url 'https://api.github.com/repos/qsyqn1/immoralwrt-x86-64/releases/latest'
+   # 修改：为了支持 Pre-release 筛选，URL 建议填入仓库主地址，由控制器动态拼接
+    option url 'https://api.github.com/repos/qsyqn1/immoralwrt-x86-64'
+    
+    # [新增核心] 是否接收预发布版本 (1: 开启, 0: 仅限正式版)
+    # 这一行必须添加，否则页面上的开关状态无法持久化保存
+    option allow_prerelease '0'
     
     # [新增] 自动化与检查开关
     option auto_check '0'          # 定时检查更新开关 (1: 开启, 0: 关闭)

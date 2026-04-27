@@ -471,3 +471,30 @@ msgstr "正在应用 Wi-Fi 设置"
 
 msgid "Smart Connect cannot be enabled because 802.11b (Legacy Mode) is active. Disable it in 2.4G settings first."
 msgstr "因已开启 802.11b 兼容模式，无法启用多频合一。请先在 2.4G 设置中将其关闭。"
+
+msgid "Advanced Settings"
+msgstr "高级设置"
+
+msgid "Hide Advanced"
+msgstr "收起高级设置"
+
+msgid "Hide Wi-Fi Name (SSID)"
+msgstr "隐藏 Wi-Fi 名称"
+
+msgid "Channel"
+msgstr "信道"
+
+msgid "Channel Width"
+msgstr "通道宽度 (频宽)"
+
+msgid "Auto"
+msgstr "自动"
+
+msgid "Wireless Mode"
+msgstr "无线模式 (Mode)"
+
+msgid "⚠️ Severe Warning"
+msgstr "⚠️ 严重警告"
+
+msgid "Forcibly modifying the wireless physical mode may cause the hardware driver to crash or the Wi-Fi to disappear permanently if the chip does not support it! It is highly recommended to keep it on [Auto].<br><br>Are you absolutely sure you want to change this?"
+msgstr "如果强行指定的物理模式与网卡芯片实际支持的能力不匹配，将导致<b>底层驱动直接崩溃、Wi-Fi 永久消失！</b>强烈建议保持为【自动 (推荐)】。<br><br>您确定要强行修改模式吗？"
