@@ -401,7 +401,7 @@ msgid "If enabled, the system will auto-revert if you lose connection within 120
 msgstr "开启后，若修改 IP 导致失联，系统将在 120 秒后自动回退恢复。"
 
 msgid "Safe mode disabled. Applying immediately without rollback protection..."
-msgstr "已关闭防失联保护，配置立刻生效中..."
+msgstr "已关闭防失联保护，配置已经生效。"
 
 msgid "If IP changed, please update PC IP. Auto-redirecting when connected..."
 msgstr "若 IP 修改引发失联，把设备 IP 改为同网段即可正常访问路由器，网络连通后将自动跳转..."

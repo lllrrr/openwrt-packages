@@ -57,7 +57,7 @@ It is designed to be highly user-friendly for novices setting up secondary route
    
    * You have a main router providing Wi-Fi and DHCP for your home. You add a bypass router and set only your laptop’s gateway to it. Now, your laptop’s traffic goes through the bypass router (e.g., for proxy or special routing), while all other devices continue using the main router normally. This way, you get advanced control on one device without affecting the rest of the network.
 
-📶 **Wi-Fi Settings (Smart Connect / Separate Bands)**
+📶 **Wi-Fi Settings（Auto-hide when Wi-Fi is unavailable.）**
 * **Use Case**: Initial wireless network setup, or modifying the SSID, password, and encryption protocols for your whole-home network.
 * **Behavior**: Intelligently detects the number of underlying physical chips to dynamically render the UI. Supports one-click "Smart Connect (All Bands)" to build a seamless roaming network, or splits into independent 2.4G/5G networks. Perfectly backwards compatible with legacy 802.11b IoT devices.
 
@@ -113,31 +113,9 @@ luci-app-netwiz/
 ```
 ---
 
-### 📊 Monitoring & Logging
-
-The plugin features a flash-friendly, persistent logging system (`/etc/netwiz.log`) equipped with a strict 600-line auto-trimming safety valve. This ensures complete observability across reboots without risking router flash memory degradation.
-
-You can monitor the system state and trace execution events via SSH:
-
-**1. Watch the Netwiz Exclusive Safe-Log:**
-
-```bash
-# Real-time monitoring (tracks Monitor, Engine, RPC, and Recovery events)
-tail -f /etc/netwiz.log
-```
-```bash
-# View the full log history
-cat /etc/netwiz.log
-```
-
-**2. Check System-Level Alerts:**
-Filter OpenWrt global system logs for Netwiz emergency alerts (e.g., Power-loss recovery triggers)
-
-```bash
-logread | grep Netwiz
-```
-
+<img width="680" alt="Image" src="https://github.com/user-attachments/assets/b2fca517-cbd2-4aa0-b557-bac5fd557dba" />
 <img width="680" alt="Image" src="https://github.com/user-attachments/assets/cce37944-d90a-4653-923c-d957812d8f37" />
+<img width="680" alt="Image" src="https://github.com/user-attachments/assets/8cae623d-766f-49a8-8c6c-ab78738d6b88" />
 <img width="680" alt="Image" src="https://github.com/user-attachments/assets/f0bd7bf8-16b7-4955-9a83-55673a7bf66e" />
 <img width="680" alt="Image" src="https://github.com/user-attachments/assets/ea664013-9f76-49e3-b10f-8307dbb6fc24" />
 <img width="680" alt="Image" src="https://github.com/user-attachments/assets/5c0370fc-efd9-4e51-be3c-ed35233786d6" />
