@@ -4,7 +4,7 @@
 
 START=99
 USE_PROCD=1
-LOG_FILE="/etc/netwiz.log"
+LOG_FILE="/tmp/netwiz.log"
 
 log() {
     echo "$(date '+%F %T') [Service] $1" >> "$LOG_FILE"

@@ -67,9 +67,9 @@ var T = {
     'PH_PASS': _('Enter PPPoE password'),
     'TITLE_LAN': _('Configure LAN'),
     'LBL_IPV6': _('Enable IPv6 (DHCPv6)'),
-    'LBL_FORCE_APPLY': _('Bypass Safe Mode(Recommended OFF)'),
-    'DESC_FORCE_APPLY': _('If enabled, the 120s rollback timer is bypassed.'),
-    'MSG_SAFE_OFF': _('Safe mode bypassed. Applying immediately...'),
+    'LBL_FORCE_APPLY': _('Safe Mode (Recommended ON)'),
+    'DESC_FORCE_APPLY': _('If enabled, the system will auto-revert if you lose connection within 120s.'),
+    'MSG_SAFE_OFF': _('Safe mode disabled. Applying immediately without rollback protection...'),
     'LBL_BYPASS': _('Enable Bypass Mode'),
     'WARN_BYPASS': _('<b style="font-size: 16px;">Bypass Mode Enabled:</b><br>1. DHCP will be disabled. <b style="color: #059669;">Devices must use static IPs or get IPs from upstream.</b><br>2. Gateway MUST be the upstream router IP.<br>3. If LAN IP changes, ensure your client is in the same subnet to avoid <b style="color: #059669;">losing access</b>.'),
     'WARN_MAIN': _('<b style="font-size: 16px;">Main Router Mode Enabled:</b><br>1. DHCP will be enabled. This device assigns IPs.<br>2. Gateway is usually left blank.<br>3. If LAN IP changes, ensure your client is in the same subnet to avoid <b style="color: #dc2626;">losing access</b>.'),
@@ -170,7 +170,7 @@ var T = {
     'MSG_TIMER': _('Rollback countdown: <b style="color:#f59e0b;">{sec}</b> / {total} s'),
     'MSG_REDIRECTING': _('Network connected! Automatically redirecting...'),
     'MSG_MANUAL_VISIT': _('If IP changed, please update PC IP. Auto-redirecting when connected...'),
-    'MSG_ABANDONING': _('Waiting for router to abort changes and restore network...')
+    'MSG_ABANDONING': _('Waiting for router to abort changes and restore network...'),
     'TXT_WIFI_STATUS': _('Wi-Fi Status'),
     'TXT_SMART_ACCT': _('Smart Connect'),
     'TXT_5G_ACCT': _('5G Wi-Fi Account'),
@@ -493,7 +493,7 @@ return view.extend({
             '               <div style="font-weight: 600; color: #222; font-size: 15px; word-break: break-word; line-height: 1.3;">{{LBL_FORCE_APPLY}}</div>',
             '               <div style="font-size: 12px; color: #64748b; margin-top: 4px; word-break: break-word; line-height: 1.4;">{{DESC_FORCE_APPLY}}</div>',
             '           </div>',
-            '           <label class="nw-switch" style="flex-shrink: 0;"><input type="checkbox" id="lan-force-toggle"><span class="nw-slider"></span></label>',
+            '           <label class="nw-switch" style="flex-shrink: 0;"><input type="checkbox" id="lan-safe-toggle" checked><span class="nw-slider"></span></label>',
             '        </div>',
             '      </div>',
             '    </div>',
@@ -535,7 +535,7 @@ return view.extend({
         function safePromise(p, f) { return new Promise(function(r) { var t = setTimeout(function() { r(f); }, 3000); if (!p || !p.then) { clearTimeout(t); return r(f); } p.then(function(res) { clearTimeout(t); r(res); }).catch(function() { clearTimeout(t); r(f); }); }); }
         function safeUciGet(c, s, o, d) { try { var v = uci.get(c, s, o); return (v === null || v === undefined) ? d : String(v).trim(); } catch(e) { return d; } }
 
-        // 🌟 新增：智能 SSID 后缀转换引擎
+        // 智能 SSID 后缀转换
         function smartConvertSsid(ssid, toBand) {
             if (!ssid) return '';
             var s = ssid.trim();
@@ -641,9 +641,19 @@ return view.extend({
                                     var enc = theIface.encryption || 'psk2+sae';
                                     var disabled = (theIface.disabled === '1');
                                     var isHidden = (theIface.hidden === '1');
+                                    
+                                    // 读取通道和宽度
                                     var chan = theDev.channel || 'auto';
                                     var bwMatch = htmode.match(/\d+/);
                                     var bw = bwMatch ? bwMatch[0] : 'auto';
+                                    
+                                    // 智能反向解析无线物理模式 (Wi-Fi 4/5/6/7)
+                                    var pMode = 'auto';
+                                    if (htmode.indexOf('eht') !== -1) pMode = '11be';
+                                    else if (htmode.indexOf('he') !== -1) pMode = '11ax';
+                                    else if (htmode.indexOf('vht') !== -1) pMode = '11ac';
+                                    else if (htmode.indexOf('ht') !== -1) pMode = (hwmode.indexOf('a') !== -1 || is5G) ? '11a' : '11g';
+                                    else if (hwmode === '11b') pMode = '11b';
 
                                     container.querySelector('#wifi-2g-ssid').value = ssid;
                                     container.querySelector('#wifi-2g-key').value = key;
@@ -660,12 +670,16 @@ return view.extend({
                                         container.querySelector('#wifi-2g-en').checked = false;
                                         var chanEl = container.querySelector('#wifi-5g-chan'); if(chanEl.querySelector('option[value="'+chan+'"]')) chanEl.value = chan;
                                         var bwEl = container.querySelector('#wifi-5g-bw'); if(bwEl.querySelector('option[value="'+bw+'"]')) bwEl.value = bw;
+                                        // 將模式写入下拉选单
+                                        var mEl = container.querySelector('#wifi-5g-mode'); if(mEl.querySelector('option[value="'+pMode+'"]')) mEl.value = pMode;
                                         legacyToggle.checked = false;
                                     } else {
                                         container.querySelector('#wifi-2g-en').checked = !disabled;
                                         container.querySelector('#wifi-5g-en').checked = false;
                                         var chanEl = container.querySelector('#wifi-2g-chan'); if(chanEl.querySelector('option[value="'+chan+'"]')) chanEl.value = chan;
                                         var bwEl = container.querySelector('#wifi-2g-bw'); if(bwEl.querySelector('option[value="'+bw+'"]')) bwEl.value = bw;
+                                        // 將模式写入下拉选单
+                                        var mEl = container.querySelector('#wifi-2g-mode'); if(mEl.querySelector('option[value="'+pMode+'"]')) mEl.value = pMode;
                                         legacyToggle.checked = isLegacy;
                                     }
                                 } else {
@@ -715,6 +729,11 @@ return view.extend({
                                             var chanEl2 = container.querySelector('#wifi-2g-chan'); if(chanEl2.querySelector('option[value="'+(dev2g.channel||'auto')+'"]')) chanEl2.value = (dev2g.channel||'auto');
                                             var bwM2 = (dev2g.htmode||'').match(/\d+/); var bw2 = bwM2 ? bwM2[0] : 'auto';
                                             var bwEl2 = container.querySelector('#wifi-2g-bw'); if(bwEl2.querySelector('option[value="'+bw2+'"]')) bwEl2.value = bw2;
+                                            
+                                            // 🌟 2.4G 模式反向解析
+                                            var ht2 = (dev2g.htmode||'').toLowerCase(), hm2 = (dev2g.hwmode||'').toLowerCase(), md2 = 'auto';
+                                            if(ht2.indexOf('eht') !== -1) md2 = '11be'; else if(ht2.indexOf('he') !== -1) md2 = '11ax'; else if(ht2.indexOf('vht') !== -1) md2 = '11ac'; else if(ht2.indexOf('ht') !== -1) md2 = '11g'; else if(hm2 === '11b') md2 = '11b';
+                                            var mEl2 = container.querySelector('#wifi-2g-mode'); if(mEl2.querySelector('option[value="'+md2+'"]')) mEl2.value = md2;
                                         }
 
                                         container.querySelector('#wifi-5g-en').checked = !d5;
@@ -726,6 +745,11 @@ return view.extend({
                                             var chanEl5 = container.querySelector('#wifi-5g-chan'); if(chanEl5.querySelector('option[value="'+(dev5g.channel||'auto')+'"]')) chanEl5.value = (dev5g.channel||'auto');
                                             var bwM5 = (dev5g.htmode||'').match(/\d+/); var bw5 = bwM5 ? bwM5[0] : 'auto';
                                             var bwEl5 = container.querySelector('#wifi-5g-bw'); if(bwEl5.querySelector('option[value="'+bw5+'"]')) bwEl5.value = bw5;
+                                            
+                                            // 🌟 5G 模式反向解析
+                                            var ht5 = (dev5g.htmode||'').toLowerCase(), hm5 = (dev5g.hwmode||'').toLowerCase(), md5 = 'auto';
+                                            if(ht5.indexOf('eht') !== -1) md5 = '11be'; else if(ht5.indexOf('he') !== -1) md5 = '11ax'; else if(ht5.indexOf('vht') !== -1) md5 = '11ac'; else if(ht5.indexOf('ht') !== -1) md5 = '11a';
+                                            var mEl5 = container.querySelector('#wifi-5g-mode'); if(mEl5.querySelector('option[value="'+md5+'"]')) mEl5.value = md5;
                                         }
                                     }
                                     smartToggle.dispatchEvent(new Event('change'));
@@ -762,7 +786,7 @@ return view.extend({
                         } catch(ex) { }
                     }
 
-                    var mkB = function(bg, txt) { return "<span style='font-size:12px; background:" + bg + "; color:#fff; padding:3px 10px; border-radius:12px; white-space:nowrap;'>" + txt + "</span>"; };
+                    var mkB = function(bg, txt) { return "<span style='font-size:14px; background:" + bg + "; color:#fff; padding:5px 10px; border-radius:12px; white-space:nowrap;'>" + txt + "</span>"; };
                     var mkD = function(l1, v1, l2, v2) { return "<span style='white-space:nowrap; margin: 0 10px;'>" + l1 + " <span class='nw-hl'>" + v1 + "</span></span><span style='white-space:nowrap; margin: 0 10px;'>" + l2 + " <span class='nw-hl'>" + v2 + "</span></span>"; };
                     var sTitle = "", sDetails = "", statusBadge = "";
                     
@@ -773,7 +797,7 @@ return view.extend({
                     else { sTitle = T['STAT_LAN']; sDetails = mkD(T['TXT_LAN_IP'], lIp, T['TXT_DHCP_SRV'], T['TXT_ON']); }
                     
                     // 首页展示 Wi-Fi 与 IPv6 状态
-                    var ipv6Label = (ipv6Mode === 'server' || ipv6Mode === 'relay') ? '<b style="color:#10b981;">' + T['TXT_ON'] + '</b>' : '<b style="color:#ef4444;">' + T['TXT_OFF'] + '</b>';
+                    var ipv6Label = (ipv6Mode === 'server' || ipv6Mode === 'relay') ? '<b style="color:#10b981; padding: 3px 10px; background: #fff; border-radius: 10px;">' + T['TXT_ON'] + '</b>' : '<b style="color:#ef4444; padding: 3px 10px; background: #fff; border-radius: 10px;">' + T['TXT_OFF'] + '</b>';
                     
                     var wDevsList = uci.sections('wireless', 'wifi-device') || [];
                     var wIfacesList = uci.sections('wireless', 'wifi-iface') || [];
@@ -813,16 +837,17 @@ return view.extend({
                         }
                     }
                     
-                    // 虚线的透明度0.6，整体字号 15.5px
-                    var extraInfo = "<div style='margin-top: 20px; padding-top: 18px; border-top: 1px dashed rgba(255,255,255,0.6); font-size:15.5px; color:#ffffff; font-weight: 600; font-family:monospace; display:flex; flex-direction:column; gap:12px; align-items:center;'>";
-                    extraInfo += "<div><span style='font-weight: 900;'>IPv6 (DHCPv6): </span>" + ipv6Label + "</div>";
+                    var ipv6Html = "<div style='font-size:15.5px; font-weight:bold; color:#ffffff; font-family:monospace; letter-spacing:0.5px; display:flex; flex-wrap:wrap; justify-content:center; align-items:center; line-height: 1.8; margin-top: 6px;'><span style='font-weight: 900; margin-right: 8px;'>IPv6 (DHCPv6): </span>" + ipv6Label + "</div>";
+
+                    // 虚线
+                    var extraInfo = "<div style='margin-top: 16px; padding-top: 18px; border-top: 1px dashed rgba(255,255,255,0.6); font-size:15.5px; color:#ffffff; font-weight: 600; font-family:monospace; display:flex; flex-direction:column; gap:12px; align-items:center;'>";
                     extraInfo += wifiLines.join('');
                     extraInfo += "</div>";
 
-                    // 最终渲染输出
-                    if (modeTextEl) modeTextEl.innerHTML = "<div style='font-size:17px; font-weight:600; margin-bottom:12px; color:#ffffff; font-family: monospace; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px;'><span style='white-space:nowrap;'>" + sTitle + "</span>" + statusBadge + "</div>" + "<div style='font-size:15.5px; font-weight:bold; color:#ffffff; font-family:monospace; letter-spacing:0.5px; display:flex; flex-wrap:wrap; justify-content:center; line-height: 1.8;'>" + sDetails + "</div>" + extraInfo;
+                    // 最终渲染输出：按顺序拼接 sDetails (IP信息) -> ipv6Html (IPv6信息) -> extraInfo (带虚线的Wi-Fi信息)
+                    if (modeTextEl) modeTextEl.innerHTML = "<div style='font-size:17px; font-weight:600; margin-bottom:12px; color:#ffffff; font-family: monospace; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px;'><span style='white-space:nowrap;'>" + sTitle + "</span>" + statusBadge + "</div>" + "<div style='font-size:15.5px; font-weight:bold; color:#ffffff; font-family:monospace; letter-spacing:0.5px; display:flex; flex-wrap:wrap; justify-content:center; line-height: 1.8;'>" + sDetails + "</div>" + ipv6Html + extraInfo;
 
-                    }).catch(function() {});
+                }).catch(function() {});
             } catch(e) {}
         }
         updateStatusDisplay(false);
@@ -886,7 +911,7 @@ return view.extend({
         var en2g = container.querySelector('#wifi-2g-en');
         var en5g = container.querySelector('#wifi-5g-en');
 
-        // 🌟 场景1：单芯片模式下，来回拨动开关时智能转换并同步！
+        // 单芯片模式下，来回拨动开关时智能转换并同步！
         en2g.addEventListener('change', function() { 
             if(window._isSingleChip && this.checked) {
                 en5g.checked = false; 
@@ -943,7 +968,7 @@ return view.extend({
                     var se = container.querySelector('#wifi-smart-enc').value;
                     var sen = container.querySelector('#wifi-smart-en').checked;
                     
-                    // 🌟 场景2：关闭“多频合一”时，自动为您分裂出 2.4G 和 5G 的智能后缀！
+                    // 关闭“多频合一”时，自动加上 2.4G 或 5G 的后缀！
                     container.querySelector('#wifi-2g-ssid').value = smartConvertSsid(ss, '2g');
                     container.querySelector('#wifi-2g-key').value = sk;
                     container.querySelector('#wifi-2g-enc').value = se;
@@ -1215,8 +1240,8 @@ return view.extend({
                     a2 = container.querySelector('#lan-gw').value.trim(); 
                     a3 = calculateNetmask(a1); 
                     a4 = bypassToggle.checked ? '1' : '0'; 
-                    var forceEl = container.querySelector('#lan-force-toggle'); 
-                    a5 = (forceEl && forceEl.checked) ? '0' : '1';
+                    var safeEl = container.querySelector('#lan-safe-toggle'); 
+                    a5 = (safeEl && safeEl.checked) ? '1' : '0';
                     var ipv6El = container.querySelector('#lan-ipv6-toggle');
                     a6 = (ipv6El && ipv6El.checked) ? '1' : '0';
                     actionDetail = '<b style="color:#3b82f6;">' + a1 + '</b>';

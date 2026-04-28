@@ -1,8 +1,9 @@
 #!/bin/sh
 # Copyright (C) 2026 huchd0 <https://github.com/huchd0/luci-app-netwiz>
 # Licensed under the GNU General Public License v3.0
-# 日志路存放在 /etc/ 下
-LOG_FILE="/etc/netwiz.log"
+
+# 日志统一存放在 /tmp/ 下，避免损耗路由器闪存
+LOG_FILE="/tmp/netwiz.log"
 LOCK_FILE="/var/run/netwiz_autodetect.lock"
 
 # 定义最大保留500行
@@ -69,7 +70,7 @@ while true; do
     if [ -f /tmp/netwiz_rollback_time ] && [ -f /tmp/netwiz_target_ip ]; then
         TARGET_IP=$(cat /tmp/netwiz_target_ip 2>/dev/null)
         
-        # 不仅查并发数，还要强制校验「客户端 IP 子网」！
+        # 不仅查并发数，还要强制校验“客户端 IP 子网”！
         # 只有当您的电脑 IP (如 192.168.10.100) 和目标 IP (192.168.10.1) 在同一个 /24 网段时，才算有效连接！
         conns=$(netstat -nt 2>/dev/null | awk -v tip="$TARGET_IP" '
         BEGIN {
@@ -93,7 +94,8 @@ while true; do
         # 阈值依然是 2，完美过滤前端的单线程探针
         if [ "$conns" -ge 2 ]; then
             log "成功：雷达检测到同网段真实浏览器访问新 IP ($TARGET_IP)，自动解除定时"
-            rm -f /tmp/netwiz_rollback_time /tmp/netwiz_target_ip /etc/config/network.netwiz_bak /etc/config/dhcp.netwiz_bak
+            # 彻底清理所有相关的临时文件和备份
+            rm -f /tmp/netwiz_rollback_time /tmp/netwiz_target_ip /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
         else
             log "等待用户浏览器跳转中... (当前有效目标连接数: $conns)"
 
@@ -103,14 +105,14 @@ while true; do
             
             # 只有读到了纯数字时间，且当前时间大于目标时间，才执行回退
             if [ -n "$TARGET_TIME" ] && [ "$CURRENT_TIME" -ge "$TARGET_TIME" ]; then
-                log "时间到！未检测到任何浏览器访问，确认为失联，开始执行断电级别回退"
+                log "时间到！未检测到任何浏览器访问，确认为失联，开始执行强制性回退"
                 rm -f /tmp/netwiz_rollback_time /tmp/netwiz_target_ip
                 
-                if [ -f /etc/config/network.netwiz_bak ]; then
-                    log "正在从闪存恢复原始配置"
-                    cp /etc/config/network.netwiz_bak /etc/config/network
-                    cp /etc/config/dhcp.netwiz_bak /etc/config/dhcp
-                    rm -f /etc/config/network.netwiz_bak /etc/config/dhcp.netwiz_bak
+                # 从 /tmp/ 读取纯净备份，并使用 cat 暴力覆盖以防权限断裂
+                if [ -f /tmp/network.netwiz_bak ]; then
+                    log "正在从内存缓存中恢复原始配置..."
+                    cat /tmp/network.netwiz_bak > /etc/config/network
+                    cat /tmp/dhcp.netwiz_bak > /etc/config/dhcp
                     
                     (
                         exec >/dev/null 2>&1 </dev/null
@@ -118,7 +120,9 @@ while true; do
                         /etc/init.d/dnsmasq restart
                         /etc/init.d/uhttpd restart
                         sleep 3
-                        echo "$(date '+%F %T') [Monitor] 回退操作已全部完成" >> /etc/netwiz.log
+                        # 统一日志路径
+                        echo "$(date '+%F %T') [Monitor] 回退操作已全部完成，网络已强制恢复旧 IP" >> "$LOG_FILE"
+                        rm -f /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
                     ) &
                 fi
             fi

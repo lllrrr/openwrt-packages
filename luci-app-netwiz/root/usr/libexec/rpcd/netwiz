@@ -74,8 +74,13 @@ case "$1" in
                 if [ "$mode" = "lan" ] && [ -n "$arg1" ] && [ "$arg1" != "$CURRENT_LAN_IP" ]; then
                     if [ "$arg5" != "0" ]; then
                         log "LAN IP 即将修改为 $arg1，安放 120 秒防失联回退装置"
-                        cp /etc/config/network /tmp/network.netwiz_bak
-                        cp /etc/config/dhcp /tmp/dhcp.netwiz_bak
+                        
+                        # 只在备份不存在时才备份！防止浏览器重试导致新配置污染旧备份
+                        if [ ! -f /tmp/network.netwiz_bak ]; then
+                            cp /etc/config/network /tmp/network.netwiz_bak
+                            cp /etc/config/dhcp /tmp/dhcp.netwiz_bak
+                        fi
+                        
                         echo "$arg1" > /tmp/netwiz_target_ip
                         echo $(($(date +%s) + 120)) > /tmp/netwiz_rollback_time
                     else
