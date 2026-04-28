@@ -631,22 +631,21 @@ return view.extend({
                                     
                                     var is5G = false;
                                     var ch = parseInt(theDev.channel);
-                                    if (htmode.indexOf('80') !== -1 || htmode.indexOf('160') !== -1 || htmode.indexOf('320') !== -1) { is5G = true; }
-                                    else if (hwmode === '11ac' || hwmode === '11a' || hwmode === '11ax' || hwmode === '11be') { is5G = true; }
-                                    else if (hwmode === '11g' || hwmode === '11b') { is5G = false; }
-                                    else if (!isNaN(ch) && ch >= 36) { is5G = true; }
-                                    else if (theDev.path && (theDev.path.indexOf('pcie1') !== -1 || theDev.path.indexOf('pcie2') !== -1)) { is5G = true; }
-                                    else if (theDev.path && (theDev.path.indexOf('pcie0') !== -1 || theDev.path.indexOf('platform') !== -1)) { is5G = false; }
-                                    else if (band === '5g') { is5G = true; }
+                                    if (band === '5g' || band === '6g') { is5G = true; }
                                     else if (band === '2g') { is5G = false; }
+                                    else if (!isNaN(ch) && ch >= 36) { is5G = true; }
+                                    else if (hwmode === '11a' || hwmode === '11ac' || hwmode === '11ax' || hwmode === '11be') { is5G = true; }
+                                    else if (hwmode === '11g' || hwmode === '11b') { is5G = false; }
+                                    else if (theDev.path && (theDev.path.indexOf('pcie1') !== -1 || theDev.path.indexOf('pcie2') !== -1)) { is5G = true; }
+
                                     var isLegacy = (hwmode === '11b');
 
                                     var theIface = findMainIfaceForDev(theDev['.name']);
                                     var ssid = theIface.ssid || '';
                                     var key = theIface.key || '';
                                     var enc = theIface.encryption || 'psk2+sae';
-                                    var disabled = (theIface.disabled === '1');
-                                    var isHidden = (theIface.hidden === '1');
+                                    
+                                    var disabled = (theIface.disabled === '1' || theDev.disabled === '1');
                                     
                                     // 读取通道和宽度
                                     var chan = theDev.channel || 'auto';
@@ -693,19 +692,18 @@ return view.extend({
                                     var dev2g = null, dev5g = null;
                                     
                                     wDevs.forEach(function(d) {
-                                        var hm = (d.hwmode || '').toLowerCase(), bd = (d.band || '').toLowerCase();
+                                        var bd = (d.band || '').toLowerCase();
+                                        var ht = (d.htmode || '').toLowerCase();
+                                        var path = (d.path || '').toLowerCase();
                                         var ch = parseInt(d.channel);
                                         var is_5g_chip = false;
                                         
-                                        var ht = (d.htmode || '').toLowerCase();
-                                        if (ht.indexOf('80') !== -1 || ht.indexOf('160') !== -1 || ht.indexOf('320') !== -1) { is_5g_chip = true; }
-                                        else if (hm === '11ac' || hm === '11a' || hm === '11ax' || hm === '11be') { is_5g_chip = true; }
-                                        else if (hm === '11g' || hm === '11b') { is_5g_chip = false; }
-                                        else if (!isNaN(ch) && ch >= 36) { is_5g_chip = true; }
-                                        else if (d.path && (d.path.indexOf('pcie1') !== -1 || d.path.indexOf('pcie2') !== -1)) { is_5g_chip = true; }
-                                        else if (d.path && (d.path.indexOf('pcie0') !== -1 || d.path.indexOf('platform') !== -1)) { is_5g_chip = false; }
-                                        else if (bd === '5g') { is_5g_chip = true; }
+                                        if (bd === '5g' || bd === '6g') { is_5g_chip = true; }
                                         else if (bd === '2g') { is_5g_chip = false; }
+                                        else if (!isNaN(ch) && ch >= 36) { is_5g_chip = true; }
+                                        else if (hm === '11a' || hm === '11ac' || hm === '11ax' || hm === '11be') { is_5g_chip = true; }
+                                        else if (hm === '11g' || hm === '11b') { is_5g_chip = false; }
+                                        else if (d.path && (d.path.indexOf('pcie1') !== -1 || d.path.indexOf('pcie2') !== -1)) { is_5g_chip = true; }
                                         
                                         if (is_5g_chip) { if (!dev5g) dev5g = d; } 
                                         else { if (!dev2g) dev2g = d; }
@@ -717,9 +715,14 @@ return view.extend({
                                     var i5g = findMainIfaceForDev(dev5g ? dev5g['.name'] : 'none');
 
                                     var isLegacy = dev2g && dev2g.hwmode === '11b';
-                                    var s2 = i2g.ssid || '', k2 = i2g.key || '', e2 = i2g.encryption || 'psk2+sae', d2 = i2g.disabled === '1', h2 = i2g.hidden === '1';
-                                    var s5 = i5g.ssid || '', k5 = i5g.key || '', e5 = i5g.encryption || 'psk2+sae', d5 = i5g.disabled === '1', h5 = i5g.hidden === '1';
-
+                                    
+                                    // 联合判断双频网卡的禁用状态
+                                    var s2 = i2g.ssid || '', k2 = i2g.key || '', e2 = i2g.encryption || 'psk2+sae', h2 = i2g.hidden === '1';
+                                    var d2 = (i2g.disabled === '1' || (dev2g && dev2g.disabled === '1'));
+                                    
+                                    var s5 = i5g.ssid || '', k5 = i5g.key || '', e5 = i5g.encryption || 'psk2+sae', h5 = i5g.hidden === '1';
+                                    var d5 = (i5g.disabled === '1' || (dev5g && dev5g.disabled === '1'));
+                                    
                                     var isSmart = (!isLegacy && s2 && s5 && s2 === s5 && k2 === k5 && e2 === e5);
                                     if (!s2 && !s5 && !d2 && !d5) isSmart = true;
 

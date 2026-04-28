@@ -150,35 +150,20 @@ case "$1" in
                         path=$(uci -q get wireless.$dev.path || true)
                         
                         is_5g=0
+                        current_channel=$(uci -q get wireless.$dev.channel || echo "0")
                         
-                        if command -v iwinfo >/dev/null 2>&1; then
-                            if iwinfo $dev freqlist 2>/dev/null | grep -q "^  5"; then
-                                is_5g=1
-                            elif iwinfo $dev hwmodelist 2>/dev/null | grep -qi "ac\|ax\|be\|a"; then
-                                is_5g=1
-                            fi
-                        fi
-                        
-                        if [ "$is_5g" = "0" ]; then
-
-                            current_channel=$(uci -q get wireless.$dev.channel || echo "0")
-                            current_ht=$(uci -q get wireless.$dev.htmode | tr 'A-Z' 'a-z' || echo "")
-                    
-                            if echo "$current_ht" | grep -qE "80|160|320"; then
-                                is_5g=1
-                            elif echo "$hwmode" | grep -qE "11ac|11a|11ax|11be"; then
-                                is_5g=1
-                            elif [ "$hwmode" = "11b" ] || [ "$hwmode" = "11g" ]; then
-                                is_5g=0
-                            elif [ "$current_channel" != "0" ] && [ "$current_channel" != "auto" ] && [ "$current_channel" -ge 36 ]; then
-                                is_5g=1
-                            elif echo "$path" | grep -qi "pcie1" || echo "$path" | grep -qi "pcie2"; then
-                                is_5g=1
-                            elif [ "$band" = "5g" ]; then
-                                is_5g=1
-                            elif [ "$band" = "2g" ]; then
-                                is_5g=0
-                            fi
+                        if [ "$band" = "5g" ] || [ "$band" = "6g" ]; then
+                            is_5g=1
+                        elif [ "$band" = "2g" ]; then
+                            is_5g=0
+                        elif [ "$current_channel" != "0" ] && [ "$current_channel" != "auto" ] && [ "$current_channel" -ge 36 ]; then
+                            is_5g=1
+                        elif echo "$hwmode" | grep -qE "11a|11ac|11ax|11be"; then
+                            is_5g=1
+                        elif echo "$hwmode" | grep -qE "11b|11g"; then
+                            is_5g=0
+                        elif echo "$path" | grep -qi "pcie1" || echo "$path" | grep -qi "pcie2"; then
+                            is_5g=1
                         fi
 
                         if [ "$is_5g" = "1" ]; then
