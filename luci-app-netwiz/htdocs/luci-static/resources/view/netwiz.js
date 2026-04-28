@@ -701,15 +701,23 @@ return view.extend({
                                         if (bd === '5g' || bd === '6g') { is_5g_chip = true; }
                                         else if (bd === '2g') { is_5g_chip = false; }
                                         else if (!isNaN(ch) && ch >= 36) { is_5g_chip = true; }
-                                        else if (hm === '11a' || hm === '11ac' || hm === '11ax' || hm === '11be') { is_5g_chip = true; }
+                                        else if (hm === '11a' || hm === '11ac') { is_5g_chip = true; }
+                                        else if (hm === '11ax' || hm === '11be') { 
+                                            if (d['.name'] === 'radio1' || d['.name'] === 'radio2') is_5g_chip = true; 
+                                        }
                                         else if (hm === '11g' || hm === '11b') { is_5g_chip = false; }
                                         else if (d.path && (d.path.indexOf('pcie1') !== -1 || d.path.indexOf('pcie2') !== -1)) { is_5g_chip = true; }
                                         
                                         if (is_5g_chip) { if (!dev5g) dev5g = d; } 
                                         else { if (!dev2g) dev2g = d; }
                                     });
+                                    
+                                    // 🌟 终极防重叠分配：绝对不允许 dev2g 和 dev5g 指向同一个芯片
                                     if(!dev2g && wDevs.length > 0) dev2g = wDevs[0];
                                     if(!dev5g && wDevs.length > 1) dev5g = wDevs.find(d => d['.name'] !== dev2g['.name']);
+                                    if(dev2g && dev5g && dev2g['.name'] === dev5g['.name']) {
+                                        dev5g = wDevs.find(d => d['.name'] !== dev2g['.name']);
+                                    }
 
                                     var i2g = findMainIfaceForDev(dev2g ? dev2g['.name'] : 'none');
                                     var i5g = findMainIfaceForDev(dev5g ? dev5g['.name'] : 'none');

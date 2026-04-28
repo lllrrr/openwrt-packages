@@ -5,6 +5,7 @@
 LOG_FILE="/tmp/netwiz.log"
 
 log() {
+    logger -t Netwiz "$1"
     echo "$(date '+%F %T') [RPC] $1" >> "$LOG_FILE"
     if [ $(wc -l < "$LOG_FILE" 2>/dev/null || echo 0) -gt 600 ]; then
         tail -n 500 "$LOG_FILE" > "$LOG_FILE.tmp"
@@ -158,8 +159,10 @@ case "$1" in
                             is_5g=0
                         elif [ "$current_channel" != "0" ] && [ "$current_channel" != "auto" ] && [ "$current_channel" -ge 36 ]; then
                             is_5g=1
-                        elif echo "$hwmode" | grep -qE "11a|11ac|11ax|11be"; then
+                        elif echo "$hwmode" | grep -qE "11a|11ac"; then
                             is_5g=1
+                        elif echo "$hwmode" | grep -qE "11ax|11be"; then
+                            if echo "$dev" | grep -qE "radio1|radio2"; then is_5g=1; fi
                         elif echo "$hwmode" | grep -qE "11b|11g"; then
                             is_5g=0
                         elif echo "$path" | grep -qi "pcie1" || echo "$path" | grep -qi "pcie2"; then
@@ -174,6 +177,17 @@ case "$1" in
                             log " -> 扫描到芯片 [$dev]: 划入 2.4G 阵列"
                         fi
                     done
+
+                    # 如果两张卡都被误判成了同一个频段，强制将它们分离！
+                    if [ $(echo "$list_5g" | wc -w) -ge 2 ] && [ -z "$list_2g" ]; then
+                        list_2g=$(echo $list_5g | awk '{print $1}')
+                        list_5g=$(echo $list_5g | cut -d' ' -f2-)
+                        log "⚠️ 警告：两张网卡均被识别为 5G！触发强制分离，将 [$list_2g] 划为 2.4G"
+                    elif [ $(echo "$list_2g" | wc -w) -ge 2 ] && [ -z "$list_5g" ]; then
+                        list_5g=$(echo $list_2g | awk '{print $2}')
+                        list_2g=$(echo $list_2g | awk '{print $1}')
+                        log "⚠️ 警告：两张网卡均被识别为 2.4G！触发强制分离，将 [$list_5g] 划为 5G"
+                    fi
 
                     log "开始清洗所有旧的 wifi-iface 网络接口..."
                     while uci -q delete wireless.@wifi-iface[0]; do
