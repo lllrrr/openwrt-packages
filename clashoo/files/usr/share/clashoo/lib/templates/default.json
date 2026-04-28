@@ -27,7 +27,7 @@
     { "type": "tun",   "tag": "tun-in",   "address": ["172.19.0.1/30"], "auto_route": true, "strict_route": true, "stack": "mixed" }
   ],
   "outbounds": [
-    { "type": "selector", "tag": "🚀 节点选择",  "outbounds": ["__NODES__", "DIRECT"] },
+    { "type": "selector", "tag": "🚀 节点选择",  "outbounds": ["♻️ 自动选择", "__NODES__", "DIRECT"], "default": "♻️ 自动选择" },
     { "type": "urltest",  "tag": "♻️ 自动选择",  "outbounds": ["__NODES__"], "url": "https://www.google.com/generate_204", "interval": "10m", "tolerance": 50 },
     { "type": "direct",   "tag": "DIRECT" },
 
@@ -108,7 +108,7 @@
     "final": "🐟 漏网之鱼"
   },
   "experimental": {
-    "cache_file": { "enabled": true },
+    "cache_file": { "enabled": true, "store_fakeip": true },
     "clash_api": {
       "external_controller": "0.0.0.0:9090",
       "external_ui": "dashboard",

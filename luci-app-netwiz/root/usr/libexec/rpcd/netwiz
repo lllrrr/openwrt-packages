@@ -152,6 +152,7 @@ case "$1" in
                         
                         is_5g=0
                         current_channel=$(uci -q get wireless.$dev.channel || echo "0")
+                        current_ht=$(uci -q get wireless.$dev.htmode | tr 'A-Z' 'a-z' || echo "")
                         
                         if [ "$band" = "5g" ] || [ "$band" = "6g" ]; then
                             is_5g=1
@@ -159,10 +160,12 @@ case "$1" in
                             is_5g=0
                         elif [ "$current_channel" != "0" ] && [ "$current_channel" != "auto" ] && [ "$current_channel" -ge 36 ]; then
                             is_5g=1
+                        elif echo "$current_ht" | grep -qE "80|160|320"; then
+                            is_5g=1
                         elif echo "$hwmode" | grep -qE "11a|11ac"; then
                             is_5g=1
                         elif echo "$hwmode" | grep -qE "11ax|11be"; then
-                            if echo "$dev" | grep -qE "radio1|radio2"; then is_5g=1; fi
+                            if echo "$dev" | grep -qE "radio0|radio1|radio2"; then is_5g=1; fi
                         elif echo "$hwmode" | grep -qE "11b|11g"; then
                             is_5g=0
                         elif echo "$path" | grep -qi "pcie1" || echo "$path" | grep -qi "pcie2"; then
@@ -203,9 +206,8 @@ case "$1" in
                         local p_en=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.enabled" || echo "0")
                         local p_ssid=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.ssid" || echo "")
                         local p_key=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.key" || echo "")
-                        local p_enc=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.encryption" || echo "psk2+sae")
+                        local p_enc=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.encryption" || echo "sae-mixed")
                         local p_hidden=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.hidden" || echo "0")
-                        
                         local p_mode=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.mode" || echo "auto")
                         local p_chan=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.channel" || echo "auto")
                         local p_bw=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.bandwidth" || echo "auto")
@@ -215,110 +217,48 @@ case "$1" in
                         uci set wireless.$iface_name.network="lan"
                         uci set wireless.$iface_name.mode="ap"
                         
-                        log "正在为芯片 [$dev] 注入目标配置: UI=[$ui_prefix], 启用=[$p_en], Mode=[$p_mode]"
-                        
-
                         if [ "$p_en" = "0" ]; then
                             uci set wireless.$iface_name.disabled='1'
-                            uci set wireless.$dev.disabled='1'
-                            log "  - [$dev] 对应物理网卡和接口已深度禁用"
                         else
                             uci delete wireless.$iface_name.disabled 2>/dev/null
                             uci delete wireless.$dev.disabled 2>/dev/null
-                            log "  - [$dev] 对应物理网卡已唤醒并启用"
                         fi
 
                         [ -n "$p_ssid" ] && uci set wireless.$iface_name.ssid="$p_ssid"
+
+                        if [ "$p_enc" = "psk2+sae" ]; then p_enc="sae-mixed"; fi
                         [ -n "$p_enc" ] && uci set wireless.$iface_name.encryption="$p_enc"
                         [ -n "$p_key" ] && uci set wireless.$iface_name.key="$p_key"
 
-                        if [ "$p_enc" != "none" ]; then
-                            uci set wireless.$iface_name.ieee80211k='1'
-                            uci set wireless.$iface_name.ieee80211v='1'
-                            uci set wireless.$iface_name.ieee80211r='1'
-                            uci set wireless.$iface_name.ft_psk_generate_local='1'
-                            uci set wireless.$iface_name.ft_over_ds='0'
-                            uci set wireless.$iface_name.mobility_domain='e5e7' # 漫游域识别码
-                        else
-                            uci delete wireless.$iface_name.ieee80211k 2>/dev/null
-                            uci delete wireless.$iface_name.ieee80211v 2>/dev/null
-                            uci delete wireless.$iface_name.ieee80211r 2>/dev/null
-                            uci delete wireless.$iface_name.ft_psk_generate_local 2>/dev/null
-                            uci delete wireless.$iface_name.mobility_domain 2>/dev/null
-                        fi
-                        
-                        if [ "$p_hidden" = "1" ]; then
-                            uci set wireless.$iface_name.hidden='1'
-                            log "  - 接口已设置隐藏名称 (SSID)"
-                        else
-                            uci delete wireless.$iface_name.hidden 2>/dev/null
-                        fi
-                            
-                        if [ "$p_chan" != "auto" ] && [ -n "$p_chan" ]; then
-                            uci set wireless.$dev.channel="$p_chan"
-                            log "  - 锁定自定义信道: $p_chan"
-                        else
-                            uci set wireless.$dev.channel='auto'
-                        fi
+                        if echo "$p_enc" | grep -q "sae"; then uci set wireless.$iface_name.ieee80211w='1'
+                        else uci delete wireless.$iface_name.ieee80211w 2>/dev/null; fi
 
-                        local current_hw=$(uci -q get wireless.$dev.hwmode || echo "")
-                        local current_ht=$(uci -q get wireless.$dev.htmode || echo "")
+                        if [ "$p_hidden" = "1" ]; then uci set wireless.$iface_name.hidden='1'; else uci delete wireless.$iface_name.hidden 2>/dev/null; fi
                         
-                        local final_bw="40"
-                        if [ "$intended_band" = "5g" ]; then final_bw="80"; fi
-                        if [ "$p_bw" != "auto" ] && [ -n "$p_bw" ]; then final_bw="$p_bw"; fi
+                        # 只有被选中的频段，才允许修改网卡的底层物理参数！未选中的仅保留接口配置。
+                        if [ "$p_en" = "1" ] || [ "$smart" = "true" ]; then
+                            if [ "$p_chan" != "auto" ] && [ -n "$p_chan" ]; then uci set wireless.$dev.channel="$p_chan"; else uci set wireless.$dev.channel='auto'; fi
+                            uci delete wireless.$dev.hwmode 2>/dev/null
+                            uci set wireless.$dev.band="$intended_band"
 
-                        if [ "$p_mode" != "auto" ] && [ -n "$p_mode" ]; then
-                            uci set wireless.$dev.hwmode="$p_mode"
-                            if [ "$intended_band" = "2g" ]; then uci set wireless.$dev.band='2g' 2>/dev/null || true; fi
-                            if [ "$intended_band" = "5g" ]; then uci set wireless.$dev.band='5g' 2>/dev/null || true; fi
-                            
-                            if [ "$p_mode" = "11be" ]; then uci set wireless.$dev.htmode="EHT${final_bw}"
-                            elif [ "$p_mode" = "11ax" ]; then uci set wireless.$dev.htmode="HE${final_bw}"
-                            elif [ "$p_mode" = "11ac" ]; then uci set wireless.$dev.htmode="VHT${final_bw}"
-                            elif [ "$p_mode" = "11n" ] || [ "$p_mode" = "11g" ]; then uci set wireless.$dev.htmode="HT${final_bw}"
-                            else uci set wireless.$dev.htmode="HT20"; fi
-                            
-                            log "  - ！！！危险警告：强制越权指定物理模式: $p_mode ！！！"
-                        else
-                            if [ "$intended_band" = "2g" ]; then
-                                if [ "$arg4" = "1" ]; then
-                                    uci set wireless.$dev.hwmode='11b'
-                                    uci set wireless.$dev.htmode='HT20'
-                                    uci set wireless.$dev.band='2g' 2>/dev/null || true
-                                    log "  - [$dev] 强行清洗为 2.4G (Legacy 11b, HT20)"
-                                else
-                                    if echo "$current_hw" | grep -qEi "be|ax|g"; then
-                                        uci set wireless.$dev.hwmode="$current_hw"
-                                    else
-                                        uci set wireless.$dev.hwmode='11g'
-                                    fi
-                                    uci set wireless.$dev.band='2g' 2>/dev/null || true
-                                    
-                                    if echo "$current_ht" | grep -qEi "eht|he"; then
-                                        local prefix=$(echo "$current_ht" | grep -oEi "eht|he" | tr 'a-z' 'A-Z')
-                                        if [ "$p_bw" = "auto" ]; then final_bw="40"; fi
-                                        uci set wireless.$dev.htmode="${prefix}${final_bw}"
-                                    else
-                                        uci set wireless.$dev.htmode="HT${final_bw}"
-                                    fi
-                                    log "  - [$dev] 洗白为 2.4G ($(uci -q get wireless.$dev.hwmode), $(uci -q get wireless.$dev.htmode))"
-                                fi
-                            elif [ "$intended_band" = "5g" ]; then
-                                if echo "$current_hw" | grep -qEi "be|ax|ac"; then
-                                    uci set wireless.$dev.hwmode="$current_hw"
-                                else
-                                    uci set wireless.$dev.hwmode='11a'
-                                fi
-                                uci set wireless.$dev.band='5g' 2>/dev/null || true
-                                
+                            local current_ht=$(uci -q get wireless.$dev.htmode || echo "")
+                            local final_bw="40"
+                            if [ "$intended_band" = "5g" ]; then final_bw="80"; fi
+                            if [ "$p_bw" != "auto" ] && [ -n "$p_bw" ]; then final_bw="$p_bw"; fi
+
+                            if [ "$p_mode" != "auto" ] && [ -n "$p_mode" ]; then
+                                if [ "$p_mode" = "11be" ]; then uci set wireless.$dev.htmode="EHT${final_bw}"
+                                elif [ "$p_mode" = "11ax" ]; then uci set wireless.$dev.htmode="HE${final_bw}"
+                                elif [ "$p_mode" = "11ac" ]; then uci set wireless.$dev.htmode="VHT${final_bw}"
+                                elif [ "$p_mode" = "11n" ] || [ "$p_mode" = "11g" ]; then uci set wireless.$dev.htmode="HT${final_bw}"
+                                else uci set wireless.$dev.htmode="HT20"; fi
+                            else
                                 if echo "$current_ht" | grep -qEi "eht|he"; then
                                     local prefix=$(echo "$current_ht" | grep -oEi "eht|he" | tr 'a-z' 'A-Z')
                                     uci set wireless.$dev.htmode="${prefix}${final_bw}"
                                 else
-                                    uci set wireless.$dev.htmode="VHT${final_bw}"
+                                    uci set wireless.$dev.htmode="HE${final_bw}"
                                 fi
-                                log "  - [$dev] 洗白为 5G ($(uci -q get wireless.$dev.hwmode), $(uci -q get wireless.$dev.htmode))"
                             fi
                         fi
                     }
@@ -327,16 +267,12 @@ case "$1" in
 
                     if [ "$chip_count" -le 1 ]; then
                         single_dev=$(echo "$dev_list" | awk '{print $1}')
-                        log "检测为 单芯片 架构: 唯一网卡 [$single_dev]"
-                        
-                        en_5g=$(echo "$payload" | jsonfilter -e "@.radio_5g.enabled" || echo "0")
-                        
-                        if [ "$smart" = "true" ]; then
-                             configure_physical_radio "$single_dev" "merged" "wifinet_0" "2g"
-                        elif [ "$en_5g" = "1" ]; then
-                             configure_physical_radio "$single_dev" "radio_5g" "wifinet_0" "5g"
+                        if [ "$smart" = "true" ]; then 
+                            configure_physical_radio "$single_dev" "merged" "wifinet_0" "2g"
                         else
-                             configure_physical_radio "$single_dev" "radio_2g" "wifinet_0" "2g"
+                            # 同时下发 2.4G 和 5G 的记录
+                            configure_physical_radio "$single_dev" "radio_2g" "wifinet_2g" "2g"
+                            configure_physical_radio "$single_dev" "radio_5g" "wifinet_5g" "5g"
                         fi
                     else
                         if [ "$smart" = "true" ]; then

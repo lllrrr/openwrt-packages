@@ -8,15 +8,9 @@ let path = ARGV[0] || '';
 let redir_port = +(ARGV[1] || '7891');
 let tproxy_port = +(ARGV[2] || '7982');
 let mixed_port = +(ARGV[3] || '7890');
-let has_tun_device = (ARGV[4] || '1') == '1' && access('/dev/net/tun', 'r');
-/* 验证 TUN 是否真的可用（LXC 容器可能可读但不可用） */
-if (has_tun_device) {
-	let tmpf = '/tmp/.clashoo_tun_test';
-	system('(cat /dev/net/tun >/dev/null 2>&1) & P=0; sleep 0.3 2>/dev/null; kill  2>/dev/null; wait  2>/dev/null; echo 0 > ' + tmpf + ' 2>/dev/null');
-	let ec = trim_s(readfile(tmpf) || '');
-	system('rm -f ' + tmpf + ' 2>/dev/null');
-	if (ec != '0') has_tun_device = false;
-}
+let has_tun_device = (ARGV[4] || '1') == '1';
+if (has_tun_device && system('(ip tuntap add mode tun name cotuntest >/dev/null 2>&1 && ip link del cotuntest >/dev/null 2>&1)') != 0)
+	has_tun_device = false;
 
 // 默认 6666 必须与 /usr/share/clashoo/net/fw4.sh:CORE_ROUTING_MARK (0x1a0a) 一致；
 // 不能用 354 (=0x162=PROXY_FWMARK)，那个会被 ip rule 吸到 lo 导致出站不可达。
@@ -211,6 +205,13 @@ function normalize_dns_uri(address, protocol, port) {
 	return protocol + address + (s_len(port) ? ':' + port : '');
 }
 
+function direct_outbound_tag() {
+	for (let ob in (cfg.outbounds || []))
+		if (ob && ob.type == 'direct' && s_len(ob.tag || ''))
+			return ob.tag;
+	return 'DIRECT';
+}
+
 function dns_server_obj(uri, tag, fallback_type) {
 	uri = normalize_dns_uri(uri || '', '', '');
 	if (!s_len(uri))
@@ -262,7 +263,7 @@ function dns_server_obj(uri, tag, fallback_type) {
 	 * 机场要解析自己 server 域名又走 dns_resolver → 死循环 → "lookup ... deadline exceeded" → 国外全 out。
 	 * 直连/解析类 server 一律强制走 DIRECT；只有 dns_proxy 这种"解析国外用"才允许走代理。 */
 	if (tag == 'dns_resolver' || tag == 'dns_direct' || tag == 'dns_foreign')
-		obj.detour = 'DIRECT';
+		obj.detour = direct_outbound_tag();
 	return obj;
 }
 
@@ -284,6 +285,52 @@ function first_or(arr, fallback) {
 	return length(arr) ? arr[0] : fallback;
 }
 
+function local_rule_set_path(tag) {
+	if (!s_len(tag))
+		return '';
+	let path = '/usr/share/clashoo/ruleset/' + tag + '.srs';
+	if (access(path, 'r'))
+		return path;
+	return '';
+}
+
+function keep_remote_rule_set(rs) {
+	let tag = rs ? (rs.tag || '') : '';
+	return tag == 'geolocation-cn' || tag == 'geolocation-!cn' || tag == 'cn' || tag == 'private-ip' || tag == 'cn-ip';
+}
+
+function normalize_rule_set_url(url) {
+	url = url || '';
+	url = replace(url, /^https:\/\/gh-proxy\.com\//, '');
+	let m = match(url, /^https:\/\/raw\.githubusercontent\.com\/([^\/]+)\/([^\/]+)\/([^\/]+)\/(.+)$/);
+	if (m)
+		return 'https://cdn.jsdelivr.net/gh/' + m[1] + '/' + m[2] + '@' + m[3] + '/' + m[4];
+	m = match(url, /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)\/raw\/refs\/heads\/([^\/]+)\/(.+)$/);
+	if (m)
+		return 'https://cdn.jsdelivr.net/gh/' + m[1] + '/' + m[2] + '@' + m[3] + '/' + m[4];
+	return url;
+}
+
+function has_route_rule_set(tag) {
+	for (let rs in (cfg.route || {}).rule_set || [])
+		if (rs && rs.tag == tag)
+			return true;
+	return false;
+}
+
+function add_remote_rule_set(tag, url) {
+	cfg.route = cfg.route || {};
+	cfg.route.rule_set = cfg.route.rule_set || [];
+	if (has_route_rule_set(tag))
+		return;
+	push(cfg.route.rule_set, {
+		tag: tag,
+		type: 'remote',
+		format: 'binary',
+		url: url
+	});
+}
+
 function matcher_rule(matcher, server_tag) {
 	let r = { server: server_tag };
 	if (starts_with(matcher, 'geosite:'))
@@ -301,6 +348,28 @@ function matcher_rule(matcher, server_tag) {
 
 function apply_dns_from_uci() {
 	cfg.dns = cfg.dns || {};
+	/* 清除 mihomo 风格 DNS 字段（如 enable/ipv6/listen/fake-ip-filter/nameserver
+	 * 等），这些字段可能从订阅 YAML 转换时混入 JSON，sing-box 不认识会导致 Fatal。 */
+	let _mihomo_dns_fields = ['enable', 'ipv6', 'listen', 'fake-ip-filter', 'fake-ip-range',
+	                'enhanced-mode', 'nameserver', 'fallback', 'fallback-filter',
+	                'use-hosts', 'default-nameserver', 'proxy-server-nameserver',
+	                'direct-nameserver', 'nameserver-policy'];
+	for (let _i = 0; _i < length(_mihomo_dns_fields); _i++)
+		delete cfg.dns[_mihomo_dns_fields[_i]];
+	/* 清除 mihomo 风格 experimental 字段 */
+	let _mihomo_exp = ['sniff-tls-sni', 'sniff', 'sniffer'];
+	for (let _me = 0; _me < length(_mihomo_exp); _me++)
+		if (cfg.experimental && cfg.experimental[_mihomo_exp[_me]] != null)
+			delete cfg.experimental[_mihomo_exp[_me]];
+	/* 清除 root 级别 mihomo 字段 */
+	let _mihomo_root = ['clash-for-android', 'cfw-bypass', 'sniffer', 'profile', 
+	                'geodata-mode', 'geodata-loader', 'geox-url', 'geo-auto-update',
+	                'geo-update-interval', 'tun', 'ipv6', 'interface-name',
+	                'port', 'socks-port', 'mixed-port', 'redir-port', 'tproxy-port', 'mode', 'allow-lan', 'log-level', 'external-controller', 'secret', 'bind-address', 'routing-mark', 'find-process-mode', 'tcp-concurrent', 'unified-delay',
+	                'keep-alive-interval', 'keep-alive-idle', 'disable-keep-alive'];
+	for (let _mr = 0; _mr < length(_mihomo_root); _mr++)
+		if (cfg[_mihomo_root[_mr]] != null)
+			delete cfg[_mihomo_root[_mr]];
 	let bootstrap = uci_list('default_nameserver');
 	if (!length(bootstrap))
 		bootstrap = uci_list('defaul_nameserver');
@@ -363,6 +432,8 @@ let has_tproxy = false;
 let has_mixed = false;
 let has_tun = false;
 let has_dns_in = false;
+let wants_tun = has_tun_device && (uci_opt('tcp_mode', '') == 'tun' || uci_opt('udp_mode', '') == 'tun');
+let tun_stack = uci_opt('stack', 'mixed') || 'mixed';
 
 for (let ib in inbounds) {
 	if (!ib)
@@ -373,6 +444,12 @@ for (let ib in inbounds) {
 		if (has_tun_device && !has_tun) {
 			ib.type = 'tun';
 			ib.tag = ib.tag || 'tun-in';
+			if (!ib.address)
+				ib.address = [ '172.19.0.1/30', 'fdfe:dcba:9876::1/126' ];
+			ib.auto_route = true;
+			ib.strict_route = true;
+			if (!ib.stack)
+				ib.stack = tun_stack;
 			push(normalized, ib);
 			has_tun = true;
 		}
@@ -449,6 +526,17 @@ if (!has_mixed) {
 	});
 }
 
+if (wants_tun && !has_tun) {
+	push(normalized, {
+		type: 'tun',
+		tag: 'tun-in',
+		address: [ '172.19.0.1/30', 'fdfe:dcba:9876::1/126' ],
+		auto_route: true,
+		strict_route: true,
+		stack: tun_stack
+	});
+}
+
 if (!has_tproxy) {
 	push(normalized, {
 		type: 'tproxy',
@@ -477,6 +565,23 @@ for (let ob in (cfg.outbounds || [])) {
 	let t = ob.type || '';
 	if (t == 'selector' || t == 'urltest' || t == 'fallback' || t == 'load_balance' || t == 'dns' || t == 'block')
 		continue;
+
+		/* plugin_opts 必须是字符串；订阅转换可能输出对象（如 {"mode":"http","host":"..."}），
+		 * sing-box 只接受 "obfs=http;obfs-host=..." 字符串格式。 */
+		/* 清除 sing-box 不支持的 plugin（如 obfs），否则 Fatal: plugin not found */
+		if (ob.plugin != null && ob.plugin != 'obfs-local' && ob.plugin != 'v2ray-plugin' && ob.plugin != 'shadow-tls') {
+			delete ob.plugin;
+			delete ob.plugin_opts;
+		}
+		if (ob.plugin_opts != null && type(ob.plugin_opts) == 'object') {
+			let _parts = [];
+			for (let _k in ob.plugin_opts) {
+				let _v = ob.plugin_opts[_k];
+				if (type(_v) == 'object' || type(_v) == 'array') continue;
+				push(_parts, _k + '=' + _v);
+			}
+			ob.plugin_opts = join(';', _parts);
+		}
 
 	if (ob.routing_mark == null)
 		ob.routing_mark = routing_mark;
@@ -524,6 +629,11 @@ if (!has_dns_hijack) {
 cfg.route.auto_detect_interface = true;
 apply_dns_from_uci();
 
+if (uci_opt('enhanced_mode', 'fake-ip') == 'fake-ip') {
+	add_remote_rule_set('geolocation-!cn',
+		'https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/sing/geo/geosite/geolocation-!cn.srs');
+}
+
 /* 本地有 .srs 则转 local；剩余的 remote rule_set 必须保留/补 download_detour。
  * 大陆首启动死锁链：没 srs → 拉规则 → 走 ♻️ 自动选择 → urltest 测速要拨机场 →
  *   要解析机场域名 → 又被 DNS rules 卷进未加载的 rule_set → deadline。
@@ -541,16 +651,68 @@ let _dl_detour = _pick_dl_detour();
 for (let rs in (cfg.route || {}).rule_set || []) {
 	if (!rs) continue;
 	if (rs.type != 'remote') { delete rs.download_detour; continue; }
-	let path = '/usr/share/clashoo/ruleset/' + (rs.tag || '') + '.srs';
+	let path = local_rule_set_path(rs.tag || '');
 	if (rs.tag && access(path, 'r')) {
 		delete rs.url; delete rs.download_detour; rs.type = 'local'; rs.path = path;
 		continue;
 	}
-	/* 无条件覆盖：subconverter 常输出 download_detour="♻️ 自动选择"，会跟首启动死锁。
-	 * 见 _pick_dl_detour 注释 —— srs URL 是 gh-proxy.com 大陆直连可达，必须走 DIRECT。 */
-	rs.download_detour = _dl_detour;
+	if (keep_remote_rule_set(rs) && rs.url) {
+		rs.url = normalize_rule_set_url(rs.url);
+		rs.download_detour = _dl_detour;
+		continue;
+	}
+	/* 没有本地缓存 → 跳过该远程规则集。防止下载失败阻塞 sing-box 启动。
+	 * 规则集在有代理后通过后台脚本下载到 /usr/share/clashoo/ruleset/。 */
+	continue;
+
 }
-cfg.experimental = cfg.experimental || {};
+/* 过滤掉 type=remote 且无本地缓存的规则集 */
+let _clean_rs = [];
+for (let _rsi = 0; _rsi < length(cfg.route.rule_set); _rsi++) {
+	let _rs = cfg.route.rule_set[_rsi];
+	if (!_rs) continue;
+	if (_rs.type == 'remote' && _rs.url != null) {
+		let _local_path = local_rule_set_path(_rs.tag || '');
+		if (!_rs.tag || !access(_local_path, 'r'))
+			if (keep_remote_rule_set(_rs) && _rs.url) {
+				_rs.url = normalize_rule_set_url(_rs.url);
+				_rs.download_detour = _dl_detour;
+				push(_clean_rs, _rs);
+				continue;
+			} else {
+				continue; /* 无本地缓存 → 不加入最终列表 */
+			}
+		/* 有本地缓存 → 转 local */
+		delete _rs.url; delete _rs.download_detour; _rs.type = 'local'; _rs.path = _local_path;
+	}
+	push(_clean_rs, _rs);
+}
+cfg.route.rule_set = _clean_rs;
+
+	/* 删除引用了已移除 rule_set 的 DNS/路由规则，否则 sing-box FATAL: rule-set not found */
+	let _existing_tags = {};
+	for (let _rs in cfg.route.rule_set || []) if (_rs && _rs.tag) _existing_tags[_rs.tag] = true;
+	let _rule_has_ref = function(_r) {
+		if (!_r || type(_r) != 'object') return false;
+		if (_r.rule_set) {
+			if (type(_r.rule_set) == 'array') { for (let _t in _r.rule_set) if (!_existing_tags[_t]) return false; }
+			else if (!_existing_tags[_r.rule_set]) return false;
+		}
+		return true;
+	};
+	/* 清理 dns.rules */
+	if (cfg.dns && type(cfg.dns.rules) == 'array') {
+		let _clean_dns_rules = [];
+		for (let _dr in cfg.dns.rules) if (_rule_has_ref(_dr)) push(_clean_dns_rules, _dr);
+		cfg.dns.rules = _clean_dns_rules;
+	}
+	/* 清理 route.rules */
+	if (cfg.route && type(cfg.route.rules) == 'array') {
+		let _clean_rt_rules = [];
+		for (let _rr in cfg.route.rules) if (_rule_has_ref(_rr)) push(_clean_rt_rules, _rr);
+		cfg.route.rules = _clean_rt_rules;
+	}
+	cfg.experimental = cfg.experimental || {};
 cfg.experimental.clash_api = cfg.experimental.clash_api || {};
 cfg.experimental.clash_api.external_controller = '0.0.0.0:' + dash_port;
 cfg.experimental.clash_api.external_ui = '/etc/clashoo/dashboard';
