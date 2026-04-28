@@ -1,32 +1,37 @@
 #!/bin/sh /etc/rc.common
 # Copyright (C) 2026 huchd0 <https://github.com/huchd0/luci-app-netwiz>
 # Licensed under the GNU General Public License v3.0
-# START=15 确保在 network 服务前或同步执行
+# START=15 确保在 network 服务前执行
 START=15
-LOG_FILE="/etc/netwiz.log"
+
+# 低频灾难恢复日志必须保存在闪存中，确保重启不丢失
+RECOVERY_LOG="/etc/netwiz_recovery.log"
 
 boot() {
-    # 发现残留备份说明测试中途异常断电
+    # 检查闪存中的备份文件
     if [ -f /etc/config/network.netwiz_bak ]; then
-        # 写入系统日志
-        logger -t Netwiz "Power loss detected during test! Forcefully recovering network..."
+        # 写入系统底层日志
+        logger -t Netwiz "Power loss detected during network setup! Forcefully recovering..."
         
-        # 写入专属日志
-        echo "$(date '+%F %T') [Recovery] 检测到异常断电，正从闪存强制回退网络设置..." >> "$LOG_FILE"
+        # 写入持久化专属日志
+        echo "=========================================================" >> "$RECOVERY_LOG"
+        echo "⚠️ [BOOT-RECOVERY] $(date '+%F %T') 检测到异常断电，正从闪存强制回退..." >> "$RECOVERY_LOG"
         
-        cp /etc/config/network.netwiz_bak /etc/config/network
-        cp /etc/config/dhcp.netwiz_bak /etc/config/dhcp
+        # 恢复网络配置 (保留了 cat 的极致安全写法)
+        cat /etc/config/network.netwiz_bak > /etc/config/network
+        cat /etc/config/dhcp.netwiz_bak > /etc/config/dhcp
         
-        # 清理所有残留标志
+        # 清理残留
         rm -f /etc/config/network.netwiz_bak /etc/config/dhcp.netwiz_bak
         rm -f /tmp/netwiz_rollback_time /tmp/netwiz_target_ip
         
-        echo "$(date '+%F %T') [Recovery] 异常断电回退完成！" >> "$LOG_FILE"
+        echo "⚠️ [BOOT-RECOVERY] 异常断电回退完成！网络已安全恢复。" >> "$RECOVERY_LOG"
+        echo "=========================================================" >> "$RECOVERY_LOG"
         
-        # 检查并清理过大日志
-        if [ $(wc -l < "$LOG_FILE" 2>/dev/null || echo 0) -gt 600 ]; then
-            tail -n 500 "$LOG_FILE" > "$LOG_FILE.tmp"
-            mv "$LOG_FILE.tmp" "$LOG_FILE"
+        # 简单的日志体积控制，保留最后 100 行即可（毕竟极少发生）
+        if [ $(wc -l < "$RECOVERY_LOG" 2>/dev/null || echo 0) -gt 150 ]; then
+            tail -n 100 "$RECOVERY_LOG" > "$RECOVERY_LOG.tmp"
+            mv "$RECOVERY_LOG.tmp" "$RECOVERY_LOG"
         fi
     fi
 }
