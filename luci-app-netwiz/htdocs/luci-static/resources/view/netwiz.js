@@ -263,7 +263,7 @@ return view.extend({
             'input:checked + .nw-slider:before { transform: translateX(22px); }',
             '#nw-global-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.65); z-index: 999999; display: flex; align-items: center; justify-content: center; }',
             '#nw-global-modal .nw-modal-box { background: #fff; padding: 40px; border-radius: 16px; text-align: center; max-width: 420px; width: 90%; }',
-            '#nw-global-modal h3 { font-size: 22px; color: #1e293b; margin-bottom: 15px; border:none; }',
+            '#nw-global-modal h3 { font-size: 22px; color: #fff ;background: rgba(0, 0, 0, 0.65); border-radius: 10px; margin-bottom: 15px; border:none; }',
             '#nw-global-modal p, #nw-global-msg div { font-size: 15px; color: #475569; line-height: 1.6; margin: 0; word-break: break-all; }',
             '.nw-spinner { width: 50px; height: 50px; border: 4px solid #f1f5f9; border-top: 4px solid #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 25px; }',
             '@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }',
