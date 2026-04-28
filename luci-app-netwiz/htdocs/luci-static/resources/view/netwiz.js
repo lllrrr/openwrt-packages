@@ -630,9 +630,15 @@ return view.extend({
                                     var htmode = (theDev.htmode || '').toLowerCase();
                                     
                                     var is5G = false;
-                                    if (hwmode.indexOf('a') !== -1) { is5G = true; } 
-                                    else if (hwmode.indexOf('b') !== -1 || hwmode.indexOf('g') !== -1) { is5G = false; } 
-                                    else { is5G = (band === '5g'); }
+                                    var ch = parseInt(theDev.channel);
+                                    if (htmode.indexOf('80') !== -1 || htmode.indexOf('160') !== -1 || htmode.indexOf('320') !== -1) { is5G = true; }
+                                    else if (hwmode === '11ac' || hwmode === '11a' || hwmode === '11ax' || hwmode === '11be') { is5G = true; }
+                                    else if (hwmode === '11g' || hwmode === '11b') { is5G = false; }
+                                    else if (!isNaN(ch) && ch >= 36) { is5G = true; }
+                                    else if (theDev.path && (theDev.path.indexOf('pcie1') !== -1 || theDev.path.indexOf('pcie2') !== -1)) { is5G = true; }
+                                    else if (theDev.path && (theDev.path.indexOf('pcie0') !== -1 || theDev.path.indexOf('platform') !== -1)) { is5G = false; }
+                                    else if (band === '5g') { is5G = true; }
+                                    else if (band === '2g') { is5G = false; }
                                     var isLegacy = (hwmode === '11b');
 
                                     var theIface = findMainIfaceForDev(theDev['.name']);
@@ -688,11 +694,18 @@ return view.extend({
                                     
                                     wDevs.forEach(function(d) {
                                         var hm = (d.hwmode || '').toLowerCase(), bd = (d.band || '').toLowerCase();
+                                        var ch = parseInt(d.channel);
                                         var is_5g_chip = false;
-                                        if (hm.indexOf('a') !== -1) is_5g_chip = true;
-                                        else if (hm.indexOf('g') !== -1 || hm.indexOf('b') !== -1) is_5g_chip = false;
-                                        else if (bd === '5g') is_5g_chip = true;
-                                        else if (d.path && d.path.indexOf('pcie1') !== -1) is_5g_chip = true;
+                                        
+                                        var ht = (d.htmode || '').toLowerCase();
+                                        if (ht.indexOf('80') !== -1 || ht.indexOf('160') !== -1 || ht.indexOf('320') !== -1) { is_5g_chip = true; }
+                                        else if (hm === '11ac' || hm === '11a' || hm === '11ax' || hm === '11be') { is_5g_chip = true; }
+                                        else if (hm === '11g' || hm === '11b') { is_5g_chip = false; }
+                                        else if (!isNaN(ch) && ch >= 36) { is_5g_chip = true; }
+                                        else if (d.path && (d.path.indexOf('pcie1') !== -1 || d.path.indexOf('pcie2') !== -1)) { is_5g_chip = true; }
+                                        else if (d.path && (d.path.indexOf('pcie0') !== -1 || d.path.indexOf('platform') !== -1)) { is_5g_chip = false; }
+                                        else if (bd === '5g') { is_5g_chip = true; }
+                                        else if (bd === '2g') { is_5g_chip = false; }
                                         
                                         if (is_5g_chip) { if (!dev5g) dev5g = d; } 
                                         else { if (!dev2g) dev2g = d; }

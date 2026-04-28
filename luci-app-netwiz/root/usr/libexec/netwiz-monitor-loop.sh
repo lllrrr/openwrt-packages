@@ -95,7 +95,7 @@ while true; do
         if [ "$conns" -ge 2 ]; then
             log "成功：雷达检测到同网段真实浏览器访问新 IP ($TARGET_IP)，自动解除定时"
             # 彻底清理所有相关的临时文件和备份
-            rm -f /tmp/netwiz_rollback_time /tmp/netwiz_target_ip /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
+            rm -f /tmp/netwiz_rollback_time /tmp/netwiz_target_ip /etc/config/network.netwiz_bak /etc/config/dhcp.netwiz_bak
         else
             log "等待用户浏览器跳转中... (当前有效目标连接数: $conns)"
 
@@ -109,10 +109,10 @@ while true; do
                 rm -f /tmp/netwiz_rollback_time /tmp/netwiz_target_ip
                 
                 # 从 /tmp/ 读取纯净备份，并使用 cat 暴力覆盖以防权限断裂
-                if [ -f /tmp/network.netwiz_bak ]; then
-                    log "正在从内存缓存中恢复原始配置..."
-                    cat /tmp/network.netwiz_bak > /etc/config/network
-                    cat /tmp/dhcp.netwiz_bak > /etc/config/dhcp
+                if [ -f /etc/config/network.netwiz_bak ]; then
+                    log "正在从闪存中恢复原始配置..."
+                    cat /etc/config/network.netwiz_bak > /etc/config/network
+                    cat /etc/config/dhcp.netwiz_bak > /etc/config/dhcp
                     
                     (
                         exec >/dev/null 2>&1 </dev/null
@@ -120,9 +120,9 @@ while true; do
                         /etc/init.d/dnsmasq restart
                         /etc/init.d/uhttpd restart
                         sleep 3
-                        # 统一日志路径
                         echo "$(date '+%F %T') [Monitor] 回退操作已全部完成，网络已强制恢复旧 IP" >> "$LOG_FILE"
-                        rm -f /tmp/network.netwiz_bak /tmp/dhcp.netwiz_bak
+                        # 恢复完后删除闪存备份
+                        rm -f /etc/config/network.netwiz_bak /etc/config/dhcp.netwiz_bak
                     ) &
                 fi
             fi
