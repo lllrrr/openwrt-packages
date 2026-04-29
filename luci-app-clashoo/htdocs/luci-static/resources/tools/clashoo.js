@@ -119,8 +119,11 @@ const callReadRealLog   = rpc.declare({ object: 'luci.clashoo', method: 'read_re
 const callClearLog      = rpc.declare({ object: 'luci.clashoo', method: 'clear_log',        expect: {} });
 const callReadUpdateLog = rpc.declare({ object: 'luci.clashoo', method: 'read_update_log',  expect: {} });
 const callClearUpdateLog= rpc.declare({ object: 'luci.clashoo', method: 'clear_update_log', expect: {} });
-const callReadGeoipLog  = rpc.declare({ object: 'luci.clashoo', method: 'read_geoip_log',   expect: {} });
-const callClearGeoipLog = rpc.declare({ object: 'luci.clashoo', method: 'clear_geoip_log',  expect: {} });
+const callReadGeoipLog         = rpc.declare({ object: 'luci.clashoo', method: 'read_geoip_log',          expect: {} });
+const callClearGeoipLog        = rpc.declare({ object: 'luci.clashoo', method: 'clear_geoip_log',         expect: {} });
+const callReadCoreLog          = rpc.declare({ object: 'luci.clashoo', method: 'read_core_log',           expect: {} });
+const callReadUpdateMergedLog  = rpc.declare({ object: 'luci.clashoo', method: 'read_update_merged_log',  expect: {} });
+const callClearUpdateMergedLog = rpc.declare({ object: 'luci.clashoo', method: 'clear_update_merged_log', expect: {} });
 const callGetCpuArch    = rpc.declare({ object: 'luci.clashoo', method: 'get_cpu_arch',     expect: {} });
 const callDownloadCore  = rpc.declare({ object: 'luci.clashoo', method: 'download_core',    expect: {} });
 const callUpdateGeoip   = rpc.declare({ object: 'luci.clashoo', method: 'update_geoip',     expect: {} });
@@ -140,6 +143,8 @@ const callSetSingboxProfile     = rpc.declare({ object: 'luci.clashoo', method: 
 const callDeleteSingboxProfile  = rpc.declare({ object: 'luci.clashoo', method: 'delete_singbox_profile',  params: ['name'],                   expect: {} });
 const callCreateSingboxConfig   = rpc.declare({ object: 'luci.clashoo', method: 'create_singbox_config',   params: ['sub_url', 'name', 'secret'], expect: {} });
 const callCommitConfig          = rpc.declare({ object: 'luci.clashoo', method: 'commit_config',            expect: {} });
+const callFetchSingboxNative    = rpc.declare({ object: 'luci.clashoo', method: 'fetch_singbox_native',    params: ['url', 'name'],  expect: {} });
+const callUpdateSingboxNative   = rpc.declare({ object: 'luci.clashoo', method: 'update_singbox_native',   params: ['name'],         expect: {} });
 
 return baseclass.extend({
     status: function () { return L.resolveDefault(callStatus(), {}); },
@@ -165,6 +170,9 @@ return baseclass.extend({
     clearUpdateLog: function () { return L.resolveDefault(callClearUpdateLog(), {}); },
     readGeoipLog: function () { return L.resolveDefault(callReadGeoipLog(), { content: '' }).then(r => r.content || ''); },
     clearGeoipLog: function () { return L.resolveDefault(callClearGeoipLog(), {}); },
+    readCoreLog: function () { return L.resolveDefault(callReadCoreLog(), { content: '' }).then(r => r.content || ''); },
+    readUpdateMergedLog: function () { return L.resolveDefault(callReadUpdateMergedLog(), { content: '' }).then(r => r.content || ''); },
+    clearUpdateMergedLog: function () { return L.resolveDefault(callClearUpdateMergedLog(), {}); },
 
     getCpuArch: function () { return L.resolveDefault(callGetCpuArch(), { arch: '' }).then(r => r.arch || ''); },
     downloadCore: function () { return L.resolveDefault(callDownloadCore(), {}); },
@@ -193,6 +201,8 @@ return baseclass.extend({
     deleteSingboxProfile: function (name)        { return L.resolveDefault(callDeleteSingboxProfile(name),     {}); },
     createSingboxConfig:  function (url, name, secret) { return L.resolveDefault(callCreateSingboxConfig(url, name, secret), {}); },
     commitConfig:         function ()               { return L.resolveDefault(callCommitConfig(),               { success: false }); },
+    fetchSingboxNative:   function (url, name)      { return L.resolveDefault(callFetchSingboxNative(url, name), {}); },
+    updateSingboxNative:  function (name)           { return L.resolveDefault(callUpdateSingboxNative(name),     {}); },
 
     toast: _clashooToast
 });

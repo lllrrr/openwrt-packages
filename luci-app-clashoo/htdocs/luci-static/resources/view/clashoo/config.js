@@ -83,6 +83,7 @@ var callUpdateSub     = rpc.declare({ object: 'luci.clashoo', method: 'update_su
 var callSetConfig     = rpc.declare({ object: 'luci.clashoo', method: 'set_config',          params: ['name'], expect: {} });
 var callDeleteCfg     = rpc.declare({ object: 'luci.clashoo', method: 'delete_config',       params: ['name', 'type'], expect: {} });
 var callUploadConfig  = rpc.declare({ object: 'luci.clashoo', method: 'upload_config',       params: ['name', 'content', 'type'], expect: {} });
+var callReadOtherConfig = rpc.declare({ object: 'luci.clashoo', method: 'read_other_config',  params: ['name', 'type'], expect: {} });
 var callListTemplates = rpc.declare({ object: 'luci.clashoo', method: 'list_templates',      expect: {} });
 var callUploadTemplate= rpc.declare({ object: 'luci.clashoo', method: 'upload_template',     params: ['name', 'content'], expect: {} });
 var callApplyRewrite  = rpc.declare({ object: 'luci.clashoo', method: 'apply_rewrite',          params: ['base_type','base_name','rewrite_type','rewrite_name','output_name','set_active'], expect: {} });
@@ -337,6 +338,7 @@ return view.extend({
             return uci.save();
           })
           .then(function () { return clashoo.commitConfig(); })
+          .then(function () { return clearClashooDirty(); })
           .then(function () { return L.resolveDefault(callDownloadSubs(), {}); })
           .then(function (r) {
             ui.addNotification(null, E('p', r.success ? '下载成功' : '下载失败: ' + (r.message || '')));
@@ -491,6 +493,41 @@ return view.extend({
     };
 
     /* ── 其他配置文件（上传 + 自定义/复写输出）── */
+    var otherEditorTitle    = E('span', { 'class': 'cl-editor-hdr' }, '选择上方配置后可在此处编辑');
+    var otherTextarea       = E('textarea', { 'class': 'cl-json-editor cl-other-editor', placeholder: '选择配置文件后内容将显示在这里…' });
+    var otherSaveBtn        = E('button', {
+      'class': 'btn cbi-button-action cl-btn-sm',
+      disabled: '',
+      click: function () {
+        var meta = otherTextarea.dataset;
+        if (!meta.name) return;
+        L.resolveDefault(callUploadConfig(meta.name, otherTextarea.value, meta.type), {}).then(function (r) {
+          if (r && r.success) ui.addNotification(null, E('p', meta.name + ' 已保存'));
+          else ui.addNotification(null, E('p', '保存失败: ' + ((r && (r.message || r.error)) || '')));
+        });
+      }
+    }, '保存');
+
+    var otherEditorBox = E('div', { 'class': 'cl-section cl-card cl-sb-editor' }, [
+      otherEditorTitle,
+      otherTextarea,
+      E('div', { 'class': 'cl-actions cl-sb-row-actions cl-sb-editor-actions' }, [
+        otherSaveBtn,
+        E('span', { 'class': 'cl-hint' }, '编辑后点击保存；切换配置后服务将自动重启')
+      ])
+    ]);
+
+    function loadOtherEditor(name, type) {
+      otherEditorTitle.textContent = '编辑：' + name;
+      otherSaveBtn.removeAttribute('disabled');
+      otherTextarea.dataset.name = name;
+      otherTextarea.dataset.type = type;
+      otherTextarea.value = '加载中…';
+      L.resolveDefault(callReadOtherConfig(name, type), {}).then(function (r) {
+        otherTextarea.value = r.content || '';
+      });
+    }
+
     var makeOtherCards = function (files, type) {
       return files.map(function (f) {
         var nameNodes = [];
@@ -503,6 +540,10 @@ return view.extend({
             E('div', { 'class': 'cl-file-size' }, safeText(f.size))
           ]),
           E('div', { 'class': 'cl-file-actions' }, [
+            E('button', {
+              'class': 'btn cbi-button cl-btn-sm',
+              click: function () { loadOtherEditor(f.name, type); }
+            }, '编辑'),
             E('button', {
               'class': 'btn cbi-button cl-btn-sm cl-btn-switch',
               click: function () {
@@ -550,17 +591,15 @@ return view.extend({
       ])
     ];
 
-    var middleSection = '';
     if (otherFiles.length) {
-      middleSection = E('div', { 'class': 'cl-section cl-card' }, [
+      sections.push(E('div', { 'class': 'cl-section cl-card' }, [
         E('h4', {}, '其他配置文件（上传 / 复写输出）'),
         E('div', { 'class': 'cl-fixed-600' }, [
           E('div', { 'class': 'cl-file-list' }, otherCards)
         ])
-      ]);
+      ]));
+      sections.push(otherEditorBox);
     }
-    if (middleSection !== '')
-      sections.push(middleSection);
 
     sections.push(
       E('div', { 'class': 'cl-section cl-card' }, [
@@ -952,6 +991,20 @@ return view.extend({
                   });
                 }
               }, '切换'),
+              p.sub_url ? E('button', {
+                'class': 'btn cbi-button cl-btn-sm cl-btn-sb-action',
+                click: function (ev) {
+                  var btn = ev.currentTarget;
+                  btn.disabled = true;
+                  btn.textContent = '更新中…';
+                  clashoo.updateSingboxNative(p.name).then(function (r) {
+                    btn.disabled = false;
+                    btn.textContent = '更新';
+                    ui.addNotification(null, E('p', r.success ? (r.message || p.name + ' 已更新') : ('更新失败: ' + (r.message || ''))));
+                    if (r.success) location.reload();
+                  });
+                }
+              }, '更新') : '',
               E('button', {
                 'class': 'btn cbi-button-negative cl-btn-sm cl-btn-sb-action cl-btn-sb-delete',
                 click: function () {
@@ -1067,9 +1120,82 @@ return view.extend({
     genBtn   = E('button', { 'class': 'btn cbi-button cl-btn-sm',        click: function () { doCreate(false); } }, '生成配置');
     applyBtn = E('button', { 'class': 'btn cbi-button-action cl-btn-sm', click: function () { doCreate(true);  } }, '应用配置');
 
+    /* ── native sing-box subscription card ── */
+    var nativeUrlInput = E('input', {
+      'class': 'cl-sub-url',
+      type: 'text',
+      placeholder: '粘贴原生 sing-box 订阅链接（直接返回 JSON 的链接）'
+    });
+    var nativeNameInput = E('input', {
+      'class': 'cl-sub-url',
+      type: 'text',
+      placeholder: '文件名（选填，留空自动命名）',
+      style: 'margin-top:0'
+    });
+
+    var fetchBtn, fetchApplyBtn;
+    function setNativeBusy(busy) {
+      [fetchBtn, fetchApplyBtn].forEach(function (b) {
+        if (!b) return;
+        b.disabled = busy ? '' : null;
+        if (busy) {
+          if (!b.dataset.label) b.dataset.label = b.textContent;
+          b.textContent = '拉取中…';
+        } else if (b.dataset.label) {
+          b.textContent = b.dataset.label;
+        }
+      });
+    }
+    function doFetchNative(setActive) {
+      var url = nativeUrlInput.value.trim();
+      if (!url) { ui.addNotification(null, E('p', '请填写订阅链接')); return; }
+      setNativeBusy(true);
+      clashoo.fetchSingboxNative(url, nativeNameInput.value.trim())
+        .then(function (r) {
+          setNativeBusy(false);
+          if (!r || typeof r.success === 'undefined') {
+            ui.addNotification(null, E('p', '拉取超时，请刷新页面查看结果'));
+            setTimeout(function () { location.reload(); }, 1500);
+            return;
+          }
+          if (!r.success) {
+            ui.addNotification(null, E('p', '拉取失败: ' + (r.message || '')));
+            return;
+          }
+          if (setActive) {
+            return clashoo.setSingboxProfile(r.name).then(function () {
+              ui.addNotification(null, E('p', r.message + '，已切换为活动配置'));
+              location.reload();
+            });
+          }
+          ui.addNotification(null, E('p', r.message));
+          location.reload();
+        }).catch(function (e) {
+          setNativeBusy(false);
+          ui.addNotification(null, E('p', '拉取异常: ' + (e && e.message || e)));
+        });
+    }
+
+    fetchBtn      = E('button', { 'class': 'btn cbi-button cl-btn-sm',        click: function () { doFetchNative(false); } }, '拉取配置');
+    fetchApplyBtn = E('button', { 'class': 'btn cbi-button-action cl-btn-sm', click: function () { doFetchNative(true);  } }, '拉取并应用');
+
     return [
       E('div', { 'class': 'cl-section cl-card cl-sb-card' }, [
-        E('h4', {}, '一键生成 sing-box 配置'),
+        E('h4', {}, '节点订阅'),
+        E('div', { 'class': 'cl-form-wrap cl-fixed-600 cl-sb-form' }, [
+          nativeUrlInput, nativeNameInput,
+          E('div', { 'class': 'cl-actions cl-sb-top-actions' }, [
+            fetchBtn,
+            fetchApplyBtn
+          ])
+        ]),
+        E('p', { 'class': 'cl-sb-note' },
+          '适用于机场直接提供 sing-box JSON 格式订阅、或已用外部工具转换好的链接。\n' +
+          '拉取后可在「配置文件」标签的对应条目点击「更新」按钮重新拉取最新配置。'
+        )
+      ]),
+      E('div', { 'class': 'cl-section cl-card cl-sb-card' }, [
+        E('h4', {}, 'YAML 订阅转换'),
         E('div', { 'class': 'cl-form-wrap cl-fixed-600 cl-sb-form' }, [
           urlInput, nameInput, secretInput,
           E('div', { 'class': 'cl-actions cl-sb-top-actions' }, [
@@ -1078,8 +1204,7 @@ return view.extend({
           ])
         ]),
         E('p', { 'class': 'cl-sb-note' },
-          '生成的配置包含 TUN 透明代理、geoip/geosite 大陆直连、自动延迟测速策略组。\n' +
-          '同名文件会直接覆盖，更新订阅时留空文件名或填相同名称即可，不会重复堆积文件。'
+          '将 YAML 订阅转换为 sing-box JSON，自动注入 TUN 透明代理与大陆直连规则。同名文件直接覆盖，更新时填相同名称即可。'
         )
       ])
     ];
