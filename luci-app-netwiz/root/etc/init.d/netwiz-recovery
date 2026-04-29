@@ -17,7 +17,7 @@ boot() {
         echo "=========================================================" >> "$RECOVERY_LOG"
         echo "⚠️ [BOOT-RECOVERY] $(date '+%F %T') 检测到异常断电，正从闪存强制回退..." >> "$RECOVERY_LOG"
         
-        # 恢复网络配置 (保留了 cat 的极致安全写法)
+        # 恢复网络配置
         cat /etc/config/network.netwiz_bak > /etc/config/network
         cat /etc/config/dhcp.netwiz_bak > /etc/config/dhcp
         
