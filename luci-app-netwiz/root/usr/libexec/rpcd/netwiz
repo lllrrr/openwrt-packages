@@ -216,7 +216,8 @@ case "$1" in
                         uci set wireless.$iface_name.device="$dev"
                         uci set wireless.$iface_name.network="lan"
                         uci set wireless.$iface_name.mode="ap"
-                        
+                        uci set wireless.$dev.country='US'
+
                         if [ "$p_en" = "0" ]; then
                             uci set wireless.$iface_name.disabled='1'
                         else
