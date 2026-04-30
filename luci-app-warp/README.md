@@ -63,6 +63,7 @@ cp -r /tmp/luci-app-warp/htdocs/* /www/
 # 设置权限
 chmod +x /usr/bin/warp-manager
 chmod +x /usr/bin/warp-update-china
+chmod +x /usr/bin/warp-log
 chmod +x /etc/init.d/warp
 chmod +x /etc/init.d/warp-cron
 
@@ -102,6 +103,15 @@ make package/luci-app-warp/compile V=s
 # 注册账户
 warp-manager register
 
+# 启用并启动服务
+warp-manager start
+
+# 停止服务并取消启用
+warp-manager stop
+
+# 启用并重启服务
+warp-manager restart
+
 # 查看状态
 warp-manager status
 
@@ -118,16 +128,24 @@ warp-manager export
 warp-manager reset
 ```
 
+如果日志里反复出现 `Failed to connect tunnel: timeout: no recent network activity`，通常是 UDP/QUIC 443 被阻断。可在 LuCI 设置页启用 **使用 HTTP/2**，或命令行执行：
+
+```bash
+uci set warp.config.http2='1'
+uci commit warp
+warp-manager restart
+```
+
 ### 服务管理
 
 ```bash
-# 启动服务
+# 启动服务（不会自动修改 /etc/config/warp 里的 enabled）
 /etc/init.d/warp start
 
-# 停止服务
+# 停止服务（不会自动取消 enabled 勾选）
 /etc/init.d/warp stop
 
-# 重启服务
+# 重启服务（不会自动修改 enabled）
 /etc/init.d/warp restart
 
 # 查看服务状态
@@ -226,6 +244,28 @@ A:
 - 使用第三方生成器（不保证可用性）
 
 ## 📝 更新日志
+
+### v1.3.6
+
+- 修复 HTTP/2 模式下只保护 `endpoint_v4` 路由，未保护 `endpoint_h2_v4` 可能导致 endpoint 直连路由不完整的问题
+
+### v1.3.5
+
+- 修复 IPK `postinst` 同步重启 `rpcd` 时可能导致 `opkg install` 卡在 `Configuring luci-app-warp` 的问题
+
+### v1.3.4
+
+- 修复 `usque` 连接超时循环中停止/重启可能卡住的问题，停止时会在短超时后清理残留进程
+
+### v1.3.3
+
+- 新增 HTTP/2 fallback 和自定义 SNI 设置，用于默认 HTTP/3/QUIC MASQUE 超时的网络
+
+### v1.3.2
+
+- 修复 LuCI 日志页在部分 OpenWrt 上读不到 `logread` 的问题，新增 `/usr/bin/warp-log` 作为日志入口
+- 修复 MASQUE 模式下状态页依赖 RX 流量判断连接，导致空闲时一直显示“连接中”的问题
+- 修复状态页启动/停止/重启按钮不同步 `enabled` 配置，导致按钮看起来没反应的问题
 
 ### v1.3.1
 

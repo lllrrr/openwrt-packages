@@ -4,7 +4,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-warp
-PKG_VERSION:=1.3.1
+PKG_VERSION:=1.3.6
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=hxzlplp7
@@ -55,6 +55,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/warp-manager $(1)/usr/bin/warp-manager
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/warp-update-china $(1)/usr/bin/warp-update-china
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/warp-log $(1)/usr/bin/warp-log
 	
 	# Install LuCI JS views
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/warp
@@ -78,8 +79,8 @@ define Package/$(PKG_NAME)/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] || {
 	/etc/init.d/warp enable 2>/dev/null
-	/etc/init.d/rpcd restart 2>/dev/null
 	rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
+	(/etc/init.d/rpcd restart >/dev/null 2>&1; /etc/init.d/uhttpd restart >/dev/null 2>&1) &
 	[ -x /usr/bin/usque ] || echo "luci-app-warp: /usr/bin/usque is required; run install.sh or install usque manually." >&2
 }
 exit 0
