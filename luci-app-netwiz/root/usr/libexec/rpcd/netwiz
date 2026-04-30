@@ -133,9 +133,9 @@ case "$1" in
                     (
                         exec >/tmp/netwiz_debug.log 2>&1 </dev/null
                         set -x  
+                        log ">>> [步骤 1/5] 无线配置子进程启动，开始解析前端 Payload"
                         smart=$(echo "$payload" | jsonfilter -e '@.smart' || echo "false")
-
-                        log "开始执行无线网络配置重写"
+                        log "识别到智能模式状态: $smart"
                         
                         list_2g=""
                         list_5g=""
@@ -181,6 +181,7 @@ case "$1" in
                             list_2g=$(echo $list_2g | awk '{print $1}')
                         fi
 
+                        log ">>> [步骤 2/5] 网卡归类完毕。2.4G阵列: [$list_2g] | 5G阵列: [$list_5g]"
                         log "清空所有旧的无线网络接口"
                         while uci -q delete wireless.@wifi-iface[0]; do :; done
 
@@ -268,6 +269,7 @@ case "$1" in
                             fi
                         }
 
+                        log ">>> [步骤 3/5] 开始将新配置写入无线物理网卡..."
                         chip_count=$(echo "$dev_list" | wc -w)
 
                         if [ "$chip_count" -le 1 ]; then
@@ -306,6 +308,7 @@ case "$1" in
                         fi
                         
                         # 中继配置解析与挂载
+                        log ">>> [步骤 4/5] 检查并处理 WISP 无线中继配置..."
                         wisp_en=$(echo "$payload" | jsonfilter -e "@.wisp.enabled" || echo "0")
                         if [ "$wisp_en" = "1" ]; then
                             wisp_ssid=$(echo "$payload" | jsonfilter -e "@.wisp.ssid" || echo "")
@@ -313,8 +316,7 @@ case "$1" in
                             wisp_enc=$(echo "$payload" | jsonfilter -e "@.wisp.encryption" || echo "psk2")
                             wisp_dev=$(echo "$payload" | jsonfilter -e "@.wisp.device" || echo "radio0")
                             wisp_bssid=$(echo "$payload" | jsonfilter -e "@.wisp.bssid" || echo "")
-                            
-                            log "挂载无线中继网络至 $wisp_dev 接口"
+                            log "WISP 开启：正在将网卡 $wisp_dev 桥接至上级网络 [$wisp_ssid]"
                             
                             uci delete wireless.$wisp_dev.disabled 2>/dev/null || true
                             uci set wireless.$wisp_dev.channel='auto'
@@ -355,13 +357,14 @@ case "$1" in
                             uci delete network.wwan 2>/dev/null || true
                         fi
                         
+                        log ">>> [步骤 5/5] 所有配置已就绪，正在执行系统 Commit 并重启网络服务..."
                         uci commit wireless
                         uci commit network
                         log "无线数据写入完毕 准备重启网络"
                         
                         sleep 3
                         /etc/init.d/network restart
-                        
+                        log "✅ 无线配置流程全部安全执行完毕！"
                         exit 0
                     ) &
                     
