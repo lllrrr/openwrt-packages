@@ -557,4 +557,4 @@ msgid "802.11k/v/r Fast Roaming"
 msgstr "802.11k/v/r 无缝漫游"
 
 msgid "Enable seamless transition. May cause connection issues for old IoT devices."
-msgstr "开启路由器间的无缝切换。注意：可能导致老旧的智能家居（IoT）设备无法连接。"
+msgstr "一键开启路由器间的无缝切换（基本前提：帐号、密码一样 + 同一局域网）。注意：可能导致老旧的智能家居（IoT）设备无法连接。"
