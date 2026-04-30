@@ -529,8 +529,8 @@ msgstr "接收上级 Wi-Fi 信号，并广播您自己的专属网络。"
 msgid "WISP Enabled"
 msgstr "已开启无线中继"
 
-msgid "🔄 Scan Nearby Wi-Fi"
-msgstr "🔄 扫描附近 Wi-Fi"
+msgid "Scan Nearby Wi-Fi"
+msgstr "扫描附近 Wi-Fi"
 
 msgid "Select Upstream Network"
 msgstr "选择上级网络"
@@ -538,8 +538,8 @@ msgstr "选择上级网络"
 msgid "Password for upstream:"
 msgstr "上级 Wi-Fi 密码："
 
-msgid "⏳ Scanning..."
-msgstr "⏳ 正在扫描..."
+msgid "Scanning..."
+msgstr "正在扫描..."
 
 msgid "No networks found."
 msgstr "未找到任何网络。"
@@ -547,3 +547,14 @@ msgstr "未找到任何网络。"
 msgid "Scan failed. Driver might be busy."
 msgstr "扫描失败。无线驱动可能繁忙，请重试。"
 
+msgid "Target Wi-Fi"
+msgstr "目标 Wi-Fi 名称"
+
+msgid "Upstream Wi-Fi Password"
+msgstr "请输入上级 Wi-Fi 的密码"
+
+msgid "802.11k/v/r Fast Roaming"
+msgstr "802.11k/v/r 无缝漫游"
+
+msgid "Enable seamless transition. May cause connection issues for old IoT devices."
+msgstr "开启路由器间的无缝切换。注意：可能导致老旧的智能家居（IoT）设备无法连接。"
