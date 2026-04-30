@@ -523,6 +523,9 @@ msgstr "无密码"
 msgid "Enable Wireless Relay (WISP)"
 msgstr "启用无线中继 (WISP)"
 
+msgid "Receive upstream Wi-Fi and broadcast your own network."
+msgstr "接收上级 Wi-Fi 信号，并广播您自己的专属网络。"
+
 msgid "WISP Enabled"
 msgstr "已开启无线中继"
 
@@ -534,3 +537,13 @@ msgstr "选择上级网络"
 
 msgid "Password for upstream:"
 msgstr "上级 Wi-Fi 密码："
+
+msgid "⏳ Scanning..."
+msgstr "⏳ 正在扫描..."
+
+msgid "No networks found."
+msgstr "未找到任何网络。"
+
+msgid "Scan failed. Driver might be busy."
+msgstr "扫描失败。无线驱动可能繁忙，请重试。"
+
