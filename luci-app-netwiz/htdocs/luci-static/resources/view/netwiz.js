@@ -176,10 +176,19 @@ var T = {
     'TXT_5G_ACCT': _('5G Wi-Fi Account'),
     'TXT_2G_ACCT': _('2.4G Wi-Fi Account'),
     'TXT_NO_PASS': _('No Password'),
+    // 中继功能词条
+    'LBL_WISP_EN': _('Enable Wireless Relay (WISP)'),
+    'DESC_WISP': _('Receive upstream Wi-Fi and broadcast your own network.'),
+    'BTN_SCAN': _('🔄 Scan Nearby Wi-Fi'),
+    'MODAL_WISP_TITLE': _('Select Upstream Network'),
+    'WISP_PWD_PROMPT': _('Password for upstream:'),
+    'TXT_WISP_ON': _('WISP Enabled'),
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
 var callNetDefuse = rpc.declare({ object: 'netwiz', method: 'confirm', expect: { result: 0 } });
+// 调用系统底层 iwinfo 扫描 Wi-Fi
+var callIwinfoScan = rpc.declare({ object: 'iwinfo', method: 'scan', params: ['device'], expect: { results: [] } });
 var getWanStatus = rpc.declare({ object: 'network.interface', method: 'dump', expect: { '': {} } });
 var callNetCheckWifi = rpc.declare({ object: 'netwiz', method: 'check_wifi', expect: { has_wifi: false } });
 var callSystemBoard = rpc.declare({ object: 'system', method: 'board', expect: { '': {} } });
@@ -321,6 +330,19 @@ return view.extend({
             '      </div>',
             '    </div>',
             '  </div>',
+            // WISP 扫描结果
+            '  <div id="wisp-scan-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:999999; align-items:center; justify-content:center;">',
+            '    <div style="background:#fff; width:90%; max-width:400px; border-radius:12px; overflow:hidden; display:flex; flex-direction:column; max-height:80vh;">',
+            '      <div style="padding:15px 20px; background:#f8fafc; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;">',
+            '         <h3 style="margin:0; font-size:16px; color:#0f172a;">{{MODAL_WISP_TITLE}}</h3>',
+            '         <span id="wisp-modal-close" style="font-size:24px; cursor:pointer; color:#94a3b8;">&times;</span>',
+            '      </div>',
+            '      <div style="padding:0; overflow-y:auto; flex:1;">',
+            '         <ul id="wisp-scan-list" style="list-style:none; padding:0; margin:0;"></ul>',
+            '      </div>',
+            '    </div>',
+            '  </div>',
+            // 結束 
             '  <div id="step-1" class="nw-step">',
             '    <div class="nw-card-group">',
             
@@ -470,6 +492,26 @@ return view.extend({
             '              </div>',
             '           </div>',
             '        </div>',
+            // 中继 (WISP) UI 开关
+            '        <div style="margin-top: 25px; padding-top: 20px; border-top: 2px dashed #cbd5e1;">',
+            '           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px;">',
+            '              <div style="font-weight: 600; color: #059669; font-size: 16px;">{{LBL_WISP_EN}}</div>',
+            '              <label class="nw-switch"><input type="checkbox" id="wisp-toggle"><span class="nw-slider"></span></label>',
+            '           </div>',
+            '           <div style="font-size: 13px; color: #64748b; margin-bottom: 15px;">{{DESC_WISP}}</div>',
+            '           <div id="wisp-ui-panel" style="text-align: center; display:none; background: #f8fafc; padding: 10px; border-radius: 8px; border: 1px solid #e2e8f0;">',
+            '              <button id="btn-wisp-scan" class="cbi-button cbi-button-apply" style="width:100%; background:#0f172a !important;">{{BTN_SCAN}}</button>',
+            '              <div id="wisp-selected-info" style="display:none;">',
+            '                 <div class="nw-value"><label class="nw-value-title">Target SSID</label><div class="nw-value-field"><input type="text" id="wisp-target-ssid" readonly style="background:#e2e8f0 !important; color:#475569 !important;"></div></div>',
+            '                 <div class="nw-value"><label class="nw-value-title">{{WISP_PWD_PROMPT}}</label><div class="nw-value-field"><input type="password" id="wisp-target-key" placeholder="Upstream Wi-Fi Password"></div></div>',
+            '                 <input type="hidden" id="wisp-target-enc" value="psk2">',
+            '                 <input type="hidden" id="wisp-target-device" value="radio0">',
+            '                 <input type="hidden" id="wisp-target-bssid" value=""></input>',
+            
+            '              </div>',
+            '           </div>',
+            '        </div>',
+            // 結束 
             '      </div>',
             '      <div id="fields-lan" style="display: none;">',
             '        <div class="nw-step-title">{{TITLE_LAN}}</div>',
@@ -595,8 +637,18 @@ return view.extend({
                     
                     var bypassToggle = container.querySelector('#lan-bypass-toggle');
                     if (bypassToggle) { bypassToggle.checked = isBypass; container.querySelector('#lan-bypass-warning').style.display = isBypass ? 'block' : 'none'; container.querySelector('#lan-main-warning').style.display = isBypass ? 'none' : 'block'; }
-                    
-                    var ipv6Mode = safeUciGet('dhcp', 'lan', 'dhcpv6', '');
+
+                    // --- 同步 WISP 开关状态 ---
+                    var wispToggleEl = container.querySelector('#wisp-toggle');
+                    if (wispToggleEl) {
+                        var isWispOn = uci.sections('wireless', 'wifi-iface').find(function(i) { return i.network === 'wwan' && i.mode === 'sta'; });
+                        wispToggleEl.checked = !!isWispOn;
+                        var wispUi = container.querySelector('#wisp-ui-panel');
+                        if (wispUi) wispUi.style.display = wispToggleEl.checked ? 'block' : 'none';
+                    }
+                    // ---------------------------------------
+
+                var ipv6Mode = safeUciGet('dhcp', 'lan', 'dhcpv6', '');
                     var ipv6Toggle = container.querySelector('#lan-ipv6-toggle');
                     if (ipv6Toggle) ipv6Toggle.checked = (ipv6Mode === 'server' || ipv6Mode === 'relay');
 
@@ -880,40 +932,38 @@ return view.extend({
                     
                     var wDevsList = uci.sections('wireless', 'wifi-device') || [];
                     var wIfacesList = uci.sections('wireless', 'wifi-iface') || [];
-                    var activeIfaces = wIfacesList.filter(function(i) { return i.disabled !== '1' && i.mode === 'ap' && i.ssid; });
+                    var activeIfaces = wIfacesList.filter(function(i) { return i.disabled !== '1' && (i.mode === 'ap' || i.mode === 'sta') && i.ssid; });
                     var wifiLines = [];
                     
                     if (activeIfaces.length === 0) {
-                        wifiLines.push("<div><span style='opacity:0.9;'>" + T['TXT_WIFI_STATUS'] + ": </span><b style='color:#ef4444;'>" + T['TXT_OFF'] + "</b></div>");
+                        wifiLines.push("<div><span>" + T['TXT_WIFI_STATUS'] + ": </span><b style='color:#ef4444;'>" + T['TXT_OFF'] + "</b></div>");
                     } else {
-                        // 利用算法聚合 SSID 以自动判断是否为多频合一
-                        var sMap = {};
                         activeIfaces.forEach(function(i) {
-                            var s = i.ssid, k = i.key || T['TXT_NO_PASS'];
-                            if(!sMap[s]) sMap[s] = { key: k, count: 0, devs: [] };
-                            sMap[s].count++;
-                            sMap[s].devs.push(i.device);
-                        });
-                        
-                        for (var sName in sMap) {
-                            var obj = sMap[sName];
-                            var tLbl = "Wi-Fi";
-                            // 计数大于 1 说明两个频段叫同一个名字 = 多频合一
-                            if (obj.count > 1) {
-                                tLbl = "<b style='color:#fff;'>" + T['TXT_SMART_ACCT'] + "</b>";
-                            } else if (obj.devs[0]) {
-                                var dObj = wDevsList.find(function(x) { return x['.name'] === obj.devs[0]; });
-                                var hw = dObj ? (dObj.hwmode||'').toLowerCase() : '';
-                                var bd = dObj ? (dObj.band||'').toLowerCase() : '';
-                                var path = dObj ? (dObj.path||'').toLowerCase() : '';
-                                // 判断到底是 5G 还是 2.4G
-                                if (hw.indexOf('a') !== -1 || bd === '5g' || path.indexOf('pcie1') !== -1 || path.indexOf('pcie2') !== -1) tLbl = "<b style='color:#fff;'>" + T['TXT_5G_ACCT'] + "</b>";
-                                else tLbl = "<b style='color:#fff;'>" + T['TXT_2G_ACCT'] + "</b>";
-                            }
-                            var kTxt = (obj.key === T['TXT_NO_PASS']) ? "<span style='color:#ef4444;'>" + T['TXT_NO_PASS'] + "</span>" : obj.key;
+                            var sName = i.ssid;
+                            var kTxt = i.key || "<span style='color:#ef4444;'>" + T['TXT_NO_PASS'] + "</span>";
                             
-                            wifiLines.push("<div style='display:flex; align-items:center; justify-content:center; gap:8px;'><span><span style='font-size:15.5px; opacity:0.9; font-weight: 600;'>" + tLbl + ":</span> <span class='nw-hl' style='font-size:16.5px; letter-spacing:0.5px; margin-left:4px;'>" + sName + "</span></span><span style='color:#ffffff; font-size:16.5px; font-weight: 600; margin-left:4px; '>(" + T['M_PWD'] + ": " + kTxt + ")</span></div>");
-                        }
+                            // 暴力判定：只要是 sta 模式，就是中继！
+                            if (i.mode === 'sta') {
+                                // 中继模式：绿字标题，绝对不显示密码括号！
+                                var tLbl = "<b style='color:#10b981;padding: 8px 16px;background: #fff;border-radius: 10px;'>" + T['TXT_WISP_ON'] + "</b>";
+                                wifiLines.push("<div style='display:flex; align-items:center; justify-content:center; gap:8px;'><span><span style='font-size:15.5px; opacity:0.9; font-weight: 600;'>" + tLbl + ":</span> <span class='nw-hl' style='font-size:16.5px; letter-spacing:0.5px; margin-left:4px;'>" + sName + "</span></span></div>");
+                            } else {
+                                // 正常 AP 模式：判断是 2.4G 还是 5G，并显示密码
+                                var tLbl = "Wi-Fi";
+                                var dObj = wDevsList.find(function(x) { return x['.name'] === i.device; });
+                                if (dObj) {
+                                    var hw = (dObj.hwmode||'').toLowerCase();
+                                    var bd = (dObj.band||'').toLowerCase();
+                                    var path = (dObj.path||'').toLowerCase();
+                                    if (hw.indexOf('a') !== -1 || bd === '5g' || path.indexOf('pcie1') !== -1 || path.indexOf('pcie2') !== -1) {
+                                        tLbl = "<b style='color:#fff;'>" + T['TXT_5G_ACCT'] + "</b>";
+                                    } else {
+                                        tLbl = "<b style='color:#fff;'>" + T['TXT_2G_ACCT'] + "</b>";
+                                    }
+                                }
+                                wifiLines.push("<div style='display:flex; align-items:center; justify-content:center; gap:8px;'><span><span style='font-size:15.5px; opacity:0.9; font-weight: 600;'>" + tLbl + ":</span> <span class='nw-hl' style='font-size:16.5px; letter-spacing:0.5px; margin-left:4px;'>" + sName + "</span></span><span style='color:#ffffff; font-size:16.5px; font-weight: 600; margin-left:4px; '>(" + T['M_PWD'] + ": " + kTxt + ")</span></div>");
+                            }
+                        });
                     }
                     
                     var ipv6Html = "<div style='font-size:15.5px; font-weight:bold; color:#ffffff; font-family:monospace; letter-spacing:0.5px; display:flex; flex-wrap:wrap; justify-content:center; align-items:center; line-height: 1.8; margin-top: 6px;'><span style='font-weight: 900; margin-right: 8px;'>IPv6 (DHCPv6): </span>" + ipv6Label + "</div>";
@@ -1134,7 +1184,101 @@ return view.extend({
                 if(!container.querySelector('#wifi-5g-key').value) container.querySelector('#wifi-5g-key').value = container.querySelector('#wifi-2g-key').value;
             }
         });
+        // WISP 交互与扫描逻辑
+        var wispToggle = container.querySelector('#wisp-toggle');
+        var wispUiPanel = container.querySelector('#wisp-ui-panel');
+        var scanBtn = container.querySelector('#btn-wisp-scan');
+        var wispModal = container.querySelector('#wisp-scan-modal');
+        
+        if (wispToggle) {
+            wispToggle.addEventListener('change', function() {
+                wispUiPanel.style.display = this.checked ? 'block' : 'none';
+            });
+            container.querySelector('#wisp-modal-close').addEventListener('click', function() { wispModal.style.display = 'none'; });
 
+            scanBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                scanBtn.innerText = '⏳ Scanning...';
+                scanBtn.disabled = true;
+                
+                // 单芯片用 radio0，多芯片若 5G 有开則优先用 radio1 异频中继)
+                var scanDevice = 'radio0'; 
+                if (!window._isSingleChip && container.querySelector('#wifi-5g-en').checked) scanDevice = 'radio1'; 
+                
+                callIwinfoScan(scanDevice).then(function(res) {
+                    scanBtn.innerText = T['BTN_SCAN'];
+                    scanBtn.disabled = false;
+                    
+                    var ul = container.querySelector('#wisp-scan-list');
+                    ul.innerHTML = '';
+                    var list = res || [];
+                    // 排序信号
+                    list.sort(function(a, b) { return (b.signal || -100) - (a.signal || -100); });
+                    
+                    if (list.length === 0) {
+                        ul.innerHTML = '<li style="padding:20px; text-align:center; color:#64748b;">No networks found.</li>';
+                    } else {
+                        var uniqueSsids = {};
+                        list.forEach(function(net) {
+                            if (!net.ssid || uniqueSsids[net.ssid]) return; 
+                            uniqueSsids[net.ssid] = true;
+                            
+                            var li = document.createElement('li');
+                            li.style.cssText = 'padding:15px 20px; border-bottom:1px solid #f1f5f9; cursor:pointer; display:flex; justify-content:space-between; align-items:center; transition:background 0.2s;';
+                            li.innerHTML = '<span style="font-weight:600; color:#334155;">' + net.ssid + '</span><span style="font-size:12px; color:#94a3b8; background:#f1f5f9; padding:2px 8px; border-radius:10px;">' + net.signal + ' dBm</span>';
+                            
+                            li.onmouseover = function() { this.style.background = '#f8fafc'; };
+                            li.onmouseout = function() { this.style.background = 'transparent'; };
+                            
+                            li.onclick = function() {
+                                try {
+                                    // 1. 填入 SSID
+                                    container.querySelector('#wisp-target-ssid').value = net.ssid || '';
+                                    
+                                    // 2. 极其安全的加密类型解析
+                                    var encVal = 'none';
+                                    if (net.encryption) {
+                                        var desc = typeof net.encryption === 'string' ? net.encryption : (net.encryption.description || '');
+                                        desc = desc.toLowerCase();
+                                        if (desc.indexOf('wpa3') !== -1 || desc.indexOf('sae') !== -1) {
+                                            encVal = 'sae-mixed';
+                                        } else if (desc.indexOf('wpa') !== -1 || desc.indexOf('psk') !== -1 || desc.indexOf('mixed') !== -1) {
+                                            encVal = 'psk2';
+                                        }
+                                    }
+                                    container.querySelector('#wisp-target-enc').value = encVal;
+                                    
+                                    // 3. 填入绑定的物理网卡
+                                    container.querySelector('#wisp-target-device').value = scanDevice; 
+                                    container.querySelector('#wisp-target-bssid').value = net.bssid || '';
+                                    
+                                    // 4. 显示输入密码区域并关闭弹窗
+                                    container.querySelector('#wisp-selected-info').style.display = 'block';
+                                    wispModal.style.display = 'none';
+                                    
+                                    // 5. 延时对焦，防止在部分浏览器中引发卡顿
+                                    setTimeout(function() {
+                                        var pwdInput = container.querySelector('#wisp-target-key');
+                                        if (pwdInput && encVal !== 'none') pwdInput.focus();
+                                    }, 100);
+                                    
+                                } catch(err) {
+                                    console.error("选取 Wi-Fi 时发生错误:", err);
+                                }
+                            };
+                            
+                            ul.appendChild(li);
+                        });
+                    }
+                    wispModal.style.display = 'flex';
+                }).catch(function(err) {
+                    scanBtn.innerText = T['BTN_SCAN'];
+                    scanBtn.disabled = false;
+                    alert("Scan failed. Driver might be busy.");
+                });
+            });
+        }
+       // 結束
         container.querySelectorAll('.nw-card').forEach(function (card) { card.addEventListener('click', function () { 
             selectedMode = card.getAttribute('data-mode'); 
             step1.style.display = 'none'; 
@@ -1260,7 +1404,11 @@ return view.extend({
                         if (selectedMode === 'router' && rType === 'static' && targetIp === currentWanIp && targetGw === currentWanGw) isNoMod = true;
                         if (selectedMode === 'router' && rType === 'dhcp' && currentWanProto === 'dhcp') isNoMod = true;
                         if (selectedMode === 'pppoe' && container.querySelector('#pppoe-user').value === safeUciGet('network', 'wan', 'username', '') && container.querySelector('#pppoe-pass').value === safeUciGet('network', 'wan', 'password', '')) isNoMod = true;
-                        if (selectedMode === 'wifi' && window._origWifiState && currentWifiState === window._origWifiState) isNoMod = true;
+                        // 如果开启了 WISP 中继，跳过拦截！
+                        if (selectedMode === 'wifi' && window._origWifiState && currentWifiState === window._origWifiState) {
+                            var wTog = container.querySelector('#wisp-toggle');
+                            if (!wTog || !wTog.checked) isNoMod = true; 
+                        }
 
                         if (isNoMod) { openModal({title: T['M_NO_MOD_TIT'], msg: T['M_NO_MOD_MSG'], okText: T['M_EXIT'], onOk: returnToStep1 }); return; }
                         
@@ -1319,6 +1467,15 @@ return view.extend({
                                     }
                                 }
                             }
+                            
+                            // 中继 (WISP) 的确认信息展示
+                            var wTogConfirm = container.querySelector('#wisp-toggle');
+                            if (wTogConfirm && wTogConfirm.checked) {
+                                confirmList.push(['<b style="color:#10b981; font-size:15px;">🌐 ' + T['LBL_WISP_EN'] + '</b>', '<b style="color:#10b981;">' + T['TXT_ON'] + '</b>']);
+                                confirmList.push(['<span style="padding-left:12px; color:#ffffff; font-weight:500; opacity:0.95;">└ Target SSID</span>', '<span style="font-weight:bold; color:#facc15;">' + container.querySelector('#wisp-target-ssid').value + '</span>']);
+                            }
+                            // 结束
+                            
                             confirmText.innerHTML = b(T['MODE_WIFI_TITLE'], confirmList);
                         } else {
                             confirmText.innerHTML = b(T['MODE_PPPOE_TITLE'], [[T['M_ACCT'], container.querySelector('#pppoe-user').value], [T['M_PWD'], T['M_HIDDEN']]]);
@@ -1409,6 +1566,19 @@ return view.extend({
                             bandwidth: container.querySelector('#wifi-5g-bw').value
                         };
                     }
+                    // WISP 参数打包
+                    var wispTog = container.querySelector('#wisp-toggle');
+                    if (wispTog) {
+                        payload.wisp = {
+                            enabled: wispTog.checked ? "1" : "0",
+                            ssid: container.querySelector('#wisp-target-ssid').value,
+                            key: container.querySelector('#wisp-target-key').value,
+                            encryption: container.querySelector('#wisp-target-enc').value,
+                            device: container.querySelector('#wisp-target-device').value,
+                            bssid: container.querySelector('#wisp-target-bssid').value
+                        };
+                    }
+                    // 結束
                     a1 = JSON.stringify(payload);
                     a4 = legacyB;
                     actionDetail = '<b style="color:#10b981;">' + T['MODE_WIFI_TITLE'] + '</b>';

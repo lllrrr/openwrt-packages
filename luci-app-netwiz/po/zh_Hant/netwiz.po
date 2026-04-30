@@ -523,7 +523,7 @@ msgstr "無密碼"
 msgid "Enable Wireless Relay (WISP)"
 msgstr "啟用無線中繼 (WISP)"
 
-msgid "Wireless Relay: Enabled"
+msgid "WISP Enabled"
 msgstr "已開啟無線中繼"
 
 msgid "🔄 Scan Nearby Wi-Fi"
