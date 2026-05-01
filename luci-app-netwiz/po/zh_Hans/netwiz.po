@@ -556,5 +556,11 @@ msgstr "请输入上级 Wi-Fi 的密码"
 msgid "802.11k/v/r Fast Roaming"
 msgstr "802.11k/v/r 无缝漫游"
 
-msgid "Enable seamless transition. May cause connection issues for old IoT devices."
-msgstr "一键开启路由器间的无缝切换（基本前提：帐号、密码一样 + 同一局域网）。注意：可能导致老旧的智能家居（IoT）设备无法连接。"
+msgid "Enable seamless roaming between routers with one click (Prerequisite: Same SSID, password, and LAN). Note: May cause connection issues with older smart home (IoT) devices."
+msgstr "一键开启路由器间的无缝切换（基本前提：WiF帐号、密码一样 + 同一局域网）。注意：可能导致老旧的智能家居（IoT）设备无法连接。"
+
+msgid "⚠️ Manual Configuration Warning"
+msgstr "⚠️ 手动配置警告"
+
+msgid "Underlying parameter mismatch detected, which may cause roaming failures. Please toggle this switch off and on again, then save to apply the standard seamless roaming profile."
+msgstr "检测到底层参数与预设不一致，可能会导致漫游失败。建议将开关关闭后重新开启，保存后加入我们无缝漫游“朋友圈”。"

@@ -188,9 +188,12 @@ var T = {
     'TXT_NO_NETWORKS': _('No networks found.'),
     'TXT_SCAN_FAILED': _('Scan failed. Driver might be busy.'),
     'LBL_ROAMING': _('802.11k/v/r Fast Roaming'),
-    'DESC_ROAMING': _('Enable seamless transition. May cause connection issues for old IoT devices.'),
+    'DESC_ROAMING': _('Enable seamless roaming between routers with one click (Prerequisite: Same SSID, password, and LAN). Note: May cause connection issues with older smart home (IoT) devices.'),
     'TXT_TARGET_SSID': _('Target Wi-Fi'),
     'PH_WISP_PWD': _('Upstream Wi-Fi Password'),
+    'TXT_ROAM_DIRTY': _('⚠️ Manual Configuration Warning'),
+    'DESC_ROAM_DIRTY': _('Underlying parameter mismatch detected, which may cause roaming failures. Please toggle this switch off and on again, then save to apply the standard seamless roaming profile.'),
+    
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -277,6 +280,7 @@ return view.extend({
             '.nw-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .3s; border-radius: 24px; }',
             '.nw-slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }',
             'input:checked + .nw-slider { background-color: #10b981; }',
+            'input.is-dirty:checked + .nw-slider { background-color: #ea580c; }',
             'input:checked + .nw-slider:before { transform: translateX(22px); }',
             '#nw-global-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.65); z-index: 999999; display: flex; align-items: center; justify-content: center; }',
             '#nw-global-modal .nw-modal-box { background: #fff; padding: 40px; border-radius: 16px; text-align: center; max-width: 420px; width: 90%; }',
@@ -428,6 +432,7 @@ return view.extend({
             '                <div style="flex: 1; padding-right: 15px;">',
             '                   <div style="font-weight: 600; color: #334155; font-size: 14.5px;">{{LBL_ROAMING}}</div>',
             '                   <div style="font-size: 12px; color: #64748b; margin-top: 4px; line-height: 1.4;">{{DESC_ROAMING}}</div>',
+'                               <div id="roam-warn-smart" style="display:none; color:#ea580c; font-size:12.5px; margin-top:6px; font-weight:bold; line-height:1.4;">{{DESC_ROAM_DIRTY}}</div>',
             '                </div>',
             '                <label class="nw-switch" style="flex-shrink:0;"><input type="checkbox" id="wifi-smart-roaming" checked><span class="nw-slider"></span></label>',
             '             </div>',
@@ -486,6 +491,7 @@ return view.extend({
             '                    <div style="flex: 1; padding-right: 15px;">',
             '                       <div style="font-weight: 600; color: #334155; font-size: 14.5px;">{{LBL_ROAMING}}</div>',
             '                       <div style="font-size: 12px; color: #64748b; margin-top: 4px; line-height: 1.4;">{{DESC_ROAMING}}</div>',
+            '                       <div id="roam-warn-2g" style="display:none; color:#ea580c; font-size:12.5px; margin-top:6px; font-weight:bold; line-height:1.4;">{{DESC_ROAM_DIRTY}}</div>',
             '                    </div>',
             '                    <label class="nw-switch" style="flex-shrink:0;"><input type="checkbox" id="wifi-2g-roaming"><span class="nw-slider"></span></label>',
             '                 </div>',
@@ -520,6 +526,7 @@ return view.extend({
             '                    <div style="flex: 1; padding-right: 15px;">',
             '                       <div style="font-weight: 600; color: #334155; font-size: 14.5px;">{{LBL_ROAMING}}</div>',
             '                       <div style="font-size: 12px; color: #64748b; margin-top: 4px; line-height: 1.4;">{{DESC_ROAMING}}</div>',
+            '                       <div id="roam-warn-5g" style="display:none; color:#ea580c; font-size:12.5px; margin-top:6px; font-weight:bold; line-height:1.4;">{{DESC_ROAM_DIRTY}}</div>',
             '                    </div>',
             '                    <label class="nw-switch" style="flex-shrink:0;"><input type="checkbox" id="wifi-5g-roaming" checked><span class="nw-slider"></span></label>',
             '                 </div>',
@@ -942,6 +949,42 @@ return view.extend({
                                 }
                             }
                             
+                            //  ===== 漫游底层状态嗅探与警告 ===== 
+                            function syncRoamUI(ifaceList, devName, encId, togId, warnId) {
+                                var iface = ifaceList.find(function(i) { return i.device === devName && i.mode === 'ap' && i.disabled !== '1'; });
+                                if (!iface) iface = ifaceList.find(function(i) { return i.device === devName && i.mode === 'ap'; });
+                                if (!iface) return;
+                                
+                                var tog = container.querySelector(togId);
+                                var warn = container.querySelector(warnId);
+                                var encEl = container.querySelector(encId);
+                                if (!tog) return;
+                                
+                                var rOn = (iface.ieee80211r === '1');
+                                tog.checked = rOn; // 真实还原底层开关状态
+                                
+                                // 判断是否非标：开启了，但域不对，或者没开本地生成，或者加密不对
+                                var encVal = encEl ? encEl.value : (iface.encryption || 'psk2');
+                                var isDirty = rOn && (iface.mobility_domain !== 'e4d1' || iface.ft_psk_generate_local !== '1' || (encVal !== 'psk2+sae' && encVal !== 'sae-mixed'));
+                                
+                                if (isDirty) {
+                                    tog.classList.add('is-dirty'); // 开关变成灰色
+                                    if (warn) warn.style.display = 'block'; // 弹出警告文字
+                                }
+                            }
+
+                            if (window._isSingleChip && wDevs[0]) {
+                                syncRoamUI(wIfaces, wDevs[0]['.name'], '#wifi-2g-enc', '#wifi-2g-roaming', '#roam-warn-2g');
+                                syncRoamUI(wIfaces, wDevs[0]['.name'], '#wifi-5g-enc', '#wifi-5g-roaming', '#roam-warn-5g');
+                            } else {
+                                if (dev2g) syncRoamUI(wIfaces, dev2g['.name'], '#wifi-2g-enc', '#wifi-2g-roaming', '#roam-warn-2g');
+                                if (dev5g) {
+                                    syncRoamUI(wIfaces, dev5g['.name'], '#wifi-5g-enc', '#wifi-5g-roaming', '#roam-warn-5g');
+                                    syncRoamUI(wIfaces, dev5g['.name'], '#wifi-smart-enc', '#wifi-smart-roaming', '#roam-warn-smart');
+                                }
+                            }
+                            //  ======================================== 
+
                             window._origWifiState = JSON.stringify({
                                 sT: container.querySelector('#wifi-smart-toggle').checked,
                                 lB: container.querySelector('#legacy-b-toggle').checked,
@@ -1247,15 +1290,24 @@ return view.extend({
                 if(!container.querySelector('#wifi-5g-key').value) container.querySelector('#wifi-5g-key').value = container.querySelector('#wifi-2g-key').value;
             }
         });
+
         // ===== 漫游与加密方式智能联动 =====
         // 1. 智能合一面板联动
         var smartRoamingToggle = container.querySelector('#wifi-smart-roaming');
         if (smartRoamingToggle) {
             smartRoamingToggle.addEventListener('change', function(e) {
-                if (e && e.isTrusted && this.checked) {
-                    var encSelect = container.querySelector('#wifi-smart-enc');
-                    if (encSelect && encSelect.value !== 'psk2+sae') {
-                        encSelect.value = 'psk2+sae';
+                if (e && e.isTrusted) {
+                    if (this.classList.contains('is-dirty')) {
+                        this.classList.remove('is-dirty'); 
+                        window._origWifiState = 'force_submit'; 
+                    }
+                    
+                    var warn = container.querySelector('#roam-warn-smart');
+                    if (warn) warn.style.display = 'none'; 
+                    
+                    if (this.checked) {
+                        var encSelect = container.querySelector('#wifi-smart-enc');
+                        if (encSelect && encSelect.value !== 'psk2+sae') encSelect.value = 'psk2+sae';
                     }
                 }
             });
@@ -1265,10 +1317,18 @@ return view.extend({
         var r2gToggle = container.querySelector('#wifi-2g-roaming');
         if (r2gToggle) {
             r2gToggle.addEventListener('change', function(e) {
-                if (e && e.isTrusted && this.checked) {
-                    var encSelect = container.querySelector('#wifi-2g-enc');
-                    if (encSelect && encSelect.value !== 'psk2+sae') {
-                        encSelect.value = 'psk2+sae';
+                if (e && e.isTrusted) {
+                    if (this.classList.contains('is-dirty')) {
+                        this.classList.remove('is-dirty');
+                        window._origWifiState = 'force_submit';
+                    }
+
+                    var warn = container.querySelector('#roam-warn-2g');
+                    if (warn) warn.style.display = 'none';
+
+                    if (this.checked) {
+                        var encSelect = container.querySelector('#wifi-2g-enc');
+                        if (encSelect && encSelect.value !== 'psk2+sae') encSelect.value = 'psk2+sae';
                     }
                 }
             });
@@ -1278,15 +1338,24 @@ return view.extend({
         var r5gToggle = container.querySelector('#wifi-5g-roaming');
         if (r5gToggle) {
             r5gToggle.addEventListener('change', function(e) {
-                if (e && e.isTrusted && this.checked) {
-                    var encSelect = container.querySelector('#wifi-5g-enc');
-                    if (encSelect && encSelect.value !== 'psk2+sae') {
-                        encSelect.value = 'psk2+sae';
+                if (e && e.isTrusted) {
+                    if (this.classList.contains('is-dirty')) {
+                        this.classList.remove('is-dirty');
+                        window._origWifiState = 'force_submit';
+                    }
+
+                    var warn = container.querySelector('#roam-warn-5g');
+                    if (warn) warn.style.display = 'none';
+
+                    if (this.checked) {
+                        var encSelect = container.querySelector('#wifi-5g-enc');
+                        if (encSelect && encSelect.value !== 'psk2+sae') encSelect.value = 'psk2+sae';
                     }
                 }
             });
         }
         // ==================================
+
         // WISP 交互与扫描逻辑
         var wispToggle = container.querySelector('#wisp-toggle');
         var wispUiPanel = container.querySelector('#wisp-ui-panel');

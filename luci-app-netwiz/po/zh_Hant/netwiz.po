@@ -529,8 +529,8 @@ msgstr "接收上級 Wi-Fi 信號，並廣播您自己的專屬網絡。"
 msgid "WISP Enabled"
 msgstr "已開啟無線中繼"
 
-msgid "🔄 Scan Nearby Wi-Fi"
-msgstr "🔄 掃描附近 Wi-Fi"
+msgid "Scan Nearby Wi-Fi"
+msgstr "掃描附近 Wi-Fi"
 
 msgid "Select Upstream Network"
 msgstr "選擇上級網絡"
@@ -556,5 +556,11 @@ msgstr "請輸入上級 Wi-Fi 的密碼"
 msgid "802.11k/v/r Fast Roaming"
 msgstr "802.11k/v/r 無縫漫遊"
 
-msgid "Enable seamless transition. May cause connection issues for old IoT devices."
-msgstr "開啟路由器間的無縫切換。注意：可能導致老舊的智能家居（IoT）設備無法連接。"
+msgid "Enable seamless roaming between routers with one click (Prerequisite: Same SSID, password, and LAN). Note: May cause connection issues with older smart home (IoT) devices."
+msgstr "一鍵開啟路由器間的無縫切換（基本前提：WiFi帳號、密碼一樣 + 同一區域網路）。注意：可能導致老舊的智慧家庭（IoT）設備無法連線。"
+
+msgid "⚠️ Manual Configuration Warning"
+msgstr "⚠️ 手動設定警告"
+
+msgid "Underlying parameter mismatch detected, which may cause roaming failures. Please toggle this switch off and on again, then save to apply the standard seamless roaming profile."
+msgstr "檢測到底層參數與預設不一致，可能會導致漫遊失敗。建議將開關關閉後重新開啟，儲存後即可加入我們無縫漫遊的「朋友圈」。"
