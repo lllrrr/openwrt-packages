@@ -2,7 +2,7 @@ msgid ""
 msgstr "Content-Type: text/plain; charset=UTF-8\n"
 
 msgid "Network Wizard"
-msgstr "網路設定"
+msgstr "網路設定
 
 msgid "Netwiz NETWORK SETUP"
 msgstr "Netwiz 網路設定精靈"
@@ -25,8 +25,8 @@ msgstr "在本設備上直接使用寬頻帳號和密碼進行撥號。"
 msgid "LAN Settings"
 msgstr "區域網路設定"
 
-msgid "Change device LAN IP, or switch to Bypass Router mode."
-msgstr "修改設備的區域網路 IP，或切換至旁路由（有線AP中繼）模式。"
+msgid "Change device LAN IP, or switch to AP Wired Relay mode."
+msgstr "修改設備的區域網路 IP，或切換至旁路由（AP有線中繼）模式。"
 
 msgid "Reading underlying config..."
 msgstr "正在讀取底層設定..."
@@ -76,11 +76,11 @@ msgstr "設定區域網路 (LAN)"
 msgid "Safe Mode (Recommended ON)"
 msgstr "安全模式 (建議開啟，防失聯)"
 
-msgid "Enable Bypass Mode"
-msgstr "啟用旁路由（有線AP中繼）模式"
+msgid "Enable AP Wired Relay"
+msgstr "啟用旁路由（AP有線中繼）模式"
 
-msgid "<b style=\"font-size: 16px;\">Bypass Mode Enabled:</b><br>1. DHCP will be disabled. <b style=\"color: #059669;\">Devices must use static IPs or get IPs from upstream.</b><br>2. Gateway MUST be the upstream router IP.<br>3. If LAN IP changes, ensure your client is in the same subnet to avoid <b style=\"color: #059669;\">losing access</b>."
-msgstr "<b style=\"font-size: 16px;\">旁路由（有線AP中繼）模式已啟用：</b><br>1. DHCP 服務將被停用，<b style=\"color: #059669;\">下級設備需手動指定 IP 或由上級路由分配。</b><br>2. 閘道器【必須】填寫為上級路由器的 IP。<br>3. 若修改了區域網路 IP，請確保您的設備也處於同網段，以免<b style=\"color: #059669;\">失去連線</b>。"
+msgid "<b style=\"font-size: 16px;\">AP Wired Relay Enabled:</b><br>1. DHCP will be disabled. <b style=\"color: #059669;\">Devices must use static IPs or get IPs from upstream.</b><br>2. Gateway MUST be the upstream router IP.<br>3. If LAN IP changes, ensure your client is in the same subnet to avoid <b style=\"color: #059669;\">losing access</b>."
+msgstr "<b style=\"font-size: 16px;\">旁路由（AP有線中繼）模式已啟用：</b><br>1. DHCP 服務將被停用，<b style=\"color: #059669;\">下級設備需手動指定 IP 或由上級路由分配。</b><br>2. 閘道器【必須】填寫為上級路由器的 IP。<br>3. 若修改了區域網路 IP，請確保您的設備也處於同網段，以免<b style=\"color: #059669;\">失去連線</b>。"
 
 msgid "<b style=\"font-size: 16px;\">Main Router Mode Enabled:</b><br>1. DHCP will be enabled. This device assigns IPs.<br>2. Gateway is usually left blank.<br>3. If LAN IP changes, ensure your client is in the same subnet to avoid <b style=\"color: #dc2626;\">losing access</b>."
 msgstr "<b style=\"font-size: 16px;\">主路由模式已啟用：</b><br>1. DHCP 服務已開啟，本設備將向下級分配 IP。<br>2. 作為主路由時，閘道器通常留空即可。<br>3. 若修改了區域網路 IP，請確保您的設備也處於同網段，以免<b style=\"color: #dc2626;\">失去連線</b>。"
@@ -91,8 +91,8 @@ msgstr "設備區域網路 IP"
 msgid "LAN Gateway"
 msgstr "區域網路閘道器"
 
-msgid "Blank for Main, required for Bypass"
-msgstr "主路由留空，旁路由（有線AP中繼）必填"
+msgid "Blank for Main, required for AP Wired Relay"
+msgstr "主路由留空，旁路由（AP有線中繼）必填"
 
 msgid "Back"
 msgstr "上一步"
@@ -121,8 +121,8 @@ msgstr "大約 15 秒後，頁面將自動重新整理或跳轉。"
 msgid "Apply Settings"
 msgstr "確認並套用"
 
-msgid "Bypass Mode"
-msgstr "旁路由（有線AP中繼）模式"
+msgid "AP Wired Relay"
+msgstr "旁路由（AP有線中繼）模式"
 
 msgid "Main Router (PPPoE)"
 msgstr "主路由 (PPPoE 撥號)"
@@ -199,12 +199,6 @@ msgstr "未取得"
 msgid "Not set"
 msgstr "未設定"
 
-msgid "System read error, anti-freeze triggered"
-msgstr "系統讀取錯誤，已觸發防卡死機制"
-
-msgid "Underlying crash intercepted, please force refresh"
-msgstr "已攔截到底層崩潰，請強制重新整理頁面"
-
 msgid "Incomplete info"
 msgstr "資訊不完整"
 
@@ -232,14 +226,14 @@ msgstr "閘道器 IP 格式不正確，請檢查！"
 msgid "Logic Error"
 msgstr "邏輯錯誤"
 
-msgid "Bypass mode requires an upstream gateway IP."
-msgstr "旁路由（有線AP中繼）模式下，閘道器為必填項。"
+msgid "AP Wired Relay requires an upstream gateway IP."
+msgstr "旁路由（AP有線中繼）模式下，閘道器為必填項。"
 
 msgid "WAN Static IP MUST NOT be the same as the gateway!"
 msgstr "WAN 靜態 IP 絕對不能和閘道器一模一樣！"
 
-msgid "The Bypass Device IP MUST NOT be the same as the Gateway!"
-msgstr "旁路由（有線AP中繼）的設備 IP 絕對不能和上級閘道器一模一樣！"
+msgid "The AP Wired Relay Device IP MUST NOT be the same as the Gateway!"
+msgstr "旁路由（AP有線中繼）的設備 IP 絕對不能和上級閘道器一模一樣！"
 
 msgid "No Changes Needed"
 msgstr "未發生更改"
@@ -274,14 +268,8 @@ msgstr "WAN 靜態 IP 必須與閘道器處於同一網段！"
 msgid "e.g., if gateway is {gw}, the IP must be {ip}.x"
 msgstr "例如：如果閘道器是 {gw}，則 IP 必須是 {ip}.x"
 
-msgid "The Bypass Device IP must be in the same subnet as the Gateway!"
-msgstr "旁路由（有線AP中繼）的設備 IP 必須與上級閘道器處於同一網段！"
-
-msgid "LAN IP cannot be the same as the existing WAN IP ({ip})!"
-msgstr "區域網路 IP 不能與目前外網 IP ({ip}) 相同！"
-
-msgid "LAN cannot be in the same subnet as WAN ({ip})!"
-msgstr "區域網路不能與外網 ({ip}) 處於同一網段！"
+msgid "The AP Wired Relay Device IP must be in the same subnet as the Gateway!"
+msgstr "旁路由（AP有線中繼）的設備 IP 必須與上級閘道器處於同一網段！"
 
 msgid "Config Warning"
 msgstr "高危操作警告"
@@ -298,38 +286,8 @@ msgstr "系統異常"
 msgid "Cannot read underlying config for validation, please refresh."
 msgstr "無法讀取底層設定進行防呆校驗，請重新整理頁面重試。"
 
-msgid "Applying Config"
-msgstr "正在下發設定"
-
-msgid "Writing request, please wait..."
-msgstr "正在向底層寫入請求，請耐心等待..."
-
-msgid "Config Applied"
-msgstr "設定下發成功"
-
-msgid "Since the IP has changed to {ip},"
-msgstr "由於 IP 已更改為 {ip}，"
-
-msgid "the system will attempt to redirect to the new address in 15 seconds."
-msgstr "系統將在 15 秒後嘗試重定向至新地址。"
-
-msgid "Note: You will need to log in again."
-msgstr "注意：您需要重新登入。"
-
 msgid "Applying Configuration"
 msgstr "正在套用設定"
-
-msgid "Underlying network is resetting, please wait...<br><br><span style=\"font-size: 14px; color: #555;\">(If it does not automatically return in 15s, manually refresh)</span>"
-msgstr "底層網路服務正在重啟，請稍候...<br><br><span style=\"font-size: 14px; color: #555;\">(若 15 秒後未自動返回，請手動重新整理網頁)</span>"
-
-msgid "❌ Write Failed"
-msgstr "❌ 寫入失敗"
-
-msgid "Underlying call exception, please try logging in again."
-msgstr "底層呼叫異常，請嘗試重新登入。"
-
-msgid "Error code: {code}"
-msgstr "錯誤代碼：{code}"
 
 msgid "Close"
 msgstr "關閉"
@@ -349,20 +307,14 @@ msgstr "IP 與閘道器"
 msgid "Auto-assigned by upstream router"
 msgstr "由上級路由自動分配"
 
-msgid "<b style=\"color:#ef4444;\">Please note:</b> If you do not successfully log in to the new IP within 2 minutes, the system will automatically restore the original settings."
-msgstr "<b style=\"color:#ef4444;\">防失聯保護：</b>若您未能在 2 分鐘內使用新 IP 開啟路由器的任意網頁，系統將自動回退至修改前的狀態。"
-
 msgid "Target:"
 msgstr "目標："
-
-msgid "Connection to new IP timed out, automatically rolled back configuration, reconnecting..."
-msgstr "連線新 IP 超時，已自動還原設定，正在重新連線..."
 
 msgid "Modifying LAN IP"
 msgstr "正在修改區域網路 IP"
 
-msgid "Switching to Bypass Mode"
-msgstr "正在切換至旁路由（有線AP中繼）模式"
+msgid "Switching to AP Wired Relay"
+msgstr "正在切換至旁路由（AP有線中繼）模式"
 
 msgid "Switching WAN to DHCP"
 msgstr "正在切換 WAN 埠為 DHCP (自動取得)"
@@ -385,17 +337,8 @@ msgstr "正在等待網路服務重啟... 已耗時：{sec}秒"
 msgid "Waiting for router to safely restore... Elapsed: {sec}s"
 msgstr "正在等待舊 IP 恢復... 已耗時：{sec}秒"
 
-msgid "Preparing environment..."
-msgstr "正在準備環境..."
-
 msgid "Rollback countdown: <b style=\"color:#f59e0b;\">{sec}</b> / {total} s"
 msgstr "防失聯倒數計時：<b style=\"color:#f59e0b;\">{sec}</b> / {total} 秒"
-
-msgid "✅ Handshake successful"
-msgstr "✅ 偵察握手成功"
-
-msgid "Network connected! Automatically redirecting..."
-msgstr "網路已連通！正在為您自動跳轉..."
 
 msgid "If enabled, the system will auto-revert if you lose connection within 120s."
 msgstr "開啟後，若修改 IP 導致失聯，系統將在 120 秒後自動回退恢復。"
@@ -472,9 +415,6 @@ msgstr "Wi-Fi 密碼長度必須至少為 8 個字元。"
 msgid "Applying Wi-Fi Settings"
 msgstr "正在套用 Wi-Fi 設定"
 
-msgid "Smart Connect cannot be enabled because 802.11b (Legacy Mode) is active. Disable it in 2.4G settings first."
-msgstr "因已開啟 802.11b 舊版相容模式，無法啟用多頻合一。請先在 2.4G 設定中將其關閉。"
-
 msgid "Advanced Settings"
 msgstr "進階設定"
 
@@ -507,9 +447,6 @@ msgstr "啟用 IPv6 (DHCPv6)"
 
 msgid "Wi-Fi Status"
 msgstr "Wi-Fi 狀態"
-
-msgid "Smart Connect"
-msgstr "多頻合一"
 
 msgid "5G Wi-Fi Account"
 msgstr "5G Wi-Fi 帳號"
@@ -557,7 +494,7 @@ msgid "802.11k/v/r Fast Roaming"
 msgstr "802.11k/v/r 無縫漫遊"
 
 msgid "Enable seamless roaming between routers with one click (Prerequisite: Same SSID, password, and LAN). Note: May cause connection issues with older smart home (IoT) devices."
-msgstr "一鍵開啟路由器間的無縫切換（基本前提：WiFi帳號、密碼一樣 + 同一區域網路）。注意：可能導致老舊的智慧家庭（IoT）設備無法連線。"
+msgstr "一鍵開啟路由器間的無縫切換（基本前提：帳號、密碼一樣 + 同一區域網路）。注意：可能導致老舊的智慧家庭（IoT）設備無法連線。"
 
 msgid "⚠️ Manual Configuration Warning"
 msgstr "⚠️ 手動設定警告"

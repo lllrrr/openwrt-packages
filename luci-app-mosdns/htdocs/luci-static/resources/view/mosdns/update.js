@@ -116,7 +116,7 @@ return view.extend({
 		o.value('geoip', _('Full'));
 		o.value('geoip-only-cn-private', _('Little'));
 		o.rmempty = false;
-		o.default = 'geoip';
+		o.default = 'geoip-only-cn-private';
 
 		o = s.option(form.Value, 'github_proxy', _('GitHub Proxy'),
 			_('Update data files with GitHub Proxy, leave blank to disable proxy downloads.'));

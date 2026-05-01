@@ -18,7 +18,7 @@ var T = {
     'MODE_PPPOE_TITLE': _('PPPoE Dial-up'),
     'MODE_PPPOE_DESC': _('Dial up directly using account and password on this device.'),
     'MODE_LAN_TITLE': _('LAN Settings'),
-    'MODE_LAN_DESC': _('Change device LAN IP, or switch to Bypass Router mode.'),
+    'MODE_LAN_DESC': _('Change device LAN IP, or switch to AP Wired Relay mode.'),
     'MODE_WIFI_TITLE': _('Wi-Fi Settings'),
     'MODE_WIFI_DESC': _('Configure wireless network, SSID, and password.'),
     'TITLE_WIFI': _('Configure Wi-Fi'),
@@ -47,7 +47,6 @@ var T = {
     'M_INC_WIFI': _('SSID cannot be empty.'),
     'M_PWD_SHORT': _('Wi-Fi password must be at least 8 characters.'),
     'ACT_WIFI': _('Applying Wi-Fi Settings'),
-    'M_LEGACY_WARN': _('Smart Connect cannot be enabled because 802.11b (Legacy Mode) is active. Disable it in 2.4G settings first.'),
     'M_MODE_WARN_TIT': _('⚠️ Severe Warning'),
     'M_MODE_WARN_MSG': _('Forcibly modifying the wireless physical mode may cause the hardware driver to crash or the Wi-Fi to disappear permanently if the chip does not support it! It is highly recommended to keep it on [Auto].<br><br>Are you absolutely sure you want to change this?'),
     'LOADING_CONFIG': _('Reading underlying config...'),
@@ -70,12 +69,12 @@ var T = {
     'LBL_FORCE_APPLY': _('Safe Mode (Recommended ON)'),
     'DESC_FORCE_APPLY': _('If enabled, the system will auto-revert if you lose connection within 120s.'),
     'MSG_SAFE_OFF': _('Safe mode disabled. Applying immediately without rollback protection...'),
-    'LBL_BYPASS': _('Enable Bypass Mode'),
-    'WARN_BYPASS': _('<b style="font-size: 16px;">Bypass Mode Enabled:</b><br>1. DHCP will be disabled. <b style="color: #059669;">Devices must use static IPs or get IPs from upstream.</b><br>2. Gateway MUST be the upstream router IP.<br>3. If LAN IP changes, ensure your client is in the same subnet to avoid <b style="color: #059669;">losing access</b>.'),
+    'LBL_BYPASS': _('Enable AP Wired Relay'),
+    'WARN_BYPASS': _('<b style="font-size: 16px;">AP Wired Relay Enabled:</b><br>1. DHCP will be disabled. <b style="color: #059669;">Devices must use static IPs or get IPs from upstream.</b><br>2. Gateway MUST be the upstream router IP.<br>3. If LAN IP changes, ensure your client is in the same subnet to avoid <b style="color: #059669;">losing access</b>.'),
     'WARN_MAIN': _('<b style="font-size: 16px;">Main Router Mode Enabled:</b><br>1. DHCP will be enabled. This device assigns IPs.<br>2. Gateway is usually left blank.<br>3. If LAN IP changes, ensure your client is in the same subnet to avoid <b style="color: #dc2626;">losing access</b>.'),
     'LBL_LAN_IP': _('Device LAN IP'),
     'LBL_LAN_GW': _('LAN Gateway'),
-    'PH_LAN_GW': _('Blank for Main, required for Bypass'),
+    'PH_LAN_GW': _('Blank for Main, required for AP Wired Relay'),
     'BTN_BACK': _('Back'),
     'BTN_NEXT': _('Next Step'),
     'BTN_EDIT': _('Back to Edit'),
@@ -85,7 +84,7 @@ var T = {
     'NOTE_1': _('After confirmation, the network will restart and apply new settings.'),
     'NOTE_2': _('The system will auto-refresh or redirect in 15 seconds.'),
     'BTN_APPLY': _('Apply Settings'),
-    'STAT_BYPASS': _('Bypass Mode'),
+    'STAT_BYPASS': _('AP Wired Relay'),
     'STAT_MAIN_PPPOE': _('Main Router (PPPoE)'),
     'STAT_SEC_DHCP': _('Secondary Router (DHCP)'),
     'STAT_SEC_STATIC': _('Secondary Router (Static IP)'),
@@ -111,8 +110,6 @@ var T = {
     'TXT_GETTING': _('Getting...'),
     'TXT_NOT_GOT': _('Not acquired'),
     'TXT_NOT_SET': _('Not set'),
-    'ERR_RD_SYS': _('System read error, anti-freeze triggered'),
-    'ERR_CRASH': _('Underlying crash intercepted, please force refresh'),
     'M_INC_TIT': _('Incomplete info'),
     'M_INC_IP': _('Device IP cannot be empty.'),
     'M_INC_WAN': _('Static IP and Gateway cannot be empty.'),
@@ -122,9 +119,9 @@ var T = {
     'M_FMT_WAN': _('WAN IP is invalid, please check!'),
     'M_FMT_GW': _('Gateway IP is invalid, please check!'),
     'M_LOGIC_TIT': _('Logic Error'),
-    'M_LOGIC_BYP': _('Bypass mode requires an upstream gateway IP.'),
+    'M_LOGIC_BYP': _('AP Wired Relay requires an upstream gateway IP.'),
     'M_SAME_GW': _('WAN Static IP MUST NOT be the same as the gateway!'),
-    'M_SAME_BYP': _('The Bypass Device IP MUST NOT be the same as the Gateway!'),
+    'M_SAME_BYP': _('The AP Wired Relay Device IP MUST NOT be the same as the Gateway!'),
     'M_NO_MOD_TIT': _('No Changes Needed'),
     'M_NO_MOD_MSG': _('Your settings match the current router config exactly.'),
     'M_EXIT': _('Exit to Home'),
@@ -136,20 +133,14 @@ var T = {
     'M_SUB_ERR_TIT': _('Subnet Error'),
     'M_SUB_ERR_WAN1': _('The WAN Static IP must be in the same subnet as the Gateway!'),
     'M_SUB_ERR_WAN2': _('e.g., if gateway is {gw}, the IP must be {ip}.x'),
-    'M_SUB_ERR_BYP': _('The Bypass Device IP must be in the same subnet as the Gateway!'),
-    'M_CFLT_LAN_IP': _('LAN IP cannot be the same as the existing WAN IP ({ip})!'),
-    'M_CFLT_LAN_SUB': _('LAN cannot be in the same subnet as WAN ({ip})!'),
+    'M_SUB_ERR_BYP': _('The AP Wired Relay Device IP must be in the same subnet as the Gateway!'),
     'M_WARN_TIT': _('Config Warning'),
     'M_WARN_MSG': _('You selected [Main Router Mode] but filled in the [Gateway].<br><br><b>For a standard main router, the gateway must be blank.</b> Entering a gateway may cause the device to fail at distributing network, leading to a total outage!<br><br>Are you sure you want to do this?'),
     'M_WARN_BTN': _('Force Apply'),
     'M_SYS_ERR': _('System Exception'),
     'M_SYS_MSG': _('Cannot read underlying config for validation, please refresh.'),
-    'M_APP_TIT': _('Applying Config'),
     'M_APP_MSG': _('Writing request, please wait...'),
     'M_RST_TIT': _('Applying Configuration'),
-    'M_FAIL_TIT': _('❌ Write Failed'),
-    'M_FAIL_MSG': _('Underlying call exception, please try logging in again.'),
-    'M_FAIL_CODE': _('Error code: {code}'),
     'M_CLOSE': _('Close'),
     'M_ACCT': _('Account'),
     'M_PWD': _('Password'),
@@ -158,7 +149,7 @@ var T = {
     'M_AUTO_UP': _('Auto-assigned by upstream router'),
     'LBL_TARGET': _('Target:'),
     'ACT_LAN': _('Modifying LAN IP'),
-    'ACT_BYPASS': _('Switching to Bypass Mode'),
+    'ACT_BYPASS': _('Switching to AP Wired Relay'),
     'ACT_WAN_DHCP': _('Switching WAN to DHCP'),
     'ACT_WAN_STATIC': _('Switching WAN to Static IP'),
     'ACT_PPPOE': _('Applying PPPoE Dial-up'),
@@ -166,13 +157,10 @@ var T = {
     'MSG_KNOCKING': _('Connecting to new IP... Config will auto-rollback upon timeout.'),
     'MSG_WAIT_NET': _('Waiting for network service to restart... Elapsed: {sec}s'),
     'MSG_WAIT_OLD': _('Waiting for router to safely restore... Elapsed: {sec}s'),
-    'MSG_PREP_ENV': _('Preparing environment...'),
     'MSG_TIMER': _('Rollback countdown: <b style="color:#f59e0b;">{sec}</b> / {total} s'),
-    'MSG_REDIRECTING': _('Network connected! Automatically redirecting...'),
     'MSG_MANUAL_VISIT': _('If IP changed, please update PC IP. Auto-redirecting when connected...'),
     'MSG_ABANDONING': _('Waiting for router to abort changes and restore network...'),
     'TXT_WIFI_STATUS': _('Wi-Fi Status'),
-    'TXT_SMART_ACCT': _('Smart Connect'),
     'TXT_5G_ACCT': _('5G Wi-Fi Account'),
     'TXT_2G_ACCT': _('2.4G Wi-Fi Account'),
     'TXT_NO_PASS': _('No Password'),
@@ -345,8 +333,8 @@ return view.extend({
             // WISP 扫描结果
             '  <div id="wisp-scan-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:999999; align-items:center; justify-content:center;">',
             '    <div style="background:#fff; width:90%; max-width:400px; border-radius:12px; overflow:hidden; display:flex; flex-direction:column; max-height:80vh;">',
-            '      <div style="padding:15px 20px; background:#f8fafc; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;">',
-            '         <h3 style="margin:0; font-size:16px; color:#0f172a;">{{MODAL_WISP_TITLE}}</h3>',
+            '      <div style="padding:10px 20px; background:#f8fafc; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;">',
+            '         <h3 style="margin:0 20px; font-size:16px; color:#eee; background: #0f172a; text-align: center; border-radius: 12px;">{{MODAL_WISP_TITLE}}</h3>',
             '         <span id="wisp-modal-close" style="font-size:24px; cursor:pointer; color:#94a3b8;">&times;</span>',
             '      </div>',
             '      <div style="padding:0; overflow-y:auto; flex:1;">',
@@ -949,10 +937,25 @@ return view.extend({
                                 }
                             }
                             
-                            //  ===== 漫游底层状态嗅探与警告 ===== 
-                            function syncRoamUI(ifaceList, devName, encId, togId, warnId) {
-                                var iface = ifaceList.find(function(i) { return i.device === devName && i.mode === 'ap' && i.disabled !== '1'; });
-                                if (!iface) iface = ifaceList.find(function(i) { return i.device === devName && i.mode === 'ap'; });
+                            // ===== 漫游底层状态嗅探与数据警告 =====
+                            function syncRoamUI(ifaceList, devName, targetBand, encId, togId, warnId) {
+                                var iface = null;
+                                
+                                if (window._isSingleChip) {
+                                    // 单芯片模式下，通过后端创建的专属接口名 (wifinet_2g / wifinet_5g) 定位
+                                    iface = ifaceList.find(function(i) { return i.device === devName && i.mode === 'ap' && (i['.name'].indexOf(targetBand) !== -1); });
+                                    
+                                    // 容错：如果用户还没用我们插件配过网，只能按活跃状态盲猜
+                                    if (!iface) {
+                                        var apIfaces = ifaceList.filter(function(i) { return i.device === devName && i.mode === 'ap'; });
+                                        iface = (targetBand === '2g') ? apIfaces[0] : (apIfaces[1] || apIfaces[0]);
+                                    }
+                                } else {
+                                    // 多芯片模式：独占网卡，直接找激活的接口
+                                    iface = ifaceList.find(function(i) { return i.device === devName && i.mode === 'ap' && i.disabled !== '1'; });
+                                    if (!iface) iface = ifaceList.find(function(i) { return i.device === devName && i.mode === 'ap'; });
+                                }
+
                                 if (!iface) return;
                                 
                                 var tog = container.querySelector(togId);
@@ -963,27 +966,28 @@ return view.extend({
                                 var rOn = (iface.ieee80211r === '1');
                                 tog.checked = rOn; // 真实还原底层开关状态
                                 
-                                // 判断是否非标：开启了，但域不对，或者没开本地生成，或者加密不对
+                                // 判断是否非标
                                 var encVal = encEl ? encEl.value : (iface.encryption || 'psk2');
                                 var isDirty = rOn && (iface.mobility_domain !== 'e4d1' || iface.ft_psk_generate_local !== '1' || (encVal !== 'psk2+sae' && encVal !== 'sae-mixed'));
                                 
                                 if (isDirty) {
-                                    tog.classList.add('is-dirty'); // 开关变成灰色
-                                    if (warn) warn.style.display = 'block'; // 弹出警告文字
+                                    tog.classList.add('is-dirty'); 
+                                    if (warn) warn.style.display = 'block'; 
                                 }
                             }
 
                             if (window._isSingleChip && wDevs[0]) {
-                                syncRoamUI(wIfaces, wDevs[0]['.name'], '#wifi-2g-enc', '#wifi-2g-roaming', '#roam-warn-2g');
-                                syncRoamUI(wIfaces, wDevs[0]['.name'], '#wifi-5g-enc', '#wifi-5g-roaming', '#roam-warn-5g');
+                                // 传入具体的频段标识 '2g' 和 '5g'
+                                syncRoamUI(wIfaces, wDevs[0]['.name'], '2g', '#wifi-2g-enc', '#wifi-2g-roaming', '#roam-warn-2g');
+                                syncRoamUI(wIfaces, wDevs[0]['.name'], '5g', '#wifi-5g-enc', '#wifi-5g-roaming', '#roam-warn-5g');
                             } else {
-                                if (dev2g) syncRoamUI(wIfaces, dev2g['.name'], '#wifi-2g-enc', '#wifi-2g-roaming', '#roam-warn-2g');
+                                if (dev2g) syncRoamUI(wIfaces, dev2g['.name'], '2g', '#wifi-2g-enc', '#wifi-2g-roaming', '#roam-warn-2g');
                                 if (dev5g) {
-                                    syncRoamUI(wIfaces, dev5g['.name'], '#wifi-5g-enc', '#wifi-5g-roaming', '#roam-warn-5g');
-                                    syncRoamUI(wIfaces, dev5g['.name'], '#wifi-smart-enc', '#wifi-smart-roaming', '#roam-warn-smart');
+                                    syncRoamUI(wIfaces, dev5g['.name'], '5g', '#wifi-5g-enc', '#wifi-5g-roaming', '#roam-warn-5g');
+                                    syncRoamUI(wIfaces, dev5g['.name'], 'smart', '#wifi-smart-enc', '#wifi-smart-roaming', '#roam-warn-smart');
                                 }
                             }
-                            //  ======================================== 
+                            // ========================================
 
                             window._origWifiState = JSON.stringify({
                                 sT: container.querySelector('#wifi-smart-toggle').checked,
@@ -1416,49 +1420,31 @@ return view.extend({
                             li.onmouseover = function() { this.style.background = '#f8fafc'; };
                             li.onmouseout = function() { this.style.background = 'transparent'; };
                             
-                            li.onclick = function() {
+                            li.onclick = function(e) {
+                                if (e) { e.preventDefault(); e.stopPropagation(); }
+                                
                                 try {
-                                    // 1. 填入 SSID
+                                    // 1. 填入 SSID 和参数
                                     container.querySelector('#wisp-target-ssid').value = net.ssid || '';
-                                    
-                                    // 2. 加密类型解析
                                     var encVal = 'none';
                                     if (net.encryption) {
                                         var desc = typeof net.encryption === 'string' ? net.encryption : (net.encryption.description || '');
                                         desc = desc.toLowerCase();
-                                        if (desc.indexOf('wpa3') !== -1 || desc.indexOf('sae') !== -1) {
-                                            encVal = 'sae-mixed';
-                                        } else if (desc.indexOf('wpa') !== -1 || desc.indexOf('psk') !== -1 || desc.indexOf('mixed') !== -1) {
-                                            encVal = 'psk2';
-                                        }
+                                        if (desc.indexOf('wpa3') !== -1 || desc.indexOf('sae') !== -1) encVal = 'sae-mixed';
+                                        else if (desc.indexOf('wpa') !== -1 || desc.indexOf('psk') !== -1 || desc.indexOf('mixed') !== -1) encVal = 'psk2';
                                     }
                                     container.querySelector('#wisp-target-enc').value = encVal;
-                                    
-                                    // 3. 填入绑定的物理网卡
                                     container.querySelector('#wisp-target-device').value = scanDevice; 
                                     container.querySelector('#wisp-target-bssid').value = net.bssid || '';
                                     
-                                    // 4. 显示输入密码区域并关闭弹窗
+                                    // 2. 隐藏弹窗，显示密码框区域
+                                    wispModal.style.display = 'none'; 
                                     container.querySelector('#wisp-selected-info').style.display = 'block';
-                                    wispModal.style.display = 'none';
                                     var btnScanLive = container.querySelector('#btn-wisp-scan');
-                                    if (btnScanLive) {
-                                        btnScanLive.style.display = 'none';
-                                    }
-                                    
-                                    // 5. 光标对焦自动全选
-                                    setTimeout(function() {
-                                        var pwdInput = container.querySelector('#wisp-target-key');
-                                        // 只要选中的不是“无密码(none)”的 Wi-Fi
-                                        if (pwdInput && encVal !== 'none') {
-                                            pwdInput.focus();
-                                            // 全选框内的旧内容
-                                            pwdInput.select(); 
-                                        }
-                                    }, 300); // 延300 毫秒，确保动画和 CSS 完全渲染
+                                    if (btnScanLive) btnScanLive.style.display = 'none';
                                     
                                 } catch(err) {
-                                    console.error("选取 Wi-Fi 时发生错误:", err);
+                                    console.error("选取 Wi-Fi 時發生錯誤:", err);
                                 }
                             };
                             
@@ -1688,13 +1674,13 @@ return view.extend({
                         
                         step2.style.display = 'none'; step3.style.display = 'block';
                     } catch (err) {
-                        openModal({ title: 'System Error', msg: 'Data processing failed: ' + err, okText: 'Close' });
+                        openModal({ title: T['M_SYS_ERR'], msg: 'Data processing failed: ' + err, okText: T['M_CLOSE'] });
                     }
                 }).catch(function(e) {
-                    openModal({ title: 'System Error', msg: 'Failed to read router config.', okText: 'Close' });
+                    openModal({ title: T['M_SYS_ERR'], msg: T['M_SYS_MSG'], okText: T['M_CLOSE'] });
                 });
             } catch (err) {
-                openModal({ title: 'System Error', msg: 'Validation failed: ' + err, okText: 'Close' });
+                openModal({ title: T['M_SYS_ERR'], msg: 'Validation failed: ' + err, okText: T['M_CLOSE'] });
             }
         });
 
@@ -1849,7 +1835,7 @@ return view.extend({
                 };
                 callNetSetup(mode, a1, a2, a3, a4, a5, a6).then(function() { succ(); }).catch(function() { succ(); });
             } catch (err) {
-                openModal({ title: 'System Error', msg: 'Application failed: ' + err, okText: 'Close' });
+                openModal({ title: T['M_SYS_ERR'], msg: 'Application failed: ' + err, okText: T['M_CLOSE'] });
             }
         });
     }
