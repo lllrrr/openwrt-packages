@@ -368,7 +368,7 @@ msgid "Enable 2.4G Wi-Fi"
 msgstr "启用 2.4G Wi-Fi"
 
 msgid "Enable 5G Wi-Fi"
-msgstr "启用 5G Wi-Fi"
+msgstr "启用 5G/多频 Wi-Fi"
 
 msgid "Network Name (SSID)"
 msgstr "无线网络名称 (SSID)"
@@ -401,7 +401,7 @@ msgid "2.4G Wi-Fi"
 msgstr "2.4G Wi-Fi"
 
 msgid "5G Wi-Fi"
-msgstr "5G Wi-Fi"
+msgstr "5G/多路 Wi-Fi"
 
 msgid "SSID cannot be empty."
 msgstr "网络名称 (SSID) 不能为空。"
@@ -446,7 +446,7 @@ msgid "Wi-Fi Status"
 msgstr "Wi-Fi 状态"
 
 msgid "5G Wi-Fi Account"
-msgstr "5G Wi-Fi 账号"
+msgstr "5G/多频 Wi-Fi 账号"
 
 msgid "2.4G Wi-Fi Account"
 msgstr "2.4G Wi-Fi 账号"
