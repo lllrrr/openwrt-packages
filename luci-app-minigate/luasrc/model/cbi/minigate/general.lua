@@ -44,12 +44,22 @@ o.cfgvalue = function()
 </div>
 
 <div id="mg-visitors" style="margin-top:16px;background:#f8f9fa;border-radius:8px;padding:15px;border-left:4px solid #9c27b0">
-<div style="font-size:12px;color:#666;margin-bottom:8px">访问记录 <span id="mg-v-count" style="color:#9c27b0"></span></div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px;flex-wrap:wrap">
+<div style="font-size:12px;color:#666">访问记录 <span id="mg-v-count" style="color:#9c27b0"></span></div>
+<label style="font-size:12px;color:#666;white-space:nowrap">显示
+<select id="mg-v-limit" style="padding:3px 8px;border-radius:4px;border:1px solid #ccc;font-size:12px;margin:0 4px">
+<option value="5" selected>5</option>
+<option value="20">20</option>
+<option value="50">50</option>
+</select>条</label>
+</div>
 <div id="mg-v-list" style="font-size:12px;color:#888">加载中...</div>
 </div>
 
 <script type="text/javascript">
 var _geoCache={};
+var _visitorLimit=localStorage.getItem('mgVisitorLimit')||'5';
+if(_visitorLimit!='5'&&_visitorLimit!='20'&&_visitorLimit!='50')_visitorLimit='5';
 
 function fmtT(iso){
     if(!iso)return'--';
@@ -66,7 +76,7 @@ function queryGeo(ip,cb){
 }
 
 function loadVisitors(){
-    XHR.get(']] .. au .. [[',null,function(x,d){
+    XHR.get(']] .. au .. [[',{limit:_visitorLimit},function(x,d){
         var el=document.getElementById('mg-v-list');
         var ct=document.getElementById('mg-v-count');
         if(!d||!d.visitors||d.visitors.length===0){
@@ -109,6 +119,16 @@ function loadVisitors(){
     });
 }
 
+var limitSel=document.getElementById('mg-v-limit');
+if(limitSel){
+    limitSel.value=_visitorLimit;
+    limitSel.onchange=function(){
+        _visitorLimit=this.value;
+        localStorage.setItem('mgVisitorLimit',_visitorLimit);
+        loadVisitors();
+    };
+}
+
 XHR.poll(6,']] .. su .. [[',null,function(x,d){
 if(!d)return;
 var d1=document.getElementById('mg-d1'),d2=document.getElementById('mg-d2');
@@ -122,7 +142,13 @@ d1.innerHTML='<span style="color:'+c+'">'+l+'</span>';
 var info=(e.domain||'')+'\n';
 if(e.last_ip)info+='A: '+e.last_ip+'\n';
 if(e.last_ip6)info+='AAAA: '+e.last_ip6+'\n';
-if(e.status_msg)info+=e.status_msg+'\n';
+var sm=e.status_msg||'';
+if(sm){
+    var dupA=e.last_ip&&sm.indexOf('A:'+e.last_ip)>=0;
+    var dupAAAA=e.last_ip6&&sm.indexOf('AAAA:'+e.last_ip6)>=0;
+    var onlyIpStatus=sm.replace(/A:[^;]+;?/g,'').replace(/AAAA:[^;]+;?/g,'').replace(/\s+/g,'')=='';
+    if(!(onlyIpStatus&&(dupA||dupAAAA)))info+=sm+'\n';
+}
 if(e.last_update)info+='\u66f4\u65b0: '+e.last_update+'\n';
 if(e.next_sync)info+='\u4e0b\u6b21: '+e.next_sync;
 if(d.ddns_list.length>1)info+='\n(+'+(d.ddns_list.length-1)+' \u6761\u8bb0\u5f55)';

@@ -256,9 +256,10 @@ case "$1" in
                                 uci set wireless.$iface_name.ieee80211r='1'
                                 uci set wireless.$iface_name.ieee80211k='1'
                                 uci set wireless.$iface_name.ieee80211v='1'
-                                uci set wireless.$iface_name.ft_psk_generate_local='1'
+                                uci delete wireless.$iface_name.ft_psk_generate_local 2>/dev/null || true
                                 uci set wireless.$iface_name.ft_over_ds='0'
                                 uci set wireless.$iface_name.mobility_domain='e4d1'
+                                uci set wireless.$iface_name.ocv='0'
                             else
                                 uci delete wireless.$iface_name.ieee80211r 2>/dev/null || true
                                 uci delete wireless.$iface_name.ieee80211k 2>/dev/null || true
@@ -266,6 +267,7 @@ case "$1" in
                                 uci delete wireless.$iface_name.ft_psk_generate_local 2>/dev/null || true
                                 uci delete wireless.$iface_name.ft_over_ds 2>/dev/null || true
                                 uci delete wireless.$iface_name.mobility_domain 2>/dev/null || true
+                                uci delete wireless.$iface_name.ocv 2>/dev/null || true
                             fi
 
                             if [ "$p_hidden" = "1" ]; then uci set wireless.$iface_name.hidden='1'; else uci delete wireless.$iface_name.hidden 2>/dev/null || true; fi
