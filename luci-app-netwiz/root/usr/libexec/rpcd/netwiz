@@ -17,11 +17,26 @@ log() {
 # 智能重启依赖网络的高级应用
 restart_depend_apps() {
     log ">>> 正在检测并唤醒高级网络应用..."
-    if [ -f "/etc/init.d/openclash" ] && /etc/init.d/openclash enabled 2>/dev/null; then log "唤醒 OpenClash"; /etc/init.d/openclash restart >/dev/null 2>&1 & fi
-    if [ -f "/etc/init.d/passwall" ] && /etc/init.d/passwall enabled 2>/dev/null; then log "唤醒 PassWall"; /etc/init.d/passwall restart >/dev/null 2>&1 & fi
-    if [ -f "/etc/init.d/shadowsocksr" ] && /etc/init.d/shadowsocksr enabled 2>/dev/null; then log "唤醒 ShadowsocksR Plus+"; /etc/init.d/shadowsocksr restart >/dev/null 2>&1 & fi
-    if [ -f "/etc/init.d/ddns" ] && /etc/init.d/ddns enabled 2>/dev/null; then log "唤醒 DDNS"; /etc/init.d/ddns restart >/dev/null 2>&1 & fi
-    if [ -f "/etc/init.d/miniupnpd" ] && /etc/init.d/miniupnpd enabled 2>/dev/null; then log "唤醒 UPnP 服务"; /etc/init.d/miniupnpd restart >/dev/null 2>&1 & fi
+
+    # 定义需要唤醒的插件池 (按业务逻辑分类，方便以后随时添加)
+    local proxy_apps="openclash passwall shadowsocksr bypass vssr homeproxy mihomo"
+    local dns_apps="adguardhome smartdns mosdns"
+    local vpn_apps="tailscale zerotier ipsec"
+    local route_apps="mwan3 sqm ddns miniupnpd socat"
+
+    # 唤醒: 代理网关、DNS处理、异地组网、路由流控
+    for app in $proxy_apps $dns_apps $vpn_apps $route_apps; do
+        if [ -f "/etc/init.d/$app" ] && /etc/init.d/$app enabled 2>/dev/null; then
+            log "唤醒 $app"
+            /etc/init.d/$app restart >/dev/null 2>&1 &
+        fi
+    done
+
+    # 特殊处理: Docker 容器服务 (网络重启常导致 Docker 虚拟网桥失效)
+    if [ -f "/etc/init.d/dockerd" ] && /etc/init.d/dockerd enabled 2>/dev/null; then
+        log "唤醒 Docker 守护进程"
+        /etc/init.d/dockerd restart >/dev/null 2>&1 &
+    fi
 }
 # 结束
 
@@ -365,9 +380,21 @@ case "$1" in
                                 fi
                             fi
                         else
-                            log "清理无线中继虚拟接口"
+                            log "清理无线中继虚拟接口及防火墙残留"
                             uci delete wireless.wisp_sta 2>/dev/null || true
                             uci delete network.wwan 2>/dev/null || true
+                            
+                            # 剔除防火墙中的 wwan 残留
+                            wan_zone=$(uci show firewall | grep "\.name='wan'" | cut -d'.' -f2 | head -n1 || echo "")
+                            if [ -n "$wan_zone" ]; then
+                                old_nets=$(uci -q get firewall.$wan_zone.network || echo "")
+                                if echo "$old_nets" | grep -q "wwan"; then
+                                    # 移除 wwan 并清理多余空格
+                                    new_nets=$(echo "$old_nets" | sed 's/\bwwan\b//g' | xargs)
+                                    uci set firewall.$wan_zone.network="$new_nets"
+                                    uci commit firewall
+                                fi
+                            fi
                         fi
 
                         log ">>> [步骤 5/5] 所有配置已就绪，正在执行系统 Commit 并重启网络服务..."
