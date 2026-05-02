@@ -246,7 +246,7 @@ return view.extend({
             '.nw-top-back:hover { background: #e2e8f0; color: #0f172a; transform: translateX(-3px); box-shadow: 2px 2px 8px rgba(0,0,0,0.05); }',
             '.nw-top-back svg { width: 20px; height: 20px; }',
             '.nw-step-title { text-align: center; margin-bottom: 30px; color: #111; font-weight: 600; font-size: 20px; }',
-            '.nw-form-area .nw-value { border: none !important; padding: 12px 0 !important; display: flex !important; flex-direction: column !important; width: 100% !important; margin: 0 !important; background: transparent !important; }',
+            '.nw-form-area .nw-value { border: none !important; padding-bottom: 12px !important; display: flex !important; flex-direction: column !important; width: 100% !important; margin: 0 !important; background: transparent !important; }',
             '.nw-form-area .nw-value-title { text-align: left !important; font-weight: 600 !important; color: #334155 !important; font-size: 14.5px !important; margin: 0 0 10px 4px !important; line-height: 1.2 !important; display: block !important; padding: 0 !important; width: auto !important; float: none !important; }',
             '.nw-form-area .nw-value-field { width: 100% !important; margin: 0 !important; padding: 0 !important; display: block !important; float: none !important; }',
             '.nw-form-area input[type="text"], .nw-form-area input[type="password"], .nw-form-area select, .nw-form-area textarea { appearance: none !important; width: 100% !important; box-sizing: border-box !important; padding: 14px 16px !important; border: 1px solid #cbd5e1 !important; border-radius: 8px !important; font-size: 15px !important; outline: none !important; background: #f8fafc !important; color: #0f172a !important; height: auto !important; min-height: 48px !important; line-height: 1.5 !important; box-shadow: inset 0 1px 2px rgba(0,0,0,0.02) !important; margin: 0 !important; transition: all 0.2s ease !important; display: block !important; font-family: inherit; resize: none; word-break: break-all; }',
@@ -377,7 +377,7 @@ return view.extend({
             '      </div>',
             '      <div id="fields-router" style="display: none;">',
             '        <div class="nw-step-title">{{TITLE_WAN}}</div>',
-            '        <div style="width: 100%; padding: 10px 0 15px 0;">',
+            '        <div style="width: 100%; padding-bottom:15px">',
             '          <div class="nw-value-title" style="margin-bottom: 12px; display: block;">{{LBL_CONN_TYPE}}</div>',
             '          <div class="nw-radio-group">',
             '            <label class="nw-radio-btn"><input type="radio" name="router_type" value="dhcp" checked> <span class="nw-radio-btn-text">{{OPT_DHCP}}</span></label>',
@@ -395,7 +395,7 @@ return view.extend({
             '        <div class="nw-value"><label class="nw-value-title">{{LBL_USER}}</label><div class="nw-value-field"><textarea id="pppoe-user" placeholder="{{PH_USER}}" rows="2"></textarea></div></div>',
             // 宽带密码
             '        <div class="nw-value"><label class="nw-value-title">{{LBL_PASS}}</label><div class="nw-value-field"><input type="text" id="pppoe-pass" placeholder="{{PH_PASS}}"></div></div>',
-            '        <div style="margin-top: 15px; padding: 10px; border-radius: 8px; font-size: 14px; color: #ef4444; font-weight: 600;">{{MSG_WAN_AUTODETECT}}</div>',
+            '        <div style="padding: 10px; border-radius: 8px; font-size: 14px; color: #ef4444; font-weight: 600;">{{MSG_WAN_AUTODETECT}}</div>',
             '      </div>',
             '      <div id="fields-wifi" style="display: none;">',
             '        <div class="nw-step-title">{{TITLE_WIFI}}</div>',
@@ -861,6 +861,18 @@ return view.extend({
                                         dev5g = wDevs.find(d => d['.name'] !== dev2g['.name']);
                                     }
 
+                                    console.log("============== [Netwiz 硬件嗅探] ==============");
+                                    console.log("检测到物理射频芯片数量:", wDevs.length);
+                                    if (window._isSingleChip) {
+                                        console.log("架构判断: 【单芯片处理中心】 (Single-Chip)");
+                                        console.log("目标核心:", wDevs[0]['.name']);
+                                    } else {
+                                        console.log("架构判断: 【多芯片独立阵列】 (Multi-Chip)");
+                                        console.log("2.4G 物理芯片:", dev2g ? dev2g['.name'] : "未挂载");
+                                        console.log("5G  物理芯片:", dev5g ? dev5g['.name'] : "未挂载");
+                                    }
+                                    console.log("===============================================");
+                                    
                                     var i2g = findMainIfaceForDev(dev2g ? dev2g['.name'] : 'none');
                                     var i5g = findMainIfaceForDev(dev5g ? dev5g['.name'] : 'none');
 
@@ -1301,14 +1313,18 @@ return view.extend({
                 // 防止系统自动触发时覆盖数据
                 if (!e.isTrusted) return;
 
-                // 备份现有的独立账号密码
+                // 备份现有的独立账号密码及漫游状态
+                var roam2gEl = container.querySelector('#wifi-2g-roaming');
+                var roam5gEl = container.querySelector('#wifi-5g-roaming');
                 window._backupSplit = {
                     s2: container.querySelector('#wifi-2g-ssid').value,
                     k2: container.querySelector('#wifi-2g-key').value,
                     e2: container.querySelector('#wifi-2g-enc').value,
+                    r2: roam2gEl ? roam2gEl.checked : false, // 备份 2.4G 漫游状态
                     s5: container.querySelector('#wifi-5g-ssid').value,
                     k5: container.querySelector('#wifi-5g-key').value,
-                    e5: container.querySelector('#wifi-5g-enc').value
+                    e5: container.querySelector('#wifi-5g-enc').value,
+                    r5: roam5gEl ? roam5gEl.checked : true   // 备份 5G 漫游状态
                 };
 
                 // 获取已开启频段的信息优先5G
@@ -1337,15 +1353,20 @@ return view.extend({
                 // 防止系统加载时覆盖底层数据
                 if (!e.isTrusted) return;
 
-                // 恢复之前备份的独立账号密码
+                // 恢复之前备份的独立账号密码及漫游状态
+                var targetRoam2g = false; // 2.4G 漫游默认安全关闭 (保护智能家居)
+                var targetRoam5g = true;  // 5G 漫游默认开启 (保障手机体验)
+                
                 if (window._backupSplit && (window._backupSplit.s2 || window._backupSplit.s5)) {
                     container.querySelector('#wifi-2g-ssid').value = window._backupSplit.s2;
                     container.querySelector('#wifi-2g-key').value = window._backupSplit.k2;
                     container.querySelector('#wifi-2g-enc').value = window._backupSplit.e2;
+                    targetRoam2g = window._backupSplit.r2; // 恢复历史状态
                     
                     container.querySelector('#wifi-5g-ssid').value = window._backupSplit.s5;
                     container.querySelector('#wifi-5g-key').value = window._backupSplit.k5;
                     container.querySelector('#wifi-5g-enc').value = window._backupSplit.e5;
+                    targetRoam5g = window._backupSplit.r5; // 恢复历史状态
                 } else {
                     // 无备份时自动生成独立名称
                     var baseSsid = container.querySelector('#wifi-smart-ssid').value;
@@ -1360,6 +1381,12 @@ return view.extend({
                     container.querySelector('#wifi-5g-key').value = baseKey;
                     container.querySelector('#wifi-5g-enc').value = baseEnc;
                 }
+                
+                // 应用漫游开关状态，并触发 change 事件以同步 UI (比如加密方式的降级警告)
+                var r2gEl = container.querySelector('#wifi-2g-roaming');
+                if (r2gEl) { r2gEl.checked = targetRoam2g; r2gEl.dispatchEvent(new Event('change')); }
+                var r5gEl = container.querySelector('#wifi-5g-roaming');
+                if (r5gEl) { r5gEl.checked = targetRoam5g; r5gEl.dispatchEvent(new Event('change')); }
             }
         });
 

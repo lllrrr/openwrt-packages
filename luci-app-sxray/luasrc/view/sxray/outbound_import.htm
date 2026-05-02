@@ -1,214 +1,512 @@
-<div class="cbi-section-node">
-	<div class="cbi-section">
-		<h3><%:Import Configuration%></h3>
-		<div class="cbi-section-descr"><%:Import configuration from URI list, Xray JSON, or Sing-box JSON format%></div>
-		
-		<div class="cbi-value">
-			<label class="cbi-value-title"><%:Import Source%></label>
-			<div class="cbi-value-field">
-				<select id="import_source" class="cbi-input-select">
-					<option value="manual"><%:Manual Input%></option>
-					<option value="url"><%:URL Download%></option>
-				</select>
-			</div>
-		</div>
+<style type="text/css">
+.imp-container{--imp-bg:#f8f9fa;--imp-bg-alt:#ffffff;--imp-border:#dee2e6;--imp-text:#212529;--imp-text-muted:#6c757d;--imp-accent:#4a90d9;--imp-accent-light:rgba(74,144,217,0.1);--imp-success:#28a745;--imp-success-light:rgba(40,167,69,0.1);--imp-error:#dc3545;--imp-error-light:rgba(220,53,69,0.1);--imp-warn:#ffc107;--imp-warn-light:rgba(255,193,7,0.1);--imp-radius:6px;font-family:inherit;color:var(--imp-text);max-width:900px;margin:0 auto;padding:16px}
+@media(prefers-color-scheme:dark){.imp-container{--imp-bg:#1e1e2e;--imp-bg-alt:#181825;--imp-border:#313244;--imp-text:#cdd6f4;--imp-text-muted:#a6adc8;--imp-accent:#89b4fa;--imp-accent-light:rgba(137,180,250,0.1);--imp-success:#a6e3a1;--imp-success-light:rgba(166,227,161,0.1);--imp-error:#f38ba8;--imp-error-light:rgba(243,139,168,0.1);--imp-warn:#f9e2af;--imp-warn-light:rgba(249,226,175,0.1)}}
+.imp-header{margin-bottom:16px}.imp-header h3{margin:0 0 4px;font-size:1.3em}.imp-header p{margin:0;color:var(--imp-text-muted);font-size:0.9em}
+.imp-tabs{display:flex;gap:0;border-bottom:2px solid var(--imp-border);margin-bottom:12px}
+.imp-tab{padding:8px 16px;cursor:pointer;border:none;background:none;color:var(--imp-text-muted);font-size:0.9em;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .2s}
+.imp-tab.active{color:var(--imp-accent);border-bottom-color:var(--imp-accent);font-weight:600}
+.imp-tab:hover{color:var(--imp-accent)}
+.imp-panel{display:none}.imp-panel.active{display:block}
+.imp-textarea{width:100%;min-height:160px;padding:10px;border:1px solid var(--imp-border);border-radius:var(--imp-radius);background:var(--imp-bg-alt);color:var(--imp-text);font-family:monospace;font-size:0.85em;resize:vertical;box-sizing:border-box}
+.imp-input{width:100%;padding:10px;border:1px solid var(--imp-border);border-radius:var(--imp-radius);background:var(--imp-bg-alt);color:var(--imp-text);font-size:0.9em;box-sizing:border-box}
+.imp-counter{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:0.8em;color:var(--imp-text-muted)}
+.imp-dropzone{border:2px dashed var(--imp-border);border-radius:var(--imp-radius);padding:40px 20px;text-align:center;cursor:pointer;transition:all .2s;background:var(--imp-bg-alt)}
+.imp-dropzone:hover,.imp-dropzone.dragover{border-color:var(--imp-accent);background:var(--imp-accent-light)}
+.imp-dropzone-text{color:var(--imp-text-muted);font-size:0.9em}
+.imp-file-info{margin-top:8px;padding:8px 12px;background:var(--imp-success-light);border-radius:var(--imp-radius);font-size:0.85em;display:none}
+.imp-options{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:12px 0;padding:12px;background:var(--imp-bg-alt);border:1px solid var(--imp-border);border-radius:var(--imp-radius)}
+.imp-opt-group{display:flex;align-items:center;gap:6px;font-size:0.85em}
+.imp-opt-group label{color:var(--imp-text-muted);white-space:nowrap}
+.imp-opt-group select{padding:4px 8px;border:1px solid var(--imp-border);border-radius:4px;background:var(--imp-bg-alt);color:var(--imp-text);font-size:0.85em}
+.imp-format-badge{padding:2px 8px;border-radius:10px;font-size:0.75em;background:var(--imp-accent-light);color:var(--imp-accent);display:none}
+.imp-actions{display:flex;gap:10px;margin:12px 0}
+.imp-btn-primary{padding:8px 20px;background:var(--imp-accent);color:#fff;border:none;border-radius:var(--imp-radius);cursor:pointer;font-size:0.9em;text-decoration:none;display:inline-block;text-align:center}
+.imp-btn-primary:hover{opacity:0.9}.imp-btn-primary:disabled{opacity:0.5;cursor:not-allowed}
+.imp-btn-outline{padding:8px 20px;background:transparent;color:var(--imp-accent);border:1px solid var(--imp-accent);border-radius:var(--imp-radius);cursor:pointer;font-size:0.9em}
+.imp-btn-outline:hover{background:var(--imp-accent-light)}
+.imp-btn-danger{padding:6px 12px;background:var(--imp-error);color:#fff;border:none;border-radius:var(--imp-radius);cursor:pointer;font-size:0.8em}
+.imp-btn-sm{padding:4px 10px;font-size:0.8em}
+.imp-progress{height:4px;background:var(--imp-border);border-radius:2px;margin:8px 0;overflow:hidden;display:none}
+.imp-progress-bar{height:100%;background:var(--imp-accent);width:0;transition:width .3s}
+.imp-status{padding:8px 12px;border-radius:var(--imp-radius);font-size:0.85em;margin:8px 0;display:none}
+.imp-status.info{display:block;background:var(--imp-accent-light);color:var(--imp-accent)}
+.imp-status.success{display:block;background:var(--imp-success-light);color:var(--imp-success)}
+.imp-status.error{display:block;background:var(--imp-error-light);color:var(--imp-error)}
+.imp-preview{display:none;margin-top:16px;border:1px solid var(--imp-border);border-radius:var(--imp-radius);overflow:hidden}
+.imp-summary{display:flex;gap:16px;padding:12px 16px;background:var(--imp-bg-alt);border-bottom:1px solid var(--imp-border);flex-wrap:wrap}
+.imp-summary-item{font-size:0.85em}.imp-summary-item strong{font-size:1.1em}
+.imp-preview-header{display:flex;justify-content:space-between;align-items:center;padding:8px 16px;border-bottom:1px solid var(--imp-border)}
+.imp-preview-header .imp-select-actions{display:flex;gap:8px;align-items:center;font-size:0.8em}
+.imp-list{list-style:none;padding:0;margin:0;max-height:400px;overflow-y:auto}
+.imp-item{display:flex;align-items:center;padding:8px 16px;border-bottom:1px solid var(--imp-border);gap:10px;transition:background .15s}
+.imp-item:hover{background:var(--imp-accent-light)}
+.imp-item:last-child{border-bottom:none}
+.imp-item-dup{background:var(--imp-warn-light)}
+.imp-item-check input{width:16px;height:16px}
+.imp-item-body{flex:1;min-width:0}
+.imp-item-name{font-size:0.9em;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.imp-item-meta{display:flex;gap:6px;align-items:center;margin-top:3px;flex-wrap:wrap}
+.imp-tag{padding:1px 6px;border-radius:3px;font-size:0.7em;font-weight:600;text-transform:uppercase}
+.imp-tag-vmess{background:rgba(66,133,244,0.15);color:#4285f4}
+.imp-tag-vless{background:rgba(156,39,176,0.15);color:#9c27b0}
+.imp-tag-trojan{background:rgba(220,53,69,0.15);color:#dc3545}
+.imp-tag-shadowsocks,.imp-tag-ss{background:rgba(40,167,69,0.15);color:#28a745}
+.imp-tag-hysteria2{background:rgba(255,152,0,0.15);color:#ff9800}
+.imp-tag-tuic{background:rgba(0,188,212,0.15);color:#00bcd4}
+.imp-tag-wireguard{background:rgba(25,50,100,0.15);color:#193264}
+.imp-tag-other{background:rgba(108,117,125,0.15);color:#6c757d}
+.imp-tag-core-xray{background:rgba(74,144,217,0.1);color:var(--imp-accent)}
+.imp-tag-core-sing-box{background:rgba(255,152,0,0.1);color:#ff9800}
+.imp-badge-dup{padding:1px 6px;border-radius:3px;font-size:0.7em;background:var(--imp-warn-light);color:var(--imp-warn)}
+.imp-item-addr{font-size:0.75em;color:var(--imp-text-muted)}
+.imp-result-section{display:none;text-align:center;padding:30px 20px;border:1px solid var(--imp-border);border-radius:var(--imp-radius);margin-top:16px;background:var(--imp-bg-alt)}
+.imp-result-icon{font-size:2.5em;color:var(--imp-success)}
+.imp-result-section h4{margin:8px 0}
+.imp-result-stats{display:flex;justify-content:center;gap:20px;margin:12px 0;font-size:0.9em}
+.imp-result-actions{display:flex;justify-content:center;gap:12px;margin-top:16px}
+.imp-backup-section{margin-top:20px;padding:12px 16px;border:1px solid var(--imp-border);border-radius:var(--imp-radius);background:var(--imp-bg-alt)}
+.imp-backup-section h4{margin:0 0 10px;font-size:1em}
+.imp-backup-actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.imp-backup-list{list-style:none;padding:0;margin:0}
+.imp-backup-list li{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--imp-border);font-size:0.85em}
+.imp-help{margin-top:20px;border:1px solid var(--imp-border);border-radius:var(--imp-radius);overflow:hidden}
+.imp-help summary{padding:10px 16px;cursor:pointer;font-weight:600;font-size:0.9em;background:var(--imp-bg-alt)}
+.imp-help-table{width:100%;border-collapse:collapse;font-size:0.8em}
+.imp-help-table th,.imp-help-table td{padding:6px 12px;border:1px solid var(--imp-border);text-align:left}
+.imp-help-table th{background:var(--imp-bg)}
+@media(max-width:600px){.imp-options{flex-direction:column;align-items:stretch}.imp-actions{flex-direction:column}.imp-actions button,.imp-actions .imp-btn-primary{width:100%}.imp-preview-header{flex-direction:column;gap:8px}.imp-backup-actions{flex-direction:column}.imp-backup-actions button{width:100%}.imp-summary{flex-direction:column;gap:6px}}
+</style>
 
-		<div class="cbi-value" id="import_manual_div">
-			<label class="cbi-value-title"><%:Configuration Content%></label>
-			<div class="cbi-value-field">
-				<textarea id="import_content" class="cbi-input-textarea" style="width: 100%; min-height: 200px;" placeholder="<%:Paste configuration content here (URI list, Xray JSON, or Sing-box JSON)%>"></textarea>
-			</div>
-		</div>
+<div class="imp-container">
+    <div class="imp-header">
+        <h3><%:Import Outbound Nodes%></h3>
+        <p><%:Import proxy nodes from URI links, subscription URLs, or configuration files.%></p>
+    </div>
 
-		<div class="cbi-value" id="import_url_div" style="display:none;">
-			<label class="cbi-value-title"><%:Configuration URL%></label>
-			<div class="cbi-value-field">
-				<input type="text" id="import_url" class="cbi-input-text" style="width: 100%;" placeholder="<%:Enter configuration URL%>" />
-			</div>
-		</div>
+    <div class="imp-tabs">
+        <button type="button" class="imp-tab active" onclick="imp_switchTab('manual',event)"><%:Manual Input%></button>
+        <button type="button" class="imp-tab" onclick="imp_switchTab('url',event)"><%:URL Download%></button>
+        <button type="button" class="imp-tab" onclick="imp_switchTab('file',event)"><%:File Upload%></button>
+    </div>
 
-		<div class="cbi-value">
-			<label class="cbi-value-title"><%:Core Type%></label>
-			<div class="cbi-value-field">
-				<select id="import_core_type" class="cbi-input-select">
-					<option value="auto"><%:Auto Detect%></option>
-					<option value="xray">Xray</option>
-					<option value="sing-box">Sing-Box</option>
-				</select>
-			</div>
-		</div>
+    <div id="imp_panel_manual" class="imp-panel active">
+        <textarea id="imp_content" class="imp-textarea" placeholder="<%:Paste URI links (one per line), or JSON configuration content...%>"></textarea>
+        <div class="imp-counter">
+            <span><span id="imp_chars">0</span> <%:chars%> / <span id="imp_lines">0</span> <%:lines%></span>
+            <button type="button" class="imp-btn-sm imp-btn-outline" onclick="imp_clearContent()"><%:Clear%></button>
+        </div>
+    </div>
 
-		<div class="cbi-value">
-			<div class="cbi-value-field" style="padding-left: 0;">
-				<input type="button" class="btn cbi-button cbi-button-action" id="import_parse_btn" value="<%:Parse Configuration%>" />
-				<input type="button" class="btn cbi-button cbi-button-save" id="import_save_btn" value="<%:Save Configuration%>" style="display:none;" />
-				<span id="import_status" style="margin-left: 10px;"></span>
-			</div>
-		</div>
+    <div id="imp_panel_url" class="imp-panel">
+        <input type="text" id="imp_url" class="imp-input" placeholder="https://example.com/subscribe/..." />
+        <p style="margin:6px 0 0;font-size:0.8em;color:var(--imp-text-muted)"><%:Enter subscription URL or direct link to configuration file.%></p>
+    </div>
 
-		<div class="cbi-value" id="import_preview_div" style="display:none;">
-			<label class="cbi-value-title"><%:Configuration Preview%></label>
-			<div class="cbi-value-field">
-				<div id="import_preview" style="border: 1px solid #ccc; padding: 10px; max-height: 400px; overflow: auto; background: #f5f5f5; border-radius: 3px;"></div>
-			</div>
-		</div>
-	</div>
+    <div id="imp_panel_file" class="imp-panel">
+        <div class="imp-dropzone" id="imp_dropzone" onclick="document.getElementById('imp_file_input').click()" ondragover="event.preventDefault();this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="event.preventDefault();this.classList.remove('dragover');imp_handleFile(event.dataTransfer.files)">
+            <div class="imp-dropzone-text"><%:Drag and drop file here, or click to select%></div>
+            <input type="file" id="imp_file_input" style="display:none" accept=".txt,.json,.yaml,.yml,.conf" onchange="imp_handleFile(this.files)" />
+        </div>
+        <div class="imp-file-info" id="imp_file_info"></div>
+    </div>
+
+    <div class="imp-options">
+        <div class="imp-opt-group">
+            <label><%:Core Type%>:</label>
+            <select id="imp_core_type">
+                <option value="auto">Auto</option>
+                <option value="xray">Xray</option>
+                <option value="sing-box">Sing-Box</option>
+            </select>
+        </div>
+        <div class="imp-opt-group">
+            <label><%:Duplicates%>:</label>
+            <select id="imp_dup_policy">
+                <option value="skip"><%:Skip Duplicates%></option>
+                <option value="override"><%:Override Existing%></option>
+                <option value="all"><%:Import All%></option>
+            </select>
+        </div>
+        <span class="imp-format-badge" id="imp_format_badge"></span>
+    </div>
+
+    <div class="imp-actions">
+        <button type="button" class="imp-btn-primary" id="imp_btn_parse" onclick="imp_parse()"><%:Parse and Validate%></button>
+        <button type="button" class="imp-btn-primary" id="imp_btn_save" onclick="imp_save()" disabled><%:Import Selected%></button>
+    </div>
+
+    <div class="imp-progress" id="imp_progress"><div class="imp-progress-bar" id="imp_progress_bar"></div></div>
+    <div class="imp-status" id="imp_status"></div>
+
+    <div class="imp-preview" id="imp_preview">
+        <div class="imp-summary" id="imp_summary"></div>
+        <div class="imp-preview-header">
+            <span id="imp_select_count">0 <%:selected%></span>
+            <div class="imp-select-actions">
+                <button type="button" class="imp-btn-sm imp-btn-outline" onclick="imp_selectAll()"><%:Select All%></button>
+                <button type="button" class="imp-btn-sm imp-btn-outline" onclick="imp_deselectAll()"><%:Deselect All%></button>
+            </div>
+        </div>
+        <ul class="imp-list" id="imp_list"></ul>
+    </div>
+
+    <section class="imp-result-section" id="imp_result_section">
+        <div class="imp-result-icon">&#10004;</div>
+        <h4><%:Import Complete%></h4>
+        <div class="imp-result-stats">
+            <span><%:Imported%>: <strong id="imp_r_imported">0</strong></span>
+            <span><%:Skipped%>: <strong id="imp_r_skipped">0</strong></span>
+            <span><%:Duplicates%>: <strong id="imp_r_duplicated">0</strong></span>
+        </div>
+        <div class="imp-result-actions">
+            <a class="imp-btn-primary" href="<%=luci.dispatcher.build_url("admin/services/sxray/outbounds")%>"><%:View Imported Nodes%></a>
+            <button type="button" class="imp-btn-outline" onclick="imp_resetForNew()"><%:Continue Importing%></button>
+        </div>
+    </section>
+
+    <div class="imp-backup-section">
+        <h4><%:Backup and Restore%></h4>
+        <div class="imp-backup-actions">
+            <button type="button" class="imp-btn-outline imp-btn-sm" onclick="imp_backup()"><%:Create Backup%></button>
+            <button type="button" class="imp-btn-outline imp-btn-sm" onclick="imp_showRestore()"><%:Show Backups%></button>
+        </div>
+        <ul class="imp-backup-list" id="imp_backup_list"></ul>
+    </div>
+
+    <details class="imp-help">
+        <summary><%:Supported Formats and Protocols%></summary>
+        <table class="imp-help-table">
+            <thead><tr><th><%:Protocol%></th><th><%:URI Format%></th><th><%:Core%></th></tr></thead>
+            <tbody>
+                <tr><td>VMess</td><td>vmess://base64...</td><td>Xray / Sing-Box</td></tr>
+                <tr><td>VLESS</td><td>vless://uuid@host:port?params</td><td>Xray / Sing-Box</td></tr>
+                <tr><td>Trojan</td><td>trojan://password@host:port?params</td><td>Xray / Sing-Box</td></tr>
+                <tr><td>Shadowsocks</td><td>ss://base64@host:port</td><td>Xray / Sing-Box</td></tr>
+                <tr><td>Hysteria2</td><td>hysteria2://password@host:port?params</td><td>Sing-Box</td></tr>
+                <tr><td>TUIC</td><td>tuic://uuid:password@host:port?params</td><td>Sing-Box</td></tr>
+                <tr><td>WireGuard</td><td>wireguard://...@host:port?params</td><td>Xray / Sing-Box</td></tr>
+            </tbody>
+        </table>
+    </details>
 </div>
 
 <script type="text/javascript">
-(function() {
-	var import_source = document.getElementById('import_source');
-	var import_manual_div = document.getElementById('import_manual_div');
-	var import_url_div = document.getElementById('import_url_div');
-	var import_content = document.getElementById('import_content');
-	var import_url = document.getElementById('import_url');
-	var import_core_type = document.getElementById('import_core_type');
-	var import_parse_btn = document.getElementById('import_parse_btn');
-	var import_save_btn = document.getElementById('import_save_btn');
-	var import_status = document.getElementById('import_status');
-	var import_preview_div = document.getElementById('import_preview_div');
-	var import_preview = document.getElementById('import_preview');
+//<![CDATA[
+(function(){
+    var parseUrl = '<%=luci.dispatcher.build_url("admin/services/sxray/import/parse")%>';
+    var saveUrl = '<%=luci.dispatcher.build_url("admin/services/sxray/import/save")%>';
+    var fetchUrl = '<%=luci.dispatcher.build_url("admin/services/sxray/import/fetch")%>';
+    var fetchAndParseUrl = '<%=luci.dispatcher.build_url("admin/services/sxray/import/fetch_and_parse")%>';
+    var backupUrl = '<%=luci.dispatcher.build_url("admin/services/sxray/import/backup")%>';
+    var restoreUrl = '<%=luci.dispatcher.build_url("admin/services/sxray/import/restore")%>';
+    var listBackupsUrl = '<%=luci.dispatcher.build_url("admin/services/sxray/import/list_backups")%>';
+    var deleteBackupUrl = '<%=luci.dispatcher.build_url("admin/services/sxray/import/delete_backup")%>';
 
-	var parsed_data = null;
+    var currentData = null;
+    var activeTab = 'manual';
+    var fileContent = '';
 
-	import_source.addEventListener('change', function() {
-		if (this.value === 'manual') {
-			import_manual_div.style.display = '';
-			import_url_div.style.display = 'none';
-		} else {
-			import_manual_div.style.display = 'none';
-			import_url_div.style.display = '';
-		}
-	});
+    function $(id){ return document.getElementById(id); }
 
-	import_parse_btn.addEventListener('click', function() {
-		var source = import_source.value;
-		var content = '';
-		var core_type = import_core_type.value;
+    function setStatus(msg, type){
+        var el = $('imp_status');
+        el.className = 'imp-status ' + (type||'info');
+        el.textContent = msg;
+        el.style.display = msg ? 'block' : 'none';
+    }
 
-		if (source === 'manual') {
-			content = import_content.value.trim();
-			if (!content) {
-				import_status.innerHTML = '<span style="color: red;"><%:Please provide configuration content%></span>';
-				return;
-			}
-			parseConfiguration(content, core_type);
-		} else {
-			content = import_url.value.trim();
-			if (!content) {
-				import_status.innerHTML = '<span style="color: red;"><%:Please provide configuration URL%></span>';
-				return;
-			}
+    function setProgress(show, pct){
+        var el = $('imp_progress');
+        el.style.display = show ? 'block' : 'none';
+        $('imp_progress_bar').style.width = (pct||0) + '%';
+    }
 
-			// Check if input is a URI (vmess://, vless://, etc.) instead of HTTP URL
-			if (content.match(/^(vmess|vless|trojan|ss|ssr|hysteria|hysteria2|hy2|tuic):\/\//i)) {
-				// Auto-switch to manual input mode and parse the URI
-				import_source.value = 'manual';
-				import_manual_div.style.display = '';
-				import_url_div.style.display = 'none';
-				import_content.value = content;
-				import_url.value = '';
-				import_status.innerHTML = '<span style="color: orange;"><%:Detected URI format, switched to manual input mode%></span>';
-				parseConfiguration(content, core_type);
-				return;
-			}
+    function getProtocolClass(proto){
+        if(!proto) return 'imp-tag-other';
+        var p = proto.toLowerCase();
+        if(p==='vmess') return 'imp-tag-vmess';
+        if(p==='vless') return 'imp-tag-vless';
+        if(p==='trojan') return 'imp-tag-trojan';
+        if(p==='shadowsocks'||p==='ss') return 'imp-tag-ss';
+        if(p.indexOf('hysteria')>=0) return 'imp-tag-hysteria2';
+        if(p==='tuic') return 'imp-tag-tuic';
+        if(p.indexOf('wireguard')>=0) return 'imp-tag-wireguard';
+        return 'imp-tag-other';
+    }
 
-			// Validate HTTP/HTTPS URL
-			if (!content.match(/^https?:\/\//i)) {
-				import_status.innerHTML = '<span style="color: red;"><%:Invalid URL format. Please enter HTTP/HTTPS URL for download, or switch to manual input for URI%></span>';
-				return;
-			}
+    window.imp_switchTab = function(tab, event){
+        activeTab = tab;
+        var tabs = document.querySelectorAll('.imp-tab');
+        var panels = document.querySelectorAll('.imp-panel');
+        for(var i=0;i<tabs.length;i++) tabs[i].classList.remove('active');
+        for(var i=0;i<panels.length;i++) panels[i].classList.remove('active');
+        if(event && event.target) event.target.classList.add('active');
+        $('imp_panel_'+tab).classList.add('active');
+    };
 
-			import_status.innerHTML = '<span style="color: orange;"><%:Downloading configuration...%></span>';
-			(new XHR()).get('<%=luci.dispatcher.build_url("admin/services/sxray/import/fetch")%>', {
-				url: content
-			}, function(x, data) {
-				if (x && x.status === 200 && data && data.success) {
-					import_content.value = data.content;
-					parseConfiguration(data.content, core_type);
-				} else {
-					import_status.innerHTML = '<span style="color: red;">' + (data && data.error ? data.error : '<%:Failed to download configuration%>') + '</span>';
-				}
-			});
-		}
-	});
+    window.imp_clearContent = function(){
+        $('imp_content').value = '';
+        updateCounter();
+    };
 
-	function parseConfiguration(content, core_type) {
-		import_status.innerHTML = '<span style="color: orange;"><%:Parsing configuration...%></span>';
+    function updateCounter(){
+        var v = $('imp_content').value;
+        $('imp_chars').textContent = v.length;
+        $('imp_lines').textContent = v ? v.split('\n').length : 0;
+    }
+    if($('imp_content')) $('imp_content').addEventListener('input', updateCounter);
 
-		(new XHR()).post('<%=luci.dispatcher.build_url("admin/services/sxray/import/parse")%>', {
-			content: content,
-			format: 'auto',
-			core_type: core_type
-		}, function(x, data) {
-			if (x && x.status === 200 && data && data.success) {
-				parsed_data = data.data;
-				import_status.innerHTML = '<span style="color: green;"><%:Configuration parsed successfully%></span>';
-				import_save_btn.style.display = '';
-				import_preview_div.style.display = '';
+    window.imp_handleFile = function(files){
+        if(!files||!files.length) return;
+        var f = files[0];
+        var info = $('imp_file_info');
+        info.style.display = 'block';
+        info.textContent = f.name + ' (' + (f.size/1024).toFixed(1) + ' KB)';
+        var reader = new FileReader();
+        reader.onload = function(e){ fileContent = e.target.result; };
+        reader.readAsText(f);
+    };
 
-				var preview_html = '<div style="font-family: monospace; font-size: 12px;">';
-				if (data.format === 'uri_list') {
-					preview_html += '<strong><%:Format%>:</strong> <%:URI List%><br/>';
-					preview_html += '<strong><%:Count%>:</strong> ' + (parsed_data.length || parsed_data.outbounds ? parsed_data.outbounds.length : 0) + '<br/><br/>';
-					var items = parsed_data.outbounds || parsed_data;
-					if (items && items.length > 0) {
-						preview_html += '<ul style="list-style: none; padding: 0; margin: 0;">';
-						for (var i = 0; i < Math.min(items.length, 10); i++) {
-							var item = items[i];
-							preview_html += '<li style="padding: 2px 0;">' + (i + 1) + '. <strong>' + (item.alias || item.protocol || 'Unknown') + '</strong> (' + (item.protocol || 'unknown') + ')</li>';
-						}
-						if (items.length > 10) {
-							preview_html += '<li style="padding: 2px 0; color: #888;">... and ' + (items.length - 10) + ' more</li>';
-						}
-						preview_html += '</ul>';
-					}
-				} else if (data.format === 'xray_json' || data.format === 'singbox_json') {
-					preview_html += '<strong><%:Format%>:</strong> ' + data.format + '<br/>';
-					preview_html += '<strong><%:Outbounds%>:</strong> ' + (parsed_data.outbounds ? parsed_data.outbounds.length : 0) + '<br/><br/>';
-					if (parsed_data.outbounds && parsed_data.outbounds.length > 0) {
-						preview_html += '<ul style="list-style: none; padding: 0; margin: 0;">';
-						for (var i = 0; i < Math.min(parsed_data.outbounds.length, 10); i++) {
-							var outbound = parsed_data.outbounds[i];
-							preview_html += '<li style="padding: 2px 0;">' + (i + 1) + '. <strong>' + (outbound.alias || outbound.tag || outbound._id || 'Unknown') + '</strong> (' + (outbound.protocol || 'unknown') + ')</li>';
-						}
-						if (parsed_data.outbounds.length > 10) {
-							preview_html += '<li style="padding: 2px 0; color: #888;">... and ' + (parsed_data.outbounds.length - 10) + ' more</li>';
-						}
-						preview_html += '</ul>';
-					}
-				}
-				preview_html += '</div>';
-				import_preview.innerHTML = preview_html;
-			} else {
-				import_status.innerHTML = '<span style="color: red;">' + (data && data.message ? data.message : '<%:Failed to parse configuration%>') + '</span>';
-				import_save_btn.style.display = 'none';
-				import_preview_div.style.display = 'none';
-				parsed_data = null;
-			}
-		});
-	}
+    window.imp_parse = function(){
+        var content = '';
+        if(activeTab === 'manual') content = $('imp_content').value.trim();
+        else if(activeTab === 'file') content = fileContent;
 
-	import_save_btn.addEventListener('click', function() {
-		if (!parsed_data) {
-			import_status.innerHTML = '<span style="color: red;"><%:No parsed configuration data%></span>';
-			return;
-		}
+        if(activeTab === 'url'){
+            var url = $('imp_url').value.trim();
+            if(!url){ setStatus('<%:Please enter a URL%>', 'error'); return; }
+            setStatus('<%:Fetching and parsing...%>', 'info');
+            setProgress(true, 30);
+            var core = $('imp_core_type').value;
+            (new XHR()).get(fetchAndParseUrl, {url:url, core_type:core}, function(x,resp){
+                setProgress(false);
+                if(!resp){
+                    setStatus('<%:Request failed%>', 'error');
+                    return;
+                }
+                if(!resp.success){
+                    var errMsg = resp.message || '<%:Parse failed%>';
+                    if(resp.debug){
+                        console.log('Debug info:', resp.debug);
+                        errMsg += ' [Format: ' + (resp.format || 'unknown') + ']';
+                    }
+                    setStatus(errMsg, 'error');
+                    return;
+                }
+                currentData = resp;
+                if(resp.format){
+                    var badge = $('imp_format_badge');
+                    badge.textContent = resp.format;
+                    badge.style.display = 'inline';
+                }
+                setStatus('<%:Parsed successfully%>', 'success');
+                imp_showPreview(resp);
+            });
+            return;
+        }
+        if(!content){ setStatus('<%:Please provide content to parse%>','error'); return; }
+        doParse(content);
+    };
 
-		import_status.innerHTML = '<span style="color: orange;"><%:Saving configuration...%></span>';
+    function doParse(content){
+        setStatus('<%:Parsing...%>','info');
+        setProgress(true, 60);
+        $('imp_btn_save').disabled = true;
+        var core = $('imp_core_type').value;
+        
+        // Log what we're sending
+        console.log('doParse - content length:', content.length);
+        console.log('doParse - content preview:', content.substring(0, 50));
+        
+        (new XHR()).post(parseUrl, {content:content, format:'auto', core_type:core}, function(x,resp){
+            setProgress(false);
+            // Log the response for debugging
+            console.log('doParse - response:', JSON.stringify(resp).substring(0, 200));
+            if(!resp||!resp.success){ 
+                var errMsg = (resp&&resp.message)||'<%:Parse failed%>';
+                console.error('Parse error:', errMsg, resp);
+                // Show debug info if available
+                if(resp && resp.debug){
+                    console.log('Debug info:', resp.debug);
+                    errMsg += ' [Format: ' + (resp.format_detected || 'unknown') + ', Length: ' + (resp.debug.content_length || '?') + ']';
+                }
+                setStatus(errMsg,'error'); 
+                return; 
+            }
+            currentData = resp;
+            if(resp.format){
+                var badge = $('imp_format_badge');
+                badge.textContent = resp.format;
+                badge.style.display = 'inline';
+            }
+            setStatus('');
+            imp_showPreview(resp);
+        });
+    }
 
-		(new XHR()).post('<%=luci.dispatcher.build_url("admin/services/sxray/import/save")%>', {
-			config_data: JSON.stringify(parsed_data)
-		}, function(x, data) {
-			if (x && x.status === 200 && data && data.success) {
-				import_status.innerHTML = '<span style="color: green;">' + data.message + '</span>';
-				setTimeout(function() {
-					window.location.reload();
-				}, 1500);
-			} else {
-				import_status.innerHTML = '<span style="color: red;">' + (data && data.message ? data.message : '<%:Failed to save configuration%>') + '</span>';
-			}
-		});
-	});
+    window.imp_showPreview = function(data){
+        var preview = $('imp_preview');
+        preview.style.display = 'block';
+        $('imp_result_section').style.display = 'none';
+        var outbounds = (data.data&&data.data.outbounds)||[];
+        var dups = data.duplicates||{};
+        var errors = data.parse_errors||[];
+        var totalCount = data.item_count||outbounds.length;
+        var errCount = data.error_count||errors.length;
+        var dupCount = Object.keys(dups).length;
+        var validCount = totalCount - errCount;
+
+        $('imp_summary').innerHTML =
+            '<span class="imp-summary-item"><%:Total%>: <strong>'+totalCount+'</strong></span>'+
+            '<span class="imp-summary-item" style="color:var(--imp-success)"><%:Valid%>: <strong>'+validCount+'</strong></span>'+
+            '<span class="imp-summary-item" style="color:var(--imp-warn)"><%:Duplicates%>: <strong>'+dupCount+'</strong></span>'+
+            '<span class="imp-summary-item" style="color:var(--imp-error)"><%:Errors%>: <strong>'+errCount+'</strong></span>';
+
+        var html = '';
+        for(var i=0;i<outbounds.length;i++){
+            var ob = outbounds[i];
+            var isDup = dups.hasOwnProperty(String(i));
+            var alias = ob.alias||ob.tag||ob.remarks||('Node '+(i+1));
+            var proto = ob.protocol||ob.type||'';
+            var addr = (ob.address||ob.server||'')+(ob.port?(':'+ob.port):'');
+            var coreType = ob.core_type||'';
+            html += '<li class="imp-item'+(isDup?' imp-item-dup':'')+'">';
+            html += '<label class="imp-item-check"><input type="checkbox" checked data-index="'+i+'" onchange="imp_updateSelectCount()" /></label>';
+            html += '<div class="imp-item-body"><div class="imp-item-name">'+alias+'</div>';
+            html += '<div class="imp-item-meta">';
+            html += '<span class="imp-tag '+getProtocolClass(proto)+'">'+proto.toUpperCase()+'</span>';
+            if(coreType) html += '<span class="imp-tag imp-tag-core-'+coreType.toLowerCase().replace(/\s+/g,'-')+'">'+coreType+'</span>';
+            if(addr) html += '<span class="imp-item-addr">'+addr+'</span>';
+            if(isDup) html += ' <span class="imp-badge-dup"><%:Duplicate%></span>';
+            html += '</div></div></li>';
+        }
+        if(errors.length){
+            for(var j=0;j<errors.length;j++){
+                var err = errors[j];
+                html += '<li class="imp-item" style="background:var(--imp-error-light)">';
+                html += '<label class="imp-item-check"><input type="checkbox" disabled /></label>';
+                html += '<div class="imp-item-body"><div class="imp-item-name" style="color:var(--imp-error)">Line '+(err.line||'?')+': '+(err.uri||'')+'</div>';
+                html += '<div class="imp-item-meta"><span style="color:var(--imp-error);font-size:0.8em">'+(err.error||'Parse error')+'</span></div></div></li>';
+            }
+        }
+        $('imp_list').innerHTML = html;
+        $('imp_btn_save').disabled = false;
+        imp_updateSelectCount();
+    };
+
+    window.imp_save = function(){
+        if(!currentData||!currentData.data) return;
+        var checks = document.querySelectorAll('#imp_list input[type=checkbox]:not(:disabled)');
+        var selected = [];
+        for(var i=0;i<checks.length;i++){
+            if(checks[i].checked) selected.push(parseInt(checks[i].getAttribute('data-index')));
+        }
+        if(!selected.length){ setStatus('<%:No nodes selected%>','error'); return; }
+
+        var outbounds = currentData.data.outbounds;
+        var toImport = [];
+        for(var i=0;i<selected.length;i++) toImport.push(outbounds[selected[i]]);
+
+        var dupPolicy = $('imp_dup_policy').value;
+        var skipDup = dupPolicy==='skip'?'1':'0';
+
+        setStatus('<%:Importing...%>','info');
+        setProgress(true, 50);
+        $('imp_btn_save').disabled = true;
+
+        (new XHR()).post(saveUrl, {config_data:JSON.stringify(toImport), skip_duplicates:skipDup}, function(x,resp){
+            setProgress(false);
+            if(!resp||!resp.success){ setStatus(resp&&resp.error||'<%:Import failed%>','error'); $('imp_btn_save').disabled=false; return; }
+            setStatus('');
+            imp_showResult(resp);
+        });
+    };
+
+    window.imp_showResult = function(data){
+        $('imp_preview').style.display = 'none';
+        var sec = $('imp_result_section');
+        sec.style.display = 'block';
+        $('imp_r_imported').textContent = data.imported_count||0;
+        $('imp_r_skipped').textContent = data.skipped_count||0;
+        $('imp_r_duplicated').textContent = data.duplicate_count||0;
+    };
+
+    window.imp_resetForNew = function(){
+        $('imp_result_section').style.display = 'none';
+        $('imp_preview').style.display = 'none';
+        $('imp_content').value = '';
+        $('imp_url').value = '';
+        fileContent = '';
+        $('imp_file_info').style.display = 'none';
+        $('imp_format_badge').style.display = 'none';
+        $('imp_btn_save').disabled = true;
+        currentData = null;
+        setStatus('');
+        updateCounter();
+    };
+
+    window.imp_selectAll = function(){
+        var checks = document.querySelectorAll('#imp_list input[type=checkbox]:not(:disabled)');
+        for(var i=0;i<checks.length;i++) checks[i].checked = true;
+        imp_updateSelectCount();
+    };
+
+    window.imp_deselectAll = function(){
+        var checks = document.querySelectorAll('#imp_list input[type=checkbox]:not(:disabled)');
+        for(var i=0;i<checks.length;i++) checks[i].checked = false;
+        imp_updateSelectCount();
+    };
+
+    window.imp_updateSelectCount = function(){
+        var checks = document.querySelectorAll('#imp_list input[type=checkbox]:not(:disabled)');
+        var count = 0;
+        for(var i=0;i<checks.length;i++) if(checks[i].checked) count++;
+        $('imp_select_count').innerHTML = count + ' <%:selected%>';
+    };
+
+    window.imp_backup = function(){
+        setStatus('<%:Creating backup...%>','info');
+        (new XHR()).get(backupUrl, {}, function(x,resp){
+            if(!resp||!resp.success){ setStatus(resp&&resp.error||'<%:Backup failed%>','error'); return; }
+            setStatus(resp.message||'<%:Backup created%>','success');
+            imp_showRestore();
+        });
+    };
+
+    window.imp_showRestore = function(){
+        (new XHR()).get(listBackupsUrl, {}, function(x,resp){
+            if(!resp||!resp.success) return;
+            var list = $('imp_backup_list');
+            var backups = resp.backups||[];
+            if(!backups.length){ list.innerHTML='<li style="color:var(--imp-text-muted);padding:8px 0"><%:No backups available%></li>'; return; }
+            var html='';
+            for(var i=0;i<backups.length;i++){
+                var b=backups[i];
+                html+='<li><span>'+b.name+' <small>('+b.size+', '+b.date+')</small></span><span>';
+                html+='<button type="button" class="imp-btn-sm imp-btn-outline" onclick="imp_restore(\''+b.filename+'\')"><%:Restore%></button> ';
+                html+='<button type="button" class="imp-btn-sm imp-btn-danger" onclick="imp_deleteBackup(\''+b.filename+'\')"><%:Delete%></button>';
+                html+='</span></li>';
+            }
+            list.innerHTML=html;
+        });
+    };
+
+    window.imp_restore = function(filename){
+        if(!confirm('<%:Are you sure you want to restore this backup?%>')) return;
+        setStatus('<%:Restoring...%>','info');
+        (new XHR()).post(restoreUrl, {filename:filename}, function(x,resp){
+            if(!resp||!resp.success){ setStatus(resp&&resp.error||'<%:Restore failed%>','error'); return; }
+            setStatus(resp.message||'<%:Restore complete%>','success');
+        });
+    };
+
+    window.imp_deleteBackup = function(filename){
+        if(!confirm('<%:Are you sure you want to delete this backup?%>')) return;
+        (new XHR()).post(deleteBackupUrl, {filename:filename}, function(x,resp){
+            if(!resp||!resp.success){ setStatus(resp&&resp.error||'<%:Delete failed%>','error'); return; }
+            imp_showRestore();
+        });
+    };
 })();
+//]]>
 </script>

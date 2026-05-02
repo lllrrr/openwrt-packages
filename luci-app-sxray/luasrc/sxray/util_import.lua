@@ -86,6 +86,17 @@ function detect_format(content)
 		return "vmess_qr"
 	end
 
+	-- 尝试 Base64 解码后重新检测
+	local decoded = base64Decode(content)
+	if decoded and decoded ~= "" then
+		if decoded:find("vmess://") or decoded:find("vless://") or
+		   decoded:find("trojan://") or decoded:find("ss://") or
+		   decoded:find("ssr://") or decoded:find("hysteria") or
+		   decoded:find("tuic://") or decoded:find("wireguard://") then
+			return "uri_list"
+		end
+	end
+
 	return "unknown"
 end
 
@@ -838,11 +849,84 @@ local function parse_ssr_uri(uri)
 	return processData('ssr', content)
 end
 
+local function parse_wireguard_uri(uri)
+	local content = uri:match("^wireguard://(.+)$")
+	if not content then
+		return nil, "Invalid WireGuard URI"
+	end
+
+	local result = {
+		type = "outbound",
+		core_type = get_default_core_type(),
+		protocol = "wireguard",
+		alias = "WireGuard"
+	}
+
+	-- 提取 alias
+	local alias = ""
+	if content:find("#") then
+		local idx_sp = content:find("#")
+		alias = content:sub(idx_sp + 1, -1)
+		content = content:sub(1, idx_sp - 1)
+	end
+	result.alias = UrlDecode(alias)
+	if result.alias == "" then result.alias = "WireGuard" end
+
+	-- 提取 private_key 和 endpoint
+	if content:find("@") then
+		local parts = split(content, "@")
+		result.wireguard_secret_key = UrlDecode(parts[1])
+		local rest = (parts[2] or ""):gsub("/%?", "?")
+		local query = split(rest, "%?")
+		local host_port = query[1]
+		local params = {}
+		for _, v in pairs(split(query[2], '&')) do
+			local t = split(v, '=')
+			if #t > 1 then
+				params[string.lower(t[1])] = UrlDecode(t[2])
+			end
+		end
+
+		if host_port:find(":") then
+			local sp = split(host_port, ":")
+			result.port = sp[#sp]
+			if is_ipv6addrport(host_port) then
+				result.address = get_ipv6_only(host_port)
+			else
+				result.address = sp[1]
+			end
+		else
+			result.address = host_port
+		end
+
+		result.wireguard_peer_public_key = params.publickey or params.peer
+		result.wireguard_local_address = params.address
+		result.wireguard_mtu = params.mtu
+		result.wireguard_preshared_key = params.presharedkey
+		result.wireguard_reserved = params.reserved
+	end
+
+	return result
+end
+
+local function try_base64_decode_subscription(content)
+	if not content:find("://") then
+		local decoded = base64Decode(content)
+		if decoded and decoded ~= "" and decoded:find("://") then
+			return decoded
+		end
+	end
+	return content
+end
+
 local function parse_uri_list(content)
+	content = try_base64_decode_subscription(content)
 	local outbounds = {}
 	local errors = {}
+	local line_num = 0
 
 	for line in content:gmatch("[^\r\n]+") do
+		line_num = line_num + 1
 		line = trim(line)
 		if line ~= "" and not line:find("^#") then
 			local result, err
@@ -863,12 +947,18 @@ local function parse_uri_list(content)
 				result, err = parse_hysteria2_uri(line)
 			elseif line:find("^tuic://") then
 				result, err = parse_tuic_uri(line)
+			elseif line:find("^wireguard://") then
+				result, err = parse_wireguard_uri(line)
 			end
 
 			if result then
 				table.insert(outbounds, result)
 			elseif err then
-				table.insert(errors, err)
+				table.insert(errors, {
+					line = line_num,
+					uri = line:sub(1, 60),
+					error = err
+				})
 			end
 		end
 	end
@@ -989,143 +1079,229 @@ function parse_config(content, format)
 	return nil, "Unsupported format: " .. format
 end
 
-function save_config(data)
+function check_duplicates(outbounds)
+	local existing = {}
+	uci:foreach(appname, "outbound", function(s)
+		local proto = s.protocol or ""
+		local addr = ""
+		local port = ""
+		-- 根据协议获取地址
+		if proto == "vmess" then
+			addr = s.s_vmess_address or ""
+			port = s.s_vmess_port or ""
+		elseif proto == "vless" then
+			addr = s.s_vless_address or ""
+			port = s.s_vless_port or ""
+		elseif proto == "trojan" then
+			addr = s.s_trojan_address or ""
+			port = s.s_trojan_port or ""
+		elseif proto == "shadowsocks" then
+			addr = s.s_shadowsocks_address or ""
+			port = s.s_shadowsocks_port or ""
+		elseif proto == "hysteria2" then
+			addr = s.s_hysteria2_address or ""
+			port = s.s_hysteria2_port or ""
+		elseif proto == "tuic" then
+			addr = s.s_tuic_address or ""
+			port = s.s_tuic_port or ""
+		elseif proto == "hysteria" then
+			addr = s.s_hysteria_address or ""
+			port = s.s_hysteria_port or ""
+		elseif proto == "wireguard" then
+			addr = s.s_wireguard_endpoint or ""
+		end
+		local key = proto .. ":" .. addr .. ":" .. port
+		existing[key] = s[".name"]
+	end)
+
+	local duplicates = {}
+	for i, outbound in ipairs(outbounds) do
+		local proto = outbound.protocol or ""
+		local addr = outbound.address or ""
+		local port = outbound.port or ""
+		local key = proto .. ":" .. addr .. ":" .. port
+		if existing[key] then
+			duplicates[i] = existing[key]
+		end
+	end
+
+	return duplicates
+end
+
+function save_config(data, skip_duplicates)
 	if not data then
 		return false, "No data to save"
 	end
 
 	local changes = {}
+	local duplicates = {}
+	local stats = {
+		imported = 0,
+		skipped = 0,
+		duplicated = 0,
+		failed = 0,
+		details = {}
+	}
 
 	if data.outbounds then
-		for _, outbound in ipairs(data.outbounds) do
-			local section = uci:add(appname, "outbound")
-			uci:set(appname, section, "type", outbound.type or "outbound")
-			uci:set(appname, section, "protocol", outbound.protocol or "")
-			uci:set(appname, section, "alias", outbound.alias or "Unnamed")
+		duplicates = check_duplicates(data.outbounds)
+	end
 
-			local protocol = outbound.protocol
-
-			if outbound.core_type then
-				uci:set(appname, section, "core_type", outbound.core_type)
+	if data.outbounds then
+		for idx, outbound in ipairs(data.outbounds) do
+			local skip_this = false
+			-- 重复检测
+			if duplicates[idx] then
+				stats.duplicated = stats.duplicated + 1
+				if skip_duplicates then
+					stats.skipped = stats.skipped + 1
+					table.insert(stats.details, {
+						alias = outbound.alias or "Unnamed",
+						status = "skipped",
+						reason = "duplicate"
+					})
+					skip_this = true
+				end
 			end
 
-			if protocol == "vmess" then
-				if outbound.address then uci:set(appname, section, "s_vmess_address", outbound.address) end
-				if outbound.port then uci:set(appname, section, "s_vmess_port", outbound.port) end
-				if outbound.id then uci:set(appname, section, "s_vmess_user_id", outbound.id) end
-				if outbound.alterId then uci:set(appname, section, "s_vmess_user_alter_id", outbound.alterId) end
-				if outbound.security then uci:set(appname, section, "s_vmess_user_security", outbound.security) end
-			elseif protocol == "vless" then
-				if outbound.address then uci:set(appname, section, "s_vless_address", outbound.address) end
-				if outbound.port then uci:set(appname, section, "s_vless_port", outbound.port) end
-				if outbound.id then uci:set(appname, section, "s_vless_user_id", outbound.id) end
-				if outbound.flow then uci:set(appname, section, "s_vless_flow", outbound.flow) end
-				if outbound.encryption then uci:set(appname, section, "s_vless_encryption", outbound.encryption) end
-			elseif protocol == "trojan" then
-				if outbound.address then uci:set(appname, section, "s_trojan_address", outbound.address) end
-				if outbound.port then uci:set(appname, section, "s_trojan_port", outbound.port) end
-				if outbound.password then uci:set(appname, section, "s_trojan_password", outbound.password) end
-			elseif protocol == "shadowsocks" then
-				if outbound.address then uci:set(appname, section, "s_shadowsocks_address", outbound.address) end
-				if outbound.port then uci:set(appname, section, "s_shadowsocks_port", outbound.port) end
-				if outbound.method then uci:set(appname, section, "s_shadowsocks_method", outbound.method) end
-				if outbound.password then uci:set(appname, section, "s_shadowsocks_password", outbound.password) end
-			elseif protocol == "shadowsocksr" then
-				if outbound.address then uci:set(appname, section, "s_ssr_address", outbound.address) end
-				if outbound.port then uci:set(appname, section, "s_ssr_port", outbound.port) end
-				if outbound.ssr_protocol then uci:set(appname, section, "s_ssr_protocol", outbound.ssr_protocol) end
-				if outbound.method then uci:set(appname, section, "s_ssr_method", outbound.method) end
-				if outbound.obfs then uci:set(appname, section, "s_ssr_obfs", outbound.obfs) end
-				if outbound.password then uci:set(appname, section, "s_ssr_password", outbound.password) end
-				if outbound.obfsParam then uci:set(appname, section, "s_ssr_obfs_param", outbound.obfsParam) end
-				if outbound.protocolParam then uci:set(appname, section, "s_ssr_protocol_param", outbound.protocolParam) end
-			elseif protocol == "hysteria" then
-				if outbound.address then uci:set(appname, section, "s_hysteria_address", outbound.address) end
-				if outbound.port then uci:set(appname, section, "s_hysteria_port", outbound.port) end
-				if outbound.hysteria_auth_password then uci:set(appname, section, "s_hysteria_auth", outbound.hysteria_auth_password) end
-				if outbound.hysteria_up_mbps then uci:set(appname, section, "s_hysteria_up_mbps", outbound.hysteria_up_mbps) end
-				if outbound.hysteria_down_mbps then uci:set(appname, section, "s_hysteria_down_mbps", outbound.hysteria_down_mbps) end
-				if outbound.hysteria_obfs then uci:set(appname, section, "s_hysteria_obfs", outbound.hysteria_obfs) end
-				if outbound.hysteria_alpn then uci:set(appname, section, "s_hysteria_alpn", outbound.hysteria_alpn) end
-			elseif protocol == "hysteria2" then
-				if outbound.address then uci:set(appname, section, "s_hysteria2_address", outbound.address) end
-				if outbound.port then uci:set(appname, section, "s_hysteria2_port", outbound.port) end
-				if outbound.hysteria2_auth_password then uci:set(appname, section, "s_hysteria2_password", outbound.hysteria2_auth_password) end
-				if outbound.hysteria2_obfs_password then uci:set(appname, section, "s_hysteria2_obfs_password", outbound.hysteria2_obfs_password) end
-			elseif protocol == "tuic" then
-				if outbound.address then uci:set(appname, section, "s_tuic_address", outbound.address) end
-				if outbound.port then uci:set(appname, section, "s_tuic_port", outbound.port) end
-				if outbound.id then uci:set(appname, section, "s_tuic_uuid", outbound.id) end
-				if outbound.password then uci:set(appname, section, "s_tuic_password", outbound.password) end
-				if outbound.tuic_congestion_control then uci:set(appname, section, "s_tuic_congestion_control", outbound.tuic_congestion_control) end
-				if outbound.tuic_udp_relay_mode then uci:set(appname, section, "s_tuic_udp_relay_mode", outbound.tuic_udp_relay_mode) end
-			end
+			if not skip_this then
+				local section = uci:add(appname, "outbound")
+				uci:set(appname, section, "type", outbound.type or "outbound")
+				uci:set(appname, section, "protocol", outbound.protocol or "")
+				uci:set(appname, section, "alias", outbound.alias or "Unnamed")
 
-			if outbound.network then uci:set(appname, section, "ss_network", outbound.network) end
-			if outbound.headerType then uci:set(appname, section, "ss_tcp_header_type", outbound.headerType) end
+				local protocol = outbound.protocol
 
-			if outbound.tls == "1" then
-				if outbound.reality == "1" then
-					uci:set(appname, section, "ss_security", "reality")
-				elseif outbound.utls == "1" then
-					uci:set(appname, section, "ss_security", "utls")
+				if outbound.core_type then
+					uci:set(appname, section, "core_type", outbound.core_type)
+				end
+
+				if protocol == "vmess" then
+					if outbound.address then uci:set(appname, section, "s_vmess_address", outbound.address) end
+					if outbound.port then uci:set(appname, section, "s_vmess_port", outbound.port) end
+					if outbound.id then uci:set(appname, section, "s_vmess_user_id", outbound.id) end
+					if outbound.alterId then uci:set(appname, section, "s_vmess_user_alter_id", outbound.alterId) end
+					if outbound.security then uci:set(appname, section, "s_vmess_user_security", outbound.security) end
+				elseif protocol == "vless" then
+					if outbound.address then uci:set(appname, section, "s_vless_address", outbound.address) end
+					if outbound.port then uci:set(appname, section, "s_vless_port", outbound.port) end
+					if outbound.id then uci:set(appname, section, "s_vless_user_id", outbound.id) end
+					if outbound.flow then uci:set(appname, section, "s_vless_flow", outbound.flow) end
+					if outbound.encryption then uci:set(appname, section, "s_vless_encryption", outbound.encryption) end
+				elseif protocol == "trojan" then
+					if outbound.address then uci:set(appname, section, "s_trojan_address", outbound.address) end
+					if outbound.port then uci:set(appname, section, "s_trojan_port", outbound.port) end
+					if outbound.password then uci:set(appname, section, "s_trojan_password", outbound.password) end
+				elseif protocol == "shadowsocks" then
+					if outbound.address then uci:set(appname, section, "s_shadowsocks_address", outbound.address) end
+					if outbound.port then uci:set(appname, section, "s_shadowsocks_port", outbound.port) end
+					if outbound.method then uci:set(appname, section, "s_shadowsocks_method", outbound.method) end
+					if outbound.password then uci:set(appname, section, "s_shadowsocks_password", outbound.password) end
+				elseif protocol == "shadowsocksr" then
+					if outbound.address then uci:set(appname, section, "s_ssr_address", outbound.address) end
+					if outbound.port then uci:set(appname, section, "s_ssr_port", outbound.port) end
+					if outbound.ssr_protocol then uci:set(appname, section, "s_ssr_protocol", outbound.ssr_protocol) end
+					if outbound.method then uci:set(appname, section, "s_ssr_method", outbound.method) end
+					if outbound.obfs then uci:set(appname, section, "s_ssr_obfs", outbound.obfs) end
+					if outbound.password then uci:set(appname, section, "s_ssr_password", outbound.password) end
+					if outbound.obfsParam then uci:set(appname, section, "s_ssr_obfs_param", outbound.obfsParam) end
+					if outbound.protocolParam then uci:set(appname, section, "s_ssr_protocol_param", outbound.protocolParam) end
+				elseif protocol == "hysteria" then
+					if outbound.address then uci:set(appname, section, "s_hysteria_address", outbound.address) end
+					if outbound.port then uci:set(appname, section, "s_hysteria_port", outbound.port) end
+					if outbound.hysteria_auth_password then uci:set(appname, section, "s_hysteria_auth", outbound.hysteria_auth_password) end
+					if outbound.hysteria_up_mbps then uci:set(appname, section, "s_hysteria_up_mbps", outbound.hysteria_up_mbps) end
+					if outbound.hysteria_down_mbps then uci:set(appname, section, "s_hysteria_down_mbps", outbound.hysteria_down_mbps) end
+					if outbound.hysteria_obfs then uci:set(appname, section, "s_hysteria_obfs", outbound.hysteria_obfs) end
+					if outbound.hysteria_alpn then uci:set(appname, section, "s_hysteria_alpn", outbound.hysteria_alpn) end
+				elseif protocol == "hysteria2" then
+					if outbound.address then uci:set(appname, section, "s_hysteria2_address", outbound.address) end
+					if outbound.port then uci:set(appname, section, "s_hysteria2_port", outbound.port) end
+					if outbound.hysteria2_auth_password then uci:set(appname, section, "s_hysteria2_password", outbound.hysteria2_auth_password) end
+					if outbound.hysteria2_obfs_password then uci:set(appname, section, "s_hysteria2_obfs_password", outbound.hysteria2_obfs_password) end
+				elseif protocol == "tuic" then
+					if outbound.address then uci:set(appname, section, "s_tuic_address", outbound.address) end
+					if outbound.port then uci:set(appname, section, "s_tuic_port", outbound.port) end
+					if outbound.id then uci:set(appname, section, "s_tuic_uuid", outbound.id) end
+					if outbound.password then uci:set(appname, section, "s_tuic_password", outbound.password) end
+					if outbound.tuic_congestion_control then uci:set(appname, section, "s_tuic_congestion_control", outbound.tuic_congestion_control) end
+					if outbound.tuic_udp_relay_mode then uci:set(appname, section, "s_tuic_udp_relay_mode", outbound.tuic_udp_relay_mode) end
+				elseif protocol == "wireguard" then
+					if outbound.wireguard_secret_key then uci:set(appname, section, "s_wireguard_secret_key", outbound.wireguard_secret_key) end
+					if outbound.address then uci:set(appname, section, "s_wireguard_endpoint", outbound.address .. ":" .. (outbound.port or "")) end
+					if outbound.wireguard_peer_public_key then uci:set(appname, section, "s_wireguard_peer_public_key", outbound.wireguard_peer_public_key) end
+					if outbound.wireguard_local_address then uci:set(appname, section, "s_wireguard_address", outbound.wireguard_local_address) end
+					if outbound.wireguard_mtu then uci:set(appname, section, "s_wireguard_mtu", outbound.wireguard_mtu) end
+					if outbound.wireguard_preshared_key then uci:set(appname, section, "s_wireguard_preshared_key", outbound.wireguard_preshared_key) end
+				end
+
+				if outbound.network then uci:set(appname, section, "ss_network", outbound.network) end
+				if outbound.headerType then uci:set(appname, section, "ss_tcp_header_type", outbound.headerType) end
+
+				if outbound.tls == "1" then
+					if outbound.reality == "1" then
+						uci:set(appname, section, "ss_security", "reality")
+					elseif outbound.utls == "1" then
+						uci:set(appname, section, "ss_security", "utls")
+					else
+						uci:set(appname, section, "ss_security", "tls")
+					end
 				else
-					uci:set(appname, section, "ss_security", "tls")
+					uci:set(appname, section, "ss_security", "none")
 				end
-			else
-				uci:set(appname, section, "ss_security", "none")
-			end
 
-			if outbound.serverName then uci:set(appname, section, "ss_tls_server_name", outbound.serverName) end
-			if outbound.alpn then uci:set(appname, section, "ss_tls_alpn", outbound.alpn) end
-			if outbound.tls_allowInsecure then uci:set(appname, section, "ss_tls_allow_insecure", outbound.tls_allowInsecure) end
+				if outbound.serverName then uci:set(appname, section, "ss_tls_server_name", outbound.serverName) end
+				if outbound.alpn then uci:set(appname, section, "ss_tls_alpn", outbound.alpn) end
+				if outbound.tls_allowInsecure then uci:set(appname, section, "ss_tls_allow_insecure", outbound.tls_allowInsecure) end
 
-			if outbound.fingerprint then uci:set(appname, section, "ss_tls_fingerprint", outbound.fingerprint) end
+				if outbound.fingerprint then uci:set(appname, section, "ss_tls_fingerprint", outbound.fingerprint) end
 
-			if outbound.realityPublicKey then uci:set(appname, section, "ss_reality_public_key", outbound.realityPublicKey) end
-			if outbound.realityShortId then uci:set(appname, section, "ss_reality_short_id", outbound.realityShortId) end
-			if outbound.realitySpiderX then uci:set(appname, section, "ss_reality_spider_x", outbound.realitySpiderX) end
+				if outbound.realityPublicKey then uci:set(appname, section, "ss_reality_public_key", outbound.realityPublicKey) end
+				if outbound.realityShortId then uci:set(appname, section, "ss_reality_short_id", outbound.realityShortId) end
+				if outbound.realitySpiderX then uci:set(appname, section, "ss_reality_spider_x", outbound.realitySpiderX) end
 
-			if outbound.network == "ws" then
-				if outbound.host then
-					uci:set(appname, section, "ss_websocket_headers", { "Host=" .. outbound.host })
+				if outbound.network == "ws" then
+					if outbound.host then
+						uci:set(appname, section, "ss_websocket_headers", { "Host=" .. outbound.host })
+					end
+					if outbound.path then uci:set(appname, section, "ss_websocket_path", outbound.path) end
+				elseif outbound.network == "http" or outbound.network == "h2" then
+					if outbound.http_host then uci:set(appname, section, "ss_http_host", outbound.http_host) end
+					if outbound.http_path then uci:set(appname, section, "ss_http_path", outbound.http_path) end
+				elseif outbound.network == "grpc" then
+					if outbound.grpc_serviceName then uci:set(appname, section, "ss_grpc_service_name", outbound.grpc_serviceName) end
+				elseif outbound.network == "mkcp" or outbound.network == "kcp" then
+					if outbound.mkcp_guise then uci:set(appname, section, "ss_kcp_header_type", outbound.mkcp_guise) end
+					if outbound.mkcp_mtu then uci:set(appname, section, "ss_kcp_mtu", outbound.mkcp_mtu) end
+					if outbound.mkcp_tti then uci:set(appname, section, "ss_kcp_tti", outbound.mkcp_tti) end
+					if outbound.mkcp_uplinkCapacity then uci:set(appname, section, "ss_kcp_uplink_capacity", outbound.mkcp_uplinkCapacity) end
+					if outbound.mkcp_downlinkCapacity then uci:set(appname, section, "ss_kcp_downlink_capacity", outbound.mkcp_downlinkCapacity) end
+					if outbound.mkcp_readBufferSize then uci:set(appname, section, "ss_kcp_read_buffer_size", outbound.mkcp_readBufferSize) end
+					if outbound.mkcp_writeBufferSize then uci:set(appname, section, "ss_kcp_write_buffer_size", outbound.mkcp_writeBufferSize) end
+					if outbound.mkcp_seed then uci:set(appname, section, "ss_kcp_seed", outbound.mkcp_seed) end
+				elseif outbound.network == "quic" then
+					if outbound.quic_guise then uci:set(appname, section, "ss_quic_header_type", outbound.quic_guise) end
+					if outbound.quic_security then uci:set(appname, section, "ss_quic_security", outbound.quic_security) end
+					if outbound.quic_key then uci:set(appname, section, "ss_quic_key", outbound.quic_key) end
+				elseif outbound.network == "xhttp" then
+					if outbound.xhttp_host then uci:set(appname, section, "ss_xhttp_host", outbound.xhttp_host) end
+					if outbound.xhttp_path then uci:set(appname, section, "ss_xhttp_path", outbound.xhttp_path) end
+				elseif outbound.network == "httpupgrade" then
+					if outbound.httpupgrade_host then uci:set(appname, section, "ss_httpupgrade_host", outbound.httpupgrade_host) end
+					if outbound.httpupgrade_path then uci:set(appname, section, "ss_httpupgrade_path", outbound.httpupgrade_path) end
 				end
-				if outbound.path then uci:set(appname, section, "ss_websocket_path", outbound.path) end
-			elseif outbound.network == "http" or outbound.network == "h2" then
-				if outbound.http_host then uci:set(appname, section, "ss_http_host", outbound.http_host) end
-				if outbound.http_path then uci:set(appname, section, "ss_http_path", outbound.http_path) end
-			elseif outbound.network == "grpc" then
-				if outbound.grpc_serviceName then uci:set(appname, section, "ss_grpc_service_name", outbound.grpc_serviceName) end
-			elseif outbound.network == "mkcp" or outbound.network == "kcp" then
-				if outbound.mkcp_guise then uci:set(appname, section, "ss_kcp_header_type", outbound.mkcp_guise) end
-				if outbound.mkcp_mtu then uci:set(appname, section, "ss_kcp_mtu", outbound.mkcp_mtu) end
-				if outbound.mkcp_tti then uci:set(appname, section, "ss_kcp_tti", outbound.mkcp_tti) end
-				if outbound.mkcp_uplinkCapacity then uci:set(appname, section, "ss_kcp_uplink_capacity", outbound.mkcp_uplinkCapacity) end
-				if outbound.mkcp_downlinkCapacity then uci:set(appname, section, "ss_kcp_downlink_capacity", outbound.mkcp_downlinkCapacity) end
-				if outbound.mkcp_readBufferSize then uci:set(appname, section, "ss_kcp_read_buffer_size", outbound.mkcp_readBufferSize) end
-				if outbound.mkcp_writeBufferSize then uci:set(appname, section, "ss_kcp_write_buffer_size", outbound.mkcp_writeBufferSize) end
-				if outbound.mkcp_seed then uci:set(appname, section, "ss_kcp_seed", outbound.mkcp_seed) end
-			elseif outbound.network == "quic" then
-				if outbound.quic_guise then uci:set(appname, section, "ss_quic_header_type", outbound.quic_guise) end
-				if outbound.quic_security then uci:set(appname, section, "ss_quic_security", outbound.quic_security) end
-				if outbound.quic_key then uci:set(appname, section, "ss_quic_key", outbound.quic_key) end
-			elseif outbound.network == "xhttp" then
-				if outbound.xhttp_host then uci:set(appname, section, "ss_xhttp_host", outbound.xhttp_host) end
-				if outbound.xhttp_path then uci:set(appname, section, "ss_xhttp_path", outbound.xhttp_path) end
-			elseif outbound.network == "httpupgrade" then
-				if outbound.httpupgrade_host then uci:set(appname, section, "ss_httpupgrade_host", outbound.httpupgrade_host) end
-				if outbound.httpupgrade_path then uci:set(appname, section, "ss_httpupgrade_path", outbound.httpupgrade_path) end
+
+				if outbound.tcp_fast_open then uci:set(appname, section, "ss_sockopt_tcp_fast_open", outbound.tcp_fast_open) end
+
+				if outbound.tag then uci:set(appname, section, "tag", outbound.tag) end
+
+				stats.imported = stats.imported + 1
+				table.insert(changes, {
+					type = "outbound",
+					section = section,
+					alias = outbound.alias
+				})
 			end
-
-			if outbound.tcp_fast_open then uci:set(appname, section, "ss_sockopt_tcp_fast_open", outbound.tcp_fast_open) end
-
-			if outbound.tag then uci:set(appname, section, "tag", outbound.tag) end
-
-			table.insert(changes, {
-				type = "outbound",
-				section = section,
-				alias = outbound.alias
-			})
 		end
 	end
 
@@ -1152,5 +1328,5 @@ function save_config(data)
 
 	uci:commit(appname)
 
-	return true, changes
+	return true, stats
 end
