@@ -497,4 +497,16 @@ msgid "⚠️ Manual Configuration Warning"
 msgstr "⚠️ 手動設定警告"
 
 msgid "Underlying parameter mismatch detected, which may cause roaming failures. Please toggle this switch off and on again, then save to apply the standard seamless roaming profile."
-msgstr "檢測到底層參數與預設不一致，可能會導致漫遊失敗。建議將開關關閉後重新開啟，儲存後即可加入我們無縫漫遊的「朋友圈」。"
+msgstr "檢測到底層參數與預設不一致，可能會導致漫遊失敗。建議將開關關閉後重新開啟，儲存後即可加入多設備全空間「絲滑」跳轉的「朋友圈」。"
+
+msgid "Roaming"
+msgstr "漫遊"
+
+msgid "Roaming Enabled"
+msgstr "已開通漫遊"
+
+msgid "Click to Fix"
+msgstr "點擊修復"
+
+msgid "Click to Settings"
+msgstr "點擊直達設定"
