@@ -13,6 +13,27 @@ log() {
     fi
 }
 
+# === 智能推算子网掩码 ===
+calc_netmask() {
+    local ip="$1"
+    # 提取 IP 的第一段数字，使用 Shell 内置替换，比 cut/awk 更快
+    local b="${ip%%.*}"
+    
+    # 防止传入空值或非数字
+    case "$b" in
+        ''|*[!0-9]*) echo "255.255.255.0"; return ;;
+    esac
+    
+    # 按照 A、B、C 类 IP 地址的标准分配默认掩码
+    if [ "$b" -ge 1 ] && [ "$b" -le 126 ]; then
+        echo "255.0.0.0"       # A 类地址 (例如 10.x.x.x)
+    elif [ "$b" -ge 128 ] && [ "$b" -le 191 ]; then
+        echo "255.255.0.0"     # B 类地址 (例如 172.16.x.x)
+    else
+        echo "255.255.255.0"   # C 类及其他 (例如 192.168.x.x)
+    fi
+}
+
 LOCK_FILE="/var/run/netwiz_autodetect.lock"
 BAK_FILE="/etc/config/network.netwiz_bak"
 
@@ -60,10 +81,22 @@ log "当前配置无法连通互联网，准备进行协议切换探测"
 cp /etc/config/network "$BAK_FILE"
 sync
 
+# === 提取所有历史潜在配置 ===
 ORIG_PROTO=$(uci -q get network.wan.proto)
 HAS_PPPOE_USER=$(uci -q get network.wan.username)
+SAVED_STATIC_IP=$(uci -q get network.wan.ipaddr)
+SAVED_STATIC_GW=$(uci -q get network.wan.gateway)
+SAVED_STATIC_MASK=$(uci -q get network.wan.netmask)
+
+# 如果历史记录里没有子网掩码，根据静态 IP 自动推算
+if [ -z "$SAVED_STATIC_MASK" ] && [ -n "$SAVED_STATIC_IP" ]; then
+    SAVED_STATIC_MASK=$(calc_netmask "$SAVED_STATIC_IP")
+    log "未找到历史子网掩码，根据 IP 地址自动推算为: $SAVED_STATIC_MASK"
+fi
+
 success=0
 
+# 【顺位 1】：优先尝试 DHCP (最通用，成功率最高)
 if [ "$ORIG_PROTO" != "dhcp" ]; then
     log "正在尝试通过 DHCP 自动获取 IP 地址..."
     uci set network.wan.proto='dhcp'
@@ -71,22 +104,41 @@ if [ "$ORIG_PROTO" != "dhcp" ]; then
     
     # 热重载代替完全重启，极其丝滑！
     /etc/init.d/network reload
-    
-    # 进入探测循环，循环里面本来就有 2 秒一次的 ping
     if wait_for_internet; then success=1; fi
 fi
 
-if [ "$success" -eq 0 ] && [ "$ORIG_PROTO" != "pppoe" ] && [ -n "$HAS_PPPOE_USER" ]; then
-    log "未获取到 DHCP，正在探测 PPPoE (光猫桥接) 服务器..."
-    cp "$BAK_FILE" /etc/config/network
-    uci set network.wan.proto='pppoe'
+# 【顺位 2】：尝试 静态 IP (上级没开 DHCP，且有历史静态记录)
+if [ "$success" -eq 0 ] && [ "$ORIG_PROTO" != "static" ] && [ -n "$SAVED_STATIC_IP" ] && [ -n "$SAVED_STATIC_GW" ]; then
+    log "DHCP 无响应，检测到历史静态 IP ($SAVED_STATIC_IP)，正在探测..."
+    
+    # 必须先用备份文件洗掉刚才 DHCP 强加的参数，保证静态环境纯净
+    cp "$BAK_FILE" /etc/config/network 
+    
+    uci set network.wan.proto='static'
+    uci set network.wan.ipaddr="$SAVED_STATIC_IP"
+    uci set network.wan.gateway="$SAVED_STATIC_GW"
+    uci set network.wan.netmask="$SAVED_STATIC_MASK"
     uci commit network
     
-    # 使用热重载
     /etc/init.d/network reload
     if wait_for_internet; then success=1; fi
 fi
 
+# 【顺位 3】：尝试 PPPoE (光猫桥接，最后绝招)
+if [ "$success" -eq 0 ] && [ "$ORIG_PROTO" != "pppoe" ] && [ -n "$HAS_PPPOE_USER" ]; then
+    log "前置探测均失败，正在探测 PPPoE (光猫桥接) 服务器..."
+    
+    # 同样先重置底层文件
+    cp "$BAK_FILE" /etc/config/network
+    
+    uci set network.wan.proto='pppoe'
+    uci commit network
+    
+    /etc/init.d/network reload
+    if wait_for_internet; then success=1; fi
+fi
+
+# === 最终裁决 ===
 if [ "$success" -eq 1 ]; then
     log "新协议探测连通成功，已保存配置"
     rm -f "$BAK_FILE"
@@ -94,7 +146,7 @@ else
     log "未检测到有效的网络协议，正在回退到原始配置"
     cp "$BAK_FILE" /etc/config/network
     rm -f "$BAK_FILE"
-
     /etc/init.d/network reload
 fi
+
 exit 0
