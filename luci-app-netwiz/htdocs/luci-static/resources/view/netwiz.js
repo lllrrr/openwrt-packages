@@ -288,7 +288,7 @@ return view.extend({
             '.nw-hl { color: #facc15; font-weight: bold; margin-left: 6px; }',
             
             /* 高级设置面板样式 */
-            '.nw-adv-btn { text-align: center; margin-top: 5px; cursor: pointer; color: #64748b; font-size: 14px; font-weight: bold; user-select: none; transition: color 0.25s ease; padding: 10px 6px 0 6px; border-top: 1px dashed #e2e8f0; }',
+            '.nw-adv-btn { text-align: center; margin-top: 5px; cursor: pointer; color: #64748b; font-size: 14px; font-weight: bold; user-select: none; transition: color 0.25s ease; }',
             '.nw-adv-btn:hover { color: #3b82f6; }',
             '.nw-adv-panel { background: rgba(241, 245, 249, 0.5); border-radius: 12px; padding: 20px; margin-top: 15px; border: 1px solid #e2e8f0; animation: fadeIn 0.5s ease; box-shadow: inset 0 2px 5px rgba(0,0,0,0.02); }',
             '@keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }',
@@ -451,13 +451,7 @@ return view.extend({
             '           <div id="wifi-2g-form">',
             '              <div class="nw-value"><label class="nw-value-title">{{LBL_SSID}} (2.4G{{M_ACCT}})</label><div class="nw-value-field"><input type="text" id="wifi-2g-ssid"></div></div>',
             '              <div class="nw-value"><label class="nw-value-title">{{LBL_WIFI_PASS}} (2.4G)</label><div class="nw-value-field"><input type="text" id="wifi-2g-key"></div></div>',
-            '              <div style="display: flex; align-items: center; justify-content: space-between; padding: 15px 0 0 0; border-top: 1px solid #f1f5f9; margin-top: 15px;">',
-            '                 <div style="flex: 1; padding-right: 15px; min-width: 0;">',
-            '                     <div style="font-weight: 600; color: #222; font-size: 15px; word-break: break-word; line-height: 1.3;">{{LBL_LEGACY_B}}</div>',
-            '                     <div style="font-size: 14px; color: #64748b; margin-top: 4px; word-break: break-word; line-height: 1.4;">{{DESC_LEGACY_B}}</div>',
-            '                 </div>',
-            '                 <label class="nw-switch" style="flex-shrink: 0;"><input type="checkbox" id="legacy-b-toggle"><span class="nw-slider"></span></label>',
-            '              </div>',
+            
             '              <div class="nw-adv-btn">▼ {{LBL_ADVANCED}}</div>',
             '              <div class="nw-adv-panel" style="display:none;">',
             '                 <div style="animation: fadeIn 1s ease; display: flex; align-items: center; justify-content: space-between; padding: 5px 0 15px 0; border-bottom: 1px dashed #cbd5e1; margin-bottom: 15px;">',
@@ -476,6 +470,13 @@ return view.extend({
             '                 <div class="nw-value"><label class="nw-value-title">{{LBL_BANDWIDTH}}</label><div class="nw-value-field">',
             '                    <select id="wifi-2g-bw"><option value="auto">{{OPT_AUTO}}</option><option value="20">20 MHz</option><option value="40">40 MHz</option></select>',
             '                 </div></div>',
+            '                 <div style="display: flex; align-items: center; justify-content: space-between; padding: 15px 0 0 0; border-top: 1px solid #f1f5f9; margin-top: 15px;">',
+            '                    <div style="flex: 1; padding-right: 15px; min-width: 0;">',
+            '                        <div style="font-weight: 600; color: #222; font-size: 15px; word-break: break-word; line-height: 1.3;">{{LBL_LEGACY_B}}</div>',
+            '                        <div style="font-size: 14px; color: #64748b; margin-top: 4px; word-break: break-word; line-height: 1.4;">{{DESC_LEGACY_B}}</div>',
+            '                    </div>',
+            '                    <label class="nw-switch" style="flex-shrink: 0;"><input type="checkbox" id="legacy-b-toggle"><span class="nw-slider"></span></label>',
+            '                 </div>',
             // ==== 2.4G 为了兼容智能家居，默认不带 checked ====
             '                 <div style="display: flex; align-items: center; justify-content: space-between; padding: 15px 0 5px 0; border-top: 1px dashed #cbd5e1; margin-top: 10px;">',
             '                    <div style="flex: 1; padding-right: 15px;">',
@@ -962,7 +963,7 @@ return view.extend({
                                     if (!isExist) {
                                         statRow = document.createElement('div');
                                         statRow.className = 'nw-roam-status-row';
-                                        statRow.style.cssText = 'margin-top: 5px; margin-bottom: 15px; text-align: center;';
+                                        statRow.style.cssText = 'margin-top: 5px; margin-bottom: 15px; ';
                                         pwdRow.parentNode.insertBefore(statRow, pwdRow.nextSibling);
                                     }
 
