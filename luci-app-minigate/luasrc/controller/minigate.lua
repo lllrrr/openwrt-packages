@@ -199,6 +199,7 @@ end
 
 function action_geo_lookup()
     local sys = require "luci.sys"
+    local fs = require "nixio.fs"
     local ip = luci.http.formvalue("ip") or ""
     -- 安全校验：只允许 IP 地址字符
     if not ip:match("^[%d%.%:a-fA-F]+$") then
@@ -207,11 +208,24 @@ function action_geo_lookup()
         return
     end
 
+    local cache_dir = "/tmp/minigate-geo-cache"
+    local cache_file = cache_dir .. "/" .. ip:gsub("[^%w%.%-_:]", "_")
+    fs.mkdirr(cache_dir)
+    local st = fs.stat(cache_file)
+    if st and st.mtime and (os.time() - st.mtime) < 86400 then
+        local cached = fs.readfile(cache_file)
+        if cached and cached ~= "" then
+            luci.http.prepare_content("application/json")
+            luci.http.write_json({ ip = ip, geo = cached:gsub("%s+$", "") })
+            return
+        end
+    end
+
     local geo = nil
 
     -- API 1: ip9.com.cn（UTF-8，国内快）
     if not geo then
-        local raw = sys.exec("curl -s --connect-timeout 3 --max-time 5 'https://ip9.com.cn/get?ip=" .. ip .. "' 2>/dev/null")
+        local raw = sys.exec("curl -s --connect-timeout 1 --max-time 2 'https://ip9.com.cn/get?ip=" .. ip .. "' 2>/dev/null")
         if raw and raw ~= "" then
             local country = raw:match('"country":"([^"]*)"') or ""
             local prov = raw:match('"prov":"([^"]*)"') or ""
@@ -226,7 +240,7 @@ function action_geo_lookup()
 
     -- API 2: ip-api.com（UTF-8，国外覆盖好）
     if not geo then
-        local raw = sys.exec("curl -s --connect-timeout 3 --max-time 5 'http://ip-api.com/json/" .. ip .. "?lang=zh-CN&fields=status,country,regionName,city,isp' 2>/dev/null")
+        local raw = sys.exec("curl -s --connect-timeout 1 --max-time 2 'http://ip-api.com/json/" .. ip .. "?lang=zh-CN&fields=status,country,regionName,city,isp' 2>/dev/null")
         if raw and raw ~= "" then
             local status = raw:match('"status":"([^"]*)"')
             if status == "success" then
@@ -244,13 +258,14 @@ function action_geo_lookup()
 
     -- API 3: pconline（GBK 需转码）
     if not geo then
-        local raw = sys.exec("curl -s --connect-timeout 3 --max-time 5 'https://whois.pconline.com.cn/ipJson.jsp?ip=" .. ip .. "&json=true' 2>/dev/null | iconv -f gbk -t utf-8 2>/dev/null")
+        local raw = sys.exec("curl -s --connect-timeout 1 --max-time 2 'https://whois.pconline.com.cn/ipJson.jsp?ip=" .. ip .. "&json=true' 2>/dev/null | iconv -f gbk -t utf-8 2>/dev/null")
         if raw and raw ~= "" then
             local addr = raw:match('"addr":"([^"]*)"')
             if addr and addr ~= "" then geo = addr:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "") end
         end
     end
 
+    fs.writefile(cache_file, geo or "未知")
     luci.http.prepare_content("application/json")
     luci.http.write_json({ ip = ip, geo = geo or "未知" })
 end
@@ -260,6 +275,11 @@ end
 function action_lg_status()
     local sys = require "luci.sys"
     local uci = require "luci.model.uci".cursor()
+
+    local watch_limit = tonumber(luci.http.formvalue("watch_limit") or "5") or 5
+    if watch_limit ~= 20 and watch_limit ~= 30 then
+        watch_limit = 5
+    end
 
     local enabled = uci:get("minigate","login_guard","enabled") or "0"
     local threshold = tonumber(uci:get("minigate","login_guard","threshold")) or 3
@@ -299,8 +319,9 @@ function action_lg_status()
     for ip in list_out:gmatch("[^\n]+") do
         local fh = io.open(counter_dir .. "/" .. ip, "r")
         if fh then
-            local first, count = fh:read("*l"):match("(%d+)%s+(%d+)")
+            local line = fh:read("*l") or ""
             fh:close()
+            local first, count = line:match("(%d+)%s+(%d+)")
             if first and count then
                 watching[#watching+1] = {
                     ip = ip,
@@ -309,6 +330,17 @@ function action_lg_status()
                 }
             end
         end
+    end
+    table.sort(watching, function(a,b)
+        if a.count == b.count then
+            return a.age < b.age
+        end
+        return a.count > b.count
+    end)
+    local watching_total = #watching
+    local watching_limited = {}
+    for i = 1, math.min(watching_total, watch_limit) do
+        watching_limited[#watching_limited + 1] = watching[i]
     end
 
     luci.http.prepare_content("application/json")
@@ -319,7 +351,9 @@ function action_lg_status()
         bantime = bantime,
         window = window_s,
         banned = banned,
-        watching = watching
+        watching = watching_limited,
+        watching_total = watching_total,
+        watch_limit = watch_limit
     })
 end
 

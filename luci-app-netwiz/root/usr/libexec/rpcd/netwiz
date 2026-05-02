@@ -285,8 +285,8 @@ case "$1" in
 
                             if [ "$p_en" = "1" ] || [ "$smart" = "true" ]; then
                                 if [ "$p_chan" != "auto" ] && [ -n "$p_chan" ]; then uci set wireless.$dev.channel="$p_chan"; else uci set wireless.$dev.channel='auto'; fi
-                                
-                                # ===== 显式写入硬件模式 (hwmode) =====
+
+                                # ===== 显式写入硬件模式 (hwmode)，解决空白及不激活 Bug =====
                                 uci set wireless.$dev.band="$intended_band"
                                 if [ "$intended_band" = "5g" ]; then
                                     uci set wireless.$dev.hwmode="11a"
