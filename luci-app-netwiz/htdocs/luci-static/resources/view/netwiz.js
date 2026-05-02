@@ -185,6 +185,8 @@ var T = {
     'TXT_CLICK_FIX': _('Click to Fix'),
     'TXT_CLICK_GOTO': _('Click to Settings'),
     'MSG_WAN_AUTODETECT': _('WAN Blind-Switch: Unplug the WAN cable for 10 seconds and reconnect to auto-detect and switch the connection type.'),
+    'TXT_NEW_MOD': _('New'),
+    'TXT_MODIFIED': _('Modified'),
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -612,6 +614,53 @@ return view.extend({
         var selectedMode = '';
         window._isSingleChip = false;
 
+        // ===== 提取当前状态快照 =====
+        function getWifiSnapshot() {
+            var sT = container.querySelector('#wifi-smart-toggle').checked;
+            var snap = {
+                sT: sT,
+                lB: container.querySelector('#legacy-b-toggle').checked,
+                wt: container.querySelector('#wisp-toggle') ? container.querySelector('#wisp-toggle').checked : false,
+                ws: container.querySelector('#wisp-target-ssid') ? container.querySelector('#wisp-target-ssid').value : '',
+                wk: container.querySelector('#wisp-target-key') ? container.querySelector('#wisp-target-key').value : '',
+                we: container.querySelector('#wisp-target-enc') ? container.querySelector('#wisp-target-enc').value : '',
+                wd: container.querySelector('#wisp-target-device') ? container.querySelector('#wisp-target-device').value : '',
+                wb: container.querySelector('#wisp-target-bssid') ? container.querySelector('#wisp-target-bssid').value : ''
+            };
+            if (sT) {
+                // 如果是多频合一，只记录合一面板的数据
+                snap.es = container.querySelector('#wifi-smart-en').checked;
+                snap.ss = container.querySelector('#wifi-smart-ssid').value;
+                snap.ks = container.querySelector('#wifi-smart-key').value;
+                snap.ecs = container.querySelector('#wifi-smart-enc').value;
+                snap.hs = container.querySelector('#wifi-smart-hidden').checked;
+                snap.rs = container.querySelector('#wifi-smart-roaming') ? container.querySelector('#wifi-smart-roaming').checked : false;
+            } else {
+                // 如果是分开模式，记录独立的面板数据
+                snap.e2 = container.querySelector('#wifi-2g-en').checked;
+                snap.s2 = container.querySelector('#wifi-2g-ssid').value;
+                snap.k2 = container.querySelector('#wifi-2g-key').value;
+                snap.ec2 = container.querySelector('#wifi-2g-enc').value;
+                snap.h2 = container.querySelector('#wifi-2g-hidden').checked;
+                snap.m2 = container.querySelector('#wifi-2g-mode').value;
+                snap.c2 = container.querySelector('#wifi-2g-chan').value;
+                snap.b2 = container.querySelector('#wifi-2g-bw').value;
+                snap.r2 = container.querySelector('#wifi-2g-roaming') ? container.querySelector('#wifi-2g-roaming').checked : false;
+                
+                snap.e5 = container.querySelector('#wifi-5g-en').checked;
+                snap.s5 = container.querySelector('#wifi-5g-ssid').value;
+                snap.k5 = container.querySelector('#wifi-5g-key').value;
+                snap.ec5 = container.querySelector('#wifi-5g-enc').value;
+                snap.h5 = container.querySelector('#wifi-5g-hidden').checked;
+                snap.m5 = container.querySelector('#wifi-5g-mode').value;
+                snap.c5 = container.querySelector('#wifi-5g-chan').value;
+                snap.b5 = container.querySelector('#wifi-5g-bw').value;
+                snap.r5 = container.querySelector('#wifi-5g-roaming') ? container.querySelector('#wifi-5g-roaming').checked : false;
+            }
+            return JSON.stringify(snap);
+        }
+        // ========================================================
+
         function safePromise(p, f) { return new Promise(function(r) { var t = setTimeout(function() { r(f); }, 3000); if (!p || !p.then) { clearTimeout(t); return r(f); } p.then(function(res) { clearTimeout(t); r(res); }).catch(function() { clearTimeout(t); r(f); }); }); }
         function safeUciGet(c, s, o, d) { try { var v = uci.get(c, s, o); return (v === null || v === undefined) ? d : String(v).trim(); } catch(e) { return d; } }
 
@@ -1036,40 +1085,7 @@ return view.extend({
                                 }
                             }
 
-                            window._origWifiState = JSON.stringify({
-                                sT: container.querySelector('#wifi-smart-toggle').checked,
-                                lB: container.querySelector('#legacy-b-toggle').checked,
-                                e2: container.querySelector('#wifi-2g-en').checked,
-                                s2: container.querySelector('#wifi-2g-ssid').value,
-                                k2: container.querySelector('#wifi-2g-key').value,
-                                ec2: container.querySelector('#wifi-2g-enc').value,
-                                h2: container.querySelector('#wifi-2g-hidden').checked,
-                                m2: container.querySelector('#wifi-2g-mode').value,
-                                c2: container.querySelector('#wifi-2g-chan').value,
-                                b2: container.querySelector('#wifi-2g-bw').value,
-                                e5: container.querySelector('#wifi-5g-en').checked,
-                                s5: container.querySelector('#wifi-5g-ssid').value,
-                                k5: container.querySelector('#wifi-5g-key').value,
-                                ec5: container.querySelector('#wifi-5g-enc').value,
-                                h5: container.querySelector('#wifi-5g-hidden').checked,
-                                m5: container.querySelector('#wifi-5g-mode').value,
-                                c5: container.querySelector('#wifi-5g-chan').value,
-                                b5: container.querySelector('#wifi-5g-bw').value,
-                                es: container.querySelector('#wifi-smart-en').checked,
-                                ss: container.querySelector('#wifi-smart-ssid').value,
-                                ks: container.querySelector('#wifi-smart-key').value,
-                                ecs: container.querySelector('#wifi-smart-enc').value,
-                                hs: container.querySelector('#wifi-smart-hidden').checked,
-                                r2: container.querySelector('#wifi-2g-roaming') ? container.querySelector('#wifi-2g-roaming').checked : false,
-                                r5: container.querySelector('#wifi-5g-roaming') ? container.querySelector('#wifi-5g-roaming').checked : false,
-                                rs: container.querySelector('#wifi-smart-roaming') ? container.querySelector('#wifi-smart-roaming').checked : false,
-                                wt: container.querySelector('#wisp-toggle') ? container.querySelector('#wisp-toggle').checked : false,
-                                ws: container.querySelector('#wisp-target-ssid') ? container.querySelector('#wisp-target-ssid').value : '',
-                                wk: container.querySelector('#wisp-target-key') ? container.querySelector('#wisp-target-key').value : '',
-                                we: container.querySelector('#wisp-target-enc') ? container.querySelector('#wisp-target-enc').value : '',
-                                wd: container.querySelector('#wisp-target-device') ? container.querySelector('#wisp-target-device').value : '',
-                                wb: container.querySelector('#wisp-target-bssid') ? container.querySelector('#wisp-target-bssid').value : ''
-                            });
+                            window._origWifiState = getWifiSnapshot();
                             
                             window._wifiLoaded = true;
                         } catch(ex) { }
@@ -1156,7 +1172,7 @@ return view.extend({
                         staIfaces.forEach(function(i) {
                             var sName = i.ssid;
                             var tLbl = "<b style='color:#10b981; padding:8px 10px; background:#ffffff; border-radius:8px; font-size:14.5px; white-space:nowrap; box-shadow:0 2px 4px rgba(0,0,0,0.1);'>" + T['TXT_WISP_ON'] + "</b>";
-                            wifiLines.push("<div style='display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px 12px; margin-bottom:8px;'><span style='display:inline-flex; align-items:center;'>" + tLbl + "<span style='font-size:15.5px; opacity:0.9; font-weight:600; margin:0 6px;'>:</span><span class='nw-hl' style='font-size:16.5px; letter-spacing:0.5px;'>" + sName + "</span></span></div>");
+                            wifiLines.push("<div style='display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px 12px; margin-bottom:8px; width:100%; box-sizing:border-box;'><span style='display:inline-flex; flex-wrap:wrap; align-items:center; justify-content:center; max-width:100%;'>" + tLbl + "<span style='font-size:15.5px; opacity:0.9; font-weight:600; margin:0 6px;'>:</span><span class='nw-hl' style='font-size:16.5px; letter-spacing:0.5px; word-break:break-all; white-space:normal; text-align:center;'>" + sName + "</span></span></div>");
                         });
 
                         // 2. 判断 AP 是否应该合并为“多频合一”显示
@@ -1193,7 +1209,7 @@ return view.extend({
                                     roamBadge = "<span title='" + T['TXT_CLICK_GOTO'] + "' onclick=\"" + clickFn + "\" " + hoverStyle + " style='display:inline-block; white-space:nowrap; background:rgba(16, 185, 129, 0.2); color:#a7f3d0; border: 1px solid #10b981; font-size:11px; padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:text-bottom; font-family:sans-serif; cursor:pointer; transition:all 0.2s ease;'>" + T['TXT_ROAMING'] + "</span>";
                                 }
                             }
-                            wifiLines.push("<div style='display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px 12px; margin-bottom:8px;'><span style='display:inline-flex; align-items:center;'><span style='font-size:15.5px; opacity:0.9; font-weight:600; white-space:nowrap;'>" + tLbl + ":</span><span class='nw-hl' style='font-size:16.5px; letter-spacing:0.5px; display:inline-flex; align-items:center; margin-left:6px;'>" + sName + roamBadge + "</span></span><span style='color:#ffffff; font-size:15px; font-weight:600; white-space:nowrap;'>(" + T['M_PWD'] + ": " + kTxt + ")</span></div>");
+                            wifiLines.push("<div style='display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px 12px; margin-bottom:8px; width:100%; box-sizing:border-box;'><span style='display:inline-flex; flex-wrap:wrap; align-items:center; justify-content:center; max-width:100%;'><span style='font-size:15.5px; opacity:0.9; font-weight:600; white-space:nowrap;'>" + tLbl + ":</span><span class='nw-hl' style='font-size:16.5px; letter-spacing:0.5px; display:inline-flex; flex-wrap:wrap; justify-content:center; align-items:center; margin-left:6px; word-break:break-all; white-space:normal; text-align:center;'>" + sName + roamBadge + "</span></span><span style='color:#ffffff; font-size:15px; font-weight:600; white-space:nowrap;'>(" + T['M_PWD'] + ": " + kTxt + ")</span></div>");
                         } else {
                             // 3. 渲染独立频段 UI
                             apIfaces.forEach(function(i) {
@@ -1231,7 +1247,7 @@ return view.extend({
                                     }
                                 }
                                 
-                                wifiLines.push("<div style='display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px 12px; margin-bottom:8px;'><span style='display:inline-flex; align-items:center;'><span style='font-size:15.5px; opacity:0.9; font-weight:600; white-space:nowrap;'>" + tLbl + ":</span><span class='nw-hl' style='font-size:16.5px; letter-spacing:0.5px; display:inline-flex; align-items:center; margin-left:6px;'>" + sName + roamBadge + "</span></span><span style='color:#ffffff; font-size:15px; font-weight:600; white-space:nowrap;'>(" + T['M_PWD'] + ": " + kTxt + ")</span></div>");
+                                wifiLines.push("<div style='display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px 12px; margin-bottom:8px; width:100%; box-sizing:border-box;'><span style='display:inline-flex; flex-wrap:wrap; align-items:center; justify-content:center; max-width:100%;'><span style='font-size:15.5px; opacity:0.9; font-weight:600; white-space:nowrap;'>" + tLbl + ":</span><span class='nw-hl' style='font-size:16.5px; letter-spacing:0.5px; display:inline-flex; flex-wrap:wrap; justify-content:center; align-items:center; margin-left:6px; word-break:break-all; white-space:normal; text-align:center;'>" + sName + roamBadge + "</span></span><span style='color:#ffffff; font-size:15px; font-weight:600; white-space:nowrap;'>(" + T['M_PWD'] + ": " + kTxt + ")</span></div>");
                             });
                         }
                     }
@@ -1308,6 +1324,30 @@ return view.extend({
         var en2g = container.querySelector('#wifi-2g-en');
         var en5g = container.querySelector('#wifi-5g-en');
 
+        // ===== 密码与加密方式智能联动 =====
+        var syncEncryption = function(keyInputId, encSelectId) {
+            var keyEl = container.querySelector(keyInputId);
+            var encEl = container.querySelector(encSelectId);
+            if (keyEl && encEl) {
+                keyEl.addEventListener('input', function() {
+                    // 如果输入了密码，且当前是无密码状态，自动切换到推荐加密 (psk2+sae)
+                    if (this.value.length > 0 && encEl.value === 'none') {
+                        encEl.value = 'psk2+sae'; 
+                    } 
+                    // 如果清空了密码，且当前不是无密码状态，自动切换回无密码 (none)
+                    else if (this.value.length === 0 && encEl.value !== 'none') {
+                        encEl.value = 'none'; 
+                    }
+                });
+            }
+        };
+        
+        // 绑定三个面板的密码输入框和加密下拉框
+        syncEncryption('#wifi-smart-key', '#wifi-smart-enc');
+        syncEncryption('#wifi-2g-key', '#wifi-2g-enc');
+        syncEncryption('#wifi-5g-key', '#wifi-5g-enc');
+        // ===== 结束 =====
+
         // 智能联动与自动切换标签页
         en2g.addEventListener('change', function() { 
             container.querySelector('#tab-2g').click(); 
@@ -1316,7 +1356,7 @@ return view.extend({
                 en5g.checked = false; 
                 var s2El = container.querySelector('#wifi-2g-ssid');
                 var s5 = container.querySelector('#wifi-5g-ssid').value;
-                // 不仅为空时推断，名字一样，强制加后缀拆分！
+                // 不仅为空时推断，名字一样，强制加后缀拆分
                 if ((!s2El.value || s2El.value === s5) && s5) {
                     s2El.value = smartConvertSsid(s5, '2g');
                     if (!container.querySelector('#wifi-2g-key').value) container.querySelector('#wifi-2g-key').value = container.querySelector('#wifi-5g-key').value;
@@ -1332,7 +1372,7 @@ return view.extend({
                 en2g.checked = false; 
                 var s5El = container.querySelector('#wifi-5g-ssid');
                 var s2 = container.querySelector('#wifi-2g-ssid').value;
-                // 不仅为空时推断，名字一样，强制加后缀拆分！
+                // 不仅为空时推断，名字一样，强制加后缀拆分
                 if ((!s5El.value || s5El.value === s2) && s2) {
                     s5El.value = smartConvertSsid(s2, '5g');
                     if (!container.querySelector('#wifi-5g-key').value) container.querySelector('#wifi-5g-key').value = container.querySelector('#wifi-2g-key').value;
@@ -1482,7 +1522,7 @@ return view.extend({
                 // 移除 isTrusted 限制，允许程序自动切换时触发联动修复
                 if (this.classList.contains('is-dirty')) {
                     this.classList.remove('is-dirty'); 
-                    window._origWifiState = 'force_submit'; 
+                    window._forceWifiSubmit = true; 
                 }
                 var warn = container.querySelector('#roam-warn-smart');
                 if (warn) warn.style.display = 'none'; 
@@ -1500,7 +1540,7 @@ return view.extend({
             r2gToggle.addEventListener('change', function(e) {
                 if (this.classList.contains('is-dirty')) {
                     this.classList.remove('is-dirty');
-                    window._origWifiState = 'force_submit';
+                    window._forceWifiSubmit = true;
                 }
                 var warn = container.querySelector('#roam-warn-2g');
                 if (warn) warn.style.display = 'none';
@@ -1518,7 +1558,7 @@ return view.extend({
             r5gToggle.addEventListener('change', function(e) {
                 if (this.classList.contains('is-dirty')) {
                     this.classList.remove('is-dirty');
-                    window._origWifiState = 'force_submit';
+                    window._forceWifiSubmit = true;
                 }
                 var warn = container.querySelector('#roam-warn-5g');
                 if (warn) warn.style.display = 'none';
@@ -1586,7 +1626,7 @@ return view.extend({
                             
                             var li = document.createElement('li');
                             li.style.cssText = 'padding:15px 20px; border-bottom:1px solid #f1f5f9; cursor:pointer; display:flex; justify-content:space-between; align-items:center; transition:background 0.2s;';
-                            li.innerHTML = '<span style="font-weight:600; color:#334155;">' + net.ssid + '</span><span style="font-size:12px; color:#94a3b8; background:#f1f5f9; padding:2px 8px; border-radius:10px;">' + net.signal + ' dBm</span>';
+                            li.innerHTML = '<span style="font-weight:600; color:#334155; word-break:break-all; white-space:normal; margin-right:10px; flex:1;">' + net.ssid + '</span><span style="font-size:12px; color:#94a3b8; background:#f1f5f9; padding:2px 8px; border-radius:10px; white-space:nowrap; flex-shrink:0;">' + net.signal + ' dBm</span>';
                             
                             li.onmouseover = function() { this.style.background = '#f8fafc'; };
                             li.onmouseout = function() { this.style.background = 'transparent'; };
@@ -1733,40 +1773,7 @@ return view.extend({
                         var ipv6El = container.querySelector('#lan-ipv6-toggle');
                         var newIpv6 = (ipv6El && ipv6El.checked) ? '1' : '0';
 
-                        var currentWifiState = JSON.stringify({
-                            sT: container.querySelector('#wifi-smart-toggle').checked,
-                            lB: container.querySelector('#legacy-b-toggle').checked,
-                            e2: container.querySelector('#wifi-2g-en').checked,
-                            s2: container.querySelector('#wifi-2g-ssid').value,
-                            k2: container.querySelector('#wifi-2g-key').value,
-                            ec2: container.querySelector('#wifi-2g-enc').value,
-                            h2: container.querySelector('#wifi-2g-hidden').checked,
-                            m2: container.querySelector('#wifi-2g-mode').value,
-                            c2: container.querySelector('#wifi-2g-chan').value,
-                            b2: container.querySelector('#wifi-2g-bw').value,
-                            e5: container.querySelector('#wifi-5g-en').checked,
-                            s5: container.querySelector('#wifi-5g-ssid').value,
-                            k5: container.querySelector('#wifi-5g-key').value,
-                            ec5: container.querySelector('#wifi-5g-enc').value,
-                            h5: container.querySelector('#wifi-5g-hidden').checked,
-                            m5: container.querySelector('#wifi-5g-mode').value,
-                            c5: container.querySelector('#wifi-5g-chan').value,
-                            b5: container.querySelector('#wifi-5g-bw').value,
-                            es: container.querySelector('#wifi-smart-en').checked,
-                            ss: container.querySelector('#wifi-smart-ssid').value,
-                            ks: container.querySelector('#wifi-smart-key').value,
-                            ecs: container.querySelector('#wifi-smart-enc').value,
-                            hs: container.querySelector('#wifi-smart-hidden').checked,
-                            r2: container.querySelector('#wifi-2g-roaming') ? container.querySelector('#wifi-2g-roaming').checked : false,
-                            r5: container.querySelector('#wifi-5g-roaming') ? container.querySelector('#wifi-5g-roaming').checked : false,
-                            rs: container.querySelector('#wifi-smart-roaming') ? container.querySelector('#wifi-smart-roaming').checked : false,
-                            wt: container.querySelector('#wisp-toggle') ? container.querySelector('#wisp-toggle').checked : false,
-                            ws: container.querySelector('#wisp-target-ssid') ? container.querySelector('#wisp-target-ssid').value : '',
-                            wk: container.querySelector('#wisp-target-key') ? container.querySelector('#wisp-target-key').value : '',
-                            we: container.querySelector('#wisp-target-enc') ? container.querySelector('#wisp-target-enc').value : '',
-                            wd: container.querySelector('#wisp-target-device') ? container.querySelector('#wisp-target-device').value : '',
-                            wb: container.querySelector('#wisp-target-bssid') ? container.querySelector('#wisp-target-bssid').value : ''
-                        });
+                        var currentWifiState = getWifiSnapshot();
 
                         var checkWanIp = (selectedMode === 'router' && rType === 'static') ? targetIp : currentWanIp;
                         var checkLanIp = (selectedMode === 'lan') ? targetIp : currentLanIp;
@@ -1785,9 +1792,13 @@ return view.extend({
                         if (selectedMode === 'router' && rType === 'static' && targetIp === currentWanIp && targetGw === currentWanGw) isNoMod = true;
                         if (selectedMode === 'router' && rType === 'dhcp' && currentWanProto === 'dhcp') isNoMod = true;
                         if (selectedMode === 'pppoe' && container.querySelector('#pppoe-user').value === safeUciGet('network', 'wan', 'username', '') && container.querySelector('#pppoe-pass').value === safeUciGet('network', 'wan', 'password', '')) isNoMod = true;
-                        // 严谨拦截：只要新旧快照完全一致，直接弹窗拦截
-                        if (selectedMode === 'wifi' && window._origWifiState && currentWifiState === window._origWifiState) {
-                            isNoMod = true; 
+                        // 严谨拦截：只要相关快照完全一致，且没有强制提交标记，直接弹窗拦截
+                        if (selectedMode === 'wifi') {
+                            if (window._forceWifiSubmit) {
+                                isNoMod = false;
+                            } else if (window._origWifiState && currentWifiState === window._origWifiState) {
+                                isNoMod = true; 
+                            }
                         }
 
                         if (isNoMod) { openModal({title: T['M_NO_MOD_TIT'], msg: T['M_NO_MOD_MSG'], okText: T['M_EXIT'], onOk: returnToStep1 }); return; }
@@ -1797,30 +1808,36 @@ return view.extend({
                         // === Diff 高亮渲染带新旧对比助手函数  ===
                         var mkDiff = function(label, newVal, oldVal) {
                             var sNew = String(newVal).trim();
-                            var sOld = String(oldVal).trim();
+                            var sOld = (oldVal !== undefined && oldVal !== null) ? String(oldVal).trim() : '';
                             
-                            // 容错处理：如果旧值根本不存在，显示为“未设置”
-                            if (!oldVal || sOld === 'undefined' || sOld === '') {
-                                sOld = "<span style='font-style:italic;'>未设置</span>";
-                            }
+                            // 切换模式导致旧值为空，显示“新配置”
+                            var isActuallyNew = (sOld === '' || sOld === 'undefined');
+                            var isChanged = (sNew !== sOld) && !isActuallyNew;
                             
-                            var isChanged = (sNew !== sOld);
-                            var dimStyle = "opacity: 0.75; filter: grayscale(100%);";
-                            var highlightBadge = "<span style='margin-left: 8px; font-size: 11px; background: #10b981; color: #fff; padding: 2px 6px; border-radius: 6px; font-weight: bold; vertical-align: middle; box-shadow: 0 2px 4px rgba(16,185,129,0.3); animation: pulse 2s infinite;'>新修改</span>";
-                            
-                            if (isChanged) {
-                                // 划掉的旧值变灰，向下箭头显示新值
+                            // 接收 txt 参数，同时加上了 nowrap 防止文字被挤换行
+                            var highlightBadge = function(txt) {
+                                return "<span style='margin-left: 8px; font-size: 11px; background: #10b981; color: #fff; padding: 2px 6px; border-radius: 6px; font-weight: bold; vertical-align: middle; box-shadow: 0 2px 4px rgba(16,185,129,0.3); animation: pulse 2s infinite; white-space: nowrap;'>" + txt + "</span>";
+                            };
+
+                            if (isActuallyNew) {
+                                // 完全新配置（比如第一次设置合一），调用字典 TXT_NEW_MOD
+                                var newHtml = "<div style='display:flex; align-items:center; justify-content:flex-end;'>" +
+                                                sNew + highlightBadge(T['TXT_NEW_MOD']) +
+                                              "</div>";
+                                return [label, newHtml];
+                            } else if (isChanged) {
+                                // 修改了旧配置，调用字典 TXT_MODIFIED
                                 var diffHtml = "<div style='display:flex; flex-direction:column; align-items:flex-end; gap:3px; margin-top:2px;'>" +
-                                                 // 旧值：加删除线
-                                                 "<div style='font-size:14.5px; text-decoration:line-through; filter:grayscale(90%) opacity(60%);'>" + sOld + "</div>" +
-                                                 // 新值：带一个绿色的下弯箭头 ↳ (U+21B3)
+                                                 "<div style='font-size:13px; text-decoration:line-through; opacity: 0.5;'>" + sOld + "</div>" +
                                                  "<div style='display:flex; align-items:center;'>" +
                                                    "<span style='color:#10b981; font-weight:bold; margin-right:6px; font-size:16px; line-height:1;'>↳</span>" +
-                                                   sNew + highlightBadge +
+                                                   sNew + highlightBadge(T['TXT_MODIFIED']) +
                                                  "</div>" +
                                                "</div>";
                                 return [label, diffHtml];
                             } else {
+                                // 没变化，使用半透明优化版
+                                var dimStyle = "opacity: 0.7; color: rgba(255, 255, 255, 0.85);";
                                 return ["<span style='" + dimStyle + "'>" + label + "</span>", "<span style='" + dimStyle + "'>" + sNew + "</span>"];
                             }
                         };
@@ -1866,7 +1883,7 @@ return view.extend({
                                     var roamNew = container.querySelector('#wifi-smart-roaming').checked;
                                     var roamOld = oldS.rs;
                                     if (roamNew || roamOld) {
-                                        confirmList.push(mkDiff('<span style="color:#ffffff; font-weight:500;">802.11k/v/r 漫游</span>', roamNew ? '<span style="color:#10b981; font-weight:bold;">' + T['TXT_ON'] + '</span>' : '<span style="color:#ef4444; font-weight:bold;">' + T['TXT_OFF'] + '</span>', roamOld ? '<span style="color:#10b981; font-weight:bold;">' + T['TXT_ON'] + '</span>' : '<span style="color:#ef4444; font-weight:bold;">' + T['TXT_OFF'] + '</span>'));
+                                        confirmList.push(mkDiff('<span style="color:#ffffff; font-weight:500;">' + T['LBL_ROAMING'] + '</span>', roamNew ? '<span style="color:#10b981; font-weight:bold;">' + T['TXT_ON'] + '</span>' : '<span style="color:#ef4444; font-weight:bold;">' + T['TXT_OFF'] + '</span>', roamOld ? '<span style="color:#10b981; font-weight:bold;">' + T['TXT_ON'] + '</span>' : '<span style="color:#ef4444; font-weight:bold;">' + T['TXT_OFF'] + '</span>'));
                                     }
                                     
                                     var hidNew = container.querySelector('#wifi-smart-hidden').checked;
@@ -1885,7 +1902,7 @@ return view.extend({
                                     var r2New = container.querySelector('#wifi-2g-roaming').checked;
                                     var r2Old = oldS.r2;
                                     if (r2New || r2Old) {
-                                        confirmList.push(mkDiff('<span style="padding-left:12px; color:#ffffff; font-weight:500; opacity:0.95;">└ 802.11r 漫游</span>', r2New ? '<span style="color:#10b981; font-weight:bold;">' + T['TXT_ON'] + '</span>' : '<span style="color:#ef4444; font-weight:bold;">' + T['TXT_OFF'] + '</span>', r2Old ? '<span style="color:#10b981; font-weight:bold;">' + T['TXT_ON'] + '</span>' : '<span style="color:#ef4444; font-weight:bold;">' + T['TXT_OFF'] + '</span>'));
+                                        confirmList.push(mkDiff('<span style="padding-left:12px; color:#ffffff; font-weight:500; opacity:0.95;">└ ' + T['LBL_ROAMING'] + '</span>', r2New ? '<span style="color:#10b981; font-weight:bold;">' + T['TXT_ON'] + '</span>' : '<span style="color:#ef4444; font-weight:bold;">' + T['TXT_OFF'] + '</span>', r2Old ? '<span style="color:#10b981; font-weight:bold;">' + T['TXT_ON'] + '</span>' : '<span style="color:#ef4444; font-weight:bold;">' + T['TXT_OFF'] + '</span>'));
                                     }
                                 }
                                 
@@ -1898,7 +1915,7 @@ return view.extend({
                                     var r5New = container.querySelector('#wifi-5g-roaming').checked;
                                     var r5Old = oldS.r5;
                                     if (r5New || r5Old) {
-                                        confirmList.push(mkDiff('<span style="padding-left:12px; color:#ffffff; font-weight:500; opacity:0.95;">└ 802.11r 漫游</span>', r5New ? '<span style="color:#10b981; font-weight:bold;">' + T['TXT_ON'] + '</span>' : '<span style="color:#ef4444; font-weight:bold;">' + T['TXT_OFF'] + '</span>', r5Old ? '<span style="color:#10b981; font-weight:bold;">' + T['TXT_ON'] + '</span>' : '<span style="color:#ef4444; font-weight:bold;">' + T['TXT_OFF'] + '</span>'));
+                                        confirmList.push(mkDiff('<span style="padding-left:12px; color:#ffffff; font-weight:500; opacity:0.95;">└ ' + T['LBL_ROAMING'] + '</span>', r5New ? '<span style="color:#10b981; font-weight:bold;">' + T['TXT_ON'] + '</span>' : '<span style="color:#ef4444; font-weight:bold;">' + T['TXT_OFF'] + '</span>', r5Old ? '<span style="color:#10b981; font-weight:bold;">' + T['TXT_ON'] + '</span>' : '<span style="color:#ef4444; font-weight:bold;">' + T['TXT_OFF'] + '</span>'));
                                     }
                                 }
                             }

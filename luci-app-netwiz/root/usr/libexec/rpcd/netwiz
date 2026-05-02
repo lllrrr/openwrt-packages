@@ -256,9 +256,21 @@ case "$1" in
 
                             [ -n "$p_ssid" ] && uci set wireless.$iface_name.ssid="$p_ssid"
 
+                            # === 只要有密码，不允许 none ===
+                            if [ "$p_enc" = "none" ] && [ -n "$p_key" ]; then
+                                p_enc="sae-mixed"
+                            fi
                             if [ "$p_enc" = "psk2+sae" ]; then p_enc="sae-mixed"; fi
+                            
                             [ -n "$p_enc" ] && uci set wireless.$iface_name.encryption="$p_enc"
-                            [ -n "$p_key" ] && uci set wireless.$iface_name.key="$p_key"
+                            
+                            # 只有在非 none 的情况下，才允许写入密码
+                            if [ "$p_enc" != "none" ] && [ -n "$p_key" ]; then
+                                uci set wireless.$iface_name.key="$p_key"
+                            else
+                                uci delete wireless.$iface_name.key 2>/dev/null || true
+                            fi
+                            # ==================================================
 
                             if echo "$p_enc" | grep -q "sae"; then uci set wireless.$iface_name.ieee80211w='1'
                             else uci delete wireless.$iface_name.ieee80211w 2>/dev/null || true; fi
