@@ -527,7 +527,7 @@ msgid "You are setting up an Open Wi-Fi network without a password. Anyone nearb
 msgstr "您正在设置无密码的开放 Wi-Fi，附近任何人都可以随意连接并访问您的局域网设备。<br><br>您确定要继续吗？"
 
 msgid "✨ Quick Setup Wizard"
-msgstr "✨ 快速设置向导"
+msgstr "✨ 新机首次运行引导设置"
 
 msgid "Step 1: Internet Setup"
 msgstr "第一步：上网设置"
@@ -548,7 +548,7 @@ msgid "Don't show this again"
 msgstr "不再提示"
 
 msgid "✨ Reopen Wizard"
-msgstr "✨ 重新打开向导"
+msgstr "✨ 初始向导"
 
 msgid "Skip Wi-Fi Setup (Keep current)"
 msgstr "暂不配置 Wi-Fi (保持现状)"
