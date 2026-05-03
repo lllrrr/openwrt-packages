@@ -231,10 +231,10 @@ return view.extend({
             '<style>',
             '/* ====== Netwiz Elegant UI Styles ====== */',
             '/* --- 1. Base & Layout --- */',
-            ' header { margin: -5px -5px 0;) }',
-            '#maincontent, .main-right { overflow-y: scroll !important; scrollbar-gutter: stable !important; }',
+            ' header { margin: -5px -5px 0; }',
+            '#maincontent, .main-right { overflow-y: auto !important; }',
             '#netwiz-container { display: block !important; width: 100% !important; padding: 0 !important; margin: 0 auto !important; box-sizing: border-box !important; }',
-            '.nw-wrapper { display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: flex-start !important; width: 100% !important; max-width: 900px !important; margin: 0 auto !important; min-height: 101vh; padding-bottom: 10vh; font-family: -apple-system, BlinkMacSystemFont, sans-serif; box-sizing: border-box !important; }',
+            '.nw-wrapper { display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: flex-start !important; width: 100% !important; max-width: 900px !important; margin: 0 auto !important; padding-bottom: 10vh; font-family: -apple-system, BlinkMacSystemFont, sans-serif; box-sizing: border-box !important; }',
             '.nw-header { display: block !important; width: 100% !important; max-width: 750px !important; margin: 0 auto 40px auto !important; text-align: center; background-color: #5e72e4; padding: 25px; border-radius: 16px; position: relative; box-sizing: border-box; box-shadow: 0 10px 25px rgba(94, 114, 228, 0.15); z-index: 20; }',
             '.nw-step { width: 100% !important; max-width: 800px !important; text-align: center; animation: slideUp 0.4s ease-out; margin: 0 auto !important; }',
             '.nw-form-area, .nw-confirm-board { position: relative; max-width: 460px; margin: 0 auto; text-align: left; padding: 40px; border-radius: 16px; background-color: rgba(255, 255, 255, 0.88); box-shadow: 0 10px 30px rgba(0,0,0,0.06); box-sizing: border-box; display: block !important; }',
@@ -283,7 +283,7 @@ return view.extend({
 
             '/* --- 5. Forms & Inputs --- */',
             '.nw-value { border: none !important; padding-bottom: 12px !important; display: flex !important; flex-direction: column !important; width: 100% !important; margin: 0 !important; background: transparent !important; }',
-            '.nw-value-title { text-align: left !important; font-weight: 600 !important; color: #334155 !important; font-size: 14.5px !important; margin: 0 0 10px 4px !important; line-height: 1.2 !important; display: block !important; padding: 0 !important; width: auto !important; float: none !important; }',
+            '.nw-value-title { text-align: left !important; font-weight: 600 !important; color: #334155 !important; font-size: 14.5px !important; margin: 10px 0 10px 4px !important; line-height: 1.2 !important; display: block !important; padding: 0 !important; width: auto !important; float: none !important; }',
             '.nw-value-field { width: 100% !important; margin: 0 !important; padding: 0 !important; display: block !important; float: none !important; }',
             '.nw-form-area input[type="text"], .nw-form-area input[type="password"], .nw-form-area select, .nw-form-area textarea, .nw-wiz-modal-box input[type="text"], .nw-wiz-modal-box textarea { appearance: none !important; width: 100% !important; box-sizing: border-box !important; padding: 14px 16px !important; border: 1px solid #cbd5e1 !important; border-radius: 8px !important; font-size: 15px !important; outline: none !important; background: #f8fafc !important; color: #0f172a !important; height: auto !important; min-height: 48px !important; line-height: 1.5 !important; box-shadow: inset 0 1px 2px rgba(0,0,0,0.02) !important; margin: 0 !important; transition: all 0.2s ease !important; display: block !important; font-family: inherit; resize: none; word-break: break-all; }',
             '.nw-form-area input::placeholder, .nw-form-area textarea::placeholder, .nw-wiz-modal-box input::placeholder, .nw-wiz-modal-box textarea::placeholder { color: #94a3b8 !important; opacity: 1 !important; }',
@@ -316,17 +316,27 @@ return view.extend({
             'input.is-dirty:checked + .nw-slider { background-color: #ea580c; }',
             'input:checked + .nw-slider:before { transform: translateX(22px); }',
 
-            '/* --- 7. Buttons & Actions --- */',
-            '.nw-actions { margin-top: 35px; display: flex; justify-content: center; gap: 15px; }',
-            '.nw-actions button, .nw-wiz-btn { appearance: none !important; border-radius: 8px !important; padding: 12px 28px !important; font-weight: 600 !important; font-size: 15px !important; cursor: pointer !important; border: none !important; outline: none !important; height: auto !important; line-height: normal !important; margin: 0 !important; transition: all 0.25s ease !important; }',
-            '.nw-actions button { min-width: 120px !important; }',
-            '.nw-wiz-btn { flex: 1; }',
-            '.nw-actions .cbi-button-apply, .nw-wiz-btn-ok { background: #10b981 !important; color: white !important; }',
-            '.nw-actions .cbi-button-apply:hover, .nw-wiz-btn-ok:hover { background: #059669 !important; transform: translateY(-2px) !important; box-shadow: 0 6px 15px rgba(16, 185, 129, 0.35) !important; }',
-            '.nw-actions .cbi-button-reset { background: #ef4444!important; color: #fff !important; }',
-            '.nw-actions .cbi-button-reset:hover { background: #ef4444 !important; transform: translateY(-2px) !important; box-shadow: 0 6px 15px rgba(244, 63, 94, 0.35) !important; }',
-            '.nw-wiz-btn-cancel { background: #f1f5f9 !important; color: #475569 !important; }',
-            '.nw-wiz-btn-cancel:hover { background: #e2e8f0 !important; transform: translateY(-2px) !important; box-shadow: 0 6px 15px rgba(0, 0, 0, 0.1) !important; }',
+            '/* --- 7. Unified Button UI Kit --- */',
+            '/* 主面板底部：居中对齐，保持固定宽度不拉伸 */',
+            '.nw-actions { margin-top: 35px; display: flex; justify-content: center; gap: 20px; width: 100%; box-sizing: border-box; }',
+            '/* 弹窗/向导底部：填满容器，自适应拉伸 */',
+            '.nw-modal-btn-wrap { display: flex; justify-content: center; gap: 15px; width: 100%; margin-top: 25px; box-sizing: border-box; }',
+            '/* 基础按钮：实心、大圆角、粗体 */',
+            '.nw-u-btn { appearance: none !important; border-radius: 8px !important; padding: 12px 30px !important; font-weight: 600 !important; font-size: 15px !important; cursor: pointer !important; border: none !important; outline: none !important; height: auto !important; line-height: normal !important; margin: 0 !important; transition: all 0.25s ease !important; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 130px; letter-spacing: 1px; }',
+            '/* 向导内的按钮：自动填满宽度 */',
+            '.nw-modal-btn-wrap .nw-u-btn { flex: 1; }',
+            
+            '/* 颜色定义区 */',
+            '.nw-u-btn-green { background: #10b981 !important; color: white !important; }',
+            '.nw-u-btn-green:hover { background: #059669 !important; transform: translateY(-2px) !important; box-shadow: 0 6px 15px rgba(16, 185, 129, 0.35) !important; }',
+            '.nw-u-btn-blue { background: #3b82f6 !important; color: white !important; }',
+            '.nw-u-btn-blue:hover { background: #2563eb !important; transform: translateY(-2px) !important; box-shadow: 0 6px 15px rgba(59, 130, 246, 0.35) !important; }',
+            '.nw-u-btn-red { background: #ef4444 !important; color: white !important; }',
+            '.nw-u-btn-red:hover { background: #dc2626 !important; transform: translateY(-2px) !important; box-shadow: 0 6px 15px rgba(239, 68, 68, 0.35) !important; }',
+            '.nw-u-btn-gray { background: #f1f5f9 !important; color: #475569 !important; }',
+            '.nw-u-btn-gray:hover { background: #e2e8f0 !important; transform: translateY(-2px) !important; box-shadow: 0 6px 15px rgba(0, 0, 0, 0.1) !important; }',
+
+            '/* 特殊悬浮按钮和文字按钮 */',
             '.nw-top-back { position: absolute; top: 20px; left: 20px; width: 36px; height: 36px; border-radius: 50%; background: #f1f5f9; color: #64748b; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s ease; z-index: 10; }',
             '.nw-top-back:hover { background: #e2e8f0; color: #0f172a; transform: translateX(-3px); box-shadow: 2px 2px 8px rgba(0,0,0,0.05); }',
             '.nw-top-back svg { width: 20px; height: 20px; }',
@@ -334,7 +344,7 @@ return view.extend({
             '.nw-adv-btn:hover { color: #3b82f6; }',
 
             '/* --- 8. Modals & Overlays --- */',
-            '#nw-global-modal, .nw-wisp-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.65); z-index: 999999; display: flex; align-items: center; justify-content: center; }',
+            '#nw-global-modal, .nw-wisp-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.65); z-index: 2000000; display: flex; align-items: center; justify-content: center; }',
             '#nw-wizard-modal { backdrop-filter: blur(8px); z-index: 1000000; }',
             '#nw-global-modal .nw-modal-box, .nw-wisp-modal-box, .nw-wiz-modal-box { background: #fff; width: 90%; border-radius: 16px; overflow: hidden; display: flex; flex-direction: column; }',
             '#nw-global-modal .nw-modal-box { padding: 40px; text-align: center; max-width: 420px; }',
@@ -421,8 +431,8 @@ return view.extend({
             '      <h3 id="nw-global-title"></h3>',
             '      <p id="nw-global-msg"></p>',
             '      <div id="nw-global-btn-wrap" class="nw-modal-btn-wrap" style="display:none;">',
-            '        <button id="nw-global-btn-cancel" class="nw-modal-btn-cancel" style="display:none;"></button>',
-            '        <button id="nw-global-btn-ok" class="nw-modal-btn-ok" style="display:none;"></button>',
+            '        <button id="nw-global-btn-cancel" class="nw-u-btn nw-u-btn-gray" style="display:none;"></button>',
+            '        <button id="nw-global-btn-ok" class="nw-u-btn nw-u-btn-blue" style="display:none;"></button>',
             '      </div>',
             '    </div>',
             '  </div>',
@@ -486,9 +496,9 @@ return view.extend({
             '      </div>',
             '      <div style="padding: 15px 25px 25px; border-top: 1px solid #f1f5f9; background: #f8fafc;">',
             '         <div class="nw-modal-btn-wrap" style="margin-top: 0;">',
-            '            <button id="wiz-btn-prev" class="nw-wiz-btn nw-wiz-btn-cancel" style="display:none;">{{BTN_BACK}}</button>',
-            '            <button id="wiz-btn-next" class="nw-wiz-btn nw-wiz-btn-ok">{{BTN_NEXT}}</button>',
-            '            <button id="wiz-btn-apply" class="nw-wiz-btn nw-wiz-btn-ok" style="display:none;">{{BTN_APPLY}}</button>',
+            '            <button id="wiz-btn-prev" class="nw-u-btn nw-u-btn-red" style="display:none;">{{BTN_BACK}}</button>',
+            '            <button id="wiz-btn-next" class="nw-u-btn nw-u-btn-green">{{BTN_NEXT}}</button>',
+            '            <button id="wiz-btn-apply" class="nw-u-btn nw-u-btn-green" style="display:none;">{{BTN_APPLY}}</button>',
             '         </div>',
             '         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">',
             '            <label class="nw-wiz-cb-wrap" style="font-size: 13.5px; color: #64748b; font-weight: 500; margin: 0;">',
@@ -676,7 +686,7 @@ return view.extend({
             '           </div>',
             '           <div class="nw-wisp-desc">{{DESC_WISP}}</div>',
             '           <div id="wisp-ui-panel" class="nw-wisp-ui-panel" style="display:none;">',
-            '              <button id="btn-wisp-scan" class="cbi-button cbi-button-apply nw-btn-scan">{{BTN_SCAN}}</button>',
+            '              <button id="btn-wisp-scan" class="nw-u-btn nw-u-btn-blue" style="width: 100%;">{{BTN_SCAN}}</button>',
             '              <div id="wisp-selected-info" style="display:none; width: 100%;">',
             '                 <div class="nw-value"><label class="nw-value-title">{{TXT_TARGET_SSID}}</label><div class="nw-value-field"><input type="text" id="wisp-target-ssid" readonly class="nw-wisp-target-input"></div></div>',
             '                 <div class="nw-value"><label class="nw-value-title">{{WISP_PWD_PROMPT}}</label><div class="nw-value-field"><input type="text" id="wisp-target-key" placeholder="{{PH_WISP_PWD}}"></div></div>',
@@ -710,7 +720,7 @@ return view.extend({
             '        </div>',
             '      </div>',
             '    </div>',
-            '    <div class="nw-actions"><button id="btn-back-1" class="cbi-button cbi-button-reset">{{BTN_BACK}}</button><button id="btn-next-2" class="cbi-button cbi-button-apply">{{BTN_NEXT}}</button></div>',
+            '    <div class="nw-actions"><button id="btn-back-1" class="nw-u-btn nw-u-btn-red">{{BTN_BACK}}</button><button id="btn-next-2" class="nw-u-btn nw-u-btn-green">{{BTN_NEXT}}</button></div>',
             '  </div>',
             '  <div id="step-3" class="nw-step" style="display: none;">',
             '    <div class="nw-confirm-board">',
@@ -726,7 +736,7 @@ return view.extend({
             '        <div class="nw-note-item"><span style="color:#10b981;">•</span> <span>{{NOTE_2}}</span></div>',
             '      </div>',
             '    </div>',
-            '    <div class="nw-actions"><button id="btn-back-2" class="cbi-button cbi-button-reset">{{BTN_BACK}}</button><button id="btn-apply" class="cbi-button cbi-button-apply">{{BTN_APPLY}}</button></div>',
+            '    <div class="nw-actions"><button id="btn-back-2" class="nw-u-btn nw-u-btn-red">{{BTN_BACK}}</button><button id="btn-apply" class="nw-u-btn nw-u-btn-green">{{BTN_APPLY}}</button></div>',
             '  </div>',
             '</div>'
         ].join('');
@@ -808,7 +818,7 @@ return view.extend({
         wBtnNext.addEventListener('click', function() {
             if (currentWizStep === 1) {
                 var wType = container.querySelector('input[name="wiz_wan_type"]:checked').value;
-                if (wType === 'pppoe' && (!container.querySelector('#wiz-pppoe-user').value.trim() || !container.querySelector('#wiz-pppoe-pass').value.trim())) { 
+                if (wType === 'pppoe' && (!container.querySelector('#wiz-pppoe-user').value.replace(/[\r\n\s]+/g, '') || !container.querySelector('#wiz-pppoe-pass').value.trim())) {
                     openModal({ title: T['M_INC_TIT'], msg: T['M_INC_PPPOE'], okText: T['M_CLOSE'] }); 
                     return; 
                 }
@@ -837,7 +847,7 @@ return view.extend({
 
                 if (!isSkipWifi) {
                     if (!ssid) { openModal({ title: T['M_INC_TIT'], msg: T['M_INC_WIFI'], okText: T['M_CLOSE'] }); return; }
-                    if (key.length > 0 && key.length < 8) { openModal({ title: T['M_FMT_TIT'], msg: T['M_PWD_SHORT'], okText: T['M_CLOSE'] }); return; }
+                    if (key && key.length < 8) { openModal({ title: T['M_FMT_TIT'], msg: T['M_PWD_SHORT'], okText: T['M_CLOSE'] }); return; }
                     if (key.length === 0) { 
                         // 拦截无密码
                         openModal({
@@ -882,7 +892,7 @@ return view.extend({
 
             if (isSkipWifi) {
                 if (wType === 'pppoe') {
-                    var u = container.querySelector('#wiz-pppoe-user').value.trim();
+                    var u = container.querySelector('#wiz-pppoe-user').value.replace(/[\r\n\s]+/g, '');
                     var p = container.querySelector('#wiz-pppoe-pass').value.trim();
                     // 传入 keepIpv6
                     applyPromise = callNetSetup('pppoe', u, p, '', '', '1', keepIpv6);
@@ -1650,7 +1660,7 @@ return view.extend({
             container.querySelector('#nw-global-spinner').style.display = o.spin ? 'block' : 'none'; 
             var w = container.querySelector('#nw-global-btn-wrap'), ok = container.querySelector('#nw-global-btn-ok'), can = container.querySelector('#nw-global-btn-cancel'); 
             w.style.display = (o.okText || o.cancelText) ? 'flex' : 'none'; 
-            if (o.okText) { ok.style.display = 'block'; ok.innerText = o.okText; ok.className = o.isDanger ? 'nw-modal-btn-danger' : 'nw-modal-btn-ok'; ok.onclick = function() { if (o.onOk) o.onOk(); else m.style.display = 'none'; }; } else ok.style.display = 'none'; 
+            if (o.okText) { ok.style.display = 'block'; ok.innerText = o.okText; ok.className = 'nw-u-btn ' + (o.isDanger ? 'nw-u-btn-red' : 'nw-u-btn-blue'); ok.onclick = function() { if (o.onOk) o.onOk(); else m.style.display = 'none'; }; } else ok.style.display = 'none'; 
             if (o.cancelText) { can.style.display = 'block'; can.innerText = o.cancelText; can.onclick = function() { if (o.onCancel) o.onCancel(); else m.style.display = 'none'; }; } else can.style.display = 'none'; 
             m.style.display = 'flex'; 
         }
@@ -2483,7 +2493,7 @@ return view.extend({
                     else { actionDetail = '<b style="color:#10b981;">' + T['OPT_DHCP'] + '</b>'; }
                     mTitle = rType === 'dhcp' ? T['ACT_WAN_DHCP'] : T['ACT_WAN_STATIC'];
                 } else if (selectedMode === 'pppoe') { 
-                    a1 = container.querySelector('#pppoe-user').value; 
+                    a1 = container.querySelector('#pppoe-user').value.replace(/[\r\n\s]+/g, '');
                     a2 = container.querySelector('#pppoe-pass').value; 
                     actionDetail = '<b style="color:#3b82f6;">' + a1 + '</b>';
                     mTitle = T['ACT_PPPOE'];
