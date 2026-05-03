@@ -92,7 +92,7 @@ msgid "LAN Gateway"
 msgstr "局域网网关"
 
 msgid "Blank for Main, required for AP Wired Relay"
-msgstr "主路由留空，旁路由（AP有线中继）必填"
+msgstr "主路由留空，旁路由(有线中继)必填"
 
 msgid "Back"
 msgstr "上一步"
@@ -525,3 +525,39 @@ msgstr "⚠️ 无密码安全警告"
 
 msgid "You are setting up an Open Wi-Fi network without a password. Anyone nearby will be able to connect and access your network.<br><br>Are you sure you want to continue?"
 msgstr "您正在设置无密码的开放 Wi-Fi，附近任何人都可以随意连接并访问您的局域网设备。<br><br>您确定要继续吗？"
+
+msgid "✨ Quick Setup Wizard"
+msgstr "✨ 快速设置向导"
+
+msgid "Step 1: Internet Setup"
+msgstr "第一步：上网设置"
+
+msgid "Step 2: Wi-Fi Setup"
+msgstr "第二步：Wi-Fi 设置"
+
+msgid "Set your wireless network name and password."
+msgstr "设置您的无线网络名称和密码。"
+
+msgid "Step 3: Confirm & Apply"
+msgstr "第三步：确认与应用"
+
+msgid "Skip Wizard"
+msgstr "跳过向导"
+
+msgid "Don't show this again"
+msgstr "不再提示"
+
+msgid "✨ Reopen Wizard"
+msgstr "✨ 重新打开向导"
+
+msgid "Skip Wi-Fi Setup (Keep current)"
+msgstr "暂不配置 Wi-Fi (保持现状)"
+
+msgid "Not configured (Keep current)"
+msgstr "暂不配置 (保持当前状态)"
+
+msgid "Not set"
+msgstr "未设置"
+
+msgid "No Password (Open)"
+msgstr "无密码 (Open)"
