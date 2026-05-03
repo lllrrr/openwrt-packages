@@ -127,6 +127,57 @@ case "$1" in
                 fi
 
                 # 各模式网络写入
+                
+                # ====== 首次开机向导模式 (Wizard) ======
+                # 一次性接收并处理上网方式与 Wi-Fi 设定，最后统一重启网络
+                if [ "$mode" = "wizard" ]; then
+                    log ">>> [向导模式] 开始执行双通道配置任务..."
+                    
+                    # 1. 提取向导中的路由/WAN参数
+                    wiz_wan_type=$(echo "$arg1" | jsonfilter -e '@.wan_type' || echo "dhcp")
+                    
+                    cleanup_lan_for_wan_modes;
+                    
+                    if [ "$wiz_wan_type" = "dhcp" ]; then
+                        log "向导: 写入 DHCP 动态获取配置"
+                        uci set network.wan.proto='dhcp'
+                    elif [ "$wiz_wan_type" = "static" ]; then
+                        log "向导: 写入静态 IP 配置"
+                        wiz_ip=$(echo "$arg1" | jsonfilter -e '@.ip')
+                        wiz_gw=$(echo "$arg1" | jsonfilter -e '@.gw')
+                        wiz_mask=$(echo "$arg1" | jsonfilter -e '@.mask')
+                        
+                        # 静默格式检查 (非法直接退回 DHCP 兜底，防止挂掉)
+                        if echo "$wiz_ip" | awk -F. 'NF==4 {print "ok"}' | grep -q "ok" && \
+                           echo "$wiz_gw" | awk -F. 'NF==4 {print "ok"}' | grep -q "ok"; then
+                            uci set network.wan.proto='static'
+                            uci set network.wan.ipaddr="$wiz_ip"
+                            uci set network.wan.gateway="$wiz_gw"
+                            uci set network.wan.netmask="$wiz_mask"
+                        else
+                            log "向导警告: 静态IP格式非法，安全回退至 DHCP"
+                            uci set network.wan.proto='dhcp'
+                        fi
+                    elif [ "$wiz_wan_type" = "pppoe" ]; then
+                        log "向导: 写入 PPPoE 拨号配置"
+                        wiz_user=$(echo "$arg1" | jsonfilter -e '@.user')
+                        wiz_pass=$(echo "$arg1" | jsonfilter -e '@.pass')
+                        
+                        uci set network.wan.proto='pppoe'
+                        [ -n "$wiz_user" ] && uci set network.wan.username="$wiz_user"
+                        [ -n "$wiz_pass" ] && uci set network.wan.password="$wiz_pass"
+                    fi
+                    
+                    uci commit network; uci commit dhcp
+                    log "向导: 上网配置已提交，准备接管并透传 Wi-Fi 配置任务..."
+                    
+
+                    # 2. 现成的 Wi-Fi 处理引擎
+                    mode="wifi"
+                    arg1="$arg2"
+                fi
+                # ==================================
+
                 if [ "$mode" = "wan_dhcp" ]; then
                     cleanup_lan_for_wan_modes;
                     uci set network.wan.proto='dhcp'
