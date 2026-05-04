@@ -1,0 +1,34 @@
+{
+  "luci-app-panda": {
+    "description": "Grant LuCI access to Panda DDNS",
+    "read": {
+      "ubus": {
+        "uci":     [ "get", "state" ],
+        "file":    [ "read" ],
+        "service": [ "list" ],
+        "luci.panda": [ "clearLog" ]
+      },
+      "uci": {
+        "panda": [ "*" ]
+      },
+      "file": {
+        "/var/log/ddns.log": [ "read" ],
+        "/etc/config/panda": [ "read" ]
+      }
+    },
+    "write": {
+      "ubus": {
+        "uci":     [ "set", "apply", "commit", "revert", "add", "delete",
+                     "rename", "order", "changes" ],
+        "file":    [ "write" ],
+        "luci.panda": [ "clearLog" ]
+      },
+      "uci": {
+        "panda": [ "*" ]
+      },
+      "file": {
+        "/var/log/ddns.log": [ "write" ]
+      }
+    }
+  }
+}

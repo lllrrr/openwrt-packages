@@ -1,0 +1,31 @@
+#!/bin/sh /etc/rc.common
+
+START=95
+STOP=10
+USE_PROCD=1
+
+SCRIPT="/usr/libexec/parentalcontrol.sh"
+CRON_ID="parentalcontrol"
+
+start_service() {
+	$SCRIPT apply
+
+	# Install cron job to check override expiry every minute
+	local cron_line="* * * * * $SCRIPT check_overrides # $CRON_ID"
+	(crontab -l 2>/dev/null | grep -v "# $CRON_ID"; echo "$cron_line") | crontab -
+}
+
+stop_service() {
+	$SCRIPT clear
+
+	# Remove cron job
+	crontab -l 2>/dev/null | grep -v "# $CRON_ID" | crontab -
+}
+
+reload_service() {
+	$SCRIPT apply
+}
+
+service_triggers() {
+	procd_add_reload_trigger "parentalcontrol"
+}

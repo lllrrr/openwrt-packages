@@ -1,0 +1,17 @@
+{
+	"luci-app-parentalcontrol": {
+		"description": "Grant access to Parental Control",
+		"read": {
+			"ubus": {
+				"parentalcontrol": ["get_status", "list_devices"]
+			},
+			"uci": ["parentalcontrol"]
+		},
+		"write": {
+			"ubus": {
+				"parentalcontrol": ["toggle_global", "toggle_rule", "set_override", "cancel_override", "add_rule", "update_rule", "move_rule", "reorder_rule", "delete_rule"]
+			},
+			"uci": ["parentalcontrol"]
+		}
+	}
+}
