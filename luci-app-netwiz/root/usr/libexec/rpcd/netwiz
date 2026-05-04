@@ -14,7 +14,7 @@ log() {
     fi
 }
 
-# 智能重启依赖网络的高级应用
+# 重启依赖网络的高级应用
 restart_depend_apps() {
     log ">>> 正在检测并唤醒高级网络应用..."
 
@@ -195,6 +195,24 @@ case "$1" in
                     uci set network.wan.username="$arg1"
                     uci set network.wan.password="$arg2"
                     uci commit network; uci commit dhcp
+
+                # ==========================================
+                # 拦截并静默处理向导状态的写入
+                elif [ "$mode" = "set_wizard" ]; then
+                    log "静默修改向导弹出状态为: $arg1"
+                    # 确保文件和节点存在，避免报错
+                    touch /etc/config/netwiz 2>/dev/null
+                    uci -q get netwiz.main >/dev/null || uci set netwiz.main=global
+                    
+                    # 写入并立刻刷入硬盘
+                    uci set netwiz.main.wizard_enable="$arg1"
+                    uci commit netwiz
+                    
+                    # 返回成功并退出，千万不能往下走去重启网络！
+                    echo '{"result":0}'
+                    exit 0
+                # ==========================================
+
                 elif [ "$mode" = "lan" ]; then
                     uci set network.lan.proto='static';
                     uci set network.lan.ipaddr="$arg1"; uci set network.lan.netmask="$arg3"

@@ -512,7 +512,7 @@ msgid "Click to Settings"
 msgstr "點擊直達設定"
 
 msgid "WAN Blind-Switch: Unplug the WAN cable for 10 seconds and reconnect to auto-detect and switch the connection type (takes about 2 mins)."
-msgstr "盲切WAN 口上網方式：斷開 WAN 網線 10 秒再插回，系統會自動偵測並切換上網方式（過程約 2 分鐘）"
+msgstr "<b style=\"color: #ef4444;\">盲切WAN 口上網方式：斷開 WAN 網線 10 秒再插回，系統會自動偵測並切換上網方式（過程約 2 分鐘）</b>"
 
 msgid "New Config"
 msgstr "新建"
@@ -541,8 +541,8 @@ msgstr "設定您的無線網路名稱與密碼。"
 msgid "Step 3: Confirm & Apply"
 msgstr "第三步：確認與套用"
 
-msgid "Skip Wizard"
-msgstr "略過精靈"
+msgid "Skip this time"
+msgstr "略過本次引導"
 
 msgid "Don't show this again"
 msgstr "不再提示"
@@ -561,3 +561,12 @@ msgstr "未設定"
 
 msgid "No Password (Open)"
 msgstr "無密碼 (Open)"
+
+msgid "Wizard execution failed"
+msgstr "向導執行失敗"
+
+msgid "Configuration data processing failed"
+msgstr "配置數據處理失敗"
+
+msgid "Input validation failed"
+msgstr "輸入校驗失敗"

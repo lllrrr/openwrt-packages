@@ -189,13 +189,13 @@ var T = {
     'TXT_MODIFIED': _('Modified'),
     'M_OPEN_WARN_TIT': _('Security Warning'),
     'M_OPEN_WARN_MSG': _('You are setting up an Open Wi-Fi network without a password. Anyone nearby will be able to connect and access your network.<br><br>Are you sure you want to continue?'),
-// ===== 向导专用词条 =====
+// ===== 向导词条 =====
     'WIZ_TITLE': _('✨ Quick Setup Wizard'),
     'WIZ_WAN': _('Step 1: Internet Setup'),
     'WIZ_WIFI': _('Step 2: Wi-Fi Setup'),
     'WIZ_WIFI_DESC': _('Set your wireless network name and password.'),
     'WIZ_CONFIRM': _('Step 3: Confirm & Apply'),
-    'WIZ_SKIP': _('Skip Wizard'),
+    'WIZ_SKIP': _('Skip this time'),
     'WIZ_HIDE': _("Don't show this again"),
     'WIZ_REOPEN': _('✨ Reopen Wizard'),
     'WIZ_SKIP_WIFI': _('Skip Wi-Fi Setup (Keep current)'),
@@ -225,17 +225,17 @@ return view.extend({
             document.head.appendChild(meta);
         }
 
-        var container = dom.create('div', { class: 'cbi-map', id: 'netwiz-container' });
+        var container = dom.create('div', { id: 'netwiz-container' });
 
         var htmlTemplate = [
             '<style>',
             '/* ====== Netwiz Elegant UI Styles ====== */',
             '/* --- 1. Base & Layout --- */',
             ' header { margin: -5px -5px 0; }',
-            '#maincontent, .main-right { overflow-y: auto !important; }',
+            '#maincontent, .main-right { overflow-y: scroll !important; }', 
             '#netwiz-container { display: block !important; width: 100% !important; padding: 0 !important; margin: 0 auto !important; box-sizing: border-box !important; }',
             '.nw-wrapper { display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: flex-start !important; width: 100% !important; max-width: 900px !important; margin: 0 auto !important; padding-bottom: 10vh; font-family: -apple-system, BlinkMacSystemFont, sans-serif; box-sizing: border-box !important; }',
-            '.nw-header { display: block !important; width: 100% !important; max-width: 750px !important; margin: 0 auto 40px auto !important; text-align: center; background-color: #5e72e4; padding: 25px; border-radius: 16px; position: relative; box-sizing: border-box; box-shadow: 0 10px 25px rgba(94, 114, 228, 0.15); z-index: 20; }',
+            '.nw-header { display: block !important; width: 100% !important; max-width: 750px !important; margin: 0 auto 30px auto !important; text-align: center; background-color: #5e72e4; padding: 15px; border-radius: 16px; position: relative; box-sizing: border-box; box-shadow: 0 10px 25px rgba(94, 114, 228, 0.15); z-index: 20; }',
             '.nw-step { width: 100% !important; max-width: 800px !important; text-align: center; animation: slideUp 0.4s ease-out; margin: 0 auto !important; }',
             '.nw-form-area, .nw-confirm-board { position: relative; max-width: 460px; margin: 0 auto; text-align: left; padding: 40px; border-radius: 16px; background-color: rgba(255, 255, 255, 0.88); box-shadow: 0 10px 30px rgba(0,0,0,0.06); box-sizing: border-box; display: block !important; }',
 
@@ -247,16 +247,16 @@ return view.extend({
             '.nw-adv-setting-row { padding: 5px 0 15px 0; border-bottom: 1px dashed #cbd5e1; animation: fadeIn 1s ease; }',
             '.nw-roam-row { padding: 5px 0 15px 0; border-bottom: 1px dashed #cbd5e1; }',
             '.nw-roam-row-alt { padding: 15px 0 5px 0; border-top: 1px dashed #cbd5e1; margin-top: 10px; margin-bottom: 0; }',
-            '.nw-split-header-row { padding: 0 0 15px 0; border-bottom: 1px dashed #e2e8f0; }',
+            '.nw-split-header-row { }',
             '.nw-legacy-row { padding: 15px 0 0 0; border-top: 1px solid #f1f5f9; margin-top: 15px; }',
-            '.nw-wisp-header { margin-bottom: 5px; }',
+            '.nw-wisp-header { margin: 10px; 0 5px 0 }',
 
             '/* --- 3. Header & Typography --- */',
             '.nw-main-title { font-size: 35px; font-weight: 600; margin-bottom: 10px; color: #ffffff; letter-spacing: 2px; }',
             '.nw-header p { color: #ffffff; font-size: 16px; opacity: 0.9; margin: 10px; letter-spacing: 1px; }',
             '.nw-title-wrap { position: relative; display: inline-block; cursor: pointer; }',
-            '.nw-version-tag { position: absolute; top: 0; right: -75px; background: rgba(15, 23, 42, 0.1); color: #f8fafc; font-size: 14px; font-weight: 600; padding: 5px 12px; border-radius: 6px; opacity: 0; pointer-events: none; transition: all 0.25s ease; font-family: monospace; z-index: 50; box-shadow: 0 4px 15px rgba(0,0,0,0.15); white-space: nowrap; border: 1px solid rgba(255,255,255,0.1); }',
-            '.nw-title-wrap:hover .nw-version-tag { opacity: 1; top: 0; }',
+            '.nw-version-tag { position: absolute; top: 15px; left: 100%; margin-left: 1px; background: rgba(255, 255, 255, 0.15); color: #fff; font-size: 13px; font-weight: bold; padding: 3px 10px; border-radius: 8px; font-family: monospace; z-index: 50; border: 1px solid rgba(255, 255, 255, 0.3); white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,0.08); opacity: 0; pointer-events: none; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); transform: translateY(0px); }',
+            '.nw-title-wrap:hover .nw-version-tag { opacity: 1; top: 0px; transform: translateY(-5px); }',
             '.nw-version-dot { position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; background-color: #ef4444; border-radius: 50%; box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.9); display: block; }',
             '.nw-step-title { text-align: center; margin-bottom: 30px; color: #111; font-weight: 600; font-size: 20px; }',
             '.nw-setting-row-label, .nw-wisp-title { font-weight: 600; font-size: 16px; }',
@@ -317,13 +317,13 @@ return view.extend({
             'input:checked + .nw-slider:before { transform: translateX(22px); }',
 
             '/* --- 7. Unified Button UI Kit --- */',
-            '/* 主面板底部：居中对齐，保持固定宽度不拉伸 */',
+            '/* 主面板底部 */',
             '.nw-actions { margin-top: 35px; display: flex; justify-content: center; gap: 20px; width: 100%; box-sizing: border-box; }',
-            '/* 弹窗/向导底部：填满容器，自适应拉伸 */',
+            '/* 弹窗/向导底部 */',
             '.nw-modal-btn-wrap { display: flex; justify-content: center; gap: 15px; width: 100%; margin-top: 25px; box-sizing: border-box; }',
-            '/* 基础按钮：实心、大圆角、粗体 */',
+            '/* 基础按钮 */',
             '.nw-u-btn { appearance: none !important; border-radius: 8px !important; padding: 12px 30px !important; font-weight: 600 !important; font-size: 15px !important; cursor: pointer !important; border: none !important; outline: none !important; height: auto !important; line-height: normal !important; margin: 0 !important; transition: all 0.25s ease !important; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 130px; letter-spacing: 1px; }',
-            '/* 向导内的按钮：自动填满宽度 */',
+            '/* 向导内的按钮 */',
             '.nw-modal-btn-wrap .nw-u-btn { flex: 1; }',
             
             '/* 颜色定义区 */',
@@ -369,7 +369,7 @@ return view.extend({
             '.nw-note-box { background-color: #f8fafc; padding: 15px; font-size: 13.5px; margin-top: 20px; border: 1px solid #e2e8f0; line-height: 1.7; color: #475569; border-radius: 12px; }',
             '.nw-note-title { font-weight: bold; color: #0f172a; margin-bottom: 8px; font-size: 14.5px; }',
             '.nw-confirm-mode-text { color: #fff; background: #0055bb; padding: 20px; border-radius: 12px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); margin-top: 15px; }',
-            '.nw-current-mode-display { margin-top: 45px; background: #5e72e4; padding: 20px 35px; border-radius: 12px; display: inline-block; box-shadow: 0 8px 20px rgba(94, 114, 228, 0.3); text-align: center; min-width: 320px; }',
+            '.nw-current-mode-display { margin-top: 35px; background: #5e72e4; padding: 20px 35px; border-radius: 12px; display: inline-block; box-shadow: 0 8px 20px rgba(94, 114, 228, 0.3); text-align: center; min-width: 320px; }',
             '.nw-wisp-modal-header, .nw-wiz-modal-header { padding: 15px 20px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }',
             '.nw-wiz-modal-header { background: #5e72e4; border: none; }',
             '.nw-wisp-modal-title, .nw-wiz-modal-title { margin: 0 20px; font-size: 16px; color: #eee; background: #0f172a; text-align: center; border-radius: 12px; }',
@@ -395,7 +395,7 @@ return view.extend({
             '/* --- 11. Mobile Adaption --- */',
             '@media screen and (max-width: 768px) {',
             '  .nw-wrapper { padding-top: 3vh; padding-bottom: 5vh; }',
-            '  .nw-header { margin: 0px auto 15px !important; padding: 20px 15px !important; width: 100% !important; max-width: 320px !important; box-sizing: border-box !important; border-radius: 12px; }',
+            '  .nw-header { margin: -10px auto 15px !important; padding: 20px 15px !important; width: 100% !important; max-width: 320px !important; box-sizing: border-box !important; border-radius: 12px; }',
             '  .nw-main-title { font-size: 22px; line-height: 1.3; }',
             '  .nw-header p { font-size: 14px; }',
             '  .nw-card-group { flex-direction: column; align-items: center; gap: 15px; margin-top: 0; }',
@@ -449,7 +449,7 @@ return view.extend({
             '    </div>',
             '  </div>',
             
-            // ===== 全新加入：快速向导悬浮层 =====
+            // ===== 快速向导悬浮层 =====
             '  <div id="nw-wizard-modal" class="nw-wisp-modal" style="display:none;">',
             '    <div class="nw-wiz-modal-box">',
             '      <div class="nw-wiz-modal-header">',
@@ -595,12 +595,12 @@ return view.extend({
             '          </div>',
             '        </div>',
             '        <div id="wifi-split-ui" style="display: block;">',
-            '           <div class="nw-split-header-row" style="display: flex; justify-content: space-around; margin-bottom: 20px;">',
-            '              <div class="nw-split-header-item" style="display: flex; align-items: center; justify-content: center; gap: 0px;">',
+            '           <div class="nw-split-header-row" style="display: flex; margin-bottom: 10px;">',
+            '              <div class="nw-split-header-item" style="display: flex; align-items: center; justify-content: center; gap: 5px;">',
             '                 <label class="nw-switch nw-flex-shrink-0 nw-scale-switch" style="margin: 0;"><input type="checkbox" id="wifi-2g-en" checked><span class="nw-slider"></span></label>',
             '                 <label class="nw-value-title nw-m0 nw-pointer" style="display: inline-block !important; margin: 0 !important; line-height: 1 !important;">{{LBL_WIFI_2G_EN}}</label>',
             '              </div>',
-            '              <div class="nw-split-header-item" style="display: flex; align-items: center; justify-content: center; gap: 0px;">',
+            '              <div class="nw-split-header-item" style="display: flex; align-items: center; justify-content: center; gap: 10px;">',
             '                 <label class="nw-switch nw-flex-shrink-0 nw-scale-switch" style="margin: 0;"><input type="checkbox" id="wifi-5g-en" checked><span class="nw-slider"></span></label>',
             '                 <label class="nw-value-title nw-m0 nw-pointer" style="display: inline-block !important; margin: 0 !important; line-height: 1 !important;">{{LBL_WIFI_5G_EN}}</label>',
             '              </div>',
@@ -684,7 +684,7 @@ return view.extend({
             '              <div class="nw-wisp-title">{{LBL_WISP_EN}}</div>',
             '              <label class="nw-switch"><input type="checkbox" id="wisp-toggle"><span class="nw-slider"></span></label>',
             '           </div>',
-            '           <div class="nw-wisp-desc">{{DESC_WISP}}</div>',
+            '           <div class="nw-wisp-desc" style="padding:5px 0;">{{DESC_WISP}}</div>',
             '           <div id="wisp-ui-panel" class="nw-wisp-ui-panel" style="display:none;">',
             '              <button id="btn-wisp-scan" class="nw-u-btn nw-u-btn-blue" style="width: 100%;">{{BTN_SCAN}}</button>',
             '              <div id="wisp-selected-info" style="display:none; width: 100%;">',
@@ -750,32 +750,58 @@ return view.extend({
     },
 
     bindEvents: function (container) {
+        // ==================  安全XSS 字符转义  ==================
+        var escapeHTML = function(str) {
+            if (!str) return '';
+            return String(str).replace(/[&<>'"]/g, function(tag) {
+                var charsToReplace = { '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' };
+                return charsToReplace[tag] || tag;
+            });
+        };
+        // ==============================================================
+
+        // ================== 向导状态后端静默保存 ==================
+        var silentSaveWizardState = function(state) {
+            // 如果状态一样，返回空 Promise
+            if (window._currentWizState === String(state)) return Promise.resolve();
+            window._currentWizState = String(state);
+            
+            // 后端 Lua 接口，后端在底层改文件
+            return callNetSetup('set_wizard', String(state), '', '', '', '', '').catch(function(e){});
+        };
+        // ==============================================================
+
         var step1 = container.querySelector('#step-1'), step2 = container.querySelector('#step-2'), step3 = container.querySelector('#step-3');
         var confirmText = container.querySelector('#confirm-mode-text'), modeTextEl = container.querySelector('#current-mode-text');
         var selectedMode = '';
         window._isSingleChip = false;
 
-        // ===== 全新引入：快速开机向导流引擎 =====
+        // ===== 快速开机向导流 =====
         var wizModal = container.querySelector('#nw-wizard-modal');
         var wArea1 = container.querySelector('#wiz-step-1-area'), wArea2 = container.querySelector('#wiz-step-2-area'), wArea3 = container.querySelector('#wiz-step-3-area');
         var wBtnPrev = container.querySelector('#wiz-btn-prev'), wBtnNext = container.querySelector('#wiz-btn-next'), wBtnApply = container.querySelector('#wiz-btn-apply');
         var wizHideCb = container.querySelector('#wiz-hide-checkbox');
         var currentWizStep = 1;
 
-        // 1. 退出/跳过向导逻辑
+        // 1. 退出(X) 按钮此时勾选了“不再提示”，就执行静默写入。
         var closeWizard = function() {
-            if (wizHideCb.checked) localStorage.setItem('netwiz_hide_wizard', 'true');
+            if (wizHideCb && wizHideCb.checked) {
+                silentSaveWizardState('0'); 
+            }
             wizModal.style.display = 'none';
         };
         container.querySelector('#wiz-modal-close').addEventListener('click', closeWizard);
-        container.querySelector('#wiz-btn-skip').addEventListener('click', closeWizard);
 
-        // 1.5 重新打开向导逻辑 (首页按钮)
+        // 跳过本次引导，UI 隐藏
+        container.querySelector('#wiz-btn-skip').addEventListener('click', function() {
+            wizModal.style.display = 'none'; 
+        });
+
+        // 1.5 首页按钮重新打开向导逻辑
         var btnReopenWiz = container.querySelector('#btn-reopen-wizard');
         if (btnReopenWiz) {
             btnReopenWiz.addEventListener('click', function() {
-                // 1. 清除永久隐藏的记忆
-                localStorage.removeItem('netwiz_hide_wizard');
+                silentSaveWizardState('1'); // 调用静默武器！
                 
                 // 2. 状态重置归零：回到第一步
                 currentWizStep = 1;
@@ -836,8 +862,8 @@ return view.extend({
                     if (isSkipWifi) {
                         htmlConfirm += "<div style='margin-bottom:10px;'><b style='color:#67e8f9;'>Wi-Fi:</b> <span style='color:#94a3b8; font-style:italic;'>" + T['TXT_NOT_CONFIGURED'] + "</span></div>";
                     } else {
-                        htmlConfirm += "<div style='margin-bottom:10px;'><b style='color:#67e8f9;'>Wi-Fi:</b> " + (ssid || "<i>" + T['TXT_UNSET'] + "</i>") + "</div>";
-                        htmlConfirm += "<div><b style='color:#a7f3d0;'>"+ T['M_PWD'] +":</b> " + (key || "<i>" + T['TXT_NO_PWD_OPEN'] + "</i>") + "</div>";
+                        htmlConfirm += "<div style='margin-bottom:10px;'><b style='color:#67e8f9;'>Wi-Fi:</b> " + (ssid ? escapeHTML(ssid) : "<i>" + T['TXT_UNSET'] + "</i>") + "</div>";
+                        htmlConfirm += "<div><b style='color:#a7f3d0;'>"+ T['M_PWD'] +":</b> " + (key ? escapeHTML(key) : "<i>" + T['TXT_NO_PWD_OPEN'] + "</i>") + "</div>";
                     }
                     htmlConfirm += "</div>";
                     container.querySelector('#wiz-confirm-text').innerHTML = htmlConfirm;
@@ -875,75 +901,77 @@ return view.extend({
             } else if (currentWizStep === 3) { wArea3.style.display = 'none'; wArea2.style.display = 'block'; wBtnApply.style.display = 'none'; wBtnNext.style.display = 'block'; currentWizStep = 2; }
         });
 
-        // 6. 一键合并提交 (分流双通道与单通道)
+        // 6. 一键合并提交，分流双通道与单通道
         wBtnApply.addEventListener('click', function() {
             var wType = container.querySelector('input[name="wiz_wan_type"]:checked').value;
             var isSkipWifi = skipWifiCb ? skipWifiCb.checked : false;
 
-            // 读取底层探测到的真实 IPv6 状态，防止被向导静默关闭
-            var ipv6El = container.querySelector('#lan-ipv6-toggle');
-            var keepIpv6 = (ipv6El && ipv6El.checked) ? '1' : '0';
+            // 验证底层 IPv6 状态是否已真实加载完毕！
+            if (typeof window._trueIpv6State === 'undefined' || window._trueIpv6State === null) {
+                openModal({ title: T['M_SYS_ERR'] || '系统异常', msg: '底层网络状态尚未加载完毕，请等待页面初始化完成后再提交，以防覆盖丢失配置。', okText: T['M_CLOSE'] });
+                return;
+            }
+            var keepIpv6 = window._trueIpv6State;
 
             wizModal.style.display = 'none';
-            localStorage.setItem('netwiz_hide_wizard', 'true'); 
             openModal({ title: T['WIZ_TITLE'] || '向导配置中', msg: '<div style="color: #64748b; font-size: 16px; font-weight:bold;">' + T['MSG_WRITING'] + '</div>', spin: true });
 
-            var applyPromise;
+            // 状态安全，再执行耗时的网络配置，排除并发 UCI 锁死
+            silentSaveWizardState('0').then(function() {
+                var applyPromise;
 
-            if (isSkipWifi) {
-                if (wType === 'pppoe') {
-                    var u = container.querySelector('#wiz-pppoe-user').value.replace(/[\r\n\s]+/g, '');
-                    var p = container.querySelector('#wiz-pppoe-pass').value.trim();
-                    // 传入 keepIpv6
-                    applyPromise = callNetSetup('pppoe', u, p, '', '', '1', keepIpv6);
+                if (isSkipWifi) {
+                    if (wType === 'pppoe') {
+                        var u = container.querySelector('#wiz-pppoe-user').value.replace(/[\r\n\s]+/g, '');
+                        var p = container.querySelector('#wiz-pppoe-pass').value;
+                        applyPromise = callNetSetup('pppoe', u, p, '', '', '1', keepIpv6);
+                    } else {
+                        applyPromise = callNetSetup('wan_dhcp', '', '', '', '', '1', keepIpv6);
+                    }
                 } else {
-                    applyPromise = callNetSetup('wan_dhcp', '', '', '', '', '1', keepIpv6);
-                }
-            } else {
-                var arg1Obj = { wan_type: wType };
-                if (wType === 'pppoe') {
-                    arg1Obj.user = container.querySelector('#wiz-pppoe-user').value.trim();
-                    arg1Obj.pass = container.querySelector('#wiz-pppoe-pass').value.trim();
-                }
-                
-                var ssid = container.querySelector('#wiz-wifi-ssid').value.trim();
-                var key = container.querySelector('#wiz-wifi-key').value;
-                var enc = (key.length === 0) ? 'none' : 'sae-mixed';
+                    var arg1Obj = { wan_type: wType };
+                    if (wType === 'pppoe') {
+                        // 账号，剔除所有换行和不可见空格
+                        arg1Obj.user = container.querySelector('#wiz-pppoe-user').value.replace(/[\r\n\s]+/g, '');
+                        arg1Obj.pass = container.querySelector('#wiz-pppoe-pass').value; 
+                    }
+                    
+                    var ssid = container.querySelector('#wiz-wifi-ssid').value.trim();
+                    var key = container.querySelector('#wiz-wifi-key').value;
+                    var enc = (key.length === 0) ? 'none' : 'sae-mixed';
 
-                var arg2Obj = {};
-                if (window._isSingleChip) {
-                    arg2Obj = {
-                        smart: "true",
-                        merged: { enabled: "1", ssid: ssid, key: key, encryption: enc, hidden: "0", roaming: "0" }
-                    };
-                } else {
-                    arg2Obj = {
-                        smart: "false",
-                        radio_2g: { enabled: "1", ssid: ssid, key: key, encryption: enc, hidden: "0", roaming: "0", mode: "auto", channel: "auto", bandwidth: "auto" },
-                        radio_5g: { enabled: "1", ssid: ssid, key: key, encryption: enc, hidden: "0", roaming: "1", mode: "auto", channel: "auto", bandwidth: "auto" }
-                    };
+                    var arg2Obj = {};
+                    if (window._isSingleChip) {
+                        arg2Obj = {
+                            smart: "true",
+                            merged: { enabled: "1", ssid: ssid, key: key, encryption: enc, hidden: "0", roaming: "0" }
+                        };
+                    } else {
+                        arg2Obj = {
+                            smart: "false",
+                            radio_2g: { enabled: "1", ssid: ssid, key: key, encryption: enc, hidden: "0", roaming: "0", mode: "auto", channel: "auto", bandwidth: "auto" },
+                            radio_5g: { enabled: "1", ssid: ssid, key: key, encryption: enc, hidden: "0", roaming: "1", mode: "auto", channel: "auto", bandwidth: "auto" }
+                        };
+                    }
+                    var arg2Str = JSON.stringify(arg2Obj);
+                    
+                    applyPromise = callNetSetup('wizard', JSON.stringify(arg1Obj), arg2Str, '', '', '1', keepIpv6);
                 }
-                var arg2Str = JSON.stringify(arg2Obj);
-                
-                // 传入 keepIpv6
-                applyPromise = callNetSetup('wizard', JSON.stringify(arg1Obj), arg2Str, '', '', '1', keepIpv6);
-            }
 
-            // ... 后面的 .then().catch() 保持不变 ...
-
-            // 统一处理底层的回调与跳转
-            applyPromise.then(function() {
-                var sec = 0, h = window.location.hostname;
-                var checkSameTimer = setInterval(function() { 
-                    sec += 3; 
-                    document.getElementById('nw-global-msg').innerHTML = '<div style="color: #059669; font-size: 16px; font-weight: bold;">' + T['MSG_WAIT_NET'].replace('{sec}', sec) + '</div>'; 
-                    fetchProbe('http://' + h + '/cgi-bin/luci/?v=' + Date.now(), 2000).then(function() { 
-                        clearInterval(checkSameTimer); window.location.reload(); 
-                    }).catch(function() {}); 
-                }, 3000);
-            }).catch(function(err) { 
-                openModal({ title: T['M_SYS_ERR'], msg: 'Wizard failed: ' + err, okText: T['M_CLOSE'] }); 
-            });
+                // 统一处理底层的回调与跳转
+                applyPromise.then(function() {
+                    var sec = 0, h = window.location.hostname;
+                    var checkSameTimer = setInterval(function() { 
+                        sec += 3; 
+                        document.getElementById('nw-global-msg').innerHTML = '<div style="color: #059669; font-size: 16px; font-weight: bold;">' + T['MSG_WAIT_NET'].replace('{sec}', sec) + '</div>'; 
+                        fetchProbe('http://' + h + '/cgi-bin/luci/?v=' + Date.now(), 2000).then(function() { 
+                            clearInterval(checkSameTimer); window.location.reload(); 
+                        }).catch(function() {}); 
+                    }, 3000);
+                }).catch(function(err) { 
+                    openModal({ title: T['M_SYS_ERR'], msg: T['M_ERR_WIZ_FAILED'] + ': ' + err, okText: T['M_CLOSE'] });
+                });
+            }); // 结束 Promise 链
         });
         // ==========================================
 
@@ -956,7 +984,7 @@ return view.extend({
             if (start <= 0) return; // 已经在顶部就不滚了
 
             var startTime = null;
-            // 缓动曲线：先加速后减速 (Ease-In-Out)
+            // 先加速后减速 (Ease-In-Out)
             var easeInOutQuad = function (t, b, c, d) {
                 t /= d/2;
                 if (t < 1) return c/2*t*t + b;
@@ -1032,7 +1060,7 @@ return view.extend({
         function safePromise(p, f) { return new Promise(function(r) { var t = setTimeout(function() { r(f); }, 3000); if (!p || !p.then) { clearTimeout(t); return r(f); } p.then(function(res) { clearTimeout(t); r(res); }).catch(function() { clearTimeout(t); r(f); }); }); }
         function safeUciGet(c, s, o, d) { try { var v = uci.get(c, s, o); return (v === null || v === undefined) ? d : String(v).trim(); } catch(e) { return d; } }
 
-        // 智能 SSID 后缀转换
+        // SSID 后缀转换
         // 去除 _2.4G, -5G, 2.4G, 5G, 甚至 2.4, 5 等冗余后缀
         function cleanSsidSuffix(ssid) {
             if (!ssid) return '';
@@ -1049,7 +1077,8 @@ return view.extend({
 
         Promise.all([
             callNetCheckWifi(),
-            safePromise(callSystemBoard(), {})
+            safePromise(callSystemBoard(), {}),
+            safePromise(uci.load('netwiz'), null) // 1. 恢复加载 netwiz 配置
         ]).then(function(results) {
             var wifiRes = results[0];
             var boardRes = results[1] || {};
@@ -1058,15 +1087,19 @@ return view.extend({
             var hasWifi = (wifiRes === true || (typeof wifiRes === 'object' && wifiRes && wifiRes.has_wifi === true));
             var isUnknownDevice = (modelName.indexOf('generic') !== -1 && modelName.indexOf('unknown') !== -1);
 
+            // 2. 恢复读取 netwiz 的标志位
+            var wizardEnable = safeUciGet('netwiz', 'main', 'wizard_enable', '1');
+            window._currentWizState = wizardEnable;
+
             var wizModal = container.querySelector('#nw-wizard-modal');
-            
             var btnReopenWiz = container.querySelector('#btn-reopen-wizard');
 
             if (hasWifi && !isUnknownDevice) {
                 var wifiCard = container.querySelector('#card-wifi');
                 if (wifiCard) wifiCard.style.display = 'flex';
                 
-                if (localStorage.getItem('netwiz_hide_wizard') !== 'true' && wizModal) {
+                // 3. 只有值为 '1' 才弹出
+                if (wizardEnable === '1' && wizModal) {
                     wizModal.style.display = 'flex';
                 }
             } else {
@@ -1132,15 +1165,18 @@ return view.extend({
                     }
 
                     var ipv6Mode = safeUciGet('dhcp', 'lan', 'dhcpv6', '');
+                    // 记录系统真实的 IPv6 状态到全局变量
+                    window._trueIpv6State = (ipv6Mode === 'server' || ipv6Mode === 'relay') ? '1' : '0';
+                    
                     var ipv6Toggle = container.querySelector('#lan-ipv6-toggle');
-                    if (ipv6Toggle) ipv6Toggle.checked = (ipv6Mode === 'server' || ipv6Mode === 'relay');
+                    if (ipv6Toggle) ipv6Toggle.checked = (window._trueIpv6State === '1');
 
                     if (!window._wifiLoaded) {
                         try {
                             var wDevs = uci.sections('wireless', 'wifi-device') || [];
                             var wIfaces = uci.sections('wireless', 'wifi-iface') || [];
 
-                                    // ===== 硬件嗅探日志 =====
+                                    // ===== Netwiz硬件嗅探日志 =====
                                     console.log("============== [Netwiz 硬件嗅探] ==============");
                                     console.log("检测到物理射频芯片数量:", wDevs.length);
                                     if (wDevs.length === 1) {
@@ -1553,7 +1589,7 @@ return view.extend({
                         
                         // 1. 中继网络 (STA) 照常独立显示
                         staIfaces.forEach(function(i) {
-                            var sName = i.ssid;
+                            var sName = escapeHTML(i.ssid);
                             var tLbl = "<b style='color:#10b981; padding:8px 10px; background:#ffffff; border-radius:8px; font-size:14.5px; white-space:nowrap; box-shadow:0 2px 4px rgba(0,0,0,0.1);'>" + T['TXT_WISP_ON'] + "</b>";
                             wifiLines.push("<div style='display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px 12px; margin-bottom:8px; width:100%; box-sizing:border-box;'><span style='display:inline-flex; flex-wrap:wrap; align-items:center; justify-content:center; max-width:100%;'>" + tLbl + "<span style='font-size:15.5px; opacity:0.9; font-weight:600; margin:0 6px;'>:</span><span class='nw-hl' style='font-size:16.5px; letter-spacing:0.5px; word-break:break-all; white-space:normal; text-align:center;'>" + sName + "</span></span></div>");
                         });
@@ -1570,8 +1606,8 @@ return view.extend({
                         if (isSmartGrouped) {
                             // 渲染合并后的单行 UI
                             var i = apIfaces[0];
-                            var sName = i.ssid;
-                            var kTxt = i.key || "<span style='color:#ef4444;'>" + T['TXT_NO_PASS'] + "</span>";
+                            var sName = escapeHTML(i.ssid);
+                            var kTxt = i.key ? escapeHTML(i.key) : "<span style='color:#ef4444;'>" + T['TXT_NO_PASS'] + "</span>"; 
                             var tLbl = "<b style='color:#7e22ce; background:#ffffff; padding:8px 10px; border-radius:8px; font-size:14.5px; white-space:nowrap; box-shadow:0 2px 4px rgba(0,0,0,0.1);'>" + T['LBL_SMART_CONN'] + "</b>";
                             var bandStr = 'smart';
                             
@@ -1596,8 +1632,8 @@ return view.extend({
                         } else {
                             // 3. 渲染独立频段 UI
                             apIfaces.forEach(function(i) {
-                                var sName = i.ssid;
-                                var kTxt = i.key || "<span style='color:#ef4444;'>" + T['TXT_NO_PASS'] + "</span>";
+                                var sName = escapeHTML(i.ssid);
+                                var kTxt = i.key ? escapeHTML(i.key) : "<span style='color:#ef4444;'>" + T['TXT_NO_PASS'] + "</span>";
                                 var tLbl = "Wi-Fi";
                                 var bandStr = '2g';
                                 var dObj = wDevsList.find(function(x) { return x['.name'] === i.device; });
@@ -1717,7 +1753,7 @@ return view.extend({
 
             if (pwdRow) {
                 var statRow = pwdRow.nextElementSibling;
-                // 如果没有框，就创建一个
+                // 如果没有框，创建一个
                 if (!statRow || !statRow.classList.contains('nw-roam-status-row')) {
                     statRow = document.createElement('div');
                     statRow.className = 'nw-roam-status-row';
@@ -1772,7 +1808,7 @@ return view.extend({
             var keyEl = container.querySelector(keyInputId);
             var encEl = container.querySelector(encSelectId);
             if (keyEl && encEl) {
-                // 1. 密码框输入 -> 影响下拉框 (原有逻辑)
+                // 1. 密码框输入 -> 影响下拉框
                 keyEl.addEventListener('input', function() {
                     if (this.value.length > 0 && encEl.value === 'none') {
                         encEl.value = 'psk2+sae'; 
@@ -1780,7 +1816,7 @@ return view.extend({
                         encEl.value = 'none'; 
                     }
                 });
-                // 2. 下拉框选择 -> 影响密码框 (新增防呆逻辑)
+                // 2. 下拉框选择 -> 影响密码框
                 encEl.addEventListener('change', function() {
                     if (this.value === 'none') {
                         keyEl.value = ''; // 如果手动选了无密码，强行清空密码框，防止数据残留
@@ -1795,7 +1831,7 @@ return view.extend({
         syncEncryption('#wifi-5g-key', '#wifi-5g-enc');
         // ===== 结束 =====
 
-        // 智能联动与自动切换标签页
+        // 联动与自动切换标签页
         en2g.addEventListener('change', function() { 
             container.querySelector('#tab-2g').click(); 
             
@@ -1961,8 +1997,8 @@ return view.extend({
             }
         });
 
-        // ===== 漫游与加密方式智能联动 =====
-        // 1. 智能合一面板联动
+        // ===== 漫游与加密方式联动 =====
+        // 1. 多频合一面板联动
         var smartRoamingToggle = container.querySelector('#wifi-smart-roaming');
         if (smartRoamingToggle) {
             smartRoamingToggle.addEventListener('change', function(e) {
@@ -2257,7 +2293,7 @@ return view.extend({
                         if (selectedMode === 'router' && rType === 'static' && targetIp === currentWanIp && targetGw === currentWanGw) isNoMod = true;
                         if (selectedMode === 'router' && rType === 'dhcp' && currentWanProto === 'dhcp') isNoMod = true;
                         if (selectedMode === 'pppoe' && container.querySelector('#pppoe-user').value === safeUciGet('network', 'wan', 'username', '') && container.querySelector('#pppoe-pass').value === safeUciGet('network', 'wan', 'password', '')) isNoMod = true;
-                        // 严谨拦截：只要相关快照完全一致，且没有强制提交标记，直接弹窗拦截
+                        // 只要相关快照完全一致，且没有提交标记，弹窗拦截
                         if (selectedMode === 'wifi') {
                             if (window._forceWifiSubmit) {
                                 isNoMod = false;
@@ -2293,7 +2329,7 @@ return view.extend({
                                               "</div>";
                                 return [label, newHtml];
                             } else if (isChanged) {
-                                // 旧值 -> 新值(带箭头) -> 徽章独立在一行
+                                // 旧值 -> 新值 -> 徽章独立在一行
                                 var diffHtml = "<div style='display:flex; flex-direction:column; align-items:flex-end; gap:2px; margin-top:2px;'>" +
                                                  "<div style='font-size:14px; text-decoration:line-through; opacity: 0.5;'>" + sOld + "</div>" +
                                                  "<div style='display:flex; align-items:flex-start; justify-content:flex-end; text-align:right;'>" +
@@ -2340,7 +2376,7 @@ return view.extend({
                             // 解析旧状态对象以便对比
                             var oldS = window._origWifiState ? JSON.parse(window._origWifiState) : {};
                             
-                            // 兜底：防止多频合一和分开模式互相切换时产生 undefined 污染
+                            // 兜底，防止多频合一和分开模式互相切换时产生 undefined 污染
                             oldS.s2 = oldS.s2 || ''; oldS.ec2 = oldS.ec2 || '';
                             oldS.s5 = oldS.s5 || ''; oldS.ec5 = oldS.ec5 || '';
                             oldS.ss = oldS.ss || ''; oldS.ecs = oldS.ecs || '';
@@ -2451,13 +2487,13 @@ return view.extend({
                         step2.style.display = 'none'; step3.style.display = 'block';
                         setTimeout(function(){ smoothScrollToTop(650); }, 20);
                     } catch (err) {
-                        openModal({ title: T['M_SYS_ERR'], msg: 'Data processing failed: ' + err, okText: T['M_CLOSE'] });
+                        openModal({ title: T['M_SYS_ERR'], msg: T['M_ERR_DATA_PROC'] + ': ' + err, okText: T['M_CLOSE'] });
                     }
                 }).catch(function(e) {
                     openModal({ title: T['M_SYS_ERR'], msg: T['M_SYS_MSG'], okText: T['M_CLOSE'] });
                 });
             } catch (err) {
-                openModal({ title: T['M_SYS_ERR'], msg: 'Validation failed: ' + err, okText: T['M_CLOSE'] });
+                openModal({ title: T['M_SYS_ERR'], msg: T['M_ERR_VALIDATE'] + ': ' + err, okText: T['M_CLOSE'] });
             }
         });
 

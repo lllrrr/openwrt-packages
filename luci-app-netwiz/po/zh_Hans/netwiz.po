@@ -512,7 +512,7 @@ msgid "Click to Settings"
 msgstr "点击直达设置"
 
 msgid "WAN Blind-Switch: Unplug the WAN cable for 10 seconds and reconnect to auto-detect and switch the connection type (takes about 2 mins)."
-msgstr "盲切WAN口上网方式：断开 WAN 网线 10 秒再插回，系统会自动检测并切换上网方式（过程约2分钟）"
+msgstr "<b style=\"color: #ef4444;\">盲切WAN口上网方式：断开 WAN 网线 10 秒再插回，系统会自动检测并切换上网方式（过程约2分钟）</b>"
 
 msgid "New Config"
 msgstr "新建"
@@ -541,8 +541,8 @@ msgstr "设置您的无线网络名称和密码。"
 msgid "Step 3: Confirm & Apply"
 msgstr "第三步：确认与应用"
 
-msgid "Skip Wizard"
-msgstr "跳过向导"
+msgid "Skip this time"
+msgstr "跳过本次引导"
 
 msgid "Don't show this again"
 msgstr "不再提示"
@@ -561,3 +561,12 @@ msgstr "未设置"
 
 msgid "No Password (Open)"
 msgstr "无密码 (Open)"
+
+msgid "Wizard execution failed"
+msgstr "向导执行失败"
+
+msgid "Configuration data processing failed"
+msgstr "配置数据处理失败"
+
+msgid "Input validation failed"
+msgstr "输入校验失败"
