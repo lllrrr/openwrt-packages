@@ -232,8 +232,8 @@ return view.extend({
             '/* ====== Netwiz Elegant UI Styles ====== */',
             '/* --- 1. Base & Layout --- */',
             ' header { margin: -5px -5px 0; }',
-            '#maincontent, .main-right { overflow-y: scroll !important; }', 
-            '#netwiz-container { display: block !important; width: 100% !important; padding: 0 !important; margin: 0 auto !important; box-sizing: border-box !important; }',
+            '#maincontent, .main-right { overflow-y: auto !important; overflow-x: hidden !important; }', 
+            '#netwiz-container { display: block !important; width: 100% !important; min-height: 101vh !important; padding: 0 !important; margin: 0 auto !important; box-sizing: border-box !important; color: #64748b; }',
             '.nw-wrapper { display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: flex-start !important; width: 100% !important; max-width: 900px !important; margin: 0 auto !important; padding-bottom: 10vh; font-family: -apple-system, BlinkMacSystemFont, sans-serif; box-sizing: border-box !important; }',
             '.nw-header { display: block !important; width: 100% !important; max-width: 750px !important; margin: 0 auto 30px auto !important; text-align: center; background-color: #5e72e4; padding: 15px; border-radius: 16px; position: relative; box-sizing: border-box; box-shadow: 0 10px 25px rgba(94, 114, 228, 0.15); z-index: 20; }',
             '.nw-step { width: 100% !important; max-width: 800px !important; text-align: center; animation: slideUp 0.4s ease-out; margin: 0 auto !important; }',
@@ -256,7 +256,7 @@ return view.extend({
             '.nw-header p { color: #ffffff; font-size: 16px; opacity: 0.9; margin: 10px; letter-spacing: 1px; }',
             '.nw-title-wrap { position: relative; display: inline-block; cursor: pointer; }',
             '.nw-version-tag { position: absolute; top: 15px; left: 100%; margin-left: 1px; background: rgba(255, 255, 255, 0.15); color: #fff; font-size: 13px; font-weight: bold; padding: 3px 10px; border-radius: 8px; font-family: monospace; z-index: 50; border: 1px solid rgba(255, 255, 255, 0.3); white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,0.08); opacity: 0; pointer-events: none; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); transform: translateY(0px); }',
-            '.nw-title-wrap:hover .nw-version-tag { opacity: 1; top: 0px; transform: translateY(-5px); }',
+            '.nw-title-wrap:hover .nw-version-tag { opacity: 1; top: -7px; transform: translateY(-5px); }',
             '.nw-version-dot { position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; background-color: #ef4444; border-radius: 50%; box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.9); display: block; }',
             '.nw-step-title { text-align: center; margin-bottom: 30px; color: #111; font-weight: 600; font-size: 20px; }',
             '.nw-setting-row-label, .nw-wisp-title { font-weight: 600; font-size: 16px; }',
@@ -266,7 +266,7 @@ return view.extend({
 
             '/* --- 4. Cards & Badges --- */',
             '.nw-card-group { display: flex; gap: 25px; justify-content: center; flex-wrap: wrap; margin-top: 20px; width: 100%; box-sizing: border-box; }',
-            '.nw-card { flex: 1; min-width: 170px; max-width: 220px; padding: 35px 20px; border-radius: 16px; cursor: pointer; backdrop-filter: blur(12px); border: 1px solid rgba(0,0,0,0.03); box-shadow: 0px 0px 15px 2px #b7b7b7; transition: all 0.25s ease; display: flex; flex-direction: column; align-items: center; box-sizing: border-box; }',
+            '.nw-card { flex: 1; min-width: 170px; max-width: 220px; padding: 35px 20px; border-radius: 16px; cursor: pointer; backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.5); box-shadow: 0px 0px 15px 2px #b7b7b7; transition: all 0.25s ease; display: flex; flex-direction: column; align-items: center; box-sizing: border-box; }',
             '.nw-card:hover { transform: translateY(-5px); }',
             '.nw-card[data-mode="pppoe"] { background: rgba(79, 150, 101, 0.85); }',
             '.nw-card[data-mode="wifi"] { background: rgba(245, 54, 92, 0.85); }', 
@@ -423,7 +423,7 @@ return view.extend({
             '      <div class="nw-version-tag">{{APP_VERSION}} <div class="nw-version-dot" style="display: none;"></div></div>',
             '    </div>',
             '    <p>{{SUBTITLE}}</p>',
-            '    <div id="btn-reopen-wizard" style="margin-top: 15px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); padding: 6px 18px; border-radius: 20px; font-size: 13.5px; font-weight: 500; color: #fff; transition: all 0.25s ease;">{{WIZ_REOPEN}}</div>',
+            '    <div id="btn-reopen-wizard" style="margin-top: 10px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); padding: 6px 18px; border-radius: 20px; font-size: 13.5px; font-weight: 500; color: #fff; transition: all 0.25s ease;">{{WIZ_REOPEN}}</div>',
             '  </div>',
             '  <div id="nw-global-modal" style="display:none;">',
             '    <div class="nw-modal-box">',
@@ -600,7 +600,7 @@ return view.extend({
             '                 <label class="nw-switch nw-flex-shrink-0 nw-scale-switch" style="margin: 0;"><input type="checkbox" id="wifi-2g-en" checked><span class="nw-slider"></span></label>',
             '                 <label class="nw-value-title nw-m0 nw-pointer" style="display: inline-block !important; margin: 0 !important; line-height: 1 !important;">{{LBL_WIFI_2G_EN}}</label>',
             '              </div>',
-            '              <div class="nw-split-header-item" style="display: flex; align-items: center; justify-content: center; gap: 10px;">',
+            '              <div class="nw-split-header-item" style="display: flex; align-items: center; justify-content: center; gap: 2px;">',
             '                 <label class="nw-switch nw-flex-shrink-0 nw-scale-switch" style="margin: 0;"><input type="checkbox" id="wifi-5g-en" checked><span class="nw-slider"></span></label>',
             '                 <label class="nw-value-title nw-m0 nw-pointer" style="display: inline-block !important; margin: 0 !important; line-height: 1 !important;">{{LBL_WIFI_5G_EN}}</label>',
             '              </div>',
@@ -2256,6 +2256,21 @@ return view.extend({
                             if (e5 !== 'none' && (!k5 || k5.length < 8)) { openModal({title: T['M_FMT_TIT'], msg: T['M_PWD_SHORT'], okText: T['BTN_EDIT']}); return; }
                         }
                     }
+                    // WISP 密码校验
+                    var wispTog = container.querySelector('#wisp-toggle');
+                    if (wispTog && wispTog.checked) {
+                        var wispSsid = container.querySelector('#wisp-target-ssid').value.trim();
+                        if (!wispSsid) {
+                            openModal({title: T['M_INC_TIT'], msg: T['MODAL_WISP_TITLE'], okText: T['BTN_EDIT']});
+                            return;
+                        }
+                        var wispEnc = container.querySelector('#wisp-target-enc').value;
+                        var wispKey = container.querySelector('#wisp-target-key').value;
+                        if (wispEnc !== 'none' && (!wispKey || wispKey.length < 8)) {
+                            openModal({title: T['M_FMT_TIT'], msg: T['M_PWD_SHORT'], okText: T['BTN_EDIT']});
+                            return;
+                        }
+                    }
                 }
                 
                 uci.load('network').then(function() {
@@ -2574,11 +2589,13 @@ return view.extend({
                     // WISP 参数打包
                     var wispTog = container.querySelector('#wisp-toggle');
                     if (wispTog) {
+                        var targetEnc = container.querySelector('#wisp-target-enc').value;
                         payload.wisp = {
                             enabled: wispTog.checked ? "1" : "0",
                             ssid: container.querySelector('#wisp-target-ssid').value,
-                            key: container.querySelector('#wisp-target-key').value,
-                            encryption: container.querySelector('#wisp-target-enc').value,
+                            // none，强制密码传空，防止残留脏数据导致连接失败
+                            key: (targetEnc === 'none') ? '' : container.querySelector('#wisp-target-key').value,
+                            encryption: targetEnc,
                             device: container.querySelector('#wisp-target-device').value,
                             bssid: container.querySelector('#wisp-target-bssid').value
                         };
