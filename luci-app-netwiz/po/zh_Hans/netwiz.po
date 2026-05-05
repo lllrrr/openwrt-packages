@@ -491,7 +491,7 @@ msgid "802.11k/v/r Fast Roaming"
 msgstr "802.11k/v/r 无缝漫游"
 
 msgid "Enable seamless roaming between routers with one click (Prerequisite: Same SSID, password, and LAN). Note: May cause connection issues with older smart home (IoT) devices."
-msgstr "一键开启路由器间的无缝切换（基本前提：WiFi账号、密码一样 + 同一局域网）。注意：可能导致老旧的智能家居（IoT）设备无法连接。"
+msgstr "顺滑切换不同路由器间WiFi信号（需同Wi-Fi名和密码 + 同局域网、唯一DHCP）。注意：可能老旧智能家居(IoT)无法连接。"
 
 msgid "⚠️ Manual Configuration Warning"
 msgstr "⚠️ 手动配置警告"

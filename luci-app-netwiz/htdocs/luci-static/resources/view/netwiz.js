@@ -397,6 +397,14 @@ return view.extend({
             '@keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }',
             '@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); } 70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); } 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }',
             '#btn-reopen-wizard:hover { background: rgba(255,255,255,0.25) !important; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }',
+            /* ===== 状态面板响应式类 ===== */
+            '.nw-info-item { display: inline-block; white-space: nowrap; margin: 0 10px; }',
+            '.nw-wifi-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 12px; margin-bottom: 8px; width: 100%; box-sizing: border-box; }',
+            '.nw-wifi-left { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; max-width: 100%; }',
+            '.nw-wifi-badge { padding: 8px 10px; background: #ffffff; border-radius: 6px; font-size: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }',
+            '.nw-wifi-colon { font-size: 15.5px; opacity: 0.9; font-weight: 600; margin: 0 6px; }',
+            '.nw-wifi-name { font-size: 16.5px; letter-spacing: 0.5px; display: inline-flex; flex-wrap: wrap; justify-content: center; align-items: center; word-break: break-all; white-space: normal; text-align: center; }',
+            '.nw-wifi-pwd { color: #ffffff; font-size: 15px; font-weight: 600; white-space: nowrap; }',
 
             '/* --- 11. Mobile Adaption --- */',
             '@media screen and (max-width: 768px) {',
@@ -425,6 +433,12 @@ return view.extend({
             '  .nw-wiz-title-responsive { flex: 1; text-align: center; font-size: 17px; order: 1; }',
             '  .nw-wiz-close-wrap { flex: 0 0 auto; order: 2; }',
             '  .nw-wiz-step-wrap { flex: 0 0 100%; justify-content: center; margin-top: 5px; order: 3; }',
+            /* ===== 状态面板手机端换行与间距 ===== */
+            '  .nw-info-item { display: block; margin: 8px 0; text-align: center; }',
+            '  .nw-wifi-line { flex-direction: column; gap: 10px; margin-bottom: 7px; padding-bottom: 6px; border-bottom: 1px dashed rgba(255,255,255,0.2); }',
+            '  .nw-wifi-line:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }',
+            '  .nw-wifi-left { flex-direction: column; gap: 8px; }',
+            '  .nw-wifi-colon { display: none; }',
             '}',
             '</style>',
             
@@ -1596,7 +1610,7 @@ return view.extend({
                     }
 
                     var mkB = function(bg, txt) { return "<span style='font-size:14px; background:" + bg + "; color:#fff; padding:5px 10px; border-radius:12px; white-space:nowrap;'>" + txt + "</span>"; };
-                    var mkD = function(l1, v1, l2, v2) { return "<span style='white-space:nowrap; margin: 0 10px;'>" + l1 + " <span class='nw-hl'>" + v1 + "</span></span><span style='white-space:nowrap; margin: 0 10px;'>" + l2 + " <span class='nw-hl'>" + v2 + "</span></span>"; };
+                    var mkD = function(l1, v1, l2, v2) { return "<span class='nw-info-item'>" + l1 + " <span class='nw-hl'>" + v1 + "</span></span><span class='nw-info-item'>" + l2 + " <span class='nw-hl'>" + v2 + "</span></span>"; };
                     var sTitle = "", sDetails = "", statusBadge = "";
                     
                     if (isBypass) { sTitle = T['STAT_BYPASS']; sDetails = mkD(T['TXT_DEV_IP'], lIp, T['TXT_UP_GW'], lGw); } 
@@ -1675,8 +1689,8 @@ return view.extend({
                         // 1. 中继网络 (STA) 照常独立显示
                         staIfaces.forEach(function(i) {
                             var sName = escapeHTML(i.ssid);
-                            var tLbl = "<b style='color:#10b981; padding:8px 10px; background:#ffffff; border-radius:8px; font-size:14.5px; white-space:nowrap; box-shadow:0 2px 4px rgba(0,0,0,0.1);'>" + T['TXT_WISP_ON'] + "</b>";
-                            wifiLines.push("<div style='display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px 12px; margin-bottom:8px; width:100%; box-sizing:border-box;'><span style='display:inline-flex; flex-wrap:wrap; align-items:center; justify-content:center; max-width:100%;'>" + tLbl + "<span style='font-size:15.5px; opacity:0.9; font-weight:600; margin:0 6px;'>:</span><span class='nw-hl' style='font-size:16.5px; letter-spacing:0.5px; word-break:break-all; white-space:normal; text-align:center;'>" + sName + "</span></span></div>");
+                            var tLbl = "<b class='nw-wifi-badge' style='color:#10b981;'>" + T['TXT_WISP_ON'] + "</b>";
+                            wifiLines.push("<div class='nw-wifi-line'><span class='nw-wifi-left'>" + tLbl + "<span class='nw-wifi-colon'>:</span><span class='nw-hl nw-wifi-name'>" + sName + "</span></span></div>");
                         });
 
                         // 2. 判断 AP 是否应该合并为“多频合一”显示
@@ -1687,19 +1701,19 @@ return view.extend({
                                 return i.ssid === first.ssid && i.key === first.key;
                             });
                         }
-
                         if (isSmartGrouped) {
                             // 渲染合并后的单行 UI
                             var i = apIfaces[0];
                             var sName = escapeHTML(i.ssid);
                             var kTxt = i.key ? escapeHTML(i.key) : "<span style='color:#ef4444;'>" + T['TXT_NO_PASS'] + "</span>"; 
-                            var tLbl = "<b style='color:#7e22ce; background:#ffffff; padding:8px 10px; border-radius:8px; font-size:14.5px; white-space:nowrap; box-shadow:0 2px 4px rgba(0,0,0,0.1);'>" + T['LBL_SMART_CONN'] + "</b>";
+                            // 【修改点】：统一多频合一的颜色为 #10b981 绿字
+                            var tLbl = "<b class='nw-wifi-badge' style='color:#10b981;'>" + T['LBL_SMART_CONN'] + "</b>";
                             var bandStr = 'smart';
                             
                             var rOn = apIfaces.some(function(x) { return x.ieee80211r === '1'; });
                             var isDirty = apIfaces.some(function(x) {
                                 var enc = (x.encryption || '').toLowerCase();
-                                var md = (x.mobility_domain || '').toLowerCase(); // 增加大小写容错
+                                var md = (x.mobility_domain || '').toLowerCase();
                                 return x.ieee80211r === '1' && (md !== 'e4d1' || (enc !== 'psk2+sae' && enc !== 'sae-mixed'));
                             });
                             
@@ -1713,13 +1727,12 @@ return view.extend({
                                     roamBadge = "<span title='" + T['TXT_CLICK_GOTO'] + "' onclick=\"" + clickFn + "\" " + hoverStyle + " style='display:inline-block; white-space:nowrap; background:rgba(16, 185, 129, 0.2); color:#a7f3d0; border: 1px solid #10b981; font-size:11px; padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:text-bottom; font-family:sans-serif; cursor:pointer; transition:all 0.2s ease;'>" + T['TXT_ROAMING'] + "</span>";
                                 }
                             }
-                            wifiLines.push("<div style='display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px 12px; margin-bottom:8px; width:100%; box-sizing:border-box;'><span style='display:inline-flex; flex-wrap:wrap; align-items:center; justify-content:center; max-width:100%;'><span style='font-size:15.5px; opacity:0.9; font-weight:600; white-space:nowrap;'>" + tLbl + ":</span><span class='nw-hl' style='font-size:16.5px; letter-spacing:0.5px; display:inline-flex; flex-wrap:wrap; justify-content:center; align-items:center; margin-left:6px; word-break:break-all; white-space:normal; text-align:center;'>" + sName + roamBadge + "</span></span><span style='color:#ffffff; font-size:15px; font-weight:600; white-space:nowrap;'>(" + T['M_PWD'] + ": " + kTxt + ")</span></div>");
+                            wifiLines.push("<div class='nw-wifi-line'><span class='nw-wifi-left'>" + tLbl + "<span class='nw-wifi-colon'>:</span><span class='nw-hl nw-wifi-name'>" + sName + roamBadge + "</span></span><span class='nw-wifi-pwd'>(" + T['M_PWD'] + ": " + kTxt + ")</span></div>");
                         } else {
                             // 3. 渲染独立频段 UI
                             apIfaces.forEach(function(i) {
                                 var sName = escapeHTML(i.ssid);
                                 var kTxt = i.key ? escapeHTML(i.key) : "<span style='color:#ef4444;'>" + T['TXT_NO_PASS'] + "</span>";
-                                var tLbl = "Wi-Fi";
                                 var bandStr = '2g';
                                 var dObj = wDevsList.find(function(x) { return x['.name'] === i.device; });
                                 if (dObj) {
@@ -1727,10 +1740,8 @@ return view.extend({
                                     var bd = (dObj.band||'').toLowerCase();
                                     var path = (dObj.path||'').toLowerCase();
                                     if (hw.indexOf('a') !== -1 || bd === '5g' || path.indexOf('pcie1') !== -1 || path.indexOf('pcie2') !== -1) {
-                                        tLbl = "<b style='color:#fff;'>" + T['TXT_5G_ACCT'] + "</b>";
                                         bandStr = '5g';
                                     } else {
-                                        tLbl = "<b style='color:#fff;'>" + T['TXT_2G_ACCT'] + "</b>";
                                         bandStr = '2g';
                                     }
                                 }
@@ -1751,7 +1762,9 @@ return view.extend({
                                     }
                                 }
                                 
-                                wifiLines.push("<div style='display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px 12px; margin-bottom:8px; width:100%; box-sizing:border-box;'><span style='display:inline-flex; flex-wrap:wrap; align-items:center; justify-content:center; max-width:100%;'><span style='font-size:15.5px; opacity:0.9; font-weight:600; white-space:nowrap;'>" + tLbl + ":</span><span class='nw-hl' style='font-size:16.5px; letter-spacing:0.5px; display:inline-flex; flex-wrap:wrap; justify-content:center; align-items:center; margin-left:6px; word-break:break-all; white-space:normal; text-align:center;'>" + sName + roamBadge + "</span></span><span style='color:#ffffff; font-size:15px; font-weight:600; white-space:nowrap;'>(" + T['M_PWD'] + ": " + kTxt + ")</span></div>");
+                                // 【修改点】：全部统一为 #10b981 绿字，并自动匹配“账号”词条
+                                var tLblNew = "<b class='nw-wifi-badge' style='color:#10b981;'>" + (bandStr === '5g' ? T['TXT_5G_ACCT'] : T['TXT_2G_ACCT']) + "</b>";
+                                wifiLines.push("<div class='nw-wifi-line'><span class='nw-wifi-left'>" + tLblNew + "<span class='nw-wifi-colon'>:</span><span class='nw-hl nw-wifi-name'>" + sName + roamBadge + "</span></span><span class='nw-wifi-pwd'>(" + T['M_PWD'] + ": " + kTxt + ")</span></div>");
                             });
                         }
                     }

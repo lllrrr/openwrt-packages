@@ -27,6 +27,11 @@ restart_depend_apps() {
     # 唤醒: 代理网关、DNS处理、异地组网、路由流控
     for app in $proxy_apps $dns_apps $vpn_apps $route_apps; do
         if [ -f "/etc/init.d/$app" ] && /etc/init.d/$app enabled 2>/dev/null; then
+            # 中继正在运行，强行跳过 mwan3，防止它阻断网络
+            if [ "$app" = "mwan3" ] && uci -q get network.wwan >/dev/null; then
+                log "拦截: 检测到 WISP 开启，阻止唤醒 mwan3 以防流量被阻断"
+                continue
+            fi
             log "唤醒 $app"
             /etc/init.d/$app restart >/dev/null 2>&1 &
         fi
@@ -479,31 +484,51 @@ case "$1" in
                             fi
                             uci set wireless.wisp_sta.encryption="$wisp_enc"
 
-                            [ -n "$wisp_bssid" ] && uci set wireless.wisp_sta.bssid="$wisp_bssid"
+                            # 没有传入 BSSID，强行清空底层历史残留，避免 MAC 绑定死锁
+                            if [ -n "$wisp_bssid" ]; then 
+                                uci set wireless.wisp_sta.bssid="$wisp_bssid"
+                            else 
+                                uci delete wireless.wisp_sta.bssid 2>/dev/null || true
+                            fi
 
-                            # 把中继接口放进防火墙外网区域
+                            # 官方标准的 add_list 操作防火墙，避免字符串截取错误
                             wan_zone=$(uci show firewall | grep "\.name='wan'" | cut -d'.' -f2 | head -n1 || echo "")
                             if [ -n "$wan_zone" ]; then
-                                old_nets=$(uci -q get firewall.$wan_zone.network || echo "")
-                                if ! echo "$old_nets" | grep -q "wwan"; then
-                                    uci set firewall.$wan_zone.network="$old_nets wwan"
-                                    uci commit firewall
-                                fi
+                                uci add_list firewall.$wan_zone.network='wwan' 2>/dev/null || uci set firewall.$wan_zone.network='wan wan6 wwan'
+                                uci commit firewall
                             fi
+
+                            # 强制停止并禁用 mwan3 (负载均衡会100%拦截 wwan 接口的流量导致没网)
+                            if [ -f "/etc/init.d/mwan3" ]; then
+                                /etc/init.d/mwan3 stop 2>/dev/null
+                                /etc/init.d/mwan3 disable 2>/dev/null
+                            fi
+
+                            # 中继自愈守护进程（Watchdog）写入系统的计划任务
+                            # 如果中继接口获取不到 IP (假死)，每 2 分钟自动重连
+                            touch /etc/crontabs/root
+                            grep -v "netwiz_wisp_check" /etc/crontabs/root > /tmp/cron.tmp || true
+                            echo "*/2 * * * * ifstatus wwan | grep -q '\"up\": true' || (ifdown wwan; sleep 2; ifup wwan) #netwiz_wisp_check" >> /tmp/cron.tmp
+                            mv /tmp/cron.tmp /etc/crontabs/root
+                            /etc/init.d/cron restart 2>/dev/null
+
                         else
                             log "清理无线中继虚拟接口及防火墙残留"
                             uci delete wireless.wisp_sta 2>/dev/null || true
                             uci delete network.wwan 2>/dev/null || true
                             
-                            # 剔除防火墙中的 wwan 残留
+                            # 官方标准的 del_list 清理防火墙
                             wan_zone=$(uci show firewall | grep "\.name='wan'" | cut -d'.' -f2 | head -n1 || echo "")
                             if [ -n "$wan_zone" ]; then
-                                old_nets=$(uci -q get firewall.$wan_zone.network || echo "")
-                                if echo "$old_nets" | grep -q "wwan"; then
-                                    new_nets=$(echo "$old_nets" | sed 's/\bwwan\b//g' | xargs)
-                                    uci set firewall.$wan_zone.network="$new_nets"
-                                    uci commit firewall
-                                fi
+                                uci del_list firewall.$wan_zone.network='wwan' 2>/dev/null
+                                uci commit firewall
+                            fi
+
+                            # 关闭中继时，清理掉自愈守护进程
+                            if [ -f "/etc/crontabs/root" ]; then
+                                grep -v "netwiz_wisp_check" /etc/crontabs/root > /tmp/cron.tmp || true
+                                mv /tmp/cron.tmp /etc/crontabs/root
+                                /etc/init.d/cron restart 2>/dev/null
                             fi
                         fi
 
