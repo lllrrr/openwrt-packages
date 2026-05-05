@@ -128,10 +128,6 @@ start_service() {
 	config_get HTTP_ENABLED config http_enabled "0"
 	config_get HTTP_PORT config http_port "8118"
 	config_get ENDPOINT config endpoint ""
-	config_get SCAN_ENABLED config scan_enabled "0"
-	config_get SCAN_RTT config scan_rtt "1000"
-	config_get SCAN_IPV4 config scan_ipv4 "1"
-	config_get SCAN_IPV6 config scan_ipv6 "0"
 	config_get GLOBAL_PROXY config global_proxy "0"
 	config_get BYPASS_CHINA config bypass_china "0"
 	config_get TPROXY_PORT config tproxy_port "12345"
@@ -150,14 +146,14 @@ start_service() {
 	[ "$HTTP_ENABLED" = "1" ] && \
 		procd_append_param command --http-addr "0.0.0.0:$HTTP_PORT"
 
-	[ -n "$ENDPOINT" ] && procd_append_param command -e "$ENDPOINT"
-
-	if [ "$SCAN_ENABLED" = "1" ]; then
-		procd_append_param command --scan
-		procd_append_param command --rtt "${SCAN_RTT}ms"
-		[ "$SCAN_IPV4" = "1" ] && procd_append_param command --4
-		[ "$SCAN_IPV6" = "1" ] && procd_append_param command --6
+	# 检查端点是否合法（WireGuard 内核要求必须是 IP）
+	# 如果端点包含域名（例如旧版的 masque.cloudflareclient.com），则强制使用默认 IP
+	DEFAULT_IP="162.159.193.1:2408"
+	if [ -z "$ENDPOINT" ] || echo "$ENDPOINT" | grep -q "[a-zA-Z]"; then
+		[ -n "$ENDPOINT" ] && warp_log "Endpoint '$ENDPOINT' is invalid (domain not supported), falling back to $DEFAULT_IP"
+		ENDPOINT="$DEFAULT_IP"
 	fi
+	procd_append_param command -e "$ENDPOINT"
 
 	procd_set_param respawn
 	procd_set_param stdout 1

@@ -28,7 +28,7 @@ return view.extend({
         var autoRefreshCheckbox = E('input', {
             'id': 'auto-refresh',
             'type': 'checkbox',
-            'checked': 'checked'
+            'checked': true
         });
 
         poll.add(L.bind(function() {
@@ -44,6 +44,8 @@ return view.extend({
             }
             return Promise.resolve();
         }, this), 5);
+
+        poll.start();
 
         return E('div', { 'class': 'cbi-map' }, [
             E('h2', {}, _('WARP 日志')),

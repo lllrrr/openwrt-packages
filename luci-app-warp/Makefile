@@ -4,12 +4,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-warp
-PKG_VERSION:=1.4.0
+PKG_VERSION:=1.4.4
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=hxzlplp7
 PKG_LICENSE:=GPL-3.0-or-later
-PKGARCH:=all
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -19,6 +18,7 @@ define Package/$(PKG_NAME)
   SUBMENU:=3. Applications
   TITLE:=LuCI support for Cloudflare WARP
   DEPENDS:=+luci-base +jsonfilter +ca-bundle
+  PKGARCH:=all
 endef
 
 define Package/$(PKG_NAME)/description
@@ -86,11 +86,11 @@ define Package/$(PKG_NAME)/postinst
 exit 0
 endef
 
-define Package/$(PKG_NAME)/prerm
+define Package/$(PKG_NAME)/postrm
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] || {
-	/etc/init.d/warp stop 2>/dev/null
-	/etc/init.d/warp disable 2>/dev/null
+	rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
+	(/etc/init.d/rpcd restart >/dev/null 2>&1; /etc/init.d/uhttpd restart >/dev/null 2>&1) &
 }
 exit 0
 endef

@@ -58,9 +58,9 @@ return view.extend({
         o.default = '0';
 
         o = s.option(form.Value, 'endpoint', _('服务器地址'));
-        o.placeholder = _('留空自动选择');
+        o.placeholder = '162.159.193.1:2408';
         o.rmempty = true;
-        o.description = _('自定义 WARP 服务器端点地址和端口 (例如: engage.cloudflareclient.com:2408)。如果留空，将使用默认端点或自动扫描。');
+        o.description = _('自定义 WARP 服务器端点地址和端口 (例如: engage.cloudflareclient.com:2408)。如果留空，将使用默认端点。');
 
         // 代理设置
         s = m.section(form.NamedSection, 'config', 'warp', _('代理设置'));
@@ -74,12 +74,6 @@ return view.extend({
         o.default = '0';
         o.description = _('仅在全局代理开启时有效。启用后，访问中国大陆IP将直连不走 WARP。');
         o.depends('global_proxy', '1');
-
-        o = s.option(form.Value, 'tproxy_port', _('TPROXY 端口'));
-        o.datatype = 'port';
-        o.default = '12345';
-        o.depends('global_proxy', '1');
-        o.description = _('内部 ipt2socks 透明代理监听端口，一般保持默认即可。');
 
         // SOCKS5 代理
         s = m.section(form.NamedSection, 'config', 'warp', _('SOCKS5 代理'));
@@ -107,41 +101,9 @@ return view.extend({
         o.default = '8118';
         o.depends('http_enabled', '1');
 
-        // IP 扫描
-        s = m.section(form.NamedSection, 'config', 'warp', _('端点扫描'));
-        s.anonymous = true;
-        s.description = _('启用后，启动时将自动扫描测试 Cloudflare 端点 IP 以寻找最快连接。');
-
-        o = s.option(form.Flag, 'scan_enabled', _('启用自动扫描'));
-        o.default = '0';
-
-        o = s.option(form.Value, 'scan_rtt', _('最大 RTT (ms)'));
-        o.datatype = 'uinteger';
-        o.default = '1000';
-        o.depends('scan_enabled', '1');
-        o.description = _('扫描时的最大延迟阈值。');
-
-        o = s.option(form.Flag, 'scan_ipv4', _('扫描 IPv4'));
-        o.default = '1';
-        o.depends('scan_enabled', '1');
-
-        o = s.option(form.Flag, 'scan_ipv6', _('扫描 IPv6'));
-        o.default = '0';
-        o.depends('scan_enabled', '1');
-
         // 账户信息
         s = m.section(form.NamedSection, 'config', 'warp', _('账户信息'));
         s.anonymous = true;
-
-        o = s.option(form.DummyValue, 'address_v4', _('IPv4 地址'));
-        o.cfgvalue = function (section_id) {
-            return uci.get('warp', section_id, 'address_v4') || _('未配置');
-        };
-
-        o = s.option(form.DummyValue, 'address_v6', _('IPv6 地址'));
-        o.cfgvalue = function (section_id) {
-            return uci.get('warp', section_id, 'address_v6') || _('未配置');
-        };
 
         o = s.option(form.Value, 'license_key', _('WARP+ License Key'));
         o.password = true;
