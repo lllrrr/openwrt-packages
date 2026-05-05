@@ -1,0 +1,27 @@
+{
+  "version": "1.0",
+  "settings": {
+    "min_ttl": 30,
+    "bind_udp": "0.0.0.0:5353",
+    "bind_tcp": "0.0.0.0:5353",
+    "default_upstream": "1.1.1.1:53",
+    "cache_capacity": 10000,
+    "cache_max_ttl": 86400
+  },
+  "pipelines": [
+    {
+      "id": "default",
+      "rules": [
+        {
+          "name": "default_forward",
+          "matchers": [
+            { "type": "any" }
+          ],
+          "actions": [
+            { "type": "forward", "upstream": null, "transport": "udp" }
+          ]
+        }
+      ]
+    }
+  ]
+}

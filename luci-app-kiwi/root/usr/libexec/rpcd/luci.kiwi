@@ -1,0 +1,46 @@
+#!/bin/sh
+readonly NAME="kiwi"
+readonly MARK_FILE="/tmp/.kiwi_log_mark"
+. /usr/share/libubox/jshn.sh
+
+get_status() {
+	local running=0
+	pgrep kiwi >/dev/null 2>&1 && running=1
+	json_init
+	json_add_boolean "running" "$running"
+	json_dump; json_cleanup
+}
+
+get_log() {
+	local output skip
+	skip=0
+	[ -f "$MARK_FILE" ] && skip=$(cat "$MARK_FILE" 2>/dev/null)
+	output=$(logread -e "$NAME" 2>/dev/null | tail -n +$((skip + 1)) | tr '\n' '\x1E')
+	json_init
+	json_add_string "log" "$output"
+	json_dump; json_cleanup
+}
+
+clear_log() {
+	local count
+	count=$(logread -e "$NAME" 2>/dev/null | wc -l)
+	echo "$count" > "$MARK_FILE"
+	json_init; json_add_boolean "result" 1; json_dump; json_cleanup
+}
+
+case "$1" in
+	list)
+		json_init
+		json_add_object "getStatus"; json_close_object
+		json_add_object "getLog"; json_close_object
+		json_add_object "clearLog"; json_close_object
+		json_dump; json_cleanup
+		;;
+	call)
+		case "$2" in
+			getStatus) get_status ;;
+			getLog) get_log ;;
+			clearLog) clear_log ;;
+		esac
+	;;
+esac

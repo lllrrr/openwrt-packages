@@ -1,0 +1,51 @@
+#!/bin/sh /etc/rc.common
+USE_PROCD=1
+START=85
+STOP=10
+CONF="kiwi"
+PROG="/usr/bin/kiwi"
+CONF_DIR="/etc/kiwi"
+
+start_service() {
+	enabled=$(uci get kiwi.config.enabled 2>/dev/null)
+	[ "$enabled" = "1" ] || return 0
+
+	config_file=$(uci get kiwi.config.config_file 2>/dev/null)
+	[ -z "$config_file" ] && config_file="$CONF_DIR/pipeline.json"
+	listener_label=$(uci get kiwi.config.listener_label 2>/dev/null)
+	[ -z "$listener_label" ] && listener_label="default"
+	log_level=$(uci get kiwi.config.log_level 2>/dev/null)
+	udp_workers=$(uci get kiwi.config.udp_workers 2>/dev/null)
+
+	[ -f "$config_file" ] || {
+		logger -t "$CONF" "配置文件不存在: $config_file"
+		return 1
+	}
+
+	procd_open_instance "$CONF"
+	procd_set_param command "$PROG" run
+	procd_append_param command --config "$config_file"
+	procd_append_param command --listener-label "$listener_label"
+	[ "$log_level" = "debug" ] && procd_append_param command --debug
+	[ -n "$udp_workers" ] && [ "$udp_workers" != "0" ] && \
+		procd_append_param command --udp-workers "$udp_workers"
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param respawn 60 5 30
+	procd_close_instance
+	logger -t "$CONF" "已启动（监听: $listener_label）"
+}
+
+stop_service() {
+	logger -t "$CONF" "正在停止"
+	killall -q "$PROG" 2>/dev/null || true
+}
+
+reload_service() {
+	stop
+	start
+}
+
+service_triggers() {
+	procd_add_reload_trigger "$CONF"
+}

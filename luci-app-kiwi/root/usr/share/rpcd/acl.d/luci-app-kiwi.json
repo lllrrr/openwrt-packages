@@ -1,0 +1,27 @@
+{
+	"luci-app-kiwi": {
+		"description": "Grant LuCI access to Kiwi DNS",
+		"read": {
+			"file": {
+				"/etc/kiwi/pipeline.json": ["read"],
+				"/var/log/kiwi/kiwi.log": ["read"],
+				"/etc/init.d/kiwi": ["exec"]
+			},
+			"ubus": {
+				"service": ["list"],
+				"luci.kiwi": ["getStatus", "getLog", "clearLog"]
+			},
+			"uci": ["kiwi"]
+		},
+		"write": {
+			"file": {
+				"/etc/kiwi/pipeline.json": ["write"],
+				"/var/log/kiwi/kiwi.log": ["write"]
+			},
+			"ubus": {
+				"luci.kiwi": ["getStatus", "getLog", "clearLog"]
+			},
+			"uci": ["kiwi"]
+		}
+	}
+}

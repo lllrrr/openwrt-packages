@@ -1,0 +1,39 @@
+{
+	"admin/services/kiwi": {
+		"title": "Kiwi",
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": ["luci-app-kiwi"],
+			"fs": {
+				"/etc/init.d/kiwi": "executable"
+			},
+			"uci": {"kiwi": true}
+		}
+	},
+	"admin/services/kiwi/settings": {
+		"title": "设置",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "kiwi/settings"
+		}
+	},
+	"admin/services/kiwi/config": {
+		"title": "配置",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "kiwi/config"
+		}
+	},
+	"admin/services/kiwi/log": {
+		"title": "日志",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "kiwi/log"
+		}
+	}
+}
