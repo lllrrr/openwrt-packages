@@ -1,2 +1,3 @@
-config global 'network'
-#	option ipv4 '0'
+
+config ota 'config'
+	option api_url ''
