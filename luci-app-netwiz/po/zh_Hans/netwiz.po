@@ -383,7 +383,7 @@ msgid "Enable 802.11b (Legacy Mode)"
 msgstr "启用 802.11b (旧版兼容模式)"
 
 msgid "Only enable if very old IoT devices cannot connect."
-msgstr "仅在极旧的智能家电/物联网设备无法连接时才建议开启。"
+msgstr "仅在古董智能家电/物联网设备无法连接时才开启（正常不建议开启）。"
 
 msgid "No Password (Open)"
 msgstr "无密码 (开放)"

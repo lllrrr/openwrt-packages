@@ -1,302 +1,163 @@
 #!/bin/sh
-# Cloudflare WARP manager for OpenWrt using usque.
+# Cloudflare WARP manager script for OpenWrt using cloudflare-warp
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+. /lib/functions.sh
 
-CONFIG_DIR="/etc/warp"
-ACCOUNT_FILE="$CONFIG_DIR/config.json"
-UCI_CONFIG="/etc/config/warp"
-USQUE_BIN="${USQUE_BIN:-/usr/bin/usque}"
-CF_API="https://api.cloudflareclient.com/v0a2158"
-REG_URL="$CF_API/reg"
+WARP_BIN="${WARP_BIN:-/usr/bin/warp}"
+DATA_DIR="/etc/warp"
+REG_FILE="$DATA_DIR/reg.json"
+CONF_FILE="$DATA_DIR/conf.json"
 
-info() {
-	printf '%b\n' "${BLUE}$*${NC}"
-}
-
-ok() {
-	printf '%b\n' "${GREEN}$*${NC}"
-}
-
-warn() {
-	printf '%b\n' "${YELLOW}$*${NC}"
-}
-
-err() {
-	printf '%b\n' "${RED}$*${NC}" >&2
-}
-
-need_usque() {
-	if [ ! -x "$USQUE_BIN" ]; then
-		err "usque was not found at $USQUE_BIN"
-		err "Install usque first, or run the project install.sh on a supported architecture."
+need_warp() {
+	if [ ! -x "$WARP_BIN" ]; then
+		printf 'Error: warp binary not found at %s.\n' "$WARP_BIN" >&2
 		return 1
 	fi
-}
-
-need_jsonfilter() {
-	if ! command -v jsonfilter >/dev/null 2>&1; then
-		err "jsonfilter is required"
-		return 1
-	fi
-}
-
-need_curl() {
-	if ! command -v curl >/dev/null 2>&1; then
-		err "curl is required for this command"
-		return 1
-	fi
-}
-
-json_get() {
-	jsonfilter -i "$ACCOUNT_FILE" -e "$1" 2>/dev/null
 }
 
 update_uci_account() {
-	ADDRESS_V4="$(json_get '@.ipv4')"
-	ADDRESS_V6="$(json_get '@.ipv6')"
+	[ -f "$CONF_FILE" ] || return 0
 
-	[ -f "$UCI_CONFIG" ] || touch "$UCI_CONFIG"
-	uci -q get warp.config >/dev/null 2>&1 || uci set warp.config='warp'
-	uci set warp.config.address_v4="${ADDRESS_V4:-}"
-	uci set warp.config.address_v6="${ADDRESS_V6:-}"
-	uci delete warp.config.private_key 2>/dev/null
-	uci delete warp.config.public_key 2>/dev/null
-	uci delete warp.config.reserved 2>/dev/null
-	uci commit warp
+	if command -v jsonfilter >/dev/null 2>&1; then
+		addr_v4="$(jsonfilter -i "$CONF_FILE" -e '@.config.interface.addresses.v4' 2>/dev/null)"
+		addr_v6="$(jsonfilter -i "$CONF_FILE" -e '@.config.interface.addresses.v6' 2>/dev/null)"
+
+		if [ -z "$addr_v4" ] && [ -z "$addr_v6" ]; then
+			logger -t warp-manager "Warning: could not extract addresses from $CONF_FILE - please check JSON path"
+		else
+			[ -n "$addr_v4" ] && uci -q set warp.config.address_v4="$addr_v4"
+			[ -n "$addr_v6" ] && uci -q set warp.config.address_v6="$addr_v6"
+			uci commit warp
+		fi
+	fi
 }
 
 register_account() {
-	need_usque || return 1
-	need_jsonfilter || return 1
-
-	info "Registering a Cloudflare WARP account with usque..."
-	mkdir -p "$CONFIG_DIR"
-
-	backup_file=""
-	if [ -s "$ACCOUNT_FILE" ]; then
-		backup_file="$ACCOUNT_FILE.bak.$$"
-		cp "$ACCOUNT_FILE" "$backup_file"
-	fi
-
-	rm -f "$ACCOUNT_FILE"
-	if ! "$USQUE_BIN" -c "$ACCOUNT_FILE" register; then
-		[ -n "$backup_file" ] && mv "$backup_file" "$ACCOUNT_FILE"
-		err "registration failed"
+	need_warp || return 1
+	
+	printf 'Registering new WARP account using cloudflare-warp...\n'
+	mkdir -p "$DATA_DIR"
+	
+	if "$WARP_BIN" generate --data-dir "$DATA_DIR"; then
+		printf 'Successfully registered WARP account.\n'
+		update_uci_account
+		return 0
+	else
+		printf 'Failed to register WARP account.\n' >&2
 		return 1
 	fi
-
-	if [ ! -s "$ACCOUNT_FILE" ]; then
-		[ -n "$backup_file" ] && mv "$backup_file" "$ACCOUNT_FILE"
-		err "registration did not create $ACCOUNT_FILE"
-		return 1
-	fi
-	rm -f "$backup_file"
-
-	ACCOUNT_ID="$(json_get '@.id')"
-	[ -n "$ACCOUNT_ID" ] || {
-		err "registration config is missing the account id"
-		return 1
-	}
-
-	update_uci_account
-
-	ok "registration succeeded"
-	printf '%s\n' "Device ID: $ACCOUNT_ID"
-	printf '%s\n' "IPv4: ${ADDRESS_V4:-not assigned}"
-	printf '%s\n' "IPv6: ${ADDRESS_V6:-not assigned}"
 }
 
 apply_license() {
-	LICENSE_KEY="$1"
-
-	[ -n "$LICENSE_KEY" ] || {
-		err "license key is required"
+	LICENSE_KEY="${1:-$(uci -q get warp.config.license_key)}"
+	if [ -z "$LICENSE_KEY" ]; then
+		printf 'Error: license_key is empty in configuration.\n' >&2
 		return 1
-	}
-	[ -f "$ACCOUNT_FILE" ] || {
-		err "no account config found; run 'warp-manager register' first"
-		return 1
-	}
-	need_jsonfilter || return 1
-	need_curl || return 1
+	fi
 
-	ACCOUNT_ID="$(json_get '@.id')"
-	TOKEN="$(json_get '@.access_token')"
-	[ -n "$ACCOUNT_ID" ] && [ -n "$TOKEN" ] || {
-		err "account id or access token is missing from $ACCOUNT_FILE"
-		return 1
-	}
+	need_warp || return 1
 
-	info "Applying WARP+ license key..."
-	RESPONSE="$(curl -s -X PUT "$REG_URL/$ACCOUNT_ID/account" \
-		-H "Content-Type: application/json" \
-		-H "Authorization: Bearer $TOKEN" \
-		-d "{\"license\": \"$LICENSE_KEY\"}")"
-
-	if printf '%s\n' "$RESPONSE" | grep -q '"license"'; then
-		uci set warp.config.license_key="$LICENSE_KEY"
-		uci commit warp
-		ok "license key applied"
+	printf 'Applying WARP+ license key...\n'
+	if "$WARP_BIN" update --data-dir "$DATA_DIR" --license "$LICENSE_KEY"; then
+		printf 'Successfully applied license key.\n'
+		update_uci_account
 		return 0
+	else
+		printf 'Failed to apply license key.\n' >&2
+		return 1
 	fi
-
-	err "license update failed: $RESPONSE"
-	return 1
-}
-
-detect_tun_iface() {
-	if [ -s /var/run/warp/tun_iface ]; then
-		cat /var/run/warp/tun_iface
-		return
-	fi
-
-	ip link show 2>/dev/null | awk -F': ' '/^[0-9]+: tun[0-9]+/ {print $2; exit}'
 }
 
 get_status() {
-	printf '%b\n' "${BLUE}=== WARP status ===${NC}"
-
-	USQUE_INTERFACE="$(detect_tun_iface)"
-	if pgrep -f "usque.*nativetun" >/dev/null 2>&1; then
-		printf '%s\n' "Service: running"
-		if [ -n "$USQUE_INTERFACE" ]; then
-			printf '%s\n' "Interface: $USQUE_INTERFACE"
-		else
-			printf '%s\n' "Interface: waiting"
-		fi
+	if pgrep -f "warp.*run" >/dev/null 2>&1; then
+		printf 'Service: running\n'
+		
+		# Check SOCKS5/HTTP port listening
+		socks_port="$(uci -q get warp.config.socks_port)"
+		http_port="$(uci -q get warp.config.http_port)"
+		
+		[ -n "$socks_port" ] && netstat -tln 2>/dev/null | grep -q ":${socks_port} " && \
+			printf 'SOCKS5 Proxy: listening on port %s\n' "$socks_port"
+			
+		[ -n "$http_port" ] && netstat -tln 2>/dev/null | grep -q ":${http_port} " && \
+			printf 'HTTP Proxy: listening on port %s\n' "$http_port"
+			
 	else
-		printf '%s\n' "Service: stopped"
+		printf 'Service: stopped\n'
 	fi
 
-	if [ -f "$ACCOUNT_FILE" ]; then
-		need_jsonfilter || return 1
-		ACCOUNT_ID="$(json_get '@.id')"
-		ADDRESS_V4="$(json_get '@.ipv4')"
-		ADDRESS_V6="$(json_get '@.ipv6')"
-
-		printf '\n%b\n' "${BLUE}=== Account ===${NC}"
-		printf '%s\n' "Device ID: ${ACCOUNT_ID:-not registered}"
-		printf '%s\n' "IPv4: ${ADDRESS_V4:-none}"
-		printf '%s\n' "IPv6: ${ADDRESS_V6:-none}"
+	if [ -f "$REG_FILE" ]; then
+		printf 'Account: registered\n'
+		addr_v4="$(uci -q get warp.config.address_v4)"
+		addr_v6="$(uci -q get warp.config.address_v6)"
+		[ -n "$addr_v4" ] && printf 'IPv4: %s\n' "$addr_v4"
+		[ -n "$addr_v6" ] && printf 'IPv6: %s\n' "$addr_v6"
 	else
-		printf '\n%b\n' "${YELLOW}No account config found. Run 'warp-manager register'.${NC}"
+		printf 'Account: not registered\n'
 	fi
-
-	printf '\n%b\n' "${BLUE}=== Proxy settings ===${NC}"
-	GLOBAL_PROXY="$(uci -q get warp.config.global_proxy)"
-	BYPASS_CHINA="$(uci -q get warp.config.bypass_china)"
-	SOCKS_ENABLED="$(uci -q get warp.config.socks_enabled)"
-	SOCKS_PORT="$(uci -q get warp.config.socks_port)"
-	PRE_PROXY_ENABLED="$(uci -q get warp.config.pre_proxy_enabled)"
-	PRE_PROXY_TYPE="$(uci -q get warp.config.pre_proxy_type)"
-	PRE_PROXY_ADDR="$(uci -q get warp.config.pre_proxy_addr)"
-	PRE_PROXY_PORT="$(uci -q get warp.config.pre_proxy_port)"
-
-	[ "$GLOBAL_PROXY" = "1" ] && printf '%s\n' "Global proxy: enabled" || printf '%s\n' "Global proxy: disabled"
-	[ "$BYPASS_CHINA" = "1" ] && printf '%s\n' "China IP bypass: enabled" || printf '%s\n' "China IP bypass: disabled"
-	[ "$SOCKS_ENABLED" = "1" ] && printf '%s\n' "SOCKS5: enabled on ${SOCKS_PORT:-1080}" || printf '%s\n' "SOCKS5: disabled"
-	[ "$PRE_PROXY_ENABLED" = "1" ] && printf '%s\n' "Pre-proxy: ${PRE_PROXY_TYPE:-socks5}://${PRE_PROXY_ADDR:-127.0.0.1}:${PRE_PROXY_PORT:-7890}" || printf '%s\n' "Pre-proxy: disabled"
 }
 
 test_connection() {
-	info "Testing WARP connectivity..."
-	need_curl || return 1
-
-	USQUE_INTERFACE="$(detect_tun_iface)"
-	if [ -z "$USQUE_INTERFACE" ]; then
-		err "no usque TUN interface found"
+	socks_port="$(uci -q get warp.config.socks_port)"
+	
+	if [ -z "$socks_port" ]; then
+		printf 'Error: socks_port is not configured.\n' >&2
+		return 1
+	fi
+	
+	if ! netstat -tln 2>/dev/null | grep -q ":${socks_port} "; then
+		printf 'Error: SOCKS5 proxy is not running on port %s.\n' "$socks_port" >&2
 		return 1
 	fi
 
-	TRACE="$(curl -s --interface "$USQUE_INTERFACE" --max-time 10 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null)"
-	if [ -z "$TRACE" ]; then
-		err "connection test failed"
+	printf 'Testing connection through WARP SOCKS5 proxy...\n'
+	
+	test_output="$(curl -s -x "socks5://127.0.0.1:$socks_port" --max-time 10 https://www.cloudflare.com/cdn-cgi/trace)"
+	
+	if [ -z "$test_output" ]; then
+		printf 'Failed to connect to Cloudflare trace service.\n' >&2
 		return 1
 	fi
 
-	WARP_STATUS="$(printf '%s\n' "$TRACE" | awk -F= '/^warp=/ {print $2}')"
-	IP="$(printf '%s\n' "$TRACE" | awk -F= '/^ip=/ {print $2}')"
-	LOC="$(printf '%s\n' "$TRACE" | awk -F= '/^loc=/ {print $2}')"
+	warp_status="$(echo "$test_output" | grep -i "^warp=" | cut -d= -f2)"
+	ip_address="$(echo "$test_output" | grep -i "^ip=" | cut -d= -f2)"
+	location="$(echo "$test_output" | grep -i "^loc=" | cut -d= -f2)"
 
-	ok "connection test succeeded"
-	printf '%s\n' "WARP: ${WARP_STATUS:-unknown}"
-	printf '%s\n' "IP: ${IP:-unknown}"
-	printf '%s\n' "Location: ${LOC:-unknown}"
+	printf '\n--- Test Results ---\n'
+	if [ "$warp_status" = "on" ] || [ "$warp_status" = "plus" ]; then
+		printf 'WARP Status: \033[32m%s\033[0m\n' "$warp_status"
+	else
+		printf 'WARP Status: \033[31m%s\033[0m\n' "${warp_status:-unknown}"
+	fi
+	printf 'Exit IP: %s\n' "${ip_address:-unknown}"
+	printf 'Location: %s\n' "${location:-unknown}"
+	printf '--------------------\n'
+}
+
+reset_account() {
+	printf 'Resetting WARP account data...\n'
+	rm -f "$REG_FILE" "$CONF_FILE"
+	uci -q delete warp.config.address_v4
+	uci -q delete warp.config.address_v6
+	uci commit warp
+	printf 'Account data has been cleared.\n'
+}
+
+export_config() {
+	if [ -f "$CONF_FILE" ]; then
+		cat "$CONF_FILE"
+	else
+		printf 'No configuration found. Generate it first.\n' >&2
+		return 1
+	fi
 }
 
 set_enabled() {
 	value="$1"
-
-	[ -f "$UCI_CONFIG" ] || touch "$UCI_CONFIG"
 	uci -q get warp.config >/dev/null 2>&1 || uci set warp.config='warp'
 	uci set warp.config.enabled="$value"
 	uci commit warp
-}
-
-start_service() {
-	set_enabled 1
-	/etc/init.d/warp start
-	ok "service start requested"
-}
-
-stop_service() {
-	set_enabled 0
-	/etc/init.d/warp stop
-	ok "service stopped and disabled in UCI"
-}
-
-restart_service() {
-	set_enabled 1
-	/etc/init.d/warp restart
-	ok "service restart requested"
-}
-
-reset_account() {
-	warn "Removing WARP account config and stopping the service..."
-	/etc/init.d/warp stop 2>/dev/null || true
-	rm -f "$ACCOUNT_FILE"
-
-	set_enabled 0
-	uci delete warp.config.private_key 2>/dev/null
-	uci delete warp.config.public_key 2>/dev/null
-	uci delete warp.config.reserved 2>/dev/null
-	uci set warp.config.address_v4=""
-	uci set warp.config.address_v6=""
-	uci set warp.config.license_key=""
-	uci commit warp
-
-	ok "account reset complete"
-}
-
-export_config() {
-	[ -f "$ACCOUNT_FILE" ] || {
-		err "no account config found"
-		return 1
-	}
-	cat "$ACCOUNT_FILE"
-}
-
-usage() {
-	cat <<EOF
-Usage: $0 {register|license <key>|start|stop|restart|status|test|reset|export}
-
-Commands:
-  register       Register a new WARP account with usque
-  license <key>  Apply a WARP+ license key
-  start          Enable WARP in UCI and start the service
-  stop           Stop the service and disable WARP in UCI
-  restart        Enable WARP in UCI and restart the service
-  status         Show service and account status
-  test           Test WARP connectivity
-  reset          Delete the local WARP account config
-  export         Print the raw usque config
-EOF
 }
 
 case "${1:-}" in
@@ -306,20 +167,23 @@ case "${1:-}" in
 	license)
 		apply_license "${2:-}"
 		;;
-	start)
-		start_service
-		;;
-	stop)
-		stop_service
-		;;
-	restart)
-		restart_service
-		;;
 	status)
 		get_status
 		;;
 	test)
 		test_connection
+		;;
+	start)
+		set_enabled 1
+		/etc/init.d/warp start
+		;;
+	stop)
+		set_enabled 0
+		/etc/init.d/warp stop
+		;;
+	restart)
+		set_enabled 1
+		/etc/init.d/warp restart
 		;;
 	reset)
 		reset_account
@@ -328,7 +192,7 @@ case "${1:-}" in
 		export_config
 		;;
 	*)
-		usage
+		printf 'Usage: %s {register|license <key>|start|stop|restart|status|test|reset|export}\n' "$0"
 		exit 1
 		;;
 esac

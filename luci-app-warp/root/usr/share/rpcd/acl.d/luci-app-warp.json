@@ -18,7 +18,10 @@
                 "/usr/sbin/logread": [
                     "exec"
                 ],
-                "/usr/bin/usque": [
+                "/usr/bin/warp": [
+                    "exec"
+                ],
+                "/usr/bin/ipt2socks": [
                     "exec"
                 ],
                 "/usr/bin/warp-update-china": [
@@ -46,9 +49,6 @@
                     "exec"
                 ],
                 "/usr/sbin/nft": [
-                    "exec"
-                ],
-                "/usr/sbin/iptables": [
                     "exec"
                 ]
             },
@@ -101,9 +101,6 @@
                     "exec"
                 ],
                 "/usr/sbin/nft": [
-                    "exec"
-                ],
-                "/usr/sbin/iptables": [
                     "exec"
                 ]
             },

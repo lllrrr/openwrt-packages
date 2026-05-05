@@ -18,36 +18,19 @@ return view.extend({
         return Promise.all([
             uci.load('warp'),
             L.resolveDefault(callServiceList('warp'), {}),
-            L.resolveDefault(fs.exec('/sbin/ip', ['link', 'show']), { code: 1, stdout: '' }),
-            L.resolveDefault(fs.stat('/etc/warp/config.json'), null),
-            L.resolveDefault(fs.exec('/bin/netstat', ['-tln']), { stdout: '' }),
-            L.resolveDefault(fs.exec('/bin/cat', ['/proc/net/dev']), { stdout: '' }),
-            L.resolveDefault(fs.exec('/bin/cat', ['/var/run/warp/tun_iface']), { stdout: '' })
+            L.resolveDefault(fs.stat('/etc/warp/reg.json'), null),
+            L.resolveDefault(fs.exec('/bin/netstat', ['-tln']), { stdout: '' })
         ]);
     },
 
     pollStatus: function () {
         return Promise.all([
             L.resolveDefault(callServiceList('warp'), {}),
-            L.resolveDefault(fs.exec('/sbin/ip', ['link', 'show']), { code: 1, stdout: '' }),
-            L.resolveDefault(fs.stat('/etc/warp/config.json'), null),
-            L.resolveDefault(fs.exec('/bin/netstat', ['-tln']), { stdout: '' }),
-            L.resolveDefault(fs.exec('/bin/cat', ['/proc/net/dev']), { stdout: '' }),
-            L.resolveDefault(fs.exec('/bin/cat', ['/var/run/warp/tun_iface']), { stdout: '' })
+            L.resolveDefault(fs.stat('/etc/warp/reg.json'), null),
+            L.resolveDefault(fs.exec('/bin/netstat', ['-tln']), { stdout: '' })
         ]).then(L.bind(function (data) {
             this.updateStatusDisplay(data);
         }, this));
-    },
-
-    formatSize: function (size) {
-        if (isNaN(size) || size <= 0) return '0 B';
-        var units = ['B', 'KB', 'MB', 'GB', 'TB'];
-        var i = 0;
-        while (size >= 1024 && i < units.length - 1) {
-            size /= 1024;
-            i++;
-        }
-        return size.toFixed(2) + ' ' + units[i];
     },
 
     serviceIsRunning: function (serviceData) {
@@ -65,87 +48,28 @@ return view.extend({
         return false;
     },
 
-    serviceHasInfo: function (serviceData) {
-        return !!(serviceData && serviceData.warp && serviceData.warp.instances);
-    },
-
-    findTunName: function (ipOutput, runtimeTunName) {
-        var tunName = (runtimeTunName || '').trim();
-
-        if (tunName)
-            return tunName;
-
-        var match = (ipOutput || '').match(/\d+:\s+(tun[0-9]+)[:@]/);
-        return match ? match[1] : null;
-    },
-
-    isTunReady: function (ipOutput, tunName) {
-        if (!tunName)
-            return false;
-
-        ipOutput = ipOutput || '';
-        return ipOutput.indexOf(tunName + ':') !== -1 ||
-            ipOutput.indexOf(tunName + '@') !== -1;
-    },
-
-    getInterfaceTraffic: function (netDevOutput, tunName) {
-        var traffic = { rxBytes: 0, txBytes: 0 };
-
-        if (!tunName || !netDevOutput)
-            return traffic;
-
-        var devLines = netDevOutput.split('\n');
-        for (var i = 0; i < devLines.length; i++) {
-            if (devLines[i].indexOf(tunName + ':') !== -1) {
-                var stats = devLines[i].replace(':', ' ').trim().split(/\s+/);
-                traffic.rxBytes = parseInt(stats[1], 10) || 0;
-                traffic.txBytes = parseInt(stats[9], 10) || 0;
-                break;
-            }
-        }
-
-        return traffic;
-    },
-
     updateStatusDisplay: function (data) {
         var serviceData = data[0] || {};
-        var ipOutput = data[1].stdout || '';
-        var accountExists = data[2] !== null;
-        var netstatOutput = data[3].stdout || '';
-        var netDevOutput = data[4].stdout || '';
-        var tunIfaceName = (data[5].stdout || '').trim();
+        var accountExists = data[1] !== null;
+        var netstatOutput = data[2].stdout || '';
 
-        var tunName = this.findTunName(ipOutput, tunIfaceName);
-        var tunReady = this.isTunReady(ipOutput, tunName);
-        var hasServiceInfo = this.serviceHasInfo(serviceData);
-        var serviceRunning = this.serviceIsRunning(serviceData);
-        var isRunning = hasServiceInfo ? serviceRunning : tunReady;
-        var tunnelReady = isRunning && tunReady;
-        
+        var isRunning = this.serviceIsRunning(serviceData);
         var socksPort = uci.get('warp', 'config', 'socks_port') || '1080';
+        var httpPort = uci.get('warp', 'config', 'http_port') || '8118';
+        
         var socksRunning = netstatOutput.indexOf(':' + socksPort) !== -1;
-
-        var traffic = this.getInterfaceTraffic(netDevOutput, tunName);
+        var httpRunning = netstatOutput.indexOf(':' + httpPort) !== -1;
 
         // 更新状态显示
         var statusEl = document.getElementById('warp-status');
-        var connEl = document.getElementById('warp-connection');
         var accountEl = document.getElementById('warp-account');
         var socksEl = document.getElementById('warp-socks');
-        var ifaceEl = document.getElementById('warp-interface');
-        var transferEl = document.getElementById('warp-transfer');
+        var httpEl = document.getElementById('warp-http');
 
         if (statusEl) {
             statusEl.innerHTML = isRunning
                 ? '<span class="badge success">运行中</span>'
                 : '<span class="badge error">已停止</span>';
-        }
-
-        if (connEl) {
-            connEl.innerHTML = tunnelReady
-                ? '<span class="badge success">隧道就绪</span>'
-                : (isRunning ? '<span class="badge warning">启动中...</span>'
-                    : '<span class="badge error">未连接</span>');
         }
 
         if (accountEl) {
@@ -159,13 +83,11 @@ return view.extend({
                 ? '<span class="badge success">运行中 (端口 ' + socksPort + ')</span>'
                 : '<span class="badge warning">未启动</span>';
         }
-
-        if (ifaceEl) {
-            ifaceEl.textContent = tunnelReady ? tunName : '-';
-        }
-
-        if (transferEl) {
-            transferEl.textContent = 'RX: ' + this.formatSize(traffic.rxBytes) + ' | TX: ' + this.formatSize(traffic.txBytes);
+        
+        if (httpEl) {
+            httpEl.innerHTML = httpRunning
+                ? '<span class="badge success">运行中 (端口 ' + httpPort + ')</span>'
+                : '<span class="badge warning">未启动</span>';
         }
     },
 
@@ -261,20 +183,15 @@ return view.extend({
     render: function (data) {
         var self = this;
         var serviceData = data[1] || {};
-        var ipOutput = data[2].stdout || '';
-        var accountExists = data[3] !== null;
-        var netstatOutput = data[4].stdout || '';
-        var netDevOutput = data[5].stdout || '';
-        var tunIfaceName = (data[6].stdout || '').trim();
+        var accountExists = data[2] !== null;
+        var netstatOutput = data[3].stdout || '';
 
-        var tunName = this.findTunName(ipOutput, tunIfaceName);
-        var tunReady = this.isTunReady(ipOutput, tunName);
-        var hasServiceInfo = this.serviceHasInfo(serviceData);
-        var isRunning = hasServiceInfo ? this.serviceIsRunning(serviceData) : tunReady;
-        var tunnelReady = isRunning && tunReady;
+        var isRunning = this.serviceIsRunning(serviceData);
         var socksPort = uci.get('warp', 'config', 'socks_port') || '1080';
+        var httpPort = uci.get('warp', 'config', 'http_port') || '8118';
+        
         var socksRunning = netstatOutput.indexOf(':' + socksPort) !== -1;
-        var traffic = this.getInterfaceTraffic(netDevOutput, tunName);
+        var httpRunning = netstatOutput.indexOf(':' + httpPort) !== -1;
 
         var ipv4 = uci.get('warp', 'config', 'address_v4') || '-';
         var ipv6 = uci.get('warp', 'config', 'address_v6') || '-';
@@ -312,25 +229,6 @@ return view.extend({
                         E('span', { 'id': 'warp-status' },
                             isRunning ? E('span', { 'class': 'badge success' }, _('运行中'))
                                 : E('span', { 'class': 'badge error' }, _('已停止')))
-                    ]),
-                    E('div', { 'class': 'status-row' }, [
-                        E('span', {}, _('连接状态')),
-                        E('span', { 'id': 'warp-connection' },
-                            tunnelReady ? E('span', { 'class': 'badge success' }, _('隧道就绪'))
-                                : (isRunning ? E('span', { 'class': 'badge warning' }, _('启动中...'))
-                                    : E('span', { 'class': 'badge error' }, _('未连接'))))
-                    ]),
-                    E('div', { 'class': 'status-row' }, [
-                        E('span', {}, _('隧道接口')),
-                        E('span', { 'id': 'warp-interface' }, tunnelReady ? tunName : '-')
-                    ])
-                ]),
-
-                E('div', { 'class': 'status-card' }, [
-                    E('h4', {}, '📊 ' + _('流量统计')),
-                    E('div', { 'class': 'status-row' }, [
-                        E('span', {}, _('传输')),
-                        E('span', { 'id': 'warp-transfer' }, 'RX: ' + this.formatSize(traffic.rxBytes) + ' | TX: ' + this.formatSize(traffic.txBytes))
                     ])
                 ]),
 
@@ -353,11 +251,17 @@ return view.extend({
                 ]),
 
                 E('div', { 'class': 'status-card' }, [
-                    E('h4', {}, '🧦 ' + _('SOCKS5 代理')),
+                    E('h4', {}, '🧦 ' + _('代理端口')),
                     E('div', { 'class': 'status-row' }, [
-                        E('span', {}, _('代理状态')),
+                        E('span', {}, 'SOCKS5'),
                         E('span', { 'id': 'warp-socks' },
                             socksRunning ? E('span', { 'class': 'badge success' }, _('运行中 (端口 ') + socksPort + ')')
+                                : E('span', { 'class': 'badge warning' }, _('未启动')))
+                    ]),
+                    E('div', { 'class': 'status-row' }, [
+                        E('span', {}, 'HTTP'),
+                        E('span', { 'id': 'warp-http' },
+                            httpRunning ? E('span', { 'class': 'badge success' }, _('运行中 (端口 ') + httpPort + ')')
                                 : E('span', { 'class': 'badge warning' }, _('未启动')))
                     ])
                 ])

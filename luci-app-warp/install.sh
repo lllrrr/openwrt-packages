@@ -1,11 +1,10 @@
 #!/bin/sh
-# One-shot installer for luci-app-warp.
+# One-shot installer for luci-app-warp with cloudflare-warp and ipt2socks.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 set -eu
 
 REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/hxzlplp7/luci-app-warp/main}"
-USQUE_VERSION="${USQUE_VERSION:-3.0.0}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -62,16 +61,10 @@ install_opkg_packages() {
 	install_opkg_package jsonfilter
 	install_opkg_package unzip
 	install_opkg_package curl optional || \
-		warn "curl was not installed; WARP+ license update and connection test commands may be unavailable"
+		warn "curl was not installed; WARP connection test commands may be unavailable"
 
-	if [ ! -c /dev/net/tun ]; then
-		install_opkg_package kmod-tun
-	fi
-
-	# Optional helper for SOCKS mode. NAT uses the system firewall backend
-	# already present on the device: nftables on firewall4, iptables on firewall3.
-	install_opkg_package microsocks optional || \
-		warn "microsocks was not installed; SOCKS5 mode may be unavailable"
+	install_opkg_package kmod-nft-tproxy optional || \
+		warn "kmod-nft-tproxy was not installed; global transparent proxy mode may be unavailable"
 }
 
 opkg_package_installed() {
@@ -96,32 +89,25 @@ install_opkg_package() {
 	die "failed to install required package: $pkg"
 }
 
-usque_asset_arch() {
-	opkg_arches="$(opkg print-architecture 2>/dev/null || true)"
-
+get_asset_arch() {
 	case "$(uname -m)" in
 		x86_64)
-			printf '%s\n' "linux_amd64"
+			printf '%s\n' "amd64"
 			;;
 		aarch64|arm64)
-			printf '%s\n' "linux_arm64"
+			printf '%s\n' "arm64"
 			;;
 		armv7*|armv7l)
-			printf '%s\n' "linux_armv7"
+			printf '%s\n' "armv7"
 			;;
 		armv6*|armv6l)
-			printf '%s\n' "linux_armv6"
+			printf '%s\n' "armv6"
 			;;
 		armv5*|armv5l)
-			printf '%s\n' "linux_armv5"
+			printf '%s\n' "armv5"
 			;;
-		mips)
-			case "$opkg_arches" in
-				*mipsel*|*mipsle*)
-					return 1
-					;;
-			esac
-			printf '%s\n' "linux_mips"
+		mips|mipsel)
+			printf '%s\n' "mipsle"
 			;;
 		*)
 			return 1
@@ -129,36 +115,28 @@ usque_asset_arch() {
 	esac
 }
 
-install_usque() {
-	if command -v usque >/dev/null 2>&1; then
-		ok "usque is already installed"
+install_warp_binaries() {
+	if command -v warp >/dev/null 2>&1 && command -v ipt2socks >/dev/null 2>&1; then
+		ok "warp and ipt2socks are already installed"
 		return
 	fi
 
-	if opkg install usque >/dev/null 2>&1; then
-		ok "installed usque from opkg"
-		return
+	asset_arch="$(get_asset_arch)" || die "unsupported architecture $(uname -m); please build warp and ipt2socks manually and place them in /usr/bin/"
+	
+	log "Note: Pre-compiled binaries for cloudflare-warp may not be available on GitHub releases yet."
+	warn "You may need to cross-compile cloudflare-warp and ipt2socks manually and place them in /usr/bin/"
+	
+	if [ ! -f "/usr/bin/warp" ]; then
+		warn "warp binary not found at /usr/bin/warp."
+	else
+		ok "warp binary found."
 	fi
 
-	asset_arch="$(usque_asset_arch)" || die "no prebuilt usque binary for $(uname -m); build usque manually and install it as /usr/bin/usque"
-	asset="usque_${USQUE_VERSION}_${asset_arch}.zip"
-	url="https://github.com/Diniboy1123/usque/releases/download/v${USQUE_VERSION}/${asset}"
-	tmpdir="/tmp/luci-app-warp-usque.$$"
-
-	log "downloading usque ${USQUE_VERSION} (${asset_arch})"
-	rm -rf "$tmpdir"
-	mkdir -p "$tmpdir"
-	download "$url" "$tmpdir/usque.zip"
-	unzip -o "$tmpdir/usque.zip" -d "$tmpdir" >/dev/null
-
-	usque_file="$(find "$tmpdir" -type f -name usque | head -n 1)"
-	[ -n "$usque_file" ] || die "downloaded usque archive did not contain a usque binary"
-
-	mkdir -p /usr/bin
-	cp "$usque_file" /usr/bin/usque
-	chmod 0755 /usr/bin/usque
-	rm -rf "$tmpdir"
-	ok "installed /usr/bin/usque"
+	if [ ! -f "/usr/bin/ipt2socks" ]; then
+		warn "ipt2socks binary not found at /usr/bin/ipt2socks."
+	else
+		ok "ipt2socks binary found."
+	fi
 }
 
 install_app() {
@@ -222,7 +200,7 @@ register_account() {
 main() {
 	check_system
 	install_opkg_packages
-	install_usque
+	install_warp_binaries
 	install_app
 	register_account
 

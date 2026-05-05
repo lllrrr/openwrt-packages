@@ -4,28 +4,21 @@
 'require fs';
 'require ui';
 'require uci';
-'require poll';
-'require rpc';
-
-var callServiceList = rpc.declare({
-    object: 'service',
-    method: 'list',
-    params: ['name'],
-    expect: { '': {} }
-});
 
 return view.extend({
     load: function () {
         return Promise.all([
             uci.load('warp'),
-            L.resolveDefault(fs.exec('/bin/sh', ['-c', 'ip link show | grep tun']), { stdout: '' }),
-            L.resolveDefault(fs.read('/etc/warp/config.json'), null)
+            L.resolveDefault(fs.exec('/bin/netstat', ['-tln']), { stdout: '' }),
+            L.resolveDefault(fs.stat('/etc/warp/reg.json'), null)
         ]);
     },
 
     render: function (data) {
-        var wgStatus = data[1].stdout || '';
+        var netstatOutput = data[1].stdout || '';
         var accountExists = data[2] !== null;
+        var socksPort = uci.get('warp', 'config', 'socks_port') || '1080';
+        var httpPort = uci.get('warp', 'config', 'http_port') || '8118';
 
         var m, s, o;
 
@@ -39,15 +32,11 @@ return view.extend({
         o = s.option(form.DummyValue, '_status', _('服务状态'));
         o.rawhtml = true;
         o.cfgvalue = function () {
-            var isRunning = wgStatus.indexOf('tun') !== -1;
+            var isRunning = netstatOutput.indexOf(':' + socksPort + ' ') !== -1 || netstatOutput.indexOf(':' + httpPort + ' ') !== -1;
 
             var status = '<span style="color: ' + (isRunning ? '#28a745' : '#dc3545') + '; font-weight: bold;">';
             status += isRunning ? '✓ 运行中' : '✗ 已停止';
             status += '</span>';
-
-            if (isRunning) {
-                status += ' | <span style="color: #28a745;">已连接</span>';
-            }
 
             return status;
         };
@@ -69,38 +58,9 @@ return view.extend({
         o.default = '0';
 
         o = s.option(form.Value, 'endpoint', _('服务器地址'));
-        o.default = 'consumer-masque.cloudflareclient.com:443';
-        o.rmempty = false;
-        o.description = _('WARP 服务器端点地址和端口；建议使用官方 MASQUE 端点 consumer-masque.cloudflareclient.com:443');
-
-        o = s.option(form.Flag, 'http2', _('使用 HTTP/2'));
-        o.default = '0';
-        o.rmempty = false;
-        o.description = _('通过 TCP/TLS 连接 WARP，适合 UDP/QUIC 443 被阻断或默认 MASQUE 一直超时的网络');
-
-        o = s.option(form.Value, 'endpoint_h2_v4', _('HTTP/2 IPv4 端点'));
-        o.datatype = 'ip4addr';
-        o.placeholder = '162.159.198.2';
+        o.placeholder = _('留空自动选择');
         o.rmempty = true;
-        o.depends('http2', '1');
-        o.description = _('留空使用 usque 配置中的 endpoint_h2_v4；当日志出现 connection reset by peer 时可尝试更换此地址');
-
-        o = s.option(form.Value, 'sni_address', _('SNI 地址'));
-        o.datatype = 'hostname';
-        o.placeholder = 'www.visa.cn';
-        o.rmempty = true;
-        o.description = _('留空使用 usque 默认值；针对连接超时或 UDP 阻断环境，建议尝试使用 www.visa.cn 或 www.apple.com 进行 SNI 伪装');
-
-        o = s.option(form.Value, 'mtu', _('MTU'));
-        o.datatype = 'range(1280,1500)';
-        o.default = '1280';
-
-        o = s.option(form.Value, 'dns', _('DNS 服务器'));
-        o.default = '1.1.1.1';
-        o.description = _('使用的DNS服务器地址');
-
-        o = s.option(form.Flag, 'ipv6', _('启用 IPv6'));
-        o.default = '1';
+        o.description = _('自定义 WARP 服务器端点地址和端口 (例如: engage.cloudflareclient.com:2408)。如果留空，将使用默认端点或自动扫描。');
 
         // 代理设置
         s = m.section(form.NamedSection, 'config', 'warp', _('代理设置'));
@@ -108,52 +68,66 @@ return view.extend({
 
         o = s.option(form.Flag, 'global_proxy', _('全局代理'));
         o.default = '0';
-        o.description = _('启用后，所有流量都将通过WARP；与 OpenClash 等透明代理共存时建议关闭');
+        o.description = _('启用后，通过 nftables TPROXY 透明代理将所有局域网流量转发到 WARP。与 OpenClash 等透明代理共存时必须关闭。');
 
         o = s.option(form.Flag, 'bypass_china', _('绕过中国大陆IP'));
         o.default = '0';
-        o.description = _('启用后，中国大陆IP将不经过WARP直连');
+        o.description = _('仅在全局代理开启时有效。启用后，访问中国大陆IP将直连不走 WARP。');
+        o.depends('global_proxy', '1');
 
-        // SOCKS代理
+        o = s.option(form.Value, 'tproxy_port', _('TPROXY 端口'));
+        o.datatype = 'port';
+        o.default = '12345';
+        o.depends('global_proxy', '1');
+        o.description = _('内部 ipt2socks 透明代理监听端口，一般保持默认即可。');
+
+        // SOCKS5 代理
         s = m.section(form.NamedSection, 'config', 'warp', _('SOCKS5 代理'));
         s.anonymous = true;
 
         o = s.option(form.Flag, 'socks_enabled', _('启用 SOCKS5 代理'));
         o.default = '1';
-        o.description = _('在本地开启 SOCKS5 代理端口');
+        o.description = _('在本地开启 SOCKS5 代理端口。注意：全局代理功能依赖 SOCKS5 代理。');
 
         o = s.option(form.Value, 'socks_port', _('SOCKS5 端口'));
         o.datatype = 'port';
         o.default = '1080';
         o.depends('socks_enabled', '1');
 
-        // 前置代理
-        s = m.section(form.NamedSection, 'config', 'warp', _('前置代理'));
+        // HTTP 代理
+        s = m.section(form.NamedSection, 'config', 'warp', _('HTTP 代理'));
         s.anonymous = true;
-        s.description = _('HTTP/2 模式下通过本地已有的代理端口连接 WARP 服务器（如 Clash、v2ray 等提供的本地代理）');
 
-        o = s.option(form.Flag, 'pre_proxy_enabled', _('启用前置代理'));
+        o = s.option(form.Flag, 'http_enabled', _('启用 HTTP 代理'));
         o.default = '0';
-        o.description = _('开启后 WARP 将通过指定的本地代理端口出站');
+        o.description = _('在本地开启 HTTP 代理端口。');
 
-        o = s.option(form.ListValue, 'pre_proxy_type', _('代理类型'));
-        o.value('socks5', 'SOCKS5');
-        o.value('http', 'HTTP');
-        o.default = 'socks5';
-        o.depends('pre_proxy_enabled', '1');
-
-        o = s.option(form.Value, 'pre_proxy_addr', _('代理地址'));
-        o.datatype = 'host';
-        o.default = '127.0.0.1';
-        o.placeholder = '127.0.0.1';
-        o.depends('pre_proxy_enabled', '1');
-        o.description = _('本地代理监听地址，通常是 127.0.0.1');
-
-        o = s.option(form.Value, 'pre_proxy_port', _('代理端口'));
+        o = s.option(form.Value, 'http_port', _('HTTP 端口'));
         o.datatype = 'port';
-        o.placeholder = '7890';
-        o.depends('pre_proxy_enabled', '1');
-        o.description = _('本地代理端口，如 Clash 的 7890 或 v2ray 的 10808');
+        o.default = '8118';
+        o.depends('http_enabled', '1');
+
+        // IP 扫描
+        s = m.section(form.NamedSection, 'config', 'warp', _('端点扫描'));
+        s.anonymous = true;
+        s.description = _('启用后，启动时将自动扫描测试 Cloudflare 端点 IP 以寻找最快连接。');
+
+        o = s.option(form.Flag, 'scan_enabled', _('启用自动扫描'));
+        o.default = '0';
+
+        o = s.option(form.Value, 'scan_rtt', _('最大 RTT (ms)'));
+        o.datatype = 'uinteger';
+        o.default = '1000';
+        o.depends('scan_enabled', '1');
+        o.description = _('扫描时的最大延迟阈值。');
+
+        o = s.option(form.Flag, 'scan_ipv4', _('扫描 IPv4'));
+        o.default = '1';
+        o.depends('scan_enabled', '1');
+
+        o = s.option(form.Flag, 'scan_ipv6', _('扫描 IPv6'));
+        o.default = '0';
+        o.depends('scan_enabled', '1');
 
         // 账户信息
         s = m.section(form.NamedSection, 'config', 'warp', _('账户信息'));
@@ -172,7 +146,7 @@ return view.extend({
         o = s.option(form.Value, 'license_key', _('WARP+ License Key'));
         o.password = true;
         o.rmempty = true;
-        o.description = _('如果您有WARP+ License Key，可以在此输入以升级');
+        o.description = _('如果您有WARP+ License Key，可以在此输入并应用。保存本页面后，请前往“状态”页面点击“应用License Key”按钮（如果没有该按钮，可通过“启动/重启”触发配置更新，或在命令行运行 warp-manager license）。');
 
         return m.render();
     }

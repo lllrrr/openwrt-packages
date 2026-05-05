@@ -1,117 +1,57 @@
 #!/bin/sh
-# Update and apply China IP bypass routes for luci-app-warp.
+# Update China IP list for Cloudflare WARP bypass
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+. /lib/functions.sh
+
 CHINA_IP_FILE="/etc/warp/china_ip.txt"
-CHINA_IP_URL="https://raw.githubusercontent.com/17mon/china_ip_list/master/china_ip_list.txt"
-RT_TABLES="/etc/iproute2/rt_tables"
-TABLE_ID="100"
-TABLE_NAME="china"
-RULE_PRIORITY="100"
+TMP_FILE="/tmp/china_ip.txt"
 LOG_FILE="/var/log/warp.log"
 
-log() {
-	printf '%s\n' "$*"
+warp_log() {
 	mkdir -p /var/log 2>/dev/null || true
 	printf '%s warp-update-china: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_FILE" 2>/dev/null || true
 	logger -t warp-update-china "$*" 2>/dev/null || true
 }
 
-detect_wan_route() {
-	ip route show default | awk '
-		{
-			gw = "";
-			dev = "";
-			for (i = 1; i <= NF; i++) {
-				if ($i == "via") gw = $(i + 1);
-				if ($i == "dev") dev = $(i + 1);
-			}
-			if (dev !~ /^tun[0-9]+$/ && dev != "") {
-				print gw "|" dev;
-				exit;
-			}
-		}'
-}
+download_china_list() {
+	warp_log "Downloading China IP list..."
 
-clear_china_routes() {
-	while ip rule del priority "$RULE_PRIORITY" table "$TABLE_NAME" 2>/dev/null; do :; done
-	ip route flush table "$TABLE_NAME" 2>/dev/null || true
+	if curl -s -L --max-time 30 -o "$TMP_FILE" https://raw.githubusercontent.com/ChnRoute/custom/master/chnroute.txt; then
+		if [ -s "$TMP_FILE" ]; then
+			mv "$TMP_FILE" "$CHINA_IP_FILE"
+			warp_log "Successfully updated China IP list"
+			return 0
+		fi
+	fi
+
+	warp_log "Failed to download China IP list"
+	rm -f "$TMP_FILE"
+	return 1
 }
 
 apply_china_routes() {
 	BYPASS_CHINA="$(uci -q get warp.config.bypass_china)"
-	[ "$BYPASS_CHINA" = "1" ] || {
-		log "China IP bypass is disabled."
-		return 0
-	}
-
-	[ -s "$CHINA_IP_FILE" ] || {
-		log "China IP list is missing: $CHINA_IP_FILE"
-		return 1
-	}
-
-	wan_route="$(detect_wan_route)"
-	DEFAULT_GW="${wan_route%%|*}"
-	DEFAULT_IF="${wan_route#*|}"
-	[ -n "$DEFAULT_IF" ] || {
-		log "Unable to detect the WAN default route."
-		return 1
-	}
-
-	mkdir -p "$(dirname "$RT_TABLES")"
-	touch "$RT_TABLES"
-	grep -Eq "^[[:space:]]*$TABLE_ID[[:space:]]+$TABLE_NAME([[:space:]]|$)" "$RT_TABLES" 2>/dev/null || \
-		printf '%s %s\n' "$TABLE_ID" "$TABLE_NAME" >> "$RT_TABLES"
-
-	clear_china_routes
-	if [ -n "$DEFAULT_GW" ]; then
-		log "Applying China IP routes via $DEFAULT_GW dev $DEFAULT_IF..."
-	else
-		log "Applying China IP routes dev $DEFAULT_IF..."
-	fi
-
-	while IFS= read -r cidr; do
-		case "$cidr" in
-			''|'#'*) continue ;;
-		esac
-		if [ -n "$DEFAULT_GW" ]; then
-			ip route add "$cidr" via "$DEFAULT_GW" dev "$DEFAULT_IF" table "$TABLE_NAME" 2>/dev/null || true
-		else
-			ip route add "$cidr" dev "$DEFAULT_IF" table "$TABLE_NAME" 2>/dev/null || true
-		fi
-	done < "$CHINA_IP_FILE"
-
-	ip rule add from all table "$TABLE_NAME" priority "$RULE_PRIORITY" 2>/dev/null || true
-	log "China IP routes applied."
+	[ "$BYPASS_CHINA" = "1" ] || return 0
+	
+	warp_log "Applying updated China IP list via nftables set..."
+	/etc/init.d/warp restart >/dev/null 2>&1
 }
 
-download_china_list() {
-	mkdir -p /etc/warp
-	log "Downloading China IP list..."
-
-	if command -v curl >/dev/null 2>&1; then
-		curl -fL --connect-timeout 15 --retry 2 "$CHINA_IP_URL" -o "$CHINA_IP_FILE.tmp"
-	elif command -v wget >/dev/null 2>&1; then
-		wget -O "$CHINA_IP_FILE.tmp" "$CHINA_IP_URL"
-	else
-		log "curl or wget is required."
-		return 1
-	fi
-
-	if [ -s "$CHINA_IP_FILE.tmp" ]; then
-		mv "$CHINA_IP_FILE.tmp" "$CHINA_IP_FILE"
-		log "China IP list updated: $(wc -l < "$CHINA_IP_FILE") entries."
-		return 0
-	fi
-
-	rm -f "$CHINA_IP_FILE.tmp"
-	log "Downloaded China IP list is empty."
-	return 1
+clear_china_routes() {
+	# Handled automatically by /etc/init.d/warp stop
+	:
 }
 
-case "${1:-update}" in
+update_all() {
+	if download_china_list; then
+		apply_china_routes
+	fi
+}
+
+case "$1" in
 	update)
-		download_china_list && apply_china_routes
+		update_all
 		;;
 	apply)
 		apply_china_routes
@@ -120,7 +60,7 @@ case "${1:-update}" in
 		clear_china_routes
 		;;
 	*)
-		printf '%s\n' "Usage: $0 [update|apply|clear]"
+		echo "Usage: $0 {update|apply|clear}"
 		exit 1
 		;;
 esac
