@@ -1408,26 +1408,26 @@ return view.extend({
 				E('div', { 'class': 'overview-card__head' }, headBits),
 				E('section', { 'class': 'overview-card__block overview-card__block--rate' }, [
 					E('div', { 'class': 'overview-hero-pair' }, [
-						this.overviewHeroSpeed(_('Upload'), upBps, metrics.up_v4_bps, metrics.up_v6_bps, false, 'up', cumUp, cumulative.up_v4_bytes, cumulative.up_v6_bytes),
-						this.overviewHeroSpeed(_('Download'), downBps, metrics.down_v4_bps, metrics.down_v6_bps, false, 'down', cumDown, cumulative.down_v4_bytes, cumulative.down_v6_bytes)
+					this.overviewHeroSpeed(_('Inbound'), upBps, metrics.up_v4_bps, metrics.up_v6_bps, false, 'up', cumUp, cumulative.up_v4_bytes, cumulative.up_v6_bytes),
+					this.overviewHeroSpeed(_('Outbound'), downBps, metrics.down_v4_bps, metrics.down_v6_bps, false, 'down', cumDown, cumulative.down_v4_bytes, cumulative.down_v6_bytes)
 					])
 				])
 			];
 			cardBits.push(E('section', { 'class': 'overview-card__block overview-card__block--limit' }, [
-				E('div', { 'class': 'overview-limit-line' }, [
-					E('span', { 'class': 'overview-limit-k' }, [ _('Upload') ]),
-					E('span', { 'class': 'overview-limit-v' }, [
-						'IPv4 ' + formatLimitKbpsRate(ifaceLimit ? ifaceLimit.up_v4_kbps : 0) +
-						' · IPv6 ' + formatLimitKbpsRate(ifaceLimit ? ifaceLimit.up_v6_kbps : 0)
-					])
-				]),
-				E('div', { 'class': 'overview-limit-line' }, [
-					E('span', { 'class': 'overview-limit-k' }, [ _('Download') ]),
-					E('span', { 'class': 'overview-limit-v' }, [
-						'IPv4 ' + formatLimitKbpsRate(ifaceLimit ? ifaceLimit.down_v4_kbps : 0) +
-						' · IPv6 ' + formatLimitKbpsRate(ifaceLimit ? ifaceLimit.down_v6_kbps : 0)
-					])
+			E('div', { 'class': 'overview-limit-line' }, [
+				E('span', { 'class': 'overview-limit-k' }, [ _('Inbound') ]),
+				E('span', { 'class': 'overview-limit-v' }, [
+					'IPv4 ' + formatLimitKbpsRate(ifaceLimit ? ifaceLimit.up_v4_kbps : 0) +
+					' · IPv6 ' + formatLimitKbpsRate(ifaceLimit ? ifaceLimit.up_v6_kbps : 0)
 				])
+			]),
+			E('div', { 'class': 'overview-limit-line' }, [
+				E('span', { 'class': 'overview-limit-k' }, [ _('Outbound') ]),
+				E('span', { 'class': 'overview-limit-v' }, [
+					'IPv4 ' + formatLimitKbpsRate(ifaceLimit ? ifaceLimit.down_v4_kbps : 0) +
+					' · IPv6 ' + formatLimitKbpsRate(ifaceLimit ? ifaceLimit.down_v6_kbps : 0)
+				])
+			])
 			]));
 			var card = E('article', { 'class': 'overview-card' }, cardBits);
 			grid.appendChild(card);
@@ -3853,35 +3853,35 @@ return view.extend({
 				E('label', { 'class': 'bplus-form-label' }, [ _('Iface') ]),
 				this.el.ifaceLimitIfaceReadonly
 			]),
-			E('div', { 'class': 'bplus-form-group bplus-schedule-limits-block' }, [
-				E('label', { 'class': 'bplus-form-label' }, [ _('Download') ]),
-				E('div', { 'class': 'bplus-schedule-rate-pair' }, [
-					E('div', { 'class': 'bplus-schedule-rate-col' }, [
-						E('span', { 'class': 'bplus-form-sublabel' }, [ 'IPv4' ]),
-						E('div', { 'class': 'bplus-rate-input-row' }, [ this.el.ifaceLimitD4Modal, this.el.ifaceLimitD4UnitModal ])
-					]),
-					E('div', { 'class': 'bplus-schedule-rate-col' }, [
-						E('span', { 'class': 'bplus-form-sublabel' }, [ 'IPv6' ]),
-						E('div', { 'class': 'bplus-rate-input-row' }, [ this.el.ifaceLimitD6Modal, this.el.ifaceLimitD6UnitModal ])
-					])
+		E('div', { 'class': 'bplus-form-group bplus-schedule-limits-block' }, [
+			E('label', { 'class': 'bplus-form-label' }, [ _('Outbound') ]),
+			E('div', { 'class': 'bplus-schedule-rate-pair' }, [
+				E('div', { 'class': 'bplus-schedule-rate-col' }, [
+					E('span', { 'class': 'bplus-form-sublabel' }, [ 'IPv4' ]),
+					E('div', { 'class': 'bplus-rate-input-row' }, [ this.el.ifaceLimitD4Modal, this.el.ifaceLimitD4UnitModal ])
 				]),
-				E('div', { 'class': 'bplus-form-hint' }, [ _('Tip: 0 means unlimited') ])
+				E('div', { 'class': 'bplus-schedule-rate-col' }, [
+					E('span', { 'class': 'bplus-form-sublabel' }, [ 'IPv6' ]),
+					E('div', { 'class': 'bplus-rate-input-row' }, [ this.el.ifaceLimitD6Modal, this.el.ifaceLimitD6UnitModal ])
+				])
 			]),
-			E('div', { 'class': 'bplus-form-group bplus-schedule-limits-block' }, [
-				E('label', { 'class': 'bplus-form-label' }, [ _('Upload') ]),
-				E('div', { 'class': 'bplus-schedule-rate-pair' }, [
-					E('div', { 'class': 'bplus-schedule-rate-col' }, [
-						E('span', { 'class': 'bplus-form-sublabel' }, [ 'IPv4' ]),
-						E('div', { 'class': 'bplus-rate-input-row' }, [ this.el.ifaceLimitU4Modal, this.el.ifaceLimitU4UnitModal ])
-					]),
-					E('div', { 'class': 'bplus-schedule-rate-col' }, [
-						E('span', { 'class': 'bplus-form-sublabel' }, [ 'IPv6' ]),
-						E('div', { 'class': 'bplus-rate-input-row' }, [ this.el.ifaceLimitU6Modal, this.el.ifaceLimitU6UnitModal ])
-					])
+			E('div', { 'class': 'bplus-form-hint' }, [ _('Tip: 0 means unlimited') ])
+		]),
+		E('div', { 'class': 'bplus-form-group bplus-schedule-limits-block' }, [
+			E('label', { 'class': 'bplus-form-label' }, [ _('Inbound') ]),
+			E('div', { 'class': 'bplus-schedule-rate-pair' }, [
+				E('div', { 'class': 'bplus-schedule-rate-col' }, [
+					E('span', { 'class': 'bplus-form-sublabel' }, [ 'IPv4' ]),
+					E('div', { 'class': 'bplus-rate-input-row' }, [ this.el.ifaceLimitU4Modal, this.el.ifaceLimitU4UnitModal ])
 				]),
-				E('div', { 'class': 'bplus-form-hint' }, [ _('Tip: 0 means unlimited') ])
+				E('div', { 'class': 'bplus-schedule-rate-col' }, [
+					E('span', { 'class': 'bplus-form-sublabel' }, [ 'IPv6' ]),
+					E('div', { 'class': 'bplus-rate-input-row' }, [ this.el.ifaceLimitU6Modal, this.el.ifaceLimitU6UnitModal ])
+				])
 			]),
-			E('div', { 'class': 'bplus-modal-form-footer' }, [ this.el.ifaceLimitModalCancel, this.el.ifaceLimitModalSave ])
+			E('div', { 'class': 'bplus-form-hint' }, [ _('Tip: 0 means unlimited') ])
+		]),
+		E('div', { 'class': 'bplus-modal-form-footer' }, [ this.el.ifaceLimitModalCancel, this.el.ifaceLimitModalSave ])
 		]);
 		this.el.ifaceLimitPanel = E('div', { 'class': 'bplus-modal-panel bplus-modal-panel--iface-limit' }, [
 			E('div', { 'class': 'bplus-modal-header' }, [
@@ -3974,7 +3974,7 @@ return view.extend({
 				]),
 				E('div', { 'class': 'table-wrapper compact' }, [
 					E('table', { 'class': 'table bplus-table bplus-guest-whitelist-table' }, [
-						E('thead', {}, [ E('tr', {}, [ E('th', {}, [ _('Hostname') ]), E('th', {}, [ 'MAC' ]), E('th', {}, [ _('actions') ]) ]) ]),
+						E('thead', {}, [ E('tr', {}, [ E('th', {}, [ _('Hostname') ]), E('th', {}, [ 'MAC' ]), E('th', {}, [ _('Actions') ]) ]) ]),
 						this.el.guestRuleWhitelistBody
 					])
 				])

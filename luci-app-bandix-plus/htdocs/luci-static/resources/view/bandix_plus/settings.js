@@ -58,11 +58,44 @@ return view.extend({
 		o.default = 'info';
 		o.rmempty = false;
 
+		o = s.option(form.ListValue, 'tc_backend', _('TC backend'), _('Select TC attach backend. Recommendation: use auto by default; tcx is preferred on kernel >= 6.6; netlink is safer on older kernels.'));
+		o.value('auto', 'auto');
+		o.value('tcx', 'tcx');
+		o.value('netlink', 'netlink');
+		o.default = 'auto';
+		o.rmempty = false;
+
 		o = s.option(form.ListValue, 'tc_order', _('TC order'));
 		o.value('first', 'first');
 		o.value('default', 'default');
 		o.value('last', 'last');
-		o.default = 'first';
+		o.value('before', 'before');
+		o.value('after', 'after');
+		o.default = 'default';
+		o.rmempty = false;
+		o.depends('tc_backend', 'tcx');
+
+		o = s.option(form.Value, 'netlink_priority', _('Netlink priority'), _('Only used when backend is netlink. Range: 0..65535 (0 means default).'));
+		o.datatype = 'range(0,65535)';
+		o.default = '0';
+		o.placeholder = '0';
+		o.rmempty = false;
+		o.depends('tc_backend', 'netlink');
+
+		o = s.option(form.Value, 'tcx_anchor_ingress_id', _('TCX ingress anchor program id'), _('Used when tc_order is before/after. Must be a valid ingress program id on the same interface.'));
+		o.datatype = 'uinteger';
+		o.rmempty = true;
+		o.depends({ tc_backend: 'tcx', tc_order: 'before' });
+		o.depends({ tc_backend: 'tcx', tc_order: 'after' });
+
+		o = s.option(form.Value, 'tcx_anchor_egress_id', _('TCX egress anchor program id'), _('Used when tc_order is before/after. Must be a valid egress program id on the same interface.'));
+		o.datatype = 'uinteger';
+		o.rmempty = true;
+		o.depends({ tc_backend: 'tcx', tc_order: 'before' });
+		o.depends({ tc_backend: 'tcx', tc_order: 'after' });
+
+		o = s.option(form.Flag, 'traffic_enable_storage', _('Enable traffic persistence storage'), _('Persist traffic histogram/ring data to disk. Disabled by default.'));
+		o.default = '0';
 		o.rmempty = false;
 
 		// o = s.option(form.Value, 'history_window_minutes', _('History window (minutes)'));
