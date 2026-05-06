@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Kiwi — 高性能 DNS 转发器（基于 kixdns）
-# 方案：下载 qaz69s/kixdns Release 预编译 musl static binary
+# 方案：直接打包本地二进制（已预先放置于 files/usr/bin/kiwi）
 
 include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/package.mk
@@ -13,17 +13,8 @@ PKG_RELEASE := 1
 PKG_LICENSE    := GPL-3.0
 PKG_MAINTAINER := Pi <pi@example.com>
 
-BINARY_NAME := kixdns-v$(PKG_VERSION)-x86_64-unknown-linux-musl
-BINARY_URL  := https://github.com/qaz69s/kixdns/releases/download/v$(PKG_VERSION)/
-BINARY_DL   := $(TOPDIR)/dl/$(BINARY_NAME)
-
-define Download/kiwi
-  FILE:=$(BINARY_NAME)
-  URL:=$(BINARY_URL)
-  HASH:=skip
-  MIRROR_HASH:=skip
-endef
-$(eval $(call Download,kiwi))
+# 不从 GitHub 下载 — 二进制已存在于 $(LOCAL_BINARY)
+LOCAL_BINARY := $(CURDIR)/files/usr/bin/kiwi
 
 define Package/kiwi
   SECTION   := net
@@ -49,16 +40,16 @@ define Build/Configure
 endef
 
 define Build/Compile
-	mkdir -p "$(CURDIR)/files/usr/bin"
-	cp -f "$(BINARY_DL)" "$(CURDIR)/files/usr/bin/kiwi"
+	# 二进制已存在于 files/usr/bin/kiwi，无需下载
 endef
 
 define Package/kiwi/install
 	$(INSTALL_DIR) $(1)/usr/bin
-	$(INSTALL_BIN) $(CURDIR)/files/usr/bin/kiwi $(1)/usr/bin/kiwi
+	$(INSTALL_BIN) $(LOCAL_BINARY) $(1)/usr/bin/kiwi
 
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) $(CURDIR)/files/kiwi.init $(1)/etc/init.d/kiwi
+	chmod +x $(1)/etc/init.d/kiwi
 
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) $(CURDIR)/files/kiwi.config $(1)/etc/config/kiwi

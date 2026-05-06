@@ -6,6 +6,68 @@ CONF="kiwi"
 PROG="/usr/bin/kiwi"
 CONF_DIR="/etc/kiwi"
 
+# 从 pipeline.json 中读取 UDP 监听端口
+get_listen_port() {
+	local cfg="$1"
+	local port
+	port=$(grep 'bind_udp' "$cfg" 2>/dev/null | grep -o ':[0-9]*"' | tr -d ':"')
+	[ -z "$port" ] && port="5353"
+	echo "$port"
+}
+
+# 配置防火墙重定向：将 LAN 到 :53 的 DNS 请求重定向到 kiwi 监听端口
+# 使用 firewall UCI 方案，兼容 fw4（nftables）和 fw3（iptables）
+# LAN 内所有设备的 DNS 请求（包括硬编码 DNS 的客户端）均被劫持到 kiwi
+setup_redirect() {
+	local port="$1"
+	uci -q batch <<-EOF
+		set firewall.kiwi_dns=redirect
+		set firewall.kiwi_dns.name=kiwi-dns-redirect
+		set firewall.kiwi_dns.src=lan
+		set firewall.kiwi_dns.proto=tcp udp
+		set firewall.kiwi_dns.src_dport=53
+		set firewall.kiwi_dns.dest_ip=127.0.0.1
+		set firewall.kiwi_dns.dest_port=${port}
+		set firewall.kiwi_dns.target=DNAT
+		set firewall.kiwi_dns.enabled=1
+	EOF
+	uci commit firewall
+	fw4 reload 2>/dev/null || /etc/init.d/firewall reload 2>/dev/null
+	logger -t "$CONF" "已添加 DNS 劫持规则 :53 → 127.0.0.1:${port}"
+
+	# 配置 dnsmasq 将上游解析请求转发到 kiwi
+	uci -q set dhcp.@dnsmasq[0].noresolv=1
+	uci -q del_list dhcp.@dnsmasq[0].server="127.0.0.1#${port}" 2>/dev/null
+	uci -q add_list dhcp.@dnsmasq[0].server="127.0.0.1#${port}"
+	uci commit dhcp
+	/etc/init.d/dnsmasq restart
+	logger -t "$CONF" "已配置 dnsmasq 上游: 127.0.0.1:${port}"
+}
+
+# 清除防火墙 DNS 重定向规则及 dnsmasq 上游配置
+clear_redirect() {
+	local changed=0
+
+	if uci -q get firewall.kiwi_dns >/dev/null 2>&1; then
+		uci -q delete firewall.kiwi_dns
+		uci commit firewall
+		fw4 reload 2>/dev/null || /etc/init.d/firewall reload 2>/dev/null
+	fi
+
+	# 清除 dnsmasq 上游配置（仅在条目存在时才重启）
+	local port
+	port=$(get_listen_port "$(uci -q get kiwi.config.config_file || echo "$CONF_DIR/pipeline.json")")
+	if uci -q get dhcp.@dnsmasq[0].noresolv >/dev/null 2>&1; then
+		uci -q del_list dhcp.@dnsmasq[0].server="127.0.0.1#${port}"
+		uci -q delete dhcp.@dnsmasq[0].noresolv
+		uci commit dhcp
+		/etc/init.d/dnsmasq restart
+		changed=1
+	fi
+
+	[ "$changed" = "1" ] && logger -t "$CONF" "已清除 DNS 劫持规则"
+}
+
 start_service() {
 	enabled=$(uci get kiwi.config.enabled 2>/dev/null)
 	[ "$enabled" = "1" ] || return 0
@@ -29,16 +91,31 @@ start_service() {
 	[ "$log_level" = "debug" ] && procd_append_param command --debug
 	[ -n "$udp_workers" ] && [ "$udp_workers" != "0" ] && \
 		procd_append_param command --udp-workers "$udp_workers"
+	# 设置 Rust 日志级别：kiwi 使用 RUST_LOG 控制输出
+	# 不设置时默认只输出 WARN/ERROR，pipeline log action（INFO级）会被丢弃
+	local rust_log
+	[ "$log_level" = "debug" ] && rust_log="debug" || rust_log="info"
+	procd_set_param env RUST_LOG="$rust_log"
 	procd_set_param stdout 1
 	procd_set_param stderr 1
 	procd_set_param respawn 60 5 30
 	procd_close_instance
+
+	dns_redirect=$(uci -q get kiwi.config.dns_redirect)
+	if [ "$dns_redirect" = "1" ]; then
+		listen_port=$(get_listen_port "$config_file")
+		setup_redirect "$listen_port"
+	fi
+
 	logger -t "$CONF" "已启动（监听: $listener_label）"
 }
 
 stop_service() {
 	logger -t "$CONF" "正在停止"
-	killall -q "$PROG" 2>/dev/null || true
+	# procd 负责终止受管进程，此处清理防火墙及 dnsmasq 规则
+	# 注意：不能依赖 dns_redirect UCI 值（reload 时该值已被改写），
+	# clear_redirect 内部会检查条目是否实际存在，不存在时无副作用
+	clear_redirect
 }
 
 reload_service() {
@@ -48,4 +125,6 @@ reload_service() {
 
 service_triggers() {
 	procd_add_reload_trigger "$CONF"
+	[ "$(uci -q get kiwi.config.dns_redirect)" = "1" ] && \
+		procd_add_reload_trigger firewall
 }

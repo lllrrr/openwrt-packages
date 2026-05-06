@@ -8,4 +8,5 @@ uci -q batch <<-EOF
 	add_list rpcd.kiwi.write=luci-app-kiwi
 EOF
 uci commit rpcd
+
 exit 0

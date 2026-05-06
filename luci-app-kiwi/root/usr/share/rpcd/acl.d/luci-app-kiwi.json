@@ -4,7 +4,7 @@
 		"read": {
 			"file": {
 				"/etc/kiwi/pipeline.json": ["read"],
-				"/var/log/kiwi/kiwi.log": ["read"],
+				"/var/log/kiwi.log": ["read"],
 				"/etc/init.d/kiwi": ["exec"]
 			},
 			"ubus": {
@@ -16,7 +16,7 @@
 		"write": {
 			"file": {
 				"/etc/kiwi/pipeline.json": ["write"],
-				"/var/log/kiwi/kiwi.log": ["write"]
+			"/var/log/kiwi.log": ["write"]
 			},
 			"ubus": {
 				"luci.kiwi": ["getStatus", "getLog", "clearLog"]

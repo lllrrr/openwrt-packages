@@ -12,9 +12,12 @@ get_status() {
 }
 
 get_log() {
-	local output skip
+	local output skip total
 	skip=0
 	[ -f "$MARK_FILE" ] && skip=$(cat "$MARK_FILE" 2>/dev/null)
+	# syslog 是环形缓冲区，若 mark 超出当前行数（发生过日志轮转）则重置，避免返回空结果
+	total=$(logread -e "$NAME" 2>/dev/null | wc -l)
+	[ "$skip" -ge "$total" ] && skip=0
 	output=$(logread -e "$NAME" 2>/dev/null | tail -n +$((skip + 1)) | tr '\n' '\x1E')
 	json_init
 	json_add_string "log" "$output"
