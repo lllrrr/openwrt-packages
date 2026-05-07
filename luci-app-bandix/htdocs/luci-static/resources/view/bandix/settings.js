@@ -266,13 +266,45 @@ return view.extend({
 		o.placeholder = '/usr/share/bandix';
 		o.rmempty = false;
 
-		// 添加 tc_priority 设置
-		o = s.option(form.Value, 'tc_priority', _('TC Priority'),
-			_('Set TC filter priority to better coexist with other eBPF TC programs. Lower numbers indicate higher priority. 0 means system-assigned.'));
+		o = s.option(form.ListValue, 'tc_backend', _('TC backend'),
+			_('Select TC attach backend. Recommendation: use auto by default; tcx is preferred on kernel >= 6.6; netlink is safer on older kernels.'));
+		o.value('auto', 'auto');
+		o.value('tcx', 'tcx');
+		o.value('netlink', 'netlink');
+		o.default = 'auto';
+		o.rmempty = false;
+
+		o = s.option(form.ListValue, 'tc_order', _('TC order'));
+		o.value('first', 'first');
+		o.value('default', 'default');
+		o.value('last', 'last');
+		o.value('before', 'before');
+		o.value('after', 'after');
+		o.default = 'default';
+		o.rmempty = false;
+		o.depends('tc_backend', 'tcx');
+
+		o = s.option(form.Value, 'netlink_priority', _('Netlink priority'),
+			_('Only used when backend is netlink. Range: 0..65535 (0 means default).'));
+		o.datatype = 'range(0,65535)';
 		o.default = '0';
-		o.datatype = 'integer';
 		o.placeholder = '0';
 		o.rmempty = false;
+		o.depends('tc_backend', 'netlink');
+
+		o = s.option(form.Value, 'tcx_anchor_ingress_id', _('TCX ingress anchor program id'),
+			_('Used when tc_order is before/after. Must be a valid ingress program id on the same interface.'));
+		o.datatype = 'uinteger';
+		o.rmempty = true;
+		o.depends({ tc_backend: 'tcx', tc_order: 'before' });
+		o.depends({ tc_backend: 'tcx', tc_order: 'after' });
+
+		o = s.option(form.Value, 'tcx_anchor_egress_id', _('TCX egress anchor program id'),
+			_('Used when tc_order is before/after. Must be a valid egress program id on the same interface.'));
+		o.datatype = 'uinteger';
+		o.rmempty = true;
+		o.depends({ tc_backend: 'tcx', tc_order: 'before' });
+		o.depends({ tc_backend: 'tcx', tc_order: 'after' });
 
 		// 添加版本信息显示（合并显示）
 		o = s.option(form.DummyValue, 'version', _('Version'));
@@ -599,15 +631,6 @@ return view.extend({
 			]);
 		};
 
-		// 添加重启服务按钮
-		o = s.option(form.Button, 'restart_service', _('Restart Service'));
-		o.inputtitle = _('Restart Bandix Service');
-		o.inputstyle = 'apply';
-		o.onclick = function () {
-			return ui.showModal(_('Restart Service'), [
-				E('p', _('Are you sure you want to restart the Bandix service?')),
-				E('div', { 'class': 'right' }, [
-					E('button', {
 						'class': 'btn',
 						'click': ui.hideModal
 					}, _('Cancel')),
@@ -631,6 +654,15 @@ return view.extend({
 			]);
 		};
 
+
+		// 添加意见反馈信息
+		o = s.option(form.Button, 'feedback_info', _('Feedback'));
+		o.inputtitle = _('Feedback');
+		o.inputstyle = 'link';
+		o.onclick = function () {
+			window.open('https://github.com/timsaya', '_blank');
+			return false;
+		};
 
 		// 2. 流量监控设置部分 (traffic)
 		s = m.section(form.NamedSection, 'traffic', 'traffic', _('Traffic Monitor Settings'));
