@@ -570,3 +570,249 @@ msgstr "配置数据处理失败"
 
 msgid "Input validation failed"
 msgstr "输入校验失败"
+
+msgid "Device Network Manager"
+msgstr "设备网络管家"
+
+msgid "Terminal Device Monitoring & Static IP Management"
+msgstr "终端设备状态监控与固定 IP 管理"
+
+msgid "Rescan Network"
+msgstr "重新扫描网络"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "Starting 3D radar detection..."
+msgstr "正在启动三维雷达探测..."
+
+msgid "All"
+msgstr "全部"
+
+msgid "Mobile/Tablet"
+msgstr "手机平板"
+
+msgid "PC/Work"
+msgstr "电脑办公"
+
+msgid "Smart Home"
+msgstr "智能家居"
+
+msgid "Others"
+msgstr "其它"
+
+msgid "Select all available devices"
+msgstr "全选可用设备"
+
+msgid "Selected"
+msgstr "已选择"
+
+msgid "items"
+msgstr "项"
+
+msgid "Batch Unbind"
+msgstr "批量解绑"
+
+msgid "Batch Assign"
+msgstr "批量分配"
+
+msgid "Device Alias"
+msgstr "设备备注名"
+
+msgid "e.g., John's PC"
+msgstr "例如: 小明的电脑"
+
+msgid "Quick Assign Strategy (Click to auto-fill)"
+msgstr "快速分配策略 (点击自动计算填入)"
+
+msgid "Keep Original IP"
+msgstr "保持原 IP"
+
+msgid "Smart Categorization"
+msgstr "智能分类"
+
+msgid "Sequential Memory"
+msgstr "记忆顺延"
+
+msgid "Assign Static IP (Auto anti-conflict)"
+msgstr "分配固定 IP (自动防冲突)"
+
+msgid "e.g., 192.168.1.50"
+msgstr "例如: 192.168.1.50"
+
+msgid "Select Assign Strategy"
+msgstr "选择分配策略"
+
+msgid "Keep Current IP (Recommended)"
+msgstr "保持当前 IP (安全推荐)"
+
+msgid "Convert the device's current random IP to a permanent static IP"
+msgstr "直接将设备现在的随机 IP 转为永久固定"
+
+msgid "Smart Subnet (By Device Type)"
+msgstr "智能分段 (按设备类型)"
+
+msgid "Auto-identify mobile/PC, assign to exclusive subnets"
+msgstr "自动识别手机/电脑等，分别放入专属网段"
+
+msgid "Specify Starting IP (Sequential)"
+msgstr "指定起始 IP (顺延分配)"
+
+msgid "Enter starting suffix, sequentially assign to all selected devices"
+msgstr "填写起始后缀，所有选中设备依次顺延分配"
+
+msgid "Starting IP"
+msgstr "分配起始 IP"
+
+msgid "Others:"
+msgstr "其它设备:"
+
+msgid "Mobile/Tablet:"
+msgstr "手机平板:"
+
+msgid "PC/Work:"
+msgstr "电脑办公:"
+
+msgid "Smart Home:"
+msgstr "智能家居:"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "OK"
+msgstr "确定"
+
+msgid "No device records in this category"
+msgstr "该分类下没有设备记录"
+
+msgid "Online"
+msgstr "在线"
+
+msgid "Offline"
+msgstr "离线"
+
+msgid "Static"
+msgstr "静态"
+
+msgid "Upstream Gateway"
+msgstr "上级网关"
+
+msgid "Local System"
+msgstr "本机系统"
+
+msgid "System Core Route"
+msgstr "系统核心路由"
+
+msgid "System Reserved Device"
+msgstr "系统保留设备"
+
+msgid "Edit"
+msgstr "修改"
+
+msgid "Unbind"
+msgstr "解绑"
+
+msgid "Quick Bind"
+msgstr "一键固定"
+
+msgid "Unknown Device"
+msgstr "未知设备"
+
+msgid "Unknown IP"
+msgstr "未知 IP"
+
+msgid "Terminal Addressed IP"
+msgstr "终端寻址IP"
+
+msgid "Edit Device Info"
+msgstr "修改设备信息"
+
+msgid "Quick Bind IP"
+msgstr "一键固定 IP"
+
+msgid "Configuring MAC: "
+msgstr "正在为 MAC: "
+
+msgid "Save Changes"
+msgstr "保存修改"
+
+msgid "Bind Device"
+msgstr "绑定此设备"
+
+msgid "Safely writing and restarting services..."
+msgstr "正在安全写入并无感重启服务..."
+
+msgid "Unbind IP"
+msgstr "解除 IP 绑定"
+
+msgid "Are you sure you want to unbind the static IP for device (<b>{mac}</b>)?"
+msgstr "确定要解除对该设备 (<b>{mac}</b>) 的静态 IP 绑定吗？"
+
+msgid "Confirm Unbind"
+msgstr "确认解绑"
+
+msgid "Releasing static binding..."
+msgstr "正在释放静态绑定..."
+
+msgid "Batch Unbind Devices"
+msgstr "批量解绑设备"
+
+msgid "Among the {total} selected devices, <b>{valid}</b> have fixed IPs.<br><br>Are you sure you want to unbind them?"
+msgstr "选中的 {total} 台设备中，有 <b>{valid}</b> 台当前已固定 IP。<br><br>确定要解除它们的绑定吗？"
+
+msgid "Batch releasing IPs, please wait..."
+msgstr "正在批量释放 IP，请稍候..."
+
+msgid "Batch Assign Settings"
+msgstr "批量分配设置"
+
+msgid "Select Assign Strategy <span style=\"font-weight:normal; font-size:13.5px; color:#64748b;\">(Selected <b style=\"color:#3b82f6;\">{count}</b> devices)</span>"
+msgstr "选择分配策略 <span style=\"font-weight:normal; font-size:13.5px; color:#64748b;\">(已选中 <b style=\"color:#3b82f6;\">{count}</b> 台设备)</span>"
+
+msgid "Start Assign"
+msgstr "开始分配"
+
+msgid "Avoiding conflicts and silently writing rules..."
+msgstr "正在雷达避冲突并静默写入规则..."
+
+msgid "No device records found in current LAN"
+msgstr "当前局域网内未发现任何设备记录"
+
+msgid "❌ Scan failed: Cannot retrieve underlying data"
+msgstr "❌ 扫描失败：无法获取底层数据"
+
+msgid "❌ The IP pool for this type is full. Please expand the range or choose another strategy!"
+msgstr "❌ 该类型的 IP 分段池已全部被占满，请扩大范围或选择其它策略！"
+
+msgid "IP address cannot be empty!"
+msgstr "IP 地址不能为空！"
+
+msgid "❌ IP Conflict Blocked!\n\nThe IP [{ip}] is occupied by device [{name}].\nPlease modify the strategy or enter a free IP!"
+msgstr "❌ IP 冲突拦截！\n\n您输入的 IP [{ip}] 已被局域网中的设备【{name}】占用。\n请修改策略或输入一个未被占用的空闲 IP！"
+
+msgid "💡 Tip: The device is already fixed at this IP. No changes needed!"
+msgstr "💡 提示：该设备已经是当前 IP 且已固定，配置未发生任何改变，无需重复提交！"
+
+msgid "💡 Tip: The {count} selected devices are all [Unbound]. No unbind action needed!"
+msgstr "💡 提示：您选中的 {count} 台设备目前全是【未绑定】状态，无需执行解绑操作！"
+
+msgid "Starting suffix must be between 2 and 254!"
+msgstr "起始后缀必须在 2 到 254 之间！"
+
+msgid "❌ IP pool insufficient!\nOnly {avail} IPs left from .{suf}, but {count} devices selected."
+msgstr "❌ IP 池容量不足！\n从 .{suf} 开始顺延仅剩 {avail} 个可用 IP，但您选中了 {count} 台设备。"
+
+msgid "❌ [{name}] assignment failed!\nSelected {req} devices, but only {avail} IPs available in the preset range.\nPlease expand the IP range for this category!"
+msgstr "❌ 【{name}】分配失败！\n选中了 {req} 台设备，但预设的 IP 段内只有 {avail} 个可用 IP。\n请扩大该类别的 IP 段范围！"
+
+msgid "💡 Smart block: According to your strategy, the {count} selected devices are already fixed with unchanged IPs. No need to rewrite rules!"
+msgstr "💡 智能拦截：根据您的策略计算，选中的 {count} 台设备【均已固定且 IP 未改变】，无需重复下发规则！"
+
+msgid "Infinite"
+msgstr "永久"
+
+msgid "Expired"
+msgstr "已过期"
+
+msgid "Terminal Device & IP Binding"
+msgstr "终端设备与 IP 绑定"
