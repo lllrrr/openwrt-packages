@@ -22,14 +22,40 @@ case "$1" in
                 gw_ip=$(ip -4 route show default 2>/dev/null | awk '/default/ {print $3}' | head -n1 | tr -d ' \r\n')
                 lan_ip=$(ip addr show br-lan 2>/dev/null | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1 | tr -d ' \r\n')
                 [ -z "$lan_ip" ] && lan_ip=$(uci -q get network.lan.ipaddr | cut -d/ -f1 | tr -d ' \r\n')
+                
+                # 获取路由器自身的 MAC 和所有 IPv4 地址
+                lan_mac=$(ip link show br-lan 2>/dev/null | awk '/link\/ether/ {print $2}' | tr 'A-Z' 'a-z')
+                [ -z "$lan_mac" ] && lan_mac=$(ip link | awk '/link\/ether/ {print $2}' | head -n1 | tr 'A-Z' 'a-z')
+                local_ips=$(ip -4 addr show 2>/dev/null | awk '/inet / {print $2}' | cut -d/ -f1 | tr '\n' ' ')
+                
+                # 抓取当前正在访问路由器 Web 界面 (80/443端口) 的IP
+                visitor_ips=$(netstat -nt 2>/dev/null | awk '$4 ~ /:(80|443)$/ && $6 ~ /ESTABLISHED/ {split($5, a, ":"); if(a[1]!="") print a[1]}' | sort -u | tr '\n' ' ')
 
                 curr_time=$(date +%s)
 
-                json_data=$(awk -v current_time="$curr_time" -v wifi_str="$wifi_macs" -v arp_str="$arp_cache" -v lease_str="$leases" -v hosts_str="$hosts_str" -v ubus_str="$ubus_leases" -v uci_str="$uci_hosts" -v gw_ip="$gw_ip" -v lan_ip="$lan_ip" '
+                json_data=$(awk -v current_time="$curr_time" -v wifi_str="$wifi_macs" -v arp_str="$arp_cache" -v lease_str="$leases" -v hosts_str="$hosts_str" -v ubus_str="$ubus_leases" -v uci_str="$uci_hosts" -v gw_ip="$gw_ip" -v lan_ip="$lan_ip" -v lan_mac="$lan_mac" -v local_ips_str="$local_ips" -v visitor_ips_str="$visitor_ips" '
                 BEGIN {
                     gsub(/^[ \t\r\n]+|[ \t\r\n]+$/, "", gw_ip);
                     gsub(/^[ \t\r\n]+|[ \t\r\n]+$/, "", lan_ip);
+                    gsub(/^[ \t\r\n]+|[ \t\r\n]+$/, "", lan_mac);
+                    
+                    split(local_ips_str, lip_arr, " ");
+                    for(i in lip_arr) {
+                        if(lip_arr[i] != "" && lip_arr[i] != "127.0.0.1") router_ips[lip_arr[i]] = 1;
+                    }
 
+                    # 解析访客 IP 数组
+                    split(visitor_ips_str, vip_arr, " ");
+                    for(i in vip_arr) {
+                        if(vip_arr[i] != "" && vip_arr[i] != "127.0.0.1") visitor_ips[vip_arr[i]] = 1;
+                    }
+
+                    if (lan_mac != "" && lan_ip != "") {
+                        all_macs[lan_mac] = 1;
+                        arp_ip[lan_mac] = lan_ip;
+                        arp_online[lan_mac] = 1;
+                        ubus_name[lan_mac] = "OpenWrt (Local)";
+                    }
                     split(wifi_str, warr, "\n"); for(i in warr) if(warr[i]!="") wifi_online[warr[i]]=1;
                     
                     split(arp_str, aarr, "\n");
@@ -164,8 +190,8 @@ case "$1" in
                     for(mac in all_macs) {
                         is_online = (arp_online[mac]==1 || wifi_online[mac]==1) ? 1 : 0;
                         ip = arp_ip[mac]; 
-                        if(ip=="") ip = static_ip[mac]; 
-                        if(ip=="") ip = leases_ip[mac];
+                        if(ip=="") ip = leases_ip[mac]; 
+                        if(ip=="") ip = static_ip[mac];
                         
                         gsub(/^[ \t\r\n]+|[ \t\r\n]+$/, "", ip);
                         if(ip=="" && is_online==0) continue;
@@ -192,10 +218,13 @@ case "$1" in
                         
                         is_static = (is_static_mac[mac]==1) ? "true" : "false";
                         is_gw = (ip != "" && ip == gw_ip) ? "true" : "false";
-                        is_local = (ip != "" && ip == lan_ip) ? "true" : "false";
+                        is_local = (ip != "" && router_ips[ip] == 1) ? "true" : "false";
+                        # 当前正在访问页面的设备
+                        is_visitor = (ip != "" && visitor_ips[ip] == 1) ? "true" : "false";
+                        b_ip = static_ip[mac]; # 已写入系统 IP
                         
                         if(!first) printf ", ";
-                        printf "{\"mac\": \"%s\", \"ip\": \"%s\", \"name\": \"%s\", \"online\": %s, \"is_static\": %s, \"is_gw\": %s, \"is_local\": %s, \"lease\": \"%s\"}", mac, ip, name, (is_online?"true":"false"), is_static, is_gw, is_local, l_time;
+                        printf "{\"mac\": \"%s\", \"ip\": \"%s\", \"bound_ip\": \"%s\", \"name\": \"%s\", \"online\": %s, \"is_static\": %s, \"is_gw\": %s, \"is_local\": %s, \"is_visitor\": %s, \"lease\": \"%s\"}", mac, ip, b_ip, name, (is_online?"true":"false"), is_static, is_gw, is_local, is_visitor, l_time;
                         first=0;
                     }
                     printf "]}";
