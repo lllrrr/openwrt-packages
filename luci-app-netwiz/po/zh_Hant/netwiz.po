@@ -26,7 +26,7 @@ msgid "LAN Settings"
 msgstr "區域網路設定"
 
 msgid "Change device LAN IP, or switch to AP Wired Relay mode."
-msgstr "修改設備的區域網路 IP，或切換至旁路由（AP有線中繼）模式。"
+msgstr "修改設備區域網 IP，或切換至旁路由（AP有線中繼）模式，一鍵下發IPv6。"
 
 msgid "Reading underlying config..."
 msgstr "正在讀取底層設定..."
@@ -352,8 +352,8 @@ msgstr "正在等待路由器放棄修改並恢復網絡..."
 msgid "Wi-Fi Settings"
 msgstr "Wi-Fi 設定"
 
-msgid "Configure wireless network, SSID, and password."
-msgstr "設定無線網路名稱、密碼及加密方式。"
+msgid "Set Wi-Fi name, password, enable Wireless Relay (WISP) and Seamless Roaming."
+msgstr "設置無線網路名稱、密碼，開啟無線中繼 (WISP)，開啟路由間無縫漫遊。"
 
 msgid "Configure Wi-Fi"
 msgstr "設定 Wi-Fi"

@@ -8,7 +8,7 @@
 'require rpc';
 
 var T = {
-    'NW_TITLE': _('Netwiz Network Setup Wizard'),
+    'NW_TITLE': _('Netwiz NETWORK SETUP'),
     'NW_SUBTITLE': _('Pure · Secure · Non-destructive Minimalist Config'),
     'BTN_HOME': _('Back to Home'),
     'DEV_TITLE': _('Device Network Manager'),
@@ -947,7 +947,12 @@ return view.extend({
                 } else if (res && typeof res === 'string') {
                     try { devices = JSON.parse(res).devices || []; } catch(e){}
                 }
-                
+
+                var currentHostIp = window.location.hostname;
+                devices.forEach(function(d) {
+                    if (d.ip === currentHostIp) d.is_local = true;
+                });
+
                 globalDevices = devices;
                 
                 var gwDev = globalDevices.find(function(d) { return d.is_gw === 'true' || d.is_local === 'true'; });
