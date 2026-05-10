@@ -74,7 +74,7 @@ let dns_port = i(a('listen_port'), 1053);
 cfg['dns'] = {
 	enable:         b(a('enable_dns')) != false,
 	listen:         '0.0.0.0:' + dns_port,
-	'enabled-mode': s(a('enhanced_mode'), 'fake-ip'),
+	'enhanced-mode': s(a('enhanced_mode'), 'fake-ip'),
 	'fake-ip-range': s(a('fake_ip_range'), '198.18.0.1/16'),
 	'fake-ip-filter': [],
 	ipv6:           ab('enable_ipv6'),
@@ -97,50 +97,7 @@ if (store_selected || store_fake) {
 	if (store_fake)     cfg['profile']['store-fake-ip']   = true;
 }
 
-/* ── DNS servers（遍历 dnsservers UCI 节） ──────── */
-let dns_sections = { 'default-nameserver': [], 'nameserver': [], 'fallback': [],
-                     'proxy-server-nameserver': [], 'direct-nameserver': [] };
-uci.foreach('clashoo', 'dnsservers', function(sec) {
-	if (b(sec.enabled) == false) return;
-	let proto = s(sec.protocol, '');
-	if (proto == 'none') proto = '';
-	let addr  = trim(sec.ser_address || '');
-	let port  = sec.ser_port ? '#' + trim(sec.ser_port) : '';
-	if (!addr) return;
-	let full = proto + addr + port;
-	let type = s(sec.ser_type, 'nameserver');
-	if (dns_sections[type]) push(dns_sections[type], full);
-});
-for (let type in dns_sections) {
-	if (length(dns_sections[type]))
-		cfg['dns'][type] = dns_sections[type];
-}
 
-/* ── DNS policy（nameserver-policy / fallback-filter ipcidr） ─ */
-let ns_policy = {};
-uci.foreach('clashoo', 'dns_policy', function(sec) {
-	if (b(sec.enabled) == false) return;
-	let matcher = s(sec.matcher, '');
-	if (!matcher) return;
-	let servers = uci.get('clashoo', sec['.name'], 'nameserver') || [];
-	if (type(servers) != 'array') servers = [servers];
-	let pt = s(sec.policy_type, 'nameserver-policy');
-	/* fallback-filter ipcidr 单独处理 */
-	if (pt == 'fallback-filter-ipcidr') {
-		cfg['dns']['fallback-filter']['ipcidr'] = servers;
-		return;
-	}
-	for (let ns in servers) {
-		if (!ns_policy[matcher]) ns_policy[matcher] = [];
-		push(ns_policy[matcher], ns);
-	}
-});
-if (length(keys(ns_policy))) {
-	let policies = {};
-	for (let m in ns_policy)
-		policies[m] = length(ns_policy[m]) == 1 ? ns_policy[m][0] : ns_policy[m];
-	cfg['dns']['nameserver-policy'] = policies;
-}
 
 /* ── authentication ────────────────────────────────── */
 if (ab('authentication')) {

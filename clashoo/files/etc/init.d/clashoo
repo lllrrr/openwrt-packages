@@ -146,16 +146,12 @@ _core_running() {
 }
 
 _kill_core() {
-	local _found _name _pid _comm
+	local _name _pid _wait
 	for _name in $(_core_names); do
-		_found=0
 		for _pid in $(pidof "$_name" 2>/dev/null); do
 			[ "$_pid" = "$$" ] && continue
 			kill "$_pid" >/dev/null 2>&1
-			_found=1
 		done
-		[ "$_found" = "0" ] && continue
-		sleep 1
 		for _pid in $(pidof "$_name" 2>/dev/null); do
 			[ "$_pid" = "$$" ] && continue
 			_comm="$(cat "/proc/${_pid}/comm" 2>/dev/null || true)"
@@ -402,7 +398,7 @@ runtime_run_health_check() {
 				fi
 				break
 			fi
-			sleep 2
+			sleep 1
 		done
 	fi
 
