@@ -663,16 +663,6 @@ return view.extend({
 			]);
 		};
 
-
-		// 添加意见反馈信息
-		o = s.option(form.Button, 'feedback_info', _('Feedback'));
-		o.inputtitle = _('Feedback');
-		o.inputstyle = 'link';
-		o.onclick = function () {
-			window.open('https://github.com/timsaya', '_blank');
-			return false;
-		};
-
 		// 2. 流量监控设置部分 (traffic)
 		s = m.section(form.NamedSection, 'traffic', 'traffic', _('Traffic Monitor Settings'));
 		s.description = _('Configure traffic monitoring related parameters');
