@@ -583,8 +583,8 @@ msgstr "重新掃描網路"
 msgid "Refresh"
 msgstr "重新整理"
 
-msgid "Starting 3D radar detection..."
-msgstr "正在啟動三維雷達偵測..."
+msgid "Syncing underlying network data..."
+msgstr "正在同步底層網絡數據..."
 
 msgid "All"
 msgstr "全部"
@@ -860,7 +860,7 @@ msgid "Visiting"
 msgstr "正在訪問"
 
 msgid "Department Network Segments"
-msgstr "自定義分組IP網段自動選號池"
+msgstr "自定義分組IP自動選號池"
 
 msgid "+ Add New Department"
 msgstr "+ 新建分組"
@@ -894,3 +894,63 @@ msgstr "-- 不加入任何組 (未分組) --"
 
 msgid "❌ Strategy Error: Please select a Target Group first to allocate IPs from its pool!"
 msgstr "❌ 策略錯誤：請先選擇一個“目標組”，以便從其專屬網段中分配 IP！"
+
+msgid "Manage device network access anytime, anywhere"
+msgstr "隨時隨地，極簡管控該設備的網絡權限"
+
+msgid "⛔ Block Internet (WAN)"
+msgstr "⛔ 一鍵斷網 (禁止外網)"
+
+msgid "Instantly cut off internet access. LAN communication remains normal."
+msgstr "立即斷開該設備訪問互聯網的權限。局域網內互通正常。"
+
+msgid "🛡️ LAN Isolation (Anti-snooping)"
+msgstr "🛡️ 局域網隔離 (僅建議智能設備開啟)"
+
+msgid "Block internal network access for this device to prevent scanning and privacy leaks."
+msgstr "隔離該設備通過本路由器內網訪問權限，阻止內網掃描，防護隱私洩露。"
+
+msgid "🚀 DMZ Host (Expose to WAN)"
+msgstr "🚀 DMZ 主機 (暴露到公網)"
+
+msgid "Forward all WAN ports to this device. Only one device allowed."
+msgstr "將外網端口全轉發給該設備。僅能開啟一台設備。"
+
+msgid "Click to control access"
+msgstr "點擊管控權限"
+
+msgid "❌ Cannot enable DMZ: Device has no valid IP or is offline!"
+msgstr "❌ 無法開啟 DMZ：該設備尚未獲取到有效 IP，或不在線！"
+
+msgid "❌ Denied! Only one DMZ host allowed.\n\nDevice [ "
+msgstr "❌ 開啟被拒絕！全網只允許存在一台 DMZ 主機。\n\n設備 [ "
+
+msgid " ] is currently the DMZ.\nPlease disable its DMZ first!"
+msgstr " ] 當前已佔用 DMZ 權限。\n請先點擊該設備的 MAC 地址關閉 DMZ，再來為當前設備開啟！"
+
+msgid "❌ Save failed!\n\nReason: RPC Error ({err}).\nPlease run `/etc/init.d/rpcd restart` in SSH and try again!"
+msgstr "❌ 攔截規則保存失敗！\n\n原因: RPC 通信異常 ({err})\n可能是底層接口尚未刷新。\n\n解決辦法: 請在路由器的 SSH 中執行以下命令：\n/etc/init.d/rpcd restart\n\n執行後請刷新網頁再試一次！"
+
+msgid "❌ Save failed!\nReason: {err}\nPlease run `/etc/init.d/rpcd restart` in SSH"
+msgstr "❌ 保存失敗！\n原因: {err}\n請在 SSH 執行: /etc/init.d/rpcd restart"
+
+msgid "Firewall & Access Control"
+msgstr "防火牆與權限管控"
+
+msgid "Live Connections"
+msgstr "實時連接數"
+
+msgid "Monitor real-time connections (Auto turn off in 3 mins)"
+msgstr "監控設備實時並發連接數 (開啟3分鐘後自動關閉以節省性能)"
+
+msgid "Net Blocked"
+msgstr "已斷網"
+
+msgid "Isolated"
+msgstr "已隔離"
+
+msgid "DMZ Host"
+msgstr "DMZ 主機"
+
+msgid "Conns"
+msgstr "連接"
