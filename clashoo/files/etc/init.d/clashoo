@@ -388,7 +388,7 @@ runtime_run_health_check() {
 	if command_exists nslookup; then
 		dns_state="fail"
 		for _try in 1 2 3; do
-			dns_out="$(nslookup www.google.com 127.0.0.1 2>/dev/null)"
+			dns_out="$(timeout 3 nslookup www.google.com 127.0.0.1 2>/dev/null)"
 			dns_addr="$(echo "$dns_out" | awk '/^Address: /{print $2} /^Address [0-9]+: /{print $3}' | grep -E '^[0-9a-fA-F:.]+$' | tail -n1)"
 			if [ -n "$dns_addr" ]; then
 				if echo "$dns_addr" | grep -Eq '^198\.18\.|^fc00:'; then
@@ -1093,22 +1093,6 @@ _strip_yaml_rule_lines() {
 	' "$CONFIG_YAML" > /tmp/_clashoo_geo_rules.yaml && mv /tmp/_clashoo_geo_rules.yaml "$CONFIG_YAML"
 }
 
-_force_dns_fallback_geoip_false() {
-	grep -q '^dns:[[:space:]]*$' "$CONFIG_YAML" 2>/dev/null || return 0
-	grep -Eq '^[[:space:]]*fallback:[[:space:]]' "$CONFIG_YAML" 2>/dev/null || return 0
-	awk '
-	BEGIN { inserted=0 }
-	{
-		if ($0 ~ /^external-controller:[[:space:]]*/ && !inserted) {
-			print "    fallback-filter:"
-			print "      geoip: false"
-			inserted=1
-		}
-		print
-	}
-	END { }
-	' "$CONFIG_YAML" > /tmp/_clashoo_dns_fallback.yaml && mv /tmp/_clashoo_dns_fallback.yaml "$CONFIG_YAML"
-}
 
 _start_geoip_update_async() {
 	if [ -f /var/run/geoip_update ]; then
@@ -1281,7 +1265,6 @@ _start_prepare_config() {
 	fi
 
 	_prepare_geo_bootstrap_mode
-	yml_change >/dev/null 2>&1
 
 
 	if [ ! -f /etc/clashoo/config.yaml ];then
