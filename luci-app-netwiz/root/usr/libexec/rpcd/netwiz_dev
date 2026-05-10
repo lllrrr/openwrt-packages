@@ -4,56 +4,73 @@
 
 [ ! -f /etc/config/netwiz ] && touch /etc/config/netwiz
 
+delete_fw_rule() {
+    local target_name="$1"
+    
+    local idx=0
+    while uci -q get firewall.@rule[$idx] >/dev/null; do
+        local name=$(uci -q get firewall.@rule[$idx].name)
+        if [ -n "$name" ] && [ "${name#$target_name}" != "$name" ]; then
+            uci delete firewall.@rule[$idx]
+            continue
+        fi
+        idx=$((idx+1))
+    done
+}
+
 case "$1" in
     list)
-        echo '{ "get_list": {}, "bind": { "mac": "string", "ip": "string", "name": "string", "dept": "string", "no_reload": "boolean" }, "unbind": { "mac": "string", "no_reload": "boolean" }, "apply_dhcp": {}, "get_depts": {}, "save_depts": { "data": "string" } }'
+        echo '{ "get_list": { "show_conns": "boolean" }, "bind": { "mac": "string", "ip": "string", "name": "string", "dept": "string", "no_reload": "boolean" }, "unbind": { "mac": "string", "no_reload": "boolean" }, "apply_dhcp": {}, "get_depts": {}, "save_depts": { "data": "string" }, "fw_set": { "mac": "string", "ip": "string", "blk_en": "boolean", "iso_en": "boolean" } }'
         exit 0
         ;;
     call)
         case "$2" in
             get_list)
+                input=$(cat)
+                show_conns=$(echo "$input" | jsonfilter -e '@.show_conns' || echo "false")
+                
+                conn_str=""
+                if [ "$show_conns" = "true" ] || [ "$show_conns" = "1" ]; then
+                    if [ -f /proc/net/nf_conntrack ]; then
+                        conn_str=$(awk '{for(i=1;i<=NF;i++) if($i~/^src=/) {split($i,a,"="); c[a[2]]++; break}} END{for(i in c) print i"="c[i]}' /proc/net/nf_conntrack 2>/dev/null)
+                    elif command -v conntrack >/dev/null 2>&1; then
+                        conn_str=$(conntrack -L 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i~/^src=/) {split($i,a,"="); c[a[2]]++; break}} END{for(i in c) print i"="c[i]}')
+                    fi
+                fi
+
+                fw_str=$(uci show firewall 2>/dev/null || true)
+                
                 wifi_macs=$(iwinfo 2>/dev/null | grep -o -E '([[:xdigit:]]{1,2}:){5}[[:xdigit:]]{1,2}' | tr 'A-Z' 'a-z' || true)
                 arp_cache=$(ip -4 neigh show 2>/dev/null || cat /proc/net/arp 2>/dev/null | tail -n +2 || true)
                 leases=$(cat /tmp/dhcp.leases /var/dhcp.leases /tmp/run/dnsmasq/dhcp.leases /var/lib/misc/dnsmasq.leases 2>/dev/null || true)
                 hosts_str=$(cat /tmp/hosts/* /etc/hosts 2>/dev/null || true)
                 uci_hosts=$(uci show dhcp 2>/dev/null | grep "\.@host\[" || true)
-
                 ubus_leases=$(ubus call dhcp ipv4leases 2>/dev/null || ubus call odhcpd ipv4leases 2>/dev/null || true)
-
                 gw_ip=$(ip -4 route show default 2>/dev/null | awk '/default/ {print $3}' | head -n1 | tr -d ' \r\n')
                 lan_ip=$(ip addr show br-lan 2>/dev/null | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1 | tr -d ' \r\n')
                 [ -z "$lan_ip" ] && lan_ip=$(uci -q get network.lan.ipaddr | cut -d/ -f1 | tr -d ' \r\n')
-                
-                lan_mac=$(ip link show br-lan 2>/dev/null | awk '/link\/ether/ {print $2}' | tr 'A-Z' 'a-z')
+                lan_mac=$(ip link show br-lan 2>/dev/null | awk '/link\/ether/ {print $2}' | head -n1 | tr 'A-Z' 'a-z')
                 [ -z "$lan_mac" ] && lan_mac=$(ip link | awk '/link\/ether/ {print $2}' | head -n1 | tr 'A-Z' 'a-z')
                 local_ips=$(ip -4 addr show 2>/dev/null | awk '/inet / {print $2}' | cut -d/ -f1 | tr '\n' ' ')
-                
                 visitor_ips=$(netstat -nt 2>/dev/null | awk '$4 ~ /:(80|443)$/ && $6 ~ /ESTABLISHED/ {split($5, a, ":"); if(a[1]!="") print a[1]}' | sort -u | tr '\n' ' ')
-
                 curr_time=$(date +%s)
 
-                json_data=$(awk -v current_time="$curr_time" -v wifi_str="$wifi_macs" -v arp_str="$arp_cache" -v lease_str="$leases" -v hosts_str="$hosts_str" -v ubus_str="$ubus_leases" -v uci_str="$uci_hosts" -v gw_ip="$gw_ip" -v lan_ip="$lan_ip" -v lan_mac="$lan_mac" -v local_ips_str="$local_ips" -v visitor_ips_str="$visitor_ips" '
+                json_data=$(awk -v current_time="$curr_time" -v wifi_str="$wifi_macs" -v arp_str="$arp_cache" -v lease_str="$leases" -v hosts_str="$hosts_str" -v ubus_str="$ubus_leases" -v uci_str="$uci_hosts" -v gw_ip="$gw_ip" -v lan_ip="$lan_ip" -v lan_mac="$lan_mac" -v local_ips_str="$local_ips" -v visitor_ips_str="$visitor_ips" -v conn_str_input="$conn_str" -v fw_str_input="$fw_str" '
                 BEGIN {
                     gsub(/^[ \t\r\n]+|[ \t\r\n]+$/, "", gw_ip);
                     gsub(/^[ \t\r\n]+|[ \t\r\n]+$/, "", lan_ip);
                     gsub(/^[ \t\r\n]+|[ \t\r\n]+$/, "", lan_mac);
                     
                     split(local_ips_str, lip_arr, " ");
-                    for(i in lip_arr) {
-                        if(lip_arr[i] != "" && lip_arr[i] != "127.0.0.1") router_ips[lip_arr[i]] = 1;
-                    }
+                    for(i in lip_arr) if(lip_arr[i] != "" && lip_arr[i] != "127.0.0.1") router_ips[lip_arr[i]] = 1;
 
                     split(visitor_ips_str, vip_arr, " ");
-                    for(i in vip_arr) {
-                        if(vip_arr[i] != "" && vip_arr[i] != "127.0.0.1") visitor_ips[vip_arr[i]] = 1;
-                    }
+                    for(i in vip_arr) if(vip_arr[i] != "" && vip_arr[i] != "127.0.0.1") visitor_ips[vip_arr[i]] = 1;
 
                     if (lan_mac != "" && lan_ip != "") {
-                        all_macs[lan_mac] = 1;
-                        arp_ip[lan_mac] = lan_ip;
-                        arp_online[lan_mac] = 1;
-                        ubus_name[lan_mac] = "OpenWrt (Local)";
+                        all_macs[lan_mac] = 1; arp_ip[lan_mac] = lan_ip; arp_online[lan_mac] = 1; ubus_name[lan_mac] = "OpenWrt (Local)";
                     }
+
                     split(wifi_str, warr, "\n");
                     for(i in warr) if(warr[i]!="") wifi_online[warr[i]]=1;
                     
@@ -61,8 +78,7 @@ case "$1" in
                     for(i in aarr) {
                         split(aarr[i], f, " ");
                         if(f[1]!="" && f[1]!~/dev/) {
-                            mac="";
-                            state="";
+                            mac=""; state="";
                             for(j=1; j<=length(f); j++) {
                                 if(f[j]=="lladdr") mac=tolower(f[j+1]);
                                 else if(f[j] ~ /^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$/) mac=tolower(f[j]);
@@ -85,24 +101,17 @@ case "$1" in
                         else if (line ~ /"hostname":/) { split(line, p, "\""); cur_name = p[4]; }
                         else if (line ~ /"valid":/ || line ~ /"expires":/ || line ~ /"leasetime":/) { 
                             split(line, p, ":"); val=p[2]; gsub(/[^0-9]/, "", val); val = val + 0; 
-                            if (val > 1000000000) {
-                                if (val > current_time) cur_valid = val - current_time;
-                                else cur_valid = 0;
-                            } else {
-                                cur_valid = val;
-                            }
+                            if (val > 1000000000) { cur_valid = (val > current_time) ? val - current_time : 0; }
+                            else { cur_valid = val; }
                         }
                         else if (line ~ /}/) {
                             if (cur_mac != "") {
                                 if (cur_ip != "") leases_ip[cur_mac] = cur_ip;
                                 if (cur_name != "" && cur_name != "*" && cur_name != "?") ubus_name[cur_mac] = cur_name;
                                 if (cur_valid > 0) {
-                                    h = int(cur_valid / 3600);
-                                    m = int((cur_valid % 3600) / 60); s = cur_valid % 60;
+                                    h = int(cur_valid / 3600); m = int((cur_valid % 3600) / 60); s = cur_valid % 60;
                                     leases_time[cur_mac] = sprintf("%dh %dm %ds", h, m, s);
-                                } else if (cur_valid == 0) {
-                                    leases_time[cur_mac] = "Expired";
-                                }
+                                } else if (cur_valid == 0) { leases_time[cur_mac] = "Expired"; }
                                 all_macs[cur_mac] = 1;
                             }
                             cur_mac = ""; cur_ip = ""; cur_name = ""; cur_valid = -1;
@@ -115,12 +124,10 @@ case "$1" in
                         if(length(f) >= 4 && f[2]!="") { 
                             mac=tolower(f[2]);
                             if(f[3]!="") leases_ip[mac]=f[3]; 
-                            
                             name = f[4];
                             for(k=5; k<=length(f)-1; k++) { name = name " " f[k]; }
                             if(name!="" && name!="*" && name!="?") leases_name[mac]=name;
                             all_macs[mac]=1; 
-                            
                             exp_time = f[1] + 0;
                             if (leases_time[mac] == "") {
                                 if (exp_time > 1000000000) {
@@ -128,16 +135,12 @@ case "$1" in
                                         left = exp_time - current_time;
                                         h = int(left / 3600); m = int((left % 3600) / 60); s = left % 60;
                                         leases_time[mac] = sprintf("%dh %dm %ds", h, m, s);
-                                    } else {
-                                        leases_time[mac] = "Expired";
-                                    }
+                                    } else leases_time[mac] = "Expired";
                                 } else if (exp_time > 0 && exp_time <= 1000000000) {
                                     left = exp_time;
                                     h = int(left / 3600); m = int((left % 3600) / 60); s = left % 60;
                                     leases_time[mac] = sprintf("%dh %dm %ds", h, m, s);
-                                } else if (exp_time == 0) {
-                                    leases_time[mac] = "Infinite";
-                                }
+                                } else if (exp_time == 0) leases_time[mac] = "Infinite";
                             }
                         }
                     }
@@ -147,8 +150,7 @@ case "$1" in
                         split(harr[i], f, " ");
                         if(f[1]!="" && f[2]!="") {
                             if (f[1] ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) {
-                                name = f[2];
-                                sub(/\.lan$/, "", name);
+                                name = f[2]; sub(/\.lan$/, "", name);
                                 if (name != "localhost" && name != "*" && name != "?") ip_to_name[f[1]] = name;
                             }
                         }
@@ -158,20 +160,17 @@ case "$1" in
                     for(i in uarr) {
                         idx=index(uarr[i],"=");
                         if(idx>0) {
-                            key=substr(uarr[i],1,idx-1);
-                            val=substr(uarr[i],idx+1); gsub(/^\047|\047$/, "", val);
+                            key=substr(uarr[i],1,idx-1); val=substr(uarr[i],idx+1); gsub(/^\047|\047$/, "", val);
                             split(key, kp, ".");
                             if(kp[1]=="dhcp" && kp[2]!="" && kp[3]!="") {
-                                h_idx=kp[2];
-                                prop=kp[3];
+                                h_idx=kp[2]; prop=kp[3];
                                 if(prop=="mac"){
-                                    gsub(/["\r\n]/, "", val);
-                                    split(tolower(val), mparts, " "); 
-                                    for(m in mparts) { uci_mac_list[h_idx] = (uci_mac_list[h_idx]=="" ? "" : uci_mac_list[h_idx] " ") mparts[m]; }
+                                    gsub(/["\r\n]/, "", val); split(tolower(val), mparts, " "); 
+                                    for(m in mparts) uci_mac_list[h_idx] = (uci_mac_list[h_idx]=="" ? "" : uci_mac_list[h_idx] " ") mparts[m];
                                 }
                                 else if(prop=="ip") uci_ip_map[h_idx]=val;
                                 else if(prop=="name") uci_name_map[h_idx]=val;
-                                else if(prop=="netwiz_dept") uci_dept_map[h_idx]=val; # 底层部门Tag解析
+                                else if(prop=="netwiz_dept") uci_dept_map[h_idx]=val;
                             }
                         }
                     }
@@ -179,13 +178,51 @@ case "$1" in
                     for (h_idx in uci_mac_list) {
                         split(uci_mac_list[h_idx], mparts, " ");
                         for (m in mparts) {
-                            m_mac = mparts[m];
-                            all_macs[m_mac] = 1;
-                            is_static_mac[m_mac] = 1;
+                            m_mac = mparts[m]; all_macs[m_mac] = 1; is_static_mac[m_mac] = 1;
                             if (uci_ip_map[h_idx] != "") static_ip[m_mac] = uci_ip_map[h_idx];
                             if (uci_name_map[h_idx] != "") uci_name[m_mac] = uci_name_map[h_idx];
-                            if (uci_dept_map[h_idx] != "") static_dept[m_mac] = uci_dept_map[h_idx]; # 记录MAC对应的Tag
+                            if (uci_dept_map[h_idx] != "") static_dept[m_mac] = uci_dept_map[h_idx];
                         }
+                    }
+
+                    # 纯净版防火墙规则解析（极简双开关版）
+                    split(fw_str_input, ffw_arr, "\n");
+                    for(i in ffw_arr) {
+                        line = ffw_arr[i];
+                        if (index(line, "firewall.@rule[") == 1) {
+                            eq_idx = index(line, "=");
+                            if (eq_idx > 0) {
+                                prop_full = substr(line, 1, eq_idx - 1);
+                                val = substr(line, eq_idx + 1);
+                                gsub(/^\047|\047$/, "", val);
+                                
+                                split(prop_full, kp, ".");
+                                if (kp[1] == "firewall" && kp[2] != "" && kp[3] != "") {
+                                    obj = kp[2];
+                                    prop = kp[3];
+                                    if (prop == "name" && val ~ /^nw_/) fw_name[obj] = val;
+                                }
+                            }
+                        }
+                    }
+
+                    for (obj in fw_name) {
+                        name = fw_name[obj]; 
+                        split(name, parts, "_");
+                        type = parts[2]; 
+                        mac_clean = tolower(parts[3]);
+                        if (length(mac_clean) == 12) {
+                            mac = substr(mac_clean,1,2) ":" substr(mac_clean,3,2) ":" substr(mac_clean,5,2) ":" substr(mac_clean,7,2) ":" substr(mac_clean,9,2) ":" substr(mac_clean,11,2);
+                            if (type == "blk") fw_blk[mac] = 1;
+                            else if (type == "iso") fw_iso[mac] = 1;
+                        }
+                    }
+
+                    # 解析连接数
+                    split(conn_str_input, carr, "\n");
+                    for(i in carr) {
+                        split(carr[i], p, "=");
+                        if(p[1]!="") conn_count[p[1]] = p[2] + 0;
                     }
 
                     printf "{\"devices\": [";
@@ -208,28 +245,28 @@ case "$1" in
                         
                         l_time = leases_time[mac];
                         if(l_time=="") {
-                            if (is_static_mac[mac]==1) {
-                                l_time = "Static";
-                            } else if (arp_online[mac]==1) {
-                                l_time = "Device Addressed IP";
-                            } else {
-                                l_time = "-";
-                            }
+                            if (is_static_mac[mac]==1) l_time = "Static";
+                            else if (arp_online[mac]==1) l_time = "Device Addressed IP";
+                            else l_time = "-";
                         }
 
-                        gsub(/["\\\r\n\t]/, "", mac); gsub(/["\\\r\n\t]/, "", ip);
-                        gsub(/["\\\r\n\t]/, "", name);
+                        gsub(/["\\\r\n\t]/, "", mac); gsub(/["\\\r\n\t]/, "", ip); gsub(/["\\\r\n\t]/, "", name);
                         
                         is_static = (is_static_mac[mac]==1) ? "true" : "false";
                         is_gw = (ip != "" && ip == gw_ip) ? "true" : "false";
                         is_local = (ip != "" && router_ips[ip] == 1) ? "true" : "false";
                         is_visitor = (ip != "" && visitor_ips[ip] == 1) ? "true" : "false";
                         
-                        b_ip = static_ip[mac]; 
-                        b_dept = static_dept[mac]; # 获取绑定Tag
+                        b_ip = static_ip[mac]; b_dept = static_dept[mac];
                         
+                        c_count = (conn_count[ip] != "") ? conn_count[ip] : 0;
+                        f_blk = (fw_blk[mac]==1) ? "true" : "false";
+                        f_iso = (fw_iso[mac]==1) ? "true" : "false";
+
                         if(!first) printf ", ";
-                        printf "{\"mac\": \"%s\", \"ip\": \"%s\", \"bound_ip\": \"%s\", \"dept\": \"%s\", \"name\": \"%s\", \"online\": %s, \"is_static\": %s, \"is_gw\": %s, \"is_local\": %s, \"is_visitor\": %s, \"lease\": \"%s\"}", mac, ip, b_ip, b_dept, name, (is_online?"true":"false"), is_static, is_gw, is_local, is_visitor, l_time;
+                        printf "{\"mac\": \"%s\", \"ip\": \"%s\", \"bound_ip\": \"%s\", \"dept\": \"%s\", \"name\": \"%s\", \"online\": %s, \"is_static\": %s, \"is_gw\": %s, \"is_local\": %s, \"is_visitor\": %s, \"lease\": \"%s\", \"conn_count\": %d, \"fw_block\": %s, \"fw_isolate\": %s", mac, ip, b_ip, b_dept, name, (is_online?"true":"false"), is_static, is_gw, is_local, is_visitor, l_time, c_count, f_blk, f_iso;
+                        
+                        printf "}";
                         first=0;
                     }
                     printf "]}";
@@ -237,16 +274,66 @@ case "$1" in
                 echo "$json_data"
                 exit 0
                 ;;
+            fw_set)
+                # ★ 极简双开关合并处理引擎 ★
+                input=$(cat)
+                mac=$(echo "$input" | jsonfilter -e '@.mac' | tr 'A-Z' 'a-z')
+                mac_clean=$(echo "$mac" | tr -d ':')
+                ip=$(echo "$input" | jsonfilter -e '@.ip')
+                
+                blk_en=$(echo "$input" | jsonfilter -e '@.blk_en')
+                iso_en=$(echo "$input" | jsonfilter -e '@.iso_en')
+
+                [ -z "$mac" ] && exit 0
+
+                # 1. 处理断网 (彻底使用 DROP 丢弃包，强制 enabled)
+                delete_fw_rule "nw_blk_${mac_clean}"
+                if [ "$blk_en" = "true" ]; then
+                    uci add firewall rule >/dev/null
+                    uci set firewall.@rule[-1].name="nw_blk_${mac_clean}"
+                    uci set firewall.@rule[-1].src="lan"
+                    uci set firewall.@rule[-1].dest="wan"
+                    uci set firewall.@rule[-1].src_mac="$mac"
+                    uci set firewall.@rule[-1].target="DROP"
+                    uci set firewall.@rule[-1].enabled="1"
+                fi
+
+                # 2. 处理局域网隔离
+                delete_fw_rule "nw_iso_${mac_clean}"
+                if [ "$iso_en" = "true" ]; then
+                    uci add firewall rule >/dev/null
+                    uci set firewall.@rule[-1].name="nw_iso_${mac_clean}"
+                    uci set firewall.@rule[-1].src="lan"
+                    uci set firewall.@rule[-1].dest="lan"
+                    uci set firewall.@rule[-1].src_mac="$mac"
+                    uci set firewall.@rule[-1].target="DROP"
+                    uci set firewall.@rule[-1].enabled="1"
+                fi
+
+                uci commit firewall
+                /etc/init.d/firewall reload >/dev/null 2>&1
+                
+                # ★ 强制拔管机制：清理该 IP 的所有现有连接，让视频和游戏瞬间断开 ★
+                if command -v conntrack >/dev/null 2>&1; then
+                    [ -n "$ip" ] && [ "$ip" != "Unknown IP" ] && conntrack -D -s "$ip" >/dev/null 2>&1
+                fi
+
+                echo '{"result":0}'
+                exit 0
+                ;;
             bind)
                 input=$(cat)
                 mac=$(echo "$input" | jsonfilter -e '@.mac' | tr 'A-Z' 'a-z')
                 ip=$(echo "$input" | jsonfilter -e '@.ip')
                 name=$(echo "$input" | jsonfilter -e '@.name')
-                dept=$(echo "$input" | jsonfilter -e '@.dept') # 前端传来的Tag
+                dept=$(echo "$input" | jsonfilter -e '@.dept')
                 no_reload=$(echo "$input" | jsonfilter -e '@.no_reload')
 
                 [ -z "$mac" ] || [ -z "$ip" ] && exit 0
-                [ -z "$name" ] || [ "$name" = "Unknown" ] && name="Device_${mac: -5}"
+                
+                if [ -z "$name" ] || [ "$name" = "Unknown" ]; then
+                    name="Device_$(echo "$mac" | awk -F: '{print $5$6}')"
+                fi
 
                 uci show dhcp | grep -i "\.mac=.*$mac" | cut -d'.' -f2 | while read -r h_idx; do uci delete dhcp.$h_idx 2>/dev/null; done
                 uci show dhcp | grep "\.ip='$ip'" | cut -d'.' -f2 | while read -r h_idx; do uci delete dhcp.$h_idx 2>/dev/null; done
@@ -256,7 +343,6 @@ case "$1" in
                 uci set dhcp.$new_sect.mac="$mac"
                 uci set dhcp.$new_sect.ip="$ip"
                 
-                # 选择目标组，则写入独立标签
                 if [ -n "$dept" ] && [ "$dept" != "none" ]; then
                     uci set dhcp.$new_sect.netwiz_dept="$dept"
                 fi
@@ -276,6 +362,12 @@ case "$1" in
                 
                 uci show dhcp | grep -i "\.mac=.*$mac" | cut -d'.' -f2 | while read -r h_idx; do uci delete dhcp.$h_idx 2>/dev/null; done
                 
+                mac_clean=$(echo "$mac" | tr -d ':' | tr 'a-z' 'A-Z')
+                delete_fw_rule "nw_blk_${mac_clean}"
+                delete_fw_rule "nw_iso_${mac_clean}"
+                uci commit firewall
+                /etc/init.d/firewall reload >/dev/null 2>&1
+
                 uci commit dhcp
                 if [ "$no_reload" != "true" ] && [ "$no_reload" != "1" ]; then
                     /etc/init.d/dnsmasq reload >/dev/null 2>&1
