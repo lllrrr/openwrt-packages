@@ -1560,6 +1560,12 @@ success: false,
 error: 'smart_core_missing',
 message: '未检测到 Smart 内核。「更新模型」只更新 Smart 模型，不会安装 Smart 内核；请到「系统 → 内核更新」选择 mihomo Smart 版并下载。'
 };
+if (core == 'singbox' && !find_binary_for_family('singbox'))
+return {
+success: false,
+error: 'singbox_core_missing',
+message: '未检测到 sing-box 内核；请到「系统 → 内核更新」下载 sing-box。'
+};
 
 let c = cursor(); c.load('clashoo');
 c.set('clashoo', 'config', 'core_type', core);
@@ -3100,11 +3106,7 @@ if (!config_obj && system('command -v ucode >/dev/null 2>&1') == 0 &&
     let tmp_yaml = '/tmp/clashoo_sb_sub.yaml';
     let tmp_hdr  = '/tmp/clashoo_sb_sub.hdr';
     system('rm -f ' + shell_quote(tmp_hdr) + ' >/dev/null 2>&1');
-    let dl_cmd = 'curl -fL --connect-timeout 8 --max-time 20 '
-      + ' -D ' + shell_quote(tmp_hdr)
-      + ' ' + shell_quote(sub_url)
-      + ' -o ' + shell_quote(tmp_yaml)
-      + ' >/dev/null 2>&1 || wget -O ' + shell_quote(tmp_yaml) + ' ' + shell_quote(sub_url) + ' >/dev/null 2>&1';
+    let dl_cmd = 'curl -fsSL --connect-timeout 8 --max-time 20 -D ' + shell_quote(tmp_hdr) + ' -A "Clash/OpenWRT" ' + shell_quote(sub_url) + ' -o ' + shell_quote(tmp_yaml) + ' >/dev/null 2>&1 || wget -q -O ' + shell_quote(tmp_yaml) + ' ' + shell_quote(sub_url) + ' >/dev/null 2>&1';
     if (system(dl_cmd) == 0 && access(tmp_yaml, 'r')) {
       yaml_src = tmp_yaml;
       downloaded_yaml = tmp_yaml;

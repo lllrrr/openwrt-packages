@@ -631,6 +631,15 @@ return view.extend({
 			]);
 		};
 
+		// 添加重启服务按钮
+		o = s.option(form.Button, 'restart_service', _('Restart Service'));
+		o.inputtitle = _('Restart Bandix Service');
+		o.inputstyle = 'apply';
+		o.onclick = function () {
+			return ui.showModal(_('Restart Service'), [
+				E('p', _('Are you sure you want to restart the Bandix service?')),
+				E('div', { 'class': 'right' }, [
+					E('button', {
 						'class': 'btn',
 						'click': ui.hideModal
 					}, _('Cancel')),
