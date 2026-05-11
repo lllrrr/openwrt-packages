@@ -719,10 +719,10 @@ msgid "Unknown Device"
 msgstr "未知裝置"
 
 msgid "Unknown IP"
-msgstr "未知 IP"
+msgstr "未知IP(無外網)"
 
 msgid "Terminal Addressed IP"
-msgstr "終端尋址IP"
+msgstr "終端自簽IP"
 
 msgid "Edit Device Info"
 msgstr "修改裝置資訊"
@@ -954,3 +954,6 @@ msgstr "DMZ 主機"
 
 msgid "Conns"
 msgstr "連接"
+
+msgid "❌ Invalid IP format! Please enter a valid IPv4 address (e.g., 192.168.1.50)"
+msgstr "❌ IP格式錯誤！請輸入合法的IPv4位址 (例如: 192.168.1.50)")

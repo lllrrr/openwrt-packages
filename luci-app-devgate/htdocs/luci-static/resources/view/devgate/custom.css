@@ -1,0 +1,69 @@
+.devgate-page {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: calc(100vh - var(--devgate-page-offset, 0px));
+
+    .devgate-page-header > h2,
+    .devgate-rules-title {
+        margin: 0;
+        display: flex !important;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .devgate-page-header > h2 {
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .devgate-service-switch {
+            display: flex;
+            align-items: center;
+            font-size: 1rem;
+            gap: 0.2rem;
+
+            input {
+                margin: 0;
+            }
+        }
+    }
+
+    .cbi-map,
+    .devgate-rules-section,
+    .devgate-rules-table-scroll{
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        margin-bottom: 0;
+    }
+
+    .devgate-rules-table-scroll {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+
+        > .cbi-section-table {
+            min-width: 100%;
+            table-layout: fixed;
+
+            .cbi-section-table-cell,
+            th,
+            td {
+                &:nth-child(3) {
+                    width: 18rem;
+                }
+
+                &:nth-child(4),
+                &:nth-child(5) {
+                    width: 8rem;
+                }
+            }
+
+            select {
+                max-width: 100%;
+            }
+        }
+    }
+}

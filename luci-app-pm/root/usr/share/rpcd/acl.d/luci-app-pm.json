@@ -1,0 +1,21 @@
+{
+	"luci-app-powermanager": {
+		"description": "ACL file for luci-app-powermanager",
+		"read": {
+			"ubus": {
+				"system": [ "info" ]
+			},
+			"file": {
+				"/sbin/poweroff": [ "exec" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"file": [ "exec" ]
+			},
+			"file": {
+				"/sbin/poweroff": [ "exec" ]
+			}
+		}
+	}
+}

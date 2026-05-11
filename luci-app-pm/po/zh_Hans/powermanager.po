@@ -1,0 +1,44 @@
+msgid "Reboot"
+msgstr "重启"
+
+msgid "PowerOff"
+msgstr "关机"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Are you sure?"
+msgstr "你确定吗？"
+
+msgid "PowerManager"
+msgstr "电源管理器"
+
+msgid "Luci plugin that make ImmortalWRT poweroff and reboot to easy."
+msgstr "一款旨在让ImmortalWrt的关机和重启更容易的Luci插件"
+
+msgid "GitHub Project Address"
+msgstr "Github项目地址"
+
+msgid "Do you want to reboot this system?"
+msgstr "您要重启此设备吗？"
+
+msgid "Rebooting..."
+msgstr "正在重启..."
+
+msgid "Waiting for device reconnect..."
+msgstr "正在等待设备..."
+
+msgid "Reboot failed"
+msgstr "重启失败"
+
+msgid "Do you really want to shutdown the system? Problems may occur on unsupported devices."
+msgstr "您真的要关机吗？这是一个有可能导致设备出现问题的操作。"
+
+msgid "Shutting down..."
+msgstr "正在关机..."
+
+msgid "The device is powering off..."
+msgstr "设备正在关机..."
+
+msgid "PowerOff failed"
+msgstr "关机失败"

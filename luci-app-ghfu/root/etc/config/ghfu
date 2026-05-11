@@ -1,0 +1,5 @@
+config ghfu 'main'
+    option github_repo 'smallprogram/OpenWrtAction'
+    option selected_release ''
+    option keep_config '1'
+    option fetch_timeout '15'

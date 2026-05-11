@@ -1,0 +1,188 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "GitHub Firmware Upgrade"
+msgstr "GitHub 固件升级"
+
+msgid "Firmware upgrade assistant based on GitHub Release."
+msgstr "基于 GitHub Release 的固件升级助手。"
+
+msgid "GitHub Repository"
+msgstr "GitHub 仓库"
+
+msgid "Firmware Fuzzy Search"
+msgstr "模糊检索固件"
+
+msgid "Enter keyword to filter firmware names"
+msgstr "输入关键字筛选固件名"
+
+msgid "Release/Firmware"
+msgstr "Release/固件"
+
+msgid "Keep Configuration During Upgrade"
+msgstr "保留配置升级"
+
+msgid "System and Release Status"
+msgstr "系统与 Release 状态"
+
+msgid "Available Firmware"
+msgstr "可选固件"
+
+msgid "Logs"
+msgstr "日志"
+
+msgid "Fetch Latest Release"
+msgstr "获取最新 Release"
+
+msgid "Download and Upgrade System"
+msgstr "下载并升级系统"
+
+msgid "Waiting to fetch latest release"
+msgstr "等待获取最新 Release"
+
+msgid "No matching firmware"
+msgstr "没有匹配的固件"
+
+msgid "Fetching latest release"
+msgstr "开始获取最新 Release"
+
+msgid "Fetch failed"
+msgstr "获取失败"
+
+msgid "Request failed: "
+msgstr "请求失败: "
+
+msgid "Latest release: "
+msgstr "最新 Release: "
+
+msgid "Status updated"
+msgstr "状态已更新"
+
+msgid "No new firmware currently, firmware selection is disabled"
+msgstr "当前没有更新固件，已停止后续固件选择"
+
+msgid "System install time"
+msgstr "系统安装时间"
+
+msgid "Latest release"
+msgstr "最新 Release"
+
+msgid "Published time"
+msgstr "发布时间"
+
+msgid "Conclusion"
+msgstr "结论"
+
+msgid "Please select firmware to upgrade"
+msgstr "请选择要升级的固件"
+
+msgid "Please select a firmware asset"
+msgstr "请选择固件下载项"
+
+msgid "Preparing upgrade: "
+msgstr "准备开始升级: "
+
+msgid "Upgrade command started, device may reboot soon"
+msgstr "升级命令已启动，设备可能会很快重启"
+
+msgid "Upgrade request failed: "
+msgstr "升级请求失败: "
+
+msgid "Selected firmware: "
+msgstr "已选择固件: "
+
+msgid "unknown"
+msgstr "未知"
+
+msgid "Failed to fetch GitHub release data"
+msgstr "无法获取 GitHub Release 数据"
+
+msgid "Failed to parse GitHub API response"
+msgstr "GitHub 返回数据解析失败"
+
+msgid "GitHub API error: "
+msgstr "GitHub API 错误: "
+
+msgid "GitHub repository cannot be empty"
+msgstr "GitHub 仓库不能为空"
+
+msgid "New firmware is available"
+msgstr "检测到新固件，可升级"
+
+msgid "No firmware newer than current system was found"
+msgstr "没有检测到比当前系统更新的固件"
+
+msgid "Invalid firmware URL, only https is supported"
+msgstr "固件下载地址非法，仅支持 https"
+
+msgid "Downloading firmware: "
+msgstr "正在下载固件: "
+
+msgid " downloaded successfully"
+msgstr " 下载成功"
+
+msgid "Invalid firmware file name"
+msgstr "固件文件名非法"
+
+msgid "Firmware file not found, please download again"
+msgstr "固件文件未找到，请重新下载"
+
+msgid "Starting system upgrade"
+msgstr "开始升级系统"
+
+msgid "Backup failed"
+msgstr "备份失败"
+
+msgid "Download Backup"
+msgstr "下载备份"
+
+msgid "Upgrading System"
+msgstr "正在升级系统"
+
+msgid "System is upgrading, please wait. The page will reload automatically when the system comes back online."
+msgstr "系统正在升级，请稍候。系统上线后页面将自动刷新。"
+
+msgid "Starting download: "
+msgstr "开始下载: "
+
+msgid "System upgrade will start in "
+msgstr "系统将在 "
+
+msgid " seconds"
+msgstr " 秒后开始升级"
+
+msgid "Starting system upgrade..."
+msgstr "正在启动系统升级..."
+
+msgid "Upgrade mode: keep configuration"
+msgstr "本次升级: 保留配置"
+
+msgid "Upgrade mode: do not keep configuration"
+msgstr "本次升级: 不保留配置"
+
+msgid "Fetch Timeout (seconds)"
+msgstr "获取超时（秒）"
+
+msgid "5 ~ 300 seconds. Limits GitHub API fetch time."
+msgstr "5 ~ 300 秒，限制 GitHub API 获取时间。"
+
+msgid "Unable to fetch GitHub Release, please check your network connection"
+msgstr "无法获取 GitHub Release，请检查网络连接"
+
+msgid "Read Latest Release Notes"
+msgstr "阅读最新的更新说明"
+
+msgid "Latest Release Notes"
+msgstr "最新更新说明"
+
+msgid "Close"
+msgstr "关闭"
+
+msgid "No release notes content available"
+msgstr "暂无更新说明内容"
+
+msgid "Latest release assets are not ready yet, using previous release with available firmware."
+msgstr "最新 Release 固件尚未上传完成，已自动使用上一个可用固件的 Release。"
+
+msgid "Some firmware files may still be compiling/uploading for the latest release. Please try again later if your platform is missing."
+msgstr "最新 Release 的部分固件可能仍在编译或上传中，如缺少你的平台，请稍后再试。"

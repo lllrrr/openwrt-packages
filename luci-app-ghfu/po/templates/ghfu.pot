@@ -1,0 +1,191 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "GitHub Firmware Upgrade"
+msgstr ""
+
+msgid "Firmware upgrade assistant based on GitHub Release."
+msgstr ""
+
+msgid "GitHub Repository"
+msgstr ""
+
+msgid "Firmware Fuzzy Search"
+msgstr ""
+
+msgid "Enter keyword to filter firmware names"
+msgstr ""
+
+msgid "Release/Firmware"
+msgstr ""
+
+msgid "Keep Configuration During Upgrade"
+msgstr ""
+
+msgid "System and Release Status"
+msgstr ""
+
+msgid "Available Firmware"
+msgstr ""
+
+msgid "Logs"
+msgstr ""
+
+msgid "Fetch Latest Release"
+msgstr ""
+
+msgid "Download and Upgrade System"
+msgstr ""
+
+msgid "Waiting to fetch latest release"
+msgstr ""
+
+msgid "No matching firmware"
+msgstr ""
+
+msgid "Fetching latest release"
+msgstr ""
+
+msgid "Fetch failed"
+msgstr ""
+
+msgid "Request failed: "
+msgstr ""
+
+msgid "Latest release: "
+msgstr ""
+
+msgid "Status updated"
+msgstr ""
+
+msgid "No new firmware currently, firmware selection is disabled"
+msgstr ""
+
+msgid "System install time"
+msgstr ""
+
+msgid "Latest release"
+msgstr ""
+
+msgid "Published time"
+msgstr ""
+
+msgid "Conclusion"
+msgstr ""
+
+msgid "Please select firmware to upgrade"
+msgstr ""
+
+msgid "Please select a firmware asset"
+msgstr ""
+
+msgid "Preparing upgrade: "
+msgstr ""
+
+msgid "Upgrade command started, device may reboot soon"
+msgstr ""
+
+msgid "Upgrade request failed: "
+msgstr ""
+
+msgid "Selected firmware: "
+msgstr ""
+
+msgid "unknown"
+msgstr ""
+
+msgid "Failed to fetch GitHub release data"
+msgstr ""
+
+msgid "Failed to parse GitHub API response"
+msgstr ""
+
+msgid "GitHub API error: "
+msgstr ""
+
+msgid "GitHub repository cannot be empty"
+msgstr ""
+
+msgid "New firmware is available"
+msgstr ""
+
+msgid "No firmware newer than current system was found"
+msgstr ""
+
+msgid "Invalid firmware URL, only https is supported"
+msgstr ""
+
+msgid "Downloading firmware: "
+msgstr ""
+
+msgid " downloaded successfully"
+msgstr ""
+
+msgid "Invalid firmware file name"
+msgstr ""
+
+msgid "Firmware file not found, please download again"
+msgstr ""
+
+msgid "Starting system upgrade"
+msgstr ""
+
+msgid "Backup failed"
+msgstr ""
+
+msgid "Download Backup"
+msgstr ""
+
+msgid "Upgrading System"
+msgstr ""
+
+msgid "System is upgrading, please wait. The page will reload automatically when the system comes back online."
+msgstr ""
+
+msgid "Starting download: "
+msgstr ""
+
+msgid "System upgrade will start in "
+msgstr ""
+
+msgid " seconds"
+msgstr ""
+
+msgid "Starting system upgrade..."
+msgstr ""
+
+msgid "Firmware download failed, please check network or GitHub repository"
+msgstr ""
+
+msgid "Upgrade mode: keep configuration"
+msgstr ""
+
+msgid "Upgrade mode: do not keep configuration"
+msgstr ""
+
+msgid "Fetch Timeout (seconds)"
+msgstr ""
+
+msgid "5 ~ 300 seconds. Limits GitHub API fetch time."
+msgstr ""
+
+msgid "Unable to fetch GitHub Release, please check your network connection"
+msgstr ""
+
+msgid "Read Latest Release Notes"
+msgstr ""
+
+msgid "Latest Release Notes"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "No release notes content available"
+msgstr ""
+
+msgid "Latest release assets are not ready yet, using previous release with available firmware."
+msgstr ""
+
+msgid "Some firmware files may still be compiling/uploading for the latest release. Please try again later if your platform is missing."
+msgstr ""

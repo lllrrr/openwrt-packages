@@ -1,0 +1,13 @@
+{
+	"admin/system/powermanager": {
+		"title": "PowerManager",
+		"action": {
+			"type": "view",
+			"path": "index"
+		},
+		"order": 99
+	},
+	"admin/system/reboot": {
+        "disabled": true
+    }
+}

@@ -137,7 +137,8 @@ var T = {
     'ERR_DMZ_OCCUPIED_1': _('❌ Denied! Only one DMZ host allowed.\n\nDevice [ '),
     'ERR_DMZ_OCCUPIED_2': _(' ] is currently the DMZ.\nPlease disable its DMZ first!'),
     'ERR_FW_SAVE_FAIL': _('❌ Save failed!\n\nReason: RPC Error ({err}).\nPlease run `/etc/init.d/rpcd restart` in SSH and try again!'),
-    'ERR_SAVE_FAIL_SHORT': _('❌ Save failed!\nReason: {err}\nPlease run `/etc/init.d/rpcd restart` in SSH')
+    'ERR_SAVE_FAIL_SHORT': _('❌ Save failed!\nReason: {err}\nPlease run `/etc/init.d/rpcd restart` in SSH'),
+    'ERR_IP_FORMAT': _('❌ Invalid IP format! Please enter a valid IPv4 address (e.g., 192.168.1.50)')
 };
 
 var callDeviceList = rpc.declare({ object: 'netwiz_dev', method: 'get_list', params: ['show_conns'], expect: { '': {} } });
@@ -879,6 +880,12 @@ return view.extend({
                         }
 
                         if (!submitIp) { alert(T['ERR_IP_EMPTY']); return; }
+
+                        var ipRegex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+                        if (!ipRegex.test(submitIp)) {
+                            alert(T['ERR_IP_FORMAT']); 
+                            return; 
+                        }
 
                         var conflictDev = globalDevices.find(function(d) {
                             return (d.bound_ip === submitIp || d.ip === submitIp) && d.mac !== options.targetMac;

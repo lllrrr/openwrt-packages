@@ -1,0 +1,21 @@
+#!/bin/sh
+chmod +x /etc/init.d/devgate /usr/bin/devgate*
+uci -q batch <<-EOF >/dev/null
+	delete ucitrack.@devgate[-1]
+	add ucitrack devgate
+	set ucitrack.@devgate[-1].init=devgate
+	commit ucitrack
+EOF
+
+[ -s /etc/config/devgate ] || cat > /etc/config/devgate <<'EOF'
+config devgate
+EOF
+
+uci -q delete devgate.@devgate[0].control_mode
+uci -q delete devgate.@devgate[0].list_type
+uci -q delete devgate.@devgate[0].chain
+uci -q commit devgate
+
+rm -rf /tmp/luci-indexcache /tmp/luci-modulecache /tmp/luci-*cache
+/etc/init.d/rpcd reload >/dev/null 2>&1 || true
+exit 0
