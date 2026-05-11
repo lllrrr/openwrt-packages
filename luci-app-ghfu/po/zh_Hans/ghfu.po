@@ -7,6 +7,9 @@ msgstr "GitHub 固件升级"
 msgid "Firmware upgrade assistant based on GitHub Release."
 msgstr "基于 GitHub Release 的固件升级助手。"
 
+msgid "Basic Configuration"
+msgstr "基础配置"
+
 msgid "GitHub Repository"
 msgstr "GitHub 仓库"
 
@@ -25,8 +28,50 @@ msgstr "保留配置升级"
 msgid "System and Release Status"
 msgstr "系统与 Release 状态"
 
-msgid "Available Firmware"
-msgstr "可选固件"
+msgid "Available Firmware (%d)"
+msgstr "可选固件(%d个)"
+
+msgid "Filter Rules"
+msgstr "过滤规则"
+
+msgid "Default Filter Rules"
+msgstr "默认过滤规则"
+
+msgid "Enable Prefix Filter"
+msgstr "启用前缀过滤"
+
+msgid "Exclude Name Prefix"
+msgstr "排除名称前缀"
+
+msgid "e.g. buildinfo"
+msgstr "例如 buildinfo"
+
+msgid "Leave empty to disable prefix filtering"
+msgstr "留空则不按前缀过滤"
+
+msgid "Matched names will be hidden"
+msgstr "匹配到的文件名将被隐藏"
+
+msgid "Enable Size Filter"
+msgstr "启用容量过滤"
+
+msgid "Exclude Size Below (KB)"
+msgstr "排除容量小于（KB）"
+
+msgid "0 means no size filter"
+msgstr "填 0 表示不按容量过滤"
+
+msgid "Files smaller than this size will be hidden"
+msgstr "小于该容量的文件将被隐藏"
+
+msgid "Save Filter Rules"
+msgstr "保存过滤规则"
+
+msgid "Saving filter rules..."
+msgstr "正在保存过滤规则..."
+
+msgid "Filter rules saved"
+msgstr "过滤规则已保存"
 
 msgid "Logs"
 msgstr "日志"
@@ -62,6 +107,8 @@ msgid "No new firmware currently, firmware selection is disabled"
 msgstr "当前没有更新固件，已停止后续固件选择"
 
 msgid "System install time"
+msgid "Default Filter Rules"
+msgstr "默认过滤规则"
 msgstr "系统安装时间"
 
 msgid "Latest release"
@@ -110,13 +157,22 @@ msgid "New firmware is available"
 msgstr "检测到新固件，可升级"
 
 msgid "No firmware newer than current system was found"
-msgstr "没有检测到比当前系统更新的固件"
+msgstr "当前系统为最新状态，没有更新的必要"
 
 msgid "Invalid firmware URL, only https is supported"
 msgstr "固件下载地址非法，仅支持 https"
 
 msgid "Downloading firmware: "
 msgstr "正在下载固件: "
+
+msgid "Download progress: "
+msgstr "下载进度: "
+
+msgid "Speed: "
+msgstr "速率: "
+
+msgid "Download finished: "
+msgstr "下载完成: "
 
 msgid " downloaded successfully"
 msgstr " 下载成功"
@@ -184,5 +240,17 @@ msgstr "暂无更新说明内容"
 msgid "Latest release assets are not ready yet, using previous release with available firmware."
 msgstr "最新 Release 固件尚未上传完成，已自动使用上一个可用固件的 Release。"
 
-msgid "Some firmware files may still be compiling/uploading for the latest release. Please try again later if your platform is missing."
-msgstr "最新 Release 的部分固件可能仍在编译或上传中，如缺少你的平台，请稍后再试。"
+msgid "Latest release partial firmware may still be compiling, waiting to upload, or failed to compile. If your platform is missing, please wait for the next build result."
+msgstr "最新 Release 的部分固件可能仍在编译、等待上传或编译失败，如缺少你的平台，请等待下次编译结果。"
+
+msgid "SHA256 verification passed: "
+msgstr "SHA256 校验通过："
+
+msgid "SHA256 verification failed, upgrade cancelled"
+msgstr "SHA256 校验失败，已取消升级"
+
+msgid "  Expected: "
+msgstr "  期望值："
+
+msgid "  Got:      "
+msgstr "  实际值："

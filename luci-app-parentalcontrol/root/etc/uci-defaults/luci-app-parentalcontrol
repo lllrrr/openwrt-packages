@@ -1,0 +1,17 @@
+#!/bin/sh
+
+# Create default config if it doesn't exist
+if [ ! -f /etc/config/parentalcontrol ]; then
+	cat > /etc/config/parentalcontrol <<-'EOF'
+	config global 'global'
+		option enabled '1'
+	EOF
+fi
+
+# Ensure init script is enabled
+/etc/init.d/parentalcontrol enable 2>/dev/null
+
+# Restart rpcd to pick up new plugin
+/etc/init.d/rpcd restart
+
+exit 0

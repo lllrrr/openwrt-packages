@@ -7,6 +7,9 @@ msgstr ""
 msgid "Firmware upgrade assistant based on GitHub Release."
 msgstr ""
 
+msgid "Basic Configuration"
+msgstr ""
+
 msgid "GitHub Repository"
 msgstr ""
 
@@ -25,7 +28,49 @@ msgstr ""
 msgid "System and Release Status"
 msgstr ""
 
-msgid "Available Firmware"
+msgid "Available Firmware (%d)"
+msgstr ""
+
+msgid "Filter Rules"
+msgstr ""
+
+msgid "Default Filter Rules"
+msgstr ""
+
+msgid "Enable Prefix Filter"
+msgstr ""
+
+msgid "Exclude Name Prefix"
+msgstr ""
+
+msgid "e.g. buildinfo"
+msgstr ""
+
+msgid "Leave empty to disable prefix filtering"
+msgstr ""
+
+msgid "Matched names will be hidden"
+msgstr ""
+
+msgid "Enable Size Filter"
+msgstr ""
+
+msgid "Exclude Size Below (KB)"
+msgstr ""
+
+msgid "0 means no size filter"
+msgstr ""
+
+msgid "Files smaller than this size will be hidden"
+msgstr ""
+
+msgid "Save Filter Rules"
+msgstr ""
+
+msgid "Saving filter rules..."
+msgstr ""
+
+msgid "Filter rules saved"
 msgstr ""
 
 msgid "Logs"
@@ -118,6 +163,15 @@ msgstr ""
 msgid "Downloading firmware: "
 msgstr ""
 
+msgid "Download progress: "
+msgstr ""
+
+msgid "Speed: "
+msgstr ""
+
+msgid "Download finished: "
+msgstr ""
+
 msgid " downloaded successfully"
 msgstr ""
 
@@ -157,6 +211,18 @@ msgstr ""
 msgid "Firmware download failed, please check network or GitHub repository"
 msgstr ""
 
+msgid "SHA256 verification passed: "
+msgstr ""
+
+msgid "SHA256 verification failed, upgrade cancelled"
+msgstr ""
+
+msgid "  Expected: "
+msgstr ""
+
+msgid "  Got:      "
+msgstr ""
+
 msgid "Upgrade mode: keep configuration"
 msgstr ""
 
@@ -187,5 +253,5 @@ msgstr ""
 msgid "Latest release assets are not ready yet, using previous release with available firmware."
 msgstr ""
 
-msgid "Some firmware files may still be compiling/uploading for the latest release. Please try again later if your platform is missing."
+msgid "Latest release partial firmware may still be compiling, waiting to upload, or failed to compile. If your platform is missing, please wait for the next build result."
 msgstr ""

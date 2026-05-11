@@ -4,8 +4,11 @@
 
 [ ! -f /etc/config/netwiz ] && {
     touch /etc/config/netwiz
-    uci -q set netwiz.global=netwiz
-    uci commit netwiz
+    uci -q batch <<EOF
+        set netwiz.global=netwiz
+        set netwiz.smart=netwiz
+        commit netwiz
+EOF
 }
 
 delete_fw_rule() {
@@ -24,7 +27,7 @@ delete_fw_rule() {
 
 case "$1" in
     list)
-        echo '{ "get_list": { "show_conns": "boolean" }, "bind": { "mac": "string", "ip": "string", "name": "string", "dept": "string", "no_reload": "boolean" }, "unbind": { "mac": "string", "no_reload": "boolean" }, "apply_dhcp": {}, "get_depts": {}, "save_depts": { "data": "string" }, "v6_keep_alive": { "mac": "string" }, "fw_set": { "mac": "string", "ip": "string", "blk_en": "boolean", "iso_en": "boolean", "dmz_en": "boolean" } }'
+        echo '{ "get_list": { "show_conns": "boolean" }, "bind": { "mac": "string", "ip": "string", "name": "string", "dept": "string", "no_reload": "boolean" }, "unbind": { "mac": "string", "no_reload": "boolean" }, "apply_dhcp": {}, "get_depts": {}, "save_depts": { "data": "string" }, "get_smart_ranges": {}, "save_smart_ranges": { "data": "string" }, "v6_keep_alive": { "mac": "string" }, "fw_set": { "mac": "string", "ip": "string", "blk_en": "boolean", "iso_en": "boolean", "dmz_en": "boolean" } }'
         exit 0
         ;;
     call)
@@ -486,6 +489,22 @@ case "$1" in
                 uci set netwiz.global=netwiz
                 uci set netwiz.global.depts_json="$json_str"
         
+                uci commit netwiz
+                echo '{"result":0}'
+                exit 0
+                ;;
+
+                get_smart_ranges)
+                val=$(uci -q get netwiz.smart.ranges_json)
+                [ -z "$val" ] && val="{}"
+                echo "{\"ranges\": $val}"
+                exit 0
+                ;;
+            save_smart_ranges)
+                input=$(cat)
+                json_str=$(echo "$input" | jsonfilter -e '@.data')
+                uci -q set netwiz.smart=netwiz
+                uci -q set netwiz.smart.ranges_json="$json_str"
                 uci commit netwiz
                 echo '{"result":0}'
                 exit 0
