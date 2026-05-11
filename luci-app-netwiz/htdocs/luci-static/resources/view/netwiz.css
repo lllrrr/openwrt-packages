@@ -295,7 +295,7 @@ input:checked + .nw-slider:before { transform: translateX(20px); }
     backdrop-filter: blur(12px) !important;
     box-shadow: 0 10px 40px rgba(0,0,0,0.2) !important;
     border-radius: 16px !important;
-    padding: 15px 25px !important;
+    padding: 15px 45px !important;
     display: flex !important;
     align-items: center !important;
     justify-content: space-between !important;
