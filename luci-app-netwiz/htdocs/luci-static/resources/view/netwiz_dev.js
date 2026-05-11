@@ -270,7 +270,7 @@ return view.extend({
             '       <div id="nd-m-content" style="color:#475569; font-size:15px; margin-bottom:10px; text-align:left; line-height:1.2;"></div>',
             
             '       <div id="nd-m-dept-mgr" class="nd-dept-mgr-wrap" style="display:none; max-height: 400px; overflow-y: auto; overflow-x: hidden; padding: 5px 5px 10px 0;">',
-            '           <div class="nd-dept-ctrl-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding: 10px 5px 12px 5px; margin-top: -5px; border-bottom: 1px dashed #cbd5e1; position: sticky; top: -5px; background: #fff; z-index: 10; gap: 10px;">',
+            '           <div class="nd-dept-ctrl-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding: 10px 5px 12px 5px; margin-top: -6px; border-bottom: 1px dashed #cbd5e1; position: sticky; top: -6px; background: #fff; z-index: 10; gap: 10px;">',
             '               <div class="nd-dept-io-group" style="display: flex; gap: 10px;">',
             '                   <button id="btn-import-depts" class="nd-btn nd-btn-gray" style="padding: 6px 12px; font-size: 13px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">📂 {{BTN_IMPORT_DEPTS}}</button>',
             '                   <button id="btn-export-depts" class="nd-btn nd-btn-gray" style="padding: 6px 12px; font-size: 13px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">💾 {{BTN_EXPORT_DEPTS}}</button>',
@@ -1575,12 +1575,34 @@ return view.extend({
             });
         }
 
-        function runSequential(tasks) {
-            var result = Promise.resolve();
-            tasks.forEach(function(task) {
-                result = result.then(function() { return task(); });
+        // 并发任务池
+        function runWithConcurrency(tasks, limit) {
+            return new Promise(function(resolve, reject) {
+                if (tasks.length === 0) return resolve();
+                var index = 0;
+                var activeCount = 0;
+
+                function next() {
+                    // 所有任务发完，且没执行的任务，结束
+                    if (index >= tasks.length && activeCount === 0) {
+                        resolve();
+                        return;
+                    }
+                    // 有任务，继续
+                    while (activeCount < limit && index < tasks.length) {
+                        activeCount++;
+                        var task = tasks[index++];
+                        task().then(function() {
+                            activeCount--;
+                            next(); // 完成一個，上一個
+                        }).catch(function(err) {
+                            activeCount--;
+                            next(); // 即使失败下一個
+                        });
+                    }
+                }
+                next();
             });
-            return result;
         }
 
         btnBatchUnbind.addEventListener('click', function() {
@@ -1610,7 +1632,7 @@ return view.extend({
                         return function() { return callDeviceUnbind(dev.mac, true); };
                     });
 
-                    runSequential(tasks).then(function() {
+                    runWithConcurrency(tasks, 10).then(function() {  // 批量释放并发数：10
                         return callApplyDhcp(); 
                     }).then(function() {
                         setTimeout(loadDevices, 1500);
@@ -1748,7 +1770,7 @@ return view.extend({
 
                     if (lastAssignedGlobal) localStorage.setItem('nw_last_ip', lastAssignedGlobal);
 
-                    runSequential(tasks).then(function() {
+                    runWithConcurrency(tasks, 10).then(function() {  // 批量绑定并发数：10
                         return callApplyDhcp(); 
                     }).then(function() {
                         setTimeout(loadDevices, 1500);
