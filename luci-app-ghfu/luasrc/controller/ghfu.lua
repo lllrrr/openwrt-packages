@@ -640,9 +640,6 @@ function action_download_status()
                             logs[#logs + 1] = err_line
                         end
                     end
-                local err_line = line:match("^ERR|(.+)$")
-                if err_line and trim(err_line) ~= "" then
-                    logs[#logs + 1] = err_line
                 end
             end
         end

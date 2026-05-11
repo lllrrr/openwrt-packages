@@ -110,8 +110,8 @@ var T = {
     'STRAT_DEPT_DESC': _('Assign free IPs automatically from the selected Target Group\'s specific IP range'),
     'TIT_MGR_DEPTS': _('Department Network Segments'),
     'BTN_ADD_DEPT': _('+ Add New Department'),
-    'ERR_DEPT_OVERLAP': _('❌ Subnet Conflict: IP ranges between groups cannot overlap!') + '\n' + _('Conflicting groups: '),
-    'ERR_DEPT_NAME_DUP': _('❌ Save Failed: Group names cannot be duplicated!\nDuplicate name: '),
+    'ERR_DEPT_OVERLAP': _('❌ Subnet Conflict: IP ranges between groups cannot overlap!') + '\n' + _('Conflicting groups: {groups}'),
+    'ERR_DEPT_NAME_DUP': _('❌ Save Failed: Group names cannot be duplicated!') + '\n' + _('Duplicate name: {name}'),
     'ERR_DEPT_INVALID': _('❌ Save Failed: IPs must be between 2-254 and format must be valid!'),
     'ERR_DEPT_POOL_FULL': _('❌ IP pool reached the end (254). Cannot auto-append. Please arrange subnets manually!'),
     'ERR_DEPT_FULL': _('❌ The IP pool for the selected department is full! Please expand the range.'),
@@ -141,10 +141,10 @@ var T = {
     'ERR_IP_FORMAT': _('❌ Invalid IP format! Please enter a valid IPv4 address (e.g., 192.168.1.50)'),
     'TIP_V6_COPY': _('Public IPv6 (Click to copy):'),
     'MSG_V6_COPIED': _('IPv6 address copied successfully:'),
-    'BTN_EXPORT_DEPTS': _('导出配置'),
-    'BTN_IMPORT_DEPTS': _('导入配置'),
-    'MSG_IMPORT_SUCCESS': _('✅ 导入成功！\n请检查无误后，点击下方【保存】按钮生效。'),
-    'ERR_IMPORT_FAIL': _('❌ 导入失败！\n文件格式错误或已损坏，请选择正确的 JSON 备份文件。'),
+    'BTN_EXPORT_DEPTS': _('Export Config'),
+    'BTN_IMPORT_DEPTS': _('Import Config'),
+    'MSG_IMPORT_SUCCESS': _('✅ Import successful!') + '\n' + _('Please verify and click [Save] below to apply.'),
+    'ERR_IMPORT_FAIL': _('❌ Import failed!') + '\n' + _('Invalid or corrupted file format. Please select a valid JSON backup file.')
 };
 
 var callDeviceList = rpc.declare({ object: 'netwiz_dev', method: 'get_list', params: ['show_conns'], expect: { '': {} } });
@@ -470,7 +470,10 @@ return view.extend({
         }
 
         var savedStrategy = localStorage.getItem('nw_batch_strategy') || 'keep';
-        var savedRanges = {ms:30, me:69, ps:70, pe:109, is:110, ie:149, os:150, oe:199};
+        var defaultSmartRanges = {ms:30, me:69, ps:70, pe:109, is:110, ie:149, os:150, oe:199};
+        var cachedRangesStr = localStorage.getItem('nw_smart_ranges');
+        var savedRanges = cachedRangesStr ? JSON.parse(cachedRangesStr) : JSON.parse(JSON.stringify(defaultSmartRanges));
+        var needFetchSmart = !cachedRangesStr;
         var basePrefix = '192.168.1.';
         
         var smartFilterByIp = localStorage.getItem('nw_smart_filter') !== 'false'; 
@@ -688,7 +691,7 @@ return view.extend({
                 }
                 
                 if (nameSet[d.name]) {
-                    alert(T['ERR_DEPT_NAME_DUP'] + ' [' + d.name + ']');
+                    alert(T['ERR_DEPT_NAME_DUP'].replace('{name}', '[' + d.name + ']'));
                     return false;
                 }
                 nameSet[d.name] = true;
@@ -699,7 +702,7 @@ return view.extend({
             for(var i=0; i<newDepts.length; i++) {
                 for(var j=i+1; j<newDepts.length; j++) {
                     if (Math.max(newDepts[i].start, newDepts[j].start) <= Math.min(newDepts[i].end, newDepts[j].end)) {
-                        alert(T['ERR_DEPT_OVERLAP'] + ' [' + newDepts[i].name + '] & [' + newDepts[j].name + ']');
+                        alert(T['ERR_DEPT_OVERLAP'].replace('{groups}', '[' + newDepts[i].name + '] & [' + newDepts[j].name + ']'));
                         return false; 
                     }
                 }
@@ -936,7 +939,11 @@ return view.extend({
                             
                             if (JSON.stringify(nr) !== JSON.stringify(savedRanges)) {
                                 savedRanges = nr;
-                                callSaveSmartRanges(JSON.stringify(nr)).catch(function(e){ console.error('Save smart ranges fail', e); });
+                                localStorage.setItem('nw_smart_ranges', JSON.stringify(nr)); 
+                                needFetchSmart = false; 
+
+                                var dataToSend = (JSON.stringify(nr) === JSON.stringify(defaultSmartRanges)) ? "{}" : JSON.stringify(nr);
+                                callSaveSmartRanges(dataToSend).catch(function(e){ console.error('Save smart ranges fail', e); });
                             }
                         }
                         var resBatch = { strategy: activeStrategy, startSuffix: batchSuffixInput.value.trim(), ranges: savedRanges, dept: batchDeptId };
@@ -1027,29 +1034,35 @@ return view.extend({
         var selectedDevices = [];
         var currentFilter = 'all';
 
-        // 全局心跳消息队列与状态锁
+        // 全局并发控制
         window.nwKeepAliveQueue = window.nwKeepAliveQueue || [];
-        window.nwIsProcessingQueue = window.nwIsProcessingQueue || false;
+        window.nwActiveCount = window.nwActiveCount || 0; // 当前正在执行的任务数
+        var MAX_CONCURRENT = 10; // 并发数：10
 
         function processKeepAliveQueue() {
-            // 队列空了，或处理中，就退出
-            if (window.nwKeepAliveQueue.length === 0 || window.nwIsProcessingQueue) return;
-            
-            window.nwIsProcessingQueue = true; // 上锁
-            var mac = window.nwKeepAliveQueue.shift(); // 取出队列第一个 MAC
+            // 如果队列空了，或者并发数已经达到上限，就退出等待
+            if (window.nwKeepAliveQueue.length === 0 || window.nwActiveCount >= MAX_CONCURRENT) return;
 
-            // 发送请求给路由器后端
-            callV6KeepAlive(mac).then(function() {
-                sessionStorage.setItem('nw_v6_hb_' + mac, 'sent'); // 成功后标记为已发送
-            }).catch(function() {
-                // 失败忽略，不阻塞队伍
-            }).finally(function() {
-                // 延时 200 毫秒
-                setTimeout(function() {
-                    window.nwIsProcessingQueue = false; // 解锁
-                    processKeepAliveQueue();            // 处理下一个
-                }, 200); 
-            });
+            // 没到并发上限，且队列里还有任务，执行
+            while (window.nwKeepAliveQueue.length > 0 && window.nwActiveCount < MAX_CONCURRENT) {
+                window.nwActiveCount++; // 占位：活跃任务数 +1
+                var mac = window.nwKeepAliveQueue.shift(); // 取出 MAC
+
+                // 锁定当前的 mac，防止污染
+                (function(currentMac) {
+                    callV6KeepAlive(currentMac).then(function() {
+                        sessionStorage.setItem('nw_v6_hb_' + currentMac, 'sent'); 
+                    }).catch(function() {
+                        // 失败忽略
+                    }).finally(function() {
+                        // 延时 200 毫秒后释放槽位
+                        setTimeout(function() {
+                            window.nwActiveCount--; // 释放活跃任务数 -1
+                            processKeepAliveQueue(); // 继续
+                        }, 200); 
+                    });
+                })(mac);
+            }
         }
 
         function isSelectable(dev) {
@@ -1757,19 +1770,27 @@ return view.extend({
             var showConnsCbEl = document.querySelector('#cb-show-conns');
             var isShowConns = showConnsCbEl ? showConnsCbEl.checked : false;
 
-            Promise.all([callDeviceList(isShowConns), callGetDepts(), callGetSmartRanges()]).then(function(results) {
+            // 本地有缓存，直接返回
+            var pSmart = needFetchSmart ? callGetSmartRanges() : Promise.resolve(null);
+
+            Promise.all([callDeviceList(isShowConns), callGetDepts(), pSmart]).then(function(results) {
                 loadingEl.style.display = 'none';
                 
                 var resList = results[0];
                 var resDepts = results[1];
                 var resSmart = results[2];
 
-                // 使用者设定过，就用设定值
+                // 发起请求且拿到了数据，写入本地缓存
                 if (resSmart && resSmart.ranges) {
                     var parsedR = typeof resSmart.ranges === 'string' ? JSON.parse(resSmart.ranges || '{}') : resSmart.ranges;
-                    if (Object.keys(parsedR).length > 0) {
+                    if (parsedR && Object.keys(parsedR).length > 0) {
                         savedRanges = parsedR;
+                    } else {
+                        // 为空，使用默认值
+                        savedRanges = JSON.parse(JSON.stringify(defaultSmartRanges));
                     }
+                    localStorage.setItem('nw_smart_ranges', JSON.stringify(savedRanges)); 
+                    needFetchSmart = false; 
                 }
 
                 globalDepartments = [];
