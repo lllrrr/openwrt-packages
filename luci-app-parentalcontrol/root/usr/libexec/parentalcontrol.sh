@@ -3,7 +3,7 @@
 
 . /lib/functions.sh
 
-NFTABLES_FILE="/etc/nftables.d/30-parentalcontrol.nft"
+NFTABLES_FILE="/tmp/parentalcontrol.nft"
 CONFIG_NAME="parentalcontrol"
 
 generate_rules() {
@@ -178,12 +178,9 @@ check_overrides() {
 }
 
 clear_rules() {
-	cat > "$NFTABLES_FILE" <<-'NFTEOF'
-	table inet parentalcontrol {
-	}
-	NFTEOF
 	nft list table inet parentalcontrol >/dev/null 2>&1 && \
 		nft delete table inet parentalcontrol
+	rm -f "$NFTABLES_FILE"
 }
 
 case "$1" in

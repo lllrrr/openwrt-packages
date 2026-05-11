@@ -41,7 +41,7 @@ Time-based parental control for OpenWrt with per-device scheduling, temporary ov
 │                                                         │
 │  /etc/config/parentalcontrol     — persistent config    │
 │  /usr/libexec/parentalcontrol.sh — nftables generator   │
-│  /etc/nftables.d/30-parentalcontrol.nft — generated     │
+│  /tmp/parentalcontrol.nft — generated     │
 └────────────────────────┬────────────────────────────────┘
                          │ nft -f
 ┌────────────────────────▼────────────────────────────────┐
@@ -104,7 +104,7 @@ config rule
 ### Blocking
 
 The backend script (`parentalcontrol.sh apply`) reads the UCI config and generates an nftables include
-file at `/etc/nftables.d/30-parentalcontrol.nft`. Each enabled rule becomes one or more nftables rules
+file at `/tmp/parentalcontrol.nft`. Each enabled rule becomes one or more nftables rules
 that match on:
 
 - `ether saddr` — the device's MAC address
@@ -194,7 +194,7 @@ Since OpenWrt 25.x uses APK v3 (ADB binary format) which cannot be easily built 
 install by copying files directly:
 
 ```bash
-# From your development machine:
+# From your development machine (first-time install):
 cd luci-app-parentalcontrol
 scp -r root/* root@<router-ip>:/
 scp -r htdocs/luci-static/resources/view/parentalcontrol root@<router-ip>:/www/luci-static/resources/view/
@@ -207,6 +207,23 @@ sh /etc/uci-defaults/luci-app-parentalcontrol
 
 The menu entry appears at **Services > Parental Control** in LuCI.
 
+## Updating
+
+**IMPORTANT:** Do NOT use `scp -r root/* root@<router-ip>:/` for updates — it overwrites
+`/etc/config/parentalcontrol` and erases your rules. Copy only the changed files:
+
+```bash
+# Update scripts and UI (does NOT touch config):
+scp root/usr/libexec/parentalcontrol.sh root@<router-ip>:/usr/libexec/parentalcontrol.sh
+scp root/usr/libexec/rpcd/parentalcontrol root@<router-ip>:/usr/libexec/rpcd/parentalcontrol
+scp htdocs/luci-static/resources/view/parentalcontrol/settings.js root@<router-ip>:/www/luci-static/resources/view/parentalcontrol/settings.js
+
+# On the router:
+chmod +x /usr/libexec/parentalcontrol.sh /usr/libexec/rpcd/parentalcontrol
+/etc/init.d/rpcd restart
+/etc/init.d/parentalcontrol restart
+```
+
 ## Uninstall
 
 ```bash
@@ -216,7 +233,7 @@ rm -f /usr/libexec/parentalcontrol.sh
 rm -f /usr/libexec/rpcd/parentalcontrol
 rm -f /etc/init.d/parentalcontrol
 rm -f /etc/config/parentalcontrol
-rm -f /etc/nftables.d/30-parentalcontrol.nft
+rm -f /tmp/parentalcontrol.nft
 rm -f /usr/share/luci/menu.d/luci-app-parentalcontrol.json
 rm -f /usr/share/rpcd/acl.d/luci-app-parentalcontrol.json
 rm -rf /www/luci-static/resources/view/parentalcontrol
