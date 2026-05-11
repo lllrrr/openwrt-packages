@@ -82,6 +82,8 @@ struct conntrack_client_sample {
 	uint64_t tx_bytes;
 	uint64_t rx_bytes;
 	uint64_t last_seen_ms;
+	uint32_t tcp_conns;
+	uint32_t udp_conns;
 };
 
 struct conntrack_flow_sample {
@@ -90,6 +92,11 @@ struct conntrack_flow_sample {
 	uint64_t reply_bytes;
 	bool has_orig_src;
 	bool has_orig_bytes;
+	char protocol[8];
+	char tcp_state[16];
+	bool assured;
+	bool is_tcp;
+	bool is_udp;
 };
 
 struct conntrack_collect_stats {
@@ -100,6 +107,8 @@ struct conntrack_collect_stats {
 	size_t emitted_clients;
 	size_t skipped_no_arp;
 	size_t malformed_lines;
+	size_t entries_seen;
+	size_t entries_matched;
 };
 
 static struct conntrack_client_sample previous_conntrack_samples[DEFAULT_MAX_CLIENTS];
@@ -120,6 +129,8 @@ struct bpf_client_sample {
 	uint64_t tx_bytes;
 	uint64_t rx_bytes;
 	uint64_t last_seen_ms;
+	uint32_t tcp_conns;
+	uint32_t udp_conns;
 };
 
 static char bpf_attach_ifnames[LANSPEED_BPF_IFACE_MAX][LANSPEED_BPF_IFNAME_LEN];
@@ -2423,6 +2434,7 @@ static bool parse_conntrack_procfs_line(const char *line,
 	char *token;
 	int src_index = 0;
 	int bytes_index = 0;
+	int token_index = 0;
 
 	if (!line || !flow)
 		return false;
@@ -2432,6 +2444,18 @@ static bool parse_conntrack_procfs_line(const char *line,
 
 	for (token = strtok_r(buffer, " \t\r\n", &saveptr); token;
 	     token = strtok_r(NULL, " \t\r\n", &saveptr)) {
+		/* Token 2: protocol name (tcp/udp/icmp/...) */
+		if (token_index == 2) {
+			snprintf(flow->protocol, sizeof(flow->protocol), "%s", token);
+			flow->is_tcp = (strcmp(token, "tcp") == 0);
+			flow->is_udp = (strcmp(token, "udp") == 0);
+		}
+
+		/* Token 5: connection state for TCP (ESTABLISHED/TIME_WAIT/etc) */
+		if (token_index == 5 && flow->is_tcp) {
+			snprintf(flow->tcp_state, sizeof(flow->tcp_state), "%s", token);
+		}
+
 		if (!strncmp(token, "src=", 4)) {
 			if (src_index == 0) {
 				snprintf(flow->orig_src, sizeof(flow->orig_src), "%s", token + 4);
@@ -2442,15 +2466,21 @@ static bool parse_conntrack_procfs_line(const char *line,
 			char *end = NULL;
 			uint64_t value = strtoull(token + 6, &end, 10);
 
-			if (end == token + 6)
+			if (end == token + 6) {
+				token_index++;
 				continue;
+			}
 			if (bytes_index == 0) {
 				flow->orig_bytes = value;
 				flow->has_orig_bytes = true;
 			} else if (bytes_index == 1)
 				flow->reply_bytes = value;
 			bytes_index++;
+		} else if (!strcmp(token, "[ASSURED]")) {
+			flow->assured = true;
 		}
+
+		token_index++;
 	}
 
 	return flow->has_orig_src && flow->has_orig_bytes;
@@ -2539,6 +2569,15 @@ static bool add_conntrack_flow_to_samples(struct conntrack_client_sample *sample
 	sample->tx_bytes += flow->orig_bytes;
 	sample->rx_bytes += flow->reply_bytes;
 	sample->last_seen_ms = now_ms;
+
+	if (flow->is_tcp && strcmp(flow->tcp_state, "ESTABLISHED") == 0 && flow->assured)
+		sample->tcp_conns++;
+	else if (flow->is_udp)
+		sample->udp_conns++;
+
+	if (stats)
+		stats->entries_matched++;
+
 	return true;
 }
 
@@ -2583,6 +2622,8 @@ static bool read_conntrack_procfs_snapshot(struct conntrack_client_sample *sampl
 	stats->procfs_read = true;
 	while (fgets(line, sizeof(line), file)) {
 		struct conntrack_flow_sample flow;
+
+		stats->entries_seen++;
 
 		if (!parse_conntrack_procfs_line(line, &flow)) {
 			stats->malformed_lines++;
@@ -2716,7 +2757,8 @@ static void add_conntrack_clients_evidence(struct json_object *root,
 	json_object_object_add(root, "evidence", evidence);
 }
 
-static void emit_conntrack_clients(struct json_object *clients,
+static void emit_conntrack_clients(struct json_object *root,
+				   struct json_object *clients,
 				   const struct runtime_probe *probe,
 				   struct conntrack_client_sample *current,
 				   size_t current_count, uint64_t now_ms,
@@ -2725,6 +2767,8 @@ static void emit_conntrack_clients(struct json_object *clients,
 {
 	uint64_t delta_ms = previous_conntrack_snapshot_valid ?
 		(now_ms - previous_conntrack_snapshot_ms) : 0;
+	uint64_t tcp_conns_total = 0;
+	uint64_t udp_conns_total = 0;
 	size_t i;
 
 	if (!previous_conntrack_snapshot_valid) {
@@ -2779,6 +2823,8 @@ static void emit_conntrack_clients(struct json_object *clients,
 		json_object_object_add(client, "tx_bps", json_object_new_int64((int64_t)tx_bps));
 		json_object_object_add(client, "rx_bytes", json_object_new_int64((int64_t)current[i].rx_bytes));
 		json_object_object_add(client, "tx_bytes", json_object_new_int64((int64_t)current[i].tx_bytes));
+		json_object_object_add(client, "tcp_conns", json_object_new_int64((int64_t)current[i].tcp_conns));
+		json_object_object_add(client, "udp_conns", json_object_new_int64((int64_t)current[i].udp_conns));
 		json_object_object_add(client, "sample_ms", json_object_new_int64((int64_t)now_ms));
 		json_object_object_add(client, "last_seen", json_object_new_int64((int64_t)current[i].last_seen_ms));
 		json_object_object_add(client, "collector_mode",
@@ -2790,7 +2836,17 @@ static void emit_conntrack_clients(struct json_object *clients,
 		json_object_object_add(client, "warnings", warnings);
 		json_object_array_add(clients, client);
 		stats->emitted_clients++;
+		tcp_conns_total += current[i].tcp_conns;
+		udp_conns_total += current[i].udp_conns;
 	}
+
+	json_object_object_add(root, "tcp_conns_total", json_object_new_int64((int64_t)tcp_conns_total));
+	json_object_object_add(root, "udp_conns_total", json_object_new_int64((int64_t)udp_conns_total));
+	json_object_object_add(root, "conntrack_entries_seen", json_object_new_int64((int64_t)stats->entries_seen));
+	json_object_object_add(root, "conntrack_entries_matched", json_object_new_int64((int64_t)stats->entries_matched));
+	json_object_object_add(root, "conntrack_parse_errors", json_object_new_int64((int64_t)stats->malformed_lines));
+	json_object_object_add(root, "conn_source", json_object_new_string("conntrack"));
+	json_object_object_add(root, "conn_semantics", json_object_new_string("tcp_established_assured_udp_tracked"));
 
 	memcpy(previous_conntrack_samples, current,
 	       current_count * sizeof(struct conntrack_client_sample));
@@ -2907,9 +2963,11 @@ static void bpf_collect_samples(void)
 		if (!sample)
 			break;
 
-		if (raw[i].direction == LANSPEED_BPF_DIR_TX)
+		if (raw[i].direction == LANSPEED_BPF_DIR_TX) {
 			sample->tx_bytes += raw[i].bytes;
-		else if (raw[i].direction == LANSPEED_BPF_DIR_RX)
+			sample->tcp_conns = raw[i].tcp_conns;
+			sample->udp_conns = raw[i].udp_conns;
+		} else if (raw[i].direction == LANSPEED_BPF_DIR_RX)
 			sample->rx_bytes += raw[i].bytes;
 		sample->last_seen_ms = now_ms;
 	}
@@ -3033,6 +3091,10 @@ static bool collect_bpf_clients(struct json_object *root,
 				       json_object_new_int64((int64_t)cur->rx_bytes));
 		json_object_object_add(client, "tx_bytes",
 				       json_object_new_int64((int64_t)cur->tx_bytes));
+		json_object_object_add(client, "tcp_conns",
+				       json_object_new_int64((int64_t)cur->tcp_conns));
+		json_object_object_add(client, "udp_conns",
+				       json_object_new_int64((int64_t)cur->udp_conns));
 		json_object_object_add(client, "sample_ms",
 				       json_object_new_int64((int64_t)bpf_current_snapshot_ms));
 		json_object_object_add(client, "last_seen",
@@ -3084,7 +3146,7 @@ static bool collect_conntrack_procfs_clients(struct json_object *root,
 		return false;
 	}
 
-	emit_conntrack_clients(clients, probe, current, current_count, now_ms, warnings, &stats);
+	emit_conntrack_clients(root, clients, probe, current, current_count, now_ms, warnings, &stats);
 	add_conntrack_clients_evidence(root, probe, warnings, &stats, true);
 	return true;
 }
@@ -3136,6 +3198,100 @@ static int status_method(struct ubus_context *ubus, struct ubus_object *obj,
 	return send_json_reply(ubus, req, root);
 }
 
+static void merge_conntrack_conn_counts(struct json_object *root,
+					struct json_object *clients)
+{
+	struct conntrack_client_sample conn_samples[DEFAULT_MAX_CLIENTS];
+	struct conntrack_collect_stats conn_stats;
+	struct json_object *discard_warnings = json_object_new_array();
+	uint64_t now_ms = monotonic_time_ms();
+	size_t conn_count = 0;
+	size_t max_samples = max_clients > 0 && max_clients < DEFAULT_MAX_CLIENTS ?
+		(size_t)max_clients : DEFAULT_MAX_CLIENTS;
+	bool read_ok;
+	size_t i, n;
+	uint32_t tcp_total = 0;
+	uint32_t udp_total = 0;
+
+	read_ok = read_conntrack_procfs_snapshot(conn_samples, &conn_count,
+						 max_samples, now_ms,
+						 discard_warnings, &conn_stats);
+	json_object_put(discard_warnings);
+
+	if (!read_ok)
+		return;
+
+	/* Merge connection counts into existing BPF client JSON objects */
+	n = json_object_array_length(clients);
+	for (i = 0; i < n; i++) {
+		struct json_object *client = json_object_array_get_idx(clients, i);
+		struct json_object *key_obj = NULL;
+		const char *key;
+		const struct conntrack_client_sample *cs;
+
+		if (!client)
+			continue;
+		if (!json_object_object_get_ex(client, "identity_key", &key_obj))
+			continue;
+		key = json_object_get_string(key_obj);
+		if (!key)
+			continue;
+
+		cs = find_conntrack_client_sample(conn_samples, conn_count, key);
+		if (cs) {
+			/* Only override BPF connection counts if BPF didn't
+			 * provide them (tcp_conns == 0 means ct_lookup was
+			 * unavailable or no connections seen yet). */
+			struct json_object *existing_tcp = NULL;
+			int bpf_tcp = 0;
+			if (json_object_object_get_ex(client, "tcp_conns", &existing_tcp))
+				bpf_tcp = json_object_get_int(existing_tcp);
+			if (bpf_tcp == 0) {
+				json_object_object_add(client, "tcp_conns",
+						       json_object_new_int((int)cs->tcp_conns));
+				json_object_object_add(client, "udp_conns",
+						       json_object_new_int((int)cs->udp_conns));
+				tcp_total += cs->tcp_conns;
+				udp_total += cs->udp_conns;
+			} else {
+				tcp_total += (uint32_t)bpf_tcp;
+				struct json_object *existing_udp = NULL;
+				int bpf_udp = 0;
+				if (json_object_object_get_ex(client, "udp_conns", &existing_udp))
+					bpf_udp = json_object_get_int(existing_udp);
+				udp_total += (uint32_t)bpf_udp;
+			}
+		} else {
+			/* No conntrack match; keep whatever BPF provided */
+			struct json_object *existing_tcp = NULL;
+			struct json_object *existing_udp = NULL;
+			int bpf_tcp = 0, bpf_udp = 0;
+			if (json_object_object_get_ex(client, "tcp_conns", &existing_tcp))
+				bpf_tcp = json_object_get_int(existing_tcp);
+			if (json_object_object_get_ex(client, "udp_conns", &existing_udp))
+				bpf_udp = json_object_get_int(existing_udp);
+			tcp_total += (uint32_t)bpf_tcp;
+			udp_total += (uint32_t)bpf_udp;
+		}
+	}
+
+	/* Add top-level connection count summary and diagnostics */
+	json_object_object_add(root, "tcp_conns_total",
+			       json_object_new_int((int)tcp_total));
+	json_object_object_add(root, "udp_conns_total",
+			       json_object_new_int((int)udp_total));
+	json_object_object_add(root, "conntrack_entries_seen",
+			       json_object_new_int((int)conn_stats.entries_seen));
+	json_object_object_add(root, "conntrack_entries_matched",
+			       json_object_new_int((int)conn_stats.entries_matched));
+	json_object_object_add(root, "conntrack_parse_errors",
+			       json_object_new_int((int)conn_stats.malformed_lines));
+	json_object_object_add(root, "conn_source",
+			       json_object_new_string("conntrack"));
+	json_object_object_add(root, "conn_semantics",
+			       json_object_new_string("tcp_established_assured_udp_tracked"));
+}
+
 static int clients_method(struct ubus_context *ubus, struct ubus_object *obj,
 			  struct ubus_request_data *req, const char *method,
 			  struct blob_attr *msg)
@@ -3155,8 +3311,14 @@ static int clients_method(struct ubus_context *ubus, struct ubus_object *obj,
 		struct runtime_probe probe;
 		init_runtime_probe(&probe);
 		inspect_runtime(&probe);
-		if (!collect_bpf_clients(root, clients, &probe))
+		if (!collect_bpf_clients(root, clients, &probe)) {
 			collect_conntrack_procfs_clients(root, clients, &probe);
+		} else {
+			/* BPF provides rate data; additionally scan conntrack
+			 * for connection counts only (tcp_conns/udp_conns).
+			 * This does NOT overwrite BPF rate fields. */
+			merge_conntrack_conn_counts(root, clients);
+		}
 		free_runtime_probe(&probe);
 	}
 

@@ -905,7 +905,7 @@ msgid "Instantly cut off internet access. LAN communication remains normal."
 msgstr "立即断开该设备访问互联网的权限。局域网内互通正常。"
 
 msgid "🛡️ LAN Isolation (Anti-snooping)"
-msgstr "🛡️ 局域网隔离 (接入下级交换机的设备失效)"
+msgstr "🛡️ 局域网隔离 (接下级交换机的设备失效)"
 
 msgid "Block internal network access for this device to prevent scanning and privacy leaks."
 msgstr "隔离该设备通过本路由器内网访问权限，阻止内网扫描，防护隐私泄露。"
@@ -957,3 +957,9 @@ msgstr "连接"
 
 msgid "❌ Invalid IP format! Please enter a valid IPv4 address (e.g., 192.168.1.50)"
 msgstr "❌ IP 格式错误！请输入合法的 IPv4 地址 (例如: 192.168.1.50)")
+
+msgid "Public IPv6 (Click to copy):"
+msgstr "公网 IPv6 (点击即可复制):"
+
+msgid "IPv6 address copied successfully:"
+msgstr "IPv6 地址已成功复制："

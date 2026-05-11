@@ -138,7 +138,13 @@ var T = {
     'ERR_DMZ_OCCUPIED_2': _(' ] is currently the DMZ.\nPlease disable its DMZ first!'),
     'ERR_FW_SAVE_FAIL': _('❌ Save failed!\n\nReason: RPC Error ({err}).\nPlease run `/etc/init.d/rpcd restart` in SSH and try again!'),
     'ERR_SAVE_FAIL_SHORT': _('❌ Save failed!\nReason: {err}\nPlease run `/etc/init.d/rpcd restart` in SSH'),
-    'ERR_IP_FORMAT': _('❌ Invalid IP format! Please enter a valid IPv4 address (e.g., 192.168.1.50)')
+    'ERR_IP_FORMAT': _('❌ Invalid IP format! Please enter a valid IPv4 address (e.g., 192.168.1.50)'),
+    'TIP_V6_COPY': _('Public IPv6 (Click to copy):'),
+    'MSG_V6_COPIED': _('IPv6 address copied successfully:'),
+    'BTN_EXPORT_DEPTS': _('导出配置'),
+    'BTN_IMPORT_DEPTS': _('导入配置'),
+    'MSG_IMPORT_SUCCESS': _('✅ 导入成功！\n请检查无误后，点击下方【保存】按钮生效。'),
+    'ERR_IMPORT_FAIL': _('❌ 导入失败！\n文件格式错误或已损坏，请选择正确的 JSON 备份文件。')
 };
 
 var callDeviceList = rpc.declare({ object: 'netwiz_dev', method: 'get_list', params: ['show_conns'], expect: { '': {} } });
@@ -148,6 +154,7 @@ var callDeviceUnbind = rpc.declare({ object: 'netwiz_dev', method: 'unbind', par
 var callApplyDhcp = rpc.declare({ object: 'netwiz_dev', method: 'apply_dhcp', expect: { result: 0 } });
 var callGetDepts = rpc.declare({ object: 'netwiz_dev', method: 'get_depts', expect: { depts: [] } });
 var callSaveDepts = rpc.declare({ object: 'netwiz_dev', method: 'save_depts', params: ['data'], expect: { result: 0 } });
+var callV6KeepAlive = rpc.declare({ object: 'netwiz_dev', method: 'v6_keep_alive', params: ['mac'], expect: { result: 0 } });
 
 return view.extend({
     handleSaveApply: null,
@@ -187,6 +194,10 @@ return view.extend({
             '  .nd-dept-col-name { display: flex; flex: 1 1 160px; gap: 6px; }', 
             '  .nd-dept-col-ip { display: flex; align-items: center; justify-content: center; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 2px 8px; flex: 0 0 auto; }',
             '  .nd-dept-col-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }',
+            '  .nd-dept-ctrl-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding: 10px 5px 12px 5px; margin-top: -5px; border-bottom: 1px dashed #cbd5e1; position: sticky; top: -5px; background: #fff; z-index: 10; gap: 10px; }',
+            '  .nd-dept-io-group { display: flex; gap: 10px; }',
+            '  .nd-dept-ctrl-bar .nd-btn { padding: 6px 12px; font-size: 13px; border-radius: 6px; display: flex; align-items: center; justify-content: center; }',
+            '  .nd-dept-ctrl-bar #btn-add-dept { box-shadow: 0 2px 4px rgba(59,130,246,0.2); }',
 
             '  @media screen and (max-width: 768px) {',
             '    .nd-batch-bar.show { padding-right: 15px !important; }',
@@ -195,6 +206,10 @@ return view.extend({
             '    .nd-dept-col-name { grid-column: 1 / 2; grid-row: 1 / 2; }',
             '    .nd-dept-col-actions { grid-column: 2 / 3; grid-row: 1 / 2; }',
             '    .nd-dept-col-ip { grid-column: 1 / 3; grid-row: 2 / 3; width: 100%; box-sizing: border-box; }',
+            '    .nd-dept-ctrl-bar { flex-direction: column; align-items: flex-end; gap: 12px; padding-top: 0; }',
+            '    .nd-dept-io-group { width: 100%; justify-content: center; gap: 15px; }',
+            '    .nd-dept-io-group .nd-btn { flex: 0 0 auto; min-width: 110px; padding: 6px 12px !important;}',
+            '    .nd-dept-ctrl-bar #btn-add-dept { width: auto; padding: 8px 20px; font-size: 14px; align-self: flex-end; }',
             '  }',
             '</style>',
             '<div class="nw-wrapper">',
@@ -259,8 +274,14 @@ return view.extend({
             '       <div id="nd-m-content" style="color:#475569; font-size:15px; margin-bottom:10px; text-align:left; line-height:1.2;"></div>',
             
             '       <div id="nd-m-dept-mgr" class="nd-dept-mgr-wrap" style="display:none;">',
+            '           <div class="nd-dept-ctrl-bar">',
+            '               <div class="nd-dept-io-group">',
+            '                   <button id="btn-import-depts" class="nd-btn nd-btn-gray">📂 {{BTN_IMPORT_DEPTS}}</button>',
+            '                   <button id="btn-export-depts" class="nd-btn nd-btn-gray">💾 {{BTN_EXPORT_DEPTS}}</button>',
+            '               </div>',
+            '               <button id="btn-add-dept" class="nd-btn nd-btn-blue">+ {{BTN_ADD_DEPT}}</button>',
+            '           </div>',
             '           <div id="dept-list-container"></div>',
-            '           <button id="btn-add-dept" class="nd-btn-add-dept">{{BTN_ADD_DEPT}}</button>',
             '       </div>',
 
             '       <div id="nd-m-fw-panel" style="display:none; text-align:left;">',
@@ -516,10 +537,10 @@ return view.extend({
             if(batchTagSelect) batchTagSelect.innerHTML = html;
         }
 
-        function renderDeptManager() {
+        function renderDeptManager(overrideDepts) {
             var c = modalOverlay.querySelector('#dept-list-container');
             c.innerHTML = '';
-            var tempDepts = JSON.parse(JSON.stringify(globalDepartments));
+            var tempDepts = overrideDepts ? overrideDepts : JSON.parse(JSON.stringify(globalDepartments));
             
             function renderRow(d, idx) {
                 var el = document.createElement('div');
@@ -589,9 +610,65 @@ return view.extend({
                 if (newEnd > 254) newEnd = 254;
 
                 var newId = 'dept_' + Math.random().toString(36).substring(2,8);
-                c.appendChild(renderRow({id: newId, icon: '🏷️', name: '', start: newStart, end: newEnd, color: '#64748b'}, currentRows.length));
-                c.scrollTop = c.scrollHeight;
+                var newRow = renderRow({id: newId, icon: '🏷️', name: '', start: newStart, end: newEnd, color: '#64748b'}, currentRows.length);
+                if (c.firstChild) {
+                    c.insertBefore(newRow, c.firstChild);
+                } else {
+                    c.appendChild(newRow);
+                }
+                c.scrollTop = 0;
             };
+
+            // ================= 新版：极其稳定的导入导出逻辑 =================
+            modalOverlay.querySelector('#btn-export-depts').onclick = function() {
+                var currentData = saveDepartmentsFromDOM();
+                if (currentData === false) return; // 如果有错误（重叠或留空），由于已有 alert，这里直接退出
+                
+                var dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(currentData, null, 2));
+                var dlNode = document.createElement('a');
+                dlNode.setAttribute("href", dataStr);
+                var dateStr = new Date().toISOString().slice(0,10).replace(/-/g,"");
+                dlNode.setAttribute("download", "netwiz_groups_" + dateStr + ".json");
+                
+                // 必须添加到 body 里再点，解决所有浏览器的拦截问题
+                document.body.appendChild(dlNode);
+                dlNode.click();
+                document.body.removeChild(dlNode);
+            };
+
+            modalOverlay.querySelector('#btn-import-depts').onclick = function() {
+                var fileInput = document.createElement('input');
+                fileInput.type = 'file';
+                fileInput.accept = '.json';
+                fileInput.style.display = 'none'; // 保持隐藏
+                
+                fileInput.onchange = function(e) {
+                    var file = e.target.files[0];
+                    if (!file) return;
+                    
+                    var reader = new FileReader();
+                    reader.onload = function(evt) {
+                        try {
+                            var importedData = JSON.parse(evt.target.result);
+                            if (!Array.isArray(importedData)) throw new Error('Not an array');
+                            
+                            // 导入成功，直接重新渲染面板
+                            renderDeptManager(importedData);
+                            alert(T['MSG_IMPORT_SUCCESS']);
+                        } catch (err) {
+                            alert(T['ERR_IMPORT_FAIL']);
+                        }
+                    };
+                    reader.readAsText(file);
+                };
+                
+                // 必须添加到 body 里再点，解决部分浏览器不弹文件选择框的问题
+                document.body.appendChild(fileInput); 
+                fileInput.click(); 
+                document.body.removeChild(fileInput);
+            };
+            // ================================================================
+
         }
 
         function saveDepartmentsFromDOM() {
@@ -953,6 +1030,31 @@ return view.extend({
         var selectedDevices = [];
         var currentFilter = 'all';
 
+        // 全局心跳消息队列与状态锁
+        window.nwKeepAliveQueue = window.nwKeepAliveQueue || [];
+        window.nwIsProcessingQueue = window.nwIsProcessingQueue || false;
+
+        function processKeepAliveQueue() {
+            // 队列空了，或处理中，就退出
+            if (window.nwKeepAliveQueue.length === 0 || window.nwIsProcessingQueue) return;
+            
+            window.nwIsProcessingQueue = true; // 上锁
+            var mac = window.nwKeepAliveQueue.shift(); // 取出队列第一个 MAC
+
+            // 发送请求给路由器后端
+            callV6KeepAlive(mac).then(function() {
+                sessionStorage.setItem('nw_v6_hb_' + mac, 'sent'); // 成功后标记为已发送
+            }).catch(function() {
+                // 失败忽略，不阻塞队伍
+            }).finally(function() {
+                // 延时 200 毫秒
+                setTimeout(function() {
+                    window.nwIsProcessingQueue = false; // 解锁
+                    processKeepAliveQueue();            // 处理下一个
+                }, 200); 
+            });
+        }
+
         function isSelectable(dev) {
             var isSys = dev.is_gw === 'true' || dev.is_gw === true || dev.is_local === 'true' || dev.is_local === true;
             var isVisitor = dev.is_visitor === 'true' || dev.is_visitor === true;
@@ -1008,7 +1110,6 @@ return view.extend({
             globalDepartments.forEach(function(d) { deptCounts[d.id] = 0; });
 
             globalDevices.forEach(function(d) {
-                // 测算部门
                 var dept = getDeviceDept(d);
                 if (dept) {
                     deptCounts[dept.id]++;
@@ -1210,6 +1311,69 @@ return view.extend({
                     connHtml = '<div style="font-size:12px; color:'+connColor+'; font-family:monospace; margin-top:2px; font-weight:bold;">⚡ ' + dev.conn_count + ' ' + T['LBL_CONN_COUNT'] + '</div>';
                 }
 
+                // 只保留 2 或 3 开头的公网 IP，屏蔽 fd/fe 等内网 IP
+                var ipv6Html = '';
+                if (dev.ipv6 && dev.ipv6.trim() !== '') {
+                    var v6List = dev.ipv6.trim().split(' ');
+                    var publicV6List = v6List.filter(function(v) { 
+                        var firstChar = v.charAt(0).toLowerCase();
+                        return firstChar === '2' || firstChar === '3'; 
+                    });
+
+                    // 显示徽章
+                    if (publicV6List.length > 0) {
+                        var memKey = 'nw_v6_mem_' + dev.mac; // L1 记忆钥匙
+                        var hbKey = 'nw_v6_hb_' + dev.mac;   // Session 心跳钥匙
+                        var currentPrefix = publicV6List[0].split(':').slice(0, 4).join(':'); // 提取真实前缀
+                        
+                        var radarShortV6 = publicV6List.find(function(v) { return v.indexOf('::') !== -1 && v.length < 25; });
+                        var localShortV6 = localStorage.getItem(memKey);
+                        var isBackendPc = (dev.is_pc_v6 === true || dev.is_pc_v6 === 'true');
+
+                        // 全局队列
+                        var triggerKeepAlive = function() {
+                            var hasSent = sessionStorage.getItem(hbKey);
+                            // 只要这个会话没发过，且没在排队
+                            if (!hasSent && window.nwKeepAliveQueue.indexOf(dev.mac) === -1) { 
+                                sessionStorage.setItem(hbKey, 'pending'); // 占位
+                                window.nwKeepAliveQueue.push(dev.mac);    // 进排队
+                                processKeepAliveQueue();                  // 处理
+                            }
+                        };
+
+                        // 核心逻辑树：雷达真实 > L1缓存 > L2预测拼凑
+                        if (radarShortV6) {
+                            localStorage.setItem(memKey, radarShortV6);
+                            triggerKeepAlive();
+                            
+                        } else if (localShortV6 && localShortV6.indexOf(currentPrefix) === 0) {
+                            publicV6List.unshift(localShortV6); 
+                            triggerKeepAlive();
+                            
+                        } else if (isBackendPc) {
+                            var ipToUse = (dev.bound_ip && dev.bound_ip !== 'Unknown IP') ? dev.bound_ip : ((dev.ip !== 'Unknown IP') ? dev.ip : '');
+                            if (ipToUse) {
+                                var ipv4Suffix = ipToUse.split('.').pop(); 
+                                var predictedV6 = currentPrefix + '::' + parseInt(ipv4Suffix, 10); 
+                                
+                                publicV6List.unshift(predictedV6); 
+                                localStorage.setItem(memKey, predictedV6); 
+                                triggerKeepAlive(); 
+                            }
+                        }
+
+                        // 展示
+                        var showV6 = publicV6List.find(function(v) { return v.indexOf('::') !== -1 && v.length < 25; }) || publicV6List[0];
+                        var moreV6 = publicV6List.length >= 2 ? (' +' + publicV6List.length) : '';
+                        
+                        var allV6Str = publicV6List.join('\n');
+                        var titleStr = T['TIP_V6_COPY'] + '\n' + allV6Str;
+                        
+                        // 复制ipv6
+                        ipv6Html = '<div class="nd-ipv6-badge" data-v6="' + showV6 + '" title="' + titleStr + '" style="font-size:11px; color:#64748b; font-family:monospace; margin-top:3px; display:flex; align-items:center; gap:4px; cursor:pointer;"><span style="background:#10b981; padding:4px 5px; border-radius:4px; font-weight:bold; color:#fff; border:1px solid #e2e8f0; line-height:1;">IPv6</span> <span style="overflow:hidden; text-overflow:ellipsis; max-width:120px; white-space:nowrap;">' + showV6 + '</span><span style="color:#3b82f6; font-weight:bold;">' + moreV6 + '</span></div>';
+                    }
+                }
+
                 var actions = "";
                 if (isGw || isLocal) {
                     actions = '<span style="color:#f00; font-size:16.5px; font-weight:bold; padding: 10px;">' + T['TXT_SYS_RESERVED'] + '</span>';
@@ -1251,12 +1415,17 @@ return view.extend({
                     '               ' + statusBadgesHtml, 
                     '           </div>',
                     '       </div>',
-                    '       <div class="nd-card-mac btn-fw-mac" title="' + T['TIP_MAC_CTRL'] + '" data-mac="'+dev.mac+'" data-ip="'+(dev.bound_ip || dev.ip)+'" style="margin-left:50px;">' + (dev.mac).toUpperCase() + ' <span style="font-size:15px; margin-left:2px;">👈</span></div>',
+                    '       <div class="nd-card-mac btn-fw-mac" title="' + T['TIP_MAC_CTRL'] + '" data-mac="'+dev.mac+'" data-ip="'+(dev.bound_ip || dev.ip)+'" style="margin-left:50px; display:flex; align-items:center;">' + (dev.mac).toUpperCase() + ' <span style="font-size:1.2em; color:#94a3b8; margin-left:4px; vertical-align:middle;">👈</span></div>',
                     '   </div>',
                     '   <div class="nd-card-mid">',
-                    '       <div class="nd-card-ip">' + ipText + '</div>',
-                    '       <div class="nd-lease-info"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg> ' + leaseText + '</div>',
-                    '       ' + connHtml,
+                    '       <div style="display:flex; flex-direction:column; align-items:flex-start; min-width:0;">',
+                    '           <div class="nd-card-ip">' + ipText + '</div>',
+                    '           ' + ipv6Html,
+                    '       </div>',
+                    '       <div style="display:flex; flex-direction:column; align-items:flex-end;">',
+                    '           <div class="nd-lease-info"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg> ' + leaseText + '</div>',
+                    '           ' + connHtml,
+                    '       </div>',
                     '   </div>',
                     '   <div class="nd-card-right">' + actions + '</div>',
                     '</div>'
@@ -1265,6 +1434,28 @@ return view.extend({
 
             listEl.innerHTML = html;
             
+            container.querySelectorAll('.nd-ipv6-badge').forEach(function(badge) {
+                badge.addEventListener('click', function(e) {
+                    e.stopPropagation(); // 阻止点击事件穿透
+                    var v6text = this.getAttribute('data-v6');
+                    
+                    if (navigator.clipboard && window.isSecureContext) {
+                        navigator.clipboard.writeText(v6text).then(function() {
+                            alert('✅ ' + T['MSG_V6_COPIED'] + '\n\n' + v6text);
+                        });
+                    } else {
+                        var textArea = document.createElement("textarea");
+                        textArea.value = v6text;
+                        textArea.style.position = "fixed";
+                        document.body.appendChild(textArea);
+                        textArea.focus();
+                        textArea.select();
+                        try { document.execCommand('copy'); alert('✅ ' + T['MSG_V6_COPIED'] + '\n\n' + v6text); } catch (err) {}
+                        document.body.removeChild(textArea);
+                    }
+                });
+            });
+
             container.querySelectorAll('.nd-card-checkbox input').forEach(function(cb) {
                 cb.addEventListener('change', function() { 
                     var mac = this.getAttribute('data-mac');
