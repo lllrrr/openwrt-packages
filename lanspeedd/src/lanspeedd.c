@@ -43,6 +43,8 @@
 #define LANSPEED_BPF_SOURCE "lanspeed_tc.bpf.c"
 #define LANSPEED_TC_FILTER_PREF 49152
 #define LANSPEED_TC_FILTER_HANDLE "0x1eed"
+#define LANSPEED_TC_FILTER_EARLY_PREF 1
+#define LANSPEED_TC_FILTER_EARLY_HANDLE "0x1eee"
 #define LANSPEED_TC_FILTER_OWNER "lanspeed"
 #define DAE_FWMARK "0x8000000"
 #define DAE_ROUTE_TABLE "2023"
@@ -232,6 +234,7 @@ struct runtime_probe {
 	bool dae_iface;
 	bool dae_peer_iface;
 	bool dae_tc_filters;
+	bool dae_preempts_bpf_ingress;
 	bool dae_fwmark;
 	bool dae_route_table;
 	bool dae_dns_udp53;
@@ -523,9 +526,35 @@ static bool ifname_is_excluded_identity_source(const char *ifname)
 
 static bool line_contains_lanspeed_filter_conflict(const char *line)
 {
-	return line && strstr(line, "pref 49152") != NULL &&
-	       (strstr(line, "handle 0x1eed") != NULL || strstr(line, "handle 1eed") != NULL) &&
-	       strstr(line, LANSPEED_TC_FILTER_OWNER) == NULL;
+	bool default_conflict;
+	bool early_conflict;
+
+	if (!line || strstr(line, LANSPEED_TC_FILTER_OWNER) != NULL)
+		return false;
+
+	default_conflict = strstr(line, "pref 49152") != NULL &&
+			   (strstr(line, "handle 0x1eed") != NULL ||
+			    strstr(line, "handle 1eed") != NULL);
+	early_conflict = strstr(line, "pref 1") != NULL &&
+			 (strstr(line, "handle 0x1eee") != NULL ||
+			  strstr(line, "handle 1eee") != NULL);
+
+	return default_conflict || early_conflict;
+}
+
+static bool ifname_is_bpf_attach_ifname(const char *ifname)
+{
+	size_t i;
+
+	if (!ifname || !ifname[0])
+		return false;
+
+	for (i = 0; i < bpf_attach_ifname_count; i++) {
+		if (!strcmp(bpf_attach_ifnames[i], ifname))
+			return true;
+	}
+
+	return false;
 }
 
 static const char *tc_filter_owner_from_line(const char *line)
@@ -596,6 +625,10 @@ static void inspect_tc_filter_lines(struct runtime_probe *probe, const char *ifn
 		if (!strcmp(owner, "dae")) {
 			probe->dae_tc_filters = true;
 			probe->dae = true;
+			if (ifname_is_bpf_attach_ifname(ifname) &&
+			    direction && !strcmp(direction, "ingress") &&
+			    atoi(pref) > 0 && atoi(pref) < LANSPEED_TC_FILTER_PREF)
+				probe->dae_preempts_bpf_ingress = true;
 		}
 		if (line_contains_lanspeed_filter_conflict(line))
 			probe->tc_filter_conflict = true;
@@ -1036,6 +1069,8 @@ static void inspect_dae_runtime(struct runtime_probe *probe)
 		add_conflict(probe, "tc_filter_conflict", "warning",
 			     "An existing tc filter already uses lanspeed pref/handle; lanspeedd will not overwrite it.");
 	}
+	if (probe->dae_preempts_bpf_ingress)
+		add_warning(probe, "dae_tc_preempts_bpf_ingress");
 }
 
 static void inspect_bpf_assets(struct runtime_probe *probe)
@@ -1432,11 +1467,26 @@ static bool nss_conntrack_sync_preferred(const struct runtime_probe *probe)
 	       probe->nss_ecm_active;
 }
 
+static bool dae_tc_preempts_bpf_ingress(const struct runtime_probe *probe)
+{
+	return probe && probe->dae_preempts_bpf_ingress;
+}
+
+static bool conntrack_primary_preferred(const struct runtime_probe *probe)
+{
+	return nss_conntrack_sync_preferred(probe);
+}
+
+static bool bpf_primary_active(const struct runtime_probe *probe)
+{
+	return bpf_full_available(probe) && !conntrack_primary_preferred(probe);
+}
+
 static bool conntrack_fallback_active(const struct runtime_probe *probe)
 {
 	return enable_conntrack_fallback &&
 	       (!bpf_full_available(probe) ||
-	        nss_conntrack_sync_preferred(probe)) &&
+	        conntrack_primary_preferred(probe)) &&
 	       conntrack_fallback_accounting_safe(probe);
 }
 
@@ -1444,7 +1494,9 @@ static const char *collector_primary_source(const struct runtime_probe *probe)
 {
 	if (nss_conntrack_sync_preferred(probe))
 		return "nss_conntrack_sync";
-	if (bpf_full_available(probe))
+	if (conntrack_primary_preferred(probe))
+		return "conntrack";
+	if (bpf_primary_active(probe))
 		return "bpf";
 	if (conntrack_fallback_active(probe))
 		return "conntrack";
@@ -1539,7 +1591,7 @@ static void add_collector_evidence(struct runtime_probe *probe)
 	json_object_object_add(collector, "safe_attach", json_object_new_boolean(probe->safe_attach));
 	json_object_object_add(collector, "bpf_assets_are_evidence_only", json_object_new_boolean(true));
 	json_object_object_add(collector, "runtime_attach_map_read_success", json_object_new_boolean(probe->bpf_runtime_metrics));
-	json_object_object_add(collector, "live_metrics", json_object_new_boolean(probe->bpf_runtime_metrics));
+	json_object_object_add(collector, "live_metrics", json_object_new_boolean(bpf_primary_active(probe)));
 	json_object_object_add(collector, "primary_source", json_object_new_string(collector_primary_source(probe)));
 	json_object_object_add(collector, "runtime_gate_warning", json_object_new_string("bpf_runtime_loader_unavailable"));
 	json_object_object_add(collector, "map_full", json_object_new_boolean(probe->map_full));
@@ -1565,10 +1617,17 @@ static void add_collector_evidence(struct runtime_probe *probe)
 	json_object_object_add(tc_filter, "owner", json_object_new_string(LANSPEED_TC_FILTER_OWNER));
 	json_object_object_add(tc_filter, "pref", json_object_new_int(LANSPEED_TC_FILTER_PREF));
 	json_object_object_add(tc_filter, "handle", json_object_new_string(LANSPEED_TC_FILTER_HANDLE));
+	json_object_object_add(tc_filter, "early_pref", json_object_new_int(LANSPEED_TC_FILTER_EARLY_PREF));
+	json_object_object_add(tc_filter, "early_handle", json_object_new_string(LANSPEED_TC_FILTER_EARLY_HANDLE));
+	json_object_object_add(tc_filter, "early_passthrough_action", json_object_new_string("TC_ACT_UNSPEC"));
 	json_object_object_add(tc_filter, "existing_filters_detected", json_object_new_boolean(probe->existing_tc_filters));
 	json_object_object_add(tc_filter, "existing_filters", json_object_get(probe->tc_filters));
 	json_object_object_add(tc_filter, "conflict", json_object_new_boolean(probe->tc_filter_conflict));
 	json_object_object_add(tc_filter, "conflict_warning", json_object_new_string("tc_filter_conflict"));
+	json_object_object_add(tc_filter, "dae_preempts_bpf_ingress",
+			       json_object_new_boolean(dae_tc_preempts_bpf_ingress(probe)));
+	json_object_object_add(tc_filter, "preempt_warning",
+			       json_object_new_string("dae_tc_preempts_bpf_ingress"));
 
 	json_object_array_add(map_key, json_object_new_string("ifindex"));
 	json_object_array_add(map_key, json_object_new_string("vlan_or_zone"));
@@ -1645,6 +1704,8 @@ static void add_collector_evidence(struct runtime_probe *probe)
 		json_object_array_add(warnings, json_object_new_string("refresh_interval_below_minimum"));
 	if (probe->tc_filter_conflict)
 		json_object_array_add(warnings, json_object_new_string("tc_filter_conflict"));
+	if (dae_tc_preempts_bpf_ingress(probe))
+		json_object_array_add(warnings, json_object_new_string("dae_tc_preempts_bpf_ingress"));
 	if (enable_bpf && !probe->safe_attach)
 		json_object_array_add(warnings, json_object_new_string("unsafe_attach"));
 	if (enable_bpf && probe->safe_attach && !probe->bpf_runtime_metrics) {
@@ -1811,7 +1872,7 @@ static const char *probe_mode(const struct runtime_probe *probe)
 {
 	if (!probe->tc && !conntrack_fallback_active(probe))
 		return "Unsupported";
-	if (nss_conntrack_sync_preferred(probe))
+	if (conntrack_primary_preferred(probe))
 		return "Degraded";
 	if (!bpf_full_available(probe))
 		return "Degraded";
@@ -3486,9 +3547,9 @@ static int status_method(struct ubus_context *ubus, struct ubus_object *obj,
 	json_object_object_add(root, "evidence", probe.evidence);
 	json_object_object_add(root, "refresh_interval_ms", json_object_new_int(refresh_interval_ms));
 	json_object_object_add(root, "version", json_object_new_string(LANSPEED_VERSION));
-	add_capabilities_from_values(root, enable_bpf && probe.bpf_runtime_metrics,
+	add_capabilities_from_values(root, enable_bpf && bpf_primary_active(&probe),
 				     enable_conntrack_fallback,
-				     probe.bpf_runtime_metrics, &probe);
+				     bpf_primary_active(&probe), &probe);
 	coverage_push_sample(monotonic_time_ms(), &probe);
 	add_coverage_to_status(root, &probe);
 	json_object_put(probe.conflicts);
@@ -3612,9 +3673,9 @@ static int clients_method(struct ubus_context *ubus, struct ubus_object *obj,
 		if (nss_conntrack_sync_preferred(&probe)) {
 			if (!collect_conntrack_procfs_clients(root, clients, &probe) &&
 			    collect_bpf_clients(root, clients, &probe)) {
-				/* BPF is only a slow-path fallback under NSS,
-				 * but its connection counts can still be topped
-				 * up from conntrack when available. */
+				/* BPF is only a slow-path fallback under NSS sync,
+				 * but its connection counts can still be topped up
+				 * from conntrack when available. */
 				merge_conntrack_conn_counts(root, clients);
 			}
 		} else if (!collect_bpf_clients(root, clients, &probe)) {
@@ -3652,9 +3713,9 @@ static int health_method(struct ubus_context *ubus, struct ubus_object *obj,
 
 	json_object_object_add(root, "mode", json_object_new_string(mode));
 	json_object_object_add(root, "confidence", json_object_new_string(probe_confidence(&probe, mode)));
-	add_capabilities_from_values(root, enable_bpf && probe.bpf_runtime_metrics,
+	add_capabilities_from_values(root, enable_bpf && bpf_primary_active(&probe),
 				     enable_conntrack_fallback,
-				     probe.bpf_runtime_metrics, &probe);
+				     bpf_primary_active(&probe), &probe);
 	json_object_object_add(root, "conflicts", probe.conflicts);
 	json_object_object_add(root, "warnings", probe.warnings);
 	json_object_object_add(root, "evidence", probe.evidence);
@@ -4102,6 +4163,7 @@ static void start_bpf_runtime(void)
 {
 	const char *env_path;
 	const char *object_path;
+	bool early_passthrough = false;
 	size_t i;
 	int attached_ok = 0;
 
@@ -4116,8 +4178,19 @@ static void start_bpf_runtime(void)
 	if (!lanspeed_bpf_init(object_path))
 		return;
 
+	{
+		struct runtime_probe probe;
+
+		init_runtime_probe(&probe);
+		inspect_command_capabilities(&probe);
+		inspect_tc(&probe);
+		early_passthrough = dae_tc_preempts_bpf_ingress(&probe);
+		free_runtime_probe(&probe);
+	}
+
 	for (i = 0; i < bpf_attach_ifname_count; i++) {
-		if (lanspeed_bpf_attach_iface(bpf_attach_ifnames[i]) == 0)
+		if (lanspeed_bpf_attach_iface_mode(bpf_attach_ifnames[i],
+						   early_passthrough) == 0)
 			attached_ok++;
 	}
 
