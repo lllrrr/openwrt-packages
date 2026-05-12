@@ -74,47 +74,52 @@ chmod +x luci-app-netwiz/root/usr/libexec/netwiz-autodetect.sh
 chmod +x luci-app-netwiz/root/usr/libexec/netwiz-monitor-loop.sh
 chmod +x luci-app-netwiz/root/etc/init.d/netwiz-monitor
 chmod +x luci-app-netwiz/root/etc/init.d/netwiz-recovery
+chmod +x luci-app-netwiz/root/etc/hotplug.d/dhcp/99-netwiz-guard
 ```
 ---
 
 ```bash
 luci-app-netwiz/
-├── README.md                               # Project documentation (Features, Installation guide, Changelog)
-├── LICENSE                                 # Open-source license declaration
-├── Makefile                                # OpenWrt/immortalwrt standard Makefile (Package definition & dependencies)
-├── htdocs/
-│   └── luci-static/
-│       └── resources/
-│           └── view/
-│               ├── netwiz.css               # Independent CSS stylesheet (UI styles for modals, responsive grid, badges)
-│               ├── netwiz.js                # Frontend Core 1: Network Setup Wizard (Async radar, dial-up, anti-loss logic)
-│               └── netwiz_dev.js            # Frontend Core 2: Device Network Manager (Device status radar, smart subnetting, batch assign)
-├── po/
-│   ├── zh_Hans/
-│   │   └── netwiz.po                        # Simplified Chinese translation dictionary (Covers both Wizard and Device Manager)
-│   └── zh_Hant/
-│       └── netwiz.po                        # Traditional Chinese translation dictionary (Covers both Wizard and Device Manager)
-└── root/
+├── README.md                   # 项目说明书 (功能介绍、安装说明、更新日志)
+├── LICENSE                     # 开源许可证
+├── Makefile                    # OpenWrt 标准 Makefile (包定义、依赖关系)
+│
+├── htdocs/                     # 🌐 前端 UI 层 (纯静态资源)
+│   └── luci-static/resources/view/
+│       ├── netwiz.css          # 全局公共样式表 (弹窗、响应式、UI 美化)
+│       ├── netwiz.js           # 前端核心 1：向导引擎 (网络大动脉配置、异步拨号)
+│       └── netwiz_dev.js       # 前端核心 2：管家引擎 (设备雷达、智能分段、UI 交互)
+│
+├── po/                         # 🌍 多语言国际化
+│   ├── zh_Hans/netwiz.po       # 简体中文翻译字典
+│   └── zh_Hant/netwiz.po       # 繁体中文翻译字典
+│
+└── root/                       # ⚙️ 后端系统层 (打包时映射到路由器根目录 /)
     ├── etc/
-    │   ├── config/                          # UCI default configuration directory
-    │   │   └── netwiz                       # Netwiz exclusive config file (Saves Wizard states and Device Manager's custom group JSON)
-    │   └── init.d/
-    │       ├── netwiz-monitor               # Background daemon service for the connection monitor loop
-    │       └── netwiz-recovery              # Auto-recovery service on power loss (START=15)
+    │   ├── config/
+    │   │   └── netwiz          # 底层配置库 (保存向导状态、管家分组与设备活跃时间戳)
+    │   │
+    │   ├── init.d/             # [向导引擎 守护模块]
+    │   │   ├── netwiz-monitor  # 常驻监视守护服务 (启动/停止监控引擎)
+    │   │   └── netwiz-recovery # 断电自动恢复服务 (START=15，确保改网失败不失联)
+    │   │
+    │   └── hotplug.d/dhcp/     # 🛡️ [管家引擎 隐形守卫模块] (NEW!)
+    │       └── 99-netwiz-guard # MAC 防伪装触发器 (基于事件驱动的微秒级拦截，零后台损耗)
+    │
     └── usr/
         ├── libexec/
-        │   ├── netwiz-autodetect.sh         # WAN protocol auto-detection engine (DHCP/PPPoE)
-        │   ├── netwiz-monitor-loop.sh       # Core monitoring daemon (Debounce, connection radar, rollback execution)
-        │   └── rpcd/
-        │       ├── netwiz                   # Backend RPC API 1: Setup Wizard (Handles network replacement & config validation)
-        │       └── netwiz_dev               # Backend RPC API 2: Device Manager (Fetches ARP/DHCP lists, bind/unbind IPs, saves groups)
+        │   ├── netwiz-autodetect.sh   # WAN 协议自动检测引擎
+        │   ├── netwiz-monitor-loop.sh # 向导防抖与回退循环逻辑
+        │   │
+        │   └── rpcd/           # 🔌 RPC 接口层 (前后端数据通信桥梁)
+        │       ├── netwiz      # 后端接口 1：向导专用 (处理底层网络协议修改)
+        │       └── netwiz_dev  # 后端接口 2：管家专用 (ARP/DHCP存取、包含崩溃自救与静默清理机制) (UPDATED!)
+        │
         └── share/
-            ├── luci/
-            │   └── menu.d/
-            │       └── luci-app-netwiz.json # LuCI Menu definitions (Registers entry points for Wizard and Device Manager)
-            └── rpcd/
-                └── acl.d/
-                    └── luci-app-netwiz.json # RPC Access Control List (Crucial: Must include exec permissions for `netwiz_dev` to prevent 403 Forbidden errors)
+            ├── luci/menu.d/
+            │   └── luci-app-netwiz.json # 系统菜单入口注册
+            └── rpcd/acl.d/
+                └── luci-app-netwiz.json # UBUS 权限控制列表 (授权前端访问后端接口)
 ```
 ---
 
