@@ -45,7 +45,7 @@ wakeup_apps() {
 
 case "$1" in
     list)
-        echo '{ "get_list": { "show_conns": "boolean" }, "bind": { "mac": "string", "ip": "string", "name": "string", "dept": "string", "no_reload": "boolean" }, "unbind": { "mac": "string", "no_reload": "boolean" }, "apply_dhcp": {}, "get_depts": {}, "save_depts": { "data": "string" }, "get_smart_ranges": {}, "save_smart_ranges": { "data": "string" }, "v6_keep_alive": { "mac": "string" }, "reset_all": {}, "fw_set": { "mac": "string", "ip": "string", "blk_en": "boolean", "iso_en": "boolean", "dmz_en": "boolean" } }'
+        echo '{ "get_list": { "show_conns": "boolean" }, "bind": { "mac": "string", "ip": "string", "name": "string", "dept": "string", "no_reload": "boolean" }, "unbind": { "mac": "string", "no_reload": "boolean" }, "apply_dhcp": {}, "get_depts": {}, "save_depts": { "data": "string" }, "get_smart_ranges": {}, "save_smart_ranges": { "data": "string" }, "v6_keep_alive": { "mac": "string" }, "reset_all": {}, "analyze_conns": { "ip": "string" }, "fw_set": { "mac": "string", "ip": "string", "blk_en": "boolean", "iso_en": "boolean", "dmz_en": "boolean" } }'
         exit 0
         ;;
     call)
@@ -54,12 +54,13 @@ case "$1" in
                 input=$(cat)
                 show_conns=$(echo "$input" | jsonfilter -e '@.show_conns' || echo "false")
                 
-                conn_str=""
+                rm -f /tmp/nw_conns_cache.txt
+                touch /tmp/nw_conns_cache.txt
                 if [ "$show_conns" = "true" ] || [ "$show_conns" = "1" ]; then
                     if [ -f /proc/net/nf_conntrack ]; then
-                        conn_str=$(awk '{for(i=1;i<=NF;i++) if($i~/^src=/) {split($i,a,"="); c[a[2]]++; break}} END{for(i in c) print i"="c[i]}' /proc/net/nf_conntrack 2>/dev/null)
+                        awk '{src="";proto=$3;dport=0;s_done=0;d_done=0; for(i=1;i<=NF;i++){if(!s_done && $i~/^src=/){split($i,a,"=");src=a[2];s_done=1;} if(!d_done && $i~/^dport=/){split($i,a,"=");dport=a[2]+0;d_done=1;} if(s_done && d_done) break;} if(src!=""){t[src]++;if(dport==80||dport==443)w[src]++;else if(dport==53||dport==5353||dport==123)d[src]++;else if(proto=="udp")u[src]++;else if(dport>10000)p[src]++;else o[src]++;}} END{for(i in t) print i"="t[i]","w[i]+0","d[i]+0","u[i]+0","p[i]+0","o[i]+0}' /proc/net/nf_conntrack 2>/dev/null > /tmp/nw_conns_cache.txt
                     elif command -v conntrack >/dev/null 2>&1; then
-                        conn_str=$(conntrack -L 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i~/^src=/) {split($i,a,"="); c[a[2]]++; break}} END{for(i in c) print i"="c[i]}')
+                        conntrack -L 2>/dev/null | awk '{src="";proto=$3;dport=0;s_done=0;d_done=0; for(i=1;i<=NF;i++){if(!s_done && $i~/^src=/){split($i,a,"=");src=a[2];s_done=1;} if(!d_done && $i~/^dport=/){split($i,a,"=");dport=a[2]+0;d_done=1;} if(s_done && d_done) break;} if(src!=""){t[src]++;if(dport==80||dport==443)w[src]++;else if(dport==53||dport==5353||dport==123)d[src]++;else if(proto=="udp")u[src]++;else if(dport>10000)p[src]++;else o[src]++;}} END{for(i in t) print i"="t[i]","w[i]+0","d[i]+0","u[i]+0","p[i]+0","o[i]+0}' > /tmp/nw_conns_cache.txt
                     fi
                 fi
 
@@ -80,7 +81,7 @@ case "$1" in
                 visitor_ips=$(netstat -nt 2>/dev/null | awk '$4 ~ /:(80|443)$/ && $6 ~ /ESTABLISHED/ {split($5, a, ":"); if(a[1]!="") print a[1]}' | sort -u | tr '\n' ' ')
                 curr_time=$(date +%s)
 
-                json_data=$(awk -v current_time="$curr_time" -v wifi_str="$wifi_macs" -v arp_str="$arp_cache" -v lease_str="$leases" -v hosts_str="$hosts_str" -v ubus_str="$ubus_leases" -v uci_str="$uci_hosts" -v gw_ip="$gw_ip" -v lan_ip="$lan_ip" -v lan_mac="$lan_mac" -v local_ips_str="$local_ips" -v visitor_ips_str="$visitor_ips" -v conn_str_input="$conn_str" -v fw_str_input="$fw_str" -v ipv6_str="$ipv6_neigh" '
+                json_data=$(awk -v current_time="$curr_time" -v wifi_str="$wifi_macs" -v arp_str="$arp_cache" -v lease_str="$leases" -v hosts_str="$hosts_str" -v ubus_str="$ubus_leases" -v uci_str="$uci_hosts" -v gw_ip="$gw_ip" -v lan_ip="$lan_ip" -v lan_mac="$lan_mac" -v local_ips_str="$local_ips" -v visitor_ips_str="$visitor_ips" -v fw_str_input="$fw_str" -v ipv6_str="$ipv6_neigh" '
                 BEGIN {
                     now_ts = current_time;
                     exp_ts = 2592000; # 30天过期时间
@@ -287,23 +288,21 @@ case "$1" in
                         }
                     }
 
-                    split(conn_str_input, carr, "\n");
-                    for(i in carr) {
-                        split(carr[i], p, "=");
-                        if(p[1]!="") conn_count[p[1]] = p[2] + 0;
+                    while ((getline line < "/tmp/nw_conns_cache.txt") > 0) {
+                        split(line, p, "=");
+                        if(p[1]!="") conn_count[p[1]] = p[2];
                     }
+                    close("/tmp/nw_conns_cache.txt");
 
                     printf "{\"devices\": [";
                     first=1;
                     for(mac in all_macs) {
                         is_online = (arp_online[mac]==1 || wifi_online[mac]==1) ? 1 : 0;
                         ip = arp_ip[mac]; 
-                        
                         if(ip == "" || ip ~ /^169\.254\./) {
                             if(leases_ip[mac] != "") ip = leases_ip[mac];
                             else if(static_ip[mac] != "") ip = static_ip[mac];
                         }
-                        
                         gsub(/^[ \t\r\n]+|[ \t\r\n]+$/, "", ip);
                         if(ip=="" && is_online==0) continue;
                         if(ip=="") ip = "Unknown IP";
@@ -333,11 +332,14 @@ case "$1" in
                         is_local = (ip != "" && router_ips[ip] == 1) ? "true" : "false";
                         is_visitor = (ip != "" && visitor_ips[ip] == 1) ? "true" : "false";
                         b_ip = static_ip[mac]; b_dept = static_dept[mac];
-                        
                         gsub(/["\\]/, "", b_ip); gsub(/\047/, "", b_ip); gsub(/[\r\n\t]/, "", b_ip);
                         gsub(/["\\]/, "", b_dept); gsub(/\047/, "", b_dept); gsub(/[\r\n\t]/, "", b_dept);
                         
-                        c_count = (conn_count[ip] != "") ? conn_count[ip] : 0;
+                        # 💡 圓餅圖數據切割
+                        c_str = (conn_count[ip] != "") ? conn_count[ip] : "0,0,0,0,0,0";
+                        split(c_str, c_arr, ",");
+                        c_total = c_arr[1]+0; c_web = c_arr[2]+0; c_dns = c_arr[3]+0; c_udp = c_arr[4]+0; c_p2p = c_arr[5]+0; c_oth = c_arr[6]+0;
+
                         f_blk = (fw_blk[mac]==1) ? "true" : "false";
                         f_iso = (fw_iso[mac]==1) ? "true" : "false";
                         f_dmz = (fw_dmz[mac]==1) ? "true" : "false";
@@ -345,16 +347,12 @@ case "$1" in
                         if(!first) printf ", ";
              
                         is_pc_flag = (is_pc_v6_map[mac] == 1) ? "true" : "false";
-             
-                        # 判断是否未知新设备
-                        # 1. 在线; 2. 未绑定靜态IP; 3.设备名为 Unknown
                         is_new_unknown = "false";
                         if (is_online == 1 && is_static_mac[mac] != 1 && name == "Unknown" && is_local == "false" && is_gw == "false") {
                             is_new_unknown = "true";
                         }
              
-                        printf "{\"mac\": \"%s\", \"ip\": \"%s\", \"bound_ip\": \"%s\", \"dept\": \"%s\", \"name\": \"%s\", \"online\": %s, \"is_static\": %s, \"is_gw\": %s, \"is_local\": %s, \"is_visitor\": %s, \"lease\": \"%s\", \"conn_count\": %d, \"fw_block\": %s, \"fw_isolate\": %s, \"fw_dmz\": %s, \"ipv6\": \"%s\", \"is_pc_v6\": %s, \"is_new_unknown\": %s}", mac, ip, b_ip, b_dept, name, (is_online?"true":"false"), is_static, is_gw, is_local, 
-is_visitor, l_time, c_count, f_blk, f_iso, f_dmz, v6_val, is_pc_flag, is_new_unknown;
+                        printf "{\"mac\": \"%s\", \"ip\": \"%s\", \"bound_ip\": \"%s\", \"dept\": \"%s\", \"name\": \"%s\", \"online\": %s, \"is_static\": %s, \"is_gw\": %s, \"is_local\": %s, \"is_visitor\": %s, \"lease\": \"%s\", \"conn_count\": %d, \"conn_web\": %d, \"conn_dns\": %d, \"conn_udp\": %d, \"conn_p2p\": %d, \"conn_oth\": %d, \"fw_block\": %s, \"fw_isolate\": %s, \"fw_dmz\": %s, \"ipv6\": \"%s\", \"is_pc_v6\": %s, \"is_new_unknown\": %s}", mac, ip, b_ip, b_dept, name, (is_online?"true":"false"), is_static, is_gw, is_local, is_visitor, l_time, c_total, c_web, c_dns, c_udp, c_p2p, c_oth, f_blk, f_iso, f_dmz, v6_val, is_pc_flag, is_new_unknown;
                         first=0;
                     }
                     printf "]}";
@@ -550,7 +548,7 @@ is_visitor, l_time, c_count, f_blk, f_iso, f_dmz, v6_val, is_pc_flag, is_new_unk
                     uci commit firewall
                     /etc/init.d/dnsmasq reload >/dev/null 2>&1
                     /etc/init.d/firewall reload >/dev/null 2>&1 &
-                    # 检查 dnsmasq
+                    # 檢查 dnsmasq
                     sleep 2
                     if ! pgrep dnsmasq > /dev/null; then
                         logger -t Netwiz "⚠️ DNSMasq crashed after bind! Auto-restarting..."
@@ -597,7 +595,7 @@ is_visitor, l_time, c_count, f_blk, f_iso, f_dmz, v6_val, is_pc_flag, is_new_unk
                 uci commit firewall
                 /etc/init.d/dnsmasq reload >/dev/null 2>&1
                 /etc/init.d/firewall reload >/dev/null 2>&1 &
-                # 檢查 dnsmasq
+                # 检查 dnsmasq
                 sleep 2
                 if ! pgrep dnsmasq > /dev/null; then
                     logger -t Netwiz "⚠️ DNSMasq crashed after reload! Auto-restarting..."
@@ -690,7 +688,7 @@ is_visitor, l_time, c_count, f_blk, f_iso, f_dmz, v6_val, is_pc_flag, is_new_unk
                 done
                 uci commit firewall
 
-                # 2. 淨化 DHCP
+                # 2. 淨化 DHCP (刪除所有透過 netwiz 設定的主機)
                 for host in $(uci -q show dhcp | grep "=host" | cut -d'.' -f2 | sed "s/\[//g; s/\]//g" | sort -rn); do
                     uci -q delete dhcp.@host[$host]
                 done
@@ -705,15 +703,61 @@ is_visitor, l_time, c_count, f_blk, f_iso, f_dmz, v6_val, is_pc_flag, is_new_unk
                     commit netwiz
 EOF
 
-                # 4. 重启服务
+                # 4. 重啟服務
                 /etc/init.d/dnsmasq restart >/dev/null 2>&1
                 /etc/init.d/firewall reload >/dev/null 2>&1
                 
-                # 启用高级应用
+                # 喚醒高級應用
                 sleep 2
                 wakeup_apps
                 
                 echo '{"result":0}'
+                exit 0
+                ;;
+
+                analyze_conns)
+                input=$(cat)
+                ip=$(echo "$input" | jsonfilter -e '@.ip')
+                
+                if ! echo "$ip" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
+                    echo '{"error":"INVALID_IP"}'
+                    exit 1
+                fi
+                
+                raw_file="/tmp/nw_conns_${ip}.txt"
+                
+                if [ -f /proc/net/nf_conntrack ]; then
+                    awk -v ip="$ip" '{for(i=1;i<=NF;i++)if($i~/^src=/){split($i,a,"="); if(a[2]==ip) print $0; break}}' /proc/net/nf_conntrack 2>/dev/null > "$raw_file"
+                elif command -v conntrack >/dev/null 2>&1; then
+                    conntrack -L 2>/dev/null | awk -v ip="$ip" '{for(i=1;i<=NF;i++)if($i~/^src=/){split($i,a,"="); if(a[2]==ip) print $0; break}}' > "$raw_file"
+                fi
+                
+                # 分类统計
+                stats=$(awk '
+                BEGIN { web=0; dns=0; udp_media=0; p2p=0; other=0; total=0 }
+                {
+                    total++;
+                    proto = $3;
+                    dport = 0;
+                    for(i=1;i<=NF;i++) {
+                        if($i ~ /^dport=/) { split($i,a,"="); dport=a[2]+0; break; }
+                    }
+                    
+                    if (dport == 80 || dport == 443) { web++; }
+                    else if (dport == 53 || dport == 5353 || dport == 123) { dns++; }
+                    else if (proto == "udp") { udp_media++; }
+                    else if (dport > 10000) { p2p++; }
+                    else { other++; }
+                }
+                END {
+                    printf "{\"total\":%d, \"web\":%d, \"dns\":%d, \"udp_media\":%d, \"p2p\":%d, \"other\":%d}", total, web, dns, udp_media, p2p, other
+                }' "$raw_file")
+                
+                # 截取前 50 条原始数据給前端黑框
+                raw_logs=$(head -n 50 "$raw_file" | sed 's/"/\\"/g' | awk '{printf "\"%s\",", $0}' | sed 's/,$//')
+                
+                rm -f "$raw_file"
+                echo "{\"stats\": $stats, \"raw\": [$raw_logs]}"
                 exit 0
                 ;;
         esac

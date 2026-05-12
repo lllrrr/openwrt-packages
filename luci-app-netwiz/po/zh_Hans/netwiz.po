@@ -1035,3 +1035,39 @@ msgstr "确定要清空所有由 Netwiz 网络管家设置的静态 IP 和防火
 
 msgid "Cleaning up and restarting network services..."
 msgstr "正在大扫除并重启网络服务..."
+
+msgid "⚡ Connection Radar Analysis"
+msgstr "⚡ 连线雷达分析"
+
+msgid "Diving into system kernel to capture connection records..."
+msgstr "正在潜入系统内核抓取连线记录..."
+
+msgid "Web/HTTPS"
+msgstr "网页/常规"
+
+msgid "DNS/NTP"
+msgstr "DNS解析"
+
+msgid "UDP Stream/Game"
+msgstr "UDP串流/游戏"
+
+msgid "P2P/High Ports"
+msgstr "P2P下载/挂机"
+
+msgid "Others/Unknown"
+msgstr "其他/未知"
+
+msgid "# Successfully parsed {total} source connection records..."
+msgstr "# 成功解析到 {total} 条源连线记录..."
+
+msgid "root@OpenWrt:~# cat /proc/net/nf_conntrack | awk '...' # (Filtering src={ip})"
+msgstr "root@OpenWrt:~# cat /proc/net/nf_conntrack | awk '...' # (过滤源IP={ip})"
+
+msgid "[ No active connection records ]"
+msgstr "[ 暂无活动连线记录 ]"
+
+msgid "... (First 50 records shown for performance) ..."
+msgstr "... (已截断显示前 50 条数据以保障效能) ..."
+
+msgid "Analysis failed: {err}"
+msgstr "抓取失败: {err}"

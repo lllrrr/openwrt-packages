@@ -29,6 +29,7 @@ var CSS = '\
 .pc-badge-blocked { background:#c62828; }\
 .pc-badge-override { background:#e65100; }\
 .pc-badge-inactive { background:#546e7a; }\
+.pc-badge-scheduled { background:#1565c0; }\
 .pc-actions { display:flex; gap:4px; align-items:center; }\
 .pc-btn { padding:4px 12px; border:1px solid rgba(255,255,255,0.15); border-radius:4px; background:rgba(255,255,255,0.06); cursor:pointer; font-size:12px; white-space:nowrap; }\
 .pc-btn:hover { background:rgba(255,255,255,0.12); border-color:rgba(255,255,255,0.25); }\
@@ -98,6 +99,7 @@ body.pc-modal-open { overflow:hidden !important; }\
 .pc-stats { font-size:12px; line-height:1.5; }\
 .pc-stats-packets { font-weight:600; }\
 .pc-stats-bytes { opacity:0.5; }\
+.pc-modal-error { padding:8px 12px; margin-bottom:12px; border-radius:4px; background:rgba(198,40,40,0.15); border:1px solid rgba(198,40,40,0.3); color:#ef5350; font-size:13px; }\
 \
 @media screen and (max-device-width: 600px) {\
   .pc-header { flex-wrap:wrap; gap:8px; padding:10px 12px; }\
@@ -149,6 +151,13 @@ function showToast(message, type) {
 		toast.classList.remove('show');
 		setTimeout(function() { toast.remove(); }, 300);
 	}, 2500);
+}
+
+function showModalError(body, message) {
+	var existing = body.querySelector('.pc-modal-error');
+	if (existing) existing.remove();
+	var err = E('div', { 'class': 'pc-modal-error' }, message);
+	body.insertBefore(err, body.firstChild);
 }
 
 // --- Helpers ---
@@ -208,6 +217,7 @@ function statusBadge(status, overrideRemaining) {
 	switch (status) {
 		case 'active': cls = 'pc-badge pc-badge-blocked'; text = 'Blocked'; break;
 		case 'override': cls = 'pc-badge pc-badge-override'; text = 'Paused (' + formatDuration(overrideRemaining) + ')'; break;
+		case 'scheduled': cls = 'pc-badge pc-badge-scheduled'; text = 'Scheduled'; break;
 		default: cls = 'pc-badge pc-badge-inactive'; text = 'Inactive';
 	}
 	return E('span', { 'class': cls }, text);
@@ -706,18 +716,35 @@ function openAddModal() {
 	showModal('Add New Rule', function(body) {
 		body.appendChild(E('div', { 'class': 'pc-form-row' }, [
 			E('span', { 'class': 'pc-form-label' }, 'Device Name'),
-			E('input', { 'type': 'text', 'name': 'rule_name', 'placeholder': 'e.g. Kids iPad', 'class': 'pc-form-input' })
+			E('input', { 'type': 'text', 'name': 'rule_name', 'placeholder': 'e.g. Kids iPad', 'class': 'pc-form-input',
+				'input': function() { var err = body.querySelector('.pc-modal-error'); if (err) err.remove(); }
+			})
 		]));
 		var devRow = E('div', { 'class': 'pc-form-row' });
 		devRow.appendChild(E('span', { 'class': 'pc-form-label' }, 'Device'));
 		var dd = E('div', { 'class': 'pc-device-row' });
-		var sel = E('select', { 'name': 'rule_mac', 'class': 'pc-form-input pc-form-input-inline' });
+		var sel = E('select', { 'name': 'rule_mac', 'class': 'pc-form-input pc-form-input-inline',
+			'change': function() {
+				var opt = sel.options[sel.selectedIndex];
+				var nameInput = body.querySelector('[name="rule_name"]');
+				if (nameInput && !nameInput.value.trim() && opt.dataset.hostname) {
+					nameInput.value = opt.dataset.hostname;
+				}
+				var err = body.querySelector('.pc-modal-error');
+				if (err) err.remove();
+			}
+		});
 		sel.appendChild(E('option', { 'value': '' }, '-- Select a device --'));
 		_cachedDevices.forEach(function(dev) {
 			var lbl = dev.mac;
-			if (dev.hostname && dev.hostname !== 'unknown' && dev.hostname !== '') lbl = dev.hostname + ' (' + dev.mac + ')';
+			var hostname = '';
+			if (dev.hostname && dev.hostname !== 'unknown' && dev.hostname !== '') {
+				hostname = dev.hostname;
+				lbl = hostname + ' (' + dev.mac + ')';
+			}
 			if (dev.ip) lbl += ' - ' + dev.ip;
-			sel.appendChild(E('option', { 'value': dev.mac }, lbl));
+			var opt = E('option', { 'value': dev.mac, 'data-hostname': hostname }, lbl);
+			sel.appendChild(opt);
 		});
 		dd.appendChild(sel);
 		dd.appendChild(E('span', { 'style': 'opacity:0.4;font-size:12px;' }, 'or'));
@@ -737,10 +764,10 @@ function openAddModal() {
 				var mac = body.querySelector('[name="rule_mac"]').value;
 				var mm = body.querySelector('[name="rule_mac_manual"]').value.trim();
 				if (mm) mac = mm;
-				if (!name) { ui.addNotification(null, E('p', 'Please enter a device name.'), 'warning'); return; }
-				if (!mac) { ui.addNotification(null, E('p', 'Please select or enter a MAC address.'), 'warning'); return; }
+				if (!name) { showModalError(body, 'Please enter a device name.'); return; }
+				if (!mac) { showModalError(body, 'Please select or enter a MAC address.'); return; }
 				var scheds = collectSchedules(body, 'add');
-				if (!scheds) { ui.addNotification(null, E('p', 'Please configure at least one schedule.'), 'warning'); return; }
+				if (!scheds) { showModalError(body, 'Please configure at least one schedule.'); return; }
 				callAddRule(name, mac, scheds, 1).then(function() {
 					closeModal();
 					showToast('"' + name + '" added');
@@ -755,7 +782,9 @@ function openEditModal(rule) {
 	showModal('Edit Rule — ' + (rule.name || rule.mac), function(body) {
 		body.appendChild(E('div', { 'class': 'pc-form-row' }, [
 			E('span', { 'class': 'pc-form-label' }, 'Device Name'),
-			E('input', { 'type': 'text', 'name': 'edit_name', 'value': rule.name || '', 'class': 'pc-form-input' })
+			E('input', { 'type': 'text', 'name': 'edit_name', 'value': rule.name || '', 'class': 'pc-form-input',
+				'input': function() { var err = body.querySelector('.pc-modal-error'); if (err) err.remove(); }
+			})
 		]));
 		body.appendChild(E('div', { 'class': 'pc-form-row' }, [
 			E('span', { 'class': 'pc-form-label' }, 'MAC Address'),
@@ -771,9 +800,9 @@ function openEditModal(rule) {
 			'class': 'pc-btn pc-btn-success pc-btn-lg',
 			'click': function() {
 				var name = body.querySelector('[name="edit_name"]').value.trim();
-				if (!name) { ui.addNotification(null, E('p', 'Please enter a device name.'), 'warning'); return; }
+				if (!name) { showModalError(body, 'Please enter a device name.'); return; }
 				var scheds = collectSchedules(body, 'edit');
-				if (!scheds) { ui.addNotification(null, E('p', 'Please configure at least one schedule.'), 'warning'); return; }
+				if (!scheds) { showModalError(body, 'Please configure at least one schedule.'); return; }
 				callUpdateRule(rule.section, name, scheds, rule.enabled ? 1 : 0).then(function() {
 					closeModal();
 					showToast('"' + name + '" updated');

@@ -8,12 +8,71 @@
 CONFIG_NAME="parentalcontrol"
 SCRIPT="/usr/libexec/parentalcontrol.sh"
 
+_prev_day() {
+	case "$1" in
+		mon) echo "sun" ;; tue) echo "mon" ;; wed) echo "tue" ;;
+		thu) echo "wed" ;; fri) echo "thu" ;; sat) echo "fri" ;; sun) echo "sat" ;;
+	esac
+}
+
+_is_time_in_schedule() {
+	local cur_day="$1" cur_minutes="$2" sched="$3"
+
+	local days time_range
+	days=$(echo "$sched" | awk '{print $1}')
+	time_range=$(echo "$sched" | awk '{print $2}')
+	[ -z "$time_range" ] && return 1
+
+	local start_time end_time
+	start_time=$(echo "$time_range" | cut -d- -f1)
+	end_time=$(echo "$time_range" | cut -d- -f2)
+
+	local start_h start_m end_h end_m start_mins end_mins
+	start_h=$(echo "$start_time" | cut -d: -f1 | sed 's/^0//')
+	start_m=$(echo "$start_time" | cut -d: -f2 | sed 's/^0//')
+	end_h=$(echo "$end_time" | cut -d: -f1 | sed 's/^0//')
+	end_m=$(echo "$end_time" | cut -d: -f2 | sed 's/^0//')
+	[ -z "$start_h" ] && start_h=0
+	[ -z "$start_m" ] && start_m=0
+	[ -z "$end_h" ] && end_h=0
+	[ -z "$end_m" ] && end_m=0
+
+	start_mins=$((start_h * 60 + start_m))
+	end_mins=$((end_h * 60 + end_m))
+
+	if [ "$start_mins" -gt "$end_mins" ]; then
+		# Crosses midnight
+		if [ "$cur_minutes" -ge "$start_mins" ]; then
+			# Evening portion: current day must match schedule days
+			echo "$days" | grep -q "$cur_day"
+		else
+			# Morning portion (after midnight): previous day must match schedule days
+			local prev
+			prev=$(_prev_day "$cur_day")
+			echo "$days" | grep -q "$prev"
+		fi
+	else
+		# Same day
+		echo "$days" | grep -q "$cur_day" || return 1
+		[ "$cur_minutes" -ge "$start_mins" ] && [ "$cur_minutes" -lt "$end_mins" ]
+	fi
+}
+
 handle_get_status() {
 	local global_enabled now
 
 	config_load "$CONFIG_NAME"
 	config_get global_enabled global enabled '0'
 	now=$(date +%s)
+
+	# Current day and time for schedule checking
+	local cur_day cur_hour cur_min cur_minutes
+	cur_day=$(date +%a | tr 'A-Z' 'a-z')
+	cur_hour=$(date +%H | sed 's/^0//')
+	cur_min=$(date +%M | sed 's/^0//')
+	[ -z "$cur_hour" ] && cur_hour=0
+	[ -z "$cur_min" ] && cur_min=0
+	cur_minutes=$((cur_hour * 60 + cur_min))
 
 	# Parse nftables counters per MAC (aggregate across split rules)
 	local nft_stats=""
@@ -41,7 +100,19 @@ handle_get_status() {
 				status="override"
 				override_remaining=$(( override_until - now ))
 			else
-				status="active"
+				# Check if current time is within any schedule
+				local in_schedule=0
+				_check_sched() {
+					if [ "$in_schedule" -eq 0 ]; then
+						_is_time_in_schedule "$cur_day" "$cur_minutes" "$1" && in_schedule=1
+					fi
+				}
+				config_list_foreach "$section" schedule _check_sched
+				if [ "$in_schedule" -eq 1 ]; then
+					status="active"
+				else
+					status="scheduled"
+				fi
 			fi
 		fi
 

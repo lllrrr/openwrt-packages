@@ -134,6 +134,19 @@ Overrides use epoch timestamps, making them timezone-agnostic. When a user pause
 Users can cancel an override early via the "Resume" button, which sets `override_until` to `0` and
 reapplies rules immediately.
 
+### Status Detection
+
+The `get_status` rpcd method computes each rule's real-time status by checking the current day and
+time against the rule's schedules:
+
+- **Blocked** — rule is enabled, global is enabled, and current time falls within a schedule window
+- **Scheduled** — rule is enabled but current time is outside all schedule windows
+- **Paused** — temporary override is active (regardless of schedule)
+- **Inactive** — rule is disabled or global parental control is off
+
+For schedules that cross midnight (e.g., "fri 22:00-07:00"), the status check correctly matches the
+post-midnight portion against the previous day's schedule.
+
 ### rpcd API
 
 The rpcd plugin (`/usr/libexec/rpcd/parentalcontrol`) exposes these ubus methods:
@@ -164,7 +177,7 @@ status badges every 30 seconds via LuCI's `poll` module.
 - **Reorder** — drag handle (⠿) for drag-and-drop (desktop + touch), plus ▲/▼ buttons as fallback
 - **Device** — name + MAC address
 - **Schedule** — each schedule on its own line, with compact day ranges (e.g., "Mon-Fri 22:00-07:00")
-- **Status** — Blocked (red), Paused (orange), or Inactive (gray) badge
+- **Status** — Blocked (red), Scheduled (blue), Paused (orange), or Inactive (gray) badge
 - **Blocked** — live packet count and byte total from nftables counters (auto-refreshes)
 - **Enabled** — checkbox toggle per rule
 - **Override** — pause duration dropdown (when blocked) or "Paused Xm" + Resume button (when paused)
@@ -179,6 +192,8 @@ All actions update the table in-place with toast notifications — no full page 
 - Multiple schedule blocks with "Schedule 1", "Schedule 2" headers
 - "+ Add Schedule" to add more blocks, "Remove" to delete a block
 - Device picker dropdown with manual MAC entry fallback (add only)
+- Auto-fills device name from hostname when selecting a device from dropdown
+- Inline validation errors displayed inside the modal (not on the main page)
 - Responsive layout — form elements stack vertically on mobile
 
 **Responsive design:**
