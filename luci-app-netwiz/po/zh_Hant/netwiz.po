@@ -1020,3 +1020,18 @@ msgstr "❌ 匯入失敗！"
 
 msgid "Invalid or corrupted file format. Please select a valid JSON backup file."
 msgstr "檔案格式錯誤或已損壞，請選擇正確的 JSON 備份檔。"
+
+msgid "Suspected Spoofed Device"
+msgstr "疑似偽裝設備"
+
+msgid "Factory Reset"
+msgstr "恢復出廠"
+
+msgid "⚠️ Danger: Restore Default Network"
+msgstr "⚠️ 危險操作：恢復初始網路"
+
+msgid "Are you sure you want to clear all static IPs and firewall rules set by Netwiz?<br><br><span style=\"color:#ef4444; font-weight:bold;\">This operation will delete all groups, blacklists, isolations, and DMZ settings, and restart network services.</span>"
+msgstr "確定要清空所有由 Netwiz 網絡管家設定的靜態 IP 和防火牆規則嗎？<br><br><span style=\"color:#ef4444; font-weight:bold;\">此操作將刪除所有分組、黑名單、隔離和 DMZ 設定，並重啟網路服務。</span>"
+
+msgid "Cleaning up and restarting network services..."
+msgstr "正在大掃除並重啟網路服務..."

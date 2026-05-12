@@ -19,17 +19,17 @@ msgstr "Firmware Fuzzy Search"
 msgid "Enter keyword to filter firmware names"
 msgstr "Enter keyword to filter firmware names"
 
-msgid "Release/Firmware"
-msgstr "Release/Firmware"
+msgid "Last Updated Firmware"
+msgstr "Last Updated Firmware"
 
-msgid "Keep Configuration During Upgrade"
-msgstr "Keep Configuration During Upgrade"
+msgid "Keep Configuration"
+msgstr "Keep Configuration"
 
 msgid "System and Release Status"
 msgstr "System and Release Status"
 
 msgid "Available Firmware (%d)"
-msgstr "Available Firmware (%d)"
+msgstr "Available Firmware (Filtered: %d)"
 
 msgid "Filter Rules"
 msgstr "Filter Rules"
@@ -257,6 +257,24 @@ msgstr "Latest release assets are not ready yet, using previous release with ava
 
 msgid "Latest release partial firmware may still be compiling, waiting to upload, or failed to compile. If your platform is missing, please wait for the next build result."
 msgstr "Latest release partial firmware may still be compiling, waiting to upload, or failed to compile. If your platform is missing, please wait for the next build result."
+
+msgid "Save Basic Configuration"
+msgstr "Save Basic Configuration"
+
+msgid "Saving basic configuration..."
+msgstr "Saving basic configuration..."
+
+msgid "Basic configuration saved"
+msgstr "Basic configuration saved"
+
+msgid "已自动筛选为上次更新的固件名%s，如果需要更改请删除模糊检索内容"
+msgstr "Automatically filtered to previously updated firmware name %s. If you need to change it, clear the fuzzy search text."
+
+msgid "最新release中没有固件名称%s，请手动筛选或等待下次仓库编译。"
+msgstr "No firmware named %s was found in the latest release. Please filter manually or wait for the next repository build."
+
+msgid "Upgrade workflow is running, please wait until current operation finishes"
+msgstr "Upgrade workflow is running, please wait until current operation finishes"
 
 msgid "SHA256 verification passed: "
 msgstr "SHA256 verification passed: "

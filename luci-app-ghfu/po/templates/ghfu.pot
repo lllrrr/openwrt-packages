@@ -19,10 +19,10 @@ msgstr ""
 msgid "Enter keyword to filter firmware names"
 msgstr ""
 
-msgid "Release/Firmware"
+msgid "Last Updated Firmware"
 msgstr ""
 
-msgid "Keep Configuration During Upgrade"
+msgid "Keep Configuration"
 msgstr ""
 
 msgid "System and Release Status"
@@ -254,4 +254,22 @@ msgid "Latest release assets are not ready yet, using previous release with avai
 msgstr ""
 
 msgid "Latest release partial firmware may still be compiling, waiting to upload, or failed to compile. If your platform is missing, please wait for the next build result."
+msgstr ""
+
+msgid "Save Basic Configuration"
+msgstr ""
+
+msgid "Saving basic configuration..."
+msgstr ""
+
+msgid "Basic configuration saved"
+msgstr ""
+
+msgid "已自动筛选为上次更新的固件名%s，如果需要更改请删除模糊检索内容"
+msgstr ""
+
+msgid "最新release中没有固件名称%s，请手动筛选或等待下次仓库编译。"
+msgstr ""
+
+msgid "Upgrade workflow is running, please wait until current operation finishes"
 msgstr ""

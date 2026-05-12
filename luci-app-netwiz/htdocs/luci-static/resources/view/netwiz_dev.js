@@ -143,7 +143,11 @@ var T = {
     'BTN_IMPORT_DEPTS': _('Import Config'),
     'MSG_IMPORT_SUCCESS': _('✅ Import successful!') + '\n' + _('Please verify and click [Save] below to apply.'),
     'ERR_IMPORT_FAIL': _('❌ Import failed!') + '\n' + _('Invalid or corrupted file format. Please select a valid JSON backup file.'),
-    'BDG_NEW_UNKNOWN': _('疑似伪裝新设备')
+    'BDG_NEW_UNKNOWN': _('Suspected Spoofed Device'),
+    'BTN_RESET_ALL': _('Factory Reset'),
+    'TIT_RESET_ALL': _('⚠️ Danger: Restore Default Network'),
+    'MSG_RESET_CONFIRM': _('Are you sure you want to clear all static IPs and firewall rules set by Netwiz?<br><br><span style="color:#ef4444; font-weight:bold;">This operation will delete all groups, blacklists, isolations, and DMZ settings, and restart network services.</span>'),
+    'MSG_RESETTING': _('Cleaning up and restarting network services...')
 };
 
 var callDeviceList = rpc.declare({ object: 'netwiz_dev', method: 'get_list', params: ['show_conns'], expect: { '': {} } });
@@ -157,6 +161,7 @@ var callV6KeepAlive = rpc.declare({ object: 'netwiz_dev', method: 'v6_keep_alive
 
 var callGetSmartRanges = rpc.declare({ object: 'netwiz_dev', method: 'get_smart_ranges', expect: { ranges: {} } });
 var callSaveSmartRanges = rpc.declare({ object: 'netwiz_dev', method: 'save_smart_ranges', params: ['data'], expect: { result: 0 } });
+var callResetAll = rpc.declare({ object: 'netwiz_dev', method: 'reset_all', expect: { result: 0 } });
 
 return view.extend({
     handleSaveApply: null,
@@ -280,7 +285,10 @@ return view.extend({
             '       </div>',
 
             '       <div id="nd-m-fw-panel" style="display:none; text-align:left;">',
-            '           <p style="font-size:15px; font-weight:bold; color:#64748b; margin-bottom:15px; text-align:center;">{{TXT_FW_PANEL_TITLE}}</p>',
+            '           <div style="display:flex; justify-content:center; align-items:center; margin-bottom:15px; position:relative;">',
+            '               <p style="font-size:15px; font-weight:bold; color:#64748b; margin:0;">{{TXT_FW_PANEL_TITLE}}</p>',
+            '               <div id="fw-reset-gear" title="{{TIT_RESET_ALL}}" style="position:absolute; right:10px; cursor:pointer; font-size:18px; filter:grayscale(100%); opacity:0.4; transition:all 0.3s;" onmouseover="this.style.filter=\'none\'; this.style.opacity=1; this.style.transform=\'rotate(90deg)\'" onmouseout="this.style.filter=\'grayscale(100%)\'; this.style.opacity=0.4; this.style.transform=\'none\'">⚙️</div>',
+            '           </div>',
             '           <div style="background:#f8fafc; margin:10px;  padding:15px; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:15px;">',
             '               <label class="nw-switch-row-padded" style="cursor:pointer; display:flex; align-items:center; justify-content:space-between; border-bottom:1px dashed #cbd5e1; padding-bottom:15px; margin-bottom:15px;">',
             '                   <div style="flex:1; padding-right:15px;">',
@@ -362,7 +370,7 @@ return view.extend({
             '                   <label class="nd-input-label">{{LBL_START_IP}}</label>',
             '                   <div style="display:flex; align-items:center; background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; overflow:hidden; transition:all 0.2s;">',
             '                       <span id="nd-batch-prefix" style="padding:12px 0 12px 14px; font-family:monospace; color:#64748b; font-size:15px; font-weight:bold;">192.168.1.</span>',
-            '                       <input type="number" id="nd-batch-suffix" style="flex:1; border:none; background:transparent; padding:12px 14px 12px 2px; font-size:15px; font-family:monospace; outline:none; font-weight:bold; color:#0f172a;" placeholder="50" min="2" max="254">',
+            '                       <input type="number" id="nd-batch-suffix" style="flex:1; border:none !important; background:transparent !important; box-shadow:none !important; -webkit-appearance:none !important; appearance:none !important; outline:none !important; border-radius:0 !important; padding:12px 14px 12px 2px; font-size:15px; font-family:monospace; font-weight:bold; color:#0f172a;" placeholder="50" min="2" max="254">',
             '                   </div>',
             '               </div>',
             '               <div id="nd-batch-smart-desc" style="display:none; font-size:13px; color:#64748b; background:#f8fafc; padding:0 3px; border-radius:10px; margin-bottom:5px; border:1px dashed #cbd5e1;">',
@@ -1416,13 +1424,20 @@ return view.extend({
                     ipText = '<span style="text-decoration:line-through; color:#94a3b8; font-size:12.5px; margin-right:5px;">' + dev.ip + '</span><span style="color:#d97706; font-weight:bold;">➜ ' + dev.bound_ip + '</span>';
                 }
 
+                // 时间是否过期
                 var isNewUnknown = (dev.is_new_unknown === 'true' || dev.is_new_unknown === true);
                 var cardClass = isNewUnknown ? "nd-card nd-card-warning" : "nd-card";
                 
-                var warningBadge = isNewUnknown ? '<div style="position:absolute; top:-12px; left:16px; background-color:#ff4d4f; color:white; font-size:12px; font-weight:bold; padding:2px 8px; border-radius:12px; z-index:10;">⚠️ ' + (T['BDG_NEW_UNKNOWN'] || '疑似偽裝設備') + '</div>' : '';
-
-                var handStyle = isNewUnknown ? 'font-size:1.5em; color:#ff4d4f; margin-left:4px; vertical-align:middle; animation:blink-warning 1.2s infinite;' : 'font-size:1.2em; color:#94a3b8; margin-left:4px; vertical-align:middle;';
-
+                var warningBadge = '';
+                var handStyle = 'font-size:1.5em; color:#94a3b8; margin-left:4px; vertical-align:middle; animation:blink-warning 0.6s infinite;';
+                
+                if (isNewUnknown) {
+                    warningBadge = '<div style="position:absolute; top:-12px; left:16px; background-color:#ff4d4f; color:white; font-size:12px; font-weight:bold; padding:2px 8px; border-radius:12px; z-index:10;">⚠️ ' + (T['BDG_NEW_UNKNOWN'] || '疑似伪装新设备') + '</div>';
+                    
+                    // 小手
+                    handStyle = 'font-size:1.5em; color:#ff4d4f; margin-left:4px; vertical-align:middle; animation:blink-warning 0.6s infinite;';
+                }
+                
                 html += '<div class="' + cardClass + '" style="position:relative;">' + warningBadge + '<div class="nd-card-left"><div style="display:flex; align-items:center;">';
 
                 if (noCheckbox) {
@@ -1869,8 +1884,24 @@ return view.extend({
                 }
                 
                 var currentHostIp = window.location.hostname;
+                var nowTs = Date.now();
                 devices.forEach(function(d) {
                     if (d.ip === currentHostIp) d.is_local = true;
+                    
+                    if (d.is_new_unknown === 'true' || d.is_new_unknown === true) {
+                        var ts = localStorage.getItem('nw_unk_ts_' + d.mac);
+                        // 记录时间
+                        if (!ts) {
+                            ts = nowTs;
+                            localStorage.setItem('nw_unk_ts_' + d.mac, ts);
+                        }
+                        d.unk_ts = parseInt(ts, 10);
+                        
+                        // 超24 小時
+                        if (nowTs - d.unk_ts > 86400000) {
+                            d.is_new_unknown = false;
+                        }
+                    }
                 });
 
                 globalDevices = devices;
@@ -1970,6 +2001,33 @@ return view.extend({
             if(icon) { icon.style.transform = 'rotate(360deg)'; setTimeout(function(){ icon.style.transform = 'none'; }, 800); }
             loadDevices();
         });
+
+        var fwResetGear = modalOverlay.querySelector('#fw-reset-gear');
+        if (fwResetGear) {
+            fwResetGear.addEventListener('click', function() {
+                openModal({
+                    title: T['TIT_RESET_ALL'],
+                    content: T['MSG_RESET_CONFIRM'],
+                    danger: true,
+                    okText: T['BTN_RESET_ALL'],
+                    onOk: function() {
+                        listHeader.style.display = 'none';
+                        listEl.style.display = 'none';
+                        catTabs.style.display = 'none';
+                        if (batchBar) batchBar.classList.remove('show');
+                        loadingEl.style.display = 'flex';
+                        loadingText.innerText = T['MSG_RESETTING'];
+                        
+                        callResetAll().then(function() {
+                            setTimeout(loadDevices, 2000);
+                        }).catch(function(e) {
+                            alert(T['ERR_SAVE_FAIL_SHORT'].replace('{err}', e));
+                            setTimeout(loadDevices, 2000);
+                        });
+                    }
+                });
+            });
+        }
 
         loadDevices();
     }

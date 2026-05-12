@@ -22,14 +22,20 @@ msgstr "输入关键字筛选固件名"
 msgid "Release/Firmware"
 msgstr "Release/固件"
 
-msgid "Keep Configuration During Upgrade"
+msgid "Keep Configuration"
 msgstr "保留配置升级"
 
 msgid "System and Release Status"
 msgstr "系统与 Release 状态"
 
+msgid "Available Firmware"
+msgstr "可选固件"
+
 msgid "Available Firmware (%d)"
-msgstr "可选固件(%d个)"
+msgstr "可选固件(过滤后: %d个)"
+
+msgid "Last Updated Firmware"
+msgstr "上次更新的固件"
 
 msgid "Filter Rules"
 msgstr "过滤规则"
@@ -107,8 +113,6 @@ msgid "No new firmware currently, firmware selection is disabled"
 msgstr "当前没有更新固件，已停止后续固件选择"
 
 msgid "System install time"
-msgid "Default Filter Rules"
-msgstr "默认过滤规则"
 msgstr "系统安装时间"
 
 msgid "Latest release"
@@ -242,6 +246,21 @@ msgstr "最新 Release 固件尚未上传完成，已自动使用上一个可用
 
 msgid "Latest release partial firmware may still be compiling, waiting to upload, or failed to compile. If your platform is missing, please wait for the next build result."
 msgstr "最新 Release 的部分固件可能仍在编译、等待上传或编译失败，如缺少你的平台，请等待下次编译结果。"
+
+msgid "Firmware download failed, please check network or GitHub repository"
+msgstr "固件下载失败，请检查网络或 GitHub 仓库"
+
+msgid "Save Basic Configuration"
+msgstr "保存基础配置"
+
+msgid "Saving basic configuration..."
+msgstr "正在保存基础配置..."
+
+msgid "Basic configuration saved"
+msgstr "基础配置已保存"
+
+msgid "Upgrade workflow is running, please wait until current operation finishes"
+msgstr "升级流程正在执行，请等待当前操作完成"
 
 msgid "SHA256 verification passed: "
 msgstr "SHA256 校验通过："

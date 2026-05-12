@@ -20,9 +20,32 @@ delete_fw_rule() {
     done
 }
 
+# --- 高级应用喚醒函數 ---
+wakeup_apps() {
+    local proxy_apps="openclash passwall shadowsocksr bypass vssr homeproxy mihomo"
+    local dns_apps="adguardhome smartdns mosdns"
+    
+    # 1. 喚醒 DNS 类
+    for app in $dns_apps; do
+        if [ -x "/etc/init.d/$app" ] && /etc/init.d/$app enabled >/dev/null 2>&1; then
+            logger -t Netwiz "⚡ Re-linking DNS app: $app"
+            /etc/init.d/$app restart >/dev/null 2>&1
+        fi
+    done
+
+    # 2. 喚醒 代理/加速
+    for app in $proxy_apps; do
+        if [ -x "/etc/init.d/$app" ] && /etc/init.d/$app enabled >/dev/null 2>&1; then
+            logger -t Netwiz "🚀 Re-linking Proxy app: $app"
+            /etc/init.d/$app restart >/dev/null 2>&1
+        fi
+    done
+}
+# ------------------------------
+
 case "$1" in
     list)
-        echo '{ "get_list": { "show_conns": "boolean" }, "bind": { "mac": "string", "ip": "string", "name": "string", "dept": "string", "no_reload": "boolean" }, "unbind": { "mac": "string", "no_reload": "boolean" }, "apply_dhcp": {}, "get_depts": {}, "save_depts": { "data": "string" }, "get_smart_ranges": {}, "save_smart_ranges": { "data": "string" }, "v6_keep_alive": { "mac": "string" }, "fw_set": { "mac": "string", "ip": "string", "blk_en": "boolean", "iso_en": "boolean", "dmz_en": "boolean" } }'
+        echo '{ "get_list": { "show_conns": "boolean" }, "bind": { "mac": "string", "ip": "string", "name": "string", "dept": "string", "no_reload": "boolean" }, "unbind": { "mac": "string", "no_reload": "boolean" }, "apply_dhcp": {}, "get_depts": {}, "save_depts": { "data": "string" }, "get_smart_ranges": {}, "save_smart_ranges": { "data": "string" }, "v6_keep_alive": { "mac": "string" }, "reset_all": {}, "fw_set": { "mac": "string", "ip": "string", "blk_en": "boolean", "iso_en": "boolean", "dmz_en": "boolean" } }'
         exit 0
         ;;
     call)
@@ -339,9 +362,9 @@ is_visitor, l_time, c_count, f_blk, f_iso, f_dmz, v6_val, is_pc_flag, is_new_unk
                 # --- 靜默清理 ---
                 (
                     NOW=$(date +%s)
-                    EXP_TIME=2592000 # 30 天過期時間 (秒)
+                    EXP_TIME=2592000 # 30 天
 
-                    # 1. 活躍時間戳
+                    # 1. 活躍時间戳
                     cat /proc/net/arp 2>/dev/null | grep -v IP | awk '{print $4}' | while read mac; do
                         [ -z "$mac" ] || [ "$mac" = "00:00:00:00:00:00" ] && continue
                         MAC_SAFE=$(echo "$mac" | tr -d ':' | tr 'a-z' 'A-Z')
@@ -354,13 +377,16 @@ is_visitor, l_time, c_count, f_blk, f_iso, f_dmz, v6_val, is_pc_flag, is_new_unk
                     uci -q show netwiz | grep '=netwiz_dev' | grep 'seen_' | while read line; do
                         sec=$(echo "$line" | cut -d'=' -f1 | cut -d'.' -f2)
                         mac_safe=$(echo "$sec" | cut -d'_' -f2)
+                        
+                        mac_lower=$(echo "$mac_safe" | tr 'A-Z' 'a-z')
+                        
                         ts=$(uci -q get netwiz."$sec".ts)
                         
                         if [ -n "$ts" ] && [ $((NOW - ts)) -gt $EXP_TIME ]; then
-                            # 殭屍设备，清理防火牆和 DMZ 规则
-                            delete_fw_rule "nw_blk_${mac_safe}" "rule"
-                            delete_fw_rule "nw_iso_${mac_safe}" "rule"
-                            delete_fw_rule "nw_dmz_${mac_safe}" "redirect"
+                            # 殭屍设备，清理防火牆和 DMZ 规则 
+                            delete_fw_rule "nw_blk_${mac_lower}" "rule"
+                            delete_fw_rule "nw_iso_${mac_lower}" "rule"
+                            delete_fw_rule "nw_dmz_${mac_lower}" "redirect"
 
                             # 刪除時间戳
                             uci -q delete netwiz."$sec"
@@ -368,6 +394,7 @@ is_visitor, l_time, c_count, f_blk, f_iso, f_dmz, v6_val, is_pc_flag, is_new_unk
                         fi
                     done
                     uci commit firewall
+                    uci commit netwiz  # 時間戳写入
                     /etc/init.d/firewall reload >/dev/null 2>&1
                 ) &
                 # ----------------------------------------------------
@@ -523,11 +550,13 @@ is_visitor, l_time, c_count, f_blk, f_iso, f_dmz, v6_val, is_pc_flag, is_new_unk
                     uci commit firewall
                     /etc/init.d/dnsmasq reload >/dev/null 2>&1
                     /etc/init.d/firewall reload >/dev/null 2>&1 &
-                    # 檢查 dnsmasq
+                    # 检查 dnsmasq
                     sleep 2
                     if ! pgrep dnsmasq > /dev/null; then
                         logger -t Netwiz "⚠️ DNSMasq crashed after bind! Auto-restarting..."
                         /etc/init.d/dnsmasq restart >/dev/null 2>&1
+                        sleep 2
+                        wakeup_apps  # 喚醒函數
                     fi
                 fi
                 echo '{"result":0}'
@@ -542,7 +571,7 @@ is_visitor, l_time, c_count, f_blk, f_iso, f_dmz, v6_val, is_pc_flag, is_new_unk
                 matches=$(uci -q show dhcp 2>/dev/null | grep -i "\.mac=.*$mac" | cut -d'.' -f2 | sed 's/[^0-9]//g' | sort -rn)
                 for idx in $matches; do uci -q delete dhcp.@host[$idx]; done
                 
-                mac_clean=$(echo "$mac" | tr -d ':' | tr 'a-z' 'A-Z')
+                mac_clean=$(echo "$mac" | tr -d ':')
                 delete_fw_rule "nw_blk_${mac_clean}" "rule"
                 delete_fw_rule "nw_iso_${mac_clean}" "rule"
                 delete_fw_rule "nw_dmz_${mac_clean}" "redirect"
@@ -556,6 +585,8 @@ is_visitor, l_time, c_count, f_blk, f_iso, f_dmz, v6_val, is_pc_flag, is_new_unk
                     if ! pgrep dnsmasq > /dev/null; then
                         logger -t Netwiz "⚠️ DNSMasq crashed after unbind! Auto-restarting..."
                         /etc/init.d/dnsmasq restart >/dev/null 2>&1
+                        sleep 2
+                        wakeup_apps  # 喚醒函數
                     fi
                 fi
                 echo '{"result":0}'
@@ -571,6 +602,8 @@ is_visitor, l_time, c_count, f_blk, f_iso, f_dmz, v6_val, is_pc_flag, is_new_unk
                 if ! pgrep dnsmasq > /dev/null; then
                     logger -t Netwiz "⚠️ DNSMasq crashed after reload! Auto-restarting..."
                     /etc/init.d/dnsmasq restart >/dev/null 2>&1
+                    sleep 2
+                    wakeup_apps  # 喚醒函數
                 fi
                 echo '{"result":0}'
                 exit 0
@@ -643,6 +676,43 @@ is_visitor, l_time, c_count, f_blk, f_iso, f_dmz, v6_val, is_pc_flag, is_new_unk
                 
                 # 提交
                 uci commit netwiz
+                echo '{"result":0}'
+                exit 0
+                ;;
+                
+                reset_all)
+                # 1. 淨化防火牆
+                for rule in $(uci -q show firewall | grep -E "\.name='nw_" | cut -d'.' -f2 | sed "s/\[//g; s/\]//g" | sort -rn); do 
+                    uci -q delete firewall.@rule[$rule]
+                done
+                for redir in $(uci -q show firewall | grep -E "\.name='nw_dmz_" | cut -d'.' -f2 | sed "s/\[//g; s/\]//g" | sort -rn); do 
+                    uci -q delete firewall.@redirect[$redir]
+                done
+                uci commit firewall
+
+                # 2. 淨化 DHCP
+                for host in $(uci -q show dhcp | grep "=host" | cut -d'.' -f2 | sed "s/\[//g; s/\]//g" | sort -rn); do
+                    uci -q delete dhcp.@host[$host]
+                done
+                uci commit dhcp
+
+                # 3. 淨化 Netwiz 配置
+                rm -f /etc/config/netwiz
+                touch /etc/config/netwiz
+                uci -q batch <<EOF
+                    set netwiz.global=netwiz
+                    set netwiz.smart=netwiz
+                    commit netwiz
+EOF
+
+                # 4. 重启服务
+                /etc/init.d/dnsmasq restart >/dev/null 2>&1
+                /etc/init.d/firewall reload >/dev/null 2>&1
+                
+                # 启用高级应用
+                sleep 2
+                wakeup_apps
+                
                 echo '{"result":0}'
                 exit 0
                 ;;

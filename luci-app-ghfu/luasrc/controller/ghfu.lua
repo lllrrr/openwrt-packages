@@ -181,6 +181,87 @@ local function normalize_repo(repo)
     return repo
 end
 
+local function normalize_version(v)
+    v = trim(v or "")
+    if v == "" then
+        return ""
+    end
+
+    v = v:gsub("^luci%-app%-ghfu[-%s]+", "")
+    local token = v:match("([0-9][%w%.%+%-%_~]*)")
+    return token or ""
+end
+
+local function read_first_line(path)
+    local f = io.open(path, "r")
+    if not f then
+        return ""
+    end
+    local line = f:read("*l") or ""
+    f:close()
+    return trim(line)
+end
+
+local function read_apk_db_version(path)
+    local f = io.open(path, "r")
+    if not f then
+        return ""
+    end
+
+    local found = false
+    for line in f:lines() do
+        if line == "P:luci-app-ghfu" then
+            found = true
+        elseif found and line:match("^V:") then
+            f:close()
+            return normalize_version(line:sub(3))
+        elseif found and line == "" then
+            found = false
+        end
+    end
+    f:close()
+    return ""
+end
+
+local function get_app_version()
+    local apk_db_ver = read_apk_db_version("/lib/apk/db/installed")
+    if apk_db_ver ~= "" then
+        return apk_db_ver
+    end
+
+    apk_db_ver = read_apk_db_version("/usr/lib/apk/db/installed")
+    if apk_db_ver ~= "" then
+        return apk_db_ver
+    end
+
+    local opkg_ctrl_ver = normalize_version(sys.exec("sh -c \"awk -F': ' '/^Version:/{print $2; exit}' /usr/lib/opkg/info/luci-app-ghfu.control 2>/dev/null\""))
+    if opkg_ctrl_ver ~= "" then
+        return opkg_ctrl_ver
+    end
+
+    local opkg_status_ver = normalize_version(sys.exec("sh -c \"awk 'BEGIN{f=0} /^Package: luci-app-ghfu$/{f=1;next} f&&/^Version:/{sub(/^Version: /,\"\"); print; exit} f&&/^$/{f=0}' /usr/lib/opkg/status 2>/dev/null\""))
+    if opkg_status_ver ~= "" then
+        return opkg_status_ver
+    end
+
+    local apk_line_ver = normalize_version(sys.exec("sh -c \"apk info -v luci-app-ghfu 2>/dev/null | head -n1\""))
+    if apk_line_ver ~= "" then
+        return apk_line_ver
+    end
+
+    local opkg_ver = normalize_version(sys.exec("sh -c \"opkg status luci-app-ghfu 2>/dev/null | awk -F': ' '/^Version:/{print $2; exit}'\""))
+    if opkg_ver ~= "" then
+        return opkg_ver
+    end
+
+    local verfile = normalize_version(read_first_line("/usr/share/ghfu/version"))
+    if verfile ~= "" then
+        return verfile
+    end
+
+    return ""
+end
+
 local function parse_assets(raw_assets)
     local assets = {}
     if not raw_assets or type(raw_assets) ~= "table" then
@@ -338,12 +419,15 @@ function index()
 end
 
 function action_index()
-    luci.template.render("ghfu/main")
+    luci.template.render("ghfu/main", {
+        app_version = get_app_version()
+    })
 end
 
 function action_status()
     local cfg = get_cfg()
     local repo_input = normalize_repo(http.formvalue("repo") or cfg.github_repo)
+    local app_version = get_app_version()
 
     -- Read and validate fetch_timeout from form; fall back to saved config
     local timeout_raw = trim(http.formvalue("fetch_timeout") or "")
@@ -360,6 +444,7 @@ function action_status()
         json_resp({
             ok = false,
             msg = tr("GitHub repository cannot be empty"),
+            app_version = app_version,
             config = cfg
         })
         return
@@ -375,6 +460,7 @@ function action_status()
         json_resp({
             ok = false,
             msg = timed_out and tr("Unable to fetch GitHub Release, please check your network connection") or err,
+            app_version = app_version,
             config = cfg,
             install_epoch = install_epoch,
             install_time = install_local,
@@ -399,6 +485,7 @@ function action_status()
     json_resp({
         ok = true,
         msg = msg,
+        app_version = app_version,
         has_new = has_new,
         fallback_used = rel_info and rel_info.fallback_used or false,
         partial_assets = rel_info and rel_info.partial_assets or false,
@@ -413,6 +500,17 @@ function action_status()
 end
 
 function action_config()
+    local repo = normalize_repo(http.formvalue("repo") or "")
+    local keep_config = http.formvalue("keep_config")
+    local fetch_timeout_raw = trim(http.formvalue("fetch_timeout") or "")
+    local fetch_timeout = nil
+    if fetch_timeout_raw ~= "" then
+        local t = tonumber(fetch_timeout_raw)
+        if t and t >= 5 and t <= 300 then
+            fetch_timeout = tostring(math.floor(t))
+        end
+    end
+
     local filter_prefix_enabled = http.formvalue("filter_prefix_enabled")
     local filter_prefix = trim(http.formvalue("filter_prefix") or "")
     local filter_min_size_enabled = http.formvalue("filter_min_size_enabled")
@@ -422,7 +520,26 @@ function action_config()
         filter_min_size = 0
     end
 
-    set_cfg(nil, nil, nil, nil, filter_prefix_enabled, filter_prefix, filter_min_size_enabled, tostring(math.floor(filter_min_size)))
+    local has_basic = (http.formvalue("repo") ~= nil) or (keep_config ~= nil) or (http.formvalue("fetch_timeout") ~= nil)
+    if has_basic and repo == "" then
+        json_resp({
+            ok = false,
+            msg = tr("GitHub repository cannot be empty"),
+            config = get_cfg()
+        })
+        return
+    end
+
+    set_cfg(
+        has_basic and repo or nil,
+        nil,
+        keep_config,
+        fetch_timeout,
+        filter_prefix_enabled,
+        filter_prefix,
+        filter_min_size_enabled,
+        tostring(math.floor(filter_min_size))
+    )
 
     json_resp({
         ok = true,
