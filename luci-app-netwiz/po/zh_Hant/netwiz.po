@@ -787,8 +787,14 @@ msgstr "❌ 該類型的 IP 分段池已全部被佔滿，請擴大範圍或選�
 msgid "IP address cannot be empty!"
 msgstr "IP 位址不能為空！"
 
-msgid "❌ IP Conflict Blocked!\n\nThe IP [{ip}] is occupied by device [{name}].\nPlease modify the strategy or enter a free IP!"
-msgstr "❌ IP 衝突攔截！\n\n您輸入的 IP [{ip}] 已被區域網路中的裝置【{name}】占用。\n請修改策略或輸入一個未被占用的空閒 IP！"
+msgid "❌ IP Conflict Blocked!"
+msgstr "❌ IP 衝突攔截！"
+
+msgid "The IP [{ip}] is occupied by device [{name}]."
+msgstr "您輸入的 IP [{ip}] 已被區域網路中的設備【{name}】佔用。"
+
+msgid "Please modify the strategy or enter a free IP!"
+msgstr "請修改策略或輸入一個未被佔用的空閒 IP！"
 
 msgid "💡 Tip: The device is already fixed at this IP. No changes needed!"
 msgstr "💡 提示：該裝置已經是目前 IP 且已固定，設定未發生任何改變，無需重複提交！"
@@ -799,11 +805,20 @@ msgstr "💡 提示：您選取的 {count} 台裝置目前全是【未綁定】�
 msgid "Starting suffix must be between 2 and 254!"
 msgstr "起始後綴必須在 2 到 254 之間！"
 
-msgid "❌ IP pool insufficient!\nOnly {avail} IPs left from .{suf}, but {count} devices selected."
-msgstr "❌ IP 池容量不足！\n從 .{suf} 開始順延僅剩 {avail} 個可用 IP，但您選取了 {count} 台裝置。"
+msgid "❌ IP pool insufficient!"
+msgstr "❌ IP 資源池不足！"
 
-msgid "❌ [{name}] assignment failed!\nSelected {req} devices, but only {avail} IPs available in the preset range.\nPlease expand the IP range for this category!"
-msgstr "❌ 【{name}】分配失敗！\n選取了 {req} 台裝置，但預設的 IP 段內只有 {avail} 個可用 IP。\n請擴大該類別的 IP 段範圍！"
+msgid "Only {avail} IPs left from .{suf}, but {count} devices selected."
+msgstr "從 .{suf} 開始僅剩 {avail} 個可用 IP，但您選了 {count} 台設備。"
+
+msgid "❌ [{name}] assignment failed!"
+msgstr "❌ [{name}] 分配失敗！"
+
+msgid "Selected {req} devices, but only {avail} IPs available in the preset range."
+msgstr "選中了 {req} 台設備，但預設網段內僅剩 {avail} 個可用 IP。"
+
+msgid "Please expand the IP range for this category!"
+msgstr "請擴大該分類的 IP 範圍！"
 
 msgid "💡 Smart block: According to your strategy, the {count} selected devices are already fixed with unchanged IPs. No need to rewrite rules!"
 msgstr "💡 智慧攔截：根據您的策略計算，選取的 {count} 台裝置【均已固定且 IP 未改變】，無需重複下發規則！"
@@ -832,8 +847,11 @@ msgstr "自定義組"
 msgid "Filter by IP Subnet"
 msgstr "按 IP 網段歸類"
 
-msgid "Checked: Classify device types by IP subnet\nUnchecked: Classify device types by built-in names"
-msgstr "打勾: 按 IP 網段劃分設備類型\n取消: 按設備名稱識別設備類型"
+msgid "Checked: Classify device types by IP subnet"
+msgstr "勾選：依據 IP 網段來對設備分類"
+
+msgid "Unchecked: Classify device types by built-in names"
+msgstr "取消：依據內建名稱來對設備分類"
 
 msgid "Group Name"
 msgstr "分組名稱"
@@ -841,8 +859,11 @@ msgstr "分組名稱"
 msgid "Group "
 msgstr "分組 "
 
-msgid "❌ Save Failed!\nReason: RPC interface unresponsive ({err})\nPlease run this command in router SSH to restart the service: /etc/init.d/rpcd restart"
-msgstr "❌ 保存失敗！\n原因: 接口無響應 ({err})\n請在路由器 SSH 終端執行此命令重啟服務: /etc/init.d/rpcd restart"
+msgid "Reason: RPC interface unresponsive ({err})"
+msgstr "原因：RPC 介面無回應 ({err})"
+
+msgid "Please run this command in router SSH to restart the service: /etc/init.d/rpcd restart"
+msgstr "請在路由器 SSH 執行此指令重啟服務：/etc/init.d/rpcd restart"
 
 msgid "❌ Subnet Conflict: IP ranges between groups cannot overlap!"
 msgstr "❌ 網段衝突：不同分組間的 IP 範圍不能有重疊！"
@@ -870,9 +891,6 @@ msgstr "自定義分組IP自動選號池"
 
 msgid "+ Add New Department"
 msgstr "+ 新建分組"
-
-msgid "Manage Groups"
-msgstr "管理分組"
 
 msgid "Group Pool (Auto Assign)"
 msgstr "自定義分組網段 (自動發號)"
@@ -928,17 +946,32 @@ msgstr "點擊管控權限"
 msgid "❌ Cannot enable DMZ: Device has no valid IP or is offline!"
 msgstr "❌ 無法開啟 DMZ：該設備尚未獲取到有效 IP，或不在線！"
 
-msgid "❌ Denied! Only one DMZ host allowed.\n\nDevice [ "
-msgstr "❌ 開啟被拒絕！全網只允許存在一台 DMZ 主機。\n\n設備 [ "
+msgid "❌ Denied! Only one DMZ host allowed."
+msgstr "❌ 拒絕！僅允許設定一台 DMZ 主機。"
 
-msgid " ] is currently the DMZ.\nPlease disable its DMZ first!"
-msgstr " ] 當前已佔用 DMZ 權限。\n請先點擊該設備的 MAC 地址關閉 DMZ，再來為當前設備開啟！"
+msgid "Device [ "
+msgstr "設備 [ "
 
-msgid "❌ Save failed!\n\nReason: RPC Error ({err}).\nPlease run `/etc/init.d/rpcd restart` in SSH and try again!"
-msgstr "❌ 攔截規則保存失敗！\n\n原因: RPC 通信異常 ({err})\n可能是底層接口尚未刷新。\n\n解決辦法: 請在路由器的 SSH 中執行以下命令：\n/etc/init.d/rpcd restart\n\n執行後請刷新網頁再試一次！"
+msgid " ] is currently the DMZ."
+msgstr " ] 目前已是 DMZ。"
 
-msgid "❌ Save failed!\nReason: {err}\nPlease run `/etc/init.d/rpcd restart` in SSH"
-msgstr "❌ 保存失敗！\n原因: {err}\n請在 SSH 執行: /etc/init.d/rpcd restart"
+msgid "Please disable its DMZ first!"
+msgstr "請先關閉該設備的 DMZ 功能！"
+
+msgid "❌ Save failed!"
+msgstr "❌ 儲存失敗！"
+
+msgid "Reason: RPC Error ({err})."
+msgstr "原因：RPC 錯誤 ({err})。"
+
+msgid "Please run `/etc/init.d/rpcd restart` in SSH and try again!"
+msgstr "請在 SSH 執行 `/etc/init.d/rpcd restart` 後再試一次！"
+
+msgid "Reason: {err}"
+msgstr "原因：{err}"
+
+msgid "Please run `/etc/init.d/rpcd restart` in SSH"
+msgstr "請在 SSH 執行 `/etc/init.d/rpcd restart`"
 
 msgid "Firewall & Access Control"
 msgstr "防火牆與權限管控"
@@ -962,7 +995,7 @@ msgid "Conns"
 msgstr "連接"
 
 msgid "❌ Invalid IP format! Please enter a valid IPv4 address (e.g., 192.168.1.50)"
-msgstr "❌ IP格式錯誤！請輸入合法的IPv4位址 (例如: 192.168.1.50)")
+msgstr "❌ IP格式錯誤！請輸入合法的IPv4位址 (例如: 192.168.1.50)"
 
 msgid "Public IPv6 (Click to copy):"
 msgstr "公網 IPv6 (點擊即可複製):"

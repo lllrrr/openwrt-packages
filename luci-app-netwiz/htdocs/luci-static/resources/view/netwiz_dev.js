@@ -26,11 +26,10 @@ var T = {
     'LBL_ROW_CUSTOM': _('Custom Groups'),
     'TAB_DEPT_OTHER': _('Uncategorized'),
     'LBL_SMART_FILTER': _('Filter by IP Subnet'),
-    'TIP_SMART_FILTER': _('Checked: Classify device types by IP subnet\nUnchecked: Classify device types by built-in names'),
+    'TIP_SMART_FILTER': _('Checked: Classify device types by IP subnet') + '\n' + _('Unchecked: Classify device types by built-in names'),
     'PH_DEPT_NAME': _('Group Name'),
     'TXT_GROUP_PREFIX': _('Group '),
-    'ERR_SAVE_RPC': _('❌ Save Failed!\nReason: RPC interface unresponsive ({err})\nPlease run this command in router SSH to restart the service: /etc/init.d/rpcd restart'),
-
+    'ERR_SAVE_RPC': _('❌ Save Failed!') + '\n' + _('Reason: RPC interface unresponsive ({err})') + '\n' + _('Please run this command in router SSH to restart the service: /etc/init.d/rpcd restart'),
     'LBL_SELECT_ALL': _('Select all available devices'),
     'TXT_SELECTED': _('Selected'),
     'TXT_ITEMS': _('items'),
@@ -99,12 +98,11 @@ var T = {
     'TIP_NO_CHANGE': _('💡 Tip: The device is already fixed at this IP. No changes needed!'),
     'TIP_ALL_UNBOUND': _('💡 Tip: The {count} selected devices are all [Unbound]. No unbind action needed!'),
     'ERR_SUF_RANGE': _('Starting suffix must be between 2 and 254!'),
-    'ERR_POOL_INSUFF': _('❌ IP pool insufficient!\nOnly {avail} IPs left from .{suf}, but {count} devices selected.'),
-    'ERR_CAT_FAIL': _('❌ [{name}] assignment failed!\nSelected {req} devices, but only {avail} IPs available in the preset range.\nPlease expand the IP range for this category!'),
+    'ERR_POOL_INSUFF': _('❌ IP pool insufficient!') + '\n' + _('Only {avail} IPs left from .{suf}, but {count} devices selected.'),
+    'ERR_CAT_FAIL': _('❌ [{name}] assignment failed!') + '\n' + _('Selected {req} devices, but only {avail} IPs available in the preset range.') + '\n' + _('Please expand the IP range for this category!'),
     'TIP_BATCH_NO_CHANGE': _('💡 Smart block: According to your strategy, the {count} selected devices are already fixed with unchanged IPs. No need to rewrite rules!'),
     'TXT_INFINITE': _('Infinite'),
     'TXT_EXPIRED': _('Expired'),
-    'BTN_MANAGE_DEPTS': _('Manage Groups'),
     'STRAT_DEPT': _('Group IP Pool'),
     'STRAT_DEPT_TITLE': _('Group Pool (Auto Assign)'),
     'STRAT_DEPT_DESC': _('Assign free IPs automatically from the selected Target Group\'s specific IP range'),
@@ -134,10 +132,10 @@ var T = {
     'LBL_FW_DMZ_DESC': _('Forward all WAN ports to this device. Only one device allowed.'),
     'TIP_MAC_CTRL': _('Click to control access'),
     'ERR_DMZ_NO_IP': _('❌ Cannot enable DMZ: Device has no valid IP or is offline!'),
-    'ERR_DMZ_OCCUPIED_1': _('❌ Denied! Only one DMZ host allowed.\n\nDevice [ '),
-    'ERR_DMZ_OCCUPIED_2': _(' ] is currently the DMZ.\nPlease disable its DMZ first!'),
-    'ERR_FW_SAVE_FAIL': _('❌ Save failed!\n\nReason: RPC Error ({err}).\nPlease run `/etc/init.d/rpcd restart` in SSH and try again!'),
-    'ERR_SAVE_FAIL_SHORT': _('❌ Save failed!\nReason: {err}\nPlease run `/etc/init.d/rpcd restart` in SSH'),
+    'ERR_DMZ_OCCUPIED_1': _('❌ Denied! Only one DMZ host allowed.') + '\n\n' + _('Device [ '),
+    'ERR_DMZ_OCCUPIED_2': _(' ] is currently the DMZ.') + '\n' + _('Please disable its DMZ first!'),
+    'ERR_FW_SAVE_FAIL': _('❌ Save failed!') + '\n\n' + _('Reason: RPC Error ({err}).') + '\n' + _('Please run `/etc/init.d/rpcd restart` in SSH and try again!'),
+    'ERR_SAVE_FAIL_SHORT': _('❌ Save failed!') + '\n' + _('Reason: {err}') + '\n' + _('Please run `/etc/init.d/rpcd restart` in SSH'),
     'ERR_IP_FORMAT': _('❌ Invalid IP format! Please enter a valid IPv4 address (e.g., 192.168.1.50)'),
     'TIP_V6_COPY': _('Public IPv6 (Click to copy):'),
     'MSG_V6_COPIED': _('IPv6 address copied successfully:'),
@@ -197,13 +195,13 @@ return view.extend({
             '    .nd-dept-col-name { grid-column: 1 / 2; grid-row: 1 / 2; }',
             '    .nd-dept-col-actions { grid-column: 2 / 3; grid-row: 1 / 2; }',
             '    .nd-dept-col-ip { grid-column: 1 / 3; grid-row: 2 / 3; width: 100%; box-sizing: border-box; }',
-            '    .nd-dept-ctrl-bar { flex-direction: column; align-items: flex-end; gap: 12px; padding-top: 0; }',
-            '    .nd-dept-io-group { width: 100%; justify-content: center; gap: 15px; }',
-            '    .nd-dept-io-group .nd-btn { flex: 0 0 auto; min-width: 110px; padding: 6px 12px !important;}',
-            '    .nd-dept-ctrl-bar #btn-add-dept { width: auto; padding: 8px 20px; font-size: 14px; align-self: flex-end; }',
+            '    .nd-dept-ctrl-bar { flex-direction: row !important; align-items: center !important; gap: 5px !important; padding-top: 0; padding-bottom: 10px !important; justify-content: space-between !important; }',
+            '    .nd-dept-io-group { width: auto !important; justify-content: flex-start !important; gap: 5px !important; flex: 2; }',
+            '    .nd-dept-io-group .nd-btn { flex: 1; min-width: 0 !important; padding: 10px 2px !important; font-size: 13px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }',
+            '    .nd-dept-ctrl-bar #btn-add-dept { width: auto !important; flex: 1.2; padding: 10px 2px !important; font-size: 14px !important; align-self: center !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }',
             '    .dept-row { padding: 8px 10px !important; margin-bottom: 8px !important; }',
             '    .nd-dept-row-inner { gap: 6px !important; }',
-            '    .dept-row .nd-input { min-height: 36px !important; padding: 4px 8px !important; font-size: 13.5px !important; }',
+            '    .dept-row .nd-input { min-height: 36px !important; padding: 2px 8px !important; font-size: 13.5px !important; }',
             '    .nd-dept-col-ip { padding: 0px 4px !important; }',
             '    .nd-dept-col-actions .d-color, .nd-dept-col-actions .d-del { height: 36px !important; width: 36px !important; flex: 0 0 36px !important; min-width: 36px !important; max-width: 36px !important; }',
             '  }',
@@ -270,7 +268,7 @@ return view.extend({
             '       <div id="nd-m-content" style="color:#475569; font-size:15px; margin-bottom:10px; text-align:left; line-height:1.2;"></div>',
             
             '       <div id="nd-m-dept-mgr" class="nd-dept-mgr-wrap" style="display:none; max-height: 400px; overflow-y: auto; overflow-x: hidden; padding: 5px 5px 10px 0;">',
-            '           <div class="nd-dept-ctrl-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding: 10px 5px 12px 5px; margin-top: -6px; border-bottom: 1px dashed #cbd5e1; position: sticky; top: -6px; background: #fff; z-index: 10; gap: 10px;">',
+            '           <div class="nd-dept-ctrl-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding: 5px 5px 12px 5px; margin-top: -6px; border-bottom: 1px dashed #cbd5e1; position: sticky; top: -6px; background: #fff; z-index: 10; gap: 10px;">',
             '               <div class="nd-dept-io-group" style="display: flex; gap: 10px;">',
             '                   <button id="btn-import-depts" class="nd-btn nd-btn-gray" style="padding: 6px 12px; font-size: 13px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">📂 {{BTN_IMPORT_DEPTS}}</button>',
             '                   <button id="btn-export-depts" class="nd-btn nd-btn-gray" style="padding: 6px 12px; font-size: 13px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">💾 {{BTN_EXPORT_DEPTS}}</button>',
@@ -741,7 +739,13 @@ return view.extend({
             var activeRadio = modalOverlay.querySelector('input[name="single_strategy"]:checked');
             if(!activeRadio) return;
             var val = activeRadio.value;
-            var usedIps = globalDevices.map(function(d){return d.bound_ip || d.ip;});
+            
+            var usedIps = [];
+            globalDevices.forEach(function(d) {
+                if (d.mac === currentSingleDev.mac) return; 
+                if (d.ip && d.ip !== 'Unknown IP') usedIps.push(d.ip);
+                if (d.bound_ip && d.bound_ip !== 'Unknown IP') usedIps.push(d.bound_ip);
+            });
 
             if (val === 'keep') {
                 mInpIp.value = currentOriginalIp;
@@ -1170,7 +1174,7 @@ return view.extend({
                 deptBtns += '<button class="nd-cat-btn '+(currentFilter===d.id?'active':'')+'" data-cat="'+d.id+'" style="color:'+d.color+'; border-color:'+d.color+'40; '+activeStyle+displayStyle+'">'+d.icon+' '+d.name+' ('+count+')</button>';
             });
             var btnDeptOth = '<button class="nd-cat-btn '+(currentFilter==='dept_other'?'active':'')+'" data-cat="dept_other" style="border-color:#cbd5e1; color:#64748b; '+(cDeptOth===0?'display:none;':'')+'">❔ '+T['TAB_DEPT_OTHER']+' (<span id="cnt-dept-other">'+cDeptOth+'</span>)</button>';
-            var btnMgr = '<button class="nd-cat-btn" id="btn-manage-depts" style="border-style:dashed; border-color:#cbd5e1; color:#64748b;">⚙️ '+T['BTN_MANAGE_DEPTS']+'</button>';
+            var btnMgr = '<button class="nd-cat-btn" id="btn-manage-depts" style="border-style:dashed; border-color:#cbd5e1; color:#64748b;">⚙️ '+ T['LBL_ROW_CUSTOM'] +'</button>';
 
             var tabsHtml = '';
             
@@ -1181,7 +1185,7 @@ return view.extend({
             tabsHtml += '</div>';
 
             tabsHtml += '<div style="display:flex; gap:8px; width:max-content; align-items:center;">';
-            tabsHtml += '<div style="font-size:14px; font-weight:bold; color:#3b82f6; background:#f1f5f9; padding:5px 10px; border-radius:6px; margin-right:4px; border: 1px solid #3b82f6;">' + T['LBL_ROW_CUSTOM'] + '</div>';
+
             tabsHtml += deptBtns + btnDeptOth + btnMgr;
             tabsHtml += '</div>';
             
@@ -1655,8 +1659,16 @@ return view.extend({
                 okText: T['BTN_START_ASSIGN'],
                 onOk: function(data) {
                     var strategy = data.strategy;
-                    var usedIps = globalDevices.map(function(d) { return d.bound_ip || d.ip; });
                     var dept_id = data.dept;
+                    
+                    var usedIps = [];
+                    var selectedMacs = selectedDevices.map(function(d) { return d.mac; });
+                    globalDevices.forEach(function(d) {
+                        if (selectedMacs.indexOf(d.mac) === -1) { 
+                            if (d.ip && d.ip !== 'Unknown IP') usedIps.push(d.ip);
+                            if (d.bound_ip && d.bound_ip !== 'Unknown IP') usedIps.push(d.bound_ip);
+                        }
+                    });
                     
                     if (strategy === 'seq') {
                         var suf = parseInt(data.startSuffix, 10);
@@ -1711,16 +1723,19 @@ return view.extend({
 
                     selectedDevices.forEach(function(dev) {
                         var assignIp = dev.bound_ip || dev.ip; 
+                        var existingIp = dev.bound_ip || dev.ip;
+                        var exSuf = -1;
+                        if (existingIp && existingIp !== 'Unknown IP' && existingIp.indexOf(basePrefix) === 0) {
+                            exSuf = parseInt(existingIp.split('.').pop(), 10);
+                        }
 
                         if (strategy === 'keep') {
                             var devPrefix = assignIp.substring(0, assignIp.lastIndexOf('.') + 1);
-                            if (devPrefix !== basePrefix) {
+                            if (devPrefix !== basePrefix || usedIps.indexOf(assignIp) !== -1) {
                                 assignIp = getAvailableIpInRange(basePrefix, 50, 250, usedIps);
-                                usedIps.push(assignIp);
                             }
                         } else if (strategy === 'seq') {
                             assignIp = getNextAvailableIp(currentIp, usedIps);
-                            usedIps.push(assignIp); 
                             currentIp = getNextAvailableIp(assignIp, usedIps); 
                         } else if (strategy === 'smart') {
                             var devType = getDeviceType(dev);
@@ -1729,17 +1744,28 @@ return view.extend({
                             else if (devType === 'pc') { sStart = data.ranges.ps; sEnd = data.ranges.pe; }
                             else if (devType === 'iot') { sStart = data.ranges.is; sEnd = data.ranges.ie; }
                             
-                            var smartIp = getAvailableIpInRange(basePrefix, sStart, sEnd, usedIps);
-                            if (smartIp) {
-                                assignIp = smartIp;
-                                usedIps.push(assignIp);
+                            // 原 IP 已经处于该分类的目标网段，且未被抢占，保留
+                            if (exSuf >= sStart && exSuf <= sEnd && usedIps.indexOf(existingIp) === -1) {
+                                assignIp = existingIp; 
+                            } else {
+                                var smartIp = getAvailableIpInRange(basePrefix, sStart, sEnd, usedIps);
+                                if (smartIp) assignIp = smartIp;
                             }
                         } else if (strategy === 'dept') {
                             var tgt2 = globalDepartments.find(function(d){ return d.id === dept_id; });
-                            if(tgt2) {
-                                var dip = getAvailableIpInRange(basePrefix, tgt2.start, tgt2.end, usedIps);
-                                if (dip) { assignIp = dip; usedIps.push(assignIp); }
+                            if (tgt2) {
+                                // 原 IP 若在自定义组网段内，保留
+                                if (exSuf >= tgt2.start && exSuf <= tgt2.end && usedIps.indexOf(existingIp) === -1) {
+                                    assignIp = existingIp;
+                                } else {
+                                    var dip = getAvailableIpInRange(basePrefix, tgt2.start, tgt2.end, usedIps);
+                                    if (dip) assignIp = dip;
+                                }
                             }
+                        }
+
+                        if (assignIp && usedIps.indexOf(assignIp) === -1) {
+                            usedIps.push(assignIp);
                         }
 
                         var isCurrentlyStatic = dev.is_static === true || dev.is_static === 'true';
