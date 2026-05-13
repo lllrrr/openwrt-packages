@@ -1,0 +1,35 @@
+# DeviceMaster Configuration File
+# This file stores device customizations and rules
+
+config devicemaster 'global'
+	option enabled '1'
+	option auto_detect '1'
+	option oui_lookup '1'
+	option traffic_monitor '1'
+	option refresh_interval '5'
+	option history_days '30'
+
+config device
+	option mac ''
+	option name ''
+	option group ''
+	option icon ''
+	option notes ''
+	option blocked '0'
+	option rate_limit ''
+
+config group
+	option id ''
+	option name ''
+	option icon ''
+	option color ''
+	option rate_limit ''
+
+config schedule
+	option id ''
+	option name ''
+	option group ''
+	option days ''
+	option start_time ''
+	option end_time ''
+	option action 'block'

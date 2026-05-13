@@ -1,0 +1,4 @@
+# DeviceMaster Schedule Executor
+# Runs every minute to check and apply schedule rules
+
+* * * * * /usr/libexec/devicemaster/schedule_executor.sh run >/dev/null 2>&1
