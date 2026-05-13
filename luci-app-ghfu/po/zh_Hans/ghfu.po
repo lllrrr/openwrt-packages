@@ -31,53 +31,35 @@ msgstr "系统与 Release 状态"
 msgid "Available Firmware"
 msgstr "可选固件"
 
-msgid "Available Firmware (%d)"
+msgid "Available Firmware (Filtered: %d)"
 msgstr "可选固件(过滤后: %d个)"
 
 msgid "Last Updated Firmware"
 msgstr "上次更新的固件"
 
-msgid "Filter Rules"
-msgstr "过滤规则"
+msgid "Filter Valid Extensions"
+msgstr "过滤合法扩展名"
 
-msgid "Default Filter Rules"
-msgstr "默认过滤规则"
+msgid "Valid Extensions"
+msgstr "合法扩展名配置"
 
-msgid "Enable Prefix Filter"
-msgstr "启用前缀过滤"
+msgid "Valid Firmware Extensions"
+msgstr "合法固件扩展名配置"
 
-msgid "Exclude Name Prefix"
-msgstr "排除名称前缀"
+msgid "One extension per line (e.g. .img  .img.gz)"
+msgstr "每行一个扩展名，例如 .img  .img.gz"
 
-msgid "e.g. buildinfo"
-msgstr "例如 buildinfo"
+msgid "Cancel"
+msgstr "取消"
 
-msgid "Leave empty to disable prefix filtering"
-msgstr "留空则不按前缀过滤"
+msgid "Save"
+msgstr "保存"
 
-msgid "Matched names will be hidden"
-msgstr "匹配到的文件名将被隐藏"
+msgid "Saving extensions..."
+msgstr "正在保存扩展名配置..."
 
-msgid "Enable Size Filter"
-msgstr "启用容量过滤"
-
-msgid "Exclude Size Below (KB)"
-msgstr "排除容量小于（KB）"
-
-msgid "0 means no size filter"
-msgstr "填 0 表示不按容量过滤"
-
-msgid "Files smaller than this size will be hidden"
-msgstr "小于该容量的文件将被隐藏"
-
-msgid "Save Filter Rules"
-msgstr "保存过滤规则"
-
-msgid "Saving filter rules..."
-msgstr "正在保存过滤规则..."
-
-msgid "Filter rules saved"
-msgstr "过滤规则已保存"
+msgid "Extensions saved"
+msgstr "扩展名配置已保存"
 
 msgid "Logs"
 msgstr "日志"

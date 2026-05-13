@@ -65,20 +65,61 @@ local function human_bytes(n)
     return string.format("%.2f %s", n, units[idx])
 end
 
+local DEFAULT_VALID_EXTS = ".img .img.gz .bin .tar .itb .trx .chk .dlf .ari"
+
+local function migrate_legacy_filter_cfg()
+    if not uci:get(CFG, SEC) then
+        return
+    end
+
+    local changed = false
+
+    if uci:get(CFG, SEC, "filter_ext_enabled") == nil then
+        uci:set(CFG, SEC, "filter_ext_enabled", "1")
+        changed = true
+    end
+
+    local valid_extensions = uci:get(CFG, SEC, "valid_extensions")
+    if not valid_extensions or trim(valid_extensions) == "" then
+        uci:set(CFG, SEC, "valid_extensions", DEFAULT_VALID_EXTS)
+        changed = true
+    end
+
+    if uci:get(CFG, SEC, "filter_prefix_enabled") ~= nil then
+        uci:delete(CFG, SEC, "filter_prefix_enabled")
+        changed = true
+    end
+    if uci:get(CFG, SEC, "filter_prefix") ~= nil then
+        uci:delete(CFG, SEC, "filter_prefix")
+        changed = true
+    end
+    if uci:get(CFG, SEC, "filter_min_size_enabled") ~= nil then
+        uci:delete(CFG, SEC, "filter_min_size_enabled")
+        changed = true
+    end
+    if uci:get(CFG, SEC, "filter_min_size") ~= nil then
+        uci:delete(CFG, SEC, "filter_min_size")
+        changed = true
+    end
+
+    if changed then
+        uci:commit(CFG)
+    end
+end
+
 local function get_cfg()
+    migrate_legacy_filter_cfg()
     return {
         github_repo = uci:get(CFG, SEC, "github_repo") or "smallprogram/OpenWrtAction",
         selected_release = uci:get(CFG, SEC, "selected_release") or "",
         keep_config = uci:get(CFG, SEC, "keep_config") or "1",
         fetch_timeout = uci:get(CFG, SEC, "fetch_timeout") or "15",
-        filter_prefix_enabled = uci:get(CFG, SEC, "filter_prefix_enabled") or "1",
-        filter_prefix = uci:get(CFG, SEC, "filter_prefix") or "buildinfo",
-        filter_min_size_enabled = uci:get(CFG, SEC, "filter_min_size_enabled") or "1",
-        filter_min_size = uci:get(CFG, SEC, "filter_min_size") or "200"
+        filter_ext_enabled = uci:get(CFG, SEC, "filter_ext_enabled") or "1",
+        valid_extensions = uci:get(CFG, SEC, "valid_extensions") or DEFAULT_VALID_EXTS
     }
 end
 
-local function set_cfg(repo, selected_release, keep_config, fetch_timeout, filter_prefix_enabled, filter_prefix, filter_min_size_enabled, filter_min_size)
+local function set_cfg(repo, selected_release, keep_config, fetch_timeout, filter_ext_enabled, valid_extensions)
     if not uci:get(CFG, SEC) then
         uci:section(CFG, "ghfu", SEC, {})
     end
@@ -102,24 +143,14 @@ local function set_cfg(repo, selected_release, keep_config, fetch_timeout, filte
         end
     end
 
-    if filter_prefix_enabled ~= nil then
-        uci:set(CFG, SEC, "filter_prefix_enabled", to_bool(filter_prefix_enabled) and "1" or "0")
+    if filter_ext_enabled ~= nil then
+        uci:set(CFG, SEC, "filter_ext_enabled", to_bool(filter_ext_enabled) and "1" or "0")
     end
 
-    if filter_prefix ~= nil then
-        uci:set(CFG, SEC, "filter_prefix", trim(filter_prefix))
-    end
-
-    if filter_min_size_enabled ~= nil then
-        uci:set(CFG, SEC, "filter_min_size_enabled", to_bool(filter_min_size_enabled) and "1" or "0")
-    end
-
-    if filter_min_size ~= nil then
-        local s = tonumber(filter_min_size)
-        if not s or s < 0 then
-            s = 0
-        end
-        uci:set(CFG, SEC, "filter_min_size", tostring(math.floor(s)))
+    if valid_extensions ~= nil then
+        local v = trim(valid_extensions)
+        v = v:gsub("[\r\n]+", " "):gsub("%s+", " ")
+        uci:set(CFG, SEC, "valid_extensions", v)
     end
 
     uci:commit(CFG)
@@ -530,14 +561,8 @@ function action_config()
         end
     end
 
-    local filter_prefix_enabled = http.formvalue("filter_prefix_enabled")
-    local filter_prefix = trim(http.formvalue("filter_prefix") or "")
-    local filter_min_size_enabled = http.formvalue("filter_min_size_enabled")
-    local filter_min_size_raw = trim(http.formvalue("filter_min_size") or "")
-    local filter_min_size = tonumber(filter_min_size_raw)
-    if not filter_min_size or filter_min_size < 0 then
-        filter_min_size = 0
-    end
+    local filter_ext_enabled = http.formvalue("filter_ext_enabled")
+    local valid_extensions = http.formvalue("valid_extensions")
 
     local has_basic = (http.formvalue("repo") ~= nil) or (keep_config ~= nil) or (http.formvalue("fetch_timeout") ~= nil)
     if has_basic and repo == "" then
@@ -554,10 +579,8 @@ function action_config()
         nil,
         keep_config,
         fetch_timeout,
-        filter_prefix_enabled,
-        filter_prefix,
-        filter_min_size_enabled,
-        tostring(math.floor(filter_min_size))
+        filter_ext_enabled,
+        valid_extensions
     )
 
     json_resp({

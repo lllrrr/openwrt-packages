@@ -28,49 +28,31 @@ msgstr ""
 msgid "System and Release Status"
 msgstr ""
 
-msgid "Available Firmware (%d)"
+msgid "Available Firmware (Filtered: %d)"
 msgstr ""
 
-msgid "Filter Rules"
+msgid "Filter Valid Extensions"
 msgstr ""
 
-msgid "Default Filter Rules"
+msgid "Valid Extensions"
 msgstr ""
 
-msgid "Enable Prefix Filter"
+msgid "Valid Firmware Extensions"
 msgstr ""
 
-msgid "Exclude Name Prefix"
+msgid "One extension per line (e.g. .img  .img.gz)"
 msgstr ""
 
-msgid "e.g. buildinfo"
+msgid "Cancel"
 msgstr ""
 
-msgid "Leave empty to disable prefix filtering"
+msgid "Save"
 msgstr ""
 
-msgid "Matched names will be hidden"
+msgid "Saving extensions..."
 msgstr ""
 
-msgid "Enable Size Filter"
-msgstr ""
-
-msgid "Exclude Size Below (KB)"
-msgstr ""
-
-msgid "0 means no size filter"
-msgstr ""
-
-msgid "Files smaller than this size will be hidden"
-msgstr ""
-
-msgid "Save Filter Rules"
-msgstr ""
-
-msgid "Saving filter rules..."
-msgstr ""
-
-msgid "Filter rules saved"
+msgid "Extensions saved"
 msgstr ""
 
 msgid "Logs"

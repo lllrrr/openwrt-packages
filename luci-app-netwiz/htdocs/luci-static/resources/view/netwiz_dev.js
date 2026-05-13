@@ -139,8 +139,8 @@ var T = {
     'ERR_IP_FORMAT': _('❌ Invalid IP format! Please enter a valid IPv4 address (e.g., 192.168.1.50)'),
     'TIP_V6_COPY': _('Public IPv6 (Click to copy):'),
     'MSG_V6_COPIED': _('IPv6 address copied successfully:'),
-    'BTN_EXPORT_DEPTS': _('Export Config'),
-    'BTN_IMPORT_DEPTS': _('Import Config'),
+    'BTN_EXPORT_DEPTS': _('Export Groups'),
+    'BTN_IMPORT_DEPTS': _('Import Groups'),
     'MSG_IMPORT_SUCCESS': _('✅ Import successful!') + '\n' + _('Please verify and click [Save] below to apply.'),
     'ERR_IMPORT_FAIL': _('❌ Import failed!') + '\n' + _('Invalid or corrupted file format. Please select a valid JSON backup file.'),
     'BDG_NEW_UNKNOWN': _('Suspected Spoofed Device'),
@@ -187,7 +187,8 @@ var T = {
     'MSG_READ_FAIL': _('Unable to fetch router backup list.'),
     'TXT_BAK_AUTO': _('Auto Backup'),
     'TXT_BAK_IMPORT': _('Before Import'),
-    'TXT_BAK_RESET': _('Before Reset')
+    'TXT_BAK_RESET': _('Before Reset'),
+    'OPT_NO_CHANGE': _('-- Keep Unchanged --'),
 };
 
 var callDeviceList = rpc.declare({ object: 'netwiz_dev', method: 'get_list', params: ['show_conns'], expect: { '': {} } });
@@ -248,15 +249,16 @@ return view.extend({
             '    .nd-dept-col-name { grid-column: 1 / 2; grid-row: 1 / 2; }',
             '    .nd-dept-col-actions { grid-column: 2 / 3; grid-row: 1 / 2; }',
             '    .nd-dept-col-ip { grid-column: 1 / 3; grid-row: 2 / 3; width: 100%; box-sizing: border-box; }',
-            '    .nd-dept-ctrl-bar { flex-direction: row !important; align-items: center !important; gap: 5px !important; padding-top: 0; padding-bottom: 10px !important; justify-content: space-between !important; }',
-            '    .nd-dept-io-group { width: auto !important; justify-content: flex-start !important; gap: 5px !important; flex: 2; }',
-            '    .nd-dept-io-group .nd-btn { flex: 1; min-width: 0 !important; padding: 10px 2px !important; font-size: 13px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }',
-            '    .nd-dept-ctrl-bar #btn-add-dept { width: auto !important; flex: 1.2; padding: 10px 2px !important; font-size: 14px !important; align-self: center !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }',
+            '    .nd-dept-ctrl-bar { flex-wrap: nowrap !important; align-items: stretch !important; gap: 6px !important; padding-top: 0; padding-bottom: 10px !important; }',
+            '    .nd-dept-io-group { width: auto !important; flex: 2 1 0 !important; gap: 6px !important; display: flex !important; }',
+            '    .nd-dept-io-group .nd-btn { flex: 1 1 0 !important; min-width: 0 !important; padding: 6px 2px !important; font-size: 12.5px !important; white-space: normal !important; word-wrap: break-word !important; line-height: 1.2 !important; height: auto !important; }',
+            '    .nd-dept-ctrl-bar #btn-add-dept { width: auto !important; flex: 1 1 0 !important; margin: 0 !important; padding: 6px 2px !important; font-size: 12.5px !important; white-space: normal !important; word-wrap: break-word !important; line-height: 1.2 !important; height: auto !important; }',
             '    .dept-row { padding: 8px 10px !important; margin-bottom: 8px !important; }',
             '    .nd-dept-row-inner { gap: 6px !important; }',
             '    .dept-row .nd-input { min-height: 36px !important; padding: 2px 8px !important; font-size: 13.5px !important; }',
             '    .nd-dept-col-ip { padding: 0px 4px !important; }',
             '    .nd-dept-col-actions .d-color, .nd-dept-col-actions .d-del { height: 36px !important; width: 36px !important; flex: 0 0 36px !important; min-width: 36px !important; max-width: 36px !important; }',
+            '    #nd-live-conns-text { white-space:normal !important; width:80px; flex-shrink:0; line-height:1.15; }',
             '  }',
             '</style>',
             '<div class="nw-wrapper">',
@@ -278,7 +280,7 @@ return view.extend({
             '      </div>',
             '      <div style="display:flex; align-items:center; gap:12px;">',
             '          <label class="nw-switch" title="{{TIP_SHOW_CONNS}}" style="display:flex; align-items:center; cursor:pointer; margin:0;">',
-            '              <span style="font-size:13px; font-weight:bold; color:#fff; margin-right:8px; white-space:nowrap;">{{LBL_SHOW_CONNS}}</span>',
+            '              <span id="nd-live-conns-text" style="font-size:13px; font-weight:bold; color:#fff; margin-right:8px; text-align:right; white-space:nowrap;">{{LBL_SHOW_CONNS}}</span>',
             '              <div style="position:relative; width:42px; height:22px; flex-shrink:0;">',
             '                  <input type="checkbox" id="cb-show-conns" style="opacity:0; width:0; height:0; margin:0; position:absolute;">',
             '                  <span class="nw-slider" style="position:absolute; top:0; left:0; right:0; bottom:0; border-radius:24px; transition:0.3s; background-color:rgba(255,255,255,0.3);"></span>',
@@ -586,12 +588,18 @@ return view.extend({
         }
 
         function populateTagSelects() {
-            var html = '<option value="none">' + T['OPT_NO_GROUP'] + '</option>';
+            var baseHtml = '';
             globalDepartments.forEach(function(d) {
-                html += '<option value="'+d.id+'">' + d.icon + ' ' + d.name + '</option>';
+                baseHtml += '<option value="'+d.id+'">' + d.icon + ' ' + d.name + '</option>';
             });
-            if(mSingleTagSelect) mSingleTagSelect.innerHTML = html;
-            if(batchTagSelect) batchTagSelect.innerHTML = html;
+            
+            if(mSingleTagSelect) {
+                mSingleTagSelect.innerHTML = '<option value="none">' + T['OPT_NO_GROUP'] + '</option>' + baseHtml;
+            }
+            if(batchTagSelect) {
+                // “保持不变”选项
+                batchTagSelect.innerHTML = '<option value="keep">' + (T['OPT_NO_CHANGE'] || '-- 保持不变 --') + '</option><option value="none">' + T['OPT_NO_GROUP'] + '</option>' + baseHtml;
+            }
         }
 
         function renderDeptManager(overrideDepts) {
@@ -931,6 +939,8 @@ return view.extend({
                     mNormalFields.style.display = 'none';
                     mBatchFields.style.display = 'block';
                     applyStrategyUI(savedStrategy);
+                    // 默认选中“保持不变”
+                    batchTagSelect.value = 'keep';
                 } else {
                     mBatchFields.style.display = 'none';
                     mNormalFields.style.display = 'block';
@@ -938,8 +948,8 @@ return view.extend({
                     
                     if (options.showSingleStrategy) {
                         mSingleStrategyGroup.style.display = 'block';
-                        // 预选部门
-                        if (currentSingleDev && currentSingleDev.dept) {
+                        // 单机绑定/编辑打开时，如果它原来有分组，回显；否则设为未分组
+                        if (currentSingleDev && currentSingleDev.dept && currentSingleDev.dept !== 'none' && currentSingleDev.dept !== '') {
                             mSingleTagSelect.value = currentSingleDev.dept;
                         } else {
                             mSingleTagSelect.value = 'none';
@@ -988,7 +998,8 @@ return view.extend({
                         var activeStrategy = modalOverlay.querySelector('.nd-strategy-card.active').getAttribute('data-val');
                         var batchDeptId = batchTagSelect.value;
                         
-                        if (activeStrategy === 'dept' && batchDeptId === 'none') {
+                        // 策略选了“按部门网段分配”，那目标部门就绝对不能是“保持不变”或“未分组”，必须指定一个具体部门
+                        if (activeStrategy === 'dept' && (batchDeptId === 'none' || batchDeptId === 'keep')) {
                             alert(T['ERR_DEPT_NOT_SEL']);
                             return;
                         }
@@ -1985,7 +1996,11 @@ return view.extend({
 
                         var isCurrentlyStatic = dev.is_static === true || dev.is_static === 'true';
                         var oldDeptId = dev.dept || 'none';
-                        if (isCurrentlyStatic && assignIp === (dev.bound_ip || dev.ip) && dept_id === oldDeptId) {
+                        
+                        // 选了“保持不变”，oldDeptId
+                        var finalDept = (dept_id === 'keep') ? oldDeptId : dept_id;
+
+                        if (isCurrentlyStatic && assignIp === (dev.bound_ip || dev.ip) && finalDept === oldDeptId) {
                             skippedCount++;
                             return; 
                         }
@@ -1993,7 +2008,8 @@ return view.extend({
                         lastAssignedGlobal = assignIp;
                         var safeName = dev.name === "Unknown" ? "" : dev.name;
                         tasks.push(function() {
-                            return callDeviceBind(dev.mac, assignIp, safeName, dept_id, true);
+                            // 写入时使用 finalDept
+                            return callDeviceBind(dev.mac, assignIp, safeName, finalDept, true);
                         });
                     });
 

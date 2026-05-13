@@ -28,50 +28,32 @@ msgstr "Keep Configuration"
 msgid "System and Release Status"
 msgstr "System and Release Status"
 
-msgid "Available Firmware (%d)"
+msgid "Available Firmware (Filtered: %d)"
 msgstr "Available Firmware (Filtered: %d)"
 
-msgid "Filter Rules"
-msgstr "Filter Rules"
+msgid "Filter Valid Extensions"
+msgstr "Filter Valid Extensions"
 
-msgid "Default Filter Rules"
-msgstr "Default Filter Rules"
+msgid "Valid Extensions"
+msgstr "Valid Extensions"
 
-msgid "Enable Prefix Filter"
-msgstr "Enable Prefix Filter"
+msgid "Valid Firmware Extensions"
+msgstr "Valid Firmware Extensions"
 
-msgid "Exclude Name Prefix"
-msgstr "Exclude Name Prefix"
+msgid "One extension per line (e.g. .img  .img.gz)"
+msgstr "One extension per line (e.g. .img  .img.gz)"
 
-msgid "e.g. buildinfo"
-msgstr "e.g. buildinfo"
+msgid "Cancel"
+msgstr "Cancel"
 
-msgid "Leave empty to disable prefix filtering"
-msgstr "Leave empty to disable prefix filtering"
+msgid "Save"
+msgstr "Save"
 
-msgid "Matched names will be hidden"
-msgstr "Matched names will be hidden"
+msgid "Saving extensions..."
+msgstr "Saving extensions..."
 
-msgid "Enable Size Filter"
-msgstr "Enable Size Filter"
-
-msgid "Exclude Size Below (KB)"
-msgstr "Exclude Size Below (KB)"
-
-msgid "0 means no size filter"
-msgstr "0 means no size filter"
-
-msgid "Files smaller than this size will be hidden"
-msgstr "Files smaller than this size will be hidden"
-
-msgid "Save Filter Rules"
-msgstr "Save Filter Rules"
-
-msgid "Saving filter rules..."
-msgstr "Saving filter rules..."
-
-msgid "Filter rules saved"
-msgstr "Filter rules saved"
+msgid "Extensions saved"
+msgstr "Extensions saved"
 
 msgid "Logs"
 msgstr "Logs"
@@ -186,9 +168,6 @@ msgstr " downloaded successfully"
 
 msgid "Invalid firmware file name"
 msgstr "Invalid firmware file name"
-
-msgid "Default Filter Rules"
-msgstr "Default Filter Rules"
 msgid "Firmware file not found, please download again"
 msgstr "Firmware file not found, please download again"
 

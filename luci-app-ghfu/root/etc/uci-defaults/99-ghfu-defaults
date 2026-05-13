@@ -7,10 +7,8 @@ set ghfu.main.github_repo='smallprogram/OpenWrtAction'
 set ghfu.main.selected_release=''
 set ghfu.main.keep_config='1'
 set ghfu.main.fetch_timeout='15'
-set ghfu.main.filter_prefix_enabled='1'
-set ghfu.main.filter_prefix='buildinfo'
-set ghfu.main.filter_min_size_enabled='1'
-set ghfu.main.filter_min_size='200'
+set ghfu.main.filter_ext_enabled='1'
+set ghfu.main.valid_extensions='.img .img.gz .bin .tar .itb .trx .chk .dlf .ari'
 EOF
     uci commit ghfu
 }

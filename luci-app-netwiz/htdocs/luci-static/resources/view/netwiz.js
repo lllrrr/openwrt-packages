@@ -699,8 +699,8 @@ return view.extend({
                 if (wizHideCb) wizHideCb.checked = true;
                 var skipWifiCb = container.querySelector('#wiz-skip-wifi-checkbox');
                 if (skipWifiCb) {
-                    skipWifiCb.checked = false;
-                    skipWifiCb.dispatchEvent(new Event('change')); // 触发联动，解开 Wi-Fi 密码框的置灰锁定
+                    skipWifiCb.checked = (window._hasRealWifi === false) ? true : false;
+                    skipWifiCb.dispatchEvent(new Event('change')); 
                 }
                 
                 // 4. 重新召唤向导！
@@ -983,6 +983,7 @@ return view.extend({
             var modelName = (boardRes.model || '').toLowerCase();
             
             var hasWifi = (wifiRes === true || (typeof wifiRes === 'object' && wifiRes && wifiRes.has_wifi === true));
+            window._hasRealWifi = hasWifi; // 真实的硬件状态，供底部状态栏判断使用
             var isUnknownDevice = (modelName.indexOf('generic') !== -1 && modelName.indexOf('unknown') !== -1);
 
             // 2. 恢复读取 netwiz 的标志位
@@ -992,18 +993,47 @@ return view.extend({
             var wizModal = container.querySelector('#nw-wizard-modal');
             var btnReopenWiz = container.querySelector('#btn-reopen-wizard');
 
+            // 1. 处理主界面的 Wi-Fi 卡片显示与隐藏
             if (hasWifi && !isUnknownDevice) {
                 var wifiCard = container.querySelector('#card-wifi');
                 if (wifiCard) wifiCard.style.display = 'flex';
-                
-                // 3. 只有值为 '1' 才弹出
-                if (wizardEnable === '1' && wizModal) {
-                    wizModal.style.display = 'flex';
-                }
             } else {
-                console.warn("[Netwiz] 警告: 未检测到 Wi-Fi 硬件，已彻底隐藏向导相关入口。");
-                if (wizModal) wizModal.style.display = 'none';
-                if (btnReopenWiz) btnReopenWiz.style.display = 'none'; // 彻底隐藏首页的“重新打开向导”按钮
+                console.warn("[Netwiz] 警告: 未检测到 Wi-Fi 硬件，已彻底隐藏 Wi-Fi 配置卡片。");
+                var wifiCard = container.querySelector('#card-wifi');
+                if (wifiCard) wifiCard.style.setProperty('display', 'none', 'important');
+
+                // 没有 Wi-Fi 时，向导第二步自动锁死“跳过”并隐藏密码框
+                var skipWifiCb = container.querySelector('#wiz-skip-wifi-checkbox');
+                var wifiInputArea = container.querySelector('#wiz-wifi-input-area');
+                if (skipWifiCb) {
+                    skipWifiCb.checked = true; // 强行勾选跳过
+                    var cbWrap = skipWifiCb.closest('.nw-wiz-cb-wrap');
+                    if (cbWrap) {
+                        cbWrap.style.setProperty('display', 'none', 'important'); // 隐藏复选框本身
+                        if (cbWrap.parentElement) {
+                            cbWrap.parentElement.style.setProperty('display', 'none', 'important');
+                        }
+                    }
+                }
+                if (wifiInputArea) {
+                    wifiInputArea.style.setProperty('display', 'none', 'important'); // 隐藏密码框
+                    // 插入友好的无 Wi-Fi 提示
+                    var wArea2 = container.querySelector('#wiz-step-2-area');
+                    if (wArea2 && !container.querySelector('#nw-no-wifi-tip')) {
+                        var tip = document.createElement('div');
+                        tip.id = 'nw-no-wifi-tip';
+                        tip.innerHTML = '<div style="text-align:center; padding: 30px 15px; color:#64748b; font-size:15px; background:#f1f5f9; border-radius:8px; border: 1px dashed #cbd5e1; margin-bottom:15px;">未检测到 Wi-Fi 硬件，本步骤自动跳过。<br>请直接点击右下角【下一步】。</div>';
+                        wArea2.insertBefore(tip, wifiInputArea);
+                    }
+                }
+            }
+
+            if (wizardEnable === '1' && wizModal) {
+                wizModal.style.display = 'flex';
+            }
+            
+            if (btnReopenWiz) {
+                btnReopenWiz.style.display = '';
             }
         }).catch(function(err) {});
 
@@ -1479,7 +1509,9 @@ return view.extend({
                     var activeIfaces = wIfacesList.filter(function(i) { return i.disabled !== '1' && (i.mode === 'ap' || i.mode === 'sta') && i.ssid; });
                     var wifiLines = [];
                     
-                    if (activeIfaces.length === 0) {
+                    if (!window._hasRealWifi) {
+                        // 没有真实物理 Wi-Fi，隐藏状态栏的 Wi-Fi 信息
+                    } else if (activeIfaces.length === 0) {
                         wifiLines.push("<div><span>" + T['TXT_WIFI_STATUS'] + ": </span><b style='color:#ef4444;'>" + T['TXT_OFF'] + "</b></div>");
                     } else {
                         var apIfaces = activeIfaces.filter(function(i) { return i.mode === 'ap'; });
