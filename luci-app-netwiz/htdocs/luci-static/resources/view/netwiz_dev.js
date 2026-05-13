@@ -75,7 +75,7 @@ var T = {
     'BDG_PENDING': _('Pending'),
     'TIT_EDIT_DEV': _('Edit Device Info'),
     'TIT_QUICK_BIND': _('Quick Bind IP'),
-    'TXT_CONFIG_MAC': _('Configuring MAC: '),
+    'TXT_CONFIG_MAC': _('Configuring MAC:'),
     'BTN_SAVE': _('Save Changes'),
     'BTN_BIND_DEV': _('Bind Device'),
     'MSG_WRITING': _('Safely writing and restarting services...'),
@@ -159,7 +159,32 @@ var T = {
     'MSG_CONN_CMD': _('root@OpenWrt:~# cat /proc/net/nf_conntrack | awk \'...\' # (Filtering src={ip})'),
     'MSG_CONN_EMPTY': _('[ No active connection records ]'),
     'MSG_CONN_TRUNC': _('... (First 50 records shown for performance) ...'),
-    'MSG_CONN_ANALYZE_FAIL': _('Analysis failed: {err}')
+    'MSG_CONN_ANALYZE_FAIL': _('Analysis failed: {err}'),
+    'BTN_EXPORT_NET': _('Export Config'),
+    'BTN_IMPORT_NET': _('Import Config'),
+    'TIT_EXPORT_ING': _('📦 Packing Network Config'),
+    'MSG_EXPORT_ING': _('<div style="text-align:center; padding:20px; color:#64748b;"><div class="nd-spinner" style="margin:0 auto 15px auto;"></div>Generating exclusive backup file<br><br><span style="font-size:12px;">(Includes: WAN, Wi-Fi, IPv6, Bypass, Static IPs & Firewall rules)</span></div>'),
+    'BTN_PLEASE_WAIT': _('Please wait...'),
+    'TIT_EXPORT_OK': _('✅ Export Successful'),
+    'MSG_EXPORT_OK': _('Core network configuration file has been successfully downloaded!'),
+    'BTN_CLOSE': _('Close'),
+    'TIT_EXPORT_FAIL': _('❌ Export Failed'),
+    'MSG_EXPORT_FAIL_NODATA': _('Backend returned no valid data'),
+    'MSG_EXPORT_FAIL_ERR': _('Error occurred: '),
+    'TIT_IMPORT_CONFIRM': _('⚠️ Confirm Overwrite?'),
+    'MSG_IMPORT_CONFIRM': _('<span style="color:#ef4444; font-weight:bold;">About to overwrite the router\'s core network settings!</span><br><br><span style="font-size:12.5px; color:#ef4444;">💡 <b>Safety Mechanism:</b> The system will automatically backup the current state to the <code style="background:#10b981; padding:2px 4px; border-radius:4px;">/root/netwiz_bak/</code> directory before importing.</span><br><br>Network services will <b>automatically restart</b> after import, which may cause brief Wi-Fi/LAN disconnection. Please confirm.'),
+    'BTN_CONFIRM_IMPORT': _('Confirm & Apply'),
+    'MSG_IMPORT_RESTARTING': _('Writing configuration and restarting network services,<br><b>Please wait...</b> Network may disconnect briefly, taking about 10-25 seconds...'),
+    'TIT_RESTORE_NET': _('⬆️ Restore Network Config'),
+    'MSG_READING_BAK': _('<div style="text-align:center; padding:20px; color:#64748b;"><div class="nd-spinner" style="margin:0 auto 15px auto;"></div>Reading router backup records...</div>'),
+    'OPT_NO_BAK': _('[ No history backups found ]'),
+    'LBL_RESTORE_ROUTER': _('📂 Restore from Router History'),
+    'BTN_RESTORE_SEL': _('⬇️ Restore Selected Backup'),
+    'TXT_OR': _('— OR —'),
+    'LBL_RESTORE_PC': _('💻 Upload from Local PC'),
+    'BTN_BROWSE_PC': _('📁 Browse PC Files...'),
+    'TIT_READ_FAIL': _('❌ Read Failed'),
+    'MSG_READ_FAIL': _('Unable to fetch router backup list.')
 };
 
 var callDeviceList = rpc.declare({ object: 'netwiz_dev', method: 'get_list', params: ['show_conns'], expect: { '': {} } });
@@ -175,6 +200,10 @@ var callGetSmartRanges = rpc.declare({ object: 'netwiz_dev', method: 'get_smart_
 var callSaveSmartRanges = rpc.declare({ object: 'netwiz_dev', method: 'save_smart_ranges', params: ['data'], expect: { result: 0 } });
 var callResetAll = rpc.declare({ object: 'netwiz_dev', method: 'reset_all', expect: { result: 0 } });
 var callAnalyzeConns = rpc.declare({ object: 'netwiz_dev', method: 'analyze_conns', params: ['ip'], expect: { '': {} } });
+var callExportConfig = rpc.declare({ object: 'netwiz_dev', method: 'export_config', expect: { '': {} } });
+var callImportConfig = rpc.declare({ object: 'netwiz_dev', method: 'import_config', params: ['data', 'file'], expect: { result: 0 } });
+var callListBackups = rpc.declare({ object: 'netwiz_dev', method: 'list_backups', expect: { backups: [] } });
+var callAutoBackup = rpc.declare({ object: 'netwiz_dev', method: 'auto_backup', expect: { result: 0 } });
 
 return view.extend({
     handleSaveApply: null,
@@ -298,9 +327,13 @@ return view.extend({
             '       </div>',
 
             '       <div id="nd-m-fw-panel" style="display:none; text-align:left;">',
-            '           <div style="display:flex; justify-content:center; align-items:center; margin-bottom:15px; position:relative;">',
-            '               <p style="font-size:15px; font-weight:bold; color:#64748b; margin:0;">{{TXT_FW_PANEL_TITLE}}</p>',
-            '               <div id="fw-reset-gear" title="{{TIT_RESET_ALL}}" style="position:absolute; right:10px; cursor:pointer; font-size:18px; filter:grayscale(100%); opacity:0.4; transition:all 0.3s;" onmouseover="this.style.filter=\'none\'; this.style.opacity=1; this.style.transform=\'rotate(90deg)\'" onmouseout="this.style.filter=\'grayscale(100%)\'; this.style.opacity=0.4; this.style.transform=\'none\'">⚙️</div>',
+            '           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; position:relative; padding: 0 20px;">',
+            '               <div style="display:flex; gap:8px; align-items:center; margin-right:15px;">',
+            '                   <button id="nd-btn-export-net" class="nd-btn nd-btn-blue" style="padding:6px 10px !important; font-size:14px !important; min-width:0 !important; height:32px !important; line-height:1 !important; flex: 0 0 auto;">⬇️ {{BTN_EXPORT_NET}}</button>',
+            '                   <button id="nd-btn-import-net" class="nd-btn nd-btn-gray" style="padding:6px 10px !important; font-size:14px !important; min-width:0 !important; height:32px !important; line-height:1 !important; flex: 0 0 auto;">⬆️ {{BTN_IMPORT_NET}}</button>',
+            '                   <input type="file" id="nd-file-import-net" style="display:none;" accept=".tar.gz,.tar,.gz">',
+            '               </div>',
+            '               <div id="fw-reset-gear" title="{{TIT_RESET_ALL}}" style="cursor:pointer; font-size:18px; filter:grayscale(100%); opacity:0.4; transition:all 0.3s;" onmouseover="this.style.filter=\'none\'; this.style.opacity=1; this.style.transform=\'rotate(90deg)\'" onmouseout="this.style.filter=\'grayscale(100%)\'; this.style.opacity=0.4; this.style.transform=\'none\'">⚙️</div>',
             '           </div>',
             '           <div style="background:#f8fafc; margin:10px;  padding:15px; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:15px;">',
             '               <label class="nw-switch-row-padded" style="cursor:pointer; display:flex; align-items:center; justify-content:space-between; border-bottom:1px dashed #cbd5e1; padding-bottom:15px; margin-bottom:15px;">',
@@ -1681,7 +1714,7 @@ return view.extend({
 
                     openModal({
                         title: isEdit ? T['TIT_EDIT_DEV'] : T['TIT_QUICK_BIND'],
-                        content: T['TXT_CONFIG_MAC'] + '<span style="font-family:monospace; color:#3b82f6; font-weight:bold;">' + mac.toUpperCase() + '</span>',
+                        content: T['TXT_CONFIG_MAC'] + ' <span style="font-family:monospace; color:#3b82f6; font-weight:bold;">' + mac.toUpperCase() + '</span>',
                         showForm: true,
                         showSingleStrategy: true,
                         targetMac: mac,
@@ -2157,6 +2190,142 @@ return view.extend({
                 });
             });
         }
+
+        // 导入和导出的 事件
+        var btnExportNet = modalOverlay.querySelector('#nd-btn-export-net');
+        var btnImportNet = modalOverlay.querySelector('#nd-btn-import-net');
+        var fileImportNet = modalOverlay.querySelector('#nd-file-import-net');
+
+        if (btnExportNet) {
+            btnExportNet.addEventListener('click', function() {
+                openModal({ 
+                    title: T['TIT_EXPORT_ING'], 
+                    content: T['MSG_EXPORT_ING'], 
+                    hideCancel: true, 
+                    okText: T['BTN_PLEASE_WAIT'] 
+                });
+                callExportConfig().then(function(res) {
+                    if(res.data && res.filename) {
+                        var byteCharacters = atob(res.data);
+                        var byteNumbers = new Array(byteCharacters.length);
+                        for (var i = 0; i < byteCharacters.length; i++) {
+                            byteNumbers[i] = byteCharacters.charCodeAt(i);
+                        }
+                        var byteArray = new Uint8Array(byteNumbers);
+                        var blob = new Blob([byteArray], {type: "application/gzip"});
+                        
+                        var a = document.createElement("a");
+                        a.href = URL.createObjectURL(blob);
+                        a.download = res.filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        
+                        openModal({ title: T['TIT_EXPORT_OK'], content: T['MSG_EXPORT_OK'], hideCancel: true, okText: T['BTN_CLOSE'] });
+                    } else {
+                        openModal({ title: T['TIT_EXPORT_FAIL'], content: T['MSG_EXPORT_FAIL_NODATA'], hideCancel: true, okText: T['BTN_CLOSE'] });
+                    }
+                }).catch(function(err) {
+                    openModal({ title: T['TIT_EXPORT_FAIL'], content: T['MSG_EXPORT_FAIL_ERR'] + err, hideCancel: true, okText: T['BTN_CLOSE'] });
+                });
+            });
+        }
+
+        // 公共的恢复确认逻辑
+        function confirmAndRestore(payload) {
+            openModal({ 
+                title: T['TIT_IMPORT_CONFIRM'], 
+                content: T['MSG_IMPORT_CONFIRM'], 
+                okText: T['BTN_CONFIRM_IMPORT'], 
+                danger: true,
+                onOk: function() {
+                    listHeader.style.display = 'none';
+                    listEl.style.display = 'none';
+                    catTabs.style.display = 'none';
+                    loadingEl.style.display = 'flex';
+                    loadingText.innerHTML = T['MSG_IMPORT_RESTARTING'];
+                    callImportConfig(payload.data || "", payload.file || "").then(function() {
+                        setTimeout(function() { window.location.reload(); }, 25000);
+                    }).catch(function() {
+                        setTimeout(function() { window.location.reload(); }, 25000);
+                    });
+                }
+            });
+        }
+
+        if (btnImportNet && fileImportNet) {
+            btnImportNet.addEventListener('click', function() {
+                openModal({
+                    title: T['TIT_RESTORE_NET'],
+                    content: T['MSG_READING_BAK'],
+                    hideCancel: true,
+                    okText: T['BTN_CLOSE']
+                });
+
+                callListBackups().then(function(res) {
+                    var bks = res || [];
+                    var optsHtml = '';
+                    if (bks.length === 0) {
+                        optsHtml = '<option value="">' + T['OPT_NO_BAK'] + '</option>';
+                    } else {
+                        bks.forEach(function(f) {
+                            var display = f.replace('.tar.gz', '').replace('netwiz_', '');
+                            optsHtml += '<option value="'+f+'">' + display + '</option>';
+                        });
+                    }
+
+                    var html = '<div style="display:flex; flex-direction:column; gap:15px; margin-top:10px;">' +
+                        '<div style="border:1px solid #cbd5e1; padding:15px; border-radius:8px; background:#f8fafc;">' +
+                            '<div style="font-weight:bold; margin-bottom:8px; color:#3b82f6;">' + T['LBL_RESTORE_ROUTER'] + '</div>' +
+                            '<select id="nd-sel-router-bak" class="nd-input" style="width:100%; margin-bottom:10px;" '+(bks.length===0?'disabled':'')+'>' + optsHtml + '</select>' +
+                            '<button id="nd-btn-restore-router" class="nd-btn nd-btn-blue" style="width:100%;" '+(bks.length===0?'disabled':'')+'>' + T['BTN_RESTORE_SEL'] + '</button>' +
+                        '</div>' +
+                        '<div style="text-align:center; color:#94a3b8; font-size:12px; font-weight:bold;">' + T['TXT_OR'] + '</div>' +
+                        '<div style="border:1px solid #cbd5e1; padding:15px; border-radius:8px; background:#f8fafc;">' +
+                            '<div style="font-weight:bold; margin-bottom:8px; color:#10b981;">' + T['LBL_RESTORE_PC'] + '</div>' +
+                            '<button id="nd-btn-upload-pc" class="nd-btn nd-btn-gray" style="width:100%;">' + T['BTN_BROWSE_PC'] + '</button>' +
+                        '</div>' +
+                    '</div>';
+
+                    openModal({ title: T['TIT_RESTORE_NET'], content: html, hideCancel: true, okText: T['BTN_CLOSE'] });
+
+                    // 绑定弹窗里的两个按钮事件
+                    var btnRestoreRouter = document.getElementById('nd-btn-restore-router');
+                    var btnUploadPc = document.getElementById('nd-btn-upload-pc');
+                    var selRouterBak = document.getElementById('nd-sel-router-bak');
+
+                    if (btnRestoreRouter) {
+                        btnRestoreRouter.onclick = function() {
+                            var file = selRouterBak.value;
+                            if (!file) return;
+                            confirmAndRestore({ file: file });
+                        };
+                    }
+
+                    if (btnUploadPc) {
+                        btnUploadPc.onclick = function() {
+                            fileImportNet.click(); // 触发隐藏的文件选择器
+                        };
+                    }
+                }).catch(function() {
+                    openModal({ title: T['TIT_READ_FAIL'], content: T['MSG_READ_FAIL'], hideCancel: true, okText: T['BTN_CLOSE'] });
+                });
+            });
+            
+            // 电脑上传文件选择后的处理
+            fileImportNet.addEventListener('change', function(e) {
+                var file = e.target.files[0];
+                if (!file) return;
+                var reader = new FileReader();
+                reader.onload = function(evt) {
+                    var b64data = evt.target.result.split(',')[1]; 
+                    confirmAndRestore({ data: b64data }); // 走统一恢复逻辑
+                };
+                reader.readAsDataURL(file); 
+                fileImportNet.value = ''; 
+            });
+        }
+
 
         loadDevices();
     }

@@ -1022,7 +1022,7 @@ msgid "Invalid or corrupted file format. Please select a valid JSON backup file.
 msgstr "文件格式错误或已损坏，请选择正确的 JSON 备份文件。"
 
 msgid "Suspected Spoofed Device"
-msgstr "疑似伪装设备"
+msgstr "疑似伪装或新设备"
 
 msgid "Factory Reset"
 msgstr "恢复出厂"
@@ -1071,3 +1071,78 @@ msgstr "... (已截断显示前 50 条数据以保障效能) ..."
 
 msgid "Analysis failed: {err}"
 msgstr "抓取失败: {err}"
+
+msgid "Export Config"
+msgstr "导出配置"
+
+msgid "Import Config"
+msgstr "导入配置"
+
+msgid "📦 Packing Network Config"
+msgstr "📦 正在打包网络配置"
+
+msgid "<div style=\"text-align:center; padding:20px; color:#64748b;\"><div class=\"nd-spinner\" style=\"margin:0 auto 15px auto;\"></div>Generating exclusive backup file<br><br><span style=\"font-size:12px;\">(Includes: WAN, Wi-Fi, IPv6, Bypass, Static IPs & Firewall rules)</span></div>"
+msgstr "<div style=\"text-align:center; padding:20px; color:#64748b;\"><div class=\"nd-spinner\" style=\"margin:0 auto 15px auto;\"></div>正在生成专属备份文件<br><br><span style=\"font-size:12px;\">(包含：宽带、Wi-Fi、IPv6、旁路由、静态IP及防火墙规则)</span></div>"
+
+msgid "Please wait..."
+msgstr "请稍候..."
+
+msgid "✅ Export Successful"
+msgstr "✅ 导出成功"
+
+msgid "Core network configuration file has been successfully downloaded!"
+msgstr "核心网络配置文件已成功下载！"
+
+msgid "Close"
+msgstr "关闭"
+
+msgid "❌ Export Failed"
+msgstr "❌ 导出失败"
+
+msgid "Backend returned no valid data"
+msgstr "后端未返回有效数据"
+
+msgid "Error occurred: "
+msgstr "发生错误: "
+
+msgid "⚠️ Confirm Overwrite?"
+msgstr "⚠️ 确认覆盖网络配置？"
+
+msgid "<span style=\"color:#ef4444; font-weight:bold;\">About to overwrite the router's core network settings!</span><br><br><span style=\"font-size:12.5px; color:#ef4444;\">💡 <b>Safety Mechanism:</b> The system will automatically backup the current state to the <code style=\"background:#10b981; padding:2px 4px; border-radius:4px;\">/root/netwiz_bak/</code> directory before importing.</span><br><br>Network services will <b>automatically restart</b> after import, which may cause brief Wi-Fi/LAN disconnection. Please confirm."
+msgstr "<span style=\"color:#ef4444; font-weight:bold;\">即将覆盖当前路由器的核心网络设置！</span><br><br><span style=\"font-size:12.5px; color:#ef4444;\">💡 <b>安全机制：</b>系统会在导入前，自动将当前状态备份到路由器的 <code style=\"background:#10b981; padding:2px 4px; border-radius:4px;\">/root/netwiz_bak/</code> 专属目录下以防万一。</span><br><br>导入完成后将会<b>自动重启网络服务</b>，Wi-Fi 和局域网可能会短暂断连，请确认。"
+
+msgid "Confirm & Apply"
+msgstr "确认导入并应用"
+
+msgid "Writing configuration and restarting network services,<br><b>Please wait...</b> Network may disconnect briefly, taking about 10-25 seconds..."
+msgstr "正在写入配置并重启网络服务，<br><b>请稍候...</b> 网络可能会短暂断开，大约需要 10-25 秒..."
+
+msgid "⬆️ Restore Network Config"
+msgstr "⬆️ 恢复网络配置"
+
+msgid "<div style=\"text-align:center; padding:20px; color:#64748b;\"><div class=\"nd-spinner\" style=\"margin:0 auto 15px auto;\"></div>Reading router backup records...</div>"
+msgstr "<div style=\"text-align:center; padding:20px; color:#64748b;\"><div class=\"nd-spinner\" style=\"margin:0 auto 15px auto;\"></div>正在读取路由器备份记录...</div>"
+
+msgid "[ No history backups found ]"
+msgstr "[ 暂无历史备份记录 ]"
+
+msgid "📂 Restore from Router History"
+msgstr "📂 从路由器历史备份恢复"
+
+msgid "⬇️ Restore Selected Backup"
+msgstr "⬇️ 恢复选中的备份"
+
+msgid "— OR —"
+msgstr "— 或者 —"
+
+msgid "💻 Upload from Local PC"
+msgstr "💻 从本地电脑上传恢复"
+
+msgid "📁 Browse PC Files..."
+msgstr "📁 浏览电脑文件..."
+
+msgid "❌ Read Failed"
+msgstr "❌ 读取失败"
+
+msgid "Unable to fetch router backup list."
+msgstr "无法获取路由器备份列表。"

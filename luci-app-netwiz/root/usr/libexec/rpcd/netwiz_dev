@@ -45,7 +45,7 @@ wakeup_apps() {
 
 case "$1" in
     list)
-        echo '{ "get_list": { "show_conns": "boolean" }, "bind": { "mac": "string", "ip": "string", "name": "string", "dept": "string", "no_reload": "boolean" }, "unbind": { "mac": "string", "no_reload": "boolean" }, "apply_dhcp": {}, "get_depts": {}, "save_depts": { "data": "string" }, "get_smart_ranges": {}, "save_smart_ranges": { "data": "string" }, "v6_keep_alive": { "mac": "string" }, "reset_all": {}, "analyze_conns": { "ip": "string" }, "fw_set": { "mac": "string", "ip": "string", "blk_en": "boolean", "iso_en": "boolean", "dmz_en": "boolean" } }'
+        echo '{ "get_list": { "show_conns": "boolean" }, "bind": { "mac": "string", "ip": "string", "name": "string", "dept": "string", "no_reload": "boolean" }, "unbind": { "mac": "string", "no_reload": "boolean" }, "apply_dhcp": {}, "get_depts": {}, "save_depts": { "data": "string" }, "get_smart_ranges": {}, "save_smart_ranges": { "data": "string" }, "v6_keep_alive": { "mac": "string" }, "reset_all": {}, "analyze_conns": { "ip": "string" }, "export_config": {}, "import_config": { "data": "string", "file": "string" }, "list_backups": {}, "auto_backup": {}, "fw_set": { "mac": "string", "ip": "string", "blk_en": "boolean", "iso_en": "boolean", "dmz_en": "boolean" } }'
         exit 0
         ;;
     call)
@@ -335,7 +335,7 @@ case "$1" in
                         gsub(/["\\]/, "", b_ip); gsub(/\047/, "", b_ip); gsub(/[\r\n\t]/, "", b_ip);
                         gsub(/["\\]/, "", b_dept); gsub(/\047/, "", b_dept); gsub(/[\r\n\t]/, "", b_dept);
                         
-                        # 💡 圓餅圖數據切割
+                        # 圆饼图
                         c_str = (conn_count[ip] != "") ? conn_count[ip] : "0,0,0,0,0,0";
                         split(c_str, c_arr, ",");
                         c_total = c_arr[1]+0; c_web = c_arr[2]+0; c_dns = c_arr[3]+0; c_udp = c_arr[4]+0; c_p2p = c_arr[5]+0; c_oth = c_arr[6]+0;
@@ -546,16 +546,18 @@ case "$1" in
                 if [ "$no_reload" != "1" ] && [ "$no_reload" != "true" ]; then
                     uci commit dhcp
                     uci commit firewall
-                    /etc/init.d/dnsmasq reload >/dev/null 2>&1
-                    /etc/init.d/firewall reload >/dev/null 2>&1 &
-                    # 檢查 dnsmasq
-                    sleep 2
-                    if ! pgrep dnsmasq > /dev/null; then
-                        logger -t Netwiz "⚠️ DNSMasq crashed after bind! Auto-restarting..."
-                        /etc/init.d/dnsmasq restart >/dev/null 2>&1
+                    (
+                        /etc/init.d/dnsmasq reload
+                        /etc/init.d/firewall reload
+                        # 检查 dnsmasq
                         sleep 2
-                        wakeup_apps  # 喚醒函數
-                    fi
+                        if ! pgrep dnsmasq > /dev/null; then
+                            logger -t Netwiz "⚠️ DNSMasq crashed! Auto-restarting..."
+                            /etc/init.d/dnsmasq restart
+                            sleep 2
+                            wakeup_apps  # 喚醒函數
+                        fi
+                    ) >/dev/null 2>&1 &
                 fi
                 echo '{"result":0}'
                 exit 0
@@ -576,16 +578,18 @@ case "$1" in
                 if [ "$no_reload" != "1" ] && [ "$no_reload" != "true" ]; then
                     uci commit dhcp
                     uci commit firewall
-                    /etc/init.d/dnsmasq reload >/dev/null 2>&1
-                    /etc/init.d/firewall reload >/dev/null 2>&1 &
-                    # 检查 dnsmasq
-                    sleep 2
-                    if ! pgrep dnsmasq > /dev/null; then
-                        logger -t Netwiz "⚠️ DNSMasq crashed after unbind! Auto-restarting..."
-                        /etc/init.d/dnsmasq restart >/dev/null 2>&1
+                    (
+                        /etc/init.d/dnsmasq reload
+                        /etc/init.d/firewall reload
+                        # 检查 dnsmasq
                         sleep 2
-                        wakeup_apps  # 喚醒函數
-                    fi
+                        if ! pgrep dnsmasq > /dev/null; then
+                            logger -t Netwiz "⚠️ DNSMasq crashed! Auto-restarting..."
+                            /etc/init.d/dnsmasq restart
+                            sleep 2
+                            wakeup_apps  # 喚醒函數
+                        fi
+                    ) >/dev/null 2>&1 &
                 fi
                 echo '{"result":0}'
                 exit 0
@@ -593,16 +597,19 @@ case "$1" in
             apply_dhcp)
                 uci commit dhcp
                 uci commit firewall
-                /etc/init.d/dnsmasq reload >/dev/null 2>&1
-                /etc/init.d/firewall reload >/dev/null 2>&1 &
-                # 检查 dnsmasq
-                sleep 2
-                if ! pgrep dnsmasq > /dev/null; then
-                    logger -t Netwiz "⚠️ DNSMasq crashed after reload! Auto-restarting..."
-                    /etc/init.d/dnsmasq restart >/dev/null 2>&1
-                    sleep 2
-                    wakeup_apps  # 喚醒函數
-                fi
+                (
+                        /etc/init.d/dnsmasq reload
+                        /etc/init.d/firewall reload
+                        # 检查 dnsmasq
+                        sleep 2
+                        if ! pgrep dnsmasq > /dev/null; then
+                            logger -t Netwiz "⚠️ DNSMasq crashed! Auto-restarting..."
+                            /etc/init.d/dnsmasq restart
+                            sleep 2
+                            wakeup_apps  # 喚醒函數
+                        fi
+                    ) >/dev/null 2>&1 &
+                
                 echo '{"result":0}'
                 exit 0
                 ;;
@@ -679,17 +686,32 @@ case "$1" in
                 ;;
                 
                 reset_all)
-                # 1. 淨化防火牆
-                for rule in $(uci -q show firewall | grep -E "\.name='nw_" | cut -d'.' -f2 | sed "s/\[//g; s/\]//g" | sort -rn); do 
+                # 初始化前备份
+                mkdir -p /root/netwiz_bak
+                backup_file="/root/netwiz_bak/netwiz_pre_reset_$(date +%Y%m%d_%H%M%S).tar.gz"
+                tar -czf "$backup_file" -C / \
+                    etc/config/network \
+                    etc/config/wireless \
+                    etc/config/dhcp \
+                    etc/config/firewall \
+                    etc/config/netwiz 2>/dev/null
+                
+                logger -t Netwiz "📦 Pre-reset backup created: $backup_file"
+
+                # 1. 净化防火墙
+                for rule in $(uci -q show firewall 2>/dev/null | grep "^firewall\.@rule\[[0-9]*\]\.name=.*nw_" | cut -d'.' -f2 | sed 's/[^0-9]//g' | sort -rn | uniq);
+                do 
                     uci -q delete firewall.@rule[$rule]
                 done
-                for redir in $(uci -q show firewall | grep -E "\.name='nw_dmz_" | cut -d'.' -f2 | sed "s/\[//g; s/\]//g" | sort -rn); do 
+                for redir in $(uci -q show firewall 2>/dev/null | grep "^firewall\.@redirect\[[0-9]*\]\.name=.*nw_dmz_" | cut -d'.' -f2 | sed 's/[^0-9]//g' | sort -rn | uniq);
+                do 
                     uci -q delete firewall.@redirect[$redir]
                 done
                 uci commit firewall
 
-                # 2. 淨化 DHCP (刪除所有透過 netwiz 設定的主機)
-                for host in $(uci -q show dhcp | grep "=host" | cut -d'.' -f2 | sed "s/\[//g; s/\]//g" | sort -rn); do
+                # 2. 净化 DHCP (删除所有的静态 IP 绑定)
+                for host in $(uci -q show dhcp 2>/dev/null | grep "^dhcp\.@host\[[0-9]*\]=host" | cut -d'.' -f2 | sed 's/[^0-9]//g' | sort -rn | uniq);
+                do
                     uci -q delete dhcp.@host[$host]
                 done
                 uci commit dhcp
@@ -703,19 +725,150 @@ case "$1" in
                     commit netwiz
 EOF
 
-                # 4. 重啟服務
-                /etc/init.d/dnsmasq restart >/dev/null 2>&1
-                /etc/init.d/firewall reload >/dev/null 2>&1
+                # 4. 重启
+                # 先立即返回成功给前端，防止 XHR 超时报错
+                echo '{"result":0}'
                 
-                # 喚醒高級應用
-                sleep 2
-                wakeup_apps
+                # 4. 放入后台环境执行重启和唤醒
+                (
+                    sleep 1
+                    /etc/init.d/dnsmasq restart
+                    /etc/init.d/firewall reload
+                    
+                    # 喚醒高级应用
+                    sleep 2
+                    wakeup_apps
+                ) >/dev/null 2>&1 &
+                
+                exit 0
+                ;;
+
+                export_config)
+                timestamp=$(date +%Y%m%d_%H%M%S)
+                backup_file="/tmp/netwiz_backup_${timestamp}.tar.gz"
+                
+                # 精准打包这 5 个核心配置
+                tar -czf "$backup_file" -C / \
+                    etc/config/network \
+                    etc/config/wireless \
+                    etc/config/dhcp \
+                    etc/config/firewall \
+                    etc/config/netwiz 2>/dev/null
+                
+                if [ -f "$backup_file" ]; then
+                    b64=$(base64 "$backup_file" | tr -d '\n')
+                    echo "{\"filename\":\"NetWiz_NetConf_${timestamp}.tar.gz\",\"data\":\"$b64\"}"
+                    rm -f "$backup_file"
+                else
+                    echo '{"error":"Failed to create backup"}'
+                fi
+                exit 0
+                ;;
+
+            list_backups)
+                mkdir -p /root/netwiz_bak
+                # 按时间倒序获取压缩包名
+                files=$(ls -t /root/netwiz_bak/*.tar.gz 2>/dev/null | awk -F/ '{print $NF}')
+                
+                printf '{"backups":['
+                first=1
+                for f in $files; do
+                    if [ "$first" -eq 1 ]; then first=0; else printf ','; fi
+                    printf '"%s"' "$f"
+                done
+                printf ']}\n'
+                exit 0
+                ;;
+
+            import_config)
+                input=$(cat)
+                b64data=$(echo "$input" | jsonfilter -e '@.data')
+                file_name=$(echo "$input" | jsonfilter -e '@.file')
+                
+                restore_file="/tmp/netwiz_restore.tar.gz"
+                has_file=0
+                
+                # 判断来源：如果有 data 则是电脑上传，如果有 file_name 则是选择路由器本地备份
+                if [ -n "$b64data" ]; then
+                    echo "$b64data" | base64 -d > "$restore_file"
+                    has_file=1
+                elif [ -n "$file_name" ] && [ -f "/root/netwiz_bak/$file_name" ]; then
+                    cp "/root/netwiz_bak/$file_name" "$restore_file"
+                    has_file=1
+                fi
+                
+                if [ "$has_file" -eq 1 ]; then
+                    mkdir -p /root/netwiz_bak
+                    
+                    # 导入前的防砖备份
+                    backup_file="/root/netwiz_bak/netwiz_pre_import_$(date +%Y%m%d_%H%M%S).tar.gz"
+                    tar -czf "$backup_file" -C / \
+                        etc/config/network \
+                        etc/config/wireless \
+                        etc/config/dhcp \
+                        etc/config/firewall \
+                        etc/config/netwiz 2>/dev/null
+
+                    # 解压目标文件覆盖配置
+                    tar -xzf "$restore_file" -C / 2>/dev/null
+                    rm -f "$restore_file"
+                    
+                    echo '{"result":0}'
+                    
+                    # 延时 2 秒后重启网络相关服务生效配置
+                    (
+                        sleep 2
+                        /etc/init.d/network restart
+                        /etc/init.d/dnsmasq restart
+                        /etc/init.d/firewall restart
+                        
+                        sleep 3
+                        wakeup_apps
+                    ) >/dev/null 2>&1 &
+                else
+                    echo '{"error":"No valid backup data or file provided"}'
+                fi
+                exit 0
+                ;;
+
+            auto_backup)
+                # 备份目录
+                mkdir -p /root/netwiz_bak
+                
+                # 1. 计算 MD5 特征码
+                current_md5=$(cat /etc/config/network /etc/config/wireless /etc/config/dhcp /etc/config/firewall /etc/config/netwiz 2>/dev/null | md5sum | awk '{print $1}')
+                # 将 MD5 记录文件也移入专属目录
+                last_md5=$(cat /root/netwiz_bak/.netwiz_last_md5 2>/dev/null)
+                
+                # 2. MD5 发生变化备份
+                if [ "$current_md5" != "$last_md5" ]; then
+                    timestamp=$(date +%Y%m%d_%H%M%S)
+                    backup_file="/root/netwiz_bak/netwiz_auto_${timestamp}.tar.gz"
+                    
+                    tar -czf "$backup_file" -C / \
+                        etc/config/network \
+                        etc/config/wireless \
+                        etc/config/dhcp \
+                        etc/config/firewall \
+                        etc/config/netwiz 2>/dev/null
+                    
+                    # 记录最新的 MD5
+                    echo "$current_md5" > /root/netwiz_bak/.netwiz_last_md5
+                    logger -t Netwiz "✅ Auto-backup created: $backup_file"
+                    
+                    # 3. 保留最近的 7 份自动备份
+                    ls -t /root/netwiz_bak/netwiz_auto_*.tar.gz 2>/dev/null | tail -n +8 | xargs rm -f 2>/dev/null
+                    # 保留5 份高危操作前备份
+                    ls -t /root/netwiz_bak/netwiz_pre_*.tar.gz 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null
+                else
+                    logger -t Netwiz "💤 Auto-backup skipped: Config unchanged"
+                fi
                 
                 echo '{"result":0}'
                 exit 0
                 ;;
 
-                analyze_conns)
+            analyze_conns)
                 input=$(cat)
                 ip=$(echo "$input" | jsonfilter -e '@.ip')
                 
