@@ -1146,3 +1146,12 @@ msgstr "❌ 讀取失敗"
 
 msgid "Unable to fetch router backup list."
 msgstr "無法獲取路由器備份列表。"
+
+msgid "Auto Backup"
+msgstr "自動靜默備份"
+
+msgid "Before Import"
+msgstr "匯入配置前備份"
+
+msgid "Before Reset"
+msgstr "重置網路前備份"

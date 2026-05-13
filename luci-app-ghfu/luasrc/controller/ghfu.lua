@@ -411,6 +411,7 @@ function index()
 
     entry({"admin", "system", "ghfu"}, call("action_index"), _("GitHub Firmware Upgrade"), 65)
     entry({"admin", "system", "ghfu", "status"}, call("action_status")).leaf = true
+    entry({"admin", "system", "ghfu", "local_status"}, call("action_local_status")).leaf = true
     entry({"admin", "system", "ghfu", "config"}, call("action_config")).leaf = true
     entry({"admin", "system", "ghfu", "download"}, call("action_download")).leaf = true
     entry({"admin", "system", "ghfu", "download_status"}, call("action_download_status")).leaf = true
@@ -421,6 +422,22 @@ end
 function action_index()
     luci.template.render("ghfu/main", {
         app_version = get_app_version()
+    })
+end
+
+function action_local_status()
+    local cfg = get_cfg()
+    local app_version = get_app_version()
+    local install_epoch = get_install_epoch()
+    local install_local = epoch_to_local_string(install_epoch)
+
+    json_resp({
+        ok = true,
+        app_version = app_version,
+        config = cfg,
+        install_epoch = install_epoch,
+        install_time = install_local,
+        tz_offset_min = get_tz_offset_minutes()
     })
 end
 
@@ -469,6 +486,8 @@ function action_status()
         })
         return
     end
+
+    latest.release_total_count = (latest.assets and #latest.assets) or 0
 
     local has_new = false
     if latest.published_at ~= "" and install_iso ~= "" then

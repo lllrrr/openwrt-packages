@@ -115,7 +115,16 @@ msgstr ""
 msgid "Published time"
 msgstr ""
 
+msgid "Assets total"
+msgstr ""
+
 msgid "Conclusion"
+msgstr ""
+
+msgid "Fetching in progress"
+msgstr ""
+
+msgid "Failed to fetch GitHub release"
 msgstr ""
 
 msgid "Please select firmware to upgrade"

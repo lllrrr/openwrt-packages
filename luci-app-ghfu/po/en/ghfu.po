@@ -115,8 +115,17 @@ msgstr "Latest release"
 msgid "Published time"
 msgstr "Published time"
 
+msgid "Assets total"
+msgstr "Assets total"
+
 msgid "Conclusion"
 msgstr "Conclusion"
+
+msgid "Fetching in progress"
+msgstr "Fetching in progress"
+
+msgid "Failed to fetch GitHub release"
+msgstr "Failed to fetch GitHub release"
 
 msgid "Please select firmware to upgrade"
 msgstr "Please select firmware to upgrade"

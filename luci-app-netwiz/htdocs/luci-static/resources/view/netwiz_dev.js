@@ -184,7 +184,10 @@ var T = {
     'LBL_RESTORE_PC': _('💻 Upload from Local PC'),
     'BTN_BROWSE_PC': _('📁 Browse PC Files...'),
     'TIT_READ_FAIL': _('❌ Read Failed'),
-    'MSG_READ_FAIL': _('Unable to fetch router backup list.')
+    'MSG_READ_FAIL': _('Unable to fetch router backup list.'),
+    'TXT_BAK_AUTO': _('Auto Backup'),
+    'TXT_BAK_IMPORT': _('Before Import'),
+    'TXT_BAK_RESET': _('Before Reset')
 };
 
 var callDeviceList = rpc.declare({ object: 'netwiz_dev', method: 'get_list', params: ['show_conns'], expect: { '': {} } });
@@ -237,6 +240,8 @@ return view.extend({
             '  .nd-dept-col-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }',
 
             '  @media screen and (max-width: 768px) {',
+            '    .nd-conn-tooltip { right: 0 !important; left: auto !important; transform: none !important; margin-bottom: 8px !important; }',
+            '    .nd-conn-tooltip::after { left: auto !important; right: 25px !important; transform: none !important; }',
             '    .nd-batch-bar.show { padding-right: 15px !important; }',
             '    .nd-batch-close-btn { top: 2px; right: 15px; transform: none; font-size: 36px; }',
             '    .nd-dept-row-inner { display: grid; grid-template-columns: 1fr auto; gap: 10px; }',
@@ -1903,11 +1908,30 @@ return view.extend({
 
                     var tasks = [];
                     var currentIp = strategy === 'seq' ? (basePrefix + parseInt(data.startSuffix, 10)) : null;
+
+                    // 顺延“预先锁”机制
+                    var seqReservedIps = {}; // 记录专属座位
+                    if (strategy === 'seq') {
+                        var suf = parseInt(data.startSuffix, 10);
+                        selectedDevices.forEach(function(d) {
+                            var eIp = d.bound_ip || d.ip;
+                            if (eIp && eIp !== 'Unknown IP' && eIp.indexOf(basePrefix) === 0) {
+                                var eSuf = parseInt(eIp.split('.').pop(), 10);
+                                // 如果它的原 IP 在我们要顺延的范围内，且没被别人占领
+                                if (eSuf >= suf && usedIps.indexOf(eIp) === -1) {
+                                    usedIps.push(eIp); // 提前把这个 IP 占了
+                                    seqReservedIps[d.mac] = eIp; // 记录这是它专属ip
+                                }
+                            }
+                        });
+                    }
+                    // ------------------------------------
+
                     var lastAssignedGlobal = null;
                     var skippedCount = 0;
 
                     selectedDevices.forEach(function(dev) {
-                        var assignIp = dev.bound_ip || dev.ip; 
+                        var assignIp = dev.bound_ip || dev.ip;
                         var existingIp = dev.bound_ip || dev.ip;
                         var exSuf = -1;
                         if (existingIp && existingIp !== 'Unknown IP' && existingIp.indexOf(basePrefix) === 0) {
@@ -1920,8 +1944,14 @@ return view.extend({
                                 assignIp = getAvailableIpInRange(basePrefix, 50, 250, usedIps);
                             }
                         } else if (strategy === 'seq') {
-                            assignIp = getNextAvailableIp(currentIp, usedIps);
-                            currentIp = getNextAvailableIp(assignIp, usedIps); 
+                            // 检查设备有没有成功锁ip
+                            if (seqReservedIps[dev.mac]) {
+                                assignIp = seqReservedIps[dev.mac]; // 使用原ip
+                            } else {
+                                // 往下排队拿空闲 IP
+                                assignIp = getNextAvailableIp(currentIp, usedIps);
+                                currentIp = getNextAvailableIp(assignIp, usedIps); 
+                            }
                         } else if (strategy === 'smart') {
                             var devType = getDeviceType(dev);
                             var sStart = data.ranges.os, sEnd = data.ranges.oe;
@@ -2050,18 +2080,26 @@ return view.extend({
                 devices.forEach(function(d) {
                     if (d.ip === currentHostIp) d.is_local = true;
                     
-                    if (d.is_new_unknown === 'true' || d.is_new_unknown === true) {
-                        var ts = localStorage.getItem('nw_unk_ts_' + d.mac);
-                        // 记录时间
+                    var cacheKey = 'nw_unk_ts_' + d.mac;
+                    
+                    // 设备绑定静态ip，才清理它的計時器快取
+                    if (d.is_static === true || d.is_static === 'true') {
+                        localStorage.removeItem(cacheKey);
+                    }
+                    // 如果它是未綁定的在线新设备
+                    else if (d.is_new_unknown === 'true' || d.is_new_unknown === true) {
+                        var ts = localStorage.getItem(cacheKey);
+                        
                         if (!ts) {
                             ts = nowTs;
-                            localStorage.setItem('nw_unk_ts_' + d.mac, ts);
+                            localStorage.setItem(cacheKey, ts);
                         }
-                        d.unk_ts = parseInt(ts, 10);
                         
-                        // 超24 小時
-                        if (nowTs - d.unk_ts > 86400000) {
-                            d.is_new_unknown = false;
+                        // 檢查是否已安分守己超過 24 小時
+                        if (nowTs - parseInt(ts, 10) > 86400000) {
+                            d.is_new_unknown = false; // 超時
+                        } else {
+                            d.is_new_unknown = true;  // 24小時內，亮紅燈
                         }
                     }
                 });
@@ -2270,6 +2308,22 @@ return view.extend({
                     } else {
                         bks.forEach(function(f) {
                             var display = f.replace('.tar.gz', '').replace('netwiz_', '');
+                            
+                            // 解析前缀和时间
+                            var typeStr = '';
+                            if (f.indexOf('auto_') !== -1) typeStr = '🤖 ' + (T['TXT_BAK_AUTO'] || 'Auto Backup');
+                            else if (f.indexOf('pre_import_') !== -1) typeStr = '⬆️ ' + (T['TXT_BAK_IMPORT'] || 'Before Import');
+                            else if (f.indexOf('pre_reset_') !== -1) typeStr = '⚠️ ' + (T['TXT_BAK_RESET'] || 'Before Reset');
+                            
+                            // 提取时间字符串后缀 20XXXXXX_170748
+                            var match = f.match(/(\d{8})_(\d{6})/);
+                            if (match && typeStr) {
+                                var d = match[1], t = match[2];
+                                var timeStr = d.substring(0,4) + '/' + d.substring(4,6) + '/' + d.substring(6,8) + ' ' + 
+                                              t.substring(0,2) + ':' + t.substring(2,4) + ':' + t.substring(4,6);
+                                display = typeStr + ' (' + timeStr + ')';
+                            }
+                            
                             optsHtml += '<option value="'+f+'">' + display + '</option>';
                         });
                     }

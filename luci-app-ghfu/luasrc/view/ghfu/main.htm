@@ -728,7 +728,11 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
         installTime: '<%:System install time%>',
         latestRel: '<%:Latest release%>',
         pubTime: '<%:Published time%>',
+        releaseTotal: '<%:Assets total%>',
         conclusion: '<%:Conclusion%>',
+        fetchingInProgress: '<%:Fetching in progress%>',
+        fetchGithubReleaseFailed: '<%:Failed to fetch GitHub release%>',
+        fetchFieldFailed: '<%:Fetch failed%>',
         chooseFirmware: '<%:Please select firmware to upgrade%>',
         chooseAsset: '<%:Please select a firmware asset%>',
         beginUpgrade: '<%:Preparing upgrade: %>',
@@ -763,6 +767,7 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
     var selectedAsset = null;
     var latestReleaseName = '';
     var latestReleaseUrl = '';
+    var lastInstallEpoch = 0;
     var routerTzOffsetMin = null;
     var rebootPollTimer = null;
     var rebootPollAttempts = 0;
@@ -1006,7 +1011,6 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
         byId('ghfu_release_label').textContent = t('releaseLabel');
         byId('ghfu_keep_label').textContent = t('keepLabel');
         byId('ghfu_status_label').textContent = t('statusLabel');
-        byId('ghfu_status').textContent = t('waitingStatus');
         updateAssetsLabel(0);
         byId('ghfu_log_label').textContent = t('logLabel');
         byId('ghfu_refresh').textContent = t('refreshBtn');
@@ -1018,6 +1022,15 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
         byId('ghfu_timeout_label').textContent = t('timeoutLabel');
         byId('ghfu_timeout_hint').textContent = t('timeoutHint');
         byId('ghfu_basic_save').textContent = t('saveBasicBtn');
+
+        renderStatusCard({
+            conclusion: t('beginFetch'),
+            conclusionCls: 'ghfu-conclusion-warn',
+            installValue: t('fetchingInProgress'),
+            latestValue: t('fetchingInProgress'),
+            publishedValue: t('fetchingInProgress'),
+            releaseTotalValue: t('fetchingInProgress')
+        });
     }
 
     function pad2(v) {
@@ -1067,6 +1080,40 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
 
     function setStatus(text) {
         byId('ghfu_status').textContent = text;
+    }
+
+    function getCurrentInstallDisplay() {
+        if (lastInstallEpoch) {
+            return formatEpochToRouter(lastInstallEpoch);
+        }
+        return t('fetchingInProgress');
+    }
+
+    function getCurrentSelectedFirmwareDisplay(selectedRaw) {
+        var src = (selectedRaw !== undefined && selectedRaw !== null) ? selectedRaw : ((byId('ghfu_release').value || ''));
+        return extractFirmwareName(src) || '-';
+    }
+
+    function renderStatusCard(opts) {
+        var installText = t('installTime') + ': ' + (opts.installValue || '-');
+        var releaseText = t('latestRel') + ': ' + (opts.latestValue || '-');
+        var publishedText = t('pubTime') + ': ' + (opts.publishedValue || '-');
+        var releaseTotalText = t('releaseTotal') + ': ' + (opts.releaseTotalValue || '-');
+        var selectedText = t('releaseLabel') + ': ' + getCurrentSelectedFirmwareDisplay(opts.selectedRaw);
+        var conclusionText = opts.conclusion || '-';
+        var conclusionCls = opts.conclusionCls || 'ghfu-conclusion-ok';
+        var hintHtml = opts.hintHtml || '';
+
+        byId('ghfu_status').innerHTML =
+            '<div class="ghfu-status-hero ' + conclusionCls + '">' + escHtml(conclusionText) + '</div>' +
+            '<div class="ghfu-status-grid">' +
+                '<div class="ghfu-status-item">' + escHtml(installText) + '</div>' +
+                '<div class="ghfu-status-item">' + escHtml(releaseText) + '</div>' +
+                '<div class="ghfu-status-item">' + escHtml(publishedText) + '</div>' +
+                '<div class="ghfu-status-item">' + escHtml(releaseTotalText) + '</div>' +
+                '<div class="ghfu-status-item">' + escHtml(selectedText) + '</div>' +
+            '</div>' +
+            hintHtml;
     }
 
     function escHtml(s) {
@@ -1146,9 +1193,20 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
     }
 
     function getSearchFilteredAssets() {
-        var kw = (byId('ghfu_search').value || '').toLowerCase();
+        var raw = String(byId('ghfu_search').value || '').toLowerCase();
+        var kw = raw.replace(/[\s\u3000]+/g, ' ').replace(/^\s+|\s+$/g, '');
+        var tokens = kw ? kw.split(' ') : [];
         return getVisibleAssets().filter(function(a) {
-            return !kw || (a.name || '').toLowerCase().indexOf(kw) !== -1;
+            if (!tokens.length) {
+                return true;
+            }
+            var name = String(a.name || '').toLowerCase();
+            for (var i = 0; i < tokens.length; i++) {
+                if (name.indexOf(tokens[i]) === -1) {
+                    return false;
+                }
+            }
+            return true;
         });
     }
 
@@ -1410,6 +1468,14 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
 
         byId('ghfu_refresh').disabled = true;
         byId('ghfu_notes').disabled = true;
+        renderStatusCard({
+            conclusion: t('beginFetch'),
+            conclusionCls: 'ghfu-conclusion-warn',
+            installValue: getCurrentInstallDisplay(),
+            latestValue: t('fetchingInProgress'),
+            publishedValue: t('fetchingInProgress'),
+            releaseTotalValue: t('fetchingInProgress')
+        });
         appendLog(t('beginFetch'));
 
         requestWithTimeout(
@@ -1423,7 +1489,21 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
                 if (!resp.ok) {
                     byId('ghfu_notes').disabled = true;
                     latestReleaseUrl = '';
-                    setStatus(resp.msg || t('fetchFailed'));
+                    if (typeof resp.tz_offset_min === 'number') {
+                        routerTzOffsetMin = resp.tz_offset_min;
+                    }
+                    if (resp.install_epoch) {
+                        lastInstallEpoch = resp.install_epoch;
+                    }
+                    renderStatusCard({
+                        conclusion: t('fetchGithubReleaseFailed'),
+                        conclusionCls: 'ghfu-conclusion-warn',
+                        installValue: resp.install_epoch ? formatEpochToRouter(resp.install_epoch) : getCurrentInstallDisplay(),
+                        latestValue: t('fetchFieldFailed'),
+                        publishedValue: t('fetchFieldFailed'),
+                        releaseTotalValue: t('fetchFieldFailed'),
+                        selectedRaw: (resp.config && resp.config.selected_release) || byId('ghfu_release').value
+                    });
                     appendLog(resp.msg || t('fetchFailed'));
                     return;
                 }
@@ -1441,6 +1521,9 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
                 if (typeof resp.tz_offset_min === 'number') {
                     routerTzOffsetMin = resp.tz_offset_min;
                 }
+                if (resp.install_epoch) {
+                    lastInstallEpoch = resp.install_epoch;
+                }
 
                 latestReleaseName = (resp.latest && resp.latest.release_name) ? resp.latest.release_name : '';
                 latestReleaseUrl = (resp.latest && resp.latest.html_url) ? String(resp.latest.html_url) : '';
@@ -1455,12 +1538,6 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
                 // as long as release assets are available for selection.
                 byId('ghfu_upgrade').disabled = (assets.length === 0);
 
-                var installText = t('installTime') + ': ' + (resp.install_epoch ? formatEpochToRouter(resp.install_epoch) : t('unknown'));
-                var releaseText = t('latestRel') + ': ' + ((resp.latest && resp.latest.release_name) || '-');
-                var publishedText = t('pubTime') + ': ' + ((resp.latest && resp.latest.published_at) ? formatIsoToRouter(resp.latest.published_at) : '-');
-                var selectedText = t('releaseLabel') + ': ' + (extractFirmwareName((resp.config && resp.config.selected_release) || byId('ghfu_release').value) || '-');
-                var assetCountText = t('assetsLabel') + ': ' + getSearchFilteredAssets().length + '/' + assets.length;
-                var conclusionText = t('conclusion') + ': ' + (resp.msg || '-');
                 var conclusionCls = resp.has_new ? 'ghfu-conclusion-new' : 'ghfu-conclusion-ok';
                 var hintHtml = '';
                 if (resp.fallback_used) {
@@ -1468,16 +1545,16 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
                 } else if (resp.partial_assets) {
                     hintHtml = '<div class="ghfu-status-line ghfu-conclusion-warn">' + escHtml(t('partialAssetsHint')) + '</div>';
                 }
-                byId('ghfu_status').innerHTML =
-                    '<div class="ghfu-status-hero ' + conclusionCls + '">' + escHtml(conclusionText) + '</div>' +
-                    '<div class="ghfu-status-grid">' +
-                        '<div class="ghfu-status-item">' + escHtml(installText) + '</div>' +
-                        '<div class="ghfu-status-item">' + escHtml(releaseText) + '</div>' +
-                        '<div class="ghfu-status-item">' + escHtml(publishedText) + '</div>' +
-                        '<div class="ghfu-status-item">' + escHtml(assetCountText) + '</div>' +
-                        '<div class="ghfu-status-item">' + escHtml(selectedText) + '</div>' +
-                    '</div>' +
-                    hintHtml;
+                renderStatusCard({
+                    conclusion: resp.msg || '-',
+                    conclusionCls: conclusionCls,
+                    installValue: resp.install_epoch ? formatEpochToRouter(resp.install_epoch) : t('unknown'),
+                    latestValue: ((resp.latest && resp.latest.release_name) || '-'),
+                    publishedValue: ((resp.latest && resp.latest.published_at) ? formatIsoToRouter(resp.latest.published_at) : '-'),
+                    releaseTotalValue: (resp.latest && typeof resp.latest.release_total_count === 'number') ? String(resp.latest.release_total_count) : '-',
+                    selectedRaw: (resp.config && resp.config.selected_release) || byId('ghfu_release').value,
+                    hintHtml: hintHtml
+                });
 
                 appendLog(t('latestRelease') + ((resp.latest && resp.latest.release_name) || '-'));
                 appendLog(resp.msg || t('statusUpdated'));
@@ -1493,7 +1570,14 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
                 byId('ghfu_refresh').disabled = false;
                 byId('ghfu_notes').disabled = true;
                 latestReleaseUrl = '';
-                setStatus(t('fetchTimedOut'));
+                renderStatusCard({
+                    conclusion: t('fetchGithubReleaseFailed'),
+                    conclusionCls: 'ghfu-conclusion-warn',
+                    installValue: getCurrentInstallDisplay(),
+                    latestValue: t('fetchFieldFailed'),
+                    publishedValue: t('fetchFieldFailed'),
+                    releaseTotalValue: t('fetchFieldFailed')
+                });
                 byId('ghfu_upgrade').disabled = true;
                 if (err && err.name === 'AbortError') {
                     appendLog(t('fetchTimedOut'));
@@ -1674,10 +1758,60 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
     });
     byId('ghfu_notes').addEventListener('click', openLatestReleasePage);
 
+    function initLocalStatus() {
+        request('<%=url([[admin]], [[system]], [[ghfu]], [[local_status]])%>', {})
+            .then(function(resp) {
+                if (!resp || !resp.ok) {
+                    return;
+                }
+
+                appVersion = String(resp.app_version || '');
+                updateTitle();
+
+                if (resp.config) {
+                    byId('ghfu_repo').value = resp.config.github_repo || byId('ghfu_repo').value;
+                    byId('ghfu_release').value = resp.config.selected_release || '';
+                    byId('ghfu_keep').checked = (resp.config.keep_config || '1') === '1';
+                    byId('ghfu_timeout').value = resp.config.fetch_timeout || byId('ghfu_timeout').value || '15';
+                    updateFilterInputs(resp.config);
+                }
+
+                if (typeof resp.tz_offset_min === 'number') {
+                    routerTzOffsetMin = resp.tz_offset_min;
+                }
+                if (resp.install_epoch) {
+                    lastInstallEpoch = resp.install_epoch;
+                }
+
+                renderStatusCard({
+                    conclusion: t('beginFetch'),
+                    conclusionCls: 'ghfu-conclusion-warn',
+                    installValue: getCurrentInstallDisplay(),
+                    latestValue: t('fetchingInProgress'),
+                    publishedValue: t('fetchingInProgress'),
+                    releaseTotalValue: t('fetchingInProgress'),
+                    selectedRaw: (resp.config && resp.config.selected_release) || byId('ghfu_release').value
+                });
+            })
+            .catch(function() {
+                renderStatusCard({
+                    conclusion: t('beginFetch'),
+                    conclusionCls: 'ghfu-conclusion-warn',
+                    installValue: getCurrentInstallDisplay(),
+                    latestValue: t('fetchingInProgress'),
+                    publishedValue: t('fetchingInProgress'),
+                    releaseTotalValue: t('fetchingInProgress')
+                });
+            })
+            .then(function() {
+                refreshStatus();
+            });
+    }
+
     initTexts();
     applyTheme();
     setUpgradeWorkflowBusy(false);
-    refreshStatus();
+    initLocalStatus();
 })();
 </script>
 

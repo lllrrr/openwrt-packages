@@ -95,7 +95,7 @@ msgid "No matching firmware"
 msgstr "没有匹配的固件"
 
 msgid "Fetching latest release"
-msgstr "开始获取最新 Release"
+msgstr "正在获取最新 Release"
 
 msgid "Fetch failed"
 msgstr "获取失败"
@@ -121,8 +121,17 @@ msgstr "最新 Release"
 msgid "Published time"
 msgstr "发布时间"
 
+msgid "Assets total"
+msgstr "Assets总数"
+
 msgid "Conclusion"
 msgstr "结论"
+
+msgid "Fetching in progress"
+msgstr "正在获取中"
+
+msgid "Failed to fetch GitHub release"
+msgstr "获取github release失败"
 
 msgid "Please select firmware to upgrade"
 msgstr "请选择要升级的固件"
