@@ -65,9 +65,10 @@ remove_firewall_rule() {
 	/etc/init.d/firewall reload
 }
 
-# 每次启动（包括开机）都检查 ACL
+# 每次启动（包括开机）都检查 ACL，然后启动服务
 boot() {
 	ensure_rpcd_acl
+	start
 }
 
 start_service() {
