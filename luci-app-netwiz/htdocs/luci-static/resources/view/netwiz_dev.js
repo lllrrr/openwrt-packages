@@ -1540,6 +1540,11 @@ return view.extend({
                     handStyle = 'font-size:1.5em; color:#ff4d4f; margin-left:4px; vertical-align:middle; animation:blink-warning 0.6s infinite;';
                 }
                 
+                var handHtml = isSys ? '' : '<span style="' + handStyle + '">👈</span>';
+                var cursorStyle = isSys ? 'cursor:default;' : 'cursor:pointer;';
+                var macTitle = isSys ? '' : ('title="' + T['TIP_MAC_CTRL'] + '"');
+                var macClass = isSys ? 'nd-card-mac' : 'nd-card-mac btn-fw-mac';
+                
                 html += '<div class="' + cardClass + '" style="position:relative;">' + warningBadge + '<div class="nd-card-left"><div style="display:flex; align-items:center;">';
 
                 if (noCheckbox) {
@@ -1554,7 +1559,7 @@ return view.extend({
                     '               ' + statusBadgesHtml, 
                     '           </div>',
                     '       </div>',
-                    '       <div class="nd-card-mac btn-fw-mac" title="' + T['TIP_MAC_CTRL'] + '" data-mac="'+dev.mac+'" data-ip="'+(dev.bound_ip || dev.ip)+'" style="margin-left:50px; display:flex; align-items:center; cursor:pointer;">' + (dev.mac).toUpperCase() + ' <span style="' + handStyle + '">👈</span></div>',
+                    '       <div class="' + macClass + '" ' + macTitle + ' data-mac="'+dev.mac+'" data-ip="'+(dev.bound_ip || dev.ip)+'" style="margin-left:50px; display:flex; align-items:center; ' + cursorStyle + '">' + (dev.mac).toUpperCase() + ' ' + handHtml + '</div>',
                     '   </div>',
                     '   <div class="nd-card-mid">',
                     '       <div style="display:flex; flex-direction:column; align-items:flex-start; min-width:0;">',
