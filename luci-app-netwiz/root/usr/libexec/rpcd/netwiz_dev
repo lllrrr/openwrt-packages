@@ -188,25 +188,39 @@ case "$1" in
                     for(i in larr) {
                         n_f = split(larr[i], f, " ");
                         if(n_f >= 4 && f[2]!="") { 
-                            mac=tolower(f[2]);
-                            if(f[3]!="") leases_ip[mac]=f[3]; 
-                            name = f[4];
-                            for(k=5; k<=n_f-1; k++) { name = name " " f[k]; }
-                            if(name!="" && name!="*" && name!="?") leases_name[mac]=name;
-                            all_macs[mac]=1; 
-                            exp_time = f[1] + 0;
-                            if (leases_time[mac] == "") {
-                                if (exp_time > 1000000000) {
-                                    if (exp_time > current_time) {
-                                        left = exp_time - current_time;
+                            # 💡 新增：判断当前这一行是 IPv6 还是 IPv4 租期
+                            if (f[3] ~ /:/) {
+                                v6_ip = f[3]; sub(/\/.*/, "", v6_ip); # 去掉后缀
+                                duid = tolower(f[2]);
+                                # 从 DUID 中暴力提取真实 MAC 地址并绑定短 IPv6
+                                if (length(duid) >= 20) {
+                                    pmac = substr(duid, length(duid)-11, 12);
+                                    mac = substr(pmac,1,2) ":" substr(pmac,3,2) ":" substr(pmac,5,2) ":" substr(pmac,7,2) ":" substr(pmac,9,2) ":" substr(pmac,11,2);
+                                    if(ipv6_map[mac]=="") ipv6_map[mac] = v6_ip;
+                                    else if(index(ipv6_map[mac], v6_ip) == 0) ipv6_map[mac] = ipv6_map[mac] " " v6_ip;
+                                }
+                            } else {
+                                # 原本的 IPv4 解析逻辑保持完全不变
+                                mac=tolower(f[2]);
+                                if(f[3]!="") leases_ip[mac]=f[3]; 
+                                name = f[4];
+                                for(k=5; k<=n_f-1; k++) { name = name " " f[k]; }
+                                if(name!="" && name!="*" && name!="?") leases_name[mac]=name;
+                                all_macs[mac]=1; 
+                                exp_time = f[1] + 0;
+                                if (leases_time[mac] == "") {
+                                    if (exp_time > 1000000000) {
+                                        if (exp_time > current_time) {
+                                            left = exp_time - current_time;
+                                            h = int(left / 3600); m = int((left % 3600) / 60); s = left % 60;
+                                            leases_time[mac] = sprintf("%dh %dm %ds", h, m, s);
+                                        } else leases_time[mac] = "Expired";
+                                    } else if (exp_time > 0 && exp_time <= 1000000000) {
+                                        left = exp_time;
                                         h = int(left / 3600); m = int((left % 3600) / 60); s = left % 60;
                                         leases_time[mac] = sprintf("%dh %dm %ds", h, m, s);
-                                    } else leases_time[mac] = "Expired";
-                                } else if (exp_time > 0 && exp_time <= 1000000000) {
-                                    left = exp_time;
-                                    h = int(left / 3600); m = int((left % 3600) / 60); s = left % 60;
-                                    leases_time[mac] = sprintf("%dh %dm %ds", h, m, s);
-                                } else if (exp_time == 0) leases_time[mac] = "Infinite";
+                                    } else if (exp_time == 0) leases_time[mac] = "Infinite";
+                                }
                             }
                         }
                     }
@@ -560,7 +574,7 @@ case "$1" in
                 
                 ip_suffix=${ip##*.}
                 if [ -n "$ip_suffix" ] && [ "$ip_suffix" -eq "$ip_suffix" ] 2>/dev/null; then
-                    hostid_val=$(printf "::%04d" "$ip_suffix")
+                    hostid_val=$(printf "%04d" "$ip_suffix")
                     uci set dhcp.$new_sect.hostid="$hostid_val"
                 fi
                 
@@ -706,12 +720,10 @@ case "$1" in
                 # 初始化前备份
                 mkdir -p /root/netwiz_bak
                 backup_file="/root/netwiz_bak/netwiz_pre_reset_$(date +%Y%m%d_%H%M%S).tar.gz"
-                tar -czf "$backup_file" -C / \
-                    etc/config/network \
-                    etc/config/wireless \
-                    etc/config/dhcp \
-                    etc/config/firewall \
-                    etc/config/netwiz 2>/dev/null
+                # 动态打包这 5 个核心配置
+                FILE_LIST="etc/config/network etc/config/dhcp etc/config/firewall etc/config/netwiz"
+                [ -f /etc/config/wireless ] && FILE_LIST="$FILE_LIST etc/config/wireless"
+                tar -czf "$backup_file" -C / $FILE_LIST 2>/dev/null
                 
                 logger -t Netwiz "📦 Pre-reset backup created: $backup_file"
 
@@ -764,13 +776,12 @@ EOF
                 timestamp=$(date +%Y%m%d_%H%M%S)
                 backup_file="/tmp/netwiz_backup_${timestamp}.tar.gz"
                 
-                # 精准打包这 5 个核心配置
-                tar -czf "$backup_file" -C / \
-                    etc/config/network \
-                    etc/config/wireless \
-                    etc/config/dhcp \
-                    etc/config/firewall \
-                    etc/config/netwiz 2>/dev/null
+                # 动态打包这 5 个核心配置
+                FILE_LIST="etc/config/network etc/config/dhcp etc/config/firewall etc/config/netwiz"
+                [ -f /etc/config/wireless ] && FILE_LIST="$FILE_LIST etc/config/wireless"
+                tar -czf "$backup_file" -C / $FILE_LIST 2>/dev/null
+                
+                logger -t Netwiz "📦 Pre-reset backup created: $backup_file"
                 
                 if [ -f "$backup_file" ]; then
                     b64=$(base64 "$backup_file" | tr -d '\n')
@@ -817,14 +828,12 @@ EOF
                 if [ "$has_file" -eq 1 ]; then
                     mkdir -p /root/netwiz_bak
                     
-                    # 导入前的防砖备份
                     backup_file="/root/netwiz_bak/netwiz_pre_import_$(date +%Y%m%d_%H%M%S).tar.gz"
-                    tar -czf "$backup_file" -C / \
-                        etc/config/network \
-                        etc/config/wireless \
-                        etc/config/dhcp \
-                        etc/config/firewall \
-                        etc/config/netwiz 2>/dev/null
+                    
+                    # 动态打包这 5 个核心配置
+                    FILE_LIST="etc/config/network etc/config/dhcp etc/config/firewall etc/config/netwiz"
+                    [ -f /etc/config/wireless ] && FILE_LIST="$FILE_LIST etc/config/wireless"
+                    tar -czf "$backup_file" -C / $FILE_LIST 2>/dev/null
 
                     # 解压目标文件覆盖配置
                     tar -xzf "$restore_file" -C / 2>/dev/null
@@ -862,12 +871,10 @@ EOF
                     timestamp=$(date +%Y%m%d_%H%M%S)
                     backup_file="/root/netwiz_bak/netwiz_auto_${timestamp}.tar.gz"
                     
-                    tar -czf "$backup_file" -C / \
-                        etc/config/network \
-                        etc/config/wireless \
-                        etc/config/dhcp \
-                        etc/config/firewall \
-                        etc/config/netwiz 2>/dev/null
+                    # 动态打包这 5 个核心配置
+                    FILE_LIST="etc/config/network etc/config/dhcp etc/config/firewall etc/config/netwiz"
+                    [ -f /etc/config/wireless ] && FILE_LIST="$FILE_LIST etc/config/wireless"
+                    tar -czf "$backup_file" -C / $FILE_LIST 2>/dev/null
                     
                     # 记录最新的 MD5
                     echo "$current_md5" > /root/netwiz_bak/.netwiz_last_md5
