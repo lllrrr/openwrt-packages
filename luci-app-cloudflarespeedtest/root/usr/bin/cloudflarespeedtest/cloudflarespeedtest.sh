@@ -26,8 +26,8 @@ echolog() {
 }
 
 function read_config(){
-    get_global_config "enabled" "speed_limit" "custom_url" "threads" "custom_cron_enabled" "custom_cron" "t" "tp" "dt" "dn" "dd" "tl" "tll" "ipv6_enabled" "advanced" "proxy_mode" "github_proxy" "github_proxy_custom" "httping" "cfcolo"
-    get_servers_config "ssr_services" "ssr_enabled" "passwall_enabled" "passwall_services" "passwall2_enabled" "passwall2_services" "bypass_enabled" "bypass_services" "vssr_enabled" "vssr_services" "DNS_enabled" "HOST_enabled" "MosDNS_enabled" "MosDNS_ip_count" "openclash_restart"
+    get_global_config "enabled" "speed_limit" "custom_url" "threads" "custom_cron_enabled" "custom_cron" "t" "tp" "dt" "dn" "dd" "tl" "tll" "ipv6_enabled" "ip_source" "custom_ip_file" "advanced" "proxy_mode" "github_proxy" "github_proxy_custom" "httping" "cfcolo"
+    get_servers_config "ssr_services" "ssr_enabled" "passwall_enabled" "passwall_services" "passwall2_enabled" "passwall2_services" "bypass_enabled" "bypass_services" "vssr_enabled" "vssr_services" "DNS_enabled" "HOST_enabled" "MosDNS_enabled" "MosDNS_ip_count" "openclash_restart" "AstraDNS_enabled" "AstraDNS_config" "AstraDNS_bin"
 }
 
 function appinit(){
@@ -213,6 +213,36 @@ function rotate_result_files(){
     fi
 }
 
+function select_ip_file(){
+    case "${ip_source:-}" in
+        builtin_ipv4)
+            echo "$IPV4_TXT"
+            ;;
+        builtin_ipv6)
+            echo "$IPV6_TXT"
+            ;;
+        custom_file)
+            if [ -n "${custom_ip_file:-}" ]; then
+                echo "$custom_ip_file"
+            else
+                echolog "Custom IP list file is empty, fallback to built-in IPv4 list" >/dev/null
+                echo "$IPV4_TXT"
+            fi
+            ;;
+        "")
+            if [ "${ipv6_enabled:-0}" = "1" ]; then
+                echo "$IPV6_TXT"
+            else
+                echo "$IPV4_TXT"
+            fi
+            ;;
+        *)
+            echolog "Unknown IP list source: ${ip_source}, fallback to built-in IPv4 list" >/dev/null
+            echo "$IPV4_TXT"
+            ;;
+    esac
+}
+
 function speed_test(){
 
     rm -rf $LOG_FILE
@@ -226,11 +256,8 @@ function speed_test(){
 
     command="/usr/bin/cdnspeedtest -sl ${speed_limit} -url ${custom_url} -o ${IP_FILE}"
 
-    if [ $ipv6_enabled -eq "1" ] ;then
-        command="${command} -f ${IPV6_TXT}"
-    else
-        command="${command} -f ${IPV4_TXT}"
-    fi
+    selected_ip_file="$(select_ip_file)"
+    command="${command} -f ${selected_ip_file}"
 
     if [ $advanced -eq "1" ] ; then
         command="${command} -tl ${tl} -tll ${tll} -n ${threads} -t ${t} -dt ${dt} -dn ${dn}"
@@ -351,6 +378,7 @@ function ip_replace(){
     else
         host_ip
         mosdns_ip
+        astra_dns_ip
         alidns_ip
         ssr_best_ip
         vssr_best_ip
@@ -421,6 +449,25 @@ function mosdns_ip() {
             /etc/init.d/openclash restart &>/dev/null
         fi
         echolog "MosDNS 写入完成，已写入IP: $bestips"
+    fi
+}
+
+function astra_dns_ip() {
+    if [ "x${AstraDNS_enabled}" == "x1" ] ;then
+        astra_config="${AstraDNS_config:-/etc/astra-dns/named.yaml}"
+        astra_bin="${AstraDNS_bin:-/usr/bin/astra-dns}"
+
+        if [ ! -x /usr/bin/cloudflarespeedtest/astra-dns.sh ]; then
+            echolog "astra-dns 写入失败: /usr/bin/cloudflarespeedtest/astra-dns.sh 不存在"
+            return 1
+        fi
+
+        if /usr/bin/cloudflarespeedtest/astra-dns.sh --result-csv "$IP_FILE" --config "$astra_config" --bin "$astra_bin" >>$LOG_FILE 2>&1; then
+            echolog "astra-dns 写入完成，配置文件: $astra_config"
+        else
+            echolog "astra-dns 写入失败，请检查配置文件路径、二进制路径和 YAML 格式"
+            return 1
+        fi
     fi
 }
 
@@ -546,11 +593,15 @@ function restart_app(){
 
 function alidns_ip(){
     if [ "x${DNS_enabled}" == "x1" ] ;then
+        case "$bestip" in
+            *:*) bestip_is_ipv6=1 ;;
+            *) bestip_is_ipv6=0 ;;
+        esac
         get_servers_config "DNS_type" "app_key" "app_secret" "main_domain" "sub_domain" "line"
         if [ $DNS_type == "aliyun" ] ;then
             for sub in $sub_domain
             do
-                /usr/bin/cloudflarespeedtest/aliddns.sh $app_key $app_secret $main_domain $sub $line $ipv6_enabled $bestip
+                /usr/bin/cloudflarespeedtest/aliddns.sh $app_key $app_secret $main_domain $sub $line $bestip_is_ipv6 $bestip
                 echolog "更新域名${sub}阿里云DNS完成"
                 sleep 1s
             done
