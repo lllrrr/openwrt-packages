@@ -66,6 +66,36 @@ case "$1" in
 
                 fw_str=$(uci show firewall 2>/dev/null || true)
                 ipv6_neigh=$(ip -6 neigh show 2>/dev/null || true)
+                
+                # --- IPv6 存活探测过滤 (核弹级清理版) ---
+                raw_v6_data=$(ip -6 neigh show 2>/dev/null | grep -v "FAILED")
+                v6_candidates=$(echo "$raw_v6_data" | awk '{print $1}' | grep ":" | sort -u)
+                
+                # 1. 抹除内核旧记忆：把所有公网 IPv6 从邻居表强制删除
+                for v6_addr in $v6_candidates; do
+                    if [[ "$v6_addr" != fe80* ]]; then
+                        # 找到它对应的网卡（通常是 br-lan）
+                        dev_name=$(echo "$raw_v6_data" | grep -w "^$v6_addr" | awk '{print $3}' | head -n 1)
+                        [ -n "$dev_name" ] && ip -6 neigh del "$v6_addr" dev "$dev_name" 2>/dev/null
+                    fi
+                done
+                
+                # 2. 异步发射 Ping（激发底层的邻居发现请求 NS）
+                for v6_addr in $v6_candidates; do
+                    if [[ "$v6_addr" != fe80* ]]; then
+                        ping6 -c 1 -W 1 "$v6_addr" >/dev/null 2>&1 &
+                    fi
+                done
+                wait
+                
+                # 3. 稍等片刻，让真正活着的设备回复 NA 包
+                sleep 0.5
+                
+                # 4. 重新抓取邻居表！
+                # 活着的 Windows (::9b9) 会重新建立为 REACHABLE 或 STALE。
+                # 死掉的旧 IP (::12) 会被标记为 INCOMPLETE（无MAC响应）或 FAILED！
+                ipv6_neigh=$(ip -6 neigh show 2>/dev/null | grep -v -E "FAILED|INCOMPLETE" || true)
+                # --------------------------
                 wifi_macs=$(iwinfo 2>/dev/null | grep -o -E '([[:xdigit:]]{1,2}:){5}[[:xdigit:]]{1,2}' | tr 'A-Z' 'a-z' || true)
                 arp_cache=$(ip -4 neigh show 2>/dev/null || cat /proc/net/arp 2>/dev/null | tail -n +2 || true)
                 leases=$(cat /tmp/dhcp.leases /var/dhcp.leases /tmp/run/dnsmasq/dhcp.leases /var/lib/misc/dnsmasq.leases 2>/dev/null || true)
@@ -86,6 +116,16 @@ case "$1" in
                     now_ts = current_time;
                     exp_ts = 2592000; # 30天过期时间
                     while ("uci -q show netwiz 2>/dev/null" | getline cfg_line) {
+                        if (index(cfg_line, "netwiz.seen_") == 1 || index(cfg_line, "netwiz.v6pc_") == 1) {
+                                split(cfg_line, eq_parts, "=");
+                                split(eq_parts[1], dot_parts, ".");
+                                split(dot_parts[2], _parts, "_");
+                                _mac_clean = tolower(_parts[2]);
+                                if (length(_mac_clean) == 12) {
+                                    _m = substr(_mac_clean,1,2) ":" substr(_mac_clean,3,2) ":" substr(_mac_clean,5,2) ":" substr(_mac_clean,7,2) ":" substr(_mac_clean,9,2) ":" substr(_mac_clean,11,2);
+                                    in_config_map[_m] = 1;
+                                }
+                            }
                         if (index(cfg_line, "netwiz.v6pc_") == 1) {
                             split(cfg_line, eq_parts, "=");
                             if (eq_parts[2] != "") {
@@ -188,39 +228,31 @@ case "$1" in
                     for(i in larr) {
                         n_f = split(larr[i], f, " ");
                         if(n_f >= 4 && f[2]!="") { 
-                            # 💡 新增：判断当前这一行是 IPv6 还是 IPv4 租期
+                            # 💡 攔截內鬼：忽略 dhcp.leases 中的 IPv6 租期，防止過期的死 IP 借屍還魂
                             if (f[3] ~ /:/) {
-                                v6_ip = f[3]; sub(/\/.*/, "", v6_ip); # 去掉后缀
-                                duid = tolower(f[2]);
-                                # 从 DUID 中暴力提取真实 MAC 地址并绑定短 IPv6
-                                if (length(duid) >= 20) {
-                                    pmac = substr(duid, length(duid)-11, 12);
-                                    mac = substr(pmac,1,2) ":" substr(pmac,3,2) ":" substr(pmac,5,2) ":" substr(pmac,7,2) ":" substr(pmac,9,2) ":" substr(pmac,11,2);
-                                    if(ipv6_map[mac]=="") ipv6_map[mac] = v6_ip;
-                                    else if(index(ipv6_map[mac], v6_ip) == 0) ipv6_map[mac] = ipv6_map[mac] " " v6_ip;
-                                }
-                            } else {
-                                # 原本的 IPv4 解析逻辑保持完全不变
-                                mac=tolower(f[2]);
-                                if(f[3]!="") leases_ip[mac]=f[3]; 
-                                name = f[4];
-                                for(k=5; k<=n_f-1; k++) { name = name " " f[k]; }
-                                if(name!="" && name!="*" && name!="?") leases_name[mac]=name;
-                                all_macs[mac]=1; 
-                                exp_time = f[1] + 0;
-                                if (leases_time[mac] == "") {
-                                    if (exp_time > 1000000000) {
-                                        if (exp_time > current_time) {
-                                            left = exp_time - current_time;
-                                            h = int(left / 3600); m = int((left % 3600) / 60); s = left % 60;
-                                            leases_time[mac] = sprintf("%dh %dm %ds", h, m, s);
-                                        } else leases_time[mac] = "Expired";
-                                    } else if (exp_time > 0 && exp_time <= 1000000000) {
-                                        left = exp_time;
+                                continue;
+                            }
+                            
+                            # 原本的 IPv4 解析邏輯保持完全不變
+                            mac=tolower(f[2]);
+                            if(f[3]!="") leases_ip[mac]=f[3]; 
+                            name = f[4];
+                            for(k=5; k<=n_f-1; k++) { name = name " " f[k]; }
+                            if(name!="" && name!="*" && name!="?") leases_name[mac]=name;
+                            all_macs[mac]=1; 
+                            exp_time = f[1] + 0;
+                            if (leases_time[mac] == "") {
+                                if (exp_time > 1000000000) {
+                                    if (exp_time > current_time) {
+                                        left = exp_time - current_time;
                                         h = int(left / 3600); m = int((left % 3600) / 60); s = left % 60;
                                         leases_time[mac] = sprintf("%dh %dm %ds", h, m, s);
-                                    } else if (exp_time == 0) leases_time[mac] = "Infinite";
-                                }
+                                    } else leases_time[mac] = "Expired";
+                                } else if (exp_time > 0 && exp_time <= 1000000000) {
+                                    left = exp_time;
+                                    h = int(left / 3600); m = int((left % 3600) / 60); s = left % 60;
+                                    leases_time[mac] = sprintf("%dh %dm %ds", h, m, s);
+                                } else if (exp_time == 0) leases_time[mac] = "Infinite";
                             }
                         }
                     }
@@ -366,7 +398,8 @@ case "$1" in
                             is_new_unknown = "true";
                         }
              
-                        printf "{\"mac\": \"%s\", \"ip\": \"%s\", \"bound_ip\": \"%s\", \"dept\": \"%s\", \"name\": \"%s\", \"online\": %s, \"is_static\": %s, \"is_gw\": %s, \"is_local\": %s, \"is_visitor\": %s, \"lease\": \"%s\", \"conn_count\": %d, \"conn_web\": %d, \"conn_dns\": %d, \"conn_udp\": %d, \"conn_p2p\": %d, \"conn_oth\": %d, \"fw_block\": %s, \"fw_isolate\": %s, \"fw_dmz\": %s, \"ipv6\": \"%s\", \"is_pc_v6\": %s, \"is_new_unknown\": %s}", mac, ip, b_ip, b_dept, name, (is_online?"true":"false"), is_static, is_gw, is_local, is_visitor, l_time, c_total, c_web, c_dns, c_udp, c_p2p, c_oth, f_blk, f_iso, f_dmz, v6_val, is_pc_flag, is_new_unknown;
+                        in_config_flag = (in_config_map[mac] == 1) ? "true" : "false";
+                        printf "{\"mac\": \"%s\", \"ip\": \"%s\", \"bound_ip\": \"%s\", \"dept\": \"%s\", \"name\": \"%s\", \"online\": %s, \"is_static\": %s, \"is_gw\": %s, \"is_local\": %s, \"is_visitor\": %s, \"lease\": \"%s\", \"conn_count\": %d, \"conn_web\": %d, \"conn_dns\": %d, \"conn_udp\": %d, \"conn_p2p\": %d, \"conn_oth\": %d, \"fw_block\": %s, \"fw_isolate\": %s, \"fw_dmz\": %s, \"ipv6\": \"%s\", \"is_pc_v6\": %s, \"is_new_unknown\": %s, \"in_config\": %s}", mac, ip, b_ip, b_dept, name, (is_online?"true":"false"), is_static, is_gw, is_local, is_visitor, l_time, c_total, c_web, c_dns, c_udp, c_p2p, c_oth, f_blk, f_iso, f_dmz, v6_val, is_pc_flag, is_new_unknown, in_config_flag;
                         first=0;
                     }
                     printf "]}";
@@ -567,10 +600,25 @@ case "$1" in
                 matches=$(uci -q show dhcp 2>/dev/null | grep -i -e "\.mac=.*$mac" -e "\.ip=.*$ip" | cut -d'.' -f2 | sed 's/[^0-9]//g' | sort -rn | uniq)
                 for idx in $matches; do uci -q delete dhcp.@host[$idx]; done
                 
+                # 靜態 IP 的核心
                 new_sect=$(uci add dhcp host)
                 uci set dhcp.$new_sect.name="$name"
                 uci set dhcp.$new_sect.mac="$mac"
                 uci set dhcp.$new_sect.ip="$ip"
+                
+                # 系統租期表裡抓取該設備的 DUID
+                auto_duid=$(cat /tmp/hosts/odhcpd 2>/dev/null | grep -i "$mac" | grep -oE "duid [0-9a-fA-F:]+" | awk '{print $2}' | head -n 1)
+                
+                if [ -z "$auto_duid" ]; then
+                    raw_duid=$(cat /tmp/dhcp.leases 2>/dev/null | grep -i "$mac" | awk '{print $5}' | grep -E '^00[0-9a-fA-F]+$' | head -n 1)
+                    if [ -n "$raw_duid" ]; then
+                        auto_duid=$(echo "$raw_duid" | sed 's/../&:/g;s/:$//')
+                    fi
+                fi
+
+                if [ -n "$auto_duid" ]; then
+                    uci set dhcp.$new_sect.duid="$auto_duid"
+                fi
                 
                 ip_suffix=${ip##*.}
                 if [ -n "$ip_suffix" ] && [ "$ip_suffix" -eq "$ip_suffix" ] 2>/dev/null; then
@@ -863,6 +911,7 @@ EOF
                         sleep 2
                         /etc/init.d/network restart
                         /etc/init.d/dnsmasq restart
+                        /etc/init.d/odhcpd restart
                         /etc/init.d/firewall restart
                         
                         sleep 3

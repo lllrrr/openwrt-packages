@@ -60,6 +60,7 @@ var T = {
     'MSG_EMPTY_CAT': _('No device records in this category'),
     'BDG_ONLINE': _('Online'),
     'BDG_OFFLINE': _('Offline'),
+    'BDG_LONG_OFFLINE': _('Long-term Offline'),
     'BDG_STATIC': _('Static'),
     'BDG_GW': _('Upstream Gateway'),
     'BDG_LOCAL': _('Local System'),
@@ -189,7 +190,7 @@ var T = {
     'TXT_BAK_IMPORT': _('Before Import'),
     'TXT_BAK_RESET': _('Before Reset'),
     'OPT_NO_CHANGE': _('-- Keep Unchanged --'),
-    'BDG_V6_RESERVED': _('Reserved')
+    'BDG_V6_RESERVED': _('Reserved'),
 };
 
 var callDeviceList = rpc.declare({ object: 'netwiz_dev', method: 'get_list', params: ['show_conns'], expect: { '': {} } });
@@ -1356,9 +1357,20 @@ return view.extend({
                 var isIso = (dev.fw_isolate === 'true' || dev.fw_isolate === true);
                 var isDmz = (dev.fw_dmz === 'true' || dev.fw_dmz === true);
 
-                var statusBadgesHtml = isOnline 
-                    ? '<span class="nd-status-badge nd-status-online"><span class="nd-dot-online"></span>' + T['BDG_ONLINE'] + '</span>' 
-                    : '<span class="nd-status-badge nd-status-offline"><span class="nd-dot-offline"></span>' + T['BDG_OFFLINE'] + '</span>';
+                // 解析后端的 in_config 状态
+                var isInConfig = (dev.in_config === 'true' || dev.in_config === true);
+                
+                var statusBadgesHtml = '';
+                if (isOnline) {
+                    // 1. 在线
+                    statusBadgesHtml = '<span class="nd-status-badge nd-status-online"><span class="nd-dot-online"></span>' + T['BDG_ONLINE'] + '</span>';
+                } else if (!isInConfig) {
+                    // 2. 长期离线，离线并后端配置文件里无此MAC
+                    statusBadgesHtml = '<span class="nd-status-badge nd-status-offline" style="background:#f8fafc; color:#94a3b8; border-color:#e2e8f0; font-weight:normal;"><span class="nd-dot-offline" style="background:#cbd5e1; animation:none;"></span>' + (T['BDG_LONG_OFFLINE'] || '长期离线') + '</span>';
+                } else {
+                    // 3. 普通离线，配置文件里有，暂时不在线)
+                    statusBadgesHtml = '<span class="nd-status-badge nd-status-offline"><span class="nd-dot-offline"></span>' + T['BDG_OFFLINE'] + '</span>';
+                }
 
                 if (isBlk) statusBadgesHtml += '<span class="nd-badge" style="background:#fef2f2; color:#ef4444; border-color:#fecaca;">⛔ ' + T['BDG_FW_BLK'] + '</span>';
                 if (isIso) statusBadgesHtml += '<span class="nd-badge" style="background:#fffbeb; color:#d97706; border-color:#fde68a;">🛡️ ' + T['BDG_FW_ISO'] + '</span>';
@@ -1448,27 +1460,12 @@ return view.extend({
 
                     // 显示徽章
                     if (publicV6List.length > 0) {
-                        var memKey = 'nw_v6_mem_' + dev.mac; // L1 记忆钥匙
-                        var hbKey = 'nw_v6_hb_' + dev.mac;   // Session 心跳钥匙
-                        var currentPrefix = publicV6List[0].split(':').slice(0, 4).join(':'); // 提取真实前缀
-                        
-                        // 💡 1. 優先執行無條件強制推算！
-                        var frontendType = getDeviceType(dev);
-                        var isStaticBound = (dev.is_static === true || dev.is_static === 'true');
-                        var isBackendPc = (dev.is_pc_v6 === true || dev.is_pc_v6 === 'true' || (isStaticBound && frontendType !== 'mobile'));
+                        // 这三行极其重要，不能删
+                        var memKey = 'nw_v6_mem_' + dev.mac; 
+                        var hbKey = 'nw_v6_hb_' + dev.mac;   
+                        var currentPrefix = publicV6List[0].split(':').slice(0, 4).join(':'); 
 
-                        if (isBackendPc) {
-                            var ipToUse = (dev.bound_ip && dev.bound_ip !== 'Unknown IP') ? dev.bound_ip : ((dev.ip !== 'Unknown IP') ? dev.ip : '');
-                            if (ipToUse) {
-                                var ipv4Suffix = ipToUse.split('.').pop(); 
-                                var predictedV6 = currentPrefix + '::' + ipv4Suffix; 
-                                if (publicV6List.indexOf(predictedV6) === -1) {
-                                    publicV6List.unshift(predictedV6); // 霸道塞入第一位
-                                }
-                            }
-                        }
-
-                        // 💡 2. 徹底去重（防止重複的火星文和 IP）
+                        // 去重（防止重複的火星文和 IP）
                         var uniqueV6 = [];
                         publicV6List.forEach(function(v) { if(uniqueV6.indexOf(v) === -1) uniqueV6.push(v); });
                         publicV6List = uniqueV6;
@@ -1476,7 +1473,7 @@ return view.extend({
                         var radarShortV6 = publicV6List.find(function(v) { return v.indexOf('::') !== -1 && v.length < 25; });
                         var localShortV6 = localStorage.getItem(memKey);
                         
-                        // 💡 3. 清理垃圾緩存
+                        // 清理緩存
                         if (localShortV6 && (localShortV6.indexOf('::') === -1 || localShortV6.length >= 25)) {
                             localShortV6 = null;
                             localStorage.removeItem(memKey);
@@ -1491,7 +1488,7 @@ return view.extend({
                             }
                         };
 
-                        // 💡 4. 記憶與保活
+                        // 保活
                         if (radarShortV6) {
                             localStorage.setItem(memKey, radarShortV6);
                             triggerKeepAlive();
