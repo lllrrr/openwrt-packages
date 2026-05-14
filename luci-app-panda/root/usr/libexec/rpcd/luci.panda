@@ -1,0 +1,28 @@
+#!/bin/sh
+
+readonly NAME="panda"
+readonly LOG="/var/log/ddns.log"
+
+. /usr/share/libubox/jshn.sh
+
+print_json_bool() { json_init; json_add_boolean "$1" "$2"; json_dump; json_cleanup; }
+
+clear_log() {
+	if : > "$LOG" 2>/dev/null; then
+		print_json_bool "result" '1'
+	else
+		print_json_bool "result" '0'
+	fi
+}
+
+case "$1" in
+	list)
+		json_init
+		json_add_object "clearLog"; json_close_object
+		json_dump; json_cleanup
+		;;
+	call)
+		case "$2" in
+			clearLog) clear_log ;;
+		esac ;;
+esac

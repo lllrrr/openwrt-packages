@@ -1,0 +1,147 @@
+#!/bin/sh
+# pi-ctl - Pi (Mihomo) management utility
+# OpenWrt 25.12
+
+. /lib/functions.sh
+
+PROG=/usr/bin/pi
+CONFIG_DIR=/etc/pi
+CONFIG_FILE=$CONFIG_DIR/config.yaml
+RUN_DIR=/var/run/pi
+ROUTE_TABLE=114
+ROUTE_MARK=0x514
+
+usage() {
+	cat <<-EOF
+	Usage: pi-ctl <command>
+
+	Commands:
+	  start         Start Pi service
+	  stop          Stop Pi service
+	  restart       Restart Pi service
+	  reload        Reload configuration
+	  status        Show service status
+	  nft-show      Show active nftables rules
+	  nft-reload    Reload nftables rules only
+	  bypass-add    <cidr>  Add address to bypass list
+	  bypass-del    <cidr>  Remove address from bypass list
+	  bypass-list   Show current bypass list
+	  update-geo    Trigger GeoIP/GeoSite database update via API
+	  log           Tail Pi log (Ctrl+C to stop)
+	  version       Show mihomo version
+	EOF
+	exit 1
+}
+
+_api_call() {
+	local method="$1" path="$2" data="$3"
+	local controller secret
+
+	config_load pi
+	config_get controller global ext_controller "127.0.0.1:9090"
+	config_get secret     global ext_secret     ""
+
+	if [ -n "$secret" ]; then
+		if [ -n "$data" ]; then
+			curl -sf -X "$method" \
+				-H "Authorization: Bearer $secret" \
+				-H 'Content-Type: application/json' \
+				-d "$data" \
+				"http://$controller$path"
+		else
+			curl -sf -X "$method" \
+				-H "Authorization: Bearer $secret" \
+				"http://$controller$path"
+		fi
+	else
+		if [ -n "$data" ]; then
+			curl -sf -X "$method" \
+				-H 'Content-Type: application/json' \
+				-d "$data" \
+				"http://$controller$path"
+		else
+			curl -sf -X "$method" \
+				"http://$controller$path"
+		fi
+	fi
+}
+
+case "$1" in
+	start)
+		/etc/init.d/pi start
+		;;
+	stop)
+		/etc/init.d/pi stop
+		;;
+	restart)
+		/etc/init.d/pi restart
+		;;
+	reload)
+		/etc/init.d/pi reload
+		;;
+	status)
+		if [ -f "$RUN_DIR/pi.pid" ] && kill -0 "$(cat "$RUN_DIR/pi.pid")" 2>/dev/null; then
+			echo "● Pi is running"
+			echo "  PID     : $(cat "$RUN_DIR/pi.pid")"
+			echo "  Uptime  : $(ps -o etime= -p "$(cat "$RUN_DIR/pi.pid")" 2>/dev/null | tr -d ' ')"
+			config_load pi
+
+			config_get tproxy_port global tproxy_port 7893
+			config_get dns_port    global dns_port    1053
+			echo "  TProxy  : :$tproxy_port"
+			echo "  DNS     : :$dns_port"
+		else
+			echo "● Pi is stopped"
+		fi
+		;;
+	nft-show)
+		nft list table inet pi 2>/dev/null || echo "Pi nftables table not loaded"
+		;;
+	nft-reload)
+		/etc/init.d/pi reload
+		;;
+	bypass-add)
+		[ -z "$2" ] && { echo "Usage: pi-ctl bypass-add <cidr>"; exit 1; }
+		uci add_list pi.global.bypass_addrs="$2"
+		uci commit pi
+		case "$2" in
+			*:*) nft add element inet pi user_bypass_v6 "{ $2 }" ;;
+			*)   nft add element inet pi user_bypass_v4 "{ $2 }" ;;
+		esac
+		echo "Added bypass: $2"
+		;;
+	bypass-del)
+		[ -z "$2" ] && { echo "Usage: pi-ctl bypass-del <cidr>"; exit 1; }
+		uci del_list pi.global.bypass_addrs="$2"
+		uci commit pi
+		case "$2" in
+			*:*) nft delete element inet pi user_bypass_v6 "{ $2 }" 2>/dev/null ;;
+			*)   nft delete element inet pi user_bypass_v4 "{ $2 }" 2>/dev/null ;;
+		esac
+		echo "Removed bypass: $2"
+		;;
+	bypass-list)
+		echo "=== Configured bypass addresses ==="
+		config_load pi
+		config_list_foreach global bypass_addrs echo
+		echo ""
+		echo "=== Active nftables bypass sets ==="
+		nft list set inet pi user_bypass_v4 2>/dev/null
+		nft list set inet pi user_bypass_v6 2>/dev/null
+		;;
+	update-geo)
+		echo "Triggering GeoIP/GeoSite update..."
+		_api_call PUT /configs/geo && echo "GeoData updated." || \
+			echo "Failed. Is Pi running and external controller accessible?"
+		;;
+	log)
+		echo "=== Pi log (Ctrl+C to stop) ==="
+		logread -f -e " pi[" 2>/dev/null || logread -f | grep -i "pi\|mihomo"
+		;;
+	version)
+		"$PROG" -v 2>/dev/null || echo "mihomo not found at $PROG"
+		;;
+	*)
+		usage
+		;;
+esac

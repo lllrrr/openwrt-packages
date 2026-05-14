@@ -1,0 +1,249 @@
+
+mixed-port: 7890
+redir-port: 7893
+routing-mark: 238
+unified-delay: true
+geodata-mode: true
+tcp-concurrent: true
+find-process-mode: strict
+global-client-fingerprint: chrome
+
+allow-lan: true
+mode: rule
+log-level: info
+ipv6: true
+
+external-controller: 0.0.0.0:9090
+secret: ""
+external-ui: ui
+external-ui-url: "https://github.com/Zephyruso/zashboard/archive/refs/heads/gh-pages.zip"
+
+geox-url:
+  geoip: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat"
+  geosite: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
+  mmdb: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb"
+geo-auto-update: false
+geo-update-interval: 24
+
+profile:
+  store-selected: true
+  store-fake-ip: true
+
+sniffer:
+  enable: false
+  force-dns-mapping: true
+  parse-pure-ip: true
+  override-destination: true
+  sniff:
+    HTTP:
+      ports: [80, 8080-8880]
+      override-destination: true
+    TLS:
+      ports: [443, 8443]
+    QUIC:
+      ports: [443, 8443]
+  force-domain:
+    - +.v2ex.com
+  skip-domain:
+    - Mijia Cloud
+
+tun:
+  enable: true
+  device: utun
+  stack: mixed
+  dns-hijack:
+    - "any:53"
+    - "tcp://any:53"
+  auto-route: false
+  auto-redirect: false
+  auto-detect-interface: false
+  disable-icmp-forwarding: true
+
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
+  ipv6: false
+  enhanced-mode: redir-host
+  default-nameserver:
+    - 223.5.5.5
+  nameserver:
+    - 'tls://8.8.4.4#Proxy'
+    - 'tls://1.0.0.1#Proxy'
+  proxy-server-nameserver:
+    - https://dns.alidns.com/dns-query#h3=true
+  nameserver-policy:
+    "geosite:cn":
+      - 223.5.5.5
+      - 114.114.114.114
+      - https://dns.alidns.com/dns-query#h3=true
+    "geosite:private":
+      - 127.0.0.1
+
+proxies:
+  - name: "🇲🇾马来西亚_Terabix"
+    type: ss
+    server: "2001:df4:1840:e4::a"
+    port: 46113
+    cipher: chacha20-ietf-poly1305
+    password: "yshhdYshruYdghd67Yshjeie$2usheh"
+    udp: true
+    dialer-proxy: AWS中转
+
+  - name: "🇲🇴澳门_AkileCloud_落地"
+    type: ss
+    server: "2a0e:97c0:7d7:90c7:33c8:1da8:e20:dc6e"
+    port: 46721
+    cipher: aes-128-gcm
+    password: "yshhdYgeuGshueiGehue"
+    udp: true
+    dialer-proxy: AWS中转
+
+  - name: "AWS中转"
+    type: tuic
+    server: "2406:da18:eac:8802:21d0:45d5:dbdc:a640"
+    port: 18272
+    uuid: "801bf79e-07c3-4e6a-8f88-764361bb1ad6"
+    password: "SRlZA5UUjnjScfrD"
+    congestion-controller: bbr
+    udp-relay-mode: native
+    alpn:
+      - h3
+    sni: bing.com
+    skip-cert-verify: true
+
+proxy-providers:
+  One:
+    type: http
+    path: ./One.yaml
+    url: https://dy.xxvx.de/share/sub/two?token=n9KKqkSs5QblU8N-IfmaI&target=ClashMeta
+    interval: 3600
+    skip-cert-verify: true
+    health-check:
+      enable: false
+      url: http://www.gstatic.com/generate_204
+      interval: 300
+
+proxy-groups:
+  - name: "Proxy"
+    type: select
+    use:
+      - One
+    proxies:
+      - 🇲🇾马来西亚_Terabix
+    icon: https://img.icons8.com/fluency/48/party-baloons.png
+
+  - name: "Movie"
+    type: select
+    use:
+      - One
+    proxies:
+    icon: https://img.icons8.com/color/96/film-reel.png
+
+  - name: "Google"
+    type: select
+    use:
+      - One
+    proxies:
+      - 🇲🇾马来西亚_Terabix
+    icon: https://img.icons8.com/color/96/google-logo.png
+
+  - name: "Youtube"
+    type: select
+    use:
+      - One
+    proxies:
+      - 🇲🇴澳门_AkileCloud_落地
+    icon: https://img.icons8.com/color/96/youtube-play.png
+
+  - name: "Telegraph"
+    type: select
+    use:
+      - One
+    proxies:
+      - 🇲🇾马来西亚_Terabix
+    icon: https://img.icons8.com/color/96/telegram-app--v1.png
+
+  - name: "OpenAI"
+    type: select
+    use:
+      - One
+    proxies:
+      - 🇲🇾马来西亚_Terabix
+    icon: https://img.icons8.com/fluency/48/claude-ai.png
+
+  - name: "Spotify"
+    type: select
+    use:
+      - One
+    proxies:
+      - 🇲🇾马来西亚_Terabix
+    icon: https://img.icons8.com/fluency/48/spotify.png
+
+rules:
+  - RULE-SET,private_ip,DIRECT,no-resolve
+  - DOMAIN-SUFFIX,vban.xyz,Movie
+  - RULE-SET,pikpak_domain,Movie
+  - DOMAIN-SUFFIX,cn2gias.uk,Movie
+  - DOMAIN-SUFFIX,sgameglobal.com,Proxy
+  - DOMAIN-SUFFIX,googlevideo.com,Youtube
+  - RULE-SET,youtube_domain,Youtube
+  - RULE-SET,google_domain,Google
+  - RULE-SET,telegram_domain,Telegraph
+  - RULE-SET,spotify_domain,Spotify
+  - RULE-SET,category-ai-!cn_domain,OpenAI
+  - DOMAIN-SUFFIX,huya.com,DIRECT
+  - DOMAIN-SUFFIX,huyagame.cn,DIRECT
+  - DOMAIN-KEYWORD,msstatic,DIRECT
+  - DOMAIN-KEYWORD,hls.huya,DIRECT
+  - DOMAIN-SUFFIX,alidns.com,DIRECT
+  - DOMAIN-SUFFIX,doh.pub,DIRECT
+  - DOMAIN-SUFFIX,dns.pub,DIRECT
+  - DOMAIN-SUFFIX,doh.360.cn,DIRECT
+  - RULE-SET,cn_domain,DIRECT
+  - RULE-SET,google_ip,Google
+  - RULE-SET,telegram_ip,Telegraph
+  - RULE-SET,cn_ip,DIRECT
+  - MATCH,Proxy
+
+rule-anchor:
+  ip: &ip {type: http, interval: 86400, behavior: ipcidr, format: mrs}
+  domain: &domain {type: http, interval: 86400, behavior: domain, format: mrs}
+
+rule-providers:
+  private_domain:
+    <<: *domain
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/private.mrs"
+  cn_domain:
+    <<: *domain
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/cn.mrs"
+  youtube_domain:
+    <<: *domain
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/youtube.mrs"
+  google_domain:
+    <<: *domain
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/google.mrs"
+  telegram_domain:
+    <<: *domain
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/telegram.mrs"
+  spotify_domain:
+    <<: *domain
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/spotify.mrs"
+  pikpak_domain:
+    <<: *domain
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/pikpak.mrs"
+  category-ai-!cn_domain:
+    <<: *domain
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/category-ai-!cn.mrs"
+
+  private_ip:
+    <<: *ip
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/private.mrs"
+  cn_ip:
+    <<: *ip
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/cn.mrs"
+  google_ip:
+    <<: *ip
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/google.mrs"
+  telegram_ip:
+    <<: *ip
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/telegram.mrs"

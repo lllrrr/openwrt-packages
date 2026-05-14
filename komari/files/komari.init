@@ -1,0 +1,94 @@
+#!/bin/sh /etc/rc.common
+
+USE_PROCD=1
+START=99
+STOP=10
+
+NAME=komari
+PROG=/usr/bin/komari-agent
+
+start_service() {
+	config_load "$NAME"
+
+	local enabled=0
+	local endpoint="" token="" interval="1" ignore_unsafe_cert=0
+	local info_report_interval="5" enable_gpu=0 memory_include_cache=0
+	local include_nics="" exclude_nics="" custom_dns="" month_rotate="0"
+	local disable_web_ssh=1 disable_auto_update=1 max_retries="3" reconnect_interval="5"
+	local custom_ipv4="" custom_ipv6="" cf_client_id="" cf_client_secret=""
+
+	config_foreach _komari_parse komari
+
+	[ "$enabled" = "0" ] && return 0
+
+	if [ -z "$endpoint" ] || [ -z "$token" ]; then
+		logger -t komari "Error: endpoint and token must be configured."
+		return 1
+	fi
+
+	procd_open_instance
+	procd_set_param command "$PROG"
+	procd_append_param command --endpoint "$endpoint"
+	procd_append_param command --token    "$token"
+	procd_append_param command --interval "$interval"
+
+	[ "$ignore_unsafe_cert" = "1" ]   && procd_append_param command --ignore-unsafe-cert
+	[ "$disable_web_ssh" = "1" ]      && procd_append_param command --disable-web-ssh
+	[ "$disable_auto_update" = "1" ]  && procd_append_param command --disable-auto-update
+	[ "$enable_gpu" = "1" ]           && procd_append_param command --gpu
+	[ "$memory_include_cache" = "1" ] && procd_append_param command --memory-include-cache
+
+	[ -n "$include_nics" ]     && procd_append_param command --include-nics "$include_nics"
+	[ -n "$exclude_nics" ]     && procd_append_param command --exclude-nics "$exclude_nics"
+	[ -n "$custom_dns" ]       && procd_append_param command --custom-dns "$custom_dns"
+	[ "$month_rotate" != "0" ] && procd_append_param command --month-rotate "$month_rotate"
+
+	[ -n "$custom_ipv4" ] && procd_append_param command --custom-ipv4 "$custom_ipv4"
+	[ -n "$custom_ipv6" ] && procd_append_param command --custom-ipv6 "$custom_ipv6"
+
+	[ -n "$cf_client_id" ]     && procd_append_param command --cf-access-client-id "$cf_client_id"
+	[ -n "$cf_client_secret" ] && procd_append_param command --cf-access-client-secret "$cf_client_secret"
+
+	[ "$info_report_interval" != "5" ] && procd_append_param command --info-report-interval "$info_report_interval"
+	[ "$max_retries" != "3" ]          && procd_append_param command --max-retries "$max_retries"
+	[ "$reconnect_interval" != "5" ]   && procd_append_param command --reconnect-interval "$reconnect_interval"
+
+	procd_set_param respawn 3600 5 3
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param file /etc/config/komari
+	procd_close_instance
+}
+
+_komari_parse() {
+	local cfg="$1" v
+	config_get v "$cfg" enabled              "" && [ -n "$v" ] && enabled="$v"
+	config_get v "$cfg" endpoint             "" && [ -n "$v" ] && endpoint="$v"
+	config_get v "$cfg" token                "" && [ -n "$v" ] && token="$v"
+	config_get v "$cfg" ignore_unsafe_cert   "" && [ -n "$v" ] && ignore_unsafe_cert="$v"
+	config_get v "$cfg" interval             "" && [ -n "$v" ] && interval="$v"
+	config_get v "$cfg" info_report_interval "" && [ -n "$v" ] && info_report_interval="$v"
+	config_get v "$cfg" enable_gpu           "" && [ -n "$v" ] && enable_gpu="$v"
+	config_get v "$cfg" memory_include_cache "" && [ -n "$v" ] && memory_include_cache="$v"
+	config_get v "$cfg" include_nics         "" && [ -n "$v" ] && include_nics="$v"
+	config_get v "$cfg" exclude_nics         "" && [ -n "$v" ] && exclude_nics="$v"
+	config_get v "$cfg" custom_dns           "" && [ -n "$v" ] && custom_dns="$v"
+	config_get v "$cfg" month_rotate         "" && [ -n "$v" ] && month_rotate="$v"
+	config_get v "$cfg" disable_web_ssh      "" && [ -n "$v" ] && disable_web_ssh="$v"
+	config_get v "$cfg" disable_auto_update  "" && [ -n "$v" ] && disable_auto_update="$v"
+	config_get v "$cfg" max_retries          "" && [ -n "$v" ] && max_retries="$v"
+	config_get v "$cfg" reconnect_interval   "" && [ -n "$v" ] && reconnect_interval="$v"
+	config_get v "$cfg" custom_ipv4          "" && [ -n "$v" ] && custom_ipv4="$v"
+	config_get v "$cfg" custom_ipv6          "" && [ -n "$v" ] && custom_ipv6="$v"
+	config_get v "$cfg" cf_access_client_id     "" && [ -n "$v" ] && cf_client_id="$v"
+	config_get v "$cfg" cf_access_client_secret "" && [ -n "$v" ] && cf_client_secret="$v"
+}
+
+service_triggers() {
+	procd_add_reload_trigger "komari"
+}
+
+reload_service() {
+	stop
+	start
+}

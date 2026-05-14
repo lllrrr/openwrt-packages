@@ -1,0 +1,11 @@
+{
+	"luci-app-komari": {
+		"description": "Komari Monitor Agent",
+		"read": {
+			"uci": ["komari"]
+		},
+		"write": {
+			"uci": ["komari"]
+		}
+	}
+}

@@ -1,0 +1,16 @@
+#!/bin/sh
+# luci-app-pi uci-defaults
+# Runs once after package installation
+
+uci -q batch <<-EOF
+	delete ucitrack.@pi[-1]
+	add ucitrack pi
+	set ucitrack.@pi[-1].init=pi
+	commit ucitrack
+EOF
+
+# Enable uhttpd if not running
+/etc/init.d/uhttpd enable 2>/dev/null
+/etc/init.d/rpcd enable  2>/dev/null
+
+exit 0

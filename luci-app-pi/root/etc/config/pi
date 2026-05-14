@@ -1,0 +1,13 @@
+
+config global 'global'
+	option enabled '1'
+	option config_file '/etc/pi/config.yaml'
+	option dns_port '1053'
+	option tun_timeout '15'
+	option tun_dev 'utun'
+	option bypass_china '1'
+	option bypass_china_ip '1'
+	option log_level 'info'
+	option proxy_router '1'
+	option dashboard_url 'http://127.0.0.1:9090/ui'
+

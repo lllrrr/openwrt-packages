@@ -1,0 +1,27 @@
+# /etc/config/panda
+# Panda 动态 DNS 配置
+#
+# DNS 条目通过 LuCI（luci-app-panda）管理，
+# 或手动添加：uci add panda ddns_entry
+
+config panda 'global'
+	option ddns_enabled     '0'
+	option ddns_interval    '300'
+
+config panda 'ip_detect'
+	list   ipv4_urls        'https://api.ipify.org'
+	list   ipv4_urls        'https://myip.ipip.net'
+	list   ipv4_urls        'https://ddns.oray.com/checkip'
+	list   ipv4_urls        'https://ip.3322.net'
+	list   ipv4_urls        'https://4.ipw.cn'
+	list   ipv4_urls        'https://v4.yinghualuo.cn/bejson'
+
+# 示例 DNS 条目：
+# config ddns_entry
+# 	option name         'home'
+# 	option enabled      '0'
+# 	option provider     'cloudflare'
+# 	option domain       'home.example.com'
+# 	option token        ''
+# 	option record_type  'A'
+# 	option ttl          '120'

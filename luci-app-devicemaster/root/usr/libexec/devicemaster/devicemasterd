@@ -1,0 +1,201 @@
+#!/bin/sh
+# DeviceMaster Main Daemon
+# Provides ubus interface for device management
+
+. /lib/functions.sh
+. /usr/share/libubox/jshn.sh
+
+UBUS_SOCKET="/var/run/ubus.sock"
+DEVICE_DB="/var/run/devicemaster/devices.json"
+CACHE_EXPIRE=30
+
+# JSON-RPC response helper
+json_response() {
+    local code="$1"
+    local message="$2"
+    local data="$3"
+    
+    json_init
+    json_add_int "code" "$code"
+    json_add_string "message" "$message"
+    [ -n "$data" ] && json_add_object "data" && json_add_string "result" "$data" && json_close_object
+    json_dump
+}
+
+# Get all devices
+ubus_get_devices() {
+    local result=$(/usr/libexec/devicemaster/device_collector.sh list)
+    echo "$result"
+}
+
+# Get single device info
+ubus_get_device() {
+    local mac="$1"
+    local result=$(/usr/libexec/devicemaster/device_collector.sh list | jsonfilter -e "@.devices[@.mac='$mac']")
+    [ -z "$result" ] && result="{}"
+    echo "$result"
+}
+
+# Update device name
+ubus_set_device_name() {
+    local mac="$1"
+    local name="$2"
+    
+    # Check if device section exists
+    local found=0
+    local section=""
+    config_load devicemaster
+    config_foreach check_device_mac device
+    
+    if [ "$found" -eq 0 ]; then
+        section=$(uci add devicemaster device)
+    fi
+    
+    uci set "devicemaster.$section.mac=$mac"
+    uci set "devicemaster.$section.name=$name"
+    uci commit devicemaster
+    
+    # Sync with dnsmasq
+    sync_to_dnsmasq "$mac" "$name"
+    
+    echo "success"
+}
+
+check_device_mac() {
+    local cfg="$1"
+    local cfg_mac=$(uci get "devicemaster.$cfg.mac" 2>/dev/null)
+    if [ "$cfg_mac" = "$mac" ]; then
+        found=1
+        section="$cfg"
+    fi
+}
+
+# Sync device name to dnsmasq
+sync_to_dnsmasq() {
+    local mac="$1"
+    local name="$2"
+    local ip=$(grep -i "$mac" /proc/net/arp 2>/dev/null | awk '{print $1}' | head -1)
+    
+    if [ -n "$ip" ]; then
+        # Remove existing host entry for this MAC
+        local host_section=$(uci show dhcp | grep "@host\[" | grep "\.mac='$mac'" | cut -d'.' -f2 | cut -d'=' -f1)
+        [ -n "$host_section" ] && uci delete "dhcp.$host_section"
+        
+        # Add new host entry
+        uci add dhcp host
+        uci set "dhcp.@host[-1].mac=$mac"
+        uci set "dhcp.@host[-1].ip=$ip"
+        uci set "dhcp.@host[-1].name=$name"
+        uci commit dhcp
+        
+        # Restart dnsmasq to apply changes
+        /etc/init.d/dnsmasq restart
+        
+        logger -t devicemaster "Synced device name: $mac -> $name ($ip)"
+    fi
+}
+
+# Block device
+ubus_block_device() {
+    local mac="$1"
+    /usr/libexec/devicemaster/traffic_control.sh block "$mac"
+}
+
+# Unblock device
+ubus_unblock_device() {
+    local mac="$1"
+    /usr/libexec/devicemaster/traffic_control.sh unblock "$mac"
+}
+
+# Limit device bandwidth
+ubus_limit_device() {
+    local mac="$1"
+    local rate="$2"
+    /usr/libexec/devicemaster/traffic_control.sh limit "$mac" "$rate"
+}
+
+# Remove device limit
+ubus_unlimit_device() {
+    local mac="$1"
+    /usr/libexec/devicemaster/traffic_control.sh unlimit "$mac"
+}
+
+# Get device traffic stats
+ubus_get_traffic() {
+    local mac="$1"
+    local stats=$(/usr/libexec/devicemaster/traffic_monitor.sh stats "$mac")
+    local bandwidth=$(/usr/libexec/devicemaster/traffic_monitor.sh bandwidth "$mac")
+    
+    json_init
+    json_add_string "mac" "$mac"
+    json_add_object "stats"
+    json_add_int "connections" $(echo "$stats" | jsonfilter -e '@.connections')
+    json_add_int "rx_bytes" $(echo "$stats" | jsonfilter -e '@.rx')
+    json_add_int "tx_bytes" $(echo "$stats" | jsonfilter -e '@.tx')
+    json_close_object
+    json_add_object "bandwidth"
+    json_add_int "rx_rate" $(echo "$bandwidth" | jsonfilter -e '@.rx_rate')
+    json_add_int "tx_rate" $(echo "$bandwidth" | jsonfilter -e '@.tx_rate')
+    json_close_object
+    json_dump
+}
+
+# Register ubus methods
+register_ubus() {
+    # Create ubus object
+    ubus -S call "$UBUS_SOCKET" object_add '{"path": "devicemaster", "type": "devicemaster"}' 2>/dev/null
+    
+    # The actual method handling is done via ubus listen
+    while ubus -S listen; do
+        : # Handle events
+    done
+}
+
+# Main loop - handle ubus calls via stdin
+main() {
+    while read -r line; do
+        local method=$(echo "$line" | jsonfilter -e '@.method')
+        local params=$(echo "$line" | jsonfilter -e '@.params')
+        
+        case "$method" in
+            get_devices)
+                ubus_get_devices
+                ;;
+            get_device)
+                local mac=$(echo "$params" | jsonfilter -e '@.mac')
+                ubus_get_device "$mac"
+                ;;
+            set_name)
+                local mac=$(echo "$params" | jsonfilter -e '@.mac')
+                local name=$(echo "$params" | jsonfilter -e '@.name')
+                ubus_set_device_name "$mac" "$name"
+                ;;
+            block)
+                local mac=$(echo "$params" | jsonfilter -e '@.mac')
+                ubus_block_device "$mac"
+                ;;
+            unblock)
+                local mac=$(echo "$params" | jsonfilter -e '@.mac')
+                ubus_unblock_device "$mac"
+                ;;
+            limit)
+                local mac=$(echo "$params" | jsonfilter -e '@.mac')
+                local rate=$(echo "$params" | jsonfilter -e '@.rate')
+                ubus_limit_device "$mac" "$rate"
+                ;;
+            unlimit)
+                local mac=$(echo "$params" | jsonfilter -e '@.mac')
+                ubus_unlimit_device "$mac"
+                ;;
+            get_traffic)
+                local mac=$(echo "$params" | jsonfilter -e '@.mac')
+                ubus_get_traffic "$mac"
+                ;;
+            *)
+                json_response 404 "Method not found"
+                ;;
+        esac
+    done
+}
+
+main

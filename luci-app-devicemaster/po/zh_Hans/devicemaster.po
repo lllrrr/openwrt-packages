@@ -1,0 +1,104 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Project-Id-Version: LuCI DeviceMaster\n"
+"Language: zh_Hans\n"
+
+msgid "Device Master"
+msgstr "设备管理"
+
+msgid "Network Devices"
+msgstr "网络设备"
+
+msgid "Plugin Settings"
+msgstr "插件设置"
+
+msgid "Devices"
+msgstr "设备列表"
+
+msgid "Groups"
+msgstr "设备分组"
+
+msgid "Settings"
+msgstr "设置"
+
+msgid "Network Devices"
+msgstr "网络设备"
+
+msgid "Manage and monitor all devices on your network."
+msgstr "管理和监控您网络中的所有设备。"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "Scan Network"
+msgstr "扫描网络"
+
+msgid "Filter devices..."
+msgstr "筛选设备..."
+
+msgid "Phone"
+msgstr "手机"
+
+msgid "PC"
+msgstr "电脑"
+
+msgid "IoT"
+msgstr "物联网"
+
+msgid "Network"
+msgstr "网络设备"
+
+msgid "Unknown"
+msgstr "未知"
+
+msgid "Online"
+msgstr "在线"
+
+msgid "Offline"
+msgstr "离线"
+
+msgid "Blocked"
+msgstr "已屏蔽"
+
+msgid "Total"
+msgstr "总数"
+
+msgid "Loading..."
+msgstr "加载中..."
+
+msgid "Failed to load"
+msgstr "加载失败"
+
+msgid "No devices"
+msgstr "暂无设备"
+
+msgid "Edit"
+msgstr "编辑"
+
+msgid "Block"
+msgstr "屏蔽"
+
+msgid "Unblock"
+msgstr "解除屏蔽"
+
+msgid "Limit"
+msgstr "限速"
+
+msgid "Scanning network..."
+msgstr "正在扫描网络..."
+
+msgid "Device Name:"
+msgstr "设备名称："
+
+msgid "Vendor"
+msgstr "厂商"
+
+msgid "Device Type"
+msgstr "设备类型"
+
+msgid "Block this device?"
+msgstr "确定屏蔽此设备？"
+
+msgid "Enter rate limit (e.g., 1mbit):"
+msgstr "输入限速值（如：1mbit）："

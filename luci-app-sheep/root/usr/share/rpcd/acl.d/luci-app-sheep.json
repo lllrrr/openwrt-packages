@@ -1,0 +1,22 @@
+{
+    "luci-app-sheep": {
+        "description": "Grant LuCI access to Sheep Shadowsocks-Rust Server",
+        "read": {
+            "file": {
+                "/etc/init.d/sheep": ["exec"],
+                "/usr/bin/sheep": ["read"]
+            },
+            "ubus": {
+                "service": ["list"],
+                "luci.sheep": ["getStatus", "getLog", "clearLog", "start", "stop", "restart"]
+            },
+            "uci": ["sheep"]
+        },
+        "write": {
+            "ubus": {
+                "luci.sheep": ["start", "stop", "restart"]
+            },
+            "uci": ["sheep"]
+        }
+    }
+}

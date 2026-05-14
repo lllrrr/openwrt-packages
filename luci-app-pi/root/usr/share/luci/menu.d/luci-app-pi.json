@@ -1,0 +1,33 @@
+{
+	"admin/services/pi": {
+		"title": "Pi",
+		"order": 60,
+		"action": {
+			"type": "firstchild"
+		}
+	},
+	"admin/services/pi/settings": {
+		"title": "设置",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "pi/settings"
+		}
+	},
+	"admin/services/pi/config": {
+		"title": "配置",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "pi/config"
+		}
+	},
+	"admin/services/pi/logs": {
+		"title": "日志",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "pi/logs"
+		}
+	}
+}

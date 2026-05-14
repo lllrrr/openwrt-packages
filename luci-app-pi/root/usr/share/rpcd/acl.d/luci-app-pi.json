@@ -1,0 +1,71 @@
+{
+	"luci-app-pi": {
+		"description": "Grant access to Pi transparent proxy management",
+		"read": {
+			"file": {
+				"/etc/pi/config.yaml": [
+					"read"
+				],
+				"/etc/pi/*": [
+					"read"
+				],
+				"/var/log/pi.log": [
+					"read"
+				],
+				"/var/log/pi/*": [
+					"read"
+				],
+				"/etc/config/pi": [
+					"read"
+				],
+				"/etc/init.d/pi hot_reload": [
+					"exec"
+				],
+				"/etc/init.d/pi": [
+					"exec"
+				]
+			},
+			"ubus": {
+				"service": [
+					"list"
+				],
+				"luci": [
+					"setInitAction"
+				],
+				"pi": [
+					"status"
+				]
+			},
+			"uci": [
+				"pi",
+				"network"
+			]
+		},
+		"write": {
+			"file": {
+				"/etc/pi/config.yaml": [
+					"write"
+				],
+				"/etc/config/pi": [
+					"write"
+				],
+				"/var/log/pi/pi.log": [
+					"write"
+				]
+			},
+			"ubus": {
+				"service": [
+					"set",
+					"list"
+				],
+				"luci": [
+					"setInitAction"
+				]
+			},
+			"uci": [
+				"pi"
+			]
+		}
+	}
+}
+
