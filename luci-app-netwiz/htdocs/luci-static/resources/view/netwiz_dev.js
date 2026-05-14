@@ -326,8 +326,8 @@ return view.extend({
             '       <div id="nd-m-dept-mgr" class="nd-dept-mgr-wrap" style="display:none; max-height: 400px; overflow-y: auto; overflow-x: hidden; padding: 5px 5px 10px 0;">',
             '           <div class="nd-dept-ctrl-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding: 5px 5px 12px 5px; margin-top: -6px; border-bottom: 1px dashed #cbd5e1; position: sticky; top: -6px; background: #fff; z-index: 10; gap: 10px;">',
             '               <div class="nd-dept-io-group" style="display: flex; gap: 10px;">',
-            '                   <button id="btn-import-depts" class="nd-btn nd-btn-gray" style="padding: 6px 12px; font-size: 13px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">📂 {{BTN_IMPORT_DEPTS}}</button>',
             '                   <button id="btn-export-depts" class="nd-btn nd-btn-gray" style="padding: 6px 12px; font-size: 13px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">💾 {{BTN_EXPORT_DEPTS}}</button>',
+            '                   <button id="btn-import-depts" class="nd-btn nd-btn-gray" style="padding: 6px 12px; font-size: 13px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">📂 {{BTN_IMPORT_DEPTS}}</button>',
             '               </div>',
             '               <button id="btn-add-dept" class="nd-btn nd-btn-blue" style="padding: 6px 12px; font-size: 13px; border-radius: 6px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(59,130,246,0.2);">+ {{BTN_ADD_DEPT}}</button>',
             '           </div>',
@@ -2289,29 +2289,22 @@ return view.extend({
 
         if (btnExportNet) {
             btnExportNet.addEventListener('click', function() {
-                openModal({ 
-                    title: T['TIT_EXPORT_ING'], 
-                    content: T['MSG_EXPORT_ING'], 
-                    hideCancel: true, 
-                    okText: T['BTN_PLEASE_WAIT'] 
+                openModal({
+                    title: T['TIT_EXPORT_ING'],
+                    content: T['MSG_EXPORT_ING'],
+                    hideCancel: true,
+                    okText: T['BTN_PLEASE_WAIT']
                 });
                 callExportConfig().then(function(res) {
-                    if(res.data && res.filename) {
-                        var byteCharacters = atob(res.data);
-                        var byteNumbers = new Array(byteCharacters.length);
-                        for (var i = 0; i < byteCharacters.length; i++) {
-                            byteNumbers[i] = byteCharacters.charCodeAt(i);
-                        }
-                        var byteArray = new Uint8Array(byteNumbers);
-                        var blob = new Blob([byteArray], {type: "application/gzip"});
-                        
+
+                    if(res && res.url) {
                         var a = document.createElement("a");
-                        a.href = URL.createObjectURL(blob);
-                        a.download = res.filename;
+                        a.href = res.url;
+                        a.download = res.filename || "NetWiz_NetConf.tar.gz";
                         document.body.appendChild(a);
                         a.click();
                         document.body.removeChild(a);
-                        
+
                         openModal({ title: T['TIT_EXPORT_OK'], content: T['MSG_EXPORT_OK'], hideCancel: true, okText: T['BTN_CLOSE'] });
                     } else {
                         openModal({ title: T['TIT_EXPORT_FAIL'], content: T['MSG_EXPORT_FAIL_NODATA'], hideCancel: true, okText: T['BTN_CLOSE'] });
@@ -2322,7 +2315,6 @@ return view.extend({
             });
         }
 
-        // 公共的恢复确认逻辑
         function confirmAndRestore(payload) {
             openModal({ 
                 title: T['TIT_IMPORT_CONFIRM'], 

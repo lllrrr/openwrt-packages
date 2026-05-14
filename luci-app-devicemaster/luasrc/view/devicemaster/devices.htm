@@ -183,6 +183,18 @@ function renderDevices() {
     var html = '';
     for (var i = 0; i < filtered.length; i++) html += buildCardHTML(filtered[i]);
     listEl.innerHTML = html;
+    
+    // Add double-click event listeners for delete
+    var cards = listEl.querySelectorAll('.device-card');
+    for (var i = 0; i < cards.length; i++) {
+        cards[i].addEventListener('dblclick', function(e) {
+            // Prevent double-click on buttons
+            if (e.target.tagName === 'BUTTON') return;
+            var mac = this.id.replace('card-', '').replace(/(.{2})(?=.)/g, '$1:');
+            confirmDeleteDevice(mac);
+        });
+    }
+    
     updateStats();
 }
 
@@ -316,6 +328,21 @@ window.limitDevice = function(mac) {
             rate = rate.replace(/^(\d+)k$/, '$1kbit');
         }
         httpPost(apiUrl + '/limit', 'mac=' + encodeURIComponent(mac) + '&rate=' + encodeURIComponent(rate), loadDevices);
+    }
+};
+
+// Delete device record (double-click on card)
+window.confirmDeleteDevice = function(mac) {
+    var device = deviceMap[mac];
+    var name = device ? (device.custom_name || device.hostname || mac) : mac;
+    if (confirm('确定要删除设备 "' + name + '" 的记录吗？\n\n设备重新上线后会被自动发现并重新记录。')) {
+        httpPost(apiUrl + '/delete_device', 'mac=' + encodeURIComponent(mac), function(res) {
+            if (res && res.success) {
+                loadDevices();
+            } else {
+                alert('删除失败: ' + (res && res.error ? res.error : '未知错误'));
+            }
+        });
     }
 };
 
