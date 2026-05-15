@@ -191,6 +191,9 @@ var T = {
     'TXT_BAK_RESET': _('Before Reset'),
     'OPT_NO_CHANGE': _('-- Keep Unchanged --'),
     'BDG_V6_RESERVED': _('Reserved'),
+    'TXT_UNOPERABLE': _('Unoperable'),
+    'TXT_NOTE': _('Note:'),
+    'TIP_DEPT_BIND_RULE': _('Custom group names are not strictly bound to IP subnets. The ranges are only used for automatic IP assignment when a group is selected.')
 };
 
 var callDeviceList = rpc.declare({ object: 'netwiz_dev', method: 'get_list', params: ['show_conns'], expect: { '': {} } });
@@ -333,6 +336,7 @@ return view.extend({
             '               <button id="btn-add-dept" class="nd-btn nd-btn-blue" style="padding: 6px 12px; font-size: 13px; border-radius: 6px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(59,130,246,0.2);">+ {{BTN_ADD_DEPT}}</button>',
             '           </div>',
             '           <div id="dept-list-container"></div>',
+            '           <div style="font-size:12.5px; color:#64748b; background:#f8fafc; padding:10px 12px; border-radius:8px; border:1px dashed #cbd5e1; margin-top:12px; line-height:1.5;">💡 <b>{{TXT_NOTE}}</b> {{TIP_DEPT_BIND_RULE}}</div>',
             '       </div>',
 
             '       <div id="nd-m-fw-panel" style="display:none; text-align:left;">',
@@ -1147,7 +1151,13 @@ return view.extend({
             var isSys = dev.is_gw === 'true' || dev.is_gw === true || dev.is_local === 'true' || dev.is_local === true;
             var isVisitor = dev.is_visitor === 'true' || dev.is_visitor === true;
             
-            if (isSys || isVisitor) return false;
+            var isCrossSubnet = (dev.ip && dev.ip !== 'Unknown IP' && dev.ip.substring(0, dev.ip.lastIndexOf('.') + 1) !== basePrefix);
+            var isStatic = (dev.is_static === true || dev.is_static === 'true');
+
+            if (isSys || isVisitor) return false; 
+            
+            if (isCrossSubnet && !isStatic) return false;
+            
             return true; 
         }
 
@@ -1529,6 +1539,9 @@ return view.extend({
                 } else if (isStatic) {
                     actions = '<button class="nd-btn nd-btn-gray btn-edit" data-mac="'+dev.mac+'" data-ip="'+(dev.bound_ip || dev.ip)+'" data-name="'+dev.name+'">' + T['BTN_EDIT'] + '</button>' +
                               '<button class="nd-btn nd-btn-red btn-unbind" data-mac="'+dev.mac+'">' + T['BTN_UNBIND'] + '</button>';
+                } else if (!isSelectable(dev) && !isVisitor) {
+
+                    actions = '<span style="color:#94a3b8; font-size:13px; padding-right:10px;">' + T['TXT_UNOPERABLE'] + '</span>';
                 } else {
                     actions = '<button class="nd-btn nd-btn-green btn-bind" data-mac="'+dev.mac+'" data-ip="'+dev.ip+'" data-name="'+dev.name+'"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> ' + T['BTN_QUICK_BIND'] + '</button>';
                 }
@@ -1537,7 +1550,7 @@ return view.extend({
                 var isChecked = selectedDevices.findIndex(function(d){ return d.mac === dev.mac; }) !== -1;
 
                 var isSys = isGw || isLocal;
-                var noCheckbox = isSys || isVisitor;
+                var noCheckbox = !isSelectable(dev); 
                 var crossSubnetWarn = "";
 
                 var isValidIp = (dev.ip && dev.ip !== 'Unknown IP' && dev.ip.substring(0, dev.ip.lastIndexOf('.') + 1) === basePrefix);
