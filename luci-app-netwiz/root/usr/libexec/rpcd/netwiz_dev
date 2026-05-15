@@ -67,20 +67,20 @@ case "$1" in
                 fw_str=$(uci show firewall 2>/dev/null || true)
                 ipv6_neigh=$(ip -6 neigh show 2>/dev/null || true)
                 
-                # --- IPv6 存活探测过滤 (核弹级清理版) ---
+                # --- IPv6 存活探测过滤 ---
                 raw_v6_data=$(ip -6 neigh show 2>/dev/null | grep -v "FAILED")
                 v6_candidates=$(echo "$raw_v6_data" | awk '{print $1}' | grep ":" | sort -u)
                 
-                # 1. 抹除内核旧记忆：把所有公网 IPv6 从邻居表强制删除
+                # 1. 删除 邻居表公网 IPv6
                 for v6_addr in $v6_candidates; do
                     if [[ "$v6_addr" != fe80* ]]; then
-                        # 找到它对应的网卡（通常是 br-lan）
+                        # 找到网卡
                         dev_name=$(echo "$raw_v6_data" | grep -w "^$v6_addr" | awk '{print $3}' | head -n 1)
                         [ -n "$dev_name" ] && ip -6 neigh del "$v6_addr" dev "$dev_name" 2>/dev/null
                     fi
                 done
                 
-                # 2. 异步发射 Ping（激发底层的邻居发现请求 NS）
+                # 2. Ping
                 for v6_addr in $v6_candidates; do
                     if [[ "$v6_addr" != fe80* ]]; then
                         ping6 -c 1 -W 1 "$v6_addr" >/dev/null 2>&1 &
@@ -88,12 +88,10 @@ case "$1" in
                 done
                 wait
                 
-                # 3. 稍等片刻，让真正活着的设备回复 NA 包
+                # 3. 延时
                 sleep 0.5
                 
-                # 4. 重新抓取邻居表！
-                # 活着的 Windows (::9b9) 会重新建立为 REACHABLE 或 STALE。
-                # 死掉的旧 IP (::12) 会被标记为 INCOMPLETE（无MAC响应）或 FAILED！
+                # 4. 重新抓取邻居表
                 ipv6_neigh=$(ip -6 neigh show 2>/dev/null | grep -v -E "FAILED|INCOMPLETE" || true)
                 # --------------------------
                 wifi_macs=$(iwinfo 2>/dev/null | grep -o -E '([[:xdigit:]]{1,2}:){5}[[:xdigit:]]{1,2}' | tr 'A-Z' 'a-z' || true)
@@ -600,20 +598,36 @@ case "$1" in
                 matches=$(uci -q show dhcp 2>/dev/null | grep -i -e "\.mac=.*$mac" -e "\.ip=.*$ip" | cut -d'.' -f2 | sed 's/[^0-9]//g' | sort -rn | uniq)
                 for idx in $matches; do uci -q delete dhcp.@host[$idx]; done
                 
-                # 靜態 IP 的核心
+                # 靜态 IP
                 new_sect=$(uci add dhcp host)
                 uci set dhcp.$new_sect.name="$name"
                 uci set dhcp.$new_sect.mac="$mac"
                 uci set dhcp.$new_sect.ip="$ip"
                 
-                # 系統租期表裡抓取該設備的 DUID
-                auto_duid=$(cat /tmp/hosts/odhcpd 2>/dev/null | grep -i "$mac" | grep -oE "duid [0-9a-fA-F:]+" | awk '{print $2}' | head -n 1)
-                
+                # 租期表抓取 DUID
+                auto_duid=""
+                mac_clean=$(echo "$mac" | tr -d ':' | tr 'A-Z' 'a-z')
+
+                # 1.  ubus 获取
+                raw_ubus=$(ubus call dhcp ipv6leases 2>/dev/null || ubus call odhcpd ipv6leases 2>/dev/null)
+                if [ -n "$raw_ubus" ]; then
+                    auto_duid=$(echo "$raw_ubus" | grep -oEi '"duid": *"[0-9a-fA-F]+"' | grep -i "$mac_clean" | cut -d'"' -f4 | head -n 1 | tr 'a-z' 'A-Z')
+                fi
+
+                # 2. odhcpd 缓存文件解析
+                if [ -z "$auto_duid" ] && [ -f "/tmp/hosts/odhcpd" ]; then
+                    auto_duid=$(grep -i "$mac_clean" /tmp/hosts/odhcpd | grep -oEi 'duid [0-9a-fA-F]+' | awk '{print $2}' | head -n 1 | tr 'a-z' 'A-Z')
+                fi
+
+                # 3. dhcp.leases 解析
                 if [ -z "$auto_duid" ]; then
-                    raw_duid=$(cat /tmp/dhcp.leases 2>/dev/null | grep -i "$mac" | awk '{print $5}' | grep -E '^00[0-9a-fA-F]+$' | head -n 1)
-                    if [ -n "$raw_duid" ]; then
-                        auto_duid=$(echo "$raw_duid" | sed 's/../&:/g;s/:$//')
-                    fi
+                    auto_duid=$(cat /tmp/dhcp.leases /var/dhcp.leases 2>/dev/null | grep -i "$mac_clean" | awk '{print $2}' | grep -E '^00[0-4]' | head -n 1 | tr 'a-z' 'A-Z')
+                fi
+
+                # 4. 兜底Type 3 DUID-LL
+                if [ -z "$auto_duid" ]; then
+                    mac_hex=$(echo "$mac_clean" | tr 'a-z' 'A-Z')
+                    auto_duid="00030001${mac_hex}"
                 fi
 
                 if [ -n "$auto_duid" ]; then
@@ -640,7 +654,7 @@ case "$1" in
                             logger -t Netwiz "⚠️ DNSMasq crashed! Auto-restarting..."
                             /etc/init.d/dnsmasq restart
                             sleep 2
-                            wakeup_apps  # 喚醒函數
+                            wakeup_apps  # 唤醒函數
                         fi
                     ) >/dev/null 2>&1 &
                 fi

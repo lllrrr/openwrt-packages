@@ -191,9 +191,9 @@ var T = {
     'TXT_BAK_RESET': _('Before Reset'),
     'OPT_NO_CHANGE': _('-- Keep Unchanged --'),
     'BDG_V6_RESERVED': _('Reserved'),
+    'TIP_DEPT_BIND_RULE': _('Custom group names are not strictly bound to IP subnets. The ranges are only used for automatic IP assignment when a group is selected.'),
     'TXT_UNOPERABLE': _('Unoperable'),
     'TXT_NOTE': _('Note:'),
-    'TIP_DEPT_BIND_RULE': _('Custom group names are not strictly bound to IP subnets. The ranges are only used for automatic IP assignment when a group is selected.')
 };
 
 var callDeviceList = rpc.declare({ object: 'netwiz_dev', method: 'get_list', params: ['show_conns'], expect: { '': {} } });
