@@ -187,6 +187,12 @@ msgstr ""
 msgid "System is upgrading, please wait. The page will reload automatically when the system comes back online."
 msgstr ""
 
+msgid "Firmware Download Completed"
+msgstr ""
+
+msgid "Firmware is ready. System upgrade will start in %d seconds. Please do not leave this page."
+msgstr ""
+
 msgid "Starting download: "
 msgstr ""
 

@@ -507,12 +507,29 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
     #ghfu-upgrade-modal {
         display: none;
         position: fixed;
-        top: 0; left: 0;
-        width: 100%; height: 100%;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
         background: var(--ghfu-overlay);
-        z-index: 9999;
+        z-index: 2147483647;
         align-items: center;
         justify-content: center;
+        pointer-events: auto;
+        touch-action: none;
+    }
+
+    body.ghfu-upgrade-lock,
+    html.ghfu-upgrade-lock {
+        overflow: hidden !important;
+    }
+
+    body.ghfu-upgrade-lock * {
+        pointer-events: none !important;
+    }
+
+    body.ghfu-upgrade-lock #ghfu-upgrade-modal,
+    body.ghfu-upgrade-lock #ghfu-upgrade-modal * {
+        pointer-events: auto !important;
     }
 
     .ghfu-modal-box {
@@ -532,6 +549,10 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
         border-radius: 50%;
         animation: ghfu-spin 0.8s linear infinite;
         margin: 0 auto 20px;
+    }
+
+    #ghfu-upgrade-modal.ghfu-modal-countdown .ghfu-modal-spinner {
+        display: none;
     }
 
     @keyframes ghfu-spin {
@@ -760,6 +781,8 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
         countdownPrefix: '<%:System upgrade will start in %>',
         countdownSuffix: '<%: seconds%>',
         startingUpgrade: '<%:Starting system upgrade...%>',
+        countdownLockTitle: '<%:Firmware Download Completed%>',
+        countdownLockMsg: '<%:Firmware is ready. System upgrade will start in %d seconds. Please do not leave this page.%>',
         timeoutLabel: '<%:Fetch Timeout (seconds)%>',
         timeoutHint: '<%:5 ~ 300 seconds. Limits GitHub API fetch time.%>',
         saveBasicBtn: '<%:Save Basic Configuration%>',
@@ -785,6 +808,8 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
     var rebootPollTimer = null;
     var rebootPollAttempts = 0;
     var rebootPollLimit = 36;
+    var rebootSeenOffline = false;
+    var upgradeModalActive = false;
     var downloadPollTimer = null;
     var filterExtEnabled = true;
     var validExtensions = ['.img', '.img.gz', '.bin', '.tar', '.itb', '.trx', '.chk', '.dlf', '.ari'];
@@ -1607,14 +1632,17 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
 
     function startUpgradeCountdown(fwName, keepConfig) {
         var sec = 5;
+        showUpgradeModal('countdown', sec);
         appendLog(t('countdownPrefix') + sec + t('countdownSuffix'));
         var timer = setInterval(function() {
             sec--;
             if (sec <= 0) {
                 clearInterval(timer);
                 appendLog(t('startingUpgrade'));
+                showUpgradeModal('upgrading');
                 doUpgradeRequest(fwName, keepConfig);
             } else {
+                showUpgradeModal('countdown', sec);
                 appendLog(t('countdownPrefix') + sec + t('countdownSuffix'));
             }
         }, 1000);
@@ -1628,23 +1656,70 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
             var lines = normalizeLogLines(resp.logs);
             lines.forEach(appendLog);
             if (resp.ok && resp.rebooting) {
-                showUpgradeModal();
+                showUpgradeModal('upgrading');
                 pollForReboot();
                 return;
             }
 
+            hideUpgradeModal();
             restoreButtonsAfterDownload();
         }).catch(function(err) {
             appendLog(t('upgradeReqFailed') + err);
+            hideUpgradeModal();
             restoreButtonsAfterDownload();
         });
     }
 
-    function showUpgradeModal() {
+    function showUpgradeModal(stage, countdownSec) {
         var modal = byId('ghfu-upgrade-modal');
+        var titleEl = byId('ghfu_modal_title');
+        var msgEl = byId('ghfu_modal_msg');
+        var currentStage = stage || 'upgrading';
+
         if (modal) {
+            // Move modal to body root to avoid theme stacking-context clipping.
+            if (modal.parentNode !== document.body) {
+                document.body.appendChild(modal);
+            }
+
+            if (currentStage === 'countdown') {
+                modal.classList.add('ghfu-modal-countdown');
+            } else {
+                modal.classList.remove('ghfu-modal-countdown');
+            }
+
             modal.style.display = 'flex';
         }
+
+        if (titleEl && msgEl) {
+            if (currentStage === 'countdown') {
+                var safeSec = Math.max(1, parseInt(countdownSec, 10) || 1);
+                titleEl.textContent = t('countdownLockTitle');
+                msgEl.textContent = t('countdownLockMsg').replace('%d', String(safeSec));
+            } else {
+                titleEl.textContent = t('upgradingTitle');
+                msgEl.textContent = t('upgradingMsg');
+            }
+        }
+
+        upgradeModalActive = true;
+        document.body.classList.add('ghfu-upgrade-lock');
+        document.documentElement.classList.add('ghfu-upgrade-lock');
+    }
+
+    function hideUpgradeModal() {
+        var modal = byId('ghfu-upgrade-modal');
+        if (modal) {
+            modal.style.display = 'none';
+            modal.classList.remove('ghfu-modal-countdown');
+        }
+
+        byId('ghfu_modal_title').textContent = t('upgradingTitle');
+        byId('ghfu_modal_msg').textContent = t('upgradingMsg');
+
+        upgradeModalActive = false;
+        document.body.classList.remove('ghfu-upgrade-lock');
+        document.documentElement.classList.remove('ghfu-upgrade-lock');
     }
 
     function pollForReboot() {
@@ -1653,29 +1728,66 @@ Repository: https://github.com/smallprogram/luci-app-ghfu
         }
 
         rebootPollAttempts = 0;
+        rebootSeenOffline = false;
+
+        var heartbeatUrl = '<%=url([[admin]], [[system]], [[ghfu]], [[local_status]])%>';
 
         var poll = function() {
             rebootPollTimer = setTimeout(function() {
                 rebootPollAttempts++;
 
-                fetch(window.location.href, { method: 'GET', cache: 'no-cache', credentials: 'include' })
+                fetch(heartbeatUrl + '?_=' + Date.now(), {
+                    method: 'POST',
+                    cache: 'no-cache',
+                    credentials: 'include'
+                })
                     .then(function() {
+                        if (!rebootSeenOffline) {
+                            poll();
+                            return;
+                        }
+
                         clearTimeout(rebootPollTimer);
+                        hideUpgradeModal();
                         window.location.reload();
                     })
                     .catch(function() {
-                        if (rebootPollAttempts >= rebootPollLimit) {
-                            clearTimeout(rebootPollTimer);
-                            window.location.reload();
-                            return;
-                        }
+                        rebootSeenOffline = true;
+
+                        // Keep waiting until router comes back online.
                         poll();
                     });
-            }, 5000);
+            }, 2500);
         };
 
         poll();
     }
+
+    function blockNavigationWhileUpgrading(evt) {
+        if (!upgradeModalActive) {
+            return;
+        }
+
+        var modal = byId('ghfu-upgrade-modal');
+        if (modal && modal.contains(evt.target)) {
+            return;
+        }
+
+        evt.preventDefault();
+        evt.stopPropagation();
+    }
+
+    document.addEventListener('click', blockNavigationWhileUpgrading, true);
+    document.addEventListener('mousedown', blockNavigationWhileUpgrading, true);
+    document.addEventListener('touchstart', blockNavigationWhileUpgrading, true);
+
+    window.addEventListener('beforeunload', function(e) {
+        if (!upgradeModalActive) {
+            return;
+        }
+        e.preventDefault();
+        e.returnValue = '';
+    });
 
     byId('ghfu_refresh').addEventListener('click', refreshStatus);
     byId('ghfu_upgrade').addEventListener('click', doDownload);

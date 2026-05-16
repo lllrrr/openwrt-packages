@@ -50,6 +50,11 @@
 
   --label-surface: oklch(from var(--panel-bg) calc(l - 0.02) c h);
 
+  --login-aurora-1: oklch(0.70 0.26 148);
+  --login-aurora-2: oklch(0.65 0.22 190);
+  --login-aurora-3: oklch(0.58 0.24 268);
+  --login-aurora-4: oklch(0.62 0.26 312);
+
   --terminal-bg: oklch(0.24 0.02 260);
   --terminal-foreground: oklch(1 0 0);
 
@@ -116,6 +121,11 @@
   --input-checked: oklch(1 0 0);
 
   --label-surface: oklch(from var(--panel-bg) calc(l + 0.04) c h);
+
+  --login-aurora-1: oklch(0.76 0.28 148);
+  --login-aurora-2: oklch(0.70 0.23 192);
+  --login-aurora-3: oklch(0.63 0.25 268);
+  --login-aurora-4: oklch(0.67 0.27 312);
 
   --terminal-bg: oklch(0.18 0.03 260);
   --terminal-foreground: oklch(1 0 0);

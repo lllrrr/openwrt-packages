@@ -17,13 +17,21 @@
 @custom-variant dark (&:where([data-darkmode=true], [data-darkmode=true] *));
 
 @keyframes aurora {
-  from { background-position: 50% 50%, 50% 50%; }
-  to   { background-position: 350% 50%, 350% 50%; }
+  from {
+    background-position:
+      50% 50%,
+      50% 50%;
+  }
+  to {
+    background-position:
+      350% 50%,
+      350% 50%;
+  }
 }
 
 @layer base {
   html {
-    @apply bg-background font-sans h-full;
+    @apply bg-background h-full font-sans;
   }
 
   body {
@@ -49,44 +57,47 @@
   /* Aurora animated background ─────────────────────────────────── */
   .login-aurora {
     /* contain:paint isolates repaint to this element — input events don't invalidate it */
-    @apply absolute inset-0 overflow-hidden pointer-events-none [contain:paint];
+    @apply pointer-events-none absolute inset-0 overflow-hidden [contain:paint];
   }
 
   .login-aurora-inner {
     /* Custom-property gradients: acceptable raw CSS (not styling utilities) */
     --aurora-gradient: repeating-linear-gradient(
       100deg,
-      var(--primary) 10%,
-      var(--progress-bar-end) 15%,
-      var(--info) 20%,
-      var(--link) 25%,
-      var(--primary) 30%
+      var(--login-aurora-1) 10%,
+      var(--login-aurora-2) 15%,
+      var(--login-aurora-3) 20%,
+      var(--login-aurora-4) 25%,
+      var(--login-aurora-1) 30%
     );
     --light-stripe: repeating-linear-gradient(
       100deg,
-      oklch(1 0 0) 0%, oklch(1 0 0) 7%,
-      transparent 10%, transparent 12%,
+      oklch(1 0 0) 0%,
+      oklch(1 0 0) 7%,
+      transparent 10%,
+      transparent 12%,
       oklch(1 0 0) 16%
     );
     --dark-stripe: repeating-linear-gradient(
       100deg,
-      oklch(0 0 0) 0%, oklch(0 0 0) 7%,
-      transparent 10%, transparent 12%,
+      oklch(0 0 0) 0%,
+      oklch(0 0 0) 7%,
+      transparent 10%,
+      transparent 12%,
       oklch(0 0 0) 16%
     );
 
     /* will-change:transform promotes to its own compositor layer — blur filter stays cached */
-    @apply absolute -inset-[10px] opacity-50 blur-[10px] invert will-change-transform;
+    @apply absolute -inset-[10px] opacity-50 blur-[10px] will-change-transform;
     @apply [background-image:var(--light-stripe),var(--aurora-gradient)];
+    @apply dark:[background-image:var(--dark-stripe),var(--aurora-gradient)];
     @apply [background-size:300%,_200%] [background-position:50%_50%,50%_50%];
     @apply [mask-image:radial-gradient(ellipse_at_100%_0%,black_10%,transparent_70%)];
-    @apply dark:invert-0 dark:[background-image:var(--dark-stripe),var(--aurora-gradient)];
 
     &::after {
-      /* bg-fixed (background-attachment:fixed) blocks GPU compositing — omit it */
-      @apply content-[''] absolute inset-0 [will-change:transform] [animation:aurora_60s_linear_infinite];
+      @apply absolute inset-0 content-[''] [animation:aurora_60s_linear_infinite];
       @apply [background-image:var(--light-stripe),var(--aurora-gradient)] [background-size:200%,_100%];
-      @apply dark:[background-image:var(--dark-stripe),var(--aurora-gradient)];
+      @apply dark:[background-image:var(--dark-stripe),var(--aurora-gradient)] dark:mix-blend-difference;
     }
   }
 
@@ -96,7 +107,7 @@
 
   /* Lens-shaped divider: full-width at center, tapers to 0 at both ends */
   .login-divider {
-    @apply border-0 h-0.5 bg-border [clip-path:ellipse(44%_50%_at_50%_50%)];
+    @apply bg-border h-0.5 border-0 [clip-path:ellipse(44%_50%_at_50%_50%)];
   }
 
   .login-logo {
@@ -142,7 +153,7 @@
   /* Focus ring on ::after whose only changing property is opacity — runs entirely on the
      compositor thread, eliminating the ~400 ms INP Presentation delay on pointer events */
   .input-wrap::after {
-    @apply content-[''] absolute -inset-0.5 border-2 border-primary opacity-0 pointer-events-none rounded-[calc(var(--radius-2xl)+var(--spacing)*0.5)] [will-change:opacity] [transition:opacity_120ms_ease];
+    @apply border-primary pointer-events-none absolute -inset-0.5 rounded-[calc(var(--radius-2xl)+var(--spacing)*0.5)] border-2 opacity-0 [will-change:opacity] content-[''] [transition:opacity_120ms_ease];
   }
 
   .input-wrap:focus-within::after {
@@ -151,11 +162,11 @@
 
   /* No focus styles here — handled by .input-wrap::after */
   .login-input {
-    @apply bg-panel-bg border-border text-foreground placeholder:text-muted-foreground/60 w-full rounded-2xl border px-3 py-2.5 text-base outline-none appearance-none;
+    @apply bg-panel-bg border-border text-foreground placeholder:text-muted-foreground/60 w-full appearance-none rounded-2xl border px-3 py-2.5 text-base outline-none;
   }
 
   .login-error {
-    @apply bg-error text-error-foreground border-error/40 rounded-2xl border px-3 py-2 text-sm text-center;
+    @apply bg-error text-error-foreground border-error/40 rounded-2xl border px-3 py-2 text-center text-sm;
   }
 
   .login-actions {
@@ -164,12 +175,12 @@
 
   /* opacity hover/active run on the compositor — no repaint */
   .login-submit {
-    @apply bg-primary text-primary-foreground w-full rounded-2xl py-2.5 text-base font-medium border-0 cursor-pointer [will-change:opacity] [transition:opacity_120ms_ease] hover:opacity-90 active:opacity-80;
+    @apply bg-primary text-primary-foreground w-full cursor-pointer rounded-2xl border-0 py-2.5 text-base font-medium [will-change:opacity] [transition:opacity_120ms_ease] hover:opacity-90 active:opacity-80;
   }
 
   /* Absolute at viewport bottom; outside .login-shell so it positions relative to .login-screen */
   .login-footer {
-    @apply absolute bottom-5 left-0 right-0 text-muted-foreground text-center text-xs px-5;
+    @apply text-muted-foreground absolute right-0 bottom-5 left-0 px-5 text-center text-xs;
 
     & p {
       @apply whitespace-normal;
