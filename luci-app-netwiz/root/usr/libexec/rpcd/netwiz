@@ -598,12 +598,29 @@ case "$1" in
                     (
                     exec >/dev/null 2>&1 </dev/null
                     sleep 3
+
+                    z_wan=$(uci show firewall | grep -m1 "\.name='wan'" | cut -d'.' -f2)
+                    
+                    if [ -n "$z_wan" ]; then
+                        # 1. 绑定 wan 接口
+                        uci -q del_list firewall.$z_wan.network='wan'
+                        uci add_list firewall.$z_wan.network='wan'
+                        
+                        # 2. 开启 NAT 动态伪装和 MSS 钳制
+                        uci set firewall.$z_wan.masq='1'
+                        uci set firewall.$z_wan.mtu_fix='1'
+                        
+                        uci commit firewall
+                        /etc/init.d/firewall restart  # 重启
+                    fi
+                    # ==========================================
+
                     /etc/init.d/network restart
                     /etc/init.d/dnsmasq restart
                     /etc/init.d/odhcpd restart
                     /etc/init.d/uhttpd restart
 
-                    # 唤醒调用2
+                    # 喚醒調用2
                     restart_depend_apps
                     ) &
                 exit 0

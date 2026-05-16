@@ -90,11 +90,10 @@ uci -q set "dhcp.@host[-1].name=$NAME"
 uci -q commit dhcp
 log_msg "UCI committed: dhcp host $MAC -> $NAME ($IP)"
 
-# Step 4: Restart dnsmasq SYNCHRONOUSLY (no &)
-# MUST be restart, not reload:
-#   reload = SIGHUP, re-reads config but does NOT flush DNS cache
-#   restart = full stop + start, regenerates /tmp/hosts/dhcp.* files
-/etc/init.d/dnsmasq restart >/dev/null 2>&1
+# Step 4: Reload dnsmasq SYNCHRONOUSLY (no &)
+# 修复：使用 reload 代替 restart，避免中断所有 DNS/DHCP 服务
+# uci commit 后 dnsmasq reload 会重新读取配置，足以使新的 host 条目生效
+/etc/init.d/dnsmasq reload >/dev/null 2>&1
 
 # Verify: use nslookup to confirm DNS resolution works
 sleep 1

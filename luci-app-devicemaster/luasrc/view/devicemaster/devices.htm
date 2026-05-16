@@ -66,17 +66,6 @@ Copyright (C) 2024 OpenWrt-DeviceMaster Project
 .device-status.blocked{background:#dc3545;box-shadow:0 0 4px #dc3545}
 .device-status.limited{background:#ffc107;box-shadow:0 0 4px #ffc107}
 .loading{text-align:center;padding:40px;color:#666}
-/* Bandix: connection type badges */
-.conn-badge{display:inline-block;padding:0 5px;border-radius:3px;font-size:9px;font-weight:bold;vertical-align:middle;margin-left:4px}
-.conn-wifi{background:#e3f2fd;color:#1565c0}
-.conn-wired{background:#e8f5e9;color:#2e7d32}
-.conn-router{background:#f3e5f5;color:#7b1fa2}
-/* Bandix: speed and traffic info */
-.speed-info{font-size:11px;color:#333;margin-top:2px}
-.speed-down{color:#2e7d32}
-.speed-up{color:#e65100}
-.traffic-info{font-size:10px;color:#888;margin-top:1px}
-.conn-info{font-size:10px;color:#666;margin-top:1px}
 @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 
 /* 移动端响应式布局 */
@@ -111,7 +100,6 @@ Copyright (C) 2024 OpenWrt-DeviceMaster Project
 (function(){
 var devices=[];
 var deviceMap={};
-var hasBandix=false;
 var apiUrl = '<%=luci.dispatcher.build_url("admin/network/devicemaster/api")%>';
 var typeLabels = {'phone':'手机','pc':'电脑','iot':'IoT','network':'网络','unknown':'未知'};
 
@@ -136,7 +124,17 @@ function httpPost(url, data, callback) {
     var xhr = new XMLHttpRequest();
     xhr.open('POST', url, true);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    xhr.onreadystatechange = function() { if (xhr.readyState === 4 && callback) callback(); };
+    xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4 && callback) {
+            var res = null;
+            try {
+                res = JSON.parse(xhr.responseText);
+            } catch (e) {
+                res = {error: 'Invalid response'};
+            }
+            callback(res);
+        }
+    };
     xhr.send(data);
 }
 
@@ -172,33 +170,15 @@ function buildCardHTML(d) {
     var upstream = d.is_controllable === false;
     if (upstream) cls += ' upstream';
     var typeLabel = typeLabels[d.type] || typeLabels['unknown'];
-    var h = '<div class="device-card ' + cls + '" id="card-' + d.mac.replace(/:/g,'') + '">';
+    var macKey = d.mac.toUpperCase();
+    var h = '<div class="device-card ' + cls + '" id="card-' + macKey.replace(/:/g,'') + '">';
     h += '<div class="device-header"><div class="device-info">';
     h += '<div class="device-name">' + escapeHtml(name) + '</div>';
     h += '<div class="device-vendor">' + escapeHtml(d.vendor || '未知') + ' <span class="device-type ' + (d.type || 'unknown') + '">' + typeLabel + '</span>';
-    // Connection type badge (Bandix)
-    if (hasBandix && (d.uplink || d.conn_type)) {
-        var connLabel = d.uplink || d.conn_type;
-        h += ' <span class="conn-badge conn-' + (d.conn_type || '') + '">' + connLabel + '</span>';
-    }
-    h += '</div></div><span class="device-status ' + getStatusClass(d) + '" id="status-' + d.mac.replace(/:/g,'') + '"></span></div>';
+    h += '</div></div><span class="device-status ' + getStatusClass(d) + '" id="status-' + macKey.replace(/:/g,'') + '"></span></div>';
     var detailsHtml = '<div>MAC: ' + d.mac + '</div><div>IP: ' + (d.ip || 'N/A') + '</div>';
-    // Real-time speed (Bandix) - always show when bandix data exists
-    if (hasBandix && (d.rx_rate !== undefined)) {
-        var rxS = formatSpeed(d.rx_rate);
-        var txS = formatSpeed(d.tx_rate);
-        detailsHtml += '<div class="speed-info"><span class="speed-down">↓' + rxS + '</span> <span class="speed-up">↑' + txS + '</span></div>';
-    }
-    // Total traffic (Bandix) - always show when bandix data exists
-    if (hasBandix && (d.rx_bytes !== undefined)) {
-        detailsHtml += '<div class="traffic-info">↓' + formatBytes(d.rx_bytes) + ' ↑' + formatBytes(d.tx_bytes) + '</div>';
-    }
     if (d.rate_limit) {
         detailsHtml += '<div style="color:#e65100;font-weight:bold;">限速: ' + escapeHtml(d.rate_limit) + '</div>';
-    }
-    // Connection count (Bandix)
-    if (hasBandix && d.connections && d.connections.total > 0) {
-        detailsHtml += '<div class="conn-info">连接: ' + d.connections.total + ' (TCP:' + d.connections.tcp_est + ')</div>';
     }
     h += '<div class="device-details">' + detailsHtml + '</div>';
     h += '<div class="device-actions">';
@@ -249,69 +229,10 @@ function silentRefresh() {
     if (document.hidden) return;
     httpGet(apiUrl + '/status', function(res) {
         if (!res || !res.devices) return;
-        var newDevices = res.devices;
-        var newMap = {};
-        for (var i = 0; i < newDevices.length; i++) newMap[newDevices[i].mac] = newDevices[i];
-
-        var listEl = document.getElementById('device-list');
-        var filterText = document.getElementById('filter-input').value.toLowerCase();
-
-        // 1. Update existing cards & detect status changes
-        for (var i = 0; i < devices.length; i++) {
-            var old = devices[i];
-            var nw = newMap[old.mac];
-            if (!nw) continue;
-            var cardId = 'card-' + old.mac.replace(/:/g,'');
-            var card = document.getElementById(cardId);
-            if (!card) continue;
-            var oldCls = getStatusClass(old);
-            var newCls = getStatusClass(nw);
-            if (oldCls !== newCls) {
-                var statusEl = document.getElementById('status-' + old.mac.replace(/:/g,''));
-                if (statusEl) { statusEl.className = 'device-status ' + newCls; }
-                card.className = 'device-card ' + newCls;
-            }
-            if (old.ip !== nw.ip) {
-                var detailDivs = card.querySelectorAll('.device-details div');
-                if (detailDivs[1]) detailDivs[1].textContent = 'IP: ' + (nw.ip || 'N/A');
-            }
-            // Update Bandix speed/traffic in-place (always update, never clear)
-            if (hasBandix) {
-                var speedEl = card.querySelector('.speed-info');
-                if (speedEl) {
-                    speedEl.innerHTML = '<span class="speed-down">↓' + formatSpeed(nw.rx_rate || 0) + '</span> <span class="speed-up">↑' + formatSpeed(nw.tx_rate || 0) + '</span>';
-                }
-                var trafficEl = card.querySelector('.traffic-info');
-                if (trafficEl) {
-                    trafficEl.textContent = '↓' + formatBytes(nw.rx_bytes || 0) + ' ↑' + formatBytes(nw.tx_bytes || 0);
-                }
-                var connEl = card.querySelector('.conn-info');
-                if (connEl && nw.connections) {
-                    connEl.textContent = '连接: ' + nw.connections.total + ' (TCP:' + nw.connections.tcp_est + ')';
-                }
-            }
-        }
-
-        // 2. Add new device cards
-        var existingMap = {};
-        for (var i = 0; i < devices.length; i++) existingMap[devices[i].mac] = true;
-        for (var i = 0; i < newDevices.length; i++) {
-            var d = newDevices[i];
-            if (!existingMap[d.mac]) {
-                if (!filterText || (d.hostname||'').toLowerCase().indexOf(filterText)>=0 || d.mac.toLowerCase().indexOf(filterText)>=0 || (d.ip||'').toLowerCase().indexOf(filterText)>=0) {
-                    var tmp = document.createElement('div');
-                    tmp.innerHTML = buildCardHTML(d);
-                    var newCard = tmp.firstChild;
-                    newCard.style.animation = 'fadeIn 0.5s ease';
-                    listEl.appendChild(newCard);
-                }
-            }
-        }
-
-        // 3. Update stats
-        devices = newDevices;
-        deviceMap = newMap;
-        updateStats();
+        devices = res.devices;
+        deviceMap = {};
+        for (var i = 0; i < devices.length; i++) deviceMap[devices[i].mac.toUpperCase()] = devices[i];
+        renderDevices();
     });
 }
 
@@ -328,10 +249,9 @@ function loadDevices(){
     listEl.innerHTML = '<div class="loading">加载中...</div>';
     httpGet(apiUrl + '/status', function(res) {
         if (res && res.devices) {
-            hasBandix = !!res.bandix;
             devices = res.devices;
             deviceMap = {};
-            for (var i = 0; i < devices.length; i++) deviceMap[devices[i].mac] = devices[i];
+            for (var i = 0; i < devices.length; i++) deviceMap[devices[i].mac.toUpperCase()] = devices[i];
             renderDevices();
         } else {
             listEl.innerHTML = '<div class="loading">加载失败</div>';
@@ -414,11 +334,11 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('btn-scan').addEventListener('click', scanNetwork);
     document.getElementById('filter-input').addEventListener('input', renderDevices);
 
-    // Auto-refresh: only when page is visible, stop when hidden
+    // Direct refresh every 1 second (page-open only, no resource concern)
     var refreshTimer = null;
     function startRefresh() {
         if (refreshTimer) return;
-        refreshTimer = setInterval(silentRefresh, 3000);
+        refreshTimer = setInterval(silentRefresh, 1000);
     }
     function stopRefresh() {
         if (refreshTimer) {
@@ -428,7 +348,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     startRefresh();
 
-    // Tab visibility: pause refresh when hidden, resume when visible
+    // Tab visibility: pause when hidden, resume when visible
     document.addEventListener('visibilitychange', function() {
         if (document.hidden) {
             stopRefresh();

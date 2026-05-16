@@ -7,7 +7,7 @@ STATE_FILE="/tmp/clash_panel_download_state"
 RUN_FILE="/var/run/panel_downloading"
 
 [ -n "$panel" ] || panel="$(uci -q get clashoo.config.dashboard_panel 2>/dev/null)"
-[ -n "$panel" ] || panel="metacubexd"
+[ -n "$panel" ] || panel="zashboard"
 
 case "$panel" in
 	metacubexd)
@@ -27,9 +27,9 @@ case "$panel" in
 		TARGET_DIR="/etc/clashoo/dashboard"
 		;;
 	*)
-		URLS="https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip"
+		URLS="https://github.com/Zephyruso/zashboard/releases/latest/download/dist-cdn-fonts.zip https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
 		TARGET_DIR="/etc/clashoo/dashboard"
-		panel="metacubexd"
+		panel="zashboard"
 		;;
 esac
 

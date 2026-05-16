@@ -33,6 +33,7 @@ function index()
 
     -- API endpoints
     entry({"admin", "network", "devicemaster", "api", "status"}, call("api_status"))
+    entry({"admin", "network", "devicemaster", "api", "check_update"}, call("api_check_update"))
     entry({"admin", "network", "devicemaster", "api", "set_name"}, call("api_set_name"))
     entry({"admin", "network", "devicemaster", "api", "set_group"}, call("api_set_group"))
     entry({"admin", "network", "devicemaster", "api", "block"}, call("api_block"))
@@ -64,74 +65,256 @@ local function exec_safe(cmd)
     return result:gsub("\n$", "")
 end
 
--- Helper: Get device online status and IPs
--- Uses three data sources:
---   1. /proc/net/arp - all known devices (for IP addresses)
---   2. ip neigh REACHABLE/PERMANENT - truly online devices
---   3. Active ping probe for STALE devices (fast detection when page is open)
+-- ============================================================
+-- Online Status Debounce (anti-flicker)
+-- Uses temp file to persist state across requests (uhttpd forks per request)
+-- A device must fail probe for N consecutive times before being marked offline
+-- ============================================================
+local DEBOUNCE_FILE = "/tmp/devicemaster_debounce"
+local OFFLINE_THRESHOLD = 3       -- Default: local WiFi/wired devices
+local OFFLINE_THRESHOLD_MESH = 10 -- Mesh/remote devices: more tolerant
+
+-- Global debounce state for current request (loaded once, saved once)
+local _debounce_counters = nil
+
+-- Load debounce counters from file (called once per request)
+local function debounce_load()
+    if _debounce_counters then return _debounce_counters end
+    _debounce_counters = {}
+    local f = io.open(DEBOUNCE_FILE, "r")
+    if f then
+        for line in f:lines() do
+            local mac, count = line:match("^([0-9A-F:]+)%s+(%d+)$")
+            if mac and count then
+                _debounce_counters[mac] = tonumber(count)
+            end
+        end
+        f:close()
+    end
+    return _debounce_counters
+end
+
+-- Save debounce counters to file (called once per request)
+local function debounce_save()
+    if not _debounce_counters then return end
+    local f = io.open(DEBOUNCE_FILE, "w")
+    if f then
+        for mac, count in pairs(_debounce_counters) do
+            if count > 0 then
+                f:write(mac .. " " .. count .. "\n")
+            end
+        end
+        f:close()
+    end
+end
+
+-- Update online status with debounce (in-memory, no file I/O)
+-- is_local: true if device is on local WiFi station list or directly reachable
+-- Returns: true (online) or false (offline)
+local function debounce_status(mac, is_online_now, is_local)
+    local counters = debounce_load()
+    local threshold = is_local and OFFLINE_THRESHOLD or OFFLINE_THRESHOLD_MESH
+
+    if is_online_now then
+        counters[mac] = 0  -- Reset counter on success
+        return true
+    else
+        local fail_count = (counters[mac] or 0) + 1
+        counters[mac] = fail_count
+        if fail_count >= threshold then
+            return false
+        else
+            return true  -- Still considered online
+        end
+    end
+end
+
+-- WiFi station cache to avoid frequent iwinfo calls (reduces hostapd memory pressure)
+local _wifi_stations_cache = nil
+local _wifi_stations_cache_time = 0
+local WIFI_STATIONS_CACHE_TTL = 5  -- Cache for 5 seconds
+
+-- Get WiFi station list from all wireless interfaces
+-- Returns: station_macs { ["MAC"] = true }
+local function get_wifi_stations()
+    local now = os.time()
+    
+    -- Return cached result if still valid
+    if _wifi_stations_cache and (now - _wifi_stations_cache_time) < WIFI_STATIONS_CACHE_TTL then
+        return _wifi_stations_cache
+    end
+    
+    local stations = {}
+    -- Try iwinfo first (most reliable)
+    local iwinfo_output = sys.exec("iwinfo 2>/dev/null | grep -E 'Access Point|ESSID' | awk '{print $1}'")
+    if iwinfo_output then
+        for iface in iwinfo_output:gmatch("[^%s]+") do
+            local assoclist = sys.exec("iwinfo " .. iface .. " assoclist 2>/dev/null")
+            if assoclist then
+                for line in assoclist:gmatch("[^\r\n]+") do
+                    local mac = line:match("^([0-9a-fA-F:]+)")
+                    if mac then
+                        stations[mac:upper()] = true
+                    end
+                end
+            end
+        end
+    end
+    -- Fallback: try iw directly
+    if next(stations) == nil then
+        local iw_output = sys.exec("iw dev 2>/dev/null | grep Interface | awk '{print $2}'")
+        if iw_output then
+            for iface in iw_output:gmatch("[^%s]+") do
+                local dump = sys.exec("iw dev " .. iface .. " station dump 2>/dev/null")
+                if dump then
+                    for line in dump:gmatch("[^\r\n]+") do
+                        local mac = line:match("^Station ([0-9a-fA-F:]+)")
+                        if mac then
+                            stations[mac:upper()] = true
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Update cache
+    _wifi_stations_cache = stations
+    _wifi_stations_cache_time = now
+    
+    return stations
+end
+
+-- Online detection strategy (page-open only, prioritize accuracy and speed):
+--   1. Collect all known device IPs from ARP + DHCP leases + UCI
+--   2. WiFi station list: devices connected to AP are online (even if ping fails)
+--   3. ip neigh REACHABLE: kernel confirmed active
+--   4. Probe remaining devices with ping/fping
 -- Returns: online_macs { ["MAC"] = "IP" }, all_macs { ["MAC"] = "IP" }
 local function get_arp_online()
-    local online = {}
-    local all_arp = {}
-    local stale_macs = {}  -- STALE devices that need ping probe
+    local all_ips = {}   -- ip -> mac mapping
+    local all_macs = {}  -- mac -> ip mapping (uppercase MAC)
 
-    -- Read /proc/net/arp for all known device IPs
+    -- 1. Collect IPs from /proc/net/arp
     local f = io.open("/proc/net/arp", "r")
     if f then
-        local header = f:read("*l")  -- skip header
+        local header = f:read("*l")
         if header then
             for line in f:lines() do
                 local ip, hw_type, flags, mac = line:match(
                     "^(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)"
                 )
                 if mac and mac ~= "00:00:00:00:00:00" and flags ~= "0x0" then
-                    all_arp[mac:upper()] = ip
+                    local mac_upper = mac:upper()
+                    all_ips[ip] = mac_upper
+                    all_macs[mac_upper] = ip
                 end
             end
         end
         f:close()
     end
 
-    -- Read ip neigh for accurate online status
-    local output = sys.exec("ip neigh show dev br-lan 2>/dev/null")
-    if output and output ~= "" then
-        for line in output:gmatch("[^\r\n]+") do
+    -- 2. Also collect IPs from DHCP leases (may have devices not in ARP yet)
+    local df = io.open("/tmp/dhcp.leases", "r")
+    if df then
+        for line in df:lines() do
+            local ts, mac, ip, hostname, client_id = line:match(
+                "^(%d+)%s+([0-9a-fA-F:]+)%s+(%S+)%s+(%S+)%s+(.*)"
+            )
+            if mac and ip and mac ~= "00:00:00:00:00:00" then
+                local mac_upper = mac:upper()
+                if not all_macs[mac_upper] then
+                    all_ips[ip] = mac_upper
+                    all_macs[mac_upper] = ip
+                end
+            end
+        end
+        df:close()
+    end
+
+    -- 3. Detect online status with multiple methods
+    local online = {}
+
+    -- First: WiFi station list (most reliable for wireless devices)
+    -- Devices connected to AP are online even if they don't respond to ICMP
+    local wifi_stations = get_wifi_stations()
+    for mac, _ in pairs(wifi_stations) do
+        if all_macs[mac] and not online[mac] then
+            online[mac] = all_macs[mac]
+        end
+    end
+
+    -- Second: ip neigh REACHABLE (kernel confirmed active)
+    local neigh_output = sys.exec("ip neigh show 2>/dev/null")
+    if neigh_output then
+        for line in neigh_output:gmatch("[^\r\n]+") do
             local ip, mac, state = line:match(
                 "^(%d+%.%d+%.%d+%.%d+)%s+%S+%s+%S+%s+([0-9a-fA-F:]+)%s+(%S+)"
             )
-            if mac and state then
+            if mac and ip and state then
+                local mac_upper = mac:upper()
                 state = state:upper()
-                mac = mac:upper()
-                -- REACHABLE = confirmed online (active communication)
-                -- PERMANENT = static ARP entry (always considered online)
-                if state == "REACHABLE" or state == "PERMANENT" then
-                    online[mac] = ip
-                elseif state == "STALE" then
-                    -- STALE devices: mark for ping probe
-                    stale_macs[mac] = ip
+                if state == "REACHABLE" and all_ips[ip] and not online[mac_upper] then
+                    online[mac_upper] = ip
                 end
             end
         end
     end
 
-    -- Active probe: ping STALE devices to confirm online status
-    -- This provides fast detection when user is viewing the device list
-    for mac, ip in pairs(stale_macs) do
-        -- Quick ping: 1 packet, 1 second timeout (validate IP to prevent injection)
-        if is_valid_ip(ip) then
-            local ping_result = sys.exec("ping -c 1 -W 1 " .. ip .. " 2>/dev/null && echo OK || echo FAIL")
-            if ping_result:match("OK") then
-                online[mac] = ip
+    -- Third: probe remaining devices with fping/ping
+    local probe_ips = {}
+    for ip, mac in pairs(all_ips) do
+        if not online[mac] and is_valid_ip(ip) then
+            table.insert(probe_ips, ip)
+        end
+    end
+
+    if #probe_ips > 0 then
+        -- Use fping if available (best: parallel, fast, reliable)
+        local has_fping = sys.exec("which fping 2>/dev/null") ~= ""
+        if has_fping then
+            local ip_list = table.concat(probe_ips, " ")
+            local result = sys.exec("fping -a -t 1000 -i 10 " .. ip_list .. " 2>/dev/null")
+            if result then
+                for line in result:gmatch("[^\r\n]+") do
+                    local ok_ip = line:match("^([%d%.]+)$")
+                    if ok_ip and all_ips[ok_ip] then
+                        online[all_ips[ok_ip]] = ok_ip
+                    end
+                end
+            end
+        else
+            -- Fallback: serial ping (safer for memory, no background processes)
+            for _, ip in ipairs(probe_ips) do
+                local ok = sys.exec("ping -c1 -W1 " .. ip .. " >/dev/null 2>&1 && echo 1")
+                if ok == "1\n" then
+                    if all_ips[ip] then
+                        online[all_ips[ip]] = ip
+                    end
+                end
             end
         end
     end
 
-    -- Fallback: if ip neigh returned nothing, use /proc/net/arp
-    if next(online) == nil then
-        online = all_arp
+    -- 4. Also check ip neigh for any devices not in our ARP/DHCP list
+    if neigh_output then
+        for line in neigh_output:gmatch("[^\r\n]+") do
+            local ip, mac, state = line:match(
+                "^(%d+%.%d+%.%d+%.%d+)%s+%S+%s+%S+%s+([0-9a-fA-F:]+)%s+(%S+)"
+            )
+            if mac and ip and state then
+                local mac_upper = mac:upper()
+                state = state:upper()
+                if state == "REACHABLE" and not all_macs[mac_upper] then
+                    all_macs[mac_upper] = ip
+                    all_ips[ip] = mac_upper
+                    online[mac_upper] = ip
+                end
+            end
+        end
     end
 
-    return online, all_arp
+    return online, all_macs, wifi_stations
 end
 
 -- Helper: Get DHCP leases as { mac = hostname }
@@ -152,162 +335,27 @@ local function get_dhcp_hostnames()
     return hostnames
 end
 
--- ============================================================
--- Bandix Integration
--- Detect Bandix service and fetch traffic/connection data
--- Falls back to own logic when Bandix is not available
--- ============================================================
+-- Global counter for device list changes (incremented when UCI changes)
+local _device_list_version = os.time()
 
--- Cache: bandix availability (checked once per request)
-local _bandix_checked = false
-local _bandix_available = false
-local _bandix_port = nil
-
--- Detect if Bandix service is running
-local function is_bandix_available()
-    if _bandix_checked then return _bandix_available end
-    _bandix_checked = true
-
-    -- Check if bandix process is running
-    local pid = sys.exec("pidof bandix 2>/dev/null"):gsub("\n", "")
-    if pid == "" then return false end
-
-    -- Read port from UCI config
-    _bandix_port = uci:get("bandix", "general", "port") or "8686"
-
-    -- Quick connectivity check
-    local test = sys.exec("curl -s --connect-timeout 1 --max-time 2 'http://127.0.0.1:" .. _bandix_port .. "/api/traffic/devices' 2>/dev/null")
-    if test and test:find('"status":"success"') then
-        _bandix_available = true
-    end
-    return _bandix_available
+function bump_device_version()
+    _device_list_version = os.time()
 end
 
--- Fetch Bandix traffic devices data
--- Returns: { ["MAC"] = { rx_rate, tx_rate, rx_bytes, tx_bytes, conn_type, uplink, wan_rx_limit, wan_tx_limit } }
-local function get_bandix_traffic()
-    local data = {}
-    if not is_bandix_available() then return data end
-
-    -- Fetch once, cache the response
-    local response = sys.exec("curl -s --connect-timeout 2 --max-time 5 'http://127.0.0.1:"
-        .. (_bandix_port or "8686") .. "/api/traffic/devices' 2>/dev/null")
-    if not response or response == "" then return data end
-
-    -- Save response to temp file and use jsonfilter per device
-    sys.exec("echo '" .. response:gsub("'", "'\\''") .. "' > /tmp/bandix_traffic_cache.json")
-
-    -- Get MAC list
-    local macs = sys.exec("jsonfilter -i /tmp/bandix_traffic_cache.json -e '@.data.d[*].mac' 2>/dev/null")
-    if macs == "" then return data end
-
-    local idx = 0
-    for mac in macs:gmatch("[^\n]+") do
-        mac = mac:gsub("\r", "")
-        if mac ~= "" then
-            local p = "@.data.d[" .. idx .. "]"
-            local rx_r = sys.exec("jsonfilter -i /tmp/bandix_traffic_cache.json -e '" .. p .. ".t_rx_r' 2>/dev/null"):gsub("\n", "")
-            local tx_r = sys.exec("jsonfilter -i /tmp/bandix_traffic_cache.json -e '" .. p .. ".t_tx_r' 2>/dev/null"):gsub("\n", "")
-            local rx_b = sys.exec("jsonfilter -i /tmp/bandix_traffic_cache.json -e '" .. p .. ".t_rx_b' 2>/dev/null"):gsub("\n", "")
-            local tx_b = sys.exec("jsonfilter -i /tmp/bandix_traffic_cache.json -e '" .. p .. ".t_tx_b' 2>/dev/null"):gsub("\n", "")
-            local conn = sys.exec("jsonfilter -i /tmp/bandix_traffic_cache.json -e '" .. p .. ".conn' 2>/dev/null"):gsub("\n", "")
-            local uplink = sys.exec("jsonfilter -i /tmp/bandix_traffic_cache.json -e '" .. p .. ".uplink' 2>/dev/null"):gsub("\n", "")
-            local w_rx_l = sys.exec("jsonfilter -i /tmp/bandix_traffic_cache.json -e '" .. p .. ".w_rx_l' 2>/dev/null"):gsub("\n", "")
-            local w_tx_l = sys.exec("jsonfilter -i /tmp/bandix_traffic_cache.json -e '" .. p .. ".w_tx_l' 2>/dev/null"):gsub("\n", "")
-            data[mac:upper()] = {
-                rx_rate = tonumber(rx_r) or 0,
-                tx_rate = tonumber(tx_r) or 0,
-                rx_bytes = tonumber(rx_b) or 0,
-                tx_bytes = tonumber(tx_b) or 0,
-                conn_type = conn or "",
-                uplink = uplink or "",
-                wan_rx_limit = tonumber(w_rx_l) or 0,
-                wan_tx_limit = tonumber(w_tx_l) or 0
-            }
-        end
-        idx = idx + 1
-    end
-    return data
-end
-
--- Fetch Bandix connection data
--- Returns: { ["MAC"] = { tcp, udp, tcp_est, total } }
-local function get_bandix_connections()
-    local data = {}
-    if not is_bandix_available() then return data end
-
-    -- Check if connection monitoring is enabled
-    local conn_enabled = uci:get("bandix", "connections", "enabled")
-    if conn_enabled ~= "1" then return data end
-
-    -- Reuse cached traffic response if available, otherwise fetch fresh
-    local response = sys.exec("curl -s --connect-timeout 2 --max-time 5 'http://127.0.0.1:"
-        .. (_bandix_port or "8686") .. "/api/connection/devices' 2>/dev/null")
-    if not response or response == "" then return data end
-
-    sys.exec("echo '" .. response:gsub("'", "'\\''") .. "' > /tmp/bandix_conn_cache.json")
-
-    local macs = sys.exec("jsonfilter -i /tmp/bandix_conn_cache.json -e '@.data.d[*].mac' 2>/dev/null")
-    if macs == "" then return data end
-
-    local idx = 0
-    for mac in macs:gmatch("[^\n]+") do
-        mac = mac:gsub("\r", "")
-        if mac ~= "" then
-            local p = "@.data.d[" .. idx .. "]"
-            local tcp = sys.exec("jsonfilter -i /tmp/bandix_conn_cache.json -e '" .. p .. ".tcp' 2>/dev/null"):gsub("\n", "")
-            local udp = sys.exec("jsonfilter -i /tmp/bandix_conn_cache.json -e '" .. p .. ".udp' 2>/dev/null"):gsub("\n", "")
-            local tcp_est = sys.exec("jsonfilter -i /tmp/bandix_conn_cache.json -e '" .. p .. ".tcp_est' 2>/dev/null"):gsub("\n", "")
-            local total = sys.exec("jsonfilter -i /tmp/bandix_conn_cache.json -e '" .. p .. ".total' 2>/dev/null"):gsub("\n", "")
-            data[mac:upper()] = {
-                tcp = tonumber(tcp) or 0,
-                udp = tonumber(udp) or 0,
-                tcp_est = tonumber(tcp_est) or 0,
-                total = tonumber(total) or 0
-            }
-        end
-        idx = idx + 1
-    end
-    return data
-end
-
--- Set Bandix rate limit for a device
--- rate: string like "1mbit", converted to bytes/sec for Bandix API
-local function bandix_set_limit(mac, rate)
-    if not is_bandix_available() then return false end
-
-    -- Parse rate string to bytes/sec
-    local num, unit = rate:match("^(%d+)([kmgb]?bit)$")
-    if not num then return false end
-    num = tonumber(num)
-    local bytes_per_sec = 0
-    if unit == "kbit" then
-        bytes_per_sec = math.floor(num * 1000 / 8)
-    elseif unit == "mbit" then
-        bytes_per_sec = math.floor(num * 1000000 / 8)
-    elseif unit == "gbit" then
-        bytes_per_sec = math.floor(num * 1000000000 / 8)
-    else
-        bytes_per_sec = math.floor(num / 8)
-    end
-
-    local cmd = "curl -s --connect-timeout 3 --max-time 10 -X POST -H 'Content-Type: application/json' "
-        .. "-d '{\"mac\":\"" .. mac .. "\",\"wan_rx_rate_limit\":" .. bytes_per_sec
-        .. ",\"wan_tx_rate_limit\":" .. bytes_per_sec .. "}' "
-        .. "'http://127.0.0.1:" .. (_bandix_port or "8686") .. "/api/traffic/limits' 2>/dev/null"
-    local result = sys.exec(cmd)
-    return result and result:find('"status":"success"') ~= nil
-end
-
--- Remove Bandix rate limit for a device
-local function bandix_remove_limit(mac)
-    if not is_bandix_available() then return false end
-
-    local cmd = "curl -s --connect-timeout 3 --max-time 10 -X DELETE -H 'Content-Type: application/json' "
-        .. "-d '{\"mac\":\"" .. mac .. "\"}' "
-        .. "'http://127.0.0.1:" .. (_bandix_port or "8686") .. "/api/traffic/limits' 2>/dev/null"
-    local result = sys.exec(cmd)
-    return result and result:find('"status":"success"') ~= nil
+-- API: Check if device list has changed (lightweight poll)
+function api_check_update()
+    local since = tonumber(luci.http.formvalue("since")) or 0
+    local current = _device_list_version
+    -- Also check if any device status changed (online/offline)
+    local online_macs = get_online_macs()
+    local online_count = 0
+    for _ in pairs(online_macs) do online_count = online_count + 1 end
+    
+    json_response({
+        changed = current > since,
+        version = current,
+        online_count = online_count
+    })
 end
 
 -- ============================================================
@@ -316,15 +364,12 @@ end
 -- No cache files, no background daemons needed
 -- ============================================================
 function api_status()
-    local online_macs, all_arp = get_arp_online()
+    local online_macs, all_arp, wifi_stations = get_arp_online()
     local dhcp_names = get_dhcp_hostnames()
 
-    -- Fetch Bandix data (traffic + connections) if available
-    local bandix_traffic = get_bandix_traffic()
-    local bandix_connections = get_bandix_connections()
-    local has_bandix = is_bandix_available()
-
     local devices = {}
+    -- 修复：添加 dirty 标志，只在有实际 UCI 修改时才 save/commit，避免无谓的磁盘写入
+    local uci_dirty = false
 
     -- 1. Read all device profiles from UCI
     uci:foreach("devicemaster", "device", function(s)
@@ -333,6 +378,12 @@ function api_status()
         local mac_upper = s.mac:upper()
         local ip = s.last_ip or online_macs[mac_upper] or ""
         local is_online = online_macs[mac_upper] ~= nil
+
+        -- Apply debounce: must fail N consecutive probes before marking offline
+        -- Local WiFi devices: 3 failures. Mesh/remote devices: 10 failures.
+        local is_local = wifi_stations and wifi_stations[mac_upper] == true
+        is_online = debounce_status(mac_upper, is_online, is_local)
+
         local was_online = (s.online_status == "1")
         
         -- Track online duration: update when status changes
@@ -340,6 +391,7 @@ function api_status()
             -- Device just came online: record the time
             uci:set("devicemaster", s[".name"], "last_online_at", tostring(os.time()))
             uci:set("devicemaster", s[".name"], "online_status", "1")
+            uci_dirty = true
         elseif not is_online and was_online then
             -- Device just went offline: calculate total online time since discovery
             local last_at = s.last_online_at
@@ -360,6 +412,7 @@ function api_status()
                 end
             end
             uci:set("devicemaster", s[".name"], "online_status", "0")
+            uci_dirty = true
         end
 
         -- If online, use the live IP from ARP
@@ -468,39 +521,20 @@ function api_status()
             group = s.group or s.groups or nil,
             notes = s.notes or nil
         }
-
-        -- Merge Bandix traffic data
-        if has_bandix then
-            local bt = bandix_traffic[mac_upper]
-            if bt then
-                local d = devices[#devices]
-                d.rx_rate = bt.rx_rate
-                d.tx_rate = bt.tx_rate
-                d.rx_bytes = bt.rx_bytes
-                d.tx_bytes = bt.tx_bytes
-                d.conn_type = bt.conn_type
-                d.uplink = bt.uplink
-                -- Use Bandix limit info if our UCI has no limit
-                if not d.rate_limit and (bt.wan_rx_limit > 0 or bt.wan_tx_limit > 0) then
-                    d.rate_limit = "bandix"
-                end
-            end
-            -- Merge Bandix connection data
-            local bc = bandix_connections[mac_upper]
-            if bc then
-                local d = devices[#devices]
-                d.connections = bc
-            end
-        end
     end)
-    uci:save("devicemaster")
-    uci:commit("devicemaster")
+    -- 修复：只在有实际 UCI 修改时才 save/commit，避免每次请求都写磁盘
+    if uci_dirty then
+        uci:save("devicemaster")
+        uci:commit("devicemaster")
+    end
+    bump_device_version()
 
     -- 2. Add ARP-only devices (not yet in UCI, e.g. just joined)
     for mac, ip in pairs(online_macs) do
         local found = false
+        local mac_upper = mac:upper()
         for _, d in ipairs(devices) do
-            if d.mac:upper() == mac then
+            if d.mac:upper() == mac_upper then
                 found = true
                 break
             end
@@ -540,24 +574,6 @@ function api_status()
                 group = nil,
                 notes = nil
             }
-
-            -- Merge Bandix data for ARP-only devices too
-            if has_bandix then
-                local bt = bandix_traffic[mac]
-                if bt then
-                    local d = devices[#devices]
-                    d.rx_rate = bt.rx_rate
-                    d.tx_rate = bt.tx_rate
-                    d.rx_bytes = bt.rx_bytes
-                    d.tx_bytes = bt.tx_bytes
-                    d.conn_type = bt.conn_type
-                    d.uplink = bt.uplink
-                end
-                local bc = bandix_connections[mac]
-                if bc then
-                    devices[#devices].connections = bc
-                end
-            end
         end
     end
 
@@ -573,7 +589,10 @@ function api_status()
         end
     end)
 
-    json_response({devices = devices, bandix = has_bandix})
+    -- Save debounce state to file (once per request)
+    debounce_save()
+
+    json_response({devices = devices})
 end
 
 -- ============================================================
@@ -768,16 +787,6 @@ function api_limit()
         return
     end
 
-    -- Prefer Bandix if available
-    if is_bandix_available() then
-        local ok = bandix_set_limit(mac, rate)
-        if ok then
-            json_response({success = true, backend = "bandix"})
-            return
-        end
-        -- Fall through to own traffic_control.sh if Bandix fails
-    end
-
     local result = exec_safe("/usr/libexec/devicemaster/traffic_control.sh limit " .. mac .. " " .. rate)
     json_response({success = result == "success"})
 end
@@ -788,16 +797,6 @@ function api_unlimit()
     if not is_valid_mac(mac) then
         json_response({success = false, error = "Valid MAC address required"})
         return
-    end
-
-    -- Prefer Bandix if available
-    if is_bandix_available() then
-        local ok = bandix_remove_limit(mac)
-        if ok then
-            json_response({success = true, backend = "bandix"})
-            return
-        end
-        -- Fall through to own traffic_control.sh if Bandix fails
     end
 
     local result = exec_safe("/usr/libexec/devicemaster/traffic_control.sh unlimit " .. mac)
@@ -882,7 +881,23 @@ function api_scan_network()
     -- Scan br-lan subnet
     local lan_net = sys.exec("ip route show dev br-lan 2>/dev/null | awk '{print $1}' | cut -d/ -f1"):match("^(%d+%.%d+%.%d+%)")
     if lan_net then
-        sys.exec(string.format("for i in $(seq 1 254); do ping -c 1 -W 1 %s$i >/dev/null 2>&1 & done; wait", lan_net))
+        -- 修复：优先使用 fping 批量扫描（高效、低资源占用）
+        -- 如果 fping 不可用，则限制并发 ping 数量为 20 个，避免同时启动 254 个进程耗尽资源
+        local has_fping = sys.exec("which fping 2>/dev/null") ~= ""
+        if has_fping then
+            sys.exec("fping -a -q -t 1000 -i 10 " .. lan_net .. "{1..254} 2>/dev/null")
+        else
+            -- 分批 ping，每批 20 个，避免进程爆炸
+            for batch_start = 1, 254, 20 do
+                local batch_end = math.min(batch_start + 19, 254)
+                local cmd = ""
+                for i = batch_start, batch_end do
+                    cmd = cmd .. "ping -c 1 -W 1 " .. lan_net .. i .. " >/dev/null 2>&1 & "
+                end
+                cmd = cmd .. "wait"
+                sys.exec(cmd)
+            end
+        end
     end
 
     -- After scan, re-ping all known UCI devices to restore their ARP entries
