@@ -42,7 +42,6 @@ ubus_set_device_name() {
     local name="$2"
     
     # Check if device section exists
-    # 修复：初始化 found 和 section 变量，避免未定义行为
     local found=0
     local section=""
     config_load devicemaster
@@ -141,9 +140,16 @@ ubus_get_traffic() {
     json_dump
 }
 
-# 修复：删除 register_ubus 函数，它包含的 while ubus -S listen 永远不会执行
-# 因为 main() 的 stdin 阻塞循环是实际的事件处理入口，两者存在架构冲突
-# ubus 方法注册由 ubus service 调用约定处理，main 的 stdin 循环负责方法分发
+# Register ubus methods
+register_ubus() {
+    # Create ubus object
+    ubus -S call "$UBUS_SOCKET" object_add '{"path": "devicemaster", "type": "devicemaster"}' 2>/dev/null
+    
+    # The actual method handling is done via ubus listen
+    while ubus -S listen; do
+        : # Handle events
+    done
+}
 
 # Main loop - handle ubus calls via stdin
 main() {

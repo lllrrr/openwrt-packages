@@ -4,8 +4,7 @@
 
 TRAFFIC_DB="/var/run/devicemaster/traffic.json"
 STATS_DIR="/var/run/devicemaster/stats"
-# 修复：刷新间隔从 5 秒改为 30 秒，避免过于频繁地读取 conntrack 造成 CPU 浪费
-REFRESH_INTERVAL=30
+REFRESH_INTERVAL=5
 
 mkdir -p "$STATS_DIR" "$TRAFFIC_DB" 2>/dev/null || true
 

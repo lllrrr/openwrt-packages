@@ -924,7 +924,6 @@ is_online() {
 
 # Fast update: only update online status from existing cache
 # Does NOT re-query OUI, vendor, type, or hostname
-# 优化: 使用 awk 一次性处理，避免逐行 sed -i
 get_all_devices_fast() {
     local cache_file="/tmp/devicemaster_device_cache"
     
@@ -934,47 +933,38 @@ get_all_devices_fast() {
         return
     fi
     
-    # Build ARP online MAC list (转为正则格式)
+    # Build ARP online MAC list
     local online_macs
-    online_macs=$(awk 'NR>1 && $4!="00:00:00:00:00:00" && $3!="0x0" {print toupper($4)}' "$ARP_TABLE" 2>/dev/null | tr '\n' '|' | sed 's/|$//')
+    online_macs=$(awk 'NR>1 && $4!="00:00:00:00:00:00" && $3!="0x0" {print toupper($4)}' "$ARP_TABLE" 2>/dev/null)
     
-    # 使用 awk 一次性处理整个文件，避免逐行 sed -i
-    awk -v online_pattern="$online_macs" '
-    BEGIN { split(online_pattern, online_arr, "|"); for(i in online_arr) online[online_arr[i]] = 1 }
-    /"mac":/ {
-        match($0, /"mac": "([^"]+)"/, m)
-        cur_mac = m[1]
-    }
-    /"online":/ {
-        if (cur_mac in online) {
-            gsub(/"online": (true|false)/, "\"online\": true")
-        } else {
-            gsub(/"online": (true|false)/, "\"online\": false")
-        }
-        cur_mac = ""
-    }
-    { print }
-    ' "$cache_file"
+    # Update online status: read cache line by line, set online based on ARP
+    local tmp_file="${cache_file}.fast"
+    > "$tmp_file"
+    local cur_mac=""
+    while IFS= read -r line; do
+        echo "$line" >> "$tmp_file"
+        case "$line" in
+            *'"mac": '*)
+                cur_mac=$(echo "$line" | sed 's/.*"mac": "\([^"]*\)".*/\1/' | tr a-f A-F)
+                ;;
+            *'"online": '*)
+                if [ -n "$cur_mac" ] && echo "$online_macs" | grep -q "$cur_mac"; then
+                    sed -i 's/"online": [a-z]*/"online": true/' "$tmp_file"
+                else
+                    sed -i 's/"online": [a-z]*/"online": false/' "$tmp_file"
+                fi
+                cur_mac=""
+                ;;
+        esac
+    done < "$cache_file"
+    
+    cat "$tmp_file"
+    rm -f "$tmp_file"
 }
 
 # Sync hostnames to UCI: DHCP changes + auto-naming for unknown devices
-# 优化: 批量 UCI commit，减少磁盘写入
 sync_hostname_to_uci() {
     [ ! -f "$DHCP_LEASES" ] && [ ! -f /etc/config/devicemaster ] && return
-
-    local modified=0  # 标记是否有修改
-
-    # 预加载 MAC -> section 映射，避免重复 UCI 查询
-    local mac_to_section="/tmp/dm_mac_section_map"
-    > "$mac_to_section"
-    local idx=0
-    while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
-        local uci_mac=$(uci -q get "devicemaster.@device[$idx].mac" 2>/dev/null)
-        if [ -n "$uci_mac" ]; then
-            echo "${uci_mac} $idx" >> "$mac_to_section"
-        fi
-        idx=$((idx + 1))
-    done
 
     # 1. Sync DHCP hostname changes and update last_ip
     if [ -f "$DHCP_LEASES" ]; then
@@ -982,27 +972,27 @@ sync_hostname_to_uci() {
             [ -z "$mac" ] && continue
             hostname=$(echo "$hostname" | awk '{print $1}')
 
-            # 从预加载映射中查找 section
-            local section=$(grep "^${mac} " "$mac_to_section" 2>/dev/null | awk '{print $2}')
+            local section=$(uci show devicemaster 2>/dev/null | \
+                grep "\.mac='${mac}'" | head -1 | sed 's/^devicemaster\.//' | sed 's/\.mac=.*//')
             [ -z "$section" ] && continue
 
             # Update last_ip if device has IP
             if [ -n "$ip" ] && [ "$ip" != "0.0.0.0" ]; then
-                local current_last_ip=$(uci -q get devicemaster.@device[$section].last_ip 2>/dev/null)
+                local current_last_ip=$(uci -q get devicemaster.$section.last_ip 2>/dev/null)
                 if [ "$current_last_ip" != "$ip" ]; then
-                    uci set "devicemaster.@device[$section].last_ip=$ip"
-                    modified=1
+                    uci set "devicemaster.$section.last_ip=$ip"
+                    uci commit devicemaster
                 fi
             fi
 
             # Sync hostname if valid and different
             [ -z "$hostname" ] || [ "$hostname" = "*" ] || [ "$hostname" = "-" ] && continue
-            local uci_name=$(uci -q get devicemaster.@device[$section].name 2>/dev/null)
+            local uci_name=$(uci -q get devicemaster.$section.name 2>/dev/null)
             [ -z "$uci_name" ] && continue
 
             if [ "$uci_name" != "$hostname" ]; then
-                uci set "devicemaster.@device[$section].name=$hostname"
-                modified=1
+                uci set "devicemaster.$section.name=$hostname"
+                uci commit devicemaster
             fi
         done < "$DHCP_LEASES"
     fi
@@ -1051,17 +1041,19 @@ sync_hostname_to_uci() {
             done
 
             # Save to UCI
-            local section=$(grep "^${mac} " "$mac_to_section" 2>/dev/null | awk '{print $2}')
+            local section=$(uci show devicemaster 2>/dev/null | \
+                grep "\.mac='${mac}'" | head -1 | sed 's/^devicemaster\.//' | sed 's/\.mac=.*//')
             [ -z "$section" ] && continue
 
-            uci set "devicemaster.@device[$section].name=$auto_name"
-            uci set "devicemaster.@device[$section].vendor=$vendor"
-            uci set "devicemaster.@device[$section].type=$devtype"
-            uci set "devicemaster.@device[$section].discovered=1"
-            uci set "devicemaster.@device[$section].discovered_at=$(date +%s)"
-            modified=1
+            uci set "devicemaster.$section.name=$auto_name"
+            uci set "devicemaster.$section.vendor=$vendor"
+            uci set "devicemaster.$section.type=$devtype"
+            uci set "devicemaster.$section.discovered=1"
+            uci set "devicemaster.$section.discovered_at=$(date +%s)"
+            uci commit devicemaster
 
             # Also sync to dnsmasq so OpenWrt shows the hostname in DHCP list
+            # Get IP from DHCP leases if available
             local dev_ip=$(grep -i "^[^ ]* $mac " /tmp/dhcp.leases 2>/dev/null | awk '{print $3}')
             if [ -n "$dev_ip" ]; then
                 sync_to_dnsmasq "$mac" "$dev_ip" "$auto_name" 2>/dev/null || true
@@ -1075,23 +1067,17 @@ sync_hostname_to_uci() {
             [ -z "$mac" ] || [ -z "$ip" ] && continue
             [ "$ip" = "0.0.0.0" ] && continue
 
-            local section=$(grep "^${mac} " "$mac_to_section" 2>/dev/null | awk '{print $2}')
+            local section=$(uci show devicemaster 2>/dev/null | \
+                grep "\.mac='${mac}'" | head -1 | sed 's/^devicemaster\.//' | sed 's/\.mac=.*//')
             [ -z "$section" ] && continue
 
-            local current_last_ip=$(uci -q get devicemaster.@device[$section].last_ip 2>/dev/null)
+            local current_last_ip=$(uci -q get devicemaster.$section.last_ip 2>/dev/null)
             if [ "$current_last_ip" != "$ip" ]; then
-                uci set "devicemaster.@device[$section].last_ip=$ip"
-                modified=1
+                uci set "devicemaster.$section.last_ip=$ip"
+                uci commit devicemaster
             fi
         done
     fi
-
-    # 批量 commit：只在有修改时执行一次
-    if [ "$modified" = "1" ]; then
-        uci -q commit devicemaster 2>/dev/null
-    fi
-
-    rm -f "$mac_to_section"
 }
 
 # ============================================================

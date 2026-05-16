@@ -103,7 +103,6 @@ var deviceMap={};
 var apiUrl = '<%=luci.dispatcher.build_url("admin/network/devicemaster/api")%>';
 var typeLabels = {'phone':'手机','pc':'电脑','iot':'IoT','network':'网络','unknown':'未知'};
 
-
 function httpGet(url, callback) {
     var xhr = new XMLHttpRequest();
     // Add timestamp to prevent browser caching
@@ -124,17 +123,7 @@ function httpPost(url, data, callback) {
     var xhr = new XMLHttpRequest();
     xhr.open('POST', url, true);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    xhr.onreadystatechange = function() {
-        if (xhr.readyState === 4 && callback) {
-            var res = null;
-            try {
-                res = JSON.parse(xhr.responseText);
-            } catch (e) {
-                res = {error: 'Invalid response'};
-            }
-            callback(res);
-        }
-    };
+    xhr.onreadystatechange = function() { if (xhr.readyState === 4 && callback) callback(); };
     xhr.send(data);
 }
 
@@ -142,20 +131,6 @@ function escapeHtml(text) {
     var div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
-}
-
-function formatBytes(b) {
-    if (!b || b === 0) return '0 B';
-    var units = ['B','KB','MB','GB','TB'];
-    var i = Math.floor(Math.log(b) / Math.log(1024));
-    return parseFloat((b / Math.pow(1024, i)).toFixed(1)) + ' ' + units[i];
-}
-
-function formatSpeed(bps) {
-    if (!bps || bps === 0) return '';
-    var units = ['B/s','KB/s','MB/s','GB/s'];
-    var i = Math.floor(Math.log(bps) / Math.log(1024));
-    return parseFloat((bps / Math.pow(1024, i)).toFixed(1)) + ' ' + units[i];
 }
 
 function getStatusClass(d) {
@@ -170,12 +145,11 @@ function buildCardHTML(d) {
     var upstream = d.is_controllable === false;
     if (upstream) cls += ' upstream';
     var typeLabel = typeLabels[d.type] || typeLabels['unknown'];
-    var macKey = d.mac.toUpperCase();
-    var h = '<div class="device-card ' + cls + '" id="card-' + macKey.replace(/:/g,'') + '">';
+    var h = '<div class="device-card ' + cls + '" id="card-' + d.mac.replace(/:/g,'') + '">';
     h += '<div class="device-header"><div class="device-info">';
     h += '<div class="device-name">' + escapeHtml(name) + '</div>';
-    h += '<div class="device-vendor">' + escapeHtml(d.vendor || '未知') + ' <span class="device-type ' + (d.type || 'unknown') + '">' + typeLabel + '</span>';
-    h += '</div></div><span class="device-status ' + getStatusClass(d) + '" id="status-' + macKey.replace(/:/g,'') + '"></span></div>';
+    h += '<div class="device-vendor">' + escapeHtml(d.vendor || '未知') + ' <span class="device-type ' + (d.type || 'unknown') + '">' + typeLabel + '</span></div>';
+    h += '</div><span class="device-status ' + getStatusClass(d) + '" id="status-' + d.mac.replace(/:/g,'') + '"></span></div>';
     var detailsHtml = '<div>MAC: ' + d.mac + '</div><div>IP: ' + (d.ip || 'N/A') + '</div>';
     if (d.rate_limit) {
         detailsHtml += '<div style="color:#e65100;font-weight:bold;">限速: ' + escapeHtml(d.rate_limit) + '</div>';
@@ -229,10 +203,54 @@ function silentRefresh() {
     if (document.hidden) return;
     httpGet(apiUrl + '/status', function(res) {
         if (!res || !res.devices) return;
-        devices = res.devices;
-        deviceMap = {};
-        for (var i = 0; i < devices.length; i++) deviceMap[devices[i].mac.toUpperCase()] = devices[i];
-        renderDevices();
+        var newDevices = res.devices;
+        var newMap = {};
+        for (var i = 0; i < newDevices.length; i++) newMap[newDevices[i].mac] = newDevices[i];
+
+        var listEl = document.getElementById('device-list');
+        var filterText = document.getElementById('filter-input').value.toLowerCase();
+
+        // 1. Update existing cards & detect status changes
+        for (var i = 0; i < devices.length; i++) {
+            var old = devices[i];
+            var nw = newMap[old.mac];
+            if (!nw) continue;
+            var cardId = 'card-' + old.mac.replace(/:/g,'');
+            var card = document.getElementById(cardId);
+            if (!card) continue;
+            var oldCls = getStatusClass(old);
+            var newCls = getStatusClass(nw);
+            if (oldCls !== newCls) {
+                var statusEl = document.getElementById('status-' + old.mac.replace(/:/g,''));
+                if (statusEl) { statusEl.className = 'device-status ' + newCls; }
+                card.className = 'device-card ' + newCls;
+            }
+            if (old.ip !== nw.ip) {
+                var detailDivs = card.querySelectorAll('.device-details div');
+                if (detailDivs[1]) detailDivs[1].textContent = 'IP: ' + (nw.ip || 'N/A');
+            }
+        }
+
+        // 2. Add new device cards
+        var existingMap = {};
+        for (var i = 0; i < devices.length; i++) existingMap[devices[i].mac] = true;
+        for (var i = 0; i < newDevices.length; i++) {
+            var d = newDevices[i];
+            if (!existingMap[d.mac]) {
+                if (!filterText || (d.hostname||'').toLowerCase().indexOf(filterText)>=0 || d.mac.toLowerCase().indexOf(filterText)>=0 || (d.ip||'').toLowerCase().indexOf(filterText)>=0) {
+                    var tmp = document.createElement('div');
+                    tmp.innerHTML = buildCardHTML(d);
+                    var newCard = tmp.firstChild;
+                    newCard.style.animation = 'fadeIn 0.5s ease';
+                    listEl.appendChild(newCard);
+                }
+            }
+        }
+
+        // 3. Update stats
+        devices = newDevices;
+        deviceMap = newMap;
+        updateStats();
     });
 }
 
@@ -251,7 +269,7 @@ function loadDevices(){
         if (res && res.devices) {
             devices = res.devices;
             deviceMap = {};
-            for (var i = 0; i < devices.length; i++) deviceMap[devices[i].mac.toUpperCase()] = devices[i];
+            for (var i = 0; i < devices.length; i++) deviceMap[devices[i].mac] = devices[i];
             renderDevices();
         } else {
             listEl.innerHTML = '<div class="loading">加载失败</div>';
@@ -334,11 +352,11 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('btn-scan').addEventListener('click', scanNetwork);
     document.getElementById('filter-input').addEventListener('input', renderDevices);
 
-    // Direct refresh every 1 second (page-open only, no resource concern)
+    // Auto-refresh: only when page is visible, stop when hidden
     var refreshTimer = null;
     function startRefresh() {
         if (refreshTimer) return;
-        refreshTimer = setInterval(silentRefresh, 1000);
+        refreshTimer = setInterval(silentRefresh, 3000);
     }
     function stopRefresh() {
         if (refreshTimer) {
@@ -348,7 +366,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     startRefresh();
 
-    // Tab visibility: pause when hidden, resume when visible
+    // Tab visibility: pause refresh when hidden, resume when visible
     document.addEventListener('visibilitychange', function() {
         if (document.hidden) {
             stopRefresh();

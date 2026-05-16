@@ -33,7 +33,6 @@ function index()
 
     -- API endpoints
     entry({"admin", "network", "devicemaster", "api", "status"}, call("api_status"))
-    entry({"admin", "network", "devicemaster", "api", "check_update"}, call("api_check_update"))
     entry({"admin", "network", "devicemaster", "api", "set_name"}, call("api_set_name"))
     entry({"admin", "network", "devicemaster", "api", "set_group"}, call("api_set_group"))
     entry({"admin", "network", "devicemaster", "api", "block"}, call("api_block"))
@@ -65,256 +64,74 @@ local function exec_safe(cmd)
     return result:gsub("\n$", "")
 end
 
--- ============================================================
--- Online Status Debounce (anti-flicker)
--- Uses temp file to persist state across requests (uhttpd forks per request)
--- A device must fail probe for N consecutive times before being marked offline
--- ============================================================
-local DEBOUNCE_FILE = "/tmp/devicemaster_debounce"
-local OFFLINE_THRESHOLD = 3       -- Default: local WiFi/wired devices
-local OFFLINE_THRESHOLD_MESH = 10 -- Mesh/remote devices: more tolerant
-
--- Global debounce state for current request (loaded once, saved once)
-local _debounce_counters = nil
-
--- Load debounce counters from file (called once per request)
-local function debounce_load()
-    if _debounce_counters then return _debounce_counters end
-    _debounce_counters = {}
-    local f = io.open(DEBOUNCE_FILE, "r")
-    if f then
-        for line in f:lines() do
-            local mac, count = line:match("^([0-9A-F:]+)%s+(%d+)$")
-            if mac and count then
-                _debounce_counters[mac] = tonumber(count)
-            end
-        end
-        f:close()
-    end
-    return _debounce_counters
-end
-
--- Save debounce counters to file (called once per request)
-local function debounce_save()
-    if not _debounce_counters then return end
-    local f = io.open(DEBOUNCE_FILE, "w")
-    if f then
-        for mac, count in pairs(_debounce_counters) do
-            if count > 0 then
-                f:write(mac .. " " .. count .. "\n")
-            end
-        end
-        f:close()
-    end
-end
-
--- Update online status with debounce (in-memory, no file I/O)
--- is_local: true if device is on local WiFi station list or directly reachable
--- Returns: true (online) or false (offline)
-local function debounce_status(mac, is_online_now, is_local)
-    local counters = debounce_load()
-    local threshold = is_local and OFFLINE_THRESHOLD or OFFLINE_THRESHOLD_MESH
-
-    if is_online_now then
-        counters[mac] = 0  -- Reset counter on success
-        return true
-    else
-        local fail_count = (counters[mac] or 0) + 1
-        counters[mac] = fail_count
-        if fail_count >= threshold then
-            return false
-        else
-            return true  -- Still considered online
-        end
-    end
-end
-
--- WiFi station cache to avoid frequent iwinfo calls (reduces hostapd memory pressure)
-local _wifi_stations_cache = nil
-local _wifi_stations_cache_time = 0
-local WIFI_STATIONS_CACHE_TTL = 5  -- Cache for 5 seconds
-
--- Get WiFi station list from all wireless interfaces
--- Returns: station_macs { ["MAC"] = true }
-local function get_wifi_stations()
-    local now = os.time()
-    
-    -- Return cached result if still valid
-    if _wifi_stations_cache and (now - _wifi_stations_cache_time) < WIFI_STATIONS_CACHE_TTL then
-        return _wifi_stations_cache
-    end
-    
-    local stations = {}
-    -- Try iwinfo first (most reliable)
-    local iwinfo_output = sys.exec("iwinfo 2>/dev/null | grep -E 'Access Point|ESSID' | awk '{print $1}'")
-    if iwinfo_output then
-        for iface in iwinfo_output:gmatch("[^%s]+") do
-            local assoclist = sys.exec("iwinfo " .. iface .. " assoclist 2>/dev/null")
-            if assoclist then
-                for line in assoclist:gmatch("[^\r\n]+") do
-                    local mac = line:match("^([0-9a-fA-F:]+)")
-                    if mac then
-                        stations[mac:upper()] = true
-                    end
-                end
-            end
-        end
-    end
-    -- Fallback: try iw directly
-    if next(stations) == nil then
-        local iw_output = sys.exec("iw dev 2>/dev/null | grep Interface | awk '{print $2}'")
-        if iw_output then
-            for iface in iw_output:gmatch("[^%s]+") do
-                local dump = sys.exec("iw dev " .. iface .. " station dump 2>/dev/null")
-                if dump then
-                    for line in dump:gmatch("[^\r\n]+") do
-                        local mac = line:match("^Station ([0-9a-fA-F:]+)")
-                        if mac then
-                            stations[mac:upper()] = true
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    -- Update cache
-    _wifi_stations_cache = stations
-    _wifi_stations_cache_time = now
-    
-    return stations
-end
-
--- Online detection strategy (page-open only, prioritize accuracy and speed):
---   1. Collect all known device IPs from ARP + DHCP leases + UCI
---   2. WiFi station list: devices connected to AP are online (even if ping fails)
---   3. ip neigh REACHABLE: kernel confirmed active
---   4. Probe remaining devices with ping/fping
+-- Helper: Get device online status and IPs
+-- Uses three data sources:
+--   1. /proc/net/arp - all known devices (for IP addresses)
+--   2. ip neigh REACHABLE/PERMANENT - truly online devices
+--   3. Active ping probe for STALE devices (fast detection when page is open)
 -- Returns: online_macs { ["MAC"] = "IP" }, all_macs { ["MAC"] = "IP" }
 local function get_arp_online()
-    local all_ips = {}   -- ip -> mac mapping
-    local all_macs = {}  -- mac -> ip mapping (uppercase MAC)
+    local online = {}
+    local all_arp = {}
+    local stale_macs = {}  -- STALE devices that need ping probe
 
-    -- 1. Collect IPs from /proc/net/arp
+    -- Read /proc/net/arp for all known device IPs
     local f = io.open("/proc/net/arp", "r")
     if f then
-        local header = f:read("*l")
+        local header = f:read("*l")  -- skip header
         if header then
             for line in f:lines() do
                 local ip, hw_type, flags, mac = line:match(
                     "^(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)"
                 )
                 if mac and mac ~= "00:00:00:00:00:00" and flags ~= "0x0" then
-                    local mac_upper = mac:upper()
-                    all_ips[ip] = mac_upper
-                    all_macs[mac_upper] = ip
+                    all_arp[mac:upper()] = ip
                 end
             end
         end
         f:close()
     end
 
-    -- 2. Also collect IPs from DHCP leases (may have devices not in ARP yet)
-    local df = io.open("/tmp/dhcp.leases", "r")
-    if df then
-        for line in df:lines() do
-            local ts, mac, ip, hostname, client_id = line:match(
-                "^(%d+)%s+([0-9a-fA-F:]+)%s+(%S+)%s+(%S+)%s+(.*)"
-            )
-            if mac and ip and mac ~= "00:00:00:00:00:00" then
-                local mac_upper = mac:upper()
-                if not all_macs[mac_upper] then
-                    all_ips[ip] = mac_upper
-                    all_macs[mac_upper] = ip
-                end
-            end
-        end
-        df:close()
-    end
-
-    -- 3. Detect online status with multiple methods
-    local online = {}
-
-    -- First: WiFi station list (most reliable for wireless devices)
-    -- Devices connected to AP are online even if they don't respond to ICMP
-    local wifi_stations = get_wifi_stations()
-    for mac, _ in pairs(wifi_stations) do
-        if all_macs[mac] and not online[mac] then
-            online[mac] = all_macs[mac]
-        end
-    end
-
-    -- Second: ip neigh REACHABLE (kernel confirmed active)
-    local neigh_output = sys.exec("ip neigh show 2>/dev/null")
-    if neigh_output then
-        for line in neigh_output:gmatch("[^\r\n]+") do
+    -- Read ip neigh for accurate online status
+    local output = sys.exec("ip neigh show dev br-lan 2>/dev/null")
+    if output and output ~= "" then
+        for line in output:gmatch("[^\r\n]+") do
             local ip, mac, state = line:match(
                 "^(%d+%.%d+%.%d+%.%d+)%s+%S+%s+%S+%s+([0-9a-fA-F:]+)%s+(%S+)"
             )
-            if mac and ip and state then
-                local mac_upper = mac:upper()
+            if mac and state then
                 state = state:upper()
-                if state == "REACHABLE" and all_ips[ip] and not online[mac_upper] then
-                    online[mac_upper] = ip
+                mac = mac:upper()
+                -- REACHABLE = confirmed online (active communication)
+                -- PERMANENT = static ARP entry (always considered online)
+                if state == "REACHABLE" or state == "PERMANENT" then
+                    online[mac] = ip
+                elseif state == "STALE" then
+                    -- STALE devices: mark for ping probe
+                    stale_macs[mac] = ip
                 end
             end
         end
     end
 
-    -- Third: probe remaining devices with fping/ping
-    local probe_ips = {}
-    for ip, mac in pairs(all_ips) do
-        if not online[mac] and is_valid_ip(ip) then
-            table.insert(probe_ips, ip)
-        end
-    end
-
-    if #probe_ips > 0 then
-        -- Use fping if available (best: parallel, fast, reliable)
-        local has_fping = sys.exec("which fping 2>/dev/null") ~= ""
-        if has_fping then
-            local ip_list = table.concat(probe_ips, " ")
-            local result = sys.exec("fping -a -t 1000 -i 10 " .. ip_list .. " 2>/dev/null")
-            if result then
-                for line in result:gmatch("[^\r\n]+") do
-                    local ok_ip = line:match("^([%d%.]+)$")
-                    if ok_ip and all_ips[ok_ip] then
-                        online[all_ips[ok_ip]] = ok_ip
-                    end
-                end
-            end
-        else
-            -- Fallback: serial ping (safer for memory, no background processes)
-            for _, ip in ipairs(probe_ips) do
-                local ok = sys.exec("ping -c1 -W1 " .. ip .. " >/dev/null 2>&1 && echo 1")
-                if ok == "1\n" then
-                    if all_ips[ip] then
-                        online[all_ips[ip]] = ip
-                    end
-                end
+    -- Active probe: ping STALE devices to confirm online status
+    -- This provides fast detection when user is viewing the device list
+    for mac, ip in pairs(stale_macs) do
+        -- Quick ping: 1 packet, 1 second timeout (validate IP to prevent injection)
+        if is_valid_ip(ip) then
+            local ping_result = sys.exec("ping -c 1 -W 1 " .. ip .. " 2>/dev/null && echo OK || echo FAIL")
+            if ping_result:match("OK") then
+                online[mac] = ip
             end
         end
     end
 
-    -- 4. Also check ip neigh for any devices not in our ARP/DHCP list
-    if neigh_output then
-        for line in neigh_output:gmatch("[^\r\n]+") do
-            local ip, mac, state = line:match(
-                "^(%d+%.%d+%.%d+%.%d+)%s+%S+%s+%S+%s+([0-9a-fA-F:]+)%s+(%S+)"
-            )
-            if mac and ip and state then
-                local mac_upper = mac:upper()
-                state = state:upper()
-                if state == "REACHABLE" and not all_macs[mac_upper] then
-                    all_macs[mac_upper] = ip
-                    all_ips[ip] = mac_upper
-                    online[mac_upper] = ip
-                end
-            end
-        end
+    -- Fallback: if ip neigh returned nothing, use /proc/net/arp
+    if next(online) == nil then
+        online = all_arp
     end
 
-    return online, all_macs, wifi_stations
+    return online, all_arp
 end
 
 -- Helper: Get DHCP leases as { mac = hostname }
@@ -335,41 +152,15 @@ local function get_dhcp_hostnames()
     return hostnames
 end
 
--- Global counter for device list changes (incremented when UCI changes)
-local _device_list_version = os.time()
-
-function bump_device_version()
-    _device_list_version = os.time()
-end
-
--- API: Check if device list has changed (lightweight poll)
-function api_check_update()
-    local since = tonumber(luci.http.formvalue("since")) or 0
-    local current = _device_list_version
-    -- Also check if any device status changed (online/offline)
-    local online_macs = get_online_macs()
-    local online_count = 0
-    for _ in pairs(online_macs) do online_count = online_count + 1 end
-    
-    json_response({
-        changed = current > since,
-        version = current,
-        online_count = online_count
-    })
-end
-
 -- ============================================================
 -- Core API: Real-time device status
 -- Reads UCI profiles + ARP online status, joins in memory
 -- No cache files, no background daemons needed
 -- ============================================================
 function api_status()
-    local online_macs, all_arp, wifi_stations = get_arp_online()
+    local online_macs, all_arp = get_arp_online()
     local dhcp_names = get_dhcp_hostnames()
-
     local devices = {}
-    -- 修复：添加 dirty 标志，只在有实际 UCI 修改时才 save/commit，避免无谓的磁盘写入
-    local uci_dirty = false
 
     -- 1. Read all device profiles from UCI
     uci:foreach("devicemaster", "device", function(s)
@@ -378,42 +169,6 @@ function api_status()
         local mac_upper = s.mac:upper()
         local ip = s.last_ip or online_macs[mac_upper] or ""
         local is_online = online_macs[mac_upper] ~= nil
-
-        -- Apply debounce: must fail N consecutive probes before marking offline
-        -- Local WiFi devices: 3 failures. Mesh/remote devices: 10 failures.
-        local is_local = wifi_stations and wifi_stations[mac_upper] == true
-        is_online = debounce_status(mac_upper, is_online, is_local)
-
-        local was_online = (s.online_status == "1")
-        
-        -- Track online duration: update when status changes
-        if is_online and not was_online then
-            -- Device just came online: record the time
-            uci:set("devicemaster", s[".name"], "last_online_at", tostring(os.time()))
-            uci:set("devicemaster", s[".name"], "online_status", "1")
-            uci_dirty = true
-        elseif not is_online and was_online then
-            -- Device just went offline: calculate total online time since discovery
-            local last_at = s.last_online_at
-            local discovered = s.discovered_at
-            if last_at and last_at ~= "" and discovered and discovered ~= "" then
-                -- Total online = previous sessions + current session
-                local current_session = os.time() - tonumber(last_at)
-                local previous_total = tonumber(s.online_duration) or 0
-                -- If this is the first offline, previous_total is 0, but we need to count from discovered_at
-                if previous_total == 0 then
-                    -- First time going offline: count from discovered_at to now
-                    local total_online = os.time() - tonumber(discovered)
-                    uci:set("devicemaster", s[".name"], "online_duration", tostring(total_online))
-                elseif current_session > 0 then
-                    -- Subsequent offline: add current session to previous total
-                    local total = previous_total + current_session
-                    uci:set("devicemaster", s[".name"], "online_duration", tostring(total))
-                end
-            end
-            uci:set("devicemaster", s[".name"], "online_status", "0")
-            uci_dirty = true
-        end
 
         -- If online, use the live IP from ARP
         if is_online and online_macs[mac_upper] then
@@ -468,39 +223,16 @@ function api_status()
             end
         end
 
-        -- Calculate cumulative online duration (total time spent online since discovery)
-        -- online_duration: stored cumulative seconds from past sessions
-        -- last_online_at: timestamp when device last came online
-        -- discovered_at: when device was first discovered
+        -- Calculate total online duration (seconds since first discovery)
+        -- This is cumulative and does not reset when device goes offline
+        -- Auto-set discovered_at for devices that lack it (backward compat)
+        if not s.discovered_at or s.discovered_at == "" then
+            uci:set("devicemaster", s[".name"], "discovered_at", tostring(os.time()))
+        end
         local online_seconds = 0
-        local stored_duration = tonumber(s.online_duration) or 0
-        local last_online_at = s.last_online_at
-        local discovered_at = s.discovered_at
-        local now = os.time()
-        
-        if is_online then
-            -- Currently online: calculate total time online since discovery
-            -- If never went offline, use discovered_at as start
-            -- If went offline before, use last_online_at as start of current session
-            if discovered_at and discovered_at ~= "" then
-                if stored_duration > 0 and last_online_at and last_online_at ~= "" then
-                    -- Has offline history: stored + current session
-                    local current_session = now - tonumber(last_online_at)
-                    if current_session > 0 then
-                        online_seconds = stored_duration + current_session
-                    else
-                        online_seconds = stored_duration
-                    end
-                else
-                    -- Never went offline: calculate from discovered_at
-                    online_seconds = now - tonumber(discovered_at)
-                end
-            else
-                online_seconds = stored_duration
-            end
-        else
-            -- Currently offline: just show stored duration
-            online_seconds = stored_duration
+        if s.discovered_at then
+            online_seconds = os.time() - tonumber(s.discovered_at)
+            if online_seconds < 0 then online_seconds = 0 end
         end
 
         devices[#devices + 1] = {
@@ -522,19 +254,14 @@ function api_status()
             notes = s.notes or nil
         }
     end)
-    -- 修复：只在有实际 UCI 修改时才 save/commit，避免每次请求都写磁盘
-    if uci_dirty then
-        uci:save("devicemaster")
-        uci:commit("devicemaster")
-    end
-    bump_device_version()
+    uci:save("devicemaster")
+    uci:commit("devicemaster")
 
     -- 2. Add ARP-only devices (not yet in UCI, e.g. just joined)
     for mac, ip in pairs(online_macs) do
         local found = false
-        local mac_upper = mac:upper()
         for _, d in ipairs(devices) do
-            if d.mac:upper() == mac_upper then
+            if d.mac:upper() == mac then
                 found = true
                 break
             end
@@ -578,19 +305,9 @@ function api_status()
     end
 
     -- Sort devices by total online_seconds (descending), regardless of online status
-    -- Use MAC as secondary sort key for stable ordering
     table.sort(devices, function(a, b)
-        local a_secs = a.online_seconds or 0
-        local b_secs = b.online_seconds or 0
-        if a_secs ~= b_secs then
-            return a_secs > b_secs
-        else
-            return (a.mac or "") < (b.mac or "")
-        end
+        return (a.online_seconds or 0) > (b.online_seconds or 0)
     end)
-
-    -- Save debounce state to file (once per request)
-    debounce_save()
 
     json_response({devices = devices})
 end
@@ -786,7 +503,6 @@ function api_limit()
         json_response({success = false, error = "Invalid rate format (e.g. 1mbit, 500kbit)"})
         return
     end
-
     local result = exec_safe("/usr/libexec/devicemaster/traffic_control.sh limit " .. mac .. " " .. rate)
     json_response({success = result == "success"})
 end
@@ -798,7 +514,6 @@ function api_unlimit()
         json_response({success = false, error = "Valid MAC address required"})
         return
     end
-
     local result = exec_safe("/usr/libexec/devicemaster/traffic_control.sh unlimit " .. mac)
     json_response({success = result == "success"})
 end
@@ -875,41 +590,11 @@ end
 
 -- API: Scan network (trigger ARP flood to discover new devices)
 function api_scan_network()
-    -- Only flush br-lan ARP cache (not mesh/other interfaces)
-    sys.exec("ip neigh flush dev br-lan >/dev/null 2>&1")
-
-    -- Scan br-lan subnet
+    sys.exec("ip neigh flush all >/dev/null 2>&1")
     local lan_net = sys.exec("ip route show dev br-lan 2>/dev/null | awk '{print $1}' | cut -d/ -f1"):match("^(%d+%.%d+%.%d+%)")
     if lan_net then
-        -- 修复：优先使用 fping 批量扫描（高效、低资源占用）
-        -- 如果 fping 不可用，则限制并发 ping 数量为 20 个，避免同时启动 254 个进程耗尽资源
-        local has_fping = sys.exec("which fping 2>/dev/null") ~= ""
-        if has_fping then
-            sys.exec("fping -a -q -t 1000 -i 10 " .. lan_net .. "{1..254} 2>/dev/null")
-        else
-            -- 分批 ping，每批 20 个，避免进程爆炸
-            for batch_start = 1, 254, 20 do
-                local batch_end = math.min(batch_start + 19, 254)
-                local cmd = ""
-                for i = batch_start, batch_end do
-                    cmd = cmd .. "ping -c 1 -W 1 " .. lan_net .. i .. " >/dev/null 2>&1 & "
-                end
-                cmd = cmd .. "wait"
-                sys.exec(cmd)
-            end
-        end
+        sys.exec(string.format("for i in $(seq 1 254); do ping -c 1 -W 1 %s$i >/dev/null 2>&1 & done; wait", lan_net))
     end
-
-    -- After scan, re-ping all known UCI devices to restore their ARP entries
-    -- This prevents mesh/sub-devices from being marked offline
-    uci:foreach("devicemaster", "device", function(s)
-        local ip = s.last_ip
-        if ip and is_valid_ip(ip) then
-            sys.exec("ping -c 1 -W 1 " .. ip .. " >/dev/null 2>&1 &")
-        end
-    end)
-    sys.exec("wait >/dev/null 2>&1")
-
     json_response({success = true, message = "Network scan complete"})
 end
 
