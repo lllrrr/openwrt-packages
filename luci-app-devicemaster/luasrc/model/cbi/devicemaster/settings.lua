@@ -125,26 +125,42 @@ end
 o = s:option(DummyValue, "_api_test_area", "API测试")
 o.rawhtml = true
 o.cfgvalue = function(self, section)
-    local test_result = sys.exec("cat /tmp/oui_api_test_result.txt 2>/dev/null")
-    local result_html = ""
-    if test_result and test_result ~= "" then
-        sys.exec("rm -f /tmp/oui_api_test_result.txt")
-        local vendor = test_result:match("Extracted vendor:%s*(.+)")
-        local rtime = test_result:match("Response time:%s*([0-9]+)")
-        if vendor and vendor ~= "Not Found" then
-            result_html = "<span style='color:#2e7d32;font-weight:bold;margin-left:10px;'>✓ " .. vendor:gsub("\n", "") .. "</span>"
-            if rtime then
-                result_html = result_html .. "<span style='color:#666;font-size:0.85em;margin-left:8px;'>(" .. rtime .. "ms)</span>"
-            end
-        elseif vendor == "Not Found" or vendor == "" then
-            result_html = "<span style='color:#c62828;margin-left:10px;'>✗ 未找到</span>"
-        end
-    end
-    local html = "<div style='display:flex;align-items:center;gap:8px;'>"
-    html = html .. "<input type='text' name='test_mac' value='00:11:22:33:44:55' style='width:200px;padding:4px 8px;border:1px solid #ccc;border-radius:4px;' />"
-    html = html .. "<a href='" .. luci.dispatcher.build_url("admin", "network", "devicemaster", "test_api") .. "' style='padding:4px 16px;background:#1976d2;color:white;border-radius:4px;text-decoration:none;' onclick='this.href+=\"?mac=\"+encodeURIComponent(this.parentNode.querySelector(\"input\").value)'>测试API</a>"
-    html = html .. result_html
+    local api_url = luci.dispatcher.build_url("admin", "network", "devicemaster", "api", "test_api")
+    local html = "<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;'>"
+    html = html .. "<input type='text' id='test_mac_input' name='test_mac' value='00:11:22:33:44:55' style='width:200px;padding:4px 8px;border:1px solid #ccc;border-radius:4px;' />"
+    html = html .. "<button type='button' id='test_api_btn' style='padding:4px 16px;background:#1976d2;color:white;border-radius:4px;border:none;cursor:pointer;' onclick='testOuiApi()'>测试API</button>"
+    html = html .. "<span id='test_api_result'></span>"
     html = html .. "</div>"
+    html = html .. "<script>"
+    html = html .. "function testOuiApi(){"
+    html = html .. "  var btn=document.getElementById('test_api_btn');"
+    html = html .. "  var res=document.getElementById('test_api_result');"
+    html = html .. "  var mac=document.getElementById('test_mac_input').value;"
+    html = html .. "  btn.disabled=true;btn.textContent='测试中...';btn.style.background='#90a4ae';"
+    html = html .. "  res.innerHTML='<span style=\"color:#888;font-size:0.85em;\">正在查询...</span>';"
+    html = html .. "  var xhr=new XMLHttpRequest();"
+    html = html .. "  xhr.open('POST','" .. api_url .. "',true);"
+    html = html .. "  xhr.setRequestHeader('Content-Type','application/x-www-form-urlencoded');"
+    html = html .. "  xhr.onreadystatechange=function(){"
+    html = html .. "    if(xhr.readyState===4){"
+    html = html .. "      btn.disabled=false;btn.textContent='测试API';btn.style.background='#1976d2';"
+    html = html .. "      if(xhr.status===200){"
+    html = html .. "        try{"
+    html = html .. "          var d=JSON.parse(xhr.responseText);"
+    html = html .. "          if(d.success){"
+    html = html .. "            res.innerHTML='<span style=\"color:#2e7d32;font-weight:bold;\">✓ '+d.vendor+'</span>'"
+    html = html .. "              +'<span style=\"color:#2e7d32;font-size:0.85em;margin-left:6px;\">通过</span>'"
+    html = html .. "              +(d.time?'<span style=\"color:#888;font-size:0.8em;margin-left:6px;\">('+d.time+'ms)</span>':'');"
+    html = html .. "          }else{"
+    html = html .. "            res.innerHTML='<span style=\"color:#c62828;\">✗ '+(d.error||'测试失败')+'</span>';"
+    html = html .. "          }"
+    html = html .. "        }catch(e){res.innerHTML='<span style=\"color:#c62828;\">✗ 响应解析失败</span>';}"
+    html = html .. "      }else{res.innerHTML='<span style=\"color:#c62828;\">✗ 请求失败</span>';}"
+    html = html .. "    }"
+    html = html .. "  };"
+    html = html .. "  xhr.send('mac='+encodeURIComponent(mac));"
+    html = html .. "}"
+    html = html .. "</script>"
     return html
 end
 

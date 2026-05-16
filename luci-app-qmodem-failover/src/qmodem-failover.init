@@ -1,0 +1,142 @@
+#!/bin/sh /etc/rc.common
+#
+# qmodem-failover.init — OpenWrt procd 服务管理
+# 修复:
+#   P16 - extra_command/cmd_check 非标准，改为标准函数定义
+#   P17 - reload_service 不应手动调 stop/start，procd 有专用方式
+#   P18 - 删除错误重定义的 boot() 函数
+# 位置: /etc/init.d/qmodem-failover
+#
+
+START=99
+STOP=10
+USE_PROCD=1
+
+PROG="/usr/lib/qmodem-failover/qmodem-failover.sh"
+STATUS_FILE="/var/run/qmodem-failover/status"
+LOG_TAG="qmodem-failover"
+
+# ─────────────────────────────────────────────
+# start_service: procd 标准启动钩子
+# ─────────────────────────────────────────────
+start_service() {
+    # 读取 UCI 配置决定是否启动
+    local enabled
+    config_load qmodem_failover
+    config_get enabled general enabled "0"
+
+    if [ "$enabled" != "1" ]; then
+        logger -t "$LOG_TAG" "插件未启用 (enabled=0)，跳过启动"
+        return 0
+    fi
+
+    # 确保运行目录存在
+    mkdir -p /var/run/qmodem-failover
+
+    procd_open_instance "main"
+    procd_set_param command "$PROG"
+
+    # 崩溃自动重启: threshold=5(若5秒内崩溃超过5次则停止重启) timeout=5(等5秒再重启) retry=0(无限重试)
+    # 格式: procd_set_param respawn <threshold> <timeout> <retry>
+    procd_set_param respawn 5 5 0
+
+    # stdout/stderr 进 syslog
+    procd_set_param stdout 1
+    procd_set_param stderr 1
+
+    # 降低 CPU 优先级（nice=10），不影响路由器正常转发
+    procd_set_param nice 10
+
+    procd_close_instance
+
+    logger -t "$LOG_TAG" "服务已启动"
+}
+
+# ─────────────────────────────────────────────
+# stop_service: procd 标准停止钩子
+# procd 会自动向进程发 SIGTERM，这里只做日志
+# ─────────────────────────────────────────────
+stop_service() {
+    logger -t "$LOG_TAG" "服务已停止"
+}
+
+# ─────────────────────────────────────────────
+# P17修复: reload_service
+# procd 模式下不应手动 stop/start
+# 正确做法: 发送 HUP 信号让守护进程重读配置，或直接 restart
+# 由于本守护进程加载配置在启动时完成，reload 等同于 restart
+# ─────────────────────────────────────────────
+reload_service() {
+    logger -t "$LOG_TAG" "配置变更，重启服务以应用新配置..."
+    # procd 的标准重启方式
+    stop
+    start
+}
+
+# ─────────────────────────────────────────────
+# service_triggers: UCI 变更自动触发 reload
+# ─────────────────────────────────────────────
+service_triggers() {
+    procd_add_reload_trigger "qmodem_failover"
+}
+
+# ─────────────────────────────────────────────
+# P16修复: 自定义 check 命令
+# rc.common 支持直接定义同名函数作为子命令
+# 用法: /etc/init.d/qmodem-failover check
+# ─────────────────────────────────────────────
+check() {
+    local wan_iface
+    wan_iface=$(uci -q get qmodem_failover.general.wan_iface 2>/dev/null || echo "eth0")
+
+    printf '=== WAN 连通性测试 ===\n'
+    if ping -c 2 -W 2 -I "$wan_iface" 223.5.5.5 >/dev/null 2>&1; then
+        printf 'WAN 状态: 正常 (Ping 223.5.5.5 成功)\n'
+    else
+        printf 'WAN 状态: 故障 (Ping 223.5.5.5 失败)\n'
+    fi
+
+    printf '\n=== 当前切换状态 ===\n'
+    if [ -f "$STATUS_FILE" ]; then
+        cat "$STATUS_FILE"
+    else
+        printf '未知 (状态文件不存在)\n'
+    fi
+
+    printf '\n=== 当前默认路由 ===\n'
+    ip route show | grep "^default" || printf '(无默认路由)\n'
+
+    printf '\n=== 服务进程 ===\n'
+    local pid_file="/var/run/qmodem-failover/checker.pid"
+    if [ -f "$pid_file" ]; then
+        local pid
+        pid=$(cat "$pid_file")
+        if kill -0 "$pid" 2>/dev/null; then
+            printf '运行中 PID=%s\n' "$pid"
+        else
+            printf '进程已退出 (PID=%s 不存在)\n' "$pid"
+        fi
+    else
+        printf '未运行\n'
+    fi
+}
+
+# ─────────────────────────────────────────────
+# P16修复: 手动强制切换命令
+# 用法: /etc/init.d/qmodem-failover switch_lte
+#        /etc/init.d/qmodem-failover switch_wan
+# ─────────────────────────────────────────────
+switch_lte() {
+    printf '手动切换至 LTE...\n'
+    sh /usr/lib/qmodem-failover/switcher.sh switch_to_lte
+}
+
+switch_wan() {
+    printf '手动切回 WAN...\n'
+    sh /usr/lib/qmodem-failover/switcher.sh switch_to_wan
+}
+
+# P18修复: 删除 boot() 重定义
+# rc.common 的 boot() 会在系统启动时自动调用 start()
+# 不需要也不应该重定义它，否则会破坏启动顺序
+

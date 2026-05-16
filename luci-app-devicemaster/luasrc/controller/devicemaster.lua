@@ -14,7 +14,7 @@ local sys = require("luci.sys")
 
 -- Input validation helpers (prevent command injection)
 local function is_valid_mac(mac)
-    return mac and mac:match("^%x%x:[%x%x]:[%x%x]:[%x%x]:[%x%x]:[%x%x]$")
+    return mac and mac:match("^%x%x:%x%x:%x%x:%x%x:%x%x:%x%x$")
 end
 
 local function is_valid_ip(ip)
@@ -49,6 +49,7 @@ function index()
     -- OUI Database management
     entry({"admin", "network", "devicemaster", "download_oui"}, call("action_download_oui"))
     entry({"admin", "network", "devicemaster", "test_api"}, call("action_test_api"))
+    entry({"admin", "network", "devicemaster", "api", "test_api"}, call("api_test_api"))
 end
 
 -- Helper: JSON response
@@ -152,6 +153,164 @@ local function get_dhcp_hostnames()
 end
 
 -- ============================================================
+-- Bandix Integration
+-- Detect Bandix service and fetch traffic/connection data
+-- Falls back to own logic when Bandix is not available
+-- ============================================================
+
+-- Cache: bandix availability (checked once per request)
+local _bandix_checked = false
+local _bandix_available = false
+local _bandix_port = nil
+
+-- Detect if Bandix service is running
+local function is_bandix_available()
+    if _bandix_checked then return _bandix_available end
+    _bandix_checked = true
+
+    -- Check if bandix process is running
+    local pid = sys.exec("pidof bandix 2>/dev/null"):gsub("\n", "")
+    if pid == "" then return false end
+
+    -- Read port from UCI config
+    _bandix_port = uci:get("bandix", "general", "port") or "8686"
+
+    -- Quick connectivity check
+    local test = sys.exec("curl -s --connect-timeout 1 --max-time 2 'http://127.0.0.1:" .. _bandix_port .. "/api/traffic/devices' 2>/dev/null")
+    if test and test:find('"status":"success"') then
+        _bandix_available = true
+    end
+    return _bandix_available
+end
+
+-- Fetch Bandix traffic devices data
+-- Returns: { ["MAC"] = { rx_rate, tx_rate, rx_bytes, tx_bytes, conn_type, uplink, wan_rx_limit, wan_tx_limit } }
+local function get_bandix_traffic()
+    local data = {}
+    if not is_bandix_available() then return data end
+
+    -- Fetch once, cache the response
+    local response = sys.exec("curl -s --connect-timeout 2 --max-time 5 'http://127.0.0.1:"
+        .. (_bandix_port or "8686") .. "/api/traffic/devices' 2>/dev/null")
+    if not response or response == "" then return data end
+
+    -- Save response to temp file and use jsonfilter per device
+    sys.exec("echo '" .. response:gsub("'", "'\\''") .. "' > /tmp/bandix_traffic_cache.json")
+
+    -- Get MAC list
+    local macs = sys.exec("jsonfilter -i /tmp/bandix_traffic_cache.json -e '@.data.d[*].mac' 2>/dev/null")
+    if macs == "" then return data end
+
+    local idx = 0
+    for mac in macs:gmatch("[^\n]+") do
+        mac = mac:gsub("\r", "")
+        if mac ~= "" then
+            local p = "@.data.d[" .. idx .. "]"
+            local rx_r = sys.exec("jsonfilter -i /tmp/bandix_traffic_cache.json -e '" .. p .. ".t_rx_r' 2>/dev/null"):gsub("\n", "")
+            local tx_r = sys.exec("jsonfilter -i /tmp/bandix_traffic_cache.json -e '" .. p .. ".t_tx_r' 2>/dev/null"):gsub("\n", "")
+            local rx_b = sys.exec("jsonfilter -i /tmp/bandix_traffic_cache.json -e '" .. p .. ".t_rx_b' 2>/dev/null"):gsub("\n", "")
+            local tx_b = sys.exec("jsonfilter -i /tmp/bandix_traffic_cache.json -e '" .. p .. ".t_tx_b' 2>/dev/null"):gsub("\n", "")
+            local conn = sys.exec("jsonfilter -i /tmp/bandix_traffic_cache.json -e '" .. p .. ".conn' 2>/dev/null"):gsub("\n", "")
+            local uplink = sys.exec("jsonfilter -i /tmp/bandix_traffic_cache.json -e '" .. p .. ".uplink' 2>/dev/null"):gsub("\n", "")
+            local w_rx_l = sys.exec("jsonfilter -i /tmp/bandix_traffic_cache.json -e '" .. p .. ".w_rx_l' 2>/dev/null"):gsub("\n", "")
+            local w_tx_l = sys.exec("jsonfilter -i /tmp/bandix_traffic_cache.json -e '" .. p .. ".w_tx_l' 2>/dev/null"):gsub("\n", "")
+            data[mac:upper()] = {
+                rx_rate = tonumber(rx_r) or 0,
+                tx_rate = tonumber(tx_r) or 0,
+                rx_bytes = tonumber(rx_b) or 0,
+                tx_bytes = tonumber(tx_b) or 0,
+                conn_type = conn or "",
+                uplink = uplink or "",
+                wan_rx_limit = tonumber(w_rx_l) or 0,
+                wan_tx_limit = tonumber(w_tx_l) or 0
+            }
+        end
+        idx = idx + 1
+    end
+    return data
+end
+
+-- Fetch Bandix connection data
+-- Returns: { ["MAC"] = { tcp, udp, tcp_est, total } }
+local function get_bandix_connections()
+    local data = {}
+    if not is_bandix_available() then return data end
+
+    -- Check if connection monitoring is enabled
+    local conn_enabled = uci:get("bandix", "connections", "enabled")
+    if conn_enabled ~= "1" then return data end
+
+    -- Reuse cached traffic response if available, otherwise fetch fresh
+    local response = sys.exec("curl -s --connect-timeout 2 --max-time 5 'http://127.0.0.1:"
+        .. (_bandix_port or "8686") .. "/api/connection/devices' 2>/dev/null")
+    if not response or response == "" then return data end
+
+    sys.exec("echo '" .. response:gsub("'", "'\\''") .. "' > /tmp/bandix_conn_cache.json")
+
+    local macs = sys.exec("jsonfilter -i /tmp/bandix_conn_cache.json -e '@.data.d[*].mac' 2>/dev/null")
+    if macs == "" then return data end
+
+    local idx = 0
+    for mac in macs:gmatch("[^\n]+") do
+        mac = mac:gsub("\r", "")
+        if mac ~= "" then
+            local p = "@.data.d[" .. idx .. "]"
+            local tcp = sys.exec("jsonfilter -i /tmp/bandix_conn_cache.json -e '" .. p .. ".tcp' 2>/dev/null"):gsub("\n", "")
+            local udp = sys.exec("jsonfilter -i /tmp/bandix_conn_cache.json -e '" .. p .. ".udp' 2>/dev/null"):gsub("\n", "")
+            local tcp_est = sys.exec("jsonfilter -i /tmp/bandix_conn_cache.json -e '" .. p .. ".tcp_est' 2>/dev/null"):gsub("\n", "")
+            local total = sys.exec("jsonfilter -i /tmp/bandix_conn_cache.json -e '" .. p .. ".total' 2>/dev/null"):gsub("\n", "")
+            data[mac:upper()] = {
+                tcp = tonumber(tcp) or 0,
+                udp = tonumber(udp) or 0,
+                tcp_est = tonumber(tcp_est) or 0,
+                total = tonumber(total) or 0
+            }
+        end
+        idx = idx + 1
+    end
+    return data
+end
+
+-- Set Bandix rate limit for a device
+-- rate: string like "1mbit", converted to bytes/sec for Bandix API
+local function bandix_set_limit(mac, rate)
+    if not is_bandix_available() then return false end
+
+    -- Parse rate string to bytes/sec
+    local num, unit = rate:match("^(%d+)([kmgb]?bit)$")
+    if not num then return false end
+    num = tonumber(num)
+    local bytes_per_sec = 0
+    if unit == "kbit" then
+        bytes_per_sec = math.floor(num * 1000 / 8)
+    elseif unit == "mbit" then
+        bytes_per_sec = math.floor(num * 1000000 / 8)
+    elseif unit == "gbit" then
+        bytes_per_sec = math.floor(num * 1000000000 / 8)
+    else
+        bytes_per_sec = math.floor(num / 8)
+    end
+
+    local cmd = "curl -s --connect-timeout 3 --max-time 10 -X POST -H 'Content-Type: application/json' "
+        .. "-d '{\"mac\":\"" .. mac .. "\",\"wan_rx_rate_limit\":" .. bytes_per_sec
+        .. ",\"wan_tx_rate_limit\":" .. bytes_per_sec .. "}' "
+        .. "'http://127.0.0.1:" .. (_bandix_port or "8686") .. "/api/traffic/limits' 2>/dev/null"
+    local result = sys.exec(cmd)
+    return result and result:find('"status":"success"') ~= nil
+end
+
+-- Remove Bandix rate limit for a device
+local function bandix_remove_limit(mac)
+    if not is_bandix_available() then return false end
+
+    local cmd = "curl -s --connect-timeout 3 --max-time 10 -X DELETE -H 'Content-Type: application/json' "
+        .. "-d '{\"mac\":\"" .. mac .. "\"}' "
+        .. "'http://127.0.0.1:" .. (_bandix_port or "8686") .. "/api/traffic/limits' 2>/dev/null"
+    local result = sys.exec(cmd)
+    return result and result:find('"status":"success"') ~= nil
+end
+
+-- ============================================================
 -- Core API: Real-time device status
 -- Reads UCI profiles + ARP online status, joins in memory
 -- No cache files, no background daemons needed
@@ -159,6 +318,12 @@ end
 function api_status()
     local online_macs, all_arp = get_arp_online()
     local dhcp_names = get_dhcp_hostnames()
+
+    -- Fetch Bandix data (traffic + connections) if available
+    local bandix_traffic = get_bandix_traffic()
+    local bandix_connections = get_bandix_connections()
+    local has_bandix = is_bandix_available()
+
     local devices = {}
 
     -- 1. Read all device profiles from UCI
@@ -168,6 +333,34 @@ function api_status()
         local mac_upper = s.mac:upper()
         local ip = s.last_ip or online_macs[mac_upper] or ""
         local is_online = online_macs[mac_upper] ~= nil
+        local was_online = (s.online_status == "1")
+        
+        -- Track online duration: update when status changes
+        if is_online and not was_online then
+            -- Device just came online: record the time
+            uci:set("devicemaster", s[".name"], "last_online_at", tostring(os.time()))
+            uci:set("devicemaster", s[".name"], "online_status", "1")
+        elseif not is_online and was_online then
+            -- Device just went offline: calculate total online time since discovery
+            local last_at = s.last_online_at
+            local discovered = s.discovered_at
+            if last_at and last_at ~= "" and discovered and discovered ~= "" then
+                -- Total online = previous sessions + current session
+                local current_session = os.time() - tonumber(last_at)
+                local previous_total = tonumber(s.online_duration) or 0
+                -- If this is the first offline, previous_total is 0, but we need to count from discovered_at
+                if previous_total == 0 then
+                    -- First time going offline: count from discovered_at to now
+                    local total_online = os.time() - tonumber(discovered)
+                    uci:set("devicemaster", s[".name"], "online_duration", tostring(total_online))
+                elseif current_session > 0 then
+                    -- Subsequent offline: add current session to previous total
+                    local total = previous_total + current_session
+                    uci:set("devicemaster", s[".name"], "online_duration", tostring(total))
+                end
+            end
+            uci:set("devicemaster", s[".name"], "online_status", "0")
+        end
 
         -- If online, use the live IP from ARP
         if is_online and online_macs[mac_upper] then
@@ -222,16 +415,39 @@ function api_status()
             end
         end
 
-        -- Calculate total online duration (seconds since first discovery)
-        -- This is cumulative and does not reset when device goes offline
-        -- Auto-set discovered_at for devices that lack it (backward compat)
-        if not s.discovered_at or s.discovered_at == "" then
-            uci:set("devicemaster", s[".name"], "discovered_at", tostring(os.time()))
-        end
+        -- Calculate cumulative online duration (total time spent online since discovery)
+        -- online_duration: stored cumulative seconds from past sessions
+        -- last_online_at: timestamp when device last came online
+        -- discovered_at: when device was first discovered
         local online_seconds = 0
-        if s.discovered_at then
-            online_seconds = os.time() - tonumber(s.discovered_at)
-            if online_seconds < 0 then online_seconds = 0 end
+        local stored_duration = tonumber(s.online_duration) or 0
+        local last_online_at = s.last_online_at
+        local discovered_at = s.discovered_at
+        local now = os.time()
+        
+        if is_online then
+            -- Currently online: calculate total time online since discovery
+            -- If never went offline, use discovered_at as start
+            -- If went offline before, use last_online_at as start of current session
+            if discovered_at and discovered_at ~= "" then
+                if stored_duration > 0 and last_online_at and last_online_at ~= "" then
+                    -- Has offline history: stored + current session
+                    local current_session = now - tonumber(last_online_at)
+                    if current_session > 0 then
+                        online_seconds = stored_duration + current_session
+                    else
+                        online_seconds = stored_duration
+                    end
+                else
+                    -- Never went offline: calculate from discovered_at
+                    online_seconds = now - tonumber(discovered_at)
+                end
+            else
+                online_seconds = stored_duration
+            end
+        else
+            -- Currently offline: just show stored duration
+            online_seconds = stored_duration
         end
 
         devices[#devices + 1] = {
@@ -252,6 +468,30 @@ function api_status()
             group = s.group or s.groups or nil,
             notes = s.notes or nil
         }
+
+        -- Merge Bandix traffic data
+        if has_bandix then
+            local bt = bandix_traffic[mac_upper]
+            if bt then
+                local d = devices[#devices]
+                d.rx_rate = bt.rx_rate
+                d.tx_rate = bt.tx_rate
+                d.rx_bytes = bt.rx_bytes
+                d.tx_bytes = bt.tx_bytes
+                d.conn_type = bt.conn_type
+                d.uplink = bt.uplink
+                -- Use Bandix limit info if our UCI has no limit
+                if not d.rate_limit and (bt.wan_rx_limit > 0 or bt.wan_tx_limit > 0) then
+                    d.rate_limit = "bandix"
+                end
+            end
+            -- Merge Bandix connection data
+            local bc = bandix_connections[mac_upper]
+            if bc then
+                local d = devices[#devices]
+                d.connections = bc
+            end
+        end
     end)
     uci:save("devicemaster")
     uci:commit("devicemaster")
@@ -300,15 +540,40 @@ function api_status()
                 group = nil,
                 notes = nil
             }
+
+            -- Merge Bandix data for ARP-only devices too
+            if has_bandix then
+                local bt = bandix_traffic[mac]
+                if bt then
+                    local d = devices[#devices]
+                    d.rx_rate = bt.rx_rate
+                    d.tx_rate = bt.tx_rate
+                    d.rx_bytes = bt.rx_bytes
+                    d.tx_bytes = bt.tx_bytes
+                    d.conn_type = bt.conn_type
+                    d.uplink = bt.uplink
+                end
+                local bc = bandix_connections[mac]
+                if bc then
+                    devices[#devices].connections = bc
+                end
+            end
         end
     end
 
     -- Sort devices by total online_seconds (descending), regardless of online status
+    -- Use MAC as secondary sort key for stable ordering
     table.sort(devices, function(a, b)
-        return (a.online_seconds or 0) > (b.online_seconds or 0)
+        local a_secs = a.online_seconds or 0
+        local b_secs = b.online_seconds or 0
+        if a_secs ~= b_secs then
+            return a_secs > b_secs
+        else
+            return (a.mac or "") < (b.mac or "")
+        end
     end)
 
-    json_response({devices = devices})
+    json_response({devices = devices, bandix = has_bandix})
 end
 
 -- ============================================================
@@ -502,6 +767,17 @@ function api_limit()
         json_response({success = false, error = "Invalid rate format (e.g. 1mbit, 500kbit)"})
         return
     end
+
+    -- Prefer Bandix if available
+    if is_bandix_available() then
+        local ok = bandix_set_limit(mac, rate)
+        if ok then
+            json_response({success = true, backend = "bandix"})
+            return
+        end
+        -- Fall through to own traffic_control.sh if Bandix fails
+    end
+
     local result = exec_safe("/usr/libexec/devicemaster/traffic_control.sh limit " .. mac .. " " .. rate)
     json_response({success = result == "success"})
 end
@@ -513,6 +789,17 @@ function api_unlimit()
         json_response({success = false, error = "Valid MAC address required"})
         return
     end
+
+    -- Prefer Bandix if available
+    if is_bandix_available() then
+        local ok = bandix_remove_limit(mac)
+        if ok then
+            json_response({success = true, backend = "bandix"})
+            return
+        end
+        -- Fall through to own traffic_control.sh if Bandix fails
+    end
+
     local result = exec_safe("/usr/libexec/devicemaster/traffic_control.sh unlimit " .. mac)
     json_response({success = result == "success"})
 end
@@ -589,11 +876,25 @@ end
 
 -- API: Scan network (trigger ARP flood to discover new devices)
 function api_scan_network()
-    sys.exec("ip neigh flush all >/dev/null 2>&1")
+    -- Only flush br-lan ARP cache (not mesh/other interfaces)
+    sys.exec("ip neigh flush dev br-lan >/dev/null 2>&1")
+
+    -- Scan br-lan subnet
     local lan_net = sys.exec("ip route show dev br-lan 2>/dev/null | awk '{print $1}' | cut -d/ -f1"):match("^(%d+%.%d+%.%d+%)")
     if lan_net then
         sys.exec(string.format("for i in $(seq 1 254); do ping -c 1 -W 1 %s$i >/dev/null 2>&1 & done; wait", lan_net))
     end
+
+    -- After scan, re-ping all known UCI devices to restore their ARP entries
+    -- This prevents mesh/sub-devices from being marked offline
+    uci:foreach("devicemaster", "device", function(s)
+        local ip = s.last_ip
+        if ip and is_valid_ip(ip) then
+            sys.exec("ping -c 1 -W 1 " .. ip .. " >/dev/null 2>&1 &")
+        end
+    end)
+    sys.exec("wait >/dev/null 2>&1")
+
     json_response({success = true, message = "Network scan complete"})
 end
 
@@ -661,4 +962,33 @@ function action_test_api()
 
     sys.exec("echo '" .. result:gsub("'", "'\\''") .. "' > /tmp/oui_api_test_result.txt")
     luci.http.redirect(dispatcher.build_url("admin", "network", "devicemaster", "settings"))
+end
+
+-- API: Test OUI API (JSON response, no redirect)
+function api_test_api()
+    local api = uci:get("devicemaster", "settings", "remote_api") or "maclookup"
+    local test_mac = luci.http.formvalue("mac") or "00:11:22:33:44:55"
+
+    if not is_valid_mac(test_mac) then
+        json_response({success = false, error = "MAC地址格式无效"})
+        return
+    end
+
+    local result = sys.exec("/usr/libexec/devicemaster/oui_lookup.sh test-api " .. api .. " " .. test_mac .. " 2>&1")
+
+    local vendor = result:match("Extracted vendor:%s*(.+)")
+    local rtime = result:match("Response time:%s*([0-9]+)")
+
+    if vendor and vendor ~= "Not Found" and vendor ~= "" then
+        json_response({
+            success = true,
+            vendor = vendor:gsub("\n", ""),
+            time = tonumber(rtime) or 0
+        })
+    else
+        json_response({
+            success = false,
+            error = "未找到厂商信息"
+        })
+    end
 end

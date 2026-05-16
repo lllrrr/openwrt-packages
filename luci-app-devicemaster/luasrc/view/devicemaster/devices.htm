@@ -66,6 +66,17 @@ Copyright (C) 2024 OpenWrt-DeviceMaster Project
 .device-status.blocked{background:#dc3545;box-shadow:0 0 4px #dc3545}
 .device-status.limited{background:#ffc107;box-shadow:0 0 4px #ffc107}
 .loading{text-align:center;padding:40px;color:#666}
+/* Bandix: connection type badges */
+.conn-badge{display:inline-block;padding:0 5px;border-radius:3px;font-size:9px;font-weight:bold;vertical-align:middle;margin-left:4px}
+.conn-wifi{background:#e3f2fd;color:#1565c0}
+.conn-wired{background:#e8f5e9;color:#2e7d32}
+.conn-router{background:#f3e5f5;color:#7b1fa2}
+/* Bandix: speed and traffic info */
+.speed-info{font-size:11px;color:#333;margin-top:2px}
+.speed-down{color:#2e7d32}
+.speed-up{color:#e65100}
+.traffic-info{font-size:10px;color:#888;margin-top:1px}
+.conn-info{font-size:10px;color:#666;margin-top:1px}
 @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 
 /* 移动端响应式布局 */
@@ -100,8 +111,10 @@ Copyright (C) 2024 OpenWrt-DeviceMaster Project
 (function(){
 var devices=[];
 var deviceMap={};
+var hasBandix=false;
 var apiUrl = '<%=luci.dispatcher.build_url("admin/network/devicemaster/api")%>';
 var typeLabels = {'phone':'手机','pc':'电脑','iot':'IoT','network':'网络','unknown':'未知'};
+
 
 function httpGet(url, callback) {
     var xhr = new XMLHttpRequest();
@@ -133,6 +146,20 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+function formatBytes(b) {
+    if (!b || b === 0) return '0 B';
+    var units = ['B','KB','MB','GB','TB'];
+    var i = Math.floor(Math.log(b) / Math.log(1024));
+    return parseFloat((b / Math.pow(1024, i)).toFixed(1)) + ' ' + units[i];
+}
+
+function formatSpeed(bps) {
+    if (!bps || bps === 0) return '';
+    var units = ['B/s','KB/s','MB/s','GB/s'];
+    var i = Math.floor(Math.log(bps) / Math.log(1024));
+    return parseFloat((bps / Math.pow(1024, i)).toFixed(1)) + ' ' + units[i];
+}
+
 function getStatusClass(d) {
     if (d.blocked) return 'blocked';
     if (d.rate_limit) return 'limited';
@@ -148,11 +175,30 @@ function buildCardHTML(d) {
     var h = '<div class="device-card ' + cls + '" id="card-' + d.mac.replace(/:/g,'') + '">';
     h += '<div class="device-header"><div class="device-info">';
     h += '<div class="device-name">' + escapeHtml(name) + '</div>';
-    h += '<div class="device-vendor">' + escapeHtml(d.vendor || '未知') + ' <span class="device-type ' + (d.type || 'unknown') + '">' + typeLabel + '</span></div>';
-    h += '</div><span class="device-status ' + getStatusClass(d) + '" id="status-' + d.mac.replace(/:/g,'') + '"></span></div>';
+    h += '<div class="device-vendor">' + escapeHtml(d.vendor || '未知') + ' <span class="device-type ' + (d.type || 'unknown') + '">' + typeLabel + '</span>';
+    // Connection type badge (Bandix)
+    if (hasBandix && (d.uplink || d.conn_type)) {
+        var connLabel = d.uplink || d.conn_type;
+        h += ' <span class="conn-badge conn-' + (d.conn_type || '') + '">' + connLabel + '</span>';
+    }
+    h += '</div></div><span class="device-status ' + getStatusClass(d) + '" id="status-' + d.mac.replace(/:/g,'') + '"></span></div>';
     var detailsHtml = '<div>MAC: ' + d.mac + '</div><div>IP: ' + (d.ip || 'N/A') + '</div>';
+    // Real-time speed (Bandix) - always show when bandix data exists
+    if (hasBandix && (d.rx_rate !== undefined)) {
+        var rxS = formatSpeed(d.rx_rate);
+        var txS = formatSpeed(d.tx_rate);
+        detailsHtml += '<div class="speed-info"><span class="speed-down">↓' + rxS + '</span> <span class="speed-up">↑' + txS + '</span></div>';
+    }
+    // Total traffic (Bandix) - always show when bandix data exists
+    if (hasBandix && (d.rx_bytes !== undefined)) {
+        detailsHtml += '<div class="traffic-info">↓' + formatBytes(d.rx_bytes) + ' ↑' + formatBytes(d.tx_bytes) + '</div>';
+    }
     if (d.rate_limit) {
         detailsHtml += '<div style="color:#e65100;font-weight:bold;">限速: ' + escapeHtml(d.rate_limit) + '</div>';
+    }
+    // Connection count (Bandix)
+    if (hasBandix && d.connections && d.connections.total > 0) {
+        detailsHtml += '<div class="conn-info">连接: ' + d.connections.total + ' (TCP:' + d.connections.tcp_est + ')</div>';
     }
     h += '<div class="device-details">' + detailsHtml + '</div>';
     h += '<div class="device-actions">';
@@ -229,6 +275,21 @@ function silentRefresh() {
                 var detailDivs = card.querySelectorAll('.device-details div');
                 if (detailDivs[1]) detailDivs[1].textContent = 'IP: ' + (nw.ip || 'N/A');
             }
+            // Update Bandix speed/traffic in-place (always update, never clear)
+            if (hasBandix) {
+                var speedEl = card.querySelector('.speed-info');
+                if (speedEl) {
+                    speedEl.innerHTML = '<span class="speed-down">↓' + formatSpeed(nw.rx_rate || 0) + '</span> <span class="speed-up">↑' + formatSpeed(nw.tx_rate || 0) + '</span>';
+                }
+                var trafficEl = card.querySelector('.traffic-info');
+                if (trafficEl) {
+                    trafficEl.textContent = '↓' + formatBytes(nw.rx_bytes || 0) + ' ↑' + formatBytes(nw.tx_bytes || 0);
+                }
+                var connEl = card.querySelector('.conn-info');
+                if (connEl && nw.connections) {
+                    connEl.textContent = '连接: ' + nw.connections.total + ' (TCP:' + nw.connections.tcp_est + ')';
+                }
+            }
         }
 
         // 2. Add new device cards
@@ -267,6 +328,7 @@ function loadDevices(){
     listEl.innerHTML = '<div class="loading">加载中...</div>';
     httpGet(apiUrl + '/status', function(res) {
         if (res && res.devices) {
+            hasBandix = !!res.bandix;
             devices = res.devices;
             deviceMap = {};
             for (var i = 0; i < devices.length; i++) deviceMap[devices[i].mac] = devices[i];
