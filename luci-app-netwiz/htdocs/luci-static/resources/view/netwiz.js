@@ -206,6 +206,7 @@ var T = {
     'BTN_DEV_BIND': _('Terminal Device & IP Binding'),
     'TXT_DNS1': _('Primary DNS:'),
     'TXT_DNS2': _('Secondary DNS:'),
+    'TIP_IPV6_WARN':_('⚠️ Non-standard parameters (Default configuration recommended)'),
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -536,10 +537,11 @@ return view.extend({
             '        <div class="nw-step-title">{{TITLE_LAN}}</div>',
             '        <label class="nw-switch-row-padded" style="cursor:pointer; display:flex; align-items:center; justify-content:space-between; margin-top:5px; padding-bottom:10px;">',
             '           <div style="flex:1; padding-right:15px;">',
-            '               <div style="font-size:15px; font-weight:bold; color:#475569; margin-bottom:5px;">{{LBL_IPV6}}</div>',
-            '               <div style="font-size:13.5px; color:#64748b; line-height:1.4;">{{TIP_IPV6_DESC}}</div>',
+            '              <div style="font-size:15px; font-weight:bold; color:#475569; margin-bottom:5px;">{{LBL_IPV6}}</div>',
+            '              <div id="tip-ipv6-warn" style="display:none; font-size:12px; color:#f00; font-weight:bold; margin-top:6px; background:#fffbeb; padding:6px 8px; border-radius:6px; border:1px solid #f00; word-break:break-word; line-height:1.4;">{{TIP_IPV6_WARN}}</div>',
+            '              <div style="font-size:13.5px; color:#64748b; line-height:1.4;">{{TIP_IPV6_DESC}}</div>',
             '           </div>',
-            '           <div class="nw-switch" style="width:42px; height:22px; flex-shrink:0;"><input type="checkbox" id="lan-ipv6-toggle" checked><span class="nw-slider"></span></div>',
+            '           <div class="nw-switch" style="width:42px; height:22px; flex-shrink:0;"><input type="checkbox" id="lan-ipv6-toggle"><span class="nw-slider"></span></div>',
             '        </label>',
             '        <div class="nw-setting-row">',
             '           <div class="nw-setting-row-label">{{LBL_BYPASS}}</div>',
@@ -1151,12 +1153,29 @@ return view.extend({
                         }
                     }
 
-                    var ipv6Mode = safeUciGet('dhcp', 'lan', 'dhcpv6', '');
+                    var v6Dhcp = safeUciGet('dhcp', 'lan', 'dhcpv6', 'disabled');
+                    var v6Ra = safeUciGet('dhcp', 'lan', 'ra', 'disabled');
+                    var v6Ndp = safeUciGet('dhcp', 'lan', 'ndp', 'disabled');
+                    var v6Flags = safeUciGet('dhcp', 'lan', 'ra_flags', '');
+                    if (Array.isArray(v6Flags)) v6Flags = v6Flags.join(' ');
+                    
+                    // dhcpv6, ra, ndp 必須全是 server，ra_flags 包含 M-Flag 和 O-Flag
+                    var isV6Standard = (v6Dhcp === 'server' && v6Ra === 'server' && v6Ndp === 'server' && v6Flags.indexOf('managed-config') !== -1 && v6Flags.indexOf('other-config') !== -1);
+                    
+                    var isV6Inconsistent = (!isV6Standard && (v6Dhcp === 'server' || v6Dhcp === 'relay' || v6Ra === 'server' || v6Ra === 'relay'));
+                    
                     // 记录系统真实的 IPv6 状态到全局变量
-                    window._trueIpv6State = (ipv6Mode === 'server' || ipv6Mode === 'relay') ? '1' : '0';
+                    window._trueIpv6State = (isV6Standard || isV6Inconsistent) ? '1' : '0';
                     
                     var ipv6Toggle = container.querySelector('#lan-ipv6-toggle');
-                    if (ipv6Toggle) ipv6Toggle.checked = (window._trueIpv6State === '1');
+                    var v6Warn = container.querySelector('#tip-ipv6-warn');
+                    
+                    if (ipv6Toggle) {
+                        ipv6Toggle.checked = (window._trueIpv6State === '1');
+                    }
+                    if (v6Warn) {
+                        v6Warn.style.display = isV6Inconsistent ? 'block' : 'none';
+                    }
 
                     if (!window._wifiLoaded) {
                         try {
@@ -1565,7 +1584,7 @@ return view.extend({
                         }, 100);
                     };
 
-                    var ipv6Label = (ipv6Mode === 'server' || ipv6Mode === 'relay') ? '<b style="color:#10b981; padding: 3px 10px; background: #fff; border-radius: 10px;">' + T['TXT_ON'] + '</b>' : '<b style="color:#ef4444; padding: 3px 10px; background: #fff; border-radius: 10px;">' + T['TXT_OFF'] + '</b>';
+                    var ipv6Label = (window._trueIpv6State === '1') ? '<b style="color:#10b981; padding: 3px 10px; background: #fff; border-radius: 10px;">' + T['TXT_ON'] + '</b>' : '<b style="color:#ef4444; padding: 3px 10px; background: #fff; border-radius: 10px;">' + T['TXT_OFF'] + '</b>';
                     
                     var wDevsList = uci.sections('wireless', 'wifi-device') || [];
                     var wIfacesList = uci.sections('wireless', 'wifi-iface') || [];
@@ -2301,6 +2320,10 @@ return view.extend({
                         var currentIpv6 = (currentDhcpv6 === 'server' || currentDhcpv6 === 'relay') ? '1' : '0';
                         var ipv6El = container.querySelector('#lan-ipv6-toggle');
                         var newIpv6 = (ipv6El && ipv6El.checked) ? '1' : '0';
+                        
+                        // 💡 新增：检查黄色的 IPv6 警告灯是否亮起？
+                        var v6WarnEl = container.querySelector('#tip-ipv6-warn');
+                        var needsV6Fix = (v6WarnEl && v6WarnEl.style.display !== 'none');
 
                         var currentWifiState = getWifiSnapshot();
 
@@ -2317,11 +2340,10 @@ return view.extend({
                         }
 
                         var isNoMod = false;
-                        if (selectedMode === 'lan' && targetIp === currentLanIp && targetGw === currentLanGw && newBypass === currentBypass && newIpv6 === currentIpv6) isNoMod = true;
+                        if (selectedMode === 'lan' && targetIp === currentLanIp && targetGw === currentLanGw && newBypass === currentBypass && newIpv6 === currentIpv6 && !needsV6Fix) isNoMod = true;
+                        
                         if (selectedMode === 'router' && rType === 'static' && targetIp === currentWanIp && targetGw === currentWanGw) isNoMod = true;
                         if (selectedMode === 'router' && rType === 'dhcp' && currentWanProto === 'dhcp') isNoMod = true;
-                        // if (selectedMode === 'pppoe' && container.querySelector('#pppoe-user').value === safeUciGet('network', 'wan', 'username', '') && container.querySelector('#pppoe-pass').value === safeUciGet('network', 'wan', 'password', '')) isNoMod = true;
-                        // 只要相关快照完全一致，且没有提交标记，弹窗拦截
                         if (selectedMode === 'wifi') {
                             if (window._forceWifiSubmit) {
                                 isNoMod = false;
