@@ -194,9 +194,12 @@ var T = {
     'TIP_DEPT_BIND_RULE': _('Custom group names are not strictly bound to IP subnets. The ranges are only used for automatic IP assignment when a group is selected.'),
     'TXT_UNOPERABLE': _('Unoperable'),
     'TXT_NOTE': _('Note:'),
+    'BTN_WOL': _('Wake on LAN'),
+    'MSG_WOL_SENT': _('Wake packet sent to {mac}!\n(Device booting may take a minute)'),
 };
 
-var callDeviceList = rpc.declare({ object: 'netwiz_dev', method: 'get_list', params: ['show_conns'], expect: { '': {} } });
+var callDeviceList = rpc.declare({ object: 'netwiz_dev', method: 'get_list', params: ['show_conns', 'do_rescan'], expect: { '': {} } });
+var callWakeDevice = rpc.declare({ object: 'netwiz_dev', method: 'wake_device', params: ['mac'], expect: { result: 0 } });
 var callFwSet = rpc.declare({ object: 'netwiz_dev', method: 'fw_set', params: ['mac', 'ip', 'blk_en', 'iso_en', 'dmz_en'], expect: { result: 0 } });
 var callDeviceBind = rpc.declare({ object: 'netwiz_dev', method: 'bind', params: ['mac', 'ip', 'name', 'dept', 'no_reload'], expect: { result: 0 } });
 var callDeviceUnbind = rpc.declare({ object: 'netwiz_dev', method: 'unbind', params: ['mac', 'no_reload'], expect: { result: 0 } });
@@ -370,6 +373,10 @@ return view.extend({
             '                   </div>',
             '                   <div class="nw-switch" style="width:42px; height:22px; flex-shrink:0;"><input type="checkbox" id="fw-dmz-en"><span class="nw-slider"></span></div>',
             '               </label>',
+            '           </div>',
+            '           ',
+            '           <div id="fw-panel-wol-zone" style="margin:0px 0 20px 0; padding:0; display:none; justify-content:center; align-items:center; width:100%;">',
+            '               <button id="btn-fw-panel-wol" class="nd-btn" style="width:85%; max-width:320px; background:#f59e0b; color:#fff; border:none; padding:14px; border-radius:12px; font-weight:bold; font-size:17.5px; letter-spacing:1px; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 6px 16px rgba(245,158,11,0.35); transition:all 0.2s;">⚡ {{BTN_WOL}} ⚡</button>',
             '           </div>',
             '       </div>',
 
@@ -1559,6 +1566,18 @@ return view.extend({
                 }
 
                 var ipText = dev.ip === 'Unknown IP' ? T['TXT_UNKNOWN_IP'] : dev.ip;
+
+                // --- IPv4 为未知时，提取设备自签的 IPv6 (fe80:: / fd::) ---
+                if (dev.ip === 'Unknown IP' && dev.ipv6 && dev.ipv6.trim() !== '') {
+                    var allV6 = dev.ipv6.trim().split(' ');
+                    // 优先寻找 fe80 或 fd 开头的自签/本地 IPv6
+                    var localV6 = allV6.find(function(v) { return v.indexOf('fe80:') === 0 || v.indexOf('fd') === 0; }) || allV6[0];
+                    if (localV6) {
+                        ipText = '<span style="font-size:12px; color:#8b5cf6; font-family:monospace;" title="由于无法获取 IPv4，显示设备底层自签的本地 IPv6">' + localV6 + ' <span style="font-size:10px; border:1px solid #ddd6fe; padding:1px 4px; border-radius:4px; background:#ede9fe; font-weight:bold;">自签 IPv6</span></span>';
+                    }
+                }
+                // -------------------------------------------------------------
+
                 if (isPending) {
                     ipText = '<span style="text-decoration:line-through; color:#94a3b8; font-size:12.5px; margin-right:5px;">' + dev.ip + '</span><span style="color:#d97706; font-weight:bold;">➜ ' + dev.bound_ip + '</span>';
                 }
@@ -1616,15 +1635,15 @@ return view.extend({
             listEl.innerHTML = html;
 
             // 綁定分析面板点击事件
-            container.querySelectorAll('.nd-conn-badge').forEach(function(badge) {
-    badge.addEventListener('click', function(e) {
-        e.stopPropagation();
-        var ip = this.getAttribute('data-ip');
-        var name = this.getAttribute('data-name');
-        if (!ip || ip === 'Unknown IP') return;
+        container.querySelectorAll('.nd-conn-badge').forEach(function(badge) {
+            badge.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var ip = this.getAttribute('data-ip');
+            var name = this.getAttribute('data-name');
+            if (!ip || ip === 'Unknown IP') return;
         
-        // 1. 彈出 Loading 畫面 (使用變量)
-        openModal({ 
+            // 1. 彈出 Loading 畫面 (使用變量)
+            openModal({ 
             title: T['TIT_CONN_RADAR'] + ' - NetWiz',
             content: '<div style="text-align:center; padding:30px 0; color:#64748b;"><div class="nd-spinner" style="margin:0 auto 15px auto;"></div>' + T['MSG_DIVE_KERNEL'] + '</div>', 
             okText: T['BTN_OK'], // 通常使用統一的“確定”或“關閉”
@@ -1731,9 +1750,11 @@ return view.extend({
                     var mac = this.getAttribute('data-mac');
                     var ip = this.getAttribute('data-ip');
                     var dev = globalDevices.find(function(d){ return d.mac === mac; });
-                    if (dev.is_gw === 'true' || dev.is_gw === true || dev.is_local === 'true' || dev.is_local === true) return; // 系统设备不可点
+                    if (dev.is_gw === 'true' || dev.is_gw === true || dev.is_local === 'true' || dev.is_local === true) return; // 系統設備不可點
                     
                     var dName = dev.name === 'Unknown' ? mac.toUpperCase() : dev.name;
+                    
+                    // 1. 打開彈窗面板
                     openModal({
                         title: T['TIT_FW_CONTROL'] + ' - ' + dName,
                         isFwPanel: true, targetMac: mac, targetIp: ip, targetDev: dev, okText: T['BTN_SAVE'],
@@ -1748,6 +1769,46 @@ return view.extend({
                             });
                         }
                     });
+
+                    // 2. 🌟 動態控制 WOL 區塊的顯示與獨立點擊事件
+                    var wolZone = modalOverlay.querySelector('#fw-panel-wol-zone');
+                    var wolBtn = modalOverlay.querySelector('#btn-fw-panel-wol');
+                    var isOnline = (dev.online === true || dev.online === 'true');
+
+                    if (wolZone && wolBtn) {
+                        // 自動過濾掉字典可能自帶的閃電，確保兩側完美對稱
+                        var pureWolText = (T['BTN_WOL'] || '局域網喚醒').replace(/⚡/g, '').trim();
+
+                        if (!isOnline) {
+                            // 設備離線，顯示 WOL 按鈕並綁定事件
+                            wolZone.style.display = 'flex';
+                            wolBtn.disabled = false;
+                            wolBtn.innerText = '⚡ ' + pureWolText + ' ⚡';
+                            wolBtn.style.opacity = '1';
+
+                            wolBtn.onclick = function(e) {
+                                e.preventDefault();
+                                wolBtn.innerText = '⚡ 喚醒中... ⚡';
+                                wolBtn.disabled = true;
+                                wolBtn.style.opacity = '0.6';
+
+                                callWakeDevice(mac).then(function() {
+                                    alert(T['MSG_WOL_SENT'].replace('{mac}', mac.toUpperCase()));
+                                    wolBtn.innerText = '⚡ ' + pureWolText + ' ⚡';
+                                    wolBtn.disabled = false;
+                                    wolBtn.style.opacity = '1';
+                                }).catch(function() {
+                                    wolBtn.innerText = '⚡ ' + pureWolText + ' ⚡';
+                                    wolBtn.disabled = false;
+                                    wolBtn.style.opacity = '1';
+                                });
+                            };
+                        } else {
+                            // 设备在线，隐藏 WOL
+                            wolZone.style.display = 'none';
+                            wolBtn.onclick = null;
+                        }
+                    }
                 });
             });
 
@@ -2083,7 +2144,8 @@ return view.extend({
             });
         });
 
-        var loadDevices = function() {
+        var loadDevices = function(isRescan) {
+            var doRescanStr = (isRescan === true) ? 'true' : 'false';
             loadingEl.style.display = 'flex';
             loadingText.innerText = T['TXT_LOADING_RADAR'];
             listHeader.style.display = 'none';
@@ -2095,11 +2157,12 @@ return view.extend({
             
             var showConnsCbEl = container.querySelector('#cb-show-conns');
             var isShowConns = showConnsCbEl ? showConnsCbEl.checked : false;
+            
 
             // 本地有缓存，直接返回
             var pSmart = needFetchSmart ? callGetSmartRanges() : Promise.resolve(null);
 
-            Promise.all([callDeviceList(isShowConns), callGetDepts(), pSmart]).then(function(results) {
+            Promise.all([callDeviceList(isShowConns, doRescanStr), callGetDepts(), pSmart]).then(function(results) {
                 loadingEl.style.display = 'none';
                 
                 var resList = results[0];
@@ -2262,7 +2325,7 @@ return view.extend({
         refreshBtn.addEventListener('click', function() {
             var icon = this.querySelector('.nd-refresh-icon');
             if(icon) { icon.style.transform = 'rotate(360deg)'; setTimeout(function(){ icon.style.transform = 'none'; }, 800); }
-            loadDevices();
+            loadDevices(true); // 主动Ping
         });
 
         var fwResetGear = modalOverlay.querySelector('#fw-reset-gear');

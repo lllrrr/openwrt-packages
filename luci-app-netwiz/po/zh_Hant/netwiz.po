@@ -1248,3 +1248,9 @@ msgstr "您設置的 WAN 靜態 IP ({ip}) 與上級網絡的真實網關完全�
 
 msgid "The AP IP ({ip}) you set is exactly the same as the upstream Gateway!<br><br>This will paralyze the network. Please change to another free IP (e.g., {suggest_ip})."
 msgstr "您設置的旁路由 IP ({ip}) 與上級網絡的真實網關完全相同！<br><br>這將導致全屋網絡癱瘓。請修改為同網段的其他空閒 IP（例如 {suggest_ip}）。"
+
+msgid "Wake on LAN (WOL)"
+msgstr "局域網喚醒 (WOL)"
+
+msgid "Wake packet sent to {mac}!\n(Device booting may take a minute)"
+msgstr "已向 {mac} 發送喚醒封包！\n(設備開機可能需要一分鐘時間)"
