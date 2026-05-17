@@ -249,29 +249,34 @@ save_device_to_uci() {
     local section=""
 
     # Find existing device section by scanning config file
+    # 修复：正确解析 section 引用
     if [ -f /etc/config/devicemaster ]; then
-        local in_dev=0
+        local in_dev=0 sec_mac="" sec_ref=""
         while IFS= read -r line; do
             case "$line" in
                 "config device"*)
+                    # 检查上一个 device 段是否匹配
                     if [ -n "$sec_mac" ] && [ "$sec_mac" = "$mac" ] && [ -n "$sec_ref" ]; then
                         section="$sec_ref"
                         break
                     fi
-                    sec_mac="" sec_ref="" in_dev=1
+                    # 提取 section 引用 (如 "config device 'cfg123456'" 或匿名)
+                    sec_ref=$(echo "$line" | sed "s/config device[[:space:]]*//;s/'//g")
+                    [ -z "$sec_ref" ] && sec_ref="new"
+                    sec_mac="" in_dev=1
                     ;;
                 option\ mac\ *)
                     sec_mac=$(echo "$line" | sed 's/.*mac //;s/'"'"'//g')
                     ;;
             esac
         done < /etc/config/devicemaster
-        if [ -n "$sec_mac" ] && [ "$sec_mac" = "$mac" ] && [ -z "$section" ]; then
+        # 检查最后一个 device 段
+        if [ -z "$section" ] && [ -n "$sec_mac" ] && [ "$sec_mac" = "$mac" ]; then
             section="$sec_ref"
         fi
     fi
 
-    if [ -z "$section" ]; then
-        uci_cmds="uci add devicemaster device\n"
+    if [ -z "$section" ] || [ "$section" = "new" ]; then
         section=$(uci add devicemaster device 2>/dev/null)
         [ -z "$section" ] && return
     fi
@@ -695,8 +700,12 @@ load_uci_data() {
         gsub(/'"'"'/, "", $0)
         last_ip = $NF
     }
+    in_device && /^[[:space:]]*option manual / {
+        gsub(/'"'"'/, "", $0)
+        manual = $NF
+    }
     END {
-        if (in_device && mac != "") print mac","name","vendor","devtype","discovered_at","last_ip
+        if (in_device && mac != "") print mac","name","vendor","devtype","discovered_at","last_ip","manual
     }
     ' /etc/config/devicemaster | sort -u > "$UCI_CACHE"
 }
@@ -937,34 +946,48 @@ get_all_devices_fast() {
     local online_macs
     online_macs=$(awk 'NR>1 && $4!="00:00:00:00:00:00" && $3!="0x0" {print toupper($4)}' "$ARP_TABLE" 2>/dev/null)
     
-    # Update online status: read cache line by line, set online based on ARP
-    local tmp_file="${cache_file}.fast"
-    > "$tmp_file"
-    local cur_mac=""
-    while IFS= read -r line; do
-        echo "$line" >> "$tmp_file"
-        case "$line" in
-            *'"mac": '*)
-                cur_mac=$(echo "$line" | sed 's/.*"mac": "\([^"]*\)".*/\1/' | tr a-f A-F)
-                ;;
-            *'"online": '*)
-                if [ -n "$cur_mac" ] && echo "$online_macs" | grep -q "$cur_mac"; then
-                    sed -i 's/"online": [a-z]*/"online": true/' "$tmp_file"
-                else
-                    sed -i 's/"online": [a-z]*/"online": false/' "$tmp_file"
-                fi
-                cur_mac=""
-                ;;
-        esac
-    done < "$cache_file"
-    
-    cat "$tmp_file"
-    rm -f "$tmp_file"
+    # Update online status using awk single-pass (replaces per-line sed -i)
+    awk -v online_macs="$online_macs" '
+    BEGIN {
+        # Build online lookup table
+        n = split(online_macs, lines, "\n")
+        for (i = 1; i <= n; i++) {
+            gsub(/[ \t\r]/, "", lines[i])
+            if (lines[i] != "") online[lines[i]] = 1
+        }
+        cur_mac = ""
+    }
+    /"mac": / {
+        match($0, /"mac": "([^"]*)"/, m)
+        if (RSTART > 0) cur_mac = toupper(m[1])
+    }
+    /"online": / {
+        if (cur_mac != "" && cur_mac in online) {
+            sub(/"online": [a-z]*/, "\"online\": true")
+        } else {
+            sub(/"online": [a-z]*/, "\"online\": false")
+        }
+        cur_mac = ""
+    }
+    { print }
+    ' "$cache_file"
 }
 
 # Sync hostnames to UCI: DHCP changes + auto-naming for unknown devices
 sync_hostname_to_uci() {
     [ ! -f "$DHCP_LEASES" ] && [ ! -f /etc/config/devicemaster ] && return
+
+    # Pre-load MAC -> section mapping to avoid repeated uci show in loops
+    local mac_section_map="/tmp/dm_sync_macsec"
+    > "$mac_section_map"
+    local idx=0
+    while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
+        local sec_mac=$(uci -q get "devicemaster.@device[$idx].mac")
+        echo "$sec_mac $idx" >> "$mac_section_map"
+        idx=$((idx + 1))
+    done
+
+    local modified=0
 
     # 1. Sync DHCP hostname changes and update last_ip
     if [ -f "$DHCP_LEASES" ]; then
@@ -972,27 +995,26 @@ sync_hostname_to_uci() {
             [ -z "$mac" ] && continue
             hostname=$(echo "$hostname" | awk '{print $1}')
 
-            local section=$(uci show devicemaster 2>/dev/null | \
-                grep "\.mac='${mac}'" | head -1 | sed 's/^devicemaster\.//' | sed 's/\.mac=.*//')
-            [ -z "$section" ] && continue
+            local cache_idx=$(awk -v m="$mac" '$1 == m {print $2; exit}' "$mac_section_map" 2>/dev/null)
+            [ -z "$cache_idx" ] && continue
 
             # Update last_ip if device has IP
             if [ -n "$ip" ] && [ "$ip" != "0.0.0.0" ]; then
-                local current_last_ip=$(uci -q get devicemaster.$section.last_ip 2>/dev/null)
+                local current_last_ip=$(uci -q get devicemaster.@device[$cache_idx].last_ip 2>/dev/null)
                 if [ "$current_last_ip" != "$ip" ]; then
-                    uci set "devicemaster.$section.last_ip=$ip"
-                    uci commit devicemaster
+                    uci set "devicemaster.@device[$cache_idx].last_ip=$ip"
+                    modified=1
                 fi
             fi
 
             # Sync hostname if valid and different
             [ -z "$hostname" ] || [ "$hostname" = "*" ] || [ "$hostname" = "-" ] && continue
-            local uci_name=$(uci -q get devicemaster.$section.name 2>/dev/null)
+            local uci_name=$(uci -q get devicemaster.@device[$cache_idx].name 2>/dev/null)
             [ -z "$uci_name" ] && continue
 
             if [ "$uci_name" != "$hostname" ]; then
-                uci set "devicemaster.$section.name=$hostname"
-                uci commit devicemaster
+                uci set "devicemaster.@device[$cache_idx].name=$hostname"
+                modified=1
             fi
         done < "$DHCP_LEASES"
     fi
@@ -1041,16 +1063,15 @@ sync_hostname_to_uci() {
             done
 
             # Save to UCI
-            local section=$(uci show devicemaster 2>/dev/null | \
-                grep "\.mac='${mac}'" | head -1 | sed 's/^devicemaster\.//' | sed 's/\.mac=.*//')
-            [ -z "$section" ] && continue
+            local cache_idx=$(awk -v m="$mac" '$1 == m {print $2; exit}' "$mac_section_map" 2>/dev/null)
+            [ -z "$cache_idx" ] && continue
 
-            uci set "devicemaster.$section.name=$auto_name"
-            uci set "devicemaster.$section.vendor=$vendor"
-            uci set "devicemaster.$section.type=$devtype"
-            uci set "devicemaster.$section.discovered=1"
-            uci set "devicemaster.$section.discovered_at=$(date +%s)"
-            uci commit devicemaster
+            uci set "devicemaster.@device[$cache_idx].name=$auto_name"
+            uci set "devicemaster.@device[$cache_idx].vendor=$vendor"
+            uci set "devicemaster.@device[$cache_idx].type=$devtype"
+            uci set "devicemaster.@device[$cache_idx].discovered=1"
+            uci set "devicemaster.@device[$cache_idx].discovered_at=$(date +%s)"
+            modified=1
 
             # Also sync to dnsmasq so OpenWrt shows the hostname in DHCP list
             # Get IP from DHCP leases if available
@@ -1067,17 +1088,23 @@ sync_hostname_to_uci() {
             [ -z "$mac" ] || [ -z "$ip" ] && continue
             [ "$ip" = "0.0.0.0" ] && continue
 
-            local section=$(uci show devicemaster 2>/dev/null | \
-                grep "\.mac='${mac}'" | head -1 | sed 's/^devicemaster\.//' | sed 's/\.mac=.*//')
-            [ -z "$section" ] && continue
+            local cache_idx=$(awk -v m="$mac" '$1 == m {print $2; exit}' "$mac_section_map" 2>/dev/null)
+            [ -z "$cache_idx" ] && continue
 
-            local current_last_ip=$(uci -q get devicemaster.$section.last_ip 2>/dev/null)
+            local current_last_ip=$(uci -q get devicemaster.@device[$cache_idx].last_ip 2>/dev/null)
             if [ "$current_last_ip" != "$ip" ]; then
-                uci set "devicemaster.$section.last_ip=$ip"
-                uci commit devicemaster
+                uci set "devicemaster.@device[$cache_idx].last_ip=$ip"
+                modified=1
             fi
         done
     fi
+
+    # Batch commit at the end
+    if [ "$modified" = "1" ]; then
+        uci commit devicemaster 2>/dev/null
+    fi
+
+    rm -f "$mac_section_map"
 }
 
 # ============================================================
@@ -1135,18 +1162,26 @@ get_all_devices() {
         # --- Identification Priority Chain ---
 
         # Priority 0: User manual annotation from UCI config (highest priority)
+        # 修复：检查 manual 标志，如果用户手动设置了 name，优先使用
         local uci_name=""
         local uci_vendor=""
         local uci_type=""
+        local uci_manual=""
         if [ -f "$UCI_CACHE" ]; then
             local uci_line=$(grep -i "^$mac," "$UCI_CACHE" 2>/dev/null | head -1)
             if [ -n "$uci_line" ]; then
                 uci_name=$(echo "$uci_line" | cut -d',' -f2)
                 uci_vendor=$(echo "$uci_line" | cut -d',' -f3)
                 uci_type=$(echo "$uci_line" | cut -d',' -f4)
+                uci_manual=$(echo "$uci_line" | cut -d',' -f5)
                 [ -n "$uci_vendor" ] && vendor="$uci_vendor"
                 [ -n "$uci_type" ] && devtype="$uci_type"
-                [ -n "$uci_name" ] && [ "$hostname" = "unknown" ] && hostname="$uci_name"
+                # 修复：如果 manual=1，强制使用 UCI name；否则只在 hostname=unknown 时使用
+                if [ "$uci_manual" = "1" ] && [ -n "$uci_name" ]; then
+                    hostname="$uci_name"
+                elif [ -n "$uci_name" ] && [ "$hostname" = "unknown" ]; then
+                    hostname="$uci_name"
+                fi
             fi
         fi
 
@@ -1187,9 +1222,12 @@ get_all_devices() {
         fi
 
         # Priority 4.5: nlbwmon layer7 protocol analysis (if installed)
-        if [ -z "$vendor" ] && [ -x /usr/libexec/nlbwmon-action ]; then
-            local nlbw_vendor=$(detect_by_nlbwmon "$mac")
-            [ -n "$nlbw_vendor" ] && vendor="$nlbw_vendor"
+        # 修复：对于 LAA (随机 MAC)，nlbwmon 可以覆盖厂商识别
+        if [ -x /usr/libexec/nlbwmon-action ]; then
+            if [ -z "$vendor" ] || [ "$vendor" = "LAA" ]; then
+                local nlbw_vendor=$(detect_by_nlbwmon "$mac")
+                [ -n "$nlbw_vendor" ] && vendor="$nlbw_vendor"
+            fi
         fi
 
         # Priority 5: If randomized MAC and still unknown, mark as "LAA Device"

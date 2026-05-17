@@ -2,3 +2,7 @@
 # Runs every minute to check and apply schedule rules
 
 * * * * * /usr/libexec/devicemaster/schedule_executor.sh run >/dev/null 2>&1
+
+# Flush runtime session data from RAM to Flash every 12 hours
+# Avoids Flash wear while preserving data across reboots
+0 */12 * * * /etc/init.d/devicemaster flush_session >/dev/null 2>&1

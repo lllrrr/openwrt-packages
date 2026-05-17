@@ -39,6 +39,11 @@
     uci set devicemaster.@group[-1].icon='🌐'
     uci set devicemaster.@group[-1].color='#e74c3c'
     
+    # Create OUI settings section
+    uci set devicemaster.settings=settings
+    uci set devicemaster.settings.oui_mode='remote'
+    uci set devicemaster.settings.remote_api='maclookup'
+
     uci commit devicemaster
 }
 

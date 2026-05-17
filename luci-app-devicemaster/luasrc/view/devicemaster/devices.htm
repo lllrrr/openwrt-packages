@@ -148,7 +148,8 @@ function buildCardHTML(d) {
     var h = '<div class="device-card ' + cls + '" id="card-' + d.mac.replace(/:/g,'') + '">';
     h += '<div class="device-header"><div class="device-info">';
     h += '<div class="device-name">' + escapeHtml(name) + '</div>';
-    h += '<div class="device-vendor">' + escapeHtml(d.vendor || '未知') + ' <span class="device-type ' + (d.type || 'unknown') + '">' + typeLabel + '</span></div>';
+    var meshBadge = (d.topology === 'mesh_node' && d.mesh_connected) ? ' <span class="device-type mesh" style="background:#4caf50;color:#fff;">mesh</span>' : '';
+    h += '<div class="device-vendor">' + escapeHtml(d.vendor || '未知') + ' <span class="device-type ' + (d.type || 'unknown') + '">' + typeLabel + '</span>' + meshBadge + '</div>';
     h += '</div><span class="device-status ' + getStatusClass(d) + '" id="status-' + d.mac.replace(/:/g,'') + '"></span></div>';
     var detailsHtml = '<div>MAC: ' + d.mac + '</div><div>IP: ' + (d.ip || 'N/A') + '</div>';
     if (d.rate_limit) {

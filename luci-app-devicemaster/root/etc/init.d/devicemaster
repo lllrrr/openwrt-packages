@@ -17,6 +17,12 @@ start_service() {
 	mkdir -p /var/run/devicemaster
 	mkdir -p /tmp/devicemaster
 
+	# Ensure UCI settings section exists (may be missing on upgrade)
+	ensure_settings
+
+	# Initialize session data from UCI (load into RAM, avoid Flash writes)
+	init_session_json
+
 	# Clean up old cache files (no longer needed)
 	rm -f /tmp/devicemaster_device_cache /tmp/devicemaster_custom_cache
 
@@ -36,12 +42,14 @@ start_service() {
 	cleanup_duplicate_hosts
 
 	# Start the main ubus daemon
-	procd_open_instance
-	procd_set_param command "$PROG"
-	procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-5} ${respawn_retry:-5}
-	procd_set_param stdout 1
-	procd_set_param stderr 1
-	procd_close_instance
+	# NOTE: devicemasterd uses stdin loop (read from ubus), not suitable for procd
+	# Uncomment only if you have a proper ubus setup that feeds stdin
+	# procd_open_instance
+	# procd_set_param command "$PROG"
+	# procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-5} ${respawn_retry:-5}
+	# procd_set_param stdout 1
+	# procd_set_param stderr 1
+	# procd_close_instance
 
 	# Start traffic monitor
 	procd_open_instance "traffic_monitor"
@@ -52,13 +60,15 @@ start_service() {
 	# Start device monitor (event-driven, no cache maintenance)
 	procd_open_instance "device_monitor"
 	procd_set_param command /usr/libexec/devicemaster/device_monitor.sh
-	procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-5} ${respawn_retry:-5}
+	procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-60} ${respawn_retry:-5}
 	procd_set_param stdout 1
 	procd_set_param stderr 1
 	procd_close_instance
 }
 
 stop_service() {
+	# Save runtime session data back to UCI before stopping
+	flush_session_to_uci
 	cleanup_nftables
 }
 
@@ -179,6 +189,112 @@ cleanup_nftables() {
 	nft delete table inet devicemaster 2>/dev/null
 }
 
+# Ensure UCI settings section exists (lost on config re-creation)
+# Called at service start to restore OUI management page settings
+ensure_settings() {
+	local exists=$(uci -q get devicemaster.settings.oui_mode 2>/dev/null)
+	[ -n "$exists" ] && return
+
+	uci -q batch <<-EOF >/dev/null 2>&1
+		set devicemaster.settings=settings
+		set devicemaster.settings.oui_mode='remote'
+		set devicemaster.settings.remote_api='maclookup'
+		commit devicemaster
+	EOF
+	logger -t devicemaster "Created missing UCI settings section"
+}
+
+# Initialize session.json from UCI (runtime data → RAM)
+# Called once at service start to avoid repeated Flash reads/writes
+init_session_json() {
+	local file="/var/run/devicemaster/session.json"
+	[ -f "$file" ] && return  # Already exists from previous start
+
+	local first=true
+	echo '{"devices":{' > "$file"
+	local idx=0
+	while true; do
+		local mac=$(uci -q get "devicemaster.@device[$idx].mac" 2>/dev/null)
+		[ -z "$mac" ] && break
+
+		[ "$first" = false ] && echo "," >> "$file"
+		first=false
+
+		local upper_mac=$(echo "$mac" | tr '[:lower:]' '[:upper:]')
+		local first_seen=$(uci -q get "devicemaster.@device[$idx].first_seen" 2>/dev/null)
+		local last_seen=$(uci -q get "devicemaster.@device[$idx].last_seen" 2>/dev/null)
+		local total_time=$(uci -q get "devicemaster.@device[$idx].total_online_time" 2>/dev/null)
+		local session_start=$(uci -q get "devicemaster.@device[$idx].current_session_start" 2>/dev/null)
+
+		printf '"%s":{' "$upper_mac" >> "$file"
+		local sep=""
+		[ -n "$first_seen" ] && printf '%s"first_seen":%s' "$sep" "$first_seen" >> "$file" && sep=","
+		[ -n "$last_seen" ] && printf '%s"last_seen":%s' "$sep" "$last_seen" >> "$file" && sep=","
+		[ -n "$total_time" ] && printf '%s"total_online_time":%s' "$sep" "$total_time" >> "$file" && sep=","
+		[ -n "$session_start" ] && printf '%s"current_session_start":%s' "$sep" "$session_start" >> "$file" && sep=","
+		printf '}' >> "$file"
+
+		idx=$((idx + 1))
+	done
+	echo '}}' >> "$file"
+
+	logger -t devicemaster "Session data initialized for $idx devices"
+}
+
+# Flush session.json runtime data back to UCI (RAM → Flash)
+# Called on service stop and every 12 hours via cron
+flush_session_to_uci() {
+	local lock="/var/run/devicemaster/flush.lock"
+	[ -f "$lock" ] && return  # Already flushing
+	touch "$lock"
+
+	local file="/var/run/devicemaster/session.json"
+	if [ ! -f "$file" ]; then
+		rm -f "$lock"
+		return
+	fi
+
+	local changed=0
+	local idx=0
+	while true; do
+		local mac=$(uci -q get "devicemaster.@device[$idx].mac" 2>/dev/null)
+		[ -z "$mac" ] && break
+
+		local upper_mac=$(echo "$mac" | tr '[:lower:]' '[:upper:]')
+
+		local first_seen=$(jsonfilter -i "$file" -e "@.devices[\"$upper_mac\"].first_seen" 2>/dev/null)
+		local last_seen=$(jsonfilter -i "$file" -e "@.devices[\"$upper_mac\"].last_seen" 2>/dev/null)
+		local total_time=$(jsonfilter -i "$file" -e "@.devices[\"$upper_mac\"].total_online_time" 2>/dev/null)
+		local session_start=$(jsonfilter -i "$file" -e "@.devices[\"$upper_mac\"].current_session_start" 2>/dev/null)
+
+		if [ -n "$first_seen" ]; then
+			uci -q set "devicemaster.@device[$idx].first_seen=$first_seen"
+			changed=1
+		fi
+		if [ -n "$last_seen" ]; then
+			uci -q set "devicemaster.@device[$idx].last_seen=$last_seen"
+			changed=1
+		fi
+		if [ -n "$total_time" ]; then
+			uci -q set "devicemaster.@device[$idx].total_online_time=$total_time"
+			changed=1
+		fi
+		if [ -n "$session_start" ]; then
+			uci -q set "devicemaster.@device[$idx].current_session_start=$session_start"
+			changed=1
+		fi
+
+		idx=$((idx + 1))
+	done
+
+	if [ "$changed" = "1" ]; then
+		uci -q commit devicemaster
+		logger -t devicemaster "Session data flushed to UCI ($idx devices)"
+	fi
+
+	rm -f "$lock"
+}
+
 # Remove duplicate dhcp host entries for the same MAC
 # Previous bug in sync_to_dnsmasq created multiple entries per MAC
 cleanup_duplicate_hosts() {
@@ -216,5 +332,13 @@ reload_service() {
 }
 
 service_triggers() {
-	procd_add_reload_trigger "devicemaster"
+	# NOTE: Disabled to prevent unintended service restart on UCI config changes
+	# procd_add_reload_trigger "devicemaster"
+	:
+}
+
+# CLI: /etc/init.d/devicemaster flush_session
+# Called by cron every 12 hours to persist runtime session data to Flash
+flush_session() {
+	flush_session_to_uci
 }

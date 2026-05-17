@@ -742,6 +742,7 @@ probe_hostname() {
 # ============================================================
 mac_exists_in_uci() {
     local mac="$1"
+    local ip="$2"
     # Normalize MAC to lowercase for case-insensitive comparison
     local mac_lower=$(echo "$mac" | tr 'A-F' 'a-f')
     local idx=0
@@ -750,8 +751,8 @@ mac_exists_in_uci() {
         # Normalize stored MAC to lowercase for comparison
         local stored_mac_lower=$(echo "$stored_mac" | tr 'A-F' 'a-f')
         if [ "$stored_mac_lower" = "$mac_lower" ]; then
-            if [ -n "$3" ]; then
-                uci -q set "devicemaster.@device[$idx].last_ip=$3"
+            if [ -n "$ip" ]; then
+                uci -q set "devicemaster.@device[$idx].last_ip=$ip"
                 uci -q commit devicemaster
             fi
             return 0
@@ -860,10 +861,15 @@ register_device() {
 
     [ "$hostname" = "*" ] && hostname=""
 
-    # Fallback: if no hostname provided (e.g. Mesh sub-node without DHCP),
-    # try DNS reverse lookup before identification
-    if [ -z "$hostname" ]; then
-        hostname=$(probe_hostname "$ip" "$mac")
+    # Try to get more detailed hostname from mDNS even if DHCP provided one
+    # 修复：mDNS 可能提供更详细的设备名称（如 iPad-Pro-M4 vs iPad）
+    # probe_hostname 优先使用 DHCP leases，所以我们直接调用 mdns_probe_ip
+    local mdns_hostname=$(mdns_probe_ip "$ip")
+    if [ -n "$mdns_hostname" ]; then
+        # Use mDNS hostname if it's more detailed (longer) than DHCP hostname
+        if [ -z "$hostname" ] || [ ${#mdns_hostname} -gt ${#hostname} ]; then
+            hostname="$mdns_hostname"
+        fi
     fi
 
     # Run 7-level identification
@@ -874,6 +880,32 @@ register_device() {
     try_merge_device "$mac" "$ip" "$hostname" "$vendor" "$devtype"
     if [ "$merged" = "1" ]; then
         log_msg "Device $mac merged into existing record (hostname: $hostname)"
+        return
+    fi
+
+    # Check if device already exists - update hostname if mDNS provides better name
+    # 修复：更新现有设备的 hostname，如果 mDNS 提供了更详细的名称
+    local existing_idx=""
+    local idx=0
+    while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
+        local stored_mac=$(uci -q get "devicemaster.@device[$idx].mac")
+        if [ "$stored_mac" = "$mac" ]; then
+            existing_idx=$idx
+            break
+        fi
+        idx=$((idx + 1))
+    done
+    if [ -n "$existing_idx" ]; then
+        local current_hostname=$(uci -q get "devicemaster.@device[$existing_idx].hostname")
+        local current_manual=$(uci -q get "devicemaster.@device[$existing_idx].manual")
+        # Only update if not manually set and new hostname is more detailed
+        if [ "$current_manual" != "1" ] && [ -n "$hostname" ] && [ ${#hostname} -gt ${#current_hostname} ]; then
+            uci -q set "devicemaster.@device[$existing_idx].hostname=$hostname"
+            uci -q commit devicemaster
+            log_msg "Updated hostname for $mac: $current_hostname -> $hostname"
+            # Also sync to dnsmasq
+            /usr/libexec/devicemaster/sync_hostname.sh "$mac" "$hostname" "$ip" >/dev/null 2>&1
+        fi
         return
     fi
 
@@ -963,79 +995,86 @@ discover_all() {
     # Pre-fetch main router leases once for all devices (cached 60s)
     fetch_main_router_leases
 
+    # Pre-load UCI MAC cache for fast lookup (avoid repeated uci get in loop)
+    local uci_mac_cache="/tmp/dm_discover_uci_cache"
+    > "$uci_mac_cache"
+    local idx=0
+    while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
+        local stored=$(uci -q get "devicemaster.@device[$idx].mac")
+        local stored_lower=$(echo "$stored" | tr 'A-F' 'a-f')
+        echo "$stored_lower $idx" >> "$uci_mac_cache"
+        idx=$((idx + 1))
+    done
+
+    local modified=0
     while read -r ip mac; do
         [ -z "$mac" ] && continue
         mac=$(echo "$mac" | tr '[:upper:]' '[:lower:]')
 
-        local idx=0
         local found=0
-        while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
-            local stored=$(uci -q get "devicemaster.@device[$idx].mac")
-            # Normalize both MACs to lowercase for case-insensitive comparison
-            local stored_lower=$(echo "$stored" | tr 'A-F' 'a-f')
-            local mac_lower=$(echo "$mac" | tr 'A-F' 'a-f')
-            if [ "$stored_lower" = "$mac_lower" ]; then
-                found=1
-                uci -q set "devicemaster.@device[$idx].last_ip=$ip"
+        local cache_idx=$(awk -v m="$mac" '$1 == m {print $2; exit}' "$uci_mac_cache" 2>/dev/null)
+        if [ -n "$cache_idx" ]; then
+            found=1
+            # Prefer DHCP lease IP over ARP IP (ARP can have stale entries)
+            local dhcp_ip=$(awk -v m="$mac" 'tolower($2) == m {print $3; exit}' /tmp/dhcp.leases 2>/dev/null)
+            local effective_ip="$ip"
+            [ -n "$dhcp_ip" ] && effective_ip="$dhcp_ip"
+            uci -q set "devicemaster.@device[$cache_idx].last_ip=$effective_ip"
 
-                # For Mesh sub-nodes: if hostname is empty, try to fetch from main router
-                # This handles the case where device was first discovered before hostname was available
-                local stored_hostname=$(uci -q get "devicemaster.@device[$idx].hostname")
-                local stored_vendor=$(uci -q get "devicemaster.@device[$idx].vendor")
-                local stored_type=$(uci -q get "devicemaster.@device[$idx].type")
-                local fetched_hostname=""
+            # For Mesh sub-nodes: if hostname is empty, try to fetch from main router
+            local stored_hostname=$(uci -q get "devicemaster.@device[$cache_idx].hostname")
+            local stored_vendor=$(uci -q get "devicemaster.@device[$cache_idx].vendor")
+            local stored_type=$(uci -q get "devicemaster.@device[$cache_idx].type")
+            local fetched_hostname=""
 
-                if [ -z "$stored_hostname" ]; then
-                    fetched_hostname=$(probe_hostname "$ip" "$mac")
-                    if [ -n "$fetched_hostname" ]; then
-                        uci -q set "devicemaster.@device[$idx].hostname=$fetched_hostname"
-                        log_msg "Updated hostname for $mac: $fetched_hostname"
-                    fi
+            if [ -z "$stored_hostname" ]; then
+                fetched_hostname=$(probe_hostname "$ip" "$mac")
+                if [ -n "$fetched_hostname" ]; then
+                    uci -q set "devicemaster.@device[$cache_idx].hostname=$fetched_hostname"
+                    log_msg "Updated hostname for $mac: $fetched_hostname"
                 fi
-
-                # Re-identify vendor/type if:
-                # 1. hostname was just fetched (from empty to non-empty), OR
-                # 2. vendor is LAA/Unknown/empty (failed first identification)
-                # This fixes the case where device was first seen without hostname
-                local should_reidentify=0
-                if [ -n "$fetched_hostname" ] && [ -z "$stored_hostname" ]; then
-                    should_reidentify=1
-                    log_msg "Hostname newly available for $mac, re-identifying..."
-                elif [ "$stored_vendor" = "LAA" ] || [ "$stored_vendor" = "Unknown" ] || [ -z "$stored_vendor" ]; then
-                    should_reidentify=1
-                    log_msg "Vendor is '$stored_vendor' for $mac, re-identifying..."
-                fi
-
-                if [ "$should_reidentify" = "1" ]; then
-                    local effective_hostname="${fetched_hostname:-$stored_hostname}"
-                    local new_vendor=$(identify_vendor "$mac" "$ip" "$effective_hostname")
-                    local new_type=$(identify_type "$mac" "$ip" "$effective_hostname" "$new_vendor")
-
-                    if [ -n "$new_vendor" ] && [ "$new_vendor" != "$stored_vendor" ]; then
-                        uci -q set "devicemaster.@device[$idx].vendor=$new_vendor"
-                        log_msg "Updated vendor for $mac: $stored_vendor -> $new_vendor"
-                    fi
-                    if [ -n "$new_type" ] && [ "$new_type" != "$stored_type" ]; then
-                        uci -q set "devicemaster.@device[$idx].type=$new_type"
-                        log_msg "Updated type for $mac: $stored_type -> $new_type"
-                    fi
-
-                    # Also update auto-generated name if vendor/type changed
-                    local current_name=$(uci -q get "devicemaster.@device[$idx].name")
-                    local manual=$(uci -q get "devicemaster.@device[$idx].manual")
-                    if [ "$manual" != "1" ] && [ -n "$new_vendor" ] && [ "$new_vendor" != "LAA" ] && [ "$new_vendor" != "Unknown" ]; then
-                        local new_name=$(auto_name "$new_vendor" "$new_type")
-                        if [ -n "$new_name" ] && [ "$new_name" != "$current_name" ]; then
-                            uci -q set "devicemaster.@device[$idx].name=$new_name"
-                            log_msg "Updated name for $mac: $current_name -> $new_name"
-                        fi
-                    fi
-                fi
-
-                break
             fi
-            idx=$((idx + 1))
-        done
+
+            # Re-identify vendor/type if:
+            # 1. hostname was just fetched (from empty to non-empty), OR
+            # 2. vendor is LAA/Unknown/empty (failed first identification)
+            local should_reidentify=0
+            if [ -n "$fetched_hostname" ] && [ -z "$stored_hostname" ]; then
+                should_reidentify=1
+                log_msg "Hostname newly available for $mac, re-identifying..."
+            elif [ "$stored_vendor" = "LAA" ] || [ "$stored_vendor" = "Unknown" ] || [ -z "$stored_vendor" ]; then
+                should_reidentify=1
+                log_msg "Vendor is '$stored_vendor' for $mac, re-identifying..."
+            fi
+
+            if [ "$should_reidentify" = "1" ]; then
+                local effective_hostname="${fetched_hostname:-$stored_hostname}"
+                local new_vendor=$(identify_vendor "$mac" "$ip" "$effective_hostname")
+                local new_type=$(identify_type "$mac" "$ip" "$effective_hostname" "$new_vendor")
+
+                if [ -n "$new_vendor" ] && [ "$new_vendor" != "$stored_vendor" ]; then
+                    uci -q set "devicemaster.@device[$cache_idx].vendor=$new_vendor"
+                    log_msg "Updated vendor for $mac: $stored_vendor -> $new_vendor"
+                fi
+                if [ -n "$new_type" ] && [ "$new_type" != "$stored_type" ]; then
+                    uci -q set "devicemaster.@device[$cache_idx].type=$new_type"
+                    log_msg "Updated type for $mac: $stored_type -> $new_type"
+                fi
+
+                # Also update auto-generated name if vendor/type changed
+                local current_name=$(uci -q get "devicemaster.@device[$cache_idx].name")
+                local manual=$(uci -q get "devicemaster.@device[$cache_idx].manual")
+                if [ "$manual" != "1" ] && [ -n "$new_vendor" ] && [ "$new_vendor" != "LAA" ] && [ "$new_vendor" != "Unknown" ]; then
+                    local new_name=$(auto_name "$new_vendor" "$new_type")
+                    if [ -n "$new_name" ] && [ "$new_name" != "$current_name" ]; then
+                        uci -q set "devicemaster.@device[$cache_idx].name=$new_name"
+                        log_msg "Updated name for $mac: $current_name -> $new_name"
+                    fi
+                fi
+            fi
+
+            modified=1
+        fi
 
         if [ "$found" = "0" ]; then
             local hostname=$(grep -i "$mac" /tmp/dhcp.leases 2>/dev/null | awk '{print $4}')
@@ -1049,7 +1088,7 @@ discover_all() {
             register_device "$mac" "$ip" "$hostname"
         fi
     done < "$arp_tmp"
-    rm -f "$arp_tmp"
+    rm -f "$arp_tmp" "$uci_mac_cache"
 
     uci -q commit devicemaster 2>/dev/null
     rmdir "$lock" 2>/dev/null

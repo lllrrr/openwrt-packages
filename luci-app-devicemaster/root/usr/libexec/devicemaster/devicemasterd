@@ -40,24 +40,24 @@ ubus_get_device() {
 ubus_set_device_name() {
     local mac="$1"
     local name="$2"
-    
+
     # Check if device section exists
     local found=0
     local section=""
     config_load devicemaster
     config_foreach check_device_mac device
-    
+
     if [ "$found" -eq 0 ]; then
         section=$(uci add devicemaster device)
     fi
-    
+
     uci set "devicemaster.$section.mac=$mac"
     uci set "devicemaster.$section.name=$name"
     uci commit devicemaster
-    
+
     # Sync with dnsmasq
     sync_to_dnsmasq "$mac" "$name"
-    
+
     echo "success"
 }
 
@@ -138,17 +138,6 @@ ubus_get_traffic() {
     json_add_int "tx_rate" $(echo "$bandwidth" | jsonfilter -e '@.tx_rate')
     json_close_object
     json_dump
-}
-
-# Register ubus methods
-register_ubus() {
-    # Create ubus object
-    ubus -S call "$UBUS_SOCKET" object_add '{"path": "devicemaster", "type": "devicemaster"}' 2>/dev/null
-    
-    # The actual method handling is done via ubus listen
-    while ubus -S listen; do
-        : # Handle events
-    done
 }
 
 # Main loop - handle ubus calls via stdin

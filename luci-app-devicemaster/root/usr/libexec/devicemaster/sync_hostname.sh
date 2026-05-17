@@ -80,7 +80,70 @@ while true; do
 done
 log_msg "Deleted $deleted old host entries for $MAC"
 
-# Step 2: Add new host entry
+# 修复：删除后立即 commit，确保检测时旧条目已清除
+uci -q commit dhcp
+
+# Step 2: Check for duplicate hostnames and add suffix if needed
+# 修复：检查 devicemaster 和 dhcp 中的名称，与 LuCI unique_name 保持一致
+# 注意：需要正确排除自己，不能直接用 grep -v MAC，因为 uci show 输出格式不同
+base_name="$NAME"
+counter=1
+final_name="$NAME"
+while true; do
+    # Check if this name is already used by another MAC in dhcp
+    dup_dhcp=""
+    dhcp_line=$(uci show dhcp 2>/dev/null | grep "\.name='${final_name}'" | head -1)
+    if [ -n "$dhcp_line" ]; then
+        # Extract index from dhcp entry (format: dhcp.@host[N].name='...')
+        dhcp_idx=$(echo "$dhcp_line" | grep -o '@host\[[0-9]*\]' | grep -o '[0-9]*')
+        dhcp_mac=$(uci -q get "dhcp.@host[$dhcp_idx].mac" 2>/dev/null)
+        if [ "$dhcp_mac" != "$MAC" ]; then
+            dup_dhcp="$dhcp_line"
+        fi
+    fi
+
+    # Check if this name is already used by another MAC in devicemaster (name field)
+    dup_dm_name=""
+    dm_line=$(uci show devicemaster 2>/dev/null | grep "\.name='${final_name}'" | head -1)
+    if [ -n "$dm_line" ]; then
+        # Extract section name (format: devicemaster.@device[N].name='...' or devicemaster.XXXXXX.name='...')
+        dm_section=$(echo "$dm_line" | grep -o '@device\[[0-9]*\]')
+        [ -z "$dm_section" ] && dm_section=$(echo "$dm_line" | sed 's/^devicemaster\.\([^=]*\)\..*/\1/')
+        dm_mac=$(uci -q get "devicemaster.$dm_section.mac" 2>/dev/null)
+        if [ "$dm_mac" != "$MAC" ]; then
+            dup_dm_name="$dm_line"
+        fi
+    fi
+
+    # Check if this name is already used by another MAC in devicemaster (hostname field)
+    dup_dm_hostname=""
+    dm_line=$(uci show devicemaster 2>/dev/null | grep "\.hostname='${final_name}'" | head -1)
+    if [ -n "$dm_line" ]; then
+        # Extract section name
+        dm_section=$(echo "$dm_line" | grep -o '@device\[[0-9]*\]')
+        [ -z "$dm_section" ] && dm_section=$(echo "$dm_line" | sed 's/^devicemaster\.\([^=]*\)\..*/\1/')
+        dm_mac=$(uci -q get "devicemaster.$dm_section.mac" 2>/dev/null)
+        if [ "$dm_mac" != "$MAC" ]; then
+            dup_dm_hostname="$dm_line"
+        fi
+    fi
+
+    if [ -z "$dup_dhcp" ] && [ -z "$dup_dm_name" ] && [ -z "$dup_dm_hostname" ]; then
+        break
+    fi
+    # Name exists, try with suffix
+    counter=$((counter + 1))
+    final_name="${base_name}-${counter}"
+    # Prevent infinite loop
+    [ "$counter" -gt 100 ] && break
+done
+
+if [ "$final_name" != "$NAME" ]; then
+    log_msg "WARN: Name '$NAME' already used by another device, using '$final_name' instead"
+    NAME="$final_name"
+fi
+
+# Step 3: Add new host entry
 uci -q add dhcp host >/dev/null
 uci -q set "dhcp.@host[-1].mac=$MAC"
 uci -q set "dhcp.@host[-1].ip=$IP"
@@ -90,11 +153,11 @@ uci -q set "dhcp.@host[-1].name=$NAME"
 uci -q commit dhcp
 log_msg "UCI committed: dhcp host $MAC -> $NAME ($IP)"
 
-# Step 4: Restart dnsmasq SYNCHRONOUSLY (no &)
-# MUST be restart, not reload:
-#   reload = SIGHUP, re-reads config but does NOT flush DNS cache
-#   restart = full stop + start, regenerates /tmp/hosts/dhcp.* files
-/etc/init.d/dnsmasq restart >/dev/null 2>&1
+# Step 4: Reload dnsmasq SYNCHRONOUSLY (no &)
+# Use reload (SIGHUP) instead of restart to avoid disrupting active DNS queries
+# Note: reload re-reads config but does NOT flush DNS cache
+# For cache flush, a full restart would be needed, but reload is safer for production
+/etc/init.d/dnsmasq reload >/dev/null 2>&1
 
 # Verify: use nslookup to confirm DNS resolution works
 sleep 1

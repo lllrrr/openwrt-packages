@@ -4,7 +4,7 @@
 
 TRAFFIC_DB="/var/run/devicemaster/traffic.json"
 STATS_DIR="/var/run/devicemaster/stats"
-REFRESH_INTERVAL=5
+REFRESH_INTERVAL=30
 
 mkdir -p "$STATS_DIR" "$TRAFFIC_DB" 2>/dev/null || true
 
