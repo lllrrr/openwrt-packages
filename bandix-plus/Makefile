@@ -97,7 +97,7 @@ define Package/$(PKG_NAME)/install
 
 	# 安装配置文件
 	$(INSTALL_DIR) $(1)/usr/share/bandix-plus
-	$(INSTALL_CONF) ./files/bandix-plus.config $(1)/etc/config/bandix-plus
+	$(INSTALL_CONF) ./files/bandix-plus.config $(1)/etc/config/bandix_plus
 
 	# 安装 UCI defaults（仅补齐缺失配置项，不覆盖用户已有值）
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
@@ -109,7 +109,7 @@ define Package/$(PKG_NAME)/install
 endef
 
 define Package/$(PKG_NAME)/conffiles
-/etc/config/bandix-plus
+/etc/config/bandix_plus
 endef
 
 define Package/$(PKG_NAME)/postinst

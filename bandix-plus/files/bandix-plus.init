@@ -32,7 +32,7 @@ start_service() {
 	local log_level
 	local IFACES=""
 
-	config_load 'bandix-plus'
+	config_load 'bandix_plus'
 	config_get_bool enable_traffic 'general' 'enable_traffic' '0'
 	config_get log_level 'general' 'log_level'
 	config_get tc_backend 'general' 'tc_backend' 'auto'
