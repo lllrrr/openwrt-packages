@@ -232,8 +232,8 @@ msgstr "旁路由（AP有線中繼）模式下，閘道器為必填項。"
 msgid "WAN Static IP MUST NOT be the same as the gateway!"
 msgstr "WAN 靜態 IP 絕對不能和閘道器一模一樣！"
 
-msgid "In AP/Relay mode, the device IP MUST NOT be the exact same as the Gateway! (💡 Tip: The Gateway should be the LAN IP of your upstream main router, and this device needs its own unique IP)"
-msgstr "【旁路由 / 有線中繼 (AP)】模式下，本設備 IP 絕對不能與網關相同！（💡 提示：網關請填寫上級主路由的 LAN 口 IP 地址，本設備需設置一個同網段的獨立 IP）"
+msgid "In AP/Relay mode, the device IP MUST NOT be the exact same as the Gateway! (Tip: The Gateway should be the LAN IP of your upstream main router, and this device needs its own unique IP)"
+msgstr "【旁路由 / 有線中繼 (AP)】模式下，本設備 IP 絕對不能與網關完全一樣但網段需要相同！（💡 提示：網關請填寫上級主路由的 LAN 口 IP 地址）"
 
 msgid "No Changes Needed"
 msgstr "未發生更改"
@@ -268,7 +268,7 @@ msgstr "WAN 靜態 IP 必須與閘道器處於同一網段！"
 msgid "e.g., if gateway is {gw}, the IP must be {ip}.x"
 msgstr "例如：如果閘道器是 {gw}，則 IP 必須是 {ip}.x"
 
-msgid "In AP/Relay mode, the device IP must be in the same subnet as the Gateway! (💡 Tip: The Gateway should be the LAN IP of your upstream main router)"
+msgid "In AP/Relay mode, the device IP must be in the same subnet as the Gateway! (Tip: The Gateway should be the LAN IP of your upstream main router)"
 msgstr "【旁路由 / 有線中繼 (AP)】模式下，本設備 IP 必須與網關處於同一網段！（💡 提示：網關請填寫上級主路由的 LAN 口 IP 地址）"
 
 msgid "Config Warning"
@@ -1185,3 +1185,66 @@ msgstr "備 DNS:"
 
 msgid "⚠️ Non-standard parameters (Default configuration recommended)"
 msgstr "⚠️ 與預設參數不一致 (建議使用預設設定)"
+
+msgid "Cable Unplugged or Wrong Port"
+msgstr "網線未連接 或 插錯網口"
+
+msgid "System detected NO SIGNAL on the <b>WAN port</b>!<br><br><b style=\"color:#ef4444;\">Troubleshooting:</b><br>1. Did you plug the upstream cable into the <b>LAN port</b>?<br>2. Are both ends plugged in tightly? Is the modem powered on?<br>"
+msgstr "系統檢測到路由器的 <b>WAN 口（外網口）</b> 沒有信號！<br><br><b style=\"color:#ef4444;\">💡 新手常見錯誤排查：</b><br>1. 您是不是把上級網線 <b>插錯到了 LAN 口</b>？<br>2. 網線兩端是否已插緊？光貓/牆壁網口是否已通電？<br>"
+
+msgid "Detecting in background... This will close automatically once connected."
+msgstr "🔄 正在後台極速偵測... 插好後本窗口將自動消失"
+
+msgid "I am an AP / Ignore for now"
+msgstr "我是旁路由（中繼）/ 暫不處理"
+
+msgid "Severe Warning: Routing Loop"
+msgstr "🚨 嚴重警告：網絡衝突死環"
+
+msgid "System detected that the upstream network (<b style=\"color:#ef4444;\">{wan_ip}</b>) and the LAN (<b style=\"color:#ef4444;\">{lan_ip}</b>) are in the same subnet!<br><br>This will crash the router. <b style=\"color:#059669;\">Please confirm or modify the new LAN IP below and click auto-evade:</b><br><br>"
+msgstr "系統實時檢測到，入戶網絡 (<b style=\"color:#ef4444;\">{wan_ip}</b>) 與本路由器的局域網 (<b style=\"color:#ef4444;\">{lan_ip}</b>) 處於同一網段！<br><br>這將導致路由器徹底癱瘓。<b style=\"color:#059669;\">請確認或修改下方的新局域網 IP，並點擊一鍵避讓：</b><br><br>"
+
+msgid "Modify and Restart Network"
+msgstr "立即修改並重啟網絡"
+
+msgid "Invalid IP format! System restored safe default, please confirm."
+msgstr "❌ 無效的 IP 格式！系統已恢復安全推薦值，請重新確認。"
+
+msgid "Still conflicting! The modified IP is still in the same subnet as upstream.\nSystem restored safe default, please change the 3rd number!"
+msgstr "❌ 依然衝突！修改後的 IP 仍與上級網絡在同一網段。\n系統已恢復安全推薦值，請修改第三段數字！"
+
+msgid "IMPORTANT:\n\nTo resolve the fatal network loop, the system must change LAN IP and restart immediately.\n\nChanges you made on this page will NOT be saved.\nPlease reconfigure after the network restarts and redirects to the new IP.\n\nContinue to fix conflict?"
+msgstr "⚠️ 重要提示：\n\n為優先解決致命的網絡死環，系統必須立即修改局域網 IP 並重啟。\n\n您剛才填寫的【當前頁面的其他配置】將不會被保存。\n請在網絡重啟、跳轉到新 IP 後重新配置。\n\n確定要立即修復衝突嗎？"
+
+msgid "Network Conflict Blocked"
+msgstr "⚠️ 網絡衝突已攔截"
+
+msgid "Upstream network ({wan_ip}) conflicts with local LAN ({lan_ip})!<br><br>Please click below to safely evade to: <b>{safe_ip}</b> to finish setup."
+msgstr "檢測到上級網絡分配的地址 ({wan_ip}) 與本路由器的內網 ({lan_ip}) 發生嚴重衝突！<br><br>請先點擊下方按鈕安全避讓至：<b>{safe_ip}</b>，隨後即可正常完成嚮導。"
+
+msgid "Auto Evade"
+msgstr "一鍵自動避讓"
+
+msgid "Cross-Subnet Loop Blocked"
+msgstr "⚠️ 跨網段路由死環攔截"
+
+msgid "The LAN IP ({ip}) you set is in the same subnet as your upstream network ({wan_ip}), which will crash the router!<br><br>Suggested evasion to: <b>{safe_ip}</b>"
+msgstr "您設置的 LAN IP ({ip}) 與您的入戶網絡 ({wan_ip}) 處於同一網段，這會導致路由器癱瘓！<br><br>建議一鍵避讓至：<b>{safe_ip}</b>"
+
+msgid "Fix and Apply"
+msgstr "一鍵修復並應用"
+
+msgid "Edit Manually"
+msgstr "我自己去改"
+
+msgid "Upstream network ({wan_ip}) conflicts with local LAN ({lan_ip})!<br><br>You MUST change device LAN IP. Suggested evasion to: <b>{safe_ip}</b>"
+msgstr "檢測到上級網絡分配的地址 ({wan_ip}) 與本路由器的內網 ({lan_ip}) 發生嚴重衝突！<br><br>必須修改本設備的 LAN IP。系統建議安全避讓至：<b>{safe_ip}</b>"
+
+msgid "Severe Physical Conflict"
+msgstr "⚠️ 嚴重物理衝突"
+
+msgid "The WAN Static IP ({ip}) you set is exactly the same as the upstream Gateway!<br><br>This causes a severe physical loop. Please change your Static IP (e.g., {suggest_ip})."
+msgstr "您設置的 WAN 靜態 IP ({ip}) 與上級網絡的真實網關完全相同！<br><br>這將導致嚴重的物理死環。請修改您的靜態 IP（例如改為 {suggest_ip}）。"
+
+msgid "The AP IP ({ip}) you set is exactly the same as the upstream Gateway!<br><br>This will paralyze the network. Please change to another free IP (e.g., {suggest_ip})."
+msgstr "您設置的旁路由 IP ({ip}) 與上級網絡的真實網關完全相同！<br><br>這將導致全屋網絡癱瘓。請修改為同網段的其他空閒 IP（例如 {suggest_ip}）。"
