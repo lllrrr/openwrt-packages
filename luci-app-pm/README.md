@@ -8,6 +8,6 @@
 - The power-off function may not be available on all devices.
 - So far, I have only successfully tested it on my Intel Celeron J4125.
 ## 🛠 How to build
-[Generic Docs](https://867678.xyz/doc-build)
+[Generic Docs](https://867678.xyz/doc/build)
 ## ⚖️ License
 > This application provides **no warranties.**
