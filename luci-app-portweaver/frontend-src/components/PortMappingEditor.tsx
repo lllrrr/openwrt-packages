@@ -75,20 +75,11 @@ class PortMappingEditor extends L.form.Value {
     if (mapping.protocol) result += `/${mapping.protocol}`;
     return result;
   }
-  renderWidget(
-    section_id: string,
-    _option_index: number,
-    cfgvalue: string[] | string,
-  ) {
+  renderWidget(section_id: string, _option_index: number, cfgvalue: string[]) {
     void _option_index;
 
     this.errorDivRefs = [];
-
-    const current_values: string[] = Array.isArray(cfgvalue)
-      ? (cfgvalue as string[])
-      : typeof cfgvalue === "string"
-        ? String(cfgvalue).split(/\s+/).filter(Boolean)
-        : [];
+    const current_values: string[] = cfgvalue || [];
 
     const widget_id = this.cbid(section_id);
     const mappings_wrapper = (<div></div>) as HTMLElement;
@@ -553,6 +544,15 @@ class PortMappingEditor extends L.form.Value {
     if (typeof value === "string")
       return String(value).split(/\s+/).filter(Boolean);
     return [];
+  }
+  isChanged(section_id: string): boolean {
+    const cfg = this.cfgvalue(section_id) || [];
+    const form = this.formvalue(section_id) || [];
+    if (cfg.length !== form.length) return true;
+    for (let i = 0; i < cfg.length; i++) {
+      if (cfg[i] !== form[i]) return true;
+    }
+    return false;
   }
   formvalue(_section_id: string) {
     if (this.hiddenInput?.value) {

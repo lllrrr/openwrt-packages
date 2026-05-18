@@ -7,7 +7,7 @@ PKG_RELEASE:=1
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/LazuliKao/portweaver.git
 PKG_SOURCE_VERSION:=HEAD
-PKG_MIRROR_HASH:=cae9dd16f85fb709af48b8863f9b51e2b62b97af036dae4011ef581d1607018a
+PKG_MIRROR_HASH:=2c49296ae8204720361fbec410dfb4fc51b73af55ac3f592b27f0813c158b455
 
 PKG_LICENSE:=GPL-3.0
 PKG_LICENSE_FILES:=LICENSE
@@ -56,10 +56,10 @@ define Build/Compile
 		echo "Zig not found, downloading..."; \
 		mkdir -p $(PKG_BUILD_DIR)/zig-tmp; \
 		cd $(PKG_BUILD_DIR)/zig-tmp && \
-		wget -q -O zig.tar.xz https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz && \
+		wget -q -O zig.tar.xz https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz && \
 		tar xf zig.tar.xz; \
 		$(call BuildVariant, \
-			$(PKG_BUILD_DIR)/zig-tmp/zig-x86_64-linux-0.15.2/zig, \
+			$(PKG_BUILD_DIR)/zig-tmp/zig-x86_64-linux-0.16.0/zig, \
 			-Duci=true -Dubus=true -Dfrpc=true -Dfrps=true -Dddns=true, \
 			$(PKG_INSTALL_DIR)); \
 	else \
