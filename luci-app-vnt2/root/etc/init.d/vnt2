@@ -36,20 +36,42 @@ INSTALL_BIN_DIR="/usr/bin"
 . /lib/functions.sh
 . /lib/functions/procd.sh
 
+looks_like_mojibake() {
+	case "$1" in
+		*)
+			return 1
+		;;
+	esac
+
+	return 1
+}
+
+normalize_log_text() {
+	printf '%s' "$1" | tr -d '\r\000'
+}
+
 log_cli() {
-	echo "$(date '+%Y-%m-%d %H:%M:%S') vnt2-cli : $*" >>"${CLI_LOG}"
+	local msg
+	msg="$(normalize_log_text "$*")"
+	printf '%s vnt2-cli : %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$msg" >>"${CLI_LOG}"
 }
 
 log_web() {
-	echo "$(date '+%Y-%m-%d %H:%M:%S') vnt2-web : $*" >>"${WEB_LOG}"
+	local msg
+	msg="$(normalize_log_text "$*")"
+	printf '%s vnt2-web : %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$msg" >>"${WEB_LOG}"
 }
 
 log_server() {
-	echo "$(date '+%Y-%m-%d %H:%M:%S') vnts2 : $*" >>"${SERVER_LOG}"
+	local msg
+	msg="$(normalize_log_text "$*")"
+	printf '%s vnts2 : %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$msg" >>"${SERVER_LOG}"
 }
 
 log_download() {
-	echo "$(date '+%Y-%m-%d %H:%M:%S') download : $*" >>"${DOWNLOAD_LOG}"
+	local msg
+	msg="$(normalize_log_text "$*")"
+	printf '%s download : %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$msg" >>"${DOWNLOAD_LOG}"
 }
 
 ensure_log_files() {
@@ -226,6 +248,8 @@ write_download_state() {
 	local tag="$5"
 	local arch="$6"
 	local path="$7"
+
+	message="$(normalize_log_text "$message")"
 
 	cat >"${state_file}" <<EOF
 state=${state}
@@ -1088,19 +1112,19 @@ install_binary_to_usrbin() {
 	target_path="${INSTALL_BIN_DIR}/${target_name}"
 
 	mkdir -p "${INSTALL_BIN_DIR}" >/dev/null 2>&1 || {
-		log_download "鍒涘缓瀹夎鐩綍澶辫触锛?{INSTALL_BIN_DIR}"
+		log_download "failed to create install directory ${INSTALL_BIN_DIR}"
 		return 1
 	}
 	cp -f "$src" "$target_path" >/dev/null 2>&1 || {
-		log_download "澶嶅埗绋嬪簭鍒?${target_path} 澶辫触锛屾簮鏂囦欢锛?{src}"
+		log_download "failed to copy uploaded binary to ${target_path} from ${src}"
 		return 1
 	}
 	chmod 755 "$target_path" >/dev/null 2>&1 || {
-		log_download "璁剧疆鎵ц鏉冮檺澶辫触锛?{target_path}"
+		log_download "failed to chmod uploaded binary ${target_path}"
 		return 1
 	}
 	[ -f "$target_path" ] || {
-		log_download "瀹夎鍚庢湭鎵惧埌鐩爣鏂囦欢锛?{target_path}"
+		log_download "uploaded binary not found after install ${target_path}"
 		return 1
 	}
 	echo "$target_path"
@@ -1209,7 +1233,7 @@ auto_download_bundle() {
 	mkdir -p "$cache_dir"
 
 	if cache_bundle_ready "$extracted_dir" "$scope"; then
-		log_download "妫€娴嬪埌 ${scope} 宸叉湁缂撳瓨鍖咃紝鐩存帴澶嶇敤 ${extracted_dir}"
+		log_download "cached bundle found for ${scope}, reuse ${extracted_dir}"
         write_download_state "$state_file" "cached" "reusing local cached bundle" "$(basename "$cache_dir")" "$download_tag" "$arch_name" "$extracted_dir"
 
 		if install_bundle_to_usrbin "$extracted_dir" "$scope"; then
@@ -1231,7 +1255,7 @@ auto_download_bundle() {
 	fi
 
 	api_url="$(get_release_api_url "$download_repo" "$download_tag" "$effective_mirror")"
-	log_download "寮€濮嬫煡璇?${scope} 瀵瑰簲鍙戣鐗堬細repo=${download_repo} tag=${download_tag} arch=${arch_name}"
+	log_download "query target release repo=${download_repo} tag=${download_tag} arch=${arch_name} scope=${scope}"
 
 	write_download_state "$state_file" "querying" "querying releases (${effective_mirror})" "" "$download_tag" "$arch_name" ""
 	log_download "querying ${scope} release repo=${download_repo} tag=${download_tag} mirror=${effective_mirror} arch=${arch_name}"
@@ -1247,57 +1271,57 @@ auto_download_bundle() {
 	release_tag="$(normalize_release_tag "$release_tag")"
 	[ -n "$release_tag" ] || release_tag="$download_tag"
 	asset_url="$(select_release_asset "$json_file" "$arch_patterns" "$scope")" || {
-		log_download "鏈壘鍒板尮閰?${arch_name} 鐨?${scope} 鍙戣璧勬簮"
-		write_download_state "$state_file" "failed" "鏈壘鍒板尮閰嶅綋鍓嶆灦鏋勭殑鍙戣璧勬簮" "" "$release_tag" "$arch_name" ""
+		log_download "no release asset matched arch=${arch_name} scope=${scope}"
+		write_download_state "$state_file" "failed" "no release asset matched current arch" "" "$release_tag" "$arch_name" ""
 		return 1
 	}
 
 	asset_name="$(basename "$asset_url")"
 	asset_file="${cache_dir}/${asset_name}"
-	write_download_state "$state_file" "downloading" "姝ｅ湪涓嬭浇鍙戣璧勬簮" "$asset_name" "$release_tag" "$arch_name" ""
-	log_download "閫変腑璧勬簮 ${asset_name}"
+	write_download_state "$state_file" "downloading" "downloading release asset" "$asset_name" "$release_tag" "$arch_name" ""
+	log_download "selected asset ${asset_name}"
 
 	if [ -s "$asset_file" ]; then
 		if validate_asset_file "$asset_file"; then
-			log_download "澶嶇敤宸蹭笅杞借祫婧?${asset_file}"
+			log_download "reusing downloaded asset ${asset_file}"
 		else
-			log_download "妫€娴嬪埌缂撳瓨璧勬簮鏃犳晥锛屽垹闄ゅ悗閲嶆柊涓嬭浇锛?{asset_file}"
+			log_download "cached asset invalid, remove and redownload ${asset_file}"
 			rm -f "$asset_file"
 		fi
 	fi
 
 	if [ ! -s "$asset_file" ]; then
 		if ! download_file "$asset_url" "$asset_file" "asset"; then
-			log_download "涓嬭浇鍙戣璧勬簮澶辫触锛歵ool=${DOWNLOAD_LAST_TOOL:-unknown} url=${asset_url}"
-			write_download_state "$state_file" "failed" "涓嬭浇鍙戣璧勬簮澶辫触" "$asset_name" "$release_tag" "$arch_name" ""
+			log_download "asset download failed tool=${DOWNLOAD_LAST_TOOL:-unknown} url=${asset_url}"
+			write_download_state "$state_file" "failed" "asset download failed" "$asset_name" "$release_tag" "$arch_name" ""
 			return 1
 		fi
 		if ! validate_asset_file "$asset_file"; then
-			log_download "涓嬭浇鍚庣殑鍙戣璧勬簮鏃犳晥鎴栧凡鎹熷潖锛?{asset_file}"
+			log_download "downloaded asset invalid or corrupted ${asset_file}"
 			rm -f "$asset_file"
-            write_download_state "$state_file" "failed" "downloaded asset is invalid or corrupted" "$asset_name" "$release_tag" "$arch_name" ""
+			write_download_state "$state_file" "failed" "downloaded asset is invalid or corrupted" "$asset_name" "$release_tag" "$arch_name" ""
 			return 1
 		fi
 	fi
 
-    write_download_state "$state_file" "extracting" "extracting program files" "$asset_name" "$release_tag" "$arch_name" ""
+	write_download_state "$state_file" "extracting" "extracting program files" "$asset_name" "$release_tag" "$arch_name" ""
 	if ! extract_release_asset "$asset_file" "$extracted_dir"; then
-		log_download "棣栨瑙ｅ帇澶辫触锛屽垹闄ょ紦瀛樺悗閲嶆柊涓嬭浇閲嶈瘯锛?{asset_file}"
+		log_download "extract failed, remove cache and retry ${asset_file}"
 		rm -f "$asset_file"
 		if ! download_file "$asset_url" "$asset_file" "asset"; then
-			log_download "閲嶈瘯涓嬭浇鍙戣璧勬簮澶辫触锛歵ool=${DOWNLOAD_LAST_TOOL:-unknown} url=${asset_url}"
-			write_download_state "$state_file" "failed" "閲嶈瘯涓嬭浇鍙戣璧勬簮澶辫触" "$asset_name" "$release_tag" "$arch_name" ""
+			log_download "retry asset download failed tool=${DOWNLOAD_LAST_TOOL:-unknown} url=${asset_url}"
+			write_download_state "$state_file" "failed" "retry asset download failed" "$asset_name" "$release_tag" "$arch_name" ""
 			return 1
 		fi
 		if ! validate_asset_file "$asset_file"; then
-			log_download "閲嶈瘯涓嬭浇鍚庣殑鍙戣璧勬簮浠嶇劧鏃犳晥锛?{asset_file}"
+			log_download "retried asset still invalid ${asset_file}"
 			rm -f "$asset_file"
-			write_download_state "$state_file" "failed" "閲嶈瘯涓嬭浇鍚庣殑鍙戣璧勬簮鏃犳晥" "$asset_name" "$release_tag" "$arch_name" ""
+			write_download_state "$state_file" "failed" "retried asset is invalid" "$asset_name" "$release_tag" "$arch_name" ""
 			return 1
 		fi
 		if ! extract_release_asset "$asset_file" "$extracted_dir"; then
-			log_download "瑙ｅ帇澶辫触锛?{asset_file}"
-			write_download_state "$state_file" "failed" "瑙ｅ帇鍙戣璧勬簮澶辫触" "$asset_name" "$release_tag" "$arch_name" ""
+			log_download "extract asset failed ${asset_file}"
+			write_download_state "$state_file" "failed" "extract asset failed" "$asset_name" "$release_tag" "$arch_name" ""
 			return 1
 		fi
 	fi
@@ -1307,62 +1331,62 @@ auto_download_bundle() {
 			cli_bin="$(locate_extracted_bin "$extracted_dir" "vnt2_cli")"
 			ctrl_bin="$(locate_extracted_bin "$extracted_dir" "vnt2_ctrl")"
 			if ! ensure_exec "$cli_bin" || ! ensure_exec "$ctrl_bin"; then
-				log_download "涓嬭浇鍖呬腑鏈壘鍒板畬鏁寸殑 vnt2_cli / vnt2_ctrl"
-				write_download_state "$state_file" "failed" "涓嬭浇鍖呬腑鏈壘鍒板畬鏁寸殑 vnt2_cli / vnt2_ctrl" "$asset_name" "$release_tag" "$arch_name" ""
+				log_download "bundle missing vnt2_cli or vnt2_ctrl"
+				write_download_state "$state_file" "failed" "bundle missing vnt2_cli or vnt2_ctrl" "$asset_name" "$release_tag" "$arch_name" ""
 				return 1
 			fi
 			if ! install_bundle_to_usrbin "$extracted_dir" "cli"; then
-				log_download "宸蹭笅杞藉鎴风绋嬪簭锛屼絾瀹夎鍒?/usr/bin 澶辫触"
-				write_download_state "$state_file" "failed" "宸蹭笅杞藉鎴风绋嬪簭锛屼絾瀹夎鍒?/usr/bin 澶辫触" "$asset_name" "$release_tag" "$arch_name" ""
+				log_download "install CLI bundle to /usr/bin failed"
+				write_download_state "$state_file" "failed" "install to /usr/bin failed" "$asset_name" "$release_tag" "$arch_name" ""
 				return 1
 			fi
 			uci -q set ${CONF}.${cfg}.vnt2_cli_bin="${INSTALL_BIN_DIR}/vnt2_cli"
 			uci -q set ${CONF}.${cfg}.vnt2_ctrl_bin="${INSTALL_BIN_DIR}/vnt2_ctrl"
 			uci commit ${CONF} >/dev/null 2>&1
-			log_download "CLI 绋嬪簭宸插畨瑁呭畬鎴愶細cli=${INSTALL_BIN_DIR}/vnt2_cli ctrl=${INSTALL_BIN_DIR}/vnt2_ctrl"
-			write_download_state "$state_file" "success" "宸茶嚜鍔ㄤ笅杞藉苟瀹夎 vnt2_cli / vnt2_ctrl 鍒?/usr/bin" "$asset_name" "$release_tag" "$arch_name" "${INSTALL_BIN_DIR}/vnt2_cli"
+			log_download "CLI installed: cli=${INSTALL_BIN_DIR}/vnt2_cli ctrl=${INSTALL_BIN_DIR}/vnt2_ctrl"
+			write_download_state "$state_file" "success" "installed vnt2_cli and vnt2_ctrl to /usr/bin" "$asset_name" "$release_tag" "$arch_name" "${INSTALL_BIN_DIR}/vnt2_cli"
 			return 0
 		;;
 		web)
 			web_bin="$(locate_extracted_bin "$extracted_dir" "vnt2_web")"
 			if ! ensure_exec "$web_bin"; then
-				log_download "涓嬭浇鍖呬腑鏈壘鍒?vnt2_web"
-				write_download_state "$state_file" "failed" "涓嬭浇鍖呬腑鏈壘鍒?vnt2_web" "$asset_name" "$release_tag" "$arch_name" ""
+				log_download "bundle missing vnt2_web"
+				write_download_state "$state_file" "failed" "bundle missing vnt2_web" "$asset_name" "$release_tag" "$arch_name" ""
 				return 1
 			fi
 			if ! install_bundle_to_usrbin "$extracted_dir" "web"; then
-				log_download "宸蹭笅杞?Web 绋嬪簭锛屼絾瀹夎鍒?/usr/bin 澶辫触"
-				write_download_state "$state_file" "failed" "宸蹭笅杞?Web 绋嬪簭锛屼絾瀹夎鍒?/usr/bin 澶辫触" "$asset_name" "$release_tag" "$arch_name" ""
+				log_download "install web bundle to /usr/bin failed"
+				write_download_state "$state_file" "failed" "web install to /usr/bin failed" "$asset_name" "$release_tag" "$arch_name" ""
 				return 1
 			fi
 			uci -q set ${CONF}.${cfg}.vnt2_web_bin="${INSTALL_BIN_DIR}/vnt2_web"
 			uci commit ${CONF} >/dev/null 2>&1
-			log_download "Web 绋嬪簭宸插畨瑁呭畬鎴愶細web=${INSTALL_BIN_DIR}/vnt2_web"
-			write_download_state "$state_file" "success" "宸茶嚜鍔ㄤ笅杞藉苟瀹夎 vnt2_web 鍒?/usr/bin" "$asset_name" "$release_tag" "$arch_name" "${INSTALL_BIN_DIR}/vnt2_web"
+			log_download "web installed: web=${INSTALL_BIN_DIR}/vnt2_web"
+			write_download_state "$state_file" "success" "installed vnt2_web to /usr/bin" "$asset_name" "$release_tag" "$arch_name" "${INSTALL_BIN_DIR}/vnt2_web"
 			return 0
 		;;
 		server)
 			server_name="vnts2"
 			server_bin="$(normalize_server_binary_name "$extracted_dir")"
 			if ! ensure_exec "$server_bin"; then
-				log_download "涓嬭浇鍖呬腑鏈壘鍒板彲鐢ㄧ殑 vnts2 / vnts锛屾垨閲嶅懡鍚嶄负 vnts2 澶辫触"
-				write_download_state "$state_file" "failed" "涓嬭浇鍖呬腑鏈壘鍒板彲鐢ㄧ殑 vnts2 / vnts锛屾垨閲嶅懡鍚嶄负 vnts2 澶辫触" "$asset_name" "$release_tag" "$arch_name" ""
+				log_download "bundle missing usable vnts2 or vnts"
+				write_download_state "$state_file" "failed" "bundle missing usable vnts2 or vnts" "$asset_name" "$release_tag" "$arch_name" ""
 				return 1
 			fi
 			if ! install_bundle_to_usrbin "$extracted_dir" "server"; then
-				log_download "宸蹭笅杞芥湇鍔＄绋嬪簭锛屼絾瀹夎鍒?/usr/bin 澶辫触"
-				write_download_state "$state_file" "failed" "宸蹭笅杞芥湇鍔＄绋嬪簭锛屼絾瀹夎鍒?/usr/bin 澶辫触" "$asset_name" "$release_tag" "$arch_name" ""
+				log_download "install server bundle to /usr/bin failed"
+				write_download_state "$state_file" "failed" "server install to /usr/bin failed" "$asset_name" "$release_tag" "$arch_name" ""
 				return 1
 			fi
 			uci -q set ${CONF}.${cfg}.vnts2_bin="${INSTALL_BIN_DIR}/vnts2"
 			uci commit ${CONF} >/dev/null 2>&1
-			log_download "鏈嶅姟绔▼搴忓凡瀹夎瀹屾垚锛歴erver=${INSTALL_BIN_DIR}/vnts2"
-			write_download_state "$state_file" "success" "宸茶嚜鍔ㄤ笅杞藉苟瀹夎 vnts2 鍒?/usr/bin" "$asset_name" "$release_tag" "$arch_name" "${INSTALL_BIN_DIR}/vnts2"
+			log_download "server installed: server=${INSTALL_BIN_DIR}/vnts2"
+			write_download_state "$state_file" "success" "installed vnts2 to /usr/bin" "$asset_name" "$release_tag" "$arch_name" "${INSTALL_BIN_DIR}/vnts2"
 			return 0
 		;;
 	esac
 
-	write_download_state "$state_file" "failed" "鏈煡涓嬭浇鑼冨洿" "$asset_name" "$release_tag" "$arch_name" ""
+	write_download_state "$state_file" "failed" "unknown download scope" "$asset_name" "$release_tag" "$arch_name" ""
 	return 1
 }
 
@@ -1392,7 +1416,7 @@ prepare_binary() {
 
 	uploaded="$(find_uploaded_bin "$upload_name")"
 	if [ -n "$uploaded" ]; then
-		log_download "${scope} 鑷姩涓嬭浇澶辫触锛屽洖閫€鍒版湰鍦颁笂浼犵▼搴?${uploaded}"
+		log_download "${scope} auto download failed, fallback to uploaded binary ${uploaded}"
 		target_name="${option%_bin}"
 		installed_bin="$(install_binary_to_usrbin "$uploaded" "$target_name" 2>/dev/null)"
 		if ensure_exec "$installed_bin"; then
@@ -1450,7 +1474,7 @@ toml_validate_client_config() {
 	local network_code server_line
 
 	[ -f "$file" ] || {
-		log_cli "瀹㈡埛绔厤缃枃浠朵笉瀛樺湪锛?file"
+		log_cli "client config file missing: ${file}"
 		return 1
 	}
 
@@ -1458,7 +1482,7 @@ toml_validate_client_config() {
 	server_line="$(trim_value "$(toml_get_raw "$file" "server")")"
 
 	[ -n "$network_code" ] || {
-		log_cli "瀹㈡埛绔厤缃牎楠屽け璐ワ細network_code 涓嶈兘涓虹┖"
+		log_cli "client config missing network_code"
 		return 1
 	}
 
@@ -1467,7 +1491,7 @@ toml_validate_client_config() {
 			:
 		;;
 		*)
-			log_cli "瀹㈡埛绔厤缃牎楠屽け璐ワ細server 鍒楄〃涓嶈兘涓虹┖"
+			log_cli "client config server list format is invalid"
 			return 1
 		;;
 	esac
@@ -1478,7 +1502,7 @@ toml_validate_client_config() {
 toml_validate_server_config() {
 	local file="$1"
 	[ -f "$file" ] || {
-		log_server "鏈嶅姟绔厤缃枃浠朵笉瀛樺湪锛?file"
+		log_server "server config file missing: ${file}"
 		return 1
 	}
 	return 0
@@ -1689,7 +1713,7 @@ prepare_client_network_runtime() {
 	tun_name="$(trim_value "$(toml_get_string "${conf_file}" "tun_name")")"
 	[ -n "$tun_name" ] || tun_name="vnt-tun"
 	no_tun="$(toml_get_bool "${conf_file}" "no_tun")"
-	no_nat="$(toml_get_bool "${conf_file}" "no_proxy")"
+	no_nat="$(toml_get_bool "${conf_file}" "no_nat")"
 	[ -n "$no_nat" ] || no_nat="0"
 
 	VNT2_BIND_DEV="${bind_dev}"
@@ -1751,7 +1775,7 @@ start_cli_instance() {
 
 	config_get_bool enabled "$cfg" "enabled" "0"
 	if [ "$enabled" != "1" ]; then
-		log_cli "鏈惎鐢紝璺宠繃鍚姩"
+		log_cli "vnt2_cli disabled, skip start"
 		return 0
 	fi
 
@@ -1771,12 +1795,12 @@ start_cli_instance() {
 			return 1
 		fi
 	else
-		log_cli "妫€娴嬪埌鐜版湁 CLI/CTRL 绋嬪簭瀹屾暣锛歝li=${cli_bin} ctrl=${ctrl_bin}"
+		log_cli "existing CLI/CTRL detected: cli=${cli_bin} ctrl=${ctrl_bin}"
 	fi
 
 	VNT2_FORWARD_LIST=""
 	if ! prepare_cli_runtime "$cfg"; then
-		log_cli "鍚姩澶辫触锛氬鎴风 TOML 閰嶇疆鏍￠獙澶辫触"
+		log_cli "client runtime preparation failed"
 		return 1
 	fi
 
@@ -1786,7 +1810,7 @@ start_cli_instance() {
 		cleanup_network
 	fi
 
-	log_cli "浣跨敤 ${cli_bin} 鍚姩锛岄厤缃枃浠?${CLI_CONF_FILE}"
+	log_cli "starting ${cli_bin} with config ${CLI_CONF_FILE}"
 	procd_open_instance "vnt2_cli"
 	[ -n "${VNT2_BIND_DEV}" ] && procd_set_param env VNT_BIND_DEV="${VNT2_BIND_DEV}"
 	procd_set_param command /bin/sh -c "exec \"${cli_bin}\" --conf \"${CLI_CONF_FILE}\" >>\"${CLI_LOG}\" 2>&1"
@@ -1866,18 +1890,18 @@ start_server_instance() {
 
 	config_get_bool enabled "$cfg" "enabled" "0"
 	if [ "$enabled" != "1" ]; then
-		log_server "鏈惎鐢紝璺宠繃鍚姩"
+		log_server "vnts2 disabled, skip start"
 		return 0
 	fi
 
 	log_server 'start requested'
 	server_bin="$(prepare_binary "$cfg" "vnts2_bin" "/usr/bin/vnts2" "vnts2" "$DOWNLOAD_SERVER_STATE" "server")" || {
-		log_server "鍚姩澶辫触锛氭湭鎵惧埌鍙墽琛屾枃浠讹紝璇蜂笂浼犳垨瀹夎 vnts2"
+		log_server "start failed: missing usable vnts2 binary"
 		return 1
 	}
 
 	if ! prepare_server_runtime "$cfg"; then
-		log_server "鍚姩澶辫触锛氭湇鍔＄ TOML 閰嶇疆鏍￠獙澶辫触"
+		log_server "server runtime preparation failed"
 		return 1
 	fi
 
@@ -1888,7 +1912,7 @@ start_server_instance() {
 
 	configure_server_firewall "${VNTS2_TCP_BIND}" "${VNTS2_QUIC_BIND}" "${VNTS2_WS_BIND}" "${VNTS2_WEB_BIND}" "$open_tcp" "$open_quic" "$open_ws" "$open_web"
 
-	log_server "浣跨敤 ${server_bin} 鍚姩锛岄厤缃枃浠?${SERVER_CONF_FILE}"
+	log_server "starting ${server_bin} with config ${SERVER_CONF_FILE}"
 	procd_open_instance "vnts2"
 	procd_set_param command /bin/sh -c "exec \"${server_bin}\" --conf \"${SERVER_CONF_FILE}\" >>\"${SERVER_LOG}\" 2>&1"
 	procd_set_param stdout 0
@@ -1913,9 +1937,9 @@ start_service() {
 	log_download 'service start flow begin'
 
 	if export_toml_from_uci; then
-		log_cli "宸蹭粠 UCI 閲嶆柊瀵煎嚭 TOML 閰嶇疆"
-		log_web "宸蹭粠 UCI 閲嶆柊瀵煎嚭 TOML 閰嶇疆"
-		log_server "宸蹭粠 UCI 閲嶆柊瀵煎嚭 TOML 閰嶇疆"
+		log_cli "UCI to TOML export completed"
+		log_web "UCI to TOML export completed"
+		log_server "UCI to TOML export completed"
 	else
 		log_cli 'UCI to TOML export failed, continue with existing config'
 		log_web 'UCI to TOML export failed, continue with existing config'
@@ -1937,7 +1961,7 @@ start_service() {
     [ -n "$web_cfg" ] && start_web_instance "$web_cfg" || log_web 'vnt2_web config section not found'
     [ -n "$server_cfg" ] && start_server_instance "$server_cfg" || log_server 'vnts2 config section not found'
 
-	log_download "鏈嶅姟鍚姩娴佺▼缁撴潫"
+	log_download "start_service finished"
 }
 
 stop_service() {
@@ -1955,7 +1979,7 @@ stop_service() {
 	log_cli 'service stopped'
 	log_web 'service stopped'
 	log_server 'service stopped'
-	log_download "鏈嶅姟鍋滄娴佺▼缁撴潫"
+	log_download "service stopped"
 }
 
 reload_service() {
