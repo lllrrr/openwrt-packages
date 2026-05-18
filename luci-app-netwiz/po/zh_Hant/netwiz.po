@@ -526,20 +526,8 @@ msgstr "⚠️ 無密碼安全警告"
 msgid "You are setting up an Open Wi-Fi network without a password. Anyone nearby will be able to connect and access your network.<br><br>Are you sure you want to continue?"
 msgstr "您正在設定無密碼的開放 Wi-Fi，附近任何人都可以隨意連線並存取您的區域網路設備。<br><br>您確定要繼續嗎？"
 
-msgid "✨ Quick Setup Wizard"
-msgstr "✨ 新機首次運行引導"
-
-msgid "Step 1: Internet Setup"
-msgstr "第一步：上網設定"
-
-msgid "Step 2: Wi-Fi Setup"
-msgstr "第二步：Wi-Fi 設定"
-
 msgid "Set your wireless network name and password."
 msgstr "設定您的無線網路名稱與密碼。"
-
-msgid "Step 3: Confirm & Apply"
-msgstr "第三步：確認與套用"
 
 msgid "Skip this time"
 msgstr "略過本次引導"
@@ -1254,3 +1242,37 @@ msgstr "局域網喚醒 (WOL)"
 
 msgid "Wake packet sent to {mac}!\n(Device booting may take a minute)"
 msgstr "已向 {mac} 發送喚醒封包！\n(設備開機可能需要一分鐘時間)"
+
+msgid "Quick Setup Wizard"
+msgstr "快速設置嚮導"
+
+msgid "Step 1: Admin Password"
+msgstr "第一步：管理員密碼"
+
+msgid "Step 2: Internet Setup"
+msgstr "第二步：上網設置"
+
+msgid "Step 3: Wi-Fi Setup"
+msgstr "第三步：Wi-Fi 設置"
+
+msgid "Step 4: Confirm & Apply"
+msgstr "第四步：確認並套用"
+
+msgid "Confirm Password"
+msgstr "確認密碼"
+
+msgid "Enter password again"
+msgstr "請再次輸入密碼"
+
+msgid "Passwords do not match, please try again!"
+msgstr "兩次輸入的密碼不一致，請重新檢查！"
+
+msgid "Skip Password Setup (Keep current)"
+msgstr "暫不配置 管理員密碼 (保持現狀)"
+
+msgid "Router Admin Password (Optional)"
+msgstr "路由器管理密碼 (可選)"
+
+msgid "Keep empty to retain current password"
+msgstr "留空則保持目前密碼不變"
+
