@@ -123,7 +123,13 @@ function httpPost(url, data, callback) {
     var xhr = new XMLHttpRequest();
     xhr.open('POST', url, true);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    xhr.onreadystatechange = function() { if (xhr.readyState === 4 && callback) callback(); };
+    xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4 && callback) {
+            var res = null;
+            try { res = JSON.parse(xhr.responseText); } catch(e) {}
+            callback(res);
+        }
+    };
     xhr.send(data);
 }
 

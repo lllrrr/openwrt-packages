@@ -3,6 +3,10 @@
 
 * * * * * /usr/libexec/devicemaster/schedule_executor.sh run >/dev/null 2>&1
 
+# Snapshot writer: runs every minute on master node for sub-node synchronization
+# Lightweight: reads local /tmp/dhcp.leases + /proc/net/arp, writes JSON
+* * * * * /usr/libexec/devicemaster/snapshot_writer.lua >/dev/null 2>&1
+
 # Flush runtime session data from RAM to Flash every 12 hours
 # Avoids Flash wear while preserving data across reboots
 0 */12 * * * /etc/init.d/devicemaster flush_session >/dev/null 2>&1

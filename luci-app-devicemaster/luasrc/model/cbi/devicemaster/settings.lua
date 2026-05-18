@@ -9,8 +9,7 @@ local uci = require "luci.model.uci".cursor()
 
 m = Map("devicemaster")
 
--- 注入移动端响应式CSS
-s = m:section(TypedSection, "settings", "")
+s = m:section(TypedSection, "settings", "OUI数据库设置")
 s.anonymous = true
 s.addremove = false
 
@@ -82,11 +81,6 @@ o.cfgvalue = function(self, section)
 </style>
 ]]
 end
-
--- OUI Settings Section
-s = m:section(TypedSection, "settings", "OUI数据库设置")
-s.anonymous = true
-s.addremove = false
 
 o = s:option(ListValue, "oui_mode", "OUI查询模式")
 o:value("remote", "远程查询(默认)")

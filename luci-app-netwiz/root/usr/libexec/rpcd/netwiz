@@ -136,16 +136,16 @@ case "$1" in
                     uci set dhcp.lan.ignore='0'
                 }
 
-                # --- 新增：智能定向協議淨空機制 (保護用戶自訂配置) ---
+                # --- 协议净化 ---
                 cleanup_wan_for_proto() {
                     local target="$1"
                     
-                    # 1. 無論切換成什麼，先統一刪除最容易導致 netifd 死鎖的 DHCP 專屬干擾項
+                    # 1. 切換后，统一刪除容易 netifd 死锁的 DHCP 干扰
                     uci delete network.wan.reqopts 2>/dev/null || true
                     uci delete network.wan.clientid 2>/dev/null || true
                     uci delete network.wan.vendorid 2>/dev/null || true
                     
-                    # 2. 根據目標協議，精準刪除「不相容」的參數，完美保留 dns、metric 等共用高級設定！
+                    # 2. 根据目标协议，刪除「不相容」的參數，保留 dns、metric 等共用高級設定！
                     if [ "$target" = "pppoe" ]; then
                         uci delete network.wan.ipaddr 2>/dev/null || true
                         uci delete network.wan.netmask 2>/dev/null || true
@@ -227,7 +227,6 @@ case "$1" in
                         [ -n "$wiz_user" ] && uci set network.wan.username="$wiz_user"
                         [ -n "$wiz_pass" ] && uci set network.wan.password="$wiz_pass"
                         
-                        # --- 补全官方兼容参数 ---
                         uci set network.wan.ipv6='auto'
                         uci set network.wan.norelease='1'
                         uci set network.wan.multipath='off'
@@ -246,12 +245,12 @@ case "$1" in
 
                 if [ "$mode" = "wan_dhcp" ]; then
                     cleanup_lan_for_wan_modes;
-                    cleanup_wan_for_proto "dhcp" # <-- 加上 "dhcp"
+                    cleanup_wan_for_proto "dhcp"
                     uci set network.wan.proto='dhcp'
                     uci commit network; uci commit dhcp
                 elif [ "$mode" = "wan_static" ]; then
                     cleanup_lan_for_wan_modes;
-                    cleanup_wan_for_proto "static" # <-- 加上 "static"
+                    cleanup_wan_for_proto "static"
                     uci set network.wan.proto='static'
                     uci set network.wan.ipaddr="$arg1"
                     uci set network.wan.gateway="$arg2"
@@ -259,12 +258,11 @@ case "$1" in
                     uci commit network; uci commit dhcp
                 elif [ "$mode" = "pppoe" ]; then
                     cleanup_lan_for_wan_modes;
-                    cleanup_wan_for_proto "pppoe" # <-- 加上 "pppoe"
+                    cleanup_wan_for_proto "pppoe"
                     uci set network.wan.proto='pppoe'
                     uci set network.wan.username="$arg1"
                     uci set network.wan.password="$arg2"
-                    
-                    # --- 補全官方兼容參數 (你之前在這裡漏掉了) ---
+
                     uci set network.wan.ipv6='auto'
                     uci set network.wan.norelease='1'
                     uci set network.wan.multipath='off'
@@ -326,7 +324,7 @@ case "$1" in
                         uci set dhcp.lan.ra='server'
                         uci set dhcp.lan.ndp='server'
                         
-                        # 4. 开启 SLAAC (保留此项以增加安卓等不支持DHCPv6设备的兼容性)
+                        # 4. 开启 SLAAC (保留此项以增加安卓兼容性)
                         uci set dhcp.lan.ra_slaac='1'
                         
                         # 5. 注入 M-Flag 和 O-Flag (先删后加防重复)
@@ -683,9 +681,8 @@ case "$1" in
                         /etc/init.d/firewall restart  # 重启
                     fi
                     # ==========================================
-                    # ==========================================
                     # --- 开机劫持已配置 ---
-                    # 💡 走完向导点击“完成”时，同样应用这套完美写入逻辑，确保配置成功落地！
+                    # 走完向导点击“完成”时，同样应用这套写入逻辑
                     [ ! -f /etc/config/netwiz ] && touch /etc/config/netwiz
                     
                     uci -q get netwiz.main >/dev/null 2>&1 || uci set netwiz.main=global
@@ -697,7 +694,7 @@ case "$1" in
                     uci commit netwiz
                     # ==========================================
 
-                    # 喚醒調用2
+                    # 喚醒调用2
                     restart_depend_apps
                     ) &
                 exit 0

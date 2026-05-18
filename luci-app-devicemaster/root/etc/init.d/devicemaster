@@ -220,7 +220,7 @@ init_session_json() {
 		[ "$first" = false ] && echo "," >> "$file"
 		first=false
 
-		local upper_mac=$(echo "$mac" | tr '[:lower:]' '[:upper:]')
+		local upper_mac=$(echo "$mac" | tr 'a-f' 'A-F')
 		local first_seen=$(uci -q get "devicemaster.@device[$idx].first_seen" 2>/dev/null)
 		local last_seen=$(uci -q get "devicemaster.@device[$idx].last_seen" 2>/dev/null)
 		local total_time=$(uci -q get "devicemaster.@device[$idx].total_online_time" 2>/dev/null)
@@ -260,7 +260,7 @@ flush_session_to_uci() {
 		local mac=$(uci -q get "devicemaster.@device[$idx].mac" 2>/dev/null)
 		[ -z "$mac" ] && break
 
-		local upper_mac=$(echo "$mac" | tr '[:lower:]' '[:upper:]')
+		local upper_mac=$(echo "$mac" | tr 'a-f' 'A-F')
 
 		local first_seen=$(jsonfilter -i "$file" -e "@.devices[\"$upper_mac\"].first_seen" 2>/dev/null)
 		local last_seen=$(jsonfilter -i "$file" -e "@.devices[\"$upper_mac\"].last_seen" 2>/dev/null)

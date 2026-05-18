@@ -738,6 +738,22 @@ probe_hostname() {
 }
 
 # ============================================================
+# Sanitize hostname: keep only ASCII alphanumeric, hyphens, underscores, dots
+# Filters out garbled/encoding-broken strings from mDNS/DNS
+# ============================================================
+sanitize_hostname() {
+    local raw="$1"
+    [ -z "$raw" ] && return
+    # Keep only safe ASCII chars: a-z A-Z 0-9 - _ .
+    local clean=$(echo "$raw" | tr -cd 'a-zA-Z0-9._-' | sed 's/^[._-]*//;s/[._-]*$//')
+    # If result is too short or empty, discard
+    if [ ${#clean} -lt 2 ]; then
+        return
+    fi
+    echo "$clean"
+}
+
+# ============================================================
 # UCI helpers
 # ============================================================
 mac_exists_in_uci() {
@@ -802,7 +818,7 @@ try_merge_device() {
 
     local idx=0
     while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
-        local old_mac=$(uci -q get "devicemaster.@device[$idx].mac")
+        local old_mac=$(uci -q get "devicemaster.@device[$idx].mac" | tr 'a-f' 'A-F')
         local old_hostname=$(uci -q get "devicemaster.@device[$idx].hostname")
         local old_vendor=$(uci -q get "devicemaster.@device[$idx].vendor")
         local old_type=$(uci -q get "devicemaster.@device[$idx].type")
@@ -855,7 +871,7 @@ try_merge_device() {
 # Register a device to UCI
 # ============================================================
 register_device() {
-    local mac="$1"
+    local mac=$(echo "$1" | tr 'a-f' 'A-F')
     local ip="$2"
     local hostname="$3"
 
@@ -872,12 +888,16 @@ register_device() {
         fi
     fi
 
+    # Sanitize hostname: filter out garbled/encoding-broken strings
+    hostname=$(sanitize_hostname "$hostname")
+
     # Run 7-level identification
     local vendor=$(identify_vendor "$mac" "$ip" "$hostname")
     local devtype=$(identify_type "$mac" "$ip" "$hostname" "$vendor")
 
     # Try to merge with existing device (same hostname/vendor/type, old device offline)
     try_merge_device "$mac" "$ip" "$hostname" "$vendor" "$devtype"
+
     if [ "$merged" = "1" ]; then
         log_msg "Device $mac merged into existing record (hostname: $hostname)"
         return
@@ -888,7 +908,7 @@ register_device() {
     local existing_idx=""
     local idx=0
     while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
-        local stored_mac=$(uci -q get "devicemaster.@device[$idx].mac")
+        local stored_mac=$(uci -q get "devicemaster.@device[$idx].mac" | tr 'a-f' 'A-F')
         if [ "$stored_mac" = "$mac" ]; then
             existing_idx=$idx
             break
@@ -946,6 +966,43 @@ register_device() {
 }
 
 # ============================================================
+# Cleanup duplicate UCI entries (same MAC, case-insensitive)
+# Keeps the first occurrence, removes duplicates
+# ============================================================
+cleanup_duplicate_devices() {
+    local seen_file="/tmp/dm_cleanup_seen"
+    > "$seen_file"
+    local changed=0
+    local idx=0
+    local to_delete=""
+
+    while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
+        local raw_mac=$(uci -q get "devicemaster.@device[$idx].mac")
+        local lower_mac=$(echo "$raw_mac" | tr 'A-F' 'a-f')
+
+        if grep -q "^${lower_mac}$" "$seen_file" 2>/dev/null; then
+            to_delete="$idx $to_delete"
+            changed=1
+            log_msg "Found duplicate UCI entry for $lower_mac at index $idx, will remove"
+        else
+            echo "$lower_mac" >> "$seen_file"
+        fi
+        idx=$((idx + 1))
+    done
+
+    rm -f "$seen_file"
+
+    for dup_idx in $to_delete; do
+        uci -q delete "devicemaster.@device[$dup_idx]"
+    done
+
+    if [ "$changed" = "1" ]; then
+        uci -q commit devicemaster
+        log_msg "Cleaned up $(echo $to_delete | wc -w) duplicate UCI device entries"
+    fi
+}
+
+# ============================================================
 # DHCP event handler (called by dnsmasq)
 # ============================================================
 main() {
@@ -973,6 +1030,12 @@ main() {
         exit 0
     fi
 
+    # Skip if discover_all is running (prevents race condition)
+    if [ -d "/tmp/dm_discover.lock" ]; then
+        log_msg "discover_all running, skipping DHCP register for $mac"
+        exit 0
+    fi
+
     log_msg "New device: $mac ($hostname) at $ip"
     register_device "$mac" "$ip" "$hostname"
 }
@@ -988,6 +1051,9 @@ discover_all() {
         return
     fi
     trap 'rmdir "$lock" 2>/dev/null' EXIT
+
+    # Cleanup any existing duplicate UCI entries
+    cleanup_duplicate_devices
 
     local arp_tmp="/tmp/dm_discover_arp"
     awk 'NR>1 && $4!="00:00:00:00:00:00" && $3!="0x0" {print $1, $4}' /proc/net/arp 2>/dev/null > "$arp_tmp"
@@ -1009,7 +1075,7 @@ discover_all() {
     local modified=0
     while read -r ip mac; do
         [ -z "$mac" ] && continue
-        mac=$(echo "$mac" | tr '[:upper:]' '[:lower:]')
+        mac=$(echo "$mac" | tr 'A-F' 'a-f')
 
         local found=0
         local cache_idx=$(awk -v m="$mac" '$1 == m {print $2; exit}' "$uci_mac_cache" 2>/dev/null)
@@ -1077,6 +1143,12 @@ discover_all() {
         fi
 
         if [ "$found" = "0" ]; then
+            # Double-check UCI directly (cache might be stale)
+            if mac_exists_in_uci "$mac" "$ip"; then
+                modified=1
+                continue
+            fi
+
             local hostname=$(grep -i "$mac" /tmp/dhcp.leases 2>/dev/null | awk '{print $4}')
 
             # Fallback: if no DHCP hostname (e.g. Mesh sub-node with dhcp ignore=1),
@@ -1084,6 +1156,9 @@ discover_all() {
             if [ -z "$hostname" ] || [ "$hostname" = "*" ]; then
                 hostname=$(probe_hostname "$ip" "$mac")
             fi
+
+            # Sanitize hostname: filter out garbled/encoding-broken strings
+            hostname=$(sanitize_hostname "$hostname")
 
             register_device "$mac" "$ip" "$hostname"
         fi

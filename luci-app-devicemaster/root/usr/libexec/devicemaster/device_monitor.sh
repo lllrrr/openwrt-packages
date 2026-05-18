@@ -15,40 +15,50 @@ log_msg() {
     logger -t devicemaster-monitor "$1"
 }
 
-# Get list of MACs from UCI device profiles
+UCI_MAC_FILE="/tmp/dm_uci_macs"
+ARP_MAC_FILE="/tmp/dm_arp_macs"
+
+# Get list of MACs from UCI device profiles (newline-separated, uppercased)
 get_uci_macs() {
+    > "$UCI_MAC_FILE"
     local idx=0
     while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
-        uci -q get "devicemaster.@device[$idx].mac" | tr '[:lower:]' '[:upper:]'
+        uci -q get "devicemaster.@device[$idx].mac" | tr 'a-f' 'A-F' >> "$UCI_MAC_FILE"
         idx=$((idx + 1))
     done
 }
 
-# Get list of MACs from ARP table
+# Get list of MACs from ARP table (newline-separated, uppercased)
 get_arp_macs() {
-    awk 'NR>1 && $4!="00:00:00:00:00:00" {print toupper($4)}' "$ARP_TABLE" 2>/dev/null | sort -u
+    awk 'NR>1 && $4!="00:00:00:00:00:00" {print toupper($4)}' "$ARP_TABLE" 2>/dev/null | sort -u > "$ARP_MAC_FILE"
 }
 
 # Check if there are new devices in ARP that aren't in UCI
 detect_new_device() {
-    local uci_macs=$(get_uci_macs)
-    local arp_macs=$(get_arp_macs)
+    get_arp_macs
 
-    if [ -z "$arp_macs" ]; then
+    if [ ! -s "$ARP_MAC_FILE" ]; then
+        rm -f "$ARP_MAC_FILE"
         return 1
     fi
 
-    if [ -z "$uci_macs" ]; then
+    get_uci_macs
+
+    if [ ! -s "$UCI_MAC_FILE" ]; then
+        rm -f "$UCI_MAC_FILE" "$ARP_MAC_FILE"
         return 0
     fi
 
-    for mac in $arp_macs; do
-        if ! echo "$uci_macs" | grep -q "^${mac}$"; then
-            log_msg "New device detected: $mac"
-            return 0
-        fi
-    done
+    # Use grep -F -f to find ARP MACs NOT in UCI (fast, subshell-safe)
+    local missing_mac=$(grep -F -v -f "$UCI_MAC_FILE" "$ARP_MAC_FILE" 2>/dev/null | head -1)
 
+    if [ -n "$missing_mac" ]; then
+        log_msg "New device detected: $missing_mac"
+        rm -f "$UCI_MAC_FILE" "$ARP_MAC_FILE"
+        return 0
+    fi
+
+    rm -f "$UCI_MAC_FILE" "$ARP_MAC_FILE"
     return 1
 }
 
@@ -60,6 +70,83 @@ cleanup() {
 }
 
 trap cleanup TERM INT
+
+# ============================================================
+# Sub-node: write local WiFi stations to public file
+# Master polls this URL to discover devices behind sub-nodes
+# ============================================================
+write_sub_stations() {
+    local has_mesh=$(iw dev wl1-mesh0 info 2>/dev/null)
+    [ -z "$has_mesh" ] && return
+    local dhcp_ignore=$(uci -q get dhcp.lan.ignore 2>/dev/null)
+    [ "$dhcp_ignore" != "1" ] && return
+    
+    local node_mac=$(ip link show dev br-lan 2>/dev/null | grep 'link/ether' | awk '{print $2}')
+    [ -z "$node_mac" ] && return
+    node_mac=$(echo "$node_mac" | tr 'a-f' 'A-F')
+    
+    local stmp="/tmp/dm_sub_stations.$$"
+    > "$stmp"
+    
+    # Collect all (mac,iface) pairs: one per line to avoid subshell issues
+    local raw="/tmp/dm_sub_raw.$$"
+    > "$raw"
+    local ifaces=$(ls /sys/class/net/ 2>/dev/null | grep '^wl' | tr '\n' ' ')
+    if [ -z "$ifaces" ]; then ifaces="wl0-ap0 wl1-ap0 wl0-ap1 wl1-ap1"; fi
+    for iface in $ifaces; do
+        iwinfo "$iface" assoclist 2>/dev/null | while read -r mac rest; do
+            [ ${#mac} -ne 17 ] && continue
+            echo "${mac}|${iface}" >> "$raw"
+        done
+    done
+    
+    # Build JSON from the collected pairs
+    printf '{"node_mac":"%s","iface":"br-lan","stations":[' "$node_mac" > "$stmp"
+    local sep=""
+    while IFS='|' read -r mac iface; do
+        printf '%s{"mac":"%s","iface":"%s"}' "$sep" "$(echo "$mac" | tr 'a-f' 'A-F')" "$iface" >> "$stmp"
+        sep=","
+    done < "$raw"
+    printf ']}\n' >> "$stmp"
+    
+    cp "$stmp" "/www/luci-static/resources/dm_sub_stations.json" 2>/dev/null
+    rm -f "$stmp" "$raw"
+}
+
+# ============================================================
+# Sub-node: push full device report to master
+# Called when new device detected + every SUB_REPORT_INTERVAL
+# ============================================================
+push_to_master() {
+    local has_mesh=$(iw dev wl1-mesh0 info 2>/dev/null)
+    [ -z "$has_mesh" ] && return
+    local dhcp_ignore=$(uci -q get dhcp.lan.ignore 2>/dev/null)
+    [ "$dhcp_ignore" != "1" ] && return
+
+    local master_ip=$(ip route show default 2>/dev/null | awk '{print $3}' | head -1)
+    [ -z "$master_ip" ] && return
+
+    local node_mac=$(ip link show dev br-lan 2>/dev/null | grep 'link/ether' | awk '{print $2}')
+    [ -z "$node_mac" ] && return
+    node_mac=$(echo "$node_mac" | tr 'a-f' 'A-F')
+
+    local report_file="/tmp/dm_sub_push_report.json"
+
+    lua /usr/libexec/devicemaster/sub_report_gen.lua "$node_mac" > "$report_file" 2>/dev/null
+    [ ! -s "$report_file" ] && return
+
+    curl -s --connect-timeout 2 --max-time 5 \
+        -X POST \
+        -H "Content-Type: application/json" \
+        -d @"$report_file" \
+        "http://$master_ip/cgi-bin/luci/admin/network/devicemaster/api/report_sub" \
+        >/dev/null 2>&1
+
+    rm -f "$report_file"
+}
+
+SUB_REPORT_INTERVAL=120
+sub_last_report=0
 
 # Main loop
 main() {
@@ -76,10 +163,21 @@ main() {
     # Simple poll loop - no background processes, no memory leak
     while true; do
         sleep $POLL_INTERVAL
+        
+        # New device detection (all roles)
         if detect_new_device; then
             if [ -x "$EVENT_HANDLER" ]; then
                 "$EVENT_HANDLER" discover
             fi
+            # Sub-node: immediately report new device to master
+            push_to_master
+        fi
+        
+        # Sub-node: push stations to master periodically
+        local now=$(date +%s)
+        if [ $((now - sub_last_report)) -ge $SUB_REPORT_INTERVAL ]; then
+            push_to_master
+            sub_last_report=$now
         fi
     done
 }

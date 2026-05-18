@@ -191,30 +191,28 @@ var T = {
     'M_OPEN_WARN_TIT': _('Security Warning'),
     'M_OPEN_WARN_MSG': _('You are setting up an Open Wi-Fi network without a password. Anyone nearby will be able to connect and access your network.<br><br>Are you sure you want to continue?'),
     // ===== 向导词条 =====
-    'WIZ_TITLE': _('✨ Quick Setup Wizard'),
-    'WIZ_PWD': _('第一步：管理員密碼'),
-    'WIZ_WAN': _('第二步：上網設定'),
-    'WIZ_WIFI': _('第三步：Wi-Fi 設定'),
-    // 'WIZ_WAN': _('Step 1: Internet Setup'),
-    // 'WIZ_WIFI': _('Step 2: Wi-Fi Setup'),    
-    // 'WIZ_CONFIRM': _('Step 3: Confirm & Apply'),
-    'WIZ_CONFIRM': _('第四步：確認並套用'),
-    'WIZ_WIFI_DESC': _('Set your wireless network name and password.'),
-    'WIZ_SKIP_PWD': _('暫不配置 帳號密碼 (保持現狀)'),
-    'LBL_CONFIRM_PWD': _('確認新密碼'),
-    'PH_CONFIRM_PWD': _('請再次輸入以確認'),
-    'M_PWD_MISMATCH': _('兩次輸入的密碼不一致，請重新檢查！'),
+    'WIZ_TITLE': _('Quick Setup Wizard'),
+    'WIZ_PWD': _('Step 1: Admin Password'),
+    'WIZ_WAN': _('Step 2: Internet Setup'),
+    'WIZ_WIFI': _('Step 3: Wi-Fi Setup'),
+    'WIZ_CONFIRM': _('Step 4: Confirm & Apply'),
+    'LBL_CONFIRM_PWD': _('Confirm Password'),
+    'PH_CONFIRM_PWD': _('Enter password again'),
+    'M_PWD_MISMATCH': _('Passwords do not match, please try again!'),
     'WIZ_SKIP': _('Skip this time'),
+    'WIZ_SKIP_PWD': _('Skip Password Setup (Keep current)'),
+    'TXT_NOT_CONFIGURED': _('Not configured (Keep current)'),
+    'WIZ_WIFI_DESC': _('Set your wireless network name and password.'),
     'WIZ_HIDE': _("Don't show this again"),
     'WIZ_REOPEN': _('✨ Reopen Wizard'),
     'WIZ_SKIP_WIFI': _('Skip Wi-Fi Setup (Keep current)'),
-    'TXT_NOT_CONFIGURED': _('Not configured (Keep current)'),
     'TXT_UNSET': _('Not set'),
     'TXT_NO_PWD_OPEN': _('No Password (Open)'),
     'BTN_DEV_BIND': _('Terminal Device & IP Binding'),
     'TXT_DNS1': _('Primary DNS:'),
     'TXT_DNS2': _('Secondary DNS:'),
     'TIP_IPV6_WARN':_('⚠️ Non-standard parameters (Default configuration recommended)'),
+    'PH_PWD_TIP': _('💡 This password will be used for logging into the router web interface and SSH. Setting it now is highly recommended.'),
     // ===== 新增防呆与冲突拦截词条 =====
     'M_WAN_DOWN_TIT': _('Cable Unplugged or Wrong Port'),
     'M_WAN_DOWN_MSG': _('System detected NO SIGNAL on the <b>WAN port</b>!<br><br><b style="color:#ef4444;">Troubleshooting:</b><br>1. Did you plug the upstream cable into the <b>LAN port</b>?<br>2. Are both ends plugged in tightly? Is the modem powered on?<br>'),
@@ -237,12 +235,11 @@ var T = {
     'M_CFLT_PHYSICAL_TIT': _('Severe Physical Conflict'),
     'M_CFLT_PHYSICAL_WAN_MSG': _('The WAN Static IP ({ip}) you set is exactly the same as the upstream Gateway!<br><br>This causes a severe physical loop. Please change your Static IP (e.g., {suggest_ip}).'),
     'M_CFLT_PHYSICAL_BYP_MSG': _('The AP IP ({ip}) you set is exactly the same as the upstream Gateway!<br><br>This will paralyze the network. Please change to another free IP (e.g., {suggest_ip}).'),
-    // 'LBL_NEW_PWD': _('Router Admin Password (Required)'),
-    // 'PH_NEW_PWD': _('Set a new password for router login'),
-    // 'ERR_PWD_EMPTY': _('Please set a router administration password!'),
-    'LBL_NEW_PWD': _('路由器管理密碼 (可選)'),
-    'PH_NEW_PWD': _('留空則保持目前密碼不變'),
-    'ERR_PWD_EMPTY': _('請務必設定路由器管理密碼！'),
+    'LBL_NEW_PWD': _('Router Admin Password (Optional)'),
+    'PH_NEW_PWD': _('Keep empty to retain current password'),
+    'WIZ_SKIP_TITLE': _('Skip Wizard'),
+    'WIZ_SKIP_MSG': _('Releasing wizard lock, entering official dashboard...'),
+    'M_PWD_REQ': _('Please enter a new password or check "Skip Password Setup"!'),
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -276,9 +273,13 @@ return view.extend({
             '  .nw-top-back svg { width: 25px; height: 25px; }',
             '  .nw-step-line svg { width: 20px; height: 20px; display: block; }',
             '  body #view #netwiz-container #wiz-step-indicator .nw-step-line svg, body #maincontent #netwiz-container #wiz-step-indicator .nw-step-line svg { background: transparent !important; background-color: transparent !important; border: none !important; box-shadow: none !important; }',
-            '  .alert-message, .alert-danger, .alert, #sysmsg { display: none !important; }', // 🌟 官方粉紅/紅色框在這裡被徹底干掉
-            '  @media screen and (min-width: 769px) { #nw-wizard-modal .nw-wiz-modal-box { max-width: 660px !important; } }', // 🌟 新增：精準限定電腦端向導寬度 660px
-            ' @media screen and (max-width: 768px) {  }',
+            '  .alert-message, .alert-danger, .alert, #sysmsg { display: none !important; }', 
+  
+            '  #nw-wizard-modal .nw-wiz-modal-box > div:nth-child(2) { flex: 1 1 auto !important; overflow-y: auto !important; padding: 20px 25px 10px !important; }',
+            '  #nw-wizard-modal .nw-value-field input[type="text"], #nw-wizard-modal .nw-value-field input[type="password"], #nw-wizard-modal .nw-value-field input[type="search"] { height: 46px !important; line-height: 44px !important; padding: 0 16px !important; font-size: 15.5px !important; border-radius: 8px !important; border: 1px solid #cbd5e1 !important; box-sizing: border-box !important; width: 100% !important; background: #fff !important; color: #334155 !important; transition: all 0.25s ease !important; margin: 0 !important; box-shadow: inset 0 1px 2px rgba(0,0,0,0.02) !important; }',
+            '  #nw-wizard-modal .nw-value-field input[type="text"]:focus, #nw-wizard-modal .nw-value-field input[type="password"]:focus, #nw-wizard-modal .nw-value-field input[type="search"]:focus { border-color: #3b82f6 !important; box-shadow: 0 0 0 3px rgba(59,130,246,0.15), inset 0 1px 2px rgba(0,0,0,0.02) !important; outline: none !important; }',
+            '  @media screen and (min-width: 769px) { #nw-wizard-modal .nw-wiz-modal-box { max-width: 660px !important; } }',
+            '  @media screen and (max-width: 768px) { #nw-wizard-modal .nw-wiz-modal-box > div:nth-child(2) { padding: 15px 15px 10px !important; } }',
             '</style>',
 
             '<div class="nw-wrapper">',
@@ -338,7 +339,7 @@ return view.extend({
             '         <div id="wiz-step-1-area">',
             '            <div class="nw-step-title" style="margin-bottom: 20px; font-size: 19px;">{{WIZ_PWD}}</div>',
             
-            // 🌟 新增：密碼暫不配置複選框
+            // 密码暫不配置复选框
             '            <div style="text-align: center; margin-bottom: 15px; padding: 14px 10px; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1; width: 100%; box-sizing: border-box;">',
             '               <label class="nw-wiz-cb-wrap" style="display: inline-flex; align-items: center; justify-content: center; font-size: 16.5px; color: #ef4444; font-weight: bold; margin: 0 auto;">',
             '                  <input type="checkbox" id="wiz-skip-pwd-checkbox">',
@@ -347,13 +348,13 @@ return view.extend({
             '               </label>',
             '            </div>',
 
-            // 🌟 密碼輸入核心區 (包裹在 wiz-pwd-input-area 內方便聯動暗淡)
+            // 密码输入核心区
             '            <div id="wiz-pwd-input-area" style="margin-bottom: 20px; padding-bottom: 20px;">',
             '               <div class="nw-value"><label class="nw-value-title" style="color:#ef4444; font-weight:bold;">🛡️ {{LBL_NEW_PWD}}</label>',
             '               <div class="nw-value-field"><input type="password" id="nw-admin-pwd" placeholder="{{PH_NEW_PWD}}"></div></div>',
             '               <div class="nw-value" style="margin-top:12px;"><label class="nw-value-title" style="color:#ef4444; font-weight:bold;">🛡️ {{LBL_CONFIRM_PWD}}</label>',
             '               <div class="nw-value-field"><input type="password" id="nw-admin-pwd-confirm" placeholder="{{PH_CONFIRM_PWD}}"></div></div>',
-            '               <div style="font-size: 12.5px; color: #64748b; margin-top: 8px; text-align: right;">💡 此密碼將用於日後登入路由器後台及 SSH，建議立即設定。</div>',
+            '               <div style="font-size: 14.5px; color: #64748b; margin-top: 8px; text-align: left; line-height: 1.4;">{{PH_PWD_TIP}}</div>',
             '            </div>',
             '         </div>',
             '         <div id="wiz-step-2-area" style="display:none;">',
@@ -752,17 +753,21 @@ return view.extend({
             var hideCb = container.querySelector('#wiz-hide-checkbox');
             var hideState = (hideCb && hideCb.checked) ? '0' : '1';
             
-            // 💡 智能路由：不再依赖瞎子变量，直接使用第一步探測到的真实底层状态
+            // 使用第一步探測到的真实底层状态
             var isConfigured = window._realIsConfigured || '0';
             
             if (isConfigured !== '1') {
-                // 场景 A：初次开机劫持状态 -> 解除锁定，并平滑跳回官方主页
-                openModal({ title: '跳过向导', msg: '<div style="color: #64748b; font-size: 16px; font-weight:bold;">正在为您解除向导锁定，即将进入官方后台...</div>', spin: true });
+                // 初次开机劫持状态 -> 解除锁定，并平滑跳回官方主页
+                openModal({ 
+                title: T['WIZ_SKIP_TITLE'], 
+                msg: '<div style="color: #64748b; font-size: 16px; font-weight:bold;">' + T['WIZ_SKIP_MSG'] + '</div>', 
+                spin: true 
+            });
                 silentSaveWizardState(hideState).then(function() {
                     window.location.replace('/cgi-bin/luci/');
                 }).catch(function() { window.location.replace('/cgi-bin/luci/'); });
             } else {
-                // 场景 B：日常使用时的手动打开 -> 关闭弹窗，【安静地留在当前插件首页】！
+                // 日常使用时的手动打开 -> 关闭弹窗，【安静地留在当前插件首页】！
                 silentSaveWizardState(hideState);
             }
         };
@@ -807,7 +812,7 @@ return view.extend({
             });
         }
 
-        // 🌟 新增：密碼跳過聯動 (勾選後暗淡鎖死輸入框並清空填寫項)
+        // 密码跳过联动
         var skipPwdCb = container.querySelector('#wiz-skip-pwd-checkbox');
         var pwdInputArea = container.querySelector('#wiz-pwd-input-area');
         if (skipPwdCb && pwdInputArea) {
@@ -821,29 +826,35 @@ return view.extend({
             });
         }
 
-        // ================== 核心：重构后的 4 步路由逻辑 ==================
+        // ================== 4 步向导 ==================
         wBtnNext.addEventListener('click', function() {
             if (currentWizStep === 1) {
-                // 🌟 修改：如果勾選了暫不配置，直接放行，否則進行嚴格密碼校驗
+                // 第一步
                 var isSkipPwd = skipPwdCb ? skipPwdCb.checked : false;
                 if (!isSkipPwd) {
                     var p1 = container.querySelector('#nw-admin-pwd').value;
                     var p2 = container.querySelector('#nw-admin-pwd-confirm').value;
                     if (!p1) {
-                        alert('請輸入新管理員密碼，或勾選「暫不配置」！');
+                        openModal({ 
+                            title: T['M_INC_TIT'] || '提示', 
+                            msg: T['M_PWD_REQ'] || '請輸入新管理員密碼，或勾選「暫不配置」！', 
+                            okText: T['M_CLOSE'] || '關閉' 
+                        });
                         return;
                     }
                     if (p1 !== p2) {
-                        alert(T['M_PWD_MISMATCH']);
-                        var p2El = container.querySelector('#nw-admin-pwd-confirm');
-                        if (p2El) p2El.focus();
+                        openModal({ 
+                            title: T['M_INC_TIT'] || '提示', 
+                            msg: T['M_PWD_MISMATCH'], 
+                            okText: T['M_CLOSE'] || '關閉'
+                        });
                         return;
                     }
                 }
                 wArea1.style.display = 'none'; wArea2.style.display = 'block'; 
                 wBtnPrev.style.display = 'block'; currentWizStep = 2; updateWizSteps(2);
             } else if (currentWizStep === 2) {
-                // 第二步：WAN 配置与冲突避让
+                // 第二步
                 var pppoeBtn = container.querySelector('#wiz-pppoe-submit');
                 if (pppoeBtn) pppoeBtn.click();
                 
@@ -878,7 +889,7 @@ return view.extend({
                 wArea2.style.display = 'none'; wArea3.style.display = 'block'; 
                 currentWizStep = 3; updateWizSteps(3); 
             } else if (currentWizStep === 3) {
-                // 第三步：Wi-Fi 配置校验，并跳转到第四步确认
+                // 第三步
                 var isSkipWifi = skipWifiCb ? skipWifiCb.checked : false;
                 var ssid = container.querySelector('#wiz-wifi-ssid').value.trim();
                 var key = container.querySelector('#wiz-wifi-key').value;
@@ -962,9 +973,9 @@ return view.extend({
             wizModal.style.display = 'none';
             openModal({ title: T['WIZ_TITLE'] || '向导配置中', msg: '<div style="color: #64748b; font-size: 16px; font-weight:bold;">' + T['MSG_WRITING'] + '</div>', spin: true });
 
-            // 将网络配置的核心提取为一个函数，方便分流调用
+            // 网络配置的核心提取为一个函数，分流调用
             var doNetSetupConfig = function() {
-                // 💡 核心修复：完成向导时，也要真实读取勾选框状态
+                // 完成向导，真实读取勾选框状态
                 var wizHideCb = container.querySelector('#wiz-hide-checkbox');
                 var hideState = (wizHideCb && wizHideCb.checked) ? '0' : '1';
                 
@@ -1011,11 +1022,11 @@ return view.extend({
                             fetchProbe('http://' + h + '/cgi-bin/luci/?v=' + Date.now(), 2000).then(function() { 
                                 clearInterval(checkSameTimer); 
                                 
-                                // ================== 新增：无缝自动登录官方后台 ==================
+                                // ================== 自动登录官方后台 ==================
                                 document.getElementById('nw-global-msg').innerHTML = '<div style="color: #10b981; font-size: 16px; font-weight: bold;">配置完成！正在为您自动登录系统...</div>';
                                 
                                 if (adminPwd) {
-                                    // 动态创建一个隐藏表单，模拟用户在官方登录页输入了账号密码并点击了“登录”
+                                    // 动态创建隐藏表单，登录官方页面
                                     var form = document.createElement('form');
                                     form.method = 'POST';
                                     form.action = 'http://' + h + '/cgi-bin/luci/';
@@ -1026,11 +1037,11 @@ return view.extend({
                                     form.appendChild(u);
                                     
                                     var p = document.createElement('input');
-                                    p.type = 'hidden'; p.name = 'luci_password'; p.value = adminPwd; // 刚才向导里填的密码
+                                    p.type = 'hidden'; p.name = 'luci_password'; p.value = adminPwd; // 向导里的密码
                                     form.appendChild(p);
                                     
                                     document.body.appendChild(form);
-                                    form.submit(); // 直接提交！LuCI 鉴权成功后会直接给浏览器发 Token，并自动跳转到系统总览页
+                                    form.submit(); // 提交！LuCI 鉴权成功后，转到系统总览页
                                 } else {
                                     // 如果用户没改密码 (留空)，就走正常的跳转
                                     window.location.replace('http://' + h + '/cgi-bin/luci/');
@@ -1045,9 +1056,9 @@ return view.extend({
                 });
             };
 
-            // ================== 智能判断密码是否需要修改 ==================
+            // ================== 判断密码是否需要修改 ==================
             if (adminPwd) {
-                // 如果用户填写了新密码，则先修改密码，再配网
+                // 填新密码，修改密码，再配网
                 callSetPassword(adminPwd).then(function() {
                     doNetSetupConfig();
                 }).catch(function(err) {
@@ -1055,13 +1066,13 @@ return view.extend({
                     window.location.reload();
                 });
             } else {
-                // 如果留空，直接跳过修改密码，执行网络配置！
+                // 留空，直接跳过修改密码，执行网络配置
                 doNetSetupConfig();
             }
             // ==============================================================
         });
 
-        // ===== 义动画滚动 =====
+        // ===== 动画滚动 =====
         var smoothScrollToTop = function(duration) {
             var scroller = document.querySelector('#maincontent') || document.querySelector('.main-right') || document.scrollingElement || document.documentElement;
             var start = scroller.scrollTop;
