@@ -1522,7 +1522,7 @@ return view.extend({
                                     console.log("===============================================");
                                     // ==================================
                                     // 三频识别与显示
-                                    if (true) {
+                                    if (!window._isSingleChip && wDevs.length >= 3) {
                                         var hdr5g2 = container.querySelector('#hdr-5g2');
                                         var tab5g2 = container.querySelector('#tab-5g2');
                                         if (hdr5g2) hdr5g2.style.display = 'flex';
@@ -1647,7 +1647,7 @@ return view.extend({
                                     }
                                 } else {
                                     window._isSingleChip = false;
-                                    var dev2g = null, dev5g = null;
+                                    var dev2g = null, dev5g = null, dev5g2 = null;
                                     
                                     wDevs.forEach(function(d) {
                                         var bd = (d.band || '').toLowerCase();
@@ -1659,16 +1659,21 @@ return view.extend({
                                         
                                         if (bd === '5g' || bd === '6g') { is_5g_chip = true; }
                                         else if (bd === '2g') { is_5g_chip = false; }
-                                        else if (!isNaN(ch) && ch >= 36) { is_5g_chip = true; }
-                                        else if (ht.indexOf('80') !== -1 || ht.indexOf('160') !== -1 || ht.indexOf('320') !== -1) { is_5g_chip = true; }
                                         else if (hm === '11a' || hm === '11ac') { is_5g_chip = true; }
-                                        else if (hm === '11ax' || hm === '11be') { 
-                                            if (d['.name'] === 'radio0' || d['.name'] === 'radio1' || d['.name'] === 'radio2') is_5g_chip = true; 
-                                        }
                                         else if (hm === '11g' || hm === '11b') { is_5g_chip = false; }
-                                        else if (d.path && (d.path.indexOf('pcie1') !== -1 || d.path.indexOf('pcie2') !== -1)) { is_5g_chip = true; }
+                                        else if (!isNaN(ch) && ch >= 36) { is_5g_chip = true; }
+                                        else if (!isNaN(ch) && ch > 0 && ch <= 14) { is_5g_chip = false; }
+                                        else if (ht.indexOf('80') !== -1 || ht.indexOf('160') !== -1 || ht.indexOf('320') !== -1) { is_5g_chip = true; }
+                                        else {
+                                            // 正常radio0 是 2.4G，其余是 5G
+                                            if (d['.name'] !== 'radio0') is_5g_chip = true; 
+                                            else is_5g_chip = false;
+                                        }
 
-                                        if (is_5g_chip) { if (!dev5g) dev5g = d; } 
+                                        if (is_5g_chip) { 
+                                            if (!dev5g) dev5g = d; 
+                                            else if (!dev5g2) dev5g2 = d; // 抓取第3个芯片
+                                        } 
                                         else { if (!dev2g) dev2g = d; }
                                     });
                                     
@@ -1680,6 +1685,9 @@ return view.extend({
                                     
                                     var i2g = findMainIfaceForDev(dev2g ? dev2g['.name'] : 'none');
                                     var i5g = findMainIfaceForDev(dev5g ? dev5g['.name'] : 'none');
+                                    
+                                    // 🌟 安全防护：只有当存在第三个芯片时，才去查找接口，否则直接给空值
+                                    var i5g2 = dev5g2 ? findMainIfaceForDev(dev5g2['.name']) : null;
 
                                     var isLegacy = dev2g && dev2g.hwmode === '11b';
                                     
@@ -1692,6 +1700,14 @@ return view.extend({
                                     var e5 = i5g.encryption || 'psk2+sae'; if (e5 === 'sae-mixed') e5 = 'psk2+sae';
                                     var h5 = i5g.hidden === '1';
                                     var d5 = (i5g.disabled === '1' || (dev5g && dev5g.disabled === '1'));
+                                    
+                                    // 🌟 重新安全解析 5G_Game 状态
+                                    var s5g2 = '', k5g2 = '', d5g2 = true; 
+                                    if (dev5g2 && i5g2) {
+                                        s5g2 = i5g2.ssid || '';
+                                        k5g2 = i5g2.key || '';
+                                        d5g2 = (i5g2.disabled === '1' || dev5g2.disabled === '1');
+                                    }
                                     
                                     var isSmart = (!isLegacy && s2 && s5 && s2 === s5 && k2 === k5 && e2 === e5);
                                     if (!s2 && !s5 && !d2 && !d5) isSmart = true;
@@ -1734,6 +1750,12 @@ return view.extend({
                                             var ht5 = (dev5g.htmode||'').toLowerCase(), hm5 = (dev5g.hwmode||'').toLowerCase(), md5 = 'auto';
                                             if(ht5.indexOf('eht') !== -1) md5 = '11be'; else if(ht5.indexOf('he') !== -1) md5 = '11ax'; else if(ht5.indexOf('vht') !== -1) md5 = '11ac'; else if(ht5.indexOf('ht') !== -1) md5 = '11a';
                                             var mEl5 = container.querySelector('#wifi-5g-mode'); if(mEl5.querySelector('option[value="'+md5+'"]')) mEl5.value = md5;
+                                        }
+                                        var en5g2El = container.querySelector('#wifi-5g2-en');
+                                        if (en5g2El) {
+                                            en5g2El.checked = !d5g2; // 根据底层真实情况显示开关
+                                            if (s5g2) container.querySelector('#wifi-5g2-ssid').value = s5g2;
+                                            if (k5g2) container.querySelector('#wifi-5g2-key').value = k5g2;
                                         }
                                     }
                                     smartToggle.dispatchEvent(new Event('change'));

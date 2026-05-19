@@ -46,7 +46,7 @@ restart_depend_apps() {
 # 结束
 
 # =======================================================
-# PPPoE 拨号后 IPv6 虚拟接口未生成的底层 Bug 进行自愈
+# PPPoE 拨号后 IPv6 虚拟接口未生成的底层自愈
 watchdog_pppoe_ipv6() {
     if [ "$(uci -q get network.wan.proto)" = "pppoe" ]; then
         log ">>> 启动 PPPoE IPv6 虚拟接口守护 (20秒后检测)..."
@@ -54,14 +54,21 @@ watchdog_pppoe_ipv6() {
             sleep 20
             # 确认 WAN 是否已经拨号成功 (IPv4 连通)
             if ifstatus wan | grep -q '"up": true'; then
-                # 检查底层的 wan_6 或 wan6 虚拟接口是否成功生成并 up
-                if ! ifstatus wan_6 | grep -q '"up": true' && ! ifstatus wan6 | grep -q '"up": true'; then
-                    log "⚠️ 发现 PPPoE 已连接，但 IPv6 虚拟接口 (wan_6) 丢失！正在执行自愈重置..."
+                
+                # 局域网 IPv6 被关闭，直接跳过
+                if [ "$(uci -q get dhcp.lan.dhcpv6)" = "disabled" ]; then
+                    log "✅ IPv6 已全局关闭，跳过虚拟接口检测。"
+                    exit 0
+                fi
+
+                # 检查接口是否“存在” (grep '"up"' 能同时匹配 true 和 false)
+                if ! ifstatus wan_6 2>/dev/null | grep -q '"up"' && ! ifstatus wan6 2>/dev/null | grep -q '"up"'; then
+                    log "⚠️ PPPoE 已连接，但 IPv6 虚拟接口完全丢失！正在执行自愈重置..."
                     ifdown wan
                     sleep 3
                     ifup wan
                 else
-                    log "✅ PPPoE IPv6 虚拟接口状态正常。"
+                    log "✅ PPPoE IPv6 接口已存在 (健康通网 或 光猫不支持)，无需干预。"
                 fi
             fi
         ) &
@@ -403,15 +410,18 @@ case "$1" in
                             current_channel=$(uci -q get wireless.$dev.channel || echo "0")
                             current_ht=$(uci -q get wireless.$dev.htmode | tr 'A-Z' 'a-z' || echo "")
 
+                            # Wi-Fi 6/7 (11ax/11be) 在 2.4G 频段的误判 Bug
                             if [ "$band" = "5g" ] || [ "$band" = "6g" ]; then is_5g=1
                             elif [ "$band" = "2g" ]; then is_5g=0
                             elif [ "$current_channel" != "0" ] && [ "$current_channel" != "auto" ] && [ "$current_channel" -ge 36 ]; then is_5g=1
+                            elif [ "$current_channel" != "0" ] && [ "$current_channel" != "auto" ] && [ "$current_channel" -le 14 ]; then is_5g=0
                             elif echo "$current_ht" | grep -qE "80|160|320"; then is_5g=1
                             elif echo "$hwmode" | grep -qE "11a|11ac"; then is_5g=1
-                            elif echo "$hwmode" | grep -qE "11ax|11be"; then
-                                if echo "$dev" | grep -qE "radio0|radio1|radio2"; then is_5g=1; fi
                             elif echo "$hwmode" | grep -qE "11b|11g"; then is_5g=0
-                            elif echo "$path" | grep -qi "pcie1" || echo "$path" | grep -qi "pcie2"; then is_5g=1; fi
+                            else
+                                # 没有明确特征，radio0 归 2.4G，其余归 5G
+                                if echo "$dev" | grep -qE "radio0"; then is_5g=0; else is_5g=1; fi
+                            fi
 
                             if [ "$is_5g" = "1" ]; then
                                 list_5g="$list_5g $dev"
@@ -587,19 +597,19 @@ case "$1" in
                                 
                                 idx=0
                                 for dev in $list_5g; do
-                                    local target_prefix="radio_5g"
-                                    local custom_suffix=""
+                                    target_prefix="radio_5g"
+                                    custom_suffix=""
                                     
                                     # 第二个 5G 芯片 (idx=1)
                                     if [ "$idx" -eq 1 ]; then
                                         # 尝试从前端提取 radio_5g2 的配置
-                                        local has_5g2=$(echo "$payload" | jsonfilter -e "@.radio_5g2.ssid" || echo "")
+                                        has_5g2=$(echo "$payload" | jsonfilter -e "@.radio_5g2.ssid" || echo "")
                                         if [ -n "$has_5g2" ]; then
                                             target_prefix="radio_5g2"
                                         else
                                             custom_suffix="_Game"
                                         fi
-                                    # 第三、第四个 5G 芯片兜底
+                                    # 第三、第四个 5G 芯片的终极兜底
                                     elif [ "$idx" -ge 2 ]; then
                                         custom_suffix="_Game${idx}"
                                     fi
