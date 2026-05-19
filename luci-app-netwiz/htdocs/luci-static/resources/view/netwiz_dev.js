@@ -194,8 +194,9 @@ var T = {
     'TIP_DEPT_BIND_RULE': _('Custom group names are not strictly bound to IP subnets. The ranges are only used for automatic IP assignment when a group is selected.'),
     'TXT_UNOPERABLE': _('Unoperable'),
     'TXT_NOTE': _('Note:'),
-    'BTN_WOL': _('Wake on LAN'),
-    'MSG_WOL_SENT': _('Wake packet sent to {mac}!\n(Device booting may take a minute)'),
+    'BTN_WOL': _('Wake on LAN (WOL)'),
+    'MSG_WOL_SENT_1': _('Wake packet sent to {mac}!'),
+    'MSG_WOL_SENT_2': _('(Device booting may take a minute)'),
 };
 
 var callDeviceList = rpc.declare({ object: 'netwiz_dev', method: 'get_list', params: ['show_conns', 'do_rescan'], expect: { '': {} } });
@@ -1793,7 +1794,7 @@ return view.extend({
                                 wolBtn.style.opacity = '0.6';
 
                                 callWakeDevice(mac).then(function() {
-                                    alert(T['MSG_WOL_SENT'].replace('{mac}', mac.toUpperCase()));
+                                    alert(T['MSG_WOL_SENT_1'].replace('{mac}', mac.toUpperCase()) + '\n' + T['MSG_WOL_SENT_2']);
                                     wolBtn.innerText = '⚡ ' + pureWolText + ' ⚡';
                                     wolBtn.disabled = false;
                                     wolBtn.style.opacity = '1';

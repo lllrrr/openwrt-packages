@@ -3,11 +3,10 @@ local fs = require "nixio.fs"
 local nixio = require "nixio"
 local util = require "luci.util"
 local sys = require "luci.sys"
+local uci = luci.model.uci.cursor()
 local toml = require "luci.model.vnt2_toml"
 
-toml.ensure_toml_files(luci.model.uci.cursor())
-toml.sync_toml_to_uci(luci.model.uci.cursor())
-luci.model.uci.cursor():commit("vnt2")
+toml.ensure_toml_files(uci)
 
 local m = Map("vnt2", translate("VNT2"))
 m.description = translate(
@@ -16,10 +15,12 @@ m.description = translate(
 
 m:section(SimpleSection).template = "vnt2/vnt2_status"
 
-m.on_after_commit = function(self)
+local function export_toml_from_uci(self)
 	toml.export_uci_to_toml(self.uci)
-	self.uci:commit("vnt2")
 end
+
+m.on_after_save = export_toml_from_uci
+m.on_after_commit = export_toml_from_uci
 
 local function trim(v)
 	if v == nil then
@@ -36,6 +37,55 @@ local function trim(v)
 	end
 
 	return ""
+end
+
+local function split_words(value)
+	local items = {}
+
+	if type(value) == "table" then
+		for _, item in ipairs(value) do
+			item = trim(item)
+			for word in item:gmatch("%S+") do
+				word = trim(word)
+				if word ~= "" then
+					items[#items + 1] = word
+				end
+			end
+		end
+		return items
+	end
+
+	value = trim(value)
+	if value == "" then
+		return items
+	end
+
+	for item in value:gmatch("%S+") do
+		item = trim(item)
+		if item ~= "" then
+			items[#items + 1] = item
+		end
+	end
+
+	return items
+end
+
+local function read_uci_list_or_words(cursor, config, section, option)
+	local value = cursor:get_list(config, section, option)
+	if type(value) == "table" and #value > 0 then
+		return split_words(value)
+	end
+
+	return split_words(cursor:get(config, section, option))
+end
+
+local function write_uci_list(cursor, config, section, option, value)
+	local items = split_words(value)
+
+	cursor:delete(config, section, option)
+	if #items > 0 then
+		cursor:set_list(config, section, option, items)
+	end
 end
 
 local function default_device_name()
@@ -1120,11 +1170,12 @@ local function bind_dynamiclist(option)
 end
 
 local function bind_download_mirror(option)
+	option:value("auto", translate("自动（国内优先）"))
 	option:value("github", "GitHub")
 	option:value("gitee", "Gitee")
 	option:value("gitlab", "GitLab")
 	option:value("cloudflare", "Cloudflare R2")
-	option.default = "github"
+	option.default = "auto"
 	option.rmempty = false
 end
 
@@ -1272,6 +1323,15 @@ vnt2_forward:value("vnt2fwwan", translate("允许从 VNT2 到 WAN"))
 vnt2_forward:value("lanfwvnt2", translate("允许从 LAN 到 VNT2"))
 vnt2_forward:value("wanfwvnt2", translate("允许从 WAN 到 VNT2"))
 vnt2_forward.widget = "checkbox"
+vnt2_forward.cfgvalue = function(self, section)
+	return read_uci_list_or_words(self.map.uci, self.map.config, section, self.option)
+end
+vnt2_forward.write = function(self, section, value)
+	write_uci_list(self.map.uci, self.map.config, section, self.option, value)
+end
+vnt2_forward.remove = function(self, section)
+	self.map.uci:delete(self.map.config, section, self.option)
+end
 
 local udp_stun = s:taboption("stun", DynamicList, "udp_stun", translate("UDP STUN 列表"),
 	translate("不带端口时通常默认使用 3478"))
@@ -1289,7 +1349,7 @@ auto_download_cli.rmempty = false
 auto_download_cli.default = auto_download_cli.enabled
 
 local download_mirror_cli = s:taboption("advanced", ListValue, "download_mirror", translate("客户端下载镜像源"),
-	translate("默认 GitHub；国内网络可尝试 Gitee、GitLab 或 Cloudflare。非 GitHub 镜像通常仅适用于默认仓库 vnt-dev/vnt"))
+	translate("默认自动（Gitee -> Cloudflare -> GitLab -> GitHub）；国内镜像会优先尝试，失败后自动回退 GitHub。非 GitHub 镜像通常仅适用于默认仓库 vnt-dev/vnt"))
 bind_download_mirror(download_mirror_cli)
 
 local download_tag_cli = s:taboption("advanced", Value, "download_tag", translate("客户端下载版本"),
@@ -1606,7 +1666,7 @@ auto_download_web.rmempty = false
 auto_download_web.default = auto_download_web.enabled
 
 local download_mirror_web = w:taboption("general", ListValue, "download_mirror", translate("Web 下载镜像源"),
-	translate("默认 GitHub；国内网络可尝试 Gitee、GitLab 或 Cloudflare。非 GitHub 镜像通常仅适用于默认仓库 vnt-dev/vnt"))
+	translate("默认自动（Gitee -> Cloudflare -> GitLab -> GitHub）；国内镜像会优先尝试，失败后自动回退 GitHub。非 GitHub 镜像通常仅适用于默认仓库 vnt-dev/vnt"))
 bind_download_mirror(download_mirror_web)
 
 local download_tag_web = w:taboption("general", Value, "download_tag", translate("Web 下载版本"),
@@ -1731,7 +1791,7 @@ auto_download_server.rmempty = false
 auto_download_server.default = auto_download_server.enabled
 
 local download_mirror_server = v:taboption("general", ListValue, "download_mirror", translate("服务端下载镜像源"),
-	translate("默认 GitHub；国内网络可尝试 Gitee、GitLab 或 Cloudflare。非 GitHub 镜像通常仅适用于默认仓库 vnt-dev/vnts"))
+	translate("默认自动（Gitee -> Cloudflare -> GitLab -> GitHub）；国内镜像会优先尝试，失败后自动回退 GitHub。非 GitHub 镜像通常仅适用于默认仓库 vnt-dev/vnts"))
 bind_download_mirror(download_mirror_server)
 
 local download_tag_server = v:taboption("general", Value, "download_tag", translate("服务端下载版本"),

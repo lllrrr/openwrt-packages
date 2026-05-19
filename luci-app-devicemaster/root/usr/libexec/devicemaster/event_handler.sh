@@ -28,6 +28,60 @@ DHCP_LEASES="/tmp/dhcp.leases"
 NLBWMON_CACHE="/tmp/devicemaster_nlbwmon_cache"
 MDNS_CACHE="/tmp/devicemaster_mdns_cache"
 
+# ============================================================
+# Mesh Node Detection
+# ============================================================
+
+# Check if this device is a mesh child node (not the main router)
+# Mesh child nodes should not modify dhcp config
+is_mesh_child_node() {
+    # Check if wpad/wpad-mesh is running and this is a mesh station
+    local mesh_mode=$(uci -q get wireless.mesh0 2>/dev/null || uci -q get wireless.mesh0_0 2>/dev/null)
+    local dhcp_enabled=$(uci -q get dhcp.lan.ignore 2>/dev/null)
+    
+    # If mesh interface exists and dhcp is disabled (common in mesh child nodes), skip dhcp modifications
+    if [ -n "$mesh_mode" ] && [ "$dhcp_enabled" = "1" ]; then
+        return 0
+    fi
+    return 1
+}
+
+# Check if this device is the mesh main router (has DHCP server enabled)
+# Only main router should modify dhcp config
+is_mesh_main_router() {
+    # Emergency override: if force_dhcp_sync flag exists, always allow
+    if [ -f "/tmp/devicemaster_force_dhcp_sync" ]; then
+        log_msg "Emergency override: force_dhcp_sync flag detected, allowing dhcp sync"
+        return 0
+    fi
+    
+    # Must have dhcp server enabled on lan interface
+    local dhcp_ignore=$(uci -q get dhcp.lan.ignore 2>/dev/null)
+    
+    # dhcp_ignore should be 0 or empty (default is to serve dhcp)
+    if [ "$dhcp_ignore" = "1" ]; then
+        log_msg "DHCP server disabled (dhcp.lan.ignore=1), skipping dhcp sync"
+        return 1
+    fi
+    
+    # Must have dhcp range configured
+    local dhcp_start=$(uci -q get dhcp.lan.start 2>/dev/null)
+    local dhcp_limit=$(uci -q get dhcp.lan.limit 2>/dev/null)
+    
+    if [ -z "$dhcp_start" ] || [ -z "$dhcp_limit" ]; then
+        log_msg "DHCP range not configured (start=$dhcp_start, limit=$dhcp_limit), skipping dhcp sync"
+        return 1
+    fi
+    
+    # Must be able to read /tmp/dhcp.leases (has active dhcp server)
+    if [ ! -f "/tmp/dhcp.leases" ]; then
+        log_msg "No dhcp.leases file found, skipping dhcp sync"
+        return 1
+    fi
+    
+    return 0
+}
+
 log_msg() {
     logger -t devicemaster-event "$1"
 }
@@ -923,8 +977,10 @@ register_device() {
             uci -q set "devicemaster.@device[$existing_idx].hostname=$hostname"
             uci -q commit devicemaster
             log_msg "Updated hostname for $mac: $current_hostname -> $hostname"
-            # Also sync to dnsmasq
-            /usr/libexec/devicemaster/sync_hostname.sh "$mac" "$hostname" "$ip" >/dev/null 2>&1
+            # Also sync to dnsmasq - ONLY on main router
+            if is_mesh_main_router; then
+                /usr/libexec/devicemaster/sync_hostname.sh "$mac" "$hostname" "$ip" >/dev/null 2>&1
+            fi
         fi
         return
     fi
@@ -959,9 +1015,13 @@ register_device() {
     log_msg "Registered $mac as $vendor ($devtype) at $ip"
 
     # Sync to dnsmasq static lease (via dedicated script to avoid index bugs)
-    # Run synchronously - DHCP event handler must complete before returning to dnsmasq
-    if [ -n "$hostname" ] && [ -n "$ip" ]; then
-        /usr/libexec/devicemaster/sync_hostname.sh "$mac" "$hostname" "$ip" >/dev/null 2>&1
+    # ONLY sync on mesh main router - must have dhcp server enabled
+    if is_mesh_main_router; then
+        if [ -n "$hostname" ] && [ -n "$ip" ]; then
+            /usr/libexec/devicemaster/sync_hostname.sh "$mac" "$hostname" "$ip" >/dev/null 2>&1
+        fi
+    else
+        log_msg "Skipping dhcp sync for $mac - not main router (no dhcp server)"
     fi
 }
 

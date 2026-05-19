@@ -368,7 +368,7 @@ msgid "Enable 2.4G Wi-Fi"
 msgstr "启用 2.4G Wi-Fi"
 
 msgid "Enable 5G Wi-Fi"
-msgstr "启用 5G/双路 Wi-Fi"
+msgstr "启用 5G Wi-Fi"
 
 msgid "Network Name (SSID)"
 msgstr "无线网络名称 (SSID)"
@@ -401,7 +401,7 @@ msgid "2.4G Wi-Fi"
 msgstr "2.4G Wi-Fi"
 
 msgid "5G Wi-Fi"
-msgstr "5G/双路 Wi-Fi"
+msgstr "5G Wi-Fi"
 
 msgid "SSID cannot be empty."
 msgstr "网络名称 (SSID) 不能为空。"
@@ -446,7 +446,7 @@ msgid "Wi-Fi Status"
 msgstr "Wi-Fi 状态"
 
 msgid "5G Wi-Fi Account"
-msgstr "5G/双路 Wi-Fi 账号"
+msgstr "5G Wi-Fi 账号"
 
 msgid "2.4G Wi-Fi Account"
 msgstr "2.4G Wi-Fi 账号"
@@ -1240,8 +1240,11 @@ msgstr "您设置的旁路由 IP ({ip}) 与上级网络的真实网关完全相�
 msgid "Wake on LAN (WOL)"
 msgstr "局域网唤醒 (WOL)"
 
-msgid "Wake packet sent to {mac}!\n(Device booting may take a minute)"
-msgstr "已向 {mac} 发送唤醒封包！\n(设备开机可能需要一分钟时间)"
+msgid "Wake packet sent to {mac}!"
+msgstr "已向 {mac} 发送唤醒封包！"
+
+msgid "(Device booting may take a minute)"
+msgstr "(设备开机可能需要一分钟时间)"
 
 msgid "Quick Setup Wizard"
 msgstr "快速设置向导"
@@ -1281,3 +1284,15 @@ msgstr "💡 此密码将用于日后登录路由器后台及 SSH，建议立即
 
 msgid "Please enter a new password or check \"Skip Password Setup\"!"
 msgstr "请输入新管理员密码，或勾选「暂不配置」！"
+
+msgid "Smart Connect"
+msgstr "多频合一"
+
+msgid "Independent Bands"
+msgstr "独立双频"
+
+msgid "WISP Repeater"
+msgstr "中继 (WISP)"
+
+msgid "Disabled"
+msgstr "未开启"

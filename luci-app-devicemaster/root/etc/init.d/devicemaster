@@ -84,20 +84,23 @@ service_cleanup() {
 	# Remove nftables rules
 	cleanup_nftables
 
-	# Remove DHCP event handler reference
-	local current=$(uci -q get dhcp.@dnsmasq[0].dhcpscript 2>/dev/null)
-	if [ "$current" = "$EVENT_HANDLER" ]; then
-		uci -q delete dhcp.@dnsmasq[0].dhcpscript
-		uci -q commit dhcp
-	fi
+	# Skip DHCP cleanup on mesh child nodes
+	if ! is_mesh_child_node; then
+		# Remove DHCP event handler reference
+		local current=$(uci -q get dhcp.@dnsmasq[0].dhcpscript 2>/dev/null)
+		if [ "$current" = "$EVENT_HANDLER" ]; then
+			uci -q delete dhcp.@dnsmasq[0].dhcpscript
+			uci -q commit dhcp
+		fi
 
-	# Remove all DHCP host entries created by DeviceMaster
-	local idx=0
-	while uci -q get "dhcp.@host[$idx]" >/dev/null 2>&1; do
-		uci -q delete "dhcp.@host[$idx]" 2>/dev/null
-	done
-	uci -q commit dhcp 2>/dev/null
-	/etc/init.d/dnsmasq restart 2>/dev/null
+		# Remove all DHCP host entries created by DeviceMaster
+		local idx=0
+		while uci -q get "dhcp.@host[$idx]" >/dev/null 2>&1; do
+			uci -q delete "dhcp.@host[$idx]" 2>/dev/null
+		done
+		uci -q commit dhcp 2>/dev/null
+		/etc/init.d/dnsmasq restart 2>/dev/null
+	fi
 
 	# Remove UCI config
 	rm -f /etc/config/devicemaster
@@ -138,9 +141,27 @@ service_cleanup() {
 	logger -t devicemaster "Full cleanup complete"
 }
 
+# Check if this device is a mesh child node (not the main router)
+# Mesh child nodes should not modify dhcp config
+is_mesh_child_node() {
+	# Check if wpad/wpad-mesh is running and this is a mesh station
+	local mesh_mode=$(uci -q get wireless.mesh0 2>/dev/null || uci -q get wireless.mesh0_0 2>/dev/null)
+	local dhcp_enabled=$(uci -q get dhcp.lan.ignore 2>/dev/null)
+	
+	# If mesh interface exists and dhcp is disabled (common in mesh child nodes), skip dhcp modifications
+	if [ -n "$mesh_mode" ] && [ "$dhcp_enabled" = "1" ]; then
+		logger -t devicemaster "Detected mesh child node, skipping dhcp configuration"
+		return 0
+	fi
+	return 1
+}
+
 # Configure dnsmasq to call our event handler on DHCP lease changes
 setup_dhcp_script() {
 	[ ! -x "$EVENT_HANDLER" ] && return
+
+	# Skip if this is a mesh child node
+	is_mesh_child_node && return
 
 	# Check if dhcpscript is already configured
 	local current=$(uci -q get dhcp.@dnsmasq[0].dhcpscript 2>/dev/null)
@@ -298,6 +319,9 @@ flush_session_to_uci() {
 # Remove duplicate dhcp host entries for the same MAC
 # Previous bug in sync_to_dnsmasq created multiple entries per MAC
 cleanup_duplicate_hosts() {
+	# Skip on mesh child nodes
+	is_mesh_child_node && return
+
 	local changed=0
 	# Collect all MACs that appear more than once
 	local macs=$(uci -q show dhcp | grep '@host\[' | grep '\.mac=' | sed "s/.*mac='//;s/'//" | sort | uniq -d)

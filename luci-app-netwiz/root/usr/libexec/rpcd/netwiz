@@ -45,6 +45,30 @@ restart_depend_apps() {
 }
 # 结束
 
+# =======================================================
+# PPPoE 拨号后 IPv6 虚拟接口未生成的底层 Bug 进行自愈
+watchdog_pppoe_ipv6() {
+    if [ "$(uci -q get network.wan.proto)" = "pppoe" ]; then
+        log ">>> 启动 PPPoE IPv6 虚拟接口守护 (20秒后检测)..."
+        (
+            sleep 20
+            # 确认 WAN 是否已经拨号成功 (IPv4 连通)
+            if ifstatus wan | grep -q '"up": true'; then
+                # 检查底层的 wan_6 或 wan6 虚拟接口是否成功生成并 up
+                if ! ifstatus wan_6 | grep -q '"up": true' && ! ifstatus wan6 | grep -q '"up": true'; then
+                    log "⚠️ 发现 PPPoE 已连接，但 IPv6 虚拟接口 (wan_6) 丢失！正在执行自愈重置..."
+                    ifdown wan
+                    sleep 3
+                    ifup wan
+                else
+                    log "✅ PPPoE IPv6 虚拟接口状态正常。"
+                fi
+            fi
+        ) &
+    fi
+}
+# =======================================================
+
 case "$1" in
     list)
         echo '{ "set_network": { "mode": "string", "arg1": "string", "arg2": "string", "arg3": "string", "arg4": "string", "arg5": "string", "arg6": "string" }, "set_password": { "password": "string" }, "check_wifi": {}, "confirm": {} }'
@@ -415,9 +439,15 @@ case "$1" in
                             local ui_prefix="$2"
                             local iface_name="$3"
                             local intended_band="$4"
+                            local ssid_suffix="$5"
 
                             local p_en=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.enabled" || echo "0")
                             local p_ssid=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.ssid" || echo "")
+                            
+                            # <--- 有后缀，自动追加到 SSID 尾部
+                            if [ -n "$p_ssid" ] && [ -n "$ssid_suffix" ]; then
+                                p_ssid="${p_ssid}${ssid_suffix}"
+                            fi
                             local p_key=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.key" || echo "")
                             local p_enc=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.encryption" || echo "sae-mixed")
                             local p_hidden=$(echo "$payload" | jsonfilter -e "@.${ui_prefix}.hidden" || echo "0")
@@ -530,10 +560,10 @@ case "$1" in
                         if [ "$chip_count" -le 1 ]; then
                             single_dev=$(echo "$dev_list" | awk '{print $1}')
                             if [ "$smart" = "true" ]; then 
-                                configure_physical_radio "$single_dev" "merged" "wifinet_0" "2g"
+                                configure_physical_radio "$single_dev" "merged" "wifinet_0" "2g" ""
                             else
-                                configure_physical_radio "$single_dev" "radio_2g" "wifinet_2g" "2g"
-                                configure_physical_radio "$single_dev" "radio_5g" "wifinet_5g" "5g"
+                                configure_physical_radio "$single_dev" "radio_2g" "wifinet_2g" "2g" ""
+                                configure_physical_radio "$single_dev" "radio_5g" "wifinet_5g" "5g" ""
                             fi
                         else
                             if [ "$smart" = "true" ]; then
@@ -541,9 +571,9 @@ case "$1" in
                                 idx=0
                                 for dev in $dev_list; do
                                     if echo " $list_5g " | grep -q " $dev "; then
-                                        configure_physical_radio "$dev" "merged" "wifinet_$idx" "5g"
+                                        configure_physical_radio "$dev" "merged" "wifinet_$idx" "5g" ""
                                     else
-                                        configure_physical_radio "$dev" "merged" "wifinet_$idx" "2g"
+                                        configure_physical_radio "$dev" "merged" "wifinet_$idx" "2g" ""
                                     fi
                                     idx=$((idx + 1))
                                 done
@@ -551,12 +581,30 @@ case "$1" in
                                 log "采用独立频段配置策略"
                                 idx=0
                                 for dev in $list_2g; do
-                                    configure_physical_radio "$dev" "radio_2g" "wifinet_2g_$idx" "2g"
+                                    configure_physical_radio "$dev" "radio_2g" "wifinet_2g_$idx" "2g" ""
                                     idx=$((idx + 1))
                                 done
+                                
                                 idx=0
                                 for dev in $list_5g; do
-                                    configure_physical_radio "$dev" "radio_5g" "wifinet_5g_$idx" "5g"
+                                    local target_prefix="radio_5g"
+                                    local custom_suffix=""
+                                    
+                                    # 第二个 5G 芯片 (idx=1)
+                                    if [ "$idx" -eq 1 ]; then
+                                        # 尝试从前端提取 radio_5g2 的配置
+                                        local has_5g2=$(echo "$payload" | jsonfilter -e "@.radio_5g2.ssid" || echo "")
+                                        if [ -n "$has_5g2" ]; then
+                                            target_prefix="radio_5g2"
+                                        else
+                                            custom_suffix="_Game"
+                                        fi
+                                    # 第三、第四个 5G 芯片兜底
+                                    elif [ "$idx" -ge 2 ]; then
+                                        custom_suffix="_Game${idx}"
+                                    fi
+                                    
+                                    configure_physical_radio "$dev" "$target_prefix" "wifinet_5g_$idx" "5g" "$custom_suffix"
                                     idx=$((idx + 1))
                                 done
                             fi
@@ -653,6 +701,7 @@ case "$1" in
 
                         # 唤醒调用1
                         restart_depend_apps
+                        watchdog_pppoe_ipv6
 
                         log "✅ 无线配置流程全部安全执行完毕！"
                         exit 0
@@ -696,6 +745,7 @@ case "$1" in
 
                     # 喚醒调用2
                     restart_depend_apps
+                    watchdog_pppoe_ipv6
                     ) &
                 exit 0
                 ;;
