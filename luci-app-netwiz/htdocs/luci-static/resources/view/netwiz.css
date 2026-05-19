@@ -248,7 +248,7 @@ input:checked + .nw-slider:before { transform: translateX(20px); }
 .nw-confirm-mode-text { color: #fff; background: #0055bb; padding: 18px 4px; border-radius: 10px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); margin-top: 12px; }
 .nw-roam-desc { font-size: 13.5px; color: #64748b; line-height: 1.5; word-break: break-word; }
 .nw-roam-warn { font-size: 13px; color: #ef4444; margin-top: 5px; font-weight: 600; background: #fef2f2; padding: 5px 8px; border-radius: 6px; border: 1px solid #fecaca; line-height: 1.4; }
-.nw-warn-bypass, .nw-warn-main { padding: 10px; border-radius: 8px; font-size: 13.5px; margin-bottom: 12px; border: 1px solid; line-height: 1.6; font-weight: bolder; }
+.nw-warn-bypass, .nw-warn-main { padding: 10px; border-radius: 8px; font-size: 15.5px; margin-bottom: 12px; border: 1px solid; line-height: 1.6; font-weight: bolder; }
 .nw-warn-bypass { background: #fef2f2; color: #ef4444; border-color: #fecaca; }
 .nw-warn-main { background: #f0fdf4; color: #059669; border-color: #bbf7d0; }
 

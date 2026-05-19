@@ -212,7 +212,7 @@ var T = {
     'TXT_DNS1': _('Primary DNS:'),
     'TXT_DNS2': _('Secondary DNS:'),
     'TIP_IPV6_WARN':_('⚠️ Non-standard parameters (Default configuration recommended)'),
-    'PH_PWD_TIP': _('💡 This password will be used for logging into the router web interface and SSH. Setting it now is highly recommended.'),
+    'PH_PWD_TIP': '💡 ' + _('This password will be used for logging into the router web interface and SSH. Setting it now is highly recommended.'),
     // ===== 新增防呆与冲突拦截词条 =====
     'M_WAN_DOWN_TIT': _('Cable Unplugged or Wrong Port'),
     'M_WAN_DOWN_MSG': _('System detected NO SIGNAL on the <b>WAN port</b>!<br><br><b style="color:#ef4444;">Troubleshooting:</b><br>1. Did you plug the upstream cable into the <b>LAN port</b>?<br>2. Are both ends plugged in tightly? Is the modem powered on?<br>'),
@@ -523,7 +523,7 @@ return view.extend({
             '                 <label class="nw-value-title nw-m0 nw-pointer" style="display: inline-block !important; margin: 0 !important; line-height: 1 !important;">{{LBL_WIFI_5G_EN}}</label>',
             '              </div>',
             '              <div id="hdr-5g2" class="nw-split-header-item" style="display: none; align-items: center; justify-content: center; gap: 2px;">',
-            '                 <label class="nw-switch nw-flex-shrink-0 nw-scale-switch" style="margin: 0;"><input type="checkbox" id="wifi-5g2-en" checked><span class="nw-slider"></span></label>',
+            '                 <label class="nw-switch nw-flex-shrink-0 nw-scale-switch" style="margin: 0;"><input type="checkbox" id="wifi-5g2-en"><span class="nw-slider"></span></label>',
             '                 <label class="nw-value-title nw-m0 nw-pointer" style="display: inline-block !important; margin: 0 !important; line-height: 1 !important;">5G_Game</label>',
             '              </div>',
             '           </div>',
@@ -786,27 +786,12 @@ return view.extend({
         updateWizSteps(currentWizStep);
 
         var skipAndReleaseLuci = function() {
+            // 直接隐藏向导弹窗
             wizModal.style.display = 'none';
             var hideCb = container.querySelector('#wiz-hide-checkbox');
             var hideState = (hideCb && hideCb.checked) ? '0' : '1';
             
-            // 使用第一步探測到的真实底层状态
-            var isConfigured = window._realIsConfigured || '0';
-            
-            if (isConfigured !== '1') {
-                // 初次开机劫持状态 -> 解除锁定，并平滑跳回官方主页
-                openModal({ 
-                title: T['WIZ_SKIP_TITLE'], 
-                msg: '<div style="color: #64748b; font-size: 16px; font-weight:bold;">' + T['WIZ_SKIP_MSG'] + '</div>', 
-                spin: true 
-            });
-                silentSaveWizardState(hideState).then(function() {
-                    window.location.replace('/cgi-bin/luci/');
-                }).catch(function() { window.location.replace('/cgi-bin/luci/'); });
-            } else {
-                // 日常使用时的手动打开 -> 关闭弹窗，【安静地留在当前插件首页】！
-                silentSaveWizardState(hideState);
-            }
+            silentSaveWizardState(hideState);
         };
 
         container.querySelector('#wiz-modal-close').addEventListener('click', skipAndReleaseLuci);
@@ -1197,8 +1182,8 @@ return view.extend({
         // 去除 _2.4G, -5G, 2.4G, 5G, 甚至 2.4, 5 等冗余后缀
         function cleanSsidSuffix(ssid) {
             if (!ssid) return '';
-            // 正则匹配：结尾的可选下划线/横杠/空格 + 2.4或5 + 可选的G或g
-            return ssid.replace(/[_\-\s]?(2\.4|5)[gG]?$/i, '');
+            // 兼容 5G_Game 后缀剥离
+            return ssid.replace(/[_\-\s]?(2\.4|5)[gG]?(_Game)?$/i, '');
         }
 
         // 生成纯净的目标名称
@@ -1327,47 +1312,63 @@ return view.extend({
                     // 优先使用 底层物理载波状态判断网线通断
                     var isWanDown = false;
                     if (typeof activeWan.l1up !== 'undefined') {
-                        // 新系统：物理层！l1up 为 false
                         isWanDown = (activeWan.l1up === false);
                     } else {
-                        // 老系统：底层接口没暴露 l1up，退回使用 up 状态和 IP 综合推断
                         isWanDown = (activeWan.up === false && (!liveWanIp || liveWanIp === T['TXT_GETTING'] || liveWanIp === T['TXT_NOT_GOT']));
                     }
+
+                    // 初始化防抖计数器
+                    if (typeof window._wanDropCount === 'undefined') window._wanDropCount = 0;
+                    
+                    // 初始向导是否在显示
+                    var wizModalEl = container.querySelector('#nw-wizard-modal');
+                    var isWizOpen = (wizModalEl && wizModalEl.style.display !== 'none');
                     
                     if (isWanDown && !isBypass && (!selectedMode || selectedMode === 'router')) {
-                        // 大约在 502 行
-                        if (!window._hasAlertedWanDown && !localStorage.getItem('ignoreWanAlert')) {
-                            window._hasAlertedWanDown = true;
+                        
+                        // 系统正在保存/重启，或者向导没关闭，保持静默
+                        if (window._isSystemBusy || isWizOpen) {
+                            window._wanDropCount = 0; 
+                        } else {
+                            // 系统空闲，且向导关闭，开启防抖
+                            window._wanDropCount++;
                             
-                            // 专属悬浮层，让探针运行
-                            var overlay = document.createElement('div');
-                            overlay.id = 'nw-custom-wan-alert';
-                            overlay.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:99999; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(4px);';
-                            
-                            var box = document.createElement('div');
-                            box.style.cssText = 'background:#fff; width:90%; max-width:420px; border-radius:12px; padding:24px; box-shadow:0 20px 25px -5px rgba(0,0,0,0.1); text-align:center; font-family:sans-serif;';
-                            
-                            box.innerHTML = '<div style="font-size:36px; margin-bottom:10px;">🔌</div>' + 
-                                            '<h3 style="margin:0 0 15px 0; color:#1f2937; font-size:20px;">' + T['M_WAN_DOWN_TIT'] + '</h3>' + 
-                                            '<div style="text-align:left; color:#4b5563; font-size:15px; line-height:1.6; margin-bottom:20px;">' + T['M_WAN_DOWN_MSG'] + '</div>' + 
-                                            '<div style="text-align:center; color:#059669; font-weight:bold; font-size:14px; margin-bottom:20px; padding:10px; background:#d1fae5; border-radius:8px;">' + T['M_WAN_DOWN_WAIT'] + '</div>' +
-                                            '<button id="btn-ignore-wan" style="background:#f00; color:#fff; border:none; padding:10px 20px; border-radius:8px; font-weight:bold; cursor:pointer; width:100%; font-size:15px; transition:0.2s;">' + T['BTN_IGNORE_WAN'] + '</button>';
-                            
-                            overlay.appendChild(box);
-                            document.body.appendChild(overlay);
+                            // 1 次断线（約 1~5 秒）确认断线，且没有弹过窗，才触发弹窗
+                            if (window._wanDropCount >= 1) {
+                                if (!window._hasAlertedWanDown && !localStorage.getItem('ignoreWanAlert')) {
+                                    window._hasAlertedWanDown = true;
+                                    
+                                    // 专属悬浮层，让探针运行
+                                    var overlay = document.createElement('div');
+                                    overlay.id = 'nw-custom-wan-alert';
+                                    overlay.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:99999; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(4px);';
+                                    
+                                    var box = document.createElement('div');
+                                    box.style.cssText = 'background:#fff; width:90%; max-width:420px; border-radius:12px; padding:24px; box-shadow:0 20px 25px -5px rgba(0,0,0,0.1); text-align:center; font-family:sans-serif;';
+                                    
+                                    box.innerHTML = '<div style="font-size:36px; margin-bottom:10px;">🔌</div>' + 
+                                                    '<h3 style="margin:0 0 15px 0; color:#1f2937; font-size:20px;">' + T['M_WAN_DOWN_TIT'] + '</h3>' + 
+                                                    '<div style="text-align:left; color:#4b5563; font-size:15px; line-height:1.6; margin-bottom:20px;">' + T['M_WAN_DOWN_MSG'] + '</div>' + 
+                                                    '<div style="text-align:center; color:#059669; font-weight:bold; font-size:14px; margin-bottom:20px; padding:10px; background:#d1fae5; border-radius:8px;">' + T['M_WAN_DOWN_WAIT'] + '</div>' +
+                                                    '<button id="btn-ignore-wan" style="background:#f00; color:#fff; border:none; padding:10px 20px; border-radius:8px; font-weight:bold; cursor:pointer; width:100%; font-size:15px; transition:0.2s;">' + T['BTN_IGNORE_WAN'] + '</button>';
+                                    
+                                    overlay.appendChild(box);
+                                    document.body.appendChild(overlay);
 
-                            // 点击不处理，手动删掉悬浮层
-                            document.getElementById('btn-ignore-wan').onclick = function() {
-                                window._hasAlertedWanDown = true;
-                                
-                                // 写入本地缓存
-                                localStorage.setItem('ignoreWanAlert', 'true'); 
-                                
-                                var el = document.getElementById('nw-custom-wan-alert');
-                                if (el) el.remove();
-                            };
+                                    // 点击不处理，手动删掉悬浮层
+                                    document.getElementById('btn-ignore-wan').onclick = function() {
+                                        window._hasAlertedWanDown = true;
+                                        localStorage.setItem('ignoreWanAlert', 'true'); 
+                                        var el = document.getElementById('nw-custom-wan-alert');
+                                        if (el) el.remove();
+                                    };
+                                }
+                            }
                         }
                     } else if (!isWanDown) {
+                        // 侦测到网线恢复，立刻将计数器清零
+                        window._wanDropCount = 0;
+
                         // 发现插网线
                         var customAlert = document.getElementById('nw-custom-wan-alert');
                         if (customAlert) {
@@ -1533,6 +1534,7 @@ return view.extend({
                                     // ==================================
                                     // 三频识别与显示
                                     if (!window._isSingleChip && wDevs.length >= 3) {
+                                    // if (true) {
                                         var hdr5g2 = container.querySelector('#hdr-5g2');
                                         var tab5g2 = container.querySelector('#tab-5g2');
                                         if (hdr5g2) hdr5g2.style.display = 'flex';
@@ -2309,7 +2311,7 @@ return view.extend({
                 en2g.checked = false; 
                 var s5El = container.querySelector('#wifi-5g-ssid');
                 var s2 = container.querySelector('#wifi-2g-ssid').value;
-                if ((!s5El.value || s5El.value === s2) && s2) {
+                if ((!s5El.value || cleanSsidSuffix(s5El.value) === cleanSsidSuffix(s2)) && s2) {
                     s5El.value = smartConvertSsid(s2, '5g');
                     if (!container.querySelector('#wifi-5g-key').value) container.querySelector('#wifi-5g-key').value = container.querySelector('#wifi-2g-key').value;
                     container.querySelector('#wifi-5g-enc').value = container.querySelector('#wifi-2g-enc').value;
@@ -2333,6 +2335,20 @@ return view.extend({
             en5g2.addEventListener('change', function() {
                 var t = container.querySelector('#tab-5g2');
                 if (t) t.click();
+                
+                // 以 5G (或 2.4G) 为基准自动补齐
+                if (this.checked) {
+                    var s5g2El = container.querySelector('#wifi-5g2-ssid');
+                    var s5 = container.querySelector('#wifi-5g-ssid').value;
+                    var s2 = container.querySelector('#wifi-2g-ssid').value;
+                    var refSsid = s5 || s2; // 优先学 5G，没有 5G 就学 2.4G
+                    var refKey = container.querySelector('#wifi-5g-key').value || container.querySelector('#wifi-2g-key').value;
+
+                    if (s5g2El && refSsid && (!s5g2El.value || cleanSsidSuffix(s5g2El.value) === cleanSsidSuffix(refSsid))) {
+                        s5g2El.value = smartConvertSsid(refSsid, '5g2');
+                        if (!container.querySelector('#wifi-5g2-key').value) container.querySelector('#wifi-5g2-key').value = refKey;
+                    }
+                }
             });
         }
 
@@ -2346,24 +2362,9 @@ return view.extend({
                 smartUi.style.display = 'block';
                 splitUi.style.display = 'none';
 
-                // 防止系统自动触发时覆盖数据
-                if (!e.isTrusted) return;
+                if (!e.isTrusted) return; // 防止页面加载时覆盖底层数据
 
-                // 备份现有的独立账号密码及漫游状态
-                var roam2gEl = container.querySelector('#wifi-2g-roaming');
-                var roam5gEl = container.querySelector('#wifi-5g-roaming');
-                window._backupSplit = {
-                    s2: container.querySelector('#wifi-2g-ssid').value,
-                    k2: container.querySelector('#wifi-2g-key').value,
-                    e2: container.querySelector('#wifi-2g-enc').value,
-                    r2: roam2gEl ? roam2gEl.checked : false, // 备份 2.4G 漫游状态
-                    s5: container.querySelector('#wifi-5g-ssid').value,
-                    k5: container.querySelector('#wifi-5g-key').value,
-                    e5: container.querySelector('#wifi-5g-enc').value,
-                    r5: roam5gEl ? roam5gEl.checked : true   // 备份 5G 漫游状态
-                };
-
-                // 获取已开启频段的信息优先5G
+                // 获取已开启频段的信息（优先提取 5G 的名字）
                 var en2 = container.querySelector('#wifi-2g-en').checked;
                 var en5 = container.querySelector('#wifi-5g-en').checked;
                 var pickBand = (en5 || !en2) ? '5g' : '2g'; 
@@ -2372,70 +2373,44 @@ return view.extend({
                 var pickKey = container.querySelector('#wifi-' + pickBand + '-key').value;
                 var pickEnc = container.querySelector('#wifi-' + pickBand + '-enc').value;
                 
-                // 去除后缀并回填数据
+                // 🌟 智能联动 1：合一模式下，强制自动“剥离” 2.4G/5G 等后缀
                 var smartSsidEl = container.querySelector('#wifi-smart-ssid');
-                if (pickSsid && !smartSsidEl.dataset.initialized) {
-                    smartSsidEl.value = cleanSsidSuffix(pickSsid);
+                if (pickSsid) {
+                    smartSsidEl.value = cleanSsidSuffix(pickSsid); 
                     container.querySelector('#wifi-smart-key').value = pickKey;
                     container.querySelector('#wifi-smart-enc').value = pickEnc;
-                    smartSsidEl.dataset.initialized = 'true'; 
                 }
-                // 切换为合一模式时，强行开启漫游开关，并同步清理报警
+
+                // 切换为合一模式时，自动开启无缝漫游
                 var rSmartEl = container.querySelector('#wifi-smart-roaming');
-                if (rSmartEl) { 
-                    rSmartEl.checked = true; 
-                    rSmartEl.dispatchEvent(new Event('change')); 
-                }
+                if (rSmartEl) { rSmartEl.checked = true; rSmartEl.dispatchEvent(new Event('change')); }
 
             } else {
                 // 切换为独立频段
                 smartUi.style.display = 'none';
                 splitUi.style.display = 'block';
 
-                // 防止系统加载时覆盖底层数据
                 if (!e.isTrusted) return;
 
-                // 恢复之前备份的独立账号密码及漫游状态
-                var targetRoam2g = false; // 2.4G 漫游默认安全关闭
-                var targetRoam5g = true;  // 5G 漫游默认开启
+                // 🌟 智能联动 2：分开模式下，强制提取合一名称，并自动“追加”各自的后缀
+                var baseSsid = container.querySelector('#wifi-smart-ssid').value;
+                var baseKey = container.querySelector('#wifi-smart-key').value;
+                var baseEnc = container.querySelector('#wifi-smart-enc').value;
                 
-                if (window._backupSplit && (window._backupSplit.s2 || window._backupSplit.s5)) {
-                    container.querySelector('#wifi-2g-ssid').value = window._backupSplit.s2;
-                    container.querySelector('#wifi-2g-key').value = window._backupSplit.k2;
-                    container.querySelector('#wifi-2g-enc').value = window._backupSplit.e2;
-                    // targetRoam2g = window._backupSplit.r2; // 强制使用默认值 false
-                    
-                    container.querySelector('#wifi-5g-ssid').value = window._backupSplit.s5;
-                    container.querySelector('#wifi-5g-key').value = window._backupSplit.k5;
-                    container.querySelector('#wifi-5g-enc').value = window._backupSplit.e5;
-                    // targetRoam5g = window._backupSplit.r5; // 强制使用默认值 true
-                } else {
-                    // 无备份时自动生成独立名称
-                    var baseSsid = container.querySelector('#wifi-smart-ssid').value;
-                    var baseKey = container.querySelector('#wifi-smart-key').value;
-                    var baseEnc = container.querySelector('#wifi-smart-enc').value;
-                    
-                    container.querySelector('#wifi-2g-ssid').value = smartConvertSsid(baseSsid, '2g');
-                    container.querySelector('#wifi-2g-key').value = baseKey;
-                    container.querySelector('#wifi-2g-enc').value = baseEnc;
-                    
-                    container.querySelector('#wifi-5g-ssid').value = smartConvertSsid(baseSsid, '5g');
-                    container.querySelector('#wifi-5g-key').value = baseKey;
-                    container.querySelector('#wifi-5g-enc').value = baseEnc;
-                    // 多频合一关闭时，给 5G_Game 赋值
-                    var s5g2El = container.querySelector('#wifi-5g2-ssid');
-                    if (s5g2El) {
-                        s5g2El.value = smartConvertSsid(baseSsid, '5g2');
-                        container.querySelector('#wifi-5g2-key').value = baseKey;
-                        container.querySelector('#wifi-5g2-enc').value = baseEnc;
-                    }
+                container.querySelector('#wifi-2g-ssid').value = smartConvertSsid(baseSsid, '2g');
+                container.querySelector('#wifi-2g-key').value = baseKey;
+                container.querySelector('#wifi-2g-enc').value = baseEnc;
+                
+                container.querySelector('#wifi-5g-ssid').value = smartConvertSsid(baseSsid, '5g');
+                container.querySelector('#wifi-5g-key').value = baseKey;
+                container.querySelector('#wifi-5g-enc').value = baseEnc;
+                
+                var s5g2El = container.querySelector('#wifi-5g2-ssid');
+                if (s5g2El) {
+                    s5g2El.value = smartConvertSsid(baseSsid, '5g2');
+                    container.querySelector('#wifi-5g2-key').value = baseKey;
+                    container.querySelector('#wifi-5g2-enc').value = baseEnc;
                 }
-                
-                // 应用漫游开关状态，并触发 change 事件以同步 UI
-                var r2gEl = container.querySelector('#wifi-2g-roaming');
-                if (r2gEl) { r2gEl.checked = targetRoam2g; r2gEl.dispatchEvent(new Event('change')); }
-                var r5gEl = container.querySelector('#wifi-5g-roaming');
-                if (r5gEl) { r5gEl.checked = targetRoam5g; r5gEl.dispatchEvent(new Event('change')); }
             }
         });
 
@@ -2463,7 +2438,7 @@ return view.extend({
             // 3. 为空或者同名时触发 2.4G 后缀保护与密码同步
             var s2El = container.querySelector('#wifi-2g-ssid');
             var s5 = container.querySelector('#wifi-5g-ssid').value;
-            if ((!s2El.value || s2El.value === s5) && s5) {
+            if ((!s2El.value || cleanSsidSuffix(s2El.value) === cleanSsidSuffix(s5)) && s5) {
                 s2El.value = smartConvertSsid(s5, '2g');
                 if(!container.querySelector('#wifi-2g-key').value) {
                     container.querySelector('#wifi-2g-key').value = container.querySelector('#wifi-5g-key').value;
@@ -3120,6 +3095,11 @@ return view.extend({
         };
 
         container.querySelector('#btn-apply').addEventListener('click', function () {
+            // 开启“系统忙碌锁”
+            window._isSystemBusy = true;
+            // 设定 15 秒后自动解锁
+            setTimeout(function() { window._isSystemBusy = false; }, 15000);
+
             try {
                 var rTypeEl = container.querySelector('input[name="router_type"]:checked');
                 var rType = rTypeEl ? rTypeEl.value : 'dhcp';
