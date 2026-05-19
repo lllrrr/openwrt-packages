@@ -40,6 +40,8 @@ block_device() {
     local action="$2"  # add or remove
     
     if [ "$action" = "add" ]; then
+        # Ensure blocked_macs set exists before adding elements (idempotent)
+        nft add set inet devicemaster blocked_macs '{ type ether_addr; }' 2>/dev/null
         # Add MAC to blocked set
         nft add element inet devicemaster blocked_macs { "$mac" } 2>/dev/null
         

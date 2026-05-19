@@ -10,6 +10,9 @@ EVENT_HANDLER="/usr/libexec/devicemaster/event_handler.sh"
 PID_FILE="/var/run/devicemaster/monitor.pid"
 ARP_TABLE="/proc/net/arp"
 POLL_INTERVAL=30
+PAGE_ACTIVE_FILE="/tmp/dm_page_active"
+PAGE_ACTIVE_TIMEOUT=10   # Page considered active if polled within 10s
+IDLE_INTERVAL=300        # 5 minutes when no page viewer or no unknown devices
 
 log_msg() {
     logger -t devicemaster-monitor "$1"
@@ -60,6 +63,49 @@ detect_new_device() {
 
     rm -f "$UCI_MAC_FILE" "$ARP_MAC_FILE"
     return 1
+}
+
+# Check if device list page is being actively viewed
+is_page_active() {
+    [ ! -f "$PAGE_ACTIVE_FILE" ] && return 1
+    local last_active=$(cat "$PAGE_ACTIVE_FILE" 2>/dev/null)
+    [ -z "$last_active" ] && return 1
+    local now=$(date +%s)
+    [ $((now - last_active)) -lt $PAGE_ACTIVE_TIMEOUT ]
+}
+
+# Count devices with unknown vendor, type, or hostname (fast: single uci show + awk)
+count_unknown_devices() {
+    uci show devicemaster 2>/dev/null | awk '
+        /\.(mac|vendor|type|hostname)=/ {
+            idx = index($0, ".")
+            rest = substr($0, idx + 1)
+            eq = index(rest, "=")
+            field = substr(rest, 1, eq - 1)
+            val = substr(rest, eq + 1)
+            gsub(/^'"'"'|'"'"'$/, "", val)
+            # Extract section: everything before first dot in field
+            dot2 = index(field, ".")
+            section = substr(field, 1, dot2 - 1)
+            fname = substr(field, dot2 + 1)
+            if (fname == "mac") macs[section] = val
+            if (fname == "vendor") vendors[section] = val
+            if (fname == "type") types[section] = val
+            if (fname == "hostname") hostnames[section] = val
+        }
+        END {
+            count = 0
+            for (s in macs) {
+                u = 0
+                v = vendors[s]; t = types[s]; h = hostnames[s]
+                if (v == "" || v == "LAA" || v == "unknown" || v == "Unknown") u++
+                if (t == "" || t == "unknown" || t == "Unknown") u++
+                if (h == "" || h == "*" || h == "-" || h == "unknown") u++
+                if (u >= 2) count++
+            }
+            print count
+        }
+    '
 }
 
 # Signal handler
@@ -162,7 +208,16 @@ main() {
 
     # Simple poll loop - no background processes, no memory leak
     while true; do
-        sleep $POLL_INTERVAL
+        # Decide interval: 30s only when page is active AND 2+ unknown devices
+        local interval=$IDLE_INTERVAL
+        if is_page_active; then
+            local unknown_count=$(count_unknown_devices)
+            if [ "$unknown_count" -ge 2 ]; then
+                interval=$POLL_INTERVAL
+            fi
+        fi
+
+        sleep $interval
         
         # New device detection (all roles)
         if detect_new_device; then
@@ -176,6 +231,8 @@ main() {
         # Sub-node: push stations to master periodically
         local now=$(date +%s)
         if [ $((now - sub_last_report)) -ge $SUB_REPORT_INTERVAL ]; then
+            # Write local WiFi stations to cache file first (needed by push_to_master)
+            write_sub_stations
             push_to_master
             sub_last_report=$now
         fi

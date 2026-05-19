@@ -47,6 +47,23 @@
     uci commit devicemaster
 }
 
+# Cleanup: remove duplicate anonymous settings sections (keep only named 'settings')
+# This fixes issues where both @settings[0] and settings existed
+settings_count=$(uci show devicemaster | grep -c '^devicemaster\.@settings\[' 2>/dev/null)
+if [ "$settings_count" -gt 0 ]; then
+    # Delete all anonymous settings sections
+    while uci -q get devicemaster.@settings[0] >/dev/null 2>&1; do
+        uci delete devicemaster.@settings[0]
+    done
+    # Ensure named settings section exists
+    if ! uci -q get devicemaster.settings >/dev/null 2>&1; then
+        uci set devicemaster.settings=settings
+        uci set devicemaster.settings.oui_mode='remote'
+        uci set devicemaster.settings.remote_api='maclookup'
+    fi
+    uci commit devicemaster
+fi
+
 # Make scripts executable
 chmod +x /usr/libexec/devicemaster/*.sh 2>/dev/null
 chmod +x /usr/libexec/devicemaster/devicemasterd 2>/dev/null

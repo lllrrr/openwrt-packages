@@ -119,7 +119,7 @@ lookup_oui_remote() {
     local mac="$1"
     if [ -x "$OUI_LOOKUP" ]; then
         local vendor=$($OUI_LOOKUP lookup "$mac" 2>/dev/null)
-        if [ -n "$vendor" ] && [ "$vendor" != "Unknown" ]; then
+        if [ -n "$vendor" ] && [ "$vendor" != "Unknown" ] && [ "$vendor" != "LAA" ]; then
             echo "$vendor" | sed 's/ Co\..*$//'
             return
         fi
@@ -134,14 +134,8 @@ mdns_probe_ip() {
     local ip="$1"
     local result=""
 
-    if command -v avahi-browse >/dev/null 2>&1; then
-        result=$(avahi-browse -a -t -r -p 2>/dev/null | grep -i "$ip" | head -1)
-        if [ -n "$result" ]; then
-            echo "$result" | awk -F';' '{print $4}' | sed 's/\.local$//'
-            return
-        fi
-    fi
-
+    # Priority 1: avahi-resolve returns clean hostname (e.g. "iPad-pro-M4.local")
+    # avahi-browse returns raw mDNS name with escape codes (e.g. "iPad\032pro\032M4")
     if command -v avahi-resolve >/dev/null 2>&1; then
         result=$(avahi-resolve-host-name -a "$ip" 2>/dev/null | awk '{print $2}')
         if [ -n "$result" ]; then
@@ -150,6 +144,16 @@ mdns_probe_ip() {
         fi
     fi
 
+    # Priority 2: avahi-browse (fallback, may contain escape codes)
+    if command -v avahi-browse >/dev/null 2>&1; then
+        result=$(avahi-browse -a -t -r -p 2>/dev/null | grep -i "$ip" | head -1)
+        if [ -n "$result" ]; then
+            echo "$result" | awk -F';' '{print $4}' | sed 's/\.local$//'
+            return
+        fi
+    fi
+
+    # Priority 3: DNS reverse lookup (fallback)
     if command -v nslookup >/dev/null 2>&1; then
         result=$(nslookup "$ip" 2>/dev/null | grep "name = " | head -1)
         if [ -n "$result" ]; then
@@ -243,11 +247,11 @@ infer_vendor_from_hostname() {
             _dm_try_vendor "Samsung" 3 ;;
         *note10*|*note20*|*note21*)
             _dm_try_vendor "Samsung" 5 ;;
-        *a[0-9][0-9]*|*a[0-9][0-9]-*)
+        *galaxy*a*|*sm-a*|*samsung*a*|*samsung*a[0-9]*|*galaxy*a[0-9]*|*sm-a[0-9]*)
             _dm_try_vendor "Samsung" 2 ;;
         *samsung*|*galaxy*)
             _dm_try_vendor "Samsung" 7 ;;
-        *j[0-9]*|*m[0-9][0-9]*)
+        *galaxy*j*|*sm-j*|*samsung*j*|*j[0-9][0-9]-galaxy|*j[0-9][0-9]-samsung)
             _dm_try_vendor "Samsung" 2 ;;
     esac
 
@@ -255,7 +259,7 @@ infer_vendor_from_hostname() {
     case "$h" in
         *mate[0-9]*|*mate-[0-9]*)
             _dm_try_vendor "Huawei" 4 ;;
-        *p[0-9][0-9]*|*p[0-9][0-9]-*)
+        *huawei*p*|*honor*p*|*p[0-9][0-9]*|*p[0-9][0-9]-*)
             _dm_try_vendor "Huawei" 2 ;;
         *nova[0-9]*)
             _dm_try_vendor "Huawei" 4 ;;
@@ -406,7 +410,11 @@ detect_type_by_traffic() {
     local conntrack="/proc/net/nf_conntrack"
     [ ! -f "$conntrack" ] && { echo ""; return; }
 
-    local ports=$(grep "src=$ip " "$conntrack" 2>/dev/null | grep 'dport=' | sed 's/.*dport=//' | awk '{print $1}' | sort -u)
+    # Extract all dport values from connections where device is src (forward direction)
+    # conntrack line: "proto src=<IP> dst=<IP> sport=X dport=Y ... src=<IP> dst=<IP> sport=X dport=Y"
+    # We grep for lines where device is src=, then extract all dport= values
+    # Even if some are reverse direction, we're checking for known port patterns (5223/5228/etc)
+    local ports=$(grep "src=$ip " "$conntrack" 2>/dev/null | grep -o 'dport=[0-9]*' | sed 's/dport=//' | sort -u)
 
     local has_phone_ports=0
     local has_pc_ports=0
@@ -414,10 +422,10 @@ detect_type_by_traffic() {
 
     for port in $ports; do
         case "$port" in
-            5228) has_phone_ports=1 ;;
-            554|8554|5060|5061|5555) has_phone_ports=1 ;;
-            1883|8883|5683|5684|49152|49153|6668|9999|8080|8443) has_iot_ports=1 ;;
-            3389|22|445|139|135|5900|5901) has_pc_ports=1 ;;
+            5223|5228) has_phone_ports=1 ;;
+            554|8554|5060|5061|5555|5260) has_phone_ports=1 ;;
+            1883|8883|5683|5684|49152|49153|6668|9999|8080|8443|8529) has_iot_ports=1 ;;
+            3389|22|445|139|135|5900|5901|2011) has_pc_ports=1 ;;
         esac
     done
 
@@ -476,17 +484,21 @@ detect_device_type() {
     local hostname="$2"
     local vendor="$3"
 
-    # Stage 1: Match by vendor
+    # Stage 1: Match by vendor (order matters: specific vendors first, generic second)
     local v=$(echo "$vendor" | tr 'A-Z' 'a-z')
     case "$v" in
-        *apple*|*samsung*|*xiaomi*|*huawei*|*oppo*|*vivo*|*oneplus*|*realme*|*google*|*android*|*nokia*|*motorola*|*sony*|*lg*|*htc*|*blackberry*|*zte*|*lenovo*|*asus*|*microsoft*|*honor*|*meizu*)
+        # Network设备厂商（可能与phone厂商重叠的放前面，防止误匹配）
+        *xiaomi*|*cisco*|*tp-link*|*netgear*|*ubiquiti*|*mikrotik*|*hiwifi*|*mercury*|*comheart*|*telecom*)
+            echo "network"; return ;;
+        # Phone厂商
+        *apple*|*samsung*|*huawei*|*oppo*|*vivo*|*oneplus*|*realme*|*google*|*android*|*nokia*|*motorola*|*sony*|*lg*|*htc*|*blackberry*|*zte*|*lenovo*|*asus*|*microsoft*|*honor*|*meizu*)
             echo "phone"; return ;;
+        # PC厂商
         *dell*|*hp*|*acer*|*msi*|*razer*|*intel*|*realtek*|*windows*|*giga*|*gigabyte*)
             echo "pc"; return ;;
+        # IoT厂商
         *espressif*|*tuya*|*broadlink*|*yeelight*|*midea*|*haier*|*brother*|*epson*|*canon*)
             echo "iot"; return ;;
-        *cisco*|*tp-link*|*netgear*|*ubiquiti*|*mikrotik*|*hiwifi*|*mercury*|*xiaomi*|*comheart*|*telecom*)
-            echo "network"; return ;;
     esac
 
     # Stage 2: Match by hostname (structured prefix + keyword)
@@ -598,6 +610,7 @@ identify_vendor() {
     # No vendor identified
     if [ "$is_laa" = "1" ]; then
         echo "LAA"
+        return
     fi
     echo ""
 }
@@ -611,14 +624,14 @@ identify_type() {
     local hostname="$3"
     local vendor="$4"
 
-    # First try: vendor + hostname based detection
+    # First try: vendor + hostname based detection (only if result is meaningful)
     local dtype=$(detect_device_type "$mac" "$hostname" "$vendor")
     if [ -n "$dtype" ] && [ "$dtype" != "unknown" ]; then
         echo "$dtype"
         return
     fi
 
-    # Second try: traffic pattern analysis
+    # Second try: traffic pattern analysis (critical for LAA/randomized MACs with no OUI)
     if [ -n "$ip" ]; then
         local dtype=$(detect_type_by_traffic "$mac")
         if [ -n "$dtype" ]; then
@@ -639,10 +652,11 @@ identify_type() {
 MAIN_LEASES_CACHE="/tmp/dm_main_leases"
 
 fetch_main_router_leases() {
-    # Skip if cache is fresh (< 120 seconds old)
+    # Skip if cache is fresh (< 24 hours old)
+    # Cache file format: first line = timestamp, subsequent lines = lease data
     if [ -f "$MAIN_LEASES_CACHE" ]; then
-        local cache_age=$(( $(date +%s) - $(stat -c %Y "$MAIN_LEASES_CACHE" 2>/dev/null || echo 0) ))
-        [ "$cache_age" -lt 120 ] && return 0
+        local cache_age=$(( $(date +%s) - $(sed -n '1p' "$MAIN_LEASES_CACHE" 2>/dev/null) ))
+        [ "$cache_age" -lt 86400 ] && return 0
     fi
 
     # Get main router IP from default gateway
@@ -659,18 +673,18 @@ fetch_main_router_leases() {
     [ -z "$main_user" ] && main_user="root"
     [ -z "$main_pass" ] && return 1
 
-    # Step 1: Login to main router via ubus RPC
+    # Step 1: Login to main router via ubus RPC (timeout 5s to avoid blocking discover_all)
     local login_json="{\"jsonrpc\":\"2.0\",\"method\":\"call\",\"params\":[\"00000000000000000000000000000000\",\"session\",\"login\",{\"username\":\"$main_user\",\"password\":\"$main_pass\"}]}"
-    local login_result=$(wget -qO- --post-data="$login_json" \
+    local login_result=$(wget -qO- --timeout=5 --post-data="$login_json" \
         --header='Content-Type: application/json' \
         "http://${main_router}/ubus" 2>/dev/null)
 
     local sid=$(echo "$login_result" | jsonfilter -e '$.result[1].ubus_rpc_session' 2>/dev/null)
     [ -z "$sid" ] && return 1
 
-    # Step 2: Call luci-rpc getDHCPLeases
+    # Step 2: Call luci-rpc getDHCPLeases (timeout 5s)
     local leases_json="{\"jsonrpc\":\"2.0\",\"method\":\"call\",\"params\":[\"$sid\",\"luci-rpc\",\"getDHCPLeases\",{}]}"
-    local leases_result=$(wget -qO- --post-data="$leases_json" \
+    local leases_result=$(wget -qO- --timeout=5 --post-data="$leases_json" \
         --header='Content-Type: application/json' \
         "http://${main_router}/ubus" 2>/dev/null)
 
@@ -693,7 +707,7 @@ fetch_main_router_leases() {
                 echo "${l_mac} ${l_ip} ${l_hostname}"
             fi
             i=$((i + 1))
-        done > "$MAIN_LEASES_CACHE"
+        done >> "$MAIN_LEASES_CACHE"
     else
         # Fallback: use grep + sed for basic parsing
         echo "$leases_result" | sed 's/},{/}\n{/g' | \
@@ -702,11 +716,16 @@ fetch_main_router_leases() {
             while IFS=' ' read -r l_mac l_ip l_hostname; do
                 case "$l_hostname" in ""|"*"|"-"|unknown|wlan0|lan) continue ;; esac
                 echo "${l_mac} ${l_ip} ${l_hostname}"
-            done > "$MAIN_LEASES_CACHE"
+            done >> "$MAIN_LEASES_CACHE"
     fi
 
+    # Prepend timestamp as first line (BusyBox-compatible: no stat -c)
+    local ts=$(date +%s)
+    local data=$(cat "$MAIN_LEASES_CACHE" 2>/dev/null)
+    { echo "$ts"; echo "$data"; } > "$MAIN_LEASES_CACHE"
+
     if [ -s "$MAIN_LEASES_CACHE" ]; then
-        log_msg "Fetched DHCP leases from main router ($main_router): $(wc -l < "$MAIN_LEASES_CACHE") entries"
+        log_msg "Fetched DHCP leases from main router ($main_router): $(($(wc -l < "$MAIN_LEASES_CACHE") - 1)) entries"
         return 0
     fi
 
@@ -798,8 +817,16 @@ probe_hostname() {
 sanitize_hostname() {
     local raw="$1"
     [ -z "$raw" ] && return
-    # Keep only safe ASCII chars: a-z A-Z 0-9 - _ .
-    local clean=$(echo "$raw" | tr -cd 'a-zA-Z0-9._-' | sed 's/^[._-]*//;s/[._-]*$//')
+
+    # Fix Apple mDNS names: Unicode private-use chars get encoded as visible digits
+    # e.g. "iPad032pro032M4" -> "iPad Pro M4", "iPhone03215s032" -> "iPhone 15s"
+    # Pattern: digit sequence (032,033,etc) between lowercase/uppercase transitions
+    raw=$(echo "$raw" | sed -e 's/\([a-zA-Z]\)0\{1,2\}[0-9]\{2,3\}\([a-zA-Z]\)/\1 \2/g' \
+                            -e 's/\([a-zA-Z]\)0\{1,2\}[0-9]\{2,3\}$/\1/g' \
+                            -e 's/^0\{1,2\}[0-9]\{2,3\}\([a-zA-Z]\)/\1/g')
+
+    # Keep only safe ASCII chars: a-z A-Z 0-9 - _ . space
+    local clean=$(echo "$raw" | tr -cd 'a-zA-Z0-9._- ' | sed 's/^[._- ]*//;s/[._- ]*$//;s/  */ /g')
     # If result is too short or empty, discard
     if [ ${#clean} -lt 2 ]; then
         return
@@ -1052,7 +1079,8 @@ cleanup_duplicate_devices() {
 
     rm -f "$seen_file"
 
-    for dup_idx in $to_delete; do
+    # Delete from highest index first to avoid index shift
+    for dup_idx in $(echo "$to_delete" | tr ' ' '\n' | sort -rn); do
         uci -q delete "devicemaster.@device[$dup_idx]"
     done
 
@@ -1115,115 +1143,127 @@ discover_all() {
     # Cleanup any existing duplicate UCI entries
     cleanup_duplicate_devices
 
-    local arp_tmp="/tmp/dm_discover_arp"
-    awk 'NR>1 && $4!="00:00:00:00:00:00" && $3!="0x0" {print $1, $4}' /proc/net/arp 2>/dev/null > "$arp_tmp"
-
-    # Pre-fetch main router leases once for all devices (cached 60s)
-    fetch_main_router_leases
-
-    # Pre-load UCI MAC cache for fast lookup (avoid repeated uci get in loop)
-    local uci_mac_cache="/tmp/dm_discover_uci_cache"
-    > "$uci_mac_cache"
+    # Build MAC set first (needed for both ARP and DHCP discovery)
+    local mac_set=""
     local idx=0
     while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
         local stored=$(uci -q get "devicemaster.@device[$idx].mac")
         local stored_lower=$(echo "$stored" | tr 'A-F' 'a-f')
-        echo "$stored_lower $idx" >> "$uci_mac_cache"
+        mac_set="$mac_set $stored_lower "
         idx=$((idx + 1))
     done
+
+    # Pre-fetch main router leases once for all devices (cached 60s)
+    fetch_main_router_leases
+
+    local arp_tmp="/tmp/dm_discover_arp"
+    awk 'NR>1 && $4!="00:00:00:00:00:00" && $3!="0x0" {print $1, $4}' /proc/net/arp 2>/dev/null > "$arp_tmp"
+
+    # Also build DHCP-only device list (devices in leases but not in ARP)
+    # These are devices that had DHCP leases but are currently offline (not in ARP)
+    local dhcp_tmp="/tmp/dm_discover_dhcp"
+    > "$dhcp_tmp"
+    while IFS=" " read -r ts mac ip hostname rest; do
+        [ -z "$mac" ] && continue
+        mac=$(echo "$mac" | tr 'A-F' 'a-f')
+        # Skip if already in UCI
+        echo "$mac_set" | grep -q " $mac " && continue
+        # Skip if already discovered from ARP this run
+        grep -q " $mac$" "$arp_tmp" 2>/dev/null && continue
+        # Skip entries with no IP (truly offline, cannot register without IP)
+        [ -z "$ip" ] && continue
+        [ "$ip" = "0.0.0.0" ] && continue
+        # Valid: add to DHCP-only list
+        echo "$ip $mac" >> "$dhcp_tmp"
+    done < /tmp/dhcp.leases 2>/dev/null
 
     local modified=0
     while read -r ip mac; do
         [ -z "$mac" ] && continue
         mac=$(echo "$mac" | tr 'A-F' 'a-f')
 
-        local found=0
-        local cache_idx=$(awk -v m="$mac" '$1 == m {print $2; exit}' "$uci_mac_cache" 2>/dev/null)
-        if [ -n "$cache_idx" ]; then
-            found=1
-            # Prefer DHCP lease IP over ARP IP (ARP can have stale entries)
-            local dhcp_ip=$(awk -v m="$mac" 'tolower($2) == m {print $3; exit}' /tmp/dhcp.leases 2>/dev/null)
-            local effective_ip="$ip"
-            [ -n "$dhcp_ip" ] && effective_ip="$dhcp_ip"
-            uci -q set "devicemaster.@device[$cache_idx].last_ip=$effective_ip"
+        # Fast check: is MAC in our set?
+        if echo "$mac_set" | grep -q " $mac "; then
+            # Find the device and update IP + re-identify if type is unknown
+            local update_idx=0
+            while uci -q get "devicemaster.@device[$update_idx].mac" >/dev/null 2>&1; do
+                local check_mac=$(uci -q get "devicemaster.@device[$update_idx].mac" | tr 'A-F' 'a-f')
+                if [ "$check_mac" = "$mac" ]; then
+                    local dhcp_ip=$(awk -v m="$mac" 'tolower($2) == m {print $3; exit}' /tmp/dhcp.leases 2>/dev/null)
+                    local effective_ip="$ip"
+                    [ -n "$dhcp_ip" ] && effective_ip="$dhcp_ip"
+                    uci -q set "devicemaster.@device[$update_idx].last_ip=$effective_ip"
 
-            # For Mesh sub-nodes: if hostname is empty, try to fetch from main router
-            local stored_hostname=$(uci -q get "devicemaster.@device[$cache_idx].hostname")
-            local stored_vendor=$(uci -q get "devicemaster.@device[$cache_idx].vendor")
-            local stored_type=$(uci -q get "devicemaster.@device[$cache_idx].type")
-            local fetched_hostname=""
-
-            if [ -z "$stored_hostname" ]; then
-                fetched_hostname=$(probe_hostname "$ip" "$mac")
-                if [ -n "$fetched_hostname" ]; then
-                    uci -q set "devicemaster.@device[$cache_idx].hostname=$fetched_hostname"
-                    log_msg "Updated hostname for $mac: $fetched_hostname"
-                fi
-            fi
-
-            # Re-identify vendor/type if:
-            # 1. hostname was just fetched (from empty to non-empty), OR
-            # 2. vendor is LAA/Unknown/empty (failed first identification)
-            local should_reidentify=0
-            if [ -n "$fetched_hostname" ] && [ -z "$stored_hostname" ]; then
-                should_reidentify=1
-                log_msg "Hostname newly available for $mac, re-identifying..."
-            elif [ "$stored_vendor" = "LAA" ] || [ "$stored_vendor" = "Unknown" ] || [ -z "$stored_vendor" ]; then
-                should_reidentify=1
-                log_msg "Vendor is '$stored_vendor' for $mac, re-identifying..."
-            fi
-
-            if [ "$should_reidentify" = "1" ]; then
-                local effective_hostname="${fetched_hostname:-$stored_hostname}"
-                local new_vendor=$(identify_vendor "$mac" "$ip" "$effective_hostname")
-                local new_type=$(identify_type "$mac" "$ip" "$effective_hostname" "$new_vendor")
-
-                if [ -n "$new_vendor" ] && [ "$new_vendor" != "$stored_vendor" ]; then
-                    uci -q set "devicemaster.@device[$cache_idx].vendor=$new_vendor"
-                    log_msg "Updated vendor for $mac: $stored_vendor -> $new_vendor"
-                fi
-                if [ -n "$new_type" ] && [ "$new_type" != "$stored_type" ]; then
-                    uci -q set "devicemaster.@device[$cache_idx].type=$new_type"
-                    log_msg "Updated type for $mac: $stored_type -> $new_type"
-                fi
-
-                # Also update auto-generated name if vendor/type changed
-                local current_name=$(uci -q get "devicemaster.@device[$cache_idx].name")
-                local manual=$(uci -q get "devicemaster.@device[$cache_idx].manual")
-                if [ "$manual" != "1" ] && [ -n "$new_vendor" ] && [ "$new_vendor" != "LAA" ] && [ "$new_vendor" != "Unknown" ]; then
-                    local new_name=$(auto_name "$new_vendor" "$new_type")
-                    if [ -n "$new_name" ] && [ "$new_name" != "$current_name" ]; then
-                        uci -q set "devicemaster.@device[$cache_idx].name=$new_name"
-                        log_msg "Updated name for $mac: $current_name -> $new_name"
+                    # Re-identify if type is unknown (LAA or no match from first registration)
+                    local current_type=$(uci -q get "devicemaster.@device[$update_idx].type")
+                    if [ "$current_type" = "unknown" ]; then
+                        local hostname=$(uci -q get "devicemaster.@device[$update_idx].hostname")
+                        [ -z "$hostname" ] && hostname=$(awk -v m="$mac" 'tolower($2) == m {print $4; exit}' /tmp/dhcp.leases 2>/dev/null)
+                        [ -z "$hostname" ] || [ "$hostname" = "*" ] && hostname=$(probe_hostname "$effective_ip" "$mac")
+                        hostname=$(sanitize_hostname "$hostname")
+                        local current_vendor=$(uci -q get "devicemaster.@device[$update_idx].vendor")
+                        local new_type=$(identify_type "$mac" "$effective_ip" "$hostname" "$current_vendor")
+                        if [ -n "$new_type" ] && [ "$new_type" != "unknown" ]; then
+                            uci -q set "devicemaster.@device[$update_idx].type=$new_type"
+                            log_msg "Re-identified device $mac: type=$new_type (via traffic analysis)"
+                        fi
                     fi
+                    modified=1
+                    break
                 fi
-            fi
-
-            modified=1
+                update_idx=$((update_idx + 1))
+            done
+            continue
         fi
 
-        if [ "$found" = "0" ]; then
-            # Double-check UCI directly (cache might be stale)
+        # New device - double-check with UCI (paranoid check)
+        if mac_exists_in_uci "$mac" "$ip"; then
+            # Race condition: device was added by another process
+            # Add to set to prevent duplicate processing
+            mac_set="$mac_set $mac "
+            modified=1
+            continue
+        fi
+
+        local hostname=$(grep -i "$mac" /tmp/dhcp.leases 2>/dev/null | awk '{print $4}')
+
+        # Fallback: if no DHCP hostname (e.g. Mesh sub-node with dhcp ignore=1),
+        # try main router leases + DNS reverse lookup
+        if [ -z "$hostname" ] || [ "$hostname" = "*" ]; then
+            hostname=$(probe_hostname "$ip" "$mac")
+        fi
+
+        # Sanitize hostname: filter out garbled/encoding-broken strings
+        hostname=$(sanitize_hostname "$hostname")
+
+        register_device "$mac" "$ip" "$hostname"
+
+        # Add to set to prevent duplicate in same loop
+        mac_set="$mac_set $mac "
+        modified=1
+    done < "$arp_tmp"
+    rm -f "$arp_tmp"
+
+    # Also discover DHCP-only devices (in leases but not in ARP, e.g. offline devices)
+    if [ -s "$dhcp_tmp" ]; then
+        while read -r ip mac; do
+            [ -z "$mac" ] && continue
+            mac=$(echo "$mac" | tr 'A-F' 'a-f')
+            # Double-check not already in UCI (race condition)
             if mac_exists_in_uci "$mac" "$ip"; then
+                mac_set="$mac_set $mac "
                 modified=1
                 continue
             fi
-
-            local hostname=$(grep -i "$mac" /tmp/dhcp.leases 2>/dev/null | awk '{print $4}')
-
-            # Fallback: if no DHCP hostname (e.g. Mesh sub-node with dhcp ignore=1),
-            # try main router leases + DNS reverse lookup
-            if [ -z "$hostname" ] || [ "$hostname" = "*" ]; then
-                hostname=$(probe_hostname "$ip" "$mac")
-            fi
-
-            # Sanitize hostname: filter out garbled/encoding-broken strings
-            hostname=$(sanitize_hostname "$hostname")
-
+            # Get hostname from DHCP leases
+            local hostname=$(grep -i " $mac " /tmp/dhcp.leases 2>/dev/null | awk '{print $4}')
+            [ "$hostname" = "*" ] && hostname=""
             register_device "$mac" "$ip" "$hostname"
-        fi
-    done < "$arp_tmp"
-    rm -f "$arp_tmp" "$uci_mac_cache"
+            mac_set="$mac_set $mac "
+            modified=1
+        done < "$dhcp_tmp"
+    fi
+    rm -f "$dhcp_tmp"
 
     uci -q commit devicemaster 2>/dev/null
     rmdir "$lock" 2>/dev/null

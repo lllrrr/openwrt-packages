@@ -348,10 +348,12 @@ local function create_snapshot()
     end)
     
     -- Write snapshot
-    local sf = io.open("/tmp/dm_snapshot.json", "w")
+    local tmp = "/tmp/dm_snapshot.json.tmp"
+    local sf = io.open(tmp, "w")
     if sf then
         sf:write(json.stringify(snap))
         sf:close()
+        os.rename(tmp, "/tmp/dm_snapshot.json")  -- atomic
     end
 end
 
@@ -436,6 +438,19 @@ function api_report_sub()
     end
     
     local reports = {}
+    -- Atomic read-merge-write (use lock file)
+    local lock = "/tmp/dm_child_reports.lock"
+    local locked = false
+    for i = 1, 10 do
+        local lf = io.open(lock, "w")
+        if lf then lf:close(); locked = true; break end
+        sys.exec("usleep 100000 2>/dev/null")  -- wait 100ms
+    end
+    if not locked then
+        json_response({success = false, error = "Could not acquire lock"})
+        return
+    end
+
     local cf = io.open("/tmp/dm_child_reports.json", "r")
     if cf then
         local ok2, existing = pcall(json.parse, cf:read("*a"))
@@ -444,7 +459,7 @@ function api_report_sub()
             reports = existing
         end
     end
-    
+
     reports[data.node_mac:upper()] = {
         ts = os.time(),
         stations = data.stations or {},
@@ -453,12 +468,17 @@ function api_report_sub()
         devices = data.devices or {},
         iface = data.iface or ""
     }
-    
-    local wf = io.open("/tmp/dm_child_reports.json", "w")
+
+    -- Atomic write: temp file + rename
+    local tmp = "/tmp/dm_child_reports.json.tmp"
+    local wf = io.open(tmp, "w")
     if wf then
         wf:write(json.stringify(reports))
         wf:close()
+        os.rename(tmp, "/tmp/dm_child_reports.json")  -- atomic
     end
+
+    os.remove(lock)  -- release lock
     
     json_response({ success = true })
 end
@@ -806,10 +826,12 @@ local function load_probe_cache()
 end
 
 local function save_probe_cache(cache)
-    local sf = io.open(PROBE_CACHE_FILE, "w")
+    local tmp = PROBE_CACHE_FILE .. ".tmp"
+    local sf = io.open(tmp, "w")
     if sf then
         sf:write(json.stringify(cache))
         sf:close()
+        os.rename(tmp, PROBE_CACHE_FILE)  -- atomic
     end
 end
 
@@ -826,10 +848,14 @@ local function load_session()
 end
 
 local function save_session(data)
-    local f = io.open(SESSION_FILE, "w")
+    -- Ensure directory exists
+    sys.exec("mkdir -p /var/run/devicemaster 2>/dev/null")
+    local tmp = SESSION_FILE .. ".tmp"
+    local f = io.open(tmp, "w")
     if f then
         f:write(json.stringify(data))
         f:close()
+        os.rename(tmp, SESSION_FILE)  -- atomic
     end
 end
 
@@ -844,6 +870,10 @@ local CACHE_TTL = 15
 -- Uses response cache to reduce load on hostapd/netifd
 -- ============================================================
 function api_status()
+    -- Mark page as active (device_monitor uses this to decide discover frequency)
+    local f = io.open("/tmp/dm_page_active", "w")
+    if f then f:write(tostring(os.time())); f:close() end
+
     -- Return cached response if still fresh (eliminates ALL subprocess spawning)
     local now = os.time()
     if response_cache_str and now - response_cache_time < CACHE_TTL then
@@ -1392,8 +1422,8 @@ function api_set_name()
     local devtype = luci.http.formvalue("devtype")
     local group = luci.http.formvalue("group")
 
-    if not mac or mac == "" then
-        json_response({success = false, error = "MAC address required"})
+    if not is_valid_mac(mac) then
+        json_response({success = false, error = "Invalid MAC address format"})
         return
     end
 
@@ -1439,7 +1469,8 @@ function api_set_name()
         uci:set("devicemaster", section, "manual", "1")
     end
     if group ~= nil then uci:set("devicemaster", section, "group", group) end
-    uci:commit("devicemaster")
+    local ok, err = uci:commit("devicemaster")
+    if not ok then log_msg("WARN: uci commit failed: " .. tostring(err)) end
 
     -- Sync hostname to dnsmasq
     -- 修复：获取设备 IP 并传递，避免 sync_hostname.sh 从 ARP 查找失败
@@ -1470,8 +1501,8 @@ function api_set_group()
     local mac = luci.http.formvalue("mac")
     local group = luci.http.formvalue("group")
 
-    if not mac or mac == "" then
-        json_response({success = false, error = "MAC address required"})
+    if not is_valid_mac(mac) then
+        json_response({success = false, error = "Invalid MAC address format"})
         return
     end
 
@@ -1488,7 +1519,8 @@ function api_set_group()
     end
 
     uci:set("devicemaster", section, "group", group or "")
-    uci:commit("devicemaster")
+    local ok4, err4 = uci:commit("devicemaster")
+    if not ok4 then log_msg("WARN: uci commit failed: " .. tostring(err4)) end
     json_response({success = true})
 end
 
@@ -1563,7 +1595,8 @@ function api_create_group()
     uci:set("devicemaster", section, "id", section)
     uci:set("devicemaster", section, "name", name or section)
     uci:set("devicemaster", section, "color", color)
-    uci:commit("devicemaster")
+    local ok5, err5 = uci:commit("devicemaster")
+    if not ok5 then log_msg("WARN: uci commit failed: " .. tostring(err5)) end
     json_response({success = true, id = section})
 end
 
@@ -1575,7 +1608,8 @@ function api_delete_group()
         return
     end
     uci:delete("devicemaster", id)
-    uci:commit("devicemaster")
+    local ok6, err6 = uci:commit("devicemaster")
+    if not ok6 then log_msg("WARN: uci commit failed: " .. tostring(err6)) end
     json_response({success = true})
 end
 
@@ -1604,7 +1638,8 @@ function api_delete_device()
     end)
     
     if found then
-        uci:commit("devicemaster")
+        local ok7, err7 = uci:commit("devicemaster")
+        if not ok7 then log_msg("WARN: uci commit failed: " .. tostring(err7)) end
         json_response({success = true})
     else
         json_response({success = false, error = "Device not found"})
