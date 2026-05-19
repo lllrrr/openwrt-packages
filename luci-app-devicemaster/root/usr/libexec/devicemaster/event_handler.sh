@@ -462,7 +462,8 @@ auto_name() {
         -e 's/ Technology//g' \
         -e 's/ TECHNOLOGY CO\.,LTD\.//g' \
         -e 's/ CO\.,LTD\.//g' \
-        -e 's/ CO\.//g')
+        -e 's/ CO\.//g' \
+        -e 's/ /-/g')
 
     [ -z "$short" ] && return
 

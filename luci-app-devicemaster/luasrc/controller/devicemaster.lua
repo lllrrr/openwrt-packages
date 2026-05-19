@@ -1348,7 +1348,7 @@ local function auto_name(vendor, devtype)
         return ""
     end
     -- Shorten long vendor names
-    local short = vendor:gsub(" Mobile Communication", ""):gsub(" Corporation", ""):gsub(" Inc%.", ""):gsub(" Co%..*$", ""):gsub(" Technology", "")
+    local short = vendor:gsub(" Mobile Communication", ""):gsub(" Corporation", ""):gsub(" Inc%.", ""):gsub(" Co%..*$", ""):gsub(" Technology", ""):gsub(" ", "-")
     if not devtype or devtype == "" or devtype == "unknown" then
         return short
     end

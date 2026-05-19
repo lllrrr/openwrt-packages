@@ -285,6 +285,8 @@ return view.extend({
             '  @media screen and (min-width: 769px) { #nw-wizard-modal .nw-wiz-modal-box { max-width: 660px !important; } }',
             '  @media screen and (max-width: 768px) { #nw-wizard-modal .nw-wiz-modal-box > div:nth-child(2) { padding: 15px 15px 10px !important; } }',
             '  @keyframes pulse { 0% { opacity: 1; box-shadow: 0 0 8px rgba(16,185,129,0.8); transform: scale(1); } 50% { opacity: 0.4; box-shadow: 0 0 2px rgba(16,185,129,0.2); transform: scale(0.85); } 100% { opacity: 1; box-shadow: 0 0 8px rgba(16,185,129,0.8); transform: scale(1); } }',
+            '  @keyframes wifi-wave { 0% { clip-path: inset(100% 0 0 0); } 30% { clip-path: inset(66% 0 0 0); } 60% { clip-path: inset(33% 0 0 0); } 90% { clip-path: inset(0 0 0 0); } 100% { clip-path: inset(0 0 0 0); } }',
+            '  .wifi-active-anim { animation: wifi-wave 1.5s infinite; }',
             '</style>',
 
             '<div class="nw-wrapper">',
@@ -424,8 +426,16 @@ return view.extend({
             '        <div class="nw-card-title">{{MODE_PPPOE_TITLE}}</div><span>{{MODE_PPPOE_DESC}}</span></div>',
             '<div class="nw-card" id="card-wifi" data-mode="wifi" style="display: none; position: relative;">',
             '  ',
-            '  <div id="nw-wifi-status-dot" style="position:absolute; top:14px; right:14px; width:10px; height:10px; border-radius:50%; background:#94a3b8; box-shadow:0 0 0 rgba(0,0,0,0); transition:all 0.5s ease;"></div>',
-            '  <div class="nw-badge nw-badge-wifi" style="margin-bottom: 12px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg></div>',
+            '  <div class="nw-badge nw-badge-wifi" style="margin-bottom: 12px; display: flex; align-items: center; justify-content: center; padding: 0;">',
+            '    ',
+            '    <div style="position: relative; width: 28px; height: 28px; transform: translate(1.5px, 1.5px);">',
+            '      ',
+            '      <svg style="position: absolute; top: 0; left: 0; width: 28px; height: 28px;" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>',
+            '      ',
+            '      <svg class="wifi-active-anim nw-wifi-anim-layer" style="position: absolute; top: 0; left: 0; width: 28px; height: 28px; display: none;" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>',
+            '    </div>',
+            '  </div>',
+
             '  <div class="nw-card-title">{{MODE_WIFI_TITLE}}</div><span style="display:block; margin-bottom:10px;">{{MODE_WIFI_DESC}}</span>',
             '  ',
             '  <div id="nw-wifi-tags" style="display:flex; flex-wrap:wrap; justify-content:center; gap:6px; min-height:22px; width:100%;"></div>',
@@ -1940,17 +1950,22 @@ return view.extend({
                     
                     var wDevsList = uci.sections('wireless', 'wifi-device') || [];
                     var wIfacesList = uci.sections('wireless', 'wifi-iface') || [];
-                    var activeIfaces = wIfacesList.filter(function(i) { return i.disabled !== '1' && (i.mode === 'ap' || i.mode === 'sta') && i.ssid; });
+                    var activeIfaces = wIfacesList.filter(function(i) { 
+                        var parentDev = wDevsList.find(function(d) { return d['.name'] === i.device; });
+                        var isDevDisabled = parentDev ? (parentDev.disabled == 1 || parentDev.disabled === 'true' || parentDev.disabled === true) : false;
+                        var isIfaceDisabled = (i.disabled == 1 || i.disabled === 'true' || i.disabled === true);
+                        return !isIfaceDisabled && !isDevDisabled && (i.mode === 'ap' || i.mode === 'sta') && i.ssid; 
+                    });
                     var wifiLines = [];
                     // === 首页 Wi-Fi 卡片 ===
-                    var cardDot = container.querySelector('#nw-wifi-status-dot');
+                    var animLayer = container.querySelector('.nw-wifi-anim-layer');
                     var cardTags = container.querySelector('#nw-wifi-tags');
-                    if (cardDot && cardTags) {
+                    if (cardTags) {
                         if (activeIfaces.length > 0) {
-                            // 绿灯呼吸效果
-                            cardDot.style.background = '#10b981';
-                            cardDot.style.boxShadow = '0 0 8px rgba(16,185,129,0.8)';
-                            cardDot.style.animation = 'pulse 2s infinite'; 
+                            if (animLayer) {
+                                animLayer.style.display = 'block';
+                                animLayer.style.animation = 'wifi-wave 1.5s infinite'; 
+                            }
                             
                             var tagsHtml = '';
                             var hasAp = activeIfaces.some(function(i){ return i.mode === 'ap'; });
@@ -1970,10 +1985,10 @@ return view.extend({
                             }
                             cardTags.innerHTML = tagsHtml;
                         } else {
-                            // 灰灯熄灭效果
-                            cardDot.style.background = '#94a3b8';
-                            cardDot.style.boxShadow = 'none';
-                            cardDot.style.animation = 'none';
+                            if (animLayer) {
+                                animLayer.style.display = 'none';
+                                animLayer.style.animation = 'none'; 
+                            }
                             cardTags.innerHTML = '<span style="font-size:11.5px; background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.2); padding:2px 8px; border-radius:12px; font-weight:bold;">' + (T['TAG_DISABLED'] || 'Disabled') + '</span>';
                         }
                     }
