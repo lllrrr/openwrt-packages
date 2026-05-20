@@ -1,0 +1,217 @@
+#!/bin/sh
+# IPv6 连通性检测 - rpcd RPC 后端
+# 为 LuCI 前端提供数据查询和操作接口
+
+. /lib/functions.sh
+
+STATUS_DIR="/tmp/ipv6check"
+STATUS_FILE="${STATUS_DIR}/status.json"
+LOG_FILE="${STATUS_DIR}/check.log"
+
+is_uint() {
+	case "$1" in
+		''|*[!0-9]*)
+			return 1
+			;;
+	esac
+	return 0
+}
+
+valid_iface_name() {
+	case "$1" in
+		''|*[!A-Za-z0-9_.:-]*)
+			return 1
+			;;
+	esac
+	return 0
+}
+
+json_error() {
+	local message="$1"
+
+	. /usr/share/libubox/jshn.sh
+	json_init
+	json_add_string "result" "error"
+	json_add_string "message" "$message"
+	json_dump
+}
+
+trim_history() {
+	local history_file="${STATUS_DIR}/restart_history"
+	local lines
+
+	lines=$(wc -l < "$history_file" 2>/dev/null || echo 0)
+	if [ "$lines" -gt 50 ]; then
+		tail -n 25 "$history_file" > "${history_file}.tmp"
+		mv "${history_file}.tmp" "$history_file"
+	fi
+}
+
+# 封装为函数以确保 local 关键字合法
+do_get_log() {
+	local lines
+	lines=$(jsonfilter -e '@.lines' 2>/dev/null)
+	is_uint "$lines" || lines=50
+	[ "$lines" -lt 1 ] && lines=1
+	[ "$lines" -gt 500 ] && lines=500
+
+	. /usr/share/libubox/jshn.sh
+	json_init
+
+	if [ -f "$LOG_FILE" ]; then
+		local log_content
+		log_content=$(tail -n "$lines" "$LOG_FILE")
+		json_add_string "log" "$log_content"
+		json_add_int "lines" "$lines"
+	else
+		json_add_string "log" "暂无日志"
+		json_add_int "lines" 0
+	fi
+	json_dump
+}
+
+do_get_restart_history() {
+	. /usr/share/libubox/jshn.sh
+	json_init
+	if [ -f "${STATUS_DIR}/restart_history" ]; then
+		local history
+		history=$(cat "${STATUS_DIR}/restart_history")
+		json_add_string "history" "$history"
+	else
+		json_add_string "history" "暂无重启记录"
+	fi
+	json_dump
+}
+
+do_run_check() {
+	mkdir -p "$STATUS_DIR"
+	# 后台异步执行检测，避免长时间阻塞 rpcd 进程
+	# 默认配置下，3 目标最长阻塞可达 135 秒，必须异步
+	/usr/bin/ipv6check --once >/dev/null 2>&1 &
+	# 立即返回当前（可能稍旧的）状态，前端将在下次轮询时获得最新数据
+	if [ -f "$STATUS_FILE" ]; then
+		cat "$STATUS_FILE"
+	else
+		echo '{"overall":"unknown","check_time":"检测中...","targets":[],"total_targets":0,"failed_targets":0,"consecutive_failures":0}'
+	fi
+}
+
+do_restart_interface() {
+	local iface
+	iface=$(jsonfilter -e '@.interface' 2>/dev/null)
+
+	# 从 UCI 读取允许重启的接口（白名单）
+	config_load ipv6check
+	local allowed_iface
+	config_get allowed_iface global restart_interface wan6
+
+	# 若未传入接口名，使用 UCI 配置的默认值
+	[ -z "$iface" ] && iface="$allowed_iface"
+
+	if ! valid_iface_name "$iface"; then
+		json_error "无效接口名"
+		return
+	fi
+
+	# 安全校验：只允许重启 UCI 配置中指定的接口，防止越权操作
+	if [ "$iface" != "$allowed_iface" ]; then
+		json_error "接口 $iface 不在允许列表中，只允许重启: $allowed_iface"
+		return
+	fi
+
+	local timestamp
+	timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+
+	mkdir -p "$STATUS_DIR"
+	logger -t ipv6check "手动重启接口: ${iface}"
+
+	ubus call network.interface down "{\"interface\":\"$iface\"}" >/dev/null 2>&1
+	local down_rc=$?
+	sleep 3
+	ubus call network.interface up "{\"interface\":\"$iface\"}" >/dev/null 2>&1
+	local up_rc=$?
+
+	. /usr/share/libubox/jshn.sh
+	json_init
+	if [ "$down_rc" -eq 0 ] && [ "$up_rc" -eq 0 ]; then
+		echo "$timestamp" > "${STATUS_DIR}/last_restart"
+		echo "${timestamp} | 手动重启接口 ${iface}" >> "${STATUS_DIR}/restart_history"
+		trim_history
+		json_add_string "result" "ok"
+	else
+		json_add_string "result" "error"
+		json_add_string "message" "接口重启命令执行失败"
+	fi
+	json_add_string "interface" "$iface"
+	json_add_string "time" "$timestamp"
+	json_dump
+}
+
+do_get_interfaces() {
+	local ifaces
+	local list=""
+	local iface
+
+	ifaces=$(ubus call network.interface dump 2>/dev/null)
+	if [ -n "$ifaces" ]; then
+		# 使用 jsonfilter 正确提取接口名
+		for iface in $(echo "$ifaces" | jsonfilter -e '@.interface[*].interface' 2>/dev/null); do
+			valid_iface_name "$iface" && list="${list:+$list }$iface"
+		done
+	fi
+
+	if [ -z "$list" ]; then
+		# 回退方案: 从 UCI 读取
+		for iface in $(uci show network 2>/dev/null | grep '=interface' | cut -d. -f2 | cut -d= -f1); do
+			valid_iface_name "$iface" && list="${list:+$list }$iface"
+		done
+	fi
+
+	. /usr/share/libubox/jshn.sh
+	json_init
+	json_add_array "interfaces"
+	for iface in $list; do
+		json_add_string "" "$iface"
+	done
+	json_close_array
+	json_dump
+}
+
+case "$1" in
+	list)
+		# 声明可用的 RPC 方法及其参数
+		echo '{"get_status":{},"get_log":{"lines":50},"get_restart_history":{},"run_check":{},"restart_interface":{"interface":"wan6"},"get_interfaces":{}}'
+		;;
+
+	call)
+		case "$2" in
+			get_status)
+				if [ -f "$STATUS_FILE" ]; then
+					cat "$STATUS_FILE"
+				else
+					echo '{"overall":"unknown","check_time":"从未检测","targets":[],"total_targets":0,"failed_targets":0,"consecutive_failures":0}'
+				fi
+				;;
+
+			get_log)
+				do_get_log
+				;;
+
+			get_restart_history)
+				do_get_restart_history
+				;;
+
+			run_check)
+				do_run_check
+				;;
+
+			restart_interface)
+				do_restart_interface
+				;;
+
+			get_interfaces)
+				do_get_interfaces
+				;;
+		esac
+		;;
+esac

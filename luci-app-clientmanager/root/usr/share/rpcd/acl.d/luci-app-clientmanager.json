@@ -1,0 +1,11 @@
+{
+	"luci-app-clientmanager": {
+		"description": "Grant UCI access for luci-app-clientmanager",
+		"read": {
+			"uci": [ "clientmanager" ]
+		},
+		"write": {
+			"uci": [ "clientmanager" ]
+		}
+	}
+}

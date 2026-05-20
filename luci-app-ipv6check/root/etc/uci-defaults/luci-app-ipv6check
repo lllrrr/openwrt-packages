@@ -1,0 +1,19 @@
+#!/bin/sh
+# IPv6 连通性检测 - 首次安装初始化脚本
+
+# 确保配置文件存在
+[ -f /etc/config/ipv6check ] || touch /etc/config/ipv6check
+
+# 确保相关脚本有执行权限
+chmod +x /etc/init.d/ipv6check 2>/dev/null
+chmod +x /usr/libexec/rpcd/ipv6check 2>/dev/null
+chmod +x /usr/bin/ipv6check 2>/dev/null
+
+# 重启 rpcd 以加载新的 RPC 服务
+/etc/init.d/rpcd restart 2>/dev/null
+
+# 启用并启动服务
+/etc/init.d/ipv6check enable 2>/dev/null
+/etc/init.d/ipv6check start 2>/dev/null
+
+exit 0

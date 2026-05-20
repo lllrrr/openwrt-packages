@@ -1,0 +1,397 @@
+#!/bin/sh
+# IPv6 连通性检测核心脚本
+# 负责定时 ping 多个目标地址，检测 IPv6 连通性
+# 连续失败超过阈值时自动重启指定网络接口
+
+. /lib/functions.sh
+. /usr/share/libubox/jshn.sh
+
+# 检测 ping6 还是 ping -6
+if command -v ping6 >/dev/null 2>&1; then
+	PING6_BIN="ping6"
+	PING6_ARGS="-c 2 -W 5"
+else
+	PING6_BIN="ping"
+	PING6_ARGS="-6 -c 2 -W 5"
+fi
+
+# ========== 常量定义 ==========
+STATUS_DIR="/tmp/ipv6check"
+STATUS_FILE="${STATUS_DIR}/status.json"
+LOG_FILE="${STATUS_DIR}/check.log"
+PID_FILE="/var/run/ipv6check.pid"
+
+# ========== 全局变量 ==========
+ENABLED=1
+INTERVAL=300
+RETRY_COUNT=3
+RETRY_INTERVAL=10
+RESTART_IFACE="wan6"
+AUTO_RESTART=1
+LOG_LEVEL=1
+MAX_LOG_ENTRIES=100
+FAILURE_THRESHOLD=3
+CONSECUTIVE_FAILURES=0
+# 写计数器：用于降低 log_msg 中 wc -l 的调用频率
+LOG_WRITE_COUNT=0
+
+# ========== 工具函数 ==========
+
+# 日志记录
+log_msg() {
+	local level="$1"
+	local msg="$2"
+	local timestamp
+	timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+
+	ensure_dirs
+
+	# 根据日志级别过滤
+	[ "$LOG_LEVEL" -lt "$level" ] && return
+
+	# 写入 syslog
+	logger -t ipv6check "$msg"
+
+	# 写入本地日志文件
+	echo "${timestamp} | ${msg}" >> "$LOG_FILE"
+
+	# 每 10 次写入才检查一次是否需要裁剪，减少高频 wc -l 的 I/O 开销
+	LOG_WRITE_COUNT=$((LOG_WRITE_COUNT + 1))
+	if [ $((LOG_WRITE_COUNT % 10)) -eq 0 ]; then
+		local lines
+		lines=$(wc -l < "$LOG_FILE" 2>/dev/null || echo 0)
+		if [ "$lines" -gt "$MAX_LOG_ENTRIES" ]; then
+			local keep=$((MAX_LOG_ENTRIES / 2))
+			tail -n "$keep" "$LOG_FILE" > "${LOG_FILE}.tmp"
+			mv "${LOG_FILE}.tmp" "$LOG_FILE"
+		fi
+	fi
+}
+
+# 确保状态目录存在
+ensure_dirs() {
+	mkdir -p "$STATUS_DIR"
+}
+
+is_uint() {
+	case "$1" in
+		''|*[!0-9]*)
+			return 1
+			;;
+	esac
+	return 0
+}
+
+normalize_uint() {
+	local var="$1"
+	local value="$2"
+	local default="$3"
+	local min="$4"
+	local max="$5"
+
+	is_uint "$value" || value="$default"
+	[ "$value" -lt "$min" ] && value="$min"
+	[ -n "$max" ] && [ "$value" -gt "$max" ] && value="$max"
+	eval "$var=\$value"
+}
+
+normalize_bool() {
+	local var="$1"
+	local value="$2"
+	local default="$3"
+
+	case "$value" in
+		1|true|yes|on|enabled)
+			value=1
+			;;
+		0|false|no|off|disabled)
+			value=0
+			;;
+		*)
+			value="$default"
+			;;
+	esac
+	eval "$var=\$value"
+}
+
+valid_iface_name() {
+	case "$1" in
+		''|*[!A-Za-z0-9_.:-]*)
+			return 1
+			;;
+	esac
+	return 0
+}
+
+# 加载 UCI 配置
+load_config() {
+	config_load ipv6check
+
+	config_get ENABLED global enabled 1
+	config_get INTERVAL global interval 300
+	config_get RETRY_COUNT global retry_count 3
+	config_get RETRY_INTERVAL global retry_interval 10
+	config_get RESTART_IFACE global restart_interface wan6
+	config_get AUTO_RESTART global auto_restart 1
+	config_get LOG_LEVEL global log_level 1
+	config_get MAX_LOG_ENTRIES global max_log_entries 100
+	config_get FAILURE_THRESHOLD global failure_threshold 3
+
+	# 参数合法性校验
+	normalize_bool ENABLED "$ENABLED" 1
+	normalize_bool AUTO_RESTART "$AUTO_RESTART" 1
+	normalize_uint INTERVAL "$INTERVAL" 300 30 86400
+	normalize_uint RETRY_COUNT "$RETRY_COUNT" 3 1 10
+	normalize_uint RETRY_INTERVAL "$RETRY_INTERVAL" 10 1 3600
+	normalize_uint LOG_LEVEL "$LOG_LEVEL" 1 0 2
+	normalize_uint MAX_LOG_ENTRIES "$MAX_LOG_ENTRIES" 100 10 10000
+	normalize_uint FAILURE_THRESHOLD "$FAILURE_THRESHOLD" 3 1 100
+
+	valid_iface_name "$RESTART_IFACE" || RESTART_IFACE="wan6"
+}
+
+# ========== 检测逻辑 ==========
+
+# 对单个目标执行 ping6 检测
+# 参数: $1=目标地址 $2=重试次数 $3=重试间隔
+# 返回: 0=可达 1=不可达
+check_target() {
+	local host="$1"
+	local retries="${2:-$RETRY_COUNT}"
+	local retry_wait="${3:-$RETRY_INTERVAL}"
+	local attempt=0
+
+	while [ "$attempt" -lt "$retries" ]; do
+		# ping IPv6: 发送2个包，超时5秒
+		if "$PING6_BIN" $PING6_ARGS "$host" >/dev/null 2>&1; then
+			return 0
+		fi
+		attempt=$((attempt + 1))
+		[ "$attempt" -lt "$retries" ] && sleep "$retry_wait"
+	done
+
+	return 1
+}
+
+# 回调函数: 处理每个检测目标
+# 由 config_foreach 调用
+check_one_target() {
+	local section="$1"
+	local name host enabled
+	local result_text result_code
+
+	config_get name "$section" name "未命名"
+	config_get host "$section" host ""
+	config_get enabled "$section" enabled "1"
+
+	# 跳过禁用或空地址的目标
+	[ "$enabled" != "1" ] && return
+	[ -z "$host" ] && return
+
+	log_msg 2 "[检测] ${name} (${host}) ..."
+
+	if check_target "$host"; then
+		result_text="可达"
+		result_code="ok"
+		log_msg 2 "[结果] ${name}: 可达"
+	else
+		result_text="不可达"
+		result_code="fail"
+		log_msg 1 "[警告] ${name} (${host}): 不可达"
+		TARGETS_FAILED=$((TARGETS_FAILED + 1))
+	fi
+
+	TARGETS_TOTAL=$((TARGETS_TOTAL + 1))
+
+	# 更新单个目标的状态
+	local timestamp
+	timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+
+	# 使用 jshn 添加数组元素
+	json_add_object ""
+	json_add_string "name" "$name"
+	json_add_string "host" "$host"
+	json_add_string "status" "$result_code"
+	json_add_string "status_text" "$result_text"
+	json_add_string "last_check" "$timestamp"
+	json_close_object
+}
+
+# 执行一轮完整检测
+run_check_cycle() {
+	local timestamp
+	timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+
+	TARGETS_TOTAL=0
+	TARGETS_FAILED=0
+
+	log_msg 1 "===== 开始 IPv6 连通性检测 ====="
+
+	json_init
+	json_add_string "check_time" "$timestamp"
+	json_add_array "targets"
+
+	# 遍历所有检测目标（config_load 已在 load_config 中完成，无需重复调用）
+	config_foreach check_one_target target
+
+	json_close_array
+
+	# 判断整体连通性
+	local overall="ok"
+	if [ "$TARGETS_TOTAL" -eq 0 ]; then
+		overall="unknown"
+		CONSECUTIVE_FAILURES=0
+		log_msg 1 "[状态] 没有配置任何检测目标"
+	elif [ "$TARGETS_FAILED" -ge "$TARGETS_TOTAL" ]; then
+		overall="fail"
+		CONSECUTIVE_FAILURES=$((CONSECUTIVE_FAILURES + 1))
+		log_msg 1 "[状态] 所有目标不可达 (连续失败: ${CONSECUTIVE_FAILURES}/${FAILURE_THRESHOLD})"
+	elif [ "$TARGETS_FAILED" -gt 0 ]; then
+		overall="partial"
+		# 部分失败不重置连续失败计数，但也不增加
+		log_msg 1 "[状态] 部分目标不可达 (${TARGETS_FAILED}/${TARGETS_TOTAL})"
+	else
+		overall="ok"
+		if [ "$CONSECUTIVE_FAILURES" -gt 0 ]; then
+			log_msg 1 "[恢复] IPv6 连通性已恢复 (之前连续失败 ${CONSECUTIVE_FAILURES} 次)"
+		fi
+		CONSECUTIVE_FAILURES=0
+	fi
+
+	# 持久化连续失败计数，确保服务重启后（procd respawn 等场景）状态不丢失
+	echo "$CONSECUTIVE_FAILURES" > "${STATUS_DIR}/consecutive_failures"
+
+	# 判断是否需要重启接口
+	if [ "$overall" = "fail" ] && [ "$AUTO_RESTART" = "1" ] && \
+	   [ "$CONSECUTIVE_FAILURES" -ge "$FAILURE_THRESHOLD" ]; then
+		do_restart_interface
+	fi
+
+	# 写入整体状态
+	local last_restart
+	last_restart=$(cat "${STATUS_DIR}/last_restart" 2>/dev/null || echo '从未')
+
+	json_add_string "overall" "$overall"
+	json_add_int "total_targets" "$TARGETS_TOTAL"
+	json_add_int "failed_targets" "$TARGETS_FAILED"
+	json_add_int "consecutive_failures" "$CONSECUTIVE_FAILURES"
+	json_add_int "failure_threshold" "$FAILURE_THRESHOLD"
+	json_add_string "restart_interface" "$RESTART_IFACE"
+	json_add_int "auto_restart" "$AUTO_RESTART"
+	json_add_int "interval" "$INTERVAL"
+	json_add_string "last_restart" "$last_restart"
+
+	# 导出为 JSON 字符串并原子替换
+	json_dump > "${STATUS_FILE}.tmp"
+	mv "${STATUS_FILE}.tmp" "$STATUS_FILE"
+
+	log_msg 1 "===== 检测完成: 总计=${TARGETS_TOTAL} 失败=${TARGETS_FAILED} 状态=${overall} ====="
+}
+
+# ========== 接口重启逻辑 ==========
+
+do_restart_interface() {
+	local timestamp
+	timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+
+	log_msg 1 "[动作] IPv6 连续 ${CONSECUTIVE_FAILURES} 次全部失败，正在重启接口: ${RESTART_IFACE}"
+
+	if ! valid_iface_name "$RESTART_IFACE"; then
+		log_msg 1 "[错误] 接口名无效，已跳过重启: ${RESTART_IFACE}"
+		return 1
+	fi
+
+	# 执行接口重启 (使用 ubus 以提升可靠性)
+	ubus call network.interface down "{\"interface\":\"$RESTART_IFACE\"}" >/dev/null 2>&1
+	local down_rc=$?
+	sleep 3
+	ubus call network.interface up "{\"interface\":\"$RESTART_IFACE\"}" >/dev/null 2>&1
+	local up_rc=$?
+
+	if [ "$down_rc" -ne 0 ] || [ "$up_rc" -ne 0 ]; then
+		log_msg 1 "[错误] 接口 ${RESTART_IFACE} 重启命令执行失败"
+		return 1
+	fi
+
+	# 记录重启时间
+	echo "$timestamp" > "${STATUS_DIR}/last_restart"
+
+	# 追加重启历史
+	echo "${timestamp} | 自动重启接口 ${RESTART_IFACE} (连续失败 ${CONSECUTIVE_FAILURES} 次)" >> "${STATUS_DIR}/restart_history"
+
+	# 限制历史记录数量
+	local lines
+	lines=$(wc -l < "${STATUS_DIR}/restart_history" 2>/dev/null || echo 0)
+	if [ "$lines" -gt 50 ]; then
+		tail -n 25 "${STATUS_DIR}/restart_history" > "${STATUS_DIR}/restart_history.tmp"
+		mv "${STATUS_DIR}/restart_history.tmp" "${STATUS_DIR}/restart_history"
+	fi
+
+	# 重置连续失败计数并持久化
+	CONSECUTIVE_FAILURES=0
+	echo "$CONSECUTIVE_FAILURES" > "${STATUS_DIR}/consecutive_failures"
+
+	log_msg 1 "[动作] 接口 ${RESTART_IFACE} 已重启，等待恢复..."
+
+	# 给接口时间恢复
+	sleep 15
+}
+
+# ========== 主循环 ==========
+
+# 单次检测模式（供 RPC 调用）
+run_once() {
+	ensure_dirs
+	load_config
+	# 读取持久化的连续失败计数，确保重启后状态延续
+	CONSECUTIVE_FAILURES=$(cat "${STATUS_DIR}/consecutive_failures" 2>/dev/null || echo 0)
+	is_uint "$CONSECUTIVE_FAILURES" || CONSECUTIVE_FAILURES=0
+	run_check_cycle
+}
+
+# 守护进程模式
+run_daemon() {
+	ensure_dirs
+	load_config
+	# 读取持久化的连续失败计数，确保 procd 自动重启后状态不从零开始
+	CONSECUTIVE_FAILURES=$(cat "${STATUS_DIR}/consecutive_failures" 2>/dev/null || echo 0)
+	is_uint "$CONSECUTIVE_FAILURES" || CONSECUTIVE_FAILURES=0
+
+	# 写入 PID 文件
+	echo $$ > "$PID_FILE"
+
+	log_msg 1 "IPv6 监测服务已启动 (PID=$$, 间隔=${INTERVAL}s)"
+
+	trap 'log_msg 1 "IPv6 监测服务已停止"; rm -f "$PID_FILE"; exit 0' INT TERM
+
+	while true; do
+		# 重新加载配置（支持运行时修改）
+		load_config
+
+		if [ "$ENABLED" != "1" ]; then
+			log_msg 2 "监测已禁用，等待中..."
+			sleep 60
+			continue
+		fi
+
+		run_check_cycle
+		sleep "$INTERVAL"
+	done
+}
+
+# ========== 入口 ==========
+
+case "$1" in
+	--once)
+		run_once
+		;;
+	--daemon)
+		run_daemon
+		;;
+	*)
+		echo "用法: $0 {--once|--daemon}"
+		echo "  --once    执行一次检测"
+		echo "  --daemon  以守护进程模式运行"
+		exit 1
+		;;
+esac

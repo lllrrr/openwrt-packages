@@ -1,0 +1,28 @@
+{
+	"admin/network/ipv6check": {
+		"title": "IPv6 连通检测",
+		"order": 60,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-ipv6check" ]
+		}
+	},
+	"admin/network/ipv6check/status": {
+		"title": "运行状态",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "ipv6check/status"
+		}
+	},
+	"admin/network/ipv6check/config": {
+		"title": "参数配置",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "ipv6check/config"
+		}
+	}
+}

@@ -1,0 +1,17 @@
+{
+	"luci-app-ipv6check": {
+		"description": "授权 LuCI 访问 IPv6 连通性检测插件",
+		"read": {
+			"ubus": {
+				"ipv6check": [ "get_status", "get_log", "get_restart_history", "get_interfaces" ]
+			},
+			"uci": [ "ipv6check" ]
+		},
+		"write": {
+			"ubus": {
+				"ipv6check": [ "run_check", "restart_interface" ]
+			},
+			"uci": [ "ipv6check" ]
+		}
+	}
+}

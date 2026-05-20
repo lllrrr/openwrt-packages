@@ -1,0 +1,29 @@
+# IPv6 连通性检测 - 全局配置
+config ipv6check 'global'
+	option enabled '1'
+	option interval '300'
+	option retry_count '3'
+	option retry_interval '10'
+	option restart_interface 'wan6'
+	option auto_restart '1'
+	option log_level '1'
+	option max_log_entries '100'
+	option failure_threshold '3'
+
+# 检测目标 - Google Public DNS IPv6
+config target
+	option name 'Google DNS'
+	option host '2001:4860:4860::8888'
+	option enabled '1'
+
+# 检测目标 - Cloudflare DNS IPv6
+config target
+	option name 'Cloudflare DNS'
+	option host '2606:4700:4700::1111'
+	option enabled '1'
+
+# 检测目标 - 阿里云 DNS IPv6
+config target
+	option name 'Ali DNS'
+	option host '2400:3200::1'
+	option enabled '1'
