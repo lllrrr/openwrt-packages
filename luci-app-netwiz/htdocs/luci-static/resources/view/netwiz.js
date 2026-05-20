@@ -605,7 +605,7 @@ return view.extend({
             '           <div id="wifi-5g2-form" style="display:none;">',
             '              <div class="nw-value"><label class="nw-value-title">无线网络名称 (5G_Game)</label><div class="nw-value-field"><input type="text" id="wifi-5g2-ssid"></div></div>',
             '              <div class="nw-value"><label class="nw-value-title">Wi-Fi 密码 (5G_Game)</label><div class="nw-value-field"><input type="text" id="wifi-5g2-key"></div></div>',
-            '              <input type="hidden" id="wifi-5g2-enc" value="sae-mixed">',
+            '              <input type="hidden" id="wifi-5g2-enc" value="psk2">',
             '              <input type="hidden" id="wifi-5g2-mode" value="auto">',
             '              <input type="hidden" id="wifi-5g2-chan" value="auto">',
             '              <input type="hidden" id="wifi-5g2-bw" value="auto">',
@@ -1020,7 +1020,7 @@ return view.extend({
                         
                         var ssid = container.querySelector('#wiz-wifi-ssid').value.trim();
                         var key = container.querySelector('#wiz-wifi-key').value;
-                        var enc = (key.length === 0) ? 'none' : 'sae-mixed';
+                        var enc = (key.length === 0) ? 'none' : 'psk2';
 
                         var arg2Obj = {};
                         if (window._isSingleChip) {
@@ -1592,13 +1592,13 @@ return view.extend({
 
                                     var actSsid = activeIface ? (activeIface.ssid || '') : '';
                                     var actKey = activeIface ? (activeIface.key || '') : '';
-                                    var actEnc = activeIface ? (activeIface.encryption || 'sae-mixed') : 'sae-mixed';
+                                    var actEnc = activeIface ? (activeIface.encryption || 'psk2') : 'sae-mixed';
                                     var actHidden = activeIface ? (activeIface.hidden === '1') : false;
                                     var actDisabled = activeIface ? (activeIface.disabled === '1' || theDev.disabled === '1') : true;
 
                                     var inactSsid = inactiveIface ? (inactiveIface.ssid || '') : '';
                                     var inactKey = inactiveIface ? (inactiveIface.key || '') : '';
-                                    var inactEnc = inactiveIface ? (inactiveIface.encryption || 'sae-mixed') : 'sae-mixed';
+                                    var inactEnc = inactiveIface ? (inactiveIface.encryption || 'psk2') : 'sae-mixed';
                                     var inactHidden = inactiveIface ? (inactiveIface.hidden === '1') : false;
 
                                     var chan = theDev.channel || 'auto';
@@ -1708,12 +1708,12 @@ return view.extend({
                                     var isLegacy = dev2g && dev2g.hwmode === '11b';
                                     
                                     var s2 = i2g.ssid || '', k2 = i2g.key || '';
-                                    var e2 = i2g.encryption || 'sae-mixed';
+                                    var e2 = i2g.encryption || 'psk2';
                                     var h2 = i2g.hidden === '1';
                                     var d2 = (i2g.disabled === '1' || (dev2g && dev2g.disabled === '1'));
 
                                     var s5 = i5g.ssid || '', k5 = i5g.key || '';
-                                    var e5 = i5g.encryption || 'sae-mixed';
+                                    var e5 = i5g.encryption || 'psk2';
                                     var h5 = i5g.hidden === '1';
                                     var d5 = (i5g.disabled === '1' || (dev5g && dev5g.disabled === '1'));
                                     
@@ -1801,7 +1801,7 @@ return view.extend({
                                 tog.checked = rOn;
                                 
                                 var encVal = encEl ? encEl.value : (iface.encryption || 'psk2');
-                                var isDirty = rOn && (iface.mobility_domain !== 'e4d1' || encVal !== 'sae-mixed');
+                                var isDirty = rOn && (iface.mobility_domain !== 'e4d1' || encVal === 'none');
 
                                 if (isDirty) {
                                     tog.classList.add('is-dirty'); 
@@ -2035,7 +2035,7 @@ return view.extend({
                             var isDirty = apIfaces.some(function(x) {
                                 var enc = (x.encryption || '').toLowerCase();
                                 var md = (x.mobility_domain || '').toLowerCase();
-                                return x.ieee80211r === '1' && (md !== 'e4d1' || enc !== 'sae-mixed');
+                                return x.ieee80211r === '1' && (md !== 'e4d1' || enc === 'none');
                             });
                             
                             var roamBadge = "";
@@ -2069,7 +2069,7 @@ return view.extend({
                                 
                                 var rOn = (i.ieee80211r === '1');
                                 var enc = (i.encryption || '').toLowerCase();
-                                var isDirty = rOn && (i.mobility_domain !== 'e4d1' || enc !== 'sae-mixed');
+                                var isDirty = rOn && (i.mobility_domain !== 'e4d1' || enc === 'none');
                                 
                                 var roamBadge = "";
                                 if (rOn) {
@@ -2271,7 +2271,7 @@ return view.extend({
                 // 1. 密码框输入 -> 影响下拉框
                 keyEl.addEventListener('input', function() {
                     if (this.value.length > 0 && encEl.value === 'none') {
-                        encEl.value = 'sae-mixed'; 
+                        encEl.value = 'psk2';
                     } else if (this.value.length === 0 && encEl.value !== 'none') {
                         encEl.value = 'none'; 
                     }
@@ -2293,7 +2293,15 @@ return view.extend({
 
         // 联动与自动切换标签页
         en2g.addEventListener('change', function() { 
-            container.querySelector('#tab-2g').click(); 
+            // Tab 跳转：开启时留在本页，关闭时自动跳到其他开启的频段
+            if (this.checked) {
+                container.querySelector('#tab-2g').click(); 
+            } else {
+                var en5g2El = container.querySelector('#wifi-5g2-en');
+                if (en5g.checked) container.querySelector('#tab-5g').click();
+                else if (en5g2El && en5g2El.checked) { var t = container.querySelector('#tab-5g2'); if (t) t.click(); }
+                else container.querySelector('#tab-2g').click();
+            }
             
             if (this.checked && window._isSingleChip) {
                 en5g.checked = false; 
@@ -2309,7 +2317,15 @@ return view.extend({
         });
         
         en5g.addEventListener('change', function() { 
-            container.querySelector('#tab-5g').click(); 
+            // Tab 跳转
+            if (this.checked) {
+                container.querySelector('#tab-5g').click(); 
+            } else {
+                var en5g2El = container.querySelector('#wifi-5g2-en');
+                if (en2g.checked) container.querySelector('#tab-2g').click();
+                else if (en5g2El && en5g2El.checked) { var t = container.querySelector('#tab-5g2'); if (t) t.click(); }
+                else container.querySelector('#tab-5g').click();
+            }
             
             if (this.checked && window._isSingleChip) {
                 en2g.checked = false; 
@@ -2337,10 +2353,17 @@ return view.extend({
         var en5g2 = container.querySelector('#wifi-5g2-en');
         if (en5g2) {
             en5g2.addEventListener('change', function() {
-                var t = container.querySelector('#tab-5g2');
-                if (t) t.click();
-                
-                // 以 5G (或 2.4G) 为基准自动补齐
+                // Tab 跳转
+                if (this.checked) {
+                    var t = container.querySelector('#tab-5g2');
+                    if (t) t.click();
+                } else {
+                    if (en2g.checked) container.querySelector('#tab-2g').click();
+                    else if (en5g.checked) container.querySelector('#tab-5g').click();
+                    else { var t = container.querySelector('#tab-5g2'); if (t) t.click(); }
+                }
+
+                // 联动：开启时以 5G (或 2.4G) 为基准自动补齐
                 if (this.checked) {
                     var s5g2El = container.querySelector('#wifi-5g2-ssid');
                     var s5 = container.querySelector('#wifi-5g-ssid').value;
@@ -2394,9 +2417,25 @@ return view.extend({
                 smartUi.style.display = 'none';
                 splitUi.style.display = 'block';
 
-                if (!e.isTrusted) return;
+                // 页面加载或手动切换时，自动判定并跳转到“已开启”的频段标签页
+                var jumpToActiveTab = function() {
+                    var e2 = container.querySelector('#wifi-2g-en').checked;
+                    var e5 = container.querySelector('#wifi-5g-en').checked;
+                    var e5g2El = container.querySelector('#wifi-5g2-en');
+                    var e5g2 = e5g2El ? e5g2El.checked : false;
 
-                // 🌟 智能联动 2：分开模式下，强制提取合一名称，并自动“追加”各自的后缀
+                    if (e2) container.querySelector('#tab-2g').click();
+                    else if (e5) container.querySelector('#tab-5g').click();
+                    else if (e5g2) { var t = container.querySelector('#tab-5g2'); if (t) t.click(); }
+                    else container.querySelector('#tab-2g').click(); // 兜底
+                };
+
+                if (!e.isTrusted) {
+                    jumpToActiveTab();
+                    return;
+                }
+
+                // 联动 2：分开模式下，强制提取合一名称，并自动“追加”各自的后缀
                 var baseSsid = container.querySelector('#wifi-smart-ssid').value;
                 var baseKey = container.querySelector('#wifi-smart-key').value;
                 var baseEnc = container.querySelector('#wifi-smart-enc').value;
@@ -2415,6 +2454,9 @@ return view.extend({
                     container.querySelector('#wifi-5g2-key').value = baseKey;
                     container.querySelector('#wifi-5g2-enc').value = baseEnc;
                 }
+                
+                // 联动完成后，执行跳转
+                jumpToActiveTab();
             }
         });
 
@@ -2488,7 +2530,7 @@ return view.extend({
                 
                 if (this.checked) {
                     var encSelect = container.querySelector('#wifi-smart-enc');
-                    if (encSelect && encSelect.value !== 'sae-mixed') encSelect.value = 'sae-mixed';
+                    if (encSelect && encSelect.value === 'none') encSelect.value = 'psk2';
                 }
                 updateRoamBadge('#wifi-smart-roaming');
             });
@@ -2507,7 +2549,7 @@ return view.extend({
 
                 if (this.checked) {
                     var encSelect = container.querySelector('#wifi-2g-enc');
-                    if (encSelect && encSelect.value !== 'sae-mixed') encSelect.value = 'sae-mixed';
+                    if (encSelect && encSelect.value === 'none') encSelect.value = 'psk2';
                 }
                 updateRoamBadge('#wifi-2g-roaming');
             });
@@ -2526,7 +2568,7 @@ return view.extend({
 
                 if (this.checked) {
                     var encSelect = container.querySelector('#wifi-5g-enc');
-                    if (encSelect && encSelect.value !== 'sae-mixed') encSelect.value = 'sae-mixed';
+                    if (encSelect && encSelect.value === 'none') encSelect.value = 'psk2';
                 }
                 updateRoamBadge('#wifi-5g-roaming');
             });
@@ -3188,7 +3230,7 @@ return view.extend({
                                 enabled: container.querySelector('#wifi-5g2-en').checked ? "1" : "0",
                                 ssid: container.querySelector('#wifi-5g2-ssid').value.trim(),
                                 key: container.querySelector('#wifi-5g2-key').value,
-                                encryption: "sae-mixed", // 强制安全加密
+                                encryption: "psk2",
                                 hidden: "0", mode: "auto", channel: "auto", bandwidth: "auto", roaming: "1"
                             };
                         }
