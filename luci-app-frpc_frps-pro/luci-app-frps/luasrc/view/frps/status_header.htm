@@ -1,0 +1,69 @@
+<%# Multi-instance frps status header — chips per instance %>
+<style>
+.frps-status-bar { padding: 8px; background: #f5f5f5; border-radius: 4px; margin-bottom: 12px; }
+.frps-status-bar .frps-chip { display: inline-block; padding: 4px 10px; margin: 2px; border-radius: 12px; background: #e0e0e0; font-size: 12px; }
+.frps-chip-on   { background: #c8e6c9; }
+.frps-chip-off  { background: #ffcdd2; }
+.frps-chip-warn { background: #ffe0b2; }
+</style>
+<fieldset class="cbi-section">
+	<legend><%:Frps 状态%></legend>
+	<div id="frps_status_bar" class="frps-status-bar">加载中…</div>
+</fieldset>
+<script>
+(function() {
+	function render(data) {
+		var bar = document.getElementById('frps_status_bar');
+		if (!data.global_enabled) {
+			bar.innerHTML = '<b style="color:#999">全局已关闭</b>';
+			return;
+		}
+		if (!data.instances || data.instances.length === 0) {
+			bar.innerHTML = '<i>尚未配置 FRPS 实例</i>';
+			return;
+		}
+		var html = '';
+		data.instances.forEach(function(ins) {
+			var cls;
+			if (!ins.enabled || !ins.running) {
+				cls = 'frps-chip-off';
+			} else if (!ins.web_enabled) {
+				// 进程在跑，但未配置 webServer → 视为运行中（无监控信道）
+				cls = 'frps-chip-on';
+			} else if (ins.web_reachable) {
+				cls = 'frps-chip-on';
+			} else {
+				cls = 'frps-chip-warn';
+			}
+			var parts = [];
+			parts.push(':' + (ins.bindPort || '?'));
+			if (ins.vhostHTTPPort)  parts.push('http:' + ins.vhostHTTPPort);
+			if (ins.vhostHTTPSPort) parts.push('https:' + ins.vhostHTTPSPort);
+			var label = ins.alias + ' · ' + parts.join(' / ');
+			html += '<span class="frps-chip ' + cls + '" title="' +
+				(ins.last_error || '') + '">' + label + '</span>';
+		});
+		bar.innerHTML = html;
+	}
+	function poll() {
+		fetch('<%=luci.dispatcher.build_url("admin/services/frps/status")%>', {credentials:'same-origin'})
+			.then(function(r){return r.json();}).then(render);
+	}
+	var pollTimer = null;
+	function startPoll() {
+		if (pollTimer) return;
+		poll();
+		pollTimer = setInterval(poll, 15000);
+	}
+	function stopPoll() {
+		if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+	}
+	document.addEventListener('DOMContentLoaded', function() {
+		if (!document.hidden) startPoll();
+		document.addEventListener('visibilitychange', function() {
+			if (document.hidden) stopPoll();
+			else startPoll();
+		});
+	});
+})();
+</script>

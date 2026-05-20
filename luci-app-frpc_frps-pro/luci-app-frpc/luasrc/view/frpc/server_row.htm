@@ -1,0 +1,21 @@
+<%+cbi/valueheader%>
+<%
+-- 在 CBI option template 上下文中，`section` 是当前行的 section name（LuCI 自动注入）
+-- `self.section` 是 section type ("server")，不能用！
+local sid = section
+%>
+<div class="frpc-server-cell" data-server="<%=sid%>">
+	<span class="frpc-status-dot frpc-status-unknown" id="frpc_dot_<%=sid%>" title="加载中">●</span>
+	<span class="frpc-proxies" id="frpc_proxies_<%=sid%>">-/-</span>
+	<div class="frpc-actions">
+		<button type="button" class="frpc-action-toggle" onclick="frpcToggleMenu('<%=sid%>')">▾ 操作</button>
+		<div class="frpc-action-menu" id="frpc_menu_<%=sid%>" style="display:none;">
+			<a href="#" onclick="frpcAction('<%=sid%>','start');return false;" data-show-when="stopped">启动</a>
+			<a href="#" onclick="frpcAction('<%=sid%>','stop');return false;" data-show-when="running">停止</a>
+			<a href="#" onclick="frpcAction('<%=sid%>','restart');return false;" data-show-when="running">重启</a>
+			<a href="<%=luci.dispatcher.build_url('admin/services/frpc/log')%>?server=<%=sid%>" target="_blank">看日志</a>
+			<a href="#" onclick="frpcOpenAdmin('<%=sid%>');return false;" data-show-when="reachable">Dashboard</a>
+		</div>
+	</div>
+</div>
+<%+cbi/valuefooter%>

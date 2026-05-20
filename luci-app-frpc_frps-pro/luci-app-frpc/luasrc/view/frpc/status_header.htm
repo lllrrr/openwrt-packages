@@ -1,0 +1,70 @@
+<style>
+.frpc-status-bar { padding: 8px; background: #f5f5f5; border-radius: 4px; margin-bottom: 12px; }
+.frpc-status-bar .frpc-chip { display: inline-block; padding: 4px 10px; margin: 2px; border-radius: 12px; background: #e0e0e0; font-size: 12px; }
+.frpc-chip-on  { background: #c8e6c9; }
+.frpc-chip-off { background: #ffcdd2; }
+.frpc-chip-warn { background: #ffe0b2; }
+</style>
+<fieldset class="cbi-section">
+	<legend><%:Frpc 状态%></legend>
+	<div id="frpc_status_bar" class="frpc-status-bar">加载中…</div>
+</fieldset>
+<script>
+(function() {
+	function render(data) {
+		var bar = document.getElementById('frpc_status_bar');
+		if (!data.global_enabled) {
+			bar.innerHTML = '<b style="color:#999">全局已关闭</b>';
+			return;
+		}
+		if (!data.instances || data.instances.length === 0) {
+			bar.innerHTML = '<i>尚未配置服务器</i>';
+			return;
+		}
+		var html = '';
+		data.instances.forEach(function(ins) {
+			// admin 未启用时：仅看进程状态；admin 启用时：黄 = admin 不可达；无 proxy 时跳过 admin 检查
+			var cls;
+			if (!ins.enabled || !ins.running) {
+				cls = 'frpc-chip-off';
+			} else if (!ins.admin_enabled) {
+				cls = 'frpc-chip-on';
+			} else if (ins.proxies_total === 0) {
+				cls = 'frpc-chip-on';
+			} else if (ins.admin_reachable) {
+				cls = 'frpc-chip-on';
+			} else {
+				cls = 'frpc-chip-warn';
+			}
+			// 文案：「alias · 代理 N/M · 访客 X/Y」，无规则时仅显示 alias
+			var parts = [];
+			if (ins.proxies_total > 0) parts.push('代理 ' + ins.proxies_online + '/' + ins.proxies_total);
+			if (ins.visitors_total > 0) parts.push('访客 ' + ins.visitors_active + '/' + ins.visitors_total);
+			var label = ins.alias + (parts.length ? ' · ' + parts.join(' · ') : '');
+			html += '<span class="frpc-chip ' + cls + '" title="' +
+				(ins.last_error || '') + '">' + label + '</span>';
+		});
+		bar.innerHTML = html;
+	}
+	function poll() {
+		fetch('<%=luci.dispatcher.build_url("admin/services/frpc/status")%>', {credentials:'same-origin'})
+			.then(function(r){return r.json();}).then(render);
+	}
+	var pollTimer = null;
+	function startPoll() {
+		if (pollTimer) return;
+		poll();
+		pollTimer = setInterval(poll, 15000);
+	}
+	function stopPoll() {
+		if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+	}
+	document.addEventListener('DOMContentLoaded', function() {
+		if (!document.hidden) startPoll();
+		document.addEventListener('visibilitychange', function() {
+			if (document.hidden) stopPoll();
+			else startPoll();
+		});
+	});
+})();
+</script>

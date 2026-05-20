@@ -1,0 +1,21 @@
+<%+cbi/valueheader%>
+<%
+-- CBI option template 上下文：`section` 是当前行 section name
+local sid = section
+%>
+<div class="frps-instance-cell" data-instance="<%=sid%>">
+	<span class="frps-status-dot frps-status-unknown" id="frps_dot_<%=sid%>" title="加载中">●</span>
+	<span class="frps-portinfo" id="frps_ports_<%=sid%>">-</span>
+	<div class="frps-actions">
+		<button type="button" class="frps-action-toggle" onclick="frpsToggleMenu('<%=sid%>')">▾ 操作</button>
+		<div class="frps-action-menu" id="frps_menu_<%=sid%>" style="display:none;">
+			<a href="#" onclick="frpsAction('<%=sid%>','start');return false;" data-show-when="stopped">启动</a>
+			<a href="#" onclick="frpsAction('<%=sid%>','stop');return false;" data-show-when="running">停止</a>
+			<a href="#" onclick="frpsAction('<%=sid%>','restart');return false;" data-show-when="running">重启</a>
+			<a href="<%=luci.dispatcher.build_url('admin/services/frps/log')%>?instance=<%=sid%>" target="_blank">看日志</a>
+			<a href="<%=luci.dispatcher.build_url('admin/services/frps/configuration')%>?instance=<%=sid%>" target="_blank">看配置</a>
+			<a href="#" onclick="frpsOpenAdmin('<%=sid%>');return false;" data-show-when="reachable">Dashboard</a>
+		</div>
+	</div>
+</div>
+<%+cbi/valuefooter%>
