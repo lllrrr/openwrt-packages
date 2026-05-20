@@ -1,68 +1,64 @@
 module("luci.controller.clientmanager", package.seeall)
 
 function index()
-	if not nixio.fs.access("/etc/config/clientmanager") then
-		return
-	end
-
-	local page = entry({"admin", "network", "clientmanager"},
+	local page = entry({"admin", "services", "clientmanager"},
 		firstchild(),
-		_("Client Manager"),
+		_("客户端管理"),
 		60)
 	page.dependent = false
 	page.acl_depends = { "luci-app-clientmanager" }
 
-	entry({"admin", "network", "clientmanager", "overview"},
+	entry({"admin", "services", "clientmanager", "overview"},
 		call("action_overview"),
-		_("Device Overview"),
+		_("设备概览"),
 		1)
 
-	entry({"admin", "network", "clientmanager", "control"},
+	entry({"admin", "services", "clientmanager", "control"},
 		call("action_control"),
-		_("Access Control"),
+		_("访问控制"),
 		2)
 
-	entry({"admin", "network", "clientmanager", "statistics"},
+	entry({"admin", "services", "clientmanager", "statistics"},
 		call("action_statistics"),
-		_("Traffic Statistics"),
+		_("流量统计"),
 		3)
 
-	entry({"admin", "network", "clientmanager", "settings"},
+	entry({"admin", "services", "clientmanager", "settings"},
 		cbi("clientmanager/settings"),
-		_("Settings"),
+		_("设置"),
 		4)
 
-	entry({"admin", "network", "clientmanager", "api", "devices"},
+	entry({"admin", "services", "clientmanager", "api", "devices"},
 		call("api_devices"))
 
-	entry({"admin", "network", "clientmanager", "api", "block"},
+	entry({"admin", "services", "clientmanager", "api", "block"},
 		call("api_block_device"))
 
-	entry({"admin", "network", "clientmanager", "api", "unblock"},
+	entry({"admin", "services", "clientmanager", "api", "unblock"},
 		call("api_unblock_device"))
 
-	entry({"admin", "network", "clientmanager", "api", "limit"},
+	entry({"admin", "services", "clientmanager", "api", "limit"},
 		call("api_limit_speed"))
 
-	entry({"admin", "network", "clientmanager", "api", "traffic"},
+	entry({"admin", "services", "clientmanager", "api", "traffic"},
 		call("api_traffic_data"))
 
-	entry({"admin", "network", "clientmanager", "api", "reset"},
+	entry({"admin", "services", "clientmanager", "api", "reset"},
 		call("api_reset_stats"))
 
-	entry({"admin", "network", "clientmanager", "api", "export"},
+	entry({"admin", "services", "clientmanager", "api", "export"},
 		call("api_export_traffic"))
 
-	entry({"admin", "network", "clientmanager", "api", "alias"},
+	entry({"admin", "services", "clientmanager", "api", "alias"},
 		call("api_set_alias"))
 
-	entry({"admin", "network", "clientmanager", "api", "schedule"},
+	entry({"admin", "services", "clientmanager", "api", "schedule"},
 		call("api_schedule"))
 
-	entry({"admin", "network", "clientmanager", "api", "history"},
+	entry({"admin", "services", "clientmanager", "api", "history"},
 		call("api_connection_history"))
 
-	entry({"admin", "network", "clientmanager", "api", "realtime"},
+	entry({"admin", "services", "clientmanager", "api", "realtime"},
 		call("api_realtime_speed"))
 end
 
@@ -565,34 +561,34 @@ function guess_device_type(vendor, hostname)
 	local h = hostname:lower()
 
 	if h:match("iphone") or h:match("android") or h:match("galaxy") or h:match("pixel") or h:match("huawei%-") or h:match("redmi") then
-		return "Mobile"
+		return "手机"
 	end
 	if h:match("ipad") or h:match("tablet") then
-		return "Tablet"
+		return "平板"
 	end
 	if h:match("tv") or h:match("roku") or h:match("chromecast") or h:match("fire%-tv") then
-		return "Smart TV"
+		return "智能电视"
 	end
 	if h:match("echo") or h:match("home") or h:match("nest") or h:match("ring") or h:match("smart") then
-		return "IoT Device"
+		return "物联网设备"
 	end
 	if v:match("mikrotik") or v:match("ubiquiti") or v:match("tp%-link") or v:match("netgear") or v:match("asus") then
-		return "Router"
+		return "路由器"
 	end
 	if h:match("playstation") or h:match("xbox") or h:match("nintendo") or h:match("switch") then
-		return "Game Console"
+		return "游戏机"
 	end
 	if v:match("apple") and not h:match("tv") then
-		return "Mobile"
+		return "手机"
 	end
 	if v:match("samsung") or v:match("huawei") or v:match("xiaomi") then
-		return "Mobile"
+		return "手机"
 	end
 	if v:match("vmware") or v:match("virtual") then
-		return "Virtual"
+		return "虚拟设备"
 	end
 
-	return "Computer"
+	return "电脑"
 end
 
 function get_traffic_statistics()
