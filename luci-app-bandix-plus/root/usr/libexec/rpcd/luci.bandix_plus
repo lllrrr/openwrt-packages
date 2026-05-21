@@ -4,7 +4,7 @@
 
 bplus_base() {
 	local p
-	p="$(uci -q get bandix_plus.general.port)"
+	p="$(uci -q get bandix-plus.general.port)"
 	[ -z "$p" ] && p="8787"
 	printf 'http://127.0.0.1:%s' "$p"
 }
@@ -136,6 +136,8 @@ case "$1" in
 		json_add_string "hostname"
 		json_close_object
 		json_add_object "getVersion"
+		json_close_object
+		json_add_object "getStatus"
 		json_close_object
 		json_add_object "restartService"
 		json_close_object
@@ -419,6 +421,61 @@ case "$1" in
 				json_init
 				json_add_string "bandix_plus_pkg" "${pkgv:-unknown}"
 				json_add_string "api_health_ok" "${api_ok:-0}"
+				json_dump
+				json_cleanup
+				;;
+			getStatus)
+				# enabled: /etc/init.d/bandix-plus enabled exit code (0=enabled)
+				enabled=0
+				if [ -x /etc/init.d/bandix-plus ]; then
+					/etc/init.d/bandix-plus enabled 2>/dev/null && enabled=1
+				fi
+
+				# running/pid: ask procd via ubus
+				running=0
+				pid=0
+				svc_json="$(ubus call service list '{"name":"bandix-plus"}' 2>/dev/null)"
+				if [ -n "$svc_json" ]; then
+					pid="$(echo "$svc_json" | jsonfilter -e '$["bandix-plus"].instances["bandix-plus"].pid' 2>/dev/null)"
+					case "$pid" in
+						''|*[!0-9]*) pid=0 ;;
+					esac
+					[ "$pid" -gt 0 ] 2>/dev/null && running=1
+				fi
+				if [ "$running" -eq 0 ] && [ -f /var/run/bandix-plus.pid ]; then
+					p="$(cat /var/run/bandix-plus.pid 2>/dev/null)"
+					case "$p" in
+						''|*[!0-9]*) ;;
+						*)
+							if [ -d "/proc/$p" ]; then
+								running=1
+								pid="$p"
+							fi
+							;;
+					esac
+				fi
+
+				# uci enable_traffic flag (1 means user wants service running)
+				enable_traffic="$(uci -q get bandix-plus.general.enable_traffic)"
+				[ -z "$enable_traffic" ] && enable_traffic=0
+
+				# api health probe
+				hb=$(bplus_get "$BASE/api/health")
+				api_ok=0
+				echo "$hb" | grep -q '"ok":true' && api_ok=1
+
+				# package version
+				pkgv=""
+				[ -f /usr/lib/opkg/info/bandix-plus.control ] && \
+					pkgv=$(grep "^Version:" /usr/lib/opkg/info/bandix-plus.control 2>/dev/null | cut -d' ' -f2)
+
+				json_init
+				json_add_int    "enabled"         "$enabled"
+				json_add_int    "running"         "$running"
+				json_add_int    "pid"             "$pid"
+				json_add_int    "enable_traffic"  "$enable_traffic"
+				json_add_int    "api_health_ok"   "$api_ok"
+				json_add_string "bandix_plus_pkg" "${pkgv:-unknown}"
 				json_dump
 				json_cleanup
 				;;

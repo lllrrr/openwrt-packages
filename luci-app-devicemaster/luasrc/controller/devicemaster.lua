@@ -50,6 +50,7 @@ function index()
     report_sub_node.leaf = true
     entry({"admin", "network", "devicemaster", "api", "scan_network"}, call("api_scan_network"))
     entry({"admin", "network", "devicemaster", "api", "discover"}, call("api_discover"))
+    entry({"admin", "network", "devicemaster", "api", "set_mode"}, call("api_set_mode"))
 
     -- OUI Database management
     entry({"admin", "network", "devicemaster", "download_oui"}, call("action_download_oui"))
@@ -886,6 +887,25 @@ end
 local response_cache_str = nil
 local response_cache_time = 0
 local CACHE_TTL = 15
+
+-- ============================================================
+-- API: Set device monitor mode (active/idle)
+-- Called by frontend when page opens/closes
+-- ============================================================
+function api_set_mode()
+    local mode = luci.http.formvalue("mode") or "idle"
+    local f = io.open("/tmp/dm_mode", "w")
+    if f then
+        f:write(mode)
+        f:close()
+    end
+    -- Also update legacy page_active file for backward compat
+    if mode == "active" then
+        f = io.open("/tmp/dm_page_active", "w")
+        if f then f:write(tostring(os.time())); f:close() end
+    end
+    json_response({success = true, mode = mode})
+end
 
 -- ============================================================
 -- Core API: Real-time device status

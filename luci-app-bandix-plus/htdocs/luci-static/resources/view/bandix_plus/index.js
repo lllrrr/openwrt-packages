@@ -62,6 +62,8 @@ var callGetGuestWhitelist = rpc.declare({ object: 'luci.bandix_plus', method: 'g
 var callAddGuestWhitelist = rpc.declare({ object: 'luci.bandix_plus', method: 'addGuestWhitelist', params: [ 'payload' ], expect: {} });
 var callRemoveGuestWhitelist = rpc.declare({ object: 'luci.bandix_plus', method: 'removeGuestWhitelist', params: [ 'payload' ], expect: {} });
 var callGetVersion = rpc.declare({ object: 'luci.bandix_plus', method: 'getVersion', expect: {} });
+var callGetStatus = rpc.declare({ object: 'luci.bandix_plus', method: 'getStatus', expect: {} });
+var callRestartService = rpc.declare({ object: 'luci.bandix_plus', method: 'restartService', expect: {} });
 
 function bplusJson(r) {
 	if (r == null) return null;
@@ -583,7 +585,22 @@ function ensureLayoutCss() {
 		'.bplus-page .bplus-trend-toolbar,.bplus-page .bplus-device-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;justify-content:flex-end;}',
 		'.bplus-page .bplus-trend-toolbar .cbi-input-select,.bplus-page .bplus-device-toolbar .cbi-input-select{min-width:6em;}',
 		'.bplus-page .bplus-section{margin-top:1.25rem;}',
-		'.bplus-page .bplus-section>h3{margin:0 0 12px 0;font-size:1.1rem;font-weight:600;}'
+		'.bplus-page .bplus-section>h3{margin:0 0 12px 0;font-size:1.1rem;font-weight:600;}',
+		/* status banner */
+		'.bplus-page .bplus-status-bar{display:flex;flex-wrap:wrap;align-items:stretch;gap:12px;padding:12px 16px;border-radius:12px;border:1px solid var(--bplus-border,#d1d5db);background:var(--bplus-bg,#fff);margin-bottom:14px;}',
+		'.bplus-page .bplus-status-bar.is-down{border-color:#ef4444;background:rgba(239,68,68,0.08);}',
+		'.bplus-page .bplus-status-bar.is-warn{border-color:#f59e0b;background:rgba(245,158,11,0.08);}',
+		'.bplus-page .bplus-status-bar.is-disabled{border-color:#9ca3af;background:rgba(156,163,175,0.10);}',
+		'.bplus-page .bplus-status-cell{flex:1 1 140px;min-width:120px;display:flex;flex-direction:column;gap:2px;padding:0 8px;border-left:1px solid var(--bplus-border,#e5e7eb);}',
+		'.bplus-page .bplus-status-cell:first-child{border-left:0;padding-left:0;}',
+		'.bplus-page .bplus-status-cell .bplus-status-label{font-size:.78rem;opacity:.6;text-transform:uppercase;letter-spacing:.04em;}',
+		'.bplus-page .bplus-status-cell .bplus-status-value{font-size:1rem;font-weight:600;word-break:break-all;}',
+		'.bplus-page .bplus-status-cell .bplus-status-value.is-up{color:#16a34a;}',
+		'.bplus-page .bplus-status-cell .bplus-status-value.is-down{color:#dc2626;}',
+		'.bplus-page .bplus-status-cell .bplus-status-value.is-warn{color:#d97706;}',
+		'.bplus-page .bplus-status-cell .bplus-status-value.is-muted{color:#6b7280;}',
+		'.bplus-page .bplus-status-actions{display:flex;align-items:center;gap:8px;margin-left:auto;padding-left:8px;border-left:1px solid var(--bplus-border,#e5e7eb);}',
+		'.bplus-page .bplus-status-down-notice{padding:18px 16px;border-radius:12px;border:1px dashed var(--bplus-border,#d1d5db);background:var(--bplus-bg,#fff);text-align:center;color:#6b7280;}'
 	].join('');
 	document.head.appendChild(st);
 }
@@ -606,7 +623,7 @@ return view.extend({
 			return uci.load(pkg).catch(function () { return null; });
 		};
 		return Promise.all([
-			uci.load('bandix_plus'),
+			uci.load('bandix-plus'),
 			optionalLoad('luci'),
 			optionalLoad('argon'),
 			optionalLoad('kucat'),
@@ -997,6 +1014,111 @@ return view.extend({
 	setBusy: function (btn, busy) {
 		if (!btn) return;
 		btn.disabled = !!busy;
+	},
+
+	renderStatusBar: function (st) {
+		var bar = this.el && this.el.statusBar;
+		if (!bar) return;
+		st = st || {};
+		var enabled = String(st.enabled) === '1';
+		var running = String(st.running) === '1';
+		var et = String(st.enable_traffic) === '1';
+		var apiOk = String(st.api_health_ok) === '1';
+		var pid = String(st.pid || '');
+
+		var stateLabel, stateCls, barCls;
+		if (!et) {
+			stateLabel = _('Disabled');
+			stateCls = 'is-muted';
+			barCls = 'is-disabled';
+		} else if (running && apiOk) {
+			stateLabel = _('Running');
+			stateCls = 'is-up';
+			barCls = '';
+		} else if (running && !apiOk) {
+			stateLabel = _('API Unreachable');
+			stateCls = 'is-warn';
+			barCls = 'is-warn';
+		} else {
+			stateLabel = _('Stopped');
+			stateCls = 'is-down';
+			barCls = 'is-down';
+		}
+
+		bar.className = 'bplus-status-bar' + (barCls ? ' ' + barCls : '');
+
+		var port = '';
+		try { port = uci.get('bandix-plus', 'general', 'port') || ''; } catch (e) {}
+		if (!port) port = '8787';
+
+		function cell(label, valueText, valueCls) {
+			return E('div', { 'class': 'bplus-status-cell' }, [
+				E('div', { 'class': 'bplus-status-label' }, [ label ]),
+				E('div', { 'class': 'bplus-status-value' + (valueCls ? ' ' + valueCls : '') }, [ valueText ])
+			]);
+		}
+
+		var apiCell = cell(_('API'), apiOk ? _('OK') : _('Fail'), apiOk ? 'is-up' : 'is-down');
+		var pidCell = cell('PID', running && pid ? pid : '—', running ? 'is-up' : 'is-muted');
+		var stateCell = cell(_('State'), stateLabel, stateCls);
+		var enabledCell = cell(_('Auto-start'), enabled ? _('on') : _('off'), enabled ? 'is-up' : 'is-muted');
+		var versionCell = cell(_('Package'), st.bandix_plus_pkg || _('unknown'));
+		var portCell = cell(_('Port'), String(port));
+
+		var restartBtn = E('button', {
+			'type': 'button',
+			'class': 'btn cbi-button cbi-button-action'
+		}, [ _('Restart') ]);
+		restartBtn.addEventListener('click', L.bind(this.handleRestartClick, this));
+
+		var actions = E('div', { 'class': 'bplus-status-actions' }, [ restartBtn ]);
+
+		dom.content(bar, [
+			stateCell, pidCell, apiCell, portCell, enabledCell, versionCell, actions
+		]);
+
+		var down = !(et && running && apiOk);
+		if (this.el.statusDownNotice)
+			this.el.statusDownNotice.style.display = down ? '' : 'none';
+		if (this.el.mainSection)
+			this.el.mainSection.style.display = down ? 'none' : '';
+	},
+
+	handleRestartClick: function (ev) {
+		var btn = ev && ev.currentTarget;
+		this.setBusy(btn, true);
+		var self = this;
+		return callRestartService().then(bplusJson).then(function (r) {
+			if (!r || String(r.ok) !== '1') {
+				ui.addNotification(null, E('p', {}, [ _('Failed to restart bandix-plus') ]), 'error');
+			} else {
+				ui.addNotification(null, E('p', {}, [ _('bandix-plus restart requested') ]), 'info');
+			}
+		}).catch(function (e) {
+			self.notifyError(_('Failed to restart bandix-plus'), e);
+		}).finally(function () {
+			self.setBusy(btn, false);
+			return self.refreshServiceStatus();
+		});
+	},
+
+	refreshServiceStatus: function () {
+		var self = this;
+		return callGetStatus().then(bplusJson).then(function (st) {
+			self.serviceStatus = st || {};
+			self.renderStatusBar(self.serviceStatus);
+			return self.serviceStatus;
+		}).catch(function () {
+			self.serviceStatus = { running: '0', api_health_ok: '0' };
+			self.renderStatusBar(self.serviceStatus);
+		});
+	},
+
+	isServiceUp: function () {
+		var st = this.serviceStatus || {};
+		return String(st.enable_traffic) === '1' &&
+			String(st.running) === '1' &&
+			String(st.api_health_ok) === '1';
 	},
 
 	notifyError: function (msg, err) {
@@ -4081,8 +4203,13 @@ return view.extend({
 		this.el.trendTypeSelect.value = this.selectedTrendType;
 		this.el.statsLoadingNotice = E('div', { 'class': 'bplus-stats-loading-notice', 'style': 'display:none' }, []);
 
-		this.root = E('div', { 'class': 'bplus-page' }, [
-			E('div', { 'class': 'bplus-main' }, [
+		/* Service status banner (top of page) — populated by refreshServiceStatus(). */
+		this.el.statusBar = E('div', { 'class': 'bplus-status-bar' }, []);
+		this.el.statusDownNotice = E('div', {
+			'class': 'bplus-status-down-notice',
+			'style': 'display:none'
+		}, [ _('bandix-plus is not running. Charts and tables are hidden until the service is up.') ]);
+		this.el.mainSection = E('div', { 'class': 'bplus-main' }, [
 				E('section', { 'class': 'bplus-panel' }, [
 					E('div', { 'class': 'bplus-panel-head' }, [
 						E('h2', [ _('Interface Overview') ]),
@@ -4254,7 +4381,12 @@ return view.extend({
 						])
 					])
 				])
-			])
+			]);
+
+		this.root = E('div', { 'class': 'bplus-page' }, [
+			this.el.statusBar,
+			this.el.statusDownNotice,
+			this.el.mainSection
 		]);
 
 		return this.root;
@@ -4284,6 +4416,8 @@ return view.extend({
 		this.el.statsStart.setAttribute('max', cap);
 		this.el.statsEnd.setAttribute('max', cap);
 
+		this.refreshServiceStatus();
+
 		this.refreshLive(false).then(L.bind(function () {
 			if (this.el.statsIface && this.el.statsIface.value) this.queryStats();
 			if (this.el.rankIface && this.el.rankIface.value) this.queryUsageRanking();
@@ -4295,6 +4429,7 @@ return view.extend({
 			poll.add(L.bind(function () {
 				this.setThemeClass();
 				return Promise.all([
+					this.refreshServiceStatus(),
 					this.refreshLive(false),
 					this.refreshRateData(false)
 				]);

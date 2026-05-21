@@ -8,7 +8,7 @@
 		},
 		"depends": {
 			"acl": [ "luci-app-bandix-plus" ],
-			"uci": { "bandix_plus": true }
+			"uci": { "bandix-plus": true }
 		}
 	},
 	"admin/network/bandix_plus/index": {

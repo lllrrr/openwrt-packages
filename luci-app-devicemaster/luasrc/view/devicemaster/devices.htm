@@ -373,14 +373,29 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     startRefresh();
 
-    // Tab visibility: pause refresh when hidden, resume when visible
+    // Dual-mode: notify backend when page opens/closes
+    function setBackendMode(mode) {
+        httpPost(apiUrl + '/set_mode', 'mode=' + mode, function(){});
+    }
+    
+    // Set active mode on page load
+    setBackendMode('active');
+    
+    // Tab visibility: pause refresh and set idle mode when hidden
     document.addEventListener('visibilitychange', function() {
         if (document.hidden) {
             stopRefresh();
+            setBackendMode('idle');
         } else {
+            setBackendMode('active');
             silentRefresh();
             startRefresh();
         }
+    });
+    
+    // Set idle mode when page unloads (close/refresh/navigate away)
+    window.addEventListener('beforeunload', function() {
+        setBackendMode('idle');
     });
 });
 })();

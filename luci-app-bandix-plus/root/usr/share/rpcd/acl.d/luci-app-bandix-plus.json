@@ -16,10 +16,11 @@
 					"getIfaceLimits",
 					"getGuestDefaults",
 					"getGuestWhitelist",
-					"getVersion"
+					"getVersion",
+					"getStatus"
 				]
 			},
-			"uci": [ "bandix_plus" ]
+			"uci": [ "bandix-plus" ]
 		},
 		"write": {
 			"ubus": {
@@ -37,6 +38,7 @@
 					"getGuestDefaults",
 					"getGuestWhitelist",
 					"getVersion",
+					"getStatus",
 					"createSchedule",
 					"updateSchedule",
 					"deleteSchedule",
@@ -51,7 +53,7 @@
 					"restartService"
 				]
 			},
-			"uci": [ "bandix_plus" ]
+			"uci": [ "bandix-plus" ]
 		}
 	}
 }
