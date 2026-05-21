@@ -6,7 +6,6 @@ function index()
 		_("客户端管理"),
 		60)
 	page.dependent = false
-	page.acl_depends = { "luci-app-clientmanager" }
 
 	entry({"admin", "services", "clientmanager", "overview"},
 		call("action_overview"),
@@ -561,34 +560,34 @@ function guess_device_type(vendor, hostname)
 	local h = hostname:lower()
 
 	if h:match("iphone") or h:match("android") or h:match("galaxy") or h:match("pixel") or h:match("huawei%-") or h:match("redmi") then
-		return "手机"
+		return "Mobile"
 	end
 	if h:match("ipad") or h:match("tablet") then
-		return "平板"
+		return "Tablet"
 	end
 	if h:match("tv") or h:match("roku") or h:match("chromecast") or h:match("fire%-tv") then
-		return "智能电视"
+		return "Smart TV"
 	end
 	if h:match("echo") or h:match("home") or h:match("nest") or h:match("ring") or h:match("smart") then
-		return "物联网设备"
+		return "IoT Device"
 	end
 	if v:match("mikrotik") or v:match("ubiquiti") or v:match("tp%-link") or v:match("netgear") or v:match("asus") then
-		return "路由器"
+		return "Router"
 	end
 	if h:match("playstation") or h:match("xbox") or h:match("nintendo") or h:match("switch") then
-		return "游戏机"
+		return "Game Console"
 	end
 	if v:match("apple") and not h:match("tv") then
-		return "手机"
+		return "Mobile"
 	end
 	if v:match("samsung") or v:match("huawei") or v:match("xiaomi") then
-		return "手机"
+		return "Mobile"
 	end
 	if v:match("vmware") or v:match("virtual") then
-		return "虚拟设备"
+		return "Virtual"
 	end
 
-	return "电脑"
+	return "Computer"
 end
 
 function get_traffic_statistics()

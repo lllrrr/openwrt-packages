@@ -55,7 +55,7 @@ start_service() {
                     uci set luci.main.lang="$smart_lang"
                     uci commit luci
                     
-                    # 清除 LuCI 页面缓存，开机第一次运行时渲染语言
+                    # 清除 LuCI 页面缓存，强制下一次访问时重新渲染语言
                     rm -rf /tmp/luci-indexcache /tmp/luci-modulecache/* 2>/dev/null
                 fi
             fi
@@ -66,6 +66,24 @@ start_service() {
             if [ "$is_empty_pwd" -eq 1 ]; then
                 cat << 'EOF' > /www/cgi-bin/luci
 #!/bin/sh
+
+# 1. 语言检测与缓存清理
+IS_LANG_INIT=$(uci -q get netwiz.global.lang_init)
+if [ "$IS_LANG_INIT" != "1" ]; then
+    current_lang=$(uci -q get luci.main.lang)
+    if [ "$current_lang" = "auto" ] || [ "$current_lang" = "en" ] || [ -z "$current_lang" ]; then
+        smart_lang=$(ls /usr/lib/lua/luci/i18n/base.*.lmo 2>/dev/null | grep -v "\.en\." | head -n 1 | awk -F'.' '{print $2}' | tr '-' '_')
+        if [ -n "$smart_lang" ]; then
+            uci set luci.main.lang="$smart_lang"
+            uci commit luci
+            rm -rf /tmp/luci-indexcache /tmp/luci-modulecache/* 2>/dev/null
+        fi
+    fi
+    uci -q set netwiz.global.lang_init='1'
+    uci commit netwiz
+fi
+
+# 2. 页面拦截与向导跳转免密登录
 CONF=$(uci -q get netwiz.global.configured)
 
 if [ "$CONF" != "1" ]; then
@@ -82,7 +100,7 @@ if [ "$CONF" != "1" ]; then
         *admin/netwiz*|*luci-static*|*rpc*)
             ;;
         *)
-            # 输出 HTTP 头与隐形登录表单
+            # 输出 HTTP 头与隐形登录表单 (完美保留)
             printf "Status: 200 OK\r\n"
             printf "Content-Type: text/html; charset=utf-8\r\n"
             printf "Cache-Control: no-store, no-cache, must-revalidate, max-age=0\r\n\r\n"
@@ -101,9 +119,28 @@ EOF
             else
                 cat << 'EOF' > /www/cgi-bin/luci
 #!/bin/sh
+
+# 1. 语言检测与缓存清理
+IS_LANG_INIT=$(uci -q get netwiz.global.lang_init)
+if [ "$IS_LANG_INIT" != "1" ]; then
+    current_lang=$(uci -q get luci.main.lang)
+    if [ "$current_lang" = "auto" ] || [ "$current_lang" = "en" ] || [ -z "$current_lang" ]; then
+        smart_lang=$(ls /usr/lib/lua/luci/i18n/base.*.lmo 2>/dev/null | grep -v "\.en\." | head -n 1 | awk -F'.' '{print $2}' | tr '-' '_')
+        if [ -n "$smart_lang" ]; then
+            uci set luci.main.lang="$smart_lang"
+            uci commit luci
+            rm -rf /tmp/luci-indexcache /tmp/luci-modulecache/* 2>/dev/null
+        fi
+    fi
+    uci -q set netwiz.global.lang_init='1'
+    uci commit netwiz
+fi
+
+# 2. 页面拦截与向导跳转
 CONF=$(uci -q get netwiz.global.configured)
 
-if [ "$CONF" != "1" ]; then
+if [ "$CONF" != "1" ];
+then
     case "$PATH_INFO" in
         *rescue*)
             uci -q set netwiz.global.configured='1'

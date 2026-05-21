@@ -285,8 +285,8 @@ return view.extend({
             '  @media screen and (min-width: 769px) { #nw-wizard-modal .nw-wiz-modal-box { max-width: 660px !important; } }',
             '  @media screen and (max-width: 768px) { #nw-wizard-modal .nw-wiz-modal-box > div:nth-child(2) { padding: 15px 15px 10px !important; } }',
             '  @keyframes pulse { 0% { opacity: 1; box-shadow: 0 0 8px rgba(16,185,129,0.8); transform: scale(1); } 50% { opacity: 0.4; box-shadow: 0 0 2px rgba(16,185,129,0.2); transform: scale(0.85); } 100% { opacity: 1; box-shadow: 0 0 8px rgba(16,185,129,0.8); transform: scale(1); } }',
-            '  @keyframes wifi-wave { 0% { clip-path: inset(100% 0 0 0); } 30% { clip-path: inset(66% 0 0 0); } 60% { clip-path: inset(33% 0 0 0); } 90% { clip-path: inset(0 0 0 0); } 100% { clip-path: inset(0 0 0 0); } }',
-            '  .wifi-active-anim { animation: wifi-wave 1.5s infinite; }',
+            '  @keyframes wifi-wave { 0% { clip-path: inset(100% 0 0 0); } 20% { clip-path: inset(66% 0 0 0); } 40% { clip-path: inset(33% 0 0 0); } 60% { clip-path: inset(0 0 0 0); } 100% { clip-path: inset(0 0 0 0); } }',
+            '  .wifi-active-anim { animation: wifi-wave 2s infinite; }',
             '</style>',
 
             '<div class="nw-wrapper">',
@@ -786,12 +786,31 @@ return view.extend({
         updateWizSteps(currentWizStep);
 
         var skipAndReleaseLuci = function() {
-            // 直接隐藏向导弹窗
-            wizModal.style.display = 'none';
             var hideCb = container.querySelector('#wiz-hide-checkbox');
             var hideState = (hideCb && hideCb.checked) ? '0' : '1';
-            
-            silentSaveWizardState(hideState);
+
+            // 判断是「首次打开」还是「日常」
+            if (window._realIsConfigured === '0') {
+                // 跳官方后台
+                wizModal.style.display = 'none';
+                openModal({ 
+                    title: T['WIZ_SKIP_TITLE'] || '跳过向导', 
+                    msg: '<div style="color: #64748b; font-size: 16px; font-weight:bold;">' + (T['WIZ_SKIP_MSG'] || '进入官方后台中...') + '</div>', 
+                    spin: true 
+                });
+
+                silentSaveWizardState(hideState).then(function() {
+                    setTimeout(function() {
+                        window.location.replace('http://' + window.location.hostname + '/cgi-bin/luci/');
+                    }, 500);
+                }).catch(function() {
+                    window.location.replace('http://' + window.location.hostname + '/cgi-bin/luci/');
+                });
+            } else {
+                // 关闭直接隐藏
+                wizModal.style.display = 'none';
+                silentSaveWizardState(hideState);
+            }
         };
 
         container.querySelector('#wiz-modal-close').addEventListener('click', skipAndReleaseLuci);
@@ -1974,7 +1993,7 @@ return view.extend({
                         if (activeIfaces.length > 0) {
                             if (animLayer) {
                                 animLayer.style.display = 'block';
-                                animLayer.style.animation = 'wifi-wave 1.5s infinite'; 
+                                animLayer.style.animation = 'wifi-wave 2s infinite';
                             }
                             
                             var tagsHtml = '';
@@ -2467,6 +2486,12 @@ return view.extend({
                     container.querySelector('#wifi-5g2-enc').value = baseEnc;
                 }
                 
+                // 多频合一切回分开恢复漫游策略
+                var r2gEl = container.querySelector('#wifi-2g-roaming');
+                if (r2gEl) { r2gEl.checked = false; r2gEl.dispatchEvent(new Event('change')); }
+                var r5gEl = container.querySelector('#wifi-5g-roaming');
+                if (r5gEl) { r5gEl.checked = true; r5gEl.dispatchEvent(new Event('change')); }
+
                 // 联动完成后，执行跳转
                 jumpToActiveTab();
             }
