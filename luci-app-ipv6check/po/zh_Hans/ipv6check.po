@@ -1,0 +1,205 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "IPv6 Connectivity Check"
+msgstr "IPv6 连通性检测"
+
+msgid "Periodically check IPv6 connectivity and automatically restart a network interface when all targets are unreachable."
+msgstr "定时检测 IPv6 网络连通性，当所有目标均不可达时自动重启指定网络接口以恢复连接。"
+
+msgid "Global Settings"
+msgstr "全局设置"
+
+msgid "Enable Monitoring"
+msgstr "启用监测"
+
+msgid "Enable or disable the IPv6 connectivity check service"
+msgstr "启用或禁用 IPv6 连通性定时检测服务"
+
+msgid "Check Interval (seconds)"
+msgstr "检测间隔（秒）"
+
+msgid "Wait time between checks, minimum 30 seconds"
+msgstr "每次检测之间的等待时间，最小 30 秒"
+
+msgid "Check interval must be between 30 and 86400 seconds."
+msgstr "检测间隔必须在 30 到 86400 秒之间"
+
+msgid "Retry Count"
+msgstr "重试次数"
+
+msgid "Maximum ping attempts per target"
+msgstr "对每个目标地址的最大 ping 尝试次数"
+
+msgid "Retry count must be between 1 and 10."
+msgstr "重试次数必须在 1 到 10 之间"
+
+msgid "Retry Interval (seconds)"
+msgstr "重试间隔（秒）"
+
+msgid "Wait time between retries"
+msgstr "每次重试之间的等待时间"
+
+msgid "Retry interval must be between 1 and 3600 seconds."
+msgstr "重试间隔必须在 1 到 3600 秒之间"
+
+msgid "Failure Threshold"
+msgstr "失败阈值"
+
+msgid "Consecutive all-fail checks needed to trigger an interface restart"
+msgstr "连续检测全部失败达到此次数后触发接口重启"
+
+msgid "Failure threshold must be between 1 and 100."
+msgstr "失败阈值必须在 1 到 100 之间"
+
+msgid "Auto Restart Interface"
+msgstr "自动重启接口"
+
+msgid "Automatically restart the specified network interface when consecutive failures reach the threshold"
+msgstr "当 IPv6 连续失败达到阈值时自动重启指定的网络接口"
+
+msgid "Restart Interface"
+msgstr "重启接口"
+
+msgid "Network interface to restart on failure"
+msgstr "失败时需要重启的网络接口"
+
+msgid "Log Level"
+msgstr "日志级别"
+
+msgid "Controls the verbosity of the log"
+msgstr "控制日志的详细程度"
+
+msgid "Silent - errors only"
+msgstr "静默 - 仅记录错误"
+
+msgid "Normal - check results"
+msgstr "普通 - 记录检测结果"
+
+msgid "Verbose - all operations"
+msgstr "详细 - 记录所有操作"
+
+msgid "Max Log Entries"
+msgstr "最大日志条目"
+
+msgid "Maximum number of entries to keep in the local log file"
+msgstr "本地日志文件保留的最大条目数"
+
+msgid "Max log entries must be between 10 and 10000."
+msgstr "最大日志条目必须在 10 到 10000 之间"
+
+msgid "Add IPv6 targets to check. Adding multiple DNS servers from different providers improves accuracy."
+msgstr "添加需要检测的 IPv6 目标地址。建议添加多个不同运营商的 DNS 以提高检测准确性。"
+
+msgid "Add Target"
+msgstr "添加检测目标"
+
+msgid "Name"
+msgstr "名称"
+
+msgid "IPv6 Address"
+msgstr "IPv6 地址"
+
+msgid "Please enter an IPv6 address."
+msgstr "请输入 IPv6 地址"
+
+msgid "Please enter a valid IPv6 address or hostname."
+msgstr "请输入有效的 IPv6 地址或域名"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "All reachable"
+msgstr "全部可达"
+
+msgid "Partial"
+msgstr "部分可达"
+
+msgid "All unreachable"
+msgstr "全部不可达"
+
+msgid "Unknown"
+msgstr "未知"
+
+msgid "Detection Log"
+msgstr "检测日志"
+
+msgid "Interface Restart History"
+msgstr "接口重启历史"
+
+msgid "No log entries."
+msgstr "暂无日志"
+
+msgid "No restart records."
+msgstr "暂无重启记录"
+
+msgid "Check Now"
+msgstr "立即检测"
+
+msgid "Checking..."
+msgstr "检测中..."
+
+msgid "Restart interface "
+msgstr "确定要重启接口 "
+
+msgid "Restarting..."
+msgstr "重启中..."
+
+msgid "Auto Restart"
+msgstr "自动重启"
+
+msgid "Connectivity Overview"
+msgstr "连通性总览"
+
+msgid "Overall Status"
+msgstr "整体状态"
+
+msgid "Last Check"
+msgstr "最近检测"
+
+msgid "Never"
+msgstr "从未"
+
+msgid "Target Pass Rate"
+msgstr "目标通过率"
+
+msgid "Consecutive Failures"
+msgstr "连续失败"
+
+msgid "Detection Targets"
+msgstr "检测目标"
+
+msgid "No targets configured. Please go to Configuration to add targets."
+msgstr "暂无检测目标，请前往「参数配置」添加"
+
+msgid "Unnamed"
+msgstr "未命名"
+
+msgid "Reachable"
+msgstr "可达"
+
+msgid "Unreachable"
+msgstr "不可达"
+
+msgid "Runtime Info"
+msgstr "运行信息"
+
+msgid "Check Interval"
+msgstr "检测间隔"
+
+msgid "seconds"
+msgstr "秒"
+
+msgid "Enabled"
+msgstr "已启用"
+
+msgid "Disabled"
+msgstr "已禁用"
+
+msgid "consecutive failures before restart"
+msgstr "次连续失败后重启"
+
+msgid "Last Restart"
+msgstr "上次重启"

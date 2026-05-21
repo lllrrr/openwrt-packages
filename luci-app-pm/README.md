@@ -11,3 +11,5 @@
 [Generic Docs](https://867678.xyz/doc/build)
 ## ⚖️ License
 > This application provides **no warranties.**
+>
+> The .po file is licensed under **GPL-2.0.**

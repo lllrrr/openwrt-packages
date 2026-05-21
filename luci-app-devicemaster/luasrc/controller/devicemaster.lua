@@ -658,11 +658,23 @@ local function get_arp_online()
             end
         end
     end
+    
+    -- Build IP→MAC mapping from DHCP (source of truth for IP assignments)
+    -- This handles cases where sub-routers (like JI-weixing) assign IPs to downstream devices
+    -- and the main router only sees the sub-router's MAC in ARP
+    local dhcp_ip_to_mac = {}
+    for mac, info in pairs(dhcp_leases) do
+        if info.ip and info.ip ~= "" then
+            dhcp_ip_to_mac[info.ip] = mac
+        end
+    end
+    
     for mac, _ in pairs(wifi_stations) do
         online[mac] = all_arp[mac] or (dhcp_leases[mac] and dhcp_leases[mac].ip) or neigh_by_mac[mac] or ""
     end
 
     -- Tier 2: ip neigh REACHABLE/PERMANENT
+    -- Skip ARP entries where IP is already claimed by DHCP for a different MAC
     local output = sys.exec("ip neigh show dev br-lan 2>/dev/null")
     if output and output ~= "" then
         for line in output:gmatch("[^\r\n]+") do
@@ -673,7 +685,14 @@ local function get_arp_online()
                 state = state:upper()
                 mac = mac:upper()
                 if state == "REACHABLE" or state == "PERMANENT" or state == "STALE" or state == "DELAY" then
-                    online[mac] = ip
+                    -- Skip if this IP is claimed by DHCP for a different MAC
+                    -- (indicates sub-router is NATting or doing DHCP for downstream devices)
+                    local dhcp_owner = dhcp_ip_to_mac[ip]
+                    if dhcp_owner and dhcp_owner ~= mac then
+                        -- Skip this ARP entry, use DHCP's mapping instead
+                    else
+                        online[mac] = ip
+                    end
                 end
             end
         end
@@ -693,9 +712,13 @@ local function get_arp_online()
     end
 
     -- Tier 4: Ping probe for non-WiFi devices
+    -- Skip ARP entries where IP is already claimed by DHCP for a different MAC
     for mac, ip in pairs(all_arp) do
         if not online[mac] and not wifi_stations[mac] and is_valid_ip(ip) then
-            probe_macs[mac] = ip
+            local dhcp_owner = dhcp_ip_to_mac[ip]
+            if not (dhcp_owner and dhcp_owner ~= mac) then
+                probe_macs[mac] = ip
+            end
         end
     end
 
@@ -960,13 +983,19 @@ function api_status()
                 end
             end
             -- Fill IPs for remaining local devices (WiFi stations with empty IP)
+            -- Skip if IP is already claimed by DHCP for a different MAC
             for mac, ip in pairs(remote_arp) do
-                local cur = online_macs[mac]
-                if cur == "" and ip ~= "" then
-                    online_macs[mac] = ip
-                end
-                if not all_arp[mac] then
-                    all_arp[mac] = ip
+                local dhcp_owner = dhcp_ip_to_mac[ip]
+                if dhcp_owner and dhcp_owner ~= mac then
+                    -- Skip: this IP is claimed by DHCP for a different MAC
+                else
+                    local cur = online_macs[mac]
+                    if cur == "" and ip ~= "" then
+                        online_macs[mac] = ip
+                    end
+                    if not all_arp[mac] then
+                        all_arp[mac] = ip
+                    end
                 end
             end
             -- 识别 mesh 主节点 MAC 并标记为在线

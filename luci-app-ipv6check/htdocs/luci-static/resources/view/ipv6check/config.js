@@ -4,7 +4,7 @@
 'require uci';
 'require rpc';
 
-/* IPv6 连通性检测 - 参数配置页面 */
+/* IPv6 Connectivity Check - Configuration page */
 
 var callGetInterfaces = rpc.declare({
 	object: 'ipv6check',
@@ -28,78 +28,78 @@ return view.extend({
 
 		var m, s, o;
 
-		/* ===== 主表单 ===== */
-		m = new form.Map('ipv6check', 'IPv6 连通性检测',
-			'定时检测 IPv6 网络连通性，当所有目标均不可达时自动重启指定网络接口以恢复连接。');
+		/* ===== Main form ===== */
+		m = new form.Map('ipv6check', _('IPv6 Connectivity Check'),
+			_('Periodically check IPv6 connectivity and automatically restart a network interface when all targets are unreachable.'));
 
-		/* ===== 全局设置 ===== */
-		s = m.section(form.NamedSection, 'global', 'ipv6check', '全局设置');
+		/* ===== Global settings ===== */
+		s = m.section(form.NamedSection, 'global', 'ipv6check', _('Global Settings'));
 		s.anonymous = false;
 		s.addremove = false;
 
-		/* 启用开关 */
-		o = s.option(form.Flag, 'enabled', '启用监测',
-			'启用或禁用 IPv6 连通性定时检测服务');
+		/* enabled toggle */
+		o = s.option(form.Flag, 'enabled', _('Enable Monitoring'),
+			_('Enable or disable the IPv6 connectivity check service'));
 		o.default = '1';
 		o.rmempty = false;
 
-		/* 检测间隔 */
-		o = s.option(form.Value, 'interval', '检测间隔（秒）',
-			'每次检测之间的等待时间，最小 30 秒');
+		/* check interval */
+		o = s.option(form.Value, 'interval', _('Check Interval (seconds)'),
+			_('Wait time between checks, minimum 30 seconds'));
 		o.datatype = 'uinteger';
 		o.default = '300';
 		o.placeholder = '300';
 		o.rmempty = false;
 		o.validate = function(section_id, value) {
 			var v = parseInt(value);
-			if (isNaN(v) || v < 30 || v > 86400) return '检测间隔必须在 30 到 86400 秒之间';
+			if (isNaN(v) || v < 30 || v > 86400) return _('Check interval must be between 30 and 86400 seconds.');
 			return true;
 		};
 
-		/* 重试次数 */
-		o = s.option(form.Value, 'retry_count', '重试次数',
-			'对每个目标地址的最大 ping 尝试次数');
+		/* retry count */
+		o = s.option(form.Value, 'retry_count', _('Retry Count'),
+			_('Maximum ping attempts per target'));
 		o.datatype = 'uinteger';
 		o.default = '3';
 		o.placeholder = '3';
 		o.validate = function(section_id, value) {
 			var v = parseInt(value);
-			if (isNaN(v) || v < 1 || v > 10) return '重试次数必须在 1 到 10 之间';
+			if (isNaN(v) || v < 1 || v > 10) return _('Retry count must be between 1 and 10.');
 			return true;
 		};
 
-		/* 重试间隔 */
-		o = s.option(form.Value, 'retry_interval', '重试间隔（秒）',
-			'每次重试之间的等待时间');
+		/* retry interval */
+		o = s.option(form.Value, 'retry_interval', _('Retry Interval (seconds)'),
+			_('Wait time between retries'));
 		o.datatype = 'uinteger';
 		o.default = '10';
 		o.placeholder = '10';
 		o.validate = function(section_id, value) {
 			var v = parseInt(value);
-			if (isNaN(v) || v < 1 || v > 3600) return '重试间隔必须在 1 到 3600 秒之间';
+			if (isNaN(v) || v < 1 || v > 3600) return _('Retry interval must be between 1 and 3600 seconds.');
 			return true;
 		};
 
-		/* 失败阈值 */
-		o = s.option(form.Value, 'failure_threshold', '失败阈值',
-			'连续检测全部失败达到此次数后触发接口重启');
+		/* failure threshold */
+		o = s.option(form.Value, 'failure_threshold', _('Failure Threshold'),
+			_('Consecutive all-fail checks needed to trigger an interface restart'));
 		o.datatype = 'uinteger';
 		o.default = '3';
 		o.placeholder = '3';
 		o.validate = function(section_id, value) {
 			var v = parseInt(value);
-			if (isNaN(v) || v < 1 || v > 100) return '失败阈值必须在 1 到 100 之间';
+			if (isNaN(v) || v < 1 || v > 100) return _('Failure threshold must be between 1 and 100.');
 			return true;
 		};
 
-		/* 自动重启开关 */
-		o = s.option(form.Flag, 'auto_restart', '自动重启接口',
-			'当 IPv6 连续失败达到阈值时自动重启指定的网络接口');
+		/* auto restart toggle */
+		o = s.option(form.Flag, 'auto_restart', _('Auto Restart Interface'),
+			_('Automatically restart the specified network interface when consecutive failures reach the threshold'));
 		o.default = '1';
 
-		/* 重启接口选择 */
-		o = s.option(form.ListValue, 'restart_interface', '重启接口',
-			'失败时需要重启的网络接口');
+		/* restart interface selector */
+		o = s.option(form.ListValue, 'restart_interface', _('Restart Interface'),
+			_('Network interface to restart on failure'));
 		o.default = 'wan6';
 		interfaces.forEach(function(iface) {
 			o.value(iface, iface);
@@ -109,47 +109,46 @@ return view.extend({
 			o.value('wan6', 'wan6');
 		}
 
-		/* 日志级别 */
-		o = s.option(form.ListValue, 'log_level', '日志级别',
-			'控制日志的详细程度');
-		o.value('0', '静默 - 仅记录错误');
-		o.value('1', '普通 - 记录检测结果');
-		o.value('2', '详细 - 记录所有操作');
+		/* log level */
+		o = s.option(form.ListValue, 'log_level', _('Log Level'),
+			_('Controls the verbosity of the log'));
+		o.value('0', _('Silent - errors only'));
+		o.value('1', _('Normal - check results'));
+		o.value('2', _('Verbose - all operations'));
 		o.default = '1';
 
-		/* 最大日志条目 */
-		o = s.option(form.Value, 'max_log_entries', '最大日志条目',
-			'本地日志文件保留的最大条目数');
+		/* max log entries */
+		o = s.option(form.Value, 'max_log_entries', _('Max Log Entries'),
+			_('Maximum number of entries to keep in the local log file'));
 		o.datatype = 'uinteger';
 		o.default = '100';
 		o.placeholder = '100';
 		o.validate = function(section_id, value) {
 			var v = parseInt(value);
-			if (isNaN(v) || v < 10 || v > 10000) return '最大日志条目必须在 10 到 10000 之间';
+			if (isNaN(v) || v < 10 || v > 10000) return _('Max log entries must be between 10 and 10000.');
 			return true;
 		};
 
-		/* ===== 检测目标列表 ===== */
-		s = m.section(form.TableSection, 'target', '检测目标',
-			'添加需要检测的 IPv6 目标地址。建议添加多个不同运营商的 DNS 以提高检测准确性。');
-		s.anonymous = true;
+		/* ===== Detection targets ===== */
+		s = m.section(form.TableSection, 'target', _('Detection Targets'),
+			_('Add IPv6 targets to check. Adding multiple DNS servers from different providers improves accuracy.'));
+		s.addbtntitle = _('Add Target');
 		s.addremove = true;
-		s.addbtntitle = '添加检测目标';
 		s.sortable = true;
 
-		/* 目标名称 */
-		o = s.option(form.Value, 'name', '名称');
-		o.placeholder = '例如: Google DNS';
+		/* target name */
+		o = s.option(form.Value, 'name', _('Name'));
+		o.placeholder = 'e.g. Google DNS';
 		o.rmempty = false;
 		o.width = '25%';
 
-		/* 目标地址 */
-		o = s.option(form.Value, 'host', 'IPv6 地址');
-		o.placeholder = '例如: 2001:4860:4860::8888';
+		/* target address */
+		o = s.option(form.Value, 'host', _('IPv6 Address'));
+		o.placeholder = 'e.g. 2001:4860:4860::8888';
 		o.rmempty = false;
 		o.width = '45%';
 		o.validate = function(section_id, value) {
-			if (!value || value === '') return '请输入 IPv6 地址';
+			if (!value || value === '') return _('Please enter an IPv6 address.');
 
 			/* 严格 IPv6 地址格式校验（RFC 4291 全表示形式） */
 			var ipv6Regex = /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:))$/;
@@ -157,13 +156,13 @@ return view.extend({
 			var hostnameRegex = /^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$/;
 
 			if (!ipv6Regex.test(value) && !hostnameRegex.test(value)) {
-				return '请输入有效的 IPv6 地址或域名';
+				return _('Please enter a valid IPv6 address or hostname.');
 			}
 			return true;
 		};
 
-		/* 启用开关 */
-		o = s.option(form.Flag, 'enabled', '启用');
+		/* enabled flag */
+		o = s.option(form.Flag, 'enabled', _('Enable'));
 		o.default = '1';
 		o.width = '15%';
 

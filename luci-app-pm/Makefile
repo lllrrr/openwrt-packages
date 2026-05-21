@@ -1,12 +1,13 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-pm
-PKG_VERSION:=0.3.5
-PKG_RELEASE:=$(shell date +%Y%m%d%H%M%S)
+PKG_VERSION:=0.3.6
+PKG_RELEASE:=1
 
-LUCI_TITLE:=Luci plugin that make ImmortalWRT poweroff and reboot to easy.
+LUCI_TITLE:=LuCI APP Power Manager - Poweroff and Reboot
+LUCI_DESCRIPTION:=LuCI plugin that makes OpenWrt poweroff and reboot easy.
 LUCI_PKGARCH:=all
 
 include $(TOPDIR)/feeds/luci/luci.mk
 
-$(eval $(call BuildPackage,$(PKG_NAME)))
+# call BuildPackage - OpenWrt buildroot signature

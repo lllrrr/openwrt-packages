@@ -3,6 +3,7 @@
 		"description": "ACL file for luci-app-powermanager",
 		"read": {
 			"ubus": {
+				"session": [ "access", "login" ],
 				"system": [ "info" ]
 			},
 			"file": {
@@ -11,7 +12,7 @@
 		},
 		"write": {
 			"ubus": {
-				"file": [ "exec" ]
+				"system": [ "reboot" ]
 			},
 			"file": {
 				"/sbin/poweroff": [ "exec" ]

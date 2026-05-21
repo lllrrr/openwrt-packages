@@ -5,7 +5,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=vlmcsd
-PKG_RELEASE:=11
+PKG_RELEASE:=12
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/tfslabs/vlmcsd.git
@@ -49,9 +49,9 @@ define Package/vlmcsd/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/bin/vlmcsd $(1)/usr/bin/vlmcsd
 
 	$(INSTALL_DIR) $(1)/etc
-	$(INSTALL_BIN) ./files/vlmcsd.ini $(1)/etc/vlmcsd.ini
+	$(INSTALL_DATA) ./files/vlmcsd.ini $(1)/etc/vlmcsd.ini
 	$(INSTALL_DIR) $(1)/etc/config
-	$(INSTALL_BIN) ./files/vlmcsd.conf $(1)/etc/config/vlmcsd
+	$(INSTALL_DATA) ./files/vlmcsd.conf $(1)/etc/config/vlmcsd
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/vlmcsd.init $(1)/etc/init.d/vlmcsd
 endef
