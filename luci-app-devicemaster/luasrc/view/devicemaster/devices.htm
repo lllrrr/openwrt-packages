@@ -41,11 +41,19 @@ Copyright (C) 2024 OpenWrt-DeviceMaster Project
 .stat-value{display:block;font-size:24px;font-weight:bold;color:#333}
 .stat-label{font-size:12px;color:#666}
 .devicemaster-devices{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;padding-left:20px}
-.device-card{background:#fff;border:1px solid #ddd;border-radius:8px;padding:15px}
+.device-card{background:#fff;border:1px solid #ddd;border-radius:8px;padding:15px;cursor:pointer;position:relative}
 .device-card.offline{opacity:0.6}
 .device-card.blocked{border-color:#dc3545;background:#fff5f5}
 .device-card.limited{border-color:#ffc107;background:#fffbf0}
 .device-card.upstream{background:#f0f4f8;border-color:#c5d0db;border-style:dashed}
+.device-card.selected{border-color:#007bff;background:#e3f2fd;box-shadow:0 0 0 2px #007bff}
+.device-card.has-alt-macs{border-left:4px solid #28a745}
+.device-alt-macs{font-size:10px;color:#28a745;margin-top:4px}
+.merge-hint{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#007bff;color:#fff;padding:12px 24px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:1000;display:none;gap:10px;align-items:center}
+.merge-hint.show{display:flex}
+.merge-hint .btn{background:#fff;color:#007bff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer}
+.merge-hint .btn:hover{background:#f0f0f0}
+.merge-hint .cancel{color:#fff;text-decoration:underline;cursor:pointer;margin-left:10px}
 .device-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
 .device-info{flex:1;min-width:0}
 .device-name{font-weight:bold;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -102,6 +110,71 @@ var devices=[];
 var deviceMap={};
 var apiUrl = '<%=luci.dispatcher.build_url("admin/network/devicemaster/api")%>';
 var typeLabels = {'phone':'手机','pc':'电脑','iot':'IoT','network':'网络','unknown':'未知'};
+var selectedDevices = [];  // 存储选中的设备MAC
+
+// 创建设备合并提示框
+var mergeHint = document.createElement('div');
+mergeHint.className = 'merge-hint';
+mergeHint.innerHTML = '<span id="merge-text">已选择 0 个设备</span><button class="btn" id="merge-btn">合并设备</button><span class="cancel" id="merge-cancel">取消</span>';
+document.body.appendChild(mergeHint);
+
+// 合并按钮点击事件
+document.getElementById('merge-btn').addEventListener('click', function() {
+    if (selectedDevices.length < 2) return;
+    var primaryMac = selectedDevices[0];
+    var secondaryMacs = selectedDevices.slice(1).join(',');
+    if (confirm('确定要将这 ' + selectedDevices.length + ' 个设备合并吗？\n\n主设备: ' + primaryMac + '\n备用MAC: ' + secondaryMacs)) {
+        httpPost(apiUrl + '/merge_devices', 'primary_mac=' + encodeURIComponent(primaryMac) + '&secondary_macs=' + encodeURIComponent(secondaryMacs), function(res) {
+            if (res && res.success) {
+                alert('设备合并成功！');
+                clearSelection();
+                loadDevices();
+            } else {
+                alert('合并失败: ' + (res && res.error || '未知错误'));
+            }
+        });
+    }
+});
+
+// 取消按钮点击事件
+document.getElementById('merge-cancel').addEventListener('click', clearSelection);
+
+function clearSelection() {
+    selectedDevices = [];
+    document.querySelectorAll('.device-card.selected').forEach(function(card) {
+        card.classList.remove('selected');
+    });
+    mergeHint.classList.remove('show');
+}
+
+function updateSelection(mac, card) {
+    var idx = selectedDevices.indexOf(mac);
+    if (idx >= 0) {
+        // 取消选择
+        selectedDevices.splice(idx, 1);
+        card.classList.remove('selected');
+    } else {
+        // 添加选择
+        if (selectedDevices.length >= 2) {
+            // 最多选择2个，替换最后一个
+            var oldMac = selectedDevices.pop();
+            document.getElementById('card-' + oldMac.replace(/:/g, '')).classList.remove('selected');
+        }
+        selectedDevices.push(mac);
+        card.classList.add('selected');
+    }
+    
+    // 更新提示框
+    if (selectedDevices.length >= 2) {
+        document.getElementById('merge-text').textContent = '已选择 ' + selectedDevices.length + ' 个设备，是否合并？';
+        mergeHint.classList.add('show');
+    } else if (selectedDevices.length === 1) {
+        document.getElementById('merge-text').textContent = '已选择 1 个设备，请再选择一个';
+        mergeHint.classList.add('show');
+    } else {
+        mergeHint.classList.remove('show');
+    }
+}
 
 function httpGet(url, callback) {
     var xhr = new XMLHttpRequest();
@@ -150,8 +223,9 @@ function buildCardHTML(d) {
     var cls = getStatusClass(d);
     var upstream = d.is_controllable === false;
     if (upstream) cls += ' upstream';
+    if (d.alt_macs && d.alt_macs.length > 0) cls += ' has-alt-macs';
     var typeLabel = typeLabels[d.type] || typeLabels['unknown'];
-    var h = '<div class="device-card ' + cls + '" id="card-' + d.mac.replace(/:/g,'') + '">';
+    var h = '<div class="device-card ' + cls + '" id="card-' + d.mac.replace(/:/g,'') + '" data-mac="' + d.mac + '">';
     h += '<div class="device-header"><div class="device-info">';
     h += '<div class="device-name">' + escapeHtml(name) + '</div>';
     var meshBadge = (d.topology === 'mesh_node' && d.mesh_connected) ? ' <span class="device-type mesh" style="background:#4caf50;color:#fff;">mesh</span>' : '';
@@ -161,18 +235,25 @@ function buildCardHTML(d) {
     if (d.rate_limit) {
         detailsHtml += '<div style="color:#e65100;font-weight:bold;">限速: ' + escapeHtml(d.rate_limit) + '</div>';
     }
+    // 显示备用MAC（轮动式展示，节省空间）
+    if (d.alt_macs && d.alt_macs.length > 0) {
+        var altCount = d.alt_macs.length;
+        var altText = d.alt_macs[0];
+        if (altCount > 1) altText += ' (+' + (altCount - 1) + ')';
+        detailsHtml += '<div class="device-alt-macs" title="' + d.alt_macs.join(', ') + '">备用: ' + altText + '</div>';
+    }
     h += '<div class="device-details">' + detailsHtml + '</div>';
     h += '<div class="device-actions">';
-    h += '<button class="btn cbi-button" onclick="editDevice(\'' + d.mac + '\')">编辑</button>';
+    h += '<button class="btn cbi-button" onclick="event.stopPropagation(); editDevice(\'' + d.mac + '\')">编辑</button>';
     if (upstream) {
         h += '<span class="device-hint" style="color:#888;font-size:11px;">上游设备不可控</span>';
     } else {
         if (d.blocked) {
-            h += '<button class="btn cbi-button cbi-button-positive" onclick="unblockDevice(\'' + d.mac + '\')">解除限制</button>';
+            h += '<button class="btn cbi-button cbi-button-positive" onclick="event.stopPropagation(); unblockDevice(\'' + d.mac + '\')">解除限制</button>';
         } else {
-            h += '<button class="btn cbi-button cbi-button-negative" onclick="blockDevice(\'' + d.mac + '\')">封禁</button>';
+            h += '<button class="btn cbi-button cbi-button-negative" onclick="event.stopPropagation(); blockDevice(\'' + d.mac + '\')">封禁</button>';
         }
-        h += '<button class="btn cbi-button" onclick="limitDevice(\'' + d.mac + '\')">限速</button>';
+        h += '<button class="btn cbi-button" onclick="event.stopPropagation(); limitDevice(\'' + d.mac + '\')">限速</button>';
     }
     h += '</div></div>';
     return h;
@@ -191,13 +272,21 @@ function renderDevices() {
     for (var i = 0; i < filtered.length; i++) html += buildCardHTML(filtered[i]);
     listEl.innerHTML = html;
     
-    // Add double-click event listeners for delete
+    // Add click event for selection and double-click for delete
     var cards = listEl.querySelectorAll('.device-card');
     for (var i = 0; i < cards.length; i++) {
+        // Click to select for merge
+        cards[i].addEventListener('click', function(e) {
+            // Prevent click on buttons
+            if (e.target.tagName === 'BUTTON') return;
+            var mac = this.getAttribute('data-mac');
+            updateSelection(mac, this);
+        });
+        // Double-click to delete
         cards[i].addEventListener('dblclick', function(e) {
             // Prevent double-click on buttons
             if (e.target.tagName === 'BUTTON') return;
-            var mac = this.id.replace('card-', '').replace(/(.{2})(?=.)/g, '$1:');
+            var mac = this.getAttribute('data-mac');
             confirmDeleteDevice(mac);
         });
     }
