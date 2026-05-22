@@ -1145,12 +1145,23 @@ discover_all() {
     cleanup_duplicate_devices
 
     # Build MAC set first (needed for both ARP and DHCP discovery)
+    # Include alt_macs to prevent re-discovering merged device aliases
     local mac_set=""
     local idx=0
     while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
         local stored=$(uci -q get "devicemaster.@device[$idx].mac")
         local stored_lower=$(echo "$stored" | tr 'A-F' 'a-f')
         mac_set="$mac_set $stored_lower "
+        # Also add alt_macs (merged device aliases)
+        local alts=$(uci -q get "devicemaster.@device[$idx].alt_macs")
+        if [ -n "$alts" ]; then
+            local IFS=','
+            for alt in $alts; do
+                local alt_lower=$(echo "$alt" | tr 'A-F' 'a-f')
+                mac_set="$mac_set $alt_lower "
+            done
+            unset IFS
+        fi
         idx=$((idx + 1))
     done
 

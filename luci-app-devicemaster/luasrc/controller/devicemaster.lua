@@ -1317,6 +1317,19 @@ function api_status()
         local ip = s.last_ip or online_macs[mac_upper] or ""
         local is_online = online_macs[mac_upper] ~= nil
 
+        -- For merged devices: check if any alt_mac is online
+        local alt_online_ip = nil
+        if not is_online and s.alt_macs and s.alt_macs ~= "" then
+            for alt_mac in s.alt_macs:gmatch("[^,]+") do
+                local alt_ip = online_macs[alt_mac:upper()]
+                if alt_ip then
+                    is_online = true
+                    alt_online_ip = alt_ip
+                    break
+                end
+            end
+        end
+
         -- 非 LAN 子网设备：ARP 或 DHCP 租约中有记录就认为在线
         if not is_online and ip ~= "" and lan_prefix then
             local device_ip_prefix = ip:match("^(%d+%.%d+%.%d+)")
@@ -1348,6 +1361,8 @@ function api_status()
         -- If online, use the live IP from ARP
         if is_online and online_macs[mac_upper] then
             ip = online_macs[mac_upper]
+        elseif is_online and alt_online_ip then
+            ip = alt_online_ip
         end
 
         -- Filter out APIPA (169.254.x.x) addresses - these are self-assigned,
@@ -1372,6 +1387,16 @@ function api_status()
         end
         if not hostname or hostname == "" then
             hostname = dhcp_names[mac_upper]
+        end
+        -- For merged devices: try alt_macs' DHCP hostnames if current hostname is useless
+        if (not hostname or hostname == "" or hostname == "*") and s.alt_macs and s.alt_macs ~= "" then
+            for alt_mac in s.alt_macs:gmatch("[^,]+") do
+                local alt_name = dhcp_names[alt_mac:upper()]
+                if alt_name and alt_name ~= "" and alt_name ~= "*" then
+                    hostname = alt_name
+                    break
+                end
+            end
         end
         if not hostname or hostname == "" then
             local rp = remote_devices[mac_upper]
