@@ -201,26 +201,12 @@ function collectorClass(mode) {
 function effectiveCollector(status, clientsData) {
 	var evidence = (status && status.evidence) || {};
 	var clientEvidence = (clientsData && clientsData.evidence) || {};
-	var clients = fmt.asArray(clientsData && clientsData.clients);
-	var collector = (clientEvidence.collector_mode &&
-	                 clientEvidence.collector_mode !== 'auto' &&
-	                 clientEvidence.collector_mode !== 'conntrack') ? clientEvidence.collector_mode :
-	                ((evidence.collector_mode &&
-	                  evidence.collector_mode !== 'auto' &&
-	                  evidence.collector_mode !== 'conntrack') ? evidence.collector_mode :
-	                 (evidence.effective_collector ||
-	                  (evidence.collector && evidence.collector.primary_source)));
-	if (collector && collector !== 'auto')
-		return collector;
+	var collector = clientEvidence.primary_source ||
+	                clientEvidence.collector_mode ||
+	                evidence.effective_collector ||
+	                (evidence.collector && evidence.collector.primary_source);
 
-	clients = fmt.asArray(clients);
-	for (var i = 0; i < clients.length; i++) {
-		collector = clients[i] && clients[i].collector_mode;
-		if (collector && collector !== 'auto' && collector !== 'unsupported')
-			return collector;
-	}
-
-	return collector || 'unsupported';
+	return (collector && collector !== 'auto') ? collector : 'unsupported';
 }
 
 function isIpv6Address(ip) {
@@ -547,7 +533,7 @@ function buildShell(viewState) {
 			E('th', { 'class': 'num' }, _('上行')),
 			E('th', { 'class': 'num' }, _('下行')),
 			E('th', { 'class': 'num', 'title': _('TCP 仅统计 ESTABLISHED + ASSURED') }, 'TCP'),
-			E('th', { 'class': 'num', 'title': _('conntrack 表中尚未超时的 UDP 条目') }, 'UDP'),
+			E('th', { 'class': 'num', 'title': _('UDP 仅统计 ASSURED conntrack 条目') }, 'UDP'),
 			E('th', {}, _('状态'))
 		])),
 		refs.tbody

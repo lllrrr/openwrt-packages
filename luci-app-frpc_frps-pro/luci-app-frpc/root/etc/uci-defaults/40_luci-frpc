@@ -163,4 +163,21 @@ heal_client_paths() {
 heal_client_paths
 
 rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
+
+# === 备份/还原：兜底创建本地默认 destination ===
+if ! uci -q get frpc.local_default >/dev/null 2>&1; then
+    uci -q batch <<EOF
+set frpc.local_default=destination
+set frpc.local_default.type=local
+set frpc.local_default.name=本地存储
+set frpc.local_default.path=/etc/frpc-backup
+set frpc.local_default.enabled=1
+commit frpc
+EOF
+fi
+
+# 兜底创建备份目录
+mkdir -p /etc/frpc-backup/.auto-snapshots
+chmod 0750 /etc/frpc-backup
+
 exit 0

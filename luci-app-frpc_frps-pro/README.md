@@ -27,3 +27,14 @@ apk add --allow-untrusted luci-app-frpc.apk
 5. 每实例独立 admin Dashboard（默认 7400 起自动分配端口）。
 
 升级说明：从单实例版本升级时，迁移脚本会自动把 `main` 中的连接字段下沉到 `server` section，并给所有 rule 写入 `server_id`，无需手动配置。
+
+## 备份/还原（frpc）
+
+进入「服务 → frpc → 备份/还原」tab：
+
+- **备份目的地**：内置「本地存储」（`/etc/frpc-backup`），可新增 WebDAV（坚果云 / Nextcloud / Synology 等任意标准 WebDAV）。S3 目的地为占位，一期未实现。
+- **创建备份**：填备注 → 勾选内容（UCI 配置 / 当前 frpc 二进制 / 已下载版本号）→ 勾选目的地 → 立即备份。
+- **还原**：在历史列表点「还原」，系统会自动快照当前状态后整体替换；若还原失败则自动回滚到快照。
+- **本地导入导出**：下载本地备份为 .tar.gz，拷贝到另一台路由器，在上传区导入即可还原。
+- **包格式**：`.tar.gz`，包内含 `manifest.json` + `etc/config/frpc` + `bin/frpc`（可选）+ `README.txt`。
+- **依赖**：包 24.10+ 自动装 `curl`（WebDAV driver 必需）。

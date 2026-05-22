@@ -85,6 +85,28 @@ function index()
 	entry({"admin", "services", "frpc", "get_log"}, call("get_log")).leaf = true
 	entry({"admin", "services", "frpc", "clear_log"}, call("clear_log")).leaf = true
 	entry({"admin", "services", "frpc", "log"}, cbi("frpc/log"), _("查看日志"), 8).leaf = true
+
+	-- 备份/还原（注意：不能 .leaf=true，否则其下的 sub-routes 会被当成 view_backup 的参数）
+	entry({"admin", "services", "frpc", "backup"},
+		call("view_backup"), _("备份/还原"), 9)
+
+	-- destination CRUD
+	entry({"admin", "services", "frpc", "backup", "dest_list"},   call("action_backup_dest_list"))
+	entry({"admin", "services", "frpc", "backup", "dest_save"},   call("action_backup_dest_save"))
+	entry({"admin", "services", "frpc", "backup", "dest_delete"}, call("action_backup_dest_delete"))
+	entry({"admin", "services", "frpc", "backup", "dest_test"},   call("action_backup_dest_test"))
+
+	-- 备份操作
+	entry({"admin", "services", "frpc", "backup", "list"},            call("action_backup_list"))
+	entry({"admin", "services", "frpc", "backup", "create"},          call("action_backup_create"))
+	entry({"admin", "services", "frpc", "backup", "create_progress"}, call("action_backup_create_progress"))
+	entry({"admin", "services", "frpc", "backup", "download"},        call("action_backup_download")).leaf = true
+	entry({"admin", "services", "frpc", "backup", "upload"},          call("action_backup_upload"))
+	entry({"admin", "services", "frpc", "backup", "delete"},          call("action_backup_delete"))
+
+	-- 还原操作
+	entry({"admin", "services", "frpc", "backup", "restore"},          call("action_backup_restore"))
+	entry({"admin", "services", "frpc", "backup", "restore_progress"}, call("action_backup_restore_progress"))
 end
 
 -- 多实例：枚举所有 server section 并补齐运行时状态
@@ -840,4 +862,546 @@ function clear_log()
 	local server = http.formvalue("server")
 	local link = _resolve_log_link(server)
 	luci.sys.call("true > " .. link)
+end
+
+-- ────────────────────────────────────────────────────────────────
+-- 备份/还原 actions
+-- ────────────────────────────────────────────────────────────────
+
+local function _backup_core()
+	return require("luci.frpc.backup_core")
+end
+
+function view_backup()
+	a.render("frpc/backup_manager", {
+		title = t.translate("Frpc - 备份与还原"),
+	})
+end
+
+function action_backup_dest_list()
+	http.prepare_content("application/json")
+	local core = _backup_core()
+	http.write_json({ ok = true, destinations = core.list_all_destinations() })
+end
+
+function action_backup_dest_save()
+	http.prepare_content("application/json")
+	local core = _backup_core()
+	local id   = http.formvalue("id") or ""
+	local typ  = http.formvalue("type") or ""
+	local name = http.formvalue("name") or ""
+
+	if id ~= "" and not core.valid_id(id) then
+		http.write_json({ ok = false, error = "id 包含非法字符" })
+		return
+	end
+	if typ ~= "local" and typ ~= "webdav" and typ ~= "s3" then
+		http.write_json({ ok = false, error = "未知 driver 类型: " .. typ })
+		return
+	end
+	if name == "" then
+		http.write_json({ ok = false, error = "name 必填" })
+		return
+	end
+
+	-- 新建：id 为空则自动生成（os.time + 4位随机数防秒级碰撞）
+	local section_id = id
+	if section_id == "" then
+		section_id = typ .. "_" .. tostring(os.time()) .. "_" .. tostring(math.random(1000, 9999))
+	end
+
+	-- section type 必须正确（更新场景下校验现有 section 是 destination 类型）
+	local existing = uci:get("frpc", section_id)
+	if existing and existing ~= "destination" then
+		http.write_json({ ok = false, error = "id 已被其他类型占用" })
+		return
+	end
+
+	uci:set("frpc", section_id, "destination")
+	uci:set("frpc", section_id, "type", typ)
+	uci:set("frpc", section_id, "name", name)
+	uci:set("frpc", section_id, "enabled", http.formvalue("enabled") == "1" and "1" or "0")
+
+	-- type 相关字段
+	if typ == "local" then
+		local path = http.formvalue("path") or "/etc/frpc-backup"
+		uci:set("frpc", section_id, "path", path)
+	elseif typ == "webdav" then
+		uci:set("frpc", section_id, "url",        http.formvalue("url") or "")
+		uci:set("frpc", section_id, "username",   http.formvalue("username") or "")
+		uci:set("frpc", section_id, "password",   http.formvalue("password") or "")
+		uci:set("frpc", section_id, "verify_tls", http.formvalue("verify_tls") == "1" and "1" or "0")
+	elseif typ == "s3" then
+		uci:set("frpc", section_id, "endpoint",   http.formvalue("endpoint") or "")
+		uci:set("frpc", section_id, "region",     http.formvalue("region") or "")
+		uci:set("frpc", section_id, "bucket",     http.formvalue("bucket") or "")
+		uci:set("frpc", section_id, "access_key", http.formvalue("access_key") or "")
+		uci:set("frpc", section_id, "secret_key", http.formvalue("secret_key") or "")
+		uci:set("frpc", section_id, "path_style", http.formvalue("path_style") == "1" and "1" or "0")
+	end
+
+	uci:commit("frpc")
+	http.write_json({ ok = true, id = section_id })
+end
+
+function action_backup_dest_delete()
+	http.prepare_content("application/json")
+	local core = _backup_core()
+	local id = http.formvalue("id") or ""
+	if not core.valid_id(id) then
+		http.write_json({ ok = false, error = "无效 id" })
+		return
+	end
+	if uci:get("frpc", id) ~= "destination" then
+		http.write_json({ ok = false, error = "destination 不存在" })
+		return
+	end
+	uci:delete("frpc", id)
+	uci:commit("frpc")
+	http.write_json({ ok = true })
+end
+
+function action_backup_dest_test()
+	http.prepare_content("application/json")
+	local core = _backup_core()
+	local id = http.formvalue("id") or ""
+	if not core.valid_id(id) then
+		http.write_json({ ok = false, error = "无效 id" })
+		return
+	end
+	local cfg, err = core.load_destination(id)
+	if not cfg then http.write_json({ ok = false, error = err }); return end
+	local drv, derr = core.load_driver(cfg)
+	if not drv then http.write_json({ ok = false, error = derr }); return end
+	local ok, terr = drv:test()
+	http.write_json({ ok = ok and true or false, error = terr })
+end
+
+function action_backup_list()
+	http.prepare_content("application/json")
+	local core = _backup_core()
+	local all_dests = core.list_all_destinations()
+
+	local backups = {}
+	local dest_errors = {}
+	for _, cfg in ipairs(all_dests) do
+		if cfg.enabled == "1" then
+			local drv, derr = core.load_driver(cfg)
+			if drv then
+				local entries, lerr = drv:list()
+				if entries then
+					for _, e in ipairs(entries) do
+						table.insert(backups, {
+							dest_id    = cfg.id,
+							dest_name  = cfg.name,
+							dest_type  = cfg.type,
+							id         = e.id,
+							name       = e.name,
+							size       = e.size,
+							mtime      = e.mtime,
+						})
+					end
+				else
+					table.insert(dest_errors, { dest_id = cfg.id, error = lerr })
+				end
+			else
+				table.insert(dest_errors, { dest_id = cfg.id, error = derr })
+			end
+		end
+	end
+
+	-- 按 mtime DESC（mtime=0 时退化按 name DESC，让较新的时间戳排前面）
+	table.sort(backups, function(a, b)
+		if a.mtime ~= b.mtime then return a.mtime > b.mtime end
+		return a.name > b.name
+	end)
+
+	http.write_json({ ok = true, backups = backups, dest_errors = dest_errors })
+end
+
+-- 异步创建备份：写后台脚本 setsid 执行；前端轮询 create_progress
+function action_backup_create()
+	http.prepare_content("application/json")
+	local core = _backup_core()
+
+	local note = http.formvalue("note") or ""
+	local dest_ids_csv = http.formvalue("dest_ids") or ""
+	local inc_uci = http.formvalue("inc_uci") == "1"
+	local inc_bin = http.formvalue("inc_bin") == "1"
+	local inc_ver = http.formvalue("inc_ver") == "1"
+
+	local dest_ids = {}
+	for s in dest_ids_csv:gmatch("([^,]+)") do
+		if core.valid_id(s) and uci:get("frpc", s) == "destination" then
+			table.insert(dest_ids, s)
+		end
+	end
+	if #dest_ids == 0 then
+		http.write_json({ ok = false, error = "请选择至少一个备份目的地" })
+		return
+	end
+
+	-- 任务 ID：用时间戳 + 随机数（不同于 backup_id，避免歧义）
+	local task_id = "task_" .. tostring(os.time()) .. "_" .. tostring(math.random(1, 999999))
+	local status_file = "/tmp/frpc_backup_create_" .. task_id .. ".json"
+
+	-- 把任务参数写到 work_file，后台脚本读取
+	local work_file = "/tmp/frpc_backup_create_" .. task_id .. ".work"
+	local jsonc = require("luci.jsonc")
+	fs.writefile(work_file, jsonc.stringify({
+		note = note,
+		dest_ids = dest_ids,
+		includes = { uci = inc_uci, current_binary = inc_bin, version_metadata = inc_ver },
+	}))
+
+	-- 写后台 lua 脚本
+	local script_file = "/tmp/frpc_backup_create_" .. task_id .. ".lua"
+	local script = string.format([=[
+local fs   = require "nixio.fs"
+local json = require "luci.jsonc"
+local core = require "luci.frpc.backup_core"
+
+local status_file = %q
+local work_file   = %q
+
+local function write_status(stage, msg, extra)
+    local t = { stage = stage, message = msg or "", extra = extra }
+    fs.writefile(status_file, json.stringify(t))
+end
+
+local work = json.parse(fs.readfile(work_file) or "{}") or {}
+
+write_status("packing", "正在打包...")
+local ok, res = core.pack_backup({
+    note = work.note,
+    includes = work.includes,
+    download_mirror = require("luci.model.uci").cursor():get("frpc","main","download_mirror") or "",
+})
+if not ok then
+    write_status("error", "打包失败：" .. tostring(res))
+    return
+end
+
+local failed = {}
+local succeeded = {}
+for i, dest_id in ipairs(work.dest_ids) do
+    write_status("uploading", "上传到 " .. dest_id .. " (" .. i .. "/" .. #work.dest_ids .. ")")
+    local cfg, ce = core.load_destination(dest_id)
+    if not cfg then
+        table.insert(failed, { dest_id = dest_id, error = ce })
+    else
+        local drv, de = core.load_driver(cfg)
+        if not drv then
+            table.insert(failed, { dest_id = dest_id, error = de })
+        else
+            local ok2, err = drv:put(res.tar_path, res.filename)
+            if ok2 then
+                table.insert(succeeded, dest_id)
+            else
+                table.insert(failed, { dest_id = dest_id, error = err })
+            end
+        end
+    end
+end
+
+-- 清理本地 tmp tar
+os.execute("rm -f " .. res.tar_path)
+os.execute("rm -f " .. work_file)
+
+if #failed == 0 then
+    write_status("done", "全部成功", { backup_id = res.backup_id, filename = res.filename, succeeded = succeeded })
+else
+    write_status("done", "部分失败：" .. #failed .. " / " .. #work.dest_ids,
+        { backup_id = res.backup_id, filename = res.filename, succeeded = succeeded, failed = failed })
+end
+]=], status_file, work_file)
+
+	fs.writefile(script_file, script)
+	sys.call("chmod +x " .. util.shellquote(script_file))
+	sys.call("setsid sh -c " .. util.shellquote(
+		"(lua " .. script_file .. " </dev/null >/dev/null 2>&1; " ..
+		"rm -f " .. script_file .. "; " ..
+		"sleep 30; rm -f " .. status_file .. ") &"
+	) .. " >/dev/null 2>&1")
+
+	http.write_json({ ok = true, task_id = task_id })
+end
+
+function action_backup_create_progress()
+	http.prepare_content("application/json")
+	local task_id = http.formvalue("task_id") or ""
+	if not task_id:match("^task_[0-9_]+$") then
+		http.write_json({ ok = false, error = "无效 task_id" })
+		return
+	end
+	local status_file = "/tmp/frpc_backup_create_" .. task_id .. ".json"
+	local content = fs.readfile(status_file)
+	if not content or content == "" then
+		http.write_json({ ok = true, stage = "idle" })
+		return
+	end
+	local parsed = require("luci.jsonc").parse(content)
+	if not parsed then
+		http.write_json({ ok = true, stage = "unknown" })
+		return
+	end
+	parsed.ok = true
+	http.write_json(parsed)
+end
+
+function action_backup_delete()
+	http.prepare_content("application/json")
+	local core = _backup_core()
+	local dest_id = http.formvalue("dest_id") or ""
+	local name    = http.formvalue("name") or ""
+
+	if not core.valid_id(dest_id) then
+		http.write_json({ ok = false, error = "无效 dest_id" })
+		return
+	end
+	if not name:match("^frpc%-backup%-.+%.tar%.gz$") then
+		http.write_json({ ok = false, error = "无效备份名" })
+		return
+	end
+
+	local cfg, ce = core.load_destination(dest_id)
+	if not cfg then http.write_json({ ok = false, error = ce }); return end
+	local drv, de = core.load_driver(cfg)
+	if not drv then http.write_json({ ok = false, error = de }); return end
+	local ok, err = drv:remove(name)
+	http.write_json({ ok = ok and true or false, error = err })
+end
+
+function action_backup_restore()
+	http.prepare_content("application/json")
+	local core = _backup_core()
+	local dest_id = http.formvalue("dest_id") or ""
+	local name    = http.formvalue("name") or ""
+
+	if not core.valid_id(dest_id) then
+		http.write_json({ ok = false, error = "无效 dest_id" })
+		return
+	end
+	if not name:match("^frpc%-backup%-.+%.tar%.gz$") then
+		http.write_json({ ok = false, error = "无效备份名" })
+		return
+	end
+
+	local task_id = "task_" .. tostring(os.time()) .. "_" .. tostring(math.random(1, 999999))
+	local status_file = "/tmp/frpc_backup_restore_" .. task_id .. ".json"
+	local script_file = "/tmp/frpc_backup_restore_" .. task_id .. ".lua"
+
+	local script = string.format([=[
+local fs   = require "nixio.fs"
+local sys  = require "luci.sys"
+local util = require "luci.util"
+local json = require "luci.jsonc"
+local core = require "luci.frpc.backup_core"
+
+local status_file = %q
+local DEST_ID = %q
+local NAME    = %q
+
+local function write_status(stage, msg, extra)
+    fs.writefile(status_file, json.stringify({ stage = stage, message = msg or "", extra = extra }))
+end
+
+local snapshot_path
+
+local function rollback()
+    if not snapshot_path or not fs.access(snapshot_path) then
+        write_status("error", "回滚失败：快照文件丢失")
+        return
+    end
+    write_status("rolling_back", "正在从快照回滚...")
+    local ok, res = core.unpack_and_verify(snapshot_path)
+    if not ok then
+        write_status("error", "回滚解包失败：" .. tostring(res))
+        return
+    end
+    local ok2, err = core.apply_unpacked(res.pkgroot, res.manifest)
+    core.cleanup_unpack(res.unpack_dir)
+    if ok2 then
+        write_status("error", "已从快照回滚（原还原失败）")
+    else
+        write_status("error", "回滚也失败：" .. tostring(err))
+    end
+end
+
+-- 1) 自动快照
+write_status("snapshotting", "正在创建还原前快照...")
+local ok, snap = core.create_auto_snapshot()
+if not ok then
+    write_status("error", "创建快照失败：" .. tostring(snap))
+    return
+end
+snapshot_path = snap
+
+-- 2) 下载
+write_status("downloading", "正在从备份点拉取...")
+local cfg, ce = core.load_destination(DEST_ID)
+if not cfg then write_status("error", "destination 不存在：" .. tostring(ce)); return end
+local drv, de = core.load_driver(cfg)
+if not drv then write_status("error", "driver 加载失败：" .. tostring(de)); return end
+
+local tmp_tar = "/tmp/frpc_restore_dl_" .. tostring(os.time()) .. ".tar.gz"
+local ok2, err = drv:get(NAME, tmp_tar)
+if not ok2 then
+    sys.call("rm -f " .. util.shellquote(tmp_tar))
+    rollback()
+    return
+end
+
+-- 3) 解包校验
+write_status("unpacking", "正在校验备份包...")
+local ok3, res = core.unpack_and_verify(tmp_tar)
+sys.call("rm -f " .. util.shellquote(tmp_tar))
+if not ok3 then
+    write_status("error", "校验失败：" .. tostring(res), { snapshot = snapshot_path })
+    return
+end
+
+-- 4) 应用
+write_status("applying", "正在覆盖配置与二进制...")
+local ok4, aerr = core.apply_unpacked(res.pkgroot, res.manifest)
+core.cleanup_unpack(res.unpack_dir)
+
+if not ok4 then
+    rollback()
+    return
+end
+
+write_status("done", "还原成功", { snapshot = snapshot_path })
+]=], status_file, dest_id, name)
+
+	fs.writefile(script_file, script)
+	sys.call("setsid sh -c " .. util.shellquote(
+		"(lua " .. script_file .. " </dev/null >/dev/null 2>&1; " ..
+		"rm -f " .. script_file .. "; " ..
+		"sleep 30; rm -f " .. status_file .. ") &"
+	) .. " >/dev/null 2>&1")
+
+	http.write_json({ ok = true, task_id = task_id })
+end
+
+function action_backup_restore_progress()
+	http.prepare_content("application/json")
+	local task_id = http.formvalue("task_id") or ""
+	if not task_id:match("^task_[0-9_]+$") then
+		http.write_json({ ok = false, error = "无效 task_id" })
+		return
+	end
+	local status_file = "/tmp/frpc_backup_restore_" .. task_id .. ".json"
+	local content = fs.readfile(status_file)
+	if not content or content == "" then
+		http.write_json({ ok = true, stage = "idle" })
+		return
+	end
+	local parsed = require("luci.jsonc").parse(content)
+	if not parsed then http.write_json({ ok = true, stage = "unknown" }); return end
+	parsed.ok = true
+	http.write_json(parsed)
+end
+
+-- 下载：仅本地 destination
+function action_backup_download()
+	local core = _backup_core()
+	local dest_id = http.formvalue("dest_id") or ""
+	local name    = http.formvalue("name") or ""
+
+	if not core.valid_id(dest_id) or not name:match("^frpc%-backup%-.+%.tar%.gz$") then
+		http.status(400, "Bad Request")
+		http.prepare_content("text/plain")
+		http.write("invalid params")
+		return
+	end
+	local cfg, ce = core.load_destination(dest_id)
+	if not cfg or cfg.type ~= "local" then
+		http.status(400, "Bad Request")
+		http.prepare_content("text/plain")
+		http.write("only local destination can be downloaded directly")
+		return
+	end
+	local path = (cfg.path or "/etc/frpc-backup") .. "/" .. name
+	if not fs.access(path) then
+		http.status(404, "Not Found")
+		http.prepare_content("text/plain")
+		http.write("not found")
+		return
+	end
+	http.header("Content-Disposition", 'attachment; filename="' .. name .. '"')
+	http.prepare_content("application/gzip")
+	local content = fs.readfile(path)
+	http.write(content or "")
+end
+
+-- 上传导入：multipart，把上传的 .tar.gz 移入 local_default
+function action_backup_upload()
+	http.prepare_content("application/json")
+	local core = _backup_core()
+
+	local tmp_path = "/tmp/frpc_upload_" .. tostring(os.time()) .. "_" .. tostring(math.random(1, 999999)) .. ".tar.gz"
+	local written = 0
+	local oversized = false
+
+	http.setfilehandler(function(meta, chunk, eof)
+		if oversized then return end
+		if chunk and #chunk > 0 then
+			if written + #chunk > core.MAX_UPLOAD_BYTES then
+				oversized = true
+				return
+			end
+			local f = io.open(tmp_path, written == 0 and "wb" or "ab")
+			if f then
+				f:write(chunk)
+				f:close()
+				written = written + #chunk
+			end
+		end
+	end)
+
+	-- 触发解析（必须读一遍 formvalue 才会调 filehandler）
+	http.formvalue("file")
+
+	if oversized then
+		sys.call("rm -f " .. util.shellquote(tmp_path))
+		http.write_json({ ok = false, error = "文件超过 " .. core.MAX_UPLOAD_BYTES .. " 字节上限" })
+		return
+	end
+	if written == 0 or not fs.access(tmp_path) then
+		http.write_json({ ok = false, error = "未收到文件" })
+		return
+	end
+
+	-- 校验是合法 frpc 备份包
+	local ok, res = core.unpack_and_verify(tmp_path)
+	if not ok then
+		sys.call("rm -f " .. util.shellquote(tmp_path))
+		http.write_json({ ok = false, error = "校验失败：" .. tostring(res) })
+		return
+	end
+	core.cleanup_unpack(res.unpack_dir)
+
+	-- 移入 local_default
+	local local_cfg = core.load_destination("local_default")
+	local target_dir
+	if local_cfg and local_cfg.path then
+		target_dir = local_cfg.path
+	else
+		target_dir = core.LOCAL_BACKUP_DIR
+	end
+	sys.call("mkdir -p " .. util.shellquote(target_dir))
+
+	-- 备份文件名一律重写为规范化形式
+	local utc_compact = (res.manifest.created_at or ""):gsub("[%-:]", ""):gsub("%..*$", "")
+	local norm_name = "frpc-backup-" .. utc_compact .. "-" .. core.note_to_slug(res.manifest.note or "") .. ".tar.gz"
+	local dst = target_dir .. "/" .. norm_name
+
+	if sys.call("mv -f " .. util.shellquote(tmp_path) .. " " .. util.shellquote(dst) .. " >/dev/null 2>&1") ~= 0 then
+		sys.call("rm -f " .. util.shellquote(tmp_path))
+		http.write_json({ ok = false, error = "移动文件到目标目录失败" })
+		return
+	end
+
+	http.write_json({ ok = true, filename = norm_name, dest_id = "local_default" })
 end

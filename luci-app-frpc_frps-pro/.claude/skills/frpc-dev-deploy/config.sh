@@ -38,6 +38,11 @@ luci-app-frpc/luasrc/view/frpc/status_header.htm
 luci-app-frpc/luasrc/view/frpc/file_viewer.htm
 luci-app-frpc/luasrc/view/frpc/frpc_log.htm
 luci-app-frpc/luasrc/view/frpc/program_manager.htm
+luci-app-frpc/luasrc/view/frpc/backup_manager.htm
+luci-app-frpc/luasrc/frpc/backup_core.lua
+luci-app-frpc/luasrc/frpc/driver_local.lua
+luci-app-frpc/luasrc/frpc/driver_webdav.lua
+luci-app-frpc/luasrc/frpc/driver_s3.lua
 "
 
 REMOTE_FILES="
@@ -52,6 +57,11 @@ REMOTE_FILES="
 /usr/lib/lua/luci/view/frpc/file_viewer.htm
 /usr/lib/lua/luci/view/frpc/frpc_log.htm
 /usr/lib/lua/luci/view/frpc/program_manager.htm
+/usr/lib/lua/luci/view/frpc/backup_manager.htm
+/usr/lib/lua/luci/frpc/backup_core.lua
+/usr/lib/lua/luci/frpc/driver_local.lua
+/usr/lib/lua/luci/frpc/driver_webdav.lua
+/usr/lib/lua/luci/frpc/driver_s3.lua
 "
 
 # 把空行剔掉，得到数组（POSIX shell 兼容）
