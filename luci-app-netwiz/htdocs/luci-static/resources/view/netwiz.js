@@ -29,6 +29,8 @@ var T = {
     'LBL_SSID': _('Network Name (SSID)'),
     'LBL_WIFI_PASS': _('Wi-Fi Password'),
     'LBL_WIFI_ENC': _('Encryption'),
+    'LBL_5G2_SSID': _('Network Name (5G_Game)'),
+    'LBL_5G2_PWD': _('Wi-Fi Password (5G_Game)'),
     'LBL_ADVANCED': _('Advanced Settings'),
     'LBL_ADVANCED_CLOSE': _('Hide Advanced'),
     'LBL_HIDE_SSID': _('Hide Wi-Fi Name (SSID)'),
@@ -244,6 +246,10 @@ var T = {
     'TAG_SPLIT': _('Independent Bands'),
     'TAG_WISP': _('WISP Repeater'),
     'TAG_DISABLED': _('Disabled'),
+    'MSG_SYS_NOT_READY': _('The underlying network status is not fully loaded. Please wait before submitting to prevent configuration loss.'),
+    'MSG_SETUP_DONE': _('Configuration complete! Automatically logging you in...'),
+    'MSG_PWD_FAIL': _('Password setup failed: '),
+    'MSG_NO_WIFI_TIP': _('No Wi-Fi hardware detected, this step will be skipped automatically.<br>Please click [Next Step] directly.'),
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -603,8 +609,8 @@ return view.extend({
             '           </div>',
             
             '           <div id="wifi-5g2-form" style="display:none;">',
-            '              <div class="nw-value"><label class="nw-value-title">无线网络名称 (5G_Game)</label><div class="nw-value-field"><input type="text" id="wifi-5g2-ssid"></div></div>',
-            '              <div class="nw-value"><label class="nw-value-title">Wi-Fi 密码 (5G_Game)</label><div class="nw-value-field"><input type="text" id="wifi-5g2-key"></div></div>',
+            '              <div class="nw-value"><label class="nw-value-title">{{LBL_5G2_SSID}}</label><div class="nw-value-field"><input type="text" id="wifi-5g2-ssid"></div></div>',
+            '              <div class="nw-value"><label class="nw-value-title">{{LBL_5G2_PWD}}</label><div class="nw-value-field"><input type="text" id="wifi-5g2-key"></div></div>',
             '              <input type="hidden" id="wifi-5g2-enc" value="psk2+ccmp">',
             '              <input type="hidden" id="wifi-5g2-mode" value="auto">',
             '              <input type="hidden" id="wifi-5g2-chan" value="auto">',
@@ -1006,7 +1012,7 @@ return view.extend({
             var isSkipWifi = skipWifiCb ? skipWifiCb.checked : false;
 
             if (typeof window._trueIpv6State === 'undefined' || window._trueIpv6State === null) {
-                openModal({ title: T['M_SYS_ERR'] || '系统异常', msg: '底层网络状态尚未加载完毕，请等待页面初始化完成后再提交，以防覆盖丢失配置。', okText: T['M_CLOSE'] });
+                openModal({ title: T['M_SYS_ERR'] || 'System Error', msg: T['MSG_SYS_NOT_READY'], okText: T['M_CLOSE'] });
                 return;
             }
             var keepIpv6 = window._trueIpv6State;
@@ -1064,7 +1070,7 @@ return view.extend({
                                 clearInterval(checkSameTimer); 
                                 
                                 // ================== 自动登录官方后台 ==================
-                                document.getElementById('nw-global-msg').innerHTML = '<div style="color: #10b981; font-size: 16px; font-weight: bold;">配置完成！正在为您自动登录系统...</div>';
+                                ementById('nw-global-msg').innerHTML = '<div style="color: #10b981; font-size: 16px; font-weight: bold;">' + T['MSG_SETUP_DONE'] + '</div>';
                                 
                                 if (adminPwd) {
                                     // 动态创建隐藏表单，登录官方页面
@@ -1103,7 +1109,7 @@ return view.extend({
                 callSetPassword(adminPwd).then(function() {
                     doNetSetupConfig();
                 }).catch(function(err) {
-                    alert("Password setup failed: " + err);
+                    alert(T['MSG_PWD_FAIL'] + err);
                     window.location.reload();
                 });
             } else {
@@ -1265,7 +1271,7 @@ return view.extend({
                     if (wArea2 && !container.querySelector('#nw-no-wifi-tip')) {
                         var tip = document.createElement('div');
                         tip.id = 'nw-no-wifi-tip';
-                        tip.innerHTML = '<div style="text-align:center; padding: 30px 15px; color:#64748b; font-size:15px; background:#f1f5f9; border-radius:8px; border: 1px dashed #cbd5e1; margin-bottom:15px;">未检测到 Wi-Fi 硬件，本步骤自动跳过。<br>请直接点击右下角【下一步】。</div>';
+                        tip.innerHTML = '<div style="text-align:center; padding: 30px 15px; color:#64748b; font-size:15px; background:#f1f5f9; border-radius:8px; border: 1px dashed #cbd5e1; margin-bottom:15px;">' + T['MSG_NO_WIFI_TIP'] + '</div>';
                         wArea2.insertBefore(tip, wifiInputArea);
                     }
                 }

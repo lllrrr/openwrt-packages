@@ -1296,3 +1296,21 @@ msgstr "中继 (WISP)"
 
 msgid "Disabled"
 msgstr "未开启"
+
+msgid "Network Name (5G_Game)"
+msgstr "无线网络名称 (5G_Game)"
+
+msgid "Wi-Fi Password (5G_Game)"
+msgstr "Wi-Fi 密码 (5G_Game)"
+
+msgid "The underlying network status is not fully loaded. Please wait before submitting to prevent configuration loss."
+msgstr "底层网络状态尚未加载完毕，请等待页面初始化完成后再提交，以防覆盖丢失配置。"
+
+msgid "Configuration complete! Automatically logging you in..."
+msgstr "配置完成！正在为您自动登录系统..."
+
+msgid "Password setup failed: "
+msgstr "密码设置失败: "
+
+msgid "No Wi-Fi hardware detected, this step will be skipped automatically.<br>Please click [Next Step] directly."
+msgstr "未检测到 Wi-Fi 硬件，本步骤自动跳过。<br>请直接点击右下角【下一步】。"
