@@ -1,2 +1,2 @@
 config global 'main'
-    option wizard_enable '1'
+    option wizard_enable '0'

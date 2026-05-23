@@ -745,7 +745,7 @@ return view.extend({
         window._isSingleChip = false;
 
         // ===== 快速开机向导流 =====
-        var wizModal = container.querySelector('#nw-wizard-modal');
+        var wizModal = wizModalInner || document.getElementById('nw-wizard-modal');
         
         var wizUserInp = container.querySelector('#wiz-pppoe-user');
         var wizUserMir = container.querySelector('#wiz-user-mirror');
