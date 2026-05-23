@@ -33,7 +33,6 @@ start_service() {
         if [ "$is_empty_pwd" -eq 1 ] || [ "$is_in_rom" -eq 1 ]; then
             log "触发初次向导配置，生成拦截 CGI 脚本"
             
-            # 恢复系统 auto，清空缓存，确保多语言生效
             local is_lang_init=$(uci -q get netwiz.global.lang_init)
             if [ "$is_lang_init" != "1" ]; then
                 uci -q set luci.main.lang="auto"
@@ -57,11 +56,12 @@ if [ "$CONF" != "1" ]; then
             uci -q set netwiz.global.configured='1'
             uci commit netwiz
             [ -f /www/cgi-bin/luci.bak ] && mv -f /www/cgi-bin/luci.bak /www/cgi-bin/luci
-            printf "Status: 302 Found\r\nLocation: /cgi-bin/luci/\r\n\r\n"
+            printf "Status: 302 Found\r\n"
+            printf "Location: /cgi-bin/luci/\r\n"
+            printf "Cache-Control: no-store, no-cache, must-revalidate, max-age=0\r\n\r\n"
             exit 0
             ;;
             
-        # 保留翻译包和核心组件
         *admin/netwiz*|*admin/translations*|*admin/menu*|*admin/ubus*|*luci-static*|*rpc*)
             export HTTP_ACCEPT_LANGUAGE="zh-CN,zh;q=0.9"
             exec /www/cgi-bin/luci.bak
@@ -69,23 +69,25 @@ if [ "$CONF" != "1" ]; then
             ;;
             
         *)
-            # 1：放行 POST 登录官方内核，接管登录验证
-            if [ "$REQUEST_METHOD" = "POST" ]; then
-                export HTTP_ACCEPT_LANGUAGE="zh-CN,zh;q=0.9"
-                exec /www/cgi-bin/luci.bak
+            # 浏览器带登录凭证，弹出向导
+            if echo "$HTTP_COOKIE" | grep -q "sysauth="; then
+                printf "Status: 302 Found\r\n"
+                printf "Location: /cgi-bin/luci/admin/netwiz\r\n"
+                printf "Cache-Control: no-store, no-cache, must-revalidate, max-age=0\r\n\r\n"
                 exit 0
             fi
 
-            # 登录凭证，跳转向导页
-            if echo "$HTTP_COOKIE" | grep -q "sysauth="; then
-                printf "Status: 302 Found\r\nLocation: /cgi-bin/luci/admin/netwiz\r\n\r\n"
+            # 网址带官方重定向的 url= 弹出向导
+            if echo "$QUERY_STRING" | grep -q "url="; then
+                printf "Status: 302 Found\r\n"
+                printf "Location: /cgi-bin/luci/admin/netwiz\r\n"
+                printf "Cache-Control: no-store, no-cache, must-revalidate, max-age=0\r\n\r\n"
                 exit 0
             fi
 
             IS_EMPTY_PWD=$(awk -F: '/^root:/ {print $2}' /etc/shadow)
             if [ -z "$IS_EMPTY_PWD" ] || [ "$IS_EMPTY_PWD" = "!" ] || [ "$IS_EMPTY_PWD" = "*" ] || [ "$IS_EMPTY_PWD" = "x" ]; then
                 
-                # 动态语言识别
                 printf "Status: 200 OK\r\n"
                 printf "Content-Type: text/html; charset=utf-8\r\n"
                 printf "Cache-Control: no-store, no-cache, must-revalidate, max-age=0\r\n\r\n"
@@ -100,10 +102,7 @@ if [ "$CONF" != "1" ]; then
                 printf "document.cookie = 'luci_lang=' + l + '; path=/; max-age=86400';\n"
                 
                 printf "</script></head><body style='background:#f8fafc;'>"
-                
-                # 2：表单 POST 目标为根目录 /cgi-bin/luci/
-                # URL 绕过新版系统的 CSRF 拦截
-                printf "<form id='al' action='/cgi-bin/luci/?url=%%2Fcgi-bin%%2Fluci%%2Fadmin%%2Fnetwiz' method='post'>"
+                printf "<form id='al' action='/cgi-bin/luci/admin/netwiz' method='post'>"
                 printf "<input type='hidden' name='luci_username' value='root'>"
                 printf "<input type='hidden' name='luci_password' value=''>"
                 printf "<input type='hidden' id='frmLang' name='luci_lang' value=''>"
@@ -116,8 +115,9 @@ if [ "$CONF" != "1" ]; then
                 exit 0
                 
             else
-                # 有密码跳官方登录页
-                printf "Status: 302 Found\r\nLocation: /cgi-bin/luci/?url=/cgi-bin/luci/admin/netwiz\r\n\r\n"
+                printf "Status: 302 Found\r\n"
+                printf "Location: /cgi-bin/luci/?url=/cgi-bin/luci/admin/netwiz\r\n"
+                printf "Cache-Control: no-store, no-cache, must-revalidate, max-age=0\r\n\r\n"
                 exit 0
             fi
             ;;
@@ -129,7 +129,7 @@ EOF
             
             chmod +x /www/cgi-bin/luci
         else
-            log "检测到已有密码且为后期安装，取消向导"
+            log "检测到已有密码且后期安装，取消向导"
             uci -q set netwiz.global.configured='1'
             uci commit netwiz
             if [ -f /www/cgi-bin/luci.bak ]; then
