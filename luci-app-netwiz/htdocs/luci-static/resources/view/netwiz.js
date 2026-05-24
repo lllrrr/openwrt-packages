@@ -1462,7 +1462,7 @@ return view.extend({
 
                                     // 4. 清理所有弹窗并触发底层保存
                                     container.querySelector('#nw-global-modal').style.display = 'none';
-                                    var wizModal = container.querySelector('#nw-wizard-modal');
+                                    var wizModal = document.getElementById('nw-wizard-modal');
                                     if (wizModal) wizModal.style.display = 'none';
                                     
                                     container.querySelector('#btn-apply').click(); 
