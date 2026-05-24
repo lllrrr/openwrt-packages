@@ -791,36 +791,56 @@ return view.extend({
         };
         updateWizSteps(currentWizStep);
 
-        var skipAndReleaseLuci = function() {
+        // ================== 跳过与关闭逻辑 ==================
+        var handleWizardExit = function(action) {
             var hideCb = container.querySelector('#wiz-hide-checkbox');
-            var hideState = (hideCb && hideCb.checked) ? '0' : '1';
 
-            // 判断是「首次打开」还是「日常」
-            if (window._realIsConfigured === '0') {
-                // 跳官方后台
-                wizModal.style.display = 'none';
-                openModal({ 
-                    title: T['WIZ_SKIP_TITLE'] || '跳过向导', 
-                    msg: '<div style="color: #64748b; font-size: 16px; font-weight:bold;">' + (T['WIZ_SKIP_MSG'] || '进入官方后台中...') + '</div>', 
-                    spin: true 
+            // 1. 区别：弹窗记忆选项检查
+            // 点击关闭，检查并修改“不再提示”状态；跳过则无视
+            if (action === 'close') {
+                if (hideCb && hideCb.checked) {
+                    localStorage.setItem('nw_wizard_never_show', '1');
+                } else {
+                    localStorage.removeItem('nw_wizard_never_show');
+                }
+            }
+
+            var isFirstRun = (window._realIsConfigured !== '1');
+
+            // 2. 解除 CGI 全局拦截
+            // 无论哪个按钮，都必须强制写入 '1' 来永久解锁后端拦截
+            silentSaveWizardState('1').then(function() {
+                executeExitNav(isFirstRun);
+            }).catch(function() {
+                executeExitNav(isFirstRun);
+            });
+        };
+
+        var executeExitNav = function(isFirstRun) {
+            var wizModal = container.querySelector('#nw-wizard-modal');
+            
+            // 跳转逻辑一致性
+            if (isFirstRun) {
+                // 刷机后第一次运行：关闭弹窗，解除锁定后跳转到系统官方首页
+                if (wizModal) wizModal.style.display = 'none';
+                openModal({
+                    title: T['WIZ_SKIP_TITLE'] || '跳过向导',
+                    msg: '<div style="color: #64748b; font-size: 16px; font-weight:bold;">' + (T['WIZ_SKIP_MSG'] || '正在解除锁定，进入官方后台...') + '</div>',
+                    spin: true
                 });
-
-                silentSaveWizardState(hideState).then(function() {
-                    setTimeout(function() {
-                        window.location.replace('http://' + window.location.hostname + '/cgi-bin/luci/');
-                    }, 500);
-                }).catch(function() {
+                setTimeout(function() {
                     window.location.replace('http://' + window.location.hostname + '/cgi-bin/luci/');
-                });
+                }, 500);
             } else {
-                // 关闭直接隐藏
-                wizModal.style.display = 'none';
-                silentSaveWizardState(hideState);
+                // 平常：不跳转，直接隐藏弹窗，停留在当前的插件首页
+                if (wizModal) wizModal.style.display = 'none';
             }
         };
 
-        container.querySelector('#wiz-modal-close').addEventListener('click', skipAndReleaseLuci);
-        container.querySelector('#wiz-btn-skip').addEventListener('click', skipAndReleaseLuci);
+        // 分别绑定不同的 action
+        container.querySelector('#wiz-modal-close').addEventListener('click', function() { handleWizardExit('close'); });
+        container.querySelector('#wiz-btn-skip').addEventListener('click', function() { handleWizardExit('skip'); });
+        // ==========================================================
 
         var btnReopenWiz = container.querySelector('#btn-reopen-wizard');
         if (btnReopenWiz) {
@@ -1022,11 +1042,16 @@ return view.extend({
 
             // 网络配置的核心提取为一个函数，分流调用
             var doNetSetupConfig = function() {
-                // 完成向导，真实读取勾选框状态
+                // 1. 处理“不再提示”状态
                 var wizHideCb = container.querySelector('#wiz-hide-checkbox');
-                var hideState = (wizHideCb && wizHideCb.checked) ? '0' : '1';
-                
-                silentSaveWizardState(hideState).then(function() {
+                if (wizHideCb && wizHideCb.checked) {
+                    localStorage.setItem('nw_wizard_never_show', '1');
+                } else {
+                    localStorage.removeItem('nw_wizard_never_show');
+                }
+
+                // 2. 提交配置，底层必须强制写入 '1' 永久解锁 CGI 拦截
+                silentSaveWizardState('1').then(function() {
                     var applyPromise;
                     if (isSkipWifi) {
                         if (wType === 'pppoe') {
@@ -1285,10 +1310,21 @@ return view.extend({
                 uci.load('netwiz').then(function() {
                     var isConfigured = uci.get('netwiz', 'global', 'configured');
                     var isWizEnabled = uci.get('netwiz', 'main', 'wizard_enable');
-                    window._realIsConfigured = isConfigured || '0';
-                    
-                    if (isConfigured !== '1' || isWizEnabled === '1' || isWizEnabled === 1) {
+                    window._realIsConfigured = String(isConfigured || '0');
+
+                    // 读取本地浏览器是否勾选过“不再提示”
+                    var neverShow = localStorage.getItem('nw_wizard_never_show');
+
+                    // 核心判断逻辑：
+                    if (window._realIsConfigured !== '1') {
+                        // 1. 第一次开机，显示向导
                         if (wizModal) wizModal.style.display = 'flex';
+                    } else if (String(isWizEnabled) === '1' && neverShow !== '1') {
+                        // 2.平常，没有勾选“不再提示”
+                        if (wizModal) wizModal.style.display = 'flex';
+                    } else {
+                        // 3. 平常勾选“不再提示”
+                        if (wizModal) wizModal.style.display = 'none';
                     }
                 }).catch(function() {
                     window._realIsConfigured = '0';
