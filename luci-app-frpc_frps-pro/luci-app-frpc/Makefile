@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_VERSION:=20251216
-PKG_RELEASE:=9
+PKG_RELEASE:=10
 PKG_NAME:=luci-app-frpc
 
 # 高版本24.10.4的sdk会增加依赖luci-lua-runtime导致低版本系统装不上ipk，建议22.03.7

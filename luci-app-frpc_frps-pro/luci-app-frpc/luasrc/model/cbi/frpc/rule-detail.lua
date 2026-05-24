@@ -23,9 +23,19 @@ s.addremove = false
 
 -- 多实例：rule 必须归属一个 server
 local server_choices = {}
+local server_choice_set = {}
 uci:foreach("frpc", "server", function(srv)
-	server_choices[#server_choices + 1] = { srv[".name"], srv.alias or srv[".name"] }
+	local name = srv[".name"]
+	server_choices[#server_choices + 1] = { name, srv.alias or name }
+	server_choice_set[name] = true
 end)
+
+-- 兜底：若当前 rule.server_id 指向已不存在的 server（如老 cfgXXXXXX 漂移残留），
+-- 也加进选项里以「⚠ 未知服务器」标注，避免下拉静默落到第一项掩盖问题。
+local cur_sid = uci:get("frpc", sid, "server_id")
+if cur_sid and cur_sid ~= "" and not server_choice_set[cur_sid] then
+	server_choices[#server_choices + 1] = { cur_sid, "⚠ 未知服务器: " .. cur_sid }
+end
 
 o = s:option(ListValue, "server_id", translate("归属服务器"))
 o.rmempty = false

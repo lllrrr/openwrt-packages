@@ -15,24 +15,24 @@ s.addremove = true
 s.sortable = true
 s.template = "cbi/tblsection"
 s.extedit = dsp.build_url("admin/services/frpc/servers/%s")
+
+-- 用稳定命名创建 server，避免 UCI 匿名 cfgXXXXXX 因 section 位置变化而漂移，
+-- 导致 rule.server_id 引用悬空（v3 修复，详见 uci-defaults/40_luci-frpc migrate_v3）。
 function s.create(...)
-	local sid = TypedSection.create(...)
-	if sid then
-		-- 新建服务器默认禁用 + 给出合理默认值，避免用户跳到详情页看到空字段
-		m.uci:set("frpc", sid, "enabled", "0")
-		if not m.uci:get("frpc", sid, "alias") then
-			m.uci:set("frpc", sid, "alias", sid)
-		end
-		if not m.uci:get("frpc", sid, "serverPort") then
-			m.uci:set("frpc", sid, "serverPort", "7000")
-		end
-		if not m.uci:get("frpc", sid, "webServer__addr") then
-			m.uci:set("frpc", sid, "webServer__addr", "127.0.0.1")
-		end
-		m.uci:save("frpc")
-		luci.http.redirect(s.extedit % sid)
-		return
+	local stable_sid = string.format("srv_%d_%d", os.time(), math.random(1000, 9999))
+	-- 极端兜底：万一同秒同随机数已存在，自旋几次
+	for _ = 1, 5 do
+		if not m.uci:get("frpc", stable_sid) then break end
+		stable_sid = string.format("srv_%d_%d", os.time(), math.random(1000, 9999))
 	end
+	m.uci:set("frpc", stable_sid, "server")
+	-- 默认禁用 + 合理默认值，避免用户跳到详情页看到空字段
+	m.uci:set("frpc", stable_sid, "enabled", "0")
+	m.uci:set("frpc", stable_sid, "alias", stable_sid)
+	m.uci:set("frpc", stable_sid, "serverPort", "7000")
+	m.uci:set("frpc", stable_sid, "webServer__addr", "127.0.0.1")
+	m.uci:save("frpc")
+	luci.http.redirect(s.extedit % stable_sid)
 end
 
 o = s:option(DummyValue, "_status", translate("状态 / 操作"))

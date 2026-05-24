@@ -125,6 +125,68 @@ migrate_v2() {
 
 migrate_v2
 
+# === v3 迁移：匿名 server -> 稳定命名 ===
+# 背景：libuci 给匿名 section 自动生成的 cfgXXXXXX 名字依赖 section 在文件中的整体位置，
+# 任何插入/删除/重排（加 rule、加 destination、还原备份重写文件）都会让后续匿名 server
+# 的 cfg-id 整体偏移，rule.server_id 会变成悬空引用，UI 表现为下拉静默 fallback 到第一项。
+# 修复：把所有匿名 server rename 成 srv_<ts>_<seq> 这种稳定命名，
+# 并同步把指向旧 cfg-id 的 rule.server_id 一并改写。幂等，sentinel 防重。
+migrate_v3() {
+	local migrated
+	migrated=$(uci -q get frpc.main.migrated_v3)
+	[ "$migrated" = "1" ] && return 0
+
+	# uci -X 强制输出真实内部 name（命名 section 显示原名，匿名 section 显示 cfgXXXXXX）
+	local server_ids
+	server_ids=$(uci -X show frpc 2>/dev/null | awk -F'[.=]' '/=server$/{print $2}')
+
+	local ts
+	ts=$(date +%s)
+	local seq=1
+	local renamed=0
+
+	local sid
+	for sid in $server_ids; do
+		# 命名 section（如 'frps'）跳过，不动用户已选的稳定名
+		case "$sid" in
+			cfg*) ;;
+			*) continue ;;
+		esac
+
+		# 生成稳定新名；极端兜底防碰撞
+		local new_name="srv_${ts}_${seq}"
+		while [ -n "$(uci -q get frpc.${new_name})" ]; do
+			seq=$((seq + 1))
+			new_name="srv_${ts}_${seq}"
+		done
+
+		# rename section（uci rename 会更新文件里的 section 名）
+		if uci -q rename "frpc.${sid}=${new_name}"; then
+			# 同步所有 rule 的 server_id：旧 cfgXXXXXX -> 新 srv_xxx
+			local rule_ids r
+			rule_ids=$(uci -X show frpc 2>/dev/null | awk -F'[.=]' '/=rule$/{print $2}')
+			for r in $rule_ids; do
+				local cur
+				cur=$(uci -q get "frpc.${r}.server_id")
+				if [ "$cur" = "$sid" ]; then
+					uci set "frpc.${r}.server_id=${new_name}"
+				fi
+			done
+			renamed=$((renamed + 1))
+			logger -t luci-app-frpc "migrate_v3: server ${sid} -> ${new_name}"
+		fi
+
+		seq=$((seq + 1))
+	done
+
+	uci set frpc.main.migrated_v3=1
+	uci commit frpc
+
+	[ "$renamed" -gt 0 ] && logger -t luci-app-frpc "migrate_v3 done: ${renamed} anonymous server(s) renamed to stable IDs"
+}
+
+migrate_v3
+
 # 每次包安装/升级跑一次自愈：清掉指向不存在文件的 client_file 字段，
 # 避免「程序管理切到某版本后该目录被外部清理」导致服务起不来。
 heal_client_paths() {

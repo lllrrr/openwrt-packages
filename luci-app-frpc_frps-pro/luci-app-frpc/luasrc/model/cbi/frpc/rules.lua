@@ -13,6 +13,18 @@ uci:foreach("frpc", "server", function(s)
 	server_table[s[".name"]] = s.alias or s[".name"]
 end)
 
+-- 兜底：扫描所有 rule.server_id，把指向已不存在 server 的引用注入为「⚠ 未知服务器」option，
+-- 避免 ListValue 找不到匹配时 HTML <select> 静默回退到第一项，让用户误以为所有规则归到同一台。
+-- 触发场景：v3 之前的旧数据残留的失效 cfgXXXXXX、用户手工 uci 编辑、还原跨版本备份等。
+local unknown_seen = {}
+uci:foreach("frpc", "rule", function(r)
+	local sid = r.server_id
+	if sid and sid ~= "" and not server_table[sid] and not unknown_seen[sid] then
+		unknown_seen[sid] = true
+		server_table[sid] = "⚠ 未知服务器: " .. sid
+	end
+end)
+
 -- visitor 模式下 bindAddr=0.0.0.0 时回退到路由 LAN IP。
 -- 每次页面渲染只算一次，避免按行调用 sys.exec 造成性能尖刺。
 local _router_ip
