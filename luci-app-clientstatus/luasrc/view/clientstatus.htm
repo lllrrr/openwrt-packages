@@ -67,21 +67,21 @@
 }
 
 * { box-sizing: border-box; }
-.cs-wrap { width: 100%; max-width: none; min-width: 260px; }
+.cs-wrap { width: 100%; max-width: none; }
 .cs-table-wrap::-webkit-scrollbar { height: 6px; }
 .cs-table-wrap::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
 .cs-table-wrap::-webkit-scrollbar-track { background: #f0f0f0; }
 
-.cs-cards { display: flex; gap: 24px; margin-bottom: 24px; flex-wrap: wrap; }
+.cs-cards { display: flex; gap: 26px; margin-bottom: 10px; flex-wrap: nowrap; justify-content: space-between; }
 .cs-card {
   flex: 1 1 0;
-  min-width: 0;
+  max-width: none;
   background: var(--cs-surface); border-radius: 12px;
-  padding: 20px 24px; box-shadow: var(--cs-shadow);
+  padding: 6px 6px; box-shadow: var(--cs-shadow);
   display: flex; align-items: center; gap: 24px;
 }
 .cs-card-icon {
-  width: 42px; height: 42px; border-radius: 16px;
+  width: 30px; height: 30px; border-radius: 12px;
   display: flex; align-items: center; justify-content: center;
   font-size: 28px; flex-shrink: 0;
 }
@@ -94,37 +94,63 @@
 .cs-card-num { font-size: 22px; font-weight: 700; line-height: 1; color: var(--cs-text); }
 .cs-card-label { font-size: 13px; color: var(--cs-text-3); margin-top: 4px; }
 
-.cs-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px; flex-wrap: wrap; }
-.cs-toolbar-left { display: flex; align-items: center; gap: 12px; }
+.cs-wrap .cs-toolbar .cs-search,
+.cs-wrap .cs-toolbar .cs-filter {
+  height: auto !important;
+  min-height: 0 !important;
+}
+
+.cs-wrap .cs-toolbar .cs-btn-base,
+#cs-reset, #cs-refresh {
+  height: auto !important;
+  min-height: 0 !important;
+  line-height: normal !important;
+}
+#cs-reset, #cs-refresh {
+  padding: 2px 6px !important;
+  font-size: 12px !important;
+}
+
 .cs-search {
-  padding: 8px 14px; border: 1px solid var(--cs-divider); border-radius: 8px;
-  font-size: 12px; width: 220px; outline: none;
+  flex: 1;
+  width: 240px;
+  padding: 1px 6px; border: 1px solid var(--cs-divider); border-radius: 8px;
+  font-size: 12px; outline: none;
   background: var(--cs-surface); color: var(--cs-text);
   transition: border-color .2s, box-shadow .2s;
 }
 .cs-search::placeholder { color: var(--cs-text-ph); }
 .cs-search:focus { border-color: var(--cs-pri); box-shadow: 0 0 0 3px rgba(21,101,192,.1); }
+
 .cs-filter {
-  padding: 8px 14px; border: 1px solid var(--cs-divider); border-radius: 8px;
+  padding: 1px 6px; border: 1px solid var(--cs-divider); border-radius: 8px;
   font-size: 12px; background: var(--cs-surface); color: var(--cs-text);
   cursor: pointer; outline: none;
 }
-.cs-filter-label { font-size: 14px; color: var(--cs-text-3); white-space: nowrap; }
+#cs-filter, #cs-acl-filter, #cs-nct-filter {
+  width: 80px !important; max-width: 80px !important; min-width: 0 !important;
+  -webkit-appearance: none; -moz-appearance: none; appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23555'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  padding-right: 18px !important;
+}
+.cs-filter-label { font-size: 12px; }
+.cs-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px; flex-wrap: wrap; }
+.cs-toolbar-left { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; }
 .cs-btn-base {
-  padding: 8px 16px; border: none; border-radius: 8px;
-  font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 6px;
+  padding: 2px 6px; border: none; border-radius: 8px;
+  font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 3px;
   transition: background .2s;
 }
 .cs-btn-base:active { transform: scale(.97); }
-.cs-btn-base svg { width: 16px; height: 16px; transition: transform .4s; }
+.cs-btn-base svg { width: 16px; height: 12px; transition: transform .4s; }
 .cs-btn-base.loading svg { animation: spin .8s linear infinite; }
 .cs-refresh-btn { background: var(--cs-pri); color: #fff; }
 .cs-refresh-btn:hover { background: var(--cs-pri-h); }
 .cs-reset-btn { background: var(--cs-rst); color: #fff; }
 .cs-reset-btn:hover { background: var(--cs-rst-h); }
 @keyframes spin { to { transform: rotate(360deg); } }
-
-.cs-statusbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 12px; color: var(--cs-text-3); padding: 0 4px; }
 
 .cs-table-wrap {
   background: var(--cs-surface); border-radius: 12px;
@@ -134,7 +160,7 @@
 .cs-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .cs-table thead { background: var(--cs-thead-bg); }
 .cs-table th {
-  padding: 14px 16px; text-align: left; font-weight: 600; color: var(--cs-text-3);
+  padding: 10px 6px; text-align: left; font-weight: 600; color: var(--cs-text-3);
   font-size: 12px; text-transform: uppercase; letter-spacing: .5px;
   border-bottom: 1px solid var(--cs-border);
   cursor: pointer; user-select: none; white-space: nowrap;
@@ -142,11 +168,15 @@
 .cs-table th:hover { color: var(--cs-pri); }
 .cs-table th .sort-arrow { display: inline-block; margin-left: 4px; opacity: .3; font-size: 10px; }
 .cs-table th.sorted .sort-arrow { opacity: 1; color: var(--cs-pri); }
-.cs-table td { padding: 12px 16px; border-bottom: 1px solid var(--cs-border-lt); vertical-align: middle; color: var(--cs-text); }
+.cs-table td { padding: 12px 6px; border-bottom: 1px solid var(--cs-border-lt); vertical-align: middle; color: var(--cs-text); }
 .cs-table tr:last-child td { border-bottom: none; }
 .cs-table tr:hover { background: var(--cs-surface-h); }
 
-.cs-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 500; }
+.cs-badge { display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 12px; border-radius: 20px;
+  font-size: 13px; font-weight: 500;
+  white-space: nowrap;
+ }
 .cs-badge.online  { background: var(--cs-green-bg); color: var(--cs-green); }
 .cs-badge.offline { background: var(--cs-off-bg);  color: var(--cs-off); }
 .cs-badge-dot { width: 7px; height: 7px; border-radius: 50%; }
@@ -164,9 +194,6 @@
 .cs-acl.allowed:hover { background: var(--cs-red-bg); color: var(--cs-red); }
 .cs-acl.blocked { background: var(--cs-red-bg); color: var(--cs-red); }
 .cs-acl.blocked:hover { background: var(--cs-green-bg); color: var(--cs-green); }
-.cs-acl-dot { width: 7px; height: 7px; border-radius: 50%; }
-.cs-acl.allowed .cs-acl-dot { background: var(--cs-green); }
-.cs-acl.blocked .cs-acl-dot { background: var(--cs-red); }
 .cs-acl.loading { opacity: .5; pointer-events: none; }
 
 .cs-nct {
@@ -176,9 +203,6 @@
 }
 .cs-nct.ethernet { background: var(--cs-teal-bg); color: var(--cs-teal); }
 .cs-nct.wireless { background: var(--cs-purple-bg); color: var(--cs-purple); }
-.cs-nct-dot { width: 7px; height: 7px; border-radius: 50%; }
-.cs-nct.ethernet .cs-nct-dot { background: var(--cs-teal); }
-.cs-nct.wireless .cs-nct-dot { background: var(--cs-purple); }
 
 .cs-mono { font-family: 'SF Mono','Cascadia Code','Consolas',monospace; font-size: 13px; color: var(--cs-text-2); }
 .cs-mac { font-family: 'SF Mono','Cascadia Code','Consolas',monospace; font-size: 13px; color: var(--cs-text-2); letter-spacing: .3px; }
@@ -202,7 +226,16 @@
 .cs-empty-icon { font-size: 48px; margin-bottom: 12px; }
 .cs-empty-text { font-size: 15px; }
 
-.cs-auto { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--cs-text-3); }
+.cs-speed {
+  font-family: 'SF Mono','Cascadia Code','Consolas',monospace;
+  font-size: 13px; font-variant-numeric: tabular-nums;
+  white-space: nowrap; text-align: left;
+}
+.cs-speed-down { color: var(--cs-green); }
+.cs-speed-up   { color: var(--cs-blue); }
+.cs-speed-zero { color: var(--cs-text-ph); }
+
+.cs-auto { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--cs-text-3); }
 .cs-toggle { position: relative; width: 36px; height: 20px; cursor: pointer; }
 .cs-toggle input { display: none; }
 .cs-toggle-track { position: absolute; inset: 0; background: var(--cs-tog-bg); border-radius: 10px; transition: background .2s; }
@@ -213,9 +246,7 @@
   transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2);
 }
 .cs-toggle input:checked + .cs-toggle-track::after { transform: translateX(16px); }
-
 .cs-actions { display: flex; align-items: center; gap: 12px; }
-
 .cs-toast {
   position: fixed; bottom: 24px; right: 24px;
   padding: 12px 20px; border-radius: 8px;
@@ -231,21 +262,28 @@
 /* Mobile cell labels — hidden on desktop */
 .cs-cell-label { display: none; }
 
-@media (max-width: 1100px) {
+@media (max-width: 1150px) {
   .cs-wrap { padding: 0 12px; }
-  .cs-cards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 16px; }
-  .cs-card { min-width: 0; padding: 14px 16px; gap: 12px; }
+  .cs-cards { display: grid; grid-template-columns: repeat(3, 120px); justify-content: space-between; row-gap: 10px; margin-bottom: 16px; }
+  .cs-card { max-width: none; padding: 6px; gap: 6px; border-radius: 8px; }
   .cs-card-icon { width: 42px; height: 42px; border-radius: 10px; }
   .cs-card-num { font-size: 22px; }
   .cs-card-label { font-size: 12px; }
+
   .cs-toolbar { flex-direction: column; align-items: stretch; }
-  .cs-toolbar-left { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-  .cs-search { width: 100%; flex: 0 0 100%; }
-  .cs-filter { flex: 1 1 0; min-width: 0; }
+  .cs-toolbar-left { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; }
   .cs-actions { justify-content: space-between; width: 100%; }
+
+  .cs-search { flex: 1; width: 0; max-width: 240px; padding: 1px 2px; font-size: 12px; border-radius: 4px; }
+  .cs-filter { padding: 1px 2px; font-size: 12px; border-radius: 8px; }
+  .cs-filter-label { font-size: 12px; }
+
   .cs-table-wrap { overflow-x: visible; background: transparent; box-shadow: none; border-radius: 0; }
   .cs-table thead { display: none; }
   .cs-table, .cs-table tbody, .cs-table tr, .cs-table td { display: block; }
+  .cs-badge { font-size: 10px; }
+  .cs-nct { font-size: 10px; }
+  .cs-acl { font-size: 10px; }
 
   .cs-table tr {
     background: var(--cs-surface);
@@ -254,38 +292,43 @@
     padding: 12px 14px;
     box-shadow: var(--cs-shadow);
     display: grid;
-    grid-template-columns: repeat(10, 1fr);
+    grid-template-columns: repeat(16, 1fr);
     gap: 6px 8px;
     align-items: center;
   }
   .cs-table tr:hover { background: var(--cs-surface-h); }
   .cs-table td { border-bottom: none; padding: 2px 0; }
 
-  .cs-table td:nth-child(1) { grid-column: 1 / 3;    grid-row: 1; justify-self: start; }
-  .cs-table td:nth-child(6) { grid-column: 3 / 9;    grid-row: 1; justify-self: center; }
-  .cs-table td:nth-child(7) { grid-column: 9 / 11;   grid-row: 1; justify-self: end; }
+  /* Row 1: Status, NCT, ↓Speed, ↑Speed, ACL */
+  .cs-table td:nth-child(1) { grid-column: 1 / 4;   grid-row: 1; justify-self: start; }
+  .cs-table td:nth-child(6) { grid-column: 4 / 7;   grid-row: 1; justify-self: center; }
+  .cs-table td:nth-child(7) { grid-column: 7 / 11;  grid-row: 1; justify-self: center; }
+  .cs-table td:nth-child(8) { grid-column: 11 / 15; grid-row: 1; justify-self: center; }
+  .cs-table td:nth-child(9) { grid-column: 15 / 17; grid-row: 1; justify-self: end; }
 
+  /* Row 2: Hostname, IP */
   .cs-table td:nth-child(2) {
-    grid-column: 1 / 7; grid-row: 2;
-    margin-top: 4px; padding-top: 8px;
+    grid-column: 1 / 10; grid-row: 2;
+    margin-top: 3px; padding-top: 8px;
     border-top: 1px solid var(--cs-border-lt);
   }
   .cs-table td:nth-child(4) {
-    grid-column: 7 / 11; grid-row: 2;
-    margin-top: 4px; padding-top: 8px;
+    grid-column: 10 / 17; grid-row: 2;
+    margin-top: 3px; padding-top: 8px;
     border-top: 1px solid var(--cs-border-lt);
   }
 
-  .cs-table td:nth-child(3) { grid-column: 1 / 7;  grid-row: 3; }
-  .cs-table td:nth-child(5) { grid-column: 7 / 11; grid-row: 3; }
+  /* Row 3: MAC, Duration */
+  .cs-table td:nth-child(3) { grid-column: 1 / 10;  grid-row: 3; }
+  .cs-table td:nth-child(5) { grid-column: 10 / 17; grid-row: 3; }
 
+  /* Hide labels: Status, NCT, ACL */
   .cs-table td:nth-child(1) .cs-cell-label,
   .cs-table td:nth-child(6) .cs-cell-label,
-  .cs-table td:nth-child(7) .cs-cell-label { display: none !important; }
-
+  .cs-table td:nth-child(9) .cs-cell-label { display: none !important; }
+  .cs-mono, .cs-mac { white-space: nowrap; }
   .cs-cell-label { display: inline; font-size: 11px; color: var(--cs-text-3); font-weight: 500; text-transform: uppercase; letter-spacing: .3px; margin-right: 4px; }
   .cs-hostname-input { max-width: 100%; }
-  .cs-statusbar { font-size: 11px; margin-bottom: 4px; }
   .cs-empty { padding: 40px 16px; }
   .cs-empty-icon { font-size: 32px; margin-bottom: 8px; }
   .cs-empty-text { font-size: 13px; }
@@ -293,18 +336,26 @@
 }
 
 @media (max-width: 480px) {
-  .cs-wrap { padding: 0 8px; }
-  .cs-cards { gap: 8px; grid-template-columns: 1fr 1fr; }
-  .cs-card { padding: 12px; gap: 10px; border-radius: 8px; }
-  .cs-card-icon { width: 36px; height: 36px; font-size: 16px; border-radius: 8px; }
-  .cs-card-num { font-size: 18px; }
-  .cs-card-label { font-size: 11px; }
-  .cs-search { padding: 6px 8px; font-size: 10px; }
-  .cs-filter { padding: 2px 6px; font-size: 10px; }
-  .cs-btn-base { padding: 6px 10px; font-size: 12px; }
-  .cs-table tr { padding: 10px 12px; gap: 5px 8px; }
-  .cs-badge, .cs-acl, .cs-nct { font-size: 12px; padding: 3px 8px; }
-  .cs-mono, .cs-mac { font-size: 10px; }
+  .cs-wrap { padding: 0 8px; min-width: 320px; }
+  .cs-cards { gap: 14px; grid-template-columns: 1fr 1fr 1fr; }
+  .cs-card { padding: 6px; gap: 6px; border-radius: 8px; }
+  .cs-card-icon { width: 36px; height: 36px; font-size: 18px; border-radius: 6px; }
+  .cs-card-num { font-size: 16px; }
+  .cs-card-label { font-size: 10px; }
+  #cs-search { font-size: 9px !important; }
+  .cs-search { flex: 1; min-width: 60px; padding: 1px 6px; font-size: 9px; border-radius: 4px; }
+  #cs-filter, #cs-acl-filter, #cs-nct-filter { font-size: 9px !important; width: 62px !important; }
+  .cs-filter { padding: 1px 2px; font-size: 9px; border-radius: 4px; }
+  .cs-filter-label, .cs-auto { font-size: 9px; }
+  .cs-toggle { position: relative; width: 32px; height: 17px; cursor: pointer; }
+  .cs-toggle-track::after { content: ''; width: 12px; height: 12px; }
+  .cs-toggle input:checked + .cs-toggle-track::after { transform: translateX(14px); }
+  #cs-reset, #cs-refresh { padding: 1px 6px !important; font-size: 10px !important; }
+  .cs-btn-base { padding: 1px 6px; font-size: 10px;  gap: 2px; }
+  .cs-btn-base svg { width: 8px; height: 10px; transition: transform .4s; }
+  .cs-table tr { padding: 6px 6px; gap: 5px 5px; }
+  .cs-badge, .cs-acl, .cs-nct { font-size: 10px; padding: 3px 3px; }
+  .cs-hostname, .cs-mono, .cs-mac, .cs-duration , .cs-speed { font-size: 10px; }
 }
 
 </style>
@@ -401,10 +452,6 @@
     </div>
   </div>
 
-  <div class="cs-statusbar">
-    <span id="cs-updated"><%:Loading...%></span>
-  </div>
-
   <div class="cs-table-wrap">
     <table class="cs-table">
       <thead>
@@ -415,6 +462,8 @@
           <th data-col="ipv4"><%:IP%> <span class="sort-arrow">▼</span></th>
           <th data-col="duration"><%:Duration%> <span class="sort-arrow">▼</span></th>
           <th data-col="nct"><%:NCT%> <span class="sort-arrow">▼</span></th>
+          <th data-col="speed_down">↓ <%:SPEED%> <span class="sort-arrow">▼</span></th>
+          <th data-col="speed_up">↑ <%:SPEED%> <span class="sort-arrow">▼</span></th>
           <th data-col="acl"><%:ACL%> <span class="sort-arrow">▼</span></th>
         </tr>
       </thead>
@@ -433,9 +482,11 @@
 <script>
 (function() {
   var allClients = [];
+  var speedData = {};
   var sortCol = 'status';
   var sortAsc = true;
   var timer = null;
+  var speedTimer = null;
   var lastMtime = -1;
 
   function escapeHtml(s) {
@@ -493,15 +544,25 @@
     return nct && nct !== 'Ethernet' && nct !== '—' && nct !== '' && nct !== '-';
   }
 
+  function fmtSpeed(bps) {
+    if (!bps || bps <= 0) return '-';
+    if (bps < 1024) return bps + 'B/s';
+    if (bps < 1048576) return (bps / 1024).toFixed(1) + 'KB/s';
+    if (bps < 1073741824) return (bps / 1048576).toFixed(1) + 'MB/s';
+    return (bps / 1073741824).toFixed(2) + 'GB/s';
+  }
+
   function getVal(c, col) {
     switch (col) {
-      case 'status':   return c.status === 'online' ? 0 : 1;
-      case 'hostname': return (c.hostname || '').toLowerCase();
-      case 'mac':      return c.mac.toLowerCase();
-      case 'ipv4':     return c.ipv4;
-      case 'duration': return parseDuration(c.duration);
-      case 'nct':      return isWirelessNct(c.nct) ? 1 : 0;
-      case 'acl':      return c.acl === 'Blocked' ? 0 : 1;
+      case 'status':     return c.status === 'online' ? 0 : 1;
+      case 'hostname':   return (c.hostname || '').toLowerCase();
+      case 'mac':        return c.mac.toLowerCase();
+      case 'ipv4':       return c.ipv4;
+      case 'duration':   return parseDuration(c.duration);
+      case 'nct':        return isWirelessNct(c.nct) ? 1 : 0;
+      case 'acl':        return c.acl === 'Blocked' ? 0 : 1;
+      case 'speed_down': return (speedData[c.mac] || {}).rx || 0;
+      case 'speed_up':   return (speedData[c.mac] || {}).tx || 0;
       default: return '';
     }
   }
@@ -547,53 +608,38 @@
   function startHostnameEdit(cell) {
     if (cell.classList.contains('editing')) return;
     cell.classList.add('editing');
-
     var mac = cell.getAttribute('data-mac');
     var currentName = cell.getAttribute('data-name');
     var origName = cell.getAttribute('data-orig') || '';
     var textSpan = cell.querySelector('.cs-hostname-text');
     if (!textSpan) { cell.classList.remove('editing'); return; }
-
     var input = document.createElement('input');
     input.type = 'text';
     input.className = 'cs-hostname-input';
     input.value = currentName;
     input.maxLength = 64;
     input.placeholder = origName || '<%:Enter hostname%>';
-
     textSpan.style.display = 'none';
     cell.appendChild(input);
     input.focus();
     input.select();
-
     var done = false;
-
     function finish() {
-      if (done) return;
-      done = true;
+      if (done) return; done = true;
       cell.classList.remove('editing');
       if (input.parentNode) input.parentNode.removeChild(input);
       textSpan.style.display = '';
     }
-
     input.addEventListener('keydown', function(e) {
       if (e.key === 'Enter') {
         e.preventDefault();
         var val = input.value.trim();
         finish();
-        if (val !== currentName) {
-          saveHostname(mac, val, function() { csFetch(); });
-        }
+        if (val !== currentName) saveHostname(mac, val, function() { csFetch(); });
       }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        finish();
-      }
+      if (e.key === 'Escape') { e.preventDefault(); finish(); }
     });
-
-    input.addEventListener('blur', function() {
-      setTimeout(finish, 150);
-    });
+    input.addEventListener('blur', function() { setTimeout(finish, 150); });
   }
 
   function render() {
@@ -611,53 +657,49 @@
       var c = allClients[i];
       if (filter !== 'all' && c.status !== filter) continue;
       if (aclFilter !== 'all' && c.acl !== aclFilter) continue;
-
       if (nctFilter !== 'all') {
         if (nctFilter === 'Ethernet' && c.nct !== 'Ethernet') continue;
         if (nctFilter === 'Wireless' && c.nct === 'Ethernet') continue;
       }
-
       if (search && (c.hostname + c.mac + c.ipv4 + (c.nct || '')).toLowerCase().indexOf(search) === -1) continue;
 
       var sc = c.status === 'online' ? 'online' : 'offline';
       var sl = c.status === 'online' ? '<%:Online%>' : '<%:Offline%>';
       var ac = c.acl === 'Blocked' ? 'blocked' : 'allowed';
       var al = c.acl === 'Blocked' ? '<%:Blocked%>' : '<%:Allowed%>';
-
       var isWl = isWirelessNct(c.nct);
       var nc = isWl ? 'wireless' : 'ethernet';
       var nl = isWl ? c.nct : '<%:Ethernet%>';
-
       var hostDisplay = escapeHtml(c.hostname);
       var customMark = c.custom ? ' <span class="cs-custom-mark">&#9998;</span>' : '';
+      var sp = speedData[c.mac] || { rx: 0, tx: 0 };
 
-      html += '<tr>';
+      html += '<tr data-mac="' + escapeAttr(c.mac) + '">';
       html += '<td><span class="cs-badge ' + sc + '"><span class="cs-badge-dot"></span>' + sl + '</span></td>';
-      html += '<td class="cs-hostname" data-mac="' + escapeAttr(c.mac) + '" data-name="' + escapeAttr(c.hostname) + '" data-orig="' + escapeAttr(c.orig_hostname || '') + '" title="<%:Click to toggle%>">';
+      html += '<td class="cs-hostname" data-mac="' + escapeAttr(c.mac) + '" data-name="' + escapeAttr(c.hostname) + '" data-orig="' + escapeAttr(c.orig_hostname || '') + '" title="<%:Click to edit%>">';
       html += '<span class="cs-cell-label"><%:Hostname%>:</span>';
       html += '<span class="cs-hostname-text">' + hostDisplay + customMark + '</span>';
       html += '</td>';
       html += '<td class="cs-mac"><span class="cs-cell-label"><%:MAC%>:</span>' + escapeHtml(c.mac) + '</td>';
-      html += '<td class="cs-mono"><span class="cs-cell-label"><%:IP%>:</span>' + escapeHtml(c.ipv4 || '—') + '</td>';
+      html += '<td class="cs-mono"><span class="cs-cell-label"><%:IP%>:</span>' + (c.status === 'offline' ? '-' : escapeHtml(c.ipv4 || '-')) + '</td>';
       html += '<td class="cs-duration"><span class="cs-cell-label"><%:Duration%>:</span>' + escapeHtml(c.duration) + '</td>';
-      html += '<td><span class="cs-cell-label"><%:NCT%>:</span><span class="cs-nct ' + nc + '"><span class="cs-nct-dot"></span>' + escapeHtml(nl) + '</span></td>';
-      html += '<td><span class="cs-cell-label"><%:ACL%>:</span><span class="cs-acl ' + ac + '" data-mac="' + escapeAttr(c.mac) + '" title="<%:Click to toggle%>"><span class="cs-acl-dot"></span>' + al + '</span></td>';
+      html += '<td><span class="cs-cell-label"><%:NCT%>:</span>' + (c.status === 'offline' ? '-' : '<span class="cs-nct ' + nc + '">' + escapeHtml(nl) + '</span>') + '</td>';
+      html += '<td class="cs-speed cs-speed-down"><span class="cs-cell-label">↓</span><span class="cs-speed-val">' + fmtSpeed(sp.rx) + '</span></td>';
+      html += '<td class="cs-speed cs-speed-up"><span class="cs-cell-label">↑</span><span class="cs-speed-val">' + fmtSpeed(sp.tx) + '</span></td>';
+      html += '<td><span class="cs-cell-label"><%:ACL%>:</span><span class="cs-acl ' + ac + '" data-mac="' + escapeAttr(c.mac) + '" title="<%:Click to toggle%>">' + al + '</span></td>';
       html += '</tr>';
       shown++;
     }
 
     tbody.innerHTML = html;
-    empty.style.display = shown === 0 ? '' : 'none';
+    /* [修复5] 使用 'block' 代替空字符串，语义更明确 */
+    empty.style.display = shown === 0 ? 'block' : 'none';
 
     var total = allClients.length, online = 0, blocked = 0, wireless = 0, ethernet = 0;
     for (var j = 0; j < total; j++) {
       if (allClients[j].status === 'online') online++;
       if (allClients[j].acl === 'Blocked') blocked++;
-      if (isWirelessNct(allClients[j].nct)) {
-        wireless++;
-      } else {
-        ethernet++;
-      }
+      if (isWirelessNct(allClients[j].nct)) wireless++; else ethernet++;
     }
     document.getElementById('cs-total').textContent     = total;
     document.getElementById('cs-online').textContent    = online;
@@ -667,6 +709,19 @@
     document.getElementById('cs-ethernet').textContent  = ethernet;
   }
 
+  function renderSpeed() {
+    var rows = document.querySelectorAll('#cs-body tr[data-mac]');
+    for (var i = 0; i < rows.length; i++) {
+      var mac = rows[i].getAttribute('data-mac');
+      var sp = speedData[mac];
+      var cells = rows[i].getElementsByClassName('cs-speed-val');
+      if (cells.length >= 2) {
+        cells[0].textContent = sp ? fmtSpeed(sp.rx) : '—';
+        cells[1].textContent = sp ? fmtSpeed(sp.tx) : '—';
+      }
+    }
+  }
+
   function csFetch() {
     var btn = document.getElementById('cs-refresh');
     btn.classList.add('loading');
@@ -674,12 +729,20 @@
       btn.classList.remove('loading');
       if (data) {
         allClients = data.clients || [];
-        document.getElementById('cs-updated').textContent = data.updated ? '<%:Updated%>: ' + data.updated : '';
         render();
       }
     });
   }
   window.csFetch = csFetch;
+
+  function csSpeed() {
+    XHR.get('<%=url("admin/services/clientstatus/speed")%>?_=' + Date.now(), null, function(x, data) {
+      if (data && data.clients) {
+        speedData = data.clients;
+        if (allClients.length > 0) renderSpeed();
+      }
+    });
+  }
 
   function csReset() {
     var btn = document.getElementById('cs-reset');
@@ -689,6 +752,7 @@
       btn.classList.remove('loading');
       if (resp && resp.ok) {
         showToast('<%:Client data cleared%>', 'success');
+        speedData = {};
         csFetch();
       } else {
         showToast('Error: ' + ((resp && resp.error) || 'request failed'), 'error');
@@ -711,15 +775,11 @@
   document.getElementById('cs-body').addEventListener('click', function(e) {
     var aclEl = e.target.closest('.cs-acl');
     if (aclEl) {
-      if (!aclEl.classList.contains('loading')) {
-        toggleAcl(aclEl.getAttribute('data-mac'), aclEl);
-      }
+      if (!aclEl.classList.contains('loading')) toggleAcl(aclEl.getAttribute('data-mac'), aclEl);
       return;
     }
     var hostEl = e.target.closest('.cs-hostname');
-    if (hostEl && !hostEl.classList.contains('editing')) {
-      startHostnameEdit(hostEl);
-    }
+    if (hostEl && !hostEl.classList.contains('editing')) startHostnameEdit(hostEl);
   });
 
   var ths = document.querySelectorAll('.cs-table th[data-col]');
@@ -747,12 +807,18 @@
 
   function startTimer() { stopTimer(); timer = setInterval(csCheck, 30000); }
   function stopTimer() { if (timer) { clearInterval(timer); timer = null; } }
+  function startSpeedTimer() { stopSpeedTimer(); speedTimer = setInterval(csSpeed, 5000); }
+  function stopSpeedTimer() { if (speedTimer) { clearInterval(speedTimer); speedTimer = null; } }
+
   document.getElementById('cs-autorefresh').addEventListener('change', function() {
-    this.checked ? startTimer() : stopTimer();
+    if (this.checked) { startTimer(); startSpeedTimer(); }
+    else { stopTimer(); stopSpeedTimer(); }
   });
 
   csCheck();
+  csSpeed();
   startTimer();
+  startSpeedTimer();
 })();
 </script>
 

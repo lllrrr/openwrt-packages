@@ -84,12 +84,6 @@ msgstr "自动刷新"
 msgid "Refresh"
 msgstr "刷新"
 
-msgid "Loading..."
-msgstr "加载中……"
-
-msgid "Updated"
-msgstr "更新于"
-
 msgid "Hostname"
 msgstr "主机名"
 
@@ -107,6 +101,9 @@ msgstr "连接类型"
 
 msgid "ACL"
 msgstr "联网控制"
+
+msgid "SPEED"
+msgstr "实时网速"
 
 msgid "Click to toggle"
 msgstr "点击进行修改"
