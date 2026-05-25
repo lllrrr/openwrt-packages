@@ -1250,8 +1250,7 @@ return view.extend({
         }
 
         Promise.all([
-            callNetCheckWifi(),
-            safePromise(callNetCheckWifi(), { has_wifi: true }),
+            safePromise(callNetCheckWifi(), { has_wifi: false }),
             safePromise(callSystemBoard(), {}),
             safePromise(uci.load('netwiz'), null), // 恢复加载 netwiz 配置
             safePromise(uci.load('wireless'), null) // 加载底层 wireless 配置
