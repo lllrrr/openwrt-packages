@@ -202,6 +202,7 @@ save_device_to_uci() {
     local display_name="$3"
     local vendor="$4"
     local devtype="$5"
+    local hostname="$6"
 
     [ -z "$mac" ] || [ -z "$ip" ] && return
 
@@ -250,18 +251,18 @@ save_device_to_uci() {
     local section=""
 
     # Find existing device section by scanning config file
-    # 修复：正确解析 section 引用
+    # Fix: correctly parse section references
     if [ -f /etc/config/devicemaster ]; then
         local in_dev=0 sec_mac="" sec_ref=""
         while IFS= read -r line; do
             case "$line" in
                 "config device"*)
-                    # 检查上一个 device 段是否匹配
+                    # Check if previous device section matches
                     if [ -n "$sec_mac" ] && [ "$sec_mac" = "$mac" ] && [ -n "$sec_ref" ]; then
                         section="$sec_ref"
                         break
                     fi
-                    # 提取 section 引用 (如 "config device 'cfg123456'" 或匿名)
+                    # Extract section reference (e.g. "config device 'cfg123456'" or anonymous)
                     sec_ref=$(echo "$line" | sed "s/config device[[:space:]]*//;s/'//g")
                     [ -z "$sec_ref" ] && sec_ref="new"
                     sec_mac="" in_dev=1
@@ -271,7 +272,7 @@ save_device_to_uci() {
                     ;;
             esac
         done < /etc/config/devicemaster
-        # 检查最后一个 device 段
+        # Check last device section
         if [ -z "$section" ] && [ -n "$sec_mac" ] && [ "$sec_mac" = "$mac" ]; then
             section="$sec_ref"
         fi
@@ -283,13 +284,31 @@ save_device_to_uci() {
         if uci -q show devicemaster 2>/dev/null | grep -qi "\.mac='$mac'"; then
             return
         fi
+        
+        # Use file lock to prevent concurrent device creation
+        local lock_file="/tmp/devicemaster_add_device.lock"
+        local lock_wait=0
+        while [ -f "$lock_file" ] && [ $lock_wait -lt 10 ]; do
+            sleep 0.1
+            lock_wait=$((lock_wait + 1))
+        done
+        touch "$lock_file"
+        
+        # Double-check again after acquiring lock
+        if uci -q show devicemaster 2>/dev/null | grep -qi "\.mac='$mac'"; then
+            rm -f "$lock_file"
+            return
+        fi
+        
         section=$(uci add devicemaster device 2>/dev/null)
+        rm -f "$lock_file"
         [ -z "$section" ] && return
     fi
 
     # Batch all UCI operations
     uci set "devicemaster.$section.mac=$mac"
     uci set "devicemaster.$section.name=$display_name"
+    [ -n "$hostname" ] && uci set "devicemaster.$section.hostname=$hostname"
     [ -n "$vendor" ] && uci set "devicemaster.$section.vendor=$vendor"
     [ -n "$devtype" ] && uci set "devicemaster.$section.type=$devtype"
     uci set "devicemaster.$section.discovered=1"
@@ -1229,7 +1248,7 @@ get_all_devices() {
         # --- Identification Priority Chain ---
 
         # Priority 0: User manual annotation from UCI config (highest priority)
-        # 修复：检查 manual 标志，如果用户手动设置了 name，优先使用
+        # Fix: check manual flag, if user manually set name, use it first
         local uci_name=""
         local uci_vendor=""
         local uci_type=""
@@ -1243,7 +1262,7 @@ get_all_devices() {
                 uci_manual=$(echo "$uci_line" | cut -d',' -f5)
                 [ -n "$uci_vendor" ] && vendor="$uci_vendor"
                 [ -n "$uci_type" ] && devtype="$uci_type"
-                # 修复：如果 manual=1，强制使用 UCI name；否则只在 hostname=unknown 时使用
+                # Fix: if manual=1, force use UCI name; otherwise only use when hostname=unknown
                 if [ "$uci_manual" = "1" ] && [ -n "$uci_name" ]; then
                     hostname="$uci_name"
                 elif [ -n "$uci_name" ] && [ "$hostname" = "unknown" ]; then
@@ -1289,7 +1308,7 @@ get_all_devices() {
         fi
 
         # Priority 4.5: nlbwmon layer7 protocol analysis (if installed)
-        # 修复：对于 LAA (随机 MAC)，nlbwmon 可以覆盖厂商识别
+        # Fix: for LAA (random MAC), nlbwmon can override vendor identification
         if [ -x /usr/libexec/nlbwmon-action ]; then
             if [ -z "$vendor" ] || [ "$vendor" = "LAA" ]; then
                 local nlbw_vendor=$(detect_by_nlbwmon "$mac")

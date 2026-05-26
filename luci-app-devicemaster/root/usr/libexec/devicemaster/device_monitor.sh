@@ -1,27 +1,90 @@
 #!/bin/sh
-# DeviceMaster Monitor Daemon (Simplified)
-# Architecture: Poll-based (safe, no memory leak)
-#   - Polls ARP table every 30 seconds
-#   - When new device detected, triggers event_handler.sh to register it in UCI
-#   - No ip monitor, no netlink, no background processes
-#   - Frontend handles online status via real-time API
+# DeviceMaster Monitor Daemon v2 - Dual Mode (Power Save / Active)
+#   - Idle mode: 5min poll, no traffic monitoring
+#   - Active mode: 30s poll, traffic monitoring enabled
 
 EVENT_HANDLER="/usr/libexec/devicemaster/event_handler.sh"
 PID_FILE="/var/run/devicemaster/monitor.pid"
 ARP_TABLE="/proc/net/arp"
-POLL_INTERVAL=30
 PAGE_ACTIVE_FILE="/tmp/dm_page_active"
-PAGE_ACTIVE_TIMEOUT=10   # Page considered active if polled within 10s
-IDLE_INTERVAL=300        # 5 minutes when no page viewer or no unknown devices
+MODE_FILE="/tmp/dm_mode"  # 'active' or 'idle'
+
+# Intervals
+IDLE_INTERVAL=300        # 5 minutes in idle mode
+ACTIVE_INTERVAL=30       # 30 seconds in active mode
+PAGE_ACTIVE_TIMEOUT=15   # Page considered active if polled within 15s
+MODE_CHECK_INTERVAL=10   # Check mode switch every 10s
+
+# Traffic monitor control
+TRAFFIC_MONITOR_PID="/var/run/devicemaster/traffic_monitor.pid"
 
 log_msg() {
     logger -t devicemaster-monitor "$1"
 }
 
+# ============================================================
+# Mode Management
+# ============================================================
+
+# Check current mode: active or idle
+# Default is idle unless explicitly set to active
+get_mode() {
+    # Priority 1: Check explicit mode file (most reliable)
+    if [ -f "$MODE_FILE" ]; then
+        local mode=$(cat "$MODE_FILE" 2>/dev/null | tr -d '\n\r')
+        if [ "$mode" = "active" ]; then
+            echo "active"
+            return
+        fi
+        # Any other value (including "idle") returns idle
+        echo "idle"
+        return
+    fi
+    
+    # Priority 2: Check page activity (backward compat, but require explicit active)
+    # Only go active if mode file explicitly says so
+    echo "idle"
+}
+
+# Set mode explicitly
+set_mode() {
+    echo "$1" > "$MODE_FILE"
+    log_msg "Mode switched to: $1"
+}
+
+# ============================================================
+# Traffic Monitor Control
+# ============================================================
+
+start_traffic_monitor() {
+    [ -f "$TRAFFIC_MONITOR_PID" ] && return  # Already running
+    
+    if [ -x "/usr/libexec/devicemaster/traffic_monitor.sh" ]; then
+        /usr/libexec/devicemaster/traffic_monitor.sh monitor &
+        echo $! > "$TRAFFIC_MONITOR_PID"
+        log_msg "Traffic monitor started (PID: $!)"
+    fi
+}
+
+stop_traffic_monitor() {
+    [ ! -f "$TRAFFIC_MONITOR_PID" ] && return  # Not running
+    
+    local pid=$(cat "$TRAFFIC_MONITOR_PID" 2>/dev/null)
+    if [ -n "$pid" ]; then
+        kill "$pid" 2>/dev/null
+        wait "$pid" 2>/dev/null
+        log_msg "Traffic monitor stopped (PID: $pid)"
+    fi
+    rm -f "$TRAFFIC_MONITOR_PID"
+}
+
+# ============================================================
+# Device Detection (same as v1)
+# ============================================================
+
 UCI_MAC_FILE="/tmp/dm_uci_macs"
 ARP_MAC_FILE="/tmp/dm_arp_macs"
 
-# Get list of MACs from UCI device profiles (newline-separated, uppercased)
 get_uci_macs() {
     > "$UCI_MAC_FILE"
     local idx=0
@@ -31,50 +94,27 @@ get_uci_macs() {
     done
 }
 
-# Get list of MACs from ARP table (newline-separated, uppercased)
 get_arp_macs() {
     awk 'NR>1 && $4!="00:00:00:00:00:00" {print toupper($4)}' "$ARP_TABLE" 2>/dev/null | sort -u > "$ARP_MAC_FILE"
 }
 
-# Check if there are new devices in ARP that aren't in UCI
 detect_new_device() {
     get_arp_macs
-
-    if [ ! -s "$ARP_MAC_FILE" ]; then
-        rm -f "$ARP_MAC_FILE"
-        return 1
-    fi
-
+    [ ! -s "$ARP_MAC_FILE" ] && { rm -f "$ARP_MAC_FILE"; return 1; }
+    
     get_uci_macs
-
-    if [ ! -s "$UCI_MAC_FILE" ]; then
-        rm -f "$UCI_MAC_FILE" "$ARP_MAC_FILE"
-        return 0
-    fi
-
-    # Use grep -F -f to find ARP MACs NOT in UCI (fast, subshell-safe)
+    [ ! -s "$UCI_MAC_FILE" ] && { rm -f "$UCI_MAC_FILE" "$ARP_MAC_FILE"; return 0; }
+    
     local missing_mac=$(grep -F -v -f "$UCI_MAC_FILE" "$ARP_MAC_FILE" 2>/dev/null | head -1)
-
+    rm -f "$UCI_MAC_FILE" "$ARP_MAC_FILE"
+    
     if [ -n "$missing_mac" ]; then
         log_msg "New device detected: $missing_mac"
-        rm -f "$UCI_MAC_FILE" "$ARP_MAC_FILE"
         return 0
     fi
-
-    rm -f "$UCI_MAC_FILE" "$ARP_MAC_FILE"
     return 1
 }
 
-# Check if device list page is being actively viewed
-is_page_active() {
-    [ ! -f "$PAGE_ACTIVE_FILE" ] && return 1
-    local last_active=$(cat "$PAGE_ACTIVE_FILE" 2>/dev/null)
-    [ -z "$last_active" ] && return 1
-    local now=$(date +%s)
-    [ $((now - last_active)) -lt $PAGE_ACTIVE_TIMEOUT ]
-}
-
-# Count devices with unknown vendor, type, or hostname (fast: single uci show + awk)
 count_unknown_devices() {
     uci show devicemaster 2>/dev/null | awk '
         /\.(mac|vendor|type|hostname)=/ {
@@ -84,7 +124,6 @@ count_unknown_devices() {
             field = substr(rest, 1, eq - 1)
             val = substr(rest, eq + 1)
             gsub(/^'"'"'|'"'"'$/, "", val)
-            # Extract section: everything before first dot in field
             dot2 = index(field, ".")
             section = substr(field, 1, dot2 - 1)
             fname = substr(field, dot2 + 1)
@@ -108,37 +147,26 @@ count_unknown_devices() {
     '
 }
 
-# Signal handler
-cleanup() {
-    log_msg "Shutting down..."
-    rm -f "$PID_FILE"
-    exit 0
-}
-
-trap cleanup TERM INT
-
 # ============================================================
-# Sub-node: write local WiFi stations to public file
-# Master polls this URL to discover devices behind sub-nodes
+# Sub-node Functions (same as v1)
 # ============================================================
+
 write_sub_stations() {
     local has_mesh=$(iw dev wl1-mesh0 info 2>/dev/null)
     [ -z "$has_mesh" ] && return
-    local dhcp_ignore=$(uci -q get dhcp.lan.ignore 2>/dev/null)
-    [ "$dhcp_ignore" != "1" ] && return
+    [ "$(uci -q get dhcp.lan.ignore 2>/dev/null)" != "1" ] && return
     
     local node_mac=$(ip link show dev br-lan 2>/dev/null | grep 'link/ether' | awk '{print $2}')
     [ -z "$node_mac" ] && return
     node_mac=$(echo "$node_mac" | tr 'a-f' 'A-F')
     
     local stmp="/tmp/dm_sub_stations.$$"
-    > "$stmp"
-    
-    # Collect all (mac,iface) pairs: one per line to avoid subshell issues
     local raw="/tmp/dm_sub_raw.$$"
-    > "$raw"
+    > "$stmp"; > "$raw"
+    
     local ifaces=$(ls /sys/class/net/ 2>/dev/null | grep '^wl' | tr '\n' ' ')
-    if [ -z "$ifaces" ]; then ifaces="wl0-ap0 wl1-ap0 wl0-ap1 wl1-ap1"; fi
+    [ -z "$ifaces" ] && ifaces="wl0-ap0 wl1-ap0 wl0-ap1 wl1-ap1"
+    
     for iface in $ifaces; do
         iwinfo "$iface" assoclist 2>/dev/null | while read -r mac rest; do
             [ ${#mac} -ne 17 ] && continue
@@ -146,7 +174,6 @@ write_sub_stations() {
         done
     done
     
-    # Build JSON from the collected pairs
     printf '{"node_mac":"%s","iface":"br-lan","stations":[' "$node_mac" > "$stmp"
     local sep=""
     while IFS='|' read -r mac iface; do
@@ -159,79 +186,120 @@ write_sub_stations() {
     rm -f "$stmp" "$raw"
 }
 
-# ============================================================
-# Sub-node: push full device report to master
-# Called when new device detected + every SUB_REPORT_INTERVAL
-# ============================================================
 push_to_master() {
     local has_mesh=$(iw dev wl1-mesh0 info 2>/dev/null)
     [ -z "$has_mesh" ] && return
-    local dhcp_ignore=$(uci -q get dhcp.lan.ignore 2>/dev/null)
-    [ "$dhcp_ignore" != "1" ] && return
-
+    [ "$(uci -q get dhcp.lan.ignore 2>/dev/null)" != "1" ] && return
+    
     local master_ip=$(ip route show default 2>/dev/null | awk '{print $3}' | head -1)
     [ -z "$master_ip" ] && return
-
+    
     local node_mac=$(ip link show dev br-lan 2>/dev/null | grep 'link/ether' | awk '{print $2}')
     [ -z "$node_mac" ] && return
     node_mac=$(echo "$node_mac" | tr 'a-f' 'A-F')
-
+    
     local report_file="/tmp/dm_sub_push_report.json"
-
     lua /usr/libexec/devicemaster/sub_report_gen.lua "$node_mac" > "$report_file" 2>/dev/null
     [ ! -s "$report_file" ] && return
-
+    
     curl -s --connect-timeout 2 --max-time 5 \
         -X POST \
         -H "Content-Type: application/json" \
         -d @"$report_file" \
         "http://$master_ip/cgi-bin/luci/admin/network/devicemaster/api/report_sub" \
         >/dev/null 2>&1
-
+    
     rm -f "$report_file"
 }
 
 SUB_REPORT_INTERVAL=120
 sub_last_report=0
 
-# Main loop
+# ============================================================
+# Main Loop - Dual Mode
+# ============================================================
+
+cleanup() {
+    log_msg "Shutting down..."
+    stop_traffic_monitor
+    rm -f "$PID_FILE" "$MODE_FILE"
+    exit 0
+}
+
+trap cleanup TERM INT
+
 main() {
     mkdir -p /var/run/devicemaster
-    echo $$ > "$PID_FILE"
-
-    log_msg "Started (poll mode, interval=${POLL_INTERVAL}s)"
-
-    # Initial discovery
-    if [ -x "$EVENT_HANDLER" ]; then
-        "$EVENT_HANDLER" discover
+    
+    # Check if already running
+    if [ -f "$PID_FILE" ]; then
+        local old_pid=$(cat "$PID_FILE" 2>/dev/null)
+        if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+            log_msg "Already running (PID: $old_pid), exiting"
+            exit 0
+        fi
     fi
-
-    # Simple poll loop - no background processes, no memory leak
+    
+    echo $$ > "$PID_FILE"
+    
+    local current_mode="idle"
+    local interval=$IDLE_INTERVAL
+    local mode_check_counter=0
+    
+    log_msg "Started (dual mode: idle=${IDLE_INTERVAL}s, active=${ACTIVE_INTERVAL}s)"
+    
+    # Initial discovery
+    [ -x "$EVENT_HANDLER" ] && "$EVENT_HANDLER" discover
+    
+    # Initial mode check
+    current_mode=$(get_mode)
+    if [ "$current_mode" = "active" ]; then
+        start_traffic_monitor
+        interval=$ACTIVE_INTERVAL
+        log_msg "Initial mode: active"
+    else
+        log_msg "Initial mode: idle"
+    fi
+    
     while true; do
-        # Decide interval: 30s only when page is active AND 2+ unknown devices
-        local interval=$IDLE_INTERVAL
-        if is_page_active; then
-            local unknown_count=$(count_unknown_devices)
-            if [ "$unknown_count" -ge 2 ]; then
-                interval=$POLL_INTERVAL
+        # Use shorter sleep for responsive mode switching
+        # In active mode: check every 10s, in idle mode: check every 60s
+        local sleep_time=$MODE_CHECK_INTERVAL
+        [ "$current_mode" = "idle" ] && sleep_time=60
+        
+        sleep $sleep_time
+        
+        # Check mode
+        mode_check_counter=$((mode_check_counter + sleep_time))
+        
+        if [ $mode_check_counter -ge $MODE_CHECK_INTERVAL ]; then
+            mode_check_counter=0
+            local new_mode=$(get_mode)
+            
+            # Mode switch handling
+            if [ "$new_mode" != "$current_mode" ]; then
+                current_mode="$new_mode"
+                log_msg "Mode switched to: $current_mode"
+                
+                if [ "$current_mode" = "active" ]; then
+                    start_traffic_monitor
+                    interval=$ACTIVE_INTERVAL
+                else
+                    stop_traffic_monitor
+                    interval=$IDLE_INTERVAL
+                fi
             fi
         fi
-
-        sleep $interval
         
-        # New device detection (all roles)
+        # New device detection
         if detect_new_device; then
-            if [ -x "$EVENT_HANDLER" ]; then
-                "$EVENT_HANDLER" discover
-            fi
-            # Sub-node: immediately report new device to master
+            [ -x "$EVENT_HANDLER" ] && "$EVENT_HANDLER" discover
             push_to_master
         fi
         
-        # Sub-node: push stations to master periodically
+        # Sub-node: push stations periodically
         local now=$(date +%s)
         if [ $((now - sub_last_report)) -ge $SUB_REPORT_INTERVAL ]; then
-            # Write local WiFi stations to cache file first (needed by push_to_master)
             write_sub_stations
             push_to_master
             sub_last_report=$now
