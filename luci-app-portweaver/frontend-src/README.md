@@ -14,10 +14,17 @@ src/
 
 ## Development
 
+This package is managed from the `luci-app-portweaver/` pnpm workspace root.
+Run dependency installation once from the workspace root:
+
+```bash
+cd ..
+pnpm install
+```
+
 ### Local Development
 ```bash
-pnpm install
-pnpm dev
+pnpm --filter @portweaver/luci-ui dev
 ```
 
 ### Remote Development (Auto-upload to OpenWrt)
@@ -39,14 +46,14 @@ SSH_REMOTE_PATH=/www/luci-static/resources/view/portweaver
 
 3. Start remote development:
 ```bash
-pnpm dev:remote
+pnpm --filter @portweaver/luci-ui dev:remote
 ```
 
 This will auto-compile and upload changes to your OpenWrt device.
 
 ### Build
 ```bash
-pnpm build
+pnpm --filter @portweaver/luci-ui build
 ```
 
 ## Build Output

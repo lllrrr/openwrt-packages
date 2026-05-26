@@ -5,7 +5,7 @@ import { rpcClient } from "@/utils/rpc-client";
 const form = L.form;
 const uci = L.uci;
 
-const _DNS_PROVIDERS_CONFIG: Record<
+export const DNS_PROVIDERS_CONFIG: Record<
   string,
   {
     idLabel: string;

@@ -597,7 +597,13 @@ static void merge_and_output(void) {
         strncpy(c->mac, mac, ML);
         Old *old = find_old(mac);
 
-        /* IP: DHCP > ARP > old */
+        /*
+         * IP: DHCP > ARP only.
+         * Do NOT fall back to old state IP — an offline client's stale IP
+         * may have been reassigned to a new client, and since the frontend
+         * already hides IPs for offline clients, preserving the old IP
+         * serves no purpose while introducing false-positive online detection.
+         */
         c->ip[0] = '\0';
         for (int i = 0; i < g_dhcp_n; i++)
             if (strcasecmp(g_dhcp[i].mac, mac) == 0)
@@ -606,7 +612,6 @@ static void merge_and_output(void) {
             for (int i = 0; i < g_arp_n; i++)
                 if (strcasecmp(g_arp[i].mac, mac) == 0)
                     { strncpy(c->ip, g_arp[i].ip, IL); break; }
-        if (!c->ip[0] && old) strncpy(c->ip, old->ip, IL);
 
         /* Hostname: DHCP > old > "unknown" */
         c->host[0] = '\0';

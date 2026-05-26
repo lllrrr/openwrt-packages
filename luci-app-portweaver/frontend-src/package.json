@@ -1,5 +1,5 @@
 {
-  "name": "luci-app-portweaver-ui",
+  "name": "@portweaver/luci-ui",
   "version": "1.0.0",
   "description": "LuCI PortWeaver UI TypeScript source",
   "private": true,
@@ -11,13 +11,15 @@
     "dev:remote": "tsx scripts/dev-remote.ts",
     "preview": "rsbuild preview",
     "format": "biome format --write",
-    "lint": "biome lint --write --unsafe"
+    "lint": "biome lint --write --unsafe",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "i18n:export": "dotenvx run -- luci-types -i ../htdocs --po ../po/zh_Hans/portweaver.po --merge -p luci-app-portweaver --translate --batch-size 20 --prompt translate.md"
   },
   "devDependencies": {
     "@lazulikao/luci-types": "github:LazuliKao/luci-types",
-    "@biomejs/biome": "^2.3.11",
+    "@biomejs/biome": "^2.4.15",
     "@dotenvx/dotenvx": "^1.59.1",
-    "@rsbuild/core": "^1.7.5",
+    "@rsbuild/core": "^2.0.7",
     "@types/node": "^20.19.29",
     "@types/ssh2": "^1.15.5",
     "chokidar": "^5.0.0",

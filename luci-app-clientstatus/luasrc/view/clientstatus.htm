@@ -683,7 +683,7 @@
       html += '<td class="cs-mac"><span class="cs-cell-label"><%:MAC%>:</span>' + escapeHtml(c.mac) + '</td>';
       html += '<td class="cs-mono"><span class="cs-cell-label"><%:IP%>:</span>' + (c.status === 'offline' ? '-' : escapeHtml(c.ipv4 || '-')) + '</td>';
       html += '<td class="cs-duration"><span class="cs-cell-label"><%:Duration%>:</span>' + escapeHtml(c.duration) + '</td>';
-      html += '<td><span class="cs-cell-label"><%:NCT%>:</span>' + (c.status === 'offline' ? '-' : '<span class="cs-nct ' + nc + '">' + escapeHtml(nl) + '</span>') + '</td>';
+      html += '<td><span class="cs-cell-label"><%:NCT%>:</span>' + ('<span class="cs-nct ' + nc + '">' + escapeHtml(nl) + '</span>') + '</td>';
       html += '<td class="cs-speed cs-speed-down"><span class="cs-cell-label">↓</span><span class="cs-speed-val">' + fmtSpeed(sp.rx) + '</span></td>';
       html += '<td class="cs-speed cs-speed-up"><span class="cs-cell-label">↑</span><span class="cs-speed-val">' + fmtSpeed(sp.tx) + '</span></td>';
       html += '<td><span class="cs-cell-label"><%:ACL%>:</span><span class="cs-acl ' + ac + '" data-mac="' + escapeAttr(c.mac) + '" title="<%:Click to toggle%>">' + al + '</span></td>';
@@ -692,7 +692,6 @@
     }
 
     tbody.innerHTML = html;
-    /* [修复5] 使用 'block' 代替空字符串，语义更明确 */
     empty.style.display = shown === 0 ? 'block' : 'none';
 
     var total = allClients.length, online = 0, blocked = 0, wireless = 0, ethernet = 0;
