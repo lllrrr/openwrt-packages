@@ -414,8 +414,19 @@ case "$1" in
 				;;
 			getVersion)
 				pkgv=""
-				[ -f /usr/lib/opkg/info/bandix-plus.control ] && \
-					pkgv=$(grep "^Version:" /usr/lib/opkg/info/bandix-plus.control 2>/dev/null | cut -d' ' -f2)
+				if command -v apk >/dev/null 2>&1; then
+					apk_raw=$(apk list --installed "luci-app-bandix-plus" 2>/dev/null | awk '{print $1}')
+					if [ -n "$apk_raw" ]; then
+						# 移除前缀 "luci-app-bandix-plus-" 提取出真实版本号
+						pkgv="${apk_raw#luci-app-bandix-plus-}"
+					fi
+				elif command -v opkg >/dev/null 2>&1; then
+					pkgv=$(opkg status luci-app-bandix-plus 2>/dev/null | grep "^Version:" | cut -d' ' -f2)
+				fi
+				if [ -z "$pkgv" ]; then
+					pkgv=$(grep -h "^Version:" /lib/apk/db/installed /usr/lib/info/luci-app-bandix-plus.control /usr/lib/opkg/info/bandix-plus.control 2>/dev/null | head -n 1 | cut -d' ' -f2)
+				fi
+
 				hb=$(bplus_get "$BASE/api/health")
 				api_ok=""; echo "$hb" | grep -q '"ok":true' && api_ok=1
 				json_init
@@ -466,8 +477,17 @@ case "$1" in
 
 				# package version
 				pkgv=""
-				[ -f /usr/lib/opkg/info/bandix-plus.control ] && \
-					pkgv=$(grep "^Version:" /usr/lib/opkg/info/bandix-plus.control 2>/dev/null | cut -d' ' -f2)
+				if command -v apk >/dev/null 2>&1; then
+					apk_raw=$(apk list --installed "luci-app-bandix-plus" 2>/dev/null | awk '{print $1}')
+					if [ -n "$apk_raw" ]; then
+						pkgv="${apk_raw#luci-app-bandix-plus-}"
+					fi
+				elif command -v opkg >/dev/null 2>&1; then
+					pkgv=$(opkg status luci-app-bandix-plus 2>/dev/null | grep "^Version:" | cut -d' ' -f2)
+				fi
+				if [ -z "$pkgv" ]; then
+					pkgv=$(grep -h "^Version:" /lib/apk/db/installed /usr/lib/info/luci-app-bandix-plus.control /usr/lib/opkg/info/bandix-plus.control 2>/dev/null | head -n 1 | cut -d' ' -f2)
+				fi
 
 				json_init
 				json_add_int    "enabled"         "$enabled"
