@@ -299,6 +299,23 @@ export default function (
   o = ss.option(form.Flag, "enable_app_forward", _("Enable App Level Forward"));
   o.modalonly = true;
   o.default = "0";
+  o = ss.option(
+    form.ListValue,
+    "app_forward_loop_mode",
+    _("Loop Mode"),
+    _(
+      "Controls how event loop runtimes are shared among listeners. " +
+        "'per_project' (default): one runtime shared by all listeners in this project, balanced resource usage. " +
+        "'per_listener': each listener gets its own dedicated runtime, highest isolation but uses more memory (one thread per listener). " +
+        "'global': all projects share a single global runtime, lowest memory usage but no isolation between projects.",
+    ),
+  );
+  o.modalonly = true;
+  o.value("per_project", _("Per Project (default) - balanced"));
+  o.value("per_listener", _("Per Listener - highest isolation, more memory"));
+  o.value("global", _("Global - lowest memory, no isolation"));
+  o.default = "per_project";
+  o.depends("enable_app_forward", "1");
 
   o = ss.option(form.Flag, "reuseaddr", _("Reuse Address"));
   o.modalonly = true;

@@ -1,5 +1,6 @@
 import { defineConfig } from "@rsbuild/core";
 import { rspack } from "@rsbuild/core";
+
 // LuCI require statements that must be at the very top of the output file
 const luciRequires = `'use strict';
 'require firewall as fwmodel';
@@ -58,7 +59,7 @@ export default defineConfig({
         transform: {
           react: {
             runtime: "automatic",
-            importSource: "/utils/jsx-factory",
+            importSource: "@lazulikao/luci-types",
             useBuiltins: true,
           },
           optimizer: {

@@ -1,7 +1,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: luci-app-portweaver\n"
-"POT-Creation-Date: 2026-05-26 17:28+0800\n"
+"POT-Creation-Date: 2026-05-27 19:05+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -55,6 +55,9 @@ msgstr "操作"
 
 msgid "Active Ports"
 msgstr "活动端口"
+
+msgid "Active Sessions"
+msgstr "活动会话"
 
 msgid "Add Firewall Forward"
 msgstr "添加防火墙转发"
@@ -719,6 +722,9 @@ msgstr "服务器"
 
 msgid "Service restarted successfully"
 msgstr "服务已成功重启"
+
+msgid "Sessions: %d"
+msgstr "会话: %d"
 
 msgid "Socket type not supported"
 msgstr "不支持的套接字类型"

@@ -2,6 +2,7 @@ export interface PortWeaverStatus {
   status?: "running" | "stopped" | "degraded" | string;
   total_projects?: number;
   active_ports?: number;
+  active_sessions?: number;
   uptime?: number;
   total_bytes_in?: number;
   total_bytes_out?: number;
@@ -13,6 +14,7 @@ export interface ForwarderStats {
   local_port: number;
   bytes_in: number;
   bytes_out: number;
+  active_sessions?: number;
 }
 
 export interface ProjectStatus {
@@ -25,6 +27,7 @@ export interface ProjectStatus {
   active_ports?: number;
   bytes_in?: number;
   bytes_out?: number;
+  active_sessions?: number;
   /** Per-port statistics */
   forwarders?: ForwarderStats[];
 }
@@ -87,6 +90,7 @@ export interface FullStatusProject {
   active_ports: number;
   bytes_in: number;
   bytes_out: number;
+  active_sessions?: number;
   last_changed?: number;
   error_code?: number;
   forwarders?: Array<{
@@ -94,6 +98,7 @@ export interface FullStatusProject {
     local_port: number;
     bytes_in: number;
     bytes_out: number;
+    active_sessions?: number;
   }>;
 }
 
@@ -142,6 +147,7 @@ export interface FullStatusResponse {
   active_ports: number;
   total_bytes_in: number;
   total_bytes_out: number;
+  active_sessions?: number;
   projects: FullStatusProject[];
   frp: FullStatusFrp;
   ddns: FullStatusDdns;

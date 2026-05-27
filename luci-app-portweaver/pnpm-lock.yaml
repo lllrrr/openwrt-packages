@@ -18,7 +18,7 @@ importers:
         version: 1.66.0
       '@lazulikao/luci-types':
         specifier: github:LazuliKao/luci-types
-        version: https://codeload.github.com/LazuliKao/luci-types/tar.gz/bd4e53a61c2e86434c846df451157fd46ce3ddc9
+        version: https://codeload.github.com/LazuliKao/luci-types/tar.gz/bda4dc5fb40f065096919125e4452bf8a1e326ab
       '@rsbuild/core':
         specifier: ^2.0.7
         version: 2.0.7(core-js@3.47.0)
@@ -275,8 +275,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@lazulikao/luci-types@https://codeload.github.com/LazuliKao/luci-types/tar.gz/bd4e53a61c2e86434c846df451157fd46ce3ddc9':
-    resolution: {tarball: https://codeload.github.com/LazuliKao/luci-types/tar.gz/bd4e53a61c2e86434c846df451157fd46ce3ddc9}
+  '@lazulikao/luci-types@https://codeload.github.com/LazuliKao/luci-types/tar.gz/bda4dc5fb40f065096919125e4452bf8a1e326ab':
+    resolution: {tarball: https://codeload.github.com/LazuliKao/luci-types/tar.gz/bda4dc5fb40f065096919125e4452bf8a1e326ab}
     version: 0.1.0
     engines: {node: '>=18.18.0'}
     hasBin: true
@@ -719,7 +719,7 @@ snapshots:
   '@esbuild/win32-x64@0.28.0':
     optional: true
 
-  '@lazulikao/luci-types@https://codeload.github.com/LazuliKao/luci-types/tar.gz/bd4e53a61c2e86434c846df451157fd46ce3ddc9':
+  '@lazulikao/luci-types@https://codeload.github.com/LazuliKao/luci-types/tar.gz/bda4dc5fb40f065096919125e4452bf8a1e326ab':
     dependencies:
       tsx: 4.22.2
       typescript: 6.0.3

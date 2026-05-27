@@ -78,6 +78,10 @@ export class Client {
           this.statusPanel.activePortsEl.textContent = String(
             this.globalStatus.active_ports || 0,
           );
+        if (this.statusPanel?.activeSessionsEl)
+          this.statusPanel.activeSessionsEl.textContent = String(
+            this.globalStatus.active_sessions || 0,
+          );
         if (this.statusPanel?.uptimeEl)
           this.statusPanel.uptimeEl.textContent = formatUptime(
             this.globalStatus.uptime || 0,
@@ -326,6 +330,7 @@ export class Client {
       status: fullStatus.status,
       total_projects: fullStatus.total_projects,
       active_ports: fullStatus.active_ports,
+      active_sessions: fullStatus.active_sessions,
       uptime: fullStatus.uptime,
       total_bytes_in: fullStatus.total_bytes_in,
       total_bytes_out: fullStatus.total_bytes_out,
@@ -337,6 +342,7 @@ export class Client {
       startup_status: project.startup_status,
       error_code: project.error_code,
       active_ports: project.active_ports,
+      active_sessions: project.active_sessions,
       bytes_in: project.bytes_in,
       bytes_out: project.bytes_out,
       forwarders: project.forwarders,
@@ -366,6 +372,7 @@ export class Client {
         startup_status: project.startup_status ?? existing?.startup_status,
         error_code: project.error_code ?? existing?.error_code,
         active_ports: project.active_ports ?? existing?.active_ports,
+        active_sessions: project.active_sessions ?? existing?.active_sessions,
         bytes_in: project.bytes_in ?? existing?.bytes_in,
         bytes_out: project.bytes_out ?? existing?.bytes_out,
         forwarders: project.forwarders ?? existing?.forwarders,
@@ -509,6 +516,12 @@ export class Client {
           <span>{_("Ports: %d").format(status.active_ports || 0)}</span>,
         );
       }
+      if ((status.active_sessions || 0) > 0) {
+        if (elements.length > 0) elements.push(<br />);
+        elements.push(
+          <span>{_("Sessions: %d").format(status.active_sessions || 0)}</span>,
+        );
+      }
       if (status.bytes_in || 0 || status.bytes_out || 0) {
         if (elements.length > 0) elements.push(<br />);
         elements.push(
@@ -554,6 +567,7 @@ export class Client {
         <span style="color: #dc3545;">
           {`\u2191${formatBytes(f.bytes_out)}`}
         </span>
+        <span style="color: #17a2b8;">{`S:${f.active_sessions || 0}`}</span>
       </div>
     ));
 

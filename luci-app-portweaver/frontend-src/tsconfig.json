@@ -19,7 +19,7 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "jsx": "react-jsx",
-    "jsxImportSource": "@/utils/jsx-factory",
+    "jsxImportSource": "@lazulikao/luci-types",
     "types": ["@lazulikao/luci-types"],
     "paths": {
       "@/*": ["./*"]

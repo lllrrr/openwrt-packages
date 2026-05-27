@@ -11,6 +11,7 @@ export class StatusPanel {
   public statusValueEl?: HTMLElement;
   public totalProjectsEl?: HTMLElement;
   public activePortsEl?: HTMLElement;
+  public activeSessionsEl?: HTMLElement;
   public uptimeEl?: HTMLElement;
   public trafficInEl?: HTMLElement;
   public trafficOutEl?: HTMLElement;
@@ -96,6 +97,19 @@ export class StatusPanel {
             );
             this.activePortsEl = activePortsEl as HTMLElement;
             return this.card(_("Active Ports"), activePortsEl);
+          })()}
+
+          {(() => {
+            const activeSessionsEl = (
+              <strong
+                style="font-size: 1.1em; font-weight: 600;"
+                id="active-sessions-value"
+              >
+                {status.active_sessions || 0}
+              </strong>
+            );
+            this.activeSessionsEl = activeSessionsEl as HTMLElement;
+            return this.card(_("Active Sessions"), activeSessionsEl);
           })()}
 
           {(() => {

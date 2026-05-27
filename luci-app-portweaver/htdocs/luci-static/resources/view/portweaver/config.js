@@ -122,7 +122,7 @@ function _object_without_properties(source, excluded) {
 
 
 
-;// CONCATENATED MODULE: ./utils/jsx-factory.ts
+;// CONCATENATED MODULE: ../node_modules/.pnpm/@lazulikao+luci-types@https_d26286e66981dd61c11ee93501a44632/node_modules/@lazulikao/luci-types/src/jsx/jsx-factory.ts
 
 
 
@@ -163,7 +163,7 @@ function jsxDEV(e, t) {
     return jsx_factory_o(e, t);
 }
 
-;// CONCATENATED MODULE: ./utils/jsx-factory/jsx-runtime.ts
+;// CONCATENATED MODULE: ../node_modules/.pnpm/@lazulikao+luci-types@https_d26286e66981dd61c11ee93501a44632/node_modules/@lazulikao/luci-types/src/jsx/jsx-runtime.ts
 
 
 ;// CONCATENATED MODULE: ./utils/formatters.ts
@@ -316,11 +316,12 @@ function getThemeColors() {
 
 class Client {
     applyFullStatus(t) {
-        var e, s, l, n, r, a;
+        var e, s, l, n, a, r;
         t && (this.globalStatus = {
             status: t.status,
             total_projects: t.total_projects,
             active_ports: t.active_ports,
+            active_sessions: t.active_sessions,
             uptime: t.uptime,
             total_bytes_in: t.total_bytes_in,
             total_bytes_out: t.total_bytes_out
@@ -330,42 +331,44 @@ class Client {
                 startup_status: t.startup_status,
                 error_code: t.error_code,
                 active_ports: t.active_ports,
+                active_sessions: t.active_sessions,
                 bytes_in: t.bytes_in,
                 bytes_out: t.bytes_out,
                 forwarders: t.forwarders
             })), this.frpStatus = this.buildFrpStatus(t), this.ddnsGlobalStatus = {
             ddns_enabled: !!(null == (s = t.ddns) ? void 0 : s.enabled),
             ddns_version: null != (e = null == (l = t.ddns) ? void 0 : l.version) ? e : null
-        }, this.ddnsInstances = (null == (n = t.ddns) ? void 0 : n.instances) || [], this.frpClientNodes = (null == (r = t.frp) ? void 0 : r.clients) || [], this.frpServerNodes = (null == (a = t.frp) ? void 0 : a.servers) || [], this.events = t.events || []);
+        }, this.ddnsInstances = (null == (n = t.ddns) ? void 0 : n.instances) || [], this.frpClientNodes = (null == (a = t.frp) ? void 0 : a.clients) || [], this.frpServerNodes = (null == (r = t.frp) ? void 0 : r.servers) || [], this.events = t.events || []);
     }
     applyProjectList(t) {
         if (!t || 0 === t.length) return;
         let e = t.map((t, e)=>{
-            var s, l, n, r, a, i, o, d, c, u;
-            let p = this.projectStatuses[e];
+            var s, l, n, a, r, i, o, d, c, u, p;
+            let h = this.projectStatuses[e];
             return {
-                enabled: null != (s = null != (l = t.enabled) ? l : null == p ? void 0 : p.enabled) && s,
-                status: null != (n = null != (r = t.status) ? r : null == p ? void 0 : p.status) ? n : "unknown",
-                startup_status: null != (a = t.startup_status) ? a : null == p ? void 0 : p.startup_status,
-                error_code: null != (i = t.error_code) ? i : null == p ? void 0 : p.error_code,
-                active_ports: null != (o = t.active_ports) ? o : null == p ? void 0 : p.active_ports,
-                bytes_in: null != (d = t.bytes_in) ? d : null == p ? void 0 : p.bytes_in,
-                bytes_out: null != (c = t.bytes_out) ? c : null == p ? void 0 : p.bytes_out,
-                forwarders: null != (u = t.forwarders) ? u : null == p ? void 0 : p.forwarders
+                enabled: null != (s = null != (l = t.enabled) ? l : null == h ? void 0 : h.enabled) && s,
+                status: null != (n = null != (a = t.status) ? a : null == h ? void 0 : h.status) ? n : "unknown",
+                startup_status: null != (r = t.startup_status) ? r : null == h ? void 0 : h.startup_status,
+                error_code: null != (i = t.error_code) ? i : null == h ? void 0 : h.error_code,
+                active_ports: null != (o = t.active_ports) ? o : null == h ? void 0 : h.active_ports,
+                active_sessions: null != (d = t.active_sessions) ? d : null == h ? void 0 : h.active_sessions,
+                bytes_in: null != (c = t.bytes_in) ? c : null == h ? void 0 : h.bytes_in,
+                bytes_out: null != (u = t.bytes_out) ? u : null == h ? void 0 : h.bytes_out,
+                forwarders: null != (p = t.forwarders) ? p : null == h ? void 0 : h.forwarders
             };
         });
         e.length > 0 && (this.projectStatuses = e);
     }
     buildFrpStatus(t) {
-        let e = t.frp, s = !!(null == e ? void 0 : e.enabled), l = null == e ? void 0 : e.version, n = (null == e ? void 0 : e.clients) || [], r = (null == e ? void 0 : e.servers) || [], a = n.reduce((t, e)=>t + (e.client_count || 0), 0), i = r.reduce((t, e)=>t + (e.client_count || 0), 0), o = r.reduce((t, e)=>t + (e.proxy_count || 0), 0), d = r.reduce((t, e)=>t + (e.server_count || 0), 0), c = {
+        let e = t.frp, s = !!(null == e ? void 0 : e.enabled), l = null == e ? void 0 : e.version, n = (null == e ? void 0 : e.clients) || [], a = (null == e ? void 0 : e.servers) || [], r = n.reduce((t, e)=>t + (e.client_count || 0), 0), i = a.reduce((t, e)=>t + (e.client_count || 0), 0), o = a.reduce((t, e)=>t + (e.proxy_count || 0), 0), d = a.reduce((t, e)=>t + (e.server_count || 0), 0), c = {
             enabled: s,
             status: this.aggregateFrpStatus(n.map((t)=>t.status)),
             last_error: this.pickFirstError(n.map((t)=>t.last_error)),
-            client_count: a
+            client_count: r
         }, u = {
             enabled: s,
-            status: this.aggregateFrpStatus(r.map((t)=>t.status)),
-            last_error: this.pickFirstError(r.map((t)=>t.last_error)),
+            status: this.aggregateFrpStatus(a.map((t)=>t.status)),
+            last_error: this.pickFirstError(a.map((t)=>t.last_error)),
             client_count: i,
             proxy_count: o,
             server_count: d
@@ -400,8 +403,8 @@ class Client {
                 children: _("N/A")
             })
         ];
-        let a = "failed" === t.startup_status, d = "running" !== t.status || a ? "#dc3545" : "green", c = null;
-        a && void 0 !== t.error_code && 0 !== t.error_code && (c = getErrorMessage(t.error_code));
+        let r = "failed" === t.startup_status, d = "running" !== t.status || r ? "#dc3545" : "green", c = null;
+        r && void 0 !== t.error_code && 0 !== t.error_code && (c = getErrorMessage(t.error_code));
         let u = {
             class: "ifacebadge",
             style: ""
@@ -412,7 +415,7 @@ class Client {
                 children: jsx("span", _object_spread_props(_object_spread({}, u), {
                     children: jsx("strong", {
                         style: "font-size: 1em; font-weight: 600; color: ".concat(d, ";"),
-                        children: translateStatus(a ? "failed" : t.status || "unknown")
+                        children: translateStatus(r ? "failed" : t.status || "unknown")
                     })
                 }))
             })
@@ -425,7 +428,9 @@ class Client {
             let e = [];
             (t.active_ports || 0) > 0 && e.push(jsx("span", {
                 children: _("Ports: %d").format(t.active_ports || 0)
-            })), (t.bytes_in || t.bytes_out) && (e.length > 0 && e.push(jsx("br", {})), e.push(jsx("span", {
+            })), (t.active_sessions || 0) > 0 && (e.length > 0 && e.push(jsx("br", {})), e.push(jsx("span", {
+                children: _("Sessions: %d").format(t.active_sessions || 0)
+            }))), (t.bytes_in || t.bytes_out) && (e.length > 0 && e.push(jsx("br", {})), e.push(jsx("span", {
                 children: "\u2193 " + formatBytes(t.bytes_in || 0) + " \u2191 " + formatBytes(t.bytes_out || 0)
             }))), t.forwarders && t.forwarders.length > 0 && (e.length > 0 && e.push(jsx("br", {})), e.push(this.renderForwarderStats(t.forwarders))), e.length > 0 && p.push(jsx("small", {
                 children: e
@@ -434,7 +439,7 @@ class Client {
         return p;
     }
     renderForwarderStats(t) {
-        let e = getThemeColors(), s = e.isDark ? "#333" : "#eee", a = e.isDark ? "#222" : "#f8f9fa", i = e.isDark ? "#ccc" : "#6c757d", o = t.map((t)=>jsxs("div", {
+        let e = getThemeColors(), s = e.isDark ? "#333" : "#eee", r = e.isDark ? "#222" : "#f8f9fa", i = e.isDark ? "#ccc" : "#6c757d", o = t.map((t)=>jsxs("div", {
                 style: "display: flex; gap: 0.5em; padding: 0.15em 0; font-size: 0.9em; border-bottom: 1px solid ".concat(s, ";"),
                 children: [
                     jsx("span", {
@@ -455,17 +460,21 @@ class Client {
                     jsx("span", {
                         style: "color: #dc3545;",
                         children: "\u2191".concat(formatBytes(t.bytes_out))
+                    }),
+                    jsx("span", {
+                        style: "color: #17a2b8;",
+                        children: "S:".concat(t.active_sessions || 0)
                     })
                 ]
             }));
         return jsx("div", {
-            style: "margin-top: 0.3em; padding: 0.3em; background: ".concat(a, "; border-radius: 3px; max-height: 80px; overflow-y: auto;"),
+            style: "margin-top: 0.3em; padding: 0.3em; background: ".concat(r, "; border-radius: 3px; max-height: 80px; overflow-y: auto;"),
             children: o
         });
     }
-    updateFrpCard(t, e, s, n, r, a, i) {
+    updateFrpCard(t, e, s, n, a, r, i) {
         let o = arguments.length > 7 && void 0 !== arguments[7] ? arguments[7] : "frpc", d = (null == t ? void 0 : t.enabled) || !1;
-        if (s && (s.textContent = d ? _("Enabled") : _("Disabled"), s.style.color = d ? "#28a745" : "#6c757d"), n && (n.textContent = d && e ? e : ""), r) if (d && (null == t ? void 0 : t.status)) {
+        if (s && (s.textContent = d ? _("Enabled") : _("Disabled"), s.style.color = d ? "#28a745" : "#6c757d"), n && (n.textContent = d && e ? e : ""), a) if (d && (null == t ? void 0 : t.status)) {
             let e = t.status, s = "#6c757d";
             switch(t.status){
                 case "running":
@@ -477,12 +486,12 @@ class Client {
                 case "error":
                     e = _("Error"), s = "#dc3545";
             }
-            r.textContent = e, r.style.color = s, r.style.display = "block";
-        } else r.style.display = "none";
-        if (a) if (d) {
-            let e = [];
-            (null == t ? void 0 : t.client_count) !== void 0 && e.push("".concat(t.client_count, " ").concat(_("clients"))), "frps" === o && (void 0 !== t.proxy_count && e.push("".concat(t.proxy_count, " ").concat(_("proxies"))), void 0 !== t.server_count && e.push("".concat(t.server_count, " ").concat(_("servers")))), a.textContent = e.join(" | "), a.style.display = e.length > 0 ? "block" : "none";
+            a.textContent = e, a.style.color = s, a.style.display = "block";
         } else a.style.display = "none";
+        if (r) if (d) {
+            let e = [];
+            (null == t ? void 0 : t.client_count) !== void 0 && e.push("".concat(t.client_count, " ").concat(_("clients"))), "frps" === o && (void 0 !== t.proxy_count && e.push("".concat(t.proxy_count, " ").concat(_("proxies"))), void 0 !== t.server_count && e.push("".concat(t.server_count, " ").concat(_("servers")))), r.textContent = e.join(" | "), r.style.display = e.length > 0 ? "block" : "none";
+        } else r.style.display = "none";
         if (i) if (null == t ? void 0 : t.last_error) {
             let e = t.last_error.length > 50 ? "".concat(t.last_error.substring(0, 47), "...") : t.last_error;
             i.title = t.last_error, i.innerHTML = "", i.appendChild(jsx("strong", {
@@ -493,15 +502,15 @@ class Client {
     }
     updateProjectHealthIndicator() {
         var t, e;
-        let s = (null == (t = this.projectStatuses) ? void 0 : t.filter((t)=>t.enabled)) || [], r = s.filter((t)=>"running" === t.status), a = null == (e = this.statusPanel) ? void 0 : e.projectHealthEl;
-        if (a) {
-            let t = r.length === s.length ? "#28a745" : r.length > 0 ? "#ffc107" : "#dc3545";
-            a.innerHTML = "", a.appendChild(jsxs("span", {
+        let s = (null == (t = this.projectStatuses) ? void 0 : t.filter((t)=>t.enabled)) || [], a = s.filter((t)=>"running" === t.status), r = null == (e = this.statusPanel) ? void 0 : e.projectHealthEl;
+        if (r) {
+            let t = a.length === s.length ? "#28a745" : a.length > 0 ? "#ffc107" : "#dc3545";
+            r.innerHTML = "", r.appendChild(jsxs("span", {
                 children: [
                     jsxs("strong", {
                         style: "font-size: 1.1em; font-weight: 600; color: ".concat(t, ";"),
                         children: [
-                            r.length,
+                            a.length,
                             " / ",
                             s.length
                         ]
@@ -537,7 +546,7 @@ class Client {
             frp_connected: "\uD83D\uDD17",
             frp_disconnected: "\uD83D\uDD0C",
             config_changed: "\u2699"
-        }[t.type] || "\u2022", r = this.formatTimestamp(t.timestamp), a = t.message.length > 60 ? "".concat(t.message.substring(0, 57), "...") : t.message;
+        }[t.type] || "\u2022", a = this.formatTimestamp(t.timestamp), r = t.message.length > 60 ? "".concat(t.message.substring(0, 57), "...") : t.message;
         return jsxs("div", {
             style: "display: flex; align-items: flex-start; padding: 0.3em 0; border-bottom: 1px solid #eee; font-size: 0.85em;",
             children: [
@@ -547,12 +556,12 @@ class Client {
                 }),
                 jsx("span", {
                     style: "color: #6c757d; margin-right: 0.5em; flex-shrink: 0; min-width: 70px;",
-                    children: r
+                    children: a
                 }),
                 jsx("span", {
                     style: "flex: 1; word-break: break-word;",
                     title: t.message,
-                    children: a
+                    children: r
                 })
             ]
         });
@@ -567,35 +576,35 @@ class Client {
             ddns_version: null
         }, this.events = [], this.applyFullStatus(e), L.Poll.add(async ()=>{
             try {
-                var t, e, s, i, c, u, p, h, f, v, g, b, y, m, S;
-                let P = this.globalStatus.total_bytes_in || 0, E = this.globalStatus.total_bytes_out || 0, j = Date.now(), [x, w] = await Promise.all([
+                var t, e, s, i, c, u, p, h, f, v, g, b, y, m, S, P;
+                let E = this.globalStatus.total_bytes_in || 0, j = this.globalStatus.total_bytes_out || 0, x = Date.now(), [C, w] = await Promise.all([
                     rpcClient.getFullStatus(),
                     rpcClient.listProjects()
                 ]);
-                if (x && this.applyFullStatus(x), (null == w ? void 0 : w.projects) && this.applyProjectList(w.projects), (null == (t = this.statusPanel) ? void 0 : t.statusValueEl) && (this.statusPanel.statusValueEl.textContent = translateStatus(this.globalStatus.status) || "-", this.statusPanel.statusValueEl.style.color = ({
+                if (C && this.applyFullStatus(C), (null == w ? void 0 : w.projects) && this.applyProjectList(w.projects), (null == (t = this.statusPanel) ? void 0 : t.statusValueEl) && (this.statusPanel.statusValueEl.textContent = translateStatus(this.globalStatus.status) || "-", this.statusPanel.statusValueEl.style.color = ({
                     running: "green",
                     stopped: "red",
                     degraded: "orange"
-                })[this.globalStatus.status || ""] || "gray"), (null == (e = this.statusPanel) ? void 0 : e.totalProjectsEl) && (this.statusPanel.totalProjectsEl.textContent = String(this.globalStatus.total_projects || 0)), (null == (s = this.statusPanel) ? void 0 : s.activePortsEl) && (this.statusPanel.activePortsEl.textContent = String(this.globalStatus.active_ports || 0)), (null == (i = this.statusPanel) ? void 0 : i.uptimeEl) && (this.statusPanel.uptimeEl.textContent = formatUptime(this.globalStatus.uptime || 0)), (null == (c = this.statusPanel) ? void 0 : c.trafficInEl) && (this.statusPanel.trafficInEl.textContent = formatBytes(this.globalStatus.total_bytes_in || 0)), (null == (u = this.statusPanel) ? void 0 : u.trafficOutEl) && (this.statusPanel.trafficOutEl.textContent = formatBytes(this.globalStatus.total_bytes_out || 0)), this.statusPanel && (this.updateFrpCard(this.frpStatus.frpc, this.frpStatus.frp_version, this.statusPanel.frpcEnabledEl, this.statusPanel.frpcVersionEl, this.statusPanel.frpcStatusEl, this.statusPanel.frpcInfoEl, this.statusPanel.frpcErrorEl, "frpc"), this.updateFrpCard(this.frpStatus.frps, this.frpStatus.frp_version, this.statusPanel.frpsEnabledEl, this.statusPanel.frpsVersionEl, this.statusPanel.frpsStatusEl, this.statusPanel.frpsInfoEl, this.statusPanel.frpsErrorEl, "frps")), (null == (p = this.statusPanel) ? void 0 : p.ddnsEnabledEl) && (this.statusPanel.ddnsEnabledEl.textContent = this.ddnsGlobalStatus.ddns_enabled ? _("Enabled") : _("Disabled"), this.statusPanel.ddnsEnabledEl.style.color = this.ddnsGlobalStatus.ddns_enabled ? "#28a745" : "#6c757d"), (null == (h = this.statusPanel) ? void 0 : h.ddnsVersionEl) && this.ddnsGlobalStatus.ddns_version && (this.statusPanel.ddnsVersionEl.textContent = this.ddnsGlobalStatus.ddns_version), this.updateProjectHealthIndicator(), this.updateActivityLog(), (null == (f = this.statusPanel) ? void 0 : f.trafficRateInEl) && this.statusPanel.trafficRateOutEl && this._lastPollTime > 0) {
-                    let t = (j - this._lastPollTime) / 1000;
+                })[this.globalStatus.status || ""] || "gray"), (null == (e = this.statusPanel) ? void 0 : e.totalProjectsEl) && (this.statusPanel.totalProjectsEl.textContent = String(this.globalStatus.total_projects || 0)), (null == (s = this.statusPanel) ? void 0 : s.activePortsEl) && (this.statusPanel.activePortsEl.textContent = String(this.globalStatus.active_ports || 0)), (null == (i = this.statusPanel) ? void 0 : i.activeSessionsEl) && (this.statusPanel.activeSessionsEl.textContent = String(this.globalStatus.active_sessions || 0)), (null == (c = this.statusPanel) ? void 0 : c.uptimeEl) && (this.statusPanel.uptimeEl.textContent = formatUptime(this.globalStatus.uptime || 0)), (null == (u = this.statusPanel) ? void 0 : u.trafficInEl) && (this.statusPanel.trafficInEl.textContent = formatBytes(this.globalStatus.total_bytes_in || 0)), (null == (p = this.statusPanel) ? void 0 : p.trafficOutEl) && (this.statusPanel.trafficOutEl.textContent = formatBytes(this.globalStatus.total_bytes_out || 0)), this.statusPanel && (this.updateFrpCard(this.frpStatus.frpc, this.frpStatus.frp_version, this.statusPanel.frpcEnabledEl, this.statusPanel.frpcVersionEl, this.statusPanel.frpcStatusEl, this.statusPanel.frpcInfoEl, this.statusPanel.frpcErrorEl, "frpc"), this.updateFrpCard(this.frpStatus.frps, this.frpStatus.frp_version, this.statusPanel.frpsEnabledEl, this.statusPanel.frpsVersionEl, this.statusPanel.frpsStatusEl, this.statusPanel.frpsInfoEl, this.statusPanel.frpsErrorEl, "frps")), (null == (h = this.statusPanel) ? void 0 : h.ddnsEnabledEl) && (this.statusPanel.ddnsEnabledEl.textContent = this.ddnsGlobalStatus.ddns_enabled ? _("Enabled") : _("Disabled"), this.statusPanel.ddnsEnabledEl.style.color = this.ddnsGlobalStatus.ddns_enabled ? "#28a745" : "#6c757d"), (null == (f = this.statusPanel) ? void 0 : f.ddnsVersionEl) && this.ddnsGlobalStatus.ddns_version && (this.statusPanel.ddnsVersionEl.textContent = this.ddnsGlobalStatus.ddns_version), this.updateProjectHealthIndicator(), this.updateActivityLog(), (null == (v = this.statusPanel) ? void 0 : v.trafficRateInEl) && this.statusPanel.trafficRateOutEl && this._lastPollTime > 0) {
+                    let t = (x - this._lastPollTime) / 1000;
                     if (t > 0) {
-                        let e = Math.max(0, (this.globalStatus.total_bytes_in || 0) - P) / t, s = Math.max(0, (this.globalStatus.total_bytes_out || 0) - E) / t;
+                        let e = Math.max(0, (this.globalStatus.total_bytes_in || 0) - E) / t, s = Math.max(0, (this.globalStatus.total_bytes_out || 0) - j) / t;
                         this.statusPanel.trafficRateInEl.textContent = "".concat(formatBytes(e), "/s"), this.statusPanel.trafficRateOutEl.textContent = "".concat(formatBytes(s), "/s");
                     }
                 }
-                if (this._lastPollTime = j, null == (v = this.statusPanel) ? void 0 : v.projectListEl) {
+                if (this._lastPollTime = x, null == (g = this.statusPanel) ? void 0 : g.projectListEl) {
                     let t = L.uci.sections("portweaver", "project") || [], e = this.statusPanel.projectListEl;
                     if (e.innerHTML = "", 0 === t.length) e.appendChild(jsx("span", {
                         style: "color: #6c757d;",
                         children: _("No projects")
                     }));
                     else for(let s = 0; s < t.length; s++){
-                        let r = t[s], a = r.name || r[".name"] || "#".concat(s + 1), i = this.projectStatuses[s], d = (null == i ? void 0 : i.status) === "running" ? "#28a745" : (null == i ? void 0 : i.status) === "stopped" ? "#dc3545" : "#6c757d";
+                        let a = t[s], r = a.name || a[".name"] || "#".concat(s + 1), i = this.projectStatuses[s], d = (null == i ? void 0 : i.status) === "running" ? "#28a745" : (null == i ? void 0 : i.status) === "stopped" ? "#dc3545" : "#6c757d";
                         e.appendChild(jsxs("div", {
                             style: "display: flex; justify-content: space-between; font-size: 0.85em; padding: 0.15em 0;",
                             children: [
                                 jsx("span", {
-                                    children: a
+                                    children: r
                                 }),
                                 jsx("span", {
                                     style: "color: ".concat(d, ";"),
@@ -605,9 +614,9 @@ class Client {
                         }));
                     }
                 }
-                if (null == (g = this.statusPanel) ? void 0 : g.frpcProxiesEl) {
+                if (null == (b = this.statusPanel) ? void 0 : b.frpcProxiesEl) {
                     let t = this.statusPanel.frpcProxiesEl;
-                    if (t.innerHTML = "", (null == (m = this.frpStatus.frpc) ? void 0 : m.enabled) && 0 !== this.frpClientNodes.length) for (let e of this.frpClientNodes){
+                    if (t.innerHTML = "", (null == (S = this.frpStatus.frpc) ? void 0 : S.enabled) && 0 !== this.frpClientNodes.length) for (let e of this.frpClientNodes){
                         let s = "connected" === e.status ? "#28a745" : "#dc3545";
                         t.appendChild(jsxs("div", {
                             style: "display: flex; justify-content: space-between; font-size: 0.85em; padding: 0.15em 0;",
@@ -627,9 +636,9 @@ class Client {
                         children: _("disabled")
                     }));
                 }
-                if (null == (b = this.statusPanel) ? void 0 : b.frpsProxiesEl) {
+                if (null == (y = this.statusPanel) ? void 0 : y.frpsProxiesEl) {
                     let t = this.statusPanel.frpsProxiesEl;
-                    if (t.innerHTML = "", (null == (S = this.frpStatus.frps) ? void 0 : S.enabled) && 0 !== this.frpServerNodes.length) for (let e of this.frpServerNodes)t.appendChild(jsxs("div", {
+                    if (t.innerHTML = "", (null == (P = this.frpStatus.frps) ? void 0 : P.enabled) && 0 !== this.frpServerNodes.length) for (let e of this.frpServerNodes)t.appendChild(jsxs("div", {
                         style: "display: flex; justify-content: space-between; font-size: 0.85em; padding: 0.15em 0;",
                         children: [
                             jsx("span", {
@@ -646,7 +655,7 @@ class Client {
                         children: _("disabled")
                     }));
                 }
-                if (null == (y = this.statusPanel) ? void 0 : y.ddnsHealthEl) {
+                if (null == (m = this.statusPanel) ? void 0 : m.ddnsHealthEl) {
                     let t = this.statusPanel.ddnsHealthEl;
                     if (t.innerHTML = "", this.ddnsGlobalStatus.ddns_enabled) if (0 === this.ddnsInstances.length) t.appendChild(jsx("span", {
                         style: "color: #6c757d;",
@@ -677,13 +686,13 @@ class Client {
                     for(let e = 0; e < t.length; e++){
                         let s = t[e][".name"];
                         if (!s) continue;
-                        let n = this.getProjectStatus(s), r = this.projectContainers[s];
-                        if (!r) continue;
-                        let a = this.renderStatusElements(n, s), i = jsx("div", {
+                        let n = this.getProjectStatus(s), a = this.projectContainers[s];
+                        if (!a) continue;
+                        let r = this.renderStatusElements(n, s), i = jsx("div", {
                             id: "project-status-".concat(s),
-                            children: a
+                            children: r
                         });
-                        r.replaceWith(i), this.projectContainers[s] = i;
+                        a.replaceWith(i), this.projectContainers[s] = i;
                     }
                 })();
             } catch (t) {
@@ -1290,7 +1299,7 @@ class ProxyStatsViewer {
                     }));
                     return;
                 }
-                let o = this.getStatsColors(), l = s.some((t)=>t.err && t.err.length > 0 || "error" === t.status), n = l ? o.errorColor : o.successColor, a = l ? _("error") : _("running"), d = jsx("div", {
+                let l = this.getStatsColors(), o = s.some((t)=>t.err && t.err.length > 0 || "error" === t.status), n = o ? l.errorColor : l.successColor, a = o ? _("error") : _("running"), d = jsx("div", {
                     style: "margin-bottom: 8px;",
                     children: jsx("span", {
                         class: "ifacebadge",
@@ -1300,7 +1309,7 @@ class ProxyStatsViewer {
                 });
                 this.statsEl.appendChild(d);
                 let h = jsxs("small", {
-                    style: "display: block; margin-bottom: 4px; color: ".concat(o.textColor, ";"),
+                    style: "display: block; margin-bottom: 4px; color: ".concat(l.textColor, ";"),
                     children: [
                         jsx("span", {
                             children: _("Proxies: %d").format(s.length)
@@ -1310,26 +1319,26 @@ class ProxyStatsViewer {
                 });
                 this.statsEl.appendChild(h);
                 let c = jsx("div", {
-                    style: "margin-top: 0.3em; padding: 0.3em; background: ".concat(o.innerBgColor, "; border-radius: 3px; max-height: 80px; overflow-y: auto;"),
+                    style: "margin-top: 0.3em; padding: 0.3em; background: ".concat(l.innerBgColor, "; border-radius: 3px; max-height: 80px; overflow-y: auto;"),
                     children: s.map((t)=>{
                         var s;
                         return jsxs("div", {
-                            style: "display: flex; gap: 0.5em; padding: 0.15em 0; font-size: 0.9em; border-bottom: 1px solid ".concat(o.rowBorderColor, ";"),
+                            style: "display: flex; gap: 0.5em; padding: 0.15em 0; font-size: 0.9em; border-bottom: 1px solid ".concat(l.rowBorderColor, ";"),
                             children: [
                                 jsx("span", {
-                                    style: "min-width: 35px; color: ".concat(o.mutedTextColor, ";"),
+                                    style: "min-width: 35px; color: ".concat(l.mutedTextColor, ";"),
                                     children: t.type.toUpperCase()
                                 }),
                                 jsx("span", {
-                                    style: "min-width: 45px; color: ".concat(o.textColor, ";"),
+                                    style: "min-width: 45px; color: ".concat(l.textColor, ";"),
                                     children: ":".concat((null == (s = t.cfg) ? void 0 : s.remotePort) || t.remote_addr || "N/A")
                                 }),
                                 jsx("span", {
-                                    style: "color: ".concat(o.successColor, ";"),
+                                    style: "color: ".concat(l.successColor, ";"),
                                     children: "\u21930 B"
                                 }),
                                 jsx("span", {
-                                    style: "color: ".concat(o.errorColor, ";"),
+                                    style: "color: ".concat(l.errorColor, ";"),
                                     children: "\u21910 B"
                                 })
                             ]
@@ -1623,24 +1632,24 @@ let frps_i = {
 
 
 function ValidatedInput_r(r) {
-    let { type: n = "text", className: a = "", value: o = "", placeholder: s = "", style: d = "", disabled: l = !1, onValidate: i, dataAttributes: c = {}, validateOn: p = "both" } = r, u = {};
-    Object.entries(c).forEach((e)=>{
+    let { type: n = "text", className: a = "", value: o = "", placeholder: l = "", style: s = "", disabled: d = !1, onValidate: i, dataAttributes: p = {}, validateOn: u = "both" } = r, c = {};
+    Object.entries(p).forEach((e)=>{
         let [t, r] = e;
-        u["data-".concat(t)] = r;
+        c["data-".concat(t)] = r;
     });
     let b = jsx("input", _object_spread({
         type: n,
         class: a,
         value: o,
-        placeholder: s,
-        style: d,
-        disabled: l
-    }, u)), h = ()=>{
+        placeholder: l,
+        style: s,
+        disabled: d
+    }, c)), h = ()=>{
         i && (i(b.value.trim()) ? b.style.borderColor = "" : b.style.setProperty("border-color", "red", "important"));
     };
-    return "input" === p ? b.addEventListener("input", h) : "blur" === p ? (b.addEventListener("input", ()=>{
+    return "input" === u ? b.addEventListener("input", h) : "blur" === u ? (b.addEventListener("input", ()=>{
         b.style.borderColor = "";
-    }), b.addEventListener("blur", h)) : "change" === p ? b.addEventListener("change", h) : "both" === p && (b.addEventListener("input", h), b.addEventListener("change", h)), b;
+    }), b.addEventListener("blur", h)) : "change" === u ? b.addEventListener("change", h) : "both" === u && (b.addEventListener("input", h), b.addEventListener("change", h)), b;
 }
 
 ;// CONCATENATED MODULE: ./components/FrpNodeSelector.tsx
@@ -1648,7 +1657,7 @@ function ValidatedInput_r(r) {
 
 
 function createFrpNodeSelector(e) {
-    let { selectedNodes: n, onChange: a, checkboxClass: l = "frp-node-checkbox", portInputClass: o = "frp-node-port", containerStyle: d } = e, s = L.uci.sections("portweaver", "frpc_node") || [], c = {};
+    let { selectedNodes: n, onChange: l, checkboxClass: a = "frp-node-checkbox", portInputClass: o = "frp-node-port", containerStyle: d } = e, s = L.uci.sections("portweaver", "frpc_node") || [], c = {};
     for (let e of n){
         let t = e.split(":"), r = t[0], i = t[1] || "";
         c[r] = i;
@@ -1659,7 +1668,7 @@ function createFrpNodeSelector(e) {
             let r = t.getAttribute("data-node"), i = u.get(r), n = i ? i.value.trim() : "";
             n ? e.push("".concat(r, ":").concat(n)) : e.push(r);
         }
-        a && a(e);
+        l && l(e);
     }, f = jsx("div", {
         style: d || ""
     });
@@ -1675,19 +1684,19 @@ function createFrpNodeSelector(e) {
             style: "margin: 0; width: auto;"
         });
         for (let n of s){
-            let a = String(n.name || n[".name"]);
-            if (!a) continue;
-            let d = Object.hasOwn(c, a), s = c[a] || "", f = "0" !== n.enabled, g = jsxs("span", {
+            let l = String(n.name || n[".name"]);
+            if (!l) continue;
+            let d = Object.hasOwn(c, l), s = c[l] || "", f = "0" !== n.enabled, g = jsxs("span", {
                 style: "color: #e6a23c; margin-left: 8px; font-size: 0.9em; display: ".concat(d && !f ? "" : "none", ";"),
                 children: [
                     "\u26A0",
                     " ",
-                    _("Warning: FRP node '%s' is disabled.").format(a)
+                    _("Warning: FRP node '%s' is disabled.").format(l)
                 ]
             }), m = jsx("input", {
                 type: "checkbox",
-                class: l,
-                "data-node": a,
+                class: a,
+                "data-node": l,
                 checked: d,
                 style: "margin-right: 8px;"
             }), y = jsx(ValidatedInput_r, {
@@ -1698,7 +1707,7 @@ function createFrpNodeSelector(e) {
                 style: "min-width: 100px !important; width: calc(100% - 80px) !important; margin-left: 10px;",
                 disabled: !d,
                 dataAttributes: {
-                    node: a
+                    node: l
                 },
                 onValidate: (e)=>{
                     if (!e) return !0;
@@ -1706,7 +1715,7 @@ function createFrpNodeSelector(e) {
                     return !Number.isNaN(t) && t >= 1 && t <= 65535;
                 }
             });
-            p.push(m), u.set(a, y);
+            p.push(m), u.set(l, y);
             let v = jsxs("td", {
                 style: "padding: 4px 8px; border: none;".concat(d ? "" : "display: none;"),
                 children: [
@@ -1731,7 +1740,7 @@ function createFrpNodeSelector(e) {
                                     m,
                                     jsx("span", {
                                         style: "cursor: pointer; font-weight: normal; margin: 0;",
-                                        children: a
+                                        children: l
                                     })
                                 ]
                             }),
@@ -1789,8 +1798,8 @@ function createFrpNodeSelector(e) {
 }
 class FrpNodeSelector_n extends L.form.Value {
     renderWidget(e, r, i) {
-        let n, a = Array.isArray(i) ? i : "string" == typeof i ? String(i).split(/\s+/).filter(Boolean) : [], l = this.cbid(e), o = createFrpNodeSelector({
-            selectedNodes: a,
+        let n, l = Array.isArray(i) ? i : "string" == typeof i ? String(i).split(/\s+/).filter(Boolean) : [], a = this.cbid(e), o = createFrpNodeSelector({
+            selectedNodes: l,
             onChange: (e)=>{
                 n.value = e.join(" ");
             },
@@ -1802,9 +1811,9 @@ class FrpNodeSelector_n extends L.form.Value {
             getValidationError: o.getValidationError
         }, n = jsx("input", {
             type: "hidden",
-            id: l,
-            name: l,
-            value: a.join(" ")
+            id: a,
+            name: a,
+            value: l.join(" ")
         });
         let s = jsx("div", {
             class: "cbi-value-field"
@@ -2033,7 +2042,7 @@ class PortMappingEditor_l extends L.form.Value {
                 "data-index": o,
                 "data-section": t,
                 children: _("Delete")
-            }), F = jsxs("div", {
+            }), k = jsxs("div", {
                 style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;",
                 children: [
                     jsx("div", {
@@ -2043,13 +2052,13 @@ class PortMappingEditor_l extends L.form.Value {
                         children: R
                     })
                 ]
-            }), k = jsxs("div", {
+            }), F = jsxs("div", {
                 id: p,
                 class: "portmapping-row",
                 "data-index": o,
                 style: "margin-bottom: 10px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;",
                 children: [
-                    F,
+                    k,
                     C,
                     m,
                     V,
@@ -2100,11 +2109,11 @@ class PortMappingEditor_l extends L.form.Value {
                     m.value = n, v.textContent = _("Preview: %s").format(n);
                 }
             }, R.onclick = (t)=>{
-                t.preventDefault(), k.remove();
+                t.preventDefault(), F.remove();
                 let e = d.findIndex((t)=>t.listenInput === c && t.targetInput === g && t.protocolSelect === f);
                 -1 !== e && d.splice(e, 1), u();
             }, {
-                element: k,
+                element: F,
                 listenInput: c,
                 targetInput: g,
                 protocolSelect: f,
@@ -2394,19 +2403,19 @@ let config_a = L.form, config_l = L.uci;
 
 
 class StatusPanel {
-    render(t, n, d, l, a) {
-        let c, h, f, p, v, m, g, u, E, y, b, z, x, j, w, P, S, R, I, D, V, L, O, T, k, A, H = {
+    render(t, n, l, d, a) {
+        let c, h, f, p, v, m, g, u, E, y, b, z, x, w, S, j, P, R, I, D, V, L, k, A, O, T, H, C = {
             running: "#28a745",
             stopped: "#dc3545",
             degraded: "#ffc107"
-        }[t.status || ""] || "#6c757d", C = (null == d ? void 0 : d.filter((t)=>t.enabled)) || [], F = C.filter((t)=>"running" === t.status), N = C.length > 0;
+        }[t.status || ""] || "#6c757d", F = (null == l ? void 0 : l.filter((t)=>t.enabled)) || [], N = F.filter((t)=>"running" === t.status), G = F.length > 0;
         return jsxs("div", {
             children: [
                 jsxs("div", {
                     style: "display: grid; grid-template-columns: repeat(3, 1fr); gap: 1em; margin-top: 0.5em;",
                     children: [
                         (c = jsx("strong", {
-                            style: "color: ".concat(H, "; font-size: 1.1em; font-weight: 600;"),
+                            style: "color: ".concat(C, "; font-size: 1.1em; font-weight: 600;"),
                             id: "status-value",
                             children: translateStatus(t.status) || "-"
                         }), this.statusValueEl = c, this.card(_("Status"), c)),
@@ -2422,28 +2431,33 @@ class StatusPanel {
                         }), this.activePortsEl = f, this.card(_("Active Ports"), f)),
                         (p = jsx("strong", {
                             style: "font-size: 1.1em; font-weight: 600;",
+                            id: "active-sessions-value",
+                            children: t.active_sessions || 0
+                        }), this.activeSessionsEl = p, this.card(_("Active Sessions"), p)),
+                        (v = jsx("strong", {
+                            style: "font-size: 1.1em; font-weight: 600;",
                             id: "uptime-value",
                             children: formatUptime(t.uptime || 0)
-                        }), this.uptimeEl = p, this.card(_("Uptime"), p)),
-                        (v = jsx("strong", {
+                        }), this.uptimeEl = v, this.card(_("Uptime"), v)),
+                        (m = jsx("strong", {
                             style: "font-size: 1.1em; font-weight: 600;",
                             id: "traffic-in-value",
                             children: formatBytes(t.total_bytes_in || 0)
-                        }), this.trafficInEl = v, this.card(_("Traffic In"), v)),
-                        (m = jsx("strong", {
+                        }), this.trafficInEl = m, this.card(_("Traffic In"), m)),
+                        (g = jsx("strong", {
                             style: "font-size: 1.1em; font-weight: 600;",
                             id: "traffic-out-value",
                             children: formatBytes(t.total_bytes_out || 0)
-                        }), this.trafficOutEl = m, this.card(_("Traffic Out"), m)),
-                        N && this.card(_("Project Health"), jsxs("div", {
+                        }), this.trafficOutEl = g, this.card(_("Traffic Out"), g)),
+                        G && this.card(_("Project Health"), jsxs("div", {
                             id: "project-health-value",
                             children: [
                                 jsxs("strong", {
-                                    style: "font-size: 1.1em; font-weight: 600; color: ".concat(F.length === C.length ? "#28a745" : F.length > 0 ? "#ffc107" : "#dc3545", ";"),
+                                    style: "font-size: 1.1em; font-weight: 600; color: ".concat(N.length === F.length ? "#28a745" : N.length > 0 ? "#ffc107" : "#dc3545", ";"),
                                     children: [
-                                        F.length,
+                                        N.length,
                                         " / ",
-                                        C.length
+                                        F.length
                                     ]
                                 }),
                                 jsx("div", {
@@ -2452,117 +2466,117 @@ class StatusPanel {
                                 })
                             ]
                         })),
-                        n && (g = (n.frpc || {
+                        n && (u = (n.frpc || {
                             enabled: !1
-                        }).enabled, u = jsx("strong", {
-                            style: "font-size: 1.1em; font-weight: 600; color: ".concat(g ? "#28a745" : "#6c757d", ";"),
+                        }).enabled, E = jsx("strong", {
+                            style: "font-size: 1.1em; font-weight: 600; color: ".concat(u ? "#28a745" : "#6c757d", ";"),
                             id: "frpc-enabled-value",
-                            children: g ? _("Enabled") : _("Disabled")
-                        }), this.frpcEnabledEl = u, E = jsx("div", {
+                            children: u ? _("Enabled") : _("Disabled")
+                        }), this.frpcEnabledEl = E, y = jsx("div", {
                             style: "font-size: 0.85em; color: #6c757d; margin-top: 0.3em;",
                             id: "frpc-version-value",
-                            children: g && n.frp_version ? n.frp_version : ""
-                        }), this.frpcVersionEl = E, y = jsx("div", {
+                            children: u && n.frp_version ? n.frp_version : ""
+                        }), this.frpcVersionEl = y, b = jsx("div", {
                             style: "font-size: 0.85em; margin-top: 0.2em;",
                             id: "frpc-status-value"
-                        }), this.frpcStatusEl = y, b = jsx("div", {
+                        }), this.frpcStatusEl = b, z = jsx("div", {
                             style: "font-size: 0.85em; color: #6c757d; margin-top: 0.2em;",
                             id: "frpc-info-value"
-                        }), this.frpcInfoEl = b, z = jsx("div", {
+                        }), this.frpcInfoEl = z, x = jsx("div", {
                             style: "cursor: help; font-size: 0.85em; color: #dc3545; margin-top: 0.2em; display: none;",
                             id: "frpc-error-value"
-                        }), this.frpcErrorEl = z, this.card("FRPC", jsxs("div", {
+                        }), this.frpcErrorEl = x, this.card("FRPC", jsxs("div", {
                             children: [
-                                u,
                                 E,
                                 y,
                                 b,
-                                z
+                                z,
+                                x
                             ]
                         }))),
-                        n && (x = (n.frps || {
+                        n && (w = (n.frps || {
                             enabled: !1
-                        }).enabled, j = jsx("strong", {
-                            style: "font-size: 1.1em; font-weight: 600; color: ".concat(x ? "#28a745" : "#6c757d", ";"),
+                        }).enabled, S = jsx("strong", {
+                            style: "font-size: 1.1em; font-weight: 600; color: ".concat(w ? "#28a745" : "#6c757d", ";"),
                             id: "frps-enabled-value",
-                            children: x ? _("Enabled") : _("Disabled")
-                        }), this.frpsEnabledEl = j, w = jsx("div", {
+                            children: w ? _("Enabled") : _("Disabled")
+                        }), this.frpsEnabledEl = S, j = jsx("div", {
                             style: "font-size: 0.85em; color: #6c757d; margin-top: 0.3em;",
                             id: "frps-version-value",
-                            children: x && n.frp_version ? n.frp_version : ""
-                        }), this.frpsVersionEl = w, P = jsx("div", {
+                            children: w && n.frp_version ? n.frp_version : ""
+                        }), this.frpsVersionEl = j, P = jsx("div", {
                             style: "font-size: 0.85em; margin-top: 0.2em;",
                             id: "frps-status-value"
-                        }), this.frpsStatusEl = P, S = jsx("div", {
+                        }), this.frpsStatusEl = P, R = jsx("div", {
                             style: "font-size: 0.85em; color: #6c757d; margin-top: 0.2em;",
                             id: "frps-info-value"
-                        }), this.frpsInfoEl = S, R = jsx("div", {
+                        }), this.frpsInfoEl = R, I = jsx("div", {
                             style: "cursor: help; font-size: 0.85em; color: #dc3545; margin-top: 0.2em; display: none;",
                             id: "frps-error-value"
-                        }), this.frpsErrorEl = R, this.card("FRPS", jsxs("div", {
+                        }), this.frpsErrorEl = I, this.card("FRPS", jsxs("div", {
                             children: [
-                                j,
-                                w,
-                                P,
                                 S,
-                                R
+                                j,
+                                P,
+                                R,
+                                I
                             ]
                         }))),
-                        a && (I = jsx("strong", {
+                        a && (D = jsx("strong", {
                             style: "font-size: 1.1em; font-weight: 600; color: ".concat(a.ddns_enabled ? "#28a745" : "#6c757d", ";"),
                             id: "ddns-enabled-value",
                             children: a.ddns_enabled ? _("Enabled") : _("Disabled")
-                        }), this.ddnsEnabledEl = I, (D = a.ddns_version ? jsx("div", {
+                        }), this.ddnsEnabledEl = D, (V = a.ddns_version ? jsx("div", {
                             style: "font-size: 0.85em; color: #6c757d; margin-top: 0.3em;",
                             id: "ddns-version-value",
                             children: a.ddns_version
-                        }) : null) && (this.ddnsVersionEl = D), this.card(_("DDNS-GO"), jsxs("div", {
+                        }) : null) && (this.ddnsVersionEl = V), this.card(_("DDNS-GO"), jsxs("div", {
                             children: [
-                                I,
-                                D
+                                D,
+                                V
                             ]
                         }))),
-                        (V = jsx("span", {
+                        (L = jsx("span", {
                             children: _("calculating")
-                        }), L = jsx("span", {
+                        }), k = jsx("span", {
                             children: _("calculating")
-                        }), this.trafficRateInEl = V, this.trafficRateOutEl = L, this.card(_("Traffic Rate"), jsxs("div", {
+                        }), this.trafficRateInEl = L, this.trafficRateOutEl = k, this.card(_("Traffic Rate"), jsxs("div", {
                             children: [
                                 jsxs("div", {
                                     style: "font-size: 0.85em;",
                                     children: [
                                         "\u2193 ",
-                                        V
+                                        L
                                     ]
                                 }),
                                 jsxs("div", {
                                     style: "font-size: 0.85em;",
                                     children: [
                                         "\u2191 ",
-                                        L
+                                        k
                                     ]
                                 })
                             ]
                         }))),
-                        (O = jsx("span", {
-                            style: "color: #6c757d;",
-                            children: _("loading")
-                        }), this.projectListEl = O, this.card(_("Project List"), O)),
-                        (T = jsx("span", {
-                            style: "color: #6c757d;",
-                            children: _("loading")
-                        }), this.frpcProxiesEl = T, this.card(_("FRPC Proxies"), T)),
-                        (k = jsx("span", {
-                            style: "color: #6c757d;",
-                            children: _("loading")
-                        }), this.frpsProxiesEl = k, this.card(_("FRPS Active Proxies"), k)),
                         (A = jsx("span", {
                             style: "color: #6c757d;",
                             children: _("loading")
-                        }), this.ddnsHealthEl = A, this.card(_("DDNS Entries"), A))
+                        }), this.projectListEl = A, this.card(_("Project List"), A)),
+                        (O = jsx("span", {
+                            style: "color: #6c757d;",
+                            children: _("loading")
+                        }), this.frpcProxiesEl = O, this.card(_("FRPC Proxies"), O)),
+                        (T = jsx("span", {
+                            style: "color: #6c757d;",
+                            children: _("loading")
+                        }), this.frpsProxiesEl = T, this.card(_("FRPS Active Proxies"), T)),
+                        (H = jsx("span", {
+                            style: "color: #6c757d;",
+                            children: _("loading")
+                        }), this.ddnsHealthEl = H, this.card(_("DDNS Entries"), H))
                     ]
                 }),
-                l && l.length > 0 && this.renderActivityLog(l)
+                d && d.length > 0 && this.renderActivityLog(d)
             ]
         });
     }
@@ -2638,7 +2652,7 @@ class StatusPanel {
         });
     }
     constructor(){
-        _define_property(this, "statusValueEl", void 0), _define_property(this, "totalProjectsEl", void 0), _define_property(this, "activePortsEl", void 0), _define_property(this, "uptimeEl", void 0), _define_property(this, "trafficInEl", void 0), _define_property(this, "trafficOutEl", void 0), _define_property(this, "projectHealthEl", void 0), _define_property(this, "frpcEnabledEl", void 0), _define_property(this, "frpcVersionEl", void 0), _define_property(this, "frpcStatusEl", void 0), _define_property(this, "frpcInfoEl", void 0), _define_property(this, "frpcErrorEl", void 0), _define_property(this, "frpsEnabledEl", void 0), _define_property(this, "frpsVersionEl", void 0), _define_property(this, "frpsStatusEl", void 0), _define_property(this, "frpsInfoEl", void 0), _define_property(this, "frpsErrorEl", void 0), _define_property(this, "ddnsEnabledEl", void 0), _define_property(this, "ddnsVersionEl", void 0), _define_property(this, "activityLogContainer", void 0), _define_property(this, "trafficRateInEl", void 0), _define_property(this, "trafficRateOutEl", void 0), _define_property(this, "projectListEl", void 0), _define_property(this, "frpcProxiesEl", void 0), _define_property(this, "frpsProxiesEl", void 0), _define_property(this, "ddnsHealthEl", void 0);
+        _define_property(this, "statusValueEl", void 0), _define_property(this, "totalProjectsEl", void 0), _define_property(this, "activePortsEl", void 0), _define_property(this, "activeSessionsEl", void 0), _define_property(this, "uptimeEl", void 0), _define_property(this, "trafficInEl", void 0), _define_property(this, "trafficOutEl", void 0), _define_property(this, "projectHealthEl", void 0), _define_property(this, "frpcEnabledEl", void 0), _define_property(this, "frpcVersionEl", void 0), _define_property(this, "frpcStatusEl", void 0), _define_property(this, "frpcInfoEl", void 0), _define_property(this, "frpcErrorEl", void 0), _define_property(this, "frpsEnabledEl", void 0), _define_property(this, "frpsVersionEl", void 0), _define_property(this, "frpsStatusEl", void 0), _define_property(this, "frpsInfoEl", void 0), _define_property(this, "frpsErrorEl", void 0), _define_property(this, "ddnsEnabledEl", void 0), _define_property(this, "ddnsVersionEl", void 0), _define_property(this, "activityLogContainer", void 0), _define_property(this, "trafficRateInEl", void 0), _define_property(this, "trafficRateOutEl", void 0), _define_property(this, "projectListEl", void 0), _define_property(this, "frpcProxiesEl", void 0), _define_property(this, "frpsProxiesEl", void 0), _define_property(this, "ddnsHealthEl", void 0);
     }
 }
 
@@ -2718,13 +2732,13 @@ let logs_o = L.form, logs_a = L.fs, logs_l = L.ui, logs_i = "/tmp/portweaver.log
                 logs: []
             };
         }
-    }, f = async ()=>{
+    }, g = async ()=>{
         try {
             await logs_a.write(logs_i, ""), logs_l.addNotification(null, E("p", _("Logs cleared successfully")), "info");
         } catch (e) {
             throw logs_l.addNotification(null, E("p", _("Failed to clear logs")), "error"), e;
         }
-    }, g = async ()=>{
+    }, f = async ()=>{
         if (await dialog_confirm(_("Are you sure you want to restart PortWeaver service?"))) try {
             await logs_a.exec("/etc/init.d/portweaver", [
                 "restart"
@@ -2739,14 +2753,14 @@ let logs_o = L.form, logs_a = L.fs, logs_l = L.ui, logs_i = "/tmp/portweaver.log
             name: "system",
             title: _("System Logs"),
             fetcher: ()=>p(),
-            clearer: ()=>f(),
+            clearer: ()=>g(),
             showHeader: !1
         })).render();
         logs_n.init();
         let o = jsx("button", {
             type: "button",
             class: "cbi-button cbi-button-apply",
-            onclick: ()=>g(),
+            onclick: ()=>f(),
             children: _("Restart Service")
         }), a = r.querySelector(".button-row");
         if (a) {
@@ -2765,7 +2779,130 @@ let logs_o = L.form, logs_a = L.fs, logs_l = L.ui, logs_i = "/tmp/portweaver.log
 
 
 
-let ddns_o = L.form, ddns_t = L.uci, ddns_n = [
+let ddns_t = L.form, ddns_o = L.uci;
+const DNS_PROVIDERS_CONFIG = (/* unused pure expression or super */ null && ({
+    alidns: {
+        idLabel: "AccessKey ID",
+        secretLabel: "AccessKey Secret",
+        extParamLabel: ""
+    },
+    aliesa: {
+        idLabel: "AccessKey ID",
+        secretLabel: "AccessKey Secret",
+        extParamLabel: ""
+    },
+    tencentcloud: {
+        idLabel: "SecretId",
+        secretLabel: "SecretKey",
+        extParamLabel: ""
+    },
+    dnspod: {
+        idLabel: "ID",
+        secretLabel: "Token",
+        extParamLabel: ""
+    },
+    huaweicloud: {
+        idLabel: "Access Key Id",
+        secretLabel: "Secret Access Key",
+        extParamLabel: ""
+    },
+    callback: {
+        idLabel: "URL",
+        secretLabel: "RequestBody",
+        extParamLabel: ""
+    },
+    baiducloud: {
+        idLabel: "AccessKey ID",
+        secretLabel: "AccessKey Secret",
+        extParamLabel: ""
+    },
+    porkbun: {
+        idLabel: "API Key",
+        secretLabel: "Secret Key",
+        extParamLabel: ""
+    },
+    godaddy: {
+        idLabel: "Key",
+        secretLabel: "Secret",
+        extParamLabel: ""
+    },
+    trafficroute: {
+        idLabel: "AccessKey",
+        secretLabel: "SecretAccessKey",
+        extParamLabel: ""
+    },
+    spaceship: {
+        idLabel: "API Key",
+        secretLabel: "API Secret",
+        extParamLabel: ""
+    },
+    dnsla: {
+        idLabel: "APIID",
+        secretLabel: "API\u5BC6\u94A5",
+        extParamLabel: ""
+    },
+    nowcn: {
+        idLabel: "auth-userid",
+        secretLabel: "api-key",
+        extParamLabel: ""
+    },
+    eranet: {
+        idLabel: "auth-userid",
+        secretLabel: "api-key",
+        extParamLabel: ""
+    },
+    edgeone: {
+        idLabel: "SecretId",
+        secretLabel: "SecretKey",
+        extParamLabel: ""
+    },
+    name_com: {
+        idLabel: "username",
+        secretLabel: "token",
+        extParamLabel: ""
+    },
+    cloudflare: {
+        idLabel: "",
+        secretLabel: "Token",
+        extParamLabel: ""
+    },
+    namecheap: {
+        idLabel: "",
+        secretLabel: "Password",
+        extParamLabel: ""
+    },
+    namesilo: {
+        idLabel: "",
+        secretLabel: "Password",
+        extParamLabel: ""
+    },
+    vercel: {
+        idLabel: "",
+        secretLabel: "Token",
+        extParamLabel: "Team ID"
+    },
+    dynadot: {
+        idLabel: "",
+        secretLabel: "Password",
+        extParamLabel: ""
+    },
+    dynv6: {
+        idLabel: "",
+        secretLabel: "Token",
+        extParamLabel: ""
+    },
+    gcore: {
+        idLabel: "",
+        secretLabel: "API Key",
+        extParamLabel: ""
+    },
+    nsone: {
+        idLabel: "",
+        secretLabel: "API Key",
+        extParamLabel: ""
+    }
+}));
+let ddns_d = [
     {
         value: "alidns",
         label: "Alibaba Cloud DNS"
@@ -2862,7 +2999,7 @@ let ddns_o = L.form, ddns_t = L.uci, ddns_n = [
         value: "cloudflare",
         label: "Cloudflare"
     }
-], ddns_d = [
+], ddns_n = [
     {
         value: "url",
         label: _("URL")
@@ -2875,7 +3012,7 @@ let ddns_o = L.form, ddns_t = L.uci, ddns_n = [
         value: "cmd",
         label: _("Command")
     }
-], ddns_i = [
+], ddns_r = [
     {
         value: "60",
         label: _("%d minute").format(1)
@@ -2912,151 +3049,151 @@ let ddns_o = L.form, ddns_t = L.uci, ddns_n = [
         value: "86400",
         label: _("%d day").format(1)
     }
-], ddns_r = {}, ddns_s = {};
-/* export default */ function ddns(p, u, c) {
-    let m, v = (m = u.taboption(c, ddns_o.SectionValue, "_ddns_configs", ddns_o.GridSection, "ddns")).subsection;
-    for (let d of (v.anonymous = !0, v.addremove = !0, v.sortable = !0, v.sectiontitle = (e)=>ddns_t.get("portweaver", e, "name") || _("Unnamed DDNS"), (m = v.option(ddns_o.DummyValue, "_status", _("Status"))).modalonly = !1, m.textvalue = (a)=>{
-        let l = ddns_t.get("portweaver", a, "name"), o = ddns_r[l] || {
+], ddns_i = {}, ddns_s = {};
+/* export default */ function ddns(p, c, u) {
+    let m, b = (m = c.taboption(u, ddns_t.SectionValue, "_ddns_configs", ddns_t.GridSection, "ddns")).subsection;
+    for (let n of (b.anonymous = !0, b.addremove = !0, b.sortable = !0, b.sectiontitle = (e)=>ddns_o.get("portweaver", e, "name") || _("Unnamed DDNS"), (m = b.option(ddns_t.DummyValue, "_status", _("Status"))).modalonly = !1, m.textvalue = (a)=>{
+        let l = ddns_o.get("portweaver", a, "name"), t = ddns_i[l] || {
             status: "unknown",
             name: "",
             provider: "",
             section: a
-        }, n = {
+        }, d = {
             success: "#4CAF50",
             updating: "#FFC107",
             error: "#F44336",
             disabled: "#9E9E9E",
             unknown: "#9E9E9E"
-        }, d = {
+        }, n = {
             success: _("Success"),
             updating: _("Updating"),
             error: _("Error"),
             disabled: _("Disabled"),
             unknown: _("Unknown")
-        }, i = n[o.status] || n.unknown, p = d[o.status] || o.status, u = jsx("span", {
-            style: "display:inline-block; width:12px; height:12px; border-radius:50%; background-color:".concat(i, "; margin-right:8px;")
-        }), c = jsx("span", {
+        }, r = d[t.status] || d.unknown, p = n[t.status] || t.status, c = jsx("span", {
+            style: "display:inline-block; width:12px; height:12px; border-radius:50%; background-color:".concat(r, "; margin-right:8px;")
+        }), u = jsx("span", {
             children: p
         }), m = jsx("div", {
             style: "display:flex; flex-direction:column; gap:4px;"
-        }), v = jsx("div", {
+        }), b = jsx("div", {
             style: "display:flex; align-items:center;"
         });
-        if (v.appendChild(u), v.appendChild(c), m.appendChild(v), o.last_ip) {
+        if (b.appendChild(c), b.appendChild(u), m.appendChild(b), t.last_ip) {
             let a = jsx("small", {
                 style: "color:#666;",
-                children: _("IP: %s").format(o.last_ip)
+                children: _("IP: %s").format(t.last_ip)
             });
             m.appendChild(a);
         }
-        if (o.last_update > 0) {
-            let a = new Date(1000 * o.last_update).toLocaleString(), l = jsx("small", {
+        if (t.last_update > 0) {
+            let a = new Date(1000 * t.last_update).toLocaleString(), l = jsx("small", {
                 style: "color:#666;",
                 children: _("Updated: %s").format(a)
             });
             m.appendChild(l);
         }
-        if (o.message && "error" === o.status) {
+        if (t.message && "error" === t.status) {
             let a = jsx("small", {
                 style: "color:#F44336;",
-                title: o.message,
-                children: o.message.length > 40 ? "".concat(o.message.substring(0, 37), "...") : o.message
+                title: t.message,
+                children: t.message.length > 40 ? "".concat(t.message.substring(0, 37), "...") : t.message
             });
             m.appendChild(a);
         }
         return ddns_s[l] = m, m;
-    }, (m = v.option(ddns_o.Flag, "enabled", _("Enabled"))).modalonly = !1, m.default = "1", m.editable = !0, (m = v.option(ddns_o.DummyValue, "_provider", _("Provider"))).modalonly = !1, m.textvalue = (e)=>{
-        let a = ddns_t.get("portweaver", e, "dns_provider") || "", l = ddns_n.find((e)=>e.value === a);
+    }, (m = b.option(ddns_t.Flag, "enabled", _("Enabled"))).modalonly = !1, m.default = "1", m.editable = !0, (m = b.option(ddns_t.DummyValue, "_provider", _("Provider"))).modalonly = !1, m.textvalue = (e)=>{
+        let a = ddns_o.get("portweaver", e, "dns_provider") || "", l = ddns_d.find((e)=>e.value === a);
         return l ? l.label : a || "-";
-    }, (m = v.option(ddns_o.DummyValue, "_domains", _("Domains"))).modalonly = !1, m.textvalue = (e)=>{
+    }, (m = b.option(ddns_t.DummyValue, "_domains", _("Domains"))).modalonly = !1, m.textvalue = (e)=>{
         let a = [
-            ddns_t.get("portweaver", e, "ipv4_domains") || "",
-            ddns_t.get("portweaver", e, "ipv6_domains") || ""
+            ddns_o.get("portweaver", e, "ipv4_domains") || "",
+            ddns_o.get("portweaver", e, "ipv6_domains") || ""
         ].filter(Boolean).join(", ").split(/[,\s]+/).filter(Boolean);
         return a.length > 0 ? a.slice(0, 3).join(", ") : "-";
-    }, (m = v.option(ddns_o.DummyValue, "_actions", _("Actions"))).modalonly = !1, m.textvalue = (o)=>{
-        let t = jsx("button", {
+    }, (m = b.option(ddns_t.DummyValue, "_actions", _("Actions"))).modalonly = !1, m.textvalue = (t)=>{
+        let o = jsx("button", {
             class: "btn cbi-button cbi-button-action",
             type: "button",
             children: _("View Logs")
-        }), n = L.uci.get("portweaver", o, "name");
-        return t.onclick = ()=>{
+        }), d = L.uci.get("portweaver", t, "name");
+        return o.onclick = ()=>{
             new LogViewerDialog({
-                name: n,
-                title: _("DDNS Logs - %s").format(n),
+                name: d,
+                title: _("DDNS Logs - %s").format(d),
                 fetcher: (e)=>rpcClient.getDdnsInfo(e),
                 clearer: (e)=>rpcClient.clearDdnsLogs(e)
             }).open();
-        }, t;
-    }, (m = v.option(ddns_o.Flag, "enabled", _("Enable"))).modalonly = !0, m.default = "1", m.rmempty = !1, (m = v.option(ddns_o.Value, "name", _("Configuration Name"))).modalonly = !0, m.rmempty = !1, m.datatype = "string", m.placeholder = "home", m.validate = (e, a)=>!!a && "" !== String(a).trim() || _("Configuration name is required"), (m = v.option(ddns_o.ListValue, "dns_provider", _("DNS Provider"))).modalonly = !0, m.rmempty = !1, ddns_n))m.value(d.value, d.label);
+        }, o;
+    }, (m = b.option(ddns_t.Flag, "enabled", _("Enable"))).modalonly = !0, m.default = "1", m.rmempty = !1, (m = b.option(ddns_t.Value, "name", _("Configuration Name"))).modalonly = !0, m.rmempty = !1, m.datatype = "string", m.placeholder = "home", m.validate = (e, a)=>!!a && "" !== String(a).trim() || _("Configuration name is required"), (m = b.option(ddns_t.ListValue, "dns_provider", _("DNS Provider"))).modalonly = !0, m.rmempty = !1, ddns_d))m.value(n.value, n.label);
     m.default = "cloudflare";
-    let b = v.option(ddns_o.Value, "dns_id", _("DNS ID / API Key"));
-    b.modalonly = !0, b.rmempty = !0, b.placeholder = "API Key or Account ID", b.description = _("Field name varies by provider: AccessKey ID (Aliyun), ID (DNSPod), API Key (Porkbun), etc."), b.depends("dns_provider", "alidns"), b.depends("dns_provider", "aliesa"), b.depends("dns_provider", "tencentcloud"), b.depends("dns_provider", "dnspod"), b.depends("dns_provider", "huaweicloud"), b.depends("dns_provider", "callback"), b.depends("dns_provider", "baiducloud"), b.depends("dns_provider", "porkbun"), b.depends("dns_provider", "godaddy"), b.depends("dns_provider", "trafficroute"), b.depends("dns_provider", "spaceship"), b.depends("dns_provider", "dnsla"), b.depends("dns_provider", "nowcn"), b.depends("dns_provider", "eranet"), b.depends("dns_provider", "edgeone"), b.depends("dns_provider", "name_com");
-    let y = v.option(ddns_o.Value, "dns_secret", _("DNS Secret / Token"));
+    let v = b.option(ddns_t.Value, "dns_id", _("DNS ID / API Key"));
+    v.modalonly = !0, v.rmempty = !0, v.placeholder = "API Key or Account ID", v.description = _("Field name varies by provider: AccessKey ID (Aliyun), ID (DNSPod), API Key (Porkbun), etc."), v.depends("dns_provider", "alidns"), v.depends("dns_provider", "aliesa"), v.depends("dns_provider", "tencentcloud"), v.depends("dns_provider", "dnspod"), v.depends("dns_provider", "huaweicloud"), v.depends("dns_provider", "callback"), v.depends("dns_provider", "baiducloud"), v.depends("dns_provider", "porkbun"), v.depends("dns_provider", "godaddy"), v.depends("dns_provider", "trafficroute"), v.depends("dns_provider", "spaceship"), v.depends("dns_provider", "dnsla"), v.depends("dns_provider", "nowcn"), v.depends("dns_provider", "eranet"), v.depends("dns_provider", "edgeone"), v.depends("dns_provider", "name_com");
+    let y = b.option(ddns_t.Value, "dns_secret", _("DNS Secret / Token"));
     y.modalonly = !0, y.password = !0, y.rmempty = !0, y.placeholder = "API Token or Secret Key", y.description = _("Field name varies by provider: Token (Cloudflare/DNSPod), AccessKey Secret (Aliyun), Password (Namecheap), etc.");
-    let f = v.option(ddns_o.Value, "dns_ext_param", _("Extended Parameters"));
-    for (let e of (f.modalonly = !0, f.rmempty = !0, f.placeholder = "Team ID or additional parameters", f.description = _("Additional provider-specific parameters (e.g., Team ID for Vercel)"), f.depends("dns_provider", "vercel"), (m = v.option(ddns_o.ListValue, "ttl", _("TTL (Time To Live)"))).modalonly = !0, m.rmempty = !0, m.default = "3600", ddns_i))m.value(e.value, e.label);
-    for (let e of ((m = v.option(ddns_o.Flag, "ipv4_enable", _("Enable IPv4"))).modalonly = !0, m.default = "1", (m = v.option(ddns_o.ListValue, "ipv4_get_type", _("IPv4 Get Method"))).modalonly = !0, m.depends("ipv4_enable", "1"), m.default = "url", ddns_d))m.value(e.value, e.label);
-    for (let e of ((m = v.option(ddns_o.Value, "ipv4_url", _("IPv4 URL"))).modalonly = !0, m.depends({
+    let h = b.option(ddns_t.Value, "dns_ext_param", _("Extended Parameters"));
+    for (let e of (h.modalonly = !0, h.rmempty = !0, h.placeholder = "Team ID or additional parameters", h.description = _("Additional provider-specific parameters (e.g., Team ID for Vercel)"), h.depends("dns_provider", "vercel"), (m = b.option(ddns_t.ListValue, "ttl", _("TTL (Time To Live)"))).modalonly = !0, m.rmempty = !0, m.default = "3600", ddns_r))m.value(e.value, e.label);
+    for (let e of ((m = b.option(ddns_t.Flag, "ipv4_enable", _("Enable IPv4"))).modalonly = !0, m.default = "1", (m = b.option(ddns_t.ListValue, "ipv4_get_type", _("IPv4 Get Method"))).modalonly = !0, m.depends("ipv4_enable", "1"), m.default = "url", ddns_n))m.value(e.value, e.label);
+    for (let e of ((m = b.option(ddns_t.Value, "ipv4_url", _("IPv4 URL"))).modalonly = !0, m.depends({
         ipv4_enable: "1",
         ipv4_get_type: "url"
-    }), m.placeholder = "https://api.ipify.org", m.datatype = "string", (m = v.option(ddns_o.Value, "ipv4_net_interface", _("IPv4 Network Interface"))).modalonly = !0, m.depends({
+    }), m.placeholder = "https://api.ipify.org", m.datatype = "string", (m = b.option(ddns_t.Value, "ipv4_net_interface", _("IPv4 Network Interface"))).modalonly = !0, m.depends({
         ipv4_enable: "1",
         ipv4_get_type: "net_interface"
-    }), m.placeholder = "eth0", m.datatype = "string", (m = v.option(ddns_o.Value, "ipv4_cmd", _("IPv4 Command"))).modalonly = !0, m.depends({
+    }), m.placeholder = "eth0", m.datatype = "string", (m = b.option(ddns_t.Value, "ipv4_cmd", _("IPv4 Command"))).modalonly = !0, m.depends({
         ipv4_enable: "1",
         ipv4_get_type: "cmd"
-    }), m.placeholder = "curl -s https://api.ipify.org", m.datatype = "string", (m = v.option(ddns_o.TextValue, "ipv4_domains", _("IPv4 Domains"))).modalonly = !0, m.depends("ipv4_enable", "1"), m.rows = 3, m.placeholder = "example.com\nwww.example.com", m.description = _("One domain per line or comma-separated"), (m = v.option(ddns_o.Flag, "ipv6_enable", _("Enable IPv6"))).modalonly = !0, m.default = "0", (m = v.option(ddns_o.ListValue, "ipv6_get_type", _("IPv6 Get Method"))).modalonly = !0, m.depends("ipv6_enable", "1"), m.default = "url", ddns_d))m.value(e.value, e.label);
-    async function h() {
+    }), m.placeholder = "curl -s https://api.ipify.org", m.datatype = "string", (m = b.option(ddns_t.TextValue, "ipv4_domains", _("IPv4 Domains"))).modalonly = !0, m.depends("ipv4_enable", "1"), m.rows = 3, m.placeholder = "example.com\nwww.example.com", m.description = _("One domain per line or comma-separated"), (m = b.option(ddns_t.Flag, "ipv6_enable", _("Enable IPv6"))).modalonly = !0, m.default = "0", (m = b.option(ddns_t.ListValue, "ipv6_get_type", _("IPv6 Get Method"))).modalonly = !0, m.depends("ipv6_enable", "1"), m.default = "url", ddns_n))m.value(e.value, e.label);
+    async function f() {
         try {
             let a = await rpcClient.getDdnsStatus();
             for (let l of (null == a ? void 0 : a.ddns_status) || []){
-                let a = ddns_r[l.name];
-                if (ddns_r[l.name] = l, !a || a.status !== l.status || a.last_ip !== l.last_ip || a.last_update !== l.last_update) {
+                let a = ddns_i[l.name];
+                if (ddns_i[l.name] = l, !a || a.status !== l.status || a.last_ip !== l.last_ip || a.last_update !== l.last_update) {
                     let a = ddns_s[l.name];
                     if (a) {
-                        let o = {
+                        let t = {
                             success: "#4CAF50",
                             updating: "#FFC107",
                             error: "#F44336",
                             disabled: "#9E9E9E",
                             unknown: "#9E9E9E"
-                        }, t = {
+                        }, o = {
                             success: _("Success"),
                             updating: _("Updating"),
                             error: _("Error"),
                             disabled: _("Disabled"),
                             unknown: _("Unknown")
-                        }, n = o[l.status] || o.unknown, d = t[l.status] || l.status;
+                        }, d = t[l.status] || t.unknown, n = o[l.status] || l.status;
                         for(; a.firstChild;)a.removeChild(a.firstChild);
-                        let i = jsx("div", {
+                        let r = jsx("div", {
                             style: "display:flex; align-items:center;"
-                        }), r = jsx("span", {
-                            style: "display:inline-block; width:12px; height:12px; border-radius:50%; background-color:".concat(n, "; margin-right:8px;")
+                        }), i = jsx("span", {
+                            style: "display:inline-block; width:12px; height:12px; border-radius:50%; background-color:".concat(d, "; margin-right:8px;")
                         }), s = jsx("span", {
-                            children: d
+                            children: n
                         });
-                        if (i.appendChild(r), i.appendChild(s), a.appendChild(i), l.last_ip) {
-                            let o = jsx("small", {
+                        if (r.appendChild(i), r.appendChild(s), a.appendChild(r), l.last_ip) {
+                            let t = jsx("small", {
                                 style: "color:#666;",
                                 children: _("IP: %s").format(l.last_ip)
                             });
-                            a.appendChild(o);
-                        }
-                        if (l.last_update > 0) {
-                            let o = new Date(1000 * l.last_update).toLocaleString(), t = jsx("small", {
-                                style: "color:#666;",
-                                children: _("Updated: %s").format(o)
-                            });
                             a.appendChild(t);
                         }
+                        if (l.last_update > 0) {
+                            let t = new Date(1000 * l.last_update).toLocaleString(), o = jsx("small", {
+                                style: "color:#666;",
+                                children: _("Updated: %s").format(t)
+                            });
+                            a.appendChild(o);
+                        }
                         if (l.message && "error" === l.status) {
-                            let o = jsx("small", {
+                            let t = jsx("small", {
                                 style: "color:#F44336;",
                                 title: l.message,
                                 children: l.message.length > 40 ? "".concat(l.message.substring(0, 37), "...") : l.message
                             });
-                            a.appendChild(o);
+                            a.appendChild(t);
                         }
                     }
                 }
@@ -3065,20 +3202,20 @@ let ddns_o = L.form, ddns_t = L.uci, ddns_n = [
             console.warn("Failed to fetch DDNS statuses:", e);
         }
     }
-    (m = v.option(ddns_o.Value, "ipv6_url", _("IPv6 URL"))).modalonly = !0, m.depends({
+    (m = b.option(ddns_t.Value, "ipv6_url", _("IPv6 URL"))).modalonly = !0, m.depends({
         ipv6_enable: "1",
         ipv6_get_type: "url"
-    }), m.placeholder = "https://api6.ipify.org", m.datatype = "string", (m = v.option(ddns_o.Value, "ipv6_net_interface", _("IPv6 Network Interface"))).modalonly = !0, m.depends({
+    }), m.placeholder = "https://api6.ipify.org", m.datatype = "string", (m = b.option(ddns_t.Value, "ipv6_net_interface", _("IPv6 Network Interface"))).modalonly = !0, m.depends({
         ipv6_enable: "1",
         ipv6_get_type: "net_interface"
-    }), m.placeholder = "eth0", m.datatype = "string", (m = v.option(ddns_o.Value, "ipv6_cmd", _("IPv6 Command"))).modalonly = !0, m.depends({
+    }), m.placeholder = "eth0", m.datatype = "string", (m = b.option(ddns_t.Value, "ipv6_cmd", _("IPv6 Command"))).modalonly = !0, m.depends({
         ipv6_enable: "1",
         ipv6_get_type: "cmd"
-    }), m.placeholder = "curl -s https://api6.ipify.org", m.datatype = "string", (m = v.option(ddns_o.Value, "ipv6_reg", _("IPv6 Regex"))).modalonly = !0, m.depends("ipv6_enable", "1"), m.rmempty = !0, m.placeholder = "([0-9a-fA-F:]+)", m.description = _("Regular expression to extract IPv6 address from output"), (m = v.option(ddns_o.TextValue, "ipv6_domains", _("IPv6 Domains"))).modalonly = !0, m.depends("ipv6_enable", "1"), m.rows = 3, m.placeholder = "example.com\nwww.example.com", m.description = _("One domain per line or comma-separated"), (m = v.option(ddns_o.Value, "webhook_url", _("Webhook URL"))).modalonly = !0, m.rmempty = !0, m.placeholder = "https://example.com/webhook", m.description = _("Optional webhook to call after successful update"), (m = v.option(ddns_o.TextValue, "webhook_body", _("Webhook Body"))).modalonly = !0, m.rmempty = !0, m.rows = 3, m.placeholder = '{"ip": "{{ip}}", "domain": "{{domain}}"}', m.description = _("JSON body for webhook (supports {{ip}} and {{domain}})"), m.depends({
+    }), m.placeholder = "curl -s https://api6.ipify.org", m.datatype = "string", (m = b.option(ddns_t.Value, "ipv6_reg", _("IPv6 Regex"))).modalonly = !0, m.depends("ipv6_enable", "1"), m.rmempty = !0, m.placeholder = "([0-9a-fA-F:]+)", m.description = _("Regular expression to extract IPv6 address from output"), (m = b.option(ddns_t.TextValue, "ipv6_domains", _("IPv6 Domains"))).modalonly = !0, m.depends("ipv6_enable", "1"), m.rows = 3, m.placeholder = "example.com\nwww.example.com", m.description = _("One domain per line or comma-separated"), (m = b.option(ddns_t.Value, "webhook_url", _("Webhook URL"))).modalonly = !0, m.rmempty = !0, m.placeholder = "https://example.com/webhook", m.description = _("Optional webhook to call after successful update"), (m = b.option(ddns_t.TextValue, "webhook_body", _("Webhook Body"))).modalonly = !0, m.rmempty = !0, m.rows = 3, m.placeholder = '{"ip": "{{ip}}", "domain": "{{domain}}"}', m.description = _("JSON body for webhook (supports {{ip}} and {{domain}})"), m.depends({
         webhook_url: /^.+$/
-    }), (m = v.option(ddns_o.TextValue, "webhook_headers", _("Webhook Headers"))).modalonly = !0, m.rmempty = !0, m.rows = 3, m.placeholder = "Authorization: Bearer token\nContent-Type: application/json", m.description = _("One header per line (Header: Value)"), m.depends({
+    }), (m = b.option(ddns_t.TextValue, "webhook_headers", _("Webhook Headers"))).modalonly = !0, m.rmempty = !0, m.rows = 3, m.placeholder = "Authorization: Bearer token\nContent-Type: application/json", m.description = _("One header per line (Header: Value)"), m.depends({
         webhook_url: /^.+$/
-    }), h(), L.Poll.add(h, 5);
+    }), f(), L.Poll.add(f, 5);
 }
 
 ;// CONCATENATED MODULE: ./main.tsx
