@@ -73,6 +73,11 @@ export function createRpcClient(rpc: typeof L.rpc) {
     method: "get_full_status",
   });
 
+  const getNftablesRules = rpc.declare<{ rules: string }>({
+    object: "portweaver",
+    method: "get_nftables_rules",
+  });
+
   return {
     listProjects,
     setEnabled,
@@ -86,6 +91,7 @@ export function createRpcClient(rpc: typeof L.rpc) {
     clearFrpsLogs,
     getFrpsProxyStats,
     getFullStatus,
+    getNftablesRules,
   };
 }
 

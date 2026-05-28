@@ -257,6 +257,12 @@ function createRpcClient(e) {
         params: [
             "id"
         ]
+    }), m = e.declare({
+        object: "portweaver",
+        method: "get_frps_proxy_stats",
+        params: [
+            "id"
+        ]
     });
     return {
         listProjects: t,
@@ -269,16 +275,14 @@ function createRpcClient(e) {
         clearDdnsLogs: s,
         getFrpsInfo: l,
         clearFrpsLogs: _,
-        getFrpsProxyStats: e.declare({
-            object: "portweaver",
-            method: "get_frps_proxy_stats",
-            params: [
-                "id"
-            ]
-        }),
+        getFrpsProxyStats: m,
         getFullStatus: e.declare({
             object: "portweaver",
             method: "get_full_status"
+        }),
+        getNftablesRules: e.declare({
+            object: "portweaver",
+            method: "get_nftables_rules"
         })
     };
 }
@@ -2273,19 +2277,19 @@ class PortMappingEditor_l extends L.form.Value {
 
 
 let config_a = L.form, config_l = L.uci;
-/* export default */ function config(n, p, i, d) {
-    let s, u = (s = p.taboption(d, config_a.SectionValue, "_projects", config_a.GridSection, "project")).subsection;
-    u.anonymous = !0, u.addremove = !0, u.sortable = !0, u.cloneable = !0, u.sectiontitle = (e)=>config_l.get("portweaver", e, "remark") || _("Unnamed project"), (s = u.option(config_a.DummyValue, "_runtime_status", _("Status"))).modalonly = !1, s.textvalue = (t)=>{
-        let o = i.getProjectStatus(t), r = jsx("div", {
-            id: "project-status-".concat(t),
-            children: i.renderStatusElements(o, t)
+/* export default */ function config(n, p, i, s) {
+    let d, u = (d = p.taboption(s, config_a.SectionValue, "_projects", config_a.GridSection, "project")).subsection;
+    u.anonymous = !0, u.addremove = !0, u.sortable = !0, u.cloneable = !0, u.sectiontitle = (e)=>config_l.get("portweaver", e, "remark") || _("Unnamed project"), (d = u.option(config_a.DummyValue, "_runtime_status", _("Status"))).modalonly = !1, d.textvalue = (o)=>{
+        let t = i.getProjectStatus(o), r = jsx("div", {
+            id: "project-status-".concat(o),
+            children: i.renderStatusElements(t, o)
         });
-        return i.projectContainers = i.projectContainers || {}, i.projectContainers[t] = r, r;
-    }, (s = u.option(config_a.Button, "_runtime_toggle", _("Toggle"))).modalonly = !1, s.editable = !0, s.inputtitle = (e)=>{
-        let t = i.getProjectStatus(e);
-        return (null == t ? void 0 : t.enabled) ? _("Disable") : _("Enable");
-    }, s.onclick = (e, t)=>window.portweaverToggle(t), (s = u.option(config_a.Flag, "enabled", _("Enabled"))).modalonly = !1, s.default = "1", s.editable = !0, (s = u.option(config_a.DummyValue, "_preview", _("Overview"))).modalonly = !1, s.textvalue = (o)=>{
-        let r = config_l.get("portweaver", o, "protocol") || "tcp", a = config_l.get("portweaver", o, "family") || "any", n = config_l.get("portweaver", o, "listen_port") || "", p = config_l.get("portweaver", o, "target_address") || "", i = config_l.get("portweaver", o, "target_port") || "", d = L.toArray(config_l.get("portweaver", o, "port_mapping")), s = L.toArray(config_l.get("portweaver", o, "src_zone")), u = L.toArray(config_l.get("portweaver", o, "dest_zone")), m = {
+        return i.projectContainers = i.projectContainers || {}, i.projectContainers[o] = r, r;
+    }, (d = u.option(config_a.Button, "_runtime_toggle", _("Toggle"))).modalonly = !1, d.editable = !0, d.inputtitle = (e)=>{
+        let o = i.getProjectStatus(e);
+        return (null == o ? void 0 : o.enabled) ? _("Disable") : _("Enable");
+    }, d.onclick = (e, o)=>window.portweaverToggle(o), (d = u.option(config_a.Flag, "enabled", _("Enabled"))).modalonly = !1, d.default = "1", d.editable = !0, (d = u.option(config_a.DummyValue, "_preview", _("Overview"))).modalonly = !1, d.textvalue = (t)=>{
+        let r = config_l.get("portweaver", t, "protocol") || "tcp", a = config_l.get("portweaver", t, "family") || "any", n = config_l.get("portweaver", t, "listen_port") || "", p = config_l.get("portweaver", t, "target_address") || "", i = config_l.get("portweaver", t, "target_port") || "", s = L.toArray(config_l.get("portweaver", t, "port_mapping")), d = L.toArray(config_l.get("portweaver", t, "src_zone")), u = L.toArray(config_l.get("portweaver", t, "dest_zone")), m = {
             both: _("TCP and UDP"),
             tcp: _("TCP"),
             udp: _("UDP")
@@ -2305,12 +2309,12 @@ let config_a = L.form, config_l = L.uci;
                     children: m
                 })
             ]
-        })), s.length > 0) {
-            let o = s.map((t)=>jsx("span", {
+        })), d.length > 0) {
+            let t = d.map((o)=>jsx("span", {
                     class: "zonebadge",
-                    style: fwmodel.getZoneColorStyle(t),
+                    style: fwmodel.getZoneColorStyle(o),
                     children: jsx("strong", {
-                        children: t || jsx("em", {
+                        children: o || jsx("em", {
                             children: _("any zone")
                         })
                     })
@@ -2318,11 +2322,11 @@ let config_a = L.form, config_l = L.uci;
             g.push(jsx("br", {})), g.push(jsxs("span", {
                 children: [
                     _("From "),
-                    ...o
+                    ...t
                 ]
             }));
         }
-        if (d.length > 0) {
+        if (s.length > 0) {
             g.push(jsx("br", {})), g.push(jsxs("span", {
                 children: [
                     jsx("strong", {
@@ -2331,17 +2335,17 @@ let config_a = L.form, config_l = L.uci;
                     }),
                     _(" - "),
                     jsx("var", {
-                        children: d.length
+                        children: s.length
                     }),
                     _(" mapping(s)")
                 ]
             }));
-            let o = d[0];
+            let t = s[0];
             g.push(jsx("br", {})), g.push(jsxs("span", {
                 children: [
                     _("e.g. "),
                     jsx("var", {
-                        children: o
+                        children: t
                     })
                 ]
             }));
@@ -2362,16 +2366,16 @@ let config_a = L.form, config_l = L.uci;
                 _(" to ")
             ]
         })), u.length > 0) {
-            let t = u.map((t)=>jsx("span", {
+            let o = u.map((o)=>jsx("span", {
                     class: "zonebadge",
-                    style: fwmodel.getZoneColorStyle(t),
+                    style: fwmodel.getZoneColorStyle(o),
                     children: jsx("strong", {
-                        children: t || jsx("em", {
+                        children: o || jsx("em", {
                             children: _("any zone")
                         })
                     })
                 }));
-            g.push(...t), g.push(_(" "));
+            g.push(...o), g.push(_(" "));
         }
         return p && g.push(jsxs("span", {
             children: [
@@ -2380,7 +2384,7 @@ let config_a = L.form, config_l = L.uci;
                     children: p
                 })
             ]
-        })), 0 === d.length && i && g.push(jsxs("span", {
+        })), 0 === s.length && i && g.push(jsxs("span", {
             children: [
                 _(" port "),
                 jsx("var", {
@@ -2390,12 +2394,12 @@ let config_a = L.form, config_l = L.uci;
         })), jsx("small", {
             children: g
         });
-    }, (s = u.option(config_a.Value, "remark", _("Remark"))).modalonly = !0, s.rmempty = !1, s.datatype = "string", s.validate = (e, t)=>!!t && "" !== String(t).trim() || _("This field is required"), s.placeholder = "My Project", (s = u.option(config_a.Flag, "enabled", _("Enabled"))).modalonly = !0, s.default = "1", (s = u.option(widgets.ZoneSelect, "src_zone", _("Source Zones"))).modalonly = !0, s.multiple = !0, s.nocreate = !1, s.allowlocal = !1, s.default = "wan", s.rmempty = !0, (s = u.option(widgets.ZoneSelect, "dest_zone", _("Destination Zones"))).modalonly = !0, s.multiple = !0, s.nocreate = !1, s.allowlocal = !1, s.default = "lan", s.rmempty = !0, (s = u.option(config_a.ListValue, "family", _("Address Family"))).modalonly = !0, s.value("any", _("IPv4 and IPv6")), s.value("ipv4", "IPv4"), s.value("ipv6", "IPv6"), s.default = "any", (s = u.option(config_a.Value, "target_address", _("Target Address"))).modalonly = !0, s.rmempty = !1, s.datatype = "host", s.placeholder = "192.168.1.100", s.validate = (e, t)=>!!t && "" !== String(t).trim() || _("This field is required"), (s = u.option(config_a.Flag, "use_port_mappings", _("Use Port Mappings Mode"))).modalonly = !0, s.rmempty = !0, s.default = "0", s.description = _("Enable to configure multiple port mappings or port ranges. Disable for single port mode."), (s = u.option(config_a.ListValue, "protocol", _("Protocol"))).modalonly = !0, s.value("both", _("TCP and UDP")), s.value("tcp", "TCP"), s.value("udp", "UDP"), s.default = "tcp", s.depends("use_port_mappings", "0"), (s = u.option(FrpNodeSelector, "frp_nodes", _("FRP Tunnels"))).modalonly = !0, s.rmempty = !0, s.depends("use_port_mappings", "0"), (s = u.option(PortMappingEditor, "port_mapping", _("Port Mappings"))).modalonly = !0, s.depends("use_port_mappings", "1"), (s = u.option(config_a.Value, "listen_port", _("Listen Port"))).modalonly = !0, s.datatype = "port", s.placeholder = "8080", s.depends("use_port_mappings", "0"), s.validate = (e, t)=>"1" === config_l.get("portweaver", e, "use_port_mappings") || !!t && "" !== String(t).trim() || _("This field is required in single port mode"), (s = u.option(config_a.Value, "target_port", _("Target Port"))).modalonly = !0, s.datatype = "port", s.placeholder = "80", s.depends("use_port_mappings", "0"), s.validate = (e, t)=>"1" === config_l.get("portweaver", e, "use_port_mappings") || !!t && "" !== String(t).trim() || _("This field is required in single port mode"), (s = u.option(config_a.Flag, "open_firewall_port", _("Open Firewall Port"))).modalonly = !0, s.default = "1", (s = u.option(config_a.Flag, "enable_app_forward", _("Enable App Level Forward"))).modalonly = !0, s.default = "0", (s = u.option(config_a.Flag, "reuseaddr", _("Reuse Address"))).modalonly = !0, s.default = "1", s.depends("enable_app_forward", "1"), (s = u.option(config_a.Flag, "enable_stats", _("Enable Statistics"), _("Collect traffic statistics (bytes_in/bytes_out) using zero-cost atomic counters. \nNOTE: Mutually exclusive with firewall forwarding - enabling stats will disable add_firewall_forward."))).modalonly = !0, s.default = "0", s.depends("enable_app_forward", "1"), (s = u.option(config_a.Flag, "add_firewall_forward", _("Add Firewall Forward"))).modalonly = !0, s.default = "1", s.depends({
+    }, (d = u.option(config_a.Value, "remark", _("Remark"))).modalonly = !0, d.rmempty = !1, d.datatype = "string", d.validate = (e, o)=>!!o && "" !== String(o).trim() || _("This field is required"), d.placeholder = "My Project", (d = u.option(config_a.Flag, "enabled", _("Enabled"))).modalonly = !0, d.default = "1", (d = u.option(widgets.ZoneSelect, "src_zone", _("Source Zones"))).modalonly = !0, d.multiple = !0, d.nocreate = !1, d.allowlocal = !1, d.default = "wan", d.rmempty = !0, (d = u.option(widgets.ZoneSelect, "dest_zone", _("Destination Zones"))).modalonly = !0, d.multiple = !0, d.nocreate = !1, d.allowlocal = !1, d.default = "lan", d.rmempty = !0, (d = u.option(config_a.ListValue, "family", _("Address Family"))).modalonly = !0, d.value("any", _("IPv4 and IPv6")), d.value("ipv4", "IPv4"), d.value("ipv6", "IPv6"), d.default = "any", (d = u.option(config_a.Value, "target_address", _("Target Address"))).modalonly = !0, d.rmempty = !1, d.datatype = "host", d.placeholder = "192.168.1.100", d.validate = (e, o)=>!!o && "" !== String(o).trim() || _("This field is required"), (d = u.option(config_a.Flag, "use_port_mappings", _("Use Port Mappings Mode"))).modalonly = !0, d.rmempty = !0, d.default = "0", d.description = _("Enable to configure multiple port mappings or port ranges. Disable for single port mode."), (d = u.option(config_a.ListValue, "protocol", _("Protocol"))).modalonly = !0, d.value("both", _("TCP and UDP")), d.value("tcp", "TCP"), d.value("udp", "UDP"), d.default = "tcp", d.depends("use_port_mappings", "0"), (d = u.option(FrpNodeSelector, "frp_nodes", _("FRP Tunnels"))).modalonly = !0, d.rmempty = !0, d.depends("use_port_mappings", "0"), (d = u.option(PortMappingEditor, "port_mapping", _("Port Mappings"))).modalonly = !0, d.depends("use_port_mappings", "1"), (d = u.option(config_a.Value, "listen_port", _("Listen Port"))).modalonly = !0, d.datatype = "port", d.placeholder = "8080", d.depends("use_port_mappings", "0"), d.validate = (e, o)=>"1" === config_l.get("portweaver", e, "use_port_mappings") || !!o && "" !== String(o).trim() || _("This field is required in single port mode"), (d = u.option(config_a.Value, "target_port", _("Target Port"))).modalonly = !0, d.datatype = "port", d.placeholder = "80", d.depends("use_port_mappings", "0"), d.validate = (e, o)=>"1" === config_l.get("portweaver", e, "use_port_mappings") || !!o && "" !== String(o).trim() || _("This field is required in single port mode"), (d = u.option(config_a.Flag, "open_firewall_port", _("Open Firewall Port"))).modalonly = !0, d.default = "1", (d = u.option(config_a.Flag, "enable_app_forward", _("Enable App Level Forward"))).modalonly = !0, d.default = "0", (d = u.option(config_a.ListValue, "app_forward_loop_mode", _("Loop Mode"), _("Controls how event loop runtimes are shared among listeners. 'per_project' (default): one runtime shared by all listeners in this project, balanced resource usage. 'per_listener': each listener gets its own dedicated runtime, highest isolation but uses more memory (one thread per listener). 'global': all projects share a single global runtime, lowest memory usage but no isolation between projects."))).modalonly = !0, d.value("per_project", _("Per Project (default) - balanced")), d.value("per_listener", _("Per Listener - highest isolation, more memory")), d.value("global", _("Global - lowest memory, no isolation")), d.default = "per_project", d.depends("enable_app_forward", "1"), (d = u.option(config_a.Flag, "reuseaddr", _("Reuse Address"))).modalonly = !0, d.default = "1", d.depends("enable_app_forward", "1"), (d = u.option(config_a.Flag, "enable_stats", _("Enable Statistics"), _("Collect traffic statistics (bytes_in/bytes_out) using zero-cost atomic counters. \nNOTE: Mutually exclusive with firewall forwarding - enabling stats will disable add_firewall_forward."))).modalonly = !0, d.default = "0", d.depends("enable_app_forward", "1"), (d = u.option(config_a.Flag, "add_firewall_forward", _("Add Firewall Forward"))).modalonly = !0, d.default = "1", d.depends({
         enable_app_forward: "0"
-    }), s.depends({
+    }), d.depends({
         enable_app_forward: "1",
         enable_stats: "0"
-    }), (s = u.option(config_a.Flag, "preserve_source_ip", _("Preserve Source IP"), _("Add NAT rules, preserving the source IP address. \nNote: Only effective when 'Add Firewall Forward' is enabled."))).modalonly = !0, s.default = "0", s.depends("add_firewall_forward", "1");
+    }), (d = u.option(config_a.Flag, "preserve_source_ip", _("Preserve Source IP"), _("Add NAT rules, preserving the source IP address. \nNote: Only effective when 'Add Firewall Forward' is enabled."))).modalonly = !0, d.default = "0", d.depends("add_firewall_forward", "1");
 }
 
 ;// CONCATENATED MODULE: ./components/StatusPanel.tsx
@@ -2661,21 +2665,21 @@ class StatusPanel {
 
 
 let header_o = L.form;
-/* export default */ function header(r, s, l, i) {
-    let u;
-    (u = s.taboption(i, header_o.Flag, "enabled", _("Enable PortWeaver"))).default = "1", u.rmempty = !1, (u = s.taboption(i, header_o.DummyValue, "_runtime_status", _("Runtime Status"))).rawhtml = !0, u.cfgvalue = ()=>{
+/* export default */ function header(s, r, l, i) {
+    let n;
+    (n = r.taboption(i, header_o.Flag, "enabled", _("Enable PortWeaver"))).default = "1", n.rmempty = !1, (n = r.taboption(i, header_o.Flag, "use_nftables", _("Use nftables"))).default = "0", n.rmempty = !1, n.description = _("Use nftables instead of OpenWrt firewall (fw4). Requires nftables package installed."), n.default = "1", n.rmempty = !1, (n = r.taboption(i, header_o.DummyValue, "_runtime_status", _("Runtime Status"))).rawhtml = !0, n.cfgvalue = ()=>{
         let t = new StatusPanel();
         return l.statusPanel = t, t.render(l.globalStatus, l.frpStatus, l.projectStatuses, l.events, l.ddnsGlobalStatus);
     };
-    let n = async (e)=>{
+    let u = async (e)=>{
         let o = l.getProjectIndex(e);
         if (o < 0) return L.ui.addNotification(null, jsx("p", {
             children: _("Could not determine project index")
         }), "error"), Promise.resolve();
-        let r = l.getProjectStatus(e), s = !(null == r ? void 0 : r.enabled);
+        let s = l.getProjectStatus(e), r = !(null == s ? void 0 : s.enabled);
         try {
-            await rpcClient.setEnabled(o, !!s), L.ui.addNotification(null, jsx("p", {
-                children: _("Runtime state updated to: %s").format(s ? _("enabled") : _("disabled"))
+            await rpcClient.setEnabled(o, !!r), L.ui.addNotification(null, jsx("p", {
+                children: _("Runtime state updated to: %s").format(r ? _("enabled") : _("disabled"))
             }), "info");
             let e = await rpcClient.getFullStatus();
             e && (l.globalStatus = {
@@ -2701,7 +2705,7 @@ let header_o = L.form;
             }), "error");
         }
     };
-    window.portweaverToggle = n;
+    window.portweaverToggle = u;
 }
 
 ;// CONCATENATED MODULE: ./modules/logs.tsx
@@ -3218,6 +3222,92 @@ let ddns_d = [
     }), f(), L.Poll.add(f, 5);
 }
 
+;// CONCATENATED MODULE: ./components/NftablesRulesViewer.tsx
+
+
+class NftablesRulesViewer {
+    render() {
+        this.statusSpan = jsx("span", {
+            style: "color: #666;",
+            children: "Loading..."
+        }), this.rulesContainer = jsx("pre", {
+            style: "\n          background: #1e1e1e;\n          color: #d4d4d4;\n          padding: 16px;\n          border-radius: 8px;\n          overflow-x: auto;\n          font-family: 'Consolas', 'Monaco', 'Courier New', monospace;\n          font-size: 13px;\n          line-height: 1.5;\n          max-height: 600px;\n          overflow-y: auto;\n          margin: 0;\n        ",
+            children: "Loading nftables rules..."
+        }), this.refreshBtn = jsx("button", {
+            type: "button",
+            class: "btn cbi-button-action",
+            style: "margin-bottom: 12px;",
+            onclick: ()=>this.loadRules(),
+            children: "Refresh"
+        });
+        let t = jsxs("div", {
+            children: [
+                jsxs("div", {
+                    style: "margin-bottom: 12px; display: flex; align-items: center; gap: 12px;",
+                    children: [
+                        this.refreshBtn,
+                        this.statusSpan
+                    ]
+                }),
+                jsxs("div", {
+                    style: "margin-bottom: 8px; color: #666; font-size: 12px;",
+                    children: [
+                        "Table: ",
+                        jsx("code", {
+                            children: "inet portweaver"
+                        })
+                    ]
+                }),
+                this.rulesContainer
+            ]
+        });
+        return this.loadRules(), t;
+    }
+    async loadRules() {
+        if (!this.loading) {
+            this.loading = !0, this.statusSpan && (this.statusSpan.textContent = "Loading...", this.statusSpan.style.color = "#666"), this.refreshBtn && this.refreshBtn.setAttribute("disabled", "true");
+            try {
+                var t;
+                let e = null == (t = window.L) ? void 0 : t.rpc;
+                if (!e) throw Error("RPC not available");
+                let s = await e.declare({
+                    object: "portweaver",
+                    method: "get_nftables_rules"
+                }).call();
+                (null == s ? void 0 : s.rules) ? (this.rules = s.rules, this.updateDisplay(), this.statusSpan && (this.statusSpan.textContent = "Rules loaded", this.statusSpan.style.color = "#4caf50")) : (this.statusSpan && (this.statusSpan.textContent = "No rules found or nftables not available", this.statusSpan.style.color = "#ff9800"), this.rulesContainer && (this.rulesContainer.textContent = "No nftables rules found. Make sure nftables is enabled and the portweaver table exists."));
+            } catch (t) {
+                console.error("Failed to load nftables rules:", t), this.statusSpan && (this.statusSpan.textContent = "Error: ".concat((null == t ? void 0 : t.message) || String(t)), this.statusSpan.style.color = "#f44336"), this.rulesContainer && (this.rulesContainer.textContent = "Failed to load nftables rules: ".concat((null == t ? void 0 : t.message) || String(t)));
+            } finally{
+                this.loading = !1, this.refreshBtn && this.refreshBtn.removeAttribute("disabled");
+            }
+        }
+    }
+    updateDisplay() {
+        if (!this.rulesContainer) return;
+        if (!this.rules || 0 === this.rules.trim().length) {
+            this.rulesContainer.textContent = "No rules in portweaver table.";
+            return;
+        }
+        let t = this.highlightSyntax(this.rules);
+        this.rulesContainer.innerHTML = t;
+    }
+    highlightSyntax(t) {
+        let e = t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        return (e = (e = (e = (e = (e = (e = (e = e.replace(/\b(table|chain|rule|set|map|element|flush|add|delete|list|type|hook|priority|policy|accept|drop|reject|queue|jump|goto|return|comment)\b/g, '<span style="color: #569cd6;">$1</span>')).replace(/\b(filter|nat|route|inet|ip|ip6|arp|bridge|ingress|prerouting|input|forward|output|postrouting)\b/g, '<span style="color: #4ec9b0;">$1</span>')).replace(/\b(tcp|udp|icmp|icmpv6|esp|ah|sctp)\b/g, '<span style="color: #c586c0;">$1</span>')).replace(/\b(\d+)\b/g, '<span style="color: #b5cea8;">$1</span>')).replace(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(\/\d{1,2})?)\b/g, '<span style="color: #ce9178;">$1</span>')).replace(/"([^"]*)"/g, '<span style="color: #ce9178;">"$1"</span>')).replace(/(#[^\n]*)/g, '<span style="color: #6a9955;">$1</span>')).replace(/(PORTWEAVER_\w+)/g, '<span style="color: #dcdcaa; font-weight: bold;">$1</span>');
+    }
+    constructor(){
+        _define_property(this, "rulesContainer", null), _define_property(this, "statusSpan", null), _define_property(this, "refreshBtn", null), _define_property(this, "rules", ""), _define_property(this, "loading", !1);
+    }
+}
+
+;// CONCATENATED MODULE: ./modules/nftables.tsx
+
+let nftables_t = L.form;
+/* export default */ function nftables(l, n, o) {
+    let r = n.taboption(o, nftables_t.DummyValue, "_nftables_rules", _("nftables Rules"));
+    r.rawhtml = !0, r.cfgvalue = ()=>new NftablesRulesViewer().render();
+}
+
 ;// CONCATENATED MODULE: ./main.tsx
 
 
@@ -3227,20 +3317,21 @@ let ddns_d = [
 
 
 
-let main_m = L.form, main_d = L.uci;
+
+let main_d = L.form, main_i = L.uci;
 class main extends L.view {
     async load() {
         return Promise.all([
-            main_d.load("portweaver"),
-            main_d.load("firewall"),
-            rpcClient.getFullStatus().then((r)=>r || {}).catch((r)=>(console.warn("ubus get_full_status failed:", r), {}))
+            main_i.load("portweaver"),
+            main_i.load("firewall"),
+            rpcClient.getFullStatus().then((e)=>e || {}).catch((e)=>(console.warn("ubus get_full_status failed:", e), {}))
         ]);
     }
-    render(n) {
-        let d = new main_m.Map("portweaver", _("PortWeaver"), _("Port forwarding and NAT traversal configuration")), i = d.section(main_m.NamedSection, "global", "portweaver");
-        i.anonymous = !0, i.addremove = !1, i.tab("settings", _("Global Settings")), i.tab("projects", _("Port Forwarding")), i.tab("ddns", _("DDNS")), i.tab("frpc", _("FRP Tunnels")), i.tab("frps", _("FRP Server")), i.tab("logs", _("System Logs"));
-        let p = new Client(n[2]);
-        return header(d, i, p, "settings"), config(d, i, p, "projects"), ddns(d, i, "ddns"), frpc(d, i, "frpc"), frps(d, i, "frps"), logs(d, i, "logs"), d.render();
+    render(m) {
+        let i = new main_d.Map("portweaver", _("PortWeaver"), _("Port forwarding and NAT traversal configuration")), f = i.section(main_d.NamedSection, "global", "portweaver");
+        f.anonymous = !0, f.addremove = !1, f.tab("settings", _("Global Settings")), f.tab("projects", _("Port Forwarding")), f.tab("ddns", _("DDNS")), f.tab("frpc", _("FRP Tunnels")), f.tab("frps", _("FRP Server")), f.tab("nftables", _("nftables")), f.tab("logs", _("System Logs"));
+        let p = new Client(m[2]);
+        return header(i, f, p, "settings"), config(i, f, p, "projects"), ddns(i, f, "ddns"), frpc(i, f, "frpc"), frps(i, f, "frps"), nftables(i, f, "nftables"), logs(i, f, "logs"), i.render();
     }
 }
 

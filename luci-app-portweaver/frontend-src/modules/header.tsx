@@ -15,6 +15,15 @@ export default function (
   o.default = "1";
   o.rmempty = false;
 
+  o = s.taboption(tab_id, form.Flag, "use_nftables", _("Use nftables"));
+  o.default = "0";
+  o.rmempty = false;
+  o.description = _(
+    "Use nftables instead of OpenWrt firewall (fw4). Requires nftables package installed.",
+  );
+  o.default = "1";
+  o.rmempty = false;
+
   o = s.taboption(
     tab_id,
     form.DummyValue,

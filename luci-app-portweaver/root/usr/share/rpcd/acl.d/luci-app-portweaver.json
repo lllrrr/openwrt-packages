@@ -8,7 +8,7 @@
 			},
 			"uci": ["portweaver"],
 "ubus": {
-				"portweaver": ["get_full_status", "get_frps_info", "get_frpc_info", "get_ddns_status", "get_ddns_info", "get_frpc_proxy_stats", "get_frps_proxy_stats", "list_projects"]
+				"portweaver": ["get_full_status", "get_frps_info", "get_frpc_info", "get_ddns_status", "get_ddns_info", "get_frpc_proxy_stats", "get_frps_proxy_stats", "list_projects", "get_nftables_rules"]
 			}
 		},
 		"write": {
