@@ -31,7 +31,7 @@
 
 #define LANSPEED_VERSION "0.1.5"
 #ifndef LANSPEED_RELEASE
-#define LANSPEED_RELEASE "2"
+#define LANSPEED_RELEASE "4"
 #endif
 #define LANSPEED_FULL_VERSION LANSPEED_VERSION "-r" LANSPEED_RELEASE
 #define RATE_WINDOW_COUNT 3
@@ -57,6 +57,7 @@
 
 static struct ubus_context *ctx;
 static struct blob_buf reply;
+static struct uloop_timeout ubus_reconnect_timer;
 static int refresh_interval_ms = DEFAULT_REFRESH_INTERVAL_MS;
 static int max_clients = DEFAULT_MAX_CLIENTS;
 static uint64_t active_client_window_ms = DEFAULT_ACTIVE_CLIENT_WINDOW_MS;
@@ -90,6 +91,9 @@ static void inspect_bpf_assets(struct runtime_probe *probe);
 static void inspect_files_direct(struct runtime_probe *probe);
 static void inspect_nss(struct runtime_probe *probe);
 static void inspect_collector_attach_model(struct runtime_probe *probe);
+static void load_config(void);
+static void start_bpf_runtime(void);
+static void stop_bpf_runtime(void);
 static const char *rate_collector_mode_config_name(void)
 {
 	return collector_mode_name(rate_collector_mode);
@@ -4106,6 +4110,47 @@ static int send_json_reply(struct ubus_context *ubus, struct ubus_request_data *
 	return ret;
 }
 
+static void reload_runtime_config(void)
+{
+	stop_bpf_runtime();
+	bpf_attach_ifname_count = 0;
+	observe_ifname_count = 0;
+	cached_runtime_probe_valid = false;
+	bpf_runtime_reset_rate_state();
+	memset(&overview_ring, 0, sizeof(overview_ring));
+	load_config();
+	start_bpf_runtime();
+}
+
+static int reload_method(struct ubus_context *ubus, struct ubus_object *obj,
+			 struct ubus_request_data *req, const char *method,
+			 struct blob_attr *msg)
+{
+	struct json_object *root = json_object_new_object();
+	struct runtime_probe probe;
+	const char *mode;
+
+	(void)obj;
+	(void)method;
+	(void)msg;
+
+	reload_runtime_config();
+	init_runtime_probe(&probe);
+	inspect_runtime(&probe);
+	runtime_probe_cache_store(&probe);
+	mode = probe_mode(&probe);
+	finish_probe_evidence(&probe, "reload");
+
+	json_object_object_add(root, "ok", json_object_new_boolean(true));
+	json_object_object_add(root, "mode", json_object_new_string(mode));
+	json_object_object_add(root, "warnings", runtime_probe_take_json(&probe.warnings));
+	json_object_object_add(root, "evidence", runtime_probe_take_json(&probe.evidence));
+	json_object_object_add(root, "version", json_object_new_string(LANSPEED_FULL_VERSION));
+	free_runtime_probe(&probe);
+
+	return send_json_reply(ubus, req, root);
+}
+
 static int status_method(struct ubus_context *ubus, struct ubus_object *obj,
 			 struct ubus_request_data *req, const char *method,
 			 struct blob_attr *msg)
@@ -4636,6 +4681,7 @@ static const struct ubus_method lanspeed_methods[] = {
 	UBUS_METHOD_NOARG("clients", clients_method),
 	UBUS_METHOD_NOARG("overview", overview_method),
 	UBUS_METHOD_NOARG("health", health_method),
+	UBUS_METHOD_NOARG("reload", reload_method),
 	UBUS_METHOD_NOARG("interfaces", interfaces_method),
 	UBUS_METHOD_NOARG("sysdevices", sysdevices_method),
 };
@@ -4858,6 +4904,42 @@ static void handle_signal(int signo)
 	uloop_end();
 }
 
+static void schedule_ubus_reconnect(void)
+{
+	uloop_timeout_set(&ubus_reconnect_timer, 1000);
+}
+
+static void ubus_reconnect_cb(struct uloop_timeout *t)
+{
+	uint32_t id = 0;
+	int ret;
+
+	(void)t;
+	if (!ctx)
+		return;
+
+	ret = ubus_reconnect(ctx, NULL);
+	if (ret) {
+		schedule_ubus_reconnect();
+		return;
+	}
+
+	ubus_add_uloop(ctx);
+	if (ubus_lookup_id(ctx, lanspeed_object.name, &id) || !id) {
+		ret = ubus_add_object(ctx, &lanspeed_object);
+		if (ret) {
+			schedule_ubus_reconnect();
+			return;
+		}
+	}
+}
+
+static void handle_ubus_connection_lost(struct ubus_context *lost_ctx)
+{
+	uloop_fd_delete(&lost_ctx->sock);
+	schedule_ubus_reconnect();
+}
+
 int main(void)
 {
 	int ret;
@@ -4873,6 +4955,8 @@ int main(void)
 		return EXIT_FAILURE;
 	}
 
+	ubus_reconnect_timer.cb = ubus_reconnect_cb;
+	ctx->connection_lost = handle_ubus_connection_lost;
 	ubus_add_uloop(ctx);
 	ret = ubus_add_object(ctx, &lanspeed_object);
 	if (ret) {
