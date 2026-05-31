@@ -879,6 +879,17 @@ probe_hostname() {
             case "$result" in
                 ""|"*"|"-"|unknown|wlan0|lan) result="" ;;
             esac
+            # Filter out auto-generated numeric suffixes (dnsmasq artifacts)
+            # e.g., MobileDevicephone2, Mobile-Device-phone-2, etc.
+            if [ -n "$result" ]; then
+                case "$result" in
+                    *phone[0-9]*|*pc[0-9]*|*iot[0-9]*|*network[0-9]*|*device[0-9]*|\
+                    *-phone-[0-9]*|*-pc-[0-9]*|*-iot-[0-9]*|*-network-[0-9]*|*-device-[0-9]*|\
+                    *Devicephone*|*Devicepc*|*Deviceiot*|*Devicenetwork*)
+                        result=""
+                        ;;
+                esac
+            fi
             if [ -n "$result" ]; then
                 echo "$result"
                 return
@@ -1340,14 +1351,44 @@ discover_all() {
                     # Sync hostname from DHCP leases if missing or stale
                     local current_hostname=$(uci -q get "devicemaster.@device[$update_idx].hostname")
                     local current_manual=$(uci -q get "devicemaster.@device[$update_idx].manual")
+                    local hostname_updated=0
+
+                    # Fix: Clear auto-generated hostnames with numeric suffixes (dnsmasq artifacts)
+                    # Matches patterns like: Mobile-Device-phone-2, MobileDevicephone2, etc.
+                    if [ -n "$current_hostname" ] && [ "$current_manual" != "1" ]; then
+                        case "$current_hostname" in
+                            *-phone-[0-9]*|*-pc-[0-9]*|*-iot-[0-9]*|*-network-[0-9]*|*-laa-[0-9]*|\
+                            *phone[0-9]*|*pc[0-9]*|*iot[0-9]*|*network[0-9]*|*device[0-9]*|\
+                            *Devicephone*|*Devicepc*|*Deviceiot*|*Devicenetwork*)
+                                uci -q delete "devicemaster.@device[$update_idx].hostname"
+                                log_msg "Cleared auto-generated numeric hostname for $mac: $current_hostname"
+                                current_hostname=""
+                                modified=1
+                                ;;
+                        esac
+                    fi
+
                     if [ "$current_manual" != "1" ]; then
                         local dhcp_hostname=$(awk -v m="$mac" 'tolower($2) == m {print $4; exit}' /tmp/dhcp.leases 2>/dev/null)
                         if [ -n "$dhcp_hostname" ] && [ "$dhcp_hostname" != "*" ]; then
-                            dhcp_hostname=$(sanitize_hostname "$dhcp_hostname")
-                            # Only update if sanitize produced a valid result longer than current
-                            if [ -n "$dhcp_hostname" ] && [ ${#dhcp_hostname} -gt ${#current_hostname} ]; then
-                                uci -q set "devicemaster.@device[$update_idx].hostname=$dhcp_hostname"
-                                log_msg "Updated hostname for $mac: $current_hostname -> $dhcp_hostname"
+                            # Filter out auto-generated hostnames from dnsmasq static leases
+                            # These are artifacts from duplicate detection, not real device hostnames
+                            # Matches: Mobile-Device-phone-2, MobileDevicephone, MobileDevicephone2, etc.
+                            local is_auto_generated=0
+                            case "$dhcp_hostname" in
+                                *phone[0-9]*|*pc[0-9]*|*iot[0-9]*|*network[0-9]*|*device[0-9]*|\
+                                *-phone-[0-9]*|*-pc-[0-9]*|*-iot-[0-9]*|*-network-[0-9]*|*-device-[0-9]*|\
+                                *Devicephone*|*Devicepc*|*Deviceiot*|*Devicenetwork*)
+                                    is_auto_generated=1 ;;
+                            esac
+                            if [ "$is_auto_generated" = "0" ]; then
+                                dhcp_hostname=$(sanitize_hostname "$dhcp_hostname")
+                                # Only update if sanitize produced a valid result longer than current
+                                if [ -n "$dhcp_hostname" ] && [ ${#dhcp_hostname} -gt ${#current_hostname} ]; then
+                                    uci -q set "devicemaster.@device[$update_idx].hostname=$dhcp_hostname"
+                                    log_msg "Updated hostname for $mac: $current_hostname -> $dhcp_hostname"
+                                    hostname_updated=1
+                                fi
                             fi
                         fi
                     fi
@@ -1381,6 +1422,10 @@ discover_all() {
                         fi
                     fi
                     modified=1
+                    # Sync hostname to dnsmasq if it was updated
+                    if [ "$hostname_updated" = "1" ] && [ -n "$dhcp_hostname" ] && [ -n "$effective_ip" ] && is_mesh_main_router; then
+                        /usr/libexec/devicemaster/sync_hostname.sh "$mac" "$dhcp_hostname" "$effective_ip" >/dev/null 2>&1
+                    fi
                     break
                 fi
                 update_idx=$((update_idx + 1))
@@ -1438,6 +1483,32 @@ discover_all() {
     rm -f "$dhcp_tmp"
 
     uci -q commit devicemaster 2>/dev/null
+
+    # Sync all device hostnames to dnsmasq static leases
+    # This ensures OpenWrt default device list shows correct names
+    if is_mesh_main_router && [ -x "/usr/libexec/devicemaster/sync_hostname.sh" ]; then
+        local idx=0
+        while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
+            local s_mac=$(uci -q get "devicemaster.@device[$idx].mac")
+            local s_hostname=$(uci -q get "devicemaster.@device[$idx].hostname")
+            local s_name=$(uci -q get "devicemaster.@device[$idx].name")
+            local s_ip=$(uci -q get "devicemaster.@device[$idx].last_ip")
+            local s_manual=$(uci -q get "devicemaster.@device[$idx].manual")
+            # Determine sync name: prefer hostname, fallback to name if hostname invalid
+            local sync_name=""
+            if [ -n "$s_hostname" ] && [ "$s_hostname" != "*" ] && [ "$s_hostname" != "unknown" ]; then
+                sync_name="$s_hostname"
+            elif [ -n "$s_name" ] && [ "$s_name" != "*" ] && [ "$s_name" != "unknown" ]; then
+                sync_name="$s_name"
+            fi
+            # Skip if no valid name, manually set, or no IP
+            if [ -n "$sync_name" ] && [ "$s_manual" != "1" ] && [ -n "$s_ip" ]; then
+                /usr/libexec/devicemaster/sync_hostname.sh "$s_mac" "$sync_name" "$s_ip" >/dev/null 2>&1
+            fi
+            idx=$((idx + 1))
+        done
+    fi
+
     rmdir "$lock" 2>/dev/null
 }
 
@@ -1471,8 +1542,18 @@ reidentify_all() {
         if [ -z "$hostname" ] && [ -n "$ip" ]; then
             hostname=$(probe_hostname "$ip")
         fi
+        # Filter out auto-generated hostnames before saving
         if [ -n "$hostname" ]; then
-            uci -q set "devicemaster.@device[$idx].hostname=$hostname"
+            local is_auto_generated=0
+            case "$hostname" in
+                *phone[0-9]*|*pc[0-9]*|*iot[0-9]*|*network[0-9]*|*device[0-9]*|\
+                *-phone-[0-9]*|*-pc-[0-9]*|*-iot-[0-9]*|*-network-[0-9]*|*-device-[0-9]*|\
+                *Devicephone*|*Devicepc*|*Deviceiot*|*Devicenetwork*)
+                    is_auto_generated=1 ;;
+            esac
+            if [ "$is_auto_generated" = "0" ]; then
+                uci -q set "devicemaster.@device[$idx].hostname=$hostname"
+            fi
         fi
 
         local new_vendor=$(identify_vendor "$mac" "$ip" "$hostname")
@@ -1492,6 +1573,21 @@ reidentify_all() {
         # Meaningless: empty, *, -, MAC address, unknown, wlan0, etc.
         local old_name=$(uci -q get "devicemaster.@device[$idx].name")
         local old_hostname=$(uci -q get "devicemaster.@device[$idx].hostname")
+
+        # Fix: Clear auto-generated hostnames with numeric suffixes (dnsmasq artifacts)
+        # Matches patterns like: Mobile-Device-phone-2, MobileDevicephone2, etc.
+        if [ -n "$old_hostname" ] && [ "$manual" != "1" ]; then
+            case "$old_hostname" in
+                *-phone-[0-9]*|*-pc-[0-9]*|*-iot-[0-9]*|*-network-[0-9]*|*-laa-[0-9]*|\
+                *phone[0-9]*|*pc[0-9]*|*iot[0-9]*|*network[0-9]*|*device[0-9]*|\
+                *Devicephone*|*Devicepc*|*Deviceiot*|*Devicenetwork*)
+                    uci -q delete "devicemaster.@device[$idx].hostname"
+                    old_hostname=""
+                    changed=1
+                    log_msg "Cleared auto-generated numeric hostname for $mac: $old_hostname"
+                    ;;
+            esac
+        fi
 
         # If hostname is now meaningful but name was auto-generated (vendor-type format),
         # clear the auto-name so display falls back to hostname
