@@ -1,0 +1,46 @@
+{
+	"admin/services/qddns": {
+		"title": "QDDNS",
+		"order": 58,
+		"action": {
+			"type": "firstchild",
+			"preferred": "overview"
+		},
+		"depends": {
+			"acl": [ "luci-app-qddns" ],
+			"uci": { "qddns": true }
+		}
+	},
+	"admin/services/qddns/overview": {
+		"title": "Overview",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "qddns/overview"
+		}
+	},
+	"admin/services/qddns/rules": {
+		"title": "Rules",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "qddns/rules"
+		}
+	},
+	"admin/services/qddns/settings": {
+		"title": "Settings",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "qddns/settings"
+		}
+	},
+	"admin/services/qddns/logs": {
+		"title": "Logs",
+		"order": 40,
+		"action": {
+			"type": "view",
+			"path": "qddns/logs"
+		}
+	}
+}

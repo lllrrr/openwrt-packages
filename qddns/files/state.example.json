@@ -1,0 +1,16 @@
+{
+  "daemon_running": true,
+  "updated_at": 1778918207,
+  "rules": {
+    "8": {
+      "status": "success",
+      "current_ip": "240e:3b2:4e8f:bf40::30",
+      "remote_ip": "240e:3b2:4e8f:bf40::30",
+      "last_result": "unchanged",
+      "last_error": null,
+      "last_update": 1778918207,
+      "last_check": 1778918207,
+      "next_run": 1778918267
+    }
+  }
+}
