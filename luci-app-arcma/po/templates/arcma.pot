@@ -1,0 +1,118 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Auto MAC Randomizer"
+msgstr ""
+
+msgid "Automatically change MAC addresses of network interfaces on boot and/or interface up. No external dependencies required."
+msgstr ""
+
+msgid "Global Settings"
+msgstr ""
+
+msgid "Enable arcma"
+msgstr ""
+
+msgid "Trigger"
+msgstr ""
+
+msgid "<b>boot</b>: apply at startup only. <b>ifup</b>: apply on every interface-up event. <b>both</b>: apply on both."
+msgstr ""
+
+msgid "Boot only"
+msgstr ""
+
+msgid "Interface up (hotplug)"
+msgstr ""
+
+msgid "Boot + Interface up"
+msgstr ""
+
+msgid "Default MAC mode"
+msgstr ""
+
+msgid "Locally administered (random)"
+msgstr ""
+
+msgid "Vendor OUI prefix"
+msgstr ""
+
+msgid "Default OUI type"
+msgstr ""
+
+msgid "Vendor name"
+msgstr ""
+
+msgid "Manual OUI prefix"
+msgstr ""
+
+msgid "Overrides vendor selection. Format: <code>XX:XX:XX</code>"
+msgstr ""
+
+msgid "Must be XX:XX:XX format"
+msgstr ""
+
+msgid "Sequence mode"
+msgstr ""
+
+msgid "NIC bytes increment across multiple interfaces (same OUI prefix for all)"
+msgstr ""
+
+msgid "Persist MAC"
+msgstr ""
+
+msgid "Write randomized MAC into <code>uci network.&lt;iface&gt;.macaddr</code> so it survives reboot"
+msgstr ""
+
+msgid "Per-interface Override"
+msgstr ""
+
+msgid "Leave empty to apply global settings to all physical interfaces. Add rows to override per interface."
+msgstr ""
+
+msgid "Interface / Device"
+msgstr ""
+
+msgid "Mode"
+msgstr ""
+
+msgid "Local"
+msgstr ""
+
+msgid "OUI"
+msgstr ""
+
+msgid "OUI type"
+msgstr ""
+
+msgid "Vendor"
+msgstr ""
+
+msgid "Manual OUI"
+msgstr ""
+
+msgid "Seq"
+msgstr ""
+
+msgid "Persist"
+msgstr ""
+
+msgid "Actions"
+msgstr ""
+
+msgid "Apply Now"
+msgstr ""
+
+msgid "Restore Original"
+msgstr ""
+
+msgid "Show Status"
+msgstr ""
+
+msgid "(no output)"
+msgstr ""
+
+msgid "Done"
+msgstr ""

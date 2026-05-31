@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: MIT
+# Copyright (C) 2026 arcma contributors
+
+include $(TOPDIR)/rules.mk
+
+PKG_NAME:=luci-app-arcma
+PKG_VERSION:=1.0.0
+PKG_RELEASE:=2
+
+LUCI_TITLE:=LuCI for ARCMA
+LUCI_DESCRIPTION:=Automatically change MAC addresses of all network interfaces. Zero external dependencies — pure POSIX sh with embedded OUI vendor database.
+LUCI_DEPENDS:=+ip-tiny
+LUCI_PKGARCH:=all
+
+PKG_MAINTAINER:=arcma contributors
+PKG_LICENSE:=MIT
+
+include $(TOPDIR)/feeds/luci/luci.mk
+
+define Package/$(PKG_NAME)/conffiles
+/etc/config/arcma
+/etc/arcma/orig/
+endef
+
+define Package/$(PKG_NAME)/postinst
+#!/bin/sh
+[ -n "$$IPKG_INSTROOT" ] && exit 0
+chmod +x /usr/sbin/arcma
+chmod +x /etc/init.d/arcma
+chmod +x /etc/hotplug.d/iface/20-arcma
+/etc/init.d/arcma enable
+exit 0
+endef
+
+define Package/$(PKG_NAME)/prerm
+#!/bin/sh
+[ -n "$$IPKG_INSTROOT" ] && exit 0
+/etc/init.d/arcma stop 2>/dev/null
+/etc/init.d/arcma disable 2>/dev/null
+exit 0
+endef
+
+# call BuildPackage - OpenWrt buildroot signature

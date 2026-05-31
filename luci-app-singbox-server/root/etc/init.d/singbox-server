@@ -1,0 +1,99 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Copyright (C) 2024 OpenWrt.org
+
+USE_PROCD=1
+
+START=99
+STOP=10
+
+CONF="singbox-server"
+PROG="/usr/bin/sing-box"
+
+HP_DIR="/etc/singbox-server"
+RUN_DIR="/var/run/singbox-server"
+LOG_PATH="$RUN_DIR/singbox-server.log"
+CONF_PATH="$RUN_DIR/sing-box-s.json"
+
+log() {
+	echo -e "$(date "+%Y-%m-%d %H:%M:%S") [DAEMON] $*" >> "$LOG_PATH"
+}
+
+start_service() {
+	config_load "$CONF"
+
+	local enabled
+	config_get enabled "config" "enabled" "0"
+	[ "$enabled" = "1" ] || {
+		log "Service is disabled."
+		return 1
+	}
+
+	mkdir -p "$RUN_DIR"
+
+	# Generate sing-box server configuration
+	log "Generating server configuration..."
+	if ! ucode -S "$HP_DIR/scripts/generate_server.uc" 2>> "$LOG_PATH"; then
+		log "ERROR: Failed to generate server config."
+		return 1
+	fi
+
+	# Validate generated config
+	if [ ! -f "$CONF_PATH" ]; then
+		log "ERROR: Config file not generated: $CONF_PATH"
+		return 1
+	fi
+
+	if ! "$PROG" check --config "$CONF_PATH" 2>> "$LOG_PATH"; then
+		log "ERROR: sing-box config validation failed."
+		return 1
+	fi
+
+	log "Starting sing-box server..."
+
+	# Use ujail sandbox when available
+	if [ -x "/sbin/ujail" ]; then
+		procd_open_instance "singbox-server"
+		procd_set_param command /sbin/ujail -t 5 -n singbox-server \
+			-u sing-box -g sing-box \
+			-C "/etc/capabilities/singbox-server.json" \
+			-c -l \
+			-r /usr/bin/sing-box \
+			-r /etc/singbox-server/certs/ \
+			-w /etc/singbox-server/certs/ \
+			-r /etc/ssl/certs/ \
+			-r /var/run/singbox-server/ \
+			-w /var/run/singbox-server/ \
+			-- "$PROG" run --config "$CONF_PATH"
+		procd_set_param respawn 3600 5 5
+		procd_set_param stderr 1
+		procd_set_param file "$CONF_PATH"
+		procd_set_param pidfile "$RUN_DIR/singbox-server.pid"
+		procd_close_instance
+	else
+		procd_open_instance "singbox-server"
+		procd_set_param command "$PROG" run --config "$CONF_PATH"
+		procd_set_param respawn 3600 5 5
+		procd_set_param stderr 1
+		procd_set_param file "$CONF_PATH"
+		procd_set_param pidfile "$RUN_DIR/singbox-server.pid"
+		procd_close_instance
+	fi
+
+	# Fix ownership so ujail's sing-box user can write logs/sockets
+	chown -R sing-box:sing-box "$RUN_DIR" 2>/dev/null
+}
+
+stop_service() {
+	log "Stopping sing-box server..."
+}
+
+reload_service() {
+	stop
+	start
+}
+
+service_triggers() {
+	procd_add_reload_trigger "$CONF"
+}

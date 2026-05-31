@@ -1,0 +1,4 @@
+config singbox-server 'config'
+	option enabled '0'
+	option log_level 'warn'
+

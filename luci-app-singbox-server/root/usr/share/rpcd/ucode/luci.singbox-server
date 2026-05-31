@@ -1,0 +1,148 @@
+// SPDX-License-Identifier: GPL-2.0-only
+//
+// Copyright (C) 2024 OpenWrt.org
+//
+// rpcd RPC backend for luci-app-singbox-server
+// Provides: cert file upload/delete and sing-box key generation
+
+'use strict';
+
+import { access, readfile, writefile, unlink, lsdir } from 'fs';
+import { popen } from 'fs';
+
+const HP_DIR   = '/etc/singbox-server';
+const CERT_DIR = HP_DIR + '/certs';
+
+// Allowed certificate directories for security
+const ALLOWED_DIRS = [
+	CERT_DIR,
+	'/etc/acme/',
+	'/etc/ssl/certs/'
+];
+
+function validate_cert_path(path) {
+	for (const d of ALLOWED_DIRS) {
+		if (index(path, d) === 0) return true;
+	}
+	return false;
+}
+
+// ─── RPC method: get_status ───────────────────────────────────────────────
+// Returns whether sing-box-s process is running + version string.
+export function get_status() {
+	let running = false;
+	let version = null;
+
+	const f = popen('pgrep -f "sing-box.*sing-box-s.json" 2>/dev/null');
+	if (f) {
+		const pid = trim(f.read('all'));
+		f.close();
+		running = (length(pid) > 0);
+	}
+
+	const fv = popen('/usr/bin/sing-box version 2>/dev/null | head -1');
+	if (fv) {
+		version = trim(fv.read('all'));
+		fv.close();
+	}
+
+	return { running, version };
+}
+
+// ─── RPC method: upload_cert ──────────────────────────────────────────────
+// Writes a PEM-encoded certificate or key to the certs directory.
+// Params: { filename: str, content: str }
+export function upload_cert(params) {
+	const filename = params?.filename;
+	const content  = params?.content;
+
+	if (!filename || !content)
+		return { error: 'filename and content are required' };
+
+	// Basic sanity: no path traversal
+	if (index(filename, '/') >= 0 || index(filename, '..') >= 0)
+		return { error: 'invalid filename' };
+
+	const dest = CERT_DIR + '/' + filename;
+
+	if (!writefile(dest, content))
+		return { error: 'write failed' };
+
+	return { path: dest };
+}
+
+// ─── RPC method: delete_cert ──────────────────────────────────────────────
+// Params: { path: str }
+export function delete_cert(params) {
+	const path = params?.path;
+
+	if (!path || !validate_cert_path(path))
+		return { error: 'invalid or disallowed path' };
+
+	if (!unlink(path))
+		return { error: 'delete failed' };
+
+	return { deleted: path };
+}
+
+// ─── RPC method: list_certs ──────────────────────────────────────────────
+// Returns list of filenames in the cert directory.
+export function list_certs() {
+	const files = lsdir(CERT_DIR) || [];
+	return { files };
+}
+
+// ─── RPC method: singbox_generator ───────────────────────────────────────
+// Wraps `sing-box generate …` for key/uuid generation.
+// Params: { type: 'uuid' | 'reality-keypair' | 'wg-keypair' | 'vapid-keypair' | 'ech-keypair', sni: str }
+export function singbox_generator(params) {
+	const type = params?.type;
+	if (!type) return { error: 'type is required' };
+
+	const ALLOWED_TYPES = [ 'uuid', 'reality-keypair', 'wg-keypair', 'vapid-keypair', 'ech-keypair' ];
+	if (!ALLOWED_TYPES.includes(type))
+		return { error: 'unsupported generator type: ' + type };
+
+	let cmd = '/usr/bin/sing-box generate ' + type;
+
+	// ech-keypair requires an outer SNI argument
+	if (type === 'ech-keypair') {
+		const sni = params?.sni;
+		if (!sni) return { error: 'sni is required for ech-keypair' };
+		// sanitize: only safe domain characters
+		if (!match(sni, /^[a-zA-Z0-9._-]+$/))
+			return { error: 'invalid sni value' };
+		cmd += ' ' + sni;
+	}
+
+	const f = popen(cmd + ' 2>&1');
+	if (!f) return { error: 'failed to execute generator' };
+	const output = trim(f.read('all'));
+	const rc = f.close();
+
+	if (rc !== 0) return { error: output || 'generator exited with code ' + rc };
+
+	// Try to parse JSON output (reality-keypair, wg-keypair, vapid-keypair return JSON)
+	try {
+		const parsed = json(output);
+		return { result: parsed };
+	} catch {
+		// Plain text (uuid, ech-keypair)
+		return { result: output };
+	}
+}
+
+// ─── RPC method: service_control ──────────────────────────────────────────
+// Params: { action: 'start' | 'stop' | 'restart' | 'reload' }
+export function service_control(params) {
+	const action = params?.action;
+	const ALLOWED = [ 'start', 'stop', 'restart', 'reload' ];
+	if (!ALLOWED.includes(action))
+		return { error: 'invalid action' };
+
+	const f = popen('/etc/init.d/singbox-server ' + action + ' 2>&1');
+	if (!f) return { error: 'failed to invoke init script' };
+	const out = trim(f.read('all'));
+	const rc  = f.close();
+	return { rc, output: out };
+}

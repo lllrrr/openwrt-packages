@@ -150,6 +150,13 @@ return view.extend({
 		]);
 	},
 
+	renderResultCell: function(item) {
+		if (String(item?.last_result || '').toLowerCase() === 'error' && item?.last_error)
+			return item.last_error;
+
+		return qddns.resultLabel(item.last_result) || item.last_error || '-';
+	},
+
 	renderRecentResults: function(overview) {
 		const results = overview.status?.recent_results || [];
 
@@ -161,7 +168,7 @@ return view.extend({
 					this.ruleProvider(item.id),
 					qddns.renderStatusBadge(item.status, _('Unknown')),
 					this.renderIpCell(item.current_ip, item.remote_ip),
-					qddns.resultLabel(item.last_result) || item.last_error || '-',
+					this.renderResultCell(item),
 					item.last_check ? qddns.formatEpoch(item.last_check) : '-'
 				];
 			}, this)), _('No runtime results yet'));

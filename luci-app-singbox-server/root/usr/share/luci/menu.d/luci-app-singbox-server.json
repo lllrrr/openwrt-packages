@@ -1,0 +1,12 @@
+{
+	"admin/services/singbox-server": {
+		"title": "Sing-Box Server",
+		"action": {
+			"type": "view",
+			"path": "singbox-server/main"
+		},
+		"depends": {
+			"acl": [ "luci-app-singbox-server" ]
+		}
+	}
+}

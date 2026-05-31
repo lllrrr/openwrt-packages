@@ -1,0 +1,18 @@
+{
+  "admin/network/arcma": {
+    "title": "Auto MAC Randomizer",
+    "order": 12,
+    "action": {
+      "type": "view",
+      "path": "arcma"
+    },
+    "depends": {
+      "acl": [
+        "luci-app-arcma"
+      ],
+      "uci": {
+        "arcma": true
+      }
+    }
+  }
+}

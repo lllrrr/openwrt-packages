@@ -1,0 +1,7 @@
+{
+	"capabilities": [
+		"cap_net_admin",
+		"cap_net_bind_service",
+		"cap_net_raw"
+	]
+}

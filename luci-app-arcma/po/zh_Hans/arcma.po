@@ -1,0 +1,119 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: zh_Hans\n"
+
+msgid "Auto MAC Randomizer"
+msgstr "自动 MAC 地址随机化"
+
+msgid "Automatically change MAC addresses of network interfaces on boot and/or interface up. No external dependencies required."
+msgstr "在启动或接口上线时自动更改网络接口的 MAC 地址。无需任何外部依赖。"
+
+msgid "Global Settings"
+msgstr "全局设置"
+
+msgid "Enable arcma"
+msgstr "启用 arcma"
+
+msgid "Trigger"
+msgstr "触发时机"
+
+msgid "<b>boot</b>: apply at startup only. <b>ifup</b>: apply on every interface-up event. <b>both</b>: apply on both."
+msgstr "<b>boot</b>：仅在启动时应用。<b>ifup</b>：每次接口上线时应用。<b>both</b>：两者都触发。"
+
+msgid "Boot only"
+msgstr "仅启动时"
+
+msgid "Interface up (hotplug)"
+msgstr "接口上线（热插拔）"
+
+msgid "Boot + Interface up"
+msgstr "启动 + 接口上线"
+
+msgid "Default MAC mode"
+msgstr "默认 MAC 模式"
+
+msgid "Locally administered (random)"
+msgstr "本地管理地址（随机）"
+
+msgid "Vendor OUI prefix"
+msgstr "厂商 OUI 前缀"
+
+msgid "Default OUI type"
+msgstr "默认 OUI 类型"
+
+msgid "Vendor name"
+msgstr "厂商名称"
+
+msgid "Manual OUI prefix"
+msgstr "手动指定 OUI 前缀"
+
+msgid "Overrides vendor selection. Format: <code>XX:XX:XX</code>"
+msgstr "优先级高于厂商选择。格式：<code>XX:XX:XX</code>"
+
+msgid "Must be XX:XX:XX format"
+msgstr "必须为 XX:XX:XX 格式"
+
+msgid "Sequence mode"
+msgstr "顺序模式"
+
+msgid "NIC bytes increment across multiple interfaces (same OUI prefix for all)"
+msgstr "多接口间 NIC 部分递增（所有接口共用相同 OUI 前缀）"
+
+msgid "Persist MAC"
+msgstr "持久化 MAC"
+
+msgid "Write randomized MAC into <code>uci network.&lt;iface&gt;.macaddr</code> so it survives reboot"
+msgstr "将随机化的 MAC 写入 <code>uci network.&lt;接口&gt;.macaddr</code>，使其在重启后保持"
+
+msgid "Per-interface Override"
+msgstr "按接口独立配置"
+
+msgid "Leave empty to apply global settings to all physical interfaces. Add rows to override per interface."
+msgstr "不添加行则对所有物理接口应用全局设置。添加行可对指定接口单独配置。"
+
+msgid "Interface / Device"
+msgstr "接口 / 设备名"
+
+msgid "Mode"
+msgstr "模式"
+
+msgid "Local"
+msgstr "本地"
+
+msgid "OUI"
+msgstr "OUI"
+
+msgid "OUI type"
+msgstr "OUI 类型"
+
+msgid "Vendor"
+msgstr "厂商"
+
+msgid "Manual OUI"
+msgstr "手动 OUI"
+
+msgid "Seq"
+msgstr "顺序"
+
+msgid "Persist"
+msgstr "持久化"
+
+msgid "Actions"
+msgstr "操作"
+
+msgid "Apply Now"
+msgstr "立即应用"
+
+msgid "Restore Original"
+msgstr "还原原始 MAC"
+
+msgid "Show Status"
+msgstr "查看当前状态"
+
+msgid "(no output)"
+msgstr "（无输出）"
+
+msgid "Done"
+msgstr "完成"
