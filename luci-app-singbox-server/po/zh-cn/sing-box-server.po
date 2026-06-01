@@ -1,3 +1,6 @@
+msgid " "
+msgstr " "
+
 msgid "sing-box Server"
 msgstr "sing-box 服务端"
 
