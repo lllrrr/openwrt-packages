@@ -5,11 +5,11 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-arcma
 PKG_VERSION:=1.0.0
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 
 LUCI_TITLE:=LuCI for ARCMA
 LUCI_DESCRIPTION:=Automatically change MAC addresses of all network interfaces. Zero external dependencies — pure POSIX sh with embedded OUI vendor database.
-LUCI_DEPENDS:=+ip-tiny
+LUCI_DEPENDS:=+ip-full
 LUCI_PKGARCH:=all
 
 PKG_MAINTAINER:=arcma contributors

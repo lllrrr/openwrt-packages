@@ -10,4 +10,3 @@ LUCI_DEPENDS:=+gost
 include $(TOPDIR)/feeds/luci/luci.mk
 
 # call BuildPackage - OpenWrt buildroot signature
-$(eval $(call BuildPackage,luci-app-gost))
