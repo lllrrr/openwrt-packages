@@ -994,8 +994,8 @@ msgstr "❌ IP格式錯誤！請輸入合法的IPv4位址 (例如: 192.168.1.50)
 msgid "Public IPv6 (Click to copy):"
 msgstr "公網 IPv6 (點擊即可複製):"
 
-msgid "IPv6 address copied successfully:"
-msgstr "IPv6 位址已成功複製："
+msgid "First IPv6 address copied successfully:"
+msgstr "首個 IPv6 地址已成功複製："
 
 msgid "Export Groups"
 msgstr "匯出自定義"
