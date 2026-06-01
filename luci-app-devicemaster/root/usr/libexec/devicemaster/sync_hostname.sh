@@ -168,11 +168,24 @@ uci -q set "dhcp.@host[-1].name=$NAME"
 uci -q commit dhcp
 log_msg "UCI committed: dhcp host $MAC -> $NAME ($IP)"
 
-# Step 4: Reload dnsmasq SYNCHRONOUSLY (no &)
-# Use reload (SIGHUP) instead of restart to avoid disrupting active DNS queries
-# Note: reload re-reads config but does NOT flush DNS cache
-# For cache flush, a full restart would be needed, but reload is safer for production
-/etc/init.d/dnsmasq reload >/dev/null 2>&1
+# Step 4: Patch /tmp/dhcp.leases to update hostname in-place
+# This makes LuCI's DHCP lease page show the custom name immediately,
+# instead of the client-reported hostname (e.g. "Applephone" -> "iphone13pro")
+# /tmp/dhcp.leases format: <timestamp> <mac> <ip> <hostname> <clientid>
+DHCP_LEASES="/tmp/dhcp.leases"
+if [ -f "$DHCP_LEASES" ]; then
+    # Use sed to replace hostname for matching MAC (case-insensitive)
+    # The hostname is the 4th field in the lease line
+    MAC_SED=$(echo "$MAC_LOWER" | sed 's/[.[\*^$()+?{|\\]/\\&/g')
+    sed -i "/[[:space:]]${MAC_SED}[[:space:]]/{
+        s/^\([0-9]*[[:space:]]*[a-fA-F0-9:]*[[:space:]]*[0-9.]*[[:space:]]*\)[^[:space:]]*/\1${NAME}/
+    }" "$DHCP_LEASES"
+    log_msg "Patched dhcp.leases hostname for $MAC -> $NAME"
+fi
+
+# Step 5: Restart dnsmasq to apply all changes
+# Use restart instead of reload to flush DNS cache and pick up lease file changes
+/etc/init.d/dnsmasq restart >/dev/null 2>&1
 
 # Verify: use nslookup to confirm DNS resolution works
 sleep 1

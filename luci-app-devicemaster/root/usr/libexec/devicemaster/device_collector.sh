@@ -1094,7 +1094,11 @@ sync_hostname_to_uci() {
             fi
 
             # Sync hostname if valid and different
+            # Skip devices with manual=1 (user-set names) to prevent
+            # overwriting custom names with client-reported hostnames
             [ -z "$hostname" ] || [ "$hostname" = "*" ] || [ "$hostname" = "-" ] && continue
+            local is_manual=$(uci -q get devicemaster.@device[$cache_idx].manual 2>/dev/null)
+            [ "$is_manual" = "1" ] && continue
             local uci_name=$(uci -q get devicemaster.@device[$cache_idx].name 2>/dev/null)
             [ -z "$uci_name" ] && continue
 

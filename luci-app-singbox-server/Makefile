@@ -1,20 +1,16 @@
-# SPDX-License-Identifier: GPL-2.0-only
-#
-# Copyright (C) 2024 OpenWrt.org
+# SPDX-License-Identifier: GPL-3.0-or-later
+# LuCI support for sing-box server (OpenWrt 25.03+)
 
 include $(TOPDIR)/rules.mk
 
+PKG_NAME:=luci-app-sing-box-server
+PKG_VERSION:=1.0.0
+PKG_RELEASE:=0
+
 LUCI_TITLE:=LuCI support for sing-box server
+LUCI_DEPENDS:=+luci-base +rpcd +rpcd-mod-file
 LUCI_PKGARCH:=all
 
-
-PKG_NAME:=luci-app-singbox-server
-
-
-define Package/luci-app-singbox-server/conffiles
-	/etc/config/singbox-server \
-	/etc/singbox-server/certs/
-endef
-
-
 include $(TOPDIR)/feeds/luci/luci.mk
+
+# call BuildPackage - OpenWrt buildroot signature

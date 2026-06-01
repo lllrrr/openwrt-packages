@@ -1,0 +1,90 @@
+#!/bin/sh
+# Generate sing-box server config from UCI.
+
+UCI_CFG=sing_box_server
+OUT=${2:-/var/etc/sing-box-server/config.json}
+LOG=/var/log/sing-box-server.log
+
+json_escape() { sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g; s/\r/\\r/g; s/\n/\\n/g'; }
+q() { printf '%s' "$1" | json_escape; }
+json_add_str() { [ -n "$2" ] && printf ',"%s":"%s"' "$1" "$(q "$2")"; }
+json_add_bool() { [ "$2" = "1" ] && printf ',"%s":true' "$1"; }
+
+make_inbound() {
+	local s="$1" enabled remarks protocol listen listen_port uuid password method flow transport path host tls tls_mode server_name cert key reality_private_key reality_short_id reality_handshake_server reality_handshake_server_port alpn sniff tcp_fast_open multipath_tcp
+	config_get_bool enabled "$s" enabled 1;
+	[ "$enabled" = "1" ] || return 0
+	config_get remarks "$s" remarks "$s"; config_get protocol "$s" protocol vmess;
+	config_get listen "$s" listen "$GLOBAL_LISTEN"; config_get listen_port "$s" listen_port
+	[ -n "$listen_port" ] || return 0
+	config_get uuid "$s" uuid;
+	config_get password "$s" password; config_get method "$s" method aes-128-gcm;
+	config_get flow "$s" flow
+	config_get transport "$s" transport tcp; config_get path "$s" path; config_get host "$s" host;
+	config_get_bool tls "$s" tls 0; config_get tls_mode "$s" tls_mode tls
+	config_get server_name "$s" server_name; config_get cert "$s" cert;
+	config_get key "$s" key; config_get reality_private_key "$s" reality_private_key; config_get reality_short_id "$s" reality_short_id; 
+	config_get reality_handshake_server "$s" reality_handshake_server; config_get reality_handshake_server_port "$s" reality_handshake_server_port;
+	config_get alpn "$s" alpn
+	config_get_bool sniff "$s" sniff "$GLOBAL_SNIFF";
+	config_get_bool tcp_fast_open "$s" tcp_fast_open "$GLOBAL_TFO"; config_get_bool multipath_tcp "$s" multipath_tcp "$GLOBAL_MPTCP"
+
+	# 强制为 Hysteria2 和 TUIC 启用 TLS
+	case "$protocol" in
+		hysteria2|tuic) tls=1; tls_mode=tls ;;
+	esac
+
+	[ "$FIRST" = 1 ] || printf ',';
+	FIRST=0
+	printf '{"type":"%s","tag":"%s","listen":"%s","listen_port":%s' "$(q "$protocol")" "$(q "$remarks")" "$(q "$listen")" "$listen_port"
+	json_add_bool sniff "$sniff"; json_add_bool tcp_fast_open "$tcp_fast_open";
+	json_add_bool multipath_tcp "$multipath_tcp"
+	case "$protocol" in
+		vmess) printf ',"users":[{"name":"%s","uuid":"%s","alterId":0}]' "$(q "$remarks")" "$(q "$uuid")" ;;
+		vless) printf ',"users":[{"name":"%s","uuid":"%s"' "$(q "$remarks")" "$(q "$uuid")"; json_add_str flow "$flow"; printf '}]' ;;
+		trojan) printf ',"users":[{"name":"%s","password":"%s"}]' "$(q "$remarks")" "$(q "$password")" ;;
+		shadowsocks) printf ',"method":"%s","password":"%s"' "$(q "$method")" "$(q "$password")" ;;
+		hysteria2) printf ',"users":[{"name":"%s","password":"%s"}]' "$(q "$remarks")" "$(q "$password")" ;;
+		tuic) printf ',"users":[{"name":"%s","uuid":"%s","password":"%s"}]' "$(q "$remarks")" "$(q "$uuid")" "$(q "$password")" ;;
+	esac
+	case "$transport" in
+		ws) printf ',"transport":{"type":"ws"'; json_add_str path "$path"; [ -n "$host" ] && printf ',"headers":{"Host":"%s"}' "$(q "$host")"; printf '}' ;;
+		http) printf ',"transport":{"type":"http"'; json_add_str path "$path"; [ -n "$host" ] && printf ',"host":["%s"]' "$(q "$host")"; printf '}' ;;
+		grpc) printf ',"transport":{"type":"grpc"'; json_add_str service_name "$path"; printf '}' ;;
+		httpupgrade) printf ',"transport":{"type":"httpupgrade"'; json_add_str path "$path"; json_add_str host "$host"; printf '}' ;;
+	esac
+	if [ "$tls" = "1" ]; then
+		printf ',"tls":{"enabled":true'; json_add_str server_name "$server_name";
+		[ -n "$alpn" ] && printf ',"alpn":["%s"]' "$(q "$alpn")"
+		if [ "$tls_mode" = "reality" ]; then
+			printf ',"reality":{"enabled":true'; json_add_str private_key "$reality_private_key";
+			[ -n "$reality_short_id" ] && printf ',"short_id":["%s"]' "$(q "$reality_short_id")"
+			[ -n "$reality_handshake_server" ] && printf ',"handshake":{"server":"%s","server_port":%s}' "$(q "$reality_handshake_server")" "${reality_handshake_server_port:-443}"
+			printf '}'
+		else
+			[ -n "$cert" ] && [ -n "$key" ] && printf ',"certificate_path":"%s","key_path":"%s"' "$(q "$cert")" "$(q "$key")"
+		fi
+		printf '}'
+	fi
+	printf '}'
+}
+
+gen_config() {
+	OUT="$1";
+	mkdir -p "$(dirname "$OUT")" "$(dirname "$LOG")"
+	config_load "$UCI_CFG"
+	config_get LOG_LEVEL global log_level info; config_get GLOBAL_LISTEN global listen '::';
+	config_get_bool GLOBAL_SNIFF global sniff 1; config_get_bool GLOBAL_TFO global tcp_fast_open 0; config_get_bool GLOBAL_MPTCP global multipath_tcp 0
+	FIRST=1
+	{ printf '{"log":{"level":"%s","output":"%s","timestamp":true},"inbounds":[' "$(q "$LOG_LEVEL")" "$(q "$LOG")";
+	config_foreach make_inbound server; printf '],"outbounds":[{"type":"direct","tag":"direct"}],"route":{"final":"direct"}}\n'; } > "$OUT.tmp"
+	mv "$OUT.tmp" "$OUT"
+	sing-box check -c "$OUT" >>"$LOG" 2>&1 || return 1
+}
+
+. /lib/functions.sh
+case "$1" in
+	gen_config) gen_config "$OUT" ;;
+	check) gen_config "${2:-/tmp/sing-box-server-check.json}" ;;
+	*) echo "Usage: $0 {gen_config|check} [output]" >&2; exit 1 ;;
+esac

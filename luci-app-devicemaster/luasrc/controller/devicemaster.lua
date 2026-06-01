@@ -1750,6 +1750,8 @@ function api_set_name()
     if name ~= nil then
         uci:set("devicemaster", section, "name", name)
         uci:set("devicemaster", section, "hostname", name)
+        -- Mark as manual to prevent sync_hostname_to_uci from overwriting
+        uci:set("devicemaster", section, "manual", "1")
     end
     if vendor and vendor ~= "" then
         uci:set("devicemaster", section, "vendor", vendor)
