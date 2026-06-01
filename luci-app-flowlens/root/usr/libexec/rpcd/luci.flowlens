@@ -1,0 +1,918 @@
+#!/bin/sh
+
+STATE_DIR="${FLOWLENS_STATE_DIR:-/tmp/run/flowlens}"
+LEASES_FILE="${FLOWLENS_LEASES_FILE:-/tmp/dhcp.leases}"
+ARP_FILE="${FLOWLENS_ARP_FILE:-/proc/net/arp}"
+NLBWMON_CONFIG="${FLOWLENS_NLBWMON_CONFIG:-/etc/config/nlbwmon}"
+CONNTRACK_FILE="${FLOWLENS_CONNTRACK_FILE:-/proc/net/nf_conntrack}"
+IP_CONNTRACK_FILE="${FLOWLENS_IP_CONNTRACK_FILE:-/proc/net/ip_conntrack}"
+NOW="${FLOWLENS_NOW:-$(date +%s)}"
+
+list_methods() {
+	printf '{"devices":{}}\n'
+}
+
+tmpdir=""
+
+cleanup() {
+	[ -n "$tmpdir" ] && rm -rf "$tmpdir"
+}
+
+valid_mac_awk='
+function valid_mac(mac, parts, i) {
+	if (split(mac, parts, ":") != 6)
+		return 0
+
+	for (i = 1; i <= 6; i++)
+		if (parts[i] !~ /^[0-9a-fA-F][0-9a-fA-F]$/)
+			return 0
+
+	return 1
+}
+'
+
+collect_cache() {
+	[ -r "$STATE_DIR/devices.cache" ] || return 0
+
+	awk -F'|' "$valid_mac_awk"'
+		valid_mac($1) {
+			print "C|" tolower($1) "|" $2 "|" $3 "|" ($4 + 0)
+		}
+	' "$STATE_DIR/devices.cache"
+}
+
+collect_leases() {
+	[ -r "$LEASES_FILE" ] || return 0
+
+	awk "$valid_mac_awk"'
+		NF >= 4 && valid_mac($2) {
+			name = $4
+			if (name == "*" || name == "-")
+				name = ""
+
+			print "K|" tolower($2) "|" $3 "|" name "|" ($1 + 0)
+		}
+	' "$LEASES_FILE"
+}
+
+collect_arp() {
+	[ -r "$ARP_FILE" ] || return 0
+
+	awk "$valid_mac_awk"'
+		NR > 1 && valid_mac($4) && tolower($4) != "00:00:00:00:00:00" {
+			print "O|" tolower($4) "|" $1 "|arp|REACHABLE"
+		}
+	' "$ARP_FILE"
+}
+
+collect_neigh() {
+	command -v ip >/dev/null 2>&1 || return 0
+
+	ip neigh show 2>/dev/null | awk "$valid_mac_awk"'
+		{
+			ip = $1
+			mac = ""
+			state = $NF
+
+			for (i = 1; i <= NF; i++)
+				if ($i == "lladdr")
+					mac = $(i + 1)
+
+			if (valid_mac(mac) && state != "FAILED" && state != "INCOMPLETE")
+				print "O|" tolower(mac) "|" ip "|neigh|" state
+		}
+	'
+}
+
+collect_nlbw() {
+	if [ -n "$FLOWLENS_NLBW_FIXTURE" ] && [ -r "$FLOWLENS_NLBW_FIXTURE" ]; then
+		cat "$FLOWLENS_NLBW_FIXTURE"
+	elif command -v nlbw >/dev/null 2>&1; then
+		nlbw -c csv -g mac -o mac -q -n 2>/dev/null || nlbw -c csv -g mac 2>/dev/null
+	else
+		return 0
+	fi | awk "$valid_mac_awk"'
+		BEGIN {
+			FS = "[,; \t]+"
+			rx_i = 3
+			tx_i = 5
+			conns_i = 2
+		}
+
+		{
+			for (i = 1; i <= NF; i++)
+				gsub(/^"|"$/, "", $i)
+		}
+
+		NR == 1 && !valid_mac($1) {
+			for (i = 1; i <= NF; i++) {
+				if ($i == "rx_bytes")
+					rx_i = i
+				else if ($i == "tx_bytes")
+					tx_i = i
+				else if ($i == "conns")
+					conns_i = i
+			}
+			next
+		}
+
+		valid_mac($1) {
+			printf "%s|%.0f|%.0f|%.0f\n", tolower($1), ($(rx_i) + 0), ($(tx_i) + 0), ($(conns_i) + 0)
+		}
+	'
+}
+
+collect_conntrack() {
+	if [ -n "$FLOWLENS_CONNTRACK_FIXTURE" ] && [ -r "$FLOWLENS_CONNTRACK_FIXTURE" ]; then
+		cat "$FLOWLENS_CONNTRACK_FIXTURE"
+	elif [ -r "$CONNTRACK_FILE" ]; then
+		cat "$CONNTRACK_FILE"
+	elif [ -r "$IP_CONNTRACK_FILE" ]; then
+		cat "$IP_CONNTRACK_FILE"
+	else
+		return 1
+	fi | awk '
+		function value_of(field, value) {
+			value = field
+			sub(/^[^=]*=/, "", value)
+			return value
+		}
+
+		{
+			orig_src = ""
+			orig_dst = ""
+			reply_src = ""
+			reply_dst = ""
+			orig_bytes = ""
+			reply_bytes = ""
+			reply_tuple = 0
+
+			for (i = 1; i <= NF; i++) {
+				if ($i ~ /^src=/) {
+					if (!reply_tuple && orig_src == "")
+						orig_src = value_of($i)
+					else if (reply_tuple && reply_src == "")
+						reply_src = value_of($i)
+				} else if ($i ~ /^dst=/) {
+					if (!reply_tuple && orig_dst == "")
+						orig_dst = value_of($i)
+					else if (reply_tuple && reply_dst == "")
+						reply_dst = value_of($i)
+				} else if ($i ~ /^bytes=/) {
+					if (!reply_tuple) {
+						orig_bytes = value_of($i) + 0
+						reply_tuple = 1
+					} else if (reply_bytes == "") {
+						reply_bytes = value_of($i) + 0
+					}
+				}
+			}
+
+			if (orig_src != "" && orig_dst != "" && orig_bytes != "")
+				printf "%s|%s|%.0f|%s|%s|%.0f\n", orig_src, orig_dst, orig_bytes + 0, reply_src, reply_dst, reply_bytes + 0
+		}
+	'
+}
+
+to_int() {
+	value="$1"
+	sign=""
+
+	case "$value" in
+		-*)
+			sign="-"
+			value="${value#-}"
+			;;
+	esac
+
+	while [ "${value#0}" != "$value" ]; do
+		value="${value#0}"
+	done
+
+	[ -n "$value" ] || value=0
+	printf '%s%s\n' "$sign" "$value"
+}
+
+date_to_epoch() {
+	date -d "$1 00:00:00" +%s 2>/dev/null ||
+		date -j -f "%Y-%m-%d %H:%M:%S" "$1 00:00:00" +%s 2>/dev/null
+}
+
+epoch_to_ymd() {
+	date -d "@$1" +%Y-%m-%d 2>/dev/null ||
+		date -r "$1" +%Y-%m-%d 2>/dev/null
+}
+
+epoch_to_parts() {
+	date -d "@$1" "+%Y %m %d" 2>/dev/null ||
+		date -r "$1" "+%Y %m %d" 2>/dev/null
+}
+
+format_ymd() {
+	printf '%04d-%02d-%02d\n' "$1" "$2" "$3"
+}
+
+month_offset() {
+	year=$1
+	month=$2
+	offset=$3
+
+	month="$(to_int "$month")"
+	month=$((month + offset))
+	while [ "$month" -lt 1 ]; do
+		month=$((month + 12))
+		year=$((year - 1))
+	done
+
+	while [ "$month" -gt 12 ]; do
+		month=$((month - 12))
+		year=$((year + 1))
+	done
+
+	printf '%s %s\n' "$year" "$month"
+}
+
+days_in_month() {
+	year=$1
+	month=$2
+	current="$(format_ymd "$year" "$month" 1)"
+	set -- $(month_offset "$year" "$month" 1)
+	next="$(format_ymd "$1" "$2" 1)"
+	current_epoch="$(date_to_epoch "$current")" || return 1
+	next_epoch="$(date_to_epoch "$next")" || return 1
+
+	echo $(((next_epoch - current_epoch) / 86400))
+}
+
+period_start_for_month() {
+	year=$1
+	month=$2
+	interval=$3
+	days="$(days_in_month "$year" "$month")" || return 1
+
+	if [ "$interval" -lt 0 ]; then
+		day=$((days + interval + 1))
+	else
+		day=$interval
+	fi
+
+	if [ "$day" -lt 1 ]; then
+		day=1
+	elif [ "$day" -gt "$days" ]; then
+		day=$days
+	fi
+
+	format_ymd "$year" "$month" "$day"
+}
+
+read_database_interval() {
+	if [ -n "$FLOWLENS_DATABASE_INTERVAL" ]; then
+		echo "$FLOWLENS_DATABASE_INTERVAL"
+		return 0
+	fi
+
+	if command -v uci >/dev/null 2>&1; then
+		value="$(uci -q get nlbwmon.@nlbwmon[0].database_interval 2>/dev/null)"
+		if [ -n "$value" ]; then
+			echo "$value"
+			return 0
+		fi
+	fi
+
+	if [ -r "$NLBWMON_CONFIG" ]; then
+		value="$(awk '
+			$1 == "option" && $2 == "database_interval" {
+				value = $3
+				gsub(/\047|"/, "", value)
+				print value
+				exit
+			}
+		' "$NLBWMON_CONFIG")"
+
+		if [ -n "$value" ]; then
+			echo "$value"
+			return 0
+		fi
+	fi
+
+	echo 1
+}
+
+calculate_monthly_period() {
+	interval=$1
+	set -- $(epoch_to_parts "$NOW") || return 1
+	year="$(to_int "$1")"
+	month="$(to_int "$2")"
+	day="$(to_int "$3")"
+	interval="$(to_int "$interval")"
+	today="$(format_ymd "$year" "$month" "$day")"
+	today_epoch="$(date_to_epoch "$today")" || return 1
+
+	current_start="$(period_start_for_month "$year" "$month" "$interval")" || return 1
+	current_start_epoch="$(date_to_epoch "$current_start")" || return 1
+
+	if [ "$today_epoch" -lt "$current_start_epoch" ]; then
+		set -- $(month_offset "$year" "$month" -1)
+		start="$(period_start_for_month "$1" "$2" "$interval")" || return 1
+		next_start="$current_start"
+	else
+		start="$current_start"
+		set -- $(month_offset "$year" "$month" 1)
+		next_start="$(period_start_for_month "$1" "$2" "$interval")" || return 1
+	fi
+
+	next_start_epoch="$(date_to_epoch "$next_start")" || return 1
+	end="$(epoch_to_ymd "$((next_start_epoch - 86400))")" || return 1
+
+	printf '%s|%s|%s\n' "$start" "$end" "$interval"
+}
+
+calculate_fixed_period() {
+	interval=$1
+	anchor="${interval%/*}"
+	days="${interval#*/}"
+
+	case "$days" in
+		''|*[!0-9]*)
+			return 1
+			;;
+	esac
+
+	if [ "$days" -lt 1 ]; then
+		return 1
+	fi
+
+	anchor_epoch="$(date_to_epoch "$anchor")" || return 1
+	today="$(epoch_to_ymd "$NOW")" || return 1
+	today_epoch="$(date_to_epoch "$today")" || return 1
+	elapsed_days=$(((today_epoch - anchor_epoch) / 86400))
+	periods=$((elapsed_days / days))
+
+	if [ "$elapsed_days" -lt 0 ] && [ $((elapsed_days % days)) -ne 0 ]; then
+		periods=$((periods - 1))
+	fi
+
+	start_epoch=$((anchor_epoch + periods * days * 86400))
+	end_epoch=$((start_epoch + days * 86400 - 86400))
+	start="$(epoch_to_ymd "$start_epoch")" || return 1
+	end="$(epoch_to_ymd "$end_epoch")" || return 1
+
+	printf '%s|%s|%s\n' "$start" "$end" "$interval"
+}
+
+calculate_period() {
+	interval="$(read_database_interval)"
+
+	case "$interval" in
+		*/*)
+			calculate_fixed_period "$interval" && return 0
+			;;
+		-*[!0-9]*|''|*[!0-9-]*)
+			interval=1
+			;;
+	esac
+
+	calculate_monthly_period "$interval" 2>/dev/null ||
+		calculate_monthly_period 1
+}
+
+calculate_rates() {
+	prev_file="$1"
+	traffic_file="$2"
+	rates_file="$3"
+
+	awk -F'|' -v now="$NOW" -v prev_file="$prev_file" "$valid_mac_awk"'
+		FILENAME == prev_file && valid_mac($1) {
+			prev_rx[$1] = $2 + 0
+			prev_tx[$1] = $3 + 0
+			prev_ts[$1] = $4 + 0
+			next
+		}
+
+		FILENAME != prev_file && valid_mac($1) {
+			mac = $1
+			rx = $2 + 0
+			tx = $3 + 0
+			conns = $4 + 0
+			down = 0
+			up = 0
+
+			if (mac in prev_ts) {
+				elapsed = now - prev_ts[mac]
+				if (elapsed < 1)
+					elapsed = 1
+
+				down = int((rx - prev_rx[mac]) / elapsed)
+				up = int((tx - prev_tx[mac]) / elapsed)
+
+				if (down < 0)
+					down = 0
+				if (up < 0)
+					up = 0
+			}
+
+			printf "R|%s|%.0f|%.0f|%.0f|%.0f|%.0f\n", mac, rx, tx, conns, down, up
+		}
+	' "$prev_file" "$traffic_file" > "$rates_file"
+}
+
+map_conntrack_to_macs() {
+	records_file="$1"
+	conntrack_file="$2"
+	live_traffic_file="$3"
+
+	awk -F'|' -v records_file="$records_file" "$valid_mac_awk"'
+		function remember(mac) {
+			if (valid_mac(mac) && !(mac in seen)) {
+				seen[mac] = 1
+				order[++count] = mac
+			}
+		}
+
+		function add_ip(mac, address, key) {
+			if (!valid_mac(mac) || address == "" || address == "-")
+				return
+
+			key = address
+			ip_mac[key] = mac
+			remember(mac)
+		}
+
+		function add_ip_list(mac, values, parts, n, i) {
+			n = split(values, parts, " ")
+			for (i = 1; i <= n; i++)
+				add_ip(mac, parts[i])
+		}
+
+		FILENAME == records_file {
+			if ($1 == "C" && valid_mac($2)) {
+				remember($2)
+				add_ip($2, $3)
+			} else if (($1 == "K" || $1 == "O") && valid_mac($2)) {
+				remember($2)
+				if ($1 != "O" || $5 != "STALE")
+					add_ip($2, $3)
+			}
+			next
+		}
+
+		FILENAME != records_file {
+			orig_src = $1
+			orig_dst = $2
+			orig_bytes = $3 + 0
+			reply_bytes = $6 + 0
+
+			if (orig_src in ip_mac) {
+				mac = ip_mac[orig_src]
+				upload[mac] += orig_bytes
+				download[mac] += reply_bytes
+			}
+
+			if (orig_dst in ip_mac) {
+				mac = ip_mac[orig_dst]
+				download[mac] += orig_bytes
+				upload[mac] += reply_bytes
+			}
+		}
+
+		END {
+			for (i = 1; i <= count; i++) {
+				mac = order[i]
+				printf "%s|%.0f|%.0f\n", mac, download[mac] + 0, upload[mac] + 0
+			}
+		}
+	' "$records_file" "$conntrack_file" > "$live_traffic_file"
+}
+
+calculate_live_rates() {
+	prev_file="$1"
+	live_traffic_file="$2"
+	rates_file="$3"
+
+	awk -F'|' -v now="$NOW" -v prev_file="$prev_file" "$valid_mac_awk"'
+		FILENAME == prev_file && valid_mac($1) {
+			prev_down[$1] = $2 + 0
+			prev_up[$1] = $3 + 0
+			prev_ts[$1] = $4 + 0
+			next
+		}
+
+		FILENAME != prev_file && valid_mac($1) {
+			mac = $1
+			down_total = $2 + 0
+			up_total = $3 + 0
+			down = 0
+			up = 0
+
+			if (mac in prev_ts) {
+				elapsed = now - prev_ts[mac]
+				if (elapsed < 1)
+					elapsed = 1
+
+				down = int((down_total - prev_down[mac]) / elapsed)
+				up = int((up_total - prev_up[mac]) / elapsed)
+
+				if (down < 0)
+					down = 0
+				if (up < 0)
+					up = 0
+			}
+
+			printf "Q|%s|%.0f|%.0f\n", mac, down, up
+		}
+	' "$prev_file" "$live_traffic_file" > "$rates_file"
+}
+
+write_rate_state() {
+	traffic_file="$1"
+	state_file="$2"
+	tmp_state="$3"
+
+	awk -F'|' -v now="$NOW" "$valid_mac_awk"'
+		valid_mac($1) {
+			printf "%s|%.0f|%.0f|%.0f\n", $1, ($2 + 0), ($3 + 0), now
+		}
+	' "$traffic_file" > "$tmp_state"
+
+	mv "$tmp_state" "$state_file"
+}
+
+write_live_state() {
+	live_traffic_file="$1"
+	state_file="$2"
+	tmp_state="$3"
+
+	awk -F'|' -v now="$NOW" "$valid_mac_awk"'
+		valid_mac($1) {
+			printf "%s|%.0f|%.0f|%.0f\n", $1, ($2 + 0), ($3 + 0), now
+		}
+	' "$live_traffic_file" > "$tmp_state"
+
+	mv "$tmp_state" "$state_file"
+}
+
+render_json() {
+	records_file="$1"
+	cache_file="$2"
+	rate_source="$3"
+	period_start="$4"
+	period_end="$5"
+	period_label="$6"
+
+	awk -F'|' -v now="$NOW" -v cache_file="$cache_file" -v rate_source="$rate_source" -v period_start="$period_start" -v period_end="$period_end" -v period_label="$period_label" "$valid_mac_awk"'
+	function remember(mac) {
+		if (!(mac in seen)) {
+			seen[mac] = 1
+			order[++count] = mac
+		}
+	}
+
+	function is_ipv4(address) {
+		return index(address, ".") > 0
+	}
+
+	function is_ipv6(address) {
+		return index(address, ":") > 0
+	}
+
+	function add_history_ipv4(mac, address, key) {
+		if (address == "" || address == "-")
+			return
+
+		key = mac SUBSEP address
+		if (!(key in seen_history_ipv4)) {
+			seen_history_ipv4[key] = 1
+			history_ipv4[mac] = history_ipv4[mac] (history_ipv4[mac] == "" ? "" : " ") address
+		}
+	}
+
+	function add_history_ipv6(mac, address, key) {
+		if (address == "" || address == "-")
+			return
+
+		key = mac SUBSEP address
+		if (!(key in seen_history_ipv6)) {
+			seen_history_ipv6[key] = 1
+			history_ipv6[mac] = history_ipv6[mac] (history_ipv6[mac] == "" ? "" : " ") address
+		}
+	}
+
+	function ipv6_score(address, lower) {
+		lower = tolower(address)
+		if (lower ~ /^fe80:/)
+			return 0
+		if (lower ~ /^(fc|fd)/)
+			return 10
+		return 20
+	}
+
+	function set_dhcp_ipv4(mac, address) {
+		if (!is_ipv4(address))
+			return
+
+		if (dhcp_ipv4[mac] == "") {
+			if (ipv4[mac] != "" && ipv4[mac] != address)
+				add_history_ipv4(mac, ipv4[mac])
+			dhcp_ipv4[mac] = address
+			ipv4[mac] = address
+		} else if (dhcp_ipv4[mac] != address) {
+			add_history_ipv4(mac, address)
+		}
+	}
+
+	function set_observed_ipv4(mac, address, is_stale) {
+		if (!is_ipv4(address))
+			return
+
+		if (is_stale) {
+			add_history_ipv4(mac, address)
+			return
+		}
+
+		if (dhcp_ipv4[mac] == "" && ipv4[mac] == "") {
+			ipv4[mac] = address
+		} else if (ipv4[mac] != address) {
+			add_history_ipv4(mac, address)
+		}
+	}
+
+	function set_observed_ipv6(mac, address, is_stale, score, current) {
+		if (!is_ipv6(address))
+			return
+
+		score = ipv6_score(address)
+		if (is_stale || score <= 0) {
+			add_history_ipv6(mac, address)
+			return
+		}
+
+		current = ipv6_score_value[mac] + 0
+		if (ipv6[mac] == "" || score > current) {
+			if (ipv6[mac] != "" && ipv6[mac] != address)
+				add_history_ipv6(mac, ipv6[mac])
+			ipv6[mac] = address
+			ipv6_score_value[mac] = score
+		} else if (ipv6[mac] != address) {
+			add_history_ipv6(mac, address)
+		}
+	}
+
+	function set_cache_ip(mac, address) {
+		if (address != "" && address != "-")
+			cache_ip[mac] = address
+	}
+
+	function apply_cache_ip(mac, address, score) {
+		if (ipv4[mac] != "" || ipv6[mac] != "")
+			return
+
+		address = cache_ip[mac]
+		if (is_ipv4(address)) {
+			ipv4[mac] = address
+			return
+		}
+
+		if (is_ipv6(address)) {
+			score = ipv6_score(address)
+			if (score > 0) {
+				ipv6[mac] = address
+				ipv6_score_value[mac] = score
+			}
+		}
+	}
+
+	function primary_ip(mac) {
+		if (ipv4[mac] != "")
+			return ipv4[mac]
+		if (ipv6[mac] != "")
+			return ipv6[mac]
+		return ""
+	}
+
+	function esc(value) {
+		gsub(/\\/, "\\\\", value)
+		gsub(/"/, "\\\"", value)
+		gsub(/\r/, "\\r", value)
+		gsub(/\n/, "\\n", value)
+		gsub(/\t/, "\\t", value)
+		return value
+	}
+
+	function json_array(values, exclude, parts, n, i, written) {
+		printf "["
+		n = split(values, parts, " ")
+		for (i = 1; i <= n; i++) {
+			if (parts[i] == "" || parts[i] == exclude)
+				continue
+			if (written > 0)
+				printf ","
+			written++
+			printf "\"%s\"", esc(parts[i])
+		}
+		printf "]"
+	}
+
+	$1 == "C" && valid_mac($2) {
+		mac = $2
+		remember(mac)
+		set_cache_ip(mac, $3)
+		if (name[mac] == "")
+			name[mac] = $4
+		if (last_seen[mac] == "")
+			last_seen[mac] = $5 + 0
+		next
+	}
+
+	$1 == "K" && valid_mac($2) {
+		mac = $2
+		remember(mac)
+		if ($3 != "")
+			set_dhcp_ipv4(mac, $3)
+		if ($4 != "")
+			name[mac] = $4
+		next
+	}
+
+	$1 == "O" && valid_mac($2) {
+		mac = $2
+		is_stale = ($5 == "STALE")
+		remember(mac)
+		online[mac] = 1
+		last_seen[mac] = now
+		if ($3 != "") {
+			if (is_ipv4($3))
+				set_observed_ipv4(mac, $3, is_stale)
+			else if (is_ipv6($3))
+				set_observed_ipv6(mac, $3, is_stale)
+		}
+		next
+	}
+
+	$1 == "R" && valid_mac($2) {
+		mac = $2
+		remember(mac)
+		rx_bytes[mac] = $3 + 0
+		tx_bytes[mac] = $4 + 0
+		conns[mac] = $5 + 0
+		down_bps[mac] = $6 + 0
+		up_bps[mac] = $7 + 0
+		next
+	}
+
+	$1 == "Q" && valid_mac($2) {
+		mac = $2
+		remember(mac)
+		down_bps[mac] = $3 + 0
+		up_bps[mac] = $4 + 0
+		next
+	}
+
+	END {
+		for (i = 1; i <= count; i++) {
+			mac = order[i]
+			apply_cache_ip(mac)
+
+			if (online[mac]) {
+				online_count++
+				last_seen[mac] = now
+			} else {
+				offline_count++
+			}
+
+			ip[mac] = primary_ip(mac)
+			total_down += down_bps[mac]
+			total_up += up_bps[mac]
+			print mac "|" ip[mac] "|" name[mac] "|" (last_seen[mac] + 0) > cache_file
+		}
+		close(cache_file)
+
+		printf "{"
+		printf "\"devices\":["
+
+		for (i = 1; i <= count; i++) {
+			mac = order[i]
+			if (i > 1)
+				printf ","
+
+			device_name = name[mac]
+			if (device_name == "")
+				device_name = "Unknown device"
+
+			printf "{"
+			printf "\"mac\":\"%s\"", esc(mac)
+			printf ",\"ip\":\"%s\"", esc(ip[mac])
+			printf ",\"ipv4\":"
+			json_array(ipv4[mac])
+			printf ",\"ipv6\":"
+			json_array(ipv6[mac])
+			printf ",\"history_ipv4\":"
+			json_array(history_ipv4[mac], ipv4[mac])
+			printf ",\"history_ipv6\":"
+			json_array(history_ipv6[mac], ipv6[mac])
+			printf ",\"name\":\"%s\"", esc(device_name)
+			printf ",\"online\":%s", online[mac] ? "true" : "false"
+			printf ",\"down_bps\":%.0f", down_bps[mac] + 0
+			printf ",\"up_bps\":%.0f", up_bps[mac] + 0
+			printf ",\"rx_bytes\":%.0f", rx_bytes[mac] + 0
+			printf ",\"tx_bytes\":%.0f", tx_bytes[mac] + 0
+			printf ",\"connections\":%.0f", conns[mac] + 0
+			printf ",\"last_seen\":%.0f", last_seen[mac] + 0
+			printf "}"
+		}
+
+		printf "]"
+		printf ",\"summary\":{\"total\":%.0f,\"online\":%.0f,\"offline\":%.0f,\"down_bps\":%.0f,\"up_bps\":%.0f}", count, online_count, offline_count, total_down, total_up
+		printf ",\"meta\":{\"timestamp\":%.0f,\"poll_interval\":1,\"rate_source\":\"%s\",\"period_start\":\"%s\",\"period_end\":\"%s\",\"period_label\":\"%s\"}", now, esc(rate_source), esc(period_start), esc(period_end), esc(period_label)
+		printf "}\n"
+	}
+	' "$records_file"
+}
+
+call_devices() {
+	mkdir -p "$STATE_DIR" || {
+		printf '{"devices":[],"summary":{"total":0,"online":0,"offline":0,"down_bps":0,"up_bps":0},"meta":{"timestamp":%s,"poll_interval":1,"rate_source":"state-error"}}\n' "$NOW"
+		return 0
+	}
+
+	tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/flowlens.XXXXXX")" || exit 1
+	trap cleanup EXIT INT TERM
+
+	records_file="$tmpdir/records"
+	traffic_file="$tmpdir/traffic"
+	rates_file="$tmpdir/rates"
+	conntrack_file="$tmpdir/conntrack"
+	live_traffic_file="$tmpdir/live-traffic"
+	live_rates_file="$tmpdir/live-rates"
+	json_file="$tmpdir/devices.json"
+	cache_tmp="$tmpdir/devices.cache"
+	state_file="$STATE_DIR/rates.state"
+	state_tmp="$tmpdir/rates.state"
+	live_state_file="$STATE_DIR/live.state"
+	live_state_tmp="$tmpdir/live.state"
+	prev_file="$state_file"
+	live_prev_file="$live_state_file"
+	rate_source="unavailable"
+	period="$(calculate_period)"
+	period_start="${period%%|*}"
+	period_rest="${period#*|}"
+	period_end="${period_rest%%|*}"
+	period_label="$period_start - $period_end"
+
+	[ -r "$prev_file" ] || prev_file="/dev/null"
+	[ -r "$live_prev_file" ] || live_prev_file="/dev/null"
+
+	{
+		collect_cache
+		collect_leases
+		collect_arp
+		collect_neigh
+	} > "$records_file"
+
+	collect_nlbw > "$traffic_file"
+	if [ -s "$traffic_file" ]; then
+		rate_source="nlbwmon"
+		calculate_rates "$prev_file" "$traffic_file" "$rates_file"
+		cat "$rates_file" >> "$records_file"
+		write_rate_state "$traffic_file" "$state_file" "$state_tmp"
+	fi
+
+	if collect_conntrack > "$conntrack_file"; then
+		map_conntrack_to_macs "$records_file" "$conntrack_file" "$live_traffic_file"
+		if [ -s "$live_traffic_file" ]; then
+			case "$rate_source" in
+				nlbwmon)
+					rate_source="conntrack + nlbwmon"
+					;;
+				*)
+					rate_source="conntrack"
+					;;
+			esac
+			calculate_live_rates "$live_prev_file" "$live_traffic_file" "$live_rates_file"
+			cat "$live_rates_file" >> "$records_file"
+			write_live_state "$live_traffic_file" "$live_state_file" "$live_state_tmp"
+		fi
+	fi
+
+	render_json "$records_file" "$cache_tmp" "$rate_source" "$period_start" "$period_end" "$period_label" > "$json_file"
+	mv "$cache_tmp" "$STATE_DIR/devices.cache" 2>/dev/null || true
+	cat "$json_file"
+}
+
+case "$1" in
+	list)
+		list_methods
+		;;
+	call)
+		case "$2" in
+			devices)
+				call_devices
+				;;
+			*)
+				printf '{"error":"unknown method"}\n'
+				;;
+		esac
+		;;
+	*)
+		printf '{"error":"usage: %s list|call <method>"}\n' "$0"
+		;;
+esac

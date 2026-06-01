@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FlowLens Preview</title>
+    <style>
+      body {
+        background: #f5f8fb;
+        margin: 0;
+        padding: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      import './src/main.jsx';
+
+      let tick = 0;
+      const base = {
+        devices: [
+          {
+            name: 'Studio Laptop',
+            mac: 'aa:bb:cc:dd:ee:01',
+            ip: '192.168.5.11',
+            online: true,
+            down_bps: 420 * 1024,
+            up_bps: 76 * 1024,
+            rx_bytes: 1849000000,
+            tx_bytes: 548000000,
+            connections: 24,
+            last_seen: Math.floor(Date.now() / 1000)
+          },
+          {
+            name: 'Living Room TV',
+            mac: 'aa:bb:cc:dd:ee:02',
+            ip: '192.168.5.12',
+            online: true,
+            down_bps: 2.7 * 1024 * 1024,
+            up_bps: 48 * 1024,
+            rx_bytes: 8250000000,
+            tx_bytes: 735000000,
+            connections: 16,
+            last_seen: Math.floor(Date.now() / 1000)
+          },
+          {
+            name: 'NAS',
+            mac: 'aa:bb:cc:dd:ee:03',
+            ip: '192.168.5.13',
+            online: true,
+            down_bps: 128 * 1024,
+            up_bps: 1.1 * 1024 * 1024,
+            rx_bytes: 19250000000,
+            tx_bytes: 31450000000,
+            connections: 52,
+            last_seen: Math.floor(Date.now() / 1000)
+          },
+          {
+            name: 'Guest Phone',
+            mac: 'aa:bb:cc:dd:ee:04',
+            ip: '192.168.5.44',
+            online: false,
+            down_bps: 0,
+            up_bps: 0,
+            rx_bytes: 62000000,
+            tx_bytes: 11800000,
+            connections: 0,
+            last_seen: Math.floor(Date.now() / 1000) - 6400
+          }
+        ],
+        meta: {
+          timestamp: Math.floor(Date.now() / 1000),
+          rate_source: 'nlbwmon',
+          period_start: '2026-05-01',
+          period_end: '2026-05-31',
+          period_label: '2026-05-01 - 2026-05-31'
+        }
+      };
+
+      function nextPayload() {
+        tick += 1;
+        const devices = base.devices.map((device, index) => {
+          if (!device.online)
+            return device;
+
+          const wave = 1 + Math.sin((tick + index) / 2) * 0.28;
+          return {
+            ...device,
+            down_bps: Math.round(device.down_bps * wave),
+            up_bps: Math.round(device.up_bps * (1.08 - Math.cos((tick + index) / 3) * 0.18)),
+            rx_bytes: device.rx_bytes + tick * 194000,
+            tx_bytes: device.tx_bytes + tick * 64000,
+            last_seen: Math.floor(Date.now() / 1000)
+          };
+        });
+
+        return {
+          devices,
+          summary: {
+            total: devices.length,
+            online: devices.filter(device => device.online).length,
+            offline: devices.filter(device => !device.online).length,
+            down_bps: devices.reduce((total, device) => total + device.down_bps, 0),
+            up_bps: devices.reduce((total, device) => total + device.up_bps, 0)
+          },
+          meta: {
+            timestamp: Math.floor(Date.now() / 1000),
+            rate_source: 'nlbwmon',
+            period_start: '2026-05-01',
+            period_end: '2026-05-31',
+            period_label: '2026-05-01 - 2026-05-31'
+          }
+        };
+      }
+
+      window.FlowLensApp.mount(document.getElementById('root'), {
+        initialData: nextPayload(),
+        fetchDevices: async () => nextPayload(),
+        pollInterval: 2000
+      });
+    </script>
+  </body>
+</html>

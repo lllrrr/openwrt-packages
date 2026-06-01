@@ -1,0 +1,13 @@
+{
+	"admin/status/flowlens": {
+		"title": "FlowLens",
+		"order": 25,
+		"action": {
+			"type": "view",
+			"path": "flowlens/overview"
+		},
+		"depends": {
+			"acl": [ "luci-app-flowlens" ]
+		}
+	}
+}

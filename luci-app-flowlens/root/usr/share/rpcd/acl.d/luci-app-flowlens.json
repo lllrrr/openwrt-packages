@@ -1,0 +1,10 @@
+{
+	"luci-app-flowlens": {
+		"description": "Grant access to FlowLens device traffic data",
+		"read": {
+			"ubus": {
+				"luci.flowlens": [ "devices" ]
+			}
+		}
+	}
+}

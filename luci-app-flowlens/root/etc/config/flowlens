@@ -1,0 +1,3 @@
+config flowlens 'main'
+	option poll_interval '2'
+	option retain_days '7'
