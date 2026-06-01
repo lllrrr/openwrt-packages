@@ -647,10 +647,10 @@ case "$1" in
                 fi
 
                 # 4. 兜底Type 3 DUID-LL
-                if [ -z "$auto_duid" ]; then
-                    mac_hex=$(echo "$mac_clean" | tr 'a-z' 'A-Z')
-                    auto_duid="00030001${mac_hex}"
-                fi
+                # if [ -z "$auto_duid" ]; then
+                #     mac_hex=$(echo "$mac_clean" | tr 'a-z' 'A-Z')
+                #     auto_duid="00030001${mac_hex}"
+                # fi
 
                 if [ -n "$auto_duid" ]; then
                     uci set dhcp.$new_sect.duid="$auto_duid"
@@ -667,17 +667,18 @@ case "$1" in
                 if [ "$no_reload" != "1" ] && [ "$no_reload" != "true" ]; then
                     uci commit dhcp
                     uci commit firewall
+                    
+                    # 清理 odhcpd 租期
+                    rm -f /tmp/hosts/odhcpd 2>/dev/null
+                    
                     (
-                        /etc/init.d/dnsmasq reload
+                        /etc/init.d/odhcpd restart
+                        /etc/init.d/dnsmasq restart
                         /etc/init.d/firewall reload
-                        # 检查 dnsmasq
+                        
+                        # 重启 dnsmasq，唤醒代理和 DNS
                         sleep 2
-                        if ! pgrep dnsmasq > /dev/null; then
-                            logger -t Netwiz "⚠️ DNSMasq crashed! Auto-restarting..."
-                            /etc/init.d/dnsmasq restart
-                            sleep 2
-                            wakeup_apps  # 唤醒函數
-                        fi
+                        wakeup_apps
                     ) >/dev/null 2>&1 &
                 fi
                 echo '{"result":0}'
@@ -699,17 +700,17 @@ case "$1" in
                 if [ "$no_reload" != "1" ] && [ "$no_reload" != "true" ]; then
                     uci commit dhcp
                     uci commit firewall
+                    
+                    # 清理 odhcpd 缓存
+                    rm -f /tmp/hosts/odhcpd 2>/dev/null
+                    
                     (
-                        /etc/init.d/dnsmasq reload
+                        /etc/init.d/odhcpd restart
+                        /etc/init.d/dnsmasq restart
                         /etc/init.d/firewall reload
-                        # 检查 dnsmasq
+                        
                         sleep 2
-                        if ! pgrep dnsmasq > /dev/null; then
-                            logger -t Netwiz "⚠️ DNSMasq crashed! Auto-restarting..."
-                            /etc/init.d/dnsmasq restart
-                            sleep 2
-                            wakeup_apps  # 喚醒函數
-                        fi
+                        wakeup_apps
                     ) >/dev/null 2>&1 &
                 fi
                 echo '{"result":0}'
@@ -718,18 +719,18 @@ case "$1" in
             apply_dhcp)
                 uci commit dhcp
                 uci commit firewall
+                
+                # 清理 odhcpd 缓存
+                rm -f /tmp/hosts/odhcpd 2>/dev/null
+                
                 (
-                        /etc/init.d/dnsmasq reload
-                        /etc/init.d/firewall reload
-                        # 检查 dnsmasq
-                        sleep 2
-                        if ! pgrep dnsmasq > /dev/null; then
-                            logger -t Netwiz "⚠️ DNSMasq crashed! Auto-restarting..."
-                            /etc/init.d/dnsmasq restart
-                            sleep 2
-                            wakeup_apps  # 喚醒函數
-                        fi
-                    ) >/dev/null 2>&1 &
+                    /etc/init.d/odhcpd restart
+                    /etc/init.d/dnsmasq restart
+                    /etc/init.d/firewall reload
+                    
+                    sleep 2
+                    wakeup_apps
+                ) >/dev/null 2>&1 &
                 
                 echo '{"result":0}'
                 exit 0

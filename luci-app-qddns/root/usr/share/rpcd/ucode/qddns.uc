@@ -12,6 +12,7 @@ const mktemp_cmd = '/bin/mktemp';
 const draft_probe_config_prefix = '/tmp/qddns-luci-source-probe.';
 const draft_probe_config_template = `${draft_probe_config_prefix}XXXXXX`;
 const draft_probe_source_id = 'wizard_probe';
+const draft_probe_rule_id = 'wizard_rule';
 const dhcpv4_lease_file = '/tmp/dhcp.leases';
 const dhcpv6_lease_file = '/tmp/odhcpd.leases';
 const dhcpv6_lease_max_bytes = 262144;
@@ -173,6 +174,11 @@ function interface_value(value) {
 	return join(',', interface_values(value));
 }
 
+function single_interface_value(value) {
+	let values = interface_values(value);
+	return values[0] || '';
+}
+
 function draft_lease_file(value) {
 	value = trim(`${value || ''}`);
 	if (!value)
@@ -247,6 +253,29 @@ function draft_source_config(req) {
 	return config;
 }
 
+function draft_rule_config(source_id, source_type, probe_interface) {
+	let lines = [
+		`\nconfig provider 'wizard_provider'\n`,
+		`\toption type 'custom_http'\n`,
+		`\toption url 'http://127.0.0.1/qddns-luci-draft'\n`,
+		`\nconfig rule '${draft_probe_rule_id}'\n`,
+		`\toption provider 'wizard_provider'\n`,
+		`\toption source '${source_id}'\n`,
+		`\toption record_type 'A'\n`,
+		`\toption zone 'example.test'\n`,
+		`\toption record_name 'wizard'\n`
+	];
+
+	push(lines, draft_source_option('probe_interface', single_interface_value(probe_interface)));
+
+	let config = '';
+	for (let line in lines)
+		if (line)
+			config += line;
+
+	return config;
+}
+
 function source_family(section) {
 	let family = section.family || '';
 
@@ -287,10 +316,33 @@ function rule_to_obj(section) {
 		name: section.name || null,
 		provider: section.provider,
 		source: section.source,
+		probe_interface: single_interface_value(section.probe_interface) || null,
 		record_type: section.record_type,
 		zone: section.zone,
 		record_name: section.record_name
 	};
+}
+
+function source_type_for_id(source_id) {
+	let source_type = null;
+
+	uci.foreach('qddns', 'source', function(s) {
+		if (s['.name'] == source_id)
+			source_type = s.type || null;
+	});
+
+	return source_type;
+}
+
+function rule_source_type(rule_id) {
+	let source_id = null;
+
+	uci.foreach('qddns', 'rule', function(s) {
+		if (s['.name'] == rule_id)
+			source_id = s.source || null;
+	});
+
+	return source_id ? source_type_for_id(source_id) : null;
 }
 
 function rule_status_to_obj(status) {
@@ -490,6 +542,28 @@ const methods = {
 		}
 	},
 
+	probe_rule_source: {
+		args: { id: 'id' },
+		call: function(req) {
+			let id = req.args.id || '';
+
+			if (!is_valid_id(id) || !has_rule(id)) {
+				safe_unload();
+				return { ok: false, error: 'invalid rule id' };
+			}
+
+			let source_type = rule_source_type(id);
+			if (!is_probe_allowed_source_type(source_type)) {
+				safe_unload();
+				return { ok: false, error: 'probe not allowed for source type' };
+			}
+
+			let data = exec_json(`rules probe-source ${id}`);
+			safe_unload();
+			return data || { ok: false, error: 'probe failed' };
+		}
+	},
+
 	probe_source_draft: {
 		args: {
 			name: 'name',
@@ -503,19 +577,25 @@ const methods = {
 			lease_file: 'lease_file',
 			hostname_hint: 'hostname_hint',
 			prefix_filter: 'prefix_filter',
-			probe_url: 'probe_url'
+			probe_url: 'probe_url',
+			probe_interface: 'probe_interface'
 		},
 		call: function(req) {
 			let source_config = draft_source_config(req);
 			if (!source_config)
 				return { ok: false, error: 'invalid draft source' };
+			let probe_interface = single_interface_value(req.args.probe_interface);
+			if (probe_interface && uci_quote(probe_interface) == null)
+				return { ok: false, error: 'invalid probe interface' };
+			let source_type = req.args.type || '';
+			let use_rule_probe = source_type == 'public_probe' && probe_interface;
 
 			let draft_probe_config = create_draft_probe_config_path();
 			if (!draft_probe_config)
 				return { ok: false, error: 'unable to create draft source probe' };
 
 			try {
-				writefile(draft_probe_config, source_config);
+				writefile(draft_probe_config, source_config + (use_rule_probe ? draft_rule_config(draft_probe_source_id, source_type, probe_interface) : ''));
 			}
 			catch (err) {
 				try {
@@ -527,7 +607,94 @@ const methods = {
 				return { ok: false, error: 'unable to create draft source probe' };
 			}
 
-			let data = exec_json_with_config(draft_probe_config, `sources probe ${draft_probe_source_id}`) || { ok: false, error: 'probe failed' };
+			let data = exec_json_with_config(draft_probe_config, use_rule_probe ? `rules probe-source ${draft_probe_rule_id}` : `sources probe ${draft_probe_source_id}`) || { ok: false, error: 'probe failed' };
+
+			try {
+				unlink(draft_probe_config);
+			}
+			catch (err) {
+				return data;
+			}
+
+			return data;
+		}
+	},
+
+	probe_source_for_rule_draft: {
+		args: {
+			source: 'source',
+			probe_interface: 'probe_interface'
+		},
+		call: function(req) {
+			let source_id = req.args.source || '';
+			let probe_interface = single_interface_value(req.args.probe_interface);
+
+			if (!is_valid_id(source_id))
+				return { ok: false, error: 'invalid source id' };
+			if (probe_interface && uci_quote(probe_interface) == null)
+				return { ok: false, error: 'invalid probe interface' };
+
+			let source_type = get_source_type(source_id);
+			if (!source_type) {
+				safe_unload();
+				return { ok: false, error: 'missing source' };
+			}
+			if (!is_probe_allowed_source_type(source_type)) {
+				safe_unload();
+				return { ok: false, error: 'probe not allowed for source type' };
+			}
+
+			if (!(source_type == 'public_probe' && probe_interface)) {
+				let data = exec_json(`sources probe ${source_id}`);
+				safe_unload();
+				return data || { ok: false, error: 'probe failed' };
+			}
+
+			let source_config = '';
+			uci.foreach('qddns', 'source', function(s) {
+				if (s['.name'] != source_id)
+					return;
+
+				source_config += `\nconfig source '${draft_probe_source_id}'\n`;
+				for (let name in [
+					'name',
+					'type',
+					'family',
+					'address',
+					'interface',
+					'duid',
+					'iaid',
+					'mac',
+					'lease_file',
+					'hostname_hint',
+					'prefix_filter',
+					'probe_url'
+				])
+					source_config += draft_source_option(name, name == 'interface' ? interface_value(s[name]) : s[name]) || '';
+			});
+			safe_unload();
+
+			if (!source_config)
+				return { ok: false, error: 'missing source' };
+
+			let draft_probe_config = create_draft_probe_config_path();
+			if (!draft_probe_config)
+				return { ok: false, error: 'unable to create draft source probe' };
+
+			try {
+				writefile(draft_probe_config, source_config + draft_rule_config(draft_probe_source_id, source_type, probe_interface));
+			}
+			catch (err) {
+				try {
+					unlink(draft_probe_config);
+				}
+				catch (cleanup_err) {
+					return { ok: false, error: 'unable to create draft source probe' };
+				}
+				return { ok: false, error: 'unable to create draft source probe' };
+			}
+
+			let data = exec_json_with_config(draft_probe_config, `rules probe-source ${draft_probe_rule_id}`) || { ok: false, error: 'probe failed' };
 
 			try {
 				unlink(draft_probe_config);

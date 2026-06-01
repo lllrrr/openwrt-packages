@@ -3,7 +3,7 @@
 		"description": "Grant access to qddns procedures",
 		"read": {
 			"ubus": {
-				"qddns": [ "get_overview", "list_sources", "list_interfaces", "probe_source", "probe_source_draft", "list_dhcpv6_leases", "list_rules", "get_logs", "get_rule_status" ]
+				"qddns": [ "get_overview", "list_sources", "list_interfaces", "probe_source", "probe_rule_source", "probe_source_draft", "probe_source_for_rule_draft", "list_dhcpv6_leases", "list_rules", "get_logs", "get_rule_status" ]
 			},
 			"uci": [ "qddns" ],
 			"file": {

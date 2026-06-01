@@ -9,7 +9,9 @@ const callSources = rpc.declare({ object: 'qddns', method: 'list_sources', expec
 const callInterfaces = rpc.declare({ object: 'qddns', method: 'list_interfaces', expect: {} });
 const callDhcpv6Leases = rpc.declare({ object: 'qddns', method: 'list_dhcpv6_leases', params: ['mode'], expect: {} });
 const callProbeSource = rpc.declare({ object: 'qddns', method: 'probe_source', params: ['id'], expect: {} });
-const callProbeSourceDraft = rpc.declare({ object: 'qddns', method: 'probe_source_draft', params: ['name', 'type', 'family', 'address', 'interface', 'duid', 'iaid', 'mac', 'lease_file', 'hostname_hint', 'prefix_filter', 'probe_url'], expect: {} });
+const callProbeRuleSource = rpc.declare({ object: 'qddns', method: 'probe_rule_source', params: ['id'], expect: {} });
+const callProbeSourceDraft = rpc.declare({ object: 'qddns', method: 'probe_source_draft', params: ['name', 'type', 'family', 'address', 'interface', 'duid', 'iaid', 'mac', 'lease_file', 'hostname_hint', 'prefix_filter', 'probe_url', 'probe_interface'], expect: {} });
+const callProbeSourceForRuleDraft = rpc.declare({ object: 'qddns', method: 'probe_source_for_rule_draft', params: ['source', 'probe_interface'], expect: {} });
 const callRunRule = rpc.declare({ object: 'qddns', method: 'run_rule', params: ['id'], expect: {} });
 const callGetLogs = rpc.declare({ object: 'qddns', method: 'get_logs', params: ['scope'], expect: {} });
 const callGetRuleStatus = rpc.declare({ object: 'qddns', method: 'get_rule_status', params: ['id'], expect: {} });
@@ -149,6 +151,7 @@ return baseclass.extend({
 	listInterfaces: callInterfaces,
 	listDhcpv6Leases: callDhcpv6Leases,
 	probeSource: callProbeSource,
+	probeRuleSource: callProbeRuleSource,
 	probeSourceDraft: function(source) {
 		source = source || {};
 		return callProbeSourceDraft(
@@ -163,8 +166,12 @@ return baseclass.extend({
 			source.leaseFile || source.lease_file || '',
 			source.hostnameHint || source.hostname_hint || '',
 			source.prefixFilter || source.prefix_filter || '',
-			source.probeUrl || source.probe_url || ''
+			source.probeUrl || source.probe_url || '',
+			source.probeInterface || source.probe_interface || ''
 		);
+	},
+	probeSourceForRuleDraft: function(sourceId, probeInterface) {
+		return callProbeSourceForRuleDraft(sourceId || '', probeInterface || '');
 	},
 	runRule: callRunRule,
 	getLogs: callGetLogs,

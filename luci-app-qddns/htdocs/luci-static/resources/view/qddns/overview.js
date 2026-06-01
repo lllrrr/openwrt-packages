@@ -9,7 +9,7 @@ const QDDNS_STYLE = [
 	'.qddns-dashboard .qddns-panel,.qddns-dashboard .qddns-card{margin-bottom:var(--qddns-space-4)}',
 	'.qddns-cards{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:var(--qddns-space-3)}',
 	'.qddns-card{padding:var(--qddns-space-4);border:1px solid var(--qddns-border);border-radius:var(--qddns-radius-md);background:var(--qddns-surface);display:flex;flex-direction:column;gap:var(--qddns-space-2);min-height:6rem;justify-content:center}',
-	'.qddns-card-label{font-size:0.75rem;opacity:0.72}',
+	'.qddns-card-label{font-size:0.75rem;letter-spacing:0;opacity:0.72;text-transform:none}',
 	'.qddns-card-value{font-size:1.5rem;font-weight:600;line-height:1.3;word-break:break-word}',
 	'.qddns-ip-synced{display:inline-flex;align-items:center;gap:var(--qddns-space-2);white-space:nowrap}',
 	'.qddns-ip-synced .qddns-badge{font-size:0.7rem;padding:0 var(--qddns-space-2)}',
