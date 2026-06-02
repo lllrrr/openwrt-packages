@@ -66,6 +66,10 @@ o = s:taboption("advanced", Flag, "transport__tcpMux", translate("启用 tcpMux"
 o.enabled = "true"
 o.disabled = "false"
 
+o = s:taboption("advanced", Value, "transport__poolCount", translate("连接池数量 poolCount"))
+o.datatype = "uinteger"
+o.description = translate("预先与 frps 建立的连接数。瞬断时活动代理不易掉线，链路不稳时建议设 1~5。")
+
 o = s:taboption("advanced", Value, "transport__heartbeatInterval", translate("心跳间隔（秒）"))
 o.datatype = "integer"
 
@@ -78,6 +82,12 @@ o.disabled = "false"
 
 o = s:taboption("advanced", Value, "transport__tls__serverName", translate("TLS serverName"))
 o:depends("transport__tls__enable", "true")
+
+o = s:taboption("advanced", Flag, "transport__tls__disableCustomTLSFirstByte", translate("禁用 TLS 伪装首字节（DPI 绕过）"))
+o.enabled = "true"
+o.disabled = "false"
+o:depends("transport__tls__enable", "true")
+o.description = translate("frp 默认在 TLS 前发一个 0x17 伪装字节，部分网络的 DPI 会因此掐断连接（EOF）。开启此项可关闭该伪装字节用于排查/绕过。frps 端需一致。")
 
 o = s:taboption("advanced", Value, "dnsServer", translate("DNS 服务器"))
 o.datatype = "host"
