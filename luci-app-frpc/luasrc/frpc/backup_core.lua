@@ -390,8 +390,13 @@ end
 
 -- 把已解压的备份内容应用到系统
 -- pkgroot: unpack 后的 frpc-backup/ 目录
--- 返回 ok, err
+-- 返回 ok, err_or_note
+--   ok=false：err 为失败原因
+--   ok=true ：第二个返回值为「提示信息」(string) 或 nil（无提示）。
+--             跨架构等场景下二进制被跳过时，这里会带回一句说明，供 UI 展示。
 function M.apply_unpacked(pkgroot, manifest)
+    local note = nil   -- 成功但需要告知用户的提示（如二进制因架构不兼容被跳过）
+
     -- 1) 停 frpc 服务
     sys.call("/etc/init.d/frpc stop >/dev/null 2>&1")
 
@@ -409,23 +414,57 @@ function M.apply_unpacked(pkgroot, manifest)
     end
 
     -- 3) 还二进制（原子替换，避免 ETXTBSY）
+    --    跨架构兼容：备份可能来自不同 CPU 架构（如 amd64 备份还原到 aarch64），直接覆盖会得到
+    --    一个无法执行的二进制，frpc 必然起不来。策略：先把备份二进制落到 .new，实跑 `-v` 验证
+    --    能否在本机执行——能执行才原子替换；不能执行（多半架构不符，也可能损坏）则【跳过二进制还原】，
+    --    保留设备本机已配置好的 frpc，仅还原配置后照常启动。实跑判据比对比 manifest 架构字符串更稳：
+    --    既兼容没记录 platform 的老备份，也能挡住同架构但损坏的二进制。
     if manifest.includes and manifest.includes.current_binary then
         local src = pkgroot .. "/bin/frpc"
         if not fs.access(src) then
             return false, "manifest 声明含二进制但文件不存在"
         end
+
         local tmp = M.BIN_FILE .. ".new"
-        local cmd = string.format(
-            "cp -f %s %s && chmod 0755 %s && mv -f %s %s",
-            util.shellquote(src), util.shellquote(tmp),
-            util.shellquote(tmp),
-            util.shellquote(tmp), util.shellquote(M.BIN_FILE))
-        if M.sh_call(cmd) ~= 0 then
+        if M.sh_call("cp -f " .. util.shellquote(src) .. " " .. util.shellquote(tmp)) ~= 0 then
             sys.call("rm -f " .. util.shellquote(tmp))
-            return false, "原子替换 " .. M.BIN_FILE .. " 失败"
+            return false, "复制备份二进制到 .new 失败"
         end
-        -- 锁回 default_client_file
-        -- 注意：UCI 文件在第 2 步被外部 cp 直接覆盖，模块级 cursor 缓存可能持有旧值，先 load("frpc") 强制刷新。
+        sys.call("chmod 0755 " .. util.shellquote(tmp))
+
+        -- 实跑验证：能跑出版本号（exit 0）才接受。跨架构二进制在此会因 ENOEXEC 失败。
+        -- 不加 timeout：`frpc -v` 只打印版本号即退出（不连接/不守护），瞬时返回无 hang 风险；
+        -- 且 busybox/OpenWrt 不保证有 timeout applet（实测部分环境 `timeout: not found` 返回 127，
+        -- 反而会把好的二进制误判为不可执行）。
+        local runnable = M.sh_call(util.shellquote(tmp) .. " -v") == 0
+        if runnable then
+            if M.sh_call("mv -f " .. util.shellquote(tmp) .. " " .. util.shellquote(M.BIN_FILE)) ~= 0 then
+                sys.call("rm -f " .. util.shellquote(tmp))
+                return false, "原子替换 " .. M.BIN_FILE .. " 失败"
+            end
+        else
+            -- 跳过二进制还原：清掉 .new，沿用本机现有 frpc
+            sys.call("rm -f " .. util.shellquote(tmp))
+            local cur_arch  = select(1, M.arch_info())
+            local bak_arch  = (manifest.platform and manifest.platform.arch_raw) or ""
+            note = string.format(
+                "备份中的 frpc 二进制无法在本机运行（备份架构：%s，本机架构：%s），已跳过二进制还原，沿用本机现有 frpc。",
+                bak_arch ~= "" and bak_arch or "未知",
+                cur_arch ~= "" and cur_arch or "未知")
+            sys.call("logger -t luci-app-frpc " .. util.shellquote("restore: " .. note))
+
+            -- 兜底：跳过后必须确保本机存在一个能跑的 frpc，否则后面 start 必失败。
+            local have_local = fs.access(M.BIN_FILE)
+                and (M.sh_call(util.shellquote(M.BIN_FILE) .. " -v") == 0)
+            if not have_local then
+                return false, note .. " 但本机 " .. M.BIN_FILE ..
+                    " 不存在或同样无法执行，无法启动。请先在「程序管理」下载并切换到与本机架构匹配的 frpc 版本，再重试还原。"
+            end
+        end
+
+        -- 锁回 default_client_file 到本机标准路径 /usr/bin/frpc。
+        -- 注意：UCI 文件在第 2 步被外部 cp 直接覆盖（且可能来自异架构设备，client_file 路径无意义），
+        -- 模块级 cursor 缓存可能持有旧值，先 load("frpc") 强制刷新再锁回。
         uci:load("frpc")
         if uci:get("frpc", "main", "default_client_file") ~= M.BIN_FILE then
             uci:set("frpc", "main", "default_client_file", M.BIN_FILE)
@@ -446,7 +485,7 @@ function M.apply_unpacked(pkgroot, manifest)
         return false, "frpc 启动失败（自动回滚将启动）"
     end
 
-    return true, nil
+    return true, note
 end
 
 -- 滚动保留：删除 .auto-snapshots/ 下最老的，保留最近 KEEP 份

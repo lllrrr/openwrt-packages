@@ -7,6 +7,7 @@ import header from "./modules/header";
 import logs from "./modules/logs";
 import ddns from "./modules/ddns";
 import nftables from "./modules/nftables";
+import about from "./modules/about";
 import { rpcClient } from "./utils/rpc-client";
 
 const form = L.form;
@@ -45,6 +46,7 @@ export class main extends L.view {
     s.tab("frps", _("FRP Server"));
     s.tab("nftables", _("nftables"));
     s.tab("logs", _("System Logs"));
+    s.tab("about", _("About"));
 
     const fullStatus: FullStatusResponse = data[2] as FullStatusResponse;
     const client = new Client(fullStatus);
@@ -56,6 +58,7 @@ export class main extends L.view {
     frps(m, s, "frps");
     nftables(m, s, "nftables");
     logs(m, s, "logs");
+    about(m, s, "about");
 
     return m.render();
   }

@@ -75,7 +75,6 @@ o:value("token")
 o:value("oidc")
 
 o = s:taboption("basic", Value, "auth__token", translate("鉴权令牌"))
-o.password = true
 o:depends("auth__method", "")
 o:depends("auth__method", "token")
 
@@ -160,7 +159,6 @@ o.datatype = "port"
 o = s:taboption("dashboard", Value, "webServer__user", translate("登录用户名"))
 
 o = s:taboption("dashboard", Value, "webServer__password", translate("登录密码"))
-o.password = true
 
 o = s:taboption("dashboard", Value, "webServer__tls__certFile", translate("TLS证书文件路径"),
 	translate("证书和密钥都配置表示面板开启TLS；都留空即不开启"))

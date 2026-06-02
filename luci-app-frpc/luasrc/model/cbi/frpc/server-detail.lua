@@ -54,7 +54,6 @@ o:value("token", "token")
 o:value("oidc", "oidc")
 
 o = s:taboption("general", Value, "auth__token", translate("Token"))
-o.password = true
 o:depends("auth__method", "token")
 
 -- === advanced ===
@@ -116,7 +115,6 @@ o = s:taboption("manage", Value, "admin_user", translate("Admin 用户"))
 o:depends("admin_enabled", "1")
 
 o = s:taboption("manage", Value, "admin_password", translate("Admin 密码"))
-o.password = true
 o:depends("admin_enabled", "1")
 
 -- === log ===

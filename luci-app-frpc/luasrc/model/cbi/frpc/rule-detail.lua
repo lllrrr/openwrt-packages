@@ -127,7 +127,6 @@ o:depends("PlUgIn_type", "http2https")
 o:depends("PlUgIn_type", "http2http")
 
 o = s:option(Value, "secretKey", translate("安全密钥sk (secretKey)"))
-o.password = true
 o:depends("type", "stcp")
 o:depends("type", "xtcp")
 o:depends("type", "sudp")

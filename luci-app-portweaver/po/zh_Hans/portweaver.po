@@ -1,7 +1,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: luci-app-portweaver\n"
-"POT-Creation-Date: 2026-05-27 19:05+0800\n"
+"POT-Creation-Date: 2026-06-02 22:14+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -49,6 +49,12 @@ msgstr "80 或 80-90"
 
 msgid "8080 or 8080-8090"
 msgstr "8080 或 8080-8090"
+
+msgid "A flexible port forwarding and NAT traversal tool for OpenWrt."
+msgstr "一个灵活的端口转发和 NAT 穿透工具，适用于 OpenWrt。"
+
+msgid "About"
+msgstr "关于"
 
 msgid "Actions"
 msgstr "操作"
@@ -105,6 +111,9 @@ msgstr "您确定要重启 PortWeaver 服务吗？"
 msgid "Authentication Token"
 msgstr "认证令牌"
 
+msgid "Author"
+msgstr "作者"
+
 msgid "Bind Address"
 msgstr "绑定地址"
 
@@ -133,16 +142,20 @@ msgid "Close"
 msgstr "关闭"
 
 msgid ""
-"Collect traffic statistics (bytes_in/bytes_out) using zero-cost atomic counters."
-" \n"
-"NOTE: Mutually exclusive with firewall forwarding - enabling stats will disable "
-"add_firewall_forward."
-msgstr ""
-"使用零成本原子计数器收集流量统计信息（入站字节数/出站字节数）。\n"
-"注意：与防火墙转发互斥；启用统计功能将禁用“添加防火墙转发”。"
+"Collect traffic statistics (bytes_in/bytes_out) for application-layer forwarding"
+" using zero-cost atomic counters."
+msgstr "使用零成本原子计数器，收集应用层转发的流量统计信息（入站字节数/出站字节数）。"
+
+msgid ""
+"Collect traffic statistics using nftables kernel counters (extremely low overhea"
+"d). Requires nftables backend."
+msgstr "使用 nftables 内核计数器收集流量统计信息（开销极低）。需要 nftables 后端。"
 
 msgid "Command"
 msgstr "命令"
+
+msgid "Config reloaded: %d project(s) restarted"
+msgstr "配置已重新加载：%d 个项目已重启"
 
 msgid "Configuration Name"
 msgstr "配置名称"
@@ -164,11 +177,24 @@ msgstr "已连接"
 msgid "Connecting"
 msgstr "正在连接"
 
+msgid ""
+"Controls how event loop runtimes are shared among listeners. 'per_project' (defa"
+"ult): one runtime shared by all listeners in this project, balanced resource usa"
+"ge. 'per_listener': each listener gets its own dedicated runtime, highest isolat"
+"ion but uses more memory (one thread per listener). 'global': all projects share"
+" a single global runtime, lowest memory usage but no isolation between projects."
+msgstr ""
+"控制事件循环运行时如何在监听器之间共享。'per_project'（默认）：所有该项目的监听器共享一个运行时，平衡资源使用。'per_listener'：每个监"
+"听器拥有自己的专用运行时，隔离性最高，但会使用更多内存（每个监听器一个线程）。'global'：所有项目共享单个全局运行时，内存使用量最低，但项目之间没有隔离。"
+
 msgid "COPY"
 msgstr "复制"
 
 msgid "COPY SELECTED"
 msgstr "复制所选"
+
+msgid "Core (Zig)"
+msgstr "核心 (Zig)"
 
 msgid "Could not determine project index"
 msgstr "无法确定项目索引"
@@ -236,6 +262,9 @@ msgstr "域名"
 msgid "Download Logs"
 msgstr "下载日志"
 
+msgid "Dynamic DNS client"
+msgstr "动态 DNS 客户端"
+
 msgid "e.g. "
 msgstr "例如"
 
@@ -245,11 +274,17 @@ msgstr "启用"
 msgid "Enable App Level Forward"
 msgstr "启用应用层转发"
 
+msgid "Enable App Statistics"
+msgstr "启用应用统计"
+
 msgid "Enable Compression"
 msgstr "启用压缩"
 
 msgid "Enable Encryption"
 msgstr "启用加密"
+
+msgid "Enable Firewall Statistics"
+msgstr "启用防火墙统计"
 
 msgid "Enable IPv4"
 msgstr "启用 IPv4"
@@ -265,9 +300,6 @@ msgstr "启用将日志输出到 /tmp/portweaver.log"
 
 msgid "Enable PortWeaver"
 msgstr "启用 端口工具箱"
-
-msgid "Enable Statistics"
-msgstr "启用 统计信息"
 
 msgid "Enable TCP multiplexing for better performance"
 msgstr "启用 TCP 多路复用来提高性能"
@@ -319,11 +351,20 @@ msgstr "复制日志失败 - 请手动选择并复制"
 msgid "Failed to fetch logs"
 msgstr "获取日志失败"
 
+msgid "Failed to reload config: %s"
+msgstr "重新加载配置失败：%s"
+
+msgid "Failed to restart project: %s"
+msgstr "重启项目失败：%s"
+
 msgid "Failed to restart service"
 msgstr "重启服务失败"
 
 msgid "Failed to toggle runtime state: %s"
 msgstr " 切换运行时状态失败：%s "
+
+msgid "Fast Reverse Proxy for NAT traversal"
+msgstr "用于 NAT 穿透的快速反向代理"
 
 msgid ""
 "Field name varies by provider: AccessKey ID (Aliyun), ID (DNSPod), API Key (Pork"
@@ -376,6 +417,9 @@ msgstr "FRPS 活动代理"
 
 msgid "FRPS Logs - %s"
 msgstr "FRPS 日志 - %s"
+
+msgid "Global - lowest memory, no isolation"
+msgstr "全局 - 内存占用最低，无隔离"
 
 msgid "Global Settings"
 msgstr "全局设置"
@@ -455,6 +499,15 @@ msgstr "IPv6 地址"
 msgid "JSON body for webhook (supports {{ip}} and {{domain}})"
 msgstr "Webhook 的 JSON 数据 (支持 {{ip}} 和 {{domain}})"
 
+msgid "License: Apache-2.0"
+msgstr "许可证：Apache-2.0"
+
+msgid "License: GPL-3.0"
+msgstr "许可证：GPL-3.0"
+
+msgid "License: MIT"
+msgstr "许可证：MIT"
+
 msgid "Listen Port"
 msgstr "监听端口"
 
@@ -484,6 +537,9 @@ msgstr "日志已成功清除"
 
 msgid "Logs copied to clipboard"
 msgstr "日志已复制到剪贴板"
+
+msgid "Loop Mode"
+msgstr "循环模式"
 
 msgid "Max Log Backup Files"
 msgstr "最大日志备份文件数"
@@ -523,6 +579,12 @@ msgstr "网络已断开"
 
 msgid "Network is unreachable"
 msgstr "网络不可达"
+
+msgid "nftables"
+msgstr "nftables"
+
+msgid "nftables Rules"
+msgstr "nftables 规则"
 
 msgid "No entries"
 msgstr "无条目"
@@ -572,6 +634,12 @@ msgstr "每行一个头部 (Header: 值)"
 msgid "Open Firewall Port"
 msgstr "打开防火墙端口"
 
+msgid "Open Source Dependencies"
+msgstr "开源依赖项"
+
+msgid "OpenWrt Package"
+msgstr "OpenWrt 软件包"
+
 msgid "Operation not supported on transport endpoint"
 msgstr "不支持在传输端点上执行此操作"
 
@@ -586,6 +654,12 @@ msgstr "暂停"
 
 msgid "PAUSED"
 msgstr "已暂停"
+
+msgid "Per Listener - highest isolation, more memory"
+msgstr "每个监听器 - 最高隔离度，占用更多内存"
+
+msgid "Per Project (default) - balanced"
+msgstr "每个项目 (默认) - 平衡"
 
 msgid "Permission denied - unable to bind to port (EACCES)"
 msgstr "权限被拒绝 - 无法绑定到端口 (EACCES)"
@@ -637,6 +711,9 @@ msgstr "项目状态"
 msgid "Project List"
 msgstr "项目列表"
 
+msgid "Project restarted successfully"
+msgstr "项目已成功重启"
+
 msgid "projects running"
 msgstr "运行中项目"
 
@@ -682,8 +759,17 @@ msgstr "刷新"
 msgid "Regular expression to extract IPv6 address from output"
 msgstr "用于从输出中提取 IPv6 地址的正则表达式"
 
+msgid "Reload"
+msgstr "重新加载"
+
+msgid "Reload Config"
+msgstr "重新加载配置"
+
 msgid "Remark"
 msgstr "备注"
+
+msgid "Restart"
+msgstr "重启"
 
 msgid "Restart Service"
 msgstr "重启服务"
@@ -833,6 +919,14 @@ msgstr "运行时间"
 
 msgid "URL"
 msgstr "URL"
+
+msgid "Use nftables"
+msgstr "使用 nftables"
+
+msgid ""
+"Use nftables instead of OpenWrt firewall (fw4). Requires nftables package instal"
+"led."
+msgstr "使用 nftables 代替 OpenWrt 防火墙 (fw4)。需要安装 nftables 软件包。"
 
 msgid "Use Port Mappings Mode"
 msgstr "使用端口映射模式"

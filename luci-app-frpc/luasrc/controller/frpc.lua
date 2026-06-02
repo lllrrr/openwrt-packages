@@ -1291,7 +1291,9 @@ if not ok4 then
     return
 end
 
-write_status("done", "还原成功", { snapshot = snapshot_path })
+-- ok4=true 时 aerr 可能带回提示（如跨架构跳过二进制），一并展示给用户
+write_status("done", aerr and ("还原成功（注意：" .. aerr .. "）") or "还原成功",
+    { snapshot = snapshot_path, note = aerr })
 ]=], status_file, dest_id, name)
 
 	fs.writefile(script_file, script)
