@@ -125,17 +125,19 @@ migrate_v2() {
 
 migrate_v2
 
-# === v3 迁移：匿名 server -> 稳定命名 ===
+# === 匿名 server -> 稳定命名（每次安装/升级都跑，幂等自愈）===
 # 背景：libuci 给匿名 section 自动生成的 cfgXXXXXX 名字依赖 section 在文件中的整体位置，
-# 任何插入/删除/重排（加 rule、加 destination、还原备份重写文件）都会让后续匿名 server
+# 任何插入/删除/重排（加 rule、加 destination、排序、还原备份重写文件）都会让后续匿名 server
 # 的 cfg-id 整体偏移，rule.server_id 会变成悬空引用，UI 表现为下拉静默 fallback 到第一项。
-# 修复：把所有匿名 server rename 成 srv_<ts>_<seq> 这种稳定命名，
-# 并同步把指向旧 cfg-id 的 rule.server_id 一并改写。幂等，sentinel 防重。
-migrate_v3() {
-	local migrated
-	migrated=$(uci -q get frpc.main.migrated_v3)
-	[ "$migrated" = "1" ] && return 0
-
+#
+# 为什么从一次性 migrate_v3 改成「每次都跑」：v3 用 sentinel 防重，只在首次升级时把当时存在的
+# 匿名 server 转稳定名。但「复制服务器」等路径（已在 controller 修复为稳定命名）历史上仍可能
+# 用 uci add 造出新的匿名 server，sentinel 一旦置位就再也不会清理。改为无条件运行后，只要配置里
+# 还残留任何匿名 server，每次升级都会被收编，从根上保证「配置里永不存在匿名 server」。
+#
+# 注意：此自愈只能修复 server_id 仍能匹配到现存 server 的引用；若漂移已经发生、server_id 指向的
+# cfg-id 已不存在（彻底悬空），无法自动还原归属，需用户在 UI 重新选择（已有「⚠ 未知服务器」提示）。
+heal_anonymous_servers() {
 	# uci -X 强制输出真实内部 name（命名 section 显示原名，匿名 section 显示 cfgXXXXXX）
 	local server_ids
 	server_ids=$(uci -X show frpc 2>/dev/null | awk -F'[.=]' '/=server$/{print $2}')
@@ -147,7 +149,7 @@ migrate_v3() {
 
 	local sid
 	for sid in $server_ids; do
-		# 命名 section（如 'frps'）跳过，不动用户已选的稳定名
+		# 命名 section（如 'frps' / 'srv_xxx'）跳过，不动用户已选的稳定名
 		case "$sid" in
 			cfg*) ;;
 			*) continue ;;
@@ -173,19 +175,18 @@ migrate_v3() {
 				fi
 			done
 			renamed=$((renamed + 1))
-			logger -t luci-app-frpc "migrate_v3: server ${sid} -> ${new_name}"
+			logger -t luci-app-frpc "heal_anonymous_servers: server ${sid} -> ${new_name}"
 		fi
 
 		seq=$((seq + 1))
 	done
 
-	uci set frpc.main.migrated_v3=1
-	uci commit frpc
-
-	[ "$renamed" -gt 0 ] && logger -t luci-app-frpc "migrate_v3 done: ${renamed} anonymous server(s) renamed to stable IDs"
+	# 旧的 migrated_v3 sentinel 留着无害（本函数已不再依赖它），不再清理以免产生未提交变更
+	[ "$renamed" -gt 0 ] && uci commit frpc
+	[ "$renamed" -gt 0 ] && logger -t luci-app-frpc "heal_anonymous_servers done: ${renamed} anonymous server(s) renamed to stable IDs"
 }
 
-migrate_v3
+heal_anonymous_servers
 
 # 每次包安装/升级跑一次自愈：清掉指向不存在文件的 client_file 字段，
 # 避免「程序管理切到某版本后该目录被外部清理」导致服务起不来。

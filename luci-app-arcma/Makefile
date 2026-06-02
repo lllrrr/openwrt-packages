@@ -8,7 +8,7 @@ PKG_VERSION:=1.0.0
 PKG_RELEASE:=3
 
 LUCI_TITLE:=LuCI for ARCMA
-LUCI_DESCRIPTION:=Automatically change MAC addresses of all network interfaces. Zero external dependencies — pure POSIX sh with embedded OUI vendor database.
+LUCI_DESCRIPTION:=Automatically change MAC addresses of all network interfaces. BusyBox ash compatible with embedded OUI vendor database.
 LUCI_DEPENDS:=+ip-full
 LUCI_PKGARCH:=all
 
@@ -40,4 +40,4 @@ define Package/$(PKG_NAME)/prerm
 exit 0
 endef
 
-# call BuildPackage - OpenWrt buildroot signature
+$(eval $(call BuildPackage,$(PKG_NAME)))

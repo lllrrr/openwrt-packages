@@ -1,7 +1,8 @@
 #!/bin/sh
+# shellcheck disable=SC3043
 # SPDX-License-Identifier: MIT
 # arcma - Automatic Random Complete MAC Address changer
-# Zero external dependencies: requires only BusyBox sh, od, uci, ip
+# Requires only BusyBox ash-compatible sh, od, uci, ip
 # Compatible with OpenWrt/ImmortalWrt 24.10+
 #
 # Usage: arcma <command> [options]
@@ -153,6 +154,18 @@ pick_oui() {
     echo "${oui_list}" | tr ' ' '\n' | sed -n "${pick}p"
 }
 
+# first_vendor <type>
+# Returns the first vendor name from an embedded OUI type file.
+first_vendor() {
+    local type="$1"
+    local file="${ARCMA_OUI_DIR}/${type}.txt"
+
+    [ -f "${file}" ] || return 1
+    grep -v '^#' "${file}" | cut -f1 | while read -r name; do
+        [ -n "${name}" ] && { echo "${name}"; break; }
+    done
+}
+
 # ──────────────────────────────────────────────────────────
 # Interface enumeration
 # ──────────────────────────────────────────────────────────
@@ -165,8 +178,10 @@ list_physical_ifaces() {
         # Safeguard for cases where no interface matches the pattern
         [ -e "${iface}" ] || continue
         iface=$(basename "${iface}")
-        # Skip loopback
-        [ "${iface}" = "lo" ] && continue
+        # Skip loopback-style interfaces
+        case "${iface}" in
+            lo|loopback*) continue ;;
+        esac
         # Only real hardware: has 'device' symlink (skips bridges, tunnels, vlans without HW)
         if [ -e "/sys/class/net/${iface}/device" ]; then
             result="${result} ${iface}"
@@ -260,16 +275,21 @@ get_orig_mac() {
 persist_to_uci() {
     local dev="$1"
     local mac="$2"
-    # M1 fix: escape dev for use in regex (handles vlan names like eth0.1)
-    local dev_esc
-    dev_esc=$(printf '%s' "${dev}" | sed 's/[\[\]\^\$\.\*\+\?\{\}\(\)|\\]/\\&/g')
-    # Find all uci network sections and check their 'device' or 'ifname' option
-    local section
-    section=$(uci show network 2>/dev/null \
-        | grep -E "\.device='?${dev_esc}'?|\.ifname='?${dev_esc}'?" \
-        | head -n1 \
-        | cut -d. -f2 \
-        | cut -d= -f1)
+    local section val word
+
+    section=""
+    for section in $(uci -q show network 2>/dev/null | sed -n "s/^network\.\([^.]*\)=interface$/\1/p"); do
+        val=$(uci -q get "network.${section}.device" 2>/dev/null)
+        [ "${val}" = "${dev}" ] && break
+
+        val=$(uci -q get "network.${section}.ifname" 2>/dev/null)
+        for word in ${val}; do
+            [ "${word}" = "${dev}" ] && break 2
+        done
+
+        section=""
+    done
+
     if [ -n "${section}" ]; then
         if uci set "network.${section}.macaddr=${mac}"; then
             UCI_NETWORK_CHANGED=1
@@ -283,8 +303,8 @@ persist_to_uci() {
 # Logging
 # ──────────────────────────────────────────────────────────
 
-log_info() { logger -t arcma -p daemon.info -- "$*"; echo "[arcma] $*"; }
-log_err()  { logger -t arcma -p daemon.err  -- "$*"; echo "[arcma] ERROR: $*" >&2; }
+log_info() { logger -t arcma -p daemon.info -- "$*" 2>/dev/null; echo "[arcma] $*"; }
+log_err()  { logger -t arcma -p daemon.err  -- "$*" 2>/dev/null; echo "[arcma] ERROR: $*" >&2; }
 
 # ──────────────────────────────────────────────────────────
 # Commands
@@ -294,6 +314,7 @@ log_err()  { logger -t arcma -p daemon.err  -- "$*"; echo "[arcma] ERROR: $*" >&
 cmd_apply() {
     local mode="local" oui_type="router" oui_vendor="" oui_manual="" seq=0 persist=0
     local ifaces=""
+    local rc=0
 
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -351,7 +372,7 @@ cmd_apply() {
     local idx=0
     for iface in ${ifaces}; do
         # Skip non-existent interfaces
-        [ -e "/sys/class/net/${iface}" ] || { log_info "Skipping ${iface}: not found"; continue; }
+        [ -e "/sys/class/net/${iface}" ] || { log_err "Skipping ${iface}: not found"; rc=1; continue; }
 
         # Save original MAC before first modification
         save_orig_mac "${iface}"
@@ -378,22 +399,31 @@ cmd_apply() {
 
         log_info "${iface}: ${mode} → ${new_mac}"
         if set_mac "${iface}" "${new_mac}"; then
-            [ "${persist}" = "1" ] && persist_to_uci "${iface}" "${new_mac}"
+            if [ "${persist}" = "1" ]; then
+                persist_to_uci "${iface}" "${new_mac}" || {
+                    log_err "${iface}: unable to persist MAC in UCI network config"
+                    rc=1
+                }
+            fi
         else
             log_err "${iface}: failed to apply MAC ${new_mac}"
+            rc=1
         fi
         idx=$(( idx + 1 ))
     done
 
     # Commit network transaction at the end to save Flash writes
     if [ "${UCI_NETWORK_CHANGED}" = "1" ]; then
-        uci commit network
+        uci commit network || rc=1
     fi
+
+    return ${rc}
 }
 
 # cmd_restore [iface ...]
 cmd_restore() {
     local ifaces="$*"
+    local rc=0
     [ -z "${ifaces}" ] || echo "${ifaces}" | grep -q '\*' && \
         ifaces=$(list_physical_ifaces)
 
@@ -406,8 +436,10 @@ cmd_restore() {
             continue
         fi
         log_info "${iface}: restoring → ${orig}"
-        set_mac "${iface}" "${orig}" || log_err "${iface}: restore failed"
+        set_mac "${iface}" "${orig}" || { log_err "${iface}: restore failed"; rc=1; }
     done
+
+    return ${rc}
 }
 
 # cmd_show [iface ...]
@@ -518,12 +550,44 @@ cmd_gen() {
 # UCI-driven batch apply (called by init.d/hotplug)
 # ──────────────────────────────────────────────────────────
 
+cmd_apply_from_config() {
+    local mode="$1"
+    local oui_type="$2"
+    local oui_vendor="$3"
+    local oui_prefix="$4"
+    local static_mac="$5"
+    local persist="$6"
+    local seq="$7"
+    local devlist="$8"
+    local dev
+
+    set -- -m "${mode}"
+    if [ "${mode}" = "oui" ]; then
+        if [ -n "${oui_prefix}" ]; then
+            set -- "$@" -s "${oui_prefix}"
+        else
+            set -- "$@" -t "${oui_type}" -v "${oui_vendor}"
+        fi
+    elif [ "${mode}" = "static" ]; then
+        set -- "$@" -s "${static_mac}"
+    fi
+    [ "${persist}" = "1" ] && set -- "$@" -p
+    [ "${seq}" = "1" ] && set -- "$@" -e
+
+    for dev in ${devlist}; do
+        set -- "$@" "${dev}"
+    done
+
+    cmd_apply "$@"
+}
+
 # uci_apply [iface_filter]
 # Reads /etc/config/arcma and applies per-section or global settings
 # M2+M3 fix: track applied_count separately from section_count so that
 # global fallback triggers when all sections are disabled OR none match filter.
 uci_apply() {
     local filter="$1"
+    local rc=0
 
     local enabled
     enabled=$(uci -q get arcma.global.enabled 2>/dev/null)
@@ -533,7 +597,7 @@ uci_apply() {
     local section_count=0
     local applied_count=0
     while true; do
-        local sec_enabled sec_device sec_mode sec_oui_type sec_oui_vendor sec_oui_prefix sec_persist sec_seq
+        local sec_enabled sec_device sec_mode sec_oui_type sec_oui_vendor sec_oui_prefix sec_static_mac sec_persist sec_seq
         sec_enabled=$(uci -q get "arcma.@iface[${section_count}].enabled"    2>/dev/null)
         sec_device=$(uci -q get  "arcma.@iface[${section_count}].device"     2>/dev/null)
 
@@ -555,17 +619,11 @@ uci_apply() {
         sec_oui_type=$(uci -q get   "arcma.@iface[$((section_count-1))].oui_type"    2>/dev/null || echo "router")
         sec_oui_vendor=$(uci -q get "arcma.@iface[$((section_count-1))].oui_vendor"  2>/dev/null)
         sec_oui_prefix=$(uci -q get "arcma.@iface[$((section_count-1))].oui_prefix"  2>/dev/null)
+        sec_static_mac=$(uci -q get "arcma.@iface[$((section_count-1))].static_mac"  2>/dev/null)
         sec_persist=$(uci -q get    "arcma.@iface[$((section_count-1))].persist"     2>/dev/null || echo "0")
         sec_seq=$(uci -q get        "arcma.@iface[$((section_count-1))].sequence"    2>/dev/null || echo "0")
-
-        # Build apply args
-        local args="-m ${sec_mode}"
-        [ "${sec_mode}" = "oui" ] && {
-            [ -n "${sec_oui_prefix}" ] && args="${args} -s ${sec_oui_prefix}" \
-                || args="${args} -t ${sec_oui_type} -v ${sec_oui_vendor}"
-        }
-        [ "${sec_persist}" = "1" ] && args="${args} -p"
-        [ "${sec_seq}"     = "1" ] && args="${args} -e"
+        [ "${sec_mode}" = "oui" ] && [ -z "${sec_oui_prefix}" ] && [ -z "${sec_oui_vendor}" ] && \
+            sec_oui_vendor=$(first_vendor "${sec_oui_type}")
 
         # Resolve device list
         local devlist
@@ -575,40 +633,40 @@ uci_apply() {
             devlist="${sec_device}"
         fi
 
-        # shellcheck disable=SC2086
-        cmd_apply ${args} ${devlist}
+        cmd_apply_from_config "${sec_mode}" "${sec_oui_type}" "${sec_oui_vendor}" \
+            "${sec_oui_prefix}" "${sec_static_mac}" "${sec_persist}" "${sec_seq}" \
+            "${devlist}" || rc=1
         applied_count=$(( applied_count + 1 ))
     done
 
     # Fallback: no enabled iface section was applied (covers: no sections, all disabled, filter matched nothing)
     if [ "${applied_count}" = "0" ]; then
-        local g_mode g_oui_type g_oui_vendor g_oui_prefix g_persist g_seq
+        local g_mode g_oui_type g_oui_vendor g_oui_prefix g_static_mac g_persist g_seq
         g_mode=$(uci -q get       arcma.global.mode       2>/dev/null || echo "local")
         g_oui_type=$(uci -q get   arcma.global.oui_type   2>/dev/null || echo "router")
         g_oui_vendor=$(uci -q get arcma.global.oui_vendor 2>/dev/null)
         g_oui_prefix=$(uci -q get arcma.global.oui_prefix 2>/dev/null)
+        g_static_mac=$(uci -q get arcma.global.static_mac 2>/dev/null)
         g_persist=$(uci -q get    arcma.global.persist    2>/dev/null || echo "0")
         g_seq=$(uci -q get        arcma.global.sequence   2>/dev/null || echo "0")
-
-        local args="-m ${g_mode}"
-        [ "${g_mode}" = "oui" ] && {
-            [ -n "${g_oui_prefix}" ] && args="${args} -s ${g_oui_prefix}" \
-                || args="${args} -t ${g_oui_type} -v ${g_oui_vendor}"
-        }
-        [ "${g_persist}" = "1" ] && args="${args} -p"
-        [ "${g_seq}"     = "1" ] && args="${args} -e"
+        [ "${g_mode}" = "oui" ] && [ -z "${g_oui_prefix}" ] && [ -z "${g_oui_vendor}" ] && \
+            g_oui_vendor=$(first_vendor "${g_oui_type}")
 
         # When filter is set (hotplug), apply only to that device; otherwise all interfaces
         if [ -n "${filter}" ]; then
-            # shellcheck disable=SC2086
-            cmd_apply ${args} "${filter}"
+            cmd_apply_from_config "${g_mode}" "${g_oui_type}" "${g_oui_vendor}" \
+                "${g_oui_prefix}" "${g_static_mac}" "${g_persist}" "${g_seq}" \
+                "${filter}" || rc=1
         else
             local all_ifaces
             all_ifaces=$(list_physical_ifaces)
-            # shellcheck disable=SC2086
-            cmd_apply ${args} ${all_ifaces}
+            cmd_apply_from_config "${g_mode}" "${g_oui_type}" "${g_oui_vendor}" \
+                "${g_oui_prefix}" "${g_static_mac}" "${g_persist}" "${g_seq}" \
+                "${all_ifaces}" || rc=1
         fi
     fi
+
+    return ${rc}
 }
 
 # uci_restore [iface_filter]
@@ -626,7 +684,7 @@ uci_restore() {
 # ──────────────────────────────────────────────────────────
 usage() {
 printf "arcma v%s — Automatic Random Complete MAC Address changer
-Zero external dependencies. Compatible with OpenWrt 24.10+
+BusyBox ash-compatible. Compatible with OpenWrt 24.10+
 
 Commands:
   apply   [opts] [iface ...]   Change MAC addresses
@@ -641,7 +699,9 @@ Options (apply / gen):
   -m static           Use exact MAC from -s
   -t <type>           OUI type: router wlan eth console  (default: router)
   -v <Vendor>         Vendor name within type (e.g. Asus, Intel)
-  -s <XX:XX:XX>       Manual OUI prefix (or full MAC for static mode)
+  -s <XX:XX:XX>       Manual OUI prefix for oui mode
+  -s <XX:XX:XX:XX:XX:XX>
+                       Full MAC for static mode
   -e                  Sequence mode (NIC bytes increment across ifaces)
   -p                  Persist MAC into uci network config
 
@@ -659,7 +719,8 @@ Examples:
 # ──────────────────────────────────────────────────────────
 # Entry point
 # ──────────────────────────────────────────────────────────
-CMD="$1"; shift
+CMD="$1"
+[ $# -gt 0 ] && shift
 case "${CMD}" in
     apply)      cmd_apply "$@" ;;
     restore)    cmd_restore "$@" ;;

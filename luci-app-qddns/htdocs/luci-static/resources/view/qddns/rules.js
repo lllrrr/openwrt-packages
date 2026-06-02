@@ -1777,6 +1777,13 @@ return view.extend({
 		o.validate = L.bind(function(sectionId, value) {
 			return this.validateRecordTypeForSource(uci.get('qddns', sectionId, 'record_type'), value);
 		}, this);
+		const sourceWrite = o.write;
+		o.write = function(sectionId, value) {
+			const result = sourceWrite.apply(this, arguments);
+			if (!viewRef.isPublicProbeSource(value))
+				uci.unset('qddns', sectionId, 'probe_interface');
+			return result;
+		};
 		o = s.option(widgets.DeviceSelect, 'probe_interface', _('Public probe outbound interface'), _('Optional for public probe rules. Choose the WAN/upstream interface used for public IP detection; empty uses the system default route.'));
 		o.modalonly = true;
 		o.multiple = false;

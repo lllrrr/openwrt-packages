@@ -280,6 +280,19 @@ function action_instance_admin_url()
 	http.write_json({ url = url, port = port })
 end
 
+-- 生成稳定 section 名（srv_<ts>_<rand>），极端兜底防同秒碰撞。
+-- 关键：server 绝不能用 uci:add 产生匿名 cfgXXXXXX——它的名字依赖 section 在文件中的
+-- 位置，任何排序/增删都会让 cfg-id 漂移，导致 rule.server_id 悬空（见 servers.lua s.create
+-- 与 uci-defaults migrate_v3 注释）。复制服务器同样必须走稳定命名。
+local function _stable_sid(prefix)
+	local id = string.format("%s_%d_%d", prefix, os.time(), math.random(1000, 9999))
+	for _ = 1, 5 do
+		if not uci:get("frpc", id) then break end
+		id = string.format("%s_%d_%d", prefix, os.time(), math.random(1000, 9999))
+	end
+	return id
+end
+
 local function _copy_section(stype, name_key, list_page, sid)
 	local dsp = require "luci.dispatcher"
 	local list_url = dsp.build_url("admin/services/frpc/" .. list_page)
@@ -295,7 +308,14 @@ local function _copy_section(stype, name_key, list_page, sid)
 		return
 	end
 
-	local new_sid = uci:add("frpc", stype)
+	-- server 用稳定命名（srv_xxx），rule 可保持匿名（无任何外键引用 rule 名，漂移无害）
+	local new_sid
+	if stype == "server" then
+		new_sid = _stable_sid("srv")
+		uci:set("frpc", new_sid, stype)
+	else
+		new_sid = uci:add("frpc", stype)
+	end
 	if not new_sid then
 		http.redirect(list_url)
 		return

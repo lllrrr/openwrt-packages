@@ -17,20 +17,21 @@ s.template = "cbi/tblsection"
 s.extedit = dsp.build_url("admin/services/frps/instances/%s")
 
 function s.create(...)
-	local sid = TypedSection.create(...)
-	if sid then
-		-- 新建实例默认禁用 + 合理默认值
-		m.uci:set("frps", sid, "enabled", "0")
-		if not m.uci:get("frps", sid, "alias") then
-			m.uci:set("frps", sid, "alias", sid)
-		end
-		if not m.uci:get("frps", sid, "bindPort") then
-			m.uci:set("frps", sid, "bindPort", "7000")
-		end
-		m.uci:save("frps")
-		luci.http.redirect(s.extedit % sid)
-		return
+	-- 用稳定命名创建 instance（ins_<ts>_<rand>），避免 UCI 匿名 cfgXXXXXX 因 section 位置变化漂移。
+	-- 与 frpc servers.lua 同款思路：frps instance 虽无 server_id 外键、不会丢数据，但稳定名可避免
+	-- 排序/增删后 toml 文件名、防火墙规则 frps_<sid>_*_auto 跟着漂移产生孤儿规则。
+	local stable_sid = string.format("ins_%d_%d", os.time(), math.random(1000, 9999))
+	for _ = 1, 5 do
+		if not m.uci:get("frps", stable_sid) then break end
+		stable_sid = string.format("ins_%d_%d", os.time(), math.random(1000, 9999))
 	end
+	-- 新建实例默认禁用 + 合理默认值
+	m.uci:set("frps", stable_sid, "instance")
+	m.uci:set("frps", stable_sid, "enabled", "0")
+	m.uci:set("frps", stable_sid, "alias", stable_sid)
+	m.uci:set("frps", stable_sid, "bindPort", "7000")
+	m.uci:save("frps")
+	luci.http.redirect(s.extedit % stable_sid)
 end
 
 o = s:option(DummyValue, "_status", translate("状态 / 操作"))

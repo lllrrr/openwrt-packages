@@ -3,7 +3,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-msgid "Auto MAC Randomizer"
+msgid "ARCMA"
 msgstr ""
 
 msgid "Automatically change MAC addresses of network interfaces on boot and/or interface up. No external dependencies required."
@@ -12,7 +12,7 @@ msgstr ""
 msgid "Global Settings"
 msgstr ""
 
-msgid "Enable arcma"
+msgid "Enable ARCMA"
 msgstr ""
 
 msgid "Trigger"
@@ -39,6 +39,9 @@ msgstr ""
 msgid "Vendor OUI prefix"
 msgstr ""
 
+msgid "Static MAC address"
+msgstr ""
+
 msgid "Default OUI type"
 msgstr ""
 
@@ -52,6 +55,9 @@ msgid "Overrides vendor selection. Format: <code>XX:XX:XX</code>"
 msgstr ""
 
 msgid "Must be XX:XX:XX format"
+msgstr ""
+
+msgid "Must be XX:XX:XX:XX:XX:XX format"
 msgstr ""
 
 msgid "Sequence mode"
@@ -84,6 +90,9 @@ msgstr ""
 msgid "OUI"
 msgstr ""
 
+msgid "Static"
+msgstr ""
+
 msgid "OUI type"
 msgstr ""
 
@@ -91,6 +100,9 @@ msgid "Vendor"
 msgstr ""
 
 msgid "Manual OUI"
+msgstr ""
+
+msgid "Static MAC"
 msgstr ""
 
 msgid "Seq"

@@ -1,4 +1,5 @@
 #!/bin/sh /etc/rc.common
+# shellcheck disable=SC2034,SC3043
 # SPDX-License-Identifier: MIT
 # arcma init.d service — boot-time MAC randomization
 

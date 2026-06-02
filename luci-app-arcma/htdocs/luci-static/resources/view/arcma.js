@@ -8,6 +8,7 @@
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 const OUI_TYPES = ['router', 'wlan', 'eth', 'console'];
+const ARCMA_BIN = '/usr/sbin/arcma';
 
 return view.extend({
 
@@ -20,7 +21,7 @@ return view.extend({
         fs.read(`/usr/share/arcma/oui/${t}.txt`).catch(() => '')
       ),
       // Read current interface MAC addresses from sysfs
-      fs.exec('arcma', ['show']).catch(() => ({ stdout: '', stderr: '' }))
+      fs.exec(ARCMA_BIN, ['show']).catch(() => ({ stdout: '', stderr: '' }))
     ]);
   },
 
@@ -34,52 +35,54 @@ return view.extend({
       .map(n => ({ value: n, label: n }));
   },
 
-  // ── Build vendor ListValue options for a given type ───────────────────
-  vendorOptions(type, allVendors) {
-    return allVendors[type] || [];
-  },
-
-  // ── Run arcma command and show output ─────────────────────────────────
-  handleCommand(cmd, args, outputEl) {
+  setActionBusy(busy) {
     const buttons = document.querySelectorAll('.arcma-action-btn');
-    buttons.forEach(b => b.setAttribute('disabled', 'true'));
-
-    return fs.exec('arcma', [cmd, ...args]).then(res => {
-      dom.content(outputEl, res.stdout || res.stderr || _('(no output)'));
-      outputEl.style.display = '';
-    }).catch(err => {
-      ui.addNotification(null, E('p', {}, String(err)));
-    }).finally(() => {
-      buttons.forEach(b => b.removeAttribute('disabled'));
+    buttons.forEach(b => {
+      if (busy)
+        b.setAttribute('disabled', 'true');
+      else
+        b.removeAttribute('disabled');
     });
   },
 
   handleApply(ev, outputEl) {
+    this.setActionBusy(true);
+
     return this.map.save(null, true).then(() =>
-      fs.exec('arcma', ['uci-apply'])
+      fs.exec(ARCMA_BIN, ['uci-apply'])
     ).then(res => {
       dom.content(outputEl, res.stdout || res.stderr || _('Done'));
       outputEl.style.display = '';
     }).catch(err => {
       ui.addNotification(null, E('p', {}, String(err)));
+    }).finally(() => {
+      this.setActionBusy(false);
     });
   },
 
   handleRestore(ev, outputEl) {
-    return fs.exec('arcma', ['uci-restore']).then(res => {
+    this.setActionBusy(true);
+
+    return fs.exec(ARCMA_BIN, ['uci-restore']).then(res => {
       dom.content(outputEl, res.stdout || res.stderr || _('Done'));
       outputEl.style.display = '';
     }).catch(err => {
       ui.addNotification(null, E('p', {}, String(err)));
+    }).finally(() => {
+      this.setActionBusy(false);
     });
   },
 
   handleShow(ev, outputEl) {
-    return fs.exec('arcma', ['show']).then(res => {
+    this.setActionBusy(true);
+
+    return fs.exec(ARCMA_BIN, ['show']).then(res => {
       dom.content(outputEl, res.stdout || _('(no output)'));
       outputEl.style.display = '';
     }).catch(err => {
       ui.addNotification(null, E('p', {}, String(err)));
+    }).finally(() => {
+      this.setActionBusy(false);
     });
   },
 
@@ -99,7 +102,7 @@ return view.extend({
 
     // m1 fix: store map on view instance so handleApply/handleRestore can call this.map.save()
     this.map = new form.Map('arcma',
-      _('Auto MAC Randomizer'),
+      _('ARCMA'),
       _('Automatically change MAC addresses of network interfaces on boot and/or interface up. No external dependencies required.')
     );
     const m = this.map;
@@ -109,7 +112,7 @@ return view.extend({
     s.anonymous = false;
     s.addremove = false;
 
-    o = s.option(form.Flag, 'enabled', _('Enable arcma'));
+    o = s.option(form.Flag, 'enabled', _('Enable ARCMA'));
     o.rmempty = false;
 
     o = s.option(form.ListValue, 'trigger', _('Trigger'),
@@ -124,6 +127,7 @@ return view.extend({
     o = s.option(form.ListValue, 'mode', _('Default MAC mode'));
     o.value('local', _('Locally administered (random)'));
     o.value('oui', _('Vendor OUI prefix'));
+    o.value('static', _('Static MAC address'));
     o.default = 'local';
     o.rmempty = false;
 
@@ -155,6 +159,15 @@ return view.extend({
         ? true : _('Must be XX:XX:XX format');
     };
 
+    o = s.option(form.Value, 'static_mac', _('Static MAC address'));
+    o.placeholder = 'XX:XX:XX:XX:XX:XX';
+    o.depends('mode', 'static');
+    o.rmempty = false;
+    o.validate = function (section_id, value) {
+      return /^[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}$/.test(value)
+        ? true : _('Must be XX:XX:XX:XX:XX:XX format');
+    };
+
     o = s.option(form.Flag, 'sequence', _('Sequence mode'),
       _('NIC bytes increment across multiple interfaces (same OUI prefix for all)'));
     o.depends('mode', 'oui');
@@ -183,6 +196,7 @@ return view.extend({
     o = s.option(form.ListValue, 'mode', _('Mode'));
     o.value('local', _('Local'));
     o.value('oui', _('OUI'));
+    o.value('static', _('Static'));
     o.default = 'local';
     o.rmempty = false;
 
@@ -206,6 +220,15 @@ return view.extend({
     o.depends('mode', 'oui');
     o.rmempty = true;
 
+    o = s.option(form.Value, 'static_mac', _('Static MAC'));
+    o.placeholder = 'XX:XX:XX:XX:XX:XX';
+    o.depends('mode', 'static');
+    o.rmempty = false;
+    o.validate = function (section_id, value) {
+      return /^[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}$/.test(value)
+        ? true : _('Must be XX:XX:XX:XX:XX:XX format');
+    };
+
     o = s.option(form.Flag, 'sequence', _('Seq'));
     o.depends('mode', 'oui');
     o.rmempty = false;
@@ -213,35 +236,33 @@ return view.extend({
     o = s.option(form.Flag, 'persist', _('Persist'));
     o.rmempty = false;
 
-    // ── Action buttons & status output ──────────────────────────────
-    // m2 fix: use DummySection instead of TypedSection with a fake UCI type
-    s = m.section(form.GridSection, '_actions');
-    s.render = L.bind(function (view, section_id) {
+    return m.render().then(node => {
       const outputEl = E('pre', {
         'class': 'arcma-output',
         'style': 'display:none; margin-top:8px; padding:8px; background:#1a1a1a; color:#e0e0e0; border-radius:4px; white-space:pre-wrap; max-height:300px; overflow-y:auto'
       });
 
-      return E('div', { 'class': 'cbi-section' }, [
-        E('h3', {}, [_('Actions')]),
-        E('div', { 'style': 'display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px' }, [
-          E('button', {
-            'class': 'btn cbi-button cbi-button-apply arcma-action-btn',
-            'click': ui.createHandlerFn(view, 'handleApply', outputEl)
-          }, [_('Apply Now')]),
-          E('button', {
-            'class': 'btn cbi-button cbi-button-reset arcma-action-btn',
-            'click': ui.createHandlerFn(view, 'handleRestore', outputEl)
-          }, [_('Restore Original')]),
-          E('button', {
-            'class': 'btn cbi-button arcma-action-btn',
-            'click': ui.createHandlerFn(view, 'handleShow', outputEl)
-          }, [_('Show Status')]),
-        ]),
-        outputEl
+      return E('div', {}, [
+        node,
+        E('div', { 'class': 'cbi-section' }, [
+          E('h3', {}, [_('Actions')]),
+          E('div', { 'style': 'display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px' }, [
+            E('button', {
+              'class': 'btn cbi-button cbi-button-apply arcma-action-btn',
+              'click': ui.createHandlerFn(this, 'handleApply', outputEl)
+            }, [_('Apply Now')]),
+            E('button', {
+              'class': 'btn cbi-button cbi-button-reset arcma-action-btn',
+              'click': ui.createHandlerFn(this, 'handleRestore', outputEl)
+            }, [_('Restore Original')]),
+            E('button', {
+              'class': 'btn cbi-button arcma-action-btn',
+              'click': ui.createHandlerFn(this, 'handleShow', outputEl)
+            }, [_('Show Status')]),
+          ]),
+          outputEl
+        ])
       ]);
-    }, this);
-
-    return m.render();
+    });
   }
 });

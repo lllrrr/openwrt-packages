@@ -1,6 +1,6 @@
 {
   "admin/network/arcma": {
-    "title": "Auto MAC Randomizer",
+    "title": "ARCMA",
     "order": 12,
     "action": {
       "type": "view",

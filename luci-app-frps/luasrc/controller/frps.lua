@@ -249,6 +249,18 @@ function action_instance_admin_url()
 	http.write_json({ url = url, port = web_port })
 end
 
+-- 生成稳定 instance 名（ins_<ts>_<rand>），极端兜底防同秒碰撞。
+-- frps instance 不被任何 UCI 外键引用（不会像 frpc rule.server_id 那样悬空丢数据），
+-- 但稳定命名可避免排序/增删后 toml 文件名、防火墙规则 frps_<sid>_*_auto 跟着漂移留孤儿。
+local function _stable_ins()
+	local id = string.format("ins_%d_%d", os.time(), math.random(1000, 9999))
+	for _ = 1, 5 do
+		if not uci:get("frps", id) then break end
+		id = string.format("ins_%d_%d", os.time(), math.random(1000, 9999))
+	end
+	return id
+end
+
 -- 复制实例
 function instance_copy(sid)
 	local dsp = require "luci.dispatcher"
@@ -265,7 +277,9 @@ function instance_copy(sid)
 		return
 	end
 
-	local new_sid = uci:add("frps", "instance")
+	-- 稳定命名，绝不用 uci:add 产生匿名 cfgXXXXXX
+	local new_sid = _stable_ins()
+	uci:set("frps", new_sid, "instance")
 	if not new_sid then
 		http.redirect(list_url)
 		return

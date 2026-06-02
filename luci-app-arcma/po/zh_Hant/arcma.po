@@ -4,8 +4,8 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Language: zh_Hant\n"
 
-msgid "Auto MAC Randomizer"
-msgstr "自動 MAC 位址隨機化"
+msgid "ARCMA"
+msgstr "ARCMA"
 
 msgid "Automatically change MAC addresses of network interfaces on boot and/or interface up. No external dependencies required."
 msgstr "在啟動或介面上線時自動更改網路介面的 MAC 位址。無需任何外部依賴。"
@@ -13,8 +13,8 @@ msgstr "在啟動或介面上線時自動更改網路介面的 MAC 位址。無�
 msgid "Global Settings"
 msgstr "全域設定"
 
-msgid "Enable arcma"
-msgstr "啟用 arcma"
+msgid "Enable ARCMA"
+msgstr "啟用 ARCMA"
 
 msgid "Trigger"
 msgstr "觸發時機"
@@ -40,6 +40,9 @@ msgstr "本地管理位址（隨機）"
 msgid "Vendor OUI prefix"
 msgstr "廠商 OUI 前綴"
 
+msgid "Static MAC address"
+msgstr "固定 MAC 位址"
+
 msgid "Default OUI type"
 msgstr "預設 OUI 類型"
 
@@ -54,6 +57,9 @@ msgstr "優先級高於廠商選擇。格式：<code>XX:XX:XX</code>"
 
 msgid "Must be XX:XX:XX format"
 msgstr "必須為 XX:XX:XX 格式"
+
+msgid "Must be XX:XX:XX:XX:XX:XX format"
+msgstr "必須為 XX:XX:XX:XX:XX:XX 格式"
 
 msgid "Sequence mode"
 msgstr "順序模式"
@@ -85,6 +91,9 @@ msgstr "本地"
 msgid "OUI"
 msgstr "OUI"
 
+msgid "Static"
+msgstr "固定"
+
 msgid "OUI type"
 msgstr "OUI 類型"
 
@@ -93,6 +102,9 @@ msgstr "廠商"
 
 msgid "Manual OUI"
 msgstr "手動 OUI"
+
+msgid "Static MAC"
+msgstr "固定 MAC"
 
 msgid "Seq"
 msgstr "順序"

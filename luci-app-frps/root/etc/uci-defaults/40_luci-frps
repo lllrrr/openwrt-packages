@@ -174,5 +174,51 @@ heal_client_paths() {
 
 heal_client_paths
 
+# === 匿名 instance -> 稳定命名（每次安装/升级都跑，幂等自愈）===
+# 与 frpc 同款思路：libuci 匿名 cfgXXXXXX 名字依赖 section 在文件中的位置，任何排序/增删/还原
+# 都会让它漂移。frps instance 不被任何 UCI 外键引用（不会像 frpc rule.server_id 那样悬空丢数据），
+# 但漂移会让 toml 文件名 frps.<name>.toml、防火墙规则 frps_<sid>_*_auto 跟着变，遗留孤儿规则。
+# 收编所有匿名 instance 为稳定 ins_<ts>_<seq>，保证配置里永不残留匿名 instance。
+heal_anonymous_instances() {
+	local ins_ids
+	ins_ids=$(uci -X show frps 2>/dev/null | awk -F'[.=]' '/=instance$/{print $2}')
+
+	local ts
+	ts=$(date +%s)
+	local seq=1
+	local renamed=0
+
+	local sid
+	for sid in $ins_ids; do
+		# 命名 section（如 'frps_default' / 'ins_xxx'）跳过
+		case "$sid" in
+			cfg*) ;;
+			*) continue ;;
+		esac
+
+		local new_name="ins_${ts}_${seq}"
+		while [ -n "$(uci -q get frps.${new_name})" ]; do
+			seq=$((seq + 1))
+			new_name="ins_${ts}_${seq}"
+		done
+
+		if uci -q rename "frps.${sid}=${new_name}"; then
+			renamed=$((renamed + 1))
+			logger -t luci-app-frps "heal_anonymous_instances: instance ${sid} -> ${new_name}"
+		fi
+
+		seq=$((seq + 1))
+	done
+
+	if [ "$renamed" -gt 0 ]; then
+		uci commit frps
+		logger -t luci-app-frps "heal_anonymous_instances done: ${renamed} anonymous instance(s) renamed; reloading"
+		# 重建 toml / 防火墙等运行时产物，清掉旧名残留
+		/etc/init.d/frps enabled 2>/dev/null && /etc/init.d/frps reload >/dev/null 2>&1
+	fi
+}
+
+heal_anonymous_instances
+
 rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
 exit 0

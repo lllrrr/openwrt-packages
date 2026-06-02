@@ -111,6 +111,9 @@ return view.extend({
 
 		children.forEach(function(option) {
 			switch (option.option) {
+			case 'name':
+				options.name = option;
+				break;
 			case 'type':
 				options.type = option;
 				break;
@@ -140,6 +143,12 @@ return view.extend({
 				break;
 			case 'interface':
 				options.interface = option;
+				break;
+			case 'probe_url':
+				options.probeUrl = option;
+				break;
+			case 'probe_interface':
+				options.probeInterface = option;
 				break;
 			}
 		});
@@ -174,12 +183,53 @@ return view.extend({
 		});
 	},
 
+	singleInterfaceValue: function(value) {
+		return this.interfaceValues(value)[0] || '';
+	},
+
 	sourceFieldsForType: function(sourceType) {
 		return SOURCE_FIELDS_BY_TYPE[sourceType] || [];
 	},
 
 	isSourceFieldActive: function(field, sourceType) {
 		return this.sourceFieldsForType(sourceType).indexOf(field) > -1;
+	},
+
+	rulesReferencingSource: function(sourceId) {
+		const id = String(sourceId || '');
+
+		return (uci.sections('qddns', 'rule') || []).filter(function(rule) {
+			return String(rule.source || '') === id;
+		});
+	},
+
+	sourceRuleProbeInterface: function(sourceId) {
+		const rules = this.rulesReferencingSource(sourceId);
+
+		if (rules.length !== 1)
+			return '';
+
+		return this.singleInterfaceValue(rules[0].probe_interface);
+	},
+
+	writeRuleProbeInterfaceForSource: function(sourceId, sourceType, value) {
+		const rules = this.rulesReferencingSource(sourceId);
+
+		if (rules.length !== 1)
+			return;
+
+		const rule = rules[0];
+		const normalized = sourceType === 'public_probe' ? this.singleInterfaceValue(value) : '';
+		if (normalized)
+			uci.set('qddns', rule['.name'], 'probe_interface', normalized);
+		else
+			uci.unset('qddns', rule['.name'], 'probe_interface');
+	},
+
+	clearRuleProbeInterfaceForSource: function(sourceId) {
+		this.rulesReferencingSource(sourceId).forEach(function(rule) {
+			uci.unset('qddns', rule['.name'], 'probe_interface');
+		});
 	},
 
 	cleanupSourceTypeOptions: function(sectionId, sourceType) {
@@ -211,13 +261,59 @@ return view.extend({
 		return this.getSourceOptionValue(optionSet?.type, sectionId) || uci.get('qddns', sectionId, 'type') || '';
 	},
 
+	buildSourceDraftData: function(sectionId, optionSet) {
+		const sourceType = this.getSourceType(sectionId, optionSet);
+		const sourceData = {
+			name: this.getSourceOptionValue(optionSet?.name, sectionId) || uci.get('qddns', sectionId, 'name') || '',
+			type: sourceType,
+			family: '',
+			address: '',
+			interfaceName: '',
+			duid: '',
+			iaid: '',
+			mac: '',
+			leaseFile: '',
+			hostnameHint: '',
+			prefixFilter: '',
+			probeUrl: '',
+			probeInterface: ''
+		};
+
+		if (sourceType === 'local_addr') {
+			sourceData.family = this.getSourceOptionValue(optionSet?.family, sectionId);
+			sourceData.address = this.getSourceOptionValue(optionSet?.address, sectionId);
+		} else if (sourceType === 'interface') {
+			sourceData.family = this.getSourceOptionValue(optionSet?.family, sectionId);
+			sourceData.interfaceName = this.getSourceOptionValue(optionSet?.interface, sectionId);
+		} else if (sourceType === 'dhcpv6_duid') {
+			sourceData.interfaceName = this.getSourceOptionValue(optionSet?.interface, sectionId);
+			sourceData.duid = this.getSourceOptionValue(optionSet?.duid, sectionId);
+			sourceData.iaid = this.getSourceOptionValue(optionSet?.iaid, sectionId);
+			sourceData.leaseFile = this.getSourceOptionValue(optionSet?.leaseFile, sectionId);
+			sourceData.hostnameHint = this.getSourceOptionValue(optionSet?.hostnameHint, sectionId);
+			sourceData.prefixFilter = this.getSourceOptionValue(optionSet?.prefixFilter, sectionId);
+		} else if (sourceType === 'dhcpv6_mac') {
+			sourceData.interfaceName = this.getSourceOptionValue(optionSet?.interface, sectionId);
+			sourceData.mac = this.getSourceOptionValue(optionSet?.mac, sectionId);
+			sourceData.leaseFile = this.getSourceOptionValue(optionSet?.leaseFile, sectionId);
+			sourceData.hostnameHint = this.getSourceOptionValue(optionSet?.hostnameHint, sectionId);
+			sourceData.prefixFilter = this.getSourceOptionValue(optionSet?.prefixFilter, sectionId);
+		} else if (sourceType === 'public_probe') {
+			sourceData.family = this.getSourceOptionValue(optionSet?.family, sectionId);
+			sourceData.probeUrl = this.getSourceOptionValue(optionSet?.probeUrl, sectionId);
+		}
+
+		sourceData.probeInterface = sourceType === 'public_probe' ? this.getSourceOptionValue(optionSet?.probeInterface, sectionId) : '';
+		return sourceData;
+	},
+
 	setSourceIpStatus: function(node, message, tone) {
 		node.textContent = message || _('N/A');
 		node.setAttribute('data-tone', tone || 'neutral');
 	},
 
 	bindSourceOptionChange: function(sectionId, optionSet, handler, optionNames) {
-		const names = optionNames || ['type', 'family', 'address', 'duid', 'iaid', 'mac', 'leaseFile', 'prefixFilter', 'interface'];
+		const names = optionNames || ['type', 'family', 'address', 'duid', 'iaid', 'mac', 'leaseFile', 'hostnameHint', 'prefixFilter', 'interface', 'probeUrl', 'probeInterface'];
 
 		window.setTimeout(function() {
 			names.forEach(function(name) {
@@ -248,8 +344,8 @@ return view.extend({
 
 		this.bindSourceOptionChange(sectionId, optionSet, L.bind(function() {
 			sourceIpProbe.token++;
-			probeButton.disabled = true;
-			this.setSourceIpStatus(node, _('Save and reload to read updated source IP.'), 'warning');
+			probeButton.disabled = !qddns.isProbeableSourceType(this.getSourceType(sectionId, optionSet));
+			this.setSourceIpStatus(node, probeButton.disabled ? _('Not previewable in LuCI') : _('Probe source IP to preview the current form values.'), 'warning');
 		}, this));
 
 		probeButton.addEventListener('click', L.bind(function() {
@@ -273,7 +369,7 @@ return view.extend({
 
 		this.setSourceIpStatus(node, _('Loading...'), 'neutral');
 
-		return qddns.probeSource(sectionId).then(L.bind(function(result) {
+		return qddns.probeSourceDraft(this.buildSourceDraftData(sectionId, optionSet)).then(L.bind(function(result) {
 			if (token !== sourceIpProbe.token)
 				return result;
 
@@ -551,9 +647,15 @@ return view.extend({
 				actionNode = qddns.renderBadge(_('Not previewable in LuCI'), 'warning');
 			} else {
 				const probeButton = E('button', { class: 'btn cbi-button cbi-button-action' }, [_('Probe')]);
+				const probeSource = L.bind(function() {
+					if (src.type === 'public_probe')
+						return qddns.probeSourceForRuleDraft(src.id, this.sourceRuleProbeInterface(src.id));
+
+					return qddns.probeSource(src.id);
+				}, this);
 				probeButton.addEventListener('click', function() {
 					return qddns.handleReadAction(probeButton, _('Source Probe'), function() {
-						return qddns.probeSource(src.id);
+						return probeSource();
 					}, function(result) {
 						qddns.showInfoModal(_('Source Probe'), [
 							E('div', { class: 'qddns-modal-meta' }, [
@@ -705,6 +807,8 @@ return view.extend({
 		o = s.option(form.Value, 'name', _('Name'), _('Name shown in tables, probes, and rule selectors.'));
 		o.placeholder = _('Unnamed source');
 		o.modalonly = true;
+		this.sourceDhcpv6Options = {};
+		this.sourceDhcpv6Options.name = o;
 
 		o = s.option(form.ListValue, 'type', _('Type'));
 		o.value('local_addr', _('Local address'));
@@ -713,12 +817,13 @@ return view.extend({
 		o.value('interface', _('Interface'));
 		o.value('public_probe', _('Public probe'));
 		o.value('script', _('Script'));
-		this.sourceDhcpv6Options = {};
 		this.sourceDhcpv6Options.type = o;
 		const sourceTypeWrite = o.write;
 		o.write = function(sectionId, value) {
 			const result = sourceTypeWrite.apply(this, arguments);
 			viewRef.cleanupSourceTypeOptions(sectionId, value);
+			if (value !== 'public_probe')
+				viewRef.clearRuleProbeInterfaceForSource(sectionId);
 			return result;
 		};
 
@@ -784,7 +889,25 @@ return view.extend({
 		o.depends('type', 'dhcpv6_duid');
 		o.depends('type', 'dhcpv6_mac');
 		this.guardSourceOptionWrite(o, 'interface');
-		o = s.option(form.Value, 'probe_url', _('Probe URL')); o.modalonly = true; o.depends('type', 'public_probe'); this.guardSourceOptionWrite(o, 'probe_url');
+		o = s.option(form.Value, 'probe_url', _('Probe URL')); this.sourceDhcpv6Options.probeUrl = o; o.modalonly = true; o.depends('type', 'public_probe'); this.guardSourceOptionWrite(o, 'probe_url');
+		o = s.option(widgets.DeviceSelect, 'probe_interface', _('Public probe outbound interface'), _('Choose the WAN/upstream interface used by this source IP preview and by the single rule referencing this source; empty uses the system default route.'));
+		this.sourceDhcpv6Options.probeInterface = o;
+		o.modalonly = true;
+		o.multiple = false;
+		o.noaliases = true;
+		o.nocreate = true;
+		o.depends('type', 'public_probe');
+		o.cfgvalue = function(sectionId, value) {
+			if (arguments.length > 1)
+				return viewRef.singleInterfaceValue(value);
+
+			return viewRef.sourceRuleProbeInterface(sectionId);
+		};
+		o.write = function(sectionId, value) {
+			const sourceType = uci.get('qddns', sectionId, 'type') || viewRef.getSourceOptionValue(viewRef.sourceDhcpv6Options?.type, sectionId);
+			viewRef.writeRuleProbeInterfaceForSource(sectionId, sourceType, value);
+			uci.unset('qddns', sectionId, 'probe_interface');
+		};
 		o = s.option(form.Value, 'script', _('Script path')); o.modalonly = true; o.depends('type', 'script'); this.guardSourceOptionWrite(o, 'script');
 
 		s = m.section(form.GridSection, 'provider', _('Provider Library'), _('Saved providers become selectable on the rules page after saving and reloading. Names stay editable.'));
