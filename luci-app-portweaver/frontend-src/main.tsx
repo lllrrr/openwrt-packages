@@ -1,5 +1,5 @@
 import { Client } from "./modules/client";
-import type { FullStatusResponse } from "./types/portweaver";
+import type { FullStatusResponse, VersionResponse } from "./types/portweaver";
 import frpc from "./modules/frpc";
 import frps from "./modules/frps";
 import config from "./modules/config";
@@ -25,6 +25,13 @@ export class main extends L.view {
           console.warn("ubus get_full_status failed:", err);
           return {} as FullStatusResponse;
         }),
+      rpcClient
+        .getVersion()
+        .then((res) => res || null)
+        .catch((err: any) => {
+          console.warn("ubus get_version failed:", err);
+          return null;
+        }),
     ]);
   }
 
@@ -49,6 +56,7 @@ export class main extends L.view {
     s.tab("about", _("About"));
 
     const fullStatus: FullStatusResponse = data[2] as FullStatusResponse;
+    const versionInfo = data[3] as VersionResponse | null;
     const client = new Client(fullStatus);
 
     header(m, s, client, "settings");
@@ -58,7 +66,7 @@ export class main extends L.view {
     frps(m, s, "frps");
     nftables(m, s, "nftables");
     logs(m, s, "logs");
-    about(m, s, "about");
+    about(m, s, "about", versionInfo);
 
     return m.render();
   }

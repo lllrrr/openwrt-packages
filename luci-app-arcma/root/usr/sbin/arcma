@@ -22,7 +22,7 @@
 #   -p                 Persist: write MAC into uci network.<logical_iface>.macaddr
 #
 
-VERSION="1.0.2"
+VERSION="1.0.3"
 ARCMA_OUI_DIR="/usr/share/arcma/oui"
 ARCMA_STATE_DIR="/etc/arcma/orig"
 UCI_NETWORK_CHANGED=0
@@ -32,15 +32,22 @@ UCI_NETWORK_CHANGED=0
 # ──────────────────────────────────────────────────────────
 
 # rand_hex <count>
-# Output <count> random lowercase hex characters from /dev/urandom via od
+# Output <count> random lowercase hex characters from /dev/urandom.
 rand_hex() {
     local n="$1"
-    # od -An: no address, -N: read N bytes, -tx1: hex bytes separated by spaces
-    # We read ceil(n/2) bytes and take n chars
     local bytes=$(( (n + 1) / 2 ))
-    od -An -N"${bytes}" -tx1 /dev/urandom 2>/dev/null \
-        | tr -d ' \n\t' \
-        | cut -c"1-${n}"
+    local hex
+
+    hex=$(hexdump -n "${bytes}" -e '1/1 "%02x"' /dev/urandom 2>/dev/null)
+
+    if [ "${#hex}" -ne "${n}" ]; then
+        hex=$(od -An -N"${bytes}" -v -t x1 /dev/urandom 2>/dev/null \
+            | tr -d ' \n\t' \
+            | cut -c"1-${n}")
+    fi
+
+    [ "${#hex}" -eq "${n}" ] || return 1
+    echo "${hex}"
 }
 
 # rand_num <min> <max>   (inclusive)
@@ -48,8 +55,10 @@ rand_num() {
     local min="$1"
     local max="$2"
     local range=$(( max - min + 1 ))
-    local raw
-    raw=$(od -An -N2 -tu2 /dev/urandom 2>/dev/null | tr -d ' \n')
+    local raw_hex raw
+
+    raw_hex=$(rand_hex 4) || return 1
+    raw=$(( 0x${raw_hex} ))
     echo $(( raw % range + min ))
 }
 
@@ -92,6 +101,17 @@ validate_mac_full() {
     esac
 }
 
+validate_hex_len() {
+    local value="$1"
+    local len="$2"
+
+    [ "${#value}" -eq "${len}" ] || return 1
+    case "${value}" in
+        *[!0-9A-Fa-f]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
 # ──────────────────────────────────────────────────────────
 # MAC generation
 # ──────────────────────────────────────────────────────────
@@ -100,10 +120,10 @@ validate_mac_full() {
 # Locally-administered (bit1=1) unicast (bit0=0) MAC, fully random NIC part
 gen_mac_local() {
     local b0_hex
-    b0_hex=$(rand_hex 2)
+    b0_hex=$(rand_hex 2) || { log_err "Unable to read random bytes"; return 1; }
     local b0=$(( 0x${b0_hex} & 0xFE | 0x02 ))
     local rest
-    rest=$(rand_hex 10)
+    rest=$(rand_hex 10) || { log_err "Unable to read random bytes"; return 1; }
     mac_format "$(printf '%02x' "${b0}")${rest}"
 }
 
@@ -112,8 +132,9 @@ gen_mac_local() {
 gen_mac_oui() {
     local oui
     oui=$(oui_strip "$1")
+    validate_hex_len "${oui}" 6 || { log_err "Invalid OUI prefix '$1'"; return 1; }
     local nic
-    nic=$(rand_hex 6)
+    nic=$(rand_hex 6) || { log_err "Unable to read random bytes"; return 1; }
     mac_format "${oui}${nic}"
 }
 
@@ -124,6 +145,11 @@ gen_mac_oui_seq() {
     local oui
     oui=$(oui_strip "$1")
     local idx="$2"
+    validate_hex_len "${oui}" 6 || { log_err "Invalid OUI prefix '$1'"; return 1; }
+    validate_hex_len "${SEQ_BASE_NIC}" 6 || { log_err "Invalid sequence base '${SEQ_BASE_NIC}'"; return 1; }
+    case "${idx}" in
+        ''|*[!0-9]*) log_err "Invalid sequence index '${idx}'"; return 1 ;;
+    esac
     local base_int="0x${SEQ_BASE_NIC}"
     local nic_int=$(( (base_int + idx) & 0xFFFFFF ))
     local nic
@@ -150,7 +176,7 @@ pick_oui() {
     local count
     count=$(echo "${oui_list}" | wc -w)
     local pick
-    pick=$(rand_num 1 "${count}")
+    pick=$(rand_num 1 "${count}") || { log_err "Unable to select random OUI"; return 1; }
     echo "${oui_list}" | tr ' ' '\n' | sed -n "${pick}p"
 }
 
@@ -366,7 +392,7 @@ cmd_apply() {
 
     # Sequence mode: generate a random 24-bit NIC base once (shared across all ifaces)
     if [ "${seq}" = "1" ]; then
-        SEQ_BASE_NIC=$(rand_hex 6)
+        SEQ_BASE_NIC=$(rand_hex 6) || { log_err "Unable to initialise sequence base"; return 1; }
     fi
 
     local idx=0
@@ -381,12 +407,12 @@ cmd_apply() {
         local new_mac=""
         case "${mode}" in
             local)
-                new_mac=$(gen_mac_local) ;;
+                new_mac=$(gen_mac_local) || { rc=1; continue; } ;;
             oui)
                 if [ "${seq}" = "1" ]; then
-                    new_mac=$(gen_mac_oui_seq "${oui_prefix}" "${idx}")
+                    new_mac=$(gen_mac_oui_seq "${oui_prefix}" "${idx}") || { rc=1; continue; }
                 else
-                    new_mac=$(gen_mac_oui "${oui_prefix}")
+                    new_mac=$(gen_mac_oui "${oui_prefix}") || { rc=1; continue; }
                 fi
                 ;;
             static)
@@ -396,6 +422,12 @@ cmd_apply() {
             *)
                 log_err "Unknown mode: ${mode}"; return 1 ;;
         esac
+
+        validate_mac_full "${new_mac}" || {
+            log_err "${iface}: generated invalid MAC '${new_mac}'"
+            rc=1
+            continue
+        }
 
         log_info "${iface}: ${mode} → ${new_mac}"
         if set_mac "${iface}" "${new_mac}"; then
@@ -679,6 +711,20 @@ uci_restore() {
     fi
 }
 
+run_async() {
+    local cmd="$1"
+    shift
+
+    (
+        case "${cmd}" in
+            uci-apply) uci_apply "$@" ;;
+            uci-restore) uci_restore "$@" ;;
+        esac
+    ) >/tmp/arcma-last.log 2>&1 &
+
+    echo "[arcma] ${cmd} started in background"
+}
+
 # ──────────────────────────────────────────────────────────
 # Help
 # ──────────────────────────────────────────────────────────
@@ -692,6 +738,8 @@ Commands:
   show    [iface ...]          Show current/original MAC info
   list    [type]               List OUI types and vendor names
   gen     [opts]               Generate and print a MAC (no apply)
+  uci-apply-async              Apply UCI config in background
+  uci-restore-async            Restore original MACs in background
 
 Options (apply / gen):
   -m local            Locally-administered random (default)
@@ -729,6 +777,8 @@ case "${CMD}" in
     gen)        cmd_gen "$@" ;;
     uci-apply)  uci_apply "$@" ;;
     uci-restore) uci_restore "$@" ;;
+    uci-apply-async) run_async uci-apply "$@" ;;
+    uci-restore-async) run_async uci-restore "$@" ;;
     -V|--version) echo "arcma ${VERSION}" ;;
     -h|--help|help) usage ;;
     *) usage >&2; exit 1 ;;

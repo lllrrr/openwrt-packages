@@ -153,3 +153,18 @@ export interface FullStatusResponse {
   ddns: FullStatusDdns;
   events: ActivityEvent[];
 }
+
+export interface VersionResponse {
+  version: string;
+  uci_mode: boolean;
+  ubus_mode: boolean;
+  frpc_mode: boolean;
+  frps_mode: boolean;
+  ddns_mode: boolean;
+  nftables_mode: boolean;
+  wol_mode: boolean;
+  forward_backend: string;
+  frp_version?: string;
+  ddns_version?: string;
+  backend_version: string;
+}

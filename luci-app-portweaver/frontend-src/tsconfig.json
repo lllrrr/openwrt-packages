@@ -2,7 +2,10 @@
   "compilerOptions": {
     "target": "es6",
     "module": "ESNext",
-    "lib": ["ES2024", "DOM"],
+    "lib": [
+      "ES2024",
+      "DOM"
+    ],
     "outDir": "./dist",
     "rootDir": "./",
     "strict": true,
@@ -20,11 +23,21 @@
     "noFallthroughCasesInSwitch": true,
     "jsx": "react-jsx",
     "jsxImportSource": "@lazulikao/luci-types",
-    "types": ["@lazulikao/luci-types"],
+    "types": [
+      "@lazulikao/luci-types"
+    ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": [
+        "./*"
+      ]
     }
   },
-  "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "**/*.ts",
+    "**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

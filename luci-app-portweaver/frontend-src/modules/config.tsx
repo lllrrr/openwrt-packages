@@ -493,4 +493,19 @@ export default function (
   o.value("minecraft", "Minecraft (Java Edition)");
   o.value("mqtt", "MQTT");
   o.value("smb", "SMB/CIFS");
+
+  // ── TLS SNI Filter ────────────────────────────────────────────
+
+  o = ss.option(
+    form.DynamicList,
+    "tls_allowed_snis",
+    /* i18n */ _("Allowed TLS SNIs"),
+    /* i18n */ _(
+      "Only TLS connections matching these server names will be forwarded. Supports wildcards (e.g. *.example.com). Only effective when TLS is in the allowed protocols list.",
+    ),
+  );
+  o.modalonly = true;
+  o.rmempty = true;
+  o.depends("enable_protocol_filter", "1");
+  o.placeholder = "*.example.com";
 }

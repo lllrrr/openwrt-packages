@@ -45,14 +45,21 @@ return view.extend({
     });
   },
 
-  handleApply(ev, outputEl) {
+  showOutput(outputEl, text) {
+    if (!outputEl)
+      return;
+
+    dom.content(outputEl, text || _('(no output)'));
+    outputEl.style.display = '';
+  },
+
+  handleApply(outputEl, ev) {
     this.setActionBusy(true);
 
     return this.map.save(null, true).then(() =>
-      fs.exec(ARCMA_BIN, ['uci-apply'])
+      fs.exec(ARCMA_BIN, ['uci-apply-async'])
     ).then(res => {
-      dom.content(outputEl, res.stdout || res.stderr || _('Done'));
-      outputEl.style.display = '';
+      this.showOutput(outputEl, res.stdout || res.stderr || _('Done'));
     }).catch(err => {
       ui.addNotification(null, E('p', {}, String(err)));
     }).finally(() => {
@@ -60,12 +67,11 @@ return view.extend({
     });
   },
 
-  handleRestore(ev, outputEl) {
+  handleRestore(outputEl, ev) {
     this.setActionBusy(true);
 
-    return fs.exec(ARCMA_BIN, ['uci-restore']).then(res => {
-      dom.content(outputEl, res.stdout || res.stderr || _('Done'));
-      outputEl.style.display = '';
+    return fs.exec(ARCMA_BIN, ['uci-restore-async']).then(res => {
+      this.showOutput(outputEl, res.stdout || res.stderr || _('Done'));
     }).catch(err => {
       ui.addNotification(null, E('p', {}, String(err)));
     }).finally(() => {
@@ -73,12 +79,11 @@ return view.extend({
     });
   },
 
-  handleShow(ev, outputEl) {
+  handleShow(outputEl, ev) {
     this.setActionBusy(true);
 
     return fs.exec(ARCMA_BIN, ['show']).then(res => {
-      dom.content(outputEl, res.stdout || _('(no output)'));
-      outputEl.style.display = '';
+      this.showOutput(outputEl, res.stdout || res.stderr || _('(no output)'));
     }).catch(err => {
       ui.addNotification(null, E('p', {}, String(err)));
     }).finally(() => {

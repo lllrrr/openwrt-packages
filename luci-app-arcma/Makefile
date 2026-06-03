@@ -4,8 +4,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-arcma
-PKG_VERSION:=1.0.0
-PKG_RELEASE:=3
+PKG_VERSION:=1.0.3
+PKG_RELEASE:=1
 
 LUCI_TITLE:=LuCI for ARCMA
 LUCI_DESCRIPTION:=Automatically change MAC addresses of all network interfaces. BusyBox ash compatible with embedded OUI vendor database.
