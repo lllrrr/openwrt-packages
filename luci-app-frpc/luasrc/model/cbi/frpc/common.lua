@@ -32,7 +32,7 @@ m = Map("frpc", "%s - %s" % { translate("Frpc"), translate("通用设置") },
 	translatef("获取更多信息，请访问： %s",
 		"<a href=\"https://github.com/fatedier/frp\" target=\"_blank\">https://github.com/fatedier/frp</a>；官方文档：<a href=\"https://gofrp.org/zh-cn/\" target=\"_blank\">gofrp.org</a>"),
 	translatef("本插件仓库： %s",
-		"<a href=\"https://github.com/mia-clark/luci-app-frpc_frps-pro\" target=\"_blank\">https://github.com/mia-clark/luci-app-frpc_frps-pro</a>")
+		"<a href=\"https://github.com/mia-clark/luci-app-frp-mgr\" target=\"_blank\">https://github.com/mia-clark/luci-app-frp-mgr</a>")
 })
 
 m:append(Template("frpc/theme"))
