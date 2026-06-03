@@ -1,59 +1,5 @@
-<%# Simple2FA Debug Build - Login Template (sysauth.htm) 此模板替换系统登录页面，添加 TOTP 输入框 所有操作都会在浏览器 console.log 中打印 -%>
+<%# Simple2FA - Login Template (sysauth.htm) 此模板替换系统登录页面，添加 TOTP 输入框 -%>
     <%+header%>
-        <script type="text/javascript">
-            // ========== Simple2FA Debug: 页面加载 ==========
-            console.log('[Simple2FA] ========== 登录页面加载 ==========');
-            console.log('[Simple2FA] 当前 URL:', window.location.href);
-            console.log('[Simple2FA] 查询参数:', window.location.search);
-
-            // 检查是否有错误标记
-            if (window.location.search.indexOf('simple2fa_err=1') !== -1) {
-                console.log('[Simple2FA] 检测到验证失败标记 (simple2fa_err=1)');
-            }
-
-            // 页面加载完成后执行
-            document.addEventListener('DOMContentLoaded', function () {
-                console.log('[Simple2FA] DOMContentLoaded 事件触发');
-
-                // 查找密码输入框
-                var passInput = document.querySelector('input[type="password"]');
-                console.log('[Simple2FA] 密码输入框:', passInput ? '找到' : '未找到');
-
-                if (passInput) {
-                    console.log('[Simple2FA] 密码框父元素:', passInput.parentElement.tagName, passInput.parentElement.className);
-                }
-
-                // 查找表单
-                var form = document.querySelector('form');
-                console.log('[Simple2FA] 表单元素:', form ? '找到' : '未找到');
-
-                if (form) {
-                    console.log('[Simple2FA] 表单 action:', form.action);
-                    console.log('[Simple2FA] 表单 method:', form.method);
-
-                    // 监听表单提交
-                    form.addEventListener('submit', function (e) {
-                        console.log('[Simple2FA] ========== 表单提交 ==========');
-
-                        // 获取所有表单数据
-                        var formData = new FormData(form);
-                        for (var pair of formData.entries()) {
-                            if (pair[0] === 'luci_password') {
-                                console.log('[Simple2FA] 表单字段:', pair[0], '= [已隐藏]');
-                            } else {
-                                console.log('[Simple2FA] 表单字段:', pair[0], '=', pair[1]);
-                            }
-                        }
-
-                        console.log('[Simple2FA] 表单即将提交到:', form.action);
-                    });
-                }
-
-                // 检查 TOTP 输入框是否存在
-                var totpInput = document.querySelector('input[name="totp_code"]');
-                console.log('[Simple2FA] TOTP 输入框:', totpInput ? '找到' : '未找到');
-            });
-        </script>
 
         <div class="cbi-map">
             <h2>
@@ -65,12 +11,10 @@
                     style="margin-bottom: 15px; padding: 10px; background: #f2dede; border: 1px solid #ebccd1; border-radius: 4px;">
                     <strong style="color: #a94442;">二次验证失败</strong>: 验证码错误，请重试。
                 </div>
-                <script>console.log('[Simple2FA] 显示错误提示: 验证码错误');</script>
                 <% end %>
 
                     <div class="cbi-section">
                         <form method="post" action="<%=url('admin')%>">
-                            <script>console.log('[Simple2FA] 表单 action 设置为:', '<%=url("admin")%>');</script>
 
                             <div class="cbi-value">
                                 <label class="cbi-value-title" for="luci_username">
@@ -105,7 +49,6 @@
                                     </div>
                                 </div>
                             </div>
-                            <script>console.log('[Simple2FA] TOTP 输入框已渲染 (name=totp_code)');</script>
 
                             <div class="cbi-value cbi-value-last">
                                 <div class="cbi-value-field">
@@ -123,10 +66,8 @@
                 var pass = document.getElementById('luci_password');
                 if (user && user.value) {
                     pass.focus();
-                    console.log('[Simple2FA] 自动聚焦到密码框');
                 } else if (user) {
                     user.focus();
-                    console.log('[Simple2FA] 自动聚焦到用户名框');
                 }
             })();
         </script>

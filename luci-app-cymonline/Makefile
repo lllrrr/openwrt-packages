@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 LUCI_TITLE:=LuCI Online Users Manager
-LUCI_DEPENDS:=+luci-base +luci-compat +tc +kmod-sched-core +iptables-mod-filter +iptables-mod-ipopt
+LUCI_DEPENDS:=+luci-base +luci-compat +tc +kmod-sched-core +nftables
 LUCI_PKGARCH:=all
 
 PKG_VERSION:=1.0.0

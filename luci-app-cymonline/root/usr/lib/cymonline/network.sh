@@ -347,7 +347,6 @@ case "$1" in
 	remove_limit)
 		remove_limit "$2"
 		;;
-		;;
 	set_block)
 		set_block "$2" "$3"
 		;;

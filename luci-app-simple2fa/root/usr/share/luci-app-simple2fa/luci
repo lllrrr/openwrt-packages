@@ -1,21 +1,14 @@
 #!/usr/bin/env ucode
 'use strict';
 
-// Simple2FA Debug Build - ucode CGI
+// Simple2FA - ucode CGI
 // 基于原始 lede CGI 格式，添加 2FA 拦截逻辑
-// 标记: Simple2FA-Debug
 
 import { stdin, stdout, popen } from 'fs';
 import dispatch from 'luci.dispatcher';
 import request from 'luci.http';
 
-// 日志函数 (使用 popen 而非 system)
-function log(msg) {
-    let p = popen('logger -t simple2fa "[CGI] ' + replace(msg + '', /"/g, '\\"') + '"');
-    if (p) p.close();
-}
 
-log('========== CGI 启动 ==========');
 
 // 初始化变量
 const input_bufsize = 4096;
@@ -25,7 +18,7 @@ let uri = getenv('REQUEST_URI') || '';
 let buffer = null;
 let buffer_pos = 0;
 
-log('请求: METHOD=' + method + ', LEN=' + content_len + ', URI=' + uri);
+
 
 // Helper: 去除字符串两端空白
 function trim(s) {
@@ -49,11 +42,10 @@ function exec_cmd(cmd) {
 if (method == 'POST' && content_len > 0 && content_len < 10240) {
     // 检查是否是登录相关 URI (匹配根路径和 admin 路径)
     if (match(uri, /^\/cgi-bin\/luci\/?/) || match(uri, /^\/cgi-bin\/luci\/admin\/?/)) {
-        log('检测到可能的登录请求，读取 POST 数据');
+        // 读取 POST 数据
         buffer = stdin.read(content_len);
         
         if (buffer && match(buffer, /luci_username=/)) {
-            log('确认是登录请求 (包含 luci_username)');
             
             // 解析用户名
             let user_match = match(buffer, /luci_username=([^&]+)/);
@@ -63,47 +55,29 @@ if (method == 'POST' && content_len > 0 && content_len < 10240) {
             let totp_match = match(buffer, /totp_code=([^&]*)/);
             let totp_code = totp_match ? totp_match[1] : '';
             
-            log('登录用户: ' + username + ', TOTP输入: ' + totp_code);
+
             
             if (username == 'root') {
                 // 检查 2FA 是否启用
                 let enabled = exec_cmd('uci -q get simple2fa.global.enabled');
-                log('2FA 启用状态: ' + enabled);
                 
                 if (enabled == '1') {
                     let secret = exec_cmd('uci -q get simple2fa.global.secret');
                     
                     if (secret && length(secret) > 0) {
-                        log('密钥已配置，长度: ' + length(secret));
+                        // 使用 oathtool 验证模式，通过退出码判断
+                        // -w 2 允许 ±2 个时间窗口容差 (±60秒)，与 settings.lua 保持一致
+                        let verify_result = exec_cmd("oathtool --totp -b -w 2 -d 6 '" + secret + "' '" + totp_code + "' >/dev/null 2>&1; echo $?");
                         
-                        // 计算正确的 TOTP
-                        let correct = exec_cmd("oathtool -b --totp -d 6 '" + secret + "'");
-                        log('TOTP验证: 输入=' + totp_code + ', 正确=' + correct);
-                        
-                        if (correct && length(correct) > 0 && totp_code != correct) {
-                            log('❌ 验证失败 -> 重定向到登录页');
+                        if (!totp_code || trim(verify_result) != "0") {
                             print('Status: 302 Found\r\n');
                             print('Location: /cgi-bin/luci/?simple2fa_err=1\r\n\r\n');
                             exit(0);
-                        } else if (totp_code == correct) {
-                            log('✅ 验证通过');
-                        } else {
-                            log('⚠️ oathtool 返回空值，跳过验证');
                         }
-                    } else {
-                        log('⚠️ 密钥未配置，跳过验证');
                     }
-                } else {
-                    log('2FA 未启用 (enabled=' + enabled + ')，跳过验证');
                 }
-            } else {
-                log('非 root 用户登录，跳过 2FA');
             }
-        } else {
-            log('POST 数据不包含 luci_username，非登录请求');
         }
-    } else {
-        log('URI 不匹配登录路径，跳过检查');
     }
 }
 
@@ -146,10 +120,9 @@ function write(data) {
 // 分发请求到 LuCI
 // ==========================================================
 
-log('调用 LuCI dispatcher');
+
 
 let req = request(getenv(), read, write);
 dispatch(req);
 req.close();
-
-log('========== CGI 结束 ==========');
+

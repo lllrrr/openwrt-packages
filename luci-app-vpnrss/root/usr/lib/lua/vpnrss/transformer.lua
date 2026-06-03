@@ -545,7 +545,7 @@ function to_base64(raw_nodes)
 end
 
 function to_surge(raw_nodes)
-	-- Placeholder for Surge format
-	-- Implementing full Surge support is tedious, return generic list for now
+	-- TODO: Surge format not yet implemented
+	-- Falls back to base64 format
 	return to_base64(raw_nodes)
 end
