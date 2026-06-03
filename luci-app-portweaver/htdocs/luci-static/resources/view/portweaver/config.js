@@ -202,10 +202,10 @@ function translateStatus(o) {
 
 ;// CONCATENATED MODULE: ./utils/rpc-client.ts
 function createRpcClient(e) {
-    let r = e.declare({
+    let t = e.declare({
         object: "portweaver",
         method: "list_projects"
-    }), t = e.declare({
+    }), r = e.declare({
         object: "portweaver",
         method: "set_enabled",
         params: [
@@ -239,60 +239,74 @@ function createRpcClient(e) {
         params: [
             "name"
         ]
-    }), s = e.declare({
+    }), l = e.declare({
         object: "portweaver",
         method: "clear_ddns_logs",
         params: [
             "name"
         ]
-    }), l = e.declare({
+    }), s = e.declare({
         object: "portweaver",
         method: "get_frps_info",
         params: [
             "id"
         ]
-    }), _ = e.declare({
+    }), m = e.declare({
         object: "portweaver",
         method: "clear_frps_logs",
         params: [
             "id"
         ]
-    }), m = e.declare({
+    }), _ = e.declare({
         object: "portweaver",
         method: "get_frps_proxy_stats",
         params: [
             "id"
         ]
-    }), n = e.declare({
+    }), w = e.declare({
         object: "portweaver",
         method: "get_full_status"
-    }), b = e.declare({
+    }), j = e.declare({
         object: "portweaver",
         method: "get_nftables_rules"
+    }), b = e.declare({
+        object: "portweaver",
+        method: "reload_config"
+    }), n = e.declare({
+        object: "portweaver",
+        method: "restart_project",
+        params: [
+            "id"
+        ]
     });
     return {
-        listProjects: r,
-        setEnabled: t,
+        listProjects: t,
+        setEnabled: r,
         getFrpcInfo: a,
         getFrpcProxyStats: c,
         clearFrpcLogs: o,
         getDdnsStatus: d,
         getDdnsInfo: p,
-        clearDdnsLogs: s,
-        getFrpsInfo: l,
-        clearFrpsLogs: _,
-        getFrpsProxyStats: m,
-        getFullStatus: n,
-        getNftablesRules: b,
-        reloadConfig: e.declare({
+        clearDdnsLogs: l,
+        getFrpsInfo: s,
+        clearFrpsLogs: m,
+        getFrpsProxyStats: _,
+        getFullStatus: w,
+        getNftablesRules: j,
+        reloadConfig: b,
+        restartProject: n,
+        wolWake: e.declare({
             object: "portweaver",
-            method: "reload_config"
-        }),
-        restartProject: e.declare({
-            object: "portweaver",
-            method: "restart_project",
+            method: "wol_wake",
             params: [
-                "id"
+                "project"
+            ]
+        }),
+        wolStatus: e.declare({
+            object: "portweaver",
+            method: "wol_status",
+            params: [
+                "project"
             ]
         })
     };
@@ -2287,24 +2301,25 @@ class PortMappingEditor_l extends L.form.Value {
 
 
 
-let config_a = L.form, config_l = L.uci;
-/* export default */ function config(n, i, p, s) {
-    let d, u = (d = i.taboption(s, config_a.SectionValue, "_projects", config_a.GridSection, "project")).subsection;
-    u.anonymous = !0, u.addremove = !0, u.sortable = !0, u.cloneable = !0, u.sectiontitle = (e)=>config_l.get("portweaver", e, "remark") || _("Unnamed project"), (d = u.option(config_a.DummyValue, "_runtime_status", _("Status"))).modalonly = !1, d.textvalue = (t)=>{
-        let o = p.getProjectStatus(t), r = jsx("div", {
+
+let config_r = L.form, config_n = L.uci;
+/* export default */ function config(i, s, p, d) {
+    let c, u = (c = s.taboption(d, config_r.SectionValue, "_projects", config_r.GridSection, "project")).subsection;
+    u.anonymous = !0, u.addremove = !0, u.sortable = !0, u.cloneable = !0, u.sectiontitle = (e)=>config_n.get("portweaver", e, "remark") || _("Unnamed project"), (c = u.option(config_r.DummyValue, "_runtime_status", _("Status"))).modalonly = !1, c.textvalue = (t)=>{
+        let o = p.getProjectStatus(t), l = jsx("div", {
             id: "project-status-".concat(t),
             children: p.renderStatusElements(o, t)
         });
-        return p.projectContainers = p.projectContainers || {}, p.projectContainers[t] = r, r;
-    }, (d = u.option(config_a.Button, "_runtime_toggle", _("Toggle"))).modalonly = !1, d.editable = !0, d.inputtitle = (e)=>{
+        return p.projectContainers = p.projectContainers || {}, p.projectContainers[t] = l, l;
+    }, (c = u.option(config_r.Button, "_runtime_toggle", _("Toggle"))).modalonly = !1, c.editable = !0, c.inputtitle = (e)=>{
         let t = p.getProjectStatus(e);
         return (null == t ? void 0 : t.enabled) ? _("Disable") : _("Enable");
-    }, d.onclick = (e, t)=>window.portweaverToggle(t), (d = u.option(config_a.Button, "_runtime_restart", _("Restart"))).modalonly = !1, d.editable = !0, d.inputtitle = _("Restart"), d.onclick = (e, t)=>window.portweaverRestart(t), (d = u.option(config_a.Flag, "enabled", _("Enabled"))).modalonly = !1, d.default = "1", d.editable = !0, (d = u.option(config_a.DummyValue, "_preview", _("Overview"))).modalonly = !1, d.textvalue = (o)=>{
-        let r = config_l.get("portweaver", o, "protocol") || "tcp", a = config_l.get("portweaver", o, "family") || "any", n = config_l.get("portweaver", o, "listen_port") || "", i = config_l.get("portweaver", o, "target_address") || "", p = config_l.get("portweaver", o, "target_port") || "", s = L.toArray(config_l.get("portweaver", o, "port_mapping")), d = L.toArray(config_l.get("portweaver", o, "src_zone")), u = L.toArray(config_l.get("portweaver", o, "dest_zone")), m = {
+    }, c.onclick = (e, t)=>window.portweaverToggle(t), (c = u.option(config_r.Button, "_runtime_restart", _("Restart"))).modalonly = !1, c.editable = !0, c.inputtitle = _("Restart"), c.onclick = (e, t)=>window.portweaverRestart(t), (c = u.option(config_r.Flag, "enabled", _("Enabled"))).modalonly = !1, c.default = "1", c.editable = !0, (c = u.option(config_r.DummyValue, "_preview", _("Overview"))).modalonly = !1, c.textvalue = (o)=>{
+        let l = config_n.get("portweaver", o, "protocol") || "tcp", a = config_n.get("portweaver", o, "family") || "any", r = config_n.get("portweaver", o, "listen_port") || "", i = config_n.get("portweaver", o, "target_address") || "", s = config_n.get("portweaver", o, "target_port") || "", p = L.toArray(config_n.get("portweaver", o, "port_mapping")), d = L.toArray(config_n.get("portweaver", o, "src_zone")), c = L.toArray(config_n.get("portweaver", o, "dest_zone")), u = {
             both: _("TCP and UDP"),
             tcp: _("TCP"),
             udp: _("UDP")
-        }[r] || String(r).toUpperCase(), c = {
+        }[l] || String(l).toUpperCase(), m = {
             any: _("IPv4 and IPv6"),
             ipv4: _("IPv4"),
             ipv6: _("IPv6")
@@ -2313,11 +2328,11 @@ let config_a = L.form, config_l = L.uci;
             children: [
                 _("Incoming "),
                 jsx("var", {
-                    children: c
+                    children: m
                 }),
                 _(" protocol "),
                 jsx("var", {
-                    children: m
+                    children: u
                 })
             ]
         })), d.length > 0) {
@@ -2337,7 +2352,7 @@ let config_a = L.form, config_l = L.uci;
                 ]
             }));
         }
-        if (s.length > 0) {
+        if (p.length > 0) {
             g.push(jsx("br", {})), g.push(jsxs("span", {
                 children: [
                     jsx("strong", {
@@ -2346,12 +2361,12 @@ let config_a = L.form, config_l = L.uci;
                     }),
                     _(" - "),
                     jsx("var", {
-                        children: s.length
+                        children: p.length
                     }),
                     _(" mapping(s)")
                 ]
             }));
-            let o = s[0];
+            let o = p[0];
             g.push(jsx("br", {})), g.push(jsxs("span", {
                 children: [
                     _("e.g. "),
@@ -2360,11 +2375,11 @@ let config_a = L.form, config_l = L.uci;
                     })
                 ]
             }));
-        } else n && (g.push(jsx("br", {})), g.push(jsxs("span", {
+        } else r && (g.push(jsx("br", {})), g.push(jsxs("span", {
             children: [
                 _("Port "),
                 jsx("var", {
-                    children: n
+                    children: r
                 })
             ]
         })));
@@ -2376,8 +2391,8 @@ let config_a = L.form, config_l = L.uci;
                 }),
                 _(" to ")
             ]
-        })), u.length > 0) {
-            let t = u.map((t)=>jsx("span", {
+        })), c.length > 0) {
+            let t = c.map((t)=>jsx("span", {
                     class: "zonebadge",
                     style: fwmodel.getZoneColorStyle(t),
                     children: jsx("strong", {
@@ -2395,21 +2410,27 @@ let config_a = L.form, config_l = L.uci;
                     children: i
                 })
             ]
-        })), 0 === s.length && p && g.push(jsxs("span", {
+        })), 0 === p.length && s && g.push(jsxs("span", {
             children: [
                 _(" port "),
                 jsx("var", {
-                    children: p
+                    children: s
                 })
             ]
         })), jsx("small", {
             children: g
         });
-    }, (d = u.option(config_a.Value, "remark", _("Remark"))).modalonly = !0, d.rmempty = !1, d.datatype = "string", d.validate = (e, t)=>!!t && "" !== String(t).trim() || _("This field is required"), d.placeholder = "My Project", (d = u.option(config_a.Flag, "enabled", _("Enabled"))).modalonly = !0, d.default = "1", (d = u.option(widgets.ZoneSelect, "src_zone", _("Source Zones"))).modalonly = !0, d.multiple = !0, d.nocreate = !1, d.allowlocal = !1, d.default = "wan", d.rmempty = !0, (d = u.option(widgets.ZoneSelect, "dest_zone", _("Destination Zones"))).modalonly = !0, d.multiple = !0, d.nocreate = !1, d.allowlocal = !1, d.default = "lan", d.rmempty = !0, (d = u.option(config_a.ListValue, "family", _("Address Family"))).modalonly = !0, d.value("any", _("IPv4 and IPv6")), d.value("ipv4", "IPv4"), d.value("ipv6", "IPv6"), d.default = "any", (d = u.option(config_a.Value, "target_address", _("Target Address"))).modalonly = !0, d.rmempty = !1, d.datatype = "host", d.placeholder = "192.168.1.100", d.validate = (e, t)=>!!t && "" !== String(t).trim() || _("This field is required"), (d = u.option(config_a.Flag, "use_port_mappings", _("Use Port Mappings Mode"))).modalonly = !0, d.rmempty = !0, d.default = "0", d.description = _("Enable to configure multiple port mappings or port ranges. Disable for single port mode."), (d = u.option(config_a.ListValue, "protocol", _("Protocol"))).modalonly = !0, d.value("both", _("TCP and UDP")), d.value("tcp", "TCP"), d.value("udp", "UDP"), d.default = "tcp", d.depends("use_port_mappings", "0"), (d = u.option(FrpNodeSelector, "frp_nodes", _("FRP Tunnels"))).modalonly = !0, d.rmempty = !0, d.depends("use_port_mappings", "0"), (d = u.option(PortMappingEditor, "port_mapping", _("Port Mappings"))).modalonly = !0, d.depends("use_port_mappings", "1"), (d = u.option(config_a.Value, "listen_port", _("Listen Port"))).modalonly = !0, d.datatype = "port", d.placeholder = "8080", d.depends("use_port_mappings", "0"), d.validate = (e, t)=>"1" === config_l.get("portweaver", e, "use_port_mappings") || !!t && "" !== String(t).trim() || _("This field is required in single port mode"), (d = u.option(config_a.Value, "target_port", _("Target Port"))).modalonly = !0, d.datatype = "port", d.placeholder = "80", d.depends("use_port_mappings", "0"), d.validate = (e, t)=>"1" === config_l.get("portweaver", e, "use_port_mappings") || !!t && "" !== String(t).trim() || _("This field is required in single port mode"), (d = u.option(config_a.Flag, "open_firewall_port", _("Open Firewall Port"))).modalonly = !0, d.default = "1", (d = u.option(config_a.Flag, "enable_app_forward", _("Enable App Level Forward"))).modalonly = !0, d.default = "0", (d = u.option(config_a.ListValue, "app_forward_loop_mode", _("Loop Mode"), _("Controls how event loop runtimes are shared among listeners. 'per_project' (default): one runtime shared by all listeners in this project, balanced resource usage. 'per_listener': each listener gets its own dedicated runtime, highest isolation but uses more memory (one thread per listener). 'global': all projects share a single global runtime, lowest memory usage but no isolation between projects."))).modalonly = !0, d.value("per_project", _("Per Project (default) - balanced")), d.value("per_listener", _("Per Listener - highest isolation, more memory")), d.value("global", _("Global - lowest memory, no isolation")), d.default = "per_project", d.depends("enable_app_forward", "1"), (d = u.option(config_a.Flag, "reuseaddr", _("Reuse Address"))).modalonly = !0, d.default = "1", d.depends("enable_app_forward", "1"), (d = u.option(config_a.Flag, "enable_app_stats", _("Enable App Statistics"), _("Collect traffic statistics (bytes_in/bytes_out) for application-layer forwarding using zero-cost atomic counters."))).modalonly = !0, d.default = "0", d.depends("enable_app_forward", "1"), (d = u.option(config_a.Flag, "add_firewall_forward", _("Add Firewall Forward"))).modalonly = !0, d.default = "1", d.depends({
+    }, (c = u.option(config_r.Value, "remark", _("Remark"))).modalonly = !0, c.rmempty = !1, c.datatype = "string", c.validate = (e, t)=>!!t && "" !== String(t).trim() || _("This field is required"), c.placeholder = "My Project", (c = u.option(config_r.Flag, "enabled", _("Enabled"))).modalonly = !0, c.default = "1", (c = u.option(widgets.ZoneSelect, "src_zone", _("Source Zones"))).modalonly = !0, c.multiple = !0, c.nocreate = !1, c.allowlocal = !1, c.default = "wan", c.rmempty = !0, (c = u.option(widgets.ZoneSelect, "dest_zone", _("Destination Zones"))).modalonly = !0, c.multiple = !0, c.nocreate = !1, c.allowlocal = !1, c.default = "lan", c.rmempty = !0, (c = u.option(config_r.ListValue, "family", _("Address Family"))).modalonly = !0, c.value("any", _("IPv4 and IPv6")), c.value("ipv4", "IPv4"), c.value("ipv6", "IPv6"), c.default = "any", (c = u.option(config_r.Value, "target_address", _("Target Address"))).modalonly = !0, c.rmempty = !1, c.datatype = "host", c.placeholder = "192.168.1.100", c.validate = (e, t)=>!!t && "" !== String(t).trim() || _("This field is required"), (c = u.option(config_r.Flag, "use_port_mappings", _("Use Port Mappings Mode"))).modalonly = !0, c.rmempty = !0, c.default = "0", c.description = _("Enable to configure multiple port mappings or port ranges. Disable for single port mode."), (c = u.option(config_r.ListValue, "protocol", _("Protocol"))).modalonly = !0, c.value("both", _("TCP and UDP")), c.value("tcp", "TCP"), c.value("udp", "UDP"), c.default = "tcp", c.depends("use_port_mappings", "0"), (c = u.option(FrpNodeSelector, "frp_nodes", _("FRP Tunnels"))).modalonly = !0, c.rmempty = !0, c.depends("use_port_mappings", "0"), (c = u.option(PortMappingEditor, "port_mapping", _("Port Mappings"))).modalonly = !0, c.depends("use_port_mappings", "1"), (c = u.option(config_r.Value, "listen_port", _("Listen Port"))).modalonly = !0, c.datatype = "port", c.placeholder = "8080", c.depends("use_port_mappings", "0"), c.validate = (e, t)=>"1" === config_n.get("portweaver", e, "use_port_mappings") || !!t && "" !== String(t).trim() || _("This field is required in single port mode"), (c = u.option(config_r.Value, "target_port", _("Target Port"))).modalonly = !0, c.datatype = "port", c.placeholder = "80", c.depends("use_port_mappings", "0"), c.validate = (e, t)=>"1" === config_n.get("portweaver", e, "use_port_mappings") || !!t && "" !== String(t).trim() || _("This field is required in single port mode"), (c = u.option(config_r.Flag, "open_firewall_port", _("Open Firewall Port"))).modalonly = !0, c.default = "1", (c = u.option(config_r.Flag, "enable_app_forward", _("Enable App Level Forward"))).modalonly = !0, c.default = "0", (c = u.option(config_r.ListValue, "app_forward_loop_mode", _("Loop Mode"), _("Controls how event loop runtimes are shared among listeners. 'per_project' (default): one runtime shared by all listeners in this project, balanced resource usage. 'per_listener': each listener gets its own dedicated runtime, highest isolation but uses more memory (one thread per listener). 'global': all projects share a single global runtime, lowest memory usage but no isolation between projects."))).modalonly = !0, c.value("per_project", _("Per Project (default) - balanced")), c.value("per_listener", _("Per Listener - highest isolation, more memory")), c.value("global", _("Global - lowest memory, no isolation")), c.default = "per_project", c.depends("enable_app_forward", "1"), (c = u.option(config_r.Flag, "reuseaddr", _("Reuse Address"))).modalonly = !0, c.default = "1", c.depends("enable_app_forward", "1"), (c = u.option(config_r.Flag, "enable_app_stats", _("Enable App Statistics"), _("Collect traffic statistics (bytes_in/bytes_out) for application-layer forwarding using zero-cost atomic counters."))).modalonly = !0, c.default = "0", c.depends("enable_app_forward", "1"), (c = u.option(config_r.Flag, "add_firewall_forward", _("Add Firewall Forward"))).modalonly = !0, c.default = "1", c.depends({
         enable_app_forward: "0"
-    }), d.depends({
+    }), c.depends({
         enable_app_forward: "1"
-    }), (d = u.option(config_a.Flag, "enable_firewall_stats", _("Enable Firewall Statistics"), _("Collect traffic statistics using nftables kernel counters (extremely low overhead). Requires nftables backend."))).modalonly = !0, d.default = "0", d.depends("add_firewall_forward", "1"), (d = u.option(config_a.Flag, "preserve_source_ip", _("Preserve Source IP"), _("Add NAT rules, preserving the source IP address. \nNote: Only effective when 'Add Firewall Forward' is enabled."))).modalonly = !0, d.default = "0", d.depends("add_firewall_forward", "1");
+    }), (c = u.option(config_r.Flag, "enable_firewall_stats", _("Enable Firewall Statistics"), _("Collect traffic statistics using nftables kernel counters (extremely low overhead). Requires nftables backend."))).modalonly = !0, c.default = "0", c.depends("add_firewall_forward", "1"), (c = u.option(config_r.Flag, "preserve_source_ip", _("Preserve Source IP"), _("Add NAT rules, preserving the source IP address. \nNote: Only effective when 'Add Firewall Forward' is enabled."))).modalonly = !0, c.default = "0", c.depends("add_firewall_forward", "1"), (c = u.option(config_r.Flag, "enable_wol", _("Enable Wake-on-LAN"), _("Send a magic packet to wake remote machines when the first packet is detected."))).modalonly = !0, c.default = "0", c.rmempty = !0, (c = u.option(config_r.DynamicList, "detect_protocols", _("Detect Protocols"), _("Protocol signatures that trigger WoL. Select from the list or type custom values."))).modalonly = !0, c.rmempty = !0, c.depends("enable_wol", "1"), c.value("ssh", "SSH"), c.value("rdp", "RDP"), c.value("http", "HTTP"), c.value("tls", "TLS/SSL"), c.value("vnc", "VNC/RFB"), c.value("socks5", "SOCKS5"), c.value("postgresql", "PostgreSQL"), c.value("telnet", "Telnet"), c.value("minecraft", "Minecraft (Java Edition)"), c.value("mqtt", "MQTT"), c.value("smb", "SMB/CIFS"), (c = u.option(config_r.DynamicList, "wol_mac_addresses", _("MAC Addresses"), _("MAC addresses of machines to wake (e.g. AA:BB:CC:DD:EE:FF)."))).modalonly = !0, c.rmempty = !0, c.depends("enable_wol", "1"), c.datatype = "macaddr", (c = u.option(config_r.Value, "wol_cooldown_ms", _("WoL Cooldown (ms)"), _("Minimum interval between successive WoL packets in milliseconds (1000\u2013300000)."))).modalonly = !0, c.rmempty = !0, c.default = "30000", c.datatype = "uinteger", c.placeholder = "30000", c.depends("enable_wol", "1"), (c = u.option(config_r.Button, "_wol_wake", _("Wake Now"))).modalonly = !0, c.editable = !0, c.inputtitle = _("Wake Now"), c.depends("enable_wol", "1"), c.onclick = (e, t)=>{
+        rpcClient.wolWake(t).then((e)=>{
+            e.success ? alert(_("WoL packets sent to ".concat(e.sent_count, " device(s)."))) : alert(_("WoL failed \u2014 check configuration."));
+        }).catch((e)=>{
+            alert(_("WoL error: ".concat(String(e))));
+        });
+    }, (c = u.option(config_r.Flag, "enable_protocol_filter", _("Enable Protocol Filter"), _("Reject connections whose detected application-layer protocol is not in the allowed list."))).modalonly = !0, c.default = "0", c.rmempty = !0, (c = u.option(config_r.DynamicList, "allowed_protocols", _("Allowed Protocols"), _("Only connections matching these protocol signatures will be forwarded."))).modalonly = !0, c.rmempty = !0, c.depends("enable_protocol_filter", "1"), c.value("ssh", "SSH"), c.value("rdp", "RDP"), c.value("http", "HTTP"), c.value("tls", "TLS/SSL"), c.value("vnc", "VNC/RFB"), c.value("socks5", "SOCKS5"), c.value("postgresql", "PostgreSQL"), c.value("telnet", "Telnet"), c.value("minecraft", "Minecraft (Java Edition)"), c.value("mqtt", "MQTT"), c.value("smb", "SMB/CIFS");
 }
 
 ;// CONCATENATED MODULE: ./components/StatusPanel.tsx
@@ -3455,8 +3476,7 @@ let about_t = L.form;
                                         jsxs("span", {
                                             style: o,
                                             children: [
-                                                " ",
-                                                "\u2014 ",
+                                                " \u2014 ",
                                                 _("Dynamic DNS client")
                                             ]
                                         }),

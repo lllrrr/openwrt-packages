@@ -43,6 +43,33 @@ export default function (
     );
   };
 
+  o = s.taboption(tab_id, form.Button, "_reload_config", _("Reload Config"));
+  o.modalonly = false;
+  o.editable = true;
+  o.inputtitle = _("Reload");
+  o.onclick = async () => {
+    try {
+      const result = await rpcClient.reloadConfig();
+      L.ui.addNotification(
+        null,
+        <p>
+          {_("Config reloaded: %d project(s) restarted").format(result.changes)}
+        </p>,
+        "info",
+      );
+      location.reload();
+    } catch (err) {
+      L.ui.addNotification(
+        null,
+        <p>
+          {_("Failed to reload config: %s").format(
+            (err as { message: string })?.message || String(err),
+          )}
+        </p>,
+        "error",
+      );
+    }
+  };
   const runtimeToggle = async (section_id: string) => {
     const idx = client.getProjectIndex(section_id);
     if (idx < 0) {
@@ -101,4 +128,56 @@ export default function (
     }
   };
   (window as any).portweaverToggle = runtimeToggle;
+  const restartProject = async (section_id: string) => {
+    const idx = client.getProjectIndex(section_id);
+    if (idx < 0) {
+      L.ui.addNotification(
+        null,
+        <p>{_("Could not determine project index")}</p>,
+        "error",
+      );
+      return Promise.resolve();
+    }
+    try {
+      await rpcClient.restartProject(idx);
+      L.ui.addNotification(
+        null,
+        <p>{_("Project restarted successfully")}</p>,
+        "info",
+      );
+      const fullStatus = await rpcClient.getFullStatus();
+      if (fullStatus) {
+        client.globalStatus = {
+          status: fullStatus.status,
+          total_projects: fullStatus.total_projects,
+          active_ports: fullStatus.active_ports,
+          uptime: fullStatus.uptime,
+          total_bytes_in: fullStatus.total_bytes_in,
+          total_bytes_out: fullStatus.total_bytes_out,
+        };
+        client.projectStatuses = (fullStatus.projects || []).map((p) => ({
+          enabled: p.enabled,
+          status: p.status,
+          startup_status: p.startup_status,
+          error_code: p.error_code,
+          active_ports: p.active_ports,
+          bytes_in: p.bytes_in,
+          bytes_out: p.bytes_out,
+          forwarders: p.forwarders,
+        }));
+      }
+      location.reload();
+    } catch (err) {
+      L.ui.addNotification(
+        null,
+        <p>
+          {_("Failed to restart project: %s").format(
+            (err as { message: string })?.message || String(err),
+          )}
+        </p>,
+        "error",
+      );
+    }
+  };
+  (window as any).portweaverRestart = restartProject;
 }

@@ -1,5 +1,6 @@
 import FrpNodeSelector from "@/components/FrpNodeSelector";
 import PortMappingEditor from "@/components/PortMappingEditor";
+import { rpcClient } from "@/utils/rpc-client";
 import type { Client } from "./client";
 const form = L.form;
 const uci = L.uci;
@@ -52,6 +53,13 @@ export default function (
   };
   o.onclick = (_ev: any, section_id: string) =>
     (window as any).portweaverToggle(section_id);
+
+  o = ss.option(form.Button, "_runtime_restart", _("Restart"));
+  o.modalonly = false;
+  o.editable = true;
+  o.inputtitle = _("Restart");
+  o.onclick = (_ev: any, section_id: string) =>
+    (window as any).portweaverRestart(section_id);
 
   o = ss.option(form.Flag, "enabled", _("Enabled"));
   o.modalonly = false;
@@ -324,10 +332,10 @@ export default function (
 
   o = ss.option(
     form.Flag,
-    "enable_stats",
-    _("Enable Statistics"),
+    "enable_app_stats",
+    _("Enable App Statistics"),
     _(
-      "Collect traffic statistics (bytes_in/bytes_out) using zero-cost atomic counters. \nNOTE: Mutually exclusive with firewall forwarding - enabling stats will disable add_firewall_forward.",
+      "Collect traffic statistics (bytes_in/bytes_out) for application-layer forwarding using zero-cost atomic counters.",
     ),
   );
   o.modalonly = true;
@@ -338,7 +346,19 @@ export default function (
   o.modalonly = true;
   o.default = "1";
   o.depends({ enable_app_forward: "0" });
-  o.depends({ enable_app_forward: "1", enable_stats: "0" });
+  o.depends({ enable_app_forward: "1" });
+
+  o = ss.option(
+    form.Flag,
+    "enable_firewall_stats",
+    _("Enable Firewall Statistics"),
+    _(
+      "Collect traffic statistics using nftables kernel counters (extremely low overhead). Requires nftables backend.",
+    ),
+  );
+  o.modalonly = true;
+  o.default = "0";
+  o.depends("add_firewall_forward", "1");
 
   o = ss.option(
     form.Flag,
@@ -351,4 +371,126 @@ export default function (
   o.modalonly = true;
   o.default = "0";
   o.depends("add_firewall_forward", "1");
+
+  // ── Wake-on-LAN ──────────────────────────────────────────────
+
+  o = ss.option(
+    form.Flag,
+    "enable_wol",
+    /* i18n */ _("Enable Wake-on-LAN"),
+    /* i18n */ _(
+      "Send a magic packet to wake remote machines when the first packet is detected.",
+    ),
+  );
+  o.modalonly = true;
+  o.default = "0";
+  o.rmempty = true;
+
+  o = ss.option(
+    form.DynamicList,
+    "detect_protocols",
+    /* i18n */ _("Detect Protocols"),
+    /* i18n */ _(
+      "Protocol signatures that trigger WoL. Select from the list or type custom values.",
+    ),
+  );
+  o.modalonly = true;
+  o.rmempty = true;
+  o.depends("enable_wol", "1");
+  o.value("ssh", "SSH");
+  o.value("rdp", "RDP");
+  o.value("http", "HTTP");
+  o.value("tls", "TLS/SSL");
+  o.value("vnc", "VNC/RFB");
+  o.value("socks5", "SOCKS5");
+  o.value("postgresql", "PostgreSQL");
+  o.value("telnet", "Telnet");
+  o.value("minecraft", "Minecraft (Java Edition)");
+  o.value("mqtt", "MQTT");
+  o.value("smb", "SMB/CIFS");
+
+  o = ss.option(
+    form.DynamicList,
+    "wol_mac_addresses",
+    /* i18n */ _("MAC Addresses"),
+    /* i18n */ _("MAC addresses of machines to wake (e.g. AA:BB:CC:DD:EE:FF)."),
+  );
+  o.modalonly = true;
+  o.rmempty = true;
+  o.depends("enable_wol", "1");
+  o.datatype = "macaddr";
+
+  o = ss.option(
+    form.Value,
+    "wol_cooldown_ms",
+    /* i18n */ _("WoL Cooldown (ms)"),
+    /* i18n */ _(
+      "Minimum interval between successive WoL packets in milliseconds (1000–300000).",
+    ),
+  );
+  o.modalonly = true;
+  o.rmempty = true;
+  o.default = "30000";
+  o.datatype = "uinteger";
+  o.placeholder = "30000";
+  o.depends("enable_wol", "1");
+
+  o = ss.option(form.Button, "_wol_wake", /* i18n */ _("Wake Now"));
+  o.modalonly = true;
+  o.editable = true;
+  o.inputtitle = /* i18n */ _("Wake Now");
+  o.depends("enable_wol", "1");
+  o.onclick = (_ev: any, section_id: string) => {
+    rpcClient
+      .wolWake(section_id)
+      .then((res: { success: boolean; sent_count: number }) => {
+        if (res.success) {
+          alert(
+            /* i18n */ _(`WoL packets sent to ${res.sent_count} device(s).`),
+          );
+        } else {
+          alert(/* i18n */ _("WoL failed — check configuration."));
+        }
+      })
+      .catch((err: unknown) => {
+        alert(/* i18n */ _(`WoL error: ${String(err)}`));
+      });
+  };
+
+  // ── Protocol Filter ───────────────────────────────────────────
+
+  o = ss.option(
+    form.Flag,
+    "enable_protocol_filter",
+    /* i18n */ _("Enable Protocol Filter"),
+    /* i18n */ _(
+      "Reject connections whose detected application-layer protocol is not in the allowed list.",
+    ),
+  );
+  o.modalonly = true;
+  o.default = "0";
+  o.rmempty = true;
+
+  o = ss.option(
+    form.DynamicList,
+    "allowed_protocols",
+    /* i18n */ _("Allowed Protocols"),
+    /* i18n */ _(
+      "Only connections matching these protocol signatures will be forwarded.",
+    ),
+  );
+  o.modalonly = true;
+  o.rmempty = true;
+  o.depends("enable_protocol_filter", "1");
+  o.value("ssh", "SSH");
+  o.value("rdp", "RDP");
+  o.value("http", "HTTP");
+  o.value("tls", "TLS/SSL");
+  o.value("vnc", "VNC/RFB");
+  o.value("socks5", "SOCKS5");
+  o.value("postgresql", "PostgreSQL");
+  o.value("telnet", "Telnet");
+  o.value("minecraft", "Minecraft (Java Edition)");
+  o.value("mqtt", "MQTT");
+  o.value("smb", "SMB/CIFS");
 }

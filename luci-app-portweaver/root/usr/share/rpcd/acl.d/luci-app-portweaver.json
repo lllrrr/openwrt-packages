@@ -17,7 +17,7 @@
 			},
 			"uci": ["portweaver"],
 			"ubus": {
-				"portweaver": ["set_enabled", "clear_frpc_logs", "clear_ddns_logs", "clear_frps_logs"]
+				"portweaver": ["set_enabled", "clear_frpc_logs", "clear_ddns_logs", "clear_frps_logs", "reload_config", "restart_project"]
 			}
 		}
 	}

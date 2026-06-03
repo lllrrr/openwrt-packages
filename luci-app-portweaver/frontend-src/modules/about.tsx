@@ -45,9 +45,7 @@ export default function (
               {_("OpenWrt Package")}
             </a>
           </div>
-          <p style={`${smallStyle} margin-top:8px;`}>
-            {_("License: GPL-3.0")}
-          </p>
+          <p style={`${smallStyle} margin-top:8px;`}>{_("License: GPL-3.0")}</p>
         </div>
 
         <div style={sectionStyle}>
@@ -78,10 +76,7 @@ export default function (
               >
                 go-ddns
               </a>
-              <span style={smallStyle}>
-                {" "}
-                — {_("Dynamic DNS client")}
-              </span>
+              <span style={smallStyle}> — {_("Dynamic DNS client")}</span>
               <br />
               <span style={smallStyle}>{_("License: MIT")}</span>
             </div>

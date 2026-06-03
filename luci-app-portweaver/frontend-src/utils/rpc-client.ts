@@ -78,6 +78,47 @@ export function createRpcClient(rpc: typeof L.rpc) {
     method: "get_nftables_rules",
   });
 
+  const reloadConfig = rpc.declare<{
+    success: boolean;
+    changes: number;
+    message: string;
+  }>({
+    object: "portweaver",
+    method: "reload_config",
+  });
+
+  const restartProject = rpc.declare<
+    { id: number; status: string },
+    [id: number]
+  >({
+    object: "portweaver",
+    method: "restart_project",
+    params: ["id"],
+  });
+
+  const wolWake = rpc.declare<
+    { success: boolean; sent_count: number },
+    [project: string]
+  >({
+    object: "portweaver",
+    method: "wol_wake",
+    params: ["project"],
+  });
+
+  const wolStatus = rpc.declare<
+    {
+      enabled: boolean;
+      mac_count: number;
+      cooldown_ms: number;
+      detect_protocols: string[];
+    },
+    [project: string]
+  >({
+    object: "portweaver",
+    method: "wol_status",
+    params: ["project"],
+  });
+
   return {
     listProjects,
     setEnabled,
@@ -92,8 +133,11 @@ export function createRpcClient(rpc: typeof L.rpc) {
     getFrpsProxyStats,
     getFullStatus,
     getNftablesRules,
+    reloadConfig,
+    restartProject,
+    wolWake,
+    wolStatus,
   };
 }
-
 export type RpcClient = ReturnType<typeof createRpcClient>;
 export const rpcClient = createRpcClient(L.rpc);
