@@ -2,7 +2,9 @@
 
 STATE_DIR="${FLOWLENS_STATE_DIR:-/tmp/run/flowlens}"
 LEASES_FILE="${FLOWLENS_LEASES_FILE:-/tmp/dhcp.leases}"
+DHCP_CONFIG="${FLOWLENS_DHCP_CONFIG:-/etc/config/dhcp}"
 ARP_FILE="${FLOWLENS_ARP_FILE:-/proc/net/arp}"
+FLOWLENS_CONFIG="${FLOWLENS_CONFIG:-/etc/config/flowlens}"
 NLBWMON_CONFIG="${FLOWLENS_NLBWMON_CONFIG:-/etc/config/nlbwmon}"
 CONNTRACK_FILE="${FLOWLENS_CONNTRACK_FILE:-/proc/net/nf_conntrack}"
 IP_CONNTRACK_FILE="${FLOWLENS_IP_CONNTRACK_FILE:-/proc/net/ip_conntrack}"
@@ -36,9 +38,67 @@ collect_cache() {
 
 	awk -F'|' "$valid_mac_awk"'
 		valid_mac($1) {
-			print "C|" tolower($1) "|" $2 "|" $3 "|" ($4 + 0)
+			print "C|" tolower($1) "|" $2 "|" $3 "|" ($4 + 0) "|" ($5 + 0)
 		}
 	' "$STATE_DIR/devices.cache"
+}
+
+collect_dhcp_config() {
+	[ -r "$DHCP_CONFIG" ] || return 0
+
+	awk "$valid_mac_awk"'
+		function clean(value) {
+			gsub(/^[ \t\047"]+/, "", value)
+			gsub(/[ \t\047"]+$/, "", value)
+			return value
+		}
+
+		function remember_mac(value, key) {
+			if (!valid_mac(value))
+				return
+
+			key = tolower(value)
+			if (index(" " mac_list " ", " " key " ") == 0)
+				mac_list = mac_list (mac_list == "" ? "" : " ") key
+		}
+
+		function flush(parts, n, i) {
+			if (section != "host")
+				return
+
+			n = split(mac_list, parts, " ")
+			for (i = 1; i <= n; i++)
+				if (valid_mac(parts[i]))
+					print "S|" tolower(parts[i]) "|" ip "|" name
+		}
+
+		$1 == "config" {
+			flush()
+			section = clean($2)
+			mac_list = ""
+			ip = ""
+			name = ""
+			next
+		}
+
+		section == "host" && ($1 == "option" || $1 == "list") {
+			key = clean($2)
+			value = $0
+			sub(/^[ \t]*(option|list)[ \t]+[^ \t]+[ \t]+/, "", value)
+			value = clean(value)
+
+			if (key == "mac")
+				remember_mac(value)
+			else if (key == "ip")
+				ip = value
+			else if (key == "name" || key == "hostname")
+				name = value
+		}
+
+		END {
+			flush()
+		}
+	' "$DHCP_CONFIG"
 }
 
 collect_leases() {
@@ -296,6 +356,37 @@ read_database_interval() {
 	fi
 
 	echo 1
+}
+
+read_retain_days() {
+	value=""
+
+	if [ -n "$FLOWLENS_RETAIN_DAYS" ]; then
+		value="$FLOWLENS_RETAIN_DAYS"
+	elif command -v uci >/dev/null 2>&1; then
+		value="$(uci -q get flowlens.main.retain_days 2>/dev/null)"
+	elif [ -r "$FLOWLENS_CONFIG" ]; then
+		value="$(awk '
+			$1 == "option" && $2 == "retain_days" {
+				value = $3
+				gsub(/\047|"/, "", value)
+				print value
+				exit
+			}
+		' "$FLOWLENS_CONFIG")"
+	fi
+
+	case "$value" in
+		''|*[!0-9]*)
+			value=7
+			;;
+	esac
+
+	if [ "$value" -lt 1 ]; then
+		value=7
+	fi
+
+	echo "$value"
 }
 
 calculate_monthly_period() {
@@ -558,13 +649,18 @@ render_json() {
 	period_start="$4"
 	period_end="$5"
 	period_label="$6"
+	retain_days="$7"
 
-	awk -F'|' -v now="$NOW" -v cache_file="$cache_file" -v rate_source="$rate_source" -v period_start="$period_start" -v period_end="$period_end" -v period_label="$period_label" "$valid_mac_awk"'
+	awk -F'|' -v now="$NOW" -v cache_file="$cache_file" -v rate_source="$rate_source" -v period_start="$period_start" -v period_end="$period_end" -v period_label="$period_label" -v retain_days="$retain_days" "$valid_mac_awk"'
 	function remember(mac) {
 		if (!(mac in seen)) {
 			seen[mac] = 1
 			order[++count] = mac
 		}
+	}
+
+	function max_value(left, right) {
+		return left > right ? left : right
 	}
 
 	function is_ipv4(address) {
@@ -689,6 +785,17 @@ render_json() {
 		return ""
 	}
 
+	function should_prune(mac, activity) {
+		if (online[mac] || dhcp_static[mac])
+			return 0
+
+		activity = max_value(last_seen[mac] + 0, last_traffic_seen[mac] + 0)
+		if (activity <= 0)
+			return 1
+
+		return activity < prune_cutoff
+	}
+
 	function esc(value) {
 		gsub(/\\/, "\\\\", value)
 		gsub(/"/, "\\\"", value)
@@ -720,6 +827,19 @@ render_json() {
 			name[mac] = $4
 		if (last_seen[mac] == "")
 			last_seen[mac] = $5 + 0
+		if (last_traffic_seen[mac] == "")
+			last_traffic_seen[mac] = $6 + 0
+		next
+	}
+
+	$1 == "S" && valid_mac($2) {
+		mac = $2
+		remember(mac)
+		dhcp_static[mac] = 1
+		if ($3 != "")
+			set_dhcp_ipv4(mac, $3)
+		if ($4 != "")
+			name[mac] = $4
 		next
 	}
 
@@ -730,6 +850,8 @@ render_json() {
 			set_dhcp_ipv4(mac, $3)
 		if ($4 != "")
 			name[mac] = $4
+		if (($5 + 0) > now && (last_seen[mac] == "" || (last_seen[mac] + 0) < now))
+			last_seen[mac] = now
 		next
 	}
 
@@ -756,6 +878,16 @@ render_json() {
 		conns[mac] = $5 + 0
 		down_bps[mac] = $6 + 0
 		up_bps[mac] = $7 + 0
+		if ((rx_bytes[mac] + tx_bytes[mac]) > 0)
+			last_traffic_seen[mac] = now
+		next
+	}
+
+	$1 == "T" && valid_mac($2) {
+		mac = $2
+		remember(mac)
+		if (($3 + $4) > 0)
+			last_traffic_seen[mac] = now
 		next
 	}
 
@@ -768,9 +900,16 @@ render_json() {
 	}
 
 	END {
+		prune_cutoff = now - ((retain_days + 0) * 86400)
+
 		for (i = 1; i <= count; i++) {
 			mac = order[i]
 			apply_cache_ip(mac)
+
+			if (should_prune(mac))
+				continue
+
+			kept_order[++kept_count] = mac
 
 			if (online[mac]) {
 				online_count++
@@ -782,15 +921,15 @@ render_json() {
 			ip[mac] = primary_ip(mac)
 			total_down += down_bps[mac]
 			total_up += up_bps[mac]
-			print mac "|" ip[mac] "|" name[mac] "|" (last_seen[mac] + 0) > cache_file
+			print mac "|" ip[mac] "|" name[mac] "|" (last_seen[mac] + 0) "|" (last_traffic_seen[mac] + 0) > cache_file
 		}
 		close(cache_file)
 
 		printf "{"
 		printf "\"devices\":["
 
-		for (i = 1; i <= count; i++) {
-			mac = order[i]
+		for (i = 1; i <= kept_count; i++) {
+			mac = kept_order[i]
 			if (i > 1)
 				printf ","
 
@@ -821,7 +960,7 @@ render_json() {
 		}
 
 		printf "]"
-		printf ",\"summary\":{\"total\":%.0f,\"online\":%.0f,\"offline\":%.0f,\"down_bps\":%.0f,\"up_bps\":%.0f}", count, online_count, offline_count, total_down, total_up
+		printf ",\"summary\":{\"total\":%.0f,\"online\":%.0f,\"offline\":%.0f,\"down_bps\":%.0f,\"up_bps\":%.0f}", kept_count, online_count, offline_count, total_down, total_up
 		printf ",\"meta\":{\"timestamp\":%.0f,\"poll_interval\":1,\"rate_source\":\"%s\",\"period_start\":\"%s\",\"period_end\":\"%s\",\"period_label\":\"%s\"}", now, esc(rate_source), esc(period_start), esc(period_end), esc(period_label)
 		printf "}\n"
 	}
@@ -853,6 +992,7 @@ call_devices() {
 	live_prev_file="$live_state_file"
 	rate_source="unavailable"
 	period="$(calculate_period)"
+	retain_days="$(read_retain_days)"
 	period_start="${period%%|*}"
 	period_rest="${period#*|}"
 	period_end="${period_rest%%|*}"
@@ -863,6 +1003,7 @@ call_devices() {
 
 	{
 		collect_cache
+		collect_dhcp_config
 		collect_leases
 		collect_arp
 		collect_neigh
@@ -879,6 +1020,12 @@ call_devices() {
 	if collect_conntrack > "$conntrack_file"; then
 		map_conntrack_to_macs "$records_file" "$conntrack_file" "$live_traffic_file"
 		if [ -s "$live_traffic_file" ]; then
+			awk -F'|' "$valid_mac_awk"'
+				valid_mac($1) {
+					printf "T|%s|%.0f|%.0f\n", tolower($1), ($2 + 0), ($3 + 0)
+				}
+			' "$live_traffic_file" >> "$records_file"
+
 			case "$rate_source" in
 				nlbwmon)
 					rate_source="conntrack + nlbwmon"
@@ -893,7 +1040,7 @@ call_devices() {
 		fi
 	fi
 
-	render_json "$records_file" "$cache_tmp" "$rate_source" "$period_start" "$period_end" "$period_label" > "$json_file"
+	render_json "$records_file" "$cache_tmp" "$rate_source" "$period_start" "$period_end" "$period_label" "$retain_days" > "$json_file"
 	mv "$cache_tmp" "$STATE_DIR/devices.cache" 2>/dev/null || true
 	cat "$json_file"
 }

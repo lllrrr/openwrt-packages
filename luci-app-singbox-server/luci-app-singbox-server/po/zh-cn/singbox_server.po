@@ -1,0 +1,113 @@
+msgid "SingBox服务端"
+msgstr "SingBox服务端"
+
+msgid "服务器端"
+msgstr "服务器端"
+
+msgid "sing-box 多实例服务端管理。"
+msgstr "sing-box 多实例服务端管理。"
+
+msgid "启用"
+msgstr "启用"
+
+msgid "用户管理"
+msgstr "用户管理"
+
+msgid "添加"
+msgstr "添加"
+
+msgid "状态"
+msgstr "状态"
+
+msgid "备注"
+msgstr "备注"
+
+msgid "类型"
+msgstr "类型"
+
+msgid "端口"
+msgstr "端口"
+
+msgid "日志"
+msgstr "日志"
+
+msgid "上移"
+msgstr "上移"
+
+msgid "下移"
+msgstr "下移"
+
+msgid "编辑"
+msgstr "编辑"
+
+msgid "删除"
+msgstr "删除"
+
+msgid "服务器配置"
+msgstr "服务器配置"
+
+msgid "使用自定义配置"
+msgstr "使用自定义配置"
+
+msgid "自定义配置内容"
+msgstr "自定义配置内容"
+
+msgid "协议"
+msgstr "协议"
+
+msgid "监听端口"
+msgstr "监听端口"
+
+msgid "ID/密码"
+msgstr "ID/密码"
+
+msgid "VMess/VLESS/TUIC 使用 UUID；Trojan/Hysteria2/TUIC 使用密码。留空时启动会自动生成。"
+msgstr "VMess/VLESS/TUIC 使用 UUID；Trojan/Hysteria2/TUIC 使用密码。留空时启动会自动生成。"
+
+msgid "-- 请选择 --"
+msgstr "-- 请选择 --"
+
+msgid "密码"
+msgstr "密码"
+
+msgid "TLS/Reality Server Name"
+msgstr "TLS/Reality Server Name"
+
+msgid "证书路径"
+msgstr "证书路径"
+
+msgid "私钥路径"
+msgstr "私钥路径"
+
+msgid "Reality 私钥"
+msgstr "Reality 私钥"
+
+msgid "可使用 sing-box generate reality-keypair 生成。"
+msgstr "可使用 sing-box generate reality-keypair 生成。"
+
+msgid "Reality Short ID"
+msgstr "Reality Short ID"
+
+msgid "传输方式"
+msgstr "传输方式"
+
+msgid "gRPC Service Name"
+msgstr "gRPC Service Name"
+
+msgid "本机监听"
+msgstr "本机监听"
+
+msgid "当勾选时，只能本机访问。"
+msgstr "当勾选时，只能本机访问。"
+
+msgid "接受局域网访问"
+msgstr "接受局域网访问"
+
+msgid "当勾选时，可以直接访问局域网，这将不安全！（非特殊情况不建议开启）"
+msgstr "当勾选时，可以直接访问局域网，这将不安全！（非特殊情况不建议开启）"
+
+msgid "清空日志"
+msgstr "清空日志"
+
+msgid "正在加载日志..."
+msgstr "正在加载日志..."

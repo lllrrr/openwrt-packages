@@ -1,0 +1,60 @@
+<div id="singbox_log_box" style="margin-top:8px;">
+	<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+		<input class="btn cbi-button cbi-button-apply" type="button" value="<%:主日志%>" onclick="loadSingBoxLog('main');location.hash='log_main';" />
+		<input class="btn cbi-button cbi-button-reset" type="button" value="<%:清空当前日志%>" onclick="clearSingBoxLog()" />
+		<span id="singbox_log_title" style="font-weight:bold;margin-left:6px;"><%:当前显示：主日志%></span>
+	</div>
+	<pre id="singbox_log" style="margin-top:10px;height:360px;overflow:auto;border:1px solid #ccc;background:#fff;padding:8px;white-space:pre-wrap;font-family:monospace;"><%:正在加载日志...%></pre>
+</div>
+<script type="text/javascript">
+//<![CDATA[
+var singboxCurrentLogSid = 'main';
+
+function singboxLogUrl(action, sid) {
+	var url = '<%=luci.dispatcher.build_url("admin/vpn/singbox-server")%>/' + action;
+	if (sid && sid != 'main')
+		url += '?sid=' + encodeURIComponent(sid);
+	return url;
+}
+
+function setSingBoxLogTitle(sid) {
+	var title = document.getElementById('singbox_log_title');
+	if (!title)
+		return;
+	title.textContent = sid && sid != 'main' ? '<%:当前显示：节点日志%> ' + sid : '<%:当前显示：主日志%>';
+}
+
+function loadSingBoxLog(sid) {
+	sid = sid || singboxCurrentLogSid || 'main';
+	singboxCurrentLogSid = sid;
+	setSingBoxLogTitle(sid);
+	XHR.get(singboxLogUrl('log', sid), null, function(x) {
+		var box = document.getElementById('singbox_log');
+		if (!box)
+			return;
+		box.textContent = x.responseText || '';
+		box.scrollTop = box.scrollHeight;
+	});
+}
+
+function clearSingBoxLog() {
+	XHR.get(singboxLogUrl('clear_log', singboxCurrentLogSid), null, function() {
+		loadSingBoxLog(singboxCurrentLogSid);
+	});
+}
+
+function loadLogFromHash() {
+	var h = location.hash || '';
+	if (h.indexOf('#log_') === 0) {
+		var sid = decodeURIComponent(h.substring(5));
+		loadSingBoxLog(sid || 'main');
+	} else {
+		loadSingBoxLog('main');
+	}
+}
+
+window.addEventListener && window.addEventListener('hashchange', loadLogFromHash, false);
+loadLogFromHash();
+setInterval(function() { loadSingBoxLog(singboxCurrentLogSid); }, 3000);
+//]]>
+</script>

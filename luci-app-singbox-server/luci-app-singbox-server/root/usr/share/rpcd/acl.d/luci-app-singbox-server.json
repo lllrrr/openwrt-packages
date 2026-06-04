@@ -1,0 +1,11 @@
+{
+	"luci-app-singbox-server": {
+		"description": "Grant UCI access for luci-app-singbox-server",
+		"read": {
+			"uci": [ "singbox_server" ]
+		},
+		"write": {
+			"uci": [ "singbox_server" ]
+		}
+	}
+}

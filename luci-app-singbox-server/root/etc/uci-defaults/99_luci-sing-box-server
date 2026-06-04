@@ -1,3 +1,0 @@
-#!/bin/sh
-chmod 755 /etc/init.d/sing-box-server 2>/dev/null
-exit 0

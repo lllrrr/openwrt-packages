@@ -9,7 +9,7 @@ var callDevices = rpc.declare({
 	expect: { '': {} }
 });
 
-var assetVersion = '0.1.18';
+var assetVersion = '0.1.23';
 
 function parseRgb(color) {
 	var match = String(color || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/i);

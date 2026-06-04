@@ -19,18 +19,35 @@ FlowLens 是一个 LuCI 应用，用来把 OpenWrt 做成更直观的路由器�
   - IPv6 主显示只显示一个最有用地址，优先公网地址，其次 ULA，默认隐藏 `fe80::`。
   - STALE neighbor 和额外地址进入 IP 浮窗里的“历史/邻居缓存”区域。
   - FlowLens 缓存只保留离线设备的最后主地址，避免完整 IP 列表越积越多。
+- 离线陈旧设备清理：如果设备离线、不是静态 DHCP host，并且连续
+  `retain_days` 没有观察到流量，会从 FlowLens 的短生命周期缓存中移除。
+  默认保留 7 天。
 
 ## 数据来源
 
 FlowLens 尽量使用 OpenWrt 上风险较低、容易理解的数据来源：
 
 - `/tmp/dhcp.leases`：当前 DHCP IPv4 租约和设备名。
+- `/etc/config/dhcp`：静态 host 配置，用来让已配置设备即使离线且无流量也继续显示。
 - `/proc/net/arp` 与 `ip neigh show`：在线状态与邻居缓存。
 - `conntrack`：可用时用于计算秒级实时流量差值。
 - `nlbwmon`：当前统计周期的按 MAC 流量计数与累计。
 - `/tmp/run/flowlens`：短生命周期本地状态，用来计算速率差值，以及记住离线设备最后主地址。
 
 路由器运行时不需要安装 Node.js、npm、Vite 或 React 依赖。
+
+## 运行配置
+
+`root/etc/config/flowlens` 默认包含：
+
+```text
+config flowlens 'main'
+	option poll_interval '2'
+	option retain_days '7'
+```
+
+`retain_days` 用来控制离线、非静态 DHCP、且没有观察到流量的陈旧设备清理。
+小于 1 或无效的值会回退为 7 天。
 
 ## 目录结构
 
@@ -160,7 +177,7 @@ node --check htdocs/luci-static/resources/view/flowlens/overview.js
 开发时如果遇到浏览器缓存，可以在页面 URL 后追加版本参数，例如：
 
 ```text
-/cgi-bin/luci/admin/status/flowlens?flowlens_v=0.1.18
+/cgi-bin/luci/admin/status/flowlens?flowlens_v=0.1.23
 ```
 
 ## 注意事项

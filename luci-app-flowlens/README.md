@@ -28,12 +28,17 @@ at development time to build the browser bundle.
     popover as historical/neighbor cache data.
   - FlowLens cache stores only the last main address for offline devices, so
     address lists do not grow forever.
+- Stale offline cleanup: devices that are offline, not defined as static DHCP
+  hosts, and have no observed traffic for `retain_days` are removed from the
+  short-lived FlowLens cache. The default retention is 7 days.
 
 ## Data Sources
 
 FlowLens intentionally uses low-risk OpenWrt data sources:
 
 - `/tmp/dhcp.leases` for current DHCP IPv4 leases and host names.
+- `/etc/config/dhcp` static host entries to keep configured devices visible
+  even when they are offline and quiet.
 - `/proc/net/arp` and `ip neigh show` for online presence and neighbor cache.
 - `conntrack` for second-level live traffic deltas when available.
 - `nlbwmon` for current accounting-period per-MAC counters and totals.
@@ -41,6 +46,19 @@ FlowLens intentionally uses low-risk OpenWrt data sources:
   remember the last main address for offline devices.
 
 The router runtime does not need Node.js, npm, Vite, or React packages.
+
+## Runtime Configuration
+
+`root/etc/config/flowlens` ships with:
+
+```text
+config flowlens 'main'
+	option poll_interval '2'
+	option retain_days '7'
+```
+
+`retain_days` controls stale cleanup for offline, non-static-DHCP devices that
+have no observed traffic. Values below 1 or invalid values fall back to 7 days.
 
 ## Repository Layout
 
@@ -174,7 +192,7 @@ If browser caching gets in the way during development, append a version query
 parameter to the page URL, for example:
 
 ```text
-/cgi-bin/luci/admin/status/flowlens?flowlens_v=0.1.18
+/cgi-bin/luci/admin/status/flowlens?flowlens_v=0.1.23
 ```
 
 ## Notes

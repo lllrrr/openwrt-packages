@@ -176,7 +176,7 @@ export default function (
             </div>
             <div>
               <a
-                href="https://github.com/sdlzm/go-ddns"
+                href="https://github.com/jeessy2/ddns-go"
                 target="_blank"
                 rel="noopener noreferrer"
                 style={linkStyle}

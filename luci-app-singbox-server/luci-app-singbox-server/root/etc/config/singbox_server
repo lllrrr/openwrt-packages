@@ -1,0 +1,21 @@
+
+config global 'global'
+	option enabled '0'
+
+config server
+	option enabled '0'
+	option remarks '备注'
+	option type 'singbox'
+	option protocol 'vmess'
+	option listen_port '4566'
+	option uuid 'ba9872bc-ebdf-4ce2-8c6f-fce7fa2357aa'
+	option password ''
+	option tls '0'
+	option transport 'ws'
+	option ws_host ''
+	option ws_path '/'
+	option grpc_service_name 'grpc'
+	option mux '0'
+	option local_listen '0'
+	option lan_access '0'
+	option log '0'

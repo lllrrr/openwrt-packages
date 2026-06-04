@@ -1506,3 +1506,36 @@ msgstr "還原徹底完成！路由器即將自動重啟！"
 
 msgid "MSG_RST_INVALID"
 msgstr "無效的膠囊檔案！系統未檢測到 NetWiz 專屬特徵碼，為保護系統安全已自動攔截並銷毀。"
+
+msgid "File Too Large"
+msgstr "檔案過大"
+
+msgid "<div style=\"text-align:left; color:#ef4444; font-weight:bold;\">Config files are usually under 100KB!</div><br>The selected file is too large and has been blocked."
+msgstr "<div style=\"text-align:left; color:#ef4444; font-weight:bold;\">配置檔案通常小於 100KB！</div><br>您選擇的檔案過大，已被安全攔截。"
+
+msgid "Restore Network Config"
+msgstr "還原網路配置"
+
+msgid "This action will overwrite the existing network configuration and restart the network.<br><br><span style=\"color:#f59e0b; font-weight:bold;\">⚠️ Security Warning: Do not upload backups from unknown sources to prevent router hijacking.</span><br><br>Confirm restore?"
+msgstr "此操作將覆蓋現有的網路配置，並重啟網路。<br><br><span style=\"color:#f59e0b; font-weight:bold;\">⚠️ 安全警告：請勿上傳來路不明的備份檔案，以免路由器被惡意劫持。</span><br><br>確認要執行還原嗎？"
+
+msgid "Restoring"
+msgstr "正在還原"
+
+msgid "Restore Failed"
+msgstr "還原失敗"
+
+msgid "Error: "
+msgstr "錯誤: "
+
+msgid "Invalid Format"
+msgstr "格式無效"
+
+msgid "The uploaded file is not a valid JSON format and cannot be parsed!"
+msgstr "您上傳的檔案不是有效的 JSON 格式，無法解析！"
+
+msgid "Import Configuration"
+msgstr "匯入配置"
+
+msgid "Are you sure you want to import this configuration? Existing data will be overwritten."
+msgstr "確認要匯入該配置嗎？現有資料將被徹底覆蓋。"

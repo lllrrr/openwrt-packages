@@ -856,6 +856,12 @@ msgstr " 运行时状态已更新为：%s "
 msgid "Runtime Status"
 msgstr "运行时状态"
 
+msgid "Save & Reload"
+msgstr "保存并重载"
+
+msgid "Save & Restart"
+msgstr "保存并重启"
+
 msgid "Search logs..."
 msgstr "搜索日志..."
 

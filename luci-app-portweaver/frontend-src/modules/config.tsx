@@ -1,6 +1,7 @@
 import FrpNodeSelector from "@/components/FrpNodeSelector";
 import PortMappingEditor from "@/components/PortMappingEditor";
 import { rpcClient } from "@/utils/rpc-client";
+import { isFeatureEnabled } from "@/utils/feature";
 import type { Client } from "./client";
 const form = L.form;
 const uci = L.uci;
@@ -261,11 +262,13 @@ export default function (
   o.default = "tcp";
   o.depends("use_port_mappings", "0");
 
-  // FRP node selector component factory
-  o = ss.option(FrpNodeSelector, "frp_nodes", _("FRP Tunnels"));
-  o.modalonly = true;
-  o.rmempty = true;
-  o.depends("use_port_mappings", "0");
+  if (isFeatureEnabled("frpc_mode")) {
+    // FRP node selector component factory
+    o = ss.option(FrpNodeSelector, "frp_nodes", _("FRP Tunnels"));
+    o.modalonly = true;
+    o.rmempty = true;
+    o.depends("use_port_mappings", "0");
+  }
 
   // Port Mapping Editor component factory
   o = ss.option(PortMappingEditor, "port_mapping", _("Port Mappings"));
@@ -374,88 +377,85 @@ export default function (
 
   // ── Wake-on-LAN ──────────────────────────────────────────────
 
-  o = ss.option(
-    form.Flag,
-    "enable_wol",
-    /* i18n */ _("Enable Wake-on-LAN"),
-    /* i18n */ _(
-      "Send a magic packet to wake remote machines when the first packet is detected.",
-    ),
-  );
-  o.modalonly = true;
-  o.default = "0";
-  o.rmempty = true;
+  if (isFeatureEnabled("wol_mode")) {
+    o = ss.option(
+      form.Flag,
+      "enable_wol",
+      /* i18n */ _("Enable Wake-on-LAN"),
+      /* i18n */ _(
+        "Send a magic packet to wake remote machines when the first packet is detected.",
+      ),
+    );
+    o.modalonly = true;
+    o.default = "0";
+    o.rmempty = true;
 
-  o = ss.option(
-    form.DynamicList,
-    "detect_protocols",
-    /* i18n */ _("Detect Protocols"),
-    /* i18n */ _(
-      "Protocol signatures that trigger WoL. Select from the list or type custom values.",
-    ),
-  );
-  o.modalonly = true;
-  o.rmempty = true;
-  o.depends("enable_wol", "1");
-  o.value("ssh", "SSH");
-  o.value("rdp", "RDP");
-  o.value("http", "HTTP");
-  o.value("tls", "TLS/SSL");
-  o.value("vnc", "VNC/RFB");
-  o.value("socks5", "SOCKS5");
-  o.value("postgresql", "PostgreSQL");
-  o.value("telnet", "Telnet");
-  o.value("minecraft", "Minecraft (Java Edition)");
-  o.value("mqtt", "MQTT");
-  o.value("smb", "SMB/CIFS");
+    o = ss.option(
+      form.DynamicList,
+      "detect_protocols",
+      /* i18n */ _("Detect Protocols"),
+      /* i18n */ _(
+        "Protocol signatures that trigger WoL. Select from the list or type custom values.",
+      ),
+    );
+    o.modalonly = true;
+    o.rmempty = true;
+    o.depends("enable_wol", "1");
+    o.value("ssh", "SSH");
+    o.value("rdp", "RDP");
+    o.value("http", "HTTP");
+    o.value("tls", "TLS/SSL");
+    o.value("vnc", "VNC/RFB");
+    o.value("socks5", "SOCKS5");
+    o.value("postgresql", "PostgreSQL");
+    o.value("telnet", "Telnet");
+    o.value("minecraft", "Minecraft (Java Edition)");
+    o.value("mqtt", "MQTT");
+    o.value("smb", "SMB/CIFS");
 
-  o = ss.option(
-    form.DynamicList,
-    "wol_mac_addresses",
-    /* i18n */ _("MAC Addresses"),
-    /* i18n */ _("MAC addresses of machines to wake (e.g. AA:BB:CC:DD:EE:FF)."),
-  );
-  o.modalonly = true;
-  o.rmempty = true;
-  o.depends("enable_wol", "1");
-  o.datatype = "macaddr";
+    o = ss.option(
+      form.ListValue,
+      "wol_target",
+      /* i18n */ _("WoL Target"),
+      /* i18n */ _(
+        "Select the global Wake-on-LAN target configuration for this project.",
+      ),
+    );
+    o.modalonly = true;
+    o.rmempty = true;
+    o.depends("enable_wol", "1");
+    o.value("", _("-- Select Target --"));
 
-  o = ss.option(
-    form.Value,
-    "wol_cooldown_ms",
-    /* i18n */ _("WoL Cooldown (ms)"),
-    /* i18n */ _(
-      "Minimum interval between successive WoL packets in milliseconds (1000–300000).",
-    ),
-  );
-  o.modalonly = true;
-  o.rmempty = true;
-  o.default = "30000";
-  o.datatype = "uinteger";
-  o.placeholder = "30000";
-  o.depends("enable_wol", "1");
+    const wol_sections = L.uci.sections("portweaver", "wol_target") || [];
+    for (const target of wol_sections) {
+      const name = target.name || target[".name"];
+      if (name) {
+        o.value(name, name);
+      }
+    }
 
-  o = ss.option(form.Button, "_wol_wake", /* i18n */ _("Wake Now"));
-  o.modalonly = true;
-  o.editable = true;
-  o.inputtitle = /* i18n */ _("Wake Now");
-  o.depends("enable_wol", "1");
-  o.onclick = (_ev: any, section_id: string) => {
-    rpcClient
-      .wolWake(section_id)
-      .then((res: { success: boolean; sent_count: number }) => {
-        if (res.success) {
-          alert(
-            /* i18n */ _(`WoL packets sent to ${res.sent_count} device(s).`),
-          );
-        } else {
-          alert(/* i18n */ _("WoL failed — check configuration."));
-        }
-      })
-      .catch((err: unknown) => {
-        alert(/* i18n */ _(`WoL error: ${String(err)}`));
-      });
-  };
+    o = ss.option(form.Button, "_wol_wake", /* i18n */ _("Wake Now"));
+    o.modalonly = true;
+    o.editable = true;
+    o.inputtitle = /* i18n */ _("Wake Now");
+    o.depends("enable_wol", "1");
+    o.onclick = (_ev: any, section_id: string) => {
+      rpcClient
+        .wolWake(section_id)
+        .then((res: { success: boolean; sent_count: number }) => {
+          if (res.success) {
+            alert(
+              /* i18n */ _(`WoL packets sent to ${res.sent_count} device(s).`),
+            );
+          } else {
+            alert(/* i18n */ _("WoL failed — check configuration."));
+          }
+        })
+        .catch((err: unknown) => {
+          alert(/* i18n */ _(`WoL error: ${String(err)}`));
+        });
+    };
+  }
 
   // ── Protocol Filter ───────────────────────────────────────────
 

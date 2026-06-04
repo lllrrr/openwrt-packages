@@ -19,7 +19,7 @@ export default defineConfig({
     tsconfigPath: "./tsconfig.json",
   },
   output: {
-    // polyfill: "usage",
+    polyfill: "usage",
     module: true,
     charset: "ascii",
     overrideBrowserslist: [
@@ -54,7 +54,7 @@ export default defineConfig({
         },
         minify: {
           compress: true,
-          mangle: {},
+          mangle: {}
         },
         transform: {
           react: {
@@ -64,6 +64,9 @@ export default defineConfig({
           },
           optimizer: {
             simplify: true,
+            // jsonify: {
+            //   minCost:10
+            // },
           },
         },
       },
@@ -103,5 +106,5 @@ export default defineConfig({
     chunkSplit: {
       strategy: "all-in-one",
     },
-  },
+  }
 });

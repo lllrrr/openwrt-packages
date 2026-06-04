@@ -8,8 +8,7 @@ import {
   ChevronsUpDown,
   Clock3,
   Info,
-  Monitor,
-  RefreshCw,
+  Radar,
   Router,
   Search,
   Wifi,
@@ -34,7 +33,7 @@ import {
 import './styles.css';
 
 const roots = new WeakMap();
-const appVersion = '0.1.18';
+const appVersion = '0.1.23';
 
 const fallbackFetcher = async () => ({
   devices: [],
@@ -50,14 +49,6 @@ const fallbackFetcher = async () => ({
     rate_source: 'demo'
   }
 });
-
-function IconButton({ title, loading, onClick }) {
-  return (
-    <button className={`fl-icon-button${loading ? ' is-loading' : ''}`} type="button" title={title} aria-label={title} onClick={onClick}>
-      <RefreshCw size={18} strokeWidth={2.2} />
-    </button>
-  );
-}
 
 function MetricCard({ icon: Icon, label, value, detail, tone }) {
   return (
@@ -103,7 +94,7 @@ function SegmentedControl({ value, onChange, counts }) {
 function DeviceAvatar({ device }) {
   return (
     <div className="fl-avatar" aria-hidden="true">
-      {device.online ? <Monitor size={18} strokeWidth={2.15} /> : getDeviceInitial(device.name)}
+      {getDeviceInitial(device.name)}
     </div>
   );
 }
@@ -111,7 +102,7 @@ function DeviceAvatar({ device }) {
 function StatusPill({ online }) {
   return (
     <span className={`fl-status-pill${online ? ' is-online' : ' is-offline'}`}>
-      {online ? <Wifi size={13} strokeWidth={2.2} /> : <WifiOff size={13} strokeWidth={2.2} />}
+      <span className="fl-status-dot" aria-hidden="true" />
       {online ? '在线' : '离线'}
     </span>
   );
@@ -380,15 +371,11 @@ function App({ initialData, fetchDevices, pollInterval = 1000 }) {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState({ key: 'rate', direction: 'desc' });
   const [darkMode, setDarkMode] = useState(() => detectDarkTheme());
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const fetcher = fetchDevices || fallbackFetcher;
 
-  const refresh = useCallback(async (quiet = false) => {
-    if (!quiet)
-      setLoading(true);
-
+  const refresh = useCallback(async () => {
     setError('');
 
     try {
@@ -401,8 +388,6 @@ function App({ initialData, fetchDevices, pollInterval = 1000 }) {
       setPayload(next || {});
     } catch (refreshError) {
       setError(refreshError?.message || String(refreshError));
-    } finally {
-      setLoading(false);
     }
   }, [fetcher]);
 
@@ -420,7 +405,7 @@ function App({ initialData, fetchDevices, pollInterval = 1000 }) {
   useEffect(() => subscribeDarkTheme(setDarkMode), []);
 
   useEffect(() => {
-    const timer = window.setInterval(() => refresh(true), pollInterval);
+    const timer = window.setInterval(() => refresh(), pollInterval);
     return () => window.clearInterval(timer);
   }, [pollInterval, refresh]);
 
@@ -433,7 +418,6 @@ function App({ initialData, fetchDevices, pollInterval = 1000 }) {
     setSort(current => nextSort(current, column));
   }, []);
   const meta = payload?.meta || {};
-  const activeTraffic = summary.down_bps + summary.up_bps;
   const periodLabel = getPeriodLabel(meta);
 
   return (
@@ -441,26 +425,14 @@ function App({ initialData, fetchDevices, pollInterval = 1000 }) {
       <section className="fl-hero" aria-label="FlowLens 总览">
         <div className="fl-hero-copy">
           <div className="fl-brand">
-            <span>F</span>
+            <span className="fl-brand-mark" aria-hidden="true">
+              <Radar size={26} strokeWidth={2.15} />
+            </span>
             <div>
               <strong className="fl-brand-name">FlowLens</strong>
               <p>设备实时流量视图</p>
             </div>
           </div>
-          <div className="fl-hero-stats">
-            <div>
-              <span>当前吞吐</span>
-              <strong>{formatRate(activeTraffic)}</strong>
-            </div>
-            <div>
-              <span>数据源</span>
-              <strong>{meta.rate_source || '-'}</strong>
-            </div>
-          </div>
-        </div>
-
-        <div className="fl-hero-actions">
-          <IconButton title="刷新" loading={loading} onClick={() => refresh(false)} />
         </div>
       </section>
 

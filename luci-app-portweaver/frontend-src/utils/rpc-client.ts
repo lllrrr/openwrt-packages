@@ -76,10 +76,6 @@ export function createRpcClient(rpc: typeof L.rpc) {
     object: "portweaver",
     method: "get_full_status",
   });
-  const getVersion = rpc.declare<VersionResponse>({
-    object: "portweaver",
-    method: "get_version",
-  });
 
   const getNftablesRules = rpc.declare<{ rules: string }>({
     object: "portweaver",
@@ -106,11 +102,11 @@ export function createRpcClient(rpc: typeof L.rpc) {
 
   const wolWake = rpc.declare<
     { success: boolean; sent_count: number },
-    [project: string]
+    [project?: string, target?: string]
   >({
     object: "portweaver",
     method: "wol_wake",
-    params: ["project"],
+    params: ["project", "target"],
   });
 
   const wolStatus = rpc.declare<
@@ -120,11 +116,17 @@ export function createRpcClient(rpc: typeof L.rpc) {
       cooldown_ms: number;
       detect_protocols: string[];
     },
-    [project: string]
+    [project?: string, target?: string]
   >({
     object: "portweaver",
     method: "wol_status",
-    params: ["project"],
+    params: ["project", "target"],
+  });
+
+  const uciCommit = rpc.declare<void, [config: string]>({
+    object: "uci",
+    method: "commit",
+    params: ["config"],
   });
 
   return {
@@ -140,12 +142,12 @@ export function createRpcClient(rpc: typeof L.rpc) {
     clearFrpsLogs,
     getFrpsProxyStats,
     getFullStatus,
-    getVersion,
     getNftablesRules,
     reloadConfig,
     restartProject,
     wolWake,
     wolStatus,
+    uciCommit,
   };
 }
 export type RpcClient = ReturnType<typeof createRpcClient>;

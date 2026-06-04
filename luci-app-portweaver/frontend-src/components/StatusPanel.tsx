@@ -6,6 +6,7 @@ import type {
   DdnsGlobalStatus,
 } from "@/types/portweaver";
 import { formatBytes, formatUptime, translateStatus } from "@/utils/formatters";
+import { isFeatureEnabled } from "@/utils/feature";
 
 export class StatusPanel {
   public statusValueEl?: HTMLElement;
@@ -59,6 +60,9 @@ export class StatusPanel {
 
     return (
       <div>
+        {/* Activity Log Section */}
+        {events && events.length > 0 && this.renderActivityLog(events)}
+
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1em; margin-top: 0.5em;">
           {(() => {
             const statusValueEl = (
@@ -167,7 +171,8 @@ export class StatusPanel {
               </div>,
             )}
 
-          {frpStatus &&
+          {isFeatureEnabled("frpc_mode") &&
+            frpStatus &&
             (() => {
               const frpc = frpStatus.frpc || { enabled: false };
               const isEnabled = frpc.enabled;
@@ -232,7 +237,8 @@ export class StatusPanel {
               );
             })()}
 
-          {frpStatus &&
+          {isFeatureEnabled("frps_mode") &&
+            frpStatus &&
             (() => {
               const frps = frpStatus.frps || { enabled: false };
               const isEnabled = frps.enabled;
@@ -297,7 +303,8 @@ export class StatusPanel {
               );
             })()}
 
-          {ddnsGlobalStatus &&
+          {isFeatureEnabled("ddns_mode") &&
+            ddnsGlobalStatus &&
             (() => {
               const ddnsEnabledEl = (
                 <strong
@@ -360,35 +367,35 @@ export class StatusPanel {
           })()}
 
           {/* Card F: FRPC Proxies */}
-          {(() => {
-            const frpcProxiesEl = (
-              <span style="color: #6c757d;">{_("loading")}</span>
-            ) as HTMLElement;
-            this.frpcProxiesEl = frpcProxiesEl;
-            return this.card(_("FRPC Proxies"), frpcProxiesEl);
-          })()}
+          {isFeatureEnabled("frpc_mode") &&
+            (() => {
+              const frpcProxiesEl = (
+                <span style="color: #6c757d;">{_("loading")}</span>
+              ) as HTMLElement;
+              this.frpcProxiesEl = frpcProxiesEl;
+              return this.card(_("FRPC Proxies"), frpcProxiesEl);
+            })()}
 
           {/* Card H: FRPS Active Proxies */}
-          {(() => {
-            const frpsProxiesEl = (
-              <span style="color: #6c757d;">{_("loading")}</span>
-            ) as HTMLElement;
-            this.frpsProxiesEl = frpsProxiesEl;
-            return this.card(_("FRPS Active Proxies"), frpsProxiesEl);
-          })()}
+          {isFeatureEnabled("frps_mode") &&
+            (() => {
+              const frpsProxiesEl = (
+                <span style="color: #6c757d;">{_("loading")}</span>
+              ) as HTMLElement;
+              this.frpsProxiesEl = frpsProxiesEl;
+              return this.card(_("FRPS Active Proxies"), frpsProxiesEl);
+            })()}
 
           {/* Card J: DDNS Entry Health */}
-          {(() => {
-            const ddnsHealthEl = (
-              <span style="color: #6c757d;">{_("loading")}</span>
-            ) as HTMLElement;
-            this.ddnsHealthEl = ddnsHealthEl;
-            return this.card(_("DDNS Entries"), ddnsHealthEl);
-          })()}
+          {isFeatureEnabled("ddns_mode") &&
+            (() => {
+              const ddnsHealthEl = (
+                <span style="color: #6c757d;">{_("loading")}</span>
+              ) as HTMLElement;
+              this.ddnsHealthEl = ddnsHealthEl;
+              return this.card(_("DDNS Entries"), ddnsHealthEl);
+            })()}
         </div>
-
-        {/* Activity Log Section */}
-        {events && events.length > 0 && this.renderActivityLog(events)}
       </div>
     );
   }
@@ -403,7 +410,7 @@ export class StatusPanel {
     const recentEvents = events.slice(-5).reverse();
 
     return (
-      <div style="margin-top: 1em; border: 1px solid #dee2e6; border-radius: 4px; padding: 0.8em;">
+      <div style="margin-bottom: 1em; border: 1px solid #dee2e6; border-radius: 4px; padding: 0.8em;">
         <div style="font-size: 0.9em; font-weight: 600; margin-bottom: 0.5em; color: #495057;">
           {_("Recent Activity")}
         </div>

@@ -43,6 +43,62 @@ wakeup_apps() {
 }
 # ------------------------------
 
+# --- 提取设备 DUID 函數 ---
+extract_device_duid() {
+    local target_mac="$1"
+    local target_clean=$(echo "$target_mac" | tr -d ':' | tr 'A-Z' 'a-z')
+    local out_duid=""
+
+    # 1. DHCPv6 底层数据中没有 MAC, 通过 IPv4 租约作为桥梁，用 MAC 换取 Hostname
+    local host_name=$(cat /tmp/dhcp.leases 2>/dev/null | grep -i "$target_mac" | awk '{print $4}' | grep -v '^\*$' | head -n 1)
+    local host_name_lower=$(echo "$host_name" | tr 'A-Z' 'a-z')
+
+    local ubus1=$(ubus call dhcp ipv6leases 2>/dev/null)
+    local ubus2=$(ubus call odhcpd ipv6leases 2>/dev/null)
+    local raw_ubus="$ubus1 $ubus2"
+    
+    if [ -n "$raw_ubus" ]; then
+        # 优先用 Hostname 桥接寻找 DUID (100% 精准锁定)
+        if [ -n "$host_name_lower" ]; then
+            out_duid=$(echo "$raw_ubus" | awk -v RS="}" -v hname="$host_name_lower" '
+            tolower($0) ~ "\"" hname "\"" {
+                idx = index(tolower($0), "\"duid\"");
+                if (idx > 0) {
+                    s = substr($0, idx);
+                    split(s, a, "\"");
+                    print a[4];
+                    exit;
+                }
+            }' | tr 'A-Z' 'a-z' | head -n 1)
+        fi
+        
+        # 如果 Hostname 没找到，尝试在 DUID 中直接寻找包含 MAC 字符串的情况
+        if [ -z "$out_duid" ]; then
+            out_duid=$(echo "$raw_ubus" | awk -v RS="}" -v mac="$target_clean" '
+            tolower($0) ~ mac {
+                idx = index(tolower($0), "\"duid\"");
+                if (idx > 0) {
+                    s = substr($0, idx);
+                    split(s, a, "\"");
+                    print a[4];
+                    exit;
+                }
+            }' | tr 'A-Z' 'a-z' | head -n 1)
+        fi
+    fi
+    
+    # 2. odhcpd 底层状态文件 (同样用 Hostname 桥接)
+    if [ -z "$out_duid" ] && ls /var/lib/odhcpd/*.state >/dev/null 2>&1; then
+        if [ -n "$host_name" ]; then
+            out_duid=$(grep -i "$host_name" /var/lib/odhcpd/*.state 2>/dev/null | grep -oEi 'duid=[0-9a-fA-F]+' | awk -F'=' '{print $2}' | head -n 1 | tr 'A-Z' 'a-z')
+        fi
+        [ -z "$out_duid" ] && out_duid=$(grep -i "$target_clean" /var/lib/odhcpd/*.state 2>/dev/null | grep -oEi 'duid=[0-9a-fA-F]+' | awk -F'=' '{print $2}' | head -n 1 | tr 'A-Z' 'a-z')
+    fi
+    
+    echo "$out_duid"
+}
+# ------------------------------
+
 case "$1" in
     list)
         echo '{ "get_list": { "show_conns": "boolean" }, "bind": { "mac": "string", "ip": "string", "name": "string", "dept": "string", "no_reload": "boolean" }, "unbind": { "mac": "string", "no_reload": "boolean" }, "wake_device": { "mac": "string" }, "apply_dhcp": {}, "get_depts": {}, "save_depts": { "data": "string" }, "get_smart_ranges": {}, "save_smart_ranges": { "data": "string" }, "v6_keep_alive": { "mac": "string" }, "reset_all": {}, "analyze_conns": { "ip": "string" }, "export_config": {}, "import_config": { "data": "string", "file": "string" }, "list_backups": {}, "auto_backup": {}, "fw_set": { "mac": "string", "ip": "string", "blk_en": "boolean", "iso_en": "boolean", "dmz_en": "boolean" } }'
@@ -617,42 +673,39 @@ case "$1" in
                 fi
                 name="$safe_name"
 
+                mac_clean=$(echo "$mac" | tr -d ':' | tr 'A-Z' 'a-z')
+                mac_clean=$(echo "$mac" | tr -d ':' | tr 'A-Z' 'a-z')
+
+                live_duid=$(extract_device_duid "$mac")
+                [ -n "$live_duid" ] && echo "$mac_clean $live_duid" >> /tmp/netwiz_duid_cache
+
                 matches=$(uci -q show dhcp 2>/dev/null | grep -i -e "\.mac=.*$mac" -e "\.ip=.*$ip" | cut -d'.' -f2 | sed 's/[^0-9]//g' | sort -rn | uniq)
-                for idx in $matches; do uci -q delete dhcp.@host[$idx]; done
+                for idx in $matches; do 
+                    old_duid=$(uci -q get dhcp.@host[$idx].duid)
+                    [ -n "$old_duid" ] && echo "$mac_clean $old_duid" >> /tmp/netwiz_duid_cache
+                    uci -q delete dhcp.@host[$idx]
+                done
                 
-                # 靜态 IP
+                # 静态 IP 设定
                 new_sect=$(uci add dhcp host)
                 uci set dhcp.$new_sect.name="$name"
                 uci set dhcp.$new_sect.mac="$mac"
                 uci set dhcp.$new_sect.ip="$ip"
+                ip_suffix=${ip##*.}
+                hex_suffix=$(printf '%x' "$ip_suffix")
+                uci set dhcp.$new_sect.hostid="::$hex_suffix"
                 
-                # 租期表抓取 DUID
                 auto_duid=""
-                mac_clean=$(echo "$mac" | tr -d ':' | tr 'A-Z' 'a-z')
-
-                # 1.  ubus 获取
-                raw_ubus=$(ubus call dhcp ipv6leases 2>/dev/null || ubus call odhcpd ipv6leases 2>/dev/null)
-                if [ -n "$raw_ubus" ]; then
-                    auto_duid=$(echo "$raw_ubus" | grep -oEi '"duid": *"[0-9a-fA-F]+"' | grep -i "$mac_clean" | cut -d'"' -f4 | head -n 1 | tr 'a-z' 'A-Z')
+                if [ -f "/tmp/netwiz_duid_cache" ]; then
+                    auto_duid=$(grep -i "^$mac_clean " /tmp/netwiz_duid_cache | awk '{print $2}' | head -n 1 | tr 'A-Z' 'a-z')
                 fi
-
-                # 2. odhcpd 缓存文件解析
-                if [ -z "$auto_duid" ] && [ -f "/tmp/hosts/odhcpd" ]; then
-                    auto_duid=$(grep -i "$mac_clean" /tmp/hosts/odhcpd | grep -oEi 'duid [0-9a-fA-F]+' | awk '{print $2}' | head -n 1 | tr 'a-z' 'A-Z')
-                fi
-
-                # 3. dhcp.leases 解析
+                
                 if [ -z "$auto_duid" ]; then
-                    auto_duid=$(cat /tmp/dhcp.leases /var/dhcp.leases 2>/dev/null | grep -i "$mac_clean" | awk '{print $2}' | grep -E '^00[0-4]' | head -n 1 | tr 'a-z' 'A-Z')
+                    auto_duid=$(extract_device_duid "$mac")
                 fi
-
-                # 4. 兜底Type 3 DUID-LL
-                # if [ -z "$auto_duid" ]; then
-                #     mac_hex=$(echo "$mac_clean" | tr 'a-z' 'A-Z')
-                #     auto_duid="00030001${mac_hex}"
-                # fi
 
                 if [ -n "$auto_duid" ]; then
+                    echo "$mac_clean $auto_duid" >> /tmp/netwiz_duid_cache
                     uci set dhcp.$new_sect.duid="$auto_duid"
                 fi
                 
@@ -690,10 +743,18 @@ case "$1" in
                 no_reload=$(echo "$input" | jsonfilter -e '@.no_reload')
                 [ -z "$mac" ] && exit 0
                 
+                mac_clean=$(echo "$mac" | tr -d ':' | tr 'A-Z' 'a-z')
+
+                live_duid=$(extract_device_duid "$mac")
+                [ -n "$live_duid" ] && echo "$mac_clean $live_duid" >> /tmp/netwiz_duid_cache
+
                 matches=$(uci -q show dhcp 2>/dev/null | grep -i "\.mac=.*$mac" | cut -d'.' -f2 | sed 's/[^0-9]//g' | sort -rn)
-                for idx in $matches; do uci -q delete dhcp.@host[$idx]; done
-                
-                mac_clean=$(echo "$mac" | tr -d ':')
+                for idx in $matches; do 
+                    old_duid=$(uci -q get dhcp.@host[$idx].duid)
+                    [ -n "$old_duid" ] && echo "$mac_clean $old_duid" >> /tmp/netwiz_duid_cache
+                    uci -q delete dhcp.@host[$idx]
+                done
+
                 delete_fw_rule "nw_blk_${mac_clean}" "rule"
                 delete_fw_rule "nw_iso_${mac_clean}" "rule"
                 delete_fw_rule "nw_dmz_${mac_clean}" "redirect"
@@ -952,9 +1013,34 @@ EOF
                     done
                     tar -czf "$backup_file" -C / $FILE_LIST 2>/dev/null
 
-                    # 解压目标文件覆盖配置
-                    tar -xzf "$restore_file" -C / 2>/dev/null
-                    rm -f "$restore_file"
+                    # --- 开始安全沙盒防呆/防黑客逻辑 ---
+                    mkdir -p /tmp/nw_import_tmp
+                    tar -xzf "$restore_file" -C /tmp/nw_import_tmp/ >/dev/null 2>&1
+
+                    # 1. 检查解压是否报错
+                    if [ $? -ne 0 ]; then
+                        rm -rf /tmp/nw_import_tmp "$restore_file"
+                        echo '{"error":"Invalid archive format"}'
+                        exit 0
+                    fi
+
+                    # 2. 特征码强校验
+                    if [ ! -f "/tmp/nw_import_tmp/etc/config/network" ] && [ ! -f "/tmp/nw_import_tmp/etc/config/dhcp" ] && [ ! -f "/tmp/nw_import_tmp/etc/config/netwiz" ]; then
+                        rm -rf /tmp/nw_import_tmp "$restore_file"
+                        echo '{"error":"Missing signature files"}'
+                        exit 0
+                    fi
+
+                    # 3. 白名单安全覆盖
+                    for f in network wireless dhcp firewall netwiz; do
+                        if [ -f "/tmp/nw_import_tmp/etc/config/$f" ]; then
+                            cp -f "/tmp/nw_import_tmp/etc/config/$f" "/etc/config/$f"
+                        fi
+                    done
+
+                    # 清理沙盒与残留
+                    rm -rf /tmp/nw_import_tmp "$restore_file"
+                    # --- 🛡️ 安全逻辑结束 ---
                     
                     echo '{"result":0}'
                     
