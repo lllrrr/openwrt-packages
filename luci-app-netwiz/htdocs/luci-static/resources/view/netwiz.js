@@ -266,10 +266,10 @@ var T = {
     'M_BAK_SEL_TIT': '📦 ' + _('Select Backup Mode'),
     'M_BAK_LIGHT_TIT': _('Lightweight Backup'),
     'M_BAK_LIGHT_SUB': _('Recommended'),
-    'M_BAK_FULL_TIT': _('Full Offline Backup'),
+    'M_BAK_FULL_TIT': _('Full Backup'),
     'M_BAK_FULL_SUB': _('Includes Dependencies'),
     'M_BAK_LIGHT_DESC': _('<b style="color: #F00;">Lightweight Backup:</b> Only packs core configs (Passwords/Wi-Fi/IP) and main plugin packages. Fast and requires no extra RAM. Requires internet or built-in dependencies when restoring.'),
-    'M_BAK_FULL_DESC': _('<b style="color: #F00;">Full Offline Backup:</b> Packs core configs and recursively downloads ALL underlying dependencies for third-party plugins. Large size, slower generation. <b style="color: #F00;">NO internet required</b> during restore. Recommended for devices with >256MB RAM.'),
+    'M_BAK_FULL_DESC': _('<b style="color: #F00;">Full Backup:</b> Packs core configs and recursively downloads ALL underlying dependencies for third-party plugins. Large size, slower generation. <b style="color: #F00;">NO internet required</b> during restore. Recommended for devices with >256MB RAM.'),
     'BTN_START_BAK': _('Start Backup'),
     'M_BAK_GEN_TIT': '📦 ' + _('Generating Backup'),
     'M_BAK_GEN_MSG': _('Extracting configs and packing files in background...'),
@@ -549,6 +549,8 @@ return view.extend({
             '            </div>',
             '        </div>',
             '    </div>',
+
+            '  </div>',
 
             '  <div id="step-2" class="nw-step" style="display: none;">',
             '    <div class="nw-form-area">',
@@ -2859,7 +2861,7 @@ return view.extend({
                 var pickKey = container.querySelector('#wifi-' + pickBand + '-key').value;
                 var pickEnc = container.querySelector('#wifi-' + pickBand + '-enc').value;
                 
-                // 🌟 智能联动 1：合一模式下，强制自动“剥离” 2.4G/5G 等后缀
+                // 智能联动 1：合一模式下，强制自动“剥离” 2.4G/5G 等后缀
                 var smartSsidEl = container.querySelector('#wifi-smart-ssid');
                 if (pickSsid) {
                     smartSsidEl.value = cleanSsidSuffix(pickSsid); 
