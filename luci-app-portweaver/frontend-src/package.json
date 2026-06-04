@@ -8,12 +8,12 @@
     "build": "rsbuild build",
     "check": "biome check",
     "dev": "rsbuild dev",
-    "dev:remote": "tsx scripts/dev-remote.ts",
+    "dev:remote": "dotenvx run -- luci-types dev",
     "preview": "rsbuild preview",
     "format": "biome format --write",
     "lint": "biome lint --write --unsafe",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "i18n:export": "dotenvx run -- luci-types -i ../htdocs --po ../po/zh_Hans/portweaver.po --merge -p luci-app-portweaver --translate --batch-size 20 --prompt translate.md"
+    "i18n:export": "dotenvx run -- luci-types i18n -i ../htdocs --po ../po/zh_Hans/portweaver.po --merge -p luci-app-portweaver --translate --batch-size 20 --prompt translate.md"
   },
   "devDependencies": {
     "@lazulikao/luci-types": "github:LazuliKao/luci-types",

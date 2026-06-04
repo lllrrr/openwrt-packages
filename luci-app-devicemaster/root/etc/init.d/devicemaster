@@ -158,8 +158,17 @@ is_mesh_child_node() {
 setup_dhcp_script() {
 	[ ! -x "$EVENT_HANDLER" ] && return
 
-	# Skip if this is a mesh child node
-	is_mesh_child_node && return
+	# If this is a mesh child node, ensure dhcpscript is NOT configured
+	# This handles the case where device was previously a main router
+	if is_mesh_child_node; then
+		local current=$(uci -q get dhcp.@dnsmasq[0].dhcpscript 2>/dev/null)
+		if [ "$current" = "$EVENT_HANDLER" ]; then
+			uci -q delete dhcp.@dnsmasq[0].dhcpscript
+			uci -q commit dhcp
+			logger -t devicemaster "Removed DHCP event handler (mesh child node)"
+		fi
+		return
+	fi
 
 	# Check if dhcpscript is already configured
 	local current=$(uci -q get dhcp.@dnsmasq[0].dhcpscript 2>/dev/null)

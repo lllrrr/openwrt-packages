@@ -78,7 +78,7 @@ watchdog_pppoe_ipv6() {
 
 case "$1" in
     list)
-        echo '{ "set_network": { "mode": "string", "arg1": "string", "arg2": "string", "arg3": "string", "arg4": "string", "arg5": "string", "arg6": "string" }, "set_password": { "password": "string" }, "check_wifi": {}, "confirm": {} }'
+        echo '{ "set_network": { "mode": "string", "arg1": "string", "arg2": "string", "arg3": "string", "arg4": "string", "arg5": "string", "arg6": "string" }, "set_password": { "password": "string" }, "check_wifi": {}, "confirm": {}, "smart_backup": { "type": "string" }, "smart_restore_exec": { "filepath": "string" }, "check_backup": {}, "check_storage": {}, "check_restore_status": {} }'
         exit 0
         ;;
     call)
@@ -758,6 +758,195 @@ case "$1" in
                     restart_depend_apps
                     watchdog_pppoe_ipv6
                     ) &
+                exit 0
+                ;;
+                smart_backup)
+                touch /tmp/nw_backup_running
+                
+                # 解析前端传来的备份类型参数
+                input=$(cat)
+                backup_type=$(echo "$input" | jsonfilter -e '@.type')
+                [ -z "$backup_type" ] && backup_type="light"
+
+                LOG="/tmp/netwiz_backup.log"
+                echo "=== NetWiz 备份诊断日志 ===" > $LOG
+                echo "备份类型: $backup_type" >> $LOG
+                date >> $LOG
+                
+                timestamp=$(date +%Y%m%d_%H%M%S)
+                dl_name="NetWiz_SmartGhost_${backup_type}_${timestamp}.tar.gz"
+                
+                backup_file="/tmp/${dl_name}"
+                link_file="/www/luci-static/${dl_name}"
+
+                (
+                    echo "-> [1/5] 开始备份系统设置..." >> $LOG
+                    sysupgrade -b /tmp/nw_sys_config.tar.gz >> $LOG 2>&1
+                    
+                    mkdir -p /tmp/nw_offline_pkgs
+                    cd /tmp/nw_offline_pkgs
+                    
+                    echo "-> [2/5] 准备下载离线套件..." >> $LOG
+                    if command -v apk >/dev/null 2>&1; then
+                        apk update >> $LOG 2>&1
+                        pkg_list=$(apk info | grep -e '^luci-app-' -e '^luci-theme-')
+                        
+                        # 如果是全量备份则加入R参数下载全部底层依赖
+                        if [ "$backup_type" = "full" ]; then
+                            fetch_args="-R"
+                        else
+                            fetch_args=""
+                        fi
+                        
+                        if [ -n "$pkg_list" ]; then
+                            for pkg in $pkg_list; do 
+                                apk fetch $fetch_args "$pkg" >> $LOG 2>&1
+                            done
+                        fi
+                    elif command -v opkg >/dev/null 2>&1; then
+                        opkg update >> $LOG 2>&1
+                        pkg_list=$(opkg list-installed | awk '{print $1}' | grep -e '^luci-app-' -e '^luci-theme-')
+                        
+                        if [ -n "$pkg_list" ]; then
+                            for pkg in $pkg_list; do 
+                                opkg download "$pkg" >> $LOG 2>&1
+                            done
+                        fi
+                    fi
+
+                    echo "-> [3/5] 开始在内存中打包..." >> $LOG
+                    cd /tmp 
+                    tar -czf "$backup_file" nw_sys_config.tar.gz nw_offline_pkgs/ >> $LOG 2>&1
+                    
+                    chmod 644 "$backup_file"
+                    ln -sf "$backup_file" "$link_file"
+                    
+                    echo "-> [4/5] 打包结束，清理零碎文件。" >> $LOG
+                    rm -rf /tmp/nw_sys_config.tar.gz /tmp/nw_offline_pkgs /tmp/nw_backup_running
+                    
+                    sleep 300
+                    rm -f "$backup_file" "$link_file"
+                ) >/dev/null 2>&1 &
+
+                printf '{"url":"/luci-static/%s", "filename":"%s"}\n' "$dl_name" "$dl_name"
+                exit 0
+                ;;
+
+            check_backup)
+                # 檢查後台是否還在打包
+                if [ -f /tmp/nw_backup_running ]; then
+                    printf '{"status":"running"}\n'
+                else
+                    printf '{"status":"done"}\n'
+                fi
+                exit 0
+                ;;
+
+            smart_restore_exec)
+                input=$(cat)
+                target_file=$(echo "$input" | jsonfilter -e '@.filepath')
+                
+                if [ -z "$target_file" ] || [ ! -s "$target_file" ]; then
+                    target_file=$(ls -t /tmp/luci-upload-* /tmp/NetWiz_SmartGhost.tar.gz 2>/dev/null | head -n 1)
+                fi
+
+                if [ -n "$target_file" ] && [ -s "$target_file" ]; then
+                    
+                    # 初始化状态文件 (Code 机制)
+                    echo '{"status":"running", "code":"MSG_RST_INIT"}' > /tmp/nw_restore_status.json
+                    
+                    cat << 'EOF' > /tmp/nw_do_restore.sh
+#!/bin/sh
+LOG="/tmp/netwiz_restore.log"
+STATUS_FILE="/tmp/nw_restore_status.json"
+TARGET="$1"
+
+# 状态更新函数，使用状态码进行国际化传递
+update_status() {
+    local stat="$1"
+    local code="$2"
+    local arg1="$3"
+    local arg2="$4"
+    echo "{\"status\":\"$stat\", \"code\":\"$code\", \"arg1\":\"$arg1\", \"arg2\":\"$arg2\"}" > "$STATUS_FILE"
+    echo "-> [$stat] $code $arg1 $arg2" >> $LOG
+}
+
+echo "=== NetWiz Restore Log ===" > $LOG
+date >> $LOG
+
+# 扫描压缩包深层结构预估解压体积
+update_status "running" "MSG_RST_SCAN"
+UNCOMPRESSED_BYTES=$(zcat "$TARGET" | wc -c 2>/dev/null)
+UNCOMPRESSED_MB=$((UNCOMPRESSED_BYTES / 1024 / 1024))
+
+TMP_AVAIL_KB=$(df -k /tmp | tail -n 1 | awk '{print $4}')
+TMP_AVAIL_MB=$((TMP_AVAIL_KB / 1024))
+
+echo "预估体积: ${UNCOMPRESSED_MB}MB, 可用空间: ${TMP_AVAIL_MB}MB" >> $LOG
+
+# 安全拦截：所需空间大于剩余空间时拦截
+if [ $((UNCOMPRESSED_MB + 15)) -gt "$TMP_AVAIL_MB" ]; then
+    update_status "error" "MSG_RST_OOM_INTERCEPT" "$UNCOMPRESSED_MB" "$TMP_AVAIL_MB"
+    # 拦截后清理垃圾释放内存
+    rm -f "$TARGET"
+    exit 1
+fi
+
+update_status "running" "MSG_RST_SAFE"
+mkdir -p /tmp/nw_ghost_tmp
+tar -xzf "$TARGET" -C /tmp/nw_ghost_tmp >> $LOG 2>&1
+
+if [ $? -ne 0 ]; then
+    update_status "error" "MSG_RST_FAIL"
+    rm -rf /tmp/nw_ghost_tmp "$TARGET"
+    exit 1
+fi
+
+if [ -f "/tmp/nw_ghost_tmp/nw_sys_config.tar.gz" ]; then
+    update_status "running" "MSG_RST_CONF"
+    tar -xzf /tmp/nw_ghost_tmp/nw_sys_config.tar.gz -C / >> $LOG 2>&1
+fi
+
+if [ -d "/tmp/nw_ghost_tmp/nw_offline_pkgs" ]; then
+    update_status "running" "MSG_RST_PKGS"
+    if command -v apk >/dev/null 2>&1; then
+        apk add --allow-untrusted --force-overwrite /tmp/nw_ghost_tmp/nw_offline_pkgs/*.apk >> $LOG 2>&1
+    elif command -v opkg >/dev/null 2>&1; then
+        opkg install --force-reinstall --force-overwrite /tmp/nw_ghost_tmp/nw_offline_pkgs/*.ipk >> $LOG 2>&1
+    fi
+fi
+
+update_status "done" "MSG_RST_DONE"
+rm -rf /tmp/nw_ghost_tmp "$TARGET"
+sleep 3
+reboot
+EOF
+                    chmod +x /tmp/nw_do_restore.sh
+                    /tmp/nw_do_restore.sh "$target_file" >/dev/null 2>&1 &
+                    
+                    echo '{"result":0}'
+                else
+                    echo '{"error":"No data"}'
+                fi
+                exit 0
+                ;;
+            check_restore_status)
+                # 实时状态读取接口
+                if [ -f "/tmp/nw_restore_status.json" ]; then
+                    cat /tmp/nw_restore_status.json
+                else
+                    echo '{"status":"unknown", "code":"MSG_RST_WAIT"}'
+                fi
+                exit 0
+                ;;
+            check_storage)
+                tmp_avail=$(df -k /tmp | tail -n 1 | awk '{print $4}')
+                if [ -n "$tmp_avail" ] && [ "$tmp_avail" -gt 0 ]; then
+                    tmp_mb=$((tmp_avail / 1024))
+                else
+                    tmp_mb=60
+                fi
+                echo "{\"tmp_avail_mb\":$tmp_mb}"
                 exit 0
                 ;;
         esac

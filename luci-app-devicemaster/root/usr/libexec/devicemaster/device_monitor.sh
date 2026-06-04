@@ -28,11 +28,28 @@ log_msg() {
 
 # Check current mode: active or idle
 # Default is idle unless explicitly set to active
+# Also checks page activity timeout to handle browser crash/close without beforeunload
 get_mode() {
     # Priority 1: Check explicit mode file (most reliable)
     if [ -f "$MODE_FILE" ]; then
         local mode=$(cat "$MODE_FILE" 2>/dev/null | tr -d '\n\r')
         if [ "$mode" = "active" ]; then
+            # Double-check: if page_active file exists and is stale, treat as idle
+            # This handles browser crash/close without triggering beforeunload
+            if [ -f "$PAGE_ACTIVE_FILE" ]; then
+                local last_active=$(cat "$PAGE_ACTIVE_FILE" 2>/dev/null | tr -d '\n\r')
+                local now=$(date +%s)
+                if [ -n "$last_active" ] && [ "$last_active" -gt 0 ] 2>/dev/null; then
+                    local elapsed=$((now - last_active))
+                    if [ "$elapsed" -gt "$PAGE_ACTIVE_TIMEOUT" ]; then
+                        # Page activity timed out, switch to idle
+                        log_msg "Page activity timed out (${elapsed}s > ${PAGE_ACTIVE_TIMEOUT}s), forcing idle"
+                        set_mode "idle"
+                        echo "idle"
+                        return
+                    fi
+                fi
+            fi
             echo "active"
             return
         fi
