@@ -91,6 +91,27 @@ msgstr "設備區域網路 IP"
 msgid "LAN Gateway"
 msgstr "區域網路閘道器"
 
+msgid "Auto Detect"
+msgstr "一鍵探測"
+
+msgid "Upstream subnet detected, recommended IP assigned"
+msgstr "已獲取上級網段，並為您分配推薦 IP"
+
+msgid "Detection failed, cannot get upstream gateway"
+msgstr "探測失敗，無法獲取到上級網關資訊"
+
+msgid "Invalid Operation"
+msgstr "操作無效"
+
+msgid "In Main Router mode, LAN Gateway MUST be empty.<br><br>\"Auto Detect\" is only for AP/Relay mode!"
+msgstr "當前為主路由模式，區域網路網關<b style=\"color:#ef4444;\">必須留空</b>。<br><br>「一鍵探測」僅用於配置「旁路由/AP有線中繼」模式！"
+
+msgid "Critical Intercept"
+msgstr "極度危險攔截"
+
+msgid "System detected WAN is <b style=\"color:#3b82f6;\">PPPoE Dial-up</b>.<br><br>The acquired <b>{gw}</b> is the ISP BRAS gateway!<br><b style=\"color:#ef4444;\">NEVER set this as LAN gateway</b>, or your network will crash!"
+msgstr "系統檢測到當前外網為 <b style=\"color:#3b82f6;\">PPPoE 撥號</b>。<br><br>獲取到的 <b>{gw}</b> 是電信機房的遠程基地台網關！<br><b style=\"color:#ef4444;\">絕不能將其填入區域網路中</b>，否則將導致網路癱瘓！"
+
 msgid "Blank for Main, required for AP Wired Relay"
 msgstr "主路由留空，旁路由（AP有線中繼）必填"
 
@@ -1378,8 +1399,8 @@ msgstr "正在產生備份"
 msgid "Extracting configs and packing files in background..."
 msgstr "正在後台提取設定並打包檔案..."
 
-msgid "Note: Full mode selected, downloading all dependencies. Takes 1-2 mins, please wait."
-msgstr "提示: 當前為全量模式，需要下載全部底層依賴。大約需 1 到 2 分鐘，請耐心等待。"
+msgid "Note: Full mode selected, downloading all dependencies. Takes 1-3 mins, please wait."
+msgstr "提示: 當前為全量模式，需要下載全部底層依賴。大約需 1 到 3 分鐘，請耐心等待。"
 
 msgid "Note: Lightweight mode selected, packing is very fast (~30s)."
 msgstr "提示: 當前為輕量模式，打包速度極快。大約需要 30 秒左右。"
@@ -1400,7 +1421,7 @@ msgid "Confirm System Restore"
 msgstr "確認還原系統"
 
 msgid "<span style=\"color:#ef4444; font-weight:bold;\">WARNING: This will overwrite current configs and reinstall plugins!</span><br><br>Router will auto-reboot upon completion. Ensure file is correct.<br><br>"
-msgstr "<span style=\"color:#ef4444; font-weight:bold;\">警告: 此操作將覆蓋當前系統的設定並重裝外掛</span><br><br>還原完成後路由器將自動重啟，請確認上傳的檔案無誤。<br><br>"
+msgstr "<span style=\"color:#ef4444; font-weight:bold;\">⚠️ 安全警告：此操作具有最高系統權限，將徹底覆蓋當前設定！</span><br><br><span style=\"color:#f59e0b; font-weight:bold;\">防駭客提示：請絕對不要上傳來自論壇或陌生人提供的來路不明備份檔，否則您的路由器可能會被植入木馬後門！</span><br><br>還原完成後路由器將自動重啟。<br><br>"
 
 msgid "Auto-download current state backup before restore (Regret Pill)"
 msgstr "還原前先自動下載當前狀態的備份 (後悔藥)"
@@ -1482,3 +1503,6 @@ msgstr "正在強制離線覆蓋外掛 (此過程較長，請耐心等待)..."
 
 msgid "Restore thoroughly complete! Router will auto-reboot!"
 msgstr "還原徹底完成！路由器即將自動重啟！"
+
+msgid "MSG_RST_INVALID"
+msgstr "無效的膠囊檔案！系統未檢測到 NetWiz 專屬特徵碼，為保護系統安全已自動攔截並銷毀。"

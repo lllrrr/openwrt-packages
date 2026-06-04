@@ -77,6 +77,15 @@ var T = {
     'WARN_MAIN': _('<b style="font-size: 16px;">Main Router Mode Enabled:</b><br>1. DHCP will be enabled. This device assigns IPs.<br>2. If LAN IP changes, ensure your client is in the same subnet to avoid <b style="color: #ef4444;">losing access</b>.'),
     'LBL_LAN_IP': _('Device LAN IP'),
     'LBL_LAN_GW': _('LAN Gateway'),
+    // ===== 一键探测与拦截防呆新增 =====
+    'BTN_AUTO_DETECT': _('Auto Detect'),
+    'MSG_DETECT_SUCC': _('Upstream subnet detected, recommended IP assigned'),
+    'MSG_DETECT_FAIL': _('Detection failed, cannot get upstream gateway'),
+    'M_DETECT_OP_INV_TIT': _('Invalid Operation'),
+    'M_DETECT_OP_INV_MSG': _('In Main Router mode, LAN Gateway MUST be empty.<br><br>"Auto Detect" is only for AP/Relay mode!'),
+    'M_DETECT_PPPOE_TIT': _('Critical Intercept'),
+    'M_DETECT_PPPOE_MSG': _('System detected WAN is <b style="color:#3b82f6;">PPPoE Dial-up</b>.<br><br>The acquired <b>{gw}</b> is the ISP BRAS gateway!<br><b style="color:#ef4444;">NEVER set this as LAN gateway</b>, or your network will crash!'),
+    
     'PH_LAN_GW': _('Blank for Main, required for AP Wired Relay'),
     'BTN_BACK': _('Back'),
     'BTN_NEXT': _('Next Step'),
@@ -273,7 +282,7 @@ var T = {
     'BTN_START_BAK': _('Start Backup'),
     'M_BAK_GEN_TIT': '📦 ' + _('Generating Backup'),
     'M_BAK_GEN_MSG': _('Extracting configs and packing files in background...'),
-    'M_BAK_HINT_FULL': _('Note: Full mode selected, downloading all dependencies. Takes 1-2 mins, please wait.'),
+    'M_BAK_HINT_FULL': _('Note: Full mode selected, downloading all dependencies. Takes 1-3 mins, please wait.'),
     'M_BAK_HINT_LIGHT': _('Note: Lightweight mode selected, packing is very fast (~30s).'),
     'M_BAK_SUCC_TIT': '✅ ' + _('Backup Successful'),
     'M_BAK_SUCC_MSG': _('Backup capsule downloaded. Upload this file after flashing new firmware to restore.'),
@@ -282,7 +291,7 @@ var T = {
 
     // 恢复提示
     'M_RST_CONFIRM_TIT': '⚡ ' + _('Confirm System Restore'),
-    'M_RST_CONFIRM_MSG': _('<span style="color:#ef4444; font-weight:bold;">WARNING: This will overwrite current configs and reinstall plugins!</span><br><br>Router will auto-reboot upon completion. Ensure file is correct.<br><br>'),
+    'M_RST_CONFIRM_MSG': _('<span style=\"color:#ef4444; font-weight:bold;\">WARNING: This will overwrite current configs and reinstall plugins!</span><br><br>Router will auto-reboot upon completion. Ensure file is correct.<br><br>'),
     'M_RST_REGRET_PILL': _('Auto-download current state backup before restore (Regret Pill)'),
     'BTN_CONFIRM_SEL': _('Confirm & Select File'),
     'M_RST_NATIVE_TIT': '⚡ ' + _('Native Fast Restore Mode'),
@@ -312,6 +321,7 @@ var T = {
     'MSG_RST_CONF': _('Extraction successful, applying core configs...'),
     'MSG_RST_PKGS': _('Force offline installing plugins (this takes a while, please wait)...'),
     'MSG_RST_DONE': _('Restore thoroughly complete! Router will auto-reboot!'),
+    'MSG_RST_INVALID': _('Invalid capsule file! NetWiz signature missing, intercepted for security.'),
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -751,7 +761,7 @@ return view.extend({
             '        <div id="lan-bypass-warning" class="nw-warn-bypass" style="display:none;">{{WARN_BYPASS}}</div>',
             '        <div id="lan-main-warning" class="nw-warn-main">{{WARN_MAIN}}</div>',
             '        <div class="nw-value"><label class="nw-value-title">{{LBL_LAN_IP}}</label><div class="nw-value-field"><input type="text" id="lan-ip" placeholder="{{PH_IP}}"></div></div>',
-            '        <div class="nw-value"><label class="nw-value-title">{{LBL_LAN_GW}}</label><div class="nw-value-field"><input type="text" id="lan-gw" placeholder="{{PH_LAN_GW}}"></div></div>',
+            '        <div class="nw-value"><label class="nw-value-title" style="display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:6px;"><span>{{LBL_LAN_GW}}</span><span id="btn-auto-ip" style="color:#3b82f6; cursor:pointer; font-size:11.5px; font-weight:bold; padding:3px 8px; margin-left: 10px; background:#eff6ff; border-radius:4px; transition:all 0.2s; line-height:1; border:1px solid #bfdbfe;">{{BTN_AUTO_DETECT}}</span></label><div class="nw-value-field"><input type="text" id="lan-gw" placeholder="{{PH_LAN_GW}}"></div></div>',
             '        <div class="nw-legacy-row">',
             '           <div class="nw-flex-1">',
             '               <div class="nw-desc-title">{{LBL_FORCE_APPLY}}</div>',
@@ -2650,6 +2660,73 @@ return view.extend({
         
         var bypassToggle = container.querySelector('#lan-bypass-toggle');
         bypassToggle.addEventListener('change', function() { container.querySelector('#lan-bypass-warning').style.display = this.checked ? 'block' : 'none'; container.querySelector('#lan-main-warning').style.display = this.checked ? 'none' : 'block'; });
+        // ===== 一键探测并分配 IP 逻辑 =====
+        var btnAutoIp = container.querySelector('#btn-auto-ip');
+        if (btnAutoIp) {
+            btnAutoIp.addEventListener('click', function() {
+                // 1. 拦截一：检查是否开启了旁路由模式
+                var bypassTog = document.getElementById('lan-bypass-toggle');
+                if (bypassTog && !bypassTog.checked) {
+                    openModal({ 
+                        title: '⚠️ ' + (T['M_DETECT_OP_INV_TIT'] || '操作无效'), 
+                        msg: T['M_DETECT_OP_INV_MSG'] || '当前为主路由模式，局域网网关<b style="color:#ef4444;">必须留空</b>。<br><br>“一键探测”仅用于配置“旁路由/AP有线中继”模式！', 
+                        hideCancel: true, 
+                        okText: T['M_CLOSE'] || '关闭' 
+                    });
+                    return;
+                }
+
+                var wProto = 'dhcp';
+                try { wProto = uci.get('network', 'wan', 'proto'); } catch(e) {}
+                var currentUrlIp = window.location.hostname;
+                var gw = window._realUpstreamGw; 
+
+                // 2. 拦截二：检查是否为 PPPoE 拨号（防止桥接公网基站）
+                if (wProto === 'pppoe') {
+                    var pppoeMsg = (T['M_DETECT_PPPOE_MSG'] || '').replace('{gw}', gw || '');
+                    openModal({ 
+                        title: '⚠️ ' + (T['M_DETECT_PPPOE_TIT'] || '极度危险拦截'), 
+                        msg: pppoeMsg, 
+                        hideCancel: true, 
+                        okText: T['M_CLOSE'] || '关闭' 
+                    });
+                    return;
+                }
+
+                // 3. 正常探测逻辑
+                if (!gw || gw === T['TXT_GETTING'] || gw === T['TXT_NOT_SET']) {
+                    gw = (currentUrlIp.indexOf('.') > -1 ? currentUrlIp.substring(0, currentUrlIp.lastIndexOf('.') + 1) + '1' : ''); 
+                }
+                
+                if (gw && gw.indexOf('.') > -1) {
+                    var subnet = gw.substring(0, gw.lastIndexOf('.') + 1);
+                    var suggestedIp = subnet + '254'; 
+                    if (gw === suggestedIp) suggestedIp = subnet + '253';
+                    
+                    var inputGw = document.getElementById('lan-gw');
+                    var inputIp = document.getElementById('lan-ip');
+                    if (inputGw) inputGw.value = gw;
+                    if (inputIp) inputIp.value = suggestedIp;
+                    
+                    openModal({ 
+                        title: '✅ ' + (T['BTN_AUTO_DETECT'] || '探测成功'), 
+                        msg: '<div style="font-size:15px; color:#475569; margin-bottom:15px;">' + (T['MSG_DETECT_SUCC'] || '已获取上级网段，并为您分配推荐 IP') + '</div>' + 
+                             '<div style="background:#f8fafc; padding:10px; border-radius:8px; text-align:left;">' + 
+                             'Gateway: <b style="color:#10b981;">' + gw + '</b><br>IP: <b style="color:#3b82f6;">' + suggestedIp + '</b></div>', 
+                        hideCancel: true, 
+                        okText: T['M_CLOSE'] || '关闭' 
+                    });
+                } else {
+                    openModal({ 
+                        title: '❌ ' + (T['M_SYS_ERR'] || '探测失败'), 
+                        msg: T['MSG_DETECT_FAIL'] || '探测失败，无法获取到上级网关信息', 
+                        hideCancel: true, 
+                        okText: T['M_CLOSE'] || '关闭' 
+                    });
+                }
+            });
+        }
+        // ==================================
         
         var smartToggle = container.querySelector('#wifi-smart-toggle');
         var legacyToggle = container.querySelector('#legacy-b-toggle');
