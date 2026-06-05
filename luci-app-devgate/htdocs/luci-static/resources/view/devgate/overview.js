@@ -178,134 +178,81 @@ function renderRulesTitle(section) {
 	return title;
 }
 
-function wrapRulesTable(section) {
+function wrapRulesList(section) {
 	var table = section.querySelector('.cbi-section-table');
 
 	if (!table) {
 		return;
 	}
 
-	var scroller = table.parentNode && table.parentNode.classList.contains('devgate-rules-table-scroll')
+	var scroller = table.parentNode && table.parentNode.classList.contains('devgate-rules-card-scroll')
 		? table.parentNode
 		: null;
 
 	if (!scroller) {
-		scroller = E('div', { 'class': 'devgate-rules-table-scroll' });
+		scroller = E('div', { 'class': 'devgate-rules-card-scroll' });
 		table.parentNode.insertBefore(scroller, table);
 		scroller.appendChild(table);
 	}
 }
 
-function getOptionControl(row, option) {
-	return row.querySelector('select[name$=".%s"], input[type="checkbox"][name$=".%s"], input[name$=".%s"], [id$=".%s"]'.format(option, option, option, option));
+function getRuleCell(row, option) {
+	return row.querySelector('[data-name="%s"]'.format(option));
 }
 
-function getOptionCell(row, option) {
-	var control = getOptionControl(row, option);
+function getRuleControl(row, option) {
+	var cell = getRuleCell(row, option);
 
-	return control ? control.closest('.cbi-section-table-cell, td, th') : null;
+	return cell ? cell.querySelector('select, input[type="checkbox"], input, textarea') : null;
 }
 
-function getControlValue(row, option) {
-	var control = getOptionControl(row, option);
+function setupRuleCardCell(row, option, className, label) {
+	var cell = getRuleCell(row, option);
 
-	if (!control) {
-		return null;
-	}
-
-	if (control.type === 'checkbox') {
-		return control.checked ? '1' : '0';
-	}
-
-	return control.value;
-}
-
-function getRuleRows(table) {
-	return Array.prototype.filter.call(table.querySelectorAll('.cbi-section-table-row'), function (row) {
-		return !!getOptionControl(row, 'time_mode');
-	});
-}
-
-function rowUsesColumn(row, option) {
-	var mode = getControlValue(row, 'time_mode') || 'period';
-
-	switch (option) {
-	case 'time_from':
-	case 'time_over':
-		return mode === 'period' || mode === 'combined';
-
-	case 'duration':
-	case 'reset_cycle':
-		return mode === 'duration' || (mode === 'combined' && getControlValue(row, 'use_duration') === '1');
-
-	case 'use_duration':
-		return mode === 'combined';
-	}
-
-	return true;
-}
-
-function getOptionColumnIndexes(rows, options) {
-	var indexes = {};
-
-	rows.some(function (row) {
-		var cells = Array.prototype.slice.call(row.children);
-
-		options.forEach(function (option) {
-			var cell = getOptionCell(row, option);
-			var index = cell ? cells.indexOf(cell) : -1;
-
-			if (index !== -1) {
-				indexes[option] = index;
-			}
-		});
-
-		return Object.keys(indexes).length === options.length;
-	});
-
-	return indexes;
-}
-
-function setColumnHidden(table, index, hidden) {
-	var rows = table.querySelectorAll('.cbi-section-table-titles, .cbi-section-table-row');
-
-	Array.prototype.forEach.call(rows, function (row) {
-		var cell = row.children[index];
-
-		if (cell) {
-			cell.classList.toggle('devgate-column-hidden', hidden);
-		}
-	});
-}
-
-function updateModeColumns(table) {
-	var options = ['time_from', 'time_over', 'duration', 'reset_cycle', 'use_duration'];
-	var rows = getRuleRows(table);
-	var indexes = getOptionColumnIndexes(rows, options);
-
-	if (rows.length === 0) {
-		options.forEach(function (option) {
-			if (indexes[option] != null) {
-				setColumnHidden(table, indexes[option], false);
-			}
-		});
+	if (!cell) {
 		return;
 	}
 
-	options.forEach(function (option) {
-		if (indexes[option] == null) {
-			return;
-		}
+	cell.classList.add('devgate-card-field', className);
+	cell.setAttribute('data-card-label', label);
+}
 
-		var used = rows.some(function (row) {
-			return rowUsesColumn(row, option);
-		});
+function setupRuleCard(row) {
+	if (row.classList.contains('cbi-section-table-titles') || !getRuleCell(row, 'mac')) {
+		return;
+	}
 
-		setColumnHidden(table, indexes[option], !used);
+	row.classList.add('devgate-rule-card');
+
+	setupRuleCardCell(row, 'comment', 'devgate-card-name', _('规则名称'));
+	setupRuleCardCell(row, 'mac', 'devgate-card-target', _('目标设备'));
+	setupRuleCardCell(row, 'chain', 'devgate-card-mode', _('管控方式'));
+	setupRuleCardCell(row, 'time_from', 'devgate-card-time-start', _('禁用时段'));
+	setupRuleCardCell(row, 'time_over', 'devgate-card-time-end', '');
+	setupRuleCardCell(row, 'week', 'devgate-card-week', _('生效日期'));
+	setupRuleCardCell(row, 'enable', 'devgate-card-enable', _('规则开关'));
+
+	var enable = getRuleControl(row, 'enable');
+	var actions = row.querySelector('.cbi-section-actions');
+
+	if (enable) {
+		(enable.closest('.cbi-checkbox') || enable).classList.add('devgate-rule-switch');
+	}
+
+	if (actions) {
+		actions.classList.add('devgate-card-actions');
+	}
+}
+
+function applyRuleCards(table) {
+	table.classList.add('devgate-rule-cards');
+
+	Array.prototype.forEach.call(table.querySelectorAll('.cbi-section-table-row'), function (row) {
+		setupRuleCard(row);
 	});
 }
 
-function setupModeColumns(section) {
+function setupRuleCards(section) {
 	var table = section.querySelector('.cbi-section-table');
 
 	if (!table) {
@@ -313,18 +260,19 @@ function setupModeColumns(section) {
 	}
 
 	var scheduleUpdate = function () {
-		window.setTimeout(function () {
-			updateModeColumns(table);
-		}, 0);
-	};
-
-	table.addEventListener('change', function (ev) {
-		var target = ev.target;
-
-		if (target && target.name && /\.(time_mode|use_duration)$/.test(target.name)) {
-			scheduleUpdate();
+		if (window.requestAnimationFrame) {
+			window.requestAnimationFrame(function () {
+				applyRuleCards(table);
+				window.setTimeout(function () {
+					applyRuleCards(table);
+				}, 50);
+			});
+		} else {
+			window.setTimeout(function () {
+				applyRuleCards(table);
+			}, 0);
 		}
-	});
+	};
 
 	if (window.MutationObserver) {
 		var observer = new window.MutationObserver(scheduleUpdate);
@@ -348,9 +296,9 @@ function setupRulesLayout(mapEl) {
 
 	renderRulesTitle(section);
 
-	wrapRulesTable(section);
+	wrapRulesList(section);
 
-	setupModeColumns(section);
+	setupRuleCards(section);
 
 	return mapEl;
 }
@@ -833,9 +781,9 @@ return view.extend({
 		s.anonymous = true;
 		s.sortable = false;
 
-		o = s.option(form.Value, 'comment', _('备注'));
+		o = s.option(form.Value, 'comment', _('规则名称'));
 		o.optional = true;
-		o.placeholder = _('可选备注');
+		o.placeholder = _('可选规则名称');
 
 		o = s.option(form.Flag, 'enable', _('启用'));
 		o.rmempty = false;
@@ -883,58 +831,20 @@ return view.extend({
 			});
 		}
 
-		o = s.option(form.ListValue, 'chain', _('管控强度'));
-		o.value('forward', _('禁止访问公共网络'));
-		o.value('input', _('禁止访问全部网络'));
+		o = s.option(form.ListValue, 'chain', _('管控方式'));
+		o.value('forward', _('公网'));
+		o.value('input', _('内网'));
+		o.widget = 'radio';
 		o.default = 'forward';
 		o.rmempty = false;
 
-		// 控制方式选择
-		o = s.option(form.ListValue, 'time_mode', _('管控方式'));
-		o.value('period', _('按时段'));
-		o.value('duration', _('按时长'));
-		o.value('combined', _('时段 + 时长'));
-		o.default = 'period';
-		o.rmempty = false;
-
-		// 时间段控制字段
 		o = s.option(form.Value, 'time_from', _('开始时间'));
 		o.placeholder = '00:00';
 		o.default = '00:00';
-		o.depends({ 'time_mode': 'period', '!contains': true });
-		o.depends({ 'time_mode': 'combined', '!contains': true });
 
 		o = s.option(form.Value, 'time_over', _('结束时间'));
 		o.placeholder = '00:00';
 		o.default = '00:00';
-		o.depends({ 'time_mode': 'period', '!contains': true });
-		o.depends({ 'time_mode': 'combined', '!contains': true });
-
-		// 可用时长字段
-		o = s.option(form.Value, 'duration', _('可用时长（分钟）'));
-		o.placeholder = '60';
-		o.default = '60';
-		o.datatype = 'min(1)';
-		o.depends({ 'time_mode': 'duration', '!contains': true });
-		o.depends({ 'time_mode': 'combined', '!contains': true });
-		// o.description = _('上线后累计可用分钟数。');
-
-		// 重置周期
-		o = s.option(form.ListValue, 'reset_cycle', _('重置周期'));
-		o.value('daily', _('每日重置'));
-		o.value('weekly', _('每周重置'));
-		o.value('monthly', _('每月重置'));
-		o.value('never', _('不重置'));
-		o.default = 'daily';
-		o.depends({ 'time_mode': 'duration', '!contains': true });
-		o.depends({ 'time_mode': 'combined', '!contains': true });
-		// o.description = _('清零已用时长的周期。');
-
-		// 组合控制：是否在时间段内启用时长限制
-		o = s.option(form.Flag, 'use_duration', _('叠加时长限制'));
-		o.default = '0';
-		o.depends({ 'time_mode': 'combined', '!contains': true });
-		// o.description = _('在允许时段内继续限制可用时长。');
 
 		o = s.option(form.Value, 'week', _('生效日期'));
 		o.value('0', _('每天'));

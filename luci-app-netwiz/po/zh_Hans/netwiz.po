@@ -1543,8 +1543,8 @@ msgstr "确认要导入该配置吗？现有数据将被彻底覆盖。"
 msgid "🚨 Severe Network Topology Conflict!"
 msgstr "🚨 严重网络拓扑冲突！"
 
-msgid "System detected that IPv6 and LAN \"Masquerading (NAT)\" are <b>BOTH enabled</b>!<br>This will paralyze IPv6 allocation and cause routing loops.<br>👉 <b>Fix:</b> Please <b style=\"color:#ef4444;\">Disable IPv6</b> here immediately, or go to <code>Network -> Firewall</code> to disable NAT."
-msgstr "系统检测到 IPv6 与 LAN 区“动态伪装 (NAT)”<b>同时处于开启状态</b>！<br>这将导致 IPv6 分配瘫痪与路由死循环。<br>👉 <b>排错指南：</b>请前往官方 <code>网络->防火墙</code> 关闭 LAN 区的动态伪装，或在此处 <b style=\"color:#ef4444;\">关闭 IPv6</b>，。"
+msgid "System detected that IPv6 and LAN \"Masquerading (NAT)\" are <b>BOTH enabled</b>!This will paralyze IPv6 allocation and cause routing loops.<br>👉 <b>Fix:</b> Please go to <code>Network -> Firewall</code> to disable LAN Masquerading, or <b style=\"color:#ef4444;\">Disable IPv6</b> in the LAN settings on the Netwiz homepage."
+msgstr "系统检测到 IPv6 与 LAN 区“动态伪装 (NAT)”<b>同时处于开启状态</b>！这将导致 IPv6 分配瘫痪与路由死循环。<br>👉 <b>排错指南：</b>请前往官方 <code>网络->防火墙</code> 关闭 LAN 区的动态伪装，或在Netwiz首页的局域网设置里 <b style=\"color:#ef4444;\">关闭 IPv6</b>。"
 
 msgid "⚠️ IPv6 Configuration Blocked"
 msgstr "⚠️ IPv6 配置已被系统安全拦截"

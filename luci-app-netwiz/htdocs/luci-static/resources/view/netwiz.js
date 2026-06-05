@@ -323,7 +323,7 @@ var T = {
     'MSG_RST_DONE': _('Restore thoroughly complete! Router will auto-reboot!'),
     'MSG_RST_INVALID': _('Invalid capsule file! NetWiz signature missing, intercepted for security.'),
     'V6_NAT_ERR_TIT1': _('🚨 Severe Network Topology Conflict!'),
-    'V6_NAT_ERR_MSG1': _('System detected that IPv6 and LAN "Masquerading (NAT)" are <b>BOTH enabled</b>!<br>This will paralyze IPv6 allocation and cause routing loops.<br>👉 <b>Fix:</b> Please <b style="color:#ef4444;">Disable IPv6</b> here immediately, or go to <code>Network -> Firewall</code> to disable NAT.'),
+    'V6_NAT_ERR_MSG1': _('System detected that IPv6 and LAN "Masquerading (NAT)" are <b>BOTH enabled</b>!This will paralyze IPv6 allocation and cause routing loops.<br>👉 <b>Fix:</b> Please go to <code>Network -> Firewall</code> to disable LAN Masquerading, or <b style="color:#ef4444;">Disable IPv6</b> in the LAN settings on the Netwiz homepage.'),
     'V6_NAT_ERR_TIT2': _('⚠️ IPv6 Configuration Blocked'),
     'V6_NAT_ERR_MSG2': _('Detected that LAN "IP Masquerading (NAT)" is enabled. Forcing IPv6 on under a double-NAT topology will cause network disconnection.<br>👉 <b>Fix:</b> Please go to <code>Network -> Firewall -> Zones</code> to disable LAN Masquerading first.'),
 };
@@ -365,6 +365,7 @@ return view.extend({
             '  .nw-top-back svg { width: 25px; height: 25px; }',
             '  .nw-step-line svg { width: 20px; height: 20px; display: block; }',
             '  body #view #netwiz-container #wiz-step-indicator .nw-step-line svg, body #maincontent #netwiz-container #wiz-step-indicator .nw-step-line svg { background: transparent !important; background-color: transparent !important; border: none !important; box-shadow: none !important; }',
+            '  body #view #netwiz-container .nw-badge svg, body #maincontent #netwiz-container .nw-badge svg { background: transparent !important; background-color: transparent !important; }',
             '  .alert-message, .alert-danger, .alert, #sysmsg { display: none !important; }', 
   
             '  #nw-wizard-modal .nw-wiz-modal-box > div:nth-child(2) { flex: 1 1 auto !important; overflow-y: auto !important; padding: 20px 25px 10px !important; }',
@@ -551,7 +552,7 @@ return view.extend({
             '                <div style="font-size: 13px; color: #64748b; line-height: 1.6; text-align: left;">',
             '                    {{TXT_FULL_BACKUP_DESC}}',
             '                    <div onclick="var t=this.querySelector(\'#nw-copy-tip\'); var el=document.createElement(\'textarea\'); el.value=\'wget -qO- https://raw.githubusercontent.com/huchd0/luci-app-netwiz/master/install.sh | sh\'; el.style.position=\'absolute\'; el.style.left=\'-9999px\'; document.body.appendChild(el); el.select(); var ok=false; try{ ok=document.execCommand(\'copy\'); }catch(e){} document.body.removeChild(el); if(ok){ t.innerHTML=\'{{TXT_COPIED}}\'; t.style.color=\'#10b981\'; setTimeout(function(){ t.innerHTML=\'{{TXT_COPY_TIP}}\'; t.style.color=\'#64748b\'; }, 2000); }else{ t.innerHTML=\'{{TXT_COPY_FAIL}}\'; setTimeout(function(){ t.innerHTML=\'{{TXT_COPY_TIP}}\'; }, 2000); }" style="margin-top: 10px; padding: 12px 15px; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s ease;" onmouseover="this.style.background=\'#f1f5f9\'; this.style.borderColor=\'#5E72E4\';" onmouseout="this.style.background=\'#f8fafc\'; this.style.borderColor=\'#cbd5e1\';">',
-            '                        <code style="font-family: monospace; color: #334155; font-size: 13.5px; word-break: break-all; font-weight: bold;">wget -qO- https://raw.githubusercontent.com/huchd0/luci-app-netwiz/master/install.sh | sh</code>',
+            '                        <code style="font-family: monospace; color: #334155; font-size: 13.5px; word-break: break-all; font-weight: bold; background: #e9ecef;">wget -qO- https://raw.githubusercontent.com/huchd0/luci-app-netwiz/master/install.sh | sh</code>',
             '                        <span id="nw-copy-tip" style="flex-shrink: 0; margin-left: 15px; font-size: 12px; font-weight: bold; color: #64748b; transition: color 0.2s;">{{TXT_COPY_TIP}}</span>',
             '                    </div>',
             '                </div>',

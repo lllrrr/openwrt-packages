@@ -4,20 +4,7 @@ NAME=devgate
 LOG_FILE="/var/log/devgate.log"
 DEBUG=1
 
-# 时长数据库目录
-DURATION_DIR="/var/lib/devgate"
-DURATION_DB="$DURATION_DIR/duration.db"
-CONNECTION_LOG="$DURATION_DIR/connections.log"
-
-# 状态文件
 IDLIST="/var/$NAME.idlist"
-STATUS_DB="$DURATION_DIR/status.db"
-
-# 初始化目录
-init_dirs() {
-	mkdir -p "$DURATION_DIR"
-	touch "$DURATION_DB" "$CONNECTION_LOG" "$STATUS_DB" 2>/dev/null
-}
 
 # 日志函数
 dbg() {
@@ -48,28 +35,6 @@ get_enabled_device_count() {
 	get_enabled_devices | wc -l
 }
 
-duration_key() {
-	echo "$1" | sed 's/[^A-Za-z0-9_.-]/_/g'
-}
-
-get_duration_record() {
-	local target="$1"
-	awk -F, -v target="$target" '$1 == target { print; exit }' "$DURATION_DB" 2>/dev/null
-}
-
-delete_duration_record() {
-	local target="$1"
-	local tmp="${DURATION_DB}.tmp"
-
-	[ -f "$DURATION_DB" ] || return 0
-	awk -F, -v target="$target" '$1 != target' "$DURATION_DB" > "$tmp" && mv "$tmp" "$DURATION_DB"
-}
-
-get_last_connection_action() {
-	local target="$1"
-	awk -F, -v target="$target" '$2 == target { action = $3 } END { print action }' "$CONNECTION_LOG" 2>/dev/null
-}
-
 # 时间检查函数
 is_time_in_range() {
 	local start_time=$1
@@ -98,203 +63,26 @@ is_weekday_in_range() {
 	return 1
 }
 
-# 时长管理
-record_connection_time() {
-	local target="$1"
-	local action="$2"
-	local timestamp=$(date +%s)
-
-	echo "$timestamp,$target,$action" >> "$CONNECTION_LOG"
-
-	if [ "$action" = "connect" ]; then
-		if [ -z "$(get_duration_record "$target")" ]; then
-			echo "$target,$timestamp,0,0" >> "$DURATION_DB"
-			dbg "初始化时长: $target"
-		fi
-	elif [ "$action" = "disconnect" ]; then
-		local record=$(get_duration_record "$target")
-		if [ -n "$record" ]; then
-			local last_connect=$(echo "$record" | cut -d',' -f2)
-			local total_used=$(echo "$record" | cut -d',' -f3)
-			local last_reset=$(echo "$record" | cut -d',' -f4)
-
-			local session_duration=$((timestamp - last_connect))
-			local new_total=$((total_used + session_duration))
-
-			delete_duration_record "$target"
-			echo "$target,$timestamp,$new_total,$last_reset" >> "$DURATION_DB"
-		fi
-	fi
-}
-
-get_connection_time() {
-	local target="$1"
-	local current_time=$(date +%s)
-
-	local record=$(get_duration_record "$target")
-	if [ -n "$record" ]; then
-		local last_connect=$(echo "$record" | cut -d',' -f2)
-		local total_used=$(echo "$record" | cut -d',' -f3)
-
-		if [ "$(get_last_connection_action "$target")" = "connect" ]; then
-			local session_duration=$((current_time - last_connect))
-			total_used=$((total_used + session_duration))
-		fi
-
-		echo "$total_used"
-	else
-		echo "0"
-	fi
-}
-
-# 重置检查
-should_reset_duration() {
-	local target="$1"
-	local reset_cycle="$2"
-	local last_reset_file="$DURATION_DIR/last_reset_$(duration_key "$target")"
-
-	[ ! -f "$last_reset_file" ] && return 0
-
-	local last_reset=$(cat "$last_reset_file" 2>/dev/null)
-	local current_time=$(date +%s)
-
-	case "$reset_cycle" in
-		"daily")
-			local last_date=$(date -d "@$last_reset" +%Y%m%d 2>/dev/null || echo "0")
-			local current_date=$(date +%Y%m%d)
-			[ "$last_date" != "$current_date" ]
-			;;
-		"weekly")
-			local last_week=$(date -d "@$last_reset" +%Y%W 2>/dev/null || echo "0")
-			local current_week=$(date +%Y%W)
-			[ "$last_week" != "$current_week" ]
-			;;
-		"monthly")
-			local last_month=$(date -d "@$last_reset" +%Y%m 2>/dev/null || echo "0")
-			local current_month=$(date +%Y%m)
-			[ "$last_month" != "$current_month" ]
-			;;
-		*)
-			false
-			;;
-	esac
-}
-
-reset_duration_counter() {
-	local target="$1"
-	local reset_cycle="$2"
-	local current_time=$(date +%s)
-
-	delete_duration_record "$target"
-
-	echo "$target,$current_time,0,$current_time" >> "$DURATION_DB"
-	echo "$current_time" > "$DURATION_DIR/last_reset_$(duration_key "$target")"
-
-	info "重置时长: $target (周期: $reset_cycle)"
-}
-
 # 主检查函数
 check_device_control() {
 	local id="$1"
 	local target=$(config_t_get device mac "$id")
-	local time_mode=$(config_t_get device time_mode "$id" "period")
 	local weekdays=$(config_t_get device week "$id" "0")
+	local start_time=$(config_t_get device time_from "$id" "00:00")
+	local end_time=$(config_t_get device time_over "$id" "00:00")
 
-	# 检查星期
 	is_weekday_in_range "$weekdays" || {
-		dbg "星期不允许: $target"
-		return 1
+		dbg "生效日期外: $target"
+		return 0
 	}
 
-	case "$time_mode" in
-		"period")
-			local start_time=$(config_t_get device time_from "$id" "00:00")
-			local end_time=$(config_t_get device time_over "$id" "00:00")
-			is_time_in_range "$start_time" "$end_time" || {
-				dbg "时间段外: $target ($start_time-$end_time)"
-				return 1
-			}
-			dbg "时间段内: $target"
-			return 0
-			;;
+	if is_time_in_range "$start_time" "$end_time"; then
+		dbg "禁用时段内: $target ($start_time-$end_time)"
+		return 1
+	fi
 
-		"duration")
-			local duration=$(config_t_get device duration "$id" "60")
-			local reset_cycle=$(config_t_get device reset_cycle "$id" "daily")
-
-			# 重置检查
-			if should_reset_duration "$target" "$reset_cycle"; then
-				reset_duration_counter "$target" "$reset_cycle"
-			fi
-
-			# 记录连接
-			local last_action=$(get_last_connection_action "$target")
-			if [ "$last_action" != "connect" ]; then
-				record_connection_time "$target" "connect"
-			fi
-
-			# 检查时长
-			local used_seconds=$(get_connection_time "$target")
-			local used_minutes=$((used_seconds / 60))
-			local max_minutes=$duration
-
-			dbg "时长检查: $target 已用=${used_minutes}分钟, 限制=${max_minutes}分钟"
-
-			if [ "$used_minutes" -ge "$max_minutes" ]; then
-				dbg "已超时: $target"
-				return 1
-			fi
-			dbg "未超时: $target"
-			return 0
-			;;
-
-		"combined")
-			local start_time=$(config_t_get device time_from "$id" "00:00")
-			local end_time=$(config_t_get device time_over "$id" "00:00")
-			local use_duration=$(config_t_get device use_duration "$id" "0")
-
-			# 时间段检查
-			is_time_in_range "$start_time" "$end_time" || {
-				dbg "时间段外: $target"
-				return 1
-			}
-
-			# 时长检查
-			if [ "$use_duration" = "1" ]; then
-				local duration=$(config_t_get device duration "$id" "60")
-				local reset_cycle=$(config_t_get device reset_cycle "$id" "daily")
-
-				if should_reset_duration "$target" "$reset_cycle"; then
-					reset_duration_counter "$target" "$reset_cycle"
-				fi
-
-				local last_action=$(get_last_connection_action "$target")
-				if [ "$last_action" != "connect" ]; then
-					record_connection_time "$target" "connect"
-				fi
-
-				local used_seconds=$(get_connection_time "$target")
-				local used_minutes=$((used_seconds / 60))
-				local max_minutes=$duration
-
-				if [ "$used_minutes" -ge "$max_minutes" ]; then
-					dbg "时间段内但已超时: $target"
-					return 1
-				fi
-			fi
-
-			dbg "时间段内允许: $target"
-			return 0
-			;;
-
-		*)
-			# 默认时间段控制
-			local start_time=$(config_t_get device time_from "$id" "00:00")
-			local end_time=$(config_t_get device time_over "$id" "00:00")
-			is_time_in_range "$start_time" "$end_time"
-			return $?
-			;;
-	esac
+	dbg "禁用时段外: $target ($start_time-$end_time)"
+	return 0
 }
 
 # 同步设备状态
@@ -316,7 +104,6 @@ sync_device_status() {
 			devgate del "$id"
 			sed -i "/!$id!/d" "$IDLIST" 2>/dev/null
 			info "允许上网: $comment ($target)"
-			record_connection_time "$target" "disconnect"
 		fi
 	else
 		if [ "$is_blocked" -eq 0 ]; then
@@ -326,7 +113,6 @@ sync_device_status() {
 					echo "!$id!" >> "$IDLIST"
 				fi
 				info "阻止上网: $comment ($target)"
-				record_connection_time "$target" "disconnect"
 			else
 				info "阻止失败: $comment ($target)"
 			fi
@@ -337,7 +123,6 @@ sync_device_status() {
 # 主处理循环
 main_loop() {
 	info "设备门禁守护进程启动"
-	init_dirs
 	while :; do
 		dbg "开始检查设备"
 		if [ "$(get_enabled_device_count)" -eq 0 ]; then
