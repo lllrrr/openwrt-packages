@@ -1,4 +1,0 @@
-
-config wizard 'config'
-	option finished '0'
-	option step 'welcome'

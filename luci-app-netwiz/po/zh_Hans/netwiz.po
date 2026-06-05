@@ -1551,3 +1551,24 @@ msgstr "⚠️ IPv6 配置已被系统安全拦截"
 
 msgid "Detected that LAN \"IP Masquerading (NAT)\" is enabled. Forcing IPv6 on under a double-NAT topology will cause network disconnection.<br>👉 <b>Fix:</b> Please go to <code>Network -> Firewall -> Zones</code> to disable LAN Masquerading first."
 msgstr "检测到防火墙 LAN 区已开启“IP 动态伪装 (NAT)”。在双重 NAT 拓扑下，强行开启 IPv6 将导致断网。<br>👉 <b>排错指南：</b>请前往官方后台 <code>网络->防火墙->区域</code>，关闭 LAN 区的动态伪装后重试。"
+
+msgid "Restore Device Data"
+msgstr "还原设备数据"
+
+msgid "This action will overwrite existing device groups and static IP bindings, and restart the network.<br><br><span style=\"color:#f59e0b; font-weight:bold;\">⚠️ Security Warning: Do not upload backups from unknown sources to prevent DNS hijacking.</span><br><br>Confirm to restore?"
+msgstr "此操作将覆盖现有的设备分组与静态 IP 绑定数据，并重启网络。<br><br><span style=\"color:#f59e0b; font-weight:bold;\">⚠️ 安全警告：请勿上传来路不明的备份文件，以免 DNS 被恶意劫持。</span><br><br>确认要执行还原吗？"
+
+msgid "Success"
+msgstr "成功"
+
+msgid "Warning"
+msgstr "警告"
+
+msgid "Waking up..."
+msgstr "唤醒中..."
+
+msgid "Displaying self-assigned local IPv6 as IPv4 is unavailable"
+msgstr "由于无法获取 IPv4，显示设备底层自签的本地 IPv6"
+
+msgid "Local IPv6"
+msgstr "自签 IPv6"

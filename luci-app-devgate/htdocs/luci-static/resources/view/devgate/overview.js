@@ -196,6 +196,147 @@ function wrapRulesTable(section) {
 	}
 }
 
+function getOptionControl(row, option) {
+	return row.querySelector('select[name$=".%s"], input[type="checkbox"][name$=".%s"], input[name$=".%s"], [id$=".%s"]'.format(option, option, option, option));
+}
+
+function getOptionCell(row, option) {
+	var control = getOptionControl(row, option);
+
+	return control ? control.closest('.cbi-section-table-cell, td, th') : null;
+}
+
+function getControlValue(row, option) {
+	var control = getOptionControl(row, option);
+
+	if (!control) {
+		return null;
+	}
+
+	if (control.type === 'checkbox') {
+		return control.checked ? '1' : '0';
+	}
+
+	return control.value;
+}
+
+function getRuleRows(table) {
+	return Array.prototype.filter.call(table.querySelectorAll('.cbi-section-table-row'), function (row) {
+		return !!getOptionControl(row, 'time_mode');
+	});
+}
+
+function rowUsesColumn(row, option) {
+	var mode = getControlValue(row, 'time_mode') || 'period';
+
+	switch (option) {
+	case 'time_from':
+	case 'time_over':
+		return mode === 'period' || mode === 'combined';
+
+	case 'duration':
+	case 'reset_cycle':
+		return mode === 'duration' || (mode === 'combined' && getControlValue(row, 'use_duration') === '1');
+
+	case 'use_duration':
+		return mode === 'combined';
+	}
+
+	return true;
+}
+
+function getOptionColumnIndexes(rows, options) {
+	var indexes = {};
+
+	rows.some(function (row) {
+		var cells = Array.prototype.slice.call(row.children);
+
+		options.forEach(function (option) {
+			var cell = getOptionCell(row, option);
+			var index = cell ? cells.indexOf(cell) : -1;
+
+			if (index !== -1) {
+				indexes[option] = index;
+			}
+		});
+
+		return Object.keys(indexes).length === options.length;
+	});
+
+	return indexes;
+}
+
+function setColumnHidden(table, index, hidden) {
+	var rows = table.querySelectorAll('.cbi-section-table-titles, .cbi-section-table-row');
+
+	Array.prototype.forEach.call(rows, function (row) {
+		var cell = row.children[index];
+
+		if (cell) {
+			cell.classList.toggle('devgate-column-hidden', hidden);
+		}
+	});
+}
+
+function updateModeColumns(table) {
+	var options = ['time_from', 'time_over', 'duration', 'reset_cycle', 'use_duration'];
+	var rows = getRuleRows(table);
+	var indexes = getOptionColumnIndexes(rows, options);
+
+	if (rows.length === 0) {
+		options.forEach(function (option) {
+			if (indexes[option] != null) {
+				setColumnHidden(table, indexes[option], false);
+			}
+		});
+		return;
+	}
+
+	options.forEach(function (option) {
+		if (indexes[option] == null) {
+			return;
+		}
+
+		var used = rows.some(function (row) {
+			return rowUsesColumn(row, option);
+		});
+
+		setColumnHidden(table, indexes[option], !used);
+	});
+}
+
+function setupModeColumns(section) {
+	var table = section.querySelector('.cbi-section-table');
+
+	if (!table) {
+		return;
+	}
+
+	var scheduleUpdate = function () {
+		window.setTimeout(function () {
+			updateModeColumns(table);
+		}, 0);
+	};
+
+	table.addEventListener('change', function (ev) {
+		var target = ev.target;
+
+		if (target && target.name && /\.(time_mode|use_duration)$/.test(target.name)) {
+			scheduleUpdate();
+		}
+	});
+
+	if (window.MutationObserver) {
+		var observer = new window.MutationObserver(scheduleUpdate);
+		observer.observe(table, {
+			childList: true,
+			subtree: true
+		});
+	}
+
+	scheduleUpdate();
+}
+
 function setupRulesLayout(mapEl) {
 	var section = mapEl.querySelector('.cbi-section');
 
@@ -208,6 +349,8 @@ function setupRulesLayout(mapEl) {
 	renderRulesTitle(section);
 
 	wrapRulesTable(section);
+
+	setupModeColumns(section);
 
 	return mapEl;
 }

@@ -30,6 +30,10 @@
         }
     }
 
+    #cbi-devgate-device {
+        flex: 1;
+    }
+
     .cbi-map,
     .devgate-rules-section,
     .devgate-rules-table-scroll{
@@ -46,19 +50,9 @@
 
         > .cbi-section-table {
             min-width: 100%;
-            table-layout: fixed;
 
-            .cbi-section-table-cell,
-            th,
-            td {
-                &:nth-child(3) {
-                    width: 18rem;
-                }
-
-                &:nth-child(4),
-                &:nth-child(5) {
-                    width: 8rem;
-                }
+            .devgate-column-hidden {
+                display: none !important;
             }
 
             select {

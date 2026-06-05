@@ -937,8 +937,8 @@ return view.extend({
 
                 if (wizModal) wizModal.style.display = 'none';
                 openModal({
-                    title: T['WIZ_SKIP_TITLE'] || '解除鎖定',
-                    msg: '<div style="color: #64748b; font-size: 16px; font-weight:bold;">' + (T['WIZ_SKIP_MSG'] || '正在解除鎖定，進入官方后台...') + '</div>',
+                    title: T['WIZ_SKIP_TITLE'] || 'Unlock',
+                    msg: '<div style="color: #64748b; font-size: 16px; font-weight:bold;">' + (T['WIZ_SKIP_MSG'] || 'Entering official dashboard...') + '</div>',
                     spin: true
                 });
                 setTimeout(function() {
@@ -1016,17 +1016,17 @@ return view.extend({
                     var p2 = container.querySelector('#nw-admin-pwd-confirm').value;
                     if (!p1) {
                         openModal({ 
-                            title: T['M_INC_TIT'] || '提示', 
-                            msg: T['M_PWD_REQ'] || '請輸入新管理員密碼，或勾選「暫不配置」！', 
-                            okText: T['M_CLOSE'] || '關閉' 
+                            title: T['M_INC_TIT'] || 'Notice', 
+                            msg: T['M_PWD_REQ'] || 'Password required!', 
+                            okText: T['M_CLOSE'] || 'Close' 
                         });
                         return;
                     }
                     if (p1 !== p2) {
                         openModal({ 
-                            title: T['M_INC_TIT'] || '提示', 
+                            title: T['M_INC_TIT'] || 'Notice', 
                             msg: T['M_PWD_MISMATCH'], 
-                            okText: T['M_CLOSE'] || '關閉'
+                            okText: T['M_CLOSE'] || 'Close'
                         });
                         return;
                     }
@@ -1108,10 +1108,10 @@ return view.extend({
                     if (key && key.length < 8) { openModal({ title: T['M_FMT_TIT'], msg: T['M_PWD_SHORT'], okText: T['M_CLOSE'] }); return; }
                     if (key.length === 0) { 
                         openModal({
-                            title: T['M_OPEN_WARN_TIT'] || '⚠️ 无密码警告', 
-                            msg: T['M_OPEN_WARN_MSG'] || '您正在设置无密码的开放 Wi-Fi，确定要继续吗？', 
+                            title: T['M_OPEN_WARN_TIT'] || '⚠️ No Password', 
+                            msg: T['M_OPEN_WARN_MSG'] || 'Setting up an open Wi-Fi without a password. Continue?', 
                             cancelText: T['M_CLOSE'], 
-                            okText: T['BTN_NEXT'] || '继续', 
+                            okText: T['BTN_NEXT'] || 'Continue', 
                             isDanger: true,
                             onCancel: function() { container.querySelector('#nw-global-modal').style.display = 'none'; },
                             onOk: function() { 
@@ -1151,7 +1151,7 @@ return view.extend({
             var keepIpv6 = window._trueIpv6State;
 
             wizModal.style.display = 'none';
-            openModal({ title: T['WIZ_TITLE'] || '向导配置中', msg: '<div style="color: #64748b; font-size: 16px; font-weight:bold;">' + T['MSG_WRITING'] + '</div>', spin: true });
+            openModal({ title: T['WIZ_TITLE'] || 'Configuring', msg: '<div style="color: #64748b; font-size: 16px; font-weight:bold;">' + T['MSG_WRITING'] + '</div>', spin: true });
 
             // 网络配置的核心提取为一个函数，分流调用
             var doNetSetupConfig = function() {
@@ -2729,10 +2729,10 @@ return view.extend({
                 var bypassTog = document.getElementById('lan-bypass-toggle');
                 if (bypassTog && !bypassTog.checked) {
                     openModal({ 
-                        title: '⚠️ ' + (T['M_DETECT_OP_INV_TIT'] || '操作无效'), 
-                        msg: T['M_DETECT_OP_INV_MSG'] || '当前为主路由模式，局域网网关<b style="color:#ef4444;">必须留空</b>。<br><br>“一键探测”仅用于配置“旁路由/AP有线中继”模式！', 
+                        title: '⚠️ ' + (T['M_DETECT_OP_INV_TIT'] || 'Invalid Operation'), 
+                        msg: T['M_DETECT_OP_INV_MSG'] || 'Gateway must be blank in Main Router mode.', 
                         hideCancel: true, 
-                        okText: T['M_CLOSE'] || '关闭' 
+                        okText: T['M_CLOSE'] || 'Close' 
                     });
                     return;
                 }
@@ -2746,10 +2746,10 @@ return view.extend({
                 if (wProto === 'pppoe') {
                     var pppoeMsg = (T['M_DETECT_PPPOE_MSG'] || '').replace('{gw}', gw || '');
                     openModal({ 
-                        title: '⚠️ ' + (T['M_DETECT_PPPOE_TIT'] || '极度危险拦截'), 
+                        title: '⚠️ ' + (T['M_DETECT_PPPOE_TIT'] || 'Critical Intercept'), 
                         msg: pppoeMsg, 
                         hideCancel: true, 
-                        okText: T['M_CLOSE'] || '关闭' 
+                        okText: T['M_CLOSE'] || 'Close' 
                     });
                     return;
                 }
@@ -2770,19 +2770,19 @@ return view.extend({
                     if (inputIp) inputIp.value = suggestedIp;
                     
                     openModal({ 
-                        title: '✅ ' + (T['BTN_AUTO_DETECT'] || '探测成功'), 
-                        msg: '<div style="font-size:15px; color:#475569; margin-bottom:15px;">' + (T['MSG_DETECT_SUCC'] || '已获取上级网段，并为您分配推荐 IP') + '</div>' + 
+                        title: '✅ ' + (T['BTN_AUTO_DETECT'] || 'Detection Success'), 
+                        msg: '<div style="font-size:15px; color:#475569; margin-bottom:15px;">' + (T['MSG_DETECT_SUCC'] || 'Upstream subnet detected') + '</div>' + 
                              '<div style="background:#f8fafc; padding:10px; border-radius:8px; text-align:left;">' + 
                              'Gateway: <b style="color:#10b981;">' + gw + '</b><br>IP: <b style="color:#3b82f6;">' + suggestedIp + '</b></div>', 
                         hideCancel: true, 
-                        okText: T['M_CLOSE'] || '关闭' 
+                        okText: T['M_CLOSE'] || 'Close' 
                     });
                 } else {
                     openModal({ 
-                        title: '❌ ' + (T['M_SYS_ERR'] || '探测失败'), 
-                        msg: T['MSG_DETECT_FAIL'] || '探测失败，无法获取到上级网关信息', 
+                        title: '❌ ' + (T['M_SYS_ERR'] || 'failed'), 
+                        msg: T['MSG_DETECT_FAIL'] || 'Detection failed', 
                         hideCancel: true, 
-                        okText: T['M_CLOSE'] || '关闭' 
+                        okText: T['M_CLOSE'] || 'Close' 
                     });
                 }
             });
@@ -2815,9 +2815,9 @@ return view.extend({
                 if (tog.checked) {
                     var isDirty = tog.classList.contains('is-dirty');
                     if (isDirty) {
-                        statRow.innerHTML = "<span title='" + (T['DESC_ROAM_DIRTY']||'') + "' style='display:inline-flex; align-items:center; justify-content:center; background:rgba(16, 185, 129, 0.15); color:#10b981; border: 1px solid #10b981; font-size:14px; padding:6px 10px; border-radius:8px; font-family:sans-serif; cursor:pointer; font-weight:bold; white-space:nowrap; transition:all 0.25s ease; margin:0 auto;'>" + (T['TXT_ROAMING_ON']||'已开通漫游') + "<b style='display:inline-flex; align-items:center; justify-content:center; background:#ef4444; color:#ffffff; width:18px; height:18px; border-radius:50%; font-size:14px; font-family:Arial,sans-serif; font-weight:900; margin-left:6px; line-height:1;'>!</b> <span style='font-size:14px; font-weight:bold; color:#ef4444; margin-left:5px; text-decoration:underline;'>" + (T['TXT_CLICK_FIX']||'点击修复') + "</span></span>";
+                        statRow.innerHTML = "<span title='" + (T['DESC_ROAM_DIRTY']||'') + "' style='display:inline-flex; align-items:center; justify-content:center; background:rgba(16, 185, 129, 0.15); color:#10b981; border: 1px solid #10b981; font-size:14px; padding:6px 10px; border-radius:8px; font-family:sans-serif; cursor:pointer; font-weight:bold; white-space:nowrap; transition:all 0.25s ease; margin:0 auto;'>" + (T['TXT_ROAMING_ON']||'Roaming Enabled') + "<b style='display:inline-flex; align-items:center; justify-content:center; background:#ef4444; color:#ffffff; width:18px; height:18px; border-radius:50%; font-size:14px; font-family:Arial,sans-serif; font-weight:900; margin-left:6px; line-height:1;'>!</b> <span style='font-size:14px; font-weight:bold; color:#ef4444; margin-left:5px; text-decoration:underline;'>" + (T['TXT_CLICK_FIX']||'Click to Fix') + "</span></span>";
                     } else {
-                        statRow.innerHTML = "<span style='display:inline-flex; align-items:center; justify-content:center; background:rgba(16, 185, 129, 0.15); color:#10b981; border: 1px solid #10b981; font-size:14px; padding:6px 16px; border-radius:8px; font-family:sans-serif; font-weight:bold; white-space:nowrap; cursor:pointer; transition:all 0.25s ease; margin:0 auto;'>" + (T['TXT_ROAMING_ON']||'已开通漫游') + "</span>";
+                        statRow.innerHTML = "<span style='display:inline-flex; align-items:center; justify-content:center; background:rgba(16, 185, 129, 0.15); color:#10b981; border: 1px solid #10b981; font-size:14px; padding:6px 16px; border-radius:8px; font-family:sans-serif; font-weight:bold; white-space:nowrap; cursor:pointer; transition:all 0.25s ease; margin:0 auto;'>" + (T['TXT_ROAMING_ON']||'Roaming Enabled') + "</span>";
                     }
 
                     var badgeSpan = statRow.querySelector('span');
@@ -3367,7 +3367,7 @@ return view.extend({
                         if (targetIp === targetGw) { 
                             openModal({
                                 title: T['M_LOGIC_TIT'], 
-                                msg: T['M_SAME_BYP'] || "旁路由/AP 模式下，本设备 IP 绝对不能与网关相同！", 
+                                msg: T['M_SAME_BYP'] || 'In AP/Relay mode, Device IP MUST NOT be the same as Gateway!', 
                                 okText: T['BTN_EDIT']
                             }); 
                             return; 
@@ -3731,8 +3731,8 @@ return view.extend({
 
                         if (hasOpenWifi) {
                             openModal({ 
-                                title: T['M_OPEN_WARN_TIT'] || '⚠️ 无密码警告', 
-                                msg: T['M_OPEN_WARN_MSG'] || '您正在设置无密码的开放 Wi-Fi，附近任何人都可以随意连接并访问您的网络。<br><br>确定要继续吗？', 
+                                title: T['M_OPEN_WARN_TIT'] || '⚠️ No Password', 
+                                msg: T['M_OPEN_WARN_MSG'] || 'Setting up an open Wi-Fi without a password. Continue?', 
                                 cancelText: T['BTN_EDIT'], 
                                 okText: T['M_WARN_BTN'], 
                                 isDanger: true, 

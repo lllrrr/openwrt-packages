@@ -6,8 +6,8 @@ PKG_NAME:=luci-app-devgate
 PKG_LICENSE:=Apache-2.0
 
 LUCI_TITLE:=LuCI 设备门禁插件
-LUCI_DESCRIPTION:=基于 nftables 的设备门禁插件。
-LUCI_DEPENDS:=+nftables +bash
+LUCI_DESCRIPTION:=基于 firewall4 通信规则的设备门禁插件。
+LUCI_DEPENDS:=+firewall4
 LUCI_PKGARCH:=all
 LUCI_MINIFY_CSS:=0
 
@@ -50,4 +50,3 @@ endef
 include $(TOPDIR)/feeds/luci/luci.mk
 
 # call BuildPackage - OpenWrt buildroot signature
-
