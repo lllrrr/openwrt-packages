@@ -15,19 +15,30 @@ local report = {
     devices = {}
 }
 
--- WiFi stations from all AP interfaces
-local ifaces = {"wl0-ap0", "wl1-ap0", "wl0-ap1", "wl1-ap1"}
-for _, iface in ipairs(ifaces) do
-    local f = io.popen("iwinfo " .. iface .. " assoclist 2>/dev/null")
+-- OPTIMIZED: WiFi stations using iw station dump (kernel direct)
+-- Instead of iwinfo which spawns ubus calls to hostapd
+-- This prevents hostapd memory growth caused by frequent ubus requests
+local function get_wifi_stations_iw(iface)
+    local stations = {}
+    local f = io.popen("iw dev " .. iface .. " station dump 2>/dev/null")
     if f then
         for line in f:lines() do
-            for word in line:gmatch("%S+") do
-                if #word == 17 and word:match("^[0-9A-Fa-f:]+$") then
-                    report.stations[word:upper()] = { iface = iface }
-                end
+            local mac = line:match("^Station ([0-9A-Fa-f:]+)")
+            if mac then
+                stations[mac:upper()] = { iface = iface }
             end
         end
         f:close()
+    end
+    return stations
+end
+
+-- Collect stations from AP interfaces (using iw, not iwinfo)
+local ap_ifaces = {"wl0-ap0", "wl1-ap0"}
+for _, iface in ipairs(ap_ifaces) do
+    local iface_stations = get_wifi_stations_iw(iface)
+    for mac, info in pairs(iface_stations) do
+        report.stations[mac] = info
     end
 end
 

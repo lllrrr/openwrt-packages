@@ -934,14 +934,16 @@ function api_merge_devices()
         end
     end
     
-    -- Check which MAC is online (via ARP table)
+    -- Check which MAC is online (via ARP table) and get IP
     local arp_online = {}
+    local arp_ip = {}
     local arp_file = io.open("/proc/net/arp", "r")
     if arp_file then
         for line in arp_file:lines() do
-            local mac = line:match("(%x%x:%x%x:%x%x:%x%x:%x%x:%x%x)")
-            if mac then
+            local ip, _, _, mac = line:match("^([%d%.]+)%s+%S+%s+%S+%s+([%x%x:%x%x:%x%x:%x%x:%x%x:%x%x])")
+            if mac and ip then
                 arp_online[mac:upper()] = true
+                arp_ip[mac:upper()] = ip
             end
         end
         arp_file:close()
@@ -949,9 +951,11 @@ function api_merge_devices()
     
     -- Find the online MAC as primary
     local online_mac = nil
+    local online_ip = nil
     for _, mac in ipairs(all_macs) do
         if arp_online[mac] then
             online_mac = mac
+            online_ip = arp_ip[mac]
             break
         end
     end
@@ -961,22 +965,163 @@ function api_merge_devices()
         online_mac = all_macs[1]
     end
     
-    -- Find primary device (the online one or first one)
-    local primary_idx = nil
-    local idx = 0
-    while true do
-        local mac = uci:get("devicemaster", "@device[" .. idx .. "]", "mac")
-        if not mac then break end
-        if mac:upper() == online_mac then
-            primary_idx = idx
-            break
+    -- Helper: Check if device exists in UCI
+    local function find_device_idx(target_mac)
+        local idx = 0
+        while true do
+            local mac = uci:get("devicemaster", "@device[" .. idx .. "]", "mac")
+            if not mac then break end
+            if mac:upper() == target_mac then
+                return idx
+            end
+            idx = idx + 1
         end
-        idx = idx + 1
+        return nil
     end
     
+    -- Helper: Create new device entry for ARP-only device
+    local function create_device_for_mac(new_mac, ip)
+        -- Get hostname from DHCP leases
+        local hostname = ""
+        local dhcp_file = io.open("/tmp/dhcp.leases", "r")
+        if dhcp_file then
+            for line in dhcp_file:lines() do
+                local ts, mac, lease_ip, name = line:match("^(%d+)%s+(%S+)%s+(%S+)%s+(%S+)")
+                if mac and mac:upper() == new_mac then
+                    hostname = name or ""
+                    break
+                end
+            end
+            dhcp_file:close()
+        end
+        
+        -- Detect if randomized MAC (LAA - Locally Administered Address)
+        local first_byte = tonumber(new_mac:sub(1,2), 16)
+        local randomized = first_byte and (first_byte % 2 == 2)
+        
+        -- Create new device section
+        local section_name = uci:add("devicemaster", "device")
+        uci:set("devicemaster", section_name, "mac", new_mac)
+        uci:set("devicemaster", section_name, "last_ip", ip or "")
+        uci:set("devicemaster", section_name, "vendor", randomized and "Apple" or "未知")
+        uci:set("devicemaster", section_name, "type", "phone")
+        uci:set("devicemaster", section_name, "discovered", "1")
+        uci:set("devicemaster", section_name, "discovered_at", tostring(os.time()))
+        uci:set("devicemaster", section_name, "blocked", "0")
+        uci:set("devicemaster", section_name, "first_seen", tostring(os.time()))
+        uci:set("devicemaster", section_name, "last_seen", tostring(os.time()))
+        if hostname ~= "" and hostname ~= "*" then
+            uci:set("devicemaster", section_name, "hostname", hostname)
+        end
+        uci:commit("devicemaster")
+        
+        -- Return the new index
+        return find_device_idx(new_mac)
+    end
+    
+    -- Find primary device (the online one or first one)
+    local primary_idx = find_device_idx(online_mac)
+    
+    -- FIX: If primary device not in UCI (ARP-only device), create it first
     if not primary_idx then
-        json_response({success = false, error = "Primary device not found"})
-        return
+        -- This is an ARP-only device, need to create UCI entry first
+        primary_idx = create_device_for_mac(online_mac, online_ip)
+        if not primary_idx then
+            json_response({success = false, error = "Failed to create device entry for " .. online_mac})
+            return
+        end
+    end
+    
+    -- FIX: Preserve existing device's identity when merging
+    -- The device that existed earlier should keep its identity (name, vendor, type, etc.)
+    -- Priority: 
+    --   1. If primary device has name/vendor/type, keep them
+    --   2. If primary is new (ARP-only), inherit from the earliest secondary device
+    
+    -- Get primary device's current attributes
+    local primary_name = uci:get("devicemaster", "@device[" .. primary_idx .. "]", "name") or ""
+    local primary_hostname = uci:get("devicemaster", "@device[" .. primary_idx .. "]", "hostname") or ""
+    local primary_vendor = uci:get("devicemaster", "@device[" .. primary_idx .. "]", "vendor") or ""
+    local primary_type = uci:get("devicemaster", "@device[" .. primary_idx .. "]", "type") or ""
+    local primary_first_seen = uci:get("devicemaster", "@device[" .. primary_idx .. "]", "first_seen") or ""
+    local primary_manual = uci:get("devicemaster", "@device[" .. primary_idx .. "]", "manual") or ""
+    local primary_blocked = uci:get("devicemaster", "@device[" .. primary_idx .. "]", "blocked") or "0"
+    
+    -- Check if primary device was just created (no first_seen or very recent)
+    local primary_is_new = (primary_first_seen == "" or tonumber(primary_first_seen) > os.time() - 60)
+    
+    -- Find the earliest secondary device with meaningful attributes
+    local best_secondary = nil
+    local best_first_seen = nil
+    
+    for _, mac in ipairs(all_macs) do
+        if mac ~= online_mac then
+            local sec_idx = find_device_idx(mac)
+            if sec_idx then
+                local sec_first_seen = uci:get("devicemaster", "@device[" .. sec_idx .. "]", "first_seen") or ""
+                local sec_name = uci:get("devicemaster", "@device[" .. sec_idx .. "]", "name") or ""
+                local sec_vendor = uci:get("devicemaster", "@device[" .. sec_idx .. "]", "vendor") or ""
+                local sec_type = uci:get("devicemaster", "@device[" .. sec_idx .. "]", "type") or ""
+                local sec_manual = uci:get("devicemaster", "@device[" .. sec_idx .. "]", "manual") or ""
+                
+                -- Check if this secondary has meaningful attributes
+                local has_identity = (sec_name ~= "" or sec_vendor ~= "" or sec_type ~= "" or sec_manual == "1")
+                
+                if has_identity and sec_first_seen ~= "" then
+                    if best_first_seen == nil or tonumber(sec_first_seen) < tonumber(best_first_seen) then
+                        best_secondary = sec_idx
+                        best_first_seen = sec_first_seen
+                    end
+                end
+            end
+        end
+    end
+    
+    -- If primary is new or lacks attributes, inherit from the best secondary
+    if best_secondary then
+        local sec_name = uci:get("devicemaster", "@device[" .. best_secondary .. "]", "name") or ""
+        local sec_hostname = uci:get("devicemaster", "@device[" .. best_secondary .. "]", "hostname") or ""
+        local sec_vendor = uci:get("devicemaster", "@device[" .. best_secondary .. "]", "vendor") or ""
+        local sec_type = uci:get("devicemaster", "@device[" .. best_secondary .. "]", "type") or ""
+        local sec_manual = uci:get("devicemaster", "@device[" .. best_secondary .. "]", "manual") or ""
+        local sec_blocked = uci:get("devicemaster", "@device[" .. best_secondary .. "]", "blocked") or "0"
+        
+        -- Inherit attributes if primary lacks them or is new
+        if primary_is_new or primary_name == "" then
+            primary_name = sec_name
+            primary_hostname = sec_hostname
+        end
+        if primary_is_new or primary_vendor == "" or primary_vendor == "LAA Device" or primary_vendor == "未知" then
+            primary_vendor = sec_vendor
+        end
+        if primary_is_new or primary_type == "" or primary_type == "unknown" then
+            primary_type = sec_type
+        end
+        if primary_is_new or primary_manual == "" then
+            primary_manual = sec_manual
+        end
+        -- Always inherit blocked status from the earliest device
+        if sec_blocked == "1" then
+            primary_blocked = "1"
+        end
+    end
+    
+    -- Update primary device's attributes
+    if primary_name ~= "" then
+        uci:set("devicemaster", "@device[" .. primary_idx .. "]", "name", primary_name)
+        uci:set("devicemaster", "@device[" .. primary_idx .. "]", "hostname", primary_hostname)
+    end
+    if primary_vendor ~= "" and primary_vendor ~= "LAA Device" then
+        uci:set("devicemaster", "@device[" .. primary_idx .. "]", "vendor", primary_vendor)
+    end
+    if primary_type ~= "" and primary_type ~= "unknown" then
+        uci:set("devicemaster", "@device[" .. primary_idx .. "]", "type", primary_type)
+    end
+    if primary_manual == "1" then
+        uci:set("devicemaster", "@device[" .. primary_idx .. "]", "manual", "1")
+    end
+    if primary_blocked == "1" then
+        uci:set("devicemaster", "@device[" .. primary_idx .. "]", "blocked", "1")
     end
     
     -- Get current alt_macs
@@ -1646,8 +1791,22 @@ local function auto_name(vendor, devtype)
     return short .. "-" .. devtype
 end
 
+-- Helper: Extract base name and number suffix from a name
+-- e.g., "iphone14promax-2" -> ("iphone14promax", 2)
+-- e.g., "iphone14promax" -> ("iphone14promax", nil)
+local function parse_name_suffix(name)
+    if not name or name == "" then return name, nil end
+    -- Match pattern: base name ending with -N where N is a number
+    local base, num = name:match("^(.+)-(%d+)$")
+    if base and num then
+        return base, tonumber(num)
+    end
+    return name, nil
+end
+
 -- Helper: Find a unique name by appending -2, -3, etc.
 -- Checks both UCI devicemaster and dhcp host entries
+-- FIX: If base already has suffix like "-2", increment the number instead of appending "-2"
 local function unique_name(base, current_mac)
     if base == "" then return "" end
 
@@ -1670,14 +1829,18 @@ local function unique_name(base, current_mac)
         return base
     end
 
+    -- FIX: Parse base name to extract any existing number suffix
+    -- e.g., "iphone14promax-2" should try "iphone14promax-3", not "iphone14promax-2-2"
+    local real_base, start_num = parse_name_suffix(base)
+    local n = start_num or 1
+    
     -- Try -2, -3, ... until we find a free name
-    local n = 2
     while n < 100 do
-        local candidate = base .. "-" .. tostring(n)
+        n = n + 1
+        local candidate = real_base .. "-" .. tostring(n)
         if not existing[candidate:lower()] then
             return candidate
         end
-        n = n + 1
     end
     return base
 end
@@ -1741,9 +1904,12 @@ function api_set_name()
         end
     end
 
-    -- Ensure name uniqueness
-    -- 修复：传入 MAC 以排除当前设备，避免自己的旧名称被计入重复
-    if name and name ~= "" then
+    -- FIX: Only call unique_name if name is actually being changed
+    -- Get current name to compare
+    local current_name = uci:get("devicemaster", section, "name") or ""
+    
+    -- Ensure name uniqueness (only if name is different from current)
+    if name and name ~= "" and name ~= current_name then
         name = unique_name(name, mac)
     end
 

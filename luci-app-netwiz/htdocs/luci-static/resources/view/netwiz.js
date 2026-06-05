@@ -340,7 +340,7 @@ var callSystemBoard = rpc.declare({ object: 'system', method: 'board', expect: {
 var callSmartBackup = rpc.declare({ object: 'netwiz', method: 'smart_backup', params: ['type'], expect: { '': {} } });
 var callCheckBackup = rpc.declare({ object: 'netwiz', method: 'check_backup', expect: { '': {} } });
 var callSmartRestoreExec = rpc.declare({ object: 'netwiz', method: 'smart_restore_exec', params: ['filepath'], expect: { result: 0 } });
-var callCheckStorage = rpc.declare({ object: 'netwiz', method: 'check_storage', expect: { tmp_avail_mb: 0 } });
+var callCheckStorage = rpc.declare({ object: 'netwiz', method: 'check_storage', expect: { '': {} } });
 var callCheckRestoreStatus = rpc.declare({ object: 'netwiz', method: 'check_restore_status', expect: { status: 'unknown', msg: '' } });
 
 return view.extend({
@@ -2486,13 +2486,65 @@ return view.extend({
                 
                 var startProcess = function() {
                     var execRestore = function() {
-                        openModal({
-                            title: T['M_RST_NATIVE_TIT'],
-                            msg: '<div style="text-align:center; padding:10px 0; color:#64748b;">' + T['M_RST_NATIVE_MSG'] + '<br><div id="nw-upload-progress" style="font-size:24px; color:#3b82f6; font-weight:bold; margin-top:10px; font-family:monospace;">0%</div></div>',
-                            spin: true 
-                        });
+                    openModal({
+                        title: T['M_RST_NATIVE_TIT'],
+                        msg: '<div style="text-align:center; padding:10px 0; color:#64748b;">' + T['M_RST_NATIVE_MSG'] + '<br><div id="nw-upload-progress" style="font-size:24px; color:#3b82f6; font-weight:bold; margin-top:10px; font-family:monospace;">0%</div></div>',
+                        spin: true 
+                    });
+                    
+                    // 探测心跳包函数
+                    var executeRebootProbe = function(newIp) {
+                        var rebootSec = 0;
+                        var h = window.location.hostname;
+                        var pEl = document.getElementById('nw-upload-progress');
+                        var isRedirecting = false; // 防止成功后重复跳转
                         
-                        var fd = new FormData();
+                        // 定义核心探测器
+                        var checkIp = function(targetIp) {
+                            var controller = new AbortController();
+                            var tid = setTimeout(function() { controller.abort(); }, 1500);
+                            fetch('http://' + targetIp + '/cgi-bin/luci/?_t=' + Date.now(), { 
+                                method: 'HEAD', 
+                                signal: controller.signal,
+                                mode: 'no-cors' 
+                            })
+                            .then(function() {
+                                clearTimeout(tid);
+                                if (!isRedirecting) {
+                                    isRedirecting = true;
+                                    window.location.href = 'http://' + targetIp + '/cgi-bin/luci/';
+                                }
+                            }).catch(function() {
+                                clearTimeout(tid);
+                            });
+                        };
+
+                        var rebootTimer = setInterval(function() {
+                            if (isRedirecting) {
+                                clearInterval(rebootTimer);
+                                return;
+                            }
+                            rebootSec += 2;
+                            if (pEl) pEl.innerHTML = '<span style="color:#3b82f6; font-size:16px;">🔄 ' + (T['MSG_REBOOTING'] || 'System is rebooting...') + ' (' + rebootSec + 's / 300s)</span>';
+                            
+                            if (rebootSec < 15) return; // 前 15 秒给路由器充足的断网关机时间
+                            
+                            // 同时向旧 IP 和新 IP 丢心跳包
+                            checkIp(h);
+                            if (newIp && newIp !== h && newIp !== 'undefined' && newIp !== '') {
+                                checkIp(newIp);
+                            }
+                            
+                            // 如果 300 秒后还没有任何一个 IP 连通
+                            if (rebootSec > 300) {
+                                isRedirecting = true;
+                                clearInterval(rebootTimer);
+                                if (pEl) pEl.innerHTML = '<span style="color:#f59e0b; font-size:16px;">⚠️ ' + (T['MSG_MANUAL_VISIT'] || 'If IP changed, please update PC IP and visit manually.') + '</span>';
+                            }
+                        }, 2000);
+                    };
+                    
+                    var fd = new FormData();
                         var sid = (typeof L !== 'undefined' && L.env && L.env.sessionid) ? L.env.sessionid : "";
                         if (!sid) {
                             var match = document.cookie.match(/sysauth_http=([^;]+)/) || document.cookie.match(/sysauth=([^;]+)/);
@@ -2526,14 +2578,15 @@ return view.extend({
                                 if (pEl) pEl.innerHTML = '<span style="color:#10b981; font-size:16px;">' + T['M_RST_DELIVERED'] + '</span>';
                                 
                                 callSmartRestoreExec(realPath).then(function() {
-                                    // 状态探针轮询，按 Code 解析字典
+                                    var errCount = 0;
+                                    var futureIp = ''; // 储存未来的新 IP
                                     var checkTimer = setInterval(function() {
                                         callCheckRestoreStatus().then(function(res) {
+                                            errCount = 0;
                                             var s = res.status;
                                             var code = res.code;
                                             var m = T[code] || code;
                                             
-                                            // 解析动态变量
                                             if (code === 'MSG_RST_OOM_INTERCEPT') {
                                                 m = m.replace('{u}', res.arg1).replace('{a}', res.arg2);
                                             }
@@ -2553,12 +2606,20 @@ return view.extend({
                                             } else if (s === 'done') {
                                                 clearInterval(checkTimer);
                                                 if (pEl) pEl.innerHTML = '<span style="color:#10b981; font-size:18px;">🎉 ' + m + '</span>';
-                                                setTimeout(function() { window.location.reload(); }, 25000); 
+                                                futureIp = res.arg1 || ''; // 从后端获取未来的新 IP
+                                                executeRebootProbe(futureIp); 
                                             }
-                                        }).catch(function() {});
+                                        }).catch(function() {
+                                            errCount++;
+                                            if (errCount >= 3) {
+                                                clearInterval(checkTimer);
+                                                if (pEl) pEl.innerHTML = '<span style="color:#10b981; font-size:18px;">🎉 ' + (T['MSG_RST_DONE'] || 'Restore thoroughly complete! Router will auto-reboot!') + '</span>';
+                                                executeRebootProbe(futureIp); // 断网发生时，带着已有记录的新 IP 启动双向探针
+                                            }
+                                        });
                                     }, 2500);
                                 }).catch(function() {
-                                    setTimeout(function() { window.location.reload(); }, 60000);
+                                    executeRebootProbe('');
                                 });
                             } else {
                                 fileSmartRestore.value = '';
