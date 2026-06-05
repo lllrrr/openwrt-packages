@@ -959,7 +959,6 @@ if [ -d "/tmp/nw_ghost_tmp/nw_offline_pkgs" ]; then
     update_status "running" "MSG_RST_PKGS"
     
     # --- 安装前删除除底层系统核心包，彻底杜绝依赖冲突中断 ---
-    # 这些包固件已自带，强行覆盖会导致断网或 apk/opkg 拒绝工作
     rm -f /tmp/nw_ghost_tmp/nw_offline_pkgs/firewall-* \
           /tmp/nw_ghost_tmp/nw_offline_pkgs/firewall4-* \
           /tmp/nw_ghost_tmp/nw_offline_pkgs/dnsmasq-* \
@@ -969,19 +968,30 @@ if [ -d "/tmp/nw_ghost_tmp/nw_offline_pkgs" ]; then
     # ---------------------------------------------------------------
     
     if command -v apk >/dev/null 2>&1; then
+        # 1. 安装官方源拉取的依赖包
         apk add --allow-untrusted --force-overwrite /tmp/nw_ghost_tmp/nw_offline_pkgs/*.apk >> "$LOG_FILE" 2>&1
+        # 2. 安装非官方源的本地包
+        if ls /etc/netwiz/custom_pkgs/*.apk >/dev/null 2>&1; then
+            apk add --allow-untrusted --force-overwrite /etc/netwiz/custom_pkgs/*.apk >> "$LOG_FILE" 2>&1
+        fi
     elif command -v opkg >/dev/null 2>&1; then
+        # 1. 安装官方源拉取的依赖包
         opkg install --force-reinstall --force-overwrite /tmp/nw_ghost_tmp/nw_offline_pkgs/*.ipk >> "$LOG_FILE" 2>&1
+        # 2. 安装非官方源的本地包
+        if ls /etc/netwiz/custom_pkgs/*.ipk >/dev/null 2>&1; then
+            opkg install --force-reinstall --force-overwrite /etc/netwiz/custom_pkgs/*.ipk >> "$LOG_FILE" 2>&1
+        fi
     fi
 fi
 
 # 提取备份中 LAN IP
 NEW_IP=$(uci -q get network.lan.ipaddr | cut -d/ -f1)
 
-# 把新 IP 作为 arg1 传递给前端进行双向探测
+# 把未来的新 IP 作为 arg1 传递给前端进行双向探测
 update_status "done" "MSG_RST_DONE" "$NEW_IP"
 rm -rf /tmp/nw_ghost_tmp "$TARGET"
-sleep 3
+# 等待 8 秒，确保前端 充足的时间把新 IP 抓走
+sleep 8
 reboot
 EOF
                     chmod +x /tmp/nw_do_restore.sh
