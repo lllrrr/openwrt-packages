@@ -20,6 +20,8 @@ define Package/$(PKG_NAME)/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] || {
 	/etc/init.d/rpcd reload >/dev/null 2>&1 || true
+	/etc/init.d/devgate enable >/dev/null 2>&1 || true
+	/etc/init.d/devgate start >/dev/null 2>&1 || true
 	rm -rf /tmp/luci-indexcache /tmp/luci-modulecache /tmp/luci-*cache
 }
 endef
@@ -41,10 +43,6 @@ define Package/$(PKG_NAME)/postrm
 	rm -rf /tmp/luci-indexcache /tmp/luci-modulecache /tmp/luci-*cache
 }
 exit 0
-endef
-
-define Package/$(PKG_NAME)/conffiles
-/etc/config/devgate
 endef
 
 include $(TOPDIR)/feeds/luci/luci.mk

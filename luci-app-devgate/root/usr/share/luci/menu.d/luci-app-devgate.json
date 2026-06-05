@@ -20,16 +20,5 @@
         "depends": {
             "acl": ["luci-app-devgate"]
         }
-    },
-    "admin/services/devgate/headers": {
-        "firstchild_ineligible": true,
-        "action": {
-            "type": "function",
-            "module": "luci.controller.devgate",
-            "function": "headers"
-        },
-        "depends": {
-            "acl": ["luci-app-devgate"]
-        }
     }
 }

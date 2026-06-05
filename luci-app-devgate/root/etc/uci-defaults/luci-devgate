@@ -7,9 +7,18 @@ uci -q batch <<-EOF >/dev/null
 	commit ucitrack
 EOF
 
-[ -s /etc/config/devgate ] || cat > /etc/config/devgate <<'EOF'
-config devgate
+[ -e /etc/config/devgate ] || cat > /etc/config/devgate <<'EOF'
+config device
+	option enable '0'
+	option mac ''
+	option time_ranges '00:00-00:00'
+	option week '0'
+	option chain 'forward'
 EOF
+rm -f /etc/config/devgate-opkg
+
+/etc/init.d/devgate enable >/dev/null 2>&1 || true
+/etc/init.d/devgate start >/dev/null 2>&1 || true
 
 rm -rf /tmp/luci-indexcache /tmp/luci-modulecache /tmp/luci-*cache
 /etc/init.d/rpcd reload >/dev/null 2>&1 || true

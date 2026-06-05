@@ -328,6 +328,10 @@ var T = {
     'V6_NAT_ERR_MSG2': _('Detected that LAN "IP Masquerading (NAT)" is enabled. Forcing IPv6 on under a double-NAT topology will cause network disconnection.<br>👉 <b>Fix:</b> Please go to <code>Network -> Firewall -> Zones</code> to disable LAN Masquerading first.'),
     'MSG_REBOOTING': _('System is rebooting, please wait...'),
     'MSG_WAIT_OFFLINE': _('Waiting for device to disconnect...'),
+    'TIT_IP_CONFLICT': _('IP Conflict Warning'),
+    'MSG_IP_IN_USE': _('is already used by another device!'),
+    'MSG_SUGGEST_FIX': _('We strongly recommend changing it to avoid network crashes.'),
+    'BTN_FIX_IP': _('Fix to'),
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -344,6 +348,8 @@ var callCheckBackup = rpc.declare({ object: 'netwiz', method: 'check_backup', ex
 var callSmartRestoreExec = rpc.declare({ object: 'netwiz', method: 'smart_restore_exec', params: ['filepath'], expect: { result: 0 } });
 var callCheckStorage = rpc.declare({ object: 'netwiz', method: 'check_storage', expect: { '': {} } });
 var callCheckRestoreStatus = rpc.declare({ object: 'netwiz', method: 'check_restore_status', expect: { '': {} } });
+
+var callCheckIpConflict = rpc.declare({ object: 'netwiz', method: 'check_ip_conflict', params: ['ip'], expect: { status: '' } });
 
 return view.extend({
     handleSaveApply: null,
@@ -1465,9 +1471,26 @@ return view.extend({
                     var wifiRes = results[4] || {};
                     var rawIfaces = results[3] || {}, ifaces = Array.isArray(rawIfaces.interface) ? rawIfaces.interface : (Array.isArray(rawIfaces) ? rawIfaces : []);
                     var wProto = safeUciGet('network', 'wan', 'proto', '').toLowerCase();
-                    var activeWan = ifaces.find(function(i) { 
-                        return i && (i.interface === 'wan' || i.interface === 'wwan' || (i.interface && i.interface.indexOf('wan') !== -1 && i.interface.indexOf('lan') === -1)); 
-                    }) || {};
+                    // 1. 有线 WAN 和 无线 WWAN (中继)
+                    var phyWan = ifaces.find(function(i) { return i && i.interface === 'wan'; }) || {};
+                    var virWwan = ifaces.find(function(i) { return i && i.interface === 'wwan'; }) || {};
+
+                    // 2. 智能判定出口
+                    var activeWan = phyWan; // 先看物理 WAN
+                    var isWispActive = false; // 是否正在使用无线中继联网
+
+                    var phyWanHasIp = phyWan.up && phyWan['ipv4-address'] && phyWan['ipv4-address'].length > 0;
+                    var virWwanHasIp = virWwan.up && virWwan['ipv4-address'] && virWwan['ipv4-address'].length > 0;
+
+                    if (!phyWanHasIp && virWwanHasIp) {
+                        // 有线没通，无线通了 -> 切換到无线中继视角
+                        activeWan = virWwan;
+                        isWispActive = true;
+                    } else if (!phyWan.up && !virWwan.up) {
+                        // 兜底：找一個带 wan 名字的
+                        activeWan = ifaces.find(function(i) { return i && (i.interface === 'wan' || i.interface === 'wwan' || (i.interface && i.interface.indexOf('wan') !== -1 && i.interface.indexOf('lan') === -1)); }) || {};
+                    }
+
                     var liveWanIp = ((activeWan['ipv4-address'] && activeWan['ipv4-address'][0]) ? activeWan['ipv4-address'][0].address : '').split('/')[0];
                     window._liveWanIp = liveWanIp;
                     var liveGw = activeWan.nexthop || '';
@@ -1497,10 +1520,14 @@ return view.extend({
 
                     // 优先使用 底层物理载波状态判断网线通断
                     var isWanDown = false;
-                    if (typeof activeWan.l1up !== 'undefined') {
-                        isWanDown = (activeWan.l1up === false);
+                    if (isWispActive) {
+                        isWanDown = false; // 如果中继生效，不弹网线未插警告
                     } else {
-                        isWanDown = (activeWan.up === false && (!liveWanIp || liveWanIp === T['TXT_GETTING'] || liveWanIp === T['TXT_NOT_GOT']));
+                        if (typeof activeWan.l1up !== 'undefined') {
+                            isWanDown = (activeWan.l1up === false);
+                        } else {
+                            isWanDown = (activeWan.up === false && (!liveWanIp || liveWanIp === T['TXT_GETTING'] || liveWanIp === T['TXT_NOT_GOT']));
+                        }
                     }
 
                     // 初始化防抖计数器
@@ -2129,6 +2156,12 @@ return view.extend({
                     var sTitle = "", sDetails = "", statusBadge = "";
                     
                     if (isBypass) { sTitle = T['STAT_BYPASS']; sDetails = mkD(T['TXT_DEV_IP'], lIp, T['TXT_UP_GW'], lGw); } 
+                    else if (isWispActive) { 
+                        // 无线中继生效显示
+                        sTitle = T['TXT_WISP_ON'] || 'WISP Enabled'; 
+                        statusBadge = mkB('#10b981', T['BDG_GOT'] || 'IP Acquired') + upBadgeHtml; 
+                        sDetails = mkD(T['TXT_WAN_IP'], liveWanIp, T['TXT_UP_GW'], liveGw); 
+                    }
                     else if (wProto === 'pppoe') { sTitle = T['STAT_MAIN_PPPOE']; if (activeWan.up && liveWanIp) { statusBadge = mkB('#10b981', T['BDG_SUCC']) + upBadgeHtml; sDetails = mkD(T['TXT_PUB_IP'], liveWanIp, T['TXT_REM_GW'], liveGw); } else { statusBadge = mkB('#ef4444', T['BDG_DIAL']); sDetails = mkD(T['TXT_LAN_IP'], lIp, T['TXT_STATUS'], T['TXT_WAIT_REM']); } } 
                     else if (wProto === 'dhcp') { sTitle = T['STAT_SEC_DHCP']; if (activeWan.up && liveWanIp) { statusBadge = mkB('#10b981', T['BDG_GOT']) + upBadgeHtml; sDetails = mkD(T['TXT_WAN_IP'], liveWanIp, T['TXT_UP_GW'], liveGw); } else { statusBadge = mkB('#f59e0b', T['BDG_WAIT']); sDetails = mkD(T['TXT_LAN_IP'], lIp, T['TXT_STATUS'], T['TXT_GET_IP']); } } 
                     else if (wProto === 'static') { sTitle = T['STAT_SEC_STATIC']; statusBadge = activeWan.up ? mkB('#10b981', T['BDG_CONN']) + upBadgeHtml : mkB('#ef4444', T['BDG_UNPLUG']); sDetails = mkD(T['TXT_WAN_IP'], wIp, T['TXT_UP_GW'], wGw); } 
@@ -2756,8 +2789,20 @@ return view.extend({
             var parts = gatewayIp.split('.');
             var prefix = parts[0] + '.' + parts[1] + '.' + parts[2];
             var gwTail = parseInt(parts[3], 10);
-            var safeTail = 254; // 默认从最高位 254 开始给
-            if (safeTail === gwTail) safeTail = 253; // 如果网关极其罕见地占用了 254，则顺延
+            
+            var knownTails = [gwTail]; 
+            if (window._liveWanIp && window._liveWanIp.indexOf(prefix) === 0) {
+                knownTails.push(parseInt(window._liveWanIp.split('.')[3], 10));
+            }
+
+            if (window._nwConflictBlacklist) {
+                knownTails = knownTails.concat(window._nwConflictBlacklist);
+            }
+
+            var safeTail = 254; 
+            while (knownTails.indexOf(safeTail) !== -1 && safeTail > 200) {
+                safeTail--;
+            }
             return prefix + '.' + safeTail;
         }
         function isSameSubnet(ip1, ip2) { if (!ip1 || !ip2) return false; var p1 = ip1.split('.'), p2 = ip2.split('.'); return (p1.length === 4 && p2.length === 4 && p1[0] === p2[0] && p1[1] === p2[1] && p1[2] === p2[2]); }
@@ -2849,9 +2894,7 @@ return view.extend({
                 }
                 
                 if (gw && gw.indexOf('.') > -1) {
-                    var subnet = gw.substring(0, gw.lastIndexOf('.') + 1);
-                    var suggestedIp = subnet + '254'; 
-                    if (gw === suggestedIp) suggestedIp = subnet + '253';
+                    var suggestedIp = getSafeApIp(gw); 
                     
                     var inputGw = document.getElementById('lan-gw');
                     var inputIp = document.getElementById('lan-ip');
@@ -2862,10 +2905,38 @@ return view.extend({
                         title: '✅ ' + (T['BTN_AUTO_DETECT'] || 'Detection Success'), 
                         msg: '<div style="font-size:15px; color:#475569; margin-bottom:15px;">' + (T['MSG_DETECT_SUCC'] || 'Upstream subnet detected') + '</div>' + 
                              '<div style="background:#f8fafc; padding:10px; border-radius:8px; text-align:left;">' + 
-                             'Gateway: <b style="color:#10b981;">' + gw + '</b><br>IP: <b style="color:#3b82f6;">' + suggestedIp + '</b></div>', 
+                             (T['LBL_LAN_GW'] || 'Gateway') + ': <b style="color:#10b981;">' + gw + '</b><br>' + 
+                             (T['LBL_LAN_IP'] || 'IP') + ': <b id="nw-suggested-ip-disp" style="color:#3b82f6;">' + suggestedIp + '</b></div>', 
                         hideCancel: true, 
                         okText: T['M_CLOSE'] || 'Close' 
                     });
+
+                    var checkIpAsync = function(targetIp, targetGw) {
+                        callCheckIpConflict(targetIp).then(function(res) {
+                            if (res.status === 'conflict') {
+                                if (!window._nwConflictBlacklist) window._nwConflictBlacklist = [];
+                                window._nwConflictBlacklist.push(parseInt(targetIp.split('.')[3], 10));
+
+                                var newSafeIp = getSafeApIp(targetGw);
+
+                                openModal({
+                                    title: '⚠️ ' + (T['TIT_IP_CONFLICT'] || 'IP Conflict Warning'),
+                                    msg: '<div style="color:#ef4444; font-size:15px; margin-bottom:10px;"><b>' + targetIp + '</b> ' + (T['MSG_IP_IN_USE'] || 'is already used by another device!') + '</div>' + 
+                                         '<div style="color:#475569; font-size:14px;">' + (T['MSG_SUGGEST_FIX'] || 'We strongly recommend changing it to avoid network crashes.') + '</div>',
+                                    okText: '🚀 ' + (T['BTN_FIX_IP'] || 'Fix to') + ' ' + newSafeIp,
+                                    cancelText: T['M_CANCEL'] || 'Ignore',
+                                    isDanger: true,
+                                    onOk: function() {
+                                        if (inputIp) inputIp.value = newSafeIp;
+                                        checkIpAsync(newSafeIp, targetGw);
+                                    }
+                                });
+                            }
+                        });
+                    };
+                    
+                    // 发射背景探针
+                    checkIpAsync(suggestedIp, gw);
                 } else {
                     openModal({ 
                         title: '❌ ' + (T['M_SYS_ERR'] || 'failed'), 

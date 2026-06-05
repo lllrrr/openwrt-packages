@@ -1578,3 +1578,15 @@ msgstr "系統重啟中，請稍候..."
 
 msgid "Waiting for device to disconnect..."
 msgstr "等待設備斷開連接..."
+
+msgid "IP Conflict Warning"
+msgstr "IP 衝突警告"
+
+msgid "is already used by another device!"
+msgstr "已被區域網內其他設備佔用！"
+
+msgid "We strongly recommend changing it to avoid network crashes."
+msgstr "強烈建議更改為新 IP，以防止網路癱瘓或斷網。"
+
+msgid "Fix to"
+msgstr "一鍵修復為"

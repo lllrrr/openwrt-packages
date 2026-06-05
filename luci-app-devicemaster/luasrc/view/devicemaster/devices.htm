@@ -404,7 +404,7 @@ window.unblockDevice = function(mac) {
 };
 
 window.limitDevice = function(mac) {
-    var rate = prompt('请输入限速值 (例如 1、1M、1k)，留空则解除限速:');
+    var rate = prompt('请输入限速值 (例如 1、1M、1k、1G)，留空则解除限速:');
     if (rate === null) return; // 用户点击取消
     if (rate === '') {
         // 空值解除限速
@@ -416,12 +416,15 @@ window.limitDevice = function(mac) {
         if (/^\d+$/.test(rate)) {
             rate = rate + 'mbit';
         }
-        // 简写转换：1m -> 1mbit, 1k -> 1kbit
+        // 简写转换：1m -> 1mbit, 1k -> 1kbit, 1g -> 1gbit
         else if (/^(\d+)m$/.test(rate)) {
             rate = rate.replace(/^(\d+)m$/, '$1mbit');
         }
         else if (/^(\d+)k$/.test(rate)) {
             rate = rate.replace(/^(\d+)k$/, '$1kbit');
+        }
+        else if (/^(\d+)g$/.test(rate)) {
+            rate = rate.replace(/^(\d+)g$/, '$1gbit');
         }
         httpPost(apiUrl + '/limit', 'mac=' + encodeURIComponent(mac) + '&rate=' + encodeURIComponent(rate), loadDevices);
     }

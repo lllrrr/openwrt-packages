@@ -20,7 +20,10 @@
                     "list"
                 ],
                 "multilogin": [
-                    "list_auto"
+                    "list_auto",
+                    "check_instance",
+                    "test_instance",
+                    "logout_instance"
                 ]
             }
         },
@@ -46,7 +49,12 @@
                 ],
                 "multilogin": [
                     "quick_setup",
-                    "remove_auto"
+                    "remove_auto",
+                    "save_instance",
+                    "delete_instance",
+                    "logout_instance",
+                    "save_account",
+                    "delete_account"
                 ]
             }
         }

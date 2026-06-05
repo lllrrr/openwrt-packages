@@ -939,9 +939,12 @@ function api_merge_devices()
     local arp_ip = {}
     local arp_file = io.open("/proc/net/arp", "r")
     if arp_file then
+        -- Skip header line
+        arp_file:read("*l")
         for line in arp_file:lines() do
-            local ip, _, _, mac = line:match("^([%d%.]+)%s+%S+%s+%S+%s+([%x%x:%x%x:%x%x:%x%x:%x%x:%x%x])")
-            if mac and ip then
+            -- ARP format: IP HW Type Flags MAC HW Mask Device
+            local ip, hw_type, flags, mac = line:match("^([%d%.]+)%s+%S+%s+%S+%s+([%x%x:%x%x:%x%x:%x%x:%x%x:%x%x])")
+            if mac and ip and mac ~= "00:00:00:00:00:00" and flags ~= "0x0" then
                 arp_online[mac:upper()] = true
                 arp_ip[mac:upper()] = ip
             end
@@ -1054,6 +1057,9 @@ function api_merge_devices()
     local best_secondary = nil
     local best_first_seen = nil
     
+    -- Also check ALL secondary devices for blocked status (any blocked = inherit)
+    local any_blocked = false
+    
     for _, mac in ipairs(all_macs) do
         if mac ~= online_mac then
             local sec_idx = find_device_idx(mac)
@@ -1063,6 +1069,12 @@ function api_merge_devices()
                 local sec_vendor = uci:get("devicemaster", "@device[" .. sec_idx .. "]", "vendor") or ""
                 local sec_type = uci:get("devicemaster", "@device[" .. sec_idx .. "]", "type") or ""
                 local sec_manual = uci:get("devicemaster", "@device[" .. sec_idx .. "]", "manual") or ""
+                local sec_blocked = uci:get("devicemaster", "@device[" .. sec_idx .. "]", "blocked") or "0"
+                
+                -- Check if any secondary is blocked
+                if sec_blocked == "1" then
+                    any_blocked = true
+                end
                 
                 -- Check if this secondary has meaningful attributes
                 local has_identity = (sec_name ~= "" or sec_vendor ~= "" or sec_type ~= "" or sec_manual == "1")
@@ -1100,10 +1112,11 @@ function api_merge_devices()
         if primary_is_new or primary_manual == "" then
             primary_manual = sec_manual
         end
-        -- Always inherit blocked status from the earliest device
-        if sec_blocked == "1" then
-            primary_blocked = "1"
-        end
+    end
+    
+    -- Inherit blocked status: primary's own + any blocked secondary
+    if primary_blocked == "1" or any_blocked then
+        primary_blocked = "1"
     end
     
     -- Update primary device's attributes
@@ -1286,6 +1299,15 @@ function api_status()
     end
     local dhcp_names = get_dhcp_hostnames()
     local dhcp_macs = get_dhcp_macs()
+    
+    -- Build IP→MAC mapping from DHCP (used to detect IP conflicts with sub-routers)
+    local dhcp_ip_to_mac = {}
+    local dhcp_leases_raw = get_dhcp_leases()
+    for mac, info in pairs(dhcp_leases_raw) do
+        if info.ip and info.ip ~= "" then
+            dhcp_ip_to_mac[info.ip] = mac
+        end
+    end
 
     -- Helpers for enrichment: reject incomplete vendor/type values
     local function useful_vendor(v)

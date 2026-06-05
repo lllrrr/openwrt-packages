@@ -39,12 +39,6 @@ function remote_addr(env) {
 	print(addr);
 }
 
-function headers() {
-	print(getenv());
-	print('\n');
-}
-
 return {
-	remote_addr,
-	headers
+	remote_addr
 };

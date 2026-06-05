@@ -36,7 +36,8 @@ fi
 
 # Sanitize hostname: dnsmasq only allows [a-zA-Z0-9._-]
 # Non-ASCII characters (e.g. Chinese) will cause dnsmasq to crash!
-SAFE_NAME=$(echo "$NAME" | sed 's/[^a-zA-Z0-9._-]//g')
+# RFC 1035: hostname max length is 63 characters per label
+SAFE_NAME=$(echo "$NAME" | sed 's/[^a-zA-Z0-9._-]//g' | cut -c1-63)
 if [ -z "$SAFE_NAME" ]; then
     log_msg "ERROR: Name '$NAME' has no valid DNS characters after sanitization"
     echo "ERROR: Invalid hostname"
