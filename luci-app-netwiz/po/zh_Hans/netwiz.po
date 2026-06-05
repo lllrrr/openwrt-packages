@@ -1539,3 +1539,15 @@ msgstr "导入配置"
 
 msgid "Are you sure you want to import this configuration? Existing data will be overwritten."
 msgstr "确认要导入该配置吗？现有数据将被彻底覆盖。"
+
+msgid "🚨 Severe Network Topology Conflict!"
+msgstr "🚨 严重网络拓扑冲突！"
+
+msgid "System detected that IPv6 and LAN \"Masquerading (NAT)\" are <b>BOTH enabled</b>!<br>This will paralyze IPv6 allocation and cause routing loops.<br>👉 <b>Fix:</b> Please <b style=\"color:#ef4444;\">Disable IPv6</b> here immediately, or go to <code>Network -> Firewall</code> to disable NAT."
+msgstr "系统检测到 IPv6 与 LAN 区“动态伪装 (NAT)”<b>同时处于开启状态</b>！<br>这将导致 IPv6 分配瘫痪与路由死循环。<br>👉 <b>排错指南：</b>请前往官方 <code>网络->防火墙</code> 关闭 LAN 区的动态伪装，或在此处 <b style=\"color:#ef4444;\">关闭 IPv6</b>，。"
+
+msgid "⚠️ IPv6 Configuration Blocked"
+msgstr "⚠️ IPv6 配置已被系统安全拦截"
+
+msgid "Detected that LAN \"IP Masquerading (NAT)\" is enabled. Forcing IPv6 on under a double-NAT topology will cause network disconnection.<br>👉 <b>Fix:</b> Please go to <code>Network -> Firewall -> Zones</code> to disable LAN Masquerading first."
+msgstr "检测到防火墙 LAN 区已开启“IP 动态伪装 (NAT)”。在双重 NAT 拓扑下，强行开启 IPv6 将导致断网。<br>👉 <b>排错指南：</b>请前往官方后台 <code>网络->防火墙->区域</code>，关闭 LAN 区的动态伪装后重试。"

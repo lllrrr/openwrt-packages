@@ -47,21 +47,21 @@ export function formatBytes(bytes) {
   return `${signed.toFixed(precision)} ${units[index]}`;
 }
 
-export function formatClock(timestamp) {
+export function formatClock(timestamp, locale) {
   const value = numberValue(timestamp);
 
   if (!value)
     return '-';
 
-  return new Date(value * 1000).toLocaleTimeString([], {
+  return new Date(value * 1000).toLocaleTimeString(locale || [], {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit'
   });
 }
 
-export function normalizeDevice(device) {
-  const name = device?.name || 'Unknown device';
+export function normalizeDevice(device, options = {}) {
+  const name = device?.name || options.unknownName || 'Unknown device';
   const fallbackIp = splitIpAddress(device?.ip);
   const ipv4 = asStringList(device?.ipv4).concat(fallbackIp.ipv4)
     .filter((item, index, list) => list.indexOf(item) === index);
@@ -161,11 +161,11 @@ export function compareDevices(a, b, sort = {}) {
   return compareText(a.name || a.mac, b.name || b.mac);
 }
 
-export function filterAndSortDevices(devices, filter = 'all', query = '', sort = { key: 'rate', direction: 'desc' }) {
+export function filterAndSortDevices(devices, filter = 'all', query = '', sort = { key: 'rate', direction: 'desc' }, options = {}) {
   const normalizedQuery = String(query || '').trim().toLowerCase();
 
   return asDeviceList(devices)
-    .map(normalizeDevice)
+    .map(device => normalizeDevice(device, options))
     .filter(device => {
       if (filter === 'online' && !device.online)
         return false;

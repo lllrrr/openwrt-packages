@@ -8,6 +8,7 @@ import {
   ChevronsUpDown,
   Clock3,
   Info,
+  Languages,
   Radar,
   Router,
   Search,
@@ -23,6 +24,13 @@ import {
   getDeviceInitial
 } from './domain.js';
 import {
+  detectInitialLanguage,
+  localeForLanguage,
+  normalizeLanguage,
+  saveLanguagePreference,
+  translate
+} from './i18n.js';
+import {
   captureScrollSnapshot,
   restoreScrollSnapshot
 } from './scroll.js';
@@ -33,7 +41,7 @@ import {
 import './styles.css';
 
 const roots = new WeakMap();
-const appVersion = '0.1.23';
+const appVersion = '0.1.27';
 
 const fallbackFetcher = async () => ({
   devices: [],
@@ -65,15 +73,15 @@ function MetricCard({ icon: Icon, label, value, detail, tone }) {
   );
 }
 
-function SegmentedControl({ value, onChange, counts }) {
+function SegmentedControl({ value, onChange, counts, t }) {
   const items = [
-    ['all', '全部', counts.total],
-    ['online', '在线', counts.online],
-    ['offline', '离线', counts.offline]
+    ['all', t('filters.all'), counts.total],
+    ['online', t('filters.online'), counts.online],
+    ['offline', t('filters.offline'), counts.offline]
   ];
 
   return (
-    <div className="fl-segmented" role="tablist" aria-label="设备状态筛选">
+    <div className="fl-segmented" role="tablist" aria-label={t('filters.label')}>
       {items.map(([key, label, count]) => (
         <button
           key={key}
@@ -99,11 +107,11 @@ function DeviceAvatar({ device }) {
   );
 }
 
-function StatusPill({ online }) {
+function StatusPill({ online, t }) {
   return (
     <span className={`fl-status-pill${online ? ' is-online' : ' is-offline'}`}>
       <span className="fl-status-dot" aria-hidden="true" />
-      {online ? '在线' : '离线'}
+      {online ? t('status.online') : t('status.offline')}
     </span>
   );
 }
@@ -146,7 +154,7 @@ function AddressSummaryLine({ label, values }) {
   );
 }
 
-function AddressTooltip({ device }) {
+function AddressTooltip({ device, t }) {
   const hasHistory = device.history_ipv4.length || device.history_ipv6.length;
 
   return (
@@ -155,7 +163,7 @@ function AddressTooltip({ device }) {
       <AddressGroup label="IPv6" values={device.ipv6} />
       {hasHistory ? (
         <div className="fl-ip-history">
-          <strong>历史/邻居缓存</strong>
+          <strong>{t('address.history')}</strong>
           <AddressGroup label="IPv4" values={device.history_ipv4} />
           <AddressGroup label="IPv6" values={device.history_ipv6} />
         </div>
@@ -164,7 +172,7 @@ function AddressTooltip({ device }) {
   );
 }
 
-function AddressSummary({ device }) {
+function AddressSummary({ device, t }) {
   const addressCount = device.ipv4.length + device.ipv6.length;
   const historyCount = device.history_ipv4.length + device.history_ipv6.length;
   const hasMore = historyCount > 0 || addressCount > 2 || device.ipv4.length > 1 || device.ipv6.length > 1;
@@ -173,7 +181,7 @@ function AddressSummary({ device }) {
     <div className={`fl-ip-summary${hasMore ? ' has-more' : ''}`} tabIndex={hasMore ? 0 : undefined}>
       <AddressSummaryLine label="IPv4" values={device.ipv4} />
       <AddressSummaryLine label="IPv6" values={device.ipv6} />
-      {hasMore ? <AddressTooltip device={device} /> : null}
+      {hasMore ? <AddressTooltip device={device} t={t} /> : null}
     </div>
   );
 }
@@ -202,7 +210,7 @@ function getPeriodLabel(meta) {
   return meta?.rate_source || 'nlbwmon';
 }
 
-function DeviceRow({ device }) {
+function DeviceRow({ device, t }) {
   return (
     <tr className={device.online ? 'is-online' : 'is-offline'}>
       <td className="fl-device-cell">
@@ -213,30 +221,32 @@ function DeviceRow({ device }) {
           </div>
         </div>
       </td>
-      <td><StatusPill online={device.online} /></td>
-      <td className="fl-ip-cell"><AddressSummary device={device} /></td>
+      <td><StatusPill online={device.online} t={t} /></td>
+      <td className="fl-ip-cell"><AddressSummary device={device} t={t} /></td>
       <td className="fl-mono fl-muted">{device.mac || '-'}</td>
       <td>
         <div className="fl-rate-stack">
-          <RateCell label="下载" value={device.down_bps} direction="down" />
-          <RateCell label="上传" value={device.up_bps} direction="up" />
+          <RateCell label={t('rate.download')} value={device.down_bps} direction="down" />
+          <RateCell label={t('rate.upload')} value={device.up_bps} direction="up" />
         </div>
       </td>
-      <td className="fl-total-cell" title="来自 nlbwmon 当前统计周期">
+      <td className="fl-total-cell" title={t('period.title')}>
         {formatBytes(device.rx_bytes + device.tx_bytes)}
       </td>
     </tr>
   );
 }
 
-const sortColumns = [
-  { key: 'device', label: '设备', defaultDirection: 'asc' },
-  { key: 'status', label: '状态', defaultDirection: 'asc' },
-  { key: 'ip', label: 'IP 地址', defaultDirection: 'asc' },
-  { key: 'mac', label: 'MAC 地址', defaultDirection: 'asc' },
-  { key: 'rate', label: '实时上下行', defaultDirection: 'desc' },
-  { key: 'total', label: '本周期累计', defaultDirection: 'desc', title: '来自 nlbwmon 当前统计周期' }
-];
+function getSortColumns(t) {
+  return [
+    { key: 'device', label: t('columns.device'), defaultDirection: 'asc' },
+    { key: 'status', label: t('columns.status'), defaultDirection: 'asc' },
+    { key: 'ip', label: t('columns.ip'), defaultDirection: 'asc' },
+    { key: 'mac', label: t('columns.mac'), defaultDirection: 'asc' },
+    { key: 'rate', label: t('columns.rate'), defaultDirection: 'desc' },
+    { key: 'total', label: t('columns.total'), defaultDirection: 'desc', title: t('period.title') }
+  ];
+}
 
 function nextSort(current, column) {
   if (current.key === column.key) {
@@ -278,7 +288,7 @@ function SortHeader({ column, sort, onSortChange }) {
   );
 }
 
-function DeviceCard({ device }) {
+function DeviceCard({ device, t }) {
   return (
     <article className={`fl-device-card${device.online ? ' is-online' : ' is-offline'}`}>
       <div className="fl-device-card-head">
@@ -289,7 +299,7 @@ function DeviceCard({ device }) {
             <span>{firstAddress(device)}</span>
           </div>
         </div>
-        <StatusPill online={device.online} />
+        <StatusPill online={device.online} t={t} />
       </div>
       <dl>
         <div>
@@ -305,15 +315,15 @@ function DeviceCard({ device }) {
           <dd>{device.mac || '-'}</dd>
         </div>
         <div>
-          <dt>下载</dt>
+          <dt>{t('rate.download')}</dt>
           <dd>{formatRate(device.down_bps)}</dd>
         </div>
         <div>
-          <dt>上传</dt>
+          <dt>{t('rate.upload')}</dt>
           <dd>{formatRate(device.up_bps)}</dd>
         </div>
         <div>
-          <dt title="来自 nlbwmon 当前统计周期">本周期累计</dt>
+          <dt title={t('period.title')}>{t('columns.total')}</dt>
           <dd>{formatBytes(device.rx_bytes + device.tx_bytes)}</dd>
         </div>
       </dl>
@@ -321,21 +331,21 @@ function DeviceCard({ device }) {
   );
 }
 
-function EmptyState() {
+function EmptyState({ t }) {
   return (
     <div className="fl-empty">
       <div className="fl-empty-mark">
         <Router size={24} strokeWidth={2.1} />
       </div>
-      <strong>没有匹配的设备</strong>
-      <span>等待 DHCP、ARP 或 nlbwmon 采样后会自动出现。</span>
+      <strong>{t('empty.title')}</strong>
+      <span>{t('empty.body')}</span>
     </div>
   );
 }
 
-function DevicesTable({ devices, sort, onSortChange }) {
+function DevicesTable({ devices, sort, onSortChange, sortColumns, t }) {
   if (!devices.length)
-    return <EmptyState />;
+    return <EmptyState t={t} />;
 
   return (
     <>
@@ -350,28 +360,44 @@ function DevicesTable({ devices, sort, onSortChange }) {
           </thead>
           <tbody>
             {devices.map(device => (
-              <DeviceRow key={device.mac || device.ip || device.name} device={device} />
+              <DeviceRow key={device.mac || device.ip || device.name} device={device} t={t} />
             ))}
           </tbody>
         </table>
       </div>
       <div className="fl-card-list">
         {devices.map(device => (
-          <DeviceCard key={device.mac || device.ip || device.name} device={device} />
+          <DeviceCard key={device.mac || device.ip || device.name} device={device} t={t} />
         ))}
       </div>
     </>
   );
 }
 
-function App({ initialData, fetchDevices, pollInterval = 1000 }) {
+function LanguageSelect({ language, onChange, t }) {
+  return (
+    <label className="fl-language-select" title={t('language.label')}>
+      <Languages size={15} strokeWidth={2.2} aria-hidden="true" />
+      <select value={language} aria-label={t('language.label')} onChange={onChange}>
+        <option value="zh">{t('language.zh')}</option>
+        <option value="en">{t('language.en')}</option>
+      </select>
+      <ChevronDown className="fl-language-chevron" size={14} strokeWidth={2.3} aria-hidden="true" />
+    </label>
+  );
+}
+
+function App({ initialData, fetchDevices, pollInterval = 2000 }) {
   const pendingScrollSnapshot = useRef(null);
   const [payload, setPayload] = useState(initialData || {});
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState({ key: 'rate', direction: 'desc' });
   const [darkMode, setDarkMode] = useState(() => detectDarkTheme());
+  const [language, setLanguage] = useState(() => detectInitialLanguage());
   const [error, setError] = useState('');
+  const t = useCallback((key, values) => translate(language, key, values), [language]);
+  const locale = localeForLanguage(language);
 
   const fetcher = fetchDevices || fallbackFetcher;
 
@@ -411,18 +437,24 @@ function App({ initialData, fetchDevices, pollInterval = 1000 }) {
 
   const summary = useMemo(() => buildSummary(payload), [payload]);
   const devices = useMemo(
-    () => filterAndSortDevices(payload?.devices, filter, query, sort),
-    [payload, filter, query, sort]
+    () => filterAndSortDevices(payload?.devices, filter, query, sort, { unknownName: t('device.unknown') }),
+    [payload, filter, query, sort, t]
   );
+  const sortColumns = useMemo(() => getSortColumns(t), [t]);
   const handleSortChange = useCallback(column => {
     setSort(current => nextSort(current, column));
+  }, []);
+  const handleLanguageChange = useCallback(event => {
+    const next = saveLanguagePreference(normalizeLanguage(event.target.value));
+    setLanguage(next);
   }, []);
   const meta = payload?.meta || {};
   const periodLabel = getPeriodLabel(meta);
 
   return (
     <div className="fl-app" data-darkmode={darkMode ? 'true' : undefined}>
-      <section className="fl-hero" aria-label="FlowLens 总览">
+      <section className="fl-hero" aria-label={t('hero.label')}>
+        <LanguageSelect language={language} onChange={handleLanguageChange} t={t} />
         <div className="fl-hero-copy">
           <div className="fl-brand">
             <span className="fl-brand-mark" aria-hidden="true">
@@ -430,52 +462,52 @@ function App({ initialData, fetchDevices, pollInterval = 1000 }) {
             </span>
             <div>
               <strong className="fl-brand-name">FlowLens</strong>
-              <p>设备实时流量视图</p>
+              <p>{t('hero.subtitle')}</p>
             </div>
           </div>
         </div>
       </section>
 
-      {error ? <div className="fl-error">无法读取 FlowLens 数据：{error}</div> : null}
+      {error ? <div className="fl-error">{t('error.fetch', { error })}</div> : null}
 
-      <section className="fl-metrics" aria-label="流量摘要">
-        <MetricCard icon={Wifi} label="在线设备" value={summary.online} tone="green" />
-        <MetricCard icon={WifiOff} label="离线设备" value={summary.offline} tone="amber" />
-        <MetricCard icon={ArrowDown} label="下载速率" value={formatRate(summary.down_bps)} tone="cyan" />
-        <MetricCard icon={ArrowUp} label="上传速率" value={formatRate(summary.up_bps)} tone="violet" />
+      <section className="fl-metrics" aria-label={t('metrics.summary')}>
+        <MetricCard icon={Wifi} label={t('metrics.online')} value={summary.online} tone="green" />
+        <MetricCard icon={WifiOff} label={t('metrics.offline')} value={summary.offline} tone="amber" />
+        <MetricCard icon={ArrowDown} label={t('metrics.download')} value={formatRate(summary.down_bps)} tone="cyan" />
+        <MetricCard icon={ArrowUp} label={t('metrics.upload')} value={formatRate(summary.up_bps)} tone="violet" />
       </section>
 
-      <section className="fl-panel" aria-label="设备列表">
+      <section className="fl-panel" aria-label={t('panel.devices')}>
         <div className="fl-panel-head">
           <div>
-            <strong className="fl-panel-title">设备列表</strong>
+            <strong className="fl-panel-title">{t('panel.devices')}</strong>
           </div>
           <div className="fl-panel-meta">
             <div className="fl-last-refresh">
               <Clock3 size={14} strokeWidth={2.2} />
-              {formatClock(meta.timestamp)}
+              {formatClock(meta.timestamp, locale)}
             </div>
-            <div className="fl-period-note" title="本周期累计来自 nlbwmon 当前统计周期">
+            <div className="fl-period-note" title={t('period.title')}>
               <Info size={13} strokeWidth={2.2} />
-              本周期: {periodLabel}
+              {t('period.label', { period: periodLabel })}
             </div>
           </div>
         </div>
 
         <div className="fl-toolbar">
-          <SegmentedControl value={filter} onChange={setFilter} counts={summary} />
+          <SegmentedControl value={filter} onChange={setFilter} counts={summary} t={t} />
           <label className="fl-search">
             <Search size={17} strokeWidth={2.1} />
             <input
               type="search"
               value={query}
-              placeholder="搜索设备、IP 或 MAC"
+              placeholder={t('search.placeholder')}
               onChange={event => setQuery(event.target.value)}
             />
           </label>
         </div>
 
-        <DevicesTable devices={devices} sort={sort} onSortChange={handleSortChange} />
+        <DevicesTable devices={devices} sort={sort} onSortChange={handleSortChange} sortColumns={sortColumns} t={t} />
       </section>
     </div>
   );

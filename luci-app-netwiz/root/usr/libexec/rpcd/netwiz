@@ -123,7 +123,19 @@ case "$1" in
                     wifi config > /etc/config/wireless 2>/dev/null
                 fi
 
-                echo "{\"has_wifi\":$has_wifi}"
+                # --- IPv6 与 LAN NAT 冲突检测 ---
+                lan_zone_idx=$(uci show firewall 2>/dev/null | grep -E "\.name='?lan'?" | cut -d'.' -f2 | head -n 1)
+                lan_nat_conflict="false"
+                if [ -n "$lan_zone_idx" ]; then
+                    lan_masq=$(uci -q get firewall.$lan_zone_idx.masq)
+                    if [ "$lan_masq" = "1" ]; then
+                        lan_nat_conflict="true"
+                    fi
+                fi
+                # ------------------------------------------
+
+                # 输出，把冲突状态一起传给前端
+                echo "{\"has_wifi\":$has_wifi, \"lan_nat_conflict\":$lan_nat_conflict}"
                 exit 0
                 ;;
             confirm)
@@ -362,12 +374,12 @@ case "$1" in
                         # 2. 确保 LAN 口拥有申请 IPv6 前缀的权限
                         uci set network.lan.ip6assign='60' 
 
-                        # 3. 开启服务与通告 (将 ndp 从 hybrid 改为严格的 server)
+                        # 3. 开启服务与通告
                         uci set dhcp.lan.dhcpv6='server'
                         uci set dhcp.lan.ra='server'
                         uci set dhcp.lan.ndp='server'
                         
-                        # 4. 开启 SLAAC (保留此项以增加安卓兼容性)
+                        # 4. 开启 SLAAC (增加安卓兼容性)
                         uci set dhcp.lan.ra_slaac='1'
                         
                         # 5. 注入 M-Flag 和 O-Flag (先删后加防重复)
@@ -801,7 +813,7 @@ case "$1" in
                         apk update >> "$LOG_FILE" 2>&1
                         pkg_list=$(apk info | grep -e '^luci-app-' -e '^luci-theme-')
                         
-                        # 如果是全量备份则加入R参数下载全部底层依赖
+                        # 全量备份则加入R参数下载全部底层依赖
                         if [ "$backup_type" = "full" ]; then
                             fetch_args="-R"
                         else

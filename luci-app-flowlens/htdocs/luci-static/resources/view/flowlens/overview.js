@@ -9,7 +9,99 @@ var callDevices = rpc.declare({
 	expect: { '': {} }
 });
 
-var assetVersion = '0.1.23';
+var assetVersion = '0.1.27';
+var languageStorageKey = 'flowlens.language';
+var languageMessages = {
+	zh: {
+		boot: 'FlowLens 正在加载...',
+		error: 'FlowLens 前端加载失败：'
+	},
+	en: {
+		boot: 'Loading FlowLens...',
+		error: 'FlowLens frontend failed to load: '
+	}
+};
+
+function matchingLanguage(value) {
+	var normalized = String(value || '').trim().replace(/_/g, '-').toLowerCase();
+
+	if (!normalized)
+		return '';
+
+	if (normalized === 'zh' || normalized.indexOf('zh-') === 0)
+		return 'zh';
+
+	if (normalized === 'en' || normalized.indexOf('en-') === 0)
+		return 'en';
+
+	return '';
+}
+
+function safeGetAttribute(node, name) {
+	if (!node || typeof node.getAttribute !== 'function')
+		return '';
+
+	try {
+		return node.getAttribute(name) || '';
+	} catch (error) {
+		return '';
+	}
+}
+
+function storedLanguage() {
+	try {
+		if (window.localStorage)
+			return matchingLanguage(window.localStorage.getItem(languageStorageKey));
+	} catch (error) {
+		return '';
+	}
+
+	return '';
+}
+
+function resolvedLanguage() {
+	var stored = storedLanguage();
+
+	if (stored)
+		return stored;
+
+	var html = document.documentElement;
+	var body = document.body;
+	var candidates = [
+		html && html.lang,
+		safeGetAttribute(html, 'lang'),
+		safeGetAttribute(html, 'xml:lang'),
+		safeGetAttribute(html, 'data-language'),
+		safeGetAttribute(html, 'data-lang'),
+		body && body.lang,
+		safeGetAttribute(body, 'lang'),
+		safeGetAttribute(body, 'data-language'),
+		safeGetAttribute(body, 'data-lang')
+	];
+
+	if (navigator.languages) {
+		for (var i = 0; i < navigator.languages.length; i++)
+			candidates.push(navigator.languages[i]);
+	}
+
+	candidates.push(navigator.language, navigator.userLanguage);
+
+	for (var j = 0; j < candidates.length; j++) {
+		var language = matchingLanguage(candidates[j]);
+
+		if (language)
+			return language;
+	}
+
+	return 'zh';
+}
+
+function languageText(key) {
+	var language = resolvedLanguage();
+	return (languageMessages[language] && languageMessages[language][key]) ||
+		languageMessages.zh[key] ||
+		key;
+}
 
 function parseRgb(color) {
 	var match = String(color || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/i);
@@ -176,7 +268,7 @@ return view.extend({
 		dom.content(root, [
 			E('div', { 'class': 'flowlens-boot' }, [
 				E('div', { 'class': 'flowlens-boot-mark' }, [ 'F' ]),
-				E('div', [ _('FlowLens 正在加载...') ])
+				E('div', [ languageText('boot') ])
 			])
 		]);
 
@@ -188,11 +280,11 @@ return view.extend({
 			app.mount(root, {
 				initialData: data || {},
 				fetchDevices: callDevices,
-				pollInterval: 1000
+				pollInterval: 2000
 			});
 		}).catch(function(error) {
 			dom.content(root, E('div', { 'class': 'flowlens-load-error' }, [
-				_('FlowLens 前端加载失败：') + error
+				languageText('error') + error
 			]));
 		});
 

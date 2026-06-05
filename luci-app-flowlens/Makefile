@@ -1,9 +1,9 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-flowlens
-PKG_VERSION:=0.1.0
+PKG_VERSION:=0.1.27
 PKG_RELEASE:=1
-PKG_LICENSE:=Apache-2.0
+PKG_LICENSE:=MIT
 PKG_MAINTAINER:=FlowLens Contributors
 
 LUCI_TITLE:=FlowLens realtime device traffic dashboard
