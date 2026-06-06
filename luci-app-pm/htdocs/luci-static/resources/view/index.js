@@ -15,10 +15,10 @@ return view.extend({
         return E('div', { 'class': 'cbi-map' }, [
             E('h2', {}, _('PowerManager')),
                  E('p', {}, [
-                     _('Luci plugin that make ImmortalWRT poweroff and reboot to easy.'),
+                     _('Luci plugin for makes ImmortalWRT poweroff and reboot easy.'),
                    ' ',
                    E('a', {
-                       'href': 'https://github.com/mokanove/luci-app-powermanager',
+                       'href': 'https://github.com/mokanove/luci-app-pm',
                        'target': '_blank',
                        'rel': 'noreferrer noopener',
                        'style': 'color: #007bff; text-decoration: none; margin-left: 5px;'
