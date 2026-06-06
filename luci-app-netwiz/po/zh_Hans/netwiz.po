@@ -1351,7 +1351,7 @@ msgstr "测试"
 msgid "Full Software Backup & Restore"
 msgstr "全量软件的备份与恢复"
 
-msgid "Resolves traditional backup soft-brick risks. Smart backup is cross-version compatible. After flashing new firmware, upload backup to <span style=\"color:#ef4444; font-weight:bold;\">rapidly reinstall all software and losslessly restore configs (Requires Internet)</span>. Does not delete current software during restore. For absolute purity, factory reset the router first.<br><span style=\"color:#ef4444; font-weight:bold;\">[Tip: To backup custom plugins not available in your software feeds, manually place the installation packages in the /etc/netwiz/custom_pkgs/ directory.]</span><br>If Netwiz is missing after a reset or needs an upgrade, connect to the internet and run this in SSH:"
+msgid "Resolves traditional backup soft-brick risks. Smart backup is cross-version compatible. After flashing new firmware, upload backup to <span style=\"color:#ef4444; font-weight:bold;\">rapidly reinstall all software and losslessly restore configs (Requires Internet)</span>. Does not delete current software during restore. For absolute purity, factory reset the router first.<br><span style=\"color:#ef4444; font-weight:bold;\">Tip: To backup custom plugins not available in your software feeds, manually place the installation packages in the /etc/netwiz/custom_pkgs/ directory.</span><br>If Netwiz is missing after a reset or needs an upgrade, connect to the internet and run this in SSH:"
 msgstr "解决传统备份容易导致死机、软砖风险，智能备份兼容跨版本恢复。刷入新固件后，上传备份即可<span style=\"color:#ef4444; font-weight:bold;\">极速重装所有软件并无损还原配置（需联网）</span>。恢复时不会删除当前软件。若需达到绝对纯净，请先恢复出厂设置。<br><span style=\"color:#ef4444; font-weight:bold;\">「提示：若当前软件源中没有的插件，请手动将安装包放置于 /etc/netwiz/custom_pkgs/ 目录下。」</span><br>恢复出厂后若未安装 Netwiz 或需要升级，可联网后在 SSH 终端执行以下命令："
 
 msgid "Generate Backup"
@@ -1604,7 +1604,22 @@ msgid "If you proceed, these plugins WILL NOT be restored automatically!"
 msgstr "如果现在执行备份，这些插件在未来还原时将无法被自动下载与恢复！"
 
 msgid "Tip: To include them, please cancel, put their .ipk/.apk files into /etc/netwiz/custom_pkgs/, and backup again."
-msgstr "强烈建议：请先取消备份，通过 SSH 将这些插件的离线安装包（.ipk/.apk）放入 /etc/netwiz/custom_pkgs/ 目录下，然后再执行全量备份。"
+msgstr "强烈建议：请先取消备份，通过 SSH 将这些插件的离线安装包（.ipk/.apk）放入 /etc/netwiz/custom_pkgs/ 目录下，然后再执行备份。"
 
 msgid "Ignore & Backup Anyway"
 msgstr "忽略警告，强行备份"
+
+msgid "Missing packages:"
+msgstr "缺失安装包（未备妥）："
+
+msgid "Already prepared in custom_pkgs:"
+msgstr "已在 custom_pkgs 保险箱中就绪："
+
+msgid "Custom Plugins Ready"
+msgstr "自定义插件已就绪"
+
+msgid "Great! Your custom plugins are safely stored in the local directory and will be included in the backup capsule."
+msgstr "太棒了！您安装的自定义插件离线包均已妥善存放于本地保险箱中，它们将被完整打包进胶囊。"
+
+msgid "Confirm Backup"
+msgstr "确定备份"

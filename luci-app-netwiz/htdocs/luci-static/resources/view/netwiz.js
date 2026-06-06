@@ -264,7 +264,7 @@ var T = {
     'LBL_LAB_TITLE': _('Advanced & Lab Features'),
     'LBL_LAB_BETA': _('Beta'),
     'TXT_FULL_BACKUP_TIT': _('Full Software Backup & Restore'),
-    'TXT_FULL_BACKUP_DESC': _('Resolves traditional backup soft-brick risks. Smart backup is cross-version compatible. After flashing new firmware, upload backup to <span style=\"color:#ef4444; font-weight:bold;\">rapidly reinstall all software and losslessly restore configs (Requires Internet)</span>. Does not delete current software during restore. For absolute purity, factory reset the router first.<br><span style=\"color:#ef4444; font-weight:bold;\">[Tip: To backup custom plugins not available in your software feeds, manually place the installation packages in the /etc/netwiz/custom_pkgs/ directory.]</span><br>If Netwiz is missing after a reset or needs an upgrade, connect to the internet and run this in SSH:'),
+    'TXT_FULL_BACKUP_DESC': _('Resolves traditional backup soft-brick risks. Smart backup is cross-version compatible. After flashing new firmware, upload backup to <span style=\"color:#ef4444; font-weight:bold;\">rapidly reinstall all software and losslessly restore configs (Requires Internet)</span>. Does not delete current software during restore. For absolute purity, factory reset the router first.<br><span style=\"color:#ef4444; font-weight:bold;\">Tip: To backup custom plugins not available in your software feeds, manually place the installation packages in the /etc/netwiz/custom_pkgs/ directory.</span><br>If Netwiz is missing after a reset or needs an upgrade, connect to the internet and run this in SSH:'),
     'BTN_SMART_BACKUP': '📦 ' + _('Generate Backup'),
     'BTN_SMART_RESTORE': '⚡ ' + _('Restore System'),
     'TXT_COPY_TIP': '📋 ' + _('Click to Copy'),
@@ -332,6 +332,17 @@ var T = {
     'MSG_IP_IN_USE': _('is already used by another device!'),
     'MSG_SUGGEST_FIX': _('We strongly recommend changing it to avoid network crashes.'),
     'BTN_FIX_IP': _('Fix to'),
+    'MSG_SCAN_PKGS': _('Scanning installed plugins...'),
+    'TIT_CUSTOM_PKG_WARN': _('Custom Plugins Detected'),
+    'MSG_CUSTOM_PKG_DESC': _('We detected the following plugins are NOT available in your current software feeds:'),
+    'MSG_CUSTOM_PKG_ACT': _('If you proceed, these plugins WILL NOT be restored automatically!'),
+    'MSG_CUSTOM_PKG_TIP': _('Tip: To include them, please cancel, put their .ipk/.apk files into /etc/netwiz/custom_pkgs/, and backup again.'),
+    'BTN_FORCE_BACKUP': _('Ignore & Backup Anyway'),
+    'TXT_MISSING_PKGS': _('Missing packages:'),
+    'TXT_PROVIDED_PKGS': _('Already prepared in custom_pkgs:'),
+    'TIT_CUSTOM_PKG_READY': _('Custom Plugins Ready'),
+    'MSG_CUSTOM_PKG_READY_DESC': _('Great! Your custom plugins are safely stored in the local directory and will be included in the backup capsule.'),
+    'BTN_CONFIRM_BACKUP': _('Confirm Backup'),
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -348,8 +359,8 @@ var callCheckBackup = rpc.declare({ object: 'netwiz', method: 'check_backup', ex
 var callSmartRestoreExec = rpc.declare({ object: 'netwiz', method: 'smart_restore_exec', params: ['filepath'], expect: { result: 0 } });
 var callCheckStorage = rpc.declare({ object: 'netwiz', method: 'check_storage', expect: { '': {} } });
 var callCheckRestoreStatus = rpc.declare({ object: 'netwiz', method: 'check_restore_status', expect: { '': {} } });
-
-var callCheckIpConflict = rpc.declare({ object: 'netwiz', method: 'check_ip_conflict', params: ['ip'], expect: { status: '' } });
+var callCheckIpConflict = rpc.declare({ object: 'netwiz', method: 'check_ip_conflict', params: ['ip'], expect: { '': {} } });
+var callCheckMissingPkgs = rpc.declare({ object: 'netwiz', method: 'check_missing_pkgs', expect: { '': {} } });
 
 return view.extend({
     handleSaveApply: null,
@@ -2417,36 +2428,113 @@ return view.extend({
                         var bType = window._selectedBackupType;
                         var hintText = bType === 'full' ? T['M_BAK_HINT_FULL'] : T['M_BAK_HINT_LIGHT'];
 
+                        // 包装真实的备份执行函数
+                        var executeRealBackup = function() {
+                            openModal({
+                                title: T['M_BAK_GEN_TIT'],
+                                msg: '<div style="text-align:center; padding:10px 0; color:#64748b;">' + T['M_BAK_GEN_MSG'] + '<br><br><span style="font-size:12px; color:#d97706;">' + hintText + '</span></div>',
+                                spin: true
+                            });
+
+                            callSmartBackup(bType).then(function(res) {
+                                if (res && res.url) {
+                                    var isDone = false;
+                                    var checkTimer = setInterval(function() {
+                                        if (isDone) { clearInterval(checkTimer); return; }
+                                        callCheckBackup().then(function(cRes) {
+                                            if (cRes && cRes.status === 'done' && !isDone) {
+                                                isDone = true;
+                                                clearInterval(checkTimer);
+                                                var a = document.createElement("a");
+                                                a.href = res.url;
+                                                a.download = res.filename || "NetWiz_SmartGhost.tar.gz";
+                                                document.body.appendChild(a);
+                                                a.click();
+                                                document.body.removeChild(a);
+                                                openModal({ title: T['M_BAK_SUCC_TIT'], msg: T['M_BAK_SUCC_MSG'], hideCancel: true, okText: T['M_CLOSE'] });
+                                            }
+                                        }).catch(function() {});
+                                    }, 3000);
+                                } else {
+                                    openModal({ title: T['M_BAK_FAIL_TIT'], msg: T['M_BAK_FAIL_MSG'], hideCancel: true, okText: T['M_CLOSE'] });
+                                }
+                            }).catch(function(err) {
+                                openModal({ title: T['M_SYS_ERR'], msg: err, hideCancel: true, okText: T['M_CLOSE'] });
+                            });
+                        };
+
+                        // 1. 显示载入动画，进行底层孤儿插件扫描
                         openModal({
                             title: T['M_BAK_GEN_TIT'],
-                            msg: '<div style="text-align:center; padding:10px 0; color:#64748b;">' + T['M_BAK_GEN_MSG'] + '<br><br><span style="font-size:12px; color:#d97706;">' + hintText + '</span></div>',
+                            msg: '<div style="text-align:center; padding:20px 0; color:#f59e0b; font-size:15px;">⏳ ' + (T['MSG_SCAN_PKGS'] || 'Scanning installed plugins...') + '</div>',
                             spin: true
                         });
 
-                        callSmartBackup(bType).then(function(res) {
-                            if (res && res.url) {
-                                var isDone = false;
-                                var checkTimer = setInterval(function() {
-                                    if (isDone) { clearInterval(checkTimer); return; }
-                                    callCheckBackup().then(function(cRes) {
-                                        if (cRes && cRes.status === 'done' && !isDone) {
-                                            isDone = true;
-                                            clearInterval(checkTimer);
-                                            var a = document.createElement("a");
-                                            a.href = res.url;
-                                            a.download = res.filename || "NetWiz_SmartGhost.tar.gz";
-                                            document.body.appendChild(a);
-                                            a.click();
-                                            document.body.removeChild(a);
-                                            openModal({ title: T['M_BAK_SUCC_TIT'], msg: T['M_BAK_SUCC_MSG'], hideCancel: true, okText: T['M_CLOSE'] });
-                                        }
-                                    }).catch(function() {});
-                                }, 3000);
+                        // 2. 呼叫后端扫描
+                        callCheckMissingPkgs().then(function(res) {
+                            var missing = res.missing || [];
+                            var provided = res.provided || [];
+                            
+                            if (missing.length > 0) {
+                                // 1：存在完全缺失的插件 -> 显示红色警告 + 混合列表
+                                var pkgListHtml = '<div style="text-align:left; margin-top:10px;">';
+                                
+                                // 缺失部分 (紅)
+                                pkgListHtml += '<div style="color:#b91c1c; font-weight:bold; margin-bottom:5px;">❌ ' + (T['TXT_MISSING_PKGS'] || 'Missing packages:') + '</div>';
+                                pkgListHtml += '<ul style="background:#fee2e2; padding:10px 20px; border-radius:6px; color:#b91c1c; font-family:monospace; margin-bottom:10px; margin-top:0;">';
+                                for (var i = 0; i < missing.length; i++) { pkgListHtml += '<li>' + missing[i] + '</li>'; }
+                                pkgListHtml += '</ul>';
+
+                                // 如果有部分已经准备好的，順便显示绿色
+                                if (provided.length > 0) {
+                                    pkgListHtml += '<div style="color:#059669; font-weight:bold; margin-bottom:5px;">✅ ' + (T['TXT_PROVIDED_PKGS'] || 'Ready in custom_pkgs:') + '</div>';
+                                    pkgListHtml += '<ul style="background:#d1fae5; padding:10px 20px; border-radius:6px; color:#059669; font-family:monospace; margin-bottom:10px; margin-top:0;">';
+                                    for (var j = 0; j < provided.length; j++) { pkgListHtml += '<li>' + provided[j] + '</li>'; }
+                                    pkgListHtml += '</ul>';
+                                }
+                                pkgListHtml += '</div>';
+
+                                openModal({
+                                    title: '⚠️ ' + (T['TIT_CUSTOM_PKG_WARN'] || 'Custom Plugins Detected'),
+                                    msg: '<div style="font-size:15px; color:#475569;">' + 
+                                         (T['MSG_CUSTOM_PKG_DESC'] || 'We detected the following plugins are NOT available in your current software feeds:') + 
+                                         pkgListHtml + 
+                                         '<span style="color:#ef4444; font-weight:bold;">' + 
+                                         (T['MSG_CUSTOM_PKG_ACT'] || 'If you proceed, missing plugins WILL NOT be restored automatically!') + 
+                                         '</span><br><br>' + 
+                                         (T['MSG_CUSTOM_PKG_TIP'] || 'Tip: To include them, please cancel, put their files into /etc/netwiz/custom_pkgs/, and backup again.') + 
+                                         '</div>',
+                                    okText: '🚀 ' + (T['BTN_FORCE_BACKUP'] || 'Ignore & Backup Anyway'),
+                                    cancelText: T['BTN_CANCEL_RST'] || 'Cancel',
+                                    isDanger: true,
+                                    onOk: function() { executeRealBackup(); }
+                                });
+
+                            } else if (provided.length > 0) {
+                                // 2：沒有缺失，所有自定义插件都在文件夹里！-> 绿色确定
+                                var pkgListHtml = '<div style="text-align:left; margin-top:15px;">';
+                                pkgListHtml += '<div style="color:#059669; font-weight:bold; margin-bottom:5px;">✅ ' + (T['TXT_PROVIDED_PKGS'] || 'Ready in custom_pkgs:') + '</div>';
+                                pkgListHtml += '<ul style="background:#d1fae5; padding:10px 20px; border-radius:6px; color:#059669; font-family:monospace; margin-bottom:10px; margin-top:0;">';
+                                for (var j = 0; j < provided.length; j++) { pkgListHtml += '<li>' + provided[j] + '</li>'; }
+                                pkgListHtml += '</ul></div>';
+
+                                openModal({
+                                    title: '✅ ' + (T['TIT_CUSTOM_PKG_READY'] || 'Custom Plugins Ready'),
+                                    msg: '<div style="font-size:15px; color:#475569;">' + 
+                                         (T['MSG_CUSTOM_PKG_READY_DESC'] || 'Great! Your custom plugins are safely stored in the local directory and will be included in the backup capsule.') + 
+                                         pkgListHtml + 
+                                         '</div>',
+                                    okText: '📦 ' + (T['BTN_CONFIRM_BACKUP'] || 'Confirm Backup'),
+                                    cancelText: T['BTN_CANCEL_RST'] || 'Cancel',
+                                    onOk: function() { executeRealBackup(); }
+                                });
+
                             } else {
-                                openModal({ title: T['M_BAK_FAIL_TIT'], msg: T['M_BAK_FAIL_MSG'], hideCancel: true, okText: T['M_CLOSE'] });
+                                // 3：源內都有，直接备份
+                                executeRealBackup();
                             }
-                        }).catch(function(err) {
-                            openModal({ title: T['M_SYS_ERR'], msg: err, hideCancel: true, okText: T['M_CLOSE'] });
+                        }).catch(function() {
+                            executeRealBackup(); // 防呆兜底
                         });
                     }
                 });

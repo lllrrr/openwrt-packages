@@ -90,7 +90,7 @@ watchdog_pppoe_ipv6() {
 
 case "$1" in
     list)
-        echo '{ "set_network": { "mode": "string", "arg1": "string", "arg2": "string", "arg3": "string", "arg4": "string", "arg5": "string", "arg6": "string" }, "set_password": { "password": "string" }, "check_wifi": {}, "confirm": {}, "smart_backup": { "type": "string" }, "smart_restore_exec": { "filepath": "string" }, "check_backup": {}, "check_storage": {}, "check_restore_status": {}, "check_ip_conflict": { "ip": "192.168.1.254" } }'
+        echo '{ "set_network": { "mode": "string", "arg1": "string", "arg2": "string", "arg3": "string", "arg4": "string", "arg5": "string", "arg6": "string" }, "set_password": { "password": "string" }, "check_wifi": {}, "confirm": {}, "smart_backup": { "type": "string" }, "smart_restore_exec": { "filepath": "string" }, "check_backup": {}, "check_storage": {}, "check_restore_status": {}, "check_ip_conflict": { "ip": "192.168.1.254" }, "check_missing_pkgs": {} }'
         exit 0
         ;;
     call)
@@ -137,6 +137,51 @@ case "$1" in
                 # 输出，把冲突状态一起传给前端
                 echo "{\"has_wifi\":$has_wifi, \"lan_nat_conflict\":$lan_nat_conflict}"
                 exit 0
+                ;;
+            check_missing_pkgs)
+                missing_pkgs=""
+                provided_pkgs=""
+                
+                # 建立比对函数：如果在源內找不到，就去 custom_pkgs 检查有沒有离线包
+                check_pkg() {
+                    local p=$1
+                    # 模糊匹配：只要软件包含套件名称，且是 .ipk 或 .apk 就看作已就绪
+                    if ls /etc/netwiz/custom_pkgs/*${p}*.[ia]pk >/dev/null 2>&1; then
+                        provided_pkgs="$provided_pkgs $p"
+                    else
+                        missing_pkgs="$missing_pkgs $p"
+                    fi
+                }
+                
+                if command -v apk >/dev/null 2>&1; then
+                    installed=$(apk info | grep -E "^luci-(app|theme)-")
+                    for pkg in $installed; do
+                        if ! apk fetch -s "$pkg" >/dev/null 2>&1; then
+                            check_pkg "$pkg"
+                        fi
+                    done
+                elif command -v opkg >/dev/null 2>&1; then
+                    installed=$(opkg list-installed | awk '{print $1}' | grep -E "^luci-(app|theme)-")
+                    for pkg in $installed; do
+                        if ! grep -q "^Package: $pkg$" /var/opkg-lists/* 2>/dev/null; then
+                            check_pkg "$pkg"
+                        fi
+                    done
+                fi
+                
+                # 转 JSON 阵列
+                m_arr=""
+                if [ -n "$missing_pkgs" ]; then
+                    m_arr='"'"$(echo "$missing_pkgs" | awk '{$1=$1;print}' | sed 's/ /","/g')"'"'
+                fi
+                
+                p_arr=""
+                if [ -n "$provided_pkgs" ]; then
+                    p_arr='"'"$(echo "$provided_pkgs" | awk '{$1=$1;print}' | sed 's/ /","/g')"'"'
+                fi
+                
+                # 回传 missing (缺失) 和 provided (已就绪) 兩个阵列
+                echo "{ \"missing\": [$m_arr], \"provided\": [$p_arr] }"
                 ;;
             confirm)
                 # 检查是否存在任何类型的备份或临时记录
