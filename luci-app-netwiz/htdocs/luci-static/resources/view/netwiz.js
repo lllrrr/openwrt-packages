@@ -2516,7 +2516,7 @@ return view.extend({
                                 var pkgListHtml = scrollWrapperStart + missingHtml + providedHtml + officialHtml + scrollWrapperEnd;
                                 openModal({
                                     title: '⚠️ ' + (T['TIT_PKG_CHECK'] || 'Plugin Backup Status'),
-                                    msg: '<div style="font-size:15px; color:#475569;">' + 
+                                    msg: '<div style="font-size:15px; color:#475569; text-align: left; padding: 0 7px;">' + 
                                          (T['MSG_CUSTOM_PKG_DESC'] || 'Please verify backup packages:') + 
                                          pkgListHtml + 
                                          '<span style="color:#ef4444; font-weight:bold;">' + 
@@ -2537,7 +2537,7 @@ return view.extend({
 
                                 openModal({
                                     title: '✅ ' + mTitle,
-                                    msg: '<div style="font-size:15px; color:#475569;">' + mDesc + pkgListHtml + '</div>',
+                                    msg: '<div style="font-size:15px; color:#475569; text-align: left; padding: 0 7px;">' + mDesc + pkgListHtml + '</div>',
                                     okText: '📦 ' + (T['BTN_CONFIRM_BACKUP'] || 'Confirm Backup'),
                                     cancelText: T['BTN_CANCEL_RST'] || 'Cancel',
                                     onOk: function() { performBackup(); }
