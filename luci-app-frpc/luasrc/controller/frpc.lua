@@ -58,7 +58,7 @@ function index()
 	end
 
 	entry({"admin", "services", "frpc"},
-		firstchild(), _("Frpc")).dependent = false
+		firstchild(), _("Frpc · 客户端")).dependent = false
 
 	entry({"admin", "services", "frpc", "common"},
 		cbi("frpc/common"), _("设置"), 1)
@@ -1571,6 +1571,11 @@ function action_self_update_check()
 		end
 	end
 
+	-- 检测对方 LuCI 应用是否安装（用于「回首页」按钮的可见性控制）
+	local peer_pkg = (SELF_UPDATE_PKG == "luci-app-frpc") and "luci-app-frps" or "luci-app-frpc"
+	local peer_out = util.trim(sys.exec("opkg list-installed " .. peer_pkg .. " 2>/dev/null"))
+	local peer_installed = (peer_out ~= "")
+
 	http.write_json({
 		ok = true,
 		installed_version = installed,
@@ -1580,6 +1585,7 @@ function action_self_update_check()
 		published_at      = published,
 		has_update        = has_update,
 		body              = body or "",
+		peer_installed    = peer_installed,
 		asset = (asset_url and {
 			name = asset_name, size = asset_size, url = asset_url,
 		} or nil),

@@ -3,6 +3,8 @@ local dsp = require "luci.dispatcher"
 local base = dsp.build_url("admin/services/frps")
 %>
 
+<%+frps/_tabs%>
+
 <style>
 	.fsu-root {
 		--fsu-primary: #5b6dca;
@@ -168,6 +170,28 @@ local base = dsp.build_url("admin/services/frps")
 	}
 	@keyframes fsu-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 	.fsu-hint { color: var(--fsu-muted); font-size: 12px; margin-top: 8px; }
+	.fsu-nav {
+		display: flex;
+		gap: 8px;
+		flex-wrap: wrap;
+		margin-bottom: 12px;
+	}
+	.fsu-nav .fsu-btn { font-size: 12px; padding: 6px 12px; }
+	.fsu-redirect-banner {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		flex-wrap: wrap;
+	}
+	.fsu-countdown {
+		font-weight: 600;
+		font-size: 18px;
+		color: var(--fsu-success);
+		min-width: 24px;
+		display: inline-block;
+		text-align: center;
+	}
 </style>
 
 <div class="fsu-root">
@@ -176,6 +200,17 @@ local base = dsp.build_url("admin/services/frps")
 	<p class="cbi-section-descr">
 		<%:检查并升级 luci-app-frps 自身。升级包通过国内代理域名加速下载，失败自动切换备用域名。%>
 	</p>
+
+	<!-- 顶部导航：回 frpc/frps 首页（peer 未装时自动隐藏对方按钮）+ GitHub 仓库外链 -->
+	<div class="fsu-nav">
+		<a href="<%=luci.dispatcher.build_url('admin/services/frpc')%>"
+		   class="fsu-btn fsu-btn-ghost" id="fsu_nav_frpc" style="display:none">← 回 Frpc 首页</a>
+		<a href="<%=luci.dispatcher.build_url('admin/services/frps')%>"
+		   class="fsu-btn fsu-btn-ghost" id="fsu_nav_frps">← 回 Frps 首页</a>
+		<a href="https://github.com/mia-clark/luci-app-frp-mgr"
+		   class="fsu-btn fsu-btn-ghost" target="_blank" rel="noopener noreferrer"
+		   title="新窗口打开 GitHub 仓库">📂 GitHub 仓库 ↗</a>
+	</div>
 
 	<div id="fsu_banner"></div>
 
@@ -321,6 +356,10 @@ local base = dsp.build_url("admin/services/frps")
 			el('fsu_changelog').innerHTML = mdRender(d.body);
 			el('fsu_changelog_section').style.display = '';
 		}
+
+		// peer (frpc) 装了才显示「回 frpc 首页」按钮
+		var navPeer = el('fsu_nav_frpc');
+		if (navPeer) navPeer.style.display = d.peer_installed ? '' : 'none';
 	}
 
 	function api(action, params, opts) {
@@ -408,16 +447,42 @@ local base = dsp.build_url("admin/services/frps")
 
 				if (d.stage === 'done') {
 					clearInterval(pollTimer);
-					// 升级成功，5 秒后自动尝试重新 check
-					setTimeout(function() {
-						el('fsu_banner').innerHTML =
-							'<div class="fsu-banner fsu-banner-ok">✅ 升级完成，请 Ctrl+F5 强制刷新页面</div>';
-					}, 1000);
+					setTimeout(function() { startCountdownRedirect(5); }, 1000);
 				} else if (d.stage === 'error') {
 					clearInterval(pollTimer);
 				}
 			}).catch(function() { /* nginx 重启期间网络抖动正常 */ });
 	}
+
+	// 升级完成后的倒计时跳转：N 秒后跳到 frps 首页，期间可点「取消」中止
+	var redirectTimer = null;
+	function startCountdownRedirect(seconds) {
+		var jumpUrl = '<%=luci.dispatcher.build_url("admin/services/frps")%>';
+		var remaining = seconds;
+		function paint() {
+			el('fsu_banner').innerHTML =
+				'<div class="fsu-banner fsu-banner-ok fsu-redirect-banner">' +
+				'<span>✅ 升级完成，<span class="fsu-countdown">' + remaining + '</span> 秒后跳转到 Frps 首页...</span>' +
+				'<button class="fsu-btn fsu-btn-ghost" onclick="fsuCancelRedirect()">取消跳转</button>' +
+				'</div>';
+		}
+		paint();
+		redirectTimer = setInterval(function() {
+			remaining -= 1;
+			if (remaining <= 0) {
+				clearInterval(redirectTimer);
+				redirectTimer = null;
+				location.href = jumpUrl;
+				return;
+			}
+			paint();
+		}, 1000);
+	}
+	window.fsuCancelRedirect = function() {
+		if (redirectTimer) { clearInterval(redirectTimer); redirectTimer = null; }
+		el('fsu_banner').innerHTML =
+			'<div class="fsu-banner fsu-banner-ok">✅ 升级完成。已取消自动跳转，请手动 Ctrl+F5 刷新页面查看新版本。</div>';
+	};
 
 	// 进页面自动检查（这就是「进状态页就查」的核心）
 	fsuCheck();
