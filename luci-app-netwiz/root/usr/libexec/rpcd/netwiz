@@ -141,48 +141,61 @@ case "$1" in
             check_missing_pkgs)
                 missing_pkgs=""
                 provided_pkgs=""
+                official_pkgs=""
                 
-                # 建立比对函数：如果在源內找不到，就去 custom_pkgs 检查有沒有离线包
-                check_pkg() {
+                # 1. 取 /etc/netwiz/custom_pkgs/ 里面的文件
+                for file in /etc/netwiz/custom_pkgs/*.[ia]pk; do
+                    if [ -f "$file" ]; then
+                        filename=$(basename "$file")
+                        provided_pkgs="$provided_pkgs $filename"
+                    fi
+                done
+                
+                # 2. 比对函数：檢查系统安裝的 UI 插件，是否已经存在文件中
+                check_pkg_missing() {
                     local p=$1
-                    # 模糊匹配：只要软件包含套件名称，且是 .ipk 或 .apk 就看作已就绪
-                    if ls /etc/netwiz/custom_pkgs/*${p}*.[ia]pk >/dev/null 2>&1; then
-                        provided_pkgs="$provided_pkgs $p"
+                    if echo "$provided_pkgs" | grep -q "$p"; then
+                        : # 包含該插件名称，不做处理
                     else
                         missing_pkgs="$missing_pkgs $p"
                     fi
                 }
                 
+                # 3. 扫描系统中已安裝
                 if command -v apk >/dev/null 2>&1; then
                     installed=$(apk info | grep -E "^luci-(app|theme)-")
                     for pkg in $installed; do
                         if ! apk fetch -s "$pkg" >/dev/null 2>&1; then
-                            check_pkg "$pkg"
+                            check_pkg_missing "$pkg"
+                        else
+                            official_pkgs="$official_pkgs $pkg"
                         fi
                     done
                 elif command -v opkg >/dev/null 2>&1; then
                     installed=$(opkg list-installed | awk '{print $1}' | grep -E "^luci-(app|theme)-")
                     for pkg in $installed; do
                         if ! grep -q "^Package: $pkg$" /var/opkg-lists/* 2>/dev/null; then
-                            check_pkg "$pkg"
+                            check_pkg_missing "$pkg"
+                        else
+                            official_pkgs="$official_pkgs $pkg"
                         fi
                     done
                 fi
                 
-                # 转 JSON 阵列
+                # 4. JSON 阵列格式
                 m_arr=""
-                if [ -n "$missing_pkgs" ]; then
-                    m_arr='"'"$(echo "$missing_pkgs" | awk '{$1=$1;print}' | sed 's/ /","/g')"'"'
-                fi
+                if [ -n "$missing_pkgs" ]; then m_arr='"'"$(echo "$missing_pkgs" | awk '{$1=$1;print}' | sed 's/ /","/g')"'"'; fi
                 
                 p_arr=""
-                if [ -n "$provided_pkgs" ]; then
-                    p_arr='"'"$(echo "$provided_pkgs" | awk '{$1=$1;print}' | sed 's/ /","/g')"'"'
-                fi
+                if [ -n "$provided_pkgs" ]; then p_arr='"'"$(echo "$provided_pkgs" | awk '{$1=$1;print}' | sed 's/ /","/g')"'"'; fi
                 
-                # 回传 missing (缺失) 和 provided (已就绪) 兩个阵列
-                echo "{ \"missing\": [$m_arr], \"provided\": [$p_arr] }"
+                o_arr=""
+                if [ -n "$official_pkgs" ]; then o_arr='"'"$(echo "$official_pkgs" | awk '{$1=$1;print}' | sed 's/ /","/g')"'"'; fi
+                
+                # 回传：缺失插件、文件插件、官方插件
+                echo "{ \"missing\": [$m_arr], \"provided\": [$p_arr], \"official\": [$o_arr] }"
                 ;;
+                
             confirm)
                 # 检查是否存在任何类型的备份或临时记录
                 if [ -f /tmp/netwiz_rollback_time ] || [ -f /tmp/netwiz_target_ip ] || \

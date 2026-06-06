@@ -1,0 +1,425 @@
+<%
+local dsp = require "luci.dispatcher"
+local base = dsp.build_url("admin/services/frps")
+%>
+
+<style>
+	.fsu-root {
+		--fsu-primary: #5b6dca;
+		--fsu-success: #2dbb6e;
+		--fsu-warn: #f59e0b;
+		--fsu-danger: #e85a5a;
+		--fsu-border: #e5e7eb;
+		--fsu-muted: #6b7280;
+		--fsu-radius: 8px;
+	}
+	.fsu-section {
+		margin: 12px 0;
+		background: #fff;
+		border: 1px solid var(--fsu-border);
+		border-radius: var(--fsu-radius);
+		overflow: hidden;
+	}
+	.fsu-section-head {
+		padding: 10px 14px;
+		background: #fafbfc;
+		border-bottom: 1px solid var(--fsu-border);
+		font-size: 14px;
+		font-weight: 600;
+	}
+	.fsu-section-body { padding: 12px 14px; }
+	.fsu-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+		gap: 12px;
+		margin-bottom: 8px;
+	}
+	.fsu-cell {
+		padding: 10px 12px;
+		background: #f9fafb;
+		border-radius: 6px;
+	}
+	.fsu-cell-label {
+		color: var(--fsu-muted);
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		margin-bottom: 4px;
+	}
+	.fsu-cell-value {
+		font-size: 14px;
+		font-family: 'SF Mono', Consolas, monospace;
+		word-break: break-all;
+	}
+	.fsu-cell-value.fsu-new {
+		color: var(--fsu-success);
+		font-weight: 600;
+	}
+	.fsu-banner {
+		padding: 12px 16px;
+		border-radius: 6px;
+		margin-bottom: 12px;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		flex-wrap: wrap;
+	}
+	.fsu-banner-ok { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+	.fsu-banner-new { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+	.fsu-banner-err { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+	.fsu-changelog {
+		max-height: 360px;
+		overflow: auto;
+		background: #f9fafb;
+		border: 1px solid var(--fsu-border);
+		border-radius: 6px;
+		padding: 12px 16px;
+		font-size: 13px;
+		line-height: 1.6;
+	}
+	.fsu-changelog h1, .fsu-changelog h2, .fsu-changelog h3 {
+		margin: 8px 0 4px;
+		padding: 0;
+		border: none;
+		font-size: 14px;
+	}
+	.fsu-changelog code {
+		background: #e5e7eb;
+		padding: 1px 6px;
+		border-radius: 3px;
+		font-size: 12px;
+	}
+	.fsu-changelog table { border-collapse: collapse; margin: 6px 0; }
+	.fsu-changelog th, .fsu-changelog td {
+		border: 1px solid #d1d5db;
+		padding: 4px 8px;
+		font-size: 12px;
+	}
+	.fsu-changelog a { color: var(--fsu-primary); }
+	.fsu-btn {
+		padding: 8px 16px;
+		font-size: 13px;
+		border-radius: 6px;
+		border: 1px solid transparent;
+		cursor: pointer;
+		font-weight: 500;
+		transition: all 0.15s;
+	}
+	.fsu-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+	.fsu-btn-primary {
+		background: var(--fsu-primary);
+		color: #fff;
+		border-color: var(--fsu-primary);
+	}
+	.fsu-btn-primary:hover:not(:disabled) { background: #4c5db7; }
+	.fsu-btn-warn {
+		background: #fff;
+		color: var(--fsu-warn);
+		border-color: var(--fsu-warn);
+	}
+	.fsu-btn-warn:hover:not(:disabled) {
+		background: var(--fsu-warn);
+		color: #fff;
+	}
+	.fsu-btn-ghost {
+		background: #fff;
+		color: #1f2937;
+		border-color: var(--fsu-border);
+	}
+	.fsu-progress {
+		height: 24px;
+		background: #f3f4f6;
+		border-radius: 4px;
+		overflow: hidden;
+		position: relative;
+		margin: 8px 0;
+	}
+	.fsu-progress-fill {
+		height: 100%;
+		background: linear-gradient(90deg, #5c6bc0, #3949ab);
+		transition: width 0.4s ease;
+	}
+	.fsu-progress-label {
+		position: absolute;
+		top: 0; left: 0; right: 0; bottom: 0;
+		display: flex; align-items: center; justify-content: center;
+		font-size: 12px;
+		color: #1f2937;
+		font-weight: 600;
+	}
+	.fsu-log {
+		background: #1f2937;
+		color: #e5e7eb;
+		padding: 12px 16px;
+		border-radius: 6px;
+		font-family: 'SF Mono', Consolas, monospace;
+		font-size: 12px;
+		line-height: 1.5;
+		max-height: 360px;
+		overflow: auto;
+		white-space: pre-wrap;
+		word-break: break-all;
+	}
+	.fsu-log-empty { color: #6b7280; font-style: italic; }
+	.fsu-spin {
+		display: inline-block;
+		animation: fsu-spin 0.8s linear infinite;
+	}
+	@keyframes fsu-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+	.fsu-hint { color: var(--fsu-muted); font-size: 12px; margin-top: 8px; }
+</style>
+
+<div class="fsu-root">
+<fieldset class="cbi-section">
+	<legend><%:Frps 应用更新%></legend>
+	<p class="cbi-section-descr">
+		<%:检查并升级 luci-app-frps 自身。升级包通过国内代理域名加速下载，失败自动切换备用域名。%>
+	</p>
+
+	<div id="fsu_banner"></div>
+
+	<div class="fsu-section">
+		<div class="fsu-section-head">📦 版本信息</div>
+		<div class="fsu-section-body">
+			<div class="fsu-grid">
+				<div class="fsu-cell">
+					<div class="fsu-cell-label">当前版本</div>
+					<div class="fsu-cell-value" id="fsu_installed">读取中...</div>
+				</div>
+				<div class="fsu-cell">
+					<div class="fsu-cell-label">最新版本</div>
+					<div class="fsu-cell-value" id="fsu_latest">读取中...</div>
+				</div>
+				<div class="fsu-cell">
+					<div class="fsu-cell-label">发布时间</div>
+					<div class="fsu-cell-value" id="fsu_published">-</div>
+				</div>
+				<div class="fsu-cell">
+					<div class="fsu-cell-label">升级包</div>
+					<div class="fsu-cell-value" id="fsu_asset">-</div>
+				</div>
+			</div>
+			<button class="fsu-btn fsu-btn-ghost" onclick="fsuCheck()" id="fsu_check_btn">
+				⟳ 重新检查
+			</button>
+		</div>
+	</div>
+
+	<div class="fsu-section" id="fsu_changelog_section" style="display:none">
+		<div class="fsu-section-head">📝 更新内容</div>
+		<div class="fsu-section-body">
+			<div class="fsu-changelog" id="fsu_changelog"></div>
+		</div>
+	</div>
+
+	<div class="fsu-section" id="fsu_progress_section" style="display:none">
+		<div class="fsu-section-head">⚙️ 升级进度</div>
+		<div class="fsu-section-body">
+			<div class="fsu-progress">
+				<div class="fsu-progress-fill" id="fsu_progress_fill"></div>
+				<div class="fsu-progress-label" id="fsu_progress_label">准备中...</div>
+			</div>
+			<div class="fsu-log" id="fsu_log_box"><span class="fsu-log-empty">等待日志输出...</span></div>
+			<div class="fsu-hint">
+				升级期间 LuCI 会重启，页面可能短暂打不开。看到 ✅ 后请 <b>Ctrl+F5 强制刷新</b>。
+			</div>
+		</div>
+	</div>
+</fieldset>
+</div>
+
+<script type="text/javascript">//<![CDATA[
+(function() {
+	var BASE = '<%=base%>';
+	var info = null;
+	var pollTimer = null;
+
+	function el(id) { return document.getElementById(id); }
+	function esc(s) {
+		return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+			return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+		});
+	}
+	function fmtBytes(n) {
+		if (!n || n < 1024) return (n || 0) + 'B';
+		if (n < 1024*1024) return (n/1024).toFixed(1) + 'KB';
+		return (n/1024/1024).toFixed(1) + 'MB';
+	}
+
+	// 极简 markdown 渲染：标题/粗体/inline code/链接/换行/简易表格
+	function mdRender(md) {
+		md = String(md || '');
+		// 把字面 \n 还原为换行
+		md = md.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+		var html = esc(md);
+		// 表格（两行模式：表头 + 分隔行 + 数据行...）
+		html = html.replace(/(^\|.+\|\n\|[\s\-:|]+\|\n(\|.+\|\n?)+)/gm, function(block) {
+			var lines = block.trim().split('\n');
+			if (lines.length < 2) return block;
+			var header = lines[0].split('|').slice(1, -1);
+			var rows = lines.slice(2).map(function(l){ return l.split('|').slice(1,-1); });
+			var t = '<table><thead><tr>';
+			header.forEach(function(h){ t += '<th>' + h.trim() + '</th>'; });
+			t += '</tr></thead><tbody>';
+			rows.forEach(function(r){
+				t += '<tr>';
+				r.forEach(function(c){ t += '<td>' + c.trim() + '</td>'; });
+				t += '</tr>';
+			});
+			t += '</tbody></table>';
+			return t;
+		});
+		// 标题
+		html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+		html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+		html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+		// 粗体 / inline code / 链接
+		html = html.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+		html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+		html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+		// 段落（剩下的连续行 → 折行 <br>，空行分段）
+		html = html.replace(/\n\n+/g, '</p><p>');
+		html = html.replace(/\n/g, '<br>');
+		return '<p>' + html + '</p>';
+	}
+
+	function renderInfo(d) {
+		info = d;
+		el('fsu_installed').textContent = d.installed_version || '(未识别)';
+
+		var latestEl = el('fsu_latest');
+		latestEl.textContent = d.latest_version ? ('v' + d.latest_version) : '-';
+		latestEl.classList.toggle('fsu-new', !!d.has_update);
+
+		el('fsu_published').textContent = d.published_at ? d.published_at.replace('T',' ').replace('Z',' UTC') : '-';
+
+		if (d.asset && d.asset.name) {
+			el('fsu_asset').textContent = d.asset.name + ' (' + fmtBytes(d.asset.size || 0) + ')';
+		} else {
+			el('fsu_asset').textContent = '(未找到匹配的 ipk 资产)';
+		}
+
+		var banner = el('fsu_banner');
+		if (d.has_update && d.asset) {
+			banner.innerHTML =
+				'<div class="fsu-banner fsu-banner-new">' +
+				'<span>🎉 发现新版本 <b>v' + esc(d.latest_version) + '</b>（当前: ' + esc(d.installed_version) + '）</span>' +
+				'<button class="fsu-btn fsu-btn-primary" onclick="fsuStartUpdate()">一键升级到 v' + esc(d.latest_version) + '</button>' +
+				'</div>';
+		} else if (!d.has_update && d.installed_version && d.latest_version) {
+			banner.innerHTML =
+				'<div class="fsu-banner fsu-banner-ok">✅ 当前已是最新版本</div>';
+		} else if (!d.installed_version) {
+			banner.innerHTML =
+				'<div class="fsu-banner fsu-banner-err">⚠️ 未能识别已安装版本（opkg list-installed 返回为空）</div>';
+		} else {
+			banner.innerHTML = '';
+		}
+
+		if (d.body) {
+			el('fsu_changelog').innerHTML = mdRender(d.body);
+			el('fsu_changelog_section').style.display = '';
+		}
+	}
+
+	function api(action, params, opts) {
+		opts = opts || {};
+		var url = BASE + '/' + action;
+		var method = opts.method || 'GET';
+		var body = null;
+		if (method === 'GET' && params) {
+			var qs = [];
+			for (var k in params) qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
+			if (qs.length) url += '?' + qs.join('&');
+		} else if (method === 'POST' && params) {
+			var fd = new FormData();
+			for (var k in params) fd.append(k, params[k]);
+			body = fd;
+		}
+		return fetch(url, { method: method, body: body, credentials: 'same-origin' })
+			.then(function(r) { return r.json(); });
+	}
+
+	window.fsuCheck = function() {
+		var btn = el('fsu_check_btn');
+		btn.disabled = true;
+		btn.innerHTML = '<span class="fsu-spin">⟳</span> 检查中...';
+		api('self_update_check').then(function(d) {
+			btn.disabled = false;
+			btn.innerHTML = '⟳ 重新检查';
+			if (!d.ok) {
+				el('fsu_banner').innerHTML =
+					'<div class="fsu-banner fsu-banner-err">❌ 检查失败: ' + esc(d.error || '') + '</div>';
+				return;
+			}
+			renderInfo(d);
+		}).catch(function(e) {
+			btn.disabled = false;
+			btn.innerHTML = '⟳ 重新检查';
+			el('fsu_banner').innerHTML =
+				'<div class="fsu-banner fsu-banner-err">❌ 网络错误: ' + esc(e.message) + '</div>';
+		});
+	};
+
+	window.fsuStartUpdate = function() {
+		if (!info || !info.latest_tag) return;
+		if (!confirm('确认升级到 ' + info.latest_tag + ' ？\n升级过程中 LuCI 会重启，页面短暂不可用。')) return;
+		el('fsu_progress_section').style.display = '';
+		el('fsu_progress_fill').style.width = '5%';
+		el('fsu_progress_label').textContent = '启动中...';
+		el('fsu_log_box').innerHTML = '<span class="fsu-log-empty">启动后台升级脚本...</span>';
+
+		api('self_update_start', { tag: info.latest_tag }, { method: 'POST' }).then(function(r) {
+			if (!r.ok && r.status !== 'in_progress') {
+				el('fsu_progress_label').textContent = '启动失败';
+				el('fsu_log_box').textContent = '❌ ' + (r.error || '未知错误');
+				return;
+			}
+			// 开启轮询
+			if (pollTimer) clearInterval(pollTimer);
+			pollTimer = setInterval(pollProgress, 1000);
+		});
+	};
+
+	function pollProgress() {
+		fetch(BASE + '/self_update_log', { credentials: 'same-origin' })
+			.then(function(r) { return r.json(); })
+			.then(function(d) {
+				if (!d.ok) return;
+				el('fsu_progress_fill').style.width = (d.pct || 0) + '%';
+				el('fsu_progress_label').textContent =
+					{
+						preparing:   '准备中... ',
+						downloading: '下载中... ',
+						extracting:  '解压中... ',
+						installing:  '安装中... ',
+						restarting:  '重启 LuCI...',
+						done:        '✅ 升级完成',
+						error:       '❌ 升级失败',
+						idle:        '等待...',
+					}[d.stage] || d.stage;
+				if (d.message) el('fsu_progress_label').textContent += ' ' + d.message;
+
+				if (d.log) {
+					el('fsu_log_box').textContent = d.log;
+					el('fsu_log_box').scrollTop = el('fsu_log_box').scrollHeight;
+				}
+
+				if (d.stage === 'done') {
+					clearInterval(pollTimer);
+					// 升级成功，5 秒后自动尝试重新 check
+					setTimeout(function() {
+						el('fsu_banner').innerHTML =
+							'<div class="fsu-banner fsu-banner-ok">✅ 升级完成，请 Ctrl+F5 强制刷新页面</div>';
+					}, 1000);
+				} else if (d.stage === 'error') {
+					clearInterval(pollTimer);
+				}
+			}).catch(function() { /* nginx 重启期间网络抖动正常 */ });
+	}
+
+	// 进页面自动检查（这就是「进状态页就查」的核心）
+	fsuCheck();
+})();
+//]]></script>

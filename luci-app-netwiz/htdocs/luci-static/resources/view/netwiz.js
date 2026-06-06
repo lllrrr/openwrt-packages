@@ -333,16 +333,19 @@ var T = {
     'MSG_SUGGEST_FIX': _('We strongly recommend changing it to avoid network crashes.'),
     'BTN_FIX_IP': _('Fix to'),
     'MSG_SCAN_PKGS': _('Scanning installed plugins...'),
-    'TIT_CUSTOM_PKG_WARN': _('Custom Plugins Detected'),
-    'MSG_CUSTOM_PKG_DESC': _('We detected the following plugins are NOT available in your current software feeds:'),
-    'MSG_CUSTOM_PKG_ACT': _('If you proceed, these plugins WILL NOT be restored automatically!'),
+    'TIT_PKG_CHECK': _('Plugin Backup Status'),
+    'MSG_CUSTOM_PKG_DESC': _('The system detected that some plugins are not in the official feed. Please check the backup status below:'),
+    'MSG_CUSTOM_PKG_ACT': _('If you proceed, missing plugins WILL NOT be restored automatically!'),
     'MSG_CUSTOM_PKG_TIP': _('Tip: To include them, please cancel, put their .ipk/.apk files into /etc/netwiz/custom_pkgs/, and backup again.'),
-    'BTN_FORCE_BACKUP': _('Ignore & Backup Anyway'),
+    'BTN_FORCE_BACKUP': _('Ignore & Backup'),
     'TXT_MISSING_PKGS': _('Missing packages:'),
     'TXT_PROVIDED_PKGS': _('Already prepared in custom_pkgs:'),
     'TIT_CUSTOM_PKG_READY': _('Custom Plugins Ready'),
     'MSG_CUSTOM_PKG_READY_DESC': _('Great! Your custom plugins are safely stored in the local directory and will be included in the backup capsule.'),
     'BTN_CONFIRM_BACKUP': _('Confirm Backup'),
+    'TXT_OFFICIAL_PKGS': _('Official Plugins (Auto-Restore):'),
+    'TIT_OFFICIAL_PKG_READY': _('Plugin Scan Complete'),
+    'MSG_OFFICIAL_PKG_READY_DESC': _('System scan complete! All your installed plugins are from the official repository and will be safely recorded for automatic restoration.'),
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -395,6 +398,7 @@ return view.extend({
             '  @keyframes pulse { 0% { opacity: 1; box-shadow: 0 0 8px rgba(16,185,129,0.8); transform: scale(1); } 50% { opacity: 0.4; box-shadow: 0 0 2px rgba(16,185,129,0.2); transform: scale(0.85); } 100% { opacity: 1; box-shadow: 0 0 8px rgba(16,185,129,0.8); transform: scale(1); } }',
             '  @keyframes wifi-wave { 0% { clip-path: inset(100% 0 0 0); } 20% { clip-path: inset(66% 0 0 0); } 40% { clip-path: inset(33% 0 0 0); } 60% { clip-path: inset(0 0 0 0); } 100% { clip-path: inset(0 0 0 0); } }',
             '  .wifi-active-anim { animation: wifi-wave 2s infinite; }',
+            '  .nw-modal-btn-wrap .nw-u-btn { height: auto !important; min-height: 44px !important; white-space: normal !important; word-break: break-word !important; line-height: 1.4 !important; padding: 10px 8px !important; }',
             '</style>',
 
             '<div class="nw-wrapper">',
@@ -2426,10 +2430,10 @@ return view.extend({
                     okText: T['BTN_START_BAK'],
                     onOk: function() {
                         var bType = window._selectedBackupType;
-                        var hintText = bType === 'full' ? T['M_BAK_HINT_FULL'] : T['M_BAK_HINT_LIGHT'];
-
-                        // 包装真实的备份执行函数
-                        var executeRealBackup = function() {
+                        
+                        // 建立一个确保能执行真实备份
+                        var performBackup = function() {
+                            var hintText = bType === 'full' ? T['M_BAK_HINT_FULL'] : T['M_BAK_HINT_LIGHT'];
                             openModal({
                                 title: T['M_BAK_GEN_TIT'],
                                 msg: '<div style="text-align:center; padding:10px 0; color:#64748b;">' + T['M_BAK_GEN_MSG'] + '<br><br><span style="font-size:12px; color:#d97706;">' + hintText + '</span></div>',
@@ -2463,7 +2467,7 @@ return view.extend({
                             });
                         };
 
-                        // 1. 显示载入动画，进行底层孤儿插件扫描
+                        // 1. 显示前置扫描中动画
                         openModal({
                             title: T['M_BAK_GEN_TIT'],
                             msg: '<div style="text-align:center; padding:20px 0; color:#f59e0b; font-size:15px;">⏳ ' + (T['MSG_SCAN_PKGS'] || 'Scanning installed plugins...') + '</div>',
@@ -2474,67 +2478,76 @@ return view.extend({
                         callCheckMissingPkgs().then(function(res) {
                             var missing = res.missing || [];
                             var provided = res.provided || [];
-                            
+                            var official = res.official || [];
+
+                            // --- 三色列表 HTML ---
+                            var missingHtml = '';
                             if (missing.length > 0) {
-                                // 1：存在完全缺失的插件 -> 显示红色警告 + 混合列表
-                                var pkgListHtml = '<div style="text-align:left; margin-top:10px;">';
-                                
-                                // 缺失部分 (紅)
-                                pkgListHtml += '<div style="color:#b91c1c; font-weight:bold; margin-bottom:5px;">❌ ' + (T['TXT_MISSING_PKGS'] || 'Missing packages:') + '</div>';
-                                pkgListHtml += '<ul style="background:#fee2e2; padding:10px 20px; border-radius:6px; color:#b91c1c; font-family:monospace; margin-bottom:10px; margin-top:0;">';
-                                for (var i = 0; i < missing.length; i++) { pkgListHtml += '<li>' + missing[i] + '</li>'; }
-                                pkgListHtml += '</ul>';
+                                missingHtml += '<div style="color:#b91c1c; font-weight:bold; margin-bottom:5px; margin-top:10px;">❌ ' + (T['TXT_MISSING_PKGS'] || 'Missing packages:') + '</div>';
+                                missingHtml += '<ul style="background:#fee2e2; padding:8px 15px; border-radius:6px; color:#b91c1c; font-family:monospace; margin-bottom:0; margin-top:0;">';
+                                for (var i = 0; i < missing.length; i++) { missingHtml += '<li>' + missing[i] + '</li>'; }
+                                missingHtml += '</ul>';
+                            }
+                            
+                            var providedHtml = '';
+                            if (provided.length > 0) {
+                                providedHtml += '<div style="color:#059669; font-weight:bold; margin-bottom:5px; margin-top:10px;">✅ ' + (T['TXT_PROVIDED_PKGS'] || 'Ready in custom_pkgs:') + '</div>';
+                                providedHtml += '<ul style="background:#d1fae5; padding:8px 15px; border-radius:6px; color:#059669; font-family:monospace; margin-bottom:0; margin-top:0;">';
+                                for (var j = 0; j < provided.length; j++) { providedHtml += '<li>' + provided[j] + '</li>'; }
+                                providedHtml += '</ul>';
+                            }
 
-                                // 如果有部分已经准备好的，順便显示绿色
-                                if (provided.length > 0) {
-                                    pkgListHtml += '<div style="color:#059669; font-weight:bold; margin-bottom:5px;">✅ ' + (T['TXT_PROVIDED_PKGS'] || 'Ready in custom_pkgs:') + '</div>';
-                                    pkgListHtml += '<ul style="background:#d1fae5; padding:10px 20px; border-radius:6px; color:#059669; font-family:monospace; margin-bottom:10px; margin-top:0;">';
-                                    for (var j = 0; j < provided.length; j++) { pkgListHtml += '<li>' + provided[j] + '</li>'; }
-                                    pkgListHtml += '</ul>';
-                                }
-                                pkgListHtml += '</div>';
+                            var officialHtml = '';
+                            if (official.length > 0) {
+                                officialHtml += '<div style="color:#3b82f6; font-weight:bold; margin-bottom:5px; margin-top:10px;">☁️ ' + (T['TXT_OFFICIAL_PKGS'] || 'Official Plugins (Auto-Restore):') + '</div>';
+                                officialHtml += '<ul style="background:#eff6ff; padding:8px 15px; border-radius:6px; color:#3b82f6; font-family:monospace; margin-bottom:0; margin-top:0;">';
+                                for (var k = 0; k < official.length; k++) { officialHtml += '<li>' + official[k] + '</li>'; }
+                                officialHtml += '</ul>';
+                            }
 
+                            var totalCount = missing.length + provided.length + official.length;
+
+                            // 全局滚动容器
+                            var scrollWrapperStart = '<div style="max-height: 35vh; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0 10px 10px 10px; background: #f8fafc; margin-bottom: 15px; margin-top: 10px; box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.03);">';
+                            var scrollWrapperEnd = '</div>';
+
+                            if (missing.length > 0) {
+                                // 缺失：包含紅色缺失 + 绿色保险箱清单 + 蓝色官方清单
+                                var pkgListHtml = scrollWrapperStart + missingHtml + providedHtml + officialHtml + scrollWrapperEnd;
                                 openModal({
-                                    title: '⚠️ ' + (T['TIT_CUSTOM_PKG_WARN'] || 'Custom Plugins Detected'),
+                                    title: '⚠️ ' + (T['TIT_PKG_CHECK'] || 'Plugin Backup Status'),
                                     msg: '<div style="font-size:15px; color:#475569;">' + 
-                                         (T['MSG_CUSTOM_PKG_DESC'] || 'We detected the following plugins are NOT available in your current software feeds:') + 
+                                         (T['MSG_CUSTOM_PKG_DESC'] || 'The system detected that some plugins are not in the official feed. Please check the backup status below:') + 
                                          pkgListHtml + 
                                          '<span style="color:#ef4444; font-weight:bold;">' + 
                                          (T['MSG_CUSTOM_PKG_ACT'] || 'If you proceed, missing plugins WILL NOT be restored automatically!') + 
                                          '</span><br><br>' + 
                                          (T['MSG_CUSTOM_PKG_TIP'] || 'Tip: To include them, please cancel, put their files into /etc/netwiz/custom_pkgs/, and backup again.') + 
                                          '</div>',
-                                    okText: '🚀 ' + (T['BTN_FORCE_BACKUP'] || 'Ignore & Backup Anyway'),
+                                    okText: '🚀 ' + (T['BTN_FORCE_BACKUP'] || 'Ignore & Backup'),
                                     cancelText: T['BTN_CANCEL_RST'] || 'Cancel',
                                     isDanger: true,
-                                    onOk: function() { executeRealBackup(); }
+                                    onOk: function() { performBackup(); }
                                 });
-
-                            } else if (provided.length > 0) {
-                                // 2：沒有缺失，所有自定义插件都在文件夹里！-> 绿色确定
-                                var pkgListHtml = '<div style="text-align:left; margin-top:15px;">';
-                                pkgListHtml += '<div style="color:#059669; font-weight:bold; margin-bottom:5px;">✅ ' + (T['TXT_PROVIDED_PKGS'] || 'Ready in custom_pkgs:') + '</div>';
-                                pkgListHtml += '<ul style="background:#d1fae5; padding:10px 20px; border-radius:6px; color:#059669; font-family:monospace; margin-bottom:10px; margin-top:0;">';
-                                for (var j = 0; j < provided.length; j++) { pkgListHtml += '<li>' + provided[j] + '</li>'; }
-                                pkgListHtml += '</ul></div>';
+                            } else if (totalCount > 0) {
+                                // 沒有缺失，只列出绿色保险箱清单 + 蓝色官方清单
+                                var pkgListHtml = scrollWrapperStart + providedHtml + officialHtml + scrollWrapperEnd;
+                                var mTitle = provided.length > 0 ? (T['TIT_CUSTOM_PKG_READY'] || 'Custom Plugins Ready') : (T['TIT_OFFICIAL_PKG_READY'] || 'Plugin Scan Complete');
+                                var mDesc = provided.length > 0 ? (T['MSG_CUSTOM_PKG_READY_DESC'] || 'Great! Your custom plugins are safely stored and will be included in the backup capsule.') : (T['MSG_OFFICIAL_PKG_READY_DESC'] || 'All installed plugins are from the official repository and will be safely recorded.');
 
                                 openModal({
-                                    title: '✅ ' + (T['TIT_CUSTOM_PKG_READY'] || 'Custom Plugins Ready'),
-                                    msg: '<div style="font-size:15px; color:#475569;">' + 
-                                         (T['MSG_CUSTOM_PKG_READY_DESC'] || 'Great! Your custom plugins are safely stored in the local directory and will be included in the backup capsule.') + 
-                                         pkgListHtml + 
-                                         '</div>',
+                                    title: '✅ ' + mTitle,
+                                    msg: '<div style="font-size:15px; color:#475569;">' + mDesc + pkgListHtml + '</div>',
                                     okText: '📦 ' + (T['BTN_CONFIRM_BACKUP'] || 'Confirm Backup'),
                                     cancelText: T['BTN_CANCEL_RST'] || 'Cancel',
-                                    onOk: function() { executeRealBackup(); }
+                                    onOk: function() { performBackup(); }
                                 });
-
                             } else {
-                                // 3：源內都有，直接备份
-                                executeRealBackup();
+                                // 无任何 UI 插件，直接备份
+                                performBackup();
                             }
                         }).catch(function() {
-                            executeRealBackup(); // 防呆兜底
+                            performBackup();
                         });
                     }
                 });

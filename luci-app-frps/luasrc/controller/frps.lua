@@ -39,6 +39,18 @@ local DEFAULT_VERSIONS = {
 
 local FRP_VERSIONS_DIR = "/usr/share/frp/versions"
 
+-- 程序管理：自建 GitHub Release 代理域名（key=frp-releases，前 2 个为主域名，后 5 个备用）
+-- 二进制下载与版本列表都优先走这些域名；全部失败后才回退到 download_mirror + github 直连。
+local FRP_DL_PROXIES = {
+	"https://gh-raw.966788.xyz",   -- 主域名
+	"https://gh-raw.988669.xyz",   -- 主域名
+	"https://gh-raw.s03.qzz.io",   -- 备用
+	"https://gh-raw.s04.qzz.io",   -- 备用
+	"https://gh-raw.s05.qzz.io",   -- 备用
+	"https://gh-raw.s06.qzz.io",   -- 备用
+	"https://gh-raw.s07.qzz.io",   -- 备用
+}
+
 function index()
 	if not nixio.fs.access("/etc/config/frps") then
 		return
@@ -76,6 +88,15 @@ function index()
 	entry({"admin", "services", "frps", "get_log"}, call("get_log")).leaf = true
 	entry({"admin", "services", "frps", "clear_log"}, call("clear_log")).leaf = true
 	entry({"admin", "services", "frps", "log"}, cbi("frps/log"), _("查看日志"), 8).leaf = true
+
+	-- 应用自更新（与 frpc 共用 release zip：kwrt-frp-mgr-releases）
+	-- order=99 让它排到最末，属于不常用功能
+	entry({"admin", "services", "frps", "self_update"},
+		template("frps/self_update"), _("检查更新"), 99).leaf = true
+	entry({"admin", "services", "frps", "self_update_check"},    call("action_self_update_check"))
+	entry({"admin", "services", "frps", "self_update_start"},    call("action_self_update_start"))
+	entry({"admin", "services", "frps", "self_update_log"},      call("action_self_update_log"))
+	entry({"admin", "services", "frps", "self_update_rollback"}, call("action_self_update_rollback"))
 end
 
 -- 多实例：枚举所有 instance section 并补齐运行时状态
@@ -437,14 +458,25 @@ function action_program_download(version)
 	end
 
 	local mirror = uci:get("frps", "main", "download_mirror") or ""
-	local url = mirror .. "https://github.com/fatedier/frp/releases/download/v" ..
-		version .. "/frp_" .. version .. "_" .. platform .. ".tar.gz"
+	local asset = "frp_" .. version .. "_" .. platform .. ".tar.gz"
 
+	-- 候选下载源：先 7 个代理域名，全部失败后回退到 download_mirror + github 官方直链
+	local urls = {}
+	for _, base in ipairs(FRP_DL_PROXIES) do
+		urls[#urls + 1] = base .. "/frp-releases/v" .. version .. "/" .. asset
+	end
+	urls[#urls + 1] = mirror .. "https://github.com/fatedier/frp/releases/download/v" ..
+		version .. "/" .. asset
+	-- 用空格连接（URL 不含空格），交给 shell 默认 IFS 切分；不能用换行，
+	-- 因为 %q 会把换行转义成「反斜杠+换行」，在 sh 双引号内会被当作续行吞掉。
+	local url_list = table.concat(urls, " ")
+
+	-- 后台下载脚本：逐个尝试候选源，任一成功即停
 	local script = string.format([=[#!/bin/sh
 STATUS=%q
 TMP=%q
 UNPACK=%q
-URL=%q
+URLS=%q
 TARGET=%q
 
 write_status() {
@@ -457,11 +489,22 @@ cleanup_tmp() {
 
 write_status downloading 0
 mkdir -p "$TARGET"
-wget -q --no-check-certificate -O "$TMP" "$URL"
-WGET_EXIT=$?
 
-if [ $WGET_EXIT -ne 0 ] || [ ! -s "$TMP" ]; then
-	write_status error 0 "下载失败 (wget exit=$WGET_EXIT)"
+DL_OK=0
+for U in $URLS; do
+	[ -z "$U" ] && continue
+	HOST=$(echo "$U" | sed -e 's,^https*://,,' -e 's,/.*,,')
+	write_status downloading 0 "$HOST"
+	wget -q --no-check-certificate -O "$TMP" "$U"
+	if [ $? -eq 0 ] && [ -s "$TMP" ]; then
+		DL_OK=1
+		break
+	fi
+	rm -f "$TMP"
+done
+
+if [ "$DL_OK" -ne 1 ]; then
+	write_status error 0 "全部下载源失败"
 	cleanup_tmp
 	rm -rf "$TARGET"
 	(sleep 30; rm -f "$STATUS") &
@@ -489,7 +532,7 @@ DETECTED=$("$TARGET/frps" -v 2>/dev/null)
 write_status done "$(wc -c < "$TARGET/frps" 2>/dev/null)" "$DETECTED"
 
 (sleep 30; rm -f "$STATUS") &
-]=], status_file, tmp_archive, tmp_unpack, url, target_dir)
+]=], status_file, tmp_archive, tmp_unpack, url_list, target_dir)
 
 	fs.writefile(script_file, script)
 	sys.call("chmod +x " .. util.shellquote(script_file))
@@ -623,9 +666,15 @@ function action_program_refresh()
 	local api_path = "https://api.github.com/repos/fatedier/frp/releases?per_page=20"
 
 	local candidates = {}
+	-- 1. 优先：自建代理的版本列表接口（与二进制下载同源，返回 {"releases":[{"tag":"vX"}...]}）
+	for _, base in ipairs(FRP_DL_PROXIES) do
+		table.insert(candidates, base .. "/frp-releases?per_page=20")
+	end
+	-- 2. 回退：用户配置的 download_mirror
 	if user_mirror ~= "" then
 		table.insert(candidates, user_mirror .. api_path)
 	end
+	-- 3. 回退：内置的已知 API 兼容镜像
 	table.insert(candidates, api_path)
 	table.insert(candidates, "https://gh-proxy.com/" .. api_path)
 	table.insert(candidates, "https://edge-proxy.srv1.qzz.io/" .. api_path)
@@ -641,7 +690,8 @@ function action_program_refresh()
 		local cmd = "wget -T 8 -q -O - --no-check-certificate " ..
 			util.shellquote(url) .. " 2>/dev/null"
 		local resp = sys.exec(cmd)
-		if resp and #resp > 100 and resp:find('"tag_name"') then
+		-- 代理返回含 "tag"，github API 返回含 "tag_name"，两者都接受
+		if resp and #resp > 100 and (resp:find('"tag_name"') or resp:find('"tag"')) then
 			body = resp
 			hit_url = url
 			break
@@ -662,10 +712,19 @@ function action_program_refresh()
 
 	local versions = {}
 	local seen = {}
-	for tag in body:gmatch('"tag_name"%s*:%s*"v([0-9.]+)"') do
+	-- github API 字段为 tag_name，自建代理字段为 tag；优先解析 tag_name，无果再解析 tag
+	for tag in body:gmatch('"tag_name"%s*:%s*"v?([0-9.]+)"') do
 		if not seen[tag] and _valid_version(tag) then
 			seen[tag] = true
 			table.insert(versions, tag)
+		end
+	end
+	if #versions == 0 then
+		for tag in body:gmatch('"tag"%s*:%s*"v?([0-9.]+)"') do
+			if not seen[tag] and _valid_version(tag) then
+				seen[tag] = true
+				table.insert(versions, tag)
+			end
 		end
 	end
 
@@ -805,4 +864,298 @@ function clear_log()
 	local instance = http.formvalue("instance")
 	local link = _resolve_log_link(instance)
 	luci.sys.call("true > " .. link)
+end
+
+-- ─────────────────────────────────────────────────────────────────
+-- 应用自更新（luci-app-frps 自身升级）
+-- 数据源：自建代理的 /kwrt-frp-mgr-releases/{latest|tag} 接口
+-- 资产命名：luci-app-frp-<ver>-IPK-22.03.zip / -APK-SNAPSHOT.zip
+--   zip 内含 luci-app-frpc_*.ipk 和 luci-app-frps_*.ipk
+--   本侧仅升级 luci-app-frps（按"装了哪个升级哪个"原则）
+-- ─────────────────────────────────────────────────────────────────
+
+local SELF_UPDATE_PKG  = "luci-app-frps"
+local SELF_UPDATE_TAG  = "frps"  -- 区分 frpc/frps 状态文件，避免互相覆盖
+local SELF_UPDATE_LOG  = "/tmp/" .. SELF_UPDATE_TAG .. "_self_update.log"
+local SELF_UPDATE_STAT = "/tmp/" .. SELF_UPDATE_TAG .. "_self_update.json"
+
+-- 与 program 模块共用代理域名列表（FRP_DL_PROXIES 已在文件顶部定义）
+local function _self_update_get_installed_version()
+	-- opkg list-installed 输出：  luci-app-frps - 1.2.8
+	local out = util.trim(sys.exec("opkg list-installed " .. SELF_UPDATE_PKG .. " 2>/dev/null"))
+	local v = out:match("%-%s+([%w%.%-]+)$")
+	return v or ""
+end
+
+-- 用代理列表逐个尝试 GET 一段 JSON，返回响应文本
+local function _self_update_fetch_json(path)
+	for _, base in ipairs(FRP_DL_PROXIES) do
+		local url = base .. path
+		local cmd = "wget -T 8 -q -O - --no-check-certificate " ..
+			util.shellquote(url) .. " 2>/dev/null"
+		local resp = sys.exec(cmd)
+		if resp and #resp > 20 and resp:find('"tag"') then
+			return resp, base
+		end
+	end
+	return nil, nil
+end
+
+-- semver 比较：a > b 返回正数，相等 0，小于负数；非 semver 直接字符串比
+local function _semver_cmp(a, b)
+	local function parts(s)
+		local t = {}
+		for n in s:gmatch("(%d+)") do t[#t+1] = tonumber(n) end
+		return t
+	end
+	local pa, pb = parts(a or ""), parts(b or "")
+	local n = math.max(#pa, #pb)
+	for i = 1, n do
+		local x, y = pa[i] or 0, pb[i] or 0
+		if x ~= y then return x - y end
+	end
+	return 0
+end
+
+function action_self_update_check()
+	http.prepare_content("application/json")
+	local resp = _self_update_fetch_json("/kwrt-frp-mgr-releases/latest")
+	if not resp then
+		http.write_json({ok = false, error = "无法从代理拉取最新版本信息"})
+		return
+	end
+	local tag       = resp:match('"tag"%s*:%s*"([^"]+)"') or ""
+	local name      = resp:match('"name"%s*:%s*"([^"]+)"') or tag
+	local published = resp:match('"published_at"%s*:%s*"([^"]+)"') or ""
+	local body      = ""
+	local ok, parsed = pcall(function() return require("luci.jsonc").parse(resp) end)
+	if ok and type(parsed) == "table" then
+		tag       = parsed.tag or tag
+		name      = parsed.name or name
+		published = parsed.published_at or published
+		body      = parsed.body or ""
+	end
+
+	local installed = _self_update_get_installed_version()
+	local latest    = (tag or ""):gsub("^v", "")
+	local has_update = (installed ~= "" and latest ~= "" and _semver_cmp(latest, installed) > 0)
+
+	-- 找到匹配 ipk 资产（不含 -APK-）
+	local asset_url, asset_name, asset_size
+	if ok and type(parsed) == "table" and type(parsed.assets) == "table" then
+		for _, a in ipairs(parsed.assets) do
+			if type(a) == "table" and a.name and not a.name:match("APK") then
+				asset_url, asset_name, asset_size = a.download, a.name, a.size
+				break
+			end
+		end
+	end
+
+	http.write_json({
+		ok = true,
+		installed_version = installed,
+		latest_version    = latest,
+		latest_tag        = tag,
+		latest_name       = name,
+		published_at      = published,
+		has_update        = has_update,
+		body              = body or "",
+		asset = (asset_url and {
+			name = asset_name, size = asset_size, url = asset_url,
+		} or nil),
+	})
+end
+
+function action_self_update_start()
+	http.prepare_content("application/json")
+	local tag = http.formvalue("tag") or ""
+	if not tag:match("^v[0-9][0-9%.]*$") then
+		http.write_json({ok = false, error = "无效 tag"})
+		return
+	end
+
+	if fs.access(SELF_UPDATE_STAT) then
+		local content = fs.readfile(SELF_UPDATE_STAT) or "{}"
+		local ok2, parsed2 = pcall(function() return require("luci.jsonc").parse(content) end)
+		if ok2 and type(parsed2) == "table"
+		   and parsed2.stage ~= "done" and parsed2.stage ~= "error" then
+			http.write_json({ok = true, status = "in_progress"})
+			return
+		end
+	end
+
+	local installed = _self_update_get_installed_version()
+
+	local ver = tag:gsub("^v", "")
+	local asset = "luci-app-frp-" .. ver .. "-IPK-22.03.zip"
+	local urls = {}
+	for _, base in ipairs(FRP_DL_PROXIES) do
+		urls[#urls+1] = base .. "/kwrt-frp-mgr-releases/" .. tag .. "/" .. asset
+	end
+	local url_list = table.concat(urls, " ")
+
+	local workdir     = "/tmp/" .. SELF_UPDATE_TAG .. "_upd"
+	local zip_file    = workdir .. "/" .. asset
+	local backup_dir  = "/tmp/" .. SELF_UPDATE_TAG .. "_upd_backup"
+	local script_file = "/tmp/" .. SELF_UPDATE_TAG .. "_upd.sh"
+
+	sys.call("rm -f " .. util.shellquote(SELF_UPDATE_LOG) .. " " .. util.shellquote(SELF_UPDATE_STAT))
+
+	local script = string.format([=[#!/bin/sh
+LOG=%q
+STAT=%q
+URLS=%q
+WORKDIR=%q
+ZIP=%q
+BACKUP=%q
+PKG=%q
+INSTALLED=%q
+TAG=%q
+
+log() { echo "[$(date '+%%H:%%M:%%S')] $*" >> "$LOG"; }
+state() { printf '{"stage":"%%s","pct":%%s,"message":"%%s"}' "$1" "${2:-0}" "${3:-}" > "$STAT"; }
+
+mkdir -p "$WORKDIR" "$BACKUP"
+: > "$LOG"
+state preparing 0 "准备升级 $PKG $INSTALLED -> $TAG"
+log "===== 自更新开始 ====="
+log "当前版本: $INSTALLED"
+log "目标版本: $TAG"
+log "目标资产: $(basename "$ZIP")"
+
+# ---------- 1) 备份当前版本元数据 ----------
+log "[1/5] 备份当前版本元数据..."
+echo "$INSTALLED" > "$BACKUP/installed_version"
+opkg files "$PKG" > "$BACKUP/files.list" 2>/dev/null
+log "  备份位置: $BACKUP"
+
+# ---------- 2) 下载 zip ----------
+state downloading 10 "正在下载升级包..."
+log "[2/5] 下载升级包..."
+DL_OK=0
+for U in $URLS; do
+	[ -z "$U" ] && continue
+	HOST=$(echo "$U" | sed -e 's,^https*://,,' -e 's,/.*,,')
+	log "  尝试: $HOST"
+	state downloading 15 "$HOST"
+	wget -q --no-check-certificate -O "$ZIP" "$U"
+	if [ $? -eq 0 ] && [ -s "$ZIP" ]; then
+		log "  ✓ 下载成功 ($(wc -c < "$ZIP") 字节)"
+		DL_OK=1
+		break
+	fi
+	log "  ✗ 失败"
+	rm -f "$ZIP"
+done
+if [ "$DL_OK" -ne 1 ]; then
+	log "❌ 全部下载源失败"
+	state error 100 "全部下载源失败"
+	exit 1
+fi
+
+# ---------- 3) 解压 ----------
+state extracting 40 "解压中..."
+log "[3/5] 解压 zip..."
+if ! command -v unzip >/dev/null 2>&1; then
+	log "❌ 系统缺少 unzip，请先安装：opkg install unzip"
+	state error 100 "缺少 unzip"
+	exit 1
+fi
+cd "$WORKDIR" || exit 1
+unzip -o "$ZIP" >> "$LOG" 2>&1
+IPK=$(find "$WORKDIR" -type f -name "${PKG}_*.ipk" | head -1)
+if [ -z "$IPK" ]; then
+	log "❌ 解压后未找到 $PKG ipk 文件"
+	log "  目录内容: $(ls -la "$WORKDIR")"
+	state error 100 "未找到 ipk 文件"
+	exit 1
+fi
+log "  找到: $IPK"
+
+# ---------- 4) opkg install ----------
+state installing 70 "正在安装新版本..."
+log "[4/5] opkg install --force-reinstall ..."
+opkg install --force-reinstall "$IPK" >> "$LOG" 2>&1
+OPKG_EXIT=$?
+if [ $OPKG_EXIT -ne 0 ]; then
+	log "❌ opkg install 失败 (exit=$OPKG_EXIT)"
+	state error 100 "opkg install 失败 (exit=$OPKG_EXIT)，可用回滚按钮恢复"
+	exit 1
+fi
+log "  ✓ 安装完成"
+
+# ---------- 5) 重启 LuCI 让新 controller 生效 ----------
+state restarting 95 "正在重启 LuCI 服务..."
+log "[5/5] 重启 rpcd + nginx（页面会暂时打不开，重新刷新即可）..."
+rm -rf /tmp/luci-modulecache/* /tmp/luci-indexcache* 2>/dev/null
+
+state done 100 "升级成功，请刷新页面"
+log "✅ 升级完成（新版本: $TAG）"
+log "===== 自更新结束 ====="
+
+(
+	sleep 2
+	/etc/init.d/rpcd restart >/dev/null 2>&1
+	/etc/init.d/nginx restart >/dev/null 2>&1 || /etc/init.d/uhttpd restart >/dev/null 2>&1
+) &
+
+sleep 5
+rm -rf "$WORKDIR" "$ZIP" 2>/dev/null
+(sleep 60; rm -f "$STAT") &
+]=],
+		SELF_UPDATE_LOG, SELF_UPDATE_STAT, url_list, workdir, zip_file,
+		backup_dir, SELF_UPDATE_PKG, installed, tag)
+
+	fs.writefile(script_file, script)
+	sys.call("chmod +x " .. util.shellquote(script_file))
+	sys.call("setsid sh -c " .. util.shellquote(
+		"(" .. script_file .. " </dev/null >/dev/null 2>&1; rm -f " .. script_file .. ") &"
+	) .. " >/dev/null 2>&1")
+
+	http.write_json({ok = true, status = "started", tag = tag, installed = installed})
+end
+
+function action_self_update_log()
+	http.prepare_content("application/json")
+
+	local stage, pct, message = "idle", 0, ""
+	if fs.access(SELF_UPDATE_STAT) then
+		local content = fs.readfile(SELF_UPDATE_STAT) or "{}"
+		local ok, parsed = pcall(function() return require("luci.jsonc").parse(content) end)
+		if ok and type(parsed) == "table" then
+			stage   = parsed.stage or "unknown"
+			pct     = parsed.pct or 0
+			message = parsed.message or ""
+		end
+	end
+
+	local log = ""
+	if fs.access(SELF_UPDATE_LOG) then
+		log = util.trim(sys.exec("tail -n 40 " .. util.shellquote(SELF_UPDATE_LOG) .. " 2>/dev/null"))
+	end
+
+	http.write_json({
+		ok      = true,
+		stage   = stage,
+		pct     = pct,
+		message = message,
+		log     = log,
+	})
+end
+
+function action_self_update_rollback()
+	http.prepare_content("application/json")
+	local backup_dir = "/tmp/" .. SELF_UPDATE_TAG .. "_upd_backup"
+	local ver_file   = backup_dir .. "/installed_version"
+	if not fs.access(ver_file) then
+		http.write_json({ok = false, error = "未找到备份元数据，无法自动回滚"})
+		return
+	end
+	local old_ver = util.trim(fs.readfile(ver_file) or "")
+	if old_ver == "" then
+		http.write_json({ok = false, error = "备份内的版本号为空"})
+		return
+	end
+	http.write_json({ok = true, rollback_to = "v" .. old_ver,
+		hint = "请用 tag=v" .. old_ver .. " 调 self_update_start"})
 end

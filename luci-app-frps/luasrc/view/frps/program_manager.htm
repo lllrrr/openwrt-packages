@@ -350,6 +350,7 @@ local base = dsp.build_url("admin/services/frps")
 (function() {
 	var BASE = '<%=base%>';
 	var info = null;
+	var autoRefreshed = false;  // 进页面只静默拉取一次真实版本列表
 
 	function el(id) { return document.getElementById(id); }
 	function escapeHtml(s) {
@@ -481,6 +482,13 @@ local base = dsp.build_url("admin/services/frps")
 
 			renderAvailable();
 			renderDownloaded();
+
+			// 渐进增强：首屏先用硬编码列表秒开，再静默拉取真实最新版本无感替换。
+			// 只在首次进页面拉一次（loadInfo 在下载/切换/删除后会被重复调用）。
+			if (!autoRefreshed) {
+				autoRefreshed = true;
+				doRefresh({ silent: true });
+			}
 		});
 	}
 
@@ -606,23 +614,42 @@ local base = dsp.build_url("admin/services/frps")
 		});
 	};
 
-	window.fpmRefreshVersions = function() {
+	// silent=true：静默自动拉取——不动按钮、不抢消息条、失败无声，仅成功时无感替换列表。
+	// silent=false：用户手动点击——按钮转圈 + 成功/失败都给消息提示。
+	function doRefresh(opts) {
+		opts = opts || {};
+		var silent = !!opts.silent;
 		var btn = el('fpm_refresh_btn');
-		btn.disabled = true;
-		btn.innerHTML = '<span class="fpm-spin">⟳</span> 拉取中...';
-		api('program_refresh').then(function(r) {
-			btn.disabled = false;
-			btn.innerHTML = '⟳ 从 GitHub 拉取最新';
+		if (!silent && btn) {
+			btn.disabled = true;
+			btn.innerHTML = '<span class="fpm-spin">⟳</span> 拉取中...';
+		}
+		return api('program_refresh').then(function(r) {
+			if (!silent && btn) {
+				btn.disabled = false;
+				btn.innerHTML = '⟳ 从 GitHub 拉取最新';
+			}
 			if (r.ok) {
 				var vs = toArr(r.versions);
-				info.available_versions = vs;
-				showMsg('✅ 已拉取 ' + vs.length + ' 个版本', 'ok');
-				renderAvailable();
-			} else {
+				if (vs.length) {
+					info.available_versions = vs;
+					renderAvailable();
+				}
+				if (!silent) showMsg('✅ 已拉取 ' + vs.length + ' 个版本', 'ok');
+			} else if (!silent) {
 				showMsg('❌ 拉取失败：' + (r.error || ''), 'err');
 			}
+		}).catch(function(e) {
+			if (!silent && btn) {
+				btn.disabled = false;
+				btn.innerHTML = '⟳ 从 GitHub 拉取最新';
+				showMsg('❌ 拉取失败：' + e.message, 'err');
+			}
+			// 静默模式：失败完全无声，保持硬编码列表兜底
 		});
-	};
+	}
+
+	window.fpmRefreshVersions = function() { doRefresh({ silent: false }); };
 
 	loadInfo().catch(function(e) {
 		showMsg('初始化失败：' + e.message + '（请确认已部署新版 controller）', 'err');
