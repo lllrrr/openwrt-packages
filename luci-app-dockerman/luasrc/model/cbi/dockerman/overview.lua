@@ -13,22 +13,19 @@ if dk:_ping().code ~= 200 then
 	lost_state = true
 end
 
-function byte_format(byte)
-	local suff = {"B", "KB", "MB", "GB", "TB"}
-	for i=1, 5 do
-		if byte > 1024 and i < 5 then
-			byte = byte / 1024
-		else
-			return string.format("%.2f %s", byte, suff[i])
-		end
-	end
-end
-
-m = Map("dockerd",
+m = SimpleForm("dockerd",
 	translate("Docker - Overview"),
-	translate("An overview with the relevant data is displayed here with which the LuCI docker client is connected."))
+	translate("An overview with the relevant data is displayed here with which the LuCI docker client is connected.")
+..
+	" " ..
+	[[</a>]])
+m.submit=false
+m.reset=false
 
 local docker_info_table = {}
+-- docker_info_table['0OperatingSystem'] = {_key=translate("Operating System"),_value='-'}
+-- docker_info_table['1Architecture'] = {_key=translate("Architecture"),_value='-'}
+-- docker_info_table['2KernelVersion'] = {_key=translate("Kernel Version"),_value='-'}
 docker_info_table['3ServerVersion'] = {_key=translate("Docker Version"),_value='-'}
 docker_info_table['4ApiVersion'] = {_key=translate("Api Version"),_value='-'}
 docker_info_table['5NCPU'] = {_key=translate("CPUs"),_value='-'}
@@ -61,6 +58,9 @@ if nixio.fs.access("/usr/bin/dockerd") and not uci:get_bool("dockerd", "dockerma
 		if lost_state then
 			docker:append_status("Docker daemon: starting")
 			luci.util.exec("/etc/init.d/dockerd start")
+			luci.util.exec("sleep 5")
+			luci.util.exec("/etc/init.d/dockerman start")
+
 		else
 			docker:append_status("Docker daemon: stopping")
 			luci.util.exec("/etc/init.d/dockerd stop")
@@ -78,6 +78,8 @@ if nixio.fs.access("/usr/bin/dockerd") and not uci:get_bool("dockerd", "dockerma
 		docker:clear_status()
 		docker:append_status("Docker daemon: restarting")
 		luci.util.exec("/etc/init.d/dockerd restart")
+		luci.util.exec("sleep 5")
+		luci.util.exec("/etc/init.d/dockerman start")
 		docker:clear_status()
 		luci.http.redirect(luci.dispatcher.build_url("admin/docker/overview"))
 	end
@@ -97,27 +99,36 @@ s.images_total = '-'
 s.networks_total = '-'
 s.volumes_total = '-'
 
+-- local socket = luci.model.uci.cursor():get("dockerd", "dockerman", "socket_path")
 if not lost_state then
-	local containers_list = dk.containers:list({query = {all=true}}).body
-	local images_list = dk.images:list().body
+	local containers_res = dk.containers:list({query = {all=true}})
+	local containers_list = containers_res and containers_res.body or {}
+	local images_res = dk.images:list()
+	local images_list = images_res and images_res.body or {}
 	local vol = dk.volumes:list()
 	local volumes_list = vol and vol.body and vol.body.Volumes or {}
-	local networks_list = dk.networks:list().body or {}
+	local networks_res = dk.networks:list()
+	local networks_list = networks_res and networks_res.body or {}
 	local docker_info = dk:info()
 
+	-- docker_info_table['0OperatingSystem']._value = docker_info.body.OperatingSystem
+	-- docker_info_table['1Architecture']._value = docker_info.body.Architecture
+	-- docker_info_table['2KernelVersion']._value = docker_info.body.KernelVersion
 	docker_info_table['3ServerVersion']._value = docker_info.body.ServerVersion
 	docker_info_table['4ApiVersion']._value = docker_info.headers["Api-Version"]
 	docker_info_table['5NCPU']._value = tostring(docker_info.body.NCPU)
-	docker_info_table['6MemTotal']._value = byte_format(docker_info.body.MemTotal)
+	docker_info_table['6MemTotal']._value = docker.byte_format(docker_info.body.MemTotal)
 	if docker_info.body.DockerRootDir then
 		local statvfs = nixio.fs.statvfs(docker_info.body.DockerRootDir)
 		local size = statvfs and (statvfs.bavail * statvfs.bsize) or 0
-		docker_info_table['7DockerRootDir']._value = docker_info.body.DockerRootDir .. " (" .. tostring(byte_format(size)) .. " " .. translate("Available") .. ")"
+		docker_info_table['7DockerRootDir']._value = docker_info.body.DockerRootDir .. " (" .. tostring(docker.byte_format(size)) .. " " .. translate("Available") .. ")"
 	end
 
 	docker_info_table['8IndexServerAddress']._value = docker_info.body.IndexServerAddress
-	for i, v in ipairs(docker_info.body.RegistryConfig.Mirrors or {}) do
-		docker_info_table['9RegistryMirrors']._value = docker_info_table['9RegistryMirrors']._value == "-" and v or (docker_info_table['9RegistryMirrors']._value .. ", " .. v)
+	if docker_info.body.RegistryConfig and docker_info.body.RegistryConfig.Mirrors then
+		for i, v in ipairs(docker_info.body.RegistryConfig.Mirrors) do
+			docker_info_table['9RegistryMirrors']._value = docker_info_table['9RegistryMirrors']._value == "-" and v or (docker_info_table['9RegistryMirrors']._value .. ", " .. v)
+		end
 	end
 
 	s.images_used = 0
@@ -137,7 +148,7 @@ if not lost_state then
 	s.networks_total = tostring(#networks_list)
 	s.volumes_total = tostring(#volumes_list)
 else
-	docker_info_table['3ServerVersion']._value = translate("Cannot connect to Docker daemon. Is the docker daemon running?")
+	docker_info_table['3ServerVersion']._value = translate("Can NOT connect to docker daemon, please check!!")
 end
 
 return m
