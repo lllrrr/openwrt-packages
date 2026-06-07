@@ -23,7 +23,7 @@ init_conf() {
 	config_get "upload_dir" "config" "upload_dir" "$DEFAULT_UPLOAD_DIR"
 	config_get "enabled" "config" "enabled" "0"
 	config_get "port" "config" "port" "60650"
-	config_get "isonlyoneprot" "config" "isonlyoneprot" "0"
+	config_get "isonlyoneprot" "config" "isonlyoneprot" "1"
 	config_get "m_port" "config" "m_port" "8080"
 	config_get "https" "config" "https" "0"
 	config_get "crt_file" "config" "crt_file" "$DEFAULT_CRT_FILE"
@@ -31,7 +31,7 @@ init_conf() {
 	config_get "piddir" "config" "piddir" "$DEFAULT_PID_DIR"
 	config_get "lang" "config" "lang" "$DEFAULT_LANG"
 	config_get "debug" "config" "debug" "0"
-	config_get "showtip" "config" "showtip" "1"
+	config_get "showtip" "config" "showtip" "0"
 	config_get "log" "config" "log" "0"
 }
 
@@ -60,19 +60,46 @@ normalize_conf() {
 	is_port "$m_port" || m_port="8080"
 
 	[ "$enabled" = "1" ] || enabled="0"
-	[ "$isonlyoneprot" = "1" ] || isonlyoneprot="0"
+	[ "$isonlyoneprot" = "0" ] || isonlyoneprot="1"
 	[ "$https" = "1" ] || https="0"
 	case "$lang" in
 		zh|en) ;;
 		*) lang="$DEFAULT_LANG" ;;
 	esac
 	[ "$debug" = "1" ] || debug="0"
-	[ "$showtip" = "0" ] || showtip="1"
+	[ "$showtip" = "1" ] || showtip="0"
 	[ "$log" = "1" ] || log="0"
 }
 
 ensure_dirs() {
 	mkdir -p "$upload_dir" "$db_dir" "$piddir" /etc/gecoosac/tls
+}
+
+generate_default_cert() {
+	[ "$crt_file" = "$DEFAULT_CRT_FILE" ] || return 1
+	[ "$key_file" = "$DEFAULT_KEY_FILE" ] || return 1
+
+	if ! command -v px5g >/dev/null 2>&1; then
+		logger -t gecoosac "px5g is required to generate the default HTTPS certificate"
+		return 1
+	fi
+
+	rm -f "$crt_file" "$key_file"
+	px5g selfsigned \
+		-days 3650 \
+		-newkey rsa:2048 \
+		-keyout "$key_file" \
+		-out "$crt_file" \
+		-subj "/CN=GecoosAC" >/dev/null 2>&1
+
+	if [ ! -r "$crt_file" ] || [ ! -r "$key_file" ]; then
+		logger -t gecoosac "failed to generate default HTTPS certificate"
+		return 1
+	fi
+
+	chmod 600 "$key_file"
+	chmod 644 "$crt_file"
+	return 0
 }
 
 start_service() {
@@ -89,8 +116,10 @@ start_service() {
 
 	if [ "$isonlyoneprot" = "0" ] && [ "$https" = "1" ]; then
 		if [ ! -r "$crt_file" ] || [ ! -r "$key_file" ]; then
-			logger -t gecoosac "HTTPS is enabled but certificate or key file is missing"
-			return 1
+			generate_default_cert || {
+				logger -t gecoosac "HTTPS is enabled but certificate or key file is missing"
+				return 1
+			}
 		fi
 	fi
 

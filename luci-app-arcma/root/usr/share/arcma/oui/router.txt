@@ -1,4 +1,4 @@
-# Format: VendorName<TAB>OUI1 OUI2 ... (10 entries each)
+# Format: VendorName<TAB>OUI1 OUI2 ...
 # OUI = XX:XX:XX (24-bit, IEEE 802 Organizationally Unique Identifier)
 Netgear	9C:3D:CF 10:DA:43 28:C6:8E A0:04:60 C0:3F:0E 30:46:9A A4:2B:8C 84:1B:5E 20:E5:2A 6C:B0:CE
 Tp-Link	50:C7:BF C0:25:E9 8C:21:0A 98:DA:C4 50:3E:AA 10:FE:ED 18:D6:C7 14:CC:20 EC:17:2F A4:2B:B0

@@ -1,12 +1,17 @@
 msgid ""
 msgstr ""
+"Project-Id-Version: luci-app-arcma\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
 msgid "ARCMA"
 msgstr ""
 
-msgid "Automatically change MAC addresses of network interfaces on boot and/or interface up. No external dependencies required."
+msgid "Automatically change MAC addresses of physical network interfaces on boot and/or interface up. No external dependencies required."
 msgstr ""
 
 msgid "Global Settings"
@@ -126,5 +131,11 @@ msgstr ""
 msgid "(no output)"
 msgstr ""
 
-msgid "Done"
+msgid "Started"
+msgstr ""
+
+msgid "ARCMA finished with errors. Check the output log."
+msgstr ""
+
+msgid "ARCMA is still running or did not report completion. Check /tmp/arcma/last.log."
 msgstr ""

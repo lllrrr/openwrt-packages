@@ -5,13 +5,13 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-arcma
 PKG_VERSION:=1.0.3
-PKG_RELEASE:=3
+PKG_RELEASE:=4
 
 LUCI_NAME:=luci-app-arcma
 LUCI_TYPE:=app
 LUCI_BASENAME:=arcma
 LUCI_TITLE:=LuCI for ARCMA
-LUCI_DESCRIPTION:=Automatically change MAC addresses of all network interfaces. BusyBox ash compatible with embedded OUI vendor database.
+LUCI_DESCRIPTION:=Automatically change MAC addresses of physical network interfaces. BusyBox ash compatible with embedded OUI vendor database.
 LUCI_DEPENDS:=+ip-full
 LUCI_PKGARCH:=all
 
@@ -36,7 +36,11 @@ endef
 define Package/$(PKG_NAME)/prerm
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] && exit 0
-/usr/sbin/arcma uci-restore 2>/dev/null
+case "$$1" in
+	remove|deinstall)
+		/usr/sbin/arcma uci-restore 2>/dev/null
+		;;
+esac
 /etc/init.d/arcma stop 2>/dev/null
 /etc/init.d/arcma disable 2>/dev/null
 exit 0

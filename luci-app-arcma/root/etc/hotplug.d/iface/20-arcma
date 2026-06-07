@@ -21,7 +21,7 @@ if [ -z "${DEV}" ]; then
 fi
 [ -z "${DEV}" ] && exit 0
 
-# M5 fix: debounce rapid ifup events with a per-device atomic lock directory (10s window)
+# Debounce rapid ifup events with a per-device atomic lock directory (10s window)
 # Using mkdir instead of touch ensures an atomic check-and-set operation, preventing race conditions
 LOCK_DEV=$(printf '%s' "${DEV}" | tr -c 'A-Za-z0-9_.:-' '_')
 LOCK="/tmp/arcma_lock_${LOCK_DEV}"

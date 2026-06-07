@@ -53,13 +53,53 @@ return view.extend({
     outputEl.style.display = '';
   },
 
+  sleep(ms) {
+    return new Promise(resolve => window.setTimeout(resolve, ms));
+  },
+
+  readLastLog() {
+    return fs.exec(ARCMA_BIN, ['last-log']).then(res =>
+      res.stdout || res.stderr || _('(no output)')
+    );
+  },
+
+  waitForAsyncResult(outputEl, startedText) {
+    const finishedRe = /\[arcma\] .+ finished rc=([0-9]+)/;
+    let attempts = 0;
+
+    this.showOutput(outputEl, startedText || _('Started'));
+
+    const poll = () => {
+      attempts++;
+      return this.sleep(1000).then(() => this.readLastLog()).then(text => {
+        this.showOutput(outputEl, text);
+
+        const match = finishedRe.exec(text);
+        if (match) {
+          if (match[1] !== '0')
+            ui.addNotification(null, E('p', {}, _('ARCMA finished with errors. Check the output log.')));
+          return text;
+        }
+
+        if (attempts >= 30) {
+          ui.addNotification(null, E('p', {}, _('ARCMA is still running or did not report completion. Check /tmp/arcma/last.log.')));
+          return text;
+        }
+
+        return poll();
+      });
+    };
+
+    return poll();
+  },
+
   handleApply(outputEl, ev) {
     this.setActionBusy(true);
 
     return this.map.save(null, true).then(() =>
       fs.exec(ARCMA_BIN, ['uci-apply-async'])
     ).then(res => {
-      this.showOutput(outputEl, res.stdout || res.stderr || _('Done'));
+      return this.waitForAsyncResult(outputEl, res.stdout || res.stderr || _('Started'));
     }).catch(err => {
       ui.addNotification(null, E('p', {}, String(err)));
     }).finally(() => {
@@ -71,7 +111,7 @@ return view.extend({
     this.setActionBusy(true);
 
     return fs.exec(ARCMA_BIN, ['uci-restore-async']).then(res => {
-      this.showOutput(outputEl, res.stdout || res.stderr || _('Done'));
+      return this.waitForAsyncResult(outputEl, res.stdout || res.stderr || _('Started'));
     }).catch(err => {
       ui.addNotification(null, E('p', {}, String(err)));
     }).finally(() => {
@@ -105,10 +145,10 @@ return view.extend({
 
     let s, o;
 
-    // m1 fix: store map on view instance so handleApply/handleRestore can call this.map.save()
+    // Store map on the view instance so action handlers can save it.
     this.map = new form.Map('arcma',
       _('ARCMA'),
-      _('Automatically change MAC addresses of network interfaces on boot and/or interface up. No external dependencies required.')
+      _('Automatically change MAC addresses of physical network interfaces on boot and/or interface up. No external dependencies required.')
     );
     const m = this.map;
 
@@ -224,6 +264,11 @@ return view.extend({
     o.placeholder = 'XX:XX:XX';
     o.depends('mode', 'oui');
     o.rmempty = true;
+    o.validate = function (section_id, value) {
+      if (!value) return true;
+      return /^[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}$/.test(value)
+        ? true : _('Must be XX:XX:XX format');
+    };
 
     o = s.option(form.Value, 'static_mac', _('Static MAC'));
     o.placeholder = 'XX:XX:XX:XX:XX:XX';
