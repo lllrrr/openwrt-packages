@@ -1,5 +1,5 @@
 local m, s
-m = Map("caddy", translate("Caddy"), translate("Caddy 是一个可扩展的服务器平台,具有自动 HTTPS 功能的快速且可扩展的多平台 HTTP/1-2-3 Web 服务器") .. "<br/>" .. "项目地址：" .. [[<a href="https://github.com/caddyserver/caddy" target="_blank">]] .. translate("github.com/caddyserver/caddy") .. "</a>&nbsp; &nbsp;&nbsp;" .. " caddy文档：" .. [[<a href="https://caddyserver.com/docs/" target="_blank">]] .. translate("caddyserver.com/docs/") .. [[</a>]])
+m = Map("caddy", translate("Caddy"), translate("Caddy 是一个可扩展的服务器平台,具有自动 HTTPS 功能的快速且可扩展的多平台 HTTP/1-2-3 Web 服务器"))
 
 m:section(SimpleSection).template  = "caddy/caddy_status"
 
