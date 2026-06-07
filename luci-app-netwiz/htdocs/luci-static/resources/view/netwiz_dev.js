@@ -1231,8 +1231,10 @@ return view.extend({
                 // 传入的参数，将对象解析为 mac 和 name
                 (function(curr) {
                     callV6KeepAlive(curr.mac, curr.name).then(function() {
-                        sessionStorage.setItem('nw_v6_hb_' + curr.mac, 'sent'); 
+                        // 成功，名字指纹已经在触发时记录过了，什么都不用做
                     }).catch(function() {
+                        // 如果请求因为网络等原因失败了，删掉它的防刷缓存，允许它下一次重试
+                        sessionStorage.removeItem('nw_v6_hb_' + curr.mac);
                     }).finally(function() {
                         setTimeout(function() {
                             window.nwActiveCount--; 
@@ -1586,13 +1588,12 @@ return view.extend({
                         }
 
                         var triggerKeepAlive = function() {
-                            var hasSent = sessionStorage.getItem(hbKey);
-                            // 判断防止重复入队
+                            var lastSentName = sessionStorage.getItem(hbKey);
                             var inQueue = window.nwKeepAliveQueue.find(function(q){ return q.mac === dev.mac; });
                             
-                            if (!hasSent && !inQueue) { 
-                                sessionStorage.setItem(hbKey, 'pending'); 
-                                // 将只 push 字符串改成 push 包含 mac 和 name 的对象
+                            // 没有发过，或者用户名跟上次不一样，更改
+                            if (lastSentName !== dev.name && !inQueue) { 
+                                sessionStorage.setItem(hbKey, dev.name); // 将现在的用户名作为指纹存入防刷缓存
                                 window.nwKeepAliveQueue.push({mac: dev.mac, name: dev.name});    
                                 processKeepAliveQueue();                  
                             }
@@ -2460,6 +2461,14 @@ return view.extend({
         refreshBtn.addEventListener('click', function() {
             var icon = this.querySelector('.nd-refresh-icon');
             if(icon) { icon.style.transform = 'rotate(360deg)'; setTimeout(function(){ icon.style.transform = 'none'; }, 800); }
+            
+            // 手动点击刷新，清空所有心跳缓存！
+            Object.keys(sessionStorage).forEach(function(key) {
+                if (key.indexOf('nw_v6_hb_') === 0) {
+                    sessionStorage.removeItem(key);
+                }
+            });
+            
             loadDevices(true); // 主动Ping
         });
 
