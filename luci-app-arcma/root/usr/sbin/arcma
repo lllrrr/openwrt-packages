@@ -2,8 +2,8 @@
 # shellcheck disable=SC3043
 # SPDX-License-Identifier: MIT
 # arcma - Automatic Random Complete MAC Address changer
-# Requires only BusyBox ash-compatible sh, od, uci, ip
-# Compatible with OpenWrt/ImmortalWrt 24.10+
+# Requires only BusyBox ash-compatible sh, hexdump, uci, ip
+# Tested with OpenWrt 24.10, 25.12 and Development Snapshots
 #
 # Usage: arcma <command> [options]
 #   arcma apply   [<iface> ...]   Apply random MAC (all interfaces if none specified)
@@ -38,13 +38,15 @@ rand_hex() {
     local bytes=$(( (n + 1) / 2 ))
     local hex
 
-    hex=$(hexdump -n "${bytes}" -e '1/1 "%02x"' /dev/urandom 2>/dev/null)
+    hex=$(hexdump -v -n "${bytes}" -e '1/1 "%02x"' /dev/urandom 2>/dev/null \
+        | tr -d ' \n\t')
 
-    if [ "${#hex}" -ne "$(( bytes * 2 ))" ]; then
+    if [ "${#hex}" -ne "$(( bytes * 2 ))" ] || ! validate_hex_len "${hex}" "$(( bytes * 2 ))"; then
         hex=$(od -An -N"${bytes}" -v -t x1 /dev/urandom 2>/dev/null \
             | tr -d ' \n\t')
     fi
 
+    validate_hex_len "${hex}" "$(( bytes * 2 ))" || return 1
     [ "${#hex}" -ge "${n}" ] || return 1
     echo "${hex}" | cut -c"1-${n}"
 }
@@ -270,7 +272,10 @@ set_mac() {
         if ip link set dev "${iface}" down 2>/dev/null; then
             ip link set dev "${iface}" address "${mac}"
             ret=$?
-            ip link set dev "${iface}" up 2>/dev/null
+            if ! ip link set dev "${iface}" up 2>/dev/null; then
+                log_err "Failed to bring ${iface} back up after MAC change"
+                return 1
+            fi
             return ${ret}
         else
             log_err "Failed to bring ${iface} down via ip link; cannot change MAC"
@@ -783,7 +788,7 @@ run_async() {
 # ──────────────────────────────────────────────────────────
 usage() {
 printf "arcma v%s — Automatic Random Complete MAC Address changer
-BusyBox ash-compatible. Compatible with OpenWrt 24.10+
+BusyBox ash-compatible. Compatible with OpenWrt 24.10, 25.12 and Development Snapshots
 
 Commands:
   apply   [opts] [iface ...]   Change MAC addresses
