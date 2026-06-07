@@ -337,7 +337,10 @@ var T = {
     'MSG_CUSTOM_PKG_DESC': _('Please verify backup packages:'),
     'MSG_CUSTOM_PKG_ACT': _('If you proceed, missing plugins WILL NOT be restored automatically!'),
     'MSG_CUSTOM_PKG_TIP': _('Tip: Manually place missing packages .ipk/.apk into the /etc/netwiz/custom_pkgs/ directory via SSH to ensure they are automatically reinstalled during future restorations.'),
-    'BTN_FORCE_BACKUP': _('Ignore & Backup'),
+    'BTN_IGNORE_BAK': _('Ignore & Backup'),
+    'TIT_ARCH_CONFLICT': _('Architecture Conflict Warning'),
+    'MSG_RESTORE_ARCH_TIP': _('Architecture Safety Lock: If restoring across different package managers (e.g., IPK backup to APK system), offline plugins will be safely skipped to prevent damage. Config data will still be restored.'),
+    'BTN_FORCE_RESTORE': _('Force Restore Config'),
     'TXT_MISSING_PKGS': _('Missing packages:'),
     'TXT_PROVIDED_PKGS': _('Manually placed in custom_pkgs:'),
     'TIT_CUSTOM_PKG_READY': _('Custom Plugins Ready'),
@@ -2524,7 +2527,7 @@ return view.extend({
                                          '</span><br><br>' + 
                                          (T['MSG_CUSTOM_PKG_TIP'] || 'Tip: Manually place missing packages .ipk/.apk into the /etc/netwiz/custom_pkgs/ directory via SSH to ensure they are automatically reinstalled during future restorations.') + 
                                          '<br><br></div>',
-                                    okText: '🚀 ' + (T['BTN_FORCE_BACKUP'] || 'Ignore & Backup'),
+                                    okText: '🚀 ' + (T['BTN_IGNORE_BAK'] || 'Ignore & Backup'),
                                     cancelText: T['BTN_CANCEL_RST'] || 'Cancel',
                                     isDanger: true,
                                     onOk: function() { performBackup(); }
@@ -2592,6 +2595,11 @@ return view.extend({
         if (btnSmartRestore && fileSmartRestore) {
             btnSmartRestore.addEventListener('click', function(e) {
                 e.preventDefault();
+                
+                // 获取架构名
+                callCheckMissingPkgs().then(function(res) {
+                    window.nwCurrentArch = res.pkg_type || 'apk';
+                }).catch(function(){});
                 openModal({
                     title: '<div style="position:relative; display:flex; justify-content:center; align-items:center; width:100%;"><span id="btn-restore-close" style="position:absolute; right: 10px; font-size:35px; color:rgba(255,255,255,0.8); cursor:pointer; line-height:1; font-family:Arial,sans-serif; padding:0 5px;" onmouseover="this.style.color=\'#fff\'" onmouseout="this.style.color=\'rgba(255,255,255,0.8)\'">×</span><span>' + T['M_RST_CONFIRM_TIT'] + '</span></div>',
                     msg: '<div style="text-align:left;">' + T['M_RST_CONFIRM_MSG'] +
@@ -2629,7 +2637,7 @@ return view.extend({
                     });
                     
                     // 探测心跳包函数
-                    // 👉 终极神级版：状态机双向探测雷达 (先等断网，再等连通)
+                    // 状态机双向探测雷达 (先等断网，再等连通)
                     var executeRebootProbe = function(newIp) {
                         var rebootSec = 0;
                         var h = window.location.hostname;
@@ -2833,37 +2841,70 @@ return view.extend({
                     }
                 };
 
-                // 动态探测真实可用空间
-                var sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+                // ==========================================
+                // “智能指纹校验 + 容量探测”逻辑
+                // ==========================================
                 
-                openModal({ 
-                    title: T['M_RST_PROBE_TIT'], 
-                    msg: '<div style="text-align:center; padding:15px 0; color:#64748b;">' + T['M_RST_PROBE_MSG'] + '</div>', 
-                    spin: true 
-                });
-                
-                callCheckStorage().then(function(res) {
-                    var availMB = res.tmp_avail_mb || 60;
+                var fileName = file.name;
+                // 保存的当前系统架构（如果没有则默认 apk）
+                var currentArch = window.nwCurrentArch || 'apk';
+                var isApkBackup = fileName.indexOf('_apk_') !== -1;
+                var isIpkBackup = fileName.indexOf('_ipk_') !== -1;
+
+                //“容量探测与启动逻辑”封装成 doNext 函数
+                var doNext = function() {
+                    // 动态探测真实可用空间
+                    var sizeMB = (file.size / (1024 * 1024)).toFixed(1);
                     
-                    if (sizeMB > (availMB * 0.85)) {
-                        openModal({
-                            title: T['M_RST_OOM_TIT'],
-                            msg: '<div style="text-align:left; font-size:14px; color:#475569; line-height:1.6;">' +
-                                 T['M_RST_OOM_MSG'].replace('{size}', sizeMB).replace('{avail}', availMB) + '</div>',
-                            hideCancel: true,
-                            okText: T['BTN_CANCEL_RST'],
-                            isDanger: true,
-                            onOk: function() {
-                                fileSmartRestore.value = '';
-                                document.getElementById('nw-global-modal').style.display = 'none';
-                            }
-                        });
-                    } else {
-                        startProcess();
-                    }
-                }).catch(function() {
-                    startProcess(); 
-                });
+                    openModal({ 
+                        title: T['M_RST_PROBE_TIT'], 
+                        msg: '<div style="text-align:center; padding:15px 0; color:#64748b;">' + T['M_RST_PROBE_MSG'] + '</div>', 
+                        spin: true 
+                    });
+                    
+                    callCheckStorage().then(function(res) {
+                        var availMB = res.tmp_avail_mb || 60;
+                        
+                        if (sizeMB > (availMB * 0.85)) {
+                            openModal({
+                                title: T['M_RST_OOM_TIT'],
+                                msg: '<div style="text-align:left; font-size:14px; color:#475569; line-height:1.6;">' +
+                                     T['M_RST_OOM_MSG'].replace('{size}', sizeMB).replace('{avail}', availMB) + '</div>',
+                                hideCancel: true,
+                                okText: T['BTN_CANCEL_RST'],
+                                isDanger: true,
+                                onOk: function() {
+                                    fileSmartRestore.value = '';
+                                    document.getElementById('nw-global-modal').style.display = 'none';
+                                }
+                            });
+                        } else {
+                            startProcess(); // 容量充足，真正开始上传和恢复
+                        }
+                    }).catch(function() {
+                        startProcess(); 
+                    });
+                };
+
+                // 判断备份包架构与当前系统架构是否跨代冲突
+                if ((currentArch === 'apk' && isIpkBackup) || (currentArch === 'ipk' && isApkBackup)) {
+                    // 检测到不一致！
+                    openModal({
+                        title: '⚠️ ' + (T['TIT_ARCH_CONFLICT'] || 'Architecture Conflict Warning'),
+                        msg: '<div style="margin-top:10px; padding:12px; background:#fef2f2; color:#991b1b; border-radius:6px; font-size:14px; line-height:1.5;">' + 
+                             (T['MSG_RESTORE_ARCH_TIP'] || 'Architecture Safety Lock: If restoring across different package managers (e.g., IPK backup to APK system), offline plugins will be safely skipped to prevent damage. Config data will still be restored.') + 
+                             '</div>',
+                        okText: '🚀 ' + (T['BTN_FORCE_RESTORE'] || 'Force Restore Config'),
+                        cancelText: T['BTN_CANCEL_RST'] || 'Cancel',
+                        isDanger: true,
+                        onOk: function() {
+                            doNext(); // 用户已知晓风险并强行恢复，执行下一步
+                        }
+                    });
+                } else {
+                    // ✅ 架构一致，或者无法识别文件名，直接静默执行，不打扰用户！
+                    doNext(); 
+                }
             });
         }
 
