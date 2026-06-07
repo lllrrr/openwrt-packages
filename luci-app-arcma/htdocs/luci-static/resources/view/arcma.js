@@ -179,7 +179,7 @@ return view.extend({
     o.rmempty = false;
 
     o = s.option(form.Flag, 'persist', _('Persist MAC'),
-      _('Write randomized MAC into <code>uci network.&lt;iface&gt;.macaddr</code> so it survives reboot'));
+      _('Write randomized MAC into <code>uci network.&lt;iface&gt;.macaddr</code> so it survives reboot. <b>Warning:</b> Frequent writes to UCI config can wear out flash memory on some devices.'));
     o.rmempty = false;
 
     // ── Per-interface table ──────────────────────────────────────────

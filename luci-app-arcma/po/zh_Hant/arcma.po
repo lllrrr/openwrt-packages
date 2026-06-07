@@ -70,8 +70,8 @@ msgstr "多介面間 NIC 部分遞增（所有介面共用相同 OUI 前綴）"
 msgid "Persist MAC"
 msgstr "持久化 MAC"
 
-msgid "Write randomized MAC into <code>uci network.&lt;iface&gt;.macaddr</code> so it survives reboot"
-msgstr "將隨機化的 MAC 寫入 <code>uci network.&lt;介面&gt;.macaddr</code>，使其在重啟後保持"
+msgid "Write randomized MAC into <code>uci network.&lt;iface&gt;.macaddr</code> so it survives reboot. <b>Warning:</b> Frequent writes to UCI config can wear out flash memory on some devices."
+msgstr "將隨機化的 MAC 寫入 <code>uci network.&lt;介面&gt;.macaddr</code>，使其在重啟後保持。<b>警告：</b>頻繁寫入 UCI 配置可能會磨損某些裝置上的快閃記憶體。"
 
 msgid "Per-interface Override"
 msgstr "按介面獨立設定"

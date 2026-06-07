@@ -36,6 +36,7 @@ endef
 define Package/$(PKG_NAME)/prerm
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] && exit 0
+/usr/sbin/arcma uci-restore 2>/dev/null
 /etc/init.d/arcma stop 2>/dev/null
 /etc/init.d/arcma disable 2>/dev/null
 exit 0

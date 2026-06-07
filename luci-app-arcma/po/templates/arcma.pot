@@ -69,7 +69,7 @@ msgstr ""
 msgid "Persist MAC"
 msgstr ""
 
-msgid "Write randomized MAC into <code>uci network.&lt;iface&gt;.macaddr</code> so it survives reboot"
+msgid "Write randomized MAC into <code>uci network.&lt;iface&gt;.macaddr</code> so it survives reboot. <b>Warning:</b> Frequent writes to UCI config can wear out flash memory on some devices."
 msgstr ""
 
 msgid "Per-interface Override"
