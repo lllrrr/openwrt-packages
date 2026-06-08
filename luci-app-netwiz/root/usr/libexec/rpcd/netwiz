@@ -90,7 +90,7 @@ watchdog_pppoe_ipv6() {
 
 case "$1" in
     list)
-        echo '{ "set_network": { "mode": "string", "arg1": "string", "arg2": "string", "arg3": "string", "arg4": "string", "arg5": "string", "arg6": "string" }, "set_password": { "password": "string" }, "check_wifi": {}, "confirm": {}, "smart_backup": { "type": "string" }, "smart_restore_exec": { "filepath": "string" }, "check_backup": {}, "check_storage": {}, "check_restore_status": {}, "check_ip_conflict": { "ip": "192.168.1.254" }, "check_missing_pkgs": {} }'
+        echo '{ "set_network": { "mode": "string", "arg1": "string", "arg2": "string", "arg3": "string", "arg4": "string", "arg5": "string", "arg6": "string" }, "set_password": { "password": "string" }, "check_wifi": {}, "confirm": {}, "smart_backup": { "type": "string" }, "smart_restore_exec": { "filepath": "string" }, "check_backup": {}, "check_storage": {}, "check_restore_status": {}, "check_ip_conflict": { "ip": "192.168.1.254" }, "check_missing_pkgs": {}, "get_wizard_status": {}, "set_wizard_status": { "mode": "string" } }'
         exit 0
         ;;
     call)
@@ -163,16 +163,26 @@ case "$1" in
                 
                 # 3. 扫描系统中已安裝
                 if command -v apk >/dev/null 2>&1; then
+                    # 刷新索引
+                    apk update >/dev/null 2>&1
                     installed=$(apk info | grep -E "^luci-(app|theme)-")
+                    available_pkgs=$(apk search -q "luci-*" 2>/dev/null)
+                    
                     for pkg in $installed; do
-                        if ! apk fetch -s "$pkg" >/dev/null 2>&1; then
+                        # 使用 -x 进行精准全词匹配
+                        if ! echo "$available_pkgs" | grep -qx "$pkg"; then
                             check_pkg_missing "$pkg"
                         else
                             official_pkgs="$official_pkgs $pkg"
                         fi
                     done
                 elif command -v opkg >/dev/null 2>&1; then
+                    # opkg 如果检测到索引文件为空，也触发一次自动更新
+                    if [ -z "$(ls -A /var/opkg-lists 2>/dev/null)" ]; then
+                        opkg update >/dev/null 2>&1
+                    fi
                     installed=$(opkg list-installed | awk '{print $1}' | grep -E "^luci-(app|theme)-")
+                    
                     for pkg in $installed; do
                         if ! grep -q "^Package: $pkg$" /var/opkg-lists/* 2>/dev/null; then
                             check_pkg_missing "$pkg"
@@ -228,10 +238,72 @@ case "$1" in
                     echo '{ "status": "safe" }'
                 fi
                 ;;
+
+            # 获取向导状态与智能探针
+                get_wizard_status)
+                    configured=$(uci -q get netwiz.global.configured)
+                    [ -z "$configured" ] && configured=0
+                    
+                    wizard_enable=$(uci -q get netwiz.main.wizard_enable)
+                    [ -z "$wizard_enable" ] && wizard_enable=1
+
+                    is_pppoe=0
+                    wan_proto=$(uci -q get network.wan.proto)
+                    wan_user=$(uci -q get network.wan.username)
+                    if [ "$wan_proto" = "pppoe" ] && [ -n "$wan_user" ]; then
+                        is_pppoe=1
+                    fi
+
+                    echo "{\"configured\": $configured, \"wizard_enable\": $wizard_enable, \"is_pppoe\": $is_pppoe}"
+                    exit 0
+                    ;;
+
+                # 状态锁控
+                set_wizard_status)
+                    input=$(cat)
+                    mode=$(echo "$input" | jsonfilter -e '@.mode')
+                    
+                    # 防呆
+                    # 检查并创建节点，防止因为配置文件缺失导致的 uci set 静默失效
+                    [ ! -f /etc/config/netwiz ] && touch /etc/config/netwiz
+                    uci -q get netwiz.global >/dev/null 2>&1 || uci set netwiz.global=global
+                    uci -q get netwiz.main >/dev/null 2>&1 || uci set netwiz.main=main
+
+                    if [ "$mode" = "skip" ]; then
+                        # 普通跳过
+                        uci set netwiz.global.configured='1'
+                    elif [ "$mode" = "restore" ]; then
+                        # 手动恢复弹窗
+                        uci set netwiz.global.configured='1'
+                        uci set netwiz.main.wizard_enable='1'
+                    elif [ "$mode" = "done" ]; then
+                        # 彻底完成/不再提示
+                        uci set netwiz.global.configured='1'
+                        uci set netwiz.main.wizard_enable='0'
+                    fi
+                    
+                    uci commit netwiz
+                    sync  # 刷入物理闪存，防止丢失
+                    
+                    echo '{"result": 0}'
+                    exit 0
+                    ;;
+
             set_network)
-                set +e
-                
-                log "接收到前端下发的新配置，删除所有历史备份记录"
+                    set +e
+                    
+                    # 应用网络配置，死锁向导
+                    [ ! -f /etc/config/netwiz ] && touch /etc/config/netwiz
+                    uci -q get netwiz.global >/dev/null 2>&1 || uci set netwiz.global=global
+                    uci -q get netwiz.main >/dev/null 2>&1 || uci set netwiz.main=main
+                    
+                    uci set netwiz.global.configured='1'
+                    uci set netwiz.main.wizard_enable='0'
+                    uci commit netwiz
+                    sync  # 将RAM缓存瞬间刷入物理闪存，防止重启网络时丢失
+                    
+                    log "接收到前端下发的新配置，删除所有历史备份记录"
+
                 rm -f /etc/config/network.netwiz_wan_bak /etc/config/network.netwiz_bak /etc/config/dhcp.netwiz_bak
                 # ====================================================================
 
@@ -859,6 +931,12 @@ case "$1" in
                 ;;
 
             smart_backup)
+                # 并发防呆锁。防止用户刷新页面多次点击，导致两个进程互相删文件的惨案
+                if [ -f /tmp/nw_backup_running ]; then
+                    echo '{"error":"backup is currently running"}'
+                    exit 0
+                fi
+                
                 LOG_FILE="/etc/netwiz_recovery.log"
                 touch /tmp/nw_backup_running
                 
@@ -887,8 +965,48 @@ case "$1" in
                 link_file="/www/luci-static/${dl_name}"
 
                 (
+                    # 关闭“遇错不动”机制
+                    set +e
+                    
                     log "[BACKUP]" "[1/5] 开始备份系统设置..."
-                    sysupgrade -b /tmp/nw_sys_config.tar.gz >> "$LOG_FILE" 2>&1
+                    log "[BACKUP]" "采用原生 tar 极速快照模式，防止底层进程卡死..."
+                    
+                    #  ash 脚本的非函数区
+                    tar_targets=""
+                    base_targets="/etc/config /etc/passwd /etc/shadow /etc/group /etc/dropbear /etc/profile /etc/sysupgrade.conf"
+                    
+                    # 绝对安全过滤
+                    for target in $base_targets; do
+                        if [ -e "$target" ]; then
+                            # 去掉前面的 / 变成相对路径，配合 -C / 使用
+                            rel=$(echo "$target" | sed 's/^\///')
+                            tar_targets="$tar_targets $rel"
+                        fi
+                    done
+                    
+                    # 探测高级资产目录
+                    check_dirs="
+                        /etc/openclash/core
+                        /etc/openclash/history
+                        /etc/mosdns/rule
+                        /etc/adguardhome
+                        /usr/share/v2ray
+                        /usr/share/xray
+                        /etc/passwall
+                        /etc/smartdns
+                    "
+                    
+                    for dir in $check_dirs; do
+                        if [ -d "$dir" ]; then
+                            rel=$(echo "$dir" | sed 's/^\///')
+                            tar_targets="$tar_targets $rel"
+                        fi
+                    done
+                    
+                    log "[BACKUP]" "即将打包的目标列表生成完毕，开始压缩..."
+                    
+                    # 强行打包并加上 || true，无论报什么警告都绝不停止运行
+                    tar -czf /tmp/nw_sys_config.tar.gz -C / $tar_targets >> "$LOG_FILE" 2>&1 || true
                     
                     mkdir -p /tmp/nw_offline_pkgs
                     cd /tmp/nw_offline_pkgs
