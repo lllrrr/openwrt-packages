@@ -1632,3 +1632,24 @@ msgstr "插件扫描完成"
 
 msgid "System scan complete! All your installed plugins are from the official repository and will be safely recorded for automatic restoration."
 msgstr "系统扫描完毕！您安装的所有第三方可视化插件，均存在于当前软件源中。它们将被安全记录并在未来自动联网恢复。"
+
+msgid "⚠️ Backup Interrupted Warning"
+msgstr "⚠️ 备份中断警告"
+
+msgid "Out of Memory (OOM Protection)!"
+msgstr "内存不足 (OOM 预防机制)！"
+
+msgid "The files you are trying to pack are too large and exceed the available memory.<br><br>To prevent device crash, the backup task has been safely canceled. Please clear unnecessary core files and try again."
+msgstr "您要打包的文件体积过大，超过了路由器当前的可用内存。<br><br>为防止设备死机，备份任务已自动安全取消。请尝试清理无用的核心文件后重试。"
+
+msgid "I Got It"
+msgstr "我知道了"
+
+msgid "⚠️ Scan Timeout Warning"
+msgstr "⚠️ 扫描超时警告"
+
+msgid "Communication Timeout or Network Error"
+msgstr "通信超时或网络异常"
+
+msgid "Communication with the router timed out (possibly due to slow network source retrieval or network fluctuations).<br><br>To ensure backup integrity, the task has been safely canceled. Please try again later, or manually run opkg update via SSH."
+msgstr "与路由器的通信超时 (可能是网络源拉取过慢或网络波动)。<br><br>为保证备份完整性，任务已安全取消。请稍后再试，或在 SSH 中手动运行 opkg update。"

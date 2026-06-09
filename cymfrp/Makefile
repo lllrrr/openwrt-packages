@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=cymfrp
-PKG_VERSION:=0.67.0
+PKG_VERSION:=0.69.1
 PKG_RELEASE:=1
 
 PKG_SOURCE:=frp-$(PKG_VERSION).tar.gz
@@ -58,6 +58,14 @@ endef
 define Package/cymfrps/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	find $(PKG_BUILD_DIR) -name frps -type f -exec $(INSTALL_BIN) {} $(1)/usr/bin/cymfrps \;
+endef
+
+define Build/Prepare
+	$(call Build/Prepare/Default)
+	mkdir -p $(PKG_BUILD_DIR)/web/frpc/dist
+	mkdir -p $(PKG_BUILD_DIR)/web/frps/dist
+	echo "dummy" > $(PKG_BUILD_DIR)/web/frpc/dist/index.html
+	echo "dummy" > $(PKG_BUILD_DIR)/web/frps/dist/index.html
 endef
 
 $(eval $(call BuildPackage,cymfrpc))

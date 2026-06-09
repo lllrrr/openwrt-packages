@@ -349,6 +349,13 @@ var T = {
     'TXT_OFFICIAL_PKGS': _('Auto-backup plugins:'),
     'TIT_OFFICIAL_PKG_READY': _('Plugin Scan Complete'),
     'MSG_OFFICIAL_PKG_READY_DESC': _('System scan complete! All your installed plugins are from the official repository and will be safely recorded for automatic restoration.'),
+    'M_OOM_TITLE': _('⚠️ Backup Interrupted Warning'),
+    'M_OOM_HEAD': _('Out of Memory (OOM Protection)!'),
+    'M_OOM_DESC': _('The files you are trying to pack are too large and exceed the available memory.<br><br>To prevent device crash, the backup task has been safely canceled. Please clear unnecessary core files and try again.'),
+    'M_I_KNOW': _('I Got It'),
+    'M_SCAN_TIMEOUT_TITLE': _('⚠️ Scan Timeout Warning'),
+    'M_SCAN_TIMEOUT_HEAD': _('Communication Timeout or Network Error'),
+    'M_SCAN_TIMEOUT_DESC': _('Communication with the router timed out (possibly due to slow network source retrieval or network fluctuations).<br><br>To ensure backup integrity, the task has been safely canceled. Please try again later, or manually run opkg update via SSH.')
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -2460,6 +2467,19 @@ return view.extend({
                                                 document.body.removeChild(a);
                                                 openModal({ title: T['M_BAK_SUCC_TIT'], msg: T['M_BAK_SUCC_MSG'], hideCancel: true, okText: T['M_CLOSE'] });
                                             }
+                                            // 截后端的异常退出状态 (OOM 或其他致命错误)
+                                            else if (cRes && (cRes.status === 'error' || cRes.status === 'oom') && !isDone) {
+                                                isDone = true;
+                                                clearInterval(checkTimer);
+                                                openModal({
+                                                    title: T['M_OOM_TITLE'] || '⚠️ Backup Interrupted Warning',
+                                                    msg: '<div style="color: #ef4444; font-size: 16px; font-weight: bold; margin-bottom: 10px;">' + 
+                                                        (T['M_OOM_HEAD'] || 'Out of Memory (OOM Protection)!') + '</div>' + 
+                                                        '<div style="color: #475569; font-size: 14px; line-height: 1.5;">' +
+                                                        (T['M_OOM_DESC'] || 'The backup task has been canceled to prevent device crash.') + '</div>',
+                                                    okText: T['M_I_KNOW'] || 'I Got It'
+                                                });
+                                            }
                                         }).catch(function() {});
                                     }, 3000);
                                 } else {
@@ -2549,8 +2569,17 @@ return view.extend({
                                 // 无任何 UI 插件，直接备份
                                 performBackup();
                             }
-                        }).catch(function() {
-                            performBackup();
+                        }).catch(function(err) {
+                            // 超时或错误直接强行阻断并弹窗提示
+                            var backupModal = document.getElementById('nw-global-modal');
+                            if (backupModal) backupModal.style.display = 'none';
+                            
+                            openModal({ 
+                                title: T['M_SCAN_TIMEOUT_TITLE'], 
+                                msg: '<div style="font-size:15px; color:#ef4444; margin-bottom:10px;"><b>' + T['M_SCAN_TIMEOUT_HEAD'] + '</b></div>' +
+                                     '<div style="font-size:14px; color:#475569;">' + T['M_SCAN_TIMEOUT_DESC'] + '</div>', 
+                                okText: T['M_I_KNOW'] 
+                            });
                         });
                     }
                 });
@@ -2817,18 +2846,31 @@ return view.extend({
                                 var checkTimer = setInterval(function() {
                                     if (isRegretDone) { clearInterval(checkTimer); return; }
                                     callCheckBackup().then(function(cRes) {
-                                        if (cRes && cRes.status === 'done' && !isRegretDone) {
-                                            isRegretDone = true;
+                                        if (cRes && cRes.status === 'done' && !isDone) {
+                                            isDone = true;
                                             clearInterval(checkTimer);
                                             var a = document.createElement("a");
                                             a.href = res.url;
-                                            a.download = "NetWiz_RegretPill_" + Date.now() + ".tar.gz";
+                                            a.download = res.filename || "NetWiz_SmartGhost.tar.gz";
                                             document.body.appendChild(a);
                                             a.click();
                                             document.body.removeChild(a);
-                                            setTimeout(execRestore, 1500);
+                                            openModal({ title: T['M_BAK_SUCC_TIT'], msg: T['M_BAK_SUCC_MSG'], hideCancel: true, okText: T['M_CLOSE'] });
                                         }
-                                    }).catch(function(){});
+                                        // 拦截后端的异常退出状态 (OOM 或其他致命错误)
+                                        else if (cRes && (cRes.status === 'error' || cRes.status === 'oom') && !isDone) {
+                                            isDone = true;
+                                            clearInterval(checkTimer);
+                                            openModal({
+                                                title: T['M_OOM_TITLE'] || '⚠️ Backup Interrupted Warning',
+                                                msg: '<div style="color: #ef4444; font-size: 16px; font-weight: bold; margin-bottom: 10px;">' + 
+                                                     (T['M_OOM_HEAD'] || 'Out of Memory (OOM Protection)!') + '</div>' + 
+                                                     '<div style="color: #475569; font-size: 14px; line-height: 1.5;">' +
+                                                     (T['M_OOM_DESC'] || 'The backup task has been canceled to prevent device crash.') + '</div>',
+                                                okText: T['M_I_KNOW'] || 'I Got It'
+                                            });
+                                        }
+                                    }).catch(function() {});
                                 }, 3000);
                             } else {
                                 execRestore();
