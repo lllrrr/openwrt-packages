@@ -355,7 +355,9 @@ var T = {
     'M_I_KNOW': _('I Got It'),
     'M_SCAN_TIMEOUT_TITLE': _('⚠️ Scan Timeout Warning'),
     'M_SCAN_TIMEOUT_HEAD': _('Communication Timeout or Network Error'),
-    'M_SCAN_TIMEOUT_DESC': _('Communication with the router timed out (possibly due to slow network source retrieval or network fluctuations).<br><br>To ensure backup integrity, the task has been safely canceled. Please try again later, or manually run opkg update via SSH.')
+    'M_SCAN_TIMEOUT_DESC': _('Communication with the router timed out (possibly due to slow network source retrieval or network fluctuations).<br><br>To ensure backup integrity, the task has been safely canceled. Please try again later, or manually run opkg update via SSH.'),
+    'TXT_WISP_WAITING': _('Connecting...'),
+    'MSG_WISP_STUCK': _('⚠️ Connecting to upstream... (Check password or signal strength if stuck)'),
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -1503,6 +1505,7 @@ return view.extend({
                     // 2. 智能判定出口
                     var activeWan = phyWan; // 先看物理 WAN
                     var isWispActive = false; // 是否正在使用无线中继联网
+                    var hasWispConfigured = !!uci.sections('wireless', 'wifi-iface').find(function(i) { return i.network === 'wwan' && i.mode === 'sta'; });
 
                     var phyWanHasIp = phyWan.up && phyWan['ipv4-address'] && phyWan['ipv4-address'].length > 0;
                     var virWwanHasIp = virWwan.up && virWwan['ipv4-address'] && virWwan['ipv4-address'].length > 0;
@@ -2186,6 +2189,11 @@ return view.extend({
                         sTitle = T['TXT_WISP_ON'] || 'WISP Enabled'; 
                         statusBadge = mkB('#10b981', T['BDG_GOT'] || 'IP Acquired') + upBadgeHtml; 
                         sDetails = mkD(T['TXT_WAN_IP'], liveWanIp, T['TXT_UP_GW'], liveGw); 
+                    }
+                    else if (hasWispConfigured && !isWispActive) {
+                        sTitle = T['TXT_WISP_ON'] || 'WISP Enabled'; 
+                        statusBadge = mkB('#f59e0b', T['TXT_WISP_WAITING'] || 'Connecting...'); 
+                        sDetails = "<div style='color:#facc15; font-size:14.5px; font-weight:bold;'>" + (T['MSG_WISP_STUCK'] || '⚠️ Connecting to upstream... (Check password if stuck)') + "</div>";
                     }
                     else if (wProto === 'pppoe') { sTitle = T['STAT_MAIN_PPPOE']; if (activeWan.up && liveWanIp) { statusBadge = mkB('#10b981', T['BDG_SUCC']) + upBadgeHtml; sDetails = mkD(T['TXT_PUB_IP'], liveWanIp, T['TXT_REM_GW'], liveGw); } else { statusBadge = mkB('#ef4444', T['BDG_DIAL']); sDetails = mkD(T['TXT_LAN_IP'], lIp, T['TXT_STATUS'], T['TXT_WAIT_REM']); } } 
                     else if (wProto === 'dhcp') { sTitle = T['STAT_SEC_DHCP']; if (activeWan.up && liveWanIp) { statusBadge = mkB('#10b981', T['BDG_GOT']) + upBadgeHtml; sDetails = mkD(T['TXT_WAN_IP'], liveWanIp, T['TXT_UP_GW'], liveGw); } else { statusBadge = mkB('#f59e0b', T['BDG_WAIT']); sDetails = mkD(T['TXT_LAN_IP'], lIp, T['TXT_STATUS'], T['TXT_GET_IP']); } } 

@@ -1653,3 +1653,9 @@ msgstr "通訊超時或網路異常"
 
 msgid "Communication with the router timed out (possibly due to slow network source retrieval or network fluctuations).<br><br>To ensure backup integrity, the task has been safely canceled. Please try again later, or manually run opkg update via SSH."
 msgstr "與路由器的通訊超時 (可能是網路源拉取過慢或網路波動)。<br><br>為保證備份完整性，任務已安全取消。請稍後再試，或在 SSH 中手動執行 opkg update。"
+
+msgid "Connecting..."
+msgstr "正在連接..."
+
+msgid "⚠️ Connecting to upstream... (Check password or signal strength if stuck)"
+msgstr "⚠️ 正在連接上級網路... (若一直連接不上請檢查密碼是否正確或是否上級訊號太弱)"
