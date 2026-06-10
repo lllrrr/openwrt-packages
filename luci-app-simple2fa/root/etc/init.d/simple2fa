@@ -1,5 +1,5 @@
 #!/bin/sh /etc/rc.common
-# Simple2FA Debug Build - init.d script
+# Simple2FA - init.d script
 # 所有操作都会记录到系统日志，使用 logread | grep simple2fa 查看
 
 START=99
@@ -20,7 +20,10 @@ detect_sysauth_target() {
 	# 默认 bootstrap
 	[ -z "$theme_name" ] && theme_name="bootstrap"
 	
-	log "检测到当前主题: $theme_name (mediaurlbase=$mediaurlbase)"
+	# 注意: 此函数的 stdout 被 $() 捕获用于返回路径
+	# 所以日志只能写到 stderr 或 logger，不能用 echo
+	logger -t simple2fa "[init.d] 检测到当前主题: $theme_name (mediaurlbase=$mediaurlbase)"
+	echo "[simple2fa] 检测到当前主题: $theme_name" >&2
 	
 	# 优先使用当前主题的模板，fallback 到基础模板
 	local theme_path="/usr/lib/lua/luci/view/themes/${theme_name}/sysauth.htm"
@@ -71,7 +74,7 @@ start() {
 		# === 1. 备份 CGI ===
 		if [ -e "$CGI_TARGET" ]; then
 			if [ ! -e "${CGI_TARGET}.bak" ]; then
-				if ! grep -q "Simple2FA-Debug" "$CGI_TARGET" 2>/dev/null; then
+				if ! grep -q "Simple2FA" "$CGI_TARGET" 2>/dev/null; then
 					cp -af "$CGI_TARGET" "${CGI_TARGET}.bak"
 					log "CGI 备份: 成功创建 ${CGI_TARGET}.bak"
 				else

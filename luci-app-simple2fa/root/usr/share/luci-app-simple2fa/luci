@@ -125,4 +125,3 @@ function write(data) {
 let req = request(getenv(), read, write);
 dispatch(req);
 req.close();
-

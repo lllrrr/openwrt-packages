@@ -27,6 +27,12 @@ define Package/luci-app-simple2fa/install
 	$(INSTALL_BIN) ./root/usr/share/luci-app-simple2fa/luci $(1)/usr/share/luci-app-simple2fa/luci
 	$(INSTALL_DATA) ./root/usr/share/luci-app-simple2fa/sysauth.htm $(1)/usr/share/luci-app-simple2fa/sysauth.htm
 	$(INSTALL_DATA) ./root/usr/share/luci-app-simple2fa/sysauth.ut $(1)/usr/share/luci-app-simple2fa/sysauth.ut
+
+	# Fix CRLF line endings (project developed on Windows)
+	find $(1) -type f \( -name "*.lua" -o -name "*.htm" -o -name "*.ut" -o -name "*.js" \) -exec sed -i 's/\r//' {} \;
+	sed -i 's/\r//' $(1)/usr/share/luci-app-simple2fa/luci
+	sed -i 's/\r//' $(1)/etc/init.d/simple2fa
+	sed -i 's/\r//' $(1)/etc/config/simple2fa
 endef
 
 define Package/luci-app-simple2fa/prerm
