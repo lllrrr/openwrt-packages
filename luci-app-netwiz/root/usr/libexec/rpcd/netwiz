@@ -155,7 +155,7 @@ case "$1" in
                 check_pkg_missing() {
                     local p=$1
                     if echo "$provided_pkgs" | grep -q "$p"; then
-                        : # 包含該插件名称，不做处理
+                        : # 包含该插件名称，不做处理
                     else
                         missing_pkgs="$missing_pkgs $p"
                     fi
@@ -165,26 +165,35 @@ case "$1" in
                 if [ ! -f "/tmp/nw_pkg_updated_ok" ]; then
                     if ping -c 1 -W 2 223.5.5.5 >/dev/null 2>&1 || ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
                         log "[BACKUP]" "检测到网络畅通，正在同步软件源..."
-                        if command -v opkg >/dev/null 2>&1; then
-                            timeout 25 opkg update >/dev/null 2>&1
-                        elif command -v apk >/dev/null 2>&1; then
-                            timeout 25 apk update >/dev/null 2>&1
+                        
+                        current_year=$(date +%Y)
+                        if [ "$current_year" -lt 2024 ]; then
+                            log "[BACKUP]" "检测到系统时间异常 ($current_year年)，正在强制校准时钟..."
+                            ntpd -n -q -p ntp.aliyun.com >/dev/null 2>&1 || ntpd -n -q -p time.apple.com >/dev/null 2>&1
                         fi
+                        
+                        # 彻底移除 timeout 拦截，裸调原生引擎，稳定拉取
+                        if command -v opkg >/dev/null 2>&1; then
+                            opkg update >/dev/null 2>&1
+                        elif command -v apk >/dev/null 2>&1; then
+                            apk update >/dev/null 2>&1
+                        fi
+                        
                         touch "/tmp/nw_pkg_updated_ok"
-                        rm -f "/tmp/nw_apk_cache.txt" # 更新源后清理旧缓存
                         log "[BACKUP]" "软件源同步完毕！"
                     else
                         log "[BACKUP]" "暂无外网连接，跳过同步..."
                     fi
                 fi
 
-                # 统一获取已安装列表与极速比对
+                # 4. 统一获取已安装列表与精准确比对
                 installed=""
+                # 优先使用 opkg！官方的无缝包装器
                 if command -v opkg >/dev/null 2>&1; then
                     installed=$(opkg list-installed 2>/dev/null | awk '{print $1}' | grep -E "^luci-(app|theme)-")
                     
-                    # 1：awk 解析底层纯文本文件
-                    avail_pkgs=$(awk '/^Package:/ {print $2}' /var/opkg-lists/* 2>/dev/null)
+                    # 调用包装器生成官方包列表
+                    avail_pkgs=$(opkg list 2>/dev/null | awk '{print $1}')
                     
                     for pkg in $installed; do
                         if echo "$avail_pkgs" | grep -qx "$pkg"; then
@@ -195,31 +204,18 @@ case "$1" in
                     done
                     
                 elif command -v apk >/dev/null 2>&1; then
+                    # 仅在极限精简的纯血 apk 固件上才会走到这里
                     installed=$(apk info 2>/dev/null | grep -E "^luci-(app|theme)-")
-                    
-                    # 2：apk 引入「查询结果永久快取」
-                    if [ ! -f "/tmp/nw_apk_cache.txt" ]; then
-                        installed_list=$(echo $installed)
-                        if [ -n "$installed_list" ]; then
-                            # 只有第一次（或更新源后） 5 秒
-                            apk search -q -e $installed_list 2>/dev/null > "/tmp/nw_apk_cache.txt"
-                        fi
+                    if [ -z "$installed" ]; then
+                        installed=$(apk list -I 2>/dev/null | awk '{print $1}' | grep -E "^luci-(app|theme)-")
                     fi
                     
-                    # 第二次，读取快取文本
-                    avail_pkgs=$(cat "/tmp/nw_apk_cache.txt" 2>/dev/null)
-                    
                     for pkg in $installed; do
-                        if echo "$avail_pkgs" | grep -qx "$pkg"; then
+                        # 老老实实使用精确查询，逐个查验
+                        if [ -n "$(apk search -q -e "$pkg" 2>/dev/null)" ]; then
                             official_pkgs="$official_pkgs $pkg"
                         else
-                            # 快取未命中（可能是刚装的新包），单独核实一次并补入快取
-                            if [ -n "$(apk search -q -e "$pkg" 2>/dev/null)" ]; then
-                                official_pkgs="$official_pkgs $pkg"
-                                echo "$pkg" >> "/tmp/nw_apk_cache.txt"
-                            else
-                                check_pkg_missing "$pkg"
-                            fi
+                            check_pkg_missing "$pkg"
                         fi
                     done
                 fi
