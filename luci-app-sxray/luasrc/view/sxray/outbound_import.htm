@@ -467,18 +467,33 @@
     window.imp_backup = function(){
         setStatus('<%:Creating backup...%>','info');
         (new XHR()).get(backupUrl, {}, function(x,resp){
-            if(!resp||!resp.success){ setStatus(resp&&resp.error||'<%:Backup failed%>','error'); return; }
-            setStatus(resp.message||'<%:Backup created%>','success');
+            if(!resp||!resp.success){ 
+                setStatus(resp&&resp.message||'<%:Backup failed%>','error'); 
+                return; 
+            }
+            var msg = resp.message||'<%:Backup created%>';
+            if(resp.backup_count) {
+                msg += ' (' + resp.backup_count + ' <%:items backed up%>)';
+            }
+            setStatus(msg,'success');
             imp_showRestore();
         });
     };
 
     window.imp_showRestore = function(){
+        setStatus('<%:Loading backups...%>','info');
         (new XHR()).get(listBackupsUrl, {}, function(x,resp){
-            if(!resp||!resp.success) return;
+            if(!resp||!resp.success) {
+                setStatus(resp&&resp.message||'<%:Failed to load backups%>','error');
+                return;
+            }
+            setStatus('');
             var list = $('imp_backup_list');
             var backups = resp.backups||[];
-            if(!backups.length){ list.innerHTML='<li style="color:var(--imp-text-muted);padding:8px 0"><%:No backups available%></li>'; return; }
+            if(!backups.length){ 
+                list.innerHTML='<li style="color:var(--imp-text-muted);padding:8px 0"><%:No backups available%></li>'; 
+                return; 
+            }
             var html='';
             for(var i=0;i<backups.length;i++){
                 var b=backups[i];
@@ -492,18 +507,44 @@
     };
 
     window.imp_restore = function(filename){
-        if(!confirm('<%:Are you sure you want to restore this backup?%>')) return;
-        setStatus('<%:Restoring...%>','info');
+        if(!confirm('<%:Are you sure you want to restore this backup? Current configuration will be replaced.%>')) return;
+        setStatus('<%:Restoring configuration...%>','info');
         (new XHR()).post(restoreUrl, {filename:filename}, function(x,resp){
-            if(!resp||!resp.success){ setStatus(resp&&resp.error||'<%:Restore failed%>','error'); return; }
-            setStatus(resp.message||'<%:Restore complete%>','success');
+            if(!resp||!resp.success){ 
+                var errMsg = resp&&resp.message||'<%:Restore failed%>';
+                if(resp&&resp.debug){
+                    console.error('Restore debug info:', resp.debug);
+                    if(resp.debug.commit_error){
+                        errMsg += ' [Commit error: ' + resp.debug.commit_error + ']';
+                    }
+                    if(resp.debug.errors && resp.debug.errors.length > 0){
+                        errMsg += ' [Errors: ' + resp.debug.errors.join(', ') + ']';
+                    }
+                }
+                setStatus(errMsg,'error'); 
+                return; 
+            }
+            var msg = resp.message||'<%:Restore complete%>';
+            if(resp.restored_count) {
+                msg += ' (' + resp.restored_count + ' <%:items restored%>)';
+            }
+            setStatus(msg,'success');
+            setTimeout(function(){
+                if(confirm('<%:Configuration restored successfully. Reload page to see changes?%>')) {
+                    window.location.reload();
+                }
+            }, 1000);
         });
     };
 
     window.imp_deleteBackup = function(filename){
         if(!confirm('<%:Are you sure you want to delete this backup?%>')) return;
         (new XHR()).post(deleteBackupUrl, {filename:filename}, function(x,resp){
-            if(!resp||!resp.success){ setStatus(resp&&resp.error||'<%:Delete failed%>','error'); return; }
+            if(!resp||!resp.success){ 
+                setStatus(resp&&resp.message||'<%:Delete failed%>','error'); 
+                return; 
+            }
+            setStatus(resp.message||'<%:Backup deleted%>','success');
             imp_showRestore();
         });
     };

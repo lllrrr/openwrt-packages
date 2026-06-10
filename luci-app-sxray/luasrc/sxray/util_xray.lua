@@ -158,19 +158,29 @@ function gen_outbound(flag, node, tag, proxy_table)
 				tlsSettings = (node.stream_security == "tls") and {
 					serverName = node.tls_serverName,
 					allowInsecure = (function()
+								-- 如果已配置证书指纹或证书名称，不使用 allowInsecure
 								if node.tls_CertSha and node.tls_CertSha ~= "" then return nil end
-								if api.compare_versions(os.date("%Y.%m.%d"), "<", "2026.6.1") and node.tls_allowInsecure == "1" then return true end
+								if node.tls_CertByName and node.tls_CertByName ~= "" then return nil end
+								-- 新版 Xray (>= 26.1.31) 已移除 allowInsecure，不再输出
+								if xray_version and xray_version ~= "" and api.compare_versions(xray_version, ">=", "26.1.31") then return nil end
+								-- 旧版 Xray 兼容：允许 allowInsecure
+								if node.tls_allowInsecure == "1" then return true end
+								return nil
 							end)(),
 					fingerprint = (node.type == "Xray" and node.utls == "1" and node.fingerprint and node.fingerprint ~= "") and node.fingerprint or nil,
 					pinnedPeerCertSha256 = (function()
+								-- 仅新版 Xray (>= 26.1.31) 支持此字段
+								if not xray_version or xray_version == "" then return nil end
 								if api.compare_versions(xray_version, "<", "26.1.31") then return nil end
-								if not node.tls_CertSha then return "" end
-								return node.tls_CertSha
+								if node.tls_CertSha and node.tls_CertSha ~= "" then return node.tls_CertSha end
+								return nil
 							end)(),
 					verifyPeerCertByName = (function()
+								-- 仅新版 Xray (>= 26.1.31) 支持此字段
+								if not xray_version or xray_version == "" then return nil end
 								if api.compare_versions(xray_version, "<", "26.1.31") then return nil end
-								if not node.tls_CertByName then return "" end
-								return node.tls_CertByName
+								if node.tls_CertByName and node.tls_CertByName ~= "" then return node.tls_CertByName end
+								return nil
 							end)(),
 					echConfigList = (node.ech == "1") and node.ech_config or nil,
 					echForceQuery = (node.ech == "1") and (node.ech_ForceQuery or "none") or nil

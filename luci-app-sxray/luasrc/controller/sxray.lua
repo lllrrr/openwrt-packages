@@ -743,13 +743,20 @@ function action_backup_create()
 	local result = {
 		success = false,
 		message = "",
-		filename = ""
+		filename = "",
+		backup_count = 0
 	}
 
 	-- Create backup directory if it doesn't exist
 	local backup_dir = "/etc/sxray/backup"
 	if not fs.stat(backup_dir) then
-		fs.mkdirr(backup_dir)
+		local mkdir_ok = fs.mkdirr(backup_dir)
+		if not mkdir_ok then
+			result.message = i18n.translate("Failed to create backup directory")
+			http.prepare_content("application/json")
+			http.write_json(result)
+			return
+		end
 	end
 
 	-- Generate backup filename with timestamp
@@ -769,14 +776,25 @@ function action_backup_create()
 
 	-- Write backup file
 	local backup_content = jsonStringify(config_data)
-	if backup_content then
+	if backup_content and backup_content ~= "" then
 		local file = io.open(backup_file, "w")
 		if file then
 			file:write(backup_content)
 			file:close()
-			result.success = true
-			result.message = i18n.translate("Backup created successfully")
-			result.filename = backup_file
+			-- Verify file was written
+			if fs.stat(backup_file) then
+				result.success = true
+				result.message = i18n.translate("Backup created successfully")
+				result.filename = backup_file
+				result.backup_count = 0
+				for _, section in ipairs(sections) do
+					for _ in pairs(config_data[section]) do
+						result.backup_count = result.backup_count + 1
+					end
+				end
+			else
+				result.message = i18n.translate("Failed to verify backup file")
+			end
 		else
 			result.message = i18n.translate("Failed to create backup file")
 		end
@@ -792,63 +810,102 @@ function action_backup_restore()
 	local filename = http.formvalue("filename")
 	local result = {
 		success = false,
-		message = ""
+		message = "",
+		restored_count = 0,
+		debug = {}
 	}
 
-	if not filename or filename == "" then
-		result.message = i18n.translate("Please provide backup file path")
-		http.prepare_content("application/json")
-		http.write_json(result)
-		return
-	end
+	-- Wrap entire function in pcall to catch any Lua errors
+	local ok, err = pcall(function()
+		if not filename or filename == "" then
+			result.message = i18n.translate("Please provide backup file path")
+			return
+		end
 
-	-- Check if backup file exists
-	if not fs.stat(filename) then
-		result.message = i18n.translate("Backup file not found")
-		http.prepare_content("application/json")
-		http.write_json(result)
-		return
-	end
+		-- Check if backup file exists
+		if not fs.stat(filename) then
+			result.message = i18n.translate("Backup file not found")
+			return
+		end
 
-	-- Read backup file
-	local backup_content = fs.readfile(filename)
-	if not backup_content or backup_content == "" then
-		result.message = i18n.translate("Failed to read backup file")
-		http.prepare_content("application/json")
-		http.write_json(result)
-		return
-	end
+		-- Read backup file
+		local backup_content = fs.readfile(filename)
+		if not backup_content or backup_content == "" then
+			result.message = i18n.translate("Failed to read backup file")
+			return
+		end
 
-	-- Parse backup content
-	local config_data = jsonParse(backup_content)
-	if not config_data then
-		result.message = i18n.translate("Invalid backup file format")
-		http.prepare_content("application/json")
-		http.write_json(result)
-		return
-	end
+		-- Parse backup content
+		local config_data = jsonParse(backup_content)
+		if not config_data then
+			result.message = i18n.translate("Invalid backup file format")
+			return
+		end
 
-	-- Restore configuration
-	uci:foreach("sxray", "@", function(s) 
-		uci:delete("sxray", s[".name"])
-	end)
+		result.debug.sections_found = {}
+		for k, v in pairs(config_data) do
+			table.insert(result.debug.sections_found, k)
+		end
 
-	for section, items in pairs(config_data) do
-		for name, values in pairs(items) do
-			if name ~= ".name" then
-				uci:set("sxray", name, section)
-				for k, v in pairs(values) do
-					if k ~= ".name" and k ~= ".type" then
-						uci:set("sxray", name, k, v)
+		-- Clear all existing configuration sections
+		-- Collect section names first, then delete to avoid iterator corruption
+		local sections_to_clear = {"main", "inbound", "outbound", "dns", "routing", "policy", "reverse", "transparent-proxy"}
+		local cleared_count = 0
+		for _, section_type in ipairs(sections_to_clear) do
+			local sections_to_delete = {}
+			uci:foreach("sxray", section_type, function(s)
+				table.insert(sections_to_delete, s[".name"])
+			end)
+			for _, name in ipairs(sections_to_delete) do
+				uci:delete("sxray", name)
+				cleared_count = cleared_count + 1
+			end
+		end
+		result.debug.cleared_sections = cleared_count
+
+		-- Restore configuration from backup
+		local restored_count = 0
+		local errors = {}
+		for section_type, items in pairs(config_data) do
+			if type(items) == "table" then
+				for section_name, values in pairs(items) do
+					if type(values) == "table" and section_name ~= ".name" then
+						local sid = uci:add("sxray", section_type)
+						if sid then
+							-- Set all values for this section (skip internal UCI fields)
+							for k, v in pairs(values) do
+								if k ~= ".name" and k ~= ".type" and k ~= ".anonymous" and k ~= ".index" then
+									uci:set("sxray", sid, k, v)
+								end
+							end
+							restored_count = restored_count + 1
+						else
+							table.insert(errors, "Failed to create section: " .. section_name)
+						end
 					end
 				end
 			end
 		end
-	end
+		result.debug.restored_before_commit = restored_count
+		result.debug.errors = errors
 
-	uci:commit("sxray")
-	result.success = true
-	result.message = i18n.translate("Configuration restored successfully")
+		-- Commit changes
+		uci:commit("sxray")
+
+		if restored_count > 0 then
+			result.success = true
+			result.message = i18n.translate("Configuration restored successfully")
+			result.restored_count = restored_count
+		else
+			result.message = i18n.translate("No configuration items to restore")
+		end
+	end)
+
+	if not ok then
+		result.success = false
+		result.message = "Internal error: " .. tostring(err)
+		result.debug.lua_error = tostring(err)
+	end
 
 	http.prepare_content("application/json")
 	http.write_json(result)
@@ -858,25 +915,33 @@ function action_backup_list()
 	local backup_dir = "/etc/sxray/backup"
 	local result = {
 		success = false,
-		backups = {}
+		backups = {},
+		message = ""
 	}
 
-	if fs.stat(backup_dir) then
-		local files = fs.dir(backup_dir)
-		if files then
-			for file in files do
-				if file:match("^backup_%d+_%d+%.json$") then
-					local file_path = backup_dir .. "/" .. file
-					local stat = fs.stat(file_path)
-					if stat then
-						local backup = {
-							filename = file_path,
-							name = file,
-							size = string.format("%.1f KB", stat.size / 1024),
-							date = os.date("%Y-%m-%d %H:%M", stat.mtime)
-						}
-						table.insert(result.backups, backup)
-					end
+	if not fs.stat(backup_dir) then
+		result.success = true
+		result.message = i18n.translate("No backup directory found")
+		http.prepare_content("application/json")
+		http.write_json(result)
+		return
+	end
+
+	local files = fs.dir(backup_dir)
+	if files then
+		for file in files do
+			if file:match("^backup_%d+_%d+%.json$") then
+				local file_path = backup_dir .. "/" .. file
+				local stat = fs.stat(file_path)
+				if stat then
+					local backup = {
+						filename = file_path,
+						name = file,
+						size = string.format("%.1f KB", stat.size / 1024),
+						date = os.date("%Y-%m-%d %H:%M", stat.mtime),
+						timestamp = stat.mtime
+					}
+					table.insert(result.backups, backup)
 				end
 			end
 		end
@@ -884,7 +949,7 @@ function action_backup_list()
 
 	-- Sort backups by timestamp (newest first)
 	table.sort(result.backups, function(a, b) 
-		return a.filename > b.filename 
+		return (a.timestamp or 0) > (b.timestamp or 0)
 	end)
 
 	result.success = true
@@ -906,21 +971,29 @@ function action_backup_delete()
 		return
 	end
 
-	-- Check if backup file exists and is in backup directory
-	if not fs.stat(filename) or not filename:match("^/etc/sxray/backup/") then
+	-- Check if backup file exists
+	if not fs.stat(filename) then
+		result.message = i18n.translate("Backup file not found")
+		http.prepare_content("application/json")
+		http.write_json(result)
+		return
+	end
+
+	-- Security check: ensure file is in the backup directory
+	if not filename:match("^/etc/sxray/backup/") then
 		result.message = i18n.translate("Invalid backup file path")
 		http.prepare_content("application/json")
 		http.write_json(result)
 		return
 	end
 
-	-- Delete backup file
-	local success = fs.unlink(filename)
+	-- Delete backup file with better error handling
+	local success, err = fs.unlink(filename)
 	if success then
 		result.success = true
 		result.message = i18n.translate("Backup deleted successfully")
 	else
-		result.message = i18n.translate("Failed to delete backup file")
+		result.message = i18n.translate("Failed to delete backup file: ") .. tostring(err)
 	end
 
 	http.prepare_content("application/json")

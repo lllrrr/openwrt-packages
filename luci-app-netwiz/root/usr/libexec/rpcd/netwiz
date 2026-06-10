@@ -161,39 +161,65 @@ case "$1" in
                     fi
                 }
                 
-                # 3. 扫描系统中已安裝
-                if command -v apk >/dev/null 2>&1; then
-                    # 检查底层的 lists 索引文件夹
-                    if [ -z "$(ls -A /var/lib/apk/lists 2>/dev/null)" ] && [ -z "$(ls -A /var/cache/apk 2>/dev/null)" ]; then
-                        log "[BACKUP]" "检测到本地 apk 索引为空，正在尝试拉取最新软件源..."
-                        # 25 秒，确保第一次拉取能成功
-                        timeout 25 apk update >/dev/null 2>&1
+                # 3. 扫描系统中已安裝与同步源
+                if [ ! -f "/tmp/nw_pkg_updated_ok" ]; then
+                    if ping -c 1 -W 2 223.5.5.5 >/dev/null 2>&1 || ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
+                        log "[BACKUP]" "检测到网络畅通，正在同步软件源..."
+                        if command -v opkg >/dev/null 2>&1; then
+                            timeout 25 opkg update >/dev/null 2>&1
+                        elif command -v apk >/dev/null 2>&1; then
+                            timeout 25 apk update >/dev/null 2>&1
+                        fi
+                        touch "/tmp/nw_pkg_updated_ok"
+                        rm -f "/tmp/nw_apk_cache.txt" # 更新源后清理旧缓存
+                        log "[BACKUP]" "软件源同步完毕！"
+                    else
+                        log "[BACKUP]" "暂无外网连接，跳过同步..."
                     fi
+                fi
+
+                # 统一获取已安装列表与极速比对
+                installed=""
+                if command -v opkg >/dev/null 2>&1; then
+                    installed=$(opkg list-installed 2>/dev/null | awk '{print $1}' | grep -E "^luci-(app|theme)-")
                     
-                    installed=$(apk info | grep -E "^luci-(app|theme)-")
-                    available_pkgs=$(apk search -q "luci-*" 2>/dev/null)
+                    # 1：awk 解析底层纯文本文件
+                    avail_pkgs=$(awk '/^Package:/ {print $2}' /var/opkg-lists/* 2>/dev/null)
                     
                     for pkg in $installed; do
-                        # 使用 -x 进行精准全词匹配
-                        if ! echo "$available_pkgs" | grep -qx "$pkg"; then
-                            check_pkg_missing "$pkg"
-                        else
+                        if echo "$avail_pkgs" | grep -qx "$pkg"; then
                             official_pkgs="$official_pkgs $pkg"
+                        else
+                            check_pkg_missing "$pkg"
                         fi
                     done
-                elif command -v opkg >/dev/null 2>&1; then
-                    if [ -z "$(ls -A /var/opkg-lists 2>/dev/null)" ]; then
-                        log "[BACKUP]" "检测到本地opkg索引为空，正在尝试拉取最新软件源..."
-                        timeout 12 opkg update >/dev/null 2>&1
+                    
+                elif command -v apk >/dev/null 2>&1; then
+                    installed=$(apk info 2>/dev/null | grep -E "^luci-(app|theme)-")
+                    
+                    # 2：apk 引入「查询结果永久快取」
+                    if [ ! -f "/tmp/nw_apk_cache.txt" ]; then
+                        installed_list=$(echo $installed)
+                        if [ -n "$installed_list" ]; then
+                            # 只有第一次（或更新源后） 5 秒
+                            apk search -q -e $installed_list 2>/dev/null > "/tmp/nw_apk_cache.txt"
+                        fi
                     fi
-                    installed=$(opkg list-installed | awk '{print $1}' | grep -E "^luci-(app|theme)-")
-                    available_pkgs=$(opkg list "luci-*" 2>/dev/null | awk '{print $1}')
+                    
+                    # 第二次，读取快取文本
+                    avail_pkgs=$(cat "/tmp/nw_apk_cache.txt" 2>/dev/null)
                     
                     for pkg in $installed; do
-                        if ! echo "$available_pkgs" | grep -qx "$pkg"; then
-                            check_pkg_missing "$pkg"
-                        else
+                        if echo "$avail_pkgs" | grep -qx "$pkg"; then
                             official_pkgs="$official_pkgs $pkg"
+                        else
+                            # 快取未命中（可能是刚装的新包），单独核实一次并补入快取
+                            if [ -n "$(apk search -q -e "$pkg" 2>/dev/null)" ]; then
+                                official_pkgs="$official_pkgs $pkg"
+                                echo "$pkg" >> "/tmp/nw_apk_cache.txt"
+                            else
+                                check_pkg_missing "$pkg"
+                            fi
                         fi
                     done
                 fi
@@ -346,12 +372,12 @@ case "$1" in
                 cleanup_wan_for_proto() {
                     local target="$1"
                     
-                    # 1. 切換后，统一刪除容易 netifd 死锁的 DHCP 干扰
+                    # 1. 切换后，统一刪除容易 netifd 死锁的 DHCP 干扰
                     uci delete network.wan.reqopts 2>/dev/null || true
                     uci delete network.wan.clientid 2>/dev/null || true
                     uci delete network.wan.vendorid 2>/dev/null || true
                     
-                    # 2. 根据目标协议，刪除「不相容」的參數，保留 dns、metric 等共用高級設定！
+                    # 2. 根据目标协议，删除「不兼容」的参数，保留dns、metric等共享高级设定
                     if [ "$target" = "pppoe" ]; then
                         uci delete network.wan.ipaddr 2>/dev/null || true
                         uci delete network.wan.netmask 2>/dev/null || true
@@ -1232,7 +1258,7 @@ NEW_IP=$(uci -q get network.lan.ipaddr | cut -d/ -f1)
 # 把未来的新 IP 作为 arg1 传递给前端进行双向探测
 update_status "done" "MSG_RST_DONE" "$NEW_IP"
 rm -rf /tmp/nw_ghost_tmp "$TARGET"
-# 等待 8 秒，确保前端 充足的时间把新 IP 抓走
+# 等待 8 秒，确保前端 充足的时间抓取新 IP
 sleep 8
 reboot
 EOF

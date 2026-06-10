@@ -302,6 +302,44 @@ set_core_type() {
 	return 1
 }
 
+# 获取 xray 版本号（格式如 24.12.31），带缓存避免重复调用二进制
+_XRAY_VERSION_CACHE=""
+_XRAY_VERSION_CACHE_BIN=""
+get_xray_version() {
+	local xray_bin="${1:-/usr/bin/xray}"
+	if [ "$_XRAY_VERSION_CACHE_BIN" = "$xray_bin" ] && [ -n "$_XRAY_VERSION_CACHE" ] ; then
+		echo "$_XRAY_VERSION_CACHE"
+		return
+	fi
+	if [ -x "$xray_bin" ] ; then
+		_XRAY_VERSION_CACHE=$("$xray_bin" version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+		_XRAY_VERSION_CACHE_BIN="$xray_bin"
+		echo "$_XRAY_VERSION_CACHE"
+	fi
+}
+
+# 比较版本号：check_xray_version_ge "26.1.31" 返回 0 表示 >= 该版本
+check_xray_version_ge() {
+	local target="$1"
+	local xray_bin="${2:-/usr/bin/xray}"
+	local ver
+	ver=$(get_xray_version "$xray_bin")
+	[ -z "$ver" ] && return 1
+
+	local IFS='.'
+	set -- $ver
+	local v1="${1:-0}" v2="${2:-0}" v3="${3:-0}"
+	set -- $target
+	local t1="${1:-0}" t2="${2:-0}" t3="${3:-0}"
+
+	if [ "$v1" -gt "$t1" ] 2>/dev/null; then return 0; fi
+	if [ "$v1" -lt "$t1" ] 2>/dev/null; then return 1; fi
+	if [ "$v2" -gt "$t2" ] 2>/dev/null; then return 0; fi
+	if [ "$v2" -lt "$t2" ] 2>/dev/null; then return 1; fi
+	if [ "$v3" -ge "$t3" ] 2>/dev/null; then return 0; fi
+	return 1
+}
+
 get_core_specific_vars() {
 	if [ "x$CORE_TYPE" = "xxray" ] ; then
 		CONFIG_FOLDER="$CONFIG_FOLDER_XRAY"
@@ -566,6 +604,8 @@ inbound_section_validate() {
 		'ss_tls_cert_usage:or("encipherment", "verify", "issue")' \
 		'ss_tls_cert_file:string' \
 		'ss_tls_key_file:string' \
+		'ss_tls_cert_sha:string' \
+		'ss_tls_cert_by_name:string' \
 		's_hysteria2_password:string' \
 		's_hysteria2_obfs_password:string' \
 		's_hysteria2_obfs_type:or("none", "salamander")' \
@@ -686,6 +726,8 @@ outbound_section_validate() {
 		'ss_tls_cert_usage:or("encipherment", "verify", "issue")' \
 		'ss_tls_cert_file:string' \
 		'ss_tls_key_file:string' \
+		'ss_tls_cert_sha:string' \
+		'ss_tls_cert_by_name:string' \
 		'ss_tcp_header_type:or("none", "http")' \
 		'ss_tcp_header_request_version:string' \
 		'ss_tcp_header_request_method:string' \
@@ -2318,9 +2360,21 @@ add_inbound_setting_xray() {
 			json_close_array # alpn
 		fi
 
-		json_add_boolean "allowInsecure" "$ss_tls_allow_insecure"
-		json_add_boolean "allowInsecureCiphers" "$ss_tls_allow_insecure_ciphers"
 		json_add_boolean "disableSystemRoot" "$ss_tls_disable_system_root"
+
+		# 新版 Xray (>= 26.1.31) 已移除 allowInsecure / allowInsecureCiphers，
+		# 改用 pinnedPeerCertSha256 / verifyPeerCertByName 替代证书验证跳过
+		if check_xray_version_ge "26.1.31" "${xray_file:-/usr/bin/xray}" ; then
+			# 新版 Xray：仅在有值时输出新的证书验证字段
+			test -n "$ss_tls_cert_sha" && \
+				json_add_string "pinnedPeerCertSha256" "$ss_tls_cert_sha"
+			test -n "$ss_tls_cert_by_name" && \
+				json_add_string "verifyPeerCertByName" "$ss_tls_cert_by_name"
+		else
+			# 旧版 Xray：保留 allowInsecure 兼容
+			json_add_boolean "allowInsecure" "$ss_tls_allow_insecure"
+			json_add_boolean "allowInsecureCiphers" "$ss_tls_allow_insecure_ciphers"
+		fi
 
 		json_add_array "certificates"
 		if [ -n "$ss_tls_cert_file" ] ; then
@@ -2959,9 +3013,21 @@ add_outbound_setting() {
 				json_close_array
 			fi
 
-			json_add_boolean "allowInsecure" "$ss_tls_allow_insecure"
-			json_add_boolean "allowInsecureCiphers" "$ss_tls_allow_insecure_ciphers"
 			json_add_boolean "disableSystemRoot" "$ss_tls_disable_system_root"
+
+			# 新版 Xray (>= 26.1.31) 已移除 allowInsecure / allowInsecureCiphers，
+			# 改用 pinnedPeerCertSha256 / verifyPeerCertByName 替代证书验证跳过
+			if check_xray_version_ge "26.1.31" "${xray_file:-/usr/bin/xray}" ; then
+				# 新版 Xray：仅在有值时输出新的证书验证字段
+				test -n "$ss_tls_cert_sha" && \
+					json_add_string "pinnedPeerCertSha256" "$ss_tls_cert_sha"
+				test -n "$ss_tls_cert_by_name" && \
+					json_add_string "verifyPeerCertByName" "$ss_tls_cert_by_name"
+			else
+				# 旧版 Xray：保留 allowInsecure 兼容
+				json_add_boolean "allowInsecure" "$ss_tls_allow_insecure"
+				json_add_boolean "allowInsecureCiphers" "$ss_tls_allow_insecure_ciphers"
+			fi
 
 			json_add_array "certificates"
 			if [ -n "$ss_tls_cert_file" ] ; then

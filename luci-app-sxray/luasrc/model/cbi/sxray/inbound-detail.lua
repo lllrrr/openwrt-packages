@@ -463,12 +463,24 @@ o.placeholder = "http/1.1"
 
 o = s:option(Flag, "ss_tls_allow_insecure", "%s - %s" % { "TLS", translate("Allow insecure") })
 o:depends("ss_security", "tls")
+o.description = translate("Deprecated in Xray >= 26.1.31, use Cert SHA / Cert Name instead.")
 
 o = s:option(Flag, "ss_tls_allow_insecure_ciphers", "%s - %s" % { "TLS", translate("Allow insecure ciphers") })
 o:depends("ss_security", "tls")
+o.description = translate("Deprecated in Xray >= 26.1.31.")
 
 o = s:option(Flag, "ss_tls_disable_system_root", "%s - %s" % { "TLS", translate("Disable system root") })
 o:depends("ss_security", "tls")
+
+o = s:option(Value, "ss_tls_cert_sha", "%s - %s" % { "TLS", translate("Pinned Cert SHA256") })
+o:depends("ss_security", "tls")
+o.description = translate("SHA256 fingerprint of the server certificate for pinning. Replaces allowInsecure in Xray >= 26.1.31.")
+o.placeholder = ""
+
+o = s:option(Value, "ss_tls_cert_by_name", "%s - %s" % { "TLS", translate("Verify Cert by Name") })
+o:depends("ss_security", "tls")
+o.description = translate("Verify the server certificate by its name. Replaces allowInsecure in Xray >= 26.1.31.")
+o.placeholder = ""
 
 o = s:option(ListValue, "ss_tls_cert_usage", "%s - %s" % { "TLS", translate("Certificate usage") })
 o:depends("ss_security", "tls")

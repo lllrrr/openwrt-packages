@@ -113,6 +113,24 @@ msgstr "允许不安全连接"
 msgid "Allow insecure ciphers"
 msgstr "允许不安全的加密方式"
 
+msgid "Deprecated in Xray >= 26.1.31, use Cert SHA / Cert Name instead."
+msgstr "在 Xray >= 26.1.31 中已弃用，请改用证书 SHA / 证书名称。"
+
+msgid "Deprecated in Xray >= 26.1.31."
+msgstr "在 Xray >= 26.1.31 中已弃用。"
+
+msgid "Pinned Cert SHA256"
+msgstr "固定证书 SHA256"
+
+msgid "SHA256 fingerprint of the server certificate for pinning. Replaces allowInsecure in Xray >= 26.1.31."
+msgstr "用于固定的服务器证书 SHA256 指纹。在 Xray >= 26.1.31 中替代 allowInsecure。"
+
+msgid "Verify Cert by Name"
+msgstr "按名称验证证书"
+
+msgid "Verify the server certificate by its name. Replaces allowInsecure in Xray >= 26.1.31."
+msgstr "按名称验证服务器证书。在 Xray >= 26.1.31 中替代 allowInsecure。"
+
 #: luasrc/model/cbi/sxray/inbound-detail.lua:99
 msgid "Allow transparent"
 msgstr "转发所有 HTTP 请求"
