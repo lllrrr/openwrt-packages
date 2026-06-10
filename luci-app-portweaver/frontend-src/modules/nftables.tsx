@@ -13,8 +13,7 @@ export default function (
     "_nftables_rules",
     _("nftables Rules"),
   );
-  o.rawhtml = true;
-  o.cfgvalue = () => {
+  o.render = () => {
     const viewer = new NftablesRulesViewer();
     return viewer.render();
   };

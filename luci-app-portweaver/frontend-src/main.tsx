@@ -141,10 +141,7 @@ export class main extends L.view {
     } catch (err: any) {
       L.ui.addNotification(
         null,
-        E(
-          "p",
-          _("Failed to reload config: %s").format(err.toString()),
-        ),
+        E("p", _("Failed to reload config: %s").format(err.toString())),
         "error",
       );
     }
@@ -171,10 +168,7 @@ export class main extends L.view {
         .catch((err: any) => {
           L.ui.addNotification(
             null,
-            E(
-              "p",
-              _("Failed to restart service: %s").format(err.toString()),
-            ),
+            E("p", _("Failed to restart service: %s").format(err.toString())),
             "error",
           );
         });

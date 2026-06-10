@@ -1,8 +1,4 @@
-import type {
-  FullStatusResponse,
-  ProjectStatus,
-  VersionResponse,
-} from "@/types/portweaver";
+import type { FullStatusResponse, ProjectStatus } from "@/types/portweaver";
 import type { InfoResponse } from "./../types/portweaver/index";
 import type { DdnsStatusResponse } from "@/types/portweaver/ddns";
 import type { FrpcProxyStats } from "@/types/portweaver/frpc";

@@ -6840,6 +6840,237 @@ $({ target: 'Promise', stat: true, forced: IS_PURE || FORCED_PROMISE_CONSTRUCTOR
 
 
 },
+4781(__unused_rspack_module, __unused_rspack_exports, __webpack_require__) {
+
+var DESCRIPTORS = __webpack_require__(8073);
+var globalThis = __webpack_require__(1513);
+var uncurryThis = __webpack_require__(7453);
+var isForced = __webpack_require__(781);
+var inheritIfRequired = __webpack_require__(1522);
+var createNonEnumerableProperty = __webpack_require__(2868);
+var create = __webpack_require__(5213);
+var getOwnPropertyNames = (__webpack_require__(7521)/* .f */.f);
+var isPrototypeOf = __webpack_require__(4574);
+var isRegExp = __webpack_require__(9861);
+var toString = __webpack_require__(2406);
+var getRegExpFlags = __webpack_require__(9845);
+var stickyHelpers = __webpack_require__(7068);
+var proxyAccessor = __webpack_require__(827);
+var defineBuiltIn = __webpack_require__(6425);
+var fails = __webpack_require__(1902);
+var hasOwn = __webpack_require__(5990);
+var enforceInternalState = (__webpack_require__(3546)/* .enforce */.enforce);
+var setSpecies = __webpack_require__(6512);
+var wellKnownSymbol = __webpack_require__(7102);
+var UNSUPPORTED_DOT_ALL = __webpack_require__(24);
+var UNSUPPORTED_NCG = __webpack_require__(4965);
+
+var MATCH = wellKnownSymbol('match');
+var NativeRegExp = globalThis.RegExp;
+var RegExpPrototype = NativeRegExp.prototype;
+var SyntaxError = globalThis.SyntaxError;
+var exec = uncurryThis(RegExpPrototype.exec);
+var charAt = uncurryThis(''.charAt);
+var replace = uncurryThis(''.replace);
+var stringIndexOf = uncurryThis(''.indexOf);
+var stringSlice = uncurryThis(''.slice);
+// TODO: Use only proper RegExpIdentifierName
+var IS_NCG = /^\?<[^\s\d!#%&*+<=>@^][^\s!#%&*+<=>@^]*>/;
+var re1 = /a/g;
+var re2 = /a/g;
+
+// "new" should create a new object, old webkit bug
+var CORRECT_NEW = new NativeRegExp(re1) !== re1;
+
+var MISSED_STICKY = stickyHelpers.MISSED_STICKY;
+var UNSUPPORTED_Y = stickyHelpers.UNSUPPORTED_Y;
+
+var BASE_FORCED = DESCRIPTORS &&
+  (!CORRECT_NEW || MISSED_STICKY || UNSUPPORTED_DOT_ALL || UNSUPPORTED_NCG || fails(function () {
+    re2[MATCH] = false;
+    // RegExp constructor can alter flags and IsRegExp works correct with @@match
+    // eslint-disable-next-line sonarjs/inconsistent-function-call -- required for testing
+    return NativeRegExp(re1) !== re1 || NativeRegExp(re2) === re2 || String(NativeRegExp(re1, 'i')) !== '/a/i';
+  }));
+
+var handleDotAll = function (string) {
+  var length = string.length;
+  var index = 0;
+  var result = '';
+  var brackets = false;
+  var chr;
+  for (; index <= length; index++) {
+    chr = charAt(string, index);
+    if (chr === '\\') {
+      result += chr + charAt(string, ++index);
+      continue;
+    }
+    if (!brackets && chr === '.') {
+      result += '[\\s\\S]';
+    } else {
+      if (chr === '[') {
+        brackets = true;
+      } else if (chr === ']') {
+        brackets = false;
+      } result += chr;
+    }
+  } return result;
+};
+
+var handleNCG = function (string) {
+  var length = string.length;
+  var index = 0;
+  var result = '';
+  var named = [];
+  var names = create(null);
+  var brackets = false;
+  var ncg = false;
+  var groupid = 0;
+  var groupname = '';
+  var chr;
+  for (; index <= length; index++) {
+    chr = charAt(string, index);
+    if (chr === '\\') {
+      chr += charAt(string, ++index);
+    } else if (chr === ']') {
+      brackets = false;
+    } else if (!brackets) switch (true) {
+      case chr === '[':
+        brackets = true;
+        break;
+      case chr === '(':
+        result += chr;
+        // ignore non-capturing groups
+        if (stringSlice(string, index + 1, index + 3) === '?:') {
+          continue;
+        }
+        if (exec(IS_NCG, stringSlice(string, index + 1))) {
+          index += 2;
+          ncg = true;
+        }
+        groupid++;
+        continue;
+      case chr === '>' && ncg:
+        if (groupname === '' || hasOwn(names, groupname)) {
+          throw new SyntaxError('Invalid capture group name');
+        }
+        names[groupname] = true;
+        named[named.length] = [groupname, groupid];
+        ncg = false;
+        groupname = '';
+        continue;
+    }
+    if (ncg) groupname += chr;
+    else result += chr;
+  } return [result, named];
+};
+
+// `RegExp` constructor
+// https://tc39.es/ecma262/#sec-regexp-constructor
+if (isForced('RegExp', BASE_FORCED)) {
+  var RegExpWrapper = function RegExp(pattern, flags) {
+    var thisIsRegExp = isPrototypeOf(RegExpPrototype, this);
+    var patternIsRegExp = isRegExp(pattern);
+    var flagsAreUndefined = flags === undefined;
+    var groups = [];
+    var rawPattern = pattern;
+    var rawFlags, dotAll, sticky, handled, result, state;
+
+    if (!thisIsRegExp && patternIsRegExp && flagsAreUndefined && pattern.constructor === RegExpWrapper) {
+      return pattern;
+    }
+
+    if (patternIsRegExp || isPrototypeOf(RegExpPrototype, pattern)) {
+      pattern = pattern.source;
+      if (flagsAreUndefined) flags = getRegExpFlags(rawPattern);
+    }
+
+    pattern = pattern === undefined ? '' : toString(pattern);
+    flags = flags === undefined ? '' : toString(flags);
+    rawPattern = pattern;
+
+    if (UNSUPPORTED_DOT_ALL && 'dotAll' in re1) {
+      dotAll = !!flags && stringIndexOf(flags, 's') > -1;
+      if (dotAll) flags = replace(flags, /s/g, '');
+    }
+
+    rawFlags = flags;
+
+    if (MISSED_STICKY && 'sticky' in re1) {
+      sticky = !!flags && stringIndexOf(flags, 'y') > -1;
+      if (sticky && UNSUPPORTED_Y) flags = replace(flags, /y/g, '');
+    }
+
+    if (UNSUPPORTED_NCG) {
+      handled = handleNCG(pattern);
+      pattern = handled[0];
+      groups = handled[1];
+    }
+
+    result = inheritIfRequired(NativeRegExp(pattern, flags), thisIsRegExp ? this : RegExpPrototype, RegExpWrapper);
+
+    if (dotAll || sticky || groups.length) {
+      state = enforceInternalState(result);
+      if (dotAll) {
+        state.dotAll = true;
+        state.raw = RegExpWrapper(handleDotAll(pattern), rawFlags);
+      }
+      if (sticky) state.sticky = true;
+      if (groups.length) state.groups = groups;
+    }
+
+    if (pattern !== rawPattern) try {
+      // fails in old engines, but we have no alternatives for unsupported regex syntax
+      createNonEnumerableProperty(result, 'source', rawPattern === '' ? '(?:)' : rawPattern);
+    } catch (error) { /* empty */ }
+
+    return result;
+  };
+
+  for (var keys = getOwnPropertyNames(NativeRegExp), index = 0; keys.length > index;) {
+    proxyAccessor(RegExpWrapper, NativeRegExp, keys[index++]);
+  }
+
+  RegExpPrototype.constructor = RegExpWrapper;
+  RegExpWrapper.prototype = RegExpPrototype;
+  defineBuiltIn(globalThis, 'RegExp', RegExpWrapper, { constructor: true });
+}
+
+// https://tc39.es/ecma262/#sec-get-regexp-@@species
+setSpecies('RegExp');
+
+
+},
+2724(__unused_rspack_module, __unused_rspack_exports, __webpack_require__) {
+
+var DESCRIPTORS = __webpack_require__(8073);
+var UNSUPPORTED_DOT_ALL = __webpack_require__(24);
+var classof = __webpack_require__(8549);
+var defineBuiltInAccessor = __webpack_require__(8233);
+var getInternalState = (__webpack_require__(3546)/* .get */.get);
+
+var RegExpPrototype = RegExp.prototype;
+var $TypeError = TypeError;
+
+// `RegExp.prototype.dotAll` getter
+// https://tc39.es/ecma262/#sec-get-regexp.prototype.dotall
+if (DESCRIPTORS && UNSUPPORTED_DOT_ALL) {
+  defineBuiltInAccessor(RegExpPrototype, 'dotAll', {
+    configurable: true,
+    get: function dotAll() {
+      if (this === RegExpPrototype) return;
+      // We can't use InternalStateModule.getterFor because
+      // we don't add metadata for regexps created by a literal.
+      if (classof(this) === 'RegExp') {
+        return !!getInternalState(this).dotAll;
+      }
+      throw new $TypeError('Incompatible receiver, RegExp required');
+    }
+  });
+}
+
+
+},
 8628(__unused_rspack_module, __unused_rspack_exports, __webpack_require__) {
 
 var $ = __webpack_require__(7081);
@@ -13891,7 +14122,40 @@ let ddns_r = [
     }), h(), L.Poll.add(h, 5);
 }
 
+// EXTERNAL MODULE: ../node_modules/.pnpm/core-js@3.47.0/node_modules/core-js/modules/es.regexp.constructor.js
+var es_regexp_constructor = __webpack_require__(4781);
+// EXTERNAL MODULE: ../node_modules/.pnpm/core-js@3.47.0/node_modules/core-js/modules/es.regexp.dot-all.js
+var es_regexp_dot_all = __webpack_require__(2724);
 ;// CONCATENATED MODULE: ./components/NftablesRulesViewer.tsx
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -13901,41 +14165,62 @@ let ddns_r = [
 
 class NftablesRulesViewer {
     render() {
+        let e = getThemeColors().isDark;
         this.statusSpan = jsx("span", {
-            style: "color: #666;",
+            style: "color: #666; font-size: 12px; margin-left: 8px;",
             children: "Loading..."
         }), this.rulesContainer = jsx("pre", {
-            style: "\n          background: #1e1e1e;\n          color: #d4d4d4;\n          padding: 16px;\n          border-radius: 8px;\n          overflow-x: auto;\n          font-family: 'Consolas', 'Monaco', 'Courier New', monospace;\n          font-size: 13px;\n          line-height: 1.5;\n          max-height: 600px;\n          overflow-y: auto;\n          margin: 0;\n        ",
+            style: "\n          background: ".concat(e ? "#1e1e1e" : "#f8f9fa", ";\n          color: ").concat(e ? "#d4d4d4" : "#333333", ";\n          border: 1px solid ").concat(e ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.08)", ";\n          padding: 16px;\n          border-radius: 8px;\n          overflow-x: auto;\n          white-space: pre !important;\n          word-break: normal !important;\n          word-wrap: normal !important;\n          font-family: 'Consolas', 'Monaco', 'Courier New', monospace;\n          font-size: 13px;\n          line-height: 1.5;\n          max-height: 600px;\n          overflow-y: auto;\n          margin: 0;\n        "),
             children: "Loading nftables rules..."
-        }), this.refreshBtn = jsx("button", {
-            type: "button",
-            class: "btn cbi-button-action",
-            style: "margin-bottom: 12px;",
-            onclick: ()=>this.loadRules(),
-            children: "Refresh"
         });
-        let e = jsxs("div", {
+        let o = jsx("style", {
+            children: "\n          .nft-refresh-btn {\n            background: ".concat(e ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.04)", ";\n            color: ").concat(e ? "#cccccc" : "#555555", ";\n            border: 1px solid ").concat(e ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0.08)", ";\n            border-radius: 4px;\n            padding: 4px 8px;\n            font-size: 11px;\n            font-weight: 500;\n            cursor: pointer;\n            transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;\n            display: flex;\n            align-items: center;\n            gap: 4px;\n          }\n          .nft-refresh-btn:hover:not([disabled]) {\n            background: ").concat(e ? "rgba(255, 255, 255, 0.15)" : "rgba(0, 0, 0, 0.08)", ";\n            color: ").concat(e ? "#ffffff" : "#111111", ";\n            border-color: ").concat(e ? "rgba(255, 255, 255, 0.25)" : "rgba(0, 0, 0, 0.16)", ";\n          }\n          .nft-refresh-btn:disabled {\n            opacity: 0.5;\n            cursor: not-allowed;\n          }\n        ")
+        });
+        this.refreshBtn = jsxs("button", {
+            type: "button",
+            class: "nft-refresh-btn",
+            onclick: ()=>this.loadRules(),
             children: [
+                jsx("span", {
+                    style: "font-size: 11px; line-height: 1;",
+                    children: "\u21BB"
+                }),
+                "Refresh"
+            ]
+        });
+        let n = jsxs("div", {
+            children: [
+                o,
                 jsxs("div", {
-                    style: "margin-bottom: 12px; display: flex; align-items: center; gap: 12px;",
+                    style: "margin-bottom: 8px; display: flex; align-items: center; gap: 8px;",
                     children: [
-                        this.refreshBtn,
+                        jsxs("div", {
+                            style: "color: #666; font-size: 12px; font-weight: 500;",
+                            children: [
+                                "Table:",
+                                " ",
+                                jsx("code", {
+                                    style: "background: ".concat(e ? "#2d2d2d" : "#eaeaea", "; padding: 2px 6px; border-radius: 4px; color: ").concat(e ? "#4ec9b0" : "#267f99", ";"),
+                                    children: "inet portweaver"
+                                })
+                            ]
+                        }),
                         this.statusSpan
                     ]
                 }),
                 jsxs("div", {
-                    style: "margin-bottom: 8px; color: #666; font-size: 12px;",
+                    style: "position: relative;",
                     children: [
-                        "Table: ",
-                        jsx("code", {
-                            children: "inet portweaver"
+                        this.rulesContainer,
+                        jsx("div", {
+                            style: "position: absolute; top: 8px; right: 8px; z-index: 10;",
+                            children: this.refreshBtn
                         })
                     ]
-                }),
-                this.rulesContainer
+                })
             ]
         });
-        return this.loadRules(), e;
+        return this.loadRules(), n;
     }
     async loadRules() {
         if (!this.loading) {
@@ -13966,8 +14251,71 @@ class NftablesRulesViewer {
         this.rulesContainer.innerHTML = e;
     }
     highlightSyntax(e) {
-        let t = e.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        return (t = (t = (t = (t = (t = (t = (t = t.replace(/\b(table|chain|rule|set|map|element|flush|add|delete|list|type|hook|priority|policy|accept|drop|reject|queue|jump|goto|return|comment)\b/g, '<span style="color: #569cd6;">$1</span>')).replace(/\b(filter|nat|route|inet|ip|ip6|arp|bridge|ingress|prerouting|input|forward|output|postrouting)\b/g, '<span style="color: #4ec9b0;">$1</span>')).replace(/\b(tcp|udp|icmp|icmpv6|esp|ah|sctp)\b/g, '<span style="color: #c586c0;">$1</span>')).replace(/\b(\d+)\b/g, '<span style="color: #b5cea8;">$1</span>')).replace(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(\/\d{1,2})?)\b/g, '<span style="color: #ce9178;">$1</span>')).replace(/"([^"]*)"/g, '<span style="color: #ce9178;">"$1"</span>')).replace(/(#[^\n]*)/g, '<span style="color: #6a9955;">$1</span>')).replace(/(PORTWEAVER_\w+)/g, '<span style="color: #dcdcaa; font-weight: bold;">$1</span>');
+        let t = getThemeColors().isDark, s = (e)=>e.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"), o = t ? "#6a9955" : "#008000", n = t ? "#ce9178" : "#a31515", i = t ? "#dcdcaa" : "#795e26", a = t ? "#ce9178" : "#098658", l = t ? "#b5cea8" : "#098658", c = t ? "#569cd6" : "#0000ff", p = t ? "#4ec9b0" : "#267f99", d = t ? "#c586c0" : "#af00db", u = RegExp('(#[^\\n]*)|("[^"\\n]*")|(PORTWEAVER_\\w+)|(\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}(?:\\/\\d{1,2})?\\b)|(\\b(?:[a-fA-F0-9]{1,4}:){1,7}(?:[a-fA-F0-9]{1,4}|:)(?:\\/\\d{1,3})?\\b)|(\\b\\d+\\b)|([a-zA-Z_][a-zA-Z0-9_-]*)|([^\\s\\w])|(\\s+)', "g");
+        return e.replace(u, (e, t, r, u, m, h, f, j, b, g)=>{
+            if (t) return '<span style="color: '.concat(o, ';">').concat(s(t), "</span>");
+            if (r) return '<span style="color: '.concat(n, ';">').concat(s(r), "</span>");
+            if (u) return '<span style="color: '.concat(i, '; font-weight: bold;">') + s(u) + "</span>";
+            if (m) return '<span style="color: '.concat(a, ';">').concat(s(m), "</span>");
+            if (h) return '<span style="color: '.concat(a, ';">').concat(s(h), "</span>");
+            if (f) return '<span style="color: '.concat(l, ';">').concat(s(f), "</span>");
+            if (j) {
+                let e = new Set([
+                    "table",
+                    "chain",
+                    "rule",
+                    "set",
+                    "map",
+                    "element",
+                    "flush",
+                    "add",
+                    "delete",
+                    "list",
+                    "type",
+                    "hook",
+                    "priority",
+                    "policy",
+                    "accept",
+                    "drop",
+                    "reject",
+                    "queue",
+                    "jump",
+                    "goto",
+                    "return",
+                    "comment",
+                    "counter",
+                    "name"
+                ]), t = new Set([
+                    "filter",
+                    "nat",
+                    "route",
+                    "inet",
+                    "ip",
+                    "ip6",
+                    "arp",
+                    "bridge",
+                    "ingress",
+                    "prerouting",
+                    "input",
+                    "forward",
+                    "output",
+                    "postrouting",
+                    "srcnat",
+                    "dstnat",
+                    "dnat"
+                ]), r = new Set([
+                    "tcp",
+                    "udp",
+                    "icmp",
+                    "icmpv6",
+                    "esp",
+                    "ah",
+                    "sctp"
+                ]);
+                return e.has(j) ? '<span style="color: '.concat(c, ';">').concat(s(j), "</span>") : t.has(j) ? '<span style="color: '.concat(p, ';">').concat(s(j), "</span>") : r.has(j) ? '<span style="color: '.concat(d, ';">').concat(s(j), "</span>") : s(j);
+            }
+            return b ? s(b) : g ? s(g) : s(e);
+        });
     }
     constructor(){
         _define_property(this, "rulesContainer", null), _define_property(this, "statusSpan", null), _define_property(this, "refreshBtn", null), _define_property(this, "rules", ""), _define_property(this, "loading", !1);
@@ -13977,9 +14325,8 @@ class NftablesRulesViewer {
 ;// CONCATENATED MODULE: ./modules/nftables.tsx
 
 let nftables_t = L.form;
-/* export default */ function nftables(l, n, o) {
-    let r = n.taboption(o, nftables_t.DummyValue, "_nftables_rules", _("nftables Rules"));
-    r.rawhtml = !0, r.cfgvalue = ()=>new NftablesRulesViewer().render();
+/* export default */ function nftables(n, r, l) {
+    r.taboption(l, nftables_t.DummyValue, "_nftables_rules", _("nftables Rules")).render = ()=>new NftablesRulesViewer().render();
 }
 
 ;// CONCATENATED MODULE: ./modules/about.tsx

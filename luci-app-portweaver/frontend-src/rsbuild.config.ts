@@ -54,7 +54,7 @@ export default defineConfig({
         },
         minify: {
           compress: true,
-          mangle: {}
+          mangle: {},
         },
         transform: {
           react: {
@@ -106,5 +106,5 @@ export default defineConfig({
     chunkSplit: {
       strategy: "all-in-one",
     },
-  }
+  },
 });

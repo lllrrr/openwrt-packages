@@ -27,6 +27,7 @@ define Package/luci-app-simple2fa/install
 	$(INSTALL_BIN) ./root/usr/share/luci-app-simple2fa/luci $(1)/usr/share/luci-app-simple2fa/luci
 	$(INSTALL_DATA) ./root/usr/share/luci-app-simple2fa/sysauth.htm $(1)/usr/share/luci-app-simple2fa/sysauth.htm
 	$(INSTALL_DATA) ./root/usr/share/luci-app-simple2fa/sysauth.ut $(1)/usr/share/luci-app-simple2fa/sysauth.ut
+	$(INSTALL_DATA) ./root/usr/share/luci-app-simple2fa/sysauth.js $(1)/usr/share/luci-app-simple2fa/sysauth.js
 
 	# Fix CRLF line endings (project developed on Windows)
 	find $(1) -type f \( -name "*.lua" -o -name "*.htm" -o -name "*.ut" -o -name "*.js" \) -exec sed -i 's/\r//' {} \;
@@ -37,9 +38,12 @@ endef
 
 define Package/luci-app-simple2fa/prerm
 #!/bin/sh
-if [ -f "/www/cgi-bin/luci.bak" ]; then
-	mv -f /www/cgi-bin/luci.bak /www/cgi-bin/luci
-fi
+# 恢复所有被替换的文件
+for f in /www/cgi-bin/luci /www/luci-static/resources/view/*/sysauth.js /usr/lib/lua/luci/view/themes/*/sysauth.htm /usr/lib/lua/luci/view/sysauth.htm; do
+	if [ -f "$${f}.bak" ]; then
+		mv -f "$${f}.bak" "$$f"
+	fi
+done
 exit 0
 endef
 

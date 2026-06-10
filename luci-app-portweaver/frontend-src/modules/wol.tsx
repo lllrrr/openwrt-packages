@@ -78,7 +78,9 @@ export default function (
     form.Value,
     "cooldown_ms",
     _("WoL Cooldown (ms)"),
-    _("Minimum interval between successive WoL packets in milliseconds (1000–300000)."),
+    _(
+      "Minimum interval between successive WoL packets in milliseconds (1000–300000).",
+    ),
   );
   o.modalonly = true;
   o.rmempty = true;

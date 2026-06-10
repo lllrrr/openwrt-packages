@@ -8,155 +8,165 @@ STOP=10
 # CGI 路径
 CGI_TARGET="/www/cgi-bin/luci"
 CGI_SOURCE="/usr/share/luci-app-simple2fa/luci"
-SYSAUTH_SOURCE="/usr/share/luci-app-simple2fa/sysauth.htm"
 
-# 动态检测主题模板路径 (从 UCI 读取当前主题)
-detect_sysauth_target() {
-	# 从 UCI 读取当前主题
-	# mediaurlbase 格式: /luci-static/bootstrap 或 /luci-static/argon
-	local mediaurlbase=$(uci -q get luci.main.mediaurlbase)
-	local theme_name=$(echo "$mediaurlbase" | sed -n 's|.*/luci-static/\([^/]*\).*|\1|p')
-	
-	# 默认 bootstrap
-	[ -z "$theme_name" ] && theme_name="bootstrap"
-	
-	# 注意: 此函数的 stdout 被 $() 捕获用于返回路径
-	# 所以日志只能写到 stderr 或 logger，不能用 echo
-	logger -t simple2fa "[init.d] 检测到当前主题: $theme_name (mediaurlbase=$mediaurlbase)"
-	echo "[simple2fa] 检测到当前主题: $theme_name" >&2
-	
-	# 优先使用当前主题的模板，fallback 到基础模板
-	local theme_path="/usr/lib/lua/luci/view/themes/${theme_name}/sysauth.htm"
-	local base_path="/usr/lib/lua/luci/view/sysauth.htm"
-	
-	if [ -e "$theme_path" ] || [ -e "${theme_path}.bak" ]; then
-		echo "$theme_path"
-		return 0
-	elif [ -e "$base_path" ] || [ -e "${base_path}.bak" ]; then
-		echo "$base_path"
-		return 0
-	fi
-	
-	echo ""
-	return 1
-}
+# 模板源文件
+SYSAUTH_HTM_SOURCE="/usr/share/luci-app-simple2fa/sysauth.htm"
+SYSAUTH_UT_SOURCE="/usr/share/luci-app-simple2fa/sysauth.ut"
+SYSAUTH_JS_SOURCE="/usr/share/luci-app-simple2fa/sysauth.js"
 
 log() {
 	logger -t simple2fa "[init.d] $1"
 	echo "[simple2fa] $1"
 }
 
+# 获取当前主题名称
+get_theme_name() {
+	local mediaurlbase=$(uci -q get luci.main.mediaurlbase)
+	local theme_name=$(echo "$mediaurlbase" | sed -n 's|.*/luci-static/\([^/]*\).*|\1|p')
+	[ -z "$theme_name" ] && theme_name="bootstrap"
+	echo "$theme_name"
+}
+
+# 备份并替换文件
+# 用法: backup_replace <源文件> <目标文件> <描述> [exec]
+backup_replace() {
+	local src="$1" tgt="$2" desc="$3" need_exec="$4"
+
+	if [ ! -f "$src" ]; then
+		log "$desc: 跳过 (源文件不存在: $src)"
+		return 1
+	fi
+
+	if [ ! -e "$tgt" ] && [ ! -e "${tgt}.bak" ]; then
+		log "$desc: 跳过 (目标不存在: $tgt)"
+		return 1
+	fi
+
+	# 备份原始文件（仅首次）
+	if [ -e "$tgt" ] && [ ! -e "${tgt}.bak" ]; then
+		if ! grep -q "Simple2FA" "$tgt" 2>/dev/null; then
+			cp -af "$tgt" "${tgt}.bak"
+			log "$desc: 备份成功 -> ${tgt}.bak"
+		else
+			log "$desc: 跳过备份 (已是我们的文件)"
+		fi
+	fi
+
+	# 替换文件
+	cp -f "$src" "$tgt"
+	[ "$need_exec" = "exec" ] && chmod +x "$tgt"
+	log "$desc: 替换成功 ($src -> $tgt)"
+	return 0
+}
+
+# 恢复文件
+# 用法: restore_file <目标文件> <描述> [exec]
+restore_file() {
+	local tgt="$1" desc="$2" need_exec="$3"
+
+	if [ -f "${tgt}.bak" ]; then
+		rm -f "$tgt"
+		cp -af "${tgt}.bak" "$tgt"
+		rm -f "${tgt}.bak"
+		[ "$need_exec" = "exec" ] && chmod +x "$tgt"
+		log "$desc: 恢复成功 (从 .bak)"
+	fi
+}
 
 start() {
 	log "========== START 被调用 =========="
-	
-	# 动态检测模板路径
-	local SYSAUTH_TARGET=$(detect_sysauth_target)
-	if [ -z "$SYSAUTH_TARGET" ]; then
-		log "错误: 未找到任何 sysauth.htm 模板"
-		SYSAUTH_TARGET="/usr/lib/lua/luci/view/sysauth.htm"
-	fi
-	log "检测到模板路径: $SYSAUTH_TARGET"
-	
+
+	local theme=$(get_theme_name)
+	log "检测到主题: $theme"
+
 	local enabled=$(uci -q get simple2fa.global.enabled)
-	log "配置读取: simple2fa.global.enabled = '$enabled'"
-	
+	log "配置: enabled='$enabled'"
+
 	local secret=$(uci -q get simple2fa.global.secret)
 	if [ -n "$secret" ]; then
-		log "密钥状态: 已配置 (长度=${#secret})"
+		log "密钥: 已配置 (长度=${#secret})"
 	else
-		log "密钥状态: 未配置!"
+		log "密钥: 未配置"
 	fi
 
-	if [ "$enabled" = "1" ]; then
-		log "开关状态: 启用 -> 开始替换文件"
-		
-		# === 1. 备份 CGI ===
-		if [ -e "$CGI_TARGET" ]; then
-			if [ ! -e "${CGI_TARGET}.bak" ]; then
-				if ! grep -q "Simple2FA" "$CGI_TARGET" 2>/dev/null; then
-					cp -af "$CGI_TARGET" "${CGI_TARGET}.bak"
-					log "CGI 备份: 成功创建 ${CGI_TARGET}.bak"
-				else
-					log "CGI 备份: 跳过 (已是我们的脚本)"
-				fi
-			else
-				log "CGI 备份: 跳过 (备份已存在)"
-			fi
-		else
-			log "CGI 备份: 错误! 目标文件不存在: $CGI_TARGET"
-		fi
-		
-		# === 2. 备份 sysauth.htm ===
-		if [ -e "$SYSAUTH_TARGET" ]; then
-			if [ ! -e "${SYSAUTH_TARGET}.bak" ]; then
-				cp -af "$SYSAUTH_TARGET" "${SYSAUTH_TARGET}.bak"
-				log "模板备份: 成功创建 ${SYSAUTH_TARGET}.bak"
-			else
-				log "模板备份: 跳过 (备份已存在)"
-			fi
-		else
-			log "模板备份: 警告! 目标文件不存在: $SYSAUTH_TARGET"
-		fi
-		
-		# === 3. 安装我们的 CGI ===
-		if [ -f "$CGI_SOURCE" ]; then
-			rm -f "$CGI_TARGET"
-			cp -f "$CGI_SOURCE" "$CGI_TARGET"
-			chmod +x "$CGI_TARGET"
-			log "CGI 安装: 成功 ($CGI_SOURCE -> $CGI_TARGET)"
-		else
-			log "CGI 安装: 错误! 源文件不存在: $CGI_SOURCE"
-		fi
-		
-		# === 4. 安装我们的 sysauth.htm ===
-		if [ -f "$SYSAUTH_SOURCE" ]; then
-			rm -f "$SYSAUTH_TARGET"
-			cp -f "$SYSAUTH_SOURCE" "$SYSAUTH_TARGET"
-			log "模板安装: 成功 ($SYSAUTH_SOURCE -> $SYSAUTH_TARGET)"
-		else
-			log "模板安装: 错误! 源文件不存在: $SYSAUTH_SOURCE"
-		fi
-		
-		log "========== START 完成 (2FA 已激活) =========="
-	else
-		log "开关状态: 禁用 -> 调用 stop 恢复原始文件"
+	if [ "$enabled" != "1" ]; then
+		log "2FA 未启用 -> 调用 stop 恢复"
 		stop
-		log "========== START 完成 (2FA 未激活) =========="
+		log "========== START 完成 (未激活) =========="
+		return 0
 	fi
+
+	# === 1. 替换 CGI 脚本 ===
+	backup_replace "$CGI_SOURCE" "$CGI_TARGET" "CGI" "exec"
+
+	# === 2. 替换登录模板 (旧版 LuCI: .htm) ===
+	local htm_target=""
+	for p in \
+		"/usr/lib/lua/luci/view/themes/${theme}/sysauth.htm" \
+		"/usr/lib/lua/luci/view/sysauth.htm"; do
+		if [ -e "$p" ] || [ -e "${p}.bak" ]; then
+			htm_target="$p"
+			break
+		fi
+	done
+	if [ -n "$htm_target" ]; then
+		backup_replace "$SYSAUTH_HTM_SOURCE" "$htm_target" "HTM模板"
+	else
+		log "HTM模板: 未找到 (可能是新版 LuCI)"
+	fi
+
+	# === 3. 替换 JS 登录视图 (新版 LuCI: sysauth.js) ===
+	local js_target="/www/luci-static/resources/view/${theme}/sysauth.js"
+	if [ -e "$js_target" ] || [ -e "${js_target}.bak" ]; then
+		backup_replace "$SYSAUTH_JS_SOURCE" "$js_target" "JS视图"
+	else
+		log "JS视图: 未找到 $js_target (可能是旧版 LuCI)"
+	fi
+
+	# === 4. 替换 .ut 模板 (新版 LuCI: sysauth.ut) ===
+	local ut_target=""
+	for p in \
+		"/usr/share/ucode/luci/template/themes/${theme}/sysauth.ut" \
+		"/usr/lib/ucode/luci/template/themes/${theme}/sysauth.ut"; do
+		if [ -e "$p" ] || [ -e "${p}.bak" ]; then
+			ut_target="$p"
+			break
+		fi
+	done
+	if [ -n "$ut_target" ]; then
+		backup_replace "$SYSAUTH_UT_SOURCE" "$ut_target" "UT模板"
+	else
+		log "UT模板: 未找到 (跳过)"
+	fi
+
+	log "========== START 完成 (2FA 已激活) =========="
 }
 
 stop() {
 	log "========== STOP 被调用 =========="
-	
-	# 动态检测模板路径
-	local SYSAUTH_TARGET=$(detect_sysauth_target)
-	if [ -z "$SYSAUTH_TARGET" ]; then
-		SYSAUTH_TARGET="/usr/lib/lua/luci/view/sysauth.htm"
-	fi
 
-	
+	local theme=$(get_theme_name)
+
 	# === 1. 恢复 CGI ===
-	if [ -f "${CGI_TARGET}.bak" ]; then
-		rm -f "$CGI_TARGET"
-		cp -af "${CGI_TARGET}.bak" "$CGI_TARGET"
-		rm -f "${CGI_TARGET}.bak"
-		chmod +x "$CGI_TARGET"
-		log "CGI 恢复: 成功 (从 .bak 恢复)"
-	else
-		log "CGI 恢复: 跳过 (无备份文件)"
-	fi
+	restore_file "$CGI_TARGET" "CGI" "exec"
 
-	# === 2. 恢复 sysauth.htm ===
-	if [ -f "${SYSAUTH_TARGET}.bak" ]; then
-		rm -f "$SYSAUTH_TARGET"
-		cp -af "${SYSAUTH_TARGET}.bak" "$SYSAUTH_TARGET"
-		rm -f "${SYSAUTH_TARGET}.bak"
-		log "模板恢复: 成功 (从 .bak 恢复)"
-	else
-		log "模板恢复: 跳过 (无备份文件)"
-	fi
-	
+	# === 2. 恢复 HTM 模板 ===
+	for p in \
+		"/usr/lib/lua/luci/view/themes/${theme}/sysauth.htm" \
+		"/usr/lib/lua/luci/view/sysauth.htm"; do
+		restore_file "$p" "HTM模板"
+	done
+
+	# === 3. 恢复 JS 视图 ===
+	restore_file "/www/luci-static/resources/view/${theme}/sysauth.js" "JS视图"
+
+	# === 4. 恢复 UT 模板 ===
+	for p in \
+		"/usr/share/ucode/luci/template/themes/${theme}/sysauth.ut" \
+		"/usr/lib/ucode/luci/template/themes/${theme}/sysauth.ut"; do
+		restore_file "$p" "UT模板"
+	done
+
 	log "========== STOP 完成 =========="
 }
 

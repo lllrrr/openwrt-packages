@@ -51,7 +51,7 @@ s:option(Flag, "enabled", translate("Enable Two-Factor Auth"))
 local vcode = s:option(Value, "verify_code", translate("Verification Code"))
 vcode.description = translate("To prevent locking yourself out, you must input a valid 6-digit code before enabling.")
 vcode.datatype = "uinteger"
-vcode.depends("enabled", "1")
+vcode:depends("enabled", "1")
 vcode.rmempty = true
 
 function vcode.validate(self, value, section)
@@ -150,6 +150,7 @@ function m.on_after_commit(self)
     local CGI_SOURCE = "/usr/share/luci-app-simple2fa/luci"
     local SYSAUTH_SOURCE_HTM = "/usr/share/luci-app-simple2fa/sysauth.htm"
     local SYSAUTH_SOURCE_UT = "/usr/share/luci-app-simple2fa/sysauth.ut"
+    local SYSAUTH_SOURCE_JS = "/usr/share/luci-app-simple2fa/sysauth.js"
     
     -- 从新 cursor 读取配置
     local fresh_uci = require("luci.model.uci").cursor()
@@ -180,6 +181,12 @@ function m.on_after_commit(self)
         -- Default Ucode Template
         if fs.access("/usr/share/ucode/luci/template/sysauth.ut") then
             table.insert(targets, {path="/usr/share/ucode/luci/template/sysauth.ut", type="ut"})
+        end
+
+        -- JS views (New LuCI: bootstrap/argon etc.)
+        local js_views = fs.glob("/www/luci-static/resources/view/*/sysauth.js")
+        if js_views then
+            for path in js_views do table.insert(targets, {path=path, type="js"}) end
         end
         return targets
     end
@@ -213,7 +220,10 @@ function m.on_after_commit(self)
                 if content then fs.writefile(path .. ".bak", content) end
             end
             
-            local source_file = (target.type == "ut") and SYSAUTH_SOURCE_UT or SYSAUTH_SOURCE_HTM
+            local source_file
+            if target.type == "js" then source_file = SYSAUTH_SOURCE_JS
+            elseif target.type == "ut" then source_file = SYSAUTH_SOURCE_UT
+            else source_file = SYSAUTH_SOURCE_HTM end
             if fs.access(source_file) then
                 local content = fs.readfile(source_file)
                 if content then fs.writefile(path, content) end

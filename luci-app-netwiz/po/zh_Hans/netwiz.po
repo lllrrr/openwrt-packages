@@ -1444,6 +1444,18 @@ msgstr "恢复异常被安全拦截"
 msgid "Self-healing mechanism triggered. Garbage cleared, router is safe and unharmed."
 msgstr "系统已启动自愈机制清理了垃圾残留，您的路由器目前处于安全状态，并未受损。"
 
+msgid "🔄 First Time Syncing"
+msgstr "🔄 首次同步软件源"
+
+msgid "Syncing lists in the background..."
+msgstr "正在后台拉取最新列表..."
+
+msgid "This is the first run, the router is syncing the official software sources in the background.<br><br>Depending on the network, this usually takes <b>10 to 15 seconds</b>.<br>Please wait a moment and click the backup button again."
+msgstr "路由器正在后台同步官方软件源。<br><br>受限于网络，这通常需要 <b>10 ~ 15 秒</b>。<br>请稍作等待后，再次点击备份按钮即可。"
+
+msgid "OK, I will try again later"
+msgstr "好的，我稍后再点"
+
 msgid "Transfer Failed"
 msgstr "传输失败"
 

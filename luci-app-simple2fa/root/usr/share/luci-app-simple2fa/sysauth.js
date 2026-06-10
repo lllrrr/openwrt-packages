@@ -86,7 +86,7 @@ return view.extend({
                 // Create hidden input for the actual POST
                 var hiddenInput = document.createElement('input');
                 hiddenInput.type = 'hidden';
-                hiddenInput.name = 'token'; // Must match Lua CGI
+                hiddenInput.name = 'totp_code'; // Must match ucode CGI
                 hiddenInput.value = val;
                 form.appendChild(hiddenInput);
 
