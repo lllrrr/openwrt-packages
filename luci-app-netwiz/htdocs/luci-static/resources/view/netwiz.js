@@ -361,7 +361,16 @@ var T = {
     'M_FIRST_SYNC_TITLE': _('🔄 First Time Syncing'),
     'M_FIRST_SYNC_SUB': _('Syncing lists in the background...'),
     'M_FIRST_SYNC_DESC': _('This is the first run, the router is syncing the official software sources in the background.<br><br>Depending on the network, this usually takes <b>10 to 15 seconds</b>.<br>Please wait a moment and click the backup button again.'),
-    'M_SYNC_OK': _('OK, I will try again later')
+    'M_SYNC_OK': _('OK, I will try again later'),
+    'MSG_RST_PKG_ERR': _('RESTORE FAILED: Package manager mismatch (apk vs ipk). Please use firmware with the same underlying system.'),
+    'MSG_RST_ARCH_ERR': _('RESTORE FAILED: CPU Architecture mismatch. Forcing this restore will brick your router! Process aborted.'),
+    'TIT_PKG_CONFLICT': _('Package Manager Conflict'),
+    'TIT_ARCH_CONFLICT': _('CPU Architecture Conflict'),
+    'MSG_PKG_ERR_APK': _('Your current system uses the apk architecture, but you are trying to flash an ipk backup!'),
+    'MSG_PKG_ERR_OPKG': _('Your current system uses the opkg architecture, but you are trying to flash an apk backup!'),
+    'MSG_ARCH_ERR_UI': _('Architecture mismatch! (Current router: {arch})'),
+    'MSG_ARCH_ERR_DESC': _('The backup package you selected belongs to a different hardware architecture. Forcing this restore will brick your router!'),
+    'MSG_FAST_BLOCK': _('The frontend security system has instantly blocked this dangerous operation.')
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -2513,12 +2522,16 @@ return view.extend({
                         });
 
                         // 2. 呼叫后端扫描
-                        callCheckMissingPkgs().then(function(res) {
+                        // 成功渲染逻辑抽离为独立函数，方便首次尝试与后续自动轮询复用
+                        var handleMissingRes = function(res) {
+                            var backupModal = document.getElementById('nw-global-modal');
+                            if (backupModal) backupModal.style.display = 'none';
+
                             var missing = res.missing || [];
                             var provided = res.provided || [];
                             var official = res.official || [];
 
-                            // --- 三色列表 HTML ---
+                            // --- 三色列表HTML渲染保持不变 ---
                             var missingHtml = '';
                             if (missing.length > 0) {
                                 missingHtml += '<div style="color:#b91c1c; font-weight:bold; margin-bottom:5px; margin-top:10px;">❌ ' + (T['TXT_MISSING_PKGS'] || 'Missing packages:') + '</div>';
@@ -2544,13 +2557,10 @@ return view.extend({
                             }
 
                             var totalCount = missing.length + provided.length + official.length;
-
-                            // 全局滚动容器
                             var scrollWrapperStart = '<div style="max-height: 35vh; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0 10px 10px 10px; background: #f8fafc; margin-bottom: 15px; margin-top: 10px; box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.03);">';
                             var scrollWrapperEnd = '</div>';
 
                             if (missing.length > 0) {
-                                // 缺失：包含紅色缺失 + 绿色保险箱清单 + 蓝色官方清单
                                 var pkgListHtml = scrollWrapperStart + missingHtml + providedHtml + officialHtml + scrollWrapperEnd;
                                 openModal({
                                     title: '⚠️ ' + (T['TIT_PKG_CHECK'] || 'Plugin Backup Status'),
@@ -2568,7 +2578,6 @@ return view.extend({
                                     onOk: function() { performBackup(); }
                                 });
                             } else if (totalCount > 0) {
-                                // 沒有缺失，只列出绿色保险箱清单 + 蓝色官方清单
                                 var pkgListHtml = scrollWrapperStart + providedHtml + officialHtml + scrollWrapperEnd;
                                 var mTitle = provided.length > 0 ? (T['TIT_CUSTOM_PKG_READY'] || 'Custom Plugins Ready') : (T['TIT_OFFICIAL_PKG_READY'] || 'Plugin Scan Complete');
                                 var mDesc = provided.length > 0 ? (T['MSG_CUSTOM_PKG_READY_DESC'] || 'Great! Your custom plugins are safely stored and will be included in the backup capsule.') : (T['MSG_OFFICIAL_PKG_READY_DESC'] || 'All installed plugins are from the official repository and will be safely recorded.');
@@ -2581,20 +2590,61 @@ return view.extend({
                                     onOk: function() { performBackup(); }
                                 });
                             } else {
-                                // 无任何 UI 插件，直接备份
                                 performBackup();
                             }
-                        }).catch(function(err) {
-                            var backupModal = document.getElementById('nw-global-modal');
-                            if (backupModal) backupModal.style.display = 'none';
-                            
-                            openModal({ 
-                                title: T['M_FIRST_SYNC_TITLE'] || '🔄 First Time Syncing', 
-                                msg: '<div style="font-size:15px; color:#f59e0b; margin-bottom:10px;"><b>' + (T['M_FIRST_SYNC_SUB'] || 'Syncing lists in the background...') + '</b></div>' +
-                                     '<div style="font-size:14px; color:#475569;">' + (T['M_FIRST_SYNC_DESC'] || 'This is the first run, the router is syncing the official software sources in the background.<br><br>Depending on the network, this usually takes <b>10 to 15 seconds</b>.<br>Please wait a moment and click the backup button again.') + '</div>', 
-                                okText: T['M_SYNC_OK'] || 'OK, I will try again later' 
+                        };
+
+                        // 建立主动轮询流
+                        var isPolling = false; // 轮询开关
+                        
+                        var doCheck = function() {
+                            callCheckMissingPkgs().then(handleMissingRes).catch(function(err) {
+                                var backupModal = document.getElementById('nw-global-modal');
+                                if (backupModal) backupModal.style.display = 'none';
+                                
+                                isPolling = true; // 开启轮询状态
+                                openModal({ 
+                                    title: T['M_FIRST_SYNC_TITLE'] || '🔄 首次核实插件清单', 
+                                    msg: '<div style="font-size:15px; color:#f59e0b; margin-bottom:10px;"><b>' + (T['M_FIRST_SYNC_SUB'] || '正在后台拉取最新列表...') + '</b></div>' +
+                                         '<div style="font-size:14px; color:#475569;">正在核实可以自动备份的插件清单...<br><br>受限于网络，这通常需要 <b>15 ~ 20秒</b>。<br>系统正在自动等待结果，请稍候...<br><br><span id="nw-sync-dots" style="color:#2563eb; font-weight:bold;">正在查询中 .</span></div>', 
+                                    okText: T['M_SYNC_OK'] || '停止备份',
+                                    onOk: function() {
+                                        isPolling = false; // 点击停止，彻底关闭后续的联机请求
+                                    }
+                                });
+
+                                var dots = 1;
+                                
+                                // 上一个请求彻底结束（超时或被后端秒拒），等待3秒发送下一个
+                                var pollNext = function() {
+                                    if (!isPolling) return; // 如果被停止，立刻终止
+                                    
+                                    var dEl = document.getElementById('nw-sync-dots');
+                                    if (dEl) {
+                                        dots = (dots % 3) + 1;
+                                        var dotStr = '';
+                                        for(var i=0; i<dots; i++) dotStr += '.';
+                                        dEl.innerHTML = '正在查询中 ' + dotStr;
+                                    }
+                                    
+                                    // 停顿3秒后再发送查询
+                                    setTimeout(function() {
+                                        if (!isPolling) return;
+                                        callCheckMissingPkgs().then(function(retryRes) {
+                                            isPolling = false; // 拿到结果
+                                            handleMissingRes(retryRes); // 自动切换视窗
+                                        }).catch(function(e) {
+                                            // 后端正在下载中（回传exit 1），拒绝。进入下一个循环
+                                            pollNext();
+                                        });
+                                    }, 3000);
+                                };
+                                
+                                pollNext(); // 启动递归引擎
                             });
-                        });
+                        };
+                        
+                        doCheck(); // 启动主入口
                     }
                 });
 
@@ -2639,9 +2689,10 @@ return view.extend({
             btnSmartRestore.addEventListener('click', function(e) {
                 e.preventDefault();
                 
-                // 获取架构名
+                // 获取架构名与包管理器
                 callCheckMissingPkgs().then(function(res) {
-                    window.nwCurrentArch = res.pkg_type || 'apk';
+                    window.nwCurrentPkg = res.pkg_type || 'ipk';
+                    window.nwCurrentArch = res.sys_arch || '';
                 }).catch(function(){});
                 openModal({
                     title: '<div style="position:relative; display:flex; justify-content:center; align-items:center; width:100%;"><span id="btn-restore-close" style="position:absolute; right: 10px; font-size:35px; color:rgba(255,255,255,0.8); cursor:pointer; line-height:1; font-family:Arial,sans-serif; padding:0 5px;" onmouseover="this.style.color=\'#fff\'" onmouseout="this.style.color=\'rgba(255,255,255,0.8)\'">×</span><span>' + T['M_RST_CONFIRM_TIT'] + '</span></div>',
@@ -2902,6 +2953,44 @@ return view.extend({
                 // ==========================================
                 
                 var fileName = file.name;
+
+                // 只有当文件是我们系统的规范备份包时，才进行严格的名字校验
+                // 前端 Fail-Fast 极速拦截防线
+                if (fileName.indexOf('NetWiz_') !== -1) {
+                    
+                    // 1. 拦截：包管理器不匹配
+                    var isApkSys = (window.nwCurrentPkg === 'apk');
+                    if (isApkSys && fileName.indexOf('_ipk_') !== -1) {
+                        openModal({
+                            title: '🚨 ' + (T['TIT_PKG_CONFLICT'] || 'Package Manager Conflict'),
+                            msg: '<div style="color:#ef4444; font-size:15px; font-weight:bold;">' + (T['MSG_PKG_ERR_APK'] || '') + '</div><br>' + (T['MSG_FAST_BLOCK'] || ''),
+                            okText: T['M_OK'] || 'OK'
+                        });
+                        this.value = ''; 
+                        return; 
+                    } else if (!isApkSys && fileName.indexOf('_apk_') !== -1) {
+                        openModal({
+                            title: '🚨 ' + (T['TIT_PKG_CONFLICT'] || 'Package Manager Conflict'),
+                            msg: '<div style="color:#ef4444; font-size:15px; font-weight:bold;">' + (T['MSG_PKG_ERR_OPKG'] || '') + '</div><br>' + (T['MSG_FAST_BLOCK'] || ''),
+                            okText: T['M_OK'] || 'OK'
+                        });
+                        this.value = '';
+                        return;
+                    }
+
+                    // 2. 拦截：CPU 架构不匹配
+                    if (window.nwCurrentArch && fileName.indexOf(window.nwCurrentArch) === -1) {
+                        var archMsg = T['MSG_ARCH_ERR_UI'] ? T['MSG_ARCH_ERR_UI'].replace('{arch}', window.nwCurrentArch) : 'Architecture mismatch! (Current router: ' + window.nwCurrentArch + ')';
+                        openModal({
+                            title: '🚨 ' + (T['TIT_ARCH_CONFLICT'] || 'CPU Architecture Conflict'),
+                            msg: '<div style="color:#ef4444; font-size:15px; font-weight:bold;">' + archMsg + '</div><br>' + (T['MSG_ARCH_ERR_DESC'] || '') + '<br><br>' + (T['MSG_FAST_BLOCK'] || ''),
+                            okText: T['M_OK'] || 'OK'
+                        });
+                        this.value = '';
+                        return;
+                    }
+                }
+
                 // 保存的当前系统架构（如果没有则默认 apk）
                 var currentArch = window.nwCurrentArch || 'apk';
                 var isApkBackup = fileName.indexOf('_apk_') !== -1;
