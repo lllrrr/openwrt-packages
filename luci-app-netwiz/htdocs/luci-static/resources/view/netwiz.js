@@ -374,7 +374,8 @@ var T = {
     'TIT_ARCH_WARN': _('Architecture Warning'),
     'MSG_ARCH_WARN_1': _('No architecture identifier ({arch}) detected in the selected backup filename.'),
     'MSG_ARCH_WARN_2': _('If you have <b>manually renamed</b> this file, please ignore this warning.<br><br><span style="color:#ef4444;">If it is the wrong package, the system\'s underlying security mechanism will forcibly intercept the restoration later!</span>'),
-    'BTN_WARN_CONTINUE': _('I understand, continue')
+    'BTN_WARN_CONTINUE': _('I understand, continue'),
+    'TXT_SCAN_TO_CONN': _('Scan to Connect'),
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -428,9 +429,14 @@ return view.extend({
             '  @keyframes wifi-wave { 0% { clip-path: inset(100% 0 0 0); } 20% { clip-path: inset(66% 0 0 0); } 40% { clip-path: inset(33% 0 0 0); } 60% { clip-path: inset(0 0 0 0); } 100% { clip-path: inset(0 0 0 0); } }',
             '  .wifi-active-anim { animation: wifi-wave 2s infinite; }',
             '  .nw-modal-btn-wrap .nw-u-btn { height: auto !important; min-height: 44px !important; white-space: normal !important; word-break: break-word !important; line-height: 1.4 !important; padding: 10px 8px !important; }',
+            '  .nw-qr-hover:hover { color: #3b82f6 !important; }',
             '</style>',
 
             '<div class="nw-wrapper">',
+            '   <div id="nw-hover-qr-box" style="display:none; position:fixed; z-index:999999; background:#fff; padding:5px; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,0.25); border:1px solid #e2e8f0; text-align:center; transform: translate(-50%, -100%); margin-top:-20px; pointer-events:none;">',
+            '      <div id="nw-hover-qr-code" style="margin:0 auto; background:#fff; padding:5px;"></div>',
+            '      <div style="font-size:13px; color:#3b82f6; margin-bottom:2px; font-weight:bold;">📱 {{TXT_SCAN_TO_CONN}}</div>',
+            '   </div>',
             '   <div class="nw-header">',
             '    <div class="nw-title-wrap">',
             '      <div class="nw-main-title">{{TITLE}}</div>',
@@ -771,7 +777,7 @@ return view.extend({
             '                 </div>',
             '              </div>',
             '           </div>',
-            
+
             '           <div id="wifi-5g2-form" style="display:none;">',
             '              <div class="nw-value"><label class="nw-value-title">{{LBL_5G2_SSID}}</label><div class="nw-value-field"><input type="text" id="wifi-5g2-ssid"></div></div>',
             '              <div class="nw-value"><label class="nw-value-title">{{LBL_5G2_PWD}}</label><div class="nw-value-field"><input type="text" id="wifi-5g2-key"></div></div>',
@@ -783,6 +789,12 @@ return view.extend({
             '           </div>',
             
             '        </div>',
+
+            '        <div id="nw-live-qr-box" style="display:none; text-align:center; margin: 5px 0 15px; padding: 10px; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; transition: opacity 0.3s ease;">',
+            '           <div id="nw-live-qr-code" style="background:#fff; padding:10px; border-radius:8px; display:inline-block; box-shadow:0 2px 8px rgba(0,0,0,0.08); margin-bottom:3px; min-width:130px; min-height:130px;"></div>',
+            '           <div style="font-size:14px; color:#64748b; font-weight:bold;">📱 {{TXT_SCAN_TO_CONN}} <span id="nw-live-qr-band" style="color:#3b82f6;"></span></div>',
+            '        </div>',
+
             '        <div class="nw-wisp-section">',
             '           <div class="nw-wisp-header">',
             '              <div class="nw-wisp-title">{{LBL_WISP_EN}}</div>',
@@ -864,6 +876,107 @@ return view.extend({
         container.querySelector = function(sel) { return oriQuery(sel) || document.querySelector(sel); };
         container.querySelectorAll = function(sel) { var r = oriQueryAll(sel); return (r && r.length > 0) ? r : document.querySelectorAll(sel); };
         // ==============================================================
+
+        // ==================  加载库与二维码生成逻辑  ==================
+        if (typeof window.QRCode === 'undefined' && !window._qrCodeScriptAdded) {
+            window._qrCodeScriptAdded = true;
+            var script = document.createElement('script');
+            script.src = L.resource('view/qrcode.min.js'); 
+            script.onload = function() { if (typeof window._updateLiveQR === 'function') window._updateLiveQR(); };
+            document.head.appendChild(script);
+        }
+
+        function renderWiFiQR(containerId, ssid, pwd, enc) {
+            var box = document.getElementById(containerId);
+            if (!box || typeof window.QRCode === 'undefined') return;
+            box.innerHTML = '';
+            var type = (!enc || enc === 'none') ? 'nopass' : (enc.indexOf('wep') !== -1 ? 'WEP' : 'WPA');
+            var esc = function(s) { return String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/:/g, '\\:'); };
+            var qrStr = 'WIFI:T:' + type + ';S:' + esc(ssid) + ';' + (type !== 'nopass' ? 'P:' + esc(pwd) + ';' : '') + ';';
+            new QRCode(box, { text: qrStr, width: 140, height: 140, colorDark : "#0f172a", colorLight : "#ffffff", correctLevel : QRCode.CorrectLevel.L });
+        }
+
+        window._updateLiveQR = function() {
+            var qrBox = container.querySelector('#nw-live-qr-box');
+            if (typeof window.QRCode === 'undefined') { if (qrBox) qrBox.style.display = 'none'; return; }
+            var smartOn = container.querySelector('#wifi-smart-toggle').checked && !window._isSingleChip;
+            var ssid = '', pwd = '', enc = '', bandName = '', isEn = false;
+
+            if (smartOn) {
+                isEn = container.querySelector('#wifi-smart-en').checked;
+                ssid = container.querySelector('#wifi-smart-ssid').value; pwd = container.querySelector('#wifi-smart-key').value;
+                enc = container.querySelector('#wifi-smart-enc').value; bandName = T['LBL_SMART_CONN'];
+            } else {
+                var t2 = container.querySelector('#tab-2g').style.background; var t5 = container.querySelector('#tab-5g').style.background;
+                if (t2.indexOf('rgb(59, 130, 246)') !== -1 || t2 === '#3b82f6') {
+                    isEn = container.querySelector('#wifi-2g-en').checked; ssid = container.querySelector('#wifi-2g-ssid').value;
+                    pwd = container.querySelector('#wifi-2g-key').value; enc = container.querySelector('#wifi-2g-enc').value; bandName = T['TAB_2G'] || '2.4G';
+                } else if (t5.indexOf('rgb(59, 130, 246)') !== -1 || t5 === '#3b82f6') {
+                    isEn = container.querySelector('#wifi-5g-en').checked; ssid = container.querySelector('#wifi-5g-ssid').value;
+                    pwd = container.querySelector('#wifi-5g-key').value; enc = container.querySelector('#wifi-5g-enc').value; bandName = T['TAB_5G'] || '5G';
+                } else {
+                    var e5g2 = container.querySelector('#wifi-5g2-en'); isEn = e5g2 ? e5g2.checked : false;
+                    ssid = container.querySelector('#wifi-5g2-ssid') ? container.querySelector('#wifi-5g2-ssid').value : '';
+                    pwd = container.querySelector('#wifi-5g2-key') ? container.querySelector('#wifi-5g2-key').value : '';
+                    enc = container.querySelector('#wifi-5g2-enc') ? container.querySelector('#wifi-5g2-enc').value : 'psk2+ccmp'; bandName = '5G_Game';
+                }
+            }
+            if (!isEn || !ssid) { qrBox.style.display = 'none'; return; }
+            qrBox.style.display = 'block';
+            var bandEl = container.querySelector('#nw-live-qr-band'); if (bandEl) bandEl.innerText = '(' + bandName + ')';
+            renderWiFiQR('nw-live-qr-code', ssid, pwd, enc);
+        };
+
+        // 鼠标跟随，无视底层 CSS 干扰
+        var updateQRPos = function(e) {
+            var hoverBox = container.querySelector('#nw-hover-qr-box') || document.getElementById('nw-hover-qr-box');
+            if (hoverBox && hoverBox.style.display === 'block') {
+                hoverBox.style.setProperty('position', 'fixed', 'important');
+                hoverBox.style.setProperty('z-index', '999999', 'important');
+                hoverBox.style.setProperty('transform', 'translate(-50%, -100%)', 'important');
+                hoverBox.style.left = e.clientX + 'px';
+                hoverBox.style.top = (e.clientY - 12) + 'px'; // 强制在鼠标正上方 12 像素处弹出
+            }
+        };
+
+        container.addEventListener('mouseover', function(e) {
+            var target = e.target.closest('.nw-qr-hover');
+            if (target && typeof window.QRCode !== 'undefined') {
+                renderWiFiQR('nw-hover-qr-code', target.getAttribute('data-ssid'), target.getAttribute('data-pwd'), target.getAttribute('data-enc'));
+                var hoverBox = container.querySelector('#nw-hover-qr-box') || document.getElementById('nw-hover-qr-box');
+                hoverBox.style.display = 'block';
+                updateQRPos(e);
+            }
+        });
+        
+        container.addEventListener('mousemove', function(e) {
+            if (e.target.closest('.nw-qr-hover')) updateQRPos(e);
+        });
+        
+        // 鼠标移出时隐藏
+        container.addEventListener('mouseout', function(e) { 
+            if (e.target.closest('.nw-qr-hover')) {
+                var hoverBox = container.querySelector('#nw-hover-qr-box') || document.getElementById('nw-hover-qr-box');
+                if(hoverBox) hoverBox.style.display = 'none'; 
+            }
+        });
+
+        // 移动端防粘滞逻辑，滑动屏幕或点击空白处时自动隐藏
+        window.addEventListener('scroll', function() {
+            var hoverBox = document.getElementById('nw-hover-qr-box');
+            if (hoverBox && hoverBox.style.display === 'block') {
+                hoverBox.style.display = 'none';
+            }
+        }, { passive: true });
+        
+
+        var inputsToWatch = ['#wifi-smart-ssid', '#wifi-smart-key', '#wifi-smart-enc', '#wifi-smart-en', '#wifi-2g-ssid', '#wifi-2g-key', '#wifi-2g-enc', '#wifi-2g-en', '#wifi-5g-ssid', '#wifi-5g-key', '#wifi-5g-enc', '#wifi-5g-en', '#wifi-5g2-ssid', '#wifi-5g2-key', '#wifi-5g2-en'];
+        inputsToWatch.forEach(function(sel) { var el = container.querySelector(sel); if (el) { el.addEventListener('input', window._updateLiveQR); el.addEventListener('change', window._updateLiveQR); } });
+        container.querySelector('#tab-2g').addEventListener('click', function() { setTimeout(window._updateLiveQR, 50); });
+        container.querySelector('#tab-5g').addEventListener('click', function() { setTimeout(window._updateLiveQR, 50); });
+        if (container.querySelector('#tab-5g2')) container.querySelector('#tab-5g2').addEventListener('click', function() { setTimeout(window._updateLiveQR, 50); });
+        container.querySelector('#wifi-smart-toggle').addEventListener('change', function() { setTimeout(window._updateLiveQR, 50); });
+        // ==================  结束：二维码生成逻辑  ==================
 
         container.addEventListener('click', function(e) {
             var btnGotoDev = e.target.closest('#btn-goto-dev');
@@ -2338,6 +2451,7 @@ return view.extend({
                         staIfaces.forEach(function(i) {
                             var sName = escapeHTML(i.ssid);
                             var tLbl = "<b class='nw-wifi-badge' style='color:#10b981;'>" + T['TXT_WISP_ON'] + "</b>";
+                            var qrAttr = " class='nw-hl nw-wifi-name nw-qr-hover' data-ssid=\"" + escapeHTML(i.ssid||'') + "\" data-pwd=\"" + escapeHTML(i.key||'') + "\" data-enc=\"" + escapeHTML(i.encryption||'none') + "\" style='cursor:pointer; position:relative; z-index:10; border-bottom:1px dashed rgba(255,255,255,0.4); padding-bottom:1px;' ";
                             wifiLines.push("<div class='nw-wifi-line'><span class='nw-wifi-left'>" + tLbl + "<span class='nw-wifi-colon'>:</span><span class='nw-hl nw-wifi-name'><span style='display:block; max-width:100%; word-break:break-all; white-space:normal; overflow-wrap:anywhere;'>" + sName + "</span></span></span></div>");
                         });
 
@@ -2354,7 +2468,6 @@ return view.extend({
                             var i = apIfaces[0];
                             var sName = escapeHTML(i.ssid);
                             var kTxt = i.key ? escapeHTML(i.key) : "<span style='color:#ef4444;'>" + T['TXT_NO_PASS'] + "</span>"; 
-                            var tLbl = "<b class='nw-wifi-badge' style='color:#10b981;'>" + T['LBL_SMART_CONN'] + "</b>";
                             var bandStr = 'smart';
                             
                             var rOn = apIfaces.some(function(x) { return x.ieee80211r === '1'; });
@@ -2374,6 +2487,11 @@ return view.extend({
                                     roamBadge = "<span title='" + T['TXT_CLICK_GOTO'] + "' onclick=\"" + clickFn + "\" " + hoverStyle + " style='display:inline-block; white-space:nowrap; background:rgba(16, 185, 129, 0.2); color:#a7f3d0; border: 1px solid #10b981; font-size:11px; padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:text-bottom; font-family:sans-serif; cursor:pointer; transition:all 0.2s ease;'>" + T['TXT_ROAMING'] + "</span>";
                                 }
                             }
+
+                            // 多频合一白色标识牌，pointer-events 接收鼠标事件
+                            var qrData = " data-ssid=\"" + escapeHTML(i.ssid||'') + "\" data-pwd=\"" + escapeHTML(i.key||'') + "\" data-enc=\"" + escapeHTML(i.encryption||'none') + "\" ";
+                            var tLbl = "<b class='nw-wifi-badge nw-qr-hover' " + qrData + " style='color:#10b981; cursor:pointer; pointer-events:auto !important; position:relative; z-index:20;' title='" + (T['TXT_SCAN_TO_CONN'] || 'Scan to Connect') + "'>" + T['LBL_SMART_CONN'] + "</b>"; 
+                            
                             wifiLines.push("<div class='nw-wifi-line'><span class='nw-wifi-left'>" + tLbl + "<span class='nw-wifi-colon'>:</span><span class='nw-hl nw-wifi-name'><span style='display:block; max-width:100%; word-break:break-all; white-space:normal; overflow-wrap:anywhere;'>" + sName + "</span>" + roamBadge + "</span></span><span class='nw-wifi-pwd'>(" + T['M_PWD'] + ": <span style='word-break:break-all; white-space:normal;'>" + kTxt + "</span>)</span></div>");
                         } else {
                             // 3. 渲染独立频段 UI
@@ -2408,9 +2526,10 @@ return view.extend({
                                         roamBadge = "<span title='" + T['TXT_CLICK_GOTO'] + "' onclick=\"" + clickFn + "\" " + hoverStyle + " style='display:inline-block; white-space:nowrap; background:rgba(16, 185, 129, 0.2); color:#a7f3d0; border: 1px solid #10b981; font-size:11px; padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:text-bottom; font-family:sans-serif; cursor:pointer; transition:all 0.2s ease;'>" + T['TXT_ROAMING'] + "</span>";
                                     }
                                 }
-                                
-                                // 独立频段
-                                var tLblNew = "<b class='nw-wifi-badge' style='color:#10b981;'>" + (bandStr === '5g' ? T['TXT_5G_ACCT'] : T['TXT_2G_ACCT']) + "</b>";
+
+                                // 独立频段白色标识牌，pointer-events 强制接收鼠标事件
+                                var qrData = " data-ssid=\"" + escapeHTML(i.ssid||'') + "\" data-pwd=\"" + escapeHTML(i.key||'') + "\" data-enc=\"" + escapeHTML(i.encryption||'none') + "\" ";
+                                var tLblNew = "<b class='nw-wifi-badge nw-qr-hover' " + qrData + " style='color:#10b981; cursor:pointer; pointer-events:auto !important; position:relative; z-index:20;' title='悬浮显示二维码'>" + (bandStr === '5g' ? T['TXT_5G_ACCT'] : T['TXT_2G_ACCT']) + "</b>";
                                 wifiLines.push("<div class='nw-wifi-line'><span class='nw-wifi-left'>" + tLblNew + "<span class='nw-wifi-colon'>:</span><span class='nw-hl nw-wifi-name'><span style='display:block; max-width:100%; word-break:break-all; white-space:normal; overflow-wrap:anywhere;'>" + sName + "</span>" + roamBadge + "</span></span><span class='nw-wifi-pwd'>(" + T['M_PWD'] + ": <span style='word-break:break-all; white-space:normal;'>" + kTxt + "</span>)</span></div>");
                             });
                         }

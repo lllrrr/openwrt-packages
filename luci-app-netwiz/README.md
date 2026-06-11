@@ -80,15 +80,16 @@ chmod +x luci-app-netwiz/root/etc/hotplug.d/dhcp/99-netwiz-guard
 
 ```bash
 luci-app-netwiz/
-├── README.md                   # Project documentation (Features, Installation, Changelog)
+├── README.md                   # Project documentation (Features, Installation, Changelog, OTA updates)
 ├── LICENSE                     # Open source license
 ├── Makefile                    # OpenWrt standard Makefile (Package definition, Dependencies)
 │
 ├── htdocs/                     # 🌐 Frontend UI Layer (Static resources)
 │   └── luci-static/resources/view/
 │       ├── netwiz.css          # Global stylesheet (Modals, Responsive design, UI polishing)
-│       ├── netwiz.js           # Frontend Core 1: Wizard Engine (Network topology config, Async dialing)
-│       └── netwiz_dev.js       # Frontend Core 2: Manager Engine (Device radar, Smart subnetting, UI interactions)
+│       ├── netwiz.js           # Frontend Core 1: Wizard Engine (Network config, Smart backup & restore, QR code dispatcher)
+│       ├── netwiz_dev.js       # Frontend Core 2: Manager Engine (Device radar, Smart subnetting, UI interactions)
+│       └── qrcode.min.js       # Frontend Dependency: Pure local micro QR code generator (Enables scan-to-connect)
 │
 ├── po/                         # 🌍 i18n (Internationalization)
 │   ├── zh_Hans/netwiz.po       # Simplified Chinese dictionary
@@ -112,8 +113,8 @@ luci-app-netwiz/
         │   ├── netwiz-monitor-loop.sh # Wizard debounce and fallback loop logic
         │   │
         │   └── rpcd/           # 🔌 RPC Interface Layer (Frontend-Backend communication bridge)
-        │       ├── netwiz      # Backend API 1: Wizard dedicated (Handles underlying network protocol mods)
-        │       └── netwiz_dev  # Backend API 2: Manager dedicated (ARP/DHCP ops, Crash self-rescue, Silent cleanup) (UPDATED!)
+        │       ├── netwiz      # Backend API 1: Wizard dedicated (Underlying protocol mods, Capsule validation)
+        │       └── netwiz_dev  # Backend API 2: Manager dedicated (ARP/DHCP ops, Crash self-rescue, Silent cleanup)
         │
         └── share/
             ├── luci/menu.d/

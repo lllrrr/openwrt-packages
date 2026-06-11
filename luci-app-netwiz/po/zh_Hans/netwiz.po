@@ -1690,6 +1690,27 @@ msgstr "🚨 恢复失败：包管理器格式冲突！您的备份包与当前�
 msgid "RESTORE FAILED: CPU Architecture mismatch. Forcing this restore will brick your router! Process aborted."
 msgstr "🚨 恢复致命拦截：CPU 架构不匹配！您正在尝试将其他架构的备份强行刷入当前路由器，这会导致路由器彻底变砖！系统已自动终止恢复进程。"
 
+msgid "Package Manager Conflict"
+msgstr "包管理器冲突"
+
+msgid "CPU Architecture Conflict"
+msgstr "CPU 架构冲突"
+
+msgid "Your current system uses the apk architecture, but you are trying to flash an ipk backup!"
+msgstr "您当前的系统使用 apk 架构，但您正尝试刷入一个 ipk 格式的备份包！"
+
+msgid "Your current system uses the opkg architecture, but you are trying to flash an apk backup!"
+msgstr "您当前的系统使用 opkg 架构，但您正尝试刷入一个 apk 格式的备份包！"
+
+msgid "Architecture mismatch! (Current router: {arch})"
+msgstr "架构不匹配！(当前路由器：{arch})"
+
+msgid "The backup package you selected belongs to a different hardware architecture. Forcing this restore will brick your router!"
+msgstr "您选择的备份包属于不同的硬件架构。强行恢复将会导致您的路由器变砖！"
+
+msgid "The frontend security system has instantly blocked this dangerous operation."
+msgstr "前端安全系统已拦截此危险操作。"
+
 msgid "Architecture Warning"
 msgstr "架构标识未匹配"
 
@@ -1701,3 +1722,6 @@ msgstr "如果您<b>手动修改过</b>该备份包的文件名，请忽略此�
 
 msgid "I understand, continue"
 msgstr "我知道了，继续"
+
+msgid "Scan to Connect"
+msgstr "原生相机扫码直连"
