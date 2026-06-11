@@ -25,12 +25,10 @@ define Package/luci-app-simple2fa/install
 	$(INSTALL_BIN) ./root/etc/init.d/simple2fa $(1)/etc/init.d/
 	$(INSTALL_BIN) ./root/etc/uci-defaults/99_simple2fa_setup $(1)/etc/uci-defaults/99_simple2fa
 	$(INSTALL_BIN) ./root/usr/share/luci-app-simple2fa/luci $(1)/usr/share/luci-app-simple2fa/luci
-	$(INSTALL_DATA) ./root/usr/share/luci-app-simple2fa/sysauth.htm $(1)/usr/share/luci-app-simple2fa/sysauth.htm
-	$(INSTALL_DATA) ./root/usr/share/luci-app-simple2fa/sysauth.ut $(1)/usr/share/luci-app-simple2fa/sysauth.ut
-	$(INSTALL_DATA) ./root/usr/share/luci-app-simple2fa/sysauth.js $(1)/usr/share/luci-app-simple2fa/sysauth.js
+	$(INSTALL_DATA) ./root/usr/share/luci-app-simple2fa/sysauth_inject.html $(1)/usr/share/luci-app-simple2fa/sysauth_inject.html
 
 	# Fix CRLF line endings (project developed on Windows)
-	find $(1) -type f \( -name "*.lua" -o -name "*.htm" -o -name "*.ut" -o -name "*.js" \) -exec sed -i 's/\r//' {} \;
+	find $(1) -type f \( -name "*.lua" -o -name "*.htm" -o -name "*.ut" -o -name "*.js" -o -name "*.html" \) -exec sed -i 's/\r//' {} \;
 	sed -i 's/\r//' $(1)/usr/share/luci-app-simple2fa/luci
 	sed -i 's/\r//' $(1)/etc/init.d/simple2fa
 	sed -i 's/\r//' $(1)/etc/config/simple2fa
@@ -38,8 +36,13 @@ endef
 
 define Package/luci-app-simple2fa/prerm
 #!/bin/sh
-# 恢复所有被替换的文件
-for f in /www/cgi-bin/luci /www/luci-static/resources/view/*/sysauth.js /usr/lib/lua/luci/view/themes/*/sysauth.htm /usr/lib/lua/luci/view/sysauth.htm; do
+# 恢复所有被替换/修改的文件
+for f in /www/cgi-bin/luci \
+         /usr/lib/lua/luci/view/themes/*/sysauth.htm \
+         /usr/lib/lua/luci/view/sysauth.htm \
+         /usr/share/ucode/luci/template/themes/*/sysauth.ut \
+         /usr/lib/ucode/luci/template/themes/*/sysauth.ut \
+         /usr/share/ucode/luci/template/sysauth.ut; do
 	if [ -f "$${f}.bak" ]; then
 		mv -f "$${f}.bak" "$$f"
 	fi

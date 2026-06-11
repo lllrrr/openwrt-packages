@@ -391,6 +391,9 @@ msgstr "启用 2.4G Wi-Fi"
 msgid "Enable 5G Wi-Fi"
 msgstr "启用 5G Wi-Fi"
 
+msgid "e.g., My_WiFi"
+msgstr "例如：My_WiFi"
+
 msgid "Network Name (SSID)"
 msgstr "无线网络名称 (SSID)"
 
@@ -1444,18 +1447,6 @@ msgstr "恢复异常被安全拦截"
 msgid "Self-healing mechanism triggered. Garbage cleared, router is safe and unharmed."
 msgstr "系统已启动自愈机制清理了垃圾残留，您的路由器目前处于安全状态，并未受损。"
 
-msgid "🔄 First Time Syncing"
-msgstr "🔄 首次同步软件源"
-
-msgid "Syncing lists in the background..."
-msgstr "正在后台拉取最新列表..."
-
-msgid "This is the first run, the router is syncing the official software sources in the background.<br><br>Depending on the network, this usually takes <b>10 to 15 seconds</b>.<br>Please wait a moment and click the backup button again."
-msgstr "路由器正在后台同步官方软件源。<br><br>受限于网络，这通常需要 <b>10 ~ 15 秒</b>。<br>请稍作等待后，再次点击备份按钮即可。"
-
-msgid "OK, I will try again later"
-msgstr "好的，我稍后再点"
-
 msgid "Transfer Failed"
 msgstr "传输失败"
 
@@ -1678,8 +1669,8 @@ msgstr "🔄 首次核实插件清单"
 msgid "Syncing lists in the background..."
 msgstr "正在后台拉取最新列表..."
 
-msgid "This is the first run, the router is syncing the official software sources in the background.<br><br>Depending on the network, this usually takes <b>10 to 15 seconds</b>.<br>Please wait a moment and click the backup button again."
-msgstr "正在核实可以自动备份的插件清单...<br><br>受限于网络，这通常需要 <b>15 ~ 20秒</b>。<br>系统正在自动等待结果，请稍候..."
+msgid "Verifying the list of plugins for automatic backup...<br><br>Depending on the network, this usually takes <b>15 to 20 seconds</b>.<br>The system is verifying, please wait..."
+msgstr "正在核实可以自动备份的插件清单...<br><br>受限于网络，这通常需要 <b>15 ~ 20秒</b>。<br>系统正在核实，请稍候..."
 
 msgid "OK, I will try again later"
 msgstr "停止备份"
@@ -1702,15 +1693,6 @@ msgstr "您当前的系统使用 apk 架构，但您正尝试刷入一个 ipk �
 msgid "Your current system uses the opkg architecture, but you are trying to flash an apk backup!"
 msgstr "您当前的系统使用 opkg 架构，但您正尝试刷入一个 apk 格式的备份包！"
 
-msgid "Architecture mismatch! (Current router: {arch})"
-msgstr "架构不匹配！(当前路由器：{arch})"
-
-msgid "The backup package you selected belongs to a different hardware architecture. Forcing this restore will brick your router!"
-msgstr "您选择的备份包属于不同的硬件架构。强行恢复将会导致您的路由器变砖！"
-
-msgid "The frontend security system has instantly blocked this dangerous operation."
-msgstr "前端安全系统已拦截此危险操作。"
-
 msgid "Architecture Warning"
 msgstr "架构标识未匹配"
 
@@ -1725,3 +1707,9 @@ msgstr "我知道了，继续"
 
 msgid "Scan to Connect"
 msgstr "原生相机扫码直连"
+
+msgid "Architecture Safety Lock: Cross-package manager restoration (e.g., IPK to APK) is strictly prohibited. The underlying network and firewall configurations differ significantly across these system versions. Forcing a restore will cause severe network failure and brick your router!"
+msgstr "架构安全锁：严禁跨包管理器（如 IPK 备份至 APK 系统）进行恢复！由于新旧系统的网络与防火墙底层配置格式存在重大差异，强行恢复配置将导致路由器直接断网变砖！为了您的设备安全，系统已强制拦截此次操作。"
+
+msgid "Force Restore Config"
+msgstr "强制恢复配置"

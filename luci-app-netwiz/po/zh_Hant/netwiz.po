@@ -391,6 +391,9 @@ msgstr "啟用 2.4G Wi-Fi"
 msgid "Enable 5G Wi-Fi"
 msgstr "啟用 5G Wi-Fi"
 
+msgid "e.g., My_WiFi"
+msgstr "例如：My_WiFi"
+
 msgid "Network Name (SSID)"
 msgstr "無線網路名稱 (SSID)"
 
@@ -1666,8 +1669,8 @@ msgstr "🔄 首次核實插件清單"
 msgid "Syncing lists in the background..."
 msgstr "正在後台拉取最新列表..."
 
-msgid "This is the first run, the router is syncing the official software sources in the background.<br><br>Depending on the network, this usually takes <b>10 to 15 seconds</b>.<br>Please wait a moment and click the backup button again."
-msgstr "正在核實可以自動備份的插件清單...<br><br>受限於網路，這通常需要 <b>15 ~ 20秒</b>。<br>系統正在自動等待結果，請稍候. .."
+msgid "Verifying the list of plugins for automatic backup...<br><br>Depending on the network, this usually takes <b>15 to 20 seconds</b>.<br>The system is verifying, please wait..."
+msgstr "正在核實可以自動備份的插件清單...<br><br>受限於網路，這通常需要 <b>15 ~ 20秒</b>。<br>系統正在核實，請稍候..."
 
 msgid "OK, I will try again later"
 msgstr "停止備份"
@@ -1690,15 +1693,6 @@ msgstr "您當前的系統使用 apk 架構，但您正嘗試刷入一個 ipk �
 msgid "Your current system uses the opkg architecture, but you are trying to flash an apk backup!"
 msgstr "您當前的系統使用 opkg 架構，但您正嘗試刷入一個 apk 格式的備份包！"
 
-msgid "Architecture mismatch! (Current router: {arch})"
-msgstr "架構不匹配！(當前路由器：{arch})"
-
-msgid "The backup package you selected belongs to a different hardware architecture. Forcing this restore will brick your router!"
-msgstr "您選擇的備份包屬於不同的硬體架構。強行恢復將會導致您的路由器變磚！"
-
-msgid "The frontend security system has instantly blocked this dangerous operation."
-msgstr "前端安全系統已攔截此危險操作。"
-
 msgid "Architecture Warning"
 msgstr "架構標識未匹配"
 
@@ -1713,3 +1707,9 @@ msgstr "我知道了，繼續"
 
 msgid "Scan to Connect"
 msgstr "手機相機掃碼直連"
+
+msgid "Architecture Safety Lock: Cross-package manager restoration (e.g., IPK to APK) is strictly prohibited. The underlying network and firewall configurations differ significantly across these system versions. Forcing a restore will cause severe network failure and brick your router!"
+msgstr "架構安全鎖：嚴禁跨軟體包管理器（如 IPK 備份至 APK 系統）進行恢復！由於新舊系統的網路與防火牆底層設定格式存在重大差異，強行恢復設定將導致路由器直接斷網變磚！為了您的設備安全，系統已強制攔截此次操作。"
+
+msgid "Force Restore Config"
+msgstr "強制恢復設定"

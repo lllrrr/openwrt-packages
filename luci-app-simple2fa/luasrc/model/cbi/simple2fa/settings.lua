@@ -148,9 +148,7 @@ function m.on_after_commit(self)
     -- 目标文件
     local CGI_TARGET = "/www/cgi-bin/luci"
     local CGI_SOURCE = "/usr/share/luci-app-simple2fa/luci"
-    local SYSAUTH_SOURCE_HTM = "/usr/share/luci-app-simple2fa/sysauth.htm"
-    local SYSAUTH_SOURCE_UT = "/usr/share/luci-app-simple2fa/sysauth.ut"
-    local SYSAUTH_SOURCE_JS = "/usr/share/luci-app-simple2fa/sysauth.js"
+    local INJECTION_SOURCE = "/usr/share/luci-app-simple2fa/sysauth_inject.html"
     
     -- 从新 cursor 读取配置
     local fresh_uci = require("luci.model.uci").cursor()
@@ -182,19 +180,13 @@ function m.on_after_commit(self)
         if fs.access("/usr/share/ucode/luci/template/sysauth.ut") then
             table.insert(targets, {path="/usr/share/ucode/luci/template/sysauth.ut", type="ut"})
         end
-
-        -- JS views (New LuCI: bootstrap/argon etc.)
-        local js_views = fs.glob("/www/luci-static/resources/view/*/sysauth.js")
-        if js_views then
-            for path in js_views do table.insert(targets, {path=path, type="js"}) end
-        end
         return targets
     end
 
     local all_targets = get_all_sysauth_targets()
     
     if enabled then
-        sys.call("logger -t simple2fa '[settings.lua] 启用 2FA - 开始替换所有主题文件'")
+        sys.call("logger -t simple2fa '[settings.lua] 启用 2FA - 开始注入所有主题模板'")
         
         -- 备份并替换 CGI
         if fs.access(CGI_TARGET) and not fs.access(CGI_TARGET .. ".bak") then
@@ -212,22 +204,27 @@ function m.on_after_commit(self)
             end
         end
         
-        -- 备份并替换所有主题的 sysauth 模板
+        -- 备份并注入所有主题的 sysauth 模板
         for _, target in ipairs(all_targets) do
             local path = target.path
+            
+            -- 仅在首次且未包含注入标记时备份
             if fs.access(path) and not fs.access(path .. ".bak") then
                 local content = fs.readfile(path)
-                if content then fs.writefile(path .. ".bak", content) end
+                if content and not content:match("Simple2FA: Runtime injection") then
+                    fs.writefile(path .. ".bak", content)
+                    sys.call(string.format("logger -t simple2fa '[settings.lua] 备份模板成功: %s'", path))
+                end
             end
             
-            local source_file
-            if target.type == "js" then source_file = SYSAUTH_SOURCE_JS
-            elseif target.type == "ut" then source_file = SYSAUTH_SOURCE_UT
-            else source_file = SYSAUTH_SOURCE_HTM end
-            if fs.access(source_file) then
-                local content = fs.readfile(source_file)
-                if content then fs.writefile(path, content) end
-                sys.call(string.format("logger -t simple2fa '[settings.lua] 注入模板: %s'", path))
+            -- 从备份文件还原再注入，确保只注入一次
+            if fs.access(path .. ".bak") and fs.access(INJECTION_SOURCE) then
+                local bak_content = fs.readfile(path .. ".bak")
+                local inject_content = fs.readfile(INJECTION_SOURCE)
+                if bak_content and inject_content then
+                    fs.writefile(path, bak_content .. "\n" .. inject_content)
+                    sys.call(string.format("logger -t simple2fa '[settings.lua] 注入模板成功: %s'", path))
+                end
             end
         end
         

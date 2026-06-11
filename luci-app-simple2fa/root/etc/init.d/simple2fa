@@ -9,26 +9,15 @@ STOP=10
 CGI_TARGET="/www/cgi-bin/luci"
 CGI_SOURCE="/usr/share/luci-app-simple2fa/luci"
 
-# 模板源文件
-SYSAUTH_HTM_SOURCE="/usr/share/luci-app-simple2fa/sysauth.htm"
-SYSAUTH_UT_SOURCE="/usr/share/luci-app-simple2fa/sysauth.ut"
-SYSAUTH_JS_SOURCE="/usr/share/luci-app-simple2fa/sysauth.js"
+# 注入源文件
+INJECTION_SOURCE="/usr/share/luci-app-simple2fa/sysauth_inject.html"
 
 log() {
 	logger -t simple2fa "[init.d] $1"
 	echo "[simple2fa] $1"
 }
 
-# 获取当前主题名称
-get_theme_name() {
-	local mediaurlbase=$(uci -q get luci.main.mediaurlbase)
-	local theme_name=$(echo "$mediaurlbase" | sed -n 's|.*/luci-static/\([^/]*\).*|\1|p')
-	[ -z "$theme_name" ] && theme_name="bootstrap"
-	echo "$theme_name"
-}
-
-# 备份并替换文件
-# 用法: backup_replace <源文件> <目标文件> <描述> [exec]
+# 备份并替换文件 (用于 CGI 脚本)
 backup_replace() {
 	local src="$1" tgt="$2" desc="$3" need_exec="$4"
 
@@ -59,8 +48,42 @@ backup_replace() {
 	return 0
 }
 
+# 注入 2FA 脚本到模板文件
+inject_template() {
+	local tgt="$1" desc="$2"
+
+	if [ ! -f "$INJECTION_SOURCE" ]; then
+		log "$desc: 错误 (注入源文件不存在: $INJECTION_SOURCE)"
+		return 1
+	fi
+
+	if [ ! -e "$tgt" ] && [ ! -e "${tgt}.bak" ]; then
+		log "$desc: 跳过 (目标不存在: $tgt)"
+		return 1
+	fi
+
+	# 备份原始文件（仅首次）
+	if [ -e "$tgt" ] && [ ! -e "${tgt}.bak" ]; then
+		if ! grep -q "Simple2FA: Runtime injection" "$tgt" 2>/dev/null; then
+			cp -af "$tgt" "${tgt}.bak"
+			log "$desc: 备份成功 -> ${tgt}.bak"
+		else
+			log "$desc: 跳过备份 (已包含注入标记)"
+		fi
+	fi
+
+	# 注入文件：从 .bak 重新生成，保证只注入一次
+	if [ -f "${tgt}.bak" ]; then
+		cp -af "${tgt}.bak" "$tgt"
+		cat "$INJECTION_SOURCE" >> "$tgt"
+		log "$desc: 注入成功 ($tgt)"
+	else
+		log "$desc: 注入失败 (无备份文件)"
+	fi
+	return 0
+}
+
 # 恢复文件
-# 用法: restore_file <目标文件> <描述> [exec]
 restore_file() {
 	local tgt="$1" desc="$2" need_exec="$3"
 
@@ -75,9 +98,6 @@ restore_file() {
 
 start() {
 	log "========== START 被调用 =========="
-
-	local theme=$(get_theme_name)
-	log "检测到主题: $theme"
 
 	local enabled=$(uci -q get simple2fa.global.enabled)
 	log "配置: enabled='$enabled'"
@@ -99,45 +119,21 @@ start() {
 	# === 1. 替换 CGI 脚本 ===
 	backup_replace "$CGI_SOURCE" "$CGI_TARGET" "CGI" "exec"
 
-	# === 2. 替换登录模板 (旧版 LuCI: .htm) ===
-	local htm_target=""
-	for p in \
-		"/usr/lib/lua/luci/view/themes/${theme}/sysauth.htm" \
-		"/usr/lib/lua/luci/view/sysauth.htm"; do
+	# === 2. 注入所有主题的 HTM 模板 ===
+	for p in /usr/lib/lua/luci/view/themes/*/sysauth.htm /usr/lib/lua/luci/view/sysauth.htm; do
 		if [ -e "$p" ] || [ -e "${p}.bak" ]; then
-			htm_target="$p"
-			break
+			inject_template "$p" "HTM模板"
 		fi
 	done
-	if [ -n "$htm_target" ]; then
-		backup_replace "$SYSAUTH_HTM_SOURCE" "$htm_target" "HTM模板"
-	else
-		log "HTM模板: 未找到 (可能是新版 LuCI)"
-	fi
 
-	# === 3. 替换 JS 登录视图 (新版 LuCI: sysauth.js) ===
-	local js_target="/www/luci-static/resources/view/${theme}/sysauth.js"
-	if [ -e "$js_target" ] || [ -e "${js_target}.bak" ]; then
-		backup_replace "$SYSAUTH_JS_SOURCE" "$js_target" "JS视图"
-	else
-		log "JS视图: 未找到 $js_target (可能是旧版 LuCI)"
-	fi
-
-	# === 4. 替换 .ut 模板 (新版 LuCI: sysauth.ut) ===
-	local ut_target=""
-	for p in \
-		"/usr/share/ucode/luci/template/themes/${theme}/sysauth.ut" \
-		"/usr/lib/ucode/luci/template/themes/${theme}/sysauth.ut"; do
+	# === 3. 注入所有主题 of UT 模板 ===
+	for p in /usr/share/ucode/luci/template/themes/*/sysauth.ut \
+	         "/usr/lib/ucode/luci/template/themes/*/sysauth.ut" \
+	         "/usr/share/ucode/luci/template/sysauth.ut"; do
 		if [ -e "$p" ] || [ -e "${p}.bak" ]; then
-			ut_target="$p"
-			break
+			inject_template "$p" "UT模板"
 		fi
 	done
-	if [ -n "$ut_target" ]; then
-		backup_replace "$SYSAUTH_UT_SOURCE" "$ut_target" "UT模板"
-	else
-		log "UT模板: 未找到 (跳过)"
-	fi
 
 	log "========== START 完成 (2FA 已激活) =========="
 }
@@ -145,25 +141,18 @@ start() {
 stop() {
 	log "========== STOP 被调用 =========="
 
-	local theme=$(get_theme_name)
-
 	# === 1. 恢复 CGI ===
 	restore_file "$CGI_TARGET" "CGI" "exec"
 
-	# === 2. 恢复 HTM 模板 ===
-	for p in \
-		"/usr/lib/lua/luci/view/themes/${theme}/sysauth.htm" \
-		"/usr/lib/lua/luci/view/sysauth.htm"; do
+	# === 2. 恢复所有 HTM 模板 ===
+	for p in /usr/lib/lua/luci/view/themes/*/sysauth.htm /usr/lib/lua/luci/view/sysauth.htm; do
 		restore_file "$p" "HTM模板"
 	done
 
-	# === 3. 恢复 JS 视图 ===
-	restore_file "/www/luci-static/resources/view/${theme}/sysauth.js" "JS视图"
-
-	# === 4. 恢复 UT 模板 ===
-	for p in \
-		"/usr/share/ucode/luci/template/themes/${theme}/sysauth.ut" \
-		"/usr/lib/ucode/luci/template/themes/${theme}/sysauth.ut"; do
+	# === 3. 恢复所有 UT 模板 ===
+	for p in /usr/share/ucode/luci/template/themes/*/sysauth.ut \
+	         "/usr/lib/ucode/luci/template/themes/*/sysauth.ut" \
+	         "/usr/share/ucode/luci/template/sysauth.ut"; do
 		restore_file "$p" "UT模板"
 	done
 

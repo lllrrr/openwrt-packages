@@ -1,0 +1,90 @@
+<!-- Simple2FA: Runtime injection -->
+<script type="text/javascript">
+(function() {
+    console.log('[Simple2FA] Runtime injection active');
+    var checkInterval = setInterval(function() {
+        var form = document.querySelector('form');
+        var passwordField = document.querySelector('input[type="password"]');
+        if (form && passwordField) {
+            clearInterval(checkInterval);
+            if (document.getElementById('token_visible')) return;
+
+            // 1. Create 2FA input field
+            var tokenDiv = document.createElement('div');
+            tokenDiv.className = 'cbi-value';
+            
+            // Try to translate label using LuCI translation helper if available
+            var labelText = '2FA Code';
+            var placeholderText = 'Leave empty if disabled';
+            if (window._ && typeof window._ === 'function') {
+                labelText = window._('2FA Code');
+                placeholderText = window._('Leave empty if disabled');
+            } else if (window.L && typeof L.tr === 'function') {
+                labelText = L.tr('2FA Code');
+                placeholderText = L.tr('Leave empty if disabled');
+            }
+            
+            // Render inside cbi-value structure to match other fields perfectly
+            tokenDiv.innerHTML = [
+                '<label class="cbi-value-title" for="token_visible">' + labelText + '</label>',
+                '<div class="cbi-value-field">',
+                '  <input class="cbi-input-text" type="text" id="token_visible" placeholder="' + placeholderText + '" autocomplete="off" />',
+                '</div>'
+            ].join('');
+
+            // 2. Find insertion point (directly inside <section>, right after password row)
+            var passwordRow = passwordField.closest('.cbi-value');
+            if (passwordRow && passwordRow.parentNode) {
+                passwordRow.parentNode.insertBefore(tokenDiv, passwordRow.nextSibling);
+            } else {
+                passwordField.parentNode.insertBefore(tokenDiv, passwordField.nextSibling);
+            }
+
+            // 3. Inject error message if redirected with error
+            if (window.location.search.indexOf('simple2fa_err=1') !== -1) {
+                var errDiv = document.createElement('div');
+                errDiv.className = 'alert-message error cbi-section-error alert alert-danger';
+                var errMsg = 'Authentication Failed: Invalid 2FA Code';
+                if (window._ && typeof window._ === 'function') {
+                    errMsg = window._('Authentication Failed: Invalid 2FA Code');
+                } else if (window.L && typeof L.tr === 'function') {
+                    errMsg = L.tr('Authentication Failed: Invalid 2FA Code');
+                }
+                errDiv.innerText = errMsg;
+                errDiv.style.marginBottom = '10px';
+                errDiv.style.textAlign = 'center';
+                form.insertBefore(errDiv, form.firstChild);
+
+                if (history.replaceState) {
+                    var newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+                    history.replaceState({ path: newUrl }, '', newUrl);
+                }
+            }
+
+            // 4. Submission helpers
+            var injectHidden = function() {
+                var visibleInput = document.getElementById('token_visible');
+                var val = visibleInput ? visibleInput.value.trim() : '';
+                var oldHidden = form.querySelector('input[name="totp_code"]');
+                if (oldHidden) oldHidden.remove();
+                
+                var hiddenInput = document.createElement('input');
+                hiddenInput.type = 'hidden';
+                hiddenInput.name = 'totp_code';
+                hiddenInput.value = val;
+                form.appendChild(hiddenInput);
+            };
+
+            // Hook form submit event
+            form.addEventListener('submit', injectHidden);
+            
+            // Monkey-patch form.submit
+            var originalSubmit = form.submit;
+            form.submit = function() {
+                injectHidden();
+                originalSubmit.apply(form, arguments);
+            };
+        }
+    }, 100);
+})();
+</script>
