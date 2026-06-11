@@ -983,16 +983,22 @@ case "$1" in
                 PKG_TYPE="ipk"
                 command -v apk >/dev/null 2>&1 && PKG_TYPE="apk"
 
+                # 1. 获取固件编译作者/分支名
                 FW_TYPE="OpenWrt"
                 if [ -f /etc/openwrt_release ]; then
                     . /etc/openwrt_release
                     [ -n "$DISTRIB_ID" ] && FW_TYPE="$DISTRIB_ID"
                 fi
 
+                # 2. 获取路由器的主机名 (如未设置则默认为 Router)
                 HOST_NAME=$(uci -q get system.@system[0].hostname || hostname || echo "Router")
                 HOST_NAME=$(echo "$HOST_NAME" | sed 's/[^a-zA-Z0-9_-]/_/g')
 
-                dl_name="NetWiz_Ghost_${backup_type}_${FW_TYPE}_${HOST_NAME}_${PKG_TYPE}_$(date +%Y%m%d_%H%M).tar.gz"
+                # 3. 获取底层真实 CPU 架构
+                SYS_ARCH=$(uname -m)
+                
+                # 文件名：前缀_类型_固件名_主机名_真实架构_包管理器_时间
+                dl_name="NetWiz_Ghost_${backup_type}_${FW_TYPE}_${HOST_NAME}_${SYS_ARCH}_${PKG_TYPE}_$(date +%Y%m%d_%H%M).tar.gz"
                 
                 backup_file="/tmp/${dl_name}"
                 link_file="/www/luci-static/${dl_name}"
@@ -1104,7 +1110,15 @@ EOF
 
                     log "[BACKUP]" "[3/5] 开始在内存中打包..."
                     # 指纹配置文件复制一份到外层
-                    cp -f /etc/netwiz/nw_backup_meta.env /tmp/nw_backup_meta.env 2>/dev/null
+                    # 打包前生成备份核对元数据文件
+                    cat > "/tmp/nw_backup_meta.env" <<EOF
+BACKUP_ARCH=$SYS_ARCH
+BACKUP_PKG=$PKG_TYPE
+BACKUP_FW_TYPE=$FW_TYPE
+BACKUP_HOST=$HOST_NAME
+BACKUP_VER=${VERSION:-${DISTRIB_RELEASE:-unknown}}
+BACKUP_DATE=$(date '+%Y-%m-%d %H:%M:%S')
+EOF
                     cd /tmp 
                     mkdir -p /tmp/nw_offline_pkgs  # 确保空文件夹存在，防止 tar 命令找不到目标而报错
                     tar -czf "$backup_file" nw_sys_config.tar.gz nw_offline_pkgs/ nw_backup_meta.env >> "$LOG_FILE" 2>&1

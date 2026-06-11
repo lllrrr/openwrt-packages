@@ -370,7 +370,11 @@ var T = {
     'MSG_PKG_ERR_OPKG': _('Your current system uses the opkg architecture, but you are trying to flash an apk backup!'),
     'MSG_ARCH_ERR_UI': _('Architecture mismatch! (Current router: {arch})'),
     'MSG_ARCH_ERR_DESC': _('The backup package you selected belongs to a different hardware architecture. Forcing this restore will brick your router!'),
-    'MSG_FAST_BLOCK': _('The frontend security system has instantly blocked this dangerous operation.')
+    'MSG_FAST_BLOCK': _('The frontend security system has instantly blocked this dangerous operation.'),
+    'TIT_ARCH_WARN': _('Architecture Warning'),
+    'MSG_ARCH_WARN_1': _('No architecture identifier ({arch}) detected in the selected backup filename.'),
+    'MSG_ARCH_WARN_2': _('If you have <b>manually renamed</b> this file, please ignore this warning.<br><br><span style="color:#ef4444;">If it is the wrong package, the system\'s underlying security mechanism will forcibly intercept the restoration later!</span>'),
+    'BTN_WARN_CONTINUE': _('I understand, continue')
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -2978,16 +2982,17 @@ return view.extend({
                         return;
                     }
 
-                    // 2. 拦截：CPU 架构不匹配
+                    // 2. 友好警告：CPU 架构未匹配，防误判改名
                     if (window.nwCurrentArch && fileName.indexOf(window.nwCurrentArch) === -1) {
-                        var archMsg = T['MSG_ARCH_ERR_UI'] ? T['MSG_ARCH_ERR_UI'].replace('{arch}', window.nwCurrentArch) : 'Architecture mismatch! (Current router: ' + window.nwCurrentArch + ')';
+                        var warnMsg1 = T['MSG_ARCH_WARN_1'] ? T['MSG_ARCH_WARN_1'].replace('{arch}', window.nwCurrentArch) : 'No architecture identifier (' + window.nwCurrentArch + ') detected in the selected backup filename.';
+                        var warnMsg2 = T['MSG_ARCH_WARN_2'] || 'If you have <b>manually renamed</b> this file, please ignore this warning.<br><br><span style="color:#ef4444;">If it is the wrong package, the system\'s underlying security mechanism will forcibly intercept the restoration later!</span>';
+                        
                         openModal({
-                            title: '🚨 ' + (T['TIT_ARCH_CONFLICT'] || 'CPU Architecture Conflict'),
-                            msg: '<div style="color:#ef4444; font-size:15px; font-weight:bold;">' + archMsg + '</div><br>' + (T['MSG_ARCH_ERR_DESC'] || '') + '<br><br>' + (T['MSG_FAST_BLOCK'] || ''),
-                            okText: T['M_OK'] || 'OK'
+                            title: '⚠️ ' + (T['TIT_ARCH_WARN'] || 'Architecture Warning'),
+                            msg: '<div style="color:#b45309; font-size:15px; font-weight:bold;">' + warnMsg1 + '</div><br><div style="color:#475569; font-size:14px;">' + warnMsg2 + '</div>',
+                            okText: T['BTN_WARN_CONTINUE'] || 'I understand, continue'
                         });
-                        this.value = '';
-                        return;
+
                     }
                 }
 
