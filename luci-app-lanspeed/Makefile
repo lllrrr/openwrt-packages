@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-lanspeed
-PKG_VERSION:=0.1.6
+PKG_VERSION:=0.1.7
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -55,6 +55,14 @@ define Package/luci-app-lanspeed/install
 		./htdocs/luci-static/resources/lanspeed/statusRefresh.js \
 		./htdocs/luci-static/resources/lanspeed/statusShell.js \
 		./htdocs/luci-static/resources/lanspeed/statusStyle.js \
+		./htdocs/luci-static/resources/lanspeed/statusStyleCompat.js \
+		./htdocs/luci-static/resources/lanspeed/statusStyleCompatLive.js \
+		./htdocs/luci-static/resources/lanspeed/statusStyleCompatLive2.js \
+		./htdocs/luci-static/resources/lanspeed/statusStyleCompatLive3.js \
+		./htdocs/luci-static/resources/lanspeed/statusView.js \
+		./htdocs/luci-static/resources/lanspeed/statusViewLive.js \
+		./htdocs/luci-static/resources/lanspeed/statusViewLive2.js \
+		./htdocs/luci-static/resources/lanspeed/statusViewLive3.js \
 		./htdocs/luci-static/resources/lanspeed/theme.js \
 		./htdocs/luci-static/resources/lanspeed/vocab.js \
 		$(1)/www/luci-static/resources/lanspeed/
