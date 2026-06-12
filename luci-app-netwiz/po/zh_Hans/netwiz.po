@@ -536,7 +536,7 @@ msgid "Click to Settings"
 msgstr "点击直达设置"
 
 msgid "WAN Blind-Switch: Unplug the WAN cable for 10 seconds and reconnect to auto-detect and switch the connection type (takes about 2 mins)."
-msgstr "<b style=\"color: #ef4444;\">盲切WAN口上网方式：断开 WAN 网线 10 秒再插回，系统会自动检测并切换上网方式（过程约2分钟）</b>"
+msgstr "<b style=\"color: #ef4444; line-height: 1.5;\">盲切WAN口上网方式：断开 WAN 网线 10 秒再插回，系统会自动检测并切换上网方式（过程约2分钟）</b>"
 
 msgid "New Config"
 msgstr "新建"
@@ -1713,3 +1713,9 @@ msgstr "架构安全锁：严禁跨包管理器（如 IPK 备份至 APK 系统�
 
 msgid "Force Restore Config"
 msgstr "强制恢复配置"
+
+msgid "⚠️ Current WAN is in Secondary Router mode. PPPoE dial-up will not take effect until applied."
+msgstr "⚠️ 当前 WAN 口为二级路由模式，本页应用配置前 PPPoE 拨号信息无效。"
+
+msgid "⚠️ Current WAN is in PPPoE mode. Secondary Router mode will not take effect until applied."
+msgstr "⚠️ 当前 WAN 口为主路由的 PPPoE 拨号，本页应用配置前二级路由模式无效。"
