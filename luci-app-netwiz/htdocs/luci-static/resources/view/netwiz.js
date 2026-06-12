@@ -98,6 +98,7 @@ var T = {
     'NOTE_2': _('The system will auto-refresh or redirect in 15 seconds.'),
     'BTN_APPLY': _('Apply Settings'),
     'STAT_BYPASS': _('AP Wired Relay'),
+    'CURRENT_MODE': _('Current:'),
     'STAT_MAIN_PPPOE': _('Main Router (PPPoE)'),
     'STAT_SEC_DHCP': _('Secondary Router (DHCP)'),
     'STAT_SEC_STATIC': _('Secondary Router (Static IP)'),
@@ -1855,44 +1856,48 @@ return view.extend({
                     // 2. 缓存整合+阻挡后台5秒轮询覆盖
                     // ==========================================
                     if (!isSilent) {
-                        // 1. 记录系统底层真实的上网模式（如果是 pppoe 就是 pppoe，否则统称 router 二级路由）
+                        // 1. 记录系统底层真实的上网模式和对应文字
                         window._nwRealWanMode = (wProto === 'pppoe') ? 'pppoe' : 'router';
+                        
+                        var protoName = '';
+                        if (wProto === 'pppoe') protoName = T['STAT_MAIN_PPPOE'] || 'Main Router (PPPoE)';
+                        else if (wProto === 'static') protoName = T['STAT_SEC_STATIC'] || 'Secondary Router (Static IP)';
+                        else protoName = T['STAT_SEC_DHCP'] || 'Secondary Router (DHCP)';
+                        window._nwCurrentProtoText = (T['CURRENT_MODE'] || 'Current:') + ' ' + protoName;
 
-                        // 2. 动态生成 PPPoE 模式下的警告提示框 (默认隐藏)
+                        // 辅助函数：根据状态智能切换红色警告/绿色正常
+                        var setupStatusBox = function(box, isWarning, warnText) {
+                            if (!box) return;
+                            if (isWarning) {
+                                box.style.cssText = 'color: #dc2626; background: #fef2f2; padding: 8px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 15px; margin-top: 5px; border-left: 4px solid #ef4444; font-weight: bold; display: block; line-height: 1.6;';
+                                box.innerHTML = warnText;
+                            } else {
+                                box.style.cssText = 'color: #059669; background: #ecfdf5; padding: 8px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 15px; margin-top: 5px; border-left: 4px solid #10b981; font-weight: bold; display: block; line-height: 1.6;';
+                                box.innerHTML = '✅ ' + window._nwCurrentProtoText;
+                            }
+                        };
+
+                        // 2. 动态生成 PPPoE 模式下的状态指示牌
                         var pppoeBox = container.querySelector('#fields-pppoe');
-                        if (pppoeBox && !container.querySelector('#warn-pppoe-invalid')) {
-                            var warnP = document.createElement('div');
-                            warnP.id = 'warn-pppoe-invalid';
-                            // 红色
-                            warnP.style.cssText = 'color: #dc2626; background: #fef2f2; padding: 10px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 15px; margin-top: 5px; display: none; border-left: 4px solid #ef4444; font-weight: bold;; line-height: 1.6;';
-                            warnP.innerHTML = T['WARN_PPPOE_INVALID'];
-                            
-                            // 找到标题元素 (通常是 h3 或面板的第一个元素)，插入到它下方
+                        if (pppoeBox && !container.querySelector('#status-pppoe-info')) {
+                            var statP = document.createElement('div');
+                            statP.id = 'status-pppoe-info';
                             var titleP = pppoeBox.querySelector('h3, h4, .title, legend') || pppoeBox.firstElementChild;
-                            if (titleP) {
-                                titleP.insertAdjacentElement('afterend', warnP);
-                            } else {
-                                pppoeBox.appendChild(warnP);
-                            }
+                            if (titleP) titleP.insertAdjacentElement('afterend', statP);
+                            else pppoeBox.appendChild(statP);
                         }
+                        setupStatusBox(container.querySelector('#status-pppoe-info'), window._nwRealWanMode === 'router', T['WARN_PPPOE_INVALID']);
 
-                        // 3. 动态生成二级路由模式下的警告提示框 (默认隐藏)
+                        // 3. 动态生成二级路由模式下的状态指示牌
                         var routerBox = container.querySelector('#fields-router');
-                        if (routerBox && !container.querySelector('#warn-router-invalid')) {
-                            var warnR = document.createElement('div');
-                            warnR.id = 'warn-router-invalid';
-                            // 红色文字
-                            warnR.style.cssText = 'color: #dc2626; background: #fef2f2; padding: 10px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 15px; margin-top: 5px; display: none; border-left: 4px solid #ef4444; font-weight: bold; line-height: 1.6;';
-                            warnR.innerHTML = T['WARN_ROUTER_INVALID'];
-                            
-                            // 找到标题元素，插入到它下方
+                        if (routerBox && !container.querySelector('#status-router-info')) {
+                            var statR = document.createElement('div');
+                            statR.id = 'status-router-info';
                             var titleR = routerBox.querySelector('h3, h4, .title, legend') || routerBox.firstElementChild;
-                            if (titleR) {
-                                titleR.insertAdjacentElement('afterend', warnR);
-                            } else {
-                                routerBox.appendChild(warnR);
-                            }
+                            if (titleR) titleR.insertAdjacentElement('afterend', statR);
+                            else routerBox.appendChild(statR);
                         }
+                        setupStatusBox(container.querySelector('#status-router-info'), window._nwRealWanMode === 'pppoe', T['WARN_ROUTER_INVALID']);
 
                         // 初次加载时：如果缓存是空的，就把路由器底层的旧帐密读进缓存里
                         var uciUser = safeUciGet('network', 'wan', 'username', '');
@@ -3930,16 +3935,7 @@ return view.extend({
                     var savedP = sessionStorage.getItem('nw_pppoe_pass');
                     if (savedU !== null && container.querySelector('#pppoe-user')) container.querySelector('#pppoe-user').value = savedU;
                     if (savedP !== null && container.querySelector('#pppoe-pass')) container.querySelector('#pppoe-pass').value = savedP;
-                    
-                    // 如果当前真实模式是二级路由，就显示警告
-                    var warnP = container.querySelector('#warn-pppoe-invalid');
-                    if (warnP) warnP.style.display = (window._nwRealWanMode === 'router') ? 'block' : 'none';
-                }
 
-                // 如果是切换到二级路由，且真实模式是 PPPoE，就显示警告
-                if (selectedMode === 'router') {
-                    var warnR = container.querySelector('#warn-router-invalid');
-                    if (warnR) warnR.style.display = (window._nwRealWanMode === 'pppoe') ? 'block' : 'none';
                 }
 
                 switchStep(step1, step2);
