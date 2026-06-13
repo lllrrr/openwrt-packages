@@ -12,8 +12,8 @@ msgstr ""
 msgid "ARCMA"
 msgstr "ARCMA"
 
-msgid "Automatically change MAC addresses of physical network interfaces on boot and/or interface up. No external dependencies required."
-msgstr "在啟動或介面上線時自動更改實體網路介面的 MAC 位址。無需任何外部依賴。"
+msgid "Automatically change MAC addresses of physical network interfaces on boot and/or interface up."
+msgstr "在啟動或介面上線時自動更改實體網路介面的 MAC 位址。"
 
 msgid "Global Settings"
 msgstr "全域設定"
@@ -75,8 +75,8 @@ msgstr "多介面間 NIC 部分遞增（所有介面共用相同 OUI 前綴）"
 msgid "Persist MAC"
 msgstr "持久化 MAC"
 
-msgid "Write randomized MAC into <code>uci network.&lt;iface&gt;.macaddr</code> so it survives reboot. <b>Warning:</b> Frequent writes to UCI config can wear out flash memory on some devices."
-msgstr "將隨機化的 MAC 寫入 <code>uci network.&lt;介面&gt;.macaddr</code>，使其在重啟後保持。<b>警告：</b>頻繁寫入 UCI 配置可能會磨損某些裝置上的快閃記憶體。"
+msgid "Write randomized MAC into <code>/etc/config/network</code> so it survives reboot. If no matching device section exists, ARCMA creates one.<br /><b>Warning:</b> Frequent writes to UCI config can wear out flash memory on some devices."
+msgstr "將隨機化的 MAC 寫入 <code>/etc/config/network</code>，使其在重啟後保持。如果沒有匹配的 device 段，ARCMA 會自動建立。<br /><b>警告：</b>頻繁寫入 UCI 配置可能會磨損某些裝置上的快閃記憶體。"
 
 msgid "Per-interface Override"
 msgstr "按介面獨立設定"

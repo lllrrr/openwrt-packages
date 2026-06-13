@@ -20,7 +20,7 @@
 #   -v <VendorName>    OUI vendor name within type file
 #   -s <XX:XX:XX>      Specify OUI prefix manually
 #   -e                 Sequence mode: NIC part increments across multiple interfaces
-#   -p                 Persist: write MAC into uci network.<logical_iface>.macaddr
+#   -p                 Persist: write MAC into /etc/config/network
 #
 
 VERSION="1.0.3"
@@ -327,7 +327,7 @@ get_orig_mac() {
 persist_to_uci() {
     local dev="$1"
     local mac="$2"
-    local section val word
+    local section val word new_section
 
     # 1. Search config device sections (preferred in OpenWrt 21.02+)
     section=""
@@ -363,6 +363,19 @@ persist_to_uci() {
             return 0
         fi
     fi
+
+    # 3. Some x86/virtualized installs expose physical devices such as eth0
+    # without an existing network section. Create an explicit device section so
+    # netifd can apply the MAC again on the next reload or reboot.
+    new_section=$(uci add network device 2>/dev/null) || return 1
+    [ -n "${new_section}" ] || return 1
+    if uci set "network.${new_section}.name=${dev}" && \
+       uci set "network.${new_section}.macaddr=${mac}"; then
+        UCI_NETWORK_CHANGED=1
+        return 0
+    fi
+
+    uci -q delete "network.${new_section}" 2>/dev/null
     return 1
 }
 
@@ -825,7 +838,7 @@ Options (apply / gen):
   -s <XX:XX:XX:XX:XX:XX>
                        Full MAC for static mode
   -e                  Sequence mode (NIC bytes increment across ifaces)
-  -p                  Persist MAC into uci network config
+  -p                  Persist MAC into /etc/config/network
 
 Examples:
   arcma apply                         # random local MAC on physical ifaces

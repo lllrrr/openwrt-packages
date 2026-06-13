@@ -11,7 +11,7 @@ msgstr ""
 msgid "ARCMA"
 msgstr ""
 
-msgid "Automatically change MAC addresses of physical network interfaces on boot and/or interface up. No external dependencies required."
+msgid "Automatically change MAC addresses of physical network interfaces on boot and/or interface up."
 msgstr ""
 
 msgid "Global Settings"
@@ -74,7 +74,7 @@ msgstr ""
 msgid "Persist MAC"
 msgstr ""
 
-msgid "Write randomized MAC into <code>uci network.&lt;iface&gt;.macaddr</code> so it survives reboot. <b>Warning:</b> Frequent writes to UCI config can wear out flash memory on some devices."
+msgid "Write randomized MAC into <code>/etc/config/network</code> so it survives reboot. If no matching device section exists, ARCMA creates one.<br /><b>Warning:</b> Frequent writes to UCI config can wear out flash memory on some devices."
 msgstr ""
 
 msgid "Per-interface Override"

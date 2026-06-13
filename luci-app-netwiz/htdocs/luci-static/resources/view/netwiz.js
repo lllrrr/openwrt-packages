@@ -293,11 +293,14 @@ var T = {
 
     // 恢复提示
     'M_RST_CONFIRM_TIT': '⚡ ' + _('Confirm System Restore'),
-    'M_RST_CONFIRM_MSG': _("<span style='color:#ef4444; font-weight:bold;'>WARNING: This will overwrite current configs and reinstall plugins!</span><br><br>Router will auto-reboot upon completion. Ensure file is correct.<br><br><span style='color:#059669; font-size: 14px;'>🛡️ Safe Mode: Auto-rollback if connection is lost for 300s.</span><br><br>"),
+    'M_RST_CONFIRM_MSG': _('<span style="color:#ef4444; font-weight:bold;">WARNING: This will overwrite current configs and reinstall plugins!</span><br><br>Router will auto-reboot upon completion. Ensure file is correct.<br><br><span style="color:#059669; font-size: 14px;">🛡️ Safe Mode: Auto-rollback if connection is lost for 300s.</span><br><br>'),
     'M_RST_REGRET_PILL': _('Auto-download current state backup before restore (Regret Pill)'),
     'BTN_CONFIRM_SEL': _('Confirm & Select File'),
     'M_RST_NATIVE_TIT': '⚡ ' + _('Native Fast Restore Mode'),
     'MSG_RESTORE_UPLOADING': _('Transferring capsule via high-speed system channel...<br><br><b style="color:#ef4444;">DO NOT power off. Router will auto-reboot upon completion.</b><br><br><span style="color:#059669; font-size: 14px;">🛡️ Safe Mode: Auto-rollback if connection is lost for 300s.</span>'),
+    'M_ERR_WIZ_FAILED': _('Wizard execution failed'),
+    'M_ERR_DATA_PROC': _('Configuration data processing failed'),
+    'M_ERR_VALIDATE': _('Input validation failed'),
     'M_RST_DELIVERED': '✅ ' + _('Capsule delivered, preparing offline task...'),
     'M_RST_BLOCKED_TIT': '❌ ' + _('Restore Blocked by Security'),
     'M_RST_BLOCKED_MSG': _('Self-healing mechanism triggered. Garbage cleared, router is safe and unharmed.'),
@@ -1431,7 +1434,7 @@ return view.extend({
                             }).catch(function() {});
                         }, 3000);
                     }).catch(function(err) { 
-                        openModal({ title: T['M_SYS_ERR'], msg: T['M_ERR_WIZ_FAILED'] + ': ' + err, okText: T['M_CLOSE'] });
+                        openModal({ title: T['M_SYS_ERR'], msg: (T['M_ERR_WIZ_FAILED'] || 'Wizard execution failed') + ': ' + err, okText: T['M_CLOSE'] });
                     });
                 });
             };
@@ -2915,7 +2918,7 @@ return view.extend({
                     var execRestore = function() {
                     openModal({
                         title: T['M_RST_NATIVE_TIT'],
-                        msg: '<div style="text-align:center; padding:10px 0; color:#64748b;">' + T['M_RST_NATIVE_MSG'] + '<br><div id="nw-upload-progress" style="font-size:24px; color:#3b82f6; font-weight:bold; margin-top:10px; font-family:monospace;">0%</div></div>',
+                        msg: '<div style="text-align:center; padding:10px 0; color:#64748b;">' + T['MSG_RESTORE_UPLOADING'] + '<br><div id="nw-upload-progress" style="font-size:24px; color:#3b82f6; font-weight:bold; margin-top:10px; font-family:monospace;">0%</div></div>',
                         spin: true 
                     });
                     
@@ -4373,13 +4376,13 @@ return view.extend({
                         step2.style.display = 'none'; step3.style.display = 'block';
                         setTimeout(function(){ smoothScrollToTop(650); }, 20);
                     } catch (err) {
-                        openModal({ title: T['M_SYS_ERR'], msg: T['M_ERR_DATA_PROC'] + ': ' + err, okText: T['M_CLOSE'] });
+                        openModal({ title: T['M_SYS_ERR'], msg: (T['M_ERR_DATA_PROC'] || 'Configuration data processing failed') + ': ' + err, okText: T['M_CLOSE'] });
                     }
                 }).catch(function(e) {
                     openModal({ title: T['M_SYS_ERR'], msg: T['M_SYS_MSG'], okText: T['M_CLOSE'] });
                 });
             } catch (err) {
-                openModal({ title: T['M_SYS_ERR'], msg: T['M_ERR_VALIDATE'] + ': ' + err, okText: T['M_CLOSE'] });
+                openModal({ title: T['M_SYS_ERR'], msg: (T['M_ERR_VALIDATE'] || 'Input validation failed') + ': ' + err, okText: T['M_CLOSE'] });
             }
         });
 

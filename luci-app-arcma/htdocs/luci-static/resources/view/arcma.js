@@ -148,7 +148,7 @@ return view.extend({
     // Store map on the view instance so action handlers can save it.
     this.map = new form.Map('arcma',
       _('ARCMA'),
-      _('Automatically change MAC addresses of physical network interfaces on boot and/or interface up. No external dependencies required.')
+      _('Automatically change MAC addresses of physical network interfaces on boot and/or interface up.')
     );
     const m = this.map;
 
@@ -219,7 +219,7 @@ return view.extend({
     o.rmempty = false;
 
     o = s.option(form.Flag, 'persist', _('Persist MAC'),
-      _('Write randomized MAC into <code>uci network.&lt;iface&gt;.macaddr</code> so it survives reboot. <b>Warning:</b> Frequent writes to UCI config can wear out flash memory on some devices.'));
+      _('Write randomized MAC into <code>/etc/config/network</code> so it survives reboot. If no matching device section exists, ARCMA creates one.<br /><b>Warning:</b> Frequent writes to UCI config can wear out flash memory on some devices.'));
     o.rmempty = false;
 
     // ── Per-interface table ──────────────────────────────────────────
