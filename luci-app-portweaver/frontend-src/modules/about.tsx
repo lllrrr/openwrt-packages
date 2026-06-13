@@ -3,14 +3,12 @@ import type { VersionResponse } from "@/types/portweaver";
 const form = L.form;
 
 export default function (
-  _m: LuCI.form.CBIMap,
-  s: LuCI.form.CBIAbstractSection,
+  _m: LuCI.form.Map,
+  s: LuCI.form.NamedSection,
   tab_id: string,
   versionInfo: VersionResponse | null,
 ) {
-  let o: LuCI.form.CBIAbstractValue;
-
-  o = s.taboption(tab_id, form.DummyValue, "_about");
+  const o = s.taboption(tab_id, form.DummyValue, "_about");
   o.rawhtml = true;
   o.cfgvalue = () => {
     const linkStyle =

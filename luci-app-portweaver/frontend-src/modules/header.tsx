@@ -5,48 +5,59 @@ const form = L.form;
 import type { Client } from "./client";
 
 export default function (
-  _m: LuCI.form.CBIMap,
-  s: LuCI.form.CBIAbstractSection,
+  _m: LuCI.form.Map,
+  s: LuCI.form.NamedSection,
   client: Client,
   tab_id: string,
 ) {
-  let o: LuCI.form.CBIAbstractValue;
-
-  o = s.taboption(tab_id, form.Flag, "enabled", _("Enable PortWeaver"));
-  o.default = "1";
-  o.rmempty = false;
-
-  if (isFeatureEnabled("nftables_mode")) {
-    o = s.taboption(tab_id, form.Flag, "use_nftables", _("Use nftables"));
-    o.default = "0";
-    o.rmempty = false;
-    o.description = _(
-      "Use nftables instead of OpenWrt firewall (fw4). Requires nftables package installed.",
-    );
+  {
+    const o = s.taboption(tab_id, form.Flag, "enabled", _("Enable PortWeaver"));
     o.default = "1";
     o.rmempty = false;
+
+    if (isFeatureEnabled("nftables_mode")) {
+      const o = s.taboption(
+        tab_id,
+        form.Flag,
+        "use_nftables",
+        _("Use nftables"),
+      );
+      o.default = "0";
+      o.rmempty = false;
+      o.description = _(
+        "Use nftables instead of OpenWrt firewall (fw4). Requires nftables package installed.",
+      );
+      o.default = "1";
+      o.rmempty = false;
+    }
+  }
+  {
+    const o = s.taboption(
+      tab_id,
+      form.DummyValue,
+      "_runtime_status",
+      _("Runtime Status"),
+    );
+    o.rawhtml = true;
+    o.cfgvalue = () => {
+      const panel = new StatusPanel();
+      client.statusPanel = panel;
+      return panel.render(
+        client.globalStatus,
+        client.frpStatus,
+        client.projectStatuses,
+        client.events,
+        client.ddnsGlobalStatus,
+      );
+    };
   }
 
-  o = s.taboption(
+  const o = s.taboption(
     tab_id,
-    form.DummyValue,
-    "_runtime_status",
-    _("Runtime Status"),
+    form.Button,
+    "_reload_config",
+    _("Reload Config"),
   );
-  o.rawhtml = true;
-  o.cfgvalue = () => {
-    const panel = new StatusPanel();
-    client.statusPanel = panel;
-    return panel.render(
-      client.globalStatus,
-      client.frpStatus,
-      client.projectStatuses,
-      client.events,
-      client.ddnsGlobalStatus,
-    );
-  };
-
-  o = s.taboption(tab_id, form.Button, "_reload_config", _("Reload Config"));
   o.modalonly = false;
   o.editable = true;
   o.inputtitle = _("Reload");
@@ -109,16 +120,18 @@ export default function (
           total_bytes_in: fullStatus.total_bytes_in,
           total_bytes_out: fullStatus.total_bytes_out,
         };
-        client.projectStatuses = (fullStatus.projects || []).map((p) => ({
-          enabled: p.enabled,
-          status: p.status,
-          startup_status: p.startup_status,
-          error_code: p.error_code,
-          active_ports: p.active_ports,
-          bytes_in: p.bytes_in,
-          bytes_out: p.bytes_out,
-          forwarders: p.forwarders,
-        }));
+        client.projectStatuses = (fullStatus.projects || []).map(
+          (p: import("@/types/portweaver").FullStatusProject) => ({
+            enabled: p.enabled,
+            status: p.status,
+            startup_status: p.startup_status,
+            error_code: p.error_code,
+            active_ports: p.active_ports,
+            bytes_in: p.bytes_in,
+            bytes_out: p.bytes_out,
+            forwarders: p.forwarders,
+          }),
+        );
       }
       location.reload();
     } catch (err) {
@@ -161,16 +174,18 @@ export default function (
           total_bytes_in: fullStatus.total_bytes_in,
           total_bytes_out: fullStatus.total_bytes_out,
         };
-        client.projectStatuses = (fullStatus.projects || []).map((p) => ({
-          enabled: p.enabled,
-          status: p.status,
-          startup_status: p.startup_status,
-          error_code: p.error_code,
-          active_ports: p.active_ports,
-          bytes_in: p.bytes_in,
-          bytes_out: p.bytes_out,
-          forwarders: p.forwarders,
-        }));
+        client.projectStatuses = (fullStatus.projects || []).map(
+          (p: import("@/types/portweaver").FullStatusProject) => ({
+            enabled: p.enabled,
+            status: p.status,
+            startup_status: p.startup_status,
+            error_code: p.error_code,
+            active_ports: p.active_ports,
+            bytes_in: p.bytes_in,
+            bytes_out: p.bytes_out,
+            forwarders: p.forwarders,
+          }),
+        );
       }
       location.reload();
     } catch (err) {

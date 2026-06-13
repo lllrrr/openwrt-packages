@@ -16,7 +16,7 @@ const form = L.form;
 const uci = L.uci;
 type UnwrapPromise<T> = T extends Promise<infer R> ? R : T;
 export class main extends L.view {
-  private mapInstance?: LuCI.form.CBIMap;
+  private mapInstance?: LuCI.form.Map;
 
   override async load() {
     return Promise.all([

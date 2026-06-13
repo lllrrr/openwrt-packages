@@ -314,12 +314,13 @@ class FrpNodeSelector extends L.form.Value {
     }
     return [];
   }
-  write(section_id: string, formvalue: string[] | string) {
+  write(section_id: string, formvalue: string[] | string): null {
     if (formvalue && formvalue.length > 0) {
-      return L.uci.set("portweaver", section_id, "frpc_nodes", formvalue);
+      L.uci.set("portweaver", section_id, "frpc_nodes", formvalue);
     } else {
-      return L.uci.unset("portweaver", section_id, "frpc_nodes");
+      L.uci.unset("portweaver", section_id, "frpc_nodes");
     }
+    return null;
   }
 
   isValid(_section_id: string): boolean {

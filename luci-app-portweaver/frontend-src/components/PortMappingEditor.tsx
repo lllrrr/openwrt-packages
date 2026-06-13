@@ -561,19 +561,20 @@ class PortMappingEditor extends L.form.Value {
     }
     return null;
   }
-  write(section_id: string, formvalue: string | string[]) {
+  write(section_id: string, formvalue: string | string[]): null {
     if (formvalue && formvalue.length > 0) {
-      return L.uci.set("portweaver", section_id, "port_mapping", formvalue);
+      L.uci.set("portweaver", section_id, "port_mapping", formvalue);
     } else {
-      return L.uci.unset("portweaver", section_id, "port_mapping");
+      L.uci.unset("portweaver", section_id, "port_mapping");
     }
+    return null;
   }
-  validate(_section_id: string, value: any) {
+  validate = (_section_id: string, value: unknown): string | boolean => {
     // 验证端口映射格式
     if (!value) {
       this.validationError = "";
       this.isValidFlag = true;
-      return;
+      return true;
     }
 
     const valueStr = Array.isArray(value) ? value.join(" ") : String(value);
@@ -585,37 +586,39 @@ class PortMappingEditor extends L.form.Value {
       if (!parsed) {
         this.validationError = _("Invalid port mapping format");
         this.isValidFlag = false;
-        return;
+        return _("Invalid port mapping format");
       }
 
       // 验证监听端口
       if (!parsed.listenPort) {
         this.validationError = _("Listen port is required");
         this.isValidFlag = false;
-        return;
+        return _("Listen port is required");
       }
 
       if (!this.validatePortOrRange(parsed.listenPort)) {
-        this.validationError = _(
+        const msg = _(
           "Invalid listen port format. Use port (8080) or range (8080-8090)",
         );
+        this.validationError = msg;
         this.isValidFlag = false;
-        return;
+        return msg;
       }
 
       // 验证目标端口
       if (!parsed.targetPort) {
         this.validationError = _("Target port is required");
         this.isValidFlag = false;
-        return;
+        return _("Target port is required");
       }
 
       if (!this.validatePortOrRange(parsed.targetPort)) {
-        this.validationError = _(
+        const msg = _(
           "Invalid target port format. Use port (80) or range (80-90)",
         );
+        this.validationError = msg;
         this.isValidFlag = false;
-        return;
+        return msg;
       }
 
       // 验证端口范围匹配
@@ -623,11 +626,12 @@ class PortMappingEditor extends L.form.Value {
       const targetPorts = this.parsePortRange(parsed.targetPort);
 
       if (listenPorts.length !== targetPorts.length) {
-        this.validationError = _(
+        const msg = _(
           "Listen port range and target port range must have the same size",
         );
+        this.validationError = msg;
         this.isValidFlag = false;
-        return;
+        return msg;
       }
 
       // 验证 FRP 节点
@@ -638,17 +642,16 @@ class PortMappingEditor extends L.form.Value {
           if (!node) {
             this.validationError = _("Invalid FRP node format");
             this.isValidFlag = false;
-            return;
+            return _("Invalid FRP node format");
           }
 
           if (port) {
             const portNum = parseInt(port, 10);
             if (Number.isNaN(portNum) || portNum < 1 || portNum > 65535) {
-              this.validationError = _(
-                "FRP node port must be between 1 and 65535",
-              );
+              const msg = _("FRP node port must be between 1 and 65535");
+              this.validationError = msg;
               this.isValidFlag = false;
-              return;
+              return msg;
             }
           }
         }
@@ -659,15 +662,17 @@ class PortMappingEditor extends L.form.Value {
         parsed.protocol &&
         !["tcp", "udp", "both"].includes(parsed.protocol)
       ) {
-        this.validationError = _("Protocol must be `tcp`, `udp`, or `both`");
+        const msg = _("Protocol must be `tcp`, `udp`, or `both`");
+        this.validationError = msg;
         this.isValidFlag = false;
-        return;
+        return msg;
       }
     }
 
     this.validationError = "";
     this.isValidFlag = true;
-  }
+    return true;
+  };
   private validatePortOrRange(portStr: string): boolean {
     // 验证单个端口或端口范围
     if (!portStr) return false;

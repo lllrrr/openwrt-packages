@@ -19,7 +19,7 @@ export default defineConfig({
     tsconfigPath: "./tsconfig.json",
   },
   output: {
-    polyfill: "usage",
+    polyfill: "off",
     module: true,
     charset: "ascii",
     overrideBrowserslist: [

@@ -2,13 +2,11 @@ import { rpcClient } from "@/utils/rpc-client";
 const form = L.form;
 
 export default function (
-  _m: LuCI.form.CBIMap,
-  s: LuCI.form.CBIAbstractSection,
+  _m: LuCI.form.Map,
+  s: LuCI.form.AbstractSection,
   tab_id: string,
 ) {
-  let o: LuCI.form.CBIAbstractSectionValue;
-
-  o = s.taboption(
+  const o = s.taboption(
     tab_id,
     form.SectionValue,
     "_wol_targets",
@@ -16,37 +14,37 @@ export default function (
     "wol_target",
   );
 
-  const ss = o.subsection;
+  const ss = o.subsection as LuCI.form.GridSection;
   ss.anonymous = true;
   ss.addremove = true;
   ss.sortable = true;
   ss.cloneable = true;
 
   ss.sectiontitle = (section_id: string) =>
-    L.uci.get("portweaver", section_id, "name") ||
+    (L.uci.get("portweaver", section_id, "name") as string) ||
     section_id ||
     _("Unnamed target");
 
-  o = ss.option(form.Flag, "enabled", _("Enable"));
-  o.modalonly = true;
-  o.default = "1";
-  o.rmempty = false;
+  const oFlag = ss.option(form.Flag, "enabled", _("Enable"));
+  oFlag.modalonly = true;
+  oFlag.default = "1";
+  oFlag.rmempty = false;
 
-  o = ss.option(form.Value, "name", _("Target Name"));
-  o.modalonly = true;
-  o.rmempty = false;
-  o.datatype = "string";
-  o.placeholder = "my_pc";
-  o.validate = (section_id: string, value: string) => {
-    if (!value || String(value).trim() === "")
-      return _("Target name is required");
-    if (!/^[a-zA-Z0-9_-]+$/.test(String(value).trim()))
+  const oName = ss.option(form.Value, "name", _("Target Name"));
+  oName.modalonly = true;
+  oName.rmempty = false;
+  oName.datatype = "string";
+  oName.placeholder = "my_pc";
+  oName.validate = (section_id: string, value: unknown) => {
+    const val = String(value || "");
+    if (!val || val.trim() === "") return _("Target name is required");
+    if (!/^[a-zA-Z0-9_-]+$/.test(val.trim()))
       return _(
         "Target name must contain only alphanumeric characters, underscore, or hyphen",
       );
 
     const sections = L.uci.sections("portweaver", "wol_target");
-    const trimmedValue = String(value).trim();
+    const trimmedValue = val.trim();
     for (const sec of sections) {
       if (sec[".name"] === section_id) continue;
 
@@ -59,22 +57,22 @@ export default function (
     return true;
   };
 
-  o = ss.option(form.Flag, "enabled", _("Enabled"));
-  o.modalonly = false;
-  o.default = "1";
-  o.editable = true;
+  const oEnabled = ss.option(form.Flag, "enabled", _("Enabled"));
+  oEnabled.modalonly = false;
+  oEnabled.default = "1";
+  oEnabled.editable = true;
 
-  o = ss.option(
+  const oMacList = ss.option(
     form.DynamicList,
     "mac_addresses",
     _("MAC Addresses"),
     _("MAC addresses of machines to wake (e.g. AA:BB:CC:DD:EE:FF)."),
   );
-  o.modalonly = true;
-  o.rmempty = false;
-  o.datatype = "macaddr";
+  oMacList.modalonly = true;
+  oMacList.rmempty = false;
+  oMacList.datatype = "macaddr";
 
-  o = ss.option(
+  const oCooldown = ss.option(
     form.Value,
     "cooldown_ms",
     _("WoL Cooldown (ms)"),
@@ -82,25 +80,25 @@ export default function (
       "Minimum interval between successive WoL packets in milliseconds (1000–300000).",
     ),
   );
-  o.modalonly = true;
-  o.rmempty = true;
-  o.default = "30000";
-  o.datatype = "uinteger";
-  o.placeholder = "30000";
+  oCooldown.modalonly = true;
+  oCooldown.rmempty = true;
+  oCooldown.default = "30000";
+  oCooldown.datatype = "uinteger";
+  oCooldown.placeholder = "30000";
 
-  o = ss.option(
+  const oLogFlag = ss.option(
     form.Flag,
     "log_enabled",
     _("Enable Logging"),
     _("Record diagnostic logs when triggering WoL for this target."),
   );
-  o.modalonly = true;
-  o.default = "0";
-  o.rmempty = true;
+  oLogFlag.modalonly = true;
+  oLogFlag.default = "0";
+  oLogFlag.rmempty = true;
 
-  o = ss.option(form.DummyValue, "actions", _("Actions"));
-  o.modalonly = false;
-  o.textvalue = (section_id: string) => {
+  const oActions = ss.option(form.DummyValue, "actions", _("Actions"));
+  oActions.modalonly = false;
+  oActions.textvalue = (section_id: string) => {
     const targetName = L.uci.get("portweaver", section_id, "name") as string;
     if (!targetName) return "";
 
@@ -114,7 +112,9 @@ export default function (
             .then((res: { success: boolean; sent_count: number }) => {
               if (res.success) {
                 alert(
-                  _("WoL packets sent to %s device(s).").format(res.sent_count),
+                  _("WoL packets sent to %s device(s).").format(
+                    String(res.sent_count),
+                  ),
                 );
               } else {
                 alert(_("WoL failed — check configuration."));
@@ -128,7 +128,6 @@ export default function (
         {_("Wake Now")}
       </button>
     ) as HTMLButtonElement;
-
-    return wakeBtn;
+    return wakeBtn.outerHTML;
   };
 }

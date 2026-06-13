@@ -42,13 +42,11 @@ const statusElements: Record<string, HTMLElement> = {};
 const actionButtons: Record<string, HTMLButtonElement> = {};
 
 export default function (
-  _m: LuCI.form.CBIMap,
-  s: LuCI.form.CBIAbstractSection,
+  _m: LuCI.form.Map,
+  s: LuCI.form.NamedSection,
   tab_id: string,
 ) {
-  let o: LuCI.form.CBIAbstractSectionValue;
-
-  o = s.taboption(
+  const o = s.taboption(
     tab_id,
     form.SectionValue,
     "_frpc_nodes",
@@ -56,37 +54,37 @@ export default function (
     "frpc_node",
   );
 
-  const ss = o.subsection;
+  const ss = o.subsection as LuCI.form.GridSection;
   ss.anonymous = true;
   ss.addremove = true;
   ss.sortable = true;
   ss.cloneable = true;
 
   ss.sectiontitle = (section_id: string) =>
-    L.uci.get("portweaver", section_id, "name") ||
+    (L.uci.get("portweaver", section_id, "name") as string) ||
     section_id ||
     _("Unnamed node");
 
-  o = ss.option(form.Flag, "enabled", _("Enable"));
-  o.modalonly = true;
-  o.default = "1";
-  o.rmempty = false;
+  const oEnable = ss.option(form.Flag, "enabled", _("Enable"));
+  oEnable.modalonly = true;
+  oEnable.default = "1";
+  oEnable.rmempty = false;
 
-  o = ss.option(form.Value, "name", _("Node Name"));
-  o.modalonly = true;
-  o.rmempty = false;
-  o.datatype = "string";
-  o.placeholder = "node1";
-  o.validate = (section_id: string, value: string) => {
-    if (!value || String(value).trim() === "")
-      return _("Node name is required");
-    if (!/^[a-zA-Z0-9_-]+$/.test(String(value).trim()))
+  const oName = ss.option(form.Value, "name", _("Node Name"));
+  oName.modalonly = true;
+  oName.rmempty = false;
+  oName.datatype = "string";
+  oName.placeholder = "node1";
+  oName.validate = (section_id: string, value: unknown) => {
+    const val = String(value || "");
+    if (!val || val.trim() === "") return _("Node name is required");
+    if (!/^[a-zA-Z0-9_-]+$/.test(val.trim()))
       return _(
         "Node name must contain only alphanumeric characters, underscore, or hyphen",
       );
 
     const sections = L.uci.sections("portweaver", "frpc_node");
-    const trimmedValue = String(value).trim();
+    const trimmedValue = val.trim();
     for (const sec of sections) {
       if (sec[".name"] === section_id) continue;
 
@@ -99,9 +97,9 @@ export default function (
     return true;
   };
 
-  o = ss.option(form.DummyValue, "status", _("Status"));
-  o.modalonly = false;
-  o.textvalue = (section_id: string) => {
+  const oStatus = ss.option(form.DummyValue, "status", _("Status"));
+  oStatus.modalonly = false;
+  oStatus.textvalue = (section_id: string) => {
     const info = nodeStatuses[section_id] || { status: "unavailable" };
     const colors = getStatusColors();
     const statusColor = colors[info.status] || colors.unavailable;
@@ -125,68 +123,76 @@ export default function (
     ) as HTMLElement;
 
     statusElements[section_id] = container;
-    return container;
+    return container.outerHTML;
   };
 
-  o = ss.option(form.Flag, "enabled", _("Enabled"));
-  o.modalonly = false;
-  o.default = "1";
-  o.editable = true;
+  const oEnabled = ss.option(form.Flag, "enabled", _("Enabled"));
+  oEnabled.modalonly = false;
+  oEnabled.default = "1";
+  oEnabled.editable = true;
 
-  o = ss.option(form.Value, "server", _("FRP Server Address"));
-  o.modalonly = true;
-  o.rmempty = false;
-  o.datatype = "host";
-  o.placeholder = "1.2.3.4";
-  o.validate = (_section_id: string, value: string) => {
-    if (!value || String(value).trim() === "")
-      return _("Server address is required");
+  const oServer = ss.option(form.Value, "server", _("FRP Server Address"));
+  oServer.modalonly = true;
+  oServer.rmempty = false;
+  oServer.datatype = "host";
+  oServer.placeholder = "1.2.3.4";
+  oServer.validate = (_section_id: string, value: unknown) => {
+    const val = String(value || "");
+    if (!val || val.trim() === "") return _("Server address is required");
     return true;
   };
 
-  o = ss.option(form.Value, "port", _("FRP Server Port"));
-  o.modalonly = true;
-  o.rmempty = false;
-  o.datatype = "port";
-  o.placeholder = "7000";
-  o.validate = (_section_id: string, value: string) => {
-    if (!value || String(value).trim() === "")
-      return _("Server port is required");
-    const port = parseInt(value, 10);
+  const oPort = ss.option(form.Value, "port", _("FRP Server Port"));
+  oPort.modalonly = true;
+  oPort.rmempty = false;
+  oPort.datatype = "port";
+  oPort.placeholder = "7000";
+  oPort.validate = (_section_id: string, value: unknown) => {
+    const val = String(value || "");
+    if (!val || val.trim() === "") return _("Server port is required");
+    const port = parseInt(val, 10);
     if (Number.isNaN(port) || port < 1 || port > 65535)
       return _("Port must be between 1 and 65535");
     return true;
   };
 
-  o = ss.option(form.Value, "token", _("Authentication Token"));
-  o.modalonly = true;
-  o.password = true;
-  o.rmempty = true;
-  o.placeholder = "optional token for authentication";
+  const oToken = ss.option(form.Value, "token", _("Authentication Token"));
+  oToken.modalonly = true;
+  oToken.password = true;
+  oToken.rmempty = true;
+  oToken.placeholder = "optional token for authentication";
 
-  o = ss.option(form.ListValue, "log_level", _("Log Level"));
-  o.modalonly = true;
-  o.rmempty = true;
-  o.default = "info";
-  o.value("trace", "Trace");
-  o.value("debug", "Debug");
-  o.value("info", "Info");
-  o.value("warn", "Warning");
-  o.value("error", "Error");
+  const oLogLevel = ss.option(form.ListValue, "log_level", _("Log Level"));
+  oLogLevel.modalonly = true;
+  oLogLevel.rmempty = true;
+  oLogLevel.default = "info";
+  oLogLevel.value("trace", "Trace");
+  oLogLevel.value("debug", "Debug");
+  oLogLevel.value("info", "Info");
+  oLogLevel.value("warn", "Warning");
+  oLogLevel.value("error", "Error");
 
-  o = ss.option(form.Flag, "use_encryption", _("Enable Encryption"));
-  o.modalonly = true;
-  o.rmempty = false;
-  o.default = "1";
+  const oUseEncryption = ss.option(
+    form.Flag,
+    "use_encryption",
+    _("Enable Encryption"),
+  );
+  oUseEncryption.modalonly = true;
+  oUseEncryption.rmempty = false;
+  oUseEncryption.default = "1";
 
-  o = ss.option(form.Flag, "use_compression", _("Enable Compression"));
-  o.modalonly = true;
-  o.rmempty = false;
-  o.default = "1";
+  const oUseCompression = ss.option(
+    form.Flag,
+    "use_compression",
+    _("Enable Compression"),
+  );
+  oUseCompression.modalonly = true;
+  oUseCompression.rmempty = false;
+  oUseCompression.default = "1";
 
-  o = ss.option(form.DummyValue, "actions", _("Actions"));
-  o.modalonly = false;
-  o.textvalue = (section_id: string) => {
+  const oActions = ss.option(form.DummyValue, "actions", _("Actions"));
+  oActions.modalonly = false;
+  oActions.textvalue = (section_id: string) => {
     const isRunning =
       (nodeStatuses[section_id]?.status || "stopped") !== "stopped";
 
@@ -215,12 +221,16 @@ export default function (
     ) as HTMLButtonElement;
 
     actionButtons[section_id] = btn;
-    return btn;
+    return btn.outerHTML;
   };
 
-  o = ss.option(form.DummyValue, "proxy_stats", _("Proxy Stats"));
-  o.modalonly = false;
-  o.textvalue = (section_id: string) => {
+  const oProxyStats = ss.option(
+    form.DummyValue,
+    "proxy_stats",
+    _("Proxy Stats"),
+  );
+  oProxyStats.modalonly = false;
+  oProxyStats.textvalue = (section_id: string) => {
     const nodeName = L.uci.get("portweaver", section_id, "name") as string;
     const container = (
       <div style="display: flex; gap: 8px; flex-wrap: wrap;"></div>
@@ -235,7 +245,7 @@ export default function (
     statsEl.style.cssText = `flex: 1; min-width: 300px; ${statsEl.style.cssText}`;
     container.appendChild(statsEl);
 
-    return container;
+    return container.outerHTML;
   };
 
   async function pollFrpStatus() {

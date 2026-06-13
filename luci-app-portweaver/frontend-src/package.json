@@ -16,15 +16,15 @@
     "i18n:export": "dotenvx run -- luci-types i18n -i ../htdocs --po ../po/zh_Hans/portweaver.po --merge -p luci-app-portweaver --translate --batch-size 20 --prompt translate.md"
   },
   "devDependencies": {
-    "@lazulikao/luci-types": "github:LazuliKao/luci-types",
-    "@biomejs/biome": "^2.4.15",
-    "@dotenvx/dotenvx": "^1.59.1",
-    "@rsbuild/core": "^2.0.7",
-    "@types/node": "^20.19.29",
+    "@biomejs/biome": "^2.5.0",
+    "@dotenvx/dotenvx": "^1.71.3",
+    "@lazulikao/luci-types": "github:LazuliKao/luci-types#e910fda285b4e98ff5571e880f3da80f87761ff7",
+    "@rsbuild/core": "^2.0.12",
+    "@types/node": "^20.19.43",
     "@types/ssh2": "^1.15.5",
     "chokidar": "^5.0.0",
     "ssh2": "^1.17.0",
-    "tsx": "^4.21.0",
-    "typescript": "^6.0.2"
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
   }
 }

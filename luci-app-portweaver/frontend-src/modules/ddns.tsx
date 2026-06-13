@@ -119,13 +119,11 @@ const ddnsStatuses: Record<string, DdnsStatus> = {};
 const statusElements: Record<string, HTMLElement> = {};
 
 export default function (
-  _m: LuCI.form.CBIMap,
-  s: LuCI.form.CBIAbstractSection,
+  _m: LuCI.form.Map,
+  s: LuCI.form.NamedSection,
   tab_id: string,
 ) {
-  let o: LuCI.form.CBIAbstractSectionValue;
-
-  o = s.taboption(
+  const sectionValue = s.taboption(
     tab_id,
     form.SectionValue,
     "_ddns_configs",
@@ -133,169 +131,190 @@ export default function (
     "ddns",
   );
 
-  const ss = o.subsection;
+  const ss = sectionValue.subsection as LuCI.form.GridSection;
   ss.anonymous = true;
   ss.addremove = true;
   ss.sortable = true;
 
   ss.sectiontitle = (section_id: string) =>
-    uci.get("portweaver", section_id, "name") || _("Unnamed DDNS");
+    (uci.get("portweaver", section_id, "name") as string) || _("Unnamed DDNS");
 
-  o = ss.option(form.DummyValue, "_status", _("Status"));
-  o.modalonly = false;
-  o.textvalue = (section_id: string) => {
-    const name = uci.get("portweaver", section_id, "name") as string;
+  {
+    const o = ss.option(form.DummyValue, "_status", _("Status"));
+    o.modalonly = false;
+    o.textvalue = (section_id: string) => {
+      const name = uci.get("portweaver", section_id, "name") as string;
 
-    const status = ddnsStatuses[name] || {
-      status: "unknown",
-      name: "",
-      provider: "",
-      section: section_id,
-    };
+      const status = ddnsStatuses[name] || {
+        status: "unknown",
+        name: "",
+        provider: "",
+        section: section_id,
+      };
 
-    const statusColors: Record<string, string> = {
-      success: "#4CAF50",
-      updating: "#FFC107",
-      error: "#F44336",
-      disabled: "#9E9E9E",
-      unknown: "#9E9E9E",
-    };
+      const statusColors: Record<string, string> = {
+        success: "#4CAF50",
+        updating: "#FFC107",
+        error: "#F44336",
+        disabled: "#9E9E9E",
+        unknown: "#9E9E9E",
+      };
 
-    const statusLabels: Record<string, string> = {
-      success: _("Success"),
-      updating: _("Updating"),
-      error: _("Error"),
-      disabled: _("Disabled"),
-      unknown: _("Unknown"),
-    };
+      const statusLabels: Record<string, string> = {
+        success: _("Success"),
+        updating: _("Updating"),
+        error: _("Error"),
+        disabled: _("Disabled"),
+        unknown: _("Unknown"),
+      };
 
-    const statusColor = statusColors[status.status] || statusColors.unknown;
-    const statusText = statusLabels[status.status] || status.status;
+      const statusColor = statusColors[status.status] || statusColors.unknown;
+      const statusText = statusLabels[status.status] || status.status;
 
-    const indicator = (
-      <span
-        style={`display:inline-block; width:12px; height:12px; border-radius:50%; background-color:${statusColor}; margin-right:8px;`}
-      ></span>
-    ) as HTMLElement;
-
-    const textSpan = (<span>{statusText}</span>) as HTMLElement;
-
-    const container = (
-      <div style="display:flex; flex-direction:column; gap:4px;"></div>
-    ) as HTMLElement;
-
-    const statusRow = (
-      <div style="display:flex; align-items:center;"></div>
-    ) as HTMLElement;
-    statusRow.appendChild(indicator);
-    statusRow.appendChild(textSpan);
-    container.appendChild(statusRow);
-
-    if (status.last_ip) {
-      const ipInfo = (
-        <small style="color:#666;">{_("IP: %s").format(status.last_ip)}</small>
+      const indicator = (
+        <span
+          style={`display:inline-block; width:12px; height:12px; border-radius:50%; background-color:${statusColor}; margin-right:8px;`}
+        ></span>
       ) as HTMLElement;
-      container.appendChild(ipInfo);
-    }
 
-    if (status.last_update > 0) {
-      const date = new Date(status.last_update * 1000);
-      const formattedTime = date.toLocaleString();
-      const updateInfo = (
-        <small style="color:#666;">
-          {_("Updated: %s").format(formattedTime)}
-        </small>
+      const textSpan = (<span>{statusText}</span>) as HTMLElement;
+
+      const container = (
+        <div style="display:flex; flex-direction:column; gap:4px;"></div>
       ) as HTMLElement;
-      container.appendChild(updateInfo);
-    }
 
-    if (status.message && status.status === "error") {
-      const errorMsg = (
-        <small style="color:#F44336;" title={status.message}>
-          {status.message.length > 40
-            ? `${status.message.substring(0, 37)}...`
-            : status.message}
-        </small>
+      const statusRow = (
+        <div style="display:flex; align-items:center;"></div>
       ) as HTMLElement;
-      container.appendChild(errorMsg);
-    }
+      statusRow.appendChild(indicator);
+      statusRow.appendChild(textSpan);
+      container.appendChild(statusRow);
 
-    statusElements[name] = container;
-    return container;
-  };
+      if (status.last_ip) {
+        const ipInfo = (
+          <small style="color:#666;">
+            {_("IP: %s").format(status.last_ip)}
+          </small>
+        ) as HTMLElement;
+        container.appendChild(ipInfo);
+      }
 
-  o = ss.option(form.Flag, "enabled", _("Enabled"));
-  o.modalonly = false;
-  o.default = "1";
-  o.editable = true;
+      if (status.last_update > 0) {
+        const date = new Date(status.last_update * 1000);
+        const formattedTime = date.toLocaleString();
+        const updateInfo = (
+          <small style="color:#666;">
+            {_("Updated: %s").format(formattedTime)}
+          </small>
+        ) as HTMLElement;
+        container.appendChild(updateInfo);
+      }
 
-  o = ss.option(form.DummyValue, "_provider", _("Provider"));
-  o.modalonly = false;
-  o.textvalue = (section_id: string) => {
-    const provider = uci.get("portweaver", section_id, "dns_provider") || "";
-    const providerObj = DNS_PROVIDERS.find((p) => p.value === provider);
-    return providerObj ? providerObj.label : provider || "-";
-  };
+      if (status.message && status.status === "error") {
+        const errorMsg = (
+          <small style="color:#F44336;" title={status.message}>
+            {status.message.length > 40
+              ? `${status.message.substring(0, 37)}...`
+              : status.message}
+          </small>
+        ) as HTMLElement;
+        container.appendChild(errorMsg);
+      }
 
-  o = ss.option(form.DummyValue, "_domains", _("Domains"));
-  o.modalonly = false;
-  o.textvalue = (section_id: string) => {
-    const ipv4Domains = uci.get("portweaver", section_id, "ipv4_domains") || "";
-    const ipv6Domains = uci.get("portweaver", section_id, "ipv6_domains") || "";
-    const domains = [ipv4Domains, ipv6Domains]
-      .filter(Boolean)
-      .join(", ")
-      .split(/[,\s]+/)
-      .filter(Boolean);
-    return domains.length > 0 ? domains.slice(0, 3).join(", ") : "-";
-  };
-
-  o = ss.option(form.DummyValue, "_actions", _("Actions"));
-  o.modalonly = false;
-  o.textvalue = (section_id: string) => {
-    const viewLogsBtn = (
-      <button class="btn cbi-button cbi-button-action" type="button">
-        {_("View Logs")}
-      </button>
-    ) as HTMLButtonElement;
-
-    const nodeName = L.uci.get("portweaver", section_id, "name") as string;
-    viewLogsBtn.onclick = () => {
-      const viewer = new LogViewerDialog({
-        name: nodeName,
-        title: _("DDNS Logs - %s").format(nodeName),
-        fetcher: (name) => rpcClient.getDdnsInfo(name),
-        clearer: (name) => rpcClient.clearDdnsLogs(name),
-      });
-      viewer.open();
+      statusElements[name] = container;
+      return container.outerHTML;
     };
-
-    return viewLogsBtn;
-  };
-
-  o = ss.option(form.Flag, "enabled", _("Enable"));
-  o.modalonly = true;
-  o.default = "1";
-  o.rmempty = false;
-
-  o = ss.option(form.Value, "name", _("Configuration Name"));
-  o.modalonly = true;
-  o.rmempty = false;
-  o.datatype = "string";
-  o.placeholder = "home";
-  o.validate = (_section_id: string, value: string) => {
-    if (!value || String(value).trim() === "")
-      return _("Configuration name is required");
-    return true;
-  };
-
-  o = ss.option(form.ListValue, "dns_provider", _("DNS Provider"));
-  o.modalonly = true;
-  o.rmempty = false;
-  for (const provider of DNS_PROVIDERS) {
-    o.value(provider.value, provider.label);
   }
-  o.default = "cloudflare";
+
+  {
+    const o = ss.option(form.Flag, "enabled", _("Enabled"));
+    o.modalonly = false;
+    o.default = "1";
+    o.editable = true;
+  }
+
+  {
+    const o = ss.option(form.DummyValue, "_provider", _("Provider"));
+    o.modalonly = false;
+    o.textvalue = (section_id: string) => {
+      const provider =
+        (uci.get("portweaver", section_id, "dns_provider") as string) || "";
+      const providerObj = DNS_PROVIDERS.find((p) => p.value === provider);
+      return providerObj ? providerObj.label : provider || "-";
+    };
+  }
+
+  {
+    const o = ss.option(form.DummyValue, "_domains", _("Domains"));
+    o.modalonly = false;
+    o.textvalue = (section_id: string) => {
+      const ipv4Domains =
+        (uci.get("portweaver", section_id, "ipv4_domains") as string) || "";
+      const ipv6Domains =
+        (uci.get("portweaver", section_id, "ipv6_domains") as string) || "";
+      const domains = [ipv4Domains, ipv6Domains]
+        .filter(Boolean)
+        .join(", ")
+        .split(/[,\s]+/)
+        .filter(Boolean);
+      return domains.length > 0 ? domains.slice(0, 3).join(", ") : "-";
+    };
+  }
+
+  {
+    const o = ss.option(form.DummyValue, "_actions", _("Actions"));
+    o.modalonly = false;
+    o.textvalue = (section_id: string) => {
+      const viewLogsBtn = (
+        <button class="btn cbi-button cbi-button-action" type="button">
+          {_("View Logs")}
+        </button>
+      ) as HTMLButtonElement;
+
+      const nodeName = L.uci.get("portweaver", section_id, "name") as string;
+      viewLogsBtn.onclick = () => {
+        const viewer = new LogViewerDialog({
+          name: nodeName,
+          title: _("DDNS Logs - %s").format(nodeName),
+          fetcher: (name) => rpcClient.getDdnsInfo(name),
+          clearer: (name) => rpcClient.clearDdnsLogs(name),
+        });
+        viewer.open();
+      };
+
+      return viewLogsBtn.outerHTML;
+    };
+  }
+
+  {
+    const o = ss.option(form.Flag, "enabled", _("Enable"));
+    o.modalonly = true;
+    o.default = "1";
+    o.rmempty = false;
+  }
+
+  {
+    const o = ss.option(form.Value, "name", _("Configuration Name"));
+    o.modalonly = true;
+    o.rmempty = false;
+    o.datatype = "string";
+    o.placeholder = "home";
+    o.validate = (_section_id: string, value: unknown) => {
+      if (!value || String(value).trim() === "")
+        return _("Configuration name is required");
+      return true;
+    };
+  }
+
+  {
+    const o = ss.option(form.ListValue, "dns_provider", _("DNS Provider"));
+    o.modalonly = true;
+    o.rmempty = false;
+    for (const provider of DNS_PROVIDERS) {
+      o.value(provider.value, provider.label);
+    }
+    o.default = "cloudflare";
+  }
 
   const dnsIdOption = ss.option(form.Value, "dns_id", _("DNS ID / API Key"));
   dnsIdOption.modalonly = true;
@@ -348,116 +367,163 @@ export default function (
   );
   dnsExtParamOption.depends("dns_provider", "vercel");
 
-  o = ss.option(form.ListValue, "ttl", _("TTL (Time To Live)"));
-  o.modalonly = true;
-  o.rmempty = true;
-  o.default = "3600";
-  for (const ttl of TTL_OPTIONS) {
-    o.value(ttl.value, ttl.label);
+  {
+    const o = ss.option(form.ListValue, "ttl", _("TTL (Time To Live)"));
+    o.modalonly = true;
+    o.rmempty = true;
+    o.default = "3600";
+    for (const ttl of TTL_OPTIONS) {
+      o.value(ttl.value, ttl.label);
+    }
   }
 
-  o = ss.option(form.Flag, "ipv4_enable", _("Enable IPv4"));
-  o.modalonly = true;
-  o.default = "1";
-
-  o = ss.option(form.ListValue, "ipv4_get_type", _("IPv4 Get Method"));
-  o.modalonly = true;
-  o.depends("ipv4_enable", "1");
-  o.default = "url";
-  for (const type of GET_TYPES) {
-    o.value(type.value, type.label);
+  {
+    const o = ss.option(form.Flag, "ipv4_enable", _("Enable IPv4"));
+    o.modalonly = true;
+    o.default = "1";
   }
 
-  o = ss.option(form.Value, "ipv4_url", _("IPv4 URL"));
-  o.modalonly = true;
-  o.depends({ ipv4_enable: "1", ipv4_get_type: "url" });
-  o.placeholder = "https://api.ipify.org";
-  o.datatype = "string";
-
-  o = ss.option(form.Value, "ipv4_net_interface", _("IPv4 Network Interface"));
-  o.modalonly = true;
-  o.depends({ ipv4_enable: "1", ipv4_get_type: "net_interface" });
-  o.placeholder = "eth0";
-  o.datatype = "string";
-
-  o = ss.option(form.Value, "ipv4_cmd", _("IPv4 Command"));
-  o.modalonly = true;
-  o.depends({ ipv4_enable: "1", ipv4_get_type: "cmd" });
-  o.placeholder = "curl -s https://api.ipify.org";
-  o.datatype = "string";
-
-  o = ss.option(form.TextValue, "ipv4_domains", _("IPv4 Domains"));
-  o.modalonly = true;
-  o.depends("ipv4_enable", "1");
-  o.rows = 3;
-  o.placeholder = "example.com\nwww.example.com";
-  o.description = _("One domain per line or comma-separated");
-
-  o = ss.option(form.Flag, "ipv6_enable", _("Enable IPv6"));
-  o.modalonly = true;
-  o.default = "0";
-
-  o = ss.option(form.ListValue, "ipv6_get_type", _("IPv6 Get Method"));
-  o.modalonly = true;
-  o.depends("ipv6_enable", "1");
-  o.default = "url";
-  for (const type of GET_TYPES) {
-    o.value(type.value, type.label);
+  {
+    const o = ss.option(form.ListValue, "ipv4_get_type", _("IPv4 Get Method"));
+    o.modalonly = true;
+    o.depends("ipv4_enable", "1");
+    o.default = "url";
+    for (const type of GET_TYPES) {
+      o.value(type.value, type.label);
+    }
   }
 
-  o = ss.option(form.Value, "ipv6_url", _("IPv6 URL"));
-  o.modalonly = true;
-  o.depends({ ipv6_enable: "1", ipv6_get_type: "url" });
-  o.placeholder = "https://api6.ipify.org";
-  o.datatype = "string";
+  {
+    const o = ss.option(form.Value, "ipv4_url", _("IPv4 URL"));
+    o.modalonly = true;
+    o.depends({ ipv4_enable: "1", ipv4_get_type: "url" });
+    o.placeholder = "https://api.ipify.org";
+    o.datatype = "string";
+  }
 
-  o = ss.option(form.Value, "ipv6_net_interface", _("IPv6 Network Interface"));
-  o.modalonly = true;
-  o.depends({ ipv6_enable: "1", ipv6_get_type: "net_interface" });
-  o.placeholder = "eth0";
-  o.datatype = "string";
+  {
+    const o = ss.option(
+      form.Value,
+      "ipv4_net_interface",
+      _("IPv4 Network Interface"),
+    );
+    o.modalonly = true;
+    o.depends({ ipv4_enable: "1", ipv4_get_type: "net_interface" });
+    o.placeholder = "eth0";
+    o.datatype = "string";
+  }
 
-  o = ss.option(form.Value, "ipv6_cmd", _("IPv6 Command"));
-  o.modalonly = true;
-  o.depends({ ipv6_enable: "1", ipv6_get_type: "cmd" });
-  o.placeholder = "curl -s https://api6.ipify.org";
-  o.datatype = "string";
+  {
+    const o = ss.option(form.Value, "ipv4_cmd", _("IPv4 Command"));
+    o.modalonly = true;
+    o.depends({ ipv4_enable: "1", ipv4_get_type: "cmd" });
+    o.placeholder = "curl -s https://api.ipify.org";
+    o.datatype = "string";
+  }
 
-  o = ss.option(form.Value, "ipv6_reg", _("IPv6 Regex"));
-  o.modalonly = true;
-  o.depends("ipv6_enable", "1");
-  o.rmempty = true;
-  o.placeholder = "([0-9a-fA-F:]+)";
-  o.description = _("Regular expression to extract IPv6 address from output");
+  {
+    const o = ss.option(form.TextValue, "ipv4_domains", _("IPv4 Domains"));
+    o.modalonly = true;
+    o.depends("ipv4_enable", "1");
+    o.rows = 3;
+    o.placeholder = "example.com\nwww.example.com";
+    o.description = _("One domain per line or comma-separated");
+  }
 
-  o = ss.option(form.TextValue, "ipv6_domains", _("IPv6 Domains"));
-  o.modalonly = true;
-  o.depends("ipv6_enable", "1");
-  o.rows = 3;
-  o.placeholder = "example.com\nwww.example.com";
-  o.description = _("One domain per line or comma-separated");
+  {
+    const o = ss.option(form.Flag, "ipv6_enable", _("Enable IPv6"));
+    o.modalonly = true;
+    o.default = "0";
+  }
 
-  o = ss.option(form.Value, "webhook_url", _("Webhook URL"));
-  o.modalonly = true;
-  o.rmempty = true;
-  o.placeholder = "https://example.com/webhook";
-  o.description = _("Optional webhook to call after successful update");
+  {
+    const o = ss.option(form.ListValue, "ipv6_get_type", _("IPv6 Get Method"));
+    o.modalonly = true;
+    o.depends("ipv6_enable", "1");
+    o.default = "url";
+    for (const type of GET_TYPES) {
+      o.value(type.value, type.label);
+    }
+  }
 
-  o = ss.option(form.TextValue, "webhook_body", _("Webhook Body"));
-  o.modalonly = true;
-  o.rmempty = true;
-  o.rows = 3;
-  o.placeholder = '{"ip": "{{ip}}", "domain": "{{domain}}"}';
-  o.description = _("JSON body for webhook (supports {{ip}} and {{domain}})");
-  o.depends({ webhook_url: /^.+$/ });
+  {
+    const o = ss.option(form.Value, "ipv6_url", _("IPv6 URL"));
+    o.modalonly = true;
+    o.depends({ ipv6_enable: "1", ipv6_get_type: "url" });
+    o.placeholder = "https://api6.ipify.org";
+    o.datatype = "string";
+  }
 
-  o = ss.option(form.TextValue, "webhook_headers", _("Webhook Headers"));
-  o.modalonly = true;
-  o.rmempty = true;
-  o.rows = 3;
-  o.placeholder = "Authorization: Bearer token\nContent-Type: application/json";
-  o.description = _("One header per line (Header: Value)");
-  o.depends({ webhook_url: /^.+$/ });
+  {
+    const o = ss.option(
+      form.Value,
+      "ipv6_net_interface",
+      _("IPv6 Network Interface"),
+    );
+    o.modalonly = true;
+    o.depends({ ipv6_enable: "1", ipv6_get_type: "net_interface" });
+    o.placeholder = "eth0";
+    o.datatype = "string";
+  }
+
+  {
+    const o = ss.option(form.Value, "ipv6_cmd", _("IPv6 Command"));
+    o.modalonly = true;
+    o.depends({ ipv6_enable: "1", ipv6_get_type: "cmd" });
+    o.placeholder = "curl -s https://api6.ipify.org";
+    o.datatype = "string";
+  }
+
+  {
+    const o = ss.option(form.Value, "ipv6_reg", _("IPv6 Regex"));
+    o.modalonly = true;
+    o.depends("ipv6_enable", "1");
+    o.rmempty = true;
+    o.placeholder = "([0-9a-fA-F:]+)";
+    o.description = _("Regular expression to extract IPv6 address from output");
+  }
+
+  {
+    const o = ss.option(form.TextValue, "ipv6_domains", _("IPv6 Domains"));
+    o.modalonly = true;
+    o.depends("ipv6_enable", "1");
+    o.rows = 3;
+    o.placeholder = "example.com\nwww.example.com";
+    o.description = _("One domain per line or comma-separated");
+  }
+
+  {
+    const o = ss.option(form.Value, "webhook_url", _("Webhook URL"));
+    o.modalonly = true;
+    o.rmempty = true;
+    o.placeholder = "https://example.com/webhook";
+    o.description = _("Optional webhook to call after successful update");
+  }
+
+  {
+    const o = ss.option(form.TextValue, "webhook_body", _("Webhook Body"));
+    o.modalonly = true;
+    o.rmempty = true;
+    o.rows = 3;
+    o.placeholder = '{"ip": "{{ip}}", "domain": "{{domain}}"}';
+    o.description = _("JSON body for webhook (supports {{ip}} and {{domain}})");
+    o.depends({ webhook_url: /^.+$/ });
+  }
+
+  {
+    const o = ss.option(
+      form.TextValue,
+      "webhook_headers",
+      _("Webhook Headers"),
+    );
+    o.modalonly = true;
+    o.rmempty = true;
+    o.rows = 3;
+    o.placeholder =
+      "Authorization: Bearer token\nContent-Type: application/json";
+    o.description = _("One header per line (Header: Value)");
+    o.depends({ webhook_url: /^.+$/ });
+  }
 
   async function pollDdnsStatus() {
     try {
