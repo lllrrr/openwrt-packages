@@ -1,5 +1,10 @@
 msgid ""
-msgstr "Content-Type: text/plain; charset=UTF-8"
+msgstr ""
+"Language-Team: Rafał Wabik (IceG)\n"
+"Language: fr\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=n > 1;\n"
 
 msgid "For more information about the modemdata package, please visit: %shttps://github.com/obsy/modemdata%s."
 msgstr "Pour plus d'informations sur le paquet modemdata, veuillez visiter : %shttps://github.com/obsy/modemdata%s."
