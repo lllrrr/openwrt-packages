@@ -267,11 +267,12 @@ dns_mihomo_apply_leak_nameservers() {
 
 
 # handle mihomo dns block:
-#   - strip previous injection markers + all ipv6: lines
-#   - rewrite ipv6 from ipv6_value (skip when empty)
-#   - when enabled=1, append geosite gfw marker block to fallback-filter
-#     create fallback-filter (geoip: false skeleton) if absent
-# Marker:
+#   - strip previous clashoo:dns_leak_protect injection markers (incl. the old
+#     geosite:gfw block written by older versions)
+#   - rewrite the ipv6: line from ipv6_value (skip when empty)
+# No longer injects fallback-filter.geosite:gfw — mihomo deprecated it and a
+# GeoSite.dat missing the gfw category froze startup (issue #25). See flush_dns.
+# (The fallback-filter parsing vars below are now vestigial; clean up separately.)
 dns_mihomo_apply_leak_dns_block() {
   local cfg="$1" enabled="${2:-0}" ipv6_value="${3:-}" tmp="${1}.$$"
   [ -f "$cfg" ] || return 0
