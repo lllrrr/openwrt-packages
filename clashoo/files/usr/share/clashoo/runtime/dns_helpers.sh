@@ -294,23 +294,16 @@ dns_mihomo_apply_leak_dns_block() {
       print dns_lines[1]
       if (ipv6_value != "")
         print sp "ipv6: " ipv6_value
-      for (i = 2; i <= dns_n; i++) {
+      # NOTE: clashoo used to inject `fallback-filter.geosite: [gfw]` here, but
+      # mihomo deprecated fallback-filter.geosite ("replace with nameserver-policy,
+      # will be removed") AND it hard-fails preflight + freezes startup (~90s) when
+      # the downloaded GeoSite.dat lacks the gfw category (issue #25). Stop
+      # injecting it. DNS-leak protection still works via respect-rules / leak
+      # nameservers / DST-PORT,853,REJECT handled elsewhere. The marker strip below
+      # still removes any gfw block injected by older versions, so disabling /
+      # upgrading cleans it up.
+      for (i = 2; i <= dns_n; i++)
         print dns_lines[i]
-        if (enabled == "1" && has_ff && !ff_has_gfw && i == ff_end) {
-          print ff_sp "# >>> clashoo:dns_leak_protect"
-          print ff_sp "geosite:"
-          print ff_sp "  - gfw"
-          print ff_sp "# <<< clashoo:dns_leak_protect"
-        }
-      }
-      if (enabled == "1" && !has_ff) {
-        print sp "fallback-filter:"
-        print sp "  geoip: false"
-        print sp "  # >>> clashoo:dns_leak_protect"
-        print sp "  geosite:"
-        print sp "    - gfw"
-        print sp "  # <<< clashoo:dns_leak_protect"
-      }
       in_dns = 0
       dns_n = 0
     }

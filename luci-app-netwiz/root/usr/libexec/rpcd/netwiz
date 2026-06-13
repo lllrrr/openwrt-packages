@@ -435,8 +435,8 @@ case "$1" in
                 # ==========================================
                 # 启动高级防砖看门狗 (Watchdog Rollback)
                 # ==========================================
-                # 只要不是纯粹的界面状态切换，且触碰了网络设置，就挂上防砖炸弹
-                if [ "$mode" != "set_wizard" ]; then
+                # 只要不是界面切换，且不是lan模式（lan有专属的物理跨重启防砖），就挂上180秒炸弹
+                if [ "$mode" != "set_wizard" ] && [ "$mode" != "lan" ]; then
                     log "正在备份健康网络配置，并启动 180 秒防砖看门狗..."
                     
                     # 1. 备份当前健康的配置文件
@@ -583,6 +583,28 @@ case "$1" in
                 # ==========================================
 
                 elif [ "$mode" = "lan" ]; then
+                    
+                    # LAN 口 120 秒安全模式防失联 (跨重启物理防砖)
+                    if [ "$arg5" = "1" ]; then
+                        log ">>> [LAN设置] 已启用 120 秒安全模式，生成物理防砖备份..."
+                        cp -p /etc/config/network /etc/config/network.netwiz_bak 2>/dev/null
+                        cp -p /etc/config/dhcp /etc/config/dhcp.netwiz_bak 2>/dev/null
+                        touch /tmp/netwiz_rollback_time
+                        
+                        (
+                            sleep 120
+                            if [ -f "/tmp/netwiz_rollback_time" ]; then
+                                logger -t Netwiz "[WATCHDOG] 🚨 LAN 120秒超时！前端未重连，执行回滚！"
+                                echo "$(date '+%F %T') [WATCHDOG] 🚨 LAN口 120秒内未重连，触发安全回滚！" >> /etc/netwiz_recovery.log
+                                cp -p /etc/config/network.netwiz_bak /etc/config/network 2>/dev/null
+                                cp -p /etc/config/dhcp.netwiz_bak /etc/config/dhcp 2>/dev/null
+                                /etc/init.d/network restart
+                                /etc/init.d/dnsmasq restart
+                                rm -f /tmp/netwiz_rollback_time
+                            fi
+                        ) </dev/null >/dev/null 2>&1 &
+                    fi
+
                     uci set network.lan.proto='static'; uci set network.lan.ipaddr="$arg1"; uci set network.lan.netmask="$arg3"
                     if [ -n "$arg2" ]; then uci set network.lan.gateway="$arg2"; else uci delete network.lan.gateway 2>/dev/null || true; fi
                     if [ "$arg4" = "1" ]; then

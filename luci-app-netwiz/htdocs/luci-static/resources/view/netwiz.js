@@ -408,6 +408,11 @@ return view.extend({
     handleReset: null,
 
     render: function () {
+        // 落地自动拆弹！只要页面跳到新 IP 并加载，立刻解除 120 秒防砖炸弹
+        if (typeof callNetDefuse === 'function') {
+            callNetDefuse().catch(function(){});
+        }
+
         if (!document.querySelector('meta[name="viewport"]')) {
             var meta = document.createElement('meta');
             meta.name = 'viewport';
