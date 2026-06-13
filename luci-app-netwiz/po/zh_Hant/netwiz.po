@@ -1426,11 +1426,11 @@ msgstr "無法啟動後台備份任務"
 msgid "Confirm System Restore"
 msgstr "確認還原系統"
 
-msgid "<span style=\"color:#ef4444; font-weight:bold;\">WARNING: This will overwrite current configs and reinstall plugins!</span><br><br>Router will auto-reboot upon completion. Ensure file is correct.<br><br>"
-msgstr "<span style=\"color:#ef4444; font-weight:bold;\">⚠️ 安全警告：此操作具有最高系統權限，將徹底覆蓋當前設定！</span><br><br><span style=\"color:#f59e0b; font-weight:bold;\">防駭客提示：請絕對不要上傳來自論壇或陌生人提供的來路不明備份檔，否則您的路由器可能會被植入木馬後門！</span><br><br>還原完成後路由器將自動重啟。<br><br>"
+msgid "<span style='color:#ef4444; font-weight:bold;'>WARNING: This will overwrite current configs and reinstall plugins!</span><br><br>Router will auto-reboot upon completion. Ensure file is correct.<br><br><span style='color:#059669; font-size: 14px;'>🛡️ Safe Mode: Auto-rollback if connection is lost for 300s.</span><br><br>"
+msgstr "<span style='color:#ef4444; font-weight:bold;'>警告：此操作將覆蓋現有的網路設定並重新安裝外掛！</span><br><br>完成後路由器將自動重啟，請確保選擇的檔案無誤。<br><br><span style='color:#059669; font-size: 14px;'>🛡️ 安全機制：若重啟後失聯 300 秒，系統將自動回退設定以防變磚。</span><br><br>"
 
 msgid "Auto-download current state backup before restore (Regret Pill)"
-msgstr "還原前先自動下載當前狀態的備份 (後悔藥)"
+msgstr "恢復前自動下載目前狀態備份 (後悔藥)"
 
 msgid "Confirm & Select File"
 msgstr "確認並選擇檔案"
@@ -1438,8 +1438,8 @@ msgstr "確認並選擇檔案"
 msgid "Native Fast Restore Mode"
 msgstr "原生極速還原模式"
 
-msgid "Transferring capsule via high-speed system channel...<br><br><b style=\"color:#ef4444;\">DO NOT power off. Router will auto-reboot upon completion.</b>"
-msgstr "正在調用系統底層高速通道直傳膠囊...<br><br><b style=\"color:#ef4444;\">請勿斷開電源，路由器將在完成後自動重啟。</b>"
+msgid "Transferring capsule via high-speed system channel...<br><br><b style=\"color:#ef4444;\">DO NOT power off. Router will auto-reboot upon completion.</b><br><br><span style=\"color:#059669; font-size: 14px;\">🛡️ Safe Mode: Auto-rollback if connection is lost for 300s.</span>"
+msgstr "正在呼叫系統底層高速通道直傳膠囊...<br><br><b style=\"color:#ef4444;\">請勿斷開電源，路由器將在完成後自動重啟。</b><br><br><span style=\"color:#059669; font-size: 14px;\">🛡️ 安全機制：若重啟後失聯 300 秒，系統將自動回退設定以防變磚。</span>"
 
 msgid "Capsule delivered, preparing offline task..."
 msgstr "膠囊已送達底層，準備執行脫機任務..."
