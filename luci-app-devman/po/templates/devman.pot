@@ -1,0 +1,56 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+msgid "Device Manager"
+msgstr "设备管理"
+
+msgid "Name"
+msgstr "名称"
+
+msgid "Type"
+msgstr "类型"
+
+msgid "IP"
+msgstr "IP地址"
+
+msgid "MAC"
+msgstr "MAC地址"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Speed"
+msgstr "速度"
+
+msgid "Blocked"
+msgstr "已封禁"
+
+msgid "Actions"
+msgstr "操作"
+
+msgid "Online"
+msgstr "在线"
+
+msgid "Maybe"
+msgstr "可能离线"
+
+msgid "Offline"
+msgstr "离线"
+
+msgid "Block"
+msgstr "封禁"
+
+msgid "Unblock"
+msgstr "解封"
+
+msgid "Rename"
+msgstr "重命名"
+
+msgid "New name:"
+msgstr "新名称:"
+
+msgid "Loading..."
+msgstr "加载中..."
+
+msgid "No devices detected yet"
+msgstr "暂未检测到设备"

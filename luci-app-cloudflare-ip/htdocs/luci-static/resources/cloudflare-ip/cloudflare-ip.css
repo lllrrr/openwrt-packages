@@ -1,0 +1,241 @@
+.cfi-dashboard { max-width: 100%; }
+.cfi-section {
+	margin-bottom: 1.5em;
+}
+.cfi-badge {
+	display: inline-block; padding: 0.15em 0.6em; border-radius: 4px;
+	font-size: 0.85em; font-weight: 500;
+}
+.cfi-badge.green { background: color-mix(in srgb, var(--success-color, #3aa657) 15%, transparent); color: var(--success-color, #3aa657); }
+.cfi-badge.red { background: color-mix(in srgb, var(--danger-color, #d94b4b) 15%, transparent); color: var(--danger-color, #d94b4b); }
+.cfi-badge.orange { background: color-mix(in srgb, var(--warning-color, #d89b00) 15%, transparent); color: var(--warning-color, #d89b00); }
+.cfi-badge.gray { background: color-mix(in srgb, var(--subtext-color, #666) 15%, transparent); color: var(--subtext-color, #666); }
+.cfi-btn-group { display: flex; flex-wrap: wrap; gap: 0.8em; }
+.cfi-cmd-box {
+	padding: 0.8em 1em; border-radius: 6px;
+	background: var(--background-color-low, color-mix(in srgb, var(--background-color-high, var(--background-color-a)) 85%, var(--main-color, #0069d9)));
+	border: 1px solid var(--border-color);
+	font-family: monospace; font-size: 0.9em;
+	overflow-x: auto; white-space: pre-wrap; word-break: break-all;
+}
+.table .tr.cfi-no-hover:hover { background: none !important; }
+.cfi-log-area {
+	width: 100%; box-sizing: border-box;
+	font-size: 10px;
+	font-family: monospace;
+	white-space: pre;
+	tab-size: 4;
+}
+.cfi-log-area.is-empty,
+.cfi-log-area.is-loading { color: var(--subtext-color); font-style: italic; }
+.cfi-log-area.is-error { color: var(--danger-color); }
+.cfi-value-full .cbi-value-title { float: none; width: auto; }
+.cfi-value-full .cbi-value-field { width: 100%; }
+.cfi-table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.cfi-table-wrap > .table th {
+	white-space: nowrap;
+}
+.cfi-table-wrap > .table td {
+	vertical-align: top;
+	word-break: break-word;
+}
+.cfi-table-wrap > .cfi-responsive-table {
+	min-width: 640px;
+}
+.cfi-kv-table th {
+	width: 12em;
+	white-space: nowrap;
+}
+.cfi-kv-table td {
+	word-break: break-word;
+}
+.cfi-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+}
+.cfi-actions button,
+.cfi-actions .cbi-button {
+	margin: 0 0.5em 0.4em 0 !important;
+	white-space: nowrap;
+}
+
+.ys-tool-footer {
+	--ys-footer-blue: #2f7df6;
+	--ys-footer-blue-bg: rgba(47, 125, 246, 0.12);
+	--ys-footer-blue-bg-hover: rgba(47, 125, 246, 0.18);
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.8em 1em;
+	margin-top: 2em;
+	padding: 1em 0 0;
+	border-top: 1px solid var(--border-color);
+	color: var(--subtext-color, #666);
+	font-size: 0.875em;
+}
+.ys-tool-footer-brand,
+.ys-tool-footer-links {
+	display: flex;
+	flex-wrap: nowrap;
+	align-items: center;
+	gap: 0.35em;
+}
+.ys-tool-footer-brand {
+	flex-wrap: wrap;
+}
+.ys-tool-footer-links {
+	white-space: nowrap;
+}
+.ys-tool-footer-mark {
+	padding: 0.18em 0.5em;
+	border-radius: 4px;
+	background-color: var(--ys-footer-blue-bg);
+	background: color-mix(in srgb, var(--ys-footer-blue) 12%, transparent);
+	color: var(--ys-footer-blue);
+	font-size: 0.86em;
+	font-weight: 700;
+	line-height: 1.6;
+}
+.ys-tool-footer-title {
+	color: inherit;
+	font-weight: 600;
+}
+.ys-tool-footer-separator {
+	color: color-mix(in srgb, var(--subtext-color, #666) 65%, transparent);
+	margin: 0 0.15em;
+}
+.ys-tool-footer-version {
+	color: var(--subtext-color, #666);
+}
+.ys-tool-footer-link,
+.ys-tool-footer a.ys-tool-footer-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35em;
+	padding: 0.18em 0.5em;
+	border: 0;
+	border-radius: 4px;
+	background-color: var(--ys-footer-blue-bg);
+	background: color-mix(in srgb, var(--ys-footer-blue) 12%, transparent);
+	color: var(--ys-footer-blue);
+	font-size: 0.86em;
+	font-weight: 700;
+	line-height: 1.6;
+	text-decoration: none;
+}
+.ys-tool-footer-link:hover,
+.ys-tool-footer a.ys-tool-footer-link:hover {
+	background-color: var(--ys-footer-blue-bg-hover);
+	background: color-mix(in srgb, var(--ys-footer-blue) 18%, transparent);
+	text-decoration: none;
+}
+@media (max-width: 600px) {
+	.ys-tool-footer {
+		gap: 0.5em;
+	}
+	.ys-tool-footer-title,
+	.ys-tool-footer-title-separator,
+	.ys-tool-footer-project-link,
+	.ys-tool-footer-project-separator {
+		display: none;
+	}
+	.ys-tool-footer-links {
+		flex-wrap: wrap;
+		white-space: normal;
+	}
+	.ys-tool-footer-links .ys-tool-footer-link-label {
+		display: none;
+	}
+	.cfi-btn-group {
+		gap: 0.5em;
+	}
+	.cfi-btn-group .cbi-button {
+		font-size: 0.85em;
+		padding: 0.4em 0.8em;
+	}
+	.cfi-log-area {
+		font-size: 9px;
+	}
+	.cfi-cmd-box {
+		font-size: 0.8em;
+		padding: 0.6em 0.8em;
+	}
+}
+
+@media (max-width: 900px) {
+	.cfi-table-wrap > .cfi-responsive-table {
+		display: block;
+		min-width: 0;
+		overflow: visible;
+	}
+	.cfi-responsive-table thead {
+		display: none;
+	}
+	.cfi-responsive-table tbody,
+	.cfi-responsive-table tr {
+		display: block;
+	}
+	.cfi-responsive-table tr {
+		margin-bottom: 0.7em;
+		padding: 0.7em;
+		border: 1px solid var(--border-color, #ddd);
+		border-radius: 6px;
+		width: 100%;
+		box-sizing: border-box;
+	}
+	.cfi-responsive-table td {
+		display: flex;
+		align-items: flex-start;
+		justify-content: flex-start;
+		gap: 0.75em;
+		padding: 0.28em 0;
+		border: 0;
+		text-align: left;
+		min-width: 0;
+	}
+	.cfi-responsive-table td::before {
+		content: attr(data-label);
+		flex: 0 0 7.2em;
+		color: var(--subtext-color, #666);
+		font-size: 0.85em;
+		font-weight: 600;
+		text-align: left;
+		white-space: normal;
+		word-break: break-word;
+	}
+	.cfi-responsive-table td[colspan] {
+		display: block;
+		text-align: left;
+	}
+	.cfi-responsive-table td[colspan]::before {
+		display: none;
+	}
+	.cfi-responsive-table .cfi-actions {
+		justify-content: flex-start;
+	}
+	.cfi-responsive-table .cfi-actions::before {
+		flex: 0 0 100%;
+		margin: 0 0 0.25em;
+	}
+	.cfi-kv-table tr {
+		display: block;
+		padding: 0.45em 0;
+		border-bottom: 1px solid color-mix(in srgb, var(--border-color, #ddd) 70%, transparent);
+	}
+	.table.cfi-kv-table th,
+	.table.cfi-kv-table td {
+		display: block;
+		width: 100%;
+		box-sizing: border-box;
+		border: 0;
+		padding: 0.12em 0;
+		text-align: left;
+		white-space: normal;
+	}
+	.cfi-kv-table th {
+		color: var(--subtext-color, #666);
+		font-size: 0.86em;
+	}
+}

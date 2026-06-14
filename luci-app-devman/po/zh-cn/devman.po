@@ -1,0 +1,56 @@
+msgid "Device Manager"
+msgstr "设备管理"
+
+msgid "Name"
+msgstr "名称"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Speed ↓"
+msgstr "下载速度"
+
+msgid "Blocked"
+msgstr "已封禁"
+
+msgid "Actions"
+msgstr "操作"
+
+msgid "Online"
+msgstr "在线"
+
+msgid "Offline"
+msgstr "离线"
+
+msgid "Block"
+msgstr "封禁"
+
+msgid "Unblock"
+msgstr "解封"
+
+msgid "Limit"
+msgstr "限速"
+
+msgid "Rename"
+msgstr "重命名"
+
+msgid "Loading..."
+msgstr "加载中..."
+
+msgid "No devices detected yet. Connect a device to see it here."
+msgstr "暂未检测到设备，接入设备后自动显示。"
+
+msgid "Rate limit in kbps (0 = unlimited):"
+msgstr "限速值 (kbps, 0=不限):"
+
+msgid "New name:"
+msgstr "新名称:"
+
+msgid "IP"
+msgstr "IP地址"
+
+msgid "MAC"
+msgstr "MAC地址"
+
+msgid "Hostname"
+msgstr "主机名"

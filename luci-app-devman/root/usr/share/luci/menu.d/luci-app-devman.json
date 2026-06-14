@@ -1,0 +1,10 @@
+{
+	"admin/network/devman": {
+		"title": "设备管理",
+		"order": 5,
+		"action": {
+			"type": "view",
+			"path": "devman/overview"
+		}
+	}
+}

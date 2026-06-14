@@ -1,0 +1,46 @@
+{
+	"admin/services/cf_ip": {
+		"title": "Cloudflare IP Optimization",
+		"order": 60,
+		"action": {
+			"type": "alias",
+			"path": "admin/services/cf_ip/overview"
+		},
+		"depends": {
+			"acl": [ "luci-app-cloudflare-ip" ],
+			"uci": { "cf_ip": true }
+		}
+	},
+	"admin/services/cf_ip/overview": {
+		"title": "Overview",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "cloudflare-ip/overview"
+		}
+	},
+	"admin/services/cf_ip/settings": {
+		"title": "Settings",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "cloudflare-ip/settings"
+		}
+	},
+	"admin/services/cf_ip/advanced": {
+		"title": "Advanced",
+		"order": 50,
+		"action": {
+			"type": "view",
+			"path": "cloudflare-ip/advanced"
+		}
+	},
+	"admin/services/cf_ip/logs": {
+		"title": "Logs & Records",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "cloudflare-ip/diagnostics"
+		}
+	}
+}

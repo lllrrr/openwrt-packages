@@ -1,0 +1,207 @@
+#!/bin/sh
+
+RPCD_VERSION="@PKG_VERSION@"
+CF_IP_AUTO_BIN="/usr/bin/cf-ip-auto"
+INIT_SCRIPT="/etc/init.d/cf_ip"
+
+service_running_state() {
+	case "$(uci -q get cf_ip.main.enabled 2>/dev/null)" in
+		1|on|true|enabled)
+			if [ -f /etc/cf_ip/status.json ] && grep -q '"running"[[:space:]]*:[[:space:]]*true' /etc/cf_ip/status.json 2>/dev/null; then
+				return 0
+			fi
+			;;
+	esac
+	return 1
+}
+
+service_action() {
+	action="$1"
+
+	case "$action" in
+		start|restart)
+			uci set cf_ip.main.enabled='1' 2>/dev/null
+			uci commit cf_ip 2>/dev/null
+			"$INIT_SCRIPT" enable >/dev/null 2>&1
+			;;
+		stop)
+			uci set cf_ip.main.enabled='0' 2>/dev/null
+			uci commit cf_ip 2>/dev/null
+			;;
+	esac
+
+	case "$action" in
+		start)
+			"$INIT_SCRIPT" start >/dev/null 2>&1
+			;;
+		stop)
+			"$INIT_SCRIPT" stop >/dev/null 2>&1
+			;;
+		restart)
+			"$INIT_SCRIPT" restart >/dev/null 2>&1
+			;;
+		*)
+			echo '{"success":false,"error":"unknown_action"}'
+			return 0
+			;;
+	esac
+
+	_rc=$?
+	if [ "$_rc" -ne 0 ]; then
+		printf '{"success":false,"action":"%s","error":"init_action_failed","rc":%d}\n' "$action" "$_rc"
+		return 0
+	fi
+
+	_wait=0
+	while [ "$_wait" -lt 4 ]; do
+		if [ "$action" = "stop" ]; then
+			if ! service_running_state; then
+				printf '{"success":true,"action":"%s","running":false}\n' "$action"
+				return 0
+			fi
+		else
+			if service_running_state; then
+				printf '{"success":true,"action":"%s","running":true}\n' "$action"
+				return 0
+			fi
+		fi
+		sleep 1
+		_wait=$((_wait + 1))
+	done
+
+	if [ "$action" = "stop" ]; then
+		printf '{"success":false,"action":"%s","error":"service_still_running"}\n' "$action"
+	else
+		printf '{"success":false,"action":"%s","error":"service_not_running"}\n' "$action"
+	fi
+}
+
+case "$1" in
+	list)
+		cat <<'EOF'
+{
+	"status": {},
+	"check-env": {},
+	"refresh-env": {},
+	"run": {},
+	"speedtest-status": {},
+	"version": {},
+	"read-log": {},
+	"clear-log": {},
+	"ip-history": {},
+	"download-cfst": {},
+	"self-update": {},
+	"start": {},
+	"stop": {},
+	"restart": {},
+	"sync": { "plugin": "plugin" },
+	"oc-list-backups": {},
+	"oc-restore-backup": { "id": "id" },
+	"oc-delete-backup": { "id": "id" }
+}
+EOF
+		;;
+	call)
+		method="$2"
+		case "$method" in
+			status)
+				"$CF_IP_AUTO_BIN" --status 2>/dev/null || true
+				;;
+			check-env)
+				"$CF_IP_AUTO_BIN" --check-env 2>/dev/null || true
+				;;
+			refresh-env)
+				"$CF_IP_AUTO_BIN" --refresh-env 2>/dev/null || true
+				;;
+			run)
+				# Check lock before starting background speedtest
+				if [ -d /tmp/cf_ip/cf-ip-auto.lock ]; then
+					echo '{"success":false,"error":"another instance is running"}'
+				else
+					# Start speedtest in background to avoid rpcd timeout
+					( "$CF_IP_AUTO_BIN" --run --no-delay >/dev/null 2>&1 ) &
+					echo '{"success":true,"action":"run","running":true}'
+				fi
+				;;
+			speedtest-status)
+				_status="$("$CF_IP_AUTO_BIN" --status 2>/dev/null)" || true
+				_log="$("$CF_IP_AUTO_BIN" --read-log 2>/dev/null)" || true
+				# Merge status + log into single response
+				if command -v jq >/dev/null 2>&1 && [ -n "$_status" ]; then
+					_log_json="$(printf '%s' "$_log" | jq -c '.' 2>/dev/null)" || _log_json='{"logs":""}'
+					printf '%s\n' "$_status" | jq -c --argjson log "$_log_json" '. + {log_data: $log}' 2>/dev/null && return 0
+				fi
+				# Fallback: just return status
+				printf '%s\n' "${_status:-{\}}"
+				;;
+			version)
+				printf '{"version":"%s"}\n' "$RPCD_VERSION"
+				;;
+			read-log)
+				"$CF_IP_AUTO_BIN" --read-log 2>/dev/null || true
+				;;
+			clear-log)
+				"$CF_IP_AUTO_BIN" --clear-log 2>/dev/null || true
+				;;
+			ip-history)
+				"$CF_IP_AUTO_BIN" --ip-history 2>/dev/null || true
+				;;
+			download-cfst)
+				_out="$("$CF_IP_AUTO_BIN" --download-cfst 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"success\":false,\"error\":\"no output from cf-ip-auto\"}}"
+				;;
+			self-update)
+				_out="$("$CF_IP_AUTO_BIN" --self-update 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"success\":false,\"error\":\"no output from cf-ip-auto\"}}"
+				;;
+			start)
+				service_action start
+				;;
+			stop)
+				service_action stop
+				;;
+			restart)
+				service_action restart
+				;;
+			sync)
+				read _input
+				_plugin="$(jsonfilter -s "$_input" -e '$.plugin' 2>/dev/null)" || true
+				if [ -z "$_plugin" ]; then
+					echo '{"success":false,"error":"missing plugin name"}'
+				else
+					_out="$("$CF_IP_AUTO_BIN" --sync "$_plugin" 2>/dev/null)" || true
+					printf '%s\n' "${_out:-{\"success\":false,\"error\":\"no output from cf-ip-auto\"}}"
+				fi
+				;;
+			oc-list-backups)
+				"$CF_IP_AUTO_BIN" --oc-list-backups 2>/dev/null || echo '{"success":false,"error":"failed to list backups"}'
+				;;
+			oc-restore-backup)
+				read _input
+				_backup_id="$(jsonfilter -s "$_input" -e '$.id' 2>/dev/null)" || true
+				if [ -z "$_backup_id" ]; then
+					echo '{"success":false,"error":"missing backup id"}'
+				else
+					_out="$("$CF_IP_AUTO_BIN" --oc-restore-backup "$_backup_id" 2>/dev/null)" || true
+					printf '%s\n' "${_out:-{\"success\":false,\"error\":\"no output from cf-ip-auto\"}}"
+				fi
+				;;
+			oc-delete-backup)
+				read _input
+				_backup_id="$(jsonfilter -s "$_input" -e '$.id' 2>/dev/null)" || true
+				if [ -z "$_backup_id" ]; then
+					echo '{"success":false,"error":"missing backup id"}'
+				else
+					_out="$("$CF_IP_AUTO_BIN" --oc-delete-backup "$_backup_id" 2>/dev/null)" || true
+					printf '%s\n' "${_out:-{\"success\":false,\"error\":\"no output from cf-ip-auto\"}}"
+				fi
+				;;
+			*)
+				echo '{"error":"unknown_method"}'
+				;;
+		esac
+		;;
+	*)
+		echo '{"error":"invalid_usage"}'
+		;;
+esac
