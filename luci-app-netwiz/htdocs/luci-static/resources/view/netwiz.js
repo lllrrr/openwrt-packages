@@ -411,7 +411,16 @@ var T = {
 
     'LBL_CRON_REBOOT': _('Scheduled Reboot'),
     'LBL_MAC_CLONE': _('MAC Clone'),
-    'BTN_CLEAR': _('Clear'),
+    'BTN_CLEAR': _('Clear (Restore Default)'),
+    'TXT_NET_OK': _('Internet Connected'),
+    'TXT_NET_FAIL': _('Internet Disconnected'),
+    'BTN_CANCEL': _('Cancel'),
+    'BTN_OK': _('OK'),
+    'M_CANCEL': _('Ignore'),
+    'M_FMT_MAC':_('Invalid MAC address format!'),
+    'MSG_MULTI_WAN':_('💡 Multi-WAN detected. You can modify the account and password for each line separately (other settings remain unchanged).'),
+    'MSG_WIZ_MULTI_WAN':_('💡 Multi-WAN detected. Only the primary WAN will be configured here, other lines remain unchanged.'),
+    'LBL_IFACE':_('Interface:'),
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -938,8 +947,8 @@ return view.extend({
             box.innerHTML = '<div style="font-size:17px; font-weight:bold; color:#1e293b; margin-bottom:15px;">' + title + '</div>' + 
                             '<div style="margin-bottom:20px; color:#475569;">' + html + '</div>' +
                             '<div style="display:flex; justify-content:flex-end; gap:10px;">' +
-                            '<button id="mdl-cancel" class="nw-u-btn nw-u-btn-gray" style="padding:0 15px; height:36px; min-height:36px;">' + (T['BTN_CANCEL']||'取消') + '</button>' +
-                            '<button id="mdl-ok" class="nw-u-btn nw-u-btn-blue" style="padding:0 15px; height:36px; min-height:36px;">' + (T['BTN_OK']||'确定') + '</button>' +
+                            '<button id="mdl-cancel" class="nw-u-btn nw-u-btn-gray" style="padding:0 15px; height:36px; min-height:36px;">' + (T['BTN_CANCEL']||'Cancel') + '</button>' +
+                            '<button id="mdl-ok" class="nw-u-btn nw-u-btn-blue" style="padding:0 15px; height:36px; min-height:36px;">' + (T['BTN_OK']||'OK') + '</button>' +
                             '</div>';
             bg.appendChild(box); document.body.appendChild(bg);
             box.querySelector('#mdl-cancel').onclick = function() { document.body.removeChild(bg); };
@@ -1044,12 +1053,17 @@ return view.extend({
                               '<input type="text" id="mdl-mac-val" value="'+currentMac+'" placeholder="AA:BB:CC:DD:EE:FF" style="width:100%; height:40px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-family:monospace; margin-bottom:10px; font-size:15px; box-sizing:border-box;">' +
                                '<div style="display:flex; justify-content:space-between; align-items:center;">' +
                                '<a href="javascript:void(0)" id="mdl-get-mac" style="color:#0284c7; font-size:13.5px; text-decoration:none;">' + (T['BTN_GET_MAC'] || '⚡ Auto-fill MAC') + '</a>' +
-                               '<a href="javascript:void(0)" id="mdl-clear-mac" style="color:#ef4444; font-size:13.5px; text-decoration:none;">' + (T['BTN_CLEAR'] || 'Clear') + '</a>' +
+                               '<a href="javascript:void(0)" id="mdl-clear-mac" style="color:#ef4444; font-size:13.5px; text-decoration:none;">' + (T['BTN_CLEAR'] || 'Clear (Restore Default)') + '</a>' +
                                '</div>';
                     showAdvModal((T['LBL_MAC_CLONE'] || 'MAC Clone'), html, function(box) {
                         var m = box.querySelector('#mdl-mac-val').value.trim();
-                        if (m && !/^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/i.test(m)) { alert(T['M_FMT_IP'] || 'Invalid MAC'); return false; }
+                        if (m && !/^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/i.test(m)) { 
+                            openModal({ title: T['M_FMT_TIT'] || 'Format Error', msg: '<div style="font-size:15px; color:#ef4444; font-weight:bold;">' + (T['M_FMT_MAC'] || 'Invalid MAC address format!') + '</div>', okText: T['BTN_OK'] || 'OK' });
+                            var gm = document.getElementById('nw-global-modal'); if (gm) gm.style.zIndex = '100000';
+                            return false; 
+                        }
                         openModal({ title: (T['LBL_MAC_CLONE'] || 'MAC Clone'), msg: (T['MSG_WRITING'] || 'Saving...'), spin: true });
+                        var gm2 = document.getElementById('nw-global-modal'); if (gm2) gm2.style.zIndex = '100000'; // 儲存動畫也要確保在頂層
                         callSetAdvSettings(m || 'none', '', '').then(function() { setTimeout(function(){ window.location.reload(); }, 2500); });
                     });
                     document.getElementById('mdl-get-mac').onclick = function() {
@@ -1057,7 +1071,8 @@ return view.extend({
                             if(r && r.mac) {
                                 document.getElementById('mdl-mac-val').value = r.mac.toUpperCase();
                             } else {
-                                alert(T['MSG_MAC_NOT_FOUND'] || 'No active device connection detected.');
+                                openModal({ title: T['M_SYS_ERR'] || 'Notice', msg: '<div style="font-size:15px; color:#f59e0b; font-weight:bold;">' + (T['MSG_MAC_NOT_FOUND'] || 'No active device connection detected.') + '</div>', okText: T['BTN_OK'] || 'OK' });
+                                var gm = document.getElementById('nw-global-modal'); if (gm) gm.style.zIndex = '100000';
                             }
                         });
                     };
@@ -1115,8 +1130,12 @@ return view.extend({
                             var chks = box.querySelectorAll('.c-day');
                             for(var i=0; i<chks.length; i++) { if(chks[i].checked) sel.push(chks[i].value); }
                             
-                            // 防呆：如果没有勾选任何一天，阻止保存
-                            if(sel.length === 0) { alert(T['MSG_CRON_NO_DAY'] || 'Please select at least one day!'); return false; }
+                            // 没有勾选任何一天，阻止保存
+                            if(sel.length === 0) { 
+                                openModal({ title: T['M_INC_TIT'] || 'Notice', msg: '<div style="font-size:15px; color:#ef4444; font-weight:bold;">' + (T['MSG_CRON_NO_DAY'] || 'Please select at least one day!') + '</div>', okText: T['BTN_OK'] || 'OK' });
+                                var gm = document.getElementById('nw-global-modal'); if (gm) gm.style.zIndex = '100000';
+                                return false; 
+                            }
                             
                             // 生成 Linux 标准 Cron 表达式 (7天全选则直接用星号)
                             var dStr = (sel.length === 7) ? '*' : sel.join(',');
@@ -1124,6 +1143,7 @@ return view.extend({
                             cronStr = parseInt(tParts[1]) + " " + parseInt(tParts[0]) + " * * " + dStr;
                         }
                         openModal({ title: (T['LBL_CRON_REBOOT'] || 'Scheduled Reboot'), msg: (T['MSG_WRITING'] || 'Saving...'), spin: true });
+                        var gm2 = document.getElementById('nw-global-modal'); if (gm2) gm2.style.zIndex = '100000';
                         callSetAdvSettings('', '', cronStr).then(function() { setTimeout(function(){ window.location.reload(); }, 1500); });
                     });
                     
@@ -1986,16 +2006,11 @@ return view.extend({
                         var badgeEl = document.getElementById('nw-inet-badge');
                         if (badgeEl) {
                             badgeEl.innerHTML = window.nwInetStatus === 'ok' ? '🌐' : '❌';
-                            badgeEl.title = window.nwInetStatus === 'ok' ? '互联网已连通' : '互联网未连通';
+                            badgeEl.title = window.nwInetStatus === 'ok' ? (T['TXT_NET_OK'] || 'Internet Connected') : (T['TXT_NET_FAIL'] || 'Internet Disconnected');
                         }
                     });
                 }
-                
-                // 💡 核心修复：给图标加上 display:inline-block 和 min-width:26px 锁定物理空间，防止任何挤压跳动
-                var iconStr = window.nwInetStatus === 'ok' ? '🌐' : (window.nwInetStatus === 'fail' ? '❌' : '');
-                var titleStr = window.nwInetStatus === 'ok' ? '互联网已连通' : (window.nwInetStatus === 'fail' ? '互联网未连通' : '');
-                var inetBadgeHtml = "<span id='nw-inet-badge' title='" + titleStr + "' style='display:inline-block; min-width:26px; text-align:center; margin-left:4px; font-size:18px; vertical-align:middle; cursor:help; line-height:1;'>" + iconStr + "</span>";
-                // --------------------------
+    
                 if (modeTextEl && !isSilent) modeTextEl.innerHTML = "<div class='nw-spinner' style='width:30px; height:30px; border-width:3px; margin: 0 auto; border-top-color: #fff;'></div><div style='margin-top:10px; font-size:15px; font-weight:bold; color:#fff;'>" + T['LOADING_CONFIG'] + "</div>";
                 try { uci.unload('network'); uci.unload('dhcp'); uci.unload('wireless'); } catch(e) {}
                 
@@ -2045,7 +2060,7 @@ return view.extend({
                         return res;
                     };
                     var uptimeStr = formatUptime(wanUptime);
-                    var upBadgeHtml = uptimeStr ? "<span style='font-size:18px; color:#fff; font-weight:600; margin-left:4px; font-family:monospace;'>🕒" + uptimeStr + "</span>" : "";
+                    var upBadgeHtml = uptimeStr ? "<span style='font-size:15px; color:#fff; font-weight:600; margin-left:0; font-family:monospace;'>🕒" + uptimeStr + "</span>" : "";
 
                     // 提取主备 DNS
                     var dnsServers = activeWan['dns-server'] || [];
@@ -2242,15 +2257,61 @@ return view.extend({
                         }
                         setupStatusBox(container.querySelector('#status-router-info'), window._nwRealWanMode === 'pppoe', T['WARN_ROUTER_INVALID']);
 
-                        // 初次加载时：如果缓存是空的，就把路由器底层的旧帐密读进缓存里
-                        var uciUser = safeUciGet('network', 'wan', 'username', '');
-                        var uciPass = safeUciGet('network', 'wan', 'password', '');
-                        if (sessionStorage.getItem('nw_pppoe_user') === null) sessionStorage.setItem('nw_pppoe_user', uciUser);
-                        if (sessionStorage.getItem('nw_pppoe_pass') === null) sessionStorage.setItem('nw_pppoe_pass', uciPass);
-
-                        // 读取缓存数据
-                        if (container.querySelector('#pppoe-user')) container.querySelector('#pppoe-user').value = sessionStorage.getItem('nw_pppoe_user');
-                        if (container.querySelector('#pppoe-pass')) container.querySelector('#pppoe-pass').value = sessionStorage.getItem('nw_pppoe_pass');
+                        // --- 多线智能探测与渲染 ---
+                        var pppoeIfaces = [];
+                        var netSections = uci.sections('network', 'interface') || [];
+                        netSections.forEach(function(s) {
+                            if (s.proto === 'pppoe') {
+                                pppoeIfaces.push({ name: s['.name'], user: s.username || '', pass: s.password || '' });
+                            }
+                        });
+                        
+                        window._nwMultiPppoe=(pppoeIfaces.length>1)?pppoeIfaces:null;
+                        
+                        var wizPppoeForm=container.querySelector('#wiz-pppoe-fields');
+                        if(wizPppoeForm){
+                            var existHint=container.querySelector('#wiz-multi-wan-hint');
+                            if(window._nwMultiPppoe){
+                                if(!existHint){
+                                    var hint=document.createElement('div');
+                                    hint.id='wiz-multi-wan-hint';
+                                    hint.style.cssText='color:#b45309; font-size:12.5px; font-weight:bold; margin-bottom:12px; padding:8px 10px; background:#fef3c7; border-radius:6px; line-height:1.4; text-align:left;';
+                                    hint.innerHTML=T['MSG_WIZ_MULTI_WAN']||'💡 Multi-WAN detected. Only the primary WAN will be configured here, other lines remain unchanged.';
+                                    wizPppoeForm.insertBefore(hint,wizPppoeForm.firstChild);
+                                    }
+                                } else {
+                                    if(existHint)existHint.remove();
+                                }
+                            }
+                        var pppoeForm=container.querySelector('#main-pppoe-fields');
+                        if (pppoeForm) {
+                            if (window._nwMultiPppoe) {
+                                var mHtml = '<div style="color:#b45309; font-size:13.5px; font-weight:bold; margin-bottom:15px; padding:10px; background:#fef3c7; border-radius:6px; line-height:1.4;">' + (T['MSG_MULTI_WAN'] || '💡 系統偵測到多線撥號環境...') + '</div>';
+                                window._nwMultiPppoe.forEach(function(iface) {
+                                    mHtml += '<div class="nw-multi-pppoe-box" data-iface="' + iface.name + '" style="margin-bottom:15px; padding-bottom:15px; border-bottom:1px dashed #cbd5e1;">';
+                                    mHtml += '<div style="font-size:14px; font-weight:bold; color:#0284c7; margin-bottom:10px;">' + (T['LBL_IFACE'] || 'Interface:') + ' ' + iface.name.toUpperCase() + '</div>';
+                                    mHtml += '<div style="display:flex; gap:10px;">';
+                                    mHtml += '<input type="search" class="m-user nd-input" placeholder="' + (T['LBL_USER'] || 'User') + '" value="' + iface.user + '" style="flex:1; height:46px; border:1px solid #cbd5e1; border-radius:8px; padding:0 16px; box-sizing:border-box;">';
+                                    mHtml += '<input type="search" class="m-pass nd-input" placeholder="' + (T['LBL_PASS'] || 'Pass') + '" value="' + iface.pass + '" style="flex:1; height:46px; border:1px solid #cbd5e1; border-radius:8px; padding:0 16px; box-sizing:border-box;">';
+                                    mHtml += '</div></div>';
+                                });
+                                mHtml += '<button type="submit" id="main-pppoe-submit" style="display:none;">Apply</button>';
+                                pppoeForm.innerHTML = mHtml;
+                            } else {
+                                // 还原单线模式的 DOM
+                                if (!container.querySelector('#pppoe-user')) {
+                                    pppoeForm.innerHTML = '<div class="nw-value"><label class="nw-value-title">' + (T['LBL_USER'] || 'User') + '</label><div class="nw-value-field"><input type="search" id="pppoe-user" class="nd-input" placeholder="' + (T['PH_USER'] || '') + '" autocomplete="on"></div></div>' +
+                                                          '<div class="nw-value"><label class="nw-value-title">' + (T['LBL_PASS'] || 'Pass') + '</label><div class="nw-value-field"><input type="search" id="pppoe-pass" class="nd-input" placeholder="' + (T['PH_PASS'] || '') + '" autocomplete="on"></div></div>' +
+                                                          '<button type="submit" id="main-pppoe-submit" style="display:none;">Apply</button>';
+                                }
+                                var uciUser = safeUciGet('network', 'wan', 'username', '');
+                                var uciPass = safeUciGet('network', 'wan', 'password', '');
+                                if (sessionStorage.getItem('nw_pppoe_user') === null) sessionStorage.setItem('nw_pppoe_user', uciUser);
+                                if (sessionStorage.getItem('nw_pppoe_pass') === null) sessionStorage.setItem('nw_pppoe_pass', uciPass);
+                                if (container.querySelector('#pppoe-user')) container.querySelector('#pppoe-user').value = sessionStorage.getItem('nw_pppoe_user');
+                                if (container.querySelector('#pppoe-pass')) container.querySelector('#pppoe-pass').value = sessionStorage.getItem('nw_pppoe_pass');
+                            }
+                        }
 
                         if (container.querySelector('#router-ip')) container.querySelector('#router-ip').value = (wIp !== T['TXT_NOT_GOT']) ? wIp : '';
                         if (container.querySelector('#router-gw')) container.querySelector('#router-gw').value = (wGw !== T['TXT_NOT_SET']) ? wGw : '';
@@ -2722,29 +2783,31 @@ return view.extend({
                         } catch(ex) { }
                     }
 
-                    // ---- 替换开始 ----
+                    // ---- 开始 ----
                     var mkB = function(bg, txt) { return "<span style='font-size:14px; background:" + bg + "; color:#fff; padding:5px 10px; border-radius:12px; white-space:nowrap;'>" + txt + "</span>"; };
                     var mkD = function(l1, v1, l2, v2) { return "<span class='nw-info-item'>" + l1 + " <span class='nw-hl'>" + v1 + "</span></span><span class='nw-info-item'>" + l2 + " <span class='nw-hl'>" + v2 + "</span></span>"; };
-                    
-                    // 💡 终极防跳魔法：给不断跳动的时间套上“隐形束身衣”(固定95px宽度)，并启用等宽数字 (tabular-nums)。
+
                     // 这样时间在内部怎么跳动，都绝对不会再挤压外部的排版！
-                    var fixedUpBadge = upBadgeHtml ? "<span style='display:inline-block; width:135px; text-align:center; font-variant-numeric: tabular-nums; margin:0 4px;'>" + upBadgeHtml + "</span>" : "";
+                    var fixedUpBadge = upBadgeHtml ? "<span style='display:inline-block; width:AUTO; text-align:left; font-variant-numeric: tabular-nums; margin:0 0;'>" + upBadgeHtml + "</span>" : "";
                     
                     var sTitle = "", sDetails = "", statusBadge = "";
-                    var iconStr = window.nwInetStatus === 'ok' ? '🌐' : (window.nwInetStatus === 'fail' ? '❌' : '');
-                    var titleStr = window.nwInetStatus === 'ok' ? '互联网已连通' : (window.nwInetStatus === 'fail' ? '互联网未连通' : '');
                     
-                    // 将图标也改为绝对的 width: 28px，彻底锁死它占用的空间
-                    var inetBadgeHtml = "<span id='nw-inet-badge' title='" + titleStr + "' style='display:inline-block; width:28px; text-align:center; font-size:18px; vertical-align:middle; cursor:help; line-height:1;'>" + iconStr + "</span>";
+                    // 底层物理网口/PPPoE已断开，或还未获取到IP，强制立刻显示断开的X，不等待8秒的ping缓存
+                    if (!activeWan.up || !liveWanIp) { window.nwInetStatus = 'fail'; }
+
+                    var iconStr = window.nwInetStatus === 'ok' ? '🌐' : (window.nwInetStatus === 'fail' ? '❌' : '');
+                    var titleStr = window.nwInetStatus === 'ok' ? (T['TXT_NET_OK'] || 'Internet Connected') : (window.nwInetStatus === 'fail' ? (T['TXT_NET_FAIL'] || 'Internet Disconnected') : '');
+                    
+                    var inetBadgeHtml = "<span id='nw-inet-badge' title='" + titleStr + "' style='display:inline-block; width:28px; text-align:center; font-size:22px; vertical-align:middle; cursor:default; line-height:1;'>" + iconStr + "</span>";
 
                     if (isBypass) { sTitle = T['STAT_BYPASS']; sDetails = mkD(T['TXT_DEV_IP'], lIp, T['TXT_UP_GW'], lGw); } 
-                    else if (isWispActive) { sTitle = T['TXT_WISP_ON'] || 'WISP Enabled'; statusBadge = mkB('#10b981', T['BDG_GOT'] || 'IP Acquired') + fixedUpBadge + inetBadgeHtml; sDetails = mkD(T['TXT_WAN_IP'], liveWanIp, T['TXT_UP_GW'], liveGw); }
-                    else if (hasWispConfigured && !isWispActive) { sTitle = T['TXT_WISP_ON'] || 'WISP Enabled'; statusBadge = mkB('#f59e0b', T['TXT_WISP_WAITING'] || 'Connecting...'); sDetails = "<div style='color:#facc15; font-size:14.5px; font-weight:bold;'>" + (T['MSG_WISP_STUCK'] || '⚠️ Connecting to upstream...') + "</div>"; }
-                    else if (wProto === 'pppoe') { sTitle = T['STAT_MAIN_PPPOE']; if (activeWan.up && liveWanIp) { statusBadge = mkB('#10b981', T['BDG_SUCC']) + fixedUpBadge + inetBadgeHtml; sDetails = mkD(T['TXT_PUB_IP'], liveWanIp, T['TXT_REM_GW'], liveGw); } else { statusBadge = mkB('#ef4444', T['BDG_DIAL']); sDetails = mkD(T['TXT_LAN_IP'], lIp, T['TXT_STATUS'], T['TXT_WAIT_REM']); } } 
-                    else if (wProto === 'dhcp') { sTitle = T['STAT_SEC_DHCP']; if (activeWan.up && liveWanIp) { statusBadge = mkB('#10b981', T['BDG_GOT']) + fixedUpBadge + inetBadgeHtml; sDetails = mkD(T['TXT_WAN_IP'], liveWanIp, T['TXT_UP_GW'], liveGw); } else { statusBadge = mkB('#f59e0b', T['BDG_WAIT']); sDetails = mkD(T['TXT_LAN_IP'], lIp, T['TXT_STATUS'], T['TXT_GET_IP']); } } 
-                    else if (wProto === 'static') { sTitle = T['STAT_SEC_STATIC']; statusBadge = activeWan.up ? mkB('#10b981', T['BDG_CONN']) + fixedUpBadge + inetBadgeHtml : mkB('#ef4444', T['BDG_UNPLUG']); sDetails = mkD(T['TXT_WAN_IP'], wIp, T['TXT_UP_GW'], wGw); } 
+                    else if (isWispActive) { sTitle = T['TXT_WISP_ON'] || 'WISP Enabled'; statusBadge = mkB('#10b981', T['BDG_GOT'] || 'IP Acquired') + inetBadgeHtml + fixedUpBadge; sDetails = mkD(T['TXT_WAN_IP'], liveWanIp, T['TXT_UP_GW'], liveGw); }
+                    else if (hasWispConfigured && !isWispActive) { sTitle = T['TXT_WISP_ON'] || 'WISP Enabled'; statusBadge = mkB('#f59e0b', T['TXT_WISP_WAITING'] || 'Connecting...') + inetBadgeHtml + fixedUpBadge; sDetails = "<div style='color:#facc15; font-size:14.5px; font-weight:bold;'>" + (T['MSG_WISP_STUCK'] || '⚠️ Connecting to upstream...') + "</div>"; }
+                    else if (wProto === 'pppoe') { sTitle = T['STAT_MAIN_PPPOE']; if (activeWan.up && liveWanIp) { statusBadge = mkB('#10b981', T['BDG_SUCC']) + inetBadgeHtml + fixedUpBadge; sDetails = mkD(T['TXT_PUB_IP'], liveWanIp, T['TXT_REM_GW'], liveGw); } else { statusBadge = mkB('#ef4444', T['BDG_DIAL']) + inetBadgeHtml + fixedUpBadge; sDetails = mkD(T['TXT_LAN_IP'], lIp, T['TXT_STATUS'], T['TXT_WAIT_REM']); } } 
+                    else if (wProto === 'dhcp') { sTitle = T['STAT_SEC_DHCP']; if (activeWan.up && liveWanIp) { statusBadge = mkB('#10b981', T['BDG_GOT']) + inetBadgeHtml + fixedUpBadge; sDetails = mkD(T['TXT_WAN_IP'], liveWanIp, T['TXT_UP_GW'], liveGw); } else { statusBadge = mkB('#f59e0b', T['BDG_WAIT']) + inetBadgeHtml + fixedUpBadge; sDetails = mkD(T['TXT_LAN_IP'], lIp, T['TXT_STATUS'], T['TXT_GET_IP']); } } 
+                    else if (wProto === 'static') { sTitle = T['STAT_SEC_STATIC']; statusBadge = (activeWan.up ? mkB('#10b981', T['BDG_CONN']) : mkB('#ef4444', T['BDG_UNPLUG'])) + inetBadgeHtml + fixedUpBadge; sDetails = mkD(T['TXT_WAN_IP'], wIp, T['TXT_UP_GW'], wGw); } 
                     else { sTitle = T['STAT_LAN']; sDetails = mkD(T['TXT_LAN_IP'], lIp, T['TXT_DHCP_SRV'], T['TXT_ON']); }
-                    // ---- 替换结束 ----
+                    // ---- 结束 ----
                     var sDnsHtml = "";
                     if (!isBypass && activeWan.up && dns1) {
                         sDnsHtml = "<div style='font-size:15.5px; font-weight:bold; color:#FFF; font-family:monospace; margin:6px 0 10px 0; display:flex; flex-wrap:wrap; justify-content:center; gap:0;'><span class='nw-info-item'>" + T['TXT_DNS1'] + " <span class='nw-hl'>" + dns1 + "</span></span>" + (dns2 ? "<span class='nw-info-item'>" + T['TXT_DNS2'] + " <span class='nw-hl'>" + dns2 + "</span></span>" : "") + "</div>";
@@ -4458,7 +4521,16 @@ return view.extend({
                         return; // 拦截本次提交
                     }
                 } else if (selectedMode === 'pppoe') {
-                    if (!container.querySelector('#pppoe-user').value.trim() || !container.querySelector('#pppoe-pass').value.trim()) { openModal({title: T['M_INC_TIT'], msg: T['M_INC_PPPOE'], okText: T['BTN_EDIT']}); return; } 
+                    if (window._nwMultiPppoe) {
+                        var mBoxes = container.querySelectorAll('.nw-multi-pppoe-box');
+                        var mEmpty = false;
+                        mBoxes.forEach(function(b) {
+                            if (!b.querySelector('.m-user').value.trim() || !b.querySelector('.m-pass').value.trim()) mEmpty = true;
+                        });
+                        if (mEmpty) { openModal({title: T['M_INC_TIT'], msg: T['M_INC_PPPOE'], okText: T['BTN_EDIT']}); return; }
+                    } else {
+                        if (!container.querySelector('#pppoe-user').value.trim() || !container.querySelector('#pppoe-pass').value.trim()) { openModal({title: T['M_INC_TIT'], msg: T['M_INC_PPPOE'], okText: T['BTN_EDIT']}); return; } 
+                    }
                 } else if (selectedMode === 'wifi') {
                     var isSmart = container.querySelector('#wifi-smart-toggle').checked && !window._isSingleChip;
                     if (isSmart) {
@@ -4700,12 +4772,26 @@ return view.extend({
                             
                             confirmText.innerHTML = b(T['MODE_WIFI_TITLE'], confirmList);
                         } else {
-                            var oldPppoeUser = safeUciGet('network', 'wan', 'username', '');
-                            var oldPppoePass = safeUciGet('network', 'wan', 'password', '');
-                            confirmText.innerHTML = b(T['MODE_PPPOE_TITLE'], [
-                                mkDiff(T['M_ACCT'], container.querySelector('#pppoe-user').value, oldPppoeUser), 
-                                mkDiff(T['M_PWD'], container.querySelector('#pppoe-pass').value, oldPppoePass)
-                            ]);
+                            if (window._nwMultiPppoe) {
+                                var mDiffs = [];
+                                var mBoxes = container.querySelectorAll('.nw-multi-pppoe-box');
+                                mBoxes.forEach(function(b) {
+                                    var ifc = b.getAttribute('data-iface');
+                                    var u = b.querySelector('.m-user').value.trim();
+                                    var p = b.querySelector('.m-pass').value.trim();
+                                    var oldIf = window._nwMultiPppoe.find(function(x){ return x.name === ifc; });
+                                    mDiffs.push(mkDiff(ifc.toUpperCase() + ' ' + (T['M_ACCT']||'Account'), u, oldIf ? oldIf.user : ''));
+                                    mDiffs.push(mkDiff(ifc.toUpperCase() + ' ' + (T['M_PWD']||'Password'), p, oldIf ? oldIf.pass : ''));
+                                });
+                                confirmText.innerHTML = b(T['MODE_PPPOE_TITLE'], mDiffs);
+                            } else {
+                                var oldPppoeUser = safeUciGet('network', 'wan', 'username', '');
+                                var oldPppoePass = safeUciGet('network', 'wan', 'password', '');
+                                confirmText.innerHTML = b(T['MODE_PPPOE_TITLE'], [
+                                    mkDiff(T['M_ACCT'], container.querySelector('#pppoe-user').value, oldPppoeUser), 
+                                    mkDiff(T['M_PWD'], container.querySelector('#pppoe-pass').value, oldPppoePass)
+                                ]);
+                            }
                         }
                         
                         if (selectedMode === 'lan' && !isBypass && targetGw !== '') { openModal({ title: T['M_WARN_TIT'], msg: T['M_WARN_MSG'], cancelText: T['BTN_EDIT'], okText: T['M_WARN_BTN'], isDanger: true, onOk: function() { container.querySelector('#nw-global-modal').style.display = 'none'; step2.style.display = 'none'; step3.style.display = 'block'; setTimeout(function(){ smoothScrollToTop(650); }, 20); } }); return; }
@@ -4790,10 +4876,16 @@ return view.extend({
                     else { actionDetail = '<b style="color:#10b981;">' + T['OPT_DHCP'] + '</b>'; }
                     mTitle = rType === 'dhcp' ? T['ACT_WAN_DHCP'] : T['ACT_WAN_STATIC'];
                 } else if (selectedMode === 'pppoe') { 
-                    a1 = container.querySelector('#pppoe-user').value.replace(/[\r\n\s]+/g, '');
-                    a2 = container.querySelector('#pppoe-pass').value; 
-                    actionDetail = '<b style="color:#3b82f6;">' + a1 + '</b>';
-                    mTitle = T['ACT_PPPOE'];
+                    if (window._nwMultiPppoe) {
+                        mode = 'multi_pppoe';
+                        actionDetail = '<b style="color:#3b82f6;">Multi-WAN (' + window._nwMultiPppoe.length + ')</b>';
+                        mTitle = T['ACT_PPPOE'];
+                    } else {
+                        a1 = container.querySelector('#pppoe-user').value.replace(/[\r\n\s]+/g, '');
+                        a2 = container.querySelector('#pppoe-pass').value; 
+                        actionDetail = '<b style="color:#3b82f6;">' + a1 + '</b>';
+                        mTitle = T['ACT_PPPOE'];
+                    }
                 } else if (selectedMode === 'wifi') {
                     var isSmart = container.querySelector('#wifi-smart-toggle').checked && !window._isSingleChip;
                     var legacyB = container.querySelector('#legacy-b-toggle').checked ? '1' : '0';
@@ -4892,7 +4984,7 @@ return view.extend({
                                         document.getElementById('nw-global-msg').innerHTML = '<div style="color:#10b981; font-weight:bold; font-size:15px; margin-top:20px; margin-bottom:10px;">' + T['MSG_WAIT_OLD'].replace('{sec}', rollbackSec) + '</div><div style="color:#64748b; font-size:14px;">' + T['MSG_ABANDONING'] + '</div>'; 
                                         fetchProbe('http://' + h + '/cgi-bin/luci/?v=' + Date.now(), 2000)
                                         .then(function() { 
-                                            clearInterval(checkSameTimer); 
+                                            clearInterval(checkOldIpTimer);
                                             
                                             // 网络恢复后，向后端发送确认信号，解除看门狗回滚警报
                                             var confirmRpc = rpc.declare({ object: 'netwiz', method: 'confirm' });
@@ -4944,7 +5036,20 @@ return view.extend({
                         }, 3000);
                     }
                 };
-                callNetSetup(mode, a1, a2, a3, a4, a5, a6).then(function() { succ(); }).catch(function() { succ(); });
+                
+                if (mode === 'multi_pppoe') {
+                    var mBoxes = container.querySelectorAll('.nw-multi-pppoe-box');
+                    mBoxes.forEach(function(b) {
+                        var ifc = b.getAttribute('data-iface');
+                        var u = b.querySelector('.m-user').value.replace(/[\r\n\s]+/g, '');
+                        var p = b.querySelector('.m-pass').value;
+                        uci.set('network', ifc, 'username', u);
+                        uci.set('network', ifc, 'password', p);
+                    });
+                    uci.save().then(function() { return uci.apply(); }).then(function() { succ(); }).catch(function() { succ(); });
+                } else {
+                    callNetSetup(mode, a1, a2, a3, a4, a5, a6).then(function() { succ(); }).catch(function() { succ(); });
+                }
             } catch (err) {
                 openModal({ title: T['M_SYS_ERR'], msg: 'Application failed: ' + err, okText: T['M_CLOSE'] });
             }

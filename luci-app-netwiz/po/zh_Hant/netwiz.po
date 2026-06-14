@@ -1789,5 +1789,26 @@ msgstr "定時重啟"
 msgid "MAC Clone"
 msgstr "MAC 複製"
 
-msgid "Clear"
+msgid "Clear (Restore Default)"
 msgstr "🗑️ 清空(恢復預設)"
+
+msgid "Internet Connected"
+msgstr "網際網路已連線"
+
+msgid "Internet Disconnected"
+msgstr "網際網路未連線"
+
+msgid "Ignore"
+msgstr "略過"
+
+msgid "Invalid MAC address format!"
+msgstr "MAC 位址格式不正確，請檢查！"
+
+msgid "💡 Multi-WAN detected. You can modify the account and password for each line separately (other settings remain unchanged)."
+msgstr "💡 系統偵測到多線撥號環境，可分別修改各線路的帳號密碼（其他設定保持不變）。"
+
+msgid "Interface:"
+msgstr "線路介面:"
+
+msgid "💡 Multi-WAN detected. Only the primary WAN will be configured here, other lines remain unchanged."
+msgstr "💡 系統偵測到多線環境，向導中僅配置主線路 (WAN)，其餘線路將保持原樣。"

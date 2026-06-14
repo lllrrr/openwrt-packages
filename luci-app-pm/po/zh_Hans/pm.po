@@ -22,7 +22,7 @@ msgid "PowerManager"
 msgstr "电源管理器"
 
 msgid "Luci plugin for makes ImmortalWRT poweroff and reboot easy."
-msgstr "一款旨在让ImmortalWrt的关机和重启更容易的Luci插件"
+msgstr "一款让ImmortalWrt的关机和重启更容易的Luci插件"
 
 msgid "GitHub Project Address"
 msgstr "Github项目地址"

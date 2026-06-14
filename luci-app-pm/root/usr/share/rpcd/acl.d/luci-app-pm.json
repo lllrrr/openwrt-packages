@@ -1,6 +1,6 @@
 {
-	"luci-app-powermanager": {
-		"description": "ACL file for luci-app-powermanager",
+	"luci-app-pm": {
+		"description": "ACL for luci-app-pm",
 		"read": {
 			"ubus": {
 				"session": [ "access", "login" ],
