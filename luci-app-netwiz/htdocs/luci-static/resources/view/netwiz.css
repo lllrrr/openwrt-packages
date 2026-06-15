@@ -10,6 +10,27 @@ body {
     overflow-x: clip !important;
 }
 
+#netwiz-container input::placeholder { 
+   color: #94a3b8 !important; 
+   opacity: 1 !important; 
+   font-weight: 500 !important;
+}
+#netwiz-container input::-webkit-input-placeholder { 
+   color: #94a3b8 !important; 
+   opacity: 1 !important; 
+   font-weight: 500 !important;
+}
+#netwiz-container input::-moz-placeholder { 
+   color: #94a3b8 !important; 
+   opacity: 1 !important; 
+   font-weight: 500 !important;
+}
+#netwiz-container input:-ms-input-placeholder { 
+   color: #94a3b8 !important; 
+   opacity: 1 !important; 
+   font-weight: 500 !important;
+}
+
 #netwiz-container, #netwiz-dev-container { 
     display: block !important; width: 100% !important; 
     /* 屏幕高度 + 2px，使滚动条出现 */
