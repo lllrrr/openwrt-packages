@@ -10,26 +10,32 @@ body {
     overflow-x: clip !important;
 }
 
-#netwiz-container input::placeholder { 
-   color: #94a3b8 !important; 
-   opacity: 1 !important; 
-   font-weight: 500 !important;
+/* 所有输入框的占位符样式 */
+/* -------  开始  ------*/
+body input::placeholder { 
+  color: #94a3b8 !important; 
+  font-weight: 500 !important; 
+  opacity: 1 !important; 
 }
-#netwiz-container input::-webkit-input-placeholder { 
-   color: #94a3b8 !important; 
-   opacity: 1 !important; 
-   font-weight: 500 !important;
+
+body input::-webkit-input-placeholder { 
+  color: #94a3b8 !important; 
+  font-weight: 500 !important; 
+  opacity: 0.99 !important; /* 需要不一样，骗压缩工具 */
 }
-#netwiz-container input::-moz-placeholder { 
-   color: #94a3b8 !important; 
-   opacity: 1 !important; 
-   font-weight: 500 !important;
+
+body input::-moz-placeholder { 
+  color: #94a3b8 !important; 
+  font-weight: 500 !important; 
+  opacity: 0.98 !important; /* 需要不一样，骗压缩工具具 */
 }
-#netwiz-container input:-ms-input-placeholder { 
-   color: #94a3b8 !important; 
-   opacity: 1 !important; 
-   font-weight: 500 !important;
+
+body input:-ms-input-placeholder { 
+  color: #94a3b8 !important; 
+  font-weight: 500 !important; 
+  opacity: 0.97 !important; /* 需要不一样，骗压缩工具 */
 }
+/* -------  结束  ------*/
 
 #netwiz-container, #netwiz-dev-container { 
     display: block !important; width: 100% !important; 

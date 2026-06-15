@@ -418,6 +418,7 @@ var T = {
     'BTN_OK': _('OK'),
     'M_CANCEL': _('Ignore'),
     'M_FMT_MAC':_('Invalid MAC address format!'),
+    'PH_MAC': _('e.g., AA:BB:CC:DD:EE:FF'),
     'MSG_MULTI_WAN':_('💡 Multi-WAN detected. You can modify the account and password for each line separately (other settings remain unchanged).'),
     'MSG_WIZ_MULTI_WAN':_('💡 Multi-WAN detected. Only the primary WAN will be configured here, other lines remain unchanged.'),
     'LBL_IFACE':_('Interface:'),
@@ -941,6 +942,7 @@ return view.extend({
         // =================高级设置弹窗与逻辑=================
         function showAdvModal(title, html, onOk) {
             var bg = document.createElement('div');
+            bg.id = 'nw-adv-modal';
             bg.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.4); z-index:9999; display:flex; align-items:center; justify-content:center; backdrop-filter: blur(2px);';
             var box = document.createElement('div');
             box.style.cssText = 'background:#fff; width:360px; max-width:90%; border-radius:12px; padding:20px; box-shadow:0 10px 25px rgba(0,0,0,0.1); font-family:sans-serif;';
@@ -1047,7 +1049,7 @@ return view.extend({
                     var html ='<div style="font-size:13px; color:#64748b; margin-bottom:12px; line-height:1.5; background:#f8fafc; padding:10px; border-radius:6px; border:1px solid #e2e8f0;">' +
                                (T['MSG_MAC_CLONE_TIP'] || '💡 <b>Tip:</b> If dial-up fails, enter the cloned MAC here.') +
                                '</div>' +
-                              '<input type="text" id="mdl-mac-val" value="'+currentMac+'" placeholder="AA:BB:CC:DD:EE:FF" style="width:100%; height:40px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-family:monospace; margin-bottom:10px; font-size:15px; box-sizing:border-box;">' +
+                               '<input type="text" id="mdl-mac-val" value="' + currentMac + '" placeholder="' + (T['PH_MAC'] || 'e.g., AA:BB:CC:DD:EE:FF') + '" style="width:100%; height:40px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; margin-bottom:10px; font-size:14px; box-sizing:border-box;">' +
                                '<div style="display:flex; justify-content:space-between; align-items:center;">' +
                                '<a href="javascript:void(0)" id="mdl-get-mac" style="color:#0284c7; font-size:13.5px; text-decoration:none;">' + (T['BTN_GET_MAC'] || '⚡ Auto-fill MAC') + '</a>' +
                                '<a href="javascript:void(0)" id="mdl-clear-mac" style="color:#ef4444; font-size:13.5px; text-decoration:none;">' + (T['BTN_CLEAR'] || 'Clear (Restore Default)') + '</a>' +

@@ -27,7 +27,7 @@ var T = {
     'TAB_DEPT_OTHER': _('Uncategorized'),
     'LBL_SMART_FILTER': _('Filter by IP Subnet'),
     'TIP_SMART_FILTER': _('Checked: Classify device types by IP subnet') + '\n' + _('Unchecked: Classify device types by built-in names'),
-    'PH_DEPT_NAME': _('Group Name'),
+    'PH_DEPT_NAME': _('Alias'),
     'TXT_GROUP_PREFIX': _('Group '),
     'ERR_SAVE_RPC': _('❌ Save Failed!') + '\n' + _('Reason: RPC interface unresponsive ({err})') + '\n' + _('Please run this command in router SSH to restart the service: /etc/init.d/rpcd restart'),
     'LBL_SELECT_ALL': _('Select all available devices'),

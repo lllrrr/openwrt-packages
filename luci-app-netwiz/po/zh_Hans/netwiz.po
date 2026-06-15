@@ -874,7 +874,7 @@ msgstr "勾选：依据 IP 网段来对设备分类"
 msgid "Unchecked: Classify device types by built-in names"
 msgstr "取消：依据内置名称来对设备分类"
 
-msgid "Group Name"
+msgid "Alias"
 msgstr "分组名称"
 
 msgid "Group "
@@ -1803,6 +1803,9 @@ msgstr "忽略"
 
 msgid "Invalid MAC address format!"
 msgstr "MAC 地址格式不正确，请检查！"
+
+msgid "e.g., AA:BB:CC:DD:EE:FF"
+msgstr "例如：AA:BB:CC:DD:EE:FF"
 
 msgid "💡 Multi-WAN detected. You can modify the account and password for each line separately (other settings remain unchanged)."
 msgstr "💡 系统检测到多个拨号环境，可分别修改各拨号的账号密码（其他设置保持不变）。"
