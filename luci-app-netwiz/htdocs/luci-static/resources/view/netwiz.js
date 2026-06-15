@@ -213,7 +213,6 @@ var T = {
     'PH_CONFIRM_PWD': _('Enter password again'),
     'M_PWD_MISMATCH': _('Passwords do not match, please try again!'),
     'WIZ_SKIP': _('Skip this time'),
-    'WIZ_SKIP_PWD': _('Skip Password Setup (Keep current)'),
     'TXT_NOT_CONFIGURED': _('Not configured (Keep current)'),
     'WIZ_WIFI_DESC': _('Set your wireless network name and password.'),
     'WIZ_HIDE': _("Don't show this again"),
@@ -422,6 +421,18 @@ var T = {
     'MSG_MULTI_WAN':_('💡 Multi-WAN detected. You can modify the account and password for each line separately (other settings remain unchanged).'),
     'MSG_WIZ_MULTI_WAN':_('💡 Multi-WAN detected. Only the primary WAN will be configured here, other lines remain unchanged.'),
     'LBL_IFACE':_('Interface:'),
+    'LBL_HOSTS_LINK': _('✏️ Custom Hosts'),
+    'LBL_HOSTS_TITLE': _('Custom <a href="javascript:void(0)" id="nw-hosts-raw-toggle" style="color:red; text-decoration:underline dashed; transition:color 0.2s;" title="Click to toggle pure text advanced mode">Hosts</a>👈 (Domain Hijack)'),
+    'LBL_HOSTS_VISUAL': _('💡 Quick Add:'),
+    'BTN_HOSTS_ADD': _('➕ Add'),
+    'TXT_HOSTS_EMPTY': _('No custom Hosts, please add below.'),
+    'PH_HOSTS_IP': _('IP (e.g., 192.168.1.50)'),
+    'PH_HOSTS_DOMAIN': _('Domain (e.g., router.lan)'),
+    'PH_HOSTS_CMT': _('Comment (Optional)'),
+    'LBL_HOSTS_RAW_TIP': _('💡 <b>Pure Text Advanced Mode</b>: Supports batch pasting. Format: <code>IP Domain #Comment</code>'),
+    'MSG_HOSTS_REQ': _('IP and Domain cannot be empty!'),
+    'M_FMT_IP': _('Invalid IP address format!'),
+    'M_FMT_DOMAIN': _('Invalid domain format! Spaces and special characters are not allowed.'),
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -443,7 +454,7 @@ var callCheckMissingPkgs = rpc.declare({ object: 'netwiz', method: 'check_missin
 var callCheckInternet = rpc.declare({ object: 'netwiz', method: 'check_internet', expect: { '': {} } });
 var callGetClientMac = rpc.declare({ object: 'netwiz', method: 'get_client_mac', expect: { '': {} } });
 var callGetAdvSettings = rpc.declare({ object: 'netwiz', method: 'get_adv_settings', expect: { '': {} } });
-var callSetAdvSettings = rpc.declare({ object: 'netwiz', method: 'set_adv_settings', params: ['mac', 'web', 'cron'], expect: { result: 0 } });
+var callSetAdvSettings = rpc.declare({ object: 'netwiz', method: 'set_adv_settings', params: ['mac', 'web', 'cron', 'hosts'], expect: { result: 0 } });
 
 return view.extend({
     handleSaveApply: null,
@@ -547,15 +558,6 @@ return view.extend({
             '      <div style="padding: 10px 10px 5px; overflow-y: auto;">',
             '         <div id="wiz-step-1-area">',
             '            <div class="nw-step-title" style="margin-bottom: 20px; font-size: 19px;">{{WIZ_PWD}}</div>',
-            
-            // 密码暫不配置复选框
-            '            <div style="text-align: center; margin-bottom: 15px; padding: 14px 10px; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1; width: 100%; box-sizing: border-box;">',
-            '               <label class="nw-wiz-cb-wrap" style="display: inline-flex; align-items: center; justify-content: center; font-size: 16.5px; color: #ef4444; font-weight: bold; margin: 0 auto;">',
-            '                  <input type="checkbox" id="wiz-skip-pwd-checkbox">',
-            '                  <span class="nw-wiz-checkmark" style="border-color:#ef4444;"></span>',
-            '                  <span style="line-height: 1.3; display: inline-block;">{{WIZ_SKIP_PWD}}</span>',
-            '               </label>',
-            '            </div>',
 
             // 密码输入核心区
             '            <div id="wiz-pwd-input-area" style="margin-bottom: 20px; padding-bottom: 20px;">',
@@ -659,6 +661,7 @@ return view.extend({
             '        <div style="display:flex; flex-wrap:wrap; gap:20px; align-items:center; margin-bottom:12px; padding-bottom:12px; border-bottom: 1px dashed #cbd5e1;">',
             '            <a href="javascript:void(0)" id="link-mac-clone" style="color:#0284c7; text-decoration:none; font-size:14.5px; font-weight:500;">{{LBL_MAC_CLONE_LINK}}</a>',
             '            <a href="javascript:void(0)" id="link-cron-reboot" style="color:#0284c7; text-decoration:none; font-size:14.5px; font-weight:500;">{{LBL_CRON_REBOOT_LINK}}</a>',
+            '            <a href="javascript:void(0)" id="link-modify-hosts" style="color:#0284c7; text-decoration:none; font-size:14.5px; font-weight:500;">{{LBL_HOSTS_LINK}}</a>',
             '        </div>',
             '        <div style="display:flex; justify-content:space-between; align-items:center;">',
             '            <div style="font-size:14.5px; font-weight:500; color:#0284c7;">{{LBL_WEB_ACCESS_TOGGLE}}</div>',
@@ -1049,7 +1052,7 @@ return view.extend({
                     var html ='<div style="font-size:13px; color:#64748b; margin-bottom:12px; line-height:1.5; background:#f8fafc; padding:10px; border-radius:6px; border:1px solid #e2e8f0;">' +
                                (T['MSG_MAC_CLONE_TIP'] || '💡 <b>Tip:</b> If dial-up fails, enter the cloned MAC here.') +
                                '</div>' +
-                               '<input type="text" id="mdl-mac-val" value="' + currentMac + '" placeholder="' + (T['PH_MAC'] || 'e.g., AA:BB:CC:DD:EE:FF') + '" style="width:100%; height:40px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; margin-bottom:10px; font-size:14px; box-sizing:border-box;">' +
+                               '<input type="text" id="mdl-mac-val" value="' + currentMac + '" placeholder="' + (T['PH_MAC'] || 'e.g., AA:BB:CC:DD:EE:FF') + '" style="width:100%; height:40px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; margin-bottom:10px; font-size:14px; box-sizing:border-box; color: #000;">' +
                                '<div style="display:flex; justify-content:space-between; align-items:center;">' +
                                '<a href="javascript:void(0)" id="mdl-get-mac" style="color:#0284c7; font-size:13.5px; text-decoration:none;">' + (T['BTN_GET_MAC'] || '⚡ Auto-fill MAC') + '</a>' +
                                '<a href="javascript:void(0)" id="mdl-clear-mac" style="color:#ef4444; font-size:13.5px; text-decoration:none;">' + (T['BTN_CLEAR'] || 'Clear (Restore Default)') + '</a>' +
@@ -1161,7 +1164,211 @@ return view.extend({
         }
         // ====================================================
 
+        // 修改 Hosts
+        if(container.querySelector('#link-modify-hosts')) {
+            container.querySelector('#link-modify-hosts').addEventListener('click', function() {
+                callGetAdvSettings().then(function(res) {
+                    var hostsArr = [];
+                    try { 
+                        // 增强数据解析兼容性
+                        hostsArr = (typeof res.hosts === 'string') ? JSON.parse(res.hosts) : (res.hosts || []); 
+                        if (!Array.isArray(hostsArr)) hostsArr = [];
+                    } catch(e) { hostsArr = []; }
+                    
+                    // XSS防御：转义所有可能破坏DOM的危险字元
+                    var esc = function(s) { 
+                        return (s || '').toString()
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;')
+                            .replace(/"/g, '&quot;')
+                            .replace(/'/g, '&#039;'); 
+                    };
+                    var html = '<div id="nw-hosts-visual-ui">' +
+                                   '<div style="background:#eff6ff; border:1px dashed #93c5fd; padding:12px; border-radius:8px; margin-bottom:15px;">' +
+                                       '<div style="font-size:13px; color:#1e3a8a; font-weight:bold; margin-bottom:10px;">' + (T['LBL_HOSTS_VISUAL'] || '💡 Quick Add:') + '</div>' +
+                                       '<div style="display:flex; gap:10px; margin-bottom:10px; width:100%; box-sizing:border-box;">' +
+                                           '<input type="text" id="nw-quick-dom" placeholder="' + (T['PH_HOSTS_DOMAIN'] || 'Domain (e.g., router.lan)') + '" style="flex:1 1 0%; min-width:0; height:36px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13.5px; box-sizing:border-box; color: #000;">' +
+                                           '<input type="text" id="nw-quick-ip" value="127.0.0.1" placeholder="' + (T['PH_HOSTS_IP'] || 'IP') + '" style="flex:1 1 0%; min-width:0; height:36px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13.5px; box-sizing:border-box; color: #000;">' +
+                                       '</div>' +
+                                       '<div style="display:flex; gap:10px; width:100%; box-sizing:border-box;">' +
+                                           '<input type="text" id="nw-quick-cmt" placeholder="' + (T['PH_HOSTS_CMT'] || 'Comment (Optional)') + '" style="flex:1 1 0%; min-width:0; height:36px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13px; box-sizing:border-box; color: #000;">' +
+                                           '<button id="nw-quick-add-btn" class="nw-u-btn" style="flex:0 0 auto; flex-shrink:0; white-space:nowrap; padding:0 15px; height:36px; background:#fff; color:#2563eb; border:1px solid #2563eb; border-radius:6px; font-weight:bold; cursor:pointer; transition:all 0.2s;">' + (T['BTN_HOSTS_ADD'] || '➕ Add') + '</button>' +
+                                       '</div>' +
+                                   '</div>' +
+                                   '<div id="nw-hosts-list" style="max-height:280px; overflow-y:auto; overflow-x:hidden; padding-right:5px; margin-bottom:10px;"></div>' +
+                               '</div>' +
+                               
+                               // 隐藏的纯文本模式
+                               '<div id="nw-hosts-raw-ui" style="display:none; margin-bottom:10px;">' +
+                                   '<div style="font-size:13px; color:#64748b; margin-bottom:10px;">' + (T['LBL_HOSTS_RAW_TIP'] || '💡 <b>Pure Text Advanced Mode</b>: Supports batch pasting. Format: <code>IP Domain #Comment</code>') + '</div>' +
+                                   '<textarea id="nw-hosts-raw-text" spellcheck="false" style="width:100%; height:320px; border:1px solid #cbd5e1; border-radius:8px; padding:12px; font-family:monospace; font-size:13.5px; box-sizing:border-box; background:#f8fafc; color:#334155; line-height:1.6; resize:none;"></textarea>' +
+                               '</div>';
+                               
+                    var isRawMode = false;
+
+                    showAdvModal((T['LBL_HOSTS_TITLE']), html, function(box) {
+                        if (isRawMode) {
+                            var tBtn = document.getElementById('nw-hosts-raw-toggle');
+                            if(tBtn) tBtn.click();
+                        }
+                        
+                        var finalData = hostsArr.filter(function(item) { return item.ip.trim() !== '' && item.dom.trim() !== ''; });
+                        var jsonStr = JSON.stringify(finalData);
+                        
+                        openModal({ title: (T['MSG_WRITING'] || 'Saving...'), msg: (T['MSG_WAIT'] || 'Please wait...'), spin: true });
+                        var gm2 = document.getElementById('nw-global-modal'); if (gm2) gm2.style.zIndex = '100000';
+                        
+                        callSetAdvSettings('', '', '', jsonStr).then(function() { 
+                            setTimeout(function(){ window.location.reload(); }, 1500); 
+                        });
+                    });
+                    
+                    var modalBox = document.getElementById('nw-adv-modal');
+                    if (modalBox) {
+                        var innerBox = modalBox.querySelector('div');
+                        if (innerBox) {
+                            innerBox.style.width = '460px';
+                            innerBox.style.maxWidth = '95%';
+                        }
+                    }
+                    
+                    // ================= 双向解析转换 =================
+                    var toggleBtn = document.getElementById('nw-hosts-raw-toggle');
+                    if (toggleBtn) {
+                        toggleBtn.addEventListener('click', function() {
+                            isRawMode = !isRawMode;
+                            var visualUi = document.getElementById('nw-hosts-visual-ui');
+                            var rawUi = document.getElementById('nw-hosts-raw-ui');
+                            var rawText = document.getElementById('nw-hosts-raw-text');
+
+                            if (isRawMode) {
+                                var textContent = '';
+                                hostsArr.forEach(function(item) {
+                                    var prefix = item.en ? '' : '# '; 
+                                    var cmt = item.cmt ? ' \t# ' + item.cmt : '';
+                                    textContent += prefix + item.ip + '\t' + item.dom + cmt + '\n';
+                                });
+                                rawText.value = textContent;
+                                visualUi.style.display = 'none';
+                                rawUi.style.display = 'block';
+                            } else {
+                                var lines = rawText.value.split('\n');
+                                var newArr = [];
+                                lines.forEach(function(line) {
+                                    line = line.trim();
+                                    if (!line) return;
+                                    var en = true;
+                                    
+                                    if (line.charAt(0) === '#') {
+                                        var uncommented = line.substring(1).trim();
+                                        if (/^[a-fA-F0-9\.:]+\s+[^\s#]+/.test(uncommented)) { en = false; line = uncommented; } else { return; }
+                                    }
+                                    var match = line.match(/^([a-fA-F0-9\.:]+)\s+([^\s<>"'#]+)(?:\s+#\s*(.*))?$/);
+                                    if (match) { 
+                                        var parsedIp = match[1];
+                                        var isIpv4 = /^(\d{1,3}\.){3}\d{1,3}$/.test(parsedIp);
+                                        var isIpv6 = /^[a-fA-F0-9:]+:[a-fA-F0-9:]+$/.test(parsedIp);
+                                        if (isIpv4 || isIpv6) { newArr.push({ ip: parsedIp, dom: match[2], cmt: match[3] || '', en: en }); }
+                                    }
+                                });
+                                hostsArr = newArr;
+                                renderHosts();
+                                rawUi.style.display = 'none';
+                                visualUi.style.display = 'block';
+                            }
+                        });
+                    }
+                    
+                    // 可视化渲染逻辑
+                    var renderHosts = function() {
+                        var listHtml = '';
+                        hostsArr.forEach(function(item, idx) {
+                            var opacity = item.en ? '1' : '0.5';
+                            listHtml += '<div style="margin-bottom:12px; background:#f8fafc; padding:12px; border-radius:8px; border:1px solid #e2e8f0; transition:opacity 0.2s;" id="h-row-'+idx+'" style="opacity:'+opacity+';">';
+                            listHtml += '<div style="display:flex; gap:8px; margin-bottom:8px;">';
+                            listHtml += '<input type="text" class="h-dom nd-input" data-idx="'+idx+'" value="'+esc(item.dom)+'" placeholder="' + (T['PH_HOSTS_DOMAIN']||'Domain') + '" style="flex:1; width:50% !important; height:34px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13.5px; box-sizing:border-box; min-height: 34px !important;">';
+                            listHtml += '<input type="text" class="h-ip nd-input" data-idx="'+idx+'" value="'+esc(item.ip)+'" placeholder="' + (T['PH_HOSTS_IP']||'IP') + '" style="flex:1; width:50% !important; height:34px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13.5px; box-sizing:border-box; min-height: 34px !important;">';
+                            listHtml += '</div>';
+                            listHtml += '<div style="display:flex; gap:8px; align-items:center;">';
+                            listHtml += '<label class="nw-switch nw-flex-shrink-0" style="margin:0;"><input type="checkbox" class="h-en" data-idx="'+idx+'" '+(item.en?'checked':'')+'><span class="nw-slider"></span></label>';
+                            listHtml += '<input type="text" class="h-cmt nd-input" data-idx="'+idx+'" value="'+esc(item.cmt)+'" placeholder="' + (T['PH_HOSTS_CMT']||'Comment') + '" style="flex:1; height:34px; min-height: 34px !important; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13px; box-sizing:border-box; color:#64748b;">';
+                            listHtml += '<button class="h-del nw-u-btn nw-u-btn-red" data-idx="'+idx+'" style="width:34px; height:34px; min-height:34px; padding:0; display:flex; align-items:center; justify-content:center; border-radius:6px;" title="Delete">✕</button>';
+                            listHtml += '</div></div>';
+                        });
+                        
+                        if(hostsArr.length === 0) {
+                            listHtml = '<div style="text-align:center; color:#94a3b8; padding:20px 10px; font-size:13.5px; background:#f1f5f9; border-radius:8px; border:1px dashed #cbd5e1;">' + (T['TXT_HOSTS_EMPTY'] || 'No custom Hosts') + '</div>';
+                        }
+                        
+                        var listContainer = document.getElementById('nw-hosts-list');
+                        listContainer.innerHTML = listHtml;
+                        
+                        listContainer.querySelectorAll('.h-en, .h-ip, .h-dom, .h-cmt').forEach(function(el) {
+                            el.addEventListener('change', function() {
+                                var idx = parseInt(this.getAttribute('data-idx'), 10);
+                                if(this.classList.contains('h-en')) { hostsArr[idx].en = this.checked; document.getElementById('h-row-'+idx).style.opacity = this.checked ? '1' : '0.5'; }
+                                if(this.classList.contains('h-ip')) {
+                                    var ipVal = this.value.trim();
+                                    var isIpv4 = /^(\d{1,3}\.){3}\d{1,3}$/.test(ipVal);
+                                    var isIpv6 = /^[a-fA-F0-9:]+:[a-fA-F0-9:]+$/.test(ipVal);
+                                    if (ipVal !== '' && !isIpv4 && !isIpv6) { alert(T['M_FMT_IP'] || 'Invalid IP format!'); this.value = hostsArr[idx].ip; return; }
+                                    hostsArr[idx].ip = ipVal;
+                                }
+                                if(this.classList.contains('h-dom')) {
+                                    var domVal = this.value.trim();
+                                    if (/[\s<>"']/.test(domVal)) { alert(T['M_FMT_DOMAIN'] || 'Invalid domain format!'); this.value = hostsArr[idx].dom; return; }
+                                    hostsArr[idx].dom = domVal;
+                                }
+                                if(this.classList.contains('h-cmt')) {
+                                    hostsArr[idx].cmt = this.value.trim().replace(/[<>"']/g, '');
+                                    this.value = hostsArr[idx].cmt;
+                                }
+                            });
+                        });
+                        
+                        listContainer.querySelectorAll('.h-del').forEach(function(btn) {
+                            btn.addEventListener('click', function() {
+                                hostsArr.splice(parseInt(this.getAttribute('data-idx'), 10), 1);
+                                renderHosts();
+                            });
+                        });
+                    };
+                    
+                    renderHosts();
+                    
+                    var addBtn = document.getElementById('nw-quick-add-btn');
+                    if (addBtn) {
+                        addBtn.onmouseover = function() { this.style.background = '#eff6ff'; };
+                        addBtn.onmouseout = function() { this.style.background = '#fff'; };
+                        addBtn.onclick = function() {
+                            var ipInput = document.getElementById('nw-quick-ip');
+                            var domInput = document.getElementById('nw-quick-dom');
+                            var cmtInput = document.getElementById('nw-quick-cmt');
+                            var ipVal = ipInput.value.trim();
+                            var domVal = domInput.value.trim();
+                            
+                            if (!ipVal || !domVal) { alert(T['MSG_HOSTS_REQ'] || 'IP and Domain cannot be empty!'); return; }
+                            var isIpv4 = /^(\d{1,3}\.){3}\d{1,3}$/.test(ipVal);
+                            var isIpv6 = /^[a-fA-F0-9:]+:[a-fA-F0-9:]+$/.test(ipVal);
+                            if (!isIpv4 && !isIpv6) { alert(T['M_FMT_IP'] || 'Invalid IP format!'); return; }
+                            if (/[\s<>"']/.test(domVal)) { alert(T['M_FMT_DOMAIN'] || 'Invalid domain format!'); return; }
+                            
+                            // 写入数组时，针对备注字段做基础的净化
+                            hostsArr.unshift({ ip: ipVal, dom: domVal, cmt: cmtInput.value.trim().replace(/[<>"']/g, ''), en: true });
+                            renderHosts();
+                            
+                            ipInput.value = '127.0.0.1'; 
+                            domInput.value = ''; 
+                            cmtInput.value = '';
+                            document.getElementById('nw-hosts-list').scrollTop = 0;
+                        };
+                    }
+                });
+            });
+        }
         // ==============================================================
+
         // 防空指针，重定向 DOM 查找
         var oriQuery = container.querySelector.bind(container);
         var oriQueryAll = container.querySelectorAll.bind(container);
@@ -1520,45 +1727,24 @@ return view.extend({
             });
         }
 
-        // 密码跳过联动
-        var skipPwdCb = container.querySelector('#wiz-skip-pwd-checkbox');
-        var pwdInputArea = container.querySelector('#wiz-pwd-input-area');
-        if (skipPwdCb && pwdInputArea) {
-            skipPwdCb.addEventListener('change', function() {
-                pwdInputArea.style.opacity = this.checked ? '0.3' : '1';
-                pwdInputArea.style.pointerEvents = this.checked ? 'none' : 'auto';
-                if (this.checked) {
-                    container.querySelector('#nw-admin-pwd').value = '';
-                    container.querySelector('#nw-admin-pwd-confirm').value = '';
-                }
-            });
-        }
-
+        // 密码跳过联动已移除（不再需要打勾，直接留空即可跳过）
         // ================== 4 步向导 ==================
         wBtnNext.addEventListener('click', function() {
             if (currentWizStep === 1) {
-                // 第一步
-                var isSkipPwd = skipPwdCb ? skipPwdCb.checked : false;
-                if (!isSkipPwd) {
-                    var p1 = container.querySelector('#nw-admin-pwd').value;
-                    var p2 = container.querySelector('#nw-admin-pwd-confirm').value;
-                    if (!p1) {
-                        openModal({ 
-                            title: T['M_INC_TIT'] || 'Notice', 
-                            msg: T['M_PWD_REQ'] || 'Password required!', 
-                            okText: T['M_CLOSE'] || 'Close' 
-                        });
-                        return;
-                    }
-                    if (p1 !== p2) {
-                        openModal({ 
-                            title: T['M_INC_TIT'] || 'Notice', 
-                            msg: T['M_PWD_MISMATCH'], 
-                            okText: T['M_CLOSE'] || 'Close'
-                        });
-                        return;
-                    }
+                // 第一步：密码留空则跳过，填写则必须一致
+                var p1 = container.querySelector('#nw-admin-pwd').value;
+                var p2 = container.querySelector('#nw-admin-pwd-confirm').value;
+                
+                if (p1 !== p2) {
+                    openModal({ 
+                        title: T['M_INC_TIT'] || 'Notice', 
+                        msg: T['M_PWD_MISMATCH'] || 'Passwords do not match, please try again!', 
+                        okText: T['M_CLOSE'] || 'Close'
+                    });
+                    return;
                 }
+                
+                // 只要密码一致（包含两者都为空），就直接进入下一步
                 wArea1.style.display = 'none'; wArea2.style.display = 'block'; 
                 wBtnPrev.style.display = 'block'; currentWizStep = 2; updateWizSteps(2);
             } else if (currentWizStep === 2) {

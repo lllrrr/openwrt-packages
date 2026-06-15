@@ -1297,9 +1297,6 @@ msgstr "请再次输入密码"
 msgid "Passwords do not match, please try again!"
 msgstr "两次输入的密码不一致，请重新检查！"
 
-msgid "Skip Password Setup (Keep current)"
-msgstr "暂不配置 管理员密码 (保持现状)"
-
 msgid "Router Admin Password (Optional)"
 msgstr "路由器管理密码 (可选)"
 
@@ -1815,3 +1812,39 @@ msgstr "线路接口:"
 
 msgid "💡 Multi-WAN detected. Only the primary WAN will be configured here, other lines remain unchanged."
 msgstr "💡 系统检测到多拨环境，向导中仅配置主线路 (WAN)，其余将保持原样。"
+
+msgid "✏️ Custom Hosts"
+msgstr "✏️ 自定义 Hosts"
+
+msgid "Custom <a href=\"javascript:void(0)\" id=\"nw-hosts-raw-toggle\" style=\"color:red; text-decoration:underline dashed; transition:color 0.2s;\" title=\"Click to toggle pure text advanced mode\">Hosts</a>👈 (Domain Hijack)"
+msgstr "自定义 <a href=\"javascript:void(0)\" id=\"nw-hosts-raw-toggle\" style=\"color:red; text-decoration:underline dashed; transition:color 0.2s;\" title=\"点击切换纯文本高级模式\">Hosts</a>👈 (域名劫持)"
+
+msgid "💡 Quick Add:"
+msgstr "💡 快速添加记录:"
+
+msgid "➕ Add"
+msgstr "➕ 添加"
+
+msgid "No custom Hosts, please add below."
+msgstr "暂无自定义 Hosts，请点击上方添加记录"
+
+msgid "IP (e.g., 192.168.1.50)"
+msgstr "指向 IP (如 192.168.1.50)"
+
+msgid "Domain (e.g., router.lan)"
+msgstr "劫持域名 (如 router.lan)"
+
+msgid "Comment (Optional)"
+msgstr "备注说明 (选填)"
+
+msgid "💡 <b>Pure Text Advanced Mode</b>: Supports batch pasting. Format: <code>IP Domain #Comment</code>"
+msgstr "💡 <b>纯文本高级模式</b>：支持批量粘贴。格式：<code>IP 域名 #备注</code>"
+
+msgid "IP and Domain cannot be empty!"
+msgstr "IP 和 域名 不能为空！"
+
+msgid "Invalid IP address format!"
+msgstr "IP 地址格式不正确！"
+
+msgid "Invalid domain format! Spaces and special characters are not allowed."
+msgstr "域名格式不正确！不允许包含空格或特殊危险字符。"
