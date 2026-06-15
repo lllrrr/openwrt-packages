@@ -433,6 +433,13 @@ var T = {
     'MSG_HOSTS_REQ': _('IP and Domain cannot be empty!'),
     'M_FMT_IP': _('Invalid IP address format!'),
     'M_FMT_DOMAIN': _('Invalid domain format! Spaces and special characters are not allowed.'),
+    'MSG_NO_CHANGE': _('No changes have been made.'),
+    'M_INC_TIT': _('Notice'),
+    'MSG_WAIT': _('Please wait...'),
+    'MSG_HOSTS_DUP': _('This IP and Domain combination already exists!'),
+    'MSG_HOSTS_DUP_RAW': _('Duplicate records found in Hosts! Please remove them before continuing.'),
+    'LBL_SMART_ADD': _('Smart Auto-fill'),
+    'TIP_SMART_ADD': _('Auto-fill IPv4/v6 & www domain combinations')
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -1169,71 +1176,61 @@ return view.extend({
             container.querySelector('#link-modify-hosts').addEventListener('click', function() {
                 callGetAdvSettings().then(function(res) {
                     var hostsArr = [];
-                    try { 
-                        // 增强数据解析兼容性
-                        hostsArr = (typeof res.hosts === 'string') ? JSON.parse(res.hosts) : (res.hosts || []); 
-                        if (!Array.isArray(hostsArr)) hostsArr = [];
-                    } catch(e) { hostsArr = []; }
-                    
-                    // XSS防御：转义所有可能破坏DOM的危险字元
-                    var esc = function(s) { 
-                        return (s || '').toString()
-                            .replace(/&/g, '&amp;')
-                            .replace(/</g, '&lt;')
-                            .replace(/>/g, '&gt;')
-                            .replace(/"/g, '&quot;')
-                            .replace(/'/g, '&#039;'); 
-                    };
+                    try { hostsArr = (typeof res.hosts === 'string') ? JSON.parse(res.hosts) : (res.hosts || []); if (!Array.isArray(hostsArr)) hostsArr = []; } catch(e) { hostsArr = []; }
+                    var esc = function(s) { return (s || '').toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'); };
+
+                    // 记录打开时的初始数据快照，用于“未修改防呆拦截”
+                    var initialData = hostsArr.filter(function(item) { return item.ip.trim() !== '' && item.dom.trim() !== ''; });
+                    var initialJsonStr = JSON.stringify(initialData);
+
                     var html = '<div id="nw-hosts-visual-ui">' +
-                                   '<div style="background:#eff6ff; border:1px dashed #93c5fd; padding:12px; border-radius:8px; margin-bottom:15px;">' +
-                                       '<div style="font-size:13px; color:#1e3a8a; font-weight:bold; margin-bottom:10px;">' + (T['LBL_HOSTS_VISUAL'] || '💡 Quick Add:') + '</div>' +
-                                       '<div style="display:flex; gap:10px; margin-bottom:10px; width:100%; box-sizing:border-box;">' +
-                                           '<input type="text" id="nw-quick-dom" placeholder="' + (T['PH_HOSTS_DOMAIN'] || 'Domain (e.g., router.lan)') + '" style="flex:1 1 0%; min-width:0; height:36px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13.5px; box-sizing:border-box; color: #000;">' +
-                                           '<input type="text" id="nw-quick-ip" value="127.0.0.1" placeholder="' + (T['PH_HOSTS_IP'] || 'IP') + '" style="flex:1 1 0%; min-width:0; height:36px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13.5px; box-sizing:border-box; color: #000;">' +
-                                       '</div>' +
-                                       '<div style="display:flex; gap:10px; width:100%; box-sizing:border-box;">' +
-                                           '<input type="text" id="nw-quick-cmt" placeholder="' + (T['PH_HOSTS_CMT'] || 'Comment (Optional)') + '" style="flex:1 1 0%; min-width:0; height:36px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13px; box-sizing:border-box; color: #000;">' +
-                                           '<button id="nw-quick-add-btn" class="nw-u-btn" style="flex:0 0 auto; flex-shrink:0; white-space:nowrap; padding:0 15px; height:36px; background:#fff; color:#2563eb; border:1px solid #2563eb; border-radius:6px; font-weight:bold; cursor:pointer; transition:all 0.2s;">' + (T['BTN_HOSTS_ADD'] || '➕ Add') + '</button>' +
-                                       '</div>' +
-                                   '</div>' +
-                                   '<div id="nw-hosts-list" style="max-height:280px; overflow-y:auto; overflow-x:hidden; padding-right:5px; margin-bottom:10px;"></div>' +
-                               '</div>' +
-                               
-                               // 隐藏的纯文本模式
-                               '<div id="nw-hosts-raw-ui" style="display:none; margin-bottom:10px;">' +
-                                   '<div style="font-size:13px; color:#64748b; margin-bottom:10px;">' + (T['LBL_HOSTS_RAW_TIP'] || '💡 <b>Pure Text Advanced Mode</b>: Supports batch pasting. Format: <code>IP Domain #Comment</code>') + '</div>' +
-                                   '<textarea id="nw-hosts-raw-text" spellcheck="false" style="width:100%; height:320px; border:1px solid #cbd5e1; border-radius:8px; padding:12px; font-family:monospace; font-size:13.5px; box-sizing:border-box; background:#f8fafc; color:#334155; line-height:1.6; resize:none;"></textarea>' +
-                               '</div>';
-                               
+                                '<div style="background:#eff6ff; border:1px dashed #93c5fd; padding:12px; border-radius:8px; margin-bottom:15px;">' +
+                                    '<div style="font-size:13px; color:#1e3a8a; font-weight:bold; margin-bottom:10px;">' + (T['LBL_HOSTS_VISUAL'] || '💡 Quick Add:') + '</div>' +
+                                    '<div style="display:flex; gap:10px; margin-bottom:10px; width:100%; box-sizing:border-box;">' +
+                                        '<input type="text" id="nw-quick-dom" placeholder="' + (T['PH_HOSTS_DOMAIN'] || 'Domain') + '" style="flex:1 1 0%; min-width:0; height:36px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13.5px; box-sizing:border-box;">' +
+                                        '<input type="text" id="nw-quick-ip" value="127.0.0.1" placeholder="' + (T['PH_HOSTS_IP'] || 'IP') + '" style="flex:1 1 0%; min-width:0; height:36px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13.5px; box-sizing:border-box; color: #000;">' +
+                                    '</div>' +
+                                    '<div style="display:flex; gap:10px; width:100%; box-sizing:border-box; align-items:center;">' +
+                                        '<input type="text" id="nw-quick-cmt" placeholder="' + (T['PH_HOSTS_CMT'] || 'Comment') + '" style="flex:1 1 0%; min-width:0; height:36px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13px; box-sizing:border-box;">' +
+                                        '<label style="display:flex; align-items:center; font-size:13px; color:#2563eb; cursor:pointer; flex-shrink:0; user-select:none;" title="' + (T['TIP_SMART_ADD'] || 'Auto-fill IPv4/v6 & www combinations') + '"><input type="checkbox" id="nw-smart-add-cb" checked style="top:0px;"> ' + (T['LBL_SMART_ADD'] || 'Smart Auto-fill') + '</label>' +
+                                        '<button id="nw-quick-add-btn" class="nw-u-btn" style="flex:0 0 auto; flex-shrink:0; white-space:nowrap; padding:0 15px; height:36px; background:#fff; color:#2563eb; border:1px solid #2563eb; border-radius:6px; font-weight:bold; cursor:pointer; transition:all 0.2s;">' + (T['BTN_HOSTS_ADD'] || '➕ Add') + '</button>' +
+                                    '</div>' +
+                                '</div>' +
+                                '<div id="nw-hosts-list" style="max-height:280px; overflow-y:auto; overflow-x:hidden; padding-right:5px; margin-bottom:10px;"></div>' +
+                            '</div>' +
+                            '<div id="nw-hosts-raw-ui" style="display:none; margin-bottom:10px;">' +
+                                '<div style="font-size:13px; color:#64748b; margin-bottom:10px;">' + (T['LBL_HOSTS_RAW_TIP'] || '💡 <b>Pure Text Advanced Mode</b>: Supports batch pasting. Format: <code>IP Domain #Comment</code>') + '</div>' +
+                                '<textarea id="nw-hosts-raw-text" spellcheck="false" style="width:100%; height:320px; border:1px solid #cbd5e1; border-radius:8px; padding:12px; font-family:monospace; font-size:13.5px; box-sizing:border-box; background:#f8fafc; color:#334155; line-height:1.6; resize:none;"></textarea>' +
+                            '</div>';
+                            
                     var isRawMode = false;
 
                     showAdvModal((T['LBL_HOSTS_TITLE']), html, function(box) {
-                        if (isRawMode) {
-                            var tBtn = document.getElementById('nw-hosts-raw-toggle');
-                            if(tBtn) tBtn.click();
-                        }
+                        if (isRawMode) { var tBtn = document.getElementById('nw-hosts-raw-toggle'); if(tBtn) tBtn.click(); }
                         
+                        // 修复与拦截：因为有重复项纯文本转换失败，isRawMode 会被恢复为 true。return false 阻止弹窗关闭和保存
+                        if (isRawMode) return false;
+
                         var finalData = hostsArr.filter(function(item) { return item.ip.trim() !== '' && item.dom.trim() !== ''; });
                         var jsonStr = JSON.stringify(finalData);
                         
+                        // 拦截未修改：比对最终数据与初始数据快照
+                        if (jsonStr === initialJsonStr) {
+                            openModal({ title: T['M_INC_TIT'] || 'Notice', msg: T['MSG_NO_CHANGE'] || 'No changes have been made.', okText: T['BTN_CLOSE'] || 'Close' });
+                            return false; // 终止后续的写入与重启
+                        }
+                        
                         openModal({ title: (T['MSG_WRITING'] || 'Saving...'), msg: (T['MSG_WAIT'] || 'Please wait...'), spin: true });
                         var gm2 = document.getElementById('nw-global-modal'); if (gm2) gm2.style.zIndex = '100000';
-                        
-                        callSetAdvSettings('', '', '', jsonStr).then(function() { 
-                            setTimeout(function(){ window.location.reload(); }, 1500); 
-                        });
+                        callSetAdvSettings('', '', '', jsonStr).then(function() { setTimeout(function(){ window.location.reload(); }, 1500); });
                     });
                     
                     var modalBox = document.getElementById('nw-adv-modal');
                     if (modalBox) {
                         var innerBox = modalBox.querySelector('div');
-                        if (innerBox) {
-                            innerBox.style.width = '460px';
-                            innerBox.style.maxWidth = '95%';
-                        }
+                        if (innerBox) { innerBox.style.width = '460px'; innerBox.style.maxWidth = '95%'; }
                     }
                     
-                    // ================= 双向解析转换 =================
                     var toggleBtn = document.getElementById('nw-hosts-raw-toggle');
                     if (toggleBtn) {
                         toggleBtn.addEventListener('click', function() {
@@ -1241,8 +1238,9 @@ return view.extend({
                             var visualUi = document.getElementById('nw-hosts-visual-ui');
                             var rawUi = document.getElementById('nw-hosts-raw-ui');
                             var rawText = document.getElementById('nw-hosts-raw-text');
-
+                            
                             if (isRawMode) {
+                                // 1. UI 切 纯文本
                                 var textContent = '';
                                 hostsArr.forEach(function(item) {
                                     var prefix = item.en ? '' : '# '; 
@@ -1250,16 +1248,16 @@ return view.extend({
                                     textContent += prefix + item.ip + '\t' + item.dom + cmt + '\n';
                                 });
                                 rawText.value = textContent;
-                                visualUi.style.display = 'none';
-                                rawUi.style.display = 'block';
+                                visualUi.style.display = 'none'; rawUi.style.display = 'block'; this.style.color = '#2563eb'; 
                             } else {
+                                // 2. 纯文本 切 UI
                                 var lines = rawText.value.split('\n');
                                 var newArr = [];
+                                var hasDupError = false; // 重复标记
+
                                 lines.forEach(function(line) {
-                                    line = line.trim();
-                                    if (!line) return;
+                                    line = line.trim(); if (!line) return;
                                     var en = true;
-                                    
                                     if (line.charAt(0) === '#') {
                                         var uncommented = line.substring(1).trim();
                                         if (/^[a-fA-F0-9\.:]+\s+[^\s#]+/.test(uncommented)) { en = false; line = uncommented; } else { return; }
@@ -1269,38 +1267,54 @@ return view.extend({
                                         var parsedIp = match[1];
                                         var isIpv4 = /^(\d{1,3}\.){3}\d{1,3}$/.test(parsedIp);
                                         var isIpv6 = /^[a-fA-F0-9:]+:[a-fA-F0-9:]+$/.test(parsedIp);
-                                        if (isIpv4 || isIpv6) { newArr.push({ ip: parsedIp, dom: match[2], cmt: match[3] || '', en: en }); }
+                                        if (isIpv4 || isIpv6) { 
+                                            // 发现重复，立刻标记报错
+                                            var isDup = newArr.some(function(x) { return x.ip === parsedIp && x.dom === match[2]; });
+                                            if (isDup) {
+                                                hasDupError = true;
+                                            } else {
+                                                newArr.push({ ip: parsedIp, dom: match[2], cmt: match[3] || '', en: en }); 
+                                            }
+                                        }
                                     }
                                 });
+
+                                // 发现重复项，使用精美弹窗警告，并强制留在纯文本模式！
+                                if (hasDupError) {
+                                    openModal({ title: T['M_INC_TIT'] || 'Notice', msg: T['MSG_HOSTS_DUP_RAW'] || 'Duplicate records found in text! Please remove them.', okText: T['BTN_CLOSE'] || 'Close' });
+                                    isRawMode = true; // 恢复状态变量
+                                    return; // 终止 UI 转换
+                                }
+
                                 hostsArr = newArr;
                                 renderHosts();
-                                rawUi.style.display = 'none';
-                                visualUi.style.display = 'block';
+                                rawUi.style.display = 'none'; visualUi.style.display = 'block'; this.style.color = 'inherit';
                             }
                         });
                     }
                     
-                    // 可视化渲染逻辑
                     var renderHosts = function() {
                         var listHtml = '';
+                        var totalItems = hostsArr.length;
                         hostsArr.forEach(function(item, idx) {
                             var opacity = item.en ? '1' : '0.5';
+                            // 倒序排列公式：总长度减去当前索引
+                            var displayNum = totalItems - idx; 
+                            
                             listHtml += '<div style="margin-bottom:12px; background:#f8fafc; padding:12px; border-radius:8px; border:1px solid #e2e8f0; transition:opacity 0.2s;" id="h-row-'+idx+'" style="opacity:'+opacity+';">';
-                            listHtml += '<div style="display:flex; gap:8px; margin-bottom:8px;">';
+                            listHtml += '<div style="display:flex; gap:8px; margin-bottom:8px; align-items:center;">';
+                            listHtml += '<div style="background:#e2e8f0; color:#475569; width:26px; height:26px; flex-shrink:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:bold; border:1px solid #cbd5e1;">' + displayNum + '</div>';
                             listHtml += '<input type="text" class="h-dom nd-input" data-idx="'+idx+'" value="'+esc(item.dom)+'" placeholder="' + (T['PH_HOSTS_DOMAIN']||'Domain') + '" style="flex:1; width:50% !important; height:34px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13.5px; box-sizing:border-box; min-height: 34px !important;">';
-                            listHtml += '<input type="text" class="h-ip nd-input" data-idx="'+idx+'" value="'+esc(item.ip)+'" placeholder="' + (T['PH_HOSTS_IP']||'IP') + '" style="flex:1; width:50% !important; height:34px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13.5px; box-sizing:border-box; min-height: 34px !important;">';
+                            listHtml += '<input type="text" class="h-ip nd-input" data-idx="'+idx+'" value="'+esc(item.ip)+'" placeholder="' + (T['PH_HOSTS_IP']||'IP') + '" style="flex:1; width:50% !important; height:34px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13.5px; color: #000; box-sizing:border-box; min-height: 34px !important;">';
                             listHtml += '</div>';
                             listHtml += '<div style="display:flex; gap:8px; align-items:center;">';
                             listHtml += '<label class="nw-switch nw-flex-shrink-0" style="margin:0;"><input type="checkbox" class="h-en" data-idx="'+idx+'" '+(item.en?'checked':'')+'><span class="nw-slider"></span></label>';
                             listHtml += '<input type="text" class="h-cmt nd-input" data-idx="'+idx+'" value="'+esc(item.cmt)+'" placeholder="' + (T['PH_HOSTS_CMT']||'Comment') + '" style="flex:1; height:34px; min-height: 34px !important; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13px; box-sizing:border-box; color:#64748b;">';
-                            listHtml += '<button class="h-del nw-u-btn nw-u-btn-red" data-idx="'+idx+'" style="width:34px; height:34px; min-height:34px; padding:0; display:flex; align-items:center; justify-content:center; border-radius:6px;" title="Delete">✕</button>';
+                            listHtml += '<button class="h-del nw-u-btn nw-u-btn-red" data-idx="'+idx+'" style="width:44px; min-width: 34px; height:34px; min-height:34px; padding:0; display:flex; align-items:center; justify-content:center; border-radius:6px;" title="Delete">✕</button>';
                             listHtml += '</div></div>';
                         });
                         
-                        if(hostsArr.length === 0) {
-                            listHtml = '<div style="text-align:center; color:#94a3b8; padding:20px 10px; font-size:13.5px; background:#f1f5f9; border-radius:8px; border:1px dashed #cbd5e1;">' + (T['TXT_HOSTS_EMPTY'] || 'No custom Hosts') + '</div>';
-                        }
-                        
+                        if(hostsArr.length === 0) { listHtml = '<div style="text-align:center; color:#94a3b8; padding:20px 10px; font-size:13.5px; background:#f1f5f9; border-radius:8px; border:1px dashed #cbd5e1;">' + (T['TXT_HOSTS_EMPTY'] || 'No custom Hosts') + '</div>'; }
                         var listContainer = document.getElementById('nw-hosts-list');
                         listContainer.innerHTML = listHtml;
                         
@@ -1308,18 +1322,43 @@ return view.extend({
                             el.addEventListener('change', function() {
                                 var idx = parseInt(this.getAttribute('data-idx'), 10);
                                 if(this.classList.contains('h-en')) { hostsArr[idx].en = this.checked; document.getElementById('h-row-'+idx).style.opacity = this.checked ? '1' : '0.5'; }
+                                
                                 if(this.classList.contains('h-ip')) {
                                     var ipVal = this.value.trim();
                                     var isIpv4 = /^(\d{1,3}\.){3}\d{1,3}$/.test(ipVal);
                                     var isIpv6 = /^[a-fA-F0-9:]+:[a-fA-F0-9:]+$/.test(ipVal);
-                                    if (ipVal !== '' && !isIpv4 && !isIpv6) { alert(T['M_FMT_IP'] || 'Invalid IP format!'); this.value = hostsArr[idx].ip; return; }
+                                    if (ipVal !== '' && !isIpv4 && !isIpv6) { 
+                                        openModal({ title: T['M_INC_TIT'] || 'Notice', msg: T['M_FMT_IP'] || 'Invalid IP format!', okText: T['BTN_CLOSE'] || 'Close' }); 
+                                        this.value = hostsArr[idx].ip; 
+                                        return; 
+                                    }
+                                    // 查重防呆：不得与其他行的IP+域名组合完全相同
+                                    var isDupIp = hostsArr.some(function(x, i) { return i !== idx && x.ip === ipVal && x.dom === hostsArr[idx].dom; });
+                                    if (isDupIp) {
+                                        openModal({ title: T['M_INC_TIT'] || 'Notice', msg: T['MSG_HOSTS_DUP'] || 'Already exists!', okText: T['BTN_CLOSE'] || 'Close' }); 
+                                        this.value = hostsArr[idx].ip; 
+                                        return;
+                                    }
                                     hostsArr[idx].ip = ipVal;
                                 }
+                                
                                 if(this.classList.contains('h-dom')) {
                                     var domVal = this.value.trim();
-                                    if (/[\s<>"']/.test(domVal)) { alert(T['M_FMT_DOMAIN'] || 'Invalid domain format!'); this.value = hostsArr[idx].dom; return; }
+                                    if (/[\s<>"']/.test(domVal)) { 
+                                        openModal({ title: T['M_INC_TIT'] || 'Notice', msg: T['M_FMT_DOMAIN'] || 'Invalid domain format!', okText: T['BTN_CLOSE'] || 'Close' }); 
+                                        this.value = hostsArr[idx].dom; 
+                                        return; 
+                                    }
+                                    // 查重防呆：不得与其他行的IP+域名组合完全相同
+                                    var isDupDom = hostsArr.some(function(x, i) { return i !== idx && x.ip === hostsArr[idx].ip && x.dom === domVal; });
+                                    if (isDupDom) {
+                                        openModal({ title: T['M_INC_TIT'] || 'Notice', msg: T['MSG_HOSTS_DUP'] || 'Already exists!', okText: T['BTN_CLOSE'] || 'Close' }); 
+                                        this.value = hostsArr[idx].dom; 
+                                        return;
+                                    }
                                     hostsArr[idx].dom = domVal;
                                 }
+                                
                                 if(this.classList.contains('h-cmt')) {
                                     hostsArr[idx].cmt = this.value.trim().replace(/[<>"']/g, '');
                                     this.value = hostsArr[idx].cmt;
@@ -1328,10 +1367,7 @@ return view.extend({
                         });
                         
                         listContainer.querySelectorAll('.h-del').forEach(function(btn) {
-                            btn.addEventListener('click', function() {
-                                hostsArr.splice(parseInt(this.getAttribute('data-idx'), 10), 1);
-                                renderHosts();
-                            });
+                            btn.addEventListener('click', function() { hostsArr.splice(parseInt(this.getAttribute('data-idx'), 10), 1); renderHosts(); });
                         });
                     };
                     
@@ -1339,8 +1375,6 @@ return view.extend({
                     
                     var addBtn = document.getElementById('nw-quick-add-btn');
                     if (addBtn) {
-                        addBtn.onmouseover = function() { this.style.background = '#eff6ff'; };
-                        addBtn.onmouseout = function() { this.style.background = '#fff'; };
                         addBtn.onclick = function() {
                             var ipInput = document.getElementById('nw-quick-ip');
                             var domInput = document.getElementById('nw-quick-dom');
@@ -1348,19 +1382,69 @@ return view.extend({
                             var ipVal = ipInput.value.trim();
                             var domVal = domInput.value.trim();
                             
-                            if (!ipVal || !domVal) { alert(T['MSG_HOSTS_REQ'] || 'IP and Domain cannot be empty!'); return; }
+                            if (!ipVal || !domVal) { 
+                                // 替换 原生alert()弹窗
+                                openModal({ title: T['M_INC_TIT'] || 'Notice', msg: T['MSG_HOSTS_REQ'] || 'IP and Domain cannot be empty!', okText: T['M_CLOSE'] || 'Close' }); 
+                                return; 
+                            }
                             var isIpv4 = /^(\d{1,3}\.){3}\d{1,3}$/.test(ipVal);
                             var isIpv6 = /^[a-fA-F0-9:]+:[a-fA-F0-9:]+$/.test(ipVal);
-                            if (!isIpv4 && !isIpv6) { alert(T['M_FMT_IP'] || 'Invalid IP format!'); return; }
-                            if (/[\s<>"']/.test(domVal)) { alert(T['M_FMT_DOMAIN'] || 'Invalid domain format!'); return; }
+                            if (!isIpv4 && !isIpv6) { 
+                                // 替换 原生alert()弹窗
+                                openModal({ title: T['M_INC_TIT'] || 'Notice', msg: T['M_FMT_IP'] || 'Invalid IP format!', okText: T['M_CLOSE'] || 'Close' }); 
+                                return; 
+                            }
+                            if (/[\s<>"']/.test(domVal)) { 
+                                openModal({ title: T['M_INC_TIT'] || 'Notice', msg: T['M_FMT_DOMAIN'] || 'Invalid domain format!', okText: T['BTN_CLOSE'] || 'Close' }); 
+                                return; 
+                            }
                             
-                            // 写入数组时，针对备注字段做基础的净化
-                            hostsArr.unshift({ ip: ipVal, dom: domVal, cmt: cmtInput.value.trim().replace(/[<>"']/g, ''), en: true });
+                            var isSmartAdd = document.getElementById('nw-smart-add-cb').checked;
+                            var cmtVal = cmtInput.value.trim().replace(/[<>"']/g, '');
+                            var addList = [];
+                            
+                            if (isSmartAdd) {
+                                // 智能解析：去除域名前面的 www.，提取主域名
+                                var rootDom = domVal.replace(/^www\./i, '');
+                                var doms = [rootDom, 'www.' + rootDom]; // 组合 1：无 www，组合 2：有 www
+                                var ips = [ipVal];
+                                
+                                // 智能判断：如果用户填的是屏蔽/回环 IP，自动裂变出 IPv4 和 IPv6 两个版本
+                                if (ipVal === '127.0.0.1' || ipVal === '::1' || ipVal === '0.0.0.0' || ipVal === '::') {
+                                    ips = ['127.0.0.1', '::1'];
+                                }
+                                
+                                // 交叉组合所有 IP 和域名
+                                ips.forEach(function(i) {
+                                    doms.forEach(function(d) {
+                                        addList.push({ ip: i, dom: d, cmt: cmtVal, en: true });
+                                    });
+                                });
+                            } else {
+                                // 未开启智能补全，只添加当前输入的一条
+                                addList.push({ ip: ipVal, dom: domVal, cmt: cmtVal, en: true });
+                            }
+
+                            var addedCount = 0;
+                            // 倒序遍历插入，保证生成的 4 条规则在列表里看起来排版舒适且符合逻辑
+                            for (var i = addList.length - 1; i >= 0; i--) {
+                                var item = addList[i];
+                                // 查重防呆：如果 4 条规则中有一部分已经存在了，自动跳过重复的，只加上缺失的
+                                var isDup = hostsArr.some(function(x) { return x.ip === item.ip && x.dom === item.dom; });
+                                if (!isDup) {
+                                    hostsArr.unshift(item);
+                                    addedCount++;
+                                }
+                            }
+
+                            // 如果计算完发现一条新规则都没加进去（全重复了）
+                            if (addedCount === 0) {
+                                openModal({ title: T['M_INC_TIT'] || 'Notice', msg: T['MSG_HOSTS_DUP'] || 'Already exists!', okText: T['BTN_CLOSE'] || 'Close' }); 
+                                return;
+                            }
+                            
                             renderHosts();
-                            
-                            ipInput.value = '127.0.0.1'; 
-                            domInput.value = ''; 
-                            cmtInput.value = '';
+                            ipInput.value = '127.0.0.1'; domInput.value = ''; cmtInput.value = '';
                             document.getElementById('nw-hosts-list').scrollTop = 0;
                         };
                     }

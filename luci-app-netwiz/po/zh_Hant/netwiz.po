@@ -1114,9 +1114,6 @@ msgstr "✅ 匯出成功"
 msgid "Core network configuration file has been successfully downloaded!"
 msgstr "核心網路配置檔案已成功下載！"
 
-msgid "Close"
-msgstr "關閉"
-
 msgid "❌ Export Failed"
 msgstr "❌ 匯出失敗"
 
@@ -1848,3 +1845,21 @@ msgstr "IP 位址格式不正確！"
 
 msgid "Invalid domain format! Spaces and special characters are not allowed."
 msgstr "網域格式不正確！不允許包含空格或特殊危險字元。"
+
+msgid "No changes have been made."
+msgstr "您沒有進行任何修改！"
+
+msgid "Notice"
+msgstr "提示訊息"
+
+msgid "This IP and Domain combination already exists!"
+msgstr "此 IP 和 網域的組合已經存在，請勿重複新增！"
+
+msgid "Duplicate records found in Hosts! Please remove them before continuing."
+msgstr "Hosts文件中發現重複的 IP+網域 規則！請手動刪除重複項後再試。"
+
+msgid "Smart Auto-fill"
+msgstr "智能補全"
+
+msgid "Auto-fill IPv4/v6 & www domain combinations"
+msgstr "自動生成 IPv4/v6 以及帶 www 和不帶 www 的組合規則"
