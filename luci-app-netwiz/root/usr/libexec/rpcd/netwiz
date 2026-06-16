@@ -1102,8 +1102,14 @@ case "$1" in
             smart_backup)
                 # 并发防呆锁。防止用户刷新页面多次点击，导致两个进程互相删文件的惨案
                 if [ -f /tmp/nw_backup_running ]; then
-                    echo '{"error":"backup is currently running"}'
-                    exit 0
+                    # 是否锁档案已经存在超过10分钟
+                    if [ -n "$(find /tmp/nw_backup_running -mmin +10 2>/dev/null)" ]; then
+                        logger -t Netwiz "[BACKUP] 檢測到超時的死鎖，系統已自動強制解除！"
+                        rm -f /tmp/nw_backup_running
+                    else
+                        echo '{"error":"backup is currently running"}'
+                        exit 0
+                    fi
                 fi
                 
                 LOG_FILE="/etc/netwiz_recovery.log"
@@ -1148,7 +1154,9 @@ case "$1" in
                     
                     #  ash 脚本的非函数区
                     tar_targets=""
-                    base_targets="/etc/config /etc/passwd /etc/shadow /etc/group /etc/dropbear /etc/profile /etc/sysupgrade.conf /etc/hosts /etc/netwiz/hosts.json"
+                    # 备份列表
+                    # 包含设置文件、软件源 rc.local, 定時任務, MAC綁定, 防火牆腳本
+                    base_targets="/etc/config /etc/passwd /etc/shadow /etc/group /etc/dropbear /etc/profile /etc/sysupgrade.conf /etc/hosts /etc/netwiz/hosts.json /etc/apk/repositories.d/distfeeds.list /etc/opkg/distfeeds.conf /etc/opkg/customfeeds.conf /etc/rc.local /etc/crontabs/root /etc/ethers /etc/firewall.user"
                     # 绝对安全过滤
                     for target in $base_targets; do
                         if [ -e "$target" ]; then
@@ -1168,6 +1176,10 @@ case "$1" in
                         /usr/share/xray
                         /etc/passwall
                         /etc/smartdns
+                        /etc/homeproxy
+                        /etc/mihomo
+                        /etc/ssrplus
+                        /etc/bypass
                     "
                     
                     for dir in $check_dirs; do
@@ -1209,8 +1221,14 @@ EOF
                         exit 1
                     fi
                     
-                    log "[BACKUP]" "内存校验通过，开始极速压缩..."
-                    tar -czf /tmp/nw_sys_config.tar.gz -C / $tar_targets >> "$LOG_FILE" 2>&1 || true
+                    log "[BACKUP]" "内存校验通过，开始极速压缩 (已智能排除日志与庞大数据库)..."
+                    tar --exclude="*.log" \
+                        --exclude="*querylog.json" \
+                        --exclude="*stats.db" \
+                        --exclude="*stats.db-wal" \
+                        --exclude="*stats.db-shm" \
+                        --exclude="*cache*" \
+                        -czf /tmp/nw_sys_config.tar.gz -C / $tar_targets >> "$LOG_FILE" 2>&1 || true
                     
                     mkdir -p /tmp/nw_offline_pkgs
                     cd /tmp/nw_offline_pkgs
