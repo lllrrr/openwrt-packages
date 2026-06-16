@@ -1863,3 +1863,6 @@ msgstr "智能补全"
 
 msgid "Auto-fill IPv4/v6 & www domain combinations"
 msgstr "自动生成 IPv4/v6 以及带 www 和不带 www 的组合规则"
+
+msgid "💡 This feature forces specific domains to resolve to designated IPs. Commonly used for ad blocking or local NAS redirection."
+msgstr "💡 此功能可强制将特定域名解析到指定的 IP 地址。常用于屏蔽广告或内网 设备 定向。"

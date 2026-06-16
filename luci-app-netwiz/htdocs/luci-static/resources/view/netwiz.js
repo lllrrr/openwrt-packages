@@ -439,7 +439,8 @@ var T = {
     'MSG_HOSTS_DUP': _('This IP and Domain combination already exists!'),
     'MSG_HOSTS_DUP_RAW': _('Duplicate records found in Hosts! Please remove them before continuing.'),
     'LBL_SMART_ADD': _('Smart Auto-fill'),
-    'TIP_SMART_ADD': _('Auto-fill IPv4/v6 & www domain combinations')
+    'TIP_SMART_ADD': _('Auto-fill IPv4/v6 & www domain combinations'),
+    'LBL_HOSTS_DESC': _('💡 This feature forces specific domains to resolve to designated IPs. Commonly used for ad blocking or local NAS redirection.')
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -503,6 +504,10 @@ return view.extend({
             '  .wifi-active-anim { animation: wifi-wave 2s infinite; }',
             '  .nw-modal-btn-wrap .nw-u-btn { height: auto !important; min-height: 44px !important; white-space: normal !important; word-break: break-word !important; line-height: 1.4 !important; padding: 10px 8px !important; }',
             '  .nw-qr-hover:hover { color: #3b82f6 !important; }',
+
+            '@media screen and (max-width: 600px) {' +
+            '    .nw-hide-mob { display: none !important; }' + 
+            '}' +
             '</style>',
 
             '<div class="nw-wrapper">',
@@ -1184,16 +1189,20 @@ return view.extend({
                     var initialJsonStr = JSON.stringify(initialData);
 
                     var html = '<div id="nw-hosts-visual-ui">' +
-                                '<div style="background:#eff6ff; border:1px dashed #93c5fd; padding:12px; border-radius:8px; margin-bottom:15px;">' +
-                                    '<div style="font-size:13px; color:#1e3a8a; font-weight:bold; margin-bottom:10px;">' + (T['LBL_HOSTS_VISUAL'] || '💡 Quick Add:') + '</div>' +
+                           '<div style="font-size:13px; color:#64748b; margin-bottom:12px; line-height:1.5;">' + (T['LBL_HOSTS_DESC'] || '💡 This feature forces specific domains to resolve to designated IPs. Commonly used for ad blocking or local NAS redirection.') + '</div>' +
+                           '<div style="background:#eff6ff; border:1px dashed #93c5fd; padding:12px; border-radius:8px; margin-bottom:15px;">' +
+                               '<div style="font-size:13px; color:#1e3a8a; font-weight:bold; margin-bottom:10px;">' + (T['LBL_HOSTS_VISUAL'] || '💡 Quick Add:') + '</div>' +
                                     '<div style="display:flex; gap:10px; margin-bottom:10px; width:100%; box-sizing:border-box;">' +
                                         '<input type="text" id="nw-quick-dom" placeholder="' + (T['PH_HOSTS_DOMAIN'] || 'Domain') + '" style="flex:1 1 0%; min-width:0; height:36px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13.5px; box-sizing:border-box;">' +
                                         '<input type="text" id="nw-quick-ip" value="127.0.0.1" placeholder="' + (T['PH_HOSTS_IP'] || 'IP') + '" style="flex:1 1 0%; min-width:0; height:36px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13.5px; box-sizing:border-box; color: #000;">' +
                                     '</div>' +
                                     '<div style="display:flex; gap:10px; width:100%; box-sizing:border-box; align-items:center;">' +
                                         '<input type="text" id="nw-quick-cmt" placeholder="' + (T['PH_HOSTS_CMT'] || 'Comment') + '" style="flex:1 1 0%; min-width:0; height:36px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13px; box-sizing:border-box;">' +
-                                        '<label style="display:flex; align-items:center; font-size:13px; color:#2563eb; cursor:pointer; flex-shrink:0; user-select:none;" title="' + (T['TIP_SMART_ADD'] || 'Auto-fill IPv4/v6 & www combinations') + '"><input type="checkbox" id="nw-smart-add-cb" checked style="top:0px;"> ' + (T['LBL_SMART_ADD'] || 'Smart Auto-fill') + '</label>' +
-                                        '<button id="nw-quick-add-btn" class="nw-u-btn" style="flex:0 0 auto; flex-shrink:0; white-space:nowrap; padding:0 15px; height:36px; background:#fff; color:#2563eb; border:1px solid #2563eb; border-radius:6px; font-weight:bold; cursor:pointer; transition:all 0.2s;">' + (T['BTN_HOSTS_ADD'] || '➕ Add') + '</button>' +
+                                        '<label style="display:flex; align-items:center; font-size:13px; color:#2563eb; cursor:pointer; flex-shrink:0; user-select:none;" title="' + (T['TIP_SMART_ADD'] || 'Auto-fill IPv4/v6 & www combinations') + '">' +
+                                            '<input type="checkbox" id="nw-smart-add-cb" checked style="top:0px;">' +
+                                            '<span class="nw-hide-mob">' + (T['LBL_SMART_ADD'] || 'Smart Auto-fill') + '</span>' +
+                                        '</label>' +
+                                        '<button id="nw-quick-add-btn" class="nw-u-btn" style="flex:0 0 auto; flex-shrink:0; white-space:nowrap; padding:0 15px; height:36px; background:#fff; color:#2563eb; border:1px solid #2563eb; border-radius:6px; font-weight:bold; cursor:pointer; transition:all 0.2s; min-width: 70px; padding: 5px 10px 5px 5px !important;">' + (T['BTN_HOSTS_ADD'] || '➕ Add') + '</button>' +
                                     '</div>' +
                                 '</div>' +
                                 '<div id="nw-hosts-list" style="max-height:280px; overflow-y:auto; overflow-x:hidden; padding-right:5px; margin-bottom:10px;"></div>' +
@@ -1248,7 +1257,7 @@ return view.extend({
                                     textContent += prefix + item.ip + '\t' + item.dom + cmt + '\n';
                                 });
                                 rawText.value = textContent;
-                                visualUi.style.display = 'none'; rawUi.style.display = 'block'; this.style.color = '#2563eb'; 
+                                visualUi.style.display = 'none'; rawUi.style.display = 'block';
                             } else {
                                 // 2. 纯文本 切 UI
                                 var lines = rawText.value.split('\n');
@@ -1288,7 +1297,7 @@ return view.extend({
 
                                 hostsArr = newArr;
                                 renderHosts();
-                                rawUi.style.display = 'none'; visualUi.style.display = 'block'; this.style.color = 'inherit';
+                                rawUi.style.display = 'none'; visualUi.style.display = 'block';
                             }
                         });
                     }
