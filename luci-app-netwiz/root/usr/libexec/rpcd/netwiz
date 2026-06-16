@@ -1148,8 +1148,7 @@ case "$1" in
                     
                     #  ash 脚本的非函数区
                     tar_targets=""
-                    base_targets="/etc/config /etc/passwd /etc/shadow /etc/group /etc/dropbear /etc/profile /etc/sysupgrade.conf"
-                    
+                    base_targets="/etc/config /etc/passwd /etc/shadow /etc/group /etc/dropbear /etc/profile /etc/sysupgrade.conf /etc/hosts /etc/netwiz/hosts.json"
                     # 绝对安全过滤
                     for target in $base_targets; do
                         if [ -e "$target" ]; then

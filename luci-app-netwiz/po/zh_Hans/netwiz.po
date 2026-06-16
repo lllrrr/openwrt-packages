@@ -1825,17 +1825,17 @@ msgstr "➕ 添加"
 msgid "No custom Hosts, please add below."
 msgstr "暂无自定义 Hosts，请点击上方添加记录"
 
-msgid "IP (e.g., 192.168.1.50)"
-msgstr "指向 IP (如 192.168.1.50)"
+msgid "IP (e.g., 127.0.0.1 or ::1)"
+msgstr "指向 IP (127.0.0.1 或 ::1)"
 
-msgid "Domain (e.g., router.lan)"
-msgstr "劫持域名 (如 router.lan)"
+msgid "Domain (e.g., abc.com)"
+msgstr "劫持域名 (如 abc.com)"
 
 msgid "Comment (Optional)"
 msgstr "备注说明 (选填)"
 
-msgid "💡 <b>Pure Text Advanced Mode</b>: Supports batch pasting. Format: <code>IP Domain #Comment</code>"
-msgstr "💡 <b>纯文本高级模式</b>：支持批量粘贴。格式：<code>IP 域名 #备注</code>"
+msgid "💡 <b>Pure Text Mode</b>: <b>Paste</b> to import, <b>Copy</b> to export. Format: <code>IP Domain #Comment</code>"
+msgstr "💡 <b>纯文本模式</b>：<b>粘贴</b>导入，<b>全选复制</b>可导出到纯文本保存。格式：<code>IP 域名 #备注</code>"
 
 msgid "IP and Domain cannot be empty!"
 msgstr "IP 和 域名 不能为空！"
@@ -1843,8 +1843,8 @@ msgstr "IP 和 域名 不能为空！"
 msgid "Invalid IP address format!"
 msgstr "IP 地址格式不正确！"
 
-msgid "Invalid domain format! Spaces and special characters are not allowed."
-msgstr "域名格式不正确！不允许包含空格或特殊危险字符。"
+msgid "Invalid domain! Spaces, wildcards (*), and special characters are not allowed."
+msgstr "域名格式不正确！不支持泛解析(*)，且不允许包含空格或特殊危险字符。"
 
 msgid "No changes have been made."
 msgstr "您没有进行任何修改！"
@@ -1864,5 +1864,8 @@ msgstr "智能补全"
 msgid "Auto-fill IPv4/v6 & www domain combinations"
 msgstr "自动生成 IPv4/v6 以及带 www 和不带 www 的组合规则"
 
-msgid "💡 This feature forces specific domains to resolve to designated IPs. Commonly used for ad blocking or local NAS redirection."
-msgstr "💡 此功能可强制将特定域名解析到指定的 IP 地址。常用于屏蔽广告或内网 设备 定向。"
+msgid "💡 This feature forces specific domains to resolve to designated IPs. Commonly used for blocking domain access or local device redirection."
+msgstr "💡 此功能可将特定域名强制解析到指定的 IP 地址。常用于阻止某域名联网 或 内网设备重定向。"
+
+msgid "Found {count} invalid or duplicate records!\n\nClick [OK] to automatically discard them and continue, or [Cancel] to manually fix them."
+msgstr "在纯文本中发现了 {count} 条格式错误或重复的记录！\n\n点击【确定】将自动丢弃错误项并继续，点击【取消】则留在这里手动修改。"
