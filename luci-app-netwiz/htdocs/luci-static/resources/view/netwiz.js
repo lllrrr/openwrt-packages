@@ -442,7 +442,33 @@ var T = {
     'TIP_SMART_ADD': _('Auto-fill IPv4/v6 & www domain combinations'),
     'LBL_HOSTS_DESC': _('💡 This feature forces specific domains to resolve to designated IPs. Commonly used for blocking domain access or local device redirection.'),
     'MSG_RAW_ERR_1': _('Found invalid or duplicate records:'),
-    'MSG_RAW_ERR_2': _('Click [OK] to automatically discard them and continue, or [Cancel] to manually fix them.')
+    'MSG_RAW_ERR_2': _('Click [OK] to automatically discard them and continue, or [Cancel] to manually fix them.'),
+    // --- 插件修复急救箱 ---
+    'LBL_REPAIR_BTN': _('🚑 Plugin Repair'),
+    'M_REP_SCAN_TIT': _('Please wait'),
+    'M_REP_SCAN_MSG': _('Scanning for repairable plugins...'),
+    'M_REP_DESC': _('Standard uninstallation does not remove plugin configuration files. If a plugin malfunctions after reinstallation, select it below to reset it to its initial state.'),
+    'M_REP_OPT': _('Factory Default'),
+    'M_REP_TIT': _('🚑 Plugin Repair Toolkit'),
+    'M_REP_OK': _('Repair Now'),
+    'M_REP_PROC_TIT': _('Processing'),
+    'M_REP_PROC_MSG1': _('Repairing and restarting '),
+    'M_REP_PROC_MSG2': _(' please wait'),
+    'M_REP_SUCC_TIT': _('Repair Successful'),
+    'M_REP_SUCC_MSG': _(' has been successfully restored'),
+    'M_REP_FAIL_TIT': _('Repair Failed'),
+    'M_REP_FAIL_MSG': _('Unable to repair this plugin'),
+    'M_REP_ERR_TIT': _('System Error'),
+    'M_REP_ERR_MSG': _('Request timeout or error'),
+    'M_REP_NOTICE_TIT': _('Notice'),
+    'M_REP_EMPTY_MSG': _('No repairable plugins found'),
+    'M_REP_GET_ERR': _('Failed to get plugin list'),
+    // ---------------------------
+    'M_PORT_RANGE': _('⚠️ Port number must be between 1 and 65535'),
+    'M_PORT_ERR1': _('⚠️ For system security, do not use'),
+    'M_PORT_ERR2': _('as the external port. It is a reserved high-risk port.'),
+    'M_PORT_SUGG': _('It is recommended to use 8080 or a port above 10000.'),
+    'LBL_WEB_PORT_TITLE': _('Enter custom external port number'),
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -673,12 +699,16 @@ return view.extend({
             '    <div style="margin-top: 15px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; padding: 15px; text-align: left;">',
             '        <div style="font-size:14px; font-weight:bold; color:#475569; margin-bottom:12px;">{{LBL_ADV_UTILS_TITLE}}</div>',
             '        <div style="display:flex; flex-wrap:wrap; gap:20px; align-items:center; margin-bottom:12px; padding-bottom:12px; border-bottom: 1px dashed #cbd5e1;">',
-            '            <a href="javascript:void(0)" id="link-mac-clone" style="color:#0284c7; text-decoration:none; font-size:14.5px; font-weight:500;">{{LBL_MAC_CLONE_LINK}}</a>',
             '            <a href="javascript:void(0)" id="link-cron-reboot" style="color:#0284c7; text-decoration:none; font-size:14.5px; font-weight:500;">{{LBL_CRON_REBOOT_LINK}}</a>',
+            '            <a href="javascript:void(0)" id="link-mac-clone" style="color:#0284c7; text-decoration:none; font-size:14.5px; font-weight:500;">{{LBL_MAC_CLONE_LINK}}</a>',
             '            <a href="javascript:void(0)" id="link-modify-hosts" style="color:#0284c7; text-decoration:none; font-size:14.5px; font-weight:500;">{{LBL_HOSTS_LINK}}</a>',
+            '            <a href="javascript:void(0)" id="link-repair-plugin" style="color:#ef4444; text-decoration:none; font-size:14.5px; font-weight:500;">{{LBL_REPAIR_BTN}}</a>',
             '        </div>',
             '        <div style="display:flex; justify-content:space-between; align-items:center;">',
-            '            <div style="font-size:14.5px; font-weight:500; color:#0284c7;">{{LBL_WEB_ACCESS_TOGGLE}}</div>',
+            '            <div style="display:flex; align-items:center; gap:10px;">',
+            '                <div style="font-size:14.5px; font-weight:500; color:#0284c7;">{{LBL_WEB_ACCESS_TOGGLE}}</div>',
+            '                <input type="number" id="adv-web-port" placeholder="80" title="{{LBL_WEB_PORT_TITLE}}" style="width:75px; height:26px; border:1px solid #cbd5e1; border-radius:4px; padding:0 8px; font-size:13px; outline:none;" min="1" max="65535">',
+            '            </div>',
             '            <label class="nw-switch"><input type="checkbox" id="adv-web-toggle"><span class="nw-slider"></span></label>',
             '        </div>',
             '    </div>',
@@ -1171,12 +1201,153 @@ return view.extend({
             });
         }
 
-        // 外网访问开关
+        // 外网访问开关与自定义端口
         if(container.querySelector('#adv-web-toggle')) {
-            callGetAdvSettings().then(function(res) { if(res && res.web === '1') container.querySelector('#adv-web-toggle').checked = true; });
-            container.querySelector('#adv-web-toggle').addEventListener('change', function() { callSetAdvSettings('', this.checked ? '1' : '0', ''); });
+            var webTog = container.querySelector('#adv-web-toggle');
+            var webPort = container.querySelector('#adv-web-port');
+            var lastValidPort = '';
+            
+            callGetAdvSettings().then(function(res) { 
+                if (res) {
+                    if (res.last_port && res.last_port !== '80' && res.last_port !== '1' && res.last_port !== '0') {
+                        webPort.value = res.last_port;
+                        lastValidPort = res.last_port;
+                    }
+                    if (res.web && res.web !== '0') { 
+                        webTog.checked = true; 
+                        if (res.web !== '1') {
+                            webPort.value = res.web;
+                            lastValidPort = res.web;
+                        }
+                    }
+                } 
+            });
+            
+            // 开关事件优化 打开静默允许输入 关闭则明确弹出重整
+            webTog.addEventListener('change', function() { 
+                if (this.checked) {
+                    var p = webPort.value.trim();
+                    callSetAdvSettings('', (p ? p : '1'), '', ''); 
+                } else {
+                    openModal({ title: T['LBL_ADV_UTILS_TITLE'] || '⚙️ Advanced Utilities', msg: T['MSG_WRITING'] || 'Please wait...', spin: true });
+                    var gm2 = document.getElementById('nw-global-modal'); if (gm2) gm2.style.zIndex = '100000';
+                    callSetAdvSettings('', '0', '', '').then(function() { setTimeout(function(){ window.location.reload(); }, 1500); });
+                }
+            });
+
+            // 监听回车键主动触发失去焦点保存
+            webPort.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') this.blur(); 
+            });
+
+            // 端口保存逻辑 加入200ms避让机制解决点击冲突
+            webPort.addEventListener('change', function() {
+                var self = this;
+                var pText = this.value.trim();
+                
+                // 延迟200ms给开关的点击事件让路
+                setTimeout(function() {
+                    // 如果这200ms内开关被关掉了 直接中止保存端口
+                    if (!webTog.checked) return;
+
+                    if (pText !== '') {
+                        var pNum = parseInt(pText);
+                        
+                        if (isNaN(pNum) || pNum < 1 || pNum > 65535) {
+                            openModal({ title: T['M_REP_NOTICE_TIT'] || 'Notice', msg: T['M_PORT_RANGE'] || '⚠️ Port number must be between 1 and 65535', okText: T['M_CLOSE'] || 'Close', hideCancel: true });
+                            self.value = lastValidPort;
+                            return;
+                        }
+                        
+                        var dangerPorts = [21, 22, 23, 53, 67, 68];
+                        if (dangerPorts.indexOf(pNum) !== -1) {
+                            var e1 = T['M_PORT_ERR1'] || '⚠️ For system security, do not use';
+                            var e2 = T['M_PORT_ERR2'] || 'as the external port. It is a reserved high-risk port.';
+                            var sg = T['M_PORT_SUGG'] || 'It is recommended to use 8080 or a port above 10000.';
+                            
+                            openModal({ title: T['M_REP_NOTICE_TIT'] || 'Notice', msg: e1 + ' <span style="color:#ef4444; font-weight:bold;">' + pNum + '</span> ' + e2 + '<br><br>' + sg, okText: T['M_CLOSE'] || 'Close', hideCancel: true });
+                            self.value = lastValidPort;
+                            return;
+                        }
+                    }
+
+                    var val = pText ? pText : '1';
+                    lastValidPort = pText;
+                    
+                    openModal({ title: T['LBL_ADV_UTILS_TITLE'] || '⚙️ Advanced Utilities', msg: T['MSG_WRITING'] || 'Please wait...', spin: true });
+                    var gm2 = document.getElementById('nw-global-modal'); if (gm2) gm2.style.zIndex = '100000';
+                    callSetAdvSettings('', val, '', '').then(function() { setTimeout(function(){ window.location.reload(); }, 1500); });
+                }, 200);
+            });
         }
         // ====================================================
+
+        // 插件修复弹窗与逻辑
+        if(container.querySelector('#link-repair-plugin')) {
+            container.querySelector('#link-repair-plugin').addEventListener('click', function() {
+                openModal({ title: T['M_REP_SCAN_TIT'] || 'Please wait', msg: T['M_REP_SCAN_MSG'] || 'Scanning for repairable plugins...', hideCancel: true, hideOk: true });
+
+                rpc.declare({ object: 'netwiz', method: 'get_repairable_configs', expect: { '': {} } })().then(function(res) {
+                    if (res && res.configs && res.configs.length > 0) {
+                        
+                        var descText = T['M_REP_DESC'] || 'Standard uninstallation does not remove plugin configuration files. If a plugin malfunctions after reinstallation, select it below to reset it to its initial state.';
+                        var descHtml = '<p style="color:#64748b; font-size:13px; margin-bottom:15px; line-height:1.5;">' + descText + '</p>';
+                        
+                        var optText = ' (' + (T['M_REP_OPT'] || 'Factory Default') + ')';
+                        var selectHtml = '<select id="nw-repair-select" style="width:100%; height:40px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:14px; outline:none; margin-bottom:10px;">';
+                        res.configs.forEach(function(pluginName) {
+                            selectHtml += '<option value="' + pluginName + '">' + pluginName + optText + '</option>';
+                        });
+                        selectHtml += '</select>';
+
+                        var titleText = T['M_REP_TIT'] || '🚑 Plugin Repair Toolkit';
+                        var titleWithX = '<div style="display:flex; justify-content:space-between; align-items:center;"><span>' + titleText + '</span><span onclick="document.getElementById(\'nw-global-modal\').style.display=\'none\'" style="cursor:pointer; color:#ffffff; font-size:40px; line-height:1; margin-right:15px;">&times;</span></div>';
+
+                        openModal({
+                            title: titleWithX,
+                            msg: descHtml + selectHtml,
+                            okText: T['M_REP_OK'] || 'Repair Now',
+                            cancelText: T['M_CLOSE'] || 'Close',
+                            isDanger: true,
+                            onOk: function() {
+                                var selectedPlugin = document.getElementById('nw-repair-select');
+                                if (!selectedPlugin || !selectedPlugin.value) return;
+                                var pName = selectedPlugin.value;
+                                
+                                var pTit = T['M_REP_PROC_TIT'] || 'Processing';
+                                var pMsg1 = T['M_REP_PROC_MSG1'] || 'Repairing and restarting ';
+                                var pMsg2 = T['M_REP_PROC_MSG2'] || ' please wait';
+                                openModal({ title: pTit, msg: pMsg1 + pName + pMsg2, hideCancel: true, hideOk: true });
+                                
+                                rpc.declare({ object: 'netwiz', method: 'repair_config', params: ['plugin'], expect: { '': {} } })(pName).then(function(r) {
+                                    if (r && r.result === 0) {
+                                        var sTit = T['M_REP_SUCC_TIT'] || 'Repair Successful';
+                                        var sMsg = T['M_REP_SUCC_MSG'] || ' has been successfully restored';
+                                        openModal({ title: sTit, msg: pName + sMsg, okText: T['M_CLOSE'] || 'Close', hideCancel: true });
+                                    } else {
+                                        var fTit = T['M_REP_FAIL_TIT'] || 'Repair Failed';
+                                        var fMsg = T['M_REP_FAIL_MSG'] || 'Unable to repair this plugin';
+                                        openModal({ title: fTit, msg: fMsg, okText: T['M_CLOSE'] || 'Close', hideCancel: true });
+                                    }
+                                }).catch(function() {
+                                    var eTit = T['M_REP_ERR_TIT'] || 'System Error';
+                                    var eMsg = T['M_REP_ERR_MSG'] || 'Request timeout or error';
+                                    openModal({ title: eTit, msg: eMsg, okText: T['M_CLOSE'] || 'Close', hideCancel: true });
+                                });
+                            }
+                        });
+                    } else {
+                        var nTit = T['M_REP_NOTICE_TIT'] || 'Notice';
+                        var nMsg = T['M_REP_EMPTY_MSG'] || 'No repairable plugins found';
+                        openModal({ title: nTit, msg: nMsg, okText: T['M_CLOSE'] || 'Close', hideCancel: true });
+                    }
+                }).catch(function() {
+                    var errTit = T['M_ERR'] || 'Error';
+                    var errMsg = T['M_REP_GET_ERR'] || 'Failed to get plugin list';
+                    openModal({ title: errTit, msg: errMsg, okText: T['M_CLOSE'] || 'Close', hideCancel: true });
+                });
+            });
+        }
 
         // 修改 Hosts
         if(container.querySelector('#link-modify-hosts')) {
@@ -1571,57 +1742,6 @@ return view.extend({
             var bandEl = container.querySelector('#nw-live-qr-band'); if (bandEl) bandEl.innerText = '(' + bandName + ')';
             renderWiFiQR('nw-live-qr-code', ssid, pwd, enc);
         };
-
-        // =================高级设置折叠与数据加载=================
-        var advHeader = container.querySelector('#nw-adv-utils-header');
-        var advBody = container.querySelector('#nw-adv-utils-body');
-        var advIcon = container.querySelector('#nw-adv-utils-icon');
-        var advLoaded = false;
-
-        if (advHeader) {
-            advHeader.addEventListener('click', function() {
-                if (advBody.style.display === 'none') {
-                    advBody.style.display = 'block';
-                    advIcon.style.transform = 'rotate(180deg)';
-                    if (!advLoaded) {
-                        callGetAdvSettings().then(function(res) {
-                            if (res) {
-                                if (res.mac && res.mac !== 'none') container.querySelector('#adv-mac-input').value = res.mac;
-                                container.querySelector('#adv-web-toggle').checked = (res.web === '1');
-                                container.querySelector('#adv-cron-select').value = res.cron || 'off';
-                                advLoaded = true;
-                            }
-                        });
-                    }
-                } else {
-                    advBody.style.display = 'none';
-                    advIcon.style.transform = 'rotate(0deg)';
-                }
-            });
-        }
-        
-        if (container.querySelector('#btn-save-mac')) {
-            container.querySelector('#btn-save-mac').addEventListener('click', function() {
-                var m = container.querySelector('#adv-mac-input').value.trim();
-                if (m && !/^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/i.test(m)) { alert(T['M_FMT_IP'] || 'Format Error'); return; }
-                openModal({ title: T['LBL_ADV_UTILS'], msg: T['MSG_WRITING'], spin: true });
-                callSetAdvSettings(m || 'none', '', '').then(function() { setTimeout(function(){ window.location.reload(); }, 2000); });
-            });
-        }
-        if (container.querySelector('#btn-clear-mac')) {
-            container.querySelector('#btn-clear-mac').addEventListener('click', function() {
-                container.querySelector('#adv-mac-input').value = '';
-                openModal({ title: T['LBL_ADV_UTILS'], msg: T['MSG_WRITING'], spin: true });
-                callSetAdvSettings('none', '', '').then(function() { setTimeout(function(){ window.location.reload(); }, 2000); });
-            });
-        }
-        if (container.querySelector('#adv-web-toggle')) {
-            container.querySelector('#adv-web-toggle').addEventListener('change', function() { callSetAdvSettings('', this.checked ? '1' : '0', ''); });
-        }
-        if (container.querySelector('#adv-cron-select')) {
-            container.querySelector('#adv-cron-select').addEventListener('change', function() { callSetAdvSettings('', '', this.value); });
-        }
-        // ========================================================
 
         // 鼠标跟随，无视底层 CSS 干扰
         var updateQRPos = function(e) {

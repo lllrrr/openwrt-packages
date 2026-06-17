@@ -1872,3 +1872,75 @@ msgstr "在纯文本中发现了格式错误或重复的记录，共计："
 
 msgid "Click [OK] to automatically discard them and continue, or [Cancel] to manually fix them."
 msgstr "点击【确定】将自动丢弃错误项并保存，点击【取消】将返回手动修改。"
+
+msgid "🚑 Plugin Repair"
+msgstr "🚑 插件修复"
+
+msgid "Please wait"
+msgstr "请稍候"
+
+msgid "Scanning for repairable plugins..."
+msgstr "正在扫描可修复的插件列表..."
+
+msgid "Standard uninstallation does not remove plugin configuration files. If a plugin malfunctions after reinstallation, select it below to reset it to its initial state."
+msgstr "常规卸载不会清除插件配置文件。若插件重装后仍无法正常使用，可在下方选中对应插件，将其重置为初始状态。"
+
+msgid "Factory Default"
+msgstr "出厂默认值"
+
+msgid "🚑 Plugin Repair Toolkit"
+msgstr "🚑 插件修复急救箱"
+
+msgid "Repair Now"
+msgstr "立即修复"
+
+msgid "Processing"
+msgstr "处理中"
+
+msgid "Repairing and restarting "
+msgstr "正在修复并且重启 "
+
+msgid " please wait"
+msgstr " 请稍候"
+
+msgid "Repair Successful"
+msgstr "修复成功"
+
+msgid " has been successfully restored"
+msgstr " 已经成功恢复"
+
+msgid "Repair Failed"
+msgstr "修复失败"
+
+msgid "Unable to repair this plugin"
+msgstr "无法修复该插件"
+
+msgid "System Error"
+msgstr "系统异常"
+
+msgid "Request timeout or error"
+msgstr "请求超时或者出错"
+
+msgid "Notice"
+msgstr "提示"
+
+msgid "No repairable plugins found"
+msgstr "没有找到可以修复的插件"
+
+msgid "Failed to get plugin list"
+msgstr "获取插件列表失败"
+
+msgid "⚠️ Port number must be between 1 and 65535"
+msgstr "⚠️ 端口号必须介于 1 到 65535 之间"
+
+msgid "⚠️ For system security, do not use"
+msgstr "⚠️ 为了系统安全请勿使用"
+
+msgid "as the external port. It is a reserved high-risk port."
+msgstr "作为外网端口此为系统保留高危端口"
+
+msgid "It is recommended to use 8080 or a port above 10000."
+msgstr "建议使用 8080 或 10000 以上的端口"
+
+msgid "Enter custom external port number"
+msgstr "填写自定义外网端口号"
