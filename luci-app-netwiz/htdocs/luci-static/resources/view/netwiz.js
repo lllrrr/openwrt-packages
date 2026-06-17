@@ -452,10 +452,9 @@ var T = {
     'M_REP_TIT': _('🚑 Plugin Repair Toolkit'),
     'M_REP_OK': _('Repair Now'),
     'M_REP_PROC_TIT': _('Processing'),
-    'M_REP_PROC_MSG1': _('Repairing and restarting '),
-    'M_REP_PROC_MSG2': _(' please wait'),
+    'M_REP_PROC_MSG1': _('Repairing and restarting'),
     'M_REP_SUCC_TIT': _('Repair Successful'),
-    'M_REP_SUCC_MSG': _(' has been successfully restored'),
+    'M_REP_SUCC_MSG': _('has been successfully restored'),
     'M_REP_FAIL_TIT': _('Repair Failed'),
     'M_REP_FAIL_MSG': _('Unable to repair this plugin'),
     'M_REP_ERR_TIT': _('System Error'),
@@ -1314,15 +1313,15 @@ return view.extend({
                                 var pName = selectedPlugin.value;
                                 
                                 var pTit = T['M_REP_PROC_TIT'] || 'Processing';
-                                var pMsg1 = T['M_REP_PROC_MSG1'] || 'Repairing and restarting ';
-                                var pMsg2 = T['M_REP_PROC_MSG2'] || ' please wait';
-                                openModal({ title: pTit, msg: pMsg1 + pName + pMsg2, hideCancel: true, hideOk: true });
+                                var pMsg1 = T['M_REP_PROC_MSG1'] || 'Repairing and restarting';
+                                var pMsg2 = T['M_REP_SCAN_TIT'] || 'please wait';
+                                openModal({ title: pTit, msg: pMsg1 + ' ' + pName + ' ' + pMsg2, hideCancel: true, hideOk: true });
                                 
                                 rpc.declare({ object: 'netwiz', method: 'repair_config', params: ['plugin'], expect: { '': {} } })(pName).then(function(r) {
                                     if (r && r.result === 0) {
                                         var sTit = T['M_REP_SUCC_TIT'] || 'Repair Successful';
-                                        var sMsg = T['M_REP_SUCC_MSG'] || ' has been successfully restored';
-                                        openModal({ title: sTit, msg: pName + sMsg, okText: T['M_CLOSE'] || 'Close', hideCancel: true });
+                                        var sMsg = T['M_REP_SUCC_MSG'] || 'has been successfully restored';
+                                        openModal({ title: sTit, msg: pName + ' ' + sMsg, okText: T['M_CLOSE'] || 'Close', hideCancel: true });
                                     } else {
                                         var fTit = T['M_REP_FAIL_TIT'] || 'Repair Failed';
                                         var fMsg = T['M_REP_FAIL_MSG'] || 'Unable to repair this plugin';
@@ -1380,7 +1379,7 @@ return view.extend({
                                 '<div id="nw-hosts-list" style="max-height:280px; overflow-y:auto; overflow-x:hidden; padding-right:5px; margin-bottom:10px;"></div>' +
                             '</div>' +
                             '<div id="nw-hosts-raw-ui" style="display:none; margin-bottom:10px;">' +
-                                '<div style="font-size:13px; color:#64748b; margin-bottom:10px;">' + (T['LBL_HOSTS_RAW_TIP'] || '💡 <b>Pure Text Advanced Mode</b>: Supports batch pasting. Format: <code>IP Domain #Comment</code>') + '</div>' +
+                                '<div style="font-size:13px; color:#64748b; margin-bottom:10px; line-height: 1.6;">' + (T['LBL_HOSTS_RAW_TIP'] || '💡 <b>Pure Text Advanced Mode</b>: Supports batch pasting. Format: <code>IP Domain #Comment</code>') + '</div>' +
                                 '<textarea id="nw-hosts-raw-text" spellcheck="false" style="width:100%; height:320px; border:1px solid #cbd5e1; border-radius:8px; padding:12px; font-family:monospace; font-size:13.5px; box-sizing:border-box; background:#f8fafc; color:#334155; line-height:1.6; resize:none;"></textarea>' +
                             '</div>';
                             
