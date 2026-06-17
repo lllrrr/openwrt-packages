@@ -704,9 +704,9 @@ return view.extend({
             '            <a href="javascript:void(0)" id="link-repair-plugin" style="color:#ef4444; text-decoration:none; font-size:14.5px; font-weight:500;">{{LBL_REPAIR_BTN}}</a>',
             '        </div>',
             '        <div style="display:flex; justify-content:space-between; align-items:center;">',
-            '            <div style="display:flex; align-items:center; gap:10px;">',
+            '            <div style="display:flex; align-items:center; gap:0;">',
             '                <div style="font-size:14.5px; font-weight:500; color:#0284c7;">{{LBL_WEB_ACCESS_TOGGLE}}</div>',
-            '                <input type="number" id="adv-web-port" placeholder="80" title="{{LBL_WEB_PORT_TITLE}}" style="width:75px; height:26px; border:1px solid #cbd5e1; border-radius:4px; padding:0 8px; font-size:13px; outline:none; background-color: #fff; color: #000;" min="1" max="65535">',
+            '                <input type="number" id="adv-web-port" placeholder="80" title="{{LBL_WEB_PORT_TITLE}}" style="width:70px; height:26px; border:1px solid #cbd5e1; border-radius:4px; padding:0 8px; font-size:13px; outline:none; background-color: #fff; color: #000;" min="1" max="65535">',
             '            </div>',
             '            <label class="nw-switch"><input type="checkbox" id="adv-web-toggle"><span class="nw-slider"></span></label>',
             '        </div>',
@@ -1148,23 +1148,23 @@ return view.extend({
                     var chk = function(val) { return dArr.indexOf(val) !== -1 ? 'checked' : ''; };
                     
                     // 复选框抵消 LuCI 全局主题的 top: .4rem 偏移
-                    var cbBoxStyle = 'margin:0; position:relative; top:0; transform:none; cursor:pointer;';
+                    var cbBoxStyle = 'margin:0; position:relative; top:0; transform:none; cursor:pointer; background-color: var(--primary) !important;';
                     
-                    var html = '<label style="display:flex; align-items:center; gap:8px; margin-bottom:15px; font-weight:bold; color:#334155; cursor:pointer;">' +
+                    var html = '<label style="display:flex; align-items:center; gap:3px; margin-bottom:15px; font-weight:bold; color:#334155; cursor:pointer;">' +
                                '<input type="checkbox" id="mdl-cron-en" style="' + cbBoxStyle + ' width:16px; height:16px;" '+(isOff?'':'checked')+'>' +
                                '<span style="line-height:1; margin-top:-2px;">' + (T['LBL_CRON_ENABLE'] || 'Enable') + '</span></label>' +
                                '<div id="mdl-cron-box" style="display:'+(isOff?'none':'block')+';">' +
                                '<div style="font-size:13.5px; color:#64748b; margin-bottom:8px;">' + (T['LBL_CRON_TIME'] || 'Time:') + '</div>' +
                                '<input type="time" id="mdl-cron-time" value="'+h+':'+m+'" style="width:100%; height:40px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:14.5px; font-family:monospace; margin-bottom:15px; box-sizing:border-box; background-color: #64748B !important; color: #fff !important;">' +
                                '<div style="font-size:13.5px; color:#64748b; margin-bottom:8px;">' + (T['LBL_CRON_DAYS'] || 'Days:') + '</div>' +
-                               '<div id="mdl-cron-days" style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:5px;">' +
-                               '<label style="display:flex; align-items:center; gap:4px; font-size:14.5px; cursor:pointer;"><input type="checkbox" style="' + cbBoxStyle + '" class="c-day" value="1" '+chk('1')+'>' + (T['LBL_DAY_1'] || '1') + '</label>' +
-                               '<label style="display:flex; align-items:center; gap:4px; font-size:14.5px; cursor:pointer;"><input type="checkbox" style="' + cbBoxStyle + '" class="c-day" value="2" '+chk('2')+'>' + (T['LBL_DAY_2'] || '2') + '</label>' +
-                               '<label style="display:flex; align-items:center; gap:4px; font-size:14.5px; cursor:pointer;"><input type="checkbox" style="' + cbBoxStyle + '" class="c-day" value="3" '+chk('3')+'>' + (T['LBL_DAY_3'] || '3') + '</label>' +
-                               '<label style="display:flex; align-items:center; gap:4px; font-size:14.5px; cursor:pointer;"><input type="checkbox" style="' + cbBoxStyle + '" class="c-day" value="4" '+chk('4')+'>' + (T['LBL_DAY_4'] || '4') + '</label>' +
-                               '<label style="display:flex; align-items:center; gap:4px; font-size:14.5px; cursor:pointer;"><input type="checkbox" style="' + cbBoxStyle + '" class="c-day" value="5" '+chk('5')+'>' + (T['LBL_DAY_5'] || '5') + '</label>' +
-                               '<label style="display:flex; align-items:center; gap:4px; font-size:14.5px; cursor:pointer;"><input type="checkbox" style="' + cbBoxStyle + '" class="c-day" value="6" '+chk('6')+'>' + (T['LBL_DAY_6'] || '6') + '</label>' +
-                               '<label style="display:flex; align-items:center; gap:4px; font-size:14.5px; cursor:pointer;"><input type="checkbox" style="' + cbBoxStyle + '" class="c-day" value="0" '+chk('0')+'>' + (T['LBL_DAY_0'] || '0') + '</label>' +
+                               '<div id="mdl-cron-days" style="display:flex; flex-wrap:wrap; gap:17px; margin-bottom:5px;">' +
+                               '<label style="display:flex; align-items:center; gap:0px; font-size:14.5px; cursor:pointer;"><input type="checkbox" style="' + cbBoxStyle + '" class="c-day" value="1" '+chk('1')+'>' + (T['LBL_DAY_1'] || '1') + '</label>' +
+                               '<label style="display:flex; align-items:center; gap:0px; font-size:14.5px; cursor:pointer;"><input type="checkbox" style="' + cbBoxStyle + '" class="c-day" value="2" '+chk('2')+'>' + (T['LBL_DAY_2'] || '2') + '</label>' +
+                               '<label style="display:flex; align-items:center; gap:0px; font-size:14.5px; cursor:pointer;"><input type="checkbox" style="' + cbBoxStyle + '" class="c-day" value="3" '+chk('3')+'>' + (T['LBL_DAY_3'] || '3') + '</label>' +
+                               '<label style="display:flex; align-items:center; gap:0px; font-size:14.5px; cursor:pointer;"><input type="checkbox" style="' + cbBoxStyle + '" class="c-day" value="4" '+chk('4')+'>' + (T['LBL_DAY_4'] || '4') + '</label>' +
+                               '<label style="display:flex; align-items:center; gap:0px; font-size:14.5px; cursor:pointer;"><input type="checkbox" style="' + cbBoxStyle + '" class="c-day" value="5" '+chk('5')+'>' + (T['LBL_DAY_5'] || '5') + '</label>' +
+                               '<label style="display:flex; align-items:center; gap:0px; font-size:14.5px; cursor:pointer;"><input type="checkbox" style="' + cbBoxStyle + '" class="c-day" value="6" '+chk('6')+'>' + (T['LBL_DAY_6'] || '6') + '</label>' +
+                               '<label style="display:flex; align-items:center; gap:0px; font-size:14.5px; cursor:pointer;"><input type="checkbox" style="' + cbBoxStyle + '" class="c-day" value="0" '+chk('0')+'>' + (T['LBL_DAY_0'] || '0') + '</label>' +
                                '</div></div>';
                                
                     showAdvModal((T['LBL_CRON_REBOOT'] || 'Scheduled Reboot'), html, function(box) {
@@ -1205,7 +1205,49 @@ return view.extend({
             var webTog = container.querySelector('#adv-web-toggle');
             var webPort = container.querySelector('#adv-web-port');
             var lastValidPort = '';
-            
+            var isSaving = false; // 防重复提交锁
+
+            // 校验与保存通道
+            function validateAndSavePort(portStr) {
+                if (isSaving) return;
+
+                var pText = portStr.trim();
+                if (pText !== '') {
+                    var pNum = parseInt(pText);
+                    
+                    // 拦截非法数字范围
+                    if (isNaN(pNum) || pNum < 1 || pNum > 65535) {
+                        openModal({ title: T['M_REP_NOTICE_TIT'] || 'Notice', msg: T['M_PORT_RANGE'] || '⚠️ Port number must be between 1 and 65535', okText: T['M_CLOSE'] || 'Close', hideCancel: true });
+                        webPort.value = lastValidPort; // 恢复旧端口
+                        webTog.checked = false;        // 强制把被点开的开关关回去
+                        return;
+                    }
+                    
+                    // 拦截高危系统端口
+                    var dangerPorts = [21, 22, 23, 53, 67, 68];
+                    if (dangerPorts.indexOf(pNum) !== -1) {
+                        var e1 = T['M_PORT_ERR1'] || '⚠️ For system security, do not use';
+                        var e2 = T['M_PORT_ERR2'] || 'as the external port. It is a reserved high-risk port.';
+                        var sg = T['M_PORT_SUGG'] || 'It is recommended to use 8080 or a port above 10000.';
+                        openModal({ title: T['M_REP_NOTICE_TIT'] || 'Notice', msg: e1 + ' <span style="color:#ef4444; font-weight:bold;">' + pNum + '</span> ' + e2 + '<br><br>' + sg, okText: T['M_CLOSE'] || 'Close', hideCancel: true });
+                        webPort.value = lastValidPort; // 恢复旧端口
+                        webTog.checked = false;        // 强制把被点开的开关关回去
+                        return;
+                    }
+                }
+
+                // 通过所有安检，开始执行保存
+                isSaving = true;
+                var val = pText ? pText : '1';
+                lastValidPort = val;
+                webTog.checked = true; // 确保开关 UI 处于打开状态
+                
+                openModal({ title: T['LBL_ADV_UTILS_TITLE'] || '⚙️ Advanced Utilities', msg: T['MSG_WRITING'] || 'Please wait...', spin: true });
+                var gm2 = document.getElementById('nw-global-modal'); if (gm2) gm2.style.zIndex = '100000';
+                callSetAdvSettings('', val, '', '').then(function() { setTimeout(function(){ window.location.reload(); }, 3500); });
+            }
+
+            // 1. 页面初始化加载历史状态
             callGetAdvSettings().then(function(res) { 
                 if (res) {
                     if (res.last_port && res.last_port !== '80' && res.last_port !== '1' && res.last_port !== '0') {
@@ -1222,59 +1264,36 @@ return view.extend({
                 } 
             });
             
-            // 开关事件优化 打开静默允许输入 关闭则明确弹出重整 3500毫秒防止防火墙重启阻塞UBUS导致WiFi卡片消失
+            // 2. 点击开关事件
             webTog.addEventListener('change', function() { 
                 if (this.checked) {
-                    var p = webPort.value.trim();
-                    callSetAdvSettings('', (p ? p : '1'), '', ''); 
+                    // 开关打开时，强制把框内的值送去中央安检站
+                    validateAndSavePort(webPort.value);
                 } else {
+                    // 开关关闭时
+                    if (isSaving) return;
+                    isSaving = true;
                     openModal({ title: T['LBL_ADV_UTILS_TITLE'] || '⚙️ Advanced Utilities', msg: T['MSG_WRITING'] || 'Please wait...', spin: true });
                     var gm2 = document.getElementById('nw-global-modal'); if (gm2) gm2.style.zIndex = '100000';
-                    // 1500 改為 3500
                     callSetAdvSettings('', '0', '', '').then(function() { setTimeout(function(){ window.location.reload(); }, 3500); });
                 }
             });
 
-            // 监听回车键主动触发失去焦点保存
+            // 3. 回车键主动触发
             webPort.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter') this.blur(); 
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    this.blur(); 
+                }
             });
 
-            // 端口修改保存逻辑 加入200ms避让机制 延长重载时间至3500毫秒
+            // 4. 输入框内容改变且失去焦点事件
             webPort.addEventListener('change', function() {
                 var self = this;
-                var pText = this.value.trim();
-                
                 setTimeout(function() {
+                    // 如果此时开关处于关闭状态，说明用户不想保存，直接退出
                     if (!webTog.checked) return;
-
-                    if (pText !== '') {
-                        var pNum = parseInt(pText);
-                        
-                        if (isNaN(pNum) || pNum < 1 || pNum > 65535) {
-                            openModal({ title: T['M_REP_NOTICE_TIT'] || 'Notice', msg: T['M_PORT_RANGE'] || '⚠️ Port number must be between 1 and 65535', okText: T['M_CLOSE'] || 'Close', hideCancel: true });
-                            self.value = lastValidPort;
-                            return;
-                        }
-                        
-                        var dangerPorts = [21, 22, 23, 53, 67, 68];
-                        if (dangerPorts.indexOf(pNum) !== -1) {
-                            var e1 = T['M_PORT_ERR1'] || '⚠️ For system security, do not use';
-                            var e2 = T['M_PORT_ERR2'] || 'as the external port. It is a reserved high-risk port.';
-                            var sg = T['M_PORT_SUGG'] || 'It is recommended to use 8080 or a port above 10000.';
-                            
-                            openModal({ title: T['M_REP_NOTICE_TIT'] || 'Notice', msg: e1 + ' <span style="color:#ef4444; font-weight:bold;">' + pNum + '</span> ' + e2 + '<br><br>' + sg, okText: T['M_CLOSE'] || 'Close', hideCancel: true });
-                            self.value = lastValidPort;
-                            return;
-                        }
-                    }
-
-                    var val = pText ? pText : '1';
-                    lastValidPort = pText;
-                    
-                    openModal({ title: T['LBL_ADV_UTILS_TITLE'] || '⚙️ Advanced Utilities', msg: T['MSG_WRITING'] || 'Please wait...', spin: true });
-                    var gm2 = document.getElementById('nw-global-modal'); if (gm2) gm2.style.zIndex = '100000';
-                    callSetAdvSettings('', val, '', '').then(function() { setTimeout(function(){ window.location.reload(); }, 3500); });
+                    validateAndSavePort(self.value);
                 }, 200);
             });
         }
@@ -1292,7 +1311,7 @@ return view.extend({
                         var descHtml = '<p style="color:#64748b; font-size:13px; margin-bottom:15px; line-height:1.5;">' + descText + '</p>';
                         
                         var optText = ' (' + (T['M_REP_OPT'] || 'Factory Default') + ')';
-                        var selectHtml = '<select id="nw-repair-select" style="width:100%; height:40px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:14px; outline:none; margin-bottom:10px; background-color: #fff; color: #000;">';
+                        var selectHtml = '<select id="nw-repair-select" style="width:100%; height:40px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:14px; outline:none; margin-bottom:10px; background-color: #fff !important; color: #000;">';
                         res.configs.forEach(function(pluginName) {
                             selectHtml += '<option value="' + pluginName + '">' + pluginName + optText + '</option>';
                         });
@@ -1370,7 +1389,7 @@ return view.extend({
                                     '<div style="display:flex; gap:10px; width:100%; box-sizing:border-box; align-items:center;">' +
                                         '<input type="text" id="nw-quick-cmt" placeholder="' + (T['PH_HOSTS_CMT'] || 'Comment') + '" style="flex:1 1 0%; min-width:0; height:36px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:13px; box-sizing:border-box; background-color: #ffffff !important; color: #000 !important;">' +
                                         '<label style="display:flex; align-items:center; font-size:13px; color:#2563eb; cursor:pointer; flex-shrink:0; user-select:none;" title="' + (T['TIP_SMART_ADD'] || 'Auto-fill IPv4/v6 & www combinations') + '">' +
-                                            '<input type="checkbox" id="nw-smart-add-cb" checked style="top:0px;">' +
+                                            '<input type="checkbox" id="nw-smart-add-cb" checked style="top:0px; background-color: var(--primary) !important;">' +
                                             '<span class="nw-hide-mob">' + (T['LBL_SMART_ADD'] || 'Smart Auto-fill') + '</span>' +
                                         '</label>' +
                                         '<button id="nw-quick-add-btn" class="nw-u-btn" style="flex:0 0 auto; flex-shrink:0; white-space:nowrap; padding:0 15px; height:36px; background:#fff; color:#2563eb; border:1px solid #2563eb; border-radius:6px; font-weight:bold; cursor:pointer; transition:all 0.2s; min-width: 70px; padding: 5px 10px 5px 5px !important;">' + (T['BTN_HOSTS_ADD'] || '➕ Add') + '</button>' +
@@ -3810,7 +3829,7 @@ return view.extend({
                     title: '<div style="position:relative; display:flex; justify-content:center; align-items:center; width:100%;"><span id="btn-restore-close" style="position:absolute; right: 10px; font-size:35px; color:rgba(255,255,255,0.8); cursor:pointer; line-height:1; font-family:Arial,sans-serif; padding:0 5px;" onmouseover="this.style.color=\'#fff\'" onmouseout="this.style.color=\'rgba(255,255,255,0.8)\'">×</span><span>' + T['M_RST_CONFIRM_TIT'] + '</span></div>',
                     msg: '<div style="text-align:left;">' + (T['M_RST_CONFIRM_MSG'] || '') +
                          '    <label style="display:flex; align-items:center; justify-content:center; cursor:pointer; background:#f8fafc; padding:12px; border-radius:8px; border:1px dashed #cbd5e1; margin:0;">' +
-                         '        <input type="checkbox" id="chk-regret-pill" checked style="-webkit-appearance:checkbox !important; appearance:checkbox !important; opacity:1 !important; visibility:visible !important; display:block !important; margin:0 8px 0 0 !important; width:16px !important; height:16px !important; min-width:16px !important; flex-shrink:0 !important; position:static !important; top:auto !important; transform:none !important;">' +
+                         '        <input type="checkbox" id="chk-regret-pill" checked style="-webkit-appearance:checkbox !important; appearance:checkbox !important; opacity:1 !important; visibility:visible !important; display:block !important; margin:0 5px 2px 0 !important; width:16px !important; height:16px !important; min-width:16px !important; flex-shrink:0 !important; position:static !important; top:auto !important; transform:none !important;">' +
                          '        <span style="color:#3b82f6; font-weight:bold; font-size:13.5px; line-height:1.4; text-align:left; display:block;">' + (T['M_RST_REGRET_PILL'] || 'Auto-download current state backup before restore (Regret Pill)') + '</span>' +
                          '    </label>' +
                          '</div>',
