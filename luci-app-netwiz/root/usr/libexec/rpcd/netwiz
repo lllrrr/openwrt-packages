@@ -367,7 +367,14 @@ case "$1" in
                     fi
                     
                     uci commit firewall
-                    /etc/init.d/firewall restart >/dev/null 2>&1 &
+                
+                    # 背景执行防火墙重启与高级应用唤醒防止代理规则被冲刷
+                    (
+                        /etc/init.d/firewall restart >/dev/null 2>&1
+                        # 等待防火墙完全启动后再次唤醒依赖网络的高级应用
+                        sleep 2
+                        restart_depend_apps >/dev/null 2>&1
+                    ) &
                 fi
                 if [ -n "$cron" ]; then
                     touch /etc/crontabs/root
