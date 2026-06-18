@@ -1,0 +1,87 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=10
+USE_PROCD=1
+
+start_service() {
+	local enabled
+	config_load upnp_nat_relay
+	config_get_bool enabled main enabled 0
+
+	[ "$enabled" -eq 0 ] && return 0
+
+	if ! validate_upnp_nat_relay 2>/dev/null; then
+		logger -t upnp_nat_relay -p daemon.err "Configuration validation failed, refusing to start"
+		return 1
+	fi
+
+	mkdir -p /tmp/upnp_nat_relay
+
+	procd_open_instance
+	procd_set_param command /usr/bin/upnp-nat-relay --daemon
+	procd_set_param respawn 3600 5 5
+	procd_set_param stderr 1
+	procd_set_param stdout 1
+	procd_set_param pidfile /var/run/upnp_nat_relay.pid
+	procd_set_param file /etc/config/upnp_nat_relay
+	procd_set_param log "upnp_nat_relay"
+	procd_close_instance
+}
+
+stop_service() {
+	local clear_on_stop
+	config_load upnp_nat_relay
+	config_get_bool clear_on_stop main clear_on_stop 1
+
+	[ "$clear_on_stop" -eq 1 ] && /usr/bin/upnp-nat-relay --clear
+
+	if [ -f /tmp/upnp_nat_relay/status.json ]; then
+		sed -i 's/"running":true/"running":false/; s/"last_result":"[^"]*"/"last_result":"stopped"/' /tmp/upnp_nat_relay/status.json 2>/dev/null
+	fi
+}
+
+service_triggers() {
+	procd_add_reload_trigger "upnp_nat_relay"
+	procd_add_validation validate_upnp_nat_relay
+}
+
+reload_service() {
+	# If the service was disabled, stop it; otherwise do not restart
+	# to avoid clearing nft rules. The daemon picks up config changes
+	# on its next sync cycle via load_config.
+	local enabled
+	config_load upnp_nat_relay
+	config_get_bool enabled main enabled 0
+
+	if [ "$enabled" -eq 0 ]; then
+		stop
+	fi
+}
+
+validate_upnp_nat_relay() {
+	uci_validate_section upnp_nat_relay service main \
+		'enabled:bool' 'interval:uinteger' 'backend:string' \
+		'bind_ifname:string' 'bind_ip:ipaddr' \
+		'downstream_lan_gateway:ipaddr' 'downstream_lan_subnet:string' \
+		'downstream_wan_ip:ipaddr' 'upstream_wan_if:string' \
+		'auto_config_network:bool' 'auto_config_firewall_zone:bool' \
+		'firewall_zone_name:string' \
+		'allowed_external_ports:string' 'protocols:string' \
+		'failure_grace_count:uinteger' 'clear_on_stop:bool' \
+		'dry_run:bool' 'log_level:string' \
+		'deny_low_ports:bool' 'restrict_to_subnet:bool' \
+		'deny_empty_description:bool' 'log_rejected:bool' \
+		'openclash_mode:string' 'openclash_return_strategy:string' \
+		'openclash_backup:bool' 'openclash_rule_remark:string' \
+		'openclash_auto_restart:bool' 'openclash_sync_interval:uinteger'
+
+	uci_validate_section upnp_nat_relay deny_ports default \
+		'port:list(port)'
+
+	uci_validate_section upnp_nat_relay backend upnpc \
+		'enabled:bool' 'command:string' 'timeout:uinteger'
+
+	uci_validate_section upnp_nat_relay backend custom \
+		'enabled:bool' 'command:string' 'output_format:string'
+}

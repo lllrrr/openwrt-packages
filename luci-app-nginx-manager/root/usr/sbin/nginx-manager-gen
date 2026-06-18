@@ -1,0 +1,1462 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-only
+
+SCRIPT_VERSION="@PKG_VERSION@"
+NGINX_MANAGER_CONFIG="/etc/config/nginx_manager"
+MANAGED_DIR=""
+CERT_DIR=""
+BACKUP_DIR=""
+BUILD_DIR="/tmp/nginx-manager-build"
+AUTO_BACKUP=""
+TEST_BEFORE_RELOAD=""
+MAX_BACKUPS=""
+LOCK_FILE="/tmp/nginx-manager-gen.lock"
+NGINX_CONF_PATH=""
+
+log_info() {
+	logger -t nginx-manager -p daemon.info "$1"
+}
+
+log_warn() {
+	logger -t nginx-manager -p daemon.warn "$1"
+}
+
+log_err() {
+	logger -t nginx-manager -p daemon.err "$1"
+}
+
+json_escape() {
+	printf '%s\n' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g' -e 's/</\\u003c/g' -e 's/>/\\u003e/g' -e 's/&/\\u0026/g' | awk 'BEGIN{ORS="\\n"}1' | sed 's/\\n$//'
+}
+
+load_global_config() {
+	MANAGED_DIR="$(uci -q get nginx_manager.global.managed_dir)" || MANAGED_DIR="/etc/nginx/conf.d/luci-manager"
+	CERT_DIR="$(uci -q get nginx_manager.global.cert_dir)" || CERT_DIR="/etc/nginx/certs/luci-manager"
+	BACKUP_DIR="$(uci -q get nginx_manager.global.backup_dir)" || BACKUP_DIR="/etc/nginx-manager/backups"
+	AUTO_BACKUP="$(uci -q get nginx_manager.global.auto_backup)" || AUTO_BACKUP="1"
+	TEST_BEFORE_RELOAD="$(uci -q get nginx_manager.global.test_before_reload)" || TEST_BEFORE_RELOAD="1"
+	MAX_BACKUPS="$(uci -q get nginx_manager.global.max_backups)" || MAX_BACKUPS="10"
+}
+
+validate_port() {
+	echo "$1" | grep -qE '^[0-9]+$' && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+}
+
+validate_domain() {
+	echo "$1" | grep -qE '^[a-zA-Z0-9._-]+$'
+}
+
+is_acme_webroot_cert() {
+	local cert_name="$1"
+	[ -z "${cert_name}" ] && return 1
+	local cert_type validation_method
+	cert_type="$(uci -q get "nginx_manager.${cert_name}.type")" || return 1
+	[ "${cert_type}" = "acme" ] || return 1
+	validation_method="$(uci -q get "nginx_manager.${cert_name}.validation_method")" || validation_method="webroot"
+	[ "${validation_method}" = "webroot" ]
+}
+
+detect_nginx_conf() {
+	[ -n "${NGINX_CONF_PATH}" ] && return
+	if [ -f /etc/nginx/uci.conf ]; then
+		NGINX_CONF_PATH="/etc/nginx/uci.conf"
+	else
+		NGINX_CONF_PATH="/etc/nginx/nginx.conf"
+	fi
+}
+
+is_nginx_running() {
+	# Method 1: PID file (most reliable on OpenWrt)
+	local pid_file="/var/run/nginx.pid"
+	if [ -f "${pid_file}" ]; then
+		local pid
+		pid="$(cat "${pid_file}" 2>/dev/null)"
+		if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
+			return 0
+		fi
+	fi
+	# Method 2: pgrep
+	pgrep -x nginx >/dev/null 2>&1 && return 0
+	# Method 3: ps grep (BusyBox compatible fallback)
+	ps | grep -q '[n]ginx: master' && return 0
+	return 1
+}
+
+get_nginx_version() {
+	nginx -v 2>&1 | sed 's/nginx\///'
+}
+
+has_ssl_module() {
+	nginx -V 2>&1 | grep -q "http_ssl_module"
+}
+
+get_listening_ports() {
+	is_nginx_running || return 0
+	# Try ss first (iproute2), then netstat (BusyBox), then fall back to UCI config
+	local ports
+	ports="$(ss -tlnp 2>/dev/null | grep nginx | awk '{print $4}' | sed 's/.*://' | sort -u | tr '\n' ',' | sed 's/,$//')"
+	if [ -z "${ports}" ]; then
+		ports="$(netstat -tlnp 2>/dev/null | grep nginx | awk '{print $4}' | sed 's/.*://' | sort -u | tr '\n' ',' | sed 's/,$//')"
+	fi
+	if [ -z "${ports}" ]; then
+		# Fallback: read ports from UCI config (works even without ss/netstat -p)
+		. /lib/functions.sh
+		config_load nginx_manager
+		config_foreach _collect_port site
+	fi
+	echo "${ports}"
+}
+
+_collect_port() {
+	local listen_port enabled
+	config_get listen_port "$1" listen_port
+	config_get enabled "$1" enabled "1"
+	# Skip disabled sites (nginx is not listening on them)
+	[ "${enabled}" = "0" ] && return
+	listen_port="${listen_port:-80}"
+	# Deduplicate: only add if not already in the list
+	case ",${ports}," in
+		*",${listen_port},"*) ;;
+		*) ports="${ports:+${ports},}${listen_port}" ;;
+	esac
+}
+
+count_managed_sites() {
+	local count="0"
+	config_load nginx_manager
+	config_foreach _count_site site
+	echo "${count}"
+}
+
+_count_site() {
+	count="$((count + 1))"
+}
+
+count_non_managed_configs() {
+	local count="0"
+	local names=""
+	if [ -d /etc/nginx/conf.d ]; then
+		for f in /etc/nginx/conf.d/*.conf; do
+			[ -f "$f" ] || continue
+			head -3 "$f" | grep -q "luci-app-nginx-manager" || {
+				count="$((count + 1))"
+				names="${names:+${names},}$(basename "$f")"
+			}
+		done
+	fi
+	echo "${count}"
+	echo "${names}"
+}
+
+get_cert_expiry() {
+	local cert_path="$1"
+	[ -f "${cert_path}" ] || return 1
+	local end_date
+	end_date="$(openssl x509 -enddate -noout -in "${cert_path}" 2>/dev/null | cut -d= -f2)"
+	[ -z "${end_date}" ] && return 1
+	local end_epoch now_epoch
+	end_epoch="$(date -d "${end_date}" +%s 2>/dev/null)" || return 1
+	now_epoch="$(date +%s)"
+	echo "$(( (end_epoch - now_epoch) / 86400 ))"
+}
+
+get_script_version() {
+	case "$SCRIPT_VERSION" in
+		@*) ;;
+		*) printf '%s' "$SCRIPT_VERSION"; return ;;
+	esac
+	if command -v apk >/dev/null 2>&1; then
+		apk info --installed luci-app-nginx-manager 2>/dev/null | sed -n 's/.*-\([0-9][0-9.]*\)/\1/p' | head -1
+	elif command -v opkg >/dev/null 2>&1; then
+		opkg info luci-app-nginx-manager 2>/dev/null | sed -n 's/^Version: //p' | head -1
+	fi
+}
+
+create_backup() {
+	[ "$AUTO_BACKUP" = "1" ] || return 0
+
+	local timestamp
+	timestamp="$(date '+%Y-%m-%d-%H%M%S')"
+	local backup_path="${BACKUP_DIR}/${timestamp}"
+
+	mkdir -p "${backup_path}/nginx"
+
+	if [ -d /etc/nginx ]; then
+		cp -a /etc/nginx/* "${backup_path}/nginx/" 2>/dev/null
+	fi
+
+	[ -f /etc/config/nginx ] && cp -a /etc/config/nginx "${backup_path}/config-nginx"
+	[ -f "${NGINX_MANAGER_CONFIG}" ] && cp -a "${NGINX_MANAGER_CONFIG}" "${backup_path}/config-nginx-manager"
+
+	printf '{"timestamp":"%s","source":"nginx-manager-gen","managed_dir":"%s"}\n' \
+		"$(json_escape "${timestamp}")" \
+		"$(json_escape "${MANAGED_DIR}")" \
+		> "${backup_path}/manifest.json"
+
+	cleanup_old_backups
+
+	return 0
+}
+
+cleanup_old_backups() {
+	local count
+	count="$(ls -1d "${BACKUP_DIR}"/20* 2>/dev/null | wc -l)"
+	if [ "${count}" -gt "${MAX_BACKUPS}" ]; then
+		ls -1d "${BACKUP_DIR}"/20* | head -n $((count - MAX_BACKUPS)) | while read -r old_backup; do
+			rm -rf "${old_backup}"
+		done
+	fi
+}
+
+restore_latest_backup() {
+	local latest_backup
+	latest_backup="$(ls -1d "${BACKUP_DIR}"/20* 2>/dev/null | tail -1)"
+	[ -z "${latest_backup}" ] && return 1
+
+	if [ -d "${latest_backup}/nginx" ]; then
+		rm -rf "${MANAGED_DIR:?}"/*
+		cp -a "${latest_backup}/nginx/conf.d/luci-manager/"* "${MANAGED_DIR}/" 2>/dev/null
+	fi
+
+	return 0
+}
+
+test_nginx_config() {
+	detect_nginx_conf
+	nginx -t -c "${NGINX_CONF_PATH}" 2>&1
+	return $?
+}
+
+reload_nginx() {
+	/etc/init.d/nginx reload 2>&1
+	return $?
+}
+
+generate_header() {
+	cat <<EOF
+# Generated by luci-app-nginx-manager.
+# Source: /etc/config/nginx_manager
+# SPDX-License-Identifier: AGPL-3.0-only
+# Do not edit manually unless advanced mode is enabled.
+
+EOF
+}
+
+generate_redirect_block() {
+	local server_name="$1"
+	local listen_addr="$2"
+	local ssl_cert="${3:-}"
+	local listen_port="${4:-443}"
+	local redirect_http_port="${5:-}"
+
+	[ -z "${redirect_http_port}" ] && return 0
+
+	local redirect_target="https://\$host"
+	[ "${listen_port}" != "443" ] && redirect_target="https://\$host:${listen_port}"
+	redirect_target="${redirect_target}\$request_uri"
+
+	if [ -n "${listen_addr}" ]; then
+		cat <<EOF
+server {
+    listen ${listen_addr}:${redirect_http_port};
+    server_name ${server_name};
+EOF
+	else
+		cat <<EOF
+server {
+    listen ${redirect_http_port};
+    listen [::]:${redirect_http_port};
+    server_name ${server_name};
+EOF
+	fi
+
+	if is_acme_webroot_cert "${ssl_cert}"; then
+		cat <<EOF
+
+    location /.well-known/acme-challenge/ {
+        alias /var/run/acme/challenge/;
+        default_type text/plain;
+    }
+
+    location / {
+        return 301 ${redirect_target};
+    }
+}
+EOF
+	else
+		cat <<EOF
+
+    return 301 ${redirect_target};
+}
+EOF
+	fi
+}
+
+generate_ssl_directives() {
+	local cert_name="$1"
+	local section="${2:-}"
+	local cert_path key_path cert_type
+
+	cert_type="$(uci -q get "nginx_manager.${cert_name}.type")" || cert_type="manual"
+
+	# ACME certs always use fullchain.pem for better security (includes intermediate CA chain)
+	if [ "${cert_type}" = "acme" ]; then
+		cert_path="${CERT_DIR}/${cert_name}/fullchain.pem"
+	else
+		cert_path="$(uci -q get "nginx_manager.${cert_name}.cert_path")" || cert_path="${CERT_DIR}/${cert_name}/fullchain.pem"
+	fi
+	key_path="$(uci -q get "nginx_manager.${cert_name}.key_path")" || key_path="${CERT_DIR}/${cert_name}/privkey.pem"
+
+	cat <<EOF
+    ssl_certificate ${cert_path};
+    ssl_certificate_key ${key_path};
+EOF
+
+	local ssl_protocols ssl_ciphers
+	ssl_protocols="$(uci -q get "nginx_manager.${section}.ssl_protocols")" || \
+		ssl_protocols="TLSv1.2 TLSv1.3"
+	ssl_ciphers="$(uci -q get "nginx_manager.${section}.ssl_ciphers")" || \
+		ssl_ciphers="ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305"
+
+	echo "    ssl_protocols ${ssl_protocols};"
+	echo "    ssl_ciphers ${ssl_ciphers};"
+
+	# Let's Encrypt has officially discontinued OCSP support.
+	# OCSP stapling is not available for ACME-issued certificates.
+	if [ "${cert_type}" = "acme" ]; then
+		echo "    # Let's Encrypt has discontinued OCSP, stapling not supported for ACME certs"
+		echo "    ssl_stapling off;"
+	else
+		local ssl_stapling
+		ssl_stapling="$(uci -q get nginx_manager.global.ssl_stapling)" || \
+			ssl_stapling="1"
+		if [ "${ssl_stapling}" = "1" ]; then
+			echo "    ssl_stapling on;"
+			echo "    ssl_stapling_verify on;"
+			echo "    ssl_trusted_certificate ${cert_path};"
+			echo "    resolver 127.0.0.1 valid=300s;"
+			echo "    resolver_timeout 5s;"
+		else
+			echo "    ssl_stapling off;"
+		fi
+	fi
+
+	local custom_ssl_directives
+	custom_ssl_directives="$(uci -q get nginx_manager.global.custom_ssl_directives)" || custom_ssl_directives=""
+	[ -n "${custom_ssl_directives}" ] && echo "    ${custom_ssl_directives}"
+
+	# HSTS (per-site)
+	local hsts_max_age
+	hsts_max_age="$(uci -q get "nginx_manager.${section}.hsts_max_age")" || hsts_max_age=""
+	hsts_max_age="${hsts_max_age:-31536000}"
+	[ "${hsts_max_age}" != "0" ] && \
+		echo "    add_header Strict-Transport-Security \"max-age=${hsts_max_age}\" always;"
+
+	# Security headers (per-site)
+	# All security headers must be in server block because nginx's add_header
+	# in a child context completely overrides all add_header from parent (http) context.
+	local security_headers
+	security_headers="$(uci -q get nginx_manager.global.security_headers)" || security_headers="1"
+	if [ "${security_headers}" = "1" ]; then
+		cat <<EOF
+    add_header X-Frame-Options "DENY" always;
+    add_header Content-Security-Policy "frame-ancestors 'none';" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer" always;
+    add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+EOF
+	fi
+
+	# HTTP/3 Alt-Svc header (only if nginx supports QUIC)
+	local http3
+	http3="$(uci -q get nginx_manager.global.http3)" || http3=""
+	if [ "${http3}" = "1" ] && _nginx_has_v3; then
+		local alt_port
+		alt_port="$(uci -q get "nginx_manager.${section}.listen_port")" || alt_port="443"
+		echo "    add_header Alt-Svc 'h3=\":${alt_port}\"; ma=86400' always;"
+	fi
+}
+
+generate_proxy_headers() {
+	local proxy_host="$1"
+	local proxy_xff="$2"
+	local proxy_xfp="$3"
+	local proxy_xri="$4"
+
+	[ "${proxy_host}" = "1" ] && echo "        proxy_set_header Host \$host;"
+	[ "${proxy_xff}" = "1" ] && echo "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;"
+	[ "${proxy_xri}" = "1" ] && echo "        proxy_set_header X-Real-IP \$remote_addr;"
+	[ "${proxy_xfp}" = "1" ] && echo "        proxy_set_header X-Forwarded-Proto \$scheme;"
+}
+
+generate_websocket_headers() {
+	cat <<EOF
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+EOF
+}
+
+generate_log_directives() {
+	local name="$1"
+	local access_log="$2"
+	local error_log="$3"
+
+	if [ "${access_log}" = "1" ]; then
+		echo "    access_log /var/log/nginx/${name}.access.log;"
+	else
+		echo "    access_log off;"
+	fi
+
+	if [ "${error_log}" = "1" ]; then
+		echo "    error_log /var/log/nginx/${name}.error.log;"
+	fi
+}
+
+generate_grpc_headers() {
+	local proxy_host="$1"
+	local proxy_xri="$4"
+
+	[ "${proxy_host}" = "1" ] && echo "        grpc_set_header Host \$host;"
+	[ "${proxy_xri}" = "1" ] && echo "        grpc_set_header X-Real-IP \$remote_addr;"
+}
+
+generate_custom_proxy_headers() {
+	local custom_headers="$1"
+	[ -z "${custom_headers}" ] && return 0
+	echo "${custom_headers}"
+}
+
+generate_reverse_proxy_site() {
+	local section="$1"
+	local name server_name proxy_pass websocket redirect_https
+	local proxy_host proxy_xff proxy_xfp proxy_xri
+	local ssl_cert access_log error_log enabled
+	local proxy_type custom_proxy_headers listen_addr listen_port
+	local proxy_connect_timeout proxy_read_timeout proxy_send_timeout
+	local redirect_http_port grpc_path grpc_pass http3
+
+	name="$(uci -q get "nginx_manager.${section}.name")" || name="${section}"
+	server_name="$(uci -q get "nginx_manager.${section}.server_name")" || return 1
+	proxy_pass="$(uci -q get "nginx_manager.${section}.proxy_pass")" || return 1
+	websocket="$(uci -q get "nginx_manager.${section}.websocket")" || websocket="0"
+	redirect_https="$(uci -q get "nginx_manager.${section}.redirect_https")" || redirect_https="0"
+	proxy_host="$(uci -q get "nginx_manager.${section}.proxy_host")" || proxy_host="1"
+	proxy_xff="$(uci -q get "nginx_manager.${section}.proxy_xff")" || proxy_xff="1"
+	proxy_xfp="$(uci -q get "nginx_manager.${section}.proxy_xfp")" || proxy_xfp="1"
+	proxy_xri="$(uci -q get "nginx_manager.${section}.proxy_xri")" || proxy_xri="1"
+	ssl_cert="$(uci -q get "nginx_manager.${section}.ssl_cert")" || ssl_cert=""
+	access_log="$(uci -q get "nginx_manager.${section}.access_log")" || access_log="0"
+	error_log="$(uci -q get "nginx_manager.${section}.error_log")" || error_log="1"
+	enabled="$(uci -q get "nginx_manager.${section}.enabled")" || enabled="1"
+	proxy_type="$(uci -q get "nginx_manager.${section}.proxy_type")" || proxy_type="http"
+	custom_proxy_headers="$(uci -q get "nginx_manager.${section}.custom_proxy_headers")" || custom_proxy_headers=""
+	listen_addr="$(uci -q get "nginx_manager.${section}.listen_addr")" || listen_addr=""
+	listen_port="$(uci -q get "nginx_manager.${section}.listen_port")" || listen_port="80"
+	proxy_connect_timeout="$(uci -q get "nginx_manager.${section}.proxy_connect_timeout")" || proxy_connect_timeout=""
+	proxy_read_timeout="$(uci -q get "nginx_manager.${section}.proxy_read_timeout")" || proxy_read_timeout=""
+	proxy_send_timeout="$(uci -q get "nginx_manager.${section}.proxy_send_timeout")" || proxy_send_timeout=""
+	redirect_http_port="$(uci -q get "nginx_manager.${section}.redirect_http_port")" || redirect_http_port=""
+	grpc_path="$(uci -q get "nginx_manager.${section}.grpc_path")" || grpc_path=""
+	grpc_pass="$(uci -q get "nginx_manager.${section}.grpc_pass")" || grpc_pass=""
+	http3="$(uci -q get nginx_manager.global.http3)" || http3=""
+
+	local output_file="${BUILD_DIR}/${name}.conf"
+	{
+		generate_header
+
+		if [ "${redirect_https}" = "1" ] && [ -n "${ssl_cert}" ]; then
+			generate_redirect_block "${server_name}" "${listen_addr}" "${ssl_cert}" "${listen_port}" "${redirect_http_port}"
+			echo ""
+		fi
+
+		echo "server {"
+
+		generate_listen_directives "${section}" "${ssl_cert}"
+
+		if [ -n "${ssl_cert}" ]; then
+			generate_ssl_directives "${ssl_cert}" "${section}"
+			echo "    error_page 497 =301 https://\$host:\$server_port\$request_uri;"
+		fi
+
+		echo "    server_name ${server_name};"
+
+		generate_log_directives "${name}" "${access_log}" "${error_log}"
+
+		if is_acme_webroot_cert "${ssl_cert}"; then
+			echo ""
+			echo "    location /.well-known/acme-challenge/ {"
+			echo "        alias /var/run/acme/challenge/;"
+			echo "        default_type text/plain;"
+			echo "    }"
+		fi
+
+		echo ""
+		echo "    location / {"
+
+		if [ "${proxy_type}" = "grpc" ]; then
+			echo "        grpc_pass ${proxy_pass};"
+			generate_grpc_headers "${proxy_host}" "${proxy_xff}" "${proxy_xfp}" "${proxy_xri}"
+			[ -n "${proxy_connect_timeout}" ] && echo "        grpc_connect_timeout ${proxy_connect_timeout};"
+			[ -n "${proxy_read_timeout}" ] && echo "        grpc_read_timeout ${proxy_read_timeout};"
+			[ -n "${proxy_send_timeout}" ] && echo "        grpc_send_timeout ${proxy_send_timeout};"
+		else
+			if [ "${websocket}" != "1" ] && [ "${proxy_type}" != "websocket" ]; then
+				echo "        proxy_http_version 1.1;"
+			fi
+			echo "        proxy_pass ${proxy_pass};"
+			generate_proxy_headers "${proxy_host}" "${proxy_xff}" "${proxy_xfp}" "${proxy_xri}"
+			echo "        proxy_set_header Connection \"\";"
+			[ -n "${proxy_connect_timeout}" ] && echo "        proxy_connect_timeout ${proxy_connect_timeout};"
+			[ -n "${proxy_read_timeout}" ] && echo "        proxy_read_timeout ${proxy_read_timeout};"
+			[ -n "${proxy_send_timeout}" ] && echo "        proxy_send_timeout ${proxy_send_timeout};"
+
+			if [ "${websocket}" = "1" ] || [ "${proxy_type}" = "websocket" ]; then
+				generate_websocket_headers
+			fi
+		fi
+
+		generate_custom_proxy_headers "${custom_proxy_headers}"
+
+		echo "    }"
+
+		# gRPC Passthrough: when proxy_type=http and grpc_path/grpc_pass are set
+		if [ "${proxy_type}" = "http" ] && [ -n "${grpc_path}" ] && [ -n "${grpc_pass}" ]; then
+			echo ""
+			echo "    location ${grpc_path} {"
+			echo "        grpc_pass ${grpc_pass};"
+			generate_grpc_headers "${proxy_host}" "${proxy_xff}" "${proxy_xfp}" "${proxy_xri}"
+			[ -n "${proxy_connect_timeout}" ] && echo "        grpc_connect_timeout ${proxy_connect_timeout};"
+			[ -n "${proxy_read_timeout}" ] && echo "        grpc_read_timeout ${proxy_read_timeout};"
+			[ -n "${proxy_send_timeout}" ] && echo "        grpc_send_timeout ${proxy_send_timeout};"
+			echo "    }"
+		fi
+
+		echo "}"
+	} > "${output_file}"
+
+	if [ "${enabled}" = "0" ]; then
+		mv "${output_file}" "${BUILD_DIR}/disabled/${name}.conf.disabled"
+	fi
+}
+
+_CURRENT_SSL_CERT=""
+
+# Check if nginx was built with ngx_http_v3_module (QUIC/HTTP3 support)
+_nginx_has_v3() {
+	[ -z "${_NGINX_HAS_V3+x}" ] && {
+		_NGINX_HAS_V3=0
+		nginx -V 2>&1 | grep -q "http_v3_module" && _NGINX_HAS_V3=1
+	}
+	[ "${_NGINX_HAS_V3}" = "1" ]
+}
+
+# Legacy: used for backward compat with old listen list format
+_collect_listen_ports() {
+	local val="$1"
+	if [ -n "${_CURRENT_SSL_CERT}" ] && ! echo "${val}" | grep -qw "ssl"; then
+		val="${val} ssl"
+	fi
+	printf '    listen %s;\n' "${val}"
+}
+
+generate_listen_directives() {
+	local section="$1"
+	local ssl_cert="$2"
+	local listen_addr listen_port ssl_flag="" quic_flag=""
+
+	config_get listen_addr "${section}" listen_addr
+	config_get listen_port "${section}" listen_port
+
+	# Fallback: try old listen list for backward compatibility
+	if [ -z "${listen_port}" ]; then
+		local listen_ports
+		config_get listen_ports "${section}" listen
+		if [ -n "${listen_ports}" ]; then
+			# Use old _collect_listen_ports with auto-ssl
+			_CURRENT_SSL_CERT="${ssl_cert}"
+			config_list_foreach "${section}" listen _collect_listen_ports
+			_CURRENT_SSL_CERT=""
+			return
+		fi
+	fi
+
+	# Default port
+	listen_port="${listen_port:-80}"
+
+	if [ -n "${ssl_cert}" ]; then
+		ssl_flag=" ssl"
+
+		# HTTP/3: quic with reuseport (only once per port)
+		# Requires ngx_http_v3_module — skip if nginx lacks it
+		local http3
+		http3="$(uci -q get nginx_manager.global.http3)" || http3=""
+		if [ "${http3}" = "1" ] && _nginx_has_v3; then
+			case " ${_QUIC_REUSEPORT_PORTS} " in
+				*" ${listen_port} "*)
+					quic_flag=" quic"
+					;;
+				*)
+					quic_flag=" quic reuseport"
+					_QUIC_REUSEPORT_PORTS="${_QUIC_REUSEPORT_PORTS} ${listen_port}"
+					;;
+			esac
+		fi
+	fi
+
+	# Generate listen directives (http2 parameter removed — deprecated since nginx 1.25.1)
+	if [ -n "${listen_addr}" ]; then
+		printf '    listen %s:%s%s;\n' "${listen_addr}" "${listen_port}" "${ssl_flag}"
+		[ -n "${quic_flag}" ] && printf '    listen %s:%s%s;\n' "${listen_addr}" "${listen_port}" "${quic_flag}"
+	else
+		printf '    listen %s%s;\n' "${listen_port}" "${ssl_flag}"
+		printf '    listen [::]:%s%s;\n' "${listen_port}" "${ssl_flag}"
+		if [ -n "${quic_flag}" ]; then
+			printf '    listen %s%s;\n' "${listen_port}" "${quic_flag}"
+			printf '    listen [::]:%s%s;\n' "${listen_port}" "${quic_flag}"
+		fi
+	fi
+}
+
+generate_static_site() {
+	local section="$1"
+	local name server_name root index redirect_https ssl_cert
+	local access_log error_log enabled listen_addr listen_port
+	local redirect_http_port
+
+	name="$(uci -q get "nginx_manager.${section}.name")" || name="${section}"
+	server_name="$(uci -q get "nginx_manager.${section}.server_name")" || return 1
+	root="$(uci -q get "nginx_manager.${section}.root")" || return 1
+	index="$(uci -q get "nginx_manager.${section}.index")" || index="index.html"
+	redirect_https="$(uci -q get "nginx_manager.${section}.redirect_https")" || redirect_https="0"
+	ssl_cert="$(uci -q get "nginx_manager.${section}.ssl_cert")" || ssl_cert=""
+	access_log="$(uci -q get "nginx_manager.${section}.access_log")" || access_log="0"
+	error_log="$(uci -q get "nginx_manager.${section}.error_log")" || error_log="1"
+	enabled="$(uci -q get "nginx_manager.${section}.enabled")" || enabled="1"
+	listen_addr="$(uci -q get "nginx_manager.${section}.listen_addr")" || listen_addr=""
+	listen_port="$(uci -q get "nginx_manager.${section}.listen_port")" || listen_port="80"
+	redirect_http_port="$(uci -q get "nginx_manager.${section}.redirect_http_port")" || redirect_http_port=""
+
+	local output_file="${BUILD_DIR}/${name}.conf"
+	{
+		generate_header
+
+		if [ "${redirect_https}" = "1" ] && [ -n "${ssl_cert}" ]; then
+			generate_redirect_block "${server_name}" "${listen_addr}" "${ssl_cert}" "${listen_port}" "${redirect_http_port}"
+			echo ""
+		fi
+
+		echo "server {"
+
+		generate_listen_directives "${section}" "${ssl_cert}"
+
+		if [ -n "${ssl_cert}" ]; then
+			generate_ssl_directives "${ssl_cert}" "${section}"
+			echo "    error_page 497 =301 https://\$host:\$server_port\$request_uri;"
+		fi
+
+		echo "    server_name ${server_name};"
+		echo ""
+		echo "    root ${root};"
+		echo "    index ${index};"
+
+		generate_log_directives "${name}" "${access_log}" "${error_log}"
+
+		if is_acme_webroot_cert "${ssl_cert}"; then
+			echo ""
+			echo "    location /.well-known/acme-challenge/ {"
+			echo "        alias /var/run/acme/challenge/;"
+			echo "        default_type text/plain;"
+			echo "    }"
+		fi
+
+		echo ""
+		echo "    location / {"
+		echo "        try_files \$uri \$uri/ =404;"
+		echo "    }"
+		echo "}"
+	} > "${output_file}"
+
+	if [ "${enabled}" = "0" ]; then
+		mv "${output_file}" "${BUILD_DIR}/disabled/${name}.conf.disabled"
+	fi
+}
+
+generate_custom_site() {
+	local section="$1"
+	local name custom_block enabled
+
+	name="$(uci -q get "nginx_manager.${section}.name")" || name="${section}"
+	custom_block="$(uci -q get "nginx_manager.${section}.custom_server_block")" || return 1
+	enabled="$(uci -q get "nginx_manager.${section}.enabled")" || enabled="1"
+
+	local output_file="${BUILD_DIR}/${name}.conf"
+	{
+		generate_header
+		echo "${custom_block}"
+	} > "${output_file}"
+
+	if [ "${enabled}" = "0" ]; then
+		mv "${output_file}" "${BUILD_DIR}/disabled/${name}.conf.disabled"
+	fi
+}
+
+generate_redirect_site() {
+	local section="$1"
+	local name server_name redirect_target redirect_https ssl_cert enabled
+	local access_log error_log listen_addr listen_port
+	local redirect_http_port
+
+	name="$(uci -q get "nginx_manager.${section}.name")" || name="${section}"
+	server_name="$(uci -q get "nginx_manager.${section}.server_name")" || return 1
+	redirect_target="$(uci -q get "nginx_manager.${section}.redirect_target")" || return 1
+	redirect_https="$(uci -q get "nginx_manager.${section}.redirect_https")" || redirect_https="0"
+	ssl_cert="$(uci -q get "nginx_manager.${section}.ssl_cert")" || ssl_cert=""
+	access_log="$(uci -q get "nginx_manager.${section}.access_log")" || access_log="0"
+	error_log="$(uci -q get "nginx_manager.${section}.error_log")" || error_log="1"
+	enabled="$(uci -q get "nginx_manager.${section}.enabled")" || enabled="1"
+	listen_addr="$(uci -q get "nginx_manager.${section}.listen_addr")" || listen_addr=""
+	listen_port="$(uci -q get "nginx_manager.${section}.listen_port")" || listen_port="80"
+	redirect_http_port="$(uci -q get "nginx_manager.${section}.redirect_http_port")" || redirect_http_port=""
+
+	local output_file="${BUILD_DIR}/${name}.conf"
+	{
+		generate_header
+
+		if [ "${redirect_https}" = "1" ] && [ -n "${ssl_cert}" ]; then
+			generate_redirect_block "${server_name}" "${listen_addr}" "${ssl_cert}" "${listen_port}" "${redirect_http_port}"
+			echo ""
+		fi
+
+		echo "server {"
+
+		generate_listen_directives "${section}" "${ssl_cert}"
+
+		if [ -n "${ssl_cert}" ]; then
+			generate_ssl_directives "${ssl_cert}" "${section}"
+			echo "    error_page 497 =301 https://\$host:\$server_port\$request_uri;"
+		fi
+
+		echo "    server_name ${server_name};"
+		generate_log_directives "${name}" "${access_log}" "${error_log}"
+
+		if is_acme_webroot_cert "${ssl_cert}"; then
+			echo ""
+			echo "    location /.well-known/acme-challenge/ {"
+			echo "        alias /var/run/acme/challenge/;"
+			echo "        default_type text/plain;"
+			echo "    }"
+			echo ""
+			echo "    location / {"
+			echo "        return 301 ${redirect_target};"
+			echo "    }"
+		else
+			echo ""
+			echo "    return 301 ${redirect_target};"
+		fi
+		echo "}"
+	} > "${output_file}"
+
+	if [ "${enabled}" = "0" ]; then
+		mv "${output_file}" "${BUILD_DIR}/disabled/${name}.conf.disabled"
+	fi
+}
+
+generate_site() {
+	local section="$1"
+	local mode
+
+	mode="$(uci -q get "nginx_manager.${section}.mode")" || mode="reverse_proxy"
+
+	case "${mode}" in
+		reverse_proxy)
+			generate_reverse_proxy_site "${section}"
+			;;
+		static)
+			generate_static_site "${section}"
+			;;
+		custom)
+			generate_custom_site "${section}"
+			;;
+		redirect)
+			generate_redirect_site "${section}"
+			;;
+	esac
+}
+
+generate_upstreams_conf() {
+	local output_file="${BUILD_DIR}/upstreams.conf"
+
+	{
+		generate_header
+
+		config_foreach _generate_single_upstream upstream
+	} > "${output_file}"
+}
+
+_generate_single_upstream() {
+	local section="$1"
+	local name enabled keepalive
+
+	name="$(uci -q get "nginx_manager.${section}.name")" || return 0
+	enabled="$(uci -q get "nginx_manager.${section}.enabled")" || enabled="1"
+	keepalive="$(uci -q get "nginx_manager.${section}.keepalive")" || keepalive=""
+
+	[ "${enabled}" = "0" ] && return 0
+
+	echo "upstream ${name} {"
+
+	config_list_foreach "${section}" server _add_upstream_server
+
+	if [ -n "${keepalive}" ]; then
+		echo "    keepalive ${keepalive};"
+	fi
+
+	echo "}"
+	echo ""
+}
+
+_add_upstream_server() {
+	printf '    server %s;\n' "$1"
+}
+
+# Comment out directives in OpenWrt's nginx UCI files that are also generated
+# into 00-global.conf, to prevent duplicate/conflicting directives when nginx
+# includes both files in the same http{} block.
+# Using comments (with marker) instead of deletion so that:
+#   1. It's clear which lines are managed by nginx-manager
+#   2. The original values are preserved for reference / recovery
+#   3. If nginx-ssl package updates restore the template, the next generate
+#      will re-comment the conflicting lines automatically
+_strip_directives_from_file() {
+	local conf_file="$1"
+	[ -f "${conf_file}" ] || return 0
+
+	local tmp="${conf_file}.tmp"
+
+	# Build the list of directives present in 00-global.conf
+	local directives=""
+	[ -n "${max_body}" ] && directives="${directives} client_max_body_size"
+	[ -n "${keepalive}" ] && directives="${directives} keepalive_timeout"
+	[ -n "${gzip}" ] && directives="${directives} gzip gzip_vary gzip_proxied gzip_types"
+	[ -n "${server_tokens}" ] && directives="${directives} server_tokens"
+	[ -n "${sendfile}" ] && directives="${directives} sendfile"
+	[ -n "${tcp_nopush}" ] && directives="${directives} tcp_nopush"
+	[ -n "${tcp_nodelay}" ] && directives="${directives} tcp_nodelay"
+	[ -n "${access_log}" ] && directives="${directives} access_log"
+	[ -n "${error_log}" ] && directives="${directives} error_log"
+	[ -n "${ssl_session_timeout}" ] && directives="${directives} ssl_session_timeout"
+	[ -n "${ssl_session_cache}" ] && directives="${directives} ssl_session_cache"
+	[ -n "${ssl_session_tickets}" ] && directives="${directives} ssl_session_tickets"
+	[ -n "${ssl_stapling_managed}" ] && directives="${directives} ssl_stapling ssl_stapling_verify resolver resolver_timeout"
+	[ -n "${ssl_buffer_size}" ] && directives="${directives} ssl_buffer_size"
+	[ -n "${http2}" ] && directives="${directives} http2"
+	[ "${http3}" = "1" ] && directives="${directives} http3_stream_buffer_size"
+	directives="${directives} ssl_prefer_server_ciphers"
+
+	[ -z "${directives}" ] && return 0
+
+	# Two-pass sed:
+	#   Pass 1: Remove any existing "#managed-by-nginx-manager " prefix from
+	#           previous runs, restoring original lines.
+	#   Pass 2: Comment out all directive lines that conflict with 00-global.conf.
+	# This ensures idempotency and handles template updates correctly.
+	local sed_pass1="s/#managed-by-nginx-manager //g;"
+
+	local sed_pass2=""
+	local d
+	for d in ${directives}; do
+		sed_pass2="${sed_pass2} /^[[:space:]]*${d}[[:space:]]/s|^[[:space:]]*|#managed-by-nginx-manager |;"
+	done
+
+	sed "${sed_pass1}${sed_pass2}" "${conf_file}" > "${tmp}" || { rm -f "${tmp}"; return 1; }
+
+	# Only overwrite if something actually changed
+	if ! cmp -s "${conf_file}" "${tmp}"; then
+		mv "${tmp}" "${conf_file}"
+	else
+		rm -f "${tmp}"
+	fi
+}
+
+_strip_template_directives() {
+	_strip_directives_from_file "/etc/nginx/uci.conf.template" || return 1
+	# /etc/nginx/uci.conf may already have been rendered from the old template.
+	# Keep the active test target in sync before running nginx -t.
+	_strip_directives_from_file "/etc/nginx/uci.conf" || return 1
+}
+
+# Restore previously commented-out UCI directives when 00-global.conf is no
+# longer being generated (all UCI values empty).
+_restore_directives_in_file() {
+	local conf_file="$1"
+	[ -f "${conf_file}" ] || return 0
+
+	# Quick check: if no marker exists, nothing to restore
+	grep -q "managed-by-nginx-manager" "${conf_file}" 2>/dev/null || return 0
+
+	local tmp="${conf_file}.tmp"
+	sed 's/#managed-by-nginx-manager //g' "${conf_file}" > "${tmp}" || { rm -f "${tmp}"; return 1; }
+
+	if ! cmp -s "${conf_file}" "${tmp}"; then
+		mv "${tmp}" "${conf_file}"
+	else
+		rm -f "${tmp}"
+	fi
+}
+
+_restore_template_directives() {
+	_restore_directives_in_file "/etc/nginx/uci.conf.template" || return 1
+	_restore_directives_in_file "/etc/nginx/uci.conf" || return 1
+}
+
+generate_global_conf() {
+	local output_file="${BUILD_DIR}/00-global.conf"
+	local max_body keepalive gzip
+	local server_tokens sendfile access_log error_log
+	local tcp_nopush tcp_nodelay
+	local ssl_session_timeout ssl_session_cache ssl_buffer_size
+	local ssl_stapling_managed
+	local http2 http3 http3_stream_buffer_size
+
+	max_body="$(uci -q get nginx_manager.global.client_max_body_size)" || max_body=""
+	keepalive="$(uci -q get nginx_manager.global.keepalive_timeout)" || keepalive=""
+	gzip="$(uci -q get nginx_manager.global.gzip)" || gzip=""
+	server_tokens="$(uci -q get nginx_manager.global.server_tokens)" || server_tokens=""
+	sendfile="$(uci -q get nginx_manager.global.sendfile)" || sendfile=""
+	tcp_nopush="$(uci -q get nginx_manager.global.tcp_nopush)" || tcp_nopush=""
+	tcp_nodelay="$(uci -q get nginx_manager.global.tcp_nodelay)" || tcp_nodelay=""
+	access_log="$(uci -q get nginx_manager.global.access_log)" || access_log=""
+	error_log="$(uci -q get nginx_manager.global.error_log)" || error_log=""
+	ssl_session_timeout="$(uci -q get nginx_manager.global.ssl_session_timeout)" || ssl_session_timeout=""
+	local _ssl_session_timeout_set="${ssl_session_timeout}"
+	[ -z "${ssl_session_timeout}" ] && ssl_session_timeout="1d"
+	ssl_session_cache="$(uci -q get nginx_manager.global.ssl_session_cache)" || ssl_session_cache=""
+	local _ssl_session_cache_set="${ssl_session_cache}"
+	[ -z "${ssl_session_cache}" ] && ssl_session_cache="shared:SSL:10m"
+	ssl_session_tickets="$(uci -q get nginx_manager.global.ssl_session_tickets)" || ssl_session_tickets=""
+	local _ssl_session_tickets_set="${ssl_session_tickets}"
+	[ -z "${ssl_session_tickets}" ] && ssl_session_tickets="1"
+	ssl_buffer_size="$(uci -q get nginx_manager.global.ssl_buffer_size)" || ssl_buffer_size=""
+	local _ssl_buffer_size_set="${ssl_buffer_size}"
+	[ -z "${ssl_buffer_size}" ] && ssl_buffer_size="16k"
+	# ssl_stapling is managed per-site in generate_ssl_directives(), but we need to
+	# know if it's enabled globally so _strip_directives_from_file can comment out
+	# conflicting ssl_stapling/resolver directives in the template.
+	ssl_stapling_managed="$(uci -q get nginx_manager.global.ssl_stapling)" || ssl_stapling_managed="1"
+	http2="$(uci -q get nginx_manager.global.http2)" || http2="1"
+	http3="$(uci -q get nginx_manager.global.http3)" || http3=""
+	http3_stream_buffer_size="$(uci -q get nginx_manager.global.http3_stream_buffer_size)" || http3_stream_buffer_size=""
+	local _http3_stream_buffer_size_set="${http3_stream_buffer_size}"
+	[ -z "${http3_stream_buffer_size}" ] && http3_stream_buffer_size="256k"
+
+	[ -z "${max_body}" ] && [ -z "${keepalive}" ] && [ -z "${gzip}" ] && \
+	[ -z "${server_tokens}" ] && [ -z "${sendfile}" ] && \
+	[ -z "${tcp_nopush}" ] && [ -z "${tcp_nodelay}" ] && \
+	[ -z "${access_log}" ] && [ -z "${error_log}" ] && \
+	[ -z "${_ssl_session_timeout_set}" ] && [ -z "${_ssl_session_cache_set}" ] && [ -z "${_ssl_session_tickets_set}" ] && [ -z "${_ssl_buffer_size_set}" ] && \
+	[ -z "${_http3_stream_buffer_size_set}" ] && [ "${http3}" != "1" ] && \
+	{
+		# No directives to generate, restore any previously commented lines
+		_restore_template_directives
+		return 0
+	}
+
+	{
+		generate_header
+
+		[ -n "${max_body}" ] && echo "client_max_body_size ${max_body};"
+		[ -n "${keepalive}" ] && echo "keepalive_timeout ${keepalive};"
+
+		if [ "${gzip}" = "1" ]; then
+			printf 'gzip on;\ngzip_vary on;\ngzip_proxied any;\ngzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript image/svg+xml;\n'
+		elif [ "${gzip}" = "0" ]; then
+			echo "gzip off;"
+		fi
+
+		[ -n "${server_tokens}" ] && echo "server_tokens ${server_tokens};"
+
+		if [ "${sendfile}" = "1" ]; then
+			echo "sendfile on;"
+		elif [ "${sendfile}" = "0" ]; then
+			echo "sendfile off;"
+		fi
+
+		if [ "${tcp_nopush}" = "1" ]; then
+			echo "tcp_nopush on;"
+		elif [ "${tcp_nopush}" = "0" ]; then
+			echo "tcp_nopush off;"
+		fi
+
+		if [ "${tcp_nodelay}" = "1" ]; then
+			echo "tcp_nodelay on;"
+		elif [ "${tcp_nodelay}" = "0" ]; then
+			echo "tcp_nodelay off;"
+		fi
+
+		[ -n "${access_log}" ] && echo "access_log ${access_log};"
+		[ -n "${error_log}" ] && echo "error_log ${error_log};"
+
+		if [ -n "${ssl_session_timeout}" ] || [ -n "${ssl_session_cache}" ] || [ -n "${ssl_session_tickets}" ] || [ -n "${ssl_buffer_size}" ]; then
+			echo ""
+			if [ -n "${ssl_session_timeout}" ]; then
+				echo "ssl_session_timeout ${ssl_session_timeout};"
+			fi
+			if [ -n "${ssl_session_cache}" ]; then
+				echo "ssl_session_cache ${ssl_session_cache};"
+			fi
+			if [ "${ssl_session_tickets}" = "1" ]; then
+				echo "ssl_session_tickets on;"
+			elif [ "${ssl_session_tickets}" = "0" ]; then
+				echo "ssl_session_tickets off;"
+			fi
+			if [ -n "${ssl_buffer_size}" ]; then
+				echo "ssl_buffer_size ${ssl_buffer_size};"
+			fi
+			echo "ssl_prefer_server_ciphers off;"
+		fi
+
+		if [ "${http2}" = "1" ]; then
+			echo "http2 on;"
+		elif [ "${http2}" = "0" ]; then
+			echo "http2 off;"
+		fi
+
+		# HTTP/3 stream buffer size (http level)
+		if [ "${http3}" = "1" ] && _nginx_has_v3; then
+			echo "http3_stream_buffer_size ${http3_stream_buffer_size};"
+		fi
+	} > "${output_file}"
+
+	# Comment out directives from uci.conf.template that are now managed by 00-global.conf
+	# to prevent duplicate directive errors (e.g. client_max_body_size in both files).
+	_strip_template_directives
+}
+
+ensure_include_stub() {
+	case "${MANAGED_DIR}" in
+		/etc/nginx/conf.d/*)
+			local include_name include_file
+			include_name="$(basename "${MANAGED_DIR}")"
+			include_file="/etc/nginx/conf.d/${include_name}.conf"
+			[ "${MANAGED_DIR}" = "/etc/nginx/conf.d" ] && return 0
+
+			cat > "${include_file}" <<EOF
+# Generated by luci-app-nginx-manager.
+# Source: /etc/config/nginx_manager
+# SPDX-License-Identifier: AGPL-3.0-only
+
+include ${MANAGED_DIR}/*.conf;
+include ${MANAGED_DIR}/sites/*.conf;
+EOF
+			;;
+	esac
+}
+
+sync_to_managed_dir() {
+	mkdir -p "${MANAGED_DIR}/sites"
+	mkdir -p "${MANAGED_DIR}/disabled"
+
+	rm -f "${MANAGED_DIR}"/sites/*.conf 2>/dev/null
+	rm -f "${MANAGED_DIR}"/disabled/*.conf.disabled 2>/dev/null
+	rm -f "${MANAGED_DIR}"/00-global.conf 2>/dev/null
+	rm -f "${MANAGED_DIR}"/upstreams.conf 2>/dev/null
+
+	[ -f "${BUILD_DIR}/00-global.conf" ] && cp "${BUILD_DIR}/00-global.conf" "${MANAGED_DIR}/"
+	[ -f "${BUILD_DIR}/upstreams.conf" ] && cp "${BUILD_DIR}/upstreams.conf" "${MANAGED_DIR}/"
+
+	for f in "${BUILD_DIR}"/*.conf; do
+		[ -f "$f" ] || continue
+		local basename
+		basename="$(basename "$f")"
+		[ "${basename}" = "00-global.conf" ] && continue
+		[ "${basename}" = "upstreams.conf" ] && continue
+		cp "$f" "${MANAGED_DIR}/sites/"
+	done
+
+	for f in "${BUILD_DIR}/disabled/"*.conf.disabled; do
+		[ -f "$f" ] || continue
+		cp "$f" "${MANAGED_DIR}/disabled/"
+	done
+
+	ensure_include_stub
+}
+
+generate_all() {
+	load_global_config
+
+	rm -rf "${BUILD_DIR}"
+	mkdir -p "${BUILD_DIR}/sites"
+	mkdir -p "${BUILD_DIR}/disabled"
+
+	. /lib/functions.sh
+	config_load nginx_manager
+
+	# Track reuseport per port (only one reuseport allowed per port)
+	_QUIC_REUSEPORT_PORTS=""
+
+	generate_global_conf
+	generate_upstreams_conf
+	config_foreach generate_site site
+
+	sync_to_managed_dir
+
+	rm -rf "${BUILD_DIR}"
+
+	return 0
+}
+
+apply_config() {
+	load_global_config
+
+	exec 9>"${LOCK_FILE}"
+	if ! flock -n 9; then
+		log_warn "Another apply process is running, skipping"
+		printf '{"success":false,"error":"another_apply_running"}\n'
+		exec 9>&-
+		return 1
+	fi
+
+	create_backup
+
+	generate_all
+
+	if [ "${TEST_BEFORE_RELOAD}" = "1" ]; then
+		if ! test_nginx_config >/dev/null 2>&1; then
+			local test_output
+			test_output="$(test_nginx_config 2>&1)"
+			restore_latest_backup
+			if test_nginx_config >/dev/null 2>&1; then
+				reload_nginx >/dev/null 2>&1
+			fi
+			log_err "Configuration test failed: ${test_output}"
+			printf '{"success":false,"error":"config_test_failed","detail":"%s"}\n' "$(json_escape "${test_output}")"
+			exec 9>&-
+			return 1
+		fi
+	fi
+
+	local reload_output
+	reload_output="$(reload_nginx 2>&1)"
+	local reload_exit=$?
+
+	if [ "${reload_exit}" -ne 0 ]; then
+		log_err "Nginx reload failed: ${reload_output}"
+		printf '{"success":false,"error":"reload_failed","detail":"%s"}\n' "$(json_escape "${reload_output}")"
+		exec 9>&-
+		return 1
+	fi
+
+	date '+%Y-%m-%d %H:%M:%S' > /tmp/nginx-manager-last-reload
+	log_info "Configuration applied and nginx reloaded"
+
+	exec 9>&-
+	return 0
+}
+
+render_single_site() {
+	local section="$1"
+	local mode name
+
+	mode="$(uci -q get "nginx_manager.${section}.mode")" || mode="reverse_proxy"
+	name="$(uci -q get "nginx_manager.${section}.name")" || name="${section}"
+
+	load_global_config
+
+	rm -rf "${BUILD_DIR}"
+	mkdir -p "${BUILD_DIR}/sites"
+	mkdir -p "${BUILD_DIR}/disabled"
+
+	. /lib/functions.sh
+	config_load nginx_manager
+
+	generate_site "${section}"
+
+	if [ -f "${BUILD_DIR}/${name}.conf" ]; then
+		cat "${BUILD_DIR}/${name}.conf"
+	elif [ -f "${BUILD_DIR}/disabled/${name}.conf.disabled" ]; then
+		cat "${BUILD_DIR}/disabled/${name}.conf.disabled"
+	fi
+
+	rm -rf "${BUILD_DIR}"
+}
+
+do_status() {
+	local cache_file="/tmp/nginx-manager-status.json"
+	local cache_ttl=5
+
+	if [ -f "${cache_file}" ]; then
+		local cache_mtime
+		cache_mtime=$(stat -c%Y "${cache_file}" 2>/dev/null || echo 0)
+		local now
+		now=$(date +%s)
+		if [ $((now - cache_mtime)) -lt "${cache_ttl}" ]; then
+			cat "${cache_file}"
+			return
+		fi
+	fi
+
+	local running="0"
+	is_nginx_running && running="1"
+
+	local version
+	version="$(get_nginx_version)"
+
+	local ssl_mod="0"
+	has_ssl_module && ssl_mod="1"
+
+	local ports
+	ports="$(get_listening_ports)"
+
+	. /lib/functions.sh
+	config_load nginx_manager
+
+	local managed
+	managed="$(count_managed_sites)"
+
+	local non_managed_output non_managed non_managed_names
+	non_managed_output="$(count_non_managed_configs)"
+	non_managed="$(echo "${non_managed_output}" | head -1)"
+	non_managed_names="$(echo "${non_managed_output}" | sed -n '2p')"
+
+	local last_test="unknown"
+	if [ -f /tmp/nginx-manager-last-test ]; then
+		last_test="$(cat /tmp/nginx-manager-last-test)"
+	fi
+
+	local last_reload="unknown"
+	if [ -f /tmp/nginx-manager-last-reload ]; then
+		last_reload="$(cat /tmp/nginx-manager-last-reload)"
+	fi
+
+	local result
+	result=$(printf '{"running":"%s","version":"%s","ssl_module":"%s","listening_ports":"%s","managed_sites":"%s","non_managed_configs":"%s","non_managed_names":"%s","last_test_result":"%s","last_reload":"%s"}\n' \
+		"${running}" \
+		"$(json_escape "${version}")" \
+		"${ssl_mod}" \
+		"$(json_escape "${ports}")" \
+		"${managed}" \
+		"${non_managed}" \
+		"$(json_escape "${non_managed_names}")" \
+		"$(json_escape "${last_test}")" \
+		"$(json_escape "${last_reload}")")
+	printf '%s\n' "${result}" | tee "${cache_file}"
+}
+
+package_installed() {
+	local pkg="$1"
+
+	if command -v apk >/dev/null 2>&1; then
+		apk info -e "${pkg}" >/dev/null 2>&1 && return 0
+	fi
+
+	if command -v opkg >/dev/null 2>&1; then
+		opkg status "${pkg}" 2>/dev/null | grep -q '^Status: .* installed' && return 0
+	fi
+
+	return 1
+}
+
+do_check_env() {
+	local cache_file="/tmp/nginx-manager-env.json"
+	local cache_ttl=300
+
+	if [ -f "${cache_file}" ]; then
+		local cache_mtime
+		cache_mtime=$(stat -c%Y "${cache_file}" 2>/dev/null || echo 0)
+		local now
+		now=$(date +%s)
+		if [ $((now - cache_mtime)) -lt "${cache_ttl}" ]; then
+			cat "${cache_file}"
+			return
+		fi
+	fi
+
+	local _nginx_ssl=0
+	local _openssl_util=0
+	local _acme=0
+	local _acme_dnsapi=0
+	local _initd_nginx=0
+	local _uci_template=0
+	local _nginx_quic=0
+
+	# Cache nginx -V output to avoid running it twice
+	local _nginx_v_output=""
+	if command -v nginx >/dev/null 2>&1; then
+		_nginx_v_output="$(nginx -V 2>&1)"
+	fi
+	if [ -n "${_nginx_v_output}" ]; then
+		echo "${_nginx_v_output}" | grep -q "http_ssl_module" && _nginx_ssl=1
+		echo "${_nginx_v_output}" | grep -q "http_v3_module" && _nginx_quic=1
+	fi
+
+	if command -v openssl >/dev/null 2>&1; then
+		_openssl_util=1
+	fi
+
+	if [ -x /etc/init.d/acme ]; then
+		_acme=1
+	fi
+
+	if [ -d /usr/lib/acme/dnsapi ] || [ -d /usr/lib/acme/client/dnsapi ]; then
+		_acme_dnsapi=1
+	fi
+
+	if [ -x /etc/init.d/nginx ]; then
+		_initd_nginx=1
+	fi
+
+	if [ -f /etc/nginx/uci.conf.template ]; then
+		_uci_template=1
+	fi
+
+	local _openwrt_version=""
+	if [ -f /etc/openwrt_release ]; then
+		_openwrt_version="$(grep 'DISTRIB_RELEASE' /etc/openwrt_release 2>/dev/null | cut -d"'" -f2)"
+	fi
+	if [ -f /etc/os-release ]; then
+		local _os_version
+		_os_version="$(grep '^VERSION=' /etc/os-release 2>/dev/null | cut -d'"' -f2)"
+		if [ -n "$_os_version" ]; then
+			_openwrt_version="$_os_version"
+		fi
+	fi
+
+	local _pkg_manager="unknown"
+	if command -v apk >/dev/null 2>&1; then
+		_pkg_manager="apk"
+	elif command -v opkg >/dev/null 2>&1; then
+		_pkg_manager="opkg"
+	fi
+
+	local _version
+	_version="$(get_script_version)"
+	[ -z "${_version}" ] && _version="unknown"
+
+	local result
+	result=$(printf '{"nginx_ssl":%d,"openssl_util":%d,"acme":%d,"acme_dnsapi":%d,"initd_nginx":%d,"uci_template":%d,"nginx_quic":%d,"openwrt_version":"%s","package_manager":"%s","version":"%s"}\n' \
+		"${_nginx_ssl}" \
+		"${_openssl_util}" \
+		"${_acme}" \
+		"${_acme_dnsapi}" \
+		"${_initd_nginx}" \
+		"${_uci_template}" \
+		"${_nginx_quic}" \
+		"$(json_escape "${_openwrt_version}")" \
+		"$(json_escape "${_pkg_manager}")" \
+		"$(json_escape "${_version}")")
+	printf '%s\n' "${result}" | tee "${cache_file}"
+}
+
+do_test_config() {
+	detect_nginx_conf
+	local test_output
+	test_output="$(nginx -t -c "${NGINX_CONF_PATH}" 2>&1)"
+	local test_exit=$?
+
+	if [ "${test_exit}" -eq 0 ]; then
+		echo "pass" > /tmp/nginx-manager-last-test
+	else
+		echo "fail" > /tmp/nginx-manager-last-test
+	fi
+
+	date '+%Y-%m-%d %H:%M:%S' >> /tmp/nginx-manager-last-test
+
+	printf '{"success":"%s","output":"%s"}\n' \
+		"$([ "${test_exit}" -eq 0 ] && echo '1' || echo '0')" \
+		"$(json_escape "${test_output}")"
+}
+
+do_reload() {
+	local reload_output
+	reload_output="$(/etc/init.d/nginx reload 2>&1)"
+	local reload_exit=$?
+
+	date '+%Y-%m-%d %H:%M:%S' > /tmp/nginx-manager-last-reload
+
+	if [ "${reload_exit}" -eq 0 ]; then
+		log_info "Nginx reloaded"
+	else
+		log_err "Nginx reload failed: ${reload_output}"
+	fi
+
+	printf '{"success":"%s","output":"%s"}\n' \
+		"$([ "${reload_exit}" -eq 0 ] && echo '1' || echo '0')" \
+		"$(json_escape "${reload_output}")"
+}
+
+do_restart() {
+	local restart_output
+	restart_output="$(/etc/init.d/nginx restart 2>&1)"
+	local restart_exit=$?
+
+	date '+%Y-%m-%d %H:%M:%S' > /tmp/nginx-manager-last-reload
+
+	if [ "${restart_exit}" -eq 0 ]; then
+		log_info "Nginx restarted"
+	else
+		log_err "Nginx restart failed: ${restart_output}"
+	fi
+
+	printf '{"success":"%s","output":"%s"}\n' \
+		"$([ "${restart_exit}" -eq 0 ] && echo '1' || echo '0')" \
+		"$(json_escape "${restart_output}")"
+}
+
+do_start() {
+	local start_output
+	start_output="$(/etc/init.d/nginx start 2>&1)"
+	local start_exit=$?
+
+	if [ "${start_exit}" -eq 0 ]; then
+		log_info "Nginx started"
+		date '+%Y-%m-%d %H:%M:%S' > /tmp/nginx-manager-last-reload
+	else
+		log_err "Nginx start failed: ${start_output}"
+	fi
+
+	printf '{"success":"%s","output":"%s"}\n' \
+		"$([ "${start_exit}" -eq 0 ] && echo '1' || echo '0')" \
+		"$(json_escape "${start_output}")"
+}
+
+case "$1" in
+	generate)
+		generate_all
+		;;
+	apply)
+		apply_config
+		;;
+	render)
+		[ -n "$2" ] && render_single_site "$2"
+		;;
+	test)
+		test_nginx_config
+		;;
+	backup)
+		load_global_config
+		create_backup
+		;;
+	--status)
+		do_status
+		;;
+	--check-env)
+		do_check_env
+		;;
+	--test-config)
+		do_test_config
+		;;
+	--reload)
+		do_reload
+		;;
+	--restart)
+		do_restart
+		;;
+	--start)
+		do_start
+		;;
+	*)
+		echo "Usage: $0 {generate|apply|render <section>|test|backup|--status|--check-env|--test-config|--reload|--restart|--start}" >&2
+		exit 1
+		;;
+esac

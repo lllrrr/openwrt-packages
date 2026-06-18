@@ -1,0 +1,236 @@
+#!/bin/sh
+
+PATH="/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+export PATH
+
+[ -f /lib/functions.sh ] && . /lib/functions.sh
+
+RPCD_VERSION="@PKG_VERSION@"
+UPNP_NAT_RELAY_BIN="/usr/bin/upnp-nat-relay"
+STATUS_FILE="/tmp/upnp_nat_relay/status.json"
+INIT_SCRIPT="/etc/init.d/upnp_nat_relay"
+
+service_action() {
+	action="$1"
+
+	case "$action" in
+		start|restart)
+			_current_enabled="$(uci -q get upnp_nat_relay.main.enabled 2>/dev/null)"
+			if [ "${_current_enabled}" = "0" ]; then
+				# One-shot mode: run sync once without modifying enabled
+				_sync_result="$("$UPNP_NAT_RELAY_BIN" --sync 2>/dev/null)" || true
+				printf '{"success":true,"action":"oneshot","running":false,"sync":%s}\n' "${_sync_result:-{\"success\":false}}"
+				return 0
+			fi
+			# Normal mode: ensure enabled=1 and start daemon
+			# Only uci set+commit if not already enabled to avoid
+			# triggering an extra procd reload
+			if [ "${_current_enabled}" != "1" ]; then
+				uci set upnp_nat_relay.main.enabled='1' 2>/dev/null
+				uci commit upnp_nat_relay 2>/dev/null
+				"$INIT_SCRIPT" enable >/dev/null 2>&1
+			fi
+			;;
+		stop)
+			_current_enabled="$(uci -q get upnp_nat_relay.main.enabled 2>/dev/null)"
+			if [ "${_current_enabled}" != "0" ]; then
+				uci set upnp_nat_relay.main.enabled='0' 2>/dev/null
+				uci commit upnp_nat_relay 2>/dev/null
+			fi
+			;;
+	esac
+
+	case "$action" in
+		start)
+			"$INIT_SCRIPT" start >/dev/null 2>&1
+			_rc=$?
+			;;
+		stop)
+			"$INIT_SCRIPT" stop >/dev/null 2>&1
+			_rc=$?
+			;;
+		restart)
+			"$INIT_SCRIPT" restart >/dev/null 2>&1
+			_rc=$?
+			;;
+		*)
+			echo '{"success":false,"error":"unknown_action"}'
+			return 0
+			;;
+	esac
+
+	if [ "$_rc" -ne 0 ]; then
+		printf '{"success":false,"action":"%s","error":"init_action_failed","rc":%d}\n' "$action" "$_rc"
+		return 0
+	fi
+
+	_wait=0
+	while [ "$_wait" -lt 4 ]; do
+		if [ "$action" = "stop" ]; then
+			if ! "$INIT_SCRIPT" status >/dev/null 2>&1; then
+				printf '{"success":true,"action":"%s","running":false}\n' "$action"
+				return 0
+			fi
+		else
+			if "$INIT_SCRIPT" status >/dev/null 2>&1; then
+				printf '{"success":true,"action":"%s","running":true}\n' "$action"
+				return 0
+			fi
+		fi
+		sleep 1
+		_wait=$((_wait + 1))
+	done
+
+	if [ "$action" = "stop" ]; then
+		printf '{"success":false,"action":"%s","error":"service_still_running"}\n' "$action"
+	else
+		printf '{"success":false,"action":"%s","error":"service_not_running"}\n' "$action"
+	fi
+}
+
+read_call_payload() {
+	_payload="$1"
+	if [ -z "$_payload" ] && [ ! -t 0 ]; then
+		IFS= read -r _payload || true
+	fi
+	printf '%s' "$_payload"
+}
+
+case "$1" in
+	list)
+		cat <<'EOF'
+{
+	"status": {},
+	"refresh-env": {},
+	"check-env": {},
+	"check-network": {},
+	"network-cache": {},
+	"dry-run": {},
+	"generate-openclash-rule": {},
+	"openclash-rule-cache": {},
+	"read-log": { "level": "level" },
+	"clear-log": {},
+	"sync-now": {},
+	"clear": {},
+	"start": {},
+	"stop": {},
+	"restart": {},
+	"setup-interface": {},
+	"fix-zone": {},
+	"setup-openclash": {},
+	"restart-openclash": {},
+	"remove-openclash-rule": {},
+	"sync-openclash": {},
+	"rollback": {},
+	"version": {}
+}
+EOF
+		;;
+	call)
+		method="$2"
+		case "$method" in
+			status)
+				_out="$("$UPNP_NAT_RELAY_BIN" --status 2>/dev/null)" || true
+				_out="${_out:-{\"running\":false,\"last_sync\":\"\",\"last_result\":\"unknown\",\"backend\":\"\",\"read_count\":0,\"accepted_count\":0,\"rejected_count\":0,\"failure_count\":0,\"accepted\":[],\"rejected\":[],\"last_error\":\"Status file not found\"}}"
+				_ll="$(uci_get upnp_nat_relay.main.log_level 2>/dev/null)"
+				_ll="${_ll:-info}"
+				case "$_out" in
+					*}) printf '%s\n' "$(printf '%s' "$_out" | sed 's/}$/,"log_level":"'"$_ll"'"}/')" ;;
+					*)  printf '%s\n' "$_out" ;;
+				esac
+				;;
+			refresh-env)
+				_out="$("$UPNP_NAT_RELAY_BIN" --refresh-env 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"nft_table_status\":\"-\",\"openclash_status\":\"-\",\"version\":\"-\",\"openwrt_version\":\"\",\"package_manager\":\"unknown\",\"firewall\":\"unknown\",\"fw4\":0,\"nft\":0,\"upnpc\":0,\"luci\":0,\"openclash_installed\":0,\"openclash_running\":0,\"openclash_has_access_control\":0,\"updated_at\":\"\"}}"
+				;;
+			check-env)
+				_out="$("$UPNP_NAT_RELAY_BIN" --check-env 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"error\":\"check-env failed\"}}"
+				;;
+			check-network)
+				_out="$("$UPNP_NAT_RELAY_BIN" --check-network 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"error\":\"check-network failed\"}}"
+				;;
+			network-cache)
+				_out="$("$UPNP_NAT_RELAY_BIN" --network-cache 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"cached\":0,\"updated_at\":\"\"}}"
+				;;
+			dry-run)
+				_out="$("$UPNP_NAT_RELAY_BIN" --dry-run 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"error\":\"dry-run failed\"}}"
+				;;
+			generate-openclash-rule)
+				_out="$("$UPNP_NAT_RELAY_BIN" --generate-openclash-rule 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"error\":\"generate-openclash-rule failed\"}}"
+				;;
+			openclash-rule-cache)
+				_out="$("$UPNP_NAT_RELAY_BIN" --openclash-rule-cache 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"cached\":false,\"updated_at\":\"\",\"openclash_suggestion\":{}}}"
+				;;
+			read-log)
+				_rl_payload="$(read_call_payload "$3")"
+				_rl_level="$(printf '%s' "$_rl_payload" | sed -n 's/.*"level"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+				_out="$("$UPNP_NAT_RELAY_BIN" --read-log ${_rl_level:+"$_rl_level"} 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"success\":false,\"error\":\"read-log failed\",\"logs\":\"\"}}"
+				;;
+			clear-log)
+				_out="$("$UPNP_NAT_RELAY_BIN" --clear-log 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"success\":false,\"error\":\"clear-log failed\"}}"
+				;;
+			sync-now)
+				_out="$("$UPNP_NAT_RELAY_BIN" --sync 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"success\":false,\"error\":\"sync_failed\"}}"
+				;;
+			clear)
+				_out="$("$UPNP_NAT_RELAY_BIN" --clear 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"success\":false,\"error\":\"clear failed\"}}"
+				;;
+			start)
+				service_action start
+				;;
+			stop)
+				service_action stop
+				;;
+			restart)
+				service_action restart
+				;;
+			setup-interface)
+				_out="$("$UPNP_NAT_RELAY_BIN" --setup-interface 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"success\":false,\"error\":\"setup-interface failed\"}}"
+				;;
+			fix-zone)
+				_out="$("$UPNP_NAT_RELAY_BIN" --fix-zone 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"success\":false,\"error\":\"fix-zone failed\"}}"
+				;;
+			setup-openclash)
+				_out="$("$UPNP_NAT_RELAY_BIN" --setup-openclash 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"success\":false,\"error\":\"setup-openclash failed\"}}"
+				;;
+			restart-openclash)
+				_out="$("$UPNP_NAT_RELAY_BIN" --restart-openclash 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"restarted\":false,\"error\":\"restart_openclash_failed\"}}"
+				;;
+			remove-openclash-rule)
+				_out="$("$UPNP_NAT_RELAY_BIN" --remove-openclash-rule 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"success\":false,\"error\":\"remove-openclash-rule failed\"}}"
+				;;
+			sync-openclash)
+				_out="$("$UPNP_NAT_RELAY_BIN" --sync-openclash 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"success\":false,\"error\":\"sync-openclash failed\"}}"
+				;;
+			rollback)
+				_out="$("$UPNP_NAT_RELAY_BIN" --rollback 2>/dev/null)" || true
+				printf '%s\n' "${_out:-{\"success\":false,\"error\":\"rollback failed\"}}"
+				;;
+			version)
+				printf '{"version":"%s"}\n' "$RPCD_VERSION"
+				;;
+			*)
+				echo '{"error":"unknown_method"}'
+				;;
+		esac
+		;;
+	*)
+		echo '{"error":"invalid_usage"}'
+		;;
+esac

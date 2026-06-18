@@ -1,0 +1,19 @@
+{
+	"luci-app-upnp-nat-relay": {
+		"description": "Grant access to UPnP NAT Relay",
+		"read": {
+			"ubus": {
+				"upnp_nat_relay": [ "status", "refresh-env", "check-env", "check-network", "network-cache", "dry-run", "openclash-rule-cache", "read-log", "version" ]
+			},
+			"uci": [ "upnp_nat_relay" ],
+			"file": [ "/tmp/upnp_nat_relay/*" ]
+		},
+		"write": {
+			"ubus": {
+				"upnp_nat_relay": [ "sync-now", "clear", "clear-log", "start", "stop", "restart", "setup-interface", "fix-zone", "generate-openclash-rule", "setup-openclash", "restart-openclash", "remove-openclash-rule", "sync-openclash", "rollback" ],
+				"luci": [ "setInitAction" ]
+			},
+			"uci": [ "upnp_nat_relay" ]
+		}
+	}
+}

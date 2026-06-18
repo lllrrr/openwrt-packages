@@ -1,0 +1,78 @@
+{
+	"admin/services/upnp_nat_relay": {
+		"title": "UPnP NAT Relay",
+		"order": 60,
+		"action": {
+			"type": "alias",
+			"path": "admin/services/upnp_nat_relay/overview"
+		},
+		"depends": {
+			"acl": [ "luci-app-upnp-nat-relay" ],
+			"uci": { "upnp_nat_relay": true }
+		}
+	},
+	"admin/services/upnp_nat_relay/overview": {
+		"title": "Overview",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "upnp-nat-relay/overview"
+		}
+	},
+	"admin/services/upnp_nat_relay/wizard": {
+		"title": "Setup Wizard",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "upnp-nat-relay/wizard"
+		}
+	},
+	"admin/services/upnp_nat_relay/settings": {
+		"title": "Settings",
+		"order": 25,
+		"action": {
+			"type": "view",
+			"path": "upnp-nat-relay/settings"
+		}
+	},
+	"admin/services/upnp_nat_relay/network": {
+		"title": "Network",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "upnp-nat-relay/network"
+		}
+	},
+	"admin/services/upnp_nat_relay/security": {
+		"title": "Security",
+		"order": 40,
+		"action": {
+			"type": "view",
+			"path": "upnp-nat-relay/security"
+		}
+	},
+	"admin/services/upnp_nat_relay/mappings": {
+		"title": "Mappings",
+		"order": 50,
+		"action": {
+			"type": "view",
+			"path": "upnp-nat-relay/mappings"
+		}
+	},
+	"admin/services/upnp_nat_relay/openclash": {
+		"title": "OpenClash",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "upnp-nat-relay/openclash"
+		}
+	},
+	"admin/services/upnp_nat_relay/diagnostics": {
+		"title": "Logs",
+		"order": 70,
+		"action": {
+			"type": "view",
+			"path": "upnp-nat-relay/diagnostics"
+		}
+	}
+}

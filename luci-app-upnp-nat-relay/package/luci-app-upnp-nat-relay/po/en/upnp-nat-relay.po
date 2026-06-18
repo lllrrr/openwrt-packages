@@ -1,0 +1,1443 @@
+
+
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-upnp-nat-relay\n"
+"PO-Revision-Date: 2026-06-13 00:00+0000\n"
+"Last-Translator: yunshu\n"
+"Language-Team: English\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "UPnP NAT Relay"
+msgstr "UPnP NAT Relay"
+
+msgid "Overview"
+msgstr "Overview"
+
+msgid "Setup Wizard"
+msgstr "Setup Wizard"
+
+msgid "Network"
+msgstr "Network"
+
+msgid "Security"
+msgstr "Security"
+
+msgid "Mappings"
+msgstr "Mappings"
+
+msgid "OpenClash"
+msgstr "OpenClash"
+
+msgid "Logs"
+msgstr "Logs"
+
+msgid "Running"
+msgstr "Running"
+
+msgid "Stopped"
+msgstr "Stopped"
+
+msgid "Plugin Version"
+msgstr "Plugin Version"
+
+msgid "Last Sync Time"
+msgstr "Last Sync Time"
+
+msgid "Last Sync Result"
+msgstr "Last Sync Result"
+
+msgid "Read Mappings"
+msgstr "Read Mappings"
+
+msgid "Synced Mappings"
+msgstr "Synced Mappings"
+
+msgid "Rejected Mappings"
+msgstr "Rejected Mappings"
+
+msgid "Consecutive Failures"
+msgstr "Consecutive Failures"
+
+msgid "Current Backend"
+msgstr "Current Backend"
+
+msgid "Present"
+msgstr "Present"
+
+msgid "Installed (Stopped)"
+msgstr "Installed (Stopped)"
+
+msgid "Not Installed"
+msgstr "Not Installed"
+
+msgid "Service Control"
+msgstr "Service Control"
+
+msgid "Start"
+msgstr "Start"
+
+msgid "Failed to start service: "
+msgstr "Failed to start service: "
+
+msgid "Service stopped unexpectedly: "
+msgstr "Service stopped unexpectedly: "
+
+msgid "Service stopped unexpectedly. Check logs for details."
+msgstr "Service stopped unexpectedly. Check logs for details."
+
+msgid "Stop"
+msgstr "Stop"
+
+msgid "Service stopped."
+msgstr "Service stopped."
+
+msgid "Failed to stop service: "
+msgstr "Failed to stop service: "
+
+msgid "Restart"
+msgstr "Restart"
+
+msgid "Failed to restart service: "
+msgstr "Failed to restart service: "
+
+msgid "Sync Now"
+msgstr "Sync Now"
+
+msgid "Sync triggered."
+msgstr "Sync triggered."
+
+msgid "Sync completed: %d read, %d accepted, %d rejected."
+msgstr "Sync completed: %d read, %d accepted, %d rejected."
+
+msgid "Sync completed: %d read, 0 accepted, %d rejected. Check rejected mappings for details."
+msgstr "Sync completed: %d read, 0 accepted, %d rejected. Check rejected mappings for details."
+
+msgid "Sync completed: 0 mappings read from downstream router. Ensure the downstream router has UPnP mappings."
+msgstr "Sync completed: 0 mappings read from downstream router. Ensure the downstream router has UPnP mappings."
+
+msgid "Sync failed: %s"
+msgstr "Sync failed: %s"
+
+msgid "Clear Rules"
+msgstr "Clear Rules"
+
+msgid "Dynamic rules cleared."
+msgstr "Dynamic rules cleared."
+
+msgid "Failed to clear rules: "
+msgstr "Failed to clear rules: "
+
+msgid "Safe Mode (Detect Only)"
+msgstr "Safe Mode (Detect Only)"
+
+msgid "Auto Mode (Apply Changes)"
+msgstr "Auto Mode (Apply Changes)"
+
+msgid "Step %d of %d"
+msgstr "Step %d of %d"
+
+msgid "Select the interface connected to the downstream router LAN side."
+msgstr "Select the interface connected to the downstream router LAN side."
+
+msgid "This interface is only for reading UPnP mappings. Do not set it as default gateway."
+msgstr "This interface is only for reading UPnP mappings. Do not set it as default gateway."
+
+msgid "Enter or auto-detect the IP address on the selected interface."
+msgstr "Enter or auto-detect the IP address on the selected interface."
+
+msgid "Auto Detect"
+msgstr "Auto Detect"
+
+msgid "Could not auto-detect IP."
+msgstr "Could not auto-detect IP."
+
+msgid "Enter the downstream router LAN gateway IP address."
+msgstr "Enter the downstream router LAN gateway IP address."
+
+msgid "Testing ping to downstream LAN gateway..."
+msgstr "Testing ping to downstream LAN gateway..."
+
+msgid "Ping to gateway successful"
+msgstr "Ping to gateway successful"
+
+msgid "Ping to gateway failed"
+msgstr "Ping to gateway failed"
+
+msgid "Check that the interface is connected and the firewall zone allows output."
+msgstr "Check that the interface is connected and the firewall zone allows output."
+
+msgid "Network check failed"
+msgstr "Network check failed"
+
+msgid "Testing UPnP IGD discovery via upnpc..."
+msgstr "Testing UPnP IGD discovery via upnpc..."
+
+msgid "UPnP IGD discovered, %d mapping(s) found"
+msgstr "UPnP IGD discovered, %d mapping(s) found"
+
+msgid "UPnP IGD discovery failed"
+msgstr "UPnP IGD discovery failed"
+
+msgid "Ensure the downstream router has UPnP enabled and the interface IP is on its LAN side."
+msgstr "Ensure the downstream router has UPnP enabled and the interface IP is on its LAN side."
+
+msgid "UPnP check failed"
+msgstr "UPnP check failed"
+
+msgid "Enter the downstream router WAN IP address (used as DNAT target)."
+msgstr "Enter the downstream router WAN IP address (used as DNAT target)."
+
+msgid "Select the upstream WAN interface for DNAT rules."
+msgstr "Select the upstream WAN interface for DNAT rules."
+
+msgid "Set the allowed external port range for synchronization."
+msgstr "Set the allowed external port range for synchronization."
+
+msgid "It is NOT recommended to use 1-65535 as the allowed range."
+msgstr "It is NOT recommended to use 1-65535 as the allowed range."
+
+msgid "Configure OpenClash RETURN rule for bypassing transparent proxy on forwarded ports."
+msgstr "Configure OpenClash RETURN rule for bypassing transparent proxy on forwarded ports."
+
+msgid "Off (Do not handle OpenClash)"
+msgstr "Off (Do not handle OpenClash)"
+
+msgid "Prompt (Show suggested rules only)"
+msgstr "Prompt (Show suggested rules only)"
+
+msgid "Auto (Automatically write rules)"
+msgstr "Auto (Automatically write rules)"
+
+msgid "Auto mode will write RETURN rules to OpenClash configuration. A backup will be created before any changes."
+msgstr "Auto mode will write RETURN rules to OpenClash configuration. A backup will be created before any changes."
+
+msgid "Review your configuration and enable the service."
+msgstr "Review your configuration and enable the service."
+
+msgid "Interface"
+msgstr "Interface"
+
+msgid "Interface IP"
+msgstr "Interface IP"
+
+msgid "Downstream LAN Gateway"
+msgstr "Downstream LAN Gateway"
+
+msgid "Downstream LAN Subnet"
+msgstr "Downstream LAN Subnet"
+
+msgid "Downstream WAN IP"
+msgstr "Downstream WAN IP"
+
+msgid "Upstream WAN Interface"
+msgstr "Upstream WAN Interface"
+
+msgid "Allowed Ports"
+msgstr "Allowed Ports"
+
+msgid "OpenClash Mode"
+msgstr "OpenClash Mode"
+
+msgid "UCI Changes Preview"
+msgstr "UCI Changes Preview"
+
+msgid "Yes"
+msgstr "Yes"
+
+msgid "No"
+msgstr "No"
+
+msgid "Previous"
+msgstr "Previous"
+
+msgid "Next"
+msgstr "Next"
+
+msgid "Invalid IP address format. Please enter a valid IPv4 address (e.g. 192.168.1.50)."
+msgstr "Invalid IP address format. Please enter a valid IPv4 address (e.g. 192.168.1.50)."
+
+msgid "Invalid gateway IP address format."
+msgstr "Invalid gateway IP address format."
+
+msgid "Invalid WAN IP address format."
+msgstr "Invalid WAN IP address format."
+
+msgid "Invalid port range format. Use format like 40000-65535."
+msgstr "Invalid port range format. Use format like 40000-65535."
+
+msgid "Apply Configuration"
+msgstr "Apply Configuration"
+
+msgid "Save Configuration"
+msgstr "Save Configuration"
+
+msgid "Configuration saved successfully."
+msgstr "Configuration saved successfully."
+
+msgid "Auto configuration applied."
+msgstr "Auto configuration applied."
+
+msgid "Configuration failed: "
+msgstr "Configuration failed: "
+
+msgid "Network Interface"
+msgstr "Network Interface"
+
+msgid "Status"
+msgstr "Status"
+
+msgid "Configuration"
+msgstr "Configuration"
+
+msgid "Read Interface"
+msgstr "Read Interface"
+
+msgid "device"
+msgstr "device"
+
+msgid "Select the interface connected to the downstream router LAN side. The underlying device is resolved automatically."
+msgstr "Select the interface connected to the downstream router LAN side. The underlying device is resolved automatically."
+
+msgid "IP address on the read interface. Leave empty to auto-detect from the selected read interface."
+msgstr "IP address on the read interface. Leave empty to auto-detect from the selected read interface."
+
+msgid "Downstream router LAN subnet (CIDR). Leave empty to auto-detect from the selected read interface."
+msgstr "Downstream router LAN subnet (CIDR). Leave empty to auto-detect from the selected read interface."
+
+msgid "Downstream router WAN IP (DNAT target). Leave empty and run Detect to auto-fill it from UPnP when available."
+msgstr "Downstream router WAN IP (DNAT target). Leave empty and run Detect to auto-fill it from UPnP when available."
+
+msgid "Select the OpenWrt logical WAN interface for DNAT rules. Leave empty to auto-detect from the default route; the underlying device is resolved automatically."
+msgstr "Select the OpenWrt logical WAN interface for DNAT rules. Leave empty to auto-detect from the default route; the underlying device is resolved automatically."
+
+msgid "Interface Status"
+msgstr "Interface Status"
+
+msgid "Interface exists"
+msgstr "Interface exists"
+
+msgid "Interface not found"
+msgstr "Interface not found"
+
+msgid "IP Status"
+msgstr "IP Status"
+
+msgid "IP configured"
+msgstr "IP configured"
+
+msgid "IP not configured"
+msgstr "IP not configured"
+
+msgid "Default Route Risk"
+msgstr "Default Route Risk"
+
+msgid "Default route points to read interface!"
+msgstr "Default route points to read interface!"
+
+msgid "The read interface should NOT be a default gateway."
+msgstr "The read interface should NOT be a default gateway."
+
+msgid "No default route risk"
+msgstr "No default route risk"
+
+msgid "Gateway Setting"
+msgstr "Gateway Setting"
+
+msgid "Gateway is set: %s"
+msgstr "Gateway is set: %s"
+
+msgid "The read interface should not have a gateway configured."
+msgstr "The read interface should not have a gateway configured."
+
+msgid "No gateway set"
+msgstr "No gateway set"
+
+msgid "DNS Setting"
+msgstr "DNS Setting"
+
+msgid "DNS is set: %s"
+msgstr "DNS is set: %s"
+
+msgid "No DNS set"
+msgstr "No DNS set"
+
+msgid "Extra Forwarding"
+msgstr "Extra Forwarding"
+
+msgid "Unnecessary forwarding detected"
+msgstr "Unnecessary forwarding detected"
+
+msgid "No extra forwarding"
+msgstr "No extra forwarding"
+
+msgid "Hint"
+msgstr "Hint"
+
+msgid "The read interface is only for reading UPnP mappings from the downstream router. It should NOT have a default gateway, DNS, or be bridged with the main LAN."
+msgstr "The read interface is only for reading UPnP mappings from the downstream router. It should NOT have a default gateway, DNS, or be bridged with the main LAN."
+
+msgid "Network Actions"
+msgstr "Network Actions"
+
+msgid "Detect Network"
+msgstr "Detect Network"
+
+msgid "Detect"
+msgstr "Detect"
+
+msgid "Network detection completed."
+msgstr "Network detection completed."
+
+msgid "Detection failed: "
+msgstr "Detection failed: "
+
+msgid "Configure Interface"
+msgstr "Configure Interface"
+
+msgid "Auto Configure"
+msgstr "Auto Configure"
+
+msgid "Interface configured. Check the status tab for details."
+msgstr "Interface configured. Check the status tab for details."
+
+msgid "Interface configuration failed: "
+msgstr "Interface configuration failed: "
+
+msgid "Firewall Zone"
+msgstr "Firewall Zone"
+
+msgid "Zone Status"
+msgstr "Zone Status"
+
+msgid "Zone Configuration"
+msgstr "Zone Configuration"
+
+msgid "Current Zone"
+msgstr "Current Zone"
+
+msgid "Input Policy"
+msgstr "Input Policy"
+
+msgid "(should be ACCEPT)"
+msgstr "(should be ACCEPT)"
+
+msgid "Zone not found"
+msgstr "Zone not found"
+
+msgid "Output Policy"
+msgstr "Output Policy"
+
+msgid "Forward Policy"
+msgstr "Forward Policy"
+
+msgid "(should be REJECT)"
+msgstr "(should be REJECT)"
+
+msgid "Masquerading"
+msgstr "Masquerading"
+
+msgid "Disabled"
+msgstr "Disabled"
+
+msgid "Enabled (should be Disabled)"
+msgstr "Enabled (should be Disabled)"
+
+msgid "Recommendation"
+msgstr "Recommendation"
+
+msgid "Recommended zone settings:"
+msgstr "Recommended zone settings:"
+
+msgid "This allows the router to access the downstream LAN for UPnP reading while preventing unwanted forwarding."
+msgstr "This allows the router to access the downstream LAN for UPnP reading while preventing unwanted forwarding."
+
+msgid "Zone Name"
+msgstr "Zone Name"
+
+msgid "Name of the firewall zone for the read interface."
+msgstr "Name of the firewall zone for the read interface."
+
+msgid "Zone Actions"
+msgstr "Zone Actions"
+
+msgid "Fix Zone"
+msgstr "Fix Zone"
+
+msgid "Fix Zone Settings"
+msgstr "Fix Zone Settings"
+
+msgid "Zone settings fixed."
+msgstr "Zone settings fixed."
+
+msgid "Zone fix failed: "
+msgstr "Zone fix failed: "
+
+msgid "Create Independent Zone"
+msgstr "Create Independent Zone"
+
+msgid "Create Zone"
+msgstr "Create Zone"
+
+msgid "Zone created successfully."
+msgstr "Zone created successfully."
+
+msgid "Zone creation failed: "
+msgstr "Zone creation failed: "
+
+msgid "Port Range & Protocol"
+msgstr "Port Range & Protocol"
+
+msgid "Allowed External Port Range"
+msgstr "Allowed External Port Range"
+
+msgid "Port range allowed for synchronization (e.g. 40000-65535)."
+msgstr "Port range allowed for synchronization (e.g. 40000-65535)."
+
+msgid "Allowed Protocols"
+msgstr "Allowed Protocols"
+
+msgid "Select which protocols to allow for synchronization."
+msgstr "Select which protocols to allow for synchronization."
+
+msgid "Deny Rules"
+msgstr "Deny Rules"
+
+msgid "Denied Ports"
+msgstr "Denied Ports"
+
+msgid "Deny Low Ports (0-1023)"
+msgstr "Deny Low Ports (0-1023)"
+
+msgid "Deny all privileged ports (0-1023). It is NOT recommended to sync these ports."
+msgstr "Deny all privileged ports (0-1023). It is NOT recommended to sync these ports."
+
+msgid "Source Filtering"
+msgstr "Source Filtering"
+
+msgid "Restrict to Downstream LAN Subnet"
+msgstr "Restrict to Downstream LAN Subnet"
+
+msgid "Only allow mappings with internal IPs in the downstream LAN subnet."
+msgstr "Only allow mappings with internal IPs in the downstream LAN subnet."
+
+msgid "Deny Empty Description Mappings"
+msgstr "Deny Empty Description Mappings"
+
+msgid "Reject mappings without a description. These may be suspicious."
+msgstr "Reject mappings without a description. These may be suspicious."
+
+msgid "Log Rejected Mappings"
+msgstr "Log Rejected Mappings"
+
+msgid "Write rejected mappings to the system log."
+msgstr "Write rejected mappings to the system log."
+
+msgid "Security Warnings"
+msgstr "Security Warnings"
+
+msgid "Low Port Warning"
+msgstr "Low Port Warning"
+
+msgid "It is NOT recommended to synchronize ports 0-1023. These are privileged ports and should not be exposed via UPnP."
+msgstr "It is NOT recommended to synchronize ports 0-1023. These are privileged ports and should not be exposed via UPnP."
+
+msgid "Sensitive Port Warning"
+msgstr "Sensitive Port Warning"
+
+msgid "It is NOT recommended to synchronize sensitive ports such as 80, 443, 22, 53, 445, 3389. These are commonly used for web servers, SSH, DNS, file sharing, and remote desktop."
+msgstr "It is NOT recommended to synchronize sensitive ports such as 80, 443, 22, 53, 445, 3389. These are commonly used for web servers, SSH, DNS, file sharing, and remote desktop."
+
+msgid "Wide Range Warning"
+msgstr "Wide Range Warning"
+
+msgid "It is NOT recommended to use 1-65535 as the allowed port range. This would effectively create a DMZ, which defeats the purpose of this plugin."
+msgstr "It is NOT recommended to use 1-65535 as the allowed port range. This would effectively create a DMZ, which defeats the purpose of this plugin."
+
+msgid "Refresh"
+msgstr "Refresh"
+
+msgid "Read UPnP Mappings (Raw)"
+msgstr "Read UPnP Mappings (Raw)"
+
+msgid "Protocol"
+msgstr "Protocol"
+
+msgid "External Port"
+msgstr "External Port"
+
+msgid "Internal IP"
+msgstr "Internal IP"
+
+msgid "Internal Port"
+msgstr "Internal Port"
+
+msgid "Description"
+msgstr "Description"
+
+msgid "Accepted"
+msgstr "Accepted"
+
+msgid "Rejected"
+msgstr "Rejected"
+
+msgid "No mappings found."
+msgstr "No mappings found."
+
+msgid "Synced Mappings (DNAT)"
+msgstr "Synced Mappings (DNAT)"
+
+msgid "Public Port"
+msgstr "Public Port"
+
+msgid "DNAT Target"
+msgstr "DNAT Target"
+
+msgid "Source Mapping"
+msgstr "Source Mapping"
+
+msgid "Active"
+msgstr "Active"
+
+msgid "No synced mappings."
+msgstr "No synced mappings."
+
+msgid "Reject Reason"
+msgstr "Reject Reason"
+
+msgid "No rejected mappings."
+msgstr "No rejected mappings."
+
+msgid "OpenClash Compatibility"
+msgstr "OpenClash Compatibility"
+
+msgid "OpenClash Status"
+msgstr "OpenClash Status"
+
+msgid "OpenClash Installed"
+msgstr "OpenClash Installed"
+
+msgid "Installed"
+msgstr "Installed"
+
+msgid "OpenClash Running"
+msgstr "OpenClash Running"
+
+msgid "Not Running"
+msgstr "Not Running"
+
+msgid "Source Access Control Detected"
+msgstr "Source Access Control Detected"
+
+msgid "Detected"
+msgstr "Detected"
+
+msgid "Not Detected"
+msgstr "Not Detected"
+
+msgid "Existing Matching Rule"
+msgstr "Existing Matching Rule"
+
+msgid "Rule exists"
+msgstr "Rule exists"
+
+msgid "No matching rule found"
+msgstr "No matching rule found"
+
+msgid "Rule Preview"
+msgstr "Rule Preview"
+
+msgid "Internal Address:"
+msgstr "Internal Address:"
+
+msgid "Internal Ports:"
+msgstr "Internal Ports:"
+
+msgid "Source Address"
+msgstr "Source Address"
+
+msgid "Source Ports"
+msgstr "Source Ports"
+
+msgid "Action"
+msgstr "Action"
+
+msgid "Remark"
+msgstr "Remark"
+
+msgid "OpenClash Configuration"
+msgstr "OpenClash Configuration"
+
+msgid "Auto Write Mode"
+msgstr "Auto Write Mode"
+
+msgid "Control how OpenClash RETURN rules are handled."
+msgstr "Control how OpenClash RETURN rules are handled."
+
+msgid "Off - Do not handle OpenClash"
+msgstr "Off - Do not handle OpenClash"
+
+msgid "Prompt - Show suggested rules only"
+msgstr "Prompt - Show suggested rules only"
+
+msgid "Auto - Automatically write rules"
+msgstr "Auto - Automatically write rules"
+
+msgid "RETURN Strategy"
+msgstr "RETURN Strategy"
+
+msgid "Port Pool RETURN (recommended)"
+msgstr "Port Pool RETURN (recommended)"
+
+msgid "Rule Remark"
+msgstr "Rule Remark"
+
+msgid "Remark text for the OpenClash RETURN rule."
+msgstr "Remark text for the OpenClash RETURN rule."
+
+msgid "Backup Before Write"
+msgstr "Backup Before Write"
+
+msgid "Create a backup of OpenClash configuration before writing rules."
+msgstr "Create a backup of OpenClash configuration before writing rules."
+
+msgid "Auto Restart OpenClash After Rule Write"
+msgstr "Auto Restart OpenClash After Rule Write"
+
+msgid "Backup Status"
+msgstr "Backup Status"
+
+msgid "OpenClash Actions"
+msgstr "OpenClash Actions"
+
+msgid "Generate Rule"
+msgstr "Generate Rule"
+
+msgid "Generate RETURN Rule"
+msgstr "Generate RETURN Rule"
+
+msgid "Rule"
+msgstr "Rule"
+
+msgid "Generating..."
+msgstr "Generating..."
+
+msgid "Rule preview refreshed."
+msgstr "Rule preview refreshed."
+
+msgid "Write to OpenClash"
+msgstr "Write to OpenClash"
+
+msgid "Write OpenClash Rule"
+msgstr "Write OpenClash Rule"
+
+msgid "OpenClash rule written and service restarted. Changes are now active."
+msgstr "OpenClash rule written and service restarted. Changes are now active."
+
+msgid "OpenClash rule written. OpenClash is not running, so it was not restarted. The rule will take effect when OpenClash starts."
+msgstr "OpenClash rule written. OpenClash is not running, so it was not restarted. The rule will take effect when OpenClash starts."
+
+msgid "OpenClash rule written. OpenClash is currently disabled (possibly by another tool like CloudflareSpeedTest), so it was not restarted to avoid interference."
+msgstr "OpenClash rule written. OpenClash is currently disabled (possibly by another tool like CloudflareSpeedTest), so it was not restarted to avoid interference."
+
+msgid "OpenClash rule written, but restart may have failed. Please check OpenClash status manually."
+msgstr "OpenClash rule written, but restart may have failed. Please check OpenClash status manually."
+
+msgid "OpenClash rule written. You need to restart OpenClash for changes to take effect."
+msgstr "OpenClash rule written. You need to restart OpenClash for changes to take effect."
+
+msgid "Failed to write OpenClash rule: "
+msgstr "Failed to write OpenClash rule: "
+
+msgid "Remove Plugin Rule"
+msgstr "Remove Plugin Rule"
+
+msgid "Plugin rule removed from OpenClash."
+msgstr "Plugin rule removed from OpenClash."
+
+msgid "Failed to remove rule: "
+msgstr "Failed to remove rule: "
+
+msgid "Backup OpenClash Config"
+msgstr "Backup OpenClash Config"
+
+msgid "Backup"
+msgstr "Backup"
+
+msgid "Backup is created automatically before writing rules."
+msgstr "Backup is created automatically before writing rules."
+
+msgid "Restore Backup"
+msgstr "Restore Backup"
+
+msgid "Restore"
+msgstr "Restore"
+
+msgid "OpenClash configuration restored from backup."
+msgstr "OpenClash configuration restored from backup."
+
+msgid "No backup found and no matching rules to remove."
+msgstr "No backup found and no matching rules to remove."
+
+msgid "Plugin rules removed from OpenClash via UCI."
+msgstr "Plugin rules removed from OpenClash via UCI."
+
+msgid "Restore failed: "
+msgstr "Restore failed: "
+
+msgid "Environment Detection"
+msgstr "Environment Detection"
+
+msgid "OpenWrt Version"
+msgstr "OpenWrt Version"
+
+msgid "Package Manager"
+msgstr "Package Manager"
+
+msgid "Firewall"
+msgstr "Firewall"
+
+msgid "nft"
+msgstr "nft"
+
+msgid "Missing"
+msgstr "Missing"
+
+msgid "upnpc"
+msgstr "upnpc"
+
+msgid "LuCI"
+msgstr "LuCI"
+
+msgid "Environment detection completed."
+msgstr "Environment detection completed."
+
+msgid "UPnP IGD Read"
+msgstr "UPnP IGD Read"
+
+msgid "Warning"
+msgstr "Warning"
+
+msgid "Failed"
+msgstr "Failed"
+
+msgid "Network check failed: "
+msgstr "Network check failed: "
+
+msgid "Recent Logs"
+msgstr "Recent Logs"
+
+msgid "No logs found."
+msgstr "No logs found."
+
+msgid "Failed to read logs: "
+msgstr "Failed to read logs: "
+
+msgid "System log reader is not available on this device."
+msgstr "System log reader is not available on this device."
+
+msgid "Last Error: "
+msgstr "Last Error: "
+
+msgid "Missing Dependencies & Fix Commands"
+msgstr "Missing Dependencies & Fix Commands"
+
+msgid "Missing dependencies: "
+msgstr "Missing dependencies: "
+
+msgid "All dependencies are installed."
+msgstr "All dependencies are installed."
+
+msgid "Rollback & Cleanup"
+msgstr "Rollback & Cleanup"
+
+msgid "Warning: Rollback operations will remove configurations created by this plugin. Proceed with caution."
+msgstr "Warning: Rollback operations will remove configurations created by this plugin. Proceed with caution."
+
+msgid "Are you sure you want to undo all initialization? This will remove all plugin-created configurations (interface, zone, OpenClash rules, nftables rules)."
+msgstr "Are you sure you want to undo all initialization? This will remove all plugin-created configurations (interface, zone, OpenClash rules, nftables rules)."
+
+msgid "All plugin configurations and rules have been removed."
+msgstr "All plugin configurations and rules have been removed."
+
+msgid "Rollback failed: "
+msgstr "Rollback failed: "
+
+msgid "Undo All Initialization"
+msgstr "Undo All Initialization"
+
+msgid "Remove OpenClash rules created by this plugin?"
+msgstr "Remove OpenClash rules created by this plugin?"
+
+msgid "OpenClash rules removed."
+msgstr "OpenClash rules removed."
+
+msgid "Failed: "
+msgstr "Failed: "
+
+msgid "Remove OpenClash Rules"
+msgstr "Remove OpenClash Rules"
+
+msgid "Clear all dynamic nftables rules?"
+msgstr "Clear all dynamic nftables rules?"
+
+msgid "Clear nftables Rules"
+msgstr "Clear nftables Rules"
+
+msgid "Detecting..."
+msgstr "Detecting..."
+
+msgid "Auto-detect failed: "
+msgstr "Auto-detect failed: "
+
+msgid "IP address on the read interface. Must be on the same subnet as the downstream router LAN."
+msgstr "IP address on the read interface. Must be on the same subnet as the downstream router LAN."
+
+msgid "The LAN-side gateway IP address of the downstream router."
+msgstr "The LAN-side gateway IP address of the downstream router."
+
+msgid "Downstream router LAN subnet in CIDR format, used for source filtering."
+msgstr "Downstream router LAN subnet in CIDR format, used for source filtering."
+
+msgid "Downstream router WAN IP address, used as the DNAT rule target."
+msgstr "Downstream router WAN IP address, used as the DNAT rule target."
+
+msgid "Select the OpenWrt logical WAN interface for DNAT rules. The underlying device is resolved automatically."
+msgstr "Select the OpenWrt logical WAN interface for DNAT rules. The underlying device is resolved automatically."
+
+msgid "Port range allowed for synchronization. Using 1-65535 is NOT recommended as it effectively creates a DMZ."
+msgstr "Port range allowed for synchronization. Using 1-65535 is NOT recommended as it effectively creates a DMZ."
+
+msgid "Control how OpenClash transparent proxy affects forwarded ports."
+msgstr "Control how OpenClash transparent proxy affects forwarded ports."
+
+msgid "Please select an interface."
+msgstr "Please select an interface."
+
+msgid "Interface IP is required."
+msgstr "Interface IP is required."
+
+msgid "Downstream LAN Gateway is required."
+msgstr "Downstream LAN Gateway is required."
+
+msgid "Downstream LAN Subnet is required."
+msgstr "Downstream LAN Subnet is required."
+
+msgid "Invalid subnet format. Please use CIDR notation (e.g. 192.168.1.0/24)."
+msgstr "Invalid subnet format. Please use CIDR notation (e.g. 192.168.1.0/24)."
+
+msgid "Downstream WAN IP is required."
+msgstr "Downstream WAN IP is required."
+
+msgid "Please select an upstream WAN interface."
+msgstr "Please select an upstream WAN interface."
+
+msgid "Allowed external ports is required."
+msgstr "Allowed external ports is required."
+
+msgid "%s is required."
+msgstr "%s is required."
+
+msgid "Invalid Interface IP address format."
+msgstr "Invalid Interface IP address format."
+
+msgid "Invalid subnet format."
+msgstr "Invalid subnet format."
+
+msgid "e.g. 192.168.1.50"
+msgstr "e.g. 192.168.1.50"
+
+msgid "e.g. 192.168.1.1"
+msgstr "e.g. 192.168.1.1"
+
+msgid "e.g. 192.168.1.0/24"
+msgstr "e.g. 192.168.1.0/24"
+
+msgid "e.g. 192.168.2.2"
+msgstr "e.g. 192.168.2.2"
+
+msgid "e.g. 40000-65535"
+msgstr "e.g. 40000-65535"
+
+msgid "Network detection completed. Click the Status tab to view results."
+msgstr "Network detection completed. Click the Status tab to view results."
+
+msgid "Configuring..."
+msgstr "Configuring..."
+
+msgid "Applying..."
+msgstr "Applying..."
+
+msgid "Creating..."
+msgstr "Creating..."
+
+msgid "Checking..."
+msgstr "Checking..."
+
+msgid "Loading..."
+msgstr "Loading..."
+
+msgid "Auto mode: interface and firewall will be configured before testing."
+msgstr "Auto mode: interface and firewall will be configured before testing."
+
+msgid "Safe mode: testing with current network state. If the interface is not configured yet, tests may fail."
+msgstr "Safe mode: testing with current network state. If the interface is not configured yet, tests may fail."
+
+msgid "Network check error: "
+msgstr "Network check error: "
+
+msgid "Interface does not exist. Check the interface name."
+msgstr "Interface does not exist. Check the interface name."
+
+msgid "Interface IP is not configured on the interface. Use Auto mode or configure the interface manually."
+msgstr "Interface IP is not configured on the interface. Use Auto mode or configure the interface manually."
+
+msgid "Interface IP is not configured on the interface. UPnP discovery requires a valid interface IP."
+msgstr "Interface IP is not configured on the interface. UPnP discovery requires a valid interface IP."
+
+msgid "UPnP check error: "
+msgstr "UPnP check error: "
+
+msgid "Unknown error"
+msgstr "Unknown error"
+
+msgid "GitHub"
+msgstr "GitHub"
+
+msgid "Last Env Check"
+msgstr "Last Env Check"
+
+msgid "Refresh Env"
+msgstr "Refresh Env"
+
+msgid "Environment detection refreshed."
+msgstr "Environment detection refreshed."
+
+msgid "Failed to refresh environment: "
+msgstr "Failed to refresh environment: "
+
+msgid "Clear Logs"
+msgstr "Clear Logs"
+
+msgid "Clear system log buffer? This will clear ALL system logs, not just plugin logs."
+msgstr "Clear system log buffer? This will clear ALL system logs, not just plugin logs."
+
+msgid "Clearing..."
+msgstr "Clearing..."
+
+msgid "Log buffer cleared."
+msgstr "Log buffer cleared."
+
+msgid "Failed to clear logs: "
+msgstr "Failed to clear logs: "
+
+msgid "Reachable"
+msgstr "Reachable"
+
+msgid "Unreachable"
+msgstr "Unreachable"
+
+msgid "Readable"
+msgstr "Readable"
+
+msgid "Exists"
+msgstr "Exists"
+
+msgid "Not found"
+msgstr "Not found"
+
+msgid "Sync Interval (seconds)"
+msgstr "Sync Interval (seconds)"
+
+msgid "UPnP Backend"
+msgstr "UPnP Backend"
+
+msgid "Log Level"
+msgstr "Log Level"
+
+msgid "Failure Grace Count"
+msgstr "Failure Grace Count"
+
+msgid "Dry Run Mode"
+msgstr "Dry Run Mode"
+
+msgid "Clear Rules on Stop"
+msgstr "Clear Rules on Stop"
+
+msgid "Settings"
+msgstr "Settings"
+
+msgid "Logging"
+msgstr "Logging"
+
+msgid "Sync completed: %d read, 0 accepted, %d rejected. Check Mappings page for details."
+msgstr "Sync completed: %d read, 0 accepted, %d rejected. Check Mappings page for details."
+
+msgid "Strategy:"
+msgstr "Strategy:"
+
+msgid "Per-Mapping"
+msgstr "Per-Mapping"
+
+msgid "Dynamic (comma-separated, grouped by protocol)"
+msgstr "Dynamic (comma-separated, grouped by protocol)"
+
+msgid "Per protocol (1 rule for TCP, 1 rule for UDP)"
+msgstr "Per protocol (1 rule for TCP, 1 rule for UDP)"
+
+msgid "Port Pool"
+msgstr "Port Pool"
+
+msgid "Port Pool Rule"
+msgstr "Port Pool Rule"
+
+msgid "Per-Mapping: one rule per UPnP mapping. Port Pool: one rule for the entire port range."
+msgstr "Per-Mapping: one rule per UPnP mapping. Port Pool: one rule for the entire port range."
+
+msgid "Per-Mapping RETURN (recommended)"
+msgstr "Per-Mapping RETURN (recommended)"
+
+msgid "Port Pool RETURN"
+msgstr "Port Pool RETURN"
+
+msgid "Per-mapping rules already exist in OpenClash."
+msgstr "Per-mapping rules already exist in OpenClash."
+
+msgid "Per-mapping rules written (%d rules) and OpenClash restarted."
+msgstr "Per-mapping rules written (%d rules) and OpenClash restarted."
+
+msgid "Per-mapping rules written (%d rules). OpenClash is not running, so it was not restarted."
+msgstr "Per-mapping rules written (%d rules). OpenClash is not running, so it was not restarted."
+
+msgid "Per-mapping rules written (%d rules). OpenClash is currently disabled, so it was not restarted."
+msgstr "Per-mapping rules written (%d rules). OpenClash is currently disabled, so it was not restarted."
+
+msgid "Per-mapping rules written (%d rules). You need to restart OpenClash for changes to take effect."
+msgstr "Per-mapping rules written (%d rules). You need to restart OpenClash for changes to take effect."
+
+msgid "Show Advanced Configuration"
+msgstr "Show Advanced Configuration"
+
+msgid "Allow setup flows to change network, firewall, and OpenClash configuration."
+msgstr "Allow setup flows to change network, firewall, and OpenClash configuration."
+
+msgid "Show auto-detectable network fields for special topologies."
+msgstr "Show auto-detectable network fields for special topologies."
+
+msgid "Permit setup flows to create or repair the read interface before testing."
+msgstr "Permit setup flows to create or repair the read interface before testing."
+
+msgid "Permit setup flows to create or repair the independent firewall zone before testing."
+msgstr "Permit setup flows to create or repair the independent firewall zone before testing."
+
+msgid "Restart OpenClash after rules are written so changes take effect immediately."
+msgstr "Restart OpenClash after rules are written so changes take effect immediately."
+
+msgid "Per-mapping rules are already up to date (%d rules)."
+msgstr "Per-mapping rules are already up to date (%d rules)."
+
+msgid "Failed to write per-mapping rules: "
+msgstr "Failed to write per-mapping rules: "
+
+msgid "Per-mapping rules written. You need to restart OpenClash for changes to take effect."
+msgstr "Per-mapping rules written. You need to restart OpenClash for changes to take effect."
+
+msgid "Service Running"
+msgstr "Service Running"
+
+msgid "Service Starting"
+msgstr "Service Starting"
+
+msgid "Starting"
+msgstr "Starting"
+
+msgid "UPnP NAT Relay is starting up. Waiting for first sync..."
+msgstr "UPnP NAT Relay is starting up. Waiting for first sync..."
+
+msgid "Service Stopped"
+msgstr "Service Stopped"
+
+msgid "UPnP NAT Relay is active and syncing mappings."
+msgstr "UPnP NAT Relay is active and syncing mappings."
+
+msgid "UPnP NAT Relay is not running. Click Start to begin."
+msgstr "UPnP NAT Relay is not running. Click Start to begin."
+
+msgid "Service Information"
+msgstr "Service Information"
+
+msgid "nftables Table"
+msgstr "nftables Table"
+
+msgid "Allowed External Ports"
+msgstr "Allowed External Ports"
+
+msgid "Interface configured. Click the Status tab to view details."
+msgstr "Interface configured. Click the Status tab to view details."
+
+msgid "Enter ports separated by commas, e.g. 22,23,80,443."
+msgstr "Enter ports separated by commas, e.g. 22,23,80,443."
+
+msgid "Invalid denied port: %s"
+msgstr "Invalid denied port: %s"
+
+msgid "Testing..."
+msgstr "Testing..."
+
+msgid "Syncing..."
+msgstr "Syncing..."
+
+msgid "Error: "
+msgstr "Error: "
+
+msgid "Enable the UPnP NAT Relay service after saving configuration."
+msgstr "Enable the UPnP NAT Relay service after saving configuration."
+
+msgid "Invalid port range format."
+msgstr "Invalid port range format."
+
+msgid "Select interface"
+msgstr "Select interface"
+
+msgid "Network detection completed. %d empty field(s) were auto-filled; save and apply to keep them."
+msgstr "Network detection completed. %d empty field(s) were auto-filled; save and apply to keep them."
+
+msgid "Clear failed: "
+msgstr "Clear failed: "
+
+msgid "Configuration saved. Restarting service..."
+msgstr "Configuration saved. Restarting service..."
+
+msgid "Could not auto-detect downstream WAN IP."
+msgstr "Could not auto-detect downstream WAN IP."
+
+msgid "Could not auto-detect subnet."
+msgstr "Could not auto-detect subnet."
+
+msgid "Could not auto-detect upstream WAN interface."
+msgstr "Could not auto-detect upstream WAN interface."
+
+msgid "Could not auto-detect value."
+msgstr "Could not auto-detect value."
+
+msgid "Failed to restart OpenClash: "
+msgstr "Failed to restart OpenClash: "
+
+msgid "Invalid format. Use format like 40000-65535."
+msgstr "Invalid format. Use format like 40000-65535."
+
+msgid "OpenClash init restart failed."
+msgstr "OpenClash init restart failed."
+
+msgid "OpenClash init script was not found."
+msgstr "OpenClash init script was not found."
+
+msgid "OpenClash restart command completed, but the core process was not detected after 30 seconds."
+msgstr "OpenClash restart command completed, but the core process was not detected after 30 seconds."
+
+msgid "OpenClash restart failed: "
+msgstr "OpenClash restart failed: "
+
+msgid "OpenClash restarted successfully."
+msgstr "OpenClash restarted successfully."
+
+msgid "Operation failed: "
+msgstr "Operation failed: "
+
+msgid "Port range is required."
+msgstr "Port range is required."
+
+msgid "Port values must be between 1 and 65535."
+msgstr "Port values must be between 1 and 65535."
+
+msgid "Restart OpenClash"
+msgstr "Restart OpenClash"
+
+msgid "Start port must not exceed end port."
+msgstr "Start port must not exceed end port."
+
+msgid "Success"
+msgstr "Success"
+
+msgid "Partial"
+msgstr "Partial"
+
+msgid "unknown"
+msgstr "unknown"
+
+msgid "return"
+msgstr "return"
+
+msgid "both"
+msgstr "both"
+
+msgid "<dynamic, comma-separated per protocol>"
+msgstr "<dynamic, comma-separated per protocol>"
+
+msgid "Dynamic (comma-separated)"
+msgstr "Dynamic (comma-separated)"
+
+msgid "1 rule for TCP, 1 rule for UDP"
+msgstr "1 rule for TCP, 1 rule for UDP"
+
+msgid "Example (3 TCP + 2 UDP mappings):"
+msgstr "Example (3 TCP + 2 UDP mappings):"
+
+msgid "input: ACCEPT, output: ACCEPT, forward: REJECT, masq: 0"
+msgstr "input: ACCEPT, output: ACCEPT, forward: REJECT, masq: 0"
+
+msgid "Downstream router LAN gateway IP. Leave empty to auto-detect from the read interface route."
+msgstr "Downstream router LAN gateway IP. Leave empty to auto-detect from the read interface route."
+
+msgid "Could not auto-detect downstream LAN gateway."
+msgstr "Could not auto-detect downstream LAN gateway."
+
+msgid "Info"
+msgstr "Info"
+
+msgid "All"
+msgstr "All"
+
+msgid "Another OpenClash operation is currently running."
+msgstr "Another OpenClash operation is currently running."
+
+msgid "Auto Configure Firewall Zone"
+msgstr "Auto Configure Firewall Zone"
+
+msgid "Auto Configure Network"
+msgstr "Auto Configure Network"
+
+msgid "Auto-created before each rule write"
+msgstr "Auto-created before each rule write"
+
+msgid "Automation"
+msgstr "Automation"
+
+msgid "Clear rules after this many consecutive sync failures. Set to 0 to never clear because of failures."
+msgstr "Clear rules after this many consecutive sync failures. Set to 0 to never clear because of failures."
+
+msgid "Command used to read UPnP mappings from the downstream router."
+msgstr "Command used to read UPnP mappings from the downstream router."
+
+msgid "Configuration applied and service is ready."
+msgstr "Configuration applied and service is ready."
+
+msgid "Configuration saved and applied."
+msgstr "Configuration saved and applied."
+
+msgid "Configuration saved. Service has been stopped."
+msgstr "Configuration saved. Service has been stopped."
+
+msgid "Configuration saved. Starting service and waiting for first sync..."
+msgstr "Configuration saved. Starting service and waiting for first sync..."
+
+msgid "Service started, but the first sync is still in progress. Refreshing current status."
+msgstr "Service started, but the first sync is still in progress. Refreshing current status."
+
+msgid "Configuration saved. Restarting service (backend changed)..."
+msgstr "Configuration saved. Restarting service (backend changed)..."
+
+msgid "Service restarted, but the first sync is still in progress. Refreshing current status."
+msgstr "Service restarted, but the first sync is still in progress. Refreshing current status."
+
+msgid "Configuration saved. The running service will pick up changes on the next sync cycle."
+msgstr "Configuration saved. The running service will pick up changes on the next sync cycle."
+
+msgid "Configuration saved. Restarting service and waiting for first sync..."
+msgstr "Configuration saved. Restarting service and waiting for first sync..."
+
+msgid "Controls the verbosity of system log output."
+msgstr "Controls the verbosity of system log output."
+
+msgid "Custom"
+msgstr "Custom"
+
+msgid "Debug"
+msgstr "Debug"
+
+msgid "Enable Automatic Sync"
+msgstr "Enable Automatic Sync"
+
+msgid "Error"
+msgstr "Error"
+
+msgid "Failed to apply configuration: "
+msgstr "Failed to apply configuration: "
+
+msgid "Failed to sync OpenClash: "
+msgstr "Failed to sync OpenClash: "
+
+msgid "How often the background service checks the downstream router."
+msgstr "How often the background service checks the downstream router."
+
+msgid "Set to 0 to sync every main cycle. Higher values reduce config writes when mappings change frequently."
+msgstr "Set to 0 to sync every main cycle. Higher values reduce config writes when mappings change frequently."
+
+msgid "Last OpenClash Sync"
+msgstr "Last OpenClash Sync"
+
+msgid "Main sync is currently running, please try again later."
+msgstr "Main sync is currently running, please try again later."
+
+msgid "Not yet synced"
+msgstr "Not yet synced"
+
+msgid "OpenClash Sync Interval (seconds)"
+msgstr "OpenClash Sync Interval (seconds)"
+
+msgid "OpenClash rules are already up to date (%d rules)."
+msgstr "OpenClash rules are already up to date (%d rules)."
+
+msgid "OpenClash rules synced successfully (%d rules)."
+msgstr "OpenClash rules synced successfully (%d rules)."
+
+msgid "Read and filter mappings without creating DNAT rules."
+msgstr "Read and filter mappings without creating DNAT rules."
+
+msgid "Remove dynamic DNAT rules when the service stops."
+msgstr "Remove dynamic DNAT rules when the service stops."
+
+msgid "Run the background service and periodically synchronize accepted UPnP mappings."
+msgstr "Run the background service and periodically synchronize accepted UPnP mappings."
+
+msgid "Service & Sync"
+msgstr "Service & Sync"
+
+msgid "Service action completed, but the first sync is still starting. Refreshing current status."
+msgstr "Service action completed, but the first sync is still starting. Refreshing current status."
+
+msgid "Service restart completed, but the first sync is still starting. Refreshing current status."
+msgstr "Service restart completed, but the first sync is still starting. Refreshing current status."
+
+msgid "Service restarted. Waiting for first sync..."
+msgstr "Service restarted. Waiting for first sync..."
+
+msgid "Service started. Waiting for first sync..."
+msgstr "Service started. Waiting for first sync..."
+
+msgid "Sync OpenClash"
+msgstr "Sync OpenClash"
+
+msgid "Sync OpenClash Now"
+msgstr "Sync OpenClash Now"
+
+msgid "due now"
+msgstr "due now"
+
+msgid "next in %ds"
+msgstr "next in %ds"
+
+msgid "service action failed"
+msgstr "service action failed"
+
+msgid "Enable Service"
+msgstr "Enable Service"
+
+msgid "One-shot sync completed: %d read, %d accepted, %d rejected."
+msgstr "One-shot sync completed: %d read, %d accepted, %d rejected."
+
+msgid "One-shot sync failed: %s"
+msgstr "One-shot sync failed: %s"

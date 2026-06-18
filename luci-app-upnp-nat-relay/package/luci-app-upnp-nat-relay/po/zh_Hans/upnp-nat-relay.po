@@ -1,0 +1,1446 @@
+
+
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-upnp-nat-relay\n"
+"PO-Revision-Date: 2026-06-01 00:00+0000\n"
+"Last-Translator: yunshu\n"
+"Language-Team: Chinese (Simplified)\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "UPnP NAT Relay"
+msgstr "UPnP NAT 中继"
+
+msgid "Overview"
+msgstr "概览"
+
+msgid "Setup Wizard"
+msgstr "设置向导"
+
+msgid "Network"
+msgstr "网络"
+
+msgid "Security"
+msgstr "安全"
+
+msgid "Mappings"
+msgstr "映射表"
+
+msgid "OpenClash"
+msgstr "OpenClash"
+
+msgid "Logs"
+msgstr "日志"
+
+msgid "Running"
+msgstr "运行中"
+
+msgid "Stopped"
+msgstr "已停止"
+
+msgid "Plugin Version"
+msgstr "插件版本"
+
+msgid "Last Sync Time"
+msgstr "上次同步时间"
+
+msgid "Last Sync Result"
+msgstr "上次同步结果"
+
+msgid "Read Mappings"
+msgstr "读取映射数"
+
+msgid "Synced Mappings"
+msgstr "已同步映射数"
+
+msgid "Rejected Mappings"
+msgstr "已拒绝映射数"
+
+msgid "Consecutive Failures"
+msgstr "连续失败次数"
+
+msgid "Current Backend"
+msgstr "当前后端"
+
+msgid "Present"
+msgstr "存在"
+
+msgid "Installed (Stopped)"
+msgstr "已安装（已停止）"
+
+msgid "Not Installed"
+msgstr "未安装"
+
+msgid "Service Control"
+msgstr "服务控制"
+
+msgid "Start"
+msgstr "启动"
+
+msgid "Service started. Waiting for first sync..."
+msgstr "服务已启动，正在等待首次同步..."
+
+msgid "Service action completed, but the first sync is still starting. Refreshing current status."
+msgstr "服务操作已完成，但首次同步仍在启动中。正在刷新当前状态。"
+
+msgid "Failed to start service: "
+msgstr "启动服务失败："
+
+msgid "Service stopped unexpectedly: "
+msgstr "服务意外停止："
+
+msgid "Service stopped unexpectedly. Check logs for details."
+msgstr "服务意外停止。请查看日志了解详情。"
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "Service stopped."
+msgstr "服务已停止。"
+
+msgid "Failed to stop service: "
+msgstr "停止服务失败："
+
+msgid "Restart"
+msgstr "重启"
+
+msgid "Service restarted. Waiting for first sync..."
+msgstr "服务已重启，正在等待首次同步..."
+
+msgid "Failed to restart service: "
+msgstr "重启服务失败："
+
+msgid "Sync Now"
+msgstr "立即同步"
+
+msgid "Sync triggered."
+msgstr "同步已触发。"
+
+msgid "Sync completed: %d read, %d accepted, %d rejected."
+msgstr "同步完成：读取 %d 条，接受 %d 条，拒绝 %d 条。"
+
+msgid "Sync completed: %d read, 0 accepted, %d rejected. Check rejected mappings for details."
+msgstr "同步完成：读取 %d 条，接受 0 条，拒绝 %d 条。请查看拒绝映射了解详情。"
+
+msgid "Sync completed: 0 mappings read from downstream router. Ensure the downstream router has UPnP mappings."
+msgstr "同步完成：从下游路由器读取到 0 条映射。请确保下游路由器已启用 UPnP 映射。"
+
+msgid "Sync failed: %s"
+msgstr "同步失败：%s"
+
+msgid "Clear Rules"
+msgstr "清除规则"
+
+msgid "Dynamic rules cleared."
+msgstr "动态规则已清除。"
+
+msgid "Failed to clear rules: "
+msgstr "清除规则失败："
+
+msgid "Safe Mode (Detect Only)"
+msgstr "安全模式（仅检测）"
+
+msgid "Auto Mode (Apply Changes)"
+msgstr "自动模式（应用更改）"
+
+msgid "Step %d of %d"
+msgstr "第 %d 步，共 %d 步"
+
+msgid "Select the interface connected to the downstream router LAN side."
+msgstr "选择连接到下游路由器 LAN 侧的接口。"
+
+msgid "This interface is only for reading UPnP mappings. Do not set it as default gateway."
+msgstr "此接口仅用于读取 UPnP 映射，请勿将其设为默认网关。"
+
+msgid "Enter or auto-detect the IP address on the selected interface."
+msgstr "输入或自动检测所选接口的 IP 地址。"
+
+msgid "Auto Detect"
+msgstr "自动检测"
+
+msgid "Could not auto-detect IP."
+msgstr "无法自动检测 IP。"
+
+msgid "Enter the downstream router LAN gateway IP address."
+msgstr "输入下游路由器 LAN 网关 IP 地址。"
+
+msgid "Testing ping to downstream LAN gateway..."
+msgstr "正在测试到下游 LAN 网关的连通性..."
+
+msgid "Ping to gateway successful"
+msgstr "网关 Ping 成功"
+
+msgid "Ping to gateway failed"
+msgstr "网关 Ping 失败"
+
+msgid "Check that the interface is connected and the firewall zone allows output."
+msgstr "请检查接口是否已连接，以及防火墙区域是否允许出站流量。"
+
+msgid "Network check failed"
+msgstr "网络检测失败"
+
+msgid "Testing UPnP IGD discovery via upnpc..."
+msgstr "正在通过 upnpc 测试 UPnP IGD 发现..."
+
+msgid "UPnP IGD discovered, %d mapping(s) found"
+msgstr "已发现 UPnP IGD，找到 %d 条映射"
+
+msgid "UPnP IGD discovery failed"
+msgstr "UPnP IGD 发现失败"
+
+msgid "Ensure the downstream router has UPnP enabled and the interface IP is on its LAN side."
+msgstr "请确保下游路由器已启用 UPnP，且接口 IP 位于其 LAN 侧。"
+
+msgid "UPnP check failed"
+msgstr "UPnP 检测失败"
+
+msgid "Enter the downstream router WAN IP address (used as DNAT target)."
+msgstr "输入下游路由器 WAN IP 地址（用作 DNAT 目标）。"
+
+msgid "Select the upstream WAN interface for DNAT rules."
+msgstr "选择用于 DNAT 规则的上游 WAN 接口。"
+
+msgid "Set the allowed external port range for synchronization."
+msgstr "设置允许同步的外部端口范围。"
+
+msgid "It is NOT recommended to use 1-65535 as the allowed range."
+msgstr "不建议使用 1-65535 作为允许范围。"
+
+msgid "Configure OpenClash RETURN rule for bypassing transparent proxy on forwarded ports."
+msgstr "配置 OpenClash RETURN 规则，以绕过转发端口的透明代理。"
+
+msgid "Off (Do not handle OpenClash)"
+msgstr "关闭（不处理 OpenClash）"
+
+msgid "Prompt (Show suggested rules only)"
+msgstr "提示（仅显示建议规则）"
+
+msgid "Auto (Automatically write rules)"
+msgstr "自动（自动写入规则）"
+
+msgid "Auto mode will write RETURN rules to OpenClash configuration. A backup will be created before any changes."
+msgstr "自动模式将向 OpenClash 配置写入 RETURN 规则。更改前将自动创建备份。"
+
+msgid "Review your configuration and enable the service."
+msgstr "检查您的配置并启用服务。"
+
+msgid "Interface"
+msgstr "接口"
+
+msgid "Interface IP"
+msgstr "接口 IP"
+
+msgid "Downstream LAN Gateway"
+msgstr "下游 LAN 网关"
+
+msgid "Downstream LAN Subnet"
+msgstr "下游 LAN 子网"
+
+msgid "Downstream WAN IP"
+msgstr "下游 WAN IP"
+
+msgid "Upstream WAN Interface"
+msgstr "上游 WAN 接口"
+
+msgid "Allowed Ports"
+msgstr "允许端口"
+
+msgid "OpenClash Mode"
+msgstr "OpenClash 模式"
+
+msgid "UCI Changes Preview"
+msgstr "UCI 更改预览"
+
+msgid "Yes"
+msgstr "是"
+
+msgid "No"
+msgstr "否"
+
+msgid "Previous"
+msgstr "上一步"
+
+msgid "Next"
+msgstr "下一步"
+
+msgid "Invalid IP address format. Please enter a valid IPv4 address (e.g. 192.168.1.50)."
+msgstr "IP 地址格式无效。请输入有效的 IPv4 地址（如 192.168.1.50）。"
+
+msgid "Invalid gateway IP address format."
+msgstr "网关 IP 地址格式无效。"
+
+msgid "Invalid WAN IP address format."
+msgstr "WAN IP 地址格式无效。"
+
+msgid "Invalid port range format. Use format like 40000-65535."
+msgstr "端口范围格式无效。请使用如 40000-65535 的格式。"
+
+msgid "Apply Configuration"
+msgstr "应用配置"
+
+msgid "Save Configuration"
+msgstr "保存配置"
+
+msgid "Configuration saved successfully."
+msgstr "配置保存成功。"
+
+msgid "Auto configuration applied."
+msgstr "自动配置已应用。"
+
+msgid "Configuration failed: "
+msgstr "配置失败："
+
+msgid "Network Interface"
+msgstr "网络接口"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Configuration"
+msgstr "配置"
+
+msgid "Read Interface"
+msgstr "读取接口"
+
+msgid "device"
+msgstr "设备"
+
+msgid "Select the interface connected to the downstream router LAN side. The underlying device is resolved automatically."
+msgstr "选择连接到下游路由器 LAN 侧的接口。底层设备会自动解析。"
+
+msgid "IP address on the read interface. Leave empty to auto-detect from the selected read interface."
+msgstr "读取接口上的 IP 地址。留空将从所选读取接口自动检测。"
+
+msgid "Downstream router LAN subnet (CIDR). Leave empty to auto-detect from the selected read interface."
+msgstr "下游路由器 LAN 子网（CIDR）。留空将从所选读取接口自动检测。"
+
+msgid "Downstream router WAN IP (DNAT target). Leave empty and run Detect to auto-fill it from UPnP when available."
+msgstr "下游路由器 WAN IP（DNAT 目标）。留空后运行检测，可在 UPnP 返回时自动填写。"
+
+msgid "Select the OpenWrt logical WAN interface for DNAT rules. Leave empty to auto-detect from the default route; the underlying device is resolved automatically."
+msgstr "选择用于 DNAT 规则的 OpenWrt 逻辑 WAN 接口。留空将从默认路由自动检测；底层设备会自动解析。"
+
+msgid "Interface Status"
+msgstr "接口状态"
+
+msgid "Interface exists"
+msgstr "接口存在"
+
+msgid "Interface not found"
+msgstr "接口未找到"
+
+msgid "IP Status"
+msgstr "IP 状态"
+
+msgid "IP configured"
+msgstr "IP 已配置"
+
+msgid "IP not configured"
+msgstr "IP 未配置"
+
+msgid "Default Route Risk"
+msgstr "默认路由风险"
+
+msgid "Default route points to read interface!"
+msgstr "默认路由指向读取接口！"
+
+msgid "The read interface should NOT be a default gateway."
+msgstr "读取接口不应作为默认网关。"
+
+msgid "No default route risk"
+msgstr "无默认路由风险"
+
+msgid "Gateway Setting"
+msgstr "网关设置"
+
+msgid "Gateway is set: %s"
+msgstr "网关已设置：%s"
+
+msgid "The read interface should not have a gateway configured."
+msgstr "读取接口不应配置网关。"
+
+msgid "No gateway set"
+msgstr "未设置网关"
+
+msgid "DNS Setting"
+msgstr "DNS 设置"
+
+msgid "DNS is set: %s"
+msgstr "DNS 已设置：%s"
+
+msgid "No DNS set"
+msgstr "未设置 DNS"
+
+msgid "Extra Forwarding"
+msgstr "额外转发"
+
+msgid "Unnecessary forwarding detected"
+msgstr "检测到不必要的转发"
+
+msgid "No extra forwarding"
+msgstr "无额外转发"
+
+msgid "Hint"
+msgstr "提示"
+
+msgid "The read interface is only for reading UPnP mappings from the downstream router. It should NOT have a default gateway, DNS, or be bridged with the main LAN."
+msgstr "读取接口仅用于从下游路由器读取 UPnP 映射。它不应设置默认网关、DNS，也不应与主 LAN 桥接。"
+
+msgid "Network Actions"
+msgstr "网络操作"
+
+msgid "Detect Network"
+msgstr "检测网络"
+
+msgid "Detect"
+msgstr "检测"
+
+msgid "Network detection completed."
+msgstr "网络检测完成。"
+
+msgid "Detection failed: "
+msgstr "检测失败："
+
+msgid "Configure Interface"
+msgstr "配置接口"
+
+msgid "Auto Configure"
+msgstr "自动配置"
+
+msgid "Interface configured. Check the status tab for details."
+msgstr "接口已配置。请查看状态选项卡了解详情。"
+
+msgid "Interface configuration failed: "
+msgstr "接口配置失败："
+
+msgid "Firewall Zone"
+msgstr "防火墙区域"
+
+msgid "Zone Status"
+msgstr "区域状态"
+
+msgid "Zone Configuration"
+msgstr "区域配置"
+
+msgid "Current Zone"
+msgstr "当前区域"
+
+msgid "Input Policy"
+msgstr "入站策略"
+
+msgid "(should be ACCEPT)"
+msgstr "（应为 ACCEPT）"
+
+msgid "Zone not found"
+msgstr "区域未找到"
+
+msgid "Output Policy"
+msgstr "出站策略"
+
+msgid "Forward Policy"
+msgstr "转发策略"
+
+msgid "(should be REJECT)"
+msgstr "（应为 REJECT）"
+
+msgid "Masquerading"
+msgstr "IP 动态伪装"
+
+msgid "Disabled"
+msgstr "已禁用"
+
+msgid "Enabled (should be Disabled)"
+msgstr "已启用（应为禁用）"
+
+msgid "Recommendation"
+msgstr "建议"
+
+msgid "Recommended zone settings:"
+msgstr "推荐的区域设置："
+
+msgid "This allows the router to access the downstream LAN for UPnP reading while preventing unwanted forwarding."
+msgstr "这允许路由器访问下游 LAN 以读取 UPnP 映射，同时防止不必要的转发。"
+
+msgid "Zone Name"
+msgstr "区域名称"
+
+msgid "Name of the firewall zone for the read interface."
+msgstr "读取接口的防火墙区域名称。"
+
+msgid "Zone Actions"
+msgstr "区域操作"
+
+msgid "Fix Zone"
+msgstr "修复区域"
+
+msgid "Fix Zone Settings"
+msgstr "修复区域设置"
+
+msgid "Zone settings fixed."
+msgstr "区域设置已修复。"
+
+msgid "Zone fix failed: "
+msgstr "区域修复失败："
+
+msgid "Create Independent Zone"
+msgstr "创建独立区域"
+
+msgid "Create Zone"
+msgstr "创建区域"
+
+msgid "Zone created successfully."
+msgstr "区域创建成功。"
+
+msgid "Zone creation failed: "
+msgstr "区域创建失败："
+
+msgid "Port Range & Protocol"
+msgstr "端口范围与协议"
+
+msgid "Allowed External Port Range"
+msgstr "允许的外部端口范围"
+
+msgid "Port range allowed for synchronization (e.g. 40000-65535)."
+msgstr "允许同步的端口范围（如 40000-65535）。"
+
+msgid "Allowed Protocols"
+msgstr "允许的协议"
+
+msgid "Select which protocols to allow for synchronization."
+msgstr "选择允许同步的协议。"
+
+msgid "Deny Rules"
+msgstr "拒绝规则"
+
+msgid "Denied Ports"
+msgstr "拒绝端口"
+
+msgid "Deny Low Ports (0-1023)"
+msgstr "拒绝低位端口（0-1023）"
+
+msgid "Deny all privileged ports (0-1023). It is NOT recommended to sync these ports."
+msgstr "拒绝所有特权端口（0-1023）。不建议同步这些端口。"
+
+msgid "Source Filtering"
+msgstr "来源过滤"
+
+msgid "Restrict to Downstream LAN Subnet"
+msgstr "限制为下游 LAN 子网"
+
+msgid "Only allow mappings with internal IPs in the downstream LAN subnet."
+msgstr "仅允许内部 IP 在下游 LAN 子网内的映射。"
+
+msgid "Deny Empty Description Mappings"
+msgstr "拒绝无描述映射"
+
+msgid "Reject mappings without a description. These may be suspicious."
+msgstr "拒绝没有描述的映射。这些映射可能可疑。"
+
+msgid "Log Rejected Mappings"
+msgstr "记录拒绝的映射"
+
+msgid "Write rejected mappings to the system log."
+msgstr "将拒绝的映射写入系统日志。"
+
+msgid "Security Warnings"
+msgstr "安全警告"
+
+msgid "Low Port Warning"
+msgstr "低位端口警告"
+
+msgid "It is NOT recommended to synchronize ports 0-1023. These are privileged ports and should not be exposed via UPnP."
+msgstr "不建议同步 0-1023 端口。这些是特权端口，不应通过 UPnP 暴露。"
+
+msgid "Sensitive Port Warning"
+msgstr "敏感端口警告"
+
+msgid "It is NOT recommended to synchronize sensitive ports such as 80, 443, 22, 53, 445, 3389. These are commonly used for web servers, SSH, DNS, file sharing, and remote desktop."
+msgstr "不建议同步 80、443、22、53、445、3389 等敏感端口。这些端口通常用于 Web 服务器、SSH、DNS、文件共享和远程桌面。"
+
+msgid "Wide Range Warning"
+msgstr "宽范围警告"
+
+msgid "It is NOT recommended to use 1-65535 as the allowed port range. This would effectively create a DMZ, which defeats the purpose of this plugin."
+msgstr "不建议使用 1-65535 作为允许端口范围。这实际上等同于创建 DMZ，违背了本插件的目的。"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "Read UPnP Mappings (Raw)"
+msgstr "读取 UPnP 映射（原始）"
+
+msgid "Protocol"
+msgstr "协议"
+
+msgid "External Port"
+msgstr "外部端口"
+
+msgid "Internal IP"
+msgstr "内部 IP"
+
+msgid "Internal Port"
+msgstr "内部端口"
+
+msgid "Description"
+msgstr "描述"
+
+msgid "Accepted"
+msgstr "已接受"
+
+msgid "Rejected"
+msgstr "已拒绝"
+
+msgid "No mappings found."
+msgstr "未找到映射。"
+
+msgid "Synced Mappings (DNAT)"
+msgstr "已同步映射（DNAT）"
+
+msgid "Public Port"
+msgstr "公网端口"
+
+msgid "DNAT Target"
+msgstr "DNAT 目标"
+
+msgid "Source Mapping"
+msgstr "源映射"
+
+msgid "Active"
+msgstr "活跃"
+
+msgid "No synced mappings."
+msgstr "无已同步映射。"
+
+msgid "Reject Reason"
+msgstr "拒绝原因"
+
+msgid "No rejected mappings."
+msgstr "无已拒绝映射。"
+
+msgid "OpenClash Compatibility"
+msgstr "OpenClash 兼容性"
+
+msgid "OpenClash Status"
+msgstr "OpenClash 状态"
+
+msgid "OpenClash Installed"
+msgstr "OpenClash 已安装"
+
+msgid "Installed"
+msgstr "已安装"
+
+msgid "OpenClash Running"
+msgstr "OpenClash 运行中"
+
+msgid "Not Running"
+msgstr "未运行"
+
+msgid "Source Access Control Detected"
+msgstr "检测到来源访问控制"
+
+msgid "Detected"
+msgstr "已检测"
+
+msgid "Not Detected"
+msgstr "未检测到"
+
+msgid "Existing Matching Rule"
+msgstr "已有匹配规则"
+
+msgid "Rule exists"
+msgstr "规则存在"
+
+msgid "No matching rule found"
+msgstr "未找到匹配规则"
+
+msgid "Rule Preview"
+msgstr "规则预览"
+
+msgid "Internal Address:"
+msgstr "内部地址："
+
+msgid "Internal Ports:"
+msgstr "内部端口："
+
+msgid "Source Address"
+msgstr "来源地址"
+
+msgid "Source Ports"
+msgstr "来源端口"
+
+msgid "Action"
+msgstr "动作"
+
+msgid "Remark"
+msgstr "备注"
+
+msgid "OpenClash Configuration"
+msgstr "OpenClash 配置"
+
+msgid "Auto Write Mode"
+msgstr "自动写入模式"
+
+msgid "Control how OpenClash RETURN rules are handled."
+msgstr "控制 OpenClash RETURN 规则的处理方式。"
+
+msgid "Off - Do not handle OpenClash"
+msgstr "关闭 - 不处理 OpenClash"
+
+msgid "Prompt - Show suggested rules only"
+msgstr "提示 - 仅显示建议规则"
+
+msgid "Auto - Automatically write rules"
+msgstr "自动 - 自动写入规则"
+
+msgid "RETURN Strategy"
+msgstr "RETURN 策略"
+
+msgid "Port Pool RETURN (recommended)"
+msgstr "端口池 RETURN（推荐）"
+
+msgid "Rule Remark"
+msgstr "规则备注"
+
+msgid "Remark text for the OpenClash RETURN rule."
+msgstr "OpenClash RETURN 规则的备注文本。"
+
+msgid "Backup Before Write"
+msgstr "写入前备份"
+
+msgid "Create a backup of OpenClash configuration before writing rules."
+msgstr "在写入规则前创建 OpenClash 配置备份。"
+
+msgid "Auto Restart OpenClash After Rule Write"
+msgstr "自动重启 OpenClash"
+
+msgid "Backup Status"
+msgstr "备份状态"
+
+msgid "OpenClash Actions"
+msgstr "OpenClash 操作"
+
+msgid "Generate Rule"
+msgstr "生成规则"
+
+msgid "Generate RETURN Rule"
+msgstr "生成 RETURN 规则"
+
+msgid "Rule"
+msgstr "规则"
+
+msgid "Generating..."
+msgstr "正在生成..."
+
+msgid "Rule preview refreshed."
+msgstr "规则预览已刷新。"
+
+msgid "Write to OpenClash"
+msgstr "写入 OpenClash"
+
+msgid "Write OpenClash Rule"
+msgstr "写入 OpenClash 规则"
+
+msgid "OpenClash rule written and service restarted. Changes are now active."
+msgstr "OpenClash 规则已写入且服务已重启。更改现已生效。"
+
+msgid "OpenClash rule written. OpenClash is not running, so it was not restarted. The rule will take effect when OpenClash starts."
+msgstr "OpenClash 规则已写入。OpenClash 未运行，因此未重启。规则将在 OpenClash 启动时生效。"
+
+msgid "OpenClash rule written. OpenClash is currently disabled (possibly by another tool like CloudflareSpeedTest), so it was not restarted to avoid interference."
+msgstr "OpenClash 规则已写入。OpenClash 当前已被禁用（可能被 CloudflareSpeedTest 等其他工具禁用），因此未重启以避免干扰。"
+
+msgid "OpenClash rule written, but restart may have failed. Please check OpenClash status manually."
+msgstr "OpenClash 规则已写入，但重启可能失败。请手动检查 OpenClash 状态。"
+
+msgid "OpenClash rule written. You need to restart OpenClash for changes to take effect."
+msgstr "OpenClash 规则已写入。您需要重启 OpenClash 才能使更改生效。"
+
+msgid "Failed to write OpenClash rule: "
+msgstr "写入 OpenClash 规则失败："
+
+msgid "Remove Plugin Rule"
+msgstr "移除插件规则"
+
+msgid "Plugin rule removed from OpenClash."
+msgstr "已从 OpenClash 移除插件规则。"
+
+msgid "Failed to remove rule: "
+msgstr "移除规则失败："
+
+msgid "Backup OpenClash Config"
+msgstr "备份 OpenClash 配置"
+
+msgid "Backup"
+msgstr "备份"
+
+msgid "Backup is created automatically before writing rules."
+msgstr "写入规则前会自动创建备份。"
+
+msgid "Restore Backup"
+msgstr "恢复备份"
+
+msgid "Restore"
+msgstr "恢复"
+
+msgid "OpenClash configuration restored from backup."
+msgstr "已从备份恢复 OpenClash 配置。"
+
+msgid "No backup found and no matching rules to remove."
+msgstr "未找到备份，也没有可移除的匹配规则。"
+
+msgid "Plugin rules removed from OpenClash via UCI."
+msgstr "已通过 UCI 从 OpenClash 移除插件规则。"
+
+msgid "Restore failed: "
+msgstr "恢复失败："
+
+msgid "Environment Detection"
+msgstr "环境检测"
+
+msgid "OpenWrt Version"
+msgstr "OpenWrt 版本"
+
+msgid "Package Manager"
+msgstr "包管理器"
+
+msgid "Firewall"
+msgstr "防火墙"
+
+msgid "nft"
+msgstr "nft"
+
+msgid "Missing"
+msgstr "缺失"
+
+msgid "upnpc"
+msgstr "upnpc"
+
+msgid "LuCI"
+msgstr "LuCI"
+
+msgid "Environment detection completed."
+msgstr "环境检测完成。"
+
+msgid "UPnP IGD Read"
+msgstr "UPnP IGD 读取"
+
+msgid "Warning"
+msgstr "警告"
+
+msgid "Failed"
+msgstr "失败"
+
+msgid "Network check failed: "
+msgstr "网络检测失败："
+
+msgid "Recent Logs"
+msgstr "最近日志"
+
+msgid "No logs found."
+msgstr "未找到日志。"
+
+msgid "Failed to read logs: "
+msgstr "读取日志失败："
+
+msgid "System log reader is not available on this device."
+msgstr "此设备上没有可用的系统日志读取器。"
+
+msgid "Last Error: "
+msgstr "最近错误："
+
+msgid "Missing Dependencies & Fix Commands"
+msgstr "缺失依赖与修复命令"
+
+msgid "Missing dependencies: "
+msgstr "缺失依赖："
+
+msgid "All dependencies are installed."
+msgstr "所有依赖已安装。"
+
+msgid "Rollback & Cleanup"
+msgstr "回滚与清理"
+
+msgid "Warning: Rollback operations will remove configurations created by this plugin. Proceed with caution."
+msgstr "警告：回滚操作将移除本插件创建的配置。请谨慎操作。"
+
+msgid "Are you sure you want to undo all initialization? This will remove all plugin-created configurations (interface, zone, OpenClash rules, nftables rules)."
+msgstr "确定要撤销所有初始化吗？这将移除所有插件创建的配置（接口、区域、OpenClash 规则、nftables 规则）。"
+
+msgid "All plugin configurations and rules have been removed."
+msgstr "所有插件配置和规则已移除。"
+
+msgid "Rollback failed: "
+msgstr "回滚失败："
+
+msgid "Undo All Initialization"
+msgstr "撤销所有初始化"
+
+msgid "Remove OpenClash rules created by this plugin?"
+msgstr "移除本插件创建的 OpenClash 规则？"
+
+msgid "OpenClash rules removed."
+msgstr "OpenClash 规则已移除。"
+
+msgid "Failed: "
+msgstr "失败："
+
+msgid "Remove OpenClash Rules"
+msgstr "移除 OpenClash 规则"
+
+msgid "Clear all dynamic nftables rules?"
+msgstr "清除所有动态 nftables 规则？"
+
+msgid "Clear nftables Rules"
+msgstr "清除 nftables 规则"
+
+msgid "Detecting..."
+msgstr "检测中..."
+
+msgid "Auto-detect failed: "
+msgstr "自动检测失败："
+
+msgid "Select the interface connected to the downstream router LAN side. The underlying device is resolved automatically."
+msgstr "选择连接到下游路由器 LAN 侧的接口。底层设备会自动解析。"
+
+msgid "IP address on the read interface. Must be on the same subnet as the downstream router LAN."
+msgstr "读取接口上的 IP 地址。需与下游路由器 LAN 在同一子网。"
+
+msgid "The LAN-side gateway IP address of the downstream router."
+msgstr "下游路由器的 LAN 侧网关地址。"
+
+msgid "Downstream router LAN subnet in CIDR format, used for source filtering."
+msgstr "下游路由器 LAN 子网（CIDR 格式），用于来源过滤。"
+
+msgid "Downstream router WAN IP address, used as the DNAT rule target."
+msgstr "下游路由器 WAN IP 地址，用作 DNAT 规则目标。"
+
+msgid "Select the OpenWrt logical WAN interface for DNAT rules. The underlying device is resolved automatically."
+msgstr "选择用于 DNAT 规则的 OpenWrt 逻辑 WAN 接口。底层设备会自动解析。"
+
+msgid "Port range allowed for synchronization. Using 1-65535 is NOT recommended as it effectively creates a DMZ."
+msgstr "允许同步的端口范围。不建议使用 1-65535，因为实际上等同于创建 DMZ。"
+
+msgid "Control how OpenClash transparent proxy affects forwarded ports."
+msgstr "控制 OpenClash 透明代理如何影响转发端口。"
+
+msgid "Please select an interface."
+msgstr "请选择接口。"
+
+msgid "Interface IP is required."
+msgstr "接口 IP 为必填项。"
+
+msgid "Downstream LAN Gateway is required."
+msgstr "下游 LAN 网关为必填项。"
+
+msgid "Downstream LAN Subnet is required."
+msgstr "下游 LAN 子网为必填项。"
+
+msgid "Invalid subnet format. Please use CIDR notation (e.g. 192.168.1.0/24)."
+msgstr "子网格式无效。请使用 CIDR 格式（如 192.168.1.0/24）。"
+
+msgid "Downstream WAN IP is required."
+msgstr "下游 WAN IP 为必填项。"
+
+msgid "Please select an upstream WAN interface."
+msgstr "请选择上游 WAN 接口。"
+
+msgid "Allowed external ports is required."
+msgstr "允许的外部端口为必填项。"
+
+msgid "%s is required."
+msgstr "%s 为必填项。"
+
+msgid "Invalid Interface IP address format."
+msgstr "接口 IP 地址格式无效。"
+
+msgid "Invalid subnet format."
+msgstr "子网格式无效。"
+
+msgid "e.g. 192.168.1.50"
+msgstr "如 192.168.1.50"
+
+msgid "e.g. 192.168.1.1"
+msgstr "如 192.168.1.1"
+
+msgid "e.g. 192.168.1.0/24"
+msgstr "如 192.168.1.0/24"
+
+msgid "e.g. 192.168.2.2"
+msgstr "如 192.168.2.2"
+
+msgid "e.g. 40000-65535"
+msgstr "如 40000-65535"
+
+msgid "Network detection completed. Click the Status tab to view results."
+msgstr "网络检测完成。点击状态选项卡查看结果。"
+
+msgid "Configuring..."
+msgstr "配置中..."
+
+msgid "Applying..."
+msgstr "应用中..."
+
+msgid "Creating..."
+msgstr "创建中..."
+
+msgid "Checking..."
+msgstr "检测中..."
+
+msgid "Loading..."
+msgstr "加载中..."
+
+msgid "Auto mode: interface and firewall will be configured before testing."
+msgstr "自动模式：检测前将先配置接口和防火墙。"
+
+msgid "Safe mode: testing with current network state. If the interface is not configured yet, tests may fail."
+msgstr "安全模式：使用当前网络状态检测。如果接口尚未配置，检测可能会失败。"
+
+msgid "Network check error: "
+msgstr "网络检测错误："
+
+msgid "Interface does not exist. Check the interface name."
+msgstr "接口不存在。请检查接口名称。"
+
+msgid "Interface IP is not configured on the interface. Use Auto mode or configure the interface manually."
+msgstr "接口上未配置接口 IP。请使用自动模式或手动配置接口。"
+
+msgid "Interface IP is not configured on the interface. UPnP discovery requires a valid interface IP."
+msgstr "接口上未配置接口 IP。UPnP 发现需要有效的接口 IP。"
+
+msgid "UPnP check error: "
+msgstr "UPnP 检测错误："
+
+msgid "Unknown error"
+msgstr "未知错误"
+
+msgid "GitHub"
+msgstr "GitHub"
+
+msgid "Service Running"
+msgstr "服务运行中"
+
+msgid "Service Starting"
+msgstr "服务启动中"
+
+msgid "Starting"
+msgstr "启动中"
+
+msgid "UPnP NAT Relay is starting up. Waiting for first sync..."
+msgstr "UPnP NAT 中继正在启动，等待首次同步..."
+
+msgid "Service Stopped"
+msgstr "服务已停止"
+
+msgid "UPnP NAT Relay is active and syncing mappings."
+msgstr "UPnP NAT 中继正在运行并同步映射。"
+
+msgid "UPnP NAT Relay is not running. Click Start to begin."
+msgstr "UPnP NAT 中继未运行。点击启动开始。"
+
+msgid "Service Information"
+msgstr "服务信息"
+
+msgid "nftables Table"
+msgstr "nftables 表"
+
+msgid "Allowed External Ports"
+msgstr "允许的外部端口"
+
+msgid "Interface configured. Click the Status tab to view details."
+msgstr "接口已配置。点击状态选项卡查看详情。"
+
+msgid "Enter ports separated by commas, e.g. 22,23,80,443."
+msgstr "输入以逗号分隔的端口，例如 22,23,80,443。"
+
+msgid "Invalid denied port: %s"
+msgstr "无效的拒绝端口：%s"
+
+msgid "Testing..."
+msgstr "测试中..."
+
+msgid "Error: "
+msgstr "错误："
+
+msgid "Enable the UPnP NAT Relay service after saving configuration."
+msgstr "保存配置后启用 UPnP NAT 中继服务。"
+
+msgid "Invalid port range format."
+msgstr "端口范围格式无效。"
+
+msgid "Last Env Check"
+msgstr "上次环境检测"
+
+msgid "Refresh Env"
+msgstr "刷新环境检测"
+
+msgid "Environment detection refreshed."
+msgstr "环境检测已刷新。"
+
+msgid "Failed to refresh environment: "
+msgstr "刷新环境检测失败："
+
+msgid "Clear Logs"
+msgstr "清除日志"
+
+msgid "Clear system log buffer? This will clear ALL system logs, not just plugin logs."
+msgstr "清除系统日志缓冲区？这将清除所有系统日志，不仅仅是插件日志。"
+
+msgid "Clearing..."
+msgstr "清除中..."
+
+msgid "Log buffer cleared."
+msgstr "日志缓冲区已清除。"
+
+msgid "Failed to clear logs: "
+msgstr "清除日志失败："
+
+msgid "Reachable"
+msgstr "可达"
+
+msgid "Unreachable"
+msgstr "不可达"
+
+msgid "Readable"
+msgstr "可读取"
+
+msgid "Exists"
+msgstr "存在"
+
+msgid "Not found"
+msgstr "未找到"
+
+msgid "Sync Interval (seconds)"
+msgstr "同步间隔（秒）"
+
+msgid "UPnP Backend"
+msgstr "UPnP 后端"
+
+msgid "Log Level"
+msgstr "日志级别"
+
+msgid "Failure Grace Count"
+msgstr "失败容忍次数"
+
+msgid "Dry Run Mode"
+msgstr "试运行模式"
+
+msgid "Clear Rules on Stop"
+msgstr "停止时清除规则"
+
+msgid "Configuration saved and applied."
+msgstr "配置已保存并应用。"
+
+msgid "Configuration saved. Service has been stopped."
+msgstr "配置已保存，服务已停止。"
+
+msgid "Configuration saved. Starting service and waiting for first sync..."
+msgstr "配置已保存。正在启动服务并等待首次同步..."
+
+msgid "Service started, but the first sync is still in progress. Refreshing current status."
+msgstr "服务已启动，但首次同步仍在进行中。正在刷新当前状态。"
+
+msgid "Configuration saved. Restarting service (backend changed)..."
+msgstr "配置已保存。正在重启服务（后端已变更）..."
+
+msgid "Service restarted, but the first sync is still in progress. Refreshing current status."
+msgstr "服务已重启，但首次同步仍在进行中。正在刷新当前状态。"
+
+msgid "Configuration saved. The running service will pick up changes on the next sync cycle."
+msgstr "配置已保存。运行中的服务将在下次同步周期时自动应用变更。"
+
+msgid "Configuration saved. Restarting service and waiting for first sync..."
+msgstr "配置已保存。正在重启服务并等待首次同步..."
+
+msgid "Service restart completed, but the first sync is still starting. Refreshing current status."
+msgstr "服务重启已完成，但首次同步仍在启动中。正在刷新当前状态。"
+
+msgid "Configuration applied and service is ready."
+msgstr "配置已应用，服务已准备就绪。"
+
+msgid "Failed to apply configuration: "
+msgstr "应用配置失败："
+
+msgid "Settings"
+msgstr "设置"
+
+msgid "Service & Sync"
+msgstr "服务与同步"
+
+msgid "Enable Automatic Sync"
+msgstr "启用自动同步"
+
+msgid "Run the background service and periodically synchronize accepted UPnP mappings."
+msgstr "运行后台服务，并定期同步已接受的 UPnP 映射。"
+
+msgid "How often the background service checks the downstream router."
+msgstr "后台服务检查下游路由器的间隔。"
+
+msgid "Command used to read UPnP mappings from the downstream router."
+msgstr "用于从下游路由器读取 UPnP 映射的命令。"
+
+msgid "Custom"
+msgstr "自定义"
+
+msgid "Read and filter mappings without creating DNAT rules."
+msgstr "只读取并过滤映射，不创建 DNAT 规则。"
+
+msgid "Remove dynamic DNAT rules when the service stops."
+msgstr "服务停止时移除动态 DNAT 规则。"
+
+msgid "Clear rules after this many consecutive sync failures. Set to 0 to never clear because of failures."
+msgstr "连续同步失败达到此次数后清除规则。设为 0 则不会因失败自动清除。"
+
+msgid "Automation"
+msgstr "自动化"
+
+msgid "Auto Configure Network"
+msgstr "自动配置网络"
+
+msgid "Auto Configure Firewall Zone"
+msgstr "自动配置防火墙区域"
+
+msgid "Controls the verbosity of system log output."
+msgstr "控制系统日志输出的详细程度。"
+
+msgid "service action failed"
+msgstr "服务操作失败"
+
+msgid "Logging"
+msgstr "日志"
+
+msgid "Sync completed: %d read, 0 accepted, %d rejected. Check Mappings page for details."
+msgstr "同步完成：读取 %d 条，接受 0 条，拒绝 %d 条。请查看映射表页面了解详情。"
+
+msgid "Show Advanced Configuration"
+msgstr "显示高级配置"
+
+msgid "Allow setup flows to change network, firewall, and OpenClash configuration."
+msgstr "允许设置流程修改网络、防火墙和 OpenClash 配置。"
+
+msgid "Show auto-detectable network fields for special topologies."
+msgstr "显示用于特殊拓扑的可自动检测网络字段。"
+
+msgid "Permit setup flows to create or repair the read interface before testing."
+msgstr "允许设置流程在测试前创建或修复读取接口。"
+
+msgid "Permit setup flows to create or repair the independent firewall zone before testing."
+msgstr "允许设置流程在测试前创建或修复独立防火墙区域。"
+
+msgid "Restart OpenClash after rules are written so changes take effect immediately."
+msgstr "写入规则后重启 OpenClash，使更改立即生效。"
+
+msgid "Strategy:"
+msgstr "策略："
+
+msgid "Per-Mapping"
+msgstr "逐映射"
+
+msgid "Dynamic (comma-separated, grouped by protocol)"
+msgstr "动态（逗号分隔，按协议分组）"
+
+msgid "Per protocol (1 rule for TCP, 1 rule for UDP)"
+msgstr "按协议（TCP 1 条规则，UDP 1 条规则）"
+
+msgid "Port Pool"
+msgstr "端口池"
+
+msgid "Port Pool Rule"
+msgstr "端口池规则"
+
+msgid "Per-Mapping: one rule per UPnP mapping. Port Pool: one rule for the entire port range."
+msgstr "逐映射：每条 UPnP 映射创建一条规则。端口池：一条规则覆盖整个端口范围。"
+
+msgid "Per-Mapping RETURN (recommended)"
+msgstr "逐映射 RETURN（推荐）"
+
+msgid "Port Pool RETURN"
+msgstr "端口池 RETURN"
+
+msgid "Per-mapping rules already exist in OpenClash."
+msgstr "逐映射规则已存在于 OpenClash 中。"
+
+msgid "Per-mapping rules written (%d rules) and OpenClash restarted."
+msgstr "逐映射规则已写入（%d 条规则），OpenClash 已重启。"
+
+msgid "Per-mapping rules written (%d rules). OpenClash is not running, so it was not restarted."
+msgstr "逐映射规则已写入（%d 条规则）。OpenClash 未运行，因此未重启。"
+
+msgid "Per-mapping rules written (%d rules). OpenClash is currently disabled, so it was not restarted."
+msgstr "逐映射规则已写入（%d 条规则）。OpenClash 当前已禁用，因此未重启。"
+
+msgid "Per-mapping rules written (%d rules). You need to restart OpenClash for changes to take effect."
+msgstr "逐映射规则已写入（%d 条规则）。需要手动重启 OpenClash 才能生效。"
+
+msgid "Per-mapping rules are already up to date (%d rules)."
+msgstr "逐映射规则已是最新（%d 条规则）。"
+
+msgid "Failed to write per-mapping rules: "
+msgstr "写入逐映射规则失败："
+
+msgid "Per-mapping rules written. You need to restart OpenClash for changes to take effect."
+msgstr "逐映射规则已写入。需要手动重启 OpenClash 才能生效。"
+
+msgid "Last OpenClash Sync"
+msgstr "上次 OpenClash 同步"
+
+msgid "Not yet synced"
+msgstr "尚未同步"
+
+msgid "next in %ds"
+msgstr "下次同步 %d 秒后"
+
+msgid "due now"
+msgstr "已到同步时间"
+
+msgid "OpenClash Sync Interval (seconds)"
+msgstr "OpenClash 同步间隔（秒）"
+
+msgid "Set to 0 to sync every main cycle. Higher values reduce config writes when mappings change frequently."
+msgstr "设为 0 表示每次主同步都同步。较大值可在映射频繁变化时减少配置写入次数。"
+
+msgid "Sync OpenClash Now"
+msgstr "立即同步 OpenClash"
+
+msgid "Sync OpenClash"
+msgstr "同步 OpenClash"
+
+msgid "Syncing..."
+msgstr "同步中..."
+
+msgid "OpenClash rules are already up to date (%d rules)."
+msgstr "OpenClash 规则已是最新（%d 条规则）。"
+
+msgid "OpenClash rules synced successfully (%d rules)."
+msgstr "OpenClash 规则同步成功（%d 条规则）。"
+
+msgid "Main sync is currently running, please try again later."
+msgstr "主同步正在运行中，请稍后重试。"
+
+msgid "Another OpenClash operation is currently running."
+msgstr "另一个 OpenClash 操作正在运行中。"
+
+msgid "Failed to sync OpenClash: "
+msgstr "同步 OpenClash 失败："
+
+msgid "Auto-created before each rule write"
+msgstr "每次写入规则前自动创建"
+
+msgid "All"
+msgstr "全部"
+
+msgid "Debug"
+msgstr "调试"
+
+msgid "Info"
+msgstr "信息"
+
+msgid "Error"
+msgstr "错误"
+
+msgid "Select interface"
+msgstr "选择接口"
+
+msgid "Network detection completed. %d empty field(s) were auto-filled; save and apply to keep them."
+msgstr "网络检测完成。已自动填入 %d 个空字段；请保存并应用以保留这些值。"
+
+msgid "Clear failed: "
+msgstr "清除失败："
+
+msgid "Configuration saved. Restarting service..."
+msgstr "配置已保存，正在重启服务..."
+
+msgid "Could not auto-detect downstream WAN IP."
+msgstr "无法自动检测下游 WAN IP。"
+
+msgid "Could not auto-detect subnet."
+msgstr "无法自动检测子网。"
+
+msgid "Could not auto-detect upstream WAN interface."
+msgstr "无法自动检测上游 WAN 接口。"
+
+msgid "Could not auto-detect value."
+msgstr "无法自动检测该值。"
+
+msgid "Failed to restart OpenClash: "
+msgstr "重启 OpenClash 失败："
+
+msgid "Invalid format. Use format like 40000-65535."
+msgstr "格式无效。请使用类似 40000-65535 的格式。"
+
+msgid "OpenClash init restart failed."
+msgstr "OpenClash init 重启失败。"
+
+msgid "OpenClash init script was not found."
+msgstr "未找到 OpenClash init 脚本。"
+
+msgid "OpenClash restart command completed, but the core process was not detected after 30 seconds."
+msgstr "OpenClash 重启命令已完成，但 30 秒后仍未检测到核心进程。"
+
+msgid "OpenClash restart failed: "
+msgstr "OpenClash 重启失败："
+
+msgid "OpenClash restarted successfully."
+msgstr "OpenClash 已成功重启。"
+
+msgid "Operation failed: "
+msgstr "操作失败："
+
+msgid "Port range is required."
+msgstr "端口范围为必填项。"
+
+msgid "Port values must be between 1 and 65535."
+msgstr "端口值必须在 1 到 65535 之间。"
+
+msgid "Restart OpenClash"
+msgstr "重启 OpenClash"
+
+msgid "Start port must not exceed end port."
+msgstr "起始端口不能大于结束端口。"
+
+msgid "Success"
+msgstr "成功"
+
+msgid "Partial"
+msgstr "部分"
+
+msgid "unknown"
+msgstr "未知"
+
+msgid "return"
+msgstr "return"
+
+msgid "both"
+msgstr "双协议"
+
+msgid "<dynamic, comma-separated per protocol>"
+msgstr "<动态，逗号分隔，按协议分组>"
+
+msgid "Dynamic (comma-separated)"
+msgstr "动态（逗号分隔）"
+
+msgid "1 rule for TCP, 1 rule for UDP"
+msgstr "TCP 1 条规则，UDP 1 条规则"
+
+msgid "Example (3 TCP + 2 UDP mappings):"
+msgstr "示例（3 条 TCP + 2 条 UDP 映射）："
+
+msgid "input: ACCEPT, output: ACCEPT, forward: REJECT, masq: 0"
+msgstr "入站: ACCEPT, 出站: ACCEPT, 转发: REJECT, 伪装: 0"
+
+msgid "Downstream router LAN gateway IP. Leave empty to auto-detect from the read interface route."
+msgstr "下游路由器 LAN 网关 IP。留空将从读取接口路由自动检测。"
+
+msgid "Could not auto-detect downstream LAN gateway."
+msgstr "无法自动检测下游 LAN 网关。"
+
+msgid "Enable Service"
+msgstr "启用服务"
+
+msgid "One-shot sync completed: %d read, %d accepted, %d rejected."
+msgstr "单次同步完成：读取 %d 条，接受 %d 条，拒绝 %d 条。"
+
+msgid "One-shot sync failed: %s"
+msgstr "单次同步失败：%s"
