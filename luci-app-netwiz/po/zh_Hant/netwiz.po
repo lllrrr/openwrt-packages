@@ -256,8 +256,11 @@ msgstr "旁路由（AP有線中繼）模式下，閘道器為必填項。"
 msgid "WAN Static IP MUST NOT be the same as the gateway!"
 msgstr "WAN 靜態 IP 絕對不能和閘道器一模一樣！"
 
-msgid "In AP/Relay mode, the device IP MUST NOT be the exact same as the Gateway! (Tip: The Gateway should be the LAN IP of your upstream main router, and this device needs its own unique IP)"
-msgstr "【旁路由 / 有線中繼 (AP)】模式下，本設備 IP 絕對不能與網關完全一樣但網段需要相同！（💡 提示：網關請填寫上級主路由的 LAN 口 IP 地址）"
+msgid "In AP/Relay mode, the device IP MUST NOT be the exact same as the Gateway! ("
+msgstr "【旁路由 / 有線中繼 (AP)】模式下，本設備 IP 絕對不能與網關完全一樣但網段需要相同！（"
+
+msgid "Tip: The Gateway should be the LAN IP of your upstream main router, and this device needs its own unique IP)"
+msgstr "提示：網關請填寫上級主路由的 LAN 口 IP 位址）"
 
 msgid "No Changes Needed"
 msgstr "未發生更改"
@@ -292,8 +295,11 @@ msgstr "WAN 靜態 IP 必須與閘道器處於同一網段！"
 msgid "e.g., if gateway is {gw}, the IP must be {ip}.x"
 msgstr "例如：如果閘道器是 {gw}，則 IP 必須是 {ip}.x"
 
-msgid "In AP/Relay mode, the device IP must be in the same subnet as the Gateway! (Tip: The Gateway should be the LAN IP of your upstream main router)"
-msgstr "【旁路由 / 有線中繼 (AP)】模式下，本設備 IP 必須與網關處於同一網段！（💡 提示：網關請填寫上級主路由的 LAN 口 IP 地址）"
+msgid "In AP/Relay mode, the device IP must be in the same subnet as the Gateway! ("
+msgstr "【旁路由 / 有線中繼 (AP)】模式下，本設備 IP 必須與網關處於同一網段！（"
+
+msgid "Tip: The Gateway should be the LAN IP of your upstream main router)"
+msgstr "提示：網關請填寫上級主路由的 LAN 口 IP 位址）"
 
 msgid "Config Warning"
 msgstr "高危操作警告"
@@ -460,8 +466,8 @@ msgstr "自動"
 msgid "Wireless Mode"
 msgstr "無線模式 (Mode)"
 
-msgid "⚠️ Severe Warning"
-msgstr "⚠️ 嚴重警告"
+msgid "Severe Warning"
+msgstr "嚴重警告"
 
 msgid "Forcibly modifying the wireless physical mode may cause the hardware driver to crash or the Wi-Fi to disappear permanently if the chip does not support it! It is highly recommended to keep it on [Auto].<br><br>Are you absolutely sure you want to change this?"
 msgstr "如果強行指定的物理模式與網卡晶片實際支援的能力不匹配，將導致<b>底層驅動直接崩潰、Wi-Fi 永久消失！</b>強烈建議保持為【自動 (推薦)】。<br><br>您確定要強行修改模式嗎？"
@@ -520,8 +526,8 @@ msgstr "802.11k/v/r 無縫漫遊"
 msgid "Enable seamless roaming between routers with one click (Prerequisite: Same SSID, password, and LAN). Note: May cause connection issues with older smart home (IoT) devices."
 msgstr "一鍵開啟路由器間的無縫切換（基本前提：帳號、密碼一樣 + 同一區域網路）。注意：可能導致老舊的智慧家庭（IoT）設備無法連線。"
 
-msgid "⚠️ Manual Configuration Warning"
-msgstr "⚠️ 手動設定警告"
+msgid "Manual Configuration Warning"
+msgstr "手動設定警告"
 
 msgid "Underlying parameter mismatch detected, which may cause roaming failures. Please toggle this switch off and on again, then save to apply the standard seamless roaming profile."
 msgstr "檢測到底層參數與預設不一致，可能會導致漫遊失敗。建議將開關關閉後重新開啟，儲存後即可加入多設備全空間「絲滑」跳轉的「朋友圈」。"
@@ -548,7 +554,7 @@ msgid "Modified"
 msgstr "新修改"
 
 msgid "Security Warning"
-msgstr "⚠️ 無密碼安全警告"
+msgstr "無密碼安全警告"
 
 msgid "You are setting up an Open Wi-Fi network without a password. Anyone nearby will be able to connect and access your network.<br><br>Are you sure you want to continue?"
 msgstr "您正在設定無密碼的開放 Wi-Fi，附近任何人都可以隨意連線並存取您的區域網路設備。<br><br>您確定要繼續嗎？"
@@ -562,8 +568,8 @@ msgstr "略過本次引導"
 msgid "Don't show this again"
 msgstr "不再提示"
 
-msgid "✨ Reopen Wizard"
-msgstr "✨ 初始精靈"
+msgid "Reopen Wizard"
+msgstr "初始精靈"
 
 msgid "Skip Wi-Fi Setup (Keep current)"
 msgstr "暫不設定 Wi-Fi (保持現狀)"
@@ -799,17 +805,17 @@ msgstr "正在雷達避衝突並靜默寫入規則..."
 msgid "No device records found in current LAN"
 msgstr "目前區域網路內未發現任何裝置紀錄"
 
-msgid "❌ Scan failed: Cannot retrieve underlying data"
-msgstr "❌ 掃描失敗：無法獲取底層資料"
+msgid "Scan failed: Cannot retrieve underlying data"
+msgstr "掃描失敗：無法獲取底層資料"
 
-msgid "❌ The IP pool for this type is full. Please expand the range or choose another strategy!"
-msgstr "❌ 該類型的 IP 分段池已全部被佔滿，請擴大範圍或選擇其它策略！"
+msgid "The IP pool for this type is full. Please expand the range or choose another strategy!"
+msgstr "該類型的 IP 分段池已全部被佔滿，請擴大範圍或選擇其它策略！"
 
 msgid "IP address cannot be empty!"
 msgstr "IP 位址不能為空！"
 
-msgid "❌ IP Conflict Blocked!"
-msgstr "❌ IP 衝突攔截！"
+msgid "IP Conflict Blocked!"
+msgstr "IP 衝突攔截！"
 
 msgid "The IP [{ip}] is occupied by device [{name}]."
 msgstr "您輸入的 IP [{ip}] 已被區域網路中的設備【{name}】佔用。"
@@ -817,23 +823,23 @@ msgstr "您輸入的 IP [{ip}] 已被區域網路中的設備【{name}】佔用�
 msgid "Please modify the strategy or enter a free IP!"
 msgstr "請修改策略或輸入一個未被佔用的空閒 IP！"
 
-msgid "💡 Tip: The device is already fixed at this IP. No changes needed!"
-msgstr "💡 提示：該裝置已經是目前 IP 且已固定，設定未發生任何改變，無需重複提交！"
+msgid "Tip: The device is already fixed at this IP. No changes needed!"
+msgstr "提示：該裝置已經是目前 IP 且已固定，設定未發生任何改變，無需重複提交！"
 
-msgid "💡 Tip: The {count} selected devices are all [Unbound]. No unbind action needed!"
-msgstr "💡 提示：您選取的 {count} 台裝置目前全是【未綁定】狀態，無需執行解綁操作！"
+msgid "Tip: The {count} selected devices are all [Unbound]. No unbind action needed!"
+msgstr "提示：您選取的 {count} 台裝置目前全是【未綁定】狀態，無需執行解綁操作！"
 
 msgid "Starting suffix must be between 2 and 254!"
 msgstr "起始後綴必須在 2 到 254 之間！"
 
-msgid "❌ IP pool insufficient!"
-msgstr "❌ IP 資源池不足！"
+msgid "IP pool insufficient!"
+msgstr "IP 資源池不足！"
 
 msgid "Only {avail} IPs left from .{suf}, but {count} devices selected."
 msgstr "從 .{suf} 開始僅剩 {avail} 個可用 IP，但您選了 {count} 台設備。"
 
-msgid "❌ [{name}] assignment failed!"
-msgstr "❌ [{name}] 分配失敗！"
+msgid "[{name}] assignment failed!"
+msgstr "[{name}] 分配失敗！"
 
 msgid "Selected {req} devices, but only {avail} IPs available in the preset range."
 msgstr "選中了 {req} 台設備，但預設網段內僅剩 {avail} 個可用 IP。"
@@ -841,8 +847,8 @@ msgstr "選中了 {req} 台設備，但預設網段內僅剩 {avail} 個可用 I
 msgid "Please expand the IP range for this category!"
 msgstr "請擴大該分類的 IP 範圍！"
 
-msgid "💡 Smart block: According to your strategy, the {count} selected devices are already fixed with unchanged IPs. No need to rewrite rules!"
-msgstr "💡 智慧攔截：根據您的策略計算，選取的 {count} 台裝置【均已固定且 IP 未改變】，無需重複下發規則！"
+msgid "Smart block: According to your strategy, the {count} selected devices are already fixed with unchanged IPs. No need to rewrite rules!"
+msgstr "智慧攔截：根據您的策略計算，選取的 {count} 台裝置【均已固定且 IP 未改變】，無需重複下發規則！"
 
 msgid "Infinite"
 msgstr "永久"
@@ -886,23 +892,23 @@ msgstr "原因：RPC 介面無回應 ({err})"
 msgid "Please run this command in router SSH to restart the service: /etc/init.d/rpcd restart"
 msgstr "請在路由器 SSH 執行此指令重啟服務：/etc/init.d/rpcd restart"
 
-msgid "❌ Subnet Conflict: IP ranges between groups cannot overlap!"
-msgstr "❌ 網段衝突：不同分組間的 IP 範圍不能有重疊！"
+msgid "Subnet Conflict: IP ranges between groups cannot overlap!"
+msgstr "網段衝突：不同分組間的 IP 範圍不能有重疊！"
 
 msgid "Conflicting groups: {groups}"
 msgstr "衝突組：{groups}"
 
-msgid "❌ Save Failed: Group names cannot be duplicated!"
-msgstr "❌ 儲存失敗：分組名稱不能重複！"
+msgid "Save Failed: Group names cannot be duplicated!"
+msgstr "儲存失敗：分組名稱不能重複！"
 
 msgid "Duplicate name: {name}"
 msgstr "重複名稱：{name}"
 
-msgid "❌ Save Failed: IPs must be between 2-254 and format must be valid!"
-msgstr "❌ 保存失敗：IP 必須在 2-254 之間，且存在格式錯誤！"
+msgid "Save Failed: IPs must be between 2-254 and format must be valid!"
+msgstr "保存失敗：IP 必須在 2-254 之間，且存在格式錯誤！"
 
-msgid "❌ IP pool reached the end (254). Cannot auto-append. Please arrange subnets manually!"
-msgstr "❌ IP 段已分配到末尾 (達到254)，無法繼續自動追加，請手動整理網段！"
+msgid "IP pool reached the end (254). Cannot auto-append. Please arrange subnets manually!"
+msgstr "IP 段已分配到末尾 (達到254)，無法繼續自動追加，請手動整理網段！"
 
 msgid "Visiting"
 msgstr "正在訪問"
@@ -925,8 +931,8 @@ msgstr "目標分組"
 msgid "Group IP Pool"
 msgstr "自定義分組專屬網段"
 
-msgid "❌ The IP pool for the selected department is full! Please expand the range."
-msgstr "❌ 該分組的 IP 池已全部分配完畢！請前往“管理分組”擴大網段範圍。"
+msgid "The IP pool for the selected department is full! Please expand the range."
+msgstr "該分組的 IP 池已全部分配完畢！請前往“管理分組”擴大網段範圍。"
 
 msgid "Uncategorized"
 msgstr "未分組"
@@ -937,26 +943,26 @@ msgstr "歸入自定義組 (可選)"
 msgid "-- Uncategorized (None) --"
 msgstr "-- 不加入任何組 (未分組) --"
 
-msgid "❌ Strategy Error: Please select a Target Group first to allocate IPs from its pool!"
-msgstr "❌ 策略錯誤：請先選擇一個“目標組”，以便從其專屬網段中分配 IP！"
+msgid "Strategy Error: Please select a Target Group first to allocate IPs from its pool!"
+msgstr "策略錯誤：請先選擇一個“目標組”，以便從其專屬網段中分配 IP！"
 
 msgid "Manage device network access anytime, anywhere"
 msgstr "隨時隨地，極簡管控該設備的網絡權限"
 
-msgid "⛔ Block Internet (WAN)"
-msgstr "⛔ 一鍵斷網 (禁止外網)"
+msgid "Block Internet (WAN)"
+msgstr "一鍵斷網 (禁止外網)"
 
 msgid "Instantly cut off internet access. LAN communication remains normal."
 msgstr "立即斷開該設備訪問互聯網的權限。局域網內互通正常。"
 
-msgid "🛡️ LAN Isolation (Anti-snooping)"
-msgstr "🛡️ 局域網隔離 (接下級交換機的設備失效)"
+msgid "LAN Isolation (Anti-snooping)"
+msgstr "局域網隔離 (接下級交換機的設備失效)"
 
 msgid "Block internal network access for this device to prevent scanning and privacy leaks."
 msgstr "隔離該設備通過本路由器內網訪問權限，阻止內網掃描，防護隱私洩露。"
 
-msgid "🚀 DMZ Host (Expose to WAN)"
-msgstr "🚀 DMZ 主機 (暴露到公網)"
+msgid "DMZ Host (Expose to WAN)"
+msgstr "DMZ 主機 (暴露到公網)"
 
 msgid "Forward all WAN ports to this device. Only one device allowed."
 msgstr "將外網端口全轉發給該設備。僅能開啟一台設備。"
@@ -964,23 +970,23 @@ msgstr "將外網端口全轉發給該設備。僅能開啟一台設備。"
 msgid "Click to control access"
 msgstr "點擊管控權限"
 
-msgid "❌ Cannot enable DMZ: Device has no valid IP or is offline!"
-msgstr "❌ 無法開啟 DMZ：該設備尚未獲取到有效 IP，或不在線！"
+msgid "Cannot enable DMZ: Device has no valid IP or is offline!"
+msgstr "無法開啟 DMZ：該設備尚未獲取到有效 IP，或不在線！"
 
-msgid "❌ Denied! Only one DMZ host allowed."
-msgstr "❌ 拒絕！僅允許設定一台 DMZ 主機。"
+msgid "Denied! Only one DMZ host allowed."
+msgstr "拒絕！僅允許設定一台 DMZ 主機。"
 
-msgid "Device [ "
-msgstr "設備 [ "
+msgid "Device ["
+msgstr "設備 ["
 
-msgid " ] is currently the DMZ."
-msgstr " ] 目前已是 DMZ。"
+msgid "] is currently the DMZ."
+msgstr "] 目前已是 DMZ。"
 
 msgid "Please disable its DMZ first!"
 msgstr "請先關閉該設備的 DMZ 功能！"
 
-msgid "❌ Save failed!"
-msgstr "❌ 儲存失敗！"
+msgid "Save failed!"
+msgstr "儲存失敗！"
 
 msgid "Reason: RPC Error ({err})."
 msgstr "原因：RPC 錯誤 ({err})。"
@@ -1015,8 +1021,8 @@ msgstr "DMZ 主機"
 msgid "Conns"
 msgstr "連接"
 
-msgid "❌ Invalid IP format! Please enter a valid IPv4 address (e.g., 192.168.1.50)"
-msgstr "❌ IP格式錯誤！請輸入合法的IPv4位址 (例如: 192.168.1.50)"
+msgid "Invalid IP format! Please enter a valid IPv4 address (e.g., 192.168.1.50)"
+msgstr "IP格式錯誤！請輸入合法的IPv4位址 (例如: 192.168.1.50)"
 
 msgid "Public IPv6 (Click to copy):"
 msgstr "公網 IPv6 (點擊即可複製):"
@@ -1030,14 +1036,14 @@ msgstr "匯出自定義"
 msgid "Import Groups"
 msgstr "匯入自定義"
 
-msgid "✅ Import successful!"
-msgstr "✅ 匯入成功！"
+msgid "Import successful!"
+msgstr "匯入成功！"
 
 msgid "Please verify and click [Save] below to apply."
 msgstr "請檢查無誤後，點擊下方【儲存】按鈕生效。"
 
-msgid "❌ Import failed!"
-msgstr "❌ 匯入失敗！"
+msgid "Import failed!"
+msgstr "匯入失敗！"
 
 msgid "Invalid or corrupted file format. Please select a valid JSON backup file."
 msgstr "檔案格式錯誤或已損壞，請選擇正確的 JSON 備份檔。"
@@ -1048,8 +1054,8 @@ msgstr "疑似偽裝或新設備"
 msgid "Factory Reset"
 msgstr "恢復出廠"
 
-msgid "⚠️ Danger: Restore Default Network"
-msgstr "⚠️ 危險操作：恢復初始網路"
+msgid "Danger: Restore Default Network"
+msgstr "危險操作：恢復初始網路"
 
 msgid "Are you sure you want to clear all static IPs and firewall rules set by Netwiz?<br><br><span style=\"color:#ef4444; font-weight:bold;\">This operation will delete all groups, blacklists, isolations, and DMZ settings, and restart network services.</span>"
 msgstr "確定要清空所有由 Netwiz 網絡管家設定的靜態 IP 和防火牆規則嗎？<br><br><span style=\"color:#ef4444; font-weight:bold;\">此操作將刪除所有分組、黑名單、隔離和 DMZ 設定，並重啟網路服務。</span>"
@@ -1057,8 +1063,8 @@ msgstr "確定要清空所有由 Netwiz 網絡管家設定的靜態 IP 和防火
 msgid "Cleaning up and restarting network services..."
 msgstr "正在大掃除並重啟網路服務..."
 
-msgid "⚡ Connection Radar Analysis"
-msgstr "⚡ 連線雷達分析"
+msgid "Connection Radar Analysis"
+msgstr "連線雷達分析"
 
 msgid "Diving into system kernel to capture connection records..."
 msgstr "正在潛入系統內核抓取連線記錄..."
@@ -1099,8 +1105,8 @@ msgstr "匯出配置"
 msgid "Import Config"
 msgstr "匯入配置"
 
-msgid "📦 Packing Network Config"
-msgstr "📦 正在打包網路配置"
+msgid "Packing Network Config"
+msgstr "正在打包網路配置"
 
 msgid "<div style=\"text-align:center; padding:20px; color:#64748b;\"><div class=\"nd-spinner\" style=\"margin:0 auto 15px auto;\"></div>Generating exclusive backup file<br><br><span style=\"font-size:12px;\">(Includes: WAN, Wi-Fi, IPv6, Bypass, Static IPs & Firewall rules)</span></div>"
 msgstr "<div style=\"text-align:center; padding:20px; color:#64748b;\"><div class=\"nd-spinner\" style=\"margin:0 auto 15px auto;\"></div>正在生成專屬備份檔案<br><br><span style=\"font-size:12px;\">(包含：寬頻、Wi-Fi、IPv6、旁路由、靜態IP及防火牆規則)</span></div>"
@@ -1108,14 +1114,14 @@ msgstr "<div style=\"text-align:center; padding:20px; color:#64748b;\"><div clas
 msgid "Please wait..."
 msgstr "請稍候..."
 
-msgid "✅ Export Successful"
-msgstr "✅ 匯出成功"
+msgid "Export Successful"
+msgstr "匯出成功"
 
 msgid "Core network configuration file has been successfully downloaded!"
 msgstr "核心網路配置檔案已成功下載！"
 
-msgid "❌ Export Failed"
-msgstr "❌ 匯出失敗"
+msgid "Export Failed"
+msgstr "匯出失敗"
 
 msgid "Backend returned no valid data"
 msgstr "後端未回傳有效數據"
@@ -1123,11 +1129,14 @@ msgstr "後端未回傳有效數據"
 msgid "Error occurred: "
 msgstr "發生錯誤: "
 
-msgid "⚠️ Confirm Overwrite?"
-msgstr "⚠️ 確認覆蓋網路配置？"
+msgid "Confirm Overwrite?"
+msgstr "確認覆蓋網路配置？"
 
-msgid "<span style=\"color:#ef4444; font-weight:bold;\">About to overwrite the router's core network settings!</span><br><br><span style=\"font-size:12.5px; color:#ef4444;\">💡 <b>Safety Mechanism:</b> The system will automatically backup the current state to the <code style=\"background:#10b981; padding:2px 4px; border-radius:4px;\">/root/netwiz_bak/</code> directory before importing.</span><br><br>Network services will <b>automatically restart</b> after import, which may cause brief Wi-Fi/LAN disconnection. Please confirm."
-msgstr "<span style=\"color:#ef4444; font-weight:bold;\">即將覆蓋當前路由器的核心網路設定！</span><br><br><span style=\"font-size:12.5px; color:#ef4444;\">💡 <b>安全機制：</b>系統會在匯入前，自動將當前狀態備份到路由器的 <code style=\"background:#10b981; padding:2px 4px; border-radius:4px;\">/root/netwiz_bak/</code> 專屬目錄下以防萬一。</span><br><br>匯入完成後將會<b>自動重啟網路服務</b>，Wi-Fi 和區域網路可能會短暫斷線，請確認。"
+msgid "<span style=\"color:#ef4444; font-weight:bold;\">About to overwrite the router's core network settings!</span><br><br><span style=\"font-size:12.5px; color:#ef4444;\">"
+msgstr "<span style=\"color:#ef4444; font-weight:bold;\">即將覆蓋路由器的核心網路設定！</span><br><br><span style=\"font-size:12.5px; color:#ef4444;\">"
+
+msgid "<b>Safety Mechanism:</b> The system will automatically backup the current state to the <code style=\"background:#10b981; padding:2px 4px; border-radius:4px;\">/root/netwiz_bak/</code> directory before importing.</span><br><br>Network services will <b>automatically restart</b> after import, which may cause brief Wi-Fi/LAN disconnection. Please confirm."
+msgstr "<b>安全機制：</b>在匯入前，系統會自動將當前狀態備份到 <code style=\"background:#10b981; padding:2px 4px; border-radius:4px;\">/root/netwiz_bak/</code> 目錄。</span><br><br>匯入後網路服務將<b>自動重啟</b>，可能會導致 Wi-Fi/LAN 短暫斷開，請確認。"
 
 msgid "Confirm & Apply"
 msgstr "確認匯入並套用"
@@ -1135,8 +1144,8 @@ msgstr "確認匯入並套用"
 msgid "Writing configuration and restarting network services,<br><b>Please wait...</b> Network may disconnect briefly, taking about 10-25 seconds..."
 msgstr "正在寫入配置並重啟網路服務，<br><b>請稍候...</b> 網路可能會短暫斷開，大約需要 10-25 秒..."
 
-msgid "⬆️ Restore Network Config"
-msgstr "⬆️ 恢復網路配置"
+msgid "Restore Network Config"
+msgstr "恢復網路配置"
 
 msgid "<div style=\"text-align:center; padding:20px; color:#64748b;\"><div class=\"nd-spinner\" style=\"margin:0 auto 15px auto;\"></div>Reading router backup records...</div>"
 msgstr "<div style=\"text-align:center; padding:20px; color:#64748b;\"><div class=\"nd-spinner\" style=\"margin:0 auto 15px auto;\"></div>正在讀取路由器備份記錄...</div>"
@@ -1144,23 +1153,23 @@ msgstr "<div style=\"text-align:center; padding:20px; color:#64748b;\"><div clas
 msgid "[ No history backups found ]"
 msgstr "[ 暫無歷史備份記錄 ]"
 
-msgid "📂 Restore from Router History"
-msgstr "📂 從路由器歷史備份恢復"
+msgid "Restore from Router History"
+msgstr "從路由器歷史備份恢復"
 
-msgid "⬇️ Restore Selected Backup"
-msgstr "⬇️ 恢復選中的備份"
+msgid "Restore Selected Backup"
+msgstr "恢復選中的備份"
 
 msgid "— OR —"
 msgstr "— 或者 —"
 
-msgid "💻 Upload from Local PC"
-msgstr "💻 從本機電腦上傳恢復"
+msgid "Upload from Local PC"
+msgstr "從本機電腦上傳恢復"
 
-msgid "📁 Browse PC Files..."
-msgstr "📁 瀏覽電腦檔案..."
+msgid "Browse PC Files..."
+msgstr "瀏覽電腦檔案..."
 
-msgid "❌ Read Failed"
-msgstr "❌ 讀取失敗"
+msgid "Read Failed"
+msgstr "讀取失敗"
 
 msgid "Unable to fetch router backup list."
 msgstr "無法獲取路由器備份列表。"
@@ -1195,23 +1204,26 @@ msgstr "主 DNS:"
 msgid "Secondary DNS:"
 msgstr "備 DNS:"
 
-msgid "⚠️ Non-standard parameters (Default configuration recommended)"
-msgstr "⚠️ 與預設參數不一致 (建議使用預設設定)"
+msgid "Non-standard parameters (Default configuration recommended)"
+msgstr "與預設參數不一致 (建議使用預設設定)"
 
 msgid "Cable Unplugged or Wrong Port"
 msgstr "網線未連接 或 插錯網口"
 
-msgid "System detected NO SIGNAL on the <b>WAN port</b>!<br><br><b style=\"color:#ef4444;\">Troubleshooting:</b><br>1. Did you plug the upstream cable into the <b>LAN port</b>?<br>2. Are both ends plugged in tightly? Is the modem powered on?<br>"
-msgstr "系統檢測到路由器的 <b>WAN 口（外網口）</b> 沒有信號！<br><br><b style=\"color:#ef4444;\">💡 新手常見錯誤排查：</b><br>1. 您是不是把上級網線 <b>插錯到了 LAN 口</b>？<br>2. 網線兩端是否已插緊？光貓/牆壁網口是否已通電？<br>"
+msgid "System detected NO SIGNAL on the <b>WAN port</b>!<br><br><b style=\"color:#ef4444;\">"
+msgstr "系統檢測到路由器的 <b>WAN 口（外網口）</b> 沒有信號！<br><br><b style=\"color:#ef4444;\">"
+
+msgid "Troubleshooting:</b><br>1. Did you plug the upstream cable into the <b>LAN port</b>?<br>2. Are both ends plugged in tightly? Is the modem powered on?<br>"
+msgstr "新手常見錯誤排查：</b><br>1. 您是不是把上級網線 <b>插錯到了 LAN 口</b>？<br>2. 網線兩端是否已插緊？光貓/牆壁網口是否已通電？<br>"
 
 msgid "Detecting in background... This will close automatically once connected."
-msgstr "🔄 正在後台極速偵測... 插好後本窗口將自動消失"
+msgstr "正在後台極速偵測... 插好後本窗口將自動消失"
 
 msgid "I am an AP / Ignore for now"
 msgstr "我是旁路由（中繼）/ 暫不處理"
 
 msgid "Severe Warning: Routing Loop"
-msgstr "🚨 嚴重警告：網絡衝突死環"
+msgstr "嚴重警告：網絡衝突死環"
 
 msgid "System detected that the upstream network (<b style=\"color:#ef4444;\">{wan_ip}</b>) and the LAN (<b style=\"color:#ef4444;\">{lan_ip}</b>) are in the same subnet!<br><br>This will crash the router. <b style=\"color:#059669;\">Please confirm or modify the new LAN IP below and click auto-evade:</b><br><br>"
 msgstr "系統實時檢測到，入戶網絡 (<b style=\"color:#ef4444;\">{wan_ip}</b>) 與本路由器的局域網 (<b style=\"color:#ef4444;\">{lan_ip}</b>) 處於同一網段！<br><br>這將導致路由器徹底癱瘓。<b style=\"color:#059669;\">請確認或修改下方的新局域網 IP，並點擊一鍵避讓：</b><br><br>"
@@ -1220,16 +1232,16 @@ msgid "Modify and Restart Network"
 msgstr "立即修改並重啟網絡"
 
 msgid "Invalid IP format! System restored safe default, please confirm."
-msgstr "❌ 無效的 IP 格式！系統已恢復安全推薦值，請重新確認。"
+msgstr "無效的 IP 格式！系統已恢復安全推薦值，請重新確認。"
 
 msgid "Still conflicting! The modified IP is still in the same subnet as upstream.\nSystem restored safe default, please change the 3rd number!"
-msgstr "❌ 依然衝突！修改後的 IP 仍與上級網絡在同一網段。\n系統已恢復安全推薦值，請修改第三段數字！"
+msgstr "依然衝突！修改後的 IP 仍與上級網絡在同一網段。\n系統已恢復安全推薦值，請修改第三段數字！"
 
 msgid "IMPORTANT:\n\nTo resolve the fatal network loop, the system must change LAN IP and restart immediately.\n\nChanges you made on this page will NOT be saved.\nPlease reconfigure after the network restarts and redirects to the new IP.\n\nContinue to fix conflict?"
-msgstr "⚠️ 重要提示：\n\n為優先解決致命的網絡死環，系統必須立即修改局域網 IP 並重啟。\n\n您剛才填寫的【當前頁面的其他配置】將不會被保存。\n請在網絡重啟、跳轉到新 IP 後重新配置。\n\n確定要立即修復衝突嗎？"
+msgstr "重要提示：\n\n為優先解決致命的網絡死環，系統必須立即修改局域網 IP 並重啟。\n\n您剛才填寫的【當前頁面的其他配置】將不會被保存。\n請在網絡重啟、跳轉到新 IP 後重新配置。\n\n確定要立即修復衝突嗎？"
 
 msgid "Network Conflict Blocked"
-msgstr "⚠️ 網絡衝突已攔截"
+msgstr "網絡衝突已攔截"
 
 msgid "Upstream network ({wan_ip}) conflicts with local LAN ({lan_ip})!<br><br>Please click below to safely evade to: <b>{safe_ip}</b> to finish setup."
 msgstr "檢測到上級網絡分配的地址 ({wan_ip}) 與本路由器的內網 ({lan_ip}) 發生嚴重衝突！<br><br>請先點擊下方按鈕安全避讓至：<b>{safe_ip}</b>，隨後即可正常完成嚮導。"
@@ -1238,7 +1250,7 @@ msgid "Auto Evade"
 msgstr "一鍵自動避讓"
 
 msgid "Cross-Subnet Loop Blocked"
-msgstr "⚠️ 跨網段路由死環攔截"
+msgstr "跨網段路由死環攔截"
 
 msgid "The LAN IP ({ip}) you set is in the same subnet as your upstream network ({wan_ip}), which will crash the router!<br><br>Suggested evasion to: <b>{safe_ip}</b>"
 msgstr "您設置的 LAN IP ({ip}) 與您的入戶網絡 ({wan_ip}) 處於同一網段，這會導致路由器癱瘓！<br><br>建議一鍵避讓至：<b>{safe_ip}</b>"
@@ -1253,7 +1265,7 @@ msgid "Upstream network ({wan_ip}) conflicts with local LAN ({lan_ip})!<br><br>Y
 msgstr "檢測到上級網絡分配的地址 ({wan_ip}) 與本路由器的內網 ({lan_ip}) 發生嚴重衝突！<br><br>必須修改本設備的 LAN IP。系統建議安全避讓至：<b>{safe_ip}</b>"
 
 msgid "Severe Physical Conflict"
-msgstr "⚠️ 嚴重物理衝突"
+msgstr "嚴重物理衝突"
 
 msgid "The WAN Static IP ({ip}) you set is exactly the same as the upstream Gateway!<br><br>This causes a severe physical loop. Please change your Static IP (e.g., {suggest_ip})."
 msgstr "您設置的 WAN 靜態 IP ({ip}) 與上級網絡的真實網關完全相同！<br><br>這將導致嚴重的物理死環。請修改您的靜態 IP（例如改為 {suggest_ip}）。"
@@ -1307,7 +1319,7 @@ msgid "Releasing wizard lock, entering official dashboard..."
 msgstr "正在退出嚮導，進入後台..."
 
 msgid "This password will be used for logging into the router web interface and SSH. Setting it now is highly recommended."
-msgstr "💡 此密碼將用於日後登入路由器後台及 SSH，建議立即設定。"
+msgstr "此密碼將用於日後登入路由器後台及 SSH，建議立即設定。"
 
 msgid "Please enter a new password or check \"Skip Password Setup\"!"
 msgstr "請輸入新管理員密碼，或勾選「暫不配置」！"
@@ -1420,8 +1432,11 @@ msgstr "無法啟動後台備份任務"
 msgid "Confirm System Restore"
 msgstr "確認還原系統"
 
-msgid "<span style=\"color:#ef4444; font-weight:bold;\">WARNING: This will overwrite current configs and reinstall plugins!</span><br><br>Router will auto-reboot upon completion. Ensure file is correct.<br><br><span style=\"color:#059669; font-size: 14px;\">🛡️ Safe Mode: Auto-rollback if connection is lost for 300s.</span><br><br>"
-msgstr "<span style='color:#ef4444; font-weight:bold;'>警告：此操作將覆蓋現有的網路設定並重新安裝外掛！</span><br><br>完成後路由器將自動重啟，請確保選擇的檔案無誤。<br><br><span style='color:#059669; font-size: 14px;'>🛡️ 安全機制：若重啟後失聯 300 秒，系統將自動回退設定以防變磚。</span><br><br>"
+msgid "<span style=\"color:#ef4444; font-weight:bold;\">WARNING: This will overwrite current configs and reinstall plugins!</span><br><br>Router will auto-reboot upon completion. Ensure file is correct.<br><br><span style=\"color:#059669; font-size: 14px;\">"
+msgstr "<span style=\"color:#ef4444; font-weight:bold;\">警告：此操作將覆蓋現有的網路設定並重新安裝外掛！</span><br><br>完成後路由器將自動重啟，請確保選擇的檔案無誤。<br><br><span style=\"color:#059669; font-size: 14px;\">"
+
+msgid "Safe Mode: Auto-rollback if connection is lost for 300s.</span><br><br>"
+msgstr "安全機制：若重啟後失聯 300 秒，系統將自動回退配置以防變磚。</span><br><br>"
 
 msgid "Auto-download current state backup before restore (Regret Pill)"
 msgstr "恢復前自動下載目前狀態備份 (後悔藥)"
@@ -1432,8 +1447,11 @@ msgstr "確認並選擇檔案"
 msgid "Native Fast Restore Mode"
 msgstr "原生極速還原模式"
 
-msgid "Transferring capsule via high-speed system channel...<br><br><b style=\"color:#ef4444;\">DO NOT power off. Router will auto-reboot upon completion.</b><br><br><span style=\"color:#059669; font-size: 14px;\">🛡️ Safe Mode: Auto-rollback if connection is lost for 300s.</span>"
-msgstr "正在呼叫系統底層高速通道直傳膠囊...<br><br><b style=\"color:#ef4444;\">請勿斷開電源，路由器將在完成後自動重啟。</b><br><br><span style=\"color:#059669; font-size: 14px;\">🛡️ 安全機制：若重啟後失聯 300 秒，系統將自動回退設定以防變磚。</span>"
+msgid "Transferring capsule via high-speed system channel...<br><br><b style=\"color:#ef4444;\">DO NOT power off. Router will auto-reboot upon completion.</b><br><br><span style=\"color:#059669; font-size: 14px;\">"
+msgstr "正在呼叫系統底層高速通道直傳膠囊...<br><br><b style=\"color:#ef4444;\">請勿斷開電源，路由器將在完成後自動重啟。</b><br><br><span style=\"color:#059669; font-size: 14px;\">"
+
+msgid "Safe Mode: Auto-rollback if connection is lost for 300s.</span>"
+msgstr "安全機制：若重啟後失聯 300 秒，系統將自動回退配置以防變磚。</span>"
 
 msgid "Capsule delivered, preparing offline task..."
 msgstr "膠囊已送達底層，準備執行脫機任務..."
@@ -1516,8 +1534,11 @@ msgstr "<div style=\"text-align:left; color:#ef4444; font-weight:bold;\">配置�
 msgid "Restore Network Config"
 msgstr "還原網路配置"
 
-msgid "This action will overwrite the existing network configuration and restart the network.<br><br><span style=\"color:#f59e0b; font-weight:bold;\">⚠️ Security Warning: Do not upload backups from unknown sources to prevent router hijacking.</span><br><br>Confirm restore?"
-msgstr "此操作將覆蓋現有的網路配置，並重啟網路。<br><br><span style=\"color:#f59e0b; font-weight:bold;\">⚠️ 安全警告：請勿上傳來路不明的備份檔案，以免路由器被惡意劫持。</span><br><br>確認要執行還原嗎？"
+msgid "This action will overwrite the existing network configuration and restart the network.<br><br><span style=\"color:#f59e0b; font-weight:bold;\">"
+msgstr "此操作將覆蓋現有的網路設定並重啟網路。<br><br><span style=\"color:#f59e0b; font-weight:bold;\">"
+
+msgid "Security Warning: Do not upload backups from unknown sources to prevent router hijacking.</span><br><br>Confirm restore?"
+msgstr "安全警告：請勿上傳來源不明的備份，以防路由器被劫持。</span><br><br>確認還原？"
 
 msgid "Restoring"
 msgstr "正在還原"
@@ -1540,23 +1561,29 @@ msgstr "匯入配置"
 msgid "Are you sure you want to import this configuration? Existing data will be overwritten."
 msgstr "確認要匯入該配置嗎？現有資料將被徹底覆蓋。"
 
-msgid "🚨 Severe Network Topology Conflict!"
-msgstr "🚨 嚴重網路拓撲衝突！"
+msgid "Severe Network Topology Conflict!"
+msgstr "嚴重網路拓撲衝突！"
 
 msgid "System detected that IPv6 and LAN \"Masquerading (NAT)\" are <b>BOTH enabled</b>!This will paralyze IPv6 allocation and cause routing loops.<br>👉 <b>Fix:</b> Please go to <code>Network -> Firewall</code> to disable LAN Masquerading, or <b style=\"color:#ef4444;\">Disable IPv6</b> in the LAN settings on the Netwiz homepage."
 msgstr "系統檢測到 IPv6 與 LAN 區「動態偽裝 (NAT)」<b>同時處於開啟狀態</b>！這將導致 IPv6 分配癱瘓與路由死循環。<br>👉 <b>排錯指南：</b>請前往官方 <code>網路->防火牆</code> 關閉 LAN 區的動態偽裝，或在Netwiz首頁的區域網路設置裡 <b style=\"color:#ef4444;\">關閉 IPv6</b>。"
 
-msgid "⚠️ IPv6 Configuration Blocked"
-msgstr "⚠️ IPv6 配置已被系統安全攔截"
+msgid "IPv6 Configuration Blocked"
+msgstr "IPv6 配置已被系統安全攔截"
 
-msgid "Detected that LAN \"IP Masquerading (NAT)\" is enabled. Forcing IPv6 on under a double-NAT topology will cause network disconnection.<br>👉 <b>Fix:</b> Please go to <code>Network -> Firewall -> Zones</code> to disable LAN Masquerading first."
-msgstr "檢測到防火牆 LAN 區已開啟「IP 動態偽裝 (NAT)」。在雙重 NAT 拓撲下，強行開啟 IPv6 將導致斷網。<br>👉 <b>排錯指南：</b>請前往官方後台 <code>網路->防火牆->區域</code>，關閉 LAN 區的動態偽裝後重試。"
+msgid "System detected that IPv6 and LAN \"Masquerading (NAT)\" are <b>BOTH enabled</b>!This will paralyze IPv6 allocation and cause routing loops.<br>"
+msgstr "系統檢測到 IPv6 和區域網「IP 動態偽裝 (NAT)」<b>同時開啟</b>！這將導致 IPv6 分配癱瘓並引發路由環路。<br>"
+
+msgid "<b>Fix:</b> Please go to <code>Network -> Firewall</code> to disable LAN Masquerading, or <b style=\"color:#ef4444;\">Disable IPv6</b> in the LAN settings on the Netwiz homepage."
+msgstr "<b>修復建議：</b>請前往 <code>網路 -> 防火牆</code> 關閉區域網動態偽裝，或者在 Netwiz 首頁的區域網設定中<b style=\"color:#ef4444;\">關閉 IPv6</b>。"
 
 msgid "Restore Device Data"
 msgstr "還原設備資料"
 
-msgid "This action will overwrite existing device groups and static IP bindings, and restart the network.<br><br><span style=\"color:#f59e0b; font-weight:bold;\">⚠️ Security Warning: Do not upload backups from unknown sources to prevent DNS hijacking.</span><br><br>Confirm to restore?"
-msgstr "此操作將覆蓋現有的設備分組與靜態 IP 綁定資料，並重啟網路。<br><br><span style=\"color:#f59e0b; font-weight:bold;\">⚠️ 安全警告：請勿上傳來路不明的備份檔案，以免 DNS 被惡意劫持。</span><br><br>確認要執行還原嗎？"
+msgid "This action will overwrite existing device groups and static IP bindings, and restart the network.<br><br><span style=\"color:#f59e0b; font-weight:bold;\">"
+msgstr "此操作將覆蓋現有的設備分組和靜態 IP 綁定，並重啟網路。<br><br><span style=\"color:#f59e0b; font-weight:bold;\">"
+
+msgid "Security Warning: Do not upload backups from unknown sources to prevent DNS hijacking.</span><br><br>Confirm to restore?"
+msgstr "安全警告：請勿上傳來源不明的備份，以防 DNS 被劫持。</span><br><br>確認還原？"
 
 msgid "Success"
 msgstr "成功"
@@ -1633,8 +1660,8 @@ msgstr "插件掃描完成"
 msgid "System scan complete! All your installed plugins are from the official repository and will be safely recorded for automatic restoration."
 msgstr "系統掃描完畢！您安裝的所有第三方可視化插件，均存在於當前軟體源中。它們將被安全記錄並在未來自動聯網恢復。"
 
-msgid "⚠️ Backup Interrupted Warning"
-msgstr "⚠️ 備份中斷警告"
+msgid "Backup Interrupted Warning"
+msgstr "備份中斷警告"
 
 msgid "Out of Memory (OOM Protection)!"
 msgstr "記憶體不足 (OOM 預防機制)！"
@@ -1645,8 +1672,8 @@ msgstr "您要打包的檔案體積過大，超過了路由器當前的可用記
 msgid "I Got It"
 msgstr "我知道了"
 
-msgid "⚠️ Scan Timeout Warning"
-msgstr "⚠️ 掃描超時警告"
+msgid "Scan Timeout Warning"
+msgstr "掃描超時警告"
 
 msgid "Communication Timeout or Network Error"
 msgstr "通訊超時或網路異常"
@@ -1657,11 +1684,11 @@ msgstr "與路由器的通訊超時 (可能是網路源拉取過慢或網路波�
 msgid "Connecting..."
 msgstr "正在連接..."
 
-msgid "⚠️ Connecting to upstream... (Check password or signal strength if stuck)"
-msgstr "⚠️ 正在連接上級網路... (若一直連接不上請檢查密碼是否正確或是否上級訊號太弱)"
+msgid "Connecting to upstream... (Check password or signal strength if stuck)"
+msgstr "正在連接上級網路... (若一直連接不上請檢查密碼是否正確或是否上級訊號太弱)"
 
-msgid "🔄 First Time Syncing"
-msgstr "🔄 首次核實插件清單"
+msgid "First Time Syncing"
+msgstr "首次核實插件清單"
 
 msgid "Syncing lists in the background..."
 msgstr "正在後台拉取最新列表..."
@@ -1673,10 +1700,10 @@ msgid "OK, I will try again later"
 msgstr "停止備份"
 
 msgid "RESTORE FAILED: Package manager mismatch (apk vs ipk). Please use firmware with the same underlying system."
-msgstr "🚨 恢復失敗：套件管理員格式衝突！您的備份包與當前系統的底層不相容（apk 與 ipk 衝突），強行恢復將導致系統損壞，進程已被系統強制攔截！"
+msgstr "恢復失敗：套件管理員格式衝突！您的備份包與當前系統的底層不相容（apk 與 ipk 衝突），強行恢復將導致系統損壞，進程已被系統強制攔截！"
 
 msgid "RESTORE FAILED: CPU Architecture mismatch. Forcing this restore will brick your router! Process aborted."
-msgstr "🚨 恢復致命攔截：CPU 架構不匹配！您正在嘗試將其他架構的備份強行刷入當前路由器，這會導致路由器徹底變磚！系統已自動終止恢復進程。"
+msgstr "恢復致命攔截：CPU 架構不匹配！您正在嘗試將其他架構的備份強行刷入當前路由器，這會導致路由器徹底變磚！系統已自動終止恢復進程。"
 
 msgid "Package Manager Conflict"
 msgstr "軟體包管理器衝突"
@@ -1711,29 +1738,29 @@ msgstr "架構安全鎖：嚴禁跨軟體包管理器（如 IPK 備份至 APK �
 msgid "Force Restore Config"
 msgstr "強制恢復設定"
 
-msgid "⚠️ Current WAN is in Secondary Router mode. PPPoE dial-up will not take effect until applied."
-msgstr "⚠️ 目前 WAN 埠為二級路由模式，本頁套用設定前 PPPoE 撥號資訊無效。"
+msgid "Current WAN is in Secondary Router mode. PPPoE dial-up will not take effect until applied."
+msgstr "目前 WAN 埠為二級路由模式，本頁套用設定前 PPPoE 撥號資訊無效。"
 
-msgid "⚠️ Current WAN is in PPPoE mode. Secondary Router mode will not take effect until applied."
-msgstr "⚠️ 目前 WAN 埠為主路由的 PPPoE 撥號，本頁套用設定前二級路由模式無效。"
+msgid "Current WAN is in PPPoE mode. Secondary Router mode will not take effect until applied."
+msgstr "目前 WAN 埠為主路由的 PPPoE 撥號，本頁套用設定前二級路由模式無效。"
 
-msgid "⚙️ Advanced Utilities"
-msgstr "⚙️ 高級實用設定"
+msgid "Advanced Utilities"
+msgstr "高級實用設定"
 
-msgid "🔗 MAC Address Clone"
-msgstr "🔗 MAC 位址複製"
+msgid "MAC Address Clone"
+msgstr "MAC 位址複製"
 
-msgid "⏱️ Scheduled Reboot"
-msgstr "⏱️ 定時重啟設定"
+msgid "Scheduled Reboot"
+msgstr "定時重啟設定"
 
-msgid "🌐 Allow WAN Web Access"
-msgstr "🌐 允許外網訪問後台，外網埠："
+msgid "Allow WAN Web Access"
+msgstr "允許外網訪問後台，外網埠："
 
-msgid "💡 <b>Tip:</b> Some ISPs or campus networks bind to a specific device MAC. If dial-up fails, enter the cloned MAC here."
-msgstr "💡 <b>提示：</b>部分社區寬頻或校園網綁定了特定的設備 MAC（如舊路由器或電腦）。若撥號失敗，請在此填入該 MAC 進行偽裝複製。"
+msgid "<b>Tip:</b> Some ISPs or campus networks bind to a specific device MAC. If dial-up fails, enter the cloned MAC here."
+msgstr "<b>提示：</b>部分社區寬頻或校園網綁定了特定的設備 MAC（如舊路由器或電腦）。若撥號失敗，請在此填入該 MAC 進行偽裝複製。"
 
-msgid "⚡ Auto-fill MAC"
-msgstr "⚡ 一鍵填寫 MAC"
+msgid "Auto-fill MAC"
+msgstr "一鍵填寫 MAC"
 
 msgid "No active device connection detected, please enter MAC address manually."
 msgstr "未偵測到活動的設備連接，請手動輸入 MAC 位址。"
@@ -1771,12 +1798,6 @@ msgstr "六"
 msgid "Sun"
 msgstr "日"
 
-msgid "Advanced Settings ▲"
-msgstr "高級設定 ▲"
-
-msgid "Advanced Settings ▼"
-msgstr "高級設定 ▼"
-
 msgid "Scheduled Reboot"
 msgstr "定時重啟"
 
@@ -1784,7 +1805,7 @@ msgid "MAC Clone"
 msgstr "MAC 複製"
 
 msgid "Clear (Restore Default)"
-msgstr "🗑️ 清空(恢復預設)"
+msgstr "清空(恢復預設)"
 
 msgid "Internet Connected"
 msgstr "網際網路已連線"
@@ -1801,26 +1822,29 @@ msgstr "MAC 位址格式不正確，請檢查！"
 msgid "e.g., AA:BB:CC:DD:EE:FF"
 msgstr "例如：AA:BB:CC:DD:EE:FF"
 
-msgid "💡 Multi-WAN detected. You can modify the account and password for each line separately (other settings remain unchanged)."
-msgstr "💡 系統偵測到多線撥號環境，可分別修改各線路的帳號密碼（其他設定保持不變）。"
+msgid "Multi-WAN detected. You can modify the account and password for each line separately (other settings remain unchanged)."
+msgstr "系統偵測到多線撥號環境，可分別修改各線路的帳號密碼（其他設定保持不變）。"
 
 msgid "Interface:"
 msgstr "線路介面:"
 
-msgid "💡 Multi-WAN detected. Only the primary WAN will be configured here, other lines remain unchanged."
-msgstr "💡 系統偵測到多線環境，向導中僅配置主線路 (WAN)，其餘線路將保持原樣。"
+msgid "Multi-WAN detected. Only the primary WAN will be configured here, other lines remain unchanged."
+msgstr "系統偵測到多線環境，向導中僅配置主線路 (WAN)，其餘線路將保持原樣。"
 
-msgid "✏️ Custom Hosts"
-msgstr "✏️ 自訂 Hosts"
+msgid "Custom Hosts"
+msgstr "自訂 Hosts"
 
-msgid "Custom <a href=\"javascript:void(0)\" id=\"nw-hosts-raw-toggle\" style=\"color:red; text-decoration:underline dashed; transition:color 0.2s;\" title=\"Click to toggle pure text advanced mode\">Hosts</a>👈 (Domain Hijack)"
-msgstr "自訂 <a href=\"javascript:void(0)\" id=\"nw-hosts-raw-toggle\" style=\"color:red; text-decoration:underline dashed; transition:color 0.2s;\" title=\"點擊切換純文本高級模式\">Hosts</a>👈 (網域劫持)"
+msgid "Custom <a href=\"javascript:void(0)\" id=\"nw-hosts-raw-toggle\" style=\"color:red; text-decoration:underline dashed; transition:color 0.2s;\" title=\"Click to toggle pure text advanced mode\">Hosts</a>"
+msgstr "自訂 <a href=\"javascript:void(0)\" id=\"nw-hosts-raw-toggle\" style=\"color:red; text-decoration:underline dashed; transition:color 0.2s;\" title=\"點擊切換純文本高級模式\">Hosts</a>"
 
-msgid "💡 Quick Add:"
-msgstr "💡 快速新增紀錄:"
+msgid "(Domain Hijack)"
+msgstr "(網域劫持)"
 
-msgid "➕ Add"
-msgstr "➕ 新增"
+msgid "Quick Add:"
+msgstr "快速新增紀錄:"
+
+msgid "Add"
+msgstr "新增"
 
 msgid "No custom Hosts, please add below."
 msgstr "暫無自訂 Hosts，請點擊上方新增紀錄"
@@ -1834,8 +1858,8 @@ msgstr "劫持網域 (如 router.lan)"
 msgid "Comment (Optional)"
 msgstr "備註說明 (選填)"
 
-msgid "💡 <b>Pure Text Mode</b>: <b>Paste</b> to import, <b>Copy</b> to export. Format: <code>IP Domain #Comment</code>"
-msgstr "💡 <b>純文字模式</b>：<b>貼上</b>匯入，<b>全選複製</b>可匯出保存到txt。格式：<code>IP 網域 #備註</code>"
+msgid "<b>Pure Text Mode</b>: <b>Paste</b> to import, <b>Copy</b> to export. Format: <code>IP Domain #Comment</code>"
+msgstr "<b>純文字模式</b>：<b>貼上</b>匯入，<b>全選複製</b>可匯出保存到txt。格式：<code>IP 網域 #備註</code>"
 
 msgid "IP and Domain cannot be empty!"
 msgstr "IP 和 網域 不能為空！"
@@ -1864,8 +1888,8 @@ msgstr "智能補全"
 msgid "Auto-fill IPv4/v6 & www domain combinations"
 msgstr "自動生成 IPv4/v6 以及帶 www 和不帶 www 的組合規則"
 
-msgid "💡 This feature forces specific domains to resolve to designated IPs. Commonly used for blocking domain access or local device redirection."
-msgstr "💡 此功能可制將特定網域強解析到指定的 IP 位址。常用於阻止某網域連網 或 區域網路設備重定向。"
+msgid "This feature forces specific domains to resolve to designated IPs. Commonly used for blocking domain access or local device redirection."
+msgstr "此功能可制將特定網域強解析到指定的 IP 位址。常用於阻止某網域連網 或 區域網路設備重定向。"
 
 msgid "Found invalid or duplicate records:"
 msgstr "在純文字中發現了格式錯誤或重複的記錄，共計："
@@ -1873,8 +1897,8 @@ msgstr "在純文字中發現了格式錯誤或重複的記錄，共計："
 msgid "Click [OK] to automatically discard them and continue, or [Cancel] to manually fix them."
 msgstr "點擊【確定】將自動捨棄錯誤項並保存，點擊【取消】則返回手動修改。"
 
-msgid "🚑 Plugin Repair"
-msgstr "🚑 插件修復"
+msgid "Plugin Repair"
+msgstr "插件修復"
 
 msgid "Please wait"
 msgstr "請稍候"
@@ -1888,8 +1912,8 @@ msgstr "常規卸載不會清除插件設定檔。若插件重裝後仍無法正
 msgid "Factory Default"
 msgstr "出廠預設值"
 
-msgid "🚑 Plugin Repair Toolkit"
-msgstr "🚑 插件修復急救箱"
+msgid "Plugin Repair Toolkit"
+msgstr "插件修復急救箱"
 
 msgid "Repair Now"
 msgstr "立即修復"
@@ -1930,11 +1954,11 @@ msgstr "沒有找到可以修復的插件"
 msgid "Failed to get plugin list"
 msgstr "獲取插件清單失敗"
 
-msgid "⚠️ Port number must be between 1 and 65535"
-msgstr "⚠️ 埠號必須介於 1 到 65535 之間"
+msgid "Port number must be between 1 and 65535"
+msgstr "埠號必須介於 1 到 65535 之間"
 
-msgid "⚠️ For system security, do not use"
-msgstr "⚠️ 為了系統安全請勿使用"
+msgid "For system security, do not use"
+msgstr "為了系統安全請勿使用"
 
 msgid "as the external port. It is a reserved high-risk port."
 msgstr "作為外網埠號此為系統保留高危險埠號"
@@ -1945,5 +1969,8 @@ msgstr "建議使用 8080 或 10000 以上的埠號"
 msgid "Enter custom external port number"
 msgstr "填寫自訂外網埠號"
 
-msgid "⚠️ Port %s is already in use by another application!"
-msgstr "⚠️ 通訊埠衝突：通訊埠 %s 已被其他服務佔用！"
+msgid "Port"
+msgstr "通訊埠衝突：通訊埠"
+
+msgid "is already in use by another application!"
+msgstr "已被其他服務佔用！"
