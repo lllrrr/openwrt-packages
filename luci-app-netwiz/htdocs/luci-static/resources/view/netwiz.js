@@ -1260,6 +1260,24 @@ return view.extend({
                             webPort.value = res.web;
                             lastValidPort = res.web;
                         }
+                        
+                        // === IPv6 直达链接 ===
+                        if (res.wan6_ip) {
+                            if (!container.querySelector('#nw-v6-link')) {
+                                var curPort = (res.web !== '1') ? res.web : '80';
+                                var v6Link = 'http://[' + res.wan6_ip + ']:' + curPort;
+                                
+                                var linkDiv = document.createElement('div');
+                                linkDiv.id = 'nw-v6-link'; 
+                                
+                                linkDiv.style.cssText = 'width: 100%; text-align: left; margin-top: 4px; font-size: 13.5px; opacity: 0.9; display: block;';
+                                linkDiv.innerHTML = '<a href="' + v6Link + '" target="_blank" style="color: #0ea5e9; text-decoration: underline; font-family: monospace; font-weight: bold; font-size: 14px;">' + v6Link + '</a>';
+                                
+                                var rowContainer = webPort.parentNode.parentNode;
+                                rowContainer.insertAdjacentElement('afterend', linkDiv);
+                            }
+                        }
+                        // ==================================================
                     }
                 } 
             });
