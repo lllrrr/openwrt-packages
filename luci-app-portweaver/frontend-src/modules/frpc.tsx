@@ -114,7 +114,10 @@ export default function (
       }[info.status] || info.status;
 
     const container = (
-      <span style="display:flex; align-items:center;">
+      <span
+        id={`frpc-status-${section_id}`}
+        style="display:flex; align-items:center;"
+      >
         <span
           style={`display:inline-block; width:12px; height:12px; border-radius:50%; background-color:${statusColor}; margin-right:8px;`}
         ></span>
@@ -123,7 +126,7 @@ export default function (
     ) as HTMLElement;
 
     statusElements[section_id] = container;
-    return container.outerHTML;
+    return container;
   };
 
   const oEnabled = ss.option(form.Flag, "enabled", _("Enabled"));
@@ -221,7 +224,7 @@ export default function (
     ) as HTMLButtonElement;
 
     actionButtons[section_id] = btn;
-    return btn.outerHTML;
+    return btn;
   };
 
   const oProxyStats = ss.option(
@@ -245,7 +248,7 @@ export default function (
     statsEl.style.cssText = `flex: 1; min-width: 300px; ${statsEl.style.cssText}`;
     container.appendChild(statsEl);
 
-    return container.outerHTML;
+    return container;
   };
 
   async function pollFrpStatus() {
@@ -274,7 +277,9 @@ export default function (
             };
 
             if (oldStatus !== newStatus) {
-              const container = statusElements[sec[".name"]];
+              const container =
+                document.getElementById(`frpc-status-${sec[".name"]}`) ||
+                statusElements[sec[".name"]];
               if (container && container.childNodes.length >= 2) {
                 const indicator = container.childNodes[0] as HTMLElement;
                 const textSpan = container.childNodes[1] as HTMLElement;
@@ -302,7 +307,9 @@ export default function (
               last_error: "Failed to fetch status",
             };
 
-            const container = statusElements[sec[".name"]];
+            const container =
+              document.getElementById(`frpc-status-${sec[".name"]}`) ||
+              statusElements[sec[".name"]];
             if (container && container.childNodes.length >= 2) {
               const indicator = container.childNodes[0] as HTMLElement;
               const textSpan = container.childNodes[1] as HTMLElement;

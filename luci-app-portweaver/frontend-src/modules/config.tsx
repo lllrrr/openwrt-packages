@@ -32,7 +32,7 @@ export default function (
   {
     const o = ss.option(form.DummyValue, "_runtime_status", _("Status"));
     o.modalonly = false;
-    o.formvalue = (section_id: string) => {
+    o.textvalue = (section_id: string) => {
       const status = client.getProjectStatus(section_id);
       const container = (
         <div id={`project-status-${section_id}`}>
@@ -72,7 +72,7 @@ export default function (
   {
     const o = ss.option(form.DummyValue, "_preview", _("Overview"));
     o.modalonly = false;
-    o.formvalue = (section_id: string) => {
+    o.textvalue = (section_id: string) => {
       const protocol =
         uci.get("portweaver", section_id, "protocol")?.toString() || "tcp";
       const family =

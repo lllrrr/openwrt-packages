@@ -97,11 +97,11 @@ export default function (
         await fs.write(LOG_FILE, "");
         ui.addNotification(
           null,
-          E("p", _("Logs cleared successfully")),
+          <p>{_("Logs cleared successfully")}</p>,
           "info",
         );
       } catch (err) {
-        ui.addNotification(null, E("p", _("Failed to clear logs")), "error");
+        ui.addNotification(null, <p>{_("Failed to clear logs")}</p>, "error");
         throw err;
       }
     };
@@ -119,13 +119,13 @@ export default function (
         await fs.exec("/etc/init.d/portweaver", ["restart"]);
         ui.addNotification(
           null,
-          E("p", _("Service restarted successfully")),
+          <p>{_("Service restarted successfully")}</p>,
           "info",
         );
       } catch (_err) {
         ui.addNotification(
           null,
-          E("p", _("Failed to restart service")),
+          <p>{_("Failed to restart service")}</p>,
           "error",
         );
       }

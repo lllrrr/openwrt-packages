@@ -1944,3 +1944,6 @@ msgstr "建議使用 8080 或 10000 以上的埠號"
 
 msgid "Enter custom external port number"
 msgstr "填寫自訂外網埠號"
+
+msgid "⚠️ Port %s is already in use by another application!"
+msgstr "⚠️ 通訊埠衝突：通訊埠 %s 已被其他服務佔用！"

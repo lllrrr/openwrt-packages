@@ -205,8 +205,8 @@ case "$1" in
                 fi
                 # ------------------------------------------
 
-                # 提取本机的全局 IPv6 地址 (排除 fd/fe80 等内网或链路地址)
-                lan_ip6=$(ip -6 addr show br-lan scope global 2>/dev/null | grep inet6 | grep -v " fd" | awk '{print $2}' | cut -d/ -f1 | tr '\n' ' ' | sed 's/ $//')
+                # 提取本机活跃的全局 IPv6 地址 (排除 fd/fe80 等内网或链路地址)
+                lan_ip6=$(ip -o -6 addr show br-lan scope global 2>/dev/null | grep -v "deprecated" | grep -v " fd" | awk '{print $4}' | cut -d/ -f1 | tr '\n' ' ' | sed 's/ $//')
 
                 # 注意：下面这一行多加了一个传参 -v lan_ip6="$lan_ip6"
                 json_data=$(awk -v current_time="$curr_time" -v lan_nat_conflict="$lan_nat_conflict" -v ipv6_enabled="$ipv6_enabled" -v wifi_str="$wifi_macs" -v arp_str="$arp_cache" -v lease_str="$leases" -v hosts_str="$hosts_str" -v ubus_str="$ubus_leases" -v uci_str="$uci_hosts" -v gw_ip="$gw_ip" -v lan_ip="$lan_ip" -v lan_ip6="$lan_ip6" -v lan_mac="$lan_mac" -v local_ips_str="$local_ips" -v visitor_ips_str="$visitor_ips" -v fw_str_input="$fw_str" -v ipv6_str="$ipv6_neigh" '

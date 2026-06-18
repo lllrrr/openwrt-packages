@@ -280,8 +280,8 @@ case "$1" in
                 last_port=$(uci -q get netwiz.main.web_port 2>/dev/null)
                 [ -z "$last_port" ] && last_port="80"
                 
-                # --- 提取全局公网 IPv6 地址 (过滤掉局域网 fd 开头的地址) ---
-                wan6_ip=$(ip -6 addr list scope global 2>/dev/null | grep inet6 | grep -v " fd" | awk '{print $2}' | cut -d'/' -f1 | head -n 1)
+                # --- 提取全局活跃公网 IPv6 地址 (过滤掉局域网 fd 开头的地址) ---
+                wan6_ip=$(ip -o -6 addr list scope global 2>/dev/null | grep -v "deprecated" | grep -v " fd" | awk '{print $4}' | cut -d'/' -f1 | head -n 1)
                 
                 # 输出 JSON 时加上 last_port 和 wan6_ip
                 echo "{\"mac\":\"$mac\", \"web\":\"$web\", \"cron\":\"$cron\", \"hosts\":$hosts_json, \"last_port\":\"$last_port\", \"wan6_ip\":\"$wan6_ip\"}"
@@ -331,26 +331,34 @@ case "$1" in
                 # 外网访问配置逻辑
                 if [ -n "$web" ]; then
                     
-                    # --- 后端核心安全校验 (防绕过与防注入) ---
-                    if [ "$web" != "0" ] && [ "$web" != "1" ] && [ "$web" != "80" ] && [ "$web" != "443" ]; then
-                        if ! expr "$web" + 0 >/dev/null 2>&1; then echo '{"status":"error", "msg":"Security Block: Invalid port format"}'; exit 1; fi
-                        if [ "$web" -lt 1 ] || [ "$web" -gt 65535 ]; then echo '{"status":"error", "msg":"Security Block: Port out of range"}'; exit 1; fi
-                        case "$web" in 21|22|23|53|67|68) echo '{"status":"error", "msg":"Security Block: Danger port is not allowed"}'; exit 1; ;; esac
+                # --- 后端核心安全校验 (防绕过与防注入) ---
+                if [ "$web" != "0" ] && [ "$web" != "1" ] && [ "$web" != "80" ] && [ "$web" != "443" ]; then
+                    if ! expr "$web" + 0 >/dev/null 2>&1; then echo '{"status":"error", "msg":"Security Block: Invalid port format"}'; exit 0; fi
+                    if [ "$web" -lt 1 ] || [ "$web" -gt 65535 ]; then echo '{"status":"error", "msg":"Security Block: Port out of range"}'; exit 0; fi
+                    case "$web" in 21|22|23|53|67|68|445) echo '{"status":"error", "msg":"Security Block: Danger port is not allowed"}'; exit 0; ;; esac
+                    
+                    # 动态检测端口是否已被占用
+                    if netstat -tuln 2>/dev/null | awk '{print $4}' | grep -E -q ":$web$"; then
+                        is_uhttpd=$(netstat -tulpn 2>/dev/null | grep -E ":$web " | grep "uhttpd")
+                        if [ -z "$is_uhttpd" ]; then
+                            # exit 0 送达前端
+                            echo '{"status":"error", "msg":"Port Conflict: Port '$web' is already in use by another application!"}'
+                            exit 0
+                        fi
                     fi
-                    # ----------------------------------------
+                fi
+                # ----------------------------------------
 
                     # --- Web 服务端口联动 ---
-                    # 1 提取曾经保存的旧端口从 uhttpd 列表中彻底清除防止端口无限堆叠
-                    old_port=$(uci -q get netwiz.main.web_port)
-                    if [ -n "$old_port" ] && [ "$old_port" != "80" ] && [ "$old_port" != "0" ] && [ "$old_port" != "1" ]; then
-                        uci -q del_list uhttpd.main.listen_http="0.0.0.0:$old_port"
-                        uci -q del_list uhttpd.main.listen_http="[::]:$old_port"
-                    fi
-
-                    # 2 开启了外网访问且端口不是80 则额外给 uhttpd 增加新的监听端口
-                    if [ "$web" != "0" ] && [ "$web" != "1" ] && [ "$web" != "80" ]; then
-                        uci -q add_list uhttpd.main.listen_http="0.0.0.0:$web"
-                        uci -q add_list uhttpd.main.listen_http="[::]:$web"
+                    # 彻底清空并重建 uhttpd 的 HTTP 监听列表，完美解决 option/list 冲突引发的静默失败
+                    uci -q delete uhttpd.main.listen_http
+                    uci add_list uhttpd.main.listen_http="0.0.0.0:80"
+                    uci add_list uhttpd.main.listen_http="[::]:80"
+                    
+                    # 如果开启了外网访问且自定义了非标端口，则安全追加监听
+                    if [ "$web" != "0" ] && [ "$web" != "1" ] && [ "$web" != "80" ] && [ "$web" != "443" ]; then
+                        uci add_list uhttpd.main.listen_http="0.0.0.0:$web"
+                        uci add_list uhttpd.main.listen_http="[::]:$web"
                     fi
                     uci commit uhttpd
                     # ----------------------------------------
@@ -378,18 +386,12 @@ case "$1" in
                             uci set firewall.netwiz_web.target='ACCEPT'
                             uci set firewall.netwiz_web.proto='tcp'
                         else
-                            uhttpd_port=$(uci -q get uhttpd.main.listen_http | head -n1 | awk -F':' '{print $NF}')
-                            [ -z "$uhttpd_port" ] && uhttpd_port="80"
-                            
-                            lan_ip=$(uci -q get network.lan.ipaddr | cut -d/ -f1)
-                            
-                            uci set firewall.netwiz_web=redirect
+                            # --- 兼容 IPv6 的入站规则 (rule)，彻底废弃端口转发 (redirect) ---
+                            uci set firewall.netwiz_web=rule
                             uci set firewall.netwiz_web.name='Netwiz_Web_Custom'
                             uci set firewall.netwiz_web.src='wan'
-                            uci set firewall.netwiz_web.src_dport="$web"
-                            uci set firewall.netwiz_web.dest='lan'
-                            [ -n "$lan_ip" ] && uci set firewall.netwiz_web.dest_ip="$lan_ip"
-                            uci set firewall.netwiz_web.dest_port="$uhttpd_port"
+                            uci set firewall.netwiz_web.dest_port="$web"
+                            uci set firewall.netwiz_web.target='ACCEPT'
                             uci set firewall.netwiz_web.proto='tcp'
                         fi
                     fi

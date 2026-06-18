@@ -18,7 +18,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.0",
     "@dotenvx/dotenvx": "^1.71.3",
-    "@lazulikao/luci-types": "github:LazuliKao/luci-types#e910fda285b4e98ff5571e880f3da80f87761ff7",
+    "@lazulikao/luci-types": "github:LazuliKao/luci-types",
     "@rsbuild/core": "^2.0.12",
     "@types/node": "^20.19.43",
     "@types/ssh2": "^1.15.5",

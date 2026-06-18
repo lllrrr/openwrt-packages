@@ -128,6 +128,6 @@ export default function (
         {_("Wake Now")}
       </button>
     ) as HTMLButtonElement;
-    return wakeBtn.outerHTML;
+    return wakeBtn;
   };
 }

@@ -131,17 +131,16 @@ export class main extends L.view {
       const result = await rpcClient.reloadConfig();
       L.ui.addNotification(
         null,
-        E(
-          "p",
-          _("Config reloaded: %d project(s) restarted").format(result.changes),
-        ),
+        <p>
+          {_("Config reloaded: %d project(s) restarted").format(result.changes)}
+        </p>,
         "info",
       );
       location.reload();
     } catch (err: any) {
       L.ui.addNotification(
         null,
-        E("p", _("Failed to reload config: %s").format(err.toString())),
+        <p>{_("Failed to reload config: %s").format(err.toString())}</p>,
         "error",
       );
     }
@@ -161,14 +160,14 @@ export class main extends L.view {
         .then(() => {
           L.ui.addNotification(
             null,
-            E("p", _("Service restarted successfully")),
+            <p>{_("Service restarted successfully")}</p>,
             "info",
           );
         })
         .catch((err: any) => {
           L.ui.addNotification(
             null,
-            E("p", _("Failed to restart service: %s").format(err.toString())),
+            <p>{_("Failed to restart service: %s").format(err.toString())}</p>,
             "error",
           );
         });

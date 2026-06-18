@@ -180,7 +180,10 @@ export default function (
       const textSpan = (<span>{statusText}</span>) as HTMLElement;
 
       const container = (
-        <div style="display:flex; flex-direction:column; gap:4px;"></div>
+        <div
+          id={`ddns-status-${name}`}
+          style="display:flex; flex-direction:column; gap:4px;"
+        ></div>
       ) as HTMLElement;
 
       const statusRow = (
@@ -222,7 +225,7 @@ export default function (
       }
 
       statusElements[name] = container;
-      return container.outerHTML;
+      return container;
     };
   }
 
@@ -282,7 +285,7 @@ export default function (
         viewer.open();
       };
 
-      return viewLogsBtn.outerHTML;
+      return viewLogsBtn;
     };
   }
 
@@ -541,7 +544,9 @@ export default function (
           oldStatus.last_ip !== status.last_ip ||
           oldStatus.last_update !== status.last_update
         ) {
-          const container = statusElements[status.name];
+          const container =
+            document.getElementById(`ddns-status-${status.name}`) ||
+            statusElements[status.name];
           if (container) {
             const statusColors: Record<string, string> = {
               success: "#4CAF50",

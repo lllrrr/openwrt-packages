@@ -304,7 +304,9 @@ export class Client {
               continue;
             }
             const status = this.getProjectStatus(section_id);
-            const section = this.projectContainers[section_id];
+            const section =
+              document.getElementById(`project-status-${section_id}`) ||
+              this.projectContainers[section_id];
             if (!section) continue;
             const newStatusElements = this.renderStatusElements(
               status,

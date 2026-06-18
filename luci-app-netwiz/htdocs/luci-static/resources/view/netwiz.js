@@ -468,6 +468,7 @@ var T = {
     'M_PORT_ERR2': _('as the external port. It is a reserved high-risk port.'),
     'M_PORT_SUGG': _('It is recommended to use 8080 or a port above 10000.'),
     'LBL_WEB_PORT_TITLE': _('Enter custom external port number'),
+    'M_PORT_CONFLICT': _('⚠️ Port %s is already in use by another application!'),
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -489,7 +490,7 @@ var callCheckMissingPkgs = rpc.declare({ object: 'netwiz', method: 'check_missin
 var callCheckInternet = rpc.declare({ object: 'netwiz', method: 'check_internet', expect: { '': {} } });
 var callGetClientMac = rpc.declare({ object: 'netwiz', method: 'get_client_mac', expect: { '': {} } });
 var callGetAdvSettings = rpc.declare({ object: 'netwiz', method: 'get_adv_settings', expect: { '': {} } });
-var callSetAdvSettings = rpc.declare({ object: 'netwiz', method: 'set_adv_settings', params: ['mac', 'web', 'cron', 'hosts'], expect: { result: 0 } });
+var callSetAdvSettings = rpc.declare({ object: 'netwiz', method: 'set_adv_settings', params: ['mac', 'web', 'cron', 'hosts'], expect: { '': {} } });
 
 return view.extend({
     handleSaveApply: null,
@@ -1218,20 +1219,22 @@ return view.extend({
                     // 拦截非法数字范围
                     if (isNaN(pNum) || pNum < 1 || pNum > 65535) {
                         openModal({ title: T['M_REP_NOTICE_TIT'] || 'Notice', msg: T['M_PORT_RANGE'] || '⚠️ Port number must be between 1 and 65535', okText: T['M_CLOSE'] || 'Close', hideCancel: true });
-                        webPort.value = lastValidPort; // 恢复旧端口
-                        webTog.checked = false;        // 强制把被点开的开关关回去
+                        webPort.value = lastValidPort; 
+                        // 根据历史状态来决定开关是开是关
+                        if (lastValidPort === '') webTog.checked = false; else webTog.checked = true;
                         return;
                     }
                     
                     // 拦截高危系统端口
-                    var dangerPorts = [21, 22, 23, 53, 67, 68];
+                    var dangerPorts = [21, 22, 23, 53, 67, 68, 445];
                     if (dangerPorts.indexOf(pNum) !== -1) {
                         var e1 = T['M_PORT_ERR1'] || '⚠️ For system security, do not use';
                         var e2 = T['M_PORT_ERR2'] || 'as the external port. It is a reserved high-risk port.';
                         var sg = T['M_PORT_SUGG'] || 'It is recommended to use 8080 or a port above 10000.';
                         openModal({ title: T['M_REP_NOTICE_TIT'] || 'Notice', msg: e1 + ' <span style="color:#ef4444; font-weight:bold;">' + pNum + '</span> ' + e2 + '<br><br>' + sg, okText: T['M_CLOSE'] || 'Close', hideCancel: true });
-                        webPort.value = lastValidPort; // 恢复旧端口
-                        webTog.checked = false;        // 强制把被点开的开关关回去
+                        webPort.value = lastValidPort;
+                        // 根据历史状态来决定开关是开是关
+                        if (lastValidPort === '') webTog.checked = false; else webTog.checked = true;
                         return;
                     }
                 }
@@ -1239,12 +1242,44 @@ return view.extend({
                 // 通过所有安检，开始执行保存
                 isSaving = true;
                 var val = pText ? pText : '1';
-                lastValidPort = val;
+                var oldPort = lastValidPort; // 旧端口备份
+                
                 webTog.checked = true; // 确保开关 UI 处于打开状态
                 
                 openModal({ title: T['LBL_ADV_UTILS_TITLE'] || '⚙️ Advanced Utilities', msg: T['MSG_WRITING'] || 'Please wait...', spin: true });
                 var gm2 = document.getElementById('nw-global-modal'); if (gm2) gm2.style.zIndex = '100000';
-                callSetAdvSettings('', val, '', '').then(function() { setTimeout(function(){ window.location.reload(); }, 3500); });
+                
+                callSetAdvSettings('', val, '', '').then(function(res) { 
+                    // 此时 res 已经是完整的 JSON，可以成功读取 status
+                    if (res && res.status === 'error') {
+                        isSaving = false; // 遭遇拦截时，解除防抖锁
+                        
+                        // 完美回滚数值和开关状态
+                        lastValidPort = oldPort;
+                        webPort.value = oldPort; 
+                        if (oldPort === '') webTog.checked = false;
+                        
+                        // 弹出红色警告窗口
+                        var errMsg = T['M_PORT_CONFLICT'] ? T['M_PORT_CONFLICT'].replace('%s', val) : ('⚠️ Port ' + val + ' is already in use by another application!');
+                        
+                        openModal({ 
+                            title: '⚠️ ' + (T['M_REP_NOTICE_TIT'] || 'Notice'), 
+                            msg: '<div style="color:#ef4444; font-weight:bold; padding: 10px 0;">' + errMsg + '</div>', 
+                            okText: T['M_CLOSE'] || 'Close', 
+                            hideCancel: true 
+                        });
+                        return; // 中止后续的 reload，画面静止
+                    }
+                    
+                    // 后端没有报错，才正式把新端口覆盖进内存
+                    lastValidPort = val;
+                    setTimeout(function(){ window.location.reload(); }, 3500); 
+                }).catch(function() {
+                    isSaving = false;
+                    lastValidPort = oldPort;
+                    webPort.value = oldPort;
+                    openModal({ title: '⚠️ Error', msg: '<div style="color:#ef4444; font-weight:bold;">Network Error or System Busy!</div>', okText: T['M_CLOSE'] || 'Close', hideCancel: true });
+                });
             }
 
             // 1. 页面初始化加载历史状态
@@ -1293,7 +1328,12 @@ return view.extend({
                     isSaving = true;
                     openModal({ title: T['LBL_ADV_UTILS_TITLE'] || '⚙️ Advanced Utilities', msg: T['MSG_WRITING'] || 'Please wait...', spin: true });
                     var gm2 = document.getElementById('nw-global-modal'); if (gm2) gm2.style.zIndex = '100000';
-                    callSetAdvSettings('', '0', '', '').then(function() { setTimeout(function(){ window.location.reload(); }, 3500); });
+                    callSetAdvSettings('', '0', '', '').then(function() { 
+                        setTimeout(function(){ window.location.reload(); }, 3500); 
+                    }).catch(function() {
+                        isSaving = false;
+                        window.location.reload(); // 异常兜底直接刷新
+                    });
                 }
             });
 
