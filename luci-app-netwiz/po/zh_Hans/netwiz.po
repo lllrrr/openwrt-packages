@@ -1974,3 +1974,18 @@ msgstr "端口冲突：端口"
 
 msgid "is already in use by another application!"
 msgstr "已被其他服务占用！"
+
+msgid "Direct WAN Access (Whitelist)"
+msgstr "外网直连 (白名单)"
+
+msgid "Open firewall to allow direct external access to this device."
+msgstr "开放防火墙，允许外网直接访问该设备。"
+
+msgid "IPv6 Only"
+msgstr "仅 IPv6"
+
+msgid "IPv4 Only"
+msgstr "仅 IPv4"
+
+msgid "IPv4 + IPv6"
+msgstr "IPv4 + IPv6"
