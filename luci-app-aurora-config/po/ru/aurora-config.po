@@ -81,15 +81,14 @@ msgstr "Ошибка применения: %s"
 
 #: applications/luci-app-aurora-config/htdocs/luci-static/resources/view/aurora/theme.js:1623
 msgid ""
-"Apply the '%s' preset now?\n"
-"It is saved immediately and the page reloads. \n"
-"Presets set the light and dark colors only — layout, typography, branding, \n"
-"navigation, and toolbar revert to Aurora defaults."
+"Apply the '%s' preset now? It is saved immediately and the page reloads. "
+"Presets set the light and dark colors only — layout, typography, branding, "
+"navigation, and toolbar are left unchanged."
 msgstr ""
 "Применить пресет «%s» сейчас?\n"
 "Он будет сразу сохранен, а страница перезагрузится.\n"
 "Пресеты настраивают только светлые и темные цвета — макет, типографика, брендинг,\n"
-"навигация и панель инструментов вернутся к значениям по умолчанию Aurora."
+"навигация и панель инструментов остаются без изменений."
 
 #: applications/luci-app-aurora-config/htdocs/luci-static/resources/view/aurora/theme.js:1635
 msgid "Applying preset..."
@@ -347,7 +346,7 @@ msgstr "Производные от статусных акцентов: фон�
 
 #: applications/luci-app-aurora-config/htdocs/luci-static/resources/view/aurora/theme.js:324
 msgid "Dimming backdrop behind modal dialogs."
-msgstr "Затемняющий фон (backdrop) позади модальных окон."
+msgstr "Затемняющий фон позади модальных окон."
 
 #: applications/luci-app-aurora-config/htdocs/luci-static/resources/view/aurora/version.js:67
 msgid "Downloading update files..."
@@ -480,7 +479,7 @@ msgstr "Предоставить доступ к конфигурации тем
 
 #: applications/luci-app-aurora-config/htdocs/luci-static/resources/view/aurora/theme.js:218
 msgid "Hairline"
-msgstr "Тонкая линия (Hairline)"
+msgstr "Тонкая линия"
 
 #: applications/luci-app-aurora-config/htdocs/luci-static/resources/view/aurora/theme.js:2588
 msgid "Home Screen icon for iOS and iPadOS."
@@ -556,7 +555,7 @@ msgstr "Информационная поверхность"
 
 #: applications/luci-app-aurora-config/htdocs/luci-static/resources/view/aurora/theme.js:204
 msgid "Inset layer for inputs, code blocks, table headers, and badges."
-msgstr "Внутренний слой (inset) для полей ввода, блоков кода, заголовков таблиц и значков."
+msgstr "Внутренний слой для полей ввода, блоков кода, заголовков таблиц и значков."
 
 #: applications/luci-app-aurora-config/htdocs/luci-static/resources/view/aurora/version.js:111
 msgid "Installation Details"
@@ -580,7 +579,7 @@ msgid ""
 "Save or Save & \n"
 "Apply downloads and caches the selected fonts."
 msgstr ""
-"Шрифты без засечек (sans-serif) и моноширинные, используемые в теме.\n"
+"Шрифты без засечек и моноширинные, используемые в теме.\n"
 "«Сохранить» или «Сохранить и применить» загружает и кэширует выбранные шрифты."
 
 #: applications/luci-app-aurora-config/htdocs/luci-static/resources/view/aurora/theme.js:888
@@ -621,7 +620,7 @@ msgstr "Светлый режим"
 
 #: applications/luci-app-aurora-config/htdocs/luci-static/resources/view/aurora/theme.js:338
 msgid "Light backdrop behind the expanded mega menu."
-msgstr "Светлый полупрозрачный фон (backdrop) позади развернутого мега-меню."
+msgstr "Светлый полупрозрачный фон позади развернутого мега-меню."
 
 #: applications/luci-app-aurora-config/htdocs/luci-static/resources/view/aurora/theme.js:149
 msgid "Link"
@@ -661,7 +660,7 @@ msgstr "Фон мега-меню"
 
 #: applications/luci-app-aurora-config/htdocs/luci-static/resources/view/aurora/theme.js:337
 msgid "Mega Menu Scrim"
-msgstr "Затеняющий слой (scrim) мега-меню"
+msgstr "Затеняющий слой мега-меню"
 
 #: applications/luci-app-aurora-config/htdocs/luci-static/resources/view/aurora/theme.js:1535
 msgid "Monochrome"
@@ -742,7 +741,7 @@ msgstr "Имя пакета"
 
 #: applications/luci-app-aurora-config/htdocs/luci-static/resources/view/aurora/theme.js:113
 msgid "Page canvas behind the header, navigation, content, and login screen."
-msgstr "Холст (canvas) страницы позади заголовка, навигации, контента и экрана входа."
+msgstr "Холст страницы позади заголовка, навигации, контента и экрана входа."
 
 #: applications/luci-app-aurora-config/htdocs/luci-static/resources/view/aurora/theme.js:2476
 msgid "Please wait…"
@@ -856,7 +855,7 @@ msgstr "Сохраненное значение или пресет"
 
 #: applications/luci-app-aurora-config/htdocs/luci-static/resources/view/aurora/theme.js:323
 msgid "Scrim"
-msgstr "Затемнение (scrim)"
+msgstr "Затемнение"
 
 #: applications/luci-app-aurora-config/htdocs/luci-static/resources/view/aurora/theme.js:219
 msgid "Separators, dividers, and input or card borders."

@@ -1620,7 +1620,7 @@ return view.extend({
                 "p",
                 {},
                 _(
-                  "Apply the '%s' preset now? It is saved immediately and the page reloads. Presets set the light and dark colors only — layout, typography, branding, navigation, and toolbar revert to Aurora defaults.",
+                  "Apply the '%s' preset now? It is saved immediately and the page reloads. Presets set the light and dark colors only — layout, typography, branding, navigation, and toolbar are left unchanged.",
                 ).format(presetLabel),
               ),
               E("div", { class: "right" }, [
