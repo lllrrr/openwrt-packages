@@ -1515,11 +1515,16 @@ find_device_index() {
 # If merged, sets: merged_idx, merged_mac, merged_ip
 # ============================================================
 try_merge_device() {
-    local new_mac="$1"
+    local new_mac="$(echo "$1" | tr 'a-f' 'A-F')"
     local new_ip="$2"
     local new_hostname="$3"
     local new_vendor="$4"
     local new_type="$5"
+
+    # Normalize new_mac to uppercase so all subsequent MAC comparisons
+    # (including against alt_macs in the loop) are case-consistent.
+    # Bugfix: DHCP/leasefile often reports MACs as lowercase, while
+    # devicemaster stores them as uppercase.
 
     merged=0
     merged_idx=""
