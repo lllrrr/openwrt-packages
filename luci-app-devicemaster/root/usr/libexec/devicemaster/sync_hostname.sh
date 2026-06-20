@@ -189,6 +189,12 @@ case "$_name_lower" in
         exit 0
         ;;
 esac
+# Also skip if hostname is a full MAC address (XX:XX:XX:XX:XX:XX)
+if echo "$NAME" | grep -qiE '^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}$'; then
+    log_msg "SKIP: hostname '$NAME' looks like a MAC address for $MAC"
+    echo "OK: MAC-as-hostname skipped"
+    exit 0
+fi
 
 # Concurrent lock (atomic mkdir)
 LOCK="/tmp/dm_sync_hostname.lock"

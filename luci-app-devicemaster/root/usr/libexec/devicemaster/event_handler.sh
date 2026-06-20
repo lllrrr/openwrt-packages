@@ -109,7 +109,10 @@ is_meaningless_hostname() {
         ""|"*"|"-"|unknown|Unknown|wlan0|android-*)
             return 0 ;;
     esac
-    echo "$hostname" | grep -qiE '^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}' && return 0
+    # Only reject complete MAC-address-as-hostname (exactly 17 chars: XX:XX:XX:XX:XX:XX)
+    # The old regex '[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}' matched ANY prefix, 
+    # falsely flagging legitimate names like "my-aa-bb-server" as meaningless.
+    echo "$hostname" | grep -qiE '^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}$' && return 0
     return 1
 }
 

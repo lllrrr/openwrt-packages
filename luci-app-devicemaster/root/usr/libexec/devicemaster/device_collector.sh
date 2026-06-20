@@ -1200,10 +1200,18 @@ sync_hostname_to_uci() {
             [ "$is_manual" = "1" ] && continue
             local uci_hostname=$(uci -q get devicemaster.@device[$cache_idx].hostname 2>/dev/null)
 
-            if [ "$uci_hostname" != "$hostname" ]; then
-                uci set "devicemaster.@device[$cache_idx].hostname=$hostname"
-                modified=1
+            # Only overwrite UCI hostname when it is meaningless (empty / * / unknown / MAC-as-hostname).
+            # A meaningful UCI hostname — even different from DHCP's — is preserved.
+            local uci_meaningless=0
+            case "$uci_hostname" in
+                ""|"*"|"-"|unknown|Unknown|wlan0|android-*) uci_meaningless=1 ;;
+            esac
+            if [ "$uci_meaningless" = "0" ] && \
+               ! echo "$uci_hostname" | grep -qiE '^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}$'; then
+                continue  # UCI already has a meaningful hostname — preserve it
             fi
+            uci set "devicemaster.@device[$cache_idx].hostname=$hostname"
+            modified=1
         done < "$DHCP_LEASES"
     fi
 

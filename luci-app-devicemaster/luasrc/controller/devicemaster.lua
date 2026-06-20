@@ -2092,35 +2092,75 @@ local function parse_name_suffix(name)
 end
 
 -- Helper: Find a unique name by appending -2, -3, etc.
--- Checks both UCI devicemaster and dhcp host entries
--- FIX: If base already has suffix like "-2", increment the number instead of appending "-2"
+-- Only checks the 'name' field (user display name) for conflicts.
+-- The 'hostname' field is auto-synced from DHCP and is NOT checked here.
+-- DHCP static-host entries are only counted if their MAC is still present in
+-- the active devicemaster UCI — orphaned DHCP entries (device gone) don't block names.
 local function unique_name(base, current_mac)
     if base == "" then return "" end
 
-    -- Collect all existing names from UCI and dhcp
-    -- 修复：排除当前设备，避免自己的旧名称被计入重复
-    local existing = {}
+    -- Build sets of MACs for filtering DHCP entries:
+    -- 1. All MACs that appear as primary MAC in UCI devicemaster (active devices)
+    -- 2. Alt-MACs of the current device (same physical device, different MACs)
+    local known_macs = {}
+    local alt_macs = {}
     uci:foreach("devicemaster", "device", function(s)
-        -- Skip current device to avoid counting its old name as duplicate
-        if not current_mac or not s.mac or s.mac:lower() ~= current_mac:lower() then
-            if s.name and s.name ~= "" then existing[s.name:lower()] = true end
-            if s.hostname and s.hostname ~= "" and s.hostname ~= "*" then existing[s.hostname:lower()] = true end
+        if s.mac then known_macs[s.mac:lower()] = true end
+        if s.mac and current_mac and s.mac:lower() == current_mac:lower() and s.alt_macs and s.alt_macs ~= "" then
+            for am in s.alt_macs:gmatch("[^,]+") do
+                alt_macs[am:trim():lower()] = true
+            end
         end
     end)
+
+    local existing = {}
+    -- UCI devicemaster: only count OTHER devices' display names
+    uci:foreach("devicemaster", "device", function(s)
+        if s.name and s.name ~= "" and s.mac and
+           s.mac:lower() ~= (current_mac or ""):lower() then
+            existing[s.name:lower()] = true
+        end
+    end)
+    -- DHCP static hosts: only count if the MAC is an active UCI device
+    -- AND is not an alt-MAC of the current device (alt-MAC DHCP names don't block
+    -- the main device's name; the same physical device can have multiple DHCP entries)
     uci:foreach("dhcp", "host", function(s)
-        if s.name and s.name ~= "" then existing[s.name:lower()] = true end
+        if s.name and s.name ~= "" and s.mac then
+            local mac_lower = s.mac:lower()
+            if known_macs[mac_lower] and not alt_macs[mac_lower] then
+                existing[s.name:lower()] = true
+            end
+        end
     end)
 
-    -- If base name is not taken, use it directly
+    -- If base name is free, use it directly
     if not existing[base:lower()] then
         return base
     end
 
-    -- FIX: Parse base name to extract any existing number suffix
+    -- Special case: if current device already owns a suffixed name like "base-2",
+    -- and user now wants to rename to "base" — allow it directly.
+    -- The suffixed entry will be overwritten anyway.
+    if current_mac then
+        local current_name = nil
+        uci:foreach("devicemaster", "device", function(s)
+            if s.mac and s.mac:lower() == current_mac:lower() then
+                current_name = s.name
+            end
+        end)
+        if current_name then
+            local curr_base = parse_name_suffix(current_name)
+            if curr_base:lower() == base:lower() then
+                return base  -- current device owns base-N; allow rename to base
+            end
+        end
+    end
+
+    -- Parse base name to extract any existing number suffix
     -- e.g., "iphone14promax-2" should try "iphone14promax-3", not "iphone14promax-2-2"
     local real_base, start_num = parse_name_suffix(base)
     local n = start_num or 1
-    
+
     -- Try -2, -3, ... until we find a free name
     while n < 100 do
         n = n + 1
@@ -2202,8 +2242,15 @@ function api_set_name()
     end
 
     if name ~= nil then
+        -- Reject MAC-address-as-hostname: write it to name only, preserve existing hostname.
+        -- Users who accidentally enter a MAC as name should not pollute the hostname field.
+        local is_mac_name = name:match("^%x%x:%x%x:%x%x:%x%x:%x%x:%x%x$") or
+                            name:match("^%x%x%-%x%x%-%x%x%-%x%x%-%x%x%-%x%x$") or
+                            name:match("^%x%x%x%x%x%x%x%x%x%x%x%x$")
         uci:set("devicemaster", section, "name", name)
-        uci:set("devicemaster", section, "hostname", name)
+        if not is_mac_name then
+            uci:set("devicemaster", section, "hostname", name)
+        end
         -- Mark as manual to prevent sync_hostname_to_uci from overwriting
         uci:set("devicemaster", section, "manual", "1")
     end
