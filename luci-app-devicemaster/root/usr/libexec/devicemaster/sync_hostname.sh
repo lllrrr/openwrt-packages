@@ -64,6 +64,84 @@ if [ -z "$NAME" ]; then
     exit 1
 fi
 
+# ============================================================
+# CRITICAL SAFETY CHECK: this MAC is an alt_mac of some device?
+# Run this BEFORE IP lookup so we can clean up offline alt_macs too.
+# ============================================================
+# alt_macs must NOT get their own dhcp-host entry. Two reasons:
+#   1. dnsmasq REFUSES to start if two dhcp-host entries share
+#      the same IP (even for different MACs) -> crashloop -> no
+#      DHCP at all for the whole network.
+#   2. dnsmasq matches a host by primary MAC; an alt_mac can only
+#      "accidentally" get a lease via the dynamic pool.
+# The device's hostname is already stored against its PRIMARY MAC
+# in the devicemaster UCI section; that is the single source of
+# truth used for display in both the device list and DHCP leases.
+#
+# FIX: In addition to refusing a NEW entry, also CLEAN UP any
+# existing dhcp-host entry for this alt_mac. Previously merged
+# devices may already have their own dhcp-host from the old
+# register_device flow, and leaving those behind causes the
+# DHCP list to show an out-of-date / meaningless name.
+# This check runs BEFORE IP lookup so that OFFLINE alt_macs
+# (no ARP entry) are also properly cleaned up.
+MAC_LOWER=$(echo "$MAC" | tr 'A-F' 'a-f')
+_alt_primary=""
+_alt_idx=0
+while [ $_alt_idx -lt 200 ]; do
+    _dm_mac=$(uci -q get "devicemaster.@device[$_alt_idx].mac" 2>/dev/null)
+    [ -z "$_dm_mac" ] && break
+    _alts=$(uci -q get "devicemaster.@device[$_alt_idx].alt_macs" 2>/dev/null)
+    if [ -n "$_alts" ]; then
+        OLD_IFS="$IFS"; IFS=','
+        for _a in $_alts; do
+            _a_l=$(echo "$_a" | tr -d ' ' | tr 'A-F' 'a-f')
+            if [ "$_a_l" = "$MAC_LOWER" ]; then
+                _alt_primary="$_dm_mac"
+                break 2
+            fi
+        done
+        IFS="$OLD_IFS"
+    fi
+    _alt_idx=$((_alt_idx+1))
+done
+if [ -n "$_alt_primary" ]; then
+    log_msg "SKIP: $MAC is an alt_mac of $_alt_primary; cleaning up dhcp-host entry and clearing /tmp/dhcp.leases hostname (IP stays, DHCP list will show primary MAC's name)."
+    # Clean up any stale dhcp.@host entry for this alt_mac (dnsmasq must not have
+    # two dhcp-host entries for the same IP, even with different MACs)
+    _deleted=0
+    while true; do
+        _found=0
+        _idx=0
+        while uci -q get "dhcp.@host[$_idx].mac" >/dev/null 2>&1; do
+            _hm=$(uci -q get "dhcp.@host[$_idx].mac")
+            _hm_l=$(echo "$_hm" | tr 'A-F' 'a-f')
+            if [ "$_hm_l" = "$MAC_LOWER" ]; then
+                uci -q delete "dhcp.@host[$_idx]"
+                _deleted=$((_deleted + 1))
+                _found=1
+                break
+            fi
+            _idx=$((_idx + 1))
+        done
+        [ "$_found" = "0" ] && break
+    done
+    if [ "$_deleted" -gt 0 ]; then
+        uci -q commit dhcp
+    fi
+    # FIX: Instead of deleting the /tmp/dhcp.leases line (which removes the IP
+    # from the DHCP list), update the hostname to "*" so the DHCP list
+    # will show this IP under the primary MAC's name.
+    # The primary MAC's dhcp.@host entry carries the authoritative name.
+    if [ -f "/tmp/dhcp.leases" ]; then
+        sed -i "/[[:space:]]${MAC_LOWER}[[:space:]]/{ s/^\([0-9]*[[:space:]]*[a-fA-F0-9:]*[[:space:]]*[0-9.]*[[:space:]]*\)[^[:space:]]*/\1*/ }" /tmp/dhcp.leases
+    fi
+    [ "$_deleted" -gt 0 ] && /etc/init.d/dnsmasq restart >/dev/null 2>&1
+    log_msg "Cleaned $_deleted stale dhcp-host entries for alt_mac $MAC; lease hostname cleared."
+    echo "OK: alt_mac skipped (cleaned $_deleted dhcp-host entries; lease hostname cleared to *)"
+    exit 0
+fi
+
 # Sanitize hostname: dnsmasq only allows [a-zA-Z0-9._-]
 # Non-ASCII characters (e.g. Chinese) will cause dnsmasq to crash!
 # RFC 1035: hostname max length is 63 characters per label
@@ -87,40 +165,6 @@ if [ -z "$IP" ]; then
     echo "ERROR: No IP found for $MAC"
     exit 1
 fi
-
-# ============================================================
-# CRITICAL SAFETY CHECK: this MAC is an alt_mac of some device?
-# ============================================================
-# alt_macs must NOT get their own dhcp-host entry.  Two reasons:
-#   1. dnsmasq REFUSES to start if two dhcp-host entries share
-#      the same IP (even for different MACs) -> crashloop -> no
-#      DHCP at all for the whole network.
-#   2. dnsmasq matches a host by primary MAC; an alt_mac can only
-#      "accidentally" get a lease via the dynamic pool.
-# The device's hostname is already stored against its PRIMARY MAC
-# in the devicemaster UCI section; that is the single source of
-# truth used for display in both the device list and DHCP leases.
-MAC_LOWER=$(echo "$MAC" | tr 'A-F' 'a-f')
-_alt_idx=0
-while [ $_alt_idx -lt 200 ]; do
-    _dm_mac=$(uci -q get "devicemaster.@device[$_alt_idx].mac" 2>/dev/null)
-    [ -z "$_dm_mac" ] && break
-    _alts=$(uci -q get "devicemaster.@device[$_alt_idx].alt_macs" 2>/dev/null)
-    if [ -n "$_alts" ]; then
-        OLD_IFS="$IFS"; IFS=','
-        for _a in $_alts; do
-            _a_l=$(echo "$_a" | tr -d ' ' | tr 'A-F' 'a-f')
-            if [ "$_a_l" = "$MAC_LOWER" ]; then
-                IFS="$OLD_IFS"
-                log_msg "SKIP: $MAC is an alt_mac of $_dm_mac; refusing dhcp-host to prevent duplicate-IP crash."
-                echo "OK: alt_mac skipped (no static lease for alt_macs)"
-                exit 0
-            fi
-        done
-        IFS="$OLD_IFS"
-    fi
-    _alt_idx=$((_alt_idx+1))
-done
 
 # ============================================================
 # SECOND SAFETY CHECK: reject "automatically generated" hostnames

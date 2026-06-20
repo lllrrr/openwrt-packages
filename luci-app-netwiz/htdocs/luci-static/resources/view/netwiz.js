@@ -1118,12 +1118,19 @@ return view.extend({
                         });
                     });
 
+                    var jsonStr = JSON.stringify(newList);
+                    var oldJsonStr = JSON.stringify(window._nwAdvLayout || defaultAdvLayout);
+                    
+                    // 防呆拦截：如果没有任何改动，直接关闭视窗
+                    if (jsonStr === oldJsonStr) {
+                        return; // 直接return，不执行下面的覆盖和保存逻辑
+                    }
+
                     // 瞬间应用到网页，无需刷新
                     window._nwAdvLayout = newList;
                     applyAdvancedLayout(newList);
                     
                     // 点击确定后，才写入数据
-                    var jsonStr = JSON.stringify(newList);
                     openModal({ title: T['LBL_ADV_UTILS_TITLE'] || '⚙️', msg: T['MSG_WRITING'] || 'Saving...', spin: true });
                     var gm2 = document.getElementById('nw-global-modal'); if (gm2) gm2.style.zIndex = '100000';
                     callSetAdvLayout(jsonStr).then(function(){

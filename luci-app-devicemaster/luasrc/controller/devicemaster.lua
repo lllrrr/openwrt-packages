@@ -1297,7 +1297,121 @@ function api_merge_devices()
     if #to_remove > 0 then
         uci:commit("devicemaster")
     end
-    
+
+    -- ============================================================
+    -- FIX: Sync merged device's hostname to dnsmasq DHCP list
+    -- ============================================================
+    -- After merging:
+    -- 1. The PRIMARY MAC should show the merged record's hostname in
+    --    the DHCP static lease list (not whatever old name may have
+    --    been stored earlier).
+    -- 2. Any secondary MAC that was previously independently
+    --    registered with its own dhcp-host entry should have its
+    --    entry removed — it is now an alt_mac of the primary record.
+    --    Leaving stale entries causes the DHCP list to show
+    --    out-of-date / meaningless device names.
+
+    -- Determine the canonical name to sync for the PRIMARY MAC.
+    -- (primary_name / primary_hostname were set earlier in this
+    -- function; inherit from merged_hostname if empty.)
+    local canonical_name = primary_name
+    if not canonical_name or canonical_name == "" then
+        canonical_name = primary_hostname
+    end
+    if not canonical_name or canonical_name == "" or canonical_name == "*" or canonical_name == "unknown" then
+        -- fall back: derive from the primary record's current fields
+        local pn = uci:get("devicemaster", "@device[" .. (find_device_idx(canonical_mac) or 0) .. "]", "name") or ""
+        local ph = uci:get("devicemaster", "@device[" .. (find_device_idx(canonical_mac) or 0) .. "]", "hostname") or ""
+        if ph ~= "" and ph ~= "*" and ph ~= "unknown" then
+            canonical_name = ph
+        elseif pn ~= "" and pn ~= "*" and pn ~= "unknown" then
+            canonical_name = pn
+        end
+    end
+    if canonical_name and canonical_name:match("^Mobile%-Device%-") then
+        canonical_name = ""
+    end
+
+    -- Sync primary MAC: delete any existing entry + create new one
+    -- Only do this on the main router (where dhcp.lan.ignore is NOT "1")
+    local dhcp_ignore_val = sys.exec("uci -q get dhcp.lan.ignore 2>/dev/null"):gsub("%s+$", "")
+    if dhcp_ignore_val ~= "1" and canonical_name and canonical_name ~= "" then
+        -- Remove any pre-existing dhcp-host for the primary MAC first
+        -- (ensures no stale old-name entry lingers)
+        local _p_lower = canonical_mac:lower()
+        local _di = 0
+        while true do
+            local hm = uci:get("dhcp", "@host[" .. _di .. "]", "mac")
+            if not hm then break end
+            if hm:lower() == _p_lower then
+                uci:delete("dhcp", "@host[" .. _di .. "]")
+                uci:commit("dhcp")
+                -- restart scan from 0 since indices shifted
+                _di = 0
+            else
+                _di = _di + 1
+            end
+        end
+        -- Create the new dhcp-host entry for primary MAC
+        local section_name = uci:add("dhcp", "host")
+        uci:set("dhcp", section_name, "mac", canonical_mac)
+        uci:set("dhcp", section_name, "name", canonical_name)
+        if online_ip and online_ip ~= "" then
+            uci:set("dhcp", section_name, "ip", online_ip)
+        end
+        uci:commit("dhcp")
+
+        -- Patch /tmp/dhcp.leases so the lease page shows the new name
+        local leases_fn = "/tmp/dhcp.leases"
+        local f = io.open(leases_fn, "r")
+        if f then
+            local lines = {}
+            for line in f:lines() do
+                local ts, lmac, lip, lname, lid = line:match(
+                    "^(%d+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(.*)")
+                if lmac and lmac:upper() == canonical_mac then
+                    line = string.format("%s %s %s %s %s",
+                        ts, lmac, lip, canonical_name, lid)
+                end
+                table.insert(lines, line)
+            end
+            f:close()
+            local out = io.open(leases_fn, "w")
+            if out then
+                for _, line in ipairs(lines) do
+                    out:write(line .. "\n")
+                end
+                out:close()
+            end
+        end
+
+        -- Restart dnsmasq to apply
+        sys.exec("/etc/init.d/dnsmasq restart >/dev/null 2>&1 &")
+    end
+
+    -- Clean up any stale dhcp-host entries for the secondary MACs.
+    -- These MACs are now alt_macs and should NOT appear as
+    -- independent hosts in the DHCP list.
+    if dhcp_ignore_val ~= "1" then
+        for _, smac in ipairs(all_macs) do
+            if smac ~= canonical_mac then
+                local s_lower = smac:lower()
+                local di = 0
+                while true do
+                    local hm = uci:get("dhcp", "@host[" .. di .. "]", "mac")
+                    if not hm then break end
+                    if hm:lower() == s_lower then
+                        uci:delete("dhcp", "@host[" .. di .. "]")
+                        uci:commit("dhcp")
+                        di = 0
+                    else
+                        di = di + 1
+                    end
+                end
+            end
+        end
+    end
+
     json_response({success = true, primary_mac = canonical_mac, online_mac = online_mac, merged_macs = new_macs, note = "Primary MAC kept as selected; online MAC stored as alias"})
 end
 

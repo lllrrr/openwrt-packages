@@ -1403,6 +1403,7 @@ sanitize_hostname() {
 # Remove dhcp host entry for a given MAC (used when hostname is cleared)
 remove_dhcp_host() {
     local mac="$1"
+    local new_hostname="${2:-}"   # optional: update lease hostname to this
     [ -z "$mac" ] && return
     local mac_lower=$(echo "$mac" | tr 'A-F' 'a-f')
     local changed=0
@@ -1424,9 +1425,18 @@ remove_dhcp_host() {
     done
     if [ "$changed" = "1" ]; then
         uci -q commit dhcp
-        return 0
     fi
-    return 1
+    # Update /tmp/dhcp.leases hostname for this MAC.
+    # If new_hostname is provided, set it; otherwise set to "*" (no name).
+    # This keeps the IP in the lease file but ensures the DHCP list
+    # shows the correct/merged device name.
+    if [ -f "/tmp/dhcp.leases" ]; then
+        local lease_name="${new_hostname:-*}"
+        sed -i "/[[:space:]]${mac_lower}[[:space:]]/{
+            s/^\([0-9]*[[:space:]]*[a-fA-F0-9:]*[[:space:]]*[0-9.]*[[:space:]]*\)[^[:space:]]*/\1${lease_name}/
+        }" /tmp/dhcp.leases
+    fi
+    [ "$changed" = "1" ] && return 0 || return 1
 }
 
 # ============================================================
@@ -1575,10 +1585,14 @@ try_merge_device() {
             uci -q commit devicemaster
 
             # Ensure the PRIMARY MAC's DHCP host entry stays in sync with the
-            # merged record's preferred name.  DO NOT write a static lease for
+            # merged record's preferred name. DO NOT write a static lease for
             # $new_mac — it becomes an alt_mac, and writing dhcp-host for it
-            # with the same IP would crash dnsmasq.  (sync_hostname.sh itself
-            # also rejects alt_macs now, but we guard here too.)
+            # with the same IP would crash dnsmasq.
+            #
+            # FIX: Also clean up any stale dhcp-host entry for $new_mac — the
+            # MAC that is now an alt_mac may have had its own static lease
+            # created during an earlier independent registration. Leaving it
+            # causes the DHCP list to show an out-of-date / duplicate name.
             if is_mesh_main_router; then
                 local sync_name=""
                 local merged_name=$(uci -q get "devicemaster.@device[$idx].name")
@@ -1594,6 +1608,11 @@ try_merge_device() {
                 local pri_mac=$(uci -q get "devicemaster.@device[$idx].mac")
                 if [ -n "$sync_name" ] && [ -n "$new_ip" ] && [ -n "$pri_mac" ]; then
                     /usr/libexec/devicemaster/sync_hostname.sh "$pri_mac" "$sync_name" "$new_ip" >/dev/null 2>&1
+                fi
+                # Clean up any stale dhcp-host entry for $new_mac (now alt_mac);
+                # update /tmp/dhcp.leases hostname to the merged device's name.
+                if [ "$new_mac" != "$pri_mac" ]; then
+                    remove_dhcp_host "$new_mac" "$merged_hostname"
                 fi
             fi
 
@@ -1664,10 +1683,12 @@ try_merge_device() {
                 fi
 
                 # Sync DHCP static lease for the PRIMARY MAC using the merged
-                # record's preferred hostname/name.  $new_mac becomes an alt_mac
-                # of this record — NEVER write a static lease for it (would
-                # duplicate the IP and crash dnsmasq).  sync_hostname.sh has
-                # its own alt_mac check as a second safety net.
+                # record's preferred hostname/name. $new_mac becomes an alt_mac
+                # of this record — NEVER write a static lease for it. Also
+                # actively CLEAN UP any pre-existing dhcp-host entry for
+                # $new_mac (it may have been created during an earlier,
+                # independent registration), otherwise the DHCP list still
+                # shows an out-of-date / duplicate name.
                 if is_mesh_main_router; then
                     local sync_name=""
                     local merged_name=$(uci -q get "devicemaster.@device[$idx].name")
@@ -1683,6 +1704,11 @@ try_merge_device() {
                     local pri_mac=$(uci -q get "devicemaster.@device[$idx].mac")
                     if [ -n "$sync_name" ] && [ -n "$new_ip" ] && [ -n "$pri_mac" ]; then
                         /usr/libexec/devicemaster/sync_hostname.sh "$pri_mac" "$sync_name" "$new_ip" >/dev/null 2>&1
+                    fi
+                    # Clean up stale dhcp-host entry for the newly-merged MAC;
+                    # update /tmp/dhcp.leases hostname to the merged device's name.
+                    if [ "$new_mac" != "$pri_mac" ]; then
+                        remove_dhcp_host "$new_mac" "$sync_name"
                     fi
                 fi
 
