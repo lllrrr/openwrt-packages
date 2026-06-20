@@ -482,6 +482,32 @@ var T = {
     'LBL_WEB_PORT_TITLE': _('Enter custom external port number'),
     'M_PORT_CONFLICT_P1': _('Port'),
     'M_PORT_CONFLICT_P2': _('is already in use by another application!'),
+    // ---------------------------
+    'LBL_MOD_LAYOUT': _('Advanced Panel Management'),
+    'ADV_LAYOUT_TIP': _('Drag ☰ to reorder, check to show/hide:'),
+    'ADV_LAYOUT_SAVE': _('Save and Apply'),
+    'ADV_SAFE_BTN': '📦 ' + _('Plugin Installation'),
+    'ADV_SAFE_TITLE': _('Offline Plugin Installation'),
+    'ADV_SAFE_DESC': _('Drop or click to select multiple .apk / .ipk files'),
+    'ADV_ONLY_PKG': _('Security Block: Only .apk and .ipk allowed!'),
+    'ADV_BTN_START': '🚀 ' + _('Start Upload & Secure'),
+    'ADV_BTN_CONFIRM': '🚀 ' + _('Confirm Upload ({num} files)'),
+    'ADV_BTN_PROC': _('Processing, do not close the window...'),
+    'ADV_ERR_FORMAT': _('Format blocked!'),
+    'ADV_MSG_ALL_DONE': '✅ ' + _('All files secured! Refreshing...'),
+    'ADV_MSG_BATCH_INST': '⚙️ ' + _('All files secured, executing batch install...'),
+    'ADV_MSG_INST_OK': '✅ ' + _('Installation successful! Refreshing...'),
+    'ADV_MSG_HW_WAIT': '⚙️ ' + _('Hardware configuring, please wait <b id="nw-batch-cnt">{sec}</b>s...'),
+    'ADV_ERR_BATCH': '❌ ' + _('Batch install error: '),
+    'ADV_MSG_PROC_FILE': '🚀 ' + _('Processing ({idx}/{total}): {name} - {pct}%'),
+    'ADV_MSG_BG_SECURE': '⚙️ ' + _('Securing in background: {name}'),
+    'ADV_ERR_MV': '❌ ' + _('Backend transfer failed: {name}'),
+    'ADV_ERR_UP': '❌ ' + _('Upload failed ({code}): {name}'),
+    'ADV_ERR_NET': '❌ ' + _('Network disconnected: {name}'),
+    'ADV_BTN_RETRY': _('Continue to retry remaining files'),
+    'ADV_BTN_REMOVE': _('Remove'),
+    'ADV_ERR_SAVE_LAYOUT': _('Save layout failed'),
+    'ADV_WARN_NO_WIFI': _('Warning: No Wi-Fi hardware detected, Wi-Fi configuration card is hidden.')
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -504,6 +530,9 @@ var callCheckInternet = rpc.declare({ object: 'netwiz', method: 'check_internet'
 var callGetClientMac = rpc.declare({ object: 'netwiz', method: 'get_client_mac', expect: { '': {} } });
 var callGetAdvSettings = rpc.declare({ object: 'netwiz', method: 'get_adv_settings', expect: { '': {} } });
 var callSetAdvSettings = rpc.declare({ object: 'netwiz', method: 'set_adv_settings', params: ['mac', 'web', 'cron', 'hosts'], expect: { '': {} } });
+
+var callGetAdvLayout = rpc.declare({ object: 'netwiz', method: 'get_adv_layout', expect: { '': {} } });
+var callSetAdvLayout = rpc.declare({ object: 'netwiz', method: 'set_adv_layout', params: ['layout'], expect: { result: 0 } });
 
 return view.extend({
     handleSaveApply: null,
@@ -709,14 +738,18 @@ return view.extend({
             // --- 在此插入代码 ---
             '    <div style="margin: 20px auto 0; width: 100%; max-width: 820px; box-sizing: border-box; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">',
             // --- 高级设置 ---
-            '    <div style="margin-top: 15px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; padding: 15px; text-align: left;">',
-            '        <div style="font-size:14px; font-weight:bold; color:#475569; margin-bottom:12px;">{{LBL_ADV_UTILS_TITLE}}</div>',
-            '        <div style="display:flex; flex-wrap:wrap; gap:20px; align-items:center; margin-bottom:12px; padding-bottom:12px; border-bottom: 1px dashed #cbd5e1;">',
-            '            <a href="javascript:void(0)" id="link-cron-reboot" style="color:#0284c7; text-decoration:none; font-size:14.5px; font-weight:500;">{{LBL_CRON_REBOOT_LINK}}</a>',
-            '            <a href="javascript:void(0)" id="link-mac-clone" style="color:#0284c7; text-decoration:none; font-size:14.5px; font-weight:500;">{{LBL_MAC_CLONE_LINK}}</a>',
-            '            <a href="javascript:void(0)" id="link-modify-hosts" style="color:#0284c7; text-decoration:none; font-size:14.5px; font-weight:500;">{{LBL_HOSTS_LINK}}</a>',
-            '            <a href="javascript:void(0)" id="link-repair-plugin" style="color:#ef4444; text-decoration:none; font-size:14.5px; font-weight:500;">{{LBL_REPAIR_BTN}}</a>',
-            '        </div>',
+            '<div style="margin-top: 15px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; padding: 15px; text-align: left; position: relative;">',
+            '    <div style="font-size:14px; font-weight:bold; color:#475569; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">',
+            '        <span>{{LBL_ADV_UTILS_TITLE}}</span>',
+            '        <div id="btn-layout-mgr" style="font-size:18px; cursor:pointer; opacity:0.6; transition:all 0.2s;" onmouseover="this.style.opacity=\'1\'; this.style.transform=\'rotate(45deg)\';" onmouseout="this.style.opacity=\'0.6\'; this.style.transform=\'rotate(0deg)\';" title="⚙️ Panel Manager">⚙️</div>',
+            '    </div>',
+            '    <div id="nw-adv-modules-container" style="display:flex; flex-wrap:wrap; gap:20px; align-items:center; margin-bottom:12px; padding-bottom:12px; border-bottom: 1px dashed #cbd5e1; min-height:24px;">',
+            '        <a href="javascript:void(0)" id="link-cron-reboot" style="color:#0284c7; text-decoration:none; font-size:14.5px; font-weight:500; display:inline-block;">{{LBL_CRON_REBOOT_LINK}}</a>',
+            '        <a href="javascript:void(0)" id="link-mac-clone" style="color:#0284c7; text-decoration:none; font-size:14.5px; font-weight:500; display:inline-block;">{{LBL_MAC_CLONE_LINK}}</a>',
+            '        <a href="javascript:void(0)" id="link-modify-hosts" style="color:#0284c7; text-decoration:none; font-size:14.5px; font-weight:500; display:inline-block;">{{LBL_HOSTS_LINK}}</a>',
+            '        <a href="javascript:void(0)" id="link-repair-plugin" style="color:#ef4444; text-decoration:none; font-size:14.5px; font-weight:500; display:inline-block;">{{LBL_REPAIR_BTN}}</a>',
+            '        <a href="javascript:void(0)" id="link-offline-safe" style="color:#10b981; text-decoration:none; font-size:14.5px; font-weight:500; display:none;">{{ADV_SAFE_BTN}}</a>',
+            '    </div>',
             '        <div style="display:flex; justify-content:space-between; align-items:center;">',
             '            <div style="display:flex; align-items:center; gap:0;">',
             '                <div style="font-size:14.5px; font-weight:500; color:#0284c7;">{{LBL_WEB_ACCESS_TOGGLE}}</div>',
@@ -1017,6 +1050,291 @@ return view.extend({
             box.querySelector('#mdl-ok').onclick = function() { if(onOk(box) !== false) document.body.removeChild(bg); };
         }
 
+        // ====================================================================
+        // 拖拽排序、显隐引擎与离线上传
+        // ====================================================================
+        var defaultAdvLayout = [
+            { id: 'link-cron-reboot',   icon: '⏱️', name: T['LBL_CRON_REBOOT_LINK'].replace('⏱️ ', '') || 'Scheduled Reboot', show: true },
+            { id: 'link-mac-clone',     icon: '🔗', name: T['LBL_MAC_CLONE_LINK'].replace('🔗 ', '') || 'MAC Clone', show: true },
+            { id: 'link-modify-hosts',  icon: '✏️', name: T['LBL_HOSTS_LINK'].replace('✏️ ', '') || 'Custom Hosts', show: true },
+            { id: 'link-repair-plugin', icon: '🚑', name: T['LBL_REPAIR_BTN'].replace('🚑 ', '') || 'Plugin Repair', show: true },
+            { id: 'link-offline-safe',  icon: '📦', name: T['ADV_SAFE_BTN'].replace('📦 ', '') || 'Plugin Installation', show: false }
+        ];
+
+        // 1. 初始化时向路由器获取最新排版
+        callGetAdvLayout().then(function(res) {
+            if (res && res.layout) {
+                try { 
+                    var parsed = JSON.parse(res.layout); 
+                    window._nwAdvLayout = Array.isArray(parsed) ? parsed : defaultAdvLayout; 
+                } catch(e) { window._nwAdvLayout = defaultAdvLayout; }
+            } else {
+                window._nwAdvLayout = defaultAdvLayout;
+            }
+            applyAdvancedLayout(window._nwAdvLayout);
+        }).catch(function() { applyAdvancedLayout(defaultAdvLayout); });
+
+        // 2. 排版函数
+        function applyAdvancedLayout(layoutArr) {
+            var modContainer = container.querySelector('#nw-adv-modules-container');
+            if (!modContainer || !Array.isArray(layoutArr)) return;
+            layoutArr.forEach(function(item) {
+                var modEl = container.querySelector('#' + item.id);
+                if (modEl) {
+                    modEl.style.display = item.show ? 'inline-block' : 'none';
+                    modContainer.appendChild(modEl); // 自动按数组顺序追加，实现无缝重排
+                }
+            });
+        }
+
+        // 3. 绑定齿轮点击事件 (打开拖拽管理面板)
+        var btnLayoutMgr = container.querySelector('#btn-layout-mgr');
+        if (btnLayoutMgr) {
+            btnLayoutMgr.addEventListener('click', function() {
+                var currentLayout = window._nwAdvLayout || defaultAdvLayout;
+                var html = '<div style="margin-bottom:10px; font-size:13px; color:#64748b;">' + (T['ADV_LAYOUT_TIP'] || 'Drag ☰ to reorder, check to show/hide:') + '</div>' +
+                           '<div id="nw-layout-list" style="display:flex; flex-direction:column; gap:8px;">';
+                
+                currentLayout.forEach(function(item) {
+                    html += '<div class="nw-layout-item" draggable="true" data-id="' + item.id + '" style="display:flex; align-items:center; background:#f8fafc; padding:10px 15px; border:1px solid #e2e8f0; border-radius:8px; cursor:grab; transition:background 0.2s;">' +
+                            '<span style="cursor:grab; margin-right:15px; color:#94a3b8; font-size:18px;">☰</span>' +
+                            '<span class="mod-icon" style="font-size:20px; margin-right:12px;">' + item.icon + '</span>' +
+                            '<span class="mod-name" style="flex:1; font-weight:bold; color:#334155; font-size:14.5px;">' + item.name + '</span>' +
+                            '<label style="margin:0; display:flex; align-items:center; cursor:pointer;">' +
+                            '<input type="checkbox" class="nw-layout-chk" ' + (item.show ? 'checked' : '') + ' style="width:20px; height:20px; cursor:pointer; accent-color:#3b82f6;">' +
+                            '</label></div>';
+                });
+                html += '</div>';
+
+                showAdvModal((T['LBL_MOD_LAYOUT'] || 'Advanced Panel Management'), html, function(box) {
+                    var newList = [];
+                    var items = box.querySelectorAll('.nw-layout-item');
+                    items.forEach(function(el) {
+                        newList.push({
+                            id: el.getAttribute('data-id'),
+                            icon: el.querySelector('.mod-icon').innerText,
+                            name: el.querySelector('.mod-name').innerText,
+                            show: el.querySelector('.nw-layout-chk').checked
+                        });
+                    });
+
+                    // 瞬间应用到网页，无需刷新
+                    window._nwAdvLayout = newList;
+                    applyAdvancedLayout(newList);
+                    
+                    // 点击确定后，才写入数据
+                    var jsonStr = JSON.stringify(newList);
+                    openModal({ title: T['LBL_ADV_UTILS_TITLE'] || '⚙️', msg: T['MSG_WRITING'] || 'Saving...', spin: true });
+                    var gm2 = document.getElementById('nw-global-modal'); if (gm2) gm2.style.zIndex = '100000';
+                    callSetAdvLayout(jsonStr).then(function(){
+                        setTimeout(function(){ document.getElementById('nw-global-modal').style.display='none'; }, 500);
+                    }).catch(function(e){ console.error((T['ADV_ERR_SAVE_LAYOUT'] || 'Save layout failed'), e); document.getElementById('nw-global-modal').style.display='none'; });
+                });
+
+                // HTML5 原生拖拽逻辑
+                setTimeout(function() {
+                    var list = document.getElementById('nw-layout-list');
+                    var draggingEl = null;
+                    if(!list) return;
+                    list.addEventListener('dragstart', function(e) {
+                        draggingEl = e.target.closest('.nw-layout-item');
+                        setTimeout(function() { draggingEl.style.opacity = '0.4'; draggingEl.style.background = '#e2e8f0'; }, 0);
+                    });
+                    list.addEventListener('dragend', function(e) {
+                        if(draggingEl) { draggingEl.style.opacity = '1'; draggingEl.style.background = '#f8fafc'; draggingEl = null; }
+                    });
+                    list.addEventListener('dragover', function(e) {
+                        e.preventDefault();
+                        var target = e.target.closest('.nw-layout-item');
+                        if (target && target !== draggingEl) {
+                            var rect = target.getBoundingClientRect();
+                            var next = (e.clientY - rect.top) / (rect.bottom - rect.top) > 0.5;
+                            list.insertBefore(draggingEl, next ? target.nextSibling : target);
+                        }
+                    });
+                }, 100);
+            });
+        }
+
+        // 4. 离线保险箱 (多文件批量上传与伫列处理) 事件绑定
+        var btnOfflineSafe = container.querySelector('#link-offline-safe');
+        if (btnOfflineSafe) {
+            btnOfflineSafe.addEventListener('click', function() {
+                var dropZoneHtml = 
+                    '<div id="nw-drop-zone" style="border:2px dashed #3b82f6; background:#eff6ff; border-radius:12px; padding:20px; text-align:center; transition:all 0.3s; cursor:pointer; margin-top:5px;">' +
+                        '<div style="font-size:32px; margin-bottom:10px;">📦</div>' +
+                        '<div style="font-size:14.5px; color:#1e3a8a; font-weight:bold;">' + (T['ADV_SAFE_TITLE'] || 'Offline Plugin Installation') + '</div>' +
+                        '<div style="font-size:13px; color:#64748b; margin-top:8px;">' + (T['ADV_SAFE_DESC'] || 'Drop or click to select multiple .apk / .ipk files') + '</div>' +
+                        '<input type="file" id="nw-file-input" accept=".apk, .ipk" multiple style="display:none;">' +
+                    '</div>' +
+                    '</div>' +
+                    // 档案暂存列表缓存
+                    '<div id="nw-file-list" style="margin-top:15px; max-height:130px; overflow-y:auto; font-size:13px; color:#334155; display:flex; flex-direction:column; gap:6px;"></div>' +
+                    // 手动确认上传按钮
+                    '<div style="margin-top:15px; text-align:center;">' +
+                        '<button id="nw-btn-upload" class="cbi-button cbi-button-action" style="display:none; padding:10px 30px; background:#10b981; color:#fff; border:none; border-radius:6px; font-weight:bold; cursor:pointer; transition:background 0.2s;">' + (T['ADV_BTN_START'] || '🚀 Start Upload & Secure') + '</button>' +
+                        '<div id="nw-upload-progress" style="margin-top:12px; font-family:monospace; font-weight:bold; color:#ef4444;"></div>' +
+                    '</div>';
+
+                openModal({ title: (T['ADV_SAFE_BTN'] || 'Offline Safe'), msg: dropZoneHtml, okText: T['M_CLOSE'] || 'Close', hideCancel: true });
+
+                setTimeout(function() {
+                    var dropZone = document.getElementById('nw-drop-zone');
+                    var fileInput = document.getElementById('nw-file-input');
+                    var fileListEl = document.getElementById('nw-file-list');
+                    var btnUpload = document.getElementById('nw-btn-upload');
+                    var prog = document.getElementById('nw-upload-progress');
+                    
+                    var selectedFiles = []; // 暂存队列数组
+
+                    if(!dropZone) return;
+
+                    // 绑定UI事件
+                    dropZone.addEventListener('click', function() { fileInput.click(); });
+                    dropZone.addEventListener('dragover', function(e) { e.preventDefault(); dropZone.style.backgroundColor = '#dbeafe'; dropZone.style.borderColor = '#2563eb'; });
+                    dropZone.addEventListener('dragleave', function() { dropZone.style.backgroundColor = '#eff6ff'; dropZone.style.borderColor = '#3b82f6'; });
+                    dropZone.addEventListener('drop', function(e) {
+                        e.preventDefault(); dropZone.style.backgroundColor = '#eff6ff'; dropZone.style.borderColor = '#3b82f6';
+                        if (e.dataTransfer.files.length) addFilesToStaging(e.dataTransfer.files);
+                    });
+                    fileInput.addEventListener('change', function() { 
+                        if (fileInput.files.length) addFilesToStaging(fileInput.files); 
+                        fileInput.value = ''; // 清空value，允许重复提取相同档案
+                    });
+
+                    // 档案加入暂存区逻辑
+                    function addFilesToStaging(files) {
+                        prog.innerHTML = '';
+                        for(var i=0; i<files.length; i++) {
+                            var f = files[i];
+                            // 安全拦截：非apk/ipk直接拒绝
+                            if (!f.name.match(/\.(apk|ipk)$/i)) {
+                                prog.style.color = '#ef4444'; prog.innerHTML = '❌ [' + f.name + '] ' + (T['ADV_ERR_FORMAT'] || 'Format blocked!');
+                                continue;
+                            }
+                            // 防止重复加入同名档案
+                            var exists = selectedFiles.some(function(item) { return item.name === f.name; });
+                            if (!exists) selectedFiles.push(f);
+                        }
+                        renderFileList();
+                    }
+
+                    // 清单中的（X）按钮呼叫来移除档案
+                    window._nwRemoveFile = function(idx) {
+                        selectedFiles.splice(idx, 1);
+                        renderFileList();
+                    };
+
+                    // 渲染暂存区 UI
+                    function renderFileList() {
+                        fileListEl.innerHTML = '';
+                        if (selectedFiles.length === 0) {
+                            btnUpload.style.display = 'none';
+                            return;
+                        }
+                        selectedFiles.forEach(function(f, idx) {
+                            var sizeKB = (f.size / 1024).toFixed(1) + ' KB';
+                            fileListEl.innerHTML += 
+                                '<div style="display:flex; justify-content:space-between; align-items:center; background:#f1f5f9; padding:6px 10px; border-radius:4px; border:1px solid #cbd5e1;">' +
+                                    '<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:70%;" title="'+f.name+'">📄 ' + f.name + '</span>' +
+                                    '<span><span style="color:#64748b; margin-right:10px;">' + sizeKB + '</span>' + 
+                                    '<a href="javascript:void(0)" onclick="window._nwRemoveFile('+idx+')" style="color:#ef4444; text-decoration:none; font-weight:bold; font-size:14px;" title="' + (T['ADV_BTN_REMOVE'] || 'Remove') + '">✕</a></span>' +
+                                    '</div>';
+                        });
+                        btnUpload.style.display = 'inline-block';
+                        btnUpload.innerText = (T['ADV_BTN_CONFIRM'] || '🚀 Confirm Upload ({num} files)').replace('{num}', selectedFiles.length);
+                    }
+
+                    // 点击上传按钮->启动队列引擎
+                    btnUpload.addEventListener('click', function() {
+                        if(selectedFiles.length === 0) return;
+                        btnUpload.disabled = true;
+                        btnUpload.style.background = '#94a3b8';
+                        btnUpload.innerText = T['ADV_BTN_PROC'] || 'Processing, do not close the window...';
+                        processUploadQueue(0);
+                    });
+
+                    // 循序处理
+                    function processUploadQueue(idx) {
+                        if (idx >= selectedFiles.length) {
+                            prog.style.color = '#3b82f6';
+                            prog.innerHTML = T['ADV_MSG_BATCH_INST'] || '⚙️ All files secured, executing batch install...';
+                            
+                            // 调用新接口，一次性把刚刚传进去的所有包全部安装
+                            rpc.declare({ object: 'netwiz', method: 'batch_install_pkgs' })().then(function() {
+                                prog.style.color = '#10b981';
+                                prog.innerHTML = T['ADV_MSG_INST_OK'] || '✅ Installation successful! Refreshing...';
+                                setTimeout(function() { window.location.reload(); }, 1500);
+                            }).catch(function(err) {
+                                var errStr = String(err).toLowerCase();
+                                // 拦截 会暴力切断连接导致 aborted 或 timeout 的情况
+                                if (errStr.indexOf('timed out') !== -1 || errStr.indexOf('timeout') !== -1 || errStr.indexOf('aborted') !== -1) {
+                                    prog.style.color = '#f59e0b';
+                                    prog.innerHTML = (T['ADV_MSG_HW_WAIT'] || '⚙️ Hardware configuring, please wait <b id="nw-batch-cnt">{sec}</b>s...').replace('{sec}', 15);
+                                    var wSec = 15;
+                                    var cTimer = setInterval(function() {
+                                        wSec--;
+                                        var mEl = document.getElementById('nw-batch-cnt');
+                                        if (mEl) mEl.innerText = wSec;
+                                        if (wSec <= 0) {
+                                            clearInterval(cTimer);
+                                            window.location.reload();
+                                        }
+                                    }, 1000);
+                                } else {
+                                    handleError((T['ADV_ERR_BATCH'] || '❌ Batch install error: ') + err);
+                                }
+                            });
+                            return;
+                        }
+                        
+                        var file = selectedFiles[idx];
+                        prog.style.color = '#3b82f6';
+                        prog.innerHTML = (T['ADV_MSG_PROC_FILE'] || '🚀 Processing ({idx}/{total}): {name} - {pct}%')
+                            .replace('{idx}', idx+1).replace('{total}', selectedFiles.length).replace('{name}', file.name).replace('{pct}', 0);
+
+                        var fd = new FormData();
+                        fd.append('sessionid', (typeof L!=='undefined'&&L.env&&L.env.sessionid)?L.env.sessionid:"");
+                        fd.append('filename', '/tmp/' + file.name);
+                        fd.append('filedata', file);
+
+                        var xhr = new XMLHttpRequest();
+                        xhr.open('POST', '/cgi-bin/cgi-upload', true);
+                        xhr.upload.onprogress = function(e) {
+                            if(e.lengthComputable) {
+                                var pct = Math.floor((e.loaded / e.total) * 100);
+                                prog.innerHTML = (T['ADV_MSG_PROC_FILE'] || '🚀 Processing ({idx}/{total}): {name} - {pct}%')
+                                    .replace('{idx}', idx+1).replace('{total}', selectedFiles.length).replace('{name}', file.name).replace('{pct}', pct);
+                            }
+                        };
+                        xhr.onload = function() {
+                            if (xhr.status === 200) {
+                                prog.innerHTML = (T['ADV_MSG_BG_SECURE'] || '⚙️ Securing in background: {name}').replace('{name}', file.name);
+                                // 呼叫后端移入保险箱
+                                rpc.declare({ object: 'netwiz', method: 'store_offline_pkg', params: ['filename'] })(file.name).then(function() {
+                                    // 成功后，递归呼叫处理下一个档案
+                                    processUploadQueue(idx + 1); 
+                                }).catch(function() {
+                                    handleError((T['ADV_ERR_MV'] || '❌ Backend transfer failed: {name}').replace('{name}', file.name));
+                                });
+                            } else {
+                                handleError((T['ADV_ERR_UP'] || '❌ Upload failed ({code}): {name}').replace('{code}', xhr.status).replace('{name}', file.name));
+                            }
+                        };
+                        xhr.onerror = function() { handleError((T['ADV_ERR_NET'] || '❌ Network disconnected: {name}').replace('{name}', file.name)); };
+                        xhr.send(fd);
+                        
+                        function handleError(errMsg) {
+                            prog.style.color = '#ef4444'; prog.innerHTML = errMsg;
+                            btnUpload.disabled = false; btnUpload.style.background = '#10b981';
+                            btnUpload.innerText = T['ADV_BTN_RETRY'] || 'Continue to retry remaining files';
+                        }
+                    }
+                }, 100);
+            });
+        }
+        // ==================== 高级管理器与上传核心引擎结束 ====================
+
         // ================= 高级与实验室：动态包裹与折叠逻辑 =================
         setTimeout(function() {
             var cloneLink = container.querySelector('#link-mac-clone');
@@ -1027,9 +1345,12 @@ return view.extend({
                     wrapper.id = 'nw-hidden-features';
                     // 加上 overflow: hidden，高度折叠时内部元素才不会溢出
                     wrapper.style.overflow = 'hidden'; 
-                    wrapper.style.display = 'none';
-                    wrapper.style.opacity = '0';
-                    wrapper.style.height = '0px'; // 初始高度为 0
+                    
+                    // 使用 sessionStorage，关闭浏览器即恢复默认折叠
+                    var isExp = (sessionStorage.getItem('nw_adv_expanded') === '1');
+                    wrapper.style.display = isExp ? 'block' : 'none';
+                    wrapper.style.opacity = isExp ? '1' : '0';
+                    wrapper.style.height = isExp ? 'auto' : '0px'; 
                     
                     advBlock.parentNode.insertBefore(wrapper, advBlock);
                     while (wrapper.nextElementSibling) {
@@ -1049,6 +1370,7 @@ return view.extend({
                     
                     if (isHidden) {
                         // 动画
+                        sessionStorage.setItem('nw_adv_expanded', '1'); // 会话级记忆展开
                         wrapper.style.display = 'block';
                         var targetHeight = wrapper.scrollHeight; 
                         
@@ -1070,6 +1392,7 @@ return view.extend({
                         }, 500);
                     } else {
                         // 收合
+                        sessionStorage.setItem('nw_adv_expanded', '0'); // 会话级记忆收合
                         var currentHeight = wrapper.scrollHeight;
                         wrapper.style.height = currentHeight + 'px'; 
                         
@@ -1380,7 +1703,7 @@ return view.extend({
                 rpc.declare({ object: 'netwiz', method: 'get_repairable_configs', expect: { '': {} } })().then(function(res) {
                     if (res && res.configs && res.configs.length > 0) {
                         
-                        // 1. 原有的说明文字（最上方显示）
+                        // 1. 说明文字（最上方显示）
                         var descText = T['M_REP_DESC'] || 'Standard uninstallation does not remove plugin configuration files. If a plugin malfunctions after reinstallation, select it below to reset it to its initial state.';
                         var descHtml = '<p style="color:#64748b; font-size:13px; margin-bottom:15px; line-height:1.5;">' + descText + '</p>';
                         
@@ -1412,7 +1735,7 @@ return view.extend({
 
                         openModal({
                             title: titleWithX,
-                            // 💡 重点在这里：按 [说明 -> 下拉框 -> 指南] 的顺序进行拼接
+                            // 按 [说明 -> 下拉框 -> 指南] 的顺序进行拼接
                             msg: descHtml + selectHtml + guideHtml,
                             okText: T['M_REP_OK'] || 'Repair Now',
                             cancelText: T['M_CLOSE'] || 'Close',
@@ -1483,7 +1806,7 @@ return view.extend({
                                                     if (res2Code === '0') {
                                                         openModal({ 
                                                             title: '✅ ' + (T['M_REP_SUCC_TIT'] || 'Success'), 
-                                                            msg: pName + ' ' + (T['M_ERADICATE_SUCC'] || '已被彻底卸载并清理。'), 
+                                                            msg: pName + ' ' + (T['M_ERADICATE_SUCC'] || 'has been completely uninstalled and cleaned.'),
                                                             okText: T['M_CLOSE'] || 'Close', 
                                                             hideCancel: true,
                                                             // 点击关闭后，自动强制刷新网页
@@ -1686,7 +2009,7 @@ return view.extend({
                                     rawUi.style.display = 'none'; 
                                     visualUi.style.display = 'block';
                                     var tBtn = document.getElementById('nw-hosts-raw-toggle');
-                                    if (tBtn) tBtn.style.color = 'reb';
+                                    if (tBtn) tBtn.style.color = 'red';
                                 };
 
                                 if (errorCount > 0) {
@@ -3710,8 +4033,8 @@ return view.extend({
                     extraInfo += wifiLines.join('');
                     extraInfo += "</div>";
 
-                    // 当前是否已经处于展开状态，防止 8 秒一次的后台刷新把展开状态重置
-                    var isExpanded = document.getElementById('nw-hidden-features') && document.getElementById('nw-hidden-features').style.display === 'block';
+                    // ✨ 读取会话记忆，保持按钮文字与智能折叠状态一致
+                    var isExpanded = (sessionStorage.getItem('nw_adv_expanded') === '1');
                     var btnText = isExpanded ? (T['BTN_ADV_HIDE'] || 'Advanced Settings ▲') : (T['BTN_ADV_SHOW'] || 'Advanced Settings ▼');
                     var btnBg = isExpanded ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.15)';
                     

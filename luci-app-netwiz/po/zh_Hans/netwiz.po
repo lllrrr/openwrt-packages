@@ -2013,3 +2013,99 @@ msgstr "卸载孤件后需重新安装包，可以使用 SSH 将安装包上传�
 
 msgid "Hardware execution takes longer, running in background..."
 msgstr "底层硬件正在执行中，请耐心等待..."
+
+msgid "Advanced Panel Management"
+msgstr "高级功能面板管理"
+
+msgid "Scheduled Reboot"
+msgstr "定时重启"
+
+msgid "MAC Address Clone"
+msgstr "MAC 地址克隆"
+
+msgid "MAC Clone"
+msgstr "MAC 克隆"
+
+msgid "Custom Hosts"
+msgstr "自定义 Hosts"
+
+msgid "Plugin Repair"
+msgstr "系统急救箱"
+
+msgid "Plugin Installation"
+msgstr "插件安装"
+
+msgid "Offline Plugin Installation"
+msgstr "离线插件安装"
+
+msgid "Drag ☰ to reorder, check to show/hide:"
+msgstr "按住 ☰ 拖拽排序，勾选开关显示："
+
+msgid "Save and Apply"
+msgstr "保存并应用"
+
+msgid "Drop or click to select multiple .apk / .ipk files"
+msgstr "支持拖拽或点击选择多个 .apk / .ipk"
+
+msgid "Security Block: Only .apk and .ipk allowed!"
+msgstr "安全拦截：仅允许 .apk 和 .ipk！"
+
+msgid "Start Upload & Secure"
+msgstr "开始上传并入库"
+
+msgid "Confirm Upload ({num} files)"
+msgstr "确认上传并入库 ({num} 个文件)"
+
+msgid "Processing, do not close the window..."
+msgstr "处理中，请勿关闭窗口..."
+
+msgid "Format blocked!"
+msgstr "格式被拦截！"
+
+msgid "All files secured! Refreshing..."
+msgstr "所有文件均已成功入库！正在刷新..."
+
+msgid "All files secured, executing batch install..."
+msgstr "所有文件入库完毕，正在执行合并安装..."
+
+msgid "Installation successful! Refreshing..."
+msgstr "安装与重置成功！正在刷新..."
+
+msgid "Hardware configuring, please wait <b id=\"nw-batch-cnt\">{sec}</b>s..."
+msgstr "底层硬件正在拼命配置中，请耐心等待 <b id=\"nw-batch-cnt\">{sec}</b>s..."
+
+msgid "Batch install error: "
+msgstr "批量安装异常: "
+
+msgid "Processing ({idx}/{total}): {name} - {pct}%"
+msgstr "正在处理 ({idx}/{total}): {name} - {pct}%"
+
+msgid "Securing in background: {name}"
+msgstr "后台安装中: {name}"
+
+msgid "Backend transfer failed: {name}"
+msgstr "后端转移失败: {name}"
+
+msgid "Upload failed ({code}): {name}"
+msgstr "上传失败 ({code}): {name}"
+
+msgid "Network disconnected: {name}"
+msgstr "网络连接中断: {name}"
+
+msgid "Continue to retry remaining files"
+msgstr "继续重试上传剩余文件"
+
+msgid "Ghost Plugin Deletion Warning"
+msgstr "死件彻底拔除警告"
+
+msgid "Eradicating completely..."
+msgstr "正在彻底执行连根拔除..."
+
+msgid "has been completely uninstalled and cleaned."
+msgstr "已被彻底卸载并清理。"
+
+msgid "Remove"
+msgstr "移除"
+
+msgid "Save layout failed"
+msgstr "保存排版失败"
