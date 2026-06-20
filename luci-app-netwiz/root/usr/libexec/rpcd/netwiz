@@ -195,70 +195,59 @@ case "$1" in
                         # 后装外挂删除配置后重装
                         log "[REPAIR]" "检测为后装第三方外挂，正在执行深度重置 (Purge & Clean Install)..."
                         
-                        # 1. 彻底物理爆破坏掉的设定档 (破除 opkg 配置保护机制)
-                        rm -f "/etc/config/$plugin"
-                        
-                        # 2. 寻找安装包并释放新的设定档
+                        # === 1. 极其关键：必须在物理删除前，先从底层数据库查出所属套件名 ===
+                        pkg_name=""
                         if command -v apk >/dev/null 2>&1; then
-                            # 针对 Alpine 系统
                             pkg_name=$(apk info -W "/etc/config/$plugin" 2>/dev/null | awk '{print $1}' | head -n1)
-                            
-                            # 如果系统未记录，尝试在本地保险箱模糊匹配
-                            if [ -z "$pkg_name" ]; then
-                                local_apk=$(ls /etc/netwiz/custom_pkgs/*${plugin}*.apk 2>/dev/null | head -n 1)
-                                if [ -n "$local_apk" ]; then
-                                    log "[REPAIR]" "系统未记录，尝试使用本地保险箱包深度重装..."
-                                    apk add --allow-untrusted --force-reinstall --force-overwrite "$local_apk" >/dev/null 2>&1
-                                    pkg_name="local_match"
-                                fi
-                            fi
-
-                            if [ -n "$pkg_name" ] && [ "$pkg_name" != "local_match" ]; then
-                                log "[REPAIR]" "已锁定所属套件 $pkg_name，正在执行 apk fix..."
-                                apk fix "$pkg_name" >/dev/null 2>&1
-                                # 官方源获取失败兜底本地
-                                if [ ! -f "/etc/config/$plugin" ]; then
-                                    local_apk=$(ls /etc/netwiz/custom_pkgs/*${pkg_name}*.apk 2>/dev/null | head -n 1)
-                                    [ -n "$local_apk" ] && apk add --allow-untrusted --force-reinstall --force-overwrite "$local_apk" >/dev/null 2>&1
-                                fi
-                            fi
-
                         elif command -v opkg >/dev/null 2>&1; then
-                            # 针对 OpenWrt 系统
                             pkg_name=$(opkg search "/etc/config/$plugin" 2>/dev/null | awk '{print $1}' | awk -F' - ' '{print $1}' | head -n1)
+                        fi
+                        # 兜底：如果找不出套件名，直接用插件名去模糊匹配
+                        [ -z "$pkg_name" ] && pkg_name="$plugin"
+                        
+                        # === 2. 状态保护：备份当前坏掉的配置，防止修复失败后状态丢失 ===
+                        mv "/etc/config/$plugin" "/tmp/${plugin}_netwiz_bak" 2>/dev/null
+                        # 删除所有附加配置文件夹
+                        rm -rf "/etc/config/${plugin}."* 2>/dev/null
+                        rm -rf "/etc/${plugin}" 2>/dev/null
+                        
+                        # === 3. 智能本地抢占与重装逻辑 (支持全家桶批量安装) ===
+                        if command -v apk >/dev/null 2>&1; then
+                            local_pkgs=$(ls /etc/netwiz/custom_pkgs/*${pkg_name}*.apk 2>/dev/null)
+                            [ -z "$local_pkgs" ] && local_pkgs=$(ls /etc/netwiz/custom_pkgs/*${plugin}*.apk 2>/dev/null)
                             
-                            # 如果 opkg 数据库未命中，尝试在本地保险箱模糊匹配
-                            if [ -z "$pkg_name" ]; then
-                                local_ipk=$(ls /etc/netwiz/custom_pkgs/*${plugin}*.ipk 2>/dev/null | head -n 1)
-                                if [ -n "$local_ipk" ]; then
-                                    log "[REPAIR]" "opkg 未命中，尝试使用本地保险箱包深度重装..."
-                                    opkg install --force-reinstall --force-maintainer "$local_ipk" >/dev/null 2>&1
-                                    pkg_name="local_match"
-                                fi
+                            if [ -n "$local_pkgs" ]; then
+                                log "[REPAIR]" "💡 在本地发现离线安装包，开始强制全家桶重装..."
+                                apk add --no-network --allow-untrusted --force-reinstall --force-overwrite $local_pkgs >/dev/null 2>&1
+                            else
+                                log "[REPAIR]" "未发现本地包，尝试官方源 apk fix..."
+                                apk fix "$pkg_name" >/dev/null 2>&1
                             fi
-
-                            if [ -n "$pkg_name" ] && [ "$pkg_name" != "local_match" ]; then
-                                log "[REPAIR]" "已锁定所属套件 $pkg_name，正在尝试官方源重装..."
+                        elif command -v opkg >/dev/null 2>&1; then
+                            local_pkgs=$(ls /etc/netwiz/custom_pkgs/*${pkg_name}*.ipk 2>/dev/null)
+                            [ -z "$local_pkgs" ] && local_pkgs=$(ls /etc/netwiz/custom_pkgs/*${plugin}*.ipk 2>/dev/null)
+                            
+                            if [ -n "$local_pkgs" ]; then
+                                log "[REPAIR]" "💡 在本地发现离线安装包，开始强制全家桶重装..."
+                                opkg install --force-reinstall --force-overwrite $local_pkgs >/dev/null 2>&1
+                            else
+                                log "[REPAIR]" "未发现本地包，尝试官方源重装..."
                                 opkg install --force-reinstall --force-maintainer "$pkg_name" >/dev/null 2>&1
-                                # 官方源获取失败兜底本地
-                                if [ ! -f "/etc/config/$plugin" ]; then
-                                    local_ipk=$(ls /etc/netwiz/custom_pkgs/*${pkg_name}*.ipk 2>/dev/null | head -n 1)
-                                    if [ -n "$local_ipk" ]; then
-                                        log "[REPAIR]" "官方源失效，使用本地保险箱包深度重装..."
-                                        opkg install --force-reinstall --force-maintainer "$local_ipk" >/dev/null 2>&1
-                                    fi
-                                fi
                             fi
                         fi
                     fi
                     
-                    # 3. 判定，配置重置成功了么？如果还没有，触发死件逻辑
+                    # === 4. 判定配置重置是否成功 ===
                     if [ ! -f "/etc/config/$plugin" ]; then
                         log "[REPAIR]" "🚨 源内无包且无本地备份，外挂已死亡。触发死件逻辑！"
-                        # 返回 result 2，让前端知道这是一个无法挽救的死件，需要卸载并清理残留
+                        # 恢复备份的配置，确保“取消”后，下拉菜单还能看到它！
+                        mv "/tmp/${plugin}_netwiz_bak" "/etc/config/$plugin" 2>/dev/null
                         echo '{"result": 2, "error": "Ghost package"}'
                         exit 0
                     fi
+                    
+                    # 修复成功，清理临时备份
+                    rm -f "/tmp/${plugin}_netwiz_bak"
                     
                     # 网络组件特殊重启加载新配置
                     if [ "$plugin" = "network" ] || [ "$plugin" = "dhcp" ] || [ "$plugin" = "wireless" ]; then
@@ -269,8 +258,8 @@ case "$1" in
                         [ -f "/etc/init.d/$plugin" ] && /etc/init.d/$plugin restart >/dev/null 2>&1 &
                     fi
 
-                    rm -rf /tmp/luci-* >/dev/null 2>&1
-                    (sleep 2; /etc/init.d/rpcd restart; /etc/init.d/uhttpd restart) >/dev/null 2>&1 &
+                    rm -f /tmp/luci-indexcache* >/dev/null 2>&1
+                    rm -f /tmp/luci-modulecache* >/dev/null 2>&1
                     
                     log "[REPAIR]" "✅ $plugin 深度重置完毕，已满血复活！"
                     echo '{"result": 0}'
@@ -322,15 +311,17 @@ case "$1" in
                         fi
                     fi
                     
-                    # 3. 删除残留配置和守护脚本，破除 opkg 的保护机制
-                    rm -f "/etc/config/$plugin"
+                    # 3. 物理删除所有配置残留
+                    log "[REPAIR]" "删除配置残留: /etc/config/$plugin 及其附加目录"
+                    rm -f "/etc/config/$plugin" 2>/dev/null
+                    rm -rf "/etc/config/${plugin}."* 2>/dev/null
+                    rm -rf "/etc/${plugin}" 2>/dev/null
                     rm -f "/etc/init.d/$plugin"
                     
                     # 4. 清理 LuCI 界面残留与系统状态缓存
                     rm -rf "/usr/lib/lua/luci/controller/$plugin.lua" >/dev/null 2>&1
-                    rm -rf "/tmp/luci-*" >/dev/null 2>&1
-                    
-                    (sleep 2; /etc/init.d/rpcd restart; /etc/init.d/uhttpd restart) >/dev/null 2>&1 &
+                    rm -f /tmp/luci-indexcache* >/dev/null 2>&1
+                    rm -f /tmp/luci-modulecache* >/dev/null 2>&1
                     
                     log "[REPAIR]" "✅ $plugin 及其残留文件已彻底从系统中抹除！"
                     echo '{"result": 0}'

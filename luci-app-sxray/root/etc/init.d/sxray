@@ -3778,6 +3778,12 @@ start_service() {
 		TRANSPARENT_PROXY_PORT \
 		TRANSPARENT_PROXY_ADDITION \
 		DNSMASQ_RESTART_EXPECTED
+
+	# Setup subscribe cron and boot update
+	if [ -f "/usr/share/sxray/subscribe_cron.sh" ]; then
+		sh /usr/share/sxray/subscribe_cron.sh
+		/etc/init.d/cron restart >/dev/null 2>&1
+	fi
 }
 
 stop_service() {

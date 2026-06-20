@@ -410,3 +410,12 @@ config shunt_rules 'Direct'
 120.53.53.53/32
 geoip:cn
 geoip:private'
+
+config global_subscribe
+	option filter_keyword_mode '0'
+	option domain_strategy ''
+	option ss_type ''
+	option trojan_type ''
+	option vmess_type ''
+	option vless_type ''
+	option hysteria2_type ''

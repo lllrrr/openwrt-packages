@@ -4,7 +4,9 @@
 		"read": {
 			"file": {
 				"/etc/firewall.sxray": ["read"],
-				"/etc/sxray/*": ["read"]
+				"/etc/sxray/*": ["read"],
+				"/usr/share/sxray/subscribe.lua": ["read"],
+				"/usr/share/sxray/subscribe_cron.sh": ["read"]
 			},
 			"uci": ["dhcp", "firewall", "sxray"]
 		},
@@ -12,7 +14,9 @@
 			"file": {
 				"/etc/sxray/*": ["write"],
 				"/etc/init.d/firewall": ["exec"],
-				"/etc/init.d/sxray": ["exec"]
+				"/etc/init.d/sxray": ["exec"],
+				"/usr/share/sxray/subscribe.lua": ["exec"],
+				"/usr/share/sxray/subscribe_cron.sh": ["exec"]
 			},
 			"uci": ["dhcp", "firewall", "sxray"]
 		}

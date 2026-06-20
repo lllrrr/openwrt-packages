@@ -10,7 +10,7 @@ export PATH="/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 #   $3 = IP address (empty on del)
 #   $4 = hostname (may be *)
 #
-# 7-Level Identification Chain:
+# Multi-source Identification Chain:
 #   1. Local OUI database
 #   2. Remote OUI API (via oui_lookup.sh)
 #   3. mDNS probe
@@ -18,6 +18,10 @@ export PATH="/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 #   5. DHCP fingerprint (Option 55) analysis
 #   6. nlbwmon protocol analysis
 #   7. Traffic pattern analysis (conntrack ports)
+#   8. mDNS/DNS-SD service hints
+#   9. SSDP/UPnP device description hints
+#   10. Lightweight HTTP banner/title hints
+#   11. TTL and WiFi association capability hints
 
 OUI_DB="/usr/share/devicemaster/oui.txt"
 OUI_APPEND="/usr/share/devicemaster/oui_append.txt"
@@ -27,6 +31,19 @@ ARP_TABLE="/proc/net/arp"
 DHCP_LEASES="/tmp/dhcp.leases"
 NLBWMON_CACHE="/tmp/devicemaster_nlbwmon_cache"
 MDNS_CACHE="/tmp/devicemaster_mdns_cache"
+SSDP_CACHE="/tmp/devicemaster_ssdp_cache"
+HTTP_HINT_CACHE="/tmp/devicemaster_http_hint_cache"
+FULL_IDENTIFY="${FULL_IDENTIFY:-0}"
+REGISTER_LIGHT_ONLY="${REGISTER_LIGHT_ONLY:-0}"
+
+is_full_identify_enabled() {
+    [ "$FULL_IDENTIFY" = "1" ] && return 0
+    local mode=$(cat /tmp/dm_mode 2>/dev/null | tr -d '\n\r')
+    [ "$mode" = "active" ] || return 1
+    local last_active=$(cat /tmp/dm_page_active 2>/dev/null | tr -d '\n\r')
+    local now=$(date +%s)
+    [ -n "$last_active" ] && [ $((now - last_active)) -le 20 ] 2>/dev/null
+}
 
 # ============================================================
 # Mesh Node Detection
@@ -86,6 +103,87 @@ log_msg() {
     logger -t devicemaster-event "$1"
 }
 
+is_meaningless_hostname() {
+    local hostname="$1"
+    case "$hostname" in
+        ""|"*"|"-"|unknown|Unknown|wlan0|android-*)
+            return 0 ;;
+    esac
+    echo "$hostname" | grep -qiE '^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}' && return 0
+    return 1
+}
+
+is_laa_mac() {
+    local mac="$1"
+    local first_byte=$(echo "$mac" | tr -d ':' | cut -c1-2)
+    local byte_val=$(printf '%d' "0x$first_byte" 2>/dev/null)
+    [ -n "$byte_val" ] && [ $((byte_val & 2)) -ne 0 ]
+}
+
+normalize_vendor() {
+    local vendor="$1"
+    [ -z "$vendor" ] && return
+    case "$vendor" in
+        Unknown|LAA) return ;;
+        Android) echo "Google"; return ;;
+        MacOS|iOS) echo "Apple"; return ;;
+        Windows) echo "Microsoft"; return ;;
+    esac
+    echo "$vendor" | sed \
+        -e 's/ Mobile Communication//g' \
+        -e 's/ Corporation//g' \
+        -e 's/ Incorporated//g' \
+        -e 's/ Inc\.//g' \
+        -e 's/ Co\..*$//g' \
+        -e 's/ TECHNOLOGY CO\.,LTD\.//g' \
+        -e 's/ CO\.,LTD\.//g'
+}
+
+score_add() {
+    local file="$1"
+    local key="$2"
+    local weight="$3"
+    local source="$4"
+    [ -z "$key" ] && return
+    [ -z "$weight" ] && return
+    echo "$key|$weight|$source" >> "$file"
+}
+
+score_pick() {
+    local file="$1"
+    [ ! -s "$file" ] && return
+    awk -F'|' '
+        NF >= 2 && $1 != "" {
+            score[$1] += $2
+            if (src[$1] == "") src[$1] = $3
+            else src[$1] = src[$1] "," $3
+        }
+        END {
+            best = ""; best_score = -1
+            for (k in score) {
+                if (score[k] > best_score || (score[k] == best_score && k < best)) {
+                    best = k
+                    best_score = score[k]
+                }
+            }
+            if (best != "") print best "|" best_score "|" src[best]
+        }
+    ' "$file"
+}
+
+get_ip_for_mac() {
+    local mac="$1"
+    grep -i "$mac" "$ARP_TABLE" 2>/dev/null | awk '{print $1}' | head -1
+}
+
+get_original_dports_for_ip() {
+    local ip="$1"
+    local conntrack="/proc/net/nf_conntrack"
+    [ -z "$ip" ] && return
+    [ ! -f "$conntrack" ] && return
+    grep "src=$ip " "$conntrack" 2>/dev/null | grep -o 'dport=[0-9]*' | awk 'NR%2==1' | cut -d= -f2 | sort -u
+}
+
 # ============================================================
 # Level 1: Local OUI database lookup
 # ============================================================
@@ -134,17 +232,22 @@ mdns_probe_ip() {
     local ip="$1"
     local result=""
 
-    # Priority 1: avahi-resolve returns clean hostname (e.g. "iPad-pro-M4.local")
-    # avahi-browse returns raw mDNS name with escape codes (e.g. "iPad\032pro\032M4")
-    if command -v avahi-resolve >/dev/null 2>&1; then
-        result=$(avahi-resolve-host-name -a "$ip" 2>/dev/null | awk '{print $2}')
+    # Priority 1: reverse resolve IP to mDNS hostname.
+    if command -v avahi-resolve-address >/dev/null 2>&1; then
+        result=$(avahi-resolve-address "$ip" 2>/dev/null | awk '{print $2}')
+        if [ -n "$result" ]; then
+            echo "$result" | sed 's/\.local$//'
+            return
+        fi
+    elif command -v avahi-resolve >/dev/null 2>&1; then
+        result=$(avahi-resolve -a "$ip" 2>/dev/null | awk '{print $2}')
         if [ -n "$result" ]; then
             echo "$result" | sed 's/\.local$//'
             return
         fi
     fi
 
-    # Priority 2: avahi-browse (fallback, may contain escape codes)
+    # Priority 2: avahi-browse fallback, may contain escaped spaces.
     if command -v avahi-browse >/dev/null 2>&1; then
         result=$(avahi-browse -a -t -r -p 2>/dev/null | grep -i "$ip" | head -1)
         if [ -n "$result" ]; then
@@ -184,6 +287,158 @@ infer_vendor_from_mdns() {
     esac
 }
 
+infer_type_from_mdns() {
+    local name="$1"
+    local n=$(echo "$name" | tr 'A-Z' 'a-z')
+    case "$n" in
+        *iphone*|*ipad*|*android*|*galaxy*|*redmi*|*pixel*) echo "phone" ;;
+        *macbook*|*imac*|*surface*|*thinkpad*|*desktop*|*laptop*) echo "pc" ;;
+        *printer*|*deskjet*|*laserjet*|*officejet*|*brother*|*epson*|*canon*) echo "printer" ;;
+        *homepod*|*chromecast*|*google-home*|*nest*|*echo*|*sonos*) echo "iot" ;;
+        *) echo "" ;;
+    esac
+}
+
+mdns_service_hints() {
+    local ip="$1"
+    [ -z "$ip" ] && return
+    command -v avahi-browse >/dev/null 2>&1 || return
+
+    avahi-browse -a -t -r -p 2>/dev/null | grep -i "$ip" | while IFS=';' read -r _iface _proto name service _domain _host address _port _txt; do
+        local all=$(echo "$name $service $_txt" | tr 'A-Z' 'a-z')
+        case "$all" in
+            *airplay*|*raop*|*homekit*|*_hap._tcp*|*apple*) echo "vendor|Apple|dns-sd" ;;
+        esac
+        case "$all" in
+            *googlecast*|*chromecast*|*androidtvremote*) echo "vendor|Google|dns-sd" ;;
+        esac
+        case "$all" in
+            *ipp*|*printer*|*pdl-datastream*|*scanner*) echo "type|printer|dns-sd" ;;
+        esac
+        case "$all" in
+            # NOTE: *miio* removed from this list — both Xiaomi phones and
+            # Xiaomi IoT devices expose miio, so it is NOT a reliable IoT signal.
+            # Rely on hostname / actual IoT-only protocols (matter, homekit,
+            # googlecast, airplay) instead.
+            *airplay*|*raop*|*googlecast*|*chromecast*|*hap*|*matter*|*spotify-connect*|*ewelink*|*homeassistant*) echo "type|iot|dns-sd" ;;
+        esac
+        case "$all" in
+            *xiaomi*|*miio*) echo "vendor|Xiaomi|dns-sd" ;;
+            *samsung*) echo "vendor|Samsung|dns-sd" ;;
+            *sonos*) echo "vendor|Sonos|dns-sd" ;;
+            *brother*) echo "vendor|Brother|dns-sd" ;;
+            *epson*) echo "vendor|Epson|dns-sd" ;;
+            *canon*) echo "vendor|Canon|dns-sd" ;;
+            *hp*) echo "vendor|HP|dns-sd" ;;
+        esac
+    done | sort -u
+}
+
+ssdp_hints() {
+    local ip="$1"
+    [ -z "$ip" ] && return
+    command -v nc >/dev/null 2>&1 || return
+
+    local cache="$SSDP_CACHE.$ip"
+    if [ ! -f "$cache" ] || [ $(($(date +%s) - $(stat -c %Y "$cache" 2>/dev/null || echo 0))) -gt 300 ]; then
+        {
+            printf 'M-SEARCH * HTTP/1.1\r\n'
+            printf 'HOST: 239.255.255.250:1900\r\n'
+            printf 'MAN: "ssdp:discover"\r\n'
+            printf 'MX: 1\r\n'
+            printf 'ST: ssdp:all\r\n\r\n'
+        } | nc -u -w 1 "$ip" 1900 2>/dev/null > "$cache"
+    fi
+
+    local data=$(cat "$cache" 2>/dev/null | tr 'A-Z' 'a-z')
+    [ -z "$data" ] && return
+    case "$data" in
+        *apple*) echo "vendor|Apple|ssdp" ;;
+        *google*|*chromecast*) echo "vendor|Google|ssdp" ;;
+        *samsung*) echo "vendor|Samsung|ssdp" ;;
+        *sony*) echo "vendor|Sony|ssdp" ;;
+        *lg*) echo "vendor|LG|ssdp" ;;
+        *xiaomi*) echo "vendor|Xiaomi|ssdp" ;;
+        *tplink*|*tp-link*) echo "vendor|TP-Link|ssdp" ;;
+        *synology*) echo "vendor|Synology|ssdp" ;;
+        *qnap*) echo "vendor|QNAP|ssdp" ;;
+    esac
+    case "$data" in
+        *printer*|*scanner*) echo "type|printer|ssdp" ;;
+        *mediarenderer*|*dial*|*tv*|*camera*|*iot*|*upnp*) echo "type|iot|ssdp" ;;
+        *nas*|*synology*|*qnap*) echo "type|nas|ssdp" ;;
+        *router*|*gateway*) echo "type|network|ssdp" ;;
+    esac
+}
+
+http_hints() {
+    local ip="$1"
+    [ -z "$ip" ] && return
+    command -v wget >/dev/null 2>&1 || return
+
+    local cache="$HTTP_HINT_CACHE.$ip"
+    if [ ! -f "$cache" ] || [ $(($(date +%s) - $(stat -c %Y "$cache" 2>/dev/null || echo 0))) -gt 300 ]; then
+        : > "$cache"
+        for port in 80 443 8080 8443 8008 5000 5001; do
+            local scheme="http"
+            [ "$port" = "443" ] || [ "$port" = "8443" ] || [ "$port" = "5001" ] && scheme="https"
+            wget -T 1 -t 1 -q -O - "$scheme://$ip:$port/" 2>/dev/null | head -c 4096 >> "$cache"
+            echo "" >> "$cache"
+        done
+    fi
+
+    local data=$(cat "$cache" 2>/dev/null | tr 'A-Z' 'a-z')
+    [ -z "$data" ] && return
+    case "$data" in
+        *synology*) echo "vendor|Synology|http" ;;
+        *qnap*) echo "vendor|QNAP|http" ;;
+        *xiaomi*|*miwifi*) echo "vendor|Xiaomi|http" ;;
+        *tp-link*|*tplink*) echo "vendor|TP-Link|http" ;;
+        *huawei*) echo "vendor|Huawei|http" ;;
+        *asus*) echo "vendor|ASUS|http" ;;
+        *hikvision*) echo "vendor|Hikvision|http" ;;
+        *dahua*) echo "vendor|Dahua|http" ;;
+        *home*assistant*) echo "vendor|Home Assistant|http" ;;
+        *brother*) echo "vendor|Brother|http" ;;
+        *epson*) echo "vendor|Epson|http" ;;
+        *canon*) echo "vendor|Canon|http" ;;
+        *hp*) echo "vendor|HP|http" ;;
+    esac
+    case "$data" in
+        *synology*|*qnap*|*nas*) echo "type|nas|http" ;;
+        *router*|*gateway*|*miwifi*|*openwrt*) echo "type|network|http" ;;
+        *camera*|*nvr*|*hikvision*|*dahua*) echo "type|camera|http" ;;
+        *printer*|*scanner*|*ipp*) echo "type|printer|http" ;;
+        *home*assistant*|*chromecast*) echo "type|iot|http" ;;
+    esac
+}
+
+ttl_type_hint() {
+    local ip="$1"
+    [ -z "$ip" ] && return
+    command -v ping >/dev/null 2>&1 || return
+    local ttl=$(ping -c 1 -W 1 "$ip" 2>/dev/null | sed -n 's/.*ttl=\([0-9][0-9]*\).*/\1/p' | head -1)
+    [ -z "$ttl" ] && return
+    if [ "$ttl" -ge 120 ] && [ "$ttl" -le 130 ]; then
+        echo "pc"
+    elif [ "$ttl" -ge 60 ] && [ "$ttl" -le 70 ]; then
+        echo "phone"
+    elif [ "$ttl" -ge 240 ]; then
+        echo "network"
+    fi
+}
+
+wifi_type_hint() {
+    local mac="$1"
+    command -v iw >/dev/null 2>&1 || return
+    local mac_lower=$(echo "$mac" | tr 'A-F' 'a-f')
+    local sta=$(iw dev 2>/dev/null | awk '/Interface/ {print $2}' | while read -r ifname; do
+        iw dev "$ifname" station get "$mac_lower" 2>/dev/null && break
+    done)
+    [ -z "$sta" ] && return
+    echo "$sta" | grep -qiE 'HE-MCS|VHT-MCS|HT-MCS' && { echo "phone"; return; }
+}
+
 # ============================================================
 # Level 4: DHCP hostname inference (with structured parsing)
 # Strategy:
@@ -208,6 +463,14 @@ _dm_try_vendor() {
 infer_vendor_from_hostname() {
     local hostname="$1"
     local h=$(echo "$hostname" | tr 'A-Z' 'a-z')
+
+    # Generic Android randomized hostnames are not vendor evidence.
+    case "$h" in
+        android_*|android-*|android[0-9a-z]*)
+            echo ""
+            return
+            ;;
+    esac
 
     # Reset candidate state
     _DM_BEST_VENDOR=""
@@ -243,10 +506,10 @@ infer_vendor_from_hostname() {
     # --- Stage 2: Full keyword matching ---
     # Samsung models (high specificity)
     case "$h" in
-        *s20*|*s21*|*s22*|*s23*|*s24*|*s25*)
-            _dm_try_vendor "Samsung" 3 ;;
         *note10*|*note20*|*note21*)
             _dm_try_vendor "Samsung" 5 ;;
+        *s20*|*s21*|*s22*|*s23*|*s24*|*s25*)
+            _dm_try_vendor "Samsung" 3 ;;
         *galaxy*a*|*sm-a*|*samsung*a*|*samsung*a[0-9]*|*galaxy*a[0-9]*|*sm-a[0-9]*)
             _dm_try_vendor "Samsung" 2 ;;
         *samsung*|*galaxy*)
@@ -259,7 +522,7 @@ infer_vendor_from_hostname() {
     case "$h" in
         *mate[0-9]*|*mate-[0-9]*)
             _dm_try_vendor "Huawei" 4 ;;
-        *huawei*p*|*honor*p*|*p[0-9][0-9]*|*p[0-9][0-9]-*)
+        *huawei*p*|*honor*p*)
             _dm_try_vendor "Huawei" 2 ;;
         *nova[0-9]*)
             _dm_try_vendor "Huawei" 4 ;;
@@ -356,12 +619,17 @@ dhcp_fingerprint_lookup() {
 detect_by_nlbwmon() {
     local mac="$1"
     local mac_lower=$(echo "$mac" | tr 'A-F' 'a-f')
+    if [ -x /usr/libexec/nlbwmon-action ]; then
+        if [ ! -f "$NLBWMON_CACHE" ] || [ $(($(date +%s) - $(stat -c %Y "$NLBWMON_CACHE" 2>/dev/null || echo 0))) -gt 120 ]; then
+            /usr/libexec/nlbwmon-action download -g mac,layer7 -o -rx_bytes,-tx_bytes 2>/dev/null > "$NLBWMON_CACHE"
+        fi
+    fi
     [ ! -f "$NLBWMON_CACHE" ] && { echo ""; return; }
 
     # Cache is JSON: {"columns":[...],"data":[["TCP",443,"mac",...,"layer7"],...]}
     # Split data rows, filter by MAC, extract layer7 (last field)
     local tmpfile="/tmp/nlbw_proto_$$"
-    grep "$mac" "$NLBWMON_CACHE" | sed 's/\],\[/\n/g' | grep "$mac" | while IFS=',' read -r row; do
+    grep -i "$mac_lower" "$NLBWMON_CACHE" | sed 's/\],\[/\n/g' | grep -i "$mac_lower" | while IFS=',' read -r row; do
         layer7=$(echo "$row" | sed 's/^.*"\([^"]*\)"$/\1/' | awk -F'"' '{print $(NF-1)}')
         # Skip null/empty, non-identifying, and non-protocol values
         [ -z "$layer7" ] && continue
@@ -404,17 +672,10 @@ detect_by_nlbwmon() {
 # ============================================================
 detect_type_by_traffic() {
     local mac="$1"
-    local ip=$(grep -i "$mac" "$ARP_TABLE" 2>/dev/null | awk '{print $1}' | head -1)
+    local ip=$(get_ip_for_mac "$mac")
     [ -z "$ip" ] && { echo ""; return; }
 
-    local conntrack="/proc/net/nf_conntrack"
-    [ ! -f "$conntrack" ] && { echo ""; return; }
-
-    # Extract all dport values from connections where device is src (forward direction)
-    # conntrack line: "proto src=<IP> dst=<IP> sport=X dport=Y ... src=<IP> dst=<IP> sport=X dport=Y"
-    # We grep for lines where device is src=, then extract all dport= values
-    # Even if some are reverse direction, we're checking for known port patterns (5223/5228/etc)
-    local ports=$(grep "src=$ip " "$conntrack" 2>/dev/null | grep -o 'dport=[0-9]*' | sed 's/dport=//' | sort -u)
+    local ports=$(get_original_dports_for_ip "$ip")
 
     local has_phone_ports=0
     local has_pc_ports=0
@@ -438,6 +699,35 @@ detect_type_by_traffic() {
     else
         echo ""
     fi
+}
+
+detect_vendor_by_conntrack() {
+    local mac="$1"
+    local ip=$(get_ip_for_mac "$mac")
+    [ -z "$ip" ] && { echo ""; return; }
+
+    local ports=$(get_original_dports_for_ip "$ip")
+    [ -z "$ports" ] && { echo ""; return; }
+
+    local has_apple=0
+    local has_google=0
+    local has_microsoft=0
+    local has_samsung=0
+
+    for port in $ports; do
+        case "$port" in
+            5223|2195|2196|5260|5269|5297|5298|5299|62078) has_apple=1 ;;
+            5228|8008|8009|9000|9080|9443) has_google=1 ;;
+            3389|445|139|135) has_microsoft=1 ;;
+            49153|32400) has_samsung=1 ;;
+        esac
+    done
+
+    [ "$has_apple" -eq 1 ] && { echo "Apple"; return; }
+    [ "$has_google" -eq 1 ] && { echo "Google"; return; }
+    [ "$has_microsoft" -eq 1 ] && { echo "Microsoft"; return; }
+    [ "$has_samsung" -eq 1 ] && { echo "Samsung"; return; }
+    echo ""
 }
 
 # ============================================================
@@ -488,11 +778,13 @@ detect_device_type() {
     # Handle LAA devices specially
     case "$vendor" in
         "LAA"|"LAA Device"|"Mobile Device")
-            # Try to infer from hostname or traffic
+            # LAA = randomized MAC (modern phones primarily).
+            # If DHCP hostname gives us a strong phone signal, trust it immediately
+            # — the hostname is the single most reliable classifier for phones using LAA.
             local h=$(echo "$hostname" | tr 'A-Z' 'a-z')
             case "$h" in
-                *iphone*|*ipad*|*android*|*pixel*|*galaxy*|*mi-*|*redmi*) echo "phone"; return ;;
-                *desktop*|*laptop*|*pc*|*macbook*|*surface*) echo "pc"; return ;;
+                *iphone*|*ipad*|*android*|*pixel*|*galaxy*|*mi-*|*redmi*|*redmi-k*|*xiaomi-*|*poco*|*huawei*|*honor*|*oppo*|*vivo*|*oneplus*|*realme*|*sonyxq*|*h-de-*|*note-[0-9]*|*k20*|*k30*|*k40*|*k50*|*k60*|*k70*|*k80*) echo "phone"; return ;;
+                *desktop*|*laptop*|*pc-*|*macbook*|*mac-pro*|*surface*|*thinkpad*|*legion*) echo "pc"; return ;;
             esac
             ;;
     esac
@@ -504,24 +796,27 @@ detect_device_type() {
     local h=$(echo "$hostname" | tr 'A-Z' 'a-z')
 
     # Multi-category vendors: check hostname for phone/pc signals BEFORE vendor match
-    # Xiaomi: phones (Redmi, Mi), routers (AX3600, etc.)
+    # Xiaomi: phones (Redmi, Mi POCO, K series), routers (AX3600, etc.)
+    # Important: Xiaomi makes FAR more phones than routers, so phone is the safer default.
     case "$v" in
         *xiaomi*)
             case "$h" in
-                *redmi*|*mi-*|*mi_*|*pocophone*|*pad[0-9]*|*xiaomi-phone*) echo "phone"; return ;;
-                *ax*|*cr*|*hd*|*rm*|*rb*|*mi-r4*|*mi-router*) echo "network"; return ;;
+                *redmi*|*redmi-k*|*mi-*|*mi_*|*xiaomi-*|*pocophone*|*poco-*|*pad[0-9]*|*xiaomi-phone*|*k20*|*k30*|*k40*|*k50*|*k60*|*k70*|*k80*|*note[0-9]*|*note-[0-9]*|*11t*|*12t*|*13t*|*14t*|*mix-*|*cc[0-9]*) echo "phone"; return ;;
+                *ax*|*cr6608*|*hd*|*rm-*|*rb*|*mi-r4*|*mi-router*|*miwifi*|*r1d*|*r2d*|*r3d*) echo "network"; return ;;
             esac
-            echo "network"; return ;;
+            # Default: Xiaomi primarily ships smartphones. Without a strong router signal,
+            # prefer phone. The dedicated mDNS/SSDP hostnames for routers are always specific.
+            echo "phone"; return ;;
     esac
     # Huawei: phones (Mate, P, Honor), routers (AX3, etc.)
     case "$v" in
         *huawei*|*honor*)
             case "$h" in
-                *mate*|*nova*|*p[0-9]*|*y[0-9]*|*honor*|*h-de-*) echo "phone"; return ;;
+                h[a-z][a-z][a-z][0-9]*|*mate*|*nova*|*p[0-9]*|*y[0-9]*|*honor*|*h-de-*) echo "phone"; return ;;
                 *ax*|*hd*|*k*|*ws*|*eg*|*hg*|*b*|*s*|*pro*|*wifi*|*router*) echo "network"; return ;;
             esac
             # Honor H- prefix (e.g. H-de-S20)
-            case "$h" in h-*) echo "phone"; return ;; esac
+            case "$h" in h-*|h[a-z][a-z][a-z][0-9]*) echo "phone"; return ;; esac
             echo "phone"; return ;;
     esac
     # ASUS: phones (ZenFone), routers (RT-AX88U)
@@ -565,6 +860,8 @@ detect_device_type() {
             local model=$(echo "$h" | sed 's/^h-[a-z]*-//')
             [ -n "$model" ] && [ "$model" != "$h" ] && { echo "phone"; return; }
             ;;
+        h[a-z][a-z][a-z][0-9]*)
+            echo "phone"; return ;;
     esac
     # OPPO prefix
     case "$h" in cph-*|rmx-*) echo "phone"; return ;; esac
@@ -593,129 +890,86 @@ detect_device_type() {
 }
 
 # ============================================================
-# Master identification: 7-level chain, ALL run, then vote
-# Confidence weights:
-#   L1/L2 OUI:        HIGH   (direct MAC registration)
-#   L3 mDNS:          MEDIUM (service advertisement)
-#   L4 hostname:      LOW    (user-settable, unreliable)
-#   L5 DHCP fingerprint: HIGH (OS-level protocol signature)
-#   L6 nlbwmon:       HIGH   (observed protocol behavior)
-#   L7 traffic ports: MEDIUM (connection patterns)
-#
-# Resolution: HIGH evidence overrides LOW evidence
-#   If L5/L6/L7 disagree with L4, trust L5/L6/L7
+# Master identification: weighted multi-source analysis.
+# Weights are intentionally conservative for active probes and low-signal
+# heuristics. User-edited values in UCI still win because this only runs when
+# registration/auto-refresh decides a device needs identification.
 # ============================================================
 identify_vendor() {
     local mac="$1"
     local ip="$2"
     local hostname="$3"
+    local score_file="/tmp/devicemaster_vendor_score_$$"
+    : > "$score_file"
 
-    # Run ALL levels, collect results
-    local l1=$(lookup_oui_local "$mac")
-    local l2=$(lookup_oui_remote "$mac")
-    local l3=""
-    if [ -n "$ip" ]; then
-        local mdns_name=$(mdns_probe_ip "$ip")
-        [ -n "$mdns_name" ] && l3=$(infer_vendor_from_mdns "$mdns_name")
-    fi
-    local l4=$(infer_vendor_from_hostname "$hostname")
-    local l5=$(dhcp_fingerprint_lookup "$mac")
-    local l6=$(detect_by_nlbwmon "$mac")
-
-    # Check if MAC is LAA (random MAC)
-    local first_byte=$(echo "$mac" | tr -d ':' | cut -c1-2)
-    local byte_val=$(printf '%d' "0x$first_byte" 2>/dev/null)
     local is_laa=0
-    [ $((byte_val & 2)) -ne 0 ] && is_laa=1
+    is_laa_mac "$mac" && is_laa=1
+    local full_identify=0
+    is_full_identify_enabled && full_identify=1
 
-    # Collect HIGH evidence (OUI, protocol-based)
-    local high_vendor=""
-    for v in "$l1" "$l2" "$l5" "$l6"; do
-        if [ -n "$v" ] && [ "$v" != "Unknown" ] && [ "$v" != "LAA" ]; then
-            if [ -z "$high_vendor" ]; then
-                high_vendor="$v"
-            elif [ "$high_vendor" != "$v" ]; then
-                # HIGH evidence conflicts - trust protocol-based (L5, L6) over OUI
-                case "$v" in
-                    "$l5") high_vendor="$l5" ;;
-                    "$l6") high_vendor="$l6" ;;
-                esac
-            fi
+    local l1=""
+    local l2=""
+    local mdns_name=""
+    local l3=""
+    if [ "$full_identify" -eq 1 ] && [ -n "$ip" ]; then
+        mdns_name=$(mdns_probe_ip "$ip")
+        [ -n "$mdns_name" ] && l3=$(normalize_vendor "$(infer_vendor_from_mdns "$mdns_name")")
+    fi
+    local l4=$(normalize_vendor "$(infer_vendor_from_hostname "$hostname")")
+    local l5=""
+    local l6=""
+    local l7=""
+    if [ "$full_identify" -eq 1 ]; then
+        if [ "$is_laa" -eq 0 ]; then
+            l2=$(normalize_vendor "$(lookup_oui_remote "$mac")")
         fi
-    done
-
-    # For LAA devices, try traffic-based detection if no other evidence
-    if [ "$is_laa" = "1" ] && [ -z "$high_vendor" ]; then
-        # Try to detect by traffic ports (Level 7)
-        if [ -n "$ip" ]; then
-            local traffic_type=$(detect_type_by_traffic "$mac")
-            case "$traffic_type" in
-                phone) high_vendor="Mobile Device" ;;
-                pc) high_vendor="Computer" ;;
-                iot) high_vendor="IoT Device" ;;
-            esac
-        fi
-
-        # If still no vendor, use a generic LAA label
-        if [ -z "$high_vendor" ]; then
-            high_vendor="LAA Device"
-        fi
+        l5=$(normalize_vendor "$(dhcp_fingerprint_lookup "$mac")")
+        l6=$(normalize_vendor "$(detect_by_nlbwmon "$mac")")
+        l7=$(normalize_vendor "$(detect_vendor_by_conntrack "$mac")")
     fi
 
-    # For LAA devices: try conntrack-based vendor detection to identify specific vendor
-    # (e.g., Apple via port 5223, Google via port 5228)
-    if [ "$is_laa" = "1" ]; then
-        case "$high_vendor" in
-            "Mobile Device"|"Computer"|"IoT Device"|"LAA Device"|"")
-                if type detect_vendor_by_conntrack >/dev/null 2>&1; then
-                    local conntrack_vendor=$(detect_vendor_by_conntrack "$mac")
-                    if [ -n "$conntrack_vendor" ]; then
-                        high_vendor="$conntrack_vendor"
-                    fi
-                fi
-                ;;
-        esac
+    if [ "$is_laa" -eq 0 ]; then
+        l1=$(normalize_vendor "$(lookup_oui_local "$mac")")
+        score_add "$score_file" "$l1" 80 "oui-local"
+        score_add "$score_file" "$l2" 75 "oui-remote"
+    else
+        # Randomized MAC OUIs and generic hostnames are not reliable vendors.
+        score_add "$score_file" "$l3" 65 "mdns-name"
     fi
 
-    # For LAA devices: if HIGH evidence is generic (Mobile Device/Computer/IoT Device/LAA Device)
-    # but L4 hostname inference provides a specific vendor, prefer the specific one
-    if [ "$is_laa" = "1" ] && [ -n "$high_vendor" ]; then
-        case "$high_vendor" in
-            "Mobile Device"|"Computer"|"IoT Device"|"LAA Device")
-                # These are generic - check if L3/L4 can provide specific vendor
-                if [ -n "$l3" ]; then
-                    high_vendor="$l3"
-                elif [ -n "$l4" ]; then
-                    high_vendor="$l4"
-                fi
-                ;;
-        esac
+    score_add "$score_file" "$l3" 55 "mdns-name"
+    score_add "$score_file" "$l4" 55 "hostname"
+    score_add "$score_file" "$l5" 85 "dhcp-fingerprint"
+    score_add "$score_file" "$l6" 80 "nlbwmon"
+    case "$l7" in
+        Google|Android) ;;
+        *) score_add "$score_file" "$l7" 45 "conntrack" ;;
+    esac
+
+    if [ "$full_identify" -eq 1 ] && [ -n "$ip" ]; then
+        mdns_service_hints "$ip" | while IFS='|' read -r kind value source; do
+            [ "$kind" = "vendor" ] && score_add "$score_file" "$(normalize_vendor "$value")" 85 "$source"
+        done
+        ssdp_hints "$ip" | while IFS='|' read -r kind value source; do
+            [ "$kind" = "vendor" ] && score_add "$score_file" "$(normalize_vendor "$value")" 75 "$source"
+        done
+        http_hints "$ip" | while IFS='|' read -r kind value source; do
+            [ "$kind" = "vendor" ] && score_add "$score_file" "$(normalize_vendor "$value")" 65 "$source"
+        done
     fi
 
-    # If HIGH evidence found, return it (overrides L4)
-    if [ -n "$high_vendor" ]; then
-        echo "$high_vendor"
+    local picked=$(score_pick "$score_file")
+    rm -f "$score_file"
+
+    local vendor=$(echo "$picked" | cut -d'|' -f1)
+    local sources=$(echo "$picked" | cut -d'|' -f3)
+    [ -n "$vendor" ] && {
+        log_msg "Identify vendor $mac -> $vendor via $sources"
+        echo "$vendor"
         return
-    fi
+    }
 
-    # For LAA devices with no OUI match, prioritize mDNS and hostname
-    # MEDIUM evidence (L3 mDNS)
-    if [ -n "$l3" ]; then
-        echo "$l3"
-        return
-    fi
-
-    # LOW evidence (L4 hostname) - elevated for LAA devices
-    if [ -n "$l4" ]; then
-        echo "$l4"
-        return
-    fi
-
-    # No vendor identified
-    if [ "$is_laa" = "1" ]; then
-        echo "LAA"
-        return
-    fi
+    [ "$is_laa" -eq 1 ] && { echo "LAA Device"; return; }
     echo ""
 }
 
@@ -727,24 +981,185 @@ identify_type() {
     local ip="$2"
     local hostname="$3"
     local vendor="$4"
+    local score_file="/tmp/devicemaster_type_score_$$"
+    : > "$score_file"
+    local full_identify=0
+    is_full_identify_enabled && full_identify=1
 
-    # First try: vendor + hostname based detection (only if result is meaningful)
-    local dtype=$(detect_device_type "$mac" "$hostname" "$vendor")
-    if [ -n "$dtype" ] && [ "$dtype" != "unknown" ]; then
-        echo "$dtype"
-        return
-    fi
-
-    # Second try: traffic pattern analysis (critical for LAA/randomized MACs with no OUI)
-    if [ -n "$ip" ]; then
-        local dtype=$(detect_type_by_traffic "$mac")
-        if [ -n "$dtype" ]; then
-            echo "$dtype"
+    # ============================================================
+    # EARLY RETURN: Strong hostname signal overrides everything
+    # ============================================================
+    # DHCP hostname is the single most reliable signal we have.
+    # If it clearly identifies a phone / tablet / pc, return immediately
+    # — no port heuristic (miio, MQTT ports) should override a user-set
+    # or manufacturer-set hostname like "REDMI-K80-Pro" or "iPhone".
+    local h_lower=$(echo "$hostname" | tr 'A-Z' 'a-z')
+    case "$h_lower" in
+        # Obvious phones/tablets — these names never come from IoT devices
+        *iphone*|*ipad*|*redmi-k*|*redmi-note*|*redmi-book*|*poco*|*galaxy-s*|*galaxy-note*|*galaxy-z*|*galaxy-tab*|*pixel-[0-9]*|*pixel-tablet*|*huawei-mate*|*huawei-p-[0-9]*|*honor-[0-9]*|*honor-magic*|*oneplus-[0-9]*|*realme-[0-9]*|*oppo-find*|*vivo-x[0-9]*|*vivo-v[0-9]*|*mixfold*|*mi-11t*|*mi-12t*|*mi-13t*|*mi-14t*)
+            log_msg "Identify type $mac -> phone via strong hostname signal ($hostname)"
+            echo "phone"
             return
+            ;;
+    esac
+    # Same rule for generic phone brand hostnames — but ONLY when the
+    # known/OUI vendor also says phone-maker. (Hostname can be spoofed;
+    # combined with vendor it becomes reliable.)
+    local v_lower=$(echo "$vendor" | tr 'A-Z' 'a-z')
+    case "$h_lower" in
+        *redmi*|*xiaomi*|*mi-[0-9]*|*huawei*|*honor*|*samsung*|*galaxy*|*oneplus*|*realme*|*oppo*|*vivo*|*pixel*|*mate-[0-9]*|*nova*|*reno*|*find-*|*sonyxq*|*android-[0-9]*|*h-de-*|*lg-m*|*lgg[0-9]*|*nokiatas*|*ct-huawei*|*cts-*|*miwifi-phone*)
+            case "$v_lower" in
+                xiaomi|huawei|apple|samsung|google|oppo|vivo|oneplus|realme|sony|motorola|nokia|android|lg|honor|zte|tcl)
+                    log_msg "Identify type $mac -> phone via hostname+vendor match ($vendor / $hostname)"
+                    echo "phone"
+                    return
+                    ;;
+            esac
+            ;;
+    esac
+
+    local dtype=$(detect_device_type "$mac" "$hostname" "$vendor")
+    # Weight: vendor+hostname classification is very reliable — give it 85
+    # (matching or exceeding mDNS/SSDP hints so hostname leads).
+    [ "$dtype" != "unknown" ] && score_add "$score_file" "$dtype" 85 "vendor-hostname"
+
+    local traffic_type=""
+    [ "$full_identify" -eq 1 ] && [ -n "$ip" ] && traffic_type=$(detect_type_by_traffic "$mac")
+    # Traffic is a WEAK signal: phone apps use ports that overlap heavily with
+    # IoT (HTTP/8080, MQTT/1883, etc). Only trust when no hostname clue exists.
+    score_add "$score_file" "$traffic_type" 40 "conntrack"
+
+    if [ "$full_identify" -eq 1 ] && [ -n "$ip" ]; then
+        local mdns_name=$(mdns_probe_ip "$ip")
+        score_add "$score_file" "$(infer_type_from_mdns "$mdns_name")" 55 "mdns-name"
+        # Reduce mdns_service_hints type score (85 -> 55). These are unreliable —
+        # e.g. miio appears on both Xiaomi phones and Xiaomi IoT devices.
+        mdns_service_hints "$ip" | while IFS='|' read -r kind value source; do
+            [ "$kind" = "type" ] && score_add "$score_file" "$value" 55 "$source"
+        done
+        # ssdp/http_hints are also weak — reduce scores.
+        ssdp_hints "$ip" | while IFS='|' read -r kind value source; do
+            [ "$kind" = "type" ] && score_add "$score_file" "$value" 50 "$source"
+        done
+        http_hints "$ip" | while IFS='|' read -r kind value source; do
+            [ "$kind" = "type" ] && score_add "$score_file" "$value" 45 "$source"
+        done
+        score_add "$score_file" "$(ttl_type_hint "$ip")" 20 "ttl"
+    fi
+    [ "$full_identify" -eq 1 ] && score_add "$score_file" "$(wifi_type_hint "$mac")" 30 "wifi-capability"
+
+    local picked=$(score_pick "$score_file")
+    rm -f "$score_file"
+
+    local result=$(echo "$picked" | cut -d'|' -f1)
+    local sources=$(echo "$picked" | cut -d'|' -f3)
+    [ -n "$result" ] && {
+        log_msg "Identify type $mac -> $result via $sources"
+        echo "$result"
+        return
+    }
+    echo "unknown"
+}
+
+debug_identify() {
+    local mac=$(echo "$1" | tr 'a-f' 'A-F')
+    local ip="$2"
+    local hostname="$3"
+    [ -z "$hostname" ] && hostname=$(awk -v m="$(echo "$mac" | tr 'A-F' 'a-f')" 'tolower($2)==m {print $4; exit}' /tmp/dhcp.leases 2>/dev/null)
+    [ -z "$ip" ] && ip=$(get_ip_for_mac "$mac")
+
+    local sanitized=$(sanitize_hostname "$hostname")
+    local is_laa=0
+    is_laa_mac "$mac" && is_laa=1
+    local full_identify=0
+    is_full_identify_enabled && full_identify=1
+
+    echo "INPUT mac=$mac ip=$ip hostname=$hostname sanitized=$sanitized"
+    echo "FLAGS laa=$is_laa full_identify=$full_identify mode=$(cat /tmp/dm_mode 2>/dev/null) page_active=$(cat /tmp/dm_page_active 2>/dev/null)"
+    echo "DHCP_LEASE $(grep -i "$mac" /tmp/dhcp.leases 2>/dev/null)"
+    echo "ARP $(grep -i "$mac" /proc/net/arp 2>/dev/null)"
+    echo "UCI $(uci show devicemaster 2>/dev/null | grep -i "$mac" | head -1)"
+
+    local vscore="/tmp/devicemaster_debug_vendor_$$"
+    local tscore="/tmp/devicemaster_debug_type_$$"
+    : > "$vscore"
+    : > "$tscore"
+
+    local oui_local=""
+    local oui_remote=""
+    if [ "$is_laa" -eq 0 ]; then
+        oui_local=$(normalize_vendor "$(lookup_oui_local "$mac")")
+        score_add "$vscore" "$oui_local" 80 "oui-local"
+        if [ "$full_identify" -eq 1 ]; then
+            oui_remote=$(normalize_vendor "$(lookup_oui_remote "$mac")")
+            score_add "$vscore" "$oui_remote" 75 "oui-remote"
         fi
     fi
 
-    echo "unknown"
+    local mdns_name=""
+    local mdns_vendor=""
+    local mdns_type=""
+    if [ "$full_identify" -eq 1 ] && [ -n "$ip" ]; then
+        mdns_name=$(mdns_probe_ip "$ip")
+        mdns_vendor=$(normalize_vendor "$(infer_vendor_from_mdns "$mdns_name")")
+        mdns_type=$(infer_type_from_mdns "$mdns_name")
+        score_add "$vscore" "$mdns_vendor" 55 "mdns-name"
+        score_add "$tscore" "$mdns_type" 55 "mdns-name"
+    fi
+
+    local host_vendor=$(normalize_vendor "$(infer_vendor_from_hostname "$sanitized")")
+    local host_type=$(detect_device_type "$mac" "$sanitized" "$host_vendor")
+    score_add "$vscore" "$host_vendor" 55 "hostname"
+    [ "$host_type" != "unknown" ] && score_add "$tscore" "$host_type" 60 "vendor-hostname"
+
+    local dhcp_vendor=""
+    local nlbw_vendor=""
+    local ct_vendor=""
+    local ct_type=""
+    local ttl_type=""
+    local wifi_type=""
+    if [ "$full_identify" -eq 1 ]; then
+        dhcp_vendor=$(normalize_vendor "$(dhcp_fingerprint_lookup "$mac")")
+        nlbw_vendor=$(normalize_vendor "$(detect_by_nlbwmon "$mac")")
+        ct_vendor=$(normalize_vendor "$(detect_vendor_by_conntrack "$mac")")
+        ct_type=$(detect_type_by_traffic "$mac")
+        [ -n "$ip" ] && ttl_type=$(ttl_type_hint "$ip")
+        wifi_type=$(wifi_type_hint "$mac")
+        score_add "$vscore" "$dhcp_vendor" 85 "dhcp-fingerprint"
+        score_add "$vscore" "$nlbw_vendor" 80 "nlbwmon"
+        case "$ct_vendor" in
+            Google|Android) ;;
+            *) score_add "$vscore" "$ct_vendor" 45 "conntrack" ;;
+        esac
+        score_add "$tscore" "$ct_type" 65 "conntrack"
+        score_add "$tscore" "$ttl_type" 25 "ttl"
+        score_add "$tscore" "$wifi_type" 35 "wifi-capability"
+    fi
+
+    if [ "$full_identify" -eq 1 ] && [ -n "$ip" ]; then
+        mdns_service_hints "$ip" | while IFS='|' read -r kind value source; do
+            [ "$kind" = "vendor" ] && score_add "$vscore" "$(normalize_vendor "$value")" 85 "$source"
+            [ "$kind" = "type" ] && score_add "$tscore" "$value" 85 "$source"
+        done
+        ssdp_hints "$ip" | while IFS='|' read -r kind value source; do
+            [ "$kind" = "vendor" ] && score_add "$vscore" "$(normalize_vendor "$value")" 75 "$source"
+            [ "$kind" = "type" ] && score_add "$tscore" "$value" 75 "$source"
+        done
+        http_hints "$ip" | while IFS='|' read -r kind value source; do
+            [ "$kind" = "vendor" ] && score_add "$vscore" "$(normalize_vendor "$value")" 65 "$source"
+            [ "$kind" = "type" ] && score_add "$tscore" "$value" 65 "$source"
+        done
+    fi
+
+    echo "EVIDENCE oui_local=$oui_local oui_remote=$oui_remote mdns_name=$mdns_name mdns_vendor=$mdns_vendor hostname_vendor=$host_vendor dhcp_vendor=$dhcp_vendor nlbwmon_vendor=$nlbw_vendor conntrack_vendor=$ct_vendor"
+    echo "EVIDENCE_TYPE hostname_type=$host_type mdns_type=$mdns_type conntrack_type=$ct_type ttl_type=$ttl_type wifi_type=$wifi_type"
+    echo "VENDOR_SCORES"
+    cat "$vscore"
+    echo "TYPE_SCORES"
+    cat "$tscore"
+    echo "FINAL_VENDOR $(score_pick "$vscore")"
+    echo "FINAL_TYPE $(score_pick "$tscore")"
+    rm -f "$vscore" "$tscore"
 }
 
 # ============================================================
@@ -877,7 +1292,7 @@ probe_hostname() {
     fi
 
     # Method 2: Main router DHCP leases (via SSH, cached)
-    if [ -n "$mac" ]; then
+    if [ "$REGISTER_LIGHT_ONLY" != "1" ] && [ -n "$mac" ]; then
         fetch_main_router_leases
         result=$(get_hostname_from_main_leases "$mac")
         if [ -n "$result" ]; then
@@ -894,13 +1309,14 @@ probe_hostname() {
             case "$result" in
                 ""|"*"|"-"|unknown|wlan0|lan) result="" ;;
             esac
-            # Filter out auto-generated numeric suffixes (dnsmasq artifacts)
-            # e.g., MobileDevicephone2, Mobile-Device-phone-2, etc.
+            # Filter out dnsmasq auto-generated artifacts.
+            # Only match known artifact signatures (Mobile-Device-* / MobileDevice*)
+            # to avoid clearing legitimate hostnames like iPhone12, MyPC1,
+            # NetworkDevice5, android-phone-1, etc.
             if [ -n "$result" ]; then
                 case "$result" in
-                    *phone[0-9]*|*pc[0-9]*|*iot[0-9]*|*network[0-9]*|*device[0-9]*|\
-                    *-phone-[0-9]*|*-pc-[0-9]*|*-iot-[0-9]*|*-network-[0-9]*|*-device-[0-9]*|\
-                    *Devicephone*|*Devicepc*|*Deviceiot*|*Devicenetwork*)
+                    Mobile-Device-*|MobileDevice*|\
+                    *Devicephone*|*Devicepc*|*Deviceiot*|*Devicenetwork*|*Devicelaa*)
                         result=""
                         ;;
                 esac
@@ -917,8 +1333,14 @@ probe_hostname() {
     if [ "${PROBE_MDNS:-0}" = "1" ] && command -v avahi-resolve >/dev/null 2>&1; then
         result=$(avahi-resolve -a "$ip" 2>/dev/null | awk '{print $2}' | sed 's/\.local$//')
         if [ -n "$result" ]; then
-            echo "$result"
-            return
+            # Sanitize mDNS results: filter garbled/gibberish names
+            # (e.g. "I04xNjf8n14AAA" from Murata modules) that pass through
+            # raw mDNS but are not real hostnames.
+            result=$(sanitize_hostname "$result")
+            if [ -n "$result" ]; then
+                echo "$result"
+                return
+            fi
         fi
     fi
 
@@ -940,13 +1362,71 @@ sanitize_hostname() {
                             -e 's/\([a-zA-Z]\)0\{1,2\}[0-9]\{2,3\}$/\1/g' \
                             -e 's/^0\{1,2\}[0-9]\{2,3\}\([a-zA-Z]\)/\1/g')
 
-    # Keep only safe ASCII chars: a-z A-Z 0-9 - _ . space
-    local clean=$(echo "$raw" | tr -cd 'a-zA-Z0-9._- ' | sed 's/^[. _-]*//;s/[. _-]*$//;s/  */ /g')
+    # Keep only safe ASCII chars: a-z A-Z 0-9 - _ . space.
+    # Use sed instead of BusyBox tr ranges so hyphens are preserved.
+    local clean=$(echo "$raw" | sed 's/[^-A-Za-z0-9._ ]//g; s/^[. _-]*//;s/[. _-]*$//;s/  */ /g')
     # If result is too short or empty, discard
     if [ ${#clean} -lt 2 ]; then
         return
     fi
+
+    # Detect gibberish hostnames from mDNS/DNS noise (e.g. "I04xNjf8n14AAA").
+    # Heuristic: ALL of these must be true:
+    #   1. No word separators (-_. space)
+    #   2. 3+ case transitions (lower<->upper)
+    #   3. Digits interspersed between letters (letter-digit-letter pattern)
+    # This distinguishes "I04xNjf8n14AAA" (gibberish) from "IntelCorporatepc"
+    # (legitimate concatenated words, no interspersed digits) and "iPhone12"
+    # (digits only at end, no interspersed).
+    if ! echo "$clean" | grep -qE '[-_. ]'; then
+        local transitions=$(echo "$clean" | awk '{
+            cnt=0; prev=""
+            for(i=1;i<=length($0);i++){
+                c=substr($0,i,1)
+                cur=(c>="A"&&c<="Z")?"U":((c>="a"&&c<="z")?"L":"")
+                if(prev!=""&&cur!=""&&prev!=cur) cnt++
+                if(cur!="") prev=cur
+            }
+            print cnt
+        }')
+        if [ "${transitions:-0}" -ge 3 ] 2>/dev/null; then
+            # Check for letter-digit-letter pattern (digits interspersed)
+            if echo "$clean" | grep -qE '[a-zA-Z][0-9]+[a-zA-Z]'; then
+                return
+            fi
+        fi
+    fi
+
     echo "$clean"
+}
+
+# Remove dhcp host entry for a given MAC (used when hostname is cleared)
+remove_dhcp_host() {
+    local mac="$1"
+    [ -z "$mac" ] && return
+    local mac_lower=$(echo "$mac" | tr 'A-F' 'a-f')
+    local changed=0
+    while true; do
+        local found=0
+        local idx=0
+        while uci -q get "dhcp.@host[$idx].mac" >/dev/null 2>&1; do
+            local hm=$(uci -q get "dhcp.@host[$idx].mac")
+            local hm_lower=$(echo "$hm" | tr 'A-F' 'a-f')
+            if [ "$hm_lower" = "$mac_lower" ]; then
+                uci -q delete "dhcp.@host[$idx]"
+                changed=1
+                found=1
+                break
+            fi
+            idx=$((idx + 1))
+        done
+        [ "$found" = "0" ] && break
+    done
+    if [ "$changed" = "1" ]; then
+        uci -q commit dhcp
+        return 0
+    fi
+    return 1
 }
 
 # ============================================================
@@ -960,6 +1440,7 @@ mac_exists_in_uci() {
     local idx=0
     while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
         local stored_mac=$(uci -q get "devicemaster.@device[$idx].mac")
+        local stored_alt=$(uci -q get "devicemaster.@device[$idx].alt_macs")
         # Normalize stored MAC to lowercase for comparison
         local stored_mac_lower=$(echo "$stored_mac" | tr 'A-F' 'a-f')
         if [ "$stored_mac_lower" = "$mac_lower" ]; then
@@ -968,6 +1449,21 @@ mac_exists_in_uci() {
                 uci -q commit devicemaster
             fi
             return 0
+        fi
+        # Also match against merged alt_macs so aliases are not rediscovered
+        if [ -n "$stored_alt" ]; then
+            local IFS=','
+            for alt in $stored_alt; do
+                local alt_lower=$(echo "$alt" | tr 'A-F' 'a-f')
+                if [ "$alt_lower" = "$mac_lower" ]; then
+                    if [ -n "$ip" ]; then
+                        uci -q set "devicemaster.@device[$idx].last_ip=$ip"
+                        uci -q commit devicemaster
+                    fi
+                    return 0
+                fi
+            done
+            unset IFS
         fi
         idx=$((idx + 1))
     done
@@ -981,24 +1477,25 @@ find_device_index() {
     local idx=0
     while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
         local stored_mac=$(uci -q get "devicemaster.@device[$idx].mac")
+        local stored_alt=$(uci -q get "devicemaster.@device[$idx].alt_macs")
         local stored_mac_lower=$(echo "$stored_mac" | tr 'A-F' 'a-f')
         if [ "$stored_mac_lower" = "$mac_lower" ]; then
             echo "$idx"
             return 0
         fi
+        if [ -n "$stored_alt" ]; then
+            local IFS=','
+            for alt in $stored_alt; do
+                local alt_lower=$(echo "$alt" | tr 'A-F' 'a-f')
+                if [ "$alt_lower" = "$mac_lower" ]; then
+                    echo "$idx"
+                    return 0
+                fi
+            done
+            unset IFS
+        fi
         idx=$((idx + 1))
     done
-    return 1
-}
-
-# ============================================================
-# Check if MAC is LAA (Locally Administered Address)
-# ============================================================
-is_laa_mac() {
-    local mac="$1"
-    local first_byte=$(echo "$mac" | tr -d ':' | cut -c1-2)
-    local byte_val=$(printf '%d' "0x$first_byte" 2>/dev/null)
-    [ $((byte_val & 2)) -ne 0 ] && return 0
     return 1
 }
 
@@ -1060,7 +1557,46 @@ try_merge_device() {
             # Device already merged into this record, just update IP
             uci -q set "devicemaster.@device[$idx].last_ip=$new_ip"
             uci -q set "devicemaster.@device[$idx].last_seen=$(date +%s)"
+
+            # If the merged record has no meaningful hostname but this MAC
+            # reported one, adopt it so the DHCP list shows a real name.
+            local rec_manual=$(uci -q get "devicemaster.@device[$idx].manual")
+            local rec_name=$(uci -q get "devicemaster.@device[$idx].name")
+            local rec_hostname=$(uci -q get "devicemaster.@device[$idx].hostname")
+            if [ "$rec_manual" != "1" ] && [ -n "$new_hostname" ]; then
+                if is_meaningless_hostname "$rec_hostname" && ! is_meaningless_hostname "$new_hostname"; then
+                    uci -q set "devicemaster.@device[$idx].hostname=$new_hostname"
+                    if [ -n "$rec_name" ]; then
+                        uci -q delete "devicemaster.@device[$idx].name"
+                    fi
+                    log_msg "Adopted meaningful hostname for reconnected alt MAC $new_mac: $new_hostname"
+                fi
+            fi
             uci -q commit devicemaster
+
+            # Ensure the PRIMARY MAC's DHCP host entry stays in sync with the
+            # merged record's preferred name.  DO NOT write a static lease for
+            # $new_mac — it becomes an alt_mac, and writing dhcp-host for it
+            # with the same IP would crash dnsmasq.  (sync_hostname.sh itself
+            # also rejects alt_macs now, but we guard here too.)
+            if is_mesh_main_router; then
+                local sync_name=""
+                local merged_name=$(uci -q get "devicemaster.@device[$idx].name")
+                local merged_hostname=$(uci -q get "devicemaster.@device[$idx].hostname")
+                if [ -n "$merged_hostname" ] && [ "$merged_hostname" != "*" ] && [ "$merged_hostname" != "unknown" ]; then
+                    case "$merged_hostname" in
+                        Mobile-Device-*|*-Device-phone|*-Device-pc|*-Device-iot|*-Device-laa) sync_name="" ;;
+                        *) sync_name="$merged_hostname" ;;
+                    esac
+                elif [ -n "$merged_name" ] && [ "$merged_name" != "*" ] && [ "$merged_name" != "unknown" ]; then
+                    sync_name="$merged_name"
+                fi
+                local pri_mac=$(uci -q get "devicemaster.@device[$idx].mac")
+                if [ -n "$sync_name" ] && [ -n "$new_ip" ] && [ -n "$pri_mac" ]; then
+                    /usr/libexec/devicemaster/sync_hostname.sh "$pri_mac" "$sync_name" "$new_ip" >/dev/null 2>&1
+                fi
+            fi
+
             merged=1
             merged_idx="$idx"
             merged_mac="$new_mac"
@@ -1109,6 +1645,47 @@ try_merge_device() {
 
                 uci -q commit devicemaster
 
+                # If the old record has no meaningful hostname but the newly
+                # identified MAC reported one, adopt it so the DHCP list shows
+                # a real name instead of an auto-generated vendor-type name.
+                local old_manual=$(uci -q get "devicemaster.@device[$idx].manual")
+                local old_name=$(uci -q get "devicemaster.@device[$idx].name")
+                local old_hostname=$(uci -q get "devicemaster.@device[$idx].hostname")
+                if [ "$old_manual" != "1" ] && [ -n "$new_hostname" ]; then
+                    if is_meaningless_hostname "$old_hostname" && ! is_meaningless_hostname "$new_hostname"; then
+                        uci -q set "devicemaster.@device[$idx].hostname=$new_hostname"
+                        # Clear auto-generated name now that hostname is meaningful
+                        if [ -n "$old_name" ]; then
+                            uci -q delete "devicemaster.@device[$idx].name"
+                        fi
+                        uci -q commit devicemaster
+                        log_msg "Adopted meaningful hostname for merged device $old_mac: $new_hostname"
+                    fi
+                fi
+
+                # Sync DHCP static lease for the PRIMARY MAC using the merged
+                # record's preferred hostname/name.  $new_mac becomes an alt_mac
+                # of this record — NEVER write a static lease for it (would
+                # duplicate the IP and crash dnsmasq).  sync_hostname.sh has
+                # its own alt_mac check as a second safety net.
+                if is_mesh_main_router; then
+                    local sync_name=""
+                    local merged_name=$(uci -q get "devicemaster.@device[$idx].name")
+                    local merged_hostname=$(uci -q get "devicemaster.@device[$idx].hostname")
+                    if [ -n "$merged_hostname" ] && [ "$merged_hostname" != "*" ] && [ "$merged_hostname" != "unknown" ]; then
+                        case "$merged_hostname" in
+                            Mobile-Device-*|*-Device-phone|*-Device-pc|*-Device-iot|*-Device-laa) sync_name="" ;;
+                            *) sync_name="$merged_hostname" ;;
+                        esac
+                    elif [ -n "$merged_name" ] && [ "$merged_name" != "*" ] && [ "$merged_name" != "unknown" ]; then
+                        sync_name="$merged_name"
+                    fi
+                    local pri_mac=$(uci -q get "devicemaster.@device[$idx].mac")
+                    if [ -n "$sync_name" ] && [ -n "$new_ip" ] && [ -n "$pri_mac" ]; then
+                        /usr/libexec/devicemaster/sync_hostname.sh "$pri_mac" "$sync_name" "$new_ip" >/dev/null 2>&1
+                    fi
+                fi
+
                 merged=1
                 merged_idx="$idx"
                 merged_mac="$new_mac"
@@ -1130,14 +1707,14 @@ register_device() {
 
     [ "$hostname" = "*" ] && hostname=""
 
-    # Try to get more detailed hostname from mDNS even if DHCP provided one
-    # Fix: mDNS may provide more detailed device name (e.g. iPad-Pro-M4 vs iPad)
-    # probe_hostname prioritizes DHCP leases, so we directly call mdns_probe_ip
-    local mdns_hostname=$(mdns_probe_ip "$ip")
-    if [ -n "$mdns_hostname" ]; then
-        # Use mDNS hostname if it's more detailed (longer) than DHCP hostname
-        if [ -z "$hostname" ] || [ ${#mdns_hostname} -gt ${#hostname} ]; then
-            hostname="$mdns_hostname"
+    # Detailed probes only run while the page is active or explicit full discovery
+    # is requested. They only fill missing/meaningless hostnames.
+    if is_full_identify_enabled; then
+        local mdns_hostname=$(mdns_probe_ip "$ip")
+        if [ -n "$mdns_hostname" ]; then
+            if is_meaningless_hostname "$hostname"; then
+                hostname="$mdns_hostname"
+            fi
         fi
     fi
 
@@ -1180,8 +1757,7 @@ register_device() {
     done
     touch "$lock_file"
     
-    # Check if device already exists - update hostname if mDNS provides better name
-    # Fix: update existing device hostname if mDNS provides more detailed name
+    # Check if device already exists; only fill missing/meaningless hostname.
     local existing_idx=""
     local idx=0
     while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
@@ -1195,8 +1771,9 @@ register_device() {
     if [ -n "$existing_idx" ]; then
         local current_hostname=$(uci -q get "devicemaster.@device[$existing_idx].hostname")
         local current_manual=$(uci -q get "devicemaster.@device[$existing_idx].manual")
-        # Only update if not manually set and new hostname is more detailed
-        if [ "$current_manual" != "1" ] && [ -n "$hostname" ] && [ ${#hostname} -gt ${#current_hostname} ]; then
+        # Only fill missing/meaningless hostnames; do not rewrite a valid
+        # client-provided hostname such as H-de-S20.
+        if [ "$current_manual" != "1" ] && [ -n "$hostname" ] && is_meaningless_hostname "$current_hostname"; then
             uci -q set "devicemaster.@device[$existing_idx].hostname=$hostname"
             uci -q commit devicemaster
             log_msg "Updated hostname for $mac: $current_hostname -> $hostname"
@@ -1320,7 +1897,7 @@ main() {
             if [ -n "$idx" ]; then
                 local current_hostname=$(uci -q get "devicemaster.@device[$idx].hostname")
                 local current_manual=$(uci -q get "devicemaster.@device[$idx].manual")
-                if [ "$current_manual" != "1" ] && [ ${#hostname} -gt ${#current_hostname} ]; then
+                if [ "$current_manual" != "1" ] && is_meaningless_hostname "$current_hostname"; then
                     uci -q set "devicemaster.@device[$idx].hostname=$hostname"
                     uci -q commit devicemaster
                     log_msg "Updated hostname for $mac: $current_hostname -> $hostname"
@@ -1345,6 +1922,17 @@ main() {
 # Discover mode: batch register all ARP devices
 # ============================================================
 discover_all() {
+    local mode="${1:-full}"
+    local old_full_identify="$FULL_IDENTIFY"
+    local old_register_light="$REGISTER_LIGHT_ONLY"
+    if [ "$mode" = "light" ]; then
+        FULL_IDENTIFY=0
+        REGISTER_LIGHT_ONLY=1
+    else
+        FULL_IDENTIFY=1
+        REGISTER_LIGHT_ONLY=0
+    fi
+
     # Lock to prevent concurrent discover (device_monitor.sh + manual trigger)
     local lock="/tmp/dm_discover.lock"
     if ! mkdir "$lock" 2>/dev/null; then
@@ -1377,8 +1965,9 @@ discover_all() {
         idx=$((idx + 1))
     done
 
-    # Pre-fetch main router leases once for all devices (cached 60s)
-    fetch_main_router_leases
+    # Pre-fetch main router leases only in full mode. Idle background discovery
+    # must stay local-only.
+    [ "$REGISTER_LIGHT_ONLY" != "1" ] && fetch_main_router_leases
 
     local arp_tmp="/tmp/dm_discover_arp"
     awk 'NR>1 && $4!="00:00:00:00:00:00" && $3!="0x0" {print $1, $4}' /proc/net/arp 2>/dev/null > "$arp_tmp"
@@ -1423,15 +2012,18 @@ discover_all() {
                     local current_manual=$(uci -q get "devicemaster.@device[$update_idx].manual")
                     local hostname_updated=0
 
-                    # Fix: Clear auto-generated hostnames with numeric suffixes (dnsmasq artifacts)
-                    # Matches patterns like: Mobile-Device-phone-2, MobileDevicephone2, etc.
+                    # Fix: Clear dnsmasq auto-generated artifact hostnames.
+                    # Only match known artifact signatures to avoid clearing
+                    # legitimate hostnames like iPhone12, MyPC1, android-phone-1.
                     if [ -n "$current_hostname" ] && [ "$current_manual" != "1" ]; then
                         case "$current_hostname" in
-                            *-phone-[0-9]*|*-pc-[0-9]*|*-iot-[0-9]*|*-network-[0-9]*|*-laa-[0-9]*|\
-                            *phone[0-9]*|*pc[0-9]*|*iot[0-9]*|*network[0-9]*|*device[0-9]*|\
-                            *Devicephone*|*Devicepc*|*Deviceiot*|*Devicenetwork*)
+                            Mobile-Device-*|MobileDevice*|\
+                            *Devicephone*|*Devicepc*|*Deviceiot*|*Devicenetwork*|*Devicelaa*)
                                 uci -q delete "devicemaster.@device[$update_idx].hostname"
-                                log_msg "Cleared auto-generated numeric hostname for $mac: $current_hostname"
+                                log_msg "Cleared auto-generated artifact hostname for $mac: $current_hostname"
+                                # Also remove stale DHCP host entry so LuCI lease page
+                                # stops showing the artifact name.
+                                remove_dhcp_host "$mac"
                                 current_hostname=""
                                 modified=1
                                 ;;
@@ -1441,20 +2033,20 @@ discover_all() {
                     if [ "$current_manual" != "1" ]; then
                         local dhcp_hostname=$(awk -v m="$mac" 'tolower($2) == m {print $4; exit}' /tmp/dhcp.leases 2>/dev/null)
                         if [ -n "$dhcp_hostname" ] && [ "$dhcp_hostname" != "*" ]; then
-                            # Filter out auto-generated hostnames from dnsmasq static leases
-                            # These are artifacts from duplicate detection, not real device hostnames
-                            # Matches: Mobile-Device-phone-2, MobileDevicephone, MobileDevicephone2, etc.
+                            # Filter out dnsmasq auto-generated artifact hostnames.
+                            # Only match known artifact signatures to avoid clearing
+                            # legitimate hostnames like iPhone12, MyPC1, android-phone-1.
                             local is_auto_generated=0
                             case "$dhcp_hostname" in
-                                *phone[0-9]*|*pc[0-9]*|*iot[0-9]*|*network[0-9]*|*device[0-9]*|\
-                                *-phone-[0-9]*|*-pc-[0-9]*|*-iot-[0-9]*|*-network-[0-9]*|*-device-[0-9]*|\
-                                *Devicephone*|*Devicepc*|*Deviceiot*|*Devicenetwork*)
+                                Mobile-Device-*|MobileDevice*|\
+                                *Devicephone*|*Devicepc*|*Deviceiot*|*Devicenetwork*|*Devicelaa*)
                                     is_auto_generated=1 ;;
                             esac
                             if [ "$is_auto_generated" = "0" ]; then
                                 dhcp_hostname=$(sanitize_hostname "$dhcp_hostname")
-                                # Only update if sanitize produced a valid result longer than current
-                                if [ -n "$dhcp_hostname" ] && [ ${#dhcp_hostname} -gt ${#current_hostname} ]; then
+                                # Only fill missing/meaningless names; never
+                                # overwrite an existing meaningful hostname.
+                                if [ -n "$dhcp_hostname" ] && is_meaningless_hostname "$current_hostname"; then
                                     uci -q set "devicemaster.@device[$update_idx].hostname=$dhcp_hostname"
                                     log_msg "Updated hostname for $mac: $current_hostname -> $dhcp_hostname"
                                     hostname_updated=1
@@ -1472,11 +2064,24 @@ discover_all() {
                         "LAA Device"|"LAA"|"Mobile Device"|"Computer"|"IoT Device"|"Unknown"|"")
                             need_vendor_reidentify=1 ;;
                     esac
-                    if [ "$need_vendor_reidentify" = "1" ] || [ "$current_type" = "unknown" ]; then
+                    local need_reidentify=0
+                    [ "$need_vendor_reidentify" = "1" ] && need_reidentify=1
+                    [ "$current_type" = "unknown" ] && need_reidentify=1
+                    if [ "$REGISTER_LIGHT_ONLY" != "1" ] && [ "$need_reidentify" = "1" ]; then
                         local hostname=$(uci -q get "devicemaster.@device[$update_idx].hostname")
                         [ -z "$hostname" ] && hostname=$(awk -v m="$mac" 'tolower($2) == m {print $4; exit}' /tmp/dhcp.leases 2>/dev/null)
+                        # Enable mDNS probing for devices that need reidentify
+                        # (e.g., LAA devices that obtained DHCP after initial discovery)
+                        PROBE_MDNS=1
                         [ -z "$hostname" ] || [ "$hostname" = "*" ] && hostname=$(probe_hostname "$effective_ip" "$mac")
+                        PROBE_MDNS=0
                         hostname=$(sanitize_hostname "$hostname")
+                        if [ -n "$hostname" ] && [ "$hostname" != "*" ]; then
+                            local saved_hostname=$(uci -q get "devicemaster.@device[$update_idx].hostname")
+                            if is_meaningless_hostname "$saved_hostname"; then
+                                uci -q set "devicemaster.@device[$update_idx].hostname=$hostname"
+                            fi
+                        fi
                         if [ "$need_vendor_reidentify" = "1" ]; then
                             local new_vendor=$(identify_vendor "$mac" "$effective_ip" "$hostname")
                             if [ -n "$new_vendor" ] && [ "$new_vendor" != "$current_vendor" ]; then
@@ -1554,9 +2159,20 @@ discover_all() {
 
     uci -q commit devicemaster 2>/dev/null
 
-    # Sync all device hostnames to dnsmasq static leases
-    # This ensures OpenWrt default device list shows correct names
-    if is_mesh_main_router && [ -x "/usr/libexec/devicemaster/sync_hostname.sh" ]; then
+    # ============================================================
+    # Sync hostnames to dnsmasq static leases  (discover_all batch)
+    # ============================================================
+    # IMPORTANT:
+    #   * Only the PRIMARY MAC of a device gets a static lease.
+    #     alt_macs are IN-MEMORY ALIASES used to prevent re-discovery;
+    #     they MUST NOT be written as independent dhcp-host entries
+    #     because dnsmasq refuses to start when two entries share the
+    #     same IP, which triggers a crash loop that takes down DHCP.
+    #   * Only sync a real hostname (not a DeviceMaster auto-generated
+    #     placeholder such as "Mobile-Device-phone").
+    #   * Restart dnsmasq ONCE at the end, not N times.
+    if [ "$REGISTER_LIGHT_ONLY" != "1" ] && is_mesh_main_router && [ -x "/usr/libexec/devicemaster/sync_hostname.sh" ]; then
+        local need_dnsmasq_restart=0
         local idx=0
         while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
             local s_mac=$(uci -q get "devicemaster.@device[$idx].mac")
@@ -1564,21 +2180,34 @@ discover_all() {
             local s_name=$(uci -q get "devicemaster.@device[$idx].name")
             local s_ip=$(uci -q get "devicemaster.@device[$idx].last_ip")
             local s_manual=$(uci -q get "devicemaster.@device[$idx].manual")
-            # Determine sync name: prefer hostname, fallback to name if hostname invalid
+            # Prefer real hostname; only fall back to "name" if user manually set it.
             local sync_name=""
             if [ -n "$s_hostname" ] && [ "$s_hostname" != "*" ] && [ "$s_hostname" != "unknown" ]; then
-                sync_name="$s_hostname"
-            elif [ -n "$s_name" ] && [ "$s_name" != "*" ] && [ "$s_name" != "unknown" ]; then
+                # Additional guard: skip common DeviceMaster auto patterns
+                case "$s_hostname" in
+                    Mobile-Device-*|*-Device-phone|*-Device-pc|*-Device-iot|*-Device-laa) sync_name="" ;;
+                    *) sync_name="$s_hostname" ;;
+                esac
+            elif [ "$s_manual" = "1" ] && [ -n "$s_name" ] && [ "$s_name" != "*" ] && [ "$s_name" != "unknown" ]; then
                 sync_name="$s_name"
             fi
-            # Skip if no valid name, manually set, or no IP
-            if [ -n "$sync_name" ] && [ "$s_manual" != "1" ] && [ -n "$s_ip" ]; then
-                /usr/libexec/devicemaster/sync_hostname.sh "$s_mac" "$sync_name" "$s_ip" >/dev/null 2>&1
+            if [ -n "$sync_name" ] && [ -n "$s_ip" ]; then
+                SKIP_DNSMASQ_RESTART=1 /usr/libexec/devicemaster/sync_hostname.sh "$s_mac" "$sync_name" "$s_ip" >/dev/null 2>&1
+                need_dnsmasq_restart=1
+            elif [ -z "$sync_name" ] && [ "$s_manual" != "1" ]; then
+                if remove_dhcp_host "$s_mac"; then
+                    need_dnsmasq_restart=1
+                fi
             fi
             idx=$((idx + 1))
         done
+        if [ "$need_dnsmasq_restart" = "1" ]; then
+            /etc/init.d/dnsmasq restart >/dev/null 2>&1
+        fi
     fi
 
+    FULL_IDENTIFY="$old_full_identify"
+    REGISTER_LIGHT_ONLY="$old_register_light"
     rmdir "$lock" 2>/dev/null
 }
 
@@ -1588,6 +2217,9 @@ discover_all() {
 reidentify_all() {
     local idx=0
     local fixed=0
+    # Enable mDNS hostname probing during reidentify so devices that obtained
+    # DHCP leases after initial discovery can be captured via mDNS fallback.
+    PROBE_MDNS=1
     while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
         local mac=$(uci -q get "devicemaster.@device[$idx].mac")
         local old_vendor=$(uci -q get "devicemaster.@device[$idx].vendor")
@@ -1608,21 +2240,40 @@ reidentify_all() {
             hostname=$(grep -i "$mac" /tmp/dhcp.leases 2>/dev/null | awk '{print $4}')
             [ "$hostname" = "*" ] && hostname=""
         fi
-        # Fallback: try DNS reverse lookup if still empty (Mesh sub-node)
+        # Fallback: try DHCP lease (by MAC), DNS reverse, and mDNS if still empty
         if [ -z "$hostname" ] && [ -n "$ip" ]; then
-            hostname=$(probe_hostname "$ip")
+            hostname=$(probe_hostname "$ip" "$mac")
         fi
-        # Filter out auto-generated hostnames before saving
+        # Filter out dnsmasq auto-generated artifact hostnames before saving.
+        # Only match known artifact signatures to avoid clearing legitimate
+        # hostnames like iPhone12, MyPC1, android-phone-1.
         if [ -n "$hostname" ]; then
             local is_auto_generated=0
             case "$hostname" in
-                *phone[0-9]*|*pc[0-9]*|*iot[0-9]*|*network[0-9]*|*device[0-9]*|\
-                *-phone-[0-9]*|*-pc-[0-9]*|*-iot-[0-9]*|*-network-[0-9]*|*-device-[0-9]*|\
-                *Devicephone*|*Devicepc*|*Deviceiot*|*Devicenetwork*)
+                Mobile-Device-*|MobileDevice*|\
+                *Devicephone*|*Devicepc*|*Deviceiot*|*Devicenetwork*|*Devicelaa*)
                     is_auto_generated=1 ;;
             esac
             if [ "$is_auto_generated" = "0" ]; then
-                uci -q set "devicemaster.@device[$idx].hostname=$hostname"
+                # Sanitize to filter gibberish (e.g. mDNS noise like "I04xNjf8n14AAA")
+                local pre_sanitize="$hostname"
+                hostname=$(sanitize_hostname "$hostname")
+                if [ -n "$hostname" ]; then
+                    uci -q set "devicemaster.@device[$idx].hostname=$hostname"
+                elif [ "$manual" != "1" ]; then
+                    # Sanitization cleared gibberish - remove from UCI and DHCP host
+                    uci -q delete "devicemaster.@device[$idx].hostname"
+                    remove_dhcp_host "$mac"
+                    log_msg "Cleared gibberish hostname for $mac: $pre_sanitize"
+                fi
+            else
+                # Artifact hostname - clear it
+                if [ "$manual" != "1" ]; then
+                    uci -q delete "devicemaster.@device[$idx].hostname"
+                    remove_dhcp_host "$mac"
+                    log_msg "Cleared artifact hostname for $mac: $hostname"
+                fi
+                hostname=""
             fi
         fi
 
@@ -1644,17 +2295,18 @@ reidentify_all() {
         local old_name=$(uci -q get "devicemaster.@device[$idx].name")
         local old_hostname=$(uci -q get "devicemaster.@device[$idx].hostname")
 
-        # Fix: Clear auto-generated hostnames with numeric suffixes (dnsmasq artifacts)
-        # Matches patterns like: Mobile-Device-phone-2, MobileDevicephone2, etc.
+        # Fix: Clear dnsmasq auto-generated artifact hostnames.
+        # Only match known artifact signatures to avoid clearing legitimate
+        # hostnames like iPhone12, MyPC1, android-phone-1.
         if [ -n "$old_hostname" ] && [ "$manual" != "1" ]; then
             case "$old_hostname" in
-                *-phone-[0-9]*|*-pc-[0-9]*|*-iot-[0-9]*|*-network-[0-9]*|*-laa-[0-9]*|\
-                *phone[0-9]*|*pc[0-9]*|*iot[0-9]*|*network[0-9]*|*device[0-9]*|\
-                *Devicephone*|*Devicepc*|*Deviceiot*|*Devicenetwork*)
+                Mobile-Device-*|MobileDevice*|\
+                *Devicephone*|*Devicepc*|*Deviceiot*|*Devicenetwork*|*Devicelaa*)
                     uci -q delete "devicemaster.@device[$idx].hostname"
+                    remove_dhcp_host "$mac"
                     old_hostname=""
                     changed=1
-                    log_msg "Cleared auto-generated numeric hostname for $mac: $old_hostname"
+                    log_msg "Cleared auto-generated artifact hostname for $mac: $old_hostname"
                     ;;
             esac
         fi
@@ -1705,6 +2357,47 @@ reidentify_all() {
         idx=$((idx + 1))
     done
     uci -q commit devicemaster 2>/dev/null
+
+    # ============================================================
+    # Final DHCP sync (reidentify_all batch)
+    # ============================================================
+    # See discover_all comments for policy.  KEY RULES:
+    #   * ONLY primary MACs get a static lease (never alt_macs).
+    #   * ONLY meaningful hostnames are written (not OUI+type placeholders).
+    #   * Restart dnsmasq once at the end.
+    if is_mesh_main_router && [ -x "/usr/libexec/devicemaster/sync_hostname.sh" ]; then
+        local need_dnsmasq_restart=0
+        local s_idx=0
+        while uci -q get "devicemaster.@device[$s_idx].mac" >/dev/null 2>&1; do
+            local s_mac=$(uci -q get "devicemaster.@device[$s_idx].mac")
+            local s_hostname=$(uci -q get "devicemaster.@device[$s_idx].hostname")
+            local s_name=$(uci -q get "devicemaster.@device[$s_idx].name")
+            local s_ip=$(uci -q get "devicemaster.@device[$s_idx].last_ip")
+            local s_manual=$(uci -q get "devicemaster.@device[$s_idx].manual")
+            local sync_name=""
+            if [ -n "$s_hostname" ] && [ "$s_hostname" != "*" ] && [ "$s_hostname" != "unknown" ]; then
+                case "$s_hostname" in
+                    Mobile-Device-*|*-Device-phone|*-Device-pc|*-Device-iot|*-Device-laa) sync_name="" ;;
+                    *) sync_name="$s_hostname" ;;
+                esac
+            elif [ "$s_manual" = "1" ] && [ -n "$s_name" ] && [ "$s_name" != "*" ] && [ "$s_name" != "unknown" ]; then
+                sync_name="$s_name"
+            fi
+            if [ -n "$sync_name" ] && [ -n "$s_ip" ]; then
+                SKIP_DNSMASQ_RESTART=1 /usr/libexec/devicemaster/sync_hostname.sh "$s_mac" "$sync_name" "$s_ip" >/dev/null 2>&1
+                need_dnsmasq_restart=1
+            elif [ -z "$sync_name" ] && [ "$s_manual" != "1" ]; then
+                if remove_dhcp_host "$s_mac"; then
+                    need_dnsmasq_restart=1
+                fi
+            fi
+            s_idx=$((s_idx + 1))
+        done
+        if [ "$need_dnsmasq_restart" = "1" ]; then
+            /etc/init.d/dnsmasq restart >/dev/null 2>&1
+        fi
+    fi
+
     echo "Re-identified $fixed devices"
 }
 
@@ -1712,10 +2405,11 @@ reidentify_all() {
 # Entry point
 # When sourced (e.g. ". event_handler.sh"), only load functions — do NOT execute main
 # ============================================================
-if [ "${0##*/}" = "event_handler.sh" ] || [ -n "$1" ]; then
+if [ "${0##*/}" = "event_handler.sh" ]; then
 case "$1" in
-    discover)   discover_all; exit 0 ;;
-    reidentify) reidentify_all; exit 0 ;;
+    discover)   discover_all "${2:-full}"; exit 0 ;;
+    reidentify) FULL_IDENTIFY=1; reidentify_all; exit 0 ;;
+    debug-identify) FULL_IDENTIFY="${FULL_IDENTIFY:-1}"; debug_identify "$2" "$3" "$4"; exit 0 ;;
     *)          main "$@" ;;
 esac
 fi

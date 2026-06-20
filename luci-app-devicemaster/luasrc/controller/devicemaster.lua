@@ -92,6 +92,41 @@ local function exec_safe(cmd)
     return result:gsub("\n$", "")
 end
 
+local function shell_quote(s)
+    return "'" .. tostring(s or ""):gsub("'", "'\\''") .. "'"
+end
+
+local function cleanup_deleted_device_identity(mac)
+    if not is_valid_mac(mac) then return end
+    local mac_lower = mac:lower()
+    local changed_dhcp = false
+
+    while true do
+        local deleted = false
+        local idx = 0
+        while true do
+            local host_mac = uci:get("dhcp", "@host[" .. idx .. "]", "mac")
+            if not host_mac then break end
+            if host_mac:lower() == mac_lower then
+                uci:delete("dhcp", "@host[" .. idx .. "]")
+                changed_dhcp = true
+                deleted = true
+                break
+            end
+            idx = idx + 1
+        end
+        if not deleted then break end
+    end
+
+    if changed_dhcp then
+        local ok, err = uci:commit("dhcp")
+        if not ok then log_msg("WARN: dhcp cleanup commit failed: " .. tostring(err)) end
+    end
+
+    local cmd = "awk -v m=" .. shell_quote(mac_lower) .. " '{if (tolower($2)==m) $4=\"*\"; print}' /tmp/dhcp.leases > /tmp/dhcp.leases.devicemaster && mv /tmp/dhcp.leases.devicemaster /tmp/dhcp.leases"
+    sys.call(cmd .. " 2>/dev/null")
+end
+
 -- Helper: Get MAC address of wl1-mesh0 virtual interface
 local function get_mesh_vmac()
     local mif = sys.exec("ip link show dev wl1-mesh0 2>/dev/null | grep 'link/ether' | awk '{print $2}'")
@@ -1357,6 +1392,8 @@ end
 -- ============================================================
 function api_status()
     -- Mark page as active (device_monitor uses this to decide discover frequency)
+    local mf = io.open("/tmp/dm_mode", "w")
+    if mf then mf:write("active"); mf:close() end
     local f = io.open("/tmp/dm_page_active", "w")
     if f then f:write(tostring(os.time())); f:close() end
 
@@ -1629,12 +1666,9 @@ function api_status()
             ip = dhcp_ip or ""
         end
 
-        -- Use DHCP hostname if UCI hostname is empty
-        -- Note: empty string "" is truthy in Lua, need explicit check
+        -- Prefer real client hostnames. Auto-generated names are only display
+        -- fallbacks and must not hide DHCP hostnames such as H-de-S20.
         local hostname = s.hostname
-        if not hostname or hostname == "" then
-            hostname = s.name
-        end
         if not hostname or hostname == "" then
             hostname = dhcp_names[mac_upper]
         end
@@ -1651,6 +1685,9 @@ function api_status()
         if not hostname or hostname == "" then
             local rp = remote_devices[mac_upper]
             hostname = (rp and rp.hostname ~= "") and rp.hostname or ""
+        end
+        if (not hostname or hostname == "") and s.manual == "1" then
+            hostname = s.name
         end
 
         -- Check if MAC is randomized (locally administered bit)
@@ -2224,7 +2261,7 @@ function api_delete_group()
     json_response({success = true})
 end
 
--- API: Delete device record (only removes UCI entry, device can be rediscovered)
+-- API: Delete device record and stale dnsmasq identity so rediscovery starts cleanly
 function api_delete_device()
     local mac = luci.http.formvalue("mac")
     if not mac or mac == "" then
@@ -2251,6 +2288,7 @@ function api_delete_device()
     if found then
         local ok7, err7 = uci:commit("devicemaster")
         if not ok7 then log_msg("WARN: uci commit failed: " .. tostring(err7)) end
+        cleanup_deleted_device_identity(mac)
         json_response({success = true})
     else
         json_response({success = false, error = "Device not found"})
@@ -2283,6 +2321,10 @@ end
 -- API: Discover new devices (run event_handler logic for all ARP devices)
 -- This fills UCI with any devices that are in ARP but not yet in UCI
 function api_discover()
+    local f = io.open("/tmp/dm_mode", "w")
+    if f then f:write("active"); f:close() end
+    f = io.open("/tmp/dm_page_active", "w")
+    if f then f:write(tostring(os.time())); f:close() end
     local result = sys.exec("/usr/libexec/devicemaster/event_handler.sh discover 2>&1")
     json_response({success = true, message = result or "Discovery complete"})
 end

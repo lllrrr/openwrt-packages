@@ -12,7 +12,7 @@ MODE_FILE="/tmp/dm_mode"  # 'active' or 'idle'
 # Intervals
 IDLE_INTERVAL=300        # 5 minutes in idle mode
 ACTIVE_INTERVAL=30       # 30 seconds in active mode
-PAGE_ACTIVE_TIMEOUT=15   # Page considered active if polled within 15s
+PAGE_ACTIVE_TIMEOUT=90   # Page considered active if polled within 90s
 MODE_CHECK_INTERVAL=10   # Check mode switch every 10s
 
 # Traffic monitor control
@@ -266,8 +266,9 @@ main() {
     
     log_msg "Started (dual mode: idle=${IDLE_INTERVAL}s, active=${ACTIVE_INTERVAL}s)"
     
-    # Initial discovery
-    [ -x "$EVENT_HANDLER" ] && "$EVENT_HANDLER" discover
+    # Initial discovery stays lightweight; expensive identification is opened by
+    # the device list page or explicit manual discovery.
+    [ -x "$EVENT_HANDLER" ] && "$EVENT_HANDLER" discover light
     
     # Initial mode check
     current_mode=$(get_mode)
@@ -311,7 +312,11 @@ main() {
         
         # New device detection
         if detect_new_device; then
-            [ -x "$EVENT_HANDLER" ] && "$EVENT_HANDLER" discover
+            if [ "$current_mode" = "active" ]; then
+                [ -x "$EVENT_HANDLER" ] && "$EVENT_HANDLER" discover full
+            else
+                [ -x "$EVENT_HANDLER" ] && "$EVENT_HANDLER" discover light
+            fi
             push_to_master
         fi
         

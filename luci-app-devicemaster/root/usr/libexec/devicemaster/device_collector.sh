@@ -241,11 +241,6 @@ save_device_to_uci() {
         fi
     fi
 
-    # Skip if dnsmasq already has the correct name
-    if [ "$current_dnsmasq_name" = "$display_name" ]; then
-        return
-    fi
-
     # Use uci batch for atomic update (single lock acquisition)
     local uci_cmds=""
     local section=""
@@ -307,16 +302,12 @@ save_device_to_uci() {
 
     # Batch all UCI operations
     uci set "devicemaster.$section.mac=$mac"
-    uci set "devicemaster.$section.name=$display_name"
     [ -n "$hostname" ] && uci set "devicemaster.$section.hostname=$hostname"
     [ -n "$vendor" ] && uci set "devicemaster.$section.vendor=$vendor"
     [ -n "$devtype" ] && uci set "devicemaster.$section.type=$devtype"
     uci set "devicemaster.$section.discovered=1"
     uci set "devicemaster.$section.discovered_at=$(date +%s)"
     uci commit devicemaster
-
-    # Sync to dnsmasq (MAC-strong binding, IP-weak binding)
-    sync_to_dnsmasq "$mac" "$ip" "$display_name"
 }
 
 # Check if this device is a mesh child node (not the main router)
@@ -523,6 +514,14 @@ dhcp_fingerprint_lookup() {
 infer_vendor_from_hostname() {
     local hostname="$1"
     local h=$(echo "$hostname" | tr 'A-Z' 'a-z')
+
+    # Generic Android randomized hostnames are not vendor evidence.
+    case "$h" in
+        android_*|android-*|android[0-9a-z]*)
+            echo ""
+            return
+            ;;
+    esac
 
     case "$h" in
         *redmi*|*mi-*|*mi_*|*xiaomi*|*mido*|*nitrogen*|*cepheus*|*raphael*|*davinci*|*vayu*|*begonia*)
@@ -843,11 +842,13 @@ _build_oui_cache() {
 
 # Load UCI device data once (read config files directly to avoid UCI lock contention)
 load_uci_data() {
-    [ -f "$UCI_CACHE" ] && [ $(($(date +%s) - $(stat -c %Y "$UCI_CACHE" 2>/dev/null || echo 0))) -lt 60 ] && return
+    local cfg_mtime=$(stat -c %Y /etc/config/devicemaster 2>/dev/null || echo 0)
+    local cache_mtime=$(stat -c %Y "$UCI_CACHE" 2>/dev/null || echo 0)
+    [ -f "$UCI_CACHE" ] && [ "$cache_mtime" -ge "$cfg_mtime" ] && [ $(($(date +%s) - cache_mtime)) -lt 60 ] && return
     awk '
     /^[[:space:]]*config device/ {
-        if (in_device && mac != "") print mac","name","vendor","devtype","discovered_at","last_ip
-        in_device=1; mac=""; name=""; vendor=""; devtype=""; discovered_at=""; last_ip=""
+        if (in_device && mac != "") print mac","name","vendor","devtype","discovered_at","last_ip","manual","hostname
+        in_device=1; mac=""; name=""; vendor=""; devtype=""; discovered_at=""; last_ip=""; manual=""; hostname=""
     }
     /^[[:space:]]*config / && !/^[[:space:]]*config device/ {
         in_device=0
@@ -879,19 +880,25 @@ load_uci_data() {
         gsub(/'"'"'/, "", $0)
         last_ip = $NF
     }
+    in_device && /^[[:space:]]*option hostname / {
+        gsub(/'"'"'/, "", $0)
+        hostname = $NF
+    }
     in_device && /^[[:space:]]*option manual / {
         gsub(/'"'"'/, "", $0)
         manual = $NF
     }
     END {
-        if (in_device && mac != "") print mac","name","vendor","devtype","discovered_at","last_ip","manual
+        if (in_device && mac != "") print mac","name","vendor","devtype","discovered_at","last_ip","manual","hostname
     }
     ' /etc/config/devicemaster | sort -u > "$UCI_CACHE"
 }
 
 # Load custom device fields (name, vendor, type, blocked, rate_limit, group, notes) from UCI
 load_custom_data() {
-    [ -f "$UCI_CUSTOM_CACHE" ] && [ $(($(date +%s) - $(stat -c %Y "$UCI_CUSTOM_CACHE" 2>/dev/null || echo 0))) -lt 60 ] && return
+    local cfg_mtime=$(stat -c %Y /etc/config/devicemaster 2>/dev/null || echo 0)
+    local cache_mtime=$(stat -c %Y "$UCI_CUSTOM_CACHE" 2>/dev/null || echo 0)
+    [ -f "$UCI_CUSTOM_CACHE" ] && [ "$cache_mtime" -ge "$cfg_mtime" ] && [ $(($(date +%s) - cache_mtime)) -lt 60 ] && return
     
     # Use UCI to reliably get device data (handles interleaved config sections)
     > "$UCI_CUSTOM_CACHE"
@@ -1186,17 +1193,15 @@ sync_hostname_to_uci() {
                 fi
             fi
 
-            # Sync hostname if valid and different
-            # Skip devices with manual=1 (user-set names) to prevent
-            # overwriting custom names with client-reported hostnames
+            # Sync real DHCP hostname to hostname field only. Never overwrite
+            # display name here; manual names are highest priority.
             [ -z "$hostname" ] || [ "$hostname" = "*" ] || [ "$hostname" = "-" ] && continue
             local is_manual=$(uci -q get devicemaster.@device[$cache_idx].manual 2>/dev/null)
             [ "$is_manual" = "1" ] && continue
-            local uci_name=$(uci -q get devicemaster.@device[$cache_idx].name 2>/dev/null)
-            [ -z "$uci_name" ] && continue
+            local uci_hostname=$(uci -q get devicemaster.@device[$cache_idx].hostname 2>/dev/null)
 
-            if [ "$uci_name" != "$hostname" ]; then
-                uci set "devicemaster.@device[$cache_idx].name=$hostname"
+            if [ "$uci_hostname" != "$hostname" ]; then
+                uci set "devicemaster.@device[$cache_idx].hostname=$hostname"
                 modified=1
             fi
         done < "$DHCP_LEASES"
@@ -1210,9 +1215,16 @@ sync_hostname_to_uci() {
             local name=$(echo "$line" | cut -d',' -f2)
             local vendor=$(echo "$line" | cut -d',' -f3)
             local devtype=$(echo "$line" | cut -d',' -f4)
+            local manual=$(echo "$line" | cut -d',' -f7)
+            local hostname=$(echo "$line" | cut -d',' -f8)
 
-            # Skip if already has a name
+            # Skip manually named devices and devices with a real hostname.
+            [ "$manual" = "1" ] && continue
             [ -n "$name" ] && continue
+            case "$hostname" in
+                ""|"*"|"-"|unknown|Unknown|wlan0|android-*|android_*) ;;
+                *) continue ;;
+            esac
             # Skip if no vendor or type
             [ -z "$vendor" ] || [ "$devtype" = "unknown" ] && continue
 
@@ -1256,12 +1268,9 @@ sync_hostname_to_uci() {
             uci set "devicemaster.@device[$cache_idx].discovered_at=$(date +%s)"
             modified=1
 
-            # Also sync to dnsmasq so OpenWrt shows the hostname in DHCP list
-            # Get IP from DHCP leases if available
-            local dev_ip=$(grep -i "^[^ ]* $mac " /tmp/dhcp.leases 2>/dev/null | awk '{print $3}')
-            if [ -n "$dev_ip" ]; then
-                sync_to_dnsmasq "$mac" "$dev_ip" "$auto_name" 2>/dev/null || true
-            fi
+            # Do not sync auto-generated names to dnsmasq. Static DHCP hostnames
+            # shadow the real client-provided hostname and prevent later recovery
+            # of names such as H-de-S20.
         done < "$UCI_CACHE"
     fi
 
@@ -1275,6 +1284,9 @@ sync_hostname_to_uci() {
                 "LAA"|"LAA Device"|"Mobile Device"|"Computer"|"IoT Device"|"Generic Device"|"")
                     local dev_mac=$(uci -q get "devicemaster.@device[$idx2].mac" 2>/dev/null)
                     local ct_vendor=$(detect_vendor_by_conntrack "$dev_mac" 2>/dev/null)
+                    case "$ct_vendor" in
+                        Google|Android) ct_vendor="" ;;
+                    esac
                     if [ -n "$ct_vendor" ] && [ "$ct_vendor" != "$uci_vendor" ]; then
                         uci set "devicemaster.@device[$idx2].vendor=$ct_vendor"
                         modified=1
@@ -1376,13 +1388,12 @@ get_all_devices() {
                 uci_name=$(echo "$uci_line" | cut -d',' -f2)
                 uci_vendor=$(echo "$uci_line" | cut -d',' -f3)
                 uci_type=$(echo "$uci_line" | cut -d',' -f4)
-                uci_manual=$(echo "$uci_line" | cut -d',' -f5)
+                uci_manual=$(echo "$uci_line" | cut -d',' -f7)
                 [ -n "$uci_vendor" ] && vendor="$uci_vendor"
                 [ -n "$uci_type" ] && devtype="$uci_type"
-                # Fix: if manual=1, force use UCI name; otherwise only use when hostname=unknown
+                # Manual names are highest priority. Non-manual auto names must
+                # not be treated as real hostnames.
                 if [ "$uci_manual" = "1" ] && [ -n "$uci_name" ]; then
-                    hostname="$uci_name"
-                elif [ -n "$uci_name" ] && [ "$hostname" = "unknown" ]; then
                     hostname="$uci_name"
                 fi
             fi
@@ -1439,6 +1450,9 @@ get_all_devices() {
         # Also override generic labels like "Mobile Device", "Computer", "IoT Device"
         if [ -z "$vendor" ] || [ "$vendor" = "LAA" ] || [ "$vendor" = "LAA Device" ] || [ "$vendor" = "Mobile Device" ] || [ "$vendor" = "Computer" ] || [ "$vendor" = "IoT Device" ]; then
             local conntrack_vendor=$(detect_vendor_by_conntrack "$mac")
+            case "$conntrack_vendor" in
+                Google|Android) conntrack_vendor="" ;;
+            esac
             [ -n "$conntrack_vendor" ] && vendor="$conntrack_vendor"
         fi
 
@@ -1522,7 +1536,9 @@ get_all_devices() {
         if [ -f "$UCI_CUSTOM_CACHE" ]; then
             local custom_line=$(grep -i "^$mac," "$UCI_CUSTOM_CACHE" 2>/dev/null | head -1)
             if [ -n "$custom_line" ]; then
-                custom_name=$(echo "$custom_line" | cut -d',' -f2)
+                if [ "$uci_manual" = "1" ]; then
+                    custom_name=$(echo "$custom_line" | cut -d',' -f2)
+                fi
                 # f[3]=vendor, f[4]=type (not used here)
                 blocked=$(echo "$custom_line" | cut -d',' -f5)
                 rate_limit=$(echo "$custom_line" | cut -d',' -f6)
@@ -1571,7 +1587,9 @@ case "$1" in
     list)
         # Return cache immediately (0ms) — maintained by device_monitor.sh
         CACHE_FILE="/tmp/devicemaster_device_cache"
-        if [ -f "$CACHE_FILE" ]; then
+        CFG_MTIME=$(stat -c %Y /etc/config/devicemaster 2>/dev/null || echo 0)
+        CACHE_MTIME=$(stat -c %Y "$CACHE_FILE" 2>/dev/null || echo 0)
+        if [ -f "$CACHE_FILE" ] && [ "$CACHE_MTIME" -ge "$CFG_MTIME" ]; then
             cat "$CACHE_FILE"
         else
             # Fallback: use fast mode (atomic write with lock to prevent concurrent issues)
@@ -1579,7 +1597,8 @@ case "$1" in
             if mkdir "$LOCK_FILE" 2>/dev/null; then
                 trap 'rmdir "$LOCK_FILE" 2>/dev/null' EXIT
                 # Double-check after acquiring lock
-                if [ -f "$CACHE_FILE" ]; then
+                CACHE_MTIME=$(stat -c %Y "$CACHE_FILE" 2>/dev/null || echo 0)
+                if [ -f "$CACHE_FILE" ] && [ "$CACHE_MTIME" -ge "$CFG_MTIME" ]; then
                     cat "$CACHE_FILE"
                 else
                     get_all_devices_fast > "$CACHE_FILE.tmp" 2>/dev/null

@@ -1428,3 +1428,184 @@ msgstr "确定要删除此备份吗？"
 
 msgid "Delete failed"
 msgstr "删除失败"
+
+# Subscribe related translations
+msgid "Subscribe"
+msgstr "订阅"
+
+msgid "Subscribe Config"
+msgstr "订阅配置"
+
+msgid "Subscribe Remark"
+msgstr "订阅备注"
+
+msgid "Subscribe URL"
+msgstr "订阅 URL"
+
+msgid "Subscribe Info"
+msgstr "订阅信息"
+
+msgid "Subscribe List"
+msgstr "订阅列表"
+
+msgid "Remarks"
+msgstr "备注"
+
+msgid "Remark cannot be empty."
+msgstr "备注不能为空。"
+
+msgid "This remark already exists, please change a new remark."
+msgstr "该备注已存在，请更换新备注。"
+
+msgid "URL cannot be empty."
+msgstr "URL 不能为空。"
+
+msgid "Node num"
+msgstr "节点数"
+
+msgid "Filter keyword Mode"
+msgstr "过滤关键词模式"
+
+msgid "Close"
+msgstr "关闭"
+
+msgid "Discard List"
+msgstr "丢弃列表"
+
+msgid "Keep List"
+msgstr "保留列表"
+
+msgid "Discard List,But Keep List First"
+msgstr "丢弃列表，但保留列表优先"
+
+msgid "Keep List,But Discard List First"
+msgstr "保留列表，但丢弃列表优先"
+
+msgid "Use global config"
+msgstr "使用全局配置"
+
+msgid "%s Node Use Type"
+msgstr "%s 节点使用类型"
+
+msgid "Auto"
+msgstr "自动"
+
+msgid "The configured type also applies to the core specified when manually importing nodes."
+msgstr "配置的类型同样适用于手动导入节点时指定的核心。"
+
+msgid "Domain Strategy"
+msgstr "域名策略"
+
+msgid "Set the default domain resolution strategy for the sing-box node."
+msgstr "为 sing-box 节点设置默认的域名解析策略。"
+
+msgid "Prefer IPv4"
+msgstr "优先 IPv4"
+
+msgid "Prefer IPv6"
+msgstr "优先 IPv6"
+
+msgid "IPv4 Only"
+msgstr "仅 IPv4"
+
+msgid "IPv6 Only"
+msgstr "仅 IPv6"
+
+msgid "Delete All Subscribe Node"
+msgstr "删除所有订阅节点"
+
+msgid "Manual subscription All"
+msgstr "手动订阅全部"
+
+msgid "Manual subscription"
+msgstr "手动订阅"
+
+msgid "Delete the subscribed node"
+msgstr "删除订阅的节点"
+
+msgid "When adding a new subscription, please save and apply before manually subscribing. If you only change the subscription URL, you can subscribe manually, and the system will save it automatically."
+msgstr "添加新订阅时，请先保存并应用后再手动订阅。如果仅修改订阅 URL，可以手动订阅，系统将自动保存。"
+
+msgid "allowInsecure"
+msgstr "允许不安全连接"
+
+msgid "Whether unsafe connections are allowed. When checked, Certificate validation will be skipped."
+msgstr "是否允许不安全连接。勾选后，将跳过证书验证。"
+
+msgid "Update Once on Boot"
+msgstr "开机更新一次"
+
+msgid "Updates the subscription the first time SXray runs automatically after each system boot."
+msgstr "每次系统启动后，SXray 首次运行时自动更新订阅。"
+
+msgid "Enable auto update subscribe"
+msgstr "启用自动更新订阅"
+
+msgid "Update Mode"
+msgstr "更新模式"
+
+msgid "Loop Mode"
+msgstr "循环模式"
+
+msgid "Every day"
+msgstr "每天"
+
+msgid "Every Monday"
+msgstr "每周一"
+
+msgid "Every Tuesday"
+msgstr "每周二"
+
+msgid "Every Wednesday"
+msgstr "每周三"
+
+msgid "Every Thursday"
+msgstr "每周四"
+
+msgid "Every Friday"
+msgstr "每周五"
+
+msgid "Every Saturday"
+msgstr "每周六"
+
+msgid "Every Sunday"
+msgstr "每周日"
+
+msgid "Update Time(every day)"
+msgstr "更新时间（每天）"
+
+msgid "Update Interval(hour)"
+msgstr "更新间隔（小时）"
+
+msgid "hour"
+msgstr "小时"
+
+msgid "Subscribe URL Access Method"
+msgstr "订阅 URL 访问方式"
+
+msgid "Direct Connection"
+msgstr "直连"
+
+msgid "Proxy"
+msgstr "代理"
+
+msgid "User-Agent"
+msgstr "User-Agent"
+
+msgid "Please save and apply before manually subscribing."
+msgstr "请先保存并应用，再手动订阅。"
+
+msgid "Are you sure you want to delete all subscribed nodes?"
+msgstr "确定要删除所有订阅节点吗？"
+
+msgid "Failed to delete."
+msgstr "删除失败。"
+
+msgid "Subscribe URL cannot be empty."
+msgstr "订阅 URL 不能为空。"
+
+msgid "Subscription has been triggered, please check the log for details."
+msgstr "订阅已触发，请查看日志了解详情。"
+
+msgid "Subscription has been triggered. Please check the system log for details."
+msgstr "订阅已触发，请查看系统日志了解详细结果。"

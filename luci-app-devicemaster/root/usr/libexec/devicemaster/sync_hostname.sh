@@ -22,6 +22,36 @@ log_msg() {
     logger -t "$LOG_TAG" "$1"
 }
 
+# Return all MACs (primary + alt_macs) of the devicemaster device that
+# contains the given MAC. Space-separated, lowercased. Empty if not found.
+get_device_macs() {
+    local mac="$1"
+    [ -z "$mac" ] && return
+    local mac_lower=$(echo "$mac" | tr 'A-F' 'a-f')
+    local idx=0
+    while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
+        local primary=$(uci -q get "devicemaster.@device[$idx].mac")
+        local primary_lower=$(echo "$primary" | tr 'A-F' 'a-f')
+        local alts=$(uci -q get "devicemaster.@device[$idx].alt_macs")
+        local matched=0
+        local all_macs="$primary_lower"
+        if [ -n "$alts" ]; then
+            local IFS=','
+            for alt in $alts; do
+                local alt_lower=$(echo "$alt" | tr 'A-F' 'a-f')
+                [ -n "$alt_lower" ] && all_macs="$all_macs $alt_lower"
+                [ "$alt_lower" = "$mac_lower" ] && matched=1
+            done
+            unset IFS
+        fi
+        if [ "$primary_lower" = "$mac_lower" ] || [ "$matched" = "1" ]; then
+            echo "$all_macs"
+            return
+        fi
+        idx=$((idx + 1))
+    done
+}
+
 # Validate
 if [ -z "$MAC" ]; then
     log_msg "ERROR: Missing MAC argument"
@@ -57,6 +87,64 @@ if [ -z "$IP" ]; then
     echo "ERROR: No IP found for $MAC"
     exit 1
 fi
+
+# ============================================================
+# CRITICAL SAFETY CHECK: this MAC is an alt_mac of some device?
+# ============================================================
+# alt_macs must NOT get their own dhcp-host entry.  Two reasons:
+#   1. dnsmasq REFUSES to start if two dhcp-host entries share
+#      the same IP (even for different MACs) -> crashloop -> no
+#      DHCP at all for the whole network.
+#   2. dnsmasq matches a host by primary MAC; an alt_mac can only
+#      "accidentally" get a lease via the dynamic pool.
+# The device's hostname is already stored against its PRIMARY MAC
+# in the devicemaster UCI section; that is the single source of
+# truth used for display in both the device list and DHCP leases.
+MAC_LOWER=$(echo "$MAC" | tr 'A-F' 'a-f')
+_alt_idx=0
+while [ $_alt_idx -lt 200 ]; do
+    _dm_mac=$(uci -q get "devicemaster.@device[$_alt_idx].mac" 2>/dev/null)
+    [ -z "$_dm_mac" ] && break
+    _alts=$(uci -q get "devicemaster.@device[$_alt_idx].alt_macs" 2>/dev/null)
+    if [ -n "$_alts" ]; then
+        OLD_IFS="$IFS"; IFS=','
+        for _a in $_alts; do
+            _a_l=$(echo "$_a" | tr -d ' ' | tr 'A-F' 'a-f')
+            if [ "$_a_l" = "$MAC_LOWER" ]; then
+                IFS="$OLD_IFS"
+                log_msg "SKIP: $MAC is an alt_mac of $_dm_mac; refusing dhcp-host to prevent duplicate-IP crash."
+                echo "OK: alt_mac skipped (no static lease for alt_macs)"
+                exit 0
+            fi
+        done
+        IFS="$OLD_IFS"
+    fi
+    _alt_idx=$((_alt_idx+1))
+done
+
+# ============================================================
+# SECOND SAFETY CHECK: reject "automatically generated" hostnames
+# ============================================================
+# DeviceMaster invents placeholder names such as "Mobile-Device-phone"
+# from OUI + device-type, or "*"/"unknown" when nothing is known.
+# Writing these to dnsmasq pollutes the DHCP list.  Only sync a
+# lease when we have a meaningful hostname.
+case "$NAME" in
+    ''|*'*'*|*unknown*)
+        log_msg "SKIP: placeholder hostname '$NAME' for $MAC"
+        echo "OK: placeholder name skipped"
+        exit 0
+        ;;
+esac
+# Additional check: common auto-generated patterns
+_name_lower=$(echo "$NAME" | tr 'A-Z' 'a-z')
+case "$_name_lower" in
+    mobile-device-*|*-device-phone|*-device-pc|*-device-iot|*-device-laa)
+        log_msg "SKIP: auto-generated hostname '$NAME' for $MAC"
+        echo "OK: auto-generated name skipped"
+        exit 0
+        ;;
+esac
 
 # Concurrent lock (atomic mkdir)
 LOCK="/tmp/dm_sync_hostname.lock"
@@ -99,6 +187,8 @@ uci -q commit dhcp
 # Step 2: Check for duplicate hostnames and add suffix if needed
 # 修复：检查 devicemaster 和 dhcp 中的名称，与 LuCI unique_name 保持一致
 # 注意：需要正确排除自己，不能直接用 grep -v MAC，因为 uci show 输出格式不同
+# 合并设备的 alt_macs 与主 MAC 属于同一逻辑设备，允许共享 hostname。
+DEVICE_MACS=$(get_device_macs "$MAC")
 base_name="$NAME"
 counter=1
 final_name="$NAME"
@@ -112,7 +202,10 @@ while true; do
         dhcp_mac=$(uci -q get "dhcp.@host[$dhcp_idx].mac" 2>/dev/null)
         dhcp_mac_lower=$(echo "$dhcp_mac" | tr 'A-F' 'a-f')
         if [ "$dhcp_mac_lower" != "$MAC_LOWER" ]; then
-            dup_dhcp="$dhcp_line"
+            # 同一 devicemaster 设备（主 MAC + alt_macs）允许同名
+            if ! echo " $DEVICE_MACS " | grep -q " $dhcp_mac_lower "; then
+                dup_dhcp="$dhcp_line"
+            fi
         fi
     fi
 
@@ -126,7 +219,10 @@ while true; do
         dm_mac=$(uci -q get "devicemaster.$dm_section.mac" 2>/dev/null)
         dm_mac_lower=$(echo "$dm_mac" | tr 'A-F' 'a-f')
         if [ "$dm_mac_lower" != "$MAC_LOWER" ]; then
-            dup_dm_name="$dm_line"
+            # 同一 devicemaster 设备（主 MAC + alt_macs）允许同名
+            if ! echo " $DEVICE_MACS " | grep -q " $dm_mac_lower "; then
+                dup_dm_name="$dm_line"
+            fi
         fi
     fi
 
@@ -140,7 +236,10 @@ while true; do
         dm_mac=$(uci -q get "devicemaster.$dm_section.mac" 2>/dev/null)
         dm_mac_lower=$(echo "$dm_mac" | tr 'A-F' 'a-f')
         if [ "$dm_mac_lower" != "$MAC_LOWER" ]; then
-            dup_dm_hostname="$dm_line"
+            # 同一 devicemaster 设备（主 MAC + alt_macs）允许同名
+            if ! echo " $DEVICE_MACS " | grep -q " $dm_mac_lower "; then
+                dup_dm_hostname="$dm_line"
+            fi
         fi
     fi
 
@@ -186,16 +285,23 @@ fi
 
 # Step 5: Restart dnsmasq to apply all changes
 # Use restart instead of reload to flush DNS cache and pick up lease file changes
-/etc/init.d/dnsmasq restart >/dev/null 2>&1
+# When called in batch mode (e.g. from reidentify/discover sync loops), caller
+# will restart dnsmasq once at the end to avoid N restarts for N devices.
+if [ "${SKIP_DNSMASQ_RESTART:-0}" != "1" ]; then
+    /etc/init.d/dnsmasq restart >/dev/null 2>&1
 
-# Verify: use nslookup to confirm DNS resolution works
-sleep 1
-if nslookup "$NAME" 127.0.0.1 >/dev/null 2>&1; then
-    log_msg "OK: DNS lookup for $NAME succeeded"
-    echo "OK"
+    # Verify: use nslookup to confirm DNS resolution works
+    sleep 1
+    if nslookup "$NAME" 127.0.0.1 >/dev/null 2>&1; then
+        log_msg "OK: DNS lookup for $NAME succeeded"
+        echo "OK"
+    else
+        log_msg "WARN: DNS lookup for $NAME failed after restart"
+        echo "WARN: DNS verification failed"
+    fi
 else
-    log_msg "WARN: DNS lookup for $NAME failed after restart"
-    echo "WARN: DNS verification failed"
+    log_msg "Batch mode: skipping dnsmasq restart for $MAC"
+    echo "OK"
 fi
 
 exit 0
