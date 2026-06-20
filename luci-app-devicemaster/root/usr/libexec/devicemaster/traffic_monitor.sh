@@ -71,7 +71,8 @@ get_conntrack_stats() {
 calc_bandwidth() {
     local mac="$1"
     local current_stats="$2"
-    local stats_file="$STATS_DIR/${mac//:/_}.json"
+    local mac_key=$(echo "$mac" | tr ':' '_')
+    local stats_file="$STATS_DIR/${mac_key}.json"
     local now=$(date +%s)
     
     if [ -f "$stats_file" ]; then

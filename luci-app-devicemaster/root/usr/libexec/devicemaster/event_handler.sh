@@ -655,11 +655,26 @@ identify_vendor() {
                 iot) high_vendor="IoT Device" ;;
             esac
         fi
-        
+
         # If still no vendor, use a generic LAA label
         if [ -z "$high_vendor" ]; then
             high_vendor="LAA Device"
         fi
+    fi
+
+    # For LAA devices: try conntrack-based vendor detection to identify specific vendor
+    # (e.g., Apple via port 5223, Google via port 5228)
+    if [ "$is_laa" = "1" ]; then
+        case "$high_vendor" in
+            "Mobile Device"|"Computer"|"IoT Device"|"LAA Device"|"")
+                if type detect_vendor_by_conntrack >/dev/null 2>&1; then
+                    local conntrack_vendor=$(detect_vendor_by_conntrack "$mac")
+                    if [ -n "$conntrack_vendor" ]; then
+                        high_vendor="$conntrack_vendor"
+                    fi
+                fi
+                ;;
+        esac
     fi
 
     # For LAA devices: if HIGH evidence is generic (Mobile Device/Computer/IoT Device/LAA Device)
@@ -1021,8 +1036,38 @@ try_merge_device() {
         local old_vendor=$(uci -q get "devicemaster.@device[$idx].vendor")
         local old_type=$(uci -q get "devicemaster.@device[$idx].type")
         local old_ip=$(uci -q get "devicemaster.@device[$idx].last_ip")
+        local old_alt_macs=$(uci -q get "devicemaster.@device[$idx].alt_macs")
 
         # Check if same hostname, vendor, type
+        # Match against both primary MAC and alt_macs
+        local mac_matches=0
+        if [ "$old_mac" = "$new_mac" ]; then
+            mac_matches=1
+        fi
+        # Also check if new_mac is already in alt_macs
+        if [ -n "$old_alt_macs" ]; then
+            local IFS=','
+            for alt in $old_alt_macs; do
+                if [ "$(echo "$alt" | tr 'a-f' 'A-F')" = "$new_mac" ]; then
+                    mac_matches=1
+                    break
+                fi
+            done
+            unset IFS
+        fi
+
+        if [ "$mac_matches" = "1" ]; then
+            # Device already merged into this record, just update IP
+            uci -q set "devicemaster.@device[$idx].last_ip=$new_ip"
+            uci -q set "devicemaster.@device[$idx].last_seen=$(date +%s)"
+            uci -q commit devicemaster
+            merged=1
+            merged_idx="$idx"
+            merged_mac="$new_mac"
+            merged_ip="$new_ip"
+            return
+        fi
+
         if [ "$old_hostname" = "$new_hostname" ] && \
            [ "$old_vendor" = "$new_vendor" ] && \
            [ "$old_type" = "$new_type" ] && \
@@ -1035,19 +1080,29 @@ try_merge_device() {
                 # Old device is offline, can merge
                 log_msg "Merging device $new_mac into existing device $old_mac (same $new_hostname)"
 
-                # Update the existing device with new MAC and IP
-                uci -q set "devicemaster.@device[$idx].mac=$new_mac"
-                uci -q set "devicemaster.@device[$idx].last_ip=$new_ip"
-                uci -q set "devicemaster.@device[$idx].discovered_at=$(date +%s)"
+                # Keep the old MAC as primary, add new MAC to alt_macs
+                # This preserves the original device identity and allows unlimited merges
+                local current_alt=$(uci -q get "devicemaster.@device[$idx].alt_macs")
+                if [ -z "$current_alt" ]; then
+                    uci -q set "devicemaster.@device[$idx].alt_macs=$new_mac"
+                else
+                    # Check if new_mac already in alt_macs
+                    if ! echo ",$current_alt," | grep -qi ",$new_mac,"; then
+                        uci -q set "devicemaster.@device[$idx].alt_macs=$current_alt,$new_mac"
+                    fi
+                fi
 
-                # Add old MAC to history list for tracking
+                # Update IP and timestamp
+                uci -q set "devicemaster.@device[$idx].last_ip=$new_ip"
+                uci -q set "devicemaster.@device[$idx].last_seen=$(date +%s)"
+
+                # Add new MAC to mac_history for tracking
                 local mac_history=$(uci -q get "devicemaster.@device[$idx].mac_history")
                 if [ -z "$mac_history" ]; then
-                    mac_history="$old_mac"
+                    mac_history="$new_mac"
                 else
-                    # Check if old_mac already in history
-                    if ! echo "$mac_history" | grep -q "$old_mac"; then
-                        mac_history="$mac_history,$old_mac"
+                    if ! echo "$mac_history" | grep -q "$new_mac"; then
+                        mac_history="$mac_history,$new_mac"
                     fi
                 fi
                 uci -q set "devicemaster.@device[$idx].mac_history=$mac_history"
@@ -1098,6 +1153,21 @@ register_device() {
 
     if [ "$merged" = "1" ]; then
         log_msg "Device $mac merged into existing record (hostname: $hostname)"
+
+        # Bug fix: Delete the new device's UCI entry if it was already created
+        # (e.g., by a concurrent discover_all or DHCP event)
+        local del_idx=0
+        while uci -q get "devicemaster.@device[$del_idx].mac" >/dev/null 2>&1; do
+            local del_mac=$(uci -q get "devicemaster.@device[$del_idx].mac" | tr 'a-f' 'A-F')
+            if [ "$del_mac" = "$mac" ] && [ "$del_idx" != "$merged_idx" ]; then
+                log_msg "Removing duplicate UCI entry for merged device $mac at index $del_idx"
+                uci -q delete "devicemaster.@device[$del_idx]"
+                uci -q commit devicemaster
+                break
+            fi
+            del_idx=$((del_idx + 1))
+        done
+
         return
     fi
 

@@ -1989,3 +1989,24 @@ msgstr "僅 IPv4"
 
 msgid "IPv4 + IPv6"
 msgstr "IPv4 + IPv6"
+
+msgid "Ghost Plugin Deletion Warning"
+msgstr "孤件徹底刪除警告"
+
+msgid "Executing this will uninstall the software and delete its config files. However, no installation package was found, so you will need to manually reinstall it later."
+msgstr "執行後會解除安裝該軟體並刪除設定檔，但找不到安裝包，後續使用需自行安裝。"
+
+msgid "Eradicate Completely"
+msgstr "一鍵徹底清除"
+
+msgid "Eradicating completely..."
+msgstr "正在執行徹底清除..."
+
+msgid "has been completely uninstalled and cleaned."
+msgstr "已被徹底解除安裝並清理。"
+
+msgid "Offline Reinstall Guide"
+msgstr "孤件離線重裝指南"
+
+msgid "After uninstalling the ghost plugin, to reinstall it, you can upload the package via SSH to: <b>/etc/netwiz/custom_pkgs/</b> (auto-backed up).<br><b>If conflicts occur or the menu is missing</b>, you can use the <b>Force Install command</b>:"
+msgstr "解除安裝孤件後需重新安裝包，可以使用 SSH 將安裝包上傳到 <b>/etc/netwiz/custom_pkgs/</b> 目錄下（全量時自動備份）。<br><b>若提示衝突或無選單</b>，可以使用 <b>強制安裝命令</b>："

@@ -25,6 +25,22 @@ local function is_valid_rate(rate)
     return rate and rate:match("^%d+[kmgb]?bit$")
 end
 
+local function is_valid_uci_id(id)
+    return id and id:match("^[A-Za-z0-9_%-]+$")
+end
+
+local function is_valid_remote_api(api)
+    return api == "maclookup" or api == "macvendors"
+end
+
+local function get_remote_api()
+    local api = uci:get("devicemaster", "settings", "remote_api") or "maclookup"
+    if not is_valid_remote_api(api) then
+        api = "maclookup"
+    end
+    return api
+end
+
 function index()
     entry({"admin", "network", "devicemaster"}, firstchild(), "设备管理", 60)
     entry({"admin", "network", "devicemaster", "devices"}, template("devicemaster/devices"), "网络设备", 10)
@@ -64,6 +80,10 @@ end
 local function json_response(data)
     luci.http.prepare_content("application/json")
     luci.http.write(json.stringify(data))
+end
+
+local function log_msg(message)
+    sys.exec("logger -t devicemaster '" .. tostring(message):gsub("'", "'\\''") .. "'")
 end
 
 -- Helper: Execute shell command safely
@@ -435,7 +455,7 @@ function api_report_sub()
         return
     end
     
-    if not data.node_mac then
+    if not data.node_mac or not is_valid_mac(data.node_mac) then
         json_response({ success = false, error = "missing node_mac" })
         return
     end
@@ -445,8 +465,10 @@ function api_report_sub()
     local lock = "/tmp/dm_child_reports.lock"
     local locked = false
     for i = 1, 10 do
-        local lf = io.open(lock, "w")
-        if lf then lf:close(); locked = true; break end
+        if sys.call("mkdir '" .. lock .. "' 2>/dev/null") == 0 then
+            locked = true
+            break
+        end
         sys.exec("usleep 100000 2>/dev/null")  -- wait 100ms
     end
     if not locked then
@@ -481,7 +503,7 @@ function api_report_sub()
         os.rename(tmp, "/tmp/dm_child_reports.json")  -- atomic
     end
 
-    os.remove(lock)  -- release lock
+    sys.call("rmdir '" .. lock .. "' 2>/dev/null")  -- release lock
     
     json_response({ success = true })
 end
@@ -885,6 +907,41 @@ local function save_session(data)
     end
 end
 
+local function merge_session_aliases(session, primary_mac, alias_macs)
+    if not session or type(session.devices) ~= "table" then return end
+    local primary = session.devices[primary_mac] or {}
+
+    local function min_number(a, b)
+        a, b = tonumber(a), tonumber(b)
+        if a and b then return math.min(a, b) end
+        return a or b
+    end
+
+    local function max_number(a, b)
+        a, b = tonumber(a), tonumber(b)
+        if a and b then return math.max(a, b) end
+        return a or b
+    end
+
+    primary.total_online_time = tonumber(primary.total_online_time) or 0
+
+    for _, alias in ipairs(alias_macs or {}) do
+        local alias_upper = alias:upper()
+        if alias_upper ~= primary_mac then
+            local alt = session.devices[alias_upper]
+            if alt then
+                primary.first_seen = min_number(primary.first_seen, alt.first_seen)
+                primary.last_seen = max_number(primary.last_seen, alt.last_seen)
+                primary.current_session_start = min_number(primary.current_session_start, alt.current_session_start)
+                primary.total_online_time = (tonumber(primary.total_online_time) or 0) + (tonumber(alt.total_online_time) or 0)
+                session.devices[alias_upper] = nil
+            end
+        end
+    end
+
+    session.devices[primary_mac] = primary
+end
+
 -- Response cache: avoid heavy computation on every frontend poll
 local response_cache_str = nil
 local response_cache_time = 0
@@ -924,11 +981,19 @@ function api_merge_devices()
         json_response({success = false, error = "Missing parameters"})
         return
     end
+    if not is_valid_mac(primary_mac) then
+        json_response({success = false, error = "Invalid primary MAC"})
+        return
+    end
     
     -- Collect all MACs (primary + secondary)
     local all_macs = {primary_mac}
     for mac in secondary_macs:gmatch("[^,]+") do
         mac = mac:upper():gsub("-", ":")
+        if not is_valid_mac(mac) then
+            json_response({success = false, error = "Invalid secondary MAC: " .. mac})
+            return
+        end
         if mac ~= primary_mac then
             table.insert(all_macs, mac)
         end
@@ -943,7 +1008,7 @@ function api_merge_devices()
         arp_file:read("*l")
         for line in arp_file:lines() do
             -- ARP format: IP HW Type Flags MAC HW Mask Device
-            local ip, hw_type, flags, mac = line:match("^([%d%.]+)%s+%S+%s+%S+%s+([%x%x:%x%x:%x%x:%x%x:%x%x:%x%x])")
+            local ip, flags, mac = line:match("^(%d+%.%d+%.%d+%.%d+)%s+%S+%s+(%S+)%s+([%x%x:%x%x:%x%x:%x%x:%x%x:%x%x])")
             if mac and ip and mac ~= "00:00:00:00:00:00" and flags ~= "0x0" then
                 arp_online[mac:upper()] = true
                 arp_ip[mac:upper()] = ip
@@ -963,10 +1028,9 @@ function api_merge_devices()
         end
     end
     
-    -- If no online MAC, use the first one
-    if not online_mac then
-        online_mac = all_macs[1]
-    end
+    -- Keep the user-selected primary as the canonical device record.
+    -- The currently online MAC only contributes last_ip/last_seen and becomes an alias.
+    local canonical_mac = primary_mac
     
     -- Helper: Check if device exists in UCI
     local function find_device_idx(target_mac)
@@ -1022,15 +1086,15 @@ function api_merge_devices()
         return find_device_idx(new_mac)
     end
     
-    -- Find primary device (the online one or first one)
-    local primary_idx = find_device_idx(online_mac)
+    -- Find primary device (the user-selected canonical record)
+    local primary_idx = find_device_idx(canonical_mac)
     
     -- FIX: If primary device not in UCI (ARP-only device), create it first
     if not primary_idx then
         -- This is an ARP-only device, need to create UCI entry first
-        primary_idx = create_device_for_mac(online_mac, online_ip)
+        primary_idx = create_device_for_mac(canonical_mac, arp_ip[canonical_mac])
         if not primary_idx then
-            json_response({success = false, error = "Failed to create device entry for " .. online_mac})
+            json_response({success = false, error = "Failed to create device entry for " .. canonical_mac})
             return
         end
     end
@@ -1061,7 +1125,7 @@ function api_merge_devices()
     local any_blocked = false
     
     for _, mac in ipairs(all_macs) do
-        if mac ~= online_mac then
+        if mac ~= canonical_mac then
             local sec_idx = find_device_idx(mac)
             if sec_idx then
                 local sec_first_seen = uci:get("devicemaster", "@device[" .. sec_idx .. "]", "first_seen") or ""
@@ -1147,7 +1211,7 @@ function api_merge_devices()
     -- Add other MACs as alt_macs
     local new_macs = {}
     for _, mac in ipairs(all_macs) do
-        if mac ~= online_mac and not alt_set[mac] then
+        if mac ~= canonical_mac and not alt_set[mac] then
             table.insert(new_macs, mac)
             alt_set[mac] = true
         end
@@ -1159,22 +1223,34 @@ function api_merge_devices()
         new_alt = new_alt .. table.concat(new_macs, ",")
         uci:set("devicemaster", "@device[" .. primary_idx .. "]", "alt_macs", new_alt)
     end
+
+    local session = load_session()
+    merge_session_aliases(session, canonical_mac, all_macs)
+    save_session(session)
     
+    -- Track the IP of the currently online alias on the canonical record.
+    if online_ip and online_ip ~= "" then
+        uci:set("devicemaster", "@device[" .. primary_idx .. "]", "last_ip", online_ip)
+    end
+
     -- Update last_seen for online device
     uci:set("devicemaster", "@device[" .. primary_idx .. "]", "last_seen", tostring(os.time()))
     uci:commit("devicemaster")
     
     -- Remove secondary devices from UCI (they are now merged)
+    local remove_set = {}
+    for _, mac in ipairs(all_macs) do
+        if mac ~= canonical_mac then
+            remove_set[mac] = true
+        end
+    end
     local to_remove = {}
     idx = 0
     while true do
         local mac = uci:get("devicemaster", "@device[" .. idx .. "]", "mac")
         if not mac then break end
-        for _, sec_mac in ipairs(new_macs) do
-            if mac:upper() == sec_mac then
-                table.insert(to_remove, idx)
-                break
-            end
+        if remove_set[mac:upper()] then
+            table.insert(to_remove, idx)
         end
         idx = idx + 1
     end
@@ -1187,7 +1263,7 @@ function api_merge_devices()
         uci:commit("devicemaster")
     end
     
-    json_response({success = true, primary_mac = online_mac, merged_macs = new_macs, note = "Primary MAC selected based on online status"})
+    json_response({success = true, primary_mac = canonical_mac, online_mac = online_mac, merged_macs = new_macs, note = "Primary MAC kept as selected; online MAC stored as alias"})
 end
 
 -- ============================================================
@@ -1313,7 +1389,10 @@ function api_status()
     local function useful_vendor(v)
         if not v or v == "" then return false end
         local vu = v:upper()
-        if vu == "LAA" or vu == "UNKNOWN" or vu == "未知" then return false end
+        -- Generic labels that should be overridden by more specific detection
+        if vu == "LAA" or vu == "UNKNOWN" or vu == "未知"
+            or vu == "MOBILE DEVICE" or vu == "COMPUTER" or vu == "IOT DEVICE"
+            or vu == "LAA DEVICE" or vu == "GENERIC DEVICE" then return false end
         return true
     end
     local function useful_type(t)
@@ -1476,6 +1555,10 @@ function api_status()
     -- Collect local MACs to filter router's own interfaces out of device list
     local local_macs = get_local_macs()
 
+    -- MAC aliases that belong to merged devices. They must not be shown again
+    -- as ARP-only/new devices just because the alias is currently online.
+    local merged_alias_macs = {}
+
     -- 1. Read all device profiles from UCI
     uci:foreach("devicemaster", "device", function(s)
         if not s.mac then return end
@@ -1594,7 +1677,8 @@ function api_status()
         local total_online = tonumber(device_session.total_online_time) or 0
         local first_seen = tonumber(device_session.first_seen) or tonumber(s.discovered_at) or now
         local last_seen = tonumber(device_session.last_seen) or first_seen
-        local session_start = tonumber(device_session.current_session_start) or now
+        local session_start = tonumber(device_session.current_session_start) or tonumber(device_session.last_seen) or first_seen or now
+        local was_online = (device_session.online == true or device_session.online == "1" or device_session.online == 1)
         
         -- Auto-migrate discovered_at to first_seen for backward compat
         if not device_session.first_seen and s.discovered_at then
@@ -1602,14 +1686,15 @@ function api_status()
             first_seen = tonumber(s.discovered_at)
         end
         
-        -- If device just came online (was offline, now online), start new session
-        if is_online and (not s.online or s.online == "0") then
+        -- If device just came online (was offline, now online), start new session.
+        -- Online state lives in session.json; UCI does not persist s.online.
+        if is_online and not was_online then
             session_start = now
             device_session.current_session_start = now
         end
         
         -- If device just went offline (was online, now offline), add session to total
-        if not is_online and s.online == "1" then
+        if not is_online and was_online then
             local session_duration = last_seen - session_start
             if session_duration > 0 then
                 total_online = total_online + session_duration
@@ -1622,6 +1707,7 @@ function api_status()
             device_session.last_seen = now
             last_seen = now
         end
+        device_session.online = is_online and "1" or "0"
         
         -- Store back to session data
         session.devices[mac_upper] = device_session
@@ -1630,6 +1716,9 @@ function api_status()
         local online_seconds = total_online
         if is_online then
             online_seconds = total_online + (now - session_start)
+        end
+        if is_online and total_online == 0 and first_seen and first_seen < now then
+            online_seconds = now - first_seen
         end
         if online_seconds < 0 then online_seconds = 0 end
 
@@ -1665,9 +1754,31 @@ function api_status()
         local alt_macs = {}
         if s.alt_macs and s.alt_macs ~= "" then
             for alt_mac in s.alt_macs:gmatch("[^,]+") do
-                table.insert(alt_macs, alt_mac:upper())
+                local alt_upper = alt_mac:upper()
+                table.insert(alt_macs, alt_upper)
+                merged_alias_macs[alt_upper] = true
             end
         end
+        merge_session_aliases(session, mac_upper, alt_macs)
+        device_session = session.devices[mac_upper] or device_session
+        total_online = tonumber(device_session.total_online_time) or 0
+        first_seen = tonumber(device_session.first_seen) or first_seen
+        last_seen = tonumber(device_session.last_seen) or last_seen
+        session_start = tonumber(device_session.current_session_start) or tonumber(device_session.last_seen) or first_seen or session_start
+        if is_online then
+            device_session.last_seen = now
+            last_seen = now
+            session.devices[mac_upper] = device_session
+        end
+        online_seconds = total_online
+        if is_online then
+            online_seconds = total_online + (now - session_start)
+        end
+        if is_online and total_online == 0 and first_seen and first_seen < now then
+            online_seconds = now - first_seen
+        end
+        if online_seconds < 0 then online_seconds = 0 end
+
         devices[#devices + 1] = {
             mac = s.mac,
             ip = ip,
@@ -1676,6 +1787,9 @@ function api_status()
             type = useful_type(s.type) and s.type or (rp and useful_type(rp.devtype) and rp.devtype) or "unknown",
             online = is_online,
             online_seconds = online_seconds,
+            first_seen = tonumber(s.first_seen or s.discovered_at or 0) or 0,
+            discovered_at = tonumber(s.discovered_at or 0) or 0,
+            last_seen = tonumber(s.last_seen or 0) or 0,
             randomized = randomized,
             is_controllable = is_controllable,
             topology = topology_tier,  -- direct | mesh_node | mesh_child | remote | unknown
@@ -1708,7 +1822,7 @@ function api_status()
             end
         end
 
-        if not found and mac ~= "00:00:00:00:00:00" and not local_macs[mac] then
+        if not found and not merged_alias_macs[mac] and mac ~= "00:00:00:00:00:00" and not local_macs[mac] then
             local hostname = dhcp_names[mac] or ""
             local randomized = false
             local first_byte = tonumber(mac:sub(1,2), 16)
@@ -1757,7 +1871,7 @@ function api_status()
                 break
             end
         end
-        if not found and mac ~= "00:00:00:00:00:00" and not local_macs[mac] then
+        if not found and not merged_alias_macs[mac] and mac ~= "00:00:00:00:00:00" and not local_macs[mac] then
             local rp = remote_devices[mac]
             local hostname = (rp and rp.hostname ~= "") and rp.hostname or (rp and rp.name ~= "") and rp.name or ""
             local device_prefix = ip:match("^(%d+%.%d+%.%d+)")
@@ -1897,6 +2011,7 @@ function api_set_name()
     local vendor = luci.http.formvalue("vendor")
     local devtype = luci.http.formvalue("devtype")
     local group = luci.http.formvalue("group")
+    local notes = luci.http.formvalue("notes")
 
     if not is_valid_mac(mac) then
         json_response({success = false, error = "Invalid MAC address format"})
@@ -1950,6 +2065,7 @@ function api_set_name()
         uci:set("devicemaster", section, "manual", "1")
     end
     if group ~= nil then uci:set("devicemaster", section, "group", group) end
+    if notes ~= nil then uci:set("devicemaster", section, "notes", notes) end
     local ok, err = uci:commit("devicemaster")
     if not ok then log_msg("WARN: uci commit failed: " .. tostring(err)) end
 
@@ -1997,6 +2113,11 @@ function api_set_group()
     if not section then
         section = uci:add("devicemaster", "device")
         uci:set("devicemaster", section, "mac", mac)
+    end
+
+    if group and group ~= "" and group ~= "all" and not is_valid_uci_id(group) then
+        json_response({success = false, error = "Invalid group ID"})
+        return
     end
 
     uci:set("devicemaster", section, "group", group or "")
@@ -2060,7 +2181,7 @@ function api_get_groups()
     uci:foreach("devicemaster", "group", function(s)
         table.insert(groups, {
             id = s[".name"],
-            name = s.name or s.id,
+            name = s.name or s.id or s[".name"],
             color = s.color,
             rate_limit = s.rate_limit
         })
@@ -2072,6 +2193,10 @@ end
 function api_create_group()
     local name = luci.http.formvalue("name")
     local color = luci.http.formvalue("color") or "#3498db"
+    if not name or name == "" then
+        json_response({success = false, error = "Group name required"})
+        return
+    end
     local section = uci:add("devicemaster", "group")
     uci:set("devicemaster", section, "id", section)
     uci:set("devicemaster", section, "name", name or section)
@@ -2084,10 +2209,15 @@ end
 -- API: Delete group
 function api_delete_group()
     local id = luci.http.formvalue("id")
-    if not id or id == "" then
+    if not id or id == "" or not is_valid_uci_id(id) then
         json_response({success = false, error = "Group ID required"})
         return
     end
+    uci:foreach("devicemaster", "device", function(s)
+        if s.group == id then
+            uci:delete("devicemaster", s[".name"], "group")
+        end
+    end)
     uci:delete("devicemaster", id)
     local ok6, err6 = uci:commit("devicemaster")
     if not ok6 then log_msg("WARN: uci commit failed: " .. tostring(err6)) end
@@ -2135,10 +2265,14 @@ function api_scan_network()
         -- Batch ping: 32 concurrent at a time to avoid resource exhaustion
         -- (254 simultaneous pings can overwhelm the kernel ARP table)
         if sys.call("command -v fping >/dev/null 2>&1") == 0 then
-            sys.exec("fping -a -q " .. lan_net .. "{1..254} 2>/dev/null")
+            local targets = {}
+            for i = 1, 254 do
+                targets[#targets + 1] = lan_net .. "." .. tostring(i)
+            end
+            sys.exec("fping -a -q " .. table.concat(targets, " ") .. " 2>/dev/null")
         else
             sys.exec(string.format(
-                "for i in $(seq 1 254); do ping -c 1 -W 1 %s$i >/dev/null 2>&1 & [ $((i %% 32)) -eq 0 ] && wait; done; wait",
+                "for i in $(seq 1 254); do ping -c 1 -W 1 %s.$i >/dev/null 2>&1 & [ $((i %% 32)) -eq 0 ] && wait; done; wait",
                 lan_net
             ))
         end
@@ -2200,7 +2334,7 @@ function action_test_api()
     local http = require("luci.http")
     local dispatcher = require("luci.dispatcher")
 
-    local api = uci:get("devicemaster", "settings", "remote_api") or "maclookup"
+    local api = get_remote_api()
     local test_mac = luci.http.formvalue("mac") or luci.http.formvalue("test_mac") or "00:11:22:33:44:55"
     if not is_valid_mac(test_mac) then
         json_response({success = false, error = "Valid MAC address required"})
@@ -2214,7 +2348,7 @@ end
 
 -- API: Test OUI API (JSON response, no redirect)
 function api_test_api()
-    local api = uci:get("devicemaster", "settings", "remote_api") or "maclookup"
+    local api = get_remote_api()
     local test_mac = luci.http.formvalue("mac") or "00:11:22:33:44:55"
 
     if not is_valid_mac(test_mac) then

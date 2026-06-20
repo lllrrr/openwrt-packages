@@ -270,6 +270,110 @@ A: 检查 dnsmasq 配置是否正确写入：`uci show dhcp | grep host`。重�
 ### Q: 厂商识别不准确？
 A: 在 OUI 管理页面下载本地数据库，或切换远程 API 接口。对于随机 MAC 设备，可手动设置厂商信息。
 
+## 设备合并机制（旋转 MAC 处理）
+
+### 背景
+
+iOS / Android 等系统默认启用"私有无线局域网地址"（Private Wi-Fi Address），即每次连接 Wi-Fi 时使用随机生成的 LAA（Locally Administered Address）MAC 地址。这导致同一台物理设备在网络中表现为多个不同的 MAC 地址，设备管理插件会将其识别为多个独立设备。
+
+设备合并功能用于将这些属于同一物理设备的多个 MAC 地址合并为一条记录。
+
+### 合并触发方式
+
+| 方式 | 触发时机 | 入口 |
+|------|---------|------|
+| 自动合并 | 新 LAA 设备上线时 | `event_handler.sh` → `try_merge_device()` |
+| 手动合并 | 用户在界面选择多个设备 | 前端 → `api_merge_devices()` |
+
+### 自动合并流程
+
+```
+新设备上线 (DHCP/ARP 发现)
+    │
+    ▼
+register_device()
+    │
+    ├── 1. 识别厂商和设备类型
+    │
+    ├── 2. 调用 try_merge_device()
+    │       │
+    │       ├── 新 MAC 不是 LAA → 跳过合并
+    │       ├── 主机名为空或无意义 → 跳过合并
+    │       │
+    │       ├── 遍历 UCI 中已有设备:
+    │       │       │
+    │       │       ├── 新 MAC 已在该设备的 alt_macs 中
+    │       │       │   → 更新 IP 和 last_seen，返回合并成功
+    │       │       │
+    │       │       └── 主机名 + 厂商 + 类型 均匹配，且旧设备离线
+    │       │           → 将新 MAC 加入旧设备的 alt_macs
+    │       │           → 更新 IP 和 last_seen
+    │       │           → 返回合并成功
+    │       │
+    │       └── 无匹配 → 返回未合并
+    │
+    ├── 3. 合并成功 → 删除新设备的独立 UCI 条目（如存在）
+    │
+    └── 4. 合并失败 → 创建新的 UCI 设备条目
+```
+
+### 合并规则
+
+1. **仅限 LAA 设备**: 只有 MAC 地址第二位为 2/6/A/E（本地管理地址）的设备才会参与合并
+2. **三重匹配**: 主机名、厂商、设备类型三者必须完全一致才可合并
+3. **旧设备离线**: 被合并的旧设备必须当前不在线（不在 ARP 表中）
+4. **不限合并次数**: 新 MAC 加入 `alt_macs` 列表而非替换主 MAC，因此无论随机 MAC 循环出现多少次，都能持续合并到同一条记录
+
+### UCI 数据结构
+
+合并后设备在 UCI 中的存储示例：
+
+```
+config device
+    option mac '9E:9B:75:0D:93:5A'          # 主 MAC（最早发现的）
+    option alt_macs 'A2:C3:D4:E5:F6:07,B8:...'  # 备用 MAC 列表（后续合并进来的）
+    option mac_history 'A2:C3:D4:E5:F6:07,B8:...' # MAC 变更历史
+    option last_ip '192.168.31.188'          # 最新 IP
+    option hostname 'iPhone'                 # 主机名
+    option vendor 'Apple'                    # 厂商
+    option type 'phone'                      # 设备类型
+```
+
+| 字段 | 说明 |
+|------|------|
+| `mac` | 主 MAC，即最早发现的 MAC 地址，合并后不会改变 |
+| `alt_macs` | 逗号分隔的备用 MAC 列表，后续合并进来的 MAC 都追加到此 |
+| `mac_history` | MAC 变更历史记录，用于追踪所有出现过的 MAC |
+| `last_ip` | 最新在线 IP（任一 alt_mac 在线时更新） |
+
+### 在线状态判断
+
+对于有 `alt_macs` 的合并设备，在线状态判断逻辑为：
+
+```
+主 MAC 在线？  → 设备在线
+任一 alt_mac 在线？ → 设备在线
+全部 MAC 离线 → 设备离线
+```
+
+### 手动合并 / 取消合并
+
+**手动合并**: 在设备列表页面勾选多个设备，点击"合并设备"按钮。系统自动选择当前在线的 MAC 作为主 MAC，其余 MAC 加入 `alt_macs`，并删除被合并设备的独立 UCI 条目。
+
+**取消合并**: 在设备详情中点击 alt_mac 旁边的取消按钮，该 MAC 从 `alt_macs` 中移除，并恢复为一条独立的 UCI 设备记录。
+
+### LAA 设备的厂商识别
+
+由于 LAA MAC 地址无法通过 OUI 数据库查询厂商，插件采用 conntrack 连接特征识别：
+
+| 特征端口 | 厂商 |
+|---------|------|
+| 5223 (Apple Push), 5260 (iMessage), 62078 (iPhone Sync) | Apple |
+| 5228 (Google Play), 8009/9000 (Chromecast) | Google |
+| 其他 IoT 端口 | Amazon / Samsung 等 |
+
+此识别在 `device_collector.sh` 的 `detect_vendor_by_conntrack()` 函数中实现，优先级高于通用的 "Mobile Device" / "LAA Device" 标签。
+
 ## 许可证
 
 GPL-2.0-only

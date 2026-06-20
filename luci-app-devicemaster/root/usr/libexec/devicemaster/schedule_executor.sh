@@ -16,10 +16,10 @@ CURRENT_DAY=$(date +%w)  # 0=Sunday, 1=Monday, ...
 # Check if current day is in schedule days
 is_day_active() {
     local schedule_days="$1"
-    case "$schedule_days" in
-        *$CURRENT_DAY*) return 0 ;;
-        *) return 1 ;;
-    esac
+    for day in $schedule_days; do
+        [ "$day" = "$CURRENT_DAY" ] && return 0
+    done
+    return 1
 }
 
 # Parse time HH:MM to minutes since midnight
@@ -40,7 +40,7 @@ is_time_in_range() {
     local end_min=$(time_to_minutes "$end_time")
     
     if [ $start_min -le $end_min ]; then
-        # Normal range: start < end (e.g., 22:00 - 08:00)
+        # Normal range: start < end (e.g., 08:00 - 22:00)
         if [ $current_min -ge $start_min ] && [ $current_min -lt $end_min ]; then
             return 0
         fi
@@ -65,11 +65,12 @@ get_group_devices() {
 check_device_group() {
     local section="$1"
     local target_group="$2"
-    local mac group groups
+    local mac group groups group_name
     
     config_get mac "$section" mac
     config_get group "$section" group
     config_get groups "$section" groups
+    [ -z "$mac" ] && return
     
     # Check if device belongs to target group
     if [ "$target_group" = "all" ]; then
@@ -77,6 +78,11 @@ check_device_group() {
     elif [ -n "$group" ] && [ "$group" = "$target_group" ]; then
         # Single group attribute
         echo "$mac"
+    elif [ -n "$group" ]; then
+        group_name=$(uci -q get "devicemaster.$group.name" 2>/dev/null)
+        if [ -n "$group_name" ] && [ "$group_name" = "$target_group" ]; then
+            echo "$mac"
+        fi
     elif [ -n "$groups" ]; then
         # Legacy: multiple groups (comma-separated)
         local IFS=','

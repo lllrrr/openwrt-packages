@@ -462,6 +462,17 @@ var T = {
     'M_REP_NOTICE_TIT': _('Notice'),
     'M_REP_EMPTY_MSG': _('No repairable plugins found'),
     'M_REP_GET_ERR': _('Failed to get plugin list'),
+    // --- 死件拔除警告词条 ---
+    'M_REP_GHOST_TIT': '💀 ' + _('Ghost Plugin Deletion Warning'),
+    'M_REP_GHOST_MSG': _('Executing this will uninstall the software and delete its config files. However, no installation package was found, so you will need to manually reinstall it later.'),
+    'BTN_ERADICATE': '🗑️ ' + _('Eradicate Completely'),
+    'M_ERADICATE_PROC': _('Eradicating completely...'),
+    'M_ERADICATE_SUCC': _('has been completely uninstalled and cleaned.'),
+    // --- 更新為精簡版重裝指南 ---
+    'M_GUIDE_TITLE': '💡 ' + _('Offline Reinstall Guide'),
+    'M_GUIDE_DESC': _('After uninstalling the ghost plugin, to reinstall it, you can upload the package via SSH to: <b>/etc/netwiz/custom_pkgs/</b> (auto-backed up).<br><b>If conflicts occur or the menu is missing</b>, you can use the <b>Force Install command</b>:'),
+    'M_GUIDE_CMD_APK': 'apk add --allow-untrusted --force-reinstall --force-overwrite /etc/netwiz/custom_pkgs/your_package_name.apk',
+    'M_GUIDE_CMD_OPKG': 'opkg install --force-reinstall --force-overwrite /etc/netwiz/custom_pkgs/your_package_name.ipk',
     // ---------------------------
     'M_PORT_RANGE': '⚠️ ' + _('Port number must be between 1 and 65535'),
     'M_PORT_ERR1': '⚠️ ' + _('For system security, do not use'),
@@ -1368,22 +1379,40 @@ return view.extend({
                 rpc.declare({ object: 'netwiz', method: 'get_repairable_configs', expect: { '': {} } })().then(function(res) {
                     if (res && res.configs && res.configs.length > 0) {
                         
+                        // 1. 原有的说明文字（最上方显示）
                         var descText = T['M_REP_DESC'] || 'Standard uninstallation does not remove plugin configuration files. If a plugin malfunctions after reinstallation, select it below to reset it to its initial state.';
                         var descHtml = '<p style="color:#64748b; font-size:13px; margin-bottom:15px; line-height:1.5;">' + descText + '</p>';
                         
+                        // 2. 插件选择下拉框（中间显示，加大了 margin-bottom 让间距更好看）
                         var optText = ' (' + (T['M_REP_OPT'] || 'Factory Default') + ')';
-                        var selectHtml = '<select id="nw-repair-select" style="width:100%; height:40px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:14px; outline:none; margin-bottom:10px; background-color: #fff !important; color: #000;">';
+                        var selectHtml = '<select id="nw-repair-select" style="width:100%; height:40px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; font-size:14px; outline:none; margin-bottom:15px; background-color: #fff !important; color: #000;">';
                         res.configs.forEach(function(pluginName) {
                             selectHtml += '<option value="' + pluginName + '">' + pluginName + optText + '</option>';
                         });
                         selectHtml += '</select>';
+
+                        // 3. 动态判断当前系统的包管理器 (apk 或 opkg)
+                        var curPkg = window.nwCurrentPkg || 'ipk';
+                        var cmdCode = (curPkg === 'apk') 
+                            ? (T['M_GUIDE_CMD_APK'] || 'apk add --allow-untrusted --force-reinstall --force-overwrite /tmp/your_package_name.apk') 
+                            : (T['M_GUIDE_CMD_OPKG'] || 'opkg install --force-reinstall --force-overwrite /tmp/your_package_name.ipk');
+
+                        // 4. 组装：深色终端指南代码框 (最下方显示)
+                        var guideHtml = '<div style="margin-bottom:5px; background:#f8fafc; border:1px solid #e2e8f0; padding:12px; border-radius:8px; text-align:left; font-size:14px; line-height:1.6;">' +
+                            '<b style="color:#0f172a;">' + (T['M_GUIDE_TITLE'] || '💡 Offline Reinstall Guide') + '</b><br>' +
+                            '<span style="color:#475569;">' + (T['M_GUIDE_DESC'] || 'After uninstalling the ghost plugin, to reinstall it, you can upload the package via SSH to: <b>/etc/netwiz/custom_pkgs/</b> (auto-backed up).<br><b>If conflicts occur or the menu is missing</b>, you can use the <b>Force Install command</b>:') + '</span><br>' +
+                            '<div style="margin-top:8px; background:#1e293b; color:#10b981; padding:10px; border-radius:6px; font-family:monospace; font-size:12px; word-break:break-all; user-select:all;">' +
+                                cmdCode +
+                            '</div>' +
+                        '</div>';
 
                         var titleText = T['M_REP_TIT'] || '🚑 Plugin Repair Toolkit';
                         var titleWithX = '<div style="display:flex; justify-content:space-between; align-items:center;"><span>' + titleText + '</span><span onclick="document.getElementById(\'nw-global-modal\').style.display=\'none\'" style="cursor:pointer; color:#ffffff; font-size:40px; line-height:1; margin-right:15px;">&times;</span></div>';
 
                         openModal({
                             title: titleWithX,
-                            msg: descHtml + selectHtml,
+                            // 💡 重点在这里：按 [说明 -> 下拉框 -> 指南] 的顺序进行拼接
+                            msg: descHtml + selectHtml + guideHtml,
                             okText: T['M_REP_OK'] || 'Repair Now',
                             cancelText: T['M_CLOSE'] || 'Close',
                             isDanger: true,
@@ -1397,20 +1426,98 @@ return view.extend({
                                 var pMsg2 = T['M_REP_SCAN_TIT'] || 'please wait';
                                 openModal({ title: pTit, msg: pMsg1 + ' ' + pName + ' ' + pMsg2, hideCancel: true, hideOk: true });
                                 
-                                rpc.declare({ object: 'netwiz', method: 'repair_config', params: ['plugin'], expect: { '': {} } })(pName).then(function(r) {
-                                    if (r && r.result === 0) {
+                                rpc.declare({ object: 'netwiz', method: 'repair_config', params: ['plugin'] })(pName).then(function(r) {
+                                    var resCode = '-1';
+                                    if (r !== null && typeof r === 'object' && r.result !== undefined) {
+                                        resCode = String(r.result);
+                                    } else if (r !== null && (typeof r === 'number' || typeof r === 'string')) {
+                                        resCode = String(r);
+                                    }
+                                    
+                                    if (resCode === '0') {
+                                        // ✅ 深度重裝成功
                                         var sTit = T['M_REP_SUCC_TIT'] || 'Repair Successful';
                                         var sMsg = T['M_REP_SUCC_MSG'] || 'has been successfully restored';
-                                        openModal({ title: sTit, msg: pName + ' ' + sMsg, okText: T['M_CLOSE'] || 'Close', hideCancel: true });
+                                        openModal({ 
+                                            title: sTit, 
+                                            msg: pName + ' ' + sMsg, 
+                                            okText: T['M_CLOSE'] || 'Close', 
+                                            hideCancel: true,
+                                            // 点击关闭后，自动强制刷新网页
+                                            onOk: function() { 
+                                                // 弹出一个带有转圈动画的不可关闭弹窗，完美过渡这3秒钟
+                                                openModal({ 
+                                                    title: T['M_REP_PROC_TIT'] || 'Processing', 
+                                                    msg: T['MSG_WAIT'] || 'Please wait...', 
+                                                    spin: true, 
+                                                    hideCancel: true, 
+                                                    hideOk: true 
+                                                });
+                                                // 3秒后强制重整网页
+                                                setTimeout(function() { window.location.reload(); }, 3000); 
+                                            }
+                                        });
+                                    } else if (resCode === '1' || resCode === '2') {
+                                        // 拦截孤件
+                                        var ghostTit = T['M_REP_GHOST_TIT'] || '💀 Ghost Plugin Deletion Warning';
+                                        var ghostMsgStr = T['M_REP_GHOST_MSG'] || 'Executing this will uninstall the software and delete its config files. However, no installation package was found, so you will need to manually reinstall it later.';
+                                        var ghostMsg = '<div style="text-align:left; color:#475569; line-height:1.5; font-size:14px;">' + ghostMsgStr + '</div>';
+                                        
+                                        openModal({
+                                            title: ghostTit,
+                                            msg: ghostMsg,
+                                            okText: T['BTN_ERADICATE'] || '🗑️ Eradicate Completely',
+                                            cancelText: T['BTN_CANCEL'] || 'Cancel',
+                                            isDanger: true,
+                                            onOk: function() {
+                                                openModal({ title: T['M_REP_PROC_TIT'] || 'Processing', msg: T['M_ERADICATE_PROC'] || 'Eradicating completely...', spin: true, hideCancel: true, hideOk: true });
+                                                rpc.declare({ object: 'netwiz', method: 'eradicate_config', params: ['plugin'] })(pName).then(function(res2) {
+                                                    var res2Code = '-1';
+                                                    if (res2 !== null && typeof res2 === 'object' && res2.result !== undefined) {
+                                                        res2Code = String(res2.result);
+                                                    } else if (res2 !== null && (typeof res2 === 'number' || typeof res2 === 'string')) {
+                                                        res2Code = String(res2);
+                                                    }
+                                                    
+                                                    if (res2Code === '0') {
+                                                        openModal({ 
+                                                            title: '✅ ' + (T['M_REP_SUCC_TIT'] || 'Success'), 
+                                                            msg: pName + ' ' + (T['M_ERADICATE_SUCC'] || '已被彻底卸载并清理。'), 
+                                                            okText: T['M_CLOSE'] || 'Close', 
+                                                            hideCancel: true,
+                                                            // 点击关闭后，自动强制刷新网页
+                                                            onOk: function() { 
+                                                                // 弹出一个带有转圈动画的不可关闭弹窗，完美过渡这3秒钟
+                                                                openModal({ 
+                                                                    title: T['M_REP_PROC_TIT'] || 'Processing', 
+                                                                    msg: T['MSG_WAIT'] || 'Please wait...', 
+                                                                    spin: true, 
+                                                                    hideCancel: true, 
+                                                                    hideOk: true 
+                                                                });
+                                                                // 3秒后强制重整网页
+                                                                setTimeout(function() { window.location.reload(); }, 3000); 
+                                                            }
+                                                        });
+                                                    } else {
+                                                        openModal({ title: '❌ ' + (T['M_REP_FAIL_TIT'] || 'Failed'), msg: T['M_REP_FAIL_MSG'] || 'Unable to repair this plugin', okText: T['M_CLOSE'] || 'Close', hideCancel: true });
+                                                    }
+                                                }).catch(function() {
+                                                    openModal({ title: '❌ ' + (T['M_REP_ERR_TIT'] || 'System Error'), msg: T['M_REP_ERR_MSG'] || 'Request timeout or error', okText: T['M_CLOSE'] || 'Close', hideCancel: true });
+                                                });
+                                            }
+                                        });
                                     } else {
+                                        // ❌ 其他未知失敗
                                         var fTit = T['M_REP_FAIL_TIT'] || 'Repair Failed';
                                         var fMsg = T['M_REP_FAIL_MSG'] || 'Unable to repair this plugin';
-                                        openModal({ title: fTit, msg: fMsg, okText: T['M_CLOSE'] || 'Close', hideCancel: true });
+                                        var dbgInfo = r !== null ? (typeof r === 'object' ? JSON.stringify(r) : String(r)) : 'No Response';
+                                        openModal({ title: fTit, msg: fMsg + '<br><br><span style="font-size:11px;color:#ef4444;word-break:break-all;">Debug: ' + dbgInfo + '</span>', okText: T['M_CLOSE'] || 'Close', hideCancel: true });
                                     }
-                                }).catch(function() {
+                                }).catch(function(e) {
                                     var eTit = T['M_REP_ERR_TIT'] || 'System Error';
                                     var eMsg = T['M_REP_ERR_MSG'] || 'Request timeout or error';
-                                    openModal({ title: eTit, msg: eMsg, okText: T['M_CLOSE'] || 'Close', hideCancel: true });
+                                    openModal({ title: eTit, msg: eMsg + '<br><br><span style="font-size:11px;color:#ef4444;">' + e + '</span>', okText: T['M_CLOSE'] || 'Close', hideCancel: true });
                                 });
                             }
                         });
@@ -3511,7 +3618,8 @@ return view.extend({
 
                             // 多频合一白色标识牌，pointer-events 接收鼠标事件
                             var qrData = " data-ssid=\"" + escapeHTML(i.ssid||'') + "\" data-pwd=\"" + escapeHTML(i.key||'') + "\" data-enc=\"" + escapeHTML(i.encryption||'none') + "\" ";
-                            var tLbl = "<b class='nw-wifi-badge nw-qr-hover' " + qrData + " style='color:#10b981; cursor:pointer; pointer-events:auto !important; position:relative; z-index:20;' title='" + (T['TXT_SCAN_TO_CONN'] || 'Scan to Connect') + "'>" + T['LBL_SMART_CONN'] + "</b>"; 
+                            var hoverStr = "WIFI:T:" + ((!i.encryption || i.encryption === 'none') ? "nopass" : "WPA") + ";S:" + (i.ssid||'') + ";" + (i.key ? "P:" + i.key + ";" : "") + ";";
+                            var tLbl = "<b class='nw-wifi-badge nw-qr-hover' " + qrData + " style='color:#10b981; cursor:pointer; pointer-events:auto !important; position:relative; z-index:20;' title='" + escapeHTML(hoverStr) + "'>" + T['LBL_SMART_CONN'] + "</b>";
                             
                             wifiLines.push("<div class='nw-wifi-line'><span class='nw-wifi-left'>" + tLbl + "<span class='nw-wifi-colon'>:</span><span class='nw-hl nw-wifi-name'><span style='display:block; max-width:100%; word-break:break-all; white-space:normal; overflow-wrap:anywhere;'>" + sName + "</span>" + roamBadge + "</span></span><span class='nw-wifi-pwd'>(" + T['M_PWD'] + ": <span style='word-break:break-all; white-space:normal;'>" + kTxt + "</span>)</span></div>");
                         } else {
@@ -3550,7 +3658,8 @@ return view.extend({
 
                                 // 独立频段白色标识牌，pointer-events 强制接收鼠标事件
                                 var qrData = " data-ssid=\"" + escapeHTML(i.ssid||'') + "\" data-pwd=\"" + escapeHTML(i.key||'') + "\" data-enc=\"" + escapeHTML(i.encryption||'none') + "\" ";
-                                var tLblNew = "<b class='nw-wifi-badge nw-qr-hover' " + qrData + " style='color:#10b981; cursor:pointer; pointer-events:auto !important; position:relative; z-index:20;' title='悬浮显示二维码'>" + (bandStr === '5g' ? T['TXT_5G_ACCT'] : T['TXT_2G_ACCT']) + "</b>";
+                                var hoverStr = "WIFI:T:" + ((!i.encryption || i.encryption === 'none') ? "nopass" : "WPA") + ";S:" + (i.ssid||'') + ";" + (i.key ? "P:" + i.key + ";" : "") + ";";
+                                var tLblNew = "<b class='nw-wifi-badge nw-qr-hover' " + qrData + " style='color:#10b981; cursor:pointer; pointer-events:auto !important; position:relative; z-index:20;' title='" + escapeHTML(hoverStr) + "'>" + (bandStr === '5g' ? T['TXT_5G_ACCT'] : T['TXT_2G_ACCT']) + "</b>";
                                 wifiLines.push("<div class='nw-wifi-line'><span class='nw-wifi-left'>" + tLblNew + "<span class='nw-wifi-colon'>:</span><span class='nw-hl nw-wifi-name'><span style='display:block; max-width:100%; word-break:break-all; white-space:normal; overflow-wrap:anywhere;'>" + sName + "</span>" + roamBadge + "</span></span><span class='nw-wifi-pwd'>(" + T['M_PWD'] + ": <span style='word-break:break-all; white-space:normal;'>" + kTxt + "</span>)</span></div>");
                             });
                         }

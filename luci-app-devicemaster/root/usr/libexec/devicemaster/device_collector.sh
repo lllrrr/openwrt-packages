@@ -652,7 +652,10 @@ detect_type_by_traffic() {
     local conntrack="/proc/net/nf_conntrack"
     [ ! -f "$conntrack" ] && return
 
-    local ports=$(grep "src=$ip " "$conntrack" 2>/dev/null | grep 'dport=' | sed 's/.*dport=//' | awk '{print $1}' | sort -u)
+    # Extract ORIGINAL direction dport (first dport= per conntrack line)
+    # Each conntrack line has 2 dport= values: original + reply direction
+    # grep -o outputs them sequentially, awk NR%2==1 takes odd lines (original)
+    local ports=$(grep "src=$ip " "$conntrack" 2>/dev/null | grep -o 'dport=[0-9]*' | awk 'NR%2==1' | cut -d= -f2 | sort -u)
 
     local has_phone_ports=0
     local has_pc_ports=0
@@ -660,7 +663,8 @@ detect_type_by_traffic() {
 
     for port in $ports; do
         case "$port" in
-            5228)
+            5223|5228)
+                # 5223=Apple Push Notification, 5228=Google Play Store
                 has_phone_ports=1
                 ;;
             554|8554|5060|5061|5555)
@@ -681,6 +685,95 @@ detect_type_by_traffic() {
         echo "iot"
     elif [ "$has_phone_ports" -eq 1 ]; then
         echo "phone"
+    fi
+}
+
+# ============================================================
+# Conntrack-based Vendor Detection (for LAA/randomized MAC devices)
+# Identifies vendor from connection patterns to known service ports
+# ============================================================
+
+detect_vendor_by_conntrack() {
+    local mac="$1"
+    local ip=$(grep -i "$mac" "$ARP_TABLE" 2>/dev/null | awk '{print $1}' | head -1)
+    [ -z "$ip" ] && return
+
+    local conntrack="/proc/net/nf_conntrack"
+    [ ! -f "$conntrack" ] && return
+
+    # Extract ORIGINAL direction dport (first dport= per conntrack line)
+    local ports=$(grep "src=$ip " "$conntrack" 2>/dev/null | grep -o 'dport=[0-9]*' | awk 'NR%2==1' | cut -d= -f2 | sort -u)
+
+    local has_apple=0
+    local has_google=0
+    local has_amazon=0
+    local has_microsoft=0
+    local has_samsung=0
+
+    for port in $ports; do
+        case "$port" in
+            5223)
+                # Apple Push Notification Service (APNS)
+                has_apple=1
+                ;;
+            5228)
+                # Google Play Store / Google Cloud Messaging
+                has_google=1
+                ;;
+            5260|5269|5297|5298|5299|5222)
+                # XMPP / iMessage / Apple Messages
+                has_apple=1
+                ;;
+            443)
+                # HTTPS - too generic, skip
+                ;;
+            8443|8883)
+                # Amazon AWS IoT / Apple HomeKit
+                has_iot_ports=1
+                ;;
+            2195|2196|5223)
+                # Apple Push (legacy ports)
+                has_apple=1
+                ;;
+            5353)
+                # mDNS/Bonjour - strong Apple indicator but also used by others
+                has_apple=1
+                ;;
+            62078)
+                # Apple sync (iPhone/iPad over WiFi)
+                has_apple=1
+                ;;
+            49153|32400)
+                # Plex / Samsung SmartThings
+                has_samsung=1
+                ;;
+            8009|8443|9000|9080|9443)
+                # Google Cast / Chromecast
+                has_google=1
+                ;;
+        esac
+    done
+
+    # Priority: Apple > Google > Amazon > Microsoft > Samsung
+    if [ "$has_apple" -eq 1 ]; then
+        echo "Apple"
+        return
+    fi
+    if [ "$has_google" -eq 1 ]; then
+        echo "Google"
+        return
+    fi
+    if [ "$has_amazon" -eq 1 ]; then
+        echo "Amazon"
+        return
+    fi
+    if [ "$has_microsoft" -eq 1 ]; then
+        echo "Microsoft"
+        return
+    fi
+    if [ "$has_samsung" -eq 1 ]; then
+        echo "Samsung"
+        return
     fi
 }
 
@@ -1172,7 +1265,27 @@ sync_hostname_to_uci() {
         done < "$UCI_CACHE"
     fi
 
-    # 3. Update last_ip from ARP table (for devices without DHCP lease)
+    # 3. Update vendor for devices with generic labels (LAA Device, Mobile Device, etc.)
+    # using conntrack-based vendor detection
+    if [ -f /etc/config/devicemaster ]; then
+        local idx2=0
+        while uci -q get "devicemaster.@device[$idx2].mac" >/dev/null 2>&1; do
+            local uci_vendor=$(uci -q get "devicemaster.@device[$idx2].vendor" 2>/dev/null)
+            case "$uci_vendor" in
+                "LAA"|"LAA Device"|"Mobile Device"|"Computer"|"IoT Device"|"Generic Device"|"")
+                    local dev_mac=$(uci -q get "devicemaster.@device[$idx2].mac" 2>/dev/null)
+                    local ct_vendor=$(detect_vendor_by_conntrack "$dev_mac" 2>/dev/null)
+                    if [ -n "$ct_vendor" ] && [ "$ct_vendor" != "$uci_vendor" ]; then
+                        uci set "devicemaster.@device[$idx2].vendor=$ct_vendor"
+                        modified=1
+                    fi
+                    ;;
+            esac
+            idx2=$((idx2 + 1))
+        done
+    fi
+
+    # 4. Update last_ip from ARP table (for devices without DHCP lease)
     if [ -f "$ARP_TABLE" ]; then
         awk 'NR>1 && $4!="00:00:00:00:00:00" {print $4, $1}' "$ARP_TABLE" | while read mac ip; do
             [ -z "$mac" ] || [ -z "$ip" ] && continue
@@ -1318,6 +1431,15 @@ get_all_devices() {
                 local nlbw_vendor=$(detect_by_nlbwmon "$mac")
                 [ -n "$nlbw_vendor" ] && vendor="$nlbw_vendor"
             fi
+        fi
+
+        # Priority 4.6: Conntrack-based vendor detection for LAA devices
+        # Identifies vendor from connection patterns to known service ports
+        # (e.g., port 5223 = Apple Push Notification Service)
+        # Also override generic labels like "Mobile Device", "Computer", "IoT Device"
+        if [ -z "$vendor" ] || [ "$vendor" = "LAA" ] || [ "$vendor" = "LAA Device" ] || [ "$vendor" = "Mobile Device" ] || [ "$vendor" = "Computer" ] || [ "$vendor" = "IoT Device" ]; then
+            local conntrack_vendor=$(detect_vendor_by_conntrack "$mac")
+            [ -n "$conntrack_vendor" ] && vendor="$conntrack_vendor"
         fi
 
         # Priority 5: If randomized MAC and still unknown, mark as "LAA Device"
@@ -1490,6 +1612,8 @@ case "$1" in
         # Force deep refresh and update cache
         CACHE_FILE="/tmp/devicemaster_device_cache"
         get_all_devices > "$CACHE_FILE"
+        # Also sync vendor/hostname updates to UCI
+        sync_hostname_to_uci
         cat "$CACHE_FILE"
         ;;
     lookup)

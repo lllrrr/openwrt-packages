@@ -13,7 +13,7 @@ PKG_MAINTAINER:=OpenWrt-DeviceMaster Team
 PKG_LICENSE:=GPL-2.0-only
 
 LUCI_TITLE:=LuCI Device Master - Enhanced Device Management Plugin
-LUCI_DEPENDS:=+luci-lib-base +luci-lib-jsonc +libubus-lua +ipset +nftables +kmod-sched-core
+LUCI_DEPENDS:=+luci-lib-base +luci-lib-jsonc +libubus-lua +jsonfilter +curl +nftables
 LUCI_PKGARCH:=all
 
 include $(TOPDIR)/feeds/luci/luci.mk

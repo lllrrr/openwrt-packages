@@ -62,13 +62,14 @@ return L.view.extend({
         });
 
         o.cfgvalue = function(section_id) {
+            var group_id = uci.get('devicemaster', section_id, 'id') || section_id;
             var group_name = uci.get('devicemaster', section_id, 'name');
-            if (!group_name) return [];
+            if (!group_id) return [];
             var selected = [];
             var sections = uci.sections('devicemaster', 'device') || [];
             for (var i = 0; i < sections.length; i++) {
                 var sec = sections[i];
-                if (sec.group && sec.group === group_name && sec.mac) {
+                if (sec.group && (sec.group === group_id || sec.group === group_name) && sec.mac) {
                     selected.push(sec.mac);
                 }
             }
@@ -76,11 +77,12 @@ return L.view.extend({
         };
 
         o.write = function(section_id, formvalue) {
+            var group_id = uci.get('devicemaster', section_id, 'id') || section_id;
             var group_name = uci.get('devicemaster', section_id, 'name');
             var sections = uci.sections('devicemaster', 'device') || [];
             for (var i = 0; i < sections.length; i++) {
                 var sec = sections[i];
-                if (sec.group === group_name) {
+                if (sec.group === group_id || sec.group === group_name) {
                     uci.unset('devicemaster', sec['.name'], 'group');
                 }
             }
@@ -92,7 +94,7 @@ return L.view.extend({
                     for (var k = 0; k < sections2.length; k++) {
                         var d = sections2[k];
                         if (d.mac && d.mac.toLowerCase() === mac.toLowerCase()) {
-                            uci.set('devicemaster', d['.name'], 'group', group_name);
+                            uci.set('devicemaster', d['.name'], 'group', group_id);
                         }
                     }
                 }
@@ -100,11 +102,12 @@ return L.view.extend({
         };
 
         o.remove = function(section_id) {
+            var group_id = uci.get('devicemaster', section_id, 'id') || section_id;
             var group_name = uci.get('devicemaster', section_id, 'name');
             var sections = uci.sections('devicemaster', 'device') || [];
             for (var i = 0; i < sections.length; i++) {
                 var sec = sections[i];
-                if (sec.group === group_name) {
+                if (sec.group === group_id || sec.group === group_name) {
                     uci.unset('devicemaster', sec['.name'], 'group');
                 }
             }
@@ -124,7 +127,7 @@ return L.view.extend({
         var groupSections = uci.sections('devicemaster', 'group') || [];
         groupSections.forEach(function(g) {
             if (g.name) {
-                o.value(g.name, g.name);
+                o.value(g.id || g['.name'], g.name);
             }
         });
         o.default = 'all';

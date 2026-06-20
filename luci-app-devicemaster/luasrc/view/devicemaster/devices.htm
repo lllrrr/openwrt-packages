@@ -1,8 +1,3 @@
-<%#
-LuCI DeviceMaster - Devices View Template
-Copyright (C) 2024 OpenWrt-DeviceMaster Project
--%>
-
 <%+header%>
 
 <div class="cbi-map" id="devicemaster-map">
@@ -30,6 +25,58 @@ Copyright (C) 2024 OpenWrt-DeviceMaster Project
     </div>
 </div>
 
+<!-- 编辑弹窗 -->
+<div class="edit-overlay" id="edit-overlay">
+    <div class="edit-dialog">
+        <h4 id="edit-title">编辑设备</h4>
+        <div class="edit-field">
+            <label>MAC 地址</label>
+            <input type="text" id="edit-mac" readonly class="edit-readonly" />
+        </div>
+        <div class="edit-field">
+            <label>IP 地址</label>
+            <input type="text" id="edit-ip" readonly class="edit-readonly" />
+        </div>
+        <div class="edit-field">
+            <label>设备名称</label>
+            <input type="text" id="edit-name" placeholder="自定义设备名称" />
+        </div>
+        <div class="edit-field">
+            <label>厂商</label>
+            <input type="text" id="edit-vendor" />
+            <div class="field-hint">如自动识别正确，请勿修改</div>
+        </div>
+        <div class="edit-field">
+            <label>设备类型</label>
+            <select id="edit-type">
+                <option value="phone">手机</option>
+                <option value="pc">电脑</option>
+                <option value="iot">IoT</option>
+                <option value="network">网络</option>
+                <option value="unknown">未知</option>
+            </select>
+        </div>
+        <div class="edit-field">
+            <label>分组</label>
+            <select id="edit-group">
+                <option value="">无分组</option>
+                <option value="个人">个人</option>
+                <option value="IoT">IoT</option>
+                <option value="访客">访客</option>
+                <option value="安全">安全</option>
+            </select>
+        </div>
+        <div class="edit-field">
+            <label>备注</label>
+            <input type="text" id="edit-notes" placeholder="设备备注信息" />
+        </div>
+        <div class="edit-buttons">
+            <button class="btn btn-cancel" id="edit-cancel">取消</button>
+            <button class="btn btn-save" id="edit-save">保存</button>
+        </div>
+    </div>
+</div>
+
 <style>
 .devicemaster-toolbar{display:flex;gap:10px;margin-bottom:15px;flex-wrap:wrap;align-items:center;padding-left:20px}
 .devicemaster-filter{display:flex;gap:10px;flex:1;justify-content:flex-end}
@@ -52,8 +99,27 @@ Copyright (C) 2024 OpenWrt-DeviceMaster Project
 .merge-hint{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#007bff;color:#fff;padding:12px 24px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:1000;display:none;gap:10px;align-items:center}
 .merge-hint.show{display:flex}
 .merge-hint .btn{background:#fff;color:#007bff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer}
+.merge-hint .icon-btn{width:30px;height:30px;padding:0;border-radius:50%;font-size:20px;line-height:30px;font-weight:bold;color:#dc3545}
 .merge-hint .btn:hover{background:#f0f0f0}
 .merge-hint .cancel{color:#fff;text-decoration:underline;cursor:pointer;margin-left:10px}
+
+/* 编辑弹窗 */
+.edit-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:2000;display:none;align-items:center;justify-content:center}
+.edit-overlay.show{display:flex}
+.edit-dialog{background:#fff;border-radius:10px;padding:24px 28px;min-width:340px;max-width:440px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.25);max-height:90vh;overflow-y:auto}
+.edit-dialog h4{margin:0 0 18px 0;font-size:16px;color:#333;border-bottom:1px solid #eee;padding-bottom:10px}
+.edit-field{margin-bottom:14px}
+.edit-field label{display:block;font-size:12px;color:#666;margin-bottom:4px;font-weight:bold}
+.edit-field input,.edit-field select{width:100%;padding:7px 10px;border:1px solid #ccc;border-radius:5px;font-size:13px;box-sizing:border-box}
+.edit-field input:focus,.edit-field select:focus{border-color:#007bff;outline:none;box-shadow:0 0 0 2px rgba(0,123,255,0.15)}
+.edit-field .field-hint{font-size:11px;color:#999;margin-top:3px}
+.edit-readonly{background:#f5f5f5;color:#888;cursor:default}
+.edit-buttons{display:flex;gap:10px;margin-top:20px;justify-content:flex-end}
+.edit-buttons .btn{padding:8px 20px;font-size:13px;border-radius:5px;cursor:pointer}
+.edit-buttons .btn-save{background:#007bff;color:#fff;border:1px solid #007bff}
+.edit-buttons .btn-save:hover{background:#0069d9}
+.edit-buttons .btn-cancel{background:#fff;color:#333;border:1px solid #ccc}
+.edit-buttons .btn-cancel:hover{background:#f5f5f5}
 .device-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
 .device-info{flex:1;min-width:0}
 .device-name{font-weight:bold;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -108,22 +174,32 @@ Copyright (C) 2024 OpenWrt-DeviceMaster Project
 (function(){
 var devices=[];
 var deviceMap={};
-var apiUrl = '<%=luci.dispatcher.build_url("admin/network/devicemaster/api")%>';
+var apiUrl = '<%=luci.dispatcher.build_url("admin", "network", "devicemaster", "api")%>';
 var typeLabels = {'phone':'手机','pc':'电脑','iot':'IoT','network':'网络','unknown':'未知'};
 var selectedDevices = [];  // 存储选中的设备MAC
 
 // 创建设备合并提示框
 var mergeHint = document.createElement('div');
 mergeHint.className = 'merge-hint';
-mergeHint.innerHTML = '<span id="merge-text">已选择 0 个设备</span><button class="btn" id="merge-btn">合并设备</button><span class="cancel" id="merge-cancel">取消</span>';
+mergeHint.innerHTML = '<span id="merge-text">已选择 0 个设备</span><button class="btn" id="merge-btn">合并设备</button><button class="btn icon-btn" id="delete-selected-btn" title="删除选中设备" aria-label="删除选中设备">×</button><span class="cancel" id="merge-cancel">取消</span>';
 document.body.appendChild(mergeHint);
 
 // 合并按钮点击事件
 document.getElementById('merge-btn').addEventListener('click', function() {
     if (selectedDevices.length < 2) return;
-    var primaryMac = selectedDevices[0];
-    var secondaryMacs = selectedDevices.slice(1).join(',');
-    if (confirm('确定要将这 ' + selectedDevices.length + ' 个设备合并吗？\n\n主设备: ' + primaryMac + '\n备用MAC: ' + secondaryMacs)) {
+    var ordered = selectedDevices.slice().sort(function(a, b) {
+        var da = deviceMap[a] || {};
+        var db = deviceMap[b] || {};
+        var ta = Number(da.first_seen || da.discovered_at || 0);
+        var tb = Number(db.first_seen || db.discovered_at || 0);
+        if (ta && tb && ta !== tb) return ta - tb;
+        if (ta && !tb) return -1;
+        if (!ta && tb) return 1;
+        return selectedDevices.indexOf(a) - selectedDevices.indexOf(b);
+    });
+    var primaryMac = ordered[0];
+    var secondaryMacs = ordered.slice(1).join(',');
+    if (confirm('确定要将这 ' + selectedDevices.length + ' 个设备合并吗？\n\n保留主设备: ' + primaryMac + '\n并入MAC: ' + secondaryMacs)) {
         httpPost(apiUrl + '/merge_devices', 'primary_mac=' + encodeURIComponent(primaryMac) + '&secondary_macs=' + encodeURIComponent(secondaryMacs), function(res) {
             if (res && res.success) {
                 alert('设备合并成功！');
@@ -134,6 +210,12 @@ document.getElementById('merge-btn').addEventListener('click', function() {
             }
         });
     }
+});
+
+// 删除选中按钮点击事件
+document.getElementById('delete-selected-btn').addEventListener('click', function() {
+    if (selectedDevices.length !== 1) return;
+    confirmDeleteDevice(selectedDevices[0]);
 });
 
 // 取消按钮点击事件
@@ -165,11 +247,17 @@ function updateSelection(mac, card) {
     }
     
     // 更新提示框
+    var mergeBtn = document.getElementById('merge-btn');
+    var deleteBtn = document.getElementById('delete-selected-btn');
     if (selectedDevices.length >= 2) {
         document.getElementById('merge-text').textContent = '已选择 ' + selectedDevices.length + ' 个设备，是否合并？';
+        mergeBtn.style.display = '';
+        deleteBtn.style.display = 'none';
         mergeHint.classList.add('show');
     } else if (selectedDevices.length === 1) {
-        document.getElementById('merge-text').textContent = '已选择 1 个设备，请再选择一个';
+        document.getElementById('merge-text').textContent = '已选择 1 个设备';
+        mergeBtn.style.display = 'none';
+        deleteBtn.style.display = '';
         mergeHint.classList.add('show');
     } else {
         mergeHint.classList.remove('show');
@@ -382,16 +470,62 @@ function scanNetwork(){
 window.editDevice = function(mac) {
     var device = deviceMap[mac];
     if (!device) return;
-    var name = prompt('设备名称:', device.custom_name || device.hostname || '');
-    if (name === null) return;
-    var vendor = prompt('厂商 (请勿修改，除非确定):', device.vendor || '');
-    if (vendor === null) return;
-    var devtype = prompt('设备类型 (phone, pc, iot, network, unknown):', device.type || 'unknown');
-    if (devtype === null) return;
-    var group = prompt('分组 (个人, IoT, 访客, 安全):', device.group || '');
-    if (group === null) return;
-    httpPost(apiUrl + '/set_name', 'mac=' + encodeURIComponent(mac) + '&name=' + encodeURIComponent(name) + '&vendor=' + encodeURIComponent(vendor) + '&devtype=' + encodeURIComponent(devtype) + '&group=' + encodeURIComponent(group), loadDevices);
+
+    // 填充表单
+    document.getElementById('edit-mac').value = device.mac || '';
+    document.getElementById('edit-ip').value = device.ip || 'N/A';
+    document.getElementById('edit-name').value = device.custom_name || device.hostname || '';
+    document.getElementById('edit-vendor').value = device.vendor || '';
+    document.getElementById('edit-type').value = device.type || 'unknown';
+    document.getElementById('edit-group').value = device.group || '';
+    document.getElementById('edit-notes').value = device.notes || '';
+    document.getElementById('edit-title').textContent = '编辑设备 - ' + (device.custom_name || device.hostname || device.mac);
+
+    // 显示弹窗
+    document.getElementById('edit-overlay').classList.add('show');
+
+    // 聚焦到名称输入框
+    setTimeout(function() { document.getElementById('edit-name').focus(); }, 100);
 };
+
+// 编辑弹窗：保存
+document.getElementById('edit-save').addEventListener('click', function() {
+    var mac = document.getElementById('edit-mac').value;
+    var name = document.getElementById('edit-name').value;
+    var vendor = document.getElementById('edit-vendor').value;
+    var devtype = document.getElementById('edit-type').value;
+    var group = document.getElementById('edit-group').value;
+    var notes = document.getElementById('edit-notes').value;
+
+    document.getElementById('edit-overlay').classList.remove('show');
+
+    var params = 'mac=' + encodeURIComponent(mac) +
+        '&name=' + encodeURIComponent(name) +
+        '&vendor=' + encodeURIComponent(vendor) +
+        '&devtype=' + encodeURIComponent(devtype) +
+        '&group=' + encodeURIComponent(group) +
+        '&notes=' + encodeURIComponent(notes);
+    httpPost(apiUrl + '/set_name', params, loadDevices);
+});
+
+// 编辑弹窗：取消
+document.getElementById('edit-cancel').addEventListener('click', function() {
+    document.getElementById('edit-overlay').classList.remove('show');
+});
+
+// 点击遮罩层关闭弹窗
+document.getElementById('edit-overlay').addEventListener('click', function(e) {
+    if (e.target === this) {
+        this.classList.remove('show');
+    }
+});
+
+// ESC 键关闭弹窗
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        document.getElementById('edit-overlay').classList.remove('show');
+    }
+});
 
 window.blockDevice = function(mac) {
     if (confirm('确定要封禁该设备吗？')) {
@@ -437,6 +571,7 @@ window.confirmDeleteDevice = function(mac) {
     if (confirm('确定要删除设备 "' + name + '" 的记录吗？\n\n设备重新上线后会被自动发现并重新记录。')) {
         httpPost(apiUrl + '/delete_device', 'mac=' + encodeURIComponent(mac), function(res) {
             if (res && res.success) {
+                clearSelection();
                 loadDevices();
             } else {
                 alert('删除失败: ' + (res && res.error ? res.error : '未知错误'));
