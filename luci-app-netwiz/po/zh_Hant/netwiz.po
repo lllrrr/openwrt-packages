@@ -2095,6 +2095,9 @@ msgstr "網路連線中斷: {name}"
 msgid "Continue to retry remaining files"
 msgstr "繼續重試上傳剩餘檔案"
 
+msgid "Keep a permanent backup in /etc/netwiz/custom_pkgs"
+msgstr "同時保留備份至 /etc/netwiz/custom_pkgs"
+
 msgid "Ghost Plugin Deletion Warning"
 msgstr "幽靈外掛徹底拔除警告"
 

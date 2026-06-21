@@ -2095,6 +2095,9 @@ msgstr "网络连接中断: {name}"
 msgid "Continue to retry remaining files"
 msgstr "继续重试上传剩余文件"
 
+msgid "Keep a permanent backup in /etc/netwiz/custom_pkgs"
+msgstr "同时保留备份至 /etc/netwiz/custom_pkgs"
+
 msgid "Ghost Plugin Deletion Warning"
 msgstr "死件彻底拔除警告"
 
@@ -2109,3 +2112,4 @@ msgstr "移除"
 
 msgid "Save layout failed"
 msgstr "保存排版失败"
+
