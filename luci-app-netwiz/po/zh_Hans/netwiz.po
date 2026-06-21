@@ -11,19 +11,19 @@ msgid "Pure · Secure · Non-destructive Minimalist Config"
 msgstr "纯粹 · 安全 · 无损的极简配置"
 
 msgid "Secondary Router Mode"
-msgstr "二级路由模式"
+msgstr "二级路由模式 (WAN)"
 
 msgid "Upstream network dials up, this device acts as a secondary router."
 msgstr "上级网络负责拨号，本设备作为二级路由使用。"
 
 msgid "PPPoE Dial-up"
-msgstr "PPPoE 拨号"
+msgstr "PPPoE 拨号 (WAN)"
 
 msgid "Dial up directly using account and password on this device."
 msgstr "在本设备上直接使用宽带账号和密码进行拨号。"
 
 msgid "LAN Settings"
-msgstr "局域网设置"
+msgstr "局域网设置 (LAN)"
 
 msgid "Change device LAN IP, switch to AP Wired Relay mode, or one-click IPv6 distribution."
 msgstr "修改设备局域网 IP，或切换至旁路由（AP有线中继）模式，一键下发IPv6。"
@@ -56,7 +56,7 @@ msgid "e.g., 192.168.1.1"
 msgstr "例如：192.168.1.1"
 
 msgid "PPPoE Credentials"
-msgstr "PPPoE 拨号信息"
+msgstr "PPPoE 拨号信息 (WAN)"
 
 msgid "PPPoE Username"
 msgstr "宽带账号"

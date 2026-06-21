@@ -197,6 +197,65 @@ local function get_wifi_stations()
     return stations
 end
 
+-- Helper: Get wired station list (devices directly connected to this router via LAN ports)
+-- Returns: { ["MAC"] = true }
+local function get_wired_stations()
+    local stations = {}
+    
+    -- Identify mesh port by its virtual MAC
+    local mesh_port = nil
+    local mesh_vmac = get_mesh_vmac()
+    if mesh_vmac then
+        local fdb = sys.exec("brctl showmacs br-lan 2>/dev/null")
+        if fdb then
+            for line in fdb:gmatch("[^\r\n]+") do
+                local port, mac, is_local = line:match("^%s*(%d+)%s+([0-9a-fA-F:]+)%s+(%S+)")
+                if port and mac and is_local == "yes" and mac:upper() == mesh_vmac then
+                    mesh_port = tonumber(port)
+                    break
+                end
+            end
+        end
+    end
+    
+    -- Identify AP ports by their interface MACs
+    local ap_ports = {}
+    for _, iface in ipairs(get_ap_ifaces()) do
+        local out = sys.exec("ip link show dev " .. iface .. " 2>/dev/null | grep 'link/ether' | awk '{print $2}'")
+        if out then
+            local mac = out:upper():match("^([0-9A-Fa-f:]+)")
+            if mac then
+                local fdb = sys.exec("brctl showmacs br-lan 2>/dev/null")
+                if fdb then
+                    for line in fdb:gmatch("[^\r\n]+") do
+                        local port, fmac, is_local = line:match("^%s*(%d+)%s+([0-9a-fA-F:]+)%s+(%S+)")
+                        if port and fmac and is_local == "yes" and fmac:upper() == mac then
+                            ap_ports[tonumber(port)] = true
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Any non-local MAC on a port that is neither mesh nor AP is wired
+    local fdb = sys.exec("brctl showmacs br-lan 2>/dev/null")
+    if fdb then
+        for line in fdb:gmatch("[^\r\n]+") do
+            local port, mac, is_local = line:match("^%s*(%d+)%s+([0-9a-fA-F:]+)%s+(%S+)")
+            if port and mac and is_local == "no" then
+                local port_num = tonumber(port)
+                if port_num ~= mesh_port and not ap_ports[port_num] then
+                    stations[mac:upper()] = true
+                end
+            end
+        end
+    end
+    
+    return stations
+end
+
 -- Helper: Get DHCP leases as { mac = { ip, hostname } }
 local function get_dhcp_leases()
     local leases = {}
@@ -549,7 +608,7 @@ end
 --   2. Bridge FDB: non-local MACs on wl1-mesh0 port
 --        Mesh node = type=network device whose OUI matches main router
 --        Others on same port = mesh_children
-local function identify_topology(bandix_uplink, wifi_stations, mesh_stations, dhcp_leases)
+local function identify_topology(bandix_uplink, wifi_stations, wired_stations, mesh_stations, dhcp_leases)
     local mesh_nodes = {}
     local mesh_children = {}
     local mesh_port  -- cached wl1-mesh0 bridge port number
@@ -655,9 +714,9 @@ local function identify_topology(bandix_uplink, wifi_stations, mesh_stations, dh
             end
         end
         
-        -- 2c: DHCP lease MACs on LAN subnet (not already identified) → mesh_children
+        -- 2c: DHCP lease MACs on LAN subnet (not already identified, not direct) → mesh_children
         for mac, info in pairs(dhcp_leases) do
-            if not wifi_stations[mac] and not mesh_nodes[mac] and not mesh_children[mac] then
+            if not wifi_stations[mac] and not wired_stations[mac] and not mesh_nodes[mac] and not mesh_children[mac] then
                 local device_prefix = info.ip:match("^(%d+%.%d+%.%d+)")
                 if device_prefix and device_prefix == lan_prefix then
                     mesh_children[mac] = {
@@ -682,12 +741,13 @@ local function get_arp_online()
 
     -- Get basic data
     local wifi_stations = get_wifi_stations()
+    local wired_stations = get_wired_stations()
     local mesh_stations = get_mesh_stations()
     local dhcp_leases = get_dhcp_leases()
     local bandix_uplink = get_bandix_uplink()
     
     -- Identify topology (uses Bandix if available, otherwise falls back)
-    local mesh_nodes, mesh_children = identify_topology(bandix_uplink, wifi_stations, mesh_stations, dhcp_leases)
+    local mesh_nodes, mesh_children = identify_topology(bandix_uplink, wifi_stations, wired_stations, mesh_stations, dhcp_leases)
 
     -- Read /proc/net/arp for all known device IPs
     local f = io.open("/proc/net/arp", "r")
@@ -734,7 +794,12 @@ local function get_arp_online()
     end
 
     -- Tier 2: ip neigh REACHABLE/PERMANENT
-    -- Skip ARP entries where IP is already claimed by DHCP for a different MAC
+    -- Track NAT downstream relationships: if an IP is assigned by DHCP to MAC A,
+    -- but ARP/neigh resolves that IP to MAC B, then MAC A is likely behind a
+    -- NAT router whose WAN side is MAC B. MAC B (e.g. HIWIFI) is the upstream
+    -- parent of MAC A (e.g. a Tuya IoT device).
+    local nat_children = {}   -- parent_mac -> { child_mac, ... }
+    local nat_parents = {}    -- child_mac -> parent_mac
     local output = sys.exec("ip neigh show dev br-lan 2>/dev/null")
     if output and output ~= "" then
         for line in output:gmatch("[^\r\n]+") do
@@ -745,11 +810,12 @@ local function get_arp_online()
                 state = state:upper()
                 mac = mac:upper()
                 if state == "REACHABLE" or state == "PERMANENT" or state == "STALE" or state == "DELAY" then
-                    -- Skip if this IP is claimed by DHCP for a different MAC
-                    -- (indicates sub-router is NATting or doing DHCP for downstream devices)
                     local dhcp_owner = dhcp_ip_to_mac[ip]
                     if dhcp_owner and dhcp_owner ~= mac then
-                        -- Skip this ARP entry, use DHCP's mapping instead
+                        -- NAT downstream detected: dhcp_owner is behind mac.
+                        nat_parents[dhcp_owner] = mac
+                        if not nat_children[mac] then nat_children[mac] = {} end
+                        table.insert(nat_children[mac], dhcp_owner)
                     else
                         online[mac] = ip
                     end
@@ -845,6 +911,24 @@ local function get_arp_online()
         end
     end
 
+    -- Tier 5: NAT upstream devices are online if any downstream child is online.
+    -- Example: a Tuya IoT device (192.168.31.129) is behind a HIWIFI router
+    -- (D4:EE:07:24:9B:8E). Even if the HIWIFI's own IP is not currently
+    -- reachable, as long as the Tuya device is online the HIWIFI must be online.
+    -- Note: IoT devices are already marked online in Tier 3 when they hold a
+    -- DHCP lease, so checking online[child_mac] covers the IoT case precisely.
+    for parent_mac, children in pairs(nat_children) do
+        if not online[parent_mac] then
+            for _, child_mac in ipairs(children) do
+                if online[child_mac] then
+                    -- Prefer the parent's own DHCP IP; fall back to ARP.
+                    online[parent_mac] = (dhcp_leases[parent_mac] and dhcp_leases[parent_mac].ip) or all_arp[parent_mac] or ""
+                    break
+                end
+            end
+        end
+    end
+
     -- Fallback
     if next(online) == nil then
         online = all_arp
@@ -852,7 +936,10 @@ local function get_arp_online()
 
     local mesh_info = {
         nodes = mesh_nodes,
-        children = mesh_children
+        children = mesh_children,
+        nat_parents = nat_parents,
+        nat_children = nat_children,
+        wired_stations = wired_stations
     }
 
     return online, all_arp, wifi_stations, mesh_info
@@ -1098,15 +1185,23 @@ function api_merge_devices()
         end
         
         -- Detect if randomized MAC (LAA - Locally Administered Address)
+        -- LAA: second-least significant bit of the first byte is set (0x02).
         local first_byte = tonumber(new_mac:sub(1,2), 16)
-        local randomized = first_byte and (first_byte % 2 == 2)
-        
+        local randomized = first_byte and (first_byte % 4 >= 2)
+
         -- Create new device section
         local section_name = uci:add("devicemaster", "device")
         uci:set("devicemaster", section_name, "mac", new_mac)
         uci:set("devicemaster", section_name, "last_ip", ip or "")
-        uci:set("devicemaster", section_name, "vendor", randomized and "Apple" or "未知")
-        uci:set("devicemaster", section_name, "type", "phone")
+        -- Do NOT hard-code Apple/phone. LAA devices get generic placeholders
+        -- and are re-identified by discover_all / reidentify_all.
+        if randomized then
+            uci:set("devicemaster", section_name, "vendor", "LAA")
+            uci:set("devicemaster", section_name, "type", "unknown")
+        else
+            uci:set("devicemaster", section_name, "vendor", "未知")
+            uci:set("devicemaster", section_name, "type", "unknown")
+        end
         uci:set("devicemaster", section_name, "discovered", "1")
         uci:set("devicemaster", section_name, "discovered_at", tostring(os.time()))
         uci:set("devicemaster", section_name, "blocked", "0")
@@ -1392,7 +1487,10 @@ function api_merge_devices()
     -- Clean up any stale dhcp-host entries for the secondary MACs.
     -- These MACs are now alt_macs and should NOT appear as
     -- independent hosts in the DHCP list.
-    if dhcp_ignore_val ~= "1" then
+    -- Also patch /tmp/dhcp.leases so their lease rows show the merged
+    -- device's name instead of "-" or the old client hostname.
+    local secondary_deleted = false
+    if dhcp_ignore_val ~= "1" and canonical_name and canonical_name ~= "" then
         for _, smac in ipairs(all_macs) do
             if smac ~= canonical_mac then
                 local s_lower = smac:lower()
@@ -1403,10 +1501,53 @@ function api_merge_devices()
                     if hm:lower() == s_lower then
                         uci:delete("dhcp", "@host[" .. di .. "]")
                         uci:commit("dhcp")
+                        secondary_deleted = true
                         di = 0
                     else
                         di = di + 1
                     end
+                end
+            end
+        end
+        -- Restart dnsmasq if any secondary static lease was removed.
+        -- The primary-MAC restart above only covers the primary entry;
+        -- stale secondary entries must also be flushed from dnsmasq.
+        if secondary_deleted then
+            sys.exec("/etc/init.d/dnsmasq restart >/dev/null 2>&1 &")
+        end
+        -- Patch lease file for all secondary MACs
+        local leases_fn = "/tmp/dhcp.leases"
+        local f = io.open(leases_fn, "r")
+        if f then
+            local lines = {}
+            local changed = false
+            for line in f:lines() do
+                local ts, lmac, lip, lname, lid = line:match(
+                    "^(%d+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(.*)")
+                if lmac then
+                    local is_secondary = false
+                    for _, smac in ipairs(all_macs) do
+                        if smac ~= canonical_mac and lmac:upper() == smac then
+                            is_secondary = true
+                            break
+                        end
+                    end
+                    if is_secondary then
+                        line = string.format("%s %s %s %s %s",
+                            ts, lmac, lip, canonical_name, lid)
+                        changed = true
+                    end
+                end
+                table.insert(lines, line)
+            end
+            f:close()
+            if changed then
+                local out = io.open(leases_fn, "w")
+                if out then
+                    for _, line in ipairs(lines) do
+                        out:write(line .. "\n")
+                    end
+                    out:close()
                 end
             end
         end
@@ -1884,12 +2025,36 @@ function api_status()
             end
         end
 
+        local rp = remote_devices[mac_upper]
+        -- Parse alt_macs string into array (needed for topology detection below)
+        local alt_macs = {}
+        if s.alt_macs and s.alt_macs ~= "" then
+            for alt_mac in s.alt_macs:gmatch("[^,]+") do
+                local alt_upper = alt_mac:upper()
+                table.insert(alt_macs, alt_upper)
+                merged_alias_macs[alt_upper] = true
+            end
+        end
+
+        -- Helper: check if a MAC or any of its alt_macs is in a station set
+        local function mac_or_alt_in_set(station_set, mac, alts)
+            if station_set and station_set[mac] then return true end
+            if alts then
+                for _, alt in ipairs(alts) do
+                    if station_set and station_set[alt] then return true end
+                end
+            end
+            return false
+        end
+
         -- Determine topology tier
         local topology_tier = "unknown"
         local parent_node = nil
         local mesh_connected = false
-        if wifi_stations[mac_upper] then
+        if mac_or_alt_in_set(wifi_stations, mac_upper, alt_macs) then
             topology_tier = "direct"  -- Direct WiFi connection to this router
+        elseif mac_or_alt_in_set(mesh_info.wired_stations, mac_upper, alt_macs) then
+            topology_tier = "wired"   -- Wired connection to this router
         elseif mesh_info.nodes[mac_upper] then
             topology_tier = "mesh_node"  -- This device IS a mesh node
             mesh_connected = mesh_info.nodes[mac_upper].mesh_connected or false
@@ -1900,16 +2065,6 @@ function api_status()
             topology_tier = "remote"  -- Online but not direct (via wire/other)
         end
 
-        local rp = remote_devices[mac_upper]
-        -- Parse alt_macs string into array
-        local alt_macs = {}
-        if s.alt_macs and s.alt_macs ~= "" then
-            for alt_mac in s.alt_macs:gmatch("[^,]+") do
-                local alt_upper = alt_mac:upper()
-                table.insert(alt_macs, alt_upper)
-                merged_alias_macs[alt_upper] = true
-            end
-        end
         merge_session_aliases(session, mac_upper, alt_macs)
         device_session = session.devices[mac_upper] or device_session
         total_online = tonumber(device_session.total_online_time) or 0
@@ -1930,6 +2085,10 @@ function api_status()
         end
         if online_seconds < 0 then online_seconds = 0 end
 
+        -- NAT topology enrichment (detected in get_arp_online Tier 2/5)
+        local nat_parent = mesh_info.nat_parents and mesh_info.nat_parents[mac_upper] or nil
+        local nat_children_list = mesh_info.nat_children and mesh_info.nat_children[mac_upper] or nil
+
         devices[#devices + 1] = {
             mac = s.mac,
             ip = ip,
@@ -1946,6 +2105,8 @@ function api_status()
             topology = topology_tier,  -- direct | mesh_node | mesh_child | remote | unknown
             mesh_connected = mesh_connected,  -- For mesh_node: true if connected via mesh interface
             parent_node = parent_node,  -- For mesh_child devices, the parent mesh node MAC
+            nat_parent = nat_parent,  -- Upstream NAT router MAC (if behind NAT)
+            nat_children = nat_children_list,  -- Downstream devices behind this NAT router
             -- Only expose custom_name when user manually set it (manual=1)
             -- Auto-generated names (vendor-type) should NOT override hostname
             custom_name = (s.manual == "1" and s.name) and s.name or nil,

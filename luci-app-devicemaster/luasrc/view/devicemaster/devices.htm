@@ -51,6 +51,7 @@
             <select id="edit-type">
                 <option value="phone">手机</option>
                 <option value="pc">电脑</option>
+                <option value="tv">电视</option>
                 <option value="iot">IoT</option>
                 <option value="network">网络</option>
                 <option value="printer">打印机</option>
@@ -130,6 +131,7 @@
 .device-type{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:bold;margin-left:6px;vertical-align:middle}
 .device-type.phone{background:#e3f2fd;color:#1565c0}
 .device-type.pc{background:#f3e5f5;color:#7b1fa2}
+.device-type.tv{background:#fff8e1;color:#f57f17}
 .device-type.iot{background:#fff3e0;color:#e65100}
 .device-type.network{background:#e8f5e9;color:#2e7d32}
 .device-type.printer{background:#e0f7fa;color:#006064}
@@ -181,7 +183,7 @@
 var devices=[];
 var deviceMap={};
 var apiUrl = '<%=luci.dispatcher.build_url("admin", "network", "devicemaster", "api")%>';
-var typeLabels = {'phone':'手机','pc':'电脑','iot':'IoT','network':'网络','printer':'打印机','nas':'NAS','camera':'摄像头','unknown':'未知'};
+var typeLabels = {'phone':'手机','pc':'电脑','tv':'电视','iot':'IoT','network':'网络','printer':'打印机','nas':'NAS','camera':'摄像头','unknown':'未知'};
 var selectedDevices = [];  // 存储选中的设备MAC
 
 // 创建设备合并提示框
