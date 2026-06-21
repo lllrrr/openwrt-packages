@@ -107,6 +107,15 @@ get_uci_macs() {
     local idx=0
     while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
         uci -q get "devicemaster.@device[$idx].mac" | tr 'a-f' 'A-F' >> "$UCI_MAC_FILE"
+        # Also include alt_macs so merged device aliases are not treated as new devices
+        local alts=$(uci -q get "devicemaster.@device[$idx].alt_macs" 2>/dev/null)
+        if [ -n "$alts" ]; then
+            OLD_IFS="$IFS"; IFS=','
+            for alt in $alts; do
+                [ -n "$alt" ] && echo "$alt" | tr 'a-f' 'A-F' | tr -d ' ' >> "$UCI_MAC_FILE"
+            done
+            IFS="$OLD_IFS"
+        fi
         idx=$((idx + 1))
     done
 }

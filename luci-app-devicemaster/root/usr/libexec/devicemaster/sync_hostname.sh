@@ -1,1 +1,464 @@
-#!/bin/sh\n# sync_hostname.sh - Sync device hostname to dnsmasq static lease\n# Usage: sync_hostname.sh <mac> <name> [ip]\n#\n# This script handles the full lifecycle:\n# 1. Remove ALL existing dhcp host entries for this MAC\n# 2. Add a new dhcp host entry with the given name\n# 3. Restart dnsmasq (not reload - reload doesn't flush DNS cache)\n#\n# Called by: devicemaster.lua (api_set_name) and event_handler.sh (register_device)\n#\n# IMPORTANT: This script runs SYNCHRONOUSLY (no & background).\n# The caller must wait for it to complete.\n\nMAC="$1"\nNAME="$2"\nIP="$3"\n\nLOG_TAG="devicemaster-sync"\n\nlog_msg() {\n    logger -t "$LOG_TAG" "$1"\n}\n\n# Return all MACs (primary + alt_macs) of the devicemaster device that\n# contains the given MAC. Space-separated, lowercased. Empty if not found.\nget_device_macs() {\n    local mac="$1"\n    [ -z "$mac" ] && return\n    local mac_lower=$(echo "$mac" | tr 'A-F' 'a-f')\n    local idx=0\n    while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do\n        local primary=$(uci -q get "devicemaster.@device[$idx].mac")\n        local primary_lower=$(echo "$primary" | tr 'A-F' 'a-f')\n        local alts=$(uci -q get "devicemaster.@device[$idx].alt_macs")\n        local matched=0\n        local all_macs="$primary_lower"\n        if [ -n "$alts" ]; then\n            local IFS=','\n            for alt in $alts; do\n                local alt_lower=$(echo "$alt" | tr 'A-F' 'a-f')\n                [ -n "$alt_lower" ] && all_macs="$all_macs $alt_lower"\n                [ "$alt_lower" = "$mac_lower" ] && matched=1\n            done\n            unset IFS\n        fi\n        if [ "$primary_lower" = "$mac_lower" ] || [ "$matched" = "1" ]; then\n            echo "$all_macs"\n            return\n        fi\n        idx=$((idx + 1))\n    done\n}\n\n# Validate\nif [ -z "$MAC" ]; then\n    log_msg "ERROR: Missing MAC argument"\n    echo "ERROR: Missing MAC"\n    exit 1\nfi\nif [ -z "$NAME" ]; then\n    log_msg "ERROR: Missing NAME argument"\n    echo "ERROR: Missing NAME"\n    exit 1\nfi\n\n# ============================================================\n# CRITICAL SAFETY CHECK: this MAC is an alt_mac of some device?\n# Run this BEFORE IP lookup so we can clean up offline alt_macs too.\n# ============================================================\n# alt_macs must NOT get their own dhcp-host entry. Two reasons:\n#   1. dnsmasq REFUSES to start if two dhcp-host entries share\n#      the same IP (even for different MACs) -> crashloop -> no\n#      DHCP at all for the whole network.\n#   2. dnsmasq matches a host by primary MAC; an alt_mac can only\n#      "accidentally" get a lease via the dynamic pool.\n# The device's hostname is already stored against its PRIMARY MAC\n# in the devicemaster UCI section; that is the single source of\n# truth used for display in both the device list and DHCP leases.\n#\n# FIX: In addition to refusing a NEW entry, also CLEAN UP any\n# existing dhcp-host entry for this alt_mac. Previously merged\n# devices may already have their own dhcp-host from the old\n# register_device flow, and leaving those behind causes the\n# DHCP list to show an out-of-date / meaningless name.\n# This check runs BEFORE IP lookup so that OFFLINE alt_macs\n# (no ARP entry) are also properly cleaned up.\nMAC_LOWER=$(echo "$MAC" | tr 'A-F' 'a-f')\n_alt_primary=""\n_alt_idx=0\nwhile [ $_alt_idx -lt 200 ]; do\n    _dm_mac=$(uci -q get "devicemaster.@device[$_alt_idx].mac" 2>/dev/null)\n    [ -z "$_dm_mac" ] && break\n    _alts=$(uci -q get "devicemaster.@device[$_alt_idx].alt_macs" 2>/dev/null)\n    if [ -n "$_alts" ]; then\n        OLD_IFS="$IFS"; IFS=','\n        for _a in $_alts; do\n            _a_l=$(echo "$_a" | tr -d ' ' | tr 'A-F' 'a-f')\n            if [ "$_a_l" = "$MAC_LOWER" ]; then\n                _alt_primary="$_dm_mac"\n                break 2\n            fi\n        done\n        IFS="$OLD_IFS"\n    fi\n    _alt_idx=$((_alt_idx+1))\ndone\nif [ -n "$_alt_primary" ]; then\n    # Resolve the authoritative display name for the merged device:\n    # use the primary's hostname, falling back to its manual name.\n    _alt_display=""\n    _alt_hn=$(uci -q get "devicemaster.@device[$_alt_idx].hostname" 2>/dev/null)\n    _alt_nm=$(uci -q get "devicemaster.@device[$_alt_idx].name" 2>/dev/null)\n    _alt_manual=$(uci -q get "devicemaster.@device[$_alt_idx].manual" 2>/dev/null)\n    if [ -n "$_alt_hn" ] && [ "$_alt_hn" != "*" ] && [ "$_alt_hn" != "unknown" ]; then\n        case "$_alt_hn" in\n            Mobile-Device-*|*-Device-phone|*-Device-pc|*-Device-iot|*-Device-tv|*-Device-laa) ;;\n            *) _alt_display="$_alt_hn" ;;\n        esac\n    fi\n    if [ -z "$_alt_display" ]; then\n        if [ "$_alt_manual" = "1" ] && [ -n "$_alt_nm" ] && [ "$_alt_nm" != "*" ] && [ "$_alt_nm" != "unknown" ]; then\n            _alt_display="$_alt_nm"\n        fi\n    fi\n    [ -z "$_alt_display" ] && _alt_display="*"\n\n    log_msg "SKIP: $MAC is an alt_mac of $_alt_primary (display name: $_alt_display); cleaning up stale dhcp-host entry and patching /tmp/dhcp.leases hostname."\n    # Clean up any stale dhcp.@host entry for this alt_mac (dnsmasq must not have\n    # two dhcp-host entries for the same IP, even with different MACs)\n    _deleted=0\n    while true; do\n        _found=0\n        _idx=0\n        while uci -q get "dhcp.@host[$_idx].mac" >/dev/null 2>&1; do\n            _hm=$(uci -q get "dhcp.@host[$_idx].mac")\n            _hm_l=$(echo "$_hm" | tr 'A-F' 'a-f')\n            if [ "$_hm_l" = "$MAC_LOWER" ]; then\n                uci -q delete "dhcp.@host[$_idx]"\n                _deleted=$((_deleted + 1))\n                _found=1\n                break\n            fi\n            _idx=$((_idx + 1))\n        done\n        [ "$_found" = "0" ] && break\n    done\n    if [ "$_deleted" -gt 0 ]; then\n        uci -q commit dhcp\n    fi\n    # FIX: Patch /tmp/dhcp.leases so the alt_mac's IP is shown under the\n    # merged device's name in the LuCI DHCP list. Keeping the IP visible\n    # (instead of deleting the line) matches user expectation that the\n    # merged device keeps its current lease display.\n    if [ -f "/tmp/dhcp.leases" ]; then\n        sed -i "/[[:space:]]${MAC_LOWER}[[:space:]]/{ s/^\([0-9]*[[:space:]]*[a-fA-F0-9:]*[[:space:]]*[0-9.]*[[:space:]]*\)[^[:space:]]*/\1${_alt_display}/ }" /tmp/dhcp.leases\n    fi\n    if [ "$_deleted" -gt 0 ] && [ "${SKIP_DNSMASQ_RESTART:-0}" != "1" ]; then\n        /etc/init.d/dnsmasq restart >/dev/null 2>&1\n    fi\n    log_msg "Cleaned $_deleted stale dhcp-host entries for alt_mac $MAC; lease hostname patched to $_alt_display."\n    echo "OK: alt_mac skipped (cleaned $_deleted dhcp-host entries; lease hostname patched to $_alt_display)"\n    exit 0\nfi\n\n# Sanitize hostname: dnsmasq only allows [a-zA-Z0-9._-]\n# Non-ASCII characters (e.g. Chinese) will cause dnsmasq to crash!\n# RFC 1035: hostname max length is 63 characters per label\nSAFE_NAME=$(echo "$NAME" | sed 's/[^a-zA-Z0-9._-]//g' | cut -c1-63)\nif [ -z "$SAFE_NAME" ]; then\n    log_msg "ERROR: Name '$NAME' has no valid DNS characters after sanitization"\n    echo "ERROR: Invalid hostname"\n    exit 1\nfi\nif [ "$SAFE_NAME" != "$NAME" ]; then\n    log_msg "WARN: Sanitized hostname '$NAME' -> '$SAFE_NAME' (removed non-ASCII chars)"\n    NAME="$SAFE_NAME"\nfi\n\n# If IP not provided, look it up from ARP\nif [ -z "$IP" ]; then\n    IP=$(grep -i "$MAC" /proc/net/arp 2>/dev/null | awk '{print $1}' | head -1)\nfi\nif [ -z "$IP" ]; then\n    log_msg "ERROR: Cannot find IP for $MAC in ARP table (device may be offline)"\n    echo "ERROR: No IP found for $MAC"\n    exit 1\nfi\n\n# ============================================================\n# SECOND SAFETY CHECK: reject "automatically generated" hostnames\n# ============================================================\n# DeviceMaster invents placeholder names such as "Mobile-Device-phone"\n# from OUI + device-type, or "*"/"unknown" when nothing is known.\n# Writing these to dnsmasq pollutes the DHCP list.  Only sync a\n# lease when we have a meaningful hostname.\ncase "$NAME" in\n    ''|*'*'*|*unknown*)\n        log_msg "SKIP: placeholder hostname '$NAME' for $MAC"\n        echo "OK: placeholder name skipped"\n        exit 0\n        ;;\nesac\n# Additional check: common auto-generated patterns\n_name_lower=$(echo "$NAME" | tr 'A-Z' 'a-z')\ncase "$_name_lower" in\n    mobile-device-*|*-device-phone|*-device-pc|*-device-iot|*-device-tv|*-device-laa)\n        log_msg "SKIP: auto-generated hostname '$NAME' for $MAC"\n        echo "OK: auto-generated name skipped"\n        exit 0\n        ;;\nesac\n# Also skip if hostname is a full MAC address (XX:XX:XX:XX:XX:XX)\nif echo "$NAME" | grep -qiE '^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}$'; then\n    log_msg "SKIP: hostname '$NAME' looks like a MAC address for $MAC"\n    echo "OK: MAC-as-hostname skipped"\n    exit 0\nfi\n\n# Concurrent lock (atomic mkdir)\nLOCK="/tmp/dm_sync_hostname.lock"\nif ! mkdir "$LOCK" 2>/dev/null; then\n    log_msg "ERROR: Another sync in progress, aborting"\n    echo "ERROR: Another sync in progress"\n    exit 1\nfi\ntrap 'rmdir "$LOCK" 2>/dev/null' EXIT\n\nlog_msg "START: $MAC -> $NAME ($IP)"\n\n# Step 1: Remove ALL existing host entries for this MAC\n# Handle index shifting: after delete, indices change\n# Strategy: keep scanning from 0, break and restart after each deletion\n# IMPORTANT: Compare MACs case-insensitively (UCI may store in different cases)\nMAC_LOWER=$(echo "$MAC" | tr 'A-F' 'a-f')\ndeleted=0\nwhile true; do\n    found=0\n    idx=0\n    while uci -q get "dhcp.@host[$idx].mac" >/dev/null 2>&1; do\n        hm=$(uci -q get "dhcp.@host[$idx].mac")\n        hm_lower=$(echo "$hm" | tr 'A-F' 'a-f')\n        if [ "$hm_lower" = "$MAC_LOWER" ]; then\n            uci -q delete "dhcp.@host[$idx]"\n            deleted=$((deleted + 1))\n            found=1\n            break  # Restart scan from 0 (indices shifted)\n        fi\n        idx=$((idx + 1))\n    done\n    [ "$found" = "0" ] && break\ndone\nlog_msg "Deleted $deleted old host entries for $MAC"\n\n# 修复：删除后立即 commit，确保检测时旧条目已清除\nuci -q commit dhcp\n\n# Step 2: Check for duplicate hostnames and add suffix if needed\n# 修复：检查 devicemaster 和 dhcp 中的名称，与 LuCI unique_name 保持一致\n# 注意：需要正确排除自己，不能直接用 grep -v MAC，因为 uci show 输出格式不同\n# 合并设备的 alt_macs 与主 MAC 属于同一逻辑设备，允许共享 hostname。\nDEVICE_MACS=$(get_device_macs "$MAC")\nbase_name="$NAME"\ncounter=1\nfinal_name="$NAME"\nwhile true; do\n    # Check if this name is already used by another MAC in dhcp\n    dup_dhcp=""\n    dhcp_line=$(uci show dhcp 2>/dev/null | grep "\.name='${final_name}'" | head -1)\n    if [ -n "$dhcp_line" ]; then\n        # Extract index from dhcp entry (format: dhcp.@host[N].name='...')\n        dhcp_idx=$(echo "$dhcp_line" | grep -o '@host\[[0-9]*\]' | grep -o '[0-9]*')\n        dhcp_mac=$(uci -q get "dhcp.@host[$dhcp_idx].mac" 2>/dev/null)\n        dhcp_mac_lower=$(echo "$dhcp_mac" | tr 'A-F' 'a-f')\n        if [ "$dhcp_mac_lower" != "$MAC_LOWER" ]; then\n            # 同一 devicemaster 设备（主 MAC + alt_macs）允许同名\n            if ! echo " $DEVICE_MACS " | grep -q " $dhcp_mac_lower "; then\n                dup_dhcp="$dhcp_line"\n            fi\n        fi\n    fi\n\n    # Check if this name is already used by another MAC in devicemaster (name field)\n    dup_dm_name=""\n    dm_line=$(uci show devicemaster 2>/dev/null | grep "\.name='${final_name}'" | head -1)\n    if [ -n "$dm_line" ]; then\n        # Extract section name (format: devicemaster.@device[N].name='...' or devicemaster.XXXXXX.name='...')\n        dm_section=$(echo "$dm_line" | grep -o '@device\[[0-9]*\]')\n        [ -z "$dm_section" ] && dm_section=$(echo "$dm_line" | sed 's/^devicemaster\.\([^=]*\)\..*/\1/')\n        dm_mac=$(uci -q get "devicemaster.$dm_section.mac" 2>/dev/null)\n        dm_mac_lower=$(echo "$dm_mac" | tr 'A-F' 'a-f')\n        if [ "$dm_mac_lower" != "$MAC_LOWER" ]; then\n            # 同一 devicemaster 设备（主 MAC + alt_macs）允许同名\n            if ! echo " $DEVICE_MACS " | grep -q " $dm_mac_lower "; then\n                dup_dm_name="$dm_line"\n            fi\n        fi\n    fi\n\n    # Check if this name is already used by another MAC in devicemaster (hostname field)\n    dup_dm_hostname=""\n    dm_line=$(uci show devicemaster 2>/dev/null | grep "\.hostname='${final_name}'" | head -1)\n    if [ -n "$dm_line" ]; then\n        # Extract section name\n        dm_section=$(echo "$dm_line" | grep -o '@device\[[0-9]*\]')\n        [ -z "$dm_section" ] && dm_section=$(echo "$dm_line" | sed 's/^devicemaster\.\([^=]*\)\..*/\1/')\n        dm_mac=$(uci -q get "devicemaster.$dm_section.mac" 2>/dev/null)\n        dm_mac_lower=$(echo "$dm_mac" | tr 'A-F' 'a-f')\n        if [ "$dm_mac_lower" != "$MAC_LOWER" ]; then\n            # 同一 devicemaster 设备（主 MAC + alt_macs）允许同名\n            if ! echo " $DEVICE_MACS " | grep -q " $dm_mac_lower "; then\n                dup_dm_hostname="$dm_line"\n            fi\n        fi\n    fi\n\n    if [ -z "$dup_dhcp" ] && [ -z "$dup_dm_name" ] && [ -z "$dup_dm_hostname" ]; then\n        break\n    fi\n    # Name exists, try with suffix\n    counter=$((counter + 1))\n    final_name="${base_name}-${counter}"\n    # Prevent infinite loop\n    [ "$counter" -gt 100 ] && break\ndone\n\nif [ "$final_name" != "$NAME" ]; then\n    log_msg "WARN: Name '$NAME' already used by another device, using '$final_name' instead"\n    NAME="$final_name"\nfi\n\n# Step 3: Add new host entry\nuci -q add dhcp host >/dev/null\nuci -q set "dhcp.@host[-1].mac=$MAC"\nuci -q set "dhcp.@host[-1].ip=$IP"\nuci -q set "dhcp.@host[-1].name=$NAME"\n\n# Step 3: Commit\nuci -q commit dhcp\nlog_msg "UCI committed: dhcp host $MAC -> $NAME ($IP)"\n\n# Step 4: Patch /tmp/dhcp.leases to update hostname in-place\n# This makes LuCI's DHCP lease page show the custom name immediately,\n# instead of the client-reported hostname (e.g. "Applephone" -> "iphone13pro")\n# /tmp/dhcp.leases format: <timestamp> <mac> <ip> <hostname> <clientid>\nDHCP_LEASES="/tmp/dhcp.leases"\nif [ -f "$DHCP_LEASES" ]; then\n    # Use sed to replace hostname for matching MAC (case-insensitive)\n    # The hostname is the 4th field in the lease line\n    MAC_SED=$(echo "$MAC_LOWER" | sed 's/[.[\*^$()+?{|\\]/\\&/g')\n    sed -i "/[[:space:]]${MAC_SED}[[:space:]]/{\n        s/^\([0-9]*[[:space:]]*[a-fA-F0-9:]*[[:space:]]*[0-9.]*[[:space:]]*\)[^[:space:]]*/\1${NAME}/\n    }" "$DHCP_LEASES"\n    log_msg "Patched dhcp.leases hostname for $MAC -> $NAME"\nfi\n\n# Step 5: Restart dnsmasq to apply all changes\n# Use restart instead of reload to flush DNS cache and pick up lease file changes\n# When called in batch mode (e.g. from reidentify/discover sync loops), caller\n# will restart dnsmasq once at the end to avoid N restarts for N devices.\nif [ "${SKIP_DNSMASQ_RESTART:-0}" != "1" ]; then\n    /etc/init.d/dnsmasq restart >/dev/null 2>&1\n\n    # Verify: use nslookup to confirm DNS resolution works\n    sleep 1\n    if nslookup "$NAME" 127.0.0.1 >/dev/null 2>&1; then\n        log_msg "OK: DNS lookup for $NAME succeeded"\n        echo "OK"\n    else\n        log_msg "WARN: DNS lookup for $NAME failed after restart"\n        echo "WARN: DNS verification failed"\n    fi\nelse\n    log_msg "Batch mode: skipping dnsmasq restart for $MAC"\n    echo "OK"\nfi\n\nexit 0\n
+#!/bin/sh
+# sync_hostname.sh - Sync device hostname to dnsmasq static lease
+# Usage: sync_hostname.sh <mac> <name> [ip]
+#
+# This script handles the full lifecycle:
+# 1. Remove ALL existing dhcp host entries for this MAC
+# 2. Add a new dhcp host entry with the given name
+# 3. Restart dnsmasq (not reload - reload doesn't flush DNS cache)
+#
+# Called by: devicemaster.lua (api_set_name) and event_handler.sh (register_device)
+#
+# IMPORTANT: This script runs SYNCHRONOUSLY (no & background).
+# The caller must wait for it to complete.
+
+MAC="$1"
+NAME="$2"
+IP="$3"
+
+LOG_TAG="devicemaster-sync"
+
+log_msg() {
+    logger -t "$LOG_TAG" "$1"
+}
+
+# Return all MACs (primary + alt_macs) of the devicemaster device that
+# contains the given MAC. Space-separated, lowercased. Empty if not found.
+get_device_macs() {
+    local mac="$1"
+    [ -z "$mac" ] && return
+    local mac_lower=$(echo "$mac" | tr 'A-F' 'a-f')
+    local idx=0
+    while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
+        local primary=$(uci -q get "devicemaster.@device[$idx].mac")
+        local primary_lower=$(echo "$primary" | tr 'A-F' 'a-f')
+        local alts=$(uci -q get "devicemaster.@device[$idx].alt_macs")
+        local matched=0
+        local all_macs="$primary_lower"
+        if [ -n "$alts" ]; then
+            local IFS=','
+            for alt in $alts; do
+                local alt_lower=$(echo "$alt" | tr 'A-F' 'a-f')
+                [ -n "$alt_lower" ] && all_macs="$all_macs $alt_lower"
+                [ "$alt_lower" = "$mac_lower" ] && matched=1
+            done
+            unset IFS
+        fi
+        if [ "$primary_lower" = "$mac_lower" ] || [ "$matched" = "1" ]; then
+            echo "$all_macs"
+            return
+        fi
+        idx=$((idx + 1))
+    done
+}
+
+# Validate
+if [ -z "$MAC" ]; then
+    log_msg "ERROR: Missing MAC argument"
+    echo "ERROR: Missing MAC"
+    exit 1
+fi
+if [ -z "$NAME" ]; then
+    log_msg "ERROR: Missing NAME argument"
+    echo "ERROR: Missing NAME"
+    exit 1
+fi
+
+# ============================================================
+# CRITICAL SAFETY CHECK: this MAC is an alt_mac of some device?
+# Run this BEFORE IP lookup so we can clean up offline alt_macs too.
+# ============================================================
+# alt_macs must NOT get their own dhcp-host entry. Two reasons:
+#   1. dnsmasq REFUSES to start if two dhcp-host entries share
+#      the same IP (even for different MACs) -> crashloop -> no
+#      DHCP at all for the whole network.
+#   2. dnsmasq matches a host by primary MAC; an alt_mac can only
+#      "accidentally" get a lease via the dynamic pool.
+# The device's hostname is already stored against its PRIMARY MAC
+# in the devicemaster UCI section; that is the single source of
+# truth used for display in both the device list and DHCP leases.
+#
+# FIX: In addition to refusing a NEW entry, also CLEAN UP any
+# existing dhcp-host entry for this alt_mac. Previously merged
+# devices may already have their own dhcp-host from the old
+# register_device flow, and leaving those behind causes the
+# DHCP list to show an out-of-date / meaningless name.
+# This check runs BEFORE IP lookup so that OFFLINE alt_macs
+# (no ARP entry) are also properly cleaned up.
+MAC_LOWER=$(echo "$MAC" | tr 'A-F' 'a-f')
+_alt_primary=""
+_alt_idx=0
+while [ $_alt_idx -lt 200 ]; do
+    _dm_mac=$(uci -q get "devicemaster.@device[$_alt_idx].mac" 2>/dev/null)
+    [ -z "$_dm_mac" ] && break
+    _alts=$(uci -q get "devicemaster.@device[$_alt_idx].alt_macs" 2>/dev/null)
+    if [ -n "$_alts" ]; then
+        OLD_IFS="$IFS"; IFS=','
+        for _a in $_alts; do
+            _a_l=$(echo "$_a" | tr -d ' ' | tr 'A-F' 'a-f')
+            if [ "$_a_l" = "$MAC_LOWER" ]; then
+                _alt_primary="$_dm_mac"
+                break 2
+            fi
+        done
+        IFS="$OLD_IFS"
+    fi
+    _alt_idx=$((_alt_idx+1))
+done
+if [ -n "$_alt_primary" ]; then
+    # Resolve the authoritative display name for the merged device:
+    # use the primary's hostname, falling back to its manual name.
+    _alt_display=""
+    _alt_hn=$(uci -q get "devicemaster.@device[$_alt_idx].hostname" 2>/dev/null)
+    _alt_nm=$(uci -q get "devicemaster.@device[$_alt_idx].name" 2>/dev/null)
+    _alt_manual=$(uci -q get "devicemaster.@device[$_alt_idx].manual" 2>/dev/null)
+    if [ -n "$_alt_hn" ] && [ "$_alt_hn" != "*" ] && [ "$_alt_hn" != "unknown" ]; then
+        case "$_alt_hn" in
+            Mobile-Device-*|*-Device-phone|*-Device-pc|*-Device-iot|*-Device-tv|*-Device-laa) ;;
+            *) _alt_display="$_alt_hn" ;;
+        esac
+    fi
+    if [ -z "$_alt_display" ]; then
+        if [ "$_alt_manual" = "1" ] && [ -n "$_alt_nm" ] && [ "$_alt_nm" != "*" ] && [ "$_alt_nm" != "unknown" ]; then
+            _alt_display="$_alt_nm"
+        fi
+    fi
+    [ -z "$_alt_display" ] && _alt_display="*"
+
+    log_msg "ALT_MAC: $MAC is alt_mac of $_alt_primary (display: $_alt_display); syncing hostname-only lease."
+
+    # Optimization: if the only existing entry for this alt_mac is already a
+    # hostname-only entry with the desired name, skip the delete/add cycle and
+    # just patch /tmp/dhcp.leases.
+    _alt_existing_ok=0
+    _alt_existing_count=0
+    _alt_idx2=0
+    while uci -q get "dhcp.@host[$_alt_idx2].mac" >/dev/null 2>&1; do
+        _ehm=$(uci -q get "dhcp.@host[$_alt_idx2].mac")
+        _ehm_l=$(echo "$_ehm" | tr 'A-F' 'a-f')
+        if [ "$_ehm_l" = "$MAC_LOWER" ]; then
+            _alt_existing_count=$((_alt_existing_count + 1))
+            _eip=$(uci -q get "dhcp.@host[$_alt_idx2].ip" 2>/dev/null)
+            _enm=$(uci -q get "dhcp.@host[$_alt_idx2].name" 2>/dev/null)
+            if [ -z "$_eip" ] && [ "$_enm" = "$_alt_display" ]; then
+                _alt_existing_ok=1
+            else
+                _alt_existing_ok=0
+            fi
+        fi
+        _alt_idx2=$((_alt_idx2 + 1))
+    done
+    if [ "$_alt_existing_count" -eq 1 ] && [ "$_alt_existing_ok" = "1" ]; then
+        if [ -f "/tmp/dhcp.leases" ]; then
+            awk -v m="$MAC_LOWER" -v name="$_alt_display" '
+                tolower($2) == m { $4 = name; found = 1 }
+                { print }
+                END { exit 0 }
+            ' /tmp/dhcp.leases > /tmp/dhcp.leases.dmtmp && mv /tmp/dhcp.leases.dmtmp /tmp/dhcp.leases
+        fi
+        log_msg "ALT_MAC entry already correct for $MAC -> $_alt_display; lease file patched only."
+        echo "OK: alt_mac already configured"
+        exit 0
+    fi
+
+    # Clean up any stale dhcp.@host entry for this alt_mac.  Previously merged
+    # devices may have a fixed-IP entry from before merge; dnsmasq refuses to
+    # start if two entries share the same IP, so these must be removed.
+    _deleted=0
+    while true; do
+        _found=0
+        _idx=0
+        while uci -q get "dhcp.@host[$_idx].mac" >/dev/null 2>&1; do
+            _hm=$(uci -q get "dhcp.@host[$_idx].mac")
+            _hm_l=$(echo "$_hm" | tr 'A-F' 'a-f')
+            if [ "$_hm_l" = "$MAC_LOWER" ]; then
+                uci -q delete "dhcp.@host[$_idx]"
+                _deleted=$((_deleted + 1))
+                _found=1
+                break
+            fi
+            _idx=$((_idx + 1))
+        done
+        [ "$_found" = "0" ] && break
+    done
+
+    # For alt_macs we cannot reserve a fixed IP (it would conflict with the
+    # primary MAC's lease), but we CAN pin the hostname via a hostname-only
+    # dhcp-host entry.  This makes dnsmasq report the merged device's name for
+    # the alt_mac's lease on every renewal, instead of '*'/'-'.
+    _alt_need_commit=$_deleted
+    _alt_entry_added=0
+    if [ "$_alt_display" != "*" ]; then
+        uci -q add dhcp host >/dev/null
+        uci -q set "dhcp.@host[-1].mac=$MAC"
+        uci -q set "dhcp.@host[-1].name=$_alt_display"
+        # Do NOT set ip -> dynamic IP, hostname fixed
+        _alt_need_commit=1
+        _alt_entry_added=1
+    fi
+
+    if [ "$_alt_need_commit" -gt 0 ]; then
+        uci -q commit dhcp
+    fi
+
+    # Patch /tmp/dhcp.leases immediately so the LuCI DHCP list reflects the
+    # merged name right away (dnsmasq also rewrites the lease file on renewal).
+    if [ -f "/tmp/dhcp.leases" ]; then
+        awk -v m="$MAC_LOWER" -v name="$_alt_display" '
+            tolower($2) == m { $4 = name; found = 1 }
+            { print }
+            END { exit 0 }
+        ' /tmp/dhcp.leases > /tmp/dhcp.leases.dmtmp && mv /tmp/dhcp.leases.dmtmp /tmp/dhcp.leases
+    fi
+
+    if [ "$_alt_need_commit" -gt 0 ] && [ "${SKIP_DNSMASQ_RESTART:-0}" != "1" ]; then
+        /etc/init.d/dnsmasq restart >/dev/null 2>&1
+    fi
+    log_msg "ALT_MAC done: $MAC -> $_alt_display (deleted $_deleted old entries, hostname-only added: $_alt_entry_added)."
+    echo "OK: alt_mac synced (display: $_alt_display, hostname-only added: $_alt_entry_added)"
+    exit 0
+fi
+
+# Sanitize hostname: dnsmasq only allows [a-zA-Z0-9._-]
+# Non-ASCII characters (e.g. Chinese) will cause dnsmasq to crash!
+# RFC 1035: hostname max length is 63 characters per label
+SAFE_NAME=$(echo "$NAME" | sed 's/[^a-zA-Z0-9._-]//g' | cut -c1-63)
+if [ -z "$SAFE_NAME" ]; then
+    log_msg "ERROR: Name '$NAME' has no valid DNS characters after sanitization"
+    echo "ERROR: Invalid hostname"
+    exit 1
+fi
+if [ "$SAFE_NAME" != "$NAME" ]; then
+    log_msg "WARN: Sanitized hostname '$NAME' -> '$SAFE_NAME' (removed non-ASCII chars)"
+    NAME="$SAFE_NAME"
+fi
+
+# If IP not provided, look it up from ARP
+if [ -z "$IP" ]; then
+    IP=$(grep -i "$MAC" /proc/net/arp 2>/dev/null | awk '{print $1}' | head -1)
+fi
+if [ -z "$IP" ]; then
+    log_msg "ERROR: Cannot find IP for $MAC in ARP table (device may be offline)"
+    echo "ERROR: No IP found for $MAC"
+    exit 1
+fi
+
+# ============================================================
+# SECOND SAFETY CHECK: reject "automatically generated" hostnames
+# ============================================================
+# DeviceMaster invents placeholder names such as "Mobile-Device-phone"
+# from OUI + device-type, or "*"/"unknown" when nothing is known.
+# Writing these to dnsmasq pollutes the DHCP list.  Only sync a
+# lease when we have a meaningful hostname.
+case "$NAME" in
+    ''|*'*'*|*unknown*)
+        log_msg "SKIP: placeholder hostname '$NAME' for $MAC"
+        echo "OK: placeholder name skipped"
+        exit 0
+        ;;
+esac
+# Additional check: common auto-generated patterns
+_name_lower=$(echo "$NAME" | tr 'A-Z' 'a-z')
+case "$_name_lower" in
+    mobile-device-*|*-device-phone|*-device-pc|*-device-iot|*-device-tv|*-device-laa)
+        log_msg "SKIP: auto-generated hostname '$NAME' for $MAC"
+        echo "OK: auto-generated name skipped"
+        exit 0
+        ;;
+esac
+# Also skip if hostname is a full MAC address (XX:XX:XX:XX:XX:XX)
+if echo "$NAME" | grep -qiE '^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}$'; then
+    log_msg "SKIP: hostname '$NAME' looks like a MAC address for $MAC"
+    echo "OK: MAC-as-hostname skipped"
+    exit 0
+fi
+
+# Concurrent lock (atomic mkdir)
+LOCK="/tmp/dm_sync_hostname.lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+    log_msg "ERROR: Another sync in progress, aborting"
+    echo "ERROR: Another sync in progress"
+    exit 1
+fi
+trap 'rmdir "$LOCK" 2>/dev/null' EXIT
+
+log_msg "START: $MAC -> $NAME ($IP)"
+
+# Optimization: if the exact desired dhcp-host entry already exists, do not
+# delete/re-add/restart dnsmasq.  Just patch /tmp/dhcp.leases in case dnsmasq
+# overwrote it since our last run (e.g. after a DHCP renewal).
+MAC_LOWER=$(echo "$MAC" | tr 'A-F' 'a-f')
+_desired_exists=0
+_desired_idx=0
+while uci -q get "dhcp.@host[$_desired_idx].mac" >/dev/null 2>&1; do
+    _dhm=$(uci -q get "dhcp.@host[$_desired_idx].mac")
+    _dhip=$(uci -q get "dhcp.@host[$_desired_idx].ip")
+    _dhn=$(uci -q get "dhcp.@host[$_desired_idx].name")
+    _dhm_l=$(echo "$_dhm" | tr 'A-F' 'a-f')
+    if [ "$_dhm_l" = "$MAC_LOWER" ] && [ "$_dhip" = "$IP" ] && [ "$_dhn" = "$NAME" ]; then
+        _desired_exists=1
+        break
+    fi
+    _desired_idx=$((_desired_idx + 1))
+done
+if [ "$_desired_exists" = "1" ]; then
+    if [ -f "/tmp/dhcp.leases" ]; then
+        awk -v m="$MAC_LOWER" -v name="$NAME" '
+            tolower($2) == m { $4 = name; found = 1 }
+            { print }
+            END { exit 0 }
+        ' /tmp/dhcp.leases > /tmp/dhcp.leases.dmtmp && mv /tmp/dhcp.leases.dmtmp /tmp/dhcp.leases
+    fi
+    log_msg "Entry already exists for $MAC -> $NAME ($IP); lease file patched, no restart needed."
+    echo "OK: already configured"
+    exit 0
+fi
+
+# Step 1: Remove ALL existing host entries for this MAC
+# Handle index shifting: after delete, indices change
+# Strategy: keep scanning from 0, break and restart after each deletion
+# IMPORTANT: Compare MACs case-insensitively (UCI may store in different cases)
+deleted=0
+while true; do
+    found=0
+    idx=0
+    while uci -q get "dhcp.@host[$idx].mac" >/dev/null 2>&1; do
+        hm=$(uci -q get "dhcp.@host[$idx].mac")
+        hm_lower=$(echo "$hm" | tr 'A-F' 'a-f')
+        if [ "$hm_lower" = "$MAC_LOWER" ]; then
+            uci -q delete "dhcp.@host[$idx]"
+            deleted=$((deleted + 1))
+            found=1
+            break  # Restart scan from 0 (indices shifted)
+        fi
+        idx=$((idx + 1))
+    done
+    [ "$found" = "0" ] && break
+done
+log_msg "Deleted $deleted old host entries for $MAC"
+
+# 修复：删除后立即 commit，确保检测时旧条目已清除
+uci -q commit dhcp
+
+# Step 2: Check for duplicate hostnames and add suffix if needed
+# 修复：检查 devicemaster 和 dhcp 中的名称，与 LuCI unique_name 保持一致
+# 注意：需要正确排除自己，不能直接用 grep -v MAC，因为 uci show 输出格式不同
+# 合并设备的 alt_macs 与主 MAC 属于同一逻辑设备，允许共享 hostname。
+DEVICE_MACS=$(get_device_macs "$MAC")
+base_name="$NAME"
+counter=1
+final_name="$NAME"
+while true; do
+    # Check if this name is already used by another MAC in dhcp
+    dup_dhcp=""
+    dhcp_line=$(uci show dhcp 2>/dev/null | grep "\.name='${final_name}'" | head -1)
+    if [ -n "$dhcp_line" ]; then
+        # Extract index from dhcp entry (format: dhcp.@host[N].name='...')
+        dhcp_idx=$(echo "$dhcp_line" | grep -o '@host\[[0-9]*\]' | grep -o '[0-9]*')
+        dhcp_mac=$(uci -q get "dhcp.@host[$dhcp_idx].mac" 2>/dev/null)
+        dhcp_mac_lower=$(echo "$dhcp_mac" | tr 'A-F' 'a-f')
+        if [ "$dhcp_mac_lower" != "$MAC_LOWER" ]; then
+            # 同一 devicemaster 设备（主 MAC + alt_macs）允许同名
+            if ! echo " $DEVICE_MACS " | grep -q " $dhcp_mac_lower "; then
+                dup_dhcp="$dhcp_line"
+            fi
+        fi
+    fi
+
+    # Check if this name is already used by another MAC in devicemaster (name field)
+    dup_dm_name=""
+    dm_line=$(uci show devicemaster 2>/dev/null | grep "\.name='${final_name}'" | head -1)
+    if [ -n "$dm_line" ]; then
+        # Extract section name (format: devicemaster.@device[N].name='...' or devicemaster.XXXXXX.name='...')
+        dm_section=$(echo "$dm_line" | grep -o '@device\[[0-9]*\]')
+        [ -z "$dm_section" ] && dm_section=$(echo "$dm_line" | sed 's/^devicemaster\.\([^=]*\)\..*/\1/')
+        dm_mac=$(uci -q get "devicemaster.$dm_section.mac" 2>/dev/null)
+        dm_mac_lower=$(echo "$dm_mac" | tr 'A-F' 'a-f')
+        if [ "$dm_mac_lower" != "$MAC_LOWER" ]; then
+            # 同一 devicemaster 设备（主 MAC + alt_macs）允许同名
+            if ! echo " $DEVICE_MACS " | grep -q " $dm_mac_lower "; then
+                dup_dm_name="$dm_line"
+            fi
+        fi
+    fi
+
+    # Check if this name is already used by another MAC in devicemaster (hostname field)
+    dup_dm_hostname=""
+    dm_line=$(uci show devicemaster 2>/dev/null | grep "\.hostname='${final_name}'" | head -1)
+    if [ -n "$dm_line" ]; then
+        # Extract section name
+        dm_section=$(echo "$dm_line" | grep -o '@device\[[0-9]*\]')
+        [ -z "$dm_section" ] && dm_section=$(echo "$dm_line" | sed 's/^devicemaster\.\([^=]*\)\..*/\1/')
+        dm_mac=$(uci -q get "devicemaster.$dm_section.mac" 2>/dev/null)
+        dm_mac_lower=$(echo "$dm_mac" | tr 'A-F' 'a-f')
+        if [ "$dm_mac_lower" != "$MAC_LOWER" ]; then
+            # 同一 devicemaster 设备（主 MAC + alt_macs）允许同名
+            if ! echo " $DEVICE_MACS " | grep -q " $dm_mac_lower "; then
+                dup_dm_hostname="$dm_line"
+            fi
+        fi
+    fi
+
+    if [ -z "$dup_dhcp" ] && [ -z "$dup_dm_name" ] && [ -z "$dup_dm_hostname" ]; then
+        break
+    fi
+    # Name exists, try with suffix
+    counter=$((counter + 1))
+    final_name="${base_name}-${counter}"
+    # Prevent infinite loop
+    [ "$counter" -gt 100 ] && break
+done
+
+if [ "$final_name" != "$NAME" ]; then
+    log_msg "WARN: Name '$NAME' already used by another device, using '$final_name' instead"
+    NAME="$final_name"
+fi
+
+# Step 3: Add new host entry
+uci -q add dhcp host >/dev/null
+uci -q set "dhcp.@host[-1].mac=$MAC"
+uci -q set "dhcp.@host[-1].ip=$IP"
+uci -q set "dhcp.@host[-1].name=$NAME"
+
+# Step 3: Commit
+uci -q commit dhcp
+log_msg "UCI committed: dhcp host $MAC -> $NAME ($IP)"
+
+# Step 4: Patch /tmp/dhcp.leases to update hostname in-place
+# This makes LuCI's DHCP lease page show the custom name immediately,
+# instead of the client-reported hostname (e.g. "Applephone" -> "iphone13pro")
+# /tmp/dhcp.leases format: <timestamp> <mac> <ip> <hostname> <clientid>
+DHCP_LEASES="/tmp/dhcp.leases"
+if [ -f "$DHCP_LEASES" ]; then
+    # Use awk for case-insensitive MAC matching and hostname replacement.
+    # The hostname is the 4th field in the lease line.
+    awk -v m="$MAC_LOWER" -v name="$NAME" '
+        tolower($2) == m { $4 = name; found = 1 }
+        { print }
+        END { exit 0 }
+    ' "$DHCP_LEASES" > "$DHCP_LEASES.dmtmp" && mv "$DHCP_LEASES.dmtmp" "$DHCP_LEASES"
+    log_msg "Patched dhcp.leases hostname for $MAC -> $NAME"
+fi
+
+# Step 5: Restart dnsmasq to apply all changes
+# Use restart instead of reload to flush DNS cache and pick up lease file changes
+# When called in batch mode (e.g. from reidentify/discover sync loops), caller
+# will restart dnsmasq once at the end to avoid N restarts for N devices.
+if [ "${SKIP_DNSMASQ_RESTART:-0}" != "1" ]; then
+    /etc/init.d/dnsmasq restart >/dev/null 2>&1
+
+    # Verify: use nslookup to confirm DNS resolution works
+    sleep 1
+    if nslookup "$NAME" 127.0.0.1 >/dev/null 2>&1; then
+        log_msg "OK: DNS lookup for $NAME succeeded"
+        echo "OK"
+    else
+        log_msg "WARN: DNS lookup for $NAME failed after restart"
+        echo "WARN: DNS verification failed"
+    fi
+else
+    log_msg "Batch mode: skipping dnsmasq restart for $MAC"
+    echo "OK"
+fi
+
+exit 0

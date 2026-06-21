@@ -370,11 +370,11 @@ ssdp_hints() {
     local cache="$SSDP_CACHE.$ip"
     if [ ! -f "$cache" ] || [ $(($(date +%s) - $(stat -c %Y "$cache" 2>/dev/null || echo 0))) -gt 300 ]; then
         {
-            printf 'M-SEARCH * HTTP/1.1\r\n'
-            printf 'HOST: 239.255.255.250:1900\r\n'
-            printf 'MAN: "ssdp:discover"\r\n'
-            printf 'MX: 1\r\n'
-            printf 'ST: ssdp:all\r\n\r\n'
+            printf 'M-SEARCH * HTTP/1.1\n'
+            printf 'HOST: 239.255.255.250:1900\n'
+            printf 'MAN: "ssdp:discover"\n'
+            printf 'MX: 1\n'
+            printf 'ST: ssdp:all\n\n'
         } | nc -u -w 1 "$ip" 1900 2>/dev/null > "$cache"
     fi
 
@@ -1529,9 +1529,11 @@ remove_dhcp_host() {
                 _ridx=$((_ridx+1))
             done
         fi
-        sed -i "/[[:space:]]${mac_lower}[[:space:]]/{
-            s/^\([0-9]*[[:space:]]*[a-fA-F0-9:]*[[:space:]]*[0-9.]*[[:space:]]*\)[^[:space:]]*/\1${lease_name}/
-        }" /tmp/dhcp.leases
+        awk -v m="$mac_lower" -v name="$lease_name" '
+            tolower($2) == m { $4 = name; found = 1 }
+            { print }
+            END { exit 0 }
+        ' /tmp/dhcp.leases > /tmp/dhcp.leases.dmtmp && mv /tmp/dhcp.leases.dmtmp /tmp/dhcp.leases
     fi
     [ "$changed" = "1" ] && return 0 || return 1
 }
@@ -2055,6 +2057,7 @@ main() {
         local idx=$(find_device_index "$mac")
         if [ -n "$idx" ]; then
             local current_hostname=$(uci -q get "devicemaster.@device[$idx].hostname")
+            local current_name=$(uci -q get "devicemaster.@device[$idx].name")
             local current_manual=$(uci -q get "devicemaster.@device[$idx].manual")
             local current_vendor=$(uci -q get "devicemaster.@device[$idx].vendor")
             local current_type=$(uci -q get "devicemaster.@device[$idx].type")
@@ -2096,6 +2099,26 @@ main() {
             # Keep last_ip fresh even if nothing else changed
             uci -q set "devicemaster.@device[$idx].last_ip=$ip"
             uci -q commit devicemaster
+
+            # Sync DHCP display name for this MAC.  For primary MACs this ensures
+            # the static lease is up to date; for alt_macs it adds a hostname-only
+            # entry so the DHCP list shows the merged device's name instead of
+            # '*' or '-' after every renewal.
+            if is_mesh_main_router && [ -n "$ip" ]; then
+                local sync_name=""
+                if [ -n "$current_hostname" ] && [ "$current_hostname" != "*" ] && [ "$current_hostname" != "unknown" ]; then
+                    case "$current_hostname" in
+                        Mobile-Device-*|*-Device-phone|*-Device-pc|*-Device-iot|*-Device-tv|*-Device-laa) ;;
+                        *) sync_name="$current_hostname" ;;
+                    esac
+                fi
+                if [ -z "$sync_name" ] && [ "$current_manual" = "1" ] && [ -n "$current_name" ] && [ "$current_name" != "*" ] && [ "$current_name" != "unknown" ]; then
+                    sync_name="$current_name"
+                fi
+                if [ -n "$sync_name" ]; then
+                    /usr/libexec/devicemaster/sync_hostname.sh "$mac" "$sync_name" "$ip" >/dev/null 2>&1
+                fi
+            fi
         fi
         log_msg "Updated last_ip for $mac -> $ip"
         exit 0
@@ -2187,6 +2210,7 @@ discover_all() {
     while read -r ip mac; do
         [ -z "$mac" ] && continue
         mac=$(echo "$mac" | tr 'A-F' 'a-f')
+        log_msg "DEBUG: arp_loop mac=$mac ip=$ip in_set=$(echo "$mac_set" | grep -q " $mac " && echo yes || echo no)"
 
         # Fast check: is MAC in our set?
         if echo "$mac_set" | grep -q " $mac "; then
@@ -2194,7 +2218,22 @@ discover_all() {
             local update_idx=0
             while uci -q get "devicemaster.@device[$update_idx].mac" >/dev/null 2>&1; do
                 local check_mac=$(uci -q get "devicemaster.@device[$update_idx].mac" | tr 'A-F' 'a-f')
+                local check_alts=$(uci -q get "devicemaster.@device[$update_idx].alt_macs" 2>/dev/null)
+                local update_matched=0
                 if [ "$check_mac" = "$mac" ]; then
+                    update_matched=1
+                elif [ -n "$check_alts" ]; then
+                    OLD_IFS="$IFS"; IFS=','
+                    for alt in $check_alts; do
+                        local alt_lower=$(echo "$alt" | tr -d ' ' | tr 'A-F' 'a-f')
+                        if [ "$alt_lower" = "$mac" ]; then
+                            update_matched=1
+                            break
+                        fi
+                    done
+                    IFS="$OLD_IFS"
+                fi
+                if [ "$update_matched" = "1" ]; then
                     local dhcp_ip=$(awk -v m="$mac" 'tolower($2) == m {print $3; exit}' /tmp/dhcp.leases 2>/dev/null)
                     local effective_ip="$ip"
                     [ -n "$dhcp_ip" ] && effective_ip="$dhcp_ip"
@@ -2298,9 +2337,32 @@ discover_all() {
                         fi
                     fi
                     modified=1
-                    # Sync hostname to dnsmasq if it was updated
-                    if [ "$hostname_updated" = "1" ] && [ -n "$dhcp_hostname" ] && [ -n "$effective_ip" ] && is_mesh_main_router; then
-                        /usr/libexec/devicemaster/sync_hostname.sh "$mac" "$dhcp_hostname" "$effective_ip" >/dev/null 2>&1
+                    # Sync hostname to dnsmasq:
+                    # - If plugin hostname was updated from DHCP, push that DHCP name back.
+                    # - If plugin already has a meaningful name but DHCP lease shows '*'
+                    #   or something else, push the plugin name so DHCP list matches UCI.
+                    if [ -n "$effective_ip" ] && is_mesh_main_router; then
+                        local sync_name=""
+                        local current_name=$(uci -q get "devicemaster.@device[$update_idx].name" 2>/dev/null)
+                        if [ -n "$current_hostname" ] && [ "$current_hostname" != "*" ] && [ "$current_hostname" != "unknown" ]; then
+                            case "$current_hostname" in
+                                Mobile-Device-*|*-Device-phone|*-Device-pc|*-Device-iot|*-Device-tv|*-Device-laa) ;;
+                                *) sync_name="$current_hostname" ;;
+                            esac
+                        fi
+                        if [ -z "$sync_name" ] && [ "$current_manual" = "1" ] && [ -n "$current_name" ] && [ "$current_name" != "*" ] && [ "$current_name" != "unknown" ]; then
+                            sync_name="$current_name"
+                        fi
+                        if [ -z "$sync_name" ] && [ "$hostname_updated" = "1" ] && [ -n "$dhcp_hostname" ] && [ "$dhcp_hostname" != "*" ]; then
+                            sync_name="$dhcp_hostname"
+                        fi
+                        if [ -n "$sync_name" ]; then
+                            local lease_hn=$(awk -v m="$mac" 'tolower($2) == m {print $4; exit}' /tmp/dhcp.leases 2>/dev/null)
+                            log_msg "DEBUG: sync check $mac sync_name=$sync_name lease_hn=$lease_hn ip=$effective_ip"
+                            if [ "$lease_hn" != "$sync_name" ]; then
+                                SKIP_DNSMASQ_RESTART=1 /usr/libexec/devicemaster/sync_hostname.sh "$mac" "$sync_name" "$effective_ip" >/dev/null 2>&1
+                            fi
+                        fi
                     fi
                     break
                 fi
@@ -2591,6 +2653,22 @@ reidentify_all() {
                 if remove_dhcp_host "$s_mac"; then
                     need_dnsmasq_restart=1
                 fi
+            fi
+
+            # Also sync alt_macs: add hostname-only entries so merged aliases
+            # show the primary device's name in the DHCP list.
+            local s_alts=$(uci -q get "devicemaster.@device[$s_idx].alt_macs" 2>/dev/null)
+            if [ -n "$s_alts" ] && [ -n "$sync_name" ]; then
+                OLD_IFS="$IFS"; IFS=','
+                for s_alt in $s_alts; do
+                    s_alt=$(echo "$s_alt" | tr -d ' ')
+                    local s_alt_ip=$(awk -v m="$s_alt" 'tolower($2) == m {print $3; exit}' /tmp/dhcp.leases 2>/dev/null)
+                    if [ -n "$s_alt_ip" ]; then
+                        SKIP_DNSMASQ_RESTART=1 /usr/libexec/devicemaster/sync_hostname.sh "$s_alt" "$sync_name" "$s_alt_ip" >/dev/null 2>&1
+                        need_dnsmasq_restart=1
+                    fi
+                done
+                IFS="$OLD_IFS"
             fi
             s_idx=$((s_idx + 1))
         done

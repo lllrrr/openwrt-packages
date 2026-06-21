@@ -150,7 +150,7 @@ local function get_local_macs()
     -- Bridge local FDB entries (catches hardware virtual MACs)
     local fdb = sys.exec("brctl showmacs br-lan 2>/dev/null")
     if fdb and fdb ~= "" then
-        for line in fdb:gmatch("[^\r\n]+") do
+        for line in fdb:gmatch("[^\n]+") do
             local mac = line:match("^%s*%d+%s+([0-9a-fA-F:]+)%s+yes")
             if mac then macs[mac:upper()] = true end
         end
@@ -208,7 +208,7 @@ local function get_wired_stations()
     if mesh_vmac then
         local fdb = sys.exec("brctl showmacs br-lan 2>/dev/null")
         if fdb then
-            for line in fdb:gmatch("[^\r\n]+") do
+            for line in fdb:gmatch("[^\n]+") do
                 local port, mac, is_local = line:match("^%s*(%d+)%s+([0-9a-fA-F:]+)%s+(%S+)")
                 if port and mac and is_local == "yes" and mac:upper() == mesh_vmac then
                     mesh_port = tonumber(port)
@@ -227,7 +227,7 @@ local function get_wired_stations()
             if mac then
                 local fdb = sys.exec("brctl showmacs br-lan 2>/dev/null")
                 if fdb then
-                    for line in fdb:gmatch("[^\r\n]+") do
+                    for line in fdb:gmatch("[^\n]+") do
                         local port, fmac, is_local = line:match("^%s*(%d+)%s+([0-9a-fA-F:]+)%s+(%S+)")
                         if port and fmac and is_local == "yes" and fmac:upper() == mac then
                             ap_ports[tonumber(port)] = true
@@ -242,7 +242,7 @@ local function get_wired_stations()
     -- Any non-local MAC on a port that is neither mesh nor AP is wired
     local fdb = sys.exec("brctl showmacs br-lan 2>/dev/null")
     if fdb then
-        for line in fdb:gmatch("[^\r\n]+") do
+        for line in fdb:gmatch("[^\n]+") do
             local port, mac, is_local = line:match("^%s*(%d+)%s+([0-9a-fA-F:]+)%s+(%S+)")
             if port and mac and is_local == "no" then
                 local port_num = tonumber(port)
@@ -317,7 +317,7 @@ local function get_mesh_stations()
     local stations = {}
     local output = sys.exec("iw dev wl1-mesh0 station dump 2>/dev/null")
     if output then
-        for line in output:gmatch("[^\r\n]+") do
+        for line in output:gmatch("[^\n]+") do
             local mac = line:match("^Station ([0-9A-Fa-f:]+)")
             if mac then
                 stations[mac:upper()] = true
@@ -425,14 +425,14 @@ local function create_snapshot()
     local fdb = sys.exec("brctl showmacs br-lan 2>/dev/null")
     if fdb and fdb ~= "" then
         local mesh_port = nil
-        for line in fdb:gmatch("[^\r\n]+") do
+        for line in fdb:gmatch("[^\n]+") do
             local port, mac, is_local = line:match("^%s*(%d+)%s+([0-9a-fA-F:]+)%s+(%S+)")
             if port and mac and is_local == "yes" and mesh_vmac and mac:upper() == mesh_vmac then
                 mesh_port = port; break
             end
         end
         if mesh_port then
-            for line in fdb:gmatch("[^\r\n]+") do
+            for line in fdb:gmatch("[^\n]+") do
                 local port, mac, is_local = line:match("^%s*(%d+)%s+([0-9a-fA-F:]+)%s+(%S+)")
                 if port and port == mesh_port and mac and is_local == "no" then
                     snap.fdb_macs[mac:upper()] = true
@@ -634,7 +634,7 @@ local function identify_topology(bandix_uplink, wifi_stations, wired_stations, m
     if router_oui and mesh_vmac then
         local fdb = sys.exec("brctl showmacs br-lan 2>/dev/null")
         if fdb and fdb ~= "" then
-            for line in fdb:gmatch("[^\r\n]+") do
+            for line in fdb:gmatch("[^\n]+") do
                 local port, mac, is_local = line:match("^%s*(%d+)%s+([0-9a-fA-F:]+)%s+(%S+)")
                 if port and mac then
                     local mac_u = mac:upper()
@@ -644,7 +644,7 @@ local function identify_topology(bandix_uplink, wifi_stations, wired_stations, m
                 end
             end
             if mesh_port then
-                for line in fdb:gmatch("[^\r\n]+") do
+                for line in fdb:gmatch("[^\n]+") do
                     local port, mac, is_local = line:match("^%s*(%d+)%s+([0-9a-fA-F:]+)%s+(%S+)")
                     if port and port == mesh_port and mac and is_local == "no" then
                         table.insert(fdb_macs, mac:upper())
@@ -771,7 +771,7 @@ local function get_arp_online()
     local neigh_by_mac = {}
     local neigh_raw = sys.exec("ip neigh show dev br-lan 2>/dev/null")
     if neigh_raw and neigh_raw ~= "" then
-        for line in neigh_raw:gmatch("[^\r\n]+") do
+        for line in neigh_raw:gmatch("[^\n]+") do
             local nip, nmac = line:match("^(%d+%.%d+%.%d+%.%d+)%s+lladdr%s+([0-9a-fA-F:]+)")
             if nip and nmac then
                 neigh_by_mac[nmac:upper()] = nip
@@ -802,7 +802,7 @@ local function get_arp_online()
     local nat_parents = {}    -- child_mac -> parent_mac
     local output = sys.exec("ip neigh show dev br-lan 2>/dev/null")
     if output and output ~= "" then
-        for line in output:gmatch("[^\r\n]+") do
+        for line in output:gmatch("[^\n]+") do
             local ip, mac, state = line:match(
                 "^(%d+%.%d+%.%d+%.%d+)%s+lladdr%s+([0-9a-fA-F:]+)%s+(%S+)"
             )
@@ -2344,16 +2344,58 @@ local function sync_to_dnsmasq(mac, name, ip)
         sys.exec("logger -t devicemaster 'ERROR: sync_hostname.sh not found or not executable'")
         return
     end
-    -- Call SYNCHRONOUSLY (no &) - we must wait for dnsmasq restart to complete
     -- Escape single quotes in name for shell safety
     local safe_name = name:gsub("'", "'\\''")
-    local safe_ip = ip or ""
-    local cmd = script .. " '" .. mac .. "' '" .. safe_name .. "'"
-    if safe_ip ~= "" then
-        cmd = cmd .. " '" .. safe_ip .. "'"
+    local need_restart = false
+
+    local function do_sync(sync_mac, sync_ip)
+        local cmd = "SKIP_DNSMASQ_RESTART=1 " .. script .. " '" .. sync_mac .. "' '" .. safe_name .. "'"
+        if sync_ip and sync_ip ~= "" then
+            cmd = cmd .. " '" .. sync_ip .. "'"
+        end
+        local result = sys.exec(cmd .. " 2>&1")
+        sys.exec("logger -t devicemaster 'sync_to_dnsmasq " .. sync_mac .. " result: " .. (result or "nil"):gsub("'", "'\\''") .. "'")
+        -- Any OK response means the dhcp config changed and dnsmasq needs a restart
+        if result and result:match("^OK") then
+            need_restart = true
+        end
     end
-    local result = sys.exec(cmd .. " 2>&1")
-    sys.exec("logger -t devicemaster 'sync_to_dnsmasq result: " .. (result or "nil"):gsub("'", "'\\''") .. "'")
+
+    -- Sync primary MAC
+    do_sync(mac, ip)
+
+    -- Sync alt_macs of the same device so merged aliases keep the same display name.
+    local alt_macs = ""
+    uci:foreach("devicemaster", "device", function(s)
+        if s.mac and s.mac:lower() == mac:lower() and s.alt_macs then
+            alt_macs = s.alt_macs
+        end
+    end)
+    if alt_macs ~= "" then
+        for alt in alt_macs:gmatch("[^,]+") do
+            alt = alt:gsub("%s+", "")
+            if alt ~= "" then
+                local alt_ip = ""
+                local f = io.open("/tmp/dhcp.leases", "r")
+                if f then
+                    for line in f:lines() do
+                        local lease_mac, lease_ip = line:match("^%d+%s+(%S+)%s+(%S+)")
+                        if lease_mac and lease_mac:lower() == alt:lower() then
+                            alt_ip = lease_ip
+                            break
+                        end
+                    end
+                    f:close()
+                end
+                do_sync(alt, alt_ip)
+            end
+        end
+    end
+
+    -- One restart for all changes (primary + alt_macs)
+    if need_restart then
+        sys.exec("/etc/init.d/dnsmasq restart >/dev/null 2>&1")
+    end
 end
 
 -- API: Set device name/vendor/type/group
