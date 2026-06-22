@@ -509,7 +509,7 @@ var T = {
     'ADV_BTN_REMOVE': _('Remove'),
     'ADV_ERR_SAVE_LAYOUT': _('Save layout failed'),
     'ADV_WARN_NO_WIFI': _('Warning: No Wi-Fi hardware detected, Wi-Fi configuration card is hidden.'),
-    'LBL_WATCHDOG_LINK': _('IPv6 Watchdog'),
+    'LBL_WATCHDOG_LINK': '📡 ' + _('IPv6 Watchdog'),
     'WOG_TITLE': _('IPv6 Heartbeat Probe'),
     'WOG_ENABLE': _('Enable Advanced IPv6 Link Monitoring & Auto Recovery'),
     'WOG_URL_LBL': _('Probe Target URL'),
@@ -524,6 +524,13 @@ var T = {
                 '<code style="background:#e2e8f0; padding:2px 6px; border-radius:4px; color:#0f172a; margin-bottom:8px; display:inline-block; word-break:break-all;">http://your-vps-ip:8080/probe</code> ' + _('(VPS)') + '<br>' +
                 '🔗 <a href="https://raw.githubusercontent.com/huchd0/luci-app-netwiz/refs/heads/master/worker.js" target="_blank" style="color:#0284c7; text-decoration:underline; font-weight: bold;">' + _('Click to view Cloudflare tutorial & source code') + '</a>' +
                 '</div>',
+    'MSG_WOG_LINKAGE': _('To ensure the probe works correctly, the following dependent features have been automatically enabled'),
+    'MSG_WOG_LINK_V6': _('IPv6 Master Switch'),
+    'MSG_WOG_LINK_WAN': _('Allow WAN Access to Web UI'),
+    'MSG_SEC_NOTICE': _('Security Notice'),
+    'MSG_WOG_OFF_WAN': _('You have disabled WAN access. To ensure the firewall is completely closed, the IPv6 Watchdog has been automatically disabled.'),
+    'MSG_DEP_NOTICE': _('Dependency Notice'),
+    'MSG_WOG_OFF_V6': _('You have disabled IPv6. The IPv6 Watchdog, which depends on it, has been automatically disabled.')
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -1407,11 +1414,11 @@ return view.extend({
         document.addEventListener('click', function(e) {
             var btn = e.target.closest('#link-ipv6-watchdog');
             if (!btn) return;
-            
+
             // 从底层动态读取当前状态
             var isEn = safeUciGet('netwiz', 'main', 'watchdog_enable', '0');
             var url = safeUciGet('netwiz', 'main', 'watchdog_url', '');
-            
+
             // 渲染极客级设置面板
             var html = '<div style="text-align:left; font-size:14px; line-height:1.6; color:#334155;">' +
                 '<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:15px; padding-bottom:12px; border-bottom:1px solid #e2e8f0;">' +
@@ -1426,45 +1433,109 @@ return view.extend({
                     (T['WOG_HELP'] || 'Help Text') +
                 '</div>' +
             '</div>';
-            
+
             // 调出保存弹窗
             showAdvModal((T['WOG_TITLE'] || 'IPv6 Heartbeat Probe'), html, function(box) {
                 var nEn = box.querySelector('#nw-wog-en').checked ? '1' : '0';
                 var nUrl = box.querySelector('#nw-wog-url').value.trim();
-                
+
+                // 防呆 1：完全没有修改，直接退出
+                // isEn 和 url 是弹窗打开前从底层读出的初始变量
+                if (nEn === isEn && nUrl === url) {
+                    return; // 假装保存成功，直接退出函数，不再往下走
+                }
+
+                // 防呆 2：开启状态下，必须填写目标网址，否则拦截
+                if (nEn === '1' && nUrl === '') {
+                    alert('❌ 探测网址不能为空，请填写后再保存！');
+                    return; // 弹出提示并终止保存动作
+                }
+
+                // 校验通过，才开始转圈动画和底层写入
                 openModal({ title: '⚙️ ' + (T['WOG_TITLE'] || 'IPv6 Heartbeat Probe'), msg: T['MSG_WRITING'] || 'Saving...', spin: true });
-                
+
                 // 直接调用前端 uci 接口写入底层配置文件
                 uci.set('netwiz', 'main', 'watchdog_enable', nEn);
                 uci.set('netwiz', 'main', 'watchdog_url', nUrl);
-                
+
+                // 前端联动防呆保存逻辑：如果探针被开启，顺便把前端强制勾选的 IPv6 和 外网访问参数 也保存进去
+                if (nEn === '1') {
+                    var ipv6Checkbox = document.getElementById('lan-ipv6-toggle');
+                    if (ipv6Checkbox && ipv6Checkbox.checked) {
+                        uci.set('dhcp', 'lan', 'dhcpv6', 'server');
+                        uci.set('dhcp', 'lan', 'ra', 'server');
+                        uci.set('dhcp', 'lan', 'ndp', 'server');
+                        uci.set('dhcp', 'lan', 'ra_flags', ['managed-config', 'other-config']);
+                    }
+                    var wanCheckbox = document.getElementById('adv-web-toggle');
+                    if (wanCheckbox && wanCheckbox.checked) {
+                        var pVal = document.getElementById('adv-web-port') ? (document.getElementById('adv-web-port').value || '80') : '80';
+                        // 使用原有的 RPC 接口确保防火墙放行规则被正确写入
+                        callSetAdvSettings('', pVal, '', '').catch(function(){});
+                    }
+                }
+
                 uci.save().then(function() {
-                    // ✨ 核心改良：发起 apply，但不要把它 return 到主 Promise 链中！
-                    // 并在它内部直接就地捕获掉线错误，阻止错误向上抛出导致页面崩溃。
-                    uci.apply().catch(function(e) { 
-                        console.log("预计之内的断流 (可无视):", e); 
-                    });
-                    
-                    // ✨ 终极防线：无论后端怎么重启、怎么断开连接，1.5 秒后强行刷新当前页面！
-                    setTimeout(function() {
-                        window.location.reload();
-                    }, 1500);
-                    
+                    // 发起 apply
+                    uci.apply().catch(function(e) { console.log("预计之内的断流 (可无视):", e); });
+                    // 1.5 秒后强行刷新当前页面
+                    setTimeout(function() { window.location.reload(); }, 1500);
                 }).catch(function(err) {
-                    // 万一连 save 都失败（极少见），同样强行刷新防止死锁
-                    setTimeout(function() {
-                        window.location.reload();
-                    }, 1500);
+                    setTimeout(function() { window.location.reload(); }, 1500);
                 });
             });
-            
-            // 弹窗内的开关联动动画
+
+            // 弹窗内的开关联动动画与 UI 提示
             setTimeout(function() {
                 var mChk = document.getElementById('nw-wog-en');
                 var mBox = document.getElementById('nw-wog-url-box');
+
+                // 获取主界面的两个依赖开关
+                var ipv6Checkbox = document.getElementById('lan-ipv6-toggle');
+                var wanCheckbox = document.getElementById('adv-web-toggle');
+
                 if(mChk && mBox) {
                     mChk.addEventListener('change', function() {
                         mBox.style.display = this.checked ? 'block' : 'none';
+
+                        // 联动判定：当开关打向 ON 时触发
+                        if (this.checked) {
+                            var needsPrompt = false;
+                            
+                            // HTML 拼接
+                            var promptHtml = '<div style="font-size:14px; line-height:1.6; color:#334155; text-align:left; padding: 5px;">' +
+                                             '<div style="margin-bottom: 12px; font-weight: bold; color: #0284c7;">' + 
+                                             (T['MSG_WOG_LINKAGE'] || "To ensure the probe works correctly, the following dependent features have been automatically enabled") + '：</div>';
+
+                            // 联动 1：IPv6 总开关
+                            if (ipv6Checkbox && !ipv6Checkbox.checked) {
+                                ipv6Checkbox.checked = true; // 在主界面勾上
+                                needsPrompt = true;
+                                promptHtml += '<div style="padding:6px 0; border-bottom: 1px dashed #e2e8f0; color:#0f172a;">✅ ' + (T['MSG_WOG_LINK_V6'] || "IPv6 Master Switch") + '</div>';
+                            }
+                            
+                            // 联动 2：外网访问面板开关
+                            if (wanCheckbox && !wanCheckbox.checked) {
+                                wanCheckbox.checked = true; // 在主界面勾上
+                                needsPrompt = true;
+                                promptHtml += '<div style="padding:6px 0; color:#0f172a;">✅ ' + (T['MSG_WOG_LINK_WAN'] || "Allow WAN Access to Web UI") + '</div>';
+                            }
+
+                            promptHtml += '</div>';
+
+                            // 调用插件的原生 UI 弹窗
+                            if (needsPrompt) {
+                                openModal({
+                                    title: '💡 ' + (T['WOG_TITLE'] || 'IPv6 Watchdog'),
+                                    msg: promptHtml,
+                                    okText: T['BTN_OK'] || 'OK' // 复用全局的确定按钮字典
+                                });
+                                
+                                // 确保提示弹窗位于最高层级，不被背后的设置弹窗遮挡
+                                var gm = document.getElementById('nw-global-modal');
+                                if (gm) gm.style.zIndex = '100000';
+                            }
+                        }
                     });
                 }
             }, 50);
@@ -1574,13 +1645,21 @@ return view.extend({
                                '</div>';
                     showAdvModal((T['LBL_MAC_CLONE'] || 'MAC Clone'), html, function(box) {
                         var m = box.querySelector('#mdl-mac-val').value.trim();
-                        if (m && !/^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/i.test(m)) { 
+
+                        // 防呆 1：完全没有修改，直接退出 (避免无意义的断网重启)
+                        if (m === currentMac) {
+                            return;
+                        }
+
+                        // 防呆 2：如果有输入内容，进行严格的格式校验
+                        if (m !== '' && !/^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/i.test(m)) { 
                             openModal({ title: T['M_FMT_TIT'] || 'Format Error', msg: '<div style="font-size:15px; color:#ef4444; font-weight:bold;">' + (T['M_FMT_MAC'] || 'Invalid MAC address format!') + '</div>', okText: T['BTN_OK'] || 'OK' });
                             var gm = document.getElementById('nw-global-modal'); if (gm) gm.style.zIndex = '100000';
-                            return false; 
+                            return false;
                         }
+
                         openModal({ title: (T['LBL_MAC_CLONE'] || 'MAC Clone'), msg: (T['MSG_WRITING'] || 'Saving...'), spin: true });
-                        var gm2 = document.getElementById('nw-global-modal'); if (gm2) gm2.style.zIndex = '100000'; // 存储动画时位于顶层
+                        var gm2 = document.getElementById('nw-global-modal'); if (gm2) gm2.style.zIndex = '100000'; 
                         callSetAdvSettings(m || 'none', '', '').then(function() { setTimeout(function(){ window.location.reload(); }, 2500); });
                     });
                     document.getElementById('mdl-get-mac').onclick = function() {
@@ -1648,10 +1727,10 @@ return view.extend({
                             for(var i=0; i<chks.length; i++) { if(chks[i].checked) sel.push(chks[i].value); }
                             
                             // 没有勾选任何一天，阻止保存
-                            if(sel.length === 0) { 
+                            if(sel.length === 0) {
                                 openModal({ title: T['M_INC_TIT'] || 'Notice', msg: '<div style="font-size:15px; color:#ef4444; font-weight:bold;">' + (T['MSG_CRON_NO_DAY'] || 'Please select at least one day!') + '</div>', okText: T['BTN_OK'] || 'OK' });
                                 var gm = document.getElementById('nw-global-modal'); if (gm) gm.style.zIndex = '100000';
-                                return false; 
+                                return false;
                             }
                             
                             // 生成 Linux 标准 Cron 表达式 (7天全选则直接用星号)
@@ -1659,6 +1738,13 @@ return view.extend({
                             var tParts = (box.querySelector('#mdl-cron-time').value || '04:00').split(':');
                             cronStr = parseInt(tParts[1]) + " " + parseInt(tParts[0]) + " * * " + dStr;
                         }
+
+                        // 防呆 1：完全没有修改，直接退出
+                        // c 是打开弹窗前从底层读取的初始定时状态 (off 或 0 4 * * * 等)
+                        if (cronStr === c) {
+                            return;
+                        }
+
                         openModal({ title: (T['LBL_CRON_REBOOT'] || 'Scheduled Reboot'), msg: (T['MSG_WRITING'] || 'Saving...'), spin: true });
                         var gm2 = document.getElementById('nw-global-modal'); if (gm2) gm2.style.zIndex = '100000';
                         callSetAdvSettings('', '', cronStr).then(function() { setTimeout(function(){ window.location.reload(); }, 1500); });
@@ -1798,6 +1884,15 @@ return view.extend({
                 } else {
                     // 开关关闭时
                     if (isSaving) return;
+
+                    // 防呆：如果关闭了外网访问，同时在底层关闭 IPv6 探针
+                    var isWogEn = safeUciGet('netwiz', 'main', 'watchdog_enable', '0');
+                    if (isWogEn === '1') {
+                        uci.set('netwiz', 'main', 'watchdog_enable', '0');
+                        uci.save(); // 立即异步存入配置
+                        alert('⚠️ ' + (T['MSG_SEC_NOTICE'] || 'Security Notice') + '：\n' + (T['MSG_WOG_OFF_WAN'] || 'You have disabled WAN access. To ensure the firewall is completely closed, the IPv6 Watchdog has been automatically disabled.'));
+                    }
+
                     isSaving = true;
                     openModal({ title: T['LBL_ADV_UTILS_TITLE'] || '⚙️ Advanced Utilities', msg: T['MSG_WRITING'] || 'Please wait...', spin: true });
                     var gm2 = document.getElementById('nw-global-modal'); if (gm2) gm2.style.zIndex = '100000';
@@ -2462,6 +2557,18 @@ return view.extend({
         });
         container.addEventListener('change', function(e) {
             if (e.target && e.target.id && e.target.id.indexOf('wifi-') !== -1) window._updateLiveQR();
+
+            // 连动：关闭「IPv6 总开关」
+            if (e.target && e.target.id === 'lan-ipv6-toggle') {
+                if (!e.target.checked) {
+                    var isWogEn = safeUciGet('netwiz', 'main', 'watchdog_enable', '0');
+                    if (isWogEn === '1') {
+                        uci.set('netwiz', 'main', 'watchdog_enable', '0');
+                        uci.save(); // 立即异步写入底层
+                        alert('⚠️ ' + (T['MSG_DEP_NOTICE'] || 'Dependency Notice') + '：\n' + (T['MSG_WOG_OFF_V6'] || 'You have disabled IPv6. The IPv6 Watchdog, which depends on it, has been automatically disabled.'));
+                    }
+                }
+            }
         });
         container.querySelector('#tab-2g').addEventListener('click', function() { setTimeout(window._updateLiveQR, 50); });
         container.querySelector('#tab-5g').addEventListener('click', function() { setTimeout(window._updateLiveQR, 50); });

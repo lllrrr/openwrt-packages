@@ -2001,58 +2001,84 @@ EOF
                 
                 if [ "$ENABLE" = "1" ] && [ -n "$HTTP_URL" ]; then
                     
+                    # --- 防呆：接管防火墙 ---
+                    # 抓取用户设定的 Web 访问端口
+                    raw_port=$(uci -q get firewall.netwiz_web.dest_port 2>/dev/null)
+                    [ -z "$raw_port" ] && raw_port=80
+                    
+                    # 核心防呆：如果用户同时开启了 80 和 443，提取出的值为 "80 443"
+                    # 这里必须提取第一个端口用于拼接 URL，否则带空格的 URL 会让 curl 崩溃
+                    web_port=$(echo "$raw_port" | awk '{print $1}')
+
+                    # 检查专属的探针放行规则是否存在
+                    rule_exists=$(uci -q get firewall.Netwiz_Probe_Allow 2>/dev/null)
+                    if [ -z "$rule_exists" ]; then
+                        # 放弃 EOF 写法，改用单行 uci，彻底杜绝空格/Tab缩进引起的致命语法错误
+                        uci -q set firewall.Netwiz_Probe_Allow=rule
+                        uci -q set firewall.Netwiz_Probe_Allow.name='Allow-Netwiz-Probe'
+                        uci -q set firewall.Netwiz_Probe_Allow.src='wan'
+                        uci -q set firewall.Netwiz_Probe_Allow.dest_port="$raw_port"
+                        uci -q set firewall.Netwiz_Probe_Allow.proto='tcp'
+                        uci -q set firewall.Netwiz_Probe_Allow.family='ipv6'
+                        uci -q set firewall.Netwiz_Probe_Allow.target='ACCEPT'
+                        uci -q commit firewall
+                        /etc/init.d/firewall reload &
+                    fi
+                    # ---------------------------------------
+                    
                     # 智能 URL 补全与动态追踪拼装
-                    # 1. 如果用户没填 http:// 或 https://，自动补全
+                    # 1. 自动补全协议 (默认走 http 以降低海外 HTTPS 握手延迟导致超时的概率)
                     case "$HTTP_URL" in
                         http://*|https://*) ;;
-                        *) HTTP_URL="https://$HTTP_URL" ;;
+                        *) HTTP_URL="http://$HTTP_URL" ;;
                     esac
                     
-                    # 2. 如果网址里没有 target= 参数，启动本机动态 IPv6 追踪
-                    if ! echo "$HTTP_URL" | grep -q "target="; then
-                        # 抓取用户在高级面板设定的 Web 访问端口 (默认 80)
-                        web_port=$(uci -q get firewall.netwiz_web.dest_port 2>/dev/null)
-                        [ -z "$web_port" ] && web_port=80
+                    # 2. 检查用户输入的链接中是否已经包含 IPv6 特有的中括号 "["
+                    # 如果没有，说明用户只填了极简的探针域名，需要我们自动获取并拼接
+                    if ! echo "$HTTP_URL" | grep -q "\["; then
                         
-                        # 极速精准获取当前第一优先级的全球公网 IPv6 地址 (排除内网 fd00)
+                        # 极速精准获取当前第一优先级的全球公网IPv6地址（排除内网fd00）
                         cur_v6=$(ubus call network.interface.wan6 status 2>/dev/null | grep -A 2 '"ipv6-address"' | grep '"address"' | head -n 1 | cut -d '"' -f 4)
                         [ -z "$cur_v6" ] && cur_v6=$(ip -6 addr show scope global | grep inet6 | grep -v " fd" | awk -F'[/ ]+' '{print $3}' | head -n1)
                         
                         if [ -n "$cur_v6" ]; then
-                            # 去除尾部可能多余的斜杠，并完美拼装
-                            HTTP_URL="${HTTP_URL%%/}/?target=[${cur_v6}]:${web_port}"
+                            # 拼接法则：http://xxx.workers.dev/[IP]：端口
+                            HTTP_URL="${HTTP_URL%%/}/[${cur_v6}]:${web_port}"
+                        else
+                            # 防呆：连IPv6都没有（通常是ISP断网），探针失去意义
+                            logger -t Netwiz "[保活守护] ⚠️ 未检测到公网IPv6位址，暂停本轮外网探测。"
+                            HTTP_URL=""  # 清空URL作为拦截信号
                         fi
                     fi
 
-                    http_ok=0
-                    # 发起终极请求
-                    HTTP_RES=$(curl -6 -s -m 5 "$HTTP_URL")
-                    
-                    # 在后台查看它每次拼装出了什么网址
-                    # logger -t Netwiz "[探针调试] 最终请求: $HTTP_URL , 收到: $HTTP_RES"
-                    
-                    if [ $? -eq 0 ]; then
-                        case "$HTTP_RES" in
-                            FAIL_*|MISSING_TARGET) http_ok=0 ;;
-                            *) http_ok=1 ;;
-                        esac
-                    fi
-                    
-                    # HTTP深度探测失败 且 刚刚的Ping也失败
-                    if [ $http_ok -eq 0 ] && [ $ping_res -ne 0 ]; then
-                        if ! ping -6 -c 2 -W 3 "$PING_TARGET" >/dev/null 2>&1; then
-                            logger -t Netwiz "[保活守护]🚨 双层探测均无响应，执行内核级自愈重置..."
-                            
-                            /etc/init.d/firewall restart >/dev/null 2>&1
-                            
-                            # 同時支持 uhttpd、nginx 甚至是 lighttpd
-                            [ -x /etc/init.d/uhttpd ] && /etc/init.d/uhttpd restart >/dev/null 2>&1
-                            [ -x /etc/init.d/nginx ] && /etc/init.d/nginx restart >/dev/null 2>&1
-                            [ -x /etc/init.d/lighttpd ] && /etc/init.d/lighttpd restart >/dev/null 2>&1
-                            
-                            [ -x /etc/init.d/ddns ] && /etc/init.d/ddns restart >/dev/null 2>&1
+                    # 只有成功拼接了带有IPv6的URL，才发起探测和自愈（避免无意义重启）
+                    if [ -n "$HTTP_URL" ]; then
+                        http_ok=0
+                        # 发起终极请求
+                        HTTP_RES=$(curl -6 -s -m 5 "$HTTP_URL")
+                        
+                        if [ $? -eq 0 ]; then
+                            case "$HTTP_RES" in
+                                FAIL_*|MISSING_TARGET) http_ok=0 ;;
+                                *) http_ok=1 ;;
+                            esac
+                        fi
+                        
+                        # HTTP深度探测失败且刚刚的Ping也失败
+                        if [ $http_ok -eq 0 ] && [ $ping_res -ne 0 ]; then
+                            if ! ping -6 -c 2 -W 3 "$PING_TARGET" >/dev/null 2>&1; then
+                                logger -t Netwiz "[保活守护] 🚨 双层探测均无响应，执行内核级自愈重置..."
+                                
+                                /etc/init.d/firewall restart >/dev/null 2>&1
+                                
+                                [ -x /etc/init.d/uhttpd ] && /etc/init.d/uhttpd restart >/dev/null 2>&1
+                                [ -x /etc/init.d/nginx ] && /etc/init.d/nginx restart >/dev/null 2>&1
+                                [ -x /etc/init.d/lighttpd ] && /etc/init.d/lighttpd restart >/dev/null 2>&1
+                                
+                                [ -x /etc/init.d/ddns ] && /etc/init.d/ddns restart >/dev/null 2>&1
 
-                            logger -t Netwiz "[保活守护]✅ 自愈指令下发完毕！"
+                                logger -t Netwiz "[保活守护]✅ 自愈指令下发完毕！"
+                            fi
                         fi
                     fi
                 fi

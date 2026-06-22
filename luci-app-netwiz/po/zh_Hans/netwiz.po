@@ -1754,7 +1754,7 @@ msgid "Scheduled Reboot"
 msgstr "定时重启设置"
 
 msgid "Allow WAN Web Access"
-msgstr "允许外网访问后台，端口："
+msgstr "外网直联后台，端口："
 
 msgid "<b>Tip:</b> Some ISPs or campus networks bind to a specific device MAC. If dial-up fails, enter the cloned MAC here."
 msgstr "<b>提示：</b>部分小区宽带或校园网绑定了特定的设备 MAC（如旧路由器或电脑）。若拨号失败，请在此填入该 MAC 进行伪装克隆。"
@@ -2114,10 +2114,10 @@ msgid "Save layout failed"
 msgstr "保存排版失败"
 
 msgid "IPv6 Watchdog"
-msgstr "深度 IPv6 保活"
+msgstr "IPv6 深度保活"
 
 msgid "IPv6 Heartbeat Probe"
-msgstr "深度 IPv6 直联存活自愈"
+msgstr "IPv6 进阶直联存活自愈"
 
 msgid "Enable Advanced IPv6 Link Monitoring & Auto Recovery"
 msgstr "启用 IPv6 链路存活监测与自愈"
@@ -2148,3 +2148,24 @@ msgstr "填写示例："
 
 msgid "Click to view Cloudflare tutorial & source code"
 msgstr "点击查看 Cloudflare 示例教程与源码"
+
+msgid "To ensure the probe works correctly, the following dependent features have been automatically enabled:"
+msgstr "为了确保探针正常工作，系统已同步为您开启以下依赖功能："
+
+msgid "IPv6 Master Switch"
+msgstr "IPv6 总开关"
+
+msgid "Allow WAN Access to Web UI"
+msgstr "允许外网访问面板"
+
+msgid "Security Notice"
+msgstr "安全提示"
+
+msgid "You have disabled WAN access. To ensure the firewall is completely closed, the IPv6 Watchdog has been automatically disabled."
+msgstr "您关闭了外网访问。为确保防火墙完全封闭，系统已同步为您关闭 IPv6 深度保活。"
+
+msgid "Dependency Notice"
+msgstr "依赖提示"
+
+msgid "You have disabled IPv6. The IPv6 Watchdog, which depends on it, has been automatically disabled."
+msgstr "您关闭了 IPv6 功能。系统已同步为您关闭依赖此功能的 IPv6 深度保活。"

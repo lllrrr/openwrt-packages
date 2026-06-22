@@ -1,3 +1,4 @@
+// /www/luci-static/resources/lucky/log.js
 'use strict';
 'require baseclass';
 
@@ -69,7 +70,7 @@ return baseclass.extend({
         ['looking for i18n package:',       _('Looking for language pack:')],
         ['Installing language pack:',       _('Installing language pack:')],
         ['Language pack installed:',        _('Language pack installed:')],
-        ['Lang pack failed',                _('Language pack installation failed')],
+        ['Language pack installation failed',  _('Language pack installation failed')],
         ['Luci installed:',                 _('LuCI installed:')],
 
         // auto update
