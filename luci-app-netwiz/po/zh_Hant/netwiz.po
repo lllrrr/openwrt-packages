@@ -2112,3 +2112,39 @@ msgstr "移除"
 
 msgid "Save layout failed"
 msgstr "儲存排版失敗"
+
+msgid "IPv6 Watchdog"
+msgstr "IPv6 保活"
+
+msgid "IPv6 Heartbeat Probe"
+msgstr "IPv6 存活監測"
+
+msgid "Enable Advanced IPv6 Link Monitoring & Auto Recovery"
+msgstr "啟用 IPv6 鏈路存活監測與自癒"
+
+msgid "Probe Target URL"
+msgstr "探測來源目標網址"
+
+msgid "e.g., XXXXX-XXXXX.workers.dev"
+msgstr "例如：XXXXX-XXXXX.workers.dev"
+
+msgid "Note:"
+msgstr "說明："
+
+msgid "Supports any API compatible with the specification. You can deploy it on Cloudflare, Cloud Servers, or even a VPS."
+msgstr "支援填寫相容規範的介面。您可將其部署在 Cloudflare、雲端伺服器，甚至 VPS 上。"
+
+msgid "The server must parse this address and perform a live test:"
+msgstr "伺服器端需解析該位址並進行測活："
+
+msgid "Your_URL/[IPv6_Address]:Port"
+msgstr "您的連結/[IPv6位址]:通訊埠"
+
+msgid "If the network is accessible, it must return the plain text"
+msgstr "若網路暢通，請務必返回純文字"
+
+msgid "Examples:"
+msgstr "填寫範例："
+
+msgid "Click to view Cloudflare tutorial & source code"
+msgstr "點擊查看 Cloudflare 範例教學與原始碼"
