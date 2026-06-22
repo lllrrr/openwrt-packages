@@ -1985,7 +1985,9 @@ EOF
         ;;
 
     daemon)
+        heal_fail_cnt=0
         loop_cnt=0
+        while true; do
         PING_TARGET="2400:3200::1"
         logger -t Netwiz "[保活守护]引擎启动成功！进入后台常驻监控模式..."
 
@@ -2064,20 +2066,38 @@ EOF
                             esac
                         fi
                         
-                        # HTTP深度探测失败且刚刚的Ping也失败
+                        # 只要有一次探测成功（无论是 HTTP 还是接下来的 Ping），立刻清零计数器
+                        if [ $http_ok -eq 1 ]; then
+                            [ $heal_fail_cnt -gt 0 ] && logger -t Netwiz "[保活守护] 🌐 探测成功，网络已恢复，自愈熔断器复位。"
+                            heal_fail_cnt=0
+                        fi
+                        
+                        # HTTP 深度探测失败 且 Ping 也失败
                         if [ $http_ok -eq 0 ] && [ $ping_res -ne 0 ]; then
                             if ! ping -6 -c 2 -W 3 "$PING_TARGET" >/dev/null 2>&1; then
-                                logger -t Netwiz "[保活守护] 🚨 双层探测均无响应，执行内核级自愈重置..."
                                 
-                                /etc/init.d/firewall restart >/dev/null 2>&1
-                                
-                                [ -x /etc/init.d/uhttpd ] && /etc/init.d/uhttpd restart >/dev/null 2>&1
-                                [ -x /etc/init.d/nginx ] && /etc/init.d/nginx restart >/dev/null 2>&1
-                                [ -x /etc/init.d/lighttpd ] && /etc/init.d/lighttpd restart >/dev/null 2>&1
-                                
-                                [ -x /etc/init.d/ddns ] && /etc/init.d/ddns restart >/dev/null 2>&1
+                                # 连续自愈次数是否超过 3 次
+                                if [ $heal_fail_cnt -lt 3 ]; then
+                                    heal_fail_cnt=$((heal_fail_cnt + 1))
+                                    logger -t Netwiz "[保活守护]🚨 双层探测均无响应，执行第 $heal_fail_cnt 次内核级自愈重置..."
+                                    
+                                    /etc/init.d/firewall restart >/dev/null 2>&1
+                                    
+                                    [ -x /etc/init.d/uhttpd ] && /etc/init.d/uhttpd restart >/dev/null 2>&1
+                                    [ -x /etc/init.d/nginx ] && /etc/init.d/nginx restart >/dev/null 2>&1
+                                    [ -x /etc/init.d/lighttpd ] && /etc/init.d/lighttpd restart >/dev/null 2>&1
+                                    
+                                    [ -x /etc/init.d/ddns ] && /etc/init.d/ddns restart >/dev/null 2>&1
 
-                                logger -t Netwiz "[保活守护]✅ 自愈指令下发完毕！"
+                                    logger -t Netwiz "[保活守护]✅ 自愈指令下发完毕！"
+                                else
+                                    # 超过 3 次，触发熔断保护，不再执行重启，防止设备性能耗尽
+                                    logger -t Netwiz "[保活守护] ⚠️ 连续 3 次自愈无效，推测为 ISP 严重故障。已触发熔断保护，暂停自愈动作并等待网络自然恢复。"
+                                fi
+                            else
+                                # Ping 成功了，说明底层网络没断，可能只是网页探针节点拥堵，复位计数器
+                                [ $heal_fail_cnt -gt 0 ] && logger -t Netwiz "[保活守护] 🌐 ICMP 层连通正常，自愈熔断器复位。"
+                                heal_fail_cnt=0
                             fi
                         fi
                     fi
