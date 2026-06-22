@@ -74,53 +74,55 @@ chmod +x luci-app-netwiz/root/usr/libexec/netwiz-autodetect.sh
 chmod +x luci-app-netwiz/root/usr/libexec/netwiz-monitor-loop.sh
 chmod +x luci-app-netwiz/root/etc/init.d/netwiz-monitor
 chmod +x luci-app-netwiz/root/etc/init.d/netwiz-recovery
+chmod +x luci-app-netwiz/root/etc/init.d/netwiz-watchdog
 chmod +x luci-app-netwiz/root/etc/hotplug.d/dhcp/99-netwiz-guard
 ```
 ---
 
 ```bash
 luci-app-netwiz/
-├── README.md                   # Project documentation (Features, Installation, Changelog, OTA updates)
-├── LICENSE                     # Open source license
-├── Makefile                    # OpenWrt standard Makefile (Package definition, Dependencies)
+├── README.md                   # Project Documentation (Features, Installation Guide, Changelog)
+├── LICENSE                     # Open Source License
+├── Makefile                    # OpenWrt Standard Makefile (Package Definition, Dependencies)
 │
-├── htdocs/                     # 🌐 Frontend UI Layer (Static resources)
+├── htdocs/                     # Frontend UI Layer (Pure Static Resources)
 │   └── luci-static/resources/view/
-│       ├── netwiz.css          # Global stylesheet (Modals, Responsive design, UI polishing)
-│       ├── netwiz.js           # Frontend Core 1: Wizard Engine (Network config, Smart backup & restore, QR code dispatcher)
-│       ├── netwiz_dev.js       # Frontend Core 2: Manager Engine (Device radar, Smart subnetting, UI interactions)
-│       └── qrcode.min.js       # Frontend Dependency: Pure local micro QR code generator (Enables scan-to-connect)
+│       ├── netwiz.css          # Global Common Stylesheet (Modals, Responsive, UI Beautification)
+│       ├── netwiz.js           # Frontend Core 1: Wizard Engine (incl. Smart Backup, Anti-brick Validation, QR Code Dispatcher)
+│       ├── netwiz_dev.js       # Frontend Core 2: Manager Engine (Device Radar, Smart Segmentation, UI Interaction)
+│       └── qrcode.min.js       # Frontend Dependency: Pure Local Micro QR Code Generation Engine (for scan-to-connect Wi-Fi)
 │
-├── po/                         # 🌍 i18n (Internationalization)
-│   ├── zh_Hans/netwiz.po       # Simplified Chinese dictionary
-│   └── zh_Hant/netwiz.po       # Traditional Chinese dictionary
+├── po/                         # Multilingual Internationalization (i18n)
+│   ├── zh_Hans/netwiz.po       # Simplified Chinese Translation Dictionary
+│   └── zh_Hant/netwiz.po       # Traditional Chinese Translation Dictionary
 │
-└── root/                       # ⚙️ Backend System Layer (Mapped to router's / directory upon installation)
+└── root/                       # Backend System Layer (Mapped to router root directory '/' upon packaging)
     ├── etc/
     │   ├── config/
-    │   │   └── netwiz          # Underlying config store (Wizard states, Manager groups, Device timestamps)
+    │   │   └── netwiz          # Low-level Configuration Library (Stores wizard status, manager grouping, and device activity timestamps)
     │   │
-    │   ├── init.d/             # [Wizard Engine Daemon Modules]
-    │   │   ├── netwiz-monitor  # Resident monitor daemon (Starts/Stops monitoring engine)
-    │   │   └── netwiz-recovery # Power-loss auto-recovery service (START=15, Prevents disconnects on failed configs)
+    │   ├── init.d/             # [Core Daemon Services / System Init Scripts] (Manages all background tasks)
+    │   │   ├── netwiz-monitor  # [Wizard Engine] Resident monitor daemon (Handles status during setup & frontend monitoring)
+    │   │   ├── netwiz-recovery # [Rescue Engine] Auto-recovery on power loss (Anti-disconnect, extremely early boot START=15)
+    │   │   └── netwiz-watchdog # [Keepalive Engine] IPv6 heartbeat & self-healing daemon (Late boot START=99)
     │   │
-    │   └── hotplug.d/dhcp/     # 🛡️ [Manager Engine Stealth Guard Module]
-    │       └── 99-netwiz-guard # Anti-MAC-spoofing trigger (Event-driven microsecond interception)
+    │   └── hotplug.d/dhcp/     # [Manager Engine Stealth Guard Module]
+    │       └── 99-netwiz-guard # MAC Anti-spoofing Trigger (Event-driven microsecond interception, zero background overhead)
     │
     └── usr/
         ├── libexec/
-        │   ├── netwiz-autodetect.sh   # WAN protocol auto-detection engine
-        │   ├── netwiz-monitor-loop.sh # Wizard debounce and fallback loop logic
+        │   ├── netwiz-autodetect.sh   # WAN Protocol Auto-detection Engine
+        │   ├── netwiz-monitor-loop.sh # Wizard Debounce and Fallback Loop Logic
         │   │
-        │   └── rpcd/           # 🔌 RPC Interface Layer (Frontend-Backend communication bridge)
-        │       ├── netwiz      # Backend API 1: Wizard dedicated (Underlying protocol mods, Capsule validation)
-        │       └── netwiz_dev  # Backend API 2: Manager dedicated (ARP/DHCP ops, Crash self-rescue, Silent cleanup)
+        │   └── rpcd/           # RPC Interface Layer (Frontend-Backend Data Communication Bridge)
+        │       ├── netwiz      # Backend Interface 1: Dedicated to Wizard/Backup (Handles network protocol modification, kernel-level fingerprint post-mortem)
+        │       └── netwiz_dev  # Backend Interface 2: Dedicated to Manager (ARP/DHCP access, includes crash self-rescue and silent cleanup mechanisms)
         │
         └── share/
             ├── luci/menu.d/
-            │   └── luci-app-netwiz.json # System menu entry registration
+            │   └── luci-app-netwiz.json # System Menu Entry Registration
             └── rpcd/acl.d/
-                └── luci-app-netwiz.json # UBUS Access Control List (Authorizes frontend to access backend APIs)
+                └── luci-app-netwiz.json # UBUS Access Control List (Authorizes frontend access to backend interfaces)
 ```
 ---
 
