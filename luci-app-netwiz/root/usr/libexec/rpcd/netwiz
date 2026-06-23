@@ -1974,7 +1974,7 @@ reboot
 EOF
                     chmod +x /tmp/nw_do_restore.sh
                     /tmp/nw_do_restore.sh "$target_file" >/dev/null 2>&1 &
-                    
+
                     echo '{"result":0}'
                 else
                     echo '{"error":"No data"}'
@@ -1988,33 +1988,34 @@ EOF
         heal_fail_cnt=0
         loop_cnt=0
         PING_TARGET="2400:3200::1"
-        logger -t Netwiz "[保活守护]引擎启动成功！进入后台常驻监控模式..."
+        logger -t Netwiz "[保活守护] 引擎启动成功！进入后台常驻监控模式..."
 
         while true; do
+            # 1. 真正的效能休眠：開關沒開，直接睡覺，一行代碼都不多跑
+            ENABLE=$(uci -q get netwiz.main.watchdog_enable)
+            if [ "$ENABLE" != "1" ]; then
+                sleep 20
+                continue
+            fi
+
             # --- [ 动作A：每20秒执行（高频轻量保活）] ---
+            # 保持 IPv6 路由表活躍
             ping -6 -c 1 -W 2 "$PING_TARGET" >/dev/null 2>&1
-            ping_res=$?
-            
+
             # --- [ 动作 B：每 120 秒执行 (深度探测与高级自愈) ] ---
             if [ $((loop_cnt % 6)) -eq 0 ]; then
-                ENABLE=$(uci -q get netwiz.main.watchdog_enable)
                 HTTP_URL=$(uci -q get netwiz.main.watchdog_url)
-                
-                if [ "$ENABLE" = "1" ] && [ -n "$HTTP_URL" ]; then
-                    
-                    # --- 防呆：接管防火墙 ---
-                    # 抓取用户设定的 Web 访问端口
+
+                if [ -n "$HTTP_URL" ]; then
+
+                    # --- 防呆：动态接管防火墙 (修复端口变更不同步Bug) ---
                     raw_port=$(uci -q get firewall.netwiz_web.dest_port 2>/dev/null)
                     [ -z "$raw_port" ] && raw_port=80
-                    
-                    # 核心防呆：如果用户同时开启了 80 和 443，提取出的值为 "80 443"
-                    # 这里必须提取第一个端口用于拼接 URL，否则带空格的 URL 会让 curl 崩溃
                     web_port=$(echo "$raw_port" | awk '{print $1}')
 
-                    # 检查专属的探针放行规则是否存在
-                    rule_exists=$(uci -q get firewall.Netwiz_Probe_Allow 2>/dev/null)
-                    if [ -z "$rule_exists" ]; then
-                        # 放弃 EOF 写法，改用单行 uci，彻底杜绝空格/Tab缩进引起的致命语法错误
+                    # 校验目前的端口是否和目标一致，不一致则立刻刷新规则
+                    current_fw_port=$(uci -q get firewall.Netwiz_Probe_Allow.dest_port 2>/dev/null)
+                    if [ "$current_fw_port" != "$raw_port" ]; then
                         uci -q set firewall.Netwiz_Probe_Allow=rule
                         uci -q set firewall.Netwiz_Probe_Allow.name='Allow-Netwiz-Probe'
                         uci -q set firewall.Netwiz_Probe_Allow.src='wan'
@@ -2025,37 +2026,30 @@ EOF
                         uci -q commit firewall
                         /etc/init.d/firewall reload &
                     fi
-                    # ---------------------------------------
-                    
-                    # 智能 URL 补全与动态追踪拼装
-                    # 1. 自动补全协议 (默认走 http 以降低海外 HTTPS 握手延迟导致超时的概率)
+
+                    # --- URL 补全与动态追踪拼装 ---
                     case "$HTTP_URL" in
                         http://*|https://*) ;;
                         *) HTTP_URL="http://$HTTP_URL" ;;
                     esac
-                    
-                    # 2. 检查用户输入的链接中是否已经包含 IPv6 特有的中括号 "["
-                    # 如果没有，说明用户只填了极简的探针域名，需要我们自动获取并拼接
+
                     if ! echo "$HTTP_URL" | grep -q "\["; then
-                        
-                        # 极速精准获取当前第一优先级的全球公网IPv6地址（排除内网fd00）
                         cur_v6=$(ubus call network.interface.wan6 status 2>/dev/null | grep -A 2 '"ipv6-address"' | grep '"address"' | head -n 1 | cut -d '"' -f 4)
                         [ -z "$cur_v6" ] && cur_v6=$(ip -6 addr show scope global | grep inet6 | grep -v " fd" | awk -F'[/ ]+' '{print $3}' | head -n1)
-                        
+
                         if [ -n "$cur_v6" ]; then
-                            # 拼接法则：http://xxx.workers.dev/[IP]：端口
                             HTTP_URL="${HTTP_URL%%/}/[${cur_v6}]:${web_port}"
                         else
-                            # 防呆：连IPv6都没有（通常是ISP断网），探针失去意义
                             logger -t Netwiz "[保活守护] ⚠️ 未检测到公网IPv6位址，暂停本轮外网探测。"
-                            HTTP_URL=""  # 清空URL作为拦截信号
+                            HTTP_URL=""
                         fi
                     fi
 
-                    # 只有成功拼接了带有IPv6的URL，才发起探测和自愈（避免无意义重启）
+                    # --- 核心深度探测与自愈逻辑重构 ---
                     if [ -n "$HTTP_URL" ]; then
                         http_ok=0
-                        # 发起终极请求
+                        
+                        # 加入 --noproxy "*" 彻底免疫所有代理外挂的透明劫持！
                         HTTP_RES=$(curl -6 -s -m 5 --noproxy "*" "$HTTP_URL")
                         
                         if [ $? -eq 0 ]; then
@@ -2065,39 +2059,34 @@ EOF
                             esac
                         fi
                         
-                        # 只要有一次探测成功（无论是 HTTP 还是接下来的 Ping），立刻清零计数器
-                        if [ $http_ok -eq 1 ]; then
-                            [ $heal_fail_cnt -gt 0 ] && logger -t Netwiz "[保活守护] 🌐 探测成功，网络已恢复，自愈熔断器复位。"
-                            heal_fail_cnt=0
-                        fi
-                        
-                        # HTTP 深度探测失败 且 Ping 也失败
-                        if [ $http_ok -eq 0 ] && [ $ping_res -ne 0 ]; then
+                        # 只要 Web 探针不通，就修复
+                        if [ $http_ok -eq 0 ]; then
+                            
+                            # 细分日志：判断是全网断线，还是单纯端口卡死
                             if ! ping -6 -c 2 -W 3 "$PING_TARGET" >/dev/null 2>&1; then
-                                
-                                # 连续自愈次数是否超过 3 次
-                                if [ $heal_fail_cnt -lt 3 ]; then
-                                    heal_fail_cnt=$((heal_fail_cnt + 1))
-                                    logger -t Netwiz "[保活守护]🚨 双层探测均无响应，执行第 $heal_fail_cnt 次内核级自愈重置..."
-                                    
-                                    /etc/init.d/firewall restart >/dev/null 2>&1
-                                    
-                                    [ -x /etc/init.d/uhttpd ] && /etc/init.d/uhttpd restart >/dev/null 2>&1
-                                    [ -x /etc/init.d/nginx ] && /etc/init.d/nginx restart >/dev/null 2>&1
-                                    [ -x /etc/init.d/lighttpd ] && /etc/init.d/lighttpd restart >/dev/null 2>&1
-                                    
-                                    [ -x /etc/init.d/ddns ] && /etc/init.d/ddns restart >/dev/null 2>&1
-
-                                    logger -t Netwiz "[保活守护]✅ 自愈指令下发完毕！"
-                                else
-                                    # 超过 3 次，触发熔断保护，不再执行重启，防止设备性能耗尽
-                                    logger -t Netwiz "[保活守护] ⚠️ 连续 3 次自愈无效，推测为 ISP 严重故障。已触发熔断保护，暂停自愈动作并等待网络自然恢复。"
-                                fi
+                                err_msg="🚨 出入站通信均已中断"
                             else
-                                # Ping 成功了，说明底层网络没断，可能只是网页探针节点拥堵，复位计数器
-                                [ $heal_fail_cnt -gt 0 ] && logger -t Netwiz "[保活守护] 🌐 ICMP 层连通正常，自愈熔断器复位。"
-                                heal_fail_cnt=0
+                                err_msg="🚨 出站正常，但入站(Web探针)受阻"
                             fi
+
+                            if [ $heal_fail_cnt -lt 3 ]; then
+                                heal_fail_cnt=$((heal_fail_cnt + 1))
+                                logger -t Netwiz "[保活守护] $err_msg，执行第 $heal_fail_cnt 次内核级自愈重置..."
+                                
+                                /etc/init.d/firewall restart >/dev/null 2>&1
+                                [ -x /etc/init.d/uhttpd ] && /etc/init.d/uhttpd restart >/dev/null 2>&1
+                                [ -x /etc/init.d/nginx ] && /etc/init.d/nginx restart >/dev/null 2>&1
+                                [ -x /etc/init.d/lighttpd ] && /etc/init.d/lighttpd restart >/dev/null 2>&1
+                                [ -x /etc/init.d/ddns ] && /etc/init.d/ddns restart >/dev/null 2>&1
+
+                                logger -t Netwiz "[保活守护] ✅ 自愈指令下发完毕！"
+                            else
+                                logger -t Netwiz "[保活守护] ⚠️ 连续 3 次自愈无效，推测为 ISP 严重故障。已触发熔断保护，暂停自愈。"
+                            fi
+                        else
+                            # 探针畅通无阻，复位计数器
+                            [ $heal_fail_cnt -gt 0 ] && logger -t Netwiz "[保活守护] 🌐 探测成功，自愈熔断器复位。"
+                            heal_fail_cnt=0
                         fi
                     fi
                 fi
