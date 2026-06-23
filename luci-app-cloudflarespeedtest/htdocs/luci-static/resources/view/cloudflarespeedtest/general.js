@@ -38,15 +38,23 @@ const callBestResult = rpc.declare({
 
 function script(src) {
 	return new Promise(function(resolve, reject) {
-		if (document.querySelector('script[src="%s"]'.format(src))) {
+		const existing = document.querySelector('script[src="%s"]'.format(src));
+
+		if (existing && existing.dataset.loaded == 'true') {
 			resolve();
 			return;
 		}
 
-		const el = E('script', { src: src });
-		el.onload = resolve;
+		const el = existing || E('script', { src: src });
+		el.addEventListener('load', resolve, { once: true });
+		el.addEventListener('error', reject, { once: true });
+		el.onload = function() {
+			el.dataset.loaded = 'true';
+		};
 		el.onerror = reject;
-		document.head.appendChild(el);
+
+		if (!existing)
+			document.head.appendChild(el);
 	});
 }
 
@@ -258,7 +266,7 @@ return view.extend({
 		let m, s, o;
 		let actionButton;
 		const status = data[1] || {};
-		const bestResult = data[2] || {};
+		const bestResult = data[2] || '';
 		const history = data[3] || [];
 
 		m = new form.Map('cloudflarespeedtest', _('Cloudflare Speed Test'),
@@ -458,7 +466,7 @@ return view.extend({
 		o.readonly = true;
 		o.wrap = 'off';
 		o.cfgvalue = function() {
-			return bestResult.content || '';
+			return typeof bestResult == 'string' ? bestResult : (bestResult.content || '');
 		};
 		o.write = function() {};
 
@@ -481,16 +489,21 @@ return view.extend({
 
 			const root = E([], [
 				E('div', { 'class': 'cbi-section' }, [ statusNode ]),
-				formNode,
-				chartNode
+				formNode
 			]);
+
+			const formActions = formNode.querySelector('.cbi-page-actions');
+
+			if (formActions && formActions.parentNode)
+				formActions.parentNode.insertBefore(chartNode, formActions);
+			else
+				formNode.appendChild(chartNode);
 
 			poll.add(L.bind(this.pollStatus, this, statusNode, actionButton), 3);
 
-			Promise.all([
-				script(L.resource('cloudflarespeedtest/chart.js')),
-				script(L.resource('cloudflarespeedtest/chartjs-adapter-date-fns.js'))
-			]).then(L.bind(function() {
+			script(L.resource('cloudflarespeedtest/chart.js')).then(function() {
+				return script(L.resource('cloudflarespeedtest/chartjs-adapter-date-fns.js'));
+			}).then(L.bind(function() {
 				this.drawCharts(chartNode, history);
 			}, this));
 

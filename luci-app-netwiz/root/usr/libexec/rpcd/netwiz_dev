@@ -713,7 +713,16 @@ case "$1" in
                     uci set firewall.@rule[-1].dest="lan"
                     uci set firewall.@rule[-1].family="$expose_proto"
                     uci set firewall.@rule[-1].target="ACCEPT"
+                    
+                    # 它現在的作用是給探針小弟看的「追蹤标志」
                     uci set firewall.@rule[-1].dest_mac="$mac"
+                    
+                    # 2：点击保存的瞬间，立即尝试从邻居表抓取真实的公网IPv6。
+                    target_ipv6=$(ip -6 neigh show dev br-lan 2>/dev/null | grep -i "$mac" | grep -vE "^(fd|fe80|FAILED)" | awk '{print $1}' | head -n 1)
+                    if [ -n "$target_ipv6" ]; then
+                        uci set firewall.@rule[-1].dest_ip="$target_ipv6"
+                    fi
+                    
                     uci set firewall.@rule[-1].enabled="1"
                 fi
                 # -----------------------------------

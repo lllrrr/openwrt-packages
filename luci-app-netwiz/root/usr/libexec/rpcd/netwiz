@@ -1994,7 +1994,6 @@ EOF
             ENABLE=$(uci -q get netwiz.main.watchdog_enable)
             
             # --- [ 动作A：每20秒执行（高频轻量保活）] ---
-            # 只有开启了探针，才发送高频 ICMP 保持路由表活跃
             if [ "$ENABLE" = "1" ]; then
                 ping -6 -c 1 -W 2 "$PING_TARGET" >/dev/null 2>&1
             fi
@@ -2002,7 +2001,7 @@ EOF
             # --- [ 动作 B：每 120 秒执行 (深度探测与高级自愈) ] ---
             if [ $((loop_cnt % 6)) -eq 0 ]; then
                 
-                # --- 1. 防呆：动态接管防火墙 (无论哪种模式都必须执行，修复端口变更Bug) ---
+                # --- 1. 防呆：动态接管防火墙 Web 端口 ---
                 raw_port=$(uci -q get firewall.netwiz_web.dest_port 2>/dev/null)
                 [ -z "$raw_port" ] && raw_port=80
                 web_port=$(echo "$raw_port" | awk '{print $1}')
@@ -2020,14 +2019,14 @@ EOF
                     /etc/init.d/firewall reload &
                 fi
 
-                # --- 2. 本地 Web 进程健康度探测 (核心守护，只要进程在跑就永远探测) ---
+                # --- 2. 本地 Web 进程健康度探测 ---
                 local_ok=0
                 if curl -s -m 3 "http://127.0.0.1:${web_port}" >/dev/null 2>&1 || netstat -tuln 2>/dev/null | awk '{print $4}' | grep -E -q ":${web_port}$"; then
                     local_ok=1
                 fi
 
-                # --- 3. 外网出站保活探测 (按需开启) ---
-                http_ok=1  # 默认通过，如果没开启探针，就不报错
+                # --- 3. 外网出站保活探测 ---
+                http_ok=1  
                 HTTP_URL=$(uci -q get netwiz.main.watchdog_url)
                 
                 if [ "$ENABLE" = "1" ] && [ -n "$HTTP_URL" ]; then
@@ -2046,11 +2045,9 @@ EOF
 
                 # --- 4. 核心深度探测与【精准医疗】自愈逻辑 ---
                 if [ $http_ok -eq 0 ] || [ $local_ok -eq 0 ]; then
-                    
                     if [ $heal_fail_cnt -lt 3 ]; then
                         heal_fail_cnt=$((heal_fail_cnt + 1))
                         
-                        # 1：如果是内网面板假死，只重启 Web 服务
                         if [ $local_ok -eq 0 ]; then
                             logger -t Netwiz "[保活守护] 🚨 本地 Web 进程崩溃(端口假死)，执行第 $heal_fail_cnt 次局部自愈..."
                             [ -x /etc/init.d/uhttpd ] && /etc/init.d/uhttpd restart >/dev/null 2>&1
@@ -2058,7 +2055,6 @@ EOF
                             [ -x /etc/init.d/lighttpd ] && /etc/init.d/lighttpd restart >/dev/null 2>&1
                         fi
 
-                        # 2：如果是外网断开，只重启防火墙和 DDNS
                         if [ $http_ok -eq 0 ]; then
                             logger -t Netwiz "[保活守护] 🚨 IPv6 出站保活失败(外部断网)，执行第 $heal_fail_cnt 次内核网络重置..."
                             /etc/init.d/firewall restart >/dev/null 2>&1
@@ -2074,6 +2070,33 @@ EOF
                     [ $heal_fail_cnt -gt 0 ] && logger -t Netwiz "[保活守护] 🌐 网络探测成功，自愈熔断器复位。"
                     heal_fail_cnt=0
                 fi
+                
+                # --- 5. IPv6 动态白名单追踪引擎（配合 netwiz_dev 外网直连 (白名单) 功能 ） ---
+                expose_rules=$(uci -q show firewall 2>/dev/null | grep "\.name='nw_expose_" | cut -d'.' -f2)
+                if [ -n "$expose_rules" ]; then
+                    need_fw_reload=0
+                    for rule in $expose_rules; do
+                        target_mac=$(uci -q get firewall.$rule.dest_mac)
+                        
+                        if [ -n "$target_mac" ]; then
+                            # 抓取真实 IP，避开 fd 内网地址和 FAILED 失效记录
+                            live_ipv6=$(ip -6 neigh show dev br-lan 2>/dev/null | grep -i "$target_mac" | grep -vE "^(fd|fe80|FAILED)" | awk '{print $1}' | head -n 1)
+                            saved_ipv6=$(uci -q get firewall.$rule.dest_ip)
+                            
+                            if [ -n "$live_ipv6" ] && [ "$live_ipv6" != "$saved_ipv6" ]; then
+                                logger -t Netwiz "[保活守护] 🔄 动态追踪: 检测到设备 $target_mac 的 IPv6 已变更为 $live_ipv6，正在自动重写防火墙！"
+                                uci set firewall.$rule.dest_ip="$live_ipv6"
+                                need_fw_reload=1
+                            fi
+                        fi
+                    done
+                    
+                    if [ "$need_fw_reload" -eq 1 ]; then
+                        uci commit firewall
+                        /etc/init.d/firewall reload >/dev/null 2>&1 &
+                    fi
+                fi
+                # -----------------------------------------------------------
             fi
 
             loop_cnt=$((loop_cnt + 1))
