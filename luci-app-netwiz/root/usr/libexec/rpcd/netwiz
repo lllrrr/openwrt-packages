@@ -1991,104 +1991,88 @@ EOF
         logger -t Netwiz "[保活守护] 引擎启动成功！进入后台常驻监控模式..."
 
         while true; do
-            # 1. 真正的效能休眠：開關沒開，直接睡覺，一行代碼都不多跑
             ENABLE=$(uci -q get netwiz.main.watchdog_enable)
-            if [ "$ENABLE" != "1" ]; then
-                sleep 20
-                continue
-            fi
-
+            
             # --- [ 动作A：每20秒执行（高频轻量保活）] ---
-            # 保持 IPv6 路由表活躍
-            ping -6 -c 1 -W 2 "$PING_TARGET" >/dev/null 2>&1
+            # 只有开启了探针，才发送高频 ICMP 保持路由表活跃
+            if [ "$ENABLE" = "1" ]; then
+                ping -6 -c 1 -W 2 "$PING_TARGET" >/dev/null 2>&1
+            fi
 
             # --- [ 动作 B：每 120 秒执行 (深度探测与高级自愈) ] ---
             if [ $((loop_cnt % 6)) -eq 0 ]; then
+                
+                # --- 1. 防呆：动态接管防火墙 (无论哪种模式都必须执行，修复端口变更Bug) ---
+                raw_port=$(uci -q get firewall.netwiz_web.dest_port 2>/dev/null)
+                [ -z "$raw_port" ] && raw_port=80
+                web_port=$(echo "$raw_port" | awk '{print $1}')
+
+                current_fw_port=$(uci -q get firewall.Netwiz_Probe_Allow.dest_port 2>/dev/null)
+                if [ "$current_fw_port" != "$raw_port" ]; then
+                    uci -q set firewall.Netwiz_Probe_Allow=rule
+                    uci -q set firewall.Netwiz_Probe_Allow.name='Allow-Netwiz-Probe'
+                    uci -q set firewall.Netwiz_Probe_Allow.src='wan'
+                    uci -q set firewall.Netwiz_Probe_Allow.dest_port="$raw_port"
+                    uci -q set firewall.Netwiz_Probe_Allow.proto='tcp'
+                    uci -q set firewall.Netwiz_Probe_Allow.family='ipv6'
+                    uci -q set firewall.Netwiz_Probe_Allow.target='ACCEPT'
+                    uci -q commit firewall
+                    /etc/init.d/firewall reload &
+                fi
+
+                # --- 2. 本地 Web 进程健康度探测 (核心守护，只要进程在跑就永远探测) ---
+                local_ok=0
+                if curl -s -m 3 "http://127.0.0.1:${web_port}" >/dev/null 2>&1 || netstat -tuln 2>/dev/null | awk '{print $4}' | grep -E -q ":${web_port}$"; then
+                    local_ok=1
+                fi
+
+                # --- 3. 外网出站保活探测 (按需开启) ---
+                http_ok=1  # 默认通过，如果没开启探针，就不报错
                 HTTP_URL=$(uci -q get netwiz.main.watchdog_url)
-
-                if [ -n "$HTTP_URL" ]; then
-
-                    # --- 防呆：动态接管防火墙 (修复端口变更不同步Bug) ---
-                    raw_port=$(uci -q get firewall.netwiz_web.dest_port 2>/dev/null)
-                    [ -z "$raw_port" ] && raw_port=80
-                    web_port=$(echo "$raw_port" | awk '{print $1}')
-
-                    # 校验目前的端口是否和目标一致，不一致则立刻刷新规则
-                    current_fw_port=$(uci -q get firewall.Netwiz_Probe_Allow.dest_port 2>/dev/null)
-                    if [ "$current_fw_port" != "$raw_port" ]; then
-                        uci -q set firewall.Netwiz_Probe_Allow=rule
-                        uci -q set firewall.Netwiz_Probe_Allow.name='Allow-Netwiz-Probe'
-                        uci -q set firewall.Netwiz_Probe_Allow.src='wan'
-                        uci -q set firewall.Netwiz_Probe_Allow.dest_port="$raw_port"
-                        uci -q set firewall.Netwiz_Probe_Allow.proto='tcp'
-                        uci -q set firewall.Netwiz_Probe_Allow.family='ipv6'
-                        uci -q set firewall.Netwiz_Probe_Allow.target='ACCEPT'
-                        uci -q commit firewall
-                        /etc/init.d/firewall reload &
-                    fi
-
-                    # --- URL 补全与动态追踪拼装 ---
+                
+                if [ "$ENABLE" = "1" ] && [ -n "$HTTP_URL" ]; then
+                    http_ok=0
                     case "$HTTP_URL" in
                         http://*|https://*) ;;
                         *) HTTP_URL="http://$HTTP_URL" ;;
                     esac
-
-                    if ! echo "$HTTP_URL" | grep -q "\["; then
-                        cur_v6=$(ubus call network.interface.wan6 status 2>/dev/null | grep -A 2 '"ipv6-address"' | grep '"address"' | head -n 1 | cut -d '"' -f 4)
-                        [ -z "$cur_v6" ] && cur_v6=$(ip -6 addr show scope global | grep inet6 | grep -v " fd" | awk -F'[/ ]+' '{print $3}' | head -n1)
-
-                        if [ -n "$cur_v6" ]; then
-                            HTTP_URL="${HTTP_URL%%/}/[${cur_v6}]:${web_port}"
-                        else
-                            logger -t Netwiz "[保活守护] ⚠️ 未检测到公网IPv6位址，暂停本轮外网探测。"
-                            HTTP_URL=""
-                        fi
+                    
+                    if curl -6 -s -m 5 --noproxy "*" "$HTTP_URL" >/dev/null 2>&1; then
+                        http_ok=1
+                    elif ping -6 -c 2 -W 3 "2400:3200::1" >/dev/null 2>&1 || ping -6 -c 2 -W 3 "2001:4860:4860::8888" >/dev/null 2>&1; then
+                        http_ok=1
                     fi
+                fi
 
-                    # --- 核心深度探测与自愈逻辑重构 ---
-                    if [ -n "$HTTP_URL" ]; then
-                        http_ok=0
+                # --- 4. 核心深度探测与【精准医疗】自愈逻辑 ---
+                if [ $http_ok -eq 0 ] || [ $local_ok -eq 0 ]; then
+                    
+                    if [ $heal_fail_cnt -lt 3 ]; then
+                        heal_fail_cnt=$((heal_fail_cnt + 1))
                         
-                        # 加入 --noproxy "*" 彻底免疫所有代理外挂的透明劫持！
-                        HTTP_RES=$(curl -6 -s -m 5 --noproxy "*" "$HTTP_URL")
-                        
-                        if [ $? -eq 0 ]; then
-                            case "$HTTP_RES" in
-                                FAIL_*|MISSING_TARGET) http_ok=0 ;;
-                                *) http_ok=1 ;;
-                            esac
+                        # 1：如果是内网面板假死，只重启 Web 服务
+                        if [ $local_ok -eq 0 ]; then
+                            logger -t Netwiz "[保活守护] 🚨 本地 Web 进程崩溃(端口假死)，执行第 $heal_fail_cnt 次局部自愈..."
+                            [ -x /etc/init.d/uhttpd ] && /etc/init.d/uhttpd restart >/dev/null 2>&1
+                            [ -x /etc/init.d/nginx ] && /etc/init.d/nginx restart >/dev/null 2>&1
+                            [ -x /etc/init.d/lighttpd ] && /etc/init.d/lighttpd restart >/dev/null 2>&1
                         fi
-                        
-                        # 只要 Web 探针不通，就修复
+
+                        # 2：如果是外网断开，只重启防火墙和 DDNS
                         if [ $http_ok -eq 0 ]; then
-                            
-                            # 细分日志：判断是全网断线，还是单纯端口卡死
-                            if ! ping -6 -c 2 -W 3 "$PING_TARGET" >/dev/null 2>&1; then
-                                err_msg="🚨 出入站通信均已中断"
-                            else
-                                err_msg="🚨 出站正常，但入站(Web探针)受阻"
-                            fi
-
-                            if [ $heal_fail_cnt -lt 3 ]; then
-                                heal_fail_cnt=$((heal_fail_cnt + 1))
-                                logger -t Netwiz "[保活守护] $err_msg，执行第 $heal_fail_cnt 次内核级自愈重置..."
-                                
-                                /etc/init.d/firewall restart >/dev/null 2>&1
-                                [ -x /etc/init.d/uhttpd ] && /etc/init.d/uhttpd restart >/dev/null 2>&1
-                                [ -x /etc/init.d/nginx ] && /etc/init.d/nginx restart >/dev/null 2>&1
-                                [ -x /etc/init.d/lighttpd ] && /etc/init.d/lighttpd restart >/dev/null 2>&1
-                                [ -x /etc/init.d/ddns ] && /etc/init.d/ddns restart >/dev/null 2>&1
-
-                                logger -t Netwiz "[保活守护] ✅ 自愈指令下发完毕！"
-                            else
-                                logger -t Netwiz "[保活守护] ⚠️ 连续 3 次自愈无效，推测为 ISP 严重故障。已触发熔断保护，暂停自愈。"
-                            fi
-                        else
-                            # 探针畅通无阻，复位计数器
-                            [ $heal_fail_cnt -gt 0 ] && logger -t Netwiz "[保活守护] 🌐 探测成功，自愈熔断器复位。"
-                            heal_fail_cnt=0
+                            logger -t Netwiz "[保活守护] 🚨 IPv6 出站保活失败(外部断网)，执行第 $heal_fail_cnt 次内核网络重置..."
+                            /etc/init.d/firewall restart >/dev/null 2>&1
+                            [ -x /etc/init.d/ddns ] && /etc/init.d/ddns restart >/dev/null 2>&1
                         fi
+
+                        logger -t Netwiz "[保活守护] ✅ 自愈指令下发完毕！"
+                    elif [ $heal_fail_cnt -eq 3 ]; then
+                        heal_fail_cnt=4
+                        logger -t Netwiz "[保活守护] ⚠️ 连续 3 次自愈无效，推测为 ISP 严重故障。已触发熔断，进入完全静默等待模式，下次如果探测成功，熔断器会自动复位。"
                     fi
+                else
+                    [ $heal_fail_cnt -gt 0 ] && logger -t Netwiz "[保活守护] 🌐 网络探测成功，自愈熔断器复位。"
+                    heal_fail_cnt=0
                 fi
             fi
 

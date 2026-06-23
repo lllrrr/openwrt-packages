@@ -1,6 +1,0 @@
-config frps 'main'
-	option enabled '1'
-	option default_client_file '/usr/bin/frps'
-	option default_run_user 'root'
-	option download_mirror ''
-	option migrated_v2 '1'
