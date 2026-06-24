@@ -13,8 +13,8 @@ var T = {
     'TITLE': _('Netwiz NETWORK SETUP'),
     'SUBTITLE': _('Pure · Secure · Non-destructive Minimalist Config'),
     'APP_VERSION': 'v1.4.0',
-    'MODE_ROUTER_TITLE': _('Secondary Router Mode'),
-    'MODE_ROUTER_DESC': _('Upstream network dials up, this device acts as a secondary router.'),
+    'MODE_ROUTER_TITLE': _('DHCP / Static IP (WAN)'),
+    'MODE_ROUTER_DESC': _('Automatically obtain IP from the upstream network, or manually set a static IP.'),
     'MODE_PPPOE_TITLE': _('PPPoE Dial-up'),
     'MODE_PPPOE_DESC': _('Dial up directly using account and password on this device.'),
     'MODE_LAN_TITLE': _('LAN Settings'),
@@ -99,9 +99,9 @@ var T = {
     'BTN_APPLY': _('Apply Settings'),
     'STAT_BYPASS': _('AP Wired Relay'),
     'CURRENT_MODE': _('Current:'),
-    'STAT_MAIN_PPPOE': _('Main Router (PPPoE)'),
-    'STAT_SEC_DHCP': _('Secondary Router (DHCP)'),
-    'STAT_SEC_STATIC': _('Secondary Router (Static IP)'),
+    'STAT_MAIN_PPPOE': _('PPPoE Dial-up'),
+    'STAT_SEC_DHCP': _('DHCP Client (Auto IP)'),
+    'STAT_SEC_STATIC': _('Static IP'),
     'STAT_LAN': _('LAN Mode'),
     'TXT_DEV_IP': _('Device IP:'),
     'TXT_UP_GW': _('Upstream GW:'),
@@ -380,8 +380,8 @@ var T = {
     'MSG_ARCH_WARN_2': _('If you have <b>manually renamed</b> this file, please ignore this warning.<br><br><span style="color:#ef4444;">If it is the wrong package, the system\'s underlying security mechanism will forcibly intercept the restoration later!</span>'),
     'BTN_WARN_CONTINUE': _('I understand, continue'),
     'TXT_SCAN_TO_CONN': _('Scan to Connect'),
-    'WARN_PPPOE_INVALID': '⚠️ ' + _('Current WAN is in Secondary Router mode. PPPoE dial-up will not take effect until applied.'),
-    'WARN_ROUTER_INVALID': '⚠️ ' + _('Current WAN is in PPPoE mode. Secondary Router mode will not take effect until applied.'),
+    'WARN_PPPOE_INVALID': '⚠️ ' + _('Current WAN is in DHCP/Static mode. PPPoE settings will not take effect until applied.'),
+    'WARN_ROUTER_INVALID': '⚠️ ' + _('Current WAN is in PPPoE mode. DHCP/Static settings will not take effect until applied.'),
     // ===== 高级设置 =====
     'LBL_ADV_UTILS_TITLE': '⚙️ ' + _('Advanced Utilities'),
     'LBL_MAC_CLONE_LINK': '🔗 ' + _('MAC Address Clone'),
@@ -530,7 +530,8 @@ var T = {
     'MSG_SEC_NOTICE': _('Security Notice'),
     'MSG_WOG_OFF_WAN': _('You have disabled WAN access. To ensure the firewall is completely closed, the IPv6 Watchdog has been automatically disabled.'),
     'MSG_DEP_NOTICE': _('Dependency Notice'),
-    'MSG_WOG_OFF_V6_ALL': _('You have disabled IPv6. To ensure security, the dependent IPv6 Watchdog and WAN Access will be automatically disabled.')
+    'MSG_WOG_OFF_V6_ALL': _('You have disabled IPv6. To ensure security, the dependent IPv6 Watchdog and WAN Access will be automatically disabled.'),
+    'ERR_EMPTY_URL': _('Probe URL cannot be empty, please fill it in before saving!'),
 };
 
 var callNetSetup = rpc.declare({ object: 'netwiz', method: 'set_network', params: ['mode', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6'], expect: { result: 0 } });
@@ -1445,7 +1446,7 @@ return view.extend({
                     }
 
                     if (nEn === '1' && nUrl === '') {
-                        alert('❌ 探测网址不能为空，请填写后再保存！');
+                        alert('❌ ' + T['ERR_EMPTY_URL']);
                         return false;
                     }
 
@@ -3237,7 +3238,7 @@ return view.extend({
 
         function updateStatusDisplay(isSilent) {
             try {
-                // --- 互联网状态全域快取与防闪烁逻辑 (增强版定位) ---
+                // --- 互联网状态全域快取与防闪烁逻辑 ---
                 if (typeof window.nwInetStatus === 'undefined') window.nwInetStatus = 'wait';
                 if (typeof window.nwInetLast === 'undefined') window.nwInetLast = 0;
                 
@@ -3246,7 +3247,7 @@ return view.extend({
                     window.nwInetLast = now;
                     callCheckInternet().then(function(res) { 
                         window.nwInetStatus = (res.status === 'ok') ? 'ok' : 'fail'; 
-                        // 探测完成后，直接精准更新那个图标，而不是重绘整个界面
+                        // 探测完成后，更新图标
                         var badgeEl = document.getElementById('nw-inet-badge');
                         if (badgeEl) {
                             badgeEl.innerHTML = window.nwInetStatus === 'ok' ? '🌐' : '❌';
@@ -3278,13 +3279,80 @@ return view.extend({
                         // 有线没通，无线通了 -> 切換到无线中继视角
                         activeWan = virWwan;
                         isWispActive = true;
-                    } else if (!phyWan.up && !virWwan.up) {
-                        // 兜底：找一個带 wan 名字的
-                        activeWan = ifaces.find(function(i) { return i && (i.interface === 'wan' || i.interface === 'wwan' || (i.interface && i.interface.indexOf('wan') !== -1 && i.interface.indexOf('lan') === -1)); }) || {};
+                    } else {
+                        // --- 防呆 1：动态寻找真正拥有 0.0.0.0 默认路由的网卡（穿透光猫内网） ---
+                        var realRouteWan = ifaces.find(function(i) {
+                            return i.up && Array.isArray(i.route) && i.route.some(function(r) { return r.target === '0.0.0.0' && (r.mask === 0 || !r.mask); });
+                        });
+                        
+                        if (realRouteWan) {
+                            activeWan = realRouteWan;
+                        } else if (!phyWan.up && !virWwan.up) {
+                            // 兜底：找一個带 wan 名字的
+                            activeWan = ifaces.find(function(i) { return i && (i.interface === 'wan' || i.interface === 'wwan' || (i.interface && i.interface.indexOf('wan') !== -1 && i.interface.indexOf('lan') === -1)); }) || {};
+                        }
                     }
 
-                    var liveWanIp = ((activeWan['ipv4-address'] && activeWan['ipv4-address'][0]) ? activeWan['ipv4-address'][0].address : '').split('/')[0];
+                    // --- 防呆 2：优先公网 IP + 智能穿透探测真实公网 IP ---
+                    var liveWanIp = '';
+                    var isPrivateWan = false;
+                    
+                    if (activeWan['ipv4-address'] && activeWan['ipv4-address'].length > 0) {
+                        var pubIpObj = activeWan['ipv4-address'].find(function(ipObj) {
+                            var ip = ipObj.address || '';
+                            // 过滤掉所有局域网和运营商大内网 (CGNAT) IP
+                            return !/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\.)/.test(ip);
+                        });
+                        
+                        if (pubIpObj) {
+                            liveWanIp = pubIpObj.address; // 物理网卡上直接就有真实的公网 IP
+                        } else {
+                            liveWanIp = activeWan['ipv4-address'][0].address; // 只有内网 IP（确认为二级路由模式）
+                            isPrivateWan = true;
+                        }
+                    }
+                    liveWanIp = liveWanIp.split('/')[0];
+
+                    // 二级路由的内网 IP，利用浏览器在后台静默请求真正的外网 IP
+                    if (isPrivateWan && liveWanIp) {
+                        // 加入缓存机制，每 60 秒最多请求一次外部 API
+                        if (typeof fetch !== 'undefined') {
+                            if (!window._pubIpCache || (Date.now() - window._pubIpLastCheck > 60000)) {
+                                window._pubIpLastCheck = Date.now();
+                                
+                                // 多重 API 获取公网IP (防止手机浏览器拦截单一 API)
+                                var getRealIp = function() {
+                                    // 线路 1: ipify
+                                    return fetch('https://api.ipify.org?format=text').then(function(r) { return r.text(); })
+                                    .catch(function() {
+                                        // 线路 2: 备用节点 ip.sb
+                                        return fetch('https://api.ip.sb/ip').then(function(r) { return r.text(); });
+                                    })
+                                    .catch(function() {
+                                        // 线路 3: 终极兜底节点 ipv6-test
+                                        return fetch('https://v4.ipv6-test.com/api/myip.php').then(function(r) { return r.text(); });
+                                    });
+                                };
+
+                                getRealIp().then(function(ip) {
+                                    ip = ip.replace(/[\r\n\s]+/g, ''); // 清理可能带有的空格与换行
+                                    // 严格校验是否为标准 IPv4
+                                    if (/^([0-9]{1,3}\.){3}[0-9]{1,3}$/.test(ip)) {
+                                        window._pubIpCache = ip;
+                                    }
+                                }).catch(function(e) {}); // 全部失败则静默忽略
+                            }
+                            
+                            // 替换显示
+                            if (window._pubIpCache) {
+                                liveWanIp = window._pubIpCache + '(wan)';
+                            }
+                        }
+                    }
+
                     window._liveWanIp = liveWanIp;
+                    // -------------------------------------------------------------------------
+                    
                     var liveGw = activeWan.nexthop || '';
                     if (!liveGw && Array.isArray(activeWan.route)) { var defaultRoute = activeWan.route.find(function(r) { return r.target === '0.0.0.0'; }); if (defaultRoute) liveGw = defaultRoute.nexthop; }
                     if (!liveGw && activeWan['ipv4-address'] && activeWan['ipv4-address'][0]) liveGw = activeWan['ipv4-address'][0].ptpaddress || '';

@@ -10,11 +10,11 @@ msgstr "网络设置向导"
 msgid "Pure · Secure · Non-destructive Minimalist Config"
 msgstr "纯粹 · 安全 · 无损的极简配置"
 
-msgid "Secondary Router Mode"
-msgstr "二级路由模式 (WAN)"
+msgid "DHCP / Static IP (WAN)"
+msgstr "动态 / 静态 IP (WAN)"
 
-msgid "Upstream network dials up, this device acts as a secondary router."
-msgstr "上级网络负责拨号，本设备作为二级路由使用。"
+msgid "Automatically obtain IP from the upstream network, or manually set a static IP."
+msgstr "自动从上级网络（或光猫）获取 IP，或手动设置固定 IP。"
 
 msgid "PPPoE Dial-up"
 msgstr "PPPoE 拨号 (WAN)"
@@ -148,14 +148,14 @@ msgstr "旁路由（AP有线中继）模式"
 msgid "Current:"
 msgstr "当前："
 
-msgid "Main Router (PPPoE)"
-msgstr "主路由 (PPPoE 拨号)"
+msgid "PPPoE Dial-up"
+msgstr "宽带拨号 (PPPoE)"
 
-msgid "Secondary Router (DHCP)"
-msgstr "二级路由 (自动获取)"
+msgid "DHCP Client (Auto IP)"
+msgstr "自动获取 (DHCP)"
 
-msgid "Secondary Router (Static IP)"
-msgstr "二级路由 (静态 IP)"
+msgid "Static IP"
+msgstr "静态固定 IP (Static)"
 
 msgid "LAN Mode"
 msgstr "局域网模式"
@@ -1738,11 +1738,11 @@ msgstr "架构安全锁：严禁跨包管理器（如 IPK 备份至 APK 系统�
 msgid "Force Restore Config"
 msgstr "强制恢复配置"
 
-msgid "Current WAN is in Secondary Router mode. PPPoE dial-up will not take effect until applied."
-msgstr "当前 WAN 口为二级路由模式，本页应用配置前 PPPoE 拨号信息不生效。"
+msgid "Current WAN is in DHCP/Static mode. PPPoE settings will not take effect until applied."
+msgstr "当前 WAN 口为动态/静态 IP 模式，本页应用配置前 PPPoE 拨号信息不生效。"
 
-msgid "Current WAN is in PPPoE mode. Secondary Router mode will not take effect until applied."
-msgstr "当前 WAN 口为主路由的 PPPoE 拨号，本页应用配置前二级路由模式无效。"
+msgid "Current WAN is in PPPoE mode. DHCP/Static settings will not take effect until applied."
+msgstr "当前 WAN 口为 PPPoE 拨号模式，本页应用配置前动态/静态 IP 模式无效。"
 
 msgid "Advanced Utilities"
 msgstr "高级实用设置"
@@ -2169,3 +2169,6 @@ msgstr "依赖提示"
 
 msgid "You have disabled IPv6. To ensure security, the dependent IPv6 Watchdog and WAN Access will be automatically disabled."
 msgstr "您关闭了 IPv6 功能。为确保系统安全，依赖此功能的「IPv6 深度保活」与「外网直联后台」将同步关闭。"
+
+msgid "Probe URL cannot be empty, please fill it in before saving!"
+msgstr "探测网址不能为空，请填写后再保存！"
