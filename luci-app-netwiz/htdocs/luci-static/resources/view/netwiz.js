@@ -3263,13 +3263,13 @@ return view.extend({
                     var wifiRes = results[4] || {};
                     var rawIfaces = results[3] || {}, ifaces = Array.isArray(rawIfaces.interface) ? rawIfaces.interface : (Array.isArray(rawIfaces) ? rawIfaces : []);
                     var wProto = safeUciGet('network', 'wan', 'proto', '').toLowerCase();
-                    // 1. 有线 WAN 和 无线 WWAN (中继)
+                    // 有线 WAN 和 无线 WWAN (中继)
                     var phyWan = ifaces.find(function(i) { return i && i.interface === 'wan'; }) || {};
                     var virWwan = ifaces.find(function(i) { return i && i.interface === 'wwan'; }) || {};
 
-                    // 2. 智能判定出口
-                    var activeWan = phyWan; // 先看物理 WAN
-                    var isWispActive = false; // 是否正在使用无线中继联网
+                    // 1. 网卡判定
+                    var activeWan = phyWan; 
+                    var isWispActive = false;
                     var hasWispConfigured = !!uci.sections('wireless', 'wifi-iface').find(function(i) { return i.network === 'wwan' && i.mode === 'sta'; });
 
                     var phyWanHasIp = phyWan.up && phyWan['ipv4-address'] && phyWan['ipv4-address'].length > 0;
@@ -3279,26 +3279,22 @@ return view.extend({
                         // 有线没通，无线通了 -> 切換到无线中继视角
                         activeWan = virWwan;
                         isWispActive = true;
-                    } else {
-                        // --- 防呆 1：动态寻找真正拥有 0.0.0.0 默认路由的网卡（穿透光猫内网） ---
-                        var realRouteWan = ifaces.find(function(i) {
-                            return i.up && Array.isArray(i.route) && i.route.some(function(r) { return r.target === '0.0.0.0' && (r.mask === 0 || !r.mask); });
-                        });
-                        
-                        if (realRouteWan) {
-                            activeWan = realRouteWan;
-                        } else if (!phyWan.up && !virWwan.up) {
-                            // 兜底：找一個带 wan 名字的
-                            activeWan = ifaces.find(function(i) { return i && (i.interface === 'wan' || i.interface === 'wwan' || (i.interface && i.interface.indexOf('wan') !== -1 && i.interface.indexOf('lan') === -1)); }) || {};
-                        }
+                    } else if (!phyWan.up && !virWwan.up) {
+                        // 兜底：找一個带 wan 名字的
+                        activeWan = ifaces.find(function(i) { return i && (i.interface === 'wan' || i.interface === 'wwan' || (i.interface && i.interface.indexOf('wan') !== -1 && i.interface.indexOf('lan') === -1)); }) || {};
                     }
 
-                    // --- 防呆 2：优先公网 IP + 智能穿透探测真实公网 IP ---
+                    // 2. 独立寻找真实的出口 IP
                     var liveWanIp = '';
                     var isPrivateWan = false;
                     
-                    if (activeWan['ipv4-address'] && activeWan['ipv4-address'].length > 0) {
-                        var pubIpObj = activeWan['ipv4-address'].find(function(ipObj) {
+                    // 穿透寻找真正有 0.0.0.0 路由的网卡
+                    var routeWan = ifaces.find(function(i) {
+                        return i.up && Array.isArray(i.route) && i.route.some(function(r) { return r.target === '0.0.0.0' && (r.mask === 0 || !r.mask); });
+                    }) || activeWan; // 如果找不到，兜底使用 activeWan
+
+                    if (routeWan['ipv4-address'] && routeWan['ipv4-address'].length > 0) {
+                        var pubIpObj = routeWan['ipv4-address'].find(function(ipObj) {
                             var ip = ipObj.address || '';
                             // 过滤掉所有局域网和运营商大内网 (CGNAT) IP
                             return !/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\.)/.test(ip);
@@ -3307,13 +3303,13 @@ return view.extend({
                         if (pubIpObj) {
                             liveWanIp = pubIpObj.address; // 物理网卡上直接就有真实的公网 IP
                         } else {
-                            liveWanIp = activeWan['ipv4-address'][0].address; // 只有内网 IP（确认为二级路由模式）
+                            liveWanIp = routeWan['ipv4-address'][0].address; // 只有内网 IP（确认为二级路由模式）
                             isPrivateWan = true;
                         }
                     }
-                    liveWanIp = liveWanIp.split('/')[0];
+                    liveWanIp = liveWanIp ? liveWanIp.split('/')[0] : '';
 
-                    // 二级路由的内网 IP，利用浏览器在后台静默请求真正的外网 IP
+                    // 3. 二级路由的内网 IP，利用浏览器在后台静默请求真正的外网 IP
                     if (isPrivateWan && liveWanIp) {
                         // 加入缓存机制，每 60 秒最多请求一次外部 API
                         if (typeof fetch !== 'undefined') {
@@ -3322,16 +3318,9 @@ return view.extend({
                                 
                                 // 多重 API 获取公网IP (防止手机浏览器拦截单一 API)
                                 var getRealIp = function() {
-                                    // 线路 1: ipify
                                     return fetch('https://api.ipify.org?format=text').then(function(r) { return r.text(); })
-                                    .catch(function() {
-                                        // 线路 2: 备用节点 ip.sb
-                                        return fetch('https://api.ip.sb/ip').then(function(r) { return r.text(); });
-                                    })
-                                    .catch(function() {
-                                        // 线路 3: 终极兜底节点 ipv6-test
-                                        return fetch('https://v4.ipv6-test.com/api/myip.php').then(function(r) { return r.text(); });
-                                    });
+                                    .catch(function() { return fetch('https://api.ip.sb/ip').then(function(r) { return r.text(); }); })
+                                    .catch(function() { return fetch('https://v4.ipv6-test.com/api/myip.php').then(function(r) { return r.text(); }); });
                                 };
 
                                 getRealIp().then(function(ip) {
@@ -3343,9 +3332,13 @@ return view.extend({
                                 }).catch(function(e) {}); // 全部失败则静默忽略
                             }
                             
-                            // 替换显示
+                            // 并列显示物理 IP 与出口 IP
                             if (window._pubIpCache) {
-                                liveWanIp = window._pubIpCache + '(wan)';
+                                // 取出原始的物理 WAN IP (也就是光猫分发的 192.168.x.x 或 PPPoE 抓到的 IP)
+                                var physicalIp = activeWan['ipv4-address'] ? activeWan['ipv4-address'][0].address.split('/')[0] : '';
+                                
+                                // 组合展示：前面是物理真实 IP，后面带上穿透探测到的出口 IP
+                                liveWanIp = physicalIp + '  (🌐: ' + window._pubIpCache + ')';
                             }
                         }
                     }
