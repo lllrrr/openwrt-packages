@@ -14,7 +14,7 @@ local sys = require("luci.sys")
 
 -- Input validation helpers (prevent command injection)
 local function is_valid_mac(mac)
-    return mac and mac:match("^%x%x:%x%x:%x%x:%x%x:%x%x:%x%x$")
+    return mac and mac:lower():match("^%x%x:%x%x:%x%x:%x%x:%x%x:%x%x$") ~= nil
 end
 
 local function is_valid_ip(ip)
@@ -1487,9 +1487,12 @@ function api_merge_devices()
     -- Clean up any stale dhcp-host entries for the secondary MACs.
     -- These MACs are now alt_macs and should NOT appear as
     -- independent hosts in the DHCP list.
-    -- Also patch /tmp/dhcp.leases so their lease rows show the merged
-    -- device's name instead of "-" or the old client hostname.
-    local secondary_deleted = false
+    -- Merging is mutually exclusive: only one of the merged MACs should
+    -- be online at any time. Keep the online secondary MAC visible in the
+    -- DHCP list under the canonical name, and drop lease rows for offline
+    -- secondary MACs so the old device no longer occupies a lease.
+    local secondary_changed = false
+    local online_is_secondary = (online_mac and online_mac ~= "" and online_mac ~= canonical_mac)
     if dhcp_ignore_val ~= "1" and canonical_name and canonical_name ~= "" then
         for _, smac in ipairs(all_macs) do
             if smac ~= canonical_mac then
@@ -1501,7 +1504,7 @@ function api_merge_devices()
                     if hm:lower() == s_lower then
                         uci:delete("dhcp", "@host[" .. di .. "]")
                         uci:commit("dhcp")
-                        secondary_deleted = true
+                        secondary_changed = true
                         di = 0
                     else
                         di = di + 1
@@ -1509,13 +1512,27 @@ function api_merge_devices()
                 end
             end
         end
-        -- Restart dnsmasq if any secondary static lease was removed.
-        -- The primary-MAC restart above only covers the primary entry;
-        -- stale secondary entries must also be flushed from dnsmasq.
-        if secondary_deleted then
+
+        -- If the currently online MAC is a secondary, pin it with a fixed-IP
+        -- dhcp-host entry so it shows the canonical device name even after
+        -- the client renews its lease. The merged MACs are mutually exclusive,
+        -- so this IP belongs to the currently active instance of the device.
+        if online_is_secondary and online_ip and online_ip ~= "" then
+            local section_name = uci:add("dhcp", "host")
+            uci:set("dhcp", section_name, "mac", online_mac)
+            uci:set("dhcp", section_name, "name", canonical_name)
+            uci:set("dhcp", section_name, "ip", online_ip)
+            uci:commit("dhcp")
+            secondary_changed = true
+        end
+
+        -- Restart dnsmasq if any secondary static lease was removed/added.
+        if secondary_changed then
             sys.exec("/etc/init.d/dnsmasq restart >/dev/null 2>&1 &")
         end
-        -- Patch lease file for all secondary MACs
+
+        -- Patch lease file: keep only the online secondary row (renamed),
+        -- delete lease rows for offline secondary MACs.
         local leases_fn = "/tmp/dhcp.leases"
         local f = io.open(leases_fn, "r")
         if f then
@@ -1533,12 +1550,21 @@ function api_merge_devices()
                         end
                     end
                     if is_secondary then
-                        line = string.format("%s %s %s %s %s",
-                            ts, lmac, lip, canonical_name, lid)
-                        changed = true
+                        if online_is_secondary and lmac:upper() == online_mac then
+                            -- Keep online secondary's row, rename to canonical name
+                            line = string.format("%s %s %s %s %s",
+                                ts, lmac, lip, canonical_name, lid)
+                            changed = true
+                        else
+                            -- Drop lease row for offline secondary MACs
+                            changed = true
+                            line = nil
+                        end
                     end
                 end
-                table.insert(lines, line)
+                if line then
+                    table.insert(lines, line)
+                end
             end
             f:close()
             if changed then
@@ -2639,10 +2665,13 @@ function api_delete_device()
         return
     end
     
+    -- Normalize for comparison
+    local mac_upper = mac:upper()
+    
     -- Find and delete the device section by MAC
     local found = false
     uci:foreach("devicemaster", "device", function(s)
-        if s.mac and s.mac:upper() == mac:upper() then
+        if s.mac and s.mac:upper() == mac_upper then
             uci:delete("devicemaster", s[".name"])
             found = true
             return false  -- stop iteration
@@ -2652,11 +2681,16 @@ function api_delete_device()
     if found then
         local ok7, err7 = uci:commit("devicemaster")
         if not ok7 then log_msg("WARN: uci commit failed: " .. tostring(err7)) end
-        cleanup_deleted_device_identity(mac)
-        json_response({success = true})
     else
-        json_response({success = false, error = "Device not found"})
+        -- Device was not persisted in UCI (e.g. ARP-only transient entry or an
+        -- offline snapshot from a mesh master). Treat the deletion as successful
+        -- so the UI does not report an error; if the device is still online it
+        -- will be rediscovered on the next scan.
+        log_msg("Delete request for transient device " .. mac)
     end
+    
+    cleanup_deleted_device_identity(mac)
+    json_response({success = true})
 end
 
 -- API: Scan network (trigger ARP flood to discover new devices)

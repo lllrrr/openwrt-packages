@@ -123,6 +123,28 @@ is_laa_mac() {
     [ -n "$byte_val" ] && [ $((byte_val & 2)) -ne 0 ]
 }
 
+# Look up the IP currently reserved for a given MAC in dnsmasq static leases.
+# Falls back to the active DHCP lease.  Used when syncing the PRIMARY MAC of a
+# merged device so we never overwrite its reserved IP with an alt_mac's dynamic
+# IP (which causes an IP conflict and loss of connectivity).
+primary_reserved_ip() {
+    local pri="$1"
+    local ip=""
+    local dhcp_idx=0
+    while uci -q get "dhcp.@host[$dhcp_idx].mac" >/dev/null 2>&1; do
+        local dhcp_mac=$(uci -q get "dhcp.@host[$dhcp_idx].mac" | tr 'a-f' 'A-F')
+        if [ "$dhcp_mac" = "$pri" ]; then
+            ip=$(uci -q get "dhcp.@host[$dhcp_idx].ip" 2>/dev/null)
+            [ -n "$ip" ] && break
+        fi
+        dhcp_idx=$((dhcp_idx + 1))
+    done
+    if [ -z "$ip" ]; then
+        ip=$(awk -v m="$pri" 'tolower($2) == m {print $3; exit}' /tmp/dhcp.leases 2>/dev/null)
+    fi
+    echo "$ip"
+}
+
 normalize_vendor() {
     local vendor="$1"
     [ -z "$vendor" ] && return
@@ -562,9 +584,9 @@ infer_vendor_from_hostname() {
             _dm_try_vendor "Huawei" 5 ;;
     esac
 
-    # Apple models
+    # Apple models (exact names first so bare "iPhone" / "iPad" / "MacBook" win)
     case "$h" in
-        *iphone*|*ipad*|*macbook*|*imac*|*mac-mini*)
+        iphone|ipad|macbook|imac|mac-mini|*iphone*|*ipad*|*macbook*|*imac*|*mac-mini*)
             _dm_try_vendor "Apple" 6 ;;
     esac
 
@@ -959,6 +981,16 @@ identify_vendor() {
         [ -n "$mdns_name" ] && l3=$(normalize_vendor "$(infer_vendor_from_mdns "$mdns_name")")
     fi
     local l4=$(normalize_vendor "$(infer_vendor_from_hostname "$hostname")")
+
+    # For LAA/randomized MACs, a clear hostname like "iPhone" is the strongest
+    # vendor evidence we have. Trust it immediately instead of letting weak
+    # probes (mDNS service hints, conntrack ports) mis-classify the device.
+    if [ "$is_laa" -eq 1 ] && [ -n "$l4" ] && [ "$l4" != "LAA" ] && [ "$l4" != "Unknown" ]; then
+        log_msg "Identify vendor $mac -> $l4 via strong hostname signal ($hostname)"
+        echo "$l4"
+        return
+    fi
+
     local l5=""
     local l6=""
     local l7=""
@@ -1711,12 +1743,16 @@ try_merge_device() {
                 fi
                 local pri_mac=$(uci -q get "devicemaster.@device[$idx].mac")
                 if [ -n "$sync_name" ] && [ -n "$new_ip" ] && [ -n "$pri_mac" ]; then
-                    /usr/libexec/devicemaster/sync_hostname.sh "$pri_mac" "$sync_name" "$new_ip" >/dev/null 2>&1
-                fi
-                # Clean up any stale dhcp-host entry for $new_mac (now alt_mac);
-                # update /tmp/dhcp.leases hostname to the merged device's name.
-                if [ "$new_mac" != "$pri_mac" ]; then
-                    remove_dhcp_host "$new_mac" "$merged_hostname"
+                    if [ "$new_mac" = "$pri_mac" ]; then
+                        # Primary MAC reconnected: sync its own static lease.
+                        /usr/libexec/devicemaster/sync_hostname.sh "$pri_mac" "$sync_name" "$new_ip" >/dev/null 2>&1
+                    else
+                        # Alt MAC reconnected: add a hostname-only entry for THIS
+                        # MAC.  Never sync the primary MAC with the alt_mac's
+                        # dynamic IP — that would overwrite the primary's reserved
+                        # IP and cause an IP conflict / loss of connectivity.
+                        /usr/libexec/devicemaster/sync_hostname.sh "$new_mac" "$sync_name" "$new_ip" >/dev/null 2>&1
+                    fi
                 fi
             fi
 
@@ -1786,13 +1822,10 @@ try_merge_device() {
                     fi
                 fi
 
-                # Sync DHCP static lease for the PRIMARY MAC using the merged
-                # record's preferred hostname/name. $new_mac becomes an alt_mac
-                # of this record — NEVER write a static lease for it. Also
-                # actively CLEAN UP any pre-existing dhcp-host entry for
-                # $new_mac (it may have been created during an earlier,
-                # independent registration), otherwise the DHCP list still
-                # shows an out-of-date / duplicate name.
+                # Sync DHCP host entries. $new_mac becomes an alt_mac of this
+                # record — NEVER reserve a fixed IP for it (that would conflict
+                # with the primary MAC's IP).  Use the primary's OWN reserved IP
+                # so we do not overwrite it with the alt_mac's dynamic IP.
                 if is_mesh_main_router; then
                     local sync_name=""
                     local merged_name=$(uci -q get "devicemaster.@device[$idx].name")
@@ -1806,13 +1839,15 @@ try_merge_device() {
                         sync_name="$merged_name"
                     fi
                     local pri_mac=$(uci -q get "devicemaster.@device[$idx].mac")
-                    if [ -n "$sync_name" ] && [ -n "$new_ip" ] && [ -n "$pri_mac" ]; then
-                        /usr/libexec/devicemaster/sync_hostname.sh "$pri_mac" "$sync_name" "$new_ip" >/dev/null 2>&1
+                    local pri_ip=$(primary_reserved_ip "$pri_mac")
+                    if [ -n "$sync_name" ] && [ -n "$pri_mac" ] && [ -n "$pri_ip" ]; then
+                        # Update primary MAC's hostname without touching its IP.
+                        /usr/libexec/devicemaster/sync_hostname.sh "$pri_mac" "$sync_name" "$pri_ip" >/dev/null 2>&1
                     fi
-                    # Clean up stale dhcp-host entry for the newly-merged MAC;
-                    # update /tmp/dhcp.leases hostname to the merged device's name.
-                    if [ "$new_mac" != "$pri_mac" ]; then
-                        remove_dhcp_host "$new_mac" "$sync_name"
+                    # Add hostname-only entry for the newly-merged alt_mac and
+                    # clean up any stale fixed-IP entry it may have had.
+                    if [ "$new_mac" != "$pri_mac" ] && [ -n "$sync_name" ] && [ -n "$new_ip" ]; then
+                        /usr/libexec/devicemaster/sync_hostname.sh "$new_mac" "$sync_name" "$new_ip" >/dev/null 2>&1
                     fi
                 fi
 
@@ -2047,6 +2082,16 @@ main() {
     [ -z "$mac" ] && exit 0
     [ "$mac" = "00:00:00:00:00:00" ] && exit 0
 
+    # dnsmasq sometimes passes '*' or empty $4 even when /tmp/dhcp.leases holds
+    # a real client hostname (e.g. iPhone). Fall back to the lease file so the
+    # identification chain gets a meaningful hostname.
+    if [ -z "$hostname" ] || [ "$hostname" = "*" ]; then
+        hostname=$(grep -i "$mac" /tmp/dhcp.leases 2>/dev/null | awk '{print $4}')
+        [ "$hostname" = "*" ] && hostname=""
+    fi
+    # Sanitize once at entry: strip mDNS/DNS gibberish and unsafe chars.
+    hostname=$(sanitize_hostname "$hostname")
+
     # Filter out APIPA (169.254.x.x) self-assigned addresses
     # These are NOT real DHCP addresses - iOS devices generate them before disconnecting
     case "$ip" in
@@ -2152,10 +2197,21 @@ discover_all() {
     # Lock to prevent concurrent discover (device_monitor.sh + manual trigger)
     local lock="/tmp/dm_discover.lock"
     if ! mkdir "$lock" 2>/dev/null; then
-        log_msg "discover_all: already running, skipping"
-        return
+        # A previous discover may have died without cleaning up its lock.
+        # If the recorded PID is no longer alive, steal the lock.
+        local old_pid=$(cat "$lock/pid" 2>/dev/null)
+        if [ -n "$old_pid" ] && ! kill -0 "$old_pid" 2>/dev/null; then
+            log_msg "discover_all: removing stale lock from dead pid $old_pid"
+            rm -f "$lock/pid"
+            rmdir "$lock" 2>/dev/null
+            mkdir "$lock" 2>/dev/null || { log_msg "discover_all: already running, skipping"; return; }
+        else
+            log_msg "discover_all: already running, skipping"
+            return
+        fi
     fi
-    trap 'rmdir "$lock" 2>/dev/null' EXIT
+    echo $$ > "$lock/pid"
+    trap 'rm -f "$lock/pid" 2>/dev/null; rmdir "$lock" 2>/dev/null' EXIT
 
     # Cleanup any existing duplicate UCI entries
     cleanup_duplicate_devices
@@ -2441,7 +2497,7 @@ discover_all() {
             local s_mac=$(uci -q get "devicemaster.@device[$idx].mac")
             local s_hostname=$(uci -q get "devicemaster.@device[$idx].hostname")
             local s_name=$(uci -q get "devicemaster.@device[$idx].name")
-            local s_ip=$(uci -q get "devicemaster.@device[$idx].last_ip")
+            local s_ip=$(primary_reserved_ip "$s_mac")
             local s_manual=$(uci -q get "devicemaster.@device[$idx].manual")
             # Prefer real hostname; only fall back to "name" if user manually set it.
             local sync_name=""
@@ -2471,6 +2527,7 @@ discover_all() {
 
     FULL_IDENTIFY="$old_full_identify"
     REGISTER_LIGHT_ONLY="$old_register_light"
+    rm -f "$lock/pid" 2>/dev/null
     rmdir "$lock" 2>/dev/null
 }
 
@@ -2635,7 +2692,7 @@ reidentify_all() {
             local s_mac=$(uci -q get "devicemaster.@device[$s_idx].mac")
             local s_hostname=$(uci -q get "devicemaster.@device[$s_idx].hostname")
             local s_name=$(uci -q get "devicemaster.@device[$s_idx].name")
-            local s_ip=$(uci -q get "devicemaster.@device[$s_idx].last_ip")
+            local s_ip=$(primary_reserved_ip "$s_mac")
             local s_manual=$(uci -q get "devicemaster.@device[$s_idx].manual")
             local sync_name=""
             if [ -n "$s_hostname" ] && [ "$s_hostname" != "*" ] && [ "$s_hostname" != "unknown" ]; then

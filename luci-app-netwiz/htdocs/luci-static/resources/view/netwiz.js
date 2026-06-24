@@ -3303,9 +3303,9 @@ return view.extend({
                     }
 
                     // ==========================================
-                    // 2. 网卡与面板状态判定
+                    // 2. 网卡状态判定 (官方基础逻辑)
                     // ==========================================
-                    var activeWan = phyWan;
+                    var activeWan = phyWan; 
                     var isWispActive = false;
                     var hasWispConfigured = !!uci.sections('wireless', 'wifi-iface').find(function(i) { return i.network === 'wwan' && i.mode === 'sta'; });
 
@@ -3313,77 +3313,38 @@ return view.extend({
                     var virWwanHasIp = virWwan.up && virWwan['ipv4-address'] && virWwan['ipv4-address'].length > 0;
 
                     if (!phyWanHasIp && virWwanHasIp) {
-                        // 有线没通，无线通了 -> 切換到无线中继视角
                         activeWan = virWwan;
                         isWispActive = true;
                     } else if (!phyWan.up && !virWwan.up) {
-                        // 兜底：找一個带 wan 名字的
                         activeWan = ifaces.find(function(i) { return i && (i.interface === 'wan' || i.interface === 'wwan' || (i.interface && i.interface.indexOf('wan') !== -1 && i.interface.indexOf('lan') === -1)); }) || {};
                     }
 
                     // ==========================================
-                    // 3. 寻找真实的出口 IP
+                    // 3. 极致精简：直接完全同步官方接口页面的数据
                     // ==========================================
                     var liveWanIp = '';
-                    var isPrivateWan = false;
+                    var protoName = '';
 
-                    // 穿透寻找真正有 0.0.0.0 路由的网卡
-                    var routeWan = ifaces.find(function(i) {
-                        return i.up && Array.isArray(i.route) && i.route.some(function(r) { return r.target === '0.0.0.0' && (r.mask === 0 || !r.mask); });
-                    }) || activeWan; // 如果找不到，兜底使用 activeWan
-
-                    if (routeWan['ipv4-address'] && routeWan['ipv4-address'].length > 0) {
-                        var pubIpObj = routeWan['ipv4-address'].find(function(ipObj) {
-                            var ip = ipObj.address || '';
-                            // 过滤掉所有局域网和运营商大内网 (CGNAT) IP
-                            return !/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\.)/.test(ip);
-                        });
-
-                        if (pubIpObj) {
-                            liveWanIp = pubIpObj.address; // 物理网卡上直接就有真实的公网 IP
-                        } else {
-                            liveWanIp = routeWan['ipv4-address'][0].address; // 只有内网 IP（确认为二级路由模式）
-                            isPrivateWan = true;
-                        }
-                    }
-                    liveWanIp = liveWanIp ? liveWanIp.split('/')[0] : '';
-
-                    // ==========================================
-                    // 4. 静默获取真实外网 IP 与 双重 UI 渲染
-                    // ==========================================
-                    if (isPrivateWan && liveWanIp) {
-                        // 加入缓存机制，每 60 秒最多请求一次外部 API
-                        if (typeof fetch !== 'undefined') {
-                            if (!window._pubIpCache || (Date.now() - window._pubIpLastCheck > 60000)) {
-                                window._pubIpLastCheck = Date.now();
-
-                                // 多重 API 获取公网IP (防止手机浏览器拦截)
-                                var getRealIp = function() {
-                                    return fetch('https://api.ipify.org?format=text').then(function(r) { return r.text(); })
-                                    .catch(function() { return fetch('https://api.ip.sb/ip').then(function(r) { return r.text(); }); })
-                                    .catch(function() { return fetch('https://v4.ipv6-test.com/api/myip.php').then(function(r) { return r.text(); }); });
-                                };
-
-                                getRealIp().then(function(ip) {
-                                    ip = ip.replace(/[\r\n\s]+/g, ''); // 清理空格与换行
-                                    if (/^([0-9]{1,3}\.){3}[0-9]{1,3}$/.test(ip)) {
-                                        window._pubIpCache = ip; // 校验成功，写入缓存
-                                    }
-                                }).catch(function(e) {}); // 失败则静默忽略
-                            }
-
-                            // 并列显示物理 IP 与出口 IP
-                            if (window._pubIpCache) {
-                                // 取出原始的物理 WAN IP (如光猫分发的 192.168.x.x)
-                                var physicalIp = activeWan['ipv4-address'] ? activeWan['ipv4-address'][0].address.split('/')[0] : '';
-                                // 组合展示：前面是物理 IP，后面带上穿透探测到的出口 IP
-                                liveWanIp = physicalIp + '  (🌐: ' + window._pubIpCache + ')';
-                            }
-                        }
+                    // 获取真实的接口 IP (完全等同于官方页面显示的第一个 IP)
+                    if (activeWan['ipv4-address'] && activeWan['ipv4-address'].length > 0) {
+                        liveWanIp = activeWan['ipv4-address'][0].address;
                     }
 
-                    window._liveWanIp = liveWanIp;
-                    // -------------------------------------------------------------------------
+                    // 获取协议类型 (加入 || '' 防止读取失败时报错卡死)
+                    var rawProto = (safeUciGet('network', activeWan.interface || 'wan', 'proto', '') || '').toLowerCase();
+                    
+                    if (rawProto === 'pppoe') protoName = 'PPPoE 拨号';
+                    else if (rawProto === 'dhcp') protoName = 'DHCP 客户端';
+                    else if (rawProto === 'static') protoName = '静态 IP';
+                    else protoName = rawProto.toUpperCase(); // 未知协议直接转大写
+
+                    // 组合显示，例如：192.168.100.243  (DHCP 客户端)
+                    if (liveWanIp) {
+                        window._liveWanIp = liveWanIp + '  (' + protoName + ')';
+                    } else {
+                        window._liveWanIp = '';
+                    }
+                    // ==========================================
                     
                     var liveGw = activeWan.nexthop || '';
                     if (!liveGw && Array.isArray(activeWan.route)) { var defaultRoute = activeWan.route.find(function(r) { return r.target === '0.0.0.0'; }); if (defaultRoute) liveGw = defaultRoute.nexthop; }
