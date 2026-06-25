@@ -2419,14 +2419,14 @@ return view.extend({
                             var domVal = domInput.value.trim();
                             
                             if (!ipVal || !domVal) { 
-                                // 替换 原生alert()弹窗
+                                // 替换 alert()弹窗
                                 openModal({ title: T['M_INC_TIT'] || 'Notice', msg: T['MSG_HOSTS_REQ'] || 'IP and Domain cannot be empty!', okText: T['M_CLOSE'] || 'Close' }); 
                                 return; 
                             }
                             var isIpv4 = /^(\d{1,3}\.){3}\d{1,3}$/.test(ipVal);
                             var isIpv6 = /^[a-fA-F0-9:]+:[a-fA-F0-9:]+$/.test(ipVal);
                             if (!isIpv4 && !isIpv6) { 
-                                // 替换 原生alert()弹窗
+                                // 替换 alert()弹窗
                                 openModal({ title: T['M_INC_TIT'] || 'Notice', msg: T['M_FMT_IP'] || 'Invalid IP format!', okText: T['M_CLOSE'] || 'Close' }); 
                                 return; 
                             }
@@ -3381,7 +3381,7 @@ return view.extend({
                         if (!secs) return '';
                         var d = Math.floor(secs / 86400), h = Math.floor((secs % 86400) / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
                         var res = '';
-                        if (d > 0) res += d + 'd ';
+                        if (d > 0) res += d + 'D ';
                         if (h > 0) res += h + 'H ';
                         if (m > 0) res += m + 'm ';
                         res += s + 's';
@@ -4128,7 +4128,7 @@ return view.extend({
 
                     // ---- 开始 ----
                     var mkB = function(bg, txt) { return "<span style='font-size:14px; background:" + bg + "; color:#fff; padding:5px 10px; border-radius:12px; white-space:nowrap;'>" + txt + "</span>"; };
-                    var mkD = function(l1, v1, l2, v2) { return "<span class='nw-info-item'>" + l1 + " <span class='nw-hl'>" + v1 + "</span></span><span class='nw-info-item'>" + l2 + " <span class='nw-hl'>" + v2 + "</span></span>"; };
+                    var mkD = function(l1, v1, l2, v2) { return "<span class='nw-info-item'>" + l1 + "<span class='nw-hl'>" + v1 + "</span></span><span class='nw-info-item'>" + l2 + "<span class='nw-hl'>" + v2 + "</span></span>"; };
 
                     // 这样时间在内部怎么跳动，都绝对不会再挤压外部的排版！
                     var fixedUpBadge = upBadgeHtml ? "<span style='display:inline-block; width:AUTO; text-align:left; font-variant-numeric: tabular-nums; margin:0 0;'>" + upBadgeHtml + "</span>" : "";
@@ -4153,7 +4153,7 @@ return view.extend({
                     // ---- 结束 ----
                     var sDnsHtml = "";
                     if (!isBypass && activeWan.up && dns1) {
-                        sDnsHtml = "<div style='font-size:15.5px; font-weight:bold; color:#FFF; font-family:monospace; margin:6px 0 10px 0; display:flex; flex-wrap:wrap; justify-content:center; gap:0;'><span class='nw-info-item'>" + T['TXT_DNS1'] + " <span class='nw-hl'>" + dns1 + "</span></span>" + (dns2 ? "<span class='nw-info-item'>" + T['TXT_DNS2'] + " <span class='nw-hl'>" + dns2 + "</span></span>" : "") + "</div>";
+                        sDnsHtml = "<div style='font-size:15.5px; font-weight:bold; color:#FFF; font-family:monospace; margin:6px 0 10px 0; display:flex; flex-wrap:wrap; justify-content:center; gap:0;'><span class='nw-info-item'>" + T['TXT_DNS1'] + "<span class='nw-hl'>" + dns1 + "</span></span>" + (dns2 ? "<span class='nw-info-item'>" + T['TXT_DNS2'] + "<span class='nw-hl'>" + dns2 + "</span></span>" : "") + "</div>";
                     }
 
                     window._gotoRoam = function(band, isDirty) {
@@ -4378,7 +4378,7 @@ return view.extend({
                     extraInfo += wifiLines.join('');
                     extraInfo += "</div>";
 
-                    // ✨ 读取会话记忆，保持按钮文字与智能折叠状态一致
+                    // 读取会话记忆，保持按钮文字与智能折叠状态一致
                     var isExpanded = (sessionStorage.getItem('nw_adv_expanded') === '1');
                     var btnText = isExpanded ? (T['BTN_ADV_HIDE'] || 'Advanced Settings ▲') : (T['BTN_ADV_SHOW'] || 'Advanced Settings ▼');
                     var btnBg = isExpanded ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.15)';
