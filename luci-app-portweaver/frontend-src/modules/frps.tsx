@@ -121,10 +121,7 @@ export default function (
         }[info.status] || info.status;
 
       const container = (
-        <span
-          id={`frps-status-${section_id}`}
-          style="display:flex; align-items:center;"
-        >
+        <span style="display:flex; align-items:center;">
           <span
             style={`display:inline-block; width:12px; height:12px; border-radius:50%; background-color:${statusColor}; margin-right:8px;`}
           ></span>
@@ -335,9 +332,7 @@ export default function (
             };
 
             if (oldStatus !== newStatus) {
-              const container =
-                document.getElementById(`frps-status-${sec[".name"]}`) ||
-                statusElements[sec[".name"]];
+              const container = statusElements[sec[".name"]];
 
               if (container && container.childNodes.length >= 2) {
                 const indicator = container.childNodes[0] as HTMLElement;
@@ -365,9 +360,7 @@ export default function (
               last_error: "Failed to fetch status",
             };
 
-            const container =
-              document.getElementById(`frps-status-${sec[".name"]}`) ||
-              statusElements[sec[".name"]];
+            const container = statusElements[sec[".name"]];
             if (container && container.childNodes.length >= 2) {
               const indicator = container.childNodes[0] as HTMLElement;
               const textSpan = container.childNodes[1] as HTMLElement;

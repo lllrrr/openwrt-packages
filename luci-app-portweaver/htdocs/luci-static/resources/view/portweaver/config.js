@@ -724,10 +724,9 @@ class Client {
                     for(let e = 0; e < t.length; e++){
                         let s = t[e][".name"];
                         if (!s) continue;
-                        let n = this.getProjectStatus(s), a = document.getElementById("project-status-".concat(s)) || this.projectContainers[s];
+                        let n = this.getProjectStatus(s), a = this.projectContainers[s];
                         if (!a) continue;
                         let r = this.renderStatusElements(n, s), i = jsx("div", {
-                            id: "project-status-".concat(s),
                             children: r
                         });
                         a.replaceWith(i), this.projectContainers[s] = i;
@@ -1428,31 +1427,30 @@ let frpc_s = {
     y.anonymous = !0, y.addremove = !0, y.sortable = !0, y.cloneable = !0, y.sectiontitle = (e)=>L.uci.get("portweaver", e, "name") || e || _("Unnamed node");
     let f = y.option(frpc_r.Flag, "enabled", _("Enable"));
     f.modalonly = !0, f.default = "1", f.rmempty = !1;
-    let g = y.option(frpc_r.Value, "name", _("Node Name"));
-    g.modalonly = !0, g.rmempty = !1, g.datatype = "string", g.placeholder = "node1", g.validate = (e, t)=>{
-        let a = String(t || "");
-        if (!a || "" === a.trim()) return _("Node name is required");
-        if (!/^[a-zA-Z0-9_-]+$/.test(a.trim())) return _("Node name must contain only alphanumeric characters, underscore, or hyphen");
-        let n = L.uci.sections("portweaver", "frpc_node"), o = a.trim();
-        for (let t of n){
+    let b = y.option(frpc_r.Value, "name", _("Node Name"));
+    b.modalonly = !0, b.rmempty = !1, b.datatype = "string", b.placeholder = "node1", b.validate = (e, t)=>{
+        let o = String(t || "");
+        if (!o || "" === o.trim()) return _("Node name is required");
+        if (!/^[a-zA-Z0-9_-]+$/.test(o.trim())) return _("Node name must contain only alphanumeric characters, underscore, or hyphen");
+        let a = L.uci.sections("portweaver", "frpc_node"), n = o.trim();
+        for (let t of a){
             if (t[".name"] === e) continue;
-            let a = t.name;
-            if (a && a.trim() === o) return _("Node name already exists. Please choose a different name.");
+            let o = t.name;
+            if (o && o.trim() === n) return _("Node name already exists. Please choose a different name.");
         }
         return !0;
     };
-    let b = y.option(frpc_r.DummyValue, "status", _("Status"));
-    b.modalonly = !1, b.textvalue = (a)=>{
-        let n = frpc_d[a] || {
+    let g = y.option(frpc_r.DummyValue, "status", _("Status"));
+    g.modalonly = !1, g.textvalue = (o)=>{
+        let a = frpc_d[o] || {
             status: "unavailable"
-        }, o = frpc_i(), l = o[n.status] || o.unavailable, r = {
+        }, n = frpc_i(), l = n[a.status] || n.unavailable, r = {
             connected: _("Connected"),
             connecting: _("Connecting"),
             error: _("Error"),
             stopped: _("Stopped"),
             unavailable: _("Unavailable")
-        }[n.status] || n.status, s = jsxs("span", {
-            id: "frpc-status-".concat(a),
+        }[a.status] || a.status, s = jsxs("span", {
             style: "display:flex; align-items:center;",
             children: [
                 jsx("span", {
@@ -1463,21 +1461,21 @@ let frpc_s = {
                 })
             ]
         });
-        return frpc_c[a] = s, s;
+        return frpc_c[o] = s, s;
     };
     let v = y.option(frpc_r.Flag, "enabled", _("Enabled"));
     v.modalonly = !1, v.default = "1", v.editable = !0;
     let h = y.option(frpc_r.Value, "server", _("FRP Server Address"));
     h.modalonly = !0, h.rmempty = !1, h.datatype = "host", h.placeholder = "1.2.3.4", h.validate = (e, t)=>{
-        let a = String(t || "");
-        return !!a && "" !== a.trim() || _("Server address is required");
+        let o = String(t || "");
+        return !!o && "" !== o.trim() || _("Server address is required");
     };
     let x = y.option(frpc_r.Value, "port", _("FRP Server Port"));
     x.modalonly = !0, x.rmempty = !1, x.datatype = "port", x.placeholder = "7000", x.validate = (e, t)=>{
-        let a = String(t || "");
-        if (!a || "" === a.trim()) return _("Server port is required");
-        let n = parseInt(a, 10);
-        return !Number.isNaN(n) && !(n < 1) && !(n > 65535) || _("Port must be between 1 and 65535");
+        let o = String(t || "");
+        if (!o || "" === o.trim()) return _("Server port is required");
+        let a = parseInt(o, 10);
+        return !Number.isNaN(a) && !(a < 1) && !(a > 65535) || _("Port must be between 1 and 65535");
     };
     let w = y.option(frpc_r.Value, "token", _("Authentication Token"));
     w.modalonly = !0, w.password = !0, w.rmempty = !0, w.placeholder = "optional token for authentication";
@@ -1485,11 +1483,11 @@ let frpc_s = {
     F.modalonly = !0, F.rmempty = !0, F.default = "info", F.value("trace", "Trace"), F.value("debug", "Debug"), F.value("info", "Info"), F.value("warn", "Warning"), F.value("error", "Error");
     let C = y.option(frpc_r.Flag, "use_encryption", _("Enable Encryption"));
     C.modalonly = !0, C.rmempty = !1, C.default = "1";
-    let E = y.option(frpc_r.Flag, "use_compression", _("Enable Compression"));
-    E.modalonly = !0, E.rmempty = !1, E.default = "1";
-    let N = y.option(frpc_r.DummyValue, "actions", _("Actions"));
-    N.modalonly = !1, N.textvalue = (t)=>{
-        var n;
+    let N = y.option(frpc_r.Flag, "use_compression", _("Enable Compression"));
+    N.modalonly = !0, N.rmempty = !1, N.default = "1";
+    let S = y.option(frpc_r.DummyValue, "actions", _("Actions"));
+    S.modalonly = !1, S.textvalue = (t)=>{
+        var a;
         let l = jsx("button", {
             type: "button",
             class: "cbi-button cbi-button-action",
@@ -1502,19 +1500,19 @@ let frpc_s = {
                     clearer: async ()=>await rpcClient.clearFrpcLogs(e)
                 }).open();
             },
-            disabled: "stopped" === ((null == (n = frpc_d[t]) ? void 0 : n.status) || "stopped"),
+            disabled: "stopped" === ((null == (a = frpc_d[t]) ? void 0 : a.status) || "stopped"),
             children: _("View Logs")
         });
         return frpc_u[t] = l, l;
     };
-    let S = y.option(frpc_r.DummyValue, "proxy_stats", _("Proxy Stats"));
+    let E = y.option(frpc_r.DummyValue, "proxy_stats", _("Proxy Stats"));
     async function P() {
         try {
             let e = (await L.uci.sections("portweaver", "frpc_node")).map((e)=>{
                 let t = e.name;
                 return rpcClient.getFrpcInfo(t).then((t)=>{
-                    var a, n;
-                    let o = null == (n = frpc_d[e[".name"]]) ? void 0 : n.status, l = null != (a = t.status) ? a : "unavailable", r = [
+                    var o, a;
+                    let n = null == (a = frpc_d[e[".name"]]) ? void 0 : a.status, l = null != (o = t.status) ? o : "unavailable", r = [
                         "connected",
                         "connecting",
                         "error",
@@ -1524,27 +1522,27 @@ let frpc_s = {
                     if (frpc_d[e[".name"]] = {
                         status: r,
                         last_error: t.last_error || ""
-                    }, o !== r) {
-                        let t = document.getElementById("frpc-status-".concat(e[".name"])) || frpc_c[e[".name"]];
+                    }, n !== r) {
+                        let t = frpc_c[e[".name"]];
                         if (t && t.childNodes.length >= 2) {
-                            let e = t.childNodes[0], a = t.childNodes[1], n = frpc_i(), o = n[r] || n.unavailable;
-                            e.style.backgroundColor = o, e.style.backgroundColor = o, a.textContent = frpc_s[r] || r;
+                            let e = t.childNodes[0], o = t.childNodes[1], a = frpc_i(), n = a[r] || a.unavailable;
+                            e.style.backgroundColor = n, e.style.backgroundColor = n, o.textContent = frpc_s[r] || r;
                         }
-                        let a = frpc_u[e[".name"]];
-                        a && (a.disabled = "stopped" === r);
+                        let o = frpc_u[e[".name"]];
+                        o && (o.disabled = "stopped" === r);
                     }
                 }).catch(()=>{
                     frpc_d[e[".name"]] = {
                         status: "error",
                         last_error: "Failed to fetch status"
                     };
-                    let t = document.getElementById("frpc-status-".concat(e[".name"])) || frpc_c[e[".name"]];
+                    let t = frpc_c[e[".name"]];
                     if (t && t.childNodes.length >= 2) {
-                        let e = t.childNodes[0], a = t.childNodes[1];
-                        e.style.backgroundColor = "#F44336", a.textContent = _("Error");
+                        let e = t.childNodes[0], o = t.childNodes[1];
+                        e.style.backgroundColor = "#F44336", o.textContent = _("Error");
                     }
-                    let a = frpc_u[e[".name"]];
-                    a && (a.disabled = !0);
+                    let o = frpc_u[e[".name"]];
+                    o && (o.disabled = !0);
                 });
             });
             await Promise.all(e);
@@ -1552,11 +1550,11 @@ let frpc_s = {
             console.error("Polling for FRP status failed:", e);
         }
     }
-    S.modalonly = !1, S.textvalue = (t)=>{
-        let a = L.uci.get("portweaver", t, "name"), l = jsx("div", {
+    E.modalonly = !1, E.textvalue = (t)=>{
+        let o = L.uci.get("portweaver", t, "name"), l = jsx("div", {
             style: "display: flex; gap: 8px; flex-wrap: wrap;"
         }), r = new ProxyStatsViewer({
-            clientId: a,
+            clientId: o,
             rpcClient: rpcClient
         }).render();
         return r.style.cssText = "flex: 1; min-width: 300px; ".concat(r.style.cssText), l.appendChild(r), l;
@@ -1588,15 +1586,15 @@ let frps_i = {
     stopped: _("Stopped"),
     unavailable: _("Unavailable")
 }, frps_d = {}, frps_s = {}, frps_p = {};
-/* export default */ function frps(n, u, c) {
-    let m = u.taboption(c, frps_l.SectionValue, "_frps_nodes", frps_l.GridSection, "frps_node").subsection;
-    m.anonymous = !0, m.addremove = !0, m.sortable = !0, m.cloneable = !0, m.sectiontitle = (e)=>L.uci.get("portweaver", e, "name") || e || _("Unnamed FRPS node");
+/* export default */ function frps(n, u, m) {
+    let c = u.taboption(m, frps_l.SectionValue, "_frps_nodes", frps_l.GridSection, "frps_node").subsection;
+    c.anonymous = !0, c.addremove = !0, c.sortable = !0, c.cloneable = !0, c.sectiontitle = (e)=>L.uci.get("portweaver", e, "name") || e || _("Unnamed FRPS node");
     {
-        let e = m.option(frps_l.Flag, "enabled", _("Enable"));
+        let e = c.option(frps_l.Flag, "enabled", _("Enable"));
         e.modalonly = !0, e.default = "1", e.rmempty = !1;
     }
     {
-        let e = m.option(frps_l.Value, "name", _("Node Name"));
+        let e = c.option(frps_l.Value, "name", _("Node Name"));
         e.modalonly = !0, e.rmempty = !1, e.datatype = "string", e.placeholder = "frps_node1", e.validate = (e, t)=>{
             let o = String(t || "");
             if (!o || "" === o.trim()) return _("Node name is required");
@@ -1610,7 +1608,7 @@ let frps_i = {
             return !0;
         };
     }
-    m.option(frps_l.DummyValue, "status", _("Status")).textvalue = (o)=>{
+    c.option(frps_l.DummyValue, "status", _("Status")).textvalue = (o)=>{
         let a = frps_d[o] || {
             status: "unavailable"
         }, n = frps_r(), l = n[a.status] || n.unavailable, i = {
@@ -1621,7 +1619,6 @@ let frps_i = {
             stopped: _("Stopped"),
             unavailable: _("Unavailable")
         }[a.status] || a.status, p = jsxs("span", {
-            id: "frps-status-".concat(o),
             style: "display:flex; align-items:center;",
             children: [
                 jsx("span", {
@@ -1635,11 +1632,11 @@ let frps_i = {
         return frps_s[o] = p, p;
     };
     {
-        let e = m.option(frps_l.Flag, "enabled", _("Enabled"));
+        let e = c.option(frps_l.Flag, "enabled", _("Enabled"));
         e.modalonly = !1, e.default = "1", e.editable = !0;
     }
     {
-        let e = m.option(frps_l.Value, "bind_port", _("Bind Port"));
+        let e = c.option(frps_l.Value, "bind_port", _("Bind Port"));
         e.modalonly = !0, e.rmempty = !1, e.datatype = "port", e.placeholder = "7000", e.validate = (e, t)=>{
             let o = String(t || "");
             if (!o || "" === o.trim()) return _("Bind port is required");
@@ -1648,39 +1645,39 @@ let frps_i = {
         };
     }
     {
-        let e = m.option(frps_l.Value, "bind_addr", _("Bind Address"));
+        let e = c.option(frps_l.Value, "bind_addr", _("Bind Address"));
         e.modalonly = !0, e.rmempty = !0, e.datatype = "host", e.placeholder = "0.0.0.0", e.default = "0.0.0.0";
     }
     {
-        let e = m.option(frps_l.Value, "auth_token", _("Authentication Token"));
+        let e = c.option(frps_l.Value, "auth_token", _("Authentication Token"));
         e.modalonly = !0, e.password = !0, e.rmempty = !0, e.placeholder = "optional token for authentication";
     }
     {
-        let e = m.option(frps_l.Value, "allow_ports", _("Allow Ports"));
+        let e = c.option(frps_l.Value, "allow_ports", _("Allow Ports"));
         e.modalonly = !0, e.rmempty = !0, e.placeholder = "10000-20000 or 8080,8081,8082", e.description = _("Port range or list of ports that clients can use. e.g., '10000-20000' or '8080,8081,8082'");
     }
     {
-        let e = m.option(frps_l.Flag, "tcp_mux", _("TCP Mux"));
+        let e = c.option(frps_l.Flag, "tcp_mux", _("TCP Mux"));
         e.modalonly = !0, e.rmempty = !0, e.default = "1", e.description = _("Enable TCP multiplexing for better performance");
     }
     {
-        let e = m.option(frps_l.Value, "max_pool_count", _("Max Pool Count"));
+        let e = c.option(frps_l.Value, "max_pool_count", _("Max Pool Count"));
         e.modalonly = !0, e.rmempty = !0, e.datatype = "uinteger", e.placeholder = "5", e.description = _("Maximum connection pool size per proxy");
     }
     {
-        let e = m.option(frps_l.Value, "max_ports_per_client", _("Max Ports Per Client"));
+        let e = c.option(frps_l.Value, "max_ports_per_client", _("Max Ports Per Client"));
         e.modalonly = !0, e.rmempty = !0, e.datatype = "uinteger", e.placeholder = "0", e.description = _("Maximum number of ports per client (0 = unlimited)");
     }
     {
-        let e = m.option(frps_l.ListValue, "log_level", _("Log Level"));
+        let e = c.option(frps_l.ListValue, "log_level", _("Log Level"));
         e.modalonly = !0, e.rmempty = !0, e.default = "info", e.value("trace", "Trace"), e.value("debug", "Debug"), e.value("info", "Info"), e.value("warn", "Warning"), e.value("error", "Error");
     }
     {
-        let e = m.option(frps_l.Value, "dashboard_addr", _("Dashboard Address"));
+        let e = c.option(frps_l.Value, "dashboard_addr", _("Dashboard Address"));
         e.modalonly = !0, e.rmempty = !0, e.datatype = "host", e.placeholder = "0.0.0.0", e.default = "0.0.0.0";
     }
     {
-        let e = m.option(frps_l.Value, "dashboard_port", _("Dashboard Port"));
+        let e = c.option(frps_l.Value, "dashboard_port", _("Dashboard Port"));
         e.modalonly = !0, e.rmempty = !0, e.datatype = "port", e.validate = (e, t)=>{
             let o = String(t || "");
             if (!o || "" === o.trim()) return !0;
@@ -1689,15 +1686,15 @@ let frps_i = {
         };
     }
     {
-        let e = m.option(frps_l.Value, "dashboard_user", _("Dashboard User"));
+        let e = c.option(frps_l.Value, "dashboard_user", _("Dashboard User"));
         e.modalonly = !0, e.rmempty = !0, e.placeholder = "admin", e.depends("dashboard_port", /\S+/);
     }
     {
-        let e = m.option(frps_l.Value, "dashboard_pwd", _("Dashboard Password"));
+        let e = c.option(frps_l.Value, "dashboard_pwd", _("Dashboard Password"));
         e.modalonly = !0, e.password = !0, e.rmempty = !0, e.placeholder = "admin", e.depends("dashboard_port", /\S+/);
     }
     {
-        let t = m.option(frps_l.DummyValue, "actions", _("Actions"));
+        let t = c.option(frps_l.DummyValue, "actions", _("Actions"));
         t.modalonly = !1, t.textvalue = (t)=>{
             var n;
             let l = jsx("button", {
@@ -1718,7 +1715,7 @@ let frps_i = {
             return frps_p[t] = l, l;
         };
     }
-    async function y() {
+    async function b() {
         try {
             let e = (await L.uci.sections("portweaver", "frps_node")).map((e)=>{
                 let t = e.name;
@@ -1736,7 +1733,7 @@ let frps_i = {
                         status: u,
                         last_error: t.last_error || ""
                     }, n !== u) {
-                        let t = document.getElementById("frps-status-".concat(e[".name"])) || frps_s[e[".name"]];
+                        let t = frps_s[e[".name"]];
                         if (t && t.childNodes.length >= 2) {
                             let e = t.childNodes[0], o = t.childNodes[1], a = frps_r(), n = a[u] || a.unavailable;
                             e.style.backgroundColor = n, o.textContent = frps_i[u] || u;
@@ -1749,7 +1746,7 @@ let frps_i = {
                         status: "error",
                         last_error: "Failed to fetch status"
                     };
-                    let t = document.getElementById("frps-status-".concat(e[".name"])) || frps_s[e[".name"]];
+                    let t = frps_s[e[".name"]];
                     if (t && t.childNodes.length >= 2) {
                         let e = t.childNodes[0], o = t.childNodes[1];
                         e.style.backgroundColor = "#F44336", o.textContent = _("Error");
@@ -1763,7 +1760,7 @@ let frps_i = {
             console.error("Polling for FRPS status failed:", e);
         }
     }
-    y(), L.Poll.add(y, 5);
+    b(), L.Poll.add(b, 5);
 }
 
 ;// CONCATENATED MODULE: ./utils/feature.ts
@@ -2418,7 +2415,6 @@ let config_n = L.form, config_i = L.uci;
         let t = u.option(config_n.DummyValue, "_runtime_status", _("Status"));
         t.modalonly = !1, t.textvalue = (t)=>{
             let o = d.getProjectStatus(t), l = jsx("div", {
-                id: "project-status-".concat(t),
                 children: d.renderStatusElements(o, t)
             });
             return d.projectContainers = d.projectContainers || {}, d.projectContainers[t] = l, l;
@@ -3436,7 +3432,6 @@ let ddns_d = [
             }), u = jsx("span", {
                 children: p
             }), m = jsx("div", {
-                id: "ddns-status-".concat(l),
                 style: "display:flex; flex-direction:column; gap:4px;"
             }), b = jsx("div", {
                 style: "display:flex; align-items:center;"
@@ -3620,7 +3615,7 @@ let ddns_d = [
             for (let l of (null == a ? void 0 : a.ddns_status) || []){
                 let a = ddns_i[l.name];
                 if (ddns_i[l.name] = l, !a || a.status !== l.status || a.last_ip !== l.last_ip || a.last_update !== l.last_update) {
-                    let a = document.getElementById("ddns-status-".concat(l.name)) || ddns_s[l.name];
+                    let a = ddns_s[l.name];
                     if (a) {
                         let t = {
                             success: "#4CAF50",

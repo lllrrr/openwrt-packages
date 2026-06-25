@@ -304,16 +304,14 @@ export class Client {
               continue;
             }
             const status = this.getProjectStatus(section_id);
-            const section =
-              document.getElementById(`project-status-${section_id}`) ||
-              this.projectContainers[section_id];
+            const section = this.projectContainers[section_id];
             if (!section) continue;
             const newStatusElements = this.renderStatusElements(
               status,
               section_id,
             );
             const newContainer = (
-              <div id={`project-status-${section_id}`}>{newStatusElements}</div>
+              <div>{newStatusElements}</div>
             ) as HTMLElement;
             section.replaceWith(newContainer);
             this.projectContainers[section_id] = newContainer;

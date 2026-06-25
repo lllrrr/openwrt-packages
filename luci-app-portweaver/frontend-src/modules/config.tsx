@@ -35,9 +35,7 @@ export default function (
     o.textvalue = (section_id: string) => {
       const status = client.getProjectStatus(section_id);
       const container = (
-        <div id={`project-status-${section_id}`}>
-          {client.renderStatusElements(status, section_id)}
-        </div>
+        <div>{client.renderStatusElements(status, section_id)}</div>
       ) as HTMLElement;
       client.projectContainers = client.projectContainers || {};
       client.projectContainers[section_id] = container;
