@@ -10,6 +10,6 @@ Luci plugin for makes OpenWrt poweroff and reboot easy.
 - It only supports using apk package manager. So you must be make sure your OpenWrt version in 25.12 or later.
 - So far, I have only successfully tested it on my intel Celeron J4125 and Friendly Nanopi R5C.
 ## 🛠 How to self-build
-[Generic Docs](https://867678.xyz/doc/openwrt)
+[Generic Docs](https://867678.xyz/doc/OpenWrt)
 ## ⚖️ License
 > This project is licensed under the **[GNU General Public License v3.0 (GPL-3.0)](https://www.gnu.org/licenses/gpl-3.0.html)** or later.
