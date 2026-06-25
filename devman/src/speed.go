@@ -90,16 +90,15 @@ func calcSpeed() {
 		}
 		spPrevUp[ip] = curUp[ip]
 		spPrevDown[ip] = curDown[ip]
-		// Show real speed when significant; keep decaying if traffic is tiny
-		if up > 0 && up > speedIn[ip]/3 {
+		if up > 0 {
 			speedIn[ip] = up
-		} else if up == 0 {
-			speedIn[ip] = uint64(float64(speedIn[ip]) * 0.7)
+		} else {
+			speedIn[ip] = 0
 		}
-		if dn > 0 && dn > speedOut[ip]/3 {
+		if dn > 0 {
 			speedOut[ip] = dn
-		} else if dn == 0 {
-			speedOut[ip] = uint64(float64(speedOut[ip]) * 0.7)
+		} else {
+			speedOut[ip] = 0
 		}
 		// Update last_seen for any IP with traffic
 		if up > 0 || dn > 0 {

@@ -76,7 +76,7 @@ func conntrackLoop() {
 			dst := strings.SplitN(line[dstIdx+4:], " ", 2)[0]
 			if !isLAN(src) && isLAN(dst) {
 				if dst != "" && !strings.HasPrefix(dst, "127.") {
-					upsertDevice(dst, "", "", "")
+					upsertDevice(dst, "", "", "", "")
 				}
 			}
 		}
@@ -149,11 +149,16 @@ func resolveHostnamesLoop() {
 // ====== DB ops ======
 
 // upsertDevice finds or creates a device by MAC → hostname → IP, then updates it.
+// opt55Hash is the DHCP Option 55 fingerprint hash for deduplication.
 // updateLastSeen controls whether last_seen is bumped (ARP/conntrack=true, lease=false).
-func upsertDevice(ip, mac, hostname, vendorClass string) { upsertDeviceEx(ip, mac, hostname, vendorClass, true) }
-func upsertDeviceNoSeen(ip, mac, hostname, vendorClass string) { upsertDeviceEx(ip, mac, hostname, vendorClass, false) }
+func upsertDevice(ip, mac, hostname, vendorClass, opt55Hash string) {
+	upsertDeviceEx(ip, mac, hostname, vendorClass, opt55Hash, true)
+}
+func upsertDeviceNoSeen(ip, mac, hostname, vendorClass string) {
+	upsertDeviceEx(ip, mac, hostname, vendorClass, "", false)
+}
 
-func upsertDeviceEx(ip, mac, hostname, vendorClass string, updateLastSeen bool) {
+func upsertDeviceEx(ip, mac, hostname, vendorClass, opt55Hash string, updateLastSeen bool) {
 	// Skip IPv6
 	if strings.Contains(ip, ":") {
 		return
@@ -173,24 +178,39 @@ func upsertDeviceEx(ip, mac, hostname, vendorClass string, updateLastSeen bool) 
 
 	var dev Device
 
+	// Tier 0: Opt55Hash — strongest device identity, beats MAC randomization
+	if opt55Hash != "" {
+		if err := db.Where("opt55_hash = ?", opt55Hash).First(&dev).Error; err == nil {
+			updateExisting(&dev, ip, mac, hostname, vendorClass, opt55Hash, devType, now, updateLastSeen)
+			return
+		}
+	}
 	// Tier 1: MAC
 	if mac != "" {
 		if err := db.Where("mac = ?", mac).First(&dev).Error; err == nil {
-			updateExisting(&dev, ip, mac, hostname, vendorClass, devType, now, updateLastSeen)
+			updateExisting(&dev, ip, mac, hostname, vendorClass, opt55Hash, devType, now, updateLastSeen)
 			return
+		}
+		// Tier 1b: MAC in device_macs (merged devices)
+		var dm DeviceMAC
+		if err := db.Where("mac = ?", mac).First(&dm).Error; err == nil {
+			if err := db.Where("id = ?", dm.DeviceID).First(&dev).Error; err == nil {
+				updateExisting(&dev, ip, mac, hostname, vendorClass, opt55Hash, devType, now, updateLastSeen)
+				return
+			}
 		}
 	}
 	// Tier 2: hostname
 	if hostname != "" {
 		if err := db.Where("hostname = ?", hostname).First(&dev).Error; err == nil {
-			updateExisting(&dev, ip, mac, hostname, vendorClass, devType, now, updateLastSeen)
+			updateExisting(&dev, ip, mac, hostname, vendorClass, opt55Hash, devType, now, updateLastSeen)
 			return
 		}
 	}
 	// Tier 3: IP
 	if ip != "" {
 		if err := db.Where("ipv4 = ?", ip).First(&dev).Error; err == nil {
-			updateExisting(&dev, ip, mac, hostname, vendorClass, devType, now, updateLastSeen)
+			updateExisting(&dev, ip, mac, hostname, vendorClass, opt55Hash, devType, now, updateLastSeen)
 			return
 		}
 	}
@@ -202,6 +222,7 @@ func upsertDeviceEx(ip, mac, hostname, vendorClass string, updateLastSeen bool) 
 		MAC:         mac,
 		IPv4:        ip,
 		VendorClass: vendorClass,
+		Opt55Hash:   opt55Hash,
 		LastSeen:    now,
 	}
 	db.Create(&dev)
@@ -210,7 +231,7 @@ func upsertDeviceEx(ip, mac, hostname, vendorClass string, updateLastSeen bool) 
 	}
 }
 
-func updateExisting(dev *Device, ip, mac, hostname, vendorClass, devType string, now int64, updateLastSeen bool) {
+func updateExisting(dev *Device, ip, mac, hostname, vendorClass, opt55Hash, devType string, now int64, updateLastSeen bool) {
 	updates := map[string]interface{}{}
 	if updateLastSeen {
 		updates["last_seen"] = now
@@ -229,12 +250,24 @@ func updateExisting(dev *Device, ip, mac, hostname, vendorClass, devType string,
 	if mac != "" && len(mac) == 17 && strings.Count(mac, ":") == 5 {
 		updates["mac"] = mac
 		db.Where(DeviceMAC{DeviceID: dev.ID, MAC: mac}).FirstOrCreate(&DeviceMAC{DeviceID: dev.ID, MAC: mac})
+		// MAC collision: delete other device if this device has fingerprint
+		if dev.Opt55Hash != "" {
+			var dup Device
+			if db.Where("mac = ? AND id != ? AND opt55_hash = ''", mac, dev.ID).First(&dup).Error == nil {
+				db.Exec("INSERT OR IGNORE INTO device_macs (device_id, mac) SELECT ?, mac FROM device_macs WHERE device_id = ?", dev.ID, dup.ID)
+				db.Where("device_id = ?", dup.ID).Delete(&DeviceMAC{})
+				db.Delete(&dup)
+			}
+		}
 		if dt := detectTypeByMAC(mac); dt != "" && dt != "Unknown" && (dev.DeviceType == "" || dev.DeviceType == "Unknown") {
 			updates["device_type"] = dt
 		}
 	}
 	if vendorClass != "" {
 		updates["vendor_class"] = vendorClass
+	}
+	if opt55Hash != "" && dev.Opt55Hash == "" {
+		updates["opt55_hash"] = opt55Hash
 	}
 
 	db.Model(dev).Updates(updates)
@@ -276,12 +309,57 @@ func mergeDuplicateHostnames() {
 	}
 }
 
+func mergeByOpt55Hash() {
+	var hashes []string
+	db.Raw("SELECT opt55_hash FROM devices WHERE opt55_hash != '' GROUP BY opt55_hash HAVING COUNT(*) > 1").Scan(&hashes)
+	if len(hashes) > 0 {
+		log.Printf("RECONCILE: mergeByOpt55Hash found %d duplicate hashes", len(hashes))
+	}
+	for _, hash := range hashes {
+		var ids []int64
+		db.Model(&Device{}).Where("opt55_hash = ?", hash).
+			Order("CASE WHEN hostname != '' THEN 0 ELSE 1 END, last_seen DESC").
+			Pluck("id", &ids)
+		if len(ids) < 2 {
+			continue
+		}
+		log.Printf("RECONCILE: merging %d devices by opt55_hash=%s", len(ids), hash)
+		keeper := ids[0]
+		for _, id := range ids[1:] {
+			db.Exec("INSERT OR IGNORE INTO device_macs (device_id, mac) SELECT ?, mac FROM device_macs WHERE device_id = ?", keeper, id)
+			db.Where("device_id = ?", id).Delete(&DeviceMAC{})
+			db.Delete(&Device{}, id)
+		}
+	}
+}
+
+func absorbNoFingerprint() {
+	var tracked []Device
+	db.Where("opt55_hash != ''").Find(&tracked)
+	if len(tracked) == 0 {
+		return
+	}
+	cutoff := time.Now().Unix() - 120 // only absorb devices >2 min old
+	for _, t := range tracked {
+		var orphans []Device
+		db.Where("opt55_hash = '' AND hostname = '' AND last_seen < ? AND mac IN (SELECT mac FROM device_macs WHERE device_id = ?)", cutoff, t.ID).Find(&orphans)
+		for _, o := range orphans {
+			log.Printf("RECONCILE: absorbing device %d (no fingerprint) into %d (opt55=%s)", o.ID, t.ID, t.Opt55Hash)
+			db.Exec("INSERT OR IGNORE INTO device_macs (device_id, mac) SELECT ?, mac FROM device_macs WHERE device_id = ?", t.ID, o.ID)
+			db.Where("device_id = ?", o.ID).Delete(&DeviceMAC{})
+			db.Delete(&o)
+		}
+	}
+}
+
 // ====== reconcile ======
 
 func reconcileLoop() {
 	for {
 		time.Sleep(5 * time.Second)
 		mergeDuplicateHostnames()
+		mergeByOpt55Hash()
+		absorbNoFingerprint()
 
 		var dbBlocked []string
 		db.Model(&Device{}).Where("is_blocked = 1 AND ipv4 != ''").Pluck("ipv4", &dbBlocked)
@@ -394,11 +472,15 @@ func apiLimit(w http.ResponseWriter, r *http.Request) {
 		RateLimit   int    `json:"rate_limit"`
 		RateLimitDn int    `json:"rate_limit_down"`
 		Alias       string `json:"alias"`
+		Opt55Hash   string `json:"opt55_hash"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
-	log.Printf("LIMIT: id=%d rate=%d ratedn=%d alias=%s", req.DeviceID, req.RateLimit, req.RateLimitDn, req.Alias)
+	log.Printf("LIMIT: id=%d rate=%d ratedn=%d alias=%s opt55=%s", req.DeviceID, req.RateLimit, req.RateLimitDn, req.Alias, req.Opt55Hash)
 	if req.Alias != "" {
 		db.Model(&Device{}).Where("id = ?", req.DeviceID).Update("alias", req.Alias)
+	}
+	if req.Opt55Hash != "" {
+		db.Model(&Device{}).Where("id = ?", req.DeviceID).Update("opt55_hash", req.Opt55Hash)
 	}
 	if req.RateLimit != -1 {
 		db.Model(&Device{}).Where("id = ?", req.DeviceID).Update("rate_limit", req.RateLimit)

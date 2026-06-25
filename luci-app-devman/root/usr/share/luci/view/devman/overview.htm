@@ -81,14 +81,15 @@ function dot(s){
  return'<div class="dm-dot dm-dot-gray" title="Offline"></div>';
 }
 function load(){
- fetch('/cgi-bin/luci/admin/network/devman/api_devices').then(r=>r.json()).then(function(d){
-  var c=document.getElementById('dm-content');
-  if(!d||!d.length){c.innerHTML='<p class="dm-empty">暂无设备</p>';return}
-  var known=[],unknown=[];
-  d.forEach(function(dev){ (dev.device_type==='Unknown'?unknown:known).push(dev); });
-  known.sort(function(a,b){ return (a.current_ip||'').localeCompare(b.current_ip||''); });
-  unknown.sort(function(a,b){ return (a.current_ip||'').localeCompare(b.current_ip||''); });
-  var h='<div class="dm-grid">';
+  fetch('/cgi-bin/luci/admin/network/devman/api_devices').then(r=>r.json()).then(function(d){
+   var c=document.getElementById('dm-content');
+   if(!d||!d.length){c.innerHTML='<p class="dm-empty">暂无设备</p>';return}
+   var known=[],unknown=[];
+   var wasExpanded=document.getElementById('dm-unknown')&&document.getElementById('dm-unknown').style.display!='none';
+   d.forEach(function(dev){ (dev.device_type==='Unknown'?unknown:known).push(dev); });
+   known.sort(function(a,b){ return (a.current_ip||'').localeCompare(b.current_ip||''); });
+   unknown.sort(function(a,b){ return (a.current_ip||'').localeCompare(b.current_ip||''); });
+   var h='<div class="dm-grid">';
   var renderCard=function(dev){
    var name=dev.alias||dev.hostname||'未知设备';
    var limited=(dev.rate_limit||dev.rate_limit_down);
@@ -109,7 +110,7 @@ function load(){
   };
   known.forEach(renderCard);
   if(unknown.length){
-   h+='</div><div class="dm-unknown-section"><div class="dm-unknown-toggle" onclick="toggleUnknown(this)">🐧 未知设备 ('+unknown.length+') <span>▶</span></div><div class="dm-grid" id="dm-unknown" style="display:none">';
+   h+='</div><div class="dm-unknown-section"><div class="dm-unknown-toggle" onclick="toggleUnknown(this)">🐧 未知设备 ('+unknown.length+') <span>'+(wasExpanded?'▼':'▶')+'</span></div><div class="dm-grid" id="dm-unknown" style="display:'+(wasExpanded?'grid':'none')+'">';
    unknown.forEach(renderCard);
    h+='</div></div>';
   }
