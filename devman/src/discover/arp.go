@@ -19,9 +19,11 @@ func NeightLoop() {
 	exec.Command("sysctl", "-w", "net.ipv4.neigh.default.gc_stale_time=30").Run()
 	for {
 		out, _ := exec.Command("/sbin/ip", "neigh", "show").Output()
+		lines := strings.Split(string(out), "\n")
+		log.Printf("NEIGH: %d ARP entries, %d known IPs", len(lines)-1, len(ArpStates))
 		ArpMu.Lock()
 		ArpStates = map[string]string{}
-		for _, line := range strings.Split(string(out), "\n") {
+		for _, line := range lines {
 			fields := strings.Fields(line)
 			if len(fields) < 4 {
 				continue
@@ -43,7 +45,7 @@ func NeightLoop() {
 			}
 			ArpStates[ip] = state
 			if state != "FAILED" {
-				UpsertDeviceNoSeen(ip, mac, "", "")
+				UpsertDevice(ip, mac, "", "", "")
 			}
 		}
 		ArpMu.Unlock()

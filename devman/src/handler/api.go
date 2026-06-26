@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"devman/models"
@@ -56,12 +57,16 @@ func apiDevices(w http.ResponseWriter, r *http.Request) {
 }
 
 func apiBlock(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		DeviceID int64 `json:"device_id"`
-		Block    bool  `json:"block"`
+	var devID int64
+	var block bool
+	if err := json.NewDecoder(r.Body).Decode(&struct {
+		DeviceID *int64 `json:"device_id"`
+		Block    *bool  `json:"block"`
+	}{DeviceID: &devID, Block: &block}); err != nil {
+		devID, _ = parseInt64(r.URL.Query().Get("device_id"))
+		block = r.URL.Query().Get("block") == "1" || r.URL.Query().Get("block") == "true"
 	}
-	json.NewDecoder(r.Body).Decode(&req)
-	DB.Model(&models.Device{}).Where("id = ?", req.DeviceID).Update("is_blocked", req.Block)
+	DB.Model(&models.Device{}).Where("id = ?", devID).Update("is_blocked", block)
 	w.Write([]byte(`{"ok":true}`))
 }
 
@@ -73,7 +78,13 @@ func apiLimit(w http.ResponseWriter, r *http.Request) {
 		Alias       string `json:"alias"`
 		Opt55Hash   string `json:"opt55_hash"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		req.DeviceID, _ = parseInt64(r.URL.Query().Get("device_id"))
+		req.RateLimit, _ = parseInt(r.URL.Query().Get("rate_limit"))
+		req.RateLimitDn, _ = parseInt(r.URL.Query().Get("rate_limit_down"))
+		req.Alias = r.URL.Query().Get("alias")
+		req.Opt55Hash = r.URL.Query().Get("opt55_hash")
+	}
 	if req.Alias != "" {
 		DB.Model(&models.Device{}).Where("id = ?", req.DeviceID).Update("alias", req.Alias)
 	}
@@ -95,10 +106,20 @@ func apiLimit(w http.ResponseWriter, r *http.Request) {
 
 var NftSetLimit func(ip string, ulBps, dlBps int)
 
+func parseInt64(s string) (int64, error) {
+	return strconv.ParseInt(s, 10, 64)
+}
+
+func parseInt(s string) (int, error) {
+	return strconv.Atoi(s)
+}
+
 func SetupRouter() *chi.Mux {
 	r := chi.NewRouter()
 	r.Get("/api/devices", apiDevices)
+	r.Get("/api/block", apiBlock)
 	r.Post("/api/block", apiBlock)
+	r.Get("/api/limit", apiLimit)
 	r.Post("/api/limit", apiLimit)
 	return r
 }

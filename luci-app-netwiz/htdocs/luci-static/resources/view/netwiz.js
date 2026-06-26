@@ -3281,45 +3281,43 @@ return view.extend({
                 Promise.all([ safePromise(uci.load('network'), null), safePromise(uci.load('dhcp'), null), safePromise(uci.load('wireless'), null), safePromise(getWanStatus(), {}), safePromise(callNetCheckWifi(), {}) ]).then(function(results) {
                     var wifiRes = results[4] || {};
                     var rawIfaces = results[3] || {};
-                    var realIfaces = Array.isArray(rawIfaces.interface) ? rawIfaces.interface : (Array.isArray(rawIfaces) ? rawIfaces : []);
+                    var ifaces = Array.isArray(rawIfaces.interface) ? rawIfaces.interface : (Array.isArray(rawIfaces) ? rawIfaces : []);
                     
-                    // wProto 保留
+                    // 1. 获取底层真实配置 (以此为绝对真理，无视网卡临时断网)
                     var wProto = safeUciGet('network', 'wan', 'proto', '').toLowerCase();
 
-                    // ==========================================
-                    // 1. 防抖缓存：只冻结 UI 画面，不干扰底层获取
-                    // ==========================================
-                    var isHealthyPoll = realIfaces.some(function(i) { return i && i.up && i['ipv4-address'] && i['ipv4-address'].length > 0; });
-                    
-                    if (isHealthyPoll) {
-                        // 抓到健康数据，使用深拷贝保存
-                        window._stableIfaces = JSON.parse(JSON.stringify(realIfaces));
-                    }
-                    
-                    // 底层处于获取中（不健康），且有缓存，就一直用缓存
-                    // 这样 UI 永远不会看到断网，也就绝对不会跳回局域网模式
-                    var ifaces = (!isHealthyPoll && window._stableIfaces) ? window._stableIfaces : realIfaces;
-
-                    // 重新提取 (基于冻结的 ifaces)
+                    // 2. 提取基础网卡
                     var phyWan = ifaces.find(function(i) { return i && i.interface === 'wan'; }) || {};
                     var virWwan = ifaces.find(function(i) { return i && i.interface === 'wwan'; }) || {};
 
-                    // ==========================================
-                    // 2. 穿透寻找真正的出口网卡
-                    // ==========================================
+                    // 3. 穿透寻找真正的出口网卡
                     var routeWan = ifaces.find(function(i) {
                         return i.up && Array.isArray(i.route) && i.route.some(function(r) { return r.target === '0.0.0.0' && (r.mask === 0 || !r.mask); });
                     });
-
-                    if (!routeWan) {
-                        routeWan = ifaces.find(function(i) { return i && (i.interface === 'wan' || i.interface === 'wwan' || (i.interface && i.interface.indexOf('wan') !== -1 && i.interface.indexOf('lan') === -1)); }) || {};
+                    
+                    var activeWan = routeWan;
+                    if (!activeWan) {
+                        // 找不到 0.0.0.0 路由，按名字兜底
+                        activeWan = ifaces.find(function(i) { return i && (i.interface === 'wan' || i.interface === 'wwan' || (i.interface && i.interface.indexOf('wan') !== -1 && i.interface.indexOf('lan') === -1)); }) || {};
                     }
 
-                    var activeWan = routeWan;
+                    // ==========================================
+                    // 4. UI 强锁
+                    // 只要用户配置的是外网模式，就强行给前端 UI：up = true
+                    // 彻底切断外部 UI 脚本擅自切回“局域网模式”的后路
+                    // ==========================================
+                    var isWanMode = (wProto === 'dhcp' || wProto === 'pppoe' || wProto === 'static');
+                    if (isWanMode) {
+                        if (!activeWan.interface) activeWan = { interface: 'wan', up: true, 'ipv4-address': [] };
+                        if (!phyWan.interface) phyWan = { interface: 'wan', up: true, 'ipv4-address': [] };
+                        activeWan.up = true;
+                        phyWan.up = true;
+                    }
+
                     var isWispActive = false;
                     var hasWispConfigured = !!uci.sections('wireless', 'wifi-iface').find(function(i) { return i.network === 'wwan' && i.mode === 'sta'; });
 
-                    var activeWanHasIp = activeWan.up && activeWan['ipv4-address'] && activeWan['ipv4-address'].length > 0;
+                    var activeWanHasIp = activeWan['ipv4-address'] && activeWan['ipv4-address'].length > 0;
                     var virWwanHasIp = virWwan.up && virWwan['ipv4-address'] && virWwan['ipv4-address'].length > 0;
 
                     if (!activeWanHasIp && virWwanHasIp) {
@@ -3327,46 +3325,31 @@ return view.extend({
                         isWispActive = true;
                     }
 
-                    // ==========================================
-                    // 3. 强制识别协议名称
-                    // ==========================================
-                    var rawProto = (safeUciGet('network', activeWan.interface || 'wan', 'proto', '') || '').toLowerCase();
+                    // 5. 强制识别协议名称
                     var protoName = '';
-                    if (rawProto === 'pppoe') protoName = 'PPPoE 拨号';
-                    else if (rawProto === 'dhcp') protoName = '自动获取 (DHCP)';
-                    else if (rawProto === 'static') protoName = '静态 IP';
+                    if (wProto === 'pppoe') protoName = 'PPPoE 拨号';
+                    else if (wProto === 'dhcp') protoName = '自动获取 (DHCP)';
+                    else if (wProto === 'static') protoName = '静态 IP';
                     else protoName = '自动获取 (DHCP)';
 
-                    // ==========================================
-                    // 4. 提取主力 IP
-                    // ==========================================
+                    // 6. 提取主 IP (智能剔除光猫)
                     var liveWanIp = '';
                     if (activeWan['ipv4-address'] && activeWan['ipv4-address'].length > 0) {
-                        var foundMainIp = null;
-                        var foundModemIp = null;
-                        
+                        var foundMainIp = null, foundModemIp = null;
                         activeWan['ipv4-address'].forEach(function(ipObj) {
                             var ip = ipObj.address || '';
-                            if (ip.indexOf('192.168.') === 0) {
-                                if (!foundModemIp) foundModemIp = ip;
-                            } else {
-                                if (!foundMainIp) foundMainIp = ip;
-                            }
+                            if (ip.indexOf('192.168.') === 0) foundModemIp = ip;
+                            else foundMainIp = ip;
                         });
-                        
                         liveWanIp = foundMainIp ? foundMainIp : (foundModemIp ? foundModemIp : activeWan['ipv4-address'][0].address);
                     }
 
-                    // ==========================================
-                    // 5. 纯净渲染
-                    // ==========================================
+                    // 7. 纯净渲染
                     if (liveWanIp) {
-                        // 当前底层在断网重连，文字提示
-                        if (!isHealthyPoll) {
-                            window._liveWanIp = liveWanIp + '  (正在更新 IP...)';
-                        } else {
-                            window._liveWanIp = liveWanIp + '  (' + protoName + ')';
-                        }
+                        window._liveWanIp = liveWanIp + '  (' + protoName + ')';
+                    } else if (isWanMode) {
+                        // 界面不跳走，静静显示正在获取
+                        window._liveWanIp = '正在获取 IP...  (' + protoName + ')';
                     } else {
                         window._liveWanIp = '';
                     }
