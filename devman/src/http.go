@@ -1,10 +1,16 @@
 package main
 
-import "net/http"
+import (
+	"net/http"
+
+	"devman/handler"
+)
 
 func httpServe() {
-	http.HandleFunc("/api/devices", apiDevices)
-	http.HandleFunc("/api/block", apiBlock)
-	http.HandleFunc("/api/limit", apiLimit)
-	go http.ListenAndServe(":9999", nil)
+	handler.DB = db
+	handler.GetSpeed = getSpeed
+	handler.NftSetLimit = nftSetLimit
+
+	r := handler.SetupRouter()
+	go http.ListenAndServe(":9999", r)
 }

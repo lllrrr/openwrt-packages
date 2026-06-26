@@ -1,10 +1,10 @@
 package main
 
 import (
-	"os"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/florianl/go-conntrack"
 )
 
 var (
@@ -26,39 +26,33 @@ func speedLoop() {
 }
 
 func calcSpeed() {
-	data, err := os.ReadFile("/proc/net/nf_conntrack")
+	nfct, err := conntrack.Open(&conntrack.Config{})
 	if err != nil {
 		return
 	}
+	defer nfct.Close()
+
+	cons, err := nfct.Dump(conntrack.Conntrack, conntrack.IPv4)
+	if err != nil {
+		return
+	}
+
 	curUp := map[string]uint64{}
 	curDown := map[string]uint64{}
-	for _, line := range strings.Split(string(data), "\n") {
-		// Format: ... src=IP dst=IP ... bytes=N ... [mark]
-		sIdx := strings.Index(line, "src=")
-		if sIdx < 0 {
+	for _, conn := range cons {
+		if conn.Origin == nil || conn.Origin.Src == nil || conn.CounterOrigin == nil || conn.CounterOrigin.Bytes == nil {
 			continue
 		}
-		rest := line[sIdx+4:]
-		fields := strings.Fields(rest)
-		if len(fields) < 1 {
-			continue
-		}
-		src := fields[0]
+		src := conn.Origin.Src.String()
 		if !isLAN(src) || src == "127.0.0.1" {
 			continue
 		}
-		fb := strings.Index(line, "bytes=")
-		lb := strings.LastIndex(line, "bytes=")
-		if fb < 0 {
-			continue
-		}
-		up, _ := atoui(strings.SplitN(line[fb+6:], " ", 2)[0])
-		curUp[src] += up
-		if lb > fb {
-			dn, _ := atoui(strings.SplitN(line[lb+6:], " ", 2)[0])
-			curDown[src] += dn
+		curUp[src] += *conn.CounterOrigin.Bytes
+		if conn.CounterReply != nil && conn.CounterReply.Bytes != nil {
+			curDown[src] += *conn.CounterReply.Bytes
 		}
 	}
+
 	interval := float64(time.Since(spLastTime).Seconds())
 	if interval < 1 || spLastTime.IsZero() {
 		interval = 1
@@ -100,7 +94,6 @@ func calcSpeed() {
 		} else {
 			speedOut[ip] = 0
 		}
-		// Update last_seen for any IP with traffic
 		if up > 0 || dn > 0 {
 			db.Model(&Device{}).Where("ipv4 = ?", ip).Update("last_seen", now)
 		}
@@ -124,15 +117,4 @@ func getSpeed(ip string) (in, out uint64) {
 	speedMu.RLock()
 	defer speedMu.RUnlock()
 	return speedIn[ip], speedOut[ip]
-}
-
-func atoui(s string) (uint64, error) {
-	var n uint64
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			break
-		}
-		n = n*10 + uint64(c-'0')
-	}
-	return n, nil
 }

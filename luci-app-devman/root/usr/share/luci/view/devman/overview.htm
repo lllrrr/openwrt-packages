@@ -1,166 +1,104 @@
 <%+header%>
-<style>
-.dm-wrap{padding:20px}
-.dm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;padding-top:8px}
-.dm-card{background:#fff;border-radius:10px;padding:20px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08);border:1px solid #e8e8e8;position:relative;transition:box-shadow .2s}
-.dm-card:hover{box-shadow:0 2px 12px rgba(0,0,0,.12)}
-.dm-card-top{display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:nowrap;overflow:hidden}
-.dm-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
-.dm-dot-green{background:#22c55e;box-shadow:0 0 6px rgba(34,197,94,.4)}
-.dm-dot-yellow{background:#f59e0b;box-shadow:0 0 6px rgba(245,158,11,.4)}
-.dm-dot-gray{background:#9ca3af}
-.dm-name{font-weight:600;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dm-type-tag{font-size:10px;padding:2px 8px;border-radius:10px;background:#f0f0f0;color:#666;flex-shrink:0}
-.dm-speeds{display:block;margin-bottom:6px;font-size:20px;font-weight:700;color:#1a1a1a}
-.dm-speeds div{line-height:1.5}
-.dm-up{color:#2563eb}
-.dm-dn{color:#16a34a}
-.dm-detail{margin-bottom:8px;font-size:13px;color:#666;font-family:monospace}
-.dm-actions{display:flex;gap:8px}
-.dm-act{width:36px;height:36px;border-radius:50%;border:none;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;background:#f3f4f6;transition:all .15s}
-.dm-act:hover{transform:scale(1.1)}
-.dm-act.block{color:#dc2626}.dm-act.block svg{stroke:#dc2626}
-.dm-act.unblock{color:#16a34a}.dm-act.unblock svg{stroke:#16a34a}
-.dm-act.limit{color:#f59e0b}.dm-act.limit svg{stroke:#f59e0b}
-.dm-act.rename{color:#6366f1}.dm-act.rename svg{stroke:#6366f1}
-.dm-blocked-badge{position:absolute;top:8px;right:8px;font-size:10px;background:#fef2f2;color:#dc2626;padding:2px 6px;border-radius:4px;font-weight:600}
-.dm-limited-badge{position:absolute;top:8px;right:8px;font-size:10px;background:#fffbeb;color:#d97706;padding:2px 6px;border-radius:4px;font-weight:600}
-.dm-empty{text-align:center;padding:60px 20px;color:#aaa;font-size:15px}
-.dm-unknown-toggle{cursor:pointer;padding:8px 16px;margin:12px 0 8px;font-size:13px;color:#888;user-select:none;border-radius:6px;background:#f5f5f5;display:inline-block}
-.dm-unknown-toggle:hover{background:#e8e8e8}
-html[data-darkmode=true] .dm-unknown-toggle{background:#2a2a2a;color:#999}
-html[data-darkmode=true] .dm-unknown-toggle:hover{background:#333}
-.dm-modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:9999}
-.dm-modal-box{background:#fff;border-radius:8px;padding:24px;min-width:320px;max-width:400px;box-shadow:0 4px 20px rgba(0,0,0,.2)}
-.dm-modal h3{margin:0 0 12px;font-size:16px}
-.dm-modal label{display:block;margin-bottom:6px;font-size:13px;color:#666}
-.dm-modal input{width:100%;padding:8px 12px;border:1px solid #d0d0d0;border-radius:4px;font-size:14px;box-sizing:border-box;margin-bottom:12px}
-.dm-modal input:focus{outline:none;border-color:#55f}
-.dm-modal-btns{display:flex;gap:8px;justify-content:flex-end}
-.dm-modal-btns button{padding:8px 16px;border-radius:4px;border:none;cursor:pointer;font-size:13px}
-.dm-btn-cancel{background:#e0e0e0;color:#333}
-.dm-btn-save{background:#55f;color:#fff}
+<link rel="stylesheet" href="<%=resource%>/luci-static/resources/view/devman/style.css">
+<div id="dm-app" class="dm-wrap">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:28px">
+    <h2 style="margin:0">{{ title }}</h2>
+    <select v-model="refreshMs" @change="changeRefresh" style="padding:3px 6px;border-radius:4px;border:1px solid #d0d0d0;font-size:12px;width:60px">
+      <option value="5000">5秒</option><option value="15000">15秒</option><option value="30000">30秒</option>
+    </select>
+    <span style="font-size:12px;color:#999">{{ devices.length }} 台设备</span>
+  </div>
 
-/* dark mode */
-html[data-darkmode=true] .dm-card{background:#1e1e1e;border-color:#333}
-html[data-darkmode=true] .dm-card:hover{box-shadow:0 2px 12px rgba(0,0,0,.4)}
-html[data-darkmode=true] .dm-speeds{color:#f0f0f0}
-html[data-darkmode=true] .dm-type-tag{background:#333;color:#aaa}
-html[data-darkmode=true] .dm-act{background:#2a2a2a}
-html[data-darkmode=true] .dm-empty{color:#666}
-html[data-darkmode=true] .dm-blocked-badge{background:#3b1a1a}
-html[data-darkmode=true] .dm-limited-badge{background:#3b2e1a}
-html[data-darkmode=true] .dm-modal-box{background:#222;color:#ddd}
-html[data-darkmode=true] .dm-modal label{color:#aaa}
-html[data-darkmode=true] .dm-modal input{background:#333;border-color:#555;color:#ddd}
-html[data-darkmode=true] .dm-btn-cancel{background:#444;color:#ccc}
-</style>
-<div class="dm-wrap">
-<div style="display:flex;align-items:center;gap:10px;margin-bottom:28px">
-<h2 style="margin:0">设备管理</h2>
-<select id="dm-interval" onchange="changeRefresh(this.value)" style="padding:3px 6px;border-radius:4px;border:1px solid #d0d0d0;font-size:12px;width:60px">
-<option value="5000" selected>5秒</option><option value="15000">15秒</option><option value="30000">30秒</option>
-</select></div>
-<div id="dm-content"><p class="dm-empty">Loading...</p></div>
+  <div v-if="!devices.length" class="dm-empty">{{ loading ? '加载中...' : '暂无设备' }}</div>
+
+  <template v-for="(group, gi) in deviceGroups" :key="gi">
+    <div class="dm-grid">
+      <div v-for="dev in group.devices" :key="dev.id" class="dm-card">
+        <div v-if="dev.is_blocked" class="dm-blocked-badge">已封禁</div>
+        <div v-else-if="dev.rate_limit || dev.rate_limit_down" class="dm-limited-badge">已限速</div>
+        <div class="dm-card-top" v-html="vendorIcon(dev.device_type)"></div>
+        <div class="dm-card-top">
+          <span :class="'dm-dot dm-dot-' + dev.online" :title="dev.online === 'green' ? '在线' : dev.online === 'yellow' ? '可能离线' : '离线'"></span>
+          <span class="dm-name" :title="deviceName(dev)">{{ deviceName(dev) }}</span>
+        </div>
+        <div class="dm-speeds">
+          <div class="dm-up">↑ {{ fmtSpeed(dev.speed_in) }}</div>
+          <div class="dm-dn">↓ {{ fmtSpeed(dev.speed_out) }}</div>
+        </div>
+        <div class="dm-detail">{{ dev.current_ip }} · {{ dev.current_mac }}</div>
+        <div class="dm-actions">
+          <button v-if="dev.is_blocked" class="dm-act unblock" title="解封" @click="toggleBlock(dev)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/><circle cx="12" cy="16" r="1"/></svg>
+          </button>
+          <button v-else class="dm-act block" title="封禁" @click="toggleBlock(dev)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/><line x1="3" y1="3" x2="21" y2="21"/></svg>
+          </button>
+          <button class="dm-act limit" title="限速" @click="showLimit(dev)">⚡</button>
+          <button class="dm-act rename" title="重命名" @click="showRename(dev)">✎</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="gi === 0 && unknownDevices.length" class="dm-unknown-section">
+      <div class="dm-unknown-toggle" @click="showUnknown = !showUnknown">
+        🐧 未知设备 ({{ unknownDevices.length }}) <span>{{ showUnknown ? '▼' : '▶' }}</span>
+      </div>
+      <div v-show="showUnknown" class="dm-grid">
+        <div v-for="dev in unknownDevices" :key="dev.id" class="dm-card">
+          <div class="dm-card-top" v-html="vendorIcon(dev.device_type)"></div>
+          <div class="dm-card-top">
+            <span :class="'dm-dot dm-dot-' + dev.online" :title="dev.online === 'green' ? '在线' : '离线'"></span>
+            <span class="dm-name" :title="deviceName(dev)">{{ deviceName(dev) }}</span>
+          </div>
+          <div class="dm-speeds">
+            <div class="dm-up">↑ {{ fmtSpeed(dev.speed_in) }}</div>
+            <div class="dm-dn">↓ {{ fmtSpeed(dev.speed_out) }}</div>
+          </div>
+          <div class="dm-detail">{{ dev.current_ip }} · {{ dev.current_mac }}</div>
+          <div class="dm-actions">
+            <button class="dm-act rename" title="重命名" @click="showRename(dev)">✎</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <div v-if="showLimitModal" class="dm-modal" @click.self="showLimitModal=false">
+    <div class="dm-modal-box">
+      <h3>限速</h3>
+      <p style="font-size:12px;color:#999;margin:0 0 12px">0 = 不限速</p>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <label style="flex:1">上传</label>
+        <input v-model.number="limitUp" type="number" min="0" step="0.1" style="flex:1">
+        <select v-model="limitUpUnit" style="width:80px">
+          <option value="1000000000">Gbps</option><option value="1000000">Mbps</option><option value="1000">Kbps</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <label style="flex:1">下载</label>
+        <input v-model.number="limitDn" type="number" min="0" step="0.1" style="flex:1">
+        <select v-model="limitDnUnit" style="width:80px">
+          <option value="1000000000">Gbps</option><option value="1000000">Mbps</option><option value="1000">Kbps</option>
+        </select>
+      </div>
+      <div class="dm-modal-btns">
+        <button class="dm-btn-cancel" @click="showLimitModal=false">取消</button>
+        <button class="dm-btn-save" @click="applyLimit">应用</button>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="showRenameModal" class="dm-modal" @click.self="showRenameModal=false">
+    <div class="dm-modal-box">
+      <h3>重命名</h3>
+      <input v-model="renameVal" @keydown.enter="applyRename" style="width:100%;padding:8px 12px;border:1px solid #d0d0d0;border-radius:4px;font-size:14px;box-sizing:border-box;margin-bottom:12px">
+      <div class="dm-modal-btns">
+        <button class="dm-btn-cancel" @click="showRenameModal=false">取消</button>
+        <button class="dm-btn-save" @click="applyRename">确定</button>
+      </div>
+    </div>
+  </div>
 </div>
-<script>
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
-function fmtSpeed(bps){if(!bps||bps>1e12)return'0';if(bps>=1e9)return(bps/1e9).toFixed(2)+' Gbps';if(bps>=1e6)return(bps/1e6).toFixed(1)+' Mbps';if(bps>=1e3)return(bps/1e3).toFixed(0)+' Kbps';return bps+' bps'}
-function vendorIcon(t){
- var m={'Xiaomi':'#ff6900','Samsung':'#3c6cfa','Apple':'#555','Huawei':'#cf0a2c',
-  'OnePlus':'#eb0028','Google':'#4285f4','Windows':'#0078d4','Linux':'#f5a623',
-  'Android':'#3ddc84','iOS':'#999','IoT':'#888'};
- if(t==='Unknown'||t==='Linux'||!t)return'<svg width="18" height="18" viewBox="0 0 140 160" style="flex-shrink:0"><ellipse cx="70" cy="110" rx="55" ry="40" fill="#222"/><ellipse cx="70" cy="65" rx="40" ry="35" fill="#222"/><ellipse cx="55" cy="100" rx="22" ry="22" fill="#222"/><ellipse cx="85" cy="100" rx="22" ry="22" fill="#222"/><ellipse cx="50" cy="60" rx="8" ry="10" fill="#fff"/><ellipse cx="90" cy="60" rx="8" ry="10" fill="#fff"/><circle cx="52" cy="58" r="3" fill="#111"/><circle cx="92" cy="58" r="3" fill="#111"/><path d="M55 78Q70 70 85 78" stroke="#f5a623" stroke-width="4" fill="none" stroke-linecap="round"/><ellipse cx="70" cy="105" rx="25" ry="20" fill="#fff"/></svg>';
- var c=m[t]||'#999',n=t;
- if(n.length>8)n=n.substring(0,7)+'…';
- return '<span style="color:'+c+';font-weight:700;font-size:15px;flex-shrink:0;line-height:1">'+esc(n)+'</span>';
-}
-function dot(s){
- if(s==='green')return'<div class="dm-dot dm-dot-green" title="Online"></div>';
- if(s==='yellow')return'<div class="dm-dot dm-dot-yellow" title="Maybe offline"></div>';
- return'<div class="dm-dot dm-dot-gray" title="Offline"></div>';
-}
-function load(){
-  fetch('/cgi-bin/luci/admin/network/devman/api_devices').then(r=>r.json()).then(function(d){
-   var c=document.getElementById('dm-content');
-   if(!d||!d.length){c.innerHTML='<p class="dm-empty">暂无设备</p>';return}
-   var known=[],unknown=[];
-   var wasExpanded=document.getElementById('dm-unknown')&&document.getElementById('dm-unknown').style.display!='none';
-   d.forEach(function(dev){ (dev.device_type==='Unknown'?unknown:known).push(dev); });
-   known.sort(function(a,b){ return (a.current_ip||'').localeCompare(b.current_ip||''); });
-   unknown.sort(function(a,b){ return (a.current_ip||'').localeCompare(b.current_ip||''); });
-   var h='<div class="dm-grid">';
-  var renderCard=function(dev){
-   var name=dev.alias||dev.hostname||'未知设备';
-   var limited=(dev.rate_limit||dev.rate_limit_down);
-   h+='<div class="dm-card">';
-   if(dev.is_blocked)h+='<div class="dm-blocked-badge">已封禁</div>';
-   else if(limited)h+='<div class="dm-limited-badge">已限速</div>';
-   h+='<div class="dm-card-top">'+vendorIcon(dev.device_type)+dot(dev.online)+'<span class="dm-name" title="'+esc(name)+'">'+esc(name)+'</span>';
-   h+='</div>';
-   h+='<div class="dm-speeds"><div class="dm-up">↑ '+fmtSpeed(dev.speed_in||0)+'</div><div class="dm-dn">↓ '+fmtSpeed(dev.speed_out||0)+'</div></div>';
-   h+='<div class="dm-detail">'+esc(dev.current_ip||'')+' · '+esc(dev.current_mac||'')+'</div>';
-   h+='<div class="dm-actions">';
-   h+=dev.is_blocked
-     ?'<button class="dm-act unblock" title="解封" onclick="tb('+dev.id+',0)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/><circle cx="12" cy="16" r="1"/></svg></button>'
-     :'<button class="dm-act block" title="Block" onclick="tb('+dev.id+',1)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/><line x1="3" y1="3" x2="21" y2="21"/></svg></button>';
-   h+='<button class="dm-act limit" title="Limit" onclick="sl('+dev.id+','+(dev.rate_limit||0)+','+(dev.rate_limit_down||0)+')">⚡</button>';
-   h+='<button class="dm-act rename" title="Rename" onclick="rn('+dev.id+',\''+esc(name)+'\')">✎</button>';
-   h+='</div></div>';
-  };
-  known.forEach(renderCard);
-  if(unknown.length){
-   h+='</div><div class="dm-unknown-section"><div class="dm-unknown-toggle" onclick="toggleUnknown(this)">🐧 未知设备 ('+unknown.length+') <span>'+(wasExpanded?'▼':'▶')+'</span></div><div class="dm-grid" id="dm-unknown" style="display:'+(wasExpanded?'grid':'none')+'">';
-   unknown.forEach(renderCard);
-   h+='</div></div>';
-  }
-  h+='</div>';
-  c.innerHTML=h;
- });
-}
-function tb(id,b){fetch('/cgi-bin/luci/admin/network/devman/api_block?device_id='+id+'&block='+b).then(load)}
-function showLimitModal(id,rateUp,rateDn){
- var m=document.createElement('div');m.className='dm-modal';
- var upVal=rateUp||0,dnVal=rateDn||0;
- var upUnit=kbpsToUnit(upVal),dnUnit=kbpsToUnit(dnVal);
- var upShow=upUnit?upVal/upUnit[1]:0;
- var dnShow=dnUnit?dnVal/dnUnit[1]:0;
- m.innerHTML='<div class="dm-modal-box"><h3>限速</h3><p style="font-size:12px;color:#999;margin:0 0 12px">0 = 不限速</p><div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><label style="flex:1">上传</label><input id="dm-up" type="number" min="0" step="0.1" value="'+upShow.toFixed(1)+'" style="flex:1"><select id="dm-up-unit" style="width:80px"><option value="1000000000">Gbps</option><option value="1000000" selected>Mbps</option><option value="1000">Kbps</option></select></div><div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><label style="flex:1">下载</label><input id="dm-dn" type="number" min="0" step="0.1" value="'+dnShow.toFixed(1)+'" style="flex:1"><select id="dm-dn-unit" style="width:80px"><option value="1000000000">Gbps</option><option value="1000000" selected>Mbps</option><option value="1000">Kbps</option></select></div><div class="dm-modal-btns"><button class="dm-btn-cancel" onclick="this.closest(\'.dm-modal\').remove()">取消</button><button class="dm-btn-save">应用</button></div></div>';
- document.body.appendChild(m);
- m.querySelector('.dm-btn-save').onclick=function(){
-  var up=Math.round(parseFloat(m.querySelector('#dm-up').value)*parseInt(m.querySelector('#dm-up-unit').value))||0;
-  var dn=Math.round(parseFloat(m.querySelector('#dm-dn').value)*parseInt(m.querySelector('#dm-dn-unit').value))||0;
-  m.remove();
-  fetch('/cgi-bin/luci/admin/network/devman/api_limit?device_id='+id+'&rate_limit='+up+'&rate_limit_down='+dn).then(load);
- };
- m.querySelector('#dm-up').focus();
- m.querySelector('#dm-up').onkeydown=function(e){if(e.key==='Enter')m.querySelector('#dm-dn').focus()};
- m.querySelector('#dm-dn').onkeydown=function(e){if(e.key==='Enter')m.querySelector('.dm-btn-save').click()};
-}
-function kbpsToUnit(bps){if(!bps)return null;if(bps>=1e9)return ['Gbps',1e9];if(bps>=1e6)return ['Mbps',1e6];if(bps>=1e3)return ['Kbps',1e3];return ['bps',1]}
-function rn(id,n){
- var m=document.createElement('div');m.className='dm-modal';
- m.innerHTML='<div class="dm-modal-box"><h3>重命名</h3><input id="dm-rn" value="'+esc(n||'')+'"><div class="dm-modal-btns"><button class="dm-btn-cancel" onclick="this.closest(\'.dm-modal\').remove()">取消</button><button class="dm-btn-save">确定</button></div></div>';
- document.body.appendChild(m);
- m.querySelector('.dm-btn-save').onclick=function(){
-  var v=m.querySelector('#dm-rn').value;
-  m.remove();
-  if(v&&v!==n)fetch('/cgi-bin/luci/admin/network/devman/api_limit?device_id='+id+'&rate_limit=-1&alias='+encodeURIComponent(v)).then(load);
- };
- m.querySelector('#dm-rn').focus();
- m.querySelector('#dm-rn').onkeydown=function(e){if(e.key==='Enter')m.querySelector('.dm-btn-save').click()};
-}
-function sl(id,curUp,curDn){showLimitModal(id,curUp,curDn)}
-function toggleUnknown(el){
- var g=document.getElementById('dm-unknown');
- if(g.style.display=='none'){g.style.display='grid';el.querySelector('span').textContent='▼'}
- else{g.style.display='none';el.querySelector('span').textContent='▶'}
-}
-var dmTimer=setInterval(load,5000);
-function changeRefresh(val){
- clearInterval(dmTimer);
- dmTimer=setInterval(load,parseInt(val));
-}
-load();
-</script>
+<script src="<%=resource%>/luci-static/resources/view/devman/vue.global.prod.js"></script>
+<script src="<%=resource%>/luci-static/resources/view/devman/app.js"></script>
 <%+footer%>

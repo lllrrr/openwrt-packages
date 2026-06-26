@@ -2,96 +2,248 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"devman/models"
+	"github.com/google/nftables"
+	"github.com/google/nftables/binaryutil"
+	"github.com/google/nftables/expr"
+)
+
+var (
+	nftTable     *nftables.Table
+	blockedSet   *nftables.Set
+	lanSubnetSet *nftables.Set
+	ulMarkSet    *nftables.Set
+	dlMarkSet    *nftables.Set
 )
 
 func nftInit() {
-	exec.Command("nft", "add", "table", "ip", "devman").Run()
-	exec.Command("nft", "add", "set", "ip", "devman", "blocked_ip", "{", "type", "ipv4_addr", ";", "}").Run()
-	// LAN subnet set for allowing local traffic
-	exec.Command("nft", "add", "set", "ip", "devman", "lan_subnet", "{", "type", "ipv4_addr", ";", "flags", "interval", ";", "}").Run()
-	// Raw PREROUTING drop — fires before passwall TPROXY, only blocks WAN-bound traffic
-	exec.Command("nft", "add", "chain", "ip", "devman", "raw_block", "{", "type", "filter", "hook", "prerouting", "priority", "raw", ";", "}").Run()
-	exec.Command("nft", "add", "rule", "ip", "devman", "raw_block", "iifname", lanIface, "ip", "saddr", "@blocked_ip", "ip", "daddr", "!=", "@lan_subnet", "drop").Run()
-	// Forward chain for non-proxied traffic
-	exec.Command("nft", "add", "chain", "ip", "devman", "forward", "{", "type", "filter", "hook", "forward", "priority", "filter", "-", "1", ";", "}").Run()
-	exec.Command("nft", "add", "rule", "ip", "devman", "forward", "iifname", lanIface, "ip", "saddr", "@blocked_ip", "ip", "daddr", "!=", "@lan_subnet", "drop").Run()
-	// Limit marks
-	exec.Command("nft", "add", "set", "ip", "devman", "ul_mark", "{", "type", "ipv4_addr", ";", "}").Run()
-	exec.Command("nft", "add", "set", "ip", "devman", "dl_mark", "{", "type", "ipv4_addr", ";", "}").Run()
-	exec.Command("nft", "add", "rule", "ip", "devman", "forward", "ip", "saddr", "@ul_mark", "meta", "mark", "set", "0x80000000").Run()
-	exec.Command("nft", "add", "rule", "ip", "devman", "forward", "ip", "daddr", "@dl_mark", "meta", "mark", "set", "0x40000000").Run()
-	exec.Command("nft", "add", "chain", "ip", "devman", "post", "{", "type", "filter", "hook", "postrouting", "priority", "filter", "-", "2", ";", "}").Run()
-	exec.Command("nft", "add", "rule", "ip", "devman", "post", "ip", "saddr", "@ul_mark", "meta", "mark", "set", "0x80000000").Run()
-	exec.Command("nft", "add", "rule", "ip", "devman", "post", "ip", "daddr", "@dl_mark", "meta", "mark", "set", "0x40000000").Run()
+	c := &nftables.Conn{}
+
+	t := &nftables.Table{Family: nftables.TableFamilyIPv4, Name: "devman"}
+	c.AddTable(t)
+
+	blockedSet = &nftables.Set{
+		Table:   t,
+		Name:    "blocked_ip",
+		KeyType: nftables.TypeIPAddr,
+	}
+	c.AddSet(blockedSet, nil)
+
+	lanSubnetSet = &nftables.Set{
+		Table:    t,
+		Name:     "lan_subnet",
+		KeyType:  nftables.TypeIPAddr,
+		Interval: true,
+	}
+	c.AddSet(lanSubnetSet, nil)
+
+	ulMarkSet = &nftables.Set{
+		Table:   t,
+		Name:    "ul_mark",
+		KeyType: nftables.TypeIPAddr,
+	}
+	c.AddSet(ulMarkSet, nil)
+
+	dlMarkSet = &nftables.Set{
+		Table:   t,
+		Name:    "dl_mark",
+		KeyType: nftables.TypeIPAddr,
+	}
+	c.AddSet(dlMarkSet, nil)
+
+	rawBlock := c.AddChain(&nftables.Chain{
+		Table:    t,
+		Name:     "raw_block",
+		Type:     nftables.ChainTypeFilter,
+		Hooknum:  nftables.ChainHookPrerouting,
+		Priority: nftables.ChainPriorityRaw,
+	})
+
+	c.AddRule(&nftables.Rule{
+		Table: t,
+		Chain: rawBlock,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte(lanIface + "\x00")},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4},
+			&expr.Lookup{SourceRegister: 1, SetName: "blocked_ip", SetID: blockedSet.ID},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4},
+			&expr.Lookup{SourceRegister: 1, SetName: "lan_subnet", SetID: lanSubnetSet.ID, Invert: true},
+			&expr.Verdict{Kind: expr.VerdictDrop},
+		},
+	})
+
+	fwdPrio := nftables.ChainPriority(-1)
+	fwd := c.AddChain(&nftables.Chain{
+		Table:    t,
+		Name:     "forward",
+		Type:     nftables.ChainTypeFilter,
+		Hooknum:  nftables.ChainHookForward,
+		Priority: &fwdPrio,
+	})
+
+	c.AddRule(&nftables.Rule{
+		Table: t,
+		Chain: fwd,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte(lanIface + "\x00")},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4},
+			&expr.Lookup{SourceRegister: 1, SetName: "blocked_ip", SetID: blockedSet.ID},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4},
+			&expr.Lookup{SourceRegister: 1, SetName: "lan_subnet", SetID: lanSubnetSet.ID, Invert: true},
+			&expr.Verdict{Kind: expr.VerdictDrop},
+		},
+	})
+
+	c.AddRule(&nftables.Rule{
+		Table: t,
+		Chain: fwd,
+		Exprs: []expr.Any{
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4},
+			&expr.Lookup{SourceRegister: 1, SetName: "ul_mark", SetID: ulMarkSet.ID},
+			&expr.Immediate{Register: 1, Data: binaryutil.BigEndian.PutUint32(0x80000000)},
+			&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 1},
+		},
+	})
+
+	c.AddRule(&nftables.Rule{
+		Table: t,
+		Chain: fwd,
+		Exprs: []expr.Any{
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4},
+			&expr.Lookup{SourceRegister: 1, SetName: "dl_mark", SetID: dlMarkSet.ID},
+			&expr.Immediate{Register: 1, Data: binaryutil.BigEndian.PutUint32(0x40000000)},
+			&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 1},
+		},
+	})
+
+	postPrio := nftables.ChainPriority(-2)
+	post := c.AddChain(&nftables.Chain{
+		Table:    t,
+		Name:     "post",
+		Type:     nftables.ChainTypeFilter,
+		Hooknum:  nftables.ChainHookPostrouting,
+		Priority: &postPrio,
+	})
+
+	c.AddRule(&nftables.Rule{
+		Table: t,
+		Chain: post,
+		Exprs: []expr.Any{
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4},
+			&expr.Lookup{SourceRegister: 1, SetName: "ul_mark", SetID: ulMarkSet.ID},
+			&expr.Immediate{Register: 1, Data: binaryutil.BigEndian.PutUint32(0x80000000)},
+			&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 1},
+		},
+	})
+
+	c.AddRule(&nftables.Rule{
+		Table: t,
+		Chain: post,
+		Exprs: []expr.Any{
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4},
+			&expr.Lookup{SourceRegister: 1, SetName: "dl_mark", SetID: dlMarkSet.ID},
+			&expr.Immediate{Register: 1, Data: binaryutil.BigEndian.PutUint32(0x40000000)},
+			&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 1},
+		},
+	})
+
+	if lanSubnet != nil {
+		start := lanSubnet.IP.To4()
+		end := make(net.IP, 4)
+		for i := range end {
+			end[i] = start[i] | ^lanSubnet.Mask[i]
+		}
+		c.SetAddElements(lanSubnetSet, []nftables.SetElement{{
+			Key:    start,
+			KeyEnd: end,
+		}})
+	}
+
+	nftTable = t
+	c.Flush()
 }
 
-func nftBlock(ip string)   { exec.Command("nft", "add", "element", "ip", "devman", "blocked_ip", "{", ip, "}").Run() }
-func nftUnblock(ip string) { exec.Command("nft", "delete", "element", "ip", "devman", "blocked_ip", "{", ip, "}").Run() }
+func nftBlock(ip string) {
+	ipBytes := net.ParseIP(ip).To4()
+	if ipBytes == nil {
+		return
+	}
+	c := &nftables.Conn{}
+	c.SetAddElements(blockedSet, []nftables.SetElement{{Key: ipBytes}})
+	c.Flush()
+}
+
+func nftUnblock(ip string) {
+	ipBytes := net.ParseIP(ip).To4()
+	if ipBytes == nil {
+		return
+	}
+	c := &nftables.Conn{}
+	c.SetDeleteElements(blockedSet, []nftables.SetElement{{Key: ipBytes}})
+	c.Flush()
+}
+
+func nftListBlocked() []string {
+	c := &nftables.Conn{}
+	elems, err := c.GetSetElements(blockedSet)
+	if err != nil {
+		return nil
+	}
+	var ips []string
+	for _, elem := range elems {
+		ips = append(ips, net.IP(elem.Key).String())
+	}
+	return ips
+}
 
 func restoreRateLimits() {
-	// Restore from DB → nft/tc
-	var devs []Device
+	var devs []models.Device
 	db.Where("ipv4 != '' AND (rate_limit > 0 OR rate_limit_dn > 0)").Find(&devs)
 	for _, d := range devs {
 		nftSetLimit(d.IPv4, d.RateLimit, d.RateLimitDn)
 	}
-	// Reverse: restore from nft/tc → DB (survives DB rebuild)
 	restoreLimitsFromNft()
 }
 
 func restoreLimitsFromNft() {
-	// Scan ul_mark and dl_mark sets to find IPs with active limit rules
-	out, err := exec.Command("nft", "list", "set", "ip", "devman", "ul_mark").Output()
-	if err != nil {
-		return
-	}
-	for _, ip := range parseNftElements(string(out)) {
-		var dev Device
-		if db.Where("ipv4 = ? AND rate_limit = 0", ip).First(&dev).Error == nil {
-			// Read actual rate from tc
-			prio := int(hashIp(ip))
-			rate := readTcRate("ifb0", prio)
-			if rate > 0 {
-				db.Model(&dev).Update("rate_limit", rate)
-			}
-		}
-	}
-	out, err = exec.Command("nft", "list", "set", "ip", "devman", "dl_mark").Output()
-	if err != nil {
-		return
-	}
-	for _, ip := range parseNftElements(string(out)) {
-		var dev Device
-		if db.Where("ipv4 = ? AND rate_limit_dn = 0", ip).First(&dev).Error == nil {
-			prio := int(hashIp(ip))
-			rate := readTcRate(lanIface, prio)
-			if rate > 0 {
-				db.Model(&dev).Update("rate_limit_dn", rate)
-			}
-		}
-	}
-}
+	c := &nftables.Conn{}
 
-func parseNftElements(raw string) []string {
-	start := strings.Index(raw, "elements = {")
-	if start < 0 {
-		return nil
-	}
-	end := strings.Index(raw[start:], "}")
-	if end < 0 {
-		return nil
-	}
-	var ips []string
-	for _, ip := range strings.Split(raw[start+13:start+end], ",") {
-		ip = strings.TrimSpace(ip)
-		if ip != "" {
-			ips = append(ips, ip)
+	ulElems, err := c.GetSetElements(ulMarkSet)
+	if err == nil {
+		for _, elem := range ulElems {
+			ip := net.IP(elem.Key).String()
+			var dev models.Device
+			if db.Where("ipv4 = ? AND rate_limit = 0", ip).First(&dev).Error == nil {
+				prio := int(hashIp(ip))
+				rate := readTcRate("ifb0", prio)
+				if rate > 0 {
+					db.Model(&dev).Update("rate_limit", rate)
+				}
+			}
 		}
 	}
-	return ips
+
+	dlElems, err := c.GetSetElements(dlMarkSet)
+	if err == nil {
+		for _, elem := range dlElems {
+			ip := net.IP(elem.Key).String()
+			var dev models.Device
+			if db.Where("ipv4 = ? AND rate_limit_dn = 0", ip).First(&dev).Error == nil {
+				prio := int(hashIp(ip))
+				rate := readTcRate(lanIface, prio)
+				if rate > 0 {
+					db.Model(&dev).Update("rate_limit_dn", rate)
+				}
+			}
+		}
+	}
 }
 
 func readTcRate(dev string, prio int) int {
@@ -115,7 +267,12 @@ func readTcRate(dev string, prio int) int {
 }
 
 func nftCleanup() {
-	exec.Command("nft", "delete", "table", "ip", "devman").Run()
+	if nftTable == nil {
+		return
+	}
+	c := &nftables.Conn{}
+	c.DelTable(nftTable)
+	c.Flush()
 }
 
 func nftSetLimit(ip string, ulBps, dlBps int) {
@@ -123,10 +280,17 @@ func nftSetLimit(ip string, ulBps, dlBps int) {
 	defer limitMu.Unlock()
 	tcLazyInit()
 
-	exec.Command("nft", "delete", "element", "ip", "devman", "ul_mark", "{", ip, "}").Run()
-	if ulBps > 0 {
-		exec.Command("nft", "add", "element", "ip", "devman", "ul_mark", "{", ip, "}").Run()
+	ipBytes := net.ParseIP(ip).To4()
+	if ipBytes == nil {
+		return
 	}
+
+	c := &nftables.Conn{}
+	c.SetDeleteElements(ulMarkSet, []nftables.SetElement{{Key: ipBytes}})
+	if ulBps > 0 {
+		c.SetAddElements(ulMarkSet, []nftables.SetElement{{Key: ipBytes}})
+	}
+
 	prio := int(hashIp(ip))
 	ulKbps := ulBps / 1000
 	if ulKbps < 1 {
@@ -147,10 +311,12 @@ func nftSetLimit(ip string, ulBps, dlBps int) {
 		exec.Command("tc", "class", "del", "dev", "ifb0", "parent", "1:1", "classid", fmt.Sprintf("1:%d", prio)).Run()
 	}
 
-	exec.Command("nft", "delete", "element", "ip", "devman", "dl_mark", "{", ip, "}").Run()
+	c.SetDeleteElements(dlMarkSet, []nftables.SetElement{{Key: ipBytes}})
 	if dlBps > 0 {
-		exec.Command("nft", "add", "element", "ip", "devman", "dl_mark", "{", ip, "}").Run()
+		c.SetAddElements(dlMarkSet, []nftables.SetElement{{Key: ipBytes}})
 	}
+	c.Flush()
+
 	dlKbps := dlBps / 1000
 	if dlKbps < 1 {
 		dlKbps = 1

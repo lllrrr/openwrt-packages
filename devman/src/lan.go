@@ -50,7 +50,6 @@ func detectLAN() {
 
 	_, lanSubnet, _ = net.ParseCIDR(subnet)
 	log.Printf("LAN: %s", lanSubnet)
-	exec.Command("nft", "add", "element", "ip", "devman", "lan_subnet", "{", lanSubnet.String(), "}").Run()
 }
 
 func isLAN(ip string) bool {

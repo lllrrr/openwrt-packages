@@ -30,6 +30,8 @@ endef
 define Package/devman/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/devman $(1)/usr/bin/devman
+	$(INSTALL_DIR) $(1)/etc/devman
+	$(INSTALL_DATA) ./files/oui.json $(1)/etc/devman/oui.json
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/devman.init $(1)/etc/init.d/devman
 	$(INSTALL_DIR) $(1)/etc/config

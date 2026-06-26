@@ -7,6 +7,8 @@ import (
 	"sync"
 	"syscall"
 
+	"devman/discover"
+	"devman/models"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -30,20 +32,25 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	migrateDB(db)
+	models.MigrateDB(db)
 	detectLAN()
 
-	// Re-detect device types on startup
 	retypeUnknown()
 
 	nftInit()
 	restoreRateLimits()
 
-	go neightLoop()
-	go conntrackLoop()
-	go dnsmasqLeaseLoop()
+	// Wire discover package dependencies
+	discover.DB = db
+	discover.UpsertDevice = upsertDevice
+	discover.UpsertDeviceNoSeen = upsertDeviceNoSeen
+	discover.IsLAN = isLAN
+
+	go discover.NeightLoop()
+	go discover.ConntrackLoop()
+	go discover.DnsmasqLeaseLoop()
 	go dhcpBPFLoop()
-	go resolveHostnamesLoop()
+	go discover.ResolveHostnamesLoop()
 	go reconcileLoop()
 	go speedLoop()
 
@@ -56,6 +63,6 @@ func main() {
 }
 
 func retypeUnknown() {
-	db.Model(&Device{}).Where("device_type = '' OR device_type IS NULL").
+	db.Model(&models.Device{}).Where("device_type = '' OR device_type IS NULL").
 		Update("device_type", "Unknown")
 }
