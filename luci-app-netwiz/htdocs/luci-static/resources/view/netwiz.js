@@ -3284,55 +3284,56 @@ return view.extend({
                     var ifaces = Array.isArray(rawIfaces.interface) ? rawIfaces.interface : (Array.isArray(rawIfaces) ? rawIfaces : []);
 
                     // ==========================================
-                    // 1. 穿透寻找真正的出口网卡 (通过 0.0.0.0 无视网卡名)
+                    // 1. 直接从 UCI 配置抓取真实状态
                     // ==========================================
-                    var routeWan = ifaces.find(function(i) {
-                        return i.up && Array.isArray(i.route) && i.route.some(function(r) { return r.target === '0.0.0.0' && (r.mask === 0 || !r.mask); });
-                    });
+                    var realWanName = 'wan';
+                    var wProto = safeUciGet('network', 'wan', 'proto', '').toLowerCase();
 
-                    // 没找到默认路由，再尝试按名字特征找
-                    if (!routeWan) {
-                        routeWan = ifaces.find(function(i) { return i && (i.interface === 'wan' || i.interface === 'wwan' || (i.interface && i.interface.indexOf('wan') !== -1 && i.interface.indexOf('lan') === -1)); }) || {};
+                    if (!wProto) {
+                        var netSecs = (typeof uci !== 'undefined' && typeof uci.sections === 'function') ? uci.sections('network', 'interface') : [];
+                        for (var i = 0; i < netSecs.length; i++) {
+                            var s = netSecs[i];
+                            if (s['.name'] !== 'lan' && s['.name'] !== 'loopback' && s['.name'] !== 'wwan' && s.proto && s.proto !== 'none') {
+                                wProto = (s.proto || '').toLowerCase();
+                                realWanName = s['.name'];
+                                break;
+                            }
+                        }
                     }
 
-                    // ==========================================
-                    // 2. 网卡特征锁
-                    // ==========================================
-                    if (typeof window._stablePhyWan === 'undefined') {
-                        window._stablePhyWan = routeWan;
-                    }
-                    // 只要抓到带 IP 的网卡，就永远认定它是主力
-                    if (routeWan && routeWan.up && routeWan['ipv4-address'] && routeWan['ipv4-address'].length > 0) {
-                        window._stablePhyWan = routeWan;
-                    } else if (window._stablePhyWan && window._stablePhyWan.interface) {
-                        // 底层网卡处于断开 (up: false) 状态，依然强行沿用这个网卡对象！
-                        routeWan = window._stablePhyWan;
-                    }
-
-                    var activeWan = routeWan;
-                    
-                    // ==========================================
-                    // 3. 动态提取真实的底层协议 (解决网卡不叫 wan 导致被识别为空的 Bug)
-                    // ==========================================
-                    var realIfaceName = activeWan.interface || 'wan';
-                    // 覆盖之前的 wProto，让外层 UI 吃到正确的协议
-                    var wProto = safeUciGet('network', realIfaceName, 'proto', '').toLowerCase();
-
-                    // ==========================================
-                    // 4. 配置锁
-                    // ==========================================
                     var isWanMode = (wProto === 'dhcp' || wProto === 'pppoe' || wProto === 'static');
-                    if (isWanMode) {
-                        // 只要底层是外网模式，就强行把状态改成 true，阻止外层 UI 恐慌跳局域网！
-                        activeWan.up = true;
+
+                    // ==========================================
+                    // 2. 将 ubus 实时状态与 UCI 配置强行对齐
+                    // ==========================================
+                    var activeWan = ifaces.find(function(i) { return i && i.interface === realWanName; });
+                    
+                    if (!activeWan) {
+                        activeWan = { 
+                            interface: realWanName, 
+                            'ipv4-address': [], 
+                            up: false, 
+                            available: true, // 补齐！防止误判网线被拔
+                            route: [] 
+                        };
                     }
 
-                    // 同步并覆盖原始变量给外层脚本用，防止外层报错
-                    var phyWan = activeWan;
+                    // ==========================================
+                    // 3. 防跳锁 + 防“网线未连接”警告
+                    // ==========================================
+                    if (isWanMode) {
+                        activeWan.up = true; 
+                        activeWan.available = true; // 禁止“网线未连接或插错网口”的弹窗
+                    }
+
+                    var phyWan = activeWan; 
                     var virWwan = ifaces.find(function(i) { return i && i.interface === 'wwan'; }) || {};
 
                     var isWispActive = false;
-                    var hasWispConfigured = !!uci.sections('wireless', 'wifi-iface').find(function(i) { return i.network === 'wwan' && i.mode === 'sta'; });
+                    var hasWispConfigured = false;
+                    if (typeof uci !== 'undefined' && typeof uci.sections === 'function') {
+                        hasWispConfigured = !!uci.sections('wireless', 'wifi-iface').find(function(i) { return i.network === 'wwan' && i.mode === 'sta'; });
+                    }
 
                     var activeWanHasIp = activeWan['ipv4-address'] && activeWan['ipv4-address'].length > 0;
                     var virWwanHasIp = virWwan.up && virWwan['ipv4-address'] && virWwan['ipv4-address'].length > 0;
@@ -3340,10 +3341,11 @@ return view.extend({
                     if (!activeWanHasIp && virWwanHasIp) {
                         activeWan = virWwan;
                         isWispActive = true;
+                        wProto = safeUciGet('network', 'wwan', 'proto', '').toLowerCase();
                     }
 
                     // ==========================================
-                    // 5. 强制识别协议名称
+                    // 4. 识别协议名称
                     // ==========================================
                     var protoName = '';
                     if (wProto === 'pppoe') protoName = 'PPPoE 拨号';
@@ -3352,7 +3354,7 @@ return view.extend({
                     else protoName = '自动获取 (DHCP)';
 
                     // ==========================================
-                    // 6. 提取主 IP
+                    // 5. 提取主力 IP
                     // ==========================================
                     var liveWanIp = '';
                     if (activeWan['ipv4-address'] && activeWan['ipv4-address'].length > 0) {
@@ -3361,25 +3363,20 @@ return view.extend({
                         
                         activeWan['ipv4-address'].forEach(function(ipObj) {
                             var ip = ipObj.address || '';
-                            if (ip.indexOf('192.168.') === 0) {
-                                if (!foundModemIp) foundModemIp = ip;
-                            } else {
-                                if (!foundMainIp) foundMainIp = ip;
-                            }
+                            if (ip.indexOf('192.168.') === 0) foundModemIp = ip;
+                            else foundMainIp = ip;
                         });
                         
-                        // 优先级逻辑：有主IP就显示主IP，只有光猫才显示光猫IP
                         liveWanIp = foundMainIp ? foundMainIp : (foundModemIp ? foundModemIp : activeWan['ipv4-address'][0].address);
                     }
 
                     // ==========================================
-                    // 7. 纯净渲染
+                    // 6. 纯净渲染
                     // ==========================================
                     if (liveWanIp) {
                         window._liveWanIp = liveWanIp + '  (' + protoName + ')';
-                    } else if (isWanMode) {
-                        // 不跳页，静静显示正在获取
-                        window._liveWanIp = '正在获取 IP...  (' + protoName + ')';
+                    } else if (isWanMode || isWispActive) {
+                        window._liveWanIp = '网络连接中/等待分配...  (' + protoName + ')';
                     } else {
                         window._liveWanIp = '';
                     }
