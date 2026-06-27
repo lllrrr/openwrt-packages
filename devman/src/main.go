@@ -23,10 +23,22 @@ var (
 
 func main() {
 	log.SetFlags(log.LstdFlags)
+
+	// Read config from environment variables (set by init script) or use defaults
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "/etc/devman/devman.db"
+	}
+	lanIf := os.Getenv("LAN_IF")
+	if lanIf == "" {
+		lanIf = "br-lan"
+	}
+	lanIface = lanIf
+
 	os.MkdirAll("/etc/devman", 0755)
 
 	var err error
-	db, err = gorm.Open(sqlite.Open("/etc/devman/devman.db"), &gorm.Config{
+	db, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Warn),
 	})
 	if err != nil {
@@ -38,6 +50,7 @@ func main() {
 	retypeUnknown()
 
 	nftInit()
+	nftSetSubnet(lanSubnet)
 	restoreRateLimits()
 
 	// Wire discover package dependencies

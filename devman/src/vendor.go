@@ -45,7 +45,7 @@ func detectType(hostname, vendorClass string) string {
 			return "Android"
 		}
 	}
-	if strings.Contains(h, "desktop") || strings.Contains(h, "compil") || strings.Contains(h, "windows") || strings.Contains(h, "pc-") {
+	if strings.Contains(h, "desktop") || strings.Contains(h, "windows") || strings.Contains(h, "pc-") {
 		return "Windows"
 	}
 	if strings.Contains(h, "ubuntu") || strings.Contains(h, "debian") || strings.Contains(h, "raspberry") || strings.Contains(h, "openwrt") || strings.Contains(v, "dhcpcd-") {

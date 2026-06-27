@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -160,8 +161,11 @@ func dhcpBPFLoop() {
 
 		var opt55Hash string
 		if len(opt55Codes) > 0 {
+			sorted := make([]byte, len(opt55Codes))
+			copy(sorted, opt55Codes)
+			sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
 			h := sha256.New()
-			h.Write(opt55Codes)
+			h.Write(sorted)
 			opt55Hash = fmt.Sprintf("%x", h.Sum(nil))[:16]
 		}
 

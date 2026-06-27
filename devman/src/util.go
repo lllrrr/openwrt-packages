@@ -20,10 +20,3 @@ func hexToByte(s string) (byte, error) {
 	}
 	return b, nil
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

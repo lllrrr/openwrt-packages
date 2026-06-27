@@ -59,3 +59,21 @@ func isLAN(ip string) bool {
 	parsed := net.ParseIP(ip)
 	return parsed != nil && lanSubnet.Contains(parsed)
 }
+
+func getRouterIP() string {
+	iface, err := net.InterfaceByName(lanIface)
+	if err != nil {
+		return "127.0.0.1"
+	}
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return "127.0.0.1"
+	}
+	for _, addr := range addrs {
+		ip := addr.(*net.IPNet).IP
+		if ip.To4() != nil {
+			return ip.String()
+		}
+	}
+	return "127.0.0.1"
+}

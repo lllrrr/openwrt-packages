@@ -47,6 +47,13 @@ func mergeByOpt55Hash() {
 		log.Printf("RECONCILE: merging %d devices by opt55_hash=%s", len(ids), hash)
 		keeper := ids[0]
 		for _, id := range ids[1:] {
+			var deleted models.Device
+			if db.Where("id = ?", id).First(&deleted).Error == nil && deleted.IPv4 != "" {
+				var keeperDev models.Device
+				if db.Where("id = ?", keeper).First(&keeperDev).Error == nil && keeperDev.IPv4 != deleted.IPv4 {
+					db.Model(&models.Device{}).Where("id = ?", keeper).Update("ipv4", deleted.IPv4)
+				}
+			}
 			db.Exec("INSERT OR IGNORE INTO device_macs (device_id, mac) SELECT ?, mac FROM device_macs WHERE device_id = ?", keeper, id)
 			db.Where("device_id = ?", id).Delete(&models.DeviceMAC{})
 			db.Delete(&models.Device{}, id)

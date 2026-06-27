@@ -1,6 +1,7 @@
 package discover
 
 import (
+	"context"
 	"net"
 	"strings"
 	"time"
@@ -13,7 +14,10 @@ func ResolveHostnamesLoop() {
 		var ips []string
 		DB.Model(&models.Device{}).Where("hostname = '' AND ipv4 != ''").Distinct().Pluck("ipv4", &ips)
 		for _, ip := range ips {
-			names, err := net.LookupAddr(ip)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			resolver := net.Resolver{}
+			names, err := resolver.LookupAddr(ctx, ip)
+			cancel()
 			if err != nil || len(names) == 0 {
 				continue
 			}

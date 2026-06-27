@@ -21,6 +21,10 @@ func upsertDeviceNoSeen(ip, mac, hostname, vendorClass string) {
 }
 
 func upsertDeviceEx(ip, mac, hostname, vendorClass, opt55Hash string, updateLastSeen bool) {
+	// Global lock to prevent race conditions
+	mu.Lock()
+	defer mu.Unlock()
+
 	if strings.Contains(ip, ":") {
 		return
 	}

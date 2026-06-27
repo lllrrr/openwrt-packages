@@ -1,85 +1,138 @@
 <%+header%>
 <link rel="stylesheet" href="/luci-static/resources/view/devman/style.css">
-<div id="dm-app" class="dm-wrap">
-  <div style="display:flex;align-items:center;gap:10px;margin-bottom:28px">
-    <h2 style="margin:0">{{ title }}</h2>
-    <select v-model="refreshMs" @change="changeRefresh" style="padding:3px 6px;border-radius:4px;border:1px solid #d0d0d0;font-size:12px;width:60px">
-      <option value="5000">5秒</option><option value="15000">15秒</option><option value="30000">30秒</option>
-    </select>
-    <span style="font-size:12px;color:#999">{{ devices.length }} 台设备</span>
+<div id="dm-app" class="dm-wrap" v-cloak>
+  <div class="dm-header">
+    <div class="dm-title">
+      设备管理
+      <span class="dm-title-count" v-if="!loading">{{ devices.length }} 台设备</span>
+    </div>
+    <div class="dm-header-right">
+      <div class="dm-refresh">
+        <select v-model="refreshMs" @change="changeRefresh">
+          <option value="5000">5s</option><option value="15000">15s</option><option value="30000">30s</option>
+        </select>
+      </div>
+    </div>
   </div>
 
-  <div v-if="!devices.length" class="dm-empty">{{ loading ? '加载中...' : '暂无设备' }}</div>
+  <div v-if="!loading && devices.length" class="dm-stats-grid">
+    <div class="dm-stat-card">
+      <div class="dm-stat-label">在线设备</div>
+      <div class="dm-stat-value">{{ onlineCount }}</div>
+      <div class="dm-stat-sub">/ {{ devices.length }} 总计</div>
+    </div>
+    <div class="dm-stat-card">
+      <div class="dm-stat-label">总上传</div>
+      <div class="dm-stat-value" style="color:var(--dm-up)">{{ fmtSpeed(totalUp) }}</div>
+      <div class="dm-stat-sub">{{ devices.filter(d=>(d.speed_in||0)>0).length }} 台活跃</div>
+    </div>
+    <div class="dm-stat-card">
+      <div class="dm-stat-label">总下载</div>
+      <div class="dm-stat-value" style="color:var(--dm-dn)">{{ fmtSpeed(totalDn) }}</div>
+      <div class="dm-stat-sub">{{ devices.filter(d=>(d.speed_out||0)>0).length }} 台活跃</div>
+    </div>
+    <div class="dm-stat-card" v-if="blockedCount">
+      <div class="dm-stat-label">已封禁</div>
+      <div class="dm-stat-value" style="color:#dc2626">{{ blockedCount }}</div>
+    </div>
+  </div>
+
+  <div v-if="!devices.length && !loading" class="dm-empty">暂无设备</div>
+  <div v-if="loading && !devices.length" class="dm-empty">加载中...</div>
 
   <template v-for="(group, gi) in deviceGroups" :key="gi">
     <div class="dm-grid">
       <div v-for="dev in group.devices" :key="dev.id" class="dm-card">
-        <div v-if="dev.is_blocked" class="dm-blocked-badge">已封禁</div>
-        <div v-else-if="dev.rate_limit || dev.rate_limit_down" class="dm-limited-badge">已限速</div>
-        <div class="dm-card-top" v-html="vendorIcon(dev.device_type)"></div>
+        <div v-if="dev.is_blocked" class="dm-badge dm-badge-blocked">已封禁</div>
+        <div v-else-if="dev.rate_limit||dev.rate_limit_down" class="dm-badge dm-badge-limited">已限速</div>
         <div class="dm-card-top">
-          <span :class="'dm-dot dm-dot-' + dev.online" :title="dev.online === 'green' ? '在线' : dev.online === 'yellow' ? '可能离线' : '离线'"></span>
+          <span :class="'dm-dot dm-dot-'+dev.online" :title="dev.online==='green'?'在线':'离线'"></span>
+          <span v-html="vendorIcon(dev.device_type)"></span>
           <span class="dm-name" :title="deviceName(dev)">{{ deviceName(dev) }}</span>
+          <span class="dm-type-tag">{{ dev.device_type }}</span>
+        </div>
+        <div class="dm-net-info">
+          <span>{{ dev.current_ip }}</span>
+          <span>{{ dev.current_mac }}</span>
         </div>
         <div class="dm-speeds">
-          <div class="dm-up">↑ {{ fmtSpeed(dev.speed_in) }}</div>
-          <div class="dm-dn">↓ {{ fmtSpeed(dev.speed_out) }}</div>
+          <div class="dm-speed-item dm-up">
+            <div class="dm-speed-label">上传</div>
+            <div class="dm-speed-value">{{ fmtSpeed(dev.speed_in) }}</div>
+          </div>
+          <div class="dm-speed-item dm-dn">
+            <div class="dm-speed-label">下载</div>
+            <div class="dm-speed-value">{{ fmtSpeed(dev.speed_out) }}</div>
+          </div>
         </div>
-        <div class="dm-detail">{{ dev.current_ip }} · {{ dev.current_mac }}</div>
         <div class="dm-actions">
-          <button v-if="dev.is_blocked" class="dm-act unblock" title="解封" @click="toggleBlock(dev)">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/><circle cx="12" cy="16" r="1"/></svg>
+          <button v-if="dev.is_blocked" class="dm-act" title="解封" @click="toggleBlock(dev)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/><circle cx="12" cy="16" r="1"/></svg>
           </button>
-          <button v-else class="dm-act block" title="封禁" @click="toggleBlock(dev)">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/><line x1="3" y1="3" x2="21" y2="21"/></svg>
+          <button v-else class="dm-act" title="封禁" @click="toggleBlock(dev)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/><line x1="3" y1="3" x2="21" y2="21"/></svg>
           </button>
-          <button class="dm-act limit" title="限速" @click="showLimit(dev)">⚡</button>
-          <button class="dm-act rename" title="重命名" @click="showRename(dev)">✎</button>
+          <button class="dm-act" title="限速" @click="showLimit(dev)">⚡</button>
+          <button class="dm-act" title="重命名" @click="showRename(dev)">✎</button>
         </div>
       </div>
     </div>
 
-    <div v-if="gi === 0 && unknownDevices.length" class="dm-unknown-section">
-      <div class="dm-unknown-toggle" @click="showUnknown = !showUnknown">
-        🐧 未知设备 ({{ unknownDevices.length }}) <span>{{ showUnknown ? '▼' : '▶' }}</span>
+    <div v-if="gi===0&&unknownDevices.length" class="dm-unknown-section">
+      <div class="dm-unknown-toggle" @click="showUnknown=!showUnknown">
+        🐧 未知设备 ({{ unknownDevices.length }}) <span>{{ showUnknown?'▼':'▶' }}</span>
       </div>
-      <div v-show="showUnknown" class="dm-grid">
+      <div v-show="showUnknown" class="dm-grid" style="margin-top:12px">
         <div v-for="dev in unknownDevices" :key="dev.id" class="dm-card">
-          <div class="dm-card-top" v-html="vendorIcon(dev.device_type)"></div>
+          <div v-if="dev.is_blocked" class="dm-badge dm-badge-blocked">已封禁</div>
+          <div v-else-if="dev.rate_limit||dev.rate_limit_down" class="dm-badge dm-badge-limited">已限速</div>
           <div class="dm-card-top">
-            <span :class="'dm-dot dm-dot-' + dev.online" :title="dev.online === 'green' ? '在线' : '离线'"></span>
-            <span class="dm-name" :title="deviceName(dev)">{{ deviceName(dev) }}</span>
+            <span :class="'dm-dot dm-dot-'+dev.online"></span>
+            <span v-html="vendorIcon(dev.device_type)"></span>
+            <span class="dm-name">{{ deviceName(dev) }}</span>
+          </div>
+          <div class="dm-net-info">
+            <span>{{ dev.current_ip }}</span>
+            <span>{{ dev.current_mac }}</span>
           </div>
           <div class="dm-speeds">
-            <div class="dm-up">↑ {{ fmtSpeed(dev.speed_in) }}</div>
-            <div class="dm-dn">↓ {{ fmtSpeed(dev.speed_out) }}</div>
+            <div class="dm-speed-item dm-up">
+            <div class="dm-speed-label">上传</div>
+            <div class="dm-speed-value">{{ fmtSpeed(dev.speed_in) }}</div>
           </div>
-          <div class="dm-detail">{{ dev.current_ip }} · {{ dev.current_mac }}</div>
+          <div class="dm-speed-item dm-dn">
+            <div class="dm-speed-label">下载</div>
+            <div class="dm-speed-value">{{ fmtSpeed(dev.speed_out) }}</div>
+            </div>
+          </div>
           <div class="dm-actions">
-            <button class="dm-act rename" title="重命名" @click="showRename(dev)">✎</button>
+            <button v-if="dev.is_blocked" class="dm-act" title="解封" @click="toggleBlock(dev)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/><circle cx="12" cy="16" r="1"/></svg>
+            </button>
+            <button v-else class="dm-act" title="封禁" @click="toggleBlock(dev)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/><line x1="3" y1="3" x2="21" y2="21"/></svg>
+            </button>
+            <button class="dm-act" title="限速" @click="showLimit(dev)">⚡</button>
+            <button class="dm-act" title="重命名" @click="showRename(dev)">✎</button>
           </div>
         </div>
       </div>
     </div>
   </template>
 
-  <div v-if="showLimitModal" class="dm-modal" @click.self="showLimitModal=false">
+  <div v-if="showLimitModal" class="dm-modal">
     <div class="dm-modal-box">
       <h3>限速</h3>
-      <p style="font-size:12px;color:#999;margin:0 0 12px">0 = 不限速</p>
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-        <label style="flex:1">上传</label>
-        <input v-model.number="limitUp" type="number" min="0" step="0.1" style="flex:1">
-        <select v-model="limitUpUnit" style="width:80px">
-          <option value="1000000000">Gbps</option><option value="1000000">Mbps</option><option value="1000">Kbps</option>
-        </select>
+      <p class="dm-hint">0 = 不限速</p>
+      <div class="dm-modal-row">
+        <label>上传</label>
+        <input v-model.number="limitUp" type="number" min="0" step="0.1">
+        <select v-model="limitUpUnit"><option value="1000000000">Gbps</option><option value="1000000">Mbps</option><option value="1000">Kbps</option></select>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-        <label style="flex:1">下载</label>
-        <input v-model.number="limitDn" type="number" min="0" step="0.1" style="flex:1">
-        <select v-model="limitDnUnit" style="width:80px">
-          <option value="1000000000">Gbps</option><option value="1000000">Mbps</option><option value="1000">Kbps</option>
-        </select>
+      <div class="dm-modal-row">
+        <label>下载</label>
+        <input v-model.number="limitDn" type="number" min="0" step="0.1">
+        <select v-model="limitDnUnit"><option value="1000000000">Gbps</option><option value="1000000">Mbps</option><option value="1000">Kbps</option></select>
       </div>
       <div class="dm-modal-btns">
         <button class="dm-btn-cancel" @click="showLimitModal=false">取消</button>
@@ -88,10 +141,12 @@
     </div>
   </div>
 
-  <div v-if="showRenameModal" class="dm-modal" @click.self="showRenameModal=false">
+  <div v-if="showRenameModal" class="dm-modal">
     <div class="dm-modal-box">
       <h3>重命名</h3>
-      <input v-model="renameVal" @keydown.enter="applyRename" style="width:100%;padding:8px 12px;border:1px solid #d0d0d0;border-radius:4px;font-size:14px;box-sizing:border-box;margin-bottom:12px">
+      <div class="dm-modal-row">
+        <input v-model="renameVal" @keydown.enter="applyRename" placeholder="输入新名称">
+      </div>
       <div class="dm-modal-btns">
         <button class="dm-btn-cancel" @click="showRenameModal=false">取消</button>
         <button class="dm-btn-save" @click="applyRename">确定</button>

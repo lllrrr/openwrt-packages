@@ -15,7 +15,6 @@ type Device struct {
 	LastSeen    int64  `json:"last_seen"`
 	VendorClass string `gorm:"column:vendor_class" json:"vendor_class"`
 	Opt55Hash   string `gorm:"column:opt55_hash" json:"opt55_hash"`
-	Vendor      string `json:"vendor"`
 }
 
 func (Device) TableName() string { return "devices" }
