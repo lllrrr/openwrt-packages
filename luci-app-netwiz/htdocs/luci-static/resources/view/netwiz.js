@@ -4139,7 +4139,7 @@ return view.extend({
                     // ---- 结束 ----
                     var sDnsHtml = "";
                     if (!isBypass && activeWan.up && dns1) {
-                        sDnsHtml = "<div style='font-size:15.5px; font-weight:bold; color:#FFF; font-family:monospace; margin:6px 0 10px 0; display:flex; flex-wrap:wrap; justify-content:center; gap:0;'><span class='nw-info-item'>" + T['TXT_DNS1'] + "<span class='nw-hl'>" + dns1 + "</span></span>" + (dns2 ? "<span class='nw-info-item'>" + T['TXT_DNS2'] + "<span class='nw-hl'>" + dns2 + "</span></span>" : "") + "</div>";
+                        sDnsHtml = "<div style='font-size:15.5px; font-weight:bold; color:#FFF; font-family:monospace; margin:6px 0 10px 0; display:flex; flex-wrap:wrap; justify-content:center; gap:8px;'><span class='nw-info-item'>" + T['TXT_DNS1'] + " <span class='nw-hl'>" + dns1 + "</span></span>" + (dns2 ? "<span class='nw-info-item'>" + T['TXT_DNS2'] + " <span class='nw-hl'>" + dns2 + "</span></span>" : "") + "</div>";
                     }
 
                     window._gotoRoam = function(band, isDirty) {
@@ -4373,7 +4373,7 @@ return view.extend({
                     var advToggleHtml = "<div style='text-align:center; margin-top:16px;'><span id='nw-toggle-adv' style='cursor:pointer; font-size:13.5px; color:rgba(255,255,255,0.9); background:" + btnBg + "; padding:5px 15px; border-radius:15px; transition:all 0.3s; user-select:none; display:inline-block; letter-spacing:0.5px;'>" + btnText + "</span></div>";
 
                     if (modeTextEl) {
-                        modeTextEl.innerHTML = "<div style='font-size:17px; font-weight:600; margin-bottom:8px; color:#ffffff; font-family: monospace; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; max-width:100%; min-width:0;'><span style='white-space:nowrap; max-width:100%; min-width:0; overflow:hidden; text-overflow:ellipsis;'>" + sTitle + "</span>" + statusBadge + "</div>" + "<div style='font-size:15.5px; font-weight:bold; color:#ffffff; font-family:monospace; letter-spacing:0.5px; display:flex; flex-wrap:wrap; justify-content:center; line-height: 1.3; max-width:100%; min-width:0;'>" + sDetails + "</div>" + sDnsHtml + ipv6Html + devMgrBtn + extraInfo + advToggleHtml;
+                        modeTextEl.innerHTML = "<div style='font-size:17px; font-weight:600; margin-bottom:8px; color:#ffffff; font-family: monospace; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; max-width:100%; min-width:0;'><span style='white-space:nowrap; max-width:100%; min-width:0; overflow:hidden; text-overflow:ellipsis;'>" + sTitle + "</span>" + statusBadge + "</div>" + "<div style='font-size:15.5px; font-weight:bold; color:#ffffff; font-family:monospace; letter-spacing:0.5px; display:flex; flex-wrap:wrap; justify-content:center; line-height: 1.3; max-width:100%; min-width:0; gap:8px;'>" + sDetails + "</div>" + sDnsHtml + ipv6Html + devMgrBtn + extraInfo + advToggleHtml;
                         
                         // 异步检测网络连通性
                         if (statusBadge.indexOf('nw-inet-badge') !== -1) {
