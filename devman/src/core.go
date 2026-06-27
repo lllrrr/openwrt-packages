@@ -107,8 +107,11 @@ func updateExisting(dev *models.Device, ip, mac, hostname, vendorClass, opt55Has
 	if updateLastSeen {
 		updates["last_seen"] = now
 	}
-	if ip != "" && isLAN(ip) && !strings.Contains(ip, ":") {
-		updates["ipv4"] = ip
+	// Only update IP when matched by a strong identifier (prevents conntrack from reverting IP changes)
+	if matchBy != "ip" && matchBy != "hostname" {
+		if ip != "" && isLAN(ip) && !strings.Contains(ip, ":") {
+			updates["ipv4"] = ip
+		}
 	}
 	if hostname != "" && dev.Hostname == "" {
 		updates["hostname"] = hostname
