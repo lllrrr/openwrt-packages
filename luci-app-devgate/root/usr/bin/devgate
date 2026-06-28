@@ -148,6 +148,12 @@ rule_name() {
 	echo "DevGate-$uid"
 }
 
+input_rule_name() {
+	local uid="$1"
+
+	echo "DevGate-$uid-Input"
+}
+
 check_firewall_tool() {
 	if ! command -v uci >/dev/null 2>&1; then
 		info "错误: 未找到uci命令"
@@ -243,6 +249,23 @@ create_forward_rule() {
 	set_firewall_option "$section" target "REJECT" || return 1
 }
 
+create_input_rule() {
+	local section="$1"
+	local mac="$2"
+	local name="$3"
+	local enabled
+
+	enabled="$(normalize_enabled "$4")"
+
+	uci -q set "firewall.$section=rule" || return 1
+	set_firewall_option "$section" enabled "$enabled" || return 1
+	set_firewall_option "$section" name "$name" || return 1
+	set_firewall_option "$section" src "$DEFAULT_SRC_ZONE" || return 1
+	set_firewall_option "$section" src_mac "$mac" || return 1
+	set_firewall_option "$section" proto "all" || return 1
+	set_firewall_option "$section" target "REJECT" || return 1
+}
+
 verify_firewall_rule() {
 	local uid="$1"
 	local mac="$2"
@@ -284,10 +307,34 @@ verify_firewall_rule() {
 		}
 	fi
 
-	! uci -q show "firewall.$input_section" >/dev/null 2>&1 || {
-		dbg "验证失败: 存在过期本机访问规则"
-		return 1
-	}
+	if [ "$device_mode" = "all" ]; then
+		[ "$(uci -q get "firewall.$input_section.name")" = "$(input_rule_name "$uid")" ] || {
+			dbg "验证失败: 本机访问规则名称不是$(input_rule_name "$uid")"
+			return 1
+		}
+
+		[ "$(uci -q get "firewall.$input_section.src_mac")" = "$mac" ] || {
+			dbg "验证失败: 本机访问规则不存在或MAC不匹配"
+			return 1
+		}
+
+		[ "$(uci -q get "firewall.$input_section.target")" = "REJECT" ] || {
+			dbg "验证失败: 本机访问规则目标不是REJECT"
+			return 1
+		}
+
+		if [ -n "$expected_enabled" ]; then
+			[ "$(uci -q get "firewall.$input_section.enabled")" = "$expected_enabled" ] || {
+				dbg "验证失败: 本机访问规则启用状态不是$expected_enabled"
+				return 1
+			}
+		fi
+	else
+		! uci -q show "firewall.$input_section" >/dev/null 2>&1 || {
+			dbg "验证失败: 存在过期本机访问规则"
+			return 1
+		}
+	fi
 
 	dbg "验证成功: DevGate通信规则已写入firewall配置"
 	return 0
@@ -368,6 +415,9 @@ add_device() {
 	delete_device_firewall_rules "$uid"
 	delete_device_firewall_rules "$id"
 	create_forward_rule "$(rule_section "$uid")" "$mac" "$(rule_name "$uid")" "$dest_zone" "$rule_enabled" || return 1
+	if [ "$device_mode" = "all" ]; then
+		create_input_rule "$(rule_section "$uid")_input" "$mac" "$(input_rule_name "$uid")" "$rule_enabled" || return 1
+	fi
 
 	if ! commit_firewall; then
 		info "添加失败: firewall重载失败，回滚DevGate规则"
