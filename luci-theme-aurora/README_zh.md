@@ -118,42 +118,17 @@ Aurora 使用 **Vite** 与现代前端工具链构建，并尝试将 AI 融入�
 
 感谢这些出色的贡献者：
 
-<!-- readme: contributors,chillykidd -start -->
+<!-- contributors:start -->
 <table>
-	<tbody>
-		<tr>
-            <td align="center">
-                <a href="https://github.com/eamonxg">
-                    <img src="https://avatars.githubusercontent.com/u/114069097?v=4" width="80;" alt="eamonxg"/>
-                    <br />
-                    <sub><b>eamonxg</b></sub>
-                </a>
-            </td>
-            <td align="center">
-                <a href="https://github.com/aurora-assistant">
-                    <img src="https://avatars.githubusercontent.com/u/128217131?v=4" width="80;" alt="aurora-assistant"/>
-                    <br />
-                    <sub><b>aurora-assistant</b></sub>
-                </a>
-            </td>
-            <td align="center">
-                <a href="https://github.com/cjayacopra">
-                    <img src="https://avatars.githubusercontent.com/u/83209495?v=4" width="80;" alt="cjayacopra"/>
-                    <br />
-                    <sub><b>CJay D Acopra</b></sub>
-                </a>
-            </td>
-            <td align="center">
-                <a href="https://github.com/chillykidd">
-                    <img src="https://avatars.githubusercontent.com/u/197483577?v=4" width="80;" alt="chillykidd"/>
-                    <br />
-                    <sub><b>𝓶𝑜𝗻ᴋė ツ</b></sub>
-                </a>
-            </td>
-		</tr>
-	<tbody>
+  <tbody>
+    <tr>
+      <td align="center" valign="top" width="14.29%"><a href="https://github.com/eamonxg"><img src="https://avatars.githubusercontent.com/u/114069097?v=4&s=160" width="80px;" alt="eamonxg"/><br /><sub><b>eamonxg</b></sub></a></td>
+      <td align="center" valign="top" width="14.29%"><a href="https://github.com/cjayacopra"><img src="https://avatars.githubusercontent.com/u/83209495?v=4&s=160" width="80px;" alt="cjayacopra"/><br /><sub><b>cjayacopra</b></sub></a></td>
+      <td align="center" valign="top" width="14.29%"><a href="https://github.com/chillykidd"><img src="https://avatars.githubusercontent.com/u/197483577?v=4&s=160" width="80px;" alt="chillykidd"/><br /><sub><b>chillykidd</b></sub></a></td>
+    </tr>
+  </tbody>
 </table>
-<!-- readme: contributors,chillykidd -end -->
+<!-- contributors:end -->
 
 ## 许可与致谢
 
