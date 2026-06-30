@@ -1,5 +1,5 @@
 #!/bin/sh
-# lucky 更新脚本 v2.2
+# lucky 更新脚本 v2.3
 
 UPDATE_DIR="/tmp/lucky_update"
 STATUS_FILE="$UPDATE_DIR/status"
@@ -23,6 +23,8 @@ log() {
 }
 
 init_dir() { [ -d "$UPDATE_DIR" ] || mkdir -p "$UPDATE_DIR"; }
+
+tag_to_ver() { echo "$1" | sed 's/^v//'; }
 
 uci_get() {
     local v; v=$(uci -q get "lucky.lucky.$1" 2>/dev/null)
@@ -90,8 +92,18 @@ fmt_size() {
 }
 
 version_lt() {
-    local hi; hi=$(printf '%s\n%s' "$1" "$2" | sort -V | tail -1)
-    [ "$hi" = "$2" ] && [ "$1" != "$2" ]
+    local v1="$1" v2="$2"
+    local c1 c2
+    c1=$(echo "$v1" | sed 's/^v//')
+    c2=$(echo "$v2" | sed 's/^v//')
+    [ "$c1" = "$c2" ] && return 1
+    local n1 n2
+    n1=$(echo "$c1" | sed 's/beta/./')
+    n2=$(echo "$c2" | sed 's/beta/./')
+    echo "$c1" | grep -q 'beta' || n1="${n1}.999"
+    echo "$c2" | grep -q 'beta' || n2="${n2}.999"
+    local hi; hi=$(printf '%s\n%s' "$n1" "$n2" | sort -V | tail -1)
+    [ "$hi" = "$n2" ]
 }
 
 get_installed_version() {
@@ -479,7 +491,7 @@ cmd_auto() {
     [ -z "$best_file"  ] && die "" "Cannot parse best file"
 
     maybe_update "$cur_ver" "$(tag_to_ver "$latest_tag")" "Lucky" \
-        && cmd_download "$latest_tag" "$best_file" "$binpath"
+    && cmd_download "$latest_tag" "$best_file" "$binpath"
 
     local pm; pm=$(detect_pm)
     [ -z "$pm" ] && { log "No package manager, skip luci"; return; }
