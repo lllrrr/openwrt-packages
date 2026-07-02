@@ -4,11 +4,9 @@ Luci plugin for makes OpenWrt poweroff and reboot easy.
 [GitHub Release](https://github.com/mokanove/luci-app-pm/releases)
 ## 🚀 Features
 - OpenWrt can also be shutdown.
-- It is **very small in size**, **UI very simple**, **Supports most devices**.
+- It is **very small in size**, **UI simple**, **Supports most devices**.
 ## ⚠️ Warning
 - The poweroff function may not be available on all devices.
-- It only supports using apk package manager. So you must be make sure your OpenWrt version in 25.12 or later.
-- So far, I have only successfully tested it on my intel Celeron J4125 and Friendly Nanopi R5C.
 ## 🛠 How to self-build
 [Generic Docs](https://867678.xyz/doc/OpenWrt)
 ## ⚖️ License

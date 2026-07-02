@@ -1,22 +1,22 @@
 {
-	"luci-app-pm": {
-		"description": "ACL for luci-app-pm",
-		"read": {
-			"ubus": {
-				"session": [ "access", "login" ],
-				"system": [ "info" ]
-			},
-			"file": {
-				"/sbin/poweroff": [ "exec" ]
-			}
-		},
-		"write": {
-			"ubus": {
-				"system": [ "reboot" ]
-			},
-			"file": {
-				"/sbin/poweroff": [ "exec" ]
-			}
-		}
-	}
+  "luci-app-pm": {
+    "description": "ACL for luci-app-pm",
+    "read": {
+      "ubus": {
+        "session": ["access", "login"],
+        "system": ["info"]
+      },
+      "file": {
+        "/sbin/poweroff": ["exec"]
+      }
+    },
+    "write": {
+      "ubus": {
+        "system": ["reboot"]
+      },
+      "file": {
+        "/sbin/poweroff": ["exec"]
+      }
+    }
+  }
 }
