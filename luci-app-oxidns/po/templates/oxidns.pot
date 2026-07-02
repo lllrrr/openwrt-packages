@@ -1,0 +1,381 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "A token is currently configured. Enter a new value to replace it."
+msgstr ""
+
+msgid "Actions"
+msgstr ""
+
+msgid "Applying service action..."
+msgstr ""
+
+msgid "Available"
+msgstr ""
+
+msgid "Binary path"
+msgstr ""
+
+msgid "Build"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "Bundle"
+msgstr ""
+
+msgid "Clear"
+msgstr ""
+
+msgid "Clear configured GitHub token"
+msgstr ""
+
+msgid "Clear configured download proxy"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Command output"
+msgstr ""
+
+msgid "Config path"
+msgstr ""
+
+msgid "Configuration"
+msgstr ""
+
+msgid "Configuration and working directory data are preserved unless selected below."
+msgstr ""
+
+msgid "Configure OxiDNS core download sources, runtime paths, and optional download credentials."
+msgstr ""
+
+msgid "Confirm"
+msgstr ""
+
+msgid "Control the OpenWrt init service for OxiDNS."
+msgstr ""
+
+msgid "Core"
+msgstr ""
+
+msgid "Core Status"
+msgstr ""
+
+msgid "Core bundle"
+msgstr ""
+
+msgid "Core operation completed."
+msgstr ""
+
+msgid "Core operation failed"
+msgstr ""
+
+msgid "Core repository"
+msgstr ""
+
+msgid "Delete configuration file"
+msgstr ""
+
+msgid "Delete working directory"
+msgstr ""
+
+msgid "Disable"
+msgstr ""
+
+msgid "Download proxy"
+msgstr ""
+
+msgid "Download core archive"
+msgstr ""
+
+msgid "Download release metadata"
+msgstr ""
+
+msgid "Edit, validate, and save the full OxiDNS YAML configuration file."
+msgstr ""
+
+msgid "Enable"
+msgstr ""
+
+msgid "Error"
+msgstr ""
+
+msgid "Error code"
+msgstr ""
+
+msgid "Example: http://127.0.0.1:7890"
+msgstr ""
+
+msgid "Failed to save settings"
+msgstr ""
+
+msgid "Format: http://host:port, https://host:port, socks5://host:port, or socks5h://host:port. Use http://user:pass@host:port when authentication is required."
+msgstr ""
+
+msgid "GitHub token"
+msgstr ""
+
+msgid "Install Core"
+msgstr ""
+
+msgid "Install core files"
+msgstr ""
+
+msgid "Install the OxiDNS core before editing the configuration."
+msgstr ""
+
+msgid "Install the OxiDNS core before using service controls."
+msgstr ""
+
+msgid "Install or repair the OxiDNS core binary. Runtime upgrades are handled by OxiDNS itself."
+msgstr ""
+
+msgid "Installed"
+msgstr ""
+
+msgid "Installing OxiDNS core..."
+msgstr ""
+
+msgid "Installing uploaded OxiDNS core..."
+msgstr ""
+
+msgid "Logs"
+msgstr ""
+
+msgid "LuCI backend"
+msgstr ""
+
+msgid "LuCI can download the official OxiDNS release archive or install an uploaded .tar.gz archive or single oxidns binary. Future upgrades are handled by the OxiDNS core."
+msgstr ""
+
+msgid "Manage the OxiDNS runtime, service, configuration, and logs from LuCI."
+msgstr ""
+
+msgid "No"
+msgstr ""
+
+msgid "Not installed"
+msgstr ""
+
+msgid "Operation completed."
+msgstr ""
+
+msgid "Operation failed"
+msgstr ""
+
+msgid "Optional. The token is never shown after saving."
+msgstr ""
+
+msgid "Open WebUI"
+msgstr ""
+
+msgid "Overview"
+msgstr ""
+
+msgid "OxiDNS"
+msgstr ""
+
+msgid "OxiDNS Configuration"
+msgstr ""
+
+msgid "OxiDNS Core"
+msgstr ""
+
+msgid "OxiDNS Logs"
+msgstr ""
+
+msgid "OxiDNS Settings"
+msgstr ""
+
+msgid "OxiDNS is already disabled on boot."
+msgstr ""
+
+msgid "OxiDNS is already enabled on boot."
+msgstr ""
+
+msgid "OxiDNS is already running."
+msgstr ""
+
+msgid "OxiDNS is already stopped."
+msgstr ""
+
+msgid "Path"
+msgstr ""
+
+msgid "Pause"
+msgstr ""
+
+msgid "Prepare download"
+msgstr ""
+
+msgid "Reason"
+msgstr ""
+
+msgid "Refresh"
+msgstr ""
+
+msgid "Remove Core"
+msgstr ""
+
+msgid "Remove OxiDNS Core"
+msgstr ""
+
+msgid "Remove the OxiDNS core binary and Web UI files."
+msgstr ""
+
+msgid "Removing OxiDNS core..."
+msgstr ""
+
+msgid "Repair Reinstall"
+msgstr ""
+
+msgid "Repair reinstalling OxiDNS core..."
+msgstr ""
+
+msgid "Restart"
+msgstr ""
+
+msgid "Restart service"
+msgstr ""
+
+msgid "Resume"
+msgstr ""
+
+msgid "Running"
+msgstr ""
+
+msgid "Save"
+msgstr ""
+
+msgid "Save & Restart"
+msgstr ""
+
+msgid "Save Settings"
+msgstr ""
+
+msgid "Saving and restarting service..."
+msgstr ""
+
+msgid "Saving configuration..."
+msgstr ""
+
+msgid "Saving settings..."
+msgstr ""
+
+msgid "Service"
+msgstr ""
+
+msgid "Service action completed."
+msgstr ""
+
+msgid "Service action failed"
+msgstr ""
+
+msgid "Service status"
+msgstr ""
+
+msgid "Settings"
+msgstr ""
+
+msgid "Settings saved."
+msgstr ""
+
+msgid "Select release archive"
+msgstr ""
+
+msgid "Stage"
+msgstr ""
+
+msgid "Start"
+msgstr ""
+
+msgid "Start on boot"
+msgstr ""
+
+msgid "Start the OxiDNS service before opening WebUI."
+msgstr ""
+
+msgid "Stop"
+msgstr ""
+
+msgid "Stopped"
+msgstr ""
+
+msgid "Target"
+msgstr ""
+
+msgid "Details"
+msgstr ""
+
+msgid "Unable to query OxiDNS status"
+msgstr ""
+
+msgid "Unable to load configuration."
+msgstr ""
+
+msgid "Unavailable"
+msgstr ""
+
+msgid "Upload has been cancelled"
+msgstr ""
+
+msgid "Upload Core"
+msgstr ""
+
+msgid "Validate"
+msgstr ""
+
+msgid "Validate core archive"
+msgstr ""
+
+msgid "Validate uploaded core"
+msgstr ""
+
+msgid "Validating configuration..."
+msgstr ""
+
+msgid "Unpack core archive"
+msgstr ""
+
+msgid "Verify checksum"
+msgstr ""
+
+msgid "Verify release digest"
+msgstr ""
+
+msgid "Version"
+msgstr ""
+
+msgid "View recent OxiDNS entries from OpenWrt logread."
+msgstr ""
+
+msgid "WebUI"
+msgstr ""
+
+msgid "WebUI files are not installed."
+msgstr ""
+
+msgid "WebUI listens on loopback only. Configure the HTTP listen address to a LAN-reachable address, or use an SSH tunnel."
+msgstr ""
+
+msgid "Waiting for command output..."
+msgstr ""
+
+msgid "Working directory"
+msgstr ""
+
+msgid "YAML"
+msgstr ""
+
+msgid "Yes"
+msgstr ""

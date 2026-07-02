@@ -1,0 +1,7 @@
+config settings 'main'
+	option core_repository 'svenshi/oxidns'
+	option core_bundle 'full'
+	option config_path '/etc/oxidns/config.yaml'
+	option working_dir '/var/lib/oxidns'
+	option github_token ''
+	option download_proxy ''

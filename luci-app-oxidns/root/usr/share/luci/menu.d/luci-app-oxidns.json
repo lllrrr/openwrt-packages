@@ -1,0 +1,67 @@
+{
+	"admin/services/oxidns": {
+		"title": "OxiDNS",
+		"order": 60,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-oxidns" ]
+		}
+	},
+	"admin/services/oxidns/overview": {
+		"title": "Overview",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "oxidns/overview"
+		},
+		"depends": {
+			"acl": [ "luci-app-oxidns" ]
+		}
+	},
+	"admin/services/oxidns/core": {
+		"title": "Core",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "oxidns/core"
+		},
+		"depends": {
+			"acl": [ "luci-app-oxidns" ]
+		}
+	},
+	"admin/services/oxidns/config": {
+		"title": "Configuration",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "oxidns/config"
+		},
+		"depends": {
+			"acl": [ "luci-app-oxidns" ]
+		}
+	},
+	"admin/services/oxidns/logs": {
+		"title": "Logs",
+		"order": 40,
+		"action": {
+			"type": "view",
+			"path": "oxidns/logs"
+		},
+		"depends": {
+			"acl": [ "luci-app-oxidns" ]
+		}
+	},
+	"admin/services/oxidns/settings": {
+		"title": "Settings",
+		"order": 50,
+		"action": {
+			"type": "view",
+			"path": "oxidns/settings"
+		},
+		"depends": {
+			"acl": [ "luci-app-oxidns" ]
+		}
+	}
+}
