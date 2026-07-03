@@ -1,6 +1,6 @@
 # lucky LuCI i18n Chinese (Simplified)
 # zh-cn
-# v2.1
+# v2.2
 
 msgid ""
 msgstr ""
@@ -103,8 +103,14 @@ msgstr "访问信息"
 msgid "Port"
 msgstr "端口"
 
-msgid "Protocol"
-msgstr "协议"
+msgid "Internet Access"
+msgstr "外网访问"
+
+msgid "Enabled"
+msgstr "已启用"
+
+msgid "Disabled"
+msgstr "已禁用"
 
 msgid "Entrance"
 msgstr "安全入口"
@@ -189,11 +195,11 @@ msgstr "安全入口"
 msgid "URL path prefix, e.g.: mysecret"
 msgstr "自定义 URL 路径前缀以保护管理界面，例如：mysecret"
 
-msgid "Enable HTTPS"
-msgstr "启用HTTPS"
+msgid "Allow Internet Access"
+msgstr "启用外网访问"
 
-msgid "Encrypt access using SSL/TLS"
-msgstr "使用SSL/TLS加密访问"
+msgid "Allow access to the Web UI from the internet"
+msgstr "允许从外网访问 Web UI"
 
 msgid "Delayed Start (s)"
 msgstr "延迟启动（秒）"
