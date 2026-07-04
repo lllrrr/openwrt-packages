@@ -11,15 +11,15 @@ const SLOG   = DIR + '/lucky-start.log';
 const INIT = '/etc/init.d/lucky';
 
 const SETTINGS = {
-    enabled: '0', port: '16601', safe: '', ssl: '0', delay: '60',
+    enabled: '0', port: '16601', safe: '', internet: '0', delay: '60',
     configdir: '/etc/config/lucky.daji', binpath: '/usr/bin/lucky',
     arch: 'auto', mirror: 'github', release_type: 'stable', variant: 'lucky',
     respawn_threshold: '3600', respawn_timeout: '30', respawn_retry: '5',
-    auto_update: '0', update_interval: '7',installed_version: ''
+    auto_update: '0', update_interval: '7', installed_version: ''
 };
 
 const RESTART_KEYS = [
-    'enabled', 'port', 'safe', 'ssl', 'delay',
+    'enabled', 'port', 'safe', 'internet', 'delay',
     'binpath', 'configdir',
     'respawn_threshold', 'respawn_timeout', 'respawn_retry'
 ];

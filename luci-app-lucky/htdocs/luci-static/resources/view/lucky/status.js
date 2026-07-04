@@ -52,7 +52,7 @@ function fmtMem(kb) {
 
 function buildKVRow(label, id, value) {
     return [
-        E('span', { style: 'color:#888;white-space:nowrap;' }, label),
+        E('span', { style: 'color:#666;white-space:nowrap;' }, label),
         E('span', { id: id,
             style: 'font-weight:600;word-break:break-all;color:#333;' },
             value || _('Unknown'))
@@ -119,7 +119,6 @@ function buildMissingCard(C) {
                             if (atBottom) logEl.scrollTop = logEl.scrollHeight;
                         }
 
-                        // 解析进度
                         var lines = raw.split('\n');
                         for (var i = lines.length - 1; i >= 0; i--) {
                             var m = lines[i].match(/PROGRESS:(\d+)/);
@@ -200,11 +199,11 @@ return view.extend({
         var info   = data[2] || {};
         var cfg    = data[3] || {};
 
-        var proto = cfg.ssl === '1' ? 'https' : 'http';
-        var port  = cfg.port || '16601';
-        var safe  = cfg.safe || '';
-        var url   = proto + '://' + window.location.hostname +
-                    ':' + port + '/' + (safe ? safe + '/' : '');
+        var port     = cfg.port || '16601';
+        var safe     = cfg.safe || '';
+        var internet = cfg.internet === '1';
+        var url      = window.location.protocol + '//' + window.location.hostname +
+               ':' + port + '/' + (safe ? safe + '/' : '');
 
         var toggleInput = null;
 
@@ -291,10 +290,10 @@ return view.extend({
                     style: 'display:grid;grid-template-columns:auto 1fr;' +
                            'gap:6px 16px;font-size:14px;min-width:220px;'
                 }, [].concat(
-                    buildKVRow(_('Port'),     'si_port',  port),
-                    buildKVRow(_('Protocol'), 'si_proto', proto.toUpperCase()),
-                    buildKVRow(_('Entrance'), 'si_safe',  safe ? '/' + safe + '/' : '/'),
-                    buildKVRow(_('URL'),      'si_url',   url)
+                    buildKVRow(_('Port'), 'si_port', port),
+                    buildKVRow(_('Internet Access'), 'si_internet', internet ? _('Enabled') : _('Disabled')),
+                    buildKVRow(_('Entrance'), 'si_safe', safe ? '/' + safe + '/' : '/'),
+                    buildKVRow(_('URL'), 'si_url', url)
                 ))
             )
         ]);

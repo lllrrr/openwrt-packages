@@ -19,6 +19,7 @@ init_config() {
         "configdir=CONFDIR=/etc/config/lucky.daji" \
         "port=PORT=16601" \
         "safe=SAFE=" \
+        "internet=INTERNET=0" \
         "delay=DELAY=60" \
         "respawn_threshold=RESPAWN_THRESHOLD=3600" \
         "respawn_timeout=RESPAWN_TIMEOUT=30" \
@@ -37,9 +38,31 @@ init_config() {
     mkdir -p "$CONFDIR" "${LOGFILE%/*}"
 }
 
-sync_cron() {
-    init_config
+apply_runtime_conf() {
+    [ -x "$PROG" ] || return 1
 
+    "$PROG" -setconf -key AdminWebListenPort -value "$PORT" \
+        -cd "$CONFDIR" >/dev/null 2>&1
+
+    if [ -z "$SAFE" ]; then
+        "$PROG" -rCancelSafeURL -cd "$CONFDIR" >/dev/null 2>&1
+    else
+        "$PROG" -setconf -key SafeURL -value "$SAFE" \
+            -cd "$CONFDIR" >/dev/null 2>&1
+    fi
+
+    if [ "$INTERNET" = "1" ]; then
+        "$PROG" -setconf -key AllowInternetaccess -value true \
+            -cd "$CONFDIR" >/dev/null 2>&1
+    else
+        "$PROG" -setconf -key AllowInternetaccess -value false \
+            -cd "$CONFDIR" >/dev/null 2>&1
+    fi
+
+    log_msg "Runtime conf applied (port=${PORT} safe=${SAFE:-off} internet=${INTERNET})"
+}
+
+sync_cron() {
     local current
     current=$(grep "$CRON_TAG" "$CRON_FILE" 2>/dev/null)
 
@@ -79,13 +102,7 @@ start_service() {
         sleep "$DELAY"
     }
 
-    "$PROG" -setconf -key AdminWebListenPort -value "$PORT" -cd "$CONFDIR" >/dev/null 2>&1
-
-    if [ -z "$SAFE" ]; then
-        "$PROG" -rCancelSafeURL -cd "$CONFDIR" >/dev/null 2>&1
-    else
-        "$PROG" -setconf -key SafeURL -value "$SAFE" -cd "$CONFDIR" >/dev/null 2>&1
-    fi
+    apply_runtime_conf
 
     : > "$LOGFILE"
 
@@ -100,6 +117,10 @@ start_service() {
 
 stop_service() { log_msg "Lucky stopped."; }
 
-reload_service() { sync_cron; }
+reload_service() {
+    init_config
+    sync_cron
+    apply_runtime_conf
+}
 
 service_triggers() { procd_add_reload_trigger lucky; }

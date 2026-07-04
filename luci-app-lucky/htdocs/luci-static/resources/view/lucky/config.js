@@ -22,7 +22,7 @@ function mkRpc(method, params) {
 }
 
 var KEYS = [
-    'port', 'safe', 'ssl', 'delay', 'configdir', 'binpath',
+    'port', 'safe', 'internet', 'delay', 'configdir', 'binpath',
     'arch', 'mirror', 'release_type', 'variant',
     'respawn_threshold', 'respawn_timeout', 'respawn_retry',
     'auto_update', 'update_interval'
@@ -124,9 +124,9 @@ return view.extend({
                 C.buildFormRow('text', 'safe', _('Safe Entrance'),
                     cfg.safe || '',
                     _('URL path prefix, e.g.: mysecret')),
-                C.buildFormRow('toggle', 'ssl', _('Enable HTTPS'),
-                    cfg.ssl || '0',
-                    _('Encrypt access using SSL/TLS')),
+                C.buildFormRow('toggle', 'internet', _('Allow Internet Access'),
+                    cfg.internet || '0',
+                    _('Allow access to the Web UI from the internet')),
                 C.buildFormRow('number', 'delay', _('Delayed Start (s)'),
                     cfg.delay || '60',
                     _('Delay before starting after boot (only when uptime < 120s)'),
