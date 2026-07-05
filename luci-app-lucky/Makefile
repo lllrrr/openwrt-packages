@@ -23,8 +23,8 @@ define Package/$(PKG_NAME)/postinst
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
 INITD=/etc/init.d
 $${INITD}/lucky enable
-$${INITD}/rpcd restart
-$${INITD}/lucky restart
+$${INITD}/lucky start 2>/dev/null || true
+( sleep 3; $${INITD}/rpcd restart ) >/dev/null 2>&1 < /dev/null &
 rm -rf /tmp/luci-*
 exit 0
 endef
