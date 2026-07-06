@@ -4,6 +4,27 @@
 
 LOG_FILE="/tmp/netwiz.log"
 
+# ========================================================
+# 全量备份：高级资产目录配置白名单
+# 需要备份的插件配置文件夹，直接在此处追加，系统会自动探测打包
+# ========================================================
+EXTRA_BACKUP_DIRS="
+    /etc/openclash/core
+    /etc/openclash/history
+    /etc/mosdns/rule
+    /etc/adguardhome
+    /usr/share/v2ray
+    /usr/share/xray
+    /etc/passwall
+    /etc/smartdns
+    /etc/homeproxy
+    /etc/mihomo
+    /etc/ssrplus
+    /etc/bypass
+    /etc/ddns-go
+"
+# ========================= 结束 =========================
+
 # 用法: log "[标签]" "日志内容"
 log() {
     local tag="$1"
@@ -1772,23 +1793,8 @@ EOF
                         fi
                     done
                     
-                    # 探测高级资产目录
-                    check_dirs="
-                        /etc/openclash/core
-                        /etc/openclash/history
-                        /etc/mosdns/rule
-                        /etc/adguardhome
-                        /usr/share/v2ray
-                        /usr/share/xray
-                        /etc/passwall
-                        /etc/smartdns
-                        /etc/homeproxy
-                        /etc/mihomo
-                        /etc/ssrplus
-                        /etc/bypass
-                    "
-                    
-                    for dir in $check_dirs; do
+                    # 探测高级资产目录（直接调用脚本顶部的全局白名单变量）
+                    for dir in $EXTRA_BACKUP_DIRS; do
                         if [ -d "$dir" ]; then
                             rel=$(echo "$dir" | sed 's/^\///')
                             tar_targets="$tar_targets $rel"
@@ -2133,12 +2139,42 @@ if [ -d "/tmp/nw_ghost_tmp/nw_offline_pkgs" ]; then
             echo "$(date '+%F %T') [RESTORE] [DANGER] 🚨 触发智能防呆：当前系统使用 apk (Alpine)，但备份胶囊中检测到不兼容的 ipk 安装包！" >> "$LOG_FILE"
             echo "$(date '+%F %T') [RESTORE] [DANGER] 已自动拦截并跳过所有插件的还原，以防止底层架构损坏！请重新下载对应 apk 版本的插件放入保险箱。" >> "$LOG_FILE"
         else
-            echo "$(date '+%F %T') [RESTORE] >>> 系统架构匹配 (apk)，开始恢复插件..." >> "$LOG_FILE"
-            if ls /tmp/nw_ghost_tmp/nw_offline_pkgs/*.apk >/dev/null 2>&1; then
-                apk add --allow-untrusted --force-overwrite /tmp/nw_ghost_tmp/nw_offline_pkgs/*.apk >> "$LOG_FILE" 2>&1
-            fi
-            if ls /etc/netwiz/custom_pkgs/*.apk >/dev/null 2>&1; then
-                apk add --allow-untrusted --force-overwrite /etc/netwiz/custom_pkgs/*.apk >> "$LOG_FILE" 2>&1
+            echo "$(date '+%F %T') [RESTORE] >>> 系统架构匹配 (apk)，启动动态依赖解析引擎..." >> "$LOG_FILE"
+            
+            # 1. 收集所有需要安装的插件包
+            ALL_PKGS=""
+            [ -d "/tmp/nw_ghost_tmp/nw_offline_pkgs" ] && ALL_PKGS="$ALL_PKGS $(ls /tmp/nw_ghost_tmp/nw_offline_pkgs/*.apk 2>/dev/null)"
+            [ -d "/etc/netwiz/custom_pkgs" ] && ALL_PKGS="$ALL_PKGS $(ls /etc/netwiz/custom_pkgs/*.apk 2>/dev/null)"
+            
+            if [ -n "$ALL_PKGS" ]; then
+                PENDING_PKGS="$ALL_PKGS"
+                LAST_FAIL_COUNT=-1
+                
+                # 2. 只要还有待装的包，就持续循环
+                while [ -n "$PENDING_PKGS" ]; do
+                    CUR_FAIL_COUNT=$(echo "$PENDING_PKGS" | wc -w)
+                    
+                    # 核心防呆：如果失败数量没变，说明剩下的全是 kmod 或死锁坏包，立刻跳出循环！
+                    if [ "$CUR_FAIL_COUNT" -eq "$LAST_FAIL_COUNT" ]; then
+                        echo "$(date '+%F %T') [RESTORE] ⚠️ 发现无法解决的内核冲突或死锁依赖，已彻底抛弃以下坏包: " >> "$LOG_FILE"
+                        for bad_pkg in $PENDING_PKGS; do echo "$(date '+%F %T') [RESTORE] ❌ 放弃: $(basename "$bad_pkg")" >> "$LOG_FILE"; done
+                        break
+                    fi
+                    
+                    LAST_FAIL_COUNT=$CUR_FAIL_COUNT
+                    NEXT_PENDING=""
+                    
+                    # 3. 逐个尝试安装
+                    for pkg in $PENDING_PKGS; do
+                        echo "$(date '+%F %T') [RESTORE] 尝试安装: $(basename "$pkg")" >> "$LOG_FILE"
+                        if ! apk add --allow-untrusted --force-overwrite "$pkg" >> "$LOG_FILE" 2>&1; then
+                            NEXT_PENDING="$NEXT_PENDING $pkg"
+                        fi
+                    done
+                    
+                    # 将这一轮失败的包，交给下一轮
+                    PENDING_PKGS="$NEXT_PENDING"
+                done
             fi
         fi
 
@@ -2149,13 +2185,42 @@ if [ -d "/tmp/nw_ghost_tmp/nw_offline_pkgs" ]; then
             echo "$(date '+%F %T') [RESTORE] [DANGER] 🚨 触发智能防呆：当前系统使用 opkg，但备份胶囊中检测到不兼容的 apk 安装包！" >> "$LOG_FILE"
             echo "$(date '+%F %T') [RESTORE] [DANGER] 已自动拦截并跳过所有插件的还原，以防止底层架构损坏！请重新下载对应 ipk 版本的插件放入保险箱。" >> "$LOG_FILE"
         else
-            echo "$(date '+%F %T') [RESTORE] >>> 系统架构匹配 (opkg)，开始恢复插件..." >> "$LOG_FILE"
+            echo "$(date '+%F %T') [RESTORE] >>> 系统架构匹配 (opkg)，启动动态依赖解析引擎..." >> "$LOG_FILE"
             
-            if ls /tmp/nw_ghost_tmp/nw_offline_pkgs/*.ipk >/dev/null 2>&1; then
-                opkg install --force-reinstall --force-overwrite /tmp/nw_ghost_tmp/nw_offline_pkgs/*.ipk >> "$LOG_FILE" 2>&1
-            fi
-            if ls /etc/netwiz/custom_pkgs/*.ipk >/dev/null 2>&1; then
-                opkg install --force-reinstall --force-overwrite /etc/netwiz/custom_pkgs/*.ipk >> "$LOG_FILE" 2>&1
+            # 1. 收集所有需要安装的插件包
+            ALL_PKGS=""
+            [ -d "/tmp/nw_ghost_tmp/nw_offline_pkgs" ] && ALL_PKGS="$ALL_PKGS $(ls /tmp/nw_ghost_tmp/nw_offline_pkgs/*.ipk 2>/dev/null)"
+            [ -d "/etc/netwiz/custom_pkgs" ] && ALL_PKGS="$ALL_PKGS $(ls /etc/netwiz/custom_pkgs/*.ipk 2>/dev/null)"
+            
+            if [ -n "$ALL_PKGS" ]; then
+                PENDING_PKGS="$ALL_PKGS"
+                LAST_FAIL_COUNT=-1
+                
+                # 2. 只要还有待装的包，就持续循环
+                while [ -n "$PENDING_PKGS" ]; do
+                    CUR_FAIL_COUNT=$(echo "$PENDING_PKGS" | wc -w)
+                    
+                    # 核心防呆：如果失败数量没变，说明剩下的全是 kmod 或死锁坏包，立刻跳出循环！
+                    if [ "$CUR_FAIL_COUNT" -eq "$LAST_FAIL_COUNT" ]; then
+                        echo "$(date '+%F %T') [RESTORE] ⚠️ 发现无法解决的内核冲突或死锁依赖，已彻底抛弃以下坏包: " >> "$LOG_FILE"
+                        for bad_pkg in $PENDING_PKGS; do echo "$(date '+%F %T') [RESTORE] ❌ 放弃: $(basename "$bad_pkg")" >> "$LOG_FILE"; done
+                        break
+                    fi
+                    
+                    LAST_FAIL_COUNT=$CUR_FAIL_COUNT
+                    NEXT_PENDING=""
+                    
+                    # 3. 逐个尝试安装
+                    for pkg in $PENDING_PKGS; do
+                        echo "$(date '+%F %T') [RESTORE] 尝试安装: $(basename "$pkg")" >> "$LOG_FILE"
+                        if ! opkg install --force-reinstall --force-overwrite "$pkg" >> "$LOG_FILE" 2>&1; then
+                            NEXT_PENDING="$NEXT_PENDING $pkg"
+                        fi
+                    done
+                    
+                    # 将这一轮失败的包，交给下一轮
+                    PENDING_PKGS="$NEXT_PENDING"
+                done
             fi
         fi
     fi
