@@ -1,0 +1,680 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Project-Id-Version: luci-app-photondns\n"
+"Language: zh_Hans\n"
+
+msgid "photondns"
+msgstr "photondns"
+
+msgid "Status"
+msgstr "运行状态"
+
+msgid "Basic Settings"
+msgstr "基本设置"
+
+msgid "Rules"
+msgstr "规则"
+
+msgid "Logs"
+msgstr "日志"
+
+msgid "photondns Status"
+msgstr "photondns 运行状态"
+
+msgid "photondns Rules"
+msgstr "photondns 规则"
+
+msgid "photondns Logs"
+msgstr "photondns 日志"
+
+msgid "High-performance Rust DNS forwarder with caching and adaptive multi-path failover."
+msgstr "高性能 Rust DNS 转发器，内置缓存与自适应多路故障转移。"
+
+msgid "High-performance DNS forwarder written in Rust: configurable cache, serve-stale, prefetch, and adaptive failover that races multiple upstreams (UDP/TCP/DoT/DoH) and takes the fastest answer."
+msgstr "使用 Rust 编写的高性能 DNS 转发器：可配置缓存、过期应答（serve-stale）、预取，以及自适应故障转移——并发竞速多个上游（UDP/TCP/DoT/DoH），采用最快的应答。"
+
+msgid "RUNNING"
+msgstr "运行中"
+
+msgid "NOT RUNNING"
+msgstr "未运行"
+
+msgid "Collecting data..."
+msgstr "正在收集数据..."
+
+msgid "photondns is not running (or the API is unreachable). Enable and start it from Basic Settings."
+msgstr "photondns 未运行（或 API 无法访问）。请在基本设置中启用并启动。"
+
+msgid "Service"
+msgstr "服务"
+
+msgid "Version"
+msgstr "版本"
+
+msgid "Uptime"
+msgstr "运行时间"
+
+msgid "Queries/min"
+msgstr "每分钟查询数"
+
+msgid "Queries"
+msgstr "查询"
+
+msgid "Total"
+msgstr "总计"
+
+msgid "UDP / TCP"
+msgstr "UDP / TCP"
+
+msgid "Blocked"
+msgstr "已拦截"
+
+msgid "Hosts / Redirected"
+msgstr "Hosts / 重定向"
+
+msgid "Hedged (failover races)"
+msgstr "对冲请求（故障转移竞速）"
+
+msgid "SERVFAIL"
+msgstr "SERVFAIL"
+
+msgid "Cache"
+msgstr "缓存"
+
+msgid "Entries"
+msgstr "条目数"
+
+msgid "Hit rate"
+msgstr "命中率"
+
+msgid "Hits / Misses"
+msgstr "命中 / 未命中"
+
+msgid "Stale served"
+msgstr "过期应答次数"
+
+msgid "Prefetches"
+msgstr "预取次数"
+
+msgid "Evictions"
+msgstr "淘汰次数"
+
+msgid "Upstream Servers"
+msgstr "上游服务器"
+
+msgid "Group"
+msgstr "分组"
+
+msgid "Upstream"
+msgstr "上游"
+
+msgid "State"
+msgstr "状态"
+
+msgid "Latency (EWMA)"
+msgstr "延迟（EWMA）"
+
+msgid "Last RTT"
+msgstr "最近 RTT"
+
+msgid "OK"
+msgstr "成功"
+
+msgid "Fail"
+msgstr "失败"
+
+msgid "Outages"
+msgstr "掉线次数"
+
+msgid "UP"
+msgstr "正常"
+
+msgid "DOWN"
+msgstr "宕机"
+
+msgid "Flush DNS Cache"
+msgstr "清空 DNS 缓存"
+
+msgid "DNS cache flushed."
+msgstr "DNS 缓存已清空。"
+
+msgid "Flush failed, is photondns running?"
+msgstr "清空失败，photondns 是否在运行？"
+
+msgid "Basic Options"
+msgstr "基本选项"
+
+msgid "Upstreams"
+msgstr "上游"
+
+msgid "Failover"
+msgstr "故障转移"
+
+msgid "Enabled"
+msgstr "启用"
+
+msgid "Listen Address"
+msgstr "监听地址"
+
+msgid "Listen Port"
+msgstr "监听端口"
+
+msgid "Log Level"
+msgstr "日志等级"
+
+msgid "Debug"
+msgstr "调试"
+
+msgid "Info"
+msgstr "信息"
+
+msgid "Warning"
+msgstr "警告"
+
+msgid "Error"
+msgstr "错误"
+
+msgid "Log File"
+msgstr "日志文件"
+
+msgid "API Port"
+msgstr "API 端口"
+
+msgid "Local HTTP API for statistics and cache control (127.0.0.1 only)"
+msgstr "本地 HTTP API，用于统计与缓存控制（仅 127.0.0.1）"
+
+msgid "DNS Forward"
+msgstr "DNS 转发"
+
+msgid "Forward dnsmasq DNS resolution requests to photondns"
+msgstr "将 dnsmasq 的域名解析请求转发给 photondns"
+
+msgid "DNS Redirect (Hijack)"
+msgstr "DNS 重定向（劫持）"
+
+msgid "Force redirect all LAN DNS queries (UDP port 53) to photondns via firewall"
+msgstr "通过防火墙将局域网所有 DNS 查询（UDP 53 端口）强制重定向到 photondns"
+
+msgid "Disable RR Type 65 (HTTPS/SVCB)"
+msgstr "禁用 Type 65 记录（HTTPS/SVCB）"
+
+msgid "Answer HTTPS/SVCB queries with NXDOMAIN, forcing clients onto plain A/AAAA records"
+msgstr "对 HTTPS/SVCB 查询返回 NXDOMAIN，强制客户端仅使用 A/AAAA 记录"
+
+msgid "Routing mode"
+msgstr "分流模式"
+
+msgid "Split mode resolves mainland-China domains (dnsmasq-china-list, ~70k entries) via the China DNS group and everything else via the overseas group"
+msgstr "分流模式下，中国大陆域名（dnsmasq-china-list，约 7 万条）由国内 DNS 分组解析，其余域名走国外分组"
+
+msgid "China / overseas split DNS (recommended)"
+msgstr "国内/国外分流（推荐）"
+
+msgid "Single group - all domains use the same servers"
+msgstr "单一分组——所有域名使用同一组服务器"
+
+msgid "China DNS servers"
+msgstr "国内 DNS 服务器"
+
+msgid "Used for mainland-China domains and the Local Domains rule file"
+msgstr "用于解析中国大陆域名及\"本地域名\"规则文件中的域名"
+
+msgid "Overseas DNS servers"
+msgstr "国外 DNS 服务器"
+
+msgid "Used for all other domains (all domains in single-group mode). Formats: 1.2.3.4, udp://host, tcp://host, tls://host (DoT), https://host/dns-query (DoH)"
+msgstr "用于解析其余所有域名（单一分组模式下为全部域名）。格式：1.2.3.4、udp://主机、tcp://主机、tls://主机（DoT）、https://主机/dns-query（DoH）"
+
+msgid "Cloudflare (TCP)"
+msgstr "Cloudflare（TCP）"
+
+msgid "Google (TCP)"
+msgstr "Google（TCP）"
+
+msgid "Failover & Advanced"
+msgstr "故障切换与高级"
+
+msgid "Formats: 1.2.3.4, udp://host, tcp://host, tls://host (DoT), https://host/dns-query (DoH)"
+msgstr "支持格式：1.2.3.4、udp://主机、tcp://主机、tls://主机（DoT）、https://主机/dns-query（DoH）"
+
+msgid "Backup DNS servers"
+msgstr "备用 DNS 服务器"
+
+msgid "Only used when primary servers fail; also raced as a last hedge candidate"
+msgstr "仅在主服务器故障时使用；同时作为最后的对冲竞速候选"
+
+msgid "Local-domain DNS servers"
+msgstr "本地域名 DNS 服务器"
+
+msgid "Bootstrap DNS"
+msgstr "Bootstrap DNS"
+
+msgid "Plain DNS server used to resolve DoT/DoH hostnames"
+msgstr "用于解析 DoT/DoH 服务器域名的普通 DNS 服务器"
+
+msgid "Disable TLS verification"
+msgstr "禁用 TLS 证书校验"
+
+msgid "Skip DoT/DoH certificate validation (useful if the system clock/CA store is broken)"
+msgstr "跳过 DoT/DoH 证书校验（系统时间或 CA 证书异常时可用）"
+
+msgid "Connection idle timeout (s)"
+msgstr "连接空闲超时（秒）"
+
+msgid "How long pooled TCP/DoT/DoH connections stay open"
+msgstr "TCP/DoT/DoH 连接池中连接的保持时间"
+
+msgid "Strategy"
+msgstr "策略"
+
+msgid "race: hedged racing, best latency (recommended). fastest: always lowest-latency upstream. parallel: ask all at once. sequential: strict configured order. random: uniform spread."
+msgstr "race：对冲竞速，延迟最优（推荐）。fastest：始终选择延迟最低的上游。parallel：同时查询全部上游。sequential：严格按配置顺序。random：随机分配。"
+
+msgid "race (adaptive hedging)"
+msgstr "race（自适应对冲）"
+
+msgid "fastest (lowest EWMA)"
+msgstr "fastest（EWMA 延迟最低）"
+
+msgid "parallel (all at once)"
+msgstr "parallel（全部并发）"
+
+msgid "sequential (ordered)"
+msgstr "sequential（按顺序）"
+
+msgid "random"
+msgstr "random（随机）"
+
+msgid "Max hedge delay (ms)"
+msgstr "最大对冲延迟（毫秒）"
+
+msgid "Upper bound before racing the next upstream; actual delay adapts to ~2x the best upstream latency"
+msgstr "向下一个上游发起竞速前的等待上限；实际延迟自适应为最优上游延迟的约 2 倍"
+
+msgid "Query timeout (ms)"
+msgstr "查询超时（毫秒）"
+
+msgid "Health check interval (s)"
+msgstr "健康检查间隔（秒）"
+
+msgid "Active probes keep latency stats fresh and detect dead upstreams even when idle"
+msgstr "主动探测保持延迟统计新鲜，即使空闲时也能发现失效上游"
+
+msgid "Health check domain"
+msgstr "健康检查域名"
+
+msgid "Failure threshold"
+msgstr "故障阈值"
+
+msgid "Consecutive failures before an upstream is taken out of rotation"
+msgstr "连续失败多少次后将上游移出轮换"
+
+msgid "Recovery threshold"
+msgstr "恢复阈值"
+
+msgid "Consecutive successes before a down upstream is restored"
+msgstr "连续成功多少次后恢复已宕机的上游"
+
+msgid "Cooldown (s)"
+msgstr "冷却时间（秒）"
+
+msgid "How long a down upstream is excluded before a half-open retry"
+msgstr "宕机上游被排除多久后进行半开重试"
+
+msgid "Enable DNS cache"
+msgstr "启用 DNS 缓存"
+
+msgid "Cache size (entries)"
+msgstr "缓存大小（条目数）"
+
+msgid "Maximum number of cached responses (sharded LRU)"
+msgstr "缓存应答的最大数量（分片 LRU）"
+
+msgid "Minimum TTL (s)"
+msgstr "最小 TTL（秒）"
+
+msgid "Raise very low TTLs to this value; 0 = no change"
+msgstr "将过低的 TTL 提升到该值；0 = 不修改"
+
+msgid "Maximum TTL (s)"
+msgstr "最大 TTL（秒）"
+
+msgid "Cap TTLs at this value; 0 = no cap"
+msgstr "将 TTL 限制在该值以内；0 = 不限制"
+
+msgid "Negative cache TTL (s)"
+msgstr "负缓存 TTL（秒）"
+
+msgid "How long NXDOMAIN / empty answers are cached"
+msgstr "NXDOMAIN / 空应答的缓存时长"
+
+msgid "Serve stale (lazy cache)"
+msgstr "过期应答（惰性缓存）"
+
+msgid "Answer instantly from expired entries and refresh in the background - also keeps DNS working when all upstreams are down"
+msgstr "立即用已过期条目应答并在后台刷新——所有上游宕机时 DNS 仍可用"
+
+msgid "Stale lifetime (s)"
+msgstr "过期条目保留时间（秒）"
+
+msgid "How long past expiry an entry may still be served"
+msgstr "条目过期后仍可被应答的时长"
+
+msgid "Prefetch popular entries"
+msgstr "预取热门条目"
+
+msgid "Refresh frequently used entries shortly before they expire, so they never go stale"
+msgstr "在到期前主动刷新高频条目，使其永不过期"
+
+msgid "Persist cache to disk"
+msgstr "缓存持久化"
+
+msgid "Save the cache on shutdown and periodically; restore it on startup"
+msgstr "关闭时及定期保存缓存；启动时恢复"
+
+msgid "Cache save interval (s)"
+msgstr "缓存保存间隔（秒）"
+
+msgid "Rule files are applied on service restart."
+msgstr "规则文件在服务重启后生效。"
+
+msgid "Hosts"
+msgstr "Hosts"
+
+msgid "Static host records: \"<name> <ip> [ip...]\" per line. Answers A/AAAA locally."
+msgstr "静态主机记录：每行 \"<域名> <IP> [IP...]\"，本地应答 A/AAAA。"
+
+msgid "Block List"
+msgstr "拦截列表"
+
+msgid "Domains answered with NXDOMAIN. \"example.com\" blocks all subdomains, \"full:example.com\" exact only."
+msgstr "返回 NXDOMAIN 的域名。\"example.com\" 拦截自身及所有子域名，\"full:example.com\" 仅精确匹配。"
+
+msgid "Local Domains"
+msgstr "本地域名"
+
+msgid "Domains resolved by the \"local\" upstream group (configure Local-domain DNS servers first)."
+msgstr "由 \"local\" 上游分组解析的域名（需先配置本地域名 DNS 服务器）。"
+
+msgid "Redirect"
+msgstr "重定向"
+
+msgid "\"<from-domain> <to-domain>\" per line: answer queries for from-domain with the records of to-domain."
+msgstr "每行 \"<源域名> <目标域名>\"：用目标域名的记录应答对源域名的查询。"
+
+msgid "Rules saved and photondns restarted."
+msgstr "规则已保存，photondns 已重启。"
+
+msgid "Clear Log"
+msgstr "清空日志"
+
+msgid "Log cleared."
+msgstr "日志已清空。"
+
+msgid "(empty)"
+msgstr "（空）"
+
+msgid "China Domain List"
+msgstr "国内域名列表"
+
+msgid "Current list"
+msgstr "当前列表"
+
+msgid "List file"
+msgstr "列表文件"
+
+msgid "Update Now"
+msgstr "立即更新"
+
+msgid "Download Now"
+msgstr "立即下载"
+
+msgid "Download failed - check the log on the List Updates page."
+msgstr "下载失败——请在\"列表更新\"页面查看日志。"
+
+msgid "Updating..."
+msgstr "正在更新..."
+
+msgid "not downloaded yet"
+msgstr "尚未下载"
+
+msgid "Update failed to start: %s"
+msgstr "更新启动失败：%s"
+
+msgid "China list status"
+msgstr "国内域名列表状态"
+
+msgid "%d domains, updated %s"
+msgstr "%d 个域名，更新于 %s"
+
+msgid "Query Log"
+msgstr "查询日志"
+
+msgid "Live view of recent DNS queries: which client asked, how each query was answered (cache, hosts, blocked, or the upstream group and server that won the race) and how long it took. Kept in memory only."
+msgstr "实时查看最近的 DNS 查询：哪个客户端发起、如何应答（缓存、hosts、拦截，或竞速获胜的上游分组与服务器）以及耗时。仅保存在内存中。"
+
+msgid "Time"
+msgstr "时间"
+
+msgid "Client"
+msgstr "客户端"
+
+msgid "Domain"
+msgstr "域名"
+
+msgid "Type"
+msgstr "类型"
+
+msgid "Route"
+msgstr "路由"
+
+msgid "Time (ms)"
+msgstr "耗时（毫秒）"
+
+msgid "(no entries)"
+msgstr "（无记录）"
+
+msgid "Filter by domain / client / route..."
+msgstr "按域名 / 客户端 / 路由过滤..."
+
+msgid "photondns is not running (or the query log is disabled)."
+msgstr "photondns 未运行（或查询日志已禁用）。"
+
+msgid "Query log size"
+msgstr "查询日志条数"
+
+msgid "Number of recent queries kept in memory for the Query Log page; 0 disables it"
+msgstr "内存中保留的最近查询数量，供查询日志页面使用；0 表示禁用"
+
+msgid "List Updates"
+msgstr "列表更新"
+
+msgid "Manually download or refresh the domain lists, fetched via CN-friendly mirrors. Enable the corresponding features in Basic Settings to use them."
+msgstr "手动下载或更新域名列表（优先使用国内镜像）。需在基本设置中启用对应功能后生效。"
+
+msgid "Mainland-China domains routed to the Local-domain DNS group (split DNS). Source: felixonmars/dnsmasq-china-list."
+msgstr "路由到本地域名 DNS 分组的中国大陆域名（分流解析）。数据源：felixonmars/dnsmasq-china-list。"
+
+msgid "Ad Block Lists"
+msgstr "广告拦截列表"
+
+msgid "Advertising / tracker domains answered with NXDOMAIN. Sources are configured in Basic Settings (default: anti-AD)."
+msgstr "对广告 / 跟踪域名返回 NXDOMAIN。数据源在基本设置中配置（默认：anti-AD）。"
+
+msgid "Update started in the background."
+msgstr "更新已在后台开始。"
+
+msgid "%s: %d domains."
+msgstr "%s：%d 个域名。"
+
+msgid "Ad Block"
+msgstr "广告拦截"
+
+msgid "Enable DNS ad blocking"
+msgstr "启用 DNS 广告拦截"
+
+msgid "Answer known advertising / tracker domains with NXDOMAIN"
+msgstr "对已知广告 / 跟踪域名返回 NXDOMAIN"
+
+msgid "Ad list sources"
+msgstr "广告列表数据源"
+
+msgid "Plain domain lists, mosdns domain:/full: lists or hosts-format files, one URL per entry"
+msgstr "支持纯域名列表、mosdns domain:/full: 格式列表或 hosts 格式文件，每条一个 URL"
+
+msgid "Ad list status"
+msgstr "广告列表状态"
+
+msgid "Auto-update lists"
+msgstr "自动更新列表"
+
+msgid "Refresh the enabled China / ad-block lists on a schedule (cron)"
+msgstr "按计划（cron）自动刷新已启用的国内域名 / 广告拦截列表"
+
+msgid "Update day"
+msgstr "更新日"
+
+msgid "Every day"
+msgstr "每天"
+
+msgid "Sunday"
+msgstr "周日"
+
+msgid "Monday"
+msgstr "周一"
+
+msgid "Tuesday"
+msgstr "周二"
+
+msgid "Wednesday"
+msgstr "周三"
+
+msgid "Thursday"
+msgstr "周四"
+
+msgid "Friday"
+msgstr "周五"
+
+msgid "Saturday"
+msgstr "周六"
+
+msgid "Update hour (0-23)"
+msgstr "更新时间（0-23 点）"
+
+msgid "AliDNS (UDP 223.5.5.5)"
+msgstr "阿里 DNS（UDP 223.5.5.5）"
+
+msgid "Tencent DNSPod (UDP 119.29.29.29)"
+msgstr "腾讯 DNSPod（UDP 119.29.29.29）"
+
+msgid "114DNS (UDP)"
+msgstr "114DNS（UDP）"
+
+msgid "AliDNS (DoT)"
+msgstr "阿里 DNS（DoT）"
+
+msgid "DNSPod (DoT)"
+msgstr "腾讯 DNSPod（DoT）"
+
+msgid "Google (DoT)"
+msgstr "谷歌（DoT）"
+
+msgid "Cloudflare (DoT)"
+msgstr "Cloudflare（DoT）"
+
+msgid "Google (DoH)"
+msgstr "谷歌（DoH）"
+
+msgid "Quad9 (UDP)"
+msgstr "Quad9（UDP）"
+
+msgid "131072 (~50 MB)"
+msgstr "131072（约 50 MB）"
+
+msgid "16384 (~6 MB)"
+msgstr "16384（约 6 MB）"
+
+msgid "262144 (~100 MB)"
+msgstr "262144（约 100 MB）"
+
+msgid "32768 (~13 MB)"
+msgstr "32768（约 13 MB）"
+
+msgid "65536 (~25 MB)"
+msgstr "65536（约 25 MB）"
+
+msgid "8192 (~3 MB)"
+msgstr "8192（约 3 MB）"
+
+msgid "Could not change service state."
+msgstr "无法更改服务状态。"
+
+msgid "Could not change service state: "
+msgstr "无法更改服务状态："
+
+msgid "DoH Path"
+msgstr "DoH 路径"
+
+msgid "DoH Port"
+msgstr "DoH 端口"
+
+msgid "DoH Server"
+msgstr "DoH 服务器"
+
+msgid "DoH TLS Certificate"
+msgstr "DoH TLS 证书"
+
+msgid "DoH TLS Key"
+msgstr "DoH TLS 私钥"
+
+msgid "Listen on TCP"
+msgstr "监听 TCP"
+
+msgid "Listen on UDP"
+msgstr "监听 UDP"
+
+msgid "Loading..."
+msgstr "加载中..."
+
+msgid "Maximum number of cached responses (sharded LRU). RAM shown is the ceiling when the cache is fully populated (~400 B/entry); actual use grows lazily."
+msgstr "缓存应答的最大条数（分片 LRU）。所示内存为缓存全满时的上限（每条约 400 B）；实际占用按需增长。"
+
+msgid "Path to a PEM certificate chain; leave empty when behind a reverse proxy"
+msgstr "PEM 证书链路径；置于反向代理之后时留空"
+
+msgid "Path to the PEM private key"
+msgstr "PEM 私钥路径"
+
+msgid "Serve DNS over TCP on the listen port (needed for large answers)"
+msgstr "在监听端口上提供 TCP DNS 服务（大应答需要）"
+
+msgid "Serve DNS-over-HTTPS (RFC 8484) on the DoH port. Runs plain HTTP unless a certificate is set below - put a TLS reverse proxy (Caddy/nginx) in front, or set cert + key to serve HTTPS directly"
+msgstr "在 DoH 端口上提供 DNS-over-HTTPS（RFC 8484）服务。未在下方设置证书时仅提供明文 HTTP——可在前端部署 TLS 反向代理（Caddy/nginx），或设置证书和私钥以直接提供 HTTPS"
+
+msgid "Serve classic DNS over UDP on the listen port"
+msgstr "在监听端口上提供传统 UDP DNS 服务"
+
+msgid "Service disabled"
+msgstr "服务已禁用"
+
+msgid "Service enabled"
+msgstr "服务已启用"
+
+msgid "Turn Off"
+msgstr "关闭"
+
+msgid "Turn On"
+msgstr "开启"
+
+msgid "Update failed to start:"
+msgstr "更新启动失败："
+
+msgid "domains, updated"
+msgstr "个域名，更新于"
+
+msgid "photondns started."
+msgstr "photondns 已启动。"
+
+msgid "photondns stopped."
+msgstr "photondns 已停止。"

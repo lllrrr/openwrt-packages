@@ -1,0 +1,246 @@
+#!/usr/bin/env ucode
+
+'use strict';
+
+import { popen, writefile, stat, readfile } from 'fs';
+import { cursor } from 'uci';
+
+function exec_sys(cmd) {
+	let p = popen(cmd + " 2>&1", "r");
+	if (!p) return { code: -1, stdout: "" };
+	let stdout = p.read("all");
+	let code = p.close();
+	if (type(stdout) == 'string') {
+		stdout = replace(stdout, /^\s+|\s+$/g, '');
+	}
+	return { code: code, stdout: stdout || "" };
+}
+
+function api_port() {
+	let c = cursor();
+	c.load('photondns');
+	return c.get('photondns', 'main', 'api_port') || '8053';
+}
+
+function api_get(path) {
+	let port = api_port();
+	let url = `http://127.0.0.1:${port}${path}`;
+	let res = exec_sys(`curl -s --max-time 3 '${url}' || uclient-fetch -q -O - -T 3 '${url}'`);
+	return res;
+}
+
+function logfile_path() {
+	let c = cursor();
+	c.load('photondns');
+	return c.get('photondns', 'main', 'log_file') || '/var/log/photondns.log';
+}
+
+const methods = {
+	stats: {
+		call: function() {
+			try {
+				let res = api_get('/stats');
+				if (res.code === 0 && length(res.stdout) > 0) {
+					return { running: true, raw: res.stdout };
+				}
+				return { running: false, raw: "" };
+			} catch (e) {
+				return { running: false, error: String(e) };
+			}
+		}
+	},
+
+	flush_cache: {
+		call: function() {
+			try {
+				let res = api_get('/flush');
+				if (res.code === 0 && length(res.stdout) > 0) {
+					return { success: true, raw: res.stdout };
+				}
+				return { success: false, error: res.stdout };
+			} catch (e) {
+				return { success: false, error: String(e) };
+			}
+		}
+	},
+
+	get_version: {
+		call: function() {
+			let res = exec_sys('photondns -V');
+			if (res.code === 0) {
+				return { version: res.stdout };
+			}
+			return { error: res.stdout };
+		}
+	},
+
+	print_log: {
+		call: function() {
+			try {
+				let path = logfile_path();
+				if (path && stat(path)) {
+					let content = readfile(path);
+					// return at most the last ~200KB to keep the UI snappy
+					if (length(content) > 204800) {
+						content = substr(content, length(content) - 204800);
+					}
+					return { log: content };
+				}
+				return { log: '' };
+			} catch (e) {
+				return { error: String(e) };
+			}
+		}
+	},
+
+	update_chinalist: {
+		call: function() {
+			try {
+				if (stat('/var/lock/photondns-chinalist.lock')) {
+					return { success: false, error: 'Another update is already in progress.' };
+				}
+				exec_sys('/usr/bin/photondns-chinalist > /var/log/photondns-chinalist.log 2>&1 &');
+				return { success: true };
+			} catch (e) {
+				return { success: false, error: String(e) };
+			}
+		}
+	},
+
+	chinalist_status: {
+		call: function() {
+			try {
+				let s = stat('/etc/photondns/china_list.txt');
+				let count = 0;
+				if (s) {
+					let res = exec_sys('wc -l < /etc/photondns/china_list.txt');
+					count = int(res.stdout) || 0;
+				}
+				let log = '';
+				if (stat('/var/log/photondns-chinalist.log')) {
+					log = readfile('/var/log/photondns-chinalist.log');
+				}
+				return {
+					exists: s ? true : false,
+					domains: count,
+					mtime: s ? s.mtime : 0,
+					updating: stat('/var/lock/photondns-chinalist.lock') ? true : false,
+					log: log
+				};
+			} catch (e) {
+				return { error: String(e) };
+			}
+		}
+	},
+
+	update_adlist: {
+		call: function() {
+			try {
+				if (stat('/var/lock/photondns-adlist.lock')) {
+					return { success: false, error: 'Another update is already in progress.' };
+				}
+				exec_sys('/usr/bin/photondns-adlist > /var/log/photondns-adlist.log 2>&1 &');
+				return { success: true };
+			} catch (e) {
+				return { success: false, error: String(e) };
+			}
+		}
+	},
+
+	adlist_status: {
+		call: function() {
+			try {
+				let s = stat('/etc/photondns/ad_list.txt');
+				let count = 0;
+				if (s) {
+					let res = exec_sys('wc -l < /etc/photondns/ad_list.txt');
+					count = int(res.stdout) || 0;
+				}
+				let log = '';
+				if (stat('/var/log/photondns-adlist.log')) {
+					log = readfile('/var/log/photondns-adlist.log');
+				}
+				return {
+					exists: s ? true : false,
+					domains: count,
+					mtime: s ? s.mtime : 0,
+					updating: stat('/var/lock/photondns-adlist.lock') ? true : false,
+					log: log
+				};
+			} catch (e) {
+				return { error: String(e) };
+			}
+		}
+	},
+
+	query_log: {
+		call: function() {
+			try {
+				let res = api_get('/log?n=500');
+				if (res.code === 0 && length(res.stdout) > 0) {
+					return { running: true, raw: res.stdout };
+				}
+				return { running: false, raw: "" };
+			} catch (e) {
+				return { running: false, error: String(e) };
+			}
+		}
+	},
+
+	clean_log: {
+		call: function() {
+			try {
+				let path = logfile_path();
+				if (path) {
+					writefile(path, '');
+					return { success: true };
+				}
+				return { error: 'Log file path could not be determined.' };
+			} catch (e) {
+				return { error: String(e) };
+			}
+		}
+	},
+
+	// Read the persistent on/off switch (uci enabled) plus whether the
+	// daemon is actually answering on its API right now.
+	service_state: {
+		call: function() {
+			try {
+				let c = cursor();
+				c.load('photondns');
+				let enabled = (c.get('photondns', 'main', 'enabled') == '1');
+				let res = api_get('/health');
+				let running = (res.code === 0 && length(res.stdout) > 0);
+				return { enabled: enabled, running: running };
+			} catch (e) {
+				return { error: String(e) };
+			}
+		}
+	},
+
+	// Persistent on/off: set uci enabled, commit, then start or stop the
+	// service so the change takes effect immediately and survives reboot.
+	service_toggle: {
+		args: { enable: false },
+		call: function(req) {
+			try {
+				let on = req.args ? req.args.enable : false;
+				let c = cursor();
+				c.load('photondns');
+				c.set('photondns', 'main', 'enabled', on ? '1' : '0');
+				c.commit('photondns');
+				if (on) {
+					exec_sys('/etc/init.d/photondns enable; /etc/init.d/photondns restart');
+				} else {
+					exec_sys('/etc/init.d/photondns stop; /etc/init.d/photondns disable');
+				}
+				return { success: true, enabled: on ? true : false };
+			} catch (e) {
+				return { success: false, error: String(e) };
+			}
+		}
+	}
+};
+
+return { 'luci.photondns': methods };

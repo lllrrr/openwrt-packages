@@ -20,7 +20,7 @@ return view.extend({
         E(
           "a",
           {
-            href: "https://github.com/mokanove/luci-app-pm",
+            href: "https://github.com/morouter/luci-app-pm",
             target: "_blank",
             rel: "noreferrer noopener",
             style: "color: #007bff; text-decoration: none; margin-left: 5px;",
