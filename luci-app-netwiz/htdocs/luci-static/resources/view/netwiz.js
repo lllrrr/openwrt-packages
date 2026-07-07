@@ -527,7 +527,7 @@ var T = {
     'MSG_WOG_LINK_V6': _('IPv6 Master Switch'),
     'MSG_WOG_LINK_WAN': _('Allow WAN Access to Web UI'),
     'MSG_SEC_NOTICE': _('Security Notice'),
-    'MSG_WOG_OFF_WAN': _('You have disabled WAN access. To ensure the firewall is completely closed, the IPv6 Watchdog has been automatically disabled.'),
+    'MSG_WOG_OFF_WAN': _('WAN access is about to be closed. To ensure complete firewall protection, the system will simultaneously disable the IPv6 Watchdog mechanism.'),
     'MSG_DEP_NOTICE': _('Dependency Notice'),
     'MSG_WOG_OFF_V6_ALL': _('You have disabled IPv6. To ensure security, the dependent IPv6 Watchdog and WAN Access will be automatically disabled.'),
     'ERR_EMPTY_URL': _('Probe URL cannot be empty, please fill it in before saving!'),
@@ -1691,7 +1691,7 @@ return view.extend({
                                 var needsPrompt = false;
                                 var promptHtml = '<div style="font-size:14px; line-height:1.6; color:#334155; text-align:left; padding: 5px;">' +
                                                  '<div style="margin-bottom: 12px; font-weight: bold; color: #0284c7;">' +
-                                                 (T['MSG_WOG_LINKAGE'] || "To ensure the probe works correctly, the following dependent features have been automatically enabled") + '：</div>';
+                                                 (T['MSG_WOG_LINKAGE'] || "To ensure the probe works correctly, the following dependent features have been automatically enabled") + '</div>';
 
                                 if (ipv6Checkbox && !ipv6Checkbox.checked) {
                                     ipv6Checkbox.checked = true;
@@ -2115,17 +2115,33 @@ return view.extend({
                     if (isWogEn === '1') {
                         openModal({
                             title: '⚠️ ' + (T['MSG_SEC_NOTICE'] || 'Security Notice'),
-                            msg: '<div style="font-size:14.5px; color:#ef4444; font-weight:bold; line-height:1.6; padding:10px 0;">' + 
-                                 (T['MSG_WOG_OFF_WAN'] || 'You have disabled WAN access. To ensure the firewall is completely closed, the IPv6 Watchdog has been automatically disabled.') + 
+                            msg: '<div style="font-size:14.5px; color:#ef4444; font-weight:bold; line-height:1.6; padding:10px 0;">' +
+                                 (T['MSG_WOG_OFF_WAN'] || 'WAN access is about to be closed. To ensure complete firewall protection, the system will simultaneously disable the IPv6 Watchdog mechanism.') +
                                  '</div>',
                             okText: T['BTN_OK'] || 'OK',
+
+                            // 关闭按钮
+                            cancelText: T['BTN_CANCEL'] || 'CANCEL',
+
                             onOk: function() {
                                 // 先强制隐藏当前警告弹窗
                                 var gm = document.getElementById('nw-global-modal');
                                 if (gm) gm.style.display = 'none';
-                                
+
                                 // 稍微延迟 50 毫秒，等 DOM 销毁后再呼出正在保存的动画
                                 setTimeout(function() { proceedSave(); }, 50);
+                            },
+
+                            // 点击关闭时的回退逻辑
+                            onCancel: function() {
+                                // 1. 先隐藏警告弹窗
+                                var gm = document.getElementById('nw-global-modal');
+                                if (gm) gm.style.display = 'none';
+                                
+                                // 2. 用户放弃关闭外网访问，将开关重新拨回“开启”状态
+                                if (webTog) {
+                                    webTog.checked = true;
+                                }
                             }
                         });
                         var gm = document.getElementById('nw-global-modal'); if (gm) gm.style.zIndex = '100000';
