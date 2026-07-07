@@ -360,19 +360,26 @@ o.datatype = "and(uinteger,min(0))"
 o.default = "86400"
 o:depends("serve_stale", "1")
 
+o = s:taboption("cache", Value, "stale_client_ttl", translate("Stale answer TTL (s)"),
+	translate("TTL stamped on stale answers so clients can cache them briefly; RFC 8767 recommends 30"))
+o.datatype = "and(uinteger,min(1),max(600))"
+o.default = "30"
+o:depends("serve_stale", "1")
+
 o = s:taboption("cache", Flag, "prefetch", translate("Prefetch popular entries"),
 	translate("Refresh frequently used entries shortly before they expire, so they never go stale"))
 o.default = "1"
 o:depends("cache", "1")
 
 o = s:taboption("cache", Flag, "dump_cache", translate("Persist cache to disk"),
-	translate("Save the cache on shutdown and periodically; restore it on startup"))
+	translate("Save the cache on shutdown (and optionally at intervals); restore it on startup"))
 o.default = "1"
 o:depends("cache", "1")
 
-o = s:taboption("cache", Value, "dump_interval", translate("Cache save interval (s)"))
-o.datatype = "and(uinteger,min(60))"
-o.default = "3600"
+o = s:taboption("cache", Value, "dump_interval", translate("Cache save interval (s)"),
+	translate("0 = save only on shutdown (spares flash wear); otherwise dump every N seconds"))
+o.datatype = "and(uinteger,min(0))"
+o.default = "0"
 o:depends("dump_cache", "1")
 
 function m.on_after_commit(self)

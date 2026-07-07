@@ -408,19 +408,26 @@ return view.extend({
 		o.default = '86400';
 		o.depends('serve_stale', '1');
 
+		o = s.taboption('cache', form.Value, 'stale_client_ttl', _('Stale answer TTL (s)'),
+			_('TTL stamped on stale answers so clients can cache them briefly; RFC 8767 recommends 30'));
+		o.datatype = 'and(uinteger,min(1),max(600))';
+		o.default = '30';
+		o.depends('serve_stale', '1');
+
 		o = s.taboption('cache', form.Flag, 'prefetch', _('Prefetch popular entries'),
 			_('Refresh frequently used entries shortly before they expire, so they never go stale'));
 		o.default = true;
 		o.depends('cache', '1');
 
 		o = s.taboption('cache', form.Flag, 'dump_cache', _('Persist cache to disk'),
-			_('Save the cache on shutdown and periodically; restore it on startup'));
+			_('Save the cache on shutdown (and optionally at intervals); restore it on startup'));
 		o.default = true;
 		o.depends('cache', '1');
 
-		o = s.taboption('cache', form.Value, 'dump_interval', _('Cache save interval (s)'));
-		o.datatype = 'and(uinteger,min(60))';
-		o.default = '3600';
+		o = s.taboption('cache', form.Value, 'dump_interval', _('Cache save interval (s)'),
+			_('0 = save only on shutdown (spares flash wear); otherwise dump every N seconds'));
+		o.datatype = 'and(uinteger,min(0))';
+		o.default = '0';
 		o.depends('dump_cache', '1');
 
 		return m.render();
