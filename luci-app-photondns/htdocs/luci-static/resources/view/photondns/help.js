@@ -201,6 +201,29 @@ var HELP = [
 		}
 	},
 	{
+		id: 'ipv6',
+		en: {
+			title: 'IPv6 (AAAA) handling',
+			body: [
+				'Devices ask for a name in two flavors at once: A (IPv4) and AAAA (IPv6). They then pick whichever connects fastest ("Happy Eyeballs"). If your IPv6 path is slow or unreliable, connections can stall while a device tries IPv6 first. The "IPv6 (AAAA) handling" setting lets photondns steer clients onto IPv4.',
+				'Allow (default) - answer AAAA normally; no interference.',
+				'Block if IPv4 exists - return an empty IPv6 answer only for names that also have an IPv4 address, so the client uses IPv4. Names that are IPv6-only still get their real AAAA and keep working. This is the safe choice; it costs one small IPv4 lookup per AAAA (usually already cached, so about 0 ms).',
+				'Block all IPv6 - always return an empty AAAA, forcing every client onto IPv4. Simplest and lowest-overhead, but a rare IPv6-only service would become unreachable.',
+				'Note: "empty answer" means a normal NOERROR with no address (the clean "there is no IPv6 here"), not an error - so clients fall back to IPv4 gracefully rather than seeing a failure.'
+			]
+		},
+		zh: {
+			title: 'IPv6（AAAA）处理',
+			body: [
+				'设备会同时以两种形式查询一个名字：A（IPv4）和 AAAA（IPv6），然后选用最快连上的那个（“Happy Eyeballs”）。如果你的 IPv6 链路较慢或不稳定，设备先尝试 IPv6 时连接可能会卡住。“IPv6（AAAA）处理”设置可让 photondns 引导客户端改走 IPv4。',
+				'Allow（允许，默认）—— 正常应答 AAAA，不做干预。',
+				'Block if IPv4 exists（存在 IPv4 时拦截）—— 仅对同时拥有 IPv4 地址的名字返回空的 IPv6 答案，使客户端改用 IPv4。纯 IPv6 的名字仍会拿到真实的 AAAA 并正常工作。这是稳妥之选；每次 AAAA 会附带一次很小的 IPv4 查询（通常已在缓存中，约 0 毫秒）。',
+				'Block all IPv6（全部拦截）—— 始终返回空的 AAAA，强制所有客户端走 IPv4。最简单、开销最低，但极少数纯 IPv6 服务会变得不可达。',
+				'注意：“空答案”指的是正常的 NOERROR 但不含地址（即干净地表示“这里没有 IPv6”），并非错误——因此客户端会平滑回退到 IPv4，而不会遇到失败。'
+			]
+		}
+	},
+	{
 		id: 'prefetch',
 		en: {
 			title: 'Prefetch',
@@ -252,6 +275,25 @@ var HELP = [
 			body: [
 				'“对冲（Hedging）”是上述策略背后的机制：如果当前上游在对冲延迟内没有回答，photondns 就并行发起下一个候选，并采用第一个有效回复。因此一个失效的上游只需付出一个对冲延迟的代价，而非一整个超时——这正是让故障切换“几乎无感”的原因。',
 				'“对冲延迟”设置是在 race 策略下发起对冲前的最长等待时间（它还会自适应下调至约为最快上游近期延迟的 2 倍）。在 parallel 下该延迟实际为零（同时发起）；在 sequential 下则会等待一整次尝试。'
+			]
+		}
+	},
+	{
+		id: 'prewarm',
+		en: {
+			title: 'Prewarm (keep popular domains hot)',
+			body: [
+				'The first time any name is looked up it pays the full upstream round trip (about 200 ms over the encrypted tunnel here). A page like YouTube pulls dozens of domains; on a fresh visit each cold one adds ~200 ms, which stacks into a visible delay before the page and video start.',
+				'Prewarm fixes this: photondns keeps a list of domains (default: the YouTube/Google set) permanently resolved. It resolves them at startup and again on the "Prewarm interval" (default every 50 minutes, inside the stale window), so they never fall out of cache. A real visit then hits warm entries (~2 ms) instead of cold misses.',
+				'Measured here: a cold YouTube page load dropped from ~6.3 s of DNS to ~0.1 s once its domains were prewarmed. Edit the domain list on the Rules page; disable it or change the interval in Basic Settings.'
+			]
+		},
+		zh: {
+			title: '预热（让热门域名保持“热”）',
+			body: [
+				'任何名字第一次被查询时都要承担完整的上游往返（此处经加密隧道约 200 毫秒）。像 YouTube 这样的页面会拉取数十个域名；首次访问时每个冷域名都会增加约 200 毫秒，累积起来就是页面和视频启动前的明显延迟。',
+				'预热解决了这个问题：photondns 会让一份域名列表（默认是 YouTube/Google 那组）始终保持已解析。它在启动时解析一次，并按“预热间隔”（默认每 50 分钟，处于过期窗口之内）再次刷新，使它们永不掉出缓存。这样真实访问就会命中热条目（约 2 毫秒），而非冷未命中。',
+				'实测：一次冷启动的 YouTube 页面，其 DNS 加载在预热后从约 6.3 秒降到约 0.1 秒。可在“规则”页编辑域名列表；在“基本设置”中关闭该功能或修改间隔。'
 			]
 		}
 	},
@@ -328,7 +370,9 @@ var NAV = {
 	strategy:          { en: 'Strategy',     zh: '策略' },
 	hedge:             { en: 'Hedging',      zh: '对冲' },
 	dotdoh:            { en: 'DoT/DoH',      zh: 'DoT/DoH' },
+	ipv6:              { en: 'IPv6/AAAA',    zh: 'IPv6/AAAA' },
 	prefetch:          { en: 'Prefetch',     zh: '预取' },
+	prewarm:           { en: 'Prewarm',      zh: '预热' },
 	failover:          { en: 'Failover',     zh: '故障切换' },
 	servestale_persist:{ en: 'Persist',      zh: '持久化' },
 	block:             { en: 'Blocking',     zh: '拦截' }

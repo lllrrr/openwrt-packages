@@ -168,6 +168,23 @@ o = s:taboption("basic", Flag, "reject_type65", translate("Disable RR Type 65 (H
 	translate("Answer HTTPS/SVCB queries with NXDOMAIN, forcing clients onto plain A/AAAA records"))
 o.default = "0"
 
+o = s:taboption("basic", ListValue, "aaaa_mode", translate("IPv6 (AAAA) handling"),
+	translate("Whether to answer IPv6 (AAAA) lookups. \"Block if IPv4 exists\" suppresses IPv6 only for names that also have an IPv4 address, so IPv6-only sites still work; \"Block all\" forces every client onto IPv4."))
+o:value("allow", translate("Allow (default)"))
+o:value("block_if_ipv4", translate("Block if IPv4 exists"))
+o:value("block_all", translate("Block all IPv6"))
+o.default = "allow"
+
+o = s:taboption("basic", Flag, "prewarm", translate("Prewarm popular domains"),
+	translate("Keep a list of domains (default: YouTube/Google) always resolved so a first visit is never a slow cold miss. Edit the list under Rules."))
+o.default = "1"
+
+o = s:taboption("basic", Value, "prewarm_interval", translate("Prewarm interval (s)"),
+	translate("How often to refresh the prewarm domains; keep it below the cache stale lifetime so they never fully expire. 0 = only at startup."))
+o.datatype = "and(uinteger,min(0),max(86400))"
+o.default = "3000"
+o:depends("prewarm", "1")
+
 o = s:taboption("basic", Value, "query_log_size", translate("Query log size"),
 	translate("Number of recent queries kept in memory for the Query Log page; 0 disables it"))
 o.datatype = "and(uinteger,max(65536))"
