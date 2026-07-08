@@ -10,6 +10,11 @@
 
 - 启动 OpenClaw 时自动自愈微信 npm 插件注册，补齐 `plugins.installs.openclaw-weixin`、`plugins.allow` 和 `channels.openclaw-weixin.enabled`。
 - 微信安装、升级和登录流程增加 `https://ilinkai.weixin.qq.com` 连通性检查，日志直接显示 HTTP、TLS 或 timeout 结果。
+- 兼容没有 `su` / `runuser` 的 OpenWrt 固件，微信安装、升级、登录和下线改用 `start-stop-daemon` 兜底以 `openclaw` 用户执行。
+- 微信安装网络探测优先使用 `curl`，避免低内存/精简 musl 固件上 Node `fetch` 触发 undici Wasm OOM。
+- 微信官方 CLI 安装触发 undici Wasm OOM 时，自动改用 npm 直装到 OpenClaw `npm/projects` 并继续注册插件配置。
+- 微信插件安装/升级不再预先停止 Gateway，避免反复安装触发 procd crash-loop。
+- LuCI 状态页和 `status_service` 增强 procd 状态识别，能区分真实启动中、stale pidfile 和 crash-loop 抑制，不再误显示“正在启动”。
 - 微信登录前补充 Node、python3、插件目录、账号状态目录和配置写权限检查，并清理残留登录进程与旧二维码状态。
 - 登录失败时在 LuCI 页面展示真实日志详情，不再只显示“登录失败”。
 - 二维码链接提取更稳，页面明确提示“点击链接后用微信扫码”。
@@ -34,6 +39,8 @@
 - 修复首次安装后 `doctor --fix` 可能移除 `gateway.auth.token`，导致 Gateway 绑定 LAN 时因缺少认证直接退出，页面显示“启动失败，退出码 78”。
 - `doctor --fix` 执行环境补齐 `NODE_ICU_DATA` 和 Node/OpenClaw PATH，避免部分 musl 固件上配置迁移阶段触发 ICU/Unicode 正则错误。
 - Gateway 启动时增加 `OPENCLAW_GATEWAY_TOKEN` 环境变量兜底，确保 JSON 配置被迁移工具改写后仍能使用 UCI token 启动。
+- `.run` 安装器补齐运行依赖安装，避免精简固件缺少 GNU tar 时 Node.js `.tar.xz` 解压失败。
+- `openclaw-env setup` 改为先完整解压验证 Node.js，再替换正式目录；安装失败时保留已有运行目录，避免重装失败清空 `/opt/openclaw`。
 
 ### 验证
 

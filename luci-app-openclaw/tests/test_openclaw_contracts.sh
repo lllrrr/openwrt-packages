@@ -52,6 +52,20 @@ grep -q "packageName: '@tencent-weixin/openclaw-weixin'" luasrc/controller/openc
 grep -q "channels\\['openclaw-weixin'\\].enabled = true" luasrc/controller/openclaw.lua || fail "wechat channel enable registration missing"
 grep -q "Registered openclaw-weixin npm plugin" luasrc/controller/openclaw.lua || fail "wechat install log must confirm config registration"
 grep -q "wechat_network_probe_cmd" luasrc/controller/openclaw.lua || fail "wechat network probe helper missing"
+grep -q "openclaw_user_runner_cmd" luasrc/controller/openclaw.lua || fail "wechat commands need user runner compatibility helper"
+grep -q "start-stop-daemon -S -m -p" luasrc/controller/openclaw.lua || fail "wechat commands must support OpenWrt without su"
+grep -q "command -v curl" luasrc/controller/openclaw.lua || fail "wechat network probe should prefer curl"
+grep -q "%%{http_code}" luasrc/controller/openclaw.lua || fail "wechat curl probe percent must be escaped for string.format"
+grep -q "wechat_npm_fallback_install_cmd" luasrc/controller/openclaw.lua || fail "wechat install needs npm fallback for OpenWrt Node undici OOM"
+if awk '/function action_wechat_install\(\)/,/function action_wechat_install_log\(\)/' luasrc/controller/openclaw.lua | grep -q "ensure_port_free"; then
+	fail "wechat install must not stop gateway before plugin installation"
+fi
+if awk '/function action_wechat_upgrade_plugin\(\)/,/function action_wechat_uninstall_plugin\(\)/' luasrc/controller/openclaw.lua | grep -q "ensure_port_free"; then
+	fail "wechat upgrade must not stop gateway before plugin upgrade"
+fi
+grep -q "npm install --omit=dev --omit=peer" luasrc/controller/openclaw.lua || fail "wechat npm fallback install command missing"
+grep -q "tencent-weixin-openclaw-weixin-7783ac86ba" luasrc/controller/openclaw.lua || fail "wechat npm fallback project dir missing"
+grep -q "export OC_WECHAT_DATA" luasrc/controller/openclaw.lua || fail "wechat npm fallback must export data dir into openclaw user shell"
 grep -q "compare_versions" luasrc/controller/openclaw.lua || fail "semantic version compare helper missing"
 grep -q "is_newer_version(plugin_latest, plugin_current)" luasrc/controller/openclaw.lua || fail "plugin update check must not treat newer local versions as upgradeable"
 grep -q "is_newer_version(latest_version, current_version)" luasrc/controller/openclaw.lua || fail "wechat update check must use semantic version compare"
@@ -116,5 +130,12 @@ fi
 
 grep -q "root/usr/libexec" scripts/build_ipk.sh || fail "ipk script must package shell helpers"
 grep -q "root/usr/libexec" scripts/build_run.sh || fail "run script must package shell helpers"
+grep -q "for dep in luci-compat luci-base curl openssl-util script-utils tar libstdcpp6" scripts/build_run.sh || fail ".run installer must install runtime dependencies"
+grep -q -- "--owner=0 --group=0 --numeric-owner" scripts/build_run.sh || fail ".run payload must normalize file ownership to root"
+grep -q -- "--owner=0 --group=0 --numeric-owner" scripts/build_ipk.sh || fail ".ipk payload must normalize file ownership to root"
+grep -q "chown -R root:root" scripts/build_run.sh || fail ".run installer must repair root-owned system files after extraction"
+grep -q "chown -R root:root" scripts/build_ipk.sh || fail ".ipk postinst must repair root-owned system files after extraction"
+grep -q "先解压到临时目录并确认完整，再替换 NODE_BASE" root/usr/bin/openclaw-env || fail "Node install must not delete existing runtime before extraction succeeds"
+grep -q "OC_SETUP_FRESH_ROOT" root/usr/bin/openclaw-env || fail "setup cleanup must preserve existing runtime roots"
 
 echo "ok"

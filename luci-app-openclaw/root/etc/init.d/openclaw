@@ -842,9 +842,10 @@ fi
 }
 
 status_service() {
-local port pty_port
+local port pty_port enabled
 port=$(uci -q get openclaw.main.port || echo "18789")
 pty_port=$(uci -q get openclaw.main.pty_port || echo "18793")
+enabled=$(uci -q get openclaw.main.enabled || echo "0")
 
 echo "=== OpenClaw 服务状态 ==="
 
@@ -908,10 +909,30 @@ local mins=$(( (uptime % 3600) / 60 ))
 echo "运行时间: ${hours}小时 ${mins}分钟"
 fi
 fi
-elif pgrep -f "openclaw.*gateway" >/dev/null 2>&1; then
-echo "网关:     正在启动 (首次启动可能需要 2~5 分钟)"
 else
-echo "网关:     已停止"
+local procd_running procd_pid procd_exit procd_pid_alive pidfile_pid pidfile_stale crash_loop
+procd_running=$(ubus call service list '{"name":"openclaw"}' 2>/dev/null | jsonfilter -e '$.openclaw.instances.gateway.running' 2>/dev/null | tr -d '[:space:]')
+procd_pid=$(ubus call service list '{"name":"openclaw"}' 2>/dev/null | jsonfilter -e '$.openclaw.instances.gateway.pid' 2>/dev/null | tr -d '[:space:]')
+procd_exit=$(ubus call service list '{"name":"openclaw"}' 2>/dev/null | jsonfilter -e '$.openclaw.instances.gateway.exit_code' 2>/dev/null | tr -d '[:space:]')
+[ "$procd_pid" = "null" ] && procd_pid=""
+[ "$procd_exit" = "null" ] && procd_exit=""
+procd_pid_alive=0
+[ -n "$procd_pid" ] && [ -d "/proc/$procd_pid" ] && procd_pid_alive=1
+pidfile_pid=$(cat /var/run/openclaw.pid 2>/dev/null | tr -d '[:space:]')
+pidfile_stale=0
+[ -n "$pidfile_pid" ] && [ ! -d "/proc/$pidfile_pid" ] && pidfile_stale=1
+crash_loop=$(logread 2>/dev/null | grep -E 'Instance openclaw::gateway.*crash loop' | tail -1)
+if [ "$enabled" != "1" ]; then
+	echo "网关:     已禁用"
+elif [ -n "$procd_exit" ] && [ "$procd_exit" != "0" ] && [ "$procd_running" != "true" ]; then
+	echo "网关:     启动失败 (退出码 $procd_exit)"
+elif [ -n "$crash_loop" ] && [ "$pidfile_stale" = "1" ] && [ "$procd_running" != "true" ] && [ "$procd_pid_alive" != "1" ]; then
+	echo "网关:     启动失败 (procd crash-loop 抑制)"
+elif [ "$procd_running" = "true" ] || [ "$procd_pid_alive" = "1" ]; then
+	echo "网关:     正在启动 (首次启动可能需要 2~5 分钟)"
+else
+	echo "网关:     已停止"
+fi
 fi
 
 # PTY port
