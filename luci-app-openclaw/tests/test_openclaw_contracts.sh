@@ -24,6 +24,10 @@ fi
 grep -q "wechat.htm" Makefile || fail "Makefile must install wechat.htm"
 grep -q "luci-app-openclaw.json" Makefile || fail "Makefile must install rpcd ACL"
 grep -q "openclaw-permissions.sh" Makefile || fail "Makefile must install permission helper"
+grep -q 'openclaw-permissions.sh fix-state "$${OC_DATA}/.openclaw"' Makefile || fail "postinst must repair existing OpenClaw state permissions after reinstall"
+grep -q '/etc/init.d/openclaw start >/dev/null 2>&1' Makefile || fail "postinst must restart enabled OpenClaw service after reinstall"
+grep -q 'openclaw-permissions.sh fix-state "${OC_DATA}/.openclaw"' scripts/build_ipk.sh || fail "release ipk postinst must repair existing OpenClaw state permissions after reinstall"
+grep -q '/etc/init.d/openclaw start >/dev/null 2>&1' scripts/build_ipk.sh || fail "release ipk postinst must restart enabled OpenClaw service after reinstall"
 if grep -q "openclaw.zh-cn.lmo" Makefile; then
 	fail "main package must not install openclaw.zh-cn.lmo"
 fi
@@ -80,6 +84,9 @@ grep -q "is_newer_version(latest_version, current_version)" luasrc/controller/op
 grep -q "ilinkai.weixin.qq.com" luasrc/controller/openclaw.lua || fail "wechat network probe endpoint missing"
 grep -q "微信接口连通性检查" luasrc/controller/openclaw.lua || fail "wechat network probe log missing"
 grep -q "error_detail" luasrc/controller/openclaw.lua || fail "wechat login failure detail response missing"
+grep -q "已将此 OpenClaw 连接到微信" luasrc/controller/openclaw.lua || fail "wechat login status must treat saved auth as success"
+grep -q "Local login saved auth for openclaw%-weixin" luasrc/controller/openclaw.lua || fail "wechat login status must tolerate channels.start restart warning"
+grep -q "/etc/init.d/openclaw restart_gateway >/dev/null 2>&1 &" luasrc/controller/openclaw.lua || fail "wechat login success should use lightweight gateway restart"
 grep -q "self_heal_wechat_npm_plugin_config" root/etc/init.d/openclaw || fail "init.d wechat npm plugin self-heal missing"
 grep -q "已自愈注册 openclaw-weixin npm plugin" root/etc/init.d/openclaw || fail "init.d wechat self-heal log missing"
 grep -q "OC_WECHAT_PLUGIN_DIR" root/etc/init.d/openclaw || fail "init.d wechat self-heal plugin dir env missing"

@@ -1840,8 +1840,15 @@ function action_wechat_login_status()
                         end
                 end
         end
-	-- 检查是否登录成功
-	local logged_in = qrcode:find("登录成功") ~= nil or qrcode:find("成功登录") ~= nil or qrcode:find("Login success") ~= nil or qrcode:find("Logged in") ~= nil
+	-- 检查是否登录成功。微信插件在 OpenClaw 2026.6.11 中可能已经保存认证，
+	-- 但随后通过 Gateway 动态启动渠道时报 "invalid channels.start channel" 并返回
+	-- 非 0；这种情况账号已配对成功，LuCI 不应误判为失败。
+	local logged_in = qrcode:find("登录成功") ~= nil
+		or qrcode:find("成功登录") ~= nil
+		or qrcode:find("Login success") ~= nil
+		or qrcode:find("Logged in") ~= nil
+		or qrcode:find("已将此 OpenClaw 连接到微信") ~= nil
+		or qrcode:find("Local login saved auth for openclaw%-weixin") ~= nil
 
         local state = "idle"
         if logged_in then
@@ -1867,10 +1874,11 @@ function action_wechat_login_status()
                 end
         end
 
-        -- 如果刚登录成功，触发一次重启，确保主进程加载微信账号
+        -- 如果刚登录成功，触发一次轻量重启，确保主进程加载微信账号。
+        -- 不使用完整 /etc/init.d/openclaw restart，避免同时重启 Web PTY 和拉长等待时间。
         if state == "success" and not nixio.fs.stat("/tmp/openclaw-wechat-restarted", "type") then
                 sys.exec("touch /tmp/openclaw-wechat-restarted")
-                sys.exec("/etc/init.d/openclaw restart &")
+                sys.exec("/etc/init.d/openclaw restart_gateway >/dev/null 2>&1 &")
                 message = "微信登录成功，正在重新加载微信账号"
         end
 	http.prepare_content("application/json")
