@@ -1,0 +1,19 @@
+
+
+config systools 'global'
+	option version '0.2.0'
+	option enabled '1'
+	option first_run '1'
+
+config ipv6 'ipv6'
+	option enabled '0'
+	option mode 'native'
+
+config diagnostics 'diagnostics'
+	option enabled '1'
+
+config wizard 'wizard'
+	option proto 'dhcp'
+
+config system 'system'
+	option enabled '1'

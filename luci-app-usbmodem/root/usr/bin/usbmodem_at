@@ -1,0 +1,24 @@
+#!/bin/sh
+# 用法: usbmodem_at <AT命令>
+
+# 获取 AT 串口
+DETECT=$(/usr/bin/usbmodem_detect)
+. /usr/share/libubox/jshn.sh
+json_load "$DETECT"
+json_get_var AT_PORT at_port
+
+if [ -z "$AT_PORT" ]; then
+	echo "No AT port found"
+	exit 1
+fi
+
+CMD="$1"
+if [ -z "$CMD" ]; then
+	echo "Usage: usbmodem_at <AT command>"
+	exit 1
+fi
+
+# 发送命令
+echo -e "$CMD\r\n" > "$AT_PORT"
+sleep 0.5
+timeout 2 cat "$AT_PORT" 2>/dev/null

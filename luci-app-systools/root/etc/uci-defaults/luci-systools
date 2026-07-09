@@ -1,0 +1,53 @@
+#!/bin/sh
+# System Tools - UCI Defaults
+# 系统工具 - UCI 默认配置
+
+# 加载通用函数
+if [ -f /usr/libexec/systools/systools-common.sh ]; then
+    . /usr/libexec/systools/systools-common.sh
+fi
+
+log_info "System Tools - 初始化配置"
+
+# 获取系统信息
+OPENWRT_VERSION=$(get_openwrt_version)
+PKG_MANAGER=$(get_package_manager)
+ARCH=$(get_architecture)
+
+log_info "OpenWrt 版本: $OPENWRT_VERSION"
+log_info "包管理器: $PKG_MANAGER"
+log_info "架构: $ARCH"
+
+# 检查是否是首次安装
+if [ ! -f /etc/config/systools ]; then
+    log_info "首次安装，创建默认配置"
+
+    # 创建默认配置
+    cat > /etc/config/systools <<EOF
+config systools 'global'
+    option version '0.2.0'
+    option enabled '1'
+    option first_run '1'
+
+config ipv6 'ipv6'
+    option enabled '0'
+    option mode 'native'
+
+config diagnostics 'diagnostics'
+    option enabled '1'
+EOF
+
+    uci commit systools
+fi
+
+# 检查并更新版本号
+CURRENT_VERSION=$(uci get systools.global.version 2>/dev/null)
+if [ "$CURRENT_VERSION" != "0.2.0" ]; then
+    log_info "更新配置版本: $CURRENT_VERSION -> 0.2.0"
+    uci set systools.global.version='0.2.0'
+    uci commit systools
+fi
+
+log_info "System Tools 初始化完成"
+
+exit 0

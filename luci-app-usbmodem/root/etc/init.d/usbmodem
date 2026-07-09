@@ -1,0 +1,23 @@
+#!/bin/sh /etc/rc.common
+
+USE_PROCD=1
+START=99
+
+start_service() {
+	# 启动短信监控后台进程
+	procd_open_instance
+	procd_set_param command /usr/bin/usbmodem_sms_monitor
+	procd_set_param respawn
+	procd_close_instance
+
+	# 等待网络接口稳定
+	sleep 5
+	# 应用当前保存的上网模式
+	mode=$(uci -q get usbmodem.settings.mode)
+	[ -z "$mode" ] && mode="ncm"
+	/usr/bin/usbmodem_switch "$mode"
+}
+
+stop_service() {
+	killall usbmodem_sms_monitor 2>/dev/null
+}

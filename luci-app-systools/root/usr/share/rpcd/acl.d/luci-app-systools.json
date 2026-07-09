@@ -1,0 +1,11 @@
+{
+	"luci-app-systools": {
+		"description": "Grant UCI access for luci-app-systools",
+		"read": {
+			"uci": [ "systools" ]
+		},
+		"write": {
+			"uci": [ "systools" ]
+		}
+	}
+}

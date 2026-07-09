@@ -1,0 +1,48 @@
+<%#
+  System Tools - About Page Template
+  系统工具 - 关于页面模板
+%>
+
+<%+header%>
+
+<div class="cbi-map">
+    <h2 name="content"><%:System Tools%></h2>
+
+    <div class="cbi-section">
+        <h3><%:About%></h3>
+
+        <div style="padding: 10px 0;">
+            <p><strong>Version:</strong> 0.2.0</p>
+            <p><strong>License:</strong> Apache License 2.0</p>
+            <p><strong>Repository:</strong> <a href="https://github.com/luanmuc/luci-app-systools" target="_blank">GitHub</a></p>
+        </div>
+
+        <div style="padding: 10px 0;">
+            <h4><%:Features%></h4>
+            <ul>
+                <li>IPv6 Quick Setup (Native, 6to4, 6in4, DHCPv6)</li>
+                <li>Network Diagnostics</li>
+                <li>System Tools</li>
+                <li>Multi-version support (24.12 / 25.12 / SNAPSHOT)</li>
+                <li>Multi-architecture support</li>
+            </ul>
+        </div>
+
+        <div style="padding: 10px 0;">
+            <h4><%:System Information%></h4>
+            <ul>
+                <li>OpenWrt Version: <%=luci.sys.exec(". /etc/openwrt_release 2>/dev/null && echo $DISTRIB_RELEASE || echo unknown")%></li>
+                <li>Architecture: <%=luci.sys.exec("uname -m")%></li>
+                <li>Package Manager: <%
+                    if nixio.fs.access("/etc/apk/repositories") then
+                        write("apk")
+                    else
+                        write("opkg")
+                    end
+                %></li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<%+footer%>

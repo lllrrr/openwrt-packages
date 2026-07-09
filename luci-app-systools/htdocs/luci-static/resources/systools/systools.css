@@ -1,0 +1,293 @@
+/*
+ * systools - Argon Theme Adaptation
+ * 适配 Argon 主题的样式文件
+ * 支持亮色和暗色模式
+ */
+
+/* 状态文字颜色 */
+.systools-text-success {
+	color: #28a745;
+}
+
+.systools-text-warning {
+	color: #ffc107;
+}
+
+.systools-text-danger {
+	color: #dc3545;
+}
+
+.systools-text-info {
+	color: #17a2b8;
+}
+
+.systools-text-muted {
+	color: #6c757d;
+}
+
+.systools-text-primary {
+	color: #007bff;
+}
+
+/* 状态徽章 */
+.systools-badge {
+	display: inline-block;
+	padding: 0.25em 0.4em;
+	font-size: 75%;
+	font-weight: 700;
+	line-height: 1;
+	text-align: center;
+	white-space: nowrap;
+	vertical-align: baseline;
+	border-radius: 0.25rem;
+}
+
+.systools-badge-success {
+	background-color: #28a745;
+	color: #fff;
+}
+
+.systools-badge-warning {
+	background-color: #ffc107;
+	color: #212529;
+}
+
+.systools-badge-danger {
+	background-color: #dc3545;
+	color: #fff;
+}
+
+.systools-badge-info {
+	background-color: #17a2b8;
+	color: #fff;
+}
+
+.systools-badge-secondary {
+	background-color: #6c757d;
+	color: #fff;
+}
+
+/* 提示框 */
+.systools-alert {
+	position: relative;
+	padding: 0.75rem 1.25rem;
+	margin-bottom: 1rem;
+	border: 1px solid transparent;
+	border-radius: 0.25rem;
+}
+
+.systools-alert-success {
+	color: #155724;
+	background-color: #d4edda;
+	border-color: #c3e6cb;
+}
+
+.systools-alert-warning {
+	color: #856404;
+	background-color: #fff3cd;
+	border-color: #ffeeba;
+}
+
+.systools-alert-danger {
+	color: #721c24;
+	background-color: #f8d7da;
+	border-color: #f5c6cb;
+}
+
+.systools-alert-info {
+	color: #0c5460;
+	background-color: #d1ecf1;
+	border-color: #bee5eb;
+}
+
+/* 代码块/日志 */
+.systools-pre {
+	background-color: #f8f9fa;
+	border: 1px solid #e9ecef;
+	border-radius: 0.25rem;
+	padding: 0.75rem;
+	max-height: 200px;
+	overflow: auto;
+	font-size: 0.875rem;
+	font-family: monospace;
+	white-space: pre-wrap;
+	word-wrap: break-word;
+}
+
+/* 表格增强 */
+.systools-table {
+	width: 100%;
+	margin-bottom: 1rem;
+	color: #212529;
+	border-collapse: collapse;
+}
+
+.systools-table th,
+.systools-table td {
+	padding: 0.75rem;
+	vertical-align: top;
+	border-top: 1px solid #dee2e6;
+}
+
+.systools-table thead th {
+	vertical-align: bottom;
+	border-bottom: 2px solid #dee2e6;
+}
+
+/* 小按钮 */
+.systools-btn-sm {
+	padding: 0.25rem 0.5rem;
+	font-size: 0.875rem;
+	line-height: 1.5;
+	border-radius: 0.2rem;
+}
+
+/* 状态指示器 */
+.systools-status-dot {
+	display: inline-block;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	margin-right: 4px;
+	vertical-align: middle;
+}
+
+.systools-status-dot-success {
+	background-color: #28a745;
+}
+
+.systools-status-dot-warning {
+	background-color: #ffc107;
+}
+
+.systools-status-dot-danger {
+	background-color: #dc3545;
+}
+
+.systools-status-dot-muted {
+	background-color: #6c757d;
+}
+
+/* 空状态 */
+.systools-empty {
+	text-align: center;
+	padding: 2rem;
+	color: #6c757d;
+}
+
+/* ============================================
+   暗色模式适配 (Argon Dark Mode)
+   ============================================ */
+
+/* Argon 暗色模式通常会在 body 或 html 上加 dark 类 */
+html.dark .systools-text-success,
+body.dark .systools-text-success {
+	color: #4ade80;
+}
+
+html.dark .systools-text-warning,
+body.dark .systools-text-warning {
+	color: #facc15;
+}
+
+html.dark .systools-text-danger,
+body.dark .systools-text-danger {
+	color: #f87171;
+}
+
+html.dark .systools-text-info,
+body.dark .systools-text-info {
+	color: #22d3ee;
+}
+
+html.dark .systools-text-muted,
+body.dark .systools-text-muted {
+	color: #9ca3af;
+}
+
+html.dark .systools-text-primary,
+body.dark .systools-text-primary {
+	color: #60a5fa;
+}
+
+/* 暗色模式提示框 */
+html.dark .systools-alert-success,
+body.dark .systools-alert-success {
+	color: #86efac;
+	background-color: rgba(34, 197, 94, 0.1);
+	border-color: rgba(34, 197, 94, 0.2);
+}
+
+html.dark .systools-alert-warning,
+body.dark .systools-alert-warning {
+	color: #fde047;
+	background-color: rgba(234, 179, 8, 0.1);
+	border-color: rgba(234, 179, 8, 0.2);
+}
+
+html.dark .systools-alert-danger,
+body.dark .systools-alert-danger {
+	color: #fca5a5;
+	background-color: rgba(239, 68, 68, 0.1);
+	border-color: rgba(239, 68, 68, 0.2);
+}
+
+html.dark .systools-alert-info,
+body.dark .systools-alert-info {
+	color: #67e8f9;
+	background-color: rgba(6, 182, 212, 0.1);
+	border-color: rgba(6, 182, 212, 0.2);
+}
+
+/* 暗色模式代码块 */
+html.dark .systools-pre,
+body.dark .systools-pre {
+	background-color: #1f2937;
+	border-color: #374151;
+	color: #e5e7eb;
+}
+
+/* 暗色模式表格 */
+html.dark .systools-table,
+body.dark .systools-table {
+	color: #e5e7eb;
+}
+
+html.dark .systools-table th,
+html.dark .systools-table td,
+body.dark .systools-table th,
+body.dark .systools-table td {
+	border-color: #374151;
+}
+
+html.dark .systools-table thead th,
+body.dark .systools-table thead th {
+	border-bottom-color: #4b5563;
+}
+
+/* 暗色模式空状态 */
+html.dark .systools-empty,
+body.dark .systools-empty {
+	color: #9ca3af;
+}
+
+/* 暗色模式状态点 */
+html.dark .systools-status-dot-success,
+body.dark .systools-status-dot-success {
+	background-color: #4ade80;
+}
+
+html.dark .systools-status-dot-warning,
+body.dark .systools-status-dot-warning {
+	background-color: #facc15;
+}
+
+html.dark .systools-status-dot-danger,
+body.dark .systools-status-dot-danger {
+	background-color: #f87171;
+}
+
+html.dark .systools-status-dot-muted,
+body.dark .systools-status-dot-muted {
+	background-color: #6b7280;
+}

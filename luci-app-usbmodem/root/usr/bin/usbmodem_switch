@@ -1,0 +1,42 @@
+#!/bin/sh
+# 用法: usbmodem_switch <ncm|ecm|qmi|rndis>
+
+MODE="$1"
+[ -z "$MODE" ] && { echo "Usage: usbmodem_switch <mode>"; exit 1; }
+
+# 获取当前探测信息
+DETECT=$(/usr/bin/usbmodem_detect)
+. /usr/share/libubox/jshn.sh
+json_load "$DETECT"
+json_get_var IFACE iface
+json_get_var CURRENT_PROTO protocol
+
+if [ -z "$IFACE" ]; then
+	logger -t usbmodem "No USB network interface found"
+	exit 1
+fi
+
+# 如果模式需要变更，记录日志
+if [ "$CURRENT_PROTO" != "$MODE" ]; then
+	logger -t usbmodem "Switching from $CURRENT_PROTO to $MODE"
+fi
+
+# 配置网络接口
+uci set network.usb_wan=interface
+uci set network.usb_wan.ifname="$IFACE"
+uci set network.usb_wan.proto='dhcp'
+uci commit network
+
+# 确保防火墙 zone 包含 usb_wan
+uci add_list firewall.@zone[1].network="usb_wan" 2>/dev/null
+uci commit firewall
+
+# 重启网络和防火墙
+/etc/init.d/network reload
+/etc/init.d/firewall reload 2>/dev/null
+
+# 保存当前模式
+uci set usbmodem.settings.mode="$MODE"
+uci commit usbmodem
+
+logger -t usbmodem "Switched to $MODE on interface $IFACE"

@@ -1,0 +1,6 @@
+config usbmodem 'settings'
+	option mode 'ncm'
+	option auto_detect '1'
+	option bark_token ''
+	option bark_server 'https://api.day.app'
+	option bark_enabled '1'

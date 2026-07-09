@@ -1,0 +1,56 @@
+#!/bin/sh
+# 自动探测 USB 网络接口、协议模式和 AT 串口
+# 输出 JSON
+
+detect_net_iface() {
+	# 优先查找 wwan0, usb0, eth1 等
+	for iface in wwan0 usb0 eth1 eth2; do
+		[ -d "/sys/class/net/$iface" ] && echo "$iface" && return 0
+	done
+	# 动态查找
+	for iface in $(ls /sys/class/net/ 2>/dev/null | grep -E 'usb|wwan|eth'); do
+		[ -d "/sys/class/net/$iface" ] && echo "$iface" && return 0
+	done
+	return 1
+}
+
+detect_protocol() {
+	local iface="$1"
+	local driver_path="/sys/class/net/$iface/device/driver"
+	[ -L "$driver_path" ] || return
+	local driver=$(readlink "$driver_path" | xargs basename 2>/dev/null)
+	case "$driver" in
+		cdc_ncm) echo "ncm" ;;
+		cdc_ether) echo "ecm" ;;
+		qmi_wwan) echo "qmi" ;;
+		rndis_host) echo "rndis" ;;
+		*) echo "unknown" ;;
+	esac
+}
+
+detect_at_port() {
+	for dev in /dev/ttyUSB0 /dev/ttyUSB1 /dev/ttyUSB2 /dev/ttyACM0 /dev/ttyACM1; do
+		[ -c "$dev" ] || continue
+		# 发送 AT 测试
+		if (
+			echo -e "AT\r\n" > "$dev" 2>/dev/null
+			timeout 1 cat "$dev" 2>/dev/null | grep -qi "OK"
+		); then
+			echo "$dev"
+			return 0
+		fi
+	done
+	echo ""
+}
+
+# 主逻辑
+NET_IFACE=$(detect_net_iface)
+PROTO=$(detect_protocol "$NET_IFACE")
+AT_PORT=$(detect_at_port)
+
+. /usr/share/libubox/jshn.sh
+json_init
+json_add_string "iface" "${NET_IFACE:-}"
+json_add_string "protocol" "${PROTO:-unknown}"
+json_add_string "at_port" "${AT_PORT:-}"
+json_dump

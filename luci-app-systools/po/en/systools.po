@@ -1,0 +1,175 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-systools\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-01-01 00:00+0000\n"
+"PO-Revision-Date: 2024-01-01 00:00+0000\n"
+"Last-Translator: \n"
+"Language-Team: English\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "System Tools"
+msgstr "System Tools"
+
+msgid "Overview"
+msgstr "Overview"
+
+msgid "Network Wizards"
+msgstr "Network Wizards"
+
+msgid "IPv6 Quick Setup"
+msgstr "IPv6 Quick Setup"
+
+msgid "Diagnostics"
+msgstr "Diagnostics"
+
+msgid "System Tools"
+msgstr "System Tools"
+
+msgid "About"
+msgstr "About"
+
+msgid "Configure IPv6 network with one click. Supports multiple modes."
+msgstr "Configure IPv6 network with one click. Supports multiple modes."
+
+msgid "Current Status"
+msgstr "Current Status"
+
+msgid "IPv6 Status"
+msgstr "IPv6 Status"
+
+msgid "Enabled & Connected"
+msgstr "Enabled & Connected"
+
+msgid "Enabled but Not Connected"
+msgstr "Enabled but Not Connected"
+
+msgid "Disabled"
+msgstr "Disabled"
+
+msgid "Current Mode"
+msgstr "Current Mode"
+
+msgid "WAN IPv6 Address"
+msgstr "WAN IPv6 Address"
+
+msgid "LAN IPv6 Prefix"
+msgstr "LAN IPv6 Prefix"
+
+msgid "N/A"
+msgstr "N/A"
+
+msgid "IPv6 Configuration"
+msgstr "IPv6 Configuration"
+
+msgid "IPv6 Mode"
+msgstr "IPv6 Mode"
+
+msgid "Select the IPv6 connection mode"
+msgstr "Select the IPv6 connection mode"
+
+msgid "Native IPv6"
+msgstr "Native IPv6"
+
+msgid "6to4 Tunnel"
+msgstr "6to4 Tunnel"
+
+msgid "6in4 Tunnel"
+msgstr "6in4 Tunnel"
+
+msgid "DHCPv6 Client"
+msgstr "DHCPv6 Client"
+
+msgid "Disabled"
+msgstr "Disabled"
+
+msgid "Tunnel Server Address"
+msgstr "Tunnel Server Address"
+
+msgid "6in4 tunnel server IPv4 address"
+msgstr "6in4 tunnel server IPv4 address"
+
+msgid "Local IPv6 Address"
+msgstr "Local IPv6 Address"
+
+msgid "Your IPv6 address for the tunnel"
+msgstr "Your IPv6 address for the tunnel"
+
+msgid "IPv6 Prefix"
+msgstr "IPv6 Prefix"
+
+msgid "IPv6 prefix for your LAN (optional)"
+msgstr "IPv6 prefix for your LAN (optional)"
+
+msgid "Tunnel ID"
+msgstr "Tunnel ID"
+
+msgid "Tunnel ID / User ID (optional)"
+msgstr "Tunnel ID / User ID (optional)"
+
+msgid "Username"
+msgstr "Username"
+
+msgid "Tunnel service username (optional)"
+msgstr "Tunnel service username (optional)"
+
+msgid "Password"
+msgstr "Password"
+
+msgid "Tunnel service password (optional)"
+msgstr "Tunnel service password (optional)"
+
+msgid "Apply Configuration"
+msgstr "Apply Configuration"
+
+msgid "Apply & Restart Network"
+msgstr "Apply & Restart Network"
+
+msgid "Diagnose Connection"
+msgstr "Diagnose Connection"
+
+msgid "Run Diagnostics"
+msgstr "Run Diagnostics"
+
+msgid "Diagnostics Results"
+msgstr "Diagnostics Results"
+
+msgid "WAN6 Interface Exists"
+msgstr "WAN6 Interface Exists"
+
+msgid "WAN6 Interface Up"
+msgstr "WAN6 Interface Up"
+
+msgid "Has Global IPv6 Address"
+msgstr "Has Global IPv6 Address"
+
+msgid "Has Default Route"
+msgstr "Has Default Route"
+
+msgid "Can Ping Gateway"
+msgstr "Can Ping Gateway"
+
+msgid "Can Ping Internet"
+msgstr "Can Ping Internet"
+
+msgid "IPv6 DNS Works"
+msgstr "IPv6 DNS Works"
+
+msgid "System Information"
+msgstr "System Information"
+
+msgid "OpenWrt Version"
+msgstr "OpenWrt Version"
+
+msgid "Package Manager"
+msgstr "Package Manager"
+
+msgid "Architecture"
+msgstr "Architecture"
+
+msgid "Plugin Version"
+msgstr "Plugin Version"

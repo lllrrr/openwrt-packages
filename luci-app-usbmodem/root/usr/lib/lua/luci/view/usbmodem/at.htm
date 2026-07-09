@@ -1,0 +1,87 @@
+<%#
+LuCI - USB Modem AT Commands Page
+%>
+<%+header%>
+
+<h2 name="content"><%:AT Command Interface%></h2>
+
+<div class="cbi-map">
+    <fieldset class="cbi-section">
+        <legend><%:Available Serial Port%></legend>
+        <div id="serial_port" style="font-family:monospace; margin-bottom:15px;">正在探测...</div>
+    </fieldset>
+
+    <fieldset class="cbi-section">
+        <legend><%:Preset Commands%></legend>
+        <div class="cbi-section-actions" style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="cbi-button" data-cmd="AT">AT</button>
+            <button class="cbi-button" data-cmd="AT+CSQ">AT+CSQ (信号)</button>
+            <button class="cbi-button" data-cmd="AT+CGSN">AT+CGSN (IMEI)</button>
+            <button class="cbi-button" data-cmd="AT+GTEMP">AT+GTEMP (温度)</button>
+            <button class="cbi-button" data-cmd="AT+COPS?">AT+COPS? (运营商)</button>
+        </div>
+    </fieldset>
+
+    <fieldset class="cbi-section">
+        <legend><%:Custom Command%></legend>
+        <div class="cbi-value">
+            <label class="cbi-value-title"><%:AT Command%>:</label>
+            <div class="cbi-value-field">
+                <input type="text" id="custom_cmd" style="width:80%;" placeholder="例如: AT+CIMI" value="AT+CSQ">
+                <button class="cbi-button" id="send_cmd"><%:Send%></button>
+            </div>
+        </div>
+        <div class="cbi-value">
+            <label class="cbi-value-title"><%:Response%>:</label>
+            <div class="cbi-value-field">
+                <pre id="response_area" style="background:#f5f5f5; padding:10px; border-radius:5px; min-height:120px; white-space:pre-wrap;">等待指令...</pre>
+            </div>
+        </div>
+    </fieldset>
+</div>
+
+<script type="text/javascript">
+function updateSerialPort() {
+    XHR.get('<%=luci.dispatcher.build_url("admin/network/usbmodem/api/detect")%>', null,
+        function(xhr) {
+            var data = JSON.parse(xhr.responseText);
+            if (data.at_port) {
+                document.getElementById('serial_port').innerHTML = '当前可用串口: <strong>' + data.at_port + '</strong>';
+            } else {
+                document.getElementById('serial_port').innerHTML = '未探测到 AT 串口';
+            }
+        }
+    );
+}
+
+function sendATCommand(cmd) {
+    if (!cmd) return;
+    document.getElementById('response_area').innerHTML = '<i class="spinner"></i> 发送中...';
+    XHR.post('<%=luci.dispatcher.build_url("admin/network/usbmodem/api/at")%>', { cmd: cmd },
+        function(xhr) {
+            document.getElementById('response_area').innerHTML = xhr.responseText;
+        },
+        function(xhr) {
+            document.getElementById('response_area').innerHTML = '错误: ' + xhr.statusText;
+        }
+    );
+}
+
+document.querySelectorAll('[data-cmd]').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        var cmd = this.getAttribute('data-cmd');
+        sendATCommand(cmd);
+    });
+});
+
+document.getElementById('send_cmd').addEventListener('click', function(e) {
+    e.preventDefault();
+    var cmd = document.getElementById('custom_cmd').value.trim();
+    if (cmd) sendATCommand(cmd);
+});
+
+updateSerialPort();
+</script>
+
+<%+footer%>

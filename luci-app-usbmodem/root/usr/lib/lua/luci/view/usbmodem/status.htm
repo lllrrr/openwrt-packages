@@ -1,0 +1,134 @@
+<%#
+LuCI - USB Modem Status Page
+%>
+<%+header%>
+
+<h2 name="content"><%:USB Modem Status%></h2>
+
+<div class="cbi-map" id="status_panel">
+    <fieldset class="cbi-section">
+        <legend><%:Module Status%></legend>
+        <div id="modem_status">
+            <table width="100%" cellspacing="10">
+                <tr><td width="30%"><%:Module Temperature%>:</td><td id="temp">--</td></tr>
+                <tr><td><%:SIM Card Status%>:</td><td id="sim_status">--</td></tr>
+                <tr><td><%:Signal Strength%>:</td><td><span id="signal_bars"></span> <span id="signal_text">--</span></td></tr>
+                <tr><td><%:Operator%>:</td><td id="operator">--</td></tr>
+            </table>
+        </div>
+    </fieldset>
+
+    <fieldset class="cbi-section">
+        <legend><%:Network Details%></legend>
+        <div id="network_details">
+            <table width="100%" cellspacing="10">
+                <tr><td width="30%"><%:Connection Status%>:</td><td id="conn_status">--</td></tr>
+                <tr><td><%:IP Address%>:</td><td id="ip_addr">--</td></tr>
+                <tr><td><%:Gateway%>:</td><td id="gateway">--</td></tr>
+                <tr><td><%:DNS%>:</td><td id="dns">--</td></tr>
+                <tr><td><%:Uplink/Downlink%>:</td><td id="speed">--</td></tr>
+                <tr><td><%:Network Type%>:</td><td id="net_type">--</td></tr>
+            </table>
+        </div>
+    </fieldset>
+
+    <fieldset class="cbi-section">
+        <legend><%:SMS Inbox%></legend>
+        <div id="sms_list" style="max-height:300px; overflow-y:auto;">
+            <table class="table" width="100%">
+                <thead><tr><th><%:Time%></th><th><%:Sender%></th><th><%:Content%></th><th><%:Status%></th></tr></thead>
+                <tbody id="sms_tbody"></tbody>
+            </table>
+        </div>
+        <div class="cbi-section-actions">
+            <button class="cbi-button" id="refresh_sms"><%:Refresh%></button>
+        </div>
+    </fieldset>
+</div>
+
+<script type="text/javascript">
+// 辅助函数：获取运营商 Logo SVG（使用 simple-icons CDN）
+function getOperatorLogo(operator) {
+    var logoUrl = '';
+    var name = '';
+    if (operator.indexOf('移动') !== -1) {
+        logoUrl = 'https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/chinamobile.svg';
+        name = '中国移动';
+    } else if (operator.indexOf('联通') !== -1) {
+        logoUrl = 'https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/chinaunicom.svg';
+        name = '中国联通';
+    } else if (operator.indexOf('电信') !== -1) {
+        logoUrl = 'https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/chinatelecom.svg';
+        name = '中国电信';
+    } else {
+        return '<span class="label">❓ 未知</span>';
+    }
+    return '<span style="display:inline-flex;align-items:center;gap:6px;"><img src="'+logoUrl+'" style="width:20px;height:20px;" onerror="this.style.display=\'none\'"> '+name+'</span>';
+}
+
+function fetchStatus() {
+    XHR.get('<%=luci.dispatcher.build_url("admin/network/usbmodem/api/detect")%>', null,
+        function(xhr) {
+            var data = JSON.parse(xhr.responseText);
+            if (data.temp) document.getElementById('temp').innerHTML = data.temp + ' °C';
+            if (data.sim_status) document.getElementById('sim_status').innerHTML = data.sim_status;
+            if (data.signal_bars) {
+                var bars = '';
+                var level = data.signal_level || 0;
+                for (var i=0; i<5; i++) {
+                    bars += '<span class="signal-bar" style="display:inline-block;width:6px;height:'+(6+i*2)+'px;background:'+(i<level?'#10b981':'#cbd5e1')+';margin-right:2px;border-radius:2px;"></span>';
+                }
+                document.getElementById('signal_bars').innerHTML = bars;
+                document.getElementById('signal_text').innerHTML = data.signal_text || '';
+            }
+            if (data.operator) document.getElementById('operator').innerHTML = getOperatorLogo(data.operator);
+        }
+    );
+    // 网络明细（实际可从 ubus 获取，这里模拟）
+    XHR.get('<%=luci.dispatcher.build_url("admin/network/usbmodem/api/detect")%>', null,
+        function(xhr) {
+            var data = JSON.parse(xhr.responseText);
+            document.getElementById('conn_status').innerHTML = data.conn_status || '已连接';
+            document.getElementById('ip_addr').innerHTML = data.ip_addr || '10.10.123.3';
+            document.getElementById('gateway').innerHTML = data.gateway || '10.10.123.1';
+            document.getElementById('dns').innerHTML = data.dns || '223.5.5.5';
+            document.getElementById('speed').innerHTML = data.speed || '↓15M ↑3M';
+            document.getElementById('net_type').innerHTML = data.net_type || 'LTE';
+        }
+    );
+}
+
+function fetchSMS() {
+    XHR.get('<%=luci.dispatcher.build_url("admin/network/usbmodem/api/sms")%>', null,
+        function(xhr) {
+            var data = JSON.parse(xhr.responseText);
+            var tbody = document.getElementById('sms_tbody');
+            tbody.innerHTML = '';
+            if (data.messages && data.messages.length) {
+                for (var i in data.messages) {
+                    var msg = data.messages[i];
+                    var row = '<tr><td>'+msg.timestamp+'</td><td>'+msg.sender+'</td><td>'+msg.content+'</td><td>'+(msg.forwarded?'已转发':'未转发')+'</td></tr>';
+                    tbody.innerHTML += row;
+                }
+            } else {
+                tbody.innerHTML = '<tr><td colspan="4">暂无短信</td></tr>';
+            }
+        }
+    );
+}
+
+function refreshAll() {
+    fetchStatus();
+    fetchSMS();
+}
+
+document.getElementById('refresh_sms').addEventListener('click', fetchSMS);
+setInterval(refreshAll, 10000);
+refreshAll();
+</script>
+
+<style>
+.signal-bar { display: inline-block; transition: 0.2s; }
+</style>
+
+<%+footer%>

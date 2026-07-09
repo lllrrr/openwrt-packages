@@ -1,0 +1,22 @@
+#!/bin/sh
+# 初始化配置（仅首次安装执行）
+uci -q get usbmodem.settings >/dev/null || {
+	uci set usbmodem.settings=usbmodem
+	uci set usbmodem.settings.mode=ncm
+	uci set usbmodem.settings.auto_detect=1
+	uci set usbmodem.settings.bark_token=''
+	uci set usbmodem.settings.bark_server='https://api.day.app'
+	uci set usbmodem.settings.bark_enabled=1
+	uci commit usbmodem
+}
+
+# 确保防火墙区域包含 usb_wan（如果不存在则添加）
+if uci -q get firewall.@zone[1] >/dev/null; then
+	uci -q get firewall.@zone[1].network | grep -q usb_wan || {
+		uci add_list firewall.@zone[1].network="usb_wan"
+		uci commit firewall
+		/etc/init.d/firewall reload
+	}
+fi
+
+exit 0

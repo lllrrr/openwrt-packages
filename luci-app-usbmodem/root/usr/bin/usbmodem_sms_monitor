@@ -1,0 +1,52 @@
+#!/bin/sh
+# 轮询未读短信，通过 Bark 推送
+
+DETECT=$(/usr/bin/usbmodem_detect)
+. /usr/share/libubox/jshn.sh
+json_load "$DETECT"
+json_get_var AT_PORT at_port
+
+if [ -z "$AT_PORT" ]; then
+	logger -t sms_monitor "No AT port, retry in 30s"
+	sleep 30
+	exit 0
+fi
+
+# 读取配置
+BARK_TOKEN=$(uci -q get usbmodem.settings.bark_token)
+BARK_SERVER=$(uci -q get usbmodem.settings.bark_server)
+BARK_ENABLED=$(uci -q get usbmodem.settings.bark_enabled)
+
+# 初始化串口为文本模式
+echo -e "AT+CMGF=1\r\n" > "$AT_PORT"
+
+while true; do
+	# 读取未读短信
+	(
+		echo -e "AT+CMGL=\"REC UNREAD\"\r\n" > "$AT_PORT"
+		sleep 1
+		timeout 3 cat "$AT_PORT" 2>/dev/null
+	) | awk -v token="$BARK_TOKEN" -v server="$BARK_SERVER" -v enabled="$BARK_ENABLED" -v atport="$AT_PORT" '
+	BEGIN { RS="\r\n"; idx=0; sender=""; timestamp=""; content=""; }
+	/^\+CMGL:/ {
+		match($0, /\+CMGL: ([0-9]+),\"[^\"]+\",\"([^\"]+)\",[^,]+\",\"([^\"]+)/, arr)
+		idx = arr[1]
+		sender = arr[2]
+		timestamp = arr[3]
+		next
+	}
+	{
+		if (idx > 0 && $0 !~ /^OK/ && $0 !~ /^\+CMGL:/) {
+			content = content $0
+			# 发送 Bark 推送
+			if (enabled == "1" && token != "") {
+				cmd = "curl -s -X POST " server "/" token " -H \"Content-Type: application/json\" -d '\''{\"title\":\"" sender "\",\"body\":\"" content "\",\"sound\":\"alert\"}'\'' >/dev/null 2>&1 &"
+				system(cmd)
+			}
+			# 删除已读短信
+			system("echo -e \"AT+CMGD=" idx "\r\n\" > " atport " 2>/dev/null")
+			idx = 0; sender = ""; content = ""
+		}
+	}'
+	sleep 10
+done
