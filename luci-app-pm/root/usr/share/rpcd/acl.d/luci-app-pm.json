@@ -5,9 +5,6 @@
       "ubus": {
         "session": ["access", "login"],
         "system": ["info"]
-      },
-      "file": {
-        "/sbin/poweroff": ["exec"]
       }
     },
     "write": {

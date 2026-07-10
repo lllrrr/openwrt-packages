@@ -6,8 +6,5 @@
       "type": "view",
       "path": "index"
     }
-  },
-  "admin/system/reboot": {
-    "disabled": true
   }
 }

@@ -15,7 +15,7 @@ return view.extend({
     return E("div", { class: "cbi-map" }, [
       E("h2", {}, _("PowerManager")),
       E("p", {}, [
-        _("Luci plugin for makes ImmortalWRT poweroff and reboot easy."),
+        _("Luci plugin for makes OpenWrt poweroff and reboot easy."),
         " ",
         E(
           "a",

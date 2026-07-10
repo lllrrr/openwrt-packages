@@ -1,4 +1,4 @@
-# luci-app-pm - Simplified Chinese Translation
+# luci-app-pm - Traditional Chinese Translation
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 msgid ""
@@ -7,46 +7,46 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 
 msgid "Reboot"
-msgstr "重启"
+msgstr "重啟"
 
 msgid "PowerOff"
-msgstr "关机"
+msgstr "關機"
 
 msgid "Cancel"
 msgstr "取消"
 
 msgid "Are you sure?"
-msgstr "你确定吗？"
+msgstr "您確定嗎？"
 
 msgid "PowerManager"
-msgstr "电源管理器"
+msgstr "電源管理器"
 
 msgid "Luci plugin for makes OpenWrt poweroff and reboot easy."
-msgstr "一款让ImmortalWrt的关机和重启更容易的Luci插件"
+msgstr "一款讓OpenWrt的關機和重新開機更容易的Luci外掛"
 
 msgid "GitHub Project Address"
-msgstr "Github项目地址"
+msgstr "GitHub專案位址"
 
 msgid "Do you want to reboot this system?"
-msgstr "您要重启此设备吗？"
+msgstr "您要重新啟動此裝置嗎？"
 
 msgid "Rebooting..."
-msgstr "正在重启..."
+msgstr "正在重新啟動..."
 
 msgid "Waiting for device reconnect..."
-msgstr "正在等待设备..."
+msgstr "正在等待裝置重新連線..."
 
 msgid "Reboot failed"
-msgstr "重启失败"
+msgstr "重新啟動失敗"
 
 msgid "Do you really want to shutdown the system? Problems may occur on unsupported devices."
-msgstr "您真的要关机吗？这是一个有可能导致设备出现问题的操作。"
+msgstr "您真的要關機嗎？在不支援的裝置上可能會發生問題。"
 
 msgid "Shutting down..."
-msgstr "正在关机..."
+msgstr "正在關機..."
 
 msgid "The device is powering off..."
-msgstr "设备正在关机..."
+msgstr "裝置正在關機..."
 
 msgid "PowerOff failed"
-msgstr "关机失败"
+msgstr "關機失敗"

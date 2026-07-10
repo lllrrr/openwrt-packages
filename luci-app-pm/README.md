@@ -10,4 +10,4 @@ Luci plugin for makes OpenWrt poweroff and reboot easy.
 ## ⚠️ Warning
 - The poweroff function may not be available on all devices.
 ## ⚖️ License
-> This project is licensed under the **[GNU General Public License v3.0 (GPL-3.0)](https://www.gnu.org/licenses/gpl-3.0.html)** or later.
+> This project is licensed under the [GNU General Public License v3.0 (GPL-3.0)](https://www.gnu.org/licenses/gpl-3.0.html) or later.
