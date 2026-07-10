@@ -92,6 +92,22 @@ get_status() {
         dhcp_enabled="yes"
     fi
 
+    local masq_status
+    masq_status=$(uci get firewall.@zone[1].masq 2>/dev/null)
+    if [ "$masq_status" = "1" ]; then
+        masq_status="enabled"
+    else
+        masq_status="disabled"
+    fi
+
+    local ip_forward
+    ip_forward=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)
+    if [ "$ip_forward" = "1" ]; then
+        ip_forward="enabled"
+    else
+        ip_forward="disabled"
+    fi
+
     local mode="normal"
     if [ -f "$MODE_FILE" ]; then
         mode="side_route"
@@ -101,6 +117,8 @@ get_status() {
     echo "lan_ip=$lan_ip"
     echo "gateway=$gateway"
     echo "dhcp_enabled=$dhcp_enabled"
+    echo "masq_status=$masq_status"
+    echo "ip_forward=$ip_forward"
 }
 
 # 检测当前网络环境
@@ -153,13 +171,14 @@ enable_side_route() {
     uci set network.lan.gateway="$gateway"
     uci set network.lan.dns="$dns"
 
-    # 5. 确保 IP 转发开启（旁路由需要转发）
+    # 5. 关闭 WAN 口的 IP 伪装（masquerade），避免双重 NAT
+    # 旁路由模式下，主路由已经做了 NAT，不需要再做一次
+    uci set firewall.@zone[1].masq='0'
+
+    # 6. 确保 IP 转发开启（旁路由必须开启才能转发流量）
+    echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null
     uci set firewall.@defaults[0].forward='ACCEPT'
     uci set firewall.@defaults[0].syn_flood='0'
-
-    # 6. 添加 masquerading（如果需要 NAT）
-    # 旁路由模式下，一般保持 masq 开启，让设备能通过旁路由上网
-    # 但如果是纯代理模式，可以关闭
 
     uci commit network
     uci commit dhcp

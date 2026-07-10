@@ -1,6 +1,7 @@
 #!/bin/sh
 # 网络向导后端脚本
 # 支持 PPPoE、DHCP、静态 IP 三种上网方式
+# 支持高级设置：MAC 地址克隆、MTU、DNS 自定义
 # 自动备份，失败回滚
 
 BACKUP_DIR="/tmp/systools_backup"
@@ -14,22 +15,16 @@ mkdir -p "$BACKUP_DIR"
 backup_network() {
     local tmpdir
     tmpdir=$(mktemp -d)
-
     # 备份 network 配置
     uci export network > "$tmpdir/network.uci" 2>/dev/null
-
     # 备份 firewall 配置
     uci export firewall > "$tmpdir/firewall.uci" 2>/dev/null
-
     # 备份 dhcp 配置
     uci export dhcp > "$tmpdir/dhcp.uci" 2>/dev/null
-
     # 打包
     tar -czf "$BACKUP_FILE" -C "$tmpdir" . 2>/dev/null
     cp "$BACKUP_FILE" "$LATEST_BACKUP"
-
     rm -rf "$tmpdir"
-
     if [ -f "$BACKUP_FILE" ]; then
         echo "Backup saved: $BACKUP_FILE"
         return 0
@@ -42,40 +37,30 @@ backup_network() {
 # 从备份恢复
 restore_network() {
     local backup_file="$1"
-
     if [ -z "$backup_file" ]; then
         backup_file="$LATEST_BACKUP"
     fi
-
     if [ ! -f "$backup_file" ]; then
         echo "No backup found"
         return 1
     fi
-
     local tmpdir
     tmpdir=$(mktemp -d)
-
     tar -xzf "$backup_file" -C "$tmpdir" 2>/dev/null
-
     # 恢复 network
     if [ -f "$tmpdir/network.uci" ]; then
         uci import network < "$tmpdir/network.uci" 2>/dev/null
     fi
-
     # 恢复 firewall
     if [ -f "$tmpdir/firewall.uci" ]; then
         uci import firewall < "$tmpdir/firewall.uci" 2>/dev/null
     fi
-
     # 恢复 dhcp
     if [ -f "$tmpdir/dhcp.uci" ]; then
         uci import dhcp < "$tmpdir/dhcp.uci" 2>/dev/null
     fi
-
     uci commit
-
     rm -rf "$tmpdir"
-
     echo "Restored from: $backup_file"
     return 0
 }
@@ -84,29 +69,94 @@ restore_network() {
 get_status() {
     local wan_proto
     wan_proto=$(uci get network.wan.proto 2>/dev/null)
-
     local connected="no"
     if [ -n "$(ip route show default 2>/dev/null)" ]; then
         connected="yes"
     fi
-
     local lan_ip
     lan_ip=$(uci get network.lan.ipaddr 2>/dev/null)
-
+    local wan_mac
+    wan_mac=$(uci get network.wan.macaddr 2>/dev/null)
+    local wan_mtu
+    wan_mtu=$(uci get network.wan.mtu 2>/dev/null)
     echo "wan_proto=$wan_proto"
     echo "connected=$connected"
     echo "lan_ip=$lan_ip"
+    echo "wan_mac=$wan_mac"
+    echo "wan_mtu=$wan_mtu"
+}
+
+# 解析高级参数（key=value 格式）
+# 全局变量保存解析结果
+ADV_MAC=""
+ADV_MTU=""
+ADV_DNS1=""
+ADV_DNS2=""
+
+parse_advanced_args() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            mac=*)
+                ADV_MAC="${1#mac=}"
+                ;;
+            mtu=*)
+                ADV_MTU="${1#mtu=}"
+                ;;
+            dns1=*)
+                ADV_DNS1="${1#dns1=}"
+                ;;
+            dns2=*)
+                ADV_DNS2="${1#dns2=}"
+                ;;
+        esac
+        shift
+    done
+}
+
+# 应用高级设置（MAC、MTU、DNS）
+apply_advanced_settings() {
+    # MAC 地址克隆
+    if [ -n "$ADV_MAC" ]; then
+        uci set network.wan.macaddr="$ADV_MAC"
+    fi
+
+    # MTU 设置
+    if [ -n "$ADV_MTU" ]; then
+        uci set network.wan.mtu="$ADV_MTU"
+    fi
+
+    # DNS 设置
+    local dns_list=""
+    if [ -n "$ADV_DNS1" ]; then
+        dns_list="$ADV_DNS1"
+    fi
+    if [ -n "$ADV_DNS2" ]; then
+        if [ -n "$dns_list" ]; then
+            dns_list="$dns_list $ADV_DNS2"
+        else
+            dns_list="$ADV_DNS2"
+        fi
+    fi
+    if [ -n "$dns_list" ]; then
+        uci set network.wan.dns="$dns_list"
+        # 同时设置 peerdns=0 防止 DHCP/PPPoE 覆盖 DNS
+        uci set network.wan.peerdns='0'
+    fi
 }
 
 # 应用 PPPoE 配置
 apply_pppoe() {
     local username="$1"
     local password="$2"
+    shift 2  # 移除前两个参数，剩下的是高级参数
 
     if [ -z "$username" ] || [ -z "$password" ]; then
         echo "Error: username and password required"
         return 1
     fi
+
+    # 解析高级参数
+    parse_advanced_args "$@"
 
     # 先备份
     backup_network || return 1
@@ -121,17 +171,22 @@ apply_pppoe() {
         uci set network.wan.device='eth0'
     fi
 
+    # 应用高级设置
+    apply_advanced_settings
+
     uci commit network
 
     # 重启网络
     /etc/init.d/network restart 2>/dev/null &
-
     echo "PPPoE configuration applied"
     return 0
 }
 
 # 应用 DHCP 配置
 apply_dhcp() {
+    # 解析高级参数
+    parse_advanced_args "$@"
+
     # 先备份
     backup_network || return 1
 
@@ -143,11 +198,13 @@ apply_dhcp() {
         uci set network.wan.device='eth0'
     fi
 
+    # 应用高级设置
+    apply_advanced_settings
+
     uci commit network
 
     # 重启网络
     /etc/init.d/network restart 2>/dev/null &
-
     echo "DHCP configuration applied"
     return 0
 }
@@ -158,6 +215,7 @@ apply_static() {
     local gateway="$2"
     local netmask="$3"
     local dns="$4"
+    shift 4  # 移除前四个参数，剩下的是高级参数
 
     if [ -z "$ipaddr" ] || [ -z "$gateway" ]; then
         echo "Error: IP address and gateway required"
@@ -168,6 +226,9 @@ apply_static() {
     if [ -z "$netmask" ]; then
         netmask="255.255.255.0"
     fi
+
+    # 解析高级参数
+    parse_advanced_args "$@"
 
     # 先备份
     backup_network || return 1
@@ -183,16 +244,18 @@ apply_static() {
         uci set network.wan.device='eth0'
     fi
 
-    # 设置 DNS
-    if [ -n "$dns" ]; then
-        uci set network.wan.dns="$dns"
+    # 设置 DNS（优先用高级参数里的，其次用旧参数）
+    if [ -z "$ADV_DNS1" ] && [ -n "$dns" ]; then
+        ADV_DNS1="$dns"
     fi
+
+    # 应用高级设置
+    apply_advanced_settings
 
     uci commit network
 
     # 重启网络
     /etc/init.d/network restart 2>/dev/null &
-
     echo "Static IP configuration applied"
     return 0
 }
@@ -209,13 +272,13 @@ case "$1" in
         restore_network "$2"
         ;;
     pppoe)
-        apply_pppoe "$2" "$3"
+        apply_pppoe "$2" "$3" "$4" "$5" "$6" "$7"
         ;;
     dhcp)
-        apply_dhcp
+        apply_dhcp "$2" "$3" "$4" "$5"
         ;;
     static)
-        apply_static "$2" "$3" "$4" "$5"
+        apply_static "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"
         ;;
     *)
         echo "Usage: $0 {status|backup|restore|pppoe|dhcp|static}"
@@ -224,8 +287,8 @@ case "$1" in
         echo "  status              Show current network status"
         echo "  backup              Backup network configuration"
         echo "  restore [file]      Restore from backup (latest if not specified)"
-        echo "  pppoe <user> <pass> Configure PPPoE connection"
-        echo "  dhcp                Configure DHCP connection"
+        echo "  pppoe <user> <pass> [mac=xx] [mtu=xx] [dns1=xx] [dns2=xx]"
+        echo "  dhcp                [mac=xx] [mtu=xx] [dns1=xx] [dns2=xx]"
         echo "  static <ip> <gw> [mask] [dns]  Configure static IP"
         exit 1
         ;;

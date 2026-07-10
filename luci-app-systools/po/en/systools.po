@@ -1,58 +1,190 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: luci-app-systools\n"
+"Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2024-01-01 00:00+0000\n"
-"PO-Revision-Date: 2024-01-01 00:00+0000\n"
-"Last-Translator: \n"
-"Language-Team: English\n"
+"POT-Creation-Date: 2026-07-10 00:00+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: Automatically generated\n"
+"Language-Team: none\n"
 "Language: en\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-msgid "System Tools"
-msgstr "System Tools"
+msgid "Toolbox"
+msgstr "Toolbox"
 
-msgid "Overview"
-msgstr "Overview"
+msgid "Network Wizard"
+msgstr "Network Wizard"
 
-msgid "Network Wizards"
-msgstr "Network Wizards"
-
-msgid "IPv6 Quick Setup"
-msgstr "IPv6 Quick Setup"
-
-msgid "Diagnostics"
-msgstr "Diagnostics"
-
-msgid "System Tools"
-msgstr "System Tools"
+msgid "Smart Home"
+msgstr "Smart Home"
 
 msgid "About"
 msgstr "About"
 
-msgid "Configure IPv6 network with one click. Supports multiple modes."
-msgstr "Configure IPv6 network with one click. Supports multiple modes."
+msgid "Internet Setup Wizard"
+msgstr "Internet Setup Wizard"
 
-msgid "Current Status"
-msgstr "Current Status"
+msgid "Step-by-step wizard to help you configure internet access"
+msgstr "Step-by-step wizard to help you configure internet access"
+
+msgid "Welcome"
+msgstr "Welcome"
+
+msgid "Welcome to the Internet Setup Wizard"
+msgstr "Welcome to the Internet Setup Wizard"
+
+msgid "This wizard will guide you through configuring your internet connection. Please follow the steps below."
+msgstr "This wizard will guide you through configuring your internet connection. Please follow the steps below."
+
+msgid "Start Configuration"
+msgstr "Start Configuration"
+
+msgid "Connection Type"
+msgstr "Connection Type"
+
+msgid "Select your internet connection type"
+msgstr "Select your internet connection type"
+
+msgid "PPPoE (Dial-up)"
+msgstr "PPPoE (Dial-up)"
+
+msgid "DHCP (Automatic)"
+msgstr "DHCP (Automatic)"
+
+msgid "Static IP"
+msgstr "Static IP"
+
+msgid "PPPoE Configuration"
+msgstr "PPPoE Configuration"
+
+msgid "Enter your PPPoE username and password"
+msgstr "Enter your PPPoE username and password"
+
+msgid "Username"
+msgstr "Username"
+
+msgid "Password"
+msgstr "Password"
+
+msgid "Confirm Password"
+msgstr "Confirm Password"
+
+msgid "MTU"
+msgstr "MTU"
+
+msgid "Default is 1492 for PPPoE"
+msgstr "Default is 1492 for PPPoE"
+
+msgid "MAC Address Clone"
+msgstr "MAC Address Clone"
+
+msgid "Clone current WAN MAC address"
+msgstr "Clone current WAN MAC address"
+
+msgid "Custom MAC Address"
+msgstr "Custom MAC Address"
+
+msgid "Leave empty to use default"
+msgstr "Leave empty to use default"
+
+msgid "DNS Servers"
+msgstr "DNS Servers"
+
+msgid "Primary DNS"
+msgstr "Primary DNS"
+
+msgid "Secondary DNS"
+msgstr "Secondary DNS"
+
+msgid "Leave empty to use ISP default DNS"
+msgstr "Leave empty to use ISP default DNS"
+
+msgid "DHCP Configuration"
+msgstr "DHCP Configuration"
+
+msgid "Your router will automatically obtain an IP address from your ISP"
+msgstr "Your router will automatically obtain an IP address from your ISP"
+
+msgid "Static IP Configuration"
+msgstr "Static IP Configuration"
+
+msgid "Enter your static IP configuration"
+msgstr "Enter your static IP configuration"
+
+msgid "IP Address"
+msgstr "IP Address"
+
+msgid "Subnet Mask"
+msgstr "Subnet Mask"
+
+msgid "Gateway"
+msgstr "Gateway"
+
+msgid "LAN Settings"
+msgstr "LAN Settings"
+
+msgid "Configure your LAN network (optional)"
+msgstr "Configure your LAN network (optional)"
+
+msgid "LAN IP Address"
+msgstr "LAN IP Address"
+
+msgid "LAN Subnet Mask"
+msgstr "LAN Subnet Mask"
+
+msgid "DHCP Server"
+msgstr "DHCP Server"
+
+msgid "Enable DHCP server on LAN"
+msgstr "Enable DHCP server on LAN"
+
+msgid "Confirmation"
+msgstr "Confirmation"
+
+msgid "Please review your configuration before applying"
+msgstr "Please review your configuration before applying"
+
+msgid "Configuration Summary"
+msgstr "Configuration Summary"
+
+msgid "Connection Type:"
+msgstr "Connection Type:"
+
+msgid "Applying Configuration"
+msgstr "Applying Configuration"
+
+msgid "Please wait while the configuration is being applied..."
+msgstr "Please wait while the configuration is being applied..."
+
+msgid "Do not turn off the router during this process."
+msgstr "Do not turn off the router during this process."
+
+msgid "Configuration Complete"
+msgstr "Configuration Complete"
+
+msgid "Your internet connection has been configured successfully."
+msgstr "Your internet connection has been configured successfully."
+
+msgid "If you changed the LAN IP address, you may need to reconnect to the network."
+msgstr "If you changed the LAN IP address, you may need to reconnect to the network."
+
+msgid "Back to Home"
+msgstr "Back to Home"
+
+msgid "IPv6 Setup"
+msgstr "IPv6 Setup"
+
+msgid "One-click IPv6 configuration with multiple modes"
+msgstr "One-click IPv6 configuration with multiple modes"
+
+msgid "Current IPv6 Status"
+msgstr "Current IPv6 Status"
 
 msgid "IPv6 Status"
 msgstr "IPv6 Status"
-
-msgid "Enabled & Connected"
-msgstr "Enabled & Connected"
-
-msgid "Enabled but Not Connected"
-msgstr "Enabled but Not Connected"
-
-msgid "Disabled"
-msgstr "Disabled"
-
-msgid "Current Mode"
-msgstr "Current Mode"
 
 msgid "WAN IPv6 Address"
 msgstr "WAN IPv6 Address"
@@ -60,116 +192,3888 @@ msgstr "WAN IPv6 Address"
 msgid "LAN IPv6 Prefix"
 msgstr "LAN IPv6 Prefix"
 
-msgid "N/A"
-msgstr "N/A"
-
-msgid "IPv6 Configuration"
-msgstr "IPv6 Configuration"
+msgid "IPv6 Gateway"
+msgstr "IPv6 Gateway"
 
 msgid "IPv6 Mode"
 msgstr "IPv6 Mode"
 
-msgid "Select the IPv6 connection mode"
-msgstr "Select the IPv6 connection mode"
+msgid "Select IPv6 configuration mode"
+msgstr "Select IPv6 configuration mode"
 
-msgid "Native IPv6"
-msgstr "Native IPv6"
+msgid "Native (DHCPv6 + PD)"
+msgstr "Native (DHCPv6 + PD)"
 
-msgid "6to4 Tunnel"
-msgstr "6to4 Tunnel"
+msgid "6to4 Auto Tunnel"
+msgstr "6to4 Auto Tunnel"
 
-msgid "6in4 Tunnel"
-msgstr "6in4 Tunnel"
+msgid "6in4 Manual Tunnel"
+msgstr "6in4 Manual Tunnel"
 
-msgid "DHCPv6 Client"
-msgstr "DHCPv6 Client"
+msgid "Relay Mode"
+msgstr "Relay Mode"
 
-msgid "Disabled"
-msgstr "Disabled"
+msgid "Disable IPv6"
+msgstr "Disable IPv6"
 
-msgid "Tunnel Server Address"
-msgstr "Tunnel Server Address"
+msgid "Native Mode Configuration"
+msgstr "Native Mode Configuration"
 
-msgid "6in4 tunnel server IPv4 address"
-msgstr "6in4 tunnel server IPv4 address"
+msgid "PD Prefix Length"
+msgstr "PD Prefix Length"
 
-msgid "Local IPv6 Address"
-msgstr "Local IPv6 Address"
+msgid "Request IPv6 prefix from ISP"
+msgstr "Request IPv6 prefix from ISP"
 
-msgid "Your IPv6 address for the tunnel"
-msgstr "Your IPv6 address for the tunnel"
+msgid "LAN IPv6 Assignment"
+msgstr "LAN IPv6 Assignment"
 
-msgid "IPv6 Prefix"
-msgstr "IPv6 Prefix"
+msgid "SLAAC only"
+msgstr "SLAAC only"
 
-msgid "IPv6 prefix for your LAN (optional)"
-msgstr "IPv6 prefix for your LAN (optional)"
+msgid "DHCPv6 only"
+msgstr "DHCPv6 only"
+
+msgid "Hybrid (SLAAC + DHCPv6)"
+msgstr "Hybrid (SLAAC + DHCPv6)"
+
+msgid "IPv6 Firewall"
+msgstr "IPv6 Firewall"
+
+msgid "Allow incoming IPv6 connections from WAN"
+msgstr "Allow incoming IPv6 connections from WAN"
+
+msgid "6to4 Configuration"
+msgstr "6to4 Configuration"
+
+msgid "Automatically creates IPv6 tunnel using your public IPv4 address"
+msgstr "Automatically creates IPv6 tunnel using your public IPv4 address"
+
+msgid "6in4 Configuration"
+msgstr "6in4 Configuration"
+
+msgid "Manual tunnel configuration (e.g., HE.net)"
+msgstr "Manual tunnel configuration (e.g., HE.net)"
+
+msgid "Tunnel Server IPv4"
+msgstr "Tunnel Server IPv4"
+
+msgid "Tunnel IPv6 Address"
+msgstr "Tunnel IPv6 Address"
 
 msgid "Tunnel ID"
 msgstr "Tunnel ID"
 
-msgid "Tunnel ID / User ID (optional)"
-msgstr "Tunnel ID / User ID (optional)"
+msgid "Relay Configuration"
+msgstr "Relay Configuration"
 
-msgid "Username"
-msgstr "Username"
-
-msgid "Tunnel service username (optional)"
-msgstr "Tunnel service username (optional)"
-
-msgid "Password"
-msgstr "Password"
-
-msgid "Tunnel service password (optional)"
-msgstr "Tunnel service password (optional)"
+msgid "Relay IPv6 from upstream router"
+msgstr "Relay IPv6 from upstream router"
 
 msgid "Apply Configuration"
 msgstr "Apply Configuration"
 
-msgid "Apply & Restart Network"
-msgstr "Apply & Restart Network"
+msgid "Apply IPv6 configuration"
+msgstr "Apply IPv6 configuration"
 
-msgid "Diagnose Connection"
-msgstr "Diagnose Connection"
+msgid "Side Route Mode"
+msgstr "Side Route Mode"
 
-msgid "Run Diagnostics"
-msgstr "Run Diagnostics"
+msgid "One-click switch between router mode and side route mode"
+msgstr "One-click switch between router mode and side route mode"
 
-msgid "Diagnostics Results"
-msgstr "Diagnostics Results"
+msgid "Current Mode"
+msgstr "Current Mode"
 
-msgid "WAN6 Interface Exists"
-msgstr "WAN6 Interface Exists"
+msgid "Router Mode"
+msgstr "Router Mode"
 
-msgid "WAN6 Interface Up"
-msgstr "WAN6 Interface Up"
+msgid "Side Route Mode"
+msgstr "Side Route Mode"
 
-msgid "Has Global IPv6 Address"
-msgstr "Has Global IPv6 Address"
+msgid "Mode Description"
+msgstr "Mode Description"
 
-msgid "Has Default Route"
-msgstr "Has Default Route"
+msgid "Router Mode: The router acts as the main gateway, handles DHCP, NAT, and firewall."
+msgstr "Router Mode: The router acts as the main gateway, handles DHCP, NAT, and firewall."
 
-msgid "Can Ping Gateway"
-msgstr "Can Ping Gateway"
+msgid "Side Route Mode: The router works as a bypass device. Connect LAN port to main router LAN. Devices use this router as gateway manually."
+msgstr "Side Route Mode: The router works as a bypass device. Connect LAN port to main router LAN. Devices use this router as gateway manually."
 
-msgid "Can Ping Internet"
-msgstr "Can Ping Internet"
+msgid "Switch to Side Route Mode"
+msgstr "Switch to Side Route Mode"
 
-msgid "IPv6 DNS Works"
-msgstr "IPv6 DNS Works"
+msgid "Switch to Router Mode"
+msgstr "Switch to Router Mode"
+
+msgid "Warning"
+msgstr "Warning"
+
+msgid "Switching modes will interrupt network connection temporarily."
+msgstr "Switching modes will interrupt network connection temporarily."
+
+msgid "In side route mode, you need to configure DHCP gateway on your main router to point to this router's IP."
+msgstr "In side route mode, you need to configure DHCP gateway on your main router to point to this router's IP."
+
+msgid "Side Route Settings"
+msgstr "Side Route Settings"
+
+msgid "Main Router IP (Gateway)"
+msgstr "Main Router IP (Gateway)"
+
+msgid "Auto-detected from current default gateway"
+msgstr "Auto-detected from current default gateway"
+
+msgid "DNS Server"
+msgstr "DNS Server"
+
+msgid "Use main router IP as DNS"
+msgstr "Use main router IP as DNS"
+
+msgid "IP Forwarding"
+msgstr "IP Forwarding"
+
+msgid "Enable IP forwarding (required for side route)"
+msgstr "Enable IP forwarding (required for side route)"
+
+msgid "Disable Masquerade"
+msgstr "Disable Masquerade"
+
+msgid "Disable IP masquerade to avoid double NAT"
+msgstr "Disable IP masquerade to avoid double NAT"
+
+msgid "Device Management"
+msgstr "Device Management"
+
+msgstr "Device Management"
+
+msgid "Manage connected devices, set custom names, and bind static IPs"
+msgstr "Manage connected devices, set custom names, and bind static IPs"
+
+msgid "Connected Devices"
+msgstr "Connected Devices"
+
+msgid "Device List"
+msgstr "Device List"
+
+msgid "IP Address"
+msgstr "IP Address"
+
+msgid "MAC Address"
+msgstr "MAC Address"
+
+msgid "Hostname"
+msgstr "Hostname"
+
+msgid "Custom Name"
+msgstr "Custom Name"
+
+msgid "Status"
+msgstr "Status"
+
+msgid "Static Bind"
+msgstr "Static Bind"
+
+msgid "Online"
+msgstr "Online"
+
+msgid "Offline"
+msgstr "Offline"
+
+msgid "Actions"
+msgstr "Actions"
+
+msgid "Edit"
+msgstr "Edit"
+
+msgid "Bind Static IP"
+msgstr "Bind Static IP"
+
+msgid "Unbind"
+msgstr "Unbind"
+
+msgid "DHCP Address Pool"
+msgstr "DHCP Address Pool"
+
+msgid "Pool Range"
+msgstr "Pool Range"
+
+msgid "Static IP binding addresses should be outside the DHCP pool range"
+msgstr "Static IP binding addresses should be outside the DHCP pool range"
+
+msgid "Edit Device"
+msgstr "Edit Device"
+
+msgid "Set custom name for this device"
+msgstr "Set custom name for this device"
+
+msgid "Device Name"
+msgstr "Device Name"
+
+msgid "Bind Static IP Address"
+msgstr "Bind Static IP Address"
+
+msgid "Assign a fixed IP address to this device"
+msgstr "Assign a fixed IP address to this device"
+
+msgid "Static IP Address"
+msgstr "Static IP Address"
+
+msgid "Home Assistant"
+msgstr "Home Assistant"
+
+msgid "Home Assistant container management and status monitoring"
+msgstr "Home Assistant container management and status monitoring"
+
+msgid "Container Status"
+msgstr "Container Status"
+
+msgid "Running"
+msgstr "Running"
+
+msgid "Stopped"
+msgstr "Stopped"
+
+msgid "Error"
+msgstr "Error"
+
+msgid "Not Found"
+msgstr "Not Found"
+
+msgid "Container Name"
+msgstr "Container Name"
+
+msgid "Image"
+msgstr "Image"
+
+msgid "Container ID"
+msgstr "Container ID"
+
+msgid "Uptime"
+msgstr "Uptime"
+
+msgid "CPU Usage"
+msgstr "CPU Usage"
+
+msgid "Memory Usage"
+msgstr "Memory Usage"
+
+msgid "Version"
+msgstr "Version"
+
+msgid "Database Size"
+msgstr "Database Size"
+
+msgid "Container Operations"
+msgstr "Container Operations"
+
+msgid "Start"
+msgstr "Start"
+
+msgid "Stop"
+msgstr "Stop"
+
+msgid "Restart"
+msgstr "Restart"
+
+msgid "View Logs"
+msgstr "View Logs"
+
+msgid "Open Web UI"
+msgstr "Open Web UI"
+
+msgid "Container Logs"
+msgstr "Container Logs"
+
+msgid "Recent logs (last 100 lines)"
+msgstr "Recent logs (last 100 lines)"
+
+msgid "Refresh"
+msgstr "Refresh"
+
+msgid "Log Level"
+msgstr "Log Level"
+
+msgid "All"
+msgstr "All"
+
+msgid "Errors Only"
+msgstr "Errors Only"
+
+msgid "Warnings and Errors"
+msgstr "Warnings and Errors"
+
+msgid "Configuration Backup"
+msgstr "Configuration Backup"
+
+msgid "Backup Home Assistant configuration"
+msgstr "Backup Home Assistant configuration"
+
+msgid "Backup Now"
+msgstr "Backup Now"
+
+msgid "Docker is not installed or not running"
+msgstr "Docker is not installed or not running"
+
+msgid "Please install Docker first to use this feature"
+msgstr "Please install Docker first to use this feature"
+
+msgid "HA Image Management"
+msgstr "HA Image Management"
+
+msgid "Manage Docker images for Home Assistant and related services"
+msgstr "Manage Docker images for Home Assistant and related services"
+
+msgid "Storage Status"
+msgstr "Storage Status"
+
+msgid "Docker Data Directory"
+msgstr "Docker Data Directory"
+
+msgid "Total Space"
+msgstr "Total Space"
+
+msgid "Used Space"
+msgstr "Used Space"
+
+msgid "Available Space"
+msgstr "Available Space"
+
+msgid "Total Images Size"
+msgstr "Total Images Size"
+
+msgid "Total Containers Size"
+msgstr "Total Containers Size"
+
+msgid "Mounted Storage Devices"
+msgstr "Mounted Storage Devices"
+
+msgid "Device"
+msgstr "Device"
+
+msgid "Mount Point"
+msgstr "Mount Point"
+
+msgid "Total"
+msgstr "Total"
+
+msgid "Used"
+msgstr "Used"
+
+msgid "Available"
+msgstr "Available"
+
+msgid "Current Docker Location"
+msgstr "Current Docker Location"
+
+msgid "Tip: Docker data is stored on internal storage. Go to Storage Settings to migrate to USB drive."
+msgstr "Tip: Docker data is stored on internal storage. Go to Storage Settings to migrate to USB drive."
+
+msgid "Go to Storage Settings"
+msgstr "Go to Storage Settings"
+
+msgid "Image List"
+msgstr "Image List"
+
+msgid "Repository"
+msgstr "Repository"
+
+msgid "Tag"
+msgstr "Tag"
+
+msgid "Size"
+msgstr "Size"
+
+msgid "Created"
+msgstr "Created"
+
+msgid "Pull Image"
+msgstr "Pull Image"
+
+msgid "Image Name"
+msgstr "Image Name"
+
+msgid "e.g., homeassistant/home-assistant:latest"
+msgstr "e.g., homeassistant/home-assistant:latest"
+
+msgid "Image Registry"
+msgstr "Image Registry"
+
+msgid "Official Docker Hub"
+msgstr "Official Docker Hub"
+
+msgid "China Mirror - Aliyun"
+msgstr "China Mirror - Aliyun"
+
+msgid "China Mirror - NetEase"
+msgstr "China Mirror - NetEase"
+
+msgid "China Mirror - USTC"
+msgstr "China Mirror - USTC"
+
+msgid "Custom Registry"
+msgstr "Custom Registry"
+
+msgid "Pull"
+msgstr "Pull"
+
+msgid "Common Images"
+msgstr "Common Images"
+
+msgid "Quick pull common smart home images"
+msgstr "Quick pull common smart home images"
+
+msgid "Home Assistant (latest)"
+msgstr "Home Assistant (latest)"
+
+msgid "Home Assistant (stable)"
+msgstr "Home Assistant (stable)"
+
+msgid "Mosquitto MQTT"
+msgstr "Mosquitto MQTT"
+
+msgid "Zigbee2MQTT"
+msgstr "Zigbee2MQTT"
+
+msgid "Node-RED"
+msgstr "Node-RED"
+
+msgid "ESPHome"
+msgstr "ESPHome"
+
+msgid "Clean Dangling Images"
+msgstr "Clean Dangling Images"
+
+msgid "Remove all unused <none> images"
+msgstr "Remove all unused <none> images"
+
+msgid "Clean"
+msgstr "Clean"
+
+msgid "Delete"
+msgstr "Delete"
+
+msgid "Are you sure you want to delete this image?"
+msgstr "Are you sure you want to delete this image?"
+
+msgid "HA Storage Settings"
+msgstr "HA Storage Settings"
+
+msgid "Manage Docker storage location and migrate to USB drive"
+msgstr "Manage Docker storage location and migrate to USB drive"
+
+msgid "Current Storage"
+msgstr "Current Storage"
+
+msgid "Docker Data Root"
+msgstr "Docker Data Root"
+
+msgid "Storage Device"
+msgstr "Storage Device"
+
+msgid "Storage Usage"
+msgstr "Storage Usage"
+
+msgid "Low Space Warning: Less than 10% remaining. Consider migrating to USB drive."
+msgstr "Low Space Warning: Less than 10% remaining. Consider migrating to USB drive."
+
+msgid "Available Storage Devices"
+msgstr "Available Storage Devices"
+
+msgid "Detected USB drives and storage devices"
+msgstr "Detected USB drives and storage devices"
+
+msgid "File System"
+msgstr "File System"
+
+msgid "Mount"
+msgstr "Mount"
+
+msgid "Unmount"
+msgstr "Unmount"
+
+msgid "Format USB Drive"
+msgstr "Format USB Drive"
+
+msgid "Format selected drive as ext4 for Docker storage"
+msgstr "Format selected drive as ext4 for Docker storage"
+
+msgid "Select Drive"
+msgstr "Select Drive"
+
+msgid "File System Type"
+msgstr "File System Type"
+
+msgid "ext4 (recommended)"
+msgstr "ext4 (recommended)"
+
+msgid "f2fs (flash-friendly)"
+msgstr "f2fs (flash-friendly)"
+
+msgid "Format"
+msgstr "Format"
+
+msgid "WARNING: Formatting will erase all data on the drive!"
+msgstr "WARNING: Formatting will erase all data on the drive!"
+
+msgid "Migrate Docker Data"
+msgstr "Migrate Docker Data"
+
+msgid "Move Docker data directory to selected location"
+msgstr "Move Docker data directory to selected location"
+
+msgid "Target Mount Point"
+msgstr "Target Mount Point"
+
+msgid "Select a mounted USB drive"
+msgstr "Select a mounted USB drive"
+
+msgid "Start Migration"
+msgstr "Start Migration"
+
+msgid "Migration will stop Docker, copy all data, and restart Docker. This may take several minutes."
+msgstr "Migration will stop Docker, copy all data, and restart Docker. This may take several minutes."
+
+msgid "Space Usage Analysis"
+msgstr "Space Usage Analysis"
+
+msgid "Top space consumers"
+msgstr "Top space consumers"
+
+msgid "HA Network Settings"
+msgstr "HA Network Settings"
+
+msgid "Network configuration for Home Assistant and smart home services"
+msgstr "Network configuration for Home Assistant and smart home services"
+
+msgid "Port Management"
+msgstr "Port Management"
+
+msgid "Quick open/close common smart home ports"
+msgstr "Quick open/close common smart home ports"
+
+msgid "Port Rules"
+msgstr "Port Rules"
+
+msgid "Rule Name"
+msgstr "Rule Name"
+
+msgid "Protocol"
+msgstr "Protocol"
+
+msgid "External Port"
+msgstr "External Port"
+
+msgid "Internal Port"
+msgstr "Internal Port"
+
+msgid "Enabled"
+msgstr "Enabled"
+
+msgid "Common Ports"
+msgstr "Common Ports"
+
+msgid "Quick add common smart home ports"
+msgstr "Quick add common smart home ports"
+
+msgid "Home Assistant (8123)"
+msgstr "Home Assistant (8123)"
+
+msgid "MQTT (1883)"
+msgstr "MQTT (1883)"
+
+msgid "MQTT SSL (8883)"
+msgstr "MQTT SSL (8883)"
+
+msgid "Zigbee2MQTT (8080)"
+msgstr "Zigbee2MQTT (8080)"
+
+msgid "Node-RED (1880)"
+msgstr "Node-RED (1880)"
+
+msgid "ESPHome (6052)"
+msgstr "ESPHome (6052)"
+
+msgid "Add Custom Port"
+msgstr "Add Custom Port"
+
+msgid "Add a new port forwarding rule"
+msgstr "Add a new port forwarding rule"
+
+msgid "TCP"
+msgstr "TCP"
+
+msgid "UDP"
+msgstr "UDP"
+
+msgid "TCP + UDP"
+msgstr "TCP + UDP"
+
+msgid "Add Rule"
+msgstr "Add Rule"
+
+msgid "mDNS Service"
+msgstr "mDNS Service"
+
+msgid "Multicast DNS for device discovery"
+msgstr "Multicast DNS for device discovery"
+
+msgid "mDNS Status"
+msgstr "mDNS Status"
+
+msgid "Enable mDNS"
+msgstr "Enable mDNS"
+
+msgid "UPnP Service"
+msgstr "UPnP Service"
+
+msgid "Universal Plug and Play for automatic port forwarding"
+msgstr "Universal Plug and Play for automatic port forwarding"
+
+msgid "UPnP Status"
+msgstr "UPnP Status"
+
+msgid "Enable UPnP"
+msgstr "Enable UPnP"
+
+msgid "UPnP Port Mappings"
+msgstr "UPnP Port Mappings"
+
+msgid "Current UPnP port mappings"
+msgstr "Current UPnP port mappings"
+
+msgid "About Toolbox"
+msgstr "About Toolbox"
+
+msgid "Version"
+msgstr "Version"
+
+msgid "Author"
+msgstr "Author"
+
+msgid "Description"
+msgstr "Description"
+
+msgid "A comprehensive toolbox for OpenWrt with network wizards and smart home management"
+msgstr "A comprehensive toolbox for OpenWrt with network wizards and smart home management"
+
+msgid "Features"
+msgstr "Features"
+
+msgid "Network wizards for easy configuration"
+msgstr "Network wizards for easy configuration"
+
+msgid "Home Assistant Docker management"
+msgstr "Home Assistant Docker management"
+
+msgid "Storage management with USB migration"
+msgstr "Storage management with USB migration"
+
+msgid "Device management with static IP binding"
+msgstr "Device management with static IP binding"
+
+msgid "License"
+msgstr "License"
+
+msgid "Success"
+msgstr "Success"
+
+msgid "Error"
+msgstr "Error"
+
+msgid "Warning"
+msgstr "Warning"
+
+msgid "Info"
+msgstr "Info"
+
+msgid "Please wait..."
+msgstr "Please wait..."
+
+msgid "Loading..."
+msgstr "Loading..."
+
+msgid "Saving..."
+msgstr "Saving..."
+
+msgid "Applying..."
+msgstr "Applying..."
+
+msgid "Operation completed successfully"
+msgstr "Operation completed successfully"
+
+msgid "Operation failed"
+msgstr "Operation failed"
+
+msgid "Are you sure?"
+msgstr "Are you sure?"
+
+msgid "This action cannot be undone"
+msgstr "This action cannot be undone"
+
+msgid "Confirm"
+msgstr "Confirm"
+
+msgid "Cancel"
+msgstr "Cancel"
+
+msgid "Save"
+msgstr "Save"
+
+msgid "Apply"
+msgstr "Apply"
+
+msgid "Reset"
+msgstr "Reset"
+
+msgid "Back"
+msgstr "Back"
+
+msgid "Next"
+msgstr "Next"
+
+msgid "Previous"
+msgstr "Previous"
+
+msgid "Finish"
+msgstr "Finish"
+
+msgid "Yes"
+msgstr "Yes"
+
+msgid "No"
+msgstr "No"
+
+msgid "Enable"
+msgstr "Enable"
+
+msgid "Disable"
+msgstr "Disable"
+
+msgid "Enabled"
+msgstr "Enabled"
+
+msgid "Disabled"
+msgstr "Disabled"
+
+msgid "Unknown"
+msgstr "Unknown"
+
+msgid "N/A"
+msgstr "N/A"
+
+msgid "KB"
+msgstr "KB"
+
+msgid "MB"
+msgstr "MB"
+
+msgid "GB"
+msgstr "GB"
+
+msgid "seconds"
+msgstr "seconds"
+
+msgid "minutes"
+msgstr "minutes"
+
+msgid "hours"
+msgstr "hours"
+
+msgid "days"
+msgstr "days"
+
+msgid "Invalid IP address format"
+msgstr "Invalid IP address format"
+
+msgid "Invalid MAC address format"
+msgstr "Invalid MAC address format"
+
+msgid "Invalid port number (must be 1-65535)"
+msgstr "Invalid port number (must be 1-65535)"
+
+msgid "Passwords do not match"
+msgstr "Passwords do not match"
+
+msgid "Configuration backed up successfully"
+msgstr "Configuration backed up successfully"
+
+msgid "Configuration restored successfully"
+msgstr "Configuration restored successfully"
+
+msgid "Backup failed"
+msgstr "Backup failed"
+
+msgid "Restore failed"
+msgstr "Restore failed"
+
+msgid "Rolling back to previous configuration..."
+msgstr "Rolling back to previous configuration..."
+
+msgid "Configuration rolled back successfully"
+msgstr "Configuration rolled back successfully"
+
+msgid "Network restarting..."
+msgstr "Network restarting..."
+
+msgid "Firewall restarting..."
+msgstr "Firewall restarting..."
+
+msgid "Docker restarting..."
+msgstr "Docker restarting..."
+
+msgid "Container started successfully"
+msgstr "Container started successfully"
+
+msgid "Container stopped successfully"
+msgstr "Container stopped successfully"
+
+msgid "Container restarted successfully"
+msgstr "Container restarted successfully"
+
+msgid "Failed to start container"
+msgstr "Failed to start container"
+
+msgid "Failed to stop container"
+msgstr "Failed to stop container"
+
+msgid "Failed to restart container"
+msgstr "Failed to restart container"
+
+msgid "Image pulled successfully"
+msgstr "Image pulled successfully"
+
+msgid "Failed to pull image"
+msgstr "Failed to pull image"
+
+msgid "Image deleted successfully"
+msgstr "Image deleted successfully"
+
+msgid "Failed to delete image"
+msgstr "Failed to delete image"
+
+msgid "Dangling images cleaned successfully"
+msgstr "Dangling images cleaned successfully"
+
+msgid "No dangling images to clean"
+msgstr "No dangling images to clean"
+
+msgid "Migration started"
+msgstr "Migration started"
+
+msgid "Migration completed successfully"
+msgstr "Migration completed successfully"
+
+msgid "Migration failed"
+msgstr "Migration failed"
+
+msgid "Drive formatted successfully"
+msgstr "Drive formatted successfully"
+
+msgid "Failed to format drive"
+msgstr "Failed to format drive"
+
+msgid "Port rule added successfully"
+msgstr "Port rule added successfully"
+
+msgid "Failed to add port rule"
+msgstr "Failed to add port rule"
+
+msgid "Port rule deleted successfully"
+msgstr "Port rule deleted successfully"
+
+msgid "Failed to delete port rule"
+msgstr "Failed to delete port rule"
+
+msgid "Port already exists"
+msgstr "Port already exists"
+
+msgid "Device name updated successfully"
+msgstr "Device name updated successfully"
+
+msgid "Static IP bound successfully"
+msgstr "Static IP bound successfully"
+
+msgid "Static IP unbound successfully"
+msgstr "Static IP unbound successfully"
+
+msgid "IP address conflicts with existing binding"
+msgstr "IP address conflicts with existing binding"
+
+msgid "IP address is within DHCP pool range"
+msgstr "IP address is within DHCP pool range"
+
+msgid "Side route mode activated"
+msgstr "Side route mode activated"
+
+msgid "Router mode restored"
+msgstr "Router mode restored"
+
+msgid "Mode switch failed, rolling back..."
+msgstr "Mode switch failed, rolling back..."
+
+msgid "IPv6 configuration applied successfully"
+msgstr "IPv6 configuration applied successfully"
+
+msgid "IPv6 configuration failed"
+msgstr "IPv6 configuration failed"
+
+msgid "Internet configuration applied successfully"
+msgstr "Internet configuration applied successfully"
+
+msgid "Internet configuration failed"
+msgstr "Internet configuration failed"
+
+msgid "Connectivity test passed"
+msgstr "Connectivity test passed"
+
+msgid "Connectivity test failed"
+msgstr "Connectivity test failed"
+
+msgid "Testing connectivity..."
+msgstr "Testing connectivity..."
+
+msgid "No devices found"
+msgstr "No devices found"
+
+msgid "No images found"
+msgstr "No images found"
+
+msgid "No containers found"
+msgstr "No containers found"
+
+msgid "No port rules found"
+msgstr "No port rules found"
+
+msgid "No backup files found"
+msgstr "No backup files found"
+
+msgid "No storage devices found"
+msgstr "No storage devices found"
+
+msgid "Docker daemon not running"
+msgstr "Docker daemon not running"
+
+msgid "Container not found"
+msgstr "Container not found"
+
+msgid "Image not found"
+msgstr "Image not found"
+
+msgid "Insufficient disk space"
+msgstr "Insufficient disk space"
+
+msgid "Permission denied"
+msgstr "Permission denied"
+
+msgid "Invalid input"
+msgstr "Invalid input"
+
+msgid "Configuration file not found"
+msgstr "Configuration file not found"
+
+msgid "Service not installed"
+msgstr "Service not installed"
+
+msgid "Operation timed out"
+msgstr "Operation timed out"
+
+msgid "Network error"
+msgstr "Network error"
+
+msgid "System error"
+msgstr "System error"
+
+msgid "Last Seen"
+msgstr "Last Seen"
+
+msgid "Never"
+msgstr "Never"
+
+msgid "Lease Expires"
+msgstr "Lease Expires"
+
+msgid "Static"
+msgstr "Static"
+
+msgid "Dynamic"
+msgstr "Dynamic"
+
+msgid "Interface"
+msgstr "Interface"
+
+msgid "LAN"
+msgstr "LAN"
+
+msgid "WAN"
+msgstr "WAN"
+
+msgid "Search"
+msgstr "Search"
+
+msgid "Filter"
+msgstr "Filter"
+
+msgid "Sort by"
+msgstr "Sort by"
+
+msgid "Name"
+msgstr "Name"
+
+msgid "Date"
+msgstr "Date"
+
+msgid "Size"
+msgstr "Size"
+
+msgid "Ascending"
+msgstr "Ascending"
+
+msgid "Descending"
+msgstr "Descending"
+
+msgid "Select All"
+msgstr "Select All"
+
+msgid "Deselect All"
+msgstr "Deselect All"
+
+msgid "Selected"
+msgstr "Selected"
+
+msgid "items selected"
+msgstr "items selected"
+
+msgid "Batch Delete"
+msgstr "Batch Delete"
+
+msgid "Registry Mirrors"
+msgstr "Registry Mirrors"
+
+msgid "Configure Docker registry mirrors for faster pulls in China"
+msgstr "Configure Docker registry mirrors for faster pulls in China"
+
+msgid "Current Mirrors"
+msgstr "Current Mirrors"
+
+msgid "Add Mirror"
+msgstr "Add Mirror"
+
+msgid "Mirror URL"
+msgstr "Mirror URL"
+
+msgid "Remove"
+msgstr "Remove"
+
+msgid "Apply Mirrors"
+msgstr "Apply Mirrors"
+
+msgid "Restart Docker to apply changes"
+msgstr "Restart Docker to apply changes"
+
+msgid "Auto-detect fastest mirror"
+msgstr "Auto-detect fastest mirror"
+
+msgid "Testing mirror speeds..."
+msgstr "Testing mirror speeds..."
+
+msgid "Speed test completed"
+msgstr "Speed test completed"
+
+msgid "ms"
+msgstr "ms"
+
+msgid "Fastest"
+msgstr "Fastest"
+
+msgid "Restart Policy"
+msgstr "Restart Policy"
+
+msgid "always"
+msgstr "always"
+
+msgid "unless-stopped"
+msgstr "unless-stopped"
+
+msgid "on-failure"
+msgstr "on-failure"
+
+msgid "no"
+msgstr "no"
+
+msgid "Config Volume"
+msgstr "Config Volume"
+
+msgid "Data Volume"
+msgstr "Data Volume"
+
+msgid "Ports"
+msgstr "Ports"
+
+msgid "Networks"
+msgstr "Networks"
+
+msgid "Environment"
+msgstr "Environment"
+
+msgid "Mounts"
+msgstr "Mounts"
+
+msgid "Created At"
+msgstr "Created At"
+
+msgid "Started At"
+msgstr "Started At"
+
+msgid "Finished At"
+msgstr "Finished At"
+
+msgid "Exit Code"
+msgstr "Exit Code"
+
+msgid "State"
+msgstr "State"
+
+msgid "Status"
+msgstr "Status"
+
+msgid "Health"
+msgstr "Health"
+
+msgid "healthy"
+msgstr "healthy"
+
+msgid "unhealthy"
+msgstr "unhealthy"
+
+msgid "starting"
+msgstr "starting"
+
+msgid "exited"
+msgstr "exited"
+
+msgid "dead"
+msgstr "dead"
+
+msgid "created"
+msgstr "created"
+
+msgid "paused"
+msgstr "paused"
+
+msgid "restarting"
+msgstr "restarting"
+
+msgid "removing"
+msgstr "removing"
+
+msgid "About Toolbox"
+msgstr "About Toolbox"
+
+msgid "System Toolbox for OpenWrt"
+msgstr "System Toolbox for OpenWrt"
+
+msgid "A collection of useful tools and wizards for OpenWrt routers"
+msgstr "A collection of useful tools and wizards for OpenWrt routers"
+
+msgid "Website"
+msgstr "Website"
+
+msgid "Source Code"
+msgstr "Source Code"
+
+msgid "Bug Report"
+msgstr "Bug Report"
+
+msgid "Donate"
+msgstr "Donate"
+
+msgid "Thanks for using Toolbox!"
+msgstr "Thanks for using Toolbox!"
+
+msgid "Home Assistant Configuration"
+msgstr "Home Assistant Configuration"
+
+msgid "Home Assistant data directory"
+msgstr "Home Assistant data directory"
+
+msgid "Configuration directory size"
+msgstr "Configuration directory size"
+
+msgid "Database file size"
+msgstr "Database file size"
+
+msgid "Backup Home Assistant config"
+msgstr "Backup Home Assistant config"
+
+msgid "Backup file will be saved to /root/backup/"
+msgstr "Backup file will be saved to /root/backup/"
+
+msgid "Backup completed successfully"
+msgstr "Backup completed successfully"
+
+msgid "Backup file:"
+msgstr "Backup file:"
+
+msgid "Side Route Mode Warning"
+msgstr "Side Route Mode Warning"
+
+msgid "Important: After switching to side route mode, you must:"
+msgstr "Important: After switching to side route mode, you must:"
+
+msgid "1. Connect this router's LAN port to your main router's LAN port"
+msgstr "1. Connect this router's LAN port to your main router's LAN port"
+
+msgid "2. On your main router, set the DHCP default gateway to this router's IP address"
+msgstr "2. On your main router, set the DHCP default gateway to this router's IP address"
+
+msgid "3. Devices will need to renew their DHCP lease to get the new gateway"
+msgstr "3. Devices will need to renew their DHCP lease to get the new gateway"
+
+msgid "You will lose network connection temporarily during the switch."
+msgstr "You will lose network connection temporarily during the switch."
+
+msgid "Do you want to continue?"
+msgstr "Do you want to continue?"
+
+msgid "IPv6 Firewall Warning"
+msgstr "IPv6 Firewall Warning"
+
+msgid "Enabling incoming IPv6 connections will expose your internal devices directly to the internet."
+msgstr "Enabling incoming IPv6 connections will expose your internal devices directly to the internet."
+
+msgid "Make sure your devices have proper firewall rules and security settings."
+msgstr "Make sure your devices have proper firewall rules and security settings."
+
+msgid "USB Drive Format Warning"
+msgstr "USB Drive Format Warning"
+
+msgid "This will permanently erase ALL data on the selected USB drive."
+msgstr "This will permanently erase ALL data on the selected USB drive."
+
+msgid "Make sure you have backed up any important data before proceeding."
+msgstr "Make sure you have backed up any important data before proceeding."
+
+msgid "This operation cannot be undone."
+msgstr "This operation cannot be undone."
+
+msgid "Docker Migration Warning"
+msgstr "Docker Migration Warning"
+
+msgid "Migrating Docker data will stop all running containers temporarily."
+msgstr "Migrating Docker data will stop all running containers temporarily."
+
+msgid "The migration process may take several minutes depending on the amount of data."
+msgstr "The migration process may take several minutes depending on the amount of data."
+
+msgid "Do not interrupt the process or unplug the USB drive during migration."
+msgstr "Do not interrupt the process or unplug the USB drive during migration."
+
+msgid "Delete Image Confirmation"
+msgstr "Delete Image Confirmation"
+
+msgid "Are you sure you want to delete this image?"
+msgstr "Are you sure you want to delete this image?"
+
+msgid "This action cannot be undone. Containers using this image will not be affected."
+msgstr "This action cannot be undone. Containers using this image will not be affected."
+
+msgid "Delete Port Rule Confirmation"
+msgstr "Delete Port Rule Confirmation"
+
+msgid "Are you sure you want to delete this port rule?"
+msgstr "Are you sure you want to delete this port rule?"
+
+msgid "The port will be closed and no longer accessible from outside."
+msgstr "The port will be closed and no longer accessible from outside."
+
+msgid "Unbind Static IP Confirmation"
+msgstr "Unbind Static IP Confirmation"
+
+msgid "Are you sure you want to unbind the static IP for this device?"
+msgstr "Are you sure you want to unbind the static IP for this device?"
+
+msgid "The device will obtain a dynamic IP address next time it connects."
+msgstr "The device will obtain a dynamic IP address next time it connects."
+
+msgid "Clean Dangling Images Confirmation"
+msgstr "Clean Dangling Images Confirmation"
+
+msgid "Are you sure you want to clean all dangling images?"
+msgstr "Are you sure you want to clean all dangling images?"
+
+msgid "This will remove all images with <none> tag that are not used by any container."
+msgstr "This will remove all images with <none> tag that are not used by any container."
+
+msgid "Batch Delete Confirmation"
+msgstr "Batch Delete Confirmation"
+
+msgid "Are you sure you want to delete %d selected images?"
+msgstr "Are you sure you want to delete %d selected images?"
+
+msgid "This action cannot be undone."
+msgstr "This action cannot be undone."
+
+msgid "Storage Location"
+msgstr "Storage Location"
+
+msgid "Internal Storage"
+msgstr "Internal Storage"
+
+msgid "USB Drive"
+msgstr "USB Drive"
+
+msgid "Network Mode"
+msgstr "Network Mode"
+
+msgid "Bridge"
+msgstr "Bridge"
+
+msgid "Host"
+msgstr "Host"
+
+msgid "None"
+msgstr "None"
+
+msgid "Custom"
+msgstr "Custom"
+
+msgid "Restart Docker"
+msgstr "Restart Docker"
+
+msgid "Docker will be restarted to apply changes"
+msgstr "Docker will be restarted to apply changes"
+
+msgid "Apply and Restart"
+msgstr "Apply and Restart"
+
+msgid "Auto Mount on Boot"
+msgstr "Auto Mount on Boot"
+
+msgid "Automatically mount this drive on system startup"
+msgstr "Automatically mount this drive on system startup"
+
+msgid "Mount Point Path"
+msgstr "Mount Point Path"
+
+msgid "e.g., /mnt/usb"
+msgstr "e.g., /mnt/usb"
+
+msgid "Drive Label"
+msgstr "Drive Label"
+
+msgid "Optional name for the drive"
+msgstr "Optional name for the drive"
+
+msgid "Filesystem Check"
+msgstr "Filesystem Check"
+
+msgid "Check filesystem for errors before mounting"
+msgstr "Check filesystem for errors before mounting"
+
+msgid "Disk Usage"
+msgstr "Disk Usage"
+
+msgid "Disk Usage Analysis"
+msgstr "Disk Usage Analysis"
+
+msgid "Top 10 largest items"
+msgstr "Top 10 largest items"
+
+msgid "Calculating..."
+msgstr "Calculating..."
+
+msgid "Docker Images"
+msgstr "Docker Images"
+
+msgid "Docker Containers"
+msgstr "Docker Containers"
+
+msgid "Docker Volumes"
+msgstr "Docker Volumes"
+
+msgid "Home Assistant Data"
+msgstr "Home Assistant Data"
+
+msgid "Other"
+msgstr "Other"
+
+msgid "Space Breakdown"
+msgstr "Space Breakdown"
+
+msgid "Container Data"
+msgstr "Container Data"
+
+msgid "Image Data"
+msgstr "Image Data"
+
+msgid "Volume Data"
+msgstr "Volume Data"
+
+msgid "Build Date"
+msgstr "Build Date"
+
+msgid "Docker Version"
+msgstr "Docker Version"
+
+msgid "API Version"
+msgstr "API Version"
+
+msgid "Total Containers"
+msgstr "Total Containers"
+
+msgid "Running Containers"
+msgstr "Running Containers"
+
+msgid "Stopped Containers"
+msgstr "Stopped Containers"
+
+msgid "Total Images"
+msgstr "Total Images"
+
+msgid "Dangling Images"
+msgstr "Dangling Images"
+
+msgid "Docker Info"
+msgstr "Docker Info"
+
+msgid "General information about Docker installation"
+msgstr "General information about Docker installation"
+
+msgid "Registry Configuration"
+msgstr "Registry Configuration"
+
+msgid "Configure Docker registry mirrors"
+msgstr "Configure Docker registry mirrors"
+
+msgid "Current Registry Mirrors"
+msgstr "Current Registry Mirrors"
+
+msgid "No mirrors configured"
+msgstr "No mirrors configured"
+
+msgid "Add New Mirror"
+msgstr "Add New Mirror"
+
+msgid "Mirror Address"
+msgstr "Mirror Address"
+
+msgid "Add"
+msgstr "Add"
+
+msgid "Save Configuration"
+msgstr "Save Configuration"
+
+msgid "Configuration saved. Restart Docker to apply changes."
+msgstr "Configuration saved. Restart Docker to apply changes."
+
+msgid "Docker will restart automatically after saving."
+msgstr "Docker will restart automatically after saving."
+
+msgid "Port Forwarding"
+msgstr "Port Forwarding"
+
+msgid "Port forwarding rules for smart home services"
+msgstr "Port forwarding rules for smart home services"
+
+msgid "Protocol"
+msgstr "Protocol"
+
+msgid "External Port"
+msgstr "External Port"
+
+msgid "Internal IP"
+msgstr "Internal IP"
+
+msgid "Internal Port"
+msgstr "Internal Port"
+
+msgid "Description"
+msgstr "Description"
+
+msgid "Add Port Forward"
+msgstr "Add Port Forward"
+
+msgid "Add a new port forwarding rule"
+msgstr "Add a new port forwarding rule"
+
+msgid "Service Name"
+msgstr "Service Name"
+
+msgid "Source Zone"
+msgstr "Source Zone"
+
+msgid "Destination Zone"
+msgstr "Destination Zone"
+
+msgid "Destination IP"
+msgstr "Destination IP"
+
+msgid "External Port Range"
+msgstr "External Port Range"
+
+msgid "Internal Port Range"
+msgstr "Internal Port Range"
+
+msgid "Enable Rule"
+msgstr "Enable Rule"
+
+msgid "Common Services"
+msgstr "Common Services"
+
+msgid "Quick select from common services"
+msgstr "Quick select from common services"
+
+msgid "SSH (22)"
+msgstr "SSH (22)"
+
+msgid "HTTP (80)"
+msgstr "HTTP (80)"
+
+msgid "HTTPS (443)"
+msgstr "HTTPS (443)"
+
+msgid "RDP (3389)"
+msgstr "RDP (3389)"
+
+msgid "Minecraft (25565)"
+msgstr "Minecraft (25565)"
+
+msgid "Delete Rule"
+msgstr "Delete Rule"
+
+msgid "Are you sure you want to delete this port forwarding rule?"
+msgstr "Are you sure you want to delete this port forwarding rule?"
+
+msgid "mDNS Settings"
+msgstr "mDNS Settings"
+
+msgid "Multicast DNS service configuration"
+msgstr "Multicast DNS service configuration"
+
+msgid "Service Name"
+msgstr "Service Name"
+
+msgid "Enable mDNS service"
+msgstr "Enable mDNS service"
+
+msgid "Enable on all interfaces"
+msgstr "Enable on all interfaces"
+
+msgid "Browse Domain"
+msgstr "Browse Domain"
+
+msgid "Default is lan"
+msgstr "Default is lan"
+
+msgid "UPnP Settings"
+msgstr "UPnP Settings"
+
+msgid "Universal Plug and Play configuration"
+msgstr "Universal Plug and Play configuration"
+
+msgid "Enable UPnP service"
+msgstr "Enable UPnP service"
+
+msgid "Enable NAT-PMP"
+msgstr "Enable NAT-PMP"
+
+msgid "Secure Mode"
+msgstr "Secure Mode"
+
+msgid "Only allow port forwarding to internal IPs"
+msgstr "Only allow port forwarding to internal IPs"
+
+msgid "Upstream Interface"
+msgstr "Upstream Interface"
+
+msgid "Internal Interface"
+msgstr "Internal Interface"
+
+msgid "Download Speed"
+msgstr "Download Speed"
+
+msgid "Upload Speed"
+msgstr "Upload Speed"
+
+msgid "Port"
+msgstr "Port"
+
+msgid "UPnP Leases"
+msgstr "UPnP Leases"
+
+msgid "Current active UPnP leases"
+msgstr "Current active UPnP leases"
+
+msgid "Protocol"
+msgstr "Protocol"
+
+msgid "External Port"
+msgstr "External Port"
+
+msgid "Internal Client"
+msgstr "Internal Client"
+
+msgid "Internal Port"
+msgstr "Internal Port"
+
+msgid "Expires"
+msgstr "Expires"
+
+msgid "Description"
+msgstr "Description"
+
+msgid "No active UPnP leases"
+msgstr "No active UPnP leases"
+
+msgid "Refresh Leases"
+msgstr "Refresh Leases"
+
+msgid "DDNS Settings"
+msgstr "DDNS Settings"
+
+msgid "Dynamic DNS service configuration"
+msgstr "Dynamic DNS service configuration"
+
+msgid "DDNS Service"
+msgstr "DDNS Service"
+
+msgid "Service Provider"
+msgstr "Service Provider"
+
+msgid "Select your DDNS provider"
+msgstr "Select your DDNS provider"
+
+msgid "Custom"
+msgstr "Custom"
+
+msgid "Aliyun"
+msgstr "Aliyun"
+
+msgid "DNSPod (Tencent Cloud)"
+msgstr "DNSPod (Tencent Cloud)"
+
+msgid "Cloudflare"
+msgstr "Cloudflare"
+
+msgid "Oray (Peanut Shell)"
+msgstr "Oray (Peanut Shell)"
+
+msgid "No-IP"
+msgstr "No-IP"
+
+msgid "DuckDNS"
+msgstr "DuckDNS"
+
+msgid "Domain"
+msgstr "Domain"
+
+msgid "Your domain name"
+msgstr "Your domain name"
+
+msgid "Username / Access Key"
+msgstr "Username / Access Key"
+
+msgid "Password / Secret Key"
+msgstr "Password / Secret Key"
+
+msgid "Update Interval"
+msgstr "Update Interval"
+
+msgid "Check Interval"
+msgstr "Check Interval"
+
+msgid "Force Update Interval"
+msgstr "Force Update Interval"
+
+msgid "IP Check Method"
+msgstr "IP Check Method"
+
+msgid "Network interface"
+msgstr "Network interface"
+
+msgid "External URL"
+msgstr "External URL"
+
+msgid "Web service to check public IP"
+msgstr "Web service to check public IP"
+
+msgid "Enable DDNS"
+msgstr "Enable DDNS"
+
+msgid "DDNS Status"
+msgstr "DDNS Status"
+
+msgid "Last Update"
+msgstr "Last Update"
+
+msgid "Current IP"
+msgstr "Current IP"
+
+msgid "Registered IP"
+msgstr "Registered IP"
+
+msgid "Manual Update"
+msgstr "Manual Update"
+
+msgid "Update Now"
+msgstr "Update Now"
+
+msgid "WiFi Setup Wizard"
+msgstr "WiFi Setup Wizard"
+
+msgid "Step-by-step WiFi configuration"
+msgstr "Step-by-step WiFi configuration"
+
+msgid "WiFi Status"
+msgstr "WiFi Status"
+
+msgid "2.4GHz Status"
+msgstr "2.4GHz Status"
+
+msgid "5GHz Status"
+msgstr "5GHz Status"
+
+msgid "Current SSID"
+msgstr "Current SSID"
+
+msgid "Channel"
+msgstr "Channel"
+
+msgid "Bandwidth"
+msgstr "Bandwidth"
+
+msgid "Transmit Power"
+msgstr "Transmit Power"
+
+msgid "Encryption"
+msgstr "Encryption"
+
+msgid "WiFi Basic Settings"
+msgstr "WiFi Basic Settings"
+
+msgid "SSID (WiFi Name)"
+msgstr "SSID (WiFi Name)"
+
+msgid "WiFi Password"
+msgstr "WiFi Password"
+
+msgid "Hide SSID"
+msgstr "Hide SSID"
+
+msgid "Disable WiFi"
+msgstr "Disable WiFi"
+
+msgid "WiFi Advanced Settings"
+msgstr "WiFi Advanced Settings"
+
+msgid "Channel Selection"
+msgstr "Channel Selection"
+
+msgid "Auto"
+msgstr "Auto"
+
+msgid "Bandwidth Selection"
+msgstr "Bandwidth Selection"
+
+msgid "20 MHz"
+msgstr "20 MHz"
+
+msgid "40 MHz"
+msgstr "40 MHz"
+
+msgid "80 MHz"
+msgstr "80 MHz"
+
+msgid "160 MHz"
+msgstr "160 MHz"
+
+msgid "Transmit Power Level"
+msgstr "Transmit Power Level"
+
+msgid "Country Code"
+msgstr "Country Code"
+
+msgid "Optimize WiFi"
+msgstr "Optimize WiFi"
+
+msgid "Auto-select best channel and power settings"
+msgstr "Auto-select best channel and power settings"
+
+msgid "Apply WiFi Settings"
+msgstr "Apply WiFi Settings"
+
+msgid "Both Bands"
+msgstr "Both Bands"
+
+msgid "2.4GHz Only"
+msgstr "2.4GHz Only"
+
+msgid "5GHz Only"
+msgstr "5GHz Only"
+
+msgid "Sync Settings"
+msgstr "Sync Settings"
+
+msgid "Copy 2.4GHz settings to 5GHz"
+msgstr "Copy 2.4GHz settings to 5GHz"
+
+msgid "WiFi password must be at least 8 characters"
+msgstr "WiFi password must be at least 8 characters"
+
+msgid "WiFi settings applied successfully"
+msgstr "WiFi settings applied successfully"
+
+msgid "WiFi restarting..."
+msgstr "WiFi restarting..."
+
+msgid "No WiFi radio detected on this device"
+msgstr "No WiFi radio detected on this device"
+
+msgid "Device List"
+msgstr "Device List"
+
+msgid "Connected devices and static bindings"
+msgstr "Connected devices and static bindings"
+
+msgid "Total Devices"
+msgstr "Total Devices"
+
+msgid "Online Devices"
+msgstr "Online Devices"
+
+msgid "Offline Devices"
+msgstr "Offline Devices"
+
+msgid "Static Bindings"
+msgstr "Static Bindings"
+
+msgid "Search devices..."
+msgstr "Search devices..."
+
+msgid "Filter by status"
+msgstr "Filter by status"
+
+msgid "All Devices"
+msgstr "All Devices"
+
+msgid "Online Only"
+msgstr "Online Only"
+
+msgid "Offline Only"
+msgstr "Offline Only"
+
+msgid "Static Only"
+msgstr "Static Only"
+
+msgid "Device Details"
+msgstr "Device Details"
+
+msgid "Detailed information about this device"
+msgstr "Detailed information about this device"
+
+msgid "Vendor"
+msgstr "Vendor"
+
+msgid "First Seen"
+msgstr "First Seen"
+
+msgid "Connection Type"
+msgstr "Connection Type"
+
+msgid "Wired"
+msgstr "Wired"
+
+msgid "Wireless"
+msgstr "Wireless"
+
+msgid "Signal Strength"
+msgstr "Signal Strength"
+
+msgid "WiFi SSID"
+msgstr "WiFi SSID"
+
+msgid "Edit Device Name"
+msgstr "Edit Device Name"
+
+msgid "Set a custom name for easy identification"
+msgstr "Set a custom name for easy identification"
+
+msgid "Custom Device Name"
+msgstr "Custom Device Name"
+
+msgid "Static IP Binding"
+msgstr "Static IP Binding"
+
+msgid "Assign a fixed IP address to this device"
+msgstr "Assign a fixed IP address to this device"
+
+msgid "Enable Static Binding"
+msgstr "Enable Static Binding"
+
+msgid "Fixed IP Address"
+msgstr "Fixed IP Address"
+
+msgid "Lease Time"
+msgstr "Lease Time"
+
+msgid "Infinite"
+msgstr "Infinite"
+
+msgid "12 hours"
+msgstr "12 hours"
+
+msgid "24 hours"
+msgstr "24 hours"
+
+msgid "7 days"
+msgstr "7 days"
+
+msgid "30 days"
+msgstr "30 days"
+
+msgid "Save Changes"
+msgstr "Save Changes"
+
+msgid "Cancel"
+msgstr "Cancel"
+
+msgid "Device name saved successfully"
+msgstr "Device name saved successfully"
+
+msgid "Static IP binding configured successfully"
+msgstr "Static IP binding configured successfully"
+
+msgid "Static IP binding removed successfully"
+msgstr "Static IP binding removed successfully"
+
+msgid "DHCP Server Settings"
+msgstr "DHCP Server Settings"
+
+msgid "Current DHCP configuration"
+msgstr "Current DHCP configuration"
+
+msgid "DHCP Start IP"
+msgstr "DHCP Start IP"
+
+msgid "DHCP End IP"
+msgstr "DHCP End IP"
+
+msgid "Subnet Mask"
+msgstr "Subnet Mask"
+
+msgid "Default Lease Time"
+msgstr "Default Lease Time"
+
+msgid "Max Lease Time"
+msgstr "Max Lease Time"
+
+msgid "IPv6 Settings"
+msgstr "IPv6 Settings"
+
+msgid "IPv6 mode and configuration"
+msgstr "IPv6 mode and configuration"
+
+msgid "Current IPv6 Mode"
+msgstr "Current IPv6 Mode"
+
+msgid "WAN IPv6"
+msgstr "WAN IPv6"
+
+msgid "LAN IPv6"
+msgstr "LAN IPv6"
+
+msgid "IPv6 DNS Servers"
+msgstr "IPv6 DNS Servers"
+
+msgid "Primary IPv6 DNS"
+msgstr "Primary IPv6 DNS"
+
+msgid "Secondary IPv6 DNS"
+msgstr "Secondary IPv6 DNS"
+
+msgid "IPv6 Prefix Delegation"
+msgstr "IPv6 Prefix Delegation"
+
+msgid "Request prefix from upstream"
+msgstr "Request prefix from upstream"
+
+msgid "Prefix Length"
+msgstr "Prefix Length"
+
+msgid "IPv6 Assignment Mode"
+msgstr "IPv6 Assignment Mode"
+
+msgid "SLAAC (Stateless)"
+msgstr "SLAAC (Stateless)"
+
+msgid "DHCPv6 (Stateful)"
+msgstr "DHCPv6 (Stateful)"
+
+msgid "Mixed Mode"
+msgstr "Mixed Mode"
+
+msgid "IPv6 Firewall Settings"
+msgstr "IPv6 Firewall Settings"
+
+msgid "Allow input from WAN"
+msgstr "Allow input from WAN"
+
+msgid "Allow forward from WAN to LAN"
+msgstr "Allow forward from WAN to LAN"
+
+msgid "Apply IPv6 Settings"
+msgstr "Apply IPv6 Settings"
+
+msgid "Apply changes to IPv6 configuration"
+msgstr "Apply changes to IPv6 configuration"
+
+msgid "IPv6 settings will be applied and network will restart"
+msgstr "IPv6 settings will be applied and network will restart"
+
+msgid "Side Route Configuration"
+msgstr "Side Route Configuration"
+
+msgid "Configure side route mode settings"
+msgstr "Configure side route mode settings"
+
+msgid "Current Network Mode"
+msgstr "Current Network Mode"
+
+msgid "Default Gateway"
+msgstr "Default Gateway"
+
+msgid "Primary DNS Server"
+msgstr "Primary DNS Server"
+
+msgid "Secondary DNS Server"
+msgstr "Secondary DNS Server"
+
+msgid "IP Forwarding Status"
+msgstr "IP Forwarding Status"
+
+msgid "Masquerade Status"
+msgstr "Masquerade Status"
+
+msgid "Side Route Options"
+msgstr "Side Route Options"
+
+msgid "Disable masquerade (avoid double NAT)"
+msgstr "Disable masquerade (avoid double NAT)"
+
+msgid "Enable IP forwarding"
+msgstr "Enable IP forwarding"
+
+msgid "Use main router as DNS"
+msgstr "Use main router as DNS"
+
+msgid "Switch Mode"
+msgstr "Switch Mode"
+
+msgid "Switch between router and side route mode"
+msgstr "Switch between router and side route mode"
+
+msgid "Switch mode now"
+msgstr "Switch mode now"
+
+msgid "Network Wizard"
+msgstr "Network Wizard"
+
+msgid "Guided network configuration wizards"
+msgstr "Guided network configuration wizards"
+
+msgid "Internet Setup"
+msgstr "Internet Setup"
+
+msgid "Configure WAN internet connection"
+msgstr "Configure WAN internet connection"
+
+msgid "IPv6 Setup"
+msgstr "IPv6 Setup"
+
+msgid "Configure IPv6 connectivity"
+msgstr "Configure IPv6 connectivity"
+
+msgid "Side Route"
+msgstr "Side Route"
+
+msgid "One-click side route mode switch"
+msgstr "One-click side route mode switch"
+
+msgid "Devices"
+msgstr "Devices"
+
+msgid "Manage connected devices"
+msgstr "Manage connected devices"
+
+msgid "Smart Home"
+msgstr "Smart Home"
+
+msgid "Home Assistant and smart home management"
+msgstr "Home Assistant and smart home management"
+
+msgid "Home Assistant"
+msgstr "Home Assistant"
+
+msgid "Manage HA container"
+msgstr "Manage HA container"
+
+msgid "Images"
+msgstr "Images"
+
+msgid "Docker image management"
+msgstr "Docker image management"
+
+msgid "Storage"
+msgstr "Storage"
+
+msgid "Docker storage management"
+msgstr "Docker storage management"
+
+msgid "Network"
+msgstr "Network"
+
+msgid "Smart home network settings"
+msgstr "Smart home network settings"
+
+msgid "About"
+msgstr "About"
+
+msgid "About this plugin"
+msgstr "About this plugin"
+
+msgid "Toolbox v%s"
+msgstr "Toolbox v%s"
+
+msgid "Build %s"
+msgstr "Build %s"
+
+msgid "Compiled: %s"
+msgstr "Compiled: %s"
+
+msgid "A collection of useful tools for OpenWrt"
+msgstr "A collection of useful tools for OpenWrt"
+
+msgid "Network Tools"
+msgstr "Network Tools"
+
+msgid "System Tools"
+msgstr "System Tools"
+
+msgid "Diagnostic Tools"
+msgstr "Diagnostic Tools"
+
+msgid "Coming Soon"
+msgstr "Coming Soon"
+
+msgid "This feature is under development"
+msgstr "This feature is under development"
+
+msgid "More features will be added in future updates"
+msgstr "More features will be added in future updates"
+
+msgid "Configuration Backup"
+msgstr "Configuration Backup"
+
+msgid "Backup and restore system configuration"
+msgstr "Backup and restore system configuration"
+
+msgid "Backup List"
+msgstr "Backup List"
+
+msgid "Available backup files"
+msgstr "Available backup files"
+
+msgid "Backup Name"
+msgstr "Backup Name"
+
+msgid "Backup Date"
+msgstr "Backup Date"
+
+msgid "File Size"
+msgstr "File Size"
+
+msgid "Create Backup"
+msgstr "Create Backup"
+
+msgid "Create a new configuration backup"
+msgstr "Create a new configuration backup"
+
+msgid "Backup Description"
+msgstr "Backup Description"
+
+msgid "Optional description for this backup"
+msgstr "Optional description for this backup"
+
+msgid "Create"
+msgstr "Create"
+
+msgid "Restore Backup"
+msgstr "Restore Backup"
+
+msgid "Restore configuration from backup file"
+msgstr "Restore configuration from backup file"
+
+msgid "Delete Backup"
+msgstr "Delete Backup"
+
+msgid "Download Backup"
+msgstr "Download Backup"
+
+msgid "Upload Backup"
+msgstr "Upload Backup"
+
+msgid "Upload a backup file to restore"
+msgstr "Upload a backup file to restore"
+
+msgid "Select File"
+msgstr "Select File"
+
+msgid "Upload"
+msgstr "Upload"
+
+msgid "System Log"
+msgstr "System Log"
+
+msgid "View system log messages"
+msgstr "View system log messages"
+
+msgid "Kernel Log"
+msgstr "Kernel Log"
+
+msgid "View kernel log messages"
+msgstr "View kernel log messages"
+
+msgid "Log Level Filter"
+msgstr "Log Level Filter"
+
+msgid "Debug"
+msgstr "Debug"
+
+msgid "Info"
+msgstr "Info"
+
+msgid "Notice"
+msgstr "Notice"
+
+msgid "Warning"
+msgstr "Warning"
+
+msgid "Error"
+msgstr "Error"
+
+msgid "Critical"
+msgstr "Critical"
+
+msgid "Alert"
+msgstr "Alert"
+
+msgid "Emergency"
+msgstr "Emergency"
+
+msgid "Auto Refresh"
+msgstr "Auto Refresh"
+
+msgid "Refresh every 5 seconds"
+msgstr "Refresh every 5 seconds"
+
+msgid "Clear Log"
+msgstr "Clear Log"
+
+msgid "Download Log"
+msgstr "Download Log"
+
+msgid "Process Manager"
+msgstr "Process Manager"
+
+msgid "View and manage running processes"
+msgstr "View and manage running processes"
+
+msgid "Process List"
+msgstr "Process List"
+
+msgid "PID"
+msgstr "PID"
+
+msgid "User"
+msgstr "User"
+
+msgid "CPU%"
+msgstr "CPU%"
+
+msgid "MEM%"
+msgstr "MEM%"
+
+msgid "Command"
+msgstr "Command"
+
+msgid "Kill Process"
+msgstr "Kill Process"
+
+msgid "Kill"
+msgstr "Kill"
+
+msgid "Are you sure you want to kill this process?"
+msgstr "Are you sure you want to kill this process?"
 
 msgid "System Information"
 msgstr "System Information"
 
-msgid "OpenWrt Version"
-msgstr "OpenWrt Version"
+msgid "Detailed system information"
+msgstr "Detailed system information"
 
-msgid "Package Manager"
-msgstr "Package Manager"
+msgid "System Overview"
+msgstr "System Overview"
+
+msgid "Hostname"
+msgstr "Hostname"
+
+msgid "Model"
+msgstr "Model"
 
 msgid "Architecture"
 msgstr "Architecture"
 
+msgid "Firmware Version"
+msgstr "Firmware Version"
+
+msgid "Kernel Version"
+msgstr "Kernel Version"
+
+msgid "Uptime"
+msgstr "Uptime"
+
+msgid "Load Average"
+msgstr "Load Average"
+
+msgid "CPU Information"
+msgstr "CPU Information"
+
+msgid "CPU Model"
+msgstr "CPU Model"
+
+msgid "CPU Cores"
+msgstr "CPU Cores"
+
+msgid "CPU Frequency"
+msgstr "CPU Frequency"
+
+msgid "CPU Usage"
+msgstr "CPU Usage"
+
+msgid "Memory Information"
+msgstr "Memory Information"
+
+msgid "Total Memory"
+msgstr "Total Memory"
+
+msgid "Free Memory"
+msgstr "Free Memory"
+
+msgid "Used Memory"
+msgstr "Used Memory"
+
+msgid "Buffered"
+msgstr "Buffered"
+
+msgid "Cached"
+msgstr "Cached"
+
+msgid "Swap Usage"
+msgstr "Swap Usage"
+
+msgid "Storage Information"
+msgstr "Storage Information"
+
+msgid "Filesystem"
+msgstr "Filesystem"
+
+msgid "Mount Point"
+msgstr "Mount Point"
+
+msgid "Total Size"
+msgstr "Total Size"
+
+msgid "Used Space"
+msgstr "Used Space"
+
+msgid "Available Space"
+msgstr "Available Space"
+
+msgid "Usage %"
+msgstr "Usage %"
+
+msgid "Network Information"
+msgstr "Network Information"
+
+msgid "Interface"
+msgstr "Interface"
+
+msgid "IPv4 Address"
+msgstr "IPv4 Address"
+
+msgid "IPv6 Address"
+msgstr "IPv6 Address"
+
+msgid "MAC Address"
+msgstr "MAC Address"
+
+msgid "RX Bytes"
+msgstr "RX Bytes"
+
+msgid "TX Bytes"
+msgstr "TX Bytes"
+
+msgid "RX Errors"
+msgstr "RX Errors"
+
+msgid "TX Errors"
+msgstr "TX Errors"
+
+msgid "System Tools"
+msgstr "System Tools"
+
+msgid "Various system administration tools"
+msgstr "Various system administration tools"
+
+msgid "Reboot"
+msgstr "Reboot"
+
+msgid "Reboot the router"
+msgstr "Reboot the router"
+
+msgid "Are you sure you want to reboot the router?"
+msgstr "Are you sure you want to reboot the router?"
+
+msgid "All connections will be lost during reboot."
+msgstr "All connections will be lost during reboot."
+
+msgid "Reboot Now"
+msgstr "Reboot Now"
+
+msgid "Factory Reset"
+msgstr "Factory Reset"
+
+msgid "Reset router to factory defaults"
+msgstr "Reset router to factory defaults"
+
+msgid "Are you sure you want to reset to factory defaults?"
+msgstr "Are you sure you want to reset to factory defaults?"
+
+msgid "All configuration will be lost!"
+msgstr "All configuration will be lost!"
+
+msgid "Reset Now"
+msgstr "Reset Now"
+
+msgid "System Cleanup"
+msgstr "System Cleanup"
+
+msgid "Clean up temporary files and caches"
+msgstr "Clean up temporary files and caches"
+
+msgid "Cleanable Items"
+msgstr "Cleanable Items"
+
+msgid "Package cache"
+msgstr "Package cache"
+
+msgid "Temporary files"
+msgstr "Temporary files"
+
+msgid "Log files"
+msgstr "Log files"
+
+msgid "Thumbnail cache"
+msgstr "Thumbnail cache"
+
+msgid "Total Cleanable"
+msgstr "Total Cleanable"
+
+msgid "Clean Now"
+msgstr "Clean Now"
+
+msgid "Cron Jobs"
+msgstr "Cron Jobs"
+
+msgid "Manage scheduled tasks"
+msgstr "Manage scheduled tasks"
+
+msgid "Scheduled Tasks"
+msgstr "Scheduled Tasks"
+
+msgid "Task List"
+msgstr "Task List"
+
+msgid "Schedule"
+msgstr "Schedule"
+
+msgid "Command"
+msgstr "Command"
+
+msgid "Enabled"
+msgstr "Enabled"
+
+msgid "Add Task"
+msgstr "Add Task"
+
+msgid "Add a new scheduled task"
+msgstr "Add a new scheduled task"
+
+msgid "Task Description"
+msgstr "Task Description"
+
+msgid "Minute"
+msgstr "Minute"
+
+msgid "Hour"
+msgstr "Hour"
+
+msgid "Day of Month"
+msgstr "Day of Month"
+
+msgid "Month"
+msgstr "Month"
+
+msgid "Day of Week"
+msgstr "Day of Week"
+
+msgid "Command to execute"
+msgstr "Command to execute"
+
+msgid "Startup Scripts"
+msgstr "Startup Scripts"
+
+msgid "Manage scripts that run on system startup"
+msgstr "Manage scripts that run on system startup"
+
+msgid "Local Startup"
+msgstr "Local Startup"
+
+msgid "Edit /etc/rc.local"
+msgstr "Edit /etc/rc.local"
+
+msgid "Script Content"
+msgstr "Script Content"
+
+msgid "Run before network starts"
+msgstr "Run before network starts"
+
+msgid "Run after network starts"
+msgstr "Run after network starts"
+
+msgid "Diagnostic Tools"
+msgstr "Diagnostic Tools"
+
+msgid "Network and system diagnostic tools"
+msgstr "Network and system diagnostic tools"
+
+msgid "Ping"
+msgstr "Ping"
+
+msgid "Test network connectivity"
+msgstr "Test network connectivity"
+
+msgid "Target Host"
+msgstr "Target Host"
+
+msgid "e.g., google.com or 8.8.8.8"
+msgstr "e.g., google.com or 8.8.8.8"
+
+msgid "Ping Count"
+msgstr "Ping Count"
+
+msgid "Packet Size"
+msgstr "Packet Size"
+
+msgid "Start Ping"
+msgstr "Start Ping"
+
+msgid "Ping Results"
+msgstr "Ping Results"
+
+msgid "Traceroute"
+msgstr "Traceroute"
+
+msgid "Trace network path to host"
+msgstr "Trace network path to host"
+
+msgid "Max Hops"
+msgstr "Max Hops"
+
+msgid "Start Traceroute"
+msgstr "Start Traceroute"
+
+msgid "Traceroute Results"
+msgstr "Traceroute Results"
+
+msgid "DNS Lookup"
+msgstr "DNS Lookup"
+
+msgid "Test DNS resolution"
+msgstr "Test DNS resolution"
+
+msgid "Domain Name"
+msgstr "Domain Name"
+
+msgid "DNS Server"
+msgstr "DNS Server"
+
+msgid "Use system default"
+msgstr "Use system default"
+
+msgid "Lookup"
+msgstr "Lookup"
+
+msgid "DNS Results"
+msgstr "DNS Results"
+
+msgid "Port Scan"
+msgstr "Port Scan"
+
+msgstr "Port Scan"
+
+msgid "Scan for open ports on a host"
+msgstr "Scan for open ports on a host"
+
+msgid "Target IP"
+msgstr "Target IP"
+
+msgid "Port Range"
+msgstr "Port Range"
+
+msgid "Start Port"
+msgstr "Start Port"
+
+msgid "End Port"
+msgstr "End Port"
+
+msgid "Start Scan"
+msgstr "Start Scan"
+
+msgid "Scan Results"
+msgstr "Scan Results"
+
+msgid "Bandwidth Test"
+msgstr "Bandwidth Test"
+
+msgid "Test network bandwidth"
+msgstr "Test network bandwidth"
+
+msgid "Test Server"
+msgstr "Test Server"
+
+msgid "Auto-select"
+msgstr "Auto-select"
+
+msgid "Start Test"
+msgstr "Start Test"
+
+msgid "Download Speed"
+msgstr "Download Speed"
+
+msgid "Upload Speed"
+msgstr "Upload Speed"
+
+msgid "Latency"
+msgstr "Latency"
+
+msgid "Network Interfaces"
+msgstr "Network Interfaces"
+
+msgid "Detailed network interface statistics"
+msgstr "Detailed network interface statistics"
+
+msgid "Interface Statistics"
+msgstr "Interface Statistics"
+
+msgid "Status"
+msgstr "Status"
+
+msgid "Speed"
+msgstr "Speed"
+
+msgid "Duplex"
+msgstr "Duplex"
+
+msgid "RX Packets"
+msgstr "RX Packets"
+
+msgid "TX Packets"
+msgstr "TX Packets"
+
+msgid "RX Dropped"
+msgstr "RX Dropped"
+
+msgid "TX Dropped"
+msgstr "TX Dropped"
+
+msgid "Connections"
+msgstr "Connections"
+
+msgid "Current network connections"
+msgstr "Current network connections"
+
+msgid "Connection List"
+msgstr "Connection List"
+
+msgid "Protocol"
+msgstr "Protocol"
+
+msgid "Local Address"
+msgstr "Local Address"
+
+msgid "Remote Address"
+msgstr "Remote Address"
+
+msgid "State"
+msgstr "State"
+
+msgid "Process"
+msgstr "Process"
+
+msgid "Total Connections"
+msgstr "Total Connections"
+
+msgid "TCP Connections"
+msgstr "TCP Connections"
+
+msgid "UDP Connections"
+msgstr "UDP Connections"
+
+msgid "Route Table"
+msgstr "Route Table"
+
+msgid "View IP routing table"
+msgstr "View IP routing table"
+
+msgid "Routing Table"
+msgstr "Routing Table"
+
+msgid "Destination"
+msgstr "Destination"
+
+msgid "Gateway"
+msgstr "Gateway"
+
+msgid "Genmask"
+msgstr "Genmask"
+
+msgid "Flags"
+msgstr "Flags"
+
+msgid "Metric"
+msgstr "Metric"
+
+msgid "Iface"
+msgstr "Iface"
+
+msgid "ARP Table"
+msgstr "ARP Table"
+
+msgid "View ARP cache table"
+msgstr "View ARP cache table"
+
+msgid "ARP Cache"
+msgstr "ARP Cache"
+
+msgid "HW Address"
+msgstr "HW Address"
+
+msgid "HW Type"
+msgstr "HW Type"
+
+msgid "Flags Mask"
+msgstr "Flags Mask"
+
+msgid "Device"
+msgstr "Device"
+
+msgid "System Diagnostics"
+msgstr "System Diagnostics"
+
+msgid "Generate system diagnostic report"
+msgstr "Generate system diagnostic report"
+
+msgid "Diagnostic Report"
+msgstr "Diagnostic Report"
+
+msgid "Generate Report"
+msgstr "Generate Report"
+
+msgid "Collecting system information..."
+msgstr "Collecting system information..."
+
+msgid "Report generated successfully"
+msgstr "Report generated successfully"
+
+msgid "Download Report"
+msgstr "Download Report"
+
+msgid "Include system info"
+msgstr "Include system info"
+
+msgid "Include network info"
+msgstr "Include network info"
+
+msgid "Include logs"
+msgstr "Include logs"
+
+msgid "Include package list"
+msgstr "Include package list"
+
+msgid "Docker Management"
+msgstr "Docker Management"
+
+msgid "Docker container and image management"
+msgstr "Docker container and image management"
+
+msgid "Containers"
+msgstr "Containers"
+
+msgid "Manage Docker containers"
+msgstr "Manage Docker containers"
+
+msgid "All Containers"
+msgstr "All Containers"
+
+msgid "Running Only"
+msgstr "Running Only"
+
+msgid "Stopped Only"
+msgstr "Stopped Only"
+
+msgid "Container Details"
+msgstr "Container Details"
+
+msgid "Detailed information about this container"
+msgstr "Detailed information about this container"
+
+msgid "Container Commands"
+msgstr "Container Commands"
+
+msgid "Start Container"
+msgstr "Start Container"
+
+msgid "Stop Container"
+msgstr "Stop Container"
+
+msgid "Restart Container"
+msgstr "Restart Container"
+
+msgid "Pause Container"
+msgstr "Pause Container"
+
+msgid "Unpause Container"
+msgstr "Unpause Container"
+
+msgid "Remove Container"
+msgstr "Remove Container"
+
+msgid "Container Logs"
+msgstr "Container Logs"
+
+msgid "View container log output"
+msgstr "View container log output"
+
+msgid "Tail lines"
+msgstr "Tail lines"
+
+msgid "Follow logs"
+msgstr "Follow logs"
+
+msgid "Show timestamps"
+msgstr "Show timestamps"
+
+msgid "Container Stats"
+msgstr "Container Stats"
+
+msgid "Real-time resource usage"
+msgstr "Real-time resource usage"
+
+msgid "Block I/O"
+msgstr "Block I/O"
+
+msgid "Network I/O"
+msgstr "Network I/O"
+
+msgid "PIDs"
+msgstr "PIDs"
+
+msgid "Image Management"
+msgstr "Image Management"
+
+msgid "Manage Docker images"
+msgstr "Manage Docker images"
+
+msgid "All Images"
+msgstr "All Images"
+
+msgid "Dangling Only"
+msgstr "Dangling Only"
+
+msgid "Image Details"
+msgstr "Image Details"
+
+msgid "Detailed information about this image"
+msgstr "Detailed information about this image"
+
+msgid "Image ID"
+msgstr "Image ID"
+
+msgid "Digest"
+msgstr "Digest"
+
+msgid "Virtual Size"
+msgstr "Virtual Size"
+
+msgid "Shared Size"
+msgstr "Shared Size"
+
+msgid "Unique Size"
+msgstr "Unique Size"
+
+msgid "Layers"
+msgstr "Layers"
+
+msgid "Pull Image"
+msgstr "Pull Image"
+
+msgid "Pull a Docker image from registry"
+msgstr "Pull a Docker image from registry"
+
+msgid "Image Tag"
+msgstr "Image Tag"
+
+msgid "Registry"
+msgstr "Registry"
+
+msgid "Docker Hub"
+msgstr "Docker Hub"
+
+msgid "Pull Image"
+msgstr "Pull Image"
+
+msgid "Remove Image"
+msgstr "Remove Image"
+
+msgid "Remove this image"
+msgstr "Remove this image"
+
+msgid "Force remove"
+msgstr "Force remove"
+
+msgid "Storage Management"
+msgstr "Storage Management"
+
+msgid "Docker storage configuration"
+msgstr "Docker storage configuration"
+
+msgid "Docker Storage Driver"
+msgstr "Docker Storage Driver"
+
+msgid "Storage Driver"
+msgstr "Storage Driver"
+
+msgid "Backing Filesystem"
+msgstr "Backing Filesystem"
+
+msgid "Data Space Total"
+msgstr "Data Space Total"
+
+msgid "Data Space Used"
+msgstr "Data Space Used"
+
+msgid "Data Space Available"
+msgstr "Data Space Available"
+
+msgid "Metadata Space Total"
+msgstr "Metadata Space Total"
+
+msgid "Metadata Space Used"
+msgstr "Metadata Space Used"
+
+msgid "Metadata Space Available"
+msgstr "Metadata Space Available"
+
+msgid "Data Root Directory"
+msgstr "Data Root Directory"
+
+msgid "Change Docker data location"
+msgstr "Change Docker data location"
+
+msgid "Current Data Root"
+msgstr "Current Data Root"
+
+msgid "New Data Root"
+msgstr "New Data Root"
+
+msgid "Migrate existing data"
+msgstr "Migrate existing data"
+
+msgid "Apply Changes"
+msgstr "Apply Changes"
+
+msgid "Registry Mirrors"
+msgstr "Registry Mirrors"
+
+msgid "Configure Docker registry mirrors"
+msgstr "Configure Docker registry mirrors"
+
+msgid "Mirror List"
+msgstr "Mirror List"
+
+msgid "Add Mirror"
+msgstr "Add Mirror"
+
+msgid "Docker Compose"
+msgstr "Docker Compose"
+
+msgid "Manage Docker Compose projects"
+msgstr "Manage Docker Compose projects"
+
+msgid "Compose Projects"
+msgstr "Compose Projects"
+
+msgid "Project List"
+msgstr "Project List"
+
+msgid "Project Name"
+msgstr "Project Name"
+
+msgid "Services"
+msgstr "Services"
+
+msgid "Status"
+msgstr "Status"
+
+msgid "Path"
+msgstr "Path"
+
+msgid "Create Project"
+msgstr "Create Project"
+
+msgid "Create a new Compose project"
+msgstr "Create a new Compose project"
+
+msgid "Project Path"
+msgstr "Project Path"
+
+msgid "Compose File"
+msgstr "Compose File"
+
+msgid "docker-compose.yml content"
+msgstr "docker-compose.yml content"
+
+msgid "Compose Commands"
+msgstr "Compose Commands"
+
+msgid "Start Project"
+msgstr "Start Project"
+
+msgid "Stop Project"
+msgstr "Stop Project"
+
+msgid "Restart Project"
+msgstr "Restart Project"
+
+msgid "Pull Images"
+msgstr "Pull Images"
+
+msgid "Remove Project"
+msgstr "Remove Project"
+
+msgid "View Logs"
+msgstr "View Logs"
+
+msgid "Network Settings"
+msgstr "Network Settings"
+
+msgid "Smart home network configuration"
+msgstr "Smart home network configuration"
+
+msgid "Port Forwarding"
+msgstr "Port Forwarding"
+
+msgid "Port forwarding for smart home services"
+msgstr "Port forwarding for smart home services"
+
+msgid "mDNS Service"
+msgstr "mDNS Service"
+
+msgid "mDNS device discovery service"
+msgstr "mDNS device discovery service"
+
+msgid "UPnP Service"
+msgstr "UPnP Service"
+
+msgid "UPnP automatic port forwarding"
+msgstr "UPnP automatic port forwarding"
+
+msgid "Firewall Zones"
+msgstr "Firewall Zones"
+
+msgid "Network zone configuration"
+msgstr "Network zone configuration"
+
+msgid "Zone List"
+msgstr "Zone List"
+
+msgid "Zone Name"
+msgstr "Zone Name"
+
+msgid "Input Policy"
+msgstr "Input Policy"
+
+msgid "Output Policy"
+msgstr "Output Policy"
+
+msgid "Forward Policy"
+msgstr "Forward Policy"
+
+msgid "Masquerading"
+msgstr "Masquerading"
+
+msgid "MSS Clamping"
+msgstr "MSS Clamping"
+
+msgid "Network Diagnostics"
+msgstr "Network Diagnostics"
+
+msgid "Network connectivity and performance tools"
+msgstr "Network connectivity and performance tools"
+
+msgid "Ping Test"
+msgstr "Ping Test"
+
+msgid "Traceroute"
+msgstr "Traceroute"
+
+msgid "DNS Test"
+msgstr "DNS Test"
+
+msgid "Port Check"
+msgstr "Port Check"
+
+msgid "Speed Test"
+msgstr "Speed Test"
+
+msgid "Bandwidth speed test"
+msgstr "Bandwidth speed test"
+
+msgid "Connection Tracking"
+msgstr "Connection Tracking"
+
+msgid "View active connection tracking entries"
+msgstr "View active connection tracking entries"
+
+msgid "Home Assistant Management"
+msgstr "Home Assistant Management"
+
+msgid "Manage Home Assistant Docker container"
+msgstr "Manage Home Assistant Docker container"
+
+msgid "HA Status"
+msgstr "HA Status"
+
+msgid "Home Assistant container status"
+msgstr "Home Assistant container status"
+
+msgid "HA Controls"
+msgstr "HA Controls"
+
+msgid "Start, stop, or restart Home Assistant"
+msgstr "Start, stop, or restart Home Assistant"
+
+msgid "HA Logs"
+msgstr "HA Logs"
+
+msgid "View Home Assistant logs"
+msgstr "View Home Assistant logs"
+
+msgid "HA Config"
+msgstr "HA Config"
+
+msgid "Home Assistant configuration management"
+msgstr "Home Assistant configuration management"
+
+msgid "HA Storage"
+msgstr "HA Storage"
+
+msgid "Home Assistant data storage management"
+msgstr "Home Assistant data storage management"
+
+msgid "HA Network"
+msgstr "HA Network"
+
+msgid "Home Assistant network configuration"
+msgstr "Home Assistant network configuration"
+
+msgid "Smart Home Containers"
+msgstr "Smart Home Containers"
+
+msgid "Manage all smart home related containers"
+msgstr "Manage all smart home related containers"
+
+msgid "Auto-detected smart home containers"
+msgstr "Auto-detected smart home containers"
+
+msgid "Start All"
+msgstr "Start All"
+
+msgid "Stop All"
+msgstr "Stop All"
+
+msgid "Restart All"
+msgstr "Restart All"
+
+msgid "Quick Links"
+msgstr "Quick Links"
+
+msgid "Quick access to smart home web interfaces"
+msgstr "Quick access to smart home web interfaces"
+
+msgid "Home Assistant Web"
+msgstr "Home Assistant Web"
+
+msgid "Mosquitto"
+msgstr "Mosquitto"
+
+msgid "Zigbee2MQTT Web"
+msgstr "Zigbee2MQTT Web"
+
+msgid "Node-RED Web"
+msgstr "Node-RED Web"
+
+msgid "ESPHome Web"
+msgstr "ESPHome Web"
+
+msgid "Service not running"
+msgstr "Service not running"
+
+msgid "Backup Management"
+msgstr "Backup Management"
+
+msgid "Home Assistant configuration backups"
+msgstr "Home Assistant configuration backups"
+
+msgid "Backup Files"
+msgstr "Backup Files"
+
+msgid "Available Home Assistant backups"
+msgstr "Available Home Assistant backups"
+
+msgid "Create New Backup"
+msgstr "Create New Backup"
+
+msgid "Create a backup of Home Assistant configuration"
+msgstr "Create a backup of Home Assistant configuration"
+
+msgid "Backup Location"
+msgstr "Backup Location"
+
+msgid "Directory to store backups"
+msgstr "Directory to store backups"
+
+msgid "Auto Backup"
+msgstr "Auto Backup"
+
+msgid "Automatically backup Home Assistant"
+msgstr "Automatically backup Home Assistant"
+
+msgid "Enable auto backup"
+msgstr "Enable auto backup"
+
+msgid "Backup Schedule"
+msgstr "Backup Schedule"
+
+msgid "Daily"
+msgstr "Daily"
+
+msgid "Weekly"
+msgstr "Weekly"
+
+msgid "Monthly"
+msgstr "Monthly"
+
+msgid "Retention"
+msgstr "Retention"
+
+msgid "Keep last N backups"
+msgstr "Keep last N backups"
+
+msgid "Auto Cleanup"
+msgstr "Auto Cleanup"
+
+msgid "Automatically delete old backups"
+msgstr "Automatically delete old backups"
+
+msgid "Storage Settings"
+msgstr "Storage Settings"
+
+msgid "Docker and USB storage management"
+msgstr "Docker and USB storage management"
+
+msgid "USB Drives"
+msgstr "USB Drives"
+
+msgid "Connected USB storage devices"
+msgstr "Connected USB storage devices"
+
+msgid "Docker Storage"
+msgstr "Docker Storage"
+
+msgid "Docker data directory configuration"
+msgstr "Docker data directory configuration"
+
+msgid "Disk Usage"
+msgstr "Disk Usage"
+
+msgid "Current disk usage breakdown"
+msgstr "Current disk usage breakdown"
+
+msgid "Format Drive"
+msgstr "Format Drive"
+
+msgid "Format USB drive for Docker storage"
+msgstr "Format USB drive for Docker storage"
+
+msgid "Select drive to format"
+msgstr "Select drive to format"
+
+msgid "Filesystem"
+msgstr "Filesystem"
+
+msgid "ext4 - Recommended for most use cases"
+msgstr "ext4 - Recommended for most use cases"
+
+msgid "f2fs - Flash-friendly, better for USB drives"
+msgstr "f2fs - Flash-friendly, better for USB drives"
+
+msgid "Label"
+msgstr "Label"
+
+msgid "Optional filesystem label"
+msgstr "Optional filesystem label"
+
+msgid "Quick format"
+msgstr "Quick format"
+
+msgid "Skip bad block check (faster)"
+msgstr "Skip bad block check (faster)"
+
+msgid "WARNING: This will erase ALL data on the selected drive!"
+msgstr "WARNING: This will erase ALL data on the selected drive!"
+
+msgid "Migrate Docker"
+msgstr "Migrate Docker"
+
+msgid "Move Docker data to USB drive"
+msgstr "Move Docker data to USB drive"
+
+msgid "Target location"
+msgstr "Target location"
+
+msgid "Select mount point for Docker data"
+msgstr "Select mount point for Docker data"
+
+msgid "Copy existing data"
+msgstr "Copy existing data"
+
+msgid "Migrate all current Docker data to new location"
+msgstr "Migrate all current Docker data to new location"
+
+msgid "This will stop all running containers and restart Docker"
+msgstr "This will stop all running containers and restart Docker"
+
+msgid "Image Management"
+msgstr "Image Management"
+
+msgid "Docker image management for smart home"
+msgstr "Docker image management for smart home"
+
+msgid "Image List"
+msgstr "Image List"
+
+msgid "All downloaded Docker images"
+msgstr "All downloaded Docker images"
+
+msgid "Pull New Image"
+msgstr "Pull New Image"
+
+msgid "Pull an image from Docker registry"
+msgstr "Pull an image from Docker registry"
+
+msgid "Image name (repository:tag)"
+msgstr "Image name (repository:tag)"
+
+msgid "Registry mirror"
+msgstr "Registry mirror"
+
+msgid "Use mirror for faster download"
+msgstr "Use mirror for faster download"
+
+msgid "Common Images"
+msgstr "Common Images"
+
+msgid "Quick pull common smart home images"
+msgstr "Quick pull common smart home images"
+
+msgid "Cleanup"
+msgstr "Cleanup"
+
+msgid "Clean up unused images"
+msgstr "Clean up unused images"
+
+msgid "Clean dangling images"
+msgstr "Clean dangling images"
+
+msgid "Remove all unused images with <none> tag"
+msgstr "Remove all unused images with <none> tag"
+
+msgid "Prune all unused images"
+msgstr "Prune all unused images"
+
+msgid "Remove all images not used by any container"
+msgstr "Remove all images not used by any container"
+
+msgid "Network Settings"
+msgstr "Network Settings"
+
+msgid "Network configuration for smart home services"
+msgstr "Network configuration for smart home services"
+
+msgid "Port Management"
+msgstr "Port Management"
+
+msgid "Manage port forwarding rules"
+msgstr "Manage port forwarding rules"
+
+msgid "mDNS Settings"
+msgstr "mDNS Settings"
+
+msgid "mDNS service discovery configuration"
+msgstr "mDNS service discovery configuration"
+
+msgid "UPnP Settings"
+msgstr "UPnP Settings"
+
+msgid "UPnP port forwarding configuration"
+msgstr "UPnP port forwarding configuration"
+
+msgid "Common Ports"
+msgstr "Common Ports"
+
+msgid "Quick add common smart home service ports"
+msgstr "Quick add common smart home service ports"
+
+msgid "Add Custom Port"
+msgstr "Add Custom Port"
+
+msgid "Add a custom port forwarding rule"
+msgstr "Add a custom port forwarding rule"
+
+msgid "Rule name"
+msgstr "Rule name"
+
+msgid "Protocol"
+msgstr "Protocol"
+
+msgid "External port"
+msgstr "External port"
+
+msgid "Internal IP address"
+msgstr "Internal IP address"
+
+msgid "Internal port"
+msgstr "Internal port"
+
+msgid "Enable this rule"
+msgstr "Enable this rule"
+
+msgid "About Toolbox"
+msgstr "About Toolbox"
+
+msgid "Information about this plugin"
+msgstr "Information about this plugin"
+
+msgid "Plugin Info"
+msgstr "Plugin Info"
+
+msgid "Plugin information"
+msgstr "Plugin information"
+
+msgid "Plugin Name"
+msgstr "Plugin Name"
+
+msgid "Toolbox for OpenWrt"
+msgstr "Toolbox for OpenWrt"
+
 msgid "Plugin Version"
 msgstr "Plugin Version"
+
+msgid "Release"
+msgstr "Release"
+
+msgid "Build Date"
+msgstr "Build Date"
+
+msgid "Author"
+msgstr "Author"
+
+msgid "License"
+msgstr "License"
+
+msgid "MIT License"
+msgstr "MIT License"
+
+msgid "Features"
+msgstr "Features"
+
+msgid "Plugin features"
+msgstr "Plugin features"
+
+msgid "Network wizards for easy configuration"
+msgstr "Network wizards for easy configuration"
+
+msgid "Device management with static IP binding"
+msgstr "Device management with static IP binding"
+
+msgid "Home Assistant Docker management"
+msgstr "Home Assistant Docker management"
+
+msgid "Docker storage migration to USB"
+msgstr "Docker storage migration to USB"
+
+msgid "Smart home network configuration"
+msgstr "Smart home network configuration"
+
+msgid "Links"
+msgstr "Links"
+
+msgid "Useful links"
+msgstr "Useful links"
+
+msgid "Homepage"
+msgstr "Homepage"
+
+msgid "Documentation"
+msgstr "Documentation"
+
+msgid "Issues"
+msgstr "Issues"
+
+msgid "Report bugs or request features"
+msgstr "Report bugs or request features"
+
+msgid "Changelog"
+msgstr "Changelog"
+
+msgid "View version history"
+msgstr "View version history"
+
+msgid "Thank you for using Toolbox!"
+msgstr "Thank you for using Toolbox!"
+
+msgid "Side Route Mode"
+msgstr "Side Route Mode"
+
+msgid "One-click side route mode configuration"
+msgstr "One-click side route mode configuration"
+
+msgid "Current Status"
+msgstr "Current Status"
+
+msgid "Current network mode status"
+msgstr "Current network mode status"
+
+msgid "Mode Switch"
+msgstr "Mode Switch"
+
+msgid "Switch between router and side route mode"
+msgstr "Switch between router and side route mode"
+
+msgid "Configuration"
+msgstr "Configuration"
+
+msgid "Side route mode configuration options"
+msgstr "Side route mode configuration options"
+
+msgid "Gateway Settings"
+msgstr "Gateway Settings"
+
+msgid "Main router gateway IP address"
+msgstr "Main router gateway IP address"
+
+msgid "DNS Settings"
+msgstr "DNS Settings"
+
+msgid "DNS server configuration"
+msgstr "DNS server configuration"
+
+msgid "Firewall Settings"
+msgstr "Firewall Settings"
+
+msgid "Firewall configuration for side route mode"
+msgstr "Firewall configuration for side route mode"
+
+msgid "Important Notes"
+msgstr "Important Notes"
+
+msgid "Important information about side route mode"
+msgstr "Important information about side route mode"
+
+msgid "Note 1: Connect LAN port only"
+msgstr "Note 1: Connect LAN port only"
+
+msgid "In side route mode, only use the LAN port. Do not connect WAN port."
+msgstr "In side route mode, only use the LAN port. Do not connect WAN port."
+
+msgid "Note 2: Configure main router DHCP"
+msgstr "Note 2: Configure main router DHCP"
+
+msgid "Set the default gateway on your main router to this router's LAN IP."
+msgstr "Set the default gateway on your main router to this router's LAN IP."
+
+msgid "Note 3: Devices need DHCP renewal"
+msgstr "Note 3: Devices need DHCP renewal"
+
+msgid "Devices must renew their DHCP lease to get the new gateway address."
+msgstr "Devices must renew their DHCP lease to get the new gateway address."
+
+msgid "Note 4: Temporary network interruption"
+msgstr "Note 4: Temporary network interruption"
+
+msgid "Network will be temporarily interrupted during mode switch."
+msgstr "Network will be temporarily interrupted during mode switch."
+
+msgid "Switch to Side Route Mode"
+msgstr "Switch to Side Route Mode"
+
+msgid "Switch from router mode to side route mode"
+msgstr "Switch from router mode to side route mode"
+
+msgid "Switch to Router Mode"
+msgstr "Switch to Router Mode"
+
+msgid "Switch from side route mode back to router mode"
+msgstr "Switch from side route mode back to router mode"
+
+msgid "Device Management"
+msgstr "Device Management"
+
+msgid "Manage devices connected to your network"
+msgstr "Manage devices connected to your network"
+
+msgid "Device Overview"
+msgstr "Device Overview"
+
+msgid "Summary of connected devices"
+msgstr "Summary of connected devices"
+
+msgid "Device List"
+msgstr "Device List"
+
+msgid "All connected and statically bound devices"
+msgstr "All connected and statically bound devices"
+
+msgid "Search and Filter"
+msgstr "Search and Filter"
+
+msgid "Search devices by name, IP, or MAC"
+msgstr "Search devices by name, IP, or MAC"
+
+msgid "Static Bindings"
+msgstr "Static Bindings"
+
+msgid "Devices with static IP bindings"
+msgstr "Devices with static IP bindings"
+
+msgid "DHCP Pool"
+msgstr "DHCP Pool"
+
+msgid "DHCP address pool information"
+msgstr "DHCP address pool information"
+
+msgid "Device Details"
+msgstr "Device Details"
+
+msgid "Detailed device information and actions"
+msgstr "Detailed device information and actions"
+
+msgid "Edit Device"
+msgstr "Edit Device"
+
+msgid "Edit device name and settings"
+msgstr "Edit device name and settings"
+
+msgid "Bind Static IP"
+msgstr "Bind Static IP"
+
+msgid "Configure static IP binding"
+msgstr "Configure static IP binding"
+
+msgid "IPv6 One-Click Setup"
+msgstr "IPv6 One-Click Setup"
+
+msgid "Quick IPv6 configuration with multiple modes"
+msgstr "Quick IPv6 configuration with multiple modes"
+
+msgid "IPv6 Status"
+msgstr "IPv6 Status"
+
+msgid "Current IPv6 connection status"
+msgstr "Current IPv6 connection status"
+
+msgid "IPv6 Mode Selection"
+msgstr "IPv6 Mode Selection"
+
+msgid "Choose your IPv6 configuration mode"
+msgstr "Choose your IPv6 configuration mode"
+
+msgid "Native DHCPv6"
+msgstr "Native DHCPv6"
+
+msgid "Standard IPv6 with prefix delegation"
+msgstr "Standard IPv6 with prefix delegation"
+
+msgid "6to4 Tunnel"
+msgstr "6to4 Tunnel"
+
+msgid "Automatic 6to4 tunnel using public IPv4"
+msgstr "Automatic 6to4 tunnel using public IPv4"
+
+msgid "6in4 Tunnel"
+msgstr "6in4 Tunnel"
+
+msgid "Manual 6in4 tunnel (HE.net etc.)"
+msgstr "Manual 6in4 tunnel (HE.net etc.)"
+
+msgid "Relay Mode"
+msgstr "Relay Mode"
+
+msgid "Relay IPv6 from upstream router"
+msgstr "Relay IPv6 from upstream router"
+
+msgid "Disable IPv6"
+msgstr "Disable IPv6"
+
+msgid "Completely disable IPv6"
+msgstr "Completely disable IPv6"
+
+msgid "Mode Configuration"
+msgstr "Mode Configuration"
+
+msgid "Configuration options for selected mode"
+msgstr "Configuration options for selected mode"
+
+msgid "LAN IPv6 Settings"
+msgstr "LAN IPv6 Settings"
+
+msgid "IPv6 assignment settings for LAN"
+msgstr "IPv6 assignment settings for LAN"
+
+msgid "Firewall Settings"
+msgstr "Firewall Settings"
+
+msgid "IPv6 firewall configuration"
+msgstr "IPv6 firewall configuration"
+
+msgid "Apply Configuration"
+msgstr "Apply Configuration"
+
+msgid "Apply IPv6 configuration changes"
+msgstr "Apply IPv6 configuration changes"
+
+msgid "Internet Setup Wizard"
+msgstr "Internet Setup Wizard"
+
+msgid "Guided wizard for internet connection setup"
+msgstr "Guided wizard for internet connection setup"
+
+msgid "Step 1: Welcome"
+msgstr "Step 1: Welcome"
+
+msgid "Welcome to the Internet Setup Wizard"
+msgstr "Welcome to the Internet Setup Wizard"
+
+msgid "Step 2: Connection Type"
+msgstr "Step 2: Connection Type"
+
+msgid "Select your internet connection type"
+msgstr "Select your internet connection type"
+
+msgid "Step 3: Connection Details"
+msgstr "Step 3: Connection Details"
+
+msgid "Enter your connection parameters"
+msgstr "Enter your connection parameters"
+
+msgid "Step 4: LAN Settings"
+msgstr "Step 4: LAN Settings"
+
+msgid "Optional LAN configuration"
+msgstr "Optional LAN configuration"
+
+msgid "Step 5: Confirmation"
+msgstr "Step 5: Confirmation"
+
+msgid "Review and apply configuration"
+msgstr "Review and apply configuration"
+
+msgid "Step 6: Complete"
+msgstr "Step 6: Complete"
+
+msgid "Configuration applied successfully"
+msgstr "Configuration applied successfully"
+
+msgid "WAN MAC Address"
+msgstr "WAN MAC Address"
+
+msgid "Clone or customize WAN MAC address"
+msgstr "Clone or customize WAN MAC address"
+
+msgid "Use default MAC"
+msgstr "Use default MAC"
+
+msgid "Use custom MAC"
+msgstr "Use custom MAC"
+
+msgid "Clone current MAC"
+msgstr "Clone current MAC"
+
+msgid "WAN MTU"
+msgstr "WAN MTU"
+
+msgid "Maximum Transmission Unit for WAN"
+msgstr "Maximum Transmission Unit for WAN"
+
+msgid "Default is 1500, PPPoE recommended 1492"
+msgstr "Default is 1500, PPPoE recommended 1492"
+
+msgid "Custom DNS Servers"
+msgstr "Custom DNS Servers"
+
+msgid "Manually specify DNS servers"
+msgstr "Manually specify DNS servers"
+
+msgid "Use ISP default DNS"
+msgstr "Use ISP default DNS"
+
+msgid "Use custom DNS"
+msgstr "Use custom DNS"
+
+msgid "Primary DNS server"
+msgstr "Primary DNS server"
+
+msgid "Secondary DNS server"
+msgstr "Secondary DNS server"
+
+msgid "Connectivity Test"
+msgstr "Connectivity Test"
+
+msgid "Test internet connectivity after setup"
+msgstr "Test internet connectivity after setup"
+
+msgid "Test connection after applying"
+msgstr "Test connection after applying"

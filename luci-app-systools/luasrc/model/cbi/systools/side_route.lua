@@ -12,6 +12,8 @@ local mode = "normal"
 local lan_ip = "N/A"
 local gateway = "N/A"
 local dhcp_enabled = "unknown"
+local masq_status = "unknown"
+local ip_forward = "unknown"
 
 local status_output = luci.sys.exec("/usr/libexec/systools/side_route.sh status 2>/dev/null")
 for line in status_output:gmatch("[^\r\n]+") do
@@ -20,6 +22,8 @@ for line in status_output:gmatch("[^\r\n]+") do
     if key == "lan_ip" then lan_ip = value end
     if key == "gateway" then gateway = value end
     if key == "dhcp_enabled" then dhcp_enabled = value end
+    if key == "masq_status" then masq_status = value end
+    if key == "ip_forward" then ip_forward = value end
 end
 
 -- 当前模式
@@ -45,6 +49,24 @@ if dhcp_enabled == "yes" then
     o.value = '<span style="color:green">' .. translate("已启用") .. '</span>'
 else
     o.value = '<span style="color:red">' .. translate("已禁用") .. '</span>'
+end
+o.rawhtml = true
+
+-- IP伪装状态
+o = s:option(DummyValue, "_masq", translate("WAN 口 IP 伪装"))
+if masq_status == "enabled" then
+    o.value = '<span style="color:green">' .. translate("已开启") .. '</span>'
+else
+    o.value = '<span style="color:grey">' .. translate("已关闭") .. '</span>'
+end
+o.rawhtml = true
+
+-- IP转发状态
+o = s:option(DummyValue, "_ipfwd", translate("IP 转发"))
+if ip_forward == "enabled" then
+    o.value = '<span style="color:green">' .. translate("已开启") .. '</span>'
+else
+    o.value = '<span style="color:red">' .. translate("已关闭") .. '</span>'
 end
 o.rawhtml = true
 

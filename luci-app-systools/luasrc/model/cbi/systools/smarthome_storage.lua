@@ -70,6 +70,23 @@ o.value = avail or "N/A"
 o = s:option(DummyValue, "_use_pct", translate("使用率"))
 o.value = use_pct or "N/A"
 
+-- 低空间告警
+local use_pct_num = tonumber(use_pct and use_pct:gsub("%%", "") or 0)
+if use_pct_num and use_pct_num >= 90 then
+    o = s:option(DummyValue, "_low_space_warning")
+    o.rawhtml = true
+    o.value = '<div style="background:#fff3cd;color:#856404;padding:10px;border-radius:4px;margin-top:10px;border:1px solid #ffeeba;">' ..
+        '<strong>' .. translate("警告：存储空间不足") .. '</strong><br>' ..
+        translate("当前存储空间使用率已超过 90%，建议清理镜像或迁移到更大的存储设备。") ..
+        '</div>'
+elseif use_pct_num and use_pct_num >= 80 then
+    o = s:option(DummyValue, "_space_notice")
+    o.rawhtml = true
+    o.value = '<div style="background:#d1ecf1;color:#0c5460;padding:10px;border-radius:4px;margin-top:10px;border:1px solid #bee5eb;">' ..
+        translate("提示：存储空间使用率已超过 80%，请注意及时清理。") ..
+        '</div>'
+end
+
 -- 已挂载的存储设备
 s2 = m:section(SimpleSection, translate("已挂载的存储设备"),
     translate("系统中当前已挂载的存储设备列表"))

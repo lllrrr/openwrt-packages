@@ -85,6 +85,40 @@ o = s4:option(Value, "static_dns", translate("DNS Server"))
 o.datatype = "ip4addr"
 o.optional = true
 
+-- 高级设置（所有模式通用）
+s_advanced = m:section(TypedSection, "wizard", translate("Advanced Settings"))
+s_advanced.anonymous = true
+s_advanced.addremove = false
+
+-- MAC 地址克隆
+o = s_advanced:option(Value, "wan_mac", translate("WAN MAC Address"),
+    translate("Customize WAN MAC address. Leave blank to use default."))
+o.datatype = "macaddr"
+o.optional = true
+o.placeholder = "AA:BB:CC:DD:EE:FF"
+o.description = translate("Clone MAC address for ISP binding scenarios")
+
+-- MTU 设置
+o = s_advanced:option(Value, "wan_mtu", translate("WAN MTU"),
+    translate("Maximum Transmission Unit. Default is 1500, PPPoE recommended 1492."))
+o.datatype = "range(576, 1500)"
+o.optional = true
+o.default = "1500"
+o.placeholder = "1500"
+
+-- DNS 自定义
+o = s_advanced:option(Value, "dns_primary", translate("Primary DNS"),
+    translate("Primary DNS server address"))
+o.datatype = "ip4addr"
+o.optional = true
+o.placeholder = "114.114.114.114"
+
+o = s_advanced:option(Value, "dns_secondary", translate("Secondary DNS"),
+    translate("Secondary DNS server address (optional)"))
+o.datatype = "ip4addr"
+o.optional = true
+o.placeholder = "223.5.5.5"
+
 -- 操作按钮
 s5 = m:section(TypedSection, "wizard", translate("Operations"))
 s5.anonymous = true
@@ -96,20 +130,39 @@ btn_apply.inputstyle = "apply"
 btn_apply.description = translate("Click to apply the network configuration. The current configuration will be backed up automatically.")
 function btn_apply.write(self, section)
     local conn_type = m:formvalue("cbid.systools.wizard.connection_type")
+    local wan_mac = m:formvalue("cbid.systools.wizard.wan_mac")
+    local wan_mtu = m:formvalue("cbid.systools.wizard.wan_mtu")
+    local dns_primary = m:formvalue("cbid.systools.wizard.dns_primary")
+    local dns_secondary = m:formvalue("cbid.systools.wizard.dns_secondary")
+
+    -- 构建高级参数
+    local advanced_args = ""
+    if wan_mac and #wan_mac > 0 then
+        advanced_args = advanced_args .. " mac=" .. shell_escape(wan_mac)
+    end
+    if wan_mtu and #wan_mtu > 0 then
+        advanced_args = advanced_args .. " mtu=" .. shell_escape(wan_mtu)
+    end
+    if dns_primary and #dns_primary > 0 then
+        advanced_args = advanced_args .. " dns1=" .. shell_escape(dns_primary)
+    end
+    if dns_secondary and #dns_secondary > 0 then
+        advanced_args = advanced_args .. " dns2=" .. shell_escape(dns_secondary)
+    end
 
     if conn_type == "pppoe" then
         local user = m:formvalue("cbid.systools.wizard.pppoe_username")
         local pass = m:formvalue("cbid.systools.wizard.pppoe_password")
         if user and pass and #user > 0 and #pass > 0 then
-            local cmd = string.format("/usr/libexec/systools/network_wizard.sh pppoe %s %s >/dev/null 2>&1 &",
-                shell_escape(user), shell_escape(pass))
+            local cmd = string.format("/usr/libexec/systools/network_wizard.sh pppoe %s %s%s >/dev/null 2>&1 &",
+                shell_escape(user), shell_escape(pass), advanced_args)
             luci.sys.call(cmd)
             luci.http.redirect(luci.dispatcher.build_url("admin", "systools", "network", "wizard"))
         else
             m.message = translate("Please enter username and password")
         end
     elseif conn_type == "dhcp" then
-        luci.sys.call("/usr/libexec/systools/network_wizard.sh dhcp >/dev/null 2>&1 &")
+        luci.sys.call("/usr/libexec/systools/network_wizard.sh dhcp" .. advanced_args .. " >/dev/null 2>&1 &")
         luci.http.redirect(luci.dispatcher.build_url("admin", "systools", "network", "wizard"))
     elseif conn_type == "static" then
         local ip = m:formvalue("cbid.systools.wizard.static_ip")
@@ -125,6 +178,7 @@ function btn_apply.write(self, section)
             if dns and #dns > 0 then
                 cmd = cmd .. " " .. shell_escape(dns)
             end
+            cmd = cmd .. advanced_args
             luci.sys.call(cmd .. " >/dev/null 2>&1 &")
             luci.http.redirect(luci.dispatcher.build_url("admin", "systools", "network", "wizard"))
         else
