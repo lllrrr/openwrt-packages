@@ -376,11 +376,16 @@ function _exec_long(cmd, max_bytes) {
     return { code: (rc == null ? -1 : rc), stdout: raw };
 }
 
-// _exec_auth_cmd(cmd, max_bytes?) → { code, stdout }
+// _exec_auth_cmd(cmd, max_bytes?, secs?) → { code, stdout }
 // 认证命令有界执行：NetBird 上游在无效 setup key 时可能 backoff 重试不返回，
 // 这里用 shell 轮询杀掉 CLI 进程；随后业务层再读 daemon 日志归类并 netbird down。
-function _exec_auth_cmd(cmd, max_bytes) {
-    let secs = 25;
+// secs 缺省 25s（用户发起的认证需要足够窗口让 CLI/日志沉淀出可归因的错误）；
+// 周期性重试的调用方（watchdog）可传更短墙钟——rpcd 对同一 ucode 脚本的并发调用
+// 是串行的，本命令在跑时该对象的其余方法（状态页读取）全部排队，墙钟越长页面
+// 阻塞越久；watchdog 天然有下一轮兜底，缩短单次尝试不损失恢复能力。
+function _exec_auth_cmd(cmd, max_bytes, secs) {
+    if (type(secs) != 'int' || secs <= 0)
+        secs = 25;
     let wrapped = cmd + ' & __nbp=$!; __nbi=0; ' +
         'while [ $__nbi -lt ' + secs + ' ] && kill -0 $__nbp 2>/dev/null; do sleep 1; __nbi=$((__nbi+1)); done; ' +
         'if kill -0 $__nbp 2>/dev/null; then ' +
@@ -390,14 +395,19 @@ function _exec_auth_cmd(cmd, max_bytes) {
     return _exec_long(wrapped, max_bytes);
 }
 
-// _poll_connected(bin) → { connected:bool, json:<dict|null> }
-// 同步轮询 status --json 直至 management.connected==true：正常上限 ~10s（6 轮,5 次 sleep 2s）；
-// 极端下每轮 status 各带 5s timeout，最坏可达 ~40s（前端 do_up 的 RPC timeout 须覆盖此区间）。
-// 每轮 fetch_status_json 自带 5s timeout；轮间 system('sleep 2') 退避（sleep 可用）。
+// _poll_connected(bin, rounds?) → { connected:bool, json:<dict|null> }
+// 同步轮询 status --json 直至 management.connected==true：缺省 6 轮（正常上限 ~10s,
+// 5 次 sleep 2s）；极端下每轮 status 各带 5s timeout，最坏可达 ~40s（前端 do_up 的
+// RPC timeout 须覆盖此区间）。轮间 system('sleep 2') 退避（sleep 可用）。
+// rounds 可调：周期性重试的调用方（watchdog）用更少轮数缩短单次尝试的阻塞窗口
+// （同脚本 RPC 串行，轮询期间状态页读取全部排队）；即便本轮漏判「刚好连上」，
+// watchdog 下一轮状态巡检（30s 内）也会收敛，不损失恢复能力。
 // 安全基线：exec 返回后必须同步轮询确认，不信任 up/login 退出码本身。
-function _poll_connected(bin) {
+function _poll_connected(bin, rounds) {
+    if (type(rounds) != 'int' || rounds <= 0)
+        rounds = 6;
     let last_json = null;
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < rounds; i++) {
         let js = fetch_status_json(bin);
         if (js.ok) {
             last_json = js.data;
@@ -406,7 +416,7 @@ function _poll_connected(bin) {
                 return { connected: true, json: js.data };
         }
         // 最后一轮不必再 sleep
-        if (i < 5)
+        if (i < rounds - 1)
             system('sleep 2');
     }
     return { connected: false, json: last_json };
@@ -2648,13 +2658,18 @@ return {
 
                 let auth_log_before = _recent_auth_log_text().text;
                 let cmd = _build_auth_cmd(bin, 'up', mr.url, setup_key);
-                let r = _exec_auth_cmd(cmd, 4096); // shell-audit-ok: bin/url/key 均经 shell_quote，verb 字面
+                // watchdog 的周期重连用短墙钟 + 短确认轮询:管理端不可达时 netbird up 内部
+                // backoff 不返回,每次尝试都会跑满墙钟;同脚本 RPC 串行使状态页在此期间排队,
+                // 长尝试 = 页面长时间假死。健康恢复场景 up 几秒即返回,10s 足够;真不可达时
+                // 缩短的只是「注定失败的等待」,下一轮尝试与 30s 状态巡检兜底恢复。
+                // 用户点击的连接保持 25s/6 轮:错误归因需要让 CLI/daemon 日志有时间沉淀。
+                let r = _exec_auth_cmd(cmd, 4096, from_watchdog ? 10 : 25); // shell-audit-ok: bin/url/key 均经 shell_quote，verb 字面
                 // 安全加固：若 CLI 把 setup_key 回显进 stdout，先脱敏再用于任何错误回传。
                 if (length(setup_key) > 0 && r.stdout != null)
                     r.stdout = replace(r.stdout, setup_key, '***');
 
                 // exec 后同步轮询确认（不信任 up 退出码本身）
-                let poll = _poll_connected(bin);
+                let poll = _poll_connected(bin, from_watchdog ? 3 : 6);
                 if (poll.connected) {
                     // 认证成功：把本次 setup_key 算成打码 hint 存 UCI（只存打码串，原始 key 用完即弃）。
                     if (length(setup_key) > 0)

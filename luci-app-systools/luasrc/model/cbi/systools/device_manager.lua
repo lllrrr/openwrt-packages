@@ -27,10 +27,18 @@ for _, lease in ipairs(leases) do
         static = false
     }
     
-    -- 检查是否有静态绑定
-    local static_ip = uci:get("dhcp", "@host[0]", "ip")
-    if static_ip and static_ip == dev.ip then
-        dev.static = true
+    -- 检查是否有静态绑定（遍历所有host条目，按MAC匹配）
+    local idx = 0
+    while true do
+        local host_mac = uci:get("dhcp", "@host[" .. idx .. "]", "mac")
+        if not host_mac then
+            break
+        end
+        if host_mac:lower() == dev.mac:lower() then
+            dev.static = true
+            break
+        end
+        idx = idx + 1
     end
     
     -- 检查是否有备注名
