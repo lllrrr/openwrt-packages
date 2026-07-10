@@ -39,8 +39,20 @@ open_port() {
     # 使用 uci 添加防火墙规则
     local rule_name="smarthome_${name}_${port}_${proto}"
     
-    # 检查是否已存在
-    if uci get firewall.@rule[-1].name 2>/dev/null | grep -q "$rule_name"; then
+    # 遍历所有规则检查是否已存在
+    local idx=0
+    local found=0
+    while uci get "firewall.@rule[$idx].name" >/dev/null 2>&1; do
+        local existing_name
+        existing_name=$(uci get "firewall.@rule[$idx].name" 2>/dev/null)
+        if [ "$existing_name" = "$rule_name" ]; then
+            found=1
+            break
+        fi
+        idx=$((idx + 1))
+    done
+    
+    if [ "$found" -eq 1 ]; then
         echo "Port already open"
         return 0
     fi
@@ -68,34 +80,40 @@ close_port() {
     
     echo "Closing port $port/$proto"
     
-    # 查找并删除对应的规则（从后往前遍历，避免删除后索引偏移问题）
-    local total=$(uci show firewall 2>/dev/null | grep -c "^firewall.@rule\[")
-    local found=0
+    # 循环删除所有匹配的规则（每次删完重新遍历，避免索引偏移问题）
+    local deleted=0
+    local keep_going=1
     
-    # 从最后一个规则往前遍历
-    for ((count = total - 1; count >= 0; count--)); do
-        local rule_name
-        rule_name=$(uci get "firewall.@rule[$count].name" 2>/dev/null)
+    while [ "$keep_going" -eq 1 ]; do
+        keep_going=0
+        local total=$(uci show firewall 2>/dev/null | grep -c "^firewall.@rule\[")
         
-        # 只处理 smarthome_ 开头的规则
-        if echo "$rule_name" | grep -q "^smarthome_"; then
-            local rule_port
-            rule_port=$(uci get "firewall.@rule[$count].dest_port" 2>/dev/null)
-            local rule_proto
-            rule_proto=$(uci get "firewall.@rule[$count].proto" 2>/dev/null)
+        # 从最后一个规则往前遍历
+        for ((count = total - 1; count >= 0; count--)); do
+            local rule_name
+            rule_name=$(uci get "firewall.@rule[$count].name" 2>/dev/null)
             
-            if [ "$rule_port" = "$port" ] && [ "$rule_proto" = "$proto" ]; then
-                uci delete "firewall.@rule[$count]"
-                uci commit firewall
-                /etc/init.d/firewall reload 2>/dev/null
-                echo "Port $port closed"
-                found=1
-                break
+            # 只处理 smarthome_ 开头的规则
+            if echo "$rule_name" | grep -q "^smarthome_"; then
+                local rule_port
+                rule_port=$(uci get "firewall.@rule[$count].dest_port" 2>/dev/null)
+                local rule_proto
+                rule_proto=$(uci get "firewall.@rule[$count].proto" 2>/dev/null)
+                
+                if [ "$rule_port" = "$port" ] && [ "$rule_proto" = "$proto" ]; then
+                    uci delete "firewall.@rule[$count]"
+                    uci commit firewall
+                    deleted=$((deleted + 1))
+                    keep_going=1  # 删除了一个，继续找下一个
+                    break  # 索引变了，重新从后往前找
+                fi
             fi
-        fi
+        done
     done
     
-    if [ "$found" -eq 1 ]; then
+    if [ "$deleted" -gt 0 ]; then
+        /etc/init.d/firewall reload 2>/dev/null
+        echo "Port $port closed ($deleted rules removed)"
         return 0
     else
         echo "Port rule not found"

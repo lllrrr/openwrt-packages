@@ -25,7 +25,7 @@ if [ ! -f /etc/config/systools ]; then
     # 创建默认配置
     cat > /etc/config/systools <<EOF
 config systools 'global'
-    option version '0.2.0'
+    option version '1.0.0'
     option enabled '1'
     option first_run '1'
 
@@ -42,9 +42,9 @@ fi
 
 # 检查并更新版本号
 CURRENT_VERSION=$(uci get systools.global.version 2>/dev/null)
-if [ "$CURRENT_VERSION" != "0.2.0" ]; then
-    log_info "更新配置版本: $CURRENT_VERSION -> 0.2.0"
-    uci set systools.global.version='0.2.0'
+if [ "$CURRENT_VERSION" != "1.0.0" ]; then
+    log_info "更新配置版本: $CURRENT_VERSION -> 1.0.0"
+    uci set systools.global.version='1.0.0'
     uci commit systools
 fi
 

@@ -1,7 +1,7 @@
 
 
 config systools 'global'
-	option version '0.2.0'
+	option version '1.0.0'
 	option enabled '1'
 	option first_run '1'
 

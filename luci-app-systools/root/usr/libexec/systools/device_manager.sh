@@ -58,8 +58,9 @@ get_device_list() {
             hostname="未知设备"
         fi
         
-        # 检查是否有备注名
-        mac_safe=$(echo "$mac" | tr ':' '_')
+        # 检查是否有备注名（统一小写，避免大小写不一致）
+        mac_lower=$(echo "$mac" | tr '[:upper:]' '[:lower:]')
+        mac_safe=$(echo "$mac_lower" | tr ':' '_')
         nickname=$(uci get systools.device_$mac_safe.nickname 2>/dev/null)
         if [ -n "$nickname" ]; then
             display_name="$nickname"
@@ -67,11 +68,19 @@ get_device_list() {
             display_name="$hostname"
         fi
         
-        # 检查是否静态绑定
+        # 检查是否静态绑定（通过 MAC 地址匹配，更准确）
         static="否"
-        if uci show dhcp | grep -q "ip.*$ip" 2>/dev/null; then
-            static="是"
-        fi
+        local check_idx=0
+        while uci get "dhcp.@host[$check_idx].mac" >/dev/null 2>&1; do
+            local entry_mac
+            entry_mac=$(uci get "dhcp.@host[$check_idx].mac" 2>/dev/null)
+            entry_mac_lower=$(echo "$entry_mac" | tr '[:upper:]' '[:lower:]')
+            if [ "$entry_mac_lower" = "$mac_lower" ]; then
+                static="是"
+                break
+            fi
+            check_idx=$((check_idx + 1))
+        done
         
         echo "$ip|$mac|$display_name|$iface|$static"
     done
@@ -86,12 +95,15 @@ set_nickname() {
         return 1
     fi
     
-    local mac_safe=$(echo "$mac" | tr ':' '_')
+    # 统一转小写，避免大小写不一致
+    local mac_lower
+    mac_lower=$(echo "$mac" | tr '[:upper:]' '[:lower:]')
+    local mac_safe=$(echo "$mac_lower" | tr ':' '_')
     
     # 设置备注名
     uci set systools.device_$mac_safe=systools
     uci set systools.device_$mac_safe.nickname="$nickname"
-    uci set systools.device_$mac_safe.mac="$mac"
+    uci set systools.device_$mac_safe.mac="$mac_lower"
     uci commit systools
     
     log "设备 $mac 备注名已设置为: $nickname"
@@ -120,13 +132,19 @@ set_static_ip() {
         return 1
     fi
     
+    # 统一转小写，避免大小写不一致
+    local mac_lower
+    mac_lower=$(echo "$mac" | tr '[:upper:]' '[:lower:]')
+    
     # 查找该 MAC 已有的 host 条目索引
     local idx=0
     local found=0
     while uci get "dhcp.@host[$idx].mac" >/dev/null 2>&1; do
         local entry_mac
         entry_mac=$(uci get "dhcp.@host[$idx].mac" 2>/dev/null)
-        if [ "$entry_mac" = "$mac" ]; then
+        # 统一转小写比较
+        entry_mac_lower=$(echo "$entry_mac" | tr '[:upper:]' '[:lower:]')
+        if [ "$entry_mac_lower" = "$mac_lower" ]; then
             found=1
             break
         fi
@@ -139,15 +157,15 @@ set_static_ip() {
             # 更新已有条目
             uci set "dhcp.@host[$idx].ip=$ip"
             uci set "dhcp.@host[$idx].leasetime=infinite"
-            log "设备 $mac 静态绑定已更新: $ip"
+            log "设备 $mac_lower 静态绑定已更新: $ip"
         else
             # 添加新条目
             uci add dhcp host >/dev/null
-            uci set "dhcp.@host[-1].name=static_$(echo "$mac" | tr ':' '_')"
-            uci set "dhcp.@host[-1].mac=$mac"
+            uci set "dhcp.@host[-1].name=static_$(echo "$mac_lower" | tr ':' '_')"
+            uci set "dhcp.@host[-1].mac=$mac_lower"
             uci set "dhcp.@host[-1].ip=$ip"
             uci set "dhcp.@host[-1].leasetime=infinite"
-            log "设备 $mac 已绑定静态 IP: $ip"
+            log "设备 $mac_lower 已绑定静态 IP: $ip"
         fi
         uci commit dhcp
         
@@ -159,9 +177,9 @@ set_static_ip() {
             uci delete "dhcp.@host[$idx]"
             uci commit dhcp
             /etc/init.d/dnsmasq restart 2>/dev/null
-            log "设备 $mac 静态绑定已移除"
+            log "设备 $mac_lower 静态绑定已移除"
         else
-            log "设备 $mac 没有找到静态绑定条目"
+            log "设备 $mac_lower 没有找到静态绑定条目"
         fi
     fi
     

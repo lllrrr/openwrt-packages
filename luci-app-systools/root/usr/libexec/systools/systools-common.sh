@@ -63,8 +63,12 @@ find_container() {
     local container_id=""
     
     # 遍历所有参数（名称模式）
+    # 先尝试精确匹配（用 grep 正则，因为 docker filter 不支持 ^$ 锚点）
     for pattern in "$@"; do
-        container_id=$(docker ps -a --filter "name=^/${pattern}$" --format "{{.ID}}" 2>/dev/null | head -1)
+        container_id=$(docker ps -a --format "{{.ID}} {{.Names}}" 2>/dev/null \
+            | grep -E "(^| )${pattern}( |$)" \
+            | head -1 \
+            | awk '{print $1}')
         if [ -n "$container_id" ]; then
             echo "$container_id"
             return 0
@@ -105,6 +109,31 @@ set_json_field() {
     # 确保目录存在
     mkdir -p "$(dirname "$file")"
     
+    # 先备份原文件
+    if [ -f "$file" ]; then
+        backup_file "$file" ".bak.json"
+    fi
+    
+    # 优先使用 jq（如果存在）
+    if command_exists jq; then
+        if [ -f "$file" ]; then
+            # 文件存在，用 jq 修改
+            jq ".\"${field}\" = \"${value}\"" "$file" > "${file}.tmp" 2>/dev/null
+            if [ $? -eq 0 ]; then
+                mv "${file}.tmp" "$file"
+                return 0
+            fi
+            rm -f "${file}.tmp"
+        else
+            # 文件不存在，用 jq 创建
+            echo "{}" | jq ".\"${field}\" = \"${value}\"" > "$file" 2>/dev/null
+            if [ $? -eq 0 ]; then
+                return 0
+            fi
+        fi
+    fi
+    
+    # jq 不可用，使用 sed 兜底
     if [ -f "$file" ]; then
         # 文件存在，检查字段是否已存在
         if grep -q "\"${field}\"" "$file" 2>/dev/null; then
@@ -121,6 +150,17 @@ set_json_field() {
   "${field}": "${value}"
 }
 EOF
+    fi
+    
+    # 验证 JSON 格式有效性（简单验证）
+    if grep -q '^{' "$file" 2>/dev/null && grep -q '}$' "$file" 2>/dev/null; then
+        return 0
+    else
+        # 格式异常，恢复备份
+        if [ -f "${file}.bak.json" ]; then
+            mv "${file}.bak.json" "$file"
+        fi
+        return 1
     fi
 }
 
@@ -181,10 +221,11 @@ copy_dir_contents() {
     
     mkdir -p "$dst"
     
-    # 使用 find 复制所有文件，包括隐藏文件
-    (cd "$src" && find . -maxdepth 1 -exec cp -a {} "$dst/" \;) 2>/dev/null
+    # 使用 cp -a 复制所有内容，包括隐藏文件
+    # 末尾的 /. 确保只复制目录内容，不复制目录本身
+    cp -a "$src"/. "$dst"/ 2>/dev/null
     
-    return 0
+    return $?
 }
 
 # 检查命令是否存在
