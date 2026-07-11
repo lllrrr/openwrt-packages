@@ -189,7 +189,7 @@ export class main extends L.view {
         <button
           type="button"
           class="cbi-button cbi-button-apply"
-          style="margin-left: 8px; background-color: var(--cbi-button-action-background, #1a73e8); color: white;"
+          style="margin-left: 8px;"
           onclick={() => this.handleSaveRestart()}
         >
           {_("Save & Restart")}

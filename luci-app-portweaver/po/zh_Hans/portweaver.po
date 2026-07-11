@@ -1057,3 +1057,7 @@ msgstr "自动换行：关闭"
 
 msgid "WRAP: ON"
 msgstr "自动换行：开启"
+
+msgid "Collect traffic statistics using nftables kernel counters (extremely low overhead). <strong style=\"color: #e74c3c;\">(Disabled: requires nftables backend enabled in Global Settings)</strong>"
+msgstr "使用 nftables 内核计数器收集流量统计信息（开销极低）。<strong style=\"color: #e74c3c;\">（已禁用：需要在全局設置中啟用 nftables 后端）</strong>"
+

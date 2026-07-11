@@ -283,14 +283,12 @@ export default function (
     o.default = "tcp";
     o.depends("use_port_mappings", "0");
   }
-  {
-    if (isFeatureEnabled("frpc_mode")) {
-      // FRP node selector component factory
-      const o = ss.option(FrpNodeSelector, "frp_nodes", _("FRP Tunnels"));
-      o.modalonly = true;
-      o.rmempty = true;
-      o.depends("use_port_mappings", "0");
-    }
+  if (isFeatureEnabled("frpc_mode")) {
+    // FRP node selector component factory
+    const o = ss.option(FrpNodeSelector, "frp_nodes", _("FRP Tunnels"));
+    o.modalonly = true;
+    o.rmempty = true;
+    o.depends("use_port_mappings", "0");
   }
   {
     // Port Mapping Editor component factory
@@ -404,17 +402,25 @@ export default function (
     o.depends({ enable_app_forward: "1" });
   }
   {
+    const isNftables = uci.get("portweaver", "global", "use_nftables") === "1";
     const o = ss.option(
       form.Flag,
       "enable_firewall_stats",
       _("Enable Firewall Statistics"),
-      _(
-        "Collect traffic statistics using nftables kernel counters (extremely low overhead). Requires nftables backend.",
-      ),
+      isNftables
+        ? _(
+            "Collect traffic statistics using nftables kernel counters (extremely low overhead). Requires nftables backend.",
+          )
+        : _(
+            "Collect traffic statistics using nftables kernel counters (extremely low overhead). <strong style=\"color: #e74c3c;\">(Disabled: requires nftables backend enabled in Global Settings)</strong>",
+          ),
     );
     o.modalonly = true;
     o.default = "0";
     o.depends("add_firewall_forward", "1");
+    if (!isNftables) {
+      o.readonly = true;
+    }
   }
   {
     const o = ss.option(

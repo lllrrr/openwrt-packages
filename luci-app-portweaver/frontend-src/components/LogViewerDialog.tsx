@@ -78,12 +78,9 @@ export class LogViewerDialog {
     );
 
     const dialogFooter = (
-      <div
-        class="button-row"
-        style="padding: 1em; display: flex; gap: 0.5em; justify-content: flex-end; flex-wrap: wrap; min-height: 2.5em;"
-      >
-        <span>{footer ? Array.from(footer.children) : null}</span>
+      <div class="button-row">
         <span>{closeFooterButton}</span>
+        <span>{footer ? Array.from(footer.children) : null}</span>
       </div>
     );
 
@@ -105,7 +102,7 @@ export class LogViewerDialog {
 
     this.modal = (
       <div
-        style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;"
+        style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 9999;"
         onclick={(e: MouseEvent) => {
           if (e.target === e.currentTarget) this.close();
         }}

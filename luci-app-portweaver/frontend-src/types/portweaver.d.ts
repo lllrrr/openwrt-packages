@@ -19,6 +19,8 @@ export interface ForwarderStats {
 
 export interface ProjectStatus {
   id?: number;
+  /** UCI section name for index-independent matching */
+  section_name?: string;
   remark?: string;
   enabled: boolean;
   status: string;
@@ -84,6 +86,8 @@ export interface DdnsGlobalStatus {
 // Sub-types for get_full_status
 export interface FullStatusProject {
   id: string;
+  /** UCI section name for index-independent matching */
+  section_name: string;
   enabled: boolean;
   status: string;
   startup_status?: string;

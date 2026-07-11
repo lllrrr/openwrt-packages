@@ -180,7 +180,9 @@ export class Client {
             for (let i = 0; i < projectSections.length; i++) {
               const sec = projectSections[i];
               const name = (sec.name as string) || sec[".name"] || `#${i + 1}`;
-              const ps = this.projectStatuses[i];
+              const ps = this.projectStatuses.find(
+                (p) => p.section_name === sec[".name"],
+              );
               const color =
                 ps?.status === "running"
                   ? "#28a745"
@@ -337,6 +339,7 @@ export class Client {
     };
 
     this.projectStatuses = (fullStatus.projects || []).map((project) => ({
+      section_name: project.section_name,
       enabled: project.enabled,
       status: project.status,
       startup_status: project.startup_status,
@@ -364,9 +367,14 @@ export class Client {
   private applyProjectList(projects: ProjectStatus[]): void {
     if (!projects || projects.length === 0) return;
 
-    const merged = projects.map((project, index) => {
-      const existing = this.projectStatuses[index];
+    const merged = projects.map((project) => {
+      const existing = project.section_name
+        ? this.projectStatuses.find(
+            (p) => p.section_name === project.section_name,
+          )
+        : undefined;
       return {
+        section_name: project.section_name ?? existing?.section_name,
         enabled: project.enabled ?? existing?.enabled ?? false,
         status: project.status ?? existing?.status ?? "unknown",
         startup_status: project.startup_status ?? existing?.startup_status,
@@ -459,10 +467,9 @@ export class Client {
     return -1;
   }
   getProjectStatus(section_id: string): ProjectStatus | null {
-    const idx = this.getProjectIndex(section_id);
-    return idx >= 0 && this.projectStatuses && this.projectStatuses[idx]
-      ? this.projectStatuses[idx]
-      : null;
+    return (
+      this.projectStatuses?.find((p) => p.section_name === section_id) || null
+    );
   }
   renderStatusElements(status: ProjectStatus | null, _section_id: string) {
     if (!status) {

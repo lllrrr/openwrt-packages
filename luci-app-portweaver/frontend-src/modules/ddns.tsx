@@ -154,6 +154,7 @@ export default function (
 
       const statusColors: Record<string, string> = {
         success: "#4CAF50",
+        running: "#4CAF50",
         updating: "#FFC107",
         error: "#F44336",
         disabled: "#9E9E9E",
@@ -162,6 +163,7 @@ export default function (
 
       const statusLabels: Record<string, string> = {
         success: _("Success"),
+        running: _("Running"),
         updating: _("Updating"),
         error: _("Error"),
         disabled: _("Disabled"),
@@ -180,23 +182,26 @@ export default function (
       const textSpan = (<span>{statusText}</span>) as HTMLElement;
 
       const container = (
-        <div style="display:flex; flex-direction:column; gap:4px;"></div>
+        <div style="display:flex; flex-direction:column; gap:4px; align-items:center; justify-content:center; text-align:center; width:100%;"></div>
       ) as HTMLElement;
 
       const statusRow = (
-        <div style="display:flex; align-items:center;"></div>
+        <div style="display:flex; align-items:center; justify-content:center;"></div>
       ) as HTMLElement;
       statusRow.appendChild(indicator);
       statusRow.appendChild(textSpan);
       container.appendChild(statusRow);
 
       if (status.last_ip) {
-        const ipInfo = (
-          <small style="color:#666;">
-            {_("IP: %s").format(status.last_ip)}
-          </small>
-        ) as HTMLElement;
-        container.appendChild(ipInfo);
+        const ips = status.last_ip.split(", ");
+        for (const ip of ips) {
+          const ipInfo = (
+            <small style="color:#666;">
+              {_("IP: %s").format(ip)}
+            </small>
+          ) as HTMLElement;
+          container.appendChild(ipInfo);
+        }
       }
 
       if (status.last_update > 0) {
@@ -403,14 +408,14 @@ export default function (
 
   {
     const o = ss.option(
-      form.Value,
+      widgets.DeviceSelect,
       "ipv4_net_interface",
       _("IPv4 Network Interface"),
     );
     o.modalonly = true;
     o.depends({ ipv4_enable: "1", ipv4_get_type: "net_interface" });
-    o.placeholder = "eth0";
-    o.datatype = "string";
+    o.noaliases = true;
+    o.nocreate = true;
   }
 
   {
@@ -456,14 +461,14 @@ export default function (
 
   {
     const o = ss.option(
-      form.Value,
+      widgets.DeviceSelect,
       "ipv6_net_interface",
       _("IPv6 Network Interface"),
     );
     o.modalonly = true;
     o.depends({ ipv6_enable: "1", ipv6_get_type: "net_interface" });
-    o.placeholder = "eth0";
-    o.datatype = "string";
+    o.noaliases = true;
+    o.nocreate = true;
   }
 
   {
@@ -545,6 +550,7 @@ export default function (
           if (container) {
             const statusColors: Record<string, string> = {
               success: "#4CAF50",
+              running: "#4CAF50",
               updating: "#FFC107",
               error: "#F44336",
               disabled: "#9E9E9E",
@@ -553,6 +559,7 @@ export default function (
 
             const statusLabels: Record<string, string> = {
               success: _("Success"),
+              running: _("Running"),
               updating: _("Updating"),
               error: _("Error"),
               disabled: _("Disabled"),
@@ -569,7 +576,7 @@ export default function (
             }
 
             const statusRow = (
-              <div style="display:flex; align-items:center;"></div>
+              <div style="display:flex; align-items:center; justify-content:center;"></div>
             ) as HTMLElement;
 
             const indicator = (
@@ -585,12 +592,15 @@ export default function (
             container.appendChild(statusRow);
 
             if (status.last_ip) {
-              const ipInfo = (
-                <small style="color:#666;">
-                  {_("IP: %s").format(status.last_ip)}
-                </small>
-              ) as HTMLElement;
-              container.appendChild(ipInfo);
+              const ips = status.last_ip.split(", ");
+              for (const ip of ips) {
+                const ipInfo = (
+                  <small style="color:#666;">
+                    {_("IP: %s").format(ip)}
+                  </small>
+                ) as HTMLElement;
+                container.appendChild(ipInfo);
+              }
             }
 
             if (status.last_update > 0) {

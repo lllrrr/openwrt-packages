@@ -351,10 +351,7 @@ export class LogViewerCore {
     );
 
     this.footer = (
-      <div
-        class="button-row"
-        style="padding: 1em; display: flex; gap: 0.5em; justify-content: flex-end; flex-wrap: wrap; min-height: 2.5em;"
-      >
+      <div class="button-row">
         {copyButton}
         {copySelectedButton}
         {exportButton}
@@ -614,7 +611,6 @@ export class LogViewerCore {
         navigator.clipboard &&
         typeof navigator.clipboard.writeText === "function"
       ) {
-        navigator.clipboard.writeText("");
         useModernClipboard = true;
       }
     } catch (_e) {
@@ -633,7 +629,10 @@ export class LogViewerCore {
         });
     } else {
       const textarea = (
-        <textarea style="position: fixed; opacity: 0; display: none;">
+        <textarea
+          readonly
+          style="position: absolute; left: -9999px; top: -9999px; opacity: 0; width: 2px; height: 2px; border: none; outline: none; padding: 0; margin: 0; white-space: pre;"
+        >
           {text}
         </textarea>
       ) as HTMLTextAreaElement;
