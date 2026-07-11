@@ -1,16 +1,11 @@
--- Copyright 2026 systools
--- Licensed to the public under the Apache License 2.0.
+-- Copyright 2024 luci-app-systools
+-- Licensed to the public under the MIT License.
 
+local systools_common = require "luci.model.cbi.systools.common"
 local m, s, o
 local http = require "luci.http"
 local sys = require "luci.sys"
 
--- Shell 转义函数，防止命令注入
-local function shell_escape(str)
-    if not str then return "" end
-    -- 用单引号包裹，并转义内部的单引号
-    return "'" .. string.gsub(str, "'", "'\\''") .. "'"
-end
 
 m = Map("systools", translate("Docker 镜像管理"),
     translate("管理 Docker 镜像，支持拉取、删除等操作"))
@@ -86,9 +81,9 @@ function o.write(self, section)
 
     -- 执行拉取（后台执行）
     local cmd = string.format("/usr/libexec/systools/smarthome_images.sh pull %s %s %s >/tmp/systools_pull.log 2>&1 &",
-        shell_escape(image_name),
-        shell_escape(mirror_source),
-        shell_escape(custom_mirror or ""))
+        systools_common.shell_escape(image_name),
+        systools_common.shell_escape(mirror_source),
+        systools_common.shell_escape(custom_mirror or ""))
     sys.call(cmd)
 
     self.description = '<span style="color:green">' .. translate("开始拉取镜像：") .. image_name .. '<br>' ..
@@ -136,7 +131,7 @@ btn_prune.inputstyle = "reset"
 btn_prune.description = translate("删除未被使用的悬空镜像")
 function btn_prune.write(self, section)
     sys.call("/usr/libexec/systools/smarthome_images.sh prune >/dev/null 2>&1 &")
-    http.redirect(luci.dispatcher.build_url("admin", "services", "systools", "smarthome_images"))
+    http.redirect(luci.dispatcher.build_url("admin", "systools", "smarthome", "images"))
 end
 
 -- 镜像列表
@@ -166,44 +161,47 @@ if #images == 0 then
         '</div>'
     o.rawhtml = true
 else
-    -- 显示镜像表格
-    local html = '<table class="cbi-table table" style="width:100%">'
-    html = html .. '<tr><th>' .. translate("仓库") .. '</th>'
-    html = html .. '<th>' .. translate("标签") .. '</th>'
-    html = html .. '<th>' .. translate("镜像 ID") .. '</th>'
-    html = html .. '<th>' .. translate("大小") .. '</th>'
-    html = html .. '<th>' .. translate("创建时间") .. '</th>'
-    html = html .. '<th>' .. translate("操作") .. '</th></tr>'
+    -- 显示镜像表格（标准CBI风格，单form多按钮）
+    local html = '<form method="post" class="cbi-section-table-form">'
+    html = html .. '<input type="hidden" name="cbi.submit" value="1">'
+    html = html .. '<table class="cbi-table table cbi-section-table" style="width:100%">'
+    html = html .. '<tr class="cbi-section-table-titles">'
+    html = html .. '<th class="cbi-section-table-cell">' .. translate("仓库") .. '</th>'
+    html = html .. '<th class="cbi-section-table-cell">' .. translate("标签") .. '</th>'
+    html = html .. '<th class="cbi-section-table-cell">' .. translate("镜像 ID") .. '</th>'
+    html = html .. '<th class="cbi-section-table-cell">' .. translate("大小") .. '</th>'
+    html = html .. '<th class="cbi-section-table-cell">' .. translate("创建时间") .. '</th>'
+    html = html .. '<th class="cbi-section-table-cell cbi-section-actions">' .. translate("操作") .. '</th>'
+    html = html .. '</tr>'
 
     for _, img in ipairs(images) do
-        html = html .. '<tr>'
-        html = html .. '<td><strong>' .. img.repo .. '</strong></td>'
-        html = html .. '<td>' .. img.tag .. '</td>'
-        html = html .. '<td><small>' .. img.id:sub(1,12) .. '</small></td>'
-        html = html .. '<td>' .. img.size .. '</td>'
-        html = html .. '<td><small>' .. img.created .. '</small></td>'
-        html = html .. '<td>'
-        html = html .. '<form method="post" style="display:inline">'
-        html = html .. '<input type="hidden" name="cbi.submit" value="1">'
-        html = html .. '<button type="submit" name="cbid.systools.smarthome._remove_' .. img.id .. '" class="cbi-button cbi-button-reset" style="padding:2px 8px;font-size:12px;" onclick="return confirm(\'' .. translate("确定要删除此镜像吗？") .. '\')">' .. translate("删除") .. '</button>'
-        html = html .. '</form>'
+        html = html .. '<tr class="cbi-section-table-row">'
+        html = html .. '<td class="cbi-section-table-cell"><strong>' .. img.repo .. '</strong></td>'
+        html = html .. '<td class="cbi-section-table-cell">' .. img.tag .. '</td>'
+        html = html .. '<td class="cbi-section-table-cell"><small>' .. img.id:sub(1,12) .. '</small></td>'
+        html = html .. '<td class="cbi-section-table-cell">' .. img.size .. '</td>'
+        html = html .. '<td class="cbi-section-table-cell"><small>' .. img.created .. '</small></td>'
+        html = html .. '<td class="cbi-section-table-cell cbi-section-actions">'
+        html = html .. '<button type="submit" name="cbid.systools.smarthome._remove_' .. img.id .. '" '
+        html = html .. 'class="cbi-button cbi-button-negative cbi-button-reset" '
+        html = html .. 'onclick="return confirm(\'' .. translate("确定要删除此镜像吗？") .. '\')">'
+        html = html .. translate("删除") .. '</button>'
         html = html .. '</td>'
         html = html .. '</tr>'
     end
 
     html = html .. '</table>'
+    html = html .. '</form>'
 
     o = s4:option(DummyValue, "_table")
     o.value = html
     o.rawhtml = true
 end
-
--- 处理删除按钮
-for _, img in ipairs(images) do
-    if http.formvalue("cbid.systools.smarthome._remove_" .. img.id) then
-        sys.call("/usr/libexec/systools/smarthome_images.sh remove " .. shell_escape(img.id) .. " >/dev/null 2>&1 &")
-        http.redirect(luci.dispatcher.build_url("admin", "services", "systools", "smarthome_images"))
+        sys.call("/usr/libexec/systools/smarthome_images.sh remove " .. systools_common.shell_escape(img.id) .. " >/dev/null 2>&1 &")
+        http.redirect(luci.dispatcher.build_url("admin", "systools", "smarthome", "images"))
     end
 end
 
 return m
+
+

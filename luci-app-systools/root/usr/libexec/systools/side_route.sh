@@ -1,11 +1,14 @@
 #!/bin/sh
 # 旁路由模式切换脚本
 # 自动检测网络环境，一键切换旁路由模式
+
+# 加载公共函数库
+. /usr/libexec/systools/systools-common.sh
 # 自动备份，失败回滚
 
-BACKUP_DIR="/etc/systools/backup"
-BACKUP_FILE="$BACKUP_DIR/side_route_$(date +%Y%m%d_%H%M%S).tar.gz"
-LATEST_BACKUP="$BACKUP_DIR/side_route_latest.tar.gz"
+BACKUP_DIR="/etc/systools/backup/side_route"
+BACKUP_FILE="BACKUP_DIR/side_route_$(date +%Y%m%d_%H%M%S).tar.gz"
+LATEST_BACKUP="BACKUP_DIR/side_route_latest.tar.gz"
 MODE_FILE="/etc/systools/side_route_mode"
 
 # 确保备份目录存在
@@ -150,7 +153,7 @@ enable_side_route() {
     eval $(detect_network)
 
     if [ -z "$lan_ip" ] || [ -z "$gateway" ]; then
-        echo "Error: Cannot detect network configuration"
+        log_error "Cannot detect network configuration"
         return 1
     fi
 
@@ -202,7 +205,7 @@ enable_side_route() {
 # 恢复正常模式
 disable_side_route() {
     if [ ! -f "$LATEST_BACKUP" ]; then
-        echo "Error: No backup found, cannot restore"
+        log_error "No backup found, cannot restore"
         return 1
     fi
 

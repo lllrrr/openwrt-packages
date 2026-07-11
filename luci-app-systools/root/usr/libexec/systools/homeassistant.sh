@@ -2,21 +2,15 @@
 # Home Assistant 管理后端脚本
 # 支持 HA 容器状态查看、启停、日志查看、配置备份等
 
-BACKUP_DIR="/mnt/backup/homeassistant"
+# 加载公共函数库
+. /usr/libexec/systools/systools-common.sh
+
+BACKUP_DIR="/etc/systools/backup/homeassistant"
 HA_CONFIG_DIR="/root/homeassistant/config"
 HA_CONTAINER_NAME="homeassistant"
 
 # 确保备份目录存在
 mkdir -p "$BACKUP_DIR"
-
-# 检查 Docker 是否安装
-check_docker() {
-    if ! command -v docker >/dev/null 2>&1; then
-        echo "ERROR: Docker not installed"
-        return 1
-    fi
-    return 0
-}
 
 # 获取 HA 容器状态
 get_ha_status() {
@@ -80,7 +74,7 @@ start_ha() {
     container_id=$(docker ps -a --format "{{.ID}} {{.Names}}" 2>/dev/null | grep -E "homeassistant|home-assistant" | head -1 | awk '{print $1}')
     
     if [ -z "$container_id" ]; then
-        echo "ERROR: Home Assistant container not found"
+        log_error "Home Assistant container not found"
         return 1
     fi
     
@@ -97,7 +91,7 @@ stop_ha() {
     container_id=$(docker ps -a --format "{{.ID}} {{.Names}}" 2>/dev/null | grep -E "homeassistant|home-assistant" | head -1 | awk '{print $1}')
     
     if [ -z "$container_id" ]; then
-        echo "ERROR: Home Assistant container not found"
+        log_error "Home Assistant container not found"
         return 1
     fi
     
@@ -114,7 +108,7 @@ restart_ha() {
     container_id=$(docker ps -a --format "{{.ID}} {{.Names}}" 2>/dev/null | grep -E "homeassistant|home-assistant" | head -1 | awk '{print $1}')
     
     if [ -z "$container_id" ]; then
-        echo "ERROR: Home Assistant container not found"
+        log_error "Home Assistant container not found"
         return 1
     fi
     
@@ -132,7 +126,7 @@ get_ha_logs() {
     container_id=$(docker ps -a --format "{{.ID}} {{.Names}}" 2>/dev/null | grep -E "homeassistant|home-assistant" | head -1 | awk '{print $1}')
     
     if [ -z "$container_id" ]; then
-        echo "ERROR: Home Assistant container not found"
+        log_error "Home Assistant container not found"
         return 1
     fi
     
@@ -148,7 +142,7 @@ backup_ha_config() {
     container_id=$(docker ps -a --format "{{.ID}} {{.Names}}" 2>/dev/null | grep -E "homeassistant|home-assistant" | head -1 | awk '{print $1}')
     
     if [ -z "$container_id" ]; then
-        echo "ERROR: Home Assistant container not found"
+        log_error "Home Assistant container not found"
         return 1
     fi
     
@@ -162,12 +156,12 @@ backup_ha_config() {
     fi
     
     if [ ! -d "$config_path" ]; then
-        echo "ERROR: HA config directory not found: $config_path"
+        log_error "HA config directory not found: $config_path"
         return 1
     fi
     
     local backup_file
-    backup_file="$BACKUP_DIR/ha_config_$(date +%Y%m%d_%H%M%S).tar.gz"
+    backup_file="BACKUP_DIR/ha_config_$(date +%Y%m%d_%H%M%S).tar.gz"
     
     tar -czf "$backup_file" -C "$(dirname "$config_path")" "$(basename "$config_path")" 2>/dev/null
     
@@ -178,7 +172,7 @@ backup_ha_config() {
         echo "Size: $size"
         return 0
     else
-        echo "ERROR: Backup failed"
+        log_error "Backup failed"
         return 1
     fi
 }
@@ -196,7 +190,7 @@ list_backups() {
         date=$(echo "$line" | awk '{print $6}')
         time=$(echo "$line" | awk '{print $7}')
         filename=$(echo "$line" | awk '{print $9}')
-        echo "$filename|$size|$date $time"
+        echo "filename|$size|$date $time"
     done
 }
 

@@ -1,14 +1,16 @@
 #!/bin/sh
 # Docker 镜像管理后端脚本
 
-# 检查 Docker 是否安装
-check_docker() {
-    if ! command -v docker >/dev/null 2>&1; then
-        echo "ERROR: Docker not installed"
-        return 1
-    fi
-    return 0
+# 加载公共函数库
+. /usr/libexec/systools/systools-common.sh
+
+# 异常中断清理函数
+cleanup() {
+    rm -f /tmp/systools_pull_*.log 2>/dev/null
 }
+
+trap cleanup EXIT INT TERM
+
 
 # 获取镜像加速地址
 get_mirror_url() {
@@ -84,21 +86,32 @@ EOF
 
 # 拉取镜像
 pull_image() {
+    # 获取操作锁，防止并发拉取
+    if ! acquire_lock "docker_pull"; then
+        log_error "镜像拉取正在进行中，请稍后再试"
+        return 1
+    fi
+    log_audit "docker_pull_start" "image=$1"
     local image_name="$1"
+    if [ -z "$image_name" ]; then
+        log_error "镜像名称不能为空"
+        release_lock "docker_pull"
+        return 1
+    fi
     local mirror_source="$2"
     local custom_mirror="$3"
 
     check_docker || return 1
 
     if [ -z "$image_name" ]; then
-        echo "ERROR: Image name required"
+        log_error "Image name required"
         return 1
     fi
 
-    echo "========================================"
+    log_info "========================================"
     echo "开始拉取镜像: $image_name"
     echo "镜像源: $mirror_source"
-    echo "========================================"
+    log_info "========================================"
 
     # 配置镜像加速
     if [ "$mirror_source" != "official" ] && [ -n "$mirror_source" ]; then
@@ -113,15 +126,19 @@ pull_image() {
 
     if docker pull "$image_name" 2>&1; then
         echo ""
-        echo "========================================"
-        echo "SUCCESS: 镜像拉取成功: $image_name"
-        echo "========================================"
+        log_info "========================================"
+        release_lock "docker_pull"
+        log_audit "docker_pull_success" "image=$image_name"
+        log_info "镜像拉取成功: $image_name"
+        log_info "========================================"
         return 0
     else
         echo ""
-        echo "========================================"
-        echo "ERROR: 镜像拉取失败: $image_name"
-        echo "========================================"
+        log_info "========================================"
+        release_lock "docker_pull"
+        log_audit "docker_pull_failed" "image=$image_name"
+        log_error "镜像拉取失败: $image_name"
+        log_info "========================================"
         return 1
     fi
 }
@@ -140,7 +157,7 @@ get_image_info() {
     check_docker || return 1
 
     if [ -z "$image_id" ]; then
-        echo "ERROR: Image ID required"
+        log_error "Image ID required"
         return 1
     fi
 
@@ -168,7 +185,7 @@ remove_image() {
     check_docker || return 1
 
     if [ -z "$image_id" ]; then
-        echo "ERROR: Image ID required"
+        log_error "Image ID required"
         return 1
     fi
 
@@ -177,7 +194,7 @@ remove_image() {
     containers=$(docker ps -a --filter "ancestor=$image_id" --format "{{.ID}}" 2>/dev/null)
 
     if [ -n "$containers" ]; then
-        echo "ERROR: Image is in use by containers, please remove containers first"
+        log_error "Image is in use by containers, please remove containers first"
         return 1
     fi
 
@@ -186,7 +203,7 @@ remove_image() {
         echo "Image removed: $image_id"
         return 0
     else
-        echo "ERROR: Failed to remove image"
+        log_error "Failed to remove image"
         return 1
     fi
 }

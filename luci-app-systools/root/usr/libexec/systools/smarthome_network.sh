@@ -2,6 +2,9 @@
 # 智能家居网络设置脚本
 # 管理常用端口、mDNS、UPnP 等
 
+# 加载公共函数库
+. /usr/libexec/systools/systools-common.sh
+
 # 常用智能家居端口
 COMMON_PORTS="8123:Home Assistant:tcp 1883:MQTT:tcp 8883:MQTT SSL:tcp 8080:Zigbee2MQTT:tcp 1880:Node-RED:tcp 6052:ESPHome:tcp"
 
@@ -32,6 +35,11 @@ check_port_open() {
 open_port() {
     local port="$1"
     local proto="${2:-tcp}"
+    # 参数校验
+    if ! is_valid_port "$port"; then
+        log_error "Invalid port number: $port"
+        return 1
+    fi
     local name="${3:-port-$port}"
     
     echo "Opening port $port/$proto ($name)"
@@ -78,6 +86,11 @@ close_port() {
     local port="$1"
     local proto="${2:-tcp}"
     
+    # 参数校验
+    if ! is_valid_port "$port"; then
+        log_error "Invalid port number: $port"
+        return 1
+    fi
     echo "Closing port $port/$proto"
     
     # 循环删除所有匹配的规则（每次删完重新遍历，避免索引偏移问题）
@@ -89,7 +102,8 @@ close_port() {
         local total=$(uci show firewall 2>/dev/null | grep -c "^firewall.@rule\[")
         
         # 从最后一个规则往前遍历
-        for ((count = total - 1; count >= 0; count--)); do
+        count=$((total - 1))
+        while [ "$count" -ge 0 ]; do
             local rule_name
             rule_name=$(uci get "firewall.@rule[$count].name" 2>/dev/null)
             
@@ -108,6 +122,7 @@ close_port() {
                     break  # 索引变了，重新从后往前找
                 fi
             fi
+            count=$((count - 1))
         done
     done
     
@@ -180,7 +195,7 @@ enable_mdns() {
         return 0
     fi
     
-    echo "ERROR: No mDNS service found"
+    log_error "No mDNS service found"
     return 1
 }
 
@@ -232,7 +247,7 @@ enable_upnp() {
         return 0
     fi
     
-    echo "ERROR: miniupnpd not found"
+    log_error "miniupnpd not found"
     return 1
 }
 

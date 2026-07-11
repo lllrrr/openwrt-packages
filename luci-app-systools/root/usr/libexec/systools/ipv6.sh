@@ -1,11 +1,14 @@
 #!/bin/sh
 # IPv6 一键设置后端脚本
 # 支持多种 IPv6 模式：Native、6to4、6in4、Relay、禁用
+
+# 加载公共函数库
+. /usr/libexec/systools/systools-common.sh
 # 自动备份，失败回滚
 
-BACKUP_DIR="/etc/systools/backup"
-BACKUP_FILE="$BACKUP_DIR/ipv6_$(date +%Y%m%d_%H%M%S).tar.gz"
-LATEST_BACKUP="$BACKUP_DIR/ipv6_latest.tar.gz"
+BACKUP_DIR="/etc/systools/backup/ipv6"
+BACKUP_FILE="BACKUP_DIR/ipv6_$(date +%Y%m%d_%H%M%S).tar.gz"
+LATEST_BACKUP="BACKUP_DIR/ipv6_latest.tar.gz"
 
 # 确保备份目录存在
 mkdir -p "$BACKUP_DIR"
@@ -169,7 +172,7 @@ apply_6in4() {
     local password="$6"
 
     if [ -z "$peeraddr" ]; then
-        echo "Error: peer address required"
+        log_error "peer address required"
         return 1
     fi
 

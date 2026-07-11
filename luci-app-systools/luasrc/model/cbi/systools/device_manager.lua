@@ -16,6 +16,17 @@ s.addremove = false
 -- 设备列表表格
 local devices = {}
 
+-- 获取在线设备（从邻居表）
+local online_macs = {}
+local neigh_output = luci.sys.exec("ip neigh show 2>/dev/null")
+for line in neigh_output:gmatch("[^\r\n]+") do
+    local mac = line:match("lladdr ([0-9a-fA-F:]+)")
+    local state = line:match(" (%w+)$")
+    if mac and state and (state == "REACHABLE" or state == "STALE" or state == "DELAY") then
+        online_macs[mac:lower()] = true
+    end
+end
+
 -- 从 DHCP 租约读取设备
 local leases = luci.sys.net.arptable() or {}
 for _, lease in ipairs(leases) do
@@ -25,6 +36,7 @@ for _, lease in ipairs(leases) do
         hostname = lease["Hostname"] or translate("未知设备"),
         interface = lease["Device"] or "br-lan",
         static = false
+        online = online_macs[dev.mac:lower()] ~= nil
     }
     
     -- 检查是否有静态绑定（遍历所有host条目，按MAC匹配）
@@ -70,6 +82,7 @@ ip_col.forcewrite = true
 -- MAC 地址
 local mac_col = tbl:option(DummyValue, "mac", translate("MAC 地址"))
 mac_col.forcewrite = true
+    o.datatype = "macaddr"
 
 -- 设备名称
 local name_col = tbl:option(DummyValue, "nickname", translate("设备名称"))
@@ -78,6 +91,18 @@ name_col.forcewrite = true
 -- 连接接口
 local iface_col = tbl:option(DummyValue, "interface", translate("接口"))
 iface_col.forcewrite = true
+
+-- 在线状态
+local status_col = tbl:option(DummyValue, "online", translate("状态"))
+status_col.forcewrite = true
+status_col.value = function(self, section)
+    local val = self.map:get(section, "online")
+    if val == true or val == "1" then
+        return translate("在线")
+    else
+        return translate("离线")
+    end
+end
 
 -- 是否静态绑定
 local static_col = tbl:option(DummyValue, "static", translate("静态绑定"))
@@ -109,6 +134,7 @@ s.addremove = false
 
 o = s:option(ListValue, "device_mac", translate("选择设备"))
 for _, dev in ipairs(devices) do
+    o.datatype = "macaddr"
     o:value(dev.mac, dev.nickname .. " (" .. dev.ip .. ")")
 end
 o.rmempty = false
@@ -124,6 +150,7 @@ s.addremove = false
 
 o = s:option(ListValue, "device_mac", translate("选择设备"))
 for _, dev in ipairs(devices) do
+    o.datatype = "macaddr"
     o:value(dev.mac, dev.nickname .. " (" .. dev.ip .. ")")
 end
 o.rmempty = false

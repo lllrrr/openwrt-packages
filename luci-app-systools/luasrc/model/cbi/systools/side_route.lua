@@ -42,6 +42,8 @@ o.value = lan_ip
 -- 默认网关
 o = s:option(DummyValue, "_gateway", translate("默认网关"))
 o.value = gateway
+    o.datatype = "ip4addr"
+    o.datatype = "ip4addr"
 
 -- DHCP 状态
 o = s:option(DummyValue, "_dhcp", translate("DHCP 服务器"))
@@ -81,7 +83,7 @@ btn_enable.inputstyle = "apply"
 btn_enable.description = translate("自动检测网络环境并切换到旁路由模式，路由器将作为旁路网关工作。")
 function btn_enable.write(self, section)
     luci.sys.call("/usr/libexec/systools/side_route.sh enable >/dev/null 2>&1 &")
-    luci.http.redirect(luci.dispatcher.build_url("admin", "systools", "network", "side_route"))
+    luci.http.redirect(luci.dispatcher.build_url("admin", "systools", "wizard", "side_route"))
 end
 
 -- 恢复正常模式
@@ -91,7 +93,7 @@ btn_disable.inputstyle = "reset"
 btn_disable.description = translate("从备份恢复到正常路由模式。")
 function btn_disable.write(self, section)
     luci.sys.call("/usr/libexec/systools/side_route.sh disable >/dev/null 2>&1 &")
-    luci.http.redirect(luci.dispatcher.build_url("admin", "systools", "network", "side_route"))
+    luci.http.redirect(luci.dispatcher.build_url("admin", "systools", "wizard", "side_route"))
 end
 
 -- 重要提示

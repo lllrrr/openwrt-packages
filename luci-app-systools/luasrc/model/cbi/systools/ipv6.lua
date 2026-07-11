@@ -1,11 +1,7 @@
 -- Copyright 2024 luci-app-systools
 -- Licensed to the public under the MIT License.
 
--- Shell 转义函数，防止命令注入
-local function shell_escape(str)
-    if not str then return "" end
-    return "'" .. string.gsub(str, "'", "'\\''") .. "'"
-end
+local systools_common = require "luci.model.cbi.systools.common"
 
 m = Map("systools", translate("IPv6 Quick Setup"),
     translate("Configure IPv6 network with one click. Supports multiple modes."))
@@ -127,12 +123,12 @@ function btn_apply.write(self, section)
         local pass = m:formvalue("cbid.systools.ipv6.password")
 
         if peer and #peer > 0 then
-            local cmd = string.format("/usr/libexec/systools/ipv6.sh 6in4 %s", shell_escape(peer))
-            if ip6 and #ip6 > 0 then cmd = cmd .. " " .. shell_escape(ip6) end
-            if prefix and #prefix > 0 then cmd = cmd .. " " .. shell_escape(prefix) end
-            if tid and #tid > 0 then cmd = cmd .. " " .. shell_escape(tid) end
-            if user and #user > 0 then cmd = cmd .. " " .. shell_escape(user) end
-            if pass and #pass > 0 then cmd = cmd .. " " .. shell_escape(pass) end
+            local cmd = string.format("/usr/libexec/systools/ipv6.sh 6in4 %s", systools_common.shell_escape(peer))
+            if ip6 and #ip6 > 0 then cmd = cmd .. " " .. systools_common.shell_escape(ip6) end
+            if prefix and #prefix > 0 then cmd = cmd .. " " .. systools_common.shell_escape(prefix) end
+            if tid and #tid > 0 then cmd = cmd .. " " .. systools_common.shell_escape(tid) end
+            if user and #user > 0 then cmd = cmd .. " " .. systools_common.shell_escape(user) end
+            if pass and #pass > 0 then cmd = cmd .. " " .. systools_common.shell_escape(pass) end
             luci.sys.call(cmd .. " >/dev/null 2>&1 &")
         else
             m.message = translate("Please enter tunnel server address")
@@ -144,7 +140,7 @@ function btn_apply.write(self, section)
         luci.sys.call("/usr/libexec/systools/ipv6.sh disabled >/dev/null 2>&1 &")
     end
 
-    luci.http.redirect(luci.dispatcher.build_url("admin", "systools", "network", "ipv6"))
+    luci.http.redirect(luci.dispatcher.build_url("admin", "systools", "wizard", "ipv6"))
 end
 
 -- 恢复按钮
@@ -154,7 +150,7 @@ btn_restore.inputstyle = "reset"
 btn_restore.description = translate("Restore from the most recent backup.")
 function btn_restore.write(self, section)
     luci.sys.call("/usr/libexec/systools/ipv6.sh restore >/dev/null 2>&1 &")
-    luci.http.redirect(luci.dispatcher.build_url("admin", "systools", "network", "ipv6"))
+    luci.http.redirect(luci.dispatcher.build_url("admin", "systools", "wizard", "ipv6"))
 end
 
 return m

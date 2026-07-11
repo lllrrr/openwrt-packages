@@ -27,9 +27,6 @@ msgstr "IPv6 一键设置"
 msgid "Diagnostics"
 msgstr "诊断工具"
 
-msgid "System Tools"
-msgstr "系统工具"
-
 msgid "About"
 msgstr "关于"
 
@@ -83,9 +80,6 @@ msgstr "6in4 隧道"
 
 msgid "DHCPv6 Client"
 msgstr "DHCPv6 客户端"
-
-msgid "Disabled"
-msgstr "已禁用"
 
 msgid "Tunnel Server Address"
 msgstr "隧道服务器地址"
@@ -244,9 +238,6 @@ msgstr "子网掩码"
 msgid "DNS Server"
 msgstr "DNS 服务器"
 
-msgid "Apply Configuration"
-msgstr "应用配置"
-
 msgid "Click to apply the network configuration. The current configuration will be backed up automatically."
 msgstr "点击应用网络配置，当前配置会自动备份。"
 
@@ -296,9 +287,6 @@ msgstr "DHCP 服务器"
 msgid "Enabled"
 msgstr "已启用"
 
-msgid "Disabled"
-msgstr "已禁用"
-
 msgid "Operations"
 msgstr "操作"
 
@@ -344,8 +332,6 @@ msgid "Device List"
 msgstr "设备列表"
 msgid "Device Name"
 msgstr "设备名称"
-msgid "IP Address"
-msgstr "IP 地址"
 msgid "MAC Address"
 msgstr "MAC 地址"
 msgid "Nickname"
@@ -561,8 +547,6 @@ msgid "No smart home containers found."
 msgstr "未找到智能家居容器。"
 
 # 镜像管理
-msgid "Image Management"
-msgstr "镜像管理"
 msgid "Manage Docker images."
 msgstr "管理 Docker 镜像。"
 msgid "Image Statistics"
@@ -597,8 +581,6 @@ msgid "Are you sure you want to remove this image?"
 msgstr "确定要删除这个镜像吗？"
 
 # 备份恢复
-msgid "Backup & Restore"
-msgstr "备份恢复"
 msgid "Manage smart home configuration backups."
 msgstr "管理智能家居配置备份。"
 msgid "Backup Statistics"
@@ -636,8 +618,6 @@ msgid "Are you sure you want to delete this backup?"
 msgstr "确定要删除这个备份吗？"
 
 # 网络设置
-msgid "Network Settings"
-msgstr "网络设置"
 msgid "Manage smart home network settings: ports, mDNS, UPnP."
 msgstr "管理智能家居网络设置：端口、mDNS、UPnP。"
 msgid "Common Ports"
@@ -648,8 +628,6 @@ msgid "Service"
 msgstr "服务"
 msgid "Port"
 msgstr "端口"
-msgid "Protocol"
-msgstr "协议"
 msgid "Open"
 msgstr "开放"
 msgid "Closed"
@@ -828,3 +806,287 @@ msgstr "应用并重启 Docker"
 msgid "配置已应用，Docker 正在重启"
 msgstr "配置已应用，Docker 正在重启"
 msgstr "停止 UPnP 服务"
+
+# 补充翻译条目
+
+msgid "6in4 Tunnel Configuration"
+msgstr "6in4 Tunnel Configuration"
+
+msgid "Advanced Settings"
+msgstr "Advanced Settings"
+
+msgid "Backup Config"
+msgstr "Backup Config"
+
+msgid "Backup Home Assistant configuration files"
+msgstr "Backup Home Assistant configuration files"
+
+msgid "Backups Size"
+msgstr "Backups Size"
+
+msgid "Clone MAC address for ISP binding scenarios"
+msgstr "Clone MAC address for ISP binding scenarios"
+
+msgid "Close"
+msgstr "Close"
+
+msgid "Config Directory"
+msgstr "Config Directory"
+
+msgid "Customize WAN MAC address. Leave blank to use default."
+msgstr "Customize WAN MAC address. Leave blank to use default."
+
+msgid "DHCP 服务器"
+msgstr "DHCP 服务器"
+
+msgid "Disable"
+msgstr "Disable"
+
+msgid "Docker is not installed. Please install Docker first to use Home Assistant features."
+msgstr "Docker is not installed. Please install Docker first to use Home Assistant features."
+
+msgid "Docker Not Installed"
+msgstr "Docker Not Installed"
+
+msgid "Docker 未安装"
+msgstr "Docker 未安装"
+
+msgid "Home Assistant Status"
+msgstr "Home Assistant Status"
+
+msgid "IP 地址"
+msgstr "IP 地址"
+
+msgid "IP 转发"
+msgstr "IP 转发"
+
+msgid "LAN 口 IP 地址"
+msgstr "LAN 口 IP 地址"
+
+msgid "Logs (last 100 lines)"
+msgstr "Logs (last 100 lines)"
+
+msgid "MAC 地址"
+msgstr "MAC 地址"
+
+msgid "Manage Home Assistant container and configuration."
+msgstr "Manage Home Assistant container and configuration."
+
+msgid "Maximum Transmission Unit. Default is 1500, PPPoE recommended 1492."
+msgstr "Maximum Transmission Unit. Default is 1500, PPPoE recommended 1492."
+
+msgid "No logs available"
+msgstr "No logs available"
+
+msgid "Open HA Web UI"
+msgstr "Open HA Web UI"
+
+msgid "Open Home Assistant web interface in new tab"
+msgstr "Open Home Assistant web interface in new tab"
+
+msgid "Open Web UI"
+msgstr "Open Web UI"
+
+msgid "Please enter tunnel server address"
+msgstr "Please enter tunnel server address"
+
+msgid "Primary DNS"
+msgstr "Primary DNS"
+
+msgid "Primary DNS server address"
+msgstr "Primary DNS server address"
+
+msgid "Relay Mode"
+msgstr "Relay Mode"
+
+msgid "Restart HA"
+msgstr "Restart HA"
+
+msgid "Restart Home Assistant container"
+msgstr "Restart Home Assistant container"
+
+msgid "Secondary DNS"
+msgstr "Secondary DNS"
+
+msgid "Secondary DNS server address (optional)"
+msgstr "Secondary DNS server address (optional)"
+
+msgid "Start HA"
+msgstr "Start HA"
+
+msgid "Start Home Assistant container"
+msgstr "Start Home Assistant container"
+
+msgid "Start mDNS service for device discovery"
+msgstr "Start mDNS service for device discovery"
+
+msgid "Start UPnP service for automatic port forwarding"
+msgstr "Start UPnP service for automatic port forwarding"
+
+msgid "Stop HA"
+msgstr "Stop HA"
+
+msgid "Stop Home Assistant container"
+msgstr "Stop Home Assistant container"
+
+msgid "Stop mDNS service"
+msgstr "Stop mDNS service"
+
+msgid "Stop UPnP service"
+msgstr "Stop UPnP service"
+
+msgid "Storage Usage"
+msgstr "Storage Usage"
+
+msgid "WAN MAC Address"
+msgstr "WAN MAC Address"
+
+msgid "WAN MTU"
+msgstr "WAN MTU"
+
+msgid "WAN 口 IP 伪装"
+msgstr "WAN 口 IP 伪装"
+
+msgid "一键切换正常路由模式和旁路由模式。旁路由模式下，路由器作为旁路网关工作，可用于代理和特殊网络处理。"
+msgstr "一键切换正常路由模式和旁路由模式。旁路由模式下，路由器作为旁路网关工作，可用于代理和特殊网络处理。"
+
+msgid "从备份恢复到正常路由模式。"
+msgstr "从备份恢复到正常路由模式。"
+
+msgid "修改设备备注名"
+msgstr "修改设备备注名"
+
+msgid "切换到旁路由模式"
+msgstr "切换到旁路由模式"
+
+msgid "切换前自动备份配置，出现问题可随时恢复"
+msgstr "切换前自动备份配置，出现问题可随时恢复"
+
+msgid "切换模式会导致网络中断几秒钟"
+msgstr "切换模式会导致网络中断几秒钟"
+
+msgid "台"
+msgstr "台"
+
+msgid "否"
+msgstr "否"
+
+msgid "启用旁路由"
+msgstr "启用旁路由"
+
+msgid "启用静态绑定"
+msgstr "启用静态绑定"
+
+msgid "回滚配置"
+msgstr "回滚配置"
+
+msgid "备注名称"
+msgstr "备注名称"
+
+msgid "已关闭"
+msgstr "已关闭"
+
+msgid "已启用"
+msgstr "已启用"
+
+msgid "已开启"
+msgstr "已开启"
+
+msgid "已用"
+msgstr "已用"
+
+msgid "已禁用"
+msgstr "已禁用"
+
+msgid "已连接设备"
+msgstr "已连接设备"
+
+msgid "当前存储空间使用率已超过 90%，建议清理镜像或迁移到更大的存储设备。"
+msgstr "当前存储空间使用率已超过 90%，建议清理镜像或迁移到更大的存储设备。"
+
+msgid "当前模式"
+msgstr "当前模式"
+
+msgid "当前状态"
+msgstr "当前状态"
+
+msgid "恢复正常模式"
+msgstr "恢复正常模式"
+
+msgid "或者在主路由的 DHCP 设置中指定网关"
+msgstr "或者在主路由的 DHCP 设置中指定网关"
+
+msgid "接口"
+msgstr "接口"
+
+msgid "提示：存储空间使用率已超过 80%，请注意及时清理。"
+msgstr "提示：存储空间使用率已超过 80%，请注意及时清理。"
+
+msgid "旁路由模式"
+msgstr "旁路由模式"
+
+msgid "旁路由模式下，DHCP 服务器将被关闭"
+msgstr "旁路由模式下，DHCP 服务器将被关闭"
+
+msgid "是"
+msgstr "是"
+
+msgid "未知设备"
+msgstr "未知设备"
+
+msgid "正常路由模式"
+msgstr "正常路由模式"
+
+msgid "管理内网连接的设备，查看设备列表、修改备注名、绑定静态IP等。"
+msgstr "管理内网连接的设备，查看设备列表、修改备注名、绑定静态IP等。"
+
+msgid "绑定 IP 地址"
+msgstr "绑定 IP 地址"
+
+msgid "编辑"
+msgstr "编辑"
+
+msgid "自动检测网络环境并切换到旁路由模式，路由器将作为旁路网关工作。"
+msgstr "自动检测网络环境并切换到旁路由模式，路由器将作为旁路网关工作。"
+
+msgid "警告"
+msgstr "警告"
+
+msgid "警告：存储空间不足"
+msgstr "警告：存储空间不足"
+
+msgid "设备列表"
+msgstr "设备列表"
+
+msgid "设备名称"
+msgstr "设备名称"
+
+msgid "设备总数"
+msgstr "设备总数"
+
+msgid "设备管理"
+msgstr "设备管理"
+
+msgid "设备需要手动设置网关为本路由器 IP 才能使用旁路由"
+msgstr "设备需要手动设置网关为本路由器 IP 才能使用旁路由"
+
+msgid "设置后该设备连接网络时将永远获取这个 IP 地址"
+msgstr "设置后该设备连接网络时将永远获取这个 IP 地址"
+
+msgid "请先安装 Docker 相关包（dockerd、docker-cli 等）后再使用此功能。"
+msgstr "请先安装 Docker 相关包（dockerd、docker-cli 等）后再使用此功能。"
+
+msgid "选择设备"
+msgstr "选择设备"
+
+msgid "重要提示"
+msgstr "重要提示"
+
+msgid "静态 IP 绑定"
+msgstr "静态 IP 绑定"
+
+msgid "静态绑定"
+msgstr "静态绑定"
+
+msgid "默认网关"
+msgstr "默认网关"

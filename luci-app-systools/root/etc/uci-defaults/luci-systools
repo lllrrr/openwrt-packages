@@ -1,53 +1,101 @@
 #!/bin/sh
-# System Tools - UCI Defaults
-# 系统工具 - UCI 默认配置
+# System Tools - UCI Defaults / Upgrade
+# 系统工具 - UCI 默认配置 / 升级迁移
 
 # 加载通用函数
 if [ -f /usr/libexec/systools/systools-common.sh ]; then
     . /usr/libexec/systools/systools-common.sh
 fi
 
-log_info "System Tools - 初始化配置"
+TARGET_VERSION="1.0.0"
 
-# 获取系统信息
-OPENWRT_VERSION=$(get_openwrt_version)
-PKG_MANAGER=$(get_package_manager)
-ARCH=$(get_architecture)
+log_info "System Tools - 初始化/升级配置"
 
-log_info "OpenWrt 版本: $OPENWRT_VERSION"
-log_info "包管理器: $PKG_MANAGER"
-log_info "架构: $ARCH"
+# 获取当前版本
+CURRENT_VERSION=""
+if [ -f /etc/config/systools ]; then
+    CURRENT_VERSION=$(uci get systools.global.version 2>/dev/null)
+fi
 
-# 检查是否是首次安装
-if [ ! -f /etc/config/systools ]; then
+log_info "当前版本: ${CURRENT_VERSION:-新安装}"
+log_info "目标版本: $TARGET_VERSION"
+
+# ===== 首次安装：创建完整默认配置 =====
+if [ -z "$CURRENT_VERSION" ]; then
     log_info "首次安装，创建默认配置"
 
-    # 创建默认配置
-    cat > /etc/config/systools <<EOF
-config systools 'global'
-    option version '1.0.0'
-    option enabled '1'
-    option first_run '1'
+    uci batch <<-UCIEOF
+        set systools.global=systools
+        set systools.global.version='$TARGET_VERSION'
+        set systools.global.enabled='1'
+        set systools.global.first_run='1'
 
-config ipv6 'ipv6'
-    option enabled '0'
-    option mode 'native'
+        set systools.ipv6=ipv6
+        set systools.ipv6.enabled='0'
+        set systools.ipv6.mode='native'
 
-config diagnostics 'diagnostics'
-    option enabled '1'
-EOF
+        set systools.diagnostics=diagnostics
+        set systools.diagnostics.enabled='1'
 
+        set systools.wizard=wizard
+        set systools.wizard.proto='dhcp'
+
+        set systools.system=system
+        set systools.system.enabled='1'
+
+        set systools.smarthome=smarthome
+        set systools.smarthome.enabled='1'
+UCIEOF
     uci commit systools
+    log_info "默认配置创建完成"
+    exit 0
 fi
 
-# 检查并更新版本号
-CURRENT_VERSION=$(uci get systools.global.version 2>/dev/null)
-if [ "$CURRENT_VERSION" != "1.0.0" ]; then
-    log_info "更新配置版本: $CURRENT_VERSION -> 1.0.0"
-    uci set systools.global.version='1.0.0'
-    uci commit systools
+# ===== 升级：补齐缺失的配置项 =====
+log_info "执行升级检查..."
+
+# 确保 global section 存在
+if ! uci get systools.global >/dev/null 2>&1; then
+    uci set systools.global=systools
 fi
 
-log_info "System Tools 初始化完成"
+# 逐个检查并补齐缺失字段
+uci get systools.global.enabled >/dev/null 2>&1 || uci set systools.global.enabled='1'
+uci get systools.global.first_run >/dev/null 2>&1 || uci set systools.global.first_run='0'
 
+# 确保 ipv6 section 存在
+if ! uci get systools.ipv6 >/dev/null 2>&1; then
+    uci set systools.ipv6=ipv6
+    uci set systools.ipv6.enabled='0'
+    uci set systools.ipv6.mode='native'
+fi
+
+# 确保 diagnostics section 存在
+uci get systools.diagnostics >/dev/null 2>&1 || {
+    uci set systools.diagnostics=diagnostics
+    uci set systools.diagnostics.enabled='1'
+}
+
+# 确保 wizard section 存在
+uci get systools.wizard >/dev/null 2>&1 || {
+    uci set systools.wizard=wizard
+    uci set systools.wizard.proto='dhcp'
+}
+
+# 确保 smarthome section 存在（v1.0新增）
+uci get systools.smarthome >/dev/null 2>&1 || {
+    uci set systools.smarthome=smarthome
+    uci set systools.smarthome.enabled='1'
+    log_info "新增智能家居配置段"
+}
+
+# 更新版本号
+if [ "$CURRENT_VERSION" != "$TARGET_VERSION" ]; then
+    log_info "更新配置版本: $CURRENT_VERSION -> $TARGET_VERSION"
+    uci set systools.global.version="$TARGET_VERSION"
+fi
+
+uci commit systools
+
+log_info "System Tools 配置初始化/升级完成"
 exit 0

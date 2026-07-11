@@ -4,9 +4,12 @@
 # 支持高级设置：MAC 地址克隆、MTU、DNS 自定义
 # 自动备份，失败回滚
 
-BACKUP_DIR="/tmp/systools_backup"
-BACKUP_FILE="$BACKUP_DIR/network_$(date +%Y%m%d_%H%M%S).tar.gz"
-LATEST_BACKUP="$BACKUP_DIR/network_latest.tar.gz"
+# 加载公共函数库
+. /usr/libexec/systools/systools-common.sh
+
+BACKUP_DIR="/etc/systools/backup/network"
+BACKUP_FILE="BACKUP_DIR/network_$(date +%Y%m%d_%H%M%S).tar.gz"
+LATEST_BACKUP="BACKUP_DIR/network_latest.tar.gz"
 
 # 确保备份目录存在
 mkdir -p "$BACKUP_DIR"
@@ -151,7 +154,7 @@ apply_pppoe() {
     shift 2  # 移除前两个参数，剩下的是高级参数
 
     if [ -z "$username" ] || [ -z "$password" ]; then
-        echo "Error: username and password required"
+        log_error "username and password required"
         return 1
     fi
 
@@ -218,7 +221,25 @@ apply_static() {
     shift 4  # 移除前四个参数，剩下的是高级参数
 
     if [ -z "$ipaddr" ] || [ -z "$gateway" ]; then
-        echo "Error: IP address and gateway required"
+        log_error "IP address and gateway required"
+        return 1
+    fi
+
+    # 参数格式二次校验
+    if ! is_valid_ip "$ipaddr"; then
+        log_error "Invalid IP address format: $ipaddr"
+        return 1
+    fi
+    if ! is_valid_ip "$gateway"; then
+        log_error "Invalid gateway address format: $gateway"
+        return 1
+    fi
+    if [ -n "$netmask" ] && ! echo "$netmask" | grep -qE "^([0-9]{1,3}\.){3}[0-9]{1,3}$"; then
+        log_error "Invalid netmask format: $netmask"
+        return 1
+    fi
+    if [ -n "$dns" ] && ! is_valid_ip "$dns"; then
+        log_error "Invalid DNS address format: $dns"
         return 1
     fi
 

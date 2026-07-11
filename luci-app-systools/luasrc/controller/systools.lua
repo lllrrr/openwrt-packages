@@ -37,6 +37,9 @@ function index()
     -- HA 网络设置
     entry({"admin", "systools", "smarthome", "network"}, cbi("systools/smarthome_network"), _("HA 网络设置"), 4)
     
+    -- 配置管理
+    entry({"admin", "systools", "config"}, cbi("systools/config"), _("配置管理"), 80)
+
     -- 关于
     entry({"admin", "systools", "about"}, template("systools/about"), _("关于"), 90)
 end

@@ -44,7 +44,9 @@ get_architecture() {
     echo "$arch"
 }
 
-# 检查 Docker 是否安装
+# 检查 Docker 是否已安装
+# 返回：0=已安装，1=未安装
+
 check_docker() {
     if ! command -v docker >/dev/null 2>&1; then
         return 1
@@ -55,6 +57,11 @@ check_docker() {
 # 查找 Docker 容器（支持多个名称模式）
 # 参数：一个或多个容器名称模式（模糊匹配）
 # 返回：找到的第一个容器 ID
+# 查找 Docker 容器（支持多个名称模式模糊匹配）
+# 参数：一个或多个容器名称模式
+# 输出：找到的容器ID
+# 返回：0=找到，1=未找到
+
 find_container() {
     if ! check_docker; then
         return 1
@@ -88,12 +95,16 @@ find_container() {
 }
 
 # 备份文件
+# 备份单个文件，加时间戳后缀
+# 参数：文件路径，可选后缀名
+# 返回：0=成功，1=失败
+
 backup_file() {
     local file="$1"
     local backup_suffix="${2:-.bak.$(date +%Y%m%d_%H%M%S)}"
     
-    if [ -f "$file" ]; then
-        cp -a "$file" "${file}${backup_suffix}"
+    if [ -f "file" ]; then
+        cp -a "file" "${file}${backup_suffix}"
         return 0
     fi
     return 1
@@ -101,32 +112,36 @@ backup_file() {
 
 # 安全地修改 JSON 配置中的字段
 # 参数：文件路径、字段名、新值
+# 安全修改 JSON 配置字段，修改前自动备份
+# 参数：文件路径，字段名，新值
+# 返回：0=成功，1=失败
+
 set_json_field() {
     local file="$1"
     local field="$2"
     local value="$3"
     
     # 确保目录存在
-    mkdir -p "$(dirname "$file")"
+    mkdir -p "$(dirname "file")"
     
     # 先备份原文件
-    if [ -f "$file" ]; then
-        backup_file "$file" ".bak.json"
+    if [ -f "file" ]; then
+        backup_file "file" ".bak.json"
     fi
     
     # 优先使用 jq（如果存在）
     if command_exists jq; then
-        if [ -f "$file" ]; then
+        if [ -f "file" ]; then
             # 文件存在，用 jq 修改
-            jq ".\"${field}\" = \"${value}\"" "$file" > "${file}.tmp" 2>/dev/null
+            jq ".\"${field}\" = \"${value}\"" "file" > "${file}.tmp" 2>/dev/null
             if [ $? -eq 0 ]; then
-                mv "${file}.tmp" "$file"
+                mv "${file}.tmp" "file"
                 return 0
             fi
             rm -f "${file}.tmp"
         else
             # 文件不存在，用 jq 创建
-            echo "{}" | jq ".\"${field}\" = \"${value}\"" > "$file" 2>/dev/null
+            echo "{}" | jq ".\"${field}\" = \"${value}\"" > "file" 2>/dev/null
             if [ $? -eq 0 ]; then
                 return 0
             fi
@@ -134,18 +149,18 @@ set_json_field() {
     fi
     
     # jq 不可用，使用 sed 兜底
-    if [ -f "$file" ]; then
+    if [ -f "file" ]; then
         # 文件存在，检查字段是否已存在
-        if grep -q "\"${field}\"" "$file" 2>/dev/null; then
+        if grep -q "\"${field}\"" "file" 2>/dev/null; then
             # 字段存在，替换值
-            sed -i "s|\"${field}\": *\"[^\"]*\"|\"${field}\": \"${value}\"|" "$file" 2>/dev/null
+            sed -i "s|\"${field}\": *\"[^\"]*\"|\"${field}\": \"${value}\"|" "file" 2>/dev/null
         else
             # 字段不存在，添加到第一个 { 后面
-            sed -i "s|{|{\n  \"${field}\": \"${value}\",|" "$file" 2>/dev/null
+            sed -i "s|{|{\n  \"${field}\": \"${value}\",|" "file" 2>/dev/null
         fi
     else
         # 文件不存在，创建新的
-        cat > "$file" <<EOF
+        cat > "file" <<EOF
 {
   "${field}": "${value}"
 }
@@ -153,12 +168,12 @@ EOF
     fi
     
     # 验证 JSON 格式有效性（简单验证）
-    if grep -q '^{' "$file" 2>/dev/null && grep -q '}$' "$file" 2>/dev/null; then
+    if grep -q '^{' "file" 2>/dev/null && grep -q '}$' "file" 2>/dev/null; then
         return 0
     else
         # 格式异常，恢复备份
         if [ -f "${file}.bak.json" ]; then
-            mv "${file}.bak.json" "$file"
+            mv "${file}.bak.json" "file"
         fi
         return 1
     fi
@@ -233,7 +248,10 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# 验证 IP 地址格式
+# 验证 IPv4 地址格式（格式+范围双重校验）
+# 参数：IP地址字符串
+# 返回：0=合法，1=非法
+
 is_valid_ip() {
     local ip="$1"
     echo "$ip" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$'
@@ -242,9 +260,13 @@ is_valid_ip() {
     fi
     # 检查每个字节是否在 0-255 范围内
     echo "$ip" | awk -F. '{if ($1<=255 && $2<=255 && $3<=255 && $4<=255) exit 0; else exit 1}'
+    return $?
 }
 
-# 验证端口号
+# 验证端口号（1-65535）
+# 参数：端口号字符串
+# 返回：0=合法，1=非法
+
 is_valid_port() {
     local port="$1"
     echo "$port" | grep -qE '^[0-9]+$' || return 1
@@ -255,7 +277,87 @@ is_valid_port() {
 }
 
 # 验证 MAC 地址格式
+# 验证 MAC 地址格式（冒号分隔的十六进制）
+# 参数：MAC地址字符串
+# 返回：0=合法，1=非法
+
 is_valid_mac() {
     local mac="$1"
     echo "$mac" | grep -qE '^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$'
+    return $?
+}
+
+# ==================== 并发操作锁机制 ====================
+
+# 获取并发操作锁（基于PID文件锁）
+# 参数：锁名称
+# 返回：0=获取成功，1=获取失败（已有操作在运行）
+# 自动清理超过一定时间的陈旧锁
+
+acquire_lock() {
+    local lock_name="$1"
+    local lock_file="/var/run/systools_${lock_name}.pid"
+    
+    if [ -z "$lock_name" ]; then
+        return 1
+    fi
+    
+    # 检查锁文件是否存在
+    if [ -f "$lock_file" ]; then
+        local old_pid
+        old_pid=$(cat "$lock_file" 2>/dev/null)
+        # 检查旧进程是否还在运行
+        if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+            # 进程还在运行，拒绝获取锁
+            return 1
+        else
+            # 进程已不存在，清理陈旧锁文件
+            rm -f "$lock_file"
+        fi
+    fi
+    
+    # 创建锁文件，写入当前PID
+    mkdir -p /var/run
+    echo $$ > "$lock_file"
+    return 0
+}
+
+# 释放操作锁
+# 释放并发操作锁
+# 参数：锁名称
+
+release_lock() {
+    local lock_name="$1"
+    local lock_file="/var/run/systools_${lock_name}.pid"
+    
+    if [ -z "$lock_name" ]; then
+        return 1
+    fi
+    
+    rm -f "$lock_file"
+    return 0
+}
+
+# ==================== 操作审计日志 ====================
+
+# 写入审计日志
+# 参数：action 操作名称，details 操作详情
+# 写入审计日志，同时输出到标准输出和 syslog
+# 参数：操作名，详情描述
+# 格式：[AUDIT] 时间 action=操作名 details="详情"
+
+log_audit() {
+    local action="$1"
+    local details="$2"
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    
+    # 同时输出到标准输出和 syslog
+    local msg="[AUDIT] ${timestamp} action=${action} details=\"${details}\""
+    echo "$msg"
+    
+    # 写入 syslog（如果 logger 命令存在）
+    if command_exists logger; then
+        logger -t systools -p user.info "$msg"
+    fi
 }

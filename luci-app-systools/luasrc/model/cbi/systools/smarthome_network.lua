@@ -1,11 +1,7 @@
 -- Copyright 2024 luci-app-systools
 -- Licensed to the public under the MIT License.
 
--- Shell 转义函数，防止命令注入
-local function shell_escape(str)
-    if not str then return "" end
-    return "'" .. string.gsub(str, "'", "'\\''") .. "'"
-end
+local systools_common = require "luci.model.cbi.systools.common"
 
 m = Map("systools", translate("Network Settings"),
     translate("Manage smart home network settings: ports, mDNS, UPnP."))
@@ -37,53 +33,54 @@ if #ports == 0 then
         '</div>'
     o.rawhtml = true
 else
-    -- 显示端口表格
-    local html = '<table class="cbi-table table" style="width:100%">'
-    html = html .. '<tr><th>' .. translate("Service") .. '</th>'
-    html = html .. '<th>' .. translate("Port") .. '</th>'
-    html = html .. '<th>' .. translate("Protocol") .. '</th>'
-    html = html .. '<th>' .. translate("Status") .. '</th>'
-    html = html .. '<th>' .. translate("Actions") .. '</th></tr>'
+    -- 显示端口表格（标准CBI风格，单form多按钮）
+    local html = '<form method="post" class="cbi-section-table-form">'
+    html = html .. '<input type="hidden" name="cbi.submit" value="1">'
+    html = html .. '<table class="cbi-table table cbi-section-table" style="width:100%">'
+    html = html .. '<tr class="cbi-section-table-titles">'
+    html = html .. '<th class="cbi-section-table-cell">' .. translate("Service") .. '</th>'
+    html = html .. '<th class="cbi-section-table-cell">' .. translate("Port") .. '</th>'
+    html = html .. '<th class="cbi-section-table-cell">' .. translate("Protocol") .. '</th>'
+    html = html .. '<th class="cbi-section-table-cell">' .. translate("Status") .. '</th>'
+    html = html .. '<th class="cbi-section-table-cell cbi-section-actions">' .. translate("Actions") .. '</th>'
+    html = html .. '</tr>'
     
     for _, p in ipairs(ports) do
         local status_color = p.status == "open" and "green" or "gray"
         local status_text = p.status == "open" and translate("Open") or translate("Closed")
         local btn_action = p.status == "open" and "close" or "open"
-        local btn_style = p.status == "open" and "cbi-button-reset" or "cbi-button-apply"
+        local btn_style = p.status == "open" and "cbi-button-negative cbi-button-reset" or "cbi-button-positive cbi-button-apply"
         local btn_text = p.status == "open" and translate("Close") or translate("Open")
         
-        html = html .. '<tr>'
-        html = html .. '<td><strong>' .. p.name .. '</strong></td>'
-        html = html .. '<td>' .. p.port .. '</td>'
-        html = html .. '<td>' .. p.proto:upper() .. '</td>'
-        html = html .. '<td><span style="color:' .. status_color .. '"><strong>' .. status_text .. '</strong></span></td>'
-        html = html .. '<td>'
-        html = html .. '<form method="post" style="display:inline">'
-        html = html .. '<input type="hidden" name="cbi.submit" value="1">'
-        html = html .. '<button type="submit" name="cbid.systools.smarthome._port_' .. btn_action .. '_' .. p.port .. '_' .. p.proto .. '" class="cbi-button ' .. btn_style .. '" style="padding:2px 8px;font-size:12px;">' .. btn_text .. '</button>'
-        html = html .. '</form>'
+        html = html .. '<tr class="cbi-section-table-row">'
+        html = html .. '<td class="cbi-section-table-cell"><strong>' .. p.name .. '</strong></td>'
+        html = html .. '<td class="cbi-section-table-cell">' .. p.port .. '</td>'
+        html = html .. '<td class="cbi-section-table-cell">' .. p.proto:upper() .. '</td>'
+        html = html .. '<td class="cbi-section-table-cell"><span style="color:' .. status_color .. '"><strong>' .. status_text .. '</strong></span></td>'
+        html = html .. '<td class="cbi-section-table-cell cbi-section-actions">'
+        html = html .. '<button type="submit" name="cbid.systools.smarthome._port_' .. btn_action .. '_' .. p.port .. '_' .. p.proto .. '" '
+        html = html .. 'class="cbi-button ' .. btn_style .. '">'
+        html = html .. btn_text .. '</button>'
         html = html .. '</td>'
         html = html .. '</tr>'
     end
     
     html = html .. '</table>'
+    html = html .. '</form>'
     
     o = s:option(DummyValue, "_table", "")
     o.value = html
     o.rawhtml = true
 end
-
--- 处理端口按钮
-local formvalue = luci.http.formvalue
 for _, p in ipairs(ports) do
     if formvalue("cbid.systools.smarthome._port_open_" .. p.port .. "_" .. p.proto) then
         luci.sys.call(string.format("/usr/libexec/systools/smarthome_network.sh port_open %s %s %s >/dev/null 2>&1 &",
-            shell_escape(p.port), shell_escape(p.proto), shell_escape(p.name)))
+            systools_common.shell_escape(p.port), systools_common.shell_escape(p.proto), systools_common.shell_escape(p.name)))
         luci.http.redirect(luci.dispatcher.build_url("admin", "systools", "smarthome", "network"))
     end
     if formvalue("cbid.systools.smarthome._port_close_" .. p.port .. "_" .. p.proto) then
         luci.sys.call(string.format("/usr/libexec/systools/smarthome_network.sh port_close %s %s >/dev/null 2>&1 &",
-            shell_escape(p.port), shell_escape(p.proto)))
+            systools_common.shell_escape(p.port), systools_common.shell_escape(p.proto)))
         luci.http.redirect(luci.dispatcher.build_url("admin", "systools", "smarthome", "network"))
     end
 end

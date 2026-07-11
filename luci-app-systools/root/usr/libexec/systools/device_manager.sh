@@ -2,7 +2,10 @@
 # 设备管理脚本
 # 功能：设备列表、备注名管理、静态IP绑定
 
-BACKUP_DIR="/etc/systools/backup"
+# 加载公共函数库
+. /usr/libexec/systools/systools-common.sh
+
+BACKUP_DIR="/etc/systools/backup/device_manager"
 LOG_TAG="systools-device-manager"
 
 log() {
@@ -15,10 +18,10 @@ backup_config() {
     mkdir -p "$BACKUP_DIR"
     
     # 备份 DHCP 配置
-    cp /etc/config/dhcp "$BACKUP_DIR/dhcp.backup" 2>/dev/null
+    cp /etc/config/dhcp "BACKUP_DIR/dhcp.backup" 2>/dev/null
     
     # 备份 systools 配置
-    cp /etc/config/systools "$BACKUP_DIR/systools.backup" 2>/dev/null
+    cp /etc/config/systools "BACKUP_DIR/systools.backup" 2>/dev/null
     
     log "配置备份完成"
 }
@@ -26,14 +29,14 @@ backup_config() {
 rollback_config() {
     log "回滚配置..."
     
-    if [ -f "$BACKUP_DIR/dhcp.backup" ]; then
-        cp "$BACKUP_DIR/dhcp.backup" /etc/config/dhcp
+    if [ -f "BACKUP_DIR/dhcp.backup" ]; then
+        cp "BACKUP_DIR/dhcp.backup" /etc/config/dhcp
         /etc/init.d/dnsmasq restart 2>/dev/null
         log "DHCP 配置已回滚"
     fi
     
-    if [ -f "$BACKUP_DIR/systools.backup" ]; then
-        cp "$BACKUP_DIR/systools.backup" /etc/config/systools
+    if [ -f "BACKUP_DIR/systools.backup" ]; then
+        cp "BACKUP_DIR/systools.backup" /etc/config/systools
         log "systools 配置已回滚"
     fi
     
