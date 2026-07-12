@@ -1,0 +1,9 @@
+#!/bin/sh
+
+if [ "${TEST_HTTP_OK:-1}" = '1' ]; then
+	printf '%s %s' "${TEST_HTTP_CODE:-204}" "${TEST_HTTP_SECONDS:-0.042}"
+	exit 0
+fi
+
+printf 'curl: connection timed out\n' >&2
+exit 28

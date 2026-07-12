@@ -1,0 +1,647 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:128
+msgid "%d d"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:128
+msgid "%d d %d h"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:131
+msgid "%d h"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:131
+msgid "%d h %d min"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:133
+msgid "%d min"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:142
+msgid "%d ms"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:553
+msgid "%d of %d targets reachable"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:759
+msgid "%d targets"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:562
+msgid "%d targets were not probed (limit %d)"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:813
+msgid "%s – %s"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:663
+msgid "%s–%s: %s"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:118
+msgid "0 min"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:156
+msgid "1.1.1.1 or https://example.com/"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:678
+msgid "24 hours ago"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:693
+msgid "24-hour connectivity"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:121
+msgid "< 1 min"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:230
+msgid ""
+"A new probe result was being written. This page will retry automatically."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:24
+msgid "A probe address is required."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:715
+msgid "Add at least one ICMP or HTTP target in settings."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:134
+msgid "Add probe target"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:154
+msgid "Address"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:739
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:160
+msgid "Address family"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:252
+msgid "All systems operational"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:46
+msgid "At least one expected HTTP status code or range is required."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:320
+msgid "Auto"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:161
+msgid "Automatic"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:610
+msgid "Availability"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:572
+msgid "Average latency: %s"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:438
+msgid "Cancel"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:539
+msgid ""
+"Check that rpcd and the internet-monitor service are running, then refresh "
+"this page."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:463
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:516
+msgid "Clear history"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:429
+msgid "Clear monitoring history"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:182
+msgid ""
+"Comma-separated status codes or inclusive ranges accepted as success, for "
+"example 200-399,404."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:81
+msgid ""
+"Configure independent external probes and the policy used to decide whether "
+"Internet access is available. Save & Apply commits the configuration and "
+"restarts the monitor service."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:807
+msgid "Connectivity checks did not meet the configured quorum."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:803
+msgid "Connectivity incident"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:412
+msgid "Connectivity probe completed."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:661
+msgid "Connectivity state over the last 24 hours"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:229
+msgid "Connectivity status is updating"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:109
+msgid "Consecutive failed rounds required before opening an incident."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:115
+msgid "Consecutive successful rounds required before resolving an incident."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:592
+msgid "Current state since %s"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:588
+msgid "Current status"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:99
+msgid "Default timeout"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:190
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:683
+msgid "Degraded"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:194
+msgid "Disabled"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:629
+msgid "Downtime"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:815
+msgid "Duration: %s"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:694
+msgid ""
+"Each bar represents a 15-minute period; the most severe result is shown."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:88
+msgid "Enable monitoring"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:237
+msgid "Enable the service in settings to resume connectivity checks."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:137
+msgid "Enabled"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:144
+msgid "Example: Cloudflare DNS"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:176
+msgid "Expected HTTP codes"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:259
+msgid "External connectivity is degraded"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:105
+msgid "Failure threshold"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:167
+msgid "Force a specific IP family or let the monitor choose automatically."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:83
+msgid "Global settings"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:303
+msgid "HTTP"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:30
+msgid "HTTP probes require a URL beginning with http:// or https://."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:149
+msgid "HTTP request"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:62
+msgid ""
+"HTTP status codes must be between 100 and 599 and ranges must be ascending."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:451
+msgid "History could not be cleared."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:646
+msgid "History is unavailable"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:123
+msgid "History retention"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:300
+msgid "ICMP"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:148
+msgid "ICMP ping"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:33
+msgid "ICMP probes require a hostname or IP address, not a URL."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:313
+msgid "IPv4"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:162
+msgid "IPv4 only"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:316
+msgid "IPv6"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:163
+msgid "IPv6 only"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:776
+msgid "Incident history is unavailable"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:825
+msgid "Incidents"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:522
+msgid ""
+"Independent ICMP and HTTP checks show whether this router can reach the "
+"public Internet."
+msgstr ""
+
+#: root/usr/share/luci/menu.d/luci-app-monitor.json:3
+msgid "Internet Connectivity"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:520
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:80
+msgid "Internet Connectivity Monitor"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:266
+msgid "Internet connection interrupted"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:236
+msgid "Internet monitoring is disabled"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:222
+msgid "Internet status is unavailable"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:602
+msgid "Last 24 hours"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:604
+msgid "Last 30 days"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:603
+msgid "Last 7 days"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:743
+msgid "Latency"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:756
+msgid "Latest result from each independent external check."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:103
+msgid "Maximum seconds to wait for each probe unless overridden below."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:611
+msgid "Measured time without a confirmed Internet outage."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:735
+msgid "Method"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:121
+msgid ""
+"Minimum number of targets that must succeed for a probe round to be "
+"available."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:625
+msgid "Monitored"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:455
+msgid "Monitoring history cleared."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:243
+msgid "Monitoring service is stopped"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:142
+msgid "Name"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:273
+msgid "No conclusive probe result is available yet."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:785
+msgid "No connectivity outage met the configured failure threshold."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:196
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:685
+msgid "No data"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:652
+msgid "No history recorded yet"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:784
+msgid "No incidents in the last 24 hours"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:714
+msgid "No probe targets configured"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:679
+msgid "Now"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:127
+msgid ""
+"Number of days of confirmed incident records used for long-range "
+"availability (1–365). Fine-grained target quality and latency samples are "
+"RAM-backed; after a reboot, the timeline falls back to persisted availability "
+"boundaries."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:804
+msgid "Ongoing"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:803
+msgid "Ongoing incident"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:260
+msgid "Only part of the configured connectivity checks are passing."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:188
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:682
+msgid "Operational"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:174
+msgid ""
+"Optional per-target timeout in seconds. Leave empty to inherit the global "
+"value."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:192
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:684
+msgid "Outage"
+msgstr ""
+
+#: root/usr/share/luci/menu.d/luci-app-monitor.json:13
+msgid "Overview"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:305
+msgid "Probe"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:422
+msgid "Probe failed"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:93
+msgid "Probe interval"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:504
+msgid "Probe now"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:755
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:129
+msgid "Probe targets"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:187
+msgid "Quorum guidance"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:289
+msgid "Reachable"
+msgstr ""
+
+#: root/usr/share/rpcd/acl.d/luci-app-monitor.json:3
+msgid "Read Internet connectivity status and configuration"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:826
+msgid ""
+"Recorded periods where Internet availability fell below the configured "
+"quorum."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:111
+msgid "Recovery threshold"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:496
+msgid "Refresh"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:396
+msgid "Refresh failed"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:117
+msgid "Required quorum"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:569
+msgid "Required quorum: %d"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:97
+msgid "Seconds between scheduled probe rounds (10–3600)."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:189
+msgid ""
+"Set quorum no higher than the number of enabled targets. Two successes "
+"across three or more diverse targets is a practical default."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:509
+#: root/usr/share/luci/menu.d/luci-app-monitor.json:21
+msgid "Settings"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:91
+msgid "Start the monitor at boot and continuously test external connectivity."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:812
+msgid "Started %s"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:253
+msgid "The configured external connectivity checks are passing."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:223
+msgid "The monitoring backend did not return a status response."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:27
+msgid "The probe address must not contain spaces."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:409
+msgid "The probe could not be started."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:267
+msgid "The required number of external connectivity checks failed."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:244
+msgid "The service is enabled but is not currently running."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:653
+msgid "The timeline will appear after the first connectivity checks complete."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:86
+msgid ""
+"These values apply to every enabled target unless a target overrides its "
+"timeout."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:845
+msgid "This page refreshes automatically every 5 seconds."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:431
+msgid ""
+"This permanently removes availability samples and recorded incidents. This "
+"action cannot be undone."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:169
+msgid "Timeout override"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:147
+msgid "Type"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:460
+msgid "Unable to clear history"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:536
+msgid "Unable to read monitor status"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:91
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:100
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:294
+msgid "Unknown"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:60
+msgid "Unknown RPC error"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:725
+msgid "Unnamed target"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:292
+msgid "Unreachable"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:575
+msgid "Updated %s"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:56
+msgid "Use comma-separated HTTP codes or ranges, for example 200-399,404."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:173
+msgid "Use global timeout"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:135
+msgid ""
+"Use multiple providers and protocols so a single remote outage or blocked "
+"protocol does not create a false Internet outage."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:578
+msgid "Version %s"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:272
+msgid "Waiting for connectivity data"
+msgstr ""

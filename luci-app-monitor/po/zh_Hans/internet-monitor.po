@@ -1,0 +1,666 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-monitor 1.1.1\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-11 00:00+0800\n"
+"PO-Revision-Date: 2026-07-11 00:00+0800\n"
+"Last-Translator: LuCI Internet Monitor contributors\n"
+"Language-Team: Chinese (Simplified Han script)\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:128
+msgid "%d d"
+msgstr "%d 天"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:128
+msgid "%d d %d h"
+msgstr "%d 天 %d 小时"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:131
+msgid "%d h"
+msgstr "%d 小时"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:131
+msgid "%d h %d min"
+msgstr "%d 小时 %d 分钟"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:133
+msgid "%d min"
+msgstr "%d 分钟"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:142
+msgid "%d ms"
+msgstr "%d 毫秒"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:553
+msgid "%d of %d targets reachable"
+msgstr "%d/%d 个目标可达"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:759
+msgid "%d targets"
+msgstr "%d 个目标"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:562
+msgid "%d targets were not probed (limit %d)"
+msgstr "%d 个目标未探测（上限 %d）"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:813
+msgid "%s – %s"
+msgstr "%s – %s"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:663
+msgid "%s–%s: %s"
+msgstr "%s–%s：%s"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:118
+msgid "0 min"
+msgstr "0 分钟"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:156
+msgid "1.1.1.1 or https://example.com/"
+msgstr "1.1.1.1 或 https://example.com/"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:678
+msgid "24 hours ago"
+msgstr "24 小时前"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:693
+msgid "24-hour connectivity"
+msgstr "24 小时连接状态"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:121
+msgid "< 1 min"
+msgstr "< 1 分钟"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:230
+msgid ""
+"A new probe result was being written. This page will retry automatically."
+msgstr "新的探测结果正在写入。此页面将自动重试。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:24
+msgid "A probe address is required."
+msgstr "必须填写探测地址。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:715
+msgid "Add at least one ICMP or HTTP target in settings."
+msgstr "请在设置中添加至少一个 ICMP 或 HTTP 探测目标。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:134
+msgid "Add probe target"
+msgstr "添加探测目标"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:154
+msgid "Address"
+msgstr "地址"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:739
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:160
+msgid "Address family"
+msgstr "地址族"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:252
+msgid "All systems operational"
+msgstr "所有系统运行正常"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:46
+msgid "At least one expected HTTP status code or range is required."
+msgstr "必须至少填写一个预期的 HTTP 状态码或范围。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:320
+msgid "Auto"
+msgstr "自动"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:161
+msgid "Automatic"
+msgstr "自动"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:610
+msgid "Availability"
+msgstr "可用率"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:572
+msgid "Average latency: %s"
+msgstr "平均延迟：%s"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:438
+msgid "Cancel"
+msgstr "取消"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:539
+msgid ""
+"Check that rpcd and the internet-monitor service are running, then refresh "
+"this page."
+msgstr "请检查 rpcd 和 internet-monitor 服务是否正在运行，然后刷新此页面。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:463
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:516
+msgid "Clear history"
+msgstr "清除历史记录"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:429
+msgid "Clear monitoring history"
+msgstr "清除监视历史记录"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:182
+msgid ""
+"Comma-separated status codes or inclusive ranges accepted as success, for "
+"example 200-399,404."
+msgstr "以逗号分隔可视为成功的状态码或闭区间，例如 200-399,404。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:81
+msgid ""
+"Configure independent external probes and the policy used to decide whether "
+"Internet access is available. Save & Apply commits the configuration and "
+"restarts the monitor service."
+msgstr ""
+"配置独立的外部探测目标，以及用于判断互联网访问是否可用的策略。“保存并应用”会"
+"提交配置并重启监视服务。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:807
+msgid "Connectivity checks did not meet the configured quorum."
+msgstr "连接检查未达到配置的成功目标数。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:803
+msgid "Connectivity incident"
+msgstr "连接故障事件"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:412
+msgid "Connectivity probe completed."
+msgstr "连接探测已完成。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:661
+msgid "Connectivity state over the last 24 hours"
+msgstr "过去 24 小时的连接状态"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:229
+msgid "Connectivity status is updating"
+msgstr "连接状态正在更新"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:109
+msgid "Consecutive failed rounds required before opening an incident."
+msgstr "连续失败达到此轮数后才会记录故障事件。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:115
+msgid "Consecutive successful rounds required before resolving an incident."
+msgstr "连续成功达到此轮数后才会结束故障事件。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:592
+msgid "Current state since %s"
+msgstr "当前状态自 %s 起持续至今"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:588
+msgid "Current status"
+msgstr "当前状态"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:99
+msgid "Default timeout"
+msgstr "默认超时"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:190
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:683
+msgid "Degraded"
+msgstr "连接质量下降"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:194
+msgid "Disabled"
+msgstr "已禁用"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:629
+msgid "Downtime"
+msgstr "中断时长"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:815
+msgid "Duration: %s"
+msgstr "持续时间：%s"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:694
+msgid ""
+"Each bar represents a 15-minute period; the most severe result is shown."
+msgstr "每个色条代表 15 分钟；显示该时段内最严重的结果。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:88
+msgid "Enable monitoring"
+msgstr "启用监视"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:237
+msgid "Enable the service in settings to resume connectivity checks."
+msgstr "请在设置中启用服务以恢复连接检查。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:137
+msgid "Enabled"
+msgstr "已启用"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:144
+msgid "Example: Cloudflare DNS"
+msgstr "示例：Cloudflare DNS"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:176
+msgid "Expected HTTP codes"
+msgstr "预期的 HTTP 状态码"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:259
+msgid "External connectivity is degraded"
+msgstr "外网连接质量下降"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:105
+msgid "Failure threshold"
+msgstr "失败阈值"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:167
+msgid "Force a specific IP family or let the monitor choose automatically."
+msgstr "强制使用特定 IP 地址族，或让监视器自动选择。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:83
+msgid "Global settings"
+msgstr "全局设置"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:303
+msgid "HTTP"
+msgstr "HTTP"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:30
+msgid "HTTP probes require a URL beginning with http:// or https://."
+msgstr "HTTP 探测需要以 http:// 或 https:// 开头的 URL。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:149
+msgid "HTTP request"
+msgstr "HTTP 请求"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:62
+msgid ""
+"HTTP status codes must be between 100 and 599 and ranges must be ascending."
+msgstr "HTTP 状态码必须介于 100 和 599 之间，且范围必须按升序填写。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:451
+msgid "History could not be cleared."
+msgstr "无法清除历史记录。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:646
+msgid "History is unavailable"
+msgstr "历史记录不可用"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:123
+msgid "History retention"
+msgstr "历史记录保留时间"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:300
+msgid "ICMP"
+msgstr "ICMP"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:148
+msgid "ICMP ping"
+msgstr "ICMP Ping"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:33
+msgid "ICMP probes require a hostname or IP address, not a URL."
+msgstr "ICMP 探测需要主机名或 IP 地址，不能使用 URL。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:313
+msgid "IPv4"
+msgstr "IPv4"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:162
+msgid "IPv4 only"
+msgstr "仅 IPv4"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:316
+msgid "IPv6"
+msgstr "IPv6"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:163
+msgid "IPv6 only"
+msgstr "仅 IPv6"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:776
+msgid "Incident history is unavailable"
+msgstr "故障事件历史记录不可用"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:825
+msgid "Incidents"
+msgstr "故障事件"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:522
+msgid ""
+"Independent ICMP and HTTP checks show whether this router can reach the "
+"public Internet."
+msgstr "通过独立的 ICMP 和 HTTP 检查，判断此路由器能否访问公共互联网。"
+
+#: root/usr/share/luci/menu.d/luci-app-monitor.json:3
+msgid "Internet Connectivity"
+msgstr "互联网连接"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:520
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:80
+msgid "Internet Connectivity Monitor"
+msgstr "互联网连接监视器"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:266
+msgid "Internet connection interrupted"
+msgstr "互联网连接已中断"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:236
+msgid "Internet monitoring is disabled"
+msgstr "互联网连接监视已禁用"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:222
+msgid "Internet status is unavailable"
+msgstr "互联网状态不可用"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:602
+msgid "Last 24 hours"
+msgstr "最近 24 小时"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:604
+msgid "Last 30 days"
+msgstr "最近 30 天"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:603
+msgid "Last 7 days"
+msgstr "最近 7 天"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:743
+msgid "Latency"
+msgstr "延迟"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:756
+msgid "Latest result from each independent external check."
+msgstr "各项独立外部检查的最新结果。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:103
+msgid "Maximum seconds to wait for each probe unless overridden below."
+msgstr "每次探测的最大等待秒数，除非在下方单独指定。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:611
+msgid "Measured time without a confirmed Internet outage."
+msgstr "未确认发生互联网连接中断的监视时长。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:735
+msgid "Method"
+msgstr "探测方式"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:121
+msgid ""
+"Minimum number of targets that must succeed for a probe round to be "
+"available."
+msgstr "判断一轮探测可用时，必须成功的最少目标数。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:625
+msgid "Monitored"
+msgstr "监视时长"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:455
+msgid "Monitoring history cleared."
+msgstr "监视历史记录已清除。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:243
+msgid "Monitoring service is stopped"
+msgstr "监视服务已停止"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:142
+msgid "Name"
+msgstr "名称"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:273
+msgid "No conclusive probe result is available yet."
+msgstr "暂无可确定的探测结果。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:785
+msgid "No connectivity outage met the configured failure threshold."
+msgstr "未出现达到所配置失败阈值的连接中断。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:196
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:685
+msgid "No data"
+msgstr "无数据"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:652
+msgid "No history recorded yet"
+msgstr "尚无历史记录"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:784
+msgid "No incidents in the last 24 hours"
+msgstr "过去 24 小时没有故障事件"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:714
+msgid "No probe targets configured"
+msgstr "尚未配置探测目标"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:679
+msgid "Now"
+msgstr "现在"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:127
+msgid ""
+"Number of days of confirmed incident records used for long-range "
+"availability (1–365). Fine-grained target quality and latency samples are "
+"RAM-backed; after a reboot, the timeline falls back to persisted availability "
+"boundaries."
+msgstr ""
+"用于计算长期可用率的已确认故障事件记录保留天数（1–365）。细粒度目标质量与延迟"
+"采样保存在内存中；设备重启后，时间线会使用持久化的可用性状态边界回填。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:804
+msgid "Ongoing"
+msgstr "进行中"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:803
+msgid "Ongoing incident"
+msgstr "故障事件进行中"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:260
+msgid "Only part of the configured connectivity checks are passing."
+msgstr "只有部分已配置的连接检查通过。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:188
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:682
+msgid "Operational"
+msgstr "运行正常"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:174
+msgid ""
+"Optional per-target timeout in seconds. Leave empty to inherit the global "
+"value."
+msgstr "可选的单目标超时时间（秒）。留空则继承全局值。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:192
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:684
+msgid "Outage"
+msgstr "连接中断"
+
+#: root/usr/share/luci/menu.d/luci-app-monitor.json:13
+msgid "Overview"
+msgstr "概览"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:305
+msgid "Probe"
+msgstr "探测"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:422
+msgid "Probe failed"
+msgstr "探测失败"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:93
+msgid "Probe interval"
+msgstr "探测间隔"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:504
+msgid "Probe now"
+msgstr "立即探测"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:755
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:129
+msgid "Probe targets"
+msgstr "探测目标"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:187
+msgid "Quorum guidance"
+msgstr "成功目标数说明"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:289
+msgid "Reachable"
+msgstr "可达"
+
+#: root/usr/share/rpcd/acl.d/luci-app-monitor.json:3
+msgid "Read Internet connectivity status and configuration"
+msgstr "读取互联网连接状态与配置"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:826
+msgid ""
+"Recorded periods where Internet availability fell below the configured "
+"quorum."
+msgstr "已记录的互联网连接未达到所配置成功目标数的时段。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:111
+msgid "Recovery threshold"
+msgstr "恢复阈值"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:496
+msgid "Refresh"
+msgstr "刷新"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:396
+msgid "Refresh failed"
+msgstr "刷新失败"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:117
+msgid "Required quorum"
+msgstr "所需成功目标数"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:569
+msgid "Required quorum: %d"
+msgstr "所需成功目标数：%d"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:97
+msgid "Seconds between scheduled probe rounds (10–3600)."
+msgstr "定时探测轮次之间的间隔秒数（10–3600）。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:189
+msgid ""
+"Set quorum no higher than the number of enabled targets. Two successes "
+"across three or more diverse targets is a practical default."
+msgstr ""
+"所需成功目标数不得高于已启用目标的数量。对于三个或更多不同的目标，设置为两个"
+"成功是一项实用的默认策略。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:509
+#: root/usr/share/luci/menu.d/luci-app-monitor.json:21
+msgid "Settings"
+msgstr "设置"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:91
+msgid "Start the monitor at boot and continuously test external connectivity."
+msgstr "开机时启动监视器并持续测试外部连接。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:812
+msgid "Started %s"
+msgstr "开始于 %s"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:253
+msgid "The configured external connectivity checks are passing."
+msgstr "已配置的外部连接检查均已通过。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:223
+msgid "The monitoring backend did not return a status response."
+msgstr "监视后端未返回状态响应。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:27
+msgid "The probe address must not contain spaces."
+msgstr "探测地址不能包含空格。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:409
+msgid "The probe could not be started."
+msgstr "无法启动探测。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:267
+msgid "The required number of external connectivity checks failed."
+msgstr "成功的外部连接检查数量未达到要求。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:244
+msgid "The service is enabled but is not currently running."
+msgstr "服务已启用，但当前未运行。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:653
+msgid "The timeline will appear after the first connectivity checks complete."
+msgstr "首轮连接检查完成后将显示时间线。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:86
+msgid ""
+"These values apply to every enabled target unless a target overrides its "
+"timeout."
+msgstr "这些值适用于每个已启用的目标，除非目标单独指定了超时值。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:845
+msgid "This page refreshes automatically every 5 seconds."
+msgstr "本页面每 5 秒自动刷新。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:431
+msgid ""
+"This permanently removes availability samples and recorded incidents. This "
+"action cannot be undone."
+msgstr "此操作将永久删除可用率样本和已记录的故障事件，且无法撤销。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:169
+msgid "Timeout override"
+msgstr "单目标超时"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:147
+msgid "Type"
+msgstr "类型"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:460
+msgid "Unable to clear history"
+msgstr "无法清除历史记录"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:536
+msgid "Unable to read monitor status"
+msgstr "无法读取监视状态"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:91
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:100
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:294
+msgid "Unknown"
+msgstr "未知"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:60
+msgid "Unknown RPC error"
+msgstr "未知 RPC 错误"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:725
+msgid "Unnamed target"
+msgstr "未命名目标"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:292
+msgid "Unreachable"
+msgstr "不可达"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:575
+msgid "Updated %s"
+msgstr "更新于 %s"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:56
+msgid "Use comma-separated HTTP codes or ranges, for example 200-399,404."
+msgstr "使用逗号分隔的 HTTP 状态码或范围，例如 200-399,404。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:173
+msgid "Use global timeout"
+msgstr "使用全局超时"
+
+#: htdocs/luci-static/resources/view/internet-monitor/settings.js:135
+msgid ""
+"Use multiple providers and protocols so a single remote outage or blocked "
+"protocol does not create a false Internet outage."
+msgstr ""
+"使用多个服务商和协议，以免单个远端服务故障或协议被屏蔽时误判为互联网连接中"
+"断。"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:578
+msgid "Version %s"
+msgstr "版本 %s"
+
+#: htdocs/luci-static/resources/view/internet-monitor/overview.js:272
+msgid "Waiting for connectivity data"
+msgstr "等待连接数据"

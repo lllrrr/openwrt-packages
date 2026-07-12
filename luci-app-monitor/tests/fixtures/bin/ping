@@ -1,0 +1,9 @@
+#!/bin/sh
+
+if [ "${TEST_PING_OK:-1}" = '1' ]; then
+	printf '64 bytes from 198.51.100.1: seq=0 ttl=56 time=%s ms\n' "${TEST_PING_LATENCY:-12.4}"
+	exit 0
+fi
+
+printf 'ping: timeout\n' >&2
+exit 1

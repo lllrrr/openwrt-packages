@@ -1,0 +1,17 @@
+{
+	"luci-app-monitor": {
+		"description": "Read Internet connectivity status and configuration",
+		"read": {
+			"uci": [ "internet-monitor" ],
+			"ubus": {
+				"luci.internet-monitor": [ "getStatus", "getHistory" ]
+			}
+		},
+		"write": {
+			"uci": [ "internet-monitor" ],
+			"ubus": {
+				"luci.internet-monitor": [ "runProbe", "clearHistory" ]
+			}
+		}
+	}
+}

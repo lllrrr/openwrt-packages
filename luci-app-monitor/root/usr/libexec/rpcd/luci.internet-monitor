@@ -1,0 +1,512 @@
+#!/bin/sh
+# shellcheck disable=SC1090,SC3043
+
+FUNCTIONS_LIB="${INTERNET_MONITOR_FUNCTIONS_LIB:-/lib/functions.sh}"
+JSHN_LIB="${INTERNET_MONITOR_JSHN_LIB:-/usr/share/libubox/jshn.sh}"
+. "$FUNCTIONS_LIB"
+. "$JSHN_LIB"
+
+SERVICE='internet-monitor'
+VERSION='1.1.1'
+RUNTIME_DIR="${INTERNET_MONITOR_RUNTIME_DIR:-/tmp/internet-monitor}"
+PERSIST_DIR="${INTERNET_MONITOR_PERSIST_DIR:-/etc/internet-monitor}"
+STATE_FILE="$RUNTIME_DIR/state.tsv"
+TARGETS_FILE="$RUNTIME_DIR/targets.tsv"
+SAMPLES_FILE="$RUNTIME_DIR/samples.tsv"
+EVENTS_FILE="$PERSIST_DIR/events.tsv"
+EVENTS_PENDING="$RUNTIME_DIR/events.pending.tsv"
+META_FILE="$PERSIST_DIR/started_at"
+PROBE_REQUEST="$RUNTIME_DIR/probe.request"
+DAEMON='/usr/libexec/internet-monitor/daemon'
+INIT_SCRIPT="${INTERNET_MONITOR_INIT_SCRIPT:-/etc/init.d/$SERVICE}"
+MAX_TARGETS=64
+SNAPSHOT_RETRY_DELAY="${INTERNET_MONITOR_SNAPSHOT_RETRY_DELAY:-1}"
+case "$SNAPSHOT_RETRY_DELAY" in ''|*[!0-9]*) SNAPSHOT_RETRY_DELAY=1 ;; esac
+
+safe_uint() {
+	case "$1" in
+		''|*[!0-9]*|???????????*) printf '%s' "$2" ;;
+		*) printf '%s' "$1" ;;
+	esac
+}
+
+normalize_events() {
+	awk -F '\t' '
+		BEGIN { OFS = "\t" }
+		function class(value) { return value == "offline" ? "offline" : (value == "unknown" ? "unknown" : "available") }
+		$1 ~ /^[0-9]+$/ && NF >= 2 {
+			raw_timestamp = $1
+			key = (NF >= 4 && $4 != "") ? "id:" $4 : "legacy:" raw_timestamp SUBSEP class($2) SUBSEP $3
+			if (seen[key]++) next
+			timestamp = raw_timestamp + 0
+			if (have_timestamp && timestamp < previous_timestamp) timestamp = previous_timestamp
+			timestamp = sprintf("%.0f", timestamp)
+			previous_timestamp = timestamp
+			have_timestamp = 1
+			if (NF >= 4 && $4 != "") print timestamp, $2, $3, $4
+			else print timestamp, $2, $3
+		}
+	'
+}
+
+event_stream() {
+	local state updated
+	{
+		[ -s "$EVENTS_FILE" ] && cat "$EVENTS_FILE"
+		[ -s "$EVENTS_PENDING" ] && cat "$EVENTS_PENDING"
+		if ! "$INIT_SCRIPT" running >/dev/null 2>&1 && [ -s "$STATE_FILE" ]; then
+			IFS="$(printf '\t')" read -r state _ updated _ < "$STATE_FILE"
+			case "$updated" in ''|*[!0-9]*) updated="$(date +%s)" ;; esac
+			printf '%s\tunknown\tMonitoring service stopped unexpectedly\tsynthetic-stop-%s\n' "$updated" "$updated"
+		fi
+	} | normalize_events
+}
+
+effective_now() {
+	local now="$1" started="$2" latest state_latest sample_latest
+	latest="$(event_stream | awk -F '\t' '$1 ~ /^[0-9]+$/ && $1 > latest { latest = $1 } END { if (latest != "") print latest }')"
+	state_latest="$(awk -F '\t' 'NR == 1 && $3 ~ /^[0-9]+$/ { print $3 }' "$STATE_FILE" 2>/dev/null)"
+	sample_latest="$(awk -F '\t' '$1 ~ /^[0-9]+$/ && $1 > latest { latest = $1 } END { if (latest != "") print latest }' "$SAMPLES_FILE" 2>/dev/null)"
+	case "$latest" in ''|*[!0-9]*) latest=0 ;; esac
+	[ "$started" -gt "$now" ] && now="$started"
+	for latest in "$latest" "$state_latest" "$sample_latest"; do
+		case "$latest" in ''|*[!0-9]*) continue ;; esac
+		[ "$latest" -gt "$now" ] && now="$latest"
+	done
+	printf '%s' "$now"
+}
+
+add_service_status() {
+	local configured running=0 init_enabled=0
+	config_load internet-monitor
+	config_get_bool configured global enabled 1
+	"$INIT_SCRIPT" running >/dev/null 2>&1 && running=1
+	"$INIT_SCRIPT" enabled >/dev/null 2>&1 && init_enabled=1
+	[ "$configured" -eq 1 ] && [ "$init_enabled" -eq 1 ] && configured=1 || configured=0
+
+	json_add_object service
+	json_add_boolean running "$running"
+	json_add_boolean enabled "$configured"
+	json_add_string version "$VERSION"
+	json_close_object
+}
+
+calculate_stats() {
+	local seconds="$1" now="$2" started="$3"
+	event_stream | awk -F '\t' -v now="$now" -v seconds="$seconds" -v first="$started" '
+		BEGIN {
+			window = now - seconds
+			if (first > window) window = first
+			cursor = window
+			state = "unknown"
+		}
+		$1 <= window { state = $2; next }
+		$1 > now { next }
+		{
+			timestamp = $1
+			if (timestamp < cursor) timestamp = cursor
+			duration = timestamp - cursor
+			if (duration > 0 && state != "unknown") {
+				monitored += duration
+				if (state == "offline") downtime += duration
+			}
+			cursor = timestamp
+			state = $2
+		}
+		END {
+			duration = now - cursor
+			if (duration > 0 && state != "unknown") {
+				monitored += duration
+				if (state == "offline") downtime += duration
+			}
+			if (monitored > 0) availability = 100 * (monitored - downtime) / monitored
+			else availability = 0
+			printf "%.3f\t%d\t%d\n", availability, monitored, downtime
+		}
+	'
+}
+
+add_period_stats() {
+	local label="$1" seconds="$2" now="$3" started="$4" values availability monitored downtime
+	values="$(calculate_stats "$seconds" "$now" "$started")"
+	IFS="$(printf '\t')" read -r availability monitored downtime <<-EOF
+	$values
+	EOF
+	json_add_object "$label"
+	json_add_string availability "${availability:-0.000}"
+	json_add_int monitored "$(safe_uint "$monitored" 0)"
+	json_add_int downtime "$(safe_uint "$downtime" 0)"
+	json_close_object
+}
+
+get_status() {
+	local state='unknown' since=0 updated=0 success=0 total=0 threshold=0 latency=-1
+	local fail=0 recovery=0 ignored=0 reason='Waiting for the first probe' now started
+	local id name type address family ok target_latency message generation
+	local attempt snapshot_ok=0 snapshot_values snapshot_count snapshot_bad configured_total
+	local targets_snapshot="$RUNTIME_DIR/targets.snapshot.$$.tsv"
+	mkdir -p "$RUNTIME_DIR"
+	now="$(date +%s)"
+	started="$(cat "$META_FILE" 2>/dev/null)"
+	started="$(safe_uint "$started" "$now")"
+	now="$(effective_now "$now" "$started")"
+
+	for attempt in 1 2 3; do
+		state='unknown'; since=0; updated=0; success=0; total=0; threshold=0; latency=-1
+		fail=0; recovery=0; ignored=0; generation=''; reason='Waiting for the first probe'
+		if [ -s "$STATE_FILE" ]; then
+			IFS="$(printf '\t')" read -r state since updated success total threshold latency fail recovery generation reason ignored < "$STATE_FILE"
+		fi
+		total="$(safe_uint "$total" 0)"
+		ignored="$(safe_uint "$ignored" 0)"
+		if { [ -s "$TARGETS_FILE" ] && cp "$TARGETS_FILE" "$targets_snapshot"; } || \
+			{ [ ! -s "$TARGETS_FILE" ] && : > "$targets_snapshot"; }; then
+			snapshot_values="$(awk -F '\t' -v expected="$generation" '
+				NF > 0 { count++; if (NF < 9 || $1 != expected) bad = 1 }
+				END { printf "%d\t%d\n", count, bad + 0 }
+			' "$targets_snapshot")"
+			IFS="$(printf '\t')" read -r snapshot_count snapshot_bad <<-EOF
+			$snapshot_values
+			EOF
+		else
+			snapshot_count=-1
+			snapshot_bad=1
+		fi
+		if [ "$snapshot_count" -eq "$total" ] && [ "$snapshot_bad" -eq 0 ] && \
+			{ [ "$total" -eq 0 ] || [ -n "$generation" ]; }; then
+			snapshot_ok=1
+			break
+		fi
+		if [ "$attempt" -lt 3 ] && [ "$SNAPSHOT_RETRY_DELAY" -gt 0 ]; then
+			sleep "$SNAPSHOT_RETRY_DELAY"
+		fi
+	done
+	if [ "$snapshot_ok" -ne 1 ]; then
+		state='unknown'; since=0; updated=0; success=0; total=0; threshold=0; latency=-1
+		fail=0; recovery=0; ignored=0
+		reason='Status snapshot changed during read; retry shortly'
+		: > "$targets_snapshot"
+	fi
+	case "$state" in online|degraded|offline|unknown) ;; *) state=unknown ;; esac
+	configured_total=$((total + ignored))
+
+	json_init
+	add_service_status
+	json_add_boolean snapshot_consistent "$snapshot_ok"
+	json_add_string state "$state"
+	json_add_int since "$(safe_uint "$since" 0)"
+	json_add_int updated "$(safe_uint "$updated" 0)"
+	json_add_string message "${reason:-Waiting for the first probe}"
+	json_add_object summary
+	json_add_int success "$(safe_uint "$success" 0)"
+	json_add_int total "$(safe_uint "$total" 0)"
+	json_add_int threshold "$(safe_uint "$threshold" 0)"
+	json_add_int latency_ms "${latency:--1}"
+	json_add_int failure_count "$(safe_uint "$fail" 0)"
+	json_add_int recovery_count "$(safe_uint "$recovery" 0)"
+	json_add_int target_limit "$MAX_TARGETS"
+	json_add_int targets_truncated "$ignored"
+	json_add_int configured_total "$configured_total"
+	json_close_object
+
+	json_add_array targets
+	if [ -s "$targets_snapshot" ]; then
+		while IFS="$(printf '\t')" read -r _ id name type address family ok target_latency message; do
+			json_add_object ''
+			json_add_string id "$id"
+			json_add_string name "$name"
+			json_add_string type "$type"
+			json_add_string address "$address"
+			json_add_string family "$family"
+			json_add_boolean ok "$(safe_uint "$ok" 0)"
+			json_add_int latency_ms "${target_latency:--1}"
+			json_add_string message "$message"
+			json_close_object
+		done < "$targets_snapshot"
+	fi
+	json_close_array
+
+	json_add_object stats
+	json_add_int started_at "$started"
+	add_period_stats '24h' 86400 "$now" "$started"
+	add_period_stats '7d' 604800 "$now" "$started"
+	add_period_stats '30d' 2592000 "$now" "$started"
+	json_close_object
+	json_dump
+	json_cleanup
+	rm -f "$targets_snapshot"
+}
+
+write_history_points() {
+	local hours="$1" now="$2" started="$3" cutoff range_start bucket
+	local events baseline samples tmp timestamp state latency
+	cutoff=$((now - hours * 3600))
+	if [ "$hours" -le 24 ]; then bucket=300
+	elif [ "$hours" -le 168 ]; then bucket=900
+	else bucket=3600
+	fi
+	range_start="$cutoff"
+	[ "$started" -gt "$range_start" ] && range_start="$started"
+	events="$RUNTIME_DIR/history-events.$$.tsv"
+	baseline="$RUNTIME_DIR/history-baseline.$$.tsv"
+	samples="$RUNTIME_DIR/history-samples.$$.tsv"
+	tmp="$RUNTIME_DIR/history.$$.tsv"
+
+	# Persistent events contain availability-class boundaries without the high
+	# frequency writes of runtime samples. Reconstruct every bucket from those
+	# boundaries so a reboot does not erase the older portion of the timeline.
+	event_stream > "$events"
+	awk -F '\t' -v start="$range_start" -v now="$now" -v width="$bucket" '
+		function canonical(value) {
+			if (value == "offline") return "offline"
+			if (value == "unknown") return "unknown"
+			return "online"
+		}
+		function rank(value) {
+			if (value == "offline") return 3
+			if (value == "unknown") return 2
+			return 1
+		}
+		$1 ~ /^[0-9]+$/ && $1 <= now {
+			total++
+			times[total] = $1 + 0
+			states[total] = canonical($2)
+		}
+		END {
+			if (!total) exit
+			if (start >= now) exit
+
+			state = "unknown"
+			idx = 1
+			while (idx <= total && times[idx] <= start) {
+				state = states[idx]
+				idx++
+			}
+
+			first_slot = int(start / width) * width
+			last_slot = int((now - 1) / width) * width
+			for (slot = first_slot; slot <= last_slot; slot += width) {
+				segment_start = slot > start ? slot : start
+				segment_end = slot + width
+				if (segment_end > now) segment_end = now
+				while (idx <= total && times[idx] <= segment_start) {
+					state = states[idx]
+					idx++
+				}
+				worst = state
+				while (idx <= total && times[idx] < segment_end) {
+					state = states[idx]
+					if (rank(state) > rank(worst)) worst = state
+					idx++
+				}
+				printf "%s\t%s\t-1\n", slot, worst
+			}
+		}
+	' "$events" > "$baseline"
+
+	# Runtime samples retain online/degraded detail and latency. They replace an
+	# online baseline, while persistent offline/unknown intervals remain
+	# visible even when a later successful sample shares the boundary bucket.
+	awk -F '\t' -v start="$range_start" -v now="$now" -v width="$bucket" '
+		function canonical(value) {
+			if (value == "online" || value == "degraded" || value == "offline") return value
+			return "unknown"
+		}
+		function rank(value) {
+			if (value == "offline") return 4
+			if (value == "unknown") return 3
+			if (value == "degraded") return 2
+			return 1
+		}
+		function flush() {
+			if (!seen) return
+			average = count ? int(sum / count + 0.5) : -1
+			printf "%s\t%s\t%s\n", slot, worst, average
+		}
+		$1 ~ /^[0-9]+$/ {
+			timestamp = $1 + 0
+			if (have_timestamp && timestamp < previous_timestamp) timestamp = previous_timestamp
+			previous_timestamp = timestamp
+			have_timestamp = 1
+			if (timestamp < start || timestamp >= now) next
+			current = int(timestamp / width) * width
+			if (seen && current != slot) { flush(); seen = 0; sum = 0; count = 0; worst = "unknown" }
+			state = canonical($2)
+			if (!seen) { slot = current; worst = state; seen = 1 }
+			if (rank(state) > rank(worst)) worst = state
+			if ($3 ~ /^[0-9]+$/ && $3 >= 0) { sum += $3; count++ }
+		}
+		END { flush() }
+	' "$SAMPLES_FILE" 2>/dev/null > "$samples"
+
+	awk -F '\t' -v start="$range_start" -v now="$now" -v width="$bucket" '
+		NR == FNR {
+			state[$1] = $2
+			latency[$1] = $3
+			seen[$1] = 1
+			next
+		}
+		{
+			if (!seen[$1] || state[$1] == "online") {
+				state[$1] = $2
+				latency[$1] = $3
+				seen[$1] = 1
+			} else if (state[$1] == "unknown" && $2 == "offline") {
+				state[$1] = $2
+				latency[$1] = $3
+			}
+		}
+		END {
+			if (start >= now) exit
+			first_slot = int(start / width) * width
+			last_slot = int((now - 1) / width) * width
+			for (slot = first_slot; slot <= last_slot; slot += width) {
+				if (!seen[slot]) continue
+				output_timestamp = slot < start ? start : slot
+				printf "%s\t%s\t%s\n", output_timestamp, state[slot], latency[slot]
+			}
+		}
+	' "$baseline" "$samples" > "$tmp"
+
+	while IFS="$(printf '\t')" read -r timestamp state latency; do
+		[ -n "$timestamp" ] || continue
+		json_add_object ''
+		json_add_int timestamp "$timestamp"
+		json_add_string state "$state"
+		json_add_int latency_ms "${latency:--1}"
+		json_close_object
+	done < "$tmp"
+	rm -f "$events" "$baseline" "$samples" "$tmp"
+}
+
+write_incidents() {
+	local now="$1" cutoff="$2" tmp start end duration reason ongoing severity
+	tmp="$RUNTIME_DIR/incidents.$$.tsv"
+	event_stream | awk -F '\t' -v now="$now" -v cutoff="$cutoff" '
+		function close_incident(end, ongoing) {
+			if (!open) return
+			if (end >= cutoff) print start "\t" end "\t" (end - start) "\t" reason "\t" ongoing "\t" severity
+			open = 0
+		}
+		$2 == "offline" {
+			if (!open) { start = $1; reason = $3; severity = $2; open = 1 }
+			next
+		}
+		$2 != "offline" { close_incident($1, 0) }
+		END { if (open) close_incident(now, 1) }
+	' | tail -n 50 > "$tmp"
+
+	while IFS="$(printf '\t')" read -r start end duration reason ongoing severity; do
+		[ -n "$start" ] || continue
+		json_add_object ''
+		json_add_int start "$start"
+		json_add_int end "$end"
+		json_add_int duration "$duration"
+		json_add_string reason "$reason"
+		json_add_boolean ongoing "$ongoing"
+		json_add_string state "$severity"
+		json_close_object
+	done < "$tmp"
+	rm -f "$tmp"
+}
+
+get_history() {
+	local hours="$1" now cutoff started
+	case "$hours" in
+		''|*[!0-9]*|??????????*) hours=24 ;;
+	esac
+	[ "$hours" -lt 1 ] && hours=1
+	[ "$hours" -gt 720 ] && hours=720
+	now="$(date +%s)"
+	started="$(cat "$META_FILE" 2>/dev/null)"
+	started="$(safe_uint "$started" "$now")"
+	now="$(effective_now "$now" "$started")"
+	cutoff=$((now - hours * 3600))
+	mkdir -p "$RUNTIME_DIR"
+
+	json_init
+	json_add_int hours "$hours"
+	json_add_int generated_at "$now"
+	json_add_array points
+	write_history_points "$hours" "$now" "$started"
+	json_close_array
+	json_add_array incidents
+	write_incidents "$now" "$cutoff"
+	json_close_array
+	json_dump
+	json_cleanup
+}
+
+action_result() {
+	json_init
+	json_add_boolean ok "$1"
+	json_add_string message "$2"
+	json_dump
+	json_cleanup
+}
+
+run_probe() {
+	local signal request_tmp
+	if ! "$INIT_SCRIPT" running >/dev/null 2>&1; then
+		action_result 0 'Monitoring service is not running'
+		return
+	fi
+	umask 077
+	mkdir -p "$RUNTIME_DIR"
+	request_tmp="$PROBE_REQUEST.tmp.$$"
+	printf '%s-%s\n' "$(date +%s)" "$$" > "$request_tmp" || {
+		rm -f "$request_tmp"
+		action_result 0 'Unable to queue a probe request'
+		return
+	}
+	if ! mv "$request_tmp" "$PROBE_REQUEST"; then
+		rm -f "$request_tmp"
+		action_result 0 'Unable to queue a probe request'
+		return
+	fi
+	signal="$(kill -l USR1 2>/dev/null)"
+	case "$signal" in ''|*[!0-9]*|???*) signal=0 ;; esac
+	if [ "$signal" -gt 0 ]; then
+		ubus call service signal "{\"name\":\"internet-monitor\",\"signal\":$signal}" >/dev/null 2>&1 || true
+	fi
+	action_result 1 'Probe requested'
+}
+
+clear_history() {
+	if "$DAEMON" --clear >/dev/null 2>&1; then
+		action_result 1 'History cleared'
+	else
+		action_result 0 'Unable to clear history while a probe is running'
+	fi
+}
+
+case "$1" in
+	list)
+		json_init
+		json_add_object getStatus
+		json_close_object
+		json_add_object getHistory
+		json_add_int hours 24
+		json_close_object
+		json_add_object runProbe
+		json_close_object
+		json_add_object clearHistory
+		json_close_object
+		json_dump
+		json_cleanup
+	;;
+	call)
+		case "$2" in
+			getStatus) get_status ;;
+			getHistory)
+				read -r input
+				json_load "$input"
+				json_get_var hours hours
+				json_cleanup
+				get_history "$hours"
+			;;
+			runProbe) run_probe ;;
+			clearHistory) clear_history ;;
+		esac
+	;;
+esac

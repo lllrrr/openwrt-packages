@@ -1,0 +1,708 @@
+#!/bin/sh
+# shellcheck disable=SC1090,SC3043,SC2153
+
+# Internet connectivity monitor for OpenWrt. Keep this file POSIX ash compatible.
+
+FUNCTIONS_LIB="${INTERNET_MONITOR_FUNCTIONS_LIB:-/lib/functions.sh}"
+. "$FUNCTIONS_LIB"
+
+SERVICE="internet-monitor"
+RUNTIME_DIR="${INTERNET_MONITOR_RUNTIME_DIR:-/tmp/internet-monitor}"
+PERSIST_DIR="${INTERNET_MONITOR_PERSIST_DIR:-/etc/internet-monitor}"
+LOCK_DIR="$RUNTIME_DIR/probe.lock"
+STATE_FILE="$RUNTIME_DIR/state.tsv"
+TARGETS_FILE="$RUNTIME_DIR/targets.tsv"
+SAMPLES_FILE="$RUNTIME_DIR/samples.tsv"
+EVENTS_FILE="$PERSIST_DIR/events.tsv"
+EVENTS_PENDING="$RUNTIME_DIR/events.pending.tsv"
+PROBE_REQUEST="$RUNTIME_DIR/probe.request"
+FLUSH_STAMP="$RUNTIME_DIR/events.last_flush"
+PRUNE_STAMP="$RUNTIME_DIR/events.last_prune"
+META_FILE="$PERSIST_DIR/started_at"
+EVENT_FLUSH_INTERVAL=900
+EVENT_PRUNE_INTERVAL=86400
+MAX_EVENT_LINES=10000
+MAX_TARGETS=64
+MAX_CYCLE_SECONDS=60
+CYCLE_COUNT=0
+LOCK_HELD=0
+TRIGGERED=0
+SLEEP_PID=''
+EVENT_SEQUENCE=0
+TIME_FLOOR=0
+
+clamp_uint() {
+	local value="$1" minimum="$2" maximum="$3" fallback="$4"
+	case "$value" in
+		''|*[!0-9]*) value="$fallback" ;;
+	esac
+	[ "${#value}" -gt "${#maximum}" ] && value="$fallback"
+	[ "$value" -lt "$minimum" ] 2>/dev/null && value="$minimum"
+	[ "$value" -gt "$maximum" ] 2>/dev/null && value="$maximum"
+	printf '%s' "$value"
+}
+
+clean_field() {
+	printf '%s' "$1" | tr '\t\r\n' '   ' | cut -c 1-240
+}
+
+state_class() {
+	case "$1" in
+		offline) printf 'offline' ;;
+		unknown) printf 'unknown' ;;
+		*) printf 'available' ;;
+	esac
+}
+
+last_event() {
+	if [ -s "$EVENTS_PENDING" ]; then
+		tail -n 1 "$EVENTS_PENDING"
+	elif [ -s "$EVENTS_FILE" ]; then
+		tail -n 1 "$EVENTS_FILE"
+	fi
+}
+
+latest_event_timestamp() {
+	{
+		[ -s "$EVENTS_FILE" ] && cat "$EVENTS_FILE"
+		[ -s "$EVENTS_PENDING" ] && cat "$EVENTS_PENDING"
+	} | awk -F '\t' '
+		$1 ~ /^[0-9]+$/ && $1 > latest { latest = $1 }
+		END { if (latest != "") print latest }
+	'
+}
+
+set_monotonic_timestamp() {
+	local timestamp="$1" latest state_latest sample_latest started
+	latest="$(latest_event_timestamp)"
+	state_latest="$(awk -F '\t' 'NR == 1 && $3 ~ /^[0-9]+$/ { print $3 }' "$STATE_FILE" 2>/dev/null)"
+	sample_latest="$(awk -F '\t' '$1 ~ /^[0-9]+$/ && $1 > latest { latest = $1 } END { if (latest != "") print latest }' "$SAMPLES_FILE" 2>/dev/null)"
+	started="$(cat "$META_FILE" 2>/dev/null)"
+	case "$timestamp" in ''|*[!0-9]*) timestamp="$(date +%s)" ;; esac
+	for latest in "$latest" "$state_latest" "$sample_latest" "$started" "$TIME_FLOOR"; do
+		case "$latest" in ''|*[!0-9]*) continue ;; esac
+		[ "$latest" -gt "$timestamp" ] && timestamp="$latest"
+	done
+	MONOTONIC_TIME="$timestamp"
+	TIME_FLOOR="$timestamp"
+}
+
+cycle_clock() {
+	local uptime
+	if [ -r /proc/uptime ]; then
+		uptime="$(cut -d. -f1 < /proc/uptime)"
+		case "$uptime" in ''|*[!0-9]*) uptime='' ;; esac
+	fi
+	if [ -n "$uptime" ]; then
+		printf '%s' "$uptime"
+	else
+		date +%s
+	fi
+}
+
+make_event_id() {
+	local timestamp="$1" boot_id random_id
+	EVENT_SEQUENCE=$((EVENT_SEQUENCE + 1))
+	boot_id="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)"
+	random_id="$(cat /proc/sys/kernel/random/uuid 2>/dev/null)"
+	case "$boot_id" in ''|*[!A-Fa-f0-9-]*) boot_id='unknown-boot' ;; esac
+	case "$random_id" in
+		''|*[!A-Fa-f0-9-]*) EVENT_ID="$boot_id-$timestamp-$$-$EVENT_SEQUENCE" ;;
+		*) EVENT_ID="$boot_id-$random_id" ;;
+	esac
+}
+
+normalize_events() {
+	awk -F '\t' '
+		BEGIN { OFS = "\t" }
+		function class(value) { return value == "offline" ? "offline" : (value == "unknown" ? "unknown" : "available") }
+		$1 ~ /^[0-9]+$/ && NF >= 2 {
+			raw_timestamp = $1
+			key = (NF >= 4 && $4 != "") ? "id:" $4 : "legacy:" raw_timestamp SUBSEP class($2) SUBSEP $3
+			if (seen[key]++) next
+			timestamp = raw_timestamp + 0
+			if (have_timestamp && timestamp < previous_timestamp) timestamp = previous_timestamp
+			timestamp = sprintf("%.0f", timestamp)
+			previous_timestamp = timestamp
+			have_timestamp = 1
+			if (NF >= 4 && $4 != "") print timestamp, $2, $3, $4
+			else print timestamp, $2, $3
+		}
+	'
+}
+
+consume_probe_request() {
+	local claim="$PROBE_REQUEST.claim.$$"
+	mv "$PROBE_REQUEST" "$claim" 2>/dev/null || return 1
+	rm -f "$claim"
+}
+
+init_storage() {
+	umask 077
+	mkdir -p "$RUNTIME_DIR" "$PERSIST_DIR"
+	chmod 0755 "$RUNTIME_DIR"
+	chmod 0700 "$PERSIST_DIR"
+	if [ ! -s "$META_FILE" ]; then
+		date +%s > "$META_FILE.tmp"
+		mv "$META_FILE.tmp" "$META_FILE"
+	fi
+}
+
+acquire_lock() {
+	local owner owner_matches=0
+	if mkdir "$LOCK_DIR" 2>/dev/null; then
+		printf '%s\n' "$$" > "$LOCK_DIR/pid"
+		LOCK_HELD=1
+		return 0
+	fi
+
+	owner="$(cat "$LOCK_DIR/pid" 2>/dev/null)"
+	case "$owner" in
+		''|*[!0-9]*) owner=0 ;;
+	esac
+	if [ "$owner" -gt 0 ] && kill -0 "$owner" 2>/dev/null && \
+		[ -r "/proc/$owner/cmdline" ] && \
+		tr '\000' ' ' < "/proc/$owner/cmdline" | grep -Fq -- "$0"; then
+		owner_matches=1
+	fi
+	if [ "$owner_matches" -eq 0 ]; then
+		rm -f "$LOCK_DIR/pid"
+		rmdir "$LOCK_DIR" 2>/dev/null || return 1
+		mkdir "$LOCK_DIR" 2>/dev/null || return 1
+		printf '%s\n' "$$" > "$LOCK_DIR/pid"
+		LOCK_HELD=1
+		return 0
+	fi
+
+	return 1
+}
+
+release_lock() {
+	[ "$LOCK_HELD" -eq 1 ] || return 0
+	rm -f "$LOCK_DIR/pid"
+	rmdir "$LOCK_DIR" 2>/dev/null || true
+	LOCK_HELD=0
+}
+
+load_settings() {
+	config_load internet-monitor
+	config_get_bool ENABLED global enabled 1
+	config_get INTERVAL global interval 60
+	config_get TIMEOUT global timeout 5
+	config_get FAILURE_THRESHOLD global failure_threshold 3
+	config_get RECOVERY_THRESHOLD global recovery_threshold 2
+	config_get QUORUM global quorum 2
+	config_get HISTORY_DAYS global history_days 30
+
+	INTERVAL="$(clamp_uint "$INTERVAL" 10 3600 60)"
+	TIMEOUT="$(clamp_uint "$TIMEOUT" 1 30 5)"
+	FAILURE_THRESHOLD="$(clamp_uint "$FAILURE_THRESHOLD" 1 20 3)"
+	RECOVERY_THRESHOLD="$(clamp_uint "$RECOVERY_THRESHOLD" 1 20 2)"
+	QUORUM="$(clamp_uint "$QUORUM" 1 100 2)"
+	HISTORY_DAYS="$(clamp_uint "$HISTORY_DAYS" 1 365 30)"
+}
+
+http_code_allowed() {
+	local code="$1" rules="$2" item lower upper old_ifs
+	case "$code" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	rules="$(printf '%s' "$rules" | tr -d ' \t\r\n')"
+	case "$rules" in
+		''|*[!0-9,-]*) rules='200-399' ;;
+	esac
+
+	old_ifs="$IFS"
+	IFS=','
+	for item in $rules; do
+		case "$item" in
+			*-*)
+				lower="${item%-*}"
+				upper="${item#*-}"
+				case "$lower" in ''|*[!0-9]*) continue ;; esac
+				case "$upper" in ''|*[!0-9]*) continue ;; esac
+				if [ "$code" -ge "$lower" ] && [ "$code" -le "$upper" ]; then
+					IFS="$old_ifs"
+					return 0
+				fi
+			;;
+			*) [ "$code" = "$item" ] && { IFS="$old_ifs"; return 0; } ;;
+		esac
+	done
+	IFS="$old_ifs"
+	return 1
+}
+
+probe_icmp() {
+	local address="$1" family="$2" timeout="$3" output rc latency
+	PROBE_OK=0
+	PROBE_LATENCY=-1
+	PROBE_MESSAGE='No reply'
+
+	case "$family" in
+		ipv6)
+			if command -v ping6 >/dev/null 2>&1; then
+				output="$(ping6 -c 1 -W "$timeout" -- "$address" 2>&1)"; rc=$?
+			else
+				output="$(ping -6 -c 1 -W "$timeout" -- "$address" 2>&1)"; rc=$?
+			fi
+		;;
+		ipv4)
+			output="$(ping -4 -c 1 -W "$timeout" -- "$address" 2>&1)"; rc=$?
+		;;
+		*)
+			output="$(ping -c 1 -W "$timeout" -- "$address" 2>&1)"; rc=$?
+		;;
+	esac
+
+	if [ "$rc" -eq 0 ]; then
+		latency="$(printf '%s\n' "$output" | sed -n 's/.*time[=<]\([0-9.][0-9.]*\)[[:space:]]*ms.*/\1/p' | tail -n 1)"
+		if [ -n "$latency" ]; then
+			PROBE_LATENCY="$(awk -v value="$latency" 'BEGIN { printf "%.0f", value }')"
+		fi
+		PROBE_OK=1
+		PROBE_MESSAGE='Reply received'
+	else
+		PROBE_MESSAGE="$(clean_field "$(printf '%s\n' "$output" | tail -n 1)")"
+		[ -n "$PROBE_MESSAGE" ] || PROBE_MESSAGE='ICMP timeout'
+	fi
+}
+
+probe_http() {
+	local address="$1" family="$2" timeout="$3" expected="$4"
+	local output rc code seconds error_file
+	PROBE_OK=0
+	PROBE_LATENCY=-1
+	PROBE_MESSAGE='Request failed'
+	error_file="$RUNTIME_DIR/curl.$$.err"
+
+	case "$address" in
+		[Hh][Tt][Tt][Pp][Ss]://*) address="https://${address#*://}" ;;
+		[Hh][Tt][Tt][Pp]://*) address="http://${address#*://}" ;;
+		*) PROBE_MESSAGE='URL must use http:// or https://'; return ;;
+	esac
+
+	case "$family" in
+		ipv4)
+			output="$(curl -4 -sS -L --proto '=http,https' --proto-redir '=http,https' --max-redirs 3 -o /dev/null -w '%{http_code} %{time_total}' --connect-timeout "$timeout" --max-time "$timeout" "$address" 2>"$error_file")"; rc=$?
+		;;
+		ipv6)
+			output="$(curl -6 -sS -L --proto '=http,https' --proto-redir '=http,https' --max-redirs 3 -o /dev/null -w '%{http_code} %{time_total}' --connect-timeout "$timeout" --max-time "$timeout" "$address" 2>"$error_file")"; rc=$?
+		;;
+		*)
+			output="$(curl -sS -L --proto '=http,https' --proto-redir '=http,https' --max-redirs 3 -o /dev/null -w '%{http_code} %{time_total}' --connect-timeout "$timeout" --max-time "$timeout" "$address" 2>"$error_file")"; rc=$?
+		;;
+	esac
+
+	if [ "$rc" -eq 0 ]; then
+		code="${output%% *}"
+		seconds="${output#* }"
+		if http_code_allowed "$code" "$expected"; then
+			PROBE_OK=1
+			PROBE_LATENCY="$(awk -v value="$seconds" 'BEGIN { printf "%.0f", value * 1000 }')"
+			PROBE_MESSAGE="HTTP $code"
+		else
+			PROBE_MESSAGE="Unexpected HTTP $code"
+		fi
+	else
+		PROBE_MESSAGE="$(clean_field "$(tail -n 1 "$error_file" 2>/dev/null)")"
+		[ -n "$PROBE_MESSAGE" ] || PROBE_MESSAGE="curl exit $rc"
+	fi
+	rm -f "$error_file"
+}
+
+probe_target() {
+	local section="$1" enabled name type address family timeout expected now remaining
+	config_get_bool enabled "$section" enabled 1
+	[ "$enabled" -eq 1 ] || return 0
+	if [ "$TOTAL" -ge "$MAX_TARGETS" ]; then
+		IGNORED_TARGETS=$((IGNORED_TARGETS + 1))
+		return 0
+	fi
+
+	config_get name "$section" name "$section"
+	config_get type "$section" type icmp
+	config_get address "$section" address ''
+	config_get family "$section" family auto
+	config_get timeout "$section" timeout "$TIMEOUT"
+	config_get expected "$section" expected_codes '200-399'
+	timeout="$(clamp_uint "$timeout" 1 30 "$TIMEOUT")"
+	case "$family" in ipv4|ipv6|auto) ;; *) family=auto ;; esac
+
+	now="$(cycle_clock)"
+	remaining=$((CYCLE_DEADLINE - now))
+	if [ "$remaining" -le 0 ]; then
+		PROBE_OK=0
+		PROBE_LATENCY=-1
+		PROBE_MESSAGE='Skipped: probe round time limit reached'
+	elif [ "$timeout" -gt "$remaining" ]; then
+		timeout="$remaining"
+	fi
+	if [ "$remaining" -gt 0 ]; then
+		case "$type" in
+			icmp) probe_icmp "$address" "$family" "$timeout" ;;
+			http) probe_http "$address" "$family" "$timeout" "$expected" ;;
+			*)
+				PROBE_OK=0
+				PROBE_LATENCY=-1
+				PROBE_MESSAGE='Unsupported probe type'
+				type='unknown'
+			;;
+		esac
+	fi
+
+	TOTAL=$((TOTAL + 1))
+	if [ "$PROBE_OK" -eq 1 ]; then
+		SUCCESS=$((SUCCESS + 1))
+		if [ "$PROBE_LATENCY" -ge 0 ]; then
+			LATENCY_SUM=$((LATENCY_SUM + PROBE_LATENCY))
+			LATENCY_COUNT=$((LATENCY_COUNT + 1))
+		fi
+	else
+		FAILED_NAMES="${FAILED_NAMES}${FAILED_NAMES:+, }$(clean_field "$name")"
+	fi
+
+	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+		"$(clean_field "$section")" "$(clean_field "$name")" "$type" \
+		"$(clean_field "$address")" "$family" "$PROBE_OK" "$PROBE_LATENCY" \
+		"$(clean_field "$PROBE_MESSAGE")" >> "$TARGETS_TMP"
+}
+
+read_previous_state() {
+	PREV_STATE='unknown'
+	PREV_SINCE=0
+	FAIL_COUNT=0
+	RECOVERY_COUNT=0
+	if [ -s "$STATE_FILE" ]; then
+		IFS="$(printf '\t')" read -r PREV_STATE PREV_SINCE _ _ _ _ _ FAIL_COUNT RECOVERY_COUNT _ _ < "$STATE_FILE"
+	elif [ -s "$EVENTS_PENDING" ]; then
+		IFS="$(printf '\t')" read -r PREV_SINCE PREV_STATE _ <<-EOF
+		$(tail -n 1 "$EVENTS_PENDING")
+		EOF
+	elif [ -s "$EVENTS_FILE" ]; then
+		IFS="$(printf '\t')" read -r PREV_SINCE PREV_STATE _ <<-EOF
+		$(tail -n 1 "$EVENTS_FILE")
+		EOF
+	fi
+	case "$PREV_STATE" in online|degraded|offline|unknown) ;; *) PREV_STATE=unknown ;; esac
+	PREV_SINCE="$(clamp_uint "$PREV_SINCE" 0 2147483647 0)"
+	FAIL_COUNT="$(clamp_uint "$FAIL_COUNT" 0 100000 0)"
+	RECOVERY_COUNT="$(clamp_uint "$RECOVERY_COUNT" 0 100000 0)"
+}
+
+record_event() {
+	local timestamp="$1" state="$2" reason="$3"
+	set_monotonic_timestamp "$timestamp"
+	timestamp="$MONOTONIC_TIME"
+	make_event_id "$timestamp"
+	printf '%s\t%s\t%s\t%s\n' \
+		"$timestamp" "$state" "$(clean_field "$reason")" "$EVENT_ID" >> "$EVENTS_PENDING"
+	logger -t "$SERVICE" "state changed to $state: $reason"
+}
+
+prune_events() {
+	local timestamp="$1" cutoff tmp limited lines
+	[ -s "$EVENTS_FILE" ] || return 0
+	cutoff=$((timestamp - HISTORY_DAYS * 86400))
+	tmp="$EVENTS_FILE.tmp.$$"
+	limited="$EVENTS_FILE.limited.$$"
+	normalize_events < "$EVENTS_FILE" | awk -F '\t' -v cutoff="$cutoff" '
+		$1 < cutoff { previous = $0; next }
+		!kept { if (previous != "") print previous; kept = 1 }
+		{ print }
+		END { if (!kept && previous != "") print previous }
+	' > "$tmp" && mv "$tmp" "$EVENTS_FILE"
+	lines="$(wc -l < "$EVENTS_FILE" 2>/dev/null)"
+	case "$lines" in ''|*[!0-9]*) lines=0 ;; esac
+	if [ "$lines" -gt "$MAX_EVENT_LINES" ]; then
+		tail -n "$MAX_EVENT_LINES" "$EVENTS_FILE" > "$limited" && mv "$limited" "$EVENTS_FILE"
+	fi
+}
+
+flush_events() {
+	local timestamp="$1" force="${2:-0}" last_flush last_prune merged schedule_now
+	schedule_now="$(cycle_clock)"
+	last_flush="$(cat "$FLUSH_STAMP" 2>/dev/null)"
+	case "$last_flush" in ''|*[!0-9]*) last_flush=0 ;; esac
+	[ "$last_flush" -gt "$schedule_now" ] && last_flush=0
+	if [ "$last_flush" -eq 0 ]; then
+		printf '%s\n' "$schedule_now" > "$FLUSH_STAMP"
+		[ "$force" -eq 1 ] || return 0
+	elif [ "$force" -ne 1 ] && [ $((schedule_now - last_flush)) -lt "$EVENT_FLUSH_INTERVAL" ]; then
+		return 0
+	fi
+
+	if [ -s "$EVENTS_PENDING" ]; then
+		merged="$EVENTS_FILE.merge.$$"
+		{
+			[ -s "$EVENTS_FILE" ] && cat "$EVENTS_FILE"
+			cat "$EVENTS_PENDING"
+		} | normalize_events > "$merged" && {
+			mv "$merged" "$EVENTS_FILE"
+			rm -f "$EVENTS_PENDING"
+		}
+	fi
+	printf '%s\n' "$schedule_now" > "$FLUSH_STAMP"
+
+	last_prune="$(cat "$PRUNE_STAMP" 2>/dev/null)"
+	case "$last_prune" in ''|*[!0-9]*) last_prune=0 ;; esac
+	[ "$last_prune" -gt "$schedule_now" ] && last_prune=0
+	if [ "$last_prune" -eq 0 ] || [ $((schedule_now - last_prune)) -ge "$EVENT_PRUNE_INTERVAL" ]; then
+		prune_events "$timestamp"
+		printf '%s\n' "$schedule_now" > "$PRUNE_STAMP"
+	fi
+}
+
+mark_start_boundary() {
+	local now boot uptime last timestamp state updated previous_class
+	set_monotonic_timestamp "$(date +%s)"
+	now="$MONOTONIC_TIME"
+	if [ -s "$STATE_FILE" ]; then
+		IFS="$(printf '\t')" read -r state _ updated _ < "$STATE_FILE"
+		previous_class="$(state_class "$state")"
+		updated="$(clamp_uint "$updated" 0 2147483647 "$now")"
+		if [ "$previous_class" != 'unknown' ]; then
+			record_event "$updated" unknown 'Previous monitoring process ended unexpectedly'
+			flush_events "$now" 1
+		fi
+		rm -f "$STATE_FILE" "$TARGETS_FILE"
+		return 0
+	fi
+	last="$(last_event)"
+	[ -n "$last" ] || return 0
+	IFS="$(printf '\t')" read -r timestamp state _ <<-EOF
+	$last
+	EOF
+	previous_class="$(state_class "$state")"
+	[ "$previous_class" != 'unknown' ] || return 0
+
+	boot="$now"
+	if [ -r /proc/uptime ]; then
+		uptime="$(cut -d. -f1 < /proc/uptime)"
+		case "$uptime" in ''|*[!0-9]*) uptime=0 ;; esac
+		[ "$uptime" -gt 0 ] && boot=$((now - uptime))
+	fi
+	timestamp="$(clamp_uint "$timestamp" 0 2147483647 0)"
+	[ "$boot" -lt "$timestamp" ] && boot="$now"
+	record_event "$boot" unknown 'Monitoring unavailable during system restart'
+	flush_events "$now" 1
+}
+
+trim_samples() {
+	local max_samples lines tmp
+	max_samples=$((HISTORY_DAYS * 86400 / INTERVAL))
+	[ "$max_samples" -lt 288 ] && max_samples=288
+	[ "$max_samples" -gt 20000 ] && max_samples=20000
+	lines="$(wc -l < "$SAMPLES_FILE" 2>/dev/null)"
+	case "$lines" in ''|*[!0-9]*) return ;; esac
+	[ "$lines" -le "$max_samples" ] && return
+	tmp="$SAMPLES_FILE.tmp.$$"
+	tail -n "$max_samples" "$SAMPLES_FILE" > "$tmp" && mv "$tmp" "$SAMPLES_FILE"
+}
+
+probe_cycle() {
+	local now required state since average reason state_tmp targets_commit generation previous_class current_class
+	local limit_warning='' limit_tmp
+	acquire_lock || return 75
+	load_settings
+	init_storage
+
+	TOTAL=0
+	SUCCESS=0
+	LATENCY_SUM=0
+	LATENCY_COUNT=0
+	FAILED_NAMES=''
+	IGNORED_TARGETS=0
+	CYCLE_STARTED="$(cycle_clock)"
+	CYCLE_DEADLINE=$((CYCLE_STARTED + MAX_CYCLE_SECONDS))
+	TARGETS_TMP="$TARGETS_FILE.tmp.$$"
+	: > "$TARGETS_TMP"
+	config_foreach probe_target target
+	if [ "$IGNORED_TARGETS" -gt 0 ]; then
+		limit_warning="$IGNORED_TARGETS enabled targets ignored (limit $MAX_TARGETS)"
+		limit_tmp="$TARGETS_TMP.limit"
+		awk -F '\t' -v OFS='\t' -v warning="$limit_warning" '
+			NR == 1 { $8 = $8 "; " warning }
+			{ print }
+		' "$TARGETS_TMP" > "$limit_tmp" && mv "$limit_tmp" "$TARGETS_TMP"
+	fi
+	set_monotonic_timestamp "$(date +%s)"
+	now="$MONOTONIC_TIME"
+	generation="$now-$$-$CYCLE_COUNT"
+	required="$QUORUM"
+	[ "$TOTAL" -gt 0 ] && [ "$required" -gt "$TOTAL" ] && required="$TOTAL"
+	read_previous_state
+
+	if [ "$TOTAL" -eq 0 ]; then
+		state='unknown'
+		FAIL_COUNT=0
+		RECOVERY_COUNT=0
+		reason='No enabled probe targets'
+	elif [ "$SUCCESS" -ge "$required" ]; then
+		FAIL_COUNT=0
+		if [ "$PREV_STATE" = 'offline' ] || [ "$RECOVERY_COUNT" -gt 0 ]; then
+			RECOVERY_COUNT=$((RECOVERY_COUNT + 1))
+			if [ "$RECOVERY_COUNT" -lt "$RECOVERY_THRESHOLD" ]; then
+				state='offline'
+				reason="Recovery confirmation $RECOVERY_COUNT/$RECOVERY_THRESHOLD"
+			else
+				RECOVERY_COUNT=0
+				if [ "$SUCCESS" -eq "$TOTAL" ]; then state='online'; else state='degraded'; fi
+				reason="$SUCCESS/$TOTAL probes reachable"
+			fi
+		else
+			RECOVERY_COUNT=0
+			if [ "$SUCCESS" -eq "$TOTAL" ]; then state='online'; else state='degraded'; fi
+			reason="$SUCCESS/$TOTAL probes reachable"
+		fi
+	else
+		RECOVERY_COUNT=0
+		FAIL_COUNT=$((FAIL_COUNT + 1))
+		if [ "$PREV_STATE" = 'offline' ] || [ "$FAIL_COUNT" -ge "$FAILURE_THRESHOLD" ]; then
+			state='offline'
+		else
+			state='degraded'
+		fi
+		reason="$SUCCESS/$TOTAL probes reachable; failed: ${FAILED_NAMES:-all}"
+	fi
+	[ -n "$limit_warning" ] && reason="$limit_warning; $reason"
+
+	if [ "$LATENCY_COUNT" -gt 0 ]; then average=$((LATENCY_SUM / LATENCY_COUNT)); else average=-1; fi
+	if [ "$state" = "$PREV_STATE" ] && [ "$PREV_SINCE" -gt 0 ]; then since="$PREV_SINCE"; else since="$now"; fi
+
+	state_tmp="$STATE_FILE.tmp.$$"
+	targets_commit="$TARGETS_FILE.commit.$$"
+	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+		"$state" "$since" "$now" "$SUCCESS" "$TOTAL" "$required" "$average" \
+		"$FAIL_COUNT" "$RECOVERY_COUNT" "$generation" "$(clean_field "$reason")" \
+		"$IGNORED_TARGETS" > "$state_tmp"
+	awk -v generation="$generation" 'BEGIN { OFS="\t" } { print generation, $0 }' \
+		"$TARGETS_TMP" > "$targets_commit"
+	mv "$state_tmp" "$STATE_FILE"
+	mv "$targets_commit" "$TARGETS_FILE"
+	rm -f "$TARGETS_TMP"
+	printf '%s\t%s\t%s\n' "$now" "$state" "$average" >> "$SAMPLES_FILE"
+
+	previous_class="$(state_class "$PREV_STATE")"
+	current_class="$(state_class "$state")"
+	# Persist only availability-class boundaries. Online/degraded target flapping
+	# remains visible in RAM without causing frequent flash writes.
+	if { [ ! -s "$EVENTS_FILE" ] && [ ! -s "$EVENTS_PENDING" ]; } || \
+		[ "$current_class" != "$previous_class" ]; then
+		record_event "$now" "$state" "$reason"
+	fi
+	flush_events "$now" 0
+	CYCLE_COUNT=$((CYCLE_COUNT + 1))
+	[ $((CYCLE_COUNT % 60)) -eq 0 ] && trim_samples
+	release_lock
+	return 0
+}
+
+clear_history() {
+	local now current='unknown' reason='History cleared' tmp generation ignored=0
+	init_storage
+	acquire_lock || return 75
+	set_monotonic_timestamp "$(date +%s)"
+	now="$MONOTONIC_TIME"
+	generation="clear-$now-$$"
+	if [ -s "$STATE_FILE" ]; then
+		IFS="$(printf '\t')" read -r current _ _ _ _ _ _ _ _ _ _ < "$STATE_FILE"
+	fi
+	case "$current" in online|degraded|offline|unknown) ;; *) current=unknown ;; esac
+	rm -f "$SAMPLES_FILE" "$EVENTS_FILE" "$EVENTS_PENDING" "$META_FILE" "$FLUSH_STAMP" "$PRUNE_STAMP"
+	printf '%s\n' "$now" > "$META_FILE"
+	make_event_id "$now"
+	printf '%s\t%s\t%s\t%s\n' "$now" "$current" "$reason" "$EVENT_ID" > "$EVENTS_FILE"
+	printf '%s\n' "$(cycle_clock)" > "$FLUSH_STAMP"
+	printf '%s\n' "$(cycle_clock)" > "$PRUNE_STAMP"
+	if [ -s "$STATE_FILE" ]; then
+		IFS="$(printf '\t')" read -r _ _ updated success total required average fail recovery generation _ ignored < "$STATE_FILE"
+		tmp="$STATE_FILE.tmp.$$"
+		printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+			"$current" "$now" "${updated:-$now}" "${success:-0}" "${total:-0}" \
+			"${required:-0}" "${average:--1}" "${fail:-0}" "${recovery:-0}" "$generation" \
+			"$reason" "${ignored:-0}" > "$tmp"
+		mv "$tmp" "$STATE_FILE"
+	fi
+	release_lock
+}
+
+shutdown() {
+	local now state current_class
+	if [ -d "$RUNTIME_DIR" ]; then
+		load_settings >/dev/null 2>&1 || true
+		set_monotonic_timestamp "$(date +%s)"
+		now="$MONOTONIC_TIME"
+		state='unknown'
+		if [ -s "$STATE_FILE" ]; then
+			IFS="$(printf '\t')" read -r state _ < "$STATE_FILE"
+		fi
+		current_class="$(state_class "$state")"
+		if [ "$current_class" != 'unknown' ]; then
+			record_event "$now" unknown 'Monitoring service stopped'
+		fi
+		flush_events "$now" 1
+		if [ -n "$SLEEP_PID" ]; then
+			kill "$SLEEP_PID" 2>/dev/null || true
+		fi
+		rm -f "$STATE_FILE" "$TARGETS_FILE" "$PROBE_REQUEST"
+	fi
+	release_lock
+	exit 0
+}
+
+trigger_probe() {
+	TRIGGERED=1
+	if [ -n "$SLEEP_PID" ]; then
+		kill "$SLEEP_PID" 2>/dev/null || true
+	fi
+}
+
+trap shutdown INT TERM
+trap trigger_probe USR1
+
+case "${1:-}" in
+	--once)
+		init_storage
+		probe_cycle
+		exit $?
+	;;
+	--clear)
+		clear_history
+		exit $?
+	;;
+esac
+
+init_storage
+load_settings
+[ "$ENABLED" -eq 1 ] || exit 0
+mark_start_boundary
+
+while :; do
+	probe_cycle || true
+	load_settings
+	[ "$ENABLED" -eq 1 ] || shutdown
+	REQUESTED=0
+	consume_probe_request && REQUESTED=1
+	if [ "$TRIGGERED" -eq 1 ] || [ "$REQUESTED" -eq 1 ]; then
+		consume_probe_request >/dev/null 2>&1 || true
+		TRIGGERED=0
+		continue
+	fi
+	sleep "$INTERVAL" &
+	SLEEP_PID=$!
+	REQUESTED=0
+	consume_probe_request && REQUESTED=1
+	if [ "$TRIGGERED" -eq 1 ] || [ "$REQUESTED" -eq 1 ]; then
+		consume_probe_request >/dev/null 2>&1 || true
+		TRIGGERED=0
+		kill "$SLEEP_PID" 2>/dev/null || true
+		wait "$SLEEP_PID" 2>/dev/null || true
+		SLEEP_PID=''
+		continue
+	fi
+	wait "$SLEEP_PID" 2>/dev/null || true
+	SLEEP_PID=''
+	consume_probe_request >/dev/null 2>&1 || true
+	TRIGGERED=0
+done
