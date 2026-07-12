@@ -6,10 +6,10 @@ PKG_RELEASE:=1
 
 PKG_SOURCE_DATE:=2026-07-12
 PKG_SOURCE_VERSION:=eb54eaea830da746c33ba06840f719559f6fec94
-PKG_SOURCE:=$(PKG_NAME)-$(PKG_SOURCE_VERSION).tar.gz
-PKG_SOURCE_URL:=https://codeload.github.com/LazuliKao/portweaver/tar.gz/$(PKG_SOURCE_VERSION)?
-PKG_HASH:=a931ecbd4b63f22c2029a2433c78bb87e1116e28848c4ca84721d1e97d609ffb
-PKG_UNPACK:=$(STAGING_DIR_HOST)/bin/libdeflate-gzip -dc $(DL_DIR)/$(PKG_SOURCE) | $(TAR) -C $(PKG_BUILD_DIR) --strip-components=1 -xf -
+PKG_SOURCE_PROTO:=git
+PKG_SOURCE_URL:=https://github.com/LazuliKao/portweaver.git
+PKG_SOURCE_SUBMODULES:=deps/libuv deps/asio deps/liburing
+PKG_MIRROR_HASH:=b82d443afb094527356c7d59b3c0ac69ddce39592f25860feee27fe17e1ca0e8
 
 PKG_LICENSE:=GPL-3.0
 PKG_LICENSE_FILES:=LICENSE
