@@ -207,6 +207,17 @@ return view.extend({
 		o.datatype = 'uinteger';
 		o.placeholder = '200';
 
+		/* ===== Section: global_delay → Main tab (boot delay) ===== */
+		var sDelay = m.section(form.NamedSection, 'global_delay', 'global_delay');
+		sDelay.addremove = false;
+		sDelay.tab('Main', _('Main'));
+
+		o = sDelay.taboption('Main', form.Value, 'start_delay', _('Start Delay (seconds)'));
+		o.description = _('Delay before Bypass starts on boot (lets WAN/DNS settle). Mirrors passwall2. 0 = start immediately. The default main switch above must be enabled for the service to actually run.');
+		o.datatype = 'uinteger';
+		o.default = '5';
+		o.placeholder = '5';
+
 		/* ===== Section: global_forwarding → Forwarding tab ===== */
 		var sFwd = m.section(form.NamedSection, 'global_forwarding', 'global_forwarding');
 		sFwd.addremove = false;

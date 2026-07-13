@@ -137,7 +137,7 @@ EOF
 	done
 
 	egress_mark_start
-	gen_include
+	nft_gen_include
 	log 0 "nftables ruleset installed (mode=%s, redir_port=%s)." "$mode" "$REDIR_PORT"
 }
 

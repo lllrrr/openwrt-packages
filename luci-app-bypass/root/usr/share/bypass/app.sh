@@ -531,7 +531,16 @@ start() {
 	CHINADNS_OK=0
 	check_run_environment
 
-	[ "$ENABLED" = "1" ] && [ -n "$NODE" ] && {
+	# If the service is disabled, do nothing — especially do NOT install the
+	# nftables REDIRECT ruleset (it would send all TCP to a dead REDIR_PORT and
+	# blackhole the router's own WAN). Bail out early and cleanly.
+	[ "$ENABLED" = "1" ] || {
+		log 0 "Bypass is disabled (enabled=0). Skipping start."
+		echolog ""
+		return 0
+	}
+
+	[ -n "$NODE" ] && {
 		[ "$(config_get_type "$NODE")" = "nodes" ] && {
 			run_naive
 		}
@@ -544,7 +553,27 @@ start() {
 	run_dnsmasq_forward
 	[ "$BYPASSCORE_OK" != "1" ] && gen_bypasscore_config
 
-	[ -n "$USE_TABLES" ] && source "$APP_PATH/${USE_TABLES}.sh" start
+	# Start the queued processes NOW (naive / chinadns-ng) so we can verify
+	# the REDIR_PORT listener is actually up before installing the REDIRECT
+	# ruleset. The firewall install was moved below run_process_queue on
+	# purpose: installing REDIRECT before the listener exists blackholes all
+	# TCP traffic and can crash the router.
+	run_process_queue
+
+	# Give naive a moment to open its listener, then confirm the process is
+	# still alive. A listener that dies immediately (bad node config, missing
+	# binary) means REDIR_PORT is dead — installing REDIRECT would blackhole
+	# the router, so skip it with a clear log line.
+	if [ -n "$USE_TABLES" ] && [ "$NAIVE_OK" = "1" ]; then
+		sleep 2
+		if busybox pgrep -f "$TMP_BIN_PATH" >/dev/null 2>&1; then
+			source "$APP_PATH/${USE_TABLES}.sh" start
+		else
+			log 0 "naive listener died — nftables REDIRECT rules skipped (would blackhole traffic). Check node config."
+		fi
+	elif [ -n "$USE_TABLES" ]; then
+		log 0 "naive listener not queued — nftables REDIRECT rules skipped (would blackhole traffic)."
+	fi
 	set_cache_var USE_TABLES "$USE_TABLES"
 
 	# Bridge-nf call disable so iptables sees bridged traffic cleanly.
@@ -555,7 +584,6 @@ start() {
 		sysctl -w net.bridge.bridge-nf-call-iptables=0 >/dev/null 2>&1
 	fi
 
-	run_process_queue
 	start_crontab
 	log 0 "Bypass started."
 	echolog ""
@@ -564,7 +592,15 @@ start() {
 stop() {
 	clean_log
 	eval_cache_var
+	# Always tear down the nftables tables, even if USE_TABLES isn't set in the
+	# cache (e.g. after a reboot where the cache file is gone). A leftover
+	# REDIRECT rule pointing at a dead REDIR_PORT would blackhole the router.
 	[ -n "$USE_TABLES" ] && source "$APP_PATH/${USE_TABLES}.sh" stop 2>/dev/null
+	NFT_BIN=$(command -v nft 2>/dev/null || echo /usr/sbin/nft)
+	[ -x "$NFT_BIN" ] && {
+		$NFT_BIN delete table inet bypass 2>/dev/null
+		$NFT_BIN delete table inet bypass_egress 2>/dev/null
+	}
 	teardown_egress_routing
 	restore_dnsmasq_forward
 
