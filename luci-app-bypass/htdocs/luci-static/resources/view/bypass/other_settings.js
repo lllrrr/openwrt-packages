@@ -3,12 +3,26 @@
 'require form';
 'require uci';
 
+function validatePortList(_sid, value) {
+	if (value === 'disable') return true;
+	if (!/^\d+(?::\d+)?(?:,\d+(?::\d+)?)*$/.test(value || ''))
+		return _('Use comma-separated ports or ranges, for example 80,443,1000:2000.');
+	var entries = value.split(',');
+	for (var i = 0; i < entries.length; i++) {
+		var range = entries[i].split(':');
+		var first = +range[0], last = +(range[1] || range[0]);
+		if (first < 1 || last > 65535 || first > last)
+			return _('Ports must be between 1 and 65535 and ranges must be ascending.');
+	}
+	return true;
+}
+
 // Other Settings — mirrors passwall2's client/other.lua, minus the Xray /
 // Sing-box core sections (bypass has neither). Two sections:
-//   • Delay Settings (global_delay): start_daemon, start_delay, scheduled
+//   • Delay Settings (global_delay): start_delay, scheduled
 //     stop/start/restart via week_mode + time_mode + interval_mode (cron).
 //   • Forwarding Settings (global_forwarding): redir/no-redir ports, redirect
-//     vs tproxy, ipv6_tproxy, accept_icmp/v6.
+//     vs tproxy.
 
 return view.extend({
 	load: function () {
@@ -16,19 +30,17 @@ return view.extend({
 	},
 
 	render: function () {
-		var m = new form.Map('bypass', _('Other Settings'));
+		var m = new form.Map('bypass');
 		var o;
 
 		/* ===== Delay Settings ===== */
 		var sDelay = m.section(form.TypedSection, 'global_delay', _('Delay Settings'));
 		sDelay.anonymous = true;
 
-		o = sDelay.option(form.Flag, 'start_daemon', _('Open and close Daemon'),
-			_('Keep the service alive; restart it if it dies.'));
-		o.rmempty = false;
-		o.default = '1';
-
 		o = sDelay.option(form.Value, 'start_delay', _('Delay Start'), _('Units: seconds.'));
+		o.datatype = 'uinteger';
+		o.default = '60';
+		o.placeholder = '60';
 
 		// Scheduled stop / start / restart: week_mode + time_mode + interval_mode.
 		var verbs = ['stop', 'start', 'restart'];
@@ -76,33 +88,50 @@ return view.extend({
 		sFwd.anonymous = true;
 
 		o = sFwd.option(form.Value, 'tcp_no_redir_ports', _('TCP No Redir Ports'));
+		o.validate = validatePortList;
 		o.value('disable', _('No patterns are used'));
 		o.value('1:65535', _('All'));
 
 		o = sFwd.option(form.Value, 'udp_no_redir_ports', _('UDP No Redir Ports'),
-			E('span', { style: 'color:red' }, _('Fill in the ports you don\'t want to be forwarded by the agent, with the highest priority.')));
+			_('Fill in the ports you don\'t want to be forwarded by the agent, with the highest priority.'));
 		o.value('disable', _('No patterns are used'));
+		o.validate = validatePortList;
 		o.value('1:65535', _('All'));
 
 		o = sFwd.option(form.Value, 'tcp_redir_ports', _('TCP Redir Ports'));
+		o.validate = validatePortList;
 		o.value('1:65535', _('All'));
 		o.value('22,25,53,80,143,443,465,587,853,873,993,995,5222,8080,8443,9418', _('Common Use'));
 		o.value('80,443', _('Only Web'));
 
 		o = sFwd.option(form.Value, 'udp_redir_ports', _('UDP Redir Ports'));
+		o.validate = validatePortList;
 		o.value('1:65535', _('All'));
+		o.description = _('NaiveProxy does not support SOCKS5 UDP ASSOCIATE. UDP traffic remains direct in this Naive-only project.');
+
+		o = sFwd.option(form.DummyValue, '_port_tips', ' ');
+		o.rawhtml = true;
+		o.cfgvalue = function () {
+			return E('span', { style: 'color:red' }, [
+				_('The port settings support single ports and ranges.'), E('br'),
+				_('Separate multiple ports with commas (,).'), E('br'),
+				_('Example: 21,80,443,1000:2000.')
+			]);
+		};
 
 		o = sFwd.option(form.ListValue, 'tcp_proxy_way', _('TCP Proxy way'));
 		o.value('redirect', _('REDIRECT'));
 		o.value('tproxy', _('TPROXY'));
 
 		o = sFwd.option(form.Flag, 'ipv6_tproxy', _('IPv6 TProxy'),
-			E('span', { style: 'color:red' }, _('Experimental feature. Make sure that your node supports IPv6.')));
+			_('Experimental feature. Make sure that your node supports IPv6.'));
+		o.default = '0';
 		o.rmempty = false;
 
-		o = sFwd.option(form.Flag, 'accept_icmp', _('Hijacking ICMP (PING)'));
-		o = sFwd.option(form.Flag, 'accept_icmpv6', _('Hijacking ICMPv6 (IPv6 PING)'));
-		o.depends('ipv6_tproxy', '1');
+		o = sFwd.option(form.Flag, 'force_proxy_lan_ip', _('Force Proxy LAN IP'),
+			_('When enabled, traffic whose destination is another LAN address is also sent to the transparent proxy instead of being excluded as local traffic.'));
+		o.default = '0';
+		o.rmempty = false;
 
 		return m.render();
 	}

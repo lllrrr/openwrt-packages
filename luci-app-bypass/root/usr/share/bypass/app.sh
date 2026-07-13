@@ -13,9 +13,9 @@
 . /usr/share/libubox/jshn.sh
 . ${APP_PATH:-/usr/share/bypass}/utils.sh
 
-UTIL_NAIVE=${APP_PATH}/util_naive.sh      # reserved for future per-protocol config generators
 NAIVE_TAG=naive
 CHINADNS_TAG=chinadns-ng
+DNS2SOCKS_TAG=dns2socks
 
 # Effective egress interface for the current global node (per-node override or
 # the global default). Empty = use the system default route.
@@ -34,7 +34,7 @@ get_direct_dns() {
 	RESOLVFILE=/tmp/resolv.conf.d/resolv.conf.auto
 	[ -f "${RESOLVFILE}" ] && [ -s "${RESOLVFILE}" ] || RESOLVFILE=/tmp/resolv.conf.auto
 
-	ISP_DNS=$(cat "$RESOLVFILE" 2>/dev/null | grep -E -o "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | grep -v -E '^(0\.0\.0\.0|127\.0\.0\.1)$' | awk '!seen[$0]++')
+	ISP_DNS=$(get_direct_dns_ipv4)
 
 	local DOMESTIC
 	DOMESTIC=$(config_t_get global_dns domestic_dns auto)
@@ -52,38 +52,48 @@ get_direct_dns() {
 get_config() {
 	ENABLED=$(config_t_get global enabled 0)
 	NODE=$(config_t_get global node)
-	NODE_SOCKS_PORT=$(config_t_get global node_socks_port 1070)
-	LOCALHOST_PROXY=$(config_t_get global localhost_proxy 1)
+	NODE_SOCKS_PORT=$(config_t_get global node_socks_port 1088)
+	NODE_SOCKS_BIND_LOCAL=$(config_t_get global node_socks_bind_local 1)
 	CLIENT_PROXY=$(config_t_get global client_proxy 1)
-	LOGLEVEL=$(config_t_get global loglevel error)
+	LOG_NODE=$(config_t_get global log_node 1)
+	LOGLEVEL=$(config_t_get global loglevel warning)
 	DNS_REDIRECT=$(config_t_get global dns_redirect 1)
 
 	BYPASSCORE_FILE=$(config_t_get global bypasscore_file /usr/bin/bypasscore)
 	NAIVE_BIN=$(first_type "$(config_t_get global naive_file /usr/bin/naive)" naive)
 	CHINADNS_BIN=$(first_type "$(config_t_get global chinadns_file /usr/bin/chinadns-ng)" chinadns-ng)
-	# bypass_as_core=1: BypassCore runs `-run` as the transparent proxy core
-	# (inbound + sniff + route); naiveproxy is demoted to a SOCKS upstream that
-	# BypassCore's `proxy` outbound dials into. Requires BypassCore's proxy-mode
-	# SOCKS5 dialer (pending upstream). =0 (default, legacy): naiveproxy carries
-	# traffic, BypassCore is diagnostic-only.
-	BYPASS_AS_CORE=$(config_t_get global bypass_as_core 0)
+	DNS2SOCKS_BIN=$(first_type "$(config_t_get global dns2socks_file /usr/bin/dns2socks)" dns2socks)
+	# BypassCore is the mandatory transparent routing core. NaiveProxy only
+	# exposes the selected Naive node as a local SOCKS upstream for BypassCore.
 	V2RAY_LOCATION_ASSET=$(config_t_get global_rules v2ray_location_asset /usr/share/v2ray/)
-	DOMAIN_STRATEGY=$(config_t_get global_rules domainStrategy IpIfNonMatch)
+	local detected_geosite
+	detected_geosite=$(get_geo_asset_path geosite)
+	[ -n "$detected_geosite" ] && V2RAY_LOCATION_ASSET="${detected_geosite%/*}/"
+	DOMAIN_STRATEGY=$(config_t_get global_rules domainStrategy IpOnDemand)
+	# Direct outbound egress interface (bind the freedom "direct" outbound to a
+	# named WAN so all _direct shunt traffic egresses there). Empty = unbound.
+	DIRECT_EGRESS_IFACE=$(config_t_get global_rules direct_egress_interface)
 
-	REDIR_PORT=$(echo $(get_new_port 1041 tcp,udp))
+	# Reuse the active runtime ports when API helpers source this file. Without
+	# this, merely opening a status/preview page while the service is running
+	# would select a different free port and overwrite the live config preview.
+	REDIR_PORT=$(get_cache_var ACL_GLOBAL_redir_port)
+	[ -n "$REDIR_PORT" ] || REDIR_PORT=$(echo $(get_new_port 1041 tcp))
 	TCP_PROXY_WAY=$(config_t_get global_forwarding tcp_proxy_way redirect)
 	TCP_NO_REDIR_PORTS=$(config_t_get global_forwarding tcp_no_redir_ports 'disable')
 	UDP_NO_REDIR_PORTS=$(config_t_get global_forwarding udp_no_redir_ports 'disable')
 	TCP_REDIR_PORTS=$(config_t_get global_forwarding tcp_redir_ports '1:65535')
 	UDP_REDIR_PORTS=$(config_t_get global_forwarding udp_redir_ports '1:65535')
 	PROXY_IPV6=$(config_t_get global_forwarding ipv6_tproxy 0)
-	ACCEPT_ICMP=$(config_t_get global_forwarding accept_icmp 0)
-	ACCEPT_ICMPV6=$(config_t_get global_forwarding accept_icmpv6 0)
+	FORCE_PROXY_LAN_IP=$(config_t_get global_forwarding force_proxy_lan_ip 0)
 
 	DOMESTIC_DNS_USER=$(config_t_get global_dns domestic_dns auto)
 	REMOTE_DNS=$(config_t_get global_dns remote_dns 1.1.1.1)
-	REMOTE_DNS_PROTOCOL=$(config_t_get global_dns remote_dns_protocol udp)
+	REMOTE_DNS_PROTOCOL=$(config_t_get global_dns remote_dns_protocol tcp)
 	CHINADNS_PORT=$(config_t_get global_dns chinadns_listen_port 10553)
+	DNS2SOCKS_PORT=$(get_cache_var DNS2SOCKS_PORT)
+	[ -n "$DNS2SOCKS_PORT" ] || DNS2SOCKS_PORT=$(echo $(get_new_port 10554 tcp))
+	[ "$DNS2SOCKS_PORT" = "$CHINADNS_PORT" ] && DNS2SOCKS_PORT=$(expr "$DNS2SOCKS_PORT" + 1)
 	# BypassCore DNS subsystem (the real split-DNS engine; ChinaDNS-NG stays as
 	# an ipset/nftset populator mirroring passwall2). Empty upstream -> disabled.
 	BC_DOMESTIC_DNS=$(config_t_get global_dns bc_domestic_dns https://223.5.5.5/dns-query)
@@ -91,18 +101,53 @@ get_config() {
 	BC_QUERY_STRATEGY=$(config_t_get global_dns query_strategy UseIPv4)
 	DNS_SPLIT_DOMAIN=$(config_t_get global_dns dns_split_domain geosite:cn)
 
-	# Egress (dest-IP fwmark policy routing).
+	# Egress (destination policy routing, independent of mwan3 packet marks).
 	DEFAULT_EGRESS_IFACE=$(config_t_get global default_egress_interface)
-	NAIVE_EGRESS_FWMARK=$(config_t_get global naive_egress_fwmark 0x2)
-	NAIVE_EGRESS_TABLE=$(config_t_get global naive_egress_table 200)
+	NAIVE_EGRESS_TABLE=$(config_t_get global naive_egress_table 20200)
+	NAIVE_EGRESS_RULE_PRIORITY=$(config_t_get global naive_egress_rule_priority 900)
+	echo "$NAIVE_EGRESS_TABLE" | grep -qE '^[0-9]+$' || NAIVE_EGRESS_TABLE=20200
+	echo "$NAIVE_EGRESS_RULE_PRIORITY" | grep -qE '^[0-9]+$' || NAIVE_EGRESS_RULE_PRIORITY=900
 
 	get_direct_dns
-	QUEUE_RUN=1
+	QUEUE_RUN=0
+}
+
+# Relay the trusted DNS over Naive's local SOCKS listener. Passwall2 can route
+# remote DNS inside Xray/sing-box; this project needs an explicit DNS-to-SOCKS
+# bridge because BypassCore's DNS clients and ChinaDNS-NG dial directly.
+run_dns2socks() {
+	DNS2SOCKS_OK=0
+	[ "$REMOTE_DNS_PROTOCOL" = "tls" ] && {
+		log 0 "Remote DNS uses TLS; DNS2SOCKS cannot preserve DoT, so the remote resolver remains direct."
+		return 0
+	}
+	[ -n "$DNS2SOCKS_BIN" ] || {
+		log 0 "dns2socks is not installed; remote DNS remains direct. Install dns2socks to carry it through NaiveProxy."
+		return 0
+	}
+	local upstream
+	upstream="${REMOTE_DNS#*://}"
+	case "$upstream" in
+		\[*\]:*|*:*:*) ;;
+		*:*) ;;
+		*) upstream="${upstream}:53" ;;
+	esac
+	ln_run 0 "$DNS2SOCKS_BIN" "$DNS2SOCKS_TAG" "/dev/null" /q \
+		"127.0.0.1:${NODE_SOCKS_PORT}" "$upstream" "127.0.0.1:${DNS2SOCKS_PORT}"
+	sleep 1
+	if [ "$(check_port_exists "$DNS2SOCKS_PORT" tcp)" -gt 0 ] 2>/dev/null; then
+		DNS2SOCKS_OK=1
+		set_cache_var DNS2SOCKS_PORT "$DNS2SOCKS_PORT"
+		set_cache_var DNS2SOCKS_OK 1
+		log 0 "Remote DNS: %s -> DNS2SOCKS :%s -> Naive SOCKS :%s." "$upstream" "$DNS2SOCKS_PORT" "$NODE_SOCKS_PORT"
+	else
+		log 0 "dns2socks failed to listen; remote DNS remains direct."
+	fi
 }
 
 # ------------------------------------------------------------------------------
-# naiveproxy carrier (https only). Listens in redir/tproxy/tun mode for the
-# transparent proxy, plus a SOCKS instance for per-app use / API urltest.
+# NaiveProxy protocol adapter. It exposes the selected HTTPS node as a local
+# SOCKS upstream; BypassCore remains the only transparent routing core.
 # ------------------------------------------------------------------------------
 
 run_naive() {
@@ -124,44 +169,18 @@ run_naive() {
 	local server_host=$address
 	echo "$address" | grep -qE "([A-Fa-f0-9]{1,4}::?){1,7}[A-Fa-f0-9]{1,4}" && server_host="[$address]"
 
-	# In bypass_as_core mode, naive does NOT open the redir/tproxy listener
-	# (BypassCore owns the transparent inbound on REDIR_PORT). naive only runs
-	# a SOCKS listener that BypassCore's `proxy` outbound dials into.
-	local run_redir=1
-	[ "$BYPASS_AS_CORE" = "1" ] && run_redir=0
-
-	local listen_proto
-	if [ "$run_redir" = "1" ]; then
-		case "$TCP_PROXY_WAY" in
-			tproxy)   listen_proto="tproxy"; log 0 "Warning: tproxy mode needs a naive build compiled with tproxy support." ;;
-			tun|redirect|*) listen_proto="redir" ;;
-		esac
-	fi
-
 	local cfg_dir=$TMP_ACL_PATH
 	mkdir -p "$cfg_dir"
-	local config_file="${cfg_dir}/naive.json"
 	local log_file="${cfg_dir}/naive.log"
-	[ "$LOGLEVEL" = "debug" ] || log_file="/dev/null"
-
-	# naiveproxy transparent listener (legacy mode only).
-	if [ "$run_redir" = "1" ]; then
-		json_init
-		json_add_string "listen" "${listen_proto}://127.0.0.1:${REDIR_PORT}"
-		json_add_string "proxy" "https://${username}:${password}@${server_host}:${port}"
-		[ "$log_file" != "/dev/null" ] && json_add_string "log" "$log_file"
-		json_dump > "$config_file"
-	fi
+	[ "$LOGLEVEL" = "debug" ] && [ "$LOG_NODE" = "1" ] || log_file="/dev/null"
 
 	# Egress policy routing: resolve the naive server IP(s) and install the
-	# fwmark/route so the naive -> server connection leaves via the chosen
-	# interface. The matching mangle-OUTPUT mark rule is installed by the
-	# tables backend (sourced later in start()).
+	# destination rule so Naive's server connection leaves via the selected WAN.
 	local egress_iface
 	egress_iface=$(get_effective_egress_iface)
 	if [ -n "$egress_iface" ]; then
 		resolve_uplink_ips "$NODE"
-		setup_egress_routing "$egress_iface" "$NAIVE_EGRESS_FWMARK" "$NAIVE_EGRESS_TABLE"
+		setup_egress_routing "$egress_iface" "$NAIVE_EGRESS_TABLE" "$NAIVE_EGRESS_RULE_PRIORITY" || return 1
 	else
 		log 0 "No egress interface configured; naive uses the system default route."
 	fi
@@ -169,27 +188,20 @@ run_naive() {
 	# SOCKS instance for per-app use + API tcping/urltest target.
 	local socks_cfg="${cfg_dir}/naive_socks.json"
 	json_init
-	json_add_string "listen" "socks://127.0.0.1:${NODE_SOCKS_PORT}"
+	local socks_host=127.0.0.1
+	[ "$NODE_SOCKS_BIND_LOCAL" = "1" ] || socks_host=0.0.0.0
+	json_add_string "listen" "socks://${socks_host}:${NODE_SOCKS_PORT}"
 	json_add_string "proxy" "https://${username}:${password}@${server_host}:${port}"
 	[ "$log_file" != "/dev/null" ] && json_add_string "log" "$log_file"
 	json_dump > "$socks_cfg"
 
-	if [ "$run_redir" = "1" ]; then
-		ln_run ${QUEUE_RUN} "$NAIVE_BIN" "$NAIVE_TAG" "$log_file" "$config_file"
-	fi
 	ln_run ${QUEUE_RUN} "$NAIVE_BIN" "${NAIVE_TAG}_socks" "/dev/null" "$socks_cfg"
 
 	NAIVE_OK=1
-	set_cache_var GLOBAL_SOCKS_server "127.0.0.1:${NODE_SOCKS_PORT}"
+	set_cache_var GLOBAL_SOCKS_server "${socks_host}:${NODE_SOCKS_PORT}"
 	set_cache_var ACL_GLOBAL_node "$NODE"
-	if [ "$run_redir" = "1" ]; then
-		set_cache_var ACL_GLOBAL_redir_port "$REDIR_PORT"
-		log 0 "naiveproxy: %s listen=%s://%s, proxy=https://%s:%s@%s:%s" \
-			"$NODE" "$listen_proto" "127.0.0.1:${REDIR_PORT}" "${username}" "${password:+***}" "$server_host" "$port"
-	else
-		log 0 "naiveproxy (socks upstream for BypassCore): %s socks://127.0.0.1:%s, proxy=https://%s:%s@%s:%s" \
-			"$NODE" "$NODE_SOCKS_PORT" "${username}" "${password:+***}" "$server_host" "$port"
-	fi
+	log 0 "naiveproxy (SOCKS upstream for BypassCore): %s socks://127.0.0.1:%s, proxy=https://%s:%s@%s:%s" \
+		"$NODE" "$NODE_SOCKS_PORT" "${username}" "${password:+***}" "$server_host" "$port"
 }
 
 # ------------------------------------------------------------------------------
@@ -209,8 +221,27 @@ run_chinadns_ng() {
 	local cfg_dir=$TMP_ACL_PATH
 	mkdir -p "$cfg_dir"
 	local config_file="${cfg_dir}/chinadns-ng.conf"
+	local domain_rules="default-tag gfw"
+	local geoview_bin geosite_path chnlist_path
+	geoview_bin=$(first_type "$(config_t_get global_app geoview_file /usr/bin/geoview)" geoview)
+	geosite_path=$(get_geo_asset_path geosite)
+	chnlist_path="${cfg_dir}/chnlist.txt"
+	if [ -n "$geoview_bin" ] && [ -s "$geosite_path" ]; then
+		rm -f "$chnlist_path"
+		"$geoview_bin" -type geosite -action extract -input "$geosite_path" -list cn \
+			-lowmem=true -output "$chnlist_path" >/dev/null 2>&1
+		if [ -s "$chnlist_path" ]; then
+			domain_rules="chnlist-file ${chnlist_path}
+	default-tag gfw"
+		else
+			log 0 "Could not extract geosite:cn; ChinaDNS-NG will use the trusted upstream for all domains."
+		fi
+	else
+		log 0 "geoview/geosite.dat unavailable; ChinaDNS-NG will use the trusted upstream for all domains."
+	fi
 
-	# Build vpslist from all node server addresses (always-direct set).
+	# Build the domain list consumed by ChinaDNS-NG. Literal node IPs are added
+	# to bypass_vps directly by nftables.sh.
 	[ ! -s "$cfg_dir/vpslist" ] && {
 		local node_servers
 		node_servers=$(uci show "${CONFIG}" 2>/dev/null | grep -E "(.address=)" | cut -d "'" -f 2)
@@ -223,12 +254,15 @@ run_chinadns_ng() {
 	vps_set_names="inet@bypass@bypass_vps,inet@bypass@bypass_vps6"
 
 	local remote_upstream=$REMOTE_DNS
-	case "$REMOTE_DNS_PROTOCOL" in
+	if [ "$DNS2SOCKS_OK" = "1" ]; then
+		remote_upstream="tcp://127.0.0.1:${DNS2SOCKS_PORT}"
+	else case "$REMOTE_DNS_PROTOCOL" in
 		udp) remote_upstream=$REMOTE_DNS ;;
-		tcp) remote_upstream="tcp:${REMOTE_DNS}" ;;
-		tls) remote_upstream="tls:${REMOTE_DNS%%:*}" ;;
-		https|doh) remote_upstream="https://${REMOTE_DNS#https://}/dns-query" ;;
+		tcp) remote_upstream="tcp://${REMOTE_DNS#tcp://}" ;;
+		tls) remote_upstream="tls://${REMOTE_DNS#tls://}" ;;
+		*) remote_upstream="tcp://${REMOTE_DNS#*://}" ;;
 	esac
+	fi
 
 	cat <<-EOF > "$config_file"
 		bind-addr 127.0.0.1
@@ -237,7 +271,7 @@ run_chinadns_ng() {
 		trust-dns ${remote_upstream}
 		filter-qtype 65
 		add-tagchn-ip ${set_names}
-		default-tag chn
+		${domain_rules}
 		group vpslist
 		group-dnl ${cfg_dir}/vpslist
 		group-upstream ${DOMESTIC_DNS}
@@ -266,49 +300,66 @@ map_outbound_tag() {
 
 gen_bypasscore_config() {
 	mkdir -p "$(dirname "$BYPASSCORE_CFG")"
+	BYPASSCORE_CONFIG_ERROR=0
 	local node_socks_port=$NODE_SOCKS_PORT
-	[ -z "$node_socks_port" ] && node_socks_port=1070
+	[ -z "$node_socks_port" ] && node_socks_port=1088
 
 	json_init
-	# outbounds: direct / block / proxy (+ optional multi-WAN wan freedom outbounds)
+	# outbounds: direct / block / proxy.
 	json_add_array outbounds
 		json_add_object ''
 			json_add_string tag direct
 			json_add_string mode freedom
+			# BypassCore needs the runtime L3 device (e.g. pppoe-wan), not the
+			# OpenWrt logical network name (e.g. wan).
+			if [ -n "$DIRECT_EGRESS_IFACE" ]; then
+				if get_egress_runtime "$DIRECT_EGRESS_IFACE"; then
+					json_add_object bind
+						json_add_string interface "$EGRESS_DEVICE"
+					json_close_object
+				else
+					log 0 "Direct egress interface [%s] is down or has no L3 device; refusing an unbound direct outbound." "$DIRECT_EGRESS_IFACE"
+					BYPASSCORE_CONFIG_ERROR=1
+				fi
+			fi
 		json_close_object
 		json_add_object ''
 			json_add_string tag block
 			json_add_string mode blackhole
 		json_close_object
-		# Multi-WAN: emit a bound freedom outbound for every named egress
-		# interface configured (global default + the active node's override).
-		# Mirrors BypassCore's wan1/wan2 binding model.
-		local _wan_emit _w
-		for _w in "$DEFAULT_EGRESS_IFACE" "$(get_effective_egress_iface)"; do
-			[ -z "$_w" ] && continue
-			case " $_wan_emit " in *" $_w "*) continue ;; esac
-			_wan_emit="$_wan_emit $_w"
-			local _lip
-			_lip=$(uci -q get "network.${_w}.ipaddr" 2>/dev/null)
-			json_add_object ''
-				json_add_string tag "$_w"
-				json_add_string mode freedom
-				json_add_object bind
-					json_add_string interface "$_w"
-					[ -n "$_lip" ] && json_add_string localIP "$_lip"
-				json_close_object
-			json_close_object
-		done
 		json_add_object ''
 			json_add_string tag proxy
 			json_add_string mode proxy
 			json_add_object upstream
-				json_add_string protocol naive
+				# BypassCore talks SOCKS5 to NaiveProxy's local listener. "naive"
+				# is not an accepted BypassCore upstream protocol.
+				json_add_string protocol socks
 				json_add_string server "127.0.0.1:${node_socks_port}"
 				json_add_object settings
 				json_close_object
 			json_close_object
 		json_close_object
+		# A Direct shunt rule may override the global Direct interface. Each
+		# override needs its own freedom outbound because the bind belongs to an
+		# outbound, not to an individual routing rule.
+		local _sid _outbound _egress
+		for _sid in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+			_outbound=$(config_n_get "$_sid" outbound _direct)
+			_egress=$(config_n_get "$_sid" egress_interface)
+			[ "$_outbound" = "_direct" ] && [ -n "$_egress" ] || continue
+			json_add_object ''
+				json_add_string tag "direct_${_sid}"
+				json_add_string mode freedom
+				if get_egress_runtime "$_egress"; then
+					json_add_object bind
+						json_add_string interface "$EGRESS_DEVICE"
+					json_close_object
+				else
+					log 0 "Direct rule [%s] egress interface [%s] is down or has no L3 device." "$_sid" "$_egress"
+					BYPASSCORE_CONFIG_ERROR=1
+				fi
+			json_close_object
+		done
 	json_close_array
 
 	# dns: BypassCore's split-DNS subsystem. Domestic upstream is selected by
@@ -332,7 +383,14 @@ gen_bypasscore_config() {
 				fi
 				if [ -n "$BC_REMOTE_DNS" ]; then
 					json_add_object ''
-						json_add_string address "$BC_REMOTE_DNS"
+						# When available, use the same local DNS2SOCKS relay as
+						# ChinaDNS-NG so BypassCore's own foreign lookups do not
+						# bypass the selected Naive tunnel.
+						if [ "$DNS2SOCKS_OK" = "1" ] || [ "$(get_cache_var DNS2SOCKS_OK)" = "1" ]; then
+							json_add_string address "tcp://127.0.0.1:${DNS2SOCKS_PORT}"
+						else
+							json_add_string address "$BC_REMOTE_DNS"
+						fi
 						json_add_string tag remote
 					json_close_object
 				fi
@@ -345,9 +403,31 @@ gen_bypasscore_config() {
 	json_add_object routing
 		json_add_string domainStrategy "$DOMAIN_STRATEGY"
 		json_add_array rules
-			local sid tag domains ips net
+			# This rule must precede the default PrivateIP direct rule; otherwise
+			# the UI switch would only alter nftables but BypassCore would still
+			# route matching private destinations directly.
+			if [ "$FORCE_PROXY_LAN_IP" = "1" ]; then
+				json_add_object ''
+					json_add_string outboundTag proxy
+					json_add_string network tcp
+					json_add_array ip
+						json_add_string '' "10.0.0.0/8"
+						json_add_string '' "100.64.0.0/10"
+						json_add_string '' "172.16.0.0/12"
+						json_add_string '' "192.168.0.0/16"
+						json_add_string '' "fc00::/7"
+					json_close_array
+				json_close_object
+			fi
+			local sid tag domains ips net outbound egress
 			for sid in $(uci -q show "${CONFIG}" 2>/dev/null | grep "=shunt_rules" | cut -d '.' -f2 | cut -d '=' -f1); do
-				tag=$(map_outbound_tag "$(config_n_get "$sid" outbound _direct)")
+				outbound=$(config_n_get "$sid" outbound _direct)
+				egress=$(config_n_get "$sid" egress_interface)
+				if [ "$outbound" = "_direct" ] && [ -n "$egress" ]; then
+					tag="direct_${sid}"
+				else
+					tag=$(map_outbound_tag "$outbound")
+				fi
 				[ -z "$tag" ] && tag=direct
 				json_add_object ''
 					json_add_string outboundTag "$tag"
@@ -391,50 +471,55 @@ gen_bypasscore_config() {
 		json_close_object
 	fi
 
-	# inbounds: only emitted in bypass_as_core mode. BypassCore listens on
-	# inbounds: only emitted in bypass_as_core mode. BypassCore listens on
+	# BypassCore owns the transparent inbound on REDIR_PORT.
 	# REDIR_PORT as a transparent listener; nftables REDIRECT/TPROXY sends
 	# traffic here instead of to naiveproxy. type/network follow tcp_proxy_way:
 	#   redirect -> TCP only (SO_ORIGINAL_DST)
-	#   tproxy   -> TCP + UDP (UDP needs TPROXY/IP_TRANSPARENT)
-	if [ "$BYPASS_AS_CORE" = "1" ]; then
-		local in_type="redirect" in_net="tcp"
-		if [ "$TCP_PROXY_WAY" = "tproxy" ]; then
-			in_type="tproxy"
-			in_net="tcp,udp"
-		fi
-		json_add_array inbounds
+	#   tproxy   -> TCP with IP_TRANSPARENT. NaiveProxy's SOCKS5 listener
+	#               rejects UDP ASSOCIATE, so capturing UDP would blackhole it.
+	local in_type="redirect" in_net="tcp"
+	if [ "$TCP_PROXY_WAY" = "tproxy" ] || [ "$PROXY_IPV6" = "1" ]; then
+		in_type="tproxy"
+	fi
+	json_add_array inbounds
+		json_add_object ''
+			json_add_string tag "tcp_redir"
+			json_add_string type "$in_type"
+			json_add_string listen "127.0.0.1"
+			json_add_int port "$REDIR_PORT"
+			json_add_string network "$in_net"
+			json_add_boolean sniffing 1
+		json_close_object
+		if [ "$PROXY_IPV6" = "1" ]; then
 			json_add_object ''
-				json_add_string tag "tcp_redir"
-				json_add_string type "$in_type"
-				json_add_string listen "127.0.0.1"
+				json_add_string tag "ipv6_tproxy"
+				json_add_string type "tproxy"
+				json_add_string listen "::1"
 				json_add_int port "$REDIR_PORT"
-				json_add_string network "$in_net"
+				json_add_string network "tcp"
 				json_add_boolean sniffing 1
 			json_close_object
-		json_close_array
-	fi
+		fi
+	json_close_array
 
 	json_dump > "$BYPASSCORE_CFG"
-	log 0 "BypassCore config written to %s (bypass_as_core=%s)." "$BYPASSCORE_CFG" "$BYPASS_AS_CORE"
+	log 0 "BypassCore config written to %s." "$BYPASSCORE_CFG"
+	[ "$BYPASSCORE_CONFIG_ERROR" = "0" ]
 }
 
 # ------------------------------------------------------------------------------
-# BypassCore as transparent core: `bypasscore -run -c <cfg>` (daemon). Only
-# used when bypass_as_core=1. Needs BypassCore's proxy-mode SOCKS5 dialer to
-# be useful for "proxy" routes (until then only direct/blackhole work).
+# BypassCore transparent core: `bypasscore -run -c <cfg>` (daemon).
 # ------------------------------------------------------------------------------
 run_bypasscore_core() {
-	[ "$BYPASS_AS_CORE" = "1" ] || return 0
 	if ! is_linux_elf "$BYPASSCORE_FILE" 2>/dev/null; then
-		log 0 "bypass_as_core=1 but bypasscore is missing/not a Linux ELF; cannot run as core. Falling back to legacy (naiveproxy carrier)."
+		log 0 "BypassCore is missing or is not a Linux ELF; service cannot start."
 		return 1
 	fi
-	gen_bypasscore_config
+	gen_bypasscore_config || return 1
 	local cfg_dir=$TMP_ACL_PATH
 	mkdir -p "$cfg_dir"
 	local log_file="${cfg_dir}/bypasscore.log"
-	[ "$LOGLEVEL" = "debug" ] || log_file="/dev/null"
+	[ "$LOGLEVEL" = "debug" ] && [ "$LOG_NODE" = "1" ] || log_file="/dev/null"
 	ln_run ${QUEUE_RUN} "$BYPASSCORE_FILE" "bypasscore" "$log_file" -config "$BYPASSCORE_CFG" -run
 	BYPASSCORE_OK=1
 	set_cache_var ACL_GLOBAL_redir_port "$REDIR_PORT"
@@ -463,28 +548,44 @@ check_run_environment() {
 
 run_dnsmasq_forward() {
 	[ "$CHINADNS_OK" != "1" ] && return 0
+	[ "$(check_port_exists "$CHINADNS_PORT" udp)" -gt 0 ] 2>/dev/null || {
+		log 0 "ChinaDNS-NG is not listening on :%s; leave dnsmasq unchanged." "$CHINADNS_PORT"
+		return 1
+	}
+	[ "$DNS_REDIRECT" = "1" ] || {
+		log 0 "dnsmasq forwarding is disabled; ChinaDNS-NG remains available on :%s." "$CHINADNS_PORT"
+		return 0
+	}
 	# Save the current upstream so we can restore on stop.
-	local old
+	local old old_rebind
 	old=$(uci -q get dhcp.@dnsmasq[0].server 2>/dev/null)
-	[ -n "$old" ] && set_cache_var bak_dnsmasq_server "$old"
+	old_rebind=$(uci -q get dhcp.@dnsmasq[0].rebind_protection 2>/dev/null)
+	set_cache_var bak_dnsmasq_server "${old:-__unset__}"
+	set_cache_var bak_dnsmasq_rebind "${old_rebind:-__unset__}"
+	set_cache_var DNSMASQ_MODIFIED 1
 	uci -q delete dhcp.@dnsmasq[0].server 2>/dev/null
 	uci -q add_list dhcp.@dnsmasq[0].server="127.0.0.1#${CHINADNS_PORT}" 2>/dev/null
-	[ "$DNS_REDIRECT" = "1" ] && {
-		uci -q set dhcp.@dnsmasq[0].rebind_protection='0' 2>/dev/null
-	}
+	uci -q set dhcp.@dnsmasq[0].rebind_protection='0' 2>/dev/null
 	uci -q commit dhcp 2>/dev/null
 	/etc/init.d/dnsmasq restart >/dev/null 2>&1
 	log 0 "dnsmasq forwarded to ChinaDNS-NG :%s." "$CHINADNS_PORT"
 }
 
 restore_dnsmasq_forward() {
-	local bak
+	[ "$(get_cache_var DNSMASQ_MODIFIED)" = "1" ] || return 0
+	local bak bak_rebind
 	bak=$(get_cache_var bak_dnsmasq_server)
+	bak_rebind=$(get_cache_var bak_dnsmasq_rebind)
 	uci -q delete dhcp.@dnsmasq[0].server 2>/dev/null
-	[ -n "$bak" ] && {
+	[ -n "$bak" ] && [ "$bak" != "__unset__" ] && {
 		local s
 		for s in $bak; do uci -q add_list dhcp.@dnsmasq[0].server="$s" 2>/dev/null; done
 	}
+	if [ "$bak_rebind" = "__unset__" ]; then
+		uci -q delete dhcp.@dnsmasq[0].rebind_protection 2>/dev/null
+	elif [ -n "$bak_rebind" ]; then
+		uci -q set dhcp.@dnsmasq[0].rebind_protection="$bak_rebind" 2>/dev/null
+	fi
 	uci -q commit dhcp 2>/dev/null
 	/etc/init.d/dnsmasq restart >/dev/null 2>&1
 }
@@ -521,9 +622,10 @@ start_crontab() {
 	week=$(config_t_get global_rules update_week_mode)
 	time=$(config_t_get global_rules update_time_mode "0:00")
 	interval=$(config_t_get global_rules update_interval_mode 2)
-	local geo_en
+	local geo_en geoip_en
 	geo_en=$(config_t_get global_rules geosite_update 1)
-	if [ "$geo_en" = "1" ] && [ -n "$week" ]; then
+	geoip_en=$(config_t_get global_rules geoip_update 1)
+	if { [ "$geo_en" = "1" ] || [ "$geoip_en" = "1" ]; } && [ -n "$week" ]; then
 		prefix=$(cron_prefix "$week" "$time" "$interval")
 		[ -n "$prefix" ] && echo "$prefix ${APP_PATH}/rule_update.sh >>${LOG_FILE} 2>&1" >> /etc/crontabs/root
 	fi
@@ -560,7 +662,7 @@ start() {
 		(stop) 2>/dev/null
 		sleep 1
 	}
-	mkdir -p /tmp/etc /tmp/log "$TMP_PATH" "$TMP_BIN_PATH" "$TMP_SCRIPT_FUNC_PATH" "$TMP_ROUTE_PATH" "$TMP_ACL_PATH" "$TMP_PATH2"
+	mkdir -p /tmp/etc /tmp/log "$TMP_PATH" "$TMP_BIN_PATH" "$TMP_ROUTE_PATH" "$TMP_ACL_PATH" "$TMP_PATH2"
 
 	get_config
 	export BYPASSCORE_ASSETS="$V2RAY_LOCATION_ASSET"
@@ -571,7 +673,8 @@ start() {
 	NAIVE_OK=0
 	BYPASSCORE_OK=0
 	CHINADNS_OK=0
-	check_run_environment
+	DNS2SOCKS_OK=0
+	unset_cache_var DNS2SOCKS_OK
 
 	# If the service is disabled, do nothing — especially do NOT install the
 	# nftables REDIRECT ruleset (it would send all TCP to a dead REDIR_PORT and
@@ -581,42 +684,43 @@ start() {
 		echolog ""
 		return 0
 	}
-
-	[ -n "$NODE" ] && {
-		[ "$(config_get_type "$NODE")" = "nodes" ] && {
-			run_naive
-		}
+	check_run_environment || return 1
+	if ! is_linux_elf "$BYPASSCORE_FILE" 2>/dev/null; then
+		log 0 "BypassCore is required but unavailable at [%s]; service not started." "$BYPASSCORE_FILE"
+		return 1
+	fi
+	[ -n "$NODE" ] && [ "$(config_get_type "$NODE")" = "nodes" ] || {
+		log 0 "A valid NaiveProxy node must be selected; service not started."
+		return 1
 	}
-	# bypass_as_core: BypassCore runs -run as the transparent core. If it
-	# fails (e.g. bypasscore missing/non-ELF), run_naive already ran in legacy
-	# mode above so traffic still flows via naiveproxy.
-	run_bypasscore_core
+	run_naive || { teardown_egress_routing; return 1; }
+	run_dns2socks
+	run_bypasscore_core || { teardown_egress_routing; return 1; }
 	run_chinadns_ng
-	run_dnsmasq_forward
-	[ "$BYPASSCORE_OK" != "1" ] && gen_bypasscore_config
 
-	# Start the queued processes NOW (naive / chinadns-ng) so we can verify
-	# the REDIR_PORT listener is actually up before installing the REDIRECT
-	# ruleset. The firewall install was moved below run_process_queue on
-	# purpose: installing REDIRECT before the listener exists blackholes all
-	# TCP traffic and can crash the router.
-	run_process_queue
-
-	# Give naive a moment to open its listener, then confirm the process is
-	# still alive. A listener that dies immediately (bad node config, missing
-	# binary) means REDIR_PORT is dead — installing REDIRECT would blackhole
+	# Give BypassCore a moment to open its listener. A core that dies immediately
+	# (bad config, incompatible binary, or unavailable Naive SOCKS upstream)
+	# means REDIR_PORT is dead — installing REDIRECT would blackhole
 	# the router, so skip it with a clear log line.
-	if [ -n "$USE_TABLES" ] && [ "$NAIVE_OK" = "1" ]; then
-		sleep 2
-		if busybox pgrep -f "$TMP_BIN_PATH" >/dev/null 2>&1; then
-			source "$APP_PATH/${USE_TABLES}.sh" start
-		else
-			log 0 "naive listener died — nftables REDIRECT rules skipped (would blackhole traffic). Check node config."
-		fi
-	elif [ -n "$USE_TABLES" ]; then
-		log 0 "naive listener not queued — nftables REDIRECT rules skipped (would blackhole traffic)."
+	sleep 2
+	if [ "$(check_port_exists "$REDIR_PORT" tcp)" -le 0 ] 2>/dev/null || \
+		[ "$(check_port_exists "$NODE_SOCKS_PORT" tcp)" -le 0 ] 2>/dev/null; then
+		log 0 "BypassCore or its required NaiveProxy SOCKS upstream failed to listen; firewall and DNS were not modified."
+		busybox pgrep -af "$TMP_BIN_PATH" 2>/dev/null | awk '!/app\.sh|rule_update|api\.sh|ujail/{print $1}' | xargs -r kill -9 >/dev/null 2>&1
+		teardown_egress_routing
+		return 1
+	fi
+	if ! source "$APP_PATH/${USE_TABLES}.sh" start; then
+		log 0 "Firewall setup failed; stopping managed processes and leaving DNS unchanged."
+		source "$APP_PATH/${USE_TABLES}.sh" stop 2>/dev/null
+		busybox pgrep -af "$TMP_BIN_PATH" 2>/dev/null | awk '!/app\.sh|rule_update|api\.sh|ujail/{print $1}' | xargs -r kill -9 >/dev/null 2>&1
+		teardown_egress_routing
+		return 1
 	fi
 	set_cache_var USE_TABLES "$USE_TABLES"
+	# Only hand dnsmasq to ChinaDNS-NG after the process is listening and the
+	# nft sets used by add-tagchn-ip have been created.
+	run_dnsmasq_forward
 
 	# Bridge-nf call disable so iptables sees bridged traffic cleanly.
 	if [ "$NAIVE_OK" = "1" ]; then
@@ -633,7 +737,7 @@ start() {
 
 stop() {
 	clean_log
-	eval_cache_var
+	USE_TABLES=$(get_cache_var USE_TABLES)
 	# Always tear down the nftables tables, even if USE_TABLES isn't set in the
 	# cache (e.g. after a reboot where the cache file is gone). A leftover
 	# REDIRECT rule pointing at a dead REDIR_PORT would blackhole the router.
@@ -641,8 +745,11 @@ stop() {
 	NFT_BIN=$(command -v nft 2>/dev/null || echo /usr/sbin/nft)
 	[ -x "$NFT_BIN" ] && {
 		$NFT_BIN delete table inet bypass 2>/dev/null
-		$NFT_BIN delete table inet bypass_egress 2>/dev/null
 	}
+	while ip rule del priority 998 fwmark 0x10000/0x10000 lookup 20100 2>/dev/null; do :; done
+	ip route flush table 20100 proto 99 2>/dev/null
+	while ip -6 rule del priority 998 fwmark 0x10000/0x10000 lookup 20101 2>/dev/null; do :; done
+	ip -6 route flush table 20101 proto 99 2>/dev/null
 	teardown_egress_routing
 	restore_dnsmasq_forward
 

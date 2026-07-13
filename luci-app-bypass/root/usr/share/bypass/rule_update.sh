@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 #
 # Download and verify geoip.dat / geosite.dat into the BypassCore / v2ray asset
-# directory, then refresh the naive uplink IP set. Invoked by the LuCI
+# directory, then refresh the Naive server destination route. Invoked by LuCI
 # rule_update page (via api.sh) and by the periodic cron job.
 
 . /lib/functions.sh
@@ -16,10 +16,10 @@ set_lock() {
 	mkdir -p "$(dirname "$LOCK_FILE")"
 	exec 9>"$LOCK_FILE"
 	flock -xn 9 || { log 0 "rule_update already running, abort."; exit 1; }
+	trap 'unset_lock' EXIT INT TERM
 }
 unset_lock() {
 	flock -u 9
-	rm -f "$LOCK_FILE"
 }
 
 # download_one <name> <url> <dest>
@@ -52,32 +52,47 @@ update_geodata() {
 	local asset_dir
 	asset_dir=$(config_t_get global_rules v2ray_location_asset /usr/share/v2ray/)
 	asset_dir="${asset_dir%*/}"
-	mkdir -p "$asset_dir" "$TMP_PATH2"
+	mkdir -p "$asset_dir" "$TMP_PATH" "$TMP_PATH2"
 
 	local geoip_url geosite_url
-	geoip_url=$(config_t_get global_rules geoip_url "https://github.com/Loyalsoldier/geoip/releases/latest/download/geoip.dat")
+	geoip_url=$(config_t_get global_rules geoip_url "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat")
 	geosite_url=$(config_t_get global_rules geosite_url "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat")
 
 	local ok=1
-	download_one "geoip.dat" "$geoip_url" "${asset_dir}/geoip.dat" || ok=0
-	download_one "geosite.dat" "$geosite_url" "${asset_dir}/geosite.dat" || ok=0
-
-	# Signal a flush so the next service start picks up new data.
-	[ "$ok" = "1" ] && touch "$TMP_PATH/flush_set"
+	if [ "$(config_t_get global_rules geoip_update 1)" = "1" ]; then
+		download_one "geoip.dat" "$geoip_url" "${asset_dir}/geoip.dat" || ok=0
+	fi
+	if [ "$(config_t_get global_rules geosite_update 1)" = "1" ]; then
+		download_one "geosite.dat" "$geosite_url" "${asset_dir}/geosite.dat" || ok=0
+	fi
 
 	unset_lock
+	trap - EXIT INT TERM
+	if [ "$ok" = "1" ] && [ "$(config_t_get global enabled 0)" = "1" ]; then
+		log 0 "GeoData updated; restarting Bypass to reload DNS and routing rules."
+		/etc/init.d/bypass restart >/dev/null 2>&1
+	fi
 	return $((1 - ok))
 }
 
-# refresh_uplink: re-resolve the naive server IP(s) and repopulate the egress
-# set (cron hourly). Sources the tables backend if one is active.
+# refresh_uplink: re-resolve the Naive server IP(s) and rebuild its destination
+# policy rules (cron hourly).
 refresh_uplink_mode() {
-	local node use_tables
+	local node
 	node=$(config_t_get global node)
-	use_tables=$(get_cache_var USE_TABLES)
-	[ -n "$node" ] && resolve_uplink_ips "$node"
-	[ -n "$use_tables" ] && [ -x "$APP_PATH/${use_tables}.sh" ] && "$APP_PATH/${use_tables}.sh" refresh_uplink 2>/dev/null
-	return 0
+	[ -n "$node" ] || return 0
+	# Serialize with init start/stop/restart. A failed refresh must not leave
+	# Naive reconnects using the system default WAN after their dedicated rules
+	# were rolled back, so stop the service fail-closed.
+	exec 8>/var/lock/bypass.lock
+	flock -xn 8 || return 0
+	if ! refresh_uplink_ips "$node"; then
+		log 0 "Egress destination refresh failed; stopping Bypass to prevent WAN fallback."
+		${APP_PATH}/app.sh stop
+		flock -u 8
+		return 1
+	fi
+	flock -u 8
 }
 
 case "${1:-update}" in

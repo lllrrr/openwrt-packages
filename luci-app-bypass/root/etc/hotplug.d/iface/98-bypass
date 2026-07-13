@@ -1,9 +1,9 @@
 #!/bin/sh
 # hotplug.d/iface/98-bypass
 #
-# On default-route interface changes, refresh the WAN sets + uplink IPs (cheap);
-# on a fresh ifup of the default route (or the configured egress interface),
-# do a full restart so the policy route picks up the new gateway.
+# Keep firewall WAN sets fresh. Changes to any explicitly selected Naive or
+# Direct egress interface require a restart so netifd's new L3 device/gateway
+# or BypassCore device bind is applied.
 
 [ -f /var/lock/bypass_ready.lock ] || exit 0
 
@@ -21,6 +21,21 @@ egress_iface=$(uci -q get bypass.@global[0].default_egress_interface)
 node=$(uci -q get bypass.@global[0].node)
 [ -n "$node" ] && node_egress=$(uci -q get bypass.${node}.egress_interface)
 [ -n "$node_egress" ] && egress_iface="$node_egress"
+direct_iface=$(uci -q get bypass.@global_rules[0].direct_egress_interface)
+rule_direct_ifaces=$(
+	for sid in $(uci -q show bypass 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+		[ "$(uci -q get bypass.${sid}.outbound)" = "_direct" ] || continue
+		uci -q get bypass.${sid}.egress_interface
+	done | awk 'NF && !seen[$0]++'
+)
+
+is_managed_iface() {
+	[ -n "$INTERFACE" ] || return 1
+	[ "$INTERFACE" = "$egress_iface" ] && return 0
+	[ "$INTERFACE" = "$direct_iface" ] && return 0
+	case " $rule_direct_ifaces " in *" $INTERFACE "*) return 0 ;; esac
+	return 1
+}
 
 is_default_route_iface() {
 	# DEVICE from hotplug; check it carries the default route.
@@ -31,18 +46,26 @@ is_default_route_iface() {
 
 case "$ACTION" in
 	ifupdate)
-		# Cheap refresh of WAN IP set + uplink set.
-		use_tables=$(get_cache_var USE_TABLES)
-		[ -n "$use_tables" ] && [ -x "$APP_PATH/${use_tables}.sh" ] && \
-			"$APP_PATH/${use_tables}.sh" update_wan_sets 2>/dev/null
+		if is_managed_iface; then
+			( /etc/init.d/bypass restart ) >/dev/null 2>&1 &
+		else
+			use_tables=$(get_cache_var USE_TABLES)
+			[ -n "$use_tables" ] && [ -x "$APP_PATH/${use_tables}.sh" ] && \
+				"$APP_PATH/${use_tables}.sh" update_wan_sets 2>/dev/null
+		fi
 		;;
 	ifup)
-		if is_default_route_iface || [ "$DEVICE" = "$egress_iface" ]; then
+		if is_default_route_iface || is_managed_iface; then
 			( /etc/init.d/bypass restart ) >/dev/null 2>&1 &
 		fi
+		;;
+	ifdown)
+		# Any selected Naive or Direct WAN disappearing must remove its stale
+		# route/bind immediately instead of silently falling back to another WAN.
+		is_managed_iface && \
+			( /etc/init.d/bypass restart ) >/dev/null 2>&1 &
 		;;
 esac
 
 flock -u 9
-rm -f "$LOCK"
 exit 0

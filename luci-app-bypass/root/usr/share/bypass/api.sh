@@ -23,26 +23,29 @@ emit() {
 #             bypasscore_linux_elf, use_tables, egress_iface, redir_port }
 do_status() {
 	get_config
-	local naive_present=0 chinadns_present=0 bypasscore_present=0 elf=0 running=0
+	local naive_present=0 chinadns_present=0 dns2socks_present=0 bypasscore_present=0 elf=0 running=0
 	[ -n "$NAIVE_BIN" ] && naive_present=1
 	[ -n "$CHINADNS_BIN" ] && chinadns_present=1
+	[ -n "$DNS2SOCKS_BIN" ] && dns2socks_present=1
 	[ -x "$BYPASSCORE_FILE" ] && bypasscore_present=1
 	is_linux_elf "$BYPASSCORE_FILE" 2>/dev/null && elf=1
-	# Running if any bypass-managed proxy process is alive.
-	busybox pgrep -f "$TMP_BIN_PATH" >/dev/null 2>&1 && running=1
-	local use_tables egress
+	# BypassCore is the service: helper processes alone do not mean RUNNING.
+	busybox pgrep -f "$TMP_BIN_PATH/bypasscore" >/dev/null 2>&1 && running=1
+	local use_tables egress active_redir_port
 	use_tables=$(get_cache_var USE_TABLES)
 	egress=$(get_cache_var EGRESS_IFACE)
+	active_redir_port=$(get_cache_var ACL_GLOBAL_redir_port)
 
 	json_init
 	json_add_int running "$running"
 	json_add_int naive_present "$naive_present"
 	json_add_int chinadns_present "$chinadns_present"
+	json_add_int dns2socks_present "$dns2socks_present"
 	json_add_int bypasscore_present "$bypasscore_present"
 	json_add_int bypasscore_linux_elf "$elf"
 	json_add_string use_tables "$use_tables"
 	json_add_string egress_iface "$egress"
-	json_add_string redir_port "$REDIR_PORT"
+	json_add_string redir_port "$active_redir_port"
 	json_add_string node "$NODE"
 	emit
 }
@@ -170,6 +173,21 @@ do_rule_update() {
 	emit
 }
 
+# rule_status -> configured GeoData file sizes and modification times.
+do_rule_status() {
+	local geoip geosite
+	geoip=$(get_geo_asset_path geoip)
+	geosite=$(get_geo_asset_path geosite)
+	json_init
+	json_add_int geoip_size "$([ -f "$geoip" ] && stat -c %s "$geoip" 2>/dev/null || echo 0)"
+	json_add_int geoip_mtime "$([ -f "$geoip" ] && stat -c %Y "$geoip" 2>/dev/null || echo 0)"
+	json_add_int geosite_size "$([ -f "$geosite" ] && stat -c %s "$geosite" 2>/dev/null || echo 0)"
+	json_add_int geosite_mtime "$([ -f "$geosite" ] && stat -c %Y "$geosite" 2>/dev/null || echo 0)"
+	json_add_string geoip_path "$geoip"
+	json_add_string geosite_path "$geosite"
+	emit
+}
+
 # log_tail [n] -> { log }
 do_log_tail() {
 	local n=${1:-200}
@@ -195,10 +213,12 @@ do_clear_log() {
 do_interfaces() {
 	json_init
 	json_add_array interfaces
-	local iface
-	for iface in $(ubus call network.interface.dump 2>/dev/null | \
-		jsonfilter -e '@.interface[@.interface=true].interface' 2>/dev/null); do
-		[ -n "$iface" ] && json_add_string '' "$iface"
+	local iface interfaces
+	interfaces=$(uci -q show network 2>/dev/null | sed -n 's/^network\.\([^.=]*\)=interface$/\1/p')
+	interfaces="${interfaces}
+$(ubus call network.interface dump 2>/dev/null | jsonfilter -e '@.interface[*].interface' 2>/dev/null)"
+	for iface in $(printf '%s\n' "$interfaces" | awk 'NF && !seen[$0]++' | sort); do
+		[ -n "$iface" ] && [ "$iface" != "loopback" ] && json_add_string '' "$iface"
 	done
 	json_close_array
 	emit
@@ -226,24 +246,125 @@ do_connect_status() {
 
 # geo_view <action> <value> -> { code, output }
 # Wraps the geoview binary for the Geo View page. action = lookup (domain/IP →
-# geo rule) or extract (geoip:cc / geosite:name → member list). Plain text
-# output is returned as a JSON string.
+# geo rule list) or extract (geoip:cc / geosite:name → member list).
+# Mirrors passwall2's controller geo_view() invocation:
+#   lookup:  geoview -type <geoip|geosite> -action lookup  -input <dat> -value <q> -lowmem=true
+#   extract: geoview -type <geoip|geosite> -action extract -input <dat> -list  <c> -lowmem=true
+
+# Print shunt-rule section IDs containing a GeoData lookup result. This mirrors
+# passwall2 controller's get_rules(): compare the part after geosite:/geoip:
+# and ignore commented lines.
+geo_rules_for_value() {
+	local search=$1 geo_type=$2 sid list line main
+	search=$(printf '%s' "$search" | tr '[:upper:]' '[:lower:]')
+	for sid in $(uci -q show "$CONFIG" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+		if [ "$geo_type" = "geoip" ]; then
+			list=$(config_n_get "$sid" ip_list)
+		else
+			list=$(config_n_get "$sid" domain_list)
+		fi
+		while IFS= read -r line; do
+			line=$(printf '%s' "$line" | tr -d '\r' | tr '[:upper:]' '[:lower:]')
+			[ -n "$line" ] || continue
+			case "$line" in *'#'*) continue ;; esac
+			case "$line" in *:*) main=${line#*:} ;; *) main=$line ;; esac
+			if [ "$geo_type" = "geoip" ] && { echo "$search" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$|:'; }; then
+				case "$main" in *"$search"*) echo "$sid"; break ;; esac
+			elif [ "$main" = "$search" ]; then
+				echo "$sid"
+				break
+			fi
+		done <<-EOF
+		$list
+		EOF
+	done
+}
+
 do_geo_view() {
 	local action=$1 value=$2
-	local bin out
+	local bin geoip_path geosite_path
 	bin=$(first_type "$(config_t_get global_app geoview_file /usr/bin/geoview)" geoview)
+	geoip_path=$(get_geo_asset_path geoip)
+	geosite_path=$(get_geo_asset_path geosite)
 	json_init
 	if [ -z "$bin" ]; then
 		json_add_int code -1
 		json_add_string error "geoview binary not found"
-	elif [ -z "$action" ] || [ -z "$value" ]; then
+		emit
+		return
+	fi
+	if [ -z "$action" ] || [ -z "$value" ]; then
 		json_add_int code -1
 		json_add_string error "missing action or value"
-	else
-		out=$("$bin" -action "$action" -list "$value" 2>&1)
-		json_add_int code $?
-		json_add_string output "$out"
+		emit
+		return
 	fi
+
+	local geo_type file_path out rc
+	if [ "$action" = "lookup" ]; then
+		# IP → geoip; anything else → geosite.
+		if echo "$value" | grep -qE "^([0-9]{1,3}[\.]){3}[0-9]{1,3}$" || \
+		   echo "$value" | grep -qE "([A-Fa-f0-9]{1,4}::?){1,7}[A-Fa-f0-9]{1,4}"; then
+			geo_type="geoip"
+			file_path="$geoip_path"
+		else
+			geo_type="geosite"
+			file_path="$geosite_path"
+		fi
+		out=$("$bin" -type "$geo_type" -action lookup -input "$file_path" -value "$value" -lowmem=true 2>&1)
+		rc=$?
+		if [ "$rc" = "0" ] && [ -n "$out" ]; then
+			local tmp line rules
+			tmp=$(mktemp -d 2>/dev/null)
+			if [ -n "$tmp" ]; then
+				printf '%s\n' "$out" | awk '{ print tolower($0) }' | while IFS= read -r line; do
+					[ -n "$line" ] || continue
+					printf '%s:%s\n' "$geo_type" "$line" >> "$tmp/output"
+					geo_rules_for_value "$line" "$geo_type" >> "$tmp/rules"
+				done
+				geo_rules_for_value "$value" "$geo_type" >> "$tmp/rules"
+				rules=$(awk '!seen[$0]++' "$tmp/rules" 2>/dev/null)
+				out=$(cat "$tmp/output" 2>/dev/null)
+				if [ -n "$rules" ]; then
+					out="${out}
+--------------------
+Rules containing this value:
+${rules}"
+				fi
+				rm -rf "$tmp"
+			fi
+		fi
+	elif [ "$action" = "extract" ]; then
+		# Parse geoip:<list> or geosite:<list>.
+		case "$value" in
+			geoip:*)
+				geo_type="geoip"
+				file_path="$geoip_path"
+				value="${value#geoip:}"
+				;;
+			geosite:*)
+				geo_type="geosite"
+				file_path="$geosite_path"
+				value="${value#geosite:}"
+				;;
+			*)
+				json_add_int code -1
+				json_add_string error "format: geoip:cn or geosite:gfw"
+				emit
+				return
+				;;
+		esac
+		out=$("$bin" -type "$geo_type" -action extract -input "$file_path" -list "$value" -lowmem=true 2>&1)
+		rc=$?
+	else
+		json_add_int code -1
+		json_add_string error "unknown action: $action"
+		emit
+		return
+	fi
+
+	json_add_int code "${rc:-1}"
+	json_add_string output "$out"
 	emit
 }
 
@@ -276,14 +397,26 @@ do_restore_backup() {
 	tmp=$(mktemp -d 2>/dev/null) || { json_init; json_add_int code -1; json_add_string error "mktemp failed"; emit; return; }
 	tarball="$tmp/restore.tar.gz"
 	echo "$b64" | base64 -d > "$tarball" 2>/dev/null
-	if tar -C / -xzf "$tarball" 2>/dev/null; then
-		json_init
-		json_add_int code 0
-		json_add_string msg "restored; restart bypass to apply"
+	local members
+	members=$(tar -tzf "$tarball" 2>/dev/null) || members=""
+	if [ "$members" = "etc/config/bypass" ] || [ "$members" = "./etc/config/bypass" ]; then
+		mkdir -p "$tmp/extract"
+		tar -C "$tmp/extract" -xzf "$tarball" "$members" 2>/dev/null
+		if [ -s "$tmp/extract/${members#./}" ] && uci -q -c "$tmp/extract/etc/config" show bypass >/dev/null 2>&1; then
+			cp -f "$tmp/extract/${members#./}" /etc/config/bypass
+			chmod 600 /etc/config/bypass 2>/dev/null
+			json_init
+			json_add_int code 0
+			json_add_string msg "restored; restart bypass to apply"
+		else
+			json_init
+			json_add_int code -1
+			json_add_string error "backup does not contain a valid config"
+		fi
 	else
 		json_init
 		json_add_int code -1
-		json_add_string error "extract failed"
+		json_add_string error "invalid backup archive"
 	fi
 	emit
 	rm -rf "$tmp"
@@ -295,6 +428,7 @@ do_reset_config() {
 	[ -n "${IPKG_INSTROOT}" ] || {
 		/etc/init.d/bypass stop >/dev/null 2>&1
 		cp -f /usr/share/bypass/0_default_config /etc/config/bypass 2>/dev/null
+		chmod 600 /etc/config/bypass 2>/dev/null
 		: > /tmp/log/bypass.log 2>/dev/null
 		/etc/init.d/rpcd reload >/dev/null 2>&1
 	}
@@ -304,7 +438,7 @@ do_reset_config() {
 }
 
 usage() {
-	echo "Usage: $0 {status|route_test|observe|resolve|node_tcping|config_preview|rule_update|log_tail|clear_log|interfaces|connect_status|geo_view|create_backup|restore_backup|reset_config} [args]" >&2
+	echo "Usage: $0 {status|route_test|observe|resolve|node_tcping|config_preview|rule_update|rule_status|log_tail|clear_log|interfaces|connect_status|geo_view|create_backup|restore_backup|reset_config} [args]" >&2
 }
 
 main() {
@@ -318,6 +452,7 @@ main() {
 		node_tcping)    do_node_tcping "$1" ;;
 		config_preview) do_config_preview ;;
 		rule_update)    do_rule_update ;;
+		rule_status)    do_rule_status ;;
 		log_tail)       do_log_tail "$1" ;;
 		clear_log)      do_clear_log ;;
 		interfaces)     do_interfaces ;;

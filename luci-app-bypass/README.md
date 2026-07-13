@@ -4,13 +4,14 @@ OpenWrt 上的网关级透明分流代理。把三个各司其职的组件组合
 
 | 组件 | 角色 | 数据面 |
 |---|---|---|
-| **BypassCore** | **分流核心**：规则匹配 → 路由决策引擎（domain/IP/GeoIP/port/process 规则 + DNS 子系统 + 负载均衡 + 多 WAN outbound 绑定） | 决策（输出 tag + 绑定语义） |
-| **naiveproxy** | 流量承载（https，`redir`/`tproxy` 透明监听） | 实际转发 |
+| **BypassCore** | **必需分流核心**：透明入口、规则匹配、路由决策与 outbound | 实时数据面核心 |
+| **naiveproxy** | Naive HTTPS 协议适配器，为 BypassCore 提供本机 SOCKS 上游 | 节点连接 |
 | **ChinaDNS-NG** | DNS 分流（国内域名 → 国内 DNS；国外域名 → 远程 DNS） | DNS 转发 |
+| **dns2socks** | 可选：把 ChinaDNS-NG 的国外 DNS 请求送入 Naive SOCKS 隧道 | 国外 DNS 防泄漏 |
 
 数据面仅依赖 **nftables (fw4)**；前端为现代 LuCI **JavaScript** 视图（**无 Lua 运行时**）。
 
-> **关于 BypassCore 的角色**：BypassCore 是一个独立的**分流(routing)子系统**——完整的规则匹配引擎 + 多上游 DNS（UDP/TCP/DoT/DoH + 域名分流）+ Observatory 探测 + 多 WAN outbound 绑定模型。本应用把它定位为**分流决策大脑**：从同一份 UCI 分流规则生成 `config.json`，由 LuCI 的“路由测试 / DNS 解析 / Observatory 探测”页面直接调用 `bypasscore -test` / `-resolve` / `-observe`。流量承载由 naiveproxy 完成（BypassCore 的 outbound 描述符只携带绑定语义，不自行拨号）。
+> **关于 BypassCore 的角色**：BypassCore 对本项目而言等同于 Passwall 的 Xray/sing-box，是不可替代的透明分流核心。它负责透明入口、规则匹配、DNS、Observatory 和 outbound；NaiveProxy 仅把 Naive HTTPS 节点转换成本机 SOCKS 上游。核心不可用时服务明确启动失败，不会回退到 NaiveProxy。
 >
 > BypassCore 源码：<https://github.com/kinmeic/BypassCore>，`make build` 即可编译，release v1.0.0 提供 OpenWrt 预编译包（`bypasscore-openwrt-aarch64_cortex-a53.tar.gz`、`bypasscore-openwrt-x86_64.tar.gz` 等）。
 
@@ -22,47 +23,45 @@ OpenWrt 上的网关级透明分流代理。把三个各司其职的组件组合
 LAN 客户端
    │
 nftables TPROXY/REDIRECT
-   │            │
-  直连         代理目标
-   │            │
-  wan        naiveproxy (redir/tproxy://127.0.0.1:<REDIR_PORT>)
-                 │  proxy = https://<user>:<pass>@<server>:<port>
-                 ▼
-              naive 服务器 (HTTP/2)
+   │
+BypassCore (redirect/tproxy://127.0.0.1:<REDIR_PORT>)
+   ├── direct / block
+   └── proxy → naiveproxy (socks://127.0.0.1:<node_socks_port>)
+                    │ proxy = https://<user>:<pass>@<server>:<port>
+                    ▼
+                 Naive 服务器 (HTTP/2)
 
 DNS:  dnsmasq :53 → ChinaDNS-NG :<dns_port>
        china-dns  = 国内 DNS   (国内域名 → 国内 IP → 直连)
-       trust-dns  = 远程 DNS   (国外域名 → 国外 IP → 代理)
+       trust-dns  = 远程 DNS   (安装 dns2socks 时经 Naive SOCKS)
        add-tagchn-ip → nftset `bypass_chn`  (运行时由 chinadns-ng 填充)
        group vpslist → nftset `bypass_vps`  (节点服务器 IP → 永远直连)
 
-出口接口 (naive→server 走指定接口，目的 IP fwmark 策略路由)：
-  解析 naive 服务器 IP → nftset `bypass_uplink`
-  nft mangle OUTPUT: ip daddr @bypass_uplink → meta mark set <FWMARK>
-  ip rule:  fwmark <FWMARK> lookup <TABLE>
-  ip route table <TABLE>: default via <iface-gw> dev <iface>  (隧道则 dev-only)
+出口接口 (NaiveProxy→服务器走指定逻辑网络)：
+  netifd 解析 wan/wan1/usbwan → 实时 L3 设备、地址、网关
+  解析 Naive 服务器 IPv4/IPv6 → ip rule to <SERVER> lookup <TABLE>
+  ip/ip -6 route table <TABLE>: default via <runtime-gateway> dev <l3-device>
 ```
 
-- naive **保持 root**，所以 tproxy/tun 不会因丢权限而失败。
 - 出口接口有 **全局默认** + **节点级覆盖**；服务器 IP 变更时在启动 / 规则更新 / hotplug 时重新解析。
 
 ---
 
 ## 依赖关系
 
-Makefile 只硬依赖 shell 运行时必要项；其余全部是 menuconfig 里的**可选勾选**（`INCLUDE_*`）：
+本项目只支持 fw4/nftables，因此透明代理所需的 nftables 用户态程序和内核模块属于安装时硬依赖；代理核心、DNS 与 GeoData 工具仍可按需通过 menuconfig 选入：
 
-- 硬依赖：`curl ip-full resolveip libubox coreutils-nohup coreutils-timeout`
-- `Nftables_Transparent_Proxy`（默认 y）：`nftables kmod-nft-tproxy kmod-nft-socket kmod-nft-nat dnsmasq-full + dnsmasq_full_nftset`
+- 硬依赖：`curl ip-full resolveip libubox coreutils-nohup coreutils-timeout nftables kmod-nft-nat kmod-nft-tproxy kmod-nft-socket`
 - `INCLUDE_NaiveProxy` → `naiveproxy`（受架构限制，排除 mips/mips64 等）
 - `INCLUDE_ChinaDNS_NG` → `chinadns-ng`
+- `INCLUDE_Dns2socks` → `dns2socks`（让国外 DNS 经 Naive；来自 Passwall packages feed）
 - `INCLUDE_Geoview` → `geoview`
 - `INCLUDE_V2ray_Geo` → `v2ray-geoip` + `v2ray-geosite`
 - `INCLUDE_Tcping` → `tcping`
 
 > **本应用不再支持 iptables (fw3)**，仅 nftables。
 
-> **BypassCore** 是独立项目（<https://github.com/kinmeic/BypassCore>），由本应用调用但不打包进 `luci-app-bypass`。从 release 下载对应架构的 OpenWrt 预编译包，或自行 `make build`（源码是可编译的 Go 项目），把 `bypasscore` 二进制放到 `/usr/bin/bypasscore`（或改 UCI 选项 `bypass.global.bypasscore_file`）。应用启动时会校验它是 Linux ELF；若缺失或不是 Linux ELF（例如误放了 macOS/darwin 包），则 LuCI 的“路由测试 / DNS 解析 / Observatory”页面会自动禁用并给出 UI 提示，不影响透明代理本身的转发。
+> **BypassCore 是必需依赖**，但它目前是独立项目且未进入 OpenWrt 官方 feeds，因此不能把 `+bypasscore` 写进本包依赖（官方 SDK 会无法解析）。请先从 [BypassCore Releases](https://github.com/kinmeic/BypassCore/releases) 安装对应架构的 `.ipk` / `.apk`，或放置 Linux ELF 到 `/usr/bin/bypasscore`。应用启动时会严格校验；缺失、架构错误或启动失败时不会接管防火墙和 DNS。
 
 ---
 
@@ -72,7 +71,7 @@ Makefile 只硬依赖 shell 运行时必要项；其余全部是 menuconfig 里�
 
 ```sh
 # 在 OpenWrt buildroot 里
-make menuconfig        # LuCI → Applications → luci-app-bypass，按需勾选 INCLUDE_* / 透明代理后端
+make menuconfig        # LuCI → Applications → luci-app-bypass，按需勾选 INCLUDE_*
 make package/feeds/luci/luci-app-bypass/compile V=s
 # 产物：bin/packages/<arch>/luci/luci-app-bypass_*.ipk
 
@@ -81,8 +80,9 @@ opkg install luci-app-bypass_*.ipk
 
 安装后：
 1. 安装 BypassCore：从 <https://github.com/kinmeic/BypassCore/releases> 下载对应架构的 OpenWrt 包（`bypasscore-openwrt-*.tar.gz`），解出 `bypasscore` 放到 `/usr/bin/bypasscore`（或改 `bypass.global.bypasscore_file`）。
-2. 把 `geoip.dat` / `geosite.dat` 放到 `/usr/share/v2ray/`（或安装 `v2ray-geoip` / `v2ray-geosite`）。
-3. LuCI → 服务 → Bypass，填节点、选出口接口、启用。
+2. 安装 NaiveProxy、ChinaDNS-NG；建议同时安装 `dns2socks`，否则国外 DNS 由 ChinaDNS-NG 直接访问。
+3. 把 `geoip.dat` / `geosite.dat` 放到 `/usr/share/v2ray/`（或安装 `v2ray-geoip` / `v2ray-geosite`，程序会检测包的实际安装目录）。
+4. LuCI → 服务 → Bypass，填节点、选出口接口、启用。
 
 ---
 
@@ -94,24 +94,25 @@ config global
     option node 'naive1'
     option node_socks_port '1070'
     option dns_redirect '1'
-    option bypass_as_core '0'               # 0=naiveproxy承载(BypassCore仅诊断) | 1=BypassCore当核心(实验性,需BypassCore补SOCKS5拨号器)
     option bypasscore_file '/usr/bin/bypasscore'
     option naive_file '/usr/bin/naive'
     option chinadns_file '/usr/bin/chinadns-ng'
+    option dns2socks_file '/usr/bin/dns2socks'
     option default_egress_interface 'wan2'   # 空 = 系统默认路由
-    option naive_egress_fwmark '0x2'
-    option naive_egress_table '200'
+    option naive_egress_table '20200'
+    option naive_egress_rule_priority '900'
 
 config global_forwarding
     option tcp_proxy_way 'redirect'   # redirect | tproxy
     option tcp_redir_ports '1:65535'
     option udp_redir_ports '1:65535'
     option ipv6_tproxy '0'
+    option force_proxy_lan_ip '0'
 
 config global_dns
     option domestic_dns 'auto'        # auto = 自动检测运营商 DNS
     option remote_dns '1.1.1.1'
-    option remote_dns_protocol 'udp'  # udp|tcp|tls|https
+    option remote_dns_protocol 'tcp'  # udp|tcp|tls（ChinaDNS-NG 不支持 DoH）
     option query_strategy 'UseIPv4'
     option chinadns_listen_port '10553'
 
@@ -124,6 +125,7 @@ config shunt_rules 'China'
     option domain_list 'geosite:cn'
     option ip_list 'geoip:cn'
     option outbound '_direct'         # _direct | _proxy | _block
+    option egress_interface 'wan1'    # 仅 Direct；覆盖默认直连接口
 
 config nodes 'naive1'
     option type 'NaiveProxy'
@@ -143,18 +145,19 @@ luci-app-bypass/
 ├── Makefile                          # luci.mk + INCLUDE_* 可选依赖
 ├── po/zh-cn/bypass.po                # 中文翻译
 ├── htdocs/luci-static/resources/view/bypass/
-│   ├── overview.js                   # 状态面板 + 路由测试 + observatory + config 预览
-│   ├── global.js forwarding.js dns.js
+│   ├── basic_settings.js             # 状态面板 + 主设置 / 分流 / DNS / 日志 / 维护
 │   ├── node_list.js node_config.js   # 仅 NaiveProxy (https)
-│   ├── shunt_rules.js rule_update.js log.js
+│   ├── other_settings.js             # 延时、定时任务与透明转发
+│   ├── rule_manage.js rule_edit.js   # GeoData 更新与分流规则
+│   ├── geo_view.js log.js
 └── root/
     ├── etc/init.d/bypass             # rc.common + flock + 延迟启动
     ├── etc/uci-defaults/luci-bypass  # 首次安装：拷默认配置、防火墙 include、chmod
     ├── etc/hotplug.d/iface/98-bypass # ifup 重启 / ifupdate 刷新
     └── usr/share/bypass/
-        ├── utils.sh                  # 共享库（含出口 fwmark 路由、ELF 校验）
+        ├── utils.sh                  # 共享库（含双栈出口策略路由、ELF 校验）
         ├── app.sh                    # 编排：get_config / run_naive / run_chinadns_ng / gen_bypasscore_config / start/stop
-        ├── nftables.sh               # nft 透明代理 + 出口 mangle 标记
+        ├── nftables.sh               # nft 透明代理、DNS 白名单与 IPv6 TProxy
         ├── rule_update.sh            # 下载校验 geoip/geosite + 重解析出口 IP
         ├── api.sh                    # rpcd file.exec 后端（JSON）
         └── 0_default_config
@@ -175,18 +178,28 @@ luci-app-bypass/
 
 ---
 
-## 运行模式（`bypass_as_core`）
+## 运行架构
 
-两种模式可切换（UCI `bypass.global.bypass_as_core`）：
+BypassCore 是必需的透明分流核心，角色等同于 Passwall 的 Xray/sing-box；不存在 NaiveProxy 核心模式或自动回退。BypassCore 缺失、不是 Linux ELF、配置不兼容或监听启动失败时，服务返回失败，并且不会安装透明代理防火墙规则或接管 dnsmasq。
 
-- **0（默认，legacy）**：naiveproxy 承载流量（`redir`/`tproxy` 透明监听 + https 出站），BypassCore 仅做诊断（`-test`/`-resolve`/`-observe`）。ChinaDNS-NG 做实时 DNS 分流 + `bypass_chn`/`bypass_vps` nftset 填充。
-- **1（BypassCore 当分流核心）**：BypassCore 以 `bypasscore -run -c <cfg>` 常驻当透明代理核心（inbound `tcp_redir` + sniff + route + outbound `freedom`/`blackhole`/`proxy`(SOCKS5→naiveproxy)），naiveproxy 降为 BypassCore 的 SOCKS 上游（只跑 `socks://127.0.0.1:<node_socks_port>` + https 出站）。生成给 BypassCore 的 config 含 `inbounds` 段（按 `tcp_proxy_way` 选 `redirect`(TCP) / `tproxy`(TCP+UDP)）。nftables REDIRECT/TPROXY 指向 BypassCore 的 `REDIR_PORT`。
-  - **前置条件已满足**：BypassCore `e60bd1f`+ 已补齐 proxy 模式 SOCKS5 拨号器（`proxy/socks`）+ UDP TPROXY listener（`app/inbound/udp_tproxy_*`）。模式 1 现可完整跑通：直连 / 丢弃 / 经 naiveproxy 代理 三支都通，TCP+UDP（tproxy 模式）都覆盖。
+NaiveProxy 只负责把所选 HTTPS 节点暴露为本机 SOCKS 上游，供 BypassCore 的 `proxy` outbound 使用。BypassCore 以 `bypasscore -run -config <cfg>` 常驻，负责透明 inbound、sniff、路由规则以及 `freedom` / `blackhole` / `proxy` 三类 outbound。
+
+### 多 WAN 出口
+
+- `default_egress_interface` 选择全局 Naive 服务器出口；每个节点的 `egress_interface` 可单独覆盖。填写的是 OpenWrt 逻辑网络名，如 `wan`、`wan1`、`usbwan`。
+- 程序通过 netifd 运行时状态解析实际 L3 设备与 IPv4/IPv6 网关，兼容 DHCP、PPPoE 与设备名变化。
+- 仅为当前 Naive 服务器解析出的 IPv4/IPv6 目标添加独立路由表和 `ip rule to ...`。它不改写 fwmark，因此不会覆盖 mwan3/PBR 的标记；规则优先级由 `naive_egress_rule_priority` 控制，默认 900。
+- `direct_egress_interface` 控制默认 Direct 出口；每条 Direct 分流规则还可用 `egress_interface` 覆盖，均绑定到 netifd 实时 L3 设备。
+- Proxy 规则共用同一个复用的 Naive 隧道，物理 WAN 在 Node Config（节点覆盖）或 Basic Settings（全局默认）设置，不能在单条 Proxy 规则上再拆分。
+- Naive 出口、默认 Direct 出口及规则级 Direct 出口发生 `ifup`、`ifupdate`、`ifdown` 时都会重建或撤销对应绑定；节点域名解析结果每小时刷新，刷新不完整时服务会失败关闭，避免悄悄改走系统默认 WAN。
 
 ## 已知限制 / 待办
 
-- **UDP 透明代理**：`redirect` 模式只代理 TCP（naive 的 `redir` 监听；BypassCore legacy 模式的 inbound 也只 TCP）。需要 UDP 代理时切换到 `tproxy` 模式——模式 0 需 naive 用支持 tproxy 的构建编译；模式 1（`bypass_as_core=1`）由 BypassCore 的 UDP TPROXY listener 处理（`tcp_proxy_way=tproxy` 时 inbound network=tcp,udp）。
-- **BypassCore 数据面**：`-test` 路由预览严格按规则匹配；实际 nftables/ipset 是基于集合的尽力近似，两者共享同一份规则定义但逐连接语义可能略有差异。
+- **UDP 透明代理**：NaiveProxy 的 SOCKS5 服务明确不支持 UDP ASSOCIATE，因此本项目不拦截 UDP，避免造成 UDP 黑洞。TPROXY 仅用于 TCP（包括可选 IPv6 TCP）。
+- **IPv6 数据面**：启用“IPv6 TProxy”后安装 IPv6 TCP TProxy 链、策略路由与 BypassCore IPv6 listener；节点服务器出口策略本身始终支持双栈。
+- **国外 DNS**：安装 `dns2socks` 且选择 UDP/TCP 国外 DNS 时，ChinaDNS-NG 与 BypassCore 自身的国外查询都会经 Naive SOCKS 隧道访问；未安装或选择 DoT 时会在日志中明确提示国外 DNS 仍为直连。运营商/国内 IPv4 DNS 会加入 nftables 直连白名单。
+- **路由器本机透明代理**：当前不安装 nftables OUTPUT 重定向，因为 BypassCore 尚未给 outbound socket 设置可排除的专用 mark，强行开启会让 direct outbound 递归回核心。路由器本机程序可显式使用节点 SOCKS 端口。
+- **BypassCore 数据面**：nftables 只负责把符合入口条件的 TCP 送入核心；分流规则由 BypassCore 逐连接执行，Direct/Proxy/Block 不再由防火墙近似判断。
 - **未实现**：订阅解析、ACL 规则、haproxy 负载均衡、SOCKS 自动切换、monitor/tasks 守护进程、多语言（目前仅 zh-cn）。
 
 ---

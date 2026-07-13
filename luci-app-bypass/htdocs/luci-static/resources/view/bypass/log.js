@@ -2,6 +2,7 @@
 'require view';
 'require fs';
 'require ui';
+'require poll';
 
 // Runtime Logs — mirrors passwall2's log/log.htm: a readonly textarea polled
 // every 5 seconds via api.sh log_tail, a Clear button, and auto-scroll-to-
@@ -32,7 +33,7 @@ return view.extend({
 
 		function refreshLog() {
 			var wasBottom = isAtBottom();
-			api('log_tail', '500').then(function (r) {
+			return api('log_tail', '500').then(function (r) {
 				ta.value = r.log || '';
 				// Auto-scroll on first load, or if the user was already at the bottom.
 				if (firstLoad || wasBottom) {
@@ -43,6 +44,7 @@ return view.extend({
 		}
 
 		var clearBtn = E('button', {
+			type: 'button',
 			class: 'cbi-button cbi-button-remove',
 			click: function () {
 				api('clear_log').then(function () {
@@ -54,12 +56,9 @@ return view.extend({
 
 		// Start polling every 5 seconds (matches passwall2).
 		refreshLog();
-		var pollHandle = setInterval(refreshLog, 5000);
-		// Stop polling when leaving the page.
-		window.addEventListener('popsstate', function () { clearInterval(pollHandle); });
+		poll.add(refreshLog, 5);
 
-		return E('div', { class: 'cbi-map' }, [
-			E('h2', { name: 'content' }, _('Runtime Logs')),
+		return E('div', { class: 'cbi-map', style: 'margin-bottom:2rem' }, [
 			E('div', { style: 'margin-bottom:8px' }, [clearBtn]),
 			ta
 		]);

@@ -77,7 +77,6 @@
 		}
 	},
 	"admin/services/bypass/node_config": {
-		"title": "Node Config",
 		"order": 90,
 		"action": {
 			"type": "view",
@@ -88,7 +87,6 @@
 		}
 	},
 	"admin/services/bypass/rule_edit": {
-		"title": "Edit Rule",
 		"order": 91,
 		"action": {
 			"type": "view",

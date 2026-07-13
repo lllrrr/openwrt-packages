@@ -51,7 +51,7 @@ return view.extend({
 		var currentNode = uci.get('bypass', '@global[0]', 'node') || '';
 
 		var container = E('div', { class: 'cbi-map' }, [
-			E('h2', { name: 'content' }, _('Node List'))
+			E('div', { class: 'cbi-section-descr' }, _('NaiveProxy nodes (https).'))
 		]);
 
 		var fieldset = E('fieldset', { class: 'cbi-section cbi-tblsection' });
@@ -111,19 +111,23 @@ return view.extend({
 			var actions = E('td', { class: 'td cbi-section-table-cell cbi-section-actions', style: 'white-space:nowrap' }, [
 				E('div', { style: 'display:inline-flex;gap:4px' }, [
 					E('button', {
+						type: 'button',
 						class: 'cbi-button cbi-button-apply',
 						disabled: isCurrent,
 						click: function () { useNode(sid, sec.remarks || sid); }
 					}, isCurrent ? _('In use') : _('Use')),
 					E('button', {
+						type: 'button',
 						class: 'cbi-button cbi-button-edit',
 						click: function () { location.href = L.url('admin/services/bypass/node_config') + '?section=' + encodeURIComponent(sid); }
 					}, _('Edit')),
 					E('button', {
+						type: 'button',
 						class: 'cbi-button cbi-button-add',
 						click: function () { copyNode(sid); }
 					}, _('Copy')),
 					E('button', {
+						type: 'button',
 						class: 'cbi-button cbi-button-remove',
 						click: function () { deleteNode(sid, sec.remarks || sid); }
 					}, _('Delete'))
@@ -147,9 +151,11 @@ return view.extend({
 		// Single Add button at the bottom (no toolbar above the table).
 		fieldset.appendChild(E('div', { class: 'cbi-section-create', style: 'margin-top:8px' }, [
 			E('button', {
+				type: 'button',
 				class: 'cbi-button cbi-button-add',
 				click: function () {
-					var newSid = uci.add('bypass', 'nodes');
+					var newSid = 'node_' + Date.now().toString(36);
+					uci.add('bypass', 'nodes', newSid);
 					uci.set('bypass', newSid, 'type', 'NaiveProxy');
 					uci.set('bypass', newSid, 'remarks', _('New Node'));
 					uci.save().then(function () {
@@ -171,6 +177,7 @@ return view.extend({
 					E('p', {}, _('Use node: %s ?').format(label)),
 					E('div', { style: 'margin-top:1rem' }, [
 						E('button', {
+							type: 'button',
 							class: 'cbi-button cbi-button-apply',
 							click: function () {
 								document.body.removeChild(modal);
@@ -182,6 +189,7 @@ return view.extend({
 						}, _('Confirm')),
 						' ',
 						E('button', {
+							type: 'button',
 							class: 'cbi-button cbi-button-reset',
 							click: function () { document.body.removeChild(modal); }
 						}, _('Cancel'))
@@ -210,16 +218,18 @@ return view.extend({
 					E('p', {}, _('Delete node: %s ?').format(label)),
 					E('div', { style: 'margin-top:1rem' }, [
 						E('button', {
+							type: 'button',
 							class: 'cbi-button cbi-button-remove',
 							click: function () {
 								document.body.removeChild(modal);
-								uci.del('bypass', sid);
+								uci.remove('bypass', sid);
 								if (sid === currentNode) uci.set('bypass', '@global[0]', 'node', '');
 								uci.save().then(function () { uci.apply().then(function () { location.reload(); }); });
 							}
 						}, _('Delete')),
 						' ',
 						E('button', {
+							type: 'button',
 							class: 'cbi-button cbi-button-reset',
 							click: function () { document.body.removeChild(modal); }
 						}, _('Cancel'))

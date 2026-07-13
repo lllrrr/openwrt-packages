@@ -5,6 +5,41 @@
 	cp -f /usr/share/bypass/0_default_config /etc/config/bypass
 }
 
+# v1.3 used a separate auto_update flag which Passwall2 does not use. Preserve
+# enabled schedules, but migrate disabled installations to the native empty
+# update_week_mode value before dropping the obsolete option.
+old_auto_update=$(uci -q get bypass.@global_rules[0].auto_update)
+if [ -n "$old_auto_update" ]; then
+	[ "$old_auto_update" = "0" ] && uci -q set bypass.@global_rules[0].update_week_mode=''
+	uci -q delete bypass.@global_rules[0].auto_update
+	uci -q commit bypass
+fi
+
+# BypassCore is now the mandatory routing core. Remove the obsolete legacy-mode
+# and fwmark settings; egress selection uses destination rules so it coexists
+# with mwan3/PBR without changing their packet marks.
+old_egress_fwmark=$(uci -q get bypass.@global[0].naive_egress_fwmark)
+uci -q delete bypass.@global[0].bypass_as_core
+uci -q delete bypass.@global[0].naive_egress_fwmark
+uci -q delete bypass.@global[0].localhost_proxy
+[ -n "$old_egress_fwmark" ] && [ "$(uci -q get bypass.@global[0].naive_egress_table)" = "200" ] && \
+	uci -q set bypass.@global[0].naive_egress_table='20200'
+uci -q get bypass.@global[0].naive_egress_rule_priority >/dev/null 2>&1 || \
+	uci -q set bypass.@global[0].naive_egress_rule_priority='900'
+uci -q get bypass.@global[0].dns2socks_file >/dev/null 2>&1 || \
+	uci -q set bypass.@global[0].dns2socks_file='/usr/bin/dns2socks'
+uci -q commit bypass
+
+# Align the historical five-second default with the current UI default while
+# preserving installations where the user deliberately chose another value.
+[ "$(uci -q get bypass.@global_delay[0].start_delay)" = "5" ] && \
+	uci -q set bypass.@global_delay[0].start_delay='60'
+uci -q get bypass.@global_forwarding[0].ipv6_tproxy >/dev/null 2>&1 || \
+	uci -q set bypass.@global_forwarding[0].ipv6_tproxy='0'
+uci -q get bypass.@global_forwarding[0].force_proxy_lan_ip >/dev/null 2>&1 || \
+	uci -q set bypass.@global_forwarding[0].force_proxy_lan_ip='0'
+uci -q commit bypass
+
 # Make the helper scripts executable.
 chmod +x /usr/share/bypass/*.sh 2>/dev/null
 
