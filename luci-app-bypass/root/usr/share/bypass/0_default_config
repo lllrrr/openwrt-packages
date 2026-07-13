@@ -2,10 +2,11 @@
 config global
 	option enabled '0'
 	option node 'naive1'
-	option node_socks_port '1070'
+	option node_socks_port '1088'
+	option node_socks_bind_local '1'
 	option localhost_proxy '1'
 	option client_proxy '1'
-	option loglevel 'error'
+	option loglevel 'warning'
 	# 0 (default/legacy): naiveproxy carries traffic; BypassCore is
 	# diagnostic-only (-test/-resolve/-observe). 1 (experimental): BypassCore
 	# runs `-run` as the transparent proxy core; naiveproxy is demoted to a
@@ -28,10 +29,12 @@ config global
 config global_forwarding
 	option tcp_no_redir_ports 'disable'
 	option udp_no_redir_ports 'disable'
-	option tcp_redir_ports '1:65535'
+	option tcp_redir_ports '22,25,53,80,143,443,465,587,853,873,993,995,5222,8080,8443,9418'
 	option udp_redir_ports '1:65535'
 	option tcp_proxy_way 'redirect'
 	option ipv6_tproxy '0'
+	option accept_icmp '0'
+	option accept_icmpv6 '0'
 
 config global_dns
 	option domestic_dns 'auto'
@@ -50,17 +53,23 @@ config global_dns
 config global_rules
 	option geosite_update '1'
 	option geoip_update '1'
-	option auto_update_minute '30'
+	option update_week_mode '8'
+	option update_time_mode '0:00'
+	option update_interval_mode '2'
 	option v2ray_location_asset '/usr/share/v2ray/'
-	option domainStrategy 'IpIfNonMatch'
-	option geoip_url 'https://github.com/Loyalsoldier/geoip/releases/latest/download/geoip.dat'
+	option domainStrategy 'IpOnDemand'
+	option geoip_url 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat'
 	option geosite_url 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat'
 
 config global_app
 	option geoview_file '/usr/bin/geoview'
 
 config global_delay
+	option start_daemon '1'
 	option start_delay '5'
+	option stop_week_mode ''
+	option start_week_mode ''
+	option restart_week_mode ''
 
 config shunt_rules 'China'
 	option remarks 'China'

@@ -32,9 +32,20 @@
 			"acl": ["luci-app-bypass"]
 		}
 	},
+	"admin/services/bypass/other_settings": {
+		"title": "Other Settings",
+		"order": 3,
+		"action": {
+			"type": "view",
+			"path": "bypass/other_settings"
+		},
+		"depends": {
+			"acl": ["luci-app-bypass"]
+		}
+	},
 	"admin/services/bypass/rule_manage": {
 		"title": "Rule Manage",
-		"order": 3,
+		"order": 4,
 		"action": {
 			"type": "view",
 			"path": "bypass/rule_manage"
@@ -43,9 +54,20 @@
 			"acl": ["luci-app-bypass"]
 		}
 	},
+	"admin/services/bypass/geo_view": {
+		"title": "Geo View",
+		"order": 5,
+		"action": {
+			"type": "view",
+			"path": "bypass/geo_view"
+		},
+		"depends": {
+			"acl": ["luci-app-bypass"]
+		}
+	},
 	"admin/services/bypass/log": {
-		"title": "Log",
-		"order": 4,
+		"title": "Runtime Logs",
+		"order": 6,
 		"action": {
 			"type": "view",
 			"path": "bypass/log"
@@ -56,7 +78,7 @@
 	},
 	"admin/services/bypass/node_config": {
 		"title": "Node Config",
-		"order": 5,
+		"order": 90,
 		"action": {
 			"type": "view",
 			"path": "bypass/node_config"
@@ -67,7 +89,7 @@
 	},
 	"admin/services/bypass/rule_edit": {
 		"title": "Edit Rule",
-		"order": 6,
+		"order": 91,
 		"action": {
 			"type": "view",
 			"path": "bypass/rule_edit"

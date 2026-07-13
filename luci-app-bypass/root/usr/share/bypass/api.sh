@@ -224,8 +224,87 @@ do_connect_status() {
 	emit
 }
 
+# geo_view <action> <value> -> { code, output }
+# Wraps the geoview binary for the Geo View page. action = lookup (domain/IP →
+# geo rule) or extract (geoip:cc / geosite:name → member list). Plain text
+# output is returned as a JSON string.
+do_geo_view() {
+	local action=$1 value=$2
+	local bin out
+	bin=$(first_type "$(config_t_get global_app geoview_file /usr/bin/geoview)" geoview)
+	json_init
+	if [ -z "$bin" ]; then
+		json_add_int code -1
+		json_add_string error "geoview binary not found"
+	elif [ -z "$action" ] || [ -z "$value" ]; then
+		json_add_int code -1
+		json_add_string error "missing action or value"
+	else
+		out=$("$bin" -action "$action" -list "$value" 2>&1)
+		json_add_int code $?
+		json_add_string output "$out"
+	fi
+	emit
+}
+
+# create_backup -> { code, backup }  (backup = base64-encoded tar.gz of /etc/config/bypass)
+# Mirrors passwall2's backup feature (single config file, no server config).
+do_create_backup() {
+	local tmp tarball b64
+	tmp=$(mktemp -d 2>/dev/null) || { json_init; json_add_int code -1; json_add_string error "mktemp failed"; emit; return; }
+	tarball="$tmp/bypass-backup.tar.gz"
+	if tar -C / -czf "$tarball" etc/config/bypass 2>/dev/null; then
+		b64=$(base64 "$tarball" 2>/dev/null | tr -d '\n')
+		json_init
+		json_add_int code 0
+		json_add_string backup "$b64"
+		json_add_string filename "bypass-$(date +%y%m%d%H%M)-backup.tar.gz"
+	else
+		json_init
+		json_add_int code -1
+		json_add_string error "tar failed"
+	fi
+	emit
+	rm -rf "$tmp"
+}
+
+# restore_backup <base64> -> { code }
+# Receives a base64-encoded tar.gz, decodes, extracts over /etc/config/bypass.
+do_restore_backup() {
+	local b64=$1 tmp tarball
+	[ -z "$b64" ] && { json_init; json_add_int code -1; json_add_string error "missing backup data"; emit; return; }
+	tmp=$(mktemp -d 2>/dev/null) || { json_init; json_add_int code -1; json_add_string error "mktemp failed"; emit; return; }
+	tarball="$tmp/restore.tar.gz"
+	echo "$b64" | base64 -d > "$tarball" 2>/dev/null
+	if tar -C / -xzf "$tarball" 2>/dev/null; then
+		json_init
+		json_add_int code 0
+		json_add_string msg "restored; restart bypass to apply"
+	else
+		json_init
+		json_add_int code -1
+		json_add_string error "extract failed"
+	fi
+	emit
+	rm -rf "$tmp"
+}
+
+# reset_config -> { code }
+# Restore factory defaults: stop the service, copy 0_default_config, clear log.
+do_reset_config() {
+	[ -n "${IPKG_INSTROOT}" ] || {
+		/etc/init.d/bypass stop >/dev/null 2>&1
+		cp -f /usr/share/bypass/0_default_config /etc/config/bypass 2>/dev/null
+		: > /tmp/log/bypass.log 2>/dev/null
+		/etc/init.d/rpcd reload >/dev/null 2>&1
+	}
+	json_init
+	json_add_int code 0
+	emit
+}
+
 usage() {
-	echo "Usage: $0 {status|route_test|observe|resolve|node_tcping|config_preview|rule_update|log_tail|clear_log|interfaces|connect_status} [args]" >&2
+	echo "Usage: $0 {status|route_test|observe|resolve|node_tcping|config_preview|rule_update|log_tail|clear_log|interfaces|connect_status|geo_view|create_backup|restore_backup|reset_config} [args]" >&2
 }
 
 main() {
@@ -243,6 +322,10 @@ main() {
 		clear_log)      do_clear_log ;;
 		interfaces)     do_interfaces ;;
 		connect_status) do_connect_status "$1" "$2" ;;
+		geo_view)       do_geo_view "$1" "$2" ;;
+		create_backup)  do_create_backup ;;
+		restore_backup) do_restore_backup "$1" ;;
+		reset_config)   do_reset_config ;;
 		*) usage; exit 1 ;;
 	esac
 }

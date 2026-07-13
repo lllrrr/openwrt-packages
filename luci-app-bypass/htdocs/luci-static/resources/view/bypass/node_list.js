@@ -4,11 +4,12 @@
 'require fs';
 'require ui';
 
-// Node List — JS-rendered table, laid out like passwall2's node_list.htm but
-// trimmed to bypass's single protocol (NaiveProxy). Columns: Remarks / TCPing /
-// Actions (Use / Edit / Copy / Delete). TCPing is a "Test" link that calls
-// api.sh node_tcping; results are cached in localStorage for 60s (same as
-// passwall2). The row matching the current global node is highlighted.
+// Node List — JS-rendered table, passwall2-style but trimmed:
+//   • No top options row (no url_test_url / auto_detection_time / show_node_info)
+//   • No toolbar (no Add-via-link / Clear-all / Select-all / Reassign)
+//   • Single TCPing latency column (no Ping / URL Test columns)
+//   • Per-row Use / Edit / Copy / Delete actions + current-node highlight
+//   • A single "Add" button at the bottom.
 
 var COL = { green: '#2dce89', red: '#fb6340', yellow: '#fb9a05' };
 
@@ -19,7 +20,6 @@ function api(/* action, ...args */) {
 	}).catch(function (e) { return { code: -1, error: String(e) }; });
 }
 
-// TCPing latency color thresholds (passwall2: <100 green, <200 yellow, else red).
 function latencyColor(ms) {
 	if (ms == null) return COL.red;
 	if (ms < 100) return COL.green;
@@ -27,15 +27,13 @@ function latencyColor(ms) {
 	return COL.red;
 }
 
-function tcpingCacheKey(sid) {
-	return 'bypass_tcping_' + sid;
-}
+function tcpingCacheKey(sid) { return 'bypass_tcping_' + sid; }
 function getCachedTcping(sid) {
 	try {
 		var raw = localStorage.getItem(tcpingCacheKey(sid));
 		if (!raw) return null;
 		var entry = JSON.parse(raw);
-		if (Date.now() - entry.t > 60000) return null; // 60s cache
+		if (Date.now() - entry.t > 60000) return null;
 		return entry.ms;
 	} catch (e) { return null; }
 }
@@ -53,20 +51,18 @@ return view.extend({
 		var currentNode = uci.get('bypass', '@global[0]', 'node') || '';
 
 		var container = E('div', { class: 'cbi-map' }, [
-			E('h2', { name: 'content' }, _('Node List')),
-			E('div', { class: 'cbi-section-descr' }, _('NaiveProxy nodes (https). Click TCPing "Test" to measure latency.'))
+			E('h2', { name: 'content' }, _('Node List'))
 		]);
 
 		var fieldset = E('fieldset', { class: 'cbi-section cbi-tblsection' });
-
-		// Header row.
-		fieldset.appendChild(E('table', { class: 'table cbi-section-table' }, [
+		var table = E('table', { class: 'table cbi-section-table' }, [
 			E('tr', { class: 'tr cbi-section-table-titles' }, [
 				E('th', { class: 'th cbi-section-table-cell', style: 'width:50%' }, _('Remarks')),
 				E('th', { class: 'th cbi-section-table-cell', style: 'width:15%' }, _('TCPing')),
 				E('th', { class: 'th cbi-section-table-cell', style: 'width:35%' }, _('Actions'))
 			])
-		]));
+		]);
+		fieldset.appendChild(table);
 
 		if (nodes.length === 0) {
 			fieldset.appendChild(E('div', { class: 'cbi-section-create' }, [
@@ -74,9 +70,6 @@ return view.extend({
 			]));
 		}
 
-		var tableBody = fieldset.querySelector('table');
-
-		// One row per node.
 		nodes.forEach(function (sec) {
 			var sid = sec['.name'];
 			var isCurrent = (sid === currentNode);
@@ -103,26 +96,22 @@ return view.extend({
 			}, _('Test'));
 
 			function renderTcping(ms) {
+				tcpingCell.textContent = '';
 				if (ms == null) {
-					tcpingCell.textContent = '';
 					tcpingCell.appendChild(tcpingLink);
 					return;
 				}
-				tcpingCell.textContent = '';
 				tcpingCell.appendChild(E('span', { style: 'color:' + latencyColor(ms) + ';font-weight:bold' }, ms + ' ms'));
 			}
 
-			// Render from cache if available, else show the Test link.
 			var cached = getCachedTcping(sid);
 			if (cached != null) renderTcping(cached);
 			else tcpingCell.appendChild(tcpingLink);
 
-			// Actions: Use / Edit / Copy / Delete (passwall2 button group).
 			var actions = E('td', { class: 'td cbi-section-table-cell cbi-section-actions', style: 'white-space:nowrap' }, [
 				E('div', { style: 'display:inline-flex;gap:4px' }, [
 					E('button', {
 						class: 'cbi-button cbi-button-apply',
-						style: isCurrent ? 'opacity:1' : '',
 						disabled: isCurrent,
 						click: function () { useNode(sid, sec.remarks || sid); }
 					}, isCurrent ? _('In use') : _('Use')),
@@ -141,9 +130,8 @@ return view.extend({
 				])
 			]);
 
-			var row = E('tr', {
+			table.appendChild(E('tr', {
 				class: 'tr cbi-section-table-row' + (isCurrent ? ' _now_use_bg' : ''),
-				id: 'cbi-bypass-nodes-' + sid,
 				style: isCurrent ? 'background-color:rgba(94,114,228,0.27)' : ''
 			}, [
 				E('td', { class: 'td cbi-value-field' }, [
@@ -153,11 +141,10 @@ return view.extend({
 				]),
 				tcpingCell,
 				actions
-			]);
-			tableBody.appendChild(row);
+			]));
 		});
 
-		// Add button (creates a new nodes section, then opens the editor).
+		// Single Add button at the bottom (no toolbar above the table).
 		fieldset.appendChild(E('div', { class: 'cbi-section-create', style: 'margin-top:8px' }, [
 			E('button', {
 				class: 'cbi-button cbi-button-add',
@@ -176,9 +163,7 @@ return view.extend({
 
 		container.appendChild(fieldset);
 
-		// --- node actions -------------------------------------------------
 		function useNode(sid, label) {
-			// Simple confirm modal, then set global.node and apply.
 			var modal = E('div', {
 				style: 'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:9999'
 			}, [
@@ -229,10 +214,7 @@ return view.extend({
 							click: function () {
 								document.body.removeChild(modal);
 								uci.del('bypass', sid);
-								// If it was the current node, clear the selection.
-								if (sid === currentNode) {
-									uci.set('bypass', '@global[0]', 'node', '');
-								}
+								if (sid === currentNode) uci.set('bypass', '@global[0]', 'node', '');
 								uci.save().then(function () { uci.apply().then(function () { location.reload(); }); });
 							}
 						}, _('Delete')),

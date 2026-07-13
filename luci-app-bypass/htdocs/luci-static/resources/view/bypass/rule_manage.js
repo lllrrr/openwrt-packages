@@ -5,13 +5,12 @@
 'require fs';
 'require ui';
 
-// Rule Manage — mirrors passwall2's client/rule.lua layout:
+// Rule Manage — mirrors passwall2's client/rule.lua:
 //   1. "Rule status" section (global_rules): geoip/geosite update URLs, asset
-//      path, auto-update schedule, a file-status line and a "Manually update"
-//      button.
-//   2. "Shunt Rule" table section (shunt_rules): list-first — shows only the
-//      Remarks + Summary columns; clicking a row opens the rule editor
-//      (rule_edit?rule=<sid>), exactly like passwall2's extedit → shunt_rules.
+//      path, auto-update schedule (week/time/interval mode, passwall2-style),
+//      a file-status line and a "Manually update" button.
+//   2. "Shunt Rule" table section (shunt_rules): list-first — Remarks +
+//      Summary columns; clicking a row opens the rule editor.
 
 return view.extend({
 	load: function () {
@@ -27,9 +26,7 @@ return view.extend({
 	render: function (stats) {
 		var m = new form.Map('bypass', _('Rule Manage'));
 
-		/* ------------------------------------------------------------------
-		 * Section 1 — global_rules (geodata sources + auto-update + manual btn)
-		 * ------------------------------------------------------------------ */
+		/* ---- Section 1: global_rules ---- */
 		var gs = m.section(form.TypedSection, 'global_rules', _('Rule status'));
 		gs.anonymous = true;
 
@@ -53,27 +50,46 @@ return view.extend({
 		o.placeholder = o.default;
 		o.rmempty = false;
 
-		o = gs.option(form.ListValue, 'geosite_update', _('Auto Update'));
-		o.value('1', _('Enable'));
-		o.value('0', _('Disable'));
-		o.default = '1';
+		o = gs.option(form.ListValue, 'update_week_mode', _('Auto Update Mode'));
+		o.value('', _('Disable'));
+		o.value('8', _('Loop Mode'));
+		o.value('7', _('Every day'));
+		o.value('1', _('Every Monday'));
+		o.value('2', _('Every Tuesday'));
+		o.value('3', _('Every Wednesday'));
+		o.value('4', _('Every Thursday'));
+		o.value('5', _('Every Friday'));
+		o.value('6', _('Every Saturday'));
+		o.value('0', _('Every Sunday'));
 
-		o = gs.option(form.Value, 'auto_update_minute', _('Auto Update Time'),
-			_('Minute of the hour for the periodic cron update (0-59). The cron job runs hourly when auto update is enabled.'));
-		o.datatype = 'range(0,59)';
-		o.default = '30';
-		o.placeholder = '30';
-		o.depends('geosite_update', '1');
+		o = gs.option(form.Value, 'update_time_mode', _('Update Time'));
+		o.value('0:00');
+		for (var t = 0; t <= 23; t++) {
+			if (t === 12) o.value('12:30');
+			else if (t === 23) o.value('23:59');
+			else o.value(t + ':00');
+		}
+		o.default = '0:00';
+		o.depends('update_week_mode', '0');
+		o.depends('update_week_mode', '1');
+		o.depends('update_week_mode', '2');
+		o.depends('update_week_mode', '3');
+		o.depends('update_week_mode', '4');
+		o.depends('update_week_mode', '5');
+		o.depends('update_week_mode', '6');
+		o.depends('update_week_mode', '7');
 
-		o = gs.option(form.ListValue, 'domainStrategy', _('Domain Strategy'),
-			_('BypassCore resolve strategy: AsIs (no DNS), IpIfNonMatch (resolve on domain miss), IpOnDemand (resolve on demand).'));
-		o.value('AsIs', 'AsIs');
-		o.value('IpIfNonMatch', 'IpIfNonMatch');
-		o.value('IpOnDemand', 'IpOnDemand');
-		o.default = 'IpIfNonMatch';
+		o = gs.option(form.ListValue, 'update_interval_mode', _('Update Interval(hour)'));
+		for (var h = 1; h <= 24; h++) o.value(String(h), h + ' ' + _('hour'));
+		o.default = '2';
+		o.depends('update_week_mode', '8');
 
-		/* geoip/geosite file status + manual update button, appended via a
-		 * DummyValue rendered as raw HTML (mirrors passwall2 rule_version.htm). */
+		o = gs.option(form.Flag, 'geoip_update', _('Update GeoIP'));
+		o.rmempty = false;
+		o = gs.option(form.Flag, 'geosite_update', _('Update Geosite'));
+		o.rmempty = false;
+
+		// File status + manual update button.
 		var statLine = E('div', {}, [
 			E('div', {}, _('geoip.dat: %s · %s').format(
 				stats.geoip.size ? String(stats.geoip.size) + ' bytes' : '—',
@@ -103,25 +119,20 @@ return view.extend({
 		o.rawhtml = true;
 		o.cfgvalue = function () { return statLine; };
 
-		/* ------------------------------------------------------------------
-		 * Section 2 — shunt_rules (list-first table; extedit opens editor)
-		 * ------------------------------------------------------------------ */
+		/* ---- Section 2: shunt_rules (list-first table) ---- */
 		var ss = m.section(form.TableSection, 'shunt_rules',
 			_('Shunt Rule'),
-			// Red priority warning, same as passwall2.
 			E('span', { style: 'color: red' },
 				_('Note the priority: the higher the order, the higher the priority.'))
 		);
 		ss.addremove = true;
-		ss.anonymous = false;          // show the section name as an identifier
-		ss.sortable = true;            // order = priority
+		ss.anonymous = false;
+		ss.sortable = true;
 		ss.extedit = function (sid) {
 			return 'rule_edit?rule=' + encodeURIComponent(sid);
 		};
 
 		o = ss.option(form.DummyValue, 'remarks', _('Remarks'));
-		// Show a short summary (outbound + network) next to the remarks so the
-		// table is informative without being fully expanded.
 		o = ss.option(form.DummyValue, '_summary', _('Summary'));
 		o.cfgvalue = function (sid) {
 			var outbound = uci.get('bypass', sid, 'outbound') || '—';

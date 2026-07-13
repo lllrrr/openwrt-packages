@@ -77,6 +77,8 @@ get_config() {
 	TCP_REDIR_PORTS=$(config_t_get global_forwarding tcp_redir_ports '1:65535')
 	UDP_REDIR_PORTS=$(config_t_get global_forwarding udp_redir_ports '1:65535')
 	PROXY_IPV6=$(config_t_get global_forwarding ipv6_tproxy 0)
+	ACCEPT_ICMP=$(config_t_get global_forwarding accept_icmp 0)
+	ACCEPT_ICMPV6=$(config_t_get global_forwarding accept_icmpv6 0)
 
 	DOMESTIC_DNS_USER=$(config_t_get global_dns domestic_dns auto)
 	REMOTE_DNS=$(config_t_get global_dns remote_dns 1.1.1.1)
@@ -491,20 +493,60 @@ restore_dnsmasq_forward() {
 # Crontab (periodic geodata update + uplink re-resolve)
 # ------------------------------------------------------------------------------
 
+# Translate a passwall2-style week/time/interval mode triple into a 5-field
+# crontab minute/hour/dow prefix. week_mode: ""=disabled, "8"=loop(by interval),
+# 0=Sunday..6=Saturday, 7=every day. time_mode="HH:MM", interval_mode=N hours.
+# Echoes the cron prefix (e.g. "30 4 * * *") or empty if disabled.
+cron_prefix() {
+	local week=$1 time=$2 interval=$3
+	[ -z "$week" ] && { echo ""; return; }
+	local hh mm
+	hh=$(echo "$time" | awk -F: '{print $1}')
+	mm=$(echo "$time" | awk -F: '{print $2}')
+	[ -z "$hh" ] && hh=0
+	[ -z "$mm" ] && mm=0
+	if [ "$week" = "8" ]; then
+		# Loop mode: every N hours.
+		echo "0 */${interval:-2} * * *"
+	elif [ "$week" = "7" ]; then
+		echo "$mm $hh * * *"
+	else
+		echo "$mm $hh * * $week"
+	fi
+}
+
 start_crontab() {
-	local minute=$(config_t_get global_rules auto_update_minute 30)
-	local enable_geo
-	enable_geo=$(config_t_get global_rules geosite_update 1)
-	[ "$enable_geo" = "1" ] && {
-		echo "${minute:-30} 4 * * * ${APP_PATH}/rule_update.sh >>${LOG_FILE} 2>&1" >> /etc/crontabs/root
-	}
+	# GeoData auto-update (global_rules.update_*_mode, passwall2-style).
+	local week time interval prefix
+	week=$(config_t_get global_rules update_week_mode)
+	time=$(config_t_get global_rules update_time_mode "0:00")
+	interval=$(config_t_get global_rules update_interval_mode 2)
+	local geo_en
+	geo_en=$(config_t_get global_rules geosite_update 1)
+	if [ "$geo_en" = "1" ] && [ -n "$week" ]; then
+		prefix=$(cron_prefix "$week" "$time" "$interval")
+		[ -n "$prefix" ] && echo "$prefix ${APP_PATH}/rule_update.sh >>${LOG_FILE} 2>&1" >> /etc/crontabs/root
+	fi
 	# Re-resolve naive uplink IPs every hour (DNS round-robin / IP changes).
 	echo "0 * * * * ${APP_PATH}/rule_update.sh refresh_uplink >>${LOG_FILE} 2>&1" >> /etc/crontabs/root
+
+	# Scheduled stop / start / restart (global_delay.*_week_mode).
+	local verb
+	for verb in stop start restart; do
+		week=$(config_t_get global_delay ${verb}_week_mode)
+		[ -z "$week" ] && continue
+		time=$(config_t_get global_delay ${verb}_time_mode "0:00")
+		interval=$(config_t_get global_delay ${verb}_interval_mode 2)
+		prefix=$(cron_prefix "$week" "$time" "$interval")
+		[ -n "$prefix" ] && echo "$prefix /etc/init.d/bypass ${verb} >/dev/null 2>&1" >> /etc/crontabs/root
+	done
+
 	/etc/init.d/cron restart >/dev/null 2>&1
 }
 
 stop_crontab() {
-	sed -i "/${APP_PATH//\//\\/}\/rule_update\.sh/d" /etc/crontabs/root 2>/dev/null
+	# Remove only the lines this app added (rule_update + init.d/bypass).
+	sed -i "/${APP_PATH//\//\\/}\/rule_update\.sh/d; /\/etc\/init\.d\/bypass /d" /etc/crontabs/root 2>/dev/null
 	/etc/init.d/cron restart >/dev/null 2>&1
 }
 
