@@ -1,0 +1,24 @@
+{
+	"luci-app-bypass": {
+		"description": "Bypass (naiveproxy + ChinaDNS-ng + BypassCore) access",
+		"read": {
+			"uci": ["bypass"],
+			"ubus": {
+				"file": ["read", "list", "stat"],
+				"system": ["info", "board"],
+				"luci": ["getInitList", "setInitAction"]
+			},
+			"file": [
+				"/tmp/log/bypass.log",
+				"/tmp/etc/bypass/bypasscore/config.json",
+				"/usr/share/bypass/"
+			]
+		},
+		"write": {
+			"uci": ["bypass"],
+			"file": {
+				"exec": ["/usr/share/bypass/api.sh"]
+			}
+		}
+	}
+}

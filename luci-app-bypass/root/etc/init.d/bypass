@@ -1,0 +1,76 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=15
+
+. $IPKG_INSTROOT/usr/share/bypass/utils.sh
+APP_FILE=${APP_PATH}/app.sh
+LOCK_FILE_DIR=/var/lock
+LOCK_FILE=${LOCK_FILE_DIR}/${CONFIG}.lock
+
+set_lock() {
+	[ ! -d "$LOCK_FILE_DIR" ] && mkdir -p "$LOCK_FILE_DIR"
+	exec 999>"$LOCK_FILE"
+	flock -xn 999
+}
+
+unset_lock() {
+	flock -u 999 2>/dev/null
+	rm -rf "$LOCK_FILE"
+}
+
+unlock() {
+	failcount=1
+	while [ "$failcount" -le 10 ]; do
+		if [ -f "$LOCK_FILE" ]; then
+			failcount=$((failcount + 1))
+			sleep 1
+			[ "$failcount" -ge 10 ] && unset_lock
+		else
+			break
+		fi
+	done
+}
+
+boot_func() {
+	local delay
+	delay=$(uci -q get ${CONFIG}.@global_delay[0].start_delay 2>/dev/null || echo 1)
+	[ "$delay" -gt 0 ] 2>/dev/null && {
+		log 0 "Start after a delay of %s seconds." "$delay"
+		sleep "$delay"
+	}
+	restart boot
+	touch ${LOCK_FILE_DIR}/${CONFIG}_ready.lock
+}
+
+boot() {
+	boot_func >/dev/null 2>&1 &
+}
+
+start() {
+	set_lock
+	[ $? = 1 ] && { log 0 "Already running, exit."; exit 0; }
+	$APP_FILE start
+	unset_lock
+}
+
+stop() {
+	unlock
+	set_lock
+	[ $? = 1 ] && { log 0 "Stopping (timed out), exit."; exit 0; }
+	$APP_FILE stop
+	unset_lock
+}
+
+restart() {
+	set_lock
+	[ $? = 1 ] && { log 0 "Already running, exit."; exit 0; }
+	$APP_FILE stop
+	$APP_FILE start $1
+	unset_lock
+}
+
+reload() {
+	echo "Warning: this service does not support live reload; full restart instead."
+	restart
+}

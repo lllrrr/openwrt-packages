@@ -1,0 +1,112 @@
+{
+	"admin/services/bypass": {
+		"title": "Bypass",
+		"order": 90,
+		"action": {
+			"type": "firstchild",
+			"recursive": true
+		},
+		"depends": {
+			"acl": ["luci-app-bypass"]
+		}
+	},
+	"admin/services/bypass/overview": {
+		"title": "Overview",
+		"order": 1,
+		"action": {
+			"type": "view",
+			"path": "bypass/overview"
+		},
+		"depends": {
+			"acl": ["luci-app-bypass"]
+		}
+	},
+	"admin/services/bypass/global": {
+		"title": "Basic Settings",
+		"order": 2,
+		"action": {
+			"type": "view",
+			"path": "bypass/global"
+		},
+		"depends": {
+			"acl": ["luci-app-bypass"]
+		}
+	},
+	"admin/services/bypass/forwarding": {
+		"title": "Forwarding",
+		"order": 3,
+		"action": {
+			"type": "view",
+			"path": "bypass/forwarding"
+		},
+		"depends": {
+			"acl": ["luci-app-bypass"]
+		}
+	},
+	"admin/services/bypass/dns": {
+		"title": "DNS",
+		"order": 4,
+		"action": {
+			"type": "view",
+			"path": "bypass/dns"
+		},
+		"depends": {
+			"acl": ["luci-app-bypass"]
+		}
+	},
+	"admin/services/bypass/nodes": {
+		"title": "Node List",
+		"order": 5,
+		"action": {
+			"type": "view",
+			"path": "bypass/node_list"
+		},
+		"depends": {
+			"acl": ["luci-app-bypass"]
+		}
+	},
+	"admin/services/bypass/node_config": {
+		"title": "Node Config",
+		"order": 6,
+		"action": {
+			"type": "view",
+			"path": "bypass/node_config"
+		},
+		"depends": {
+			"acl": ["luci-app-bypass"]
+		}
+	},
+	"admin/services/bypass/shunt_rules": {
+		"title": "Shunt Rules",
+		"order": 7,
+		"action": {
+			"type": "view",
+			"path": "bypass/shunt_rules"
+		},
+		"depends": {
+			"acl": ["luci-app-bypass"]
+		}
+	},
+	"admin/services/bypass/rule_update": {
+		"title": "Rule Update",
+		"order": 8,
+		"action": {
+			"type": "view",
+			"path": "bypass/rule_update"
+		},
+		"depends": {
+			"acl": ["luci-app-bypass"]
+		}
+	},
+	"admin/services/bypass/log": {
+		"title": "Log",
+		"order": 9,
+		"action": {
+			"type": "view",
+			"path": "bypass/log"
+		},
+		"depends": {
+			"acl": ["luci-app-bypass"]
+		}
+	}
+}

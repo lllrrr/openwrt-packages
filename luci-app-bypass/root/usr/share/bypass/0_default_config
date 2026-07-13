@@ -1,0 +1,103 @@
+
+config global
+	option enabled '0'
+	option node 'naive1'
+	option node_socks_port '1070'
+	option localhost_proxy '1'
+	option client_proxy '1'
+	option loglevel 'error'
+	# 0 (default/legacy): naiveproxy carries traffic; BypassCore is
+	# diagnostic-only (-test/-resolve/-observe). 1 (experimental): BypassCore
+	# runs `-run` as the transparent proxy core; naiveproxy is demoted to a
+	# SOCKS upstream. Mode 1 needs BypassCore's proxy-mode SOCKS5 dialer
+	# (pending upstream) to actually route "proxy" traffic.
+	option bypass_as_core '0'
+	option dns_redirect '1'
+	# BypassCore binary (install from https://github.com/kinmeic/BypassCore
+	# releases; must be a Linux ELF). The routing/split engine + Observatory
+	# / route-test / DNS-resolve pages auto-disable if absent or not a Linux ELF.
+	option bypasscore_file '/usr/bin/bypasscore'
+	option naive_file '/usr/bin/naive'
+	option chinadns_file '/usr/bin/chinadns-ng'
+	# Default egress interface for the naive -> server connection (empty = system
+	# default route). Per-node 'egress_interface' overrides this.
+	option default_egress_interface ''
+	option naive_egress_fwmark '0x2'
+	option naive_egress_table '200'
+
+config global_forwarding
+	option tcp_no_redir_ports 'disable'
+	option udp_no_redir_ports 'disable'
+	option tcp_redir_ports '1:65535'
+	option udp_redir_ports '1:65535'
+	option tcp_proxy_way 'redirect'
+	option ipv6_tproxy '0'
+
+config global_dns
+	option domestic_dns 'auto'
+	option remote_dns '1.1.1.1'
+	option remote_dns_protocol 'udp'
+	option query_strategy 'UseIPv4'
+	option chinadns_listen_port '10553'
+	# BypassCore DNS subsystem (used by 'bypasscore -resolve' and the LuCI
+	# DNS resolve page; ChinaDNS-NG stays the live split resolver + ipset
+	# populator). Empty bc_domestic_dns disables the split and only the
+	# remote upstream is emitted.
+	option bc_domestic_dns 'https://223.5.5.5/dns-query'
+	option bc_remote_dns 'https://1.1.1.1/dns-query'
+	option dns_split_domain 'geosite:cn'
+
+config global_rules
+	option geosite_update '1'
+	option geoip_update '1'
+	option auto_update_minute '30'
+	option v2ray_location_asset '/usr/share/v2ray/'
+	option domainStrategy 'IpIfNonMatch'
+	option geoip_url 'https://github.com/Loyalsoldier/geoip/releases/latest/download/geoip.dat'
+	option geosite_url 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat'
+
+config global_app
+	option geoview_file '/usr/bin/geoview'
+
+config global_delay
+	option start_delay '5'
+
+config shunt_rules 'China'
+	option remarks 'China'
+	option network 'tcp,udp'
+	option domain_list 'geosite:cn'
+	option ip_list 'geoip:cn'
+	option outbound '_direct'
+
+config shunt_rules 'PrivateIP'
+	option remarks 'PrivateIP'
+	option network 'tcp,udp'
+	option ip_list '0.0.0.0/8
+10.0.0.0/8
+127.0.0.0/8
+169.254.0.0/16
+172.16.0.0/12
+192.0.0.0/24
+192.0.2.0/24
+192.88.99.0/24
+192.168.0.0/16
+198.51.100.0/24
+203.0.113.0/24
+224.0.0.0/3
+100.64.0.0/10'
+	option outbound '_direct'
+
+config shunt_rules 'AdBlock'
+	option remarks 'AdBlock'
+	option network 'tcp,udp'
+	option domain_list 'geosite:category-ads-all'
+	option outbound '_block'
+
+config nodes 'naive1'
+	option remarks 'Example'
+	option type 'NaiveProxy'
+	option address 'naive.example.com'
+	option port '443'
+	option username 'user'
+	option password 'pass'
+	option egress_interface ''

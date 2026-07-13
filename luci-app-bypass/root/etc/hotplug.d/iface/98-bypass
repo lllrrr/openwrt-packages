@@ -1,0 +1,48 @@
+#!/bin/sh
+# hotplug.d/iface/98-bypass
+#
+# On default-route interface changes, refresh the WAN sets + uplink IPs (cheap);
+# on a fresh ifup of the default route (or the configured egress interface),
+# do a full restart so the policy route picks up the new gateway.
+
+[ -f /var/lock/bypass_ready.lock ] || exit 0
+
+. /lib/functions/network.sh
+. /usr/share/bypass/utils.sh
+
+[ "$(uci -q get bypass.@global[0].enabled)" = "1" ] || exit 0
+
+# Guard against re-entry.
+LOCK=/var/lock/bypass_ifup.lock
+exec 9>"$LOCK"
+flock -xn 9 || exit 0
+
+egress_iface=$(uci -q get bypass.@global[0].default_egress_interface)
+node=$(uci -q get bypass.@global[0].node)
+[ -n "$node" ] && node_egress=$(uci -q get bypass.${node}.egress_interface)
+[ -n "$node_egress" ] && egress_iface="$node_egress"
+
+is_default_route_iface() {
+	# DEVICE from hotplug; check it carries the default route.
+	local dev="$DEVICE"
+	[ -z "$dev" ] && return 1
+	ip route show default 2>/dev/null | grep -q "dev $dev"
+}
+
+case "$ACTION" in
+	ifupdate)
+		# Cheap refresh of WAN IP set + uplink set.
+		use_tables=$(get_cache_var USE_TABLES)
+		[ -n "$use_tables" ] && [ -x "$APP_PATH/${use_tables}.sh" ] && \
+			"$APP_PATH/${use_tables}.sh" update_wan_sets 2>/dev/null
+		;;
+	ifup)
+		if is_default_route_iface || [ "$DEVICE" = "$egress_iface" ]; then
+			( /etc/init.d/bypass restart ) >/dev/null 2>&1 &
+		fi
+		;;
+esac
+
+flock -u 9
+rm -f "$LOCK"
+exit 0

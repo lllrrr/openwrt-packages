@@ -1,0 +1,28 @@
+#!/bin/sh
+
+# Copy the factory default config into place on first install.
+[ ! -f /etc/config/bypass ] && {
+	cp -f /usr/share/bypass/0_default_config /etc/config/bypass
+}
+
+# Make the helper scripts executable.
+chmod +x /usr/share/bypass/*.sh 2>/dev/null
+
+# Register a firewall include so the transparent-proxy ruleset survives fw3/fw4
+# reloads. The include script is generated at runtime into /var/etc/bypass.include.
+uci -q get firewall.bypass >/dev/null 2>&1 || {
+	uci -q set firewall.bypass=include
+	uci -q set firewall.bypass.type=script
+	uci -q set firewall.bypass.path=/var/etc/bypass.include
+	# fw3 reloads includes automatically; for fw4 a reload flag helps.
+	if [ -x /etc/init.d/firewall ] && grep -q fw4 /etc/init.d/firewall 2>/dev/null; then
+		uci -q set firewall.bypass.reload=1
+	fi
+	uci -q commit firewall
+}
+
+# Clear LuCI caches so the new JS views / menu are picked up.
+rm -f /tmp/luci-indexcache /tmp/luci-modulecache 2>/dev/null
+killall -HUP rpcd 2>/dev/null
+
+exit 0
