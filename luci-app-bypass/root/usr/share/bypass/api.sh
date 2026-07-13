@@ -10,6 +10,10 @@
 . /lib/functions.sh
 . /usr/share/libubox/jshn.sh
 . ${APP_PATH:-/usr/share/bypass}/utils.sh
+# Source app.sh to inherit get_config / gen_bypasscore_config. Guard against the
+# dispatcher: setting APP_SOURCED=1 makes app.sh define functions and return
+# without running its own start/stop argument handler.
+APP_SOURCED=1 . ${APP_PATH:-/usr/share/bypass}/app.sh
 
 emit() {
 	json_dump
@@ -200,8 +204,28 @@ do_interfaces() {
 	emit
 }
 
+# connect_status <type> <url> -> { ping_type:"curl", use_time:N } | { status:0 }
+# Mirrors passwall2's connect_status: curl a URL and report the round-trip in
+# ms. Used by the Basic Settings status cards (Baidu/Google/GitHub latency).
+do_connect_status() {
+	local type=$1 url=$2
+	local out code use_time
+	# curl -w time_total prints the total time in seconds (e.g. 0.234).
+	out=$(curl -s -o /dev/null -w '%{time_total}' --connect-timeout 3 --max-time 5 "$url" 2>/dev/null)
+	code=$?
+	use_time=$(echo "$out" | awk '{printf "%d", $1*1000}')
+	json_init
+	if [ "$code" = "0" ] && [ -n "$use_time" ]; then
+		json_add_string ping_type "curl"
+		json_add_int use_time "$use_time"
+	else
+		json_add_int status 0
+	fi
+	emit
+}
+
 usage() {
-	echo "Usage: $0 {status|route_test|observe|resolve|node_tcping|config_preview|rule_update|log_tail|clear_log|interfaces} [args]" >&2
+	echo "Usage: $0 {status|route_test|observe|resolve|node_tcping|config_preview|rule_update|log_tail|clear_log|interfaces|connect_status} [args]" >&2
 }
 
 main() {
@@ -217,7 +241,8 @@ main() {
 		rule_update)    do_rule_update ;;
 		log_tail)       do_log_tail "$1" ;;
 		clear_log)      do_clear_log ;;
-		interfaces)    do_interfaces ;;
+		interfaces)     do_interfaces ;;
+		connect_status) do_connect_status "$1" "$2" ;;
 		*) usage; exit 1 ;;
 	esac
 }

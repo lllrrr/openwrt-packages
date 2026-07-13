@@ -16,8 +16,11 @@
 		},
 		"write": {
 			"uci": ["bypass"],
+			"ubus": {
+				"file": ["exec"]
+			},
 			"file": {
-				"exec": ["/usr/share/bypass/api.sh"]
+				"/usr/share/bypass/api.sh": ["exec"]
 			}
 		}
 	}

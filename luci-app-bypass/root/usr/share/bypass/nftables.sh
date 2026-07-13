@@ -42,6 +42,13 @@ nft_start() {
 	[ -z "$NFT" ] && { log 0 "nft not found; cannot install nftables rules."; return 1; }
 	mkdir -p "$(dirname "$INCLUDE_FILE")"
 
+	# Drop any prior table first. `delete table` errors if the table doesn't
+	# exist yet (first run), so ignore its stderr; this makes the (re)install
+	# idempotent without relying on `flush table` (which also errors when the
+	# table is absent and would abort the whole ruleset load below).
+	$NFT delete table inet ${NFT_TABLE} 2>/dev/null
+	$NFT delete table inet ${NFT_EGRESS_TABLE} 2>/dev/null
+
 	local tcp_expr udp_expr
 	tcp_expr=$(nft_port_expr "$TCP_REDIR_PORTS")
 	udp_expr=$(nft_port_expr "$UDP_REDIR_PORTS")
@@ -55,7 +62,6 @@ nft_start() {
 	# ash lacks `read -d`).
 	local sets
 	sets=$(cat <<EOF
-flush table inet ${NFT_TABLE}
 table inet ${NFT_TABLE} {
 	set bypass_chn {
 		type ipv4_addr
@@ -144,8 +150,9 @@ egress_mark_start() {
 	[ -z "$fwmark" ] && fwmark=0x2
 	[ -z "$table" ] && table=200
 
-	local ruleset="flush table inet ${NFT_EGRESS_TABLE}
-table inet ${NFT_EGRESS_TABLE} {
+	# Idempotent: drop any prior table (ignore error if absent) then define fresh.
+	$NFT delete table inet ${NFT_EGRESS_TABLE} 2>/dev/null
+	local ruleset="table inet ${NFT_EGRESS_TABLE} {
 	set bypass_uplink {
 		type ipv4_addr
 		size 1024
@@ -193,7 +200,6 @@ nft_gen_include() {
 	mkdir -p "$(dirname "$INCLUDE_FILE")"
 	cat <<-EOF > "$INCLUDE_FILE"
 		#!/bin/sh
-		nft 'flush table inet ${NFT_TABLE}' 2>/dev/null
 		${APP_PATH}/nftables.sh start
 	EOF
 	chmod +x "$INCLUDE_FILE" 2>/dev/null

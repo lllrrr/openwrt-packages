@@ -584,16 +584,19 @@ stop() {
 }
 
 # ------------------------------------------------------------------------------
-# Dispatcher
+# Dispatcher — only when run directly, not when sourced (api.sh sources this
+# file to reuse get_config / gen_bypasscore_config).
 # ------------------------------------------------------------------------------
 
-arg1=$1
-shift
-case "$arg1" in
-	gen_config) get_config; gen_bypasscore_config ;;
-	start)     start "$@" ;;
-	stop)      stop ;;
-	*)
-		echo "Usage: $0 {start|stop|gen_config}"
-		;;
-esac
+if [ "${APP_SOURCED:-0}" != "1" ]; then
+	arg1=$1
+	shift
+	case "$arg1" in
+		gen_config) get_config; gen_bypasscore_config ;;
+		start)     start "$@" ;;
+		stop)      stop ;;
+		*)
+			echo "Usage: $0 {start|stop|gen_config}"
+			;;
+	esac
+fi
