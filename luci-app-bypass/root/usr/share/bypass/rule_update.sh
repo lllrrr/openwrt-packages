@@ -75,23 +75,23 @@ update_geodata() {
 	return $((1 - ok))
 }
 
-# refresh_uplink: re-resolve the Naive server IP(s) and rebuild its destination
-# policy rules (cron hourly).
+# refresh_uplink: restart under the service lock so every currently referenced
+# Naive node is re-resolved and the shared Default NaiveProxy Interface policy
+# table is rebuilt atomically.
 refresh_uplink_mode() {
-	local node
-	node=$(config_t_get global node)
-	[ -n "$node" ] || return 0
 	# Serialize with init start/stop/restart. A failed refresh must not leave
 	# Naive reconnects using the system default WAN after their dedicated rules
 	# were rolled back, so stop the service fail-closed.
 	exec 8>/var/lock/bypass.lock
 	flock -xn 8 || return 0
-	if ! refresh_uplink_ips "$node"; then
+	${APP_PATH}/app.sh stop
+	if ! ${APP_PATH}/app.sh start; then
 		log 0 "Egress destination refresh failed; stopping Bypass to prevent WAN fallback."
-		${APP_PATH}/app.sh stop
+		rm -f /var/lock/bypass_ready.lock
 		flock -u 8
 		return 1
 	fi
+	touch /var/lock/bypass_ready.lock
 	flock -u 8
 }
 

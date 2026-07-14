@@ -247,20 +247,6 @@ get_host_ip() {
 	[ -n "$ip" ] && echo "$ip"
 }
 
-get_node_host_ip() {
-	local ip
-	local address
-	address=$(config_n_get "$1" address)
-	[ -n "$address" ] && {
-		local use_ipv6
-		use_ipv6=$(config_n_get "$1" use_ipv6)
-		local family="ipv4"
-		[ "$use_ipv6" = "1" ] && family="ipv6"
-		ip=$(get_host_ip "$family" "$address")
-	}
-	echo "$ip"
-}
-
 # Resolve all A records for a host (DNS round-robin safe). Writes one IP per
 # line to stdout (used to populate the bypass_uplink egress set).
 resolve_all_ipv4() {
@@ -455,23 +441,6 @@ is_linux_elf() {
 # naive stays root, so its listen mode keeps capabilities.
 # ------------------------------------------------------------------------------
 
-# resolve_uplink_ips <node_id> writes one destination per line to
-# uplink_ips/uplink_ips6. Both families are required because a Naive hostname
-# may be IPv6-only or change family between DNS refreshes.
-resolve_uplink_ips() {
-	local node_id=$1
-	local server_host
-	server_host=$(config_n_get "$node_id" address)
-	mkdir -p "$TMP_PATH"
-	: > "$TMP_PATH/uplink_ips"
-	: > "$TMP_PATH/uplink_ips6"
-	[ -z "$server_host" ] && return 0
-	resolve_all_ipv4 "$server_host" | awk '!seen[$0]++' > "$TMP_PATH/uplink_ips"
-	resolve_all_ipv6 "$server_host" | awk '!seen[$0]++' > "$TMP_PATH/uplink_ips6"
-	[ -s "$TMP_PATH/uplink_ips" ] || [ -s "$TMP_PATH/uplink_ips6" ] || \
-		log 1 "Could not resolve naive server address [%s] for egress routing." "$server_host"
-}
-
 # Resolve an OpenWrt logical interface (wan/wan1/usbwan/...) to its current
 # L3 device, IPv4 address and gateway.  network.sh reads netifd's runtime state,
 # so DHCP, PPPoE and dynamically renamed devices work; UCI's static device/name
@@ -609,17 +578,4 @@ teardown_egress_routing() {
 	unset_cache_var EGRESS_IFACE
 	unset_cache_var EGRESS_TABLE
 	unset_cache_var EGRESS_RULE_PRIORITY
-}
-
-# refresh_uplink_ips <node_id> -> re-resolve and rebuild destination rules.
-refresh_uplink_ips() {
-	local node_id=$1
-	resolve_uplink_ips "$node_id"
-	local iface table priority
-	iface=$(config_n_get "$node_id" egress_interface)
-	[ -n "$iface" ] || iface=$(config_t_get global default_egress_interface)
-	[ -n "$iface" ] || { teardown_egress_routing; return 0; }
-	table=$(config_t_get global naive_egress_table 20200)
-	priority=$(config_t_get global naive_egress_rule_priority 900)
-	setup_egress_routing "$iface" "$table" "$priority"
 }

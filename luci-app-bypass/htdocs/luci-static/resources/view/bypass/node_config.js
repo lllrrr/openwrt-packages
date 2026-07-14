@@ -2,7 +2,6 @@
 'require view';
 'require form';
 'require uci';
-'require fs';
 
 // Read the editing section id from the URL query (?section=<id>). Reached via
 // the Node List row extedit link; if opened without a section, show a hint.
@@ -12,17 +11,10 @@ function currentSection() {
 
 return view.extend({
 	load: function () {
-		return Promise.all([
-			uci.load('bypass'),
-			fs.exec('/usr/share/bypass/api.sh', ['interfaces']).then(function (res) {
-				try { return JSON.parse(res.stdout || '{}').interfaces || []; }
-				catch (e) { return []; }
-			}).catch(function () { return []; })
-		]);
+		return uci.load('bypass');
 	},
 
-	render: function (data) {
-		var ifaces = data[1] || [];
+	render: function () {
 		var sid = currentSection();
 
 		if (!sid || uci.get('bypass', sid, '.type') !== 'nodes') {
@@ -55,11 +47,6 @@ return view.extend({
 
 		o = s.option(form.Value, 'password', _('Password'));
 		o.password = true;
-
-		o = s.option(form.ListValue, 'egress_interface', _('Egress Interface'));
-		o.description = _('Steer this NaiveProxy server connection out of the selected OpenWrt network. Empty = use the global default egress interface.');
-		o.value('', _('(use global default)'));
-		ifaces.forEach(function (i) { o.value(i, i); });
 
 		return m.render();
 	}

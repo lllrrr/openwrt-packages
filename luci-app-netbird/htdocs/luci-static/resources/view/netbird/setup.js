@@ -29,6 +29,12 @@ var callSetupFwd    = rpc.declare({
 	params: ['lan_to_netbird', 'netbird_to_lan']
 });
 var callTeardown    = rpc.declare({ object: 'luci.netbird', method: 'teardown_automation' });
+var callListExit    = rpc.declare({ object: 'luci.netbird', method: 'list_exit_nodes' });
+var callSelectExit  = rpc.declare({
+	object: 'luci.netbird',
+	method: 'select_exit_node',
+	params: ['id']
+});
 
 // yesPill(bool) — 装配态胶囊：已装配=绿(connected)，未装配=红(disconnected)。
 // 复用 dom-helpers.statusPill 白名单内的颜色键，不引入新 CSS。
@@ -45,21 +51,33 @@ function onOffPill(on) {
 
 return view.extend({
 	load: function () {
-		return L.resolveDefault(callStatus(), { ok: false });
+		return Promise.all([
+			L.resolveDefault(callStatus(), { ok: false }),
+			L.resolveDefault(callListExit(), { ok: false })
+		]);
 	},
 
-	render: function (statusRes) {
+	render: function (loaded) {
 		var self = this;
+		var statusRes = loaded[0];
+		var exitRes = loaded[1];
 
 		var container = E('div', { 'class': 'cbi-map' }, [
 			E('h2', {}, _('NetBird') + ' — ' + _('Network')),
 			E('div', { 'class': 'cbi-map-descr' },
-				_('Configure the OpenWrt firewall zone and forwarding rules for NetBird.'))
+				_('Configure the OpenWrt firewall zone and forwarding rules for NetBird, and select the exit node.'))
 		]);
 
 		// 顶部装配态块（refresh 用 dom.content 原地替换）。
 		var statusBox = E('div', {});
 		container.appendChild(statusBox);
+
+		// ── Exit node 块（日常操作控件,放防火墙一次性装配之前）──────────────────
+		// 即时生效:选择状态由 netbird daemon 持久化,不进 UCI,与本页其他按钮同为
+		// 直接动作模型。refresh 用 dom.content 原地替换。
+		this._exitBox = E('div', {});
+		container.appendChild(this._exitBox);
+		this.renderExitNodes(exitRes);
 
 		// ── 一键配置块 ────────────────────────────────────────────────────────
 		container.appendChild(E('div', { 'class': 'cbi-section' }, [
@@ -140,6 +158,131 @@ return view.extend({
 		this.renderStatus(statusBox, statusRes);
 
 		return container;
+	},
+
+	// renderExitNodes(res) — 渲染 Exit node 块（dom.content 原地替换 _exitBox）。
+	// res 为 list_exit_nodes 信封,四态:非 running(err)→提示先启动;running 未连接
+	// →提示先连接;无 exit node→提示去管理控制台配置;有→当前态 + 下拉 + 应用按钮。
+	renderExitNodes: function (res) {
+		var self = this;
+		var nodes = (res && res.ok && res.data && res.data.exit_nodes) ? res.data.exit_nodes : [];
+		var connected = !!(res && res.ok && res.data && res.data.connected);
+		var body;
+
+		// 当前生效节点 = 第一个 selected 条目(正常互斥下至多一个;遗留多选态取第一个展示)。
+		var current = null;
+		for (var i = 0; i < nodes.length; i++) {
+			if (nodes[i].selected) { current = nodes[i]; break; }
+		}
+
+		if (!res || !res.ok) {
+			// 按错误类别给指引:非 running 系(含 needs_login)指向认证页;
+			// 运行时错误(cli_error 等)显示后端 message,避免误导成"未运行"。
+			var offline = { not_installed: 1, service_disabled: 1, service_stopped: 1, needs_login: 1 };
+			body = E('p', { 'class': 'cbi-section-descr' },
+				(res && res.code && !offline[res.code] && res.message)
+					? _('Could not read exit nodes:') + ' ' + res.message
+					: _('NetBird is not running. Start it and connect from the Authentication page first.'));
+		} else if (!connected) {
+			body = E('p', { 'class': 'cbi-section-descr' },
+				_('NetBird is not connected. Connect from the Authentication page first.'));
+		} else if (!nodes.length) {
+			body = E('p', { 'class': 'cbi-section-descr' },
+				_('No exit nodes are available. Set up a peer as an exit node in the NetBird management console first.'));
+		} else {
+			this._exitSelect = E('select', { 'class': 'cbi-input-select' },
+				[ E('option', { 'value': '' }, _('Off (direct internet access)')) ].concat(
+					nodes.map(function (n) {
+						var opt = E('option', { 'value': n.id }, n.id + (n.range ? ' (' + n.range + ')' : ''));
+						if (current && n.id === current.id)
+							opt.selected = true;
+						return opt;
+					})));
+
+			body = E('div', {}, [
+				E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title' }, _('Active exit node')),
+					E('div', { 'class': 'cbi-value-field' }, [
+						current ? nb.statusPill('connected', current.id)
+						        : nb.statusPill('unknown', _('Off'))
+					])
+				]),
+				E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title' }, _('Switch to')),
+					E('div', { 'class': 'cbi-value-field' }, [
+						this._exitSelect, ' ',
+						E('button', {
+							'class': 'btn cbi-button cbi-button-action',
+							'click': ui.createHandlerFn(self, 'handleExitApply')
+						}, _('Apply exit node'))
+					])
+				])
+			]);
+		}
+
+		this._exitCurrent = current ? current.id : '';
+
+		dom.content(this._exitBox, E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Exit node')),
+			E('p', { 'class': 'cbi-section-descr' },
+				_('Route all internet traffic from this router and its clients through a NetBird peer. Exit nodes are defined in the NetBird management console. Changes take effect immediately and are remembered by the NetBird daemon.')),
+			body
+		]));
+	},
+
+	// refreshExitNodes() — 重新拉 list_exit_nodes 并刷新 Exit node 块（操作后调用）。
+	refreshExitNodes: function () {
+		var self = this;
+		return L.resolveDefault(callListExit(), { ok: false }).then(function (res) {
+			self.renderExitNodes(res);
+		});
+	},
+
+	// handleExitApply — 「应用」入口:改默认路由是重后果操作,弹确认 modal 后才执行。
+	// 不做「已是当前节点」拦截:旧版 netbird(<0.73)缺 exit node 对账,无显式选择时
+	// list 可能把未生效节点报成 Selected;重复 select 幂等且会写入显式选择态,
+	// 恰好把这种假 Selected 修正为真生效——拦截反而堵死唯一的自愈路径。
+	handleExitApply: function (ev) {
+		var self = this;
+		var id = this._exitSelect ? this._exitSelect.value : '';
+
+		ui.showModal(_('Switch exit node?'), [
+			id
+				? E('p', {}, _('All internet traffic from this router and devices routed through it will go through "%s".').format(id))
+				: E('p', {}, _('The exit node will be turned off; internet traffic will go out directly again.')),
+			E('div', { 'class': 'alert-message warning' }, [
+				E('strong', {}, _('Caution:')), ' ',
+				_('Switching the exit node changes the default route. Connections may drop briefly, and remote management sessions that do not run over NetBird can be cut off.')
+			]),
+			E('div', { 'class': 'right' }, [
+				E('button', { 'class': 'btn', 'click': ui.hideModal }, _('Cancel')),
+				' ',
+				E('button', {
+					'class': 'btn cbi-button cbi-button-action important',
+					'click': ui.createHandlerFn(self, 'doExitApply', id)
+				}, _('Switch exit node'))
+			])
+		]);
+	},
+
+	// doExitApply — modal 确认后真正执行 select_exit_node,按后端回读态刷新块。
+	doExitApply: function (id, ev) {
+		var self = this;
+		ui.hideModal();
+		return callSelectExit(id).then(function (res) {
+			if (res && res.ok) {
+				ui.addNotification(null, E('p', {},
+					id ? _('Exit node switched to "%s".').format(id)
+					   : _('Exit node turned off.')), 'info');
+			} else {
+				var detail = (res && res.message) ? (' ' + res.message) : '';
+				ui.addNotification(null, E('p', {}, _('Failed to switch the exit node.') + detail), 'error');
+			}
+		}).catch(function (e) {
+			ui.addNotification(null, E('p', {}, String(e.message || e)), 'error');
+		}).finally(function () {
+			return self.refreshExitNodes();
+		});
 	},
 
 	// renderStatus(box, res) — 把装配态写入 box，并把 forwarding checkbox 同步到实际状态。

@@ -80,7 +80,7 @@ opkg install luci-app-bypass_*.ipk
 
 安装后：
 1. 安装 BypassCore：从 <https://github.com/kinmeic/BypassCore/releases> 下载对应架构的 OpenWrt 包（`bypasscore-openwrt-*.tar.gz`），解出 `bypasscore` 放到 `/usr/bin/bypasscore`（或改 `bypass.global.bypasscore_file`）。
-2. 安装 NaiveProxy、ChinaDNS-NG；建议同时安装 `dns2socks`，否则国外 DNS 由 ChinaDNS-NG 直接访问。
+2. 安装 NaiveProxy、ChinaDNS-NG；使用“Remote DNS Outbound = Remote”时必须安装 `dns2socks`，否则服务会拒绝启动以避免 DNS 泄漏。
 3. 把 `geoip.dat` / `geosite.dat` 放到 `/usr/share/v2ray/`（或安装 `v2ray-geoip` / `v2ray-geosite`，程序会检测包的实际安装目录）。
 4. LuCI → 服务 → Bypass，填节点、选出口接口、启用。
 
@@ -91,8 +91,7 @@ opkg install luci-app-bypass_*.ipk
 ```sh
 config global
     option enabled '1'
-    option node 'naive1'
-    option node_socks_port '1070'
+    option node_socks_port '1088'      # 多节点 SOCKS 起始端口
     option dns_redirect '1'
     option bypasscore_file '/usr/bin/bypasscore'
     option naive_file '/usr/bin/naive'
@@ -112,20 +111,33 @@ config global_forwarding
 config global_dns
     option domestic_dns 'auto'        # auto = 自动检测运营商 DNS
     option remote_dns '1.1.1.1'
-    option remote_dns_protocol 'tcp'  # udp|tcp|tls（ChinaDNS-NG 不支持 DoH）
-    option query_strategy 'UseIPv4'
+    option remote_dns_protocol 'tcp'  # udp|tcp|doh|tls
+    option remote_dns_detour 'remote' # remote = 经 Default 规则节点
+    option direct_dns_query_strategy 'UseIP'
+    option remote_dns_query_strategy 'UseIPv4'
+    option dns_hosts 'cloudflare-dns.com 1.1.1.1
+dns.google.com 8.8.8.8'
     option chinadns_listen_port '10553'
 
 config global_rules
     option v2ray_location_asset '/usr/share/v2ray/'
     option domainStrategy 'IpIfNonMatch'
+    option domainMatcher 'hybrid'
+    option write_ipset_direct '1'
+    option enable_geoview_ip '1'
+    option direct_egress_interface 'wan1'
 
 config shunt_rules 'China'
     option network 'tcp,udp'
     option domain_list 'geosite:cn'
     option ip_list 'geoip:cn'
-    option outbound '_direct'         # _direct | _proxy | _block
+    option outbound '_direct'         # 空 | _direct | _blackhole | 节点 section id
     option egress_interface 'wan1'    # 仅 Direct；覆盖默认直连接口
+
+config shunt_rules 'Default'
+    option remarks 'Default'
+    option is_default '1'             # Basic Settings 专用，不在 Rule Manage 显示
+    option outbound 'naive1'          # 未匹配流量走 naive1
 
 config nodes 'naive1'
     option type 'NaiveProxy'
@@ -133,7 +145,6 @@ config nodes 'naive1'
     option port '443'
     option username 'user'
     option password 'pass'
-    option egress_interface ''        # 空 = 用全局 default_egress_interface
 ```
 
 ---
@@ -151,12 +162,13 @@ luci-app-bypass/
 │   ├── rule_manage.js rule_edit.js   # GeoData 更新与分流规则
 │   ├── geo_view.js log.js
 └── root/
-    ├── etc/init.d/bypass             # rc.common + flock + 延迟启动
+    ├── etc/init.d/bypass             # rc.common 包装器（升级时强制刷新）
     ├── etc/uci-defaults/luci-bypass  # 首次安装：拷默认配置、防火墙 include、chmod
     ├── etc/hotplug.d/iface/98-bypass # ifup 重启 / ifupdate 刷新
     └── usr/share/bypass/
+        ├── service.init              # BusyBox flock 锁、延迟启动与服务生命周期
         ├── utils.sh                  # 共享库（含双栈出口策略路由、ELF 校验）
-        ├── app.sh                    # 编排：get_config / run_naive / run_chinadns_ng / gen_bypasscore_config / start/stop
+        ├── app.sh                    # 编排：多 Naive 节点 / ChinaDNS-NG / BypassCore / start-stop
         ├── nftables.sh               # nft 透明代理、DNS 白名单与 IPv6 TProxy
         ├── rule_update.sh            # 下载校验 geoip/geosite + 重解析出口 IP
         ├── api.sh                    # rpcd file.exec 后端（JSON）
@@ -182,22 +194,22 @@ luci-app-bypass/
 
 BypassCore 是必需的透明分流核心，角色等同于 Passwall 的 Xray/sing-box；不存在 NaiveProxy 核心模式或自动回退。BypassCore 缺失、不是 Linux ELF、配置不兼容或监听启动失败时，服务返回失败，并且不会安装透明代理防火墙规则或接管 dnsmasq。
 
-NaiveProxy 只负责把所选 HTTPS 节点暴露为本机 SOCKS 上游，供 BypassCore 的 `proxy` outbound 使用。BypassCore 以 `bypasscore -run -config <cfg>` 常驻，负责透明 inbound、sniff、路由规则以及 `freedom` / `blackhole` / `proxy` 三类 outbound。
+Basic Settings → Shunt Rule 为每条规则选择 Close、Direct、Blackhole 或具体 NaiveProxy 节点；保留的 Default 行始终最后作为兜底且不会出现在 Rule Manage。每个被引用的 NaiveProxy 节点会启动独立本机 SOCKS 实例，BypassCore 为它生成独立 `proxy_<node>` outbound，因此不同规则选择不同节点会真正生效。
 
 ### 多 WAN 出口
 
-- `default_egress_interface` 选择全局 Naive 服务器出口；每个节点的 `egress_interface` 可单独覆盖。填写的是 OpenWrt 逻辑网络名，如 `wan`、`wan1`、`usbwan`。
+- `default_egress_interface`（界面名称 `Default NaiveProxy Interface`）统一选择所有 Naive 服务器连接的出口；Node Config 不再提供接口覆盖。填写的是 OpenWrt 逻辑网络名，如 `wan`、`wan1`、`usbwan`。
 - 程序通过 netifd 运行时状态解析实际 L3 设备与 IPv4/IPv6 网关，兼容 DHCP、PPPoE 与设备名变化。
-- 仅为当前 Naive 服务器解析出的 IPv4/IPv6 目标添加独立路由表和 `ip rule to ...`。它不改写 fwmark，因此不会覆盖 mwan3/PBR 的标记；规则优先级由 `naive_egress_rule_priority` 控制，默认 900。
+- 仅为所有被分流规则引用的 Naive 服务器解析出的 IPv4/IPv6 目标添加共享路由表和 `ip rule to ...`。它不改写 fwmark，因此不会覆盖 mwan3/PBR 的标记；规则优先级由 `naive_egress_rule_priority` 控制，默认 900。
 - `direct_egress_interface` 控制默认 Direct 出口；每条 Direct 分流规则还可用 `egress_interface` 覆盖，均绑定到 netifd 实时 L3 设备。
-- Proxy 规则共用同一个复用的 Naive 隧道，物理 WAN 在 Node Config（节点覆盖）或 Basic Settings（全局默认）设置，不能在单条 Proxy 规则上再拆分。
+- 每条 Proxy 规则可以选择不同 Naive 节点；这些节点的物理 WAN 统一由 `Default NaiveProxy Interface` 控制。
 - Naive 出口、默认 Direct 出口及规则级 Direct 出口发生 `ifup`、`ifupdate`、`ifdown` 时都会重建或撤销对应绑定；节点域名解析结果每小时刷新，刷新不完整时服务会失败关闭，避免悄悄改走系统默认 WAN。
 
 ## 已知限制 / 待办
 
 - **UDP 透明代理**：NaiveProxy 的 SOCKS5 服务明确不支持 UDP ASSOCIATE，因此本项目不拦截 UDP，避免造成 UDP 黑洞。TPROXY 仅用于 TCP（包括可选 IPv6 TCP）。
 - **IPv6 数据面**：启用“IPv6 TProxy”后安装 IPv6 TCP TProxy 链、策略路由与 BypassCore IPv6 listener；节点服务器出口策略本身始终支持双栈。
-- **国外 DNS**：安装 `dns2socks` 且选择 UDP/TCP 国外 DNS 时，ChinaDNS-NG 与 BypassCore 自身的国外查询都会经 Naive SOCKS 隧道访问；未安装或选择 DoT 时会在日志中明确提示国外 DNS 仍为直连。运营商/国内 IPv4 DNS 会加入 nftables 直连白名单。
+- **国外 DNS**：`Remote DNS Outbound = Remote` 且协议为 UDP/TCP 时，ChinaDNS-NG 与 BypassCore 的国外查询经 Default 规则所选节点（没有则使用首个被引用节点）的 DNS2SOCKS 中继；缺少节点/`dns2socks` 或选择 DoH/DoT 时会失败关闭，避免静默直连泄漏。选择 `Direct` 时可用 UDP/TCP；DoT 还要求带 TLS 支持的 ChinaDNS-NG。当前 DNS 数据路径不支持 DoH，选择后会失败关闭而非静默泄漏。
 - **路由器本机透明代理**：当前不安装 nftables OUTPUT 重定向，因为 BypassCore 尚未给 outbound socket 设置可排除的专用 mark，强行开启会让 direct outbound 递归回核心。路由器本机程序可显式使用节点 SOCKS 端口。
 - **BypassCore 数据面**：nftables 只负责把符合入口条件的 TCP 送入核心；分流规则由 BypassCore 逐连接执行，Direct/Proxy/Block 不再由防火墙近似判断。
 - **未实现**：订阅解析、ACL 规则、haproxy 负载均衡、SOCKS 自动切换、monitor/tasks 守护进程、多语言（目前仅 zh-cn）。

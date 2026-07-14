@@ -32,6 +32,8 @@ load_standalone_config() {
 	PROXY_IPV6=$(config_t_get global_forwarding ipv6_tproxy 0)
 	FORCE_PROXY_LAN_IP=$(config_t_get global_forwarding force_proxy_lan_ip 0)
 	CLIENT_PROXY=$(config_t_get global client_proxy 1)
+	WRITE_IPSET_DIRECT=$(config_t_get global_rules write_ipset_direct 1)
+	ENABLE_GEOVIEW_IP=$(config_t_get global_rules enable_geoview_ip 1)
 }
 
 NFT=$(first_type /usr/sbin/nft nft)
@@ -121,6 +123,16 @@ table inet ${NFT_TABLE} {
 		type ipv4_addr
 		size 32
 	}
+	set bypass_direct_dns {
+		type ipv4_addr
+		size 65536
+		flags interval
+	}
+	set bypass_direct_dns6 {
+		type ipv6_addr
+		size 65536
+		flags interval
+	}
 	set bypass_chn {
 		type ipv4_addr
 		size 65536
@@ -155,12 +167,25 @@ EOF
 		lan_accept="ip daddr @bypass_lan accept"
 		lan6_accept="ip6 daddr @bypass_lan6 accept"
 	fi
+	local direct_dns_accept="" direct_dns6_accept=""
+	local direct_bind_configured=0 _bind_sid
+	[ -n "$(config_t_get global_rules direct_egress_interface)" ] && direct_bind_configured=1
+	for _bind_sid in $(uci -q show "$CONFIG" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+		[ "$(config_n_get "$_bind_sid" outbound)" = "_direct" ] && [ -n "$(config_n_get "$_bind_sid" egress_interface)" ] && direct_bind_configured=1
+	done
+	if { [ "$WRITE_IPSET_DIRECT" = "1" ] || [ "$ENABLE_GEOVIEW_IP" = "1" ]; } && [ "$direct_bind_configured" = "0" ]; then
+		direct_dns_accept="ip daddr @bypass_direct_dns accept"
+		direct_dns6_accept="ip6 daddr @bypass_direct_dns6 accept"
+	elif [ "$direct_bind_configured" = "1" ]; then
+		log 0 "Direct interface binding is configured; keeping direct DNS/GeoIP matches inside BypassCore so the selected interface is honored."
+	fi
 
 	local nat_chain="" mangle_chain="" mangle6_chain=""
 	# Redirect mode: NAT PREROUTING REDIRECT for TCP.
 	if [ "$CLIENT_PROXY" = "1" ] && [ "$mode" = "redirect" ] && [ -n "$tcp_expr" ]; then
 		nat_chain="chain prerouting { type nat hook prerouting priority -100; policy accept;
 			ip daddr @bypass_vps accept
+			${direct_dns_accept}
 			${china_accept}
 			ip daddr @bypass_local accept
 			${lan_accept}
@@ -176,6 +201,7 @@ EOF
 	if [ "$CLIENT_PROXY" = "1" ] && [ "$mode" = "tproxy" ] && [ -n "$tcp_expr" ]; then
 		[ -n "$tcp_expr" ] && mangle_chain="chain prerouting { type filter hook prerouting priority mangle; policy accept;
 			ip daddr @bypass_vps accept
+			${direct_dns_accept}
 			${china_accept}
 			ip daddr @bypass_local accept
 			${lan_accept}
@@ -188,6 +214,7 @@ EOF
 		if [ "$PROXY_IPV6" = "1" ]; then
 			[ -n "$tcp_expr" ] && mangle6_chain="chain prerouting6_tcp { type filter hook prerouting priority mangle; policy accept;
 				ip6 daddr @bypass_vps6 accept
+				${direct_dns6_accept}
 				ip6 daddr @bypass_local6 accept
 				${lan6_accept}
 				${wan_accept}
@@ -264,6 +291,29 @@ EOF
 			log 1 "Add direct IPv4 DNS to whitelist: %s" "$ip"
 		fi
 	done
+
+	# Passwall2-style GeoIP preloading for Direct rules. Populate the same
+	# interval sets used by direct DNS results so matching IPs bypass the core.
+	if [ "$ENABLE_GEOVIEW_IP" = "1" ]; then
+		local sid ip_rule code cidr
+		for sid in $(uci -q show "$CONFIG" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+			[ "$(config_n_get "$sid" outbound)" = "_direct" ] || continue
+			while IFS= read -r ip_rule; do
+				case "$ip_rule" in ''|'#'*) continue ;; esac
+				case "$ip_rule" in
+					geoip:*)
+						code=${ip_rule#geoip:}
+						for cidr in $(get_geoip "$code" ipv4); do $NFT add element inet ${NFT_TABLE} bypass_direct_dns "{ $cidr }" 2>/dev/null; done
+						for cidr in $(get_geoip "$code" ipv6); do $NFT add element inet ${NFT_TABLE} bypass_direct_dns6 "{ $cidr }" 2>/dev/null; done
+						;;
+					*:*/*|*:*) $NFT add element inet ${NFT_TABLE} bypass_direct_dns6 "{ $ip_rule }" 2>/dev/null ;;
+					*) $NFT add element inet ${NFT_TABLE} bypass_direct_dns "{ $ip_rule }" 2>/dev/null ;;
+				esac
+			done <<-EOF
+			$(config_n_get "$sid" ip_list)
+			EOF
+		done
+	fi
 
 	nft_gen_include
 	log 0 "nftables ruleset installed (mode=%s, redir_port=%s)." "$mode" "$REDIR_PORT"

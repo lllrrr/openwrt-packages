@@ -64,12 +64,22 @@ msgstr ""
 msgid "Act as a router for server routes received from the management service."
 msgstr ""
 
+#: htdocs/luci-static/resources/view/netbird/setup.js:199
+msgid "Active exit node"
+msgstr ""
+
 #: htdocs/luci-static/resources/view/netbird/versions.js:97
 msgid "Active source"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/versions.js:363
 msgid "Active source is now %s (running v%s)."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/setup.js:247
+msgid ""
+"All internet traffic from this router and devices routed through it will go "
+"through \"%s\"."
 msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/logs.js:396
@@ -115,6 +125,10 @@ msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/versions.js:276
 msgid "Already on the latest official version (v%s)."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/setup.js:212
+msgid "Apply exit node"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/setup.js:117
@@ -191,12 +205,46 @@ msgstr ""
 msgid "Checksum verification failed; the download was rejected."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/netbird/versions.js:351
-msgid "Not enough storage space. Delete unused downloaded versions and try again."
+#: htdocs/luci-static/resources/view/netbird/setup.js:68
+msgid ""
+"Configure the OpenWrt firewall zone and forwarding rules for NetBird, and "
+"select the exit node."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/netbird/setup.js:57
-msgid "Configure the OpenWrt firewall zone and forwarding rules for NetBird."
+#: htdocs/luci-static/resources/view/netbird/setup.js:221
+msgid "Exit node"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/setup.js:271
+msgid "Exit node switched to \"%s\"."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/setup.js:272
+msgid "Exit node turned off."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/setup.js:275
+msgid "Failed to switch the exit node."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/setup.js:183
+msgid "NetBird is not connected. Connect from the Authentication page first."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/setup.js:180
+msgid ""
+"NetBird is not running. Start it and connect from the Authentication page "
+"first."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/setup.js:186
+msgid ""
+"No exit nodes are available. Set up a peer as an exit node in the NetBird "
+"management console first."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/versions.js:351
+msgid "Not enough storage space. Delete unused downloaded versions and try again."
 msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/setup.js:36
@@ -244,6 +292,10 @@ msgstr ""
 msgid "Could not determine the NetBird service state."
 msgstr ""
 
+#: htdocs/luci-static/resources/view/netbird/setup.js:184
+msgid "Could not read exit nodes:"
+msgstr ""
+
 #: htdocs/luci-static/resources/view/netbird/versions.js:272
 msgid "Could not reach GitHub to check the latest version."
 msgstr ""
@@ -264,11 +316,6 @@ msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/setup.js:158
 msgid "Current configuration"
-msgstr ""
-
-#: htdocs/luci-static/resources/view/netbird/settings.js:116
-msgid ""
-"Custom device name shown in NetBird. Leave blank to use the system hostname."
 msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/versions.js:29
@@ -328,6 +375,13 @@ msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/overview.js:232
 msgid "Deregister failed"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/settings.js:118
+msgid ""
+"Device name reported to NetBird. Applied only when the peer first "
+"registers; to rename an already registered device, edit it in the NetBird "
+"management console. Leave blank to use the system hostname."
 msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/overview.js:259
@@ -609,6 +663,38 @@ msgstr ""
 msgid "Remove local identity only"
 msgstr ""
 
+#: htdocs/luci-static/resources/view/netbird/setup.js:223
+msgid ""
+"Route all internet traffic from this router and its clients through a "
+"NetBird peer. Exit nodes are defined in the NetBird management console. "
+"Changes take effect immediately and are remembered by the NetBird daemon."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/setup.js:259
+msgid "Switch exit node"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/setup.js:245
+msgid "Switch exit node?"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/setup.js:206
+msgid "Switch to"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/setup.js:251
+msgid ""
+"Switching the exit node changes the default route. Connections may drop "
+"briefly, and remote management sessions that do not run over NetBird can be "
+"cut off."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/setup.js:248
+msgid ""
+"The exit node will be turned off; internet traffic will go out directly "
+"again."
+msgstr ""
+
 #: htdocs/luci-static/resources/view/netbird/overview.js:234
 msgid "The management server could not deregister this device — it may be unreachable, rebuilt, or it no longer knows this peer. You can remove the local identity only and then log in again with a new setup key. If the device is still listed on the server, remove it there manually."
 msgstr ""
@@ -792,6 +878,10 @@ msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/setup.js:43
 msgid "Off"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/setup.js:189
+msgid "Off (direct internet access)"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/setup.js:42

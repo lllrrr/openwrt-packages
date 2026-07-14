@@ -12,8 +12,8 @@
 // bar. Options that physically reside in other UCI sections (global_delay,
 // global_rules, global_dns) are redirected via the crossSection() helper which
 // overrides cfgvalue/write/remove to target the correct UCI section.
-// Rule rows are managed on the dedicated Rule Manage page; this view only
-// contains the global shunt-engine options so every field stays in its tab.
+// Rule definitions are managed on Rule Manage; their outbound selection and
+// Direct-interface override are intentionally centralized in Shunt Rule.
 
 var COL = { green: '#2dce89', red: '#fb6340', yellow: '#fb9a05' };
 
@@ -167,6 +167,7 @@ return view.extend({
 
 		/* ---- bypass badge row ---- */
 		var badgeRow = E('div', { class: 'bypass-badge-row' }, [
+			E('span', { class: 'bypass-badge' }, [ E('strong', {}, _('Version') + ': '), status.version || '—' ]),
 			badge(_('naive'), status.naive_present === 1, _('present'), _('missing')),
 			badge(_('chinadns-ng'), status.chinadns_present === 1, _('present'), _('missing')),
 			badge(_('dns2socks'), status.dns2socks_present === 1, _('present'), _('optional')),
@@ -196,20 +197,12 @@ return view.extend({
 		o.rmempty = false;
 		o.default = '0';
 
-		// LuCI form option titles must be strings. Passing a DOM element here
-		// makes renderFrame skip the label and is incompatible with some LuCI
-		// versions (the original appendChild TypeError on this page).
-		o = s.taboption('Main', form.ListValue, 'node', _('Node'));
-		o.value('', _('Close'));
-		uci.sections('bypass', 'nodes').forEach(function (sec) {
-			o.value(sec['.name'], sec.remarks ? sec.remarks + ' (' + sec['.name'] + ')' : sec['.name']);
-		});
-
 		o = s.taboption('Main', form.Flag, 'client_proxy', _('Client Proxy'));
 		o.default = '1';
 		o.rmempty = false;
 
-		o = s.taboption('Main', form.Value, 'node_socks_port', _('Node Socks Listen Port'));
+		o = s.taboption('Main', form.Value, 'node_socks_port', _('Naive SOCKS Base Port'));
+		o.description = _('Each NaiveProxy node selected by a shunt rule receives a separate local SOCKS port starting here.');
 		o.datatype = 'port';
 		o.placeholder = '1088';
 		o.default = '1088';
@@ -229,10 +222,6 @@ return view.extend({
 		o.description = _('Optional bridge that carries the remote DNS server through the selected NaiveProxy SOCKS tunnel.');
 		o.placeholder = '/usr/bin/dns2socks';
 
-		o = s.taboption('Main', form.ListValue, 'default_egress_interface', _('Default Egress Interface'));
-		o.description = _('Steer the NaiveProxy server connection out of this OpenWrt network (wan/wan1/usbwan). A node-specific setting overrides this value. Empty = system default route.');
-		o.value('', _('(system default route)'));
-		ifaces.forEach(function (i) { o.value(i, i); });
 		o = s.taboption('Main', form.Value, 'naive_egress_table', _('Egress route table'));
 		o.datatype = 'uinteger';
 		o.placeholder = '20200';
@@ -258,49 +247,147 @@ return view.extend({
 		o.default = 'IpOnDemand';
 		crossSection(o, 'global_rules');
 
+		o = s.taboption('Shunt Rule', form.ListValue, 'domainMatcher', _('Domain matcher'));
+		o.value('hybrid', _('hybrid'));
+		o.value('linear', _('linear'));
+		o.default = 'hybrid';
+		crossSection(o, 'global_rules');
+
+		o = s.taboption('Shunt Rule', form.Flag, 'write_ipset_direct', _('Direct DNS result write to IPSet'),
+			_('Write addresses resolved for matching direct-domain rules to NFTSet so they can connect directly without re-entering the core. This may conflict with unusual DNS setups.'));
+		o.default = '1';
+		o.rmempty = false;
+		crossSection(o, 'global_rules');
+
+		o = s.taboption('Shunt Rule', form.Flag, 'enable_geoview_ip', _('Enable GeoIP Data Parsing'),
+			_('Analyze and preload GeoIP data to improve shunt performance. This increases resource usage and may conflict with unusual setups.'));
+		o.default = '1';
+		o.rmempty = false;
+		crossSection(o, 'global_rules');
+
 		o = s.taboption('Shunt Rule', form.ListValue, 'direct_egress_interface', _('Default Direct Interface'),
 			_('Bind BypassCore direct traffic to this OpenWrt network. The current runtime L3 device is resolved through netifd. Empty = system default route.'));
 		o.value('', _('(system default route)'));
 		ifaces.forEach(function (i) { o.value(i, i); });
 		crossSection(o, 'global_rules');
 
+		o = s.taboption('Shunt Rule', form.ListValue, 'default_egress_interface', _('Default NaiveProxy Interface'),
+			_('Send every NaiveProxy server connection through this OpenWrt network (wan/wan1/usbwan). Empty = system default route.'));
+		o.value('', _('(system default route)'));
+		ifaces.forEach(function (i) { o.value(i, i); });
+
+		/* Passwall2-style rule/outbound table.  The Default row is a real,
+		 * reserved shunt_rules section so it shares the exact same editor and
+		 * runtime semantics, but Rule Manage filters it out. */
+		o = s.taboption('Shunt Rule', form.SectionValue, '_shunt_rule_nodes',
+			form.TableSection, 'shunt_rules', _('Rule'));
+		var rs = o.subsection;
+		rs.addremove = false;
+		rs.anonymous = false;
+		rs.sortable = false;
+
+		o = rs.option(form.DummyValue, 'remarks', _('Rule'));
+		o.cfgvalue = function (sid) {
+			if (uci.get('bypass', sid, 'is_default') === '1')
+				return E('strong', { style: 'color:red' }, _('Default'));
+			return uci.get('bypass', sid, 'remarks') || sid;
+		};
+
+		o = rs.option(form.ListValue, 'outbound', _('Node'));
+		o.value('', _('Close (Not use)'));
+		o.value('_direct', _('Direct Connection'));
+		o.value('_blackhole', _('Blackhole (Block)'));
+		uci.sections('bypass', 'nodes').forEach(function (node) {
+			var label = node.remarks || node['.name'];
+			o.value(node['.name'], _('default') + ' / ' + label);
+		});
+
+		o = rs.option(form.ListValue, 'egress_interface', _('Egress Interface'));
+		o.value('', _('(use default direct interface)'));
+		ifaces.forEach(function (i) { o.value(i, i); });
+		o.depends('outbound', '_direct');
+		o.description = _('Only applies to Direct Connection. Every selected NaiveProxy node uses the global Default NaiveProxy Interface above.');
+
 		/* ----- DNS tab (options from 'global_dns') ----- */
-		o = s.taboption('DNS', form.Value, 'domestic_dns', _('Domestic DNS (china-dns)'),
-			_('"auto" = detect ISP DNS from resolv.conf.'));
-		o.placeholder = 'auto';
+		o = s.taboption('DNS', form.TextValue, 'direct_dns_shunt', _('Direct domain DNS routing'));
+		o.rows = 3;
+		o.wrap = 'off';
+		o.placeholder = 'domain:my-nodes.com tcp://223.5.5.5\ndomain:vpn.com udp://119.29.29.29:53\nfull:www.dnspod.com tls://1.1.1.1';
+		o.description = _('One entry per line: a domain/full/geosite rule followed by a UDP, TCP or TLS direct DNS upstream. ChinaDNS-NG supports at most five entries here because one custom group is reserved for node addresses. Invalid entries prevent the service from starting.');
 		crossSection(o, 'global_dns');
-		o = s.taboption('DNS', form.Value, 'remote_dns', _('Remote / Foreign DNS (trust-dns)'));
-		o.placeholder = '1.1.1.1';
+
+		o = s.taboption('DNS', form.ListValue, 'direct_dns_query_strategy', _('Direct Query Strategy'));
+		o.value('UseIP', 'UseIP');
+		o.value('UseIPv4', 'UseIPv4');
+		o.value('UseIPv6', 'UseIPv6');
+		o.default = 'UseIP';
 		crossSection(o, 'global_dns');
-		o = s.taboption('DNS', form.ListValue, 'remote_dns_protocol', _('Remote DNS protocol'));
+
+		o = s.taboption('DNS', form.ListValue, 'remote_dns_protocol', _('Remote DNS Protocol'));
+		o.description = _('UDP and TCP can use Remote or Direct outbound. TLS requires Direct outbound and a TLS-enabled ChinaDNS-NG build. DoH is retained for configuration parity but is not supported by the current DNS data path; selecting it makes startup fail closed.');
 		o.value('udp', _('UDP'));
 		o.value('tcp', _('TCP'));
+		o.value('doh', _('DoH'));
 		o.value('tls', _('TLS (DoT)'));
 		o.default = 'tcp';
 		crossSection(o, 'global_dns');
-		o = s.taboption('DNS', form.ListValue, 'query_strategy', _('Query strategy'));
-		o.value('UseIPv4', _('IPv4 only'));
-		o.value('UseIPv6', _('IPv6 only'));
-		o.value('UseIP', _('IPv4 + IPv6'));
+
+		o = s.taboption('DNS', form.Value, 'remote_dns', _('Remote DNS'));
+		o.placeholder = '1.1.1.1';
+		o.value('1.1.1.1', '1.1.1.1 (CloudFlare)');
+		o.value('8.8.8.8', '8.8.8.8 (Google)');
+		o.value('9.9.9.9', '9.9.9.9 (Quad9)');
+		o.depends('remote_dns_protocol', 'udp');
+		o.depends('remote_dns_protocol', 'tcp');
+		o.depends('remote_dns_protocol', 'tls');
 		crossSection(o, 'global_dns');
-		o = s.taboption('DNS', form.Value, 'chinadns_listen_port', _('ChinaDNS-NG listen port'));
-		o.datatype = 'port';
-		o.placeholder = '10553';
-		crossSection(o, 'global_dns');
-		o = s.taboption('DNS', form.Value, 'bc_domestic_dns', _('BypassCore domestic DNS'),
-			_('Upstream for domestic domains in the BypassCore DNS section.'));
-		o.placeholder = 'https://223.5.5.5/dns-query';
-		crossSection(o, 'global_dns');
-		o = s.taboption('DNS', form.Value, 'bc_remote_dns', _('BypassCore remote DNS'));
-		o.description = _('When dns2socks is available, BypassCore foreign lookups use the local DNS-to-SOCKS relay instead of dialing this server directly.');
+
+		o = s.taboption('DNS', form.Value, 'remote_dns_doh', _('Remote DNS DoH'));
 		o.placeholder = 'https://1.1.1.1/dns-query';
+		o.value('https://1.1.1.1/dns-query', 'CloudFlare');
+		o.value('https://8.8.8.8/dns-query', 'Google');
+		o.value('https://9.9.9.9/dns-query', 'Quad9');
+		o.depends('remote_dns_protocol', 'doh');
 		crossSection(o, 'global_dns');
-		o = s.taboption('DNS', form.Value, 'dns_split_domain', _('Domestic split domain'));
-		o.placeholder = 'geosite:cn';
+
+		o = s.taboption('DNS', form.Value, 'remote_dns_client_ip', _('Remote DNS EDNS Client Subnet'),
+			_('Tell the DNS server the client location. This must be a public IP and the server must support EDNS Client Subnet (RFC 7871).'));
+		o.datatype = 'ipaddr';
 		crossSection(o, 'global_dns');
+
+		o = s.taboption('DNS', form.ListValue, 'remote_dns_detour', _('Remote DNS Outbound'));
+		o.value('remote', _('Remote'));
+		o.value('direct', _('Direct'));
+		o.default = 'remote';
+		crossSection(o, 'global_dns');
+
+		o = s.taboption('DNS', form.ListValue, 'remote_dns_query_strategy', _('Remote Query Strategy'));
+		o.value('UseIP', 'UseIP');
+		o.value('UseIPv4', 'UseIPv4');
+		o.value('UseIPv6', 'UseIPv6');
+		o.default = 'UseIPv4';
+		crossSection(o, 'global_dns');
+
+		o = s.taboption('DNS', form.TextValue, 'dns_hosts', _('Domain Override'));
+		o.rows = 5;
+		o.wrap = 'off';
+		o.placeholder = 'cloudflare-dns.com 1.1.1.1\ndns.google.com 8.8.8.8';
+		o.description = _('One entry per line: a domain followed by an IPv4 or IPv6 address.');
+		crossSection(o, 'global_dns');
+
 		o = s.taboption('DNS', form.Flag, 'dns_redirect', _('Redirect dnsmasq to ChinaDNS-NG'),
 			_('Force special DNS server to need proxy devices.'));
 		o.rmempty = false;
+
+		o = s.taboption('DNS', form.Button, '_clear_nftset', _('Clear NFTSET'),
+			_('Try this if a shunt-rule change does not take effect.'));
+		o.inputtitle = _('Clear NFTSET');
+		o.inputstyle = 'remove';
+		o.onclick = function () {
+			return api('clear_nftset').then(function (r) {
+				ui.addNotification(null, E('p', {}, r.code === 0 ? _('NFTSET cleared.') : (r.error || _('Clear failed'))));
+			});
+		};
 
 		/* ----- Log tab (options from 'global') ----- */
 		o = s.taboption('Log', form.Flag, 'log_node', _('Enable Node Log'));

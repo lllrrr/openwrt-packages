@@ -8,7 +8,7 @@
 //   • No top options row (no url_test_url / auto_detection_time / show_node_info)
 //   • No toolbar (no Add-via-link / Clear-all / Select-all / Reassign)
 //   • Single TCPing latency column (no Ping / URL Test columns)
-//   • Per-row Use / Edit / Copy / Delete actions + current-node highlight
+//   • Per-row Edit / Copy / Delete actions. Nodes are assigned per shunt rule.
 //   • A single "Add" button at the bottom.
 
 var COL = { green: '#2dce89', red: '#fb6340', yellow: '#fb9a05' };
@@ -48,7 +48,6 @@ return view.extend({
 
 	render: function () {
 		var nodes = uci.sections('bypass', 'nodes');
-		var currentNode = uci.get('bypass', '@global[0]', 'node') || '';
 
 		var container = E('div', { class: 'cbi-map' }, [
 			E('div', { class: 'cbi-section-descr' }, _('NaiveProxy nodes (https).'))
@@ -72,8 +71,6 @@ return view.extend({
 
 		nodes.forEach(function (sec) {
 			var sid = sec['.name'];
-			var isCurrent = (sid === currentNode);
-
 			var tcpingCell = E('td', { class: 'td cbi-value-field', style: 'white-space:nowrap' });
 			var tcpingLink = E('a', {
 				href: '#',
@@ -112,12 +109,6 @@ return view.extend({
 				E('div', { style: 'display:inline-flex;gap:4px' }, [
 					E('button', {
 						type: 'button',
-						class: 'cbi-button cbi-button-apply',
-						disabled: isCurrent,
-						click: function () { useNode(sid, sec.remarks || sid); }
-					}, isCurrent ? _('In use') : _('Use')),
-					E('button', {
-						type: 'button',
 						class: 'cbi-button cbi-button-edit',
 						click: function () { location.href = L.url('admin/services/bypass/node_config') + '?section=' + encodeURIComponent(sid); }
 					}, _('Edit')),
@@ -134,10 +125,7 @@ return view.extend({
 				])
 			]);
 
-			table.appendChild(E('tr', {
-				class: 'tr cbi-section-table-row' + (isCurrent ? ' _now_use_bg' : ''),
-				style: isCurrent ? 'background-color:rgba(94,114,228,0.27)' : ''
-			}, [
+			table.appendChild(E('tr', { class: 'tr cbi-section-table-row' }, [
 				E('td', { class: 'td cbi-value-field' }, [
 					E('strong', {}, sec.remarks || sid),
 					E('div', { style: 'font-size:11px;color:#8898aa' },
@@ -169,41 +157,11 @@ return view.extend({
 
 		container.appendChild(fieldset);
 
-		function useNode(sid, label) {
-			var modal = E('div', {
-				style: 'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:9999'
-			}, [
-				E('div', { style: 'background:#fff;padding:1.5rem;border-radius:.375rem;min-width:20rem;text-align:center' }, [
-					E('p', {}, _('Use node: %s ?').format(label)),
-					E('div', { style: 'margin-top:1rem' }, [
-						E('button', {
-							type: 'button',
-							class: 'cbi-button cbi-button-apply',
-							click: function () {
-								document.body.removeChild(modal);
-								uci.set('bypass', '@global[0]', 'node', sid);
-								uci.save().then(function () {
-									uci.apply().then(function () { location.reload(); });
-								});
-							}
-						}, _('Confirm')),
-						' ',
-						E('button', {
-							type: 'button',
-							class: 'cbi-button cbi-button-reset',
-							click: function () { document.body.removeChild(modal); }
-						}, _('Cancel'))
-					])
-				])
-			]);
-			document.body.appendChild(modal);
-		}
-
 		function copyNode(sid) {
 			var src = uci.sections('bypass', 'nodes').filter(function (s) { return s['.name'] === sid; })[0];
 			if (!src) return;
 			var newSid = uci.add('bypass', 'nodes');
-			['type', 'remarks', 'address', 'port', 'username', 'password', 'egress_interface'].forEach(function (opt) {
+			['type', 'remarks', 'address', 'port', 'username', 'password'].forEach(function (opt) {
 				if (src[opt] != null) uci.set('bypass', newSid, opt, src[opt]);
 			});
 			uci.set('bypass', newSid, 'remarks', (src.remarks || sid) + ' ' + _('(copy)'));
@@ -222,8 +180,11 @@ return view.extend({
 							class: 'cbi-button cbi-button-remove',
 							click: function () {
 								document.body.removeChild(modal);
+								uci.sections('bypass', 'shunt_rules').forEach(function (rule) {
+									if (rule.outbound === sid)
+										uci.set('bypass', rule['.name'], 'outbound', '');
+								});
 								uci.remove('bypass', sid);
-								if (sid === currentNode) uci.set('bypass', '@global[0]', 'node', '');
 								uci.save().then(function () { uci.apply().then(function () { location.reload(); }); });
 							}
 						}, _('Delete')),

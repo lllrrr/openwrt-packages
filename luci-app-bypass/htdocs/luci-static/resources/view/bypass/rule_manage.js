@@ -146,6 +146,9 @@ return view.extend({
 		ss.anonymous = false;
 		ss.sortable = true;
 		ss.extedit = L.url('admin/services/bypass/rule_edit') + '?rule=%s';
+		ss.filter = function (sid) {
+			return uci.get('bypass', sid, 'is_default') !== '1';
+		};
 		ss.handleAdd = function (_ev, name) {
 			var sid = uci.add('bypass', 'shunt_rules', name);
 			uci.set('bypass', sid, 'remarks', name);
@@ -174,7 +177,7 @@ return view.extend({
 			var outbound = uci.get('bypass', sid, 'outbound') || '—';
 			var network = uci.get('bypass', sid, 'network') || '';
 			var egress = uci.get('bypass', sid, 'egress_interface') || '';
-			var map = { _direct: _('Direct'), _proxy: _('Proxy (naive)'), _block: _('Block') };
+			var map = { _direct: _('Direct'), _blackhole: _('Block'), _block: _('Block') };
 			var label = map[outbound] || outbound;
 			if (network) label += ' · ' + network.toUpperCase();
 			if (egress) label += ' · ' + _('Egress') + ': ' + egress;

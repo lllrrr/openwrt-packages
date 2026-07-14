@@ -18,9 +18,6 @@ exec 9>"$LOCK"
 flock -xn 9 || exit 0
 
 egress_iface=$(uci -q get bypass.@global[0].default_egress_interface)
-node=$(uci -q get bypass.@global[0].node)
-[ -n "$node" ] && node_egress=$(uci -q get bypass.${node}.egress_interface)
-[ -n "$node_egress" ] && egress_iface="$node_egress"
 direct_iface=$(uci -q get bypass.@global_rules[0].direct_egress_interface)
 rule_direct_ifaces=$(
 	for sid in $(uci -q show bypass 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do

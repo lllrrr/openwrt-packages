@@ -56,6 +56,12 @@ msgstr "接入局域网"
 msgid "Act as a router for server routes received from the management service."
 msgstr "作为路由器处理从管理服务接收到的服务器路由。"
 
+msgid "Active exit node"
+msgstr "当前出口节点"
+
+msgid "All internet traffic from this router and devices routed through it will go through \"%s\"."
+msgstr "本路由器及经其转发的设备的全部互联网流量将改经 \"%s\" 出口。"
+
 msgid "All severities"
 msgstr "所有级别"
 
@@ -73,6 +79,9 @@ msgstr "允许通过 SSH 服务器进行远程端口转发。需要 netbird 0.72
 
 msgid "Allow root login via the NetBird SSH server. Requires netbird 0.72.x; ignored on older versions."
 msgstr "允许通过 NetBird SSH 服务器以 root 身份登录。需要 netbird 0.72.x；旧版本忽略。"
+
+msgid "Apply exit node"
+msgstr "应用出口节点"
 
 msgid "Apply forwarding"
 msgstr "应用转发规则"
@@ -119,14 +128,17 @@ msgstr "连接失败。"
 msgid "Could not determine the NetBird service state."
 msgstr "无法获取 NetBird 服务状态。"
 
+msgid "Could not read exit nodes:"
+msgstr "读取出口节点失败："
+
 msgid "Current configuration"
 msgstr "当前配置"
 
-msgid "Custom device name shown in NetBird. Leave blank to use the system hostname."
-msgstr "在 NetBird 中显示的自定义设备名称。留空则使用系统主机名。"
-
 msgid "Daemon version"
 msgstr "守护进程版本"
+
+msgid "Device name reported to NetBird. Applied only when the peer first registers; to rename an already registered device, edit it in the NetBird management console. Leave blank to use the system hostname."
+msgstr "上报给 NetBird 的设备名称，仅在设备首次注册时生效；已注册设备如需改名，请在 NetBird 管理控制台中编辑。留空则使用系统主机名。"
 
 msgid "Disconnect"
 msgstr "断开连接"
@@ -173,8 +185,20 @@ msgstr "已启用"
 msgid "Enabling forwarding exposes your LAN to NetBird mesh peers (and vice-versa)."
 msgstr "启用转发将使您的局域网对 NetBird 网格节点可见（反之亦然）。"
 
+msgid "Exit node"
+msgstr "出口节点"
+
+msgid "Exit node switched to \"%s\"."
+msgstr "出口节点已切换为 \"%s\"。"
+
+msgid "Exit node turned off."
+msgstr "出口节点已关闭。"
+
 msgid "Failed to set up the firewall zone."
 msgstr "防火墙区域设置失败。"
+
+msgid "Failed to switch the exit node."
+msgstr "切换出口节点失败。"
 
 msgid "Failed to update forwarding."
 msgstr "转发规则更新失败。"
@@ -266,6 +290,33 @@ msgstr "需要登录"
 msgid "Logs"
 msgstr "日志"
 
+msgid "NetBird is not connected. Connect from the Authentication page first."
+msgstr "NetBird 未连接。请先在「认证」页连接。"
+
+msgid "NetBird is not running. Start it and connect from the Authentication page first."
+msgstr "NetBird 未运行。请先在「认证」页启动并连接。"
+
+msgid "No exit nodes are available. Set up a peer as an exit node in the NetBird management console first."
+msgstr "当前没有可用的出口节点。请先在 NetBird 管理控制台中将某个节点设置为出口节点。"
+
+msgid "Route all internet traffic from this router and its clients through a NetBird peer. Exit nodes are defined in the NetBird management console. Changes take effect immediately and are remembered by the NetBird daemon."
+msgstr "将本路由器及其客户端的全部互联网流量经由某个 NetBird 节点转发。出口节点在 NetBird 管理控制台中定义。切换立即生效，并由 NetBird 守护进程持久保存。"
+
+msgid "Switch exit node"
+msgstr "切换出口节点"
+
+msgid "Switch exit node?"
+msgstr "切换出口节点？"
+
+msgid "Switch to"
+msgstr "切换为"
+
+msgid "Switching the exit node changes the default route. Connections may drop briefly, and remote management sessions that do not run over NetBird can be cut off."
+msgstr "切换出口节点会改变默认路由。连接可能短暂中断；不经由 NetBird 的远程管理会话可能因此断开。"
+
+msgid "The exit node will be turned off; internet traffic will go out directly again."
+msgstr "将关闭出口节点，互联网流量恢复直接出网。"
+
 msgid "luci-app-netbird"
 msgstr "luci-app-netbird"
 
@@ -343,6 +394,9 @@ msgstr "关"
 
 msgid "Off"
 msgstr "关"
+
+msgid "Off (direct internet access)"
+msgstr "关闭（直连互联网）"
 
 msgid "on"
 msgstr "开"
@@ -763,8 +817,8 @@ msgstr "切换"
 
 # 网络自动化:设备绑定 zone(去 network 接口概念)
 
-msgid "Configure the OpenWrt firewall zone and forwarding rules for NetBird."
-msgstr "为 NetBird 配置 OpenWrt 防火墙区域和转发规则。"
+msgid "Configure the OpenWrt firewall zone and forwarding rules for NetBird, and select the exit node."
+msgstr "为 NetBird 配置 OpenWrt 防火墙区域和转发规则，并选择出口节点。"
 
 msgid "Creates a dedicated firewall zone bound to the NetBird device so NetBird traffic can flow."
 msgstr "创建一个绑定到 NetBird 设备的专用防火墙区域，使 NetBird 流量得以通行。"

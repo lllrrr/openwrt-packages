@@ -1,0 +1,72 @@
+#!/bin/sh
+
+START=99
+STOP=15
+
+. ${IPKG_INSTROOT}/usr/share/bypass/utils.sh
+APP_FILE=${APP_PATH}/app.sh
+LOCK_FILE_DIR=/var/lock
+LOCK_FILE=${LOCK_FILE_DIR}/${CONFIG}.lock
+READY_FILE=${LOCK_FILE_DIR}/${CONFIG}_ready.lock
+
+set_lock() {
+	[ ! -d "$LOCK_FILE_DIR" ] && mkdir -p "$LOCK_FILE_DIR"
+	exec 999>"$LOCK_FILE"
+	# BusyBox flock supports non-blocking locking but not util-linux timed waits.
+	# Retry the non-blocking operation so LuCI and hotplug restarts serialize.
+	local tries=0
+	while ! flock -xn 999; do
+		tries=$((tries + 1))
+		[ "$tries" -ge 10 ] && return 1
+		sleep 1
+	done
+}
+
+unset_lock() {
+	flock -u 999 2>/dev/null
+}
+
+boot_func() {
+	local delay
+	delay=$(uci -q get ${CONFIG}.@global_delay[0].start_delay 2>/dev/null || echo 60)
+	[ "$delay" -gt 0 ] 2>/dev/null && {
+		log 0 "Start after a delay of %s seconds." "$delay"
+		sleep "$delay"
+	}
+	restart boot
+}
+
+boot() {
+	boot_func >/dev/null 2>&1 &
+}
+
+start() {
+	set_lock || { log 0 "The service script is already running; skip duplicate start."; return 0; }
+	$APP_FILE start
+	local rc=$?
+	if [ "$rc" = "0" ]; then touch "$READY_FILE"; else rm -f "$READY_FILE"; fi
+	unset_lock
+	return $rc
+}
+
+stop() {
+	set_lock || { log 0 "The service script is already running; skip duplicate stop."; return 0; }
+	$APP_FILE stop
+	rm -f "$READY_FILE"
+	unset_lock
+}
+
+restart() {
+	set_lock || { log 0 "The service script is already running; skip duplicate restart."; return 0; }
+	$APP_FILE stop
+	$APP_FILE start $1
+	local rc=$?
+	if [ "$rc" = "0" ]; then touch "$READY_FILE"; else rm -f "$READY_FILE"; fi
+	unset_lock
+	return $rc
+}
+
+reload() {
+	echo "Warning: this service does not support live reload; full restart instead."
+	restart
+}

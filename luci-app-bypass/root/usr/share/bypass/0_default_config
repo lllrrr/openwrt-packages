@@ -1,7 +1,6 @@
 
 config global
 	option enabled '0'
-	option node 'naive1'
 	option node_socks_port '1088'
 	option node_socks_bind_local '1'
 	option client_proxy '1'
@@ -16,8 +15,8 @@ config global
 	option naive_file '/usr/bin/naive'
 	option chinadns_file '/usr/bin/chinadns-ng'
 	option dns2socks_file '/usr/bin/dns2socks'
-	# Default egress interface for the naive -> server connection (empty = system
-	# default route). Per-node 'egress_interface' overrides this.
+	# One shared egress interface for every naive -> server connection (empty =
+	# system default route). Configured in Basic Settings -> Shunt Rule.
 	option default_egress_interface ''
 	option naive_egress_table '20200'
 	option naive_egress_rule_priority '900'
@@ -35,14 +34,13 @@ config global_dns
 	option domestic_dns 'auto'
 	option remote_dns '1.1.1.1'
 	option remote_dns_protocol 'tcp'
-	option query_strategy 'UseIPv4'
+	option remote_dns_doh 'https://1.1.1.1/dns-query'
+	option remote_dns_detour 'remote'
+	option direct_dns_query_strategy 'UseIP'
+	option remote_dns_query_strategy 'UseIPv4'
+	option dns_hosts 'cloudflare-dns.com 1.1.1.1
+dns.google.com 8.8.8.8'
 	option chinadns_listen_port '10553'
-	# BypassCore DNS subsystem (used by 'bypasscore -resolve' and the LuCI
-	# DNS resolve page; ChinaDNS-NG stays the live split resolver + ipset
-	# populator). Empty bc_domestic_dns disables the split and only the
-	# remote upstream is emitted.
-	option bc_domestic_dns 'https://223.5.5.5/dns-query'
-	option bc_remote_dns 'https://1.1.1.1/dns-query'
 	option dns_split_domain 'geosite:cn'
 
 config global_rules
@@ -53,6 +51,9 @@ config global_rules
 	option update_interval_mode '2'
 	option v2ray_location_asset '/usr/share/v2ray/'
 	option domainStrategy 'IpOnDemand'
+	option domainMatcher 'hybrid'
+	option write_ipset_direct '1'
+	option enable_geoview_ip '1'
 	# Default network interface for the direct outbound (direct shunt traffic).
 	# Empty = direct uses the system default route (unbound freedom outbound).
 	option direct_egress_interface ''
@@ -97,7 +98,15 @@ config shunt_rules 'AdBlock'
 	option remarks 'AdBlock'
 	option network 'tcp,udp'
 	option domain_list 'geosite:category-ads-all'
-	option outbound '_block'
+	option outbound '_blackhole'
+
+# Reserved catch-all row.  It is configured in Basic Settings -> Shunt Rule
+# and intentionally hidden from Rule Manage.
+config shunt_rules 'Default'
+	option remarks 'Default'
+	option is_default '1'
+	option network 'tcp,udp'
+	option outbound '_direct'
 
 config nodes 'naive1'
 	option remarks 'Example'
@@ -106,4 +115,3 @@ config nodes 'naive1'
 	option port '443'
 	option username 'user'
 	option password 'pass'
-	option egress_interface ''

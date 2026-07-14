@@ -15,7 +15,8 @@
 					"get_binary_info",
 					"get_binary_update_progress",
 					"get_auth_info",
-					"check_luci_app_update"
+					"check_luci_app_update",
+					"list_exit_nodes"
 				]
 			},
 			"uci": [ "netbird", "netbird_bin" ]
@@ -36,7 +37,8 @@
 					"cancel_binary_update",
 					"set_binary_source",
 					"delete_custom_binary",
-					"update_luci_app"
+					"update_luci_app",
+					"select_exit_node"
 				]
 			},
 			"uci": [ "netbird", "netbird_bin" ]

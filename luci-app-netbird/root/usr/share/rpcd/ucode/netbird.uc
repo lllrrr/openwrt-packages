@@ -3,13 +3,13 @@
 // Canonical runtime path: /usr/share/rpcd/ucode/netbird.uc
 // Repo canonical source:  root/usr/share/rpcd/ucode/netbird.uc
 //
-// netbird.uc — rpcd 入口对象（注册 luci.netbird，26 methods = 12 read + 14 write）
+// netbird.uc — rpcd 入口对象（注册 luci.netbird，28 methods = 13 read + 15 write）
 // ACL 合约源：root/usr/share/rpcd/acl.d/luci-app-netbird.json
 // 方法名必须与 ACL 一字不差（双向 diff 是 CI 闸门）。
 //
 // 读方法实装范围（6 read）：
 //   - get_status / get_settings / get_package_versions：任何态 ok:true
-//   - list_peers / list_networks：非 running 返 err+code；running 返 data
+//   - list_peers / list_networks / list_exit_nodes：非 running 返 err+code；running 返 data
 //   - get_logs：友好化（非 running 也 ok:true + 空 lines + state + note）
 //
 // 设置应用无独立 apply RPC（曾有 apply_settings，已删）：走标准 Save&Apply
@@ -435,6 +435,100 @@ function _exec_short_verb(bin, verb) {
     let raw = fd.read('all') || '';
     let rc = fd.close();
     return { code: (rc == null ? -1 : rc), stdout: substr(raw, 0, 512) };
+}
+
+// ============================================================================
+// exit node 选择（list_exit_nodes / select_exit_node 共用）
+// ============================================================================
+// exit node 在客户端 = 管理端下发的 0.0.0.0/0（及配对 ::/0）网络路由；
+// `networks list/select/deselect` 是官方桌面/移动端同款机制（`routes` 为其别名，
+// 子命令自 0.35 起存在，覆盖 OpenWrt 24.10 官方源的 0.59.x 及以上）。
+// 选择状态由 daemon 持久化（重启保留），不进 UCI —— 避免第二事实源与管理端漂移。
+
+// _exec_networks(bin, verb, ids, append) → { code, stdout, truncated }
+// verb ∈ {'list','select','deselect'} 由调用方传字面常量；ids 逐个 shell_quote,
+// 且以 ` -- ` 分隔（cobra 的 flag 终止符,实测可让 `-` 开头的 id 安全透传为位置参数）。
+// append=true 时 select 加 -a：附加式选择。不带 -a 的 select 会清空用户已选的
+// 全部其他网络路由（上游 CLI 语义是"替换整个选择集"），绝不能用于单节点切换。
+// 5s timeout 与 _exec_short_verb 同模式；输出上限 64KB,超限置 truncated（截断的
+// 列表解析会误判 selected/丢条目,调用方必须报错而不是拿残缺结果继续）。
+const _NETWORKS_OUT_MAX = 65536;
+function _exec_networks(bin, verb, ids, append) {
+    let base = shell_quote(bin) + ' networks ' + verb;
+    if (append)
+        base += ' -a';
+    if (length(ids || []) > 0) {
+        base += ' --';
+        for (let id in ids)
+            base += ' ' + shell_quote(id);
+    }
+    base += ' 2>&1';
+    let fd = popen(_to(base), 'r'); // shell-audit-ok: bin/ids 经 shell_quote，verb/-a/-- 为字面常量
+    if (fd == null)
+        return { code: -1, stdout: 'popen failed', truncated: false };
+    let raw = fd.read('all') || '';
+    let rc = fd.close();
+    return {
+        code: (rc == null ? -1 : rc),
+        stdout: substr(raw, 0, _NETWORKS_OUT_MAX),
+        truncated: length(raw) > _NETWORKS_OUT_MAX,
+    };
+}
+
+// _parse_networks_list(text) → array<{id, range, selected}>
+// 解析 `networks list` 纯文本输出（该命令无 --json）。条目形如：
+//   - ID: <id>
+//     Network: <range>          （域名路由是 Domains: 行，无 Network 行 → range 留 ''）
+//     Status: Selected|Not Selected
+// "No networks available." → []。未知行（Resolved IPs 等）跳过。
+function _parse_networks_list(text) {
+    let out = [];
+    let cur = null;
+    for (let line in split(text || '', '\n')) {
+        let m = match(line, /^[ \t]*-[ \t]+ID:[ \t]*(.+)$/);
+        if (m) {
+            cur = { id: trim(m[1]), range: '', selected: false };
+            push(out, cur);
+            continue;
+        }
+        if (cur == null)
+            continue;
+        m = match(line, /^[ \t]+Network:[ \t]*(.+)$/);
+        if (m) {
+            cur.range = trim(m[1]);
+            continue;
+        }
+        m = match(line, /^[ \t]+Status:[ \t]*(.+)$/);
+        if (m)
+            cur.selected = (trim(m[1]) == 'Selected');
+    }
+    return out;
+}
+
+// _is_exit_range(range) — 0.0.0.0/0 或 ::/0 即 exit node；v4/v6 合并条目
+// （"0.0.0.0/0, ::/0"）用子串匹配同样命中。域名路由 range 为 '' 不命中。
+function _is_exit_range(range) {
+    return index(range, '0.0.0.0/0') >= 0 || index(range, '::/0') >= 0;
+}
+
+// _collect_exit_nodes(bin) → { ok:true, exit_nodes } | { ok:false, message }
+// list + 解析 + 过滤一步到位；exit_nodes 条目 { id, range, selected }。
+// 排除 id 恰为 'all' 的条目:上游 CLI 把唯一参数 'all' 当"全选/全清"关键字
+// （select 单参必为唯一参数;deselect 若只剩它一个会触发 DeselectAllRoutes,
+// 连子网路由选择一并清空）,这类名字的路由无法经 CLI 单独操作,列出即误导。
+// 截断的输出不解析:残缺条目会误判 selected 或整条丢失,宁可显式报错。
+function _collect_exit_nodes(bin) {
+    let r = _exec_networks(bin, 'list', null, false);
+    if (r.code != 0)
+        return { ok: false, message: trim(r.stdout) || 'netbird networks list failed' };
+    if (r.truncated)
+        return { ok: false, message: 'networks list output exceeds the size limit; too many networks to parse safely' };
+    let nodes = [];
+    for (let n in _parse_networks_list(r.stdout)) {
+        if (_is_exit_range(n.range) && n.id != 'all')
+            push(nodes, n);
+    }
+    return { ok: true, exit_nodes: nodes };
 }
 
 // ============================================================================
@@ -2410,7 +2504,7 @@ function _ensure_configured_binary() {
 
 return {
     'luci.netbird': {
-        // ==== 12 read ====（ACL read.ubus.luci.netbird 对齐）
+        // ==== 13 read ====（ACL read.ubus.luci.netbird 对齐）
 
         // 任何态都 ok:true；data.status 暴露 5 态字面量
         get_status: {
@@ -2495,6 +2589,26 @@ return {
                 let js = g._json;
                 let connected = !!(js != null && js.management != null && js.management.connected);
                 return ok({ networks: js.networks || [], connected: connected });
+            }),
+        },
+
+        // list_exit_nodes — 可用 exit node（0.0.0.0/0 路由）清单 + 各自选中态。
+        // 非 running 返 err+code；running 但未连接管理端 → ok + connected:false + 空表
+        // （networks list 依赖 engine，未连接时必报错，这里直接短路成友好态）。
+        // ACL: 方法名已加入 read.ubus.luci.netbird（一字不差）。
+        list_exit_nodes: {
+            args: {},
+            call: _safe(function() {
+                let g = _require_running();
+                if (g._gate) return g._gate;
+                let js = g._json;
+                let connected = !!(js != null && js.management != null && js.management.connected);
+                if (!connected)
+                    return ok({ exit_nodes: [], connected: false });
+                let res = _collect_exit_nodes(g._state.bin_path);
+                if (!res.ok)
+                    return err(CODE.CLI_ERROR, res.message);
+                return ok({ exit_nodes: res.exit_nodes, connected: true });
             }),
         },
 
@@ -2613,7 +2727,7 @@ return {
             call: _safe(_do_check_luci_app_update),
         },
 
-        // ==== 14 write ====（ACL write.ubus.luci.netbird 对齐）— zone 设备直绑设计已移除 setup_network
+        // ==== 15 write ====（ACL write.ubus.luci.netbird 对齐）— zone 设备直绑设计已移除 setup_network
 
         // do_up — 连接（拉起 WireGuard + 连管理端 + 建 P2P）。
         // args { management_url, setup_key } 均瞬时（setup_key 绝不入 UCI/backup）。
@@ -2928,5 +3042,68 @@ return {
         // update_luci_app — 从 luci-app-netbird.okk.sh 对应 OpenWrt 系列目录下载并安装 LuCI 包。
         // ACL: 方法名已加入 write.ubus.luci.netbird（一字不差）。
         update_luci_app:       { args: {}, call: _safe(_do_update_luci_app) },
+
+        // select_exit_node — 切换/关闭 exit node。args.id：目标 exit node ID，'' = 关闭。
+        // 流程：白名单校验（目标必须在当前 list 的 exit node 集内，任意字符串到不了 CLI）
+        //   → 先 deselect 其余全部 exit node → 再 select -a 目标 → 回读最终态返回。
+        // 先 deselect 后 select 的显式互斥不依赖上游版本：0.74 的 daemon 侧互斥只在
+        // network map 对账时生效（select 当下不强制），更旧版本完全没有互斥逻辑。
+        // 关闭（id=''）对全部 exit node 记显式 deselect，管理端 auto-apply 不会再压回来。
+        // ACL: 方法名已加入 write.ubus.luci.netbird（一字不差）。
+        select_exit_node: {
+            args: { id: '' },
+            call: _safe(function(req) {
+                let a = (req != null && req.args != null) ? req.args : (req || {});
+                let id = (type(a.id) == 'string') ? trim(a.id) : '';
+                // 防御性拒绝：超长、控制字符、CLI 保留关键字 'all'（唯一参数时被
+                // 解释为全选/全清）。'-' 开头的 id 无需拒绝——_exec_networks 用 `--`
+                // 终止 flag 解析后可安全透传（与 list 白名单口径一致）。
+                if (length(id) > 256 || index(id, '\n') >= 0 || index(id, '\r') >= 0 || id == 'all')
+                    return err(CODE.INVALID_INPUT, 'Invalid exit node id.');
+
+                let g = _require_running();
+                if (g._gate) return g._gate;
+                let js = g._json;
+                if (!(js != null && js.management != null && js.management.connected))
+                    return err(CODE.CLI_ERROR, 'NetBird is not connected to the management server.');
+
+                let bin = g._state.bin_path;
+                let res = _collect_exit_nodes(bin);
+                if (!res.ok)
+                    return err(CODE.CLI_ERROR, res.message);
+
+                let target = null;
+                let others = [];
+                for (let n in res.exit_nodes) {
+                    if (length(id) > 0 && n.id == id)
+                        target = n;
+                    else
+                        push(others, n.id);
+                }
+                if (length(id) > 0 && target == null)
+                    return err(CODE.INVALID_INPUT, `Exit node not found: ${id}`);
+
+                if (length(others) > 0) {
+                    let rd = _exec_networks(bin, 'deselect', others, false);
+                    if (rd.code != 0)
+                        return err(CODE.CLI_ERROR, trim(rd.stdout) || 'netbird networks deselect failed');
+                }
+                if (target != null) {
+                    let rs = _exec_networks(bin, 'select', [ id ], true);
+                    // deselect 已生效而 select 失败时,净效果是"全部关闭"而非维持原状,
+                    // 错误信息须提示核对当前状态,避免用户以为切换前的节点还开着。
+                    if (rs.code != 0)
+                        return err(CODE.CLI_ERROR,
+                            (trim(rs.stdout) || 'netbird networks select failed') +
+                            ' (other exit nodes may already be deselected; check the current state)');
+                }
+
+                // 回读 daemon 实际状态返回（不回显期望值），前端据此原地刷新。
+                let after = _collect_exit_nodes(bin);
+                if (!after.ok)
+                    return err(CODE.CLI_ERROR, after.message);
+                return ok({ exit_nodes: after.exit_nodes });
+            }),
+        },
     },
 };

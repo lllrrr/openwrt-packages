@@ -112,8 +112,10 @@ return view.extend({
 			return true;
 		};
 
+		// 上游行为:peer 名称/FQDN 仅在首次注册时取自 hostname,之后改动只更新元数据,
+		// 不会改服务端 peer 名;改名唯一途径是管理控制台编辑 peer。文案须如实说明,避免误导。
 		o = s.taboption('general', form.Value, 'hostname', _('Hostname'),
-			_('Custom device name shown in NetBird. Leave blank to use the system hostname.'));
+			_('Device name reported to NetBird. Applied only when the peer first registers; to rename an already registered device, edit it in the NetBird management console. Leave blank to use the system hostname.'));
 		o.rmempty = true;
 
 		// WireGuard 预共享密钥(write-only;自定义 PresharedKey 字段处理不回显/留空保持)。

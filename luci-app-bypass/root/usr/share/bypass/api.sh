@@ -23,6 +23,7 @@ emit() {
 #             bypasscore_linux_elf, use_tables, egress_iface, redir_port }
 do_status() {
 	get_config
+	prepare_selected_nodes
 	local naive_present=0 chinadns_present=0 dns2socks_present=0 bypasscore_present=0 elf=0 running=0
 	[ -n "$NAIVE_BIN" ] && naive_present=1
 	[ -n "$CHINADNS_BIN" ] && chinadns_present=1
@@ -46,7 +47,9 @@ do_status() {
 	json_add_string use_tables "$use_tables"
 	json_add_string egress_iface "$egress"
 	json_add_string redir_port "$active_redir_port"
-	json_add_string node "$NODE"
+	json_add_string version "$(cat "$APP_PATH/version" 2>/dev/null)"
+	json_add_string default_node "$(default_proxy_node)"
+	json_add_int selected_nodes "$(awk 'NF { n++ } END { print n + 0 }' "$TMP_PATH/selected_nodes" 2>/dev/null)"
 	emit
 }
 
@@ -62,6 +65,7 @@ do_route_test() {
 		json_add_int code -1
 		json_add_string error "bypasscore unavailable (set bypasscore_file to a Linux ELF from https://github.com/kinmeic/BypassCore/releases)"
 	else
+		gen_bypasscore_config >/dev/null 2>&1
 		local raw
 		raw=$("$BYPASSCORE_FILE" -config "$BYPASSCORE_CFG" -test "$dest" 2>&1)
 		local rc=$?
@@ -80,6 +84,7 @@ do_observe() {
 		json_add_int code -1
 		json_add_string error "bypasscore unavailable"
 	else
+		gen_bypasscore_config >/dev/null 2>&1
 		local raw
 		raw=$("$BYPASSCORE_FILE" -config "$BYPASSCORE_CFG" -observe 2>&1)
 		json_add_int code $?
@@ -206,6 +211,21 @@ do_clear_log() {
 	: > "$LOG_FILE"
 	json_init
 	json_add_int code 0
+	emit
+}
+
+do_clear_nftset() {
+	local nft_bin rc=0 set
+	nft_bin=$(first_type /usr/sbin/nft nft)
+	[ -n "$nft_bin" ] || rc=1
+	if [ "$rc" = "0" ]; then
+		for set in bypass_dns bypass_direct_dns bypass_direct_dns6 bypass_chn bypass_chn6 bypass_vps bypass_vps6; do
+			"$nft_bin" flush set inet bypass "$set" 2>/dev/null || true
+		done
+	fi
+	json_init
+	json_add_int code "$rc"
+	[ "$rc" = "0" ] && json_add_string msg "NFTSet cleared" || json_add_string error "nft not found"
 	emit
 }
 
@@ -438,7 +458,7 @@ do_reset_config() {
 }
 
 usage() {
-	echo "Usage: $0 {status|route_test|observe|resolve|node_tcping|config_preview|rule_update|rule_status|log_tail|clear_log|interfaces|connect_status|geo_view|create_backup|restore_backup|reset_config} [args]" >&2
+	echo "Usage: $0 {status|route_test|observe|resolve|node_tcping|config_preview|rule_update|rule_status|log_tail|clear_log|clear_nftset|interfaces|connect_status|geo_view|create_backup|restore_backup|reset_config} [args]" >&2
 }
 
 main() {
@@ -455,6 +475,7 @@ main() {
 		rule_status)    do_rule_status ;;
 		log_tail)       do_log_tail "$1" ;;
 		clear_log)      do_clear_log ;;
+		clear_nftset)   do_clear_nftset ;;
 		interfaces)     do_interfaces ;;
 		connect_status) do_connect_status "$1" "$2" ;;
 		geo_view)       do_geo_view "$1" "$2" ;;
