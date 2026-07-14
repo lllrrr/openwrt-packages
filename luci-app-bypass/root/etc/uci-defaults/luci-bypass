@@ -50,12 +50,15 @@ legacy_naive_egress=$(uci -q get bypass.@global[0].default_egress_interface)
 	[ -n "$old_node_egress" ] && legacy_naive_egress=$old_node_egress
 }
 for sid in $(uci -q show bypass 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=nodes$/\1/p'); do
+	# The UCI section type already identifies Naive-only nodes. The old option
+	# duplicated that fact after the Type selector was removed from Node Config.
+	uci -q delete "bypass.${sid}.type"
 	[ -z "$(uci -q get bypass.${sid}.egress_interface)" ] && [ -n "$legacy_naive_egress" ] && \
 		uci -q set "bypass.${sid}.egress_interface=${legacy_naive_egress}"
 done
 uci -q delete bypass.@global[0].default_egress_interface
 
-uci -q get bypass.@global_rules[0].domainMatcher >/dev/null 2>&1 || \
+[ "$(uci -q get bypass.@global_rules[0].domainMatcher)" = "hybrid" ] || \
 	uci -q set bypass.@global_rules[0].domainMatcher='hybrid'
 uci -q get bypass.@global_rules[0].write_ipset_direct >/dev/null 2>&1 || \
 	uci -q set bypass.@global_rules[0].write_ipset_direct='1'
@@ -102,6 +105,19 @@ uci -q get bypass.@global_forwarding[0].force_proxy_lan_ip >/dev/null 2>&1 || \
 	uci -q set bypass.@global_forwarding[0].force_proxy_lan_ip='0'
 uci -q get bypass.@global_forwarding[0].accept_icmp >/dev/null 2>&1 || \
 	uci -q set bypass.@global_forwarding[0].accept_icmp='0'
+# NaiveProxy's SOCKS listener cannot carry UDP. Remove the historical Passwall
+# placeholders instead of retaining settings which the data path cannot honor.
+uci -q delete bypass.@global_forwarding[0].udp_no_redir_ports
+uci -q delete bypass.@global_forwarding[0].udp_redir_ports
+uci -q get bypass.@global_delay[0].start_daemon >/dev/null 2>&1 || \
+	uci -q set bypass.@global_delay[0].start_daemon='1'
+
+# Per-rule Direct egress was removed from the editor in favour of the single
+# Default Direct Interface setting. Drop hidden legacy values so they cannot
+# keep changing runtime behaviour after the visible option has disappeared.
+for sid in $(uci -q show bypass 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+	uci -q delete "bypass.${sid}.egress_interface"
+done
 
 # v1.3.10 aligns the historical UI defaults with Passwall2. Apply this once so
 # a later user choice of UDP / Common Use / 2 hours is not rewritten again by
@@ -142,9 +158,5 @@ uci -q get firewall.bypass >/dev/null 2>&1 || {
 	fi
 	uci -q commit firewall
 }
-
-# Clear LuCI caches so the new JS views / menu are picked up.
-rm -f /tmp/luci-indexcache /tmp/luci-modulecache 2>/dev/null
-killall -HUP rpcd 2>/dev/null
 
 exit 0

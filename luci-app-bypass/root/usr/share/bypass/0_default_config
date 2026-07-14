@@ -26,9 +26,7 @@ config global_forwarding
 	option force_proxy_lan_ip '0'
 	option accept_icmp '0'
 	option tcp_no_redir_ports 'disable'
-	option udp_no_redir_ports 'disable'
 	option tcp_redir_ports '1:65535'
-	option udp_redir_ports '1:65535'
 	option tcp_proxy_way 'redirect'
 
 config global_dns
@@ -65,6 +63,7 @@ config global_app
 	option geoview_file '/usr/bin/geoview'
 
 config global_delay
+	option start_daemon '1'
 	option start_delay '60'
 	option stop_week_mode ''
 	option start_week_mode ''
@@ -111,7 +110,6 @@ config shunt_rules 'Default'
 
 config nodes 'naive1'
 	option remarks 'Example'
-	option type 'NaiveProxy'
 	option protocol 'https'
 	option address 'naive.example.com'
 	option port '443'

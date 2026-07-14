@@ -5,12 +5,12 @@
 # nftables transparent-proxy backend for luci-app-bypass.
 #
 # One table is managed:
-#   table inet bypass        - the redirect/tproxy ruleset + the bypass_chn /
-#                              bypass_vps sets (the latter filled at runtime by
-#                              chinadns-ng via add-tagchn-ip / group-ipset).
+#   table inet bypass        - the redirect/tproxy ruleset + direct-DNS and
+#                              bypass_vps sets (filled by static resolution and
+#                              ChinaDNS-NG custom groups).
 #
-# Sources utils.sh (via app.sh) for $REDIR_PORT, $TCP_PROXY_WAY, $TCP_REDIR_PORTS,
-# $UDP_REDIR_PORTS and cache helpers.
+# Sources utils.sh (via app.sh) for $REDIR_PORT, $TCP_PROXY_WAY,
+# $TCP_REDIR_PORTS and cache helpers.
 
 # app.sh sources this file during service start. Firewall reloads and hotplug
 # actions execute it directly, so initialize the shared helpers and reload the
@@ -26,13 +26,12 @@ load_standalone_config() {
 	[ -n "$REDIR_PORT" ] || return 1
 	TCP_PROXY_WAY=$(config_t_get global_forwarding tcp_proxy_way redirect)
 	TCP_NO_REDIR_PORTS=$(config_t_get global_forwarding tcp_no_redir_ports disable)
-	UDP_NO_REDIR_PORTS=$(config_t_get global_forwarding udp_no_redir_ports disable)
 	TCP_REDIR_PORTS=$(config_t_get global_forwarding tcp_redir_ports 1:65535)
-	UDP_REDIR_PORTS=$(config_t_get global_forwarding udp_redir_ports 1:65535)
 	PROXY_IPV6=$(config_t_get global_forwarding ipv6_tproxy 0)
 	FORCE_PROXY_LAN_IP=$(config_t_get global_forwarding force_proxy_lan_ip 0)
 	ACCEPT_ICMP=$(config_t_get global_forwarding accept_icmp 0)
 	CLIENT_PROXY=$(config_t_get global client_proxy 1)
+	DNS_REDIRECT=$(config_t_get global dns_redirect 1)
 	WRITE_IPSET_DIRECT=$(config_t_get global_rules write_ipset_direct 1)
 	ENABLE_GEOVIEW_IP=$(config_t_get global_rules enable_geoview_ip 1)
 }
@@ -75,11 +74,9 @@ nft_start() {
 	# table is absent and would abort the whole ruleset load below).
 	$NFT delete table inet ${NFT_TABLE} 2>/dev/null
 
-	local tcp_expr udp_expr tcp_no_expr udp_no_expr
-	tcp_expr=$(nft_port_expr "$TCP_REDIR_PORTS")
-	udp_expr=$(nft_port_expr "$UDP_REDIR_PORTS")
-	tcp_no_expr=$(nft_port_expr "$TCP_NO_REDIR_PORTS")
-	udp_no_expr=$(nft_port_expr "$UDP_NO_REDIR_PORTS")
+	local tcp_expr tcp_no_expr
+	tcp_expr=$(nft_port_expr "$TCP_REDIR_PORTS") || return 1
+	tcp_no_expr=$(nft_port_expr "$TCP_NO_REDIR_PORTS") || return 1
 
 	local mode=$TCP_PROXY_WAY
 	# naive upstream builds support redir everywhere; tproxy only in builds
@@ -134,16 +131,6 @@ table inet ${NFT_TABLE} {
 		size 65536
 		flags interval
 	}
-	set bypass_chn {
-		type ipv4_addr
-		size 65536
-		flags interval
-	}
-	set bypass_chn6 {
-		type ipv6_addr
-		size 65536
-		flags interval
-	}
 	set bypass_vps {
 		type ipv4_addr
 		size 1024
@@ -162,20 +149,14 @@ EOF
 		wan_devices="${wan_devices:+$wan_devices, }\"$dev\""
 	done
 	[ -n "$wan_devices" ] && wan_accept="iifname { ${wan_devices} } accept"
-	# BypassCore, not the firewall approximation, owns all live shunt decisions.
-	local china_accept=""
-
 	local lan_accept="" lan6_accept=""
 	if [ "$FORCE_PROXY_LAN_IP" != "1" ]; then
 		lan_accept="ip daddr @bypass_lan accept"
 		lan6_accept="ip6 daddr @bypass_lan6 accept"
 	fi
 	local direct_dns_accept="" direct_dns6_accept=""
-	local direct_bind_configured=0 _bind_sid
+	local direct_bind_configured=0
 	[ -n "$(config_t_get global_rules direct_egress_interface)" ] && direct_bind_configured=1
-	for _bind_sid in $(uci -q show "$CONFIG" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
-		[ "$(config_n_get "$_bind_sid" outbound)" = "_direct" ] && [ -n "$(config_n_get "$_bind_sid" egress_interface)" ] && direct_bind_configured=1
-	done
 	if { [ "$WRITE_IPSET_DIRECT" = "1" ] || [ "$ENABLE_GEOVIEW_IP" = "1" ]; } && [ "$direct_bind_configured" = "0" ]; then
 		direct_dns_accept="ip daddr @bypass_direct_dns accept"
 		direct_dns6_accept="ip6 daddr @bypass_direct_dns6 accept"
@@ -183,27 +164,42 @@ EOF
 		log 0 "Direct interface binding is configured; keeping direct DNS/GeoIP matches inside BypassCore so the selected interface is honored."
 	fi
 
-	local nat_chain="" mangle_chain="" mangle6_chain="" tcp_redirect_rule="" icmp_redirect_rule=""
+	local nat_chain="" mangle_chain="" mangle6_chain="" tcp_redirect_rule="" icmp_redirect_rule="" dns_redirect_rule="" dns_tproxy_bypass="" tcp_no_redir_rule=""
 	# REDIRECT mode uses NAT PREROUTING for TCP. ICMP hijacking is implemented
 	# in the same NAT base chain and makes the router answer matching IPv4 pings,
 	# matching Passwall2's nftables behavior without sending ICMP to BypassCore.
 	if [ "$CLIENT_PROXY" = "1" ] && [ "$mode" = "redirect" ] && [ -n "$tcp_expr" ]; then
-		tcp_redirect_rule="meta l4proto tcp tcp dport { ${tcp_expr} } redirect to :${REDIR_PORT}"
+		# This is an inet-family chain. Restrict the IPv4 listener explicitly;
+		# otherwise IPv6 TCP can also hit REDIRECT while no IPv6 inbound exists.
+		tcp_redirect_rule="meta nfproto ipv4 meta l4proto tcp tcp dport { ${tcp_expr} } redirect to :${REDIR_PORT}"
 	fi
 	if [ "$CLIENT_PROXY" = "1" ] && [ "$ACCEPT_ICMP" = "1" ]; then
 		icmp_redirect_rule="ip protocol icmp redirect"
 	fi
-	if [ -n "$tcp_redirect_rule" ] || [ -n "$icmp_redirect_rule" ]; then
+	# Build the no-redirect exclusion rule as a standalone variable. The port-set
+	# braces must not be embedded inside a ${var:+...} expansion: ash/dash (and
+	# bash) close the expansion at the first '}' after the nested ${...}, leaving
+	# a dangling "accept}" that breaks the nft ruleset.
+	[ -n "$tcp_no_expr" ] && tcp_no_redir_rule="meta l4proto tcp tcp dport { ${tcp_no_expr} } accept"
+	if [ "$CLIENT_PROXY" = "1" ] && [ "$DNS_REDIRECT" = "1" ]; then
+		# Match Passwall2's DNS Redirect semantics: LAN clients using a hardcoded
+		# port-53 resolver are sent to the router's dnsmasq, whose upstream is the
+		# validated ChinaDNS-NG listener. WAN and router-local input are exempted
+		# before this rule.
+		dns_redirect_rule="meta l4proto { tcp, udp } th dport 53 redirect to :53"
+		dns_tproxy_bypass="meta l4proto { tcp, udp } th dport 53 accept"
+	fi
+	if [ -n "$tcp_redirect_rule" ] || [ -n "$icmp_redirect_rule" ] || [ -n "$dns_redirect_rule" ]; then
 		nat_chain="chain prerouting { type nat hook prerouting priority -100; policy accept;
-			ip daddr @bypass_vps accept
-			${direct_dns_accept}
-			${china_accept}
 			ip daddr @bypass_local accept
-			${lan_accept}
-			ip daddr @bypass_dns meta l4proto { tcp, udp } th dport 53 accept
 			${wan_accept}
 			iif lo accept
-			${tcp_no_expr:+meta l4proto tcp tcp dport { ${tcp_no_expr} } accept}
+			${dns_redirect_rule}
+			ip daddr @bypass_vps accept
+			${direct_dns_accept}
+			${lan_accept}
+			ip daddr @bypass_dns meta l4proto { tcp, udp } th dport 53 accept
+			${tcp_no_redir_rule}
 			${tcp_redirect_rule}
 			${icmp_redirect_rule}
 		}"
@@ -214,14 +210,14 @@ EOF
 		[ -n "$tcp_expr" ] && mangle_chain="chain prerouting { type filter hook prerouting priority mangle; policy accept;
 			ip daddr @bypass_vps accept
 			${direct_dns_accept}
-			${china_accept}
 			ip daddr @bypass_local accept
 			${lan_accept}
 			ip daddr @bypass_dns meta l4proto { tcp, udp } th dport 53 accept
 			${wan_accept}
 			iif lo accept
-			${tcp_no_expr:+meta l4proto tcp tcp dport { ${tcp_no_expr} } accept}
-			meta l4proto tcp tcp dport { ${tcp_expr} } tproxy ip to 127.0.0.1:${REDIR_PORT} meta mark set meta mark | 0x10000 accept
+			${dns_tproxy_bypass}
+			${tcp_no_redir_rule}
+			meta nfproto ipv4 meta l4proto tcp tcp dport { ${tcp_expr} } tproxy ip to 127.0.0.1:${REDIR_PORT} meta mark set meta mark | 0x10000 accept
 		}"
 		if [ "$PROXY_IPV6" = "1" ]; then
 			[ -n "$tcp_expr" ] && mangle6_chain="chain prerouting6_tcp { type filter hook prerouting priority mangle; policy accept;
@@ -231,7 +227,8 @@ EOF
 				${lan6_accept}
 				${wan_accept}
 				iif lo accept
-				${tcp_no_expr:+meta l4proto tcp tcp dport { ${tcp_no_expr} } accept}
+				${dns_tproxy_bypass}
+				${tcp_no_redir_rule}
 				meta l4proto tcp tcp dport { ${tcp_expr} } tproxy ip6 to [::1]:${REDIR_PORT} meta mark set meta mark | 0x10000 accept
 			}"
 		fi
@@ -357,10 +354,12 @@ nft_update_wan_sets() {
 	[ -z "$NFT" ] && return 0
 	# Re-add current WAN IPs to bypass_vps so the router's own egress stays direct.
 	local wan
-	wan=$(get_wan_ips ip4)
-	[ -n "$wan" ] && $NFT add element inet ${NFT_TABLE} bypass_vps "{ $wan }" 2>/dev/null
-	wan=$(get_wan_ips ip6)
-	[ -n "$wan" ] && $NFT add element inet ${NFT_TABLE} bypass_vps6 "{ $wan }" 2>/dev/null
+	for wan in $(get_wan_ips ip4); do
+		$NFT add element inet ${NFT_TABLE} bypass_vps "{ $wan }" 2>/dev/null
+	done
+	for wan in $(get_wan_ips ip6); do
+		$NFT add element inet ${NFT_TABLE} bypass_vps6 "{ $wan }" 2>/dev/null
+	done
 }
 
 # Dispatch (app.sh sources this file then calls $1, or we dispatch on $1 directly).

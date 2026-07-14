@@ -9,7 +9,6 @@
 # Mirrors openwrt-passwall2/app.sh but in pure shell.
 
 . /lib/functions.sh
-. /lib/functions/service.sh
 . /usr/share/libubox/jshn.sh
 . ${APP_PATH:-/usr/share/bypass}/utils.sh
 
@@ -22,12 +21,8 @@ DNS2SOCKS_TAG=dns2socks
 # ------------------------------------------------------------------------------
 
 get_direct_dns() {
-	RESOLVFILE=/tmp/resolv.conf.d/resolv.conf.auto
-	[ -f "${RESOLVFILE}" ] && [ -s "${RESOLVFILE}" ] || RESOLVFILE=/tmp/resolv.conf.auto
-
+	local DOMESTIC ISP_DNS
 	ISP_DNS=$(get_direct_dns_ipv4)
-
-	local DOMESTIC
 	DOMESTIC=$(config_t_get global_dns domestic_dns auto)
 	case "$DOMESTIC" in
 		""|auto)
@@ -48,6 +43,7 @@ get_config() {
 	LOG_NODE=$(config_t_get global log_node 1)
 	LOGLEVEL=$(config_t_get global loglevel warning)
 	DNS_REDIRECT=$(config_t_get global dns_redirect 1)
+	START_DAEMON=$(config_t_get global_delay start_daemon 1)
 
 	BYPASSCORE_FILE=$(config_t_get global bypasscore_file /usr/bin/bypasscore)
 	NAIVE_BIN=$(first_type "$(config_t_get global naive_file /usr/bin/naive)" naive)
@@ -60,7 +56,6 @@ get_config() {
 	detected_geosite=$(get_geo_asset_path geosite)
 	[ -n "$detected_geosite" ] && V2RAY_LOCATION_ASSET="${detected_geosite%/*}/"
 	DOMAIN_STRATEGY=$(config_t_get global_rules domainStrategy IpOnDemand)
-	DOMAIN_MATCHER=$(config_t_get global_rules domainMatcher hybrid)
 	WRITE_IPSET_DIRECT=$(config_t_get global_rules write_ipset_direct 1)
 	ENABLE_GEOVIEW_IP=$(config_t_get global_rules enable_geoview_ip 1)
 	# Direct outbound egress interface (bind the freedom "direct" outbound to a
@@ -74,14 +69,11 @@ get_config() {
 	[ -n "$REDIR_PORT" ] || REDIR_PORT=$(echo $(get_new_port 1041 tcp))
 	TCP_PROXY_WAY=$(config_t_get global_forwarding tcp_proxy_way redirect)
 	TCP_NO_REDIR_PORTS=$(config_t_get global_forwarding tcp_no_redir_ports 'disable')
-	UDP_NO_REDIR_PORTS=$(config_t_get global_forwarding udp_no_redir_ports 'disable')
 	TCP_REDIR_PORTS=$(config_t_get global_forwarding tcp_redir_ports '1:65535')
-	UDP_REDIR_PORTS=$(config_t_get global_forwarding udp_redir_ports '1:65535')
 	PROXY_IPV6=$(config_t_get global_forwarding ipv6_tproxy 0)
 	FORCE_PROXY_LAN_IP=$(config_t_get global_forwarding force_proxy_lan_ip 0)
 	ACCEPT_ICMP=$(config_t_get global_forwarding accept_icmp 0)
 
-	DOMESTIC_DNS_USER=$(config_t_get global_dns domestic_dns auto)
 	REMOTE_DNS=$(config_t_get global_dns remote_dns 1.1.1.1)
 	REMOTE_DNS_PROTOCOL=$(config_t_get global_dns remote_dns_protocol tcp)
 	REMOTE_DNS_DOH=$(config_t_get global_dns remote_dns_doh https://1.1.1.1/dns-query)
@@ -105,7 +97,6 @@ get_config() {
 	echo "$NAIVE_EGRESS_RULE_PRIORITY" | grep -qE '^[0-9]+$' || NAIVE_EGRESS_RULE_PRIORITY=900
 
 	get_direct_dns
-	QUEUE_RUN=0
 }
 
 # Build the unique list of Naive nodes referenced by shunt rules, including the
@@ -160,8 +151,12 @@ run_dns2socks() {
 		log 0 "Remote DNS outbound is Remote but no Naive node is selected; service cannot provide proxied DNS."
 		return 1
 	}
-	case "$REMOTE_DNS_PROTOCOL" in tls|doh)
-		log 0 "Remote DNS protocol [%s] cannot be carried by DNS2SOCKS; choose Direct outbound or TCP/UDP to avoid a DNS leak." "$REMOTE_DNS_PROTOCOL"
+	case "$REMOTE_DNS_PROTOCOL" in
+		tcp) ;;
+		*)
+		# dns2socks accepts local UDP/TCP requests but connects to the upstream
+		# DNS server over TCP through SOCKS. Do not label that path UDP/DoT/DoH.
+		log 0 "Remote DNS through NaiveProxy requires TCP; protocol [%s] cannot be carried faithfully by dns2socks." "$REMOTE_DNS_PROTOCOL"
 		return 1
 		;;
 	esac
@@ -176,12 +171,13 @@ run_dns2socks() {
 		*:*) ;;
 		*) upstream="${upstream}:53" ;;
 	esac
-	ln_run 0 "$DNS2SOCKS_BIN" "$DNS2SOCKS_TAG" "/dev/null" /q \
+	local dns2socks_log="${TMP_ACL_PATH}/dns2socks.log"
+	: > "$dns2socks_log"
+	ln_run 0 "$DNS2SOCKS_BIN" "$DNS2SOCKS_TAG" "$dns2socks_log" /q \
 		"127.0.0.1:${DNS_PROXY_PORT}" "$upstream" "127.0.0.1:${DNS2SOCKS_PORT}"
-	sleep 1
 	# dns2socks receives ordinary DNS over UDP locally, then carries the query
 	# over a SOCKS TCP CONNECT. NaiveProxy does not need SOCKS UDP ASSOCIATE.
-	if [ "$(check_port_exists "$DNS2SOCKS_PORT" udp)" -gt 0 ] 2>/dev/null; then
+	if wait_for_listener "$DNS2SOCKS_TAG" "$DNS2SOCKS_PORT" udp 10 "$dns2socks_log"; then
 		DNS2SOCKS_OK=1
 		set_cache_var DNS2SOCKS_PORT "$DNS2SOCKS_PORT"
 		set_cache_var DNS2SOCKS_OK 1
@@ -198,14 +194,14 @@ run_dns2socks() {
 # ------------------------------------------------------------------------------
 
 run_naive_node() {
-	local node=$1 socks_port=$2 index=$3
+	local node=$1 socks_port=$2
 	[ -z "$NAIVE_BIN" ] && {
 		log 0 "naiveproxy binary not found (install naiveproxy or set naive_file). Transparent proxy disabled."
 		NAIVE_OK=0
 		return 1
 	}
 
-	local address port username password protocol
+	local address port username password protocol auth=""
 	address=$(config_n_get "$node" address)
 	port=$(config_n_get "$node" port)
 	username=$(config_n_get "$node" username)
@@ -224,18 +220,37 @@ run_naive_node() {
 	local cfg_dir="${TMP_ACL_PATH}/nodes"
 	mkdir -p "$cfg_dir"
 	local log_file="${cfg_dir}/naive_${node}.log"
-	[ "$LOGLEVEL" = "debug" ] && [ "$LOG_NODE" = "1" ] || log_file="/dev/null"
+	: > "$log_file"
 
 	local socks_cfg="${cfg_dir}/naive_${node}.json"
 	json_init
 	local socks_host=127.0.0.1
 	[ "$NODE_SOCKS_BIND_LOCAL" = "1" ] || socks_host=0.0.0.0
+	if [ -n "$username$password" ]; then
+		username=$(uri_encode_userinfo "$username") || return 1
+		password=$(uri_encode_userinfo "$password") || return 1
+		auth="${username}:${password}@"
+	fi
 	json_add_string "listen" "socks://${socks_host}:${socks_port}"
-	json_add_string "proxy" "${protocol}://${username}:${password}@${server_host}:${port}"
-	[ "$log_file" != "/dev/null" ] && json_add_string "log" "$log_file"
+	json_add_string "proxy" "${protocol}://${auth}${server_host}:${port}"
+	# A destination-only policy rule cannot distinguish two processes after DNS
+	# round-robin changes. Pin interface-bound nodes to an address which was
+	# installed in their route table; NaiveProxy keeps the hostname for TLS/SNI.
+	local pinned_ip
+	pinned_ip=$(cat "$TMP_PATH/naive_resolve.${node}" 2>/dev/null)
+	if [ -n "$pinned_ip" ]; then
+		local resolver_target=$pinned_ip
+		case "$pinned_ip" in *:*) resolver_target="[$pinned_ip]" ;; esac
+		json_add_string "host-resolver-rules" "MAP ${address} ${resolver_target}"
+	fi
+	# An empty log target tells NaiveProxy to use stderr. ln_run already redirects
+	# stdout/stderr to this node's log file, avoiding two writers opening the same
+	# path independently.
+	[ "$LOGLEVEL" = "debug" ] && [ "$LOG_NODE" = "1" ] && json_add_string "log" ""
 	json_dump > "$socks_cfg"
 
-	ln_run ${QUEUE_RUN} "$NAIVE_BIN" "${NAIVE_TAG}_${node}" "$log_file" "$socks_cfg"
+	ln_run 0 "$NAIVE_BIN" "${NAIVE_TAG}_${node}" "$log_file" "$socks_cfg" || return 1
+	wait_for_listener "${NAIVE_TAG}_${node}" "$socks_port" tcp 15 "$log_file" || return 1
 
 	NAIVE_OK=1
 	log 0 "NaiveProxy node [%s]: socks://127.0.0.1:%s, server=%s:%s" \
@@ -259,22 +274,32 @@ run_naive_nodes() {
 	: > "$TMP_PATH/egress_plan"
 	: > "$TMP_PATH/egress_map4"
 	: > "$TMP_PATH/egress_map6"
-	local node address iface ipv4_file ipv6_file index=0
+	local node address iface iface_key ipv4_file ipv6_file index=0
 	while read -r node; do
 		[ -n "$node" ] || continue
 		iface=$(config_n_get "$node" egress_interface)
+		address=$(config_n_get "$node" address)
+		ipv4_file="$TMP_PATH/uplink_ips.${index}"
+		ipv6_file="$TMP_PATH/uplink_ips6.${index}"
+		resolve_all_ipv4 "$address" | awk 'NF && !seen[$0]++' > "$ipv4_file"
+		resolve_all_ipv6 "$address" | awk 'NF && !seen[$0]++' > "$ipv6_file"
+		[ -s "$ipv4_file" ] || [ -s "$ipv6_file" ] || {
+			log 0 "Naive node [%s] server address [%s] could not be resolved." "$node" "$address"
+			return 1
+		}
+		iface_key=${iface:-system-default}
+		awk -v iface="$iface_key" -v node="$node" 'NF { print $1, iface, node }' "$ipv4_file" >> "$TMP_PATH/egress_map4"
+		awk -v iface="$iface_key" -v node="$node" 'NF { print $1, iface, node }' "$ipv6_file" >> "$TMP_PATH/egress_map6"
 		if [ -n "$iface" ]; then
-			address=$(config_n_get "$node" address)
-			ipv4_file="$TMP_PATH/uplink_ips.${index}"
-			ipv6_file="$TMP_PATH/uplink_ips6.${index}"
-			resolve_all_ipv4 "$address" | awk 'NF && !seen[$0]++' > "$ipv4_file"
-			resolve_all_ipv6 "$address" | awk 'NF && !seen[$0]++' > "$ipv6_file"
-			[ -s "$ipv4_file" ] || [ -s "$ipv6_file" ] || {
-				log 0 "Naive node [%s] has egress interface [%s], but its server address could not be resolved." "$node" "$iface"
-				return 1
-			}
-			awk -v iface="$iface" -v node="$node" 'NF { print $1, iface, node }' "$ipv4_file" >> "$TMP_PATH/egress_map4"
-			awk -v iface="$iface" -v node="$node" 'NF { print $1, iface, node }' "$ipv6_file" >> "$TMP_PATH/egress_map6"
+			# Static resolution in NaiveProxy eliminates the race where Chromium
+			# resolves a different round-robin address after policy rules are built.
+			if ! grep -Fxq "$address" "$ipv4_file" "$ipv6_file" 2>/dev/null; then
+				{ sed -n '1p' "$ipv4_file"; sed -n '1p' "$ipv6_file"; } | awk 'NF { print; exit }' > "$TMP_PATH/naive_resolve.${node}"
+				[ -s "$TMP_PATH/naive_resolve.${node}" ] || {
+					log 0 "Naive node [%s] could not select a stable address for interface [%s]." "$node" "$iface"
+					return 1
+				}
+			fi
 			printf '%s %s %s %s %s\n' "$index" "$node" "$iface" "$ipv4_file" "$ipv6_file" >> "$TMP_PATH/egress_plan"
 		else
 			log 0 "Naive node [%s] uses the system default route." "$node"
@@ -288,7 +313,7 @@ run_naive_nodes() {
 			"$TMP_PATH/egress_map4" "$TMP_PATH/egress_map6"
 	)
 	[ -z "$conflict" ] || {
-		log 0 "Naive nodes resolve to the same server IP with conflicting egress interfaces: %s." "$conflict"
+		log 0 "Naive nodes resolve to the same server IP with conflicting egress selections: %s." "$conflict"
 		return 1
 	}
 
@@ -304,19 +329,17 @@ run_naive_nodes() {
 	done < "$TMP_PATH/egress_plan"
 
 	local port
-	index=0
 	while read -r node; do
 		[ -n "$node" ] || continue
 		port=$(node_socks_port "$node")
-		run_naive_node "$node" "$port" "$index" || return 1
-		index=$((index + 1))
+		run_naive_node "$node" "$port" || return 1
 	done < "$TMP_PATH/selected_nodes"
 }
 
 # ------------------------------------------------------------------------------
-# ChinaDNS-NG split DNS. china-dns = domestic, trust-dns = remote; tags resolved
-# domestic IPs into the bypass_chn nftset/ipset so the firewall lets them pass
-# direct. Node server IPs go into bypass_vps (always direct).
+# ChinaDNS-NG split DNS. china-dns = domestic, trust-dns = remote. Only domains
+# belonging to an explicitly Direct shunt rule are written to the direct NFTSet;
+# broad China classification must not override a more specific proxy rule.
 # ------------------------------------------------------------------------------
 
 # ChinaDNS-NG uses '#port' in upstream URLs (for example
@@ -372,9 +395,11 @@ run_chinadns_ng() {
 		log 0 "geoview/geosite.dat is unavailable; ChinaDNS-NG will use the trusted upstream for all domains."
 	fi
 
-	# Include literal and geosite domains from every Direct shunt row. This is
+	# Build one higher-priority custom group from every Direct shunt row. This is
 	# the functional counterpart of Passwall2's "Direct DNS result write to
-	# IPSet" option; ChinaDNS-NG writes their answers into bypass_chn NFTSet.
+	# IPSet" option and avoids treating every generic tag:chn result as Direct.
+	local direct_shunt_path="${cfg_dir}/direct-shunt.list"
+	: > "$direct_shunt_path"
 	if [ "$WRITE_IPSET_DIRECT" = "1" ]; then
 		local _rsid _rdomain _rline _rcode _rtmp
 		for _rsid in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
@@ -387,17 +412,20 @@ run_chinadns_ng() {
 						_rcode=${_rline#geosite:}
 						_rtmp="${cfg_dir}/geosite-${_rcode}.txt"
 						[ -n "$geoview_bin" ] && "$geoview_bin" -type geosite -action extract -input "$geosite_path" -list "$_rcode" -lowmem=true -output "$_rtmp" >/dev/null 2>&1
-						[ -s "$_rtmp" ] && cat "$_rtmp" >> "$chnlist_path"
+						[ -s "$_rtmp" ] && cat "$_rtmp" >> "$direct_shunt_path"
 						;;
-					domain:*|full:*) echo "${_rline#*:}" >> "$chnlist_path" ;;
+					domain:*|full:*) echo "${_rline#*:}" >> "$direct_shunt_path" ;;
 					regexp:*|ext:*) ;;
-					*) echo "$_rline" >> "$chnlist_path" ;;
+					# Bare rules are BypassCore substring matches, which cannot be
+					# represented by ChinaDNS-NG's domain-suffix list. Leave them to
+					# BypassCore instead of broadening their meaning silently.
+					*) ;;
 				esac
 			done <<-EOF
 			$_rdomain
 			EOF
 		done
-		[ -s "$chnlist_path" ] && sort -u "$chnlist_path" -o "$chnlist_path"
+		[ -s "$direct_shunt_path" ] && sort -u "$direct_shunt_path" -o "$direct_shunt_path"
 	fi
 
 	# Build the domain list consumed by ChinaDNS-NG. Literal node IPs are added
@@ -409,8 +437,7 @@ run_chinadns_ng() {
 	}
 
 	# nftset names (nftables is the only supported backend).
-	local set_names direct_set_names vps_set_names
-	set_names="inet@bypass@bypass_chn,inet@bypass@bypass_chn6"
+	local direct_set_names vps_set_names
 	direct_set_names="inet@bypass@bypass_direct_dns,inet@bypass@bypass_direct_dns6"
 	vps_set_names="inet@bypass@bypass_vps,inet@bypass@bypass_vps6"
 
@@ -443,18 +470,23 @@ run_chinadns_ng() {
 	$DNS_HOSTS
 	EOF
 
-	local tagchn_line="add-tagchn-ip ${set_names}"
 	local direct_ipset_line=""
 	[ "$WRITE_IPSET_DIRECT" = "1" ] && direct_ipset_line="group-ipset ${direct_set_names}"
+	local direct_shunt_group=""
+	[ -s "$direct_shunt_path" ] && direct_shunt_group="group direct_shunt
+	group-dnl ${direct_shunt_path}
+	group-upstream ${DOMESTIC_DNS}
+	group-ipset ${direct_set_names}"
 
 	# Direct domain DNS routing groups (same line format as Passwall2). Each
 	# group selects its own upstream and writes answers to the direct NFTSet.
 	local direct_dns_groups="" _dd_domain _dd_upstream _dd_extra _dd_index=0 _dd_file _dd_code _dd_chinadns_upstream
+	local _dd_limit=5
+	[ -s "$direct_shunt_path" ] && _dd_limit=4
 	while IFS=' ' read -r _dd_domain _dd_upstream _dd_extra; do
 		case "$_dd_domain" in ''|'#'*) continue ;; esac
 		[ -n "$_dd_upstream" ] && [ -z "$_dd_extra" ] || continue
-		_dd_index=$((_dd_index + 1))
-		_dd_file="${cfg_dir}/direct-dns-${_dd_index}.list"
+		_dd_file="${cfg_dir}/direct-dns-candidate.list"
 		: > "$_dd_file"
 		case "$_dd_domain" in
 			geosite:*)
@@ -463,7 +495,17 @@ run_chinadns_ng() {
 				;;
 			domain:*|full:*) echo "${_dd_domain#*:}" > "$_dd_file" ;;
 		esac
-		[ -s "$_dd_file" ] || continue
+		[ -s "$_dd_file" ] || {
+			log 0 "Direct DNS domain rule [%s] could not be converted for ChinaDNS-NG." "$_dd_domain"
+			return 1
+		}
+		[ "$_dd_index" -lt "$_dd_limit" ] || {
+			log 0 "ChinaDNS-NG supports at most %s custom Direct DNS groups with the current shunt configuration." "$_dd_limit"
+			return 1
+		}
+		_dd_index=$((_dd_index + 1))
+		mv -f "$_dd_file" "${cfg_dir}/direct-dns-${_dd_index}.list"
+		_dd_file="${cfg_dir}/direct-dns-${_dd_index}.list"
 		_dd_chinadns_upstream=$(chinadns_upstream "$_dd_upstream")
 		direct_dns_groups="${direct_dns_groups}
 	group direct_dns_${_dd_index}
@@ -481,40 +523,30 @@ run_chinadns_ng() {
 		trust-dns ${remote_upstream}
 		filter-qtype 65
 		$([ -s "$hosts_file" ] && echo "hosts ${hosts_file}")
-		${tagchn_line}
 		${domain_rules}
 		group vpslist
 		group-dnl ${cfg_dir}/vpslist
 		group-upstream ${DOMESTIC_DNS}
 		group-ipset ${vps_set_names}
+		${direct_shunt_group}
 		${direct_dns_groups}
 	EOF
 
-	local chinadns_log="${cfg_dir}/chinadns-ng.log" wait_count=0
+	local chinadns_log="${cfg_dir}/chinadns-ng.log"
 	: > "$chinadns_log"
-	ln_run 0 "$CHINADNS_BIN" "$CHINADNS_TAG" "$chinadns_log" -C "$config_file" -v
+	if [ "$LOGLEVEL" = "debug" ] && [ "$LOG_NODE" = "1" ]; then
+		ln_run 0 "$CHINADNS_BIN" "$CHINADNS_TAG" "$chinadns_log" -C "$config_file" -v || return 1
+	else
+		ln_run 0 "$CHINADNS_BIN" "$CHINADNS_TAG" "$chinadns_log" -C "$config_file" || return 1
+	fi
 	# Loading a large geosite-derived chnlist can take several seconds on a
-	# router. Poll the actual UDP listener instead of declaring failure after a
-	# fixed one-second delay.
-	while [ "$wait_count" -lt 15 ]; do
-		[ "$(check_port_exists "$CHINADNS_PORT" udp)" -gt 0 ] 2>/dev/null && break
-		busybox pgrep -f "$TMP_BIN_PATH/$CHINADNS_TAG" >/dev/null 2>&1 || break
-		wait_count=$((wait_count + 1))
-		sleep 1
-	done
-	if [ "$(check_port_exists "$CHINADNS_PORT" udp)" -gt 0 ] 2>/dev/null; then
+	# router, so use a process-aware startup window rather than a fixed sleep.
+	if wait_for_listener "$CHINADNS_TAG" "$CHINADNS_PORT" udp 20 "$chinadns_log"; then
 		CHINADNS_OK=1
 		log 0 "ChinaDNS-NG: :%s  domestic=%s  remote=%s (%s)" "$CHINADNS_PORT" "$DOMESTIC_DNS" "$remote_upstream" "$REMOTE_DNS_PROTOCOL"
 	else
 		CHINADNS_OK=0
-		log 0 "ChinaDNS-NG failed to listen on UDP :%s after %s seconds." "$CHINADNS_PORT" "$wait_count"
-		if [ -s "$chinadns_log" ]; then
-			tail -n 12 "$chinadns_log" | while IFS= read -r line; do
-				[ -n "$line" ] && log 1 "ChinaDNS-NG: %s" "$line"
-			done
-		else
-			log 1 "ChinaDNS-NG exited without diagnostic output; generated config: %s" "$config_file"
-		fi
+		log 1 "ChinaDNS-NG generated config: %s" "$config_file"
 		return 1
 	fi
 }
@@ -534,7 +566,7 @@ map_outbound_tag() {
 			if [ "$(config_get_type "$1")" = "nodes" ]; then
 				echo "proxy_$1"
 			else
-				echo "$1"
+				echo ""
 			fi
 			;;
 	esac
@@ -583,27 +615,6 @@ gen_bypasscore_config() {
 				json_close_object
 			json_close_object
 		done < "$TMP_PATH/selected_nodes"
-		# A Direct shunt rule may override the global Direct interface. Each
-		# override needs its own freedom outbound because the bind belongs to an
-		# outbound, not to an individual routing rule.
-		local _sid _outbound _egress
-		for _sid in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
-			_outbound=$(config_n_get "$_sid" outbound _direct)
-			_egress=$(config_n_get "$_sid" egress_interface)
-			[ "$_outbound" = "_direct" ] && [ -n "$_egress" ] || continue
-			json_add_object ''
-				json_add_string tag "direct_${_sid}"
-				json_add_string mode freedom
-				if get_egress_runtime "$_egress"; then
-					json_add_object bind
-						json_add_string interface "$EGRESS_DEVICE"
-					json_close_object
-				else
-					log 0 "Direct rule [%s] egress interface [%s] is down or has no L3 device." "$_sid" "$_egress"
-					BYPASSCORE_CONFIG_ERROR=1
-				fi
-			json_close_object
-		done
 	json_close_array
 
 	# DNS mirrors Passwall2's direct/remote model. Direct-domain overrides and
@@ -640,25 +651,25 @@ gen_bypasscore_config() {
 						BYPASSCORE_CONFIG_ERROR=1
 						continue
 					fi
-					# BypassCore's embedded DNS client is UDP-only. ChinaDNS-NG still
-					# applies TCP/TLS entries for LAN DNS; omit them here rather than
-					# silently sending UDP packets to a TCP/DoT-only endpoint.
-					case "$_dns_upstream" in tcp://*|tls://*) continue ;; esac
 					_dns_address=$_dns_upstream
 					_dns_port=""
+					# BypassCore 1.0.5 dispatches tcp:// and tls:// URL addresses to
+					# its native DNS-over-TCP/DoT clients. UDP uses an address plus an
+					# optional numeric port in the JSON object.
 					case "$_dns_upstream" in
-						*://*)
-							_dns_address=${_dns_upstream#*://}
-							_dns_address=${_dns_address#*@}
-							_dns_address=${_dns_address%%\?*}
+						tcp://*|tls://*) ;;
+						*)
+							_dns_address=${_dns_upstream#udp://}
 							case "$_dns_address" in *#*) _dns_port=${_dns_address##*#}; _dns_address=${_dns_address%%#*} ;; esac
 							case "$_dns_address" in
+								\[*\]:*) _dns_port=${_dns_address##*:}; _dns_address=${_dns_address%%]*}; _dns_address=${_dns_address#?} ;;
 								*:*:*) ;;
 								*:*) [ -n "$_dns_port" ] || { _dns_port=${_dns_address##*:}; _dns_address=${_dns_address%:*}; } ;;
 							esac
 							;;
 					esac
-					if [ -n "$_dns_port" ] && ! echo "$_dns_port" | grep -qE '^[0-9]+$'; then
+					if [ -n "$_dns_port" ] && { ! echo "$_dns_port" | grep -qE '^[0-9]+$' ||
+					   [ "$_dns_port" -lt 1 ] 2>/dev/null || [ "$_dns_port" -gt 65535 ] 2>/dev/null; }; then
 						log 0 "Invalid DNS port in Direct domain DNS routing entry [%s]." "$_dns_upstream"
 						BYPASSCORE_CONFIG_ERROR=1
 						continue
@@ -757,18 +768,17 @@ gen_bypasscore_config() {
 					json_close_array
 				json_close_object
 			fi
-			local sid tag domains ips net outbound egress default_sid default_outbound protocols inbound sources ports
+			local sid tag domains ips net outbound default_sid default_outbound protocols inbound sources ports
 			for sid in $(uci -q show "${CONFIG}" 2>/dev/null | grep "=shunt_rules" | cut -d '.' -f2 | cut -d '=' -f1); do
 				[ "$(config_n_get "$sid" is_default 0)" = "1" ] && { default_sid=$sid; continue; }
 				outbound=$(config_n_get "$sid" outbound _direct)
 				[ -n "$outbound" ] || continue
-				egress=$(config_n_get "$sid" egress_interface)
-				if [ "$outbound" = "_direct" ] && [ -n "$egress" ]; then
-					tag="direct_${sid}"
-				else
-					tag=$(map_outbound_tag "$outbound")
-				fi
-				[ -z "$tag" ] && tag=direct
+				tag=$(map_outbound_tag "$outbound")
+				[ -n "$tag" ] || {
+					log 0 "Shunt rule [%s] references an invalid outbound [%s]." "$sid" "$outbound"
+					BYPASSCORE_CONFIG_ERROR=1
+					tag=block
+				}
 				json_add_object ''
 					json_add_string outboundTag "$tag"
 					domains=$(config_n_get "$sid" domain_list)
@@ -815,25 +825,28 @@ gen_bypasscore_config() {
 				json_close_object
 			done
 			# The reserved Default row is always emitted last as the catch-all.
-			tag=""
-			egress=""
+			tag="direct"
 			default_outbound=""
 			if [ -n "$default_sid" ]; then
 				default_outbound=$(config_n_get "$default_sid" outbound _direct)
-				egress=$(config_n_get "$default_sid" egress_interface)
-				if [ "$default_outbound" = "_direct" ] && [ -n "$egress" ]; then tag="direct_${default_sid}"; else tag=$(map_outbound_tag "$default_outbound"); fi
+				if [ -n "$default_outbound" ]; then
+					tag=$(map_outbound_tag "$default_outbound")
+					[ -n "$tag" ] || {
+						log 0 "Default shunt rule references an invalid outbound [%s]." "$default_outbound"
+						BYPASSCORE_CONFIG_ERROR=1
+						tag=block
+					}
+				fi
 			fi
-			[ -n "$tag" ] && {
-				json_add_object ''
-					json_add_string outboundTag "$tag"
-					json_add_string network "$(config_n_get "$default_sid" network tcp,udp)"
-				json_close_object
-			}
+			json_add_object ''
+				json_add_string outboundTag "$tag"
+				json_add_string network "$(config_n_get "$default_sid" network tcp,udp)"
+			json_close_object
 		json_close_array
 	json_close_object
 
 	# observatory (only useful if the bypasscore binary is present)
-	if is_linux_elf "$BYPASSCORE_FILE"; then
+	if is_bypasscore "$BYPASSCORE_FILE"; then
 		json_add_object observatory
 			json_add_array subject_selector
 				json_add_string '' proxy_
@@ -887,17 +900,24 @@ gen_bypasscore_config() {
 # BypassCore transparent core: `bypasscore -run -c <cfg>` (daemon).
 # ------------------------------------------------------------------------------
 run_bypasscore_core() {
-	if ! is_linux_elf "$BYPASSCORE_FILE"; then
+	if ! is_bypasscore "$BYPASSCORE_FILE"; then
 		log 0 "BypassCore is missing, not executable, or does not identify as BypassCore; service cannot start."
 		return 1
 	fi
 	gen_bypasscore_config || return 1
 	local cfg_dir=$TMP_ACL_PATH
 	mkdir -p "$cfg_dir"
+	local preflight_log="${cfg_dir}/bypasscore-preflight.log"
+	: > "$preflight_log"
+	if ! "$BYPASSCORE_FILE" -config "$BYPASSCORE_CFG" -test "tcp:1.1.1.1:443" > "$preflight_log" 2>&1; then
+		log 0 "BypassCore rejected the generated configuration during preflight."
+		log_component_tail "BypassCore preflight" "$preflight_log"
+		return 1
+	fi
 	local log_file="${cfg_dir}/bypasscore.log"
-	[ "$LOGLEVEL" = "debug" ] && [ "$LOG_NODE" = "1" ] || log_file="/dev/null"
-	ln_run ${QUEUE_RUN} "$BYPASSCORE_FILE" "bypasscore" "$log_file" -config "$BYPASSCORE_CFG" -run
-	BYPASSCORE_OK=1
+	: > "$log_file"
+	ln_run 0 "$BYPASSCORE_FILE" "bypasscore" "$log_file" -config "$BYPASSCORE_CFG" -run || return 1
+	wait_for_listener bypasscore "$REDIR_PORT" tcp 20 "$log_file" || return 1
 	set_cache_var ACL_GLOBAL_redir_port "$REDIR_PORT"
 	log 0 "BypassCore running as transparent core on tcp://127.0.0.1:%s (-run)." "$REDIR_PORT"
 }
@@ -932,38 +952,61 @@ run_dnsmasq_forward() {
 		log 0 "dnsmasq forwarding is disabled; ChinaDNS-NG remains available on :%s." "$CHINADNS_PORT"
 		return 0
 	}
-	# Save the current upstream so we can restore on stop.
-	local old old_rebind
-	old=$(uci -q get dhcp.@dnsmasq[0].server 2>/dev/null)
-	old_rebind=$(uci -q get dhcp.@dnsmasq[0].rebind_protection 2>/dev/null)
-	set_cache_var bak_dnsmasq_server "${old:-__unset__}"
-	set_cache_var bak_dnsmasq_rebind "${old_rebind:-__unset__}"
+	# Use dnsmasq's generated runtime conf-dir instead of committing changes to
+	# /etc/config/dhcp. A power loss must not leave persistent DNS pointing to a
+	# ChinaDNS process which no longer exists after reboot.
+	local cfgid generated conf_dir include_file custom_conf_dir dnsmasq_bin dnsmasq_test_log
+	cfgid=$(uci -q show 'dhcp.@dnsmasq[0]' 2>/dev/null | awk 'NR == 1 { split($0, a, /[.=]/); print a[2] }')
+	generated="/tmp/etc/dnsmasq.conf.${cfgid}"
+	conf_dir=$(awk -F= '/^conf-dir=/ { print $2; exit }' "$generated" 2>/dev/null)
+	conf_dir=${conf_dir%%,*}
+	conf_dir=${conf_dir%*/}
+	if [ -z "$conf_dir" ]; then
+		custom_conf_dir=$(uci -q get 'dhcp.@dnsmasq[0].confdir' 2>/dev/null)
+		case "$custom_conf_dir" in /*) conf_dir=${custom_conf_dir%%,*} ;; esac
+	fi
+	[ -n "$conf_dir" ] || [ -z "$cfgid" ] || [ ! -d "/tmp/dnsmasq.${cfgid}.d" ] || conf_dir="/tmp/dnsmasq.${cfgid}.d"
+	[ -n "$conf_dir" ] || [ ! -d /tmp/dnsmasq.d ] || conf_dir=/tmp/dnsmasq.d
+	[ -n "$conf_dir" ] || {
+		log 0 "Could not locate the active dnsmasq runtime conf-dir; leave dnsmasq unchanged."
+		return 1
+	}
+	mkdir -p "$conf_dir" || return 1
+	include_file="${conf_dir}/dnsmasq-bypass.conf"
+	cat <<-EOF > "$include_file"
+		server=/#/127.0.0.1#${CHINADNS_PORT}
+		no-resolv
+	EOF
+	dnsmasq_bin=$(first_type /usr/sbin/dnsmasq dnsmasq)
+	if [ -n "$dnsmasq_bin" ] && [ -r "$generated" ]; then
+		dnsmasq_test_log="${TMP_ACL_PATH}/dnsmasq-test.log"
+		if ! "$dnsmasq_bin" --test --conf-file="$generated" > "$dnsmasq_test_log" 2>&1; then
+			rm -f "$include_file"
+			log 0 "dnsmasq rejected the Bypass runtime forwarding file."
+			log_component_tail dnsmasq "$dnsmasq_test_log"
+			return 1
+		fi
+	fi
+	set_cache_var DNSMASQ_INCLUDE "$include_file"
 	set_cache_var DNSMASQ_MODIFIED 1
-	uci -q delete dhcp.@dnsmasq[0].server 2>/dev/null
-	uci -q add_list dhcp.@dnsmasq[0].server="127.0.0.1#${CHINADNS_PORT}" 2>/dev/null
-	uci -q set dhcp.@dnsmasq[0].rebind_protection='0' 2>/dev/null
-	uci -q commit dhcp 2>/dev/null
-	/etc/init.d/dnsmasq restart >/dev/null 2>&1
+	if ! /etc/init.d/dnsmasq restart >/dev/null 2>&1; then
+		rm -f "$include_file"
+		unset_cache_var DNSMASQ_INCLUDE
+		unset_cache_var DNSMASQ_MODIFIED
+		log 0 "dnsmasq failed to reload the Bypass runtime forwarding file."
+		return 1
+	fi
 	log 0 "dnsmasq forwarded to ChinaDNS-NG :%s." "$CHINADNS_PORT"
 }
 
 restore_dnsmasq_forward() {
 	[ "$(get_cache_var DNSMASQ_MODIFIED)" = "1" ] || return 0
-	local bak bak_rebind
-	bak=$(get_cache_var bak_dnsmasq_server)
-	bak_rebind=$(get_cache_var bak_dnsmasq_rebind)
-	uci -q delete dhcp.@dnsmasq[0].server 2>/dev/null
-	[ -n "$bak" ] && [ "$bak" != "__unset__" ] && {
-		local s
-		for s in $bak; do uci -q add_list dhcp.@dnsmasq[0].server="$s" 2>/dev/null; done
-	}
-	if [ "$bak_rebind" = "__unset__" ]; then
-		uci -q delete dhcp.@dnsmasq[0].rebind_protection 2>/dev/null
-	elif [ -n "$bak_rebind" ]; then
-		uci -q set dhcp.@dnsmasq[0].rebind_protection="$bak_rebind" 2>/dev/null
-	fi
-	uci -q commit dhcp 2>/dev/null
+	local include_file
+	include_file=$(get_cache_var DNSMASQ_INCLUDE)
+	[ -n "$include_file" ] && rm -f "$include_file"
 	/etc/init.d/dnsmasq restart >/dev/null 2>&1
+	unset_cache_var DNSMASQ_INCLUDE
+	unset_cache_var DNSMASQ_MODIFIED
 }
 
 # ------------------------------------------------------------------------------
@@ -993,6 +1036,8 @@ cron_prefix() {
 }
 
 start_crontab() {
+	# Restarts must replace, not append, the jobs owned by this package.
+	sed -i "/${APP_PATH//\//\\/}\/rule_update\.sh/d; /\/etc\/init\.d\/bypass /d" /etc/crontabs/root 2>/dev/null
 	# GeoData auto-update (global_rules.update_*_mode, passwall2-style).
 	local week time interval prefix
 	week=$(config_t_get global_rules update_week_mode)
@@ -1028,6 +1073,32 @@ stop_crontab() {
 	/etc/init.d/cron restart >/dev/null 2>&1
 }
 
+validate_runtime() {
+	wait_for_listener bypasscore "$REDIR_PORT" tcp 3 "$TMP_ACL_PATH/bypasscore.log" || return 1
+	local node port
+	while read -r node port; do
+		[ -n "$node" ] && [ -n "$port" ] || continue
+		wait_for_listener "${NAIVE_TAG}_${node}" "$port" tcp 3 "$TMP_ACL_PATH/nodes/naive_${node}.log" || return 1
+	done < "$TMP_PATH/node_ports"
+	if [ "$REMOTE_DNS_DETOUR" = "remote" ]; then
+		wait_for_listener "$DNS2SOCKS_TAG" "$DNS2SOCKS_PORT" udp 3 "$TMP_ACL_PATH/dns2socks.log" || return 1
+	fi
+	if [ "$DNS_REDIRECT" = "1" ]; then
+		wait_for_listener "$CHINADNS_TAG" "$CHINADNS_PORT" udp 3 "$TMP_ACL_PATH/chinadns-ng.log" || return 1
+	fi
+}
+
+start_monitor() {
+	[ "$START_DAEMON" = "1" ] || return 0
+	local monitor_log="$TMP_ACL_PATH/monitor.log"
+	: > "$monitor_log"
+	ln_run 0 "$APP_PATH/monitor.sh" monitor "$monitor_log" || {
+		log 0 "Process monitor could not be started."
+		return 1
+	}
+	log 0 "Process monitor started."
+}
+
 # ------------------------------------------------------------------------------
 # Lifecycle
 # ------------------------------------------------------------------------------
@@ -1038,7 +1109,7 @@ start() {
 		(stop) 2>/dev/null
 		sleep 1
 	}
-	mkdir -p /tmp/etc /tmp/log "$TMP_PATH" "$TMP_BIN_PATH" "$TMP_ROUTE_PATH" "$TMP_ACL_PATH" "$TMP_PATH2"
+	mkdir -p /tmp/etc /tmp/log "$TMP_PATH" "$TMP_BIN_PATH" "$TMP_PID_PATH" "$TMP_ACL_PATH" "$TMP_PATH2"
 
 	get_config
 	export BYPASSCORE_ASSETS="$V2RAY_LOCATION_ASSET"
@@ -1047,7 +1118,6 @@ start() {
 	ulimit -n 65535 2>/dev/null
 
 	NAIVE_OK=0
-	BYPASSCORE_OK=0
 	CHINADNS_OK=0
 	DNS2SOCKS_OK=0
 	unset_cache_var DNS2SOCKS_OK
@@ -1061,7 +1131,7 @@ start() {
 		return 0
 	}
 	check_run_environment || return 1
-	if ! is_linux_elf "$BYPASSCORE_FILE"; then
+	if ! is_bypasscore "$BYPASSCORE_FILE"; then
 		log 0 "BypassCore is required but unavailable at [%s]; service not started." "$BYPASSCORE_FILE"
 		return 1
 	fi
@@ -1075,18 +1145,11 @@ start() {
 		return 1
 	fi
 
-	# Give BypassCore a moment to open its listener. A core that dies immediately
-	# (bad config, incompatible binary, or unavailable Naive SOCKS upstream)
-	# means REDIR_PORT is dead — installing REDIRECT would blackhole
-	# the router, so skip it with a clear log line.
-	sleep 2
-	local _check_node _check_port _listeners_ok=1
-	while read -r _check_node _check_port; do
-		[ -n "$_check_port" ] || continue
-		[ "$(check_port_exists "$_check_port" tcp)" -gt 0 ] 2>/dev/null || _listeners_ok=0
-	done < "$TMP_PATH/node_ports"
-	if [ "$(check_port_exists "$REDIR_PORT" tcp)" -le 0 ] 2>/dev/null || [ "$_listeners_ok" != "1" ]; then
-		log 0 "BypassCore or its required NaiveProxy SOCKS upstream failed to listen; firewall and DNS were not modified."
+	# ChinaDNS-NG may spend several seconds loading geosite data. Revalidate all
+	# earlier components before installing firewall redirection so a process
+	# which died during that interval is identified by name and log output.
+	if ! validate_runtime; then
+		log 0 "A required process failed its final health check; firewall and DNS were not modified."
 		stop
 		return 1
 	fi
@@ -1098,7 +1161,11 @@ start() {
 	set_cache_var USE_TABLES "$USE_TABLES"
 	# Only hand dnsmasq to ChinaDNS-NG after the process is listening and the
 	# nft sets used by add-tagchn-ip have been created.
-	run_dnsmasq_forward
+	if ! run_dnsmasq_forward; then
+		log 0 "dnsmasq integration failed; stopping to avoid an incomplete DNS path."
+		stop
+		return 1
+	fi
 
 	# Bridge-nf call disable so iptables sees bridged traffic cleanly.
 	if [ "$NAIVE_OK" = "1" ]; then
@@ -1109,6 +1176,11 @@ start() {
 	fi
 
 	start_crontab
+	start_monitor || {
+		log 0 "Required process supervision is unavailable; stopping instead of leaving an unmonitored redirect path."
+		stop
+		return 1
+	}
 	log 0 "Bypass started."
 	echolog ""
 }
@@ -1131,9 +1203,12 @@ stop() {
 	teardown_egress_routing
 	restore_dnsmasq_forward
 
-	# Kill our managed proxy processes (naive / chinadns-ng), sparing control scripts.
-	busybox pgrep -af "${CONFIG}/monitor" 2>/dev/null | xargs -r kill -9 >/dev/null 2>&1
-	busybox pgrep -af "$TMP_BIN_PATH" 2>/dev/null | awk '!/app\.sh|rule_update|api\.sh|ujail/{print $1}' | xargs -r kill -9 >/dev/null 2>&1
+	# Stop only processes whose PIDs were recorded by this service. This avoids
+	# broad pgrep patterns and gives children a chance to flush/close first.
+	stop_managed_processes
+	# One-time compatibility cleanup for processes launched by versions before
+	# PID tracking was introduced.
+	busybox pgrep -af "$TMP_BIN_PATH/" 2>/dev/null | awk '!/app\.sh|rule_update|api\.sh|ujail/{print $1}' | xargs -r kill -9 >/dev/null 2>&1
 
 	unset BYPASSCORE_ASSETS ENABLE_DEPRECATED_GEOSITE ENABLE_DEPRECATED_GEOIP
 	stop_crontab

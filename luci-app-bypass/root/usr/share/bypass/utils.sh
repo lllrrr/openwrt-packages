@@ -11,12 +11,10 @@ CONFIG=bypass
 APP_PATH=/usr/share/${CONFIG}
 TMP_PATH=/tmp/etc/${CONFIG}
 TMP_PATH2=${TMP_PATH}_tmp
-LOCK_PATH=/tmp/lock
 LOG_FILE=/tmp/log/${CONFIG}.log
 TMP_ACL_PATH=${TMP_PATH}/acl
 TMP_BIN_PATH=${TMP_PATH}/bin
-TMP_IFACE_PATH=${TMP_PATH}/iface
-TMP_ROUTE_PATH=${TMP_PATH}/route
+TMP_PID_PATH=${TMP_PATH}/pids
 BYPASSCORE_CFG=${TMP_PATH}/bypasscore/config.json
 
 . /lib/functions/network.sh
@@ -39,11 +37,6 @@ config_t_get() {
 	local index=${4:-0}
 	local ret=$(uci -q get "${CONFIG}.@${1}[${index}].${2}" 2>/dev/null)
 	echo "${ret:=${3}}"
-}
-
-config_t_set() {
-	local index=${4:-0}
-	uci -q set "${CONFIG}.@${1}[${index}].${2}=${3}" 2>/dev/null
 }
 
 # ------------------------------------------------------------------------------
@@ -141,15 +134,52 @@ check_port_exists() {
 	local port=$1
 	local protocol=$2
 	[ -n "$protocol" ] || protocol="tcp,udp"
-	local result=
-	if [ "$protocol" = "tcp" ]; then
-		result=$(netstat -tln 2>/dev/null | grep -c ":$port ")
-	elif [ "$protocol" = "udp" ]; then
-		result=$(netstat -uln 2>/dev/null | grep -c ":$port ")
-	elif [ "$protocol" = "tcp,udp" ]; then
-		result=$(netstat -tuln 2>/dev/null | grep -c ":$port ")
+	case "$protocol" in tcp|udp|tcp,udp) ;; *) protocol="tcp,udp" ;; esac
+	case "$port" in ''|*[!0-9]*) echo 0; return 1 ;; esac
+	[ "$port" -ge 1 ] 2>/dev/null && [ "$port" -le 65535 ] 2>/dev/null || {
+		echo 0
+		return 1
+	}
+
+	# /proc/net is stable across BusyBox netstat variants and lets us match the
+	# local port exactly instead of relying on column spacing such as ":1088 ".
+	# TCP state 0A is LISTEN; UDP state 07 is the unconnected listening socket.
+	local hex result=0 file state
+	hex=$(printf '%04X' "$port" 2>/dev/null) || { echo 0; return 1; }
+	for file in \
+		$([ "$protocol" != "udp" ] && echo /proc/net/tcp /proc/net/tcp6) \
+		$([ "$protocol" != "tcp" ] && echo /proc/net/udp /proc/net/udp6); do
+		[ -r "$file" ] || continue
+		case "$file" in */tcp*) state=0A ;; *) state=07 ;; esac
+		result=$((result + $(awk -v port="$hex" -v state="$state" '
+			NR > 1 && $2 ~ (":" port "$") && $4 == state { count++ }
+			END { print count + 0 }
+		' "$file" 2>/dev/null)))
+	done
+	if [ "$result" -gt 0 ] 2>/dev/null || [ -r /proc/net/tcp ]; then
+		echo "$result"
+		return 0
 	fi
-	echo "${result}"
+
+	# Fallback for non-/proc development hosts. Scan fields instead of assuming
+	# a particular netstat column layout.
+	if [ "$protocol" = "tcp" ]; then
+		netstat -an -t 2>/dev/null
+	elif [ "$protocol" = "udp" ]; then
+		netstat -an -u 2>/dev/null
+	else
+		netstat -an 2>/dev/null
+	fi | awk -v port="$port" -v proto="$protocol" '
+		BEGIN { count = 0 }
+		{
+			is_tcp = ($1 ~ /^tcp/); is_udp = ($1 ~ /^udp/)
+			if ((proto == "tcp" && !is_tcp) || (proto == "udp" && !is_udp)) next
+			if (is_tcp && $0 !~ /LISTEN/) next
+			for (i = 1; i <= NF; i++)
+				if ($i ~ ("[.:]" port "$") || $i ~ ("[.:]" port "[* ]")) { count++; break }
+		}
+		END { print count + 0 }
+	'
 }
 
 get_new_port() {
@@ -167,6 +197,7 @@ get_new_port() {
 			port=$default_start_port
 		fi
 	fi
+	case "$port" in ''|*[!0-9]*) port=$default_start_port ;; esac
 	[ "$port" -lt $min_port ] 2>/dev/null && port=$default_start_port
 	[ "$port" -gt $max_port ] 2>/dev/null && port=$default_start_port
 	local protocol
@@ -190,13 +221,60 @@ get_new_port() {
 }
 
 # ------------------------------------------------------------------------------
-# Process launch (symlink into $TMP_BIN_PATH so pgrep -f $TMP_BIN_PATH works).
+# Process launch and health tracking.
 # ------------------------------------------------------------------------------
 
+process_pid() {
+	local name=$1 pid
+	case "$name" in ''|*[!A-Za-z0-9_.-]*) return 1 ;; esac
+	pid=$(cat "$TMP_PID_PATH/${name}.pid" 2>/dev/null)
+	case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+	kill -0 "$pid" 2>/dev/null || return 1
+	# PID files live in /tmp and can outlast a crashed child. Refuse a reused PID
+	# when procfs is available instead of signalling an unrelated process.
+	if [ -r "/proc/$pid/cmdline" ]; then
+		tr '\000' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -Fq "$TMP_BIN_PATH/$name" || return 1
+	fi
+	echo "$pid"
+}
+
+process_alive() {
+	process_pid "$1" >/dev/null 2>&1
+}
+
+log_component_tail() {
+	local name=$1 output=$2
+	[ -s "$output" ] || {
+		log 1 "%s exited without diagnostic output." "$name"
+		return 0
+	}
+	tail -n 12 "$output" 2>/dev/null | while IFS= read -r line; do
+		[ -n "$line" ] && log 1 "%s: %s" "$name" "$line"
+	done
+}
+
+# wait_for_listener <process-name> <port> <tcp|udp> <seconds> <log-file>
+wait_for_listener() {
+	local name=$1 port=$2 protocol=$3 timeout=${4:-10} output=$5 elapsed=0
+	while [ "$elapsed" -lt "$timeout" ]; do
+		if ! process_alive "$name"; then
+			log 0 "%s exited before opening %s/%s." "$name" "$protocol" "$port"
+			log_component_tail "$name" "$output"
+			return 1
+		fi
+		[ "$(check_port_exists "$port" "$protocol")" -gt 0 ] 2>/dev/null && return 0
+		elapsed=$((elapsed + 1))
+		sleep 1
+	done
+	log 0 "%s is alive but did not open %s/%s within %s seconds." "$name" "$protocol" "$port" "$timeout"
+	log_component_tail "$name" "$output"
+	return 1
+}
+
 ln_run() {
-	local file_func=${2}
-	local ln_name=${3}
-	local output=${4}
+	local file_func=$2
+	local ln_name=$3
+	local output=$4
 	shift 4
 
 	if [ "${file_func%%/*}" != "${file_func}" ]; then
@@ -208,19 +286,73 @@ ln_run() {
 			file_func="${TMP_BIN_PATH}/${ln_name}"
 			;;
 		esac
-		[ -x "${file_func}" ] || log 1 "%s is not executable: %s %s" "${file_func}" "${file_func}" "$*"
+		[ -x "${file_func}" ] || {
+			log 1 "%s is not executable: %s %s" "${ln_name}" "${file_func}" "$*"
+			return 1
+		}
 	fi
-	[ -n "${file_func}" ] || log 1 "%s not found, cannot start." "${ln_name}"
+	[ -n "${file_func}" ] && [ -x "${file_func}" ] || {
+		log 1 "%s not found, cannot start." "${ln_name}"
+		return 1
+	}
 
-	${file_func:-log 1 "${ln_name}"} "$@" >"${output}" 2>&1 &
+	mkdir -p "$TMP_PID_PATH" "$(dirname "$output")"
+	rm -f "$TMP_PID_PATH/${ln_name}.pid"
+	"$file_func" "$@" >"$output" 2>&1 &
+	local pid=$!
+	printf '%s\n' "$pid" > "$TMP_PID_PATH/${ln_name}.pid"
+	kill -0 "$pid" 2>/dev/null
 }
 
-kill_all() {
-	kill -9 $(pidof "$@" 2>/dev/null) >/dev/null 2>&1
+# Percent-encode a raw URI user-info component. NaiveProxy consumes its server
+# credentials from a proxy URI, so reserved characters such as @, :, / and %
+# must not be allowed to change the parsed host or password.
+uri_encode_userinfo() {
+	local value=$1 char encoded="" code LC_ALL=C
+	while [ -n "$value" ]; do
+		char=${value%"${value#?}"}
+		value=${value#?}
+		case "$char" in
+			[A-Za-z0-9._~-]) encoded="${encoded}${char}" ;;
+			*)
+				code=$(printf '%d' "'$char" 2>/dev/null) || return 1
+				encoded="${encoded}$(printf '%%%02X' "$code")"
+				;;
+		esac
+	done
+	printf '%s\n' "$encoded"
+}
+
+stop_managed_processes() {
+	local pidfile pid name remaining=3
+	[ -d "$TMP_PID_PATH" ] || return 0
+	for pidfile in "$TMP_PID_PATH"/*.pid; do
+		[ -f "$pidfile" ] || continue
+		name=${pidfile##*/}; name=${name%.pid}
+		pid=$(process_pid "$name") || continue
+		kill "$pid" 2>/dev/null
+	done
+	while [ "$remaining" -gt 0 ]; do
+		local alive=0
+		for pidfile in "$TMP_PID_PATH"/*.pid; do
+			[ -f "$pidfile" ] || continue
+			name=${pidfile##*/}; name=${name%.pid}
+			process_alive "$name" && alive=1
+		done
+		[ "$alive" = "0" ] && break
+		remaining=$((remaining - 1))
+		sleep 1
+	done
+	for pidfile in "$TMP_PID_PATH"/*.pid; do
+		[ -f "$pidfile" ] || continue
+		name=${pidfile##*/}; name=${name%.pid}
+		pid=$(process_pid "$name") || continue
+		kill -9 "$pid" 2>/dev/null
+	done
 }
 
 # ------------------------------------------------------------------------------
-# Host / IP resolution (via resolveip; falls back to nslookup)
+# Host / IP resolution (via the required resolveip package)
 # ------------------------------------------------------------------------------
 
 get_host_ip() {
@@ -345,35 +477,6 @@ get_wan_ips() {
 	echo "$NET_ADDR"
 }
 
-get_local_ips() {
-	local family=$1
-	local ALL_IPS WAN_IPS ip NET_ADDR
-	if [ "$family" = "ip6" ]; then
-		ALL_IPS=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
-		WAN_IPS=$(get_wan_ips ip6)
-	else
-		ALL_IPS=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
-		WAN_IPS=$(get_wan_ips ip4)
-	fi
-	[ "$family" = "ip6" ] && ALL_IPS="$ALL_IPS ::1"
-	[ "$family" != "ip6" ] && ALL_IPS="$ALL_IPS 127.0.0.1"
-	for ip in $ALL_IPS; do
-		case "$ip" in
-			""|0.0.0.0|::) continue ;;
-		esac
-		case " $WAN_IPS " in
-			*" $ip "*) continue ;;
-		esac
-		case " $NET_ADDR " in
-			*" $ip "*) ;;
-			*) NET_ADDR="${NET_ADDR:+$NET_ADDR }$ip" ;;
-		esac
-	done
-	for ip in $NET_ADDR; do
-		echo "$ip"
-	done
-}
-
 # ------------------------------------------------------------------------------
 # GeoData: extract an IP list for a geo code via geoview (mirrors passwall2).
 # ------------------------------------------------------------------------------
@@ -400,18 +503,15 @@ get_geoip() {
 	[ -s "${output_path}" ] && cat "${output_path}"
 }
 
-# BypassCore is normally a native Linux executable. Some OpenWrt packages use
-# an executable launcher at /usr/bin/bypasscore, however, so accept that form
-# only when its --version output identifies BypassCore. This avoids rejecting a
-# working installation while still refusing arbitrary executable files.
-is_linux_elf() {
-	local path=$1 target magic
+# BypassCore is normally a native Linux executable, while some packages use an
+# executable launcher. In both cases verify the program identity; merely being
+# an ELF file is not enough to mark an arbitrary binary as the required core.
+is_bypasscore() {
+	local path=$1 target
 	[ -e "$path" ] && [ -x "$path" ] || return 1
 	target=$(readlink -f "$path" 2>/dev/null)
 	[ -n "$target" ] || target=$path
 	[ -f "$target" ] || return 1
-	magic=$(od -An -tx1 -N4 "$target" 2>/dev/null | tr -d ' \n')
-	[ "$magic" = "7f454c46" ] && return 0
 	"$path" --version 2>/dev/null | grep -q '^BypassCore[[:space:]]'
 }
 
@@ -468,12 +568,29 @@ setup_egress_routing() {
 		return 1
 	}
 
-	local existing_default existing_default6
-	existing_default=$(ip -o route show table "$table" default 2>/dev/null)
-	existing_default6=$(ip -6 -o route show table "$table" default 2>/dev/null)
-	if { [ -n "$existing_default" ] && ! echo "$existing_default" | grep -q 'proto 99'; } || \
-	   { [ -n "$existing_default6" ] && ! echo "$existing_default6" | grep -q 'proto 99'; }; then
-		log 0 "Egress route table [%s] already has a foreign default route; choose another table." "$table"
+	local foreign_routes foreign_routes6
+	foreign_routes=$(ip -o route show table "$table" 2>/dev/null | grep -v 'proto 99')
+	foreign_routes6=$(ip -6 -o route show table "$table" 2>/dev/null | grep -v 'proto 99')
+	if [ -n "$foreign_routes$foreign_routes6" ]; then
+		log 0 "Egress route table [%s] already contains foreign routes; choose another table." "$table"
+		return 1
+	fi
+	if ip rule show 2>/dev/null | awk -v p="${priority}:" '$1 == p { found=1 } END { exit !found }'; then
+		log 0 "IPv4 policy-rule priority [%s] is already in use; choose another base priority." "$priority"
+		return 1
+	fi
+	if ip -6 rule show 2>/dev/null | awk -v p="${priority}:" '$1 == p { found=1 } END { exit !found }'; then
+		log 0 "IPv6 policy-rule priority [%s] is already in use; choose another base priority." "$priority"
+		return 1
+	fi
+	if [ -s "$ipv4_file" ] && [ -z "$EGRESS_GATEWAY" ] && \
+	   ! ip -4 route show default 2>/dev/null | grep -q " dev $EGRESS_DEVICE\( \|$\)"; then
+		log 0 "%s resolved IPv4 addresses, but interface [%s] has no usable IPv4 route." "$label" "$iface"
+		return 1
+	fi
+	if [ -s "$ipv6_file" ] && [ -z "$EGRESS_GATEWAY6" ] && \
+	   ! ip -6 route show default 2>/dev/null | grep -q " dev $EGRESS_DEVICE\( \|$\)"; then
+		log 0 "%s resolved IPv6 addresses, but interface [%s] has no usable IPv6 route." "$label" "$iface"
 		return 1
 	fi
 	# Record ownership before mutating the table so every failure path can use

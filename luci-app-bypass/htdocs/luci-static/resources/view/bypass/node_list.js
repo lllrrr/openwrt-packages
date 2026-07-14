@@ -147,11 +147,10 @@ return view.extend({
 			E('button', {
 				type: 'button',
 				class: 'cbi-button cbi-button-add',
-				click: function () {
-					var newSid = 'node_' + Date.now().toString(36);
-					uci.add('bypass', 'nodes', newSid);
-					uci.set('bypass', newSid, 'type', 'NaiveProxy');
-					uci.set('bypass', newSid, 'protocol', 'https');
+					click: function () {
+						var newSid = 'node_' + Date.now().toString(36);
+						uci.add('bypass', 'nodes', newSid);
+						uci.set('bypass', newSid, 'protocol', 'https');
 					uci.set('bypass', newSid, 'remarks', _('New Node'));
 					uci.save().then(function () {
 						uci.apply().then(function () {
@@ -168,7 +167,7 @@ return view.extend({
 			var src = uci.sections('bypass', 'nodes').filter(function (s) { return s['.name'] === sid; })[0];
 			if (!src) return;
 			var newSid = uci.add('bypass', 'nodes');
-			['type', 'protocol', 'remarks', 'address', 'port', 'egress_interface', 'username', 'password'].forEach(function (opt) {
+			['protocol', 'remarks', 'address', 'port', 'egress_interface', 'username', 'password'].forEach(function (opt) {
 				if (src[opt] != null) uci.set('bypass', newSid, opt, src[opt]);
 			});
 			uci.set('bypass', newSid, 'remarks', (src.remarks || sid) + ' ' + _('(copy)'));

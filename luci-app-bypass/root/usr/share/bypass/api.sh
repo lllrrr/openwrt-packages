@@ -28,9 +28,11 @@ do_status() {
 	[ -n "$NAIVE_BIN" ] && naive_present=1
 	[ -n "$CHINADNS_BIN" ] && chinadns_present=1
 	[ -n "$DNS2SOCKS_BIN" ] && dns2socks_present=1
-	is_linux_elf "$BYPASSCORE_FILE" && bypasscore_present=1
-	# BypassCore is the service: helper processes alone do not mean RUNNING.
-	busybox pgrep -f "$TMP_BIN_PATH/bypasscore" >/dev/null 2>&1 && running=1
+	is_bypasscore "$BYPASSCORE_FILE" && bypasscore_present=1
+	# BypassCore plus the ready marker represent a fully installed firewall/DNS
+	# path; a stray core process during startup or teardown is not RUNNING.
+	[ -f /var/lock/bypass_ready.lock ] && process_alive bypasscore && \
+		[ "$(check_port_exists "$REDIR_PORT" tcp)" -gt 0 ] 2>/dev/null && running=1
 	local use_tables egress active_redir_port
 	use_tables=$(get_cache_var USE_TABLES)
 	egress=$(get_cache_var EGRESS_IFACES)
@@ -61,17 +63,23 @@ do_route_test() {
 	if [ -z "$dest" ]; then
 		json_add_int code -1
 		json_add_string error "missing destination"
-	elif ! is_linux_elf "$BYPASSCORE_FILE"; then
+	elif ! is_bypasscore "$BYPASSCORE_FILE"; then
 		json_add_int code -1
 		json_add_string error "bypasscore unavailable (set bypasscore_file from https://github.com/kinmeic/BypassCore/releases)"
 	else
-		gen_bypasscore_config >/dev/null 2>&1
-		local raw
-		raw=$("$BYPASSCORE_FILE" -config "$BYPASSCORE_CFG" -test "$dest" 2>&1)
-		local rc=$?
-		json_add_int code "$rc"
-		json_add_string matched "$(echo "$raw" | grep -iE 'outbound|tag|rule' | head -5 | tr '\n' ' ')"
-		json_add_string raw "$raw"
+		if ! gen_bypasscore_config >/dev/null 2>&1; then
+			json_init
+			json_add_int code -1
+			json_add_string error "invalid Bypass configuration"
+		else
+			local raw rc
+			raw=$("$BYPASSCORE_FILE" -config "$BYPASSCORE_CFG" -test "$dest" 2>&1)
+			rc=$?
+			json_init
+			json_add_int code "$rc"
+			json_add_string matched "$(echo "$raw" | grep -iE 'outbound|tag|rule' | head -5 | tr '\n' ' ')"
+			json_add_string raw "$raw"
+		fi
 	fi
 	emit
 }
@@ -80,15 +88,22 @@ do_route_test() {
 do_observe() {
 	get_config
 	json_init
-	if ! is_linux_elf "$BYPASSCORE_FILE"; then
+	if ! is_bypasscore "$BYPASSCORE_FILE"; then
 		json_add_int code -1
 		json_add_string error "bypasscore unavailable"
 	else
-		gen_bypasscore_config >/dev/null 2>&1
-		local raw
-		raw=$("$BYPASSCORE_FILE" -config "$BYPASSCORE_CFG" -observe 2>&1)
-		json_add_int code $?
-		json_add_string raw "$raw"
+		if ! gen_bypasscore_config >/dev/null 2>&1; then
+			json_init
+			json_add_int code -1
+			json_add_string error "invalid Bypass configuration"
+		else
+			local raw rc
+			raw=$("$BYPASSCORE_FILE" -config "$BYPASSCORE_CFG" -observe 2>&1)
+			rc=$?
+			json_init
+			json_add_int code "$rc"
+			json_add_string raw "$raw"
+		fi
 	fi
 	emit
 }
@@ -101,16 +116,23 @@ do_resolve() {
 	if [ -z "$domain" ]; then
 		json_add_int code -1
 		json_add_string error "missing domain"
-	elif ! is_linux_elf "$BYPASSCORE_FILE"; then
+	elif ! is_bypasscore "$BYPASSCORE_FILE"; then
 		json_add_int code -1
 		json_add_string error "bypasscore unavailable (set bypasscore_file from https://github.com/kinmeic/BypassCore/releases)"
 	else
 		# Make sure the config (incl. dns section) is up to date for this query.
-		gen_bypasscore_config >/dev/null 2>&1
-		local raw
-		raw=$("$BYPASSCORE_FILE" -config "$BYPASSCORE_CFG" -resolve "$domain" 2>&1)
-		json_add_int code $?
-		json_add_string raw "$raw"
+		if ! gen_bypasscore_config >/dev/null 2>&1; then
+			json_init
+			json_add_int code -1
+			json_add_string error "invalid Bypass configuration"
+		else
+			local raw rc
+			raw=$("$BYPASSCORE_FILE" -config "$BYPASSCORE_CFG" -resolve "$domain" 2>&1)
+			rc=$?
+			json_init
+			json_add_int code "$rc"
+			json_add_string raw "$raw"
+		fi
 	fi
 	emit
 }
@@ -130,12 +152,14 @@ do_node_tcping() {
 		local ip
 		ip=$(get_host_ip ipv4 "$address" 2>/dev/null)
 		[ -z "$ip" ] && ip=$address
-		local bin raw latency
+		local bin raw latency rc
 		bin=$(first_type /usr/bin/tcping tcping)
 		if [ -n "$bin" ]; then
 			raw=$("$bin" -c 1 "$ip" "$port" 2>&1)
+			rc=$?
 			latency=$(echo "$raw" | grep -oE '[0-9]+(\.[0-9]+)?\s?ms' | head -1 | grep -oE '[0-9]+(\.[0-9]+)?')
-			json_add_int code 0
+			[ -n "$latency" ] || rc=1
+			json_add_int code "$rc"
 			json_add_string latency_ms "${latency:-0}"
 		else
 			json_add_int code -1
@@ -149,9 +173,10 @@ do_node_tcping() {
 # config_preview -> { config }  (regenerate + cat)
 do_config_preview() {
 	get_config
-	gen_bypasscore_config >/dev/null 2>&1
+	local gen_rc=0
+	gen_bypasscore_config >/dev/null 2>&1 || gen_rc=$?
 	json_init
-	if [ -s "$BYPASSCORE_CFG" ]; then
+	if [ "$gen_rc" = "0" ] && [ -s "$BYPASSCORE_CFG" ]; then
 		# Escape into a JSON string via jshn.
 		local content
 		content=$(cat "$BYPASSCORE_CFG")
@@ -175,21 +200,6 @@ do_rule_update() {
 		json_add_int code -1
 		json_add_string error "rule_update.sh missing"
 	fi
-	emit
-}
-
-# rule_status -> configured GeoData file sizes and modification times.
-do_rule_status() {
-	local geoip geosite
-	geoip=$(get_geo_asset_path geoip)
-	geosite=$(get_geo_asset_path geosite)
-	json_init
-	json_add_int geoip_size "$([ -f "$geoip" ] && stat -c %s "$geoip" 2>/dev/null || echo 0)"
-	json_add_int geoip_mtime "$([ -f "$geoip" ] && stat -c %Y "$geoip" 2>/dev/null || echo 0)"
-	json_add_int geosite_size "$([ -f "$geosite" ] && stat -c %s "$geosite" 2>/dev/null || echo 0)"
-	json_add_int geosite_mtime "$([ -f "$geosite" ] && stat -c %Y "$geosite" 2>/dev/null || echo 0)"
-	json_add_string geoip_path "$geoip"
-	json_add_string geosite_path "$geosite"
 	emit
 }
 
@@ -219,7 +229,9 @@ do_clear_nftset() {
 	nft_bin=$(first_type /usr/sbin/nft nft)
 	[ -n "$nft_bin" ] || rc=1
 	if [ "$rc" = "0" ]; then
-		for set in bypass_dns bypass_direct_dns bypass_direct_dns6 bypass_chn bypass_chn6 bypass_vps bypass_vps6; do
+		# Flush only rule-result sets. Resolver and node-address whitelists are
+		# safety state and must not disappear while the service is live.
+		for set in bypass_direct_dns bypass_direct_dns6; do
 			"$nft_bin" flush set inet bypass "$set" 2>/dev/null || true
 		done
 	fi
@@ -465,20 +477,26 @@ do_restore_backup() {
 # reset_config -> { code }
 # Restore factory defaults: stop the service, copy 0_default_config, clear log.
 do_reset_config() {
-	[ -n "${IPKG_INSTROOT}" ] || {
-		/etc/init.d/bypass stop >/dev/null 2>&1
-		cp -f /usr/share/bypass/0_default_config /etc/config/bypass 2>/dev/null
+	json_init
+	if [ -n "${IPKG_INSTROOT}" ]; then
+		json_add_int code -1
+		json_add_string error "reset is unavailable during package installation"
+	elif /etc/init.d/bypass stop >/dev/null 2>&1 && \
+	     cp -f /usr/share/bypass/0_default_config /etc/config/bypass 2>/dev/null; then
 		chmod 600 /etc/config/bypass 2>/dev/null
 		: > /tmp/log/bypass.log 2>/dev/null
-		/etc/init.d/rpcd reload >/dev/null 2>&1
-	}
-	json_init
-	json_add_int code 0
+		# Do not reload rpcd inside its own file.exec request: doing so can
+		# truncate this JSON response in exactly the same way as opkg upgrades.
+		json_add_int code 0
+	else
+		json_add_int code -1
+		json_add_string error "failed to restore the factory configuration"
+	fi
 	emit
 }
 
 usage() {
-	echo "Usage: $0 {status|route_test|observe|resolve|node_tcping|config_preview|rule_update|rule_status|log_tail|clear_log|clear_nftset|interfaces|connect_status|geo_view|create_backup|restore_backup|reset_config} [args]" >&2
+	echo "Usage: $0 {status|route_test|observe|resolve|node_tcping|config_preview|rule_update|log_tail|clear_log|clear_nftset|interfaces|connect_status|geo_view|create_backup|restore_backup|reset_config} [args]" >&2
 }
 
 main() {
@@ -492,7 +510,6 @@ main() {
 		node_tcping)    do_node_tcping "$1" ;;
 		config_preview) do_config_preview ;;
 		rule_update)    do_rule_update ;;
-		rule_status)    do_rule_status ;;
 		log_tail)       do_log_tail "$1" ;;
 		clear_log)      do_clear_log ;;
 		clear_nftset)   do_clear_nftset ;;

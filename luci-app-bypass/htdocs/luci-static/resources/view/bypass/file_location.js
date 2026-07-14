@@ -25,7 +25,7 @@ return view.extend({
 		o.placeholder = '/usr/bin/chinadns-ng';
 
 		o = sBin.option(form.Value, 'dns2socks_file', _('dns2socks binary'));
-		o.description = _('Optional bridge that carries the remote DNS server through the selected NaiveProxy SOCKS tunnel.');
+		o.description = _('Required when Remote DNS Outbound is Remote; carries TCP DNS through the selected NaiveProxy SOCKS tunnel.');
 		o.placeholder = '/usr/bin/dns2socks';
 
 		/* ---- Geo rule files (global_rules section) ---- */

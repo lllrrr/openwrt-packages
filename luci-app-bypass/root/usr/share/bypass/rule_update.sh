@@ -28,7 +28,7 @@ download_one() {
 	[ -z "$url" ] && { log 0 "No URL for %s, skip." "$name"; return 1; }
 	log 0 "Downloading %s from %s ..." "$name" "$url"
 	local tmp="${dest}.tmp"
-	if ! curl -sL --connect-timeout 15 -m 300 -o "$tmp" "$url" 2>>"$LOG_FILE"; then
+	if ! curl -fsSL --connect-timeout 15 -m 300 -o "$tmp" "$url" 2>>"$LOG_FILE"; then
 		log 0 "Download %s failed." "$name"
 		rm -f "$tmp"
 		return 1
@@ -39,6 +39,21 @@ download_one() {
 	local sz
 	sz=$(wc -c <"$tmp" 2>/dev/null)
 	[ "${sz:-0}" -lt 1024 ] && { log 0 "%s too small (%s bytes), rejected." "$name" "$sz"; rm -f "$tmp"; return 1; }
+	if head -c 512 "$tmp" 2>/dev/null | grep -aiqE '<(!doctype|html)|bad gateway|access denied'; then
+		log 0 "Downloaded %s is an HTML/proxy error response, rejected." "$name"
+		rm -f "$tmp"
+		return 1
+	fi
+	# A proxy/CDN error page can be larger than 1 KiB. When geoview is present,
+	# parse the temporary protobuf before replacing the working asset.
+	local validator geo_type
+	validator=$(first_type "$(config_t_get global_app geoview_file /usr/bin/geoview)" geoview)
+	geo_type=${name%.dat}
+	if [ -n "$validator" ] && ! "$validator" -type "$geo_type" -action extract -input "$tmp" -lowmem=true >/dev/null 2>&1; then
+		log 0 "Downloaded %s is not valid GeoData, rejected." "$name"
+		rm -f "$tmp"
+		return 1
+	fi
 
 	mkdir -p "$BAK_DIR"
 	[ -s "$dest" ] && cp -f "$dest" "$BAK_DIR/$(basename "$dest").bak"
@@ -70,7 +85,10 @@ update_geodata() {
 	trap - EXIT INT TERM
 	if [ "$ok" = "1" ] && [ "$(config_t_get global enabled 0)" = "1" ]; then
 		log 0 "GeoData updated; restarting Bypass to reload DNS and routing rules."
-		/etc/init.d/bypass restart >/dev/null 2>&1
+		/etc/init.d/bypass restart >/dev/null 2>&1 || {
+			log 0 "Bypass failed to restart after the GeoData update."
+			return 1
+		}
 	fi
 	return $((1 - ok))
 }
@@ -91,7 +109,17 @@ refresh_uplink_mode() {
 		flock -u 8
 		return 1
 	fi
-	touch /var/lock/bypass_ready.lock
+	local redir_port
+	redir_port=$(get_cache_var ACL_GLOBAL_redir_port)
+	if [ "$(config_t_get global enabled 0)" = "1" ] && process_alive bypasscore && \
+	   [ -n "$redir_port" ] && [ "$(check_port_exists "$redir_port" tcp)" -gt 0 ] 2>/dev/null; then
+		touch /var/lock/bypass_ready.lock
+	else
+		rm -f /var/lock/bypass_ready.lock
+		log 0 "Egress destination refresh did not produce a healthy BypassCore listener."
+		flock -u 8
+		return 1
+	fi
 	flock -u 8
 }
 

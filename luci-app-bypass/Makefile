@@ -5,7 +5,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-bypass
-PKG_VERSION:=1.3.10
+PKG_VERSION:=1.4.2
 PKG_RELEASE:=1
 PKG_PO_VERSION:=$(PKG_VERSION)
 PKG_LICENSE:=MIT
@@ -25,7 +25,7 @@ LUCI_PKGARCH:=all
 # This application only supports fw4/nftables. Keep the firewall userspace and
 # kernel expressions as runtime dependencies so installing the generated
 # package also installs everything required by REDIRECT and TPROXY modes.
-LUCI_DEPENDS:=+curl +ip-full +resolveip +libubox +coreutils-nohup +coreutils-timeout \
+LUCI_DEPENDS:=+ca-bundle +curl +ip-full +resolveip +libubox \
 	+nftables +kmod-nft-nat +kmod-nft-tproxy +kmod-nft-socket +chinadns-ng +dns2socks
 
 define Package/$(PKG_NAME)/config
@@ -59,6 +59,19 @@ endef
 
 define Package/$(PKG_NAME)/conffiles
 /etc/config/bypass
+endef
+
+# LuCI's default package postinst reloads rpcd. When this package is upgraded
+# through LuCI's own opkg RPC, that terminates the request before its JSON reply
+# is complete, yielding "Unexpected end of JSON input" even though installation
+# succeeded. Cache files can be removed safely; rpcd will pick up the new ACL on
+# its next normal reload/restart.
+define Package/$(PKG_NAME)/postinst
+[ -n "$${IPKG_INSTROOT}" ] || { \
+	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.*
+	rm -rf /tmp/luci-modulecache/
+	exit 0
+}
 endef
 
 include $(TOPDIR)/feeds/luci/luci.mk

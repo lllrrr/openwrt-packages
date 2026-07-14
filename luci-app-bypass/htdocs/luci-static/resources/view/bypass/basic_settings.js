@@ -233,9 +233,9 @@ return view.extend({
 		o.default = 'IpOnDemand';
 		crossSection(o, 'global_rules');
 
-		o = s.taboption('Shunt Rule', form.ListValue, 'domainMatcher', _('Domain matcher'));
+		o = s.taboption('Shunt Rule', form.ListValue, 'domainMatcher', _('Domain matcher'),
+			_('BypassCore 1.0.5 uses its optimized Linux domain matcher. Hybrid is the only compatible value; Xray\'s linear matcher does not exist in BypassCore.'));
 		o.value('hybrid', _('hybrid'));
-		o.value('linear', _('linear'));
 		o.default = 'hybrid';
 		crossSection(o, 'global_rules');
 
@@ -266,12 +266,10 @@ return view.extend({
 		rs.addremove = false;
 		rs.anonymous = false;
 		rs.sortable = false;
-
-		o = rs.option(form.DummyValue, 'remarks', _('Rule'));
-		o.cfgvalue = function (sid) {
-			if (uci.get('bypass', sid, 'is_default') === '1')
-				return E('strong', { style: 'color:red' }, _('Default'));
-			return uci.get('bypass', sid, 'remarks') || sid;
+		rs.sectiontitle = function (sid) {
+			return uci.get('bypass', sid, 'is_default') === '1'
+				? _('Default')
+				: (uci.get('bypass', sid, 'remarks') || sid);
 		};
 
 		o = rs.option(form.ListValue, 'outbound', _('Node'));
@@ -289,7 +287,7 @@ return view.extend({
 		o.rows = 3;
 		o.wrap = 'off';
 		o.placeholder = 'domain:my-nodes.com tcp://223.5.5.5\ndomain:vpn.com udp://119.29.29.29:53\nfull:www.dnspod.com tls://1.1.1.1';
-		o.description = _('One entry per line: a domain/full/geosite rule followed by a UDP, TCP or TLS direct DNS upstream. ChinaDNS-NG supports at most five entries here because one custom group is reserved for node addresses. Invalid entries prevent the service from starting.');
+		o.description = _('One entry per line: a domain/full/geosite rule followed by a UDP, TCP or TLS direct DNS upstream. ChinaDNS-NG permits up to five entries, or four while Direct shunt NFTSet acceleration is active, because node and Direct groups use the remaining slots. Invalid entries prevent the service from starting.');
 		crossSection(o, 'global_dns');
 
 		o = s.taboption('DNS', form.ListValue, 'direct_dns_query_strategy', _('Direct Query Strategy'));
@@ -300,7 +298,7 @@ return view.extend({
 		crossSection(o, 'global_dns');
 
 		o = s.taboption('DNS', form.ListValue, 'remote_dns_protocol', _('Remote DNS Protocol'));
-		o.description = _('UDP and TCP can use Remote or Direct outbound. TLS requires Direct outbound and a TLS-enabled ChinaDNS-NG build. DoH is retained for configuration parity but is not supported by the current DNS data path; selecting it makes startup fail closed.');
+		o.description = _('The NaiveProxy Remote outbound uses dns2socks and therefore requires TCP. UDP and TLS require Direct outbound. DoH requires Direct outbound and DNS Redirect disabled because ChinaDNS-NG has no DoH upstream mode.');
 		o.value('udp', _('UDP'));
 		o.value('tcp', _('TCP'));
 		o.value('doh', _('DoH'));
@@ -332,6 +330,7 @@ return view.extend({
 		crossSection(o, 'global_dns');
 
 		o = s.taboption('DNS', form.ListValue, 'remote_dns_detour', _('Remote DNS Outbound'));
+		o.description = _('Remote carries TCP DNS through the selected NaiveProxy node. Direct connects from the router without the proxy.');
 		o.value('remote', _('Remote'));
 		o.value('direct', _('Direct'));
 		o.default = 'remote';
@@ -351,8 +350,9 @@ return view.extend({
 		o.description = _('One entry per line: a domain followed by an IPv4 or IPv6 address.');
 		crossSection(o, 'global_dns');
 
-		o = s.taboption('DNS', form.Flag, 'dns_redirect', _('Redirect dnsmasq to ChinaDNS-NG'),
-			_('Force special DNS server to need proxy devices.'));
+		o = s.taboption('DNS', form.Flag, 'dns_redirect', _('DNS Redirect'),
+			_('Forward dnsmasq to ChinaDNS-NG and redirect LAN client TCP/UDP port 53 queries to the router, including clients with a hardcoded DNS server.'));
+		o.default = '1';
 		o.rmempty = false;
 
 		o = s.taboption('DNS', form.Button, '_clear_nftset', _('Clear NFTSET'),
@@ -474,6 +474,13 @@ return view.extend({
 			badgeRow
 		]);
 		return m.render().then(function (mapNode) {
+			mapNode.querySelectorAll('tr[data-section-id]').forEach(function (row) {
+				var sid = row.getAttribute('data-section-id');
+				if (uci.get('bypass', sid, 'is_default') === '1' && row.firstElementChild) {
+					row.firstElementChild.style.color = 'red';
+					row.firstElementChild.style.fontWeight = 'bold';
+				}
+			});
 			container.appendChild(mapNode);
 			return container;
 		});

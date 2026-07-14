@@ -17,6 +17,12 @@ function validatePortList(_sid, value) {
 	return true;
 }
 
+function validateTime(_sid, value) {
+	var match = /^(\d{1,2}):(\d{2})$/.exec(value || '');
+	return match && +match[1] <= 23 && +match[2] <= 59
+		? true : _('Enter a valid time in HH:MM format.');
+}
+
 // Other Settings — mirrors passwall2's client/other.lua, minus the Xray /
 // Sing-box core sections (bypass has neither). Two sections:
 //   • Delay Settings (global_delay): start_delay, scheduled
@@ -36,6 +42,10 @@ return view.extend({
 		/* ===== Delay Settings ===== */
 		var sDelay = m.section(form.TypedSection, 'global_delay', _('Delay Settings'));
 		sDelay.anonymous = true;
+
+		o = sDelay.option(form.Flag, 'start_daemon', _('Open and close Daemon'));
+		o.default = '1';
+		o.rmempty = false;
 
 		o = sDelay.option(form.Value, 'start_delay', _('Delay Start'), _('Units: seconds.'));
 		o.datatype = 'uinteger';
@@ -67,6 +77,7 @@ return view.extend({
 				else o.value(t + ':00');
 			}
 			o.default = '0:00';
+			o.validate = validateTime;
 			o.depends(verb + '_week_mode', '0');
 			o.depends(verb + '_week_mode', '1');
 			o.depends(verb + '_week_mode', '2');
@@ -92,12 +103,6 @@ return view.extend({
 		o.value('disable', _('No patterns are used'));
 		o.value('1:65535', _('All'));
 
-		o = sFwd.option(form.Value, 'udp_no_redir_ports', _('UDP No Redir Ports'),
-			_('Fill in the ports you don\'t want to be forwarded by the agent, with the highest priority.'));
-		o.value('disable', _('No patterns are used'));
-		o.validate = validatePortList;
-		o.value('1:65535', _('All'));
-
 		o = sFwd.option(form.Value, 'tcp_redir_ports', _('TCP Redir Ports'));
 		o.validate = validatePortList;
 		o.default = '1:65535';
@@ -105,10 +110,10 @@ return view.extend({
 		o.value('22,25,53,80,143,443,465,587,853,873,993,995,5222,8080,8443,9418', _('Common Use'));
 		o.value('80,443', _('Only Web'));
 
-		o = sFwd.option(form.Value, 'udp_redir_ports', _('UDP Redir Ports'));
-		o.validate = validatePortList;
-		o.value('1:65535', _('All'));
-		o.description = _('NaiveProxy does not support SOCKS5 UDP ASSOCIATE. UDP traffic remains direct in this Naive-only project.');
+		o = sFwd.option(form.DummyValue, '_udp_notice', _('UDP forwarding'));
+		o.cfgvalue = function () {
+			return _('NaiveProxy does not support SOCKS5 UDP ASSOCIATE. UDP traffic remains direct in this Naive-only project.');
+		};
 
 		o = sFwd.option(form.DummyValue, '_port_tips', ' ');
 		o.rawhtml = true;

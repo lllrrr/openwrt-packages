@@ -26,6 +26,18 @@ unset_lock() {
 	flock -u 999 2>/dev/null
 }
 
+update_ready_file() {
+	local rc=$1 redir_port
+	redir_port=$(get_cache_var ACL_GLOBAL_redir_port)
+	if [ "$rc" = "0" ] && [ "$(uci -q get ${CONFIG}.@global[0].enabled)" = "1" ] && \
+	   process_alive bypasscore && [ -n "$redir_port" ] && \
+	   [ "$(check_port_exists "$redir_port" tcp)" -gt 0 ] 2>/dev/null; then
+		touch "$READY_FILE"
+	else
+		rm -f "$READY_FILE"
+	fi
+}
+
 boot_func() {
 	local delay
 	delay=$(uci -q get ${CONFIG}.@global_delay[0].start_delay 2>/dev/null || echo 60)
@@ -44,7 +56,7 @@ start() {
 	set_lock || { log 0 "The service script is already running; skip duplicate start."; return 0; }
 	$APP_FILE start
 	local rc=$?
-	if [ "$rc" = "0" ]; then touch "$READY_FILE"; else rm -f "$READY_FILE"; fi
+	update_ready_file "$rc"
 	unset_lock
 	return $rc
 }
@@ -61,7 +73,7 @@ restart() {
 	$APP_FILE stop
 	$APP_FILE start $1
 	local rc=$?
-	if [ "$rc" = "0" ]; then touch "$READY_FILE"; else rm -f "$READY_FILE"; fi
+	update_ready_file "$rc"
 	unset_lock
 	return $rc
 }
@@ -69,4 +81,11 @@ restart() {
 reload() {
 	echo "Warning: this service does not support live reload; full restart instead."
 	restart
+}
+
+status() {
+	local redir_port
+	redir_port=$(get_cache_var ACL_GLOBAL_redir_port)
+	[ -f "$READY_FILE" ] && process_alive bypasscore && [ -n "$redir_port" ] && \
+		[ "$(check_port_exists "$redir_port" tcp)" -gt 0 ] 2>/dev/null
 }

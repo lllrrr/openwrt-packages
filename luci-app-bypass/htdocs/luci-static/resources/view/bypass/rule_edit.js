@@ -31,6 +31,8 @@ function validateSourceMatch(_sid, value) {
 		if (/^geoip:[A-Za-z0-9_-]+$/.test(item)) continue;
 		var cidr = item.split('/');
 		if (cidr.length > 2) return _('Enter an IPv4/IPv6 address, CIDR, or geoip: rule.');
+		if (cidr.length === 2 && !/^\d+$/.test(cidr[1]))
+			return _('Enter an IPv4/IPv6 address, CIDR, or geoip: rule.');
 		if (cidr[0].indexOf(':') >= 0) {
 			if (!/^[0-9A-Fa-f:.]+$/.test(cidr[0]) || (cidr[1] && (+cidr[1] < 0 || +cidr[1] > 128)))
 				return _('Enter an IPv4/IPv6 address, CIDR, or geoip: rule.');
@@ -106,17 +108,20 @@ return view.extend({
 		o.placeholder = 'geoip:cn\ngeoip:private\n10.0.0.0/8';
 		o.description = _('One rule per line. geoip:, ext:, or a bare CIDR / IP.');
 
-		return m.render().then(function (node) {
-			return E('div', {}, [
-				node,
-				E('div', { class: 'cbi-page-actions' }, [
-					E('button', {
-						type: 'button',
-						class: 'cbi-button cbi-button-neutral',
-						click: function () { window.location.assign(L.url('admin/services/bypass/rule_manage')); }
-					}, _('Back'))
-				])
-			]);
-		});
+		return m.render();
+	},
+
+	addFooter: function () {
+		var footer = this.super('addFooter', []);
+		var actions = footer.querySelector('.cbi-page-actions');
+		if (actions) {
+			actions.insertBefore(E('button', {
+				type: 'button',
+				class: 'cbi-button cbi-button-neutral',
+				click: function () { window.location.assign(L.url('admin/services/bypass/rule_manage')); }
+			}, _('Back')), actions.firstChild);
+			actions.insertBefore(document.createTextNode(' '), actions.childNodes[1] || null);
+		}
+		return footer;
 	}
 });

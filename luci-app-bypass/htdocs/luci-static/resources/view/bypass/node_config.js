@@ -72,17 +72,20 @@ return view.extend({
 		o = s.option(form.Value, 'password', _('Password'));
 		o.password = true;
 
-		return m.render().then(function (node) {
-			return E('div', {}, [
-				node,
-				E('div', { class: 'cbi-page-actions' }, [
-					E('button', {
-						type: 'button',
-						class: 'cbi-button cbi-button-neutral',
-						click: function () { window.location.assign(L.url('admin/services/bypass/node_list')); }
-					}, _('Back'))
-				])
-			]);
-		});
+		return m.render();
+	},
+
+	addFooter: function () {
+		var footer = this.super('addFooter', []);
+		var actions = footer.querySelector('.cbi-page-actions');
+		if (actions) {
+			actions.insertBefore(E('button', {
+				type: 'button',
+				class: 'cbi-button cbi-button-neutral',
+				click: function () { window.location.assign(L.url('admin/services/bypass/node_list')); }
+			}, _('Back')), actions.firstChild);
+			actions.insertBefore(document.createTextNode(' '), actions.childNodes[1] || null);
+		}
+		return footer;
 	}
 });

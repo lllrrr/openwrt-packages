@@ -101,7 +101,10 @@ return view.extend({
 			var sid = uci.add('bypass', 'shunt_rules', name);
 			uci.set('bypass', sid, 'remarks', name);
 			uci.set('bypass', sid, 'network', 'tcp,udp');
-			uci.set('bypass', sid, 'outbound', '_direct');
+			// A newly created rule has no match criteria yet. Keep it closed until
+			// the user assigns an outbound in Basic Settings, otherwise the empty
+			// rule becomes an accidental catch-all during this intermediate apply.
+			uci.set('bypass', sid, 'outbound', '');
 			return uci.save().then(function () {
 				return uci.apply();
 			}).then(function () {
@@ -124,11 +127,9 @@ return view.extend({
 		o.cfgvalue = function (sid) {
 			var outbound = uci.get('bypass', sid, 'outbound') || '—';
 			var network = uci.get('bypass', sid, 'network') || '';
-			var egress = uci.get('bypass', sid, 'egress_interface') || '';
 			var map = { _direct: _('Direct'), _blackhole: _('Block'), _block: _('Block') };
 			var label = map[outbound] || outbound;
 			if (network) label += ' · ' + network.toUpperCase();
-			if (egress) label += ' · ' + _('Egress') + ': ' + egress;
 			return label;
 		};
 

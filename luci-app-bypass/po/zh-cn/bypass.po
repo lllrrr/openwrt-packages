@@ -278,6 +278,10 @@ msgstr "端口必须介于 1 到 65535，且范围的起始端口不能大于结
 msgid "Delay Settings"
 msgstr "定时配置"
 
+#: htdocs/luci-static/resources/view/bypass/other_settings.js:41
+msgid "Open and close Daemon"
+msgstr "启动守护进程"
+
 #: htdocs/luci-static/resources/view/bypass/other_settings.js:40
 msgid "Delay Start"
 msgstr "开机时延时启动"
@@ -318,16 +322,6 @@ msgstr "不使用"
 msgid "All"
 msgstr "所有"
 
-#: htdocs/luci-static/resources/view/bypass/other_settings.js:95
-msgid "UDP No Redir Ports"
-msgstr "UDP不转发端口"
-
-#: htdocs/luci-static/resources/view/bypass/other_settings.js:96
-msgid ""
-"Fill in the ports you don't want to be forwarded by the agent, with the "
-"highest priority."
-msgstr "填写你不希望被代理转发的端口，优先级最高。"
-
 #: htdocs/luci-static/resources/view/bypass/other_settings.js:101
 msgid "TCP Redir Ports"
 msgstr "TCP转发端口"
@@ -340,9 +334,9 @@ msgstr "常用的"
 msgid "Only Web"
 msgstr "仅网页"
 
-#: htdocs/luci-static/resources/view/bypass/other_settings.js:107
-msgid "UDP Redir Ports"
-msgstr "UDP转发端口"
+#: htdocs/luci-static/resources/view/bypass/other_settings.js:113
+msgid "UDP forwarding"
+msgstr "UDP 转发"
 
 #: htdocs/luci-static/resources/view/bypass/other_settings.js:110
 msgid ""
@@ -559,10 +553,11 @@ msgstr "dns2socks 二进制"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:222
 msgid ""
-"Optional bridge that carries the remote DNS server through the selected "
-"NaiveProxy SOCKS tunnel."
+"Required when Remote DNS Outbound is Remote; carries TCP DNS through the "
+"selected NaiveProxy SOCKS tunnel."
 msgstr ""
-"可选桥接程序，用于让国外 DNS 服务器通过所选 NaiveProxy SOCKS 隧道访问。"
+"国外 DNS 出站选择“远程”时必须提供；用于通过所选 NaiveProxy SOCKS 隧道承载 "
+"TCP DNS。"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:225
 msgid "Egress route table"
@@ -614,13 +609,12 @@ msgstr ""
 msgid "Domain matcher"
 msgstr "域名匹配器"
 
+msgid "BypassCore 1.0.5 uses its optimized Linux domain matcher. Hybrid is the only compatible value; Xray's linear matcher does not exist in BypassCore."
+msgstr "BypassCore 1.0.5 使用其针对 Linux 优化的域名匹配器。Hybrid 是唯一兼容值；BypassCore 中不存在 Xray 的 linear 匹配器。"
+
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:251
 msgid "hybrid"
 msgstr "混合"
-
-#: htdocs/luci-static/resources/view/bypass/basic_settings.js:252
-msgid "linear"
-msgstr "线性"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:256
 msgid "Direct DNS result write to IPSet"
@@ -696,10 +690,6 @@ msgstr "（使用默认直连接口）"
 msgid "system default"
 msgstr "系统默认"
 
-#: htdocs/luci-static/resources/view/bypass/basic_settings.js:309
-msgid "Only applies to Direct Connection."
-msgstr "仅适用于直连。"
-
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:312
 msgid "Direct domain DNS routing"
 msgstr "直连域名 DNS 分流"
@@ -707,13 +697,13 @@ msgstr "直连域名 DNS 分流"
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:316
 msgid ""
 "One entry per line: a domain/full/geosite rule followed by a UDP, TCP or TLS "
-"direct DNS upstream. ChinaDNS-NG supports at most five entries here because "
-"one custom group is reserved for node addresses. Invalid entries prevent the "
-"service from starting."
+"direct DNS upstream. ChinaDNS-NG permits up to five entries, or four while "
+"Direct shunt NFTSet acceleration is active, because node and Direct groups "
+"use the remaining slots. Invalid entries prevent the service from starting."
 msgstr ""
-"每行一项：domain/full/geosite 规则，后跟 UDP、TCP 或 TLS 直连 DNS 上游。由于"
-"一个自定义组会保留给节点地址，ChinaDNS-NG 在此最多支持五项；格式错误会阻止服"
-"务启动。"
+"每行一项：domain/full/geosite 规则，后跟 UDP、TCP 或 TLS 直连 DNS 上游。"
+"ChinaDNS-NG 最多允许五项；启用直连分流 NFTSet 加速时最多四项，因为节点组和直"
+"连组会占用其余名额。格式错误会阻止服务启动。"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:319
 msgid "Direct Query Strategy"
@@ -725,14 +715,13 @@ msgstr "国外 DNS 协议"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:327
 msgid ""
-"UDP and TCP can use Remote or Direct outbound. TLS requires Direct outbound "
-"and a TLS-enabled ChinaDNS-NG build. DoH is retained for configuration "
-"parity but is not supported by the current DNS data path; selecting it makes "
-"startup fail closed."
+"The NaiveProxy Remote outbound uses dns2socks and therefore requires TCP. UDP "
+"and TLS require Direct outbound. DoH requires Direct outbound and DNS "
+"Redirect disabled because ChinaDNS-NG has no DoH upstream mode."
 msgstr ""
-"UDP 和 TCP 可使用远程或直连出站。TLS 要求使用直连出站以及启用 TLS 的 "
-"ChinaDNS-NG 构建。保留 DoH 选项是为了配置样式对齐，但当前 DNS 数据路径不支持"
-"它；选择后服务会失败关闭。"
+"NaiveProxy 远程出站使用 dns2socks，因此要求 TCP。UDP 和 TLS 必须使用直连出"
+"站。DoH 必须使用直连出站并关闭 DNS 重定向，因为 ChinaDNS-NG 没有 DoH 上游模"
+"式。"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:328
 msgid "UDP"
@@ -774,6 +763,11 @@ msgstr ""
 msgid "Remote DNS Outbound"
 msgstr "国外 DNS 出站"
 
+msgid ""
+"Remote carries TCP DNS through the selected NaiveProxy node. Direct connects "
+"from the router without the proxy."
+msgstr "远程会通过所选 NaiveProxy 节点承载 TCP DNS；直连则由路由器直接连接而不经过代理。"
+
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:359
 msgid "Remote"
 msgstr "远程"
@@ -791,12 +785,16 @@ msgid "One entry per line: a domain followed by an IPv4 or IPv6 address."
 msgstr "每行一项：域名后跟 IPv4 或 IPv6 地址。"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:378
-msgid "Redirect dnsmasq to ChinaDNS-NG"
-msgstr "将 dnsmasq 重定向到 ChinaDNS-NG"
+msgid "DNS Redirect"
+msgstr "DNS 重定向"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:379
-msgid "Force special DNS server to need proxy devices."
-msgstr "强制需要代理的设备使用专用 DNS 服务器。"
+msgid ""
+"Forward dnsmasq to ChinaDNS-NG and redirect LAN client TCP/UDP port 53 queries "
+"to the router, including clients with a hardcoded DNS server."
+msgstr ""
+"将 dnsmasq 转发到 ChinaDNS-NG，并把 LAN 客户端的 TCP/UDP 53 端口查询重定向到"
+"路由器，包括硬编码了 DNS 服务器的客户端。"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:382
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:384
