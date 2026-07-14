@@ -500,7 +500,12 @@ get_geoip() {
 		esac
 		"$bin" -input "$geoip_path" -list "$geoip_code" $flag -lowmem=true -output "$output_path" 2>/dev/null
 	}
-	[ -s "${output_path}" ] && cat "${output_path}"
+	# Ensure every record ends with a newline. geoview may omit the final
+	# newline; a bare cat would then fuse its last CIDR with the next line a
+	# caller appends, producing invalid entries such as "223.255.252.0/230.0.0.0/8"
+	# (223.255.252.0/23 + 0.0.0.0/8). awk re-emits each line with a guaranteed
+	# trailing newline so the batch importer always sees one CIDR per record.
+	[ -s "${output_path}" ] && awk '{print}' "${output_path}"
 }
 
 # BypassCore is normally a native Linux executable, while some packages use an

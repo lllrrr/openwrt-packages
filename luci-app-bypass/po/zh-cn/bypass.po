@@ -334,17 +334,7 @@ msgstr "常用的"
 msgid "Only Web"
 msgstr "仅网页"
 
-#: htdocs/luci-static/resources/view/bypass/other_settings.js:113
-msgid "UDP forwarding"
-msgstr "UDP 转发"
 
-#: htdocs/luci-static/resources/view/bypass/other_settings.js:110
-msgid ""
-"NaiveProxy does not support SOCKS5 UDP ASSOCIATE. UDP traffic remains direct "
-"in this Naive-only project."
-msgstr ""
-"NaiveProxy 不支持 SOCKS5 UDP ASSOCIATE；本项目仅支持 Naive，因此 UDP 流量保持"
-"直连。"
 
 #: htdocs/luci-static/resources/view/bypass/other_settings.js:116
 msgid "The port settings support single ports and ranges."
@@ -1153,6 +1143,14 @@ msgstr "返回"
 #~ "Bind traffic matching this Direct rule to the selected OpenWrt network. "
 #~ "This overrides the default direct interface."
 #~ msgstr "将匹配此直连规则的流量绑定到所选 OpenWrt 网络，并覆盖默认直连接口。"
+
+#: htdocs/luci-static/resources/view/bypass/basic_settings.js:307
+msgid ""
+"Bind traffic matching this Direct rule to the selected OpenWrt network. "
+"Empty = use Default Direct Interface."
+msgstr ""
+"将匹配此直连规则的流量绑定到所选 OpenWrt 网络；留空则使用全局 Default Direct "
+"Interface。"
 
 #~ msgid "BypassCore domestic DNS"
 #~ msgstr "BypassCore 国内 DNS"

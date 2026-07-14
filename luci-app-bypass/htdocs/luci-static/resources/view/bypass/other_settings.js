@@ -110,11 +110,6 @@ return view.extend({
 		o.value('22,25,53,80,143,443,465,587,853,873,993,995,5222,8080,8443,9418', _('Common Use'));
 		o.value('80,443', _('Only Web'));
 
-		o = sFwd.option(form.DummyValue, '_udp_notice', _('UDP forwarding'));
-		o.cfgvalue = function () {
-			return _('NaiveProxy does not support SOCKS5 UDP ASSOCIATE. UDP traffic remains direct in this Naive-only project.');
-		};
-
 		o = sFwd.option(form.DummyValue, '_port_tips', ' ');
 		o.rawhtml = true;
 		o.cfgvalue = function () {
@@ -135,12 +130,12 @@ return view.extend({
 		o.default = '0';
 		o.rmempty = false;
 
-		o = sFwd.option(form.Flag, 'force_proxy_lan_ip', _('Force Proxy LAN IP'),
-			_('When enabled, traffic whose destination is another LAN address is also sent to the transparent proxy instead of being excluded as local traffic.'));
+		o = sFwd.option(form.Flag, 'accept_icmp', _('Hijacking ICMP (PING)'));
 		o.default = '0';
 		o.rmempty = false;
 
-		o = sFwd.option(form.Flag, 'accept_icmp', _('Hijacking ICMP (PING)'));
+		o = sFwd.option(form.Flag, 'force_proxy_lan_ip', _('Force Proxy LAN IP'),
+			_('When enabled, traffic whose destination is another LAN address is also sent to the transparent proxy instead of being excluded as local traffic.'));
 		o.default = '0';
 		o.rmempty = false;
 

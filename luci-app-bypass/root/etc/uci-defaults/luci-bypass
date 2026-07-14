@@ -112,12 +112,7 @@ uci -q delete bypass.@global_forwarding[0].udp_redir_ports
 uci -q get bypass.@global_delay[0].start_daemon >/dev/null 2>&1 || \
 	uci -q set bypass.@global_delay[0].start_daemon='1'
 
-# Per-rule Direct egress was removed from the editor in favour of the single
-# Default Direct Interface setting. Drop hidden legacy values so they cannot
-# keep changing runtime behaviour after the visible option has disappeared.
-for sid in $(uci -q show bypass 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
-	uci -q delete "bypass.${sid}.egress_interface"
-done
+
 
 # v1.3.10 aligns the historical UI defaults with Passwall2. Apply this once so
 # a later user choice of UDP / Common Use / 2 hours is not rewritten again by

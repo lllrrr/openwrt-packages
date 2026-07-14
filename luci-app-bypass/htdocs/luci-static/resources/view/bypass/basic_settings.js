@@ -282,6 +282,12 @@ return view.extend({
 			o.value(node['.name'], label + ' [' + egress + ']');
 		});
 
+		o = rs.option(form.ListValue, 'egress_interface', _('Egress Interface'));
+		o.value('', _('(use default direct interface)'));
+		ifaces.forEach(function (i) { o.value(i, i); });
+		o.depends('outbound', '_direct');
+		o.description = _('Bind traffic matching this Direct rule to the selected OpenWrt network. Empty = use Default Direct Interface.');
+
 		/* ----- DNS tab (options from 'global_dns') ----- */
 		o = s.taboption('DNS', form.TextValue, 'direct_dns_shunt', _('Direct domain DNS routing'));
 		o.rows = 3;

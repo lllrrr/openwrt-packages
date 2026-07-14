@@ -25,10 +25,17 @@ node_egress_ifaces=$(
 		uci -q get bypass.${node}.egress_interface
 	done | awk 'NF && !seen[$0]++'
 )
+rule_direct_ifaces=$(
+	for sid in $(uci -q show bypass 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+		[ "$(uci -q get bypass.${sid}.outbound)" = "_direct" ] || continue
+		uci -q get bypass.${sid}.egress_interface
+	done | awk 'NF && !seen[$0]++'
+)
 is_managed_iface() {
 	[ -n "$INTERFACE" ] || return 1
 	[ "$INTERFACE" = "$direct_iface" ] && return 0
 	case " $node_egress_ifaces " in *" $INTERFACE "*) return 0 ;; esac
+	case " $rule_direct_ifaces " in *" $INTERFACE "*) return 0 ;; esac
 	return 1
 }
 

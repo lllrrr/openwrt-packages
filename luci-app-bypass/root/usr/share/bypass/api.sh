@@ -257,14 +257,32 @@ $(ubus call network.interface dump 2>/dev/null | jsonfilter -e '@.interface[*].i
 }
 
 # connect_status <type> <url> -> { ping_type:"curl", use_time:N } | { status:0 }
-# Mirrors passwall2's connect_status: curl a URL and report the round-trip in
-# ms. Used by the Basic Settings status cards (Baidu/Google/GitHub latency).
+# Router OUTPUT traffic is intentionally not transparently redirected. Test
+# foreign sites through the Default Naive node's SOCKS listener so these cards
+# report proxy reachability rather than the router's direct-WAN reachability.
 do_connect_status() {
 	local type=$1 url=$2
-	local out code use_time
-	# curl -w time_total prints the total time in seconds (e.g. 0.234).
-	out=$(curl -s -o /dev/null -w '%{time_total}' --connect-timeout 3 --max-time 5 "$url" 2>/dev/null)
-	code=$?
+	local out code use_time node socks_port
+	case "$type" in baidu|google|github) ;; *) type="" ;; esac
+	[ -n "$type" ] && [ -n "$url" ] || { json_init; json_add_int status 0; emit; return; }
+	get_config
+	if [ "$type" = "baidu" ]; then
+		out=$(curl -s -o /dev/null -w '%{time_total}' --connect-timeout 3 --max-time 8 "$url" 2>/dev/null)
+		code=$?
+	else
+		prepare_selected_nodes
+		node=$(default_proxy_node)
+		socks_port=$(node_socks_port "$node")
+		if [ -z "$node" ] || [ -z "$socks_port" ] || \
+		   [ "$(check_port_exists "$socks_port" tcp)" -le 0 ] 2>/dev/null; then
+			code=1
+			out=""
+		else
+			out=$(curl -s -o /dev/null -w '%{time_total}' --socks5-hostname "127.0.0.1:${socks_port}" \
+				--connect-timeout 5 --max-time 12 "$url" 2>/dev/null)
+			code=$?
+		fi
+	fi
 	use_time=$(echo "$out" | awk '{printf "%d", $1*1000}')
 	json_init
 	if [ "$code" = "0" ] && [ -n "$use_time" ]; then

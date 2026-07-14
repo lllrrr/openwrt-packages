@@ -615,6 +615,26 @@ gen_bypasscore_config() {
 				json_close_object
 			json_close_object
 		done < "$TMP_PATH/selected_nodes"
+		# A Direct shunt rule may override the global Direct interface. The bind
+		# belongs to an outbound, so every override needs a dedicated freedom tag.
+		local _sid _outbound _egress
+		for _sid in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+			_outbound=$(config_n_get "$_sid" outbound _direct)
+			_egress=$(config_n_get "$_sid" egress_interface)
+			[ "$_outbound" = "_direct" ] && [ -n "$_egress" ] || continue
+			json_add_object ''
+				json_add_string tag "direct_${_sid}"
+				json_add_string mode freedom
+				if get_egress_runtime "$_egress"; then
+					json_add_object bind
+						json_add_string interface "$EGRESS_DEVICE"
+					json_close_object
+				else
+					log 0 "Direct rule [%s] egress interface [%s] is down or has no L3 device." "$_sid" "$_egress"
+					BYPASSCORE_CONFIG_ERROR=1
+				fi
+			json_close_object
+		done
 	json_close_array
 
 	# DNS mirrors Passwall2's direct/remote model. Direct-domain overrides and
@@ -768,12 +788,17 @@ gen_bypasscore_config() {
 					json_close_array
 				json_close_object
 			fi
-			local sid tag domains ips net outbound default_sid default_outbound protocols inbound sources ports
+			local sid tag domains ips net outbound egress default_sid default_outbound protocols inbound sources ports
 			for sid in $(uci -q show "${CONFIG}" 2>/dev/null | grep "=shunt_rules" | cut -d '.' -f2 | cut -d '=' -f1); do
 				[ "$(config_n_get "$sid" is_default 0)" = "1" ] && { default_sid=$sid; continue; }
 				outbound=$(config_n_get "$sid" outbound _direct)
 				[ -n "$outbound" ] || continue
-				tag=$(map_outbound_tag "$outbound")
+				egress=$(config_n_get "$sid" egress_interface)
+				if [ "$outbound" = "_direct" ] && [ -n "$egress" ]; then
+					tag="direct_${sid}"
+				else
+					tag=$(map_outbound_tag "$outbound")
+				fi
 				[ -n "$tag" ] || {
 					log 0 "Shunt rule [%s] references an invalid outbound [%s]." "$sid" "$outbound"
 					BYPASSCORE_CONFIG_ERROR=1
@@ -824,18 +849,24 @@ gen_bypasscore_config() {
 					[ -n "$ports" ] && json_add_string port "$ports"
 				json_close_object
 			done
-			# The reserved Default row is always emitted last as the catch-all.
+			# The reserved Default row is emitted last as the catch-all.
 			tag="direct"
-			default_outbound=""
+			egress=""
+			default_outbound="_direct"
 			if [ -n "$default_sid" ]; then
 				default_outbound=$(config_n_get "$default_sid" outbound _direct)
-				if [ -n "$default_outbound" ]; then
+				egress=$(config_n_get "$default_sid" egress_interface)
+				if [ "$default_outbound" = "_direct" ] && [ -n "$egress" ]; then
+					tag="direct_${default_sid}"
+				elif [ -n "$default_outbound" ]; then
 					tag=$(map_outbound_tag "$default_outbound")
 					[ -n "$tag" ] || {
 						log 0 "Default shunt rule references an invalid outbound [%s]." "$default_outbound"
 						BYPASSCORE_CONFIG_ERROR=1
 						tag=block
 					}
+				else
+					tag="direct"
 				fi
 			fi
 			json_add_object ''

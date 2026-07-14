@@ -63,6 +63,36 @@ nft_apply() {
 	$NFT -f "$tmp" 2>>"$LOG_FILE"
 }
 
+# Import a potentially large CIDR list with one nft process instead of spawning
+# one process per element. Commands are split into moderate-sized batches while
+# nft still applies the file as one transaction.
+nft_import_elements() {
+	local set_name input unique batch
+	set_name=$1
+	input=$2
+	unique="${input}.unique"
+	batch="${input}.nft"
+	[ -s "$input" ] || return 0
+	sort -u "$input" > "$unique" || return 1
+	awk -v table="$NFT_TABLE" -v set_name="$set_name" '
+		NF {
+			gsub(/\r/, "")
+			# BusyBox awk commonly limits one output record to about 4 KiB. Keep
+			# each nft command comfortably below that limit, including IPv6 CIDRs.
+			if (count % 32 == 0) {
+				if (count > 0) print " }"
+				printf "add element inet %s %s { ", table, set_name
+			} else {
+				printf ", "
+			}
+			printf "%s", $0
+			count++
+		}
+		END { if (count > 0) print " }" }
+	' "$unique" > "$batch" || return 1
+	$NFT -f "$batch" 2>>"$LOG_FILE"
+}
+
 nft_start() {
 	load_standalone_config || { log 0 "Bypass is disabled or has no active redirect port; skip firewall rules."; return 0; }
 	[ -z "$NFT" ] && { log 0 "nft not found; cannot install nftables rules."; return 1; }
@@ -125,11 +155,13 @@ table inet ${NFT_TABLE} {
 		type ipv4_addr
 		size 65536
 		flags interval
+		auto-merge
 	}
 	set bypass_direct_dns6 {
 		type ipv6_addr
 		size 65536
 		flags interval
+		auto-merge
 	}
 	set bypass_vps {
 		type ipv4_addr
@@ -155,8 +187,15 @@ EOF
 		lan6_accept="ip6 daddr @bypass_lan6 accept"
 	fi
 	local direct_dns_accept="" direct_dns6_accept=""
-	local direct_bind_configured=0
+	local direct_bind_configured=0 direct_sid
 	[ -n "$(config_t_get global_rules direct_egress_interface)" ] && direct_bind_configured=1
+	for direct_sid in $(uci -q show "$CONFIG" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+		[ "$(config_n_get "$direct_sid" outbound)" = "_direct" ] && \
+			[ -n "$(config_n_get "$direct_sid" egress_interface)" ] && {
+				direct_bind_configured=1
+				break
+			}
+	done
 	if { [ "$WRITE_IPSET_DIRECT" = "1" ] || [ "$ENABLE_GEOVIEW_IP" = "1" ]; } && [ "$direct_bind_configured" = "0" ]; then
 		direct_dns_accept="ip daddr @bypass_direct_dns accept"
 		direct_dns6_accept="ip6 daddr @bypass_direct_dns6 accept"
@@ -303,8 +342,15 @@ EOF
 
 	# Passwall2-style GeoIP preloading for Direct rules. Populate the same
 	# interval sets used by direct DNS results so matching IPs bypass the core.
+	# GeoIP lists can contain thousands of CIDRs, so aggregate them and invoke
+	# nft once per address family instead of once per CIDR.
 	if [ "$ENABLE_GEOVIEW_IP" = "1" ]; then
-		local sid ip_rule code cidr
+		local sid ip_rule code geo4_file geo6_file geo4_count geo6_count
+		geo4_file="$TMP_PATH2/direct-geoip4"
+		geo6_file="$TMP_PATH2/direct-geoip6"
+		: > "$geo4_file"
+		: > "$geo6_file"
+		log 0 "Preloading Direct GeoIP entries into nftables sets..."
 		for sid in $(uci -q show "$CONFIG" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
 			[ "$(config_n_get "$sid" outbound)" = "_direct" ] || continue
 			while IFS= read -r ip_rule; do
@@ -312,16 +358,25 @@ EOF
 				case "$ip_rule" in
 					geoip:*)
 						code=${ip_rule#geoip:}
-						for cidr in $(get_geoip "$code" ipv4); do $NFT add element inet ${NFT_TABLE} bypass_direct_dns "{ $cidr }" 2>/dev/null; done
-						for cidr in $(get_geoip "$code" ipv6); do $NFT add element inet ${NFT_TABLE} bypass_direct_dns6 "{ $cidr }" 2>/dev/null; done
+						get_geoip "$code" ipv4 >> "$geo4_file"
+						get_geoip "$code" ipv6 >> "$geo6_file"
 						;;
-					*:*/*|*:*) $NFT add element inet ${NFT_TABLE} bypass_direct_dns6 "{ $ip_rule }" 2>/dev/null ;;
-					*) $NFT add element inet ${NFT_TABLE} bypass_direct_dns "{ $ip_rule }" 2>/dev/null ;;
+					*:*/*|*:*) printf '%s\n' "$ip_rule" >> "$geo6_file" ;;
+					*) printf '%s\n' "$ip_rule" >> "$geo4_file" ;;
 				esac
 			done <<-EOF
 			$(config_n_get "$sid" ip_list)
 			EOF
 		done
+		geo4_count=$(sort -u "$geo4_file" 2>/dev/null | grep -c .)
+		geo6_count=$(sort -u "$geo6_file" 2>/dev/null | grep -c .)
+		if nft_import_elements bypass_direct_dns "$geo4_file" && nft_import_elements bypass_direct_dns6 "$geo6_file"; then
+			log 0 "Direct GeoIP preload completed: IPv4=%s, IPv6=%s." "$geo4_count" "$geo6_count"
+		else
+			$NFT flush set inet ${NFT_TABLE} bypass_direct_dns 2>/dev/null
+			$NFT flush set inet ${NFT_TABLE} bypass_direct_dns6 2>/dev/null
+			log 0 "Direct GeoIP preload failed; continuing without nftables GeoIP acceleration because BypassCore still enforces the rules."
+		fi
 	fi
 
 	nft_gen_include

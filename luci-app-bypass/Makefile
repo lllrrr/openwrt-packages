@@ -5,7 +5,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-bypass
-PKG_VERSION:=1.4.2
+PKG_VERSION:=1.4.5
 PKG_RELEASE:=1
 PKG_PO_VERSION:=$(PKG_VERSION)
 PKG_LICENSE:=MIT
@@ -67,11 +67,13 @@ endef
 # succeeded. Cache files can be removed safely; rpcd will pick up the new ACL on
 # its next normal reload/restart.
 define Package/$(PKG_NAME)/postinst
-[ -n "$${IPKG_INSTROOT}" ] || { \
-	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.*
-	rm -rf /tmp/luci-modulecache/
-	exit 0
-}
+	[ -n "$${IPKG_INSTROOT}" ] || { \
+		rm -f /tmp/luci-indexcache /tmp/luci-indexcache.*
+		rm -rf /tmp/luci-modulecache/
+		/etc/init.d/bypass enable >/dev/null 2>&1
+		[ ! -x /etc/init.d/ucitrack ] || /etc/init.d/ucitrack restart >/dev/null 2>&1
+		exit 0
+	}
 endef
 
 include $(TOPDIR)/feeds/luci/luci.mk
