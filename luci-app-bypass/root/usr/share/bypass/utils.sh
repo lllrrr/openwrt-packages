@@ -400,6 +400,21 @@ get_geoip() {
 	[ -s "${output_path}" ] && cat "${output_path}"
 }
 
+# BypassCore is normally a native Linux executable. Some OpenWrt packages use
+# an executable launcher at /usr/bin/bypasscore, however, so accept that form
+# only when its --version output identifies BypassCore. This avoids rejecting a
+# working installation while still refusing arbitrary executable files.
+is_linux_elf() {
+	local path=$1 target magic
+	[ -e "$path" ] && [ -x "$path" ] || return 1
+	target=$(readlink -f "$path" 2>/dev/null)
+	[ -n "$target" ] || target=$path
+	[ -f "$target" ] || return 1
+	magic=$(od -An -tx1 -N4 "$target" 2>/dev/null | tr -d ' \n')
+	[ "$magic" = "7f454c46" ] && return 0
+	"$path" --version 2>/dev/null | grep -q '^BypassCore[[:space:]]'
+}
+
 # ------------------------------------------------------------------------------
 # Egress-interface routing helpers (destination-policy-rule strategy).
 #
@@ -433,24 +448,26 @@ get_egress_runtime() {
 	[ -n "$EGRESS_DEVICE" ]
 }
 
-# setup_egress_routing <logical_iface> <table> <rule_priority>
+# setup_egress_routing <logical_iface> <table> <rule_priority> <ipv4_file> <ipv6_file> [label]
 #
-# Only the selected Naive server destinations are sent to the dedicated table.
-# Destination rules avoid overwriting packet marks owned by mwan3/PBR and are a
-# better fit than reimplementing mwan3 for this one narrowly scoped tunnel.
+# Only one Naive node's server destinations are sent to this dedicated table.
+# The caller assigns a different table to each selected node, allowing nodes to
+# use different WANs without overwriting packet marks owned by mwan3/PBR.
 setup_egress_routing() {
 	local iface=$1 table=$2 priority=$3
+	local ipv4_file=${4:-$TMP_PATH/uplink_ips}
+	local ipv6_file=${5:-$TMP_PATH/uplink_ips6}
+	local label=${6:-Naive}
 	[ -z "$iface" ] && return 0
 	get_egress_runtime "$iface" || {
-		log 0 "Configured egress interface [%s] is down or has no L3 device." "$iface"
+		log 0 "%s egress interface [%s] is down or has no L3 device." "$label" "$iface"
 		return 1
 	}
-	[ -s "$TMP_PATH/uplink_ips" ] || [ -s "$TMP_PATH/uplink_ips6" ] || {
-		log 0 "No address resolved for the selected Naive server; cannot apply egress interface [%s]." "$iface"
+	[ -s "$ipv4_file" ] || [ -s "$ipv6_file" ] || {
+		log 0 "No server address resolved for %s; cannot apply egress interface [%s]." "$label" "$iface"
 		return 1
 	}
 
-	teardown_egress_routing
 	local existing_default existing_default6
 	existing_default=$(ip -o route show table "$table" default 2>/dev/null)
 	existing_default6=$(ip -6 -o route show table "$table" default 2>/dev/null)
@@ -459,14 +476,11 @@ setup_egress_routing() {
 		log 0 "Egress route table [%s] already has a foreign default route; choose another table." "$table"
 		return 1
 	fi
-	# Cache ownership before mutating the selected table so every subsequent
-	# failure path can use the common teardown routine without leaking a route.
-	set_cache_var EGRESS_IFACE "$iface"
-	set_cache_var EGRESS_TABLE "$table"
-	set_cache_var EGRESS_RULE_PRIORITY "$priority"
-	: > "$TMP_PATH/egress_rule_ips"
-	: > "$TMP_PATH/egress_rule_ips6"
-	if [ -s "$TMP_PATH/uplink_ips" ]; then
+	# Record ownership before mutating the table so every failure path can use
+	# the common teardown routine without leaking routes or policy rules.
+	touch "$TMP_PATH/egress_tables" "$TMP_PATH/egress_rules"
+	printf '%s %s\n' "$table" "$iface" >> "$TMP_PATH/egress_tables"
+	if [ -s "$ipv4_file" ]; then
 		if [ -n "$EGRESS_GATEWAY" ]; then
 			ip route replace default via "$EGRESS_GATEWAY" dev "$EGRESS_DEVICE" onlink proto 99 table "$table" 2>/dev/null \
 				|| ip route replace default via "$EGRESS_GATEWAY" dev "$EGRESS_DEVICE" proto 99 table "$table" 2>/dev/null \
@@ -476,7 +490,7 @@ setup_egress_routing() {
 				|| { teardown_egress_routing; return 1; }
 		fi
 	fi
-	if [ -s "$TMP_PATH/uplink_ips6" ]; then
+	if [ -s "$ipv6_file" ]; then
 		if [ -n "$EGRESS_GATEWAY6" ]; then
 			ip -6 route replace default via "$EGRESS_GATEWAY6" dev "$EGRESS_DEVICE" onlink proto 99 table "$table" 2>/dev/null \
 				|| ip -6 route replace default via "$EGRESS_GATEWAY6" dev "$EGRESS_DEVICE" proto 99 table "$table" 2>/dev/null \
@@ -488,65 +502,92 @@ setup_egress_routing() {
 	fi
 
 	local ip installed=0 installed6=0 expected expected6
-	expected=$(awk 'NF { n++ } END { print n + 0 }' "$TMP_PATH/uplink_ips")
-	expected6=$(awk 'NF { n++ } END { print n + 0 }' "$TMP_PATH/uplink_ips6")
+	expected=$(awk 'NF { n++ } END { print n + 0 }' "$ipv4_file")
+	expected6=$(awk 'NF { n++ } END { print n + 0 }' "$ipv6_file")
 	while read -r ip; do
 		[ -n "$ip" ] || continue
 		while ip rule del priority "$priority" to "$ip/32" lookup "$table" 2>/dev/null; do :; done
 		if ip rule add priority "$priority" to "$ip/32" lookup "$table" 2>/dev/null; then
-			echo "$ip" >> "$TMP_PATH/egress_rule_ips"
+			printf '4 %s %s %s\n' "$priority" "$ip" "$table" >> "$TMP_PATH/egress_rules"
 			installed=$((installed + 1))
 		else
 			log 0 "Could not install IPv4 egress rule for [%s]." "$ip"
 			teardown_egress_routing
 			return 1
 		fi
-	done < "$TMP_PATH/uplink_ips"
+	done < "$ipv4_file"
 	while read -r ip; do
 		[ -n "$ip" ] || continue
 		while ip -6 rule del priority "$priority" to "$ip/128" lookup "$table" 2>/dev/null; do :; done
 		if ip -6 rule add priority "$priority" to "$ip/128" lookup "$table" 2>/dev/null; then
-			echo "$ip" >> "$TMP_PATH/egress_rule_ips6"
+			printf '6 %s %s %s\n' "$priority" "$ip" "$table" >> "$TMP_PATH/egress_rules"
 			installed6=$((installed6 + 1))
 		else
 			log 0 "Could not install IPv6 egress rule for [%s]." "$ip"
 			teardown_egress_routing
 			return 1
 		fi
-	done < "$TMP_PATH/uplink_ips6"
+	done < "$ipv6_file"
 	[ "$installed" -eq "$expected" ] && [ "$installed6" -eq "$expected6" ] && \
 		[ $((installed + installed6)) -gt 0 ] || {
 		teardown_egress_routing
 		return 1
 	}
 
-	log 0 "Egress routing: Naive server -> %s/%s (IPv4=%s, IPv6=%s, table=%s, priority=%s)." \
-		"$iface" "$EGRESS_DEVICE" "$installed" "$installed6" "$table" "$priority"
+	local active_ifaces
+	active_ifaces=$(get_cache_var EGRESS_IFACES)
+	case " $active_ifaces " in
+		*" $iface "*) ;;
+		*) set_cache_var EGRESS_IFACES "${active_ifaces:+${active_ifaces} }${iface}" ;;
+	esac
+	log 0 "Egress routing: %s -> %s/%s (IPv4=%s, IPv6=%s, table=%s, priority=%s)." \
+		"$label" "$iface" "$EGRESS_DEVICE" "$installed" "$installed6" "$table" "$priority"
 }
 
 teardown_egress_routing() {
-	local iface table priority ip
+	local family priority dest table iface
+	if [ -s "$TMP_PATH/egress_rules" ]; then
+		while read -r family priority dest table; do
+			[ -n "$dest" ] && [ -n "$table" ] || continue
+			if [ "$family" = "6" ]; then
+				while ip -6 rule del priority "$priority" to "$dest/128" lookup "$table" 2>/dev/null; do :; done
+			else
+				while ip rule del priority "$priority" to "$dest/32" lookup "$table" 2>/dev/null; do :; done
+			fi
+		done < "$TMP_PATH/egress_rules"
+	fi
+	if [ -s "$TMP_PATH/egress_tables" ]; then
+		while read -r table iface; do
+			[ -n "$table" ] || continue
+			ip route flush table "$table" proto 99 2>/dev/null
+			ip -6 route flush table "$table" proto 99 2>/dev/null
+		done < "$TMP_PATH/egress_tables"
+	fi
+
+	# Compatibility cleanup for runtime state created by v1.3.5/v1.3.6 before
+	# per-node egress routing was introduced.
 	iface=$(get_cache_var EGRESS_IFACE)
 	table=$(get_cache_var EGRESS_TABLE)
 	priority=$(get_cache_var EGRESS_RULE_PRIORITY)
 	[ -z "$priority" ] && priority=900
 	if [ -n "$table" ] && [ -s "$TMP_PATH/egress_rule_ips" ]; then
-		while read -r ip; do
-			[ -n "$ip" ] || continue
-			while ip rule del priority "$priority" to "$ip/32" lookup "$table" 2>/dev/null; do :; done
+		while read -r dest; do
+			[ -n "$dest" ] && while ip rule del priority "$priority" to "$dest/32" lookup "$table" 2>/dev/null; do :; done
 		done < "$TMP_PATH/egress_rule_ips"
 	fi
 	if [ -n "$table" ] && [ -s "$TMP_PATH/egress_rule_ips6" ]; then
-		while read -r ip; do
-			[ -n "$ip" ] || continue
-			while ip -6 rule del priority "$priority" to "$ip/128" lookup "$table" 2>/dev/null; do :; done
+		while read -r dest; do
+			[ -n "$dest" ] && while ip -6 rule del priority "$priority" to "$dest/128" lookup "$table" 2>/dev/null; do :; done
 		done < "$TMP_PATH/egress_rule_ips6"
 	fi
 	[ -n "$table" ] && ip route flush table "$table" proto 99 2>/dev/null
 	[ -n "$table" ] && ip -6 route flush table "$table" proto 99 2>/dev/null
-	[ -n "$iface" ] && log 0 "Egress routing torn down (iface=%s)." "$iface"
-	rm -f "$TMP_PATH/egress_rule_ips" "$TMP_PATH/egress_rule_ips6"
+
+	[ -n "$(get_cache_var EGRESS_IFACES)${iface}" ] && log 0 "NaiveProxy egress routing torn down."
+	rm -f "$TMP_PATH/egress_rules" "$TMP_PATH/egress_tables" \
+		"$TMP_PATH/egress_rule_ips" "$TMP_PATH/egress_rule_ips6"
 	unset_cache_var EGRESS_IFACE
 	unset_cache_var EGRESS_TABLE
 	unset_cache_var EGRESS_RULE_PRIORITY
+	unset_cache_var EGRESS_IFACES
 }

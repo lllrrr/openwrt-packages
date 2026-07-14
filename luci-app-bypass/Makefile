@@ -5,7 +5,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-bypass
-PKG_VERSION:=1.3.5
+PKG_VERSION:=1.3.10
 PKG_RELEASE:=1
 PKG_PO_VERSION:=$(PKG_VERSION)
 PKG_LICENSE:=MIT
@@ -15,8 +15,6 @@ PKG_MAINTAINER:=Eugene Chan
 # Build-system symbols that, when toggled in menuconfig, should trigger a rebuild.
 PKG_CONFIG_DEPENDS:= \
 	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_NaiveProxy \
-	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_ChinaDNS_NG \
-	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_Dns2socks \
 	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_Geoview \
 	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_V2ray_Geo \
 	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_Tcping
@@ -28,7 +26,7 @@ LUCI_PKGARCH:=all
 # kernel expressions as runtime dependencies so installing the generated
 # package also installs everything required by REDIRECT and TPROXY modes.
 LUCI_DEPENDS:=+curl +ip-full +resolveip +libubox +coreutils-nohup +coreutils-timeout \
-	+nftables +kmod-nft-nat +kmod-nft-tproxy +kmod-nft-socket
+	+nftables +kmod-nft-nat +kmod-nft-tproxy +kmod-nft-socket +chinadns-ng +dns2socks
 
 define Package/$(PKG_NAME)/config
 menu "Configuration"
@@ -38,16 +36,6 @@ config PACKAGE_$(PKG_NAME)_INCLUDE_NaiveProxy
 	bool "Include NaiveProxy (https proxy core)"
 	depends on !(arc||armeb||loongarch64||mips||mips64||powerpc||TARGET_gemini)
 	select PACKAGE_naiveproxy
-	default n
-
-config PACKAGE_$(PKG_NAME)_INCLUDE_ChinaDNS_NG
-	bool "Include ChinaDNS-NG (split DNS)"
-	select PACKAGE_chinadns-ng
-	default n
-
-config PACKAGE_$(PKG_NAME)_INCLUDE_Dns2socks
-	bool "Include DNS2SOCKS (remote DNS through Naive)"
-	select PACKAGE_dns2socks
 	default n
 
 config PACKAGE_$(PKG_NAME)_INCLUDE_Geoview

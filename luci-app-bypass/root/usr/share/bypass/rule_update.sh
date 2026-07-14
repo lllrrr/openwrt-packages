@@ -76,8 +76,8 @@ update_geodata() {
 }
 
 # refresh_uplink: restart under the service lock so every currently referenced
-# Naive node is re-resolved and the shared Default NaiveProxy Interface policy
-# table is rebuilt atomically.
+# Naive node is re-resolved and every configured per-node egress policy table
+# is rebuilt atomically.
 refresh_uplink_mode() {
 	# Serialize with init start/stop/restart. A failed refresh must not leave
 	# Naive reconnects using the system default WAN after their dedicated rules

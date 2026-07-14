@@ -7,7 +7,7 @@ OpenWrt 上的网关级透明分流代理。把三个各司其职的组件组合
 | **BypassCore** | **必需分流核心**：透明入口、规则匹配、路由决策与 outbound | 实时数据面核心 |
 | **naiveproxy** | Naive HTTPS 协议适配器，为 BypassCore 提供本机 SOCKS 上游 | 节点连接 |
 | **ChinaDNS-NG** | DNS 分流（国内域名 → 国内 DNS；国外域名 → 远程 DNS） | DNS 转发 |
-| **dns2socks** | 可选：把 ChinaDNS-NG 的国外 DNS 请求送入 Naive SOCKS 隧道 | 国外 DNS 防泄漏 |
+| **dns2socks** | 把 ChinaDNS-NG 的国外 DNS 请求送入 Naive SOCKS 隧道 | 国外 DNS 防泄漏 |
 
 数据面仅依赖 **nftables (fw4)**；前端为现代 LuCI **JavaScript** 视图（**无 Lua 运行时**）。
 
@@ -43,18 +43,16 @@ DNS:  dnsmasq :53 → ChinaDNS-NG :<dns_port>
   ip/ip -6 route table <TABLE>: default via <runtime-gateway> dev <l3-device>
 ```
 
-- 出口接口有 **全局默认** + **节点级覆盖**；服务器 IP 变更时在启动 / 规则更新 / hotplug 时重新解析。
+- 每个 NaiveProxy 节点独立配置出口接口；服务器 IP 变更时在启动 / 规则更新 / hotplug 时重新解析。
 
 ---
 
 ## 依赖关系
 
-本项目只支持 fw4/nftables，因此透明代理所需的 nftables 用户态程序和内核模块属于安装时硬依赖；代理核心、DNS 与 GeoData 工具仍可按需通过 menuconfig 选入：
+本项目只支持 fw4/nftables。透明代理内核模块、ChinaDNS-NG 和 dns2socks 都是安装时硬依赖；NaiveProxy 与 GeoData 工具仍可按需通过 menuconfig 选入：
 
-- 硬依赖：`curl ip-full resolveip libubox coreutils-nohup coreutils-timeout nftables kmod-nft-nat kmod-nft-tproxy kmod-nft-socket`
+- 硬依赖：`curl ip-full resolveip libubox coreutils-nohup coreutils-timeout nftables kmod-nft-nat kmod-nft-tproxy kmod-nft-socket chinadns-ng dns2socks`
 - `INCLUDE_NaiveProxy` → `naiveproxy`（受架构限制，排除 mips/mips64 等）
-- `INCLUDE_ChinaDNS_NG` → `chinadns-ng`
-- `INCLUDE_Dns2socks` → `dns2socks`（让国外 DNS 经 Naive；来自 Passwall packages feed）
 - `INCLUDE_Geoview` → `geoview`
 - `INCLUDE_V2ray_Geo` → `v2ray-geoip` + `v2ray-geosite`
 - `INCLUDE_Tcping` → `tcping`
@@ -80,7 +78,7 @@ opkg install luci-app-bypass_*.ipk
 
 安装后：
 1. 安装 BypassCore：从 <https://github.com/kinmeic/BypassCore/releases> 下载对应架构的 OpenWrt 包（`bypasscore-openwrt-*.tar.gz`），解出 `bypasscore` 放到 `/usr/bin/bypasscore`（或改 `bypass.global.bypasscore_file`）。
-2. 安装 NaiveProxy、ChinaDNS-NG；使用“Remote DNS Outbound = Remote”时必须安装 `dns2socks`，否则服务会拒绝启动以避免 DNS 泄漏。
+2. 安装 NaiveProxy。`chinadns-ng` 与 `dns2socks` 由本包声明为硬依赖（来自 Passwall packages feed）；缺少依赖时包管理器应拒绝不完整安装。
 3. 把 `geoip.dat` / `geosite.dat` 放到 `/usr/share/v2ray/`（或安装 `v2ray-geoip` / `v2ray-geosite`，程序会检测包的实际安装目录）。
 4. LuCI → 服务 → Bypass，填节点、选出口接口、启用。
 
@@ -97,9 +95,8 @@ config global
     option naive_file '/usr/bin/naive'
     option chinadns_file '/usr/bin/chinadns-ng'
     option dns2socks_file '/usr/bin/dns2socks'
-    option default_egress_interface 'wan2'   # 空 = 系统默认路由
-    option naive_egress_table '20200'
-    option naive_egress_rule_priority '900'
+    option naive_egress_table '20200'         # 节点策略路由表起始编号
+    option naive_egress_rule_priority '900'   # 节点策略规则起始优先级
 
 config global_forwarding
     option tcp_proxy_way 'redirect'   # redirect | tproxy
@@ -107,6 +104,7 @@ config global_forwarding
     option udp_redir_ports '1:65535'
     option ipv6_tproxy '0'
     option force_proxy_lan_ip '0'
+    option accept_icmp '0'
 
 config global_dns
     option domestic_dns 'auto'        # auto = 自动检测运营商 DNS
@@ -118,6 +116,13 @@ config global_dns
     option dns_hosts 'cloudflare-dns.com 1.1.1.1
 dns.google.com 8.8.8.8'
     option chinadns_listen_port '10553'
+
+config nodes 'naive1'
+    option remarks 'Node 1'
+    option protocol 'https'
+    option address 'naive.example.com'
+    option port '443'
+    option egress_interface 'wan1'    # 空 = 系统默认路由
 
 config global_rules
     option v2ray_location_asset '/usr/share/v2ray/'
@@ -132,7 +137,6 @@ config shunt_rules 'China'
     option domain_list 'geosite:cn'
     option ip_list 'geoip:cn'
     option outbound '_direct'         # 空 | _direct | _blackhole | 节点 section id
-    option egress_interface 'wan1'    # 仅 Direct；覆盖默认直连接口
 
 config shunt_rules 'Default'
     option remarks 'Default'
@@ -198,11 +202,11 @@ Basic Settings → Shunt Rule 为每条规则选择 Close、Direct、Blackhole �
 
 ### 多 WAN 出口
 
-- `default_egress_interface`（界面名称 `Default NaiveProxy Interface`）统一选择所有 Naive 服务器连接的出口；Node Config 不再提供接口覆盖。填写的是 OpenWrt 逻辑网络名，如 `wan`、`wan1`、`usbwan`。
+- 每个 Node Config 都可设置自己的 `egress_interface`，填写 OpenWrt 逻辑网络名，如 `wan`、`wan1`、`usbwan`；留空则该节点使用系统默认路由。
 - 程序通过 netifd 运行时状态解析实际 L3 设备与 IPv4/IPv6 网关，兼容 DHCP、PPPoE 与设备名变化。
-- 仅为所有被分流规则引用的 Naive 服务器解析出的 IPv4/IPv6 目标添加共享路由表和 `ip rule to ...`。它不改写 fwmark，因此不会覆盖 mwan3/PBR 的标记；规则优先级由 `naive_egress_rule_priority` 控制，默认 900。
-- `direct_egress_interface` 控制默认 Direct 出口；每条 Direct 分流规则还可用 `egress_interface` 覆盖，均绑定到 netifd 实时 L3 设备。
-- 每条 Proxy 规则可以选择不同 Naive 节点；这些节点的物理 WAN 统一由 `Default NaiveProxy Interface` 控制。
+- 仅为被引用节点的 Naive 服务器 IPv4/IPv6 目标添加独立路由表和 `ip rule to ...`。路由表及优先级从 `naive_egress_table`、`naive_egress_rule_priority` 开始按节点递增；不改写 fwmark，因此不会覆盖 mwan3/PBR 的标记。
+- `direct_egress_interface` 控制所有 Direct 分流的默认出口，并绑定到 netifd 实时 L3 设备。
+- 每条 Proxy 规则可以选择不同 Naive 节点；不同节点会启动独立 Naive 实例并使用各自配置的物理 WAN，多个规则选择同一节点时共享该实例。
 - Naive 出口、默认 Direct 出口及规则级 Direct 出口发生 `ifup`、`ifupdate`、`ifdown` 时都会重建或撤销对应绑定；节点域名解析结果每小时刷新，刷新不完整时服务会失败关闭，避免悄悄改走系统默认 WAN。
 
 ## 已知限制 / 待办

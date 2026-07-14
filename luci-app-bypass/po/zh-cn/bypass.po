@@ -568,17 +568,25 @@ msgstr ""
 msgid "Egress route table"
 msgstr "出口路由表"
 
+msgid ""
+"Base policy route table number. Each selected NaiveProxy node with an egress "
+"interface uses this value plus its node index."
+msgstr ""
+"策略路由表的起始编号。每个已选择且配置了出口接口的 NaiveProxy 节点使用该值加"
+"上其节点序号。"
+
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:228
 msgid "Egress rule priority"
 msgstr "出口规则优先级"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:229
 msgid ""
-"Priority of the destination policy rules. The default 900 runs before "
-"Passwall2/mwan3-style marked rules without modifying their packet marks."
+"Base priority of the per-node destination policy rules. The default 900 runs "
+"before Passwall2/mwan3-style marked rules without modifying their packet "
+"marks."
 msgstr ""
-"目标策略规则的优先级。默认值 900 会先于 Passwall2/mwan3 风格的标记规则执行，"
-"且不会修改其数据包标记。"
+"节点目标策略规则的起始优先级。默认值 900 会先于 Passwall2/mwan3 风格的标记规"
+"则执行，且不会修改其数据包标记。"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:234
 msgid "Start Delay (seconds)"
@@ -656,18 +664,6 @@ msgstr ""
 msgid "(system default route)"
 msgstr "（系统默认路由）"
 
-#: htdocs/luci-static/resources/view/bypass/basic_settings.js:274
-msgid "Default NaiveProxy Interface"
-msgstr "默认 NaiveProxy 接口"
-
-#: htdocs/luci-static/resources/view/bypass/basic_settings.js:275
-msgid ""
-"Send every NaiveProxy server connection through this OpenWrt network (wan/"
-"wan1/usbwan). Empty = system default route."
-msgstr ""
-"让所有 NaiveProxy 服务器连接从此 OpenWrt 网络（wan/wan1/usbwan）发出；留空则"
-"使用系统默认路由。"
-
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:283
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:289
 msgid "Rule"
@@ -697,13 +693,12 @@ msgstr "出口接口"
 msgid "(use default direct interface)"
 msgstr "（使用默认直连接口）"
 
+msgid "system default"
+msgstr "系统默认"
+
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:309
-msgid ""
-"Only applies to Direct Connection. Every selected NaiveProxy node uses the "
-"global Default NaiveProxy Interface above."
-msgstr ""
-"仅适用于直连。所有选中的 NaiveProxy 节点均使用上方的全局“默认 NaiveProxy 接"
-"口”。"
+msgid "Only applies to Direct Connection."
+msgstr "仅适用于直连。"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:312
 msgid "Direct domain DNS routing"
@@ -1028,8 +1023,8 @@ msgstr ""
 "输入 GeoIP/Geosite，提取它们所包含的域名/IP。格式：geoip:cn 或 geosite:gfw"
 
 #: htdocs/luci-static/resources/view/bypass/node_list.js:53
-msgid "NaiveProxy nodes (https)."
-msgstr "NaiveProxy 节点（https）。"
+msgid "NaiveProxy nodes (HTTPS/QUIC)."
+msgstr "NaiveProxy 节点（HTTPS/QUIC）。"
 
 #: htdocs/luci-static/resources/view/bypass/node_list.js:60
 msgid "TCPing"
@@ -1098,13 +1093,52 @@ msgstr "Geo 资源文件"
 msgid "File Location"
 msgstr "文件位置"
 
-#: htdocs/luci-static/resources/view/bypass/node_config.js:34
-msgid "Type"
-msgstr "类型"
-
 #: htdocs/luci-static/resources/view/bypass/node_config.js:40
 msgid "Protocol"
 msgstr "协议"
+
+#: htdocs/luci-static/resources/view/bypass/rule_edit.js
+msgid "Inbound Tag"
+msgstr "入站标签"
+
+#: htdocs/luci-static/resources/view/bypass/rule_edit.js
+msgid "Transparent proxy"
+msgstr "透明代理"
+
+#: htdocs/luci-static/resources/view/bypass/rule_edit.js
+msgid "Source"
+msgstr "来源"
+
+#: htdocs/luci-static/resources/view/bypass/rule_edit.js
+msgid "Use comma-separated ports or ranges, for example 80,443,1000-2000."
+msgstr "请使用逗号分隔端口或端口范围，例如 80,443,1000-2000。"
+
+#: htdocs/luci-static/resources/view/bypass/rule_edit.js
+msgid "Enter an IPv4/IPv6 address, CIDR, or geoip: rule."
+msgstr "请输入 IPv4/IPv6 地址、CIDR 或 geoip: 规则。"
+
+#: htdocs/luci-static/resources/view/bypass/rule_edit.js
+msgid "BypassCore currently identifies HTTP and TLS traffic through transparent-inbound sniffing."
+msgstr "BypassCore 当前通过透明入站嗅探识别 HTTP 和 TLS 流量。"
+
+#: htdocs/luci-static/resources/view/bypass/rule_edit.js
+msgid "Restrict this rule to traffic entering through the BypassCore transparent inbound."
+msgstr "将此规则限制为从 BypassCore 透明入站进入的流量。"
+
+#: htdocs/luci-static/resources/view/bypass/rule_edit.js
+msgid "Source IPv4/IPv6 address, CIDR, or geoip: rule, for example 192.168.1.0/24 or geoip:private."
+msgstr "来源 IPv4/IPv6 地址、CIDR 或 geoip: 规则，例如 192.168.1.0/24 或 geoip:private。"
+
+#: htdocs/luci-static/resources/view/bypass/other_settings.js
+msgid "Hijacking ICMP (PING)"
+msgstr "劫持 ICMP（PING）"
+
+msgid ""
+"Send this NaiveProxy node's server connection through the selected OpenWrt "
+"network. Empty = system default route."
+msgstr ""
+"让此 NaiveProxy 节点的服务器连接从所选 OpenWrt 网络发出；留空则使用系统默认路"
+"由。"
 
 #: htdocs/luci-static/resources/view/bypass/node_config.js:68
 #: htdocs/luci-static/resources/view/bypass/rule_edit.js:63
@@ -1242,9 +1276,6 @@ msgstr "返回"
 #~ msgstr ""
 #~ "将直连出站绑定到该网络接口，使分流直连流量从此接口发出。留空则使用系统默认"
 #~ "路由。"
-
-#~ msgid "Type"
-#~ msgstr "类型"
 
 #~ msgid "Only NaiveProxy (https) is supported in this build."
 #~ msgstr "本版本仅支持 NaiveProxy（https）。"

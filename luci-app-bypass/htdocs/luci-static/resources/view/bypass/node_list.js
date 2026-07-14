@@ -50,7 +50,7 @@ return view.extend({
 		var nodes = uci.sections('bypass', 'nodes');
 
 		var container = E('div', { class: 'cbi-map' }, [
-			E('div', { class: 'cbi-section-descr' }, _('NaiveProxy nodes (https).'))
+			E('div', { class: 'cbi-section-descr' }, _('NaiveProxy nodes (HTTPS/QUIC).'))
 		]);
 
 		var fieldset = E('fieldset', { class: 'cbi-section cbi-tblsection' });
@@ -151,6 +151,7 @@ return view.extend({
 					var newSid = 'node_' + Date.now().toString(36);
 					uci.add('bypass', 'nodes', newSid);
 					uci.set('bypass', newSid, 'type', 'NaiveProxy');
+					uci.set('bypass', newSid, 'protocol', 'https');
 					uci.set('bypass', newSid, 'remarks', _('New Node'));
 					uci.save().then(function () {
 						uci.apply().then(function () {
@@ -167,7 +168,7 @@ return view.extend({
 			var src = uci.sections('bypass', 'nodes').filter(function (s) { return s['.name'] === sid; })[0];
 			if (!src) return;
 			var newSid = uci.add('bypass', 'nodes');
-			['type', 'remarks', 'address', 'port', 'username', 'password'].forEach(function (opt) {
+			['type', 'protocol', 'remarks', 'address', 'port', 'egress_interface', 'username', 'password'].forEach(function (opt) {
 				if (src[opt] != null) uci.set('bypass', newSid, opt, src[opt]);
 			});
 			uci.set('bypass', newSid, 'remarks', (src.remarks || sid) + ' ' + _('(copy)'));

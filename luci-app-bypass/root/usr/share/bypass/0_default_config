@@ -11,23 +11,23 @@ config global
 	# BypassCore binary (install from https://github.com/kinmeic/BypassCore
 	# releases; pick the build matching your router's architecture). The
 	# routing/split engine + Observatory / route-test / DNS-resolve pages
-	# auto-disable if the binary is absent or not executable.
+	# auto-disable if the binary/launcher is absent or does not identify itself.
 	option bypasscore_file '/usr/bin/bypasscore'
 	option naive_file '/usr/bin/naive'
 	option chinadns_file '/usr/bin/chinadns-ng'
 	option dns2socks_file '/usr/bin/dns2socks'
-	# One shared egress interface for every naive -> server connection (empty =
-	# system default route). Configured in Basic Settings -> Shunt Rule.
-	option default_egress_interface ''
+	# Base table/priority for per-node NaiveProxy egress policy routing. A node's
+	# logical interface is configured in its Node Config page.
 	option naive_egress_table '20200'
 	option naive_egress_rule_priority '900'
 
 config global_forwarding
 	option ipv6_tproxy '0'
 	option force_proxy_lan_ip '0'
+	option accept_icmp '0'
 	option tcp_no_redir_ports 'disable'
 	option udp_no_redir_ports 'disable'
-	option tcp_redir_ports '22,25,53,80,143,443,465,587,853,873,993,995,5222,8080,8443,9418'
+	option tcp_redir_ports '1:65535'
 	option udp_redir_ports '1:65535'
 	option tcp_proxy_way 'redirect'
 
@@ -49,7 +49,7 @@ config global_rules
 	option geoip_update '1'
 	option update_week_mode ''
 	option update_time_mode '0:00'
-	option update_interval_mode '2'
+	option update_interval_mode '1'
 	option v2ray_location_asset '/usr/share/v2ray/'
 	option domainStrategy 'IpOnDemand'
 	option domainMatcher 'hybrid'
@@ -115,5 +115,6 @@ config nodes 'naive1'
 	option protocol 'https'
 	option address 'naive.example.com'
 	option port '443'
+	option egress_interface ''
 	option username 'user'
 	option password 'pass'

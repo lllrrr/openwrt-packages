@@ -2,22 +2,12 @@
 'require view';
 'require form';
 'require uci';
-'require fs';
-'require ui';
 
 // Rule Manage — mirrors passwall2's client/rule.lua:
-//   1. "Rule status" section (global_rules): geoip/geosite update URLs, asset
-//      path, auto-update schedule (week/time/interval mode, passwall2-style),
-//      a file-status line and a "Manually update" button.
+//   1. "Rule status" section (global_rules): geoip/geosite update URLs and the
+//      auto-update schedule (week/time/interval mode, passwall2-style).
 //   2. "Shunt Rule" table section (shunt_rules): list-first — Remarks +
 //      Summary columns; clicking a row opens the rule editor.
-
-function api(/* action, ...args */) {
-	return fs.exec('/usr/share/bypass/api.sh', Array.prototype.slice.call(arguments)).then(function (res) {
-		try { return JSON.parse(res.stdout || '{}'); }
-		catch (e) { return { code: -1, error: 'bad JSON: ' + (res.stdout || '') }; }
-	}).catch(function (e) { return { code: -1, error: String(e) }; });
-}
 
 function validateTime(_sid, value) {
 	var match = /^(\d{1,2}):(\d{2})$/.exec(value || '');
@@ -27,16 +17,10 @@ function validateTime(_sid, value) {
 
 return view.extend({
 	load: function () {
-		return Promise.all([uci.load('bypass'), api('rule_status')]).then(function (res) {
-			var status = res[1] || {};
-			return {
-				geoip: { size: status.geoip_size, mtime: status.geoip_mtime, path: status.geoip_path },
-				geosite: { size: status.geosite_size, mtime: status.geosite_mtime, path: status.geosite_path }
-			};
-		});
+		return uci.load('bypass');
 	},
 
-	render: function (stats) {
+	render: function () {
 		var m = new form.Map('bypass');
 
 		/* ---- Section 1: global_rules ---- */
@@ -65,7 +49,9 @@ return view.extend({
 
 		o = gs.option(form.ListValue, 'update_week_mode', _('Auto Update Mode'));
 		o.default = '';
-		o.rmempty = false;
+		// Disable is represented by an empty UCI value.  Allow the form to
+		// persist that value instead of rejecting it during Save & Apply.
+		o.rmempty = true;
 		o.value('', _('Disable'));
 		o.value('8', _('Loop Mode'));
 		o.value('7', _('Every day'));
@@ -96,40 +82,8 @@ return view.extend({
 
 		o = gs.option(form.ListValue, 'update_interval_mode', _('Update Interval(hour)'));
 		for (var h = 1; h <= 24; h++) o.value(String(h), h + ' ' + _('hour'));
-		o.default = '2';
+		o.default = '1';
 		o.depends('update_week_mode', '8');
-
-		// File status + manual update button.
-		var statLine = E('div', {}, [
-			E('div', {}, _('geoip.dat: %s · %s').format(
-				stats.geoip.size ? String(stats.geoip.size) + ' bytes' : '—',
-				stats.geoip.mtime ? new Date(stats.geoip.mtime * 1000).toLocaleString() : '—'
-			) + (stats.geoip.path ? ' · ' + stats.geoip.path : '')),
-			E('div', {}, _('geosite.dat: %s · %s').format(
-				stats.geosite.size ? String(stats.geosite.size) + ' bytes' : '—',
-				stats.geosite.mtime ? new Date(stats.geosite.mtime * 1000).toLocaleString() : '—'
-			) + (stats.geosite.path ? ' · ' + stats.geosite.path : '')),
-			E('div', { style: 'margin-top:8px' }, [
-				E('button', {
-					type: 'button',
-					class: 'cbi-button cbi-button-apply',
-					click: function (ev) {
-						var btn = ev.target;
-						btn.disabled = true;
-						btn.textContent = _('Updating…');
-						api('rule_update').then(function (res) {
-							btn.disabled = false;
-							btn.textContent = _('Manually update');
-							var message = res.code === 0 ? (res.msg || _('Done')) : (res.error || res.msg || _('Update failed'));
-							ui.addNotification(null, E('p', {}, message), res.code !== 0 ? 'error' : 'info');
-						});
-					}
-				}, _('Manually update'))
-			])
-		]);
-		o = gs.option(form.DummyValue, '_rule_status', _('Rule files'));
-		o.rawhtml = true;
-		o.cfgvalue = function () { return statLine; };
 
 		/* ---- Section 2: shunt_rules (list-first table) ---- */
 		var ss = m.section(form.TableSection, 'shunt_rules',

@@ -20,7 +20,7 @@ emit() {
 }
 
 # status -> { running, naive_present, chinadns_present, bypasscore_present,
-#             use_tables, egress_iface, redir_port }
+#             use_tables, egress_ifaces, redir_port }
 do_status() {
 	get_config
 	prepare_selected_nodes
@@ -28,12 +28,12 @@ do_status() {
 	[ -n "$NAIVE_BIN" ] && naive_present=1
 	[ -n "$CHINADNS_BIN" ] && chinadns_present=1
 	[ -n "$DNS2SOCKS_BIN" ] && dns2socks_present=1
-	[ -x "$BYPASSCORE_FILE" ] && bypasscore_present=1
+	is_linux_elf "$BYPASSCORE_FILE" && bypasscore_present=1
 	# BypassCore is the service: helper processes alone do not mean RUNNING.
 	busybox pgrep -f "$TMP_BIN_PATH/bypasscore" >/dev/null 2>&1 && running=1
 	local use_tables egress active_redir_port
 	use_tables=$(get_cache_var USE_TABLES)
-	egress=$(get_cache_var EGRESS_IFACE)
+	egress=$(get_cache_var EGRESS_IFACES)
 	active_redir_port=$(get_cache_var ACL_GLOBAL_redir_port)
 
 	json_init
@@ -41,8 +41,10 @@ do_status() {
 	json_add_int naive_present "$naive_present"
 	json_add_int chinadns_present "$chinadns_present"
 	json_add_int dns2socks_present "$dns2socks_present"
-		json_add_int bypasscore_present "$bypasscore_present"
+	json_add_int bypasscore_present "$bypasscore_present"
 	json_add_string use_tables "$use_tables"
+	json_add_string egress_ifaces "$egress"
+	# Retain the old singular key for callers written before per-node egress.
 	json_add_string egress_iface "$egress"
 	json_add_string redir_port "$active_redir_port"
 	json_add_string version "$(cat "$APP_PATH/version" 2>/dev/null)"
@@ -59,7 +61,7 @@ do_route_test() {
 	if [ -z "$dest" ]; then
 		json_add_int code -1
 		json_add_string error "missing destination"
-	elif ! [ -x "$BYPASSCORE_FILE" ]; then
+	elif ! is_linux_elf "$BYPASSCORE_FILE"; then
 		json_add_int code -1
 		json_add_string error "bypasscore unavailable (set bypasscore_file from https://github.com/kinmeic/BypassCore/releases)"
 	else
@@ -78,7 +80,7 @@ do_route_test() {
 do_observe() {
 	get_config
 	json_init
-	if ! [ -x "$BYPASSCORE_FILE" ]; then
+	if ! is_linux_elf "$BYPASSCORE_FILE"; then
 		json_add_int code -1
 		json_add_string error "bypasscore unavailable"
 	else
@@ -99,7 +101,7 @@ do_resolve() {
 	if [ -z "$domain" ]; then
 		json_add_int code -1
 		json_add_string error "missing domain"
-	elif ! [ -x "$BYPASSCORE_FILE" ]; then
+	elif ! is_linux_elf "$BYPASSCORE_FILE"; then
 		json_add_int code -1
 		json_add_string error "bypasscore unavailable (set bypasscore_file from https://github.com/kinmeic/BypassCore/releases)"
 	else
@@ -314,7 +316,7 @@ do_geo_view() {
 		emit
 		return
 	fi
-	if [ -z "$action" ] || [ -z "$value" ]; then
+	if [ -z "$action" ] || { [ "$action" != "list" ] && [ -z "$value" ]; }; then
 		json_add_int code -1
 		json_add_string error "missing action or value"
 		emit
@@ -389,8 +391,11 @@ ${rules}"
 			site_codes=$("$bin" -type geosite -action extract -input "$geosite_path" -lowmem=true 2>/dev/null \
 				| sed -e '1{/^Available codes:$/d;}' -e '/^$/d' -e 's/^/geosite:/')
 		fi
-		out=$([ -n "$geo_codes" ] && echo "$geo_codes"; [ -n "$site_codes" ] && echo "$site_codes")
-		rc=$?
+		out=$(
+			[ -n "$geo_codes" ] && printf '%s\n' "$geo_codes"
+			[ -n "$site_codes" ] && printf '%s\n' "$site_codes"
+		)
+		[ -n "$out" ] && rc=0 || rc=1
 	else
 		json_add_int code -1
 		json_add_string error "unknown action: $action"

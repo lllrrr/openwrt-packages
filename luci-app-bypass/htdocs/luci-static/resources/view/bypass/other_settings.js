@@ -100,6 +100,7 @@ return view.extend({
 
 		o = sFwd.option(form.Value, 'tcp_redir_ports', _('TCP Redir Ports'));
 		o.validate = validatePortList;
+		o.default = '1:65535';
 		o.value('1:65535', _('All'));
 		o.value('22,25,53,80,143,443,465,587,853,873,993,995,5222,8080,8443,9418', _('Common Use'));
 		o.value('80,443', _('Only Web'));
@@ -120,6 +121,7 @@ return view.extend({
 		};
 
 		o = sFwd.option(form.ListValue, 'tcp_proxy_way', _('TCP Proxy way'));
+		o.default = 'redirect';
 		o.value('redirect', _('REDIRECT'));
 		o.value('tproxy', _('TPROXY'));
 
@@ -130,6 +132,10 @@ return view.extend({
 
 		o = sFwd.option(form.Flag, 'force_proxy_lan_ip', _('Force Proxy LAN IP'),
 			_('When enabled, traffic whose destination is another LAN address is also sent to the transparent proxy instead of being excluded as local traffic.'));
+		o.default = '0';
+		o.rmempty = false;
+
+		o = sFwd.option(form.Flag, 'accept_icmp', _('Hijacking ICMP (PING)'));
 		o.default = '0';
 		o.rmempty = false;
 

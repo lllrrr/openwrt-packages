@@ -31,6 +31,7 @@ load_standalone_config() {
 	UDP_REDIR_PORTS=$(config_t_get global_forwarding udp_redir_ports 1:65535)
 	PROXY_IPV6=$(config_t_get global_forwarding ipv6_tproxy 0)
 	FORCE_PROXY_LAN_IP=$(config_t_get global_forwarding force_proxy_lan_ip 0)
+	ACCEPT_ICMP=$(config_t_get global_forwarding accept_icmp 0)
 	CLIENT_PROXY=$(config_t_get global client_proxy 1)
 	WRITE_IPSET_DIRECT=$(config_t_get global_rules write_ipset_direct 1)
 	ENABLE_GEOVIEW_IP=$(config_t_get global_rules enable_geoview_ip 1)
@@ -146,10 +147,12 @@ table inet ${NFT_TABLE} {
 	set bypass_vps {
 		type ipv4_addr
 		size 1024
+		flags interval
 	}
 	set bypass_vps6 {
 		type ipv6_addr
 		size 1024
+		flags interval
 	}
 EOF
 )
@@ -180,9 +183,17 @@ EOF
 		log 0 "Direct interface binding is configured; keeping direct DNS/GeoIP matches inside BypassCore so the selected interface is honored."
 	fi
 
-	local nat_chain="" mangle_chain="" mangle6_chain=""
-	# Redirect mode: NAT PREROUTING REDIRECT for TCP.
+	local nat_chain="" mangle_chain="" mangle6_chain="" tcp_redirect_rule="" icmp_redirect_rule=""
+	# REDIRECT mode uses NAT PREROUTING for TCP. ICMP hijacking is implemented
+	# in the same NAT base chain and makes the router answer matching IPv4 pings,
+	# matching Passwall2's nftables behavior without sending ICMP to BypassCore.
 	if [ "$CLIENT_PROXY" = "1" ] && [ "$mode" = "redirect" ] && [ -n "$tcp_expr" ]; then
+		tcp_redirect_rule="meta l4proto tcp tcp dport { ${tcp_expr} } redirect to :${REDIR_PORT}"
+	fi
+	if [ "$CLIENT_PROXY" = "1" ] && [ "$ACCEPT_ICMP" = "1" ]; then
+		icmp_redirect_rule="ip protocol icmp redirect"
+	fi
+	if [ -n "$tcp_redirect_rule" ] || [ -n "$icmp_redirect_rule" ]; then
 		nat_chain="chain prerouting { type nat hook prerouting priority -100; policy accept;
 			ip daddr @bypass_vps accept
 			${direct_dns_accept}
@@ -193,7 +204,8 @@ EOF
 			${wan_accept}
 			iif lo accept
 			${tcp_no_expr:+meta l4proto tcp tcp dport { ${tcp_no_expr} } accept}
-			meta l4proto tcp tcp dport { ${tcp_expr} } redirect to :${REDIR_PORT}
+			${tcp_redirect_rule}
+			${icmp_redirect_rule}
 		}"
 	fi
 	# TProxy mode: mangle PREROUTING TPROXY for TCP. NaiveProxy's SOCKS5

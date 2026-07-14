@@ -79,6 +79,7 @@ get_config() {
 	UDP_REDIR_PORTS=$(config_t_get global_forwarding udp_redir_ports '1:65535')
 	PROXY_IPV6=$(config_t_get global_forwarding ipv6_tproxy 0)
 	FORCE_PROXY_LAN_IP=$(config_t_get global_forwarding force_proxy_lan_ip 0)
+	ACCEPT_ICMP=$(config_t_get global_forwarding accept_icmp 0)
 
 	DOMESTIC_DNS_USER=$(config_t_get global_dns domestic_dns auto)
 	REMOTE_DNS=$(config_t_get global_dns remote_dns 1.1.1.1)
@@ -96,8 +97,8 @@ get_config() {
 	[ "$DNS2SOCKS_PORT" = "$CHINADNS_PORT" ] && DNS2SOCKS_PORT=$(expr "$DNS2SOCKS_PORT" + 1)
 	DNS_SPLIT_DOMAIN=$(config_t_get global_dns dns_split_domain geosite:cn)
 
-	# Egress (destination policy routing, independent of mwan3 packet marks).
-	DEFAULT_EGRESS_IFACE=$(config_t_get global default_egress_interface)
+	# Per-node egress uses destination policy routing, independent of mwan3
+	# packet marks. These are base values; each selected node receives +index.
 	NAIVE_EGRESS_TABLE=$(config_t_get global naive_egress_table 20200)
 	NAIVE_EGRESS_RULE_PRIORITY=$(config_t_get global naive_egress_rule_priority 900)
 	echo "$NAIVE_EGRESS_TABLE" | grep -qE '^[0-9]+$' || NAIVE_EGRESS_TABLE=20200
@@ -243,32 +244,67 @@ run_naive_node() {
 
 run_naive_nodes() {
 	prepare_selected_nodes
+	teardown_egress_routing
 	[ -s "$TMP_PATH/selected_nodes" ] || {
 		log 0 "No shunt rule selects a NaiveProxy node; starting BypassCore with direct/blackhole rules only."
 		return 0
 	}
 	[ -n "$NAIVE_BIN" ] || { log 0 "naiveproxy binary not found; selected proxy rules cannot start."; return 1; }
 
-	# Every Naive server uses the one Default NaiveProxy Interface. Aggregate all
-	# server destinations into one policy table so there is no per-node override.
-	if [ -n "$DEFAULT_EGRESS_IFACE" ]; then
-		: > "$TMP_PATH/uplink_ips"
-		: > "$TMP_PATH/uplink_ips6"
-		local node address
-		while read -r node; do
+	# Resolve and record each node separately. Different nodes may use different
+	# logical WANs, so they receive consecutive policy tables and priorities.
+	# A destination IP cannot safely belong to two different WANs because Linux
+	# destination rules cannot distinguish the originating Naive process; reject
+	# that ambiguous configuration instead of silently choosing one interface.
+	: > "$TMP_PATH/egress_plan"
+	: > "$TMP_PATH/egress_map4"
+	: > "$TMP_PATH/egress_map6"
+	local node address iface ipv4_file ipv6_file index=0
+	while read -r node; do
+		[ -n "$node" ] || continue
+		iface=$(config_n_get "$node" egress_interface)
+		if [ -n "$iface" ]; then
 			address=$(config_n_get "$node" address)
-			resolve_all_ipv4 "$address"
-		done < "$TMP_PATH/selected_nodes" | awk 'NF && !seen[$0]++' > "$TMP_PATH/uplink_ips"
-		while read -r node; do
-			address=$(config_n_get "$node" address)
-			resolve_all_ipv6 "$address"
-		done < "$TMP_PATH/selected_nodes" | awk 'NF && !seen[$0]++' > "$TMP_PATH/uplink_ips6"
-		setup_egress_routing "$DEFAULT_EGRESS_IFACE" "$NAIVE_EGRESS_TABLE" "$NAIVE_EGRESS_RULE_PRIORITY" || return 1
-	else
-		log 0 "No Default NaiveProxy Interface configured; all Naive nodes use the system default route."
-	fi
+			ipv4_file="$TMP_PATH/uplink_ips.${index}"
+			ipv6_file="$TMP_PATH/uplink_ips6.${index}"
+			resolve_all_ipv4 "$address" | awk 'NF && !seen[$0]++' > "$ipv4_file"
+			resolve_all_ipv6 "$address" | awk 'NF && !seen[$0]++' > "$ipv6_file"
+			[ -s "$ipv4_file" ] || [ -s "$ipv6_file" ] || {
+				log 0 "Naive node [%s] has egress interface [%s], but its server address could not be resolved." "$node" "$iface"
+				return 1
+			}
+			awk -v iface="$iface" -v node="$node" 'NF { print $1, iface, node }' "$ipv4_file" >> "$TMP_PATH/egress_map4"
+			awk -v iface="$iface" -v node="$node" 'NF { print $1, iface, node }' "$ipv6_file" >> "$TMP_PATH/egress_map6"
+			printf '%s %s %s %s %s\n' "$index" "$node" "$iface" "$ipv4_file" "$ipv6_file" >> "$TMP_PATH/egress_plan"
+		else
+			log 0 "Naive node [%s] uses the system default route." "$node"
+		fi
+		index=$((index + 1))
+	done < "$TMP_PATH/selected_nodes"
 
-	local node port index=0
+	local conflict
+	conflict=$(
+		awk 'seen[$1] && owner[$1] != $2 { print $1 " (" owner[$1] " vs " $2 ")"; exit } { seen[$1]=1; owner[$1]=$2 }' \
+			"$TMP_PATH/egress_map4" "$TMP_PATH/egress_map6"
+	)
+	[ -z "$conflict" ] || {
+		log 0 "Naive nodes resolve to the same server IP with conflicting egress interfaces: %s." "$conflict"
+		return 1
+	}
+
+	local table priority
+	while read -r index node iface ipv4_file ipv6_file; do
+		[ -n "$iface" ] || continue
+		table=$((NAIVE_EGRESS_TABLE + index))
+		priority=$((NAIVE_EGRESS_RULE_PRIORITY + index))
+		setup_egress_routing "$iface" "$table" "$priority" "$ipv4_file" "$ipv6_file" "Naive node [$node]" || {
+			teardown_egress_routing
+			return 1
+		}
+	done < "$TMP_PATH/egress_plan"
+
+	local port
+	index=0
 	while read -r node; do
 		[ -n "$node" ] || continue
 		port=$(node_socks_port "$node")
@@ -282,6 +318,29 @@ run_naive_nodes() {
 # domestic IPs into the bypass_chn nftset/ipset so the firewall lets them pass
 # direct. Node server IPs go into bypass_vps (always direct).
 # ------------------------------------------------------------------------------
+
+# ChinaDNS-NG uses '#port' in upstream URLs (for example
+# udp://127.0.0.1#10554), unlike the conventional host:port syntax accepted by
+# dns2socks and used by the LuCI form. Convert an IPv4 host:port suffix while
+# leaving standard-port and unbracketed IPv6 addresses untouched.
+chinadns_upstream() {
+	local value=$1 prefix="" address
+	case "$value" in
+		*://*) prefix="${value%%://*}://"; address=${value#*://} ;;
+		*) address=$value ;;
+	esac
+	case "$address" in
+		*#*) ;;
+		\[*\]:*)
+			local bracket_host=${address%%]*} port=${address##*:}
+			bracket_host=${bracket_host#?}
+			address="${bracket_host}#${port}"
+			;;
+		*:*:*) ;; # unbracketed IPv6 without an explicit port
+		*:*) address="${address%:*}#${address##*:}" ;;
+	esac
+	printf '%s%s\n' "$prefix" "$address"
+}
 
 run_chinadns_ng() {
 	[ -z "$CHINADNS_BIN" ] && {
@@ -357,11 +416,11 @@ run_chinadns_ng() {
 
 	local remote_upstream=$REMOTE_DNS
 	if [ "$DNS2SOCKS_OK" = "1" ]; then
-		remote_upstream="udp://127.0.0.1:${DNS2SOCKS_PORT}"
+		remote_upstream="udp://127.0.0.1#${DNS2SOCKS_PORT}"
 	else case "$REMOTE_DNS_PROTOCOL" in
-		udp) remote_upstream=$REMOTE_DNS ;;
-		tcp) remote_upstream="tcp://${REMOTE_DNS#tcp://}" ;;
-		tls) remote_upstream="tls://${REMOTE_DNS#tls://}" ;;
+		udp) remote_upstream=$(chinadns_upstream "$REMOTE_DNS") ;;
+		tcp) remote_upstream=$(chinadns_upstream "tcp://${REMOTE_DNS#tcp://}") ;;
+		tls) remote_upstream=$(chinadns_upstream "tls://${REMOTE_DNS#tls://}") ;;
 		doh) remote_upstream="$REMOTE_DNS_DOH" ;;
 		*) remote_upstream="tcp://${REMOTE_DNS#*://}" ;;
 	esac
@@ -390,7 +449,7 @@ run_chinadns_ng() {
 
 	# Direct domain DNS routing groups (same line format as Passwall2). Each
 	# group selects its own upstream and writes answers to the direct NFTSet.
-	local direct_dns_groups="" _dd_domain _dd_upstream _dd_extra _dd_index=0 _dd_file _dd_code
+	local direct_dns_groups="" _dd_domain _dd_upstream _dd_extra _dd_index=0 _dd_file _dd_code _dd_chinadns_upstream
 	while IFS=' ' read -r _dd_domain _dd_upstream _dd_extra; do
 		case "$_dd_domain" in ''|'#'*) continue ;; esac
 		[ -n "$_dd_upstream" ] && [ -z "$_dd_extra" ] || continue
@@ -405,10 +464,11 @@ run_chinadns_ng() {
 			domain:*|full:*) echo "${_dd_domain#*:}" > "$_dd_file" ;;
 		esac
 		[ -s "$_dd_file" ] || continue
+		_dd_chinadns_upstream=$(chinadns_upstream "$_dd_upstream")
 		direct_dns_groups="${direct_dns_groups}
 	group direct_dns_${_dd_index}
 	group-dnl ${_dd_file}
-	group-upstream ${_dd_upstream}
+	group-upstream ${_dd_chinadns_upstream}
 	${direct_ipset_line}"
 	done <<-EOF
 	$DIRECT_DNS_SHUNT
@@ -430,14 +490,31 @@ run_chinadns_ng() {
 		${direct_dns_groups}
 	EOF
 
-	ln_run 0 "$CHINADNS_BIN" "$CHINADNS_TAG" "/dev/null" -C "$config_file" -v
-	sleep 1
+	local chinadns_log="${cfg_dir}/chinadns-ng.log" wait_count=0
+	: > "$chinadns_log"
+	ln_run 0 "$CHINADNS_BIN" "$CHINADNS_TAG" "$chinadns_log" -C "$config_file" -v
+	# Loading a large geosite-derived chnlist can take several seconds on a
+	# router. Poll the actual UDP listener instead of declaring failure after a
+	# fixed one-second delay.
+	while [ "$wait_count" -lt 15 ]; do
+		[ "$(check_port_exists "$CHINADNS_PORT" udp)" -gt 0 ] 2>/dev/null && break
+		busybox pgrep -f "$TMP_BIN_PATH/$CHINADNS_TAG" >/dev/null 2>&1 || break
+		wait_count=$((wait_count + 1))
+		sleep 1
+	done
 	if [ "$(check_port_exists "$CHINADNS_PORT" udp)" -gt 0 ] 2>/dev/null; then
 		CHINADNS_OK=1
 		log 0 "ChinaDNS-NG: :%s  domestic=%s  remote=%s (%s)" "$CHINADNS_PORT" "$DOMESTIC_DNS" "$remote_upstream" "$REMOTE_DNS_PROTOCOL"
 	else
 		CHINADNS_OK=0
-		log 0 "ChinaDNS-NG failed to listen on UDP :%s; check its generated config and binary capabilities." "$CHINADNS_PORT"
+		log 0 "ChinaDNS-NG failed to listen on UDP :%s after %s seconds." "$CHINADNS_PORT" "$wait_count"
+		if [ -s "$chinadns_log" ]; then
+			tail -n 12 "$chinadns_log" | while IFS= read -r line; do
+				[ -n "$line" ] && log 1 "ChinaDNS-NG: %s" "$line"
+			done
+		else
+			log 1 "ChinaDNS-NG exited without diagnostic output; generated config: %s" "$config_file"
+		fi
 		return 1
 	fi
 }
@@ -680,7 +757,7 @@ gen_bypasscore_config() {
 					json_close_array
 				json_close_object
 			fi
-			local sid tag domains ips net outbound egress default_sid default_outbound
+			local sid tag domains ips net outbound egress default_sid default_outbound protocols inbound sources ports
 			for sid in $(uci -q show "${CONFIG}" 2>/dev/null | grep "=shunt_rules" | cut -d '.' -f2 | cut -d '=' -f1); do
 				[ "$(config_n_get "$sid" is_default 0)" = "1" ] && { default_sid=$sid; continue; }
 				outbound=$(config_n_get "$sid" outbound _direct)
@@ -710,6 +787,31 @@ gen_bypasscore_config() {
 					fi
 					net=$(config_n_get "$sid" network tcp,udp)
 					[ -n "$net" ] && json_add_string network "$net"
+					protocols=$(config_n_get "$sid" protocol)
+					if [ -n "$protocols" ]; then
+						json_add_array protocol
+						local p
+						for p in $protocols; do json_add_string '' "$p"; done
+						json_close_array
+					fi
+					inbound=$(config_n_get "$sid" inbound)
+					case " $inbound " in
+						*" tproxy "*)
+							json_add_array inboundTag
+							json_add_string '' tcp_redir
+							[ "$PROXY_IPV6" = "1" ] && json_add_string '' ipv6_tproxy
+							json_close_array
+							;;
+					esac
+					sources=$(config_n_get "$sid" source)
+					if [ -n "$sources" ]; then
+						json_add_array source
+						local src
+						for src in $sources; do json_add_string '' "$src"; done
+						json_close_array
+					fi
+					ports=$(config_n_get "$sid" port)
+					[ -n "$ports" ] && json_add_string port "$ports"
 				json_close_object
 			done
 			# The reserved Default row is always emitted last as the catch-all.
@@ -731,7 +833,7 @@ gen_bypasscore_config() {
 	json_close_object
 
 	# observatory (only useful if the bypasscore binary is present)
-	if [ -x "$BYPASSCORE_FILE" ]; then
+	if is_linux_elf "$BYPASSCORE_FILE"; then
 		json_add_object observatory
 			json_add_array subject_selector
 				json_add_string '' proxy_
@@ -785,8 +887,8 @@ gen_bypasscore_config() {
 # BypassCore transparent core: `bypasscore -run -c <cfg>` (daemon).
 # ------------------------------------------------------------------------------
 run_bypasscore_core() {
-	if ! [ -x "$BYPASSCORE_FILE" ]; then
-		log 0 "BypassCore is missing or not executable; service cannot start."
+	if ! is_linux_elf "$BYPASSCORE_FILE"; then
+		log 0 "BypassCore is missing, not executable, or does not identify as BypassCore; service cannot start."
 		return 1
 	fi
 	gen_bypasscore_config || return 1
@@ -959,7 +1061,7 @@ start() {
 		return 0
 	}
 	check_run_environment || return 1
-	if ! [ -x "$BYPASSCORE_FILE" ]; then
+	if ! is_linux_elf "$BYPASSCORE_FILE"; then
 		log 0 "BypassCore is required but unavailable at [%s]; service not started." "$BYPASSCORE_FILE"
 		return 1
 	fi
