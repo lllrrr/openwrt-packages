@@ -11,11 +11,12 @@
  * read-only aggregate view — other cards keep their nss_* entries too, so
  * this panel is never the single source of truth.
  *
- * Visibility rule: only render when status.capabilities.nss === true OR
- * status.evidence.nss is a non-empty object.  Otherwise the whole section
- * is hidden.
+ * Visibility rule: only render when capabilities or evidence contain a true
+ * NSS signal. Rust status always includes a false-filled evidence object on
+ * non-NSS devices, which must not make the panel visible.
  *
- * Default open state: closed. User toggles are left untouched by refreshes.
+ * Default open state: closed. Refreshes never touch the open attribute, so
+ * the user's manual expand/collapse choice remains stable on this page.
  */
 
 function hasNssSignal(status) {
@@ -24,9 +25,12 @@ function hasNssSignal(status) {
 	if (caps.nss === true) return true;
 	var ev = status.evidence && status.evidence.nss;
 	if (ev && typeof ev === 'object') {
-		for (var k in ev) {
-			if (Object.prototype.hasOwnProperty.call(ev, k)) return true;
-		}
+		var state = nssEvidenceState(ev);
+		if (ev.present === true || state.ecmActive || state.ppeActive ||
+		    state.directSupported || ev.direct_enabled || ev.bridge_mgr ||
+		    ev.ifb_active || ev.nsm_active || ev.dp_active || ev.mcs_active ||
+		    (Array.isArray(ev.subsystems) && ev.subsystems.length))
+			return true;
 	}
 	/* any nss_* capability (even if base "nss" missing) still warrants showing */
 	for (var key in caps) {
@@ -35,7 +39,19 @@ function hasNssSignal(status) {
 	return false;
 }
 
+function nssEvidenceState(ev) {
+	return {
+		ecmActive: typeof ev.ecm_active === 'boolean'
+			? ev.ecm_active : Boolean(ev.ecm_offload_active),
+		ppeActive: typeof ev.ppe_active === 'boolean'
+			? ev.ppe_active : Boolean(ev.ppe_offload_active),
+		directSupported: typeof ev.direct_state_readable === 'boolean'
+			? ev.direct_state_readable : Boolean(ev.direct_supported)
+	};
+}
+
 function nssDirectFallbackText(reason) {
+	reason = vocab.normalizeWarningId(reason);
 	if (reason === 'collector_mode_bpf')
 		return _('当前使用 BPF');
 	if (reason === 'collector_mode_nss_conntrack_sync')
@@ -100,14 +116,20 @@ function render(refs, status) {
 
 	var ev = (status.evidence && status.evidence.nss) || {};
 	var caps = status.capabilities || {};
-	var warnings = fmt.asArray(status.warnings);
+	var warnings = fmt.asArray(status.warnings).map(function(w) {
+		return vocab.normalizeWarningId(w);
+	});
+	var evidenceState = nssEvidenceState(ev);
+	var ecmActive = evidenceState.ecmActive;
+	var ppeActive = evidenceState.ppeActive;
+	var directSupported = evidenceState.directSupported;
 
 	/* engine pill + summary */
 	var engineLabel, engineCls;
-	if (ev.ppe_offload_active) {
+	if (ppeActive) {
 		engineLabel = _('PPE 活跃');
 		engineCls = 'label label-danger';
-	} else if (ev.ecm_offload_active) {
+	} else if (ecmActive) {
 		engineLabel = _('ECM 活跃');
 		engineCls = 'label label-danger';
 	} else if (caps.nss) {
@@ -130,13 +152,13 @@ function render(refs, status) {
 	refs.nssSummary.textContent = summaryBits.join(' · ');
 
 	/* engine line */
-	var engine = ev.ppe_offload_active ? 'PPE'
-	           : ev.ecm_offload_active ? 'ECM'
+	var engine = ppeActive ? 'PPE'
+	           : ecmActive ? 'ECM'
 	           : '-';
 	var directParts = [];
 	if (ev.direct_enabled) {
 		directParts.push(_('NSS-direct 已启用'));
-	} else if (ev.direct_supported) {
+	} else if (directSupported) {
 		directParts.push(_('NSS-direct 可用'));
 	} else {
 		directParts.push(_('NSS-direct 未启用'));
@@ -229,6 +251,7 @@ function render(refs, status) {
 	});
 	if (nssWarnings.length) {
 		fmt.replaceChildren(refs.nssWarnings, nssWarnings.map(function(w) {
+			w = vocab.normalizeWarningId(w);
 			return E('li', {}, [
 				E('span', { 'class': vocab.warningClass(w) + ' key' }, w),
 				vocab.warningText(w)

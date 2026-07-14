@@ -1,0 +1,26 @@
+[package]
+name = "lanspeedd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "lanspeedd"
+path = "src/main.rs"
+
+[dependencies]
+aya.workspace = true
+aya-obj = "=0.3.0"
+lanspeed-common = { path = "../lanspeed-common" }
+lanspeed-openwrt-sys = { path = "../lanspeed-openwrt-sys", optional = true }
+libc.workspace = true
+object = { version = "=0.39.1", default-features = false, features = ["elf", "read_core"] }
+serde.workspace = true
+serde_json.workspace = true
+
+[features]
+default = []
+openwrt = ["dep:lanspeed-openwrt-sys"]
+
+[dev-dependencies]

@@ -48,17 +48,15 @@ function compareText(a, b) {
 	return String(a || '').localeCompare(String(b || ''), undefined, { numeric: true, sensitivity: 'base' });
 }
 
-function defaultSortDirection(sortKey) {
+function defaultSortDirection() {
 	return 'desc';
 }
 
 function nextSort(prefs, sortKey) {
-	if (!prefs.sortCustom || prefs.sortKey !== sortKey) {
+	if (!prefs.sortCustom || prefs.sortKey !== sortKey)
 		return { sortKey: sortKey, sortDir: 'desc', sortCustom: true };
-	}
-	if (prefs.sortDir === 'desc') {
+	if (prefs.sortDir === 'desc')
 		return { sortKey: sortKey, sortDir: 'asc', sortCustom: true };
-	}
 	return {
 		sortKey: DEFAULT_PREFS.sortKey,
 		sortDir: DEFAULT_PREFS.sortDir,
@@ -133,22 +131,33 @@ function sumTotals(clients, config) {
 	return { tx: tx, rx: rx, active: active };
 }
 
-function sortClients(clients, sortKey, sortDir) {
+function sortClients(clients, sortKey, sortDir, nowMs, config) {
 	var sorted = clients.slice();
+	var latestSample = Number(nowMs) || latestClientSampleMs(sorted);
 	var direction = sortDir === 'asc' || sortDir === 'desc'
 		? sortDir
 		: defaultSortDirection(sortKey);
 	sorted.sort(function(a, b) {
-		var r;
+		var aActive = isActiveClient(a, latestSample, config);
+		var bActive = isActiveClient(b, latestSample, config);
+		var r, av, bv;
+		if (aActive !== bActive)
+			return aActive ? -1 : 1;
 		if (sortKey === 'hostname')       r = compareText(clientDisplayName(a), clientDisplayName(b));
 		else if (sortKey === 'mac')       r = compareText(a.mac, b.mac);
 		else if (sortKey === 'tx')        r = (Number(a.tx_bps) || 0) - (Number(b.tx_bps) || 0);
 		else if (sortKey === 'rx')        r = (Number(a.rx_bps) || 0) - (Number(b.rx_bps) || 0);
-		else if (sortKey === 'tcp_conns') r = (typeof a.tcp_conns === 'number' ? a.tcp_conns : -1) -
-		                                      (typeof b.tcp_conns === 'number' ? b.tcp_conns : -1);
-		else if (sortKey === 'udp_conns') r = (typeof a.udp_conns === 'number' ? a.udp_conns : -1) -
-		                                      (typeof b.udp_conns === 'number' ? b.udp_conns : -1);
-		else                              r = ((Number(a.tx_bps) || 0) + (Number(a.rx_bps) || 0)) -
+		else if (sortKey === 'tcp_conns' || sortKey === 'udp_conns') {
+			av = typeof a[sortKey] === 'number' ? a[sortKey] : null;
+			bv = typeof b[sortKey] === 'number' ? b[sortKey] : null;
+			if (av === null || bv === null) {
+				if (av === null && bv !== null) return 1;
+				if (av !== null && bv === null) return -1;
+				r = 0;
+			} else {
+				r = av - bv;
+			}
+		} else                            r = ((Number(a.tx_bps) || 0) + (Number(a.rx_bps) || 0)) -
 		                                      ((Number(b.tx_bps) || 0) + (Number(b.rx_bps) || 0));
 		if (r) return direction === 'desc' ? -r : r;
 		return compareText(identityOf(a), identityOf(b));

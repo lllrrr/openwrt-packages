@@ -16,7 +16,12 @@ function sortableHeader(viewState, refs, sortKey, label, attrs) {
 	]);
 	var th = E('th', thAttrs, button);
 
-	refs.sortHeaders[sortKey] = { th: th, button: button, label: label };
+	refs.sortHeaders[sortKey] = {
+		th: th,
+		button: button,
+		label: label,
+		description: attrs && attrs.title || ''
+	};
 	button.addEventListener('click', function() {
 		Object.assign(viewState.prefs, fmt.nextSort(viewState.prefs, sortKey));
 		fmt.savePrefs(viewState.prefs);

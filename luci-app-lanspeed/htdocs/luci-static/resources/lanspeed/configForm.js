@@ -84,6 +84,12 @@ function stringValue(value, fallback) {
 	return fallback;
 }
 
+function uciListValue(value) {
+	if (Array.isArray(value)) return value.slice();
+	if (typeof value === 'string') return value.split(/\s+/).filter(Boolean);
+	return [];
+}
+
 function splitRanges(value) {
 	var raw = stringValue(value, '');
 	return raw.split(/[,\s]+/).filter(function(item) {
@@ -108,6 +114,7 @@ function buildRangePill(refs, value) {
 		'class': 'lanspeed-range-remove cbi-button cbi-button-remove',
 		'title': _('删除')
 	}, '\u00d7');
+	refs.rangeRemoveButtons.push(remove);
 
 	remove.addEventListener('click', function() {
 		var items = [];
@@ -126,6 +133,7 @@ function buildRangeList(refs, value) {
 	var items = splitRanges(value);
 
 	refs.hideIpv6RangesItems = items;
+	refs.rangeRemoveButtons = [];
 	refs.hideIpv6RangesList.innerHTML = '';
 	for (var i = 0; i < items.length; i++)
 		refs.hideIpv6RangesList.appendChild(buildRangePill(refs, items[i]));
@@ -175,18 +183,24 @@ function statusNssEvidence(status) {
 }
 
 function statusDaedEvidence(status) {
-	return status && status.evidence && status.evidence.dae ? status.evidence.dae : {};
+	var evidence = status && status.evidence || {};
+	return Object.assign({}, evidence.proxy || {}, evidence.dae || {});
 }
 
 function isNssDevice(status) {
 	var caps = status && status.capabilities || {};
 	var nss = statusNssEvidence(status);
+	var ecmActive = typeof nss.ecm_active === 'boolean'
+		? nss.ecm_active : Boolean(nss.ecm_offload_active);
+	var ppeActive = typeof nss.ppe_active === 'boolean'
+		? nss.ppe_active : Boolean(nss.ppe_offload_active);
+	var directSupported = typeof nss.direct_state_readable === 'boolean'
+		? nss.direct_state_readable : Boolean(nss.direct_supported);
 	var key;
 
 	if (caps.nss === true || nss.present === true)
 		return true;
-	if (nss.ecm_offload_active || nss.ppe_offload_active ||
-	    nss.direct_supported || nss.direct_enabled ||
+	if (ecmActive || ppeActive || directSupported || nss.direct_enabled ||
 	    nss.dp_active || nss.bridge_mgr || nss.ifb_active ||
 	    nss.nsm_active || nss.mcs_active)
 		return true;
@@ -200,8 +214,9 @@ function isNssDevice(status) {
 
 function daeRuntimeActive(status) {
 	var dae = statusDaedEvidence(status);
-	return !!(dae.dae_running || dae.daed_running ||
-		dae.dae_process || dae.daed_process);
+	if (typeof dae.runtime_active === 'boolean')
+		return dae.runtime_active;
+	return !!(dae.dae_running || dae.daed_running || dae.dae_process || dae.daed_process);
 }
 
 function rateCollectorModesForStatus(status, currentValue) {
@@ -279,12 +294,28 @@ function applyRuntimeInfo(refs, status) {
 function setBusy(viewState, busy) {
 	var daemonRefs = viewState.daemonRefs;
 	var saveRefs = viewState.saveRefs;
+	var controls;
 
 	viewState.configSaving = busy;
 	if (saveRefs)
 		saveRefs.saveBtn.disabled = busy;
-	if (daemonRefs)
-		daemonRefs.resetBtn.disabled = busy;
+	if (daemonRefs) {
+		controls = [
+			daemonRefs.rateCollectorMode,
+			daemonRefs.connCollectorMode,
+			daemonRefs.activeWindow,
+			daemonRefs.activeMin,
+			daemonRefs.showIpv6,
+			daemonRefs.hidePrivateIpv6,
+			daemonRefs.hideIpv6RangeInput,
+			daemonRefs.addRangeBtn,
+			daemonRefs.resetBtn
+		].concat(daemonRefs.rangeRemoveButtons || []);
+		controls.forEach(function(control) {
+			if (control)
+				control.disabled = busy;
+		});
+	}
 	ifaceCfg.setBusy(viewState, busy);
 }
 
@@ -313,6 +344,7 @@ function fillForm(refs, values) {
 	refs.hideIpv6RangeInput.value = '';
 }
 
+
 function prepareDaemonSave(viewState) {
 	var refs = viewState.daemonRefs;
 	var values = readForm(refs);
@@ -326,77 +358,107 @@ function prepareDaemonSave(viewState) {
 		hide_private_ipv6: values.hide_private_ipv6,
 		hide_ipv6_ranges: values.hide_ipv6_ranges
 	};
-
-	return {
-		refs: refs,
-		values: values,
-		uciValues: uciValues
-	};
+	return { refs: refs, values: values, uciValues: uciValues };
 }
 
 function applyDaemonSave(plan) {
 	return lsRpc.uciSet('lanspeed', 'main', plan.uciValues);
 }
 
+function errorText(err) {
+	return err && err.message || String(err);
+}
+
+function reloadUciCache() {
+	try {
+		uci.unload('lanspeed');
+	} catch (err) {
+		return Promise.reject(err);
+	}
+	return uci.load('lanspeed');
+}
+
 function saveAllSettings(viewState) {
 	var saveRefs = viewState.saveRefs;
 	var daemonPlan;
 	var ifacePlan;
+	var committed = false;
 
 	if (viewState.configSaving)
 		return Promise.resolve(false);
-
 	try {
 		daemonPlan = prepareDaemonSave(viewState);
 		ifacePlan = ifaceCfg.prepareSave(viewState);
 	} catch (err) {
-		saveRefs.status.textContent = err && err.message || err;
+		saveRefs.status.textContent = errorText(err);
 		return Promise.resolve(false);
 	}
 
 	setBusy(viewState, true);
 	saveRefs.status.textContent = _('保存中…');
 
-	return applyDaemonSave(daemonPlan)
-		.then(function() { return ifaceCfg.applySave(ifacePlan); })
+	return ifaceCfg.applySave(ifacePlan)
+		.then(function() { return applyDaemonSave(daemonPlan); })
 		.then(function() { return lsRpc.uciCommit('lanspeed'); })
 		.then(function() {
-			saveRefs.status.textContent = _('重载 daemon…');
-			return lsRpc.reload();
-		})
-		.then(function() {
-			return new Promise(function(resolve) { window.setTimeout(resolve, 1000); });
-		})
-		.then(function() {
-			return Promise.all([
-				ifaceCfg.load(viewState),
-				lsRpc.status().catch(function() { return null; })
-			]);
-		})
-		.then(function(results) {
-			fillForm(daemonPlan.refs, daemonPlan.values);
-			if (results[1])
-				applyRuntimeInfo(daemonPlan.refs, results[1]);
-			saveRefs.status.textContent = _('已应用');
-			window.setTimeout(function() {
-				if (saveRefs.status.textContent === _('已应用'))
-					saveRefs.status.textContent = '';
-			}, 3000);
-			return true;
-		})
-		.catch(function(err) {
-			saveRefs.status.textContent = _('保存失败: ') + (err && err.message || err);
-			return false;
-		})
-		.then(function(result) {
+			committed = true;
+			ifaceCfg.markSaved(ifacePlan);
+			var cacheError = null;
+			return reloadUciCache().catch(function(err) {
+				cacheError = err;
+			}).then(function() {
+				saveRefs.status.textContent = _('重载 daemon…');
+				return lsRpc.reload().then(function() {
+					return Promise.all([
+						ifaceCfg.load(viewState),
+						lsRpc.status().catch(function() { return null; })
+					]);
+				}, function(err) {
+					saveRefs.status.textContent = _('配置已保存，但 daemon 重载失败: ') + errorText(err);
+					return null;
+				});
+			}).then(function(results) {
+				if (!results)
+					return false;
+				fillForm(daemonPlan.refs, daemonPlan.values);
+				if (results[1])
+					applyRuntimeInfo(daemonPlan.refs, results[1]);
+				saveRefs.status.textContent = cacheError
+					? _('已应用，但 UCI 缓存刷新失败: ') + errorText(cacheError)
+					: _('已应用');
+				window.setTimeout(function() {
+					if (saveRefs.status.textContent === _('已应用'))
+						saveRefs.status.textContent = '';
+				}, 3000);
+				return true;
+			});
+		}, function(writeError) {
+			return lsRpc.uciRevert('lanspeed').then(function() {
+				saveRefs.status.textContent = _('配置写入失败: ') + errorText(writeError);
+				return false;
+			}, function(revertError) {
+				saveRefs.status.textContent = _('配置写入失败: ') + errorText(writeError) +
+					_('；暂存回滚失败: ') + errorText(revertError);
+				return false;
+			});
+		}).then(function(result) {
 			setBusy(viewState, false);
 			return result;
+		}, function(error) {
+			setBusy(viewState, false);
+			saveRefs.status.textContent = (committed
+				? _('配置已保存，但后续处理失败: ')
+				: _('保存失败: ')) + errorText(error);
+			return false;
 		});
 }
 
 function buildDaemonSection(values, viewState) {
 	var refs = {};
 	viewState = viewState || {};
+	viewState.ifaceOriginal = values.interfaceConfig || {
+		ifname: [], interface_include: [], observe: [], present: {}
+	};
 
 	refs.rateCollectorMode = selectRateCollectorMode(values.rate_collector_mode, values.status || {});
 	refs.connCollectorMode = selectConnCollectorMode(values.conn_collector_mode);
@@ -517,7 +579,7 @@ function buildDaemonSection(values, viewState) {
 				refs.resetBtn
 			])
 		])
-		]);
+	]);
 }
 
 function buildSaveSection(viewState) {
@@ -545,6 +607,9 @@ function loadValues() {
 		var legacy = uci.get('lanspeed', 'main', 'collector_mode');
 		var rateMode = uci.get('lanspeed', 'main', 'rate_collector_mode');
 		var connMode = uci.get('lanspeed', 'main', 'conn_collector_mode');
+		var rawIfname = uci.get('lanspeed', 'main', 'ifname');
+		var rawInterfaceInclude = uci.get('lanspeed', 'main', 'interface_include');
+		var rawObserve = uci.get('lanspeed', 'main', 'observe');
 
 		return {
 			rate_collector_mode: rateCollectorModeValue(rateMode || legacyRateCollectorMode(legacy)),
@@ -554,6 +619,16 @@ function loadValues() {
 			show_ipv6: boolValue(uci.get('lanspeed', 'main', 'show_ipv6'), DEFAULTS.show_ipv6),
 			hide_private_ipv6: boolValue(uci.get('lanspeed', 'main', 'hide_private_ipv6'), DEFAULTS.hide_private_ipv6),
 			hide_ipv6_ranges: stringValue(uci.get('lanspeed', 'main', 'hide_ipv6_ranges'), DEFAULTS.hide_ipv6_ranges),
+			interfaceConfig: {
+				ifname: uciListValue(rawIfname),
+				interface_include: uciListValue(rawInterfaceInclude),
+				observe: uciListValue(rawObserve),
+				present: {
+					ifname: rawIfname !== null && rawIfname !== undefined,
+					interface_include: rawInterfaceInclude !== null && rawInterfaceInclude !== undefined,
+					observe: rawObserve !== null && rawObserve !== undefined
+				}
+			},
 			status: {}
 		};
 	}).then(function(values) {
@@ -583,5 +658,8 @@ return baseclass.extend({
 
 	saveAll: function(viewState) {
 		return saveAllSettings(viewState);
-	}
+	},
+
+	isNssDevice: isNssDevice,
+	daeRuntimeActive: daeRuntimeActive
 });

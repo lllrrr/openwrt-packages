@@ -1,0 +1,15 @@
+[package]
+name = "lanspeed-build"
+version = "1.0.0"
+edition = "2021"
+license.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "lanspeed-build"
+path = "src/main.rs"
+
+[dependencies]
+thiserror.workspace = true

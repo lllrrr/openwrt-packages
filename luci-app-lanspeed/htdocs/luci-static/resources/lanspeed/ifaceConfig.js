@@ -6,9 +6,9 @@
 /*
  * LAN Speed interface configuration sub-panel.
  *
- * Owns scanning sysdevices, rendering segmented toggles and staging interface
- * UCI changes. The configuration form commits these changes together with the
- * runtime settings and reloads the daemon once.
+ * Owns sysdevices scanning, segmented toggles and interface UCI staging.
+ * The configuration form commits staged runtime/interface changes together
+ * and reloads the daemon once.
  */
 
 var AUTO_IGNORED_INTERFACE_PREFIXES = [
@@ -44,6 +44,7 @@ function renderIfaceConfig(viewState) {
 		return !isAutoIgnoredInterface(name);
 	});
 	var useTable = refs.ifcfgBody;
+	viewState.ifcfgButtons = [];
 
 	devs.sort(function(a, b) {
 		/* recommended LAN devices first, then alphabetical */
@@ -83,7 +84,7 @@ function renderIfaceConfig(viewState) {
 			{ k: 'observe', t: _('观察'), title: _('只读接口计数，不 attach BPF；适合 WAN / WireGuard / nssifb') },
 			{ k: 'collect', t: _('采集'),
 			  title: !isCollectable
-			    ? _('该接口不是推荐的 LAN 二层采集点；WireGuard/TUN/VPN 请改为“观察”。')
+			    ? _('该接口不是推荐的 LAN 二层采集点；WireGuard/VPN 请改为“观察”。')
 			    : _('挂 BPF filter，按客户端拆速率') }
 		];
 		modes.forEach(function(m) {
@@ -93,13 +94,21 @@ function renderIfaceConfig(viewState) {
 				'title': m.title,
 				'class': viewState.ifcfgState[name] === m.k ? 'active' : ''
 			}, m.t);
-			if (m.k === 'collect' && !isCollectable)
+			btn.ifcfgAlwaysDisabled = m.k === 'collect' && !isCollectable;
+			viewState.ifcfgButtons.push(btn);
+			if (btn.ifcfgAlwaysDisabled)
 				btn.disabled = true;
 			btn.addEventListener('click', function() {
 				var buttons, i;
-				if (m.k === 'collect' && !isCollectable)
+				if (viewState.configSaving || (m.k === 'collect' && !isCollectable))
+					return;
+				if (viewState.ifcfgState[name] === m.k)
 					return;
 				viewState.ifcfgState[name] = m.k;
+				viewState.ifcfgDirty = true;
+				if (refs.ifcfgReloadBtn)
+					refs.ifcfgReloadBtn.disabled = true;
+				refs.ifcfgStatus.textContent = _('有未保存的接口修改');
 				buttons = wrap.querySelectorAll('button');
 				for (i = 0; i < buttons.length; i++)
 					buttons[i].className = (buttons[i].getAttribute('data-mode') === m.k) ? 'active' : '';
@@ -154,19 +163,67 @@ function renderIfaceConfig(viewState) {
 	} else {
 		refs.ifcfgHint.textContent = _('采集 = 挂 BPF 按客户端拆速率。观察 = 只读接口吞吐数字，用于 WAN 展示或对账。');
 	}
+	viewState.ifcfgLoaded = true;
+	viewState.ifcfgDirty = false;
+	if (refs.ifcfgReloadBtn)
+		refs.ifcfgReloadBtn.disabled = Boolean(viewState.configSaving);
 }
 
 function loadIfaceConfig(viewState) {
 	var refs = viewState.refs;
-	if (!refs || (!refs.ifcfgGrid && !refs.ifcfgBody)) return Promise.resolve();
+	if (!refs || (!refs.ifcfgGrid && !refs.ifcfgBody)) return Promise.resolve(false);
+	if (viewState.ifcfgDirty) {
+		refs.ifcfgStatus.textContent = _('存在未保存的接口修改，请先保存再扫描');
+		return Promise.resolve(false);
+	}
 	refs.ifcfgStatus.textContent = _('读取中…');
 	return lsRpc.sysdevices().then(function(data) {
 		viewState.sysdevices = data || { devices: [], current_ifnames: [], current_observed: [] };
 		renderIfaceConfig(viewState);
 		refs.ifcfgStatus.textContent = '';
+		return true;
 	}).catch(function(err) {
+		if (!viewState.sysdevices)
+			viewState.ifcfgLoaded = false;
 		refs.ifcfgStatus.textContent = _('读取失败: ') + (err && err.message || err);
+		return false;
 	});
+}
+
+function configList(value) {
+	if (Array.isArray(value)) return value.slice();
+	if (typeof value === 'string') return value.split(/\s+/).filter(Boolean);
+	return [];
+}
+
+function uniqueNames(values) {
+	var seen = {};
+	return values.filter(function(name) {
+		name = String(name || '');
+		if (!name || seen[name]) return false;
+		seen[name] = true;
+		return true;
+	});
+}
+
+function sameNames(left, right) {
+	left = uniqueNames(left).sort();
+	right = uniqueNames(right).sort();
+	if (left.length !== right.length) return false;
+	for (var i = 0; i < left.length; i++) {
+		if (left[i] !== right[i]) return false;
+	}
+	return true;
+}
+
+function originalIfaceConfig(viewState) {
+	var original = viewState.ifaceOriginal || {};
+	return {
+		ifname: configList(original.ifname),
+		interface_include: configList(original.interface_include),
+		observe: configList(original.observe),
+		present: original.present || {}
+	};
 }
 
 function collectIfaceSelections(viewState) {
@@ -189,37 +246,99 @@ function collectIfaceSelections(viewState) {
 }
 
 function prepareIfaceSave(viewState) {
+	if (!viewState.ifcfgLoaded || !viewState.sysdevices || !viewState.ifcfgState)
+		return { changed: false, viewState: viewState };
+	if (!viewState.ifcfgDirty)
+		return { changed: false, viewState: viewState };
+
 	var sel = collectIfaceSelections(viewState);
+	var selected = {};
 	var values = {};
-	if (!sel.attach.length && !sel.observe.length) {
-		throw new Error(_('请至少选择一个设备'));
-	}
 	if (sel.attach.length) {
-		values.ifname = sel.attach;
-		values.interface_include = sel.attach;
+		selected.ifname = sel.attach;
+		selected.interface_include = sel.attach;
 	}
 	if (sel.observe.length)
-		values.observe = sel.observe;
+		selected.observe = sel.observe;
 
-	return { values: values };
+	var original = originalIfaceConfig(viewState);
+	var visible = {};
+	visibleDevices(viewState.sysdevices || {}).forEach(function(dev) {
+		visible[dev.name] = true;
+	});
+	function hidden(names) {
+		return names.filter(function(name) { return !visible[name]; });
+	}
+	var desired = {
+		ifname: uniqueNames(hidden(original.ifname).concat(selected.ifname || [])),
+		interface_include: uniqueNames(hidden(original.interface_include)
+			.concat(selected.interface_include || [])),
+		observe: uniqueNames(hidden(original.observe).concat(selected.observe || []))
+	};
+	var changedOptions = [];
+	var deleteOptions = [];
+	[ 'ifname', 'interface_include', 'observe' ].forEach(function(option) {
+		if (sameNames(original[option], desired[option])) return;
+		changedOptions.push(option);
+		if (original.present[option] || original[option].length)
+			deleteOptions.push(option);
+		if (desired[option].length)
+			values[option] = desired[option];
+	});
+
+	if (!changedOptions.length)
+		return { changed: false, viewState: viewState, desired: desired };
+	if (!desired.ifname.length && !desired.interface_include.length && !desired.observe.length)
+		throw new Error(_('请至少选择一个设备'));
+
+	return {
+		changed: true,
+		viewState: viewState,
+		values: values,
+		desired: desired,
+		deleteOptions: deleteOptions
+	};
 }
 
 function applyIfaceSave(plan) {
-	/* Delete old lists first so moving every device between modes is atomic at commit. */
-	return Promise.resolve()
-		.then(function() {
-			return lsRpc.uciDelete('lanspeed', 'main',
-				['ifname','interface_include','observe']).catch(function(){});
-		})
-		.then(function() {
+	if (!plan || !plan.changed)
+		return Promise.resolve(false);
+	var pending = Promise.resolve();
+	if (plan.deleteOptions.length) {
+		pending = pending.then(function() {
+			return lsRpc.uciDelete('lanspeed', 'main', plan.deleteOptions);
+		});
+	}
+	if (Object.keys(plan.values).length) {
+		pending = pending.then(function() {
 			return lsRpc.uciSet('lanspeed', 'main', plan.values);
 		});
+	}
+	return pending.then(function() { return true; });
+}
+
+function markIfaceSaved(plan) {
+	if (!plan || !plan.changed || !plan.viewState) return;
+	plan.viewState.ifaceOriginal = {
+		ifname: plan.desired.ifname.slice(),
+		interface_include: plan.desired.interface_include.slice(),
+		observe: plan.desired.observe.slice(),
+		present: {
+			ifname: plan.desired.ifname.length > 0,
+			interface_include: plan.desired.interface_include.length > 0,
+			observe: plan.desired.observe.length > 0
+		}
+	};
+	plan.viewState.ifcfgDirty = false;
 }
 
 function setBusy(viewState, busy) {
 	var refs = viewState.refs;
+	fmt.asArray(viewState.ifcfgButtons).forEach(function(button) {
+		button.disabled = busy || Boolean(button.ifcfgAlwaysDisabled);
+	});
 	if (refs && refs.ifcfgReloadBtn)
-		refs.ifcfgReloadBtn.disabled = busy;
+		refs.ifcfgReloadBtn.disabled = busy || Boolean(viewState.ifcfgDirty);
 }
 
 function buildSection(viewState, title) {
@@ -272,6 +391,7 @@ return baseclass.extend({
 	collectSelections: collectIfaceSelections,
 	prepareSave:       prepareIfaceSave,
 	applySave:         applyIfaceSave,
+	markSaved:         markIfaceSaved,
 	setBusy:           setBusy,
 	isAutoIgnored:     isAutoIgnoredInterface
 });
