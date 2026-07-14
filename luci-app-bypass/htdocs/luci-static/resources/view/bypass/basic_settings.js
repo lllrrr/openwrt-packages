@@ -36,6 +36,9 @@ function injectStyles() {
 		'.bypass-card .ico{margin:1rem;flex:0 0 auto}',
 		'.bypass-card .ico img{display:block;width:48px;height:auto;user-select:none;-webkit-user-drag:none}',
 		'.bypass-card h4{font-size:.8125rem;font-weight:600;margin:1rem 1rem 1rem 0;color:#8898aa;line-height:1.8em;min-height:32px}',
+		'.bypass-card h4 .green,.bypass-badge-row .green{font-size:.9rem;color:#2dce89}',
+		'.bypass-card h4 .red,.bypass-badge-row .red{font-size:.9rem;color:#fb6340}',
+		'.bypass-card h4 .yellow,.bypass-badge-row .yellow{font-size:.9rem;color:#fb9a05}',
 		'.bypass-badge-row{display:flex;flex-wrap:wrap;gap:.5rem;margin:.25rem 0 1rem;padding:0 .5rem}',
 		'.bypass-badge{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:.375rem;border:1px solid rgba(0,0,0,.05);background:rgba(136,152,170,.06);font-size:.85rem}',
 		'.bypass-badge .dot{width:8px;height:8px;border-radius:50%;display:inline-block}',
@@ -98,7 +101,7 @@ function statusCard(type, icon, title, initLabel) {
 	]);
 	if (type) {
 		card.addEventListener('click', function () {
-			span.className = '';
+			span.className = 'red';
 			span.textContent = _('Check…');
 			var url = ({
 				baidu: 'https://www.baidu.com',
@@ -148,7 +151,8 @@ return view.extend({
 		var ifaces = data.interfaces || [];
 
 		/* ---- Status strip (4 cards) ---- */
-		var core = statusCard(null, STATUS_ICONS[0], _('Core'), status.running ? _('RUNNING') : _('NOT RUNNING'));
+		var coreTitle = status.version ? _('Core') + ' v' + status.version : _('Core');
+		var core = statusCard(null, STATUS_ICONS[0], coreTitle, status.running ? _('RUNNING') : _('NOT RUNNING'));
 		if (status.running) { core.span.className = 'green'; }
 		var baidu = statusCard('baidu', STATUS_ICONS[1], _('Baidu'), _('Touch Check'));
 		var google = statusCard('google', STATUS_ICONS[2], _('Google'), _('Touch Check'));
@@ -167,14 +171,10 @@ return view.extend({
 
 		/* ---- bypass badge row ---- */
 		var badgeRow = E('div', { class: 'bypass-badge-row' }, [
-			E('span', { class: 'bypass-badge' }, [ E('strong', {}, _('Version') + ': '), status.version || '—' ]),
+			badge(_('bypasscore'), status.bypasscore_present === 1, _('present'), _('missing')),
 			badge(_('naive'), status.naive_present === 1, _('present'), _('missing')),
 			badge(_('chinadns-ng'), status.chinadns_present === 1, _('present'), _('missing')),
-			badge(_('dns2socks'), status.dns2socks_present === 1, _('present'), _('optional')),
-			badge(_('bypasscore'), status.bypasscore_present === 1, _('present'), _('missing')),
-			badge(_('bypasscore ELF'), status.bypasscore_linux_elf === 1, _('Linux ELF'), _('not Linux ELF')),
-			badge(_('Firewall'), !!status.use_tables, status.use_tables || '—', 'none'),
-			badge(_('Egress'), !!status.egress_iface, status.egress_iface || _('default'), _('default'))
+			badge(_('dns2socks'), status.dns2socks_present === 1, _('present'), _('optional'))
 		]);
 
 		/* ---- The form.Map (single tabbed NamedSection + table section) ---- */
@@ -212,16 +212,6 @@ return view.extend({
 		o.default = '1';
 		o.rmempty = false;
 
-		o = s.taboption('Main', form.Value, 'bypasscore_file', _('BypassCore binary'));
-		o.placeholder = '/usr/bin/bypasscore';
-		o = s.taboption('Main', form.Value, 'naive_file', _('naive binary'));
-		o.placeholder = '/usr/bin/naive';
-		o = s.taboption('Main', form.Value, 'chinadns_file', _('chinadns-ng binary'));
-		o.placeholder = '/usr/bin/chinadns-ng';
-		o = s.taboption('Main', form.Value, 'dns2socks_file', _('dns2socks binary'));
-		o.description = _('Optional bridge that carries the remote DNS server through the selected NaiveProxy SOCKS tunnel.');
-		o.placeholder = '/usr/bin/dns2socks';
-
 		o = s.taboption('Main', form.Value, 'naive_egress_table', _('Egress route table'));
 		o.datatype = 'uinteger';
 		o.placeholder = '20200';
@@ -229,14 +219,6 @@ return view.extend({
 		o.description = _('Priority of the destination policy rules. The default 900 runs before Passwall2/mwan3-style marked rules without modifying their packet marks.');
 		o.datatype = 'uinteger';
 		o.placeholder = '900';
-
-		/* ----- Main tab (start_delay from 'global_delay') ----- */
-		o = s.taboption('Main', form.Value, 'start_delay', _('Start Delay (seconds)'),
-			_('Delay before Bypass starts on boot (lets WAN/DNS settle). 0 = start immediately.'));
-		o.datatype = 'uinteger';
-		o.default = '60';
-		o.placeholder = '60';
-		crossSection(o, 'global_delay');
 
 		/* ----- Shunt Rule tab (options from 'global_rules') ----- */
 		o = s.taboption('Shunt Rule', form.ListValue, 'domainStrategy', _('Domain Strategy'),
@@ -428,31 +410,33 @@ return view.extend({
 			}
 		}, _('DL Backup'));
 
-		var ulFile = E('input', { type: 'file', class: 'cbi-input-file', accept: '.tar.gz' });
+		var ulFile = E('input', { type: 'file', class: 'cbi-input-file', accept: '.tar.gz', style: 'display:none' });
 		var ulBtn = E('button', {
 			type: 'button',
 			class: 'cbi-button cbi-button-apply',
-			click: function () {
-				var f = ulFile.files && ulFile.files[0];
-				if (!f) { ui.addNotification(null, E('p', {}, _('Choose a .tar.gz file first.'))); return; }
-				ulBtn.disabled = true;
-				ulBtn.textContent = _('Restoring…');
-				var reader = new FileReader();
-				reader.onload = function () {
-					var b64 = reader.result.split(',')[1];
-					api('restore_backup', b64).then(function (r) {
-						ulBtn.disabled = false;
-						ulBtn.textContent = _('RST Backup');
-						if (r.code === 0) {
-							ui.addNotification(null, E('p', {}, _('Restored. Restart Bypass to apply.')));
-						} else {
-							ui.addNotification(null, E('p', {}, _('Restore failed: ') + (r.error || _('unknown'))));
-						}
-					});
-				};
-				reader.readAsDataURL(f);
-			}
-		}, _('RST Backup'));
+			click: function () { ulFile.click(); }
+		}, _('Restore Backup'));
+		ulFile.addEventListener('change', function () {
+			var f = ulFile.files && ulFile.files[0];
+			if (!f) return;
+			ulBtn.disabled = true;
+			ulBtn.textContent = _('Restoring…');
+			var reader = new FileReader();
+			reader.onload = function () {
+				var b64 = reader.result.split(',')[1];
+				api('restore_backup', b64).then(function (r) {
+					ulBtn.disabled = false;
+					ulBtn.textContent = _('Restore Backup');
+					ulFile.value = '';
+					if (r.code === 0) {
+						ui.addNotification(null, E('p', {}, _('Restored. Restart Bypass to apply.')));
+					} else {
+						ui.addNotification(null, E('p', {}, _('Restore failed: ') + (r.error || _('unknown'))));
+					}
+				});
+			};
+			reader.readAsDataURL(f);
+		});
 
 		var rstBtn = E('button', {
 			type: 'button',
@@ -481,7 +465,7 @@ return view.extend({
 				]),
 				E('div', { class: 'cbi-value' }, [
 					E('label', { class: 'cbi-value-title' }, _('Restore Backup File')),
-					E('div', { class: 'cbi-value-field' }, [ulFile, ' ', ulBtn])
+					E('div', { class: 'cbi-value-field' }, [ulBtn, ulFile])
 				]),
 				E('div', { class: 'cbi-value' }, [
 					E('label', { class: 'cbi-value-title' }, _('Restore to default configuration')),

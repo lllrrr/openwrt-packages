@@ -72,6 +72,7 @@ return view.extend({
 		nodes.forEach(function (sec) {
 			var sid = sec['.name'];
 			var tcpingCell = E('td', { class: 'td cbi-value-field', style: 'white-space:nowrap' });
+			var tcpingResult = E('span', { style: 'margin-left:6px;font-weight:bold' });
 			var tcpingLink = E('a', {
 				href: '#',
 				style: 'cursor:pointer',
@@ -79,31 +80,36 @@ return view.extend({
 					ev.preventDefault();
 					tcpingLink.textContent = _('Testing…');
 					tcpingLink.style.color = COL.yellow;
+					tcpingResult.textContent = '';
 					api('node_tcping', sid).then(function (r) {
+						tcpingLink.textContent = _('Test');
+						tcpingLink.style.color = '';
 						if (r.code === 0 && r.latency_ms != null) {
 							var ms = parseInt(r.latency_ms, 10);
 							setCachedTcping(sid, ms);
 							renderTcping(ms);
 						} else {
-							tcpingLink.textContent = '---';
-							tcpingLink.style.color = COL.red;
+							tcpingResult.textContent = '---';
+							tcpingResult.style.color = COL.red;
 						}
 					});
 				}
 			}, _('Test'));
 
 			function renderTcping(ms) {
-				tcpingCell.textContent = '';
 				if (ms == null) {
-					tcpingCell.appendChild(tcpingLink);
+					tcpingResult.textContent = '';
 					return;
 				}
-				tcpingCell.appendChild(E('span', { style: 'color:' + latencyColor(ms) + ';font-weight:bold' }, ms + ' ms'));
+				tcpingResult.textContent = ms + ' ms';
+				tcpingResult.style.color = latencyColor(ms);
 			}
+
+			tcpingCell.appendChild(tcpingLink);
+			tcpingCell.appendChild(tcpingResult);
 
 			var cached = getCachedTcping(sid);
 			if (cached != null) renderTcping(cached);
-			else tcpingCell.appendChild(tcpingLink);
 
 			var actions = E('td', { class: 'td cbi-section-table-cell cbi-section-actions', style: 'white-space:nowrap' }, [
 				E('div', { style: 'display:inline-flex;gap:4px' }, [

@@ -54,9 +54,20 @@
 			"acl": ["luci-app-bypass"]
 		}
 	},
+	"admin/services/bypass/file_location": {
+		"title": "File Location",
+		"order": 5,
+		"action": {
+			"type": "view",
+			"path": "bypass/file_location"
+		},
+		"depends": {
+			"acl": ["luci-app-bypass"]
+		}
+	},
 	"admin/services/bypass/geo_view": {
 		"title": "Geo View",
-		"order": 5,
+		"order": 6,
 		"action": {
 			"type": "view",
 			"path": "bypass/geo_view"
@@ -67,7 +78,7 @@
 	},
 	"admin/services/bypass/log": {
 		"title": "Runtime Logs",
-		"order": 6,
+		"order": 7,
 		"action": {
 			"type": "view",
 			"path": "bypass/log"

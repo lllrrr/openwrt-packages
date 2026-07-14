@@ -20,16 +20,15 @@ emit() {
 }
 
 # status -> { running, naive_present, chinadns_present, bypasscore_present,
-#             bypasscore_linux_elf, use_tables, egress_iface, redir_port }
+#             use_tables, egress_iface, redir_port }
 do_status() {
 	get_config
 	prepare_selected_nodes
-	local naive_present=0 chinadns_present=0 dns2socks_present=0 bypasscore_present=0 elf=0 running=0
+	local naive_present=0 chinadns_present=0 dns2socks_present=0 bypasscore_present=0 running=0
 	[ -n "$NAIVE_BIN" ] && naive_present=1
 	[ -n "$CHINADNS_BIN" ] && chinadns_present=1
 	[ -n "$DNS2SOCKS_BIN" ] && dns2socks_present=1
 	[ -x "$BYPASSCORE_FILE" ] && bypasscore_present=1
-	is_linux_elf "$BYPASSCORE_FILE" 2>/dev/null && elf=1
 	# BypassCore is the service: helper processes alone do not mean RUNNING.
 	busybox pgrep -f "$TMP_BIN_PATH/bypasscore" >/dev/null 2>&1 && running=1
 	local use_tables egress active_redir_port
@@ -42,8 +41,7 @@ do_status() {
 	json_add_int naive_present "$naive_present"
 	json_add_int chinadns_present "$chinadns_present"
 	json_add_int dns2socks_present "$dns2socks_present"
-	json_add_int bypasscore_present "$bypasscore_present"
-	json_add_int bypasscore_linux_elf "$elf"
+		json_add_int bypasscore_present "$bypasscore_present"
 	json_add_string use_tables "$use_tables"
 	json_add_string egress_iface "$egress"
 	json_add_string redir_port "$active_redir_port"
@@ -61,9 +59,9 @@ do_route_test() {
 	if [ -z "$dest" ]; then
 		json_add_int code -1
 		json_add_string error "missing destination"
-	elif ! is_linux_elf "$BYPASSCORE_FILE" 2>/dev/null; then
+	elif ! [ -x "$BYPASSCORE_FILE" ]; then
 		json_add_int code -1
-		json_add_string error "bypasscore unavailable (set bypasscore_file to a Linux ELF from https://github.com/kinmeic/BypassCore/releases)"
+		json_add_string error "bypasscore unavailable (set bypasscore_file from https://github.com/kinmeic/BypassCore/releases)"
 	else
 		gen_bypasscore_config >/dev/null 2>&1
 		local raw
@@ -80,7 +78,7 @@ do_route_test() {
 do_observe() {
 	get_config
 	json_init
-	if ! is_linux_elf "$BYPASSCORE_FILE" 2>/dev/null; then
+	if ! [ -x "$BYPASSCORE_FILE" ]; then
 		json_add_int code -1
 		json_add_string error "bypasscore unavailable"
 	else
@@ -101,9 +99,9 @@ do_resolve() {
 	if [ -z "$domain" ]; then
 		json_add_int code -1
 		json_add_string error "missing domain"
-	elif ! is_linux_elf "$BYPASSCORE_FILE" 2>/dev/null; then
+	elif ! [ -x "$BYPASSCORE_FILE" ]; then
 		json_add_int code -1
-		json_add_string error "bypasscore unavailable (set bypasscore_file to a Linux ELF from https://github.com/kinmeic/BypassCore/releases)"
+		json_add_string error "bypasscore unavailable (set bypasscore_file from https://github.com/kinmeic/BypassCore/releases)"
 	else
 		# Make sure the config (incl. dns section) is up to date for this query.
 		gen_bypasscore_config >/dev/null 2>&1
@@ -265,11 +263,14 @@ do_connect_status() {
 }
 
 # geo_view <action> <value> -> { code, output }
-# Wraps the geoview binary for the Geo View page. action = lookup (domain/IP →
-# geo rule list) or extract (geoip:cc / geosite:name → member list).
+# Wraps the geoview binary for the Geo View page.
+#   lookup  (domain/IP → geo rule list)
+#   extract (geoip:cc / geosite:name → member list)
+#   list    (enumerate every entry name in geoip.dat and geosite.dat)
 # Mirrors passwall2's controller geo_view() invocation:
 #   lookup:  geoview -type <geoip|geosite> -action lookup  -input <dat> -value <q> -lowmem=true
 #   extract: geoview -type <geoip|geosite> -action extract -input <dat> -list  <c> -lowmem=true
+#   list:    geoview -type <geoip|geosite> -action extract -input <dat>           -lowmem=true
 
 # Print shunt-rule section IDs containing a GeoData lookup result. This mirrors
 # passwall2 controller's get_rules(): compare the part after geosite:/geoip:
@@ -375,6 +376,20 @@ ${rules}"
 				;;
 		esac
 		out=$("$bin" -type "$geo_type" -action extract -input "$file_path" -list "$value" -lowmem=true 2>&1)
+		rc=$?
+	elif [ "$action" = "list" ]; then
+		# Enumerate every entry name in both geoip.dat and geosite.dat.
+		# geoview with -action extract and no -list prints "Available codes:" + names.
+		local geo_codes site_codes
+		if [ -n "$geoip_path" ] && [ -f "$geoip_path" ]; then
+			geo_codes=$("$bin" -type geoip -action extract -input "$geoip_path" -lowmem=true 2>/dev/null \
+				| sed -e '1{/^Available codes:$/d;}' -e '/^$/d' -e 's/^/geoip:/')
+		fi
+		if [ -n "$geosite_path" ] && [ -f "$geosite_path" ]; then
+			site_codes=$("$bin" -type geosite -action extract -input "$geosite_path" -lowmem=true 2>/dev/null \
+				| sed -e '1{/^Available codes:$/d;}' -e '/^$/d' -e 's/^/geosite:/')
+		fi
+		out=$([ -n "$geo_codes" ] && echo "$geo_codes"; [ -n "$site_codes" ] && echo "$site_codes")
 		rc=$?
 	else
 		json_add_int code -1

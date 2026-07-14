@@ -1085,6 +1085,32 @@ msgstr "删除节点：%s？"
 msgid "Cancel"
 msgstr "取消"
 
+#: htdocs/luci-static/resources/view/bypass/file_location.js:10
+#: htdocs/luci-static/resources/view/bypass/file_location.js:11
+msgid "Core Binaries"
+msgstr "核心二进制"
+
+#: htdocs/luci-static/resources/view/bypass/file_location.js:26
+msgid "Geo Rule Files"
+msgstr "Geo 资源文件"
+
+#: root/usr/share/luci/menu.d/luci-app-bypass.json
+msgid "File Location"
+msgstr "文件位置"
+
+#: htdocs/luci-static/resources/view/bypass/node_config.js:34
+msgid "Type"
+msgstr "类型"
+
+#: htdocs/luci-static/resources/view/bypass/node_config.js:40
+msgid "Protocol"
+msgstr "协议"
+
+#: htdocs/luci-static/resources/view/bypass/node_config.js:68
+#: htdocs/luci-static/resources/view/bypass/rule_edit.js:63
+msgid "Back"
+msgstr "返回"
+
 #~ msgid "\"auto\" = detect ISP DNS from resolv.conf."
 #~ msgstr "“auto”表示从 resolv.conf 自动检测运营商 DNS。"
 

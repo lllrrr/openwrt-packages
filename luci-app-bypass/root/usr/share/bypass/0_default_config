@@ -9,8 +9,9 @@ config global
 	# adapter/SOCKS upstream for Naive nodes, never a fallback core.
 	option dns_redirect '1'
 	# BypassCore binary (install from https://github.com/kinmeic/BypassCore
-	# releases; must be a Linux ELF). The routing/split engine + Observatory
-	# / route-test / DNS-resolve pages auto-disable if absent or not a Linux ELF.
+	# releases; pick the build matching your router's architecture). The
+	# routing/split engine + Observatory / route-test / DNS-resolve pages
+	# auto-disable if the binary is absent or not executable.
 	option bypasscore_file '/usr/bin/bypasscore'
 	option naive_file '/usr/bin/naive'
 	option chinadns_file '/usr/bin/chinadns-ng'
@@ -111,6 +112,7 @@ config shunt_rules 'Default'
 config nodes 'naive1'
 	option remarks 'Example'
 	option type 'NaiveProxy'
+	option protocol 'https'
 	option address 'naive.example.com'
 	option port '443'
 	option username 'user'

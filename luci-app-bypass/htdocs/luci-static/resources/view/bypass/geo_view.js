@@ -29,20 +29,40 @@ return view.extend({
 			placeholder: _('Results appear here.')
 		});
 
+		function setButtonsDisabled(state) {
+			lookupBtn.disabled = state;
+			extractBtn.disabled = state;
+			listBtn.disabled = state;
+		}
+
 		function doQuery(btn, action, input) {
 			var value = (input.value || '').trim();
 			if (!value) {
 				ui.addNotification(null, E('p', {}, _('Please enter query content!')));
 				return;
 			}
-			lookupBtn.disabled = true;
-			extractBtn.disabled = true;
+			setButtonsDisabled(true);
 			var oldLabel = btn.textContent;
 			btn.textContent = _('Querying…');
 			result.value = '';
 			api('geo_view', action, value).then(function (r) {
-				lookupBtn.disabled = false;
-				extractBtn.disabled = false;
+				setButtonsDisabled(false);
+				btn.textContent = oldLabel;
+				if (r.code === 0) {
+					result.value = r.output || _('No results were found!');
+				} else {
+					result.value = _('Error: ') + (r.error || r.output || _('unknown'));
+				}
+			});
+		}
+
+		function doList(btn) {
+			setButtonsDisabled(true);
+			var oldLabel = btn.textContent;
+			btn.textContent = _('Listing…');
+			result.value = '';
+			api('geo_view', 'list').then(function (r) {
+				setButtonsDisabled(false);
 				btn.textContent = oldLabel;
 				if (r.code === 0) {
 					result.value = r.output || _('No results were found!');
@@ -86,6 +106,13 @@ return view.extend({
 		extractBtn.addEventListener('click', function () { doQuery(extractBtn, 'extract', extractInput); });
 		bindEnter(extractInput, extractBtn, 'extract');
 
+		var listBtn = E('button', {
+			type: 'button',
+			id: 'list-view_btn',
+			class: 'cbi-button cbi-button-action'
+		}, _('List'));
+		listBtn.addEventListener('click', function () { doList(listBtn); });
+
 		return E('div', { class: 'cbi-map', style: 'margin-bottom:2rem' }, [
 			E('div', { class: 'cbi-value' }, [
 				E('ul', {}, [
@@ -107,7 +134,7 @@ return view.extend({
 			E('div', { class: 'cbi-value' }, [
 				E('label', { class: 'cbi-value-title', for: 'geoview.extract' }, _('GeoIP/Geosite Query')),
 				E('div', { class: 'cbi-value-field' }, [
-					E('div', { style: 'display:flex;gap:2px;align-items:center;white-space:nowrap' }, [extractInput, extractBtn]),
+					E('div', { style: 'display:flex;gap:2px;align-items:center;white-space:nowrap' }, [extractInput, extractBtn, listBtn]),
 					E('div', { class: 'cbi-value-description' }, _('Enter a GeoIP or Geosite to extract the domains/IPs they contain. Format: geoip:cn or geosite:gfw'))
 				])
 			]),

@@ -52,6 +52,17 @@ return view.extend({
 		o.placeholder = 'geoip:cn\ngeoip:private\n10.0.0.0/8';
 		o.description = _('One rule per line. geoip:, ext:, or a bare CIDR / IP.');
 
-		return m.render();
+		return m.render().then(function (node) {
+			return E('div', {}, [
+				node,
+				E('div', { class: 'cbi-page-actions' }, [
+					E('button', {
+						type: 'button',
+						class: 'cbi-button cbi-button-neutral',
+						click: function () { window.location.assign(L.url('admin/services/bypass/rule_manage')); }
+					}, _('Back'))
+				])
+			]);
+		});
 	}
 });

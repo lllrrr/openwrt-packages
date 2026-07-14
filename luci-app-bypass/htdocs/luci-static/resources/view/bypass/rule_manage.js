@@ -63,12 +63,6 @@ return view.extend({
 		o.value('https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat', _('MetaCubeX/geosite (CDN)'));
 		o.default = 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat';
 
-		o = gs.option(form.Value, 'v2ray_location_asset', _('Location of Geo rule files'),
-			_('Directory where geoip.dat and geosite.dat live.'));
-		o.default = '/usr/share/v2ray/';
-		o.placeholder = o.default;
-		o.rmempty = false;
-
 		o = gs.option(form.ListValue, 'update_week_mode', _('Auto Update Mode'));
 		o.default = '';
 		o.rmempty = false;

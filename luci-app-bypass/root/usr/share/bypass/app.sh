@@ -192,8 +192,8 @@ run_dns2socks() {
 }
 
 # ------------------------------------------------------------------------------
-# NaiveProxy protocol adapter. It exposes the selected HTTPS node as a local
-# SOCKS upstream; BypassCore remains the only transparent routing core.
+# NaiveProxy protocol adapter. It exposes the selected node (HTTPS or QUIC) as
+# a local SOCKS upstream; BypassCore remains the only transparent routing core.
 # ------------------------------------------------------------------------------
 
 run_naive_node() {
@@ -204,11 +204,16 @@ run_naive_node() {
 		return 1
 	}
 
-	local address port username password
+	local address port username password protocol
 	address=$(config_n_get "$node" address)
 	port=$(config_n_get "$node" port)
 	username=$(config_n_get "$node" username)
 	password=$(config_n_get "$node" password)
+	protocol=$(config_n_get "$node" protocol https)
+	case "$protocol" in
+		quic) protocol="quic" ;;
+		*) protocol="https" ;;
+	esac
 	[ -z "$address" ] || [ -z "$port" ] && { log 0 "Node [%s] has no address/port, skip naive." "$node"; return 1; }
 
 	# IPv6 host bracketing for the proxy URL.
@@ -225,7 +230,7 @@ run_naive_node() {
 	local socks_host=127.0.0.1
 	[ "$NODE_SOCKS_BIND_LOCAL" = "1" ] || socks_host=0.0.0.0
 	json_add_string "listen" "socks://${socks_host}:${socks_port}"
-	json_add_string "proxy" "https://${username}:${password}@${server_host}:${port}"
+	json_add_string "proxy" "${protocol}://${username}:${password}@${server_host}:${port}"
 	[ "$log_file" != "/dev/null" ] && json_add_string "log" "$log_file"
 	json_dump > "$socks_cfg"
 
@@ -726,7 +731,7 @@ gen_bypasscore_config() {
 	json_close_object
 
 	# observatory (only useful if the bypasscore binary is present)
-	if is_linux_elf "$BYPASSCORE_FILE" 2>/dev/null; then
+	if [ -x "$BYPASSCORE_FILE" ]; then
 		json_add_object observatory
 			json_add_array subject_selector
 				json_add_string '' proxy_
@@ -780,8 +785,8 @@ gen_bypasscore_config() {
 # BypassCore transparent core: `bypasscore -run -c <cfg>` (daemon).
 # ------------------------------------------------------------------------------
 run_bypasscore_core() {
-	if ! is_linux_elf "$BYPASSCORE_FILE" 2>/dev/null; then
-		log 0 "BypassCore is missing or is not a Linux ELF; service cannot start."
+	if ! [ -x "$BYPASSCORE_FILE" ]; then
+		log 0 "BypassCore is missing or not executable; service cannot start."
 		return 1
 	fi
 	gen_bypasscore_config || return 1
@@ -954,7 +959,7 @@ start() {
 		return 0
 	}
 	check_run_environment || return 1
-	if ! is_linux_elf "$BYPASSCORE_FILE" 2>/dev/null; then
+	if ! [ -x "$BYPASSCORE_FILE" ]; then
 		log 0 "BypassCore is required but unavailable at [%s]; service not started." "$BYPASSCORE_FILE"
 		return 1
 	fi

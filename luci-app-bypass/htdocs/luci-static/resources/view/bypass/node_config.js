@@ -24,11 +24,21 @@ return view.extend({
 			return hint.render();
 		}
 
-		var m = new form.Map('bypass', _('Node Config'),
-			_('NaiveProxy node (https).'));
-		var s = m.section(form.NamedSection, sid, 'nodes', _('Node') + ': ' + sid);
+		var m = new form.Map('bypass');
+		var s = m.section(form.NamedSection, sid, 'nodes');
 
 		var o;
+
+		o = s.option(form.ListValue, 'type', _('Type'));
+		o.value('NaiveProxy', 'NaiveProxy');
+		o.default = 'NaiveProxy';
+		o.readonly = true;
+
+		o = s.option(form.ListValue, 'protocol', _('Protocol'));
+		o.value('https', 'HTTPS');
+		o.value('quic', 'QUIC');
+		o.default = 'https';
+		o.rmempty = false;
 
 		o = s.option(form.Value, 'remarks', _('Remarks'));
 		o.rmempty = false;
@@ -48,6 +58,17 @@ return view.extend({
 		o = s.option(form.Value, 'password', _('Password'));
 		o.password = true;
 
-		return m.render();
+		return m.render().then(function (node) {
+			return E('div', {}, [
+				node,
+				E('div', { class: 'cbi-page-actions' }, [
+					E('button', {
+						type: 'button',
+						class: 'cbi-button cbi-button-neutral',
+						click: function () { window.location.assign(L.url('admin/services/bypass/node_list')); }
+					}, _('Back'))
+				])
+			]);
+		});
 	}
 });
