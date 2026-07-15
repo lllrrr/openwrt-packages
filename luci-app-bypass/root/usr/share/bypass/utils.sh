@@ -130,6 +130,20 @@ first_type() {
 	command -v "$1" 2>/dev/null || command -v "$2" 2>/dev/null
 }
 
+# Identify the installed executable behind a configured path. Package upgrades
+# normally replace the inode while a running process keeps executing the old,
+# unlinked image; path + device/inode + size + mtime detects that transition
+# without hashing multi-megabyte binaries every monitor interval.
+binary_fingerprint() {
+	local path=$1 resolved metadata
+	[ -n "$path" ] && [ -e "$path" ] || return 1
+	resolved=$(busybox readlink -f "$path" 2>/dev/null)
+	[ -n "$resolved" ] || resolved=$path
+	[ -x "$resolved" ] || return 1
+	metadata=$(busybox stat -c '%d:%i:%s:%Y' "$resolved" 2>/dev/null) || return 1
+	printf '%s:%s\n' "$resolved" "$metadata"
+}
+
 check_port_exists() {
 	local port=$1
 	local protocol=$2

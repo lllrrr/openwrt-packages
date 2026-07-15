@@ -77,6 +77,7 @@ After installation:
 - **Shunt Rule**: choose Close, Direct Connection, Blackhole, or a specific NaiveProxy node. The built-in Default rule is always the final catch-all.
 - **Other Settings**: configure TCP redirection, UDP No Redir Ports, IPv6 TProxy, ICMP handling, and Direct IP List.
 - **Rule Manage**: maintain the ordered shunt-rule list and optional GeoIP/Geosite update schedule.
+- **Runtime upgrades**: the always-on lightweight watcher fingerprints the installed BypassCore, NaiveProxy, and ChinaDNS-NG executables. After an `opkg`/`apk` upgrade settles, Bypass performs one serialized full restart so the new binaries actually take effect. Disabling process-health supervision does not disable upgrade detection.
 - **Geo View**: query domain/IP matches against installed GeoIP and Geosite data.
 
 NaiveProxy does not support general SOCKS5 UDP association. By default, forwarded external UDP is blocked to prevent QUIC/STUN traffic from bypassing the TCP proxy. Explicit UDP No Redir Ports are sent directly and may expose the real egress IP.

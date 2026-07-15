@@ -171,13 +171,10 @@ return view.extend({
 			core.card, baidu.card, google.card, github.card
 		]);
 
-		var dnsBadge = badge(_('BypassCore DNS'), status.bypasscore_dns_ready === 1, _('ready'), _('stopped'));
-
 		poll.add(function () {
 			return api('status').then(function (s) {
 				core.span.className = s.running ? 'green' : 'red';
 				core.span.textContent = s.running ? _('RUNNING') : _('NOT RUNNING');
-				dnsBadge.setPresent(s.bypasscore_dns_ready === 1);
 			});
 		}, 5);
 
@@ -185,8 +182,7 @@ return view.extend({
 		var badgeRow = E('div', { class: 'bypass-badge-row' }, [
 			badge(_('bypasscore'), status.bypasscore_present === 1, _('present'), _('missing')),
 			badge(_('naive'), status.naive_present === 1, _('present'), _('missing')),
-			badge(_('chinadns-ng'), status.chinadns_present === 1, _('present'), _('missing')),
-			dnsBadge
+			badge(_('chinadns-ng'), status.chinadns_present === 1, _('present'), _('missing'))
 		]);
 
 		/* ---- The form.Map (single tabbed TypedSection + table section) ---- */

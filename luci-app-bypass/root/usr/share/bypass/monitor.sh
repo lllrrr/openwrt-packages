@@ -2,9 +2,10 @@
 # Copyright (c) 2026 Eugene Chan
 # SPDX-License-Identifier: MIT
 #
-# Lightweight process supervisor modelled after Passwall2's monitor. It checks
-# both the recorded PID and the actual listening socket, then requests one full
-# serialized restart so firewall, DNS and policy-routing state remain atomic.
+# Runtime watcher modelled after Passwall2's monitor. It checks the recorded PID
+# and listening socket when health supervision is enabled. Independently, it
+# watches the installed BypassCore, NaiveProxy and ChinaDNS-NG executables so a
+# package upgrade cannot leave an old, unlinked process running indefinitely.
 
 . /usr/share/bypass/utils.sh
 
@@ -25,6 +26,27 @@ while [ ! -f "$READY_FILE" ] && [ "$waited" -lt 30 ]; do
 done
 [ -f "$READY_FILE" ] || exit 0
 
+runtime_binary_snapshot() {
+	local bypasscore_file naive_file chinadns_file
+	bypasscore_file=$(first_type "$(config_t_get global bypasscore_file /usr/bin/bypasscore)" bypasscore)
+	naive_file=$(first_type "$(config_t_get global naive_file /usr/bin/naive)" naive)
+	chinadns_file=$(first_type "$(config_t_get global chinadns_file /usr/bin/chinadns-ng)" chinadns-ng)
+	printf 'bypasscore=%s\nnaive=%s\nchinadns-ng=%s\n' \
+		"$(binary_fingerprint "$bypasscore_file" 2>/dev/null)" \
+		"$(binary_fingerprint "$naive_file" 2>/dev/null)" \
+		"$(binary_fingerprint "$chinadns_file" 2>/dev/null)"
+}
+
+schedule_full_restart() {
+	rm -f "$READY_FILE"
+	( sleep 2; /etc/init.d/bypass restart >/dev/null 2>&1 ) &
+	exit 0
+}
+
+binary_baseline=$(runtime_binary_snapshot)
+binary_candidate=""
+binary_change_count=0
+
 last_failed=""
 failure_count=0
 while [ "$(config_t_get global enabled 0)" = "1" ] && [ -f "$READY_FILE" ]; do
@@ -32,6 +54,33 @@ while [ "$(config_t_get global enabled 0)" = "1" ] && [ -f "$READY_FILE" ]; do
 	# keeps recovery reasonably quick while avoiding a busy five-second probe.
 	sleep 15
 	[ -f "$READY_FILE" ] || exit 0
+
+	# opkg/apk may replace more than one file in a transaction. Require the new
+	# snapshot to remain unchanged for two probes before restarting, which avoids
+	# racing a partially installed dependency set. A missing executable is part
+	# of the snapshot as well and therefore fails closed after the transaction
+	# settles instead of silently retaining the old process.
+	binary_current=$(runtime_binary_snapshot)
+	if [ "$binary_current" != "$binary_baseline" ]; then
+		if [ "$binary_current" = "$binary_candidate" ]; then
+			binary_change_count=$((binary_change_count + 1))
+		else
+			binary_candidate=$binary_current
+			binary_change_count=1
+		fi
+		if [ "$binary_change_count" -ge 2 ]; then
+			log 0 "Runtime executable update detected; scheduling a full restart."
+			schedule_full_restart
+		fi
+	else
+		binary_candidate=""
+		binary_change_count=0
+	fi
+
+	# The user-facing daemon switch controls crash/health recovery only. Binary
+	# update detection above remains active so package upgrades always activate
+	# the newly installed core and helper versions.
+	[ "$(config_t_get global_delay start_daemon 1)" = "1" ] || continue
 
 	failed_name=""
 	failed_process=""
@@ -93,9 +142,7 @@ while [ "$(config_t_get global enabled 0)" = "1" ] && [ -f "$READY_FILE" ]; do
 	[ "$failure_count" -ge 3 ] || continue
 	log 0 "Process monitor detected an unhealthy %s; scheduling a full restart." "$failed_name"
 	log_component_tail "$failed_name" "$failed_log"
-	rm -f "$READY_FILE"
-	( sleep 1; /etc/init.d/bypass restart >/dev/null 2>&1 ) &
-	exit 1
+	schedule_full_restart
 done
 
 exit 0

@@ -20,17 +20,14 @@ emit() {
 }
 
 # status -> { running, naive_present, chinadns_present, bypasscore_present,
-#             bypasscore_dns_ready, use_tables, egress_ifaces, redir_port }
+#             use_tables, egress_ifaces, redir_port }
 do_status() {
 	get_config
 	prepare_selected_nodes
-	local naive_present=0 chinadns_present=0 bypasscore_present=0 bypasscore_dns_ready=0 running=0
+	local naive_present=0 chinadns_present=0 bypasscore_present=0 running=0
 	[ -n "$NAIVE_BIN" ] && naive_present=1
 	[ -n "$CHINADNS_BIN" ] && chinadns_present=1
 	is_bypasscore "$BYPASSCORE_FILE" && bypasscore_present=1
-	process_alive bypasscore && \
-		[ "$(check_port_exists "$BYPASSCORE_DNS_PORT" udp)" -gt 0 ] 2>/dev/null && \
-		[ "$(check_port_exists "$BYPASSCORE_DNS_PORT" tcp)" -gt 0 ] 2>/dev/null && bypasscore_dns_ready=1
 	# BypassCore plus the ready marker represent a fully installed firewall/DNS
 	# path; a stray core process during startup or teardown is not RUNNING.
 	[ -f /var/lock/bypass_ready.lock ] && process_alive bypasscore && \
@@ -45,7 +42,6 @@ do_status() {
 	json_add_int naive_present "$naive_present"
 	json_add_int chinadns_present "$chinadns_present"
 	json_add_int bypasscore_present "$bypasscore_present"
-	json_add_int bypasscore_dns_ready "$bypasscore_dns_ready"
 	json_add_string use_tables "$use_tables"
 	json_add_string egress_ifaces "$egress"
 	# Retain the old singular key for callers written before per-node egress.

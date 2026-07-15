@@ -494,9 +494,6 @@ msgstr "缺失"
 msgid "chinadns-ng"
 msgstr "chinadns-ng"
 
-msgid "BypassCore DNS"
-msgstr "BypassCore DNS"
-
 msgid "ready"
 msgstr "就绪"
 

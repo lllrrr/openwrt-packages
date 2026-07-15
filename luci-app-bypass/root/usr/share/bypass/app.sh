@@ -1148,14 +1148,17 @@ validate_runtime() {
 }
 
 start_monitor() {
-	[ "$START_DAEMON" = "1" ] || return 0
 	local monitor_log="$TMP_ACL_PATH/monitor.log"
 	: > "$monitor_log"
 	ln_run 0 "$APP_PATH/monitor.sh" monitor "$monitor_log" || {
 		log 0 "Process monitor could not be started."
 		return 1
 	}
-	log 0 "Process monitor started."
+	if [ "$START_DAEMON" = "1" ]; then
+		log 0 "Process monitor and executable update watcher started."
+	else
+		log 0 "Executable update watcher started; process health monitoring is disabled."
+	fi
 }
 
 # ------------------------------------------------------------------------------
@@ -1237,7 +1240,7 @@ start() {
 
 	start_crontab
 	start_monitor || {
-		log 0 "Required process supervision is unavailable; stopping instead of leaving an unmonitored redirect path."
+		log 0 "Required runtime watcher is unavailable; stopping instead of leaving updates and process failures untracked."
 		stop
 		return 1
 	}
