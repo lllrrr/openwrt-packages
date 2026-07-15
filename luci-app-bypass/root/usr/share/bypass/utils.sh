@@ -552,6 +552,23 @@ is_bypasscore() {
 	"$path" --version 2>/dev/null | grep -q '^BypassCore[[:space:]]'
 }
 
+# Native DNS listening arrived in v1.0.7, while arbitrary record forwarding
+# (required when BypassCore is dnsmasq's main upstream) arrives in v1.0.8.
+# Development builds identify as "dev" and are allowed for source testing.
+bypasscore_has_raw_dns() {
+	local path=$1 version
+	version=$("$path" --version 2>/dev/null | awk 'NR == 1 && $1 == "BypassCore" { print $2 }')
+	[ "$version" = "dev" ] && return 0
+	echo "$version" | awk -F. '
+		NF >= 3 {
+			patch=$3; sub(/[^0-9].*$/, "", patch)
+			ok=($1+0 > 1) || ($1+0 == 1 && (($2+0 > 0) || ($2+0 == 0 && patch+0 >= 8)))
+			exit ok ? 0 : 1
+		}
+		{ exit 1 }
+	'
+}
+
 # ------------------------------------------------------------------------------
 # Egress-interface routing helpers (destination-policy-rule strategy).
 #

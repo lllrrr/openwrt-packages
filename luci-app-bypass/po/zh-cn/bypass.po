@@ -494,9 +494,14 @@ msgstr "缺失"
 msgid "chinadns-ng"
 msgstr "chinadns-ng"
 
-#: htdocs/luci-static/resources/view/bypass/basic_settings.js:173
-msgid "dns2socks"
-msgstr "dns2socks"
+msgid "BypassCore DNS"
+msgstr "BypassCore DNS"
+
+msgid "ready"
+msgstr "就绪"
+
+msgid "stopped"
+msgstr "已停止"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:173
 msgid "optional"
@@ -583,18 +588,6 @@ msgstr "naive 二进制"
 msgid "chinadns-ng binary"
 msgstr "chinadns-ng 二进制"
 
-#: htdocs/luci-static/resources/view/bypass/basic_settings.js:221
-msgid "dns2socks binary"
-msgstr "dns2socks 二进制"
-
-#: htdocs/luci-static/resources/view/bypass/basic_settings.js:222
-msgid ""
-"Required when Remote DNS Outbound is Remote; carries TCP DNS through the "
-"selected NaiveProxy SOCKS tunnel."
-msgstr ""
-"国外 DNS 出站选择“远程”时必须提供；用于通过所选 NaiveProxy SOCKS 隧道承载 "
-"TCP DNS。"
-
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:225
 msgid "Egress route table"
 msgstr "出口路由表"
@@ -658,12 +651,12 @@ msgstr "直连 DNS 结果写入 IPSet"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:257
 msgid ""
-"Write addresses resolved for matching direct-domain rules to NFTSet so they "
-"can connect directly without re-entering the core. This may conflict with "
-"unusual DNS setups."
+"Write addresses resolved for matching direct-domain rules to an informational "
+"NFTSet. BypassCore still makes every ordered traffic decision because "
+"unrelated hostnames can share an IP address."
 msgstr ""
-"将命中直连域名规则所解析出的地址写入 NFTSet，使其直接连接而不再次进入核心。这"
-"可能与某些特殊 DNS 配置冲突。"
+"将命中直连域名规则所解析出的地址写入信息用途的 NFTSet。由于不同域名可能共享同"
+"一个 IP 地址，所有有序流量决策仍由 BypassCore 完成。"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:262
 msgid "Enable GeoIP Data Parsing"
@@ -671,11 +664,12 @@ msgstr "启用 GeoIP 数据解析"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:263
 msgid ""
-"Analyze and preload GeoIP data to improve shunt performance. This increases "
-"resource usage and may conflict with unusual setups."
+"Parse Direct-rule GeoIP entries into an informational NFTSet for diagnostics "
+"and compatibility. BypassCore always remains responsible for ordered routing "
+"decisions."
 msgstr ""
-"分析并预加载 GeoIP 数据以提升分流性能。这会增加资源占用，并可能与某些特殊配置"
-"冲突。"
+"将直连规则中的 GeoIP 条目解析到信息用途的 NFTSet，供诊断和兼容使用；有序路由决"
+"策始终由 BypassCore 负责。"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:268
 msgid "Default Direct Interface"
@@ -737,13 +731,11 @@ msgstr "直连域名 DNS 分流"
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:316
 msgid ""
 "One entry per line: a domain/full/geosite rule followed by a UDP, TCP or TLS "
-"direct DNS upstream. ChinaDNS-NG permits up to five entries, or four while "
-"Direct shunt NFTSet acceleration is active, because node and Direct groups "
-"use the remaining slots. Invalid entries prevent the service from starting."
+"direct DNS upstream. BypassCore applies these entries before the default "
+"domestic/remote DNS servers. Invalid entries prevent the service from starting."
 msgstr ""
 "每行一项：domain/full/geosite 规则，后跟 UDP、TCP 或 TLS 直连 DNS 上游。"
-"ChinaDNS-NG 最多允许五项；启用直连分流 NFTSet 加速时最多四项，因为节点组和直"
-"连组会占用其余名额。格式错误会阻止服务启动。"
+"BypassCore 会在默认国内/国外 DNS 服务器之前应用这些条目。格式错误会阻止服务启动。"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:319
 msgid "Direct Query Strategy"
@@ -755,13 +747,11 @@ msgstr "国外 DNS 协议"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:327
 msgid ""
-"The NaiveProxy Remote outbound uses dns2socks and therefore requires TCP. UDP "
-"and TLS require Direct outbound. DoH requires Direct outbound and DNS "
-"Redirect disabled because ChinaDNS-NG has no DoH upstream mode."
+"BypassCore carries TCP, TLS (DoT), and DoH through the selected NaiveProxy "
+"node. UDP requires Direct outbound because NaiveProxy has no UDP transport."
 msgstr ""
-"NaiveProxy 远程出站使用 dns2socks，因此要求 TCP。UDP 和 TLS 必须使用直连出"
-"站。DoH 必须使用直连出站并关闭 DNS 重定向，因为 ChinaDNS-NG 没有 DoH 上游模"
-"式。"
+"BypassCore 可通过所选 NaiveProxy 节点承载 TCP、TLS（DoT）和 DoH。由于 "
+"NaiveProxy 不支持 UDP，UDP 必须选择直连出站。"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:328
 msgid "UDP"
@@ -804,9 +794,9 @@ msgid "Remote DNS Outbound"
 msgstr "国外 DNS 出站"
 
 msgid ""
-"Remote carries TCP DNS through the selected NaiveProxy node. Direct connects "
-"from the router without the proxy."
-msgstr "远程会通过所选 NaiveProxy 节点承载 TCP DNS；直连则由路由器直接连接而不经过代理。"
+"Remote carries TCP, TLS (DoT), or DoH through BypassCore and the selected "
+"NaiveProxy node. Direct connects from the router without the proxy."
+msgstr "远程会通过 BypassCore 和所选 NaiveProxy 节点承载 TCP、TLS（DoT）或 DoH；直连则由路由器直接连接而不经过代理。"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:359
 msgid "Remote"
@@ -830,11 +820,12 @@ msgstr "DNS 重定向"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:379
 msgid ""
-"Forward dnsmasq to ChinaDNS-NG and redirect LAN client TCP/UDP port 53 queries "
-"to the router, including clients with a hardcoded DNS server."
+"Forward dnsmasq to BypassCore DNS, use ChinaDNS-NG only for Direct/NFTSet "
+"helper queries, and redirect LAN client TCP/UDP port 53 queries to the router, "
+"including clients with a hardcoded DNS server."
 msgstr ""
-"将 dnsmasq 转发到 ChinaDNS-NG，并把 LAN 客户端的 TCP/UDP 53 端口查询重定向到"
-"路由器，包括硬编码了 DNS 服务器的客户端。"
+"将 dnsmasq 转发到 BypassCore DNS，仅将 ChinaDNS-NG 用于直连/NFTSet 辅助查询，"
+"并把 LAN 客户端的 TCP/UDP 53 端口查询重定向到路由器，包括硬编码了 DNS 服务器的客户端。"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:382
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:384
@@ -1269,13 +1260,6 @@ msgstr "返回"
 #, javascript-format
 #~ msgid "Use node: %s ?"
 #~ msgstr "使用节点：%s？"
-
-#~ msgid ""
-#~ "When dns2socks is available, BypassCore foreign lookups use the local DNS-"
-#~ "to-SOCKS relay instead of dialing this server directly."
-#~ msgstr ""
-#~ "dns2socks 可用时，BypassCore 的国外域名查询会使用本机 DNS-to-SOCKS 中继，"
-#~ "而不会直接连接此服务器。"
 
 #~ msgid "Localhost Proxy"
 #~ msgstr "路由器本机代理"

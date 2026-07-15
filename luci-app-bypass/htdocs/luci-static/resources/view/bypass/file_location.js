@@ -3,7 +3,7 @@
 'require form';
 
 // File Location — centralizes every binary / asset path in one place:
-//   • Core Binaries (global): bypasscore / naive / chinadns-ng / dns2socks
+//   • Core Binaries (global): bypasscore / naive / chinadns-ng
 //   • Geo Rule Files (global_rules): v2ray_location_asset
 
 return view.extend({
@@ -23,10 +23,6 @@ return view.extend({
 
 		o = sBin.option(form.Value, 'chinadns_file', _('chinadns-ng binary'));
 		o.placeholder = '/usr/bin/chinadns-ng';
-
-		o = sBin.option(form.Value, 'dns2socks_file', _('dns2socks binary'));
-		o.description = _('Required when Remote DNS Outbound is Remote; carries TCP DNS through the selected NaiveProxy SOCKS tunnel.');
-		o.placeholder = '/usr/bin/dns2socks';
 
 		/* ---- Geo rule files (global_rules section) ---- */
 		var sGeo = m.section(form.TypedSection, 'global_rules', _('Geo Rule Files'));

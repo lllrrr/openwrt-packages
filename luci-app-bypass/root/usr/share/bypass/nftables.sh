@@ -199,20 +199,13 @@ EOF
 	local direct_accept="ip daddr @bypass_direct accept"
 	local direct6_accept="ip6 daddr @bypass_direct6 accept"
 	local direct_dns_accept="" direct_dns6_accept=""
-	local direct_bind_configured=0 direct_sid
-	[ -n "$(config_t_get global_rules direct_egress_interface)" ] && direct_bind_configured=1
-	for direct_sid in $(uci -q show "$CONFIG" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
-		[ "$(config_n_get "$direct_sid" outbound)" = "_direct" ] && \
-			[ -n "$(config_n_get "$direct_sid" egress_interface)" ] && {
-				direct_bind_configured=1
-				break
-			}
-	done
-	if { [ "$WRITE_IPSET_DIRECT" = "1" ] || [ "$ENABLE_GEOVIEW_IP" = "1" ]; } && [ "$direct_bind_configured" = "0" ]; then
-		direct_dns_accept="ip daddr @bypass_direct_dns accept"
-		direct_dns6_accept="ip6 daddr @bypass_direct_dns6 accept"
-	elif [ "$direct_bind_configured" = "1" ]; then
-		log 0 "Direct interface binding is configured; keeping direct DNS/GeoIP matches inside BypassCore so the selected interface is honored."
+	# Never accept a connection solely because a previous DNS answer placed its
+	# destination in bypass_direct_dns. IP addresses are shared by unrelated CDN
+	# hostnames, and an IP-only fast path cannot preserve BypassCore's ordered
+	# Proxy/Block/Direct domain semantics. The sets are still populated for
+	# compatibility and diagnostics, but BypassCore remains the routing authority.
+	if { [ "$WRITE_IPSET_DIRECT" = "1" ] || [ "$ENABLE_GEOVIEW_IP" = "1" ]; }; then
+		log 0 "Direct DNS/GeoIP NFTSets are informational; ordered traffic decisions remain inside BypassCore."
 	fi
 
 	local nat_chain="" udp_guard_chain="" mangle_chain="" mangle6_chain="" tcp_redirect_rule="" icmp_redirect_rule="" dns_redirect_rule="" dns_tproxy_bypass="" tcp_no_redir_rule="" udp_no_redir_rule=""
@@ -416,17 +409,16 @@ EOF
 		fi
 	done
 
-	# Passwall2-style GeoIP preloading for Direct rules. Populate the same
-	# interval sets used by direct DNS results so matching IPs bypass the core.
-	# GeoIP lists can contain thousands of CIDRs, so aggregate them and invoke
-	# nft once per address family instead of once per CIDR.
+	# Optionally parse Direct-rule GeoIP entries into informational interval sets.
+	# These sets are intentionally not accepted before BypassCore: an IP-only
+	# shortcut cannot preserve ordered domain rules or distinguish shared CDN IPs.
 	if [ "$ENABLE_GEOVIEW_IP" = "1" ]; then
 		local sid ip_rule code geo4_file geo6_file geo4_count geo6_count
 		geo4_file="$TMP_PATH2/direct-geoip4"
 		geo6_file="$TMP_PATH2/direct-geoip6"
 		: > "$geo4_file"
 		: > "$geo6_file"
-		log 0 "Preloading Direct GeoIP entries into nftables sets..."
+		log 0 "Parsing Direct GeoIP entries into informational nftables sets..."
 		for sid in $(uci -q show "$CONFIG" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
 			[ "$(config_n_get "$sid" outbound)" = "_direct" ] || continue
 			while IFS= read -r ip_rule; do
@@ -447,11 +439,11 @@ EOF
 		geo4_count=$(sort -u "$geo4_file" 2>/dev/null | grep -c .)
 		geo6_count=$(sort -u "$geo6_file" 2>/dev/null | grep -c .)
 		if nft_import_elements bypass_direct_dns "$geo4_file" && nft_import_elements bypass_direct_dns6 "$geo6_file"; then
-			log 0 "Direct GeoIP preload completed: IPv4=%s, IPv6=%s." "$geo4_count" "$geo6_count"
+			log 0 "Direct GeoIP parsing completed: IPv4=%s, IPv6=%s." "$geo4_count" "$geo6_count"
 		else
 			$NFT flush set inet ${NFT_TABLE} bypass_direct_dns 2>/dev/null
 			$NFT flush set inet ${NFT_TABLE} bypass_direct_dns6 2>/dev/null
-			log 0 "Direct GeoIP preload failed; continuing without nftables GeoIP acceleration because BypassCore still enforces the rules."
+			log 0 "Direct GeoIP parsing failed; BypassCore remains authoritative."
 		fi
 	fi
 

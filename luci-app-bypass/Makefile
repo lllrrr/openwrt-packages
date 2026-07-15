@@ -5,7 +5,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-bypass
-PKG_VERSION:=1.5.3
+PKG_VERSION:=1.5.5
 PKG_RELEASE:=1
 PKG_PO_VERSION:=$(PKG_VERSION)
 PKG_LICENSE:=MIT
@@ -26,7 +26,7 @@ LUCI_PKGARCH:=all
 # kernel expressions as runtime dependencies so installing the generated
 # package also installs everything required by REDIRECT and TPROXY modes.
 LUCI_DEPENDS:=+ca-bundle +curl +ip-full +resolveip +libubox \
-	+nftables +kmod-nft-nat +kmod-nft-tproxy +kmod-nft-socket +chinadns-ng +dns2socks
+	+nftables +kmod-nft-nat +kmod-nft-tproxy +kmod-nft-socket +chinadns-ng
 
 define Package/$(PKG_NAME)/config
 menu "Configuration"

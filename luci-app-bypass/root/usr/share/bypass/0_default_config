@@ -16,7 +16,6 @@ config global
 	option bypasscore_file '/usr/bin/bypasscore'
 	option naive_file '/usr/bin/naive'
 	option chinadns_file '/usr/bin/chinadns-ng'
-	option dns2socks_file '/usr/bin/dns2socks'
 	# Base table/priority for per-node NaiveProxy egress policy routing. A node's
 	# logical interface is configured in its Node Config page.
 	option naive_egress_table '20200'
@@ -43,6 +42,8 @@ config global_dns
 	option dns_hosts 'cloudflare-dns.com 1.1.1.1
 dns.google.com 8.8.8.8'
 	option chinadns_listen_port '10553'
+	# BypassCore native UDP/TCP DNS inbound used as dnsmasq's main upstream.
+	option bypasscore_dns_listen_port '10554'
 	option dns_split_domain 'geosite:cn'
 
 config global_rules

@@ -42,6 +42,15 @@ while [ "$(config_t_get global enabled 0)" = "1" ] && [ -f "$READY_FILE" ]; do
 		failed_process=bypasscore
 		failed_log="$TMP_ACL_PATH/bypasscore.log"
 	fi
+	if [ -z "$failed_name" ]; then
+		dns_port=$(get_cache_var BYPASSCORE_DNS_PORT)
+		if [ -z "$dns_port" ] || ! component_healthy bypasscore "$dns_port" udp || \
+			[ "$(check_port_exists "$dns_port" tcp)" -le 0 ] 2>/dev/null; then
+			failed_name="BypassCore DNS listener"
+			failed_process=bypasscore
+			failed_log="$TMP_ACL_PATH/bypasscore.log"
+		fi
+	fi
 
 	if [ -z "$failed_name" ] && [ -s "$TMP_PATH/node_ports" ]; then
 		while read -r node port; do
@@ -53,15 +62,6 @@ while [ "$(config_t_get global enabled 0)" = "1" ] && [ -f "$READY_FILE" ]; do
 				break
 			fi
 		done < "$TMP_PATH/node_ports"
-	fi
-
-	if [ -z "$failed_name" ] && [ "$(config_t_get global_dns remote_dns_detour remote)" = "remote" ]; then
-		dns_port=$(get_cache_var DNS2SOCKS_PORT)
-		if [ -z "$dns_port" ] || ! component_healthy dns2socks "$dns_port" udp; then
-			failed_name=dns2socks
-			failed_process=dns2socks
-			failed_log="$TMP_ACL_PATH/dns2socks.log"
-		fi
 	fi
 
 	if [ -z "$failed_name" ] && [ "$(config_t_get global dns_redirect 1)" = "1" ]; then

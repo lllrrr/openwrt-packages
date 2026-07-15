@@ -127,11 +127,20 @@ function statusCard(type, icon, title, initLabel) {
 
 function badge(label, present, okText, badText) {
 	var color = present ? COL.green : COL.red;
-	return E('span', { class: 'bypass-badge' }, [
-		E('span', { class: 'dot', style: 'background:' + color }),
+	var dot = E('span', { class: 'dot', style: 'background:' + color });
+	var value = E('span', { style: 'color:' + color }, present ? okText : badText);
+	var node = E('span', { class: 'bypass-badge' }, [
+		dot,
 		E('strong', {}, label + ': '),
-		E('span', { style: 'color:' + color }, present ? okText : badText)
+		value
 	]);
+	node.setPresent = function (ok) {
+		var nextColor = ok ? COL.green : COL.red;
+		dot.style.background = nextColor;
+		value.style.color = nextColor;
+		value.textContent = ok ? okText : badText;
+	};
+	return node;
 }
 
 return view.extend({
@@ -162,10 +171,13 @@ return view.extend({
 			core.card, baidu.card, google.card, github.card
 		]);
 
+		var dnsBadge = badge(_('BypassCore DNS'), status.bypasscore_dns_ready === 1, _('ready'), _('stopped'));
+
 		poll.add(function () {
 			return api('status').then(function (s) {
 				core.span.className = s.running ? 'green' : 'red';
 				core.span.textContent = s.running ? _('RUNNING') : _('NOT RUNNING');
+				dnsBadge.setPresent(s.bypasscore_dns_ready === 1);
 			});
 		}, 5);
 
@@ -174,7 +186,7 @@ return view.extend({
 			badge(_('bypasscore'), status.bypasscore_present === 1, _('present'), _('missing')),
 			badge(_('naive'), status.naive_present === 1, _('present'), _('missing')),
 			badge(_('chinadns-ng'), status.chinadns_present === 1, _('present'), _('missing')),
-			badge(_('dns2socks'), status.dns2socks_present === 1, _('present'), _('missing'))
+			dnsBadge
 		]);
 
 		/* ---- The form.Map (single tabbed TypedSection + table section) ---- */
@@ -234,13 +246,13 @@ return view.extend({
 		crossSection(o, 'global_rules');
 
 		o = s.taboption('Shunt Rule', form.Flag, 'write_ipset_direct', _('Direct DNS result write to IPSet'),
-			_('Write addresses resolved for matching direct-domain rules to NFTSet so they can connect directly without re-entering the core. This may conflict with unusual DNS setups.'));
+			_('Write addresses resolved for matching direct-domain rules to an informational NFTSet. BypassCore still makes every ordered traffic decision because unrelated hostnames can share an IP address.'));
 		o.default = '1';
 		o.rmempty = false;
 		crossSection(o, 'global_rules');
 
 		o = s.taboption('Shunt Rule', form.Flag, 'enable_geoview_ip', _('Enable GeoIP Data Parsing'),
-			_('Analyze and preload GeoIP data to improve shunt performance. This increases resource usage and may conflict with unusual setups.'));
+			_('Parse Direct-rule GeoIP entries into an informational NFTSet for diagnostics and compatibility. BypassCore always remains responsible for ordered routing decisions.'));
 		o.default = '1';
 		o.rmempty = false;
 		crossSection(o, 'global_rules');
@@ -307,7 +319,7 @@ return view.extend({
 		o.rows = 3;
 		o.wrap = 'off';
 		o.placeholder = 'domain:my-nodes.com tcp://223.5.5.5\ndomain:vpn.com udp://119.29.29.29:53\nfull:www.dnspod.com tls://1.1.1.1';
-		o.description = _('One entry per line: a domain/full/geosite rule followed by a UDP, TCP or TLS direct DNS upstream. ChinaDNS-NG permits up to five entries, or four while Direct shunt NFTSet acceleration is active, because node and Direct groups use the remaining slots. Invalid entries prevent the service from starting.');
+		o.description = _('One entry per line: a domain/full/geosite rule followed by a UDP, TCP or TLS direct DNS upstream. BypassCore applies these entries before the default domestic/remote DNS servers. Invalid entries prevent the service from starting.');
 		crossSection(o, 'global_dns');
 
 		o = s.taboption('DNS', form.ListValue, 'direct_dns_query_strategy', _('Direct Query Strategy'));
@@ -318,7 +330,7 @@ return view.extend({
 		crossSection(o, 'global_dns');
 
 		o = s.taboption('DNS', form.ListValue, 'remote_dns_protocol', _('Remote DNS Protocol'));
-		o.description = _('The NaiveProxy Remote outbound uses dns2socks and therefore requires TCP. UDP and TLS require Direct outbound. DoH requires Direct outbound and DNS Redirect disabled because ChinaDNS-NG has no DoH upstream mode.');
+		o.description = _('BypassCore carries TCP, TLS (DoT), and DoH through the selected NaiveProxy node. UDP requires Direct outbound because NaiveProxy has no UDP transport.');
 		o.value('udp', _('UDP'));
 		o.value('tcp', _('TCP'));
 		o.value('doh', _('DoH'));
@@ -350,7 +362,7 @@ return view.extend({
 		crossSection(o, 'global_dns');
 
 		o = s.taboption('DNS', form.ListValue, 'remote_dns_detour', _('Remote DNS Outbound'));
-		o.description = _('Remote carries TCP DNS through the selected NaiveProxy node. Direct connects from the router without the proxy.');
+		o.description = _('Remote carries TCP, TLS (DoT), or DoH through BypassCore and the selected NaiveProxy node. Direct connects from the router without the proxy.');
 		o.value('remote', _('Remote'));
 		o.value('direct', _('Direct'));
 		o.default = 'remote';
@@ -371,7 +383,7 @@ return view.extend({
 		crossSection(o, 'global_dns');
 
 		o = s.taboption('DNS', form.Flag, 'dns_redirect', _('DNS Redirect'),
-			_('Forward dnsmasq to ChinaDNS-NG and redirect LAN client TCP/UDP port 53 queries to the router, including clients with a hardcoded DNS server.'));
+			_('Forward dnsmasq to BypassCore DNS, use ChinaDNS-NG only for Direct/NFTSet helper queries, and redirect LAN client TCP/UDP port 53 queries to the router, including clients with a hardcoded DNS server.'));
 		o.default = '1';
 		o.rmempty = false;
 

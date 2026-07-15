@@ -103,8 +103,9 @@ uci -q delete bypass.@global[0].localhost_proxy
 	uci -q set bypass.@global[0].naive_egress_table='20200'
 uci -q get bypass.@global[0].naive_egress_rule_priority >/dev/null 2>&1 || \
 	uci -q set bypass.@global[0].naive_egress_rule_priority='900'
-uci -q get bypass.@global[0].dns2socks_file >/dev/null 2>&1 || \
-	uci -q set bypass.@global[0].dns2socks_file='/usr/bin/dns2socks'
+uci -q delete bypass.@global[0].dns2socks_file
+uci -q get bypass.@global_dns[0].bypasscore_dns_listen_port >/dev/null 2>&1 || \
+	uci -q set bypass.@global_dns[0].bypasscore_dns_listen_port='10554'
 uci -q commit bypass
 
 # Align the historical five-second default with the current UI default while
