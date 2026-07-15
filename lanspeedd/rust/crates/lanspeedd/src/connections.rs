@@ -4,12 +4,14 @@ use serde_json::Value;
 
 use crate::{
     collectors::conntrack::CollectedSnapshot,
-    model::{ClientsResponse, OverviewSample},
+    model::{Client, ClientsResponse, OverviewSample},
     policy::RateCollector,
     probe::RuntimeHealth,
     state::{ResponseSnapshot, CONNECTION_SEMANTICS},
     ubus::Method,
 };
+
+pub(crate) const CONNECTION_ONLY_WARNING: &str = "conntrack_connection_only";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PeriodicConntrackPlan {
@@ -17,7 +19,9 @@ pub enum PeriodicConntrackPlan {
     Read,
 }
 
-pub const CLIENT_CONNTRACK_CACHE_TTL_MS: u64 = 5_000;
+// Reuse concurrent requests, but do not carry a conntrack snapshot across the
+// minimum LuCI refresh interval.
+pub const CLIENT_CONNTRACK_CACHE_TTL_MS: u64 = 1_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ClientConntrackPlan {
@@ -149,6 +153,12 @@ pub fn apply_conntrack_success(
         .iter()
         .map(|client| (client.identity_key.as_str(), client))
         .collect::<BTreeMap<_, _>>();
+    overlaid.clients.clients.retain(|client| {
+        !is_connection_only(client)
+            || by_identity
+                .get(client.identity_key.as_str())
+                .is_some_and(|sample| has_counted_connections(sample))
+    });
 
     for client in &mut overlaid.clients.clients {
         let counts = by_identity.get(client.identity_key.as_str()).copied();
@@ -158,7 +168,47 @@ pub fn apply_conntrack_success(
         client.udp_other_conns = Some(counts.map_or(0, |sample| u64::from(sample.udp_other_conns)));
     }
 
-    let totals = connection_totals(&overlaid.clients);
+    for sample in &collected.clients {
+        if !has_counted_connections(sample)
+            || overlaid
+                .clients
+                .clients
+                .iter()
+                .any(|client| client.identity_key == sample.identity_key)
+        {
+            continue;
+        }
+        overlaid.clients.clients.push(Client {
+            mac: sample.mac.clone(),
+            identity_key: sample.identity_key.clone(),
+            zone: sample.zone.clone(),
+            interface: sample.interface.clone(),
+            ips: sample.ips.clone(),
+            hostname: None,
+            rx_bps: 0,
+            tx_bps: 0,
+            last_seen: sample.last_seen_ms,
+            sample_ms: Some(sample.last_seen_ms),
+            rx_bytes: None,
+            tx_bytes: None,
+            collector_mode: conntrack_source(collected).to_owned(),
+            confidence: overlaid.status.confidence,
+            warnings: vec![CONNECTION_ONLY_WARNING.to_owned()],
+            tcp_conns: Some(u64::from(sample.tcp_conns)),
+            udp_conns: Some(u64::from(sample.udp_conns)),
+            udp_dns_conns: Some(u64::from(sample.udp_dns_conns)),
+            udp_other_conns: Some(u64::from(sample.udp_other_conns)),
+        });
+    }
+    overlaid
+        .clients
+        .clients
+        .sort_by(|left, right| left.identity_key.cmp(&right.identity_key));
+
+    // Keep the complete conntrack total stable when a connected client exits
+    // the rate window. Such clients are retained above as zero-rate rows so the
+    // displayed rows and totals use the same current-connection population.
+    let totals = collected_connection_totals(collected);
     overlaid.clients.tcp_conns_total = Some(totals.0);
     overlaid.clients.udp_conns_total = Some(totals.1);
     overlaid.clients.udp_dns_conns_total = Some(totals.2);
@@ -174,12 +224,17 @@ pub fn apply_conntrack_success(
         evidence.details.remove("conntrack_status");
         evidence.details.remove("conntrack_error");
     }
-    update_latest_overview(&mut overlaid.overview.samples, totals);
+    update_latest_overview(
+        &mut overlaid.overview.samples,
+        totals,
+        overlaid.clients.clients.len(),
+    );
     overlaid
 }
 
 pub fn apply_conntrack_failure(snapshot: &ResponseSnapshot, error: &str) -> ResponseSnapshot {
     let mut overlaid = snapshot.clone();
+    remove_connection_only_clients(&mut overlaid.clients);
     for client in &mut overlaid.clients.clients {
         client.tcp_conns = None;
         client.udp_conns = None;
@@ -187,7 +242,11 @@ pub fn apply_conntrack_failure(snapshot: &ResponseSnapshot, error: &str) -> Resp
         client.udp_other_conns = None;
     }
     clear_connection_fields(&mut overlaid.clients);
-    update_latest_overview(&mut overlaid.overview.samples, (0, 0, 0, 0));
+    update_latest_overview(
+        &mut overlaid.overview.samples,
+        (0, 0, 0, 0),
+        overlaid.clients.clients.len(),
+    );
     let evidence = overlaid.clients.evidence.get_or_insert_default();
     evidence.details.insert(
         "conntrack_status".to_owned(),
@@ -200,15 +259,35 @@ pub fn apply_conntrack_failure(snapshot: &ResponseSnapshot, error: &str) -> Resp
     overlaid
 }
 
-fn connection_totals(clients: &ClientsResponse) -> (u64, u64, u64, u64) {
-    clients.clients.iter().fold((0, 0, 0, 0), |totals, client| {
-        (
-            totals.0.saturating_add(client.tcp_conns.unwrap_or(0)),
-            totals.1.saturating_add(client.udp_conns.unwrap_or(0)),
-            totals.2.saturating_add(client.udp_dns_conns.unwrap_or(0)),
-            totals.3.saturating_add(client.udp_other_conns.unwrap_or(0)),
-        )
-    })
+fn remove_connection_only_clients(clients: &mut ClientsResponse) {
+    clients.clients.retain(|client| !is_connection_only(client));
+}
+
+fn is_connection_only(client: &Client) -> bool {
+    client
+        .warnings
+        .iter()
+        .any(|warning| warning == CONNECTION_ONLY_WARNING)
+}
+
+pub(crate) const fn has_counted_connections(
+    client: &crate::collectors::conntrack::aggregate::ClientSample,
+) -> bool {
+    client.tcp_conns != 0 || client.udp_conns != 0
+}
+
+fn collected_connection_totals(collected: &CollectedSnapshot) -> (u64, u64, u64, u64) {
+    collected
+        .clients
+        .iter()
+        .fold((0, 0, 0, 0), |totals, client| {
+            (
+                totals.0.saturating_add(u64::from(client.tcp_conns)),
+                totals.1.saturating_add(u64::from(client.udp_conns)),
+                totals.2.saturating_add(u64::from(client.udp_dns_conns)),
+                totals.3.saturating_add(u64::from(client.udp_other_conns)),
+            )
+        })
 }
 
 fn clear_connection_fields(clients: &mut ClientsResponse) {
@@ -224,17 +303,22 @@ fn clear_connection_fields(clients: &mut ClientsResponse) {
     clients.conn_semantics = None;
 }
 
-fn update_latest_overview(samples: &mut [OverviewSample], totals: (u64, u64, u64, u64)) {
+fn update_latest_overview(
+    samples: &mut [OverviewSample],
+    totals: (u64, u64, u64, u64),
+    client_count: usize,
+) {
     let Some(latest) = samples.last_mut() else {
         return;
     };
+    latest.client_count = saturating_u32(u64::try_from(client_count).unwrap_or(u64::MAX));
     latest.tcp_conns = Some(saturating_u32(totals.0));
     latest.udp_conns = Some(saturating_u32(totals.1));
     latest.udp_dns_conns = Some(saturating_u32(totals.2));
     latest.udp_other_conns = Some(saturating_u32(totals.3));
 }
 
-fn conntrack_source(collected: &CollectedSnapshot) -> &'static str {
+pub(crate) fn conntrack_source(collected: &CollectedSnapshot) -> &'static str {
     if collected.stats.netlink_read {
         "conntrack_netlink"
     } else {

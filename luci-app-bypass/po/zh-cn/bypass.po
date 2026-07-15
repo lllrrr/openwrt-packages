@@ -11,6 +11,42 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
+#: htdocs/luci-static/resources/view/bypass/node_list.js
+msgid "URL Test"
+msgstr "URL 测试"
+
+#: htdocs/luci-static/resources/view/bypass/node_list.js
+msgid "URL Test Address"
+msgstr "URL 测试地址"
+
+#: htdocs/luci-static/resources/view/bypass/node_list.js
+msgid "Cloudflare"
+msgstr "Cloudflare"
+
+#: htdocs/luci-static/resources/view/bypass/node_list.js
+msgid "Gstatic"
+msgstr "Gstatic"
+
+#: htdocs/luci-static/resources/view/bypass/node_list.js
+msgid "YouTube"
+msgstr "YouTube"
+
+#: htdocs/luci-static/resources/view/bypass/node_list.js
+msgid "MIUI (CN)"
+msgstr "MIUI（国内）"
+
+#: htdocs/luci-static/resources/view/bypass/node_list.js
+msgid "HiCloud (CN)"
+msgstr "华为云（国内）"
+
+#: htdocs/luci-static/resources/view/bypass/node_list.js
+msgid "VIVO (CN)"
+msgstr "VIVO（国内）"
+
+#: htdocs/luci-static/resources/view/bypass/basic_settings.js
+msgid "Default uses the outbound selected by the Default rule. Hidden on the Default rule itself."
+msgstr "Default 使用 Default 规则所选的出口；该选项在 Default 规则本身上隐藏。"
+
 #: htdocs/luci-static/resources/view/bypass/node_config.js:21
 #: htdocs/luci-static/resources/view/bypass/node_config.js:27
 msgid "Node Config"
@@ -1143,14 +1179,6 @@ msgstr "返回"
 #~ "Bind traffic matching this Direct rule to the selected OpenWrt network. "
 #~ "This overrides the default direct interface."
 #~ msgstr "将匹配此直连规则的流量绑定到所选 OpenWrt 网络，并覆盖默认直连接口。"
-
-#: htdocs/luci-static/resources/view/bypass/basic_settings.js:307
-msgid ""
-"Bind traffic matching this Direct rule to the selected OpenWrt network. "
-"Empty = use Default Direct Interface."
-msgstr ""
-"将匹配此直连规则的流量绑定到所选 OpenWrt 网络；留空则使用全局 Default Direct "
-"Interface。"
 
 #~ msgid "BypassCore domestic DNS"
 #~ msgstr "BypassCore 国内 DNS"

@@ -127,7 +127,7 @@ return view.extend({
 		o.cfgvalue = function (sid) {
 			var outbound = uci.get('bypass', sid, 'outbound') || '—';
 			var network = uci.get('bypass', sid, 'network') || '';
-			var map = { _direct: _('Direct'), _blackhole: _('Block'), _block: _('Block') };
+			var map = { _default: _('Default'), _direct: _('Direct'), _blackhole: _('Block'), _block: _('Block') };
 			var label = map[outbound] || outbound;
 			if (network) label += ' · ' + network.toUpperCase();
 			return label;

@@ -521,7 +521,7 @@ run_chinadns_ng() {
 		bind-port ${CHINADNS_PORT}
 		china-dns ${DOMESTIC_DNS}
 		trust-dns ${remote_upstream}
-		filter-qtype 65
+		filter-qtype 65,28
 		$([ -s "$hosts_file" ] && echo "hosts ${hosts_file}")
 		${domain_rules}
 		group vpslist
@@ -788,13 +788,42 @@ gen_bypasscore_config() {
 					json_close_array
 				json_close_object
 			fi
-			local sid tag domains ips net outbound egress default_sid default_outbound protocols inbound sources ports
+			local sid tag domains ips net outbound egress default_sid default_outbound default_tag protocols inbound sources ports
+			default_sid=""
+			# Pre-scan: find the reserved Default rule and resolve its outbound tag
+			# so that non-default rules with outbound=_default can inherit it.
 			for sid in $(uci -q show "${CONFIG}" 2>/dev/null | grep "=shunt_rules" | cut -d '.' -f2 | cut -d '=' -f1); do
-				[ "$(config_n_get "$sid" is_default 0)" = "1" ] && { default_sid=$sid; continue; }
+				[ "$(config_n_get "$sid" is_default 0)" = "1" ] || continue
+				default_sid=$sid
+				default_outbound=$(config_n_get "$sid" outbound _direct)
+				egress=$(config_n_get "$sid" egress_interface)
+				if [ "$default_outbound" = "_direct" ] && [ -n "$egress" ]; then
+					default_tag="direct_${default_sid}"
+				elif [ "$default_outbound" = "_default" ]; then
+					# The Default rule itself must not reference _default; treat as direct.
+					default_tag="direct"
+				elif [ -n "$default_outbound" ]; then
+					default_tag=$(map_outbound_tag "$default_outbound")
+					[ -n "$default_tag" ] || {
+						log 0 "Default shunt rule references an invalid outbound [%s]." "$default_outbound"
+						BYPASSCORE_CONFIG_ERROR=1
+						default_tag=block
+					}
+				else
+					default_tag="direct"
+				fi
+				break
+			done
+			[ -n "$default_tag" ] || default_tag="direct"
+			for sid in $(uci -q show "${CONFIG}" 2>/dev/null | grep "=shunt_rules" | cut -d '.' -f2 | cut -d '=' -f1); do
+				[ "$(config_n_get "$sid" is_default 0)" = "1" ] && continue
 				outbound=$(config_n_get "$sid" outbound _direct)
 				[ -n "$outbound" ] || continue
 				egress=$(config_n_get "$sid" egress_interface)
-				if [ "$outbound" = "_direct" ] && [ -n "$egress" ]; then
+				if [ "$outbound" = "_default" ]; then
+					# Inherit the Default rule's resolved outbound exactly.
+					tag=$default_tag
+				elif [ "$outbound" = "_direct" ] && [ -n "$egress" ]; then
 					tag="direct_${sid}"
 				else
 					tag=$(map_outbound_tag "$outbound")
@@ -849,28 +878,11 @@ gen_bypasscore_config() {
 					[ -n "$ports" ] && json_add_string port "$ports"
 				json_close_object
 			done
-			# The reserved Default row is emitted last as the catch-all.
-			tag="direct"
-			egress=""
-			default_outbound="_direct"
-			if [ -n "$default_sid" ]; then
-				default_outbound=$(config_n_get "$default_sid" outbound _direct)
-				egress=$(config_n_get "$default_sid" egress_interface)
-				if [ "$default_outbound" = "_direct" ] && [ -n "$egress" ]; then
-					tag="direct_${default_sid}"
-				elif [ -n "$default_outbound" ]; then
-					tag=$(map_outbound_tag "$default_outbound")
-					[ -n "$tag" ] || {
-						log 0 "Default shunt rule references an invalid outbound [%s]." "$default_outbound"
-						BYPASSCORE_CONFIG_ERROR=1
-						tag=block
-					}
-				else
-					tag="direct"
-				fi
-			fi
+			# The reserved Default row is emitted last as the catch-all, reusing
+			# the default_tag resolved above (so _default rules and the catch-all
+			# share one source of truth).
 			json_add_object ''
-				json_add_string outboundTag "$tag"
+				json_add_string outboundTag "$default_tag"
 				json_add_string network "$(config_n_get "$default_sid" network tcp,udp)"
 			json_close_object
 		json_close_array
@@ -905,7 +917,12 @@ gen_bypasscore_config() {
 		json_add_object ''
 			json_add_string tag "tcp_redir"
 			json_add_string type "$in_type"
-			json_add_string listen "127.0.0.1"
+			# Bind every interface, not just loopback. nftables "redirect to :PORT"
+			# rewrites forwarded LAN traffic to the ingress interface's IP (e.g.
+			# 192.168.12.1), so a 127.0.0.1-only listener would miss it. This mirrors
+			# passwall2's xray/sing-box inbounds (0.0.0.0 / "::"). fw4's default WAN
+			# INPUT DROP keeps the port unreachable from the internet.
+			json_add_string listen "0.0.0.0"
 			json_add_int port "$REDIR_PORT"
 			json_add_string network "$in_net"
 			json_add_boolean sniffing 1
@@ -950,7 +967,7 @@ run_bypasscore_core() {
 	ln_run 0 "$BYPASSCORE_FILE" "bypasscore" "$log_file" -config "$BYPASSCORE_CFG" -run || return 1
 	wait_for_listener bypasscore "$REDIR_PORT" tcp 20 "$log_file" || return 1
 	set_cache_var ACL_GLOBAL_redir_port "$REDIR_PORT"
-	log 0 "BypassCore running as transparent core on tcp://127.0.0.1:%s (-run)." "$REDIR_PORT"
+	log 0 "BypassCore running as transparent core on tcp://0.0.0.0:%s (-run)." "$REDIR_PORT"
 }
 
 # ------------------------------------------------------------------------------

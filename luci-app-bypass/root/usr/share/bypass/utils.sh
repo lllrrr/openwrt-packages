@@ -505,6 +505,10 @@ get_geoip() {
 	# caller appends, producing invalid entries such as "223.255.252.0/230.0.0.0/8"
 	# (223.255.252.0/23 + 0.0.0.0/8). awk re-emits each line with a guaranteed
 	# trailing newline so the batch importer always sees one CIDR per record.
+	# This is now a belt-and-braces first line: nft_import_elements() also parses
+	# with RS="[ \t\n\r]+" and pre-filters with grep -E, so a fusion can no longer
+	# reach nft even if this normalisation is bypassed. Keep it so the collected
+	# files stay line-tidy for sort -u and line counting.
 	[ -s "${output_path}" ] && awk '{print}' "${output_path}"
 }
 

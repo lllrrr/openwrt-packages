@@ -5,13 +5,23 @@
 'require ui';
 
 // Node List — JS-rendered table, passwall2-style but trimmed:
-//   • No top options row (no url_test_url / auto_detection_time / show_node_info)
-//   • No toolbar (no Add-via-link / Clear-all / Select-all / Reassign)
-//   • Single TCPing latency column (no Ping / URL Test columns)
+//   • A top "URL Test Address" dropdown (stored in global.url_test_url)
+//   • TCPing + URL Test latency columns (no Ping)
 //   • Per-row Edit / Copy / Delete actions. Nodes are assigned per shunt rule.
 //   • A single "Add" button at the bottom.
 
 var COL = { green: '#2dce89', red: '#fb6340', yellow: '#fb9a05' };
+
+// Preset probe URLs for the URL Test column (mirrors passwall2).
+var URL_TEST_PRESETS = [
+	['https://cp.cloudflare.com/', 'Cloudflare'],
+	['https://www.gstatic.com/generate_204', 'Gstatic'],
+	['https://www.google.com/generate_204', 'Google'],
+	['https://www.youtube.com/generate_204', 'YouTube'],
+	['https://connect.rom.miui.com/generate_204', 'MIUI (CN)'],
+	['https://connectivitycheck.platform.hicloud.com/generate_204', 'HiCloud (CN)'],
+	['https://wifi.vivo.com.cn/generate_204', 'VIVO (CN)']
+];
 
 function api(/* action, ...args */) {
 	return fs.exec('/usr/share/bypass/api.sh', Array.prototype.slice.call(arguments)).then(function (res) {
@@ -24,6 +34,15 @@ function latencyColor(ms) {
 	if (ms == null) return COL.red;
 	if (ms < 100) return COL.green;
 	if (ms < 200) return COL.yellow;
+	return COL.red;
+}
+
+// URL Test uses a more lenient threshold than raw TCPing (the request traverses
+// the full proxy path + remote TLS + HTTP).
+function urltestColor(ms) {
+	if (ms == null) return COL.red;
+	if (ms < 1000) return COL.green;
+	if (ms < 2000) return COL.yellow;
 	return COL.red;
 }
 
@@ -41,6 +60,20 @@ function setCachedTcping(sid, ms) {
 	try { localStorage.setItem(tcpingCacheKey(sid), JSON.stringify({ ms: ms, t: Date.now() })); } catch (e) {}
 }
 
+function urltestCacheKey(sid) { return 'bypass_urltest_' + sid; }
+function getCachedUrltest(sid) {
+	try {
+		var raw = localStorage.getItem(urltestCacheKey(sid));
+		if (!raw) return null;
+		var entry = JSON.parse(raw);
+		if (Date.now() - entry.t > 60000) return null;
+		return entry.ms;
+	} catch (e) { return null; }
+}
+function setCachedUrltest(sid, ms) {
+	try { localStorage.setItem(urltestCacheKey(sid), JSON.stringify({ ms: ms, t: Date.now() })); } catch (e) {}
+}
+
 return view.extend({
 	load: function () {
 		return uci.load('bypass');
@@ -48,17 +81,39 @@ return view.extend({
 
 	render: function () {
 		var nodes = uci.sections('bypass', 'nodes');
+		var currentUrl = uci.get('bypass', '@global[0]', 'url_test_url') || URL_TEST_PRESETS[2][0];
 
 		var container = E('div', { class: 'cbi-map' }, [
 			E('div', { class: 'cbi-section-descr' }, _('NaiveProxy nodes (HTTPS/QUIC).'))
 		]);
 
+		// URL Test Address selector (passwall2-style). Persisted to global.url_test_url.
+		var urlSelect = E('select', {
+			class: 'cbi-input-select',
+			change: function (ev) {
+				uci.set('bypass', '@global[0]', 'url_test_url', urlSelect.value);
+				uci.save().then(function () { uci.apply(); });
+			}
+		});
+		URL_TEST_PRESETS.forEach(function (pair) {
+			urlSelect.appendChild(E('option', { value: pair[0] }, _(pair[1])));
+		});
+		// Keep a custom value selectable if it is not one of the presets.
+		var isPreset = URL_TEST_PRESETS.some(function (pair) { return pair[0] === currentUrl; });
+		if (!isPreset) urlSelect.appendChild(E('option', { value: currentUrl }, currentUrl));
+		urlSelect.value = currentUrl;
+		container.appendChild(E('div', { class: 'cbi-value', style: 'margin-bottom:8px' }, [
+			E('label', { class: 'cbi-value-title', style: 'width:auto;padding-right:8px' }, _('URL Test Address')),
+			E('div', { class: 'cbi-value-field' }, urlSelect)
+		]));
+
 		var fieldset = E('fieldset', { class: 'cbi-section cbi-tblsection' });
 		var table = E('table', { class: 'table cbi-section-table' }, [
 			E('tr', { class: 'tr cbi-section-table-titles' }, [
-				E('th', { class: 'th cbi-section-table-cell', style: 'width:50%' }, _('Remarks')),
-				E('th', { class: 'th cbi-section-table-cell', style: 'width:15%' }, _('TCPing')),
-				E('th', { class: 'th cbi-section-table-cell', style: 'width:35%' }, _('Actions'))
+				E('th', { class: 'th cbi-section-table-cell', style: 'width:38%' }, _('Remarks')),
+				E('th', { class: 'th cbi-section-table-cell', style: 'width:12%' }, _('TCPing')),
+				E('th', { class: 'th cbi-section-table-cell', style: 'width:12%' }, _('URL Test')),
+				E('th', { class: 'th cbi-section-table-cell', style: 'width:38%' }, _('Actions'))
 			])
 		]);
 		fieldset.appendChild(table);
@@ -111,6 +166,53 @@ return view.extend({
 			var cached = getCachedTcping(sid);
 			if (cached != null) renderTcping(cached);
 
+			// URL Test column: needs address+port to dial the node. Nodes without
+			// them show an inert placeholder.
+			var urltestCell = E('td', { class: 'td cbi-value-field', style: 'white-space:nowrap' });
+			var hasEndpoint = !!(sec.address && sec.port);
+			if (!hasEndpoint) {
+				urltestCell.appendChild(E('span', { style: 'color:#adb5bd' }, '---'));
+			} else {
+				var urltestResult = E('span', { style: 'margin-left:6px;font-weight:bold' });
+				var urltestLink = E('a', {
+					href: '#',
+					style: 'cursor:pointer',
+					click: function (ev) {
+						ev.preventDefault();
+						urltestLink.textContent = _('Testing…');
+						urltestLink.style.color = COL.yellow;
+						urltestResult.textContent = '';
+						api('node_urltest', sid).then(function (r) {
+							urltestLink.textContent = _('Test');
+							urltestLink.style.color = '';
+							if (r.code === 0 && r.use_time != null) {
+								var ms = parseInt(r.use_time, 10);
+								setCachedUrltest(sid, ms);
+								renderUrltest(ms);
+							} else {
+								urltestResult.textContent = '---';
+								urltestResult.style.color = COL.red;
+							}
+						});
+					}
+				}, _('Test'));
+
+				function renderUrltest(ms) {
+					if (ms == null) {
+						urltestResult.textContent = '';
+						return;
+					}
+					urltestResult.textContent = ms + ' ms';
+					urltestResult.style.color = urltestColor(ms);
+				}
+
+				urltestCell.appendChild(urltestLink);
+				urltestCell.appendChild(urltestResult);
+
+				var urlCached = getCachedUrltest(sid);
+				if (urlCached != null) renderUrltest(urlCached);
+			}
+
 			var actions = E('td', { class: 'td cbi-section-table-cell cbi-section-actions', style: 'white-space:nowrap' }, [
 				E('div', { style: 'display:inline-flex;gap:4px' }, [
 					E('button', {
@@ -138,6 +240,7 @@ return view.extend({
 						(sec.address || '—') + ':' + (sec.port || '—'))
 				]),
 				tcpingCell,
+				urltestCell,
 				actions
 			]));
 		});

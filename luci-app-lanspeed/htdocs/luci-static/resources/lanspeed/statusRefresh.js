@@ -17,6 +17,21 @@ function nssEvidenceState(ev) {
 	};
 }
 
+var CLIENT_INFO_WARNINGS = {
+	conntrack_connection_only: true
+};
+
+function splitClientWarnings(rawWarnings, globalWarnings) {
+	var info = [], warnings = [];
+	(rawWarnings || []).forEach(function(w) {
+		if (CLIENT_INFO_WARNINGS[w])
+			info.push(w);
+		else if (!(globalWarnings || {})[w])
+			warnings.push(w);
+	});
+	return { info: info, warnings: warnings };
+}
+
 function refreshSortHeaders(refs, prefs) {
 	Object.keys(refs.sortHeaders || {}).forEach(function(sortKey) {
 		var ref = refs.sortHeaders[sortKey];
@@ -186,7 +201,9 @@ function refreshLive(viewState) {
 			var rawWarnings = fmt.asArray(c.warnings).map(function(w) {
 				return vocab.normalizeWarningId(w);
 			});
-			var specificWarnings = rawWarnings.filter(function(w) { return !globalWarnings[w]; });
+			var clientWarningState = splitClientWarnings(rawWarnings, globalWarnings);
+			var connectionOnly = clientWarningState.info.indexOf('conntrack_connection_only') !== -1;
+			var specificWarnings = clientWarningState.warnings;
 			var critClient = specificWarnings.some(function(w) { return vocab.CRITICAL_WARNINGS[w]; });
 
 			var mode = String(c.collector_mode || '-');
@@ -201,11 +218,15 @@ function refreshLive(viewState) {
 				modeTitle = _('采集方式 NSS 同步：NSS 硬件加速流的字节计数以秒级节拍同步回 conntrack，再由 lanspeedd 读取。桥接流也覆盖，精度等于同步间隔 (≈1-2 秒)。');
 			} else if (mode === 'conntrack_netlink') {
 				modeTitle = _('采集方式 Netlink Conntrack：非 NSS 仅用于连接数与诊断，不作为客户端实时测速来源。');
+			} else if (mode === 'conntrack_procfs') {
+				modeTitle = _('采集方式 Procfs Conntrack：作为 Netlink 的后备连接数来源，不作为客户端实时测速来源。');
 			} else if (mode === 'conntrack') {
 				modeTitle = _('采集方式 Conntrack：非 NSS 仅用于连接数与诊断，不作为客户端实时测速来源。');
 			} else {
 				modeTitle = _('未知采集方式');
 			}
+			if (connectionOnly)
+				modeTitle += '\n' + vocab.warningText('conntrack_connection_only');
 
 			var stateCells = [
 				E('span', { 'class': 'label', 'title': modeTitle }, modeLabel)
@@ -396,6 +417,7 @@ function refreshLive(viewState) {
 return baseclass.extend({
 	refreshSortHeaders: refreshSortHeaders,
 	nssEvidenceState: nssEvidenceState,
+	splitClientWarnings: splitClientWarnings,
 
 	refreshLive: function(viewState) {
 		return refreshLive(viewState);

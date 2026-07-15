@@ -3,6 +3,9 @@ config global
 	option enabled '0'
 	option node_socks_port '1088'
 	option node_socks_bind_local '1'
+	# URL used by the Node List "URL Test" column (curl through the node's
+	# temporary SOCKS listener). generate_204 endpoints return an empty body.
+	option url_test_url 'https://www.google.com/generate_204'
 	option client_proxy '1'
 	option loglevel 'warning'
 	# BypassCore is the required routing core. NaiveProxy is its protocol

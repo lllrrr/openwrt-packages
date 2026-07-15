@@ -274,6 +274,7 @@ return view.extend({
 
 		o = rs.option(form.ListValue, 'outbound', _('Node'));
 		o.value('', _('Close (Not use)'));
+		o.value('_default', _('Default'));
 		o.value('_direct', _('Direct Connection'));
 		o.value('_blackhole', _('Blackhole (Block)'));
 		uci.sections('bypass', 'nodes').forEach(function (node) {
@@ -281,12 +282,18 @@ return view.extend({
 			var egress = node.egress_interface || _('system default');
 			o.value(node['.name'], label + ' [' + egress + ']');
 		});
+		o.description = _('Default uses the outbound selected by the Default rule. Hidden on the Default rule itself.');
+		// The Default rule is the catch-all and must not reference itself.
+		o.write = function (section_id, formvalue) {
+			if (formvalue === '_default' && uci.get('bypass', section_id, 'is_default') === '1')
+				formvalue = '';
+			uci.set('bypass', section_id, 'outbound', formvalue);
+		};
 
 		o = rs.option(form.ListValue, 'egress_interface', _('Egress Interface'));
 		o.value('', _('(use default direct interface)'));
 		ifaces.forEach(function (i) { o.value(i, i); });
 		o.depends('outbound', '_direct');
-		o.description = _('Bind traffic matching this Direct rule to the selected OpenWrt network. Empty = use Default Direct Interface.');
 
 		/* ----- DNS tab (options from 'global_dns') ----- */
 		o = s.taboption('DNS', form.TextValue, 'direct_dns_shunt', _('Direct domain DNS routing'));

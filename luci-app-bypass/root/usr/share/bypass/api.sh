@@ -170,6 +170,92 @@ do_node_tcping() {
 	emit
 }
 
+# node_urltest <node_id> -> { code, use_time }
+# Mirrors passwall2's url_test_node: spin up a short-lived NaiveProxy SOCKS
+# listener for the node, curl the configured probe URL through it, and report
+# the total round-trip in ms. Torn down unconditionally afterward.
+do_node_urltest() {
+	local node_id=$1
+	json_init
+	[ -z "$node_id" ] && { json_add_int code -1; json_add_string error "missing node"; emit; return; }
+	local address port username password protocol
+	address=$(config_n_get "$node_id" address)
+	port=$(config_n_get "$node_id" port)
+	username=$(config_n_get "$node_id" username)
+	password=$(config_n_get "$node_id" password)
+	protocol=$(config_n_get "$node_id" protocol https)
+	if [ -z "$address" ] || [ -z "$port" ]; then
+		json_add_int code -1
+		json_add_string error "node has no address/port"
+		emit
+		return
+	fi
+	local naive_bin
+	naive_bin=$(first_type "$(config_t_get global naive_file /usr/bin/naive)" naive)
+	if [ -z "$naive_bin" ]; then
+		json_add_int code -1
+		json_add_string error "naiveproxy not installed"
+		emit
+		return
+	fi
+	case "$protocol" in quic) ;; *) protocol=https ;; esac
+
+	local url_test_url
+	url_test_url=$(config_t_get global url_test_url https://www.google.com/generate_204)
+
+	# Build a minimal SOCKS config (127.0.0.1 only; no egress pinning).
+	local tag="url_test_${node_id}"
+	local socks_port
+	socks_port=$(get_new_port 48900 tcp)
+	local auth=""
+	if [ -n "$username$password" ]; then
+		username=$(uri_encode_userinfo "$username") || { json_add_int code -1; json_add_string error "bad credentials"; emit; return; }
+		password=$(uri_encode_userinfo "$password") || { json_add_int code -1; json_add_string error "bad credentials"; emit; return; }
+		auth="${username}:${password}@"
+	fi
+	local server_host=$address
+	echo "$address" | grep -qE "([A-Fa-f0-9]{1,4}::?){1,7}[A-Fa-f0-9]{1,4}" && server_host="[$address]"
+
+	mkdir -p "$TMP_PATH2"
+	local cfg="$TMP_PATH2/${tag}.json" log="$TMP_PATH2/${tag}.log"
+	json_init
+	json_add_string "listen" "socks://127.0.0.1:${socks_port}"
+	json_add_string "proxy" "${protocol}://${auth}${server_host}:${port}"
+	json_dump > "$cfg"
+	: > "$log"
+
+	ln_run 0 "$naive_bin" "$tag" "$log" "$cfg"
+	local use_time="" http_code
+	if wait_for_listener "$tag" "$socks_port" tcp 8 "$log"; then
+		# % output: "<http_code> <time_total seconds>"
+		local out
+		out=$(curl -o /dev/null -s -I --connect-timeout 3 --max-time 6 \
+			-x "socks5h://127.0.0.1:${socks_port}" \
+			-w '%{http_code} %{time_total}' "$url_test_url" 2>/dev/null)
+		http_code="${out%% *}"
+		case "$http_code" in ''|0) ;; *)
+			local t="${out#* }"
+			use_time=$(echo "$t" | awk '{printf "%d", $1*1000}')
+		;;
+		esac
+	fi
+
+	# Teardown regardless of outcome.
+	local pid
+	pid=$(cat "$TMP_PID_PATH/${tag}.pid" 2>/dev/null)
+	[ -n "$pid" ] && kill -9 "$pid" >/dev/null 2>&1
+	rm -f "$cfg" "$log" "$TMP_PID_PATH/${tag}.pid"
+
+	if [ -n "$use_time" ]; then
+		json_add_int code 0
+		json_add_string use_time "$use_time"
+	else
+		json_add_int code -1
+		json_add_string error "timeout"
+	fi
+	emit
+}
+
 # config_preview -> { config }  (regenerate + cat)
 do_config_preview() {
 	get_config
@@ -514,7 +600,7 @@ do_reset_config() {
 }
 
 usage() {
-	echo "Usage: $0 {status|route_test|observe|resolve|node_tcping|config_preview|rule_update|log_tail|clear_log|clear_nftset|interfaces|connect_status|geo_view|create_backup|restore_backup|reset_config} [args]" >&2
+	echo "Usage: $0 {status|route_test|observe|resolve|node_tcping|node_urltest|config_preview|rule_update|log_tail|clear_log|clear_nftset|interfaces|connect_status|geo_view|create_backup|restore_backup|reset_config} [args]" >&2
 }
 
 main() {
@@ -526,6 +612,7 @@ main() {
 		observe)        do_observe ;;
 		resolve)        do_resolve "$1" ;;
 		node_tcping)    do_node_tcping "$1" ;;
+		node_urltest)   do_node_urltest "$1" ;;
 		config_preview) do_config_preview ;;
 		rule_update)    do_rule_update ;;
 		log_tail)       do_log_tail "$1" ;;
