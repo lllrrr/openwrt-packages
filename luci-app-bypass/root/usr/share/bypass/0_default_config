@@ -5,6 +5,7 @@ config global
 	option node_socks_bind_local '1'
 	option client_proxy '1'
 	option log_node '1'
+	option loglevel 'error'
 	# BypassCore is the required routing core. NaiveProxy is its protocol
 	# adapter/SOCKS upstream for Naive nodes, never a fallback core.
 	option dns_redirect '1'

@@ -284,7 +284,7 @@ wait_for_listener() {
 					''|*[!0-9]*) ;;
 					*) wait "$pid" 2>/dev/null; exit_status=$?; [ "$exit_status" = "127" ] && exit_status=unknown ;;
 				esac
-				log 0 "%s exited before opening %s/%s (status=%s)." "$name" "$protocol" "$port" "$exit_status"
+				log 0 "%s is not running and %s/%s is not listening (status=%s)." "$name" "$protocol" "$port" "$exit_status"
 				log_component_tail "$name" "$output"
 				return 1
 			fi

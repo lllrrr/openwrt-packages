@@ -233,10 +233,6 @@ return view.extend({
 		o.default = 'IpOnDemand';
 		crossSection(o, 'global_rules');
 
-		o = s.taboption('Shunt Rule', form.DummyValue, '_domainMatcher', _('Domain matcher'),
-			_('BypassCore uses its built-in optimized domain matcher; Xray\'s matcher selector does not apply.'));
-		o.cfgvalue = function () { return _('hybrid (built-in)'); };
-
 		o = s.taboption('Shunt Rule', form.Flag, 'write_ipset_direct', _('Direct DNS result write to IPSet'),
 			_('Write addresses resolved for matching direct-domain rules to NFTSet so they can connect directly without re-entering the core. This may conflict with unusual DNS setups.'));
 		o.default = '1';
@@ -392,6 +388,14 @@ return view.extend({
 		/* ----- Log tab (options from 'global') ----- */
 		o = s.taboption('Log', form.Flag, 'log_node', _('Enable Node Log'));
 		o.default = '1';
+		o.rmempty = false;
+
+		o = s.taboption('Log', form.ListValue, 'loglevel', _('Log Level'));
+		o.value('debug', _('Debug'));
+		o.value('info', _('Info'));
+		o.value('warning', _('Warning'));
+		o.value('error', _('Error'));
+		o.default = 'error';
 		o.rmempty = false;
 
 		/* ----- Maintain tab (backup / restore / reset) ----- */

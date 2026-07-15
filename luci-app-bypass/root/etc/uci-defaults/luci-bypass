@@ -60,15 +60,17 @@ uci -q delete bypass.@global[0].default_egress_interface
 # URL Test Address is diagnostic UI state, not daemon configuration. Remove the
 # v1.4.6-v1.4.8 UCI option so upgrades no longer report or apply it as a change.
 uci -q delete bypass.@global[0].url_test_url
-# BypassCore has no configurable log level and previous values only toggled
-# NaiveProxy when set to "debug". Keep the real Passwall2-style node-log flag
-# and remove the misleading no-op selector.
+# Keep NaiveProxy's node-log switch separate from BypassCore's runtime log
+# level. BypassCore accepts debug, info, warning and error via -log-level.
 uci -q get bypass.@global[0].log_node >/dev/null 2>&1 || \
 	uci -q set bypass.@global[0].log_node='1'
-uci -q delete bypass.@global[0].loglevel
+case "$(uci -q get bypass.@global[0].loglevel)" in
+	debug|info|warning|error) ;;
+	*) uci -q set bypass.@global[0].loglevel='error' ;;
+esac
 
-# BypassCore has one built-in optimized matcher and no Xray-style selector.
-# The UI reports it as read-only instead of persisting a no-op option.
+# BypassCore has one built-in optimized matcher and no Xray-style selector, so
+# neither the UI nor UCI exposes a no-op matcher setting.
 uci -q delete bypass.@global_rules[0].domainMatcher
 uci -q get bypass.@global_rules[0].write_ipset_direct >/dev/null 2>&1 || \
 	uci -q set bypass.@global_rules[0].write_ipset_direct='1'

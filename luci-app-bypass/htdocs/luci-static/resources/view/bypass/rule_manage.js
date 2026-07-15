@@ -122,17 +122,6 @@ return view.extend({
 			});
 		};
 
-		o = ss.option(form.DummyValue, 'remarks', _('Remarks'));
-		o = ss.option(form.DummyValue, '_summary', _('Summary'));
-		o.cfgvalue = function (sid) {
-			var outbound = uci.get('bypass', sid, 'outbound') || '—';
-			var network = uci.get('bypass', sid, 'network') || '';
-			var map = { _default: _('Default'), _direct: _('Direct'), _blackhole: _('Block'), _block: _('Block') };
-			var label = map[outbound] || outbound;
-			if (network) label += ' · ' + network.toUpperCase();
-			return label;
-		};
-
 		return m.render();
 	}
 });

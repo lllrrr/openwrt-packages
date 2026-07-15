@@ -37,8 +37,8 @@ use crate::{
     connections::{
         apply_conntrack_failure, apply_conntrack_success, before_reply_action,
         client_conntrack_plan, conntrack_source, has_counted_connections, periodic_conntrack_plan,
-        BeforeReplyAction, ClientConntrackPlan, ConntrackObservation, PeriodicConntrackPlan,
-        CONNECTION_ONLY_WARNING,
+        publish_connection_details, BeforeReplyAction, ClientConntrackPlan, ConntrackObservation,
+        PeriodicConntrackPlan, CONNECTION_ONLY_WARNING,
     },
     daemon::{
         abort_reload_after_timer_failure, abort_reload_candidate, activate_runtime,
@@ -358,7 +358,7 @@ impl ProductionRuntime {
     fn collect(&mut self, method: ProbeMethod) -> Result<ResponseSnapshot, DaemonError> {
         let checkpoint = self.checkpoint();
         let result = self.collect_inner(method, None).and_then(|snapshot| {
-            for method in ubus::Method::ALL {
+            for method in ubus::Method::FIXED {
                 snapshot.response(method)?;
             }
             Ok(snapshot)
@@ -383,7 +383,7 @@ impl ProductionRuntime {
         let result = self
             .collect_inner(method, Some((&mut *runtime, &mut *adapter)))
             .and_then(|snapshot| {
-                for method in ubus::Method::ALL {
+                for method in ubus::Method::FIXED {
                     snapshot.response(method)?;
                 }
                 Ok(snapshot)
@@ -515,7 +515,6 @@ impl ProductionRuntime {
             }
             PeriodicConntrackPlan::Skip => {
                 self.conntrack_observation.record_skipped();
-                conntrack = self.conntrack_snapshot.clone();
             }
         }
         self.apply_conntrack_health(&mut runtime_health);
@@ -760,15 +759,11 @@ impl ProductionRuntime {
             evidence: reload_evidence,
             version,
         };
-        Ok(ResponseSnapshot {
-            status,
-            clients,
-            overview,
-            health,
-            reload,
-            interfaces,
-            sysdevices,
-        })
+        let mut response = ResponseSnapshot::from_responses(
+            status, clients, overview, health, reload, interfaces, sysdevices,
+        );
+        publish_connection_details(&mut response, conntrack.as_ref());
+        Ok(response)
     }
 
     fn update_overview(&mut self, now_ms: u64, response: &ClientsResponse) -> OverviewResponse {
@@ -1079,7 +1074,7 @@ impl App {
                 return Err(error);
             }
         };
-        if let Err(error) = ubus::Method::ALL
+        if let Err(error) = ubus::Method::FIXED
             .into_iter()
             .try_for_each(|method| snapshot.response(method).map(|_| ()))
         {

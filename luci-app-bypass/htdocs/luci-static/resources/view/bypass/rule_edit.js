@@ -69,7 +69,7 @@ return view.extend({
 
 		var o;
 
-		o = s.option(form.Value, 'remarks', _('Remarks'));
+		o = s.option(form.Value, 'remarks', _('Name'));
 		o.rmempty = false;
 
 		o = s.option(form.MultiValue, 'protocol', _('Protocol'));

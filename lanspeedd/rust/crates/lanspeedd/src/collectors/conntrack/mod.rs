@@ -1,3 +1,4 @@
+use crate::connection_details::ConnectionDetailsSnapshot;
 use aggregate::{aggregate_flows, ClientSample};
 use netlink::{DumpError, NetlinkSnapshot};
 use procfs::{ProcfsError, ProcfsSnapshot};
@@ -131,6 +132,8 @@ pub struct CollectStats {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CollectedSnapshot {
     pub clients: Vec<ClientSample>,
+    pub sample_ms: u64,
+    pub connection_details: ConnectionDetailsSnapshot,
     pub counter_source: &'static str,
     pub stats: CollectStats,
 }
@@ -217,11 +220,11 @@ fn finish_procfs_aggregate(
         snapshot.malformed_lines,
         snapshot.entries_seen,
     );
-    Ok(CollectedSnapshot {
-        clients: snapshot.aggregate.clients,
-        counter_source: snapshot.counter_source,
+    Ok(finish_aggregate(
+        snapshot.aggregate,
+        snapshot.counter_source,
         stats,
-    })
+    ))
 }
 
 fn finish_netlink(
@@ -245,11 +248,7 @@ fn finish_netlink(
         snapshot.malformed_entries,
         entries_seen,
     );
-    Ok(CollectedSnapshot {
-        clients: aggregate.clients,
-        counter_source: snapshot.counter_source,
-        stats,
-    })
+    Ok(finish_aggregate(aggregate, snapshot.counter_source, stats))
 }
 
 fn finish_procfs(
@@ -271,11 +270,21 @@ fn finish_procfs(
         snapshot.malformed_lines,
         snapshot.entries_seen,
     );
-    Ok(CollectedSnapshot {
+    Ok(finish_aggregate(aggregate, snapshot.counter_source, stats))
+}
+
+fn finish_aggregate(
+    aggregate: aggregate::AggregateSnapshot,
+    counter_source: &'static str,
+    stats: CollectStats,
+) -> CollectedSnapshot {
+    CollectedSnapshot {
         clients: aggregate.clients,
-        counter_source: snapshot.counter_source,
+        sample_ms: aggregate.sample_ms,
+        connection_details: aggregate.connection_details,
+        counter_source,
         stats,
-    })
+    }
 }
 
 fn stats_from_aggregate(
@@ -315,5 +324,92 @@ fn netlink_errno(error: &CollectorReadError) -> Option<i32> {
     match error {
         CollectorReadError::Netlink(DumpError::Kernel(error)) => error.raw_os_error(),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        collectors::conntrack::aggregate::{AggregateSnapshot, AggregateStats, ClientSample},
+        connection_details::{
+            ClientConnectionDetail, ConnectionDetailsIndex, ConnectionDirection,
+            ConnectionProtocol, ConnectionState,
+        },
+    };
+    use std::sync::Arc;
+
+    #[test]
+    fn streaming_procfs_finish_preserves_shared_details_timestamp_and_fallback_stats() {
+        let mut details = ConnectionDetailsIndex::default();
+        details.record(
+            "02:00:00:00:00:01@lan",
+            ClientConnectionDetail {
+                client_ip: "192.0.2.10".parse().unwrap(),
+                client_port: 50_123,
+                remote_ip: "1.1.1.1".parse().unwrap(),
+                remote_port: 443,
+                protocol: ConnectionProtocol::Tcp,
+                state: ConnectionState::Established,
+                direction: ConnectionDirection::Outbound,
+            },
+        );
+        let details = details.finish();
+        let retained_details = Arc::clone(&details);
+        let snapshot = procfs::ProcfsAggregateSnapshot {
+            aggregate: AggregateSnapshot {
+                clients: vec![ClientSample {
+                    mac: "02:00:00:00:00:01".into(),
+                    identity_key: "02:00:00:00:00:01@lan".into(),
+                    zone: "lan".into(),
+                    interface: "lan".into(),
+                    ips: vec!["192.0.2.10".into()],
+                    tx_bytes: 100,
+                    rx_bytes: 250,
+                    last_seen_ms: 91_337,
+                    tcp_conns: 1,
+                    udp_conns: 0,
+                    udp_dns_conns: 0,
+                    udp_other_conns: 0,
+                }],
+                stats: AggregateStats {
+                    entries_seen: 1,
+                    entries_matched: 1,
+                    src_lan_flows: 1,
+                    ipv4_lan_flows: 1,
+                    ..AggregateStats::default()
+                },
+                sample_ms: 91_337,
+                connection_details: details,
+            },
+            source_path: "/proc/net/nf_conntrack".into(),
+            counter_source: PROCFS_COUNTER_SOURCE,
+            entries_seen: 3,
+            malformed_lines: 2,
+        };
+
+        let collected = finish_procfs_aggregate(snapshot, true, Some(libc::EPERM)).unwrap();
+
+        assert_eq!(collected.sample_ms, 91_337);
+        assert!(Arc::ptr_eq(
+            &retained_details,
+            &collected.connection_details
+        ));
+        assert_eq!(
+            collected.connection_details["02:00:00:00:00:01@lan"].total_connections,
+            1
+        );
+        assert_eq!(collected.counter_source, PROCFS_COUNTER_SOURCE);
+        assert_eq!(collected.stats.source_path, "/proc/net/nf_conntrack");
+        assert!(collected.stats.netlink_attempted);
+        assert!(!collected.stats.netlink_read);
+        assert!(collected.stats.procfs_read);
+        assert_eq!(collected.stats.netlink_errno, Some(libc::EPERM));
+        assert_eq!(collected.stats.current_clients, 1);
+        assert_eq!(collected.stats.entries_seen, 3);
+        assert_eq!(collected.stats.entries_matched, 1);
+        assert_eq!(collected.stats.malformed_lines, 2);
+        assert_eq!(collected.stats.src_lan_flows, 1);
+        assert_eq!(collected.stats.ipv4_lan_flows, 1);
     }
 }

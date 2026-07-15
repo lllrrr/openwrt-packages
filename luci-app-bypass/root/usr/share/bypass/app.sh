@@ -41,6 +41,11 @@ get_config() {
 	NODE_SOCKS_BIND_LOCAL=$(config_t_get global node_socks_bind_local 1)
 	CLIENT_PROXY=$(config_t_get global client_proxy 1)
 	LOG_NODE=$(config_t_get global log_node 1)
+	LOG_LEVEL=$(config_t_get global loglevel error)
+	case "$LOG_LEVEL" in
+		debug|info|warning|error) ;;
+		*) LOG_LEVEL=error ;;
+	esac
 	DNS_REDIRECT=$(config_t_get global dns_redirect 1)
 	START_DAEMON=$(config_t_get global_delay start_daemon 1)
 
@@ -283,6 +288,9 @@ run_naive_nodes() {
 		return 0
 	}
 	[ -n "$NAIVE_BIN" ] || { log 0 "naiveproxy binary not found; selected proxy rules cannot start."; return 1; }
+	local naive_version
+	naive_version=$("$NAIVE_BIN" --version 2>&1 | sed -n '1p')
+	[ -n "$naive_version" ] && log 0 "NaiveProxy runtime: %s." "$naive_version"
 
 	# Resolve and record each node separately. Different nodes may use different
 	# logical WANs, so they receive consecutive policy tables and priorities.
@@ -952,16 +960,12 @@ run_bypasscore_core() {
 	gen_bypasscore_config || return 1
 	local cfg_dir=$TMP_ACL_PATH
 	mkdir -p "$cfg_dir"
-	local preflight_log="${cfg_dir}/bypasscore-preflight.log"
-	: > "$preflight_log"
-	if ! "$BYPASSCORE_FILE" -config "$BYPASSCORE_CFG" -test "tcp:1.1.1.1:443" > "$preflight_log" 2>&1; then
-		log 0 "BypassCore rejected the generated configuration during preflight."
-		log_component_tail "BypassCore preflight" "$preflight_log"
-		return 1
-	fi
+	# Starting a separate -test process here used to load GeoData, DNS, routing
+	# and Observatory twice. The daemon performs the same validation before it
+	# opens the listener, and wait_for_listener reports its captured error output.
 	local log_file="${cfg_dir}/bypasscore.log"
 	: > "$log_file"
-	ln_run 0 "$BYPASSCORE_FILE" "bypasscore" "$log_file" -config "$BYPASSCORE_CFG" -run || return 1
+	ln_run 0 "$BYPASSCORE_FILE" "bypasscore" "$log_file" -config "$BYPASSCORE_CFG" -log-level "$LOG_LEVEL" -run || return 1
 	wait_for_listener bypasscore "$REDIR_PORT" tcp 20 "$log_file" || return 1
 	set_cache_var ACL_GLOBAL_redir_port "$REDIR_PORT"
 	log 0 "BypassCore running as transparent core on tcp://0.0.0.0:%s (-run)." "$REDIR_PORT"
