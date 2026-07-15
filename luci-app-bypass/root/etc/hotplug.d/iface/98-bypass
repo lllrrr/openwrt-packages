@@ -5,12 +5,23 @@
 # Direct egress interface require a restart so netifd's new L3 device/gateway
 # or BypassCore device bind is applied.
 
-[ -f /var/lock/bypass_ready.lock ] || exit 0
-
 . /lib/functions/network.sh
 . /usr/share/bypass/utils.sh
 
 [ "$(uci -q get bypass.@global[0].enabled)" = "1" ] || exit 0
+
+# If cold-boot startup exhausted its bounded retries before the WAN became
+# usable, a later ifup must be able to recover the service. Do not interfere
+# with the configured boot delay while its marker exists.
+if [ ! -f /var/lock/bypass_ready.lock ]; then
+	if { [ "$ACTION" = "ifup" ] || [ "$ACTION" = "ifupdate" ]; } && \
+	   [ ! -f /var/lock/bypass_booting.lock ]; then
+		if mkdir /var/lock/bypass_recovering 2>/dev/null; then
+			( /etc/init.d/bypass restart; rmdir /var/lock/bypass_recovering 2>/dev/null ) >/dev/null 2>&1 &
+		fi
+	fi
+	exit 0
+fi
 
 # Guard against re-entry.
 LOCK=/var/lock/bypass_ifup.lock

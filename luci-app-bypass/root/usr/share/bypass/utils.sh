@@ -270,14 +270,27 @@ log_component_tail() {
 
 # wait_for_listener <process-name> <port> <tcp|udp> <seconds> <log-file>
 wait_for_listener() {
-	local name=$1 port=$2 protocol=$3 timeout=${4:-10} output=$5 elapsed=0
+	local name=$1 port=$2 protocol=$3 timeout=${4:-10} output=$5 elapsed=0 pid exit_status
 	while [ "$elapsed" -lt "$timeout" ]; do
 		if ! process_alive "$name"; then
-			log 0 "%s exited before opening %s/%s." "$name" "$protocol" "$port"
-			log_component_tail "$name" "$output"
-			return 1
+			# Immediately after fork(), a busy cold-boot system may expose the
+			# child PID before exec() has replaced the shell cmdline. process_pid()
+			# deliberately rejects that temporary identity mismatch. Give exec up
+			# to two seconds to settle, but only while the recorded PID still lives.
+			pid=$(cat "$TMP_PID_PATH/${name}.pid" 2>/dev/null)
+			if [ "$elapsed" -ge 2 ] || ! kill -0 "$pid" 2>/dev/null; then
+				exit_status=unknown
+				case "$pid" in
+					''|*[!0-9]*) ;;
+					*) wait "$pid" 2>/dev/null; exit_status=$?; [ "$exit_status" = "127" ] && exit_status=unknown ;;
+				esac
+				log 0 "%s exited before opening %s/%s (status=%s)." "$name" "$protocol" "$port" "$exit_status"
+				log_component_tail "$name" "$output"
+				return 1
+			fi
+		else
+			[ "$(check_port_exists "$port" "$protocol")" -gt 0 ] 2>/dev/null && return 0
 		fi
-		[ "$(check_port_exists "$port" "$protocol")" -gt 0 ] 2>/dev/null && return 0
 		elapsed=$((elapsed + 1))
 		sleep 1
 	done

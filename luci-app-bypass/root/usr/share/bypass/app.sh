@@ -248,8 +248,27 @@ run_naive_node() {
 	[ "$LOG_NODE" = "1" ] && json_add_string "log" ""
 	json_dump > "$socks_cfg"
 
-	ln_run 0 "$NAIVE_BIN" "${NAIVE_TAG}_${node}" "$log_file" "$socks_cfg" || return 1
-	wait_for_listener "${NAIVE_TAG}_${node}" "$socks_port" tcp 15 "$log_file" || return 1
+	# Cold boot can briefly race process exec or transient system readiness. Give
+	# NaiveProxy one clean retry; a second failure still aborts startup before any
+	# DNS or firewall takeover.
+	local attempt=1 process_name="${NAIVE_TAG}_${node}" pid
+	while [ "$attempt" -le 2 ]; do
+		: > "$log_file"
+		if ln_run 0 "$NAIVE_BIN" "$process_name" "$log_file" "$socks_cfg"; then
+			wait_for_listener "$process_name" "$socks_port" tcp 15 "$log_file" && break
+		else
+			log 0 "NaiveProxy node [%s] could not create a live child process." "$node"
+		fi
+		[ "$attempt" = "2" ] && return 1
+		pid=$(process_pid "$process_name") && {
+			kill "$pid" 2>/dev/null
+			sleep 1
+		}
+		rm -f "$TMP_PID_PATH/${process_name}.pid"
+		log 0 "Retrying NaiveProxy node [%s] after an early startup failure." "$node"
+		attempt=$((attempt + 1))
+		sleep 2
+	done
 
 	NAIVE_OK=1
 	log 0 "NaiveProxy node [%s]: socks://127.0.0.1:%s, server=%s:%s" \

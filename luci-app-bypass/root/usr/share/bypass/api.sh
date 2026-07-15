@@ -437,6 +437,82 @@ geo_rules_for_value() {
 	done
 }
 
+# Report the effective TCP/443 outbound and its OpenWrt/runtime interface for a
+# Geo View lookup. BypassCore remains authoritative for rule priority; UCI and
+# netifd then translate its outbound tag into the interface actually used.
+geo_lookup_egress() {
+	local target=$1 raw tag node sid logical="" label device devices="" devices_label="" iface mapped=""
+	get_config
+	export BYPASSCORE_ASSETS="$V2RAY_LOCATION_ASSET"
+	export ENABLE_DEPRECATED_GEOSITE=true
+	export ENABLE_DEPRECATED_GEOIP=true
+	if ! is_bypasscore "$BYPASSCORE_FILE"; then
+		printf '%s\n' "Egress interface: unavailable (BypassCore is not installed)"
+		return
+	fi
+	case "$target" in *:*) target="[$target]" ;; esac
+	if [ ! -s "$BYPASSCORE_CFG" ]; then
+		gen_bypasscore_config >/dev/null 2>&1 || {
+			printf '%s\n' "Egress interface: unavailable (configuration generation failed)"
+			return
+		}
+	fi
+	raw=$("$BYPASSCORE_FILE" -config "$BYPASSCORE_CFG" -test "tcp:${target}:443" 2>&1)
+	tag=$(printf '%s\n' "$raw" | sed -n 's/^Outbound tag:[[:space:]]*//p' | head -1)
+	case "$tag" in
+		block)
+			printf '%s\n' "Outbound: Block" "Egress interface: none (blocked)"
+			return
+			;;
+		proxy_*)
+			node=${tag#proxy_}
+			logical=$(config_n_get "$node" egress_interface)
+			label=$(config_n_get "$node" remarks "$node")
+			printf '%s\n' "Outbound: NaiveProxy node [$label]"
+			;;
+		direct_*)
+			sid=${tag#direct_}
+			logical=$(config_n_get "$sid" egress_interface)
+			printf '%s\n' "Outbound: Direct"
+			;;
+		direct)
+			logical=$(config_t_get global_rules direct_egress_interface)
+			printf '%s\n' "Outbound: Direct"
+			;;
+		*)
+			printf '%s\n' "Egress interface: unavailable (no routing decision)"
+			return
+			;;
+	esac
+
+	if [ -n "$logical" ]; then
+		if get_egress_runtime "$logical"; then
+			printf '%s\n' "Egress interface: ${logical} (${EGRESS_DEVICE})"
+		else
+			printf '%s\n' "Egress interface: ${logical} (currently unavailable)"
+		fi
+		return
+	fi
+
+	devices=$(
+		{ ip -o -4 route show default; ip -o -6 route show default; } 2>/dev/null |
+			awk '{ for (i=1; i<=NF; i++) if ($i == "dev") print $(i+1) }' |
+			awk 'NF && !seen[$0]++'
+	)
+	network_flush_cache 2>/dev/null
+	for device in $devices; do
+		mapped=""
+		for iface in $(uci -q show network 2>/dev/null | sed -n 's/^network\.\([^.=]*\)=interface$/\1/p'); do
+			network_get_device mapped "$iface" 2>/dev/null
+			[ "$mapped" = "$device" ] && break
+			mapped=""
+		done
+		label="${mapped:+$iface -> }$device"
+		devices_label="${devices_label:+$devices_label, }$label"
+	done
+	printf '%s\n' "Egress interface: system default${devices_label:+ ($devices_label)}"
+}
+
 do_geo_view() {
 	local action=$1 value=$2
 	local bin geoip_path geosite_path
@@ -457,7 +533,7 @@ do_geo_view() {
 		return
 	fi
 
-	local geo_type file_path out rc
+	local geo_type file_path out rc route_info
 	if [ "$action" = "lookup" ]; then
 		# IP → geoip; anything else → geosite.
 		if echo "$value" | grep -qE "^([0-9]{1,3}[\.]){3}[0-9]{1,3}$" || \
@@ -490,6 +566,13 @@ ${rules}"
 				fi
 				rm -rf "$tmp"
 			fi
+		fi
+		if [ "$rc" = "0" ]; then
+			route_info=$(geo_lookup_egress "$value")
+			out="${out}${out:+
+}--------------------
+Routing decision for TCP/443:
+${route_info}"
 		fi
 	elif [ "$action" = "extract" ]; then
 		# Parse geoip:<list> or geosite:<list>.
@@ -537,6 +620,9 @@ ${rules}"
 		return
 	fi
 
+	# gen_bypasscore_config() uses jshn internally, so always begin a fresh API
+	# response object after the optional routing lookup above.
+	json_init
 	json_add_int code "${rc:-1}"
 	json_add_string output "$out"
 	emit

@@ -8,6 +8,7 @@ APP_FILE=${APP_PATH}/app.sh
 LOCK_FILE_DIR=/var/lock
 LOCK_FILE=${LOCK_FILE_DIR}/${CONFIG}.lock
 READY_FILE=${LOCK_FILE_DIR}/${CONFIG}_ready.lock
+BOOTING_FILE=${LOCK_FILE_DIR}/${CONFIG}_booting.lock
 
 set_lock() {
 	[ ! -d "$LOCK_FILE_DIR" ] && mkdir -p "$LOCK_FILE_DIR"
@@ -36,19 +37,31 @@ update_ready_file() {
 	else
 		rm -f "$READY_FILE"
 	fi
+	rmdir /var/lock/bypass_recovering 2>/dev/null
 }
 
 boot_func() {
-	local delay
+	local delay attempt=1 rc=1
+	trap 'rm -f "$BOOTING_FILE"' EXIT INT TERM
 	delay=$(uci -q get ${CONFIG}.@global_delay[0].start_delay 2>/dev/null || echo 60)
 	[ "$delay" -gt 0 ] 2>/dev/null && {
 		log 0 "Start after a delay of %s seconds." "$delay"
 		sleep "$delay"
 	}
-	restart boot
+	while [ "$attempt" -le 3 ]; do
+		restart boot && { rc=0; break; }
+		[ "$attempt" = "3" ] && break
+		log 0 "Boot startup attempt %s failed; retrying in 10 seconds." "$attempt"
+		attempt=$((attempt + 1))
+		sleep 10
+	done
+	rm -f "$BOOTING_FILE"
+	trap - EXIT INT TERM
+	return "$rc"
 }
 
 boot() {
+	touch "$BOOTING_FILE"
 	boot_func >/dev/null 2>&1 &
 }
 
