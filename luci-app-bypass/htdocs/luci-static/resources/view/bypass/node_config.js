@@ -62,15 +62,15 @@ return view.extend({
 		o.placeholder = '443';
 		o.rmempty = false;
 
-		o = s.option(form.ListValue, 'egress_interface', _('Egress Interface'),
-			_('Send this NaiveProxy node\'s server connection through the selected OpenWrt network. Empty = system default route.'));
-		o.value('', _('(system default route)'));
-		ifaces.forEach(function (iface) { o.value(iface, iface); });
-
 		o = s.option(form.Value, 'username', _('Username'));
 
 		o = s.option(form.Value, 'password', _('Password'));
 		o.password = true;
+
+		o = s.option(form.ListValue, 'egress_interface', _('Egress Interface'),
+			_('Send this NaiveProxy node\'s server connection through the selected OpenWrt network. Empty = system default route.'));
+		o.value('', _('(system default route)'));
+		ifaces.forEach(function (iface) { o.value(iface, iface); });
 
 		return m.render();
 	},

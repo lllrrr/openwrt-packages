@@ -11,6 +11,7 @@
 
 LOCK_FILE=/var/lock/bypass_rule_update.lock
 BAK_DIR=/tmp/bypass_bak
+GEODATA_CHANGED=0
 
 set_lock() {
 	mkdir -p "$(dirname "$LOCK_FILE")"
@@ -54,10 +55,16 @@ download_one() {
 		rm -f "$tmp"
 		return 1
 	fi
+	if [ -s "$dest" ] && cmp -s "$tmp" "$dest"; then
+		log 1 "%s is already current; no service restart is needed." "$name"
+		rm -f "$tmp"
+		return 0
+	fi
 
 	mkdir -p "$BAK_DIR"
 	[ -s "$dest" ] && cp -f "$dest" "$BAK_DIR/$(basename "$dest").bak"
 	mv -f "$tmp" "$dest"
+	GEODATA_CHANGED=1
 	log 0 "%s updated (%s bytes)." "$name" "$sz"
 	return 0
 }
@@ -83,8 +90,8 @@ update_geodata() {
 
 	unset_lock
 	trap - EXIT INT TERM
-	if [ "$ok" = "1" ] && [ "$(config_t_get global enabled 0)" = "1" ]; then
-		log 0 "GeoData updated; restarting Bypass to reload DNS and routing rules."
+	if [ "$GEODATA_CHANGED" = "1" ] && [ "$(config_t_get global enabled 0)" = "1" ]; then
+		log 0 "GeoData changed; restarting Bypass to reload the validated files."
 		/etc/init.d/bypass restart >/dev/null 2>&1 || {
 			log 0 "Bypass failed to restart after the GeoData update."
 			return 1
@@ -93,10 +100,47 @@ update_geodata() {
 	return $((1 - ok))
 }
 
-# refresh_uplink: restart under the service lock so every currently referenced
-# Naive node is re-resolved and every configured per-node egress policy table
-# is rebuilt atomically.
+# Return success only when an interface-bound node's address pinned at startup
+# is no longer present in DNS. System-default nodes need no destination policy
+# rule and therefore do not need periodic restarts.
+uplink_refresh_needed() {
+	[ -s "$TMP_PATH/selected_nodes" ] || return 1
+	local node iface address pinned current="$TMP_PATH/uplink-current.$$" resolve_ok
+	while read -r node; do
+		[ -n "$node" ] || continue
+		iface=$(config_n_get "$node" egress_interface)
+		[ -n "$iface" ] || continue
+		address=$(config_n_get "$node" address)
+		pinned=$(cat "$TMP_PATH/naive_resolve.${node}" 2>/dev/null)
+		# Literal server IPs do not use a resolver pin and cannot rotate.
+		[ -n "$pinned" ] || continue
+		: > "$current"
+		resolve_all_ipv4 "$address" >> "$current"
+		resolve_all_ipv6 "$address" >> "$current"
+		resolve_ok=0
+		[ -s "$current" ] && resolve_ok=1
+		if [ "$resolve_ok" = "0" ]; then
+			# Preserve the healthy existing tunnel on a transient resolver outage.
+			log 1 "Could not refresh Naive node [%s] DNS; keeping its current pinned address." "$node"
+			rm -f "$current"
+			continue
+		fi
+		if ! grep -Fxq "$pinned" "$current"; then
+			log 0 "Naive node [%s] address changed; refreshing its egress route and process." "$node"
+			rm -f "$current"
+			return 0
+		fi
+	done < "$TMP_PATH/selected_nodes"
+	rm -f "$current"
+	return 1
+}
+
+# refresh_uplink: perform a serialized full refresh only after the conditional
+# check above. BypassCore, Naive SOCKS and firewall/DNS state remain atomic.
 refresh_uplink_mode() {
+	[ -f /var/lock/bypass_ready.lock ] || return 0
+	[ "$(config_t_get global enabled 0)" = "1" ] || return 0
+	uplink_refresh_needed || return 0
 	# Serialize with init start/stop/restart. A failed refresh must not leave
 	# Naive reconnects using the system default WAN after their dedicated rules
 	# were rolled back, so stop the service fail-closed.

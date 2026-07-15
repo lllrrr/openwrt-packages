@@ -248,9 +248,24 @@ log_component_tail() {
 		log 1 "%s exited without diagnostic output." "$name"
 		return 0
 	}
-	tail -n 12 "$output" 2>/dev/null | while IFS= read -r line; do
-		[ -n "$line" ] && log 1 "%s: %s" "$name" "$line"
-	done
+	# ChinaDNS-NG verbose output may end with thousands of alphabetically sorted
+	# GeoSite entries. They are data, not diagnostics. Keep useful messages while
+	# preventing domain lists from flooding Runtime Log when a component fails.
+	local filtered="$TMP_PATH/component-tail.$$"
+	tail -n 80 "$output" 2>/dev/null | awk '
+		/^[[:space:]]*$/ { next }
+		/^[[:space:]]*([[:alnum:]_-]+\.)+[[:alnum:]_-]+[[:space:]]*$/ { next }
+		{ lines[++n]=$0 }
+		END { start=n-11; if (start < 1) start=1; for (i=start; i<=n; i++) print lines[i] }
+	' > "$filtered"
+	if [ -s "$filtered" ]; then
+		while IFS= read -r line; do
+			[ -n "$line" ] && log 1 "%s: %s" "$name" "$line"
+		done < "$filtered"
+	else
+		log 1 "%s produced no diagnostic messages (domain-list output suppressed)." "$name"
+	fi
+	rm -f "$filtered"
 }
 
 # wait_for_listener <process-name> <port> <tcp|udp> <seconds> <log-file>

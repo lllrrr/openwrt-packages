@@ -233,11 +233,9 @@ return view.extend({
 		o.default = 'IpOnDemand';
 		crossSection(o, 'global_rules');
 
-		o = s.taboption('Shunt Rule', form.ListValue, 'domainMatcher', _('Domain matcher'),
-			_('BypassCore 1.0.5 uses its optimized Linux domain matcher. Hybrid is the only compatible value; Xray\'s linear matcher does not exist in BypassCore.'));
-		o.value('hybrid', _('hybrid'));
-		o.default = 'hybrid';
-		crossSection(o, 'global_rules');
+		o = s.taboption('Shunt Rule', form.DummyValue, '_domainMatcher', _('Domain matcher'),
+			_('BypassCore uses its built-in optimized domain matcher; Xray\'s matcher selector does not apply.'));
+		o.cfgvalue = function () { return _('hybrid (built-in)'); };
 
 		o = s.taboption('Shunt Rule', form.Flag, 'write_ipset_direct', _('Direct DNS result write to IPSet'),
 			_('Write addresses resolved for matching direct-domain rules to NFTSet so they can connect directly without re-entering the core. This may conflict with unusual DNS setups.'));
@@ -264,12 +262,25 @@ return view.extend({
 			form.TableSection, 'shunt_rules', _('Rule'));
 		var rs = o.subsection;
 		rs.addremove = false;
-		rs.anonymous = false;
+		rs.anonymous = true;
 		rs.sortable = false;
-		rs.sectiontitle = function (sid) {
-			return uci.get('bypass', sid, 'is_default') === '1'
-				? _('Default')
-				: (uci.get('bypass', sid, 'remarks') || sid);
+		// Rule Manage persists its sortable rows in UCI section order. Preserve
+		// that exact order here, then move the reserved catch-all to the bottom.
+		rs.cfgsections = function () {
+			var rules = [], defaults = [];
+			uci.sections('bypass', 'shunt_rules').forEach(function (rule) {
+				(rule.is_default === '1' ? defaults : rules).push(rule['.name']);
+			});
+			return rules.concat(defaults);
+		};
+
+		o = rs.option(form.DummyValue, '_rule_name', _('Name'));
+		o.rawhtml = true;
+		o.cfgvalue = function (sid) {
+			var isDefault = uci.get('bypass', sid, 'is_default') === '1';
+			return E('span', isDefault ? {
+				style: 'color:#d00;font-weight:600'
+			} : {}, isDefault ? _('Default') : (uci.get('bypass', sid, 'remarks') || sid));
 		};
 
 		o = rs.option(form.ListValue, 'outbound', _('Node'));
@@ -382,12 +393,6 @@ return view.extend({
 		o = s.taboption('Log', form.Flag, 'log_node', _('Enable Node Log'));
 		o.default = '1';
 		o.rmempty = false;
-		o = s.taboption('Log', form.ListValue, 'loglevel', _('Log Level'));
-		o.value('debug', _('Debug'));
-		o.value('info', _('Info'));
-		o.value('warning', _('Warning'));
-		o.value('error', _('Error'));
-		o.default = 'warning';
 
 		/* ----- Maintain tab (backup / restore / reset) ----- */
 		var maintNote = E('p', { style: 'color:red' },

@@ -26,9 +26,9 @@ load_standalone_config() {
 	[ -n "$REDIR_PORT" ] || return 1
 	TCP_PROXY_WAY=$(config_t_get global_forwarding tcp_proxy_way redirect)
 	TCP_NO_REDIR_PORTS=$(config_t_get global_forwarding tcp_no_redir_ports disable)
+	UDP_NO_REDIR_PORTS=$(config_t_get global_forwarding udp_no_redir_ports disable)
 	TCP_REDIR_PORTS=$(config_t_get global_forwarding tcp_redir_ports 1:65535)
 	PROXY_IPV6=$(config_t_get global_forwarding ipv6_tproxy 0)
-	FORCE_PROXY_LAN_IP=$(config_t_get global_forwarding force_proxy_lan_ip 0)
 	ACCEPT_ICMP=$(config_t_get global_forwarding accept_icmp 0)
 	CLIENT_PROXY=$(config_t_get global client_proxy 1)
 	DNS_REDIRECT=$(config_t_get global dns_redirect 1)
@@ -116,9 +116,10 @@ nft_start() {
 	# table is absent and would abort the whole ruleset load below).
 	$NFT delete table inet ${NFT_TABLE} 2>/dev/null
 
-	local tcp_expr tcp_no_expr
+	local tcp_expr tcp_no_expr udp_no_expr
 	tcp_expr=$(nft_port_expr "$TCP_REDIR_PORTS") || return 1
 	tcp_no_expr=$(nft_port_expr "$TCP_NO_REDIR_PORTS") || return 1
+	udp_no_expr=$(nft_port_expr "$UDP_NO_REDIR_PORTS") || return 1
 
 	local mode=$TCP_PROXY_WAY
 	# naive upstream builds support redir everywhere; tproxy only in builds
@@ -149,15 +150,17 @@ table inet ${NFT_TABLE} {
 		type ipv6_addr
 		elements = { ${local6_elements} }
 	}
-	set bypass_lan {
+	set bypass_direct {
 		type ipv4_addr
+		size 1048576
 		flags interval
-		elements = { 10.0.0.0/8, 100.64.0.0/10, 172.16.0.0/12, 192.168.0.0/16 }
+		auto-merge
 	}
-	set bypass_lan6 {
+	set bypass_direct6 {
 		type ipv6_addr
+		size 1048576
 		flags interval
-		elements = { fc00::/7 }
+		auto-merge
 	}
 	set bypass_dns {
 		type ipv4_addr
@@ -193,11 +196,8 @@ EOF
 		wan_devices="${wan_devices:+$wan_devices, }\"$dev\""
 	done
 	[ -n "$wan_devices" ] && wan_accept="iifname { ${wan_devices} } accept"
-	local lan_accept="" lan6_accept=""
-	if [ "$FORCE_PROXY_LAN_IP" != "1" ]; then
-		lan_accept="ip daddr @bypass_lan accept"
-		lan6_accept="ip6 daddr @bypass_lan6 accept"
-	fi
+	local direct_accept="ip daddr @bypass_direct accept"
+	local direct6_accept="ip6 daddr @bypass_direct6 accept"
 	local direct_dns_accept="" direct_dns6_accept=""
 	local direct_bind_configured=0 direct_sid
 	[ -n "$(config_t_get global_rules direct_egress_interface)" ] && direct_bind_configured=1
@@ -215,7 +215,7 @@ EOF
 		log 0 "Direct interface binding is configured; keeping direct DNS/GeoIP matches inside BypassCore so the selected interface is honored."
 	fi
 
-	local nat_chain="" mangle_chain="" mangle6_chain="" tcp_redirect_rule="" icmp_redirect_rule="" dns_redirect_rule="" dns_tproxy_bypass="" tcp_no_redir_rule=""
+	local nat_chain="" udp_guard_chain="" mangle_chain="" mangle6_chain="" tcp_redirect_rule="" icmp_redirect_rule="" dns_redirect_rule="" dns_tproxy_bypass="" tcp_no_redir_rule="" udp_no_redir_rule=""
 	# REDIRECT mode uses NAT PREROUTING for TCP. ICMP hijacking is implemented
 	# in the same NAT base chain and makes the router answer matching IPv4 pings,
 	# matching Passwall2's nftables behavior without sending ICMP to BypassCore.
@@ -232,6 +232,7 @@ EOF
 	# bash) close the expansion at the first '}' after the nested ${...}, leaving
 	# a dangling "accept}" that breaks the nft ruleset.
 	[ -n "$tcp_no_expr" ] && tcp_no_redir_rule="meta l4proto tcp tcp dport { ${tcp_no_expr} } accept"
+	[ -n "$udp_no_expr" ] && udp_no_redir_rule="meta l4proto udp udp dport { ${udp_no_expr} } accept"
 	if [ "$CLIENT_PROXY" = "1" ] && [ "$DNS_REDIRECT" = "1" ]; then
 		# Match Passwall2's DNS Redirect semantics: LAN clients using a hardcoded
 		# port-53 resolver are sent to the router's dnsmasq, whose upstream is the
@@ -239,6 +240,31 @@ EOF
 		# before this rule.
 		dns_redirect_rule="meta l4proto { tcp, udp } th dport 53 redirect to :53"
 		dns_tproxy_bypass="meta l4proto { tcp, udp } th dport 53 accept"
+	fi
+	# NaiveProxy's SOCKS5 server rejects UDP ASSOCIATE. Stop forwarded external
+	# UDP before it can leave through the system route, except for ports which
+	# the user explicitly selected as UDP No Redir (Direct). DNS redirected to
+	# the router and local/link-local discovery remain available.
+	if [ "$CLIENT_PROXY" = "1" ]; then
+		local udp_dns_accept=""
+		[ "$DNS_REDIRECT" = "1" ] && udp_dns_accept="meta l4proto udp udp dport 53 accept"
+		udp_guard_chain="chain udp_guard { type filter hook prerouting priority -151; policy accept;
+			meta l4proto != udp accept
+			${wan_accept}
+			iif lo accept
+			ip daddr @bypass_local accept
+			ip6 daddr @bypass_local6 accept
+			${direct_accept}
+			${direct6_accept}
+			${udp_dns_accept}
+			${udp_no_redir_rule}
+			counter drop comment \"bypass: NaiveProxy has no UDP support\"
+		}"
+		if [ -n "$udp_no_expr" ]; then
+			log 0 "UDP No Redir Ports [%s] go Direct and may expose the real egress IP; other forwarded external UDP is blocked." "$UDP_NO_REDIR_PORTS"
+		else
+			log 0 "UDP strict mode: forwarded external UDP is blocked to prevent NaiveProxy bypass."
+		fi
 	fi
 	if [ -n "$tcp_redirect_rule" ] || [ -n "$icmp_redirect_rule" ] || [ -n "$dns_redirect_rule" ]; then
 		nat_chain="chain prerouting { type nat hook prerouting priority -100; policy accept;
@@ -248,21 +274,21 @@ EOF
 			${dns_redirect_rule}
 			ip daddr @bypass_vps accept
 			${direct_dns_accept}
-			${lan_accept}
+			${direct_accept}
 			ip daddr @bypass_dns meta l4proto { tcp, udp } th dport 53 accept
 			${tcp_no_redir_rule}
 			${tcp_redirect_rule}
 			${icmp_redirect_rule}
 		}"
 	fi
-	# TProxy mode: mangle PREROUTING TPROXY for TCP. NaiveProxy's SOCKS5
-	# listener rejects UDP ASSOCIATE, so UDP must remain direct.
+	# TProxy mode: mangle PREROUTING TPROXY for TCP. UDP is handled separately
+	# by udp_guard using the explicit no-redirection port exceptions above.
 	if [ "$CLIENT_PROXY" = "1" ] && [ "$mode" = "tproxy" ] && [ -n "$tcp_expr" ]; then
 		[ -n "$tcp_expr" ] && mangle_chain="chain prerouting { type filter hook prerouting priority mangle; policy accept;
 			ip daddr @bypass_vps accept
 			${direct_dns_accept}
 			ip daddr @bypass_local accept
-			${lan_accept}
+			${direct_accept}
 			ip daddr @bypass_dns meta l4proto { tcp, udp } th dport 53 accept
 			${wan_accept}
 			iif lo accept
@@ -275,7 +301,7 @@ EOF
 				ip6 daddr @bypass_vps6 accept
 				${direct_dns6_accept}
 				ip6 daddr @bypass_local6 accept
-				${lan6_accept}
+				${direct6_accept}
 				${wan_accept}
 				iif lo accept
 				${dns_tproxy_bypass}
@@ -314,6 +340,7 @@ EOF
 
 	local ruleset="${sets}
 	${nat_chain}
+	${udp_guard_chain}
 	${mangle_chain}
 	${mangle6_chain}
 	}"
@@ -325,6 +352,43 @@ EOF
 		log 0 "nft ruleset apply failed."
 		return 1
 	}
+
+	# Passwall2-style Direct IP List: literal prefixes and geoip:CODE entries are
+	# inserted into sets matched before REDIRECT/TPROXY, so they never enter the
+	# transparent core. Keep the editable source as an opkg conffile.
+	local direct_file=/usr/share/bypass/direct_ip direct4_file="$TMP_PATH2/direct-ip4" direct6_file="$TMP_PATH2/direct-ip6" direct_entry direct_code lan_device
+	: > "$direct4_file"
+	: > "$direct6_file"
+	if [ -s "$direct_file" ]; then
+		while IFS= read -r direct_entry || [ -n "$direct_entry" ]; do
+			direct_entry=$(printf '%s' "$direct_entry" | sed 's/\r$//;s/^[[:space:]]*//;s/[[:space:]]*$//')
+			case "$direct_entry" in
+				''|'#'*) continue ;;
+				geoip:*)
+					direct_code=${direct_entry#geoip:}
+					get_geoip "$direct_code" ipv4 >> "$direct4_file"
+					get_geoip "$direct_code" ipv6 >> "$direct6_file"
+					;;
+				*:*) printf '%s\n' "$direct_entry" >> "$direct6_file" ;;
+				*) printf '%s\n' "$direct_entry" >> "$direct4_file" ;;
+			esac
+		done < "$direct_file"
+	fi
+	# Like current Passwall2, always protect the actual LAN interface prefixes
+	# even when the user customizes the static list. Resolve the runtime netifd
+	# device instead of relying on the obsolete network.lan.ifname state key.
+	network_flush_cache 2>/dev/null
+	network_get_device lan_device lan 2>/dev/null
+	if [ -n "$lan_device" ]; then
+		ip -o -4 addr show dev "$lan_device" 2>/dev/null | awk '{print $4}' >> "$direct4_file"
+		ip -o -6 addr show dev "$lan_device" 2>/dev/null | awk '{print $4}' >> "$direct6_file"
+	fi
+	if ! nft_import_elements bypass_direct "$direct4_file" || \
+	   ! nft_import_elements bypass_direct6 "$direct6_file"; then
+		$NFT delete table inet ${NFT_TABLE} 2>/dev/null
+		log 0 "Direct IP List could not be loaded; removed the incomplete nftables ruleset."
+		return 1
+	fi
 
 	# Pre-populate bypass_vps with every node server IP (literal or resolved),
 	# so a future router-OUTPUT implementation cannot recurse into the tunnel.

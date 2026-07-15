@@ -5,7 +5,7 @@
 'require ui';
 
 // Node List — JS-rendered table, passwall2-style but trimmed:
-//   • A top "URL Test Address" dropdown (stored in global.url_test_url)
+//   • A top "URL Test Address" dropdown (browser-session only)
 //   • TCPing + URL Test latency columns (no Ping)
 //   • Per-row Edit / Copy / Delete actions. Nodes are assigned per shunt rule.
 //   • A single "Add" button at the bottom.
@@ -60,18 +60,18 @@ function setCachedTcping(sid, ms) {
 	try { localStorage.setItem(tcpingCacheKey(sid), JSON.stringify({ ms: ms, t: Date.now() })); } catch (e) {}
 }
 
-function urltestCacheKey(sid) { return 'bypass_urltest_' + sid; }
-function getCachedUrltest(sid) {
+function urltestCacheKey(sid, url) { return 'bypass_urltest_' + sid + '_' + encodeURIComponent(url); }
+function getCachedUrltest(sid, url) {
 	try {
-		var raw = localStorage.getItem(urltestCacheKey(sid));
+		var raw = localStorage.getItem(urltestCacheKey(sid, url));
 		if (!raw) return null;
 		var entry = JSON.parse(raw);
 		if (Date.now() - entry.t > 60000) return null;
 		return entry.ms;
 	} catch (e) { return null; }
 }
-function setCachedUrltest(sid, ms) {
-	try { localStorage.setItem(urltestCacheKey(sid), JSON.stringify({ ms: ms, t: Date.now() })); } catch (e) {}
+function setCachedUrltest(sid, url, ms) {
+	try { localStorage.setItem(urltestCacheKey(sid, url), JSON.stringify({ ms: ms, t: Date.now() })); } catch (e) {}
 }
 
 return view.extend({
@@ -81,26 +81,30 @@ return view.extend({
 
 	render: function () {
 		var nodes = uci.sections('bypass', 'nodes');
-		var currentUrl = uci.get('bypass', '@global[0]', 'url_test_url') || URL_TEST_PRESETS[2][0];
+		var currentUrl = URL_TEST_PRESETS[2][0];
+		try { currentUrl = sessionStorage.getItem('bypass_url_test_url') || currentUrl; } catch (e) {}
+		if (!URL_TEST_PRESETS.some(function (pair) { return pair[0] === currentUrl; }))
+			currentUrl = URL_TEST_PRESETS[2][0];
 
 		var container = E('div', { class: 'cbi-map' }, [
 			E('div', { class: 'cbi-section-descr' }, _('NaiveProxy nodes (HTTPS/QUIC).'))
 		]);
 
-		// URL Test Address selector (passwall2-style). Persisted to global.url_test_url.
+		// This is a diagnostic input, not service configuration. Keeping it out of
+		// UCI avoids LuCI's global "Unsaved Changes" state and needless restarts.
 		var urlSelect = E('select', {
 			class: 'cbi-input-select',
-			change: function (ev) {
-				uci.set('bypass', '@global[0]', 'url_test_url', urlSelect.value);
-				uci.save().then(function () { uci.apply(); });
+			change: function () {
+				currentUrl = urlSelect.value;
+				try { sessionStorage.setItem('bypass_url_test_url', currentUrl); } catch (e) {}
+				document.querySelectorAll('[data-bypass-urltest-result]').forEach(function (el) {
+					el.textContent = '';
+				});
 			}
 		});
 		URL_TEST_PRESETS.forEach(function (pair) {
 			urlSelect.appendChild(E('option', { value: pair[0] }, _(pair[1])));
 		});
-		// Keep a custom value selectable if it is not one of the presets.
-		var isPreset = URL_TEST_PRESETS.some(function (pair) { return pair[0] === currentUrl; });
-		if (!isPreset) urlSelect.appendChild(E('option', { value: currentUrl }, currentUrl));
 		urlSelect.value = currentUrl;
 		container.appendChild(E('div', { class: 'cbi-value', style: 'margin-bottom:8px' }, [
 			E('label', { class: 'cbi-value-title', style: 'width:auto;padding-right:8px' }, _('URL Test Address')),
@@ -173,7 +177,10 @@ return view.extend({
 			if (!hasEndpoint) {
 				urltestCell.appendChild(E('span', { style: 'color:#adb5bd' }, '---'));
 			} else {
-				var urltestResult = E('span', { style: 'margin-left:6px;font-weight:bold' });
+				var urltestResult = E('span', {
+					style: 'margin-left:6px;font-weight:bold',
+					'data-bypass-urltest-result': '1'
+				});
 				var urltestLink = E('a', {
 					href: '#',
 					style: 'cursor:pointer',
@@ -182,12 +189,14 @@ return view.extend({
 						urltestLink.textContent = _('Testing…');
 						urltestLink.style.color = COL.yellow;
 						urltestResult.textContent = '';
-						api('node_urltest', sid).then(function (r) {
+						var testUrl = currentUrl;
+						api('node_urltest', sid, testUrl).then(function (r) {
 							urltestLink.textContent = _('Test');
 							urltestLink.style.color = '';
+							if (testUrl !== currentUrl) return;
 							if (r.code === 0 && r.use_time != null) {
 								var ms = parseInt(r.use_time, 10);
-								setCachedUrltest(sid, ms);
+								setCachedUrltest(sid, testUrl, ms);
 								renderUrltest(ms);
 							} else {
 								urltestResult.textContent = '---';
@@ -209,7 +218,7 @@ return view.extend({
 				urltestCell.appendChild(urltestLink);
 				urltestCell.appendChild(urltestResult);
 
-				var urlCached = getCachedUrltest(sid);
+				var urlCached = getCachedUrltest(sid, currentUrl);
 				if (urlCached != null) renderUrltest(urlCached);
 			}
 

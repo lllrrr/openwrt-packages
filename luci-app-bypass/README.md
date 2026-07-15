@@ -102,7 +102,6 @@ config global_forwarding
     option tcp_proxy_way 'redirect'   # redirect | tproxy
     option tcp_redir_ports '1:65535'
     option ipv6_tproxy '0'
-    option force_proxy_lan_ip '0'
     option accept_icmp '0'
 
 config global_dns
@@ -149,6 +148,8 @@ config nodes 'naive1'
     option password 'pass'
 ```
 
+Other Settings 中的 Direct IP List 保存在 `/usr/share/bypass/direct_ip`；其中的 IP、CIDR 与 `geoip:CODE` 会在进入 BypassCore 前由 nftables 直接放行。
+
 ---
 
 ## 目录结构
@@ -164,11 +165,11 @@ luci-app-bypass/
 │   ├── rule_manage.js rule_edit.js   # GeoData 更新与分流规则
 │   ├── geo_view.js log.js
 └── root/
-    ├── etc/init.d/bypass             # rc.common 包装器（升级时强制刷新）
-    ├── etc/uci-defaults/luci-bypass  # 首次安装：拷默认配置、防火墙 include、chmod
+    ├── etc/uci-defaults/luci-bypass  # 首次安装：拷默认配置、生成 init、防火墙 include、chmod
     ├── etc/hotplug.d/iface/98-bypass # ifup 重启 / ifupdate 刷新
     └── usr/share/bypass/
-        ├── service.init              # BusyBox flock 锁、延迟启动与服务生命周期
+        ├── bypass.init service.init  # rc.common 包装器模板、锁与服务生命周期
+        ├── direct_ip                # 可编辑的直连 IP/CIDR/GeoIP 列表
         ├── utils.sh                  # 共享库（含双栈出口策略路由、核心身份校验）
         ├── app.sh                    # 编排：多 Naive 节点 / ChinaDNS-NG / BypassCore / start-stop
         ├── monitor.sh                # PID + 监听端口健康检查，异常时完整重启

@@ -3,11 +3,8 @@ config global
 	option enabled '0'
 	option node_socks_port '1088'
 	option node_socks_bind_local '1'
-	# URL used by the Node List "URL Test" column (curl through the node's
-	# temporary SOCKS listener). generate_204 endpoints return an empty body.
-	option url_test_url 'https://www.google.com/generate_204'
 	option client_proxy '1'
-	option loglevel 'warning'
+	option log_node '1'
 	# BypassCore is the required routing core. NaiveProxy is its protocol
 	# adapter/SOCKS upstream for Naive nodes, never a fallback core.
 	option dns_redirect '1'
@@ -26,9 +23,11 @@ config global
 
 config global_forwarding
 	option ipv6_tproxy '0'
-	option force_proxy_lan_ip '0'
 	option accept_icmp '0'
 	option tcp_no_redir_ports 'disable'
+	# NaiveProxy cannot carry general UDP. "disable" therefore blocks external
+	# forwarded UDP by default. Explicit ports are allowed to go Direct.
+	option udp_no_redir_ports 'disable'
 	option tcp_redir_ports '1:65535'
 	option tcp_proxy_way 'redirect'
 
@@ -53,7 +52,6 @@ config global_rules
 	option update_interval_mode '1'
 	option v2ray_location_asset '/usr/share/v2ray/'
 	option domainStrategy 'IpOnDemand'
-	option domainMatcher 'hybrid'
 	option write_ipset_direct '1'
 	option enable_geoview_ip '1'
 	# Default network interface for the direct outbound (direct shunt traffic).

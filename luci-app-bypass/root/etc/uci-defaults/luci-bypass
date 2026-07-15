@@ -57,9 +57,19 @@ for sid in $(uci -q show bypass 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=node
 		uci -q set "bypass.${sid}.egress_interface=${legacy_naive_egress}"
 done
 uci -q delete bypass.@global[0].default_egress_interface
+# URL Test Address is diagnostic UI state, not daemon configuration. Remove the
+# v1.4.6-v1.4.8 UCI option so upgrades no longer report or apply it as a change.
+uci -q delete bypass.@global[0].url_test_url
+# BypassCore has no configurable log level and previous values only toggled
+# NaiveProxy when set to "debug". Keep the real Passwall2-style node-log flag
+# and remove the misleading no-op selector.
+uci -q get bypass.@global[0].log_node >/dev/null 2>&1 || \
+	uci -q set bypass.@global[0].log_node='1'
+uci -q delete bypass.@global[0].loglevel
 
-[ "$(uci -q get bypass.@global_rules[0].domainMatcher)" = "hybrid" ] || \
-	uci -q set bypass.@global_rules[0].domainMatcher='hybrid'
+# BypassCore has one built-in optimized matcher and no Xray-style selector.
+# The UI reports it as read-only instead of persisting a no-op option.
+uci -q delete bypass.@global_rules[0].domainMatcher
 uci -q get bypass.@global_rules[0].write_ipset_direct >/dev/null 2>&1 || \
 	uci -q set bypass.@global_rules[0].write_ipset_direct='1'
 uci -q get bypass.@global_rules[0].enable_geoview_ip >/dev/null 2>&1 || \
@@ -101,13 +111,21 @@ uci -q commit bypass
 	uci -q set bypass.@global_delay[0].start_delay='60'
 uci -q get bypass.@global_forwarding[0].ipv6_tproxy >/dev/null 2>&1 || \
 	uci -q set bypass.@global_forwarding[0].ipv6_tproxy='0'
-uci -q get bypass.@global_forwarding[0].force_proxy_lan_ip >/dev/null 2>&1 || \
-	uci -q set bypass.@global_forwarding[0].force_proxy_lan_ip='0'
+uci -q delete bypass.@global_forwarding[0].force_proxy_lan_ip
 uci -q get bypass.@global_forwarding[0].accept_icmp >/dev/null 2>&1 || \
 	uci -q set bypass.@global_forwarding[0].accept_icmp='0'
-# NaiveProxy's SOCKS listener cannot carry UDP. Remove the historical Passwall
-# placeholders instead of retaining settings which the data path cannot honor.
-uci -q delete bypass.@global_forwarding[0].udp_no_redir_ports
+# Replace v1.5.0's all-or-nothing UDP Policy with the Passwall2-style port
+# exclusion. Preserve Direct as "All"; Block and fresh installs remain strict.
+old_udp_policy=$(uci -q get bypass.@global_forwarding[0].udp_policy)
+uci -q get bypass.@global_forwarding[0].udp_no_redir_ports >/dev/null 2>&1 || {
+	if [ "$old_udp_policy" = "direct" ]; then
+		uci -q set bypass.@global_forwarding[0].udp_no_redir_ports='1:65535'
+	else
+		uci -q set bypass.@global_forwarding[0].udp_no_redir_ports='disable'
+	fi
+}
+uci -q delete bypass.@global_forwarding[0].udp_policy
+# There is no UDP-capable transparent upstream in this Naive-only project.
 uci -q delete bypass.@global_forwarding[0].udp_redir_ports
 uci -q get bypass.@global_delay[0].start_daemon >/dev/null 2>&1 || \
 	uci -q set bypass.@global_delay[0].start_daemon='1'
@@ -130,6 +148,8 @@ uci -q commit bypass
 
 # Make the helper scripts executable.
 chmod +x /usr/share/bypass/*.sh 2>/dev/null
+[ -e /usr/share/bypass/direct_ip ] || \
+	cp -f /usr/share/bypass/0_default_direct_ip /usr/share/bypass/direct_ip
 
 # Package managers may protect modified files below /etc and retain the old
 # init script (v1.3.3 used a util-linux-only timed wait option). Refresh the

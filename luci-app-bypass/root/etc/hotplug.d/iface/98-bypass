@@ -39,6 +39,13 @@ is_managed_iface() {
 	return 1
 }
 
+is_direct_iface() {
+	[ -n "$INTERFACE" ] || return 1
+	[ "$INTERFACE" = "$direct_iface" ] && return 0
+	case " $rule_direct_ifaces " in *" $INTERFACE "*) return 0 ;; esac
+	return 1
+}
+
 is_default_route_iface() {
 	# DEVICE from hotplug; check it carries the default route.
 	local dev="$DEVICE"
@@ -46,15 +53,56 @@ is_default_route_iface() {
 	ip route show default 2>/dev/null | grep -q "dev $dev"
 }
 
+managed_runtime_matches() {
+	# A routine DHCP renew commonly emits ifupdate without changing device or
+	# gateway. Passwall2 only refreshes WAN sets for that event. For our
+	# per-node policy tables, also verify the active table before deciding that a
+	# full restart is needed.
+	get_egress_runtime "$INTERFACE" || return 1
+	local table iface route route6
+	if [ -s "$TMP_PATH/egress_tables" ]; then
+		while read -r table iface; do
+			[ "$iface" = "$INTERFACE" ] || continue
+			route=$(ip -o route show table "$table" default proto 99 2>/dev/null)
+			route6=$(ip -6 -o route show table "$table" default proto 99 2>/dev/null)
+			[ -n "$route$route6" ] || return 1
+			if [ -n "$route" ]; then
+				if [ -n "$EGRESS_GATEWAY" ]; then
+					echo "$route" | grep -q "via $EGRESS_GATEWAY .*dev $EGRESS_DEVICE\( \|$\)" || return 1
+				else
+					echo "$route" | grep -q "dev $EGRESS_DEVICE\( \|$\)" || return 1
+				fi
+			fi
+			if [ -n "$route6" ]; then
+				if [ -n "$EGRESS_GATEWAY6" ]; then
+					echo "$route6" | grep -q "via $EGRESS_GATEWAY6 .*dev $EGRESS_DEVICE\( \|$\)" || return 1
+				else
+					echo "$route6" | grep -q "dev $EGRESS_DEVICE\( \|$\)" || return 1
+				fi
+			fi
+		done < "$TMP_PATH/egress_tables"
+	fi
+
+	# Direct outbounds bind to the L3 device, not its renewed address. If this
+	# logical interface is used for Direct, confirm the generated core config
+	# still names the current device.
+	if is_direct_iface; then
+		jsonfilter -i "$BYPASSCORE_CFG" -e '@.outbounds[*].bind.interface' 2>/dev/null | \
+			grep -Fxq "$EGRESS_DEVICE" || return 1
+	fi
+	return 0
+}
+
 case "$ACTION" in
 	ifupdate)
 		if is_managed_iface; then
-			( /etc/init.d/bypass restart ) >/dev/null 2>&1 &
-		else
-			use_tables=$(get_cache_var USE_TABLES)
-			[ -n "$use_tables" ] && [ -x "$APP_PATH/${use_tables}.sh" ] && \
-				"$APP_PATH/${use_tables}.sh" update_wan_sets 2>/dev/null
+			if ! managed_runtime_matches; then
+				( /etc/init.d/bypass restart ) >/dev/null 2>&1 &
+			fi
 		fi
+		use_tables=$(get_cache_var USE_TABLES)
+		[ -n "$use_tables" ] && [ -x "$APP_PATH/${use_tables}.sh" ] && \
+			"$APP_PATH/${use_tables}.sh" update_wan_sets 2>/dev/null
 		;;
 	ifup)
 		if is_default_route_iface || is_managed_iface; then

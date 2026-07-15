@@ -346,6 +346,14 @@ msgstr "转发配置"
 msgid "TCP No Redir Ports"
 msgstr "TCP不转发端口"
 
+#: htdocs/luci-static/resources/view/bypass/other_settings.js
+msgid "UDP No Redir Ports"
+msgstr "UDP不转发端口"
+
+#: htdocs/luci-static/resources/view/bypass/other_settings.js
+msgid "NaiveProxy cannot proxy UDP. These destination ports bypass strict UDP blocking and go Direct, which may expose the real egress IP. With no patterns configured, external forwarded UDP is blocked by default; redirected DNS and local network traffic remain available."
+msgstr "NaiveProxy 无法代理 UDP。这些目的端口会绕过严格的 UDP 阻断并直连，可能暴露真实出口 IP。未配置任何端口时，默认阻断外部转发 UDP；重定向的 DNS 和本地网络流量不受影响。"
+
 #: htdocs/luci-static/resources/view/bypass/other_settings.js:92
 #: htdocs/luci-static/resources/view/bypass/other_settings.js:97
 msgid "No patterns are used"
@@ -405,15 +413,17 @@ msgid "Experimental feature. Make sure that your node supports IPv6."
 msgstr "实验性功能，请确保节点支持 IPv6。"
 
 #: htdocs/luci-static/resources/view/bypass/other_settings.js:131
-msgid "Force Proxy LAN IP"
-msgstr "强制代理局域网 IP"
+msgid "Direct IP List"
+msgstr "直连 IP 列表"
 
-#: htdocs/luci-static/resources/view/bypass/other_settings.js:132
-msgid ""
-"When enabled, traffic whose destination is another LAN address is also sent "
-"to the transparent proxy instead of being excluded as local traffic."
-msgstr ""
-"启用后，目标为其他局域网地址的流量也会送入透明代理，不再作为本地流量排除。"
+msgid "These IP addresses and CIDR ranges connect directly without entering BypassCore. One entry per line; geoip:CODE and comments beginning with # are also supported."
+msgstr "这些 IP 地址和 CIDR 网段将直接连接，不进入 BypassCore。每行一项；同时支持 geoip:代码 和以 # 开头的注释。"
+
+msgid "Invalid Direct IP entry: %s"
+msgstr "无效的直连 IP 条目：%s"
+
+msgid "Operation failed."
+msgstr "操作失败。"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:102
 msgid "Check…"
@@ -688,6 +698,10 @@ msgstr "（系统默认路由）"
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:289
 msgid "Rule"
 msgstr "规则"
+
+#: htdocs/luci-static/resources/view/bypass/basic_settings.js
+msgid "Name"
+msgstr "名称"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:292
 msgid "Default"

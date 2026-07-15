@@ -170,14 +170,21 @@ do_node_tcping() {
 	emit
 }
 
-# node_urltest <node_id> -> { code, use_time }
+# node_urltest <node_id> <probe_url> -> { code, use_time }
 # Mirrors passwall2's url_test_node: spin up a short-lived NaiveProxy SOCKS
 # listener for the node, curl the configured probe URL through it, and report
 # the total round-trip in ms. Torn down unconditionally afterward.
 do_node_urltest() {
-	local node_id=$1
+	local node_id=$1 url_test_url=$2
 	json_init
-	[ -z "$node_id" ] && { json_add_int code -1; json_add_string error "missing node"; emit; return; }
+	case "$node_id" in
+		''|*[!A-Za-z0-9_-]*)
+			json_add_int code -1
+			json_add_string error "invalid node"
+			emit
+			return
+			;;
+	esac
 	local address port username password protocol
 	address=$(config_n_get "$node_id" address)
 	port=$(config_n_get "$node_id" port)
@@ -200,8 +207,19 @@ do_node_urltest() {
 	fi
 	case "$protocol" in quic) ;; *) protocol=https ;; esac
 
-	local url_test_url
-	url_test_url=$(config_t_get global url_test_url https://www.google.com/generate_204)
+	# The selector is intentionally not UCI configuration. Accept only the
+	# presets exposed by node_list.js so this root helper cannot become an
+	# arbitrary URL fetch primitive.
+	case "$url_test_url" in
+		https://cp.cloudflare.com/|\
+		https://www.gstatic.com/generate_204|\
+		https://www.google.com/generate_204|\
+		https://www.youtube.com/generate_204|\
+		https://connect.rom.miui.com/generate_204|\
+		https://connectivitycheck.platform.hicloud.com/generate_204|\
+		https://wifi.vivo.com.cn/generate_204) ;;
+		*) url_test_url=https://www.google.com/generate_204 ;;
+	esac
 
 	# Build a minimal SOCKS config (127.0.0.1 only; no egress pinning).
 	local tag="url_test_${node_id}"
@@ -586,7 +604,8 @@ do_reset_config() {
 		json_add_int code -1
 		json_add_string error "reset is unavailable during package installation"
 	elif /etc/init.d/bypass stop >/dev/null 2>&1 && \
-	     cp -f /usr/share/bypass/0_default_config /etc/config/bypass 2>/dev/null; then
+	     cp -f /usr/share/bypass/0_default_config /etc/config/bypass 2>/dev/null && \
+	     cp -f /usr/share/bypass/0_default_direct_ip /usr/share/bypass/direct_ip 2>/dev/null; then
 		chmod 600 /etc/config/bypass 2>/dev/null
 		: > /tmp/log/bypass.log 2>/dev/null
 		# Do not reload rpcd inside its own file.exec request: doing so can
@@ -599,8 +618,87 @@ do_reset_config() {
 	emit
 }
 
+# get_direct_ip / set_direct_ip <base64>
+# Keep the editable Passwall2-style direct list outside UCI. nft --check is the
+# authoritative validator for literal IPv4/IPv6 prefixes; geoip:CODE entries
+# are expanded by nftables.sh when the service starts.
+do_get_direct_ip() {
+	json_init
+	json_add_int code 0
+	json_add_string direct_ip "$(cat /usr/share/bypass/direct_ip 2>/dev/null)"
+	emit
+}
+
+do_set_direct_ip() {
+	local encoded=$1 tmp input rules line v4="" v6="" nft_bin table saved=0
+	json_init
+	[ ${#encoded} -le 262144 ] 2>/dev/null || {
+		json_add_int code -1
+		json_add_string error "Direct IP List is too large"
+		emit
+		return
+	}
+	tmp=$(mktemp -d 2>/dev/null) || {
+		json_add_int code -1
+		json_add_string error "mktemp failed"
+		emit
+		return
+	}
+	input="$tmp/direct_ip"
+	rules="$tmp/validate.nft"
+	if ! printf '%s' "$encoded" | base64 -d > "$input" 2>/dev/null; then
+		json_add_int code -1
+		json_add_string error "invalid Direct IP data"
+		emit
+		rm -rf "$tmp"
+		return
+	fi
+	sed -i 's/\r$//' "$input"
+	while IFS= read -r line || [ -n "$line" ]; do
+		line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+		case "$line" in
+			''|'#'*) continue ;;
+			geoip:*)
+				echo "$line" | grep -qE '^geoip:[A-Za-z0-9_-]+$' || {
+					json_add_int code -1
+					json_add_string error "invalid Direct IP entry: $line"
+					emit
+					rm -rf "$tmp"
+					return
+				}
+				continue
+				;;
+			*:*) v6="${v6:+$v6, }$line" ;;
+			*) v4="${v4:+$v4, }$line" ;;
+		esac
+	done < "$input"
+	table="bypass_validate_$$"
+	cat > "$rules" <<-EOF
+	table inet $table {
+		set direct4 { type ipv4_addr; flags interval; auto-merge; elements = { $v4 } }
+		set direct6 { type ipv6_addr; flags interval; auto-merge; elements = { $v6 } }
+	}
+	EOF
+	nft_bin=$(first_type /usr/sbin/nft nft)
+	if [ -z "$nft_bin" ] || ! "$nft_bin" --check -f "$rules" >/dev/null 2>&1; then
+		json_add_int code -1
+		json_add_string error "Direct IP List contains an invalid IP address or CIDR"
+	else
+		# Normalize line endings but retain comments and ordering exactly.
+		cp -f "$input" /usr/share/bypass/direct_ip
+		chmod 644 /usr/share/bypass/direct_ip 2>/dev/null
+		json_add_int code 0
+		saved=1
+	fi
+	emit
+	rm -rf "$tmp"
+	if [ "$saved" = "1" ] && [ "$(uci -q get bypass.@global[0].enabled)" = "1" ]; then
+		( sleep 1; /etc/init.d/bypass restart ) >/dev/null 2>&1 &
+	fi
+}
+
 usage() {
-	echo "Usage: $0 {status|route_test|observe|resolve|node_tcping|node_urltest|config_preview|rule_update|log_tail|clear_log|clear_nftset|interfaces|connect_status|geo_view|create_backup|restore_backup|reset_config} [args]" >&2
+	echo "Usage: $0 {status|route_test|observe|resolve|node_tcping|node_urltest|config_preview|rule_update|log_tail|clear_log|clear_nftset|interfaces|connect_status|geo_view|create_backup|restore_backup|reset_config|get_direct_ip|set_direct_ip} [args]" >&2
 }
 
 main() {
@@ -612,7 +710,7 @@ main() {
 		observe)        do_observe ;;
 		resolve)        do_resolve "$1" ;;
 		node_tcping)    do_node_tcping "$1" ;;
-		node_urltest)   do_node_urltest "$1" ;;
+		node_urltest)   do_node_urltest "$1" "$2" ;;
 		config_preview) do_config_preview ;;
 		rule_update)    do_rule_update ;;
 		log_tail)       do_log_tail "$1" ;;
@@ -624,6 +722,8 @@ main() {
 		create_backup)  do_create_backup ;;
 		restore_backup) do_restore_backup "$1" ;;
 		reset_config)   do_reset_config ;;
+		get_direct_ip)  do_get_direct_ip ;;
+		set_direct_ip)  do_set_direct_ip "$1" ;;
 		*) usage; exit 1 ;;
 	esac
 }

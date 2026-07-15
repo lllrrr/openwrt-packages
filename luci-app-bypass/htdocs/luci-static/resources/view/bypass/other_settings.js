@@ -2,6 +2,43 @@
 'require view';
 'require form';
 'require uci';
+'require fs';
+
+function api(/* action, ...args */) {
+	return fs.exec('/usr/share/bypass/api.sh', Array.prototype.slice.call(arguments)).then(function (res) {
+		var data = JSON.parse(res.stdout || '{}');
+		if (data.code !== 0) throw new Error(data.error || _('Operation failed.'));
+		return data;
+	});
+}
+
+function encodeBase64(value) {
+	return btoa(unescape(encodeURIComponent(value)));
+}
+
+function validateDirectIpList(_sid, value) {
+	var lines = String(value || '').replace(/\r\n/g, '\n').split('\n');
+	for (var i = 0; i < lines.length; i++) {
+		var line = lines[i].trim();
+		if (!line || line.charAt(0) === '#') continue;
+		if (/^geoip:[A-Za-z0-9_-]+$/.test(line)) continue;
+		var prefix = line.split('/');
+		if (prefix.length > 2 || !prefix[0])
+			return _('Invalid Direct IP entry: %s').format(line);
+		if (prefix[0].indexOf(':') >= 0) {
+			if (!/^[0-9A-Fa-f:.]+$/.test(prefix[0]) ||
+				(prefix.length === 2 && (!/^\d+$/.test(prefix[1]) || +prefix[1] > 128)))
+				return _('Invalid Direct IP entry: %s').format(line);
+		} else {
+			var octets = prefix[0].split('.');
+			if (octets.length !== 4 || octets.some(function (n) {
+				return !/^\d+$/.test(n) || +n > 255;
+			}) || (prefix.length === 2 && (!/^\d+$/.test(prefix[1]) || +prefix[1] > 32)))
+				return _('Invalid Direct IP entry: %s').format(line);
+		}
+	}
+	return true;
+}
 
 function validatePortList(_sid, value) {
 	if (value === 'disable') return true;
@@ -32,10 +69,13 @@ function validateTime(_sid, value) {
 
 return view.extend({
 	load: function () {
-		return uci.load('bypass');
+		return Promise.all([
+			uci.load('bypass'),
+			api('get_direct_ip')
+		]);
 	},
 
-	render: function () {
+	render: function (data) {
 		var m = new form.Map('bypass');
 		var o;
 
@@ -103,6 +143,13 @@ return view.extend({
 		o.value('disable', _('No patterns are used'));
 		o.value('1:65535', _('All'));
 
+		o = sFwd.option(form.Value, 'udp_no_redir_ports', _('UDP No Redir Ports'),
+			_('NaiveProxy cannot proxy UDP. These destination ports bypass strict UDP blocking and go Direct, which may expose the real egress IP. With no patterns configured, external forwarded UDP is blocked by default; redirected DNS and local network traffic remain available.'));
+		o.validate = validatePortList;
+		o.default = 'disable';
+		o.value('disable', _('No patterns are used'));
+		o.value('1:65535', _('All'));
+
 		o = sFwd.option(form.Value, 'tcp_redir_ports', _('TCP Redir Ports'));
 		o.validate = validatePortList;
 		o.default = '1:65535';
@@ -134,10 +181,17 @@ return view.extend({
 		o.default = '0';
 		o.rmempty = false;
 
-		o = sFwd.option(form.Flag, 'force_proxy_lan_ip', _('Force Proxy LAN IP'),
-			_('When enabled, traffic whose destination is another LAN address is also sent to the transparent proxy instead of being excluded as local traffic.'));
-		o.default = '0';
-		o.rmempty = false;
+		o = sFwd.option(form.TextValue, '_direct_ip', _('Direct IP List'),
+			_('These IP addresses and CIDR ranges connect directly without entering BypassCore. One entry per line; geoip:CODE and comments beginning with # are also supported.'));
+		o.rows = 15;
+		o.wrap = 'off';
+		o.rawhtml = false;
+		o.validate = validateDirectIpList;
+		o.cfgvalue = function () { return data[1].direct_ip || ''; };
+		o.write = function (_sid, value) {
+			return api('set_direct_ip', encodeBase64(String(value || '').replace(/\r\n/g, '\n')));
+		};
+		o.remove = function () { return api('set_direct_ip', encodeBase64('')); };
 
 		return m.render();
 	}
