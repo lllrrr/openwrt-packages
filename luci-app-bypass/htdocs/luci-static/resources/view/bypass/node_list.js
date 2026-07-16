@@ -302,6 +302,9 @@ return view.extend({
 									if (rule.outbound === sid)
 										uci.set('bypass', rule['.name'], 'outbound', '');
 								});
+								var globalRules = uci.sections('bypass', 'global_rules')[0];
+								if (globalRules && globalRules.default_node === sid)
+									uci.set('bypass', globalRules['.name'], 'default_node', '_direct');
 								uci.remove('bypass', sid);
 								uci.save().then(function () { uci.apply().then(function () { location.reload(); }); });
 							}

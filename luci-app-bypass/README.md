@@ -73,8 +73,8 @@ After installation:
 
 ## Configuration highlights
 
-- **Node Config**: supports NaiveProxy HTTPS nodes only; each node has an optional `egress_interface`.
-- **Shunt Rule**: choose Close, Direct Connection, Blackhole, or a specific NaiveProxy node. The built-in Default rule is always the final catch-all.
+- **Node Config**: supports NaiveProxy HTTPS nodes only; each node can override `default_naive_interface` with its own `egress_interface`.
+- **Shunt Rule**: choose Close, Default Node, Direct Connection, Blackhole, or a specific NaiveProxy node. The virtual Default row is always the final catch-all and is stored in `global_rules.default_node` rather than a `shunt_rules` section.
 - **Other Settings**: configure TCP redirection, UDP No Redir Ports, IPv6 TProxy, ICMP handling, and Direct IP List.
 - **Rule Manage**: maintain the ordered shunt-rule list and optional GeoIP/Geosite update schedule.
 - **Runtime upgrades**: the always-on lightweight watcher fingerprints the installed BypassCore, NaiveProxy, and ChinaDNS-NG executables. After an `opkg`/`apk` upgrade settles, Bypass performs one serialized full restart so the new binaries actually take effect. Disabling process-health supervision does not disable upgrade detection.
@@ -86,7 +86,7 @@ NaiveProxy does not support general SOCKS5 UDP association. By default, forwarde
 
 BypassCore is the required transparent routing core; there is no legacy NaiveProxy core mode or automatic fallback. The service does not install transparent OUTPUT rules for router-local applications, avoiding recursive interception of direct outbound sockets.
 
-Per-node NaiveProxy instances are started only for nodes referenced by shunt rules. Direct traffic can use a global default interface or a per-rule override. Node server destinations receive dedicated policy routes based on their configured egress interface, while existing mwan3/PBR marks remain untouched.
+Per-node NaiveProxy instances are started only for nodes referenced by shunt rules or the virtual Default row. Direct traffic can use a global default interface or a per-rule override. A node with no explicit egress interface inherits Default Naive Interface, then falls back to the system route. Node server destinations receive dedicated policy routes based on the effective interface, while existing mwan3/PBR marks remain untouched.
 
 ## Known limitations
 

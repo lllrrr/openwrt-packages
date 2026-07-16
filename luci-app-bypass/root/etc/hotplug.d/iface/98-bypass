@@ -29,15 +29,26 @@ exec 9>"$LOCK"
 flock -xn 9 || exit 0
 
 direct_iface=$(uci -q get bypass.@global_rules[0].direct_egress_interface)
+default_naive_iface=$(uci -q get bypass.@global_rules[0].default_naive_interface)
 node_egress_ifaces=$(
-	for sid in $(uci -q show bypass 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
-		node=$(uci -q get bypass.${sid}.outbound)
-		[ "$(uci -q get bypass.${node})" = "nodes" ] || continue
-		uci -q get bypass.${node}.egress_interface
-	done | awk 'NF && !seen[$0]++'
+	{
+		default_node=$(uci -q get bypass.@global_rules[0].default_node)
+		if [ "$(uci -q get bypass.${default_node})" = "nodes" ]; then
+			iface=$(uci -q get bypass.${default_node}.egress_interface)
+			printf '%s\n' "${iface:-$default_naive_iface}"
+		fi
+		for sid in $(uci -q show bypass 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+			[ "$(uci -q get bypass.${sid}.is_default)" = "1" ] && continue
+			node=$(uci -q get bypass.${sid}.outbound)
+			[ "$(uci -q get bypass.${node})" = "nodes" ] || continue
+			iface=$(uci -q get bypass.${node}.egress_interface)
+			printf '%s\n' "${iface:-$default_naive_iface}"
+		done
+	} | awk 'NF && !seen[$0]++'
 )
 rule_direct_ifaces=$(
 	for sid in $(uci -q show bypass 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+		[ "$(uci -q get bypass.${sid}.is_default)" = "1" ] && continue
 		[ "$(uci -q get bypass.${sid}.outbound)" = "_direct" ] || continue
 		uci -q get bypass.${sid}.egress_interface
 	done | awk 'NF && !seen[$0]++'

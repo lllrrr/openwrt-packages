@@ -43,7 +43,7 @@ DNS:  dnsmasq :53 → BypassCore DNS :<dns_port>
   ip/ip -6 route table <TABLE>: default via <runtime-gateway> dev <l3-device>
 ```
 
-- 每个 NaiveProxy 节点独立配置出口接口；服务器 IP 变更时在启动 / 规则更新 / hotplug 时重新解析。
+- 每个 NaiveProxy 节点可独立配置出口接口；留空时继承 Default Naive Interface。服务器 IP 变更时在启动 / 规则更新 / hotplug 时重新解析。
 
 ---
 
@@ -120,32 +120,24 @@ config nodes 'naive1'
     option protocol 'https'
     option address 'naive.example.com'
     option port '443'
-    option egress_interface 'wan1'    # 空 = 系统默认路由
+    option egress_interface 'wan1'    # 空 = 继承 Default Naive Interface
+    option username 'user'
+    option password 'pass'
 
 config global_rules
     option v2ray_location_asset '/usr/share/v2ray/'
     option domainStrategy 'IpIfNonMatch'
-    option domainMatcher 'hybrid'
     option write_ipset_direct '1'
     option enable_geoview_ip '1'
     option direct_egress_interface 'wan1'
+    option default_naive_interface 'wan2'
+    option default_node 'naive1'       # 虚拟 Default 行；未匹配流量走 naive1
 
 config shunt_rules 'China'
     option network 'tcp,udp'
     option domain_list 'geosite:cn'
     option ip_list 'geoip:cn'
-    option outbound '_direct'         # 空 | _direct | _blackhole | 节点 section id
-
-config shunt_rules 'Default'
-    option remarks 'Default'
-    option is_default '1'             # Basic Settings 专用，不在 Rule Manage 显示
-    option outbound 'naive1'          # 未匹配流量走 naive1
-
-config nodes 'naive1'
-    option address 'naive.example.com'
-    option port '443'
-    option username 'user'
-    option password 'pass'
+    option outbound '_direct'         # 空 | _default | _direct | _blackhole | 节点 section id
 ```
 
 Other Settings 中的 Direct IP List 保存在 `/usr/share/bypass/direct_ip`；其中的 IP、CIDR 与 `geoip:CODE` 会在进入 BypassCore 前由 nftables 直接放行。
@@ -198,11 +190,11 @@ luci-app-bypass/
 
 BypassCore 是必需的透明分流核心，角色等同于 Passwall 的 Xray/sing-box；不存在 NaiveProxy 核心模式或自动回退。BypassCore 缺失、不是 Linux ELF、配置不兼容或监听启动失败时，服务返回失败，并且不会安装透明代理防火墙规则或接管 dnsmasq。
 
-Basic Settings → Shunt Rule 为每条规则选择 Close、Direct、Blackhole 或具体 NaiveProxy 节点；保留的 Default 行始终最后作为兜底且不会出现在 Rule Manage。每个被引用的 NaiveProxy 节点会启动独立本机 SOCKS 实例，BypassCore 为它生成独立 `proxy_<node>` outbound，因此不同规则选择不同节点会真正生效。
+Basic Settings → Shunt Rule 为每条规则选择 Close、Default Node、Direct、Blackhole 或具体 NaiveProxy 节点；虚拟 Default 行始终最后作为兜底，其值保存在 `global_rules.default_node`，不会创建或占用 `shunt_rules` section。每个被引用的 NaiveProxy 节点会启动独立本机 SOCKS 实例，BypassCore 为它生成独立 `proxy_<node>` outbound，因此不同规则选择不同节点会真正生效。
 
 ### 多 WAN 出口
 
-- 每个 Node Config 都可设置自己的 `egress_interface`，填写 OpenWrt 逻辑网络名，如 `wan`、`wan1`、`usbwan`；留空则该节点使用系统默认路由。
+- 每个 Node Config 都可设置自己的 `egress_interface`，填写 OpenWrt 逻辑网络名，如 `wan`、`wan1`、`usbwan`；留空则继承 `default_naive_interface`，两者都为空才使用系统默认路由。优先级为：节点接口 → Default Naive Interface → 系统默认路由。
 - 程序通过 netifd 运行时状态解析实际 L3 设备与 IPv4/IPv6 网关，兼容 DHCP、PPPoE 与设备名变化。
 - 仅为被引用节点的 Naive 服务器 IPv4/IPv6 目标添加独立路由表和 `ip rule to ...`。路由表及优先级从 `naive_egress_table`、`naive_egress_rule_priority` 开始按节点递增；不改写 fwmark，因此不会覆盖 mwan3/PBR 的标记。
 - `direct_egress_interface` 控制 Direct 分流的默认出口；每条选择 Direct Connection 的规则还可设置自己的 `egress_interface` 覆盖它。优先级为：规则接口 → Default Direct Interface → 系统默认路由。

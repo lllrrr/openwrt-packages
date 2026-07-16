@@ -68,8 +68,8 @@ return view.extend({
 		o.password = true;
 
 		o = s.option(form.ListValue, 'egress_interface', _('Egress Interface'),
-			_('Send this NaiveProxy node\'s server connection through the selected OpenWrt network. Empty = system default route.'));
-		o.value('', _('(system default route)'));
+			_('Send this NaiveProxy node\'s server connection through the selected OpenWrt network. The first option inherits Default Naive Interface.'));
+		o.value('', _('(use default naive interface)'));
 		ifaces.forEach(function (iface) { o.value(iface, iface); });
 
 		return m.render();

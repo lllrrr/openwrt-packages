@@ -105,10 +105,12 @@ update_geodata() {
 # rule and therefore do not need periodic restarts.
 uplink_refresh_needed() {
 	[ -s "$TMP_PATH/selected_nodes" ] || return 1
-	local node iface address pinned current="$TMP_PATH/uplink-current.$$" resolve_ok
+	local node iface default_iface address pinned current="$TMP_PATH/uplink-current.$$" resolve_ok
+	default_iface=$(config_t_get global_rules default_naive_interface)
 	while read -r node; do
 		[ -n "$node" ] || continue
 		iface=$(config_n_get "$node" egress_interface)
+		[ -n "$iface" ] || iface=$default_iface
 		[ -n "$iface" ] || continue
 		address=$(config_n_get "$node" address)
 		pinned=$(cat "$TMP_PATH/naive_resolve.${node}" 2>/dev/null)

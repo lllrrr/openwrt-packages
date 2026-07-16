@@ -420,6 +420,7 @@ EOF
 		: > "$geo6_file"
 		log 0 "Parsing Direct GeoIP entries into informational nftables sets..."
 		for sid in $(uci -q show "$CONFIG" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+			[ "$(config_n_get "$sid" is_default 0)" = "1" ] && continue
 			[ "$(config_n_get "$sid" outbound)" = "_direct" ] || continue
 			while IFS= read -r ip_rule; do
 				case "$ip_rule" in ''|'#'*) continue ;; esac

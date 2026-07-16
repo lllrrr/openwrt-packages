@@ -59,6 +59,9 @@ config global_rules
 	# Default network interface for the direct outbound (direct shunt traffic).
 	# Empty = direct uses the system default route (unbound freedom outbound).
 	option direct_egress_interface ''
+	# Virtual catch-all outbound and inherited interface for Naive nodes.
+	option default_node '_direct'
+	option default_naive_interface ''
 	option geoip_url 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat'
 	option geosite_url 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat'
 
@@ -102,14 +105,6 @@ config shunt_rules 'AdBlock'
 	option network 'tcp,udp'
 	option domain_list 'geosite:category-ads-all'
 	option outbound '_blackhole'
-
-# Reserved catch-all row.  It is configured in Basic Settings -> Shunt Rule
-# and intentionally hidden from Rule Manage.
-config shunt_rules 'Default'
-	option remarks 'Default'
-	option is_default '1'
-	option network 'tcp,udp'
-	option outbound '_direct'
 
 config nodes 'naive1'
 	option remarks 'Example'

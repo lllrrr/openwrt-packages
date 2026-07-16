@@ -63,6 +63,10 @@ get_config() {
 	# Direct outbound egress interface (bind the freedom "direct" outbound to a
 	# named WAN so all _direct shunt traffic egresses there). Empty = unbound.
 	DIRECT_EGRESS_IFACE=$(config_t_get global_rules direct_egress_interface)
+	# Passwall2-style virtual catch-all and inherited Naive node interface.
+	# Neither setting is stored on a shunt_rules/node section when inherited.
+	DEFAULT_NODE=$(config_t_get global_rules default_node _direct)
+	DEFAULT_NAIVE_EGRESS_IFACE=$(config_t_get global_rules default_naive_interface)
 
 	# Reuse the active runtime ports when API helpers source this file. Without
 	# this, merely opening a status/preview page while the service is running
@@ -114,16 +118,27 @@ get_config() {
 	get_direct_dns
 }
 
-# Build the unique list of Naive nodes referenced by shunt rules, including the
-# reserved Default row.  Blank/direct/blackhole rules do not start a tunnel.
+# Return a node's explicit interface, or the global Naive interface it inherits.
+node_egress_interface() {
+	local iface
+	iface=$(config_n_get "$1" egress_interface)
+	printf '%s\n' "${iface:-$DEFAULT_NAIVE_EGRESS_IFACE}"
+}
+
+# Build the unique list of Naive nodes referenced by shunt rules and by the
+# virtual Default row. Blank/direct/blackhole rules do not start a tunnel.
 prepare_selected_nodes() {
 	mkdir -p "$TMP_PATH"
 	local sid outbound index=0 port
 	: > "$TMP_PATH/selected_nodes"
-	for sid in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
-		outbound=$(config_n_get "$sid" outbound)
-		[ "$(config_get_type "$outbound")" = "nodes" ] && echo "$outbound"
-	done | awk 'NF && !seen[$0]++' > "$TMP_PATH/selected_nodes"
+	{
+		for sid in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+			[ "$(config_n_get "$sid" is_default 0)" = "1" ] && continue
+			outbound=$(config_n_get "$sid" outbound)
+			[ "$(config_get_type "$outbound")" = "nodes" ] && echo "$outbound"
+		done
+		[ "$(config_get_type "$DEFAULT_NODE")" = "nodes" ] && echo "$DEFAULT_NODE"
+	} | awk 'NF && !seen[$0]++' > "$TMP_PATH/selected_nodes"
 
 	# Keep mappings stable only while the service is actually active. Status or
 	# preview calls made while stopped must not reserve stale ports for startup.
@@ -142,12 +157,7 @@ node_socks_port() {
 }
 
 default_proxy_node() {
-	local sid outbound
-	for sid in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
-		[ "$(config_n_get "$sid" is_default 0)" = "1" ] || continue
-		outbound=$(config_n_get "$sid" outbound)
-		[ "$(config_get_type "$outbound")" = "nodes" ] && { echo "$outbound"; return; }
-	done
+	[ "$(config_get_type "$DEFAULT_NODE")" = "nodes" ] && { echo "$DEFAULT_NODE"; return; }
 	head -1 "$TMP_PATH/selected_nodes" 2>/dev/null
 }
 
@@ -262,7 +272,7 @@ run_naive_nodes() {
 	local node address iface iface_key ipv4_file ipv6_file index=0
 	while read -r node; do
 		[ -n "$node" ] || continue
-		iface=$(config_n_get "$node" egress_interface)
+		iface=$(node_egress_interface "$node")
 		address=$(config_n_get "$node" address)
 		ipv4_file="$TMP_PATH/uplink_ips.${index}"
 		ipv6_file="$TMP_PATH/uplink_ips6.${index}"
@@ -350,6 +360,7 @@ run_chinadns_ng() {
 	if [ "$WRITE_IPSET_DIRECT" = "1" ]; then
 		local _rsid _rdomain _rline _rcode _rtmp
 		for _rsid in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+			[ "$(config_n_get "$_rsid" is_default 0)" = "1" ] && continue
 			[ "$(config_n_get "$_rsid" outbound)" = "_direct" ] || continue
 			_rdomain=$(config_n_get "$_rsid" domain_list)
 			while IFS= read -r _rline; do
@@ -544,6 +555,7 @@ gen_bypasscore_config() {
 		# belongs to an outbound, so every override needs a dedicated freedom tag.
 		local _sid _outbound _egress
 		for _sid in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+			[ "$(config_n_get "$_sid" is_default 0)" = "1" ] && continue
 			_outbound=$(config_n_get "$_sid" outbound _direct)
 			_egress=$(config_n_get "$_sid" egress_interface)
 			[ "$_outbound" = "_direct" ] && [ -n "$_egress" ] || continue
@@ -688,33 +700,21 @@ gen_bypasscore_config() {
 	json_add_object routing
 		json_add_string domainStrategy "$DOMAIN_STRATEGY"
 		json_add_array rules
-			local sid tag domains ips net outbound egress default_sid default_outbound default_tag protocols inbound sources ports
-			default_sid=""
-			# Pre-scan: find the reserved Default rule and resolve its outbound tag
-			# so that non-default rules with outbound=_default can inherit it.
-			for sid in $(uci -q show "${CONFIG}" 2>/dev/null | grep "=shunt_rules" | cut -d '.' -f2 | cut -d '=' -f1); do
-				[ "$(config_n_get "$sid" is_default 0)" = "1" ] || continue
-				default_sid=$sid
-				default_outbound=$(config_n_get "$sid" outbound _direct)
-				egress=$(config_n_get "$sid" egress_interface)
-				if [ "$default_outbound" = "_direct" ] && [ -n "$egress" ]; then
-					default_tag="direct_${default_sid}"
-				elif [ "$default_outbound" = "_default" ]; then
-					# The Default rule itself must not reference _default; treat as direct.
-					default_tag="direct"
-				elif [ -n "$default_outbound" ]; then
+			local sid tag domains ips net outbound egress default_outbound default_tag protocols inbound sources ports
+			# The catch-all is virtual, like Passwall2. Resolve global_rules.default_node
+			# once so _default rules and the final rule share one source of truth.
+			default_outbound=${DEFAULT_NODE:-_direct}
+			case "$default_outbound" in
+				_default|_direct|"") default_tag="direct" ;;
+				*)
 					default_tag=$(map_outbound_tag "$default_outbound")
 					[ -n "$default_tag" ] || {
-						log 0 "Default shunt rule references an invalid outbound [%s]." "$default_outbound"
+						log 0 "Default node references an invalid outbound [%s]." "$default_outbound"
 						BYPASSCORE_CONFIG_ERROR=1
 						default_tag=block
 					}
-				else
-					default_tag="direct"
-				fi
-				break
-			done
-			[ -n "$default_tag" ] || default_tag="direct"
+					;;
+			esac
 			# DNS server tags become inboundTag values while BypassCore dials the
 			# configured upstream. Put these rules before traffic shunt rules so
 			# resolver endpoints cannot accidentally inherit a user traffic rule.
@@ -741,7 +741,7 @@ gen_bypasscore_config() {
 				[ -n "$outbound" ] || continue
 				egress=$(config_n_get "$sid" egress_interface)
 				if [ "$outbound" = "_default" ]; then
-					# Inherit the Default rule's resolved outbound exactly.
+					# Inherit the virtual Default row's resolved outbound exactly.
 					tag=$default_tag
 				elif [ "$outbound" = "_direct" ] && [ -n "$egress" ]; then
 					tag="direct_${sid}"
@@ -798,12 +798,10 @@ gen_bypasscore_config() {
 					[ -n "$ports" ] && json_add_string port "$ports"
 				json_close_object
 			done
-			# The reserved Default row is emitted last as the catch-all, reusing
-			# the default_tag resolved above (so _default rules and the catch-all
-			# share one source of truth).
+			# Emit the virtual Default row last as the catch-all.
 			json_add_object ''
 				json_add_string outboundTag "$default_tag"
-				json_add_string network "$(config_n_get "$default_sid" network tcp,udp)"
+				json_add_string network "tcp,udp"
 			json_close_object
 		json_close_array
 	json_close_object

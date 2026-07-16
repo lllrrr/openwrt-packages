@@ -43,10 +43,6 @@ msgstr "华为云（国内）"
 msgid "VIVO (CN)"
 msgstr "VIVO（国内）"
 
-#: htdocs/luci-static/resources/view/bypass/basic_settings.js
-msgid "Default uses the outbound selected by the Default rule. Hidden on the Default rule itself."
-msgstr "Default 使用 Default 规则所选的出口；该选项在 Default 规则本身上隐藏。"
-
 #: htdocs/luci-static/resources/view/bypass/node_config.js:21
 #: htdocs/luci-static/resources/view/bypass/node_config.js:27
 msgid "Node Config"
@@ -670,7 +666,15 @@ msgstr ""
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:268
 msgid "Default Direct Interface"
-msgstr "默认输出接口"
+msgstr "默认直连接口"
+
+#: htdocs/luci-static/resources/view/bypass/basic_settings.js
+msgid "Default Naive Interface"
+msgstr "默认 Naive 接口"
+
+#: htdocs/luci-static/resources/view/bypass/basic_settings.js
+msgid "Use this OpenWrt network for NaiveProxy nodes whose Egress Interface is set to use the default Naive interface. Empty = system default route."
+msgstr "将此 OpenWrt 网络用于出口接口设为继承默认 Naive 接口的 NaiveProxy 节点；留空则使用系统默认路由。"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:269
 msgid ""
@@ -698,6 +702,10 @@ msgstr "名称"
 msgid "Default"
 msgstr "默认"
 
+#: htdocs/luci-static/resources/view/bypass/basic_settings.js
+msgid "Default Node"
+msgstr "默认节点"
+
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:297
 msgid "Close (Not use)"
 msgstr "关闭（不使用）"
@@ -717,6 +725,14 @@ msgstr "出口接口"
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:306
 msgid "(use default direct interface)"
 msgstr "（使用默认直连接口）"
+
+#: htdocs/luci-static/resources/view/bypass/node_config.js
+msgid "(use default naive interface)"
+msgstr "（使用默认 Naive 接口）"
+
+#: htdocs/luci-static/resources/view/bypass/node_config.js
+msgid "Send this NaiveProxy node's server connection through the selected OpenWrt network. The first option inherits Default Naive Interface."
+msgstr "通过所选 OpenWrt 网络连接此 NaiveProxy 节点服务器；第一个选项继承默认 Naive 接口。"
 
 msgid "system default"
 msgstr "系统默认"

@@ -16,6 +16,7 @@
 // Direct-interface override are intentionally centralized in Shunt Rule.
 
 var COL = { green: '#2dce89', red: '#fb6340', yellow: '#fb9a05' };
+var VIRTUAL_DEFAULT = '__virtual-default__';
 
 // Original Core/Baidu/Google/GitHub PNGs copied verbatim from Passwall2's
 // global/status.htm so the status strip stays visually identical.
@@ -259,9 +260,15 @@ return view.extend({
 		ifaces.forEach(function (i) { o.value(i, i); });
 		crossSection(o, 'global_rules');
 
-		/* Passwall2-style rule/outbound table.  The Default row is a real,
-		 * reserved shunt_rules section so it shares the exact same editor and
-		 * runtime semantics, but Rule Manage filters it out. */
+		o = s.taboption('Shunt Rule', form.ListValue, 'default_naive_interface', _('Default Naive Interface'),
+			_('Use this OpenWrt network for NaiveProxy nodes whose Egress Interface is set to use the default Naive interface. Empty = system default route.'));
+		o.value('', _('(system default route)'));
+		ifaces.forEach(function (i) { o.value(i, i); });
+		crossSection(o, 'global_rules');
+
+		/* Passwall2-style rule/outbound table. The final Default row is virtual;
+		 * its selection is stored as global_rules.default_node rather than as a
+		 * self-referential shunt_rules section. */
 		o = s.taboption('Shunt Rule', form.SectionValue, '_shunt_rule_nodes',
 			form.TableSection, 'shunt_rules', _('Rule'));
 		var rs = o.subsection;
@@ -269,19 +276,19 @@ return view.extend({
 		rs.anonymous = true;
 		rs.sortable = false;
 		// Rule Manage persists its sortable rows in UCI section order. Preserve
-		// that exact order here, then move the reserved catch-all to the bottom.
+		// that exact order here, then append the virtual catch-all row.
 		rs.cfgsections = function () {
-			var rules = [], defaults = [];
+			var rules = [];
 			uci.sections('bypass', 'shunt_rules').forEach(function (rule) {
-				(rule.is_default === '1' ? defaults : rules).push(rule['.name']);
+				if (rule.is_default !== '1') rules.push(rule['.name']);
 			});
-			return rules.concat(defaults);
+			return rules.concat([VIRTUAL_DEFAULT]);
 		};
 
 		o = rs.option(form.DummyValue, '_rule_name', _('Name'));
 		o.rawhtml = true;
 		o.cfgvalue = function (sid) {
-			var isDefault = uci.get('bypass', sid, 'is_default') === '1';
+			var isDefault = sid === VIRTUAL_DEFAULT;
 			return E('span', isDefault ? {
 				style: 'color:#d00;font-weight:600'
 			} : {}, isDefault ? _('Default') : (uci.get('bypass', sid, 'remarks') || sid));
@@ -289,26 +296,87 @@ return view.extend({
 
 		o = rs.option(form.ListValue, 'outbound', _('Node'));
 		o.value('', _('Close (Not use)'));
-		o.value('_default', _('Default'));
+		o.value('_default', _('Default Node'));
 		o.value('_direct', _('Direct Connection'));
 		o.value('_blackhole', _('Blackhole (Block)'));
 		uci.sections('bypass', 'nodes').forEach(function (node) {
 			var label = node.remarks || node['.name'];
-			var egress = node.egress_interface || _('system default');
+			var rulesSid = firstSection('global_rules');
+			var egress = node.egress_interface || (rulesSid && uci.get('bypass', rulesSid, 'default_naive_interface')) || _('system default');
 			o.value(node['.name'], label + ' [' + egress + ']');
 		});
-		o.description = _('Default uses the outbound selected by the Default rule. Hidden on the Default rule itself.');
-		// The Default rule is the catch-all and must not reference itself.
+		o.renderWidget = function (section_id, _option_index, cfgvalue) {
+			var choices = this.transformChoices();
+			var sort = this.keylist;
+			if (section_id === VIRTUAL_DEFAULT) {
+				delete choices._default;
+				sort = this.keylist.filter(function (key) { return key !== '_default'; });
+			}
+			var widget = new ui.Select((cfgvalue != null) ? cfgvalue : this.default, choices, {
+				id: this.cbid(section_id),
+				size: this.size,
+				sort: sort,
+				widget: this.widget,
+				optional: this.optional,
+				orientation: this.orientation,
+				placeholder: this.placeholder,
+				validate: this.getValidator(section_id),
+				disabled: (this.readonly != null) ? this.readonly : this.map.readonly
+			});
+			return widget.render();
+		};
+		o.cfgvalue = function (section_id) {
+			if (section_id === VIRTUAL_DEFAULT) {
+				var rulesSid = firstSection('global_rules');
+				return (rulesSid && uci.get('bypass', rulesSid, 'default_node')) || '_direct';
+			}
+			return uci.get('bypass', section_id, 'outbound') || '';
+		};
 		o.write = function (section_id, formvalue) {
-			if (formvalue === '_default' && uci.get('bypass', section_id, 'is_default') === '1')
-				formvalue = '';
-			uci.set('bypass', section_id, 'outbound', formvalue);
+			if (section_id === VIRTUAL_DEFAULT) {
+				var rulesSid = firstSection('global_rules');
+				if (rulesSid) uci.set('bypass', rulesSid, 'default_node', formvalue === '_default' ? '_direct' : formvalue);
+			} else {
+				uci.set('bypass', section_id, 'outbound', formvalue);
+			}
+		};
+		o.remove = function (section_id) {
+			if (section_id === VIRTUAL_DEFAULT) {
+				var rulesSid = firstSection('global_rules');
+				if (rulesSid) uci.unset('bypass', rulesSid, 'default_node');
+			} else {
+				uci.unset('bypass', section_id, 'outbound');
+			}
 		};
 
 		o = rs.option(form.ListValue, 'egress_interface', _('Egress Interface'));
 		o.value('', _('(use default direct interface)'));
 		ifaces.forEach(function (i) { o.value(i, i); });
 		o.depends('outbound', '_direct');
+		var renderEgressWidget = o.renderWidget.bind(o);
+		o.renderWidget = function (section_id, option_index, cfgvalue) {
+			if (section_id !== VIRTUAL_DEFAULT)
+				return renderEgressWidget(section_id, option_index, cfgvalue);
+
+			var widget = new ui.Select('', { '': _('(use default direct interface)') }, {
+				id: this.cbid(section_id),
+				sort: [''],
+				widget: this.widget,
+				optional: this.optional,
+				orientation: this.orientation,
+				disabled: true
+			});
+			return widget.render();
+		};
+		o.cfgvalue = function (section_id) {
+			return section_id === VIRTUAL_DEFAULT ? '' : (uci.get('bypass', section_id, 'egress_interface') || '');
+		};
+		o.write = function (section_id, formvalue) {
+			if (section_id !== VIRTUAL_DEFAULT) uci.set('bypass', section_id, 'egress_interface', formvalue);
+		};
+		o.remove = function (section_id) {
+			if (section_id !== VIRTUAL_DEFAULT) uci.unset('bypass', section_id, 'egress_interface');
+		};
 
 		/* ----- DNS tab (options from 'global_dns') ----- */
 		o = s.taboption('DNS', form.TextValue, 'direct_dns_shunt', _('Direct domain DNS routing'));
@@ -504,13 +572,6 @@ return view.extend({
 			badgeRow
 		]);
 		return m.render().then(function (mapNode) {
-			mapNode.querySelectorAll('tr[data-section-id]').forEach(function (row) {
-				var sid = row.getAttribute('data-section-id');
-				if (uci.get('bypass', sid, 'is_default') === '1' && row.firstElementChild) {
-					row.firstElementChild.style.color = 'red';
-					row.firstElementChild.style.fontWeight = 'bold';
-				}
-			});
 			container.appendChild(mapNode);
 			return container;
 		});

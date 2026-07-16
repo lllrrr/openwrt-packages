@@ -15,10 +15,9 @@ if [ -n "$old_auto_update" ]; then
 	uci -q commit bypass
 fi
 
-# v1.3.4 selected one global Naive node and every Proxy rule shared it.  The
-# BypassCore shunt page now stores the actual node on each rule.  Preserve the
-# old behavior during upgrade by replacing legacy _proxy tokens with the old
-# global node and assigning the catch-all Default row to it.
+# v1.3.4 selected one global Naive node and every Proxy rule shared it. The
+# BypassCore shunt page now stores the actual node on each rule. Preserve the
+# old behavior during upgrade by replacing legacy _proxy tokens with that node.
 old_global_node=$(uci -q get bypass.@global[0].node)
 for sid in $(uci -q show bypass 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
 	outbound=$(uci -q get "bypass.${sid}.outbound")
@@ -31,19 +30,9 @@ for sid in $(uci -q show bypass 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shun
 	}
 	[ "$outbound" = "_block" ] && uci -q set "bypass.${sid}.outbound=_blackhole"
 done
-default_sid=$(uci -q show bypass 2>/dev/null | sed -n "s/^bypass\.\([^.=]*\)\.is_default='1'$/\1/p" | head -1)
-[ -n "$default_sid" ] || {
-	uci -q set bypass.Default=shunt_rules
-	uci -q set bypass.Default.remarks='Default'
-	uci -q set bypass.Default.is_default='1'
-	uci -q set bypass.Default.network='tcp,udp'
-	if [ -n "$old_global_node" ] && [ "$(uci -q get bypass.${old_global_node})" = "nodes" ]; then
-		uci -q set "bypass.Default.outbound=${old_global_node}"
-	else
-		uci -q set bypass.Default.outbound='_direct'
-	fi
-}
+
 uci -q delete bypass.@global[0].node
+
 legacy_naive_egress=$(uci -q get bypass.@global[0].default_egress_interface)
 [ -z "$legacy_naive_egress" ] && [ -n "$old_global_node" ] && {
 	old_node_egress=$(uci -q get "bypass.${old_global_node}.egress_interface")
