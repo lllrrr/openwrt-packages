@@ -1,11 +1,12 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-httping
-PKG_VERSION:=1.1.15
-PKG_RELEASE:=2
+PKG_VERSION:=1.1.16
+PKG_RELEASE:=1
 
-PKG_MAINTAINER:=davidu2003
-PKG_LICENSE:=MIT
+PKG_MAINTAINER:=davidu2003 <127939717+davidu2003@users.noreply.github.com>
+PKG_LICENSE:=MIT AND Apache-2.0
+PKG_LICENSE_FILES:=LICENSE root/www/luci-static/resources/httping/echarts.min.js
 
 LUCI_TITLE:=Network Latency Monitor (HTTPing)
 LUCI_DESCRIPTION:=A LuCI plugin to monitor network latency using HTTP requests with ECharts visualization.

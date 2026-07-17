@@ -258,32 +258,39 @@
     var i18n = {
         serverFilter: '<%:Server Filter%>',
         packetLoss: '<%:Packet Loss%>',
+        times: '<%:times%>',
         emaSmoothOriginal: '<%:EMA Smooth, Original%>',
         loading: '<%:Loading...%>',
         loadingData: '<%:Loading data...%>',
         updatedAt: '<%:Updated at%>',
-        loadFailed: '<%:Load Failed%>'
+        loadFailed: '<%:Load Failed%>',
+        invalidTimeRange: '<%:Invalid time range%>'
     };
     var api_url = '<%=luci.dispatcher.build_url("admin", "services", "httping", "get_data")%>';
     var myChart = null;
     var cachedData = [];
     var activeServers = new Set();
-    
-    // 【优化】从 UCI 读取服务器顺序
-    var serverOrder = [
+
+    // 从 UCI 读取服务器顺序，并以 JSON 编码避免配置内容进入脚本上下文。
+    var serverOrder =
         <%
             local uci = require "luci.model.uci".cursor()
+            local jsonc = require "luci.jsonc"
             local servers = {}
             uci:foreach("httping", "server", function(s)
                 if s.name then
-                    table.insert(servers, '"' .. s.name:gsub('"', '\\"') .. '"')
+                    table.insert(servers, s.name)
                 end
             end)
-            write(table.concat(servers, ","))
+            local encoded = jsonc.stringify(servers)
+            encoded = encoded:gsub("<", "\\u003c"):gsub(">", "\\u003e"):gsub("&", "\\u0026")
+            write(encoded)
         %>
-    ];
+    ;
 
     var refreshTimer = null;
+    var activeRequest = null;
+    var requestSerial = 0;
     var currentRelativeHours = 12;
     var isCustomMode = false;
     var isClippingMode = false;
@@ -297,6 +304,23 @@
     ];
 
     function isDarkMode() { return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches; }
+
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function getOrderedServerNames(source) {
+        var names = serverOrder.slice();
+        Object.keys(source || {}).forEach(function (name) {
+            if (names.indexOf(name) === -1) names.push(name);
+        });
+        return names;
+    }
 
     function getChartTheme() {
         var isDark = isDarkMode();
@@ -343,8 +367,12 @@
             serverGroups[item.server_name].push(item);
 
             if (!serverStats[item.server_name]) serverStats[item.server_name] = { total: 0, loss: 0 };
-            serverStats[item.server_name].total++;
-            if (item.duration === null) serverStats[item.server_name].loss++;
+            var sampleCount = Number(item.sample_count || 1);
+            var lossCount = item.loss_count === undefined
+                ? (item.duration === null ? 1 : 0)
+                : Number(item.loss_count || 0);
+            serverStats[item.server_name].total += sampleCount;
+            serverStats[item.server_name].loss += lossCount;
         });
 
         Object.keys(serverGroups).forEach(function(serverName) {
@@ -352,21 +380,33 @@
             groupedData[serverName] = [];
             rawScatterData[serverName] = [];
             lossData[serverName] = [];
-            
+
             // ---------------------------------------------------------
             // 步骤1：数据预处理（提取有效数值序列，方便滤波）
             // ---------------------------------------------------------
             // 为了进行移动中位数滤波，我们需要一个连续的数值数组
             // 但数据中可能包含 NULL (丢包)，我们需要处理这种情况
             // 策略：遇到丢包时，打断滤波序列
-            
+
             var segments = [];
             var currentSegment = [];
-            
+            var processedByIndex = {};
+
             for (var i = 0; i < items.length; i++) {
                 var item = items[i];
                 var ts = item.timestamp * 1000;
-                
+                var lossCount = item.loss_count === undefined
+                    ? (item.duration === null ? 1 : 0)
+                    : Number(item.loss_count || 0);
+
+                if (lossCount > 0) {
+                    lossData[serverName].push({
+                        value: [ts, 0],
+                        lossCount: lossCount,
+                        sampleCount: Number(item.sample_count || 1)
+                    });
+                }
+
                 if (item.duration !== null) {
                     currentSegment.push({
                         ts: ts,
@@ -374,9 +414,6 @@
                         origIndex: i
                     });
                 } else {
-                    // 遇到丢包，记录丢包点
-                    lossData[serverName].push([ts, 0]);
-                    
                     // 结束当前段
                     if (currentSegment.length > 0) {
                         segments.push(currentSegment);
@@ -385,24 +422,24 @@
                 }
             }
             if (currentSegment.length > 0) segments.push(currentSegment);
-            
+
             // ---------------------------------------------------------
             // 步骤2 & 3：对每一段进行 [中位数滤波] -> [EMA平滑]
             // ---------------------------------------------------------
             // EMA 参数配置
-            var alpha = 0.25; 
-            
+            var alpha = 0.25;
+
             segments.forEach(function(segment) {
                 var segmentLen = segment.length;
                 if (segmentLen === 0) return;
-                
+
                 var lastEma = null;
-                
+
                 for (var k = 0; k < segmentLen; k++) {
                     var rawVal = segment[k].val;
                     var ts = segment[k].ts;
                     var processedVal = rawVal;
-                    
+
                     if (isClippingMode) {
                         // === A. 移动中位数去噪 (5点窗口) ===
                         // 取前后各2点，共5点求中位数
@@ -413,11 +450,11 @@
                                 windowVals.push(segment[idx].val);
                             }
                         }
-                        
+
                         // 排序取中位数
                         windowVals.sort(function(a, b) { return a - b; });
                         var medianVal = windowVals[Math.floor(windowVals.length / 2)];
-                        
+
                         // === B. EMA 平滑 ===
                         // 对 "去噪后的值(medianVal)" 进行平滑
                         if (lastEma === null) {
@@ -426,25 +463,36 @@
                             processedVal = (medianVal * alpha) + (lastEma * (1 - alpha));
                         }
                         lastEma = processedVal;
-                        
-                        // 存入平滑线数据
-                        groupedData[serverName].push({
+
+                        processedByIndex[segment[k].origIndex] = {
                             value: [ts, processedVal],
                             rawVal: rawVal,  // 原始值用于 Tooltip
                             isEma: true
-                        });
-                        
+                        };
+
                         // 存入背景散点 (显示原始数据)
                         rawScatterData[serverName].push([ts, rawVal]);
-                        
+
                     } else {
-                        // 非平滑模式：直接使用原始值
-                        groupedData[serverName].push({
+                        processedByIndex[segment[k].origIndex] = {
                             value: [ts, rawVal],
                             rawVal: rawVal,
                             isEma: false
-                        });
+                        };
                     }
+                }
+            });
+
+            // 按原始时间顺序重组，并在丢包处插入 null，确保折线真正断开。
+            items.forEach(function (item, index) {
+                if (item.duration === null) {
+                    groupedData[serverName].push({
+                        value: [item.timestamp * 1000, null],
+                        rawVal: null,
+                        isEma: isClippingMode
+                    });
+                } else if (processedByIndex[index]) {
+                    groupedData[serverName].push(processedByIndex[index]);
                 }
             });
         });
@@ -456,12 +504,16 @@
 
     function renderFilterChips(stats) {
         var container = document.getElementById('server-filters');
+        container.textContent = '';
 
-        container.innerHTML = '<span style="color: var(--text-color); font-size: 13px; padding: 6px 0;">' + i18n.serverFilter + ':</span>';
+        var label = document.createElement('span');
+        label.style.cssText = 'color: var(--text-color); font-size: 13px; padding: 6px 0;';
+        label.textContent = i18n.serverFilter + ':';
+        container.appendChild(label);
 
-        // 【优化】按配置顺序遍历
-        serverOrder.forEach(function (name) {
-            if (!stats[name]) return; // 如果没有该服务器的数据，跳过
+        // 当前配置优先，随后显示重命名前留下的历史节点。
+        getOrderedServerNames(stats).forEach(function (name) {
+            if (!stats[name]) return;
 
             var total = stats[name].total;
             var lossVal = total > 0 ? (stats[name].loss / total * 100) : 0;
@@ -479,16 +531,13 @@
                 badgeClass = 'loss-med';
             }
 
-            chip.innerHTML = `${name}<span class="loss-text ${badgeClass}">(${lossRateStr}%)</span>`;
+            chip.appendChild(document.createTextNode(name));
+            var lossBadge = document.createElement('span');
+            lossBadge.className = 'loss-text ' + badgeClass;
+            lossBadge.textContent = '(' + lossRateStr + '%)';
+            chip.appendChild(lossBadge);
 
             container.appendChild(chip);
-        });
-        
-        // 处理可能存在的未在配置中但有数据的旧数据
-        Object.keys(stats).forEach(function(name) {
-             if (serverOrder.indexOf(name) === -1) {
-                  // ... logic to render unknown servers if needed
-             }
         });
     }
 
@@ -516,8 +565,8 @@
         var legendData = [];
         var isFilterMode = activeServers.size > 0;
 
-        serverOrder.forEach(function (serverName, idx) {
-            if (!groupedData[serverName]) return; 
+        getOrderedServerNames(groupedData).forEach(function (serverName, idx) {
+            if (!groupedData[serverName]) return;
 
             // 使用 idx (服务器在 serverOrder 中的固定位置) 来决定颜色
             var currentColor = colorPalette[idx % colorPalette.length];
@@ -532,7 +581,7 @@
                     name: serverName + ' (raw)',
                     type: 'scatter',
                     symbolSize: 3, // 小点
-                    itemStyle: { 
+                    itemStyle: {
                         color: currentColor,
                         opacity: 0.25 // 弱化显示
                     },
@@ -551,7 +600,7 @@
                 smooth: true,
                 sampling: 'lttb',
                 itemStyle: { color: currentColor },
-                lineStyle: { width: 1 }, 
+                lineStyle: { width: 1 },
                 emphasis: {
                     focus: 'series'
                 },
@@ -574,7 +623,8 @@
                     showInLegend: false,
                     tooltip: {
                         formatter: function (params) {
-                            return `${params.marker}${serverName}: <b>${i18n.packetLoss}</b><br/>${params.axisValueLabel}`;
+                            var count = params.data && params.data.lossCount ? params.data.lossCount : 1;
+                            return `${params.marker}${escapeHtml(serverName)}: <b>${i18n.packetLoss} ${count} ${i18n.times}</b><br/>${escapeHtml(params.axisValueLabel || '')}`;
                         }
                     },
                     z: 10
@@ -611,14 +661,26 @@
 
             if (hasLineData) {
                 var range = lineMax - lineMin;
-                if (range <= 0) range = lineMax * 0.1 || 5; 
-                
+                if (range <= 0) range = lineMax * 0.1 || 5;
+
                 // 上下各留 0.8 倍 Range 的 Padding，使曲线处于中间 1/2.6 区域
                 var padding = range * 0.8;
-                
+
                 yAxisMin = Math.max(0, lineMin - padding);
                 yAxisMax = lineMax + padding;
             }
+        }
+
+        // 平滑模式可能把 Y 轴抬高；将丢包标记放在可见的轴底部。
+        if (isClippingMode && yAxisMin !== null) {
+            var lossBaseline = Math.floor(yAxisMin / 10) * 10;
+            seriesList.forEach(function (series) {
+                if (series.type === 'scatter' && series.name.indexOf('(' + i18n.packetLoss + ')') > -1) {
+                    series.data.forEach(function (point) {
+                        point.value[1] = lossBaseline;
+                    });
+                }
+            });
         }
 
         // 【关键逻辑】获取当前缩放状态
@@ -639,9 +701,11 @@
                 backgroundColor: theme.tooltipBg,
                 textStyle: { color: theme.textColor },
                 formatter: function (params) {
-                    var html = params[0].axisValueLabel + '<br/>';
+                    if (!params || params.length === 0) return '';
+                    var html = escapeHtml(params[0].axisValueLabel || '') + '<br/>';
                     params.forEach(item => {
                         if (item.seriesType === 'line') {
+                            if (!item.data || !item.data.value || item.data.value[1] === null) return;
                             var val, rawVal, displayHtml;
                             val = item.data.value[1];
 
@@ -654,12 +718,13 @@
                             }
 
                             var colorSpan = `<span style="display:inline-block;margin-right:5px;border-radius:10px;width:10px;height:10px;background-color:${item.color};"></span>`;
-                            html += `${colorSpan}${item.seriesName}: ${displayHtml}<br/>`;
+                            html += `${colorSpan}${escapeHtml(item.seriesName)}: ${displayHtml}<br/>`;
                         } else if (item.seriesType === 'scatter' && item.seriesName.indexOf('(' + i18n.packetLoss + ')') > -1) {
                             var serverName = item.seriesName.replace(' (' + i18n.packetLoss + ')', '');
                             var time = item.axisValueLabel;
                             var colorSpan = `<span style="display:inline-block;margin-right:5px;border-radius:10px;width:10px;height:10px;background-color:${item.color};"></span>`;
-                            html += `${colorSpan}${serverName}(${time}): <b>${i18n.packetLoss}</b><br/>`;
+                            var count = item.data && item.data.lossCount ? item.data.lossCount : 1;
+                            html += `${colorSpan}${escapeHtml(serverName)}(${escapeHtml(time)}): <b>${i18n.packetLoss} ${count} ${i18n.times}</b><br/>`;
                         }
                     });
                     return html;
@@ -705,28 +770,56 @@
         myChart.setOption(option, true);
     }
 
-    // 增加 isSilent 和 isRefresh 参数
-    // isRefresh = true 代表是自动刷新或局部更新，需要保持 Zoom
+    function scheduleNextRefresh() {
+        var checkbox = document.getElementById('auto-refresh-check');
+        if (refreshTimer || !checkbox || !checkbox.checked) return;
+
+        refreshTimer = setTimeout(function () {
+            refreshTimer = null;
+            performQuery(true);
+        }, 10000);
+    }
+
     function fetchData(startTs, endTs, isSilent) {
         if (!myChart) initChart();
+
+        if (refreshTimer) {
+            clearTimeout(refreshTimer);
+            refreshTimer = null;
+        }
+
+        if (activeRequest && activeRequest.abort) activeRequest.abort();
+        activeRequest = window.AbortController ? new AbortController() : null;
+        var serial = ++requestSerial;
+        var requestOptions = activeRequest ? { signal: activeRequest.signal } : {};
 
         if (!isSilent) {
             myChart.showLoading({ text: i18n.loadingData, color: '#0069d6', textColor: getChartTheme().textColor });
             document.getElementById('status-text').innerText = i18n.loading;
         }
 
-        fetch(api_url + '?start=' + startTs + '&end=' + endTs)
-            .then(res => res.json())
+        fetch(api_url + '?start=' + encodeURIComponent(startTs) + '&end=' + encodeURIComponent(endTs), requestOptions)
+            .then(res => {
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return res.json();
+            })
             .then(json => {
+                if (serial !== requestSerial) return;
+                if (!Array.isArray(json)) throw new Error('Invalid response');
+                activeRequest = null;
                 document.getElementById('status-text').innerText = i18n.updatedAt + ' ' + new Date().toLocaleTimeString();
-                if (!isSilent) myChart.hideLoading();
-                // 关键点：如果是静默刷新(自动刷新)，则传入 true 以保持 Zoom
+                myChart.hideLoading();
                 processAndRender(json, isSilent);
+                scheduleNextRefresh();
             })
             .catch(err => {
+                if (serial !== requestSerial) return;
+                activeRequest = null;
+                if (err && err.name === 'AbortError') return;
                 console.error(err);
                 document.getElementById('status-text').innerText = i18n.loadFailed;
-                if (!isSilent) myChart.hideLoading();
+                myChart.hideLoading();
+                scheduleNextRefresh();
             });
     }
 
@@ -757,6 +850,10 @@
             if (!startVal || !endVal) return;
             start = Math.floor(new Date(startVal).getTime() / 1000);
             end = Math.floor(new Date(endVal).getTime() / 1000);
+            if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) {
+                document.getElementById('status-text').innerText = i18n.invalidTimeRange;
+                return;
+            }
         } else {
             end = Math.floor(Date.now() / 1000);
             start = end - (currentRelativeHours * 3600);
@@ -775,20 +872,22 @@
     function toggleAutoRefresh() {
         var checkbox = document.getElementById('auto-refresh-check');
         if (refreshTimer) {
-            clearInterval(refreshTimer);
+            clearTimeout(refreshTimer);
             refreshTimer = null;
         }
         if (checkbox.checked) {
-            refreshTimer = setInterval(function () {
-                // 自动刷新：传入 true (isSilent)，在 fetchData 中会透传给 processAndRender 开启 preserveZoom
-                performQuery(true);
-            }, 10000);
+            scheduleNextRefresh();
         }
     }
 
-    window.matchMedia('(prefers-color-scheme: dark)').addListener(function (e) {
-        if (myChart) performQuery(true);
-    });
+    var darkModeQuery = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+    var handleThemeChange = function () {
+        if (myChart) processAndRender(cachedData, true);
+    };
+    if (darkModeQuery) {
+        if (darkModeQuery.addEventListener) darkModeQuery.addEventListener('change', handleThemeChange);
+        else if (darkModeQuery.addListener) darkModeQuery.addListener(handleThemeChange);
+    }
 
     window.addEventListener('resize', function () { if (myChart) myChart.resize(); });
 

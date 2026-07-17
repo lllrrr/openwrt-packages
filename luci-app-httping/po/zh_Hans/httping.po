@@ -32,11 +32,26 @@ msgstr "数据库路径"
 msgid "Default: /etc/httping_data.db"
 msgstr "默认: /etc/httping_data.db"
 
+msgid "Please enter an absolute path without control characters"
+msgstr "请输入不含控制字符的绝对路径"
+
+msgid "Data Retention Days"
+msgstr "数据保留天数"
+
+msgid "Automatically delete historical data older than this period"
+msgstr "自动删除超过此期限的历史数据"
+
 msgid "Data Management"
 msgstr "管理数据"
 
 msgid "Clear All History Data"
 msgstr "清除所有历史数据"
+
+msgid "History data cleared"
+msgstr "历史数据已清除"
+
+msgid "Failed to clear data; check the database path and system log"
+msgstr "清除失败，请检查数据库路径和系统日志"
 
 msgid "Server Node List"
 msgstr "服务器节点列表"
@@ -47,6 +62,12 @@ msgstr "启用"
 msgid "Display Name"
 msgstr "显示名称"
 
+msgid "Name is required, must not contain control characters, and must be at most 128 characters"
+msgstr "名称不能为空、不能含控制字符，且最长为 128 个字符"
+
+msgid "Display names must be unique"
+msgstr "显示名称不能重复"
+
 msgid "Detection Type"
 msgstr "检测类型"
 
@@ -55,6 +76,21 @@ msgstr "地址/URL"
 
 msgid "HTTPing: http://example.com | TCPing: example.com:80"
 msgstr "HTTPing: http://example.com | TCPing: example.com:80"
+
+msgid "Address is required, must not contain control characters, and must be at most 2048 characters"
+msgstr "地址不能为空、不能含控制字符，且最长为 2048 个字符"
+
+msgid "HTTPing address must start with http:// or https://"
+msgstr "HTTPing 地址必须以 http:// 或 https:// 开头"
+
+msgid "IPv6 addresses must use the [IPv6]:port format"
+msgstr "IPv6 地址必须使用 [IPv6]:端口 格式"
+
+msgid "TCPing port must be numeric"
+msgstr "TCPing 端口必须是数字"
+
+msgid "TCPing port must be between 1 and 65535"
+msgstr "TCPing 端口范围必须为 1～65535"
 
 msgid "Detection Interval (seconds)"
 msgstr "检测间隔(秒)"
@@ -107,6 +143,9 @@ msgstr "服务器筛选"
 msgid "Packet Loss"
 msgstr "丢包"
 
+msgid "times"
+msgstr "次"
+
 msgid "EMA Smooth, Original"
 msgstr "EMA平滑, 原始"
 
@@ -121,3 +160,6 @@ msgstr "更新于"
 
 msgid "Load Failed"
 msgstr "加载失败"
+
+msgid "Invalid time range"
+msgstr "时间范围无效"

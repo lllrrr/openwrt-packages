@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.16-1] - 2026-07-17
+
+### Changed
+
+- Improved HTTPing and TCPing probe reliability and validation
+- Added bounded history aggregation, retention cleanup, and safer database operations
+- Prevented overlapping refresh requests and hardened frontend rendering
+- Expanded Simplified Chinese translations, CI checks, and licensing metadata
+
 ## [1.1.14-2] - 2026-01-21
 
 ### Changed

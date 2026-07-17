@@ -1,15 +1,18 @@
 config global 'global'
     option enabled '1'
     option db_path '/etc/httping_data.db'
+    option retention_days '90'
 
 config server
     option name 'Baidu'
+    option type 'httping'
     option url 'https://www.baidu.com'
-    option interval '10'
+    option interval '60'
     option enabled '1'
 
 config server
     option name 'Google'
+    option type 'httping'
     option url 'https://www.google.com'
-    option interval '10'
+    option interval '60'
     option enabled '1'
