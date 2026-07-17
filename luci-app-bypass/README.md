@@ -52,7 +52,9 @@ This application supports fw4/nftables only.
 
 BypassCore is intentionally not an automatic package dependency because it is maintained as an independent project and is not available in the official OpenWrt feeds. Install the matching package from the [BypassCore releases](https://github.com/kinmeic/BypassCore/releases), or place the Linux executable at `/usr/bin/bypasscore`.
 
-Version 1.5.5 and later require BypassCore v1.0.8 or newer. In addition to the native `type: "dns"` UDP/TCP inbound, this version forwards arbitrary DNS record types such as MX, TXT, SRV, PTR and CAA through the selected tagged outbound. Startup rejects older cores so dnsmasq cannot receive silently empty non-address responses.
+Version 1.5.9 and later require BypassCore v1.1.0 with configuration schema 3. Startup verifies the machine-readable capability contract rather than relying only on the version string. The integration uses explicit DNS server outbounds, the native final routing outbound, structured inbound readiness, and the local Unix-socket control plane.
+
+BypassCore emits TTL/revision/sequence-aware DNS result events and exposes a resynchronization endpoint, but it does not itself modify nftables. ChinaDNS-NG therefore remains the NFTSet writer until this application has a reliable Unix-datagram-to-NFTSet consumer.
 
 ## Build and install
 
@@ -66,7 +68,7 @@ opkg install luci-app-bypass_*.ipk
 
 After installation:
 
-1. Install BypassCore v1.0.8 or newer for the router architecture from its [releases](https://github.com/kinmeic/BypassCore/releases).
+1. Install BypassCore v1.1.0 or newer for the router architecture from its [releases](https://github.com/kinmeic/BypassCore/releases).
 2. Install NaiveProxy. ChinaDNS-NG is declared as a runtime dependency.
 3. Install `v2ray-geoip`/`v2ray-geosite`, or place `geoip.dat` and `geosite.dat` under `/usr/share/v2ray/`.
 4. Open LuCI → Services → Bypass, configure nodes and egress interfaces, then enable the service.
@@ -85,6 +87,10 @@ NaiveProxy does not support general SOCKS5 UDP association. By default, forwarde
 ## Runtime architecture
 
 BypassCore is the required transparent routing core; there is no legacy NaiveProxy core mode or automatic fallback. The service does not install transparent OUTPUT rules for router-local applications, avoiding recursive interception of direct outbound sockets.
+
+The generated schema-3 configuration assigns every shunt rule a stable `ruleTag`, expresses the virtual Default row through `routing.finalOutboundTag`, and routes each DNS server through its own `outboundTag`. Status, route explanation, DNS resolution, Observatory data, and readiness are read from the running core over a mode-0600 Unix socket, avoiding duplicate GeoData and DNS initialization for diagnostics.
+
+Reload classifies configuration changes by ownership. Routing-only changes are sent through BypassCore's transactional snapshot reload. Changes requiring NaiveProxy, policy routes, nftables, dnsmasq, ChinaDNS-NG, or listener reconstruction automatically fall back to a full restart. GeoData file updates still restart because an unchanged config hash intentionally short-circuits snapshot rebuilding. Diagnostics require the running control plane and never launch temporary BypassCore processes.
 
 Per-node NaiveProxy instances are started only for nodes referenced by shunt rules or the virtual Default row. Direct traffic can use a global default interface or a per-rule override. A node with no explicit egress interface inherits Default Naive Interface, then falls back to the system route. Node server destinations receive dedicated policy routes based on the effective interface, while existing mwan3/PBR marks remain untouched.
 

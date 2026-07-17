@@ -29,19 +29,28 @@ do_status() {
 	[ -n "$CHINADNS_BIN" ] && chinadns_present=1
 	is_bypasscore "$BYPASSCORE_FILE" && bypasscore_present=1
 	# BypassCore plus the ready marker represent a fully installed firewall/DNS
-	# path; a stray core process during startup or teardown is not RUNNING.
-	[ -f /var/lock/bypass_ready.lock ] && process_alive bypasscore && \
-		[ "$(check_port_exists "$REDIR_PORT" tcp)" -gt 0 ] 2>/dev/null && running=1
-	local use_tables egress active_redir_port
+	# path; structured readiness already covers all configured inbounds.
+	[ -f /var/lock/bypass_ready.lock ] && process_alive bypasscore && running=1
+	local use_tables egress active_redir_port core_ready=0 core_revision="" core_hash="" core_status
 	use_tables=$(get_cache_var USE_TABLES)
 	egress=$(get_cache_var EGRESS_IFACES)
 	active_redir_port=$(get_cache_var ACL_GLOBAL_redir_port)
+	if core_status=$(bypasscore_control_request GET /v1/status 2>/dev/null); then
+		printf '%s' "$core_status" | grep -Eq '"ready"[[:space:]]*:[[:space:]]*true' && core_ready=1
+		core_revision=$(printf '%s' "$core_status" | sed -n 's/.*"configRevision"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p')
+		core_hash=$(printf '%s' "$core_status" | sed -n 's/.*"configHash"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+	fi
+	[ "$core_ready" = "1" ] || running=0
 
 	json_init
 	json_add_int running "$running"
 	json_add_int naive_present "$naive_present"
 	json_add_int chinadns_present "$chinadns_present"
 	json_add_int bypasscore_present "$bypasscore_present"
+	json_add_int core_ready "$core_ready"
+	json_add_string core_revision "$core_revision"
+	json_add_string core_config_hash "$core_hash"
+	json_add_string core_version "$("$BYPASSCORE_FILE" --version 2>/dev/null | awk 'NR == 1 { print $2 }')"
 	json_add_string use_tables "$use_tables"
 	json_add_string egress_ifaces "$egress"
 	# Retain the old singular key for callers written before per-node egress.
@@ -65,18 +74,21 @@ do_route_test() {
 		json_add_int code -1
 		json_add_string error "bypasscore unavailable (set bypasscore_file from https://github.com/kinmeic/BypassCore/releases)"
 	else
-		if ! gen_bypasscore_config >/dev/null 2>&1; then
-			json_init
-			json_add_int code -1
-			json_add_string error "invalid Bypass configuration"
-		else
-			local raw rc
-			raw=$("$BYPASSCORE_FILE" -config "$BYPASSCORE_CFG" -test "$dest" 2>&1)
-			rc=$?
+		local request raw rc
+		json_init
+		json_add_string destination "$dest"
+		request=$(json_dump)
+		if process_alive bypasscore && raw=$(bypasscore_control_request POST /v1/route/explain "$request" 2>&1); then
+			rc=0
+			printf '%s' "$raw" | grep -Eq '"code"[[:space:]]*:' && rc=1
 			json_init
 			json_add_int code "$rc"
-			json_add_string matched "$(echo "$raw" | grep -iE 'outbound|tag|rule' | head -5 | tr '\n' ' ')"
+			json_add_string matched "$(printf '%s' "$raw" | sed -n 's/.*"ruleTag"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
 			json_add_string raw "$raw"
+		else
+			json_init
+			json_add_int code -1
+			json_add_string error "BypassCore is not running or its control socket is unavailable"
 		fi
 	fi
 	emit
@@ -90,23 +102,23 @@ do_observe() {
 		json_add_int code -1
 		json_add_string error "bypasscore unavailable"
 	else
-		if ! gen_bypasscore_config >/dev/null 2>&1; then
-			json_init
-			json_add_int code -1
-			json_add_string error "invalid Bypass configuration"
-		else
-			local raw rc
-			raw=$("$BYPASSCORE_FILE" -config "$BYPASSCORE_CFG" -observe 2>&1)
-			rc=$?
+		local raw rc
+		if process_alive bypasscore && raw=$(bypasscore_control_request GET /v1/observatory 2>&1); then
+			rc=0
+			printf '%s' "$raw" | grep -Eq '"code"[[:space:]]*:' && rc=1
 			json_init
 			json_add_int code "$rc"
 			json_add_string raw "$raw"
+		else
+			json_init
+			json_add_int code -1
+			json_add_string error "BypassCore is not running or its control socket is unavailable"
 		fi
 	fi
 	emit
 }
 
-# resolve <domain> -> { code, raw }  (BypassCore -resolve, uses the dns section)
+# resolve <domain> -> { code, raw } using the running core DNS snapshot
 do_resolve() {
 	local domain=$1
 	get_config
@@ -118,18 +130,20 @@ do_resolve() {
 		json_add_int code -1
 		json_add_string error "bypasscore unavailable (set bypasscore_file from https://github.com/kinmeic/BypassCore/releases)"
 	else
-		# Make sure the config (incl. dns section) is up to date for this query.
-		if ! gen_bypasscore_config >/dev/null 2>&1; then
-			json_init
-			json_add_int code -1
-			json_add_string error "invalid Bypass configuration"
-		else
-			local raw rc
-			raw=$("$BYPASSCORE_FILE" -config "$BYPASSCORE_CFG" -resolve "$domain" 2>&1)
-			rc=$?
+		local request raw rc
+		json_init
+		json_add_string domain "$domain"
+		request=$(json_dump)
+		if process_alive bypasscore && raw=$(bypasscore_control_request POST /v1/dns/resolve "$request" 2>&1); then
+			rc=0
+			printf '%s' "$raw" | grep -Eq '"code"[[:space:]]*:' && rc=1
 			json_init
 			json_add_int code "$rc"
 			json_add_string raw "$raw"
+		else
+			json_init
+			json_add_int code -1
+			json_add_string error "BypassCore is not running or its control socket is unavailable"
 		fi
 	fi
 	emit
@@ -275,13 +289,16 @@ do_node_urltest() {
 # config_preview -> { config }  (regenerate + cat)
 do_config_preview() {
 	get_config
-	local gen_rc=0
+	local gen_rc=0 content="" active_config="$BYPASSCORE_CFG"
+	BYPASSCORE_CFG="${TMP_PATH}/bypasscore/preview.json"
+	rm -f "$BYPASSCORE_CFG"
 	gen_bypasscore_config >/dev/null 2>&1 || gen_rc=$?
+	[ "$gen_rc" = "0" ] && [ -s "$BYPASSCORE_CFG" ] && content=$(cat "$BYPASSCORE_CFG")
+	rm -f "$BYPASSCORE_CFG"
+	BYPASSCORE_CFG=$active_config
 	json_init
-	if [ "$gen_rc" = "0" ] && [ -s "$BYPASSCORE_CFG" ]; then
+	if [ "$gen_rc" = "0" ] && [ -n "$content" ]; then
 		# Escape into a JSON string via jshn.
-		local content
-		content=$(cat "$BYPASSCORE_CFG")
 		json_add_string config "$content"
 	else
 		json_add_string config ""
@@ -440,24 +457,17 @@ geo_rules_for_value() {
 # Geo View lookup. BypassCore remains authoritative for rule priority; UCI and
 # netifd then translate its outbound tag into the interface actually used.
 geo_lookup_egress() {
-	local target=$1 raw tag node sid logical="" label device devices="" devices_label="" iface mapped=""
+	local target=$1 request raw tag node sid logical="" label device devices="" devices_label="" iface mapped=""
 	get_config
-	export BYPASSCORE_ASSETS="$V2RAY_LOCATION_ASSET"
-	export ENABLE_DEPRECATED_GEOSITE=true
-	export ENABLE_DEPRECATED_GEOIP=true
-	if ! is_bypasscore "$BYPASSCORE_FILE"; then
-		printf '%s\n' "Egress interface: unavailable (BypassCore is not installed)"
+	case "$target" in *:*) target="[$target]" ;; esac
+	json_init
+	json_add_string destination "tcp:${target}:443"
+	request=$(json_dump)
+	if ! process_alive bypasscore || ! raw=$(bypasscore_control_request POST /v1/route/explain "$request" 2>/dev/null); then
+		printf '%s\n' "Egress interface: unavailable (BypassCore control plane is not running)"
 		return
 	fi
-	case "$target" in *:*) target="[$target]" ;; esac
-	if [ ! -s "$BYPASSCORE_CFG" ]; then
-		gen_bypasscore_config >/dev/null 2>&1 || {
-			printf '%s\n' "Egress interface: unavailable (configuration generation failed)"
-			return
-		}
-	fi
-	raw=$("$BYPASSCORE_FILE" -config "$BYPASSCORE_CFG" -test "tcp:${target}:443" 2>&1)
-	tag=$(printf '%s\n' "$raw" | sed -n 's/^Outbound tag:[[:space:]]*//p' | head -1)
+	tag=$(printf '%s\n' "$raw" | sed -n 's/.*"outboundTag"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
 	case "$tag" in
 		block)
 			printf '%s\n' "Outbound: Block" "Egress interface: none (blocked)"
@@ -619,8 +629,7 @@ ${route_info}"
 		return
 	fi
 
-	# gen_bypasscore_config() uses jshn internally, so always begin a fresh API
-	# response object after the optional routing lookup above.
+	# The optional routing lookup above also uses jshn, so begin a fresh response.
 	json_init
 	json_add_int code "${rc:-1}"
 	json_add_string output "$out"

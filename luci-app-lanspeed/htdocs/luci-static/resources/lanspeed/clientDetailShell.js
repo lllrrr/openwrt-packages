@@ -35,12 +35,31 @@ function buildShell(viewState) {
 	refs.clientName = E('h4', {
 		'class': 'lanspeed-connection-client-name'
 	}, _('正在加载客户端身份…'));
-	refs.clientMeta = E('p', {
-		'class': 'lanspeed-connection-client-meta'
-	}, _('MAC 与 IP 信息将在加载后显示'));
+	var clientHeading = E('div', {
+		'class': 'lanspeed-connection-client-heading'
+	}, [
+		E('span', {
+			'class': 'lanspeed-connection-client-avatar',
+			'aria-hidden': 'true'
+		}, E('span', {
+			'class': 'lanspeed-connection-client-device'
+		})),
+		E('div', { 'class': 'lanspeed-connection-client-title' }, [
+			E('span', {
+				'class': 'lanspeed-connection-client-kicker'
+			}, _('LAN 客户端')),
+			refs.clientName
+		])
+	]);
+	refs.clientMeta = E('div', {
+		'class': 'lanspeed-connection-client-meta',
+		'aria-label': _('客户端网络身份')
+	}, E('span', {
+		'class': 'lanspeed-connection-meta-empty'
+	}, _('MAC 与 IP 信息将在加载后显示')));
 	refs.connectionState = E('span', {
 		'class': 'label lanspeed-connection-state'
-	}, _('连接状态：等待加载'));
+	}, _('等待数据'));
 
 	refs.summaryTargets = E('span', {
 		'class': 'lanspeed-connection-summary-value'
@@ -81,7 +100,7 @@ function buildShell(viewState) {
 		E('div', { 'class': 'lanspeed-body' }, [
 			E('div', { 'class': 'lanspeed-connection-identity' }, [
 				E('div', { 'class': 'lanspeed-connection-client' }, [
-					refs.clientName,
+					clientHeading,
 					refs.clientMeta
 				]),
 				refs.summary
@@ -179,7 +198,7 @@ function buildShell(viewState) {
 	refs.footer = E('p', {
 		'class': 'lanspeed-connection-footer',
 		'aria-live': 'polite'
-	}, _('连接数据将在加载后显示。'));
+	}, _('连接数据加载后会显示来源和刷新间隔。'));
 
 	var connectionsCard = E('div', {
 		'class': 'cbi-section lanspeed-connections-card'

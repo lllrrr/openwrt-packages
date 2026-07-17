@@ -10,7 +10,7 @@
  * Thin LuCI configuration view entry.
  *
  * Runtime daemon form logic lives in configForm.js, layout CSS lives in
- * configStyle.js, and interface assignment controls stay in ifaceConfig.js.
+ * configStyle.js, and interface controls stay in ifaceConfig.js.
  */
 
 return view.extend({
@@ -27,7 +27,7 @@ return view.extend({
 			E('style', {}, configStyle.CSS),
 			configForm.buildDaemonSection(values || configForm.DEFAULTS, viewState),
 			E('div', { 'class': 'cbi-section' }, [
-				ifaceCfg.buildSection(viewState, _('接口配置'))
+				ifaceCfg.buildSection(viewState, _('接口分配'))
 			]),
 			configForm.buildSaveSection(viewState)
 		]);

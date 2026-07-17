@@ -574,10 +574,9 @@ gen_bypasscore_config() {
 		done
 	json_close_array
 
-	# DNS mirrors Passwall2's direct/remote model. Every non-local BypassCore DNS
-	# transport enters the routing data plane under its server tag. Explicit
-	# routing rules below bind direct/domestic DNS to freedom and remote DNS to
-	# either freedom or the selected NaiveProxy SOCKS outbound.
+	# DNS mirrors Passwall2's direct/remote model. BypassCore 1.1 routes each DNS
+	# server through its explicit outboundTag, so resolver traffic cannot be
+	# captured accidentally by ordinary user routing rules.
 	if [ -n "$DOMESTIC_DNS" ] || [ -n "$REMOTE_DNS" ] || [ -n "$REMOTE_DNS_DOH" ]; then
 		json_add_object dns
 			# Domain-specific direct resolvers must never participate in the
@@ -633,6 +632,7 @@ gen_bypasscore_config() {
 						json_add_string address "$_dns_address"
 						[ -n "$_dns_port" ] && json_add_int port "$_dns_port"
 						json_add_string tag direct_dns
+						json_add_string outboundTag direct
 						json_add_boolean skipFallback 1
 						json_add_boolean finalQuery 1
 						json_add_string queryStrategy "$DIRECT_DNS_QUERY_STRATEGY"
@@ -650,6 +650,7 @@ gen_bypasscore_config() {
 					json_add_object ''
 						json_add_string address "$_domestic_first"
 						json_add_string tag domestic
+						json_add_string outboundTag direct
 						json_add_boolean skipFallback 1
 						json_add_boolean finalQuery 1
 						json_add_string queryStrategy "$DIRECT_DNS_QUERY_STRATEGY"
@@ -675,6 +676,11 @@ gen_bypasscore_config() {
 						esac
 						[ -n "$_remote_port" ] && json_add_int port "$_remote_port"
 						json_add_string tag remote
+						if [ "$REMOTE_DNS_DETOUR" = "remote" ] && [ -n "$DNS_PROXY_NODE" ]; then
+							json_add_string outboundTag "proxy_${DNS_PROXY_NODE}"
+						else
+							json_add_string outboundTag direct
+						fi
 						json_add_string queryStrategy "$REMOTE_DNS_QUERY_STRATEGY"
 						[ -n "$REMOTE_DNS_CLIENT_IP" ] && json_add_string clientIp "$REMOTE_DNS_CLIENT_IP"
 					json_close_object
@@ -699,42 +705,24 @@ gen_bypasscore_config() {
 	# routing
 	json_add_object routing
 		json_add_string domainStrategy "$DOMAIN_STRATEGY"
+		# Resolve the Passwall2-style virtual Default row once and express it via
+		# BypassCore's native final outbound instead of a synthetic catch-all rule.
+		local default_outbound default_tag
+		default_outbound=${DEFAULT_NODE:-_direct}
+		case "$default_outbound" in
+			_default|_direct|"") default_tag="direct" ;;
+			*)
+				default_tag=$(map_outbound_tag "$default_outbound")
+				[ -n "$default_tag" ] || {
+					log 0 "Default node references an invalid outbound [%s]." "$default_outbound"
+					BYPASSCORE_CONFIG_ERROR=1
+					default_tag=block
+				}
+				;;
+		esac
+		json_add_string finalOutboundTag "$default_tag"
 		json_add_array rules
-			local sid tag domains ips net outbound egress default_outbound default_tag protocols inbound sources ports
-			# The catch-all is virtual, like Passwall2. Resolve global_rules.default_node
-			# once so _default rules and the final rule share one source of truth.
-			default_outbound=${DEFAULT_NODE:-_direct}
-			case "$default_outbound" in
-				_default|_direct|"") default_tag="direct" ;;
-				*)
-					default_tag=$(map_outbound_tag "$default_outbound")
-					[ -n "$default_tag" ] || {
-						log 0 "Default node references an invalid outbound [%s]." "$default_outbound"
-						BYPASSCORE_CONFIG_ERROR=1
-						default_tag=block
-					}
-					;;
-			esac
-			# DNS server tags become inboundTag values while BypassCore dials the
-			# configured upstream. Put these rules before traffic shunt rules so
-			# resolver endpoints cannot accidentally inherit a user traffic rule.
-			json_add_object ''
-				json_add_string outboundTag direct
-				json_add_array inboundTag
-					json_add_string '' direct_dns
-					json_add_string '' domestic
-				json_close_array
-			json_close_object
-			json_add_object ''
-				if [ "$REMOTE_DNS_DETOUR" = "remote" ] && [ -n "$DNS_PROXY_NODE" ]; then
-					json_add_string outboundTag "proxy_${DNS_PROXY_NODE}"
-				else
-					json_add_string outboundTag direct
-				fi
-				json_add_array inboundTag
-					json_add_string '' remote
-				json_close_array
-			json_close_object
+			local sid tag domains ips net outbound egress protocols inbound sources ports
 			for sid in $(uci -q show "${CONFIG}" 2>/dev/null | grep "=shunt_rules" | cut -d '.' -f2 | cut -d '=' -f1); do
 				[ "$(config_n_get "$sid" is_default 0)" = "1" ] && continue
 				outbound=$(config_n_get "$sid" outbound _direct)
@@ -754,6 +742,7 @@ gen_bypasscore_config() {
 					tag=block
 				}
 				json_add_object ''
+					json_add_string ruleTag "$sid"
 					json_add_string outboundTag "$tag"
 					domains=$(config_n_get "$sid" domain_list)
 					if [ -n "$domains" ]; then
@@ -798,12 +787,15 @@ gen_bypasscore_config() {
 					[ -n "$ports" ] && json_add_string port "$ports"
 				json_close_object
 			done
-			# Emit the virtual Default row last as the catch-all.
-			json_add_object ''
-				json_add_string outboundTag "$default_tag"
-				json_add_string network "tcp,udp"
-			json_close_object
 		json_close_array
+	json_close_object
+
+	# Local Unix-socket control plane: readiness, diagnostics, metrics and route
+	# explanation without loading a second copy of GeoData or DNS state.
+	json_add_object control
+		json_add_boolean enabled 1
+		json_add_string socket "$BYPASSCORE_CONTROL_SOCKET"
+		json_add_string mode "0600"
 	json_close_object
 
 	# observatory (only useful if the bypasscore binary is present)
@@ -889,8 +881,13 @@ run_bypasscore_core() {
 	wait_for_listener bypasscore "$REDIR_PORT" tcp 20 "$log_file" || return 1
 	wait_for_listener bypasscore "$BYPASSCORE_DNS_PORT" udp 5 "$log_file" || return 1
 	wait_for_listener bypasscore "$BYPASSCORE_DNS_PORT" tcp 5 "$log_file" || return 1
+	wait_for_bypasscore_ready 5 || {
+		log 0 "BypassCore control plane did not report ready."
+		return 1
+	}
 	set_cache_var ACL_GLOBAL_redir_port "$REDIR_PORT"
 	set_cache_var BYPASSCORE_DNS_PORT "$BYPASSCORE_DNS_PORT"
+	set_cache_var BYPASSCORE_CONTROL_SOCKET "$BYPASSCORE_CONTROL_SOCKET"
 	log 0 "BypassCore running as transparent core on tcp://0.0.0.0:%s (-run)." "$REDIR_PORT"
 	if [ "$REMOTE_DNS_DETOUR" = "remote" ]; then
 		log 0 "Remote DNS: %s (%s) -> BypassCore DNS :%s -> Naive node [%s] SOCKS :%s." \
@@ -1159,6 +1156,83 @@ start_monitor() {
 	fi
 }
 
+# Hash only state that is owned outside BypassCore's reloadable snapshot.
+# When this changes, NaiveProxy, policy routes, nftables, dnsmasq or the
+# ChinaDNS-NG helper must be rebuilt with a full restart. Routing-only changes
+# can be activated transactionally through the core control plane.
+runtime_restart_signature() {
+	local node sid outbound helper_class
+	{
+		uci -q show "${CONFIG}.@global[0]"
+		uci -q show "${CONFIG}.@global_forwarding[0]"
+		uci -q show "${CONFIG}.@global_dns[0]"
+		printf 'asset=%s\ndefault_naive_interface=%s\nwrite_ipset_direct=%s\nenable_geoview_ip=%s\n' \
+			"$V2RAY_LOCATION_ASSET" "$DEFAULT_NAIVE_EGRESS_IFACE" "$WRITE_IPSET_DIRECT" "$ENABLE_GEOVIEW_IP"
+		printf 'redir_port=%s\ndns_port=%s\nchinadns_port=%s\ndomestic_dns=%s\n' \
+			"$REDIR_PORT" "$BYPASSCORE_DNS_PORT" "$CHINADNS_PORT" "$DOMESTIC_DNS"
+		printf 'selected_nodes\n'
+		sort -u "$TMP_PATH/selected_nodes" 2>/dev/null
+		printf 'node_ports\n'
+		sort -u "$TMP_PATH/node_ports" 2>/dev/null
+		while read -r node; do
+			[ -n "$node" ] || continue
+			uci -q show "${CONFIG}.${node}"
+		done < "$TMP_PATH/selected_nodes"
+		# ChinaDNS/dnsmasq helper membership depends on rule domains, IPs and
+		# whether the rule is Direct. Other match dimensions are core-only.
+		for sid in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+			[ "$(config_n_get "$sid" is_default 0)" = "1" ] && continue
+			outbound=$(config_n_get "$sid" outbound _direct)
+			[ "$outbound" = "_direct" ] && helper_class=direct || helper_class=other
+			printf 'rule=%s\nhelper=%s\ndomain=%s\nip=%s\n' "$sid" "$helper_class" \
+				"$(config_n_get "$sid" domain_list)" "$(config_n_get "$sid" ip_list)"
+		done
+		busybox cksum "$APP_PATH/direct_ip" 2>/dev/null
+	} | busybox cksum | awk '{print $1 ":" $2}'
+}
+
+# Return 0 for a live transactional reload, 1 for an invalid candidate, and 2
+# when external runtime state or listener identity requires a full restart.
+reload_core() {
+	get_config
+	[ "$ENABLED" = "1" ] || return 2
+	process_alive bypasscore && bypasscore_ready || return 2
+	prepare_selected_nodes
+	local previous_signature next_signature backup response
+	previous_signature=$(get_cache_var RUNTIME_RESTART_SIGNATURE)
+	next_signature=$(runtime_restart_signature)
+	[ -n "$previous_signature" ] && [ "$previous_signature" = "$next_signature" ] || return 2
+
+	backup="${BYPASSCORE_CFG}.reload-backup"
+	cp -f "$BYPASSCORE_CFG" "$backup" 2>/dev/null || return 2
+	if ! gen_bypasscore_config; then
+		cp -f "$backup" "$BYPASSCORE_CFG"
+		rm -f "$backup"
+		log 0 "BypassCore live reload rejected an invalid generated configuration."
+		return 1
+	fi
+	# An empty request asks BypassCore to read its configured file directly,
+	# avoiding HTTP body/argv limits for large rule sets.
+	if ! response=$(bypasscore_control_request POST /v1/config/reload "" 2>&1); then
+		cp -f "$backup" "$BYPASSCORE_CFG"
+		rm -f "$backup"
+		return 2
+	fi
+	if printf '%s' "$response" | grep -Eq '"(reloaded|unchanged)"[[:space:]]*:[[:space:]]*true'; then
+		rm -f "$backup"
+		set_cache_var RUNTIME_RESTART_SIGNATURE "$next_signature"
+		log 0 "BypassCore configuration reloaded transactionally: %s" "$response"
+		return 0
+	fi
+	cp -f "$backup" "$BYPASSCORE_CFG"
+	rm -f "$backup"
+	if printf '%s' "$response" | grep -Eq '"code"[[:space:]]*:[[:space:]]*"restart_required"'; then
+		return 2
+	fi
+	log 0 "BypassCore live reload failed; previous runtime retained: %s" "$response"
+	return 1
+}
+
 # ------------------------------------------------------------------------------
 # Lifecycle
 # ------------------------------------------------------------------------------
@@ -1193,8 +1267,8 @@ start() {
 		log 0 "BypassCore is required but unavailable at [%s]; service not started." "$BYPASSCORE_FILE"
 		return 1
 	fi
-	if ! bypasscore_has_raw_dns "$BYPASSCORE_FILE"; then
-		log 0 "BypassCore v1.0.8 or later is required for complete DNS forwarding; service not started."
+	if ! bypasscore_has_required_features "$BYPASSCORE_FILE"; then
+		log 0 "BypassCore 1.1.0 schema-3 capabilities are required; service not started."
 		return 1
 	fi
 	prepare_selected_nodes
@@ -1237,6 +1311,7 @@ start() {
 	fi
 
 	start_crontab
+	set_cache_var RUNTIME_RESTART_SIGNATURE "$(runtime_restart_signature)"
 	start_monitor || {
 		log 0 "Required runtime watcher is unavailable; stopping instead of leaving updates and process failures untracked."
 		stop
@@ -1292,10 +1367,11 @@ if [ "${APP_SOURCED:-0}" != "1" ]; then
 	shift
 	case "$arg1" in
 		gen_config) get_config; gen_bypasscore_config ;;
+		reload_core) reload_core ;;
 		start)     start "$@" ;;
 		stop)      stop ;;
 		*)
-			echo "Usage: $0 {start|stop|gen_config}"
+			echo "Usage: $0 {start|stop|reload_core|gen_config}"
 			;;
 	esac
 fi

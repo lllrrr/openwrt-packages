@@ -25,9 +25,6 @@ var BASE_CSS = [
 	'  line-height:1.2;margin:.1em 0}',
 	'.lanspeed-metric .hint{font-size:.8em;opacity:.7;margin:0}',
 
-	'.lanspeed-strip{display:flex;flex-wrap:wrap;gap:.3em;margin:1em 0 0 0}',
-	'.lanspeed-strip:empty{display:none;margin:0}',
-
 	'.lanspeed-toolbar{display:flex;flex-wrap:wrap;gap:.7em 1em;',
 	'  align-items:center;justify-content:space-between;margin:0 0 1em 0}',
 	'.lanspeed-toolbar-left{display:grid;grid-template-columns:auto minmax(14em,1fr);',
@@ -66,6 +63,8 @@ var BASE_CSS = [
 	'.lanspeed-sort-button:focus-visible{outline:2px solid currentColor;outline-offset:3px}',
 	'.lanspeed-sort-indicator{display:inline-block;min-width:.75em;opacity:.85}',
 	'.lanspeed-table tbody tr:last-child td{border-bottom:0}',
+	'.lanspeed-clients-card .lanspeed-table th[hidden],',
+	'.lanspeed-clients-card .lanspeed-table td[hidden]{display:none!important}',
 	'.lanspeed-table th:first-child,.lanspeed-table td:first-child{padding-left:0}',
 	'.lanspeed-table th:last-child,.lanspeed-table td:last-child{padding-right:0}',
 	'.lanspeed-table .num{text-align:left;font-variant-numeric:tabular-nums;white-space:nowrap}',
@@ -80,18 +79,6 @@ var BASE_CSS = [
 	'.lanspeed-connection-link:focus-visible{outline:2px solid currentColor;outline-offset:3px;text-decoration:none!important}',
 	'.lanspeed-table td .state{display:inline-flex;gap:.25em;flex-wrap:wrap;align-items:center}',
 	'.lanspeed-clients-card .lanspeed-table{font-weight:500}',
-
-	'.lanspeed-caps{display:grid;grid-template-columns:repeat(auto-fill,minmax(15em,1fr));',
-	'  gap:.3em .8em;margin:.2em 0 1em 0}',
-	'.lanspeed-caps .cap{display:flex;justify-content:space-between;align-items:center;',
-	'  gap:.5em;padding:.15em 0}',
-
-	'.lanspeed-warnings{margin:.2em 0 1em 0;padding-left:1.2em}',
-	'.lanspeed-warnings li{margin:.2em 0;font-size:.9em}',
-	'.lanspeed-warnings li .key{margin-right:.4em}',
-
-	'.lanspeed-subhead{margin:.2em 0 .4em 0;font-size:1em;font-weight:600;opacity:.85}',
-	'.lanspeed-subhead:first-child{margin-top:0}',
 
 	'.lanspeed-details{margin:0}',
 	'.lanspeed-details>summary{cursor:pointer;list-style:none;padding:0;margin:0;',
@@ -109,7 +96,6 @@ var BASE_CSS = [
 	'.lanspeed-details>summary>.spacer{flex:1 1 auto}',
 	'.lanspeed-details>summary .sum{font-size:.85em;opacity:.75;',
 	'  font-family:var(--font-monospace,ui-monospace,monospace)}',
-	'.lanspeed-details>summary .label{margin-left:0}',
 	'.lanspeed-details-body{margin:0;padding:1em 1.25em}',
 
 	'.lanspeed-empty{padding:1.2em 0;text-align:center;opacity:.7}',

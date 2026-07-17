@@ -1,8 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-lanspeed
-PKG_VERSION:=1.0.0
-PKG_RELEASE:=3
+PKG_VERSION:=1.1.0
+PKG_RELEASE:=2
 
 PKG_LICENSE:=Apache-2.0
 PKG_MAINTAINER:=
@@ -21,11 +21,10 @@ define Package/luci-app-lanspeed
 endef
 
 define Package/luci-app-lanspeed/description
- LuCI status and interface configuration page for lanspeedd. Reads per-client
- LAN speeds from the lanspeed ubus API and can update /etc/config/lanspeed
- interface assignments (collect / observe / off) and trigger a daemon reload.
- Respects the Full / Degraded / Unsupported data-source semantics reported by
- lanspeedd and surfaces coverage, confidence and NSS / offload state.
+ LuCI real-time status and settings page for lanspeedd. Displays per-client
+ upload, download and current TCP / UDP connections, configures interfaces as
+ collect / observe / off, and provides a dedicated diagnostics page for
+ concise plugin, backend and BPF health with only actionable alerts.
 endef
 
 define Build/Prepare
@@ -40,7 +39,10 @@ endef
 
 define Package/luci-app-lanspeed/install
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/lanspeed
-	$(INSTALL_DATA) ./htdocs/luci-static/resources/view/lanspeed/*.js \
+	$(INSTALL_DATA) \
+		./htdocs/luci-static/resources/view/lanspeed/config.js \
+		./htdocs/luci-static/resources/view/lanspeed/diagnostics.js \
+		./htdocs/luci-static/resources/view/lanspeed/overview.js \
 		$(1)/www/luci-static/resources/view/lanspeed/
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/lanspeed
 	$(INSTALL_DATA) \
@@ -52,6 +54,15 @@ define Package/luci-app-lanspeed/install
 		./htdocs/luci-static/resources/lanspeed/configStyleBootstrap.js \
 		./htdocs/luci-static/resources/lanspeed/configStyleResponsive.js \
 		./htdocs/luci-static/resources/lanspeed/configStyleShared.js \
+		./htdocs/luci-static/resources/lanspeed/diagnosticsRefresh.js \
+		./htdocs/luci-static/resources/lanspeed/diagnosticsShell.js \
+		./htdocs/luci-static/resources/lanspeed/diagnosticsStyle.js \
+		./htdocs/luci-static/resources/lanspeed/diagnosticsStyleArgon.js \
+		./htdocs/luci-static/resources/lanspeed/diagnosticsStyleAurora.js \
+		./htdocs/luci-static/resources/lanspeed/diagnosticsStyleBase.js \
+		./htdocs/luci-static/resources/lanspeed/diagnosticsStyleBootstrap.js \
+		./htdocs/luci-static/resources/lanspeed/diagnosticsStyleResponsive.js \
+		./htdocs/luci-static/resources/lanspeed/diagnosticsView.js \
 		./htdocs/luci-static/resources/lanspeed/clientConnections.js \
 		./htdocs/luci-static/resources/lanspeed/clientDetailShell.js \
 		./htdocs/luci-static/resources/lanspeed/clientDetailStyle.js \
@@ -64,7 +75,6 @@ define Package/luci-app-lanspeed/install
 		./htdocs/luci-static/resources/lanspeed/clientDetailView.js \
 		./htdocs/luci-static/resources/lanspeed/format.js \
 		./htdocs/luci-static/resources/lanspeed/ifaceConfig.js \
-		./htdocs/luci-static/resources/lanspeed/nssPanel.js \
 		./htdocs/luci-static/resources/lanspeed/rpc.js \
 		./htdocs/luci-static/resources/lanspeed/statusCollector.js \
 		./htdocs/luci-static/resources/lanspeed/statusIp.js \
@@ -75,15 +85,9 @@ define Package/luci-app-lanspeed/install
 		./htdocs/luci-static/resources/lanspeed/statusStyleAurora.js \
 		./htdocs/luci-static/resources/lanspeed/statusStyleBase.js \
 		./htdocs/luci-static/resources/lanspeed/statusStyleBootstrap.js \
-		./htdocs/luci-static/resources/lanspeed/statusStyleCompat.js \
-		./htdocs/luci-static/resources/lanspeed/statusStyleCompatLive.js \
-		./htdocs/luci-static/resources/lanspeed/statusStyleCompatLive2.js \
-		./htdocs/luci-static/resources/lanspeed/statusStyleCompatLive3.js \
 		./htdocs/luci-static/resources/lanspeed/statusStyleResponsive.js \
+		./htdocs/luci-static/resources/lanspeed/statusOverview.js \
 		./htdocs/luci-static/resources/lanspeed/statusView.js \
-		./htdocs/luci-static/resources/lanspeed/statusViewLive.js \
-		./htdocs/luci-static/resources/lanspeed/statusViewLive2.js \
-		./htdocs/luci-static/resources/lanspeed/statusViewLive3.js \
 		./htdocs/luci-static/resources/lanspeed/theme.js \
 		./htdocs/luci-static/resources/lanspeed/vocab.js \
 		$(1)/www/luci-static/resources/lanspeed/

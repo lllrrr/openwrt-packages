@@ -16,6 +16,7 @@ TMP_ACL_PATH=${TMP_PATH}/acl
 TMP_BIN_PATH=${TMP_PATH}/bin
 TMP_PID_PATH=${TMP_PATH}/pids
 BYPASSCORE_CFG=${TMP_PATH}/bypasscore/config.json
+BYPASSCORE_CONTROL_SOCKET=${TMP_PATH}/bypasscore/control.sock
 
 . /lib/functions/network.sh
 
@@ -566,21 +567,47 @@ is_bypasscore() {
 	"$path" --version 2>/dev/null | grep -q '^BypassCore[[:space:]]'
 }
 
-# Native DNS listening arrived in v1.0.7, while arbitrary record forwarding
-# (required when BypassCore is dnsmasq's main upstream) arrives in v1.0.8.
-# Development builds identify as "dev" and are allowed for source testing.
-bypasscore_has_raw_dns() {
-	local path=$1 version
-	version=$("$path" --version 2>/dev/null | awk 'NR == 1 && $1 == "BypassCore" { print $2 }')
-	[ "$version" = "dev" ] && return 0
-	echo "$version" | awk -F. '
-		NF >= 3 {
-			patch=$3; sub(/[^0-9].*$/, "", patch)
-			ok=($1+0 > 1) || ($1+0 == 1 && (($2+0 > 0) || ($2+0 == 0 && patch+0 >= 8)))
-			exit ok ? 0 : 1
-		}
-		{ exit 1 }
-	'
+# The LuCI integration consumes schema-3 features added in BypassCore 1.1.0.
+# Check the machine-readable contract instead of inferring support from a
+# version string, so development builds and future versions remain usable.
+bypasscore_has_required_features() {
+	local path=$1 capabilities feature
+	capabilities=$("$path" --capabilities --json 2>/dev/null) || return 1
+	for feature in control-unix-http-json raw-dns dns-outbound-tag routing-final-outbound runtime-snapshot-reload ready-status inbound-health; do
+		printf '%s' "$capabilities" | grep -Fq "\"$feature\"" || return 1
+	done
+	printf '%s' "$capabilities" | grep -Eq '"configSchema"[[:space:]]*:[[:space:]]*[3-9][0-9]*'
+}
+
+# Query the local-only HTTP/JSON control plane exposed by the running core.
+# Callers use curl's exit status as the health signal and receive JSON on stdout.
+bypasscore_control_request() {
+	local method=$1 path=$2 body=$3 socket
+	socket=$(get_cache_var BYPASSCORE_CONTROL_SOCKET)
+	[ -n "$socket" ] || socket=$BYPASSCORE_CONTROL_SOCKET
+	[ -S "$socket" ] || return 1
+	case "$method" in
+		GET) curl -sS --max-time 5 --unix-socket "$socket" "http://localhost$path" ;;
+		POST) curl -sS --max-time 15 --unix-socket "$socket" \
+			-H 'Content-Type: application/json' -X POST --data-binary "$body" "http://localhost$path" ;;
+		*) return 1 ;;
+	esac
+}
+
+bypasscore_ready() {
+	local response
+	response=$(bypasscore_control_request GET /v1/ready) || return 1
+	printf '%s' "$response" | grep -Eq '"ready"[[:space:]]*:[[:space:]]*true'
+}
+
+wait_for_bypasscore_ready() {
+	local attempts=${1:-5}
+	while [ "$attempts" -gt 0 ]; do
+		bypasscore_ready && return 0
+		attempts=$((attempts - 1))
+		[ "$attempts" -gt 0 ] && sleep 1
+	done
+	return 1
 }
 
 # ------------------------------------------------------------------------------

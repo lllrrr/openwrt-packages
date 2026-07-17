@@ -2,19 +2,14 @@
 # Copyright (c) 2026 Eugene Chan
 # SPDX-License-Identifier: MIT
 #
-# Runtime watcher modelled after Passwall2's monitor. It checks the recorded PID
-# and listening socket when health supervision is enabled. Independently, it
+# Runtime watcher modelled after Passwall2's monitor. BypassCore's structured
+# readiness covers all of its listeners, while helpers use PID checks. It also
 # watches the installed BypassCore, NaiveProxy and ChinaDNS-NG executables so a
 # package upgrade cannot leave an old, unlinked process running indefinitely.
 
 . /usr/share/bypass/utils.sh
 
 READY_FILE=/var/lock/bypass_ready.lock
-
-component_healthy() {
-	local name=$1 port=$2 protocol=$3
-	process_alive "$name" && [ "$(check_port_exists "$port" "$protocol")" -gt 0 ] 2>/dev/null
-}
 
 # The init wrapper creates READY_FILE after app.sh returns successfully. Avoid
 # treating this short hand-off interval as a crash.
@@ -85,26 +80,16 @@ while [ "$(config_t_get global enabled 0)" = "1" ] && [ -f "$READY_FILE" ]; do
 	failed_name=""
 	failed_process=""
 	failed_log=""
-	redir_port=$(get_cache_var ACL_GLOBAL_redir_port)
-	if [ -z "$redir_port" ] || ! component_healthy bypasscore "$redir_port" tcp; then
+	if ! process_alive bypasscore || ! bypasscore_ready; then
 		failed_name=bypasscore
 		failed_process=bypasscore
 		failed_log="$TMP_ACL_PATH/bypasscore.log"
-	fi
-	if [ -z "$failed_name" ]; then
-		dns_port=$(get_cache_var BYPASSCORE_DNS_PORT)
-		if [ -z "$dns_port" ] || ! component_healthy bypasscore "$dns_port" udp || \
-			[ "$(check_port_exists "$dns_port" tcp)" -le 0 ] 2>/dev/null; then
-			failed_name="BypassCore DNS listener"
-			failed_process=bypasscore
-			failed_log="$TMP_ACL_PATH/bypasscore.log"
-		fi
 	fi
 
 	if [ -z "$failed_name" ] && [ -s "$TMP_PATH/node_ports" ]; then
 		while read -r node port; do
 			[ -n "$node" ] && [ -n "$port" ] || continue
-			if ! component_healthy "naive_${node}" "$port" tcp; then
+			if ! process_alive "naive_${node}"; then
 				failed_name="NaiveProxy node [$node]"
 				failed_process="naive_${node}"
 				failed_log="$TMP_ACL_PATH/nodes/naive_${node}.log"
@@ -115,7 +100,7 @@ while [ "$(config_t_get global enabled 0)" = "1" ] && [ -f "$READY_FILE" ]; do
 
 	if [ -z "$failed_name" ] && [ "$(config_t_get global dns_redirect 1)" = "1" ]; then
 		chinadns_port=$(config_t_get global_dns chinadns_listen_port 10553)
-		if ! component_healthy chinadns-ng "$chinadns_port" udp; then
+		if ! process_alive chinadns-ng || [ "$(check_port_exists "$chinadns_port" udp)" -le 0 ] 2>/dev/null; then
 			failed_name=ChinaDNS-NG
 			failed_process=chinadns-ng
 			failed_log="$TMP_ACL_PATH/chinadns-ng.log"

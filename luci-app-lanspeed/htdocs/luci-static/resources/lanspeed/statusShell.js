@@ -1,7 +1,6 @@
 'use strict';
 'require baseclass';
 'require lanspeed.format as fmt';
-'require lanspeed.nssPanel as nssPanel';
 'require lanspeed.theme as lsTheme';
 'require lanspeed.statusStyle as statusStyle';
 
@@ -60,8 +59,6 @@ function buildShell(viewState) {
 	refs.mRx          = E('div', { 'class': 'big' }, '0');
 	refs.mClients     = E('div', { 'class': 'big' }, '0');
 	refs.mClientsSub  = E('div', { 'class': 'hint' }, '-');
-	refs.mCovTx       = null;
-	refs.mCovRx       = null;
 	refs.mCoverage    = E('div', { 'class': 'big' }, '-');
 	refs.mCoverageSub = E('div', { 'class': 'hint' }, '-');
 	refs.mTcpConns    = E('div', { 'class': 'big' }, '-');
@@ -69,7 +66,7 @@ function buildShell(viewState) {
 	refs.mUdpConnsSub = E('div', { 'class': 'hint' }, '-');
 	refs.mConnsWrap   = E('div', {
 		'class': 'lanspeed-metric',
-		'title': _('当前 conntrack 项：TCP 仅统计 ESTABLISHED + ASSURED，UDP 仅统计 ASSURED；每条连接只归属一个 LAN 客户端。')
+		'title': _('当前连接来自 conntrack：TCP 统计已建立且确认的连接，UDP 统计已确认的连接。')
 	}, [
 		E('div', { 'class': 'caption' }, _('连接数')),
 		refs.mTcpConns,
@@ -80,12 +77,12 @@ function buildShell(viewState) {
 		E('div', { 'class': 'lanspeed-metric' }, [
 			E('div', { 'class': 'caption' }, _('上行 · tx')),
 			refs.mTx,
-			E('div', { 'class': 'hint' }, _('客户端 → 路由器 / WAN'))
+			E('div', { 'class': 'hint' }, _('客户端发出'))
 		]),
 		E('div', { 'class': 'lanspeed-metric' }, [
 			E('div', { 'class': 'caption' }, _('下行 · rx')),
 			refs.mRx,
-			E('div', { 'class': 'hint' }, _('路由器 / WAN → 客户端'))
+			E('div', { 'class': 'hint' }, _('客户端接收'))
 		]),
 		E('div', { 'class': 'lanspeed-metric' }, [
 			E('div', { 'class': 'caption' }, _('客户端')),
@@ -94,7 +91,7 @@ function buildShell(viewState) {
 		]),
 		E('div', {
 			'class': 'lanspeed-metric',
-			'title': _('客户端合计 ÷ LAN 接口合计。100% 表示所有流量都能按客户端归因；明显低于 100% 说明有硬件卸载 / 桥接 LAN-to-LAN / 广播 / 未归属 MAC。')
+			'title': _('客户端速率合计与采集接口总速率的比值，用于判断流量是否完整归属到客户端。')
 		}, [
 			E('div', { 'class': 'caption' }, _('覆盖率')),
 			refs.mCoverage,
@@ -190,6 +187,10 @@ function buildShell(viewState) {
 	]);
 
 	refs.tbody = E('tbody', {});
+	refs.statusHeader = E('th', {
+		'class': 'lanspeed-client-status-header'
+	}, _('状态'));
+	refs.statusHeader.hidden = viewState.showClientStatus !== true;
 	refs.clientsTable = E('table', { 'class': 'lanspeed-table' }, [
 		E('thead', {}, E('tr', {}, [
 			sortableHeader(viewState, refs, 'hostname', _('客户端')),
@@ -197,12 +198,12 @@ function buildShell(viewState) {
 			sortableHeader(viewState, refs, 'tx', _('上行'), { 'class': 'num' }),
 			sortableHeader(viewState, refs, 'rx', _('下行'), { 'class': 'num' }),
 			sortableHeader(viewState, refs, 'tcp_conns', 'TCP', {
-				'class': 'num', 'title': _('TCP 仅统计 ESTABLISHED + ASSURED')
+				'class': 'num', 'title': _('当前已建立并确认的 TCP 连接')
 			}),
 			sortableHeader(viewState, refs, 'udp_conns', 'UDP', {
-				'class': 'num', 'title': _('UDP 仅统计 ASSURED conntrack 条目')
+				'class': 'num', 'title': _('当前已确认的 UDP 连接')
 			}),
-			E('th', {}, _('状态'))
+			refs.statusHeader
 		])),
 		refs.tbody
 	]);
@@ -245,38 +246,11 @@ function buildShell(viewState) {
 	]);
 	var ifacesCard = E('div', { 'class': 'cbi-section' }, [ refs.ifacesDetails ]);
 
-	var nssCard = nssPanel.build(refs);
-
-	refs.capsGrid           = E('div', { 'class': 'lanspeed-caps' });
-	refs.allWarnings        = E('ul', { 'class': 'lanspeed-warnings' });
-	refs.versionLine        = E('p', { 'class': 'lanspeed-hint' }, '');
-	refs.diagnosticsSummary = E('span', { 'class': 'sum' }, '');
-	refs.diagnostics = E('details', { 'class': 'lanspeed-details' }, [
-		E('summary', {}, [
-			E('h3', {}, _('诊断详情')),
-			E('span', { 'class': 'spacer' }),
-			refs.diagnosticsSummary
-		]),
-		E('div', { 'class': 'lanspeed-details-body' }, [
-			E('h4', { 'class': 'lanspeed-subhead' }, _('能力矩阵')),
-			refs.capsGrid,
-			E('h4', { 'class': 'lanspeed-subhead' }, _('全部告警')),
-			refs.allWarnings,
-			E('h4', { 'class': 'lanspeed-subhead' }, _('说明与元数据')),
-			E('p', { 'style': 'margin:0;font-size:.9em' },
-				_('CPU 可见 LAN 边缘客户端吞吐。代理（OpenClash / dae）和软件流量卸载下客户端总流量仍可见；只有硬件流量卸载和同 ASIC 内硬件桥接的 LAN-to-LAN 绕过 CPU。')),
-			refs.versionLine
-		])
-	]);
-	var diagnosticsCard = E('div', { 'class': 'cbi-section' }, [ refs.diagnostics ]);
-
 	var root = E('div', { 'class': 'cbi-map lanspeed-root' }, [
 		E('style', {}, statusStyle.CSS),
 		overviewCard,
 		clientsCard,
-		ifacesCard,
-		nssCard,
-		diagnosticsCard
+		ifacesCard
 	]);
 
 	lsTheme.applyRoot(root);

@@ -4,19 +4,8 @@
 'require lanspeed.format as fmt';
 'require lanspeed.clientConnections as clientConnections';
 'require lanspeed.version as lsVersion';
-'require lanspeed.nssPanel as nssPanel';
 'require lanspeed.statusIp as statusIp';
 'require lanspeed.statusCollector as statusCollector';
-
-function nssEvidenceState(ev) {
-	ev = ev || {};
-	return {
-		ecmActive: typeof ev.ecm_active === 'boolean'
-			? ev.ecm_active : Boolean(ev.ecm_offload_active),
-		ppeActive: typeof ev.ppe_active === 'boolean'
-			? ev.ppe_active : Boolean(ev.ppe_offload_active)
-	};
-}
 
 var CLIENT_INFO_WARNINGS = {
 	conntrack_connection_only: true
@@ -50,10 +39,24 @@ function splitClientWarnings(rawWarnings, globalWarnings) {
 	(rawWarnings || []).forEach(function(w) {
 		if (CLIENT_INFO_WARNINGS[w])
 			info.push(w);
-		else if (!(globalWarnings || {})[w])
+		else if (!(globalWarnings || {})[w] && vocab.isImportantWarning(w))
 			warnings.push(w);
 	});
 	return { info: info, warnings: warnings };
+}
+
+function setClientStatusVisibility(refs, visible) {
+	if (refs && refs.statusHeader)
+		refs.statusHeader.hidden = !visible;
+}
+
+function clientStateCell(stateCells, visible) {
+	var cell = E('td', {
+		'class': 'lanspeed-client-state-cell',
+		'data-label': _('状态')
+	}, E('span', { 'class': 'state' }, stateCells));
+	cell.hidden = !visible;
+	return cell;
 }
 
 function refreshSortHeaders(refs, prefs) {
@@ -90,9 +93,11 @@ function refreshLive(viewState) {
 	var clientsAll = fmt.asArray(viewState.clients && viewState.clients.clients);
 	var prefs = viewState.prefs;
 	var activeCfg = fmt.activeConfig(status);
+	var showClientStatus = viewState.showClientStatus === true;
 	var showIpv6 = viewState.showIpv6 !== false;
 	var hidePrivateIpv6 = viewState.hidePrivateIpv6 === true;
 	var hideIpv6Ranges = statusIp.hideIpv6RangesValue(viewState.hideIpv6Ranges);
+	setClientStatusVisibility(refs, showClientStatus);
 
 	if (viewState.error) {
 		refs.errorBox.style.display = '';
@@ -104,10 +109,10 @@ function refreshLive(viewState) {
 	var collector = statusCollector.effectiveCollector(status, viewState.clients);
 	refs.collectorPill.className = statusCollector.collectorClass(collector);
 	refs.collectorPill.textContent = statusCollector.collectorLabel(collector);
-	refs.collectorPill.title = _('当前采集方式');
+	refs.collectorPill.title = _('当前实时速率数据源');
 
 	var metaParts = [];
-	if (status.version) metaParts.push('daemon ' + status.version);
+	if (status.version) metaParts.push(_('后端 ') + status.version);
 	metaParts.push('luci ' + lsVersion.FULL_VERSION);
 	if (prefs.paused) metaParts.push(_('已暂停'));
 	refs.meta.textContent = metaParts.join(' · ');
@@ -140,9 +145,9 @@ function refreshLive(viewState) {
 	var subParts = [ _('%d 个活跃').format(totals.active) ];
 	if (nssEv && typeof nssEv.host_count === 'number' &&
 	    nssEv.host_count > clientsAll.length) {
-		subParts.push(_('ECM 知 %d').format(nssEv.host_count));
+		subParts.push(_('NSS 发现 %d 个').format(nssEv.host_count));
 	}
-	subParts.push(_('活跃窗 %d 秒').format(Math.round(activeCfg.activeWindowMs / 1000)));
+	subParts.push(_('活跃判定 %d 秒').format(Math.round(activeCfg.activeWindowMs / 1000)));
 	if (activeCfg.activeMinBps > 1)
 		subParts.push(_('≥ ') + fmt.formatRate(activeCfg.activeMinBps, prefs.unit));
 	refs.mClientsSub.textContent = subParts.join(' · ');
@@ -208,7 +213,7 @@ function refreshLive(viewState) {
 		refs.empty.style.display = '';
 		refs.empty.textContent = (viewState.filter || prefs.activeOnly)
 			? _('没有匹配的客户端。')
-			: _('lanspeedd 当前未上报 LAN 客户端。请确认 /etc/config/lanspeed 的 ifname 指向实际 LAN 边缘接口。');
+			: _('暂未发现 LAN 客户端。请在“LAN Speed 配置”中选择实际 LAN 接口并设为“采集”。');
 	} else {
 		refs.clientsTable.style.display = '';
 		refs.empty.style.display = 'none';
@@ -233,19 +238,19 @@ function refreshLive(viewState) {
 			var mode = String(c.collector_mode || '-');
 			var modeLabel = statusCollector.collectorLabel(mode), modeTitle;
 			if (mode === 'bpf') {
-				modeTitle = _('采集方式 BPF：tc clsact 挂载的 eBPF 程序按 MAC 直接计数。');
+				modeTitle = _('BPF 在 LAN 接口按 MAC 统计客户端实时速率。');
 			} else if (mode === 'nss_ecm_direct') {
-				modeTitle = _('采集方式 NSS-direct：只读 qca-nss-ecm state 设备，直接按 ECM flow 字节计数聚合到 LAN 客户端，不等待 ECM 同步回 conntrack。');
+				modeTitle = _('NSS-direct 直接读取 ECM 流量计数，并归属到对应 LAN 客户端。');
 			} else if (mode === 'nss_ecm_direct+conntrack_ecm_sync') {
-				modeTitle = _('采集方式 NSS-direct / NSS sync：NSS sync 提供稳定来源，NSS-direct 覆盖有有效速率的 ECM flow。');
+				modeTitle = _('NSS-direct 提供实时数据，NSS sync 补齐未覆盖的客户端。');
 			} else if (mode === 'conntrack_ecm_sync' || mode === 'nss_conntrack_sync') {
-				modeTitle = _('采集方式 NSS 同步：NSS 硬件加速流的字节计数以秒级节拍同步回 conntrack，再由 lanspeedd 读取。桥接流也覆盖，精度等于同步间隔 (≈1-2 秒)。');
+				modeTitle = _('NSS sync 从 conntrack 读取硬件加速流量，更新精度约为 1–2 秒。');
 			} else if (mode === 'conntrack_netlink') {
-				modeTitle = _('采集方式 Netlink Conntrack：非 NSS 仅用于连接数与诊断，不作为客户端实时测速来源。');
+				modeTitle = _('CT-Netlink 仅补充当前连接数，不参与非 NSS 设备的实时速率统计。');
 			} else if (mode === 'conntrack_procfs') {
-				modeTitle = _('采集方式 Procfs Conntrack：作为 Netlink 的后备连接数来源，不作为客户端实时测速来源。');
+				modeTitle = _('CT-Procfs 是连接数的备用来源，不参与非 NSS 设备的实时速率统计。');
 			} else if (mode === 'conntrack') {
-				modeTitle = _('采集方式 Conntrack：非 NSS 仅用于连接数与诊断，不作为客户端实时测速来源。');
+				modeTitle = _('Conntrack 仅补充当前连接数，不参与非 NSS 设备的实时速率统计。');
 			} else {
 				modeTitle = _('未知采集方式');
 			}
@@ -260,6 +265,7 @@ function refreshLive(viewState) {
 					'class': critClient ? 'label danger' : 'label warning',
 					'title': specificWarnings.map(vocab.warningText.bind(vocab)).join('\n')
 				}, _('%d 告警').format(specificWarnings.length)));
+			var stateCell = clientStateCell(stateCells, showClientStatus);
 
 			var displayName;
 			if (c.hostname) {
@@ -299,10 +305,7 @@ function refreshLive(viewState) {
 						  ].join(' · ')
 						: ''
 				}, typeof c.udp_conns === 'number' ? String(c.udp_conns) : '-'),
-				E('td', {
-					'class': 'lanspeed-client-state-cell',
-					'data-label': _('状态')
-				}, E('span', { 'class': 'state' }, stateCells))
+				stateCell
 			]);
 		}));
 	}
@@ -349,93 +352,21 @@ function refreshLive(viewState) {
 			var hintTx = typeof covHint.tx_pct === 'number' ? covHint.tx_pct : 100;
 			var hintRx = typeof covHint.rx_pct === 'number' ? covHint.rx_pct : 100;
 			refs.ifacesHint.textContent = (hintTx < 85 || hintRx < 85)
-				? _('覆盖率偏低：可能有硬件流量卸载、硬件桥接 LAN-to-LAN、广播/多播或未归属 MAC。')
+				? _('部分接口流量未能归属到客户端，常见原因是硬件卸载、交换芯片内转发或广播流量。')
 				: '';
 		} else {
 			refs.ifacesHint.textContent = '';
 		}
 	}
 
-	nssPanel.render(refs, status);
-
-	var capabilities = status.capabilities || {};
-	var capKeys = vocab.CAPABILITY_ORDER.filter(function(k) {
-		return Object.prototype.hasOwnProperty.call(capabilities, k);
-	});
-	if (capKeys.length) {
-		fmt.replaceChildren(refs.capsGrid, capKeys.map(function(k) {
-			var enabled = Boolean(capabilities[k]);
-			return E('div', { 'class': 'cap' }, [
-				E('span', {}, vocab.CAPABILITY_LABELS[k] || k),
-				E('span', { 'class': vocab.capabilityClass(k, enabled), 'title': k },
-					enabled ? _('是') : _('否'))
-			]);
-		}));
-	} else {
-		fmt.replaceChildren(refs.capsGrid, [E('p', {}, _('后端未上报任何能力。'))]);
-	}
-
-	var warnings = fmt.asArray(status.warnings).map(function(w) {
-		return vocab.normalizeWarningId(w);
-	});
-	if (warnings.length) {
-		fmt.replaceChildren(refs.allWarnings, warnings.map(function(w) {
-			return E('li', {}, [
-				E('span', { 'class': vocab.warningClass(w) + ' key' }, w),
-				vocab.warningText(w)
-			]);
-		}));
-	} else {
-		fmt.replaceChildren(refs.allWarnings, [E('li', {}, _('当前没有上报告警。'))]);
-	}
-
-	var versionParts = [
-		_('lanspeedd %s').format(fmt.textOrDash(status.version)),
-		_('luci-app-lanspeed %s').format(lsVersion.FULL_VERSION),
-		_('后端刷新 %s ms').format(fmt.textOrDash(status.refresh_interval_ms))
-	];
-	var nssEvidence = status.evidence && status.evidence.nss;
-	var nssState = nssEvidenceState(nssEvidence);
-	var nssEcmActive = nssState.ecmActive;
-	var nssPpeActive = nssState.ppeActive;
-	if (nssEvidence && (nssEcmActive || nssPpeActive)) {
-		var engine = nssPpeActive ? 'PPE' : 'ECM';
-		var connBits = [];
-		if (typeof nssEvidence.accelerated_connections === 'number')
-			connBits.push(_('总 %d').format(nssEvidence.accelerated_connections));
-		if (typeof nssEvidence.accelerated_tcp === 'number')
-			connBits.push('TCP ' + nssEvidence.accelerated_tcp);
-		if (typeof nssEvidence.accelerated_udp === 'number')
-			connBits.push('UDP ' + nssEvidence.accelerated_udp);
-		if (typeof nssEvidence.accelerated_other === 'number' && nssEvidence.accelerated_other > 0)
-			connBits.push(_('其它 %d').format(nssEvidence.accelerated_other));
-		if (connBits.length)
-			versionParts.push(_('NSS %s 加速连接').format(engine) + ' (' + connBits.join(' / ') + ')');
-		else
-			versionParts.push(_('NSS %s 活跃').format(engine));
-
-		var objectBits = [];
-		if (typeof nssEvidence.host_count === 'number')
-			objectBits.push(_('host %d').format(nssEvidence.host_count));
-		if (typeof nssEvidence.mapping_count === 'number')
-			objectBits.push(_('NAT 映射 %d').format(nssEvidence.mapping_count));
-		if (objectBits.length)
-			versionParts.push(_('ECM 数据库: ') + objectBits.join(' · '));
-	}
-	if (nssEvidence && Array.isArray(nssEvidence.subsystems) && nssEvidence.subsystems.length)
-		versionParts.push(_('NSS 子系统: ') + nssEvidence.subsystems.join(', '));
-	refs.versionLine.textContent = versionParts.join(' · ');
-
-	refs.diagnosticsSummary.textContent = warnings.length
-		? _('%d 项告警 · %d 项能力').format(warnings.length, capKeys.length)
-		: _('无告警 · %d 项能力').format(capKeys.length);
 }
 
 return baseclass.extend({
 	clientNameContent: clientNameContent,
 	refreshSortHeaders: refreshSortHeaders,
-	nssEvidenceState: nssEvidenceState,
 	splitClientWarnings: splitClientWarnings,
+	setClientStatusVisibility: setClientStatusVisibility,
+	clientStateCell: clientStateCell,
 
 	refreshLive: function(viewState) {
 		return refreshLive(viewState);

@@ -12,7 +12,7 @@ OpenWrt 上的网关级透明分流代理。把三个各司其职的组件组合
 
 > **关于 BypassCore 的角色**：BypassCore 对本项目而言等同于 Passwall 的 Xray/sing-box，是不可替代的透明分流核心。它负责透明入口、规则匹配、DNS、Observatory 和 outbound；NaiveProxy 仅把 Naive HTTPS 节点转换成本机 SOCKS 上游。核心不可用时服务明确启动失败，不会回退到 NaiveProxy。
 >
-> BypassCore 源码：<https://github.com/kinmeic/BypassCore>，`make build` 即可编译。luci-app-bypass 1.5.5 起要求 BypassCore v1.0.8 或更新版本：除原生 `type: "dns"` UDP/TCP inbound 外，还必须支持把 MX、TXT、SRV、PTR、CAA 等任意 DNS 类型沿 tagged outbound 转发。旧核心会在启动前被拒绝，避免 dnsmasq 收到静默的空响应。
+> BypassCore 源码：<https://github.com/kinmeic/BypassCore>，`make build` 即可编译。luci-app-bypass 1.5.9 起要求 BypassCore v1.1.0（配置 schema 3）或更新版本，并按机器可读的 capability 清单校验所需能力，而不是只比较版本号。
 
 ---
 
@@ -31,8 +31,8 @@ BypassCore (redirect/tproxy://0.0.0.0:<REDIR_PORT>)
                  Naive 服务器 (HTTP/2)
 
 DNS:  dnsmasq :53 → BypassCore DNS :<dns_port>
-       国内/直连 DNS → direct outbound
-       国外 DNS → BypassCore → 所选 Naive SOCKS（TCP/DoT/DoH）
+       国内/直连 DNS → DNS server.outboundTag=direct
+       国外 DNS → DNS server.outboundTag → 所选 Naive SOCKS（TCP/DoT/DoH）
        Direct/NFTSet 域名 → ChinaDNS-NG 辅助实例 → 国内 DNS
                          ├→ nftset `bypass_direct_dns`
                          └→ nftset `bypass_vps`（节点服务器 IP 永远直连）
@@ -44,6 +44,8 @@ DNS:  dnsmasq :53 → BypassCore DNS :<dns_port>
 ```
 
 - 每个 NaiveProxy 节点可独立配置出口接口；留空时继承 Default Naive Interface。服务器 IP 变更时在启动 / 规则更新 / hotplug 时重新解析。
+- 仅涉及 BypassCore 路由快照且不改变节点进程、DNS 辅助链、dnsmasq、nftables 或 listener identity 的配置，会通过控制面事务式热重载；其余变更自动降级为完整重启。GeoData 内容更新仍需完整重启，因为相同配置 hash 不会强制重建快照。
+- 路由解释、Observatory 和 DNS 诊断只查询正在运行的控制面，不再启动临时 BypassCore 进程。
 
 ---
 
@@ -59,7 +61,9 @@ DNS:  dnsmasq :53 → BypassCore DNS :<dns_port>
 
 > **本应用不再支持 iptables (fw3)**，仅 nftables。
 
-> **BypassCore 是必需依赖**，但它目前是独立项目且未进入 OpenWrt 官方 feeds，因此不能把 `+bypasscore` 写进本包依赖（官方 SDK 会无法解析）。请先从 [BypassCore Releases](https://github.com/kinmeic/BypassCore/releases) 安装 v1.0.8 或更新版本的对应架构 `.ipk` / `.apk`，或放置相应 Linux ELF 到 `/usr/bin/bypasscore`。应用启动时会严格校验版本、透明入口和 TCP/UDP DNS listener；不满足要求时不会接管防火墙和 DNS。
+> **BypassCore 是必需依赖**，但它目前是独立项目且未进入 OpenWrt 官方 feeds，因此不能把 `+bypasscore` 写进本包依赖（官方 SDK 会无法解析）。请先从 [BypassCore Releases](https://github.com/kinmeic/BypassCore/releases) 安装 v1.1.0 或更新版本的对应架构 `.ipk` / `.apk`，或放置相应 Linux ELF 到 `/usr/bin/bypasscore`。应用启动时会校验 schema 3、Unix 控制面、显式 DNS outbound、原生 final outbound 和结构化健康状态；不满足要求时不会接管防火墙和 DNS。
+
+> BypassCore 当前输出的是带 TTL、sequence 和 revision 的 DNS 结果事件，并提供断号后的全量补同步接口；它本身不直接调用 nftables。因此在本项目引入可靠的 Unix datagram → NFTSet 消费者之前，ChinaDNS-NG 仍保留为 NFTSet 写入器。
 
 ---
 
@@ -77,7 +81,7 @@ opkg install luci-app-bypass_*.ipk
 ```
 
 安装后：
-1. 安装 BypassCore v1.0.8 或更新版本：从 <https://github.com/kinmeic/BypassCore/releases> 下载对应架构的 OpenWrt 包，解出 `bypasscore` 放到 `/usr/bin/bypasscore`（或改 `bypass.global.bypasscore_file`）。
+1. 安装 BypassCore v1.1.0 或更新版本：从 <https://github.com/kinmeic/BypassCore/releases> 下载对应架构的 OpenWrt 包，解出 `bypasscore` 放到 `/usr/bin/bypasscore`（或改 `bypass.global.bypasscore_file`）。
 2. 安装 NaiveProxy。`chinadns-ng` 由本包声明为硬依赖（来自 Passwall packages feed）；缺少依赖时包管理器应拒绝不完整安装。
 3. 把 `geoip.dat` / `geosite.dat` 放到 `/usr/share/v2ray/`（或安装 `v2ray-geoip` / `v2ray-geosite`，程序会检测包的实际安装目录）。
 4. LuCI → 服务 → Bypass，填节点、选出口接口、启用。

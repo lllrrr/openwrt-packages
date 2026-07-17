@@ -31,6 +31,11 @@ var callOverview = rpc.declare({
 	method: 'overview',
 	expect: { '': {} }
 });
+var callHealth = rpc.declare({
+	object: 'lanspeed',
+	method: 'health',
+	expect: { '': {} }
+});
 var callInterfaces = rpc.declare({
 	object: 'lanspeed',
 	method: 'interfaces',
@@ -78,6 +83,7 @@ return baseclass.extend({
 	clients:    callClients,
 	clientConnections: callClientConnections,
 	overview:   callOverview,
+	health:     callHealth,
 	interfaces: callInterfaces,
 	sysdevices: callSysdevices,
 	reload:     callReload,
