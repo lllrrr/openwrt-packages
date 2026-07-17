@@ -205,47 +205,47 @@
 </style>
 
 <h2>
-    <%=translate("网络延迟趋势图")%>
+    <%:Network Latency Trend%>
 </h2>
 
 <div class="toolbar-container">
     <div class="control-row">
         <div class="control-group" id="preset-buttons">
-            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(1, this)">1小时</button>
-            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(6, this)">6小时</button>
-            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(12, this)">12小时</button>
-            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(24, this)">24小时</button>
-            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(168, this)">7天</button>
-            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(720, this)">1月</button>
-            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(4320, this)">6月</button>
-            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(8760, this)">1年</button>
+            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(1, this)"><%:1 Hour%></button>
+            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(6, this)"><%:6 Hours%></button>
+            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(12, this)"><%:12 Hours%></button>
+            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(24, this)"><%:24 Hours%></button>
+            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(168, this)"><%:7 Days%></button>
+            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(720, this)"><%:1 Month%></button>
+            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(4320, this)"><%:6 Months%></button>
+            <button class="cbi-button-custom btn-neutral" onclick="setRelativeTime(8760, this)"><%:1 Year%></button>
         </div>
 
         <div class="control-group">
             <label class="checkbox-label">
                 <input type="checkbox" id="auto-refresh-check" onchange="toggleAutoRefresh()" checked>
-                <span>自动刷新 (10s)</span>
+                <span><%:Auto Refresh (10s)%></span>
             </label>
             <label class="checkbox-label">
                 <input type="checkbox" id="clip-peaks-check" onchange="toggleClipping()">
-                <span>削峰 (平滑)</span>
+                <span><%:Clip Peaks (Smooth)%></span>
             </label>
         </div>
     </div>
 
     <div class="control-row">
         <div class="control-group">
-            <span style="color: var(--text-color); font-size: 13px;">自定义范围:</span>
+            <span style="color: var(--text-color); font-size: 13px;"><%:Custom Range%>:</span>
             <input type="datetime-local" id="start-time">
             <span style="color: var(--text-color);">-</span>
             <input type="datetime-local" id="end-time">
-            <button class="cbi-button-custom btn-active" onclick="setCustomTime()">查询</button>
-            <span class="status-text" id="status-text">就绪</span>
+            <button class="cbi-button-custom btn-active" onclick="setCustomTime()"><%:Query%></button>
+            <span class="status-text" id="status-text"><%:Ready%></span>
         </div>
     </div>
 
     <div class="server-filter-container" id="server-filters">
-        <span style="color: var(--text-color); font-size: 13px; padding: 6px 0;">服务器筛选:</span>
+        <span style="color: var(--text-color); font-size: 13px; padding: 6px 0;"><%:Server Filter%>:</span>
     </div>
 </div>
 
@@ -254,6 +254,16 @@
 </div>
 
 <script type="text/javascript">
+    // i18n strings
+    var i18n = {
+        serverFilter: '<%:Server Filter%>',
+        packetLoss: '<%:Packet Loss%>',
+        emaSmoothOriginal: '<%:EMA Smooth, Original%>',
+        loading: '<%:Loading...%>',
+        loadingData: '<%:Loading data...%>',
+        updatedAt: '<%:Updated at%>',
+        loadFailed: '<%:Load Failed%>'
+    };
     var api_url = '<%=luci.dispatcher.build_url("admin", "services", "httping", "get_data")%>';
     var myChart = null;
     var cachedData = [];
@@ -447,7 +457,7 @@
     function renderFilterChips(stats) {
         var container = document.getElementById('server-filters');
 
-        container.innerHTML = '<span style="color: var(--text-color); font-size: 13px; padding: 6px 0;">服务器筛选:</span>';
+        container.innerHTML = '<span style="color: var(--text-color); font-size: 13px; padding: 6px 0;">' + i18n.serverFilter + ':</span>';
 
         // 【优化】按配置顺序遍历
         serverOrder.forEach(function (name) {
@@ -552,7 +562,7 @@
             // 3. 丢包点
             if (lossData[serverName] && lossData[serverName].length > 0) {
                 seriesList.push({
-                    name: serverName + ' (丢包)',
+                    name: serverName + ' (' + i18n.packetLoss + ')',
                     type: 'scatter',
                     symbol: 'emptyCircle',
                     symbolSize: 6,
@@ -564,7 +574,7 @@
                     showInLegend: false,
                     tooltip: {
                         formatter: function (params) {
-                            return `${params.marker}${serverName}: <b>丢包</b><br/>${params.axisValueLabel}`;
+                            return `${params.marker}${serverName}: <b>${i18n.packetLoss}</b><br/>${params.axisValueLabel}`;
                         }
                     },
                     z: 10
@@ -638,18 +648,18 @@
                             if (item.data.isEma) {
                                 rawVal = item.data.rawVal;
                                 // 显示格式：EMA值 (原始: Raw值)
-                                displayHtml = `<b>${val.toFixed(1)} ms</b> <span style="color:#aaa;font-size:11px;">(EMA平滑, 原始: ${rawVal.toFixed(1)})</span>`;
+                                displayHtml = `<b>${val.toFixed(1)} ms</b> <span style="color:#aaa;font-size:11px;">(${i18n.emaSmoothOriginal}: ${rawVal.toFixed(1)})</span>`;
                             } else {
                                 displayHtml = `<b>${val.toFixed(1)} ms</b>`;
                             }
 
                             var colorSpan = `<span style="display:inline-block;margin-right:5px;border-radius:10px;width:10px;height:10px;background-color:${item.color};"></span>`;
                             html += `${colorSpan}${item.seriesName}: ${displayHtml}<br/>`;
-                        } else if (item.seriesType === 'scatter' && item.seriesName.indexOf('(丢包)') > -1) {
-                            var serverName = item.seriesName.replace(' (丢包)', '');
+                        } else if (item.seriesType === 'scatter' && item.seriesName.indexOf('(' + i18n.packetLoss + ')') > -1) {
+                            var serverName = item.seriesName.replace(' (' + i18n.packetLoss + ')', '');
                             var time = item.axisValueLabel;
                             var colorSpan = `<span style="display:inline-block;margin-right:5px;border-radius:10px;width:10px;height:10px;background-color:${item.color};"></span>`;
-                            html += `${colorSpan}${serverName}(${time}): <b>丢包</b><br/>`;
+                            html += `${colorSpan}${serverName}(${time}): <b>${i18n.packetLoss}</b><br/>`;
                         }
                     });
                     return html;
@@ -701,21 +711,21 @@
         if (!myChart) initChart();
 
         if (!isSilent) {
-            myChart.showLoading({ text: '加载数据中...', color: '#0069d6', textColor: getChartTheme().textColor });
-            document.getElementById('status-text').innerText = "加载中...";
+            myChart.showLoading({ text: i18n.loadingData, color: '#0069d6', textColor: getChartTheme().textColor });
+            document.getElementById('status-text').innerText = i18n.loading;
         }
 
         fetch(api_url + '?start=' + startTs + '&end=' + endTs)
             .then(res => res.json())
             .then(json => {
-                document.getElementById('status-text').innerText = "更新于 " + new Date().toLocaleTimeString();
+                document.getElementById('status-text').innerText = i18n.updatedAt + ' ' + new Date().toLocaleTimeString();
                 if (!isSilent) myChart.hideLoading();
                 // 关键点：如果是静默刷新(自动刷新)，则传入 true 以保持 Zoom
                 processAndRender(json, isSilent);
             })
             .catch(err => {
                 console.error(err);
-                document.getElementById('status-text').innerText = "加载失败";
+                document.getElementById('status-text').innerText = i18n.loadFailed;
                 if (!isSilent) myChart.hideLoading();
             });
     }

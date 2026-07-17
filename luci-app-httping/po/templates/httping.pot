@@ -1,0 +1,122 @@
+# HTTPing LuCI Application
+# Copyright (C) 2024
+# This file is distributed under the same license as the luci-app-httping package.
+#
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Network Latency Monitor"
+msgstr ""
+
+msgid "Monitor Graph"
+msgstr ""
+
+msgid "Server Settings"
+msgstr ""
+
+msgid "Network Latency Monitor Settings"
+msgstr ""
+
+msgid "Global Settings"
+msgstr ""
+
+msgid "Enable Monitor"
+msgstr ""
+
+msgid "Database Path"
+msgstr ""
+
+msgid "Default: /etc/httping_data.db"
+msgstr ""
+
+msgid "Data Management"
+msgstr ""
+
+msgid "Clear All History Data"
+msgstr ""
+
+msgid "Server Node List"
+msgstr ""
+
+msgid "Enable"
+msgstr ""
+
+msgid "Display Name"
+msgstr ""
+
+msgid "Detection Type"
+msgstr ""
+
+msgid "Address/URL"
+msgstr ""
+
+msgid "HTTPing: http://example.com | TCPing: example.com:80"
+msgstr ""
+
+msgid "Detection Interval (seconds)"
+msgstr ""
+
+msgid "Network Latency Trend"
+msgstr ""
+
+msgid "1 Hour"
+msgstr ""
+
+msgid "6 Hours"
+msgstr ""
+
+msgid "12 Hours"
+msgstr ""
+
+msgid "24 Hours"
+msgstr ""
+
+msgid "7 Days"
+msgstr ""
+
+msgid "1 Month"
+msgstr ""
+
+msgid "6 Months"
+msgstr ""
+
+msgid "1 Year"
+msgstr ""
+
+msgid "Auto Refresh (10s)"
+msgstr ""
+
+msgid "Clip Peaks (Smooth)"
+msgstr ""
+
+msgid "Custom Range"
+msgstr ""
+
+msgid "Query"
+msgstr ""
+
+msgid "Ready"
+msgstr ""
+
+msgid "Server Filter"
+msgstr ""
+
+msgid "Packet Loss"
+msgstr ""
+
+msgid "EMA Smooth, Original"
+msgstr ""
+
+msgid "Loading..."
+msgstr ""
+
+msgid "Loading data..."
+msgstr ""
+
+msgid "Updated at"
+msgstr ""
+
+msgid "Load Failed"
+msgstr ""

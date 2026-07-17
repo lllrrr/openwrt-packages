@@ -1,0 +1,123 @@
+# Chinese (Simplified) translation for luci-app-httping
+# Copyright (C) 2024
+# This file is distributed under the same license as the luci-app-httping package.
+#
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: zh_Hans\n"
+
+msgid "Network Latency Monitor"
+msgstr "网络延迟监控"
+
+msgid "Monitor Graph"
+msgstr "监控图表"
+
+msgid "Server Settings"
+msgstr "服务器设置"
+
+msgid "Network Latency Monitor Settings"
+msgstr "网络延迟监控设置"
+
+msgid "Global Settings"
+msgstr "全局设置"
+
+msgid "Enable Monitor"
+msgstr "启用监控"
+
+msgid "Database Path"
+msgstr "数据库路径"
+
+msgid "Default: /etc/httping_data.db"
+msgstr "默认: /etc/httping_data.db"
+
+msgid "Data Management"
+msgstr "管理数据"
+
+msgid "Clear All History Data"
+msgstr "清除所有历史数据"
+
+msgid "Server Node List"
+msgstr "服务器节点列表"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "Display Name"
+msgstr "显示名称"
+
+msgid "Detection Type"
+msgstr "检测类型"
+
+msgid "Address/URL"
+msgstr "地址/URL"
+
+msgid "HTTPing: http://example.com | TCPing: example.com:80"
+msgstr "HTTPing: http://example.com | TCPing: example.com:80"
+
+msgid "Detection Interval (seconds)"
+msgstr "检测间隔(秒)"
+
+msgid "Network Latency Trend"
+msgstr "网络延迟趋势图"
+
+msgid "1 Hour"
+msgstr "1小时"
+
+msgid "6 Hours"
+msgstr "6小时"
+
+msgid "12 Hours"
+msgstr "12小时"
+
+msgid "24 Hours"
+msgstr "24小时"
+
+msgid "7 Days"
+msgstr "7天"
+
+msgid "1 Month"
+msgstr "1月"
+
+msgid "6 Months"
+msgstr "6月"
+
+msgid "1 Year"
+msgstr "1年"
+
+msgid "Auto Refresh (10s)"
+msgstr "自动刷新 (10s)"
+
+msgid "Clip Peaks (Smooth)"
+msgstr "削峰 (平滑)"
+
+msgid "Custom Range"
+msgstr "自定义范围"
+
+msgid "Query"
+msgstr "查询"
+
+msgid "Ready"
+msgstr "就绪"
+
+msgid "Server Filter"
+msgstr "服务器筛选"
+
+msgid "Packet Loss"
+msgstr "丢包"
+
+msgid "EMA Smooth, Original"
+msgstr "EMA平滑, 原始"
+
+msgid "Loading..."
+msgstr "加载中..."
+
+msgid "Loading data..."
+msgstr "加载数据中..."
+
+msgid "Updated at"
+msgstr "更新于"
+
+msgid "Load Failed"
+msgstr "加载失败"

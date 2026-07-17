@@ -1,17 +1,17 @@
-m = Map("httping", translate("网络延迟监控设置"))
+m = Map("httping", translate("Network Latency Monitor Settings"))
 
-s = m:section(NamedSection, "global", "global", translate("全局设置"))
-s:option(Flag, "enabled", translate("启用监控"))
-s:option(Value, "db_path", translate("数据库路径"), translate("默认: /etc/httping_data.db"))
+s = m:section(NamedSection, "global", "global", translate("Global Settings"))
+s:option(Flag, "enabled", translate("Enable Monitor"))
+s:option(Value, "db_path", translate("Database Path"), translate("Default: /etc/httping_data.db"))
 
-btn = s:option(Button, "_clear", translate("管理数据"))
-btn.inputtitle = translate("清除所有历史数据")
+btn = s:option(Button, "_clear", translate("Data Management"))
+btn.inputtitle = translate("Clear All History Data")
 btn.inputstyle = "remove" 
 btn.write = function(self, section)
     luci.http.redirect(luci.dispatcher.build_url("admin", "services", "httping", "clear_data"))
 end
 
-ts = m:section(TypedSection, "server", translate("服务器节点列表"))
+ts = m:section(TypedSection, "server", translate("Server Node List"))
 ts.template = "cbi/tblsection"
 ts.addremove = true
 ts.anonymous = true
@@ -36,17 +36,17 @@ function ts.remove(self, section)
     return TypedSection.remove(self, section)
 end
 
-ts:option(Flag, "enabled", translate("启用"))
-ts:option(Value, "name", translate("显示名称"))
+ts:option(Flag, "enabled", translate("Enable"))
+ts:option(Value, "name", translate("Display Name"))
 
-local type = ts:option(ListValue, "type", translate("检测类型"))
+local type = ts:option(ListValue, "type", translate("Detection Type"))
 type:value("httping", "HTTPing")
 type:value("tcping", "TCPing")
 type.default = "httping"
 
-local url = ts:option(Value, "url", translate("地址/URL"))
+local url = ts:option(Value, "url", translate("Address/URL"))
 url.description = translate("HTTPing: http://example.com | TCPing: example.com:80")
 
-ts:option(Value, "interval", translate("检测间隔(秒)"))
+ts:option(Value, "interval", translate("Detection Interval (seconds)"))
 
 return m

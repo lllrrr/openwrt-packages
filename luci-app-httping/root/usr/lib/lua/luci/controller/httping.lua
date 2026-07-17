@@ -1,9 +1,9 @@
 module("luci.controller.httping", package.seeall)
 
 function index()
-    entry({"admin", "services", "httping"}, alias("admin", "services", "httping", "graph"), _("网络延迟监控"), 50).dependent = true
-    entry({"admin", "services", "httping", "graph"}, template("httping/graph"), _("监控图表"), 1)
-    entry({"admin", "services", "httping", "setting"}, cbi("httping/setting"), _("服务器设置"), 2)
+    entry({"admin", "services", "httping"}, alias("admin", "services", "httping", "graph"), _("Network Latency Monitor"), 50).dependent = true
+    entry({"admin", "services", "httping", "graph"}, template("httping/graph"), _("Monitor Graph"), 1)
+    entry({"admin", "services", "httping", "setting"}, cbi("httping/setting"), _("Server Settings"), 2)
     entry({"admin", "services", "httping", "get_data"}, call("action_get_data"))
     entry({"admin", "services", "httping", "clear_data"}, call("action_clear_data"))
 end
