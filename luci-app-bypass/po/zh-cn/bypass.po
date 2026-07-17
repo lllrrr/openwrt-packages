@@ -486,10 +486,6 @@ msgstr "已安装"
 msgid "missing"
 msgstr "缺失"
 
-#: htdocs/luci-static/resources/view/bypass/basic_settings.js:172
-msgid "chinadns-ng"
-msgstr "chinadns-ng"
-
 msgid "ready"
 msgstr "就绪"
 
@@ -577,10 +573,6 @@ msgstr "BypassCore 二进制"
 msgid "naive binary"
 msgstr "naive 二进制"
 
-#: htdocs/luci-static/resources/view/bypass/basic_settings.js:219
-msgid "chinadns-ng binary"
-msgstr "chinadns-ng 二进制"
-
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:225
 msgid "Egress route table"
 msgstr "出口路由表"
@@ -639,8 +631,8 @@ msgid "hybrid"
 msgstr "混合"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:256
-msgid "Direct DNS result write to IPSet"
-msgstr "直连 DNS 结果写入 IPSet"
+msgid "Direct DNS result write to NFTSet"
+msgstr "直连 DNS 结果写入 NFTSet"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:257
 msgid ""
@@ -833,25 +825,27 @@ msgstr "DNS 重定向"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:379
 msgid ""
-"Forward dnsmasq to BypassCore DNS, use ChinaDNS-NG only for Direct/NFTSet "
-"helper queries, and redirect LAN client TCP/UDP port 53 queries to the router, "
-"including clients with a hardcoded DNS server."
+"Forward dnsmasq to BypassCore DNS and redirect LAN client TCP/UDP port 53 "
+"queries to the router, including clients with a hardcoded DNS server. "
+"BypassCore applies domain DNS policies and writes DNS results to NFTSets "
+"natively."
 msgstr ""
-"将 dnsmasq 转发到 BypassCore DNS，仅将 ChinaDNS-NG 用于直连/NFTSet 辅助查询，"
-"并把 LAN 客户端的 TCP/UDP 53 端口查询重定向到路由器，包括硬编码了 DNS 服务器的客户端。"
+"将 dnsmasq 转发到 BypassCore DNS，并把 LAN 客户端的 TCP/UDP 53 端口查询重定向到"
+"路由器，包括硬编码了 DNS 服务器的客户端。BypassCore 会原生应用域名 DNS 策略并将"
+"解析结果写入 NFTSet。"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:382
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:384
-msgid "Clear NFTSET"
-msgstr "清空 NFTSET"
+msgid "Clear NFTSet"
+msgstr "清空 NFTSet"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:383
 msgid "Try this if a shunt-rule change does not take effect."
 msgstr "如果修改分流规则后未生效，请尝试此功能。"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:388
-msgid "NFTSET cleared."
-msgstr "NFTSET 已清空。"
+msgid "NFTSet cleared."
+msgstr "NFTSet 已清空。"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:388
 msgid "Clear failed"
@@ -1203,9 +1197,6 @@ msgstr "返回"
 
 #~ msgid "BypassCore remote DNS"
 #~ msgstr "BypassCore 远程 DNS"
-
-#~ msgid "ChinaDNS-NG listen port"
-#~ msgstr "ChinaDNS-NG 监听端口"
 
 #~ msgid "Close"
 #~ msgstr "关闭"

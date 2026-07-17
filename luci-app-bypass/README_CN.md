@@ -1,18 +1,17 @@
 # luci-app-bypass
 
-OpenWrt 上的网关级透明分流代理。把三个各司其职的组件组合成一个 LuCI 应用：
+OpenWrt 上的网关级透明分流代理。把两个各司其职的组件组合成一个 LuCI 应用：
 
 | 组件 | 角色 | 数据面 |
 |---|---|---|
 | **BypassCore** | **必需分流核心**：透明入口、规则匹配、路由决策与 outbound | 实时数据面核心 |
 | **naiveproxy** | Naive HTTPS 协议适配器，为 BypassCore 提供本机 SOCKS 上游 | 节点连接 |
-| **ChinaDNS-NG** | 直连 DNS 辅助实例，为指定域名写入 NFTSet | DNS 辅助 |
 
 数据面仅依赖 **nftables (fw4)**；前端为现代 LuCI **JavaScript** 视图（**无 Lua 运行时**）。
 
 > **关于 BypassCore 的角色**：BypassCore 对本项目而言等同于 Passwall 的 Xray/sing-box，是不可替代的透明分流核心。它负责透明入口、规则匹配、DNS、Observatory 和 outbound；NaiveProxy 仅把 Naive HTTPS 节点转换成本机 SOCKS 上游。核心不可用时服务明确启动失败，不会回退到 NaiveProxy。
 >
-> BypassCore 源码：<https://github.com/kinmeic/BypassCore>，`make build` 即可编译。luci-app-bypass 1.5.9 起要求 BypassCore v1.1.0（配置 schema 3）或更新版本，并按机器可读的 capability 清单校验所需能力，而不是只比较版本号。
+> BypassCore 源码：<https://github.com/kinmeic/BypassCore>，`make build` 即可编译。luci-app-bypass 1.6.0 要求 BypassCore v1.2.0（配置 schema 4）或更新版本，并按机器可读的 capability 清单校验所需能力，而不是只比较版本号。
 
 ---
 
@@ -33,9 +32,10 @@ BypassCore (redirect/tproxy://0.0.0.0:<REDIR_PORT>)
 DNS:  dnsmasq :53 → BypassCore DNS :<dns_port>
        国内/直连 DNS → DNS server.outboundTag=direct
        国外 DNS → DNS server.outboundTag → 所选 Naive SOCKS（TCP/DoT/DoH）
-       Direct/NFTSet 域名 → ChinaDNS-NG 辅助实例 → 国内 DNS
-                         ├→ nftset `bypass_direct_dns`
-                         └→ nftset `bypass_vps`（节点服务器 IP 永远直连）
+       Direct/节点域名 → 带 tag 的国内 DNS 策略
+                      └→ BypassCore 原生 netlink writer
+                         ├→ TTL 元素 `bypass_direct_dns`
+                         └→ TTL 元素 `bypass_vps`（节点服务器 IP 永远直连）
 
 出口接口 (NaiveProxy→服务器走指定逻辑网络)：
   netifd 解析 wan/wan1/usbwan → 实时 L3 设备、地址、网关
@@ -44,16 +44,16 @@ DNS:  dnsmasq :53 → BypassCore DNS :<dns_port>
 ```
 
 - 每个 NaiveProxy 节点可独立配置出口接口；留空时继承 Default Naive Interface。服务器 IP 变更时在启动 / 规则更新 / hotplug 时重新解析。
-- 仅涉及 BypassCore 路由快照且不改变节点进程、DNS 辅助链、dnsmasq、nftables 或 listener identity 的配置，会通过控制面事务式热重载；其余变更自动降级为完整重启。GeoData 内容更新仍需完整重启，因为相同配置 hash 不会强制重建快照。
+- BypassCore 路由、DNS 策略和 DNS→NFTSet 映射可通过控制面事务式热重载；候选集合会在切换快照前完成内核探测。独立的 fw4 reload 和“清空 NFTSet”操作也会重新探测当前集合，同时刷新内核元数据与 writer 去重状态。改变节点进程、dnsmasq、nftables 或 listener identity 的配置自动降级为完整重启。GeoData 内容更新仍需完整重启，因为相同配置 hash 不会强制重建快照。
 - 路由解释、Observatory 和 DNS 诊断只查询正在运行的控制面，不再启动临时 BypassCore 进程。
 
 ---
 
 ## 依赖关系
 
-本项目只支持 fw4/nftables。透明代理内核模块和 ChinaDNS-NG 是安装时硬依赖；NaiveProxy 与 GeoData 工具仍可按需通过 menuconfig 选入：
+本项目只支持 fw4/nftables。透明代理内核模块是安装时硬依赖；NaiveProxy 与 GeoData 工具仍可按需通过 menuconfig 选入：
 
-- 硬依赖：`ca-bundle curl ip-full resolveip libubox nftables kmod-nft-nat kmod-nft-tproxy kmod-nft-socket chinadns-ng`
+- 硬依赖：`ca-bundle curl ip-full resolveip libubox nftables kmod-nft-nat kmod-nft-tproxy kmod-nft-socket`
 - `INCLUDE_NaiveProxy` → `naiveproxy`（受架构限制，排除 mips/mips64 等）
 - `INCLUDE_Geoview` → `geoview`
 - `INCLUDE_V2ray_Geo` → `v2ray-geoip` + `v2ray-geosite`
@@ -61,9 +61,9 @@ DNS:  dnsmasq :53 → BypassCore DNS :<dns_port>
 
 > **本应用不再支持 iptables (fw3)**，仅 nftables。
 
-> **BypassCore 是必需依赖**，但它目前是独立项目且未进入 OpenWrt 官方 feeds，因此不能把 `+bypasscore` 写进本包依赖（官方 SDK 会无法解析）。请先从 [BypassCore Releases](https://github.com/kinmeic/BypassCore/releases) 安装 v1.1.0 或更新版本的对应架构 `.ipk` / `.apk`，或放置相应 Linux ELF 到 `/usr/bin/bypasscore`。应用启动时会校验 schema 3、Unix 控制面、显式 DNS outbound、原生 final outbound 和结构化健康状态；不满足要求时不会接管防火墙和 DNS。
+> **BypassCore 是必需依赖**，但它目前是独立项目且未进入 OpenWrt 官方 feeds，因此不能把 `+bypasscore` 写进本包依赖（官方 SDK 会无法解析）。请先从 [BypassCore Releases](https://github.com/kinmeic/BypassCore/releases) 安装 v1.2.0 或更新版本的对应架构 `.ipk` / `.apk`，或放置相应 Linux ELF 到 `/usr/bin/bypasscore`。应用启动时会校验 schema 4、Unix 控制面、显式 DNS outbound、原生 final outbound、DNS 结果 NFTSet writer/probe 和结构化健康状态；不满足要求时不会接管防火墙和 DNS。
 
-> BypassCore 当前输出的是带 TTL、sequence 和 revision 的 DNS 结果事件，并提供断号后的全量补同步接口；它本身不直接调用 nftables。因此在本项目引入可靠的 Unix datagram → NFTSet 消费者之前，ChinaDNS-NG 仍保留为 NFTSet 写入器。
+> **ChinaDNS-NG 已完全移出本项目运行链。** BypassCore 直接保留 `full:`、`domain:`、裸 substring、`regexp:`、`keyword:` 和 `geosite:` 语义，最终命中带 tag 的上游后，把成功的 A/AAAA 结果通过 netlink 批量写入 NFTSet。目标 set 会检查 family、地址类型与 `timeout` flag，新元素按 DNS TTL 自动过期；不再需要辅助进程、10553 端口、dnsmasq 分域复制或 geosite 文本展开。
 
 ---
 
@@ -81,8 +81,8 @@ opkg install luci-app-bypass_*.ipk
 ```
 
 安装后：
-1. 安装 BypassCore v1.1.0 或更新版本：从 <https://github.com/kinmeic/BypassCore/releases> 下载对应架构的 OpenWrt 包，解出 `bypasscore` 放到 `/usr/bin/bypasscore`（或改 `bypass.global.bypasscore_file`）。
-2. 安装 NaiveProxy。`chinadns-ng` 由本包声明为硬依赖（来自 Passwall packages feed）；缺少依赖时包管理器应拒绝不完整安装。
+1. 安装 BypassCore v1.2.0 或更新版本：从 <https://github.com/kinmeic/BypassCore/releases> 下载对应架构的 OpenWrt 包，解出 `bypasscore` 放到 `/usr/bin/bypasscore`（或改 `bypass.global.bypasscore_file`）。
+2. 安装 NaiveProxy。
 3. 把 `geoip.dat` / `geosite.dat` 放到 `/usr/share/v2ray/`（或安装 `v2ray-geoip` / `v2ray-geosite`，程序会检测包的实际安装目录）。
 4. LuCI → 服务 → Bypass，填节点、选出口接口、启用。
 
@@ -97,7 +97,6 @@ config global
     option dns_redirect '1'
     option bypasscore_file '/usr/bin/bypasscore'
     option naive_file '/usr/bin/naive'
-    option chinadns_file '/usr/bin/chinadns-ng'
     option naive_egress_table '20200'         # 节点策略路由表起始编号
     option naive_egress_rule_priority '900'   # 节点策略规则起始优先级
 
@@ -116,7 +115,6 @@ config global_dns
     option remote_dns_query_strategy 'UseIPv4'
     option dns_hosts 'cloudflare-dns.com 1.1.1.1
 dns.google.com 8.8.8.8'
-    option chinadns_listen_port '10553'
     option bypasscore_dns_listen_port '10554'
 
 config nodes 'naive1'
@@ -167,7 +165,7 @@ luci-app-bypass/
         ├── bypass.init service.init  # rc.common 包装器模板、锁与服务生命周期
         ├── direct_ip                # 可编辑的直连 IP/CIDR/GeoIP 列表
         ├── utils.sh                  # 共享库（含双栈出口策略路由、核心身份校验）
-        ├── app.sh                    # 编排：多 Naive 节点 / ChinaDNS-NG / BypassCore / start-stop
+        ├── app.sh                    # 编排：多 Naive 节点 / BypassCore DNS+NFTSet / start-stop
         ├── monitor.sh                # 运行文件变更 + PID/端口健康检查，必要时完整重启
         ├── nftables.sh               # nft 透明代理、DNS 白名单与 IPv6 TProxy
         ├── rule_update.sh            # 下载校验 geoip/geosite + 重解析出口 IP
@@ -204,15 +202,15 @@ Basic Settings → Shunt Rule 为每条规则选择 Close、Default Node、Direc
 - `direct_egress_interface` 控制 Direct 分流的默认出口；每条选择 Direct Connection 的规则还可设置自己的 `egress_interface` 覆盖它。优先级为：规则接口 → Default Direct Interface → 系统默认路由。
 - 每条 Proxy 规则可以选择不同 Naive 节点；不同节点会启动独立 Naive 实例并使用各自配置的物理 WAN，多个规则选择同一节点时共享该实例。
 - Naive 出口、默认 Direct 出口或规则级 Direct 出口发生 `ifup`、`ifupdate`、`ifdown` 时会重建或撤销对应绑定；节点域名解析结果每小时刷新，刷新不完整时服务会失败关闭，避免悄悄改走系统默认 WAN。
-- 运行期 watcher 会记录 BypassCore、NaiveProxy、ChinaDNS-NG 可执行文件的指纹；通过 `opkg`/`apk` 更新并稳定后会执行一次串行完整重启，确保新版本实际生效。关闭进程健康监控不会关闭二进制更新检测。
-- 守护进程默认开启，每十五秒检查受管 PID 与真实监听端口；任一 BypassCore（包括原生 DNS listener）、NaiveProxy 或 ChinaDNS-NG 组件持续异常时执行一次完整、加锁的服务重启，确保进程、DNS、防火墙和策略路由状态一致。
+- 运行期 watcher 会记录 BypassCore、NaiveProxy 可执行文件的指纹；通过 `opkg`/`apk` 更新并稳定后会执行一次串行完整重启，确保新版本实际生效。关闭进程健康监控不会关闭二进制更新检测。
+- 守护进程默认开启，每十五秒检查受管 PID、真实监听端口和 BypassCore 聚合 readiness（含原生 NFTSet writer）；任一必需组件持续异常时执行一次完整、加锁的服务重启，确保进程、DNS、防火墙和策略路由状态一致。
 
 ## 已知限制 / 待办
 
 - **UDP 透明代理**：NaiveProxy 的 SOCKS5 服务明确不支持 UDP ASSOCIATE，因此外部转发 UDP 默认阻断，防止 QUIC/STUN 绕过 TCP 代理；在 Other Settings 的 UDP No Redir Ports 中显式填写的端口会直连，并可能暴露真实出口 IP。TPROXY 仅用于 TCP（包括可选 IPv6 TCP）。
 - **IPv6 数据面**：启用“IPv6 TProxy”后安装 IPv6 TCP TProxy 链、策略路由与 BypassCore IPv6 listener；节点服务器出口策略本身始终支持双栈。
 - **国外 DNS**：`Remote DNS Outbound = Remote` 时，BypassCore 原生 DNS 客户端把 TCP、DoT 或 DoH 经 Default 规则所选节点（没有则使用首个被引用节点）的 Naive SOCKS outbound 发送；UDP 因 NaiveProxy 不支持 UDP 而拒绝启动。选择 `Direct` 时可使用 UDP/TCP/DoT/DoH。路径缺失时失败关闭，不会悄悄改走真实 WAN。
-- **DNS Redirect**：开启后，dnsmasq 的默认上游指向已通过 TCP/UDP 健康检查的 BypassCore DNS inbound；只有需要直连解析并写 NFTSet 的域名才送往 ChinaDNS-NG 辅助实例。这与 Passwall2 的 `TUN_DNS + run_ipset_chinadns_ng` 分工一致。nftables 同时把 LAN 客户端的 TCP/UDP 53 查询（包括硬编码公共 DNS 的客户端）重定向回路由器；运行期配置不会写入 `/etc/config/dhcp`。
+- **DNS Redirect**：开启后，dnsmasq 只有一个上游，即已通过 TCP/UDP 健康检查的 BypassCore DNS inbound。需要直连解析的分流域名与节点域名在核心内匹配带 tag 的国内 DNS policy，其 A/AAAA 结果由同进程的有界异步 writer 合并后写入带 timeout 的 NFTSet。nftables 同时把 LAN 客户端的 TCP/UDP 53 查询（包括硬编码公共 DNS 的客户端）重定向回路由器；运行期配置不会写入 `/etc/config/dhcp`。
 - **路由器本机透明代理**：当前不安装 nftables OUTPUT 重定向，因为 BypassCore 尚未给 outbound socket 设置可排除的专用 mark，强行开启会让 direct outbound 递归回核心。路由器本机程序可显式使用节点 SOCKS 端口。
 - **BypassCore 数据面**：nftables 只负责把符合入口条件的 TCP 送入核心；分流规则由 BypassCore 逐连接执行，Direct/Proxy/Block 不再由防火墙近似判断。
 - **未实现**：订阅解析、ACL 规则、haproxy 负载均衡、SOCKS 自动切换、多语言（目前仅 zh-cn）。

@@ -182,8 +182,7 @@ return view.extend({
 		/* ---- bypass badge row ---- */
 		var badgeRow = E('div', { class: 'bypass-badge-row' }, [
 			badge(_('bypasscore'), status.bypasscore_present === 1, _('present'), _('missing')),
-			badge(_('naive'), status.naive_present === 1, _('present'), _('missing')),
-			badge(_('chinadns-ng'), status.chinadns_present === 1, _('present'), _('missing'))
+			badge(_('naive'), status.naive_present === 1, _('present'), _('missing'))
 		]);
 
 		/* ---- The form.Map (single tabbed TypedSection + table section) ---- */
@@ -242,7 +241,7 @@ return view.extend({
 		o.default = 'IpOnDemand';
 		crossSection(o, 'global_rules');
 
-		o = s.taboption('Shunt Rule', form.Flag, 'write_ipset_direct', _('Direct DNS result write to IPSet'),
+		o = s.taboption('Shunt Rule', form.Flag, 'write_ipset_direct', _('Direct DNS result write to NFTSet'),
 			_('Write addresses resolved for matching direct-domain rules to an informational NFTSet. BypassCore still makes every ordered traffic decision because unrelated hostnames can share an IP address.'));
 		o.default = '1';
 		o.rmempty = false;
@@ -447,17 +446,17 @@ return view.extend({
 		crossSection(o, 'global_dns');
 
 		o = s.taboption('DNS', form.Flag, 'dns_redirect', _('DNS Redirect'),
-			_('Forward dnsmasq to BypassCore DNS, use ChinaDNS-NG only for Direct/NFTSet helper queries, and redirect LAN client TCP/UDP port 53 queries to the router, including clients with a hardcoded DNS server.'));
+			_('Forward dnsmasq to BypassCore DNS and redirect LAN client TCP/UDP port 53 queries to the router, including clients with a hardcoded DNS server. BypassCore applies domain DNS policies and writes DNS results to NFTSets natively.'));
 		o.default = '1';
 		o.rmempty = false;
 
-		o = s.taboption('DNS', form.Button, '_clear_nftset', _('Clear NFTSET'),
+		o = s.taboption('DNS', form.Button, '_clear_nftset', _('Clear NFTSet'),
 			_('Try this if a shunt-rule change does not take effect.'));
-		o.inputtitle = _('Clear NFTSET');
+		o.inputtitle = _('Clear NFTSet');
 		o.inputstyle = 'remove';
 		o.onclick = function () {
 			return api('clear_nftset').then(function (r) {
-				ui.addNotification(null, E('p', {}, r.code === 0 ? _('NFTSET cleared.') : (r.error || _('Clear failed'))));
+				ui.addNotification(null, E('p', {}, r.code === 0 ? _('NFTSet cleared.') : (r.error || _('Clear failed'))));
 			});
 		};
 

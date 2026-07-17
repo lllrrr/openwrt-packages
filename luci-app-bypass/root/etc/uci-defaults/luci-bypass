@@ -1,151 +1,15 @@
 #!/bin/sh
 
-# Copy the factory default config into place on first install.
-[ ! -f /etc/config/bypass ] && {
-	cp -f /usr/share/bypass/0_default_config /etc/config/bypass
-}
+# Install defaults only for a fresh configuration. Existing UCI state is never
+# rewritten automatically; current code supplies safe defaults for absent keys.
+[ -f /etc/config/bypass ] || cp -f /usr/share/bypass/0_default_config /etc/config/bypass
 
-# v1.3 used a separate auto_update flag which Passwall2 does not use. Preserve
-# enabled schedules, but migrate disabled installations to the native empty
-# update_week_mode value before dropping the obsolete option.
-old_auto_update=$(uci -q get bypass.@global_rules[0].auto_update)
-if [ -n "$old_auto_update" ]; then
-	[ "$old_auto_update" = "0" ] && uci -q set bypass.@global_rules[0].update_week_mode=''
-	uci -q delete bypass.@global_rules[0].auto_update
-	uci -q commit bypass
-fi
-
-# v1.3.4 selected one global Naive node and every Proxy rule shared it. The
-# BypassCore shunt page now stores the actual node on each rule. Preserve the
-# old behavior during upgrade by replacing legacy _proxy tokens with that node.
-old_global_node=$(uci -q get bypass.@global[0].node)
-for sid in $(uci -q show bypass 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
-	outbound=$(uci -q get "bypass.${sid}.outbound")
-	[ "$outbound" = "_proxy" ] && {
-		if [ -n "$old_global_node" ] && [ "$(uci -q get bypass.${old_global_node})" = "nodes" ]; then
-			uci -q set "bypass.${sid}.outbound=${old_global_node}"
-		else
-			uci -q set "bypass.${sid}.outbound="
-		fi
-	}
-	[ "$outbound" = "_block" ] && uci -q set "bypass.${sid}.outbound=_blackhole"
-done
-
-uci -q delete bypass.@global[0].node
-
-legacy_naive_egress=$(uci -q get bypass.@global[0].default_egress_interface)
-[ -z "$legacy_naive_egress" ] && [ -n "$old_global_node" ] && {
-	old_node_egress=$(uci -q get "bypass.${old_global_node}.egress_interface")
-	[ -n "$old_node_egress" ] && legacy_naive_egress=$old_node_egress
-}
-for sid in $(uci -q show bypass 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=nodes$/\1/p'); do
-	# The UCI section type already identifies Naive-only nodes. The old option
-	# duplicated that fact after the Type selector was removed from Node Config.
-	uci -q delete "bypass.${sid}.type"
-	[ -z "$(uci -q get bypass.${sid}.egress_interface)" ] && [ -n "$legacy_naive_egress" ] && \
-		uci -q set "bypass.${sid}.egress_interface=${legacy_naive_egress}"
-done
-uci -q delete bypass.@global[0].default_egress_interface
-# URL Test Address is diagnostic UI state, not daemon configuration. Remove the
-# v1.4.6-v1.4.8 UCI option so upgrades no longer report or apply it as a change.
-uci -q delete bypass.@global[0].url_test_url
-# Keep NaiveProxy's node-log switch separate from BypassCore's runtime log
-# level. BypassCore accepts debug, info, warning and error via -log-level.
-uci -q get bypass.@global[0].log_node >/dev/null 2>&1 || \
-	uci -q set bypass.@global[0].log_node='1'
-case "$(uci -q get bypass.@global[0].loglevel)" in
-	debug|info|warning|error) ;;
-	*) uci -q set bypass.@global[0].loglevel='error' ;;
-esac
-
-# BypassCore has one built-in optimized matcher and no Xray-style selector, so
-# neither the UI nor UCI exposes a no-op matcher setting.
-uci -q delete bypass.@global_rules[0].domainMatcher
-uci -q get bypass.@global_rules[0].write_ipset_direct >/dev/null 2>&1 || \
-	uci -q set bypass.@global_rules[0].write_ipset_direct='1'
-uci -q get bypass.@global_rules[0].enable_geoview_ip >/dev/null 2>&1 || \
-	uci -q set bypass.@global_rules[0].enable_geoview_ip='1'
-uci -q get bypass.@global_dns[0].direct_dns_query_strategy >/dev/null 2>&1 || \
-	uci -q set bypass.@global_dns[0].direct_dns_query_strategy='UseIP'
-uci -q get bypass.@global_dns[0].remote_dns_query_strategy >/dev/null 2>&1 || \
-	uci -q set bypass.@global_dns[0].remote_dns_query_strategy='UseIPv4'
-uci -q get bypass.@global_dns[0].remote_dns_detour >/dev/null 2>&1 || \
-	uci -q set bypass.@global_dns[0].remote_dns_detour='remote'
-uci -q get bypass.@global_dns[0].remote_dns_doh >/dev/null 2>&1 || \
-	uci -q set bypass.@global_dns[0].remote_dns_doh='https://1.1.1.1/dns-query'
-uci -q get bypass.@global_dns[0].dns_hosts >/dev/null 2>&1 || \
-	uci -q set bypass.@global_dns[0].dns_hosts='cloudflare-dns.com 1.1.1.1
-dns.google.com 8.8.8.8'
-uci -q delete bypass.@global_dns[0].query_strategy
-uci -q delete bypass.@global_dns[0].bc_domestic_dns
-uci -q delete bypass.@global_dns[0].bc_remote_dns
-uci -q commit bypass
-
-# BypassCore is now the mandatory routing core. Remove the obsolete legacy-mode
-# and fwmark settings; egress selection uses destination rules so it coexists
-# with mwan3/PBR without changing their packet marks.
-old_egress_fwmark=$(uci -q get bypass.@global[0].naive_egress_fwmark)
-uci -q delete bypass.@global[0].bypass_as_core
-uci -q delete bypass.@global[0].naive_egress_fwmark
-uci -q delete bypass.@global[0].localhost_proxy
-[ -n "$old_egress_fwmark" ] && [ "$(uci -q get bypass.@global[0].naive_egress_table)" = "200" ] && \
-	uci -q set bypass.@global[0].naive_egress_table='20200'
-uci -q get bypass.@global[0].naive_egress_rule_priority >/dev/null 2>&1 || \
-	uci -q set bypass.@global[0].naive_egress_rule_priority='900'
-uci -q delete bypass.@global[0].dns2socks_file
-uci -q get bypass.@global_dns[0].bypasscore_dns_listen_port >/dev/null 2>&1 || \
-	uci -q set bypass.@global_dns[0].bypasscore_dns_listen_port='10554'
-uci -q commit bypass
-
-# Align the historical five-second default with the current UI default while
-# preserving installations where the user deliberately chose another value.
-[ "$(uci -q get bypass.@global_delay[0].start_delay)" = "5" ] && \
-	uci -q set bypass.@global_delay[0].start_delay='60'
-uci -q get bypass.@global_forwarding[0].ipv6_tproxy >/dev/null 2>&1 || \
-	uci -q set bypass.@global_forwarding[0].ipv6_tproxy='0'
-uci -q delete bypass.@global_forwarding[0].force_proxy_lan_ip
-uci -q get bypass.@global_forwarding[0].accept_icmp >/dev/null 2>&1 || \
-	uci -q set bypass.@global_forwarding[0].accept_icmp='0'
-# Replace v1.5.0's all-or-nothing UDP Policy with the Passwall2-style port
-# exclusion. Preserve Direct as "All"; Block and fresh installs remain strict.
-old_udp_policy=$(uci -q get bypass.@global_forwarding[0].udp_policy)
-uci -q get bypass.@global_forwarding[0].udp_no_redir_ports >/dev/null 2>&1 || {
-	if [ "$old_udp_policy" = "direct" ]; then
-		uci -q set bypass.@global_forwarding[0].udp_no_redir_ports='1:65535'
-	else
-		uci -q set bypass.@global_forwarding[0].udp_no_redir_ports='disable'
-	fi
-}
-uci -q delete bypass.@global_forwarding[0].udp_policy
-# There is no UDP-capable transparent upstream in this Naive-only project.
-uci -q delete bypass.@global_forwarding[0].udp_redir_ports
-uci -q get bypass.@global_delay[0].start_daemon >/dev/null 2>&1 || \
-	uci -q set bypass.@global_delay[0].start_daemon='1'
-
-
-
-# v1.3.10 aligns the historical UI defaults with Passwall2. Apply this once so
-# a later user choice of UDP / Common Use / 2 hours is not rewritten again by
-# subsequent package upgrades.
-if [ "$(uci -q get bypass.@global[0].migration_1_3_10)" != "1" ]; then
-	[ "$(uci -q get bypass.@global_dns[0].remote_dns_protocol)" = "udp" ] && \
-		uci -q set bypass.@global_dns[0].remote_dns_protocol='tcp'
-	[ "$(uci -q get bypass.@global_forwarding[0].tcp_redir_ports)" = "22,25,53,80,143,443,465,587,853,873,993,995,5222,8080,8443,9418" ] && \
-		uci -q set bypass.@global_forwarding[0].tcp_redir_ports='1:65535'
-	[ "$(uci -q get bypass.@global_rules[0].update_interval_mode)" = "2" ] && \
-		uci -q set bypass.@global_rules[0].update_interval_mode='1'
-	uci -q set bypass.@global[0].migration_1_3_10='1'
-fi
-uci -q commit bypass
-
-# Make the helper scripts executable.
 chmod +x /usr/share/bypass/*.sh 2>/dev/null
 [ -e /usr/share/bypass/direct_ip ] || \
 	cp -f /usr/share/bypass/0_default_direct_ip /usr/share/bypass/direct_ip
 
-# Package managers may protect modified files below /etc and retain the old
-# init script (v1.3.3 used a util-linux-only timed wait option). Refresh the
-# tiny wrapper from an unprotected canonical copy on every package migration.
+# Refresh the tiny init wrapper from its canonical package copy. This is
+# executable/package plumbing, not a configuration migration.
 if [ -s /usr/share/bypass/bypass.init ]; then
 	cp -f /usr/share/bypass/bypass.init /etc/init.d/bypass
 	chmod 755 /etc/init.d/bypass
@@ -153,13 +17,11 @@ if [ -s /usr/share/bypass/bypass.init ]; then
 	/etc/init.d/bypass enable >/dev/null 2>&1
 fi
 
-# Register a firewall include so the transparent-proxy ruleset survives fw3/fw4
-# reloads. The include script is generated at runtime into /var/etc/bypass.include.
+# Register the runtime-generated firewall include once.
 uci -q get firewall.bypass >/dev/null 2>&1 || {
 	uci -q set firewall.bypass=include
 	uci -q set firewall.bypass.type=script
 	uci -q set firewall.bypass.path=/var/etc/bypass.include
-	# fw3 reloads includes automatically; for fw4 a reload flag helps.
 	if [ -x /etc/init.d/firewall ] && grep -q fw4 /etc/init.d/firewall 2>/dev/null; then
 		uci -q set firewall.bypass.reload=1
 	fi

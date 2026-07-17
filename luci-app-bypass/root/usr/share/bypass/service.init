@@ -12,19 +12,23 @@ BOOTING_FILE=${LOCK_FILE_DIR}/${CONFIG}_booting.lock
 
 set_lock() {
 	[ ! -d "$LOCK_FILE_DIR" ] && mkdir -p "$LOCK_FILE_DIR"
-	exec 999>"$LOCK_FILE"
+	exec 9>"$LOCK_FILE"
 	# BusyBox flock supports non-blocking locking but not util-linux timed waits.
 	# Retry the non-blocking operation so LuCI and hotplug restarts serialize.
 	local tries=0
-	while ! flock -xn 999; do
+	while ! flock -xn 9; do
 		tries=$((tries + 1))
-		[ "$tries" -ge 10 ] && return 1
+		if [ "$tries" -ge 10 ]; then
+			exec 9>&-
+			return 1
+		fi
 		sleep 1
 	done
 }
 
 unset_lock() {
-	flock -u 999 2>/dev/null
+	flock -u 9 2>/dev/null
+	exec 9>&-
 }
 
 update_ready_file() {

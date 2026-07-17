@@ -3,7 +3,7 @@
 'require form';
 
 // File Location — centralizes every binary / asset path in one place:
-//   • Core Binaries (global): bypasscore / naive / chinadns-ng
+//   • Core Binaries (global): bypasscore / naive
 //   • Geo Rule Files (global_rules): v2ray_location_asset
 
 return view.extend({
@@ -20,9 +20,6 @@ return view.extend({
 
 		o = sBin.option(form.Value, 'naive_file', _('naive binary'));
 		o.placeholder = '/usr/bin/naive';
-
-		o = sBin.option(form.Value, 'chinadns_file', _('chinadns-ng binary'));
-		o.placeholder = '/usr/bin/chinadns-ng';
 
 		/* ---- Geo rule files (global_rules section) ---- */
 		var sGeo = m.section(form.TypedSection, 'global_rules', _('Geo Rule Files'));

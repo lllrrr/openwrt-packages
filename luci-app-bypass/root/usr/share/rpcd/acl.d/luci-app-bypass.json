@@ -1,6 +1,6 @@
 {
 	"luci-app-bypass": {
-		"description": "Bypass (naiveproxy + ChinaDNS-ng + BypassCore) access",
+		"description": "Bypass (NaiveProxy + BypassCore) access",
 		"read": {
 			"uci": ["bypass"],
 			"ubus": {

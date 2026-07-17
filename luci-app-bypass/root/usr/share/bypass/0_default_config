@@ -15,7 +15,6 @@ config global
 	# auto-disable if the binary/launcher is absent or does not identify itself.
 	option bypasscore_file '/usr/bin/bypasscore'
 	option naive_file '/usr/bin/naive'
-	option chinadns_file '/usr/bin/chinadns-ng'
 	# Base table/priority for per-node NaiveProxy egress policy routing. A node's
 	# logical interface is configured in its Node Config page.
 	option naive_egress_table '20200'
@@ -41,7 +40,6 @@ config global_dns
 	option remote_dns_query_strategy 'UseIPv4'
 	option dns_hosts 'cloudflare-dns.com 1.1.1.1
 dns.google.com 8.8.8.8'
-	option chinadns_listen_port '10553'
 	# BypassCore native UDP/TCP DNS inbound used as dnsmasq's main upstream.
 	option bypasscore_dns_listen_port '10554'
 	option dns_split_domain 'geosite:cn'

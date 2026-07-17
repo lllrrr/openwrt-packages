@@ -5,7 +5,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-bypass
-PKG_VERSION:=1.5.9
+PKG_VERSION:=1.6.0
 PKG_RELEASE:=1
 PKG_PO_VERSION:=$(PKG_VERSION)
 PKG_LICENSE:=MIT
@@ -19,14 +19,14 @@ PKG_CONFIG_DEPENDS:= \
 	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_V2ray_Geo \
 	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_Tcping
 
-LUCI_TITLE:=LuCI support for Bypass (naiveproxy + ChinaDNS-ng + BypassCore)
+LUCI_TITLE:=LuCI support for Bypass (NaiveProxy + BypassCore)
 LUCI_PKGARCH:=all
 
 # This application only supports fw4/nftables. Keep the firewall userspace and
 # kernel expressions as runtime dependencies so installing the generated
 # package also installs everything required by REDIRECT and TPROXY modes.
 LUCI_DEPENDS:=+ca-bundle +curl +ip-full +resolveip +libubox \
-	+nftables +kmod-nft-nat +kmod-nft-tproxy +kmod-nft-socket +chinadns-ng
+	+nftables +kmod-nft-nat +kmod-nft-tproxy +kmod-nft-socket
 
 define Package/$(PKG_NAME)/config
 menu "Configuration"
@@ -65,7 +65,7 @@ endef
 # OpenWrt's default_postinst synchronously starts every packaged /etc/init.d
 # script. Bypass performs readiness checks during start, which can outlive the
 # LuCI package-manager RPC and leave it with an empty/truncated JSON response.
-# The uci-defaults migration installs/enables the tiny init wrapper from the
+# The uci-defaults setup installs/enables the tiny init wrapper from the
 # canonical copy under /usr/share, so it is deliberately not packaged directly
 # below /etc/init.d and therefore is not auto-started inside opkg.
 define Package/$(PKG_NAME)/postinst

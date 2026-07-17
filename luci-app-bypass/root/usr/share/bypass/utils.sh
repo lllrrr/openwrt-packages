@@ -25,19 +25,22 @@ BYPASSCORE_CONTROL_SOCKET=${TMP_PATH}/bypasscore/control.sock
 # ------------------------------------------------------------------------------
 
 config_get_type() {
-	local ret=$(uci -q get "${CONFIG}.${1}" 2>/dev/null)
-	echo "${ret:=$2}"
+	local ret
+	ret=$(uci -q get "${CONFIG}.${1}" 2>/dev/null)
+	printf '%s\n' "${ret:-$2}"
 }
 
 config_n_get() {
-	local ret=$(uci -q get "${CONFIG}.${1}.${2}" 2>/dev/null)
-	echo "${ret:=$3}"
+	local ret
+	ret=$(uci -q get "${CONFIG}.${1}.${2}" 2>/dev/null)
+	printf '%s\n' "${ret:-$3}"
 }
 
 config_t_get() {
 	local index=${4:-0}
-	local ret=$(uci -q get "${CONFIG}.@${1}[${index}].${2}" 2>/dev/null)
-	echo "${ret:=${3}}"
+	local ret
+	ret=$(uci -q get "${CONFIG}.@${1}[${index}].${2}" 2>/dev/null)
+	printf '%s\n' "${ret:-$3}"
 }
 
 # ------------------------------------------------------------------------------
@@ -76,7 +79,7 @@ unset_cache_var() {
 # ------------------------------------------------------------------------------
 
 echolog() {
-	echo -e "$*" >>"$LOG_FILE"
+	printf '%b\n' "$*" >>"$LOG_FILE"
 }
 
 echolog_date() {
@@ -100,9 +103,10 @@ log() {
 	fi
 	local indent=""
 	if [ "$num" -ge 1 ] 2>/dev/null; then
-		local i
-		for i in $(seq 1 "$num"); do
+		local depth=0
+		while [ "$depth" -lt "$num" ]; do
 			indent="${indent}  "
+			depth=$((depth + 1))
 		done
 		echolog_date "${indent}- ${content}"
 	else
@@ -112,7 +116,8 @@ log() {
 
 clean_log() {
 	local logsnum
-	logsnum=$(cat "$LOG_FILE" 2>/dev/null | wc -l)
+	[ -r "$LOG_FILE" ] || return 0
+	logsnum=$(wc -l <"$LOG_FILE" 2>/dev/null)
 	[ "$logsnum" -gt 1000 ] && {
 		echo "" > "$LOG_FILE"
 		log 0 "Log file too long, cleared."
@@ -207,7 +212,7 @@ get_new_port() {
 		last_get_new_port_auto=$(get_cache_var "last_get_new_port_auto")
 		if [ -n "$last_get_new_port_auto" ]; then
 			port=$last_get_new_port_auto
-			port=$(expr "$port" + 1)
+			port=$((port + 1))
 		else
 			port=$default_start_port
 		fi
@@ -216,15 +221,15 @@ get_new_port() {
 	[ "$port" -lt $min_port ] 2>/dev/null && port=$default_start_port
 	[ "$port" -gt $max_port ] 2>/dev/null && port=$default_start_port
 	local protocol
-	protocol=$(echo "$2" | tr 'A-Z' 'a-z')
+	protocol=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
 	local result
 	result=$(check_port_exists "$port" "$protocol")
 	if [ "$result" != 0 ]; then
 		local temp=
 		if [ "$port" -lt $max_port ]; then
-			temp=$(expr "$port" + 1)
+			temp=$((port + 1))
 		elif [ "$port" -gt $min_port ]; then
-			temp=$(expr "$port" - 1)
+			temp=$((port - 1))
 		else
 			temp=$default_start_port
 		fi
@@ -263,13 +268,9 @@ log_component_tail() {
 		log 1 "%s exited without diagnostic output." "$name"
 		return 0
 	}
-	# ChinaDNS-NG verbose output may end with thousands of alphabetically sorted
-	# GeoSite entries. They are data, not diagnostics. Keep useful messages while
-	# preventing domain lists from flooding Runtime Log when a component fails.
 	local filtered="$TMP_PATH/component-tail.$$"
-	tail -n 80 "$output" 2>/dev/null | awk '
+	tail -n 40 "$output" 2>/dev/null | awk '
 		/^[[:space:]]*$/ { next }
-		/^[[:space:]]*([[:alnum:]_-]+\.)+[[:alnum:]_-]+[[:space:]]*$/ { next }
 		{ lines[++n]=$0 }
 		END { start=n-11; if (start < 1) start=1; for (i=start; i<=n; i++) print lines[i] }
 	' > "$filtered"
@@ -567,16 +568,16 @@ is_bypasscore() {
 	"$path" --version 2>/dev/null | grep -q '^BypassCore[[:space:]]'
 }
 
-# The LuCI integration consumes schema-3 features added in BypassCore 1.1.0.
+# The LuCI integration consumes schema-4 native NFTSet features from 1.2.0.
 # Check the machine-readable contract instead of inferring support from a
 # version string, so development builds and future versions remain usable.
 bypasscore_has_required_features() {
 	local path=$1 capabilities feature
 	capabilities=$("$path" --capabilities --json 2>/dev/null) || return 1
-	for feature in control-unix-http-json raw-dns dns-outbound-tag routing-final-outbound runtime-snapshot-reload ready-status inbound-health; do
+	for feature in control-unix-http-json raw-dns dns-outbound-tag routing-final-outbound runtime-snapshot-reload ready-status inbound-health dns-result-nftset dns-result-nftset-probe; do
 		printf '%s' "$capabilities" | grep -Fq "\"$feature\"" || return 1
 	done
-	printf '%s' "$capabilities" | grep -Eq '"configSchema"[[:space:]]*:[[:space:]]*[3-9][0-9]*'
+	printf '%s' "$capabilities" | grep -Eq '"configSchema"[[:space:]]*:[[:space:]]*([4-9]|[1-9][0-9]+)'
 }
 
 # Query the local-only HTTP/JSON control plane exposed by the running core.

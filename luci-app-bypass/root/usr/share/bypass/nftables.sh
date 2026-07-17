@@ -7,7 +7,7 @@
 # One table is managed:
 #   table inet bypass        - the redirect/tproxy ruleset + direct-DNS and
 #                              bypass_vps sets (filled by static resolution and
-#                              ChinaDNS-NG custom groups).
+#                              BypassCore's native DNS-result writer).
 #
 # Sources utils.sh (via app.sh) for $REDIR_PORT, $TCP_PROXY_WAY,
 # $TCP_REDIR_PORTS and cache helpers.
@@ -129,7 +129,7 @@ nft_start() {
 	# therefore moves the shared IPv4 listener to TPROXY as well.
 	[ "$PROXY_IPV6" = "1" ] && mode=tproxy
 
-	# Sets shared with chinadns-ng (filled at runtime). Keep router-local
+	# Sets shared with BypassCore (filled at runtime). Keep router-local
 	# addresses in a set as well so management traffic is never intercepted.
 	local sets local_elements="" local6_elements="" local_ip
 	for local_ip in $(ip -o -4 addr show 2>/dev/null | awk '{print $4}' | cut -d/ -f1); do
@@ -169,24 +169,24 @@ table inet ${NFT_TABLE} {
 	set bypass_direct_dns {
 		type ipv4_addr
 		size 65536
-		flags interval
+		flags interval, timeout
 		auto-merge
 	}
 	set bypass_direct_dns6 {
 		type ipv6_addr
 		size 65536
-		flags interval
+		flags interval, timeout
 		auto-merge
 	}
 	set bypass_vps {
 		type ipv4_addr
 		size 1024
-		flags interval
+		flags interval, timeout
 	}
 	set bypass_vps6 {
 		type ipv6_addr
 		size 1024
-		flags interval
+		flags interval, timeout
 	}
 EOF
 )
@@ -198,7 +198,6 @@ EOF
 	[ -n "$wan_devices" ] && wan_accept="iifname { ${wan_devices} } accept"
 	local direct_accept="ip daddr @bypass_direct accept"
 	local direct6_accept="ip6 daddr @bypass_direct6 accept"
-	local direct_dns_accept="" direct_dns6_accept=""
 	# Never accept a connection solely because a previous DNS answer placed its
 	# destination in bypass_direct_dns. IP addresses are shared by unrelated CDN
 	# hostnames, and an IP-only fast path cannot preserve BypassCore's ordered
@@ -229,7 +228,7 @@ EOF
 	if [ "$CLIENT_PROXY" = "1" ] && [ "$DNS_REDIRECT" = "1" ]; then
 		# Match Passwall2's DNS Redirect semantics: LAN clients using a hardcoded
 		# port-53 resolver are sent to the router's dnsmasq, whose upstream is the
-		# validated ChinaDNS-NG listener. WAN and router-local input are exempted
+		# validated BypassCore DNS listener. WAN and router-local input are exempted
 		# before this rule.
 		dns_redirect_rule="meta l4proto { tcp, udp } th dport 53 redirect to :53"
 		dns_tproxy_bypass="meta l4proto { tcp, udp } th dport 53 accept"
@@ -266,7 +265,6 @@ EOF
 			iif lo accept
 			${dns_redirect_rule}
 			ip daddr @bypass_vps accept
-			${direct_dns_accept}
 			${direct_accept}
 			ip daddr @bypass_dns meta l4proto { tcp, udp } th dport 53 accept
 			${tcp_no_redir_rule}
@@ -279,7 +277,6 @@ EOF
 	if [ "$CLIENT_PROXY" = "1" ] && [ "$mode" = "tproxy" ] && [ -n "$tcp_expr" ]; then
 		[ -n "$tcp_expr" ] && mangle_chain="chain prerouting { type filter hook prerouting priority mangle; policy accept;
 			ip daddr @bypass_vps accept
-			${direct_dns_accept}
 			ip daddr @bypass_local accept
 			${direct_accept}
 			ip daddr @bypass_dns meta l4proto { tcp, udp } th dport 53 accept
@@ -292,7 +289,6 @@ EOF
 		if [ "$PROXY_IPV6" = "1" ]; then
 			[ -n "$tcp_expr" ] && mangle6_chain="chain prerouting6_tcp { type filter hook prerouting priority mangle; policy accept;
 				ip6 daddr @bypass_vps6 accept
-				${direct_dns6_accept}
 				ip6 daddr @bypass_local6 accept
 				${direct6_accept}
 				${wan_accept}
@@ -383,10 +379,12 @@ EOF
 		return 1
 	fi
 
-	# Pre-populate bypass_vps with every node server IP (literal or resolved),
-	# so a future router-OUTPUT implementation cannot recurse into the tunnel.
+	# Pre-populate bypass_vps only for active node server IPs (literal or
+	# resolved), so unused node definitions do not consume DNS work or set space.
+	# This also protects a future router-OUTPUT implementation from recursion.
 	local ip node address direct_dns
-	for node in $(uci -q show "$CONFIG" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=nodes$/\1/p'); do
+	while IFS= read -r node; do
+		[ -n "$node" ] || continue
 		address=$(config_n_get "$node" address)
 		for ip in $(resolve_all_ipv4 "$address"); do
 			[ -n "$ip" ] && $NFT add element inet ${NFT_TABLE} bypass_vps "{ $ip }" 2>/dev/null
@@ -394,7 +392,7 @@ EOF
 		for ip in $(resolve_all_ipv6 "$address"); do
 			[ -n "$ip" ] && $NFT add element inet ${NFT_TABLE} bypass_vps6 "{ $ip }" 2>/dev/null
 		done
-	done
+	done < "$TMP_PATH/selected_nodes"
 	for ip in $(get_wan_ips ip4); do
 		$NFT add element inet ${NFT_TABLE} bypass_vps "{ $ip }" 2>/dev/null
 	done
@@ -486,9 +484,24 @@ nft_update_wan_sets() {
 	done
 }
 
-# Dispatch (app.sh sources this file then calls $1, or we dispatch on $1 directly).
-case "${1:-start}" in
-	start)        nft_start ;;
+nft_start_and_resync() {
+	nft_start || return 1
+	# A standalone invocation comes from fw4's generated include. The table has
+	# just been recreated, so refresh BypassCore's set metadata and invalidate
+	# its writer-side TTL dedupe state before accepting later DNS results.
+	if [ -z "${BYPASS_NFT_ACTION:-}" ] && \
+	   [ "$(config_t_get global enabled 0)" = "1" ] && process_alive bypasscore; then
+		if ! bypasscore_control_request POST /v1/dns/nftsets/probe "" >/dev/null 2>&1; then
+			log 0 "Firewall reloaded, but BypassCore could not resynchronize its DNS-result NFTSets."
+			return 1
+		fi
+	fi
+}
+
+# Dispatch. app.sh sets BYPASS_NFT_ACTION before sourcing; standalone invocations
+# continue to use their first argument.
+case "${BYPASS_NFT_ACTION:-${1:-start}}" in
+	start)        nft_start_and_resync ;;
 	stop)         nft_stop ;;
 	gen_include)  nft_gen_include ;;
 	update_wan_sets) nft_update_wan_sets ;;

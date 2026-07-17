@@ -4,8 +4,8 @@
 #
 # Runtime watcher modelled after Passwall2's monitor. BypassCore's structured
 # readiness covers all of its listeners, while helpers use PID checks. It also
-# watches the installed BypassCore, NaiveProxy and ChinaDNS-NG executables so a
-# package upgrade cannot leave an old, unlinked process running indefinitely.
+# watches the installed BypassCore and NaiveProxy executables so a package
+# upgrade cannot leave an old, unlinked process running indefinitely.
 
 . /usr/share/bypass/utils.sh
 
@@ -22,14 +22,12 @@ done
 [ -f "$READY_FILE" ] || exit 0
 
 runtime_binary_snapshot() {
-	local bypasscore_file naive_file chinadns_file
+	local bypasscore_file naive_file
 	bypasscore_file=$(first_type "$(config_t_get global bypasscore_file /usr/bin/bypasscore)" bypasscore)
 	naive_file=$(first_type "$(config_t_get global naive_file /usr/bin/naive)" naive)
-	chinadns_file=$(first_type "$(config_t_get global chinadns_file /usr/bin/chinadns-ng)" chinadns-ng)
-	printf 'bypasscore=%s\nnaive=%s\nchinadns-ng=%s\n' \
+	printf 'bypasscore=%s\nnaive=%s\n' \
 		"$(binary_fingerprint "$bypasscore_file" 2>/dev/null)" \
-		"$(binary_fingerprint "$naive_file" 2>/dev/null)" \
-		"$(binary_fingerprint "$chinadns_file" 2>/dev/null)"
+		"$(binary_fingerprint "$naive_file" 2>/dev/null)"
 }
 
 schedule_full_restart() {
@@ -96,15 +94,6 @@ while [ "$(config_t_get global enabled 0)" = "1" ] && [ -f "$READY_FILE" ]; do
 				break
 			fi
 		done < "$TMP_PATH/node_ports"
-	fi
-
-	if [ -z "$failed_name" ] && [ "$(config_t_get global dns_redirect 1)" = "1" ]; then
-		chinadns_port=$(config_t_get global_dns chinadns_listen_port 10553)
-		if ! process_alive chinadns-ng || [ "$(check_port_exists "$chinadns_port" udp)" -le 0 ] 2>/dev/null; then
-			failed_name=ChinaDNS-NG
-			failed_process=chinadns-ng
-			failed_log="$TMP_ACL_PATH/chinadns-ng.log"
-		fi
 	fi
 
 	if [ -z "$failed_name" ]; then

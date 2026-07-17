@@ -3,9 +3,8 @@
 # SPDX-License-Identifier: MIT
 #
 # Orchestrator for luci-app-bypass. Read UCI, run the naiveproxy carrier,
-# generate BypassCore's routing and native DNS configuration, run ChinaDNS-NG
-# as the Direct/NFTSet helper, install the transparent-proxy firewall ruleset,
-# and manage the process lifecycle.
+# generate BypassCore's routing, native DNS and DNS-result NFTSet configuration,
+# install the transparent-proxy firewall ruleset, and manage the lifecycle.
 # Mirrors openwrt-passwall2/app.sh but in pure shell.
 
 . /lib/functions.sh
@@ -13,7 +12,6 @@
 . ${APP_PATH:-/usr/share/bypass}/utils.sh
 
 NAIVE_TAG=naive
-CHINADNS_TAG=chinadns-ng
 
 # ------------------------------------------------------------------------------
 # Config snapshot
@@ -25,7 +23,7 @@ get_direct_dns() {
 	DOMESTIC=$(config_t_get global_dns domestic_dns auto)
 	case "$DOMESTIC" in
 		""|auto)
-			DOMESTIC_DNS=$(echo -n "$ISP_DNS" | tr ' ' '\n' | head -2 | tr '\n' ',' | sed 's/,$//')
+			DOMESTIC_DNS=$(printf '%s' "$ISP_DNS" | tr ' ' '\n' | head -2 | tr '\n' ',' | sed 's/,$//')
 			[ -z "$DOMESTIC_DNS" ] && DOMESTIC_DNS=223.5.5.5
 			;;
 		*)
@@ -50,7 +48,6 @@ get_config() {
 
 	BYPASSCORE_FILE=$(config_t_get global bypasscore_file /usr/bin/bypasscore)
 	NAIVE_BIN=$(first_type "$(config_t_get global naive_file /usr/bin/naive)" naive)
-	CHINADNS_BIN=$(first_type "$(config_t_get global chinadns_file /usr/bin/chinadns-ng)" chinadns-ng)
 	# BypassCore is the mandatory transparent routing core. NaiveProxy only
 	# exposes the selected Naive node as a local SOCKS upstream for BypassCore.
 	V2RAY_LOCATION_ASSET=$(config_t_get global_rules v2ray_location_asset /usr/share/v2ray/)
@@ -72,7 +69,7 @@ get_config() {
 	# this, merely opening a status/preview page while the service is running
 	# would select a different free port and overwrite the live config preview.
 	REDIR_PORT=$(get_cache_var ACL_GLOBAL_redir_port)
-	[ -n "$REDIR_PORT" ] || REDIR_PORT=$(echo $(get_new_port 1041 tcp))
+	[ -n "$REDIR_PORT" ] || REDIR_PORT=$(get_new_port 1041 tcp)
 	TCP_PROXY_WAY=$(config_t_get global_forwarding tcp_proxy_way redirect)
 	TCP_NO_REDIR_PORTS=$(config_t_get global_forwarding tcp_no_redir_ports 'disable')
 	UDP_NO_REDIR_PORTS=$(config_t_get global_forwarding udp_no_redir_ports 'disable')
@@ -89,7 +86,6 @@ get_config() {
 	REMOTE_DNS_QUERY_STRATEGY=$(config_t_get global_dns remote_dns_query_strategy UseIPv4)
 	DIRECT_DNS_SHUNT=$(config_t_get global_dns direct_dns_shunt)
 	DNS_HOSTS=$(config_t_get global_dns dns_hosts)
-	CHINADNS_PORT=$(config_t_get global_dns chinadns_listen_port 10553)
 	# BypassCore's native DNS listener is dnsmasq's main upstream. Reuse the live
 	# port for status/config previews; select a free TCP+UDP port only when there
 	# is no active runtime value.
@@ -98,8 +94,7 @@ get_config() {
 		BYPASSCORE_DNS_PORT=$(config_t_get global_dns bypasscore_dns_listen_port 10554)
 		echo "$BYPASSCORE_DNS_PORT" | grep -qE '^[0-9]+$' || BYPASSCORE_DNS_PORT=10554
 		[ "$BYPASSCORE_DNS_PORT" -ge 1 ] 2>/dev/null && [ "$BYPASSCORE_DNS_PORT" -le 65535 ] 2>/dev/null || BYPASSCORE_DNS_PORT=10554
-		while [ "$BYPASSCORE_DNS_PORT" = "$CHINADNS_PORT" ] || \
-			[ "$BYPASSCORE_DNS_PORT" = "$REDIR_PORT" ] || \
+		while [ "$BYPASSCORE_DNS_PORT" = "$REDIR_PORT" ] || \
 			[ "$(check_port_exists "$BYPASSCORE_DNS_PORT" tcp)" -gt 0 ] 2>/dev/null || \
 			[ "$(check_port_exists "$BYPASSCORE_DNS_PORT" udp)" -gt 0 ] 2>/dev/null; do
 			BYPASSCORE_DNS_PORT=$((BYPASSCORE_DNS_PORT + 1))
@@ -332,147 +327,8 @@ run_naive_nodes() {
 }
 
 # ------------------------------------------------------------------------------
-# ChinaDNS-NG auxiliary Direct DNS/NFTSet writer. Only domains belonging to an
-# explicitly Direct shunt rule are sent here and written to the direct NFTSet;
-# BypassCore DNS is the primary resolver for every other query.
-# ------------------------------------------------------------------------------
-
-run_chinadns_ng() {
-	[ -z "$CHINADNS_BIN" ] && {
-		log 0 "chinadns-ng not found (install chinadns-ng or set chinadns_file). Direct/NFTSet DNS helper disabled."
-		CHINADNS_OK=0
-		return 1
-	}
-	[ -z "$DOMESTIC_DNS" ] && get_direct_dns
-
-	local cfg_dir=$TMP_ACL_PATH
-	mkdir -p "$cfg_dir"
-	local config_file="${cfg_dir}/chinadns-ng.conf"
-	local geoview_bin geosite_path
-	geoview_bin=$(first_type "$(config_t_get global_app geoview_file /usr/bin/geoview)" geoview)
-	geosite_path=$(get_geo_asset_path geosite)
-
-	# Build the dnsmasq helper-domain list from every Direct shunt row. This is
-	# the functional counterpart of Passwall2's "Direct DNS result write to
-	# IPSet" option; other domains continue to use BypassCore DNS.
-	local direct_shunt_path="${cfg_dir}/direct-shunt.list"
-	: > "$direct_shunt_path"
-	if [ "$WRITE_IPSET_DIRECT" = "1" ]; then
-		local _rsid _rdomain _rline _rcode _rtmp
-		for _rsid in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
-			[ "$(config_n_get "$_rsid" is_default 0)" = "1" ] && continue
-			[ "$(config_n_get "$_rsid" outbound)" = "_direct" ] || continue
-			_rdomain=$(config_n_get "$_rsid" domain_list)
-			while IFS= read -r _rline; do
-				case "$_rline" in ''|'#'*) continue ;; esac
-					case "$_rline" in
-						geosite:*)
-						_rcode=${_rline#geosite:}
-						_rtmp="${cfg_dir}/geosite-${_rcode}.txt"
-						[ -n "$geoview_bin" ] && "$geoview_bin" -type geosite -action extract -input "$geosite_path" -list "$_rcode" -lowmem=true -output "$_rtmp" >/dev/null 2>&1
-						[ -s "$_rtmp" ] && cat "$_rtmp" >> "$direct_shunt_path"
-						;;
-						domain:*) echo "${_rline#*:}" >> "$direct_shunt_path" ;;
-						# dnsmasq server=/domain/ is a suffix match. Converting a
-						# BypassCore full: rule would incorrectly include subdomains,
-						# so exact rules remain on the main BypassCore DNS path.
-						full:*) ;;
-					regexp:*|ext:*) ;;
-					# Bare rules are BypassCore substring matches, which cannot be
-					# represented by ChinaDNS-NG's domain-suffix list. Leave them to
-					# BypassCore instead of broadening their meaning silently.
-					*) ;;
-				esac
-			done <<-EOF
-			$_rdomain
-			EOF
-		done
-		[ -s "$direct_shunt_path" ] && sort -u "$direct_shunt_path" -o "$direct_shunt_path"
-	fi
-
-	# dnsmasq must send configured Direct DNS override domains to BypassCore even
-	# when they also belong to a Direct shunt list. Otherwise the more general
-	# ChinaDNS-NG helper route would bypass the user's per-domain DNS upstream.
-	local direct_dns_main_path="${cfg_dir}/direct-dns-main.list"
-	local _dd_domain _dd_upstream _dd_extra _dd_code _dd_tmp
-	: > "$direct_dns_main_path"
-	rm -f "${cfg_dir}/disable-direct-helper"
-	while IFS=' ' read -r _dd_domain _dd_upstream _dd_extra; do
-		case "$_dd_domain" in ''|'#'*) continue ;; esac
-		[ -n "$_dd_upstream" ] && [ -z "$_dd_extra" ] || continue
-		case "$_dd_domain" in
-			geosite:*)
-				_dd_code=${_dd_domain#geosite:}
-				_dd_tmp="${cfg_dir}/direct-dns-${_dd_code}.txt"
-				rm -f "$_dd_tmp"
-				[ -n "$geoview_bin" ] && [ -s "$geosite_path" ] && \
-					"$geoview_bin" -type geosite -action extract -input "$geosite_path" -list "$_dd_code" -lowmem=true -output "$_dd_tmp" >/dev/null 2>&1
-				if [ -s "$_dd_tmp" ]; then
-					cat "$_dd_tmp" >> "$direct_dns_main_path"
-					grep -qE '^(regexp|keyword):' "$_dd_tmp" && touch "${cfg_dir}/disable-direct-helper"
-				fi
-				;;
-			domain:*|full:*) echo "${_dd_domain#*:}" >> "$direct_dns_main_path" ;;
-			regexp:*) touch "${cfg_dir}/disable-direct-helper" ;;
-		esac
-	done <<-EOF
-	$DIRECT_DNS_SHUNT
-	EOF
-	[ -s "$direct_dns_main_path" ] && sort -u "$direct_dns_main_path" -o "$direct_dns_main_path"
-
-	# Build the domain list consumed by ChinaDNS-NG. Literal node IPs are added
-	# to bypass_vps directly by nftables.sh.
-	[ ! -s "$cfg_dir/vpslist" ] && {
-		local node_servers
-		node_servers=$(uci show "${CONFIG}" 2>/dev/null | grep -E "(.address=)" | cut -d "'" -f 2)
-		echo "$node_servers" | while read -r h; do host_from_url "$h"; done | grep '[a-zA-Z]$' | sort -u > "$cfg_dir/vpslist"
-	}
-
-	# Passwall2 uses this ChinaDNS-NG instance only as an auxiliary direct DNS
-	# resolver/NFTSet writer. The main resolver is BypassCore DNS below.
-	local direct_set_names vps_set_names
-	direct_set_names="inet@bypass@bypass_direct_dns,inet@bypass@bypass_direct_dns6"
-	vps_set_names="inet@bypass@bypass_vps,inet@bypass@bypass_vps6"
-
-	local filtered_qtypes=65
-	[ "$PROXY_IPV6" = "1" ] || filtered_qtypes=65,28
-	local direct_set_line=""
-	[ "$WRITE_IPSET_DIRECT" = "1" ] && direct_set_line="add-tagchn-ip ${direct_set_names}"
-	cat <<-EOF > "$config_file"
-		bind-addr 127.0.0.1
-		bind-port ${CHINADNS_PORT}
-		china-dns ${DOMESTIC_DNS}
-		trust-dns ${DOMESTIC_DNS}
-		filter-qtype ${filtered_qtypes}
-		${direct_set_line}
-		default-tag chn
-		group vpslist
-		group-dnl ${cfg_dir}/vpslist
-		group-upstream ${DOMESTIC_DNS}
-		group-ipset ${vps_set_names}
-	EOF
-
-	local chinadns_log="${cfg_dir}/chinadns-ng.log"
-	: > "$chinadns_log"
-	# "Enable Node Log" applies to NaiveProxy nodes. Passing -v to ChinaDNS-NG
-	# prints every loaded/queried domain and can fill flash-backed log viewers;
-	# Passwall2 discards that stream. Keep only normal diagnostics in our private
-	# component log so startup failures remain inspectable without list noise.
-	ln_run 0 "$CHINADNS_BIN" "$CHINADNS_TAG" "$chinadns_log" -C "$config_file" || return 1
-	# Use a process-aware startup window rather than a fixed sleep.
-	if wait_for_listener "$CHINADNS_TAG" "$CHINADNS_PORT" udp 20 "$chinadns_log"; then
-		CHINADNS_OK=1
-		log 0 "ChinaDNS-NG NFTSet helper: :%s  direct=%s." "$CHINADNS_PORT" "$DOMESTIC_DNS"
-	else
-		CHINADNS_OK=0
-		log 1 "ChinaDNS-NG generated config: %s" "$config_file"
-		return 1
-	fi
-}
-
-# ------------------------------------------------------------------------------
 # BypassCore config.json (routing/split-decision engine config).
-# Generated from the same UCI shunt_rules that feed the firewall/ipset plane.
+# Generated from the same UCI shunt_rules that feed the firewall/NFTSet plane.
 # ------------------------------------------------------------------------------
 
 # Map a UCI shunt outbound token to a BypassCore outbound tag.
@@ -491,10 +347,71 @@ map_outbound_tag() {
 	esac
 }
 
+# Build domain-policy files consumed directly by BypassCore. They retain
+# full/domain/geosite/regexp/keyword semantics without expanding GeoData into
+# large temporary suffix lists.
+prepare_native_dns_policy_lists() {
+	local vps_rules="$TMP_ACL_PATH/vps-dns.rules"
+	local direct_rules="$TMP_ACL_PATH/direct-shunt-dns.rules"
+	local node address host sid rule
+	: > "$vps_rules"
+	: > "$direct_rules"
+	while IFS= read -r node; do
+		[ -n "$node" ] || continue
+		address=$(config_n_get "$node" address)
+		host=$(host_from_url "$address")
+		printf '%s\n' "$host" | grep -qE '^[A-Za-z0-9.-]*[A-Za-z][A-Za-z0-9.-]*$' && \
+			printf 'full:%s\n' "$host" >> "$vps_rules"
+	done < "$TMP_PATH/selected_nodes"
+	if [ "$WRITE_IPSET_DIRECT" = "1" ]; then
+		for sid in $(uci -q show "$CONFIG" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+			[ "$(config_n_get "$sid" is_default 0)" = "1" ] && continue
+			[ "$(config_n_get "$sid" outbound)" = "_direct" ] || continue
+			while IFS= read -r rule; do
+				rule=$(printf '%s' "$rule" | sed 's/\r$//;s/^[[:space:]]*//;s/[[:space:]]*$//')
+				case "$rule" in ''|'#'*) continue ;; esac
+				printf '%s\n' "$rule" >> "$direct_rules"
+			done <<-EOF
+			$(config_n_get "$sid" domain_list)
+			EOF
+		done
+	fi
+	[ -s "$vps_rules" ] && sort -u "$vps_rules" -o "$vps_rules"
+	[ -s "$direct_rules" ] && sort -u "$direct_rules" -o "$direct_rules"
+	VPS_DNS_RULES=$vps_rules
+	DIRECT_SHUNT_DNS_RULES=$direct_rules
+}
+
+# Append one tagged direct DNS policy per configured domestic resolver. The
+# last resolver is final, so failures can try the next domestic server but can
+# never leak a matched policy to the remote fallback pool.
+json_add_domestic_policy_servers() {
+	local tag=$1 rules_file=$2 upstream count index=0 rule
+	[ -s "$rules_file" ] || return 0
+	count=$(printf '%s' "$DOMESTIC_DNS" | tr ',' '\n' | awk 'NF { n++ } END { print n + 0 }')
+	[ "$count" -gt 0 ] 2>/dev/null || return 1
+	for upstream in $(printf '%s' "$DOMESTIC_DNS" | tr ',' ' '); do
+		[ -n "$upstream" ] || continue
+		index=$((index + 1))
+		json_add_object ''
+			json_add_string address "$upstream"
+			json_add_string tag "$tag"
+			json_add_string outboundTag direct
+			json_add_boolean skipFallback 1
+			[ "$index" = "$count" ] && json_add_boolean finalQuery 1
+			json_add_string queryStrategy "$DIRECT_DNS_QUERY_STRATEGY"
+			json_add_array domains
+				while IFS= read -r rule; do [ -n "$rule" ] && json_add_string '' "$rule"; done < "$rules_file"
+			json_close_array
+		json_close_object
+	done
+}
+
 gen_bypasscore_config() {
 	mkdir -p "$(dirname "$BYPASSCORE_CFG")"
 	BYPASSCORE_CONFIG_ERROR=0
 	prepare_selected_nodes
+	prepare_native_dns_policy_lists
 	DNS_PROXY_NODE=$(default_proxy_node)
 	DNS_PROXY_PORT=$(node_socks_port "$DNS_PROXY_NODE")
 	if [ "$REMOTE_DNS_DETOUR" = "remote" ]; then
@@ -574,7 +491,7 @@ gen_bypasscore_config() {
 		done
 	json_close_array
 
-	# DNS mirrors Passwall2's direct/remote model. BypassCore 1.1 routes each DNS
+	# DNS mirrors Passwall2's direct/remote model. BypassCore routes each DNS
 	# server through its explicit outboundTag, so resolver traffic cannot be
 	# captured accidentally by ordinary user routing rules.
 	if [ -n "$DOMESTIC_DNS" ] || [ -n "$REMOTE_DNS" ] || [ -n "$REMOTE_DNS_DOH" ]; then
@@ -583,6 +500,9 @@ gen_bypasscore_config() {
 			# fallback pool for an unrelated domain. finalQuery also makes a
 			# matched policy fail closed instead of leaking to another resolver.
 			json_add_array servers
+				# Node-server domains always use direct domestic DNS so their
+				# addresses can enter the loop-prevention NFTSets before use.
+				json_add_domestic_policy_servers vps_dns "$VPS_DNS_RULES" || BYPASSCORE_CONFIG_ERROR=1
 				local _dns_domain _dns_upstream _dns_extra _dns_address _dns_port
 				while IFS=' ' read -r _dns_domain _dns_upstream _dns_extra; do
 					case "$_dns_domain" in ''|'#'*) continue ;; esac
@@ -644,6 +564,10 @@ gen_bypasscore_config() {
 				$DIRECT_DNS_SHUNT
 				EOF
 
+				# Direct shunt domains follow user DNS overrides in priority, exactly
+				# preserving the old override-vs-helper precedence inside one core.
+				json_add_domestic_policy_servers direct_shunt_dns "$DIRECT_SHUNT_DNS_RULES" || BYPASSCORE_CONFIG_ERROR=1
+
 				if [ -n "$DOMESTIC_DNS" ] && [ -n "$DNS_SPLIT_DOMAIN" ]; then
 					local _domestic_first
 					_domestic_first=$(printf '%s' "$DOMESTIC_DNS" | tr ',' ' ' | awk '{print $1}')
@@ -702,6 +626,37 @@ gen_bypasscore_config() {
 		json_close_object
 	fi
 
+	# BypassCore writes accepted A/AAAA results straight to nftables over netlink.
+	# Element timeouts follow DNS TTL, removing the permanent stale entries and
+	# the helper process/port previously required for this job.
+	if [ -s "$VPS_DNS_RULES" ] || [ -s "$DIRECT_SHUNT_DNS_RULES" ]; then
+		json_add_object dnsResultNFTSets
+			json_add_int queueSize 256
+			json_add_int batchSize 128
+			json_add_int flushIntervalMs 25
+			json_add_array policies
+				if [ -s "$VPS_DNS_RULES" ]; then
+					json_add_object ''
+						json_add_array serverTags
+							json_add_string '' vps_dns
+						json_close_array
+						json_add_string ipv4Set inet@bypass@bypass_vps
+						json_add_string ipv6Set inet@bypass@bypass_vps6
+					json_close_object
+				fi
+				if [ -s "$DIRECT_SHUNT_DNS_RULES" ]; then
+					json_add_object ''
+						json_add_array serverTags
+							json_add_string '' direct_shunt_dns
+						json_close_array
+						json_add_string ipv4Set inet@bypass@bypass_direct_dns
+						json_add_string ipv6Set inet@bypass@bypass_direct_dns6
+					json_close_object
+				fi
+			json_close_array
+		json_close_object
+	fi
+
 	# routing
 	json_add_object routing
 		json_add_string domainStrategy "$DOMAIN_STRATEGY"
@@ -747,15 +702,27 @@ gen_bypasscore_config() {
 					domains=$(config_n_get "$sid" domain_list)
 					if [ -n "$domains" ]; then
 						json_add_array domain
-						local d
-						for d in $(echo "$domains" | tr '\n' ' '); do [ -n "$d" ] && json_add_string '' "$d"; done
+							local d
+							while IFS= read -r d; do
+								d=$(printf '%s' "$d" | sed 's/\r$//;s/^[[:space:]]*//;s/[[:space:]]*$//')
+								case "$d" in ''|'#'*) continue ;; esac
+								json_add_string '' "$d"
+							done <<-EOF
+							$domains
+							EOF
 						json_close_array
 					fi
 					ips=$(config_n_get "$sid" ip_list)
 					if [ -n "$ips" ]; then
 						json_add_array ip
-						local i
-						for i in $(echo "$ips" | tr '\n' ' '); do [ -n "$i" ] && json_add_string '' "$i"; done
+							local i
+							while IFS= read -r i; do
+								i=$(printf '%s' "$i" | sed 's/\r$//;s/^[[:space:]]*//;s/[[:space:]]*$//')
+								case "$i" in ''|'#'*) continue ;; esac
+								json_add_string '' "$i"
+							done <<-EOF
+							$ips
+							EOF
 						json_close_array
 					fi
 					net=$(config_n_get "$sid" network tcp,udp)
@@ -813,9 +780,9 @@ gen_bypasscore_config() {
 		json_close_object
 	fi
 
-	# BypassCore owns the transparent inbound on REDIR_PORT.
-	# REDIR_PORT as a transparent listener; nftables REDIRECT/TPROXY sends
-	# traffic here instead of to naiveproxy. type/network follow tcp_proxy_way:
+	# BypassCore owns REDIR_PORT as a transparent listener; nftables
+	# REDIRECT/TPROXY sends traffic here instead of to NaiveProxy.
+	# type/network follow tcp_proxy_way:
 	#   redirect -> TCP only (SO_ORIGINAL_DST)
 	#   tproxy   -> TCP with IP_TRANSPARENT. NaiveProxy's SOCKS5 listener
 	#               rejects UDP ASSOCIATE, so capturing UDP would blackhole it.
@@ -881,10 +848,6 @@ run_bypasscore_core() {
 	wait_for_listener bypasscore "$REDIR_PORT" tcp 20 "$log_file" || return 1
 	wait_for_listener bypasscore "$BYPASSCORE_DNS_PORT" udp 5 "$log_file" || return 1
 	wait_for_listener bypasscore "$BYPASSCORE_DNS_PORT" tcp 5 "$log_file" || return 1
-	wait_for_bypasscore_ready 5 || {
-		log 0 "BypassCore control plane did not report ready."
-		return 1
-	}
 	set_cache_var ACL_GLOBAL_redir_port "$REDIR_PORT"
 	set_cache_var BYPASSCORE_DNS_PORT "$BYPASSCORE_DNS_PORT"
 	set_cache_var BYPASSCORE_CONTROL_SOCKET "$BYPASSCORE_CONTROL_SOCKET"
@@ -917,47 +880,23 @@ check_run_environment() {
 }
 
 # ------------------------------------------------------------------------------
-# dnsmasq integration: use BypassCore DNS as the default resolver and route
-# only Direct/NFTSet helper domains to ChinaDNS-NG, matching Passwall2's split
-# between TUN_DNS and run_ipset_chinadns_ng.
+# dnsmasq integration: one upstream to BypassCore. Domain-specific direct DNS,
+# remote DNS, caching and NFTSet writes are all handled inside that process.
 # ------------------------------------------------------------------------------
 
-append_dnsmasq_helper_domains() {
-	local input=$1 output=$2 port=$3 allow_full=${4:-0}
-	[ -s "$input" ] || return 0
-	awk -v port="$port" -v allow_full="$allow_full" '
-		{
-			d = $1
-			sub(/\r$/, "", d)
-			if (d ~ /^(regexp|keyword):/) next
-			if (!allow_full && d ~ /^full:/) next
-			sub(/^domain:/, "", d)
-			sub(/^full:/, "", d)
-			sub(/^\./, "", d)
-			if (d != "" && d !~ /^#/ && d ~ /^[A-Za-z0-9_.-]+$/)
-				print "server=/" d "/127.0.0.1#" port
-		}
-	' "$input" >> "$output"
-}
-
 run_dnsmasq_forward() {
-	[ "$CHINADNS_OK" != "1" ] && return 0
 	[ "$(check_port_exists "$BYPASSCORE_DNS_PORT" udp)" -gt 0 ] 2>/dev/null && \
 		[ "$(check_port_exists "$BYPASSCORE_DNS_PORT" tcp)" -gt 0 ] 2>/dev/null || {
 		log 0 "BypassCore DNS is not listening on TCP/UDP :%s; leave dnsmasq unchanged." "$BYPASSCORE_DNS_PORT"
 		return 1
 	}
-	[ "$(check_port_exists "$CHINADNS_PORT" udp)" -gt 0 ] 2>/dev/null || {
-		log 0 "ChinaDNS-NG NFTSet helper is not listening on :%s; leave dnsmasq unchanged." "$CHINADNS_PORT"
-		return 1
-	}
 	[ "$DNS_REDIRECT" = "1" ] || {
-		log 0 "dnsmasq forwarding is disabled; BypassCore DNS :%s and ChinaDNS-NG helper :%s remain local-only." "$BYPASSCORE_DNS_PORT" "$CHINADNS_PORT"
+		log 0 "dnsmasq forwarding is disabled; BypassCore DNS :%s remains local-only." "$BYPASSCORE_DNS_PORT"
 		return 0
 	}
 	# Use dnsmasq's generated runtime conf-dir instead of committing changes to
-	# /etc/config/dhcp. A power loss must not leave persistent DNS pointing to a
-	# ChinaDNS process which no longer exists after reboot.
+	# /etc/config/dhcp. A power loss therefore cannot leave a persistent upstream
+	# pointing to a service which has not started yet.
 	local cfgid generated conf_dir include_file custom_conf_dir dnsmasq_bin dnsmasq_test_log
 	cfgid=$(uci -q show 'dhcp.@dnsmasq[0]' 2>/dev/null | awk 'NR == 1 { split($0, a, /[.=]/); print a[2] }')
 	generated="/tmp/etc/dnsmasq.conf.${cfgid}"
@@ -980,56 +919,6 @@ run_dnsmasq_forward() {
 		server=/#/127.0.0.1#${BYPASSCORE_DNS_PORT}
 		no-resolv
 	EOF
-	# These queries use direct DNS and populate compatibility/diagnostic NFTSets.
-	# Traffic decisions remain inside BypassCore; resolving an IP is not enough
-	# to bypass ordered rules safely because CDN hostnames can share an address.
-	if [ "$WRITE_IPSET_DIRECT" = "1" ] && [ ! -f "$TMP_ACL_PATH/disable-direct-helper" ]; then
-		append_dnsmasq_helper_domains "$TMP_ACL_PATH/direct-shunt.list" "$include_file" "$CHINADNS_PORT"
-	elif [ -f "$TMP_ACL_PATH/disable-direct-helper" ]; then
-		log 0 "Direct DNS override contains regexp/keyword semantics; Direct helper routing is disabled so BypassCore remains authoritative."
-	fi
-	append_dnsmasq_helper_domains "$TMP_ACL_PATH/vpslist" "$include_file" "$CHINADNS_PORT"
-	local direct_dns_main_effective="$TMP_ACL_PATH/direct-dns-main.effective.list"
-	if [ -s "$TMP_ACL_PATH/direct-dns-main.list" ]; then
-		# Node server domains must keep using the helper so bypass_vps is populated
-		# before transparent redirection. Do not let an overlapping per-domain DNS
-		# override disable the loop-prevention set.
-		if [ -s "$TMP_ACL_PATH/vpslist" ]; then
-			awk 'NR == FNR { vps[$1] = 1; next } !vps[$1] { print }' \
-				"$TMP_ACL_PATH/vpslist" "$TMP_ACL_PATH/direct-dns-main.list" > "$direct_dns_main_effective"
-		else
-			cp -f "$TMP_ACL_PATH/direct-dns-main.list" "$direct_dns_main_effective"
-		fi
-	else
-		: > "$direct_dns_main_effective"
-	fi
-	# Append these last so an equal-specificity Direct helper rule does not mask
-	# a user-configured per-domain DNS upstream handled by BypassCore.
-	if [ -s "$direct_dns_main_effective" ]; then
-		awk -v helper_port="$CHINADNS_PORT" '
-			function within(child, parent) {
-				return child == parent || (length(child) > length(parent) && substr(child, length(child) - length(parent)) == "." parent)
-			}
-			NR == FNR {
-				d = $1
-				sub(/\r$/, "", d); sub(/^domain:/, "", d); sub(/^full:/, "", d); sub(/^\./, "", d)
-				if (d ~ /^[A-Za-z0-9_.-]+$/) main[++main_count] = d
-				next
-			}
-			{
-				d = $0
-				if (d ~ /^server=\// && index(d, "/127.0.0.1#" helper_port) > 0) {
-					sub(/^server=\//, "", d)
-					sub(/\/127\.0\.0\.1#[0-9]+$/, "", d)
-					for (i = 1; i <= main_count; i++) if (within(d, main[i])) next
-				}
-				print
-			}
-		' "$direct_dns_main_effective" "$include_file" > "${include_file}.tmp" && \
-			mv -f "${include_file}.tmp" "$include_file"
-	fi
-	append_dnsmasq_helper_domains "$direct_dns_main_effective" "$include_file" "$BYPASSCORE_DNS_PORT" 1
-	awk '!seen[$0]++' "$include_file" > "${include_file}.tmp" && mv -f "${include_file}.tmp" "$include_file"
 	dnsmasq_bin=$(first_type /usr/sbin/dnsmasq dnsmasq)
 	if [ -n "$dnsmasq_bin" ] && [ -r "$generated" ]; then
 		dnsmasq_test_log="${TMP_ACL_PATH}/dnsmasq-test.log"
@@ -1049,7 +938,7 @@ run_dnsmasq_forward() {
 		log 0 "dnsmasq failed to reload the Bypass runtime forwarding file."
 		return 1
 	fi
-	log 0 "dnsmasq default DNS -> BypassCore :%s; Direct/NFTSet domains -> ChinaDNS-NG :%s." "$BYPASSCORE_DNS_PORT" "$CHINADNS_PORT"
+	log 0 "dnsmasq DNS -> BypassCore :%s (native domain policy and NFTSet writer)." "$BYPASSCORE_DNS_PORT"
 }
 
 restore_dnsmasq_forward() {
@@ -1088,9 +977,15 @@ cron_prefix() {
 	fi
 }
 
+remove_owned_crontab_entries() {
+	local escaped_app_path
+	escaped_app_path=$(printf '%s' "$APP_PATH" | sed 's/[\/&]/\\&/g')
+	sed -i "/${escaped_app_path}\/rule_update\.sh/d; /\/etc\/init\.d\/bypass /d" /etc/crontabs/root 2>/dev/null
+}
+
 start_crontab() {
 	# Restarts must replace, not append, the jobs owned by this package.
-	sed -i "/${APP_PATH//\//\\/}\/rule_update\.sh/d; /\/etc\/init\.d\/bypass /d" /etc/crontabs/root 2>/dev/null
+	remove_owned_crontab_entries
 	# GeoData auto-update (global_rules.update_*_mode, passwall2-style).
 	local week time interval prefix
 	week=$(config_t_get global_rules update_week_mode)
@@ -1124,7 +1019,7 @@ start_crontab() {
 
 stop_crontab() {
 	# Remove only the lines this app added (rule_update + init.d/bypass).
-	sed -i "/${APP_PATH//\//\\/}\/rule_update\.sh/d; /\/etc\/init\.d\/bypass /d" /etc/crontabs/root 2>/dev/null
+	remove_owned_crontab_entries
 	/etc/init.d/cron restart >/dev/null 2>&1
 }
 
@@ -1137,9 +1032,18 @@ validate_runtime() {
 		[ -n "$node" ] && [ -n "$port" ] || continue
 		wait_for_listener "${NAIVE_TAG}_${node}" "$port" tcp 3 "$TMP_ACL_PATH/nodes/naive_${node}.log" || return 1
 	done < "$TMP_PATH/node_ports"
-	if [ "$DNS_REDIRECT" = "1" ]; then
-		wait_for_listener "$CHINADNS_TAG" "$CHINADNS_PORT" udp 3 "$TMP_ACL_PATH/chinadns-ng.log" || return 1
+}
+
+probe_bypasscore_nftsets() {
+	local response
+	if ! response=$(bypasscore_control_request POST /v1/dns/nftsets/probe "" 2>&1); then
+		log 0 "BypassCore could not validate its DNS-result NFTSets: %s" "$response"
+		return 1
 	fi
+	printf '%s' "$response" | grep -Eq '"ready"[[:space:]]*:[[:space:]]*true' || {
+		log 0 "BypassCore DNS-result NFTSet probe returned an unhealthy state: %s" "$response"
+		return 1
+	}
 }
 
 start_monitor() {
@@ -1157,19 +1061,24 @@ start_monitor() {
 }
 
 # Hash only state that is owned outside BypassCore's reloadable snapshot.
-# When this changes, NaiveProxy, policy routes, nftables, dnsmasq or the
-# ChinaDNS-NG helper must be rebuilt with a full restart. Routing-only changes
-# can be activated transactionally through the core control plane.
+# When this changes, NaiveProxy, policy routes, nftables, dnsmasq or listener
+# identity must be rebuilt with a full restart. DNS policy and DNS-result set
+# mappings live inside BypassCore and can reload transactionally.
 runtime_restart_signature() {
-	local node sid outbound helper_class
+	local node sid outbound geo_class
 	{
-		uci -q show "${CONFIG}.@global[0]"
+		printf 'enabled=%s\nnode_socks_port=%s\nnode_socks_bind_local=%s\nclient_proxy=%s\nlog_node=%s\nlog_level=%s\ndns_redirect=%s\n' \
+			"$ENABLED" "$NODE_SOCKS_PORT" "$NODE_SOCKS_BIND_LOCAL" "$CLIENT_PROXY" "$LOG_NODE" "$LOG_LEVEL" "$DNS_REDIRECT"
+		printf 'bypasscore=%s\nnaive=%s\negress_table=%s\negress_priority=%s\nstart_daemon=%s\n' \
+			"$BYPASSCORE_FILE" "$NAIVE_BIN" "$NAIVE_EGRESS_TABLE" "$NAIVE_EGRESS_RULE_PRIORITY" "$START_DAEMON"
 		uci -q show "${CONFIG}.@global_forwarding[0]"
-		uci -q show "${CONFIG}.@global_dns[0]"
-		printf 'asset=%s\ndefault_naive_interface=%s\nwrite_ipset_direct=%s\nenable_geoview_ip=%s\n' \
-			"$V2RAY_LOCATION_ASSET" "$DEFAULT_NAIVE_EGRESS_IFACE" "$WRITE_IPSET_DIRECT" "$ENABLE_GEOVIEW_IP"
-		printf 'redir_port=%s\ndns_port=%s\nchinadns_port=%s\ndomestic_dns=%s\n' \
-			"$REDIR_PORT" "$BYPASSCORE_DNS_PORT" "$CHINADNS_PORT" "$DOMESTIC_DNS"
+		uci -q show "${CONFIG}.@global_delay[0]"
+		printf 'update_week=%s\nupdate_time=%s\nupdate_interval=%s\ngeosite_update=%s\ngeoip_update=%s\n' \
+			"$(config_t_get global_rules update_week_mode)" "$(config_t_get global_rules update_time_mode 0:00)" \
+			"$(config_t_get global_rules update_interval_mode 1)" "$(config_t_get global_rules geosite_update 1)" "$(config_t_get global_rules geoip_update 1)"
+		printf 'asset=%s\ndefault_naive_interface=%s\nenable_geoview_ip=%s\n' \
+			"$V2RAY_LOCATION_ASSET" "$DEFAULT_NAIVE_EGRESS_IFACE" "$ENABLE_GEOVIEW_IP"
+		printf 'redir_port=%s\ndns_port=%s\n' "$REDIR_PORT" "$BYPASSCORE_DNS_PORT"
 		printf 'selected_nodes\n'
 		sort -u "$TMP_PATH/selected_nodes" 2>/dev/null
 		printf 'node_ports\n'
@@ -1178,15 +1087,15 @@ runtime_restart_signature() {
 			[ -n "$node" ] || continue
 			uci -q show "${CONFIG}.${node}"
 		done < "$TMP_PATH/selected_nodes"
-		# ChinaDNS/dnsmasq helper membership depends on rule domains, IPs and
-		# whether the rule is Direct. Other match dimensions are core-only.
-		for sid in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
-			[ "$(config_n_get "$sid" is_default 0)" = "1" ] && continue
-			outbound=$(config_n_get "$sid" outbound _direct)
-			[ "$outbound" = "_direct" ] && helper_class=direct || helper_class=other
-			printf 'rule=%s\nhelper=%s\ndomain=%s\nip=%s\n' "$sid" "$helper_class" \
-				"$(config_n_get "$sid" domain_list)" "$(config_n_get "$sid" ip_list)"
-		done
+		# Direct GeoIP prefixes are materialized outside the reloadable snapshot.
+		if [ "$ENABLE_GEOVIEW_IP" = "1" ]; then
+			for sid in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+				[ "$(config_n_get "$sid" is_default 0)" = "1" ] && continue
+				outbound=$(config_n_get "$sid" outbound _direct)
+				[ "$outbound" = "_direct" ] && geo_class=direct || geo_class=other
+				printf 'geo_rule=%s\nclass=%s\nip=%s\n' "$sid" "$geo_class" "$(config_n_get "$sid" ip_list)"
+			done
+		fi
 		busybox cksum "$APP_PATH/direct_ip" 2>/dev/null
 	} | busybox cksum | awk '{print $1 ":" $2}'
 }
@@ -1219,6 +1128,11 @@ reload_core() {
 		return 2
 	fi
 	if printf '%s' "$response" | grep -Eq '"(reloaded|unchanged)"[[:space:]]*:[[:space:]]*true'; then
+		if ! probe_bypasscore_nftsets; then
+			cp -f "$backup" "$BYPASSCORE_CFG"
+			rm -f "$backup"
+			return 2
+		fi
 		rm -f "$backup"
 		set_cache_var RUNTIME_RESTART_SIGNATURE "$next_signature"
 		log 0 "BypassCore configuration reloaded transactionally: %s" "$response"
@@ -1252,7 +1166,6 @@ start() {
 	ulimit -n 65535 2>/dev/null
 
 	NAIVE_OK=0
-	CHINADNS_OK=0
 
 	# If the service is disabled, do nothing — especially do NOT install the
 	# nftables REDIRECT ruleset (it would send all TCP to a dead REDIR_PORT and
@@ -1268,34 +1181,43 @@ start() {
 		return 1
 	fi
 	if ! bypasscore_has_required_features "$BYPASSCORE_FILE"; then
-		log 0 "BypassCore 1.1.0 schema-3 capabilities are required; service not started."
+		log 0 "BypassCore 1.2.0 schema-4 native NFTSet capabilities are required; service not started."
 		return 1
 	fi
 	prepare_selected_nodes
 	run_naive_nodes || { stop; return 1; }
 	run_bypasscore_core || { stop; return 1; }
-	if ! run_chinadns_ng && [ "$DNS_REDIRECT" = "1" ]; then
-		log 0 "DNS Redirect is enabled but ChinaDNS-NG is unavailable; refusing to start with an incomplete DNS path."
-		stop
-		return 1
-	fi
-
-	# ChinaDNS-NG may spend several seconds loading geosite data. Revalidate all
-	# earlier components before installing firewall redirection so a process
-	# which died during that interval is identified by name and log output.
+	# Revalidate every listener before installing firewall redirection.
 	if ! validate_runtime; then
 		log 0 "A required process failed its final health check; firewall and DNS were not modified."
 		stop
 		return 1
 	fi
-	if ! source "$APP_PATH/${USE_TABLES}.sh" start; then
+	BYPASS_NFT_ACTION=start
+	if ! . "$APP_PATH/${USE_TABLES}.sh"; then
+		unset BYPASS_NFT_ACTION
 		log 0 "Firewall setup failed; stopping managed processes and leaving DNS unchanged."
 		stop
 		return 1
 	fi
+	unset BYPASS_NFT_ACTION
 	set_cache_var USE_TABLES "$USE_TABLES"
-	# Only hand dnsmasq to BypassCore DNS and the ChinaDNS-NG helper after both
-	# listeners are healthy and the NFTSets used by ChinaDNS-NG exist.
+	# The table now exists; ask the core to verify set family/type/timeout flags
+	# before allowing dnsmasq to send it queries which may produce set writes.
+	if ! probe_bypasscore_nftsets; then
+		log 0 "Native DNS-result NFTSet integration failed validation; stopping."
+		stop
+		return 1
+	fi
+	# A configured writer deliberately remains unready until every externally
+	# owned set has been probed. At this point the table and all listeners exist,
+	# so aggregate readiness must become true before DNS handover.
+	if ! wait_for_bypasscore_ready 5; then
+		log 0 "BypassCore did not become ready after DNS-result NFTSet validation; stopping."
+		stop
+		return 1
+	fi
+	# Only hand dnsmasq to BypassCore after listeners and NFTSets are healthy.
 	if ! run_dnsmasq_forward; then
 		log 0 "dnsmasq integration failed; stopping to avoid an incomplete DNS path."
 		stop
@@ -1327,7 +1249,11 @@ stop() {
 	# Always tear down the nftables tables, even if USE_TABLES isn't set in the
 	# cache (e.g. after a reboot where the cache file is gone). A leftover
 	# REDIRECT rule pointing at a dead REDIR_PORT would blackhole the router.
-	[ -n "$USE_TABLES" ] && source "$APP_PATH/${USE_TABLES}.sh" stop 2>/dev/null
+	if [ -n "$USE_TABLES" ]; then
+		BYPASS_NFT_ACTION=stop
+		. "$APP_PATH/${USE_TABLES}.sh" 2>/dev/null
+		unset BYPASS_NFT_ACTION
+	fi
 	NFT_BIN=$(command -v nft 2>/dev/null || echo /usr/sbin/nft)
 	[ -x "$NFT_BIN" ] && {
 		$NFT_BIN delete table inet bypass 2>/dev/null

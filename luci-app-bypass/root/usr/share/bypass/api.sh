@@ -19,14 +19,13 @@ emit() {
 	json_dump
 }
 
-# status -> { running, naive_present, chinadns_present, bypasscore_present,
+# status -> { running, naive_present, bypasscore_present,
 #             use_tables, egress_ifaces, redir_port }
 do_status() {
 	get_config
 	prepare_selected_nodes
-	local naive_present=0 chinadns_present=0 bypasscore_present=0 running=0
+	local naive_present=0 bypasscore_present=0 running=0
 	[ -n "$NAIVE_BIN" ] && naive_present=1
-	[ -n "$CHINADNS_BIN" ] && chinadns_present=1
 	is_bypasscore "$BYPASSCORE_FILE" && bypasscore_present=1
 	# BypassCore plus the ready marker represent a fully installed firewall/DNS
 	# path; structured readiness already covers all configured inbounds.
@@ -45,7 +44,6 @@ do_status() {
 	json_init
 	json_add_int running "$running"
 	json_add_int naive_present "$naive_present"
-	json_add_int chinadns_present "$chinadns_present"
 	json_add_int bypasscore_present "$bypasscore_present"
 	json_add_int core_ready "$core_ready"
 	json_add_string core_revision "$core_revision"
@@ -344,19 +342,34 @@ do_clear_log() {
 }
 
 do_clear_nftset() {
-	local nft_bin rc=0 set
+	local nft_bin rc=0 set error=""
 	nft_bin=$(first_type /usr/sbin/nft nft)
-	[ -n "$nft_bin" ] || rc=1
+	if [ -z "$nft_bin" ]; then
+		rc=1
+		error="nft not found"
+	fi
 	if [ "$rc" = "0" ]; then
 		# Flush only rule-result sets. Resolver and node-address whitelists are
 		# safety state and must not disappear while the service is live.
 		for set in bypass_direct_dns bypass_direct_dns6; do
 			"$nft_bin" flush set inet bypass "$set" 2>/dev/null || true
 		done
+		# A successful probe refreshes kernel set metadata and invalidates the
+		# core writer's TTL dedupe state, allowing later DNS answers to repopulate
+		# elements removed by this operation.
+		if process_alive bypasscore && \
+		   ! bypasscore_control_request POST /v1/dns/nftsets/probe "" >/dev/null 2>&1; then
+			rc=1
+			error="BypassCore NFTSet resynchronization failed"
+		fi
 	fi
 	json_init
 	json_add_int code "$rc"
-	[ "$rc" = "0" ] && json_add_string msg "NFTSet cleared" || json_add_string error "nft not found"
+	if [ "$rc" = "0" ]; then
+		json_add_string msg "NFTSet cleared"
+	else
+		json_add_string error "$error"
+	fi
 	emit
 }
 
