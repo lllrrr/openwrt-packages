@@ -1919,7 +1919,7 @@ msgid "Scanning for repairable plugins..."
 msgstr "正在掃描可修復的插件清單..."
 
 msgid "Standard uninstallation does not remove plugin configuration files. If a plugin malfunctions after reinstallation, select it below to reset it to its initial state."
-msgstr "常規卸載不會清除插件設定檔。若插件重裝後仍無法正常使用，可在下方選中對應插件，將其重置為初始狀態。"
+msgstr "常規卸載不會清除插件設定檔。若插件重裝後仍無法正常使用，可在下方選中對應插件，將其重置為初始狀態。也可以手動備份配置，需要時再手動恢復配置。"
 
 msgid "Factory Default"
 msgstr "出廠預設值"
@@ -2336,3 +2336,18 @@ msgstr "選取的檔案似乎不屬於 %s。<br>檔案名稱：%f<br>您確定�
 
 msgid "Force Restore"
 msgstr "強制恢復"
+
+msgid "The uploaded file is corrupted or not a valid archive!"
+msgstr "上傳的檔案已損壞，或不是有效的壓縮包！"
+
+msgid "The archive content does not match %s!"
+msgstr "壓縮包內部內容與 %s 不匹配！"
+
+msgid "%s config restored! Service is restarting in the background..."
+msgstr "%s 配置還原成功！服務正在後台平滑重啟..."
+
+msgid "Auto reloading in %s seconds..."
+msgstr "%s 秒後將自動刷新頁面..."
+
+msgid "Failed to extract files to the system! (Storage full or permission denied)"
+msgstr "檔案解壓寫入系統失敗！（可能是儲存空間已滿或權限不足）"

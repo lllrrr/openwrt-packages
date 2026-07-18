@@ -593,6 +593,11 @@ return view.extend({ // 继承view
       'M_WARN_TIT': _('Warning'),
       'M_WARN_MSG': _('The selected file does not seem to belong to %s.<br>File name: %f<br>Are you sure you want to continue?'),
       'BTN_FORCE_RST': _('Force Restore'),
+      'M_ERR_FILE_CORRUPT': _('The uploaded file is corrupted or not a valid archive!'),
+      'M_ERR_FILE_MISMATCH': _('The archive content does not match %s!'),
+      'M_RST_SUCC_MSG': _('%s config restored! Service is restarting in the background...'),
+      'M_AUTO_RELOAD': _('Auto reloading in %s seconds...'),
+      'M_ERR_EXTRACT': _('Failed to extract files to the system! (Storage full or permission denied)'),
    },
 
    // 2. HTML 结构
