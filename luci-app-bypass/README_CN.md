@@ -11,7 +11,7 @@ OpenWrt 上的网关级透明分流代理。把两个各司其职的组件组合
 
 > **关于 BypassCore 的角色**：BypassCore 对本项目而言等同于 Passwall 的 Xray/sing-box，是不可替代的透明分流核心。它负责透明入口、规则匹配、DNS、Observatory 和 outbound；NaiveProxy 仅把 Naive HTTPS 节点转换成本机 SOCKS 上游。核心不可用时服务明确启动失败，不会回退到 NaiveProxy。
 >
-> BypassCore 源码：<https://github.com/kinmeic/BypassCore>，`make build` 即可编译。luci-app-bypass 1.7.0 要求 BypassCore v1.3.0（配置 schema 4）或更新版本，并按机器可读的 capability 清单校验所需能力，而不是只比较版本号。
+> BypassCore 源码：<https://github.com/kinmeic/BypassCore>，`make build` 即可编译。luci-app-bypass 1.7.1 要求 BypassCore v1.3.0（配置 schema 4）或更新版本，并按机器可读的 capability 清单校验所需能力，而不是只比较版本号。
 
 ---
 

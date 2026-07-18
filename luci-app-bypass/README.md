@@ -51,7 +51,7 @@ This application supports fw4/nftables only.
 
 BypassCore is intentionally not an automatic package dependency because it is maintained as an independent project and is not available in the official OpenWrt feeds. Install the matching package from the [BypassCore releases](https://github.com/kinmeic/BypassCore/releases), or place the Linux executable at `/usr/bin/bypasscore`.
 
-Version 1.7.0 requires BypassCore v1.3.0 with configuration schema 4. Startup verifies the machine-readable capability contract rather than relying only on the version string. The integration uses explicit DNS server outbounds, the native final routing outbound, structured readiness, the local Unix-socket control plane, BypassCore's native DNS-result NFTSet writer, and its built-in TCP connect probe. Node latency tests use the running control plane and need no `tcping` package or temporary process.
+Version 1.7.1 requires BypassCore v1.3.0 with configuration schema 4. Startup verifies the machine-readable capability contract rather than relying only on the version string. The integration uses explicit DNS server outbounds, the native final routing outbound, structured readiness, the local Unix-socket control plane, BypassCore's native DNS-result NFTSet writer, and its built-in TCP connect probe. Node latency tests use the running control plane and need no `tcping` package or temporary process.
 
 ChinaDNS-NG is no longer required or started. BypassCore applies exact/full/substring/regexp/Geosite DNS policies itself, then writes accepted tagged A/AAAA results directly through netlink. The target sets are validated for family, address type, and timeout support before dnsmasq is handed over; new elements expire with their DNS TTL.
 

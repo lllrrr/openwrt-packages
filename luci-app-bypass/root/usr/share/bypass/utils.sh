@@ -150,25 +150,23 @@ binary_fingerprint() {
 	printf '%s:%s\n' "$resolved" "$metadata"
 }
 
-# Return success when a managed process is executing the currently installed
-# native image. Launcher scripts are deliberately treated as non-comparable:
-# their /proc executable is the shell, while the installed launcher snapshot is
-# still watched by binary_fingerprint().
+# Detect the reliable Linux signal for a replaced running image: procfs appends
+# " (deleted)" after the executable's directory entry is unlinked. Do not
+# compare procfs and installed-file inode/device values: overlayfs can expose
+# different identities for the same live file. Launcher scripts and different
+# resolved paths are non-comparable and remain covered by binary_fingerprint().
 process_image_current() {
-	local name=$1 path=$2 pid installed running installed_id running_id
+	local name=$1 path=$2 pid installed running
 	pid=$(process_pid "$name") || return 0
 	[ -n "$path" ] && [ -e "$path" ] || return 1
 	installed=$(busybox readlink -f "$path" 2>/dev/null)
 	[ -n "$installed" ] || installed=$path
 	running=$(busybox readlink "/proc/$pid/exe" 2>/dev/null) || return 0
 	case "$running" in
-		"$installed") ;;
+		"$installed") return 0 ;;
 		"$installed (deleted)") return 1 ;;
 		*) return 0 ;;
 	esac
-	installed_id=$(busybox stat -Lc '%d:%i:%s' "$installed" 2>/dev/null) || return 1
-	running_id=$(busybox stat -Lc '%d:%i:%s' "/proc/$pid/exe" 2>/dev/null) || return 1
-	[ "$installed_id" = "$running_id" ]
 }
 
 check_port_exists() {
