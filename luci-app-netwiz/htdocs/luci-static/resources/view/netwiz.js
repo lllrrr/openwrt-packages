@@ -22,6 +22,11 @@ var getWanStatus = rpc.declare({ object: 'network.interface', method: 'dump', ex
 var callNetCheckWifi = rpc.declare({ object: 'netwiz', method: 'check_wifi', expect: { '': {} } });
 var callSetPassword = rpc.declare({ object: 'netwiz', method: 'set_password', params: ['password'], expect: { result: 0 } });
 var callSystemBoard = rpc.declare({ object: 'system', method: 'board', expect: { '': {} } });
+
+// 单一插件的局部备份与恢复接口
+var callBackupPlugin = rpc.declare({ object: 'netwiz', method: 'backup_plugin_config', params: ['plugin'], expect: { result: 0 } });
+var callRestorePlugin = rpc.declare({ object: 'netwiz', method: 'restore_plugin_config', params: ['plugin'], expect: { result: 0 } });
+
 // 增加智能备份和恢复的接口声明
 var callSmartBackup = rpc.declare({ object: 'netwiz', method: 'smart_backup', params: ['type'], expect: { '': {} } });
 var callCheckBackup = rpc.declare({ object: 'netwiz', method: 'check_backup', expect: { '': {} } });
@@ -37,6 +42,7 @@ var callSetAdvSettings = rpc.declare({ object: 'netwiz', method: 'set_adv_settin
 
 var callGetAdvLayout = rpc.declare({ object: 'netwiz', method: 'get_adv_layout', expect: { '': {} } });
 var callSetAdvLayout = rpc.declare({ object: 'netwiz', method: 'set_adv_layout', params: ['layout'], expect: { result: 0 } });
+var callSysRestore = rpc.declare({ object: 'system', method: 'sysupgrade', params: ['restore', 'filepath'], expect: { result: 0 } });
 
 return view.extend({
     handleSaveApply: null,
@@ -3856,6 +3862,181 @@ return view.extend({
             }
         }
 
+        // ==========================================
+        // 原生备份与恢复配置逻辑绑定
+        // ==========================================
+        
+        // 独立抽离的上传与恢复执行函数
+        var handleRestoreUpload = function(e) {
+            var file = e.target.files[0];
+            if (!file) return;
+
+            openModal({
+                title: '⚠️ ' + (T['M_RST_CONF_TIT'] || '恢复配置确认'),
+                msg: '<div style="color:#ef4444; font-size:15px; font-weight:bold; margin-bottom:10px;">' +
+                     (T['M_RST_CONF_WARN'] || '警告：恢复配置将覆盖当前所有设置，并在完成后自动重启路由器！') + '</div>' +
+                     '<div style="color:#475569; font-size:14px;">选中文件：' + escapeHTML(file.name) + '</div>',
+                okText: '🚀 ' + (T['BTN_RST_START'] || '确认恢复'),
+                cancelText: T['BTN_CANCEL'] || '取消',
+                isDanger: true,
+                onOk: function() {
+                    openModal({
+                        title: T['M_RST_CONF_TIT'] || '正在恢复配置',
+                        msg: '<div style="text-align:center; padding:10px 0; color:#64748b;">' +
+                             (T['MSG_RESTORE_UPLOADING'] || '正在上传备份文件，请勿断开电源...') +
+                             '<br><div id="nw-upload-progress" style="font-size:24px; color:#3b82f6; font-weight:bold; margin-top:10px; font-family:monospace;">0%</div></div>',
+                        spin: true
+                    });
+
+                    var fd = new FormData();
+                    var sid = (typeof L !== 'undefined' && L.env && L.env.sessionid) ? L.env.sessionid : "";
+                    if (!sid) {
+                        var match = document.cookie.match(/sysauth_http=([^;]+)/) || document.cookie.match(/sysauth=([^;]+)/);
+                        if (match) sid = match[1];
+                    }
+                    fd.append("sessionid", sid);
+                    fd.append("filename", "/tmp/backup_restore.tar.gz");
+                    fd.append("file", file);
+
+                    var xhr = new XMLHttpRequest();
+                    xhr.open('POST', '/cgi-bin/cgi-upload', true);
+
+                    xhr.upload.onprogress = function(evt) {
+                        if (evt.lengthComputable) {
+                            var percent = Math.floor((evt.loaded / evt.total) * 100);
+                            var pEl = document.getElementById('nw-upload-progress');
+                            if (pEl) pEl.innerText = percent + '%';
+                        }
+                    };
+
+                    xhr.onload = function() {
+                        if (xhr.status === 200) {
+                            var pEl = document.getElementById('nw-upload-progress');
+                            if (pEl) pEl.innerHTML = '<span style="color:#10b981; font-size:16px;">' + (T['M_RST_DELIVERED'] || '文件已送达，开始执行恢复...') + '</span>';
+
+                            // 修正：使用文件顶部预先声明好的 callSysRestore 方法正确传参
+                            callSysRestore(true, '/tmp/backup_restore.tar.gz').then(function() {
+                                var rebootSec = 0;
+                                setInterval(function() {
+                                    rebootSec++;
+                                    if (pEl) pEl.innerHTML = '<span style="color:#3b82f6; font-size:16px;">🔄 ' + (T['MSG_REBOOTING'] || '系统正在重启...') + ' (' + rebootSec + 's)</span>';
+                                    if (rebootSec > 60) window.location.reload();
+                                }, 1000);
+                            }).catch(function(err) {
+                                if (pEl) pEl.innerHTML = '<span style="color:#f59e0b; font-size:16px;">⏳ 恢复指令已下发，设备可能正在重启中...</span>';
+                                setTimeout(function(){ window.location.reload(); }, 60000);
+                            });
+
+                        } else {
+                            document.getElementById('file-restore-config').value = '';
+                            openModal({ title: T['M_SYS_ERR'] || '错误', msg: '上传失败: ' + xhr.status, hideCancel: true, okText: T['M_CLOSE'] || '关闭' });
+                        }
+                    };
+
+                    xhr.onerror = function() {
+                        document.getElementById('file-restore-config').value = '';
+                        openModal({ title: T['M_RST_NET_ERR'] || '网络错误', msg: T['M_RST_NET_INTR'] || '网络连接意外中断！', hideCancel: true, okText: T['M_CLOSE'] || '关闭' });
+                    };
+
+                    xhr.send(fd);
+                }
+            });
+        };
+
+        // 将点击事件挂载到最高层级 document，防止被拦截或 container 未就绪
+        document.addEventListener('click', function(e) {
+            
+            // 1. 拦截备份配置点击 (单一插件局部备份)
+            var btnBackup = e.target.closest('#nw-btn-backup-plugin');
+            if (btnBackup) {
+                e.preventDefault();
+                
+                // 获取当前下拉框选中的插件名称
+                var selPlugin = document.getElementById('nw-repair-select');
+                if (!selPlugin || !selPlugin.value) {
+                    alert(T['M_SELECT_PLUGIN'] || "请先选择要备份的插件！");
+                    return;
+                }
+                var pName = selPlugin.value;
+                console.log('✅ 成功拦截到备份按钮点击！准备备份插件:', pName);
+                
+                openModal({
+                    title: T['M_BAK_CONF_TIT'] || '📦 备份中',
+                    msg: '<div style="text-align:center; padding:15px 0; color:#3b82f6;">⏳ 正在精准打包 <b>' + pName + '</b> 的配置文件，请稍候...</div>',
+                    spin: true,
+                    hideCancel: true,
+                    hideOk: true
+                });
+                
+                // 调用顶层声明好的 UBUS 接口
+                if (typeof callBackupPlugin === 'function') {
+                    callBackupPlugin(pName).then(function(r) {
+                        if (r && String(r.result) === '0') {
+                            openModal({ 
+                                title: '✅ 备份成功', 
+                                msg: '<div style="color:#10b981; font-weight:bold; text-align:center;">' + pName + ' 配置已安全保存到路由器。</div>', 
+                                okText: T['M_CLOSE'] || '关闭', 
+                                hideCancel: true 
+                            });
+                        } else {
+                            openModal({ title: '❌ 备份失败', msg: '找不到配置或打包出错，请检查后端脚本。', okText: T['M_CLOSE'] || '关闭', hideCancel: true });
+                        }
+                    }).catch(function(err) {
+                        openModal({ title: '❌ 请求失败', msg: '请求 netwiz_dev 接口失败：' + err, okText: T['M_CLOSE'] || '关闭', hideCancel: true });
+                        console.error('UBUS 备份请求失败:', err);
+                    });
+                } else {
+                    openModal({ title: '❌ 系统错误', msg: '接口 callBackupPlugin 未定义！', okText: '关闭', hideCancel: true });
+                }
+            }
+
+            // 2. 拦截恢复配置点击 (单一插件局部恢复)
+            var btnRestore = e.target.closest('#nw-btn-restore-plugin');
+            if (btnRestore) {
+                e.preventDefault();
+                
+                // 获取当前下拉框选中的插件名称
+                var selPlugin = document.getElementById('nw-repair-select');
+                if (!selPlugin || !selPlugin.value) {
+                    alert(T['M_SELECT_PLUGIN'] || "请先选择要恢复的插件！");
+                    return;
+                }
+                var pName = selPlugin.value;
+                console.log('✅ 成功拦截到恢复按钮点击！准备恢复插件:', pName);
+                
+                openModal({
+                    title: '⚡ 恢复中',
+                    msg: '<div style="text-align:center; padding:15px 0; color:#10b981;">⏳ 正在解压 <b>' + pName + '</b> 的配置并重启服务...</div>',
+                    spin: true,
+                    hideCancel: true,
+                    hideOk: true
+                });
+                
+                // 调用顶层声明好的 UBUS 接口
+                if (typeof callRestorePlugin === 'function') {
+                    callRestorePlugin(pName).then(function(r) {
+                        if (r && String(r.result) === '0') {
+                            openModal({ 
+                                title: '✅ 恢复成功', 
+                                msg: '<div style="color:#10b981; font-weight:bold; text-align:center;">' + pName + ' 配置文件已还原并重新加载！</div>', 
+                                okText: T['M_RELOAD'] || '刷新页面', 
+                                hideCancel: true,
+                                onOk: function() { window.location.reload(); } // 恢复成功后刷新页面
+                            });
+                        } else {
+                            openModal({ title: '❌ 恢复失败', msg: '未能找到该软件的备份档案。', okText: T['M_CLOSE'] || '关闭', hideCancel: true });
+                        }
+                    }).catch(function(err) {
+                        openModal({ title: '❌ 请求失败', msg: '请求 netwiz_dev 接口失败：' + err, okText: T['M_CLOSE'] || '关闭', hideCancel: true });
+                        console.error('UBUS 恢复请求失败:', err);
+                    });
+                } else {
+                    openModal({ title: '❌ 系统错误', msg: '接口 callRestorePlugin 未定义！', okText: '关闭', hideCancel: true });
+                }
+            }
+        });
+        // ==========================================
+
         // 智能备份与恢复事件绑定
         var btnSmartBackup = container.querySelector('#btn-smart-backup');
         var btnSmartRestore = container.querySelector('#btn-smart-restore');
@@ -5540,6 +5721,17 @@ return view.extend({
 
                         // === Diff 高亮渲染带新旧对比助手函数 ===
                         var mkDiff = function(label, newVal, oldVal) {
+                            // 1. HTML 转义函数
+                            var escapeHtml = function(str) {
+                                if (str == null) return "";
+                                return String(str)
+                                    .replace(/&/g, "&amp;")
+                                    .replace(/</g, "&lt;")
+                                    .replace(/>/g, "&gt;")
+                                    .replace(/"/g, "&quot;")
+                                    .replace(/'/g, "&#39;");
+                            };
+                        
                             var sNew = String(newVal).trim();
                             var sOld = (oldVal !== undefined && oldVal !== null) ? String(oldVal).trim() : '';
                             
@@ -5548,32 +5740,37 @@ return view.extend({
                             var isActuallyNew = (rawOld === '' || rawOld === 'undefined' || rawOld === 'null');
                             var isChanged = (sNew !== sOld) && !isActuallyNew;
                             
+                            // 2. 将新旧值转义，DOM 渲染
+                            var safeNew = escapeHtml(sNew);
+                            var safeOld = escapeHtml(sOld);
+                            
                             // div 独立成行
                             var highlightBadge = function(txt) {
                                 return "<div style='margin-top: 4px;'><span style='font-size: 14px; background: #10b981; color: #fff; padding: 2px 6px; border-radius: 6px; font-weight: bold; box-shadow: 0 2px 4px rgba(16,185,129,0.3); animation: pulse 2s infinite; white-space: nowrap;'>" + txt + "</span></div>";
                             };
-
+                        
                             if (isActuallyNew) {
                                 // 文字在上，徽章在下
                                 var newHtml = "<div style='display:flex; flex-direction:column; align-items:flex-end; justify-content:center;'>" +
-                                                "<div>" + sNew + "</div>" +
+                                                "<div>" + safeNew + "</div>" +
                                                 highlightBadge(T['TXT_NEW_MOD'] || 'NEW') +
                                               "</div>";
                                 return [label, newHtml];
                             } else if (isChanged) {
-                                // 旧值 -> 新值 -> 徽章独立在一行
+                                // 旧值 -> 新值 -> 徽章独立在一行 (使用 safeOld 和 safeNew)
                                 var diffHtml = "<div style='display:flex; flex-direction:column; align-items:flex-end; gap:2px; margin-top:2px;'>" +
-                                                 "<div style='font-size:14px; text-decoration:line-through; opacity: 0.5;'>" + sOld + "</div>" +
+                                                 "<div style='font-size:14px; text-decoration:line-through; opacity: 0.5;'>" + safeOld + "</div>" +
                                                  "<div style='display:flex; align-items:flex-start; justify-content:flex-end; text-align:right;'>" +
                                                    "<span style='color:#10b981; font-weight:bold; margin-right:6px; font-size:16px; line-height:1.2;'>↳</span>" +
-                                                   "<div>" + sNew + "</div>" +
+                                                   "<div>" + safeNew + "</div>" +
                                                  "</div>" +
                                                  highlightBadge(T['TXT_MODIFIED'] || 'OK') +
                                                "</div>";
                                 return [label, diffHtml];
                             } else {
+                                // 样式未变更时的渲染 (使用 safeNew)
                                 var dimStyle = "opacity: 0.7; color: rgba(255, 255, 255, 0.85);";
-                                return ["<span style='" + dimStyle + "'>" + label + "</span>", "<span style='" + dimStyle + "'>" + sNew + "</span>"];
+                                return ["<span style='" + dimStyle + "'>" + label + "</span>", "<span style='" + dimStyle + "'>" + safeNew + "</span>"];
                             }
                         };
                         // =============================

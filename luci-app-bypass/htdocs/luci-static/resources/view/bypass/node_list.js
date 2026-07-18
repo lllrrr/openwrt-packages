@@ -6,7 +6,7 @@
 
 // Node List — JS-rendered table, passwall2-style but trimmed:
 //   • A top "URL Test Address" dropdown (browser-session only)
-//   • TCPing + URL Test latency columns (no Ping)
+//   • BypassCore TCP Connect + URL Test latency columns (no ICMP Ping)
 //   • Per-row Edit / Copy / Delete actions. Nodes are assigned per shunt rule.
 //   • A single "Add" button at the bottom.
 
@@ -37,7 +37,7 @@ function latencyColor(ms) {
 	return COL.red;
 }
 
-// URL Test uses a more lenient threshold than raw TCPing (the request traverses
+// URL Test uses a more lenient threshold than TCP Connect (the request traverses
 // the full proxy path + remote TLS + HTTP).
 function urltestColor(ms) {
 	if (ms == null) return COL.red;
@@ -46,18 +46,18 @@ function urltestColor(ms) {
 	return COL.red;
 }
 
-function tcpingCacheKey(sid) { return 'bypass_tcping_' + sid; }
-function getCachedTcping(sid) {
+function tcpProbeCacheKey(sid) { return 'bypass_tcp_probe_' + sid; }
+function getCachedTcpProbe(sid) {
 	try {
-		var raw = localStorage.getItem(tcpingCacheKey(sid));
+		var raw = localStorage.getItem(tcpProbeCacheKey(sid));
 		if (!raw) return null;
 		var entry = JSON.parse(raw);
 		if (Date.now() - entry.t > 60000) return null;
 		return entry.ms;
 	} catch (e) { return null; }
 }
-function setCachedTcping(sid, ms) {
-	try { localStorage.setItem(tcpingCacheKey(sid), JSON.stringify({ ms: ms, t: Date.now() })); } catch (e) {}
+function setCachedTcpProbe(sid, ms) {
+	try { localStorage.setItem(tcpProbeCacheKey(sid), JSON.stringify({ ms: ms, t: Date.now() })); } catch (e) {}
 }
 
 function urltestCacheKey(sid, url) { return 'bypass_urltest_' + sid + '_' + encodeURIComponent(url); }
@@ -115,7 +115,7 @@ return view.extend({
 		var table = E('table', { class: 'table cbi-section-table' }, [
 			E('tr', { class: 'tr cbi-section-table-titles' }, [
 				E('th', { class: 'th cbi-section-table-cell', style: 'width:38%' }, _('Remarks')),
-				E('th', { class: 'th cbi-section-table-cell', style: 'width:12%' }, _('TCPing')),
+				E('th', { class: 'th cbi-section-table-cell', style: 'width:12%' }, _('TCP Connect')),
 				E('th', { class: 'th cbi-section-table-cell', style: 'width:12%' }, _('URL Test')),
 				E('th', { class: 'th cbi-section-table-cell', style: 'width:38%' }, _('Actions'))
 			])
@@ -130,45 +130,45 @@ return view.extend({
 
 		nodes.forEach(function (sec) {
 			var sid = sec['.name'];
-			var tcpingCell = E('td', { class: 'td cbi-value-field', style: 'white-space:nowrap' });
-			var tcpingResult = E('span', { style: 'margin-left:6px;font-weight:bold' });
-			var tcpingLink = E('a', {
+			var tcpProbeCell = E('td', { class: 'td cbi-value-field', style: 'white-space:nowrap' });
+			var tcpProbeResult = E('span', { style: 'margin-left:6px;font-weight:bold' });
+			var tcpProbeLink = E('a', {
 				href: '#',
 				style: 'cursor:pointer',
 				click: function (ev) {
 					ev.preventDefault();
-					tcpingLink.textContent = _('Testing…');
-					tcpingLink.style.color = COL.yellow;
-					tcpingResult.textContent = '';
-					api('node_tcping', sid).then(function (r) {
-						tcpingLink.textContent = _('Test');
-						tcpingLink.style.color = '';
+					tcpProbeLink.textContent = _('Testing…');
+					tcpProbeLink.style.color = COL.yellow;
+					tcpProbeResult.textContent = '';
+					api('node_tcp_probe', sid).then(function (r) {
+						tcpProbeLink.textContent = _('Test');
+						tcpProbeLink.style.color = '';
 						if (r.code === 0 && r.latency_ms != null) {
 							var ms = parseInt(r.latency_ms, 10);
-							setCachedTcping(sid, ms);
-							renderTcping(ms);
+							setCachedTcpProbe(sid, ms);
+							renderTcpProbe(ms);
 						} else {
-							tcpingResult.textContent = '---';
-							tcpingResult.style.color = COL.red;
+							tcpProbeResult.textContent = '---';
+							tcpProbeResult.style.color = COL.red;
 						}
 					});
 				}
 			}, _('Test'));
 
-			function renderTcping(ms) {
+			function renderTcpProbe(ms) {
 				if (ms == null) {
-					tcpingResult.textContent = '';
+					tcpProbeResult.textContent = '';
 					return;
 				}
-				tcpingResult.textContent = ms + ' ms';
-				tcpingResult.style.color = latencyColor(ms);
+				tcpProbeResult.textContent = ms + ' ms';
+				tcpProbeResult.style.color = latencyColor(ms);
 			}
 
-			tcpingCell.appendChild(tcpingLink);
-			tcpingCell.appendChild(tcpingResult);
+			tcpProbeCell.appendChild(tcpProbeLink);
+			tcpProbeCell.appendChild(tcpProbeResult);
 
-			var cached = getCachedTcping(sid);
-			if (cached != null) renderTcping(cached);
+			var cached = getCachedTcpProbe(sid);
+			if (cached != null) renderTcpProbe(cached);
 
 			// URL Test column: needs address+port to dial the node. Nodes without
 			// them show an inert placeholder.
@@ -248,7 +248,7 @@ return view.extend({
 					E('div', { style: 'font-size:11px;color:#8898aa' },
 						(sec.address || '—') + ':' + (sec.port || '—'))
 				]),
-				tcpingCell,
+				tcpProbeCell,
 				urltestCell,
 				actions
 			]));

@@ -48,11 +48,10 @@ This application supports fw4/nftables only.
 - `INCLUDE_NaiveProxy` → `naiveproxy`
 - `INCLUDE_Geoview` → `geoview`
 - `INCLUDE_V2ray_Geo` → `v2ray-geoip` and `v2ray-geosite`
-- `INCLUDE_Tcping` → `tcping`
 
 BypassCore is intentionally not an automatic package dependency because it is maintained as an independent project and is not available in the official OpenWrt feeds. Install the matching package from the [BypassCore releases](https://github.com/kinmeic/BypassCore/releases), or place the Linux executable at `/usr/bin/bypasscore`.
 
-Version 1.6.0 requires BypassCore v1.2.0 with configuration schema 4. Startup verifies the machine-readable capability contract rather than relying only on the version string. The integration uses explicit DNS server outbounds, the native final routing outbound, structured readiness, the local Unix-socket control plane, and BypassCore's native DNS-result NFTSet writer.
+Version 1.7.0 requires BypassCore v1.3.0 with configuration schema 4. Startup verifies the machine-readable capability contract rather than relying only on the version string. The integration uses explicit DNS server outbounds, the native final routing outbound, structured readiness, the local Unix-socket control plane, BypassCore's native DNS-result NFTSet writer, and its built-in TCP connect probe. Node latency tests use the running control plane and need no `tcping` package or temporary process.
 
 ChinaDNS-NG is no longer required or started. BypassCore applies exact/full/substring/regexp/Geosite DNS policies itself, then writes accepted tagged A/AAAA results directly through netlink. The target sets are validated for family, address type, and timeout support before dnsmasq is handed over; new elements expire with their DNS TTL.
 
@@ -68,7 +67,7 @@ opkg install luci-app-bypass_*.ipk
 
 After installation:
 
-1. Install BypassCore v1.2.0 or newer for the router architecture from its [releases](https://github.com/kinmeic/BypassCore/releases).
+1. Install BypassCore v1.3.0 or newer for the router architecture from its [releases](https://github.com/kinmeic/BypassCore/releases).
 2. Install NaiveProxy.
 3. Install `v2ray-geoip`/`v2ray-geosite`, or place `geoip.dat` and `geosite.dat` under `/usr/share/v2ray/`.
 4. Open LuCI → Services → Bypass, configure nodes and egress interfaces, then enable the service.
@@ -79,7 +78,7 @@ After installation:
 - **Shunt Rule**: choose Close, Default Node, Direct Connection, Blackhole, or a specific NaiveProxy node. The virtual Default row is always the final catch-all and is stored in `global_rules.default_node` rather than a `shunt_rules` section.
 - **Other Settings**: configure TCP redirection, UDP No Redir Ports, IPv6 TProxy, ICMP handling, and Direct IP List.
 - **Rule Manage**: maintain the ordered shunt-rule list and optional GeoIP/Geosite update schedule.
-- **Runtime upgrades**: the always-on lightweight watcher fingerprints the installed BypassCore and NaiveProxy executables. After an `opkg`/`apk` upgrade settles, Bypass performs one serialized full restart so the new binaries actually take effect. Disabling process-health supervision does not disable upgrade detection.
+- **Runtime upgrades**: the always-on lightweight watcher fingerprints the installed BypassCore and NaiveProxy executables and compares them with each running native process image. After an `opkg`/`apk` upgrade settles, Bypass performs one serialized full restart and logs both detection and completion. Disabling process-health supervision does not disable upgrade detection.
 - **Geo View**: query domain/IP matches against installed GeoIP and Geosite data.
 
 NaiveProxy does not support general SOCKS5 UDP association. By default, forwarded external UDP is blocked to prevent QUIC/STUN traffic from bypassing the TCP proxy. Explicit UDP No Redir Ports are sent directly and may expose the real egress IP.

@@ -1181,7 +1181,7 @@ start() {
 		return 1
 	fi
 	if ! bypasscore_has_required_features "$BYPASSCORE_FILE"; then
-		log 0 "BypassCore 1.2.0 schema-4 native NFTSet capabilities are required; service not started."
+		log 0 "BypassCore 1.3.0 schema-4 native NFTSet and TCP probe capabilities are required; service not started."
 		return 1
 	fi
 	prepare_selected_nodes

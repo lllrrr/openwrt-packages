@@ -150,6 +150,27 @@ binary_fingerprint() {
 	printf '%s:%s\n' "$resolved" "$metadata"
 }
 
+# Return success when a managed process is executing the currently installed
+# native image. Launcher scripts are deliberately treated as non-comparable:
+# their /proc executable is the shell, while the installed launcher snapshot is
+# still watched by binary_fingerprint().
+process_image_current() {
+	local name=$1 path=$2 pid installed running installed_id running_id
+	pid=$(process_pid "$name") || return 0
+	[ -n "$path" ] && [ -e "$path" ] || return 1
+	installed=$(busybox readlink -f "$path" 2>/dev/null)
+	[ -n "$installed" ] || installed=$path
+	running=$(busybox readlink "/proc/$pid/exe" 2>/dev/null) || return 0
+	case "$running" in
+		"$installed") ;;
+		"$installed (deleted)") return 1 ;;
+		*) return 0 ;;
+	esac
+	installed_id=$(busybox stat -Lc '%d:%i:%s' "$installed" 2>/dev/null) || return 1
+	running_id=$(busybox stat -Lc '%d:%i:%s' "/proc/$pid/exe" 2>/dev/null) || return 1
+	[ "$installed_id" = "$running_id" ]
+}
+
 check_port_exists() {
 	local port=$1
 	local protocol=$2
@@ -568,13 +589,14 @@ is_bypasscore() {
 	"$path" --version 2>/dev/null | grep -q '^BypassCore[[:space:]]'
 }
 
-# The LuCI integration consumes schema-4 native NFTSet features from 1.2.0.
+# The LuCI integration consumes schema-4 native NFTSet and TCP probe features
+# from BypassCore 1.3.0.
 # Check the machine-readable contract instead of inferring support from a
 # version string, so development builds and future versions remain usable.
 bypasscore_has_required_features() {
 	local path=$1 capabilities feature
 	capabilities=$("$path" --capabilities --json 2>/dev/null) || return 1
-	for feature in control-unix-http-json raw-dns dns-outbound-tag routing-final-outbound runtime-snapshot-reload ready-status inbound-health dns-result-nftset dns-result-nftset-probe; do
+	for feature in control-unix-http-json raw-dns dns-outbound-tag routing-final-outbound runtime-snapshot-reload ready-status inbound-health dns-result-nftset dns-result-nftset-probe tcp-connect-probe; do
 		printf '%s' "$capabilities" | grep -Fq "\"$feature\"" || return 1
 	done
 	printf '%s' "$capabilities" | grep -Eq '"configSchema"[[:space:]]*:[[:space:]]*([4-9]|[1-9][0-9]+)'

@@ -1063,8 +1063,8 @@ msgid "NaiveProxy nodes (HTTPS/QUIC)."
 msgstr "NaiveProxy 节点（HTTPS/QUIC）。"
 
 #: htdocs/luci-static/resources/view/bypass/node_list.js:60
-msgid "TCPing"
-msgstr "TCP 延迟"
+msgid "TCP Connect"
+msgstr "TCP 连接"
 
 #: htdocs/luci-static/resources/view/bypass/node_list.js:61
 msgid "Actions"

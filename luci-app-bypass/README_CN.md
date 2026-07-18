@@ -11,7 +11,7 @@ OpenWrt 上的网关级透明分流代理。把两个各司其职的组件组合
 
 > **关于 BypassCore 的角色**：BypassCore 对本项目而言等同于 Passwall 的 Xray/sing-box，是不可替代的透明分流核心。它负责透明入口、规则匹配、DNS、Observatory 和 outbound；NaiveProxy 仅把 Naive HTTPS 节点转换成本机 SOCKS 上游。核心不可用时服务明确启动失败，不会回退到 NaiveProxy。
 >
-> BypassCore 源码：<https://github.com/kinmeic/BypassCore>，`make build` 即可编译。luci-app-bypass 1.6.0 要求 BypassCore v1.2.0（配置 schema 4）或更新版本，并按机器可读的 capability 清单校验所需能力，而不是只比较版本号。
+> BypassCore 源码：<https://github.com/kinmeic/BypassCore>，`make build` 即可编译。luci-app-bypass 1.7.0 要求 BypassCore v1.3.0（配置 schema 4）或更新版本，并按机器可读的 capability 清单校验所需能力，而不是只比较版本号。
 
 ---
 
@@ -57,11 +57,10 @@ DNS:  dnsmasq :53 → BypassCore DNS :<dns_port>
 - `INCLUDE_NaiveProxy` → `naiveproxy`（受架构限制，排除 mips/mips64 等）
 - `INCLUDE_Geoview` → `geoview`
 - `INCLUDE_V2ray_Geo` → `v2ray-geoip` + `v2ray-geosite`
-- `INCLUDE_Tcping` → `tcping`
 
 > **本应用不再支持 iptables (fw3)**，仅 nftables。
 
-> **BypassCore 是必需依赖**，但它目前是独立项目且未进入 OpenWrt 官方 feeds，因此不能把 `+bypasscore` 写进本包依赖（官方 SDK 会无法解析）。请先从 [BypassCore Releases](https://github.com/kinmeic/BypassCore/releases) 安装 v1.2.0 或更新版本的对应架构 `.ipk` / `.apk`，或放置相应 Linux ELF 到 `/usr/bin/bypasscore`。应用启动时会校验 schema 4、Unix 控制面、显式 DNS outbound、原生 final outbound、DNS 结果 NFTSet writer/probe 和结构化健康状态；不满足要求时不会接管防火墙和 DNS。
+> **BypassCore 是必需依赖**，但它目前是独立项目且未进入 OpenWrt 官方 feeds，因此不能把 `+bypasscore` 写进本包依赖（官方 SDK 会无法解析）。请先从 [BypassCore Releases](https://github.com/kinmeic/BypassCore/releases) 安装 v1.3.0 或更新版本的对应架构 `.ipk` / `.apk`，或放置相应 Linux ELF 到 `/usr/bin/bypasscore`。应用启动时会校验 schema 4、Unix 控制面、显式 DNS outbound、原生 final outbound、DNS 结果 NFTSet writer/probe、原生 TCP connect 探测和结构化健康状态；不满足要求时不会接管防火墙和 DNS。节点延迟测试直接复用运行中的控制面，不再依赖 `tcping` 包或临时探测进程。
 
 > **ChinaDNS-NG 已完全移出本项目运行链。** BypassCore 直接保留 `full:`、`domain:`、裸 substring、`regexp:`、`keyword:` 和 `geosite:` 语义，最终命中带 tag 的上游后，把成功的 A/AAAA 结果通过 netlink 批量写入 NFTSet。目标 set 会检查 family、地址类型与 `timeout` flag，新元素按 DNS TTL 自动过期；不再需要辅助进程、10553 端口、dnsmasq 分域复制或 geosite 文本展开。
 
@@ -81,7 +80,7 @@ opkg install luci-app-bypass_*.ipk
 ```
 
 安装后：
-1. 安装 BypassCore v1.2.0 或更新版本：从 <https://github.com/kinmeic/BypassCore/releases> 下载对应架构的 OpenWrt 包，解出 `bypasscore` 放到 `/usr/bin/bypasscore`（或改 `bypass.global.bypasscore_file`）。
+1. 安装 BypassCore v1.3.0 或更新版本：从 <https://github.com/kinmeic/BypassCore/releases> 下载对应架构的 OpenWrt 包，解出 `bypasscore` 放到 `/usr/bin/bypasscore`（或改 `bypass.global.bypasscore_file`）。
 2. 安装 NaiveProxy。
 3. 把 `geoip.dat` / `geosite.dat` 放到 `/usr/share/v2ray/`（或安装 `v2ray-geoip` / `v2ray-geosite`，程序会检测包的实际安装目录）。
 4. LuCI → 服务 → Bypass，填节点、选出口接口、启用。

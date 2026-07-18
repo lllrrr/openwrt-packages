@@ -147,34 +147,61 @@ do_resolve() {
 	emit
 }
 
-# node_tcping <node_id> -> { code, latency_ms, raw }
-do_node_tcping() {
+# node_tcp_probe <node_id> -> { code, latency_ms, raw }
+do_node_tcp_probe() {
 	local node_id=$1
-	[ -z "$node_id" ] && { json_init; json_add_int code -1; json_add_string error "missing node"; emit; return; }
-	local address port
+	json_init
+	case "$node_id" in
+		''|*[!A-Za-z0-9_-]*)
+			json_add_int code -1
+			json_add_string error "invalid node"
+			emit
+			return
+			;;
+	esac
+	if [ "$(config_get_type "$node_id")" != "nodes" ]; then
+		json_add_int code -1
+		json_add_string error "node not found"
+		emit
+		return
+	fi
+
+	local address port request raw latency rc endpoint BYPASSCORE_FILE
 	address=$(config_n_get "$node_id" address)
 	port=$(config_n_get "$node_id" port)
-	json_init
-	if [ -z "$address" ] || [ -z "$port" ]; then
+	case "$port" in ''|*[!0-9]*) port=0 ;; esac
+	if [ -z "$address" ] || [ "$port" -lt 1 ] 2>/dev/null || [ "$port" -gt 65535 ] 2>/dev/null; then
 		json_add_int code -1
 		json_add_string error "node has no address/port"
 	else
-		local ip
-		ip=$(get_host_ip ipv4 "$address" 2>/dev/null)
-		[ -z "$ip" ] && ip=$address
-		local bin raw latency rc
-		bin=$(first_type /usr/bin/tcping tcping)
-		if [ -n "$bin" ]; then
-			raw=$("$bin" -c 1 "$ip" "$port" 2>&1)
-			rc=$?
-			latency=$(echo "$raw" | grep -oE '[0-9]+(\.[0-9]+)?\s?ms' | head -1 | grep -oE '[0-9]+(\.[0-9]+)?')
-			[ -n "$latency" ] || rc=1
-			json_add_int code "$rc"
-			json_add_string latency_ms "${latency:-0}"
+		BYPASSCORE_FILE=$(config_t_get global bypasscore_file /usr/bin/bypasscore)
+		json_init
+		json_add_string host "$address"
+		json_add_int port "$port"
+		json_add_int timeoutMs 3000
+		request=$(json_dump)
+
+		if process_alive bypasscore && raw=$(bypasscore_control_request POST /v1/network/tcp-probe "$request" 2>&1); then
+			rc=0
 		else
-			json_add_int code -1
-			json_add_string error "tcping not installed"
+			case "$address" in
+				*:*) endpoint="[$address]:$port" ;;
+				*) endpoint="$address:$port" ;;
+			esac
+			if is_bypasscore "$BYPASSCORE_FILE"; then
+				raw=$("$BYPASSCORE_FILE" -tcp-probe "$endpoint" -tcp-probe-timeout 3s -json 2>&1)
+				rc=$?
+			else
+				raw="BypassCore is unavailable"
+				rc=1
+			fi
 		fi
+		latency=$(printf '%s' "$raw" | sed -n 's/.*"latencyMs"[[:space:]]*:[[:space:]]*\([0-9][0-9.]*\).*/\1/p')
+		[ -n "$latency" ] || rc=1
+		json_init
+		json_add_int code "$rc"
+		[ -n "$latency" ] && json_add_string latency_ms "$latency"
+		[ "$rc" -eq 0 ] 2>/dev/null || json_add_string error "TCP connect probe failed"
 		json_add_string raw "$raw"
 	fi
 	emit
@@ -805,7 +832,7 @@ do_set_direct_ip() {
 }
 
 usage() {
-	echo "Usage: $0 {status|route_test|observe|resolve|node_tcping|node_urltest|config_preview|rule_update|log_tail|clear_log|clear_nftset|interfaces|connect_status|geo_view|create_backup|restore_backup|reset_config|get_direct_ip|set_direct_ip} [args]" >&2
+	echo "Usage: $0 {status|route_test|observe|resolve|node_tcp_probe|node_urltest|config_preview|rule_update|log_tail|clear_log|clear_nftset|interfaces|connect_status|geo_view|create_backup|restore_backup|reset_config|get_direct_ip|set_direct_ip} [args]" >&2
 }
 
 main() {
@@ -816,7 +843,7 @@ main() {
 		route_test)     do_route_test "$1" ;;
 		observe)        do_observe ;;
 		resolve)        do_resolve "$1" ;;
-		node_tcping)    do_node_tcping "$1" ;;
+		node_tcp_probe) do_node_tcp_probe "$1" ;;
 		node_urltest)   do_node_urltest "$1" "$2" ;;
 		config_preview) do_config_preview ;;
 		rule_update)    do_rule_update ;;

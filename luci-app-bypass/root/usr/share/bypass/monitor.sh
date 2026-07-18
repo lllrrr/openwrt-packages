@@ -30,15 +30,43 @@ runtime_binary_snapshot() {
 		"$(binary_fingerprint "$naive_file" 2>/dev/null)"
 }
 
+runtime_images_current() {
+	local bypasscore_file naive_file node port
+	bypasscore_file=$(first_type "$(config_t_get global bypasscore_file /usr/bin/bypasscore)" bypasscore)
+	naive_file=$(first_type "$(config_t_get global naive_file /usr/bin/naive)" naive)
+	process_image_current bypasscore "$bypasscore_file" || return 1
+	if [ -s "$TMP_PATH/node_ports" ]; then
+		while read -r node port; do
+			[ -n "$node" ] && [ -n "$port" ] || continue
+			process_image_current "naive_${node}" "$naive_file" || return 1
+		done < "$TMP_PATH/node_ports"
+	fi
+	return 0
+}
+
 schedule_full_restart() {
+	local reason=$1
 	rm -f "$READY_FILE"
-	( sleep 2; /etc/init.d/bypass restart >/dev/null 2>&1 ) &
+	# Run the delayed restart from a fresh shell whose command line does not
+	# contain TMP_BIN_PATH. stop() intentionally kills every managed helper
+	# matching that path, which would otherwise kill this reporter mid-restart.
+	nohup /bin/sh -c '
+		sleep 2
+		if /etc/init.d/bypass restart >/dev/null 2>&1; then
+			. /usr/share/bypass/utils.sh
+			log 0 "Bypass restart completed after %s." "$1"
+		else
+			. /usr/share/bypass/utils.sh
+			log 0 "Bypass restart failed after %s; check component logs." "$1"
+		fi
+	' bypass-restart "$reason" >/dev/null 2>&1 &
 	exit 0
 }
 
 binary_baseline=$(runtime_binary_snapshot)
 binary_candidate=""
 binary_change_count=0
+image_mismatch_count=0
 
 last_failed=""
 failure_count=0
@@ -47,6 +75,20 @@ while [ "$(config_t_get global enabled 0)" = "1" ] && [ -f "$READY_FILE" ]; do
 	# keeps recovery reasonably quick while avoiding a busy five-second probe.
 	sleep 15
 	[ -f "$READY_FILE" ] || exit 0
+
+	# Comparing installed files alone can miss an upgrade when this monitor is
+	# itself restarted after opkg/apk has already replaced the path. Compare the
+	# active native process images with the installed inodes as an independent
+	# signal. Require two probes so a multi-package transaction can settle.
+	if runtime_images_current; then
+		image_mismatch_count=0
+	else
+		image_mismatch_count=$((image_mismatch_count + 1))
+		if [ "$image_mismatch_count" -ge 2 ]; then
+			log 0 "A running BypassCore or NaiveProxy image differs from the installed executable; scheduling a full restart."
+			schedule_full_restart "a runtime executable update"
+		fi
+	fi
 
 	# opkg/apk may replace more than one file in a transaction. Require the new
 	# snapshot to remain unchanged for two probes before restarting, which avoids
@@ -63,7 +105,7 @@ while [ "$(config_t_get global enabled 0)" = "1" ] && [ -f "$READY_FILE" ]; do
 		fi
 		if [ "$binary_change_count" -ge 2 ]; then
 			log 0 "Runtime executable update detected; scheduling a full restart."
-			schedule_full_restart
+			schedule_full_restart "a runtime executable update"
 		fi
 	else
 		binary_candidate=""
@@ -116,7 +158,7 @@ while [ "$(config_t_get global enabled 0)" = "1" ] && [ -f "$READY_FILE" ]; do
 	[ "$failure_count" -ge 3 ] || continue
 	log 0 "Process monitor detected an unhealthy %s; scheduling a full restart." "$failed_name"
 	log_component_tail "$failed_name" "$failed_log"
-	schedule_full_restart
+	schedule_full_restart "an unhealthy $failed_name"
 done
 
 exit 0

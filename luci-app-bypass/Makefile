@@ -5,7 +5,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-bypass
-PKG_VERSION:=1.6.0
+PKG_VERSION:=1.7.0
 PKG_RELEASE:=1
 PKG_PO_VERSION:=$(PKG_VERSION)
 PKG_LICENSE:=MIT
@@ -16,8 +16,7 @@ PKG_MAINTAINER:=Eugene Chan
 PKG_CONFIG_DEPENDS:= \
 	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_NaiveProxy \
 	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_Geoview \
-	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_V2ray_Geo \
-	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_Tcping
+	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_V2ray_Geo
 
 LUCI_TITLE:=LuCI support for Bypass (NaiveProxy + BypassCore)
 LUCI_PKGARCH:=all
@@ -47,11 +46,6 @@ config PACKAGE_$(PKG_NAME)_INCLUDE_V2ray_Geo
 	bool "Include v2ray-geoip / v2ray-geosite (geoip.dat / geosite.dat)"
 	select PACKAGE_v2ray-geoip
 	select PACKAGE_v2ray-geosite
-	default n
-
-config PACKAGE_$(PKG_NAME)_INCLUDE_Tcping
-	bool "Include tcping (node latency test)"
-	select PACKAGE_tcping
 	default n
 
 endmenu
