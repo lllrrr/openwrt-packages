@@ -113,12 +113,21 @@ function portsForConnections(connections) {
 	return ports;
 }
 
-function matchesSearch(conn, term) {
+function locationLabel(remoteIp, lookup) {
+	var value;
+	if (typeof lookup !== 'function')
+		return '';
+	try { value = lookup(remoteIp); } catch (e) { value = ''; }
+	return value === null || value === undefined ? '' : String(value);
+}
+
+function matchesSearch(conn, term, lookup) {
 	return [
 		conn && conn.remote_ip,
 		conn && conn.client_ip,
 		conn && conn.remote_port,
-		conn && conn.client_port
+		conn && conn.client_port,
+		locationLabel(conn && conn.remote_ip, lookup)
 	].some(function(value) {
 		if (value === null || value === undefined)
 			return false;
@@ -126,7 +135,12 @@ function matchesSearch(conn, term) {
 	});
 }
 
-function groupsForResponse(response, protocol, search) {
+function connectionRate(value) {
+	var rate = Number(value);
+	return isFinite(rate) && rate > 0 ? rate : 0;
+}
+
+function groupsForResponse(response, protocol, search, locationLookup) {
 	var wanted = protocol === null || protocol === undefined
 		? 'all'
 		: String(protocol).toLowerCase();
@@ -142,7 +156,7 @@ function groupsForResponse(response, protocol, search) {
 		: String(search).trim().toLowerCase();
 	if (term) {
 		filtered = filtered.filter(function(conn) {
-			return matchesSearch(conn, term);
+			return matchesSearch(conn, term, locationLookup);
 		});
 	}
 
@@ -156,10 +170,13 @@ function groupsForResponse(response, protocol, search) {
 		if (!group) {
 			group = {
 				remoteIp: remoteIp,
+				locationLabel: locationLabel(remoteIp, locationLookup),
 				ports: [],
 				portLabel: '',
 				protocolLabel: '',
 				stateLabel: '',
+				txBps: 0,
+				rxBps: 0,
 				count: 0,
 				connections: []
 			};
@@ -167,6 +184,8 @@ function groupsForResponse(response, protocol, search) {
 			groups.push(group);
 		}
 		group.connections.push(conn);
+		group.txBps += connectionRate(conn && conn.tx_bps);
+		group.rxBps += connectionRate(conn && conn.rx_bps);
 	});
 
 	groups.forEach(function(group) {
@@ -179,11 +198,60 @@ function groupsForResponse(response, protocol, search) {
 	return groups;
 }
 
+function sortGroups(groups, sortKey, sortDir) {
+	var key = [
+		'remote_ip', 'location', 'remote_port', 'protocol', 'state', 'tx', 'rx', 'count'
+	].indexOf(sortKey) !== -1 ? sortKey : 'rx';
+	var direction = sortDir === 'asc' ? 'asc' : 'desc';
+	var entries = fmt.asArray(groups).map(function(group, index) {
+		return { group: group, index: index };
+	});
+
+	entries.sort(function(leftEntry, rightEntry) {
+		var left = leftEntry.group || {};
+		var right = rightEntry.group || {};
+		var result = 0;
+
+		if (key === 'remote_ip') {
+			result = fmt.compareText(left.remoteIp, right.remoteIp);
+		} else if (key === 'location') {
+			result = fmt.compareText(left.locationLabel, right.locationLabel);
+		} else if (key === 'remote_port') {
+			var leftPort = left.ports && left.ports.length ? Number(left.ports[0]) : null;
+			var rightPort = right.ports && right.ports.length ? Number(right.ports[0]) : null;
+			if (leftPort === null || rightPort === null) {
+				if (leftPort === null && rightPort !== null) return 1;
+				if (leftPort !== null && rightPort === null) return -1;
+			} else {
+				result = leftPort - rightPort;
+			}
+		} else if (key === 'protocol') {
+			result = fmt.compareText(left.protocolLabel, right.protocolLabel);
+		} else if (key === 'state') {
+			result = fmt.compareText(left.stateLabel, right.stateLabel);
+		} else if (key === 'tx') {
+			result = (Number(left.txBps) || 0) - (Number(right.txBps) || 0);
+		} else if (key === 'count') {
+			result = (Number(left.count) || 0) - (Number(right.count) || 0);
+		} else {
+			result = (Number(left.rxBps) || 0) - (Number(right.rxBps) || 0);
+		}
+
+		if (result)
+			return direction === 'desc' ? -result : result;
+		result = fmt.compareText(left.remoteIp, right.remoteIp);
+		return result || leftEntry.index - rightEntry.index;
+	});
+
+	return entries.map(function(entry) { return entry.group; });
+}
+
 return baseclass.extend({
 	identityFromSearch: identityFromSearch,
 	detailHref: detailHref,
 	formatEndpoint: formatEndpoint,
 	groupsForResponse: groupsForResponse,
+	sortGroups: sortGroups,
 	portSummary: portSummary,
 	stateLabel: stateLabel
 });

@@ -18,7 +18,6 @@ use crate::{
                 AdapterError, AdapterErrorKind, AttachMode, BpfCollectionCheckpoint,
                 BpfPostCommitCleanup, BpfReconfigureTxn, BpfRuntime, ReconfigureRateBaseline,
                 ReconfigureStrategy, SystemAyaAdapter, SystemAyaLink, FALLBACK_OBJECT_PATH,
-                PRIMARY_OBJECT_PATH,
             },
             snapshot::{
                 BpfClientSample, BpfSnapshotCollector, ConnectionCounts, ConnectionOverlay,
@@ -34,6 +33,7 @@ use crate::{
         is_sysdevice_candidate, ConnectionCollectorMode, InterfaceEligibility, RuntimeConfig,
         SysfsInterfaceEligibility,
     },
+    connection_details::ConnectionRateBook,
     connections::{
         apply_conntrack_failure, apply_conntrack_success, before_reply_action,
         client_conntrack_plan, conntrack_source, has_counted_connections, periodic_conntrack_plan,
@@ -102,11 +102,12 @@ struct ProductionRuntime {
     bpf_error: Option<String>,
     nss_error: Option<String>,
     bpf_collector: BpfSnapshotCollector,
-    conntrack_snapshot: Option<CollectedSnapshot>,
+    conntrack_snapshot: Option<Arc<CollectedSnapshot>>,
+    connection_rates: ConnectionRateBook,
     conntrack_observation: ConntrackObservation,
     probe: SystemProbeCollector,
     process_tracker: DaeProcessTracker,
-    probe_report: ProbeReport,
+    probe_report: Arc<ProbeReport>,
     next_probe_ms: u64,
     overview: OverviewRing,
     coverage: CoverageRing,
@@ -125,9 +126,10 @@ struct RuntimeCheckpoint {
     interface_rates: InterfaceRateBook,
     nss_rates: RateBook,
     hostnames: HostnameCache,
-    conntrack_snapshot: Option<CollectedSnapshot>,
+    conntrack_snapshot: Option<Arc<CollectedSnapshot>>,
+    connection_rates: ConnectionRateBook,
     conntrack_observation: ConntrackObservation,
-    probe_report: ProbeReport,
+    probe_report: Arc<ProbeReport>,
     next_probe_ms: u64,
     bpf_error: Option<String>,
     nss_error: Option<String>,
@@ -150,7 +152,7 @@ impl ProductionRuntime {
     ) -> Result<Self, DaemonError> {
         let mut probe = collector::system_collector()
             .map_err(|error| DaemonError::platform(error.to_string()))?;
-        process_tracker.refresh("/proc");
+        process_tracker.refresh_if_due("/proc", production_now_ms()?);
         let mut preflight = probe.collect(&config, &RuntimeHealth::default(), ProbeMethod::Health);
         process_tracker.overlay_report(&mut preflight);
         Ok(Self {
@@ -159,10 +161,11 @@ impl ProductionRuntime {
                 config.active_client_window_ms,
             ),
             conntrack_snapshot: None,
+            connection_rates: ConnectionRateBook::default(),
             conntrack_observation: ConntrackObservation::default(),
             probe,
             process_tracker,
-            probe_report: preflight,
+            probe_report: Arc::new(preflight),
             next_probe_ms: 0,
             nss_rates: RateBook::new(config.max_clients, config.active_client_window_ms),
             hostnames: HostnameCache::new(),
@@ -190,8 +193,14 @@ impl ProductionRuntime {
     }
 
     fn refresh_dae_process_state(&mut self) -> bool {
-        let activity_changed = self.process_tracker.refresh("/proc");
-        self.process_tracker.overlay_report(&mut self.probe_report);
+        let Ok(now_ms) = production_now_ms() else {
+            return false;
+        };
+        let Some(activity_changed) = self.process_tracker.refresh_if_due("/proc", now_ms) else {
+            return false;
+        };
+        self.process_tracker
+            .overlay_report(Arc::make_mut(&mut self.probe_report));
         activity_changed
     }
 
@@ -206,14 +215,13 @@ impl ProductionRuntime {
         if !self.config.enable_bpf || !self.probe_report.facts.tc.safe_attach {
             return Ok(());
         }
-        let mut loaded =
-            match BpfRuntime::load(&mut self.adapter, PRIMARY_OBJECT_PATH, FALLBACK_OBJECT_PATH) {
-                Ok(runtime) => runtime,
-                Err(error) => {
-                    self.bpf_error = Some(error.to_string());
-                    return Ok(());
-                }
-            };
+        let mut loaded = match BpfRuntime::load_byte_only(&mut self.adapter, FALLBACK_OBJECT_PATH) {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                self.bpf_error = Some(error.to_string());
+                return Ok(());
+            }
+        };
         let interfaces = collect_ifnames(&self.config);
         let mode = self.desired_attach_mode();
         if let Err(error) = loaded.attach_interfaces(&mut self.adapter, &interfaces, mode) {
@@ -244,6 +252,7 @@ impl ProductionRuntime {
             nss_rates: self.nss_rates.clone(),
             hostnames: self.hostnames.clone(),
             conntrack_snapshot: self.conntrack_snapshot.clone(),
+            connection_rates: self.connection_rates.clone(),
             conntrack_observation: self.conntrack_observation.clone(),
             probe_report: self.probe_report.clone(),
             next_probe_ms: self.next_probe_ms,
@@ -263,6 +272,7 @@ impl ProductionRuntime {
         self.nss_rates = checkpoint.nss_rates;
         self.hostnames = checkpoint.hostnames;
         self.conntrack_snapshot = checkpoint.conntrack_snapshot;
+        self.connection_rates = checkpoint.connection_rates;
         self.conntrack_observation = checkpoint.conntrack_observation;
         self.probe_report = checkpoint.probe_report;
         self.next_probe_ms = checkpoint.next_probe_ms;
@@ -274,24 +284,31 @@ impl ProductionRuntime {
         &mut self,
         identities: &IdentityTable,
         now_ms: u64,
-    ) -> Result<CollectedSnapshot, String> {
+    ) -> Result<Arc<CollectedSnapshot>, String> {
         match conntrack::collect(
             conntrack_mode(self.config.conn_collector_mode),
             identities,
             now_ms,
             self.config.max_clients,
         ) {
-            Ok(snapshot) => {
+            Ok(mut snapshot) => {
+                self.connection_rates.update(
+                    snapshot.sample_ms,
+                    &snapshot.connection_counters,
+                    &mut snapshot.connection_details,
+                );
                 self.conntrack_observation.record_success(
                     now_ms,
                     snapshot.stats.netlink_read,
                     snapshot.stats.procfs_read,
                 );
-                self.conntrack_snapshot = Some(snapshot.clone());
+                let snapshot = Arc::new(snapshot);
+                self.conntrack_snapshot = Some(Arc::clone(&snapshot));
                 Ok(snapshot)
             }
             Err(error) => {
                 let message = error.to_string();
+                self.connection_rates.clear();
                 self.conntrack_observation
                     .record_failure(now_ms, message.clone(), false, false);
                 self.conntrack_snapshot = None;
@@ -406,7 +423,7 @@ impl ProductionRuntime {
         let mut now_ms = production_now_ms()?;
         let (identities, identity_errors) = read_identities(&self.config, now_ms);
         let mut conntrack = self.conntrack_snapshot.clone();
-        let overlay = connection_overlay(conntrack.as_ref());
+        let overlay = connection_overlay(conntrack.as_deref());
         let freshness_ms = u64::from(self.config.refresh_interval_ms) * 3;
         let (bpf_snapshot, mut runtime_health, bpf_snapshot_fresh) = match external_bpf {
             Some((runtime, adapter)) => {
@@ -481,10 +498,10 @@ impl ProductionRuntime {
         if probe_due(now_ms, self.next_probe_ms, method) {
             let mut report = self.probe.collect(&self.config, &runtime_health, method);
             self.process_tracker.overlay_report(&mut report);
-            self.probe_report = report;
+            self.probe_report = Arc::new(report);
             self.next_probe_ms = probe_deadline(now_ms);
         }
-        let report = self.probe_report.clone();
+        let report = Arc::clone(&self.probe_report);
         let mut decision = policy::select_collectors(&self.config, &report.facts, &runtime_health);
         let direct = if decision.rate == RateCollector::NssEcmDirect || decision.nss_direct_overlay
         {
@@ -527,7 +544,7 @@ impl ProductionRuntime {
                         bpf_snapshot
                             .as_ref()
                             .map(|snapshot| snapshot.clients.as_slice()),
-                        conntrack.as_ref(),
+                        conntrack.as_deref(),
                         &identities,
                         decision.confidence,
                     ),
@@ -762,7 +779,7 @@ impl ProductionRuntime {
         let mut response = ResponseSnapshot::from_responses(
             status, clients, overview, health, reload, interfaces, sysdevices,
         );
-        publish_connection_details(&mut response, conntrack.as_ref());
+        publish_connection_details(&mut response, conntrack.as_deref());
         Ok(response)
     }
 
@@ -960,7 +977,9 @@ impl Runtime for ProductionRuntime {
     }
 
     fn collect(&mut self) -> Result<ResponseSnapshot, DaemonError> {
-        ProductionRuntime::collect(self, ProbeMethod::Status)
+        // collect_and_reschedule owns the hot-cycle transaction. Candidate reload
+        // collection uses ProductionRuntime::collect and keeps its local rollback.
+        self.collect_inner(ProbeMethod::Status, None)
     }
 
     fn shutdown(&mut self) -> Result<(), DaemonError> {
@@ -1074,13 +1093,6 @@ impl App {
                 return Err(error);
             }
         };
-        if let Err(error) = ubus::Method::FIXED
-            .into_iter()
-            .try_for_each(|method| snapshot.response(method).map(|_| ()))
-        {
-            runtime.restore(checkpoint);
-            return Err(error);
-        }
         self.state.publish(Arc::new(snapshot));
         Ok(())
     }

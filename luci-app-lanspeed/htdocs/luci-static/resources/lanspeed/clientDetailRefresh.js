@@ -3,6 +3,9 @@
 'require lanspeed.format as fmt';
 'require lanspeed.clientConnections as clientConnections';
 
+var CONNECTION_PAGE_SIZE = 100;
+var LAZY_DETAIL_THRESHOLD = 32;
+
 function replaceRows(tbody, rows) {
 	var activeRow = document.activeElement;
 	var activeRemoteIp = activeRow && activeRow.parentNode === tbody
@@ -67,6 +70,31 @@ function protocolButton(ref, active) {
 	ref.setAttribute('aria-pressed', active ? 'true' : 'false');
 	ref.className = 'cbi-button lanspeed-connection-protocol' +
 		(active ? ' active' : '');
+}
+
+function refreshSortHeaders(refs, viewState) {
+	Object.keys(refs.sortHeaders || {}).forEach(function(sortKey) {
+		var ref = refs.sortHeaders[sortKey];
+		var active = viewState.sortCustom && viewState.sortKey === sortKey;
+		var sortedColumn = viewState.sortKey === sortKey;
+		var ascending = viewState.sortDir === 'asc';
+		var title;
+		if (!viewState.sortCustom && sortedColumn)
+			title = _('%s：默认排序，点击开始降序排序').format(ref.label);
+		else if (active && ascending)
+			title = _('%s：当前升序，点击恢复默认排序').format(ref.label);
+		else if (active)
+			title = _('%s：当前降序，点击切换为升序').format(ref.label);
+		else
+			title = _('按%s降序排序').format(ref.label);
+
+		ref.th.setAttribute('aria-sort', sortedColumn
+			? (ascending ? 'ascending' : 'descending')
+			: 'none');
+		ref.button.setAttribute('title', title);
+		ref.button.setAttribute('aria-label', title);
+		ref.button.lastChild.textContent = active ? (ascending ? '↑' : '↓') : '';
+	});
 }
 
 function twoDigits(value) {
@@ -159,8 +187,23 @@ function renderClientMeta(ref, client, ips, identityKey) {
 	}
 }
 
+function detailRate(label, arrow, value, unit) {
+	var formatted = fmt.formatRate(value, unit);
+	return E('span', {
+		'class': 'lanspeed-connection-detail-rate',
+		'title': label
+	}, [
+		E('span', { 'aria-hidden': 'true' }, arrow),
+		' ',
+		label,
+		' ',
+		formatted
+	]);
+}
+
 function buildGroupRows(viewState, group) {
 	var expanded = viewState.expanded[group.remoteIp] === true;
+	var unit = viewState.prefs && viewState.prefs.unit;
 	var groupRow = E('tr', {
 		'class': 'lanspeed-connection-group lanspeed-connection-group-row',
 		'data-remote-ip': group.remoteIp,
@@ -172,9 +215,21 @@ function buildGroupRows(viewState, group) {
 			'class': 'lanspeed-connection-target-cell lanspeed-connection-endpoint',
 			'data-label': _('目标 IP')
 		}, group.remoteIp || '-'),
+		E('td', {
+			'class': 'lanspeed-connection-location-cell',
+			'data-label': _('国家/地区')
+		}, group.locationLabel || _('未知')),
 		E('td', { 'data-label': _('目标端口') }, group.portLabel),
 		E('td', { 'data-label': _('协议') }, group.protocolLabel),
 		E('td', { 'data-label': _('状态') }, group.stateLabel),
+		E('td', {
+			'class': 'num lanspeed-connection-rate-cell',
+			'data-label': _('上行')
+		}, fmt.formatRate(group.txBps, unit)),
+		E('td', {
+			'class': 'num lanspeed-connection-rate-cell',
+			'data-label': _('下行')
+		}, fmt.formatRate(group.rxBps, unit)),
 		E('td', { 'data-label': _('连接数') }, String(group.count))
 	]);
 
@@ -182,6 +237,8 @@ function buildGroupRows(viewState, group) {
 		if (event && event.preventDefault) event.preventDefault();
 		expanded = !expanded;
 		viewState.expanded[group.remoteIp] = expanded;
+		if (expanded)
+			ensureDetails();
 		groupRow.setAttribute('aria-expanded', expanded ? 'true' : 'false');
 		detailRow.hidden = !expanded;
 	}
@@ -194,27 +251,42 @@ function buildGroupRows(viewState, group) {
 		groupRow.focus();
 	});
 
-	var details = group.connections.map(function(connection) {
+	function detailItem(connection) {
 		return E('div', { 'class': 'lanspeed-connection-detail-item' }, [
 			E('span', { 'class': 'lanspeed-connection-endpoint' },
 				detailEndpoint(connection)),
-			E('span', {}, [
+			E('span', { 'class': 'lanspeed-connection-detail-meta' }, [
 				directionLabel(connection && connection.direction),
 				' · ',
 				String(connection && connection.protocol || '-').toUpperCase(),
 				' · ',
 				stateLabel(connection && connection.state)
+			]),
+			E('span', { 'class': 'lanspeed-connection-detail-rates' }, [
+				detailRate(_('上行'), '↑', connection && connection.tx_bps, unit),
+				detailRate(_('下行'), '↓', connection && connection.rx_bps, unit)
 			])
 		]);
-	});
+	}
+	var detailList = E('div', { 'class': 'lanspeed-connection-detail-list' });
+	var detailsBuilt = false;
+	function ensureDetails() {
+		if (detailsBuilt) return;
+		detailsBuilt = true;
+		group.connections.forEach(function(connection) {
+			detailList.appendChild(detailItem(connection));
+		});
+	}
 	var detailRow = E('tr', {
 		'class': 'lanspeed-connection-detail-row'
 	}, E('td', {
 		'class': 'lanspeed-connection-detail-cell',
-		'colspan': '5',
+		'colspan': '8',
 		'data-label': _('连接详情')
-	}, E('div', { 'class': 'lanspeed-connection-detail-list' }, details)));
+	}, detailList));
 	detailRow.hidden = !expanded;
+	if (group.connections.length <= LAZY_DETAIL_THRESHOLD || expanded)
+		ensureDetails();
 
 	return [ groupRow, detailRow ];
 }
@@ -246,6 +318,9 @@ function render(viewState) {
 	var ips = orderedClientIps(client && client.ips);
 	var displayName = client && client.hostname || ips[0] ||
 		client && client.mac || viewState.identityKey || '-';
+	var locationLookup = typeof viewState.locationLabelFor === 'function'
+		? function(ip) { return viewState.locationLabelFor(ip); }
+		: null;
 
 	refs.clientName.textContent = displayName;
 	renderClientMeta(refs.clientMeta, client, ips, viewState.identityKey);
@@ -264,15 +339,33 @@ function render(viewState) {
 	}
 
 	var allGroups = usable
-		? clientConnections.groupsForResponse(response, 'all', '') : [];
+		? clientConnections.groupsForResponse(response, 'all', '', locationLookup) : [];
 	var present = Object.create(null);
 	allGroups.forEach(function(group) { present[group.remoteIp] = true; });
 	Object.keys(viewState.expanded || {}).forEach(function(remoteIp) {
 		if (!present[remoteIp]) delete viewState.expanded[remoteIp];
 	});
 	var groups = usable
-		? clientConnections.groupsForResponse(response, viewState.protocol, viewState.filter)
+		? clientConnections.groupsForResponse(
+			response, viewState.protocol, viewState.filter, locationLookup)
 		: [];
+	groups = clientConnections.sortGroups(groups, viewState.sortKey, viewState.sortDir);
+	var pageSize = Number(viewState.pageSize);
+	if (!isFinite(pageSize) || pageSize < 1)
+		pageSize = CONNECTION_PAGE_SIZE;
+	pageSize = Math.max(1, Math.floor(pageSize));
+	var pageCount = groups.length ? Math.ceil(groups.length / pageSize) : 1;
+	var page = Number(viewState.page);
+	if (!isFinite(page) || page < 0)
+		page = 0;
+	page = Math.min(Math.floor(page), pageCount - 1);
+	viewState.page = page;
+	var pageGroups = groups.slice(page * pageSize, (page + 1) * pageSize);
+	if (typeof viewState.requestLocations === 'function') {
+		viewState.requestLocations(pageGroups.map(function(group) {
+			return group.remoteIp;
+		}));
+	}
 
 	refs.summaryTargets.textContent = usable
 		? (response.truncated ? _('至少 ') : '') + String(allGroups.length)
@@ -282,7 +375,7 @@ function render(viewState) {
 	refs.summaryUpdated.textContent = updatedAtLabel(viewState.updatedAt);
 
 	var rows = [];
-	groups.forEach(function(group) {
+	pageGroups.forEach(function(group) {
 		rows = rows.concat(buildGroupRows(viewState, group));
 	});
 	replaceRows(refs.tbody, rows);
@@ -313,8 +406,16 @@ function render(viewState) {
 	protocolButton(refs.protocolAll, viewState.protocol === 'all');
 	protocolButton(refs.protocolTcp, viewState.protocol === 'tcp');
 	protocolButton(refs.protocolUdp, viewState.protocol === 'udp');
+	refreshSortHeaders(refs, viewState);
 	refs.filter.value = viewState.filter || '';
 	refs.refresh.disabled = viewState.loading === true;
+	if (refs.pager) {
+		refs.pagePrev.disabled = page <= 0 || !usable || viewState.loading === true;
+		refs.pageNext.disabled = page >= pageCount - 1 || !usable || viewState.loading === true;
+		refs.pageStatus.textContent = usable && groups.length
+			? String(page + 1) + ' / ' + String(pageCount) : '—';
+		refs.pager.hidden = !usable || pageCount <= 1;
+	}
 
 	var interval = viewState.prefs && viewState.prefs.refreshMs;
 	var footer = [];
@@ -326,11 +427,14 @@ function render(viewState) {
 				Number(response.total_connections) || 0));
 			if (response.truncated)
 				footer.push(_('连接较多，仅显示前 %d 条').format(Number(response.limit) || 0));
+			if (response.truncated)
+				footer.push(_('分组速率仅汇总已显示连接'));
 		}
 		if (warnings.length)
 			footer.push(_('告警：') + warnings.map(warningLabel).join('，'));
 	}
 	footer.push(_('每 %s 秒自动刷新').format(String(Math.round(Number(interval) / 100) / 10)));
+	footer.push(_('国家/地区及中国省份按 IP 推测，由浏览器查询并缓存，结果可能不准确'));
 	refs.footer.textContent = footer.join(' · ');
 }
 

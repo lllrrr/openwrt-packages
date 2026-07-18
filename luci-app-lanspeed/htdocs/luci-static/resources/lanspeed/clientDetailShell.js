@@ -5,6 +5,34 @@
 
 function buildShell(viewState) {
 	var refs = {};
+	refs.sortHeaders = {};
+
+	var sortableHeader = function(sortKey, label, attrs) {
+		var thAttrs = Object.assign({
+			'scope': 'col',
+			'aria-sort': 'none'
+		}, attrs || {});
+		var button = E('button', {
+			'type': 'button',
+			'class': 'lanspeed-sort-button'
+		}, [
+			E('span', { 'class': 'lanspeed-sort-label' }, label),
+			E('span', {
+				'class': 'lanspeed-sort-indicator',
+				'aria-hidden': 'true'
+			}, '')
+		]);
+		var th = E('th', thAttrs, button);
+		refs.sortHeaders[sortKey] = {
+			th: th,
+			button: button,
+			label: label
+		};
+		button.addEventListener('click', function() {
+			viewState.setSort(sortKey);
+		});
+		return th;
+	};
 
 	refs.back = E('button', {
 		'type': 'button',
@@ -137,7 +165,7 @@ function buildShell(viewState) {
 		'type': 'search',
 		'class': 'cbi-input-text lanspeed-connection-filter-input',
 		'aria-label': _('搜索连接'),
-		'placeholder': _('搜索目标 IP 或端口')
+		'placeholder': _('搜索目标 IP、端口或国家/地区')
 	});
 	refs.filter.addEventListener('input', function(ev) {
 		viewState.setFilter(ev.target.value);
@@ -149,6 +177,34 @@ function buildShell(viewState) {
 	refs.refresh.addEventListener('click', function() {
 		viewState.reload();
 	});
+	refs.pagePrev = E('button', {
+		'type': 'button',
+		'class': 'cbi-button lanspeed-connection-page-button',
+		'title': _('上一页'),
+		'aria-label': _('上一页')
+	}, '‹');
+	refs.pagePrev.addEventListener('click', function() {
+		viewState.setPage(-1);
+	});
+	refs.pageStatus = E('span', {
+		'class': 'lanspeed-connection-page-status',
+		'aria-live': 'polite'
+	}, '—');
+	refs.pageNext = E('button', {
+		'type': 'button',
+		'class': 'cbi-button lanspeed-connection-page-button',
+		'title': _('下一页'),
+		'aria-label': _('下一页')
+	}, '›');
+	refs.pageNext.addEventListener('click', function() {
+		viewState.setPage(1);
+	});
+	refs.pager = E('div', {
+		'class': 'lanspeed-connection-pager',
+		'hidden': 'hidden',
+		'role': 'navigation',
+		'aria-label': _('连接分页')
+	}, [ refs.pagePrev, refs.pageStatus, refs.pageNext ]);
 
 	var toolbar = E('div', {
 		'class': 'lanspeed-toolbar lanspeed-connection-toolbar'
@@ -181,11 +237,14 @@ function buildShell(viewState) {
 		'aria-label': _('客户端连接列表')
 	}, [
 		E('thead', {}, E('tr', {}, [
-			E('th', { 'scope': 'col' }, _('目标 IP')),
-			E('th', { 'scope': 'col' }, _('目标端口')),
-			E('th', { 'scope': 'col' }, _('协议')),
-			E('th', { 'scope': 'col' }, _('状态')),
-			E('th', { 'scope': 'col' }, _('连接数'))
+			sortableHeader('remote_ip', _('目标 IP')),
+			sortableHeader('location', _('国家/地区')),
+			sortableHeader('remote_port', _('目标端口')),
+			sortableHeader('protocol', _('协议')),
+			sortableHeader('state', _('状态')),
+			sortableHeader('tx', _('上行'), { 'class': 'num' }),
+			sortableHeader('rx', _('下行'), { 'class': 'num' }),
+			sortableHeader('count', _('连接数'), { 'class': 'num' })
 		])),
 		refs.tbody
 	]);
@@ -198,17 +257,18 @@ function buildShell(viewState) {
 	refs.footer = E('p', {
 		'class': 'lanspeed-connection-footer',
 		'aria-live': 'polite'
-	}, _('连接数据加载后会显示来源和刷新间隔。'));
+	}, _('连接数据加载后会显示来源、刷新间隔和 IP 位置说明。'));
 
 	var connectionsCard = E('div', {
 		'class': 'cbi-section lanspeed-connections-card'
 	}, [
 		E('div', { 'class': 'lanspeed-header' }, E('h3', {}, _('当前连接'))),
-		E('div', { 'class': 'lanspeed-body' }, [
-			toolbar,
-			refs.table,
-			refs.empty,
-			refs.footer
+			E('div', { 'class': 'lanspeed-body' }, [
+				toolbar,
+				refs.table,
+				refs.pager,
+				refs.empty,
+				refs.footer
 		])
 	]);
 

@@ -552,7 +552,6 @@ return view.extend({ // 继承view
       // ==========================================
       'M_BAK_ING_TIT': _('Backing up'),
       'M_BAK_ING_MSG': _('Precisely packing %s config and generating download, please wait...'),
-      'M_BAK_SUCC_TIT': _('Backup Successful'),
       'M_BAK_SUCC_MSG': _('The file contains core assets and is downloading in the background. Please check your browser!'),
       'M_BAK_FAIL_TIT': _('Backup Failed'),
       'M_BAK_FAIL_MSG': _('Config not found or packaging error. Please check if the plugin is installed.'),
@@ -575,6 +574,7 @@ return view.extend({ // 继承view
       'M_RST_SUCC_MSG': _('%s config file has been restored and reloaded!'),
       'M_RST_FAIL_TIT': _('Restore Failed'),
       'M_RST_FAIL_MSG': _('Failed to extract or restart service.'),
+      'M_RELOAD': _('Reload Page'),
 
       // ==========================================
       // 网络与报错相关
@@ -586,10 +586,16 @@ return view.extend({ // 继承view
       'M_UPL_FAIL_STAT': _('Upload failed: %s'),
       'M_SYS_ERR': _('Error'),
       'M_RST_NET_ERR': _('Network Error'),
-      'M_RST_NET_INTR': _('Network connection unexpectedly interrupted!')
+      'M_RST_NET_INTR': _('Network connection unexpectedly interrupted!'),
+
+      'M_FMT_ERR_TIT': _('Format Error'),
+      'M_FMT_ERR_MSG': _('Please upload a valid .tar.gz backup file!'),
+      'M_WARN_TIT': _('Warning'),
+      'M_WARN_MSG': _('The selected file does not seem to belong to %s.<br>File name: %f<br>Are you sure you want to continue?'),
+      'BTN_FORCE_RST': _('Force Restore'),
    },
 
-    // 2. HTML 结构
+   // 2. HTML 结构
    html: `
    <link rel="stylesheet" type="text/css" href="{{CSS_URL}}">
    <style>
