@@ -2,6 +2,8 @@
 'require baseclass';
 'require rpc';
 'require ui';
+'require qddns.theme as qddnsTheme';
+'require qddns.themeStyle as qddnsThemeStyle';
 
 const callOverview = rpc.declare({ object: 'qddns', method: 'get_overview', expect: {} });
 const callRules = rpc.declare({ object: 'qddns', method: 'list_rules', expect: {} });
@@ -9,13 +11,13 @@ const callSources = rpc.declare({ object: 'qddns', method: 'list_sources', expec
 const callInterfaces = rpc.declare({ object: 'qddns', method: 'list_interfaces', expect: {} });
 const callDhcpv6Leases = rpc.declare({ object: 'qddns', method: 'list_dhcpv6_leases', params: ['mode'], expect: {} });
 const callProbeSource = rpc.declare({ object: 'qddns', method: 'probe_source', params: ['id'], expect: {} });
-const callProbeRuleSource = rpc.declare({ object: 'qddns', method: 'probe_rule_source', params: ['id'], expect: {} });
-const callProbeSourceDraft = rpc.declare({ object: 'qddns', method: 'probe_source_draft', params: ['name', 'type', 'family', 'address', 'interface', 'duid', 'iaid', 'mac', 'lease_file', 'hostname_hint', 'prefix_filter', 'probe_url', 'probe_interface'], expect: {} });
-const callProbeSourceForRuleDraft = rpc.declare({ object: 'qddns', method: 'probe_source_for_rule_draft', params: ['source', 'probe_interface'], expect: {} });
+const callProbeSourceDraft = rpc.declare({ object: 'qddns', method: 'probe_source_draft', params: ['name', 'type', 'family', 'address', 'interface', 'duid', 'iaid', 'mac', 'lease_file', 'hostname_hint', 'prefix_filter', 'probe_url'], expect: {} });
 const callRunRule = rpc.declare({ object: 'qddns', method: 'run_rule', params: ['id'], expect: {} });
 const callGetLogs = rpc.declare({ object: 'qddns', method: 'get_logs', params: ['scope'], expect: {} });
 const callGetRuleStatus = rpc.declare({ object: 'qddns', method: 'get_rule_status', params: ['id'], expect: {} });
 const QDDNS_COMMON_STYLE_ID = 'qddns-common-style';
+const QDDNS_THEME_STYLE_ID = 'qddns-theme-style';
+const QDDNS_THEME_STYLE = qddnsThemeStyle.CSS;
 const QDDNS_COMMON_STYLE = [
 	':root{',
 		'--qddns-space-1:0.25rem;',
@@ -42,7 +44,7 @@ const QDDNS_COMMON_STYLE = [
 		'--qddns-cell-wide:14rem;',
 		'--qddns-lease-meta-label:5.5rem;',
 	'}',
-	'.qddns-panel{margin-bottom:var(--qddns-space-4);padding:var(--qddns-space-4);border:1px solid var(--qddns-border);border-radius:var(--qddns-radius-md);background:var(--qddns-surface)}',
+	'.qddns-panel{box-sizing:border-box;margin-bottom:var(--qddns-space-4);padding:var(--qddns-space-4);border:1px solid var(--qddns-border);border-radius:var(--qddns-radius-md);background:var(--qddns-surface)}',
 	'.qddns-page-header{display:grid;gap:var(--qddns-space-3)}',
 	'.qddns-page-title{margin:0;font-size:1.35rem;font-weight:700;line-height:1.3}',
 	'.qddns-page-desc{margin:0;line-height:1.5;opacity:0.78}',
@@ -78,8 +80,9 @@ const QDDNS_COMMON_STYLE = [
 		'.qddns-wide-form .cbi-section-table input[type="checkbox"]{min-width:auto}',
 		'.qddns-lease-results{display:grid;justify-items:stretch;gap:var(--qddns-space-2);width:100%;max-width:100%;min-width:0;text-align:left}',
 		'.qddns-lease-list{display:grid;justify-items:stretch;gap:var(--qddns-space-2);width:100%;max-width:100%;min-width:0}',
-		'.qddns-lease-card{appearance:none;box-sizing:border-box;display:grid;align-items:start;justify-items:stretch;justify-content:stretch;gap:var(--qddns-space-2);width:100%!important;min-width:0;margin:0;padding:var(--qddns-space-3);border:1px solid var(--qddns-border);border-radius:var(--qddns-radius-sm);background:var(--qddns-surface);color:inherit;font:inherit;line-height:1.35;text-align:left!important;text-transform:none;cursor:pointer}',
+		'.qddns-lease-card{appearance:none;box-sizing:border-box;display:grid;align-items:start;justify-items:stretch;justify-content:stretch;gap:var(--qddns-space-2);width:100%!important;height:auto;min-height:0;min-width:0;margin:0;padding:var(--qddns-space-3);border:1px solid var(--qddns-border);border-radius:var(--qddns-radius-sm);background:var(--qddns-surface);color:inherit;font:inherit;line-height:1.35;text-align:left!important;text-transform:none;cursor:pointer}',
 		'.qddns-lease-card:hover,.qddns-lease-card:focus,.qddns-lease-card.is-selected{border-color:currentColor;background:var(--qddns-surface-strong)}',
+		'.qddns-lease-card:focus-visible{outline:2px solid currentColor;outline-offset:2px}',
 		'.qddns-lease-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:var(--qddns-space-2);width:100%;justify-self:stretch;min-width:0;text-align:left}',
 		'.qddns-lease-title{justify-self:start;min-width:0;font-weight:600;text-align:left;overflow-wrap:anywhere}',
 		'.qddns-lease-action{justify-self:end;max-width:100%;padding:0.1rem 0.4rem;border-radius:999px;background:var(--qddns-surface-strong);font-size:0.9em;line-height:1.35;opacity:0.85;text-align:center;white-space:nowrap}',
@@ -87,6 +90,8 @@ const QDDNS_COMMON_STYLE = [
 		'.qddns-lease-meta-item{display:grid;grid-template-columns:minmax(var(--qddns-lease-meta-label),max-content) minmax(0,1fr);gap:var(--qddns-space-1);width:100%;justify-self:stretch;min-width:0;text-align:left;overflow-wrap:break-word;word-break:normal}',
 		'.qddns-lease-meta-label{min-width:var(--qddns-lease-meta-label);opacity:0.72}',
 		'.qddns-lease-meta-value{min-width:0;overflow-wrap:anywhere;word-break:normal;white-space:pre-wrap;text-align:left}',
+		'.qddns-modal-meta{display:grid;gap:var(--qddns-space-2);margin-bottom:var(--qddns-space-4)}',
+		'.qddns-modal-meta p{margin:0}',
 		'@media (max-width: 768px){',
 			':root{--qddns-table-min:48rem;--qddns-form-table-min:64rem}',
 			'.qddns-panel{padding:var(--qddns-space-3)}',
@@ -99,6 +104,41 @@ function normalizeList(items) {
 
 function isElement(node, tagName) {
 	return node && node.nodeType === 1 && node.tagName && node.tagName.toLowerCase() === tagName;
+}
+
+function tableHeaderLabel(header) {
+	if (header == null)
+		return '';
+	if (typeof header == 'string' || typeof header == 'number')
+		return String(header);
+	if (header.textContent)
+		return String(header.textContent).trim();
+	return '';
+}
+
+function decorateTableCell(cell, header) {
+	const node = isElement(cell, 'td') ? cell : E('td', {}, Array.isArray(cell) ? cell : [cell]);
+
+	node.classList.add('td');
+	if (!node.hasAttribute('data-title'))
+		node.setAttribute('data-title', tableHeaderLabel(header));
+
+	return node;
+}
+
+function decorateTableRow(row, headers) {
+	row.classList.add('tr', 'qddns-table-row');
+
+	let cellIndex = 0;
+	for (let index = 0; index < row.children.length; index++) {
+		if (!isElement(row.children[index], 'td'))
+			continue;
+
+		decorateTableCell(row.children[index], headers[cellIndex]);
+		cellIndex++;
+	}
+
+	return row;
 }
 
 function statusLabel(status) {
@@ -151,7 +191,6 @@ return baseclass.extend({
 	listInterfaces: callInterfaces,
 	listDhcpv6Leases: callDhcpv6Leases,
 	probeSource: callProbeSource,
-	probeRuleSource: callProbeRuleSource,
 	probeSourceDraft: function(source) {
 		source = source || {};
 		return callProbeSourceDraft(
@@ -166,12 +205,8 @@ return baseclass.extend({
 			source.leaseFile || source.lease_file || '',
 			source.hostnameHint || source.hostname_hint || '',
 			source.prefixFilter || source.prefix_filter || '',
-			source.probeUrl || source.probe_url || '',
-			source.probeInterface || source.probe_interface || ''
+			source.probeUrl || source.probe_url || ''
 		);
-	},
-	probeSourceForRuleDraft: function(sourceId, probeInterface) {
-		return callProbeSourceForRuleDraft(sourceId || '', probeInterface || '');
 	},
 	runRule: callRunRule,
 	getLogs: callGetLogs,
@@ -192,10 +227,18 @@ return baseclass.extend({
 	},
 
 	ensureCommonStyle: function() {
-		if (document.getElementById(QDDNS_COMMON_STYLE_ID))
-			return;
+		if (!document.getElementById(QDDNS_COMMON_STYLE_ID))
+			document.head.appendChild(E('style', { id: QDDNS_COMMON_STYLE_ID }, [QDDNS_COMMON_STYLE]));
 
-		document.head.appendChild(E('style', { id: QDDNS_COMMON_STYLE_ID }, [QDDNS_COMMON_STYLE]));
+		if (!document.getElementById(QDDNS_THEME_STYLE_ID))
+			document.head.appendChild(E('style', { id: QDDNS_THEME_STYLE_ID }, [QDDNS_THEME_STYLE]));
+
+		qddnsTheme.sync(document);
+	},
+
+	applyTheme: function(root) {
+		this.ensureCommonStyle();
+		return qddnsTheme.applyRoot(root, document);
 	},
 
 	normalizeRulesData: function(data) {
@@ -332,8 +375,18 @@ return baseclass.extend({
 		]);
 	},
 
+	showModal: function(title, nodes, className) {
+		ui.showModal(title, nodes, className);
+
+		const modal = document.querySelector('#modal_overlay > .modal');
+		if (modal)
+			this.applyTheme(modal);
+
+		return modal;
+	},
+
 	showFailureModal: function(title, result, fallback) {
-		ui.showModal(title, [
+		this.showModal(title, [
 			E('div', { class: 'qddns-feedback qddns-feedback-negative' }, [
 				E('strong', {}, _('Request failed')),
 				E('p', {}, this.extractResultMessage(result, fallback))
@@ -343,7 +396,7 @@ return baseclass.extend({
 	},
 
 	showInfoModal: function(title, nodes) {
-		ui.showModal(title, nodes.concat([this.renderModalClose()]));
+		this.showModal(title, nodes.concat([this.renderModalClose()]));
 	},
 
 	handleReadAction: function(button, title, handler, onSuccess, fallback) {
@@ -413,25 +466,25 @@ return baseclass.extend({
 		const tableRows = normalizeList(rows);
 		const tableChildren = [
 			E('tr', { class: 'tr cbi-section-table-titles' }, headers.map(function(header) {
-				return E('th', {}, header);
+				return E('th', { class: 'th', scope: 'col' }, header);
 			}))
 		];
 
 		if (tableRows.length) {
 			tableRows.forEach(function(row) {
 				if (isElement(row, 'tr')) {
-					tableChildren.push(row);
+					tableChildren.push(decorateTableRow(row, headers));
 					return;
 				}
 
 				const cells = Array.isArray(row) ? row : [row];
-				tableChildren.push(E('tr', {}, cells.map(function(cell) {
-					return isElement(cell, 'td') ? cell : E('td', {}, Array.isArray(cell) ? cell : [cell]);
+				tableChildren.push(E('tr', { class: 'tr qddns-table-row' }, cells.map(function(cell, index) {
+					return decorateTableCell(cell, headers[index]);
 				})));
 			});
 		} else {
-			tableChildren.push(E('tr', {}, [
-				E('td', { colspan: headers.length, class: 'qddns-empty-cell' }, emptyText)
+			tableChildren.push(E('tr', { class: 'tr qddns-table-row qddns-table-row-empty' }, [
+				E('td', { colspan: headers.length, class: 'td qddns-empty-cell' }, emptyText)
 			]));
 		}
 

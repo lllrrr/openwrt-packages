@@ -6,10 +6,11 @@
 const QDDNS_STYLE_ID = 'qddns-overview-style';
 const QDDNS_STYLE = [
 	'.qddns-dashboard{margin-bottom:var(--qddns-space-5)}',
-	'.qddns-dashboard .qddns-panel,.qddns-dashboard .qddns-card{margin-bottom:var(--qddns-space-4)}',
+	'.qddns-dashboard>.qddns-panel{margin-bottom:var(--qddns-space-4)}',
 	'.qddns-cards{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:var(--qddns-space-3)}',
+	'.qddns-cards .qddns-card{margin-bottom:0}',
 	'.qddns-card{padding:var(--qddns-space-4);border:1px solid var(--qddns-border);border-radius:var(--qddns-radius-md);background:var(--qddns-surface);display:flex;flex-direction:column;gap:var(--qddns-space-2);min-height:6rem;justify-content:center}',
-	'.qddns-card-label{font-size:0.75rem;letter-spacing:0;opacity:0.72;text-transform:none}',
+	'.qddns-card-label{font-size:0.75rem;opacity:0.72}',
 	'.qddns-card-value{font-size:1.5rem;font-weight:600;line-height:1.3;word-break:break-word}',
 	'.qddns-ip-synced{display:inline-flex;align-items:center;gap:var(--qddns-space-2);white-space:nowrap}',
 	'.qddns-ip-synced .qddns-badge{font-size:0.7rem;padding:0 var(--qddns-space-2)}',
@@ -22,6 +23,9 @@ const QDDNS_STYLE = [
 		'.qddns-card{padding:var(--qddns-space-3)}',
 		'.qddns-card-value{font-size:1.25rem}',
 		'.qddns-cards{grid-template-columns:repeat(2,minmax(0,1fr))}',
+	'}',
+	'@media (max-width: 480px){',
+		'.qddns-cards{grid-template-columns:1fr}',
 	'}'
 ].join('');
 
@@ -113,7 +117,6 @@ return view.extend({
 
 	renderOverviewCards: function(overview) {
 		const status = overview.status || {};
-		const enabled = overview.main?.enabled;
 		const rulesText = '%s / %s'.format(String(status.enabled_rules || 0), String(status.rules || 0));
 		const cards = [
 			{ label: _('Daemon'), value: qddns.renderStatusBadge(status.running ? _('Running') : _('Stopped'), null, status.running ? 'running' : 'stopped') },
@@ -177,11 +180,11 @@ return view.extend({
 	renderDashboard: function(data) {
 		this.ensureDashboardStyle();
 
-		return E('div', { id: 'qddns-dashboard', class: 'qddns-dashboard' }, [
+		return qddns.applyTheme(E('div', { id: 'qddns-dashboard', class: 'qddns-dashboard' }, [
 			this.renderDashboardIntro(),
 			this.renderOverviewCards(data || {}),
 			this.renderRecentResults(data || {})
-		]);
+		]));
 	},
 
 	render: function(data) {

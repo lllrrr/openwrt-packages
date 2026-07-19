@@ -140,7 +140,7 @@ return view.extend({
 		}, this))[0];
 		const currentLabel = currentChoice ? currentChoice.label : _('System Logs');
 
-		return E('div', { id: 'qddns-logs-page' }, [
+		return qddns.applyTheme(E('div', { id: 'qddns-logs-page', class: 'qddns-logs-page' }, [
 			qddns.renderPageHeader({
 				title: _('Logs'),
 				description: _('Review system logs or switch to a saved rule scope below. This page is read-only and does not expose rule execution or status actions.')
@@ -152,7 +152,7 @@ return view.extend({
 			]),
 			this.renderLogEntries(),
 			this.renderLogContent()
-		]);
+		]));
 	},
 
 	render: function(data) {
