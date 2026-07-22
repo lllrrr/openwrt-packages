@@ -382,7 +382,7 @@ return view.extend({
 				btn.disabled = true;
 				btn.textContent = _('Detecting...');
 				self.applyTempUci().then(function() {
-					return callCheckNetwork();
+					return utils.rpcWithRetry(callCheckNetwork, { retries: 3 });
 				}).then(function(result) {
 					self.applyDetectedNetwork(result);
 					var detectedValue = options.valueFromResult ? options.valueFromResult(result || {}) : '';
@@ -569,19 +569,19 @@ return view.extend({
 
 			self.applyTempUci().then(function() {
 				if (self.wizardMode === 'auto') {
-					return callSetupInterface().then(function() {
-						return callFixZone();
+					return utils.rpcWithRetry(callSetupInterface).then(function() {
+						return utils.rpcWithRetry(callFixZone);
 					});
 				}
 				}).then(function() {
-					return callCheckNetwork();
+					return utils.rpcWithRetry(callCheckNetwork, { retries: 3 });
 				}).then(function(result) {
 					self.pingResult = result;
 					self.applyDetectedNetwork(result);
 					if (result && result.error) {
 						pingResultDiv.innerHTML = '<span class="ubr-text-danger">&#10008; ' + _('Network check error: ') + result.error + '</span>';
 						return;
-				}
+					}
 				if (result && result.gateway_reachable === 1) {
 					pingResultDiv.innerHTML = '<span class="ubr-text-success">&#10004; ' + _('Ping to gateway successful') + '</span>';
 				} else {
@@ -610,19 +610,19 @@ return view.extend({
 
 			self.applyTempUci().then(function() {
 				if (self.wizardMode === 'auto') {
-					return callSetupInterface().then(function() {
-						return callFixZone();
+					return utils.rpcWithRetry(callSetupInterface).then(function() {
+						return utils.rpcWithRetry(callFixZone);
 					});
 				}
 				}).then(function() {
-					return callCheckNetwork();
+					return utils.rpcWithRetry(callCheckNetwork, { retries: 3 });
 				}).then(function(result) {
 					self.upnpcResult = result;
 					self.applyDetectedNetwork(result);
 					if (result && result.error) {
 						upnpcResultDiv.innerHTML = '<span class="ubr-text-danger">&#10008; ' + _('UPnP check error: ') + result.error + '</span>';
 						return;
-				}
+					}
 				if (result && result.upnpc_readable === 1) {
 					var count = result.upnpc_mapping_count || 0;
 					upnpcResultDiv.innerHTML = '<span class="ubr-text-success">&#10004; ' + _('UPnP IGD discovered, %d mapping(s) found').format(count) + '</span>';
@@ -996,9 +996,9 @@ return view.extend({
 			uci.set('upnp_nat_relay', 'main', 'downstream_wan_ip', self.wizardData.downstream_wan_ip);
 		if (self.wizardData.upstream_wan_if)
 			uci.set('upnp_nat_relay', 'main', 'upstream_wan_if', self.wizardData.upstream_wan_if);
-		return uci.save().then(function() {
-			return utils.safeApply();
-		});
+		return utils.rpcWithRetry(function() { return uci.save(); }).then(function() {
+		return utils.rpcWithRetry(utils.safeApply);
+	});
 	},
 
 	validateIp: function(value) {
@@ -1038,22 +1038,22 @@ return view.extend({
 		uci.set('upnp_nat_relay', 'main', 'openclash_mode', self.wizardData.openclash_mode);
 		uci.set('upnp_nat_relay', 'main', 'enabled', self.wizardData.enabled);
 
-		return uci.save()
+		return utils.rpcWithRetry(function() { return uci.save(); })
 			.then(function() {
-				return utils.safeApply();
+				return utils.rpcWithRetry(utils.safeApply);
 			})
 			.then(function() {
 				if (self.wizardMode === 'auto') {
-					return callSetupInterface().then(function() {
-						return callFixZone();
+					return utils.rpcWithRetry(callSetupInterface).then(function() {
+						return utils.rpcWithRetry(callFixZone);
 					}).then(function() {
 						if (self.wizardData.openclash_mode === 'auto') {
-							return callSetupOpenclash();
+							return utils.rpcWithRetry(callSetupOpenclash);
 						}
 					}).then(function() {
 						if (self.wizardData.enabled === '1') {
-							return initAction('enable').then(function() {
-								return initAction('start');
+							return utils.rpcWithRetry(function() { return initAction('enable'); }).then(function() {
+								return utils.rpcWithRetry(function() { return initAction('start'); });
 							});
 						}
 					});

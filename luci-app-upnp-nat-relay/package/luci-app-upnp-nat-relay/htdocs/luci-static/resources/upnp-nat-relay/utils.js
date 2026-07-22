@@ -72,6 +72,38 @@ function requireSuccess(result) {
 	return result || {};
 }
 
+function isTransientXhrError(e) {
+	var msg = e && e.message ? e.message : String(e);
+	/* LuCI throws these when iOS WebKit / mobile Edge aborts an in-flight
+	 * XHR (background throttling, network hiccup, page visibility changes).
+	 * They are not real server-side failures and usually succeed on retry.
+	 */
+	return /aborted by browser|XHR request timed out|NetworkError|Failed to fetch/i.test(msg);
+}
+
+function rpcWithRetry(fn, options) {
+	options = options || {};
+	var retries = options.retries != null ? options.retries : 2;
+	var delay = options.delay != null ? options.delay : 800;
+
+	function attempt(remaining) {
+		return Promise.resolve()
+			.then(fn)
+			.catch(function(e) {
+				if (remaining > 0 && isTransientXhrError(e)) {
+					return new Promise(function(resolve) {
+						window.setTimeout(resolve, delay);
+					}).then(function() {
+						return attempt(remaining - 1);
+					});
+				}
+				throw e;
+			});
+	}
+
+	return attempt(retries);
+}
+
 function loadSharedCSS() {
 	if (!document.getElementById('ubr-shared-css')) {
 		var link = E('link', {
@@ -182,6 +214,8 @@ return baseclass.extend({
 	reloadSoon: reloadSoon,
 	waitForServiceReady: waitForServiceReady,
 	requireSuccess: requireSuccess,
+	rpcWithRetry: rpcWithRetry,
+	isTransientXhrError: isTransientXhrError,
 	loadSharedCSS: loadSharedCSS,
 	renderFooter: renderFooter,
 	appendFooter: appendFooter,
