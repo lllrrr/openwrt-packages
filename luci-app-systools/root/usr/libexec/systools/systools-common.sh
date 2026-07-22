@@ -103,8 +103,8 @@ backup_file() {
     local file="$1"
     local backup_suffix="${2:-.bak.$(date +%Y%m%d_%H%M%S)}"
     
-    if [ -f "file" ]; then
-        cp -a "file" "${file}${backup_suffix}"
+    if [ -f "$file" ]; then
+        cp -a "$file" "${file}${backup_suffix}"
         return 0
     fi
     return 1
@@ -122,26 +122,26 @@ set_json_field() {
     local value="$3"
     
     # 确保目录存在
-    mkdir -p "$(dirname "file")"
+    mkdir -p "$(dirname "$file")"
     
     # 先备份原文件
-    if [ -f "file" ]; then
-        backup_file "file" ".bak.json"
+    if [ -f "$file" ]; then
+        backup_file "$file" ".bak.json"
     fi
     
     # 优先使用 jq（如果存在）
     if command_exists jq; then
-        if [ -f "file" ]; then
+        if [ -f "$file" ]; then
             # 文件存在，用 jq 修改
-            jq ".\"${field}\" = \"${value}\"" "file" > "${file}.tmp" 2>/dev/null
+            jq ".\"${field}\" = \"${value}\"" "$file" > "${file}.tmp" 2>/dev/null
             if [ $? -eq 0 ]; then
-                mv "${file}.tmp" "file"
+                mv "${file}.tmp" "$file"
                 return 0
             fi
             rm -f "${file}.tmp"
         else
             # 文件不存在，用 jq 创建
-            echo "{}" | jq ".\"${field}\" = \"${value}\"" > "file" 2>/dev/null
+            echo "{}" | jq ".\"${field}\" = \"${value}\"" > "$file" 2>/dev/null
             if [ $? -eq 0 ]; then
                 return 0
             fi
@@ -149,18 +149,18 @@ set_json_field() {
     fi
     
     # jq 不可用，使用 sed 兜底
-    if [ -f "file" ]; then
+    if [ -f "$file" ]; then
         # 文件存在，检查字段是否已存在
-        if grep -q "\"${field}\"" "file" 2>/dev/null; then
+        if grep -q "\"${field}\"" "$file" 2>/dev/null; then
             # 字段存在，替换值
-            sed -i "s|\"${field}\": *\"[^\"]*\"|\"${field}\": \"${value}\"|" "file" 2>/dev/null
+            sed -i "s|\"${field}\": *\"[^\"]*\"|\"${field}\": \"${value}\"|" "$file" 2>/dev/null
         else
             # 字段不存在，添加到第一个 { 后面
-            sed -i "s|{|{\n  \"${field}\": \"${value}\",|" "file" 2>/dev/null
+            sed -i "s|{|{\n  \"${field}\": \"${value}\",|" "$file" 2>/dev/null
         fi
     else
         # 文件不存在，创建新的
-        cat > "file" <<EOF
+        cat > "$file" <<EOF
 {
   "${field}": "${value}"
 }
@@ -168,12 +168,12 @@ EOF
     fi
     
     # 验证 JSON 格式有效性（简单验证）
-    if grep -q '^{' "file" 2>/dev/null && grep -q '}$' "file" 2>/dev/null; then
+    if grep -q '^{' "$file" 2>/dev/null && grep -q '}$' "$file" 2>/dev/null; then
         return 0
     else
         # 格式异常，恢复备份
         if [ -f "${file}.bak.json" ]; then
-            mv "${file}.bak.json" "file"
+            mv "${file}.bak.json" "$file"
         fi
         return 1
     fi
@@ -289,37 +289,44 @@ is_valid_mac() {
 
 # ==================== 并发操作锁机制 ====================
 
-# 获取并发操作锁（基于PID文件锁）
+# 获取并发操作锁（基于 mkdir 原子操作）
 # 参数：锁名称
 # 返回：0=获取成功，1=获取失败（已有操作在运行）
 # 自动清理超过一定时间的陈旧锁
 
 acquire_lock() {
     local lock_name="$1"
-    local lock_file="/var/run/systools_${lock_name}.pid"
+    local lock_dir="/var/run/systools_${lock_name}.lock"
     
     if [ -z "$lock_name" ]; then
         return 1
     fi
     
-    # 检查锁文件是否存在
-    if [ -f "$lock_file" ]; then
-        local old_pid
-        old_pid=$(cat "$lock_file" 2>/dev/null)
-        # 检查旧进程是否还在运行
-        if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
-            # 进程还在运行，拒绝获取锁
-            return 1
-        else
-            # 进程已不存在，清理陈旧锁文件
-            rm -f "$lock_file"
-        fi
+    # 尝试创建锁目录（原子操作，避免竞态条件）
+    if mkdir "$lock_dir" 2>/dev/null; then
+        # 获取锁成功，写入PID
+        echo $$ > "$lock_dir/pid"
+        return 0
     fi
     
-    # 创建锁文件，写入当前PID
-    mkdir -p /var/run
-    echo $$ > "$lock_file"
-    return 0
+    # 获取锁失败，检查是否是过期的锁
+    local old_pid=""
+    if [ -f "$lock_dir/pid" ]; then
+        old_pid=$(cat "$lock_dir/pid" 2>/dev/null)
+    fi
+    
+    if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+        # 进程还在运行，拒绝获取锁
+        return 1
+    else
+        # 进程已不存在，清理陈旧锁后重试一次
+        rm -rf "$lock_dir"
+        if mkdir "$lock_dir" 2>/dev/null; then
+            echo $$ > "$lock_dir/pid"
+            return 0
+        fi
+        return 1
+    fi
 }
 
 # 释放操作锁
@@ -328,13 +335,13 @@ acquire_lock() {
 
 release_lock() {
     local lock_name="$1"
-    local lock_file="/var/run/systools_${lock_name}.pid"
+    local lock_dir="/var/run/systools_${lock_name}.lock"
     
     if [ -z "$lock_name" ]; then
         return 1
     fi
     
-    rm -f "$lock_file"
+    rm -rf "$lock_dir"
     return 0
 }
 

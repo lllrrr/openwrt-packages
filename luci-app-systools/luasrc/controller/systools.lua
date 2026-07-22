@@ -22,6 +22,9 @@ function index()
     -- 设备管理
     entry({"admin", "systools", "wizard", "device_manager"}, cbi("systools/device_manager"), _("设备管理"), 4)
     
+    -- LAN IP 设置
+    entry({"admin", "systools", "wizard", "lan_ip"}, cbi("systools/lan_ip"), _("LAN IP 设置"), 5)
+    
     -- 智能家居分类
     entry({"admin", "systools", "smarthome"}, firstchild(), _("🏠 智能家居"), 20)
     
