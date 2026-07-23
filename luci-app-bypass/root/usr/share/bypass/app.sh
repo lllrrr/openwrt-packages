@@ -120,20 +120,39 @@ node_egress_interface() {
 	printf '%s\n' "${iface:-$DEFAULT_NAIVE_EGRESS_IFACE}"
 }
 
-# Build the unique list of Naive nodes referenced by shunt rules and by the
-# virtual Default row. Blank/direct/blackhole rules do not start a tunnel.
+# Return the node protocol family. Configurations created before the Type field
+# existed remain NaiveProxy nodes.
+node_type() {
+	case "$(config_n_get "$1" node_type naiveproxy)" in
+		wireguard) echo wireguard ;;
+		*) echo naiveproxy ;;
+	esac
+}
+
+# Build the unique list of nodes referenced by shunt rules and by the virtual
+# Default row, plus protocol-specific subsets used by the process adapter and
+# the native WireGuard outbound.
 prepare_selected_nodes() {
 	mkdir -p "$TMP_PATH"
 	local sid outbound index=0 port
 	: > "$TMP_PATH/selected_nodes"
+	: > "$TMP_PATH/selected_naive_nodes"
+	: > "$TMP_PATH/selected_wireguard_nodes"
 	{
-		for sid in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+		for sid in $(shunt_rule_sections); do
 			[ "$(config_n_get "$sid" is_default 0)" = "1" ] && continue
 			outbound=$(config_n_get "$sid" outbound)
 			[ "$(config_get_type "$outbound")" = "nodes" ] && echo "$outbound"
 		done
 		[ "$(config_get_type "$DEFAULT_NODE")" = "nodes" ] && echo "$DEFAULT_NODE"
 	} | awk 'NF && !seen[$0]++' > "$TMP_PATH/selected_nodes"
+	while IFS= read -r sid; do
+		[ -n "$sid" ] || continue
+		case "$(node_type "$sid")" in
+			wireguard) printf '%s\n' "$sid" >> "$TMP_PATH/selected_wireguard_nodes" ;;
+			*) printf '%s\n' "$sid" >> "$TMP_PATH/selected_naive_nodes" ;;
+		esac
+	done < "$TMP_PATH/selected_nodes"
 
 	# Keep mappings stable only while the service is actually active. Status or
 	# preview calls made while stopped must not reserve stale ports for startup.
@@ -144,7 +163,7 @@ prepare_selected_nodes() {
 		port=$(get_new_port $((NODE_SOCKS_PORT + index)) tcp)
 		printf '%s %s\n' "$sid" "$port" >> "$TMP_PATH/node_ports"
 		index=$((index + 1))
-	done < "$TMP_PATH/selected_nodes"
+	done < "$TMP_PATH/selected_naive_nodes"
 }
 
 node_socks_port() {
@@ -247,8 +266,8 @@ run_naive_node() {
 run_naive_nodes() {
 	prepare_selected_nodes
 	teardown_egress_routing
-	[ -s "$TMP_PATH/selected_nodes" ] || {
-		log 0 "No shunt rule selects a NaiveProxy node; starting BypassCore with direct/blackhole rules only."
+	[ -s "$TMP_PATH/selected_naive_nodes" ] || {
+		log 0 "No active rule selects a NaiveProxy node; no NaiveProxy adapter is needed."
 		return 0
 	}
 	[ -n "$NAIVE_BIN" ] || { log 0 "naiveproxy binary not found; selected proxy rules cannot start."; return 1; }
@@ -295,7 +314,7 @@ run_naive_nodes() {
 			log 0 "Naive node [%s] uses the system default route." "$node"
 		fi
 		index=$((index + 1))
-	done < "$TMP_PATH/selected_nodes"
+	done < "$TMP_PATH/selected_naive_nodes"
 
 	local conflict
 	conflict=$(
@@ -323,7 +342,7 @@ run_naive_nodes() {
 		[ -n "$node" ] || continue
 		port=$(node_socks_port "$node")
 		run_naive_node "$node" "$port" || return 1
-	done < "$TMP_PATH/selected_nodes"
+	done < "$TMP_PATH/selected_naive_nodes"
 }
 
 # ------------------------------------------------------------------------------
@@ -353,7 +372,7 @@ map_outbound_tag() {
 prepare_native_dns_policy_lists() {
 	local vps_rules="$TMP_ACL_PATH/vps-dns.rules"
 	local direct_rules="$TMP_ACL_PATH/direct-shunt-dns.rules"
-	local node address host sid rule
+	local node address host sid rule peer peer_node endpoint
 	: > "$vps_rules"
 	: > "$direct_rules"
 	while IFS= read -r node; do
@@ -362,9 +381,23 @@ prepare_native_dns_policy_lists() {
 		host=$(host_from_url "$address")
 		printf '%s\n' "$host" | grep -qE '^[A-Za-z0-9.-]*[A-Za-z][A-Za-z0-9.-]*$' && \
 			printf 'full:%s\n' "$host" >> "$vps_rules"
-	done < "$TMP_PATH/selected_nodes"
+	done < "$TMP_PATH/selected_naive_nodes"
+	# A WireGuard endpoint must resolve before its tunnel exists. Force endpoint
+	# domains through the direct DNS policy as well, otherwise selecting that
+	# same WireGuard node for Remote DNS can recursively wait on itself.
+	while IFS= read -r node; do
+		[ -n "$node" ] || continue
+		for peer in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=wireguard_peer$/\1/p'); do
+			peer_node=$(config_n_get "$peer" node)
+			[ "$peer_node" = "$node" ] || continue
+			endpoint=$(config_n_get "$peer" endpoint)
+			host=$(host_from_endpoint "$endpoint")
+			printf '%s\n' "$host" | grep -qE '^[A-Za-z0-9.-]*[A-Za-z][A-Za-z0-9.-]*$' && \
+				printf 'full:%s\n' "$host" >> "$vps_rules"
+		done
+	done < "$TMP_PATH/selected_wireguard_nodes"
 	if [ "$WRITE_IPSET_DIRECT" = "1" ]; then
-		for sid in $(uci -q show "$CONFIG" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+		for sid in $(shunt_rule_sections); do
 			[ "$(config_n_get "$sid" is_default 0)" = "1" ] && continue
 			[ "$(config_n_get "$sid" outbound)" = "_direct" ] || continue
 			while IFS= read -r rule; do
@@ -408,30 +441,33 @@ json_add_domestic_policy_servers() {
 }
 
 gen_bypasscore_config() {
-	mkdir -p "$(dirname "$BYPASSCORE_CFG")"
+	mkdir -p "$(dirname "$BYPASSCORE_CFG")" "$TMP_ACL_PATH"
 	BYPASSCORE_CONFIG_ERROR=0
 	prepare_selected_nodes
 	prepare_native_dns_policy_lists
 	DNS_PROXY_NODE=$(default_proxy_node)
 	DNS_PROXY_PORT=$(node_socks_port "$DNS_PROXY_NODE")
+	DNS_PROXY_TYPE=$(node_type "$DNS_PROXY_NODE")
 	if [ "$REMOTE_DNS_DETOUR" = "remote" ]; then
-		case "$REMOTE_DNS_PROTOCOL" in
-			tcp|tls|doh) ;;
-			*)
-				# NaiveProxy has no SOCKS UDP ASSOCIATE. Refuse UDP here instead of
-				# silently sending the resolver to the router's real WAN.
-				log 0 "Remote DNS through NaiveProxy supports TCP, TLS (DoT), or DoH; protocol [%s] would require UDP and is blocked." "$REMOTE_DNS_PROTOCOL"
-				BYPASSCORE_CONFIG_ERROR=1
-				;;
-		esac
-		[ -n "$DNS_PROXY_PORT" ] || {
-			log 0 "Remote DNS outbound is Remote but no Naive node is selected; service cannot provide proxied DNS."
+		if [ "$DNS_PROXY_TYPE" = "naiveproxy" ]; then
+			case "$REMOTE_DNS_PROTOCOL" in
+				tcp|tls|doh) ;;
+				*)
+					# NaiveProxy has no SOCKS UDP ASSOCIATE. Refuse UDP here instead
+					# of silently sending the resolver to the router's real WAN.
+					log 0 "Remote DNS through NaiveProxy supports TCP, TLS (DoT), or DoH; protocol [%s] would require UDP and is blocked." "$REMOTE_DNS_PROTOCOL"
+					BYPASSCORE_CONFIG_ERROR=1
+					;;
+			esac
+		fi
+		[ -n "$DNS_PROXY_NODE" ] || {
+			log 0 "Remote DNS outbound is Remote but no proxy node is selected."
 			BYPASSCORE_CONFIG_ERROR=1
 		}
 	fi
 
 	json_init
-	# outbounds: direct / block / proxy.
+	# outbounds: direct / block / Naive SOCKS proxy / native WireGuard.
 	json_add_array outbounds
 		json_add_object ''
 			json_add_string tag direct
@@ -453,25 +489,73 @@ gen_bypasscore_config() {
 			json_add_string tag block
 			json_add_string mode blackhole
 		json_close_object
-		local _node _node_port
+		local _node _node_port _node_type _wg_value _wg_mtu _peer _peer_node _peer_value _keep_alive
 		while read -r _node; do
 			[ -n "$_node" ] || continue
-			_node_port=$(node_socks_port "$_node")
 			json_add_object ''
 				json_add_string tag "proxy_${_node}"
-				json_add_string mode proxy
-				json_add_object upstream
-					json_add_string protocol socks
-					json_add_string server "127.0.0.1:${_node_port}"
-					json_add_object settings
+				_node_type=$(node_type "$_node")
+				if [ "$_node_type" = "wireguard" ]; then
+					json_add_string mode wireguard
+					json_add_object wireguard
+						json_add_string secretKey "$(config_n_get "$_node" secret_key)"
+						[ -n "$(config_n_get "$_node" public_key)" ] && \
+							json_add_string publicKey "$(config_n_get "$_node" public_key)"
+						json_add_array address
+							for _wg_value in $(printf '%s' "$(config_n_get "$_node" wireguard_address)" | tr ',\n\r\t' '    '); do
+								[ -n "$_wg_value" ] && json_add_string '' "$_wg_value"
+							done
+						json_close_array
+						_wg_mtu=$(config_n_get "$_node" mtu 1420)
+						if ! uint_in_range "$_wg_mtu" 576 65535; then
+							log 0 "WireGuard node [%s] has invalid MTU [%s]." "$_node" "$_wg_mtu"
+							BYPASSCORE_CONFIG_ERROR=1
+							_wg_mtu=1420
+						fi
+						json_add_int mtu "$_wg_mtu"
+						json_add_array peers
+							for _peer in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=wireguard_peer$/\1/p'); do
+								_peer_node=$(config_n_get "$_peer" node)
+								[ "$_peer_node" = "$_node" ] || continue
+								json_add_object ''
+									json_add_string publicKey "$(config_n_get "$_peer" public_key)"
+									json_add_string endpoint "$(config_n_get "$_peer" endpoint)"
+									json_add_array allowedIPs
+										for _peer_value in $(printf '%s' "$(config_n_get "$_peer" allowed_ips)" | tr ',\n\r\t' '    '); do
+											[ -n "$_peer_value" ] && json_add_string '' "$_peer_value"
+										done
+									json_close_array
+									[ -n "$(config_n_get "$_peer" pre_shared_key)" ] && \
+										json_add_string preSharedKey "$(config_n_get "$_peer" pre_shared_key)"
+									_keep_alive=$(config_n_get "$_peer" keep_alive)
+									if [ -n "$_keep_alive" ]; then
+										if ! uint_in_range "$_keep_alive" 0 65535; then
+											log 0 "WireGuard peer [%s] has invalid keepalive [%s]." "$_peer" "$_keep_alive"
+											BYPASSCORE_CONFIG_ERROR=1
+										else
+											json_add_int keepAlive "$_keep_alive"
+										fi
+									fi
+								json_close_object
+							done
+						json_close_array
 					json_close_object
-				json_close_object
+				else
+					_node_port=$(node_socks_port "$_node")
+					json_add_string mode proxy
+					json_add_object upstream
+						json_add_string protocol socks
+						json_add_string server "127.0.0.1:${_node_port}"
+						json_add_object settings
+						json_close_object
+					json_close_object
+				fi
 			json_close_object
 		done < "$TMP_PATH/selected_nodes"
 		# A Direct shunt rule may override the global Direct interface. The bind
 		# belongs to an outbound, so every override needs a dedicated freedom tag.
 		local _sid _outbound _egress
-		for _sid in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+		for _sid in $(shunt_rule_sections); do
 			[ "$(config_n_get "$_sid" is_default 0)" = "1" ] && continue
 			_outbound=$(config_n_get "$_sid" outbound _direct)
 			_egress=$(config_n_get "$_sid" egress_interface)
@@ -678,7 +762,7 @@ gen_bypasscore_config() {
 		json_add_string finalOutboundTag "$default_tag"
 		json_add_array rules
 			local sid tag domains ips net outbound egress protocols inbound sources ports
-			for sid in $(uci -q show "${CONFIG}" 2>/dev/null | grep "=shunt_rules" | cut -d '.' -f2 | cut -d '=' -f1); do
+			for sid in $(shunt_rule_sections); do
 				[ "$(config_n_get "$sid" is_default 0)" = "1" ] && continue
 				outbound=$(config_n_get "$sid" outbound _direct)
 				[ -n "$outbound" ] || continue
@@ -739,7 +823,10 @@ gen_bypasscore_config() {
 						*" tproxy "*)
 							json_add_array inboundTag
 							json_add_string '' tcp_redir
+							[ -s "$TMP_PATH/selected_wireguard_nodes" ] && json_add_string '' udp_tproxy
 							[ "$PROXY_IPV6" = "1" ] && json_add_string '' ipv6_tproxy
+							[ "$PROXY_IPV6" = "1" ] && [ -s "$TMP_PATH/selected_wireguard_nodes" ] && \
+								json_add_string '' ipv6_udp_tproxy
 							json_close_array
 							;;
 					esac
@@ -782,10 +869,9 @@ gen_bypasscore_config() {
 
 	# BypassCore owns REDIR_PORT as a transparent listener; nftables
 	# REDIRECT/TPROXY sends traffic here instead of to NaiveProxy.
-	# type/network follow tcp_proxy_way:
-	#   redirect -> TCP only (SO_ORIGINAL_DST)
-	#   tproxy   -> TCP with IP_TRANSPARENT. NaiveProxy's SOCKS5 listener
-	#               rejects UDP ASSOCIATE, so capturing UDP would blackhole it.
+	# TCP follows tcp_proxy_way. When a WireGuard outbound is selected, a
+	# separate UDP TPROXY listener lets rule-matched datagrams enter its userspace
+	# tunnel; UDP routed to a Naive node still fails closed at SOCKS negotiation.
 	local in_type="redirect" in_net="tcp"
 	if [ "$TCP_PROXY_WAY" = "tproxy" ] || [ "$PROXY_IPV6" = "1" ]; then
 		in_type="tproxy"
@@ -811,6 +897,16 @@ gen_bypasscore_config() {
 			json_add_string network "$in_net"
 			json_add_boolean sniffing 1
 		json_close_object
+		if [ -s "$TMP_PATH/selected_wireguard_nodes" ]; then
+			json_add_object ''
+				json_add_string tag "udp_tproxy"
+				json_add_string type "tproxy"
+				json_add_string listen "0.0.0.0"
+				json_add_int port "$REDIR_PORT"
+				json_add_string network "udp"
+				json_add_boolean sniffing 1
+			json_close_object
+		fi
 		if [ "$PROXY_IPV6" = "1" ]; then
 			json_add_object ''
 				json_add_string tag "ipv6_tproxy"
@@ -820,6 +916,16 @@ gen_bypasscore_config() {
 				json_add_string network "tcp"
 				json_add_boolean sniffing 1
 			json_close_object
+			if [ -s "$TMP_PATH/selected_wireguard_nodes" ]; then
+				json_add_object ''
+					json_add_string tag "ipv6_udp_tproxy"
+					json_add_string type "tproxy"
+					json_add_string listen "::1"
+					json_add_int port "$REDIR_PORT"
+					json_add_string network "udp"
+					json_add_boolean sniffing 1
+				json_close_object
+			fi
 		fi
 	json_close_array
 
@@ -853,9 +959,15 @@ run_bypasscore_core() {
 	set_cache_var BYPASSCORE_CONTROL_SOCKET "$BYPASSCORE_CONTROL_SOCKET"
 	log 0 "BypassCore running as transparent core on tcp://0.0.0.0:%s (-run)." "$REDIR_PORT"
 	if [ "$REMOTE_DNS_DETOUR" = "remote" ]; then
-		log 0 "Remote DNS: %s (%s) -> BypassCore DNS :%s -> Naive node [%s] SOCKS :%s." \
-			"$([ "$REMOTE_DNS_PROTOCOL" = "doh" ] && echo "$REMOTE_DNS_DOH" || echo "$REMOTE_DNS")" \
-			"$REMOTE_DNS_PROTOCOL" "$BYPASSCORE_DNS_PORT" "$DNS_PROXY_NODE" "$DNS_PROXY_PORT"
+		if [ "$DNS_PROXY_TYPE" = "wireguard" ]; then
+			log 0 "Remote DNS: %s (%s) -> BypassCore DNS :%s -> WireGuard node [%s]." \
+				"$([ "$REMOTE_DNS_PROTOCOL" = "doh" ] && echo "$REMOTE_DNS_DOH" || echo "$REMOTE_DNS")" \
+				"$REMOTE_DNS_PROTOCOL" "$BYPASSCORE_DNS_PORT" "$DNS_PROXY_NODE"
+		else
+			log 0 "Remote DNS: %s (%s) -> BypassCore DNS :%s -> Naive node [%s] SOCKS :%s." \
+				"$([ "$REMOTE_DNS_PROTOCOL" = "doh" ] && echo "$REMOTE_DNS_DOH" || echo "$REMOTE_DNS")" \
+				"$REMOTE_DNS_PROTOCOL" "$BYPASSCORE_DNS_PORT" "$DNS_PROXY_NODE" "$DNS_PROXY_PORT"
+		fi
 	else
 		log 0 "Remote DNS: %s (%s) -> BypassCore DNS :%s -> Direct." \
 			"$([ "$REMOTE_DNS_PROTOCOL" = "doh" ] && echo "$REMOTE_DNS_DOH" || echo "$REMOTE_DNS")" \
@@ -1079,17 +1191,18 @@ runtime_restart_signature() {
 		printf 'asset=%s\ndefault_naive_interface=%s\nenable_geoview_ip=%s\n' \
 			"$V2RAY_LOCATION_ASSET" "$DEFAULT_NAIVE_EGRESS_IFACE" "$ENABLE_GEOVIEW_IP"
 		printf 'redir_port=%s\ndns_port=%s\n' "$REDIR_PORT" "$BYPASSCORE_DNS_PORT"
-		printf 'selected_nodes\n'
-		sort -u "$TMP_PATH/selected_nodes" 2>/dev/null
+		printf 'selected_naive_nodes\n'
+		sort -u "$TMP_PATH/selected_naive_nodes" 2>/dev/null
+		printf 'wireguard_udp=%s\n' "$([ -s "$TMP_PATH/selected_wireguard_nodes" ] && echo 1 || echo 0)"
 		printf 'node_ports\n'
 		sort -u "$TMP_PATH/node_ports" 2>/dev/null
 		while read -r node; do
 			[ -n "$node" ] || continue
 			uci -q show "${CONFIG}.${node}"
-		done < "$TMP_PATH/selected_nodes"
+		done < "$TMP_PATH/selected_naive_nodes"
 		# Direct GeoIP prefixes are materialized outside the reloadable snapshot.
 		if [ "$ENABLE_GEOVIEW_IP" = "1" ]; then
-			for sid in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+			for sid in $(shunt_rule_sections); do
 				[ "$(config_n_get "$sid" is_default 0)" = "1" ] && continue
 				outbound=$(config_n_get "$sid" outbound _direct)
 				[ "$outbound" = "_direct" ] && geo_class=direct || geo_class=other
@@ -1181,7 +1294,7 @@ start() {
 		return 1
 	fi
 	if ! bypasscore_has_required_features "$BYPASSCORE_FILE"; then
-		log 0 "BypassCore 1.3.0 schema-4 native NFTSet and TCP probe capabilities are required; service not started."
+		log 0 "BypassCore 1.4.0 schema-5 WireGuard, native NFTSet and TCP probe capabilities are required; service not started."
 		return 1
 	fi
 	prepare_selected_nodes

@@ -4,7 +4,7 @@
 'require fs';
 'require ui';
 
-// Node List — JS-rendered table, passwall2-style but trimmed:
+// Node List — JS-rendered table for NaiveProxy and native WireGuard nodes:
 //   • A top "URL Test Address" dropdown (browser-session only)
 //   • BypassCore TCP Connect + URL Test latency columns (no ICMP Ping)
 //   • Per-row Edit / Copy / Delete actions. Nodes are assigned per shunt rule.
@@ -81,13 +81,14 @@ return view.extend({
 
 	render: function () {
 		var nodes = uci.sections('bypass', 'nodes');
+		var wireguardPeers = uci.sections('bypass', 'wireguard_peer');
 		var currentUrl = URL_TEST_PRESETS[2][0];
 		try { currentUrl = sessionStorage.getItem('bypass_url_test_url') || currentUrl; } catch (e) {}
 		if (!URL_TEST_PRESETS.some(function (pair) { return pair[0] === currentUrl; }))
 			currentUrl = URL_TEST_PRESETS[2][0];
 
 		var container = E('div', { class: 'cbi-map' }, [
-			E('div', { class: 'cbi-section-descr' }, _('NaiveProxy nodes (HTTPS/QUIC).'))
+			E('div', { class: 'cbi-section-descr' }, _('NaiveProxy and WireGuard outbound nodes.'))
 		]);
 
 		// This is a diagnostic input, not service configuration. Keeping it out of
@@ -114,7 +115,8 @@ return view.extend({
 		var fieldset = E('fieldset', { class: 'cbi-section cbi-tblsection' });
 		var table = E('table', { class: 'table cbi-section-table' }, [
 			E('tr', { class: 'tr cbi-section-table-titles' }, [
-				E('th', { class: 'th cbi-section-table-cell', style: 'width:38%' }, _('Remarks')),
+				E('th', { class: 'th cbi-section-table-cell', style: 'width:28%' }, _('Remarks')),
+				E('th', { class: 'th cbi-section-table-cell', style: 'width:10%' }, _('Type')),
 				E('th', { class: 'th cbi-section-table-cell', style: 'width:12%' }, _('TCP Connect')),
 				E('th', { class: 'th cbi-section-table-cell', style: 'width:12%' }, _('URL Test')),
 				E('th', { class: 'th cbi-section-table-cell', style: 'width:38%' }, _('Actions'))
@@ -130,6 +132,8 @@ return view.extend({
 
 		nodes.forEach(function (sec) {
 			var sid = sec['.name'];
+			var nodeType = sec.node_type === 'wireguard' ? 'wireguard' : 'naiveproxy';
+			var nodePeers = wireguardPeers.filter(function (peer) { return peer.node === sid; });
 			var tcpProbeCell = E('td', { class: 'td cbi-value-field', style: 'white-space:nowrap' });
 			var tcpProbeResult = E('span', { style: 'margin-left:6px;font-weight:bold' });
 			var tcpProbeLink = E('a', {
@@ -164,16 +168,19 @@ return view.extend({
 				tcpProbeResult.style.color = latencyColor(ms);
 			}
 
-			tcpProbeCell.appendChild(tcpProbeLink);
-			tcpProbeCell.appendChild(tcpProbeResult);
-
-			var cached = getCachedTcpProbe(sid);
-			if (cached != null) renderTcpProbe(cached);
+			if (nodeType === 'naiveproxy') {
+				tcpProbeCell.appendChild(tcpProbeLink);
+				tcpProbeCell.appendChild(tcpProbeResult);
+				var cached = getCachedTcpProbe(sid);
+				if (cached != null) renderTcpProbe(cached);
+			} else {
+				tcpProbeCell.appendChild(E('span', { style: 'color:#adb5bd' }, '---'));
+			}
 
 			// URL Test column: needs address+port to dial the node. Nodes without
 			// them show an inert placeholder.
 			var urltestCell = E('td', { class: 'td cbi-value-field', style: 'white-space:nowrap' });
-			var hasEndpoint = !!(sec.address && sec.port);
+			var hasEndpoint = nodeType === 'naiveproxy' && !!(sec.address && sec.port);
 			if (!hasEndpoint) {
 				urltestCell.appendChild(E('span', { style: 'color:#adb5bd' }, '---'));
 			} else {
@@ -242,12 +249,15 @@ return view.extend({
 				])
 			]);
 
+			var endpointText = nodeType === 'wireguard'
+				? (nodePeers[0] ? nodePeers[0].endpoint : '—')
+				: (sec.address || '—') + ':' + (sec.port || '—');
 			table.appendChild(E('tr', { class: 'tr cbi-section-table-row' }, [
 				E('td', { class: 'td cbi-value-field' }, [
 					E('strong', {}, sec.remarks || sid),
-					E('div', { style: 'font-size:11px;color:#8898aa' },
-						(sec.address || '—') + ':' + (sec.port || '—'))
+					E('div', { style: 'font-size:11px;color:#8898aa' }, endpointText)
 				]),
+				E('td', { class: 'td cbi-value-field' }, nodeType === 'wireguard' ? 'WireGuard' : 'NaiveProxy'),
 				tcpProbeCell,
 				urltestCell,
 				actions
@@ -259,10 +269,11 @@ return view.extend({
 			E('button', {
 				type: 'button',
 				class: 'cbi-button cbi-button-add',
-					click: function () {
-						var newSid = 'node_' + Date.now().toString(36);
-						uci.add('bypass', 'nodes', newSid);
-						uci.set('bypass', newSid, 'protocol', 'https');
+				click: function () {
+					var newSid = 'node_' + Date.now().toString(36);
+					uci.add('bypass', 'nodes', newSid);
+					uci.set('bypass', newSid, 'node_type', 'naiveproxy');
+					uci.set('bypass', newSid, 'protocol', 'https');
 					uci.set('bypass', newSid, 'remarks', _('New Node'));
 					uci.save().then(function () {
 						uci.apply().then(function () {
@@ -279,10 +290,18 @@ return view.extend({
 			var src = uci.sections('bypass', 'nodes').filter(function (s) { return s['.name'] === sid; })[0];
 			if (!src) return;
 			var newSid = uci.add('bypass', 'nodes');
-			['protocol', 'remarks', 'address', 'port', 'egress_interface', 'username', 'password'].forEach(function (opt) {
+			['node_type', 'protocol', 'remarks', 'address', 'port', 'egress_interface',
+				'username', 'password', 'secret_key', 'public_key', 'wireguard_address', 'mtu'].forEach(function (opt) {
 				if (src[opt] != null) uci.set('bypass', newSid, opt, src[opt]);
 			});
 			uci.set('bypass', newSid, 'remarks', (src.remarks || sid) + ' ' + _('(copy)'));
+			wireguardPeers.filter(function (peer) { return peer.node === sid; }).forEach(function (peer) {
+				var newPeer = uci.add('bypass', 'wireguard_peer');
+				uci.set('bypass', newPeer, 'node', newSid);
+				['public_key', 'endpoint', 'allowed_ips', 'pre_shared_key', 'keep_alive'].forEach(function (opt) {
+					if (peer[opt] != null) uci.set('bypass', newPeer, opt, peer[opt]);
+				});
+			});
 			uci.save().then(function () { uci.apply().then(function () { location.reload(); }); });
 		}
 
@@ -305,6 +324,10 @@ return view.extend({
 								var globalRules = uci.sections('bypass', 'global_rules')[0];
 								if (globalRules && globalRules.default_node === sid)
 									uci.set('bypass', globalRules['.name'], 'default_node', '_direct');
+								uci.sections('bypass', 'wireguard_peer').forEach(function (peer) {
+									if (peer.node === sid)
+										uci.remove('bypass', peer['.name']);
+								});
 								uci.remove('bypass', sid);
 								uci.save().then(function () { uci.apply().then(function () { location.reload(); }); });
 							}

@@ -27,6 +27,8 @@ var ARGON_CSS = [
 	'.lanspeed-theme-argon .lanspeed-table :is(th,td):first-child{padding-left:.35rem}',
 	'.lanspeed-theme-argon .lanspeed-table :is(th,td):last-child{padding-right:0}',
 	'.lanspeed-theme-argon .lanspeed-table .mono{font-size:.94rem}',
+	'.lanspeed-theme-argon .lanspeed-table tbody tr:hover,',
+	'.lanspeed-theme-argon .lanspeed-table tbody tr.lanspeed-client-hover-lock{background:var(--lanspeed-hover)}',
 	'.lanspeed-theme-argon .lanspeed-connection-link:link,',
 	'.lanspeed-theme-argon .lanspeed-connection-link:visited,',
 	'.lanspeed-theme-argon .lanspeed-connection-link:active,',
@@ -47,6 +49,7 @@ var ARGON_CSS = [
 	'.lanspeed-theme-argon .lanspeed-toolbar input[type="search"]{min-width:0;width:100%;max-width:none}}',
 	'@media (max-width:480px){.lanspeed-theme-argon .lanspeed-metrics{',
 		'grid-template-columns:repeat(2,minmax(0,1fr))}',
+	'.lanspeed-theme-argon .lanspeed-metric .big{font-size:1.3rem}',
 	'.lanspeed-theme-argon .lanspeed-metric:last-child{grid-column:1/-1}}'
 ].join('\n');
 

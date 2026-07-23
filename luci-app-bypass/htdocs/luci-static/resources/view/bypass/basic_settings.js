@@ -180,9 +180,11 @@ return view.extend({
 		}, 5);
 
 		/* ---- bypass badge row ---- */
+		var naiveOptional = status.selected_naive_nodes === 0 && status.naive_present !== 1;
 		var badgeRow = E('div', { class: 'bypass-badge-row' }, [
 			badge(_('bypasscore'), status.bypasscore_present === 1, _('present'), _('missing')),
-			badge(_('naive'), status.naive_present === 1, _('present'), _('missing'))
+			badge(_('naive'), status.naive_present === 1 || naiveOptional,
+				naiveOptional ? _('not required') : _('present'), _('missing'))
 		]);
 
 		/* ---- The form.Map (single tabbed TypedSection + table section) ---- */
@@ -274,14 +276,21 @@ return view.extend({
 		rs.addremove = false;
 		rs.anonymous = true;
 		rs.sortable = false;
-		// Rule Manage persists its sortable rows in UCI section order. Preserve
-		// that exact order here, then append the virtual catch-all row.
+		// Rule Manage writes an explicit compatibility order marker in addition
+		// to UCI section order. Preserve it here, then append the catch-all row.
 		rs.cfgsections = function () {
-			var rules = [];
-			uci.sections('bypass', 'shunt_rules').forEach(function (rule) {
-				if (rule.is_default !== '1') rules.push(rule['.name']);
-			});
-			return rules.concat([VIRTUAL_DEFAULT]);
+			return uci.sections('bypass', 'shunt_rules')
+				.filter(function (rule) { return rule.is_default !== '1'; })
+				.sort(function (a, b) {
+					var ahas = /^\d+$/.test(a.sort_order || '');
+					var bhas = /^\d+$/.test(b.sort_order || '');
+					if (ahas !== bhas) return ahas ? -1 : 1;
+					var ao = ahas ? +a.sort_order : (+a['.index'] || 0);
+					var bo = bhas ? +b.sort_order : (+b['.index'] || 0);
+					return ao - bo || (+a['.index'] || 0) - (+b['.index'] || 0);
+				})
+				.map(function (rule) { return rule['.name']; })
+				.concat([VIRTUAL_DEFAULT]);
 		};
 
 		o = rs.option(form.DummyValue, '_rule_name', _('Name'));
@@ -300,9 +309,13 @@ return view.extend({
 		o.value('_blackhole', _('Blackhole (Block)'));
 		uci.sections('bypass', 'nodes').forEach(function (node) {
 			var label = node.remarks || node['.name'];
-			var rulesSid = firstSection('global_rules');
-			var egress = node.egress_interface || (rulesSid && uci.get('bypass', rulesSid, 'default_naive_interface')) || _('system default');
-			o.value(node['.name'], label + ' [' + egress + ']');
+			if (node.node_type === 'wireguard') {
+				o.value(node['.name'], label + ' [WireGuard]');
+			} else {
+				var rulesSid = firstSection('global_rules');
+				var egress = node.egress_interface || (rulesSid && uci.get('bypass', rulesSid, 'default_naive_interface')) || _('system default');
+				o.value(node['.name'], label + ' [' + egress + ']');
+			}
 		});
 		o.renderWidget = function (section_id, _option_index, cfgvalue) {
 			var choices = this.transformChoices();
@@ -393,7 +406,7 @@ return view.extend({
 		crossSection(o, 'global_dns');
 
 		o = s.taboption('DNS', form.ListValue, 'remote_dns_protocol', _('Remote DNS Protocol'));
-		o.description = _('BypassCore carries TCP, TLS (DoT), and DoH through the selected NaiveProxy node. UDP requires Direct outbound because NaiveProxy has no UDP transport.');
+		o.description = _('WireGuard nodes carry UDP, TCP, TLS (DoT), and DoH. NaiveProxy nodes carry TCP, TLS, and DoH; UDP through NaiveProxy is rejected.');
 		o.value('udp', _('UDP'));
 		o.value('tcp', _('TCP'));
 		o.value('doh', _('DoH'));
@@ -425,7 +438,7 @@ return view.extend({
 		crossSection(o, 'global_dns');
 
 		o = s.taboption('DNS', form.ListValue, 'remote_dns_detour', _('Remote DNS Outbound'));
-		o.description = _('Remote carries TCP, TLS (DoT), or DoH through BypassCore and the selected NaiveProxy node. Direct connects from the router without the proxy.');
+		o.description = _('Remote uses the selected NaiveProxy or WireGuard node. Direct connects from the router without the proxy.');
 		o.value('remote', _('Remote'));
 		o.value('direct', _('Direct'));
 		o.default = 'remote';

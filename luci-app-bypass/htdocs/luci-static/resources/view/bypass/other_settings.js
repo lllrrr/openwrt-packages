@@ -144,7 +144,7 @@ return view.extend({
 		o.value('1:65535', _('All'));
 
 		o = sFwd.option(form.Value, 'udp_no_redir_ports', _('UDP No Redir Ports'),
-			_('NaiveProxy cannot proxy UDP. These destination ports bypass strict UDP blocking and go Direct, which may expose the real egress IP. With no patterns configured, external forwarded UDP is blocked by default; redirected DNS and local network traffic remain available.'));
+			_('These destination ports always bypass UDP proxying and go Direct, which may expose the real egress IP. Without an active WireGuard node, all other external forwarded UDP is blocked; with WireGuard, it is routed by BypassCore.'));
 		o.validate = validatePortList;
 		o.default = 'disable';
 		o.value('disable', _('No patterns are used'));

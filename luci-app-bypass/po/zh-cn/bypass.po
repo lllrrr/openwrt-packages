@@ -1181,6 +1181,87 @@ msgstr ""
 msgid "Back"
 msgstr "返回"
 
+msgid "Type"
+msgstr "类型"
+
+msgid "NaiveProxy and WireGuard outbound nodes."
+msgstr "NaiveProxy 与 WireGuard 出站节点。"
+
+msgid "not required"
+msgstr "无需安装"
+
+msgid "Secret Key"
+msgstr "私钥"
+
+msgid "Public Key"
+msgstr "公钥"
+
+msgid "Generate Key Pair"
+msgstr "生成密钥对"
+
+msgid "Generate"
+msgstr "一键生成"
+
+msgid "Generate a new local private key and derive its public key."
+msgstr "生成新的本地私钥，并自动推导对应的公钥。"
+
+msgid "Automatically filled when a local key pair is generated."
+msgstr "生成本地密钥对时自动填写。"
+
+msgid "Address"
+msgstr "隧道地址"
+
+msgid "Local tunnel addresses. If omitted, BypassCore uses its compatibility addresses; normally enter the addresses assigned by the provider."
+msgstr "本地隧道地址。留空时 BypassCore 使用兼容地址；通常应填写服务提供方分配的地址。"
+
+msgid "MTU"
+msgstr "MTU"
+
+msgid "WireGuard Peers"
+msgstr "WireGuard 对端"
+
+msgid "At least one peer is required. Allowed IPs default to 0.0.0.0/0 and ::/0 when left empty."
+msgstr "至少需要一个对端。允许 IP 留空时默认为 0.0.0.0/0 和 ::/0。"
+
+msgid "Peer Public Key"
+msgstr "对端公钥"
+
+msgid "Endpoint"
+msgstr "对端地址"
+
+msgid "Allowed IPs"
+msgstr "允许 IP"
+
+msgid "Pre-Shared Key"
+msgstr "预共享密钥"
+
+msgid "Generate Pre-Shared Key"
+msgstr "生成预共享密钥"
+
+msgid "Persistent Keepalive"
+msgstr "持续保活"
+
+msgid "Seconds; leave empty or use 0 to disable."
+msgstr "单位为秒；留空或填写 0 表示禁用。"
+
+msgid "Enter a 32-byte WireGuard key in base64 or hexadecimal form."
+msgstr "请输入 base64 或十六进制格式的 32 字节 WireGuard 密钥。"
+
+msgid "Enter an endpoint as host:port (bracket IPv6 addresses)."
+msgstr "请输入 host:port 格式的对端地址（IPv6 地址需使用方括号）。"
+
+msgid "WireGuard key generation failed."
+msgstr "WireGuard 密钥生成失败。"
+
+msgid "WireGuard preshared key generation failed."
+msgstr "WireGuard 预共享密钥生成失败。"
+
+msgid "WireGuard nodes carry UDP, TCP, TLS (DoT), and DoH. NaiveProxy nodes carry TCP, TLS, and DoH; UDP through NaiveProxy is rejected."
+msgstr "WireGuard 节点可承载 UDP、TCP、TLS（DoT）和 DoH；NaiveProxy 节点可承载 TCP、TLS 和 DoH，并拒绝 UDP。"
+
+msgid "Remote uses the selected NaiveProxy or WireGuard node. Direct connects from the router without the proxy."
+msgstr "“远程”使用选中的 NaiveProxy 或 WireGuard 节点；“直连”则由路由器直接连接。"
+
 #~ msgid "\"auto\" = detect ISP DNS from resolv.conf."
 #~ msgstr "“auto”表示从 resolv.conf 自动检测运营商 DNS。"
 

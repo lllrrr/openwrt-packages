@@ -34,6 +34,9 @@ node_egress_ifaces=$(
 	{
 		default_node=$(uci -q get bypass.@global_rules[0].default_node)
 		if [ "$(uci -q get bypass.${default_node})" = "nodes" ]; then
+			[ "$(uci -q get bypass.${default_node}.node_type)" = "wireguard" ] && default_node=""
+		fi
+		if [ -n "$default_node" ] && [ "$(uci -q get bypass.${default_node})" = "nodes" ]; then
 			iface=$(uci -q get bypass.${default_node}.egress_interface)
 			printf '%s\n' "${iface:-$default_naive_iface}"
 		fi
@@ -41,6 +44,7 @@ node_egress_ifaces=$(
 			[ "$(uci -q get bypass.${sid}.is_default)" = "1" ] && continue
 			node=$(uci -q get bypass.${sid}.outbound)
 			[ "$(uci -q get bypass.${node})" = "nodes" ] || continue
+			[ "$(uci -q get bypass.${node}.node_type)" = "wireguard" ] && continue
 			iface=$(uci -q get bypass.${node}.egress_interface)
 			printf '%s\n' "${iface:-$default_naive_iface}"
 		done

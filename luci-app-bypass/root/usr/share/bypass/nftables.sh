@@ -122,6 +122,8 @@ nft_start() {
 	udp_no_expr=$(nft_port_expr "$UDP_NO_REDIR_PORTS") || return 1
 
 	local mode=$TCP_PROXY_WAY
+	local wireguard_active=0
+	[ -s "$TMP_PATH/selected_wireguard_nodes" ] && wireguard_active=1
 	# naive upstream builds support redir everywhere; tproxy only in builds
 	# compiled with it. Treat anything other than tproxy as redirect.
 	[ "$mode" = "tproxy" ] || mode=redirect
@@ -233,13 +235,12 @@ EOF
 		dns_redirect_rule="meta l4proto { tcp, udp } th dport 53 redirect to :53"
 		dns_tproxy_bypass="meta l4proto { tcp, udp } th dport 53 accept"
 	fi
-	# NaiveProxy's SOCKS5 server rejects UDP ASSOCIATE. Stop forwarded external
-	# UDP before it can leave through the system route, except for ports which
-	# the user explicitly selected as UDP No Redir (Direct). DNS redirected to
-	# the router and local/link-local discovery remain available.
-	if [ "$CLIENT_PROXY" = "1" ]; then
-		local udp_dns_accept=""
-		[ "$DNS_REDIRECT" = "1" ] && udp_dns_accept="meta l4proto udp udp dport 53 accept"
+	# Without a selected WireGuard outbound, NaiveProxy's lack of UDP support
+	# keeps the strict fail-closed guard. With WireGuard, UDP is sent to the
+	# native BypassCore TPROXY listener below and routed by the same rule order.
+	local udp_dns_accept=""
+	[ "$DNS_REDIRECT" = "1" ] && udp_dns_accept="meta l4proto udp udp dport 53 accept"
+	if [ "$CLIENT_PROXY" = "1" ] && [ "$wireguard_active" != "1" ]; then
 		udp_guard_chain="chain udp_guard { type filter hook prerouting priority -151; policy accept;
 			meta l4proto != udp accept
 			${wan_accept}
@@ -257,6 +258,21 @@ EOF
 		else
 			log 0 "UDP strict mode: forwarded external UDP is blocked to prevent NaiveProxy bypass."
 		fi
+	elif [ "$CLIENT_PROXY" = "1" ]; then
+		log 0 "WireGuard UDP mode: forwarded UDP is routed through BypassCore; NaiveProxy UDP routes fail closed."
+		if [ "$PROXY_IPV6" != "1" ]; then
+			udp_guard_chain="chain udp_guard6 { type filter hook prerouting priority -151; policy accept;
+				meta l4proto != udp accept
+				meta nfproto != ipv6 accept
+				${wan_accept}
+				iif lo accept
+				ip6 daddr @bypass_local6 accept
+				${direct6_accept}
+				${udp_dns_accept}
+				${udp_no_redir_rule}
+				counter drop comment \"bypass: IPv6 UDP proxying is disabled\"
+			}"
+		fi
 	fi
 	if [ -n "$tcp_redirect_rule" ] || [ -n "$icmp_redirect_rule" ] || [ -n "$dns_redirect_rule" ]; then
 		nat_chain="chain prerouting { type nat hook prerouting priority -100; policy accept;
@@ -272,10 +288,21 @@ EOF
 			${icmp_redirect_rule}
 		}"
 	fi
-	# TProxy mode: mangle PREROUTING TPROXY for TCP. UDP is handled separately
-	# by udp_guard using the explicit no-redirection port exceptions above.
+	# TPROXY is used for TCP when selected globally and independently for UDP
+	# whenever a WireGuard node is active.
+	local tcp_tproxy_rule="" udp_tproxy_rule="" tcp6_tproxy_rule="" udp6_tproxy_rule=""
 	if [ "$CLIENT_PROXY" = "1" ] && [ "$mode" = "tproxy" ] && [ -n "$tcp_expr" ]; then
-		[ -n "$tcp_expr" ] && mangle_chain="chain prerouting { type filter hook prerouting priority mangle; policy accept;
+		tcp_tproxy_rule="meta nfproto ipv4 meta l4proto tcp tcp dport { ${tcp_expr} } tproxy ip to 127.0.0.1:${REDIR_PORT} meta mark set meta mark | 0x10000 accept"
+		[ "$PROXY_IPV6" = "1" ] && \
+			tcp6_tproxy_rule="meta l4proto tcp tcp dport { ${tcp_expr} } tproxy ip6 to [::1]:${REDIR_PORT} meta mark set meta mark | 0x10000 accept"
+	fi
+	if [ "$CLIENT_PROXY" = "1" ] && [ "$wireguard_active" = "1" ]; then
+		udp_tproxy_rule="meta nfproto ipv4 meta l4proto udp tproxy ip to 127.0.0.1:${REDIR_PORT} meta mark set meta mark | 0x10000 accept"
+		[ "$PROXY_IPV6" = "1" ] && \
+			udp6_tproxy_rule="meta l4proto udp tproxy ip6 to [::1]:${REDIR_PORT} meta mark set meta mark | 0x10000 accept"
+	fi
+	if [ -n "$tcp_tproxy_rule$udp_tproxy_rule" ]; then
+		mangle_chain="chain prerouting { type filter hook prerouting priority mangle; policy accept;
 			ip daddr @bypass_vps accept
 			ip daddr @bypass_local accept
 			${direct_accept}
@@ -284,10 +311,12 @@ EOF
 			iif lo accept
 			${dns_tproxy_bypass}
 			${tcp_no_redir_rule}
-			meta nfproto ipv4 meta l4proto tcp tcp dport { ${tcp_expr} } tproxy ip to 127.0.0.1:${REDIR_PORT} meta mark set meta mark | 0x10000 accept
+			${udp_no_redir_rule}
+			${tcp_tproxy_rule}
+			${udp_tproxy_rule}
 		}"
-		if [ "$PROXY_IPV6" = "1" ]; then
-			[ -n "$tcp_expr" ] && mangle6_chain="chain prerouting6_tcp { type filter hook prerouting priority mangle; policy accept;
+		if [ "$PROXY_IPV6" = "1" ] && [ -n "$tcp6_tproxy_rule$udp6_tproxy_rule" ]; then
+			mangle6_chain="chain prerouting6 { type filter hook prerouting priority mangle; policy accept;
 				ip6 daddr @bypass_vps6 accept
 				ip6 daddr @bypass_local6 accept
 				${direct6_accept}
@@ -295,7 +324,9 @@ EOF
 				iif lo accept
 				${dns_tproxy_bypass}
 				${tcp_no_redir_rule}
-				meta l4proto tcp tcp dport { ${tcp_expr} } tproxy ip6 to [::1]:${REDIR_PORT} meta mark set meta mark | 0x10000 accept
+				${udp_no_redir_rule}
+				${tcp6_tproxy_rule}
+				${udp6_tproxy_rule}
 			}"
 		fi
 		# Preserve mwan3/PBR marks in the low bits and reserve one high bit only.
@@ -417,7 +448,7 @@ EOF
 		: > "$geo4_file"
 		: > "$geo6_file"
 		log 0 "Parsing Direct GeoIP entries into informational nftables sets..."
-		for sid in $(uci -q show "$CONFIG" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
+		for sid in $(shunt_rule_sections); do
 			[ "$(config_n_get "$sid" is_default 0)" = "1" ] && continue
 			[ "$(config_n_get "$sid" outbound)" = "_direct" ] || continue
 			while IFS= read -r ip_rule; do

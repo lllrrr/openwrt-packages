@@ -5,7 +5,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-bypass
-PKG_VERSION:=1.7.1
+PKG_VERSION:=1.8.0
 PKG_RELEASE:=1
 PKG_PO_VERSION:=$(PKG_VERSION)
 PKG_LICENSE:=MIT
@@ -18,7 +18,7 @@ PKG_CONFIG_DEPENDS:= \
 	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_Geoview \
 	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_V2ray_Geo
 
-LUCI_TITLE:=LuCI support for Bypass (NaiveProxy + BypassCore)
+LUCI_TITLE:=LuCI support for Bypass (NaiveProxy + WireGuard + BypassCore)
 LUCI_PKGARCH:=all
 
 # This application only supports fw4/nftables. Keep the firewall userspace and

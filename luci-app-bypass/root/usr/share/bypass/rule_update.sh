@@ -104,7 +104,7 @@ update_geodata() {
 # is no longer present in DNS. System-default nodes need no destination policy
 # rule and therefore do not need periodic restarts.
 uplink_refresh_needed() {
-	[ -s "$TMP_PATH/selected_nodes" ] || return 1
+	[ -s "$TMP_PATH/selected_naive_nodes" ] || return 1
 	local node iface default_iface address pinned current="$TMP_PATH/uplink-current.$$" resolve_ok
 	default_iface=$(config_t_get global_rules default_naive_interface)
 	while read -r node; do
@@ -132,7 +132,7 @@ uplink_refresh_needed() {
 			rm -f "$current"
 			return 0
 		fi
-	done < "$TMP_PATH/selected_nodes"
+	done < "$TMP_PATH/selected_naive_nodes"
 	rm -f "$current"
 	return 1
 }

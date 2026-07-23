@@ -105,6 +105,7 @@ config shunt_rules 'AdBlock'
 	option outbound '_blackhole'
 
 config nodes 'naive1'
+	option node_type 'naiveproxy'
 	option remarks 'Example'
 	option protocol 'https'
 	option address 'naive.example.com'

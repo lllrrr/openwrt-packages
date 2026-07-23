@@ -43,6 +43,31 @@ config_t_get() {
 	printf '%s\n' "${ret:-$3}"
 }
 
+uint_in_range() {
+	local value=$1 minimum=$2 maximum=$3
+	case "$value" in ''|*[!0-9]*) return 1 ;; esac
+	# Bound the string before shell arithmetic so a manually edited, extremely
+	# large UCI value cannot overflow BusyBox ash's integer parser.
+	[ "${#value}" -le "${#maximum}" ] || return 1
+	[ "$value" -ge "$minimum" ] 2>/dev/null && [ "$value" -le "$maximum" ] 2>/dev/null
+}
+
+# Print shunt rule section IDs in the explicit LuCI drag order. Rules without
+# an order marker (old configurations or newly added rows) follow the ordered
+# rows in their original UCI order.
+shunt_rule_sections() {
+	local sid order group sequence=0
+	for sid in $(uci -q show "$CONFIG" 2>/dev/null | sed -n "s/^${CONFIG}\.\([^.=]*\)=shunt_rules$/\1/p"); do
+		order=$(config_n_get "$sid" sort_order)
+		case "$order" in
+			''|*[!0-9]*) group=1; order=0 ;;
+			*) group=0 ;;
+		esac
+		printf '%s %s %s %s\n' "$group" "$order" "$sequence" "$sid"
+		sequence=$((sequence + 1))
+	done | sort -n -k1,1 -k2,2 -k3,3 | awk '{ print $4 }'
+}
+
 # ------------------------------------------------------------------------------
 # State cache (persisted across sub-invocations in $TMP_PATH/var)
 # ------------------------------------------------------------------------------
@@ -508,6 +533,19 @@ host_from_url() {
 	echo "${f%%:*}"
 }
 
+host_from_endpoint() {
+	local endpoint=$1
+	case "$endpoint" in
+		\[*\]:*)
+			endpoint=${endpoint#\[}
+			printf '%s\n' "${endpoint%%\]*}"
+			;;
+		*)
+			printf '%s\n' "${endpoint%:*}"
+			;;
+	esac
+}
+
 # ------------------------------------------------------------------------------
 # WAN / local IP enumeration
 # ------------------------------------------------------------------------------
@@ -587,17 +625,17 @@ is_bypasscore() {
 	"$path" --version 2>/dev/null | grep -q '^BypassCore[[:space:]]'
 }
 
-# The LuCI integration consumes schema-4 native NFTSet and TCP probe features
-# from BypassCore 1.3.0.
+# The LuCI integration consumes schema-5 native WireGuard, NFTSet and TCP probe
+# features from BypassCore 1.4.0.
 # Check the machine-readable contract instead of inferring support from a
 # version string, so development builds and future versions remain usable.
 bypasscore_has_required_features() {
 	local path=$1 capabilities feature
 	capabilities=$("$path" --capabilities --json 2>/dev/null) || return 1
-	for feature in control-unix-http-json raw-dns dns-outbound-tag routing-final-outbound runtime-snapshot-reload ready-status inbound-health dns-result-nftset dns-result-nftset-probe tcp-connect-probe; do
+	for feature in control-unix-http-json raw-dns dns-outbound-tag routing-final-outbound runtime-snapshot-reload ready-status inbound-health dns-result-nftset dns-result-nftset-probe tcp-connect-probe wireguard-client wireguard-key-generation; do
 		printf '%s' "$capabilities" | grep -Fq "\"$feature\"" || return 1
 	done
-	printf '%s' "$capabilities" | grep -Eq '"configSchema"[[:space:]]*:[[:space:]]*([4-9]|[1-9][0-9]+)'
+	printf '%s' "$capabilities" | grep -Eq '"configSchema"[[:space:]]*:[[:space:]]*([5-9]|[1-9][0-9]+)'
 }
 
 # Query the local-only HTTP/JSON control plane exposed by the running core.

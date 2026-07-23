@@ -97,6 +97,43 @@ return view.extend({
 		ss.filter = function (sid) {
 			return uci.get('bypass', sid, 'is_default') !== '1';
 		};
+		// Keep an explicit order marker in addition to LuCI's native UCI section
+		// move. Older LuCI builds can move the DOM row without committing the UCI
+		// order; sort_order makes the rendered and runtime order deterministic.
+		ss.cfgsections = function () {
+			return uci.sections('bypass', 'shunt_rules')
+				.filter(function (section) { return section.is_default !== '1'; })
+				.sort(function (a, b) {
+					var ahas = /^\d+$/.test(a.sort_order || '');
+					var bhas = /^\d+$/.test(b.sort_order || '');
+					if (ahas !== bhas) return ahas ? -1 : 1;
+					var ao = ahas ? +a.sort_order : (+a['.index'] || 0);
+					var bo = bhas ? +b.sort_order : (+b['.index'] || 0);
+					return ao - bo || (+a['.index'] || 0) - (+b['.index'] || 0);
+				})
+				.map(function (section) { return section['.name']; });
+		};
+		function rememberOrder(table) {
+			if (!table) return;
+			table.querySelectorAll('tr[data-sid]').forEach(function (row, index) {
+				var rule = row.getAttribute('data-sid');
+				if (rule) uci.set('bypass', rule, 'sort_order', String(index));
+			});
+		}
+		var inheritedDrop = ss.handleDrop;
+		ss.handleDrop = function (ev) {
+			var table = ev.target && ev.target.closest ? ev.target.closest('table') : null;
+			var result = inheritedDrop.call(this, ev);
+			rememberOrder(table);
+			return result;
+		};
+		var inheritedTouchEnd = ss.handleTouchEnd;
+		ss.handleTouchEnd = function (ev) {
+			var table = ev.target && ev.target.closest ? ev.target.closest('table') : null;
+			var result = inheritedTouchEnd.call(this, ev);
+			rememberOrder(table);
+			return result;
+		};
 		ss.handleAdd = function (_ev, name) {
 			var sid = uci.add('bypass', 'shunt_rules', name);
 			uci.set('bypass', sid, 'remarks', name);
