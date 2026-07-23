@@ -100,6 +100,10 @@ btn_import.write = function(self, section)
     http.redirect(luci.dispatcher.build_url("admin", "systools", "config"))
 end
 
+-- 备份文件列表
+s3 = m:section(SimpleSection, translate("备份记录"), translate("最近的配置备份文件"))
+s3.anonymous = true
+
 -- 列出备份文件
 local backup_list = sys.exec("ls -lt /etc/systools/backup/config/ 2>/dev/null | head -10")
 if not backup_list or #backup_list == 0 then

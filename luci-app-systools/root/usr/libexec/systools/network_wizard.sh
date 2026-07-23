@@ -8,8 +8,8 @@
 . /usr/libexec/systools/systools-common.sh
 
 BACKUP_DIR="/etc/systools/backup/network"
-BACKUP_FILE="BACKUP_DIR/network_$(date +%Y%m%d_%H%M%S).tar.gz"
-LATEST_BACKUP="BACKUP_DIR/network_latest.tar.gz"
+BACKUP_FILE="$BACKUP_DIR/network_$(date +%Y%m%d_%H%M%S).tar.gz"
+LATEST_BACKUP="$BACKUP_DIR/network_latest.tar.gz"
 
 # 确保备份目录存在
 mkdir -p "$BACKUP_DIR"
@@ -120,11 +120,19 @@ parse_advanced_args() {
 apply_advanced_settings() {
     # MAC 地址克隆
     if [ -n "$ADV_MAC" ]; then
+        if ! is_valid_mac "$ADV_MAC"; then
+            log_error "Invalid MAC address format: $ADV_MAC"
+            return 1
+        fi
         uci set network.wan.macaddr="$ADV_MAC"
     fi
 
     # MTU 设置
     if [ -n "$ADV_MTU" ]; then
+        if ! echo "$ADV_MTU" | grep -qE '^[0-9]+$' || [ "$ADV_MTU" -lt 576 ] || [ "$ADV_MTU" -gt 9000 ]; then
+            log_error "Invalid MTU value: $ADV_MTU (must be 576-9000)"
+            return 1
+        fi
         uci set network.wan.mtu="$ADV_MTU"
     fi
 
@@ -158,11 +166,20 @@ apply_pppoe() {
         return 1
     fi
 
+    # 获取并发锁
+    if ! acquire_lock "network_config"; then
+        log_error "Another network configuration operation is in progress"
+        return 1
+    fi
+
     # 解析高级参数
     parse_advanced_args "$@"
 
     # 先备份
-    backup_network || return 1
+    if ! backup_network; then
+        release_lock "network_config"
+        return 1
+    fi
 
     # 配置 WAN 为 PPPoE
     uci set network.wan.proto='pppoe'
@@ -175,23 +192,37 @@ apply_pppoe() {
     fi
 
     # 应用高级设置
-    apply_advanced_settings
+    if ! apply_advanced_settings; then
+        release_lock "network_config"
+        return 1
+    fi
 
     uci commit network
 
     # 重启网络
     /etc/init.d/network restart 2>/dev/null &
+
+    release_lock "network_config"
     echo "PPPoE configuration applied"
     return 0
 }
 
 # 应用 DHCP 配置
 apply_dhcp() {
+    # 获取并发锁
+    if ! acquire_lock "network_config"; then
+        log_error "Another network configuration operation is in progress"
+        return 1
+    fi
+
     # 解析高级参数
     parse_advanced_args "$@"
 
     # 先备份
-    backup_network || return 1
+    if ! backup_network; then
+        release_lock "network_config"
+        return 1
+    fi
 
     # 配置 WAN 为 DHCP
     uci set network.wan.proto='dhcp'
@@ -202,12 +233,17 @@ apply_dhcp() {
     fi
 
     # 应用高级设置
-    apply_advanced_settings
+    if ! apply_advanced_settings; then
+        release_lock "network_config"
+        return 1
+    fi
 
     uci commit network
 
     # 重启网络
     /etc/init.d/network restart 2>/dev/null &
+
+    release_lock "network_config"
     echo "DHCP configuration applied"
     return 0
 }
@@ -248,11 +284,20 @@ apply_static() {
         netmask="255.255.255.0"
     fi
 
+    # 获取并发锁
+    if ! acquire_lock "network_config"; then
+        log_error "Another network configuration operation is in progress"
+        return 1
+    fi
+
     # 解析高级参数
     parse_advanced_args "$@"
 
     # 先备份
-    backup_network || return 1
+    if ! backup_network; then
+        release_lock "network_config"
+        return 1
+    fi
 
     # 配置 WAN 为静态 IP
     uci set network.wan.proto='static'
@@ -271,12 +316,17 @@ apply_static() {
     fi
 
     # 应用高级设置
-    apply_advanced_settings
+    if ! apply_advanced_settings; then
+        release_lock "network_config"
+        return 1
+    fi
 
     uci commit network
 
     # 重启网络
     /etc/init.d/network restart 2>/dev/null &
+
+    release_lock "network_config"
     echo "Static IP configuration applied"
     return 0
 }

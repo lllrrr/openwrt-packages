@@ -18,10 +18,10 @@ backup_config() {
     mkdir -p "$BACKUP_DIR"
     
     # 备份 DHCP 配置
-    cp /etc/config/dhcp "BACKUP_DIR/dhcp.backup" 2>/dev/null
+    cp /etc/config/dhcp "$BACKUP_DIR/dhcp.backup" 2>/dev/null
     
     # 备份 systools 配置
-    cp /etc/config/systools "BACKUP_DIR/systools.backup" 2>/dev/null
+    cp /etc/config/systools "$BACKUP_DIR/systools.backup" 2>/dev/null
     
     log "配置备份完成"
 }
@@ -29,14 +29,14 @@ backup_config() {
 rollback_config() {
     log "回滚配置..."
     
-    if [ -f "BACKUP_DIR/dhcp.backup" ]; then
-        cp "BACKUP_DIR/dhcp.backup" /etc/config/dhcp
+    if [ -f "$BACKUP_DIR/dhcp.backup" ]; then
+        cp "$BACKUP_DIR/dhcp.backup" /etc/config/dhcp
         /etc/init.d/dnsmasq restart 2>/dev/null
         log "DHCP 配置已回滚"
     fi
     
-    if [ -f "BACKUP_DIR/systools.backup" ]; then
-        cp "BACKUP_DIR/systools.backup" /etc/config/systools
+    if [ -f "$BACKUP_DIR/systools.backup" ]; then
+        cp "$BACKUP_DIR/systools.backup" /etc/config/systools
         log "systools 配置已回滚"
     fi
     
@@ -103,6 +103,9 @@ set_nickname() {
     mac_lower=$(echo "$mac" | tr '[:upper:]' '[:lower:]')
     local mac_safe=$(echo "$mac_lower" | tr ':' '_')
     
+    # 先备份配置
+    backup_config
+    
     # 设置备注名
     uci set systools.device_$mac_safe=systools
     uci set systools.device_$mac_safe.nickname="$nickname"
@@ -138,7 +141,16 @@ set_static_ip() {
     # 统一转小写，避免大小写不一致
     local mac_lower
     mac_lower=$(echo "$mac" | tr '[:upper:]' '[:lower:]')
-    
+
+    # 获取并发锁（修改 DHCP 配置属于网络操作）
+    if ! acquire_lock "network_config"; then
+        log "错误：有其他网络配置操作正在进行中"
+        return 1
+    fi
+
+    # 先备份配置
+    backup_config
+
     # 查找该 MAC 已有的 host 条目索引
     local idx=0
     local found=0
@@ -174,6 +186,7 @@ set_static_ip() {
         
         # 重启 dnsmasq
         /etc/init.d/dnsmasq restart 2>/dev/null
+        release_lock "network_config"
     else
         # 移除静态绑定
         if [ "$found" -eq 1 ]; then
@@ -184,6 +197,7 @@ set_static_ip() {
         else
             log "设备 $mac_lower 没有找到静态绑定条目"
         fi
+        release_lock "network_config"
     fi
     
     return 0
