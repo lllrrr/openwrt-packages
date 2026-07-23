@@ -2,12 +2,12 @@
 name = "lanspeed-openwrt-sys"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
-build = "build.rs"
-links = "lanspeed_openwrt_sys"
 
 [lib]
 path = "src/lib.rs"
 
 [dependencies]
 libc.workspace = true
+serde_json.workspace = true

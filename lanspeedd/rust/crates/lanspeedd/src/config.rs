@@ -556,8 +556,8 @@ fn trim_c_ascii_whitespace(value: &str) -> &str {
 #[cfg(feature = "openwrt")]
 impl ConfigSource for lanspeed_openwrt_sys::UciContext {
     fn get(&mut self, path: &str) -> Result<Option<ConfigValue>, ConfigError> {
-        // UciContext currently normalizes C strings to UTF-8 String values.
-        // Non-UTF-8 UCI bytes require a future byte-preserving wrapper API.
+        // Match the former libuci adapter's lossy C-string conversion for legacy
+        // non-UTF-8 values while keeping the public configuration API as Strings.
         self.lookup(path)
             .map(|value| {
                 value.map(|value| match value {
