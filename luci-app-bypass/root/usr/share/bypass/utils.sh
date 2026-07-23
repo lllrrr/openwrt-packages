@@ -619,7 +619,7 @@ is_bypasscore() {
 bypasscore_has_required_features() {
 	local path=$1 capabilities feature
 	capabilities=$("$path" --capabilities --json 2>/dev/null) || return 1
-	for feature in control-unix-http-json raw-dns dns-outbound-tag routing-final-outbound runtime-snapshot-reload ready-status inbound-health dns-result-nftset dns-result-nftset-probe tcp-connect-probe outbound-probe wireguard-client wireguard-key-generation; do
+	for feature in control-unix-http-json raw-dns dns-outbound-tag routing-final-outbound runtime-snapshot-reload ready-status inbound-health dns-result-nftset dns-result-nftset-probe tcp-connect-probe outbound-probe wireguard-client wireguard-key-generation wireguard-handshake-probe; do
 		printf '%s' "$capabilities" | grep -Fq "\"$feature\"" || return 1
 	done
 	printf '%s' "$capabilities" | grep -Eq '"configSchema"[[:space:]]*:[[:space:]]*([5-9]|[1-9][0-9]+)'

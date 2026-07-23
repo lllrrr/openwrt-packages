@@ -6,7 +6,7 @@
 
 // Node List — JS-rendered table for NaiveProxy and native WireGuard nodes:
 //   • A top "URL Test Address" dropdown (browser-session only)
-//   • BypassCore TCP Connect + URL Test latency columns (no ICMP Ping)
+//   • Protocol-aware Connect Test + URL Test latency columns (no ICMP Ping)
 //   • Per-row Edit / Copy / Delete actions. Nodes are assigned per shunt rule.
 //   • A single "Add" button at the bottom.
 
@@ -90,7 +90,9 @@ return view.extend({
 			E('div', { class: 'cbi-section-descr' }, [
 				_('NaiveProxy and WireGuard outbound nodes.'),
 				' ',
-				_('WireGuard tests use the running BypassCore outbound, so the node must be selected by an active rule.')
+				_('WireGuard tests use the running BypassCore outbound, so the node must be selected by an active rule.'),
+				' ',
+				_('UDP Test verifies the peer handshake; URL Test also verifies tunneled DNS and TCP traffic.')
 			])
 		]);
 
@@ -120,7 +122,7 @@ return view.extend({
 			E('tr', { class: 'tr cbi-section-table-titles' }, [
 				E('th', { class: 'th cbi-section-table-cell', style: 'width:28%' }, _('Remarks')),
 				E('th', { class: 'th cbi-section-table-cell', style: 'width:10%' }, _('Type')),
-				E('th', { class: 'th cbi-section-table-cell', style: 'width:12%' }, _('TCP Connect')),
+				E('th', { class: 'th cbi-section-table-cell', style: 'width:12%' }, _('Connect Test')),
 				E('th', { class: 'th cbi-section-table-cell', style: 'width:12%' }, _('URL Test')),
 				E('th', { class: 'th cbi-section-table-cell', style: 'width:38%' }, _('Actions'))
 			])
@@ -136,6 +138,8 @@ return view.extend({
 		nodes.forEach(function (sec) {
 			var sid = sec['.name'];
 			var nodeType = sec.node_type === 'wireguard' ? 'wireguard' : 'naiveproxy';
+			var connectTestLabel = nodeType === 'wireguard' ? _('UDP Test') : _('TCP Test');
+			var connectTestAction = nodeType === 'wireguard' ? 'node_udp_probe' : 'node_tcp_probe';
 			var tcpProbeCell = E('td', { class: 'td cbi-value-field', style: 'white-space:nowrap' });
 			var tcpProbeResult = E('span', { style: 'margin-left:6px;font-weight:bold' });
 			var tcpProbeLink = E('a', {
@@ -146,8 +150,8 @@ return view.extend({
 					tcpProbeLink.textContent = _('Testing…');
 					tcpProbeLink.style.color = COL.yellow;
 					tcpProbeResult.textContent = '';
-					api('node_tcp_probe', sid).then(function (r) {
-						tcpProbeLink.textContent = _('Test');
+					api(connectTestAction, sid).then(function (r) {
+						tcpProbeLink.textContent = connectTestLabel;
 						tcpProbeLink.style.color = '';
 						if (r.code === 0 && r.latency_ms != null) {
 							var ms = parseInt(r.latency_ms, 10);
@@ -156,18 +160,18 @@ return view.extend({
 						} else {
 							tcpProbeResult.textContent = '---';
 							tcpProbeResult.style.color = COL.red;
-							ui.addNotification(null, E('p', {}, r.error || _('TCP connect probe failed.')));
+							ui.addNotification(null, E('p', {}, r.error || _('Connect test failed.')));
 						}
 					});
 				}
-			}, _('Test'));
+			}, connectTestLabel);
 
 			function renderTcpProbe(ms) {
 				if (ms == null) {
 					tcpProbeResult.textContent = '';
 					return;
 				}
-				tcpProbeResult.textContent = ms + ' ms';
+				tcpProbeResult.textContent = ms <= 0 ? '<1 ms' : ms + ' ms';
 				tcpProbeResult.style.color = latencyColor(ms);
 			}
 

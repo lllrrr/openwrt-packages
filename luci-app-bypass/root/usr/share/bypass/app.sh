@@ -159,9 +159,31 @@ prepare_selected_nodes() {
 		esac
 	done < "$TMP_PATH/selected_nodes"
 
-	# Keep mappings stable only while the service is actually active. Status or
-	# preview calls made while stopped must not reserve stale ports for startup.
-	[ -s "$TMP_PATH/node_ports" ] && busybox pgrep -f "$TMP_BIN_PATH/" >/dev/null 2>&1 && return 0
+	# Keep mappings stable while the same Naive node set is already represented
+	# by either the active core or its carrier processes. During startup the
+	# carriers deliberately bind their ports before BypassCore's config is
+	# generated; recomputing at that point would see 1088 as occupied and write
+	# 1089 into the core config even though Naive is listening on 1088.
+	if [ -s "$TMP_PATH/node_ports" ]; then
+		local mapped_nodes selected_naive mapping_live=0 mapped_node
+		mapped_nodes=$(awk 'NF { print $1 }' "$TMP_PATH/node_ports" 2>/dev/null | sort -u)
+		selected_naive=$(sort -u "$TMP_PATH/selected_naive_nodes" 2>/dev/null)
+		if [ "$mapped_nodes" = "$selected_naive" ]; then
+			process_alive bypasscore && mapping_live=1
+			if [ "$mapping_live" = "0" ]; then
+				while IFS= read -r mapped_node; do
+					[ -n "$mapped_node" ] || continue
+					process_alive "${NAIVE_TAG}_${mapped_node}" && {
+						mapping_live=1
+						break
+					}
+				done <<-EOF
+				$mapped_nodes
+				EOF
+			fi
+			[ "$mapping_live" = "1" ] && return 0
+		fi
+	fi
 	: > "$TMP_PATH/node_ports"
 	while read -r sid; do
 		[ -n "$sid" ] || continue
