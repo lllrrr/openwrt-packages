@@ -216,6 +216,7 @@ pub struct ProbeObservations {
 pub struct TcFilter {
     pub interface: String,
     pub direction: String,
+    pub chain: u32,
     pub pref: u32,
     pub handle: String,
     pub owner: String,
@@ -576,8 +577,6 @@ pub fn assess(
     let map_full = config.max_clients < 1;
     let safe_attach = config.enable_bpf
         && observations.commands.tc
-        && observations.tc.clsact
-        && observations.tc.bpf
         && observations.bpf.package
         && observations.bpf.object
         && lan_edge
@@ -596,8 +595,6 @@ pub fn assess(
         && !observations.offload.hardware;
     let probe_error = observations.probe_error
         || observations.commands.flowtable_exit_code != 0
-        || observations.commands.tc_filter_help_exit_code != 0
-        || observations.commands.tc_qdisc_help_exit_code != 0
         || observations.ubus.network_lan_exit_code != 0;
     let lan_probe_error =
         observations.lan_probe_error || observations.ubus.network_lan_exit_code != 0;

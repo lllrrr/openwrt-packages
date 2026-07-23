@@ -76,13 +76,13 @@ pub fn select_collectors(
     if config.enable_bpf && !has_collect_target {
         push_unique(&mut warnings, "no_collect_interface");
     }
-    if !facts.bpf.package {
+    if !facts.bpf.package && !runtime.bpf_object_loaded {
         push_unique(&mut warnings, "bpf_optional_package_missing");
     }
-    if !facts.bpf.object {
+    if !facts.bpf.object && !runtime.bpf_object_loaded {
         push_unique(&mut warnings, "bpf_object_missing");
     }
-    if config.enable_bpf && has_collect_target && !facts.tc.safe_attach {
+    if config.enable_bpf && has_collect_target && !facts.tc.safe_attach && !runtime.bpf_attached {
         push_unique(&mut warnings, "unsafe_attach");
     }
     if !facts.files.nf_conntrack_acct
@@ -98,11 +98,12 @@ pub fn select_collectors(
 
     let bpf_prerequisites = config.enable_bpf
         && has_collect_target
-        && facts.tc.safe_attach
-        && facts.bpf.package
-        && facts.bpf.object
         && runtime.bpf_object_loaded
         && runtime.bpf_attached;
+    // NSS ECM/PPE moves accelerated packets below the CPU tc hooks.  BPF must
+    // remain attached for slow-path visibility, but it cannot claim complete
+    // client coverage while NSS offload is active.
+    let nss_offload_active = facts.nss.present && (facts.nss.ecm_active || facts.nss.ppe_active);
     let retained_fresh_snapshot = !runtime.bpf_map_read_ok
         && runtime
             .bpf_last_complete_snapshot_ms
@@ -111,7 +112,8 @@ pub fn select_collectors(
             });
     let bpf_full = bpf_prerequisites
         && (runtime.bpf_map_read_ok || retained_fresh_snapshot)
-        && !facts.offload.hardware;
+        && !facts.offload.hardware
+        && !nss_offload_active;
     let nss_sync = config.enable_conntrack_fallback
         && facts.files.nf_conntrack_acct
         && facts.nss.present
@@ -161,39 +163,43 @@ pub fn select_collectors(
             }
         }
         RateCollectorMode::Auto => {
-            if dae_prefers_bpf {
-                (RateCollector::Bpf, "dae_runtime_prefers_bpf")
-            } else if bpf_full {
-                (RateCollector::Bpf, "bpf_available")
-            } else if nss_sync {
+            // NSS sync is the only source that includes hardware-accelerated
+            // bytes and CPU slow-path bytes without double counting them.
+            if nss_sync {
                 (
                     RateCollector::NssConntrackSync,
-                    "bpf_unavailable_nss_sync_fallback",
+                    "nss_offload_conntrack_sync_primary",
                 )
             } else if nss_direct {
                 (
                     RateCollector::NssEcmDirect,
-                    "bpf_unavailable_nss_direct_fallback",
+                    "nss_sync_unavailable_nss_direct_fallback",
                 )
+            } else if dae_prefers_bpf {
+                (RateCollector::Bpf, "dae_runtime_prefers_bpf")
+            } else if bpf_full {
+                (RateCollector::Bpf, "bpf_available")
             } else {
                 (RateCollector::Unsupported, "no_live_rate_collector")
             }
         }
     };
-    let nss_direct_overlay = nss_direct
-        && rate == RateCollector::NssConntrackSync
-        && config.rate_collector_mode == RateCollectorMode::Auto
-        && !dae_prefers_bpf;
+    // Direct ECM counters describe accelerated flows only.  Replacing a
+    // client-level conntrack sample with them can discard that client's
+    // concurrent CPU slow-path flows, so direct remains a fallback source and
+    // is never overlaid on the sync snapshot.
+    let nss_direct_overlay = false;
     let nss_sync_secondary = rate == RateCollector::NssEcmDirect && nss_sync;
 
     match rate {
         RateCollector::NssEcmDirect => push_unique(&mut warnings, "nss_ecm_direct_active"),
         RateCollector::NssConntrackSync => {
             push_unique(&mut warnings, "nss_ecm_sync_cadence");
-            if bpf_full {
+            if nss_offload_active {
                 push_unique(&mut warnings, "nss_prefers_conntrack_sync");
+                push_unique(&mut warnings, "nss_bpf_slow_path_only");
             }
-            if facts.nss.present && dae_active && !bpf_full {
+            if facts.nss.present && dae_active {
                 push_unique(&mut warnings, "nss_dae_bpf_fallback_may_be_inaccurate");
             }
         }
@@ -219,7 +225,7 @@ pub fn select_collectors(
         && bpf_mode_allowed
         && config.enable_bpf
         && has_collect_target
-        && facts.tc.safe_attach
+        && (facts.tc.safe_attach || runtime.bpf_object_loaded)
         && bpf_runtime_failed
     {
         push_unique(&mut warnings, "bpf_runtime_loader_unavailable");
@@ -262,7 +268,10 @@ pub fn select_collectors(
 
     let mode = match rate {
         RateCollector::Bpf if bpf_full => Mode::Full,
-        RateCollector::NssEcmDirect => Mode::Full,
+        // ECM direct exposes accelerated flows only. CPU slow-path traffic can
+        // be absent even when the state reader is healthy, so this source must
+        // never claim complete client coverage.
+        RateCollector::NssEcmDirect => Mode::Degraded,
         RateCollector::NssConntrackSync => Mode::Degraded,
         _ if !facts.tc.available && !nss_sync => Mode::Unsupported,
         _ => Mode::Degraded,

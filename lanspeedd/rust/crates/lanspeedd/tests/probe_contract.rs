@@ -7,7 +7,8 @@ use lanspeedd::probe::collector::{
 use lanspeedd::probe::commands::{validate_read_only_args, ReadOnlyCommand};
 use lanspeedd::probe::files::BoundedFile;
 use lanspeedd::probe::tc::{
-    dae_preempts_lan_ingress, has_foreign_filters, has_owned_identity_collision, parse_filter_lines,
+    dae_preempts_lan_ingress, has_foreign_filters, has_owned_identity_collision,
+    has_software_direct_action_semantics, parse_filter_json, qdisc_json_has_clsact,
 };
 use lanspeedd::probe::{
     assess, BpfObservation, CommandObservations, FileObservations, NssObservation,
@@ -100,6 +101,10 @@ fn observations(value: &Value) -> (RuntimeConfig, ProbeObservations) {
                 .and_then(Value::as_str)
                 .unwrap_or("ingress")
                 .into(),
+            chain: filter
+                .get("chain")
+                .and_then(Value::as_i64)
+                .unwrap_or_default() as u32,
             pref: filter
                 .get("pref")
                 .and_then(Value::as_i64)
@@ -752,37 +757,125 @@ fn command_and_tc_probes_are_bounded_read_only_parsers() {
     );
     assert!(ReadOnlyCommand::NftDaeDnsUdp53.output_cap() >= 64 * 1024);
     assert_eq!(ReadOnlyCommand::NftListFlowtables.output_cap(), 4_096);
+    assert_eq!(
+        ReadOnlyCommand::TcFilterShow.fixed_args(),
+        &["-j", "-d", "filter", "show"]
+    );
+    assert_eq!(
+        ReadOnlyCommand::TcQdiscShow.fixed_args(),
+        &["-j", "qdisc", "show"]
+    );
+    assert_eq!(ReadOnlyCommand::TcFilterShow.output_cap(), 64 * 1024);
+    assert_eq!(ReadOnlyCommand::TcQdiscShow.output_cap(), 16 * 1024);
     assert!(ReadOnlyCommand::TcFilterShow.nonzero_exit_is_absence());
     assert!(ReadOnlyCommand::IpRouteShow.nonzero_exit_is_absence());
     assert!(!ReadOnlyCommand::IpRuleShow.nonzero_exit_is_absence());
 
-    let filters = parse_filter_lines(
+    let details = parse_filter_json(
         "eth1",
         "ingress",
-        "filter protocol all pref 2 bpf chain 0\n\
-         filter protocol all pref 2 bpf chain 0 handle 0x20230005 dae direct-action\n\
-         filter protocol all pref 49152 bpf chain 0\n\
-         filter protocol all pref 49152 bpf chain 0 handle 0x1eed lanspeed_ingress direct-action\n",
-    );
+        r#"[
+          {"protocol":"all","pref":2,"kind":"bpf","chain":0,
+           "options":{"handle":"0x20230005","bpf":{"name":"dae_ingress","id":7},
+                      "direct-action":true,"not_in_hw":true}},
+          {"protocol":"all","pref":49152,"kind":"bpf","chain":0,
+           "options":{"handle":"0x1eed","bpf":{"name":"lanspeed_ingres","id":8}}}
+        ]"#,
+    )
+    .unwrap();
+    assert_eq!(details[0].kind.as_deref(), Some("bpf"));
+    assert_eq!(details[0].filter.chain, 0);
+    assert_eq!(details[0].program_name.as_deref(), Some("dae_ingress"));
+    assert_eq!(details[0].program_id, Some(7));
+    assert_eq!(details[0].protocol.as_deref(), Some("all"));
+    assert_eq!(details[0].direct_action, Some(true));
+    assert_eq!(details[0].in_hw, None);
+    assert_eq!(details[0].not_in_hw, Some(true));
+    assert!(has_software_direct_action_semantics(&details[0]));
+    let filters = details
+        .into_iter()
+        .map(|detail| detail.filter)
+        .collect::<Vec<_>>();
     assert_eq!(filters.len(), 2);
     assert!(dae_preempts_lan_ingress(&filters, &["eth1".into()]));
     assert!(!dae_preempts_lan_ingress(&filters, &["br-lan".into()]));
     assert!(!has_owned_identity_collision(&filters));
     assert!(has_foreign_filters(&filters));
 
-    let owned_only = parse_filter_lines(
+    let owned_only = parse_filter_json(
         "eth1",
         "ingress",
-        "filter protocol all pref 49152 bpf chain 0\n\
-         filter protocol all pref 49152 bpf chain 0 handle 0x1eed lanspeed_ingress direct-action\n",
-    );
+        r#"[{"pref":"49152","kind":"bpf","chain":"0",
+              "options":{"handle":7917,"name":"lanspeed_ingress","id":8}}]"#,
+    )
+    .unwrap()
+    .into_iter()
+    .map(|detail| detail.filter)
+    .collect::<Vec<_>>();
     assert_eq!(owned_only.len(), 1);
     assert!(!has_foreign_filters(&owned_only));
+    assert!(
+        qdisc_json_has_clsact(r#"[{"kind":"noqueue"},{"kind":"clsact","handle":"ffff:"}]"#)
+            .unwrap()
+    );
+    assert!(!qdisc_json_has_clsact(r#"[{"kind":"noqueue"}]"#).unwrap());
+    assert!(parse_filter_json("eth1", "ingress", "not-json").is_err());
+    for explicit_conflict in [
+        r#"[{"protocol":"ip","pref":49152,"kind":"bpf","options":{"handle":"0x1eed"}}]"#,
+        r#"[{"protocol":"all","pref":49152,"kind":"bpf","options":{"handle":"0x1eed","direct-action":false}}]"#,
+        r#"[{"protocol":"all","pref":49152,"kind":"bpf","options":{"handle":"0x1eed","in_hw":true}}]"#,
+        r#"[{"protocol":"all","pref":49152,"kind":"bpf","options":{"handle":"0x1eed","not_in_hw":false}}]"#,
+        r#"[{"protocol":false,"pref":49152,"kind":"bpf","options":{"handle":"0x1eed"}}]"#,
+    ] {
+        let parsed = parse_filter_json("eth1", "ingress", explicit_conflict).unwrap();
+        assert!(!has_software_direct_action_semantics(&parsed[0]));
+    }
+    let legacy = parse_filter_json(
+        "eth1",
+        "ingress",
+        r#"[{"pref":49152,"kind":"bpf","options":{"handle":"0x1eed"}}]"#,
+    )
+    .unwrap();
+    assert!(has_software_direct_action_semantics(&legacy[0]));
+    let numeric_all = parse_filter_json(
+        "eth1",
+        "ingress",
+        r#"[{"protocol":3,"pref":49152,"kind":"bpf","options":{"handle":"0x1eed"}}]"#,
+    )
+    .unwrap();
+    assert!(has_software_direct_action_semantics(&numeric_all[0]));
     let foreign = vec![TcFilter {
         owner: "dae".into(),
         ..filters[1].clone()
     }];
     assert!(has_owned_identity_collision(&foreign));
+    let chained = vec![TcFilter {
+        chain: 7,
+        pref: 2,
+        ..foreign[0].clone()
+    }];
+    assert!(!has_owned_identity_collision(&chained));
+    assert!(!dae_preempts_lan_ingress(&chained, &["eth1".into()]));
+}
+
+#[test]
+fn tc_help_wording_is_diagnostic_and_not_a_hard_attach_gate() {
+    let mut config = RuntimeConfig::default();
+    config.enable_bpf = true;
+    config.interface_include.push("eth1".into());
+    let mut observations = ProbeObservations::default();
+    observations.commands.tc = true;
+    observations.files.lan_bridge = true;
+    observations.bpf.package = true;
+    observations.bpf.object = true;
+
+    let report = assess(&config, observations, &ProbeRuntimeHealth::default());
+
+    assert!(report.facts.tc.safe_attach);
+    assert!(report.warnings.contains(&"bpf_unsupported"));
+    assert!(report.warnings.contains(&"tc_clsact_unsupported"));
+    assert!(report.warnings.contains(&"bpf_runtime_loader_unavailable"));
+    assert!(!report.warnings.contains(&"unsafe_attach"));
 }
 
 #[test]
@@ -806,9 +899,11 @@ fn missing_optional_dae_route_table_is_not_a_probe_failure() {
 
     assert!(!report.evidence.probe_error);
     assert!(!report.warnings.contains(&"probe_error"));
-    assert!(!report.evidence.probe_failures.iter().any(|failure| {
-        failure.source == "command:ip_route_table_2023"
-    }));
+    assert!(!report
+        .evidence
+        .probe_failures
+        .iter()
+        .any(|failure| { failure.source == "command:ip_route_table_2023" }));
     let route = report
         .evidence
         .command
@@ -862,8 +957,8 @@ fn report_mode_confidence_and_capabilities_come_from_the_single_policy_decision(
         observations.clone(),
         &ProbeRuntimeHealth::default(),
     );
-    assert_eq!(direct.mode.as_str(), "Full");
-    assert_eq!(direct.confidence.as_str(), "high");
+    assert_eq!(direct.mode.as_str(), "Degraded");
+    assert_eq!(direct.confidence.as_str(), "medium");
     assert!(direct.capabilities.live_metrics);
     assert!(!direct.capabilities.bpf);
     assert!(!direct.capabilities.conntrack_fallback);
@@ -912,12 +1007,15 @@ fn nss_presence_does_not_invent_the_firewall_hardware_offload_flag() {
         ..ProbeRuntimeHealth::default()
     };
     let report = assess(&config, observations, &runtime);
-    assert!(report.capabilities.bpf);
+    assert!(!report.capabilities.bpf);
+    assert!(report.capabilities.bpf_runtime_metrics);
+    assert!(report.capabilities.conntrack_fallback);
     assert!(!report.capabilities.hardware_flow_offload);
     assert!(!report
         .warnings
         .contains(&"hardware_flow_offload_unsupported"));
-    assert!(report.warnings.contains(&"dae_runtime_prefers_bpf"));
+    assert!(!report.warnings.contains(&"dae_runtime_prefers_bpf"));
+    assert!(report.warnings.contains(&"nss_bpf_slow_path_only"));
 }
 
 #[test]
@@ -941,6 +1039,7 @@ struct FakeCommands {
     timeout: bool,
     truncated: bool,
     tc_help_stderr_only: bool,
+    tc_help_nonzero: bool,
     ruleset_truncated_only: bool,
     ip_route_exit_code: i32,
 }
@@ -965,6 +1064,7 @@ impl CommandRunner for FakeCommands {
             ReadOnlyCommand::TcQdiscHelp if !self.tc_help_stderr_only => {
                 "Usage: tc ... clsact".into()
             }
+            ReadOnlyCommand::TcFilterShow | ReadOnlyCommand::TcQdiscShow => "[]".into(),
             ReadOnlyCommand::NftListFlowtables => "flowtable ft { counter; }".into(),
             _ => String::new(),
         };
@@ -974,6 +1074,13 @@ impl CommandRunner for FakeCommands {
             args: args.iter().map(|arg| (*arg).into()).collect(),
             exit_code: Some(if command == ReadOnlyCommand::IpRouteShow {
                 self.ip_route_exit_code
+            } else if self.tc_help_nonzero
+                && matches!(
+                    command,
+                    ReadOnlyCommand::TcFilterHelp | ReadOnlyCommand::TcQdiscHelp
+                )
+            {
+                2
             } else {
                 0
             }),
@@ -1086,6 +1193,7 @@ impl UbusSource for FakeUbus {
 fn injectable_production_collector_records_every_read_only_source_and_error() {
     let commands = FakeCommands {
         tc_help_stderr_only: true,
+        tc_help_nonzero: true,
         ..FakeCommands::default()
     };
     let mut files = FakeFiles::default();

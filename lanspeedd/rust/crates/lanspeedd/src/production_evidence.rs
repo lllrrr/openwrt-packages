@@ -103,8 +103,6 @@ pub(crate) fn bpf_details(
             .is_some_and(|sample_ms| {
                 crate::is_fresh(runtime.now_ms, sample_ms, runtime.bpf_freshness_ms)
             });
-    let bpf_supported =
-        report.capabilities.tc && report.capabilities.tc_clsact && report.facts.tc.bpf;
     let attach_state =
         if !config.enable_bpf || collect_target_count == 0 || !runtime.bpf_object_loaded {
             "not_attempted"
@@ -118,6 +116,10 @@ pub(crate) fn bpf_details(
         } else {
             "failed"
         };
+    let runtime_tc_ready = attach_state == "ready";
+    let bpf_supported =
+        (report.capabilities.tc && report.capabilities.tc_clsact && report.facts.tc.bpf)
+            || runtime_tc_ready;
     let map_state = if attach_state != "ready" {
         "not_attempted"
     } else if runtime.bpf_map_read_ok {
@@ -133,11 +135,11 @@ pub(crate) fn bpf_details(
         "disabled"
     } else if collect_target_count == 0 {
         "no_collect_interface"
-    } else if !report.capabilities.bpf_package {
+    } else if !report.capabilities.bpf_package && !runtime.bpf_object_loaded {
         "package_missing"
-    } else if !report.capabilities.bpf_object {
+    } else if !report.capabilities.bpf_object && !runtime.bpf_object_loaded {
         "object_missing"
-    } else if !report.capabilities.tc {
+    } else if !report.capabilities.tc && !runtime_tc_ready {
         "tc_unavailable"
     } else if !bpf_supported {
         "tc_unsupported"
@@ -333,12 +335,16 @@ pub(crate) fn nss_details(
     let direct_supported = report.evidence.nss.present
         && report.evidence.nss.ecm_active
         && report.evidence.nss.direct_state_readable;
-    let fallback_reason = nss::direct_fallback_reason(nss::DirectFallbackInput {
-        state_readable: direct_supported,
-        overlay_enabled: direct_enabled,
-        rate_mode: config.rate_collector_mode,
-        dae_runtime_prefers_bpf: decision.evidence.rate_reason == "dae_runtime_prefers_bpf",
-    });
+    let fallback_reason = if decision.rate == RateCollector::NssConntrackSync {
+        "nss_conntrack_sync_primary"
+    } else {
+        nss::direct_fallback_reason(nss::DirectFallbackInput {
+            state_readable: direct_supported,
+            overlay_enabled: direct_enabled,
+            rate_mode: config.rate_collector_mode,
+            dae_runtime_prefers_bpf: decision.evidence.rate_reason == "dae_runtime_prefers_bpf",
+        })
+    };
     let offload_active = report.evidence.nss.ecm_active || report.evidence.nss.ppe_active;
     let mut value = json!({
         "present": report.evidence.nss.present,
@@ -363,6 +369,16 @@ pub(crate) fn nss_details(
         "subsystems": report.evidence.nss.subsystems,
         "counter_source": counter_source(decision, report),
         "counter_cadence_seconds": if offload_active { 2 } else { 0 },
+        "counter_merge_policy": if decision.rate == RateCollector::NssConntrackSync {
+            "conntrack_sync_authoritative_no_bpf_addition"
+        } else {
+            "single_source"
+        },
+        "counter_delta_scope": if decision.rate == RateCollector::NssConntrackSync {
+            "per_conntrack_flow_before_client_aggregation"
+        } else {
+            "single_source_client_snapshot"
+        },
         "bpf_visibility": if offload_active {
             "slow_path_only_until_deceleration"
         } else {
@@ -504,6 +520,33 @@ mod tests {
         assert_eq!(recovered["map_state"], "ready");
         assert_eq!(recovered["reason_code"], "ready");
         assert_eq!(recovered["retained_fresh_snapshot"], false);
+    }
+
+    #[test]
+    fn successful_runtime_tc_state_overrides_help_probe_wording() {
+        let config = configured_bpf();
+        let runtime = RuntimeHealth {
+            bpf_object_loaded: true,
+            bpf_attached: true,
+            bpf_expected_hook_count: 2,
+            bpf_attached_hook_count: 2,
+            bpf_map_read_attempted: true,
+            bpf_map_read_ok: true,
+            ..RuntimeHealth::default()
+        };
+        let mut observations = crate::probe::ProbeObservations::default();
+        observations.commands.tc = true;
+        observations.files.lan_bridge = true;
+        observations.bpf.package = true;
+        observations.bpf.object = true;
+        let report = crate::probe::assess(&config, observations, &runtime);
+
+        assert!(!report.facts.tc.bpf);
+        assert!(!report.facts.tc.clsact);
+        let evidence = bpf_details(&config, &report, &runtime, None);
+        assert_eq!(evidence["attach_state"], "ready");
+        assert_eq!(evidence["map_state"], "ready");
+        assert_eq!(evidence["reason_code"], "ready");
     }
 
     #[test]
@@ -724,9 +767,9 @@ mod tests {
                 "direct_state_present": true,
                 "direct_state_readable": true,
                 "direct_supported": true,
-                "direct_enabled": true,
+                "direct_enabled": false,
                 "direct_source": "nss_ecm_direct",
-                "fallback_reason": "",
+                "fallback_reason": "nss_conntrack_sync_primary",
                 "direct_state_errno": 13,
                 "direct_state_major": 241,
                 "direct_source_path": "/dev/ecm_state",
@@ -744,6 +787,8 @@ mod tests {
                 "mapping_count": 8,
                 "counter_source": "ecm_conntrack_sync",
                 "counter_cadence_seconds": 2,
+                "counter_merge_policy": "conntrack_sync_authoritative_no_bpf_addition",
+                "counter_delta_scope": "per_conntrack_flow_before_client_aggregation",
                 "bpf_visibility": "slow_path_only_until_deceleration",
                 "interface_counters_accurate": true,
                 "nssifb_policy": "mirror_of_physical_ingress_not_a_real_client_source",
