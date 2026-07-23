@@ -81,14 +81,17 @@ return view.extend({
 
 	render: function () {
 		var nodes = uci.sections('bypass', 'nodes');
-		var wireguardPeers = uci.sections('bypass', 'wireguard_peer');
 		var currentUrl = URL_TEST_PRESETS[2][0];
 		try { currentUrl = sessionStorage.getItem('bypass_url_test_url') || currentUrl; } catch (e) {}
 		if (!URL_TEST_PRESETS.some(function (pair) { return pair[0] === currentUrl; }))
 			currentUrl = URL_TEST_PRESETS[2][0];
 
 		var container = E('div', { class: 'cbi-map' }, [
-			E('div', { class: 'cbi-section-descr' }, _('NaiveProxy and WireGuard outbound nodes.'))
+			E('div', { class: 'cbi-section-descr' }, [
+				_('NaiveProxy and WireGuard outbound nodes.'),
+				' ',
+				_('WireGuard tests use the running BypassCore outbound, so the node must be selected by an active rule.')
+			])
 		]);
 
 		// This is a diagnostic input, not service configuration. Keeping it out of
@@ -133,7 +136,6 @@ return view.extend({
 		nodes.forEach(function (sec) {
 			var sid = sec['.name'];
 			var nodeType = sec.node_type === 'wireguard' ? 'wireguard' : 'naiveproxy';
-			var nodePeers = wireguardPeers.filter(function (peer) { return peer.node === sid; });
 			var tcpProbeCell = E('td', { class: 'td cbi-value-field', style: 'white-space:nowrap' });
 			var tcpProbeResult = E('span', { style: 'margin-left:6px;font-weight:bold' });
 			var tcpProbeLink = E('a', {
@@ -154,6 +156,7 @@ return view.extend({
 						} else {
 							tcpProbeResult.textContent = '---';
 							tcpProbeResult.style.color = COL.red;
+							ui.addNotification(null, E('p', {}, r.error || _('TCP connect probe failed.')));
 						}
 					});
 				}
@@ -168,7 +171,10 @@ return view.extend({
 				tcpProbeResult.style.color = latencyColor(ms);
 			}
 
-			if (nodeType === 'naiveproxy') {
+			var hasEndpoint = nodeType === 'wireguard'
+				? !!(sec.peer_address && sec.peer_port)
+				: !!(sec.address && sec.port);
+			if (hasEndpoint) {
 				tcpProbeCell.appendChild(tcpProbeLink);
 				tcpProbeCell.appendChild(tcpProbeResult);
 				var cached = getCachedTcpProbe(sid);
@@ -177,10 +183,9 @@ return view.extend({
 				tcpProbeCell.appendChild(E('span', { style: 'color:#adb5bd' }, '---'));
 			}
 
-			// URL Test column: needs address+port to dial the node. Nodes without
-			// them show an inert placeholder.
+			// Both node types need a configured endpoint. WireGuard URL tests
+			// are executed by the active native outbound in BypassCore.
 			var urltestCell = E('td', { class: 'td cbi-value-field', style: 'white-space:nowrap' });
-			var hasEndpoint = nodeType === 'naiveproxy' && !!(sec.address && sec.port);
 			if (!hasEndpoint) {
 				urltestCell.appendChild(E('span', { style: 'color:#adb5bd' }, '---'));
 			} else {
@@ -208,6 +213,7 @@ return view.extend({
 							} else {
 								urltestResult.textContent = '---';
 								urltestResult.style.color = COL.red;
+								ui.addNotification(null, E('p', {}, r.error || _('URL test failed.')));
 							}
 						});
 					}
@@ -249,8 +255,9 @@ return view.extend({
 				])
 			]);
 
+			var endpointHost = sec.peer_address || '—';
 			var endpointText = nodeType === 'wireguard'
-				? (nodePeers[0] ? nodePeers[0].endpoint : '—')
+				? ((endpointHost.indexOf(':') >= 0 ? '[' + endpointHost + ']' : endpointHost) + ':' + (sec.peer_port || '—'))
 				: (sec.address || '—') + ':' + (sec.port || '—');
 			table.appendChild(E('tr', { class: 'tr cbi-section-table-row' }, [
 				E('td', { class: 'td cbi-value-field' }, [
@@ -291,17 +298,12 @@ return view.extend({
 			if (!src) return;
 			var newSid = uci.add('bypass', 'nodes');
 			['node_type', 'protocol', 'remarks', 'address', 'port', 'egress_interface',
-				'username', 'password', 'secret_key', 'public_key', 'wireguard_address', 'mtu'].forEach(function (opt) {
+				'username', 'password', 'secret_key', 'public_key', 'wireguard_address',
+				'peer_public_key', 'peer_address', 'peer_port', 'pre_shared_key',
+				'keep_alive', 'mtu'].forEach(function (opt) {
 				if (src[opt] != null) uci.set('bypass', newSid, opt, src[opt]);
 			});
 			uci.set('bypass', newSid, 'remarks', (src.remarks || sid) + ' ' + _('(copy)'));
-			wireguardPeers.filter(function (peer) { return peer.node === sid; }).forEach(function (peer) {
-				var newPeer = uci.add('bypass', 'wireguard_peer');
-				uci.set('bypass', newPeer, 'node', newSid);
-				['public_key', 'endpoint', 'allowed_ips', 'pre_shared_key', 'keep_alive'].forEach(function (opt) {
-					if (peer[opt] != null) uci.set('bypass', newPeer, opt, peer[opt]);
-				});
-			});
 			uci.save().then(function () { uci.apply().then(function () { location.reload(); }); });
 		}
 
@@ -324,10 +326,6 @@ return view.extend({
 								var globalRules = uci.sections('bypass', 'global_rules')[0];
 								if (globalRules && globalRules.default_node === sid)
 									uci.set('bypass', globalRules['.name'], 'default_node', '_direct');
-								uci.sections('bypass', 'wireguard_peer').forEach(function (peer) {
-									if (peer.node === sid)
-										uci.remove('bypass', peer['.name']);
-								});
 								uci.remove('bypass', sid);
 								uci.save().then(function () { uci.apply().then(function () { location.reload(); }); });
 							}

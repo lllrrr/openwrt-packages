@@ -533,19 +533,6 @@ host_from_url() {
 	echo "${f%%:*}"
 }
 
-host_from_endpoint() {
-	local endpoint=$1
-	case "$endpoint" in
-		\[*\]:*)
-			endpoint=${endpoint#\[}
-			printf '%s\n' "${endpoint%%\]*}"
-			;;
-		*)
-			printf '%s\n' "${endpoint%:*}"
-			;;
-	esac
-}
-
 # ------------------------------------------------------------------------------
 # WAN / local IP enumeration
 # ------------------------------------------------------------------------------
@@ -625,14 +612,14 @@ is_bypasscore() {
 	"$path" --version 2>/dev/null | grep -q '^BypassCore[[:space:]]'
 }
 
-# The LuCI integration consumes schema-5 native WireGuard, NFTSet and TCP probe
-# features from BypassCore 1.4.0.
+# The LuCI integration consumes schema-5 native WireGuard, NFTSet and
+# outbound-aware network probe features from BypassCore.
 # Check the machine-readable contract instead of inferring support from a
 # version string, so development builds and future versions remain usable.
 bypasscore_has_required_features() {
 	local path=$1 capabilities feature
 	capabilities=$("$path" --capabilities --json 2>/dev/null) || return 1
-	for feature in control-unix-http-json raw-dns dns-outbound-tag routing-final-outbound runtime-snapshot-reload ready-status inbound-health dns-result-nftset dns-result-nftset-probe tcp-connect-probe wireguard-client wireguard-key-generation; do
+	for feature in control-unix-http-json raw-dns dns-outbound-tag routing-final-outbound runtime-snapshot-reload ready-status inbound-health dns-result-nftset dns-result-nftset-probe tcp-connect-probe outbound-probe wireguard-client wireguard-key-generation; do
 		printf '%s' "$capabilities" | grep -Fq "\"$feature\"" || return 1
 	done
 	printf '%s' "$capabilities" | grep -Eq '"configSchema"[[:space:]]*:[[:space:]]*([5-9]|[1-9][0-9]+)'
@@ -673,12 +660,12 @@ wait_for_bypasscore_ready() {
 # Egress-interface routing helpers (destination-policy-rule strategy).
 #
 # These install the *routing* half of the egress policy:
-#   ip rule  to <NAIVE_SERVER_IP> lookup <TABLE>
+#   ip rule  to <OUTBOUND_ENDPOINT_IP> lookup <TABLE>
 #   ip route default [via <gw>] dev <iface> table <TABLE>
-# and resolve the Naive server's IPv4/IPv6 destinations. This does not alter
+# and resolve the selected node endpoint's IPv4/IPv6 destinations. This does not alter
 # mwan3/PBR packet marks and therefore composes with their policy rules.
 #
-# naive stays root, so its listen mode keeps capabilities.
+# NaiveProxy stays root, so its listen mode keeps capabilities.
 # ------------------------------------------------------------------------------
 
 # Resolve an OpenWrt logical interface (wan/wan1/usbwan/...) to its current
@@ -704,7 +691,7 @@ get_egress_runtime() {
 
 # setup_egress_routing <logical_iface> <table> <rule_priority> <ipv4_file> <ipv6_file> [label]
 #
-# Only one Naive node's server destinations are sent to this dedicated table.
+# Only one outbound node's endpoint destinations are sent to this dedicated table.
 # The caller assigns a different table to each selected node, allowing nodes to
 # use different WANs without overwriting packet marks owned by mwan3/PBR.
 setup_egress_routing() {
@@ -854,7 +841,7 @@ teardown_egress_routing() {
 	[ -n "$table" ] && ip route flush table "$table" proto 99 2>/dev/null
 	[ -n "$table" ] && ip -6 route flush table "$table" proto 99 2>/dev/null
 
-	[ -n "$(get_cache_var EGRESS_IFACES)${iface}" ] && log 0 "NaiveProxy egress routing torn down."
+	[ -n "$(get_cache_var EGRESS_IFACES)${iface}" ] && log 0 "Outbound endpoint egress routing torn down."
 	rm -f "$TMP_PATH/egress_rules" "$TMP_PATH/egress_tables" \
 		"$TMP_PATH/egress_rule_ips" "$TMP_PATH/egress_rule_ips6"
 	unset_cache_var EGRESS_IFACE

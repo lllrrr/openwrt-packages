@@ -113,11 +113,16 @@ get_config() {
 	get_direct_dns
 }
 
-# Return a node's explicit interface, or the global Naive interface it inherits.
+# Return a node's explicit interface. NaiveProxy nodes inherit the global
+# default Naive interface; WireGuard nodes intentionally fall back to the
+# system route because that default is protocol-specific.
 node_egress_interface() {
 	local iface
 	iface=$(config_n_get "$1" egress_interface)
-	printf '%s\n' "${iface:-$DEFAULT_NAIVE_EGRESS_IFACE}"
+	if [ -z "$iface" ] && [ "$(node_type "$1")" = "naiveproxy" ]; then
+		iface=$DEFAULT_NAIVE_EGRESS_IFACE
+	fi
+	printf '%s\n' "$iface"
 }
 
 # Return the node protocol family. Configurations created before the Type field
@@ -266,34 +271,42 @@ run_naive_node() {
 run_naive_nodes() {
 	prepare_selected_nodes
 	teardown_egress_routing
-	[ -s "$TMP_PATH/selected_naive_nodes" ] || {
-		log 0 "No active rule selects a NaiveProxy node; no NaiveProxy adapter is needed."
+	[ -s "$TMP_PATH/selected_nodes" ] || {
+		log 0 "No active rule selects an outbound node."
 		return 0
 	}
-	[ -n "$NAIVE_BIN" ] || { log 0 "naiveproxy binary not found; selected proxy rules cannot start."; return 1; }
-	local naive_version
-	naive_version=$("$NAIVE_BIN" --version 2>&1 | sed -n '1p')
-	[ -n "$naive_version" ] && log 0 "NaiveProxy runtime: %s." "$naive_version"
+	if [ -s "$TMP_PATH/selected_naive_nodes" ]; then
+		[ -n "$NAIVE_BIN" ] || { log 0 "naiveproxy binary not found; selected proxy rules cannot start."; return 1; }
+		local naive_version
+		naive_version=$("$NAIVE_BIN" --version 2>&1 | sed -n '1p')
+		[ -n "$naive_version" ] && log 0 "NaiveProxy runtime: %s." "$naive_version"
+	fi
 
 	# Resolve and record each node separately. Different nodes may use different
 	# logical WANs, so they receive consecutive policy tables and priorities.
 	# A destination IP cannot safely belong to two different WANs because Linux
-	# destination rules cannot distinguish the originating Naive process; reject
-	# that ambiguous configuration instead of silently choosing one interface.
+	# destination rules cannot distinguish the originating process; reject that
+	# ambiguous configuration instead of silently choosing one interface.
 	: > "$TMP_PATH/egress_plan"
 	: > "$TMP_PATH/egress_map4"
 	: > "$TMP_PATH/egress_map6"
-	local node address iface iface_key ipv4_file ipv6_file index=0
+	local node address iface iface_key ipv4_file ipv6_file node_kind index=0
 	while read -r node; do
 		[ -n "$node" ] || continue
+		if [ "$(node_type "$node")" = "wireguard" ]; then
+			node_kind=WireGuard
+			address=$(config_n_get "$node" peer_address)
+		else
+			node_kind=Naive
+			address=$(config_n_get "$node" address)
+		fi
 		iface=$(node_egress_interface "$node")
-		address=$(config_n_get "$node" address)
 		ipv4_file="$TMP_PATH/uplink_ips.${index}"
 		ipv6_file="$TMP_PATH/uplink_ips6.${index}"
-		resolve_all_ipv4 "$address" | awk 'NF && !seen[$0]++' > "$ipv4_file"
-		resolve_all_ipv6 "$address" | awk 'NF && !seen[$0]++' > "$ipv6_file"
+		resolve_all_ipv4 "$address" | awk 'NF' | sort -u > "$ipv4_file"
+		resolve_all_ipv6 "$address" | awk 'NF' | sort -u > "$ipv6_file"
 		[ -s "$ipv4_file" ] || [ -s "$ipv6_file" ] || {
-			log 0 "Naive node [%s] server address [%s] could not be resolved." "$node" "$address"
+			log 0 "%s node [%s] endpoint address [%s] could not be resolved." "$node_kind" "$node" "$address"
 			return 1
 		}
 		iface_key=${iface:-system-default}
@@ -302,7 +315,7 @@ run_naive_nodes() {
 		if [ -n "$iface" ]; then
 			# Static resolution in NaiveProxy eliminates the race where Chromium
 			# resolves a different round-robin address after policy rules are built.
-			if ! grep -Fxq "$address" "$ipv4_file" "$ipv6_file" 2>/dev/null; then
+			if [ "$node_kind" = "Naive" ] && ! grep -Fxq "$address" "$ipv4_file" "$ipv6_file" 2>/dev/null; then
 				{ sed -n '1p' "$ipv4_file"; sed -n '1p' "$ipv6_file"; } | awk 'NF { print; exit }' > "$TMP_PATH/naive_resolve.${node}"
 				[ -s "$TMP_PATH/naive_resolve.${node}" ] || {
 					log 0 "Naive node [%s] could not select a stable address for interface [%s]." "$node" "$iface"
@@ -311,10 +324,10 @@ run_naive_nodes() {
 			fi
 			printf '%s %s %s %s %s\n' "$index" "$node" "$iface" "$ipv4_file" "$ipv6_file" >> "$TMP_PATH/egress_plan"
 		else
-			log 0 "Naive node [%s] uses the system default route." "$node"
+			log 0 "%s node [%s] uses the system default route." "$node_kind" "$node"
 		fi
 		index=$((index + 1))
-	done < "$TMP_PATH/selected_naive_nodes"
+	done < "$TMP_PATH/selected_nodes"
 
 	local conflict
 	conflict=$(
@@ -322,21 +335,30 @@ run_naive_nodes() {
 			"$TMP_PATH/egress_map4" "$TMP_PATH/egress_map6"
 	)
 	[ -z "$conflict" ] || {
-		log 0 "Naive nodes resolve to the same server IP with conflicting egress selections: %s." "$conflict"
+		log 0 "Outbound nodes resolve to the same endpoint IP with conflicting egress selections: %s." "$conflict"
 		return 1
 	}
 
-	local table priority
+	local table priority label
 	while read -r index node iface ipv4_file ipv6_file; do
 		[ -n "$iface" ] || continue
 		table=$((NAIVE_EGRESS_TABLE + index))
 		priority=$((NAIVE_EGRESS_RULE_PRIORITY + index))
-		setup_egress_routing "$iface" "$table" "$priority" "$ipv4_file" "$ipv6_file" "Naive node [$node]" || {
+		if [ "$(node_type "$node")" = "wireguard" ]; then
+			label="WireGuard node [$node]"
+		else
+			label="Naive node [$node]"
+		fi
+		setup_egress_routing "$iface" "$table" "$priority" "$ipv4_file" "$ipv6_file" "$label" || {
 			teardown_egress_routing
 			return 1
 		}
 	done < "$TMP_PATH/egress_plan"
 
+	[ -s "$TMP_PATH/selected_naive_nodes" ] || {
+		log 0 "No active rule selects a NaiveProxy node; no NaiveProxy adapter is needed."
+		return 0
+	}
 	local port
 	while read -r node; do
 		[ -n "$node" ] || continue
@@ -372,7 +394,7 @@ map_outbound_tag() {
 prepare_native_dns_policy_lists() {
 	local vps_rules="$TMP_ACL_PATH/vps-dns.rules"
 	local direct_rules="$TMP_ACL_PATH/direct-shunt-dns.rules"
-	local node address host sid rule peer peer_node endpoint
+	local node address host sid rule
 	: > "$vps_rules"
 	: > "$direct_rules"
 	while IFS= read -r node; do
@@ -387,14 +409,9 @@ prepare_native_dns_policy_lists() {
 	# same WireGuard node for Remote DNS can recursively wait on itself.
 	while IFS= read -r node; do
 		[ -n "$node" ] || continue
-		for peer in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=wireguard_peer$/\1/p'); do
-			peer_node=$(config_n_get "$peer" node)
-			[ "$peer_node" = "$node" ] || continue
-			endpoint=$(config_n_get "$peer" endpoint)
-			host=$(host_from_endpoint "$endpoint")
-			printf '%s\n' "$host" | grep -qE '^[A-Za-z0-9.-]*[A-Za-z][A-Za-z0-9.-]*$' && \
-				printf 'full:%s\n' "$host" >> "$vps_rules"
-		done
+		host=$(config_n_get "$node" peer_address)
+		printf '%s\n' "$host" | grep -qE '^[A-Za-z0-9.-]*[A-Za-z][A-Za-z0-9.-]*$' && \
+			printf 'full:%s\n' "$host" >> "$vps_rules"
 	done < "$TMP_PATH/selected_wireguard_nodes"
 	if [ "$WRITE_IPSET_DIRECT" = "1" ]; then
 		for sid in $(shunt_rule_sections); do
@@ -489,7 +506,7 @@ gen_bypasscore_config() {
 			json_add_string tag block
 			json_add_string mode blackhole
 		json_close_object
-		local _node _node_port _node_type _wg_value _wg_mtu _peer _peer_node _peer_value _keep_alive
+		local _node _node_port _node_type _wg_value _wg_mtu _peer_address _peer_port _peer_endpoint _keep_alive
 		while read -r _node; do
 			[ -n "$_node" ] || continue
 			json_add_object ''
@@ -513,31 +530,36 @@ gen_bypasscore_config() {
 							_wg_mtu=1420
 						fi
 						json_add_int mtu "$_wg_mtu"
+						_peer_address=$(config_n_get "$_node" peer_address)
+						_peer_port=$(config_n_get "$_node" peer_port)
+						if [ -z "$_peer_address" ] || ! uint_in_range "$_peer_port" 1 65535; then
+							log 0 "WireGuard node [%s] has an invalid endpoint address or port." "$_node"
+							BYPASSCORE_CONFIG_ERROR=1
+						fi
+						case "$_peer_address" in
+							*:*) _peer_endpoint="[${_peer_address}]:${_peer_port}" ;;
+							*) _peer_endpoint="${_peer_address}:${_peer_port}" ;;
+						esac
 						json_add_array peers
-							for _peer in $(uci -q show "${CONFIG}" 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=wireguard_peer$/\1/p'); do
-								_peer_node=$(config_n_get "$_peer" node)
-								[ "$_peer_node" = "$_node" ] || continue
-								json_add_object ''
-									json_add_string publicKey "$(config_n_get "$_peer" public_key)"
-									json_add_string endpoint "$(config_n_get "$_peer" endpoint)"
-									json_add_array allowedIPs
-										for _peer_value in $(printf '%s' "$(config_n_get "$_peer" allowed_ips)" | tr ',\n\r\t' '    '); do
-											[ -n "$_peer_value" ] && json_add_string '' "$_peer_value"
-										done
-									json_close_array
-									[ -n "$(config_n_get "$_peer" pre_shared_key)" ] && \
-										json_add_string preSharedKey "$(config_n_get "$_peer" pre_shared_key)"
-									_keep_alive=$(config_n_get "$_peer" keep_alive)
-									if [ -n "$_keep_alive" ]; then
-										if ! uint_in_range "$_keep_alive" 0 65535; then
-											log 0 "WireGuard peer [%s] has invalid keepalive [%s]." "$_peer" "$_keep_alive"
-											BYPASSCORE_CONFIG_ERROR=1
-										else
-											json_add_int keepAlive "$_keep_alive"
-										fi
+							json_add_object ''
+								json_add_string publicKey "$(config_n_get "$_node" peer_public_key)"
+								json_add_string endpoint "$_peer_endpoint"
+								json_add_array allowedIPs
+									json_add_string '' "0.0.0.0/0"
+									json_add_string '' "::/0"
+								json_close_array
+								[ -n "$(config_n_get "$_node" pre_shared_key)" ] && \
+									json_add_string preSharedKey "$(config_n_get "$_node" pre_shared_key)"
+								_keep_alive=$(config_n_get "$_node" keep_alive)
+								if [ -n "$_keep_alive" ]; then
+									if ! uint_in_range "$_keep_alive" 0 65535; then
+										log 0 "WireGuard node [%s] has invalid keepalive [%s]." "$_node" "$_keep_alive"
+										BYPASSCORE_CONFIG_ERROR=1
+									else
+										json_add_int keepAlive "$_keep_alive"
 									fi
-								json_close_object
-							done
+								fi
+							json_close_object
 						json_close_array
 					json_close_object
 				else
@@ -1200,6 +1222,17 @@ runtime_restart_signature() {
 			[ -n "$node" ] || continue
 			uci -q show "${CONFIG}.${node}"
 		done < "$TMP_PATH/selected_naive_nodes"
+		# Native WireGuard configuration itself can reload transactionally, but
+		# its endpoint destination rules are owned by the OpenWrt wrapper.
+		# Changing the endpoint host, selected interface, or selected WG node
+		# therefore requires the same full route rebuild as NaiveProxy egress.
+		printf 'selected_wireguard_egress\n'
+		while read -r node; do
+			[ -n "$node" ] || continue
+			printf '%s endpoint=%s egress=%s\n' "$node" \
+				"$(config_n_get "$node" peer_address)" \
+				"$(config_n_get "$node" egress_interface)"
+		done < "$TMP_PATH/selected_wireguard_nodes"
 		# Direct GeoIP prefixes are materialized outside the reloadable snapshot.
 		if [ "$ENABLE_GEOVIEW_IP" = "1" ]; then
 			for sid in $(shunt_rule_sections); do

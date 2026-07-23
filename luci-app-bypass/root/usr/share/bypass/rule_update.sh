@@ -100,12 +100,14 @@ update_geodata() {
 	return $((1 - ok))
 }
 
-# Return success only when an interface-bound node's address pinned at startup
-# is no longer present in DNS. System-default nodes need no destination policy
-# rule and therefore do not need periodic restarts.
+# Return success when an interface-bound endpoint's destination policy route is
+# stale. NaiveProxy pins one startup address; native WireGuard may use any
+# resolved endpoint address, so its complete DNS result set must stay in sync.
+# System-default nodes need no destination policy rule or periodic restart.
 uplink_refresh_needed() {
-	[ -s "$TMP_PATH/selected_naive_nodes" ] || return 1
+	[ -s "$TMP_PATH/egress_plan" ] || return 1
 	local node iface default_iface address pinned current="$TMP_PATH/uplink-current.$$" resolve_ok
+	local index ipv4_file ipv6_file current4="${current}.4" current6="${current}.6"
 	default_iface=$(config_t_get global_rules default_naive_interface)
 	while read -r node; do
 		[ -n "$node" ] || continue
@@ -116,9 +118,7 @@ uplink_refresh_needed() {
 		pinned=$(cat "$TMP_PATH/naive_resolve.${node}" 2>/dev/null)
 		# Literal server IPs do not use a resolver pin and cannot rotate.
 		[ -n "$pinned" ] || continue
-		: > "$current"
-		resolve_all_ipv4 "$address" >> "$current"
-		resolve_all_ipv6 "$address" >> "$current"
+		{ resolve_all_ipv4 "$address"; resolve_all_ipv6 "$address"; } | awk 'NF' | sort -u > "$current"
 		resolve_ok=0
 		[ -s "$current" ] && resolve_ok=1
 		if [ "$resolve_ok" = "0" ]; then
@@ -133,7 +133,23 @@ uplink_refresh_needed() {
 			return 0
 		fi
 	done < "$TMP_PATH/selected_naive_nodes"
-	rm -f "$current"
+
+	while read -r index node iface ipv4_file ipv6_file; do
+		[ -n "$iface" ] && [ "$(node_type "$node")" = "wireguard" ] || continue
+		address=$(config_n_get "$node" peer_address)
+		resolve_all_ipv4 "$address" | awk 'NF' | sort -u > "$current4"
+		resolve_all_ipv6 "$address" | awk 'NF' | sort -u > "$current6"
+		if [ ! -s "$current4" ] && [ ! -s "$current6" ]; then
+			log 1 "Could not refresh WireGuard node [%s] DNS; keeping its current endpoint routes." "$node"
+			continue
+		fi
+		if ! cmp -s "$ipv4_file" "$current4" || ! cmp -s "$ipv6_file" "$current6"; then
+			log 0 "WireGuard node [%s] endpoint address changed; refreshing its egress route and core." "$node"
+			rm -f "$current" "$current4" "$current6"
+			return 0
+		fi
+	done < "$TMP_PATH/egress_plan"
+	rm -f "$current" "$current4" "$current6"
 	return 1
 }
 

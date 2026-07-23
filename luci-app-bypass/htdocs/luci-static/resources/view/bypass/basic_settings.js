@@ -104,6 +104,7 @@ function statusCard(type, icon, title, initLabel) {
 		card.addEventListener('click', function () {
 			span.className = 'yellow';
 			span.textContent = _('Check…');
+			span.title = '';
 			var url = ({
 				baidu: 'https://www.baidu.com',
 				google: 'https://www.google.com/generate_204',
@@ -119,6 +120,7 @@ function statusCard(type, icon, title, initLabel) {
 				} else {
 					span.className = 'red';
 					span.textContent = _('Problem detected!');
+					span.title = r.error || '';
 				}
 			});
 		});
@@ -310,7 +312,8 @@ return view.extend({
 		uci.sections('bypass', 'nodes').forEach(function (node) {
 			var label = node.remarks || node['.name'];
 			if (node.node_type === 'wireguard') {
-				o.value(node['.name'], label + ' [WireGuard]');
+				var wgEgress = node.egress_interface || _('system default');
+				o.value(node['.name'], label + ' [WireGuard / ' + wgEgress + ']');
 			} else {
 				var rulesSid = firstSection('global_rules');
 				var egress = node.egress_interface || (rulesSid && uci.get('bypass', rulesSid, 'default_naive_interface')) || _('system default');

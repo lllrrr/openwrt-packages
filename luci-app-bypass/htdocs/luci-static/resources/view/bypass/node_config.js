@@ -26,19 +26,12 @@ function validateOptionalWGKey(sid, value) {
 	return value ? validateWGKey(sid, value) : true;
 }
 
-function validateEndpoint(_sid, value) {
-	var match = /^\[([0-9A-Fa-f:.]+)\]:(\d+)$/.exec(value || '') ||
-		/^([^:\s]+):(\d+)$/.exec(value || '');
-	if (!match || +match[2] < 1 || +match[2] > 65535)
-		return _('Enter an endpoint as host:port (bracket IPv6 addresses).');
-	return true;
-}
-
-function setFormValue(id, value) {
-	var input = document.getElementById(id);
-	if (!input) return;
-	input.value = value;
-	input.dispatchEvent(new Event('change', { bubbles: true }));
+function setFormValue(option, sectionId, value) {
+	var widget = option.getUIElement(sectionId);
+	if (widget) {
+		widget.setValue(value);
+		widget.triggerValidation();
+	}
 }
 
 return view.extend({
@@ -101,13 +94,30 @@ return view.extend({
 		o.password = true;
 		o.depends('node_type', 'naiveproxy');
 
-		o = s.option(form.ListValue, 'egress_interface', _('Egress Interface'),
+		o = s.option(form.ListValue, '_naive_egress_interface', _('Egress Interface'),
 			_('Send this NaiveProxy node\'s server connection through the selected OpenWrt network. The first option inherits Default Naive Interface.'));
+		o.ucioption = 'egress_interface';
 		o.value('', _('(use default naive interface)'));
 		ifaces.forEach(function (iface) { o.value(iface, iface); });
 		o.depends('node_type', 'naiveproxy');
 
-		var secretOption = s.option(form.Value, 'secret_key', _('Secret Key'));
+		o = s.option(form.Value, 'peer_public_key', _('Endpoint Public Key'));
+		o.rmempty = false;
+		o.validate = validateWGKey;
+		o.depends('node_type', 'wireguard');
+
+		o = s.option(form.Value, 'peer_address', _('Endpoint Address'));
+		o.datatype = 'host';
+		o.rmempty = false;
+		o.depends('node_type', 'wireguard');
+
+		o = s.option(form.Value, 'peer_port', _('Endpoint Port'));
+		o.datatype = 'range(1,65535)';
+		o.placeholder = '51820';
+		o.rmempty = false;
+		o.depends('node_type', 'wireguard');
+
+		var secretOption = s.option(form.Value, 'secret_key', _('Local Private Key'));
 		secretOption.password = true;
 		secretOption.rmempty = false;
 		secretOption.validate = validateWGKey;
@@ -119,29 +129,61 @@ return view.extend({
 		keyButton.description = _('Generate a new local private key and derive its public key.');
 		keyButton.depends('node_type', 'wireguard');
 
-		var publicOption = s.option(form.Value, 'public_key', _('Public Key'));
+		var publicOption = s.option(form.Value, 'public_key', _('Local Public Key'));
 		publicOption.rmempty = false;
 		publicOption.validate = validateWGKey;
 		publicOption.description = _('Automatically filled when a local key pair is generated.');
 		publicOption.depends('node_type', 'wireguard');
+		publicOption.renderWidget = function (sectionId, _optionIndex, cfgvalue) {
+			return new ui.Textfield((cfgvalue != null) ? cfgvalue : '', {
+				id: this.cbid(sectionId),
+				optional: false,
+				validate: this.getValidator(sectionId),
+				readonly: true,
+				disabled: this.map.readonly
+			}).render();
+		};
+
+		var pskOption = s.option(form.Value, 'pre_shared_key', _('Pre-Shared Key'));
+		pskOption.password = true;
+		pskOption.validate = validateOptionalWGKey;
+		pskOption.depends('node_type', 'wireguard');
+
+		var pskButton = s.option(form.Button, '_generate_psk', _('Generate Pre-Shared Key'));
+		pskButton.inputstyle = 'add';
+		pskButton.inputtitle = _('Generate');
+		pskButton.depends('node_type', 'wireguard');
+		pskButton.onclick = function (ev) {
+			var button = ev.currentTarget;
+			button.disabled = true;
+			return api('wireguard_psk').then(function (result) {
+				button.disabled = false;
+				if (result.code !== 0 || !result.preSharedKey) {
+					ui.addNotification(null, E('p', {}, result.error || _('WireGuard preshared key generation failed.')));
+					return;
+				}
+				setFormValue(pskOption, sid, result.preSharedKey);
+			});
+		};
 
 		keyButton.onclick = function (ev) {
-			ev.currentTarget.disabled = true;
+			var button = ev.currentTarget;
+			button.disabled = true;
 			return api('wireguard_keypair').then(function (result) {
-				ev.currentTarget.disabled = false;
+				button.disabled = false;
 				if (result.code !== 0 || !result.secretKey || !result.publicKey) {
 					ui.addNotification(null, E('p', {}, result.error || _('WireGuard key generation failed.')));
 					return;
 				}
-				setFormValue(secretOption.cbid(sid), result.secretKey);
-				setFormValue(publicOption.cbid(sid), result.publicKey);
+				setFormValue(secretOption, sid, result.secretKey);
+				setFormValue(publicOption, sid, result.publicKey);
 			});
 		};
 
-		o = s.option(form.DynamicList, 'wireguard_address', _('Address'));
+		o = s.option(form.DynamicList, 'wireguard_address', _('Local Address'));
 		o.datatype = 'cidr';
 		o.placeholder = '10.0.0.2/32';
-		o.description = _('Local tunnel addresses. If omitted, BypassCore uses its compatibility addresses; normally enter the addresses assigned by the provider.');
+		o.description = _('Local tunnel addresses. If omitted, BypassCore uses compatibility addresses; normally enter the addresses assigned by the provider.');
 		o.depends('node_type', 'wireguard');
 
 		o = s.option(form.Value, 'mtu', _('MTU'));
@@ -150,69 +192,20 @@ return view.extend({
 		o.placeholder = '1420';
 		o.depends('node_type', 'wireguard');
 
-		var peers = m.section(form.TableSection, 'wireguard_peer', _('WireGuard Peers'),
-			_('At least one peer is required. Allowed IPs default to 0.0.0.0/0 and ::/0 when left empty.'));
-		peers.anonymous = true;
-		peers.addremove = true;
-		peers.max_cols = 2;
-		peers.filter = function (peerSid) {
-			return uci.get('bypass', peerSid, 'node') === sid;
-		};
-		peers.handleAdd = function () {
-			var peerSid = uci.add('bypass', 'wireguard_peer');
-			uci.set('bypass', peerSid, 'node', sid);
-			uci.set('bypass', peerSid, 'allowed_ips', [ '0.0.0.0/0', '::/0' ]);
-			return this.map.save(null, true);
-		};
-
-		o = peers.option(form.Value, 'public_key', _('Peer Public Key'));
-		o.rmempty = false;
-		o.validate = validateWGKey;
-
-		o = peers.option(form.Value, 'endpoint', _('Endpoint'));
-		o.rmempty = false;
-		o.placeholder = 'vpn.example.com:51820';
-		o.validate = validateEndpoint;
-
-		o = peers.option(form.DynamicList, 'allowed_ips', _('Allowed IPs'));
-		o.datatype = 'cidr';
-		o.placeholder = '0.0.0.0/0';
-
-		var pskOption = peers.option(form.Value, 'pre_shared_key', _('Pre-Shared Key'));
-		pskOption.password = true;
-		pskOption.validate = validateOptionalWGKey;
-
-		var pskButton = peers.option(form.Button, '_generate_psk', _('Generate Pre-Shared Key'));
-		pskButton.inputstyle = 'add';
-		pskButton.inputtitle = _('Generate');
-		pskButton.onclick = function (ev, peerSid) {
-			ev.currentTarget.disabled = true;
-			return api('wireguard_psk').then(function (result) {
-				ev.currentTarget.disabled = false;
-				if (result.code !== 0 || !result.preSharedKey) {
-					ui.addNotification(null, E('p', {}, result.error || _('WireGuard preshared key generation failed.')));
-					return;
-				}
-				setFormValue(pskOption.cbid(peerSid), result.preSharedKey);
-			});
-		};
-
-		o = peers.option(form.Value, 'keep_alive', _('Persistent Keepalive'));
+		o = s.option(form.Value, 'keep_alive', _('Persistent Keepalive'));
 		o.datatype = 'range(0,65535)';
 		o.placeholder = '25';
 		o.description = _('Seconds; leave empty or use 0 to disable.');
+		o.depends('node_type', 'wireguard');
 
-		return m.render().then(function (node) {
-			var selector = node.querySelector('#' + typeOption.cbid(sid).replace(/\./g, '\\.'));
-			var peerSection = node.querySelector('#cbi-bypass-wireguard_peer');
-			var togglePeers = function () {
-				if (peerSection)
-					peerSection.style.display = selector && selector.value === 'wireguard' ? '' : 'none';
-			};
-			if (selector) selector.addEventListener('change', togglePeers);
-			togglePeers();
-			return node;
-		});
+		o = s.option(form.ListValue, '_wireguard_egress_interface', _('Egress Interface'),
+			_('Send this WireGuard endpoint connection through the selected OpenWrt network.'));
+		o.ucioption = 'egress_interface';
+		o.value('', _('(system default route)'));
+		ifaces.forEach(function (iface) { o.value(iface, iface); });
+		o.depends('node_type', 'wireguard');
+
+		return m.render();
 	},
 
 	addFooter: function () {

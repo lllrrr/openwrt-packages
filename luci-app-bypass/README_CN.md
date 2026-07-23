@@ -11,7 +11,7 @@ OpenWrt 上的网关级透明分流代理。把两个各司其职的组件组合
 
 > **关于 BypassCore 的角色**：BypassCore 对本项目而言等同于 Passwall 的 Xray/sing-box，是不可替代的透明分流核心。它负责透明入口、规则匹配、DNS、Observatory 和 outbound；NaiveProxy 仅把 Naive HTTPS 节点转换成本机 SOCKS 上游。核心不可用时服务明确启动失败，不会回退到 NaiveProxy。
 >
-> BypassCore 源码：<https://github.com/kinmeic/BypassCore>，`make build` 即可编译。luci-app-bypass 1.8.0 要求 BypassCore v1.4.0（配置 schema 5）或更新版本，并按机器可读的 capability 清单校验所需能力，而不是只比较版本号。
+> BypassCore 源码：<https://github.com/kinmeic/BypassCore>，`make build` 即可编译。当前源码要求 BypassCore 配置 schema 5，并按机器可读的 capability 清单校验所需能力，而不是只比较版本号。
 
 ---
 
@@ -35,13 +35,13 @@ DNS:  dnsmasq :53 → BypassCore DNS :<dns_port>
                          ├→ TTL 元素 `bypass_direct_dns`
                          └→ TTL 元素 `bypass_vps`（节点服务器 IP 永远直连）
 
-出口接口 (NaiveProxy→服务器走指定逻辑网络)：
+出口接口（NaiveProxy/WireGuard→端点走指定逻辑网络）：
   netifd 解析 wan/wan1/usbwan → 实时 L3 设备、地址、网关
-  解析 Naive 服务器 IPv4/IPv6 → ip rule to <SERVER> lookup <TABLE>
+  解析节点端点 IPv4/IPv6 → ip rule to <ENDPOINT> lookup <TABLE>
   ip/ip -6 route table <TABLE>: default via <runtime-gateway> dev <l3-device>
 ```
 
-- 每个 NaiveProxy 节点可独立配置出口接口；留空时继承 Default Naive Interface。服务器 IP 变更时在启动 / 规则更新 / hotplug 时重新解析。
+- 每个 NaiveProxy/WireGuard 节点可独立配置出口接口；NaiveProxy 留空时继承 Default Naive Interface，WireGuard 留空时使用系统默认路由。端点 IP 变更时在启动、每小时刷新及 hotplug 时重新解析。
 - BypassCore 路由、DNS 策略和 DNS→NFTSet 映射可通过控制面事务式热重载；候选集合会在切换快照前完成内核探测。独立的 fw4 reload 和“清空 NFTSet”操作也会重新探测当前集合，同时刷新内核元数据与 writer 去重状态。改变节点进程、dnsmasq、nftables 或 listener identity 的配置自动降级为完整重启。GeoData 内容更新仍需完整重启，因为相同配置 hash 不会强制重建快照。
 - 路由解释、Observatory 和 DNS 诊断只查询正在运行的控制面，不再启动临时 BypassCore 进程。
 
@@ -58,7 +58,7 @@ DNS:  dnsmasq :53 → BypassCore DNS :<dns_port>
 
 > **本应用不再支持 iptables (fw3)**，仅 nftables。
 
-> **BypassCore 是必需依赖**，但它目前是独立项目且未进入 OpenWrt 官方 feeds，因此不能把 `+bypasscore` 写进本包依赖（官方 SDK 会无法解析）。请先从 [BypassCore Releases](https://github.com/kinmeic/BypassCore/releases) 安装 v1.4.0 或更新版本的对应架构 `.ipk` / `.apk`，或放置相应 Linux ELF 到 `/usr/bin/bypasscore`。应用启动时会校验 schema 5、Unix 控制面、显式 DNS outbound、原生 final outbound、DNS 结果 NFTSet writer/probe、原生 TCP connect 探测、WireGuard client outbound 和结构化健康状态；不满足要求时不会接管防火墙和 DNS。节点延迟测试直接复用运行中的控制面，不再依赖 `tcping` 包或临时探测进程。
+> **BypassCore 是必需依赖**，但它目前是独立项目且未进入 OpenWrt 官方 feeds，因此不能把 `+bypasscore` 写进本包依赖（官方 SDK 会无法解析）。请先从 [BypassCore Releases](https://github.com/kinmeic/BypassCore/releases) 安装兼容版本的对应架构 `.ipk` / `.apk`，或放置相应 Linux ELF 到 `/usr/bin/bypasscore`。应用启动时会校验 schema 5、Unix 控制面、显式 DNS outbound、原生 final outbound、DNS 结果 NFTSet writer/probe、出站感知网络探测、WireGuard client outbound 和结构化健康状态；不满足要求时不会接管防火墙和 DNS。节点延迟测试不再依赖 `tcping` 包；WireGuard 直接复用运行中的出站，NaiveProxy URL Test 保留隔离的短生命周期适配进程。
 
 > **ChinaDNS-NG 已完全移出本项目运行链。** BypassCore 直接保留 `full:`、`domain:`、裸 substring、`regexp:`、`keyword:` 和 `geosite:` 语义，最终命中带 tag 的上游后，把成功的 A/AAAA 结果通过 netlink 批量写入 NFTSet。目标 set 会检查 family、地址类型与 `timeout` flag，新元素按 DNS TTL 自动过期；不再需要辅助进程、10553 端口、dnsmasq 分域复制或 geosite 文本展开。
 
@@ -78,7 +78,7 @@ opkg install luci-app-bypass_*.ipk
 ```
 
 安装后：
-1. 安装 BypassCore v1.4.0 或更新版本：从 <https://github.com/kinmeic/BypassCore/releases> 下载对应架构的 OpenWrt 包，解出 `bypasscore` 放到 `/usr/bin/bypasscore`（或改 `bypass.global.bypasscore_file`）。
+1. 从 <https://github.com/kinmeic/BypassCore/releases> 安装兼容版本对应架构的 OpenWrt 包，或解出 `bypasscore` 放到 `/usr/bin/bypasscore`（也可修改 `bypass.global.bypasscore_file`）。
 2. 使用 NaiveProxy 节点时安装 NaiveProxy；WireGuard 节点不需要外部协议进程。
 3. 把 `geoip.dat` / `geosite.dat` 放到 `/usr/share/v2ray/`（或安装 `v2ray-geoip` / `v2ray-geosite`，程序会检测包的实际安装目录）。
 4. LuCI → 服务 → Bypass，填节点、选出口接口、启用。
@@ -127,18 +127,15 @@ config nodes 'naive1'
 config nodes 'wg1'
     option remarks 'WireGuard Node'
     option node_type 'wireguard'
+    option peer_public_key 'BASE64_ENDPOINT_PUBLIC_KEY'
+    option peer_address 'wg.example.com'
+    option peer_port '51820'
     option secret_key 'BASE64_PRIVATE_KEY'
     option public_key 'BASE64_LOCAL_PUBLIC_KEY'
-    list wireguard_address '10.0.0.2/32'
-    option mtu '1420'
-
-config wireguard_peer
-    option node 'wg1'
-    option public_key 'BASE64_PEER_PUBLIC_KEY'
-    option endpoint 'wg.example.com:51820'
-    list allowed_ips '0.0.0.0/0'
-    list allowed_ips '::/0'
     option pre_shared_key 'BASE64_PRESHARED_KEY' # 可选
+    list wireguard_address '10.0.0.2/32'
+    list wireguard_address 'fd00::2/128'
+    option mtu '1420'
     option keep_alive '25'
 
 config global_rules
@@ -207,16 +204,16 @@ luci-app-bypass/
 
 BypassCore 是必需的透明分流核心，角色等同于 Passwall 的 Xray/sing-box；不存在 NaiveProxy 核心模式或自动回退。BypassCore 缺失、不是 Linux ELF、配置不兼容或监听启动失败时，服务返回失败，并且不会安装透明代理防火墙规则或接管 dnsmasq。
 
-Basic Settings → Shunt Rule 为每条规则选择 Close、Default Node、Direct、Blackhole 或具体 NaiveProxy/WireGuard 节点；Rule Manage 的拖动顺序会显式持久化。虚拟 Default 行始终最后作为兜底，其值保存在 `global_rules.default_node`，不会创建或占用 `shunt_rules` section。每个被引用的 NaiveProxy 节点会启动独立本机 SOCKS 实例；WireGuard 节点则作为 BypassCore 进程内 outbound，均可被规则独立选择。
+Basic Settings → Shunt Rule 为每条规则选择 Close、Default Node、Direct、Blackhole 或具体 NaiveProxy/WireGuard 节点；Rule Manage 的拖动顺序会显式持久化。虚拟 Default 行始终最后作为兜底，其值保存在 `global_rules.default_node`，不会创建或占用 `shunt_rules` section。每个被引用的 NaiveProxy 节点会启动独立本机 SOCKS 实例；WireGuard 节点则作为 BypassCore 进程内 outbound，且每个节点只配置一个作为出口服务器的远端 peer，均可被规则独立选择。
 
 ### 多 WAN 出口
 
-- 每个 Node Config 都可设置自己的 `egress_interface`，填写 OpenWrt 逻辑网络名，如 `wan`、`wan1`、`usbwan`；留空则继承 `default_naive_interface`，两者都为空才使用系统默认路由。优先级为：节点接口 → Default Naive Interface → 系统默认路由。
+- 每个 Node Config 都可设置自己的 `egress_interface`，填写 OpenWrt 逻辑网络名，如 `wan`、`wan1`、`usbwan`。NaiveProxy 的优先级为：节点接口 → Default Naive Interface → 系统默认路由；WireGuard 留空则直接使用系统默认路由。
 - 程序通过 netifd 运行时状态解析实际 L3 设备与 IPv4/IPv6 网关，兼容 DHCP、PPPoE 与设备名变化。
-- 仅为被引用节点的 Naive 服务器 IPv4/IPv6 目标添加独立路由表和 `ip rule to ...`。路由表及优先级从 `naive_egress_table`、`naive_egress_rule_priority` 开始按节点递增；不改写 fwmark，因此不会覆盖 mwan3/PBR 的标记。
+- 仅为被引用节点的 NaiveProxy/WireGuard 端点 IPv4/IPv6 目标添加独立路由表和 `ip rule to ...`。路由表及优先级从 `naive_egress_table`、`naive_egress_rule_priority` 开始按节点递增；不改写 fwmark，因此不会覆盖 mwan3/PBR 的标记。
 - `direct_egress_interface` 控制 Direct 分流的默认出口；每条选择 Direct Connection 的规则还可设置自己的 `egress_interface` 覆盖它。优先级为：规则接口 → Default Direct Interface → 系统默认路由。
 - 每条 Proxy 规则可以选择不同 Naive 节点；不同节点会启动独立 Naive 实例并使用各自配置的物理 WAN，多个规则选择同一节点时共享该实例。
-- Naive 出口、默认 Direct 出口或规则级 Direct 出口发生 `ifup`、`ifupdate`、`ifdown` 时会重建或撤销对应绑定；节点域名解析结果每小时刷新，刷新不完整时服务会失败关闭，避免悄悄改走系统默认 WAN。
+- 节点出口、默认 Direct 出口或规则级 Direct 出口发生 `ifup`、`ifupdate`、`ifdown` 时会重建或撤销对应绑定；节点域名解析结果每小时刷新，瞬时 DNS 失败保留现有健康路径，结果变化时完整重建，避免悄悄改走系统默认 WAN。
 - 运行期 watcher 会记录 BypassCore、NaiveProxy 可执行文件的指纹；通过 `opkg`/`apk` 更新并稳定后会执行一次串行完整重启，确保新版本实际生效。关闭进程健康监控不会关闭二进制更新检测。
 - 守护进程默认开启，每十五秒检查受管 PID、真实监听端口和 BypassCore 聚合 readiness（含原生 NFTSet writer）；任一必需组件持续异常时执行一次完整、加锁的服务重启，确保进程、DNS、防火墙和策略路由状态一致。
 

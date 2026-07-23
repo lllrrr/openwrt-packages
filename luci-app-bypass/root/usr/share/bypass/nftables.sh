@@ -302,7 +302,7 @@ EOF
 			udp6_tproxy_rule="meta l4proto udp tproxy ip6 to [::1]:${REDIR_PORT} meta mark set meta mark | 0x10000 accept"
 	fi
 	if [ -n "$tcp_tproxy_rule$udp_tproxy_rule" ]; then
-		mangle_chain="chain prerouting { type filter hook prerouting priority mangle; policy accept;
+		mangle_chain="chain tproxy_prerouting { type filter hook prerouting priority mangle; policy accept;
 			ip daddr @bypass_vps accept
 			ip daddr @bypass_local accept
 			${direct_accept}
@@ -316,7 +316,7 @@ EOF
 			${udp_tproxy_rule}
 		}"
 		if [ "$PROXY_IPV6" = "1" ] && [ -n "$tcp6_tproxy_rule$udp6_tproxy_rule" ]; then
-			mangle6_chain="chain prerouting6 { type filter hook prerouting priority mangle; policy accept;
+			mangle6_chain="chain tproxy_prerouting6 { type filter hook prerouting priority mangle; policy accept;
 				ip6 daddr @bypass_vps6 accept
 				ip6 daddr @bypass_local6 accept
 				${direct6_accept}
