@@ -206,7 +206,7 @@ do_node_tcp_probe() {
 		return
 	fi
 
-	local address port raw latency rc endpoint BYPASSCORE_FILE type probe_error
+	local address port request raw latency rc endpoint BYPASSCORE_FILE type probe_error
 	type=$(node_type "$node_id")
 	if [ "$type" = "wireguard" ]; then
 		# Compatibility for a cached pre-upgrade LuCI page.
@@ -221,19 +221,29 @@ do_node_tcp_probe() {
 		json_add_string error "node has no address/port"
 	else
 		BYPASSCORE_FILE=$(config_t_get global bypasscore_file /usr/bin/bypasscore)
-		case "$address" in
-			*:*) endpoint="[$address]:$port" ;;
-			*) endpoint="$address:$port" ;;
-		esac
-		# The Naive endpoint probe is deliberately independent of the Bypass
-		# service and node selection. BypassCore's standalone probe is the
-		# built-in replacement for the former external tcping dependency.
-		if is_bypasscore "$BYPASSCORE_FILE"; then
-			raw=$("$BYPASSCORE_FILE" -tcp-probe "$endpoint" -tcp-probe-timeout 3s -json 2>&1)
-			rc=$?
+		json_init
+		json_add_string host "$address"
+		json_add_int port "$port"
+		json_add_int timeoutMs 3000
+		request=$(json_dump)
+
+		# Preserve the original control-plane probe path: the running core owns
+		# node-domain DNS policy, while a standalone process would recurse
+		# through dnsmasq after dnsmasq has been pointed at BypassCore.
+		if process_alive bypasscore && raw=$(bypasscore_control_request POST /v1/network/tcp-probe "$request" 2>&1); then
+			rc=0
 		else
-			raw="BypassCore is unavailable"
-			rc=1
+			case "$address" in
+				*:*) endpoint="[$address]:$port" ;;
+				*) endpoint="$address:$port" ;;
+			esac
+			if is_bypasscore "$BYPASSCORE_FILE"; then
+				raw=$("$BYPASSCORE_FILE" -tcp-probe "$endpoint" -tcp-probe-timeout 3s -json 2>&1)
+				rc=$?
+			else
+				raw="BypassCore is unavailable"
+				rc=1
+			fi
 		fi
 		latency=$(printf '%s' "$raw" | sed -n 's/.*"latencyMs"[[:space:]]*:[[:space:]]*\([0-9][0-9.]*\).*/\1/p')
 		[ -n "$latency" ] || rc=1
@@ -352,6 +362,7 @@ do_node_urltest() {
 		# The first probe may initialize the device and negotiate a handshake.
 		json_add_int timeoutMs 10000
 		json_add_string outboundTag "proxy_${node_id}"
+		json_add_string resolverTag url_test_direct
 		request=$(json_dump)
 		if process_alive bypasscore && raw=$(bypasscore_control_request POST /v1/network/url-test "$request" 2>&1); then
 			latency=$(printf '%s' "$raw" | sed -n 's/.*"latencyMs"[[:space:]]*:[[:space:]]*\([0-9][0-9.]*\).*/\1/p')
@@ -629,6 +640,7 @@ do_connect_status() {
 			json_add_string url "$url"
 			json_add_int timeoutMs 12000
 			json_add_string outboundTag "proxy_${node}"
+			json_add_string resolverTag url_test_direct
 			request=$(json_dump)
 			if process_alive bypasscore && raw=$(bypasscore_control_request POST /v1/network/url-test "$request" 2>&1); then
 				out=$(printf '%s' "$raw" | sed -n 's/.*"latencyMs"[[:space:]]*:[[:space:]]*\([0-9][0-9.]*\).*/\1/p')

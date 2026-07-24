@@ -479,6 +479,27 @@ json_add_domestic_policy_servers() {
 	done
 }
 
+# Add the configured remote DNS transport fields to the current JSON object.
+# Normal remote DNS and the URL-test-only direct resolver share the transport,
+# but deliberately use different outbound tags.
+json_add_remote_dns_transport() {
+	local remote_address remote_port=""
+	remote_address=${REMOTE_DNS#udp://}
+	if [ "$REMOTE_DNS_PROTOCOL" = "udp" ]; then
+		case "$remote_address" in
+			*:*:*) ;;
+			*:*) remote_port=${remote_address##*:}; remote_address=${remote_address%:*} ;;
+		esac
+	fi
+	case "$REMOTE_DNS_PROTOCOL" in
+		doh) json_add_string address "$REMOTE_DNS_DOH" ;;
+		tls) json_add_string address "tls://${REMOTE_DNS#tls://}" ;;
+		tcp) json_add_string address "tcp://${REMOTE_DNS#tcp://}" ;;
+		*) json_add_string address "$remote_address" ;;
+	esac
+	[ -n "$remote_port" ] && json_add_int port "$remote_port"
+}
+
 gen_bypasscore_config() {
 	mkdir -p "$(dirname "$BYPASSCORE_CFG")" "$TMP_ACL_PATH"
 	BYPASSCORE_CONFIG_ERROR=0
@@ -713,20 +734,20 @@ gen_bypasscore_config() {
 					json_close_object
 				fi
 				if [ -n "$REMOTE_DNS" ] || [ -n "$REMOTE_DNS_DOH" ]; then
+					# This server is never part of ordinary DNS fallback. The
+					# control API selects it by tag solely to resolve a URL-test
+					# target before dialing that target through WireGuard.
+					if [ -s "$TMP_PATH/selected_wireguard_nodes" ]; then
+						json_add_object ''
+							json_add_remote_dns_transport
+							json_add_string tag url_test_direct
+							json_add_string outboundTag direct
+							json_add_boolean skipFallback 1
+							json_add_string queryStrategy UseIPv4
+						json_close_object
+					fi
 					json_add_object ''
-						local _remote_address _remote_port
-						_remote_address=${REMOTE_DNS#udp://}
-						_remote_port=""
-						if [ "$REMOTE_DNS_PROTOCOL" = "udp" ]; then
-							case "$_remote_address" in *:*:*) ;; *:*) _remote_port=${_remote_address##*:}; _remote_address=${_remote_address%:*} ;; esac
-						fi
-						case "$REMOTE_DNS_PROTOCOL" in
-							doh) json_add_string address "$REMOTE_DNS_DOH" ;;
-							tls) json_add_string address "tls://${REMOTE_DNS#tls://}" ;;
-							tcp) json_add_string address "tcp://${REMOTE_DNS#tcp://}" ;;
-							*) json_add_string address "$_remote_address" ;;
-						esac
-						[ -n "$_remote_port" ] && json_add_int port "$_remote_port"
+						json_add_remote_dns_transport
 						json_add_string tag remote
 						if [ "$REMOTE_DNS_DETOUR" = "remote" ] && [ -n "$DNS_PROXY_NODE" ]; then
 							json_add_string outboundTag "proxy_${DNS_PROXY_NODE}"

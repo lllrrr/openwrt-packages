@@ -1,9 +1,8 @@
 #!/bin/sh
 # hotplug.d/iface/98-bypass
 #
-# Keep firewall WAN sets fresh. Changes to any explicitly selected Naive or
-# Direct egress interface require a restart so netifd's new L3 device/gateway
-# or BypassCore device bind is applied.
+# Keep firewall WAN sets fresh. Changes to an explicitly selected egress may
+# require reconciliation after netifd has finished bringing it back up.
 
 . /lib/functions/network.sh
 . /usr/share/bypass/utils.sh
@@ -17,6 +16,7 @@ if [ ! -f /var/lock/bypass_ready.lock ]; then
 	if { [ "$ACTION" = "ifup" ] || [ "$ACTION" = "ifupdate" ]; } && \
 	   [ ! -f /var/lock/bypass_booting.lock ]; then
 		if mkdir /var/lock/bypass_recovering 2>/dev/null; then
+			log 1 "Interface [%s] became usable before Bypass was ready; scheduling service recovery." "$INTERFACE"
 			( /etc/init.d/bypass restart; rmdir /var/lock/bypass_recovering 2>/dev/null ) >/dev/null 2>&1 &
 		fi
 	fi
@@ -33,20 +33,24 @@ default_naive_iface=$(uci -q get bypass.@global_rules[0].default_naive_interface
 node_egress_ifaces=$(
 	{
 		default_node=$(uci -q get bypass.@global_rules[0].default_node)
-		if [ "$(uci -q get bypass.${default_node})" = "nodes" ]; then
-			[ "$(uci -q get bypass.${default_node}.node_type)" = "wireguard" ] && default_node=""
-		fi
 		if [ -n "$default_node" ] && [ "$(uci -q get bypass.${default_node})" = "nodes" ]; then
 			iface=$(uci -q get bypass.${default_node}.egress_interface)
-			printf '%s\n' "${iface:-$default_naive_iface}"
+			if [ "$(uci -q get bypass.${default_node}.node_type)" = "wireguard" ]; then
+				printf '%s\n' "$iface"
+			else
+				printf '%s\n' "${iface:-$default_naive_iface}"
+			fi
 		fi
 		for sid in $(uci -q show bypass 2>/dev/null | sed -n 's/^bypass\.\([^.=]*\)=shunt_rules$/\1/p'); do
 			[ "$(uci -q get bypass.${sid}.is_default)" = "1" ] && continue
 			node=$(uci -q get bypass.${sid}.outbound)
 			[ "$(uci -q get bypass.${node})" = "nodes" ] || continue
-			[ "$(uci -q get bypass.${node}.node_type)" = "wireguard" ] && continue
 			iface=$(uci -q get bypass.${node}.egress_interface)
-			printf '%s\n' "${iface:-$default_naive_iface}"
+			if [ "$(uci -q get bypass.${node}.node_type)" = "wireguard" ]; then
+				printf '%s\n' "$iface"
+			else
+				printf '%s\n' "${iface:-$default_naive_iface}"
+			fi
 		done
 	} | awk 'NF && !seen[$0]++'
 )
@@ -72,11 +76,48 @@ is_direct_iface() {
 	return 1
 }
 
-is_default_route_iface() {
-	# DEVICE from hotplug; check it carries the default route.
-	local dev="$DEVICE"
-	[ -z "$dev" ] && return 1
-	ip route show default 2>/dev/null | grep -q "dev $dev"
+schedule_iface_restart() {
+	local reason=$1
+	log 1 "Restarting Bypass after interface [%s] event [%s]: %s" "$INTERFACE" "$ACTION" "$reason"
+	( /etc/init.d/bypass restart ) >/dev/null 2>&1 &
+}
+
+# netifd removes custom table defaults when a device disappears. Restore those
+# small route entries in place after recovery; this does not require restarting
+# NaiveProxy or BypassCore. The recorded policy rules identify which address
+# families each table actually uses.
+refresh_managed_routes() {
+	get_egress_runtime "$INTERFACE" || return 1
+	[ -s "$TMP_PATH/egress_tables" ] || return 0
+	local table iface
+	while read -r table iface; do
+		[ "$iface" = "$INTERFACE" ] || continue
+		if grep -q "^4 .* ${table}\$" "$TMP_PATH/egress_rules" 2>/dev/null; then
+			if [ -z "$EGRESS_GATEWAY" ] && \
+			   ! ip -4 route show default 2>/dev/null | grep -q " dev $EGRESS_DEVICE\( \|$\)"; then
+				return 1
+			fi
+			if [ -n "$EGRESS_GATEWAY" ]; then
+				ip route replace default via "$EGRESS_GATEWAY" dev "$EGRESS_DEVICE" onlink proto 99 table "$table" 2>/dev/null || \
+					ip route replace default via "$EGRESS_GATEWAY" dev "$EGRESS_DEVICE" proto 99 table "$table" 2>/dev/null || return 1
+			else
+				ip route replace default dev "$EGRESS_DEVICE" proto 99 table "$table" 2>/dev/null || return 1
+			fi
+		fi
+		if grep -q "^6 .* ${table}\$" "$TMP_PATH/egress_rules" 2>/dev/null; then
+			if [ -z "$EGRESS_GATEWAY6" ] && \
+			   ! ip -6 route show default 2>/dev/null | grep -q " dev $EGRESS_DEVICE\( \|$\)"; then
+				return 1
+			fi
+			if [ -n "$EGRESS_GATEWAY6" ]; then
+				ip -6 route replace default via "$EGRESS_GATEWAY6" dev "$EGRESS_DEVICE" onlink proto 99 table "$table" 2>/dev/null || \
+					ip -6 route replace default via "$EGRESS_GATEWAY6" dev "$EGRESS_DEVICE" proto 99 table "$table" 2>/dev/null || return 1
+			else
+				ip -6 route replace default dev "$EGRESS_DEVICE" proto 99 table "$table" 2>/dev/null || return 1
+			fi
+		fi
+	done < "$TMP_PATH/egress_tables"
+	return 0
 }
 
 managed_runtime_matches() {
@@ -122,8 +163,8 @@ managed_runtime_matches() {
 case "$ACTION" in
 	ifupdate)
 		if is_managed_iface; then
-			if ! managed_runtime_matches; then
-				( /etc/init.d/bypass restart ) >/dev/null 2>&1 &
+			if ! refresh_managed_routes || ! managed_runtime_matches; then
+				schedule_iface_restart "generated route or device bind is stale"
 			fi
 		fi
 		use_tables=$(get_cache_var USE_TABLES)
@@ -131,15 +172,27 @@ case "$ACTION" in
 			"$APP_PATH/${use_tables}.sh" update_wan_sets 2>/dev/null
 		;;
 	ifup)
-		if is_default_route_iface || is_managed_iface; then
-			( /etc/init.d/bypass restart ) >/dev/null 2>&1 &
+		# A system-default outbound follows kernel route changes without being
+		# rebuilt. Restart only an explicitly managed interface whose generated
+		# policy table or Direct device bind is now stale. This avoids restart
+		# loops when a DHCP/USB WAN repeatedly reports an otherwise unchanged
+		# ifup event.
+		# USB/modem drivers may emit ifup before addresses and routes settle.
+		# Recheck after a short delay instead of rebuilding against half-ready
+		# netifd state.
+		if is_managed_iface; then
+			sleep 2
+			if ! refresh_managed_routes || ! managed_runtime_matches; then
+				schedule_iface_restart "generated route or device bind changed after link recovery"
+			fi
 		fi
 		;;
 	ifdown)
-		# Any selected Naive or Direct WAN disappearing must remove its stale
-		# route/bind immediately instead of silently falling back to another WAN.
+		# Do not amplify an external USB/DHCP flap into a service restart. A
+		# bound device or policy route naturally fails closed while it is down;
+		# ifup will reconcile only when netifd reports changed runtime state.
 		is_managed_iface && \
-			( /etc/init.d/bypass restart ) >/dev/null 2>&1 &
+			log 1 "Interface [%s] went down; keeping Bypass running until netifd completes recovery." "$INTERFACE"
 		;;
 esac
 
