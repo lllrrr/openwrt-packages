@@ -77,7 +77,11 @@ get_config() {
 	PROXY_IPV6=$(config_t_get global_forwarding ipv6_tproxy 0)
 	ACCEPT_ICMP=$(config_t_get global_forwarding accept_icmp 0)
 
-	REMOTE_DNS=$(config_t_get global_dns remote_dns 1.1.1.1)
+	# Left empty on purpose: when the Default node is WireGuard, the remote
+	# resolver is derived from that node's Local DNS (the resolver its tunnel
+	# egress is known to reach). The 1.1.1.1 fallback lives in
+	# gen_bypasscore_config, where the Default node type is known.
+	REMOTE_DNS=$(config_t_get global_dns remote_dns)
 	REMOTE_DNS_PROTOCOL=$(config_t_get global_dns remote_dns_protocol tcp)
 	REMOTE_DNS_DOH=$(config_t_get global_dns remote_dns_doh https://1.1.1.1/dns-query)
 	REMOTE_DNS_CLIENT_IP=$(config_t_get global_dns remote_dns_client_ip)
@@ -508,6 +512,21 @@ gen_bypasscore_config() {
 	DNS_PROXY_NODE=$(default_proxy_node)
 	DNS_PROXY_PORT=$(node_socks_port "$DNS_PROXY_NODE")
 	DNS_PROXY_TYPE=$(node_type "$DNS_PROXY_NODE")
+	# An explicit remote_dns always wins. When it is left empty and the Default
+	# node is WireGuard, derive the remote resolver from that node's Local DNS:
+	# it is the resolver the tunnel egress is known to reach, while public
+	# resolvers queried through a domestic egress are blocked or poisoned.
+	if [ -z "$REMOTE_DNS" ] && [ -n "$DNS_PROXY_NODE" ] && [ "$DNS_PROXY_TYPE" = "wireguard" ]; then
+		case "$REMOTE_DNS_PROTOCOL" in
+			udp|tcp)
+				REMOTE_DNS=$(printf '%s' "$(config_n_get "$DNS_PROXY_NODE" local_dns)" | tr ',\n\r\t' ' ' | awk 'NF { print $1; exit }')
+				# Local DNS is plain DNS through the tunnel; UDP is the only
+				# transport a LAN resolver is guaranteed to answer.
+				[ -n "$REMOTE_DNS" ] && REMOTE_DNS_PROTOCOL=udp
+				;;
+		esac
+	fi
+	[ -n "$REMOTE_DNS" ] || REMOTE_DNS=1.1.1.1
 	if [ "$REMOTE_DNS_DETOUR" = "remote" ]; then
 		if [ "$DNS_PROXY_TYPE" = "naiveproxy" ]; then
 			case "$REMOTE_DNS_PROTOCOL" in

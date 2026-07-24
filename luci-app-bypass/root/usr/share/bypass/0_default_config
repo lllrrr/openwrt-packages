@@ -32,7 +32,8 @@ config global_forwarding
 
 config global_dns
 	option domestic_dns 'auto'
-	option remote_dns '1.1.1.1'
+	# Leave remote_dns empty: with a WireGuard Default node it is derived from
+	# the node's Local DNS; otherwise the generator falls back to 1.1.1.1.
 	option remote_dns_protocol 'tcp'
 	option remote_dns_doh 'https://1.1.1.1/dns-query'
 	option remote_dns_detour 'remote'

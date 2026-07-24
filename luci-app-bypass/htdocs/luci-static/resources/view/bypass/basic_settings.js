@@ -418,7 +418,9 @@ return view.extend({
 		crossSection(o, 'global_dns');
 
 		o = s.taboption('DNS', form.Value, 'remote_dns', _('Remote DNS'));
+		o.description = _('Leave empty to derive the resolver from the Default WireGuard node\'s Local DNS; otherwise 1.1.1.1 is used. Note that public resolvers queried through a domestic tunnel egress are blocked or poisoned.');
 		o.placeholder = '1.1.1.1';
+		o.value('', _('(auto: follow Default WireGuard node\'s Local DNS)'));
 		o.value('1.1.1.1', '1.1.1.1 (CloudFlare)');
 		o.value('8.8.8.8', '8.8.8.8 (Google)');
 		o.value('9.9.9.9', '9.9.9.9 (Quad9)');

@@ -778,6 +778,12 @@ msgstr "TLS (DoT)"
 msgid "Remote DNS"
 msgstr "国外 DNS"
 
+msgid "Leave empty to derive the resolver from the Default WireGuard node's Local DNS; otherwise 1.1.1.1 is used. Note that public resolvers queried through a domestic tunnel egress are blocked or poisoned."
+msgstr "留空时自动使用 Default WireGuard 节点的本地 DNS；否则回退为 1.1.1.1。注意：经国内出口的隧道查询公共 DNS 会被封锁或污染。"
+
+msgid "(auto: follow Default WireGuard node's Local DNS)"
+msgstr "（自动：跟随 Default WireGuard 节点的本地 DNS）"
+
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:345
 msgid "Remote DNS DoH"
 msgstr "国外 DNS DoH"
