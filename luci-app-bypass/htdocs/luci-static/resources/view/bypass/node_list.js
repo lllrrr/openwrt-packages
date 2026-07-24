@@ -30,6 +30,19 @@ function api(/* action, ...args */) {
 	}).catch(function (e) { return { code: -1, error: String(e) }; });
 }
 
+function saveAndApply(onSuccess) {
+	return uci.save().then(function () {
+		return uci.apply();
+	}).then(onSuccess).catch(function (e) {
+		ui.addNotification(null, E('p', {}, _('Save & Apply failed: %s').format(String(e))));
+	});
+}
+
+function displayEndpoint(host, port) {
+	host = String(host || '—').replace(/^\[|\]$/g, '');
+	return (host.indexOf(':') >= 0 ? '[' + host + ']' : host) + ':' + (port || '—');
+}
+
 function latencyColor(ms) {
 	if (ms == null) return COL.red;
 	if (ms < 100) return COL.green;
@@ -261,8 +274,8 @@ return view.extend({
 
 			var endpointHost = sec.peer_address || '—';
 			var endpointText = nodeType === 'wireguard'
-				? ((endpointHost.indexOf(':') >= 0 ? '[' + endpointHost + ']' : endpointHost) + ':' + (sec.peer_port || '—'))
-				: (sec.address || '—') + ':' + (sec.port || '—');
+				? displayEndpoint(endpointHost, sec.peer_port)
+				: displayEndpoint(sec.address, sec.port);
 			table.appendChild(E('tr', { class: 'tr cbi-section-table-row' }, [
 				E('td', { class: 'td cbi-value-field' }, [
 					E('strong', {}, sec.remarks || sid),
@@ -286,10 +299,8 @@ return view.extend({
 					uci.set('bypass', newSid, 'node_type', 'naiveproxy');
 					uci.set('bypass', newSid, 'protocol', 'https');
 					uci.set('bypass', newSid, 'remarks', _('New Node'));
-					uci.save().then(function () {
-						uci.apply().then(function () {
-							location.href = L.url('admin/services/bypass/node_config') + '?section=' + encodeURIComponent(newSid);
-						});
+					return saveAndApply(function () {
+						location.href = L.url('admin/services/bypass/node_config') + '?section=' + encodeURIComponent(newSid);
 					});
 				}
 			}, _('Add'))
@@ -308,7 +319,7 @@ return view.extend({
 				if (src[opt] != null) uci.set('bypass', newSid, opt, src[opt]);
 			});
 			uci.set('bypass', newSid, 'remarks', (src.remarks || sid) + ' ' + _('(copy)'));
-			uci.save().then(function () { uci.apply().then(function () { location.reload(); }); });
+			return saveAndApply(function () { location.reload(); });
 		}
 
 		function deleteNode(sid, label) {
@@ -325,13 +336,13 @@ return view.extend({
 								document.body.removeChild(modal);
 								uci.sections('bypass', 'shunt_rules').forEach(function (rule) {
 									if (rule.outbound === sid)
-										uci.set('bypass', rule['.name'], 'outbound', '');
+										uci.unset('bypass', rule['.name'], 'outbound');
 								});
 								var globalRules = uci.sections('bypass', 'global_rules')[0];
 								if (globalRules && globalRules.default_node === sid)
 									uci.set('bypass', globalRules['.name'], 'default_node', '_direct');
 								uci.remove('bypass', sid);
-								uci.save().then(function () { uci.apply().then(function () { location.reload(); }); });
+								return saveAndApply(function () { location.reload(); });
 							}
 						}, _('Delete')),
 						' ',

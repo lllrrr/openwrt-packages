@@ -88,7 +88,7 @@ set_cache_var() {
 	val=$(printf '%s' "$val" | tr -d '\r\n"')
 	[ -n "${key}" ] && [ -n "${val}" ] && {
 		[ ! -d "$TMP_PATH" ] && mkdir -p "$TMP_PATH"
-		sed -i "/${key}=/d" "$TMP_PATH/var" >/dev/null 2>&1
+		sed -i "/^${key}=/d" "$TMP_PATH/var" >/dev/null 2>&1
 		echo "${key}=\"${val}\"" >> "$TMP_PATH/var"
 	}
 }
@@ -97,6 +97,26 @@ unset_cache_var() {
 	local key="${1}"
 	case "$key" in ''|*[!A-Za-z0-9_]*) return 1 ;; esac
 	[ -s "$TMP_PATH/var" ] && sed -i "/^${key}=/d" "$TMP_PATH/var" >/dev/null 2>&1
+}
+
+# Remove one optional pair of URL-style brackets from a host literal.
+strip_host_brackets() {
+	local host=$1
+	case "$host" in
+		\[*\]) host=${host#\[}; host=${host%\]} ;;
+	esac
+	printf '%s\n' "$host"
+}
+
+# Format a host for use in a URL authority. Any colon-bearing literal is IPv6
+# (including ::1 and IPv4-mapped forms) and must be enclosed exactly once.
+host_for_url() {
+	local host
+	host=$(strip_host_brackets "$1")
+	case "$host" in
+		*:*) printf '[%s]\n' "$host" ;;
+		*) printf '%s\n' "$host" ;;
+	esac
 }
 
 # ------------------------------------------------------------------------------
@@ -445,14 +465,14 @@ stop_managed_processes() {
 
 get_host_ip() {
 	local family=$1
-	local host=$2
+	local host
+	host=$(strip_host_brackets "$2")
 	local count=$3
 	[ -z "$count" ] && count=3
 	local isip=""
 	local ip=""
 	if [ "$family" = "ipv6" ]; then
-		isip=$(echo "$host" | grep -E "([A-Fa-f0-9]{1,4}::?){1,7}[A-Fa-f0-9]{1,4}")
-		[ -n "$isip" ] && ip=$(echo "$host" | tr -d '[]')
+		case "$host" in *:*) isip=$host; ip=$host ;; esac
 	else
 		isip=$(echo "$host" | grep -E "([0-9]{1,3}[\.]){3}[0-9]{1,3}")
 		[ -n "$isip" ] && ip=$isip

@@ -2,6 +2,7 @@
 'require view';
 'require form';
 'require uci';
+'require ui';
 
 // Rule Manage — mirrors passwall2's client/rule.lua:
 //   1. "Rule status" section (global_rules): geoip/geosite update URLs and the
@@ -146,6 +147,8 @@ return view.extend({
 				return uci.apply();
 			}).then(function () {
 				window.location.assign(L.url('admin/services/bypass/rule_edit') + '?rule=' + encodeURIComponent(sid));
+			}).catch(function (e) {
+				ui.addNotification(null, E('p', {}, _('Save & Apply failed: %s').format(String(e))));
 			});
 		};
 		ss.handleRemove = function (sid) {
@@ -156,6 +159,8 @@ return view.extend({
 				return uci.apply();
 			}).then(function () {
 				window.location.reload();
+			}).catch(function (e) {
+				ui.addNotification(null, E('p', {}, _('Save & Apply failed: %s').format(String(e))));
 			});
 		};
 

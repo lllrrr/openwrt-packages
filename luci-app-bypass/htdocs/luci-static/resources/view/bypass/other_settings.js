@@ -6,8 +6,17 @@
 
 function api(/* action, ...args */) {
 	return fs.exec('/usr/share/bypass/api.sh', Array.prototype.slice.call(arguments)).then(function (res) {
-		var data = JSON.parse(res.stdout || '{}');
-		if (data.code !== 0) throw new Error(data.error || _('Operation failed.'));
+		try { return JSON.parse(res.stdout || '{}'); }
+		catch (e) { return { code: -1, error: _('Invalid API response.') }; }
+	}).catch(function (e) {
+		return { code: -1, error: String(e) };
+	});
+}
+
+function requireSuccess(promise) {
+	return promise.then(function (data) {
+		if (data.code !== 0)
+			throw new Error(data.error || _('Operation failed.'));
 		return data;
 	});
 }
@@ -189,9 +198,9 @@ return view.extend({
 		o.validate = validateDirectIpList;
 		o.cfgvalue = function () { return data[1].direct_ip || ''; };
 		o.write = function (_sid, value) {
-			return api('set_direct_ip', encodeBase64(String(value || '').replace(/\r\n/g, '\n')));
+			return requireSuccess(api('set_direct_ip', encodeBase64(String(value || '').replace(/\r\n/g, '\n'))));
 		};
-		o.remove = function () { return api('set_direct_ip', encodeBase64('')); };
+		o.remove = function () { return requireSuccess(api('set_direct_ip', encodeBase64(''))); };
 
 		return m.render();
 	}

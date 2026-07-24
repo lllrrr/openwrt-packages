@@ -97,6 +97,9 @@ return view.extend({
 		o = s.option(form.ListValue, '_naive_egress_interface', _('Egress Interface'),
 			_('Send this NaiveProxy node\'s server connection through the selected OpenWrt network. The first option inherits Default Naive Interface.'));
 		o.ucioption = 'egress_interface';
+		// Both protocol-specific widgets map to the same UCI option. Prevent the
+		// hidden widget from deleting the value written by the visible widget.
+		o.retain = true;
 		o.value('', _('(use default naive interface)'));
 		ifaces.forEach(function (iface) { o.value(iface, iface); });
 		o.depends('node_type', 'naiveproxy');
@@ -201,6 +204,7 @@ return view.extend({
 		o = s.option(form.ListValue, '_wireguard_egress_interface', _('Egress Interface'),
 			_('Send this WireGuard endpoint connection through the selected OpenWrt network.'));
 		o.ucioption = 'egress_interface';
+		o.retain = true;
 		o.value('', _('(system default route)'));
 		ifaces.forEach(function (iface) { o.value(iface, iface); });
 		o.depends('node_type', 'wireguard');

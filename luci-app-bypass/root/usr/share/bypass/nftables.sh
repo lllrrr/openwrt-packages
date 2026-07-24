@@ -245,6 +245,8 @@ EOF
 			meta l4proto != udp accept
 			${wan_accept}
 			iif lo accept
+			# DHCP broadcast must not depend on the user-editable Direct IP list.
+			ip daddr 255.255.255.255 udp sport 68 udp dport 67 accept
 			ip daddr @bypass_local accept
 			ip6 daddr @bypass_local6 accept
 			${direct_accept}

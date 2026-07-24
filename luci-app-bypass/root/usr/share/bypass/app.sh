@@ -228,8 +228,8 @@ run_naive_node() {
 	[ -z "$address" ] || [ -z "$port" ] && { log 0 "Node [%s] has no address/port, skip naive." "$node"; return 1; }
 
 	# IPv6 host bracketing for the proxy URL.
-	local server_host=$address
-	echo "$address" | grep -qE "([A-Fa-f0-9]{1,4}::?){1,7}[A-Fa-f0-9]{1,4}" && server_host="[$address]"
+	local server_host
+	server_host=$(host_for_url "$address")
 
 	local cfg_dir="${TMP_ACL_PATH}/nodes"
 	mkdir -p "$cfg_dir"
@@ -419,22 +419,22 @@ prepare_native_dns_policy_lists() {
 	local node address host sid rule
 	: > "$vps_rules"
 	: > "$direct_rules"
-	while IFS= read -r node; do
-		[ -n "$node" ] || continue
-		address=$(config_n_get "$node" address)
-		host=$(host_from_url "$address")
+	# Node-server domains always use direct domestic DNS, whether or not an
+	# active rule currently selects the node. Control-plane probes resolve node
+	# domains through this policy and must stay independent of the live tunnel
+	# and of the current Default selection; a WireGuard endpoint must also
+	# resolve before its tunnel exists, otherwise selecting that same WireGuard
+	# node for Remote DNS can recursively wait on itself.
+	for node in $(uci -q show "$CONFIG" 2>/dev/null | sed -n "s/^${CONFIG}\.\([^.=]*\)=nodes$/\1/p"); do
+		if [ "$(node_type "$node")" = "wireguard" ]; then
+			host=$(config_n_get "$node" peer_address)
+		else
+			address=$(config_n_get "$node" address)
+			host=$(host_from_url "$address")
+		fi
 		printf '%s\n' "$host" | grep -qE '^[A-Za-z0-9.-]*[A-Za-z][A-Za-z0-9.-]*$' && \
 			printf 'full:%s\n' "$host" >> "$vps_rules"
-	done < "$TMP_PATH/selected_naive_nodes"
-	# A WireGuard endpoint must resolve before its tunnel exists. Force endpoint
-	# domains through the direct DNS policy as well, otherwise selecting that
-	# same WireGuard node for Remote DNS can recursively wait on itself.
-	while IFS= read -r node; do
-		[ -n "$node" ] || continue
-		host=$(config_n_get "$node" peer_address)
-		printf '%s\n' "$host" | grep -qE '^[A-Za-z0-9.-]*[A-Za-z][A-Za-z0-9.-]*$' && \
-			printf 'full:%s\n' "$host" >> "$vps_rules"
-	done < "$TMP_PATH/selected_wireguard_nodes"
+	done
 	if [ "$WRITE_IPSET_DIRECT" = "1" ]; then
 		for sid in $(shunt_rule_sections); do
 			[ "$(config_n_get "$sid" is_default 0)" = "1" ] && continue
@@ -579,10 +579,7 @@ gen_bypasscore_config() {
 							log 0 "WireGuard node [%s] has an invalid endpoint address or port." "$_node"
 							BYPASSCORE_CONFIG_ERROR=1
 						fi
-						case "$_peer_address" in
-							*:*) _peer_endpoint="[${_peer_address}]:${_peer_port}" ;;
-							*) _peer_endpoint="${_peer_address}:${_peer_port}" ;;
-						esac
+						_peer_endpoint="$(host_for_url "$_peer_address"):${_peer_port}"
 						json_add_array peers
 							json_add_object ''
 								json_add_string publicKey "$(config_n_get "$_node" peer_public_key)"
@@ -734,18 +731,6 @@ gen_bypasscore_config() {
 					json_close_object
 				fi
 				if [ -n "$REMOTE_DNS" ] || [ -n "$REMOTE_DNS_DOH" ]; then
-					# This server is never part of ordinary DNS fallback. The
-					# control API selects it by tag solely to resolve a URL-test
-					# target before dialing that target through WireGuard.
-					if [ -s "$TMP_PATH/selected_wireguard_nodes" ]; then
-						json_add_object ''
-							json_add_remote_dns_transport
-							json_add_string tag url_test_direct
-							json_add_string outboundTag direct
-							json_add_boolean skipFallback 1
-							json_add_string queryStrategy UseIPv4
-						json_close_object
-					fi
 					json_add_object ''
 						json_add_remote_dns_transport
 						json_add_string tag remote
