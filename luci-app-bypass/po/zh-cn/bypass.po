@@ -1250,6 +1250,24 @@ msgstr "本地地址"
 msgid "Local tunnel addresses. If omitted, BypassCore uses compatibility addresses; normally enter the addresses assigned by the provider."
 msgstr "本地隧道地址。留空时 BypassCore 使用兼容地址；通常应填写服务提供方分配的一个或多个地址。"
 
+msgid "Local DNS"
+msgstr "本地 DNS"
+
+msgid "DNS servers used when resolving through this tunnel (URL Test and domain destinations), usually the server-side LAN DNS. Mirrors the DNS field of wg-quick. Requires BypassCore 1.5.0 or later."
+msgstr "经本隧道解析时使用的 DNS 服务器（URL 测试及域名目的地），通常填服务端的局域网 DNS。对应 wg-quick 的 DNS 字段。需要 BypassCore 1.5.0 或更高版本。"
+
+msgid "Reserved"
+msgstr "保留字节（Reserved）"
+
+msgid "Three reserved bytes required by WARP-derived providers, as d1,d2,d3 or base64. Vanilla WireGuard servers do not need it. Requires BypassCore 1.5.0 or later."
+msgstr "WARP 类服务商要求的 3 个保留字节，可填 d1,d2,d3 十进制形式或 base64。原生 WireGuard 服务端无需填写。需要 BypassCore 1.5.0 或更高版本。"
+
+msgid "Each reserved byte must be between 0 and 255."
+msgstr "每个保留字节必须在 0-255 之间。"
+
+msgid "Enter three decimal bytes separated by commas, or their base64 form."
+msgstr "请输入以逗号分隔的 3 个十进制字节，或其 base64 形式。"
+
 msgid "MTU"
 msgstr "MTU"
 

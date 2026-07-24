@@ -549,7 +549,7 @@ gen_bypasscore_config() {
 			json_add_string tag block
 			json_add_string mode blackhole
 		json_close_object
-		local _node _node_port _node_type _wg_value _wg_mtu _peer_address _peer_port _peer_endpoint _keep_alive
+		local _node _node_port _node_type _wg_value _wg_mtu _wg_dns _wg_reserved _wg_oct _peer_address _peer_port _peer_endpoint _keep_alive
 		while read -r _node; do
 			[ -n "$_node" ] || continue
 			json_add_object ''
@@ -566,6 +566,42 @@ gen_bypasscore_config() {
 								[ -n "$_wg_value" ] && json_add_string '' "$_wg_value"
 							done
 						json_close_array
+						# Local DNS (wg-quick [Interface] DNS semantics) resolves
+						# through the tunnel itself: control-plane probes and domain
+						# destinations prefer it over the host resolver. Emitted only
+						# when configured; BypassCore >= 1.5.0 rejects unknown fields.
+						_wg_dns=$(config_n_get "$_node" local_dns)
+						if [ -n "$_wg_dns" ]; then
+							json_add_array dns
+							for _wg_value in $(printf '%s' "$_wg_dns" | tr ',\n\r\t' '    '); do
+								[ -n "$_wg_value" ] && json_add_string '' "$_wg_value"
+							done
+							json_close_array
+						fi
+						# Reserved carries the 3-byte client identifier required by
+						# WARP-derived providers. Accept passwall2-style decimal
+						# triples or base64; emit canonical base64.
+						_wg_reserved=$(config_n_get "$_node" reserved)
+						if [ -n "$_wg_reserved" ]; then
+							if printf '%s' "$_wg_reserved" | grep -qE '^[0-9]{1,3}(,[0-9]{1,3}){2}$'; then
+								_wg_oct=$(printf '%s' "$_wg_reserved" | awk -F, \
+									'$1 > 255 || $2 > 255 || $3 > 255 { exit 1 } { printf "\\%04o\\%04o\\%04o", $1, $2, $3 }') || _wg_oct=""
+								if [ -n "$_wg_oct" ]; then
+									_wg_reserved=$(printf '%b' "$_wg_oct" | base64)
+								else
+									_wg_reserved="invalid"
+								fi
+							else
+								# wc -c output may be space-padded; compare numerically.
+								[ "$(printf '%s' "$_wg_reserved" | base64 -d 2>/dev/null | wc -c)" -eq 3 ] 2>/dev/null || _wg_reserved="invalid"
+							fi
+							if [ "$_wg_reserved" = "invalid" ]; then
+								log 0 "WireGuard node [%s] has invalid reserved (use d1,d2,d3 or base64)." "$_node"
+								BYPASSCORE_CONFIG_ERROR=1
+							else
+								json_add_string reserved "$_wg_reserved"
+							fi
+						fi
 						_wg_mtu=$(config_n_get "$_node" mtu 1420)
 						if ! uint_in_range "$_wg_mtu" 576 65535; then
 							log 0 "WireGuard node [%s] has invalid MTU [%s]." "$_node" "$_wg_mtu"

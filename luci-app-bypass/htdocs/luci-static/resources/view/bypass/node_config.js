@@ -183,11 +183,35 @@ return view.extend({
 			});
 		};
 
-		o = s.option(form.DynamicList, 'wireguard_address', _('Local Address'));
-		o.datatype = 'cidr';
-		o.placeholder = '10.0.0.2/32';
-		o.description = _('Local tunnel addresses. If omitted, BypassCore uses compatibility addresses; normally enter the addresses assigned by the provider.');
-		o.depends('node_type', 'wireguard');
+	o = s.option(form.DynamicList, 'wireguard_address', _('Local Address'));
+	o.datatype = 'cidr';
+	o.placeholder = '10.0.0.2/32';
+	o.description = _('Local tunnel addresses. If omitted, BypassCore uses compatibility addresses; normally enter the addresses assigned by the provider.');
+	o.depends('node_type', 'wireguard');
+
+	o = s.option(form.DynamicList, 'local_dns', _('Local DNS'));
+	o.datatype = 'ipaddr';
+	o.placeholder = '192.168.3.1';
+	o.description = _('DNS servers used when resolving through this tunnel (URL Test and domain destinations), usually the server-side LAN DNS. Mirrors the DNS field of wg-quick. Requires BypassCore 1.5.0 or later.');
+	o.depends('node_type', 'wireguard');
+
+	o = s.option(form.Value, 'reserved', _('Reserved'));
+	o.description = _('Three reserved bytes required by WARP-derived providers, as d1,d2,d3 or base64. Vanilla WireGuard servers do not need it. Requires BypassCore 1.5.0 or later.');
+	o.validate = function (_sid, value) {
+		if (!value) return true;
+		if (/^[0-9]{1,3}(,[0-9]{1,3}){2}$/.test(value)) {
+			var parts = value.split(',');
+			for (var i = 0; i < parts.length; i++) {
+				if (parseInt(parts[i], 10) > 255)
+					return _('Each reserved byte must be between 0 and 255.');
+			}
+			return true;
+		}
+		if (/^[A-Za-z0-9+/]{4}$/.test(value)) return true;
+		return _('Enter three decimal bytes separated by commas, or their base64 form.');
+	};
+	o.depends('node_type', 'wireguard');
+
 
 		o = s.option(form.Value, 'mtu', _('MTU'));
 		o.datatype = 'range(576,65535)';
