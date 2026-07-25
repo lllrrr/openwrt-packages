@@ -129,15 +129,6 @@ node_egress_interface() {
 	printf '%s\n' "$iface"
 }
 
-# Return the node protocol family. Configurations created before the Type field
-# existed remain NaiveProxy nodes.
-node_type() {
-	case "$(config_n_get "$1" node_type naiveproxy)" in
-		wireguard) echo wireguard ;;
-		*) echo naiveproxy ;;
-	esac
-}
-
 # Build the unique list of nodes referenced by shunt rules and by the virtual
 # Default row, plus protocol-specific subsets used by the process adapter and
 # the native WireGuard outbound.
@@ -317,20 +308,38 @@ run_naive_nodes() {
 	: > "$TMP_PATH/egress_map4"
 	: > "$TMP_PATH/egress_map6"
 	local node address iface iface_key ipv4_file ipv6_file node_kind index=0
+	# Resolve every selected node's endpoint in parallel. A slow resolver used to
+	# multiply each node's worst-case timeout by the node count; background jobs
+	# reduce the wall clock to the slowest single lookup. Each job writes its own
+	# per-index files, so no output can interleave.
+	: > "$TMP_PATH/resolve_jobs"
 	while read -r node; do
 		[ -n "$node" ] || continue
 		if [ "$(node_type "$node")" = "wireguard" ]; then
-			node_kind=WireGuard
 			address=$(config_n_get "$node" peer_address)
 		else
-			node_kind=Naive
 			address=$(config_n_get "$node" address)
+		fi
+		printf '%s %s %s\n' "$index" "$node" "$address" >> "$TMP_PATH/resolve_jobs"
+		{
+			resolve_all_ipv4 "$address" | awk 'NF' | sort -u > "$TMP_PATH/uplink_ips.${index}"
+			resolve_all_ipv6 "$address" | awk 'NF' | sort -u > "$TMP_PATH/uplink_ips6.${index}"
+		} &
+		index=$((index + 1))
+	done < "$TMP_PATH/selected_nodes"
+	# No ln_run child exists at this point in start(), so a bare wait only joins
+	# the resolution jobs above.
+	wait
+	while read -r index node address; do
+		[ -n "$node" ] || continue
+		if [ "$(node_type "$node")" = "wireguard" ]; then
+			node_kind=WireGuard
+		else
+			node_kind=Naive
 		fi
 		iface=$(node_egress_interface "$node")
 		ipv4_file="$TMP_PATH/uplink_ips.${index}"
 		ipv6_file="$TMP_PATH/uplink_ips6.${index}"
-		resolve_all_ipv4 "$address" | awk 'NF' | sort -u > "$ipv4_file"
-		resolve_all_ipv6 "$address" | awk 'NF' | sort -u > "$ipv6_file"
 		[ -s "$ipv4_file" ] || [ -s "$ipv6_file" ] || {
 			log 0 "%s node [%s] endpoint address [%s] could not be resolved." "$node_kind" "$node" "$address"
 			return 1
@@ -352,8 +361,7 @@ run_naive_nodes() {
 		else
 			log 0 "%s node [%s] uses the system default route." "$node_kind" "$node"
 		fi
-		index=$((index + 1))
-	done < "$TMP_PATH/selected_nodes"
+	done < "$TMP_PATH/resolve_jobs"
 
 	local conflict
 	conflict=$(
@@ -1487,9 +1495,9 @@ stop() {
 	[ -x "$NFT_BIN" ] && {
 		$NFT_BIN delete table inet bypass 2>/dev/null
 	}
-	while ip rule del priority 998 fwmark 0x10000/0x10000 lookup 20100 2>/dev/null; do :; done
+	while ip rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
 	ip route flush table 20100 proto 99 2>/dev/null
-	while ip -6 rule del priority 998 fwmark 0x10000/0x10000 lookup 20101 2>/dev/null; do :; done
+	while ip -6 rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
 	ip -6 route flush table 20101 proto 99 2>/dev/null
 	teardown_egress_routing
 	restore_dnsmasq_forward

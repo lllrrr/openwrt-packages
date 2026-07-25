@@ -1,12 +1,6 @@
 {
   "luci-app-pm": {
     "description": "ACL for luci-app-pm",
-    "read": {
-      "ubus": {
-        "session": ["access", "login"],
-        "system": ["info"]
-      }
-    },
     "write": {
       "ubus": {
         "system": ["reboot"]

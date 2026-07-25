@@ -4,7 +4,10 @@
     "order": 99,
     "action": {
       "type": "view",
-      "path": "index"
+      "path": "powermanager/index"
+    },
+    "depends": {
+      "acl": ["luci-app-pm"]
     }
   }
 }

@@ -15,7 +15,7 @@ return view.extend({
     return E("div", { class: "cbi-map" }, [
       E("h2", {}, _("PowerManager")),
       E("p", {}, [
-        _("Luci plugin for makes OpenWrt poweroff and reboot easy."),
+        _("Luci plugin that makes OpenWrt poweroff and reboot easy."),
         " ",
         E(
           "a",
@@ -127,8 +127,9 @@ return view.extend({
                 ),
               ]);
               fs.exec("/sbin/poweroff").catch(function (e) {
-                ui.addNotification(null, E("p", _("PowerOff failed")));
-              });
+  ui.hideModal();
+  ui.addNotification(null, E("p", {}, _("PowerOff failed")));
+});
             },
           },
           _("PowerOff"),

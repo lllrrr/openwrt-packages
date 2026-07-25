@@ -332,27 +332,27 @@ EOF
 			}"
 		fi
 		# Preserve mwan3/PBR marks in the low bits and reserve one high bit only.
-		while ip rule del priority 998 fwmark 0x10000/0x10000 lookup 20100 2>/dev/null; do :; done
+		while ip rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
 		ip rule add priority 998 fwmark 0x10000/0x10000 lookup 20100 2>/dev/null || {
 			log 0 "Could not install the TPROXY policy rule."
 			return 1
 		}
 		ip route replace local 0.0.0.0/0 dev lo proto 99 table 20100 2>/dev/null || {
-			ip rule del priority 998 fwmark 0x10000/0x10000 lookup 20100 2>/dev/null
+			ip rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null
 			log 0 "Could not install the TPROXY local route."
 			return 1
 		}
 		if [ "$PROXY_IPV6" = "1" ]; then
-			while ip -6 rule del priority 998 fwmark 0x10000/0x10000 lookup 20101 2>/dev/null; do :; done
+			while ip -6 rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
 			ip -6 rule add priority 998 fwmark 0x10000/0x10000 lookup 20101 2>/dev/null || {
-				while ip rule del priority 998 fwmark 0x10000/0x10000 lookup 20100 2>/dev/null; do :; done
+				while ip rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
 				ip route flush table 20100 proto 99 2>/dev/null
 				log 0 "Could not install the IPv6 TPROXY policy rule."
 				return 1
 			}
 			ip -6 route replace local ::/0 dev lo proto 99 table 20101 2>/dev/null || {
-				ip -6 rule del priority 998 fwmark 0x10000/0x10000 lookup 20101 2>/dev/null
-				while ip rule del priority 998 fwmark 0x10000/0x10000 lookup 20100 2>/dev/null; do :; done
+				ip -6 rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null
+				while ip rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
 				ip route flush table 20100 proto 99 2>/dev/null
 				log 0 "Could not install the IPv6 TPROXY local route."
 				return 1
@@ -367,9 +367,9 @@ EOF
 	${mangle6_chain}
 	}"
 	nft_apply "$ruleset" || {
-		while ip rule del priority 998 fwmark 0x10000/0x10000 lookup 20100 2>/dev/null; do :; done
+		while ip rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
 		ip route flush table 20100 proto 99 2>/dev/null
-		while ip -6 rule del priority 998 fwmark 0x10000/0x10000 lookup 20101 2>/dev/null; do :; done
+		while ip -6 rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
 		ip -6 route flush table 20101 proto 99 2>/dev/null
 		log 0 "nft ruleset apply failed."
 		return 1
@@ -415,30 +415,50 @@ EOF
 	# Pre-populate bypass_vps only for active node server IPs (literal or
 	# resolved), so unused node definitions do not consume DNS work or set space.
 	# This also protects a future router-OUTPUT implementation from recursion.
-	local ip node address direct_dns
-	while IFS= read -r node; do
-		[ -n "$node" ] || continue
-		address=$(config_n_get "$node" address)
-		for ip in $(resolve_all_ipv4 "$address"); do
-			[ -n "$ip" ] && $NFT add element inet ${NFT_TABLE} bypass_vps "{ $ip }" 2>/dev/null
-		done
-		for ip in $(resolve_all_ipv6 "$address"); do
-			[ -n "$ip" ] && $NFT add element inet ${NFT_TABLE} bypass_vps6 "{ $ip }" 2>/dev/null
-		done
-	done < "$TMP_PATH/selected_nodes"
-	for ip in $(get_wan_ips ip4); do
-		$NFT add element inet ${NFT_TABLE} bypass_vps "{ $ip }" 2>/dev/null
-	done
-	for ip in $(get_wan_ips ip6); do
-		$NFT add element inet ${NFT_TABLE} bypass_vps6 "{ $ip }" 2>/dev/null
-	done
+	# run_naive_nodes already resolved every selected endpoint into egress_map4/6;
+	# reuse those results instead of paying for a second serial resolveip round.
+	# Fall back to fresh resolution only when the maps are unavailable (standalone
+	# fw4-include invocation before the service has started). All element batches
+	# go through nft_import_elements so one nft process applies them, instead of
+	# spawning a process per IP.
+	local ip node address direct_dns vps4_file vps6_file dns4_file
+	vps4_file="$TMP_PATH2/vps-ip4"
+	vps6_file="$TMP_PATH2/vps-ip6"
+	dns4_file="$TMP_PATH2/dns-ip4"
+	: > "$vps4_file"
+	: > "$vps6_file"
+	: > "$dns4_file"
+	if [ -s "$TMP_PATH/egress_map4" ] || [ -s "$TMP_PATH/egress_map6" ]; then
+		awk 'NF { print $1 }' "$TMP_PATH/egress_map4" >> "$vps4_file" 2>/dev/null
+		awk 'NF { print $1 }' "$TMP_PATH/egress_map6" >> "$vps6_file" 2>/dev/null
+	else
+		while IFS= read -r node; do
+			[ -n "$node" ] || continue
+			if [ "$(node_type "$node")" = "wireguard" ]; then
+				address=$(config_n_get "$node" peer_address)
+			else
+				address=$(config_n_get "$node" address)
+			fi
+			resolve_all_ipv4 "$address" >> "$vps4_file"
+			resolve_all_ipv6 "$address" >> "$vps6_file"
+		done < "$TMP_PATH/selected_nodes"
+	fi
+	get_wan_ips ip4 >> "$vps4_file"
+	get_wan_ips ip6 >> "$vps6_file"
+	nft_import_elements bypass_vps "$vps4_file" || \
+		log 0 "bypass_vps population failed; node-server redirection exemption may be incomplete."
+	nft_import_elements bypass_vps6 "$vps6_file" || \
+		log 0 "bypass_vps6 population failed; node-server redirection exemption may be incomplete."
 	direct_dns=$(get_direct_dns_ipv4)
 	[ -n "$direct_dns" ] || direct_dns=223.5.5.5
 	for ip in $direct_dns; do
-		if $NFT add element inet ${NFT_TABLE} bypass_dns "{ $ip }" 2>/dev/null; then
-			log 1 "Add direct IPv4 DNS to whitelist: %s" "$ip"
-		fi
+		printf '%s\n' "$ip" >> "$dns4_file"
 	done
+	if nft_import_elements bypass_dns "$dns4_file"; then
+		log 1 "Add direct IPv4 DNS to whitelist: %s" "$(printf '%s' "$direct_dns" | tr '\n' ' ')"
+	else
+		log 0 "bypass_dns population failed; direct DNS queries may be redirected."
+	fi
 
 	# Optionally parse Direct-rule GeoIP entries into informational interval sets.
 	# These sets are intentionally not accepted before BypassCore: an IP-only
@@ -485,9 +505,9 @@ EOF
 
 nft_stop() {
 	# Remove tproxy local-route scaffolding if present.
-	while ip rule del priority 998 fwmark 0x10000/0x10000 lookup 20100 2>/dev/null; do :; done
+	while ip rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
 	ip route flush table 20100 proto 99 2>/dev/null
-	while ip -6 rule del priority 998 fwmark 0x10000/0x10000 lookup 20101 2>/dev/null; do :; done
+	while ip -6 rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
 	ip -6 route flush table 20101 proto 99 2>/dev/null
 	[ -n "$NFT" ] && $NFT delete table inet ${NFT_TABLE} 2>/dev/null
 	rm -f "$INCLUDE_FILE" 2>/dev/null
