@@ -2048,9 +2048,13 @@ class PortMappingEditor_l extends L.form.Value {
     }
     renderWidget(t, l, o) {
         this.errorDivRefs = [];
-        let a = o || [], s = this.cbid(t), p = jsx("div", {}), d = [], u = ()=>{
+        let a = o || [], s = this.cbid(t), p = jsx("div", {
+            style: "position: relative; display: grid; gap: 8px;"
+        }), d = jsx("div", {
+            style: "position: absolute; left: 0; right: 0; height: 0; border-top: 2px dashed #09c; pointer-events: none; display: none; z-index: 1;"
+        }), u = [], c = null, g = null, h = !0, f = null, m = ()=>{
             let t = [];
-            for (let e of d){
+            for (let e of u){
                 let r = e.listenInput.value.trim(), i = e.targetInput.value.trim(), n = e.protocolSelect.value, l = {
                     listenPort: r,
                     targetPort: i,
@@ -2060,39 +2064,66 @@ class PortMappingEditor_l extends L.form.Value {
                 o && r && i && t.push(o);
             }
             this.hiddenInput && (this.hiddenInput.value = t.join(" "));
-        }, h = (l, o)=>{
+        }, v = ()=>{
+            let t = new Map(u.map((t)=>[
+                    t.element,
+                    t
+                ])), e = [];
+            for (let r of Array.from(p.children)){
+                let i = t.get(r);
+                i && e.push(i);
+            }
+            u.splice(0, u.length, ...e), u.forEach((t, e)=>{
+                let r = String(e);
+                t.orderLabel.textContent = String(e + 1), t.element.dataset.index = r, t.errorElement.dataset.index = r, t.listenInput.dataset.index = r, t.targetInput.dataset.index = r, t.protocolSelect.dataset.index = r;
+            }), m();
+        }, b = ()=>{
+            g = null, d.style.display = "none";
+        }, y = (t, e)=>{
+            var r, i;
+            g = t;
+            let n = u.findIndex((e)=>e.element === t), l = null == (r = u[n - 1]) ? void 0 : r.element, o = null == (i = u[n + 1]) ? void 0 : i.element, a = t.getBoundingClientRect(), s = p.getBoundingClientRect(), c = (h = e < a.top + a.height / 2) ? l ? (l.getBoundingClientRect().bottom + a.top) / 2 : a.top : o ? (a.bottom + o.getBoundingClientRect().top) / 2 : a.bottom;
+            d.style.top = "".concat(c - s.top, "px"), d.style.display = "block";
+        }, x = ()=>{
+            c && (c.style.opacity = ""), c = null, f = null, b();
+        }, P = (l, o)=>{
             let a = this.parseMapping(l) || {
                 listenPort: "",
                 targetPort: "",
                 frpNodes: [],
                 protocol: "tcp"
-            }, s = l ? this.buildString(a) : "", p = "portmapping-row-".concat(t, "-").concat(o), h = !0, c = jsx(ValidatedInput_r, {
+            }, s = l ? this.buildString(a) : "", d = "portmapping-row-".concat(t, "-").concat(o), P = !0, w = jsx(ValidatedInput_r, {
                 type: "text",
                 className: "listen-port-input",
                 value: a.listenPort,
                 placeholder: _("8080 or 8080-8090"),
-                style: "width: 70px; min-width: 50px; margin-right: 10px;",
+                style: "width: 100%; min-width: 0; margin: 0;",
                 dataAttributes: {
                     index: String(o),
                     section: t
                 },
                 onValidate: (t)=>!!t.trim() && this.validatePortOrRange(t.trim())
-            }), g = jsx(ValidatedInput_r, {
+            });
+            w.id = "".concat(d, "-listen");
+            let I = jsx(ValidatedInput_r, {
                 type: "text",
                 className: "target-port-input",
                 value: a.targetPort,
                 placeholder: _("80 or 80-90"),
-                style: "width: 70px; min-width: 50px; margin-right: 10px;",
+                style: "width: 100%; min-width: 0; margin: 0;",
                 dataAttributes: {
                     index: String(o),
                     section: t
                 },
                 onValidate: (t)=>!!t.trim() && this.validatePortOrRange(t.trim())
-            }), f = jsxs("select", {
+            });
+            I.id = "".concat(d, "-target");
+            let C = jsxs("select", {
+                id: "".concat(d, "-protocol"),
                 class: "protocol-select",
                 "data-index": o,
                 "data-section": t,
-                style: "width: 100px; margin-right: 10px;",
+                style: "width: 100%; min-width: 0; margin: 0;",
                 children: [
                     jsx("option", {
                         value: "tcp",
@@ -2110,41 +2141,41 @@ class PortMappingEditor_l extends L.form.Value {
                         children: "Both"
                     })
                 ]
-            }), m = jsx(ValidatedInput_r, {
+            }), N = jsx(ValidatedInput_r, {
                 type: "text",
                 className: "text-mode-input",
                 value: s,
                 placeholder: _("[8080][node1:9888]:80/tcp or 8080:80/tcp"),
-                style: "width: 100%; margin-bottom: 6px; padding: 5px; display: none;",
+                style: "flex: 1 1 120px; min-width: 100px; width: auto; margin: 0; padding: 5px; display: none;",
                 validateOn: "blur",
                 onValidate: (t)=>!!this.parseMapping(t)
-            }), v = jsx("div", {
+            }), R = jsx("div", {
                 class: "portmapping-preview",
                 "data-index": o,
                 style: "margin-top: 6px; padding: 6px; border-left: 3px solid #0088cc; font-family: monospace; font-size: 12px;",
                 children: _("Preview: %s").format(this.buildString(a))
-            }), b = ()=>{
-                let t = c.value.trim(), e = g.value.trim(), r = f.value, i = y(), n = this.buildString({
+            }), V = ()=>{
+                let t = w.value.trim(), e = I.value.trim(), r = C.value, i = k(), n = this.buildString({
                     listenPort: t,
                     targetPort: e,
                     frpNodes: i,
                     protocol: r
                 });
-                v.textContent = _("Preview: %s").format(n), h || (m.value = n);
-            }, x = null, y = null, P = null, w = null, N = (t)=>{
+                R.textContent = _("Preview: %s").format(n), P || (N.value = n);
+            }, E = null, k = null, D = null, S = null, F = (t)=>{
                 var e;
                 let r = createFrpNodeSelector({
                     selectedNodes: t,
                     onChange: ()=>{
-                        S();
+                        U();
                     },
                     checkboxClass: "frp-node-checkbox-pm",
                     portInputClass: "frp-node-port-pm"
                 });
-                null == x || null == (e = x.parentNode) || e.replaceChild(r.container, x), x = r.container, y = r.getSelectedNodes, P = r.isValid, w = r.getValidationError;
+                null == E || null == (e = E.parentNode) || e.replaceChild(r.container, E), E = r.container, k = r.getSelectedNodes, D = r.isValid, S = r.getValidationError;
             };
-            N(a.frpNodes || []);
-            let I = jsx("div", {
+            F(a.frpNodes || []);
+            let T = jsx("div", {
                 class: "frp-nodes-select",
                 style: "display: block; margin-top: 6px;",
                 children: jsx("span", {
@@ -2152,150 +2183,234 @@ class PortMappingEditor_l extends L.form.Value {
                     children: _("FRP Nodes (Optional):")
                 })
             });
-            I.appendChild(x);
-            let V = jsx("div", {
+            T.appendChild(E);
+            let B = jsx("div", {
                 class: "portmapping-error",
                 "data-index": o,
                 style: "color: red; margin-top: 6px; font-size: 12px; display: none;"
             });
-            this.errorDivRefs.push(V);
-            let C = jsxs("div", {
-                style: "display: flex; gap: 10px; align-items: center;",
+            this.errorDivRefs.push(B);
+            let O = jsxs("div", {
+                style: "display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; align-items: end; margin-top: 10px;",
                 children: [
-                    jsx("span", {
-                        style: "min-width: 80px; font-weight: bold;",
-                        children: _("Listen Port:")
+                    jsxs("label", {
+                        htmlFor: "".concat(d, "-listen"),
+                        style: "display: grid; gap: 5px; font-weight: bold;",
+                        children: [
+                            jsx("span", {
+                                children: _("Listen Port:")
+                            }),
+                            w
+                        ]
                     }),
-                    c,
-                    jsx("span", {
-                        style: "min-width: 80px; font-weight: bold;",
-                        children: _("Target Port:")
+                    jsxs("label", {
+                        htmlFor: "".concat(d, "-target"),
+                        style: "display: grid; gap: 5px; font-weight: bold;",
+                        children: [
+                            jsx("span", {
+                                children: _("Target Port:")
+                            }),
+                            I
+                        ]
                     }),
-                    g,
-                    jsx("span", {
-                        style: "min-width: 60px; font-weight: bold;",
-                        children: _("Protocol:")
-                    }),
-                    f
+                    jsxs("label", {
+                        htmlFor: "".concat(d, "-protocol"),
+                        style: "display: grid; gap: 5px; font-weight: bold;",
+                        children: [
+                            jsx("span", {
+                                children: _("Protocol:")
+                            }),
+                            C
+                        ]
+                    })
                 ]
-            }), E = jsx("button", {
+            }), A = jsx("button", {
                 type: "button",
                 class: "btn cbi-button cbi-button-edit",
-                style: "margin-right: 8px;",
+                style: "margin: 0; white-space: nowrap;",
                 children: _("Text Edit")
-            }), R = jsx("button", {
+            }), z = jsx("button", {
                 type: "button",
                 class: "btn cbi-button cbi-button-remove",
                 "data-index": o,
                 "data-section": t,
                 children: _("Delete")
-            }), F = jsxs("div", {
-                style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;",
+            }), M = jsx("span", {
+                title: _("Mapping order"),
+                style: "display: inline-flex; align-items: center; justify-content: center; flex: 0 0 24px; width: 24px; height: 24px; border-radius: 999px; background: rgba(127, 127, 127, 0.18); font-size: 12px; font-weight: bold;",
+                children: String(o + 1)
+            }), j = jsx("button", {
+                type: "button",
+                class: "cbi-button drag-handle center",
+                draggable: !0,
+                "aria-label": _("Drag to reorder"),
+                title: _("Drag to reorder"),
+                style: "cursor:move; user-select:none; -webkit-user-select:none; touch-action:none; display:inline-block;",
+                children: "\u2630"
+            }), $ = jsxs("div", {
+                style: "display: flex; flex-wrap: wrap; gap: 8px; align-items: center;",
                 children: [
-                    jsx("div", {
-                        children: E
-                    }),
-                    jsx("div", {
-                        children: R
+                    j,
+                    M,
+                    N,
+                    jsxs("div", {
+                        style: "display: flex; gap: 8px; align-items: center; margin-left: auto;",
+                        children: [
+                            A,
+                            z
+                        ]
                     })
                 ]
-            }), k = jsxs("div", {
-                id: p,
+            }), q = jsxs("div", {
+                id: d,
                 class: "portmapping-row",
                 "data-index": o,
-                style: "margin-bottom: 10px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;",
+                style: "padding: 10px 12px; border: 1px solid rgba(127, 127, 127, 0.35); border-radius: 6px; background: rgba(127, 127, 127, 0.04); transition: opacity 120ms ease;",
                 children: [
-                    F,
-                    C,
-                    m,
-                    I,
-                    V,
-                    v
+                    $,
+                    O,
+                    T,
+                    B,
+                    R
                 ]
-            }), S = ()=>{
-                let t = c.value.trim(), e = g.value.trim();
-                V.textContent = "", V.style.display = "none";
+            }), U = ()=>{
+                let t = w.value.trim(), e = I.value.trim();
+                B.textContent = "", B.style.display = "none";
                 let r = !1;
-                if (t && !this.validatePortOrRange(t) && (V.textContent = _("Invalid listen port format"), V.style.display = "block", r = !0), r || !e || this.validatePortOrRange(e) || (V.textContent = _("Invalid target port format"), V.style.display = "block", r = !0), !r && t && e) {
+                if (t && !this.validatePortOrRange(t) && (B.textContent = _("Invalid listen port format"), B.style.display = "block", r = !0), r || !e || this.validatePortOrRange(e) || (B.textContent = _("Invalid target port format"), B.style.display = "block", r = !0), !r && t && e) {
                     let i = this.parsePortRange(t), n = this.parsePortRange(e);
-                    i.length !== n.length && (V.textContent = _("Port ranges must have the same size"), V.style.display = "block", r = !0);
+                    i.length !== n.length && (B.textContent = _("Port ranges must have the same size"), B.style.display = "block", r = !0);
                 }
-                r || P() || (V.textContent = w(), V.style.display = "block", r = !0), r || b(), u();
+                r || D() || (B.textContent = S(), B.style.display = "block", r = !0), r || V(), m();
             };
-            c.oninput = S, c.onchange = S, g.oninput = S, g.onchange = S, f.onchange = S;
-            let O = ()=>{
-                let t = this.parseMapping(m.value);
+            w.oninput = U, w.onchange = U, I.oninput = U, I.onchange = U, C.onchange = U;
+            let Y = ()=>{
+                let t = this.parseMapping(N.value);
                 if (t) {
-                    let e = c.oninput, r = g.oninput, i = f.onchange;
-                    c.oninput = null, g.oninput = null, f.onchange = null, c.value = t.listenPort, g.value = t.targetPort, f.value = t.protocol, N(t.frpNodes || []), c.oninput = e, g.oninput = r, f.onchange = i, S();
+                    let e = w.oninput, r = I.oninput, i = C.onchange;
+                    w.oninput = null, I.oninput = null, C.onchange = null, w.value = t.listenPort, I.value = t.targetPort, C.value = t.protocol, F(t.frpNodes || []), w.oninput = e, I.oninput = r, C.onchange = i, U();
                 }
             };
-            function A(t, e) {
+            function W(t, e) {
                 t.style.setProperty("display", e, "important");
             }
-            function D() {
-                A(C, h ? "none" : "flex"), A(I, h ? "none" : "block"), A(m, h ? "block" : "none"), A(v, h ? "none" : "block"), E.textContent = h ? _("Visual Edit") : _("Text Edit");
+            function Z() {
+                W(O, P ? "none" : "grid"), W(T, P ? "none" : "block"), W(N, P ? "block" : "none"), W(R, P ? "none" : "block"), A.textContent = P ? _("Visual Edit") : _("Text Edit");
             }
-            return m.oninput = O, m.onblur = (t)=>{
+            N.oninput = Y, N.onblur = (t)=>{
                 let e = t.currentTarget;
                 if (!e) return;
-                V.textContent = "", V.style.display = "none";
+                B.textContent = "", B.style.display = "none";
                 let r = this.parseMapping(e.value);
                 if (r) {
                     let t = this.buildString(r);
-                    t && t !== e.value && (e.value = t), O();
-                } else V.textContent = _("Invalid port mapping format"), V.style.display = "block";
-            }, D(), E.onclick = (t)=>{
-                if (t.preventDefault(), h && O(), h = !h, D(), h) {
-                    let t = c.value.trim(), e = g.value.trim(), r = f.value, i = y(), n = this.buildString({
+                    t && t !== e.value && (e.value = t), Y();
+                } else B.textContent = _("Invalid port mapping format"), B.style.display = "block";
+            }, Z(), A.onclick = (t)=>{
+                if (t.preventDefault(), P && Y(), P = !P, Z(), P) {
+                    let t = w.value.trim(), e = I.value.trim(), r = C.value, i = k(), n = this.buildString({
                         listenPort: t,
                         targetPort: e,
                         frpNodes: i,
                         protocol: r
                     });
-                    m.value = n, v.textContent = _("Preview: %s").format(n);
+                    N.value = n, R.textContent = _("Preview: %s").format(n);
                 }
-            }, R.onclick = (t)=>{
-                t.preventDefault(), k.remove();
-                let e = d.findIndex((t)=>t.listenInput === c && t.targetInput === g && t.protocolSelect === f);
-                -1 !== e && d.splice(e, 1), u();
+            }, j.ondragstart = (t)=>{
+                c = q, q.style.opacity = "0.55", t.dataTransfer && (t.dataTransfer.effectAllowed = "move", t.dataTransfer.setData("text/plain", d));
+            }, j.ondragend = ()=>{
+                v(), x();
+            }, q.ondragover = (t)=>{
+                c && c !== q && (t.preventDefault(), t.dataTransfer && (t.dataTransfer.dropEffect = "move"), y(q, t.clientY));
+            }, q.ondragleave = (t)=>{
+                q.contains(t.relatedTarget) || b();
+            }, q.ondrop = (t)=>{
+                c && c !== q && (t.preventDefault(), p.insertBefore(c, h ? q : q.nextSibling), v(), x());
+            };
+            let G = (t)=>{
+                if (c) {
+                    for (let e of u){
+                        let r = e.element.getBoundingClientRect();
+                        if (e.element !== c && t >= r.top && t <= r.bottom) return void y(e.element, t);
+                    }
+                    b();
+                }
+            }, H = ()=>{
+                c && g && c !== g && (p.insertBefore(c, h ? g : g.nextSibling), v()), x();
+            };
+            if (j.onpointerdown = (t)=>{
+                t.preventDefault(), f = t.pointerId, c = q, q.style.opacity = "0.55", j.setPointerCapture && j.setPointerCapture(t.pointerId);
+            }, j.onpointermove = (t)=>{
+                f === t.pointerId && c && (t.preventDefault(), G(t.clientY));
+            }, j.onpointerup = (t)=>{
+                f === t.pointerId && (t.preventDefault(), H());
+            }, j.onpointercancel = ()=>x(), !window.PointerEvent) {
+                let t = (t)=>{
+                    for(let e = 0; e < t.length; e++){
+                        let r = t.item(e);
+                        if ((null == r ? void 0 : r.identifier) === f) return r;
+                    }
+                    return null;
+                };
+                j.ontouchstart = (t)=>{
+                    let e = t.changedTouches.item(0);
+                    e && (t.preventDefault(), f = e.identifier, c = q, q.style.opacity = "0.55");
+                }, j.ontouchmove = (e)=>{
+                    let r = t(e.touches);
+                    r && c && (e.preventDefault(), G(r.clientY));
+                }, j.ontouchend = (e)=>{
+                    t(e.changedTouches) && (e.preventDefault(), H());
+                }, j.ontouchcancel = ()=>x();
+            }
+            return z.onclick = (t)=>{
+                t.preventDefault(), q.remove();
+                let e = u.findIndex((t)=>t.listenInput === w && t.targetInput === I && t.protocolSelect === C);
+                if (-1 !== e) {
+                    u.splice(e, 1);
+                    let t = this.errorDivRefs.indexOf(B);
+                    -1 !== t && this.errorDivRefs.splice(t, 1);
+                }
+                v();
             }, {
-                element: k,
-                listenInput: c,
-                targetInput: g,
-                protocolSelect: f,
-                getSelectedNodes: y
+                element: q,
+                orderLabel: M,
+                errorElement: B,
+                listenInput: w,
+                targetInput: I,
+                protocolSelect: C,
+                getSelectedNodes: k
             };
         };
         for(let t = 0; t < a.length; t++){
-            let e = h(a[t], t);
-            d.push(e), p.appendChild(e.element);
+            let e = P(a[t], t);
+            u.push(e), p.appendChild(e.element);
         }
-        let c = jsx("button", {
+        p.appendChild(d), v();
+        let w = jsx("button", {
             type: "button",
             class: "btn btn-sm btn-primary",
-            style: "margin-bottom: 10px;",
+            style: "width: 100%; margin-top: 2px;",
             children: _("Add Port Mapping")
         });
-        c.onclick = (t)=>{
+        w.onclick = (t)=>{
             t.preventDefault();
-            let e = h("", d.length);
-            d.push(e), p.appendChild(e.element);
+            let e = P("", u.length);
+            u.push(e), p.insertBefore(e.element, d), v();
         };
-        let g = jsx("input", {
+        let I = jsx("input", {
             type: "hidden",
             name: s,
             value: a.join(" ")
         });
-        return this.hiddenInput = g, jsxs("div", {
+        return this.hiddenInput = I, jsxs("div", {
             class: "cbi-value-field",
             children: [
                 p,
-                c,
-                g,
+                w,
+                I,
                 jsx("div", {
                     class: "cbi-value-description",
-                    children: _("Configure port forwarding rules. Listen Port and Target Port support single port (8080) or port range (8080-8090).")
+                    children: _("Configure port forwarding rules. Listen Port and Target Port support single port (8080) or port range (8080-8090). Drag the handle to reorder mappings.")
                 })
             ]
         });
@@ -2406,8 +2521,8 @@ class PortMappingEditor_l extends L.form.Value {
 
 
 let config_n = L.form, config_i = L.uci;
-/* export default */ function config(s, p, d, c) {
-    let u = p.taboption(c, config_n.SectionValue, "_projects", config_n.GridSection, "project").subsection;
+/* export default */ function config(s, d, p, c) {
+    let u = d.taboption(c, config_n.SectionValue, "_projects", config_n.GridSection, "project").subsection;
     u.anonymous = !0, u.addremove = !0, u.sortable = !0, u.cloneable = !0, u.sectiontitle = (e)=>{
         var t;
         return (null == (t = config_i.get("portweaver", e, "remark")) ? void 0 : t.toString()) || _("Unnamed project");
@@ -2415,16 +2530,16 @@ let config_n = L.form, config_i = L.uci;
     {
         let t = u.option(config_n.DummyValue, "_runtime_status", _("Status"));
         t.modalonly = !1, t.textvalue = (t)=>{
-            let o = d.getProjectStatus(t), l = jsx("div", {
-                children: d.renderStatusElements(o, t)
+            let o = p.getProjectStatus(t), l = jsx("div", {
+                children: p.renderStatusElements(o, t)
             });
-            return d.projectContainers = d.projectContainers || {}, d.projectContainers[t] = l, l;
+            return p.projectContainers = p.projectContainers || {}, p.projectContainers[t] = l, l;
         };
     }
     {
         let e = u.option(config_n.Button, "_runtime_toggle", _("Toggle"));
         e.modalonly = !1, e.editable = !0, e.inputtitle = (e)=>{
-            let t = d.getProjectStatus(e);
+            let t = p.getProjectStatus(e);
             return (null == t ? void 0 : t.enabled) ? _("Disable") : _("Enable");
         }, e.onclick = (e, t)=>window.portweaverToggle(t);
     }
@@ -2440,24 +2555,24 @@ let config_n = L.form, config_i = L.uci;
         let o = u.option(config_n.DummyValue, "_preview", _("Overview"));
         o.modalonly = !1, o.textvalue = (o)=>{
             var l, a, r, n, s;
-            let p = (null == (l = config_i.get("portweaver", o, "protocol")) ? void 0 : l.toString()) || "tcp", d = (null == (a = config_i.get("portweaver", o, "family")) ? void 0 : a.toString()) || "any", c = (null == (r = config_i.get("portweaver", o, "listen_port")) ? void 0 : r.toString()) || "", u = (null == (n = config_i.get("portweaver", o, "target_address")) ? void 0 : n.toString()) || "", m = (null == (s = config_i.get("portweaver", o, "target_port")) ? void 0 : s.toString()) || "", g = L.toArray(config_i.get("portweaver", o, "port_mapping")), v = L.toArray(config_i.get("portweaver", o, "src_zone")), f = L.toArray(config_i.get("portweaver", o, "dest_zone")), h = {
+            let d = (null == (l = config_i.get("portweaver", o, "protocol")) ? void 0 : l.toString()) || "tcp", p = (null == (a = config_i.get("portweaver", o, "family")) ? void 0 : a.toString()) || "any", c = (null == (r = config_i.get("portweaver", o, "listen_port")) ? void 0 : r.toString()) || "", u = (null == (n = config_i.get("portweaver", o, "target_address")) ? void 0 : n.toString()) || "", m = (null == (s = config_i.get("portweaver", o, "target_port")) ? void 0 : s.toString()) || "", g = L.toArray(config_i.get("portweaver", o, "port_mapping")), v = L.toArray(config_i.get("portweaver", o, "src_zone")), b = L.toArray(config_i.get("portweaver", o, "dest_zone")), f = {
                 both: _("TCP and UDP"),
                 tcp: _("TCP"),
                 udp: _("UDP")
-            }[p] || String(p).toUpperCase(), y = {
+            }[d] || String(d).toUpperCase(), h = {
                 any: _("IPv4 and IPv6"),
                 ipv4: _("IPv4"),
                 ipv6: _("IPv6")
-            }[d] || d, w = [];
+            }[p] || p, w = [];
             if (w.push(jsxs("span", {
                 children: [
                     _("Incoming "),
                     jsx("var", {
-                        children: y
+                        children: h
                     }),
                     _(" protocol "),
                     jsx("var", {
-                        children: h
+                        children: f
                     })
                 ]
             })), v.length > 0) {
@@ -2516,8 +2631,8 @@ let config_n = L.form, config_i = L.uci;
                     }),
                     _(" to ")
                 ]
-            })), f.length > 0) {
-                let t = f.map((t)=>jsx("span", {
+            })), b.length > 0) {
+                let t = b.map((t)=>jsx("span", {
                         class: "zonebadge",
                         style: fwmodel.getZoneColorStyle(t),
                         children: jsx("strong", {
@@ -2547,129 +2662,128 @@ let config_n = L.form, config_i = L.uci;
             });
         };
     }
-    {
-        let e = u.option(config_n.Value, "remark", _("Remark"));
-        e.modalonly = !0, e.rmempty = !1, e.datatype = "string", e.validate = (e, t)=>!!t && "" !== String(t).trim() || _("This field is required"), e.placeholder = "My Project";
-    }
-    {
-        let e = u.option(config_n.Flag, "enabled", _("Enabled"));
-        e.modalonly = !0, e.default = "1";
-    }
-    {
-        let e = u.option(widgets.ZoneSelect, "src_zone", _("Source Zones"));
-        e.modalonly = !0, e.multiple = !0, e.nocreate = !1, e.allowlocal = !1, e.default = "wan", e.rmempty = !0;
-    }
-    {
-        let e = u.option(widgets.ZoneSelect, "dest_zone", _("Destination Zones"));
-        e.modalonly = !0, e.multiple = !0, e.nocreate = !1, e.allowlocal = !1, e.default = "lan", e.rmempty = !0;
-    }
-    {
-        let e = u.option(config_n.ListValue, "family", _("Address Family"));
-        e.modalonly = !0, e.value("any", _("IPv4 and IPv6")), e.value("ipv4", "IPv4"), e.value("ipv6", "IPv6"), e.default = "any";
-    }
-    {
-        let e = u.option(config_n.Value, "target_address", _("Target Address"));
-        e.modalonly = !0, e.rmempty = !1, e.datatype = "host", e.placeholder = "192.168.1.100", e.validate = (e, t)=>!!t && "" !== String(t).trim() || _("This field is required");
-    }
-    {
-        let e = u.option(config_n.Flag, "use_port_mappings", _("Use Port Mappings Mode"));
-        e.modalonly = !0, e.rmempty = !0, e.default = "0", e.description = _("Enable to configure multiple port mappings or port ranges. Disable for single port mode.");
-    }
-    {
-        let e = u.option(config_n.ListValue, "protocol", _("Protocol"));
-        e.modalonly = !0, e.value("both", _("TCP and UDP")), e.value("tcp", "TCP"), e.value("udp", "UDP"), e.default = "tcp", e.depends("use_port_mappings", "0");
-    }
-    if (isFeatureEnabled("frpc_mode")) {
-        let e = u.option(FrpNodeSelector, "frp_nodes", _("FRP Tunnels"));
-        e.modalonly = !0, e.rmempty = !0, e.depends("use_port_mappings", "0");
-    }
-    {
-        let e = u.option(PortMappingEditor, "port_mapping", _("Port Mappings"));
-        e.modalonly = !0, e.depends("use_port_mappings", "1");
-    }
-    {
-        let e = u.option(config_n.Value, "listen_port", _("Listen Port"));
-        e.modalonly = !0, e.datatype = "port", e.placeholder = "8080", e.depends("use_port_mappings", "0"), e.validate = (e, t)=>"1" === config_i.get("portweaver", e, "use_port_mappings") || !!t && "" !== String(t).trim() || _("This field is required in single port mode");
-    }
-    {
-        let e = u.option(config_n.Value, "target_port", _("Target Port"));
-        e.modalonly = !0, e.datatype = "port", e.placeholder = "80", e.depends("use_port_mappings", "0"), e.validate = (e, t)=>"1" === config_i.get("portweaver", e, "use_port_mappings") || !!t && "" !== String(t).trim() || _("This field is required in single port mode");
-    }
-    {
-        let e = u.option(config_n.Flag, "open_firewall_port", _("Open Firewall Port"));
-        e.modalonly = !0, e.default = "1";
-    }
-    {
-        let e = u.option(config_n.Flag, "enable_app_forward", _("Enable App Level Forward"));
-        e.modalonly = !0, e.default = "0";
-    }
-    {
-        let e = u.option(config_n.ListValue, "app_forward_loop_mode", _("Loop Mode"), _("Controls how event loop runtimes are shared among listeners. 'per_project' (default): one runtime shared by all listeners in this project, balanced resource usage. 'per_listener': each listener gets its own dedicated runtime, highest isolation but uses more memory (one thread per listener). 'global': all projects share a single global runtime, lowest memory usage but no isolation between projects."));
-        e.modalonly = !0, e.value("per_project", _("Per Project (default) - balanced")), e.value("per_listener", _("Per Listener - highest isolation, more memory")), e.value("global", _("Global - lowest memory, no isolation")), e.default = "per_project", e.depends("enable_app_forward", "1");
-    }
-    {
-        let e = u.option(config_n.Flag, "reuseaddr", _("Reuse Address"));
-        e.modalonly = !0, e.default = "1", e.depends("enable_app_forward", "1");
-    }
-    {
-        let e = u.option(config_n.Flag, "enable_app_stats", _("Enable App Statistics"), _("Collect traffic statistics (bytes_in/bytes_out) for application-layer forwarding using zero-cost atomic counters."));
-        e.modalonly = !0, e.default = "0", e.depends("enable_app_forward", "1");
-    }
-    {
-        let e = u.option(config_n.Flag, "add_firewall_forward", _("Add Firewall Forward"));
-        e.modalonly = !0, e.default = "1", e.depends({
-            enable_app_forward: "0"
-        }), e.depends({
-            enable_app_forward: "1"
-        });
-    }
-    {
-        let e = "1" === config_i.get("portweaver", "global", "use_nftables"), t = u.option(config_n.Flag, "enable_firewall_stats", _("Enable Firewall Statistics"), e ? _("Collect traffic statistics using nftables kernel counters (extremely low overhead). Requires nftables backend.") : _("Collect traffic statistics using nftables kernel counters (extremely low overhead). <strong style=\"color: #e74c3c;\">(Disabled: requires nftables backend enabled in Global Settings)</strong>"));
-        t.modalonly = !0, t.default = "0", t.depends("add_firewall_forward", "1"), e || (t.readonly = !0);
-    }
-    {
-        let e = u.option(config_n.Flag, "preserve_source_ip", _("Preserve Source IP"), _("Add NAT rules, preserving the source IP address. \nNote: Only effective when 'Add Firewall Forward' is enabled."));
-        e.modalonly = !0, e.default = "0", e.depends("add_firewall_forward", "1");
-    }
-    if (isFeatureEnabled("wol_mode")) {
+    u.addModalOptions = (e)=>{
+        e.tab("general", _("General Settings")), e.tab("advanced", _("Advanced Settings")), isFeatureEnabled("wol_mode") && e.tab("project_wol", _("Wake-on-LAN")), e.tab("protocol_filter", _("Protocol Filter"));
         {
-            let e = u.option(config_n.Flag, "enable_wol", _("Enable Wake-on-LAN"), _("Send a magic packet to wake remote machines when the first packet is detected."));
-            e.modalonly = !0, e.default = "0", e.rmempty = !0;
+            let t = e.taboption("general", config_n.Value, "remark", _("Remark"));
+            t.modalonly = !0, t.rmempty = !1, t.datatype = "string", t.validate = (e, t)=>!!t && "" !== String(t).trim() || _("This field is required"), t.placeholder = "My Project";
         }
         {
-            let e = u.option(config_n.DynamicList, "detect_protocols", _("Detect Protocols"), _("Protocol signatures that trigger WoL. Select from the list or type custom values."));
-            e.modalonly = !0, e.rmempty = !0, e.depends("enable_wol", "1"), e.value("ssh", "SSH"), e.value("rdp", "RDP"), e.value("http", "HTTP"), e.value("tls", "TLS/SSL"), e.value("vnc", "VNC/RFB"), e.value("socks5", "SOCKS5"), e.value("postgresql", "PostgreSQL"), e.value("telnet", "Telnet"), e.value("minecraft", "Minecraft (Java Edition)"), e.value("mqtt", "MQTT"), e.value("smb", "SMB/CIFS");
+            let t = e.taboption("general", widgets.ZoneSelect, "src_zone", _("Source Zones"));
+            t.modalonly = !0, t.multiple = !0, t.nocreate = !1, t.allowlocal = !1, t.default = "wan", t.rmempty = !0;
         }
         {
-            let e = u.option(config_n.ListValue, "wol_target", _("WoL Target"), _("Select the global Wake-on-LAN target configuration for this project."));
-            for (let t of (e.modalonly = !0, e.rmempty = !0, e.depends("enable_wol", "1"), e.value("", _("-- Select Target --")), L.uci.sections("portweaver", "wol_target") || [])){
-                let o = t.name || t[".name"];
-                o && e.value(String(o), String(o));
+            let t = e.taboption("general", widgets.ZoneSelect, "dest_zone", _("Destination Zones"));
+            t.modalonly = !0, t.multiple = !0, t.nocreate = !1, t.allowlocal = !1, t.default = "lan", t.rmempty = !0;
+        }
+        {
+            let t = e.taboption("general", config_n.ListValue, "family", _("Address Family"));
+            t.modalonly = !0, t.value("any", _("IPv4 and IPv6")), t.value("ipv4", "IPv4"), t.value("ipv6", "IPv6"), t.default = "any";
+        }
+        {
+            let t = e.taboption("general", config_n.Value, "target_address", _("Target Address"));
+            t.modalonly = !0, t.rmempty = !1, t.datatype = "host", t.placeholder = "192.168.1.100", t.validate = (e, t)=>!!t && "" !== String(t).trim() || _("This field is required");
+        }
+        {
+            let t = e.taboption("general", config_n.Flag, "use_port_mappings", _("Use Port Mappings Mode"));
+            t.modalonly = !0, t.rmempty = !0, t.default = "0", t.description = _("Enable to configure multiple port mappings or port ranges. Disable for single port mode.");
+        }
+        {
+            let t = e.taboption("general", config_n.ListValue, "protocol", _("Protocol"));
+            t.modalonly = !0, t.value("both", _("TCP and UDP")), t.value("tcp", "TCP"), t.value("udp", "UDP"), t.default = "tcp", t.depends("use_port_mappings", "0");
+        }
+        if (isFeatureEnabled("frpc_mode")) {
+            let t = e.taboption("general", FrpNodeSelector, "frp_nodes", _("FRP Tunnels"));
+            t.modalonly = !0, t.rmempty = !0, t.depends("use_port_mappings", "0");
+        }
+        {
+            let t = e.taboption("general", PortMappingEditor, "port_mapping", _("Port Mappings"));
+            t.modalonly = !0, t.depends("use_port_mappings", "1");
+        }
+        {
+            let t = e.taboption("general", config_n.Value, "listen_port", _("Listen Port"));
+            t.modalonly = !0, t.datatype = "port", t.placeholder = "8080", t.depends("use_port_mappings", "0"), t.validate = (e, t)=>"1" === config_i.get("portweaver", e, "use_port_mappings") || !!t && "" !== String(t).trim() || _("This field is required in single port mode");
+        }
+        {
+            let t = e.taboption("general", config_n.Value, "target_port", _("Target Port"));
+            t.modalonly = !0, t.datatype = "port", t.placeholder = "80", t.depends("use_port_mappings", "0"), t.validate = (e, t)=>"1" === config_i.get("portweaver", e, "use_port_mappings") || !!t && "" !== String(t).trim() || _("This field is required in single port mode");
+        }
+        {
+            let t = e.taboption("advanced", config_n.Flag, "open_firewall_port", _("Open Firewall Port"));
+            t.modalonly = !0, t.default = "1";
+        }
+        {
+            let t = e.taboption("advanced", config_n.Flag, "enable_app_forward", _("Enable App Level Forward"));
+            t.modalonly = !0, t.default = "0";
+        }
+        {
+            let t = e.taboption("advanced", config_n.ListValue, "app_forward_loop_mode", _("Loop Mode"), _("Controls how event loop runtimes are shared among listeners. 'per_project' (default): one runtime shared by all listeners in this project, balanced resource usage. 'per_listener': each listener gets its own dedicated runtime, highest isolation but uses more memory (one thread per listener). 'global': all projects share a single global runtime, lowest memory usage but no isolation between projects."));
+            t.modalonly = !0, t.value("per_project", _("Per Project (default) - balanced")), t.value("per_listener", _("Per Listener - highest isolation, more memory")), t.value("global", _("Global - lowest memory, no isolation")), t.default = "per_project", t.depends("enable_app_forward", "1");
+        }
+        {
+            let t = e.taboption("advanced", config_n.Flag, "reuseaddr", _("Reuse Address"));
+            t.modalonly = !0, t.default = "1", t.depends("enable_app_forward", "1");
+        }
+        {
+            let t = e.taboption("advanced", config_n.Flag, "enable_app_stats", _("Enable App Statistics"), _("Collect traffic statistics (bytes_in/bytes_out) for application-layer forwarding using zero-cost atomic counters."));
+            t.modalonly = !0, t.default = "0", t.depends("enable_app_forward", "1");
+        }
+        {
+            let t = e.taboption("advanced", config_n.Flag, "add_firewall_forward", _("Add Firewall Forward"));
+            t.modalonly = !0, t.default = "1", t.depends({
+                enable_app_forward: "0"
+            }), t.depends({
+                enable_app_forward: "1"
+            });
+        }
+        {
+            let t = "1" === config_i.get("portweaver", "global", "use_nftables"), o = e.taboption("advanced", config_n.Flag, "enable_firewall_stats", _("Enable Firewall Statistics"), t ? _("Collect traffic statistics using nftables kernel counters (extremely low overhead). Requires nftables backend.") : _('Collect traffic statistics using nftables kernel counters (extremely low overhead). <strong style="color: #e74c3c;">(Disabled: requires nftables backend enabled in Global Settings)</strong>'));
+            o.modalonly = !0, o.default = "0", o.depends("add_firewall_forward", "1"), t || (o.readonly = !0);
+        }
+        {
+            let t = e.taboption("advanced", config_n.Flag, "preserve_source_ip", _("Preserve Source IP"), _("Add NAT rules, preserving the source IP address. \nNote: Only effective when 'Add Firewall Forward' is enabled."));
+            t.modalonly = !0, t.default = "0", t.depends("add_firewall_forward", "1");
+        }
+        if (isFeatureEnabled("wol_mode")) {
+            {
+                let t = e.taboption("project_wol", config_n.Flag, "enable_wol", _("Enable Wake-on-LAN"), _("Send a magic packet to wake remote machines when the first packet is detected."));
+                t.modalonly = !0, t.default = "0", t.rmempty = !0;
+            }
+            {
+                let t = e.taboption("project_wol", config_n.DynamicList, "detect_protocols", _("Detect Protocols"), _("Protocol signatures that trigger WoL. Select from the list or type custom values."));
+                t.modalonly = !0, t.rmempty = !0, t.depends("enable_wol", "1"), t.value("ssh", "SSH"), t.value("rdp", "RDP"), t.value("http", "HTTP"), t.value("tls", "TLS/SSL"), t.value("vnc", "VNC/RFB"), t.value("socks5", "SOCKS5"), t.value("postgresql", "PostgreSQL"), t.value("telnet", "Telnet"), t.value("minecraft", "Minecraft (Java Edition)"), t.value("mqtt", "MQTT"), t.value("smb", "SMB/CIFS");
+            }
+            {
+                let t = e.taboption("project_wol", config_n.ListValue, "wol_target", _("WoL Target"), _("Select the global Wake-on-LAN target configuration for this project."));
+                for (let e of (t.modalonly = !0, t.rmempty = !0, t.depends("enable_wol", "1"), t.value("", _("-- Select Target --")), L.uci.sections("portweaver", "wol_target") || [])){
+                    let o = e.name || e[".name"];
+                    o && t.value(String(o), String(o));
+                }
+            }
+            {
+                let t = e.taboption("project_wol", config_n.Button, "_wol_wake", _("Wake Now"));
+                t.modalonly = !0, t.editable = !0, t.inputtitle = _("Wake Now"), t.depends("enable_wol", "1"), t.onclick = (e, t)=>{
+                    rpcClient.wolWake(t).then((e)=>{
+                        e.success ? alert(_("WoL packets sent to ".concat(e.sent_count, " device(s)."))) : alert(_("WoL failed \u2014 check configuration."));
+                    }).catch((e)=>{
+                        alert(_("WoL error: ".concat(String(e))));
+                    });
+                };
             }
         }
         {
-            let e = u.option(config_n.Button, "_wol_wake", _("Wake Now"));
-            e.modalonly = !0, e.editable = !0, e.inputtitle = _("Wake Now"), e.depends("enable_wol", "1"), e.onclick = (e, t)=>{
-                rpcClient.wolWake(t).then((e)=>{
-                    e.success ? alert(_("WoL packets sent to ".concat(e.sent_count, " device(s)."))) : alert(_("WoL failed \u2014 check configuration."));
-                }).catch((e)=>{
-                    alert(_("WoL error: ".concat(String(e))));
-                });
-            };
+            let t = e.taboption("protocol_filter", config_n.Flag, "enable_protocol_filter", _("Enable Protocol Filter"), _("Reject connections whose detected application-layer protocol is not in the allowed list."));
+            t.modalonly = !0, t.default = "0", t.rmempty = !0;
         }
-    }
-    {
-        let e = u.option(config_n.Flag, "enable_protocol_filter", _("Enable Protocol Filter"), _("Reject connections whose detected application-layer protocol is not in the allowed list."));
-        e.modalonly = !0, e.default = "0", e.rmempty = !0;
-    }
-    {
-        let e = u.option(config_n.DynamicList, "allowed_protocols", _("Allowed Protocols"), _("Only connections matching these protocol signatures will be forwarded."));
-        e.modalonly = !0, e.rmempty = !0, e.depends("enable_protocol_filter", "1"), e.value("ssh", "SSH"), e.value("rdp", "RDP"), e.value("http", "HTTP"), e.value("tls", "TLS/SSL"), e.value("vnc", "VNC/RFB"), e.value("socks5", "SOCKS5"), e.value("postgresql", "PostgreSQL"), e.value("telnet", "Telnet"), e.value("minecraft", "Minecraft (Java Edition)"), e.value("mqtt", "MQTT"), e.value("smb", "SMB/CIFS");
-    }
-    {
-        let e = u.option(config_n.DynamicList, "tls_allowed_snis", _("Allowed TLS SNIs"), _("Only TLS connections matching these server names will be forwarded. Supports wildcards (e.g. *.example.com). Only effective when TLS is in the allowed protocols list."));
-        e.modalonly = !0, e.rmempty = !0, e.depends("enable_protocol_filter", "1"), e.placeholder = "*.example.com";
-    }
+        {
+            let t = e.taboption("protocol_filter", config_n.DynamicList, "allowed_protocols", _("Allowed Protocols"), _("Only connections matching these protocol signatures will be forwarded."));
+            t.modalonly = !0, t.rmempty = !0, t.depends("enable_protocol_filter", "1"), t.value("ssh", "SSH"), t.value("rdp", "RDP"), t.value("http", "HTTP"), t.value("tls", "TLS/SSL"), t.value("vnc", "VNC/RFB"), t.value("socks5", "SOCKS5"), t.value("postgresql", "PostgreSQL"), t.value("telnet", "Telnet"), t.value("minecraft", "Minecraft (Java Edition)"), t.value("mqtt", "MQTT"), t.value("smb", "SMB/CIFS");
+        }
+        {
+            let t = e.taboption("protocol_filter", config_n.DynamicList, "tls_allowed_snis", _("Allowed TLS SNIs"), _("Only TLS connections matching these server names will be forwarded. Supports wildcards (e.g. *.example.com). Only effective when TLS is in the allowed protocols list."));
+            t.modalonly = !0, t.rmempty = !0, t.depends("enable_protocol_filter", "1"), t.placeholder = "*.example.com";
+        }
+    };
 }
 
 ;// CONCATENATED MODULE: ./components/StatusPanel.tsx

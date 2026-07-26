@@ -82,15 +82,28 @@ class PortMappingEditor extends L.form.Value {
     const current_values: string[] = cfgvalue || [];
 
     const widget_id = this.cbid(section_id);
-    const mappings_wrapper = (<div></div>) as HTMLElement;
+    const mappings_wrapper = (
+      <div style="position: relative; display: grid; gap: 8px;"></div>
+    ) as HTMLElement;
+    const dropIndicator = (
+      <div style="position: absolute; left: 0; right: 0; height: 0; border-top: 2px dashed #09c; pointer-events: none; display: none; z-index: 1;"></div>
+    ) as HTMLElement;
 
-    // 存储每个行的元素引用
-    const rowRefs: Array<{
+    type MappingRowRef = {
+      element: HTMLElement;
+      orderLabel: HTMLElement;
+      errorElement: HTMLElement;
       listenInput: HTMLInputElement;
       targetInput: HTMLInputElement;
       protocolSelect: HTMLSelectElement;
       getSelectedNodes: () => string[];
-    }> = [];
+    };
+
+    const rowRefs: MappingRowRef[] = [];
+    let draggedRow: HTMLElement | null = null;
+    let dropTarget: HTMLElement | null = null;
+    let dropBefore = true;
+    let pointerId: number | null = null;
 
     const updateHiddenValue = (): void => {
       const values: string[] = [];
@@ -113,11 +126,70 @@ class PortMappingEditor extends L.form.Value {
       if (this.hiddenInput) this.hiddenInput.value = values.join(" ");
     };
 
+    const refreshRowOrder = (): void => {
+      const refsByElement = new Map(
+        rowRefs.map((ref) => [ref.element, ref] as const),
+      );
+      const orderedRefs: MappingRowRef[] = [];
+
+      for (const child of Array.from(mappings_wrapper.children)) {
+        const ref = refsByElement.get(child as HTMLElement);
+        if (ref) orderedRefs.push(ref);
+      }
+
+      rowRefs.splice(0, rowRefs.length, ...orderedRefs);
+      rowRefs.forEach((ref, index) => {
+        const dataIndex = String(index);
+        ref.orderLabel.textContent = String(index + 1);
+        ref.element.dataset.index = dataIndex;
+        ref.errorElement.dataset.index = dataIndex;
+        ref.listenInput.dataset.index = dataIndex;
+        ref.targetInput.dataset.index = dataIndex;
+        ref.protocolSelect.dataset.index = dataIndex;
+      });
+      updateHiddenValue();
+    };
+
+    const clearDropIndicator = (): void => {
+      dropTarget = null;
+      dropIndicator.style.display = "none";
+    };
+
+    const setDropTarget = (target: HTMLElement, clientY: number): void => {
+      dropTarget = target;
+      const targetIndex = rowRefs.findIndex((ref) => ref.element === target);
+      const previousRow = rowRefs[targetIndex - 1]?.element;
+      const nextRow = rowRefs[targetIndex + 1]?.element;
+      const targetBounds = target.getBoundingClientRect();
+      const wrapperBounds = mappings_wrapper.getBoundingClientRect();
+      dropBefore = clientY < targetBounds.top + targetBounds.height / 2;
+
+      const indicatorY = dropBefore
+        ? previousRow
+          ? (previousRow.getBoundingClientRect().bottom + targetBounds.top) / 2
+          : targetBounds.top
+        : nextRow
+          ? (targetBounds.bottom + nextRow.getBoundingClientRect().top) / 2
+          : targetBounds.bottom;
+
+      dropIndicator.style.top = `${indicatorY - wrapperBounds.top}px`;
+      dropIndicator.style.display = "block";
+    };
+
+    const finishDrag = (): void => {
+      if (draggedRow) draggedRow.style.opacity = "";
+      draggedRow = null;
+      pointerId = null;
+      clearDropIndicator();
+    };
+
     const renderMappingRow = (
       mapping_str: string,
       index: number,
     ): {
       element: HTMLElement;
+      orderLabel: HTMLElement;
+      errorElement: HTMLElement;
       listenInput: HTMLInputElement;
       targetInput: HTMLInputElement;
       protocolSelect: HTMLSelectElement;
@@ -139,7 +211,7 @@ class PortMappingEditor extends L.form.Value {
           className="listen-port-input"
           value={mapping.listenPort}
           placeholder={_("8080 or 8080-8090")}
-          style="width: 70px; min-width: 50px; margin-right: 10px;"
+          style="width: 100%; min-width: 0; margin: 0;"
           dataAttributes={{ index: String(index), section: section_id }}
           onValidate={(value) => {
             if (!value.trim()) return false;
@@ -147,6 +219,7 @@ class PortMappingEditor extends L.form.Value {
           }}
         />
       ) as HTMLInputElement;
+      listenInput.id = `${row_id}-listen`;
 
       const targetInput = (
         <ValidatedInput
@@ -154,7 +227,7 @@ class PortMappingEditor extends L.form.Value {
           className="target-port-input"
           value={mapping.targetPort}
           placeholder={_("80 or 80-90")}
-          style="width: 70px; min-width: 50px; margin-right: 10px;"
+          style="width: 100%; min-width: 0; margin: 0;"
           dataAttributes={{ index: String(index), section: section_id }}
           onValidate={(value) => {
             if (!value.trim()) return false;
@@ -162,13 +235,15 @@ class PortMappingEditor extends L.form.Value {
           }}
         />
       ) as HTMLInputElement;
+      targetInput.id = `${row_id}-target`;
 
       const protocolSelect = (
         <select
+          id={`${row_id}-protocol`}
           class="protocol-select"
           data-index={index}
           data-section={section_id}
-          style="width: 100px; margin-right: 10px;"
+          style="width: 100%; min-width: 0; margin: 0;"
         >
           <option value="tcp" selected={mapping.protocol === "tcp"}>
             TCP
@@ -188,7 +263,7 @@ class PortMappingEditor extends L.form.Value {
           className="text-mode-input"
           value={initialTextModeValue}
           placeholder={_("[8080][node1:9888]:80/tcp or 8080:80/tcp")}
-          style="width: 100%; margin-bottom: 6px; padding: 5px; display: none;"
+          style="flex: 1 1 120px; min-width: 100px; width: auto; margin: 0; padding: 5px; display: none;"
           validateOn="blur"
           onValidate={(value) => {
             const parsed = this.parseMapping(value);
@@ -275,19 +350,28 @@ class PortMappingEditor extends L.form.Value {
       this.errorDivRefs.push(errorDiv);
 
       const titleRow = (
-        <div style="display: flex; gap: 10px; align-items: center;">
-          <span style="min-width: 80px; font-weight: bold;">
-            {_("Listen Port:")}
-          </span>
-          {listenInput}
-          <span style="min-width: 80px; font-weight: bold;">
-            {_("Target Port:")}
-          </span>
-          {targetInput}
-          <span style="min-width: 60px; font-weight: bold;">
-            {_("Protocol:")}
-          </span>
-          {protocolSelect}
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; align-items: end; margin-top: 10px;">
+          <label
+            htmlFor={`${row_id}-listen`}
+            style="display: grid; gap: 5px; font-weight: bold;"
+          >
+            <span>{_("Listen Port:")}</span>
+            {listenInput}
+          </label>
+          <label
+            htmlFor={`${row_id}-target`}
+            style="display: grid; gap: 5px; font-weight: bold;"
+          >
+            <span>{_("Target Port:")}</span>
+            {targetInput}
+          </label>
+          <label
+            htmlFor={`${row_id}-protocol`}
+            style="display: grid; gap: 5px; font-weight: bold;"
+          >
+            <span>{_("Protocol:")}</span>
+            {protocolSelect}
+          </label>
         </div>
       ) as HTMLElement;
 
@@ -295,7 +379,7 @@ class PortMappingEditor extends L.form.Value {
         <button
           type="button"
           class="btn cbi-button cbi-button-edit"
-          style="margin-right: 8px;"
+          style="margin: 0; white-space: nowrap;"
         >
           {_("Text Edit")}
         </button>
@@ -312,10 +396,37 @@ class PortMappingEditor extends L.form.Value {
         </button>
       );
 
+      const orderLabel = (
+        <span
+          title={_("Mapping order")}
+          style="display: inline-flex; align-items: center; justify-content: center; flex: 0 0 24px; width: 24px; height: 24px; border-radius: 999px; background: rgba(127, 127, 127, 0.18); font-size: 12px; font-weight: bold;"
+        >
+          {String(index + 1)}
+        </span>
+      ) as HTMLElement;
+
+      const dragHandle = (
+        <button
+          type="button"
+          class="cbi-button drag-handle center"
+          draggable={true}
+          aria-label={_("Drag to reorder")}
+          title={_("Drag to reorder")}
+          style="cursor:move; user-select:none; -webkit-user-select:none; touch-action:none; display:inline-block;"
+        >
+          ☰
+        </button>
+      ) as HTMLButtonElement;
+
       const buttonRow = (
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-          <div>{modeToggleBtn}</div>
-          <div>{deleteBtn}</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+          {dragHandle}
+          {orderLabel}
+          {textModeInput}
+          <div style="display: flex; gap: 8px; align-items: center; margin-left: auto;">
+            {modeToggleBtn}
+            {deleteBtn}
+          </div>
         </div>
       ) as HTMLElement;
 
@@ -324,11 +435,10 @@ class PortMappingEditor extends L.form.Value {
           id={row_id}
           class="portmapping-row"
           data-index={index}
-          style="margin-bottom: 10px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;"
+          style="padding: 10px 12px; border: 1px solid rgba(127, 127, 127, 0.35); border-radius: 6px; background: rgba(127, 127, 127, 0.04); transition: opacity 120ms ease;"
         >
           {buttonRow}
           {titleRow}
-          {textModeInput}
           {frpContainer}
           {errorDiv}
           {previewDiv}
@@ -435,7 +545,7 @@ class PortMappingEditor extends L.form.Value {
         element.style.setProperty("display", display, "important");
       }
       function updateVis() {
-        setDisplay(titleRow, isTextMode ? "none" : "flex");
+        setDisplay(titleRow, isTextMode ? "none" : "grid");
         setDisplay(frpContainer, isTextMode ? "none" : "block");
         setDisplay(textModeInput, isTextMode ? "block" : "none");
         setDisplay(previewDiv, isTextMode ? "none" : "block");
@@ -469,6 +579,128 @@ class PortMappingEditor extends L.form.Value {
         }
       };
 
+      dragHandle.ondragstart = (e: DragEvent) => {
+        draggedRow = row;
+        row.style.opacity = "0.55";
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", row_id);
+        }
+      };
+
+      dragHandle.ondragend = () => {
+        refreshRowOrder();
+        finishDrag();
+      };
+
+      row.ondragover = (e: DragEvent) => {
+        if (!draggedRow || draggedRow === row) return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+        setDropTarget(row, e.clientY);
+      };
+
+      row.ondragleave = (e: DragEvent) => {
+        if (!row.contains(e.relatedTarget as Node | null)) clearDropIndicator();
+      };
+
+      row.ondrop = (e: DragEvent) => {
+        if (!draggedRow || draggedRow === row) return;
+        e.preventDefault();
+        mappings_wrapper.insertBefore(
+          draggedRow,
+          dropBefore ? row : row.nextSibling,
+        );
+        refreshRowOrder();
+        finishDrag();
+      };
+
+      const updateDropTargetForY = (clientY: number): void => {
+        if (!draggedRow) return;
+
+        for (const ref of rowRefs) {
+          const bounds = ref.element.getBoundingClientRect();
+          if (
+            ref.element !== draggedRow &&
+            clientY >= bounds.top &&
+            clientY <= bounds.bottom
+          ) {
+            setDropTarget(ref.element, clientY);
+            return;
+          }
+        }
+        clearDropIndicator();
+      };
+
+      const commitDrop = (): void => {
+        if (draggedRow && dropTarget && draggedRow !== dropTarget) {
+          mappings_wrapper.insertBefore(
+            draggedRow,
+            dropBefore ? dropTarget : dropTarget.nextSibling,
+          );
+          refreshRowOrder();
+        }
+        finishDrag();
+      };
+
+      dragHandle.onpointerdown = (e: PointerEvent) => {
+        e.preventDefault();
+        pointerId = e.pointerId;
+        draggedRow = row;
+        row.style.opacity = "0.55";
+        if (dragHandle.setPointerCapture)
+          dragHandle.setPointerCapture(e.pointerId);
+      };
+
+      dragHandle.onpointermove = (e: PointerEvent) => {
+        if (pointerId !== e.pointerId || !draggedRow) return;
+        e.preventDefault();
+        updateDropTargetForY(e.clientY);
+      };
+
+      dragHandle.onpointerup = (e: PointerEvent) => {
+        if (pointerId !== e.pointerId) return;
+        e.preventDefault();
+        commitDrop();
+      };
+
+      dragHandle.onpointercancel = () => finishDrag();
+
+      if (!window.PointerEvent) {
+        const getActiveTouch = (touches: TouchList): Touch | null => {
+          for (let i = 0; i < touches.length; i++) {
+            const touch = touches.item(i);
+            if (touch?.identifier === pointerId) return touch;
+          }
+          return null;
+        };
+
+        dragHandle.ontouchstart = (e: TouchEvent) => {
+          const touch = e.changedTouches.item(0);
+          if (!touch) return;
+          e.preventDefault();
+          pointerId = touch.identifier;
+          draggedRow = row;
+          row.style.opacity = "0.55";
+        };
+
+        dragHandle.ontouchmove = (e: TouchEvent) => {
+          const touch = getActiveTouch(e.touches);
+          if (!touch || !draggedRow) return;
+          e.preventDefault();
+          updateDropTargetForY(touch.clientY);
+        };
+
+        dragHandle.ontouchend = (e: TouchEvent) => {
+          const touch = getActiveTouch(e.changedTouches);
+          if (!touch) return;
+          e.preventDefault();
+          commitDrop();
+        };
+
+        dragHandle.ontouchcancel = () => finishDrag();
+      }
+
       deleteBtn.onclick = (e: MouseEvent) => {
         e.preventDefault();
         row.remove();
@@ -481,12 +713,16 @@ class PortMappingEditor extends L.form.Value {
         );
         if (idx !== -1) {
           rowRefs.splice(idx, 1);
+          const errorIndex = this.errorDivRefs.indexOf(errorDiv);
+          if (errorIndex !== -1) this.errorDivRefs.splice(errorIndex, 1);
         }
-        updateHiddenValue();
+        refreshRowOrder();
       };
 
       return {
         element: row,
+        orderLabel,
+        errorElement: errorDiv,
         listenInput,
         targetInput,
         protocolSelect,
@@ -499,12 +735,14 @@ class PortMappingEditor extends L.form.Value {
       rowRefs.push(rowData);
       mappings_wrapper.appendChild(rowData.element);
     }
+    mappings_wrapper.appendChild(dropIndicator);
+    refreshRowOrder();
 
     const addBtn = (
       <button
         type="button"
         class="btn btn-sm btn-primary"
-        style="margin-bottom: 10px;"
+        style="width: 100%; margin-top: 2px;"
       >
         {_("Add Port Mapping")}
       </button>
@@ -515,7 +753,8 @@ class PortMappingEditor extends L.form.Value {
       const new_index = rowRefs.length;
       const rowData = renderMappingRow("", new_index);
       rowRefs.push(rowData);
-      mappings_wrapper.appendChild(rowData.element);
+      mappings_wrapper.insertBefore(rowData.element, dropIndicator);
+      refreshRowOrder();
     };
 
     const hiddenInput = (
@@ -530,7 +769,7 @@ class PortMappingEditor extends L.form.Value {
         {hiddenInput}
         <div class="cbi-value-description">
           {_(
-            "Configure port forwarding rules. Listen Port and Target Port support single port (8080) or port range (8080-8090).",
+            "Configure port forwarding rules. Listen Port and Target Port support single port (8080) or port range (8080-8090). Drag the handle to reorder mappings.",
           )}
         </div>
       </div>
