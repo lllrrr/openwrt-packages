@@ -7,6 +7,7 @@ network.registerPatternVirtual(/^hy-.+$/);
 network.registerErrorCode('CONFIG_FILE_MISSING', _('Configuration file not found'));
 network.registerErrorCode('CONFIG_WRITE_FAILED', _('Unable to write generated configuration'));
 network.registerErrorCode('MISSING_SERVER', _('No server address specified'));
+network.registerErrorCode('AUTH_FAILED', _('Server rejected the authentication password'));
 
 return network.registerProtocol('hysteria', {
 	getI18n: function() {
