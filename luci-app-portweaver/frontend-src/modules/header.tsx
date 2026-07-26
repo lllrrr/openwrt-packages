@@ -97,6 +97,10 @@ export default function (
       );
       return Promise.resolve();
     }
+    const actionObj = client.actionContainers?.[section_id];
+    if (actionObj?.toggleBtn) {
+      actionObj.toggleBtn.disabled = true;
+    }
     const status = client.getProjectStatus(section_id);
     const newEnabled = !status?.enabled;
     try {
@@ -112,28 +116,8 @@ export default function (
       );
       const fullStatus = await rpcClient.getFullStatus();
       if (fullStatus) {
-        client.globalStatus = {
-          status: fullStatus.status,
-          total_projects: fullStatus.total_projects,
-          active_ports: fullStatus.active_ports,
-          uptime: fullStatus.uptime,
-          total_bytes_in: fullStatus.total_bytes_in,
-          total_bytes_out: fullStatus.total_bytes_out,
-        };
-        client.projectStatuses = (fullStatus.projects || []).map(
-          (p: import("@/types/portweaver").FullStatusProject) => ({
-            enabled: p.enabled,
-            status: p.status,
-            startup_status: p.startup_status,
-            error_code: p.error_code,
-            active_ports: p.active_ports,
-            bytes_in: p.bytes_in,
-            bytes_out: p.bytes_out,
-            forwarders: p.forwarders,
-          }),
-        );
+        client.updateFromFullStatus(fullStatus);
       }
-      location.reload();
     } catch (err) {
       L.ui.addNotification(
         null,
@@ -144,6 +128,10 @@ export default function (
         </p>,
         "error",
       );
+    } finally {
+      if (actionObj?.toggleBtn) {
+        actionObj.toggleBtn.disabled = false;
+      }
     }
   };
   (window as any).portweaverToggle = runtimeToggle;
@@ -157,6 +145,10 @@ export default function (
       );
       return Promise.resolve();
     }
+    const actionObj = client.actionContainers?.[section_id];
+    if (actionObj?.restartBtn) {
+      actionObj.restartBtn.disabled = true;
+    }
     try {
       await rpcClient.restartProject(idx);
       L.ui.addNotification(
@@ -166,28 +158,8 @@ export default function (
       );
       const fullStatus = await rpcClient.getFullStatus();
       if (fullStatus) {
-        client.globalStatus = {
-          status: fullStatus.status,
-          total_projects: fullStatus.total_projects,
-          active_ports: fullStatus.active_ports,
-          uptime: fullStatus.uptime,
-          total_bytes_in: fullStatus.total_bytes_in,
-          total_bytes_out: fullStatus.total_bytes_out,
-        };
-        client.projectStatuses = (fullStatus.projects || []).map(
-          (p: import("@/types/portweaver").FullStatusProject) => ({
-            enabled: p.enabled,
-            status: p.status,
-            startup_status: p.startup_status,
-            error_code: p.error_code,
-            active_ports: p.active_ports,
-            bytes_in: p.bytes_in,
-            bytes_out: p.bytes_out,
-            forwarders: p.forwarders,
-          }),
-        );
+        client.updateFromFullStatus(fullStatus);
       }
-      location.reload();
     } catch (err) {
       L.ui.addNotification(
         null,
@@ -198,6 +170,10 @@ export default function (
         </p>,
         "error",
       );
+    } finally {
+      if (actionObj?.restartBtn) {
+        actionObj.restartBtn.disabled = false;
+      }
     }
   };
   (window as any).portweaverRestart = restartProject;

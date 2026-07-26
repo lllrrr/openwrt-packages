@@ -196,9 +196,7 @@ export default function (
         const ips = status.last_ip.split(", ");
         for (const ip of ips) {
           const ipInfo = (
-            <small style="color:#666;">
-              {_("IP: %s").format(ip)}
-            </small>
+            <small style="color:#666;">{_("IP: %s").format(ip)}</small>
           ) as HTMLElement;
           container.appendChild(ipInfo);
         }
@@ -595,9 +593,7 @@ export default function (
               const ips = status.last_ip.split(", ");
               for (const ip of ips) {
                 const ipInfo = (
-                  <small style="color:#666;">
-                    {_("IP: %s").format(ip)}
-                  </small>
+                  <small style="color:#666;">{_("IP: %s").format(ip)}</small>
                 ) as HTMLElement;
                 container.appendChild(ipInfo);
               }

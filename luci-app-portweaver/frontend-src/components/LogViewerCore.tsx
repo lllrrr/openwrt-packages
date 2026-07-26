@@ -630,7 +630,7 @@ export class LogViewerCore {
     } else {
       const textarea = (
         <textarea
-          readonly
+          readOnly
           style="position: absolute; left: -9999px; top: -9999px; opacity: 0; width: 2px; height: 2px; border: none; outline: none; padding: 0; margin: 0; white-space: pre;"
         >
           {text}

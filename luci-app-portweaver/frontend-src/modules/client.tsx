@@ -30,6 +30,15 @@ export class Client {
   // References to UI elements provided by StatusPanel and config
   statusPanel?: StatusPanel;
   projectContainers: Record<string, HTMLElement> = {};
+  actionContainers: Record<
+    string,
+    {
+      container?: HTMLElement;
+      toggleBtn?: HTMLButtonElement;
+      restartBtn?: HTMLButtonElement;
+      checkbox?: HTMLInputElement;
+    }
+  > = {};
   private _lastPollTime = 0;
   ddnsInstances: FullStatusDdnsInstance[] = [];
   frpClientNodes: FullStatusFrpcNode[] = [];
@@ -298,31 +307,50 @@ export class Client {
           }
         }
 
-        (() => {
-          const sections = L.uci.sections("portweaver", "project") || [];
-          for (let i = 0; i < sections.length; i++) {
-            const section_id = sections[i][".name"];
-            if (!section_id) {
-              continue;
-            }
-            const status = this.getProjectStatus(section_id);
-            const section = this.projectContainers[section_id];
-            if (!section) continue;
-            const newStatusElements = this.renderStatusElements(
-              status,
-              section_id,
-            );
-            const newContainer = (
-              <div>{newStatusElements}</div>
-            ) as HTMLElement;
-            section.replaceWith(newContainer);
-            this.projectContainers[section_id] = newContainer;
-          }
-        })();
+        this.refreshProjectRows();
       } catch (err) {
         console.warn("Auto-refresh failed:", err);
       }
     }, 3);
+  }
+
+  public updateFromFullStatus(fullStatus?: FullStatusResponse): void {
+    if (!fullStatus) return;
+    this.applyFullStatus(fullStatus);
+    this.refreshProjectRows();
+  }
+
+  public refreshProjectRows(): void {
+    const sections = L.uci.sections("portweaver", "project") || [];
+    for (let i = 0; i < sections.length; i++) {
+      const section_id = sections[i][".name"];
+      if (!section_id) {
+        continue;
+      }
+      const status = this.getProjectStatus(section_id);
+      const section = this.projectContainers[section_id];
+      if (section) {
+        const newStatusElements = this.renderStatusElements(status, section_id);
+        const newContainer = (<div>{newStatusElements}</div>) as HTMLElement;
+        section.replaceWith(newContainer);
+        this.projectContainers[section_id] = newContainer;
+      }
+
+      const actionObj = this.actionContainers[section_id];
+      if (actionObj?.toggleBtn) {
+        const toggleText = status?.enabled ? _("Disable") : _("Enable");
+        if (actionObj.toggleBtn.textContent !== toggleText) {
+          actionObj.toggleBtn.textContent = toggleText;
+        }
+      }
+      if (actionObj?.checkbox) {
+        const isUciEnabled =
+          L.uci.get("portweaver", section_id, "enabled") !== "0";
+        if (actionObj.checkbox.checked !== isUciEnabled) {
+          actionObj.checkbox.checked = isUciEnabled;
+        }
+      }
+    }
   }
 
   private applyFullStatus(fullStatus?: FullStatusResponse): void {

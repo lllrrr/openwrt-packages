@@ -353,6 +353,32 @@ function getThemeColors() {
 
 
 class Client {
+    updateFromFullStatus(t) {
+        t && (this.applyFullStatus(t), this.refreshProjectRows());
+    }
+    refreshProjectRows() {
+        let t = L.uci.sections("portweaver", "project") || [];
+        for(let e = 0; e < t.length; e++){
+            let s = t[e][".name"];
+            if (!s) continue;
+            let l = this.getProjectStatus(s), a = this.projectContainers[s];
+            if (a) {
+                let t = jsx("div", {
+                    children: this.renderStatusElements(l, s)
+                });
+                a.replaceWith(t), this.projectContainers[s] = t;
+            }
+            let i = this.actionContainers[s];
+            if (null == i ? void 0 : i.toggleBtn) {
+                let t = (null == l ? void 0 : l.enabled) ? _("Disable") : _("Enable");
+                i.toggleBtn.textContent !== t && (i.toggleBtn.textContent = t);
+            }
+            if (null == i ? void 0 : i.checkbox) {
+                let t = "0" !== L.uci.get("portweaver", s, "enabled");
+                i.checkbox.checked !== t && (i.checkbox.checked = t);
+            }
+        }
+    }
     applyFullStatus(t) {
         var e, s, n, l, a, i;
         t && (this.globalStatus = {
@@ -611,12 +637,12 @@ class Client {
         return "".concat(s, ":").concat(n, ":").concat(l);
     }
     constructor(e){
-        _define_property(this, "projectStatuses", void 0), _define_property(this, "globalStatus", void 0), _define_property(this, "frpStatus", void 0), _define_property(this, "ddnsGlobalStatus", void 0), _define_property(this, "events", void 0), _define_property(this, "statusPanel", void 0), _define_property(this, "projectContainers", {}), _define_property(this, "_lastPollTime", 0), _define_property(this, "ddnsInstances", []), _define_property(this, "frpClientNodes", []), _define_property(this, "frpServerNodes", []), this.projectStatuses = [], this.globalStatus = {}, this.frpStatus = {}, this.ddnsGlobalStatus = {
+        _define_property(this, "projectStatuses", void 0), _define_property(this, "globalStatus", void 0), _define_property(this, "frpStatus", void 0), _define_property(this, "ddnsGlobalStatus", void 0), _define_property(this, "events", void 0), _define_property(this, "statusPanel", void 0), _define_property(this, "projectContainers", {}), _define_property(this, "actionContainers", {}), _define_property(this, "_lastPollTime", 0), _define_property(this, "ddnsInstances", []), _define_property(this, "frpClientNodes", []), _define_property(this, "frpServerNodes", []), this.projectStatuses = [], this.globalStatus = {}, this.frpStatus = {}, this.ddnsGlobalStatus = {
             ddns_enabled: !1,
             ddns_version: null
         }, this.events = [], this.applyFullStatus(e), L.Poll.add(async ()=>{
             try {
-                var t, e, s, r, c, u, p, h, f, v, g, m, b, y, S, P;
+                var t, e, s, r, c, u, p, h, f, v, g, b, m, y, S, P;
                 let E = this.globalStatus.total_bytes_in || 0, x = this.globalStatus.total_bytes_out || 0, j = Date.now(), [C, w] = await Promise.all([
                     rpcClient.getFullStatus(),
                     rpcClient.listProjects()
@@ -654,7 +680,7 @@ class Client {
                         }));
                     }
                 }
-                if (null == (m = this.statusPanel) ? void 0 : m.frpcProxiesEl) {
+                if (null == (b = this.statusPanel) ? void 0 : b.frpcProxiesEl) {
                     let t = this.statusPanel.frpcProxiesEl;
                     if (t.innerHTML = "", (null == (S = this.frpStatus.frpc) ? void 0 : S.enabled) && 0 !== this.frpClientNodes.length) for (let e of this.frpClientNodes){
                         let s = "connected" === e.status ? "#28a745" : "#dc3545";
@@ -676,7 +702,7 @@ class Client {
                         children: _("disabled")
                     }));
                 }
-                if (null == (b = this.statusPanel) ? void 0 : b.frpsProxiesEl) {
+                if (null == (m = this.statusPanel) ? void 0 : m.frpsProxiesEl) {
                     let t = this.statusPanel.frpsProxiesEl;
                     if (t.innerHTML = "", (null == (P = this.frpStatus.frps) ? void 0 : P.enabled) && 0 !== this.frpServerNodes.length) for (let e of this.frpServerNodes)t.appendChild(jsxs("div", {
                         style: "display: flex; justify-content: space-between; font-size: 0.85em; padding: 0.15em 0;",
@@ -721,19 +747,7 @@ class Client {
                         children: _("disabled")
                     }));
                 }
-                (()=>{
-                    let t = L.uci.sections("portweaver", "project") || [];
-                    for(let e = 0; e < t.length; e++){
-                        let s = t[e][".name"];
-                        if (!s) continue;
-                        let l = this.getProjectStatus(s), a = this.projectContainers[s];
-                        if (!a) continue;
-                        let i = this.renderStatusElements(l, s), r = jsx("div", {
-                            children: i
-                        });
-                        a.replaceWith(r), this.projectContainers[s] = r;
-                    }
-                })();
+                this.refreshProjectRows();
             } catch (t) {
                 console.warn("Auto-refresh failed:", t);
             }
@@ -1127,7 +1141,7 @@ class LogViewerCore {
         });
         else {
             let e = jsx("textarea", {
-                readonly: !0,
+                readOnly: !0,
                 style: "position: absolute; left: -9999px; top: -9999px; opacity: 0; width: 2px; height: 2px; border: none; outline: none; padding: 0; margin: 0; white-space: pre;",
                 children: t
             });
@@ -2523,10 +2537,26 @@ class PortMappingEditor_l extends L.form.Value {
 let config_n = L.form, config_i = L.uci;
 /* export default */ function config(s, d, p, c) {
     let u = d.taboption(c, config_n.SectionValue, "_projects", config_n.GridSection, "project").subsection;
-    u.anonymous = !0, u.addremove = !0, u.sortable = !0, u.cloneable = !0, u.sectiontitle = (e)=>{
+    u.anonymous = !0, u.addremove = !0, u.sortable = !0, u.cloneable = !0, u.modaltitle = (e)=>{
         var t;
         return (null == (t = config_i.get("portweaver", e, "remark")) ? void 0 : t.toString()) || _("Unnamed project");
     };
+    {
+        let e = u.option(config_n.Flag, "enabled", "");
+        e.modalonly = !1, e.default = "1", e.editable = !0;
+    }
+    {
+        let t = u.option(config_n.DummyValue, "_project_name", _("Name"));
+        t.modalonly = !1, t.textvalue = (t)=>{
+            var o;
+            return jsx("div", {
+                style: "text-align: center;",
+                children: jsx("strong", {
+                    children: (null == (o = config_i.get("portweaver", t, "remark")) ? void 0 : o.toString()) || _("Unnamed project")
+                })
+            });
+        };
+    }
     {
         let t = u.option(config_n.DummyValue, "_runtime_status", _("Status"));
         t.modalonly = !1, t.textvalue = (t)=>{
@@ -2537,29 +2567,39 @@ let config_n = L.form, config_i = L.uci;
         };
     }
     {
-        let e = u.option(config_n.Button, "_runtime_toggle", _("Toggle"));
-        e.modalonly = !1, e.editable = !0, e.inputtitle = (e)=>{
-            let t = p.getProjectStatus(e);
-            return (null == t ? void 0 : t.enabled) ? _("Disable") : _("Enable");
-        }, e.onclick = (e, t)=>window.portweaverToggle(t);
-    }
-    {
-        let e = u.option(config_n.Button, "_runtime_restart", _("Restart"));
-        e.modalonly = !1, e.editable = !0, e.inputtitle = _("Restart"), e.onclick = (e, t)=>window.portweaverRestart(t);
-    }
-    {
-        let e = u.option(config_n.Flag, "enabled", _("Enabled"));
-        e.modalonly = !1, e.default = "1", e.editable = !0;
+        let o = u.option(config_n.DummyValue, "_runtime_actions", _("Actions"));
+        o.modalonly = !1, o.textvalue = (o)=>{
+            let l = p.getProjectStatus(o), a = jsx("button", {
+                type: "button",
+                class: "btn cbi-button cbi-button-neutral",
+                style: "margin-bottom: 4px; width: 100%; min-width: 60px;",
+                onclick: (e)=>window.portweaverToggle(o),
+                children: (null == l ? void 0 : l.enabled) ? _("Disable") : _("Enable")
+            }), r = jsx("button", {
+                type: "button",
+                class: "btn cbi-button cbi-button-neutral",
+                style: "width: 100%; min-width: 60px;",
+                onclick: (e)=>window.portweaverRestart(o),
+                children: _("Restart")
+            }), n = jsxs("div", {
+                style: "display: flex; flex-direction: column; align-items: center; justify-content: center; max-width: 80px; margin: 0 auto;",
+                children: [
+                    a,
+                    r
+                ]
+            });
+            return p.actionContainers = p.actionContainers || {}, p.actionContainers[o] = p.actionContainers[o] || {}, p.actionContainers[o].container = n, p.actionContainers[o].toggleBtn = a, p.actionContainers[o].restartBtn = r, n;
+        };
     }
     {
         let o = u.option(config_n.DummyValue, "_preview", _("Overview"));
         o.modalonly = !1, o.textvalue = (o)=>{
             var l, a, r, n, s;
-            let d = (null == (l = config_i.get("portweaver", o, "protocol")) ? void 0 : l.toString()) || "tcp", p = (null == (a = config_i.get("portweaver", o, "family")) ? void 0 : a.toString()) || "any", c = (null == (r = config_i.get("portweaver", o, "listen_port")) ? void 0 : r.toString()) || "", u = (null == (n = config_i.get("portweaver", o, "target_address")) ? void 0 : n.toString()) || "", m = (null == (s = config_i.get("portweaver", o, "target_port")) ? void 0 : s.toString()) || "", g = L.toArray(config_i.get("portweaver", o, "port_mapping")), v = L.toArray(config_i.get("portweaver", o, "src_zone")), b = L.toArray(config_i.get("portweaver", o, "dest_zone")), f = {
+            let d = (null == (l = config_i.get("portweaver", o, "protocol")) ? void 0 : l.toString()) || "tcp", p = (null == (a = config_i.get("portweaver", o, "family")) ? void 0 : a.toString()) || "any", c = (null == (r = config_i.get("portweaver", o, "listen_port")) ? void 0 : r.toString()) || "", u = (null == (n = config_i.get("portweaver", o, "target_address")) ? void 0 : n.toString()) || "", m = (null == (s = config_i.get("portweaver", o, "target_port")) ? void 0 : s.toString()) || "", g = L.toArray(config_i.get("portweaver", o, "port_mapping")), v = L.toArray(config_i.get("portweaver", o, "src_zone")), b = L.toArray(config_i.get("portweaver", o, "dest_zone")), h = {
                 both: _("TCP and UDP"),
                 tcp: _("TCP"),
                 udp: _("UDP")
-            }[d] || String(d).toUpperCase(), h = {
+            }[d] || String(d).toUpperCase(), f = {
                 any: _("IPv4 and IPv6"),
                 ipv4: _("IPv4"),
                 ipv6: _("IPv6")
@@ -2568,11 +2608,11 @@ let config_n = L.form, config_i = L.uci;
                 children: [
                     _("Incoming "),
                     jsx("var", {
-                        children: h
+                        children: f
                     }),
                     _(" protocol "),
                     jsx("var", {
-                        children: f
+                        children: h
                     })
                 ]
             })), v.length > 0) {
@@ -3050,26 +3090,26 @@ class StatusPanel {
 
 
 
-let header_r = L.form;
-/* export default */ function header(s, l, i, n) {
+let header_i = L.form;
+/* export default */ function header(o, r, n, d) {
     {
-        let t = l.taboption(n, header_r.Flag, "enabled", _("Enable PortWeaver"));
+        let t = r.taboption(d, header_i.Flag, "enabled", _("Enable PortWeaver"));
         if (t.default = "1", t.rmempty = !1, isFeatureEnabled("nftables_mode")) {
-            let t = l.taboption(n, header_r.Flag, "use_nftables", _("Use nftables"));
+            let t = r.taboption(d, header_i.Flag, "use_nftables", _("Use nftables"));
             t.default = "0", t.rmempty = !1, t.description = _("Use nftables instead of OpenWrt firewall (fw4). Requires nftables package installed."), t.default = "1", t.rmempty = !1;
         }
     }
     {
-        let t = l.taboption(n, header_r.DummyValue, "_runtime_status", _("Runtime Status"));
+        let t = r.taboption(d, header_i.DummyValue, "_runtime_status", _("Runtime Status"));
         t.rawhtml = !0, t.cfgvalue = ()=>{
             let t = new StatusPanel();
-            return i.statusPanel = t, t.render(i.globalStatus, i.frpStatus, i.projectStatuses, i.events, i.ddnsGlobalStatus);
+            return n.statusPanel = t, t.render(n.globalStatus, n.frpStatus, n.projectStatuses, n.events, n.ddnsGlobalStatus);
         };
     }
-    let u = l.taboption(n, header_r.Button, "_reload_config", _("Reload Config"));
-    u.modalonly = !1, u.editable = !0, u.inputtitle = _("Reload"), u.onclick = async ()=>{
+    let s = r.taboption(d, header_i.Button, "_reload_config", _("Reload Config"));
+    s.modalonly = !1, s.editable = !0, s.inputtitle = _("Reload"), s.onclick = async ()=>{
         try {
-            await s.save(), await L.uci.save(), await rpcClient.uciCommit("portweaver");
+            await o.save(), await L.uci.save(), await rpcClient.uciCommit("portweaver");
             let e = await rpcClient.reloadConfig();
             L.ui.addNotification(null, jsx("p", {
                 children: _("Config reloaded: %d project(s) restarted").format(e.changes)
@@ -3080,72 +3120,50 @@ let header_r = L.form;
             }), "error");
         }
     };
-    let d = async (e)=>{
-        let o = i.getProjectIndex(e);
-        if (o < 0) return L.ui.addNotification(null, jsx("p", {
+    let u = async (e)=>{
+        var l;
+        let i = n.getProjectIndex(e);
+        if (i < 0) return L.ui.addNotification(null, jsx("p", {
             children: _("Could not determine project index")
         }), "error"), Promise.resolve();
-        let r = i.getProjectStatus(e), s = !(null == r ? void 0 : r.enabled);
+        let o = null == (l = n.actionContainers) ? void 0 : l[e];
+        (null == o ? void 0 : o.toggleBtn) && (o.toggleBtn.disabled = !0);
+        let r = n.getProjectStatus(e), d = !(null == r ? void 0 : r.enabled);
         try {
-            await rpcClient.setEnabled(o, !!s), L.ui.addNotification(null, jsx("p", {
-                children: _("Runtime state updated to: %s").format(s ? _("enabled") : _("disabled"))
+            await rpcClient.setEnabled(i, !!d), L.ui.addNotification(null, jsx("p", {
+                children: _("Runtime state updated to: %s").format(d ? _("enabled") : _("disabled"))
             }), "info");
             let e = await rpcClient.getFullStatus();
-            e && (i.globalStatus = {
-                status: e.status,
-                total_projects: e.total_projects,
-                active_ports: e.active_ports,
-                uptime: e.uptime,
-                total_bytes_in: e.total_bytes_in,
-                total_bytes_out: e.total_bytes_out
-            }, i.projectStatuses = (e.projects || []).map((t)=>({
-                    enabled: t.enabled,
-                    status: t.status,
-                    startup_status: t.startup_status,
-                    error_code: t.error_code,
-                    active_ports: t.active_ports,
-                    bytes_in: t.bytes_in,
-                    bytes_out: t.bytes_out,
-                    forwarders: t.forwarders
-                }))), location.reload();
+            e && n.updateFromFullStatus(e);
         } catch (e) {
             L.ui.addNotification(null, jsx("p", {
                 children: _("Failed to toggle runtime state: %s").format((null == e ? void 0 : e.message) || String(e))
             }), "error");
+        } finally{
+            (null == o ? void 0 : o.toggleBtn) && (o.toggleBtn.disabled = !1);
         }
     };
-    window.portweaverToggle = d;
+    window.portweaverToggle = u;
     let c = async (e)=>{
-        let o = i.getProjectIndex(e);
-        if (o < 0) return L.ui.addNotification(null, jsx("p", {
+        var l;
+        let i = n.getProjectIndex(e);
+        if (i < 0) return L.ui.addNotification(null, jsx("p", {
             children: _("Could not determine project index")
         }), "error"), Promise.resolve();
+        let o = null == (l = n.actionContainers) ? void 0 : l[e];
+        (null == o ? void 0 : o.restartBtn) && (o.restartBtn.disabled = !0);
         try {
-            await rpcClient.restartProject(o), L.ui.addNotification(null, jsx("p", {
+            await rpcClient.restartProject(i), L.ui.addNotification(null, jsx("p", {
                 children: _("Project restarted successfully")
             }), "info");
             let e = await rpcClient.getFullStatus();
-            e && (i.globalStatus = {
-                status: e.status,
-                total_projects: e.total_projects,
-                active_ports: e.active_ports,
-                uptime: e.uptime,
-                total_bytes_in: e.total_bytes_in,
-                total_bytes_out: e.total_bytes_out
-            }, i.projectStatuses = (e.projects || []).map((t)=>({
-                    enabled: t.enabled,
-                    status: t.status,
-                    startup_status: t.startup_status,
-                    error_code: t.error_code,
-                    active_ports: t.active_ports,
-                    bytes_in: t.bytes_in,
-                    bytes_out: t.bytes_out,
-                    forwarders: t.forwarders
-                }))), location.reload();
+            e && n.updateFromFullStatus(e);
         } catch (e) {
             L.ui.addNotification(null, jsx("p", {
                 children: _("Failed to restart project: %s").format((null == e ? void 0 : e.message) || String(e))
             }), "error");
+        } finally{
+            (null == o ? void 0 : o.restartBtn) && (o.restartBtn.disabled = !1);
         }
     };
     window.portweaverRestart = c;

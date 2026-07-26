@@ -26,9 +26,31 @@ export default function (
   ss.sortable = true;
   ss.cloneable = true;
 
-  ss.sectiontitle = (section_id: string) =>
+  ss.modaltitle = (section_id: string) =>
     uci.get("portweaver", section_id, "remark")?.toString() ||
     _("Unnamed project");
+
+  {
+    const o = ss.option(form.Flag, "enabled", "");
+    o.modalonly = false;
+    o.default = "1";
+    o.editable = true;
+  }
+  {
+    const o = ss.option(form.DummyValue, "_project_name", _("Name"));
+    o.modalonly = false;
+    o.textvalue = (section_id: string) => {
+      const name =
+        uci.get("portweaver", section_id, "remark")?.toString() ||
+        _("Unnamed project");
+
+      return (
+        <div style="text-align: center;">
+          <strong>{name}</strong>
+        </div>
+      );
+    };
+  }
   {
     const o = ss.option(form.DummyValue, "_runtime_status", _("Status"));
     o.modalonly = false;
@@ -41,32 +63,57 @@ export default function (
       client.projectContainers[section_id] = container;
       return container;
     };
-  }
-  {
-    const o = ss.option(form.Button, "_runtime_toggle", _("Toggle"));
-    o.modalonly = false;
-    o.editable = true;
-    o.inputtitle = (section_id: string) => {
-      const status = client.getProjectStatus(section_id);
-      return status?.enabled ? _("Disable") : _("Enable");
-    };
-    o.onclick = (_ev: any, section_id: string) =>
-      (window as any).portweaverToggle(section_id);
-  }
-  {
-    const o = ss.option(form.Button, "_runtime_restart", _("Restart"));
-    o.modalonly = false;
-    o.editable = true;
-    o.inputtitle = _("Restart");
-    o.onclick = (_ev: any, section_id: string) =>
-      (window as any).portweaverRestart(section_id);
-  }
-  {
-    const o = ss.option(form.Flag, "enabled", _("Enabled"));
-    o.modalonly = false;
-    o.default = "1";
-    o.editable = true;
   } // Preview column
+  
+  {
+    const o = ss.option(form.DummyValue, "_runtime_actions", _("Actions"));
+    o.modalonly = false;
+    o.textvalue = (section_id: string) => {
+      const status = client.getProjectStatus(section_id);
+      const isRuntimeEnabled = status?.enabled;
+      const toggleText = isRuntimeEnabled ? _("Disable") : _("Enable");
+
+      const toggleBtn = (
+        <button
+          type="button"
+          class="btn cbi-button cbi-button-neutral"
+          style="margin-bottom: 4px; width: 100%; min-width: 60px;"
+          onclick={(_ev: Event) => (window as any).portweaverToggle(section_id)}
+        >
+          {toggleText}
+        </button>
+      ) as HTMLButtonElement;
+
+      const restartBtn = (
+        <button
+          type="button"
+          class="btn cbi-button cbi-button-neutral"
+          style="width: 100%; min-width: 60px;"
+          onclick={(_ev: Event) =>
+            (window as any).portweaverRestart(section_id)
+          }
+        >
+          {_("Restart")}
+        </button>
+      ) as HTMLButtonElement;
+
+      const container = (
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; max-width: 80px; margin: 0 auto;">
+          {toggleBtn}
+          {restartBtn}
+        </div>
+      ) as HTMLElement;
+
+      client.actionContainers = client.actionContainers || {};
+      client.actionContainers[section_id] =
+        client.actionContainers[section_id] || {};
+      client.actionContainers[section_id].container = container;
+      client.actionContainers[section_id].toggleBtn = toggleBtn;
+      client.actionContainers[section_id].restartBtn = restartBtn;
+
+      return container;
+    };
+  }
   {
     const o = ss.option(form.DummyValue, "_preview", _("Overview"));
     o.modalonly = false;
