@@ -31,7 +31,7 @@ export default function (
     _("Unnamed project");
 
   {
-    const o = ss.option(form.Flag, "enabled", "");
+    const o = ss.option(form.Flag, "enabled", _("Enabled"));
     o.modalonly = false;
     o.default = "1";
     o.editable = true;
@@ -64,7 +64,7 @@ export default function (
       return container;
     };
   } // Preview column
-  
+
   {
     const o = ss.option(form.DummyValue, "_runtime_actions", _("Actions"));
     o.modalonly = false;

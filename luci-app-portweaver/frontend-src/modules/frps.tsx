@@ -104,6 +104,13 @@ export default function (
   }
 
   {
+    const o = ss.option(form.Flag, "enabled", _("Enabled"));
+    o.modalonly = false;
+    o.default = "1";
+    o.editable = true;
+  }
+
+  {
     const o = ss.option(form.DummyValue, "status", _("Status"));
     o.textvalue = (section_id: string) => {
       const info = nodeStatuses[section_id] || { status: "unavailable" };
@@ -132,13 +139,6 @@ export default function (
       statusElements[section_id] = container;
       return container;
     };
-  }
-
-  {
-    const o = ss.option(form.Flag, "enabled", _("Enabled"));
-    o.modalonly = false;
-    o.default = "1";
-    o.editable = true;
   }
 
   {

@@ -97,6 +97,11 @@ export default function (
     return true;
   };
 
+  const oEnabled = ss.option(form.Flag, "enabled", _("Enabled"));
+  oEnabled.modalonly = false;
+  oEnabled.default = "1";
+  oEnabled.editable = true;
+
   const oStatus = ss.option(form.DummyValue, "status", _("Status"));
   oStatus.modalonly = false;
   oStatus.textvalue = (section_id: string) => {
@@ -125,11 +130,6 @@ export default function (
     statusElements[section_id] = container;
     return container;
   };
-
-  const oEnabled = ss.option(form.Flag, "enabled", _("Enabled"));
-  oEnabled.modalonly = false;
-  oEnabled.default = "1";
-  oEnabled.editable = true;
 
   const oServer = ss.option(form.Value, "server", _("FRP Server Address"));
   oServer.modalonly = true;

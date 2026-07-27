@@ -1455,8 +1455,10 @@ let frpc_s = {
         }
         return !0;
     };
-    let g = y.option(frpc_r.DummyValue, "status", _("Status"));
-    g.modalonly = !1, g.textvalue = (o)=>{
+    let g = y.option(frpc_r.Flag, "enabled", _("Enabled"));
+    g.modalonly = !1, g.default = "1", g.editable = !0;
+    let v = y.option(frpc_r.DummyValue, "status", _("Status"));
+    v.modalonly = !1, v.textvalue = (o)=>{
         let a = frpc_d[o] || {
             status: "unavailable"
         }, n = frpc_i(), l = n[a.status] || n.unavailable, r = {
@@ -1478,8 +1480,6 @@ let frpc_s = {
         });
         return frpc_c[o] = s, s;
     };
-    let v = y.option(frpc_r.Flag, "enabled", _("Enabled"));
-    v.modalonly = !1, v.default = "1", v.editable = !0;
     let h = y.option(frpc_r.Value, "server", _("FRP Server Address"));
     h.modalonly = !0, h.rmempty = !1, h.datatype = "host", h.placeholder = "1.2.3.4", h.validate = (e, t)=>{
         let o = String(t || "");
@@ -1623,6 +1623,10 @@ let frps_i = {
             return !0;
         };
     }
+    {
+        let e = c.option(frps_l.Flag, "enabled", _("Enabled"));
+        e.modalonly = !1, e.default = "1", e.editable = !0;
+    }
     c.option(frps_l.DummyValue, "status", _("Status")).textvalue = (o)=>{
         let a = frps_d[o] || {
             status: "unavailable"
@@ -1646,10 +1650,6 @@ let frps_i = {
         });
         return frps_s[o] = p, p;
     };
-    {
-        let e = c.option(frps_l.Flag, "enabled", _("Enabled"));
-        e.modalonly = !1, e.default = "1", e.editable = !0;
-    }
     {
         let e = c.option(frps_l.Value, "bind_port", _("Bind Port"));
         e.modalonly = !0, e.rmempty = !1, e.datatype = "port", e.placeholder = "7000", e.validate = (e, t)=>{
@@ -2542,7 +2542,7 @@ let config_n = L.form, config_i = L.uci;
         return (null == (t = config_i.get("portweaver", e, "remark")) ? void 0 : t.toString()) || _("Unnamed project");
     };
     {
-        let e = u.option(config_n.Flag, "enabled", "");
+        let e = u.option(config_n.Flag, "enabled", _("Enabled"));
         e.modalonly = !1, e.default = "1", e.editable = !0;
     }
     {
@@ -3541,6 +3541,10 @@ let ddns_n = [
     let m = c.taboption(u, ddns_t.SectionValue, "_ddns_configs", ddns_t.GridSection, "ddns").subsection;
     m.anonymous = !0, m.addremove = !0, m.sortable = !0, m.sectiontitle = (e)=>ddns_o.get("portweaver", e, "name") || _("Unnamed DDNS");
     {
+        let e = m.option(ddns_t.Flag, "enabled", _("Enabled"));
+        e.modalonly = !1, e.default = "1", e.editable = !0;
+    }
+    {
         let a = m.option(ddns_t.DummyValue, "_status", _("Status"));
         a.modalonly = !1, a.textvalue = (a)=>{
             let l = ddns_o.get("portweaver", a, "name"), t = ddns_i[l] || {
@@ -3595,10 +3599,6 @@ let ddns_n = [
             }
             return ddns_s[l] = m, m;
         };
-    }
-    {
-        let e = m.option(ddns_t.Flag, "enabled", _("Enabled"));
-        e.modalonly = !1, e.default = "1", e.editable = !0;
     }
     {
         let e = m.option(ddns_t.DummyValue, "_provider", _("Provider"));

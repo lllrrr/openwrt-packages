@@ -140,6 +140,13 @@ export default function (
     (uci.get("portweaver", section_id, "name") as string) || _("Unnamed DDNS");
 
   {
+    const o = ss.option(form.Flag, "enabled", _("Enabled"));
+    o.modalonly = false;
+    o.default = "1";
+    o.editable = true;
+  }
+
+  {
     const o = ss.option(form.DummyValue, "_status", _("Status"));
     o.modalonly = false;
     o.textvalue = (section_id: string) => {
@@ -227,13 +234,6 @@ export default function (
       statusElements[name] = container;
       return container;
     };
-  }
-
-  {
-    const o = ss.option(form.Flag, "enabled", _("Enabled"));
-    o.modalonly = false;
-    o.default = "1";
-    o.editable = true;
   }
 
   {
