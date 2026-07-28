@@ -61,8 +61,13 @@ return network.registerProtocol('hysteria', {
 		return _('Hysteria2 PPP');
 	},
 
+	/* The live device once netifd reports one, and before that the same name the
+	 * proto handler will ask for -- including its truncation to 15 characters,
+	 * which is all a Linux network device name holds. Computing the untruncated
+	 * name here would stop matching the device the kernel actually created, and
+	 * containsDevice below would then report a working interface as down. */
 	getIfname: function() {
-		return this._ubus('l3_device') || 'hy-%s'.format(this.sid);
+		return this._ubus('l3_device') || 'hy-%s'.format(this.sid.substring(0, 12));
 	},
 
 	/* getPackageName is the current name; getOpkgPackage is kept for older LuCI,
@@ -101,7 +106,7 @@ return network.registerProtocol('hysteria', {
 	 * file below. Leaving them off the page keeps the common case legible; it
 	 * does not remove them from the product. */
 	renderFormOptions: function(s) {
-		var dev = this.getL3Device() || this.getDevice(), o;
+		var o;
 
 		/* --- the Hysteria 2 connection --- */
 
@@ -146,9 +151,21 @@ return network.registerProtocol('hysteria', {
 			o.default = 'auto';
 		}
 
+		/* luci-mod-network renders this control itself, but only for protocols on
+		 * a hardcoded list in has_peerdns() -- ours is not on it, and neither is
+		 * l2tp, so this is an upstream wart rather than something we did wrong.
+		 * The option works regardless: netifd fills the interface blob from
+		 * interface_attr_list before the protocol's own parameters, so peerdns
+		 * reaches ppp.sh whatever the protocol is. Without a control here there is
+		 * no way to stop the operator's DNS servers being used, and the "Use
+		 * custom DNS servers" field is silently overridden. */
+		o = s.taboption('advanced', form.Flag, 'peerdns', _('Use DNS servers advertised by peer'),
+			_('If unchecked, the DNS servers advertised by the operator are ignored.'));
+		o.default = o.enabled;
+
 		o = s.taboption('advanced', form.Value, '_keepalive_failure', _('LCP echo failure threshold'),
 			_('Presume the link dead after this many unanswered LCP echoes, use 0 to ignore failures. This is the only thing that notices a link which is up but no longer passing traffic.'));
-		o.placeholder = '3';
+		o.placeholder = '5';
 		o.datatype    = 'uinteger';
 		o.write       = write_keepalive;
 		o.remove      = write_keepalive;
@@ -162,7 +179,7 @@ return network.registerProtocol('hysteria', {
 
 		o = s.taboption('advanced', form.Value, '_keepalive_interval', _('LCP echo interval'),
 			_('Send LCP echo requests at this interval in seconds, only effective together with the failure threshold.'));
-		o.placeholder = '5';
+		o.placeholder = '1';
 		o.datatype    = 'and(uinteger,min(1))';
 		o.write       = write_keepalive;
 		o.remove      = write_keepalive;
