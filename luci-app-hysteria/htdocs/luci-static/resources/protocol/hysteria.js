@@ -15,6 +15,26 @@ network.registerErrorCode('MISSING_SERVER', _('No server address specified'));
 network.registerErrorCode('AUTH_FAILED', _('Server rejected the authentication password'));
 network.registerErrorCode('NO_ROUTE', _('The server has no LNS group configured for this account'));
 
+/* Settings this page does not render can still be set with "uci set", and the
+ * proto handler refuses the combinations that cannot work rather than bringing a
+ * link up that will never connect. Registering the codes is what turns them into
+ * a sentence on the interface status instead of a bare identifier. */
+/* These arrive by a different route: the client writes the reason it ended into
+ * a status file, the proto handler reads it back on teardown and reports it. They
+ * are the ordinary running failures, so they are the ones most worth spelling
+ * out -- ReasonCode.String() in the Go client is the other half of this list. */
+network.registerErrorCode('LINK_DOWN', _('The connection to the Hysteria 2 server was lost'));
+network.registerErrorCode('LNS_UNREACHABLE', _('The server could not establish an L2TP tunnel to the LNS'));
+network.registerErrorCode('LNS_DISCONNECTED', _('The LNS disconnected the session'));
+network.registerErrorCode('NO_LNS', _('No LNS in the configured group is available'));
+network.registerErrorCode('PATH_NARROWED', _('The path stopped carrying full-size packets; the link will be rebuilt at a smaller MTU'));
+network.registerErrorCode('UNKNOWN', _('The session ended without a stated reason'));
+
+network.registerErrorCode('OBFS_TYPE_INVALID', _('Unknown obfuscation type: use salamander or gecko'));
+network.registerErrorCode('OBFS_PASSWORD_MISSING', _('Obfuscation is enabled but no obfuscation password is set'));
+network.registerErrorCode('OBFS_WITH_CAMOUFLAGE', _('Obfuscation cannot be combined with camouflage, which needs the QUIC header that obfuscation hides'));
+network.registerErrorCode('CAMOUFLAGE_INCOMPLETE', _('Camouflage needs both a secret and a server IP'));
+
 /* keepalive is one UCI option holding "<failures> <interval>", which ppp.sh turns
  * into pppd's lcp-echo-failure and lcp-echo-interval. It is presented as two
  * fields, the way every other PPP protocol in LuCI does it. */
@@ -155,8 +175,8 @@ return network.registerProtocol('hysteria', {
 		};
 
 		o = s.taboption('advanced', form.Value, 'mtu', _('Override MTU'),
-			_('Leave empty to let the client size the link from the path it measures.'));
-		o.placeholder = dev ? (dev.getMTU() || '1400') : '1400';
+			_('Leave empty for 1399, which is the largest packet a QUIC datagram can carry once path discovery and the QUIC, AEAD and PPP headers are accounted for. Raise it only if you know the path allows it.'));
+		o.placeholder = '1399';
 		o.datatype = 'range(576,1500)';
 
 		o = s.taboption('advanced', form.Value, 'config_file', _('Custom configuration file'),
