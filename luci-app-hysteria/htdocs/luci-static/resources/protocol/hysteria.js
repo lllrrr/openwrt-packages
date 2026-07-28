@@ -1,13 +1,40 @@
 'use strict';
+'require uci';
 'require form';
 'require network';
 
+/* ppp.sh names the device "${proto}-${interface}", which would be hysteria-wan.
+ * The proto handler overrides that to hy-<interface>, so this pattern and
+ * getIfname below have to agree with it: get it wrong and LuCI treats the device
+ * as a missing physical one and will not show the interface as up. */
 network.registerPatternVirtual(/^hy-.+$/);
 
 network.registerErrorCode('CONFIG_FILE_MISSING', _('Configuration file not found'));
 network.registerErrorCode('CONFIG_WRITE_FAILED', _('Unable to write generated configuration'));
 network.registerErrorCode('MISSING_SERVER', _('No server address specified'));
 network.registerErrorCode('AUTH_FAILED', _('Server rejected the authentication password'));
+network.registerErrorCode('NO_ROUTE', _('The server has no LNS group configured for this account'));
+
+/* keepalive is one UCI option holding "<failures> <interval>", which ppp.sh turns
+ * into pppd's lcp-echo-failure and lcp-echo-interval. It is presented as two
+ * fields, the way every other PPP protocol in LuCI does it. */
+function write_keepalive(section_id, value) {
+	var f_opt = this.map.lookupOption('_keepalive_failure', section_id),
+	    i_opt = this.map.lookupOption('_keepalive_interval', section_id),
+	    f = parseInt(f_opt?.[0]?.formvalue(section_id), 10),
+	    i = parseInt(i_opt?.[0]?.formvalue(section_id), 10);
+
+	if (isNaN(i))
+		i = 1;
+
+	if (isNaN(f))
+		f = (i == 1) ? null : 5;
+
+	if (f !== null)
+		uci.set('network', section_id, 'keepalive', '%d %d'.format(f, i));
+	else
+		uci.unset('network', section_id, 'keepalive');
+}
 
 return network.registerProtocol('hysteria', {
 	getI18n: function() {
@@ -16,6 +43,12 @@ return network.registerProtocol('hysteria', {
 
 	getIfname: function() {
 		return this._ubus('l3_device') || 'hy-%s'.format(this.sid);
+	},
+
+	/* getPackageName is the current name; getOpkgPackage is kept for older LuCI,
+	 * where it is what drives the "install package" prompt. */
+	getPackageName: function() {
+		return 'hysteria2-ppp';
 	},
 
 	getOpkgPackage: function() {
@@ -38,74 +71,96 @@ return network.registerProtocol('hysteria', {
 		return (network.getIfnameOf(ifname) == this.getIfname());
 	},
 
+	/* This form is deliberately the short list: what a subscriber needs to get a
+	 * link up, and nothing else.
+	 *
+	 * The protocol handler understands considerably more than appears here --
+	 * obfuscation, bandwidth hints, port hopping, camouflage, fast open and the
+	 * rest are all declared in hysteria.sh and can be set with "uci set" on the
+	 * interface section, or supplied wholesale through the custom configuration
+	 * file below. Leaving them off the page keeps the common case legible; it
+	 * does not remove them from the product. */
 	renderFormOptions: function(s) {
-		var o;
+		var dev = this.getL3Device() || this.getDevice(), o;
+
+		/* --- the Hysteria 2 connection --- */
 
 		o = s.taboption('general', form.Value, 'server', _('Server address'),
-			_('Hysteria 2 server, as <code>host:port</code>.'));
+			_('Hysteria 2 server, as <code>host:port</code>. This is the access concentrator the PPP session is carried to.'));
 		o.rmempty = false;
 		o.placeholder = 'example.com:443';
 
-		o = s.taboption('general', form.Value, 'auth', _('Authentication'),
-			_('Password or token expected by the server.'));
+		o = s.taboption('general', form.Value, 'auth', _('Hysteria authentication'),
+			_('Password or token expected by the Hysteria 2 server. This is not your broadband account.'));
 		o.password = true;
+
+		/* --- the PPP account, which a different machine checks --- */
+
+		/* These are verified by the LNS at the far end of the tunnel, not by the
+		 * Hysteria server, and they are a different secret from the one above.
+		 * Without them the link comes up and is then dropped by the LNS. */
+		s.taboption('general', form.Value, 'username', _('PAP/CHAP username'),
+			_('Broadband account name, as issued by the network operator.'));
+
+		o = s.taboption('general', form.Value, 'password', _('PAP/CHAP password'));
+		o.password = true;
+
+		/* --- TLS, only the two settings a bring-up usually needs --- */
 
 		o = s.taboption('general', form.Value, 'sni', _('TLS SNI'),
 			_('Server name to present during the TLS handshake. Defaults to the server host.'));
 
 		o = s.taboption('general', form.Flag, 'insecure', _('Skip certificate verification'),
-			_('Disables TLS verification entirely. Prefer pinning a certificate or CA instead.'));
+			_('Disables TLS verification entirely. Useful while bringing a link up; prefer a proper certificate afterwards.'));
 		o.default = o.disabled;
 
-		o = s.taboption('general', form.Value, 'data_streams', _('Data streams'),
-			_('Number of parallel QUIC streams carrying PPP data. Leave at 0 to use datagrams.'));
-		o.placeholder = '0';
-		o.datatype = 'range(0,64)';
+		/* --- advanced: the PPP link itself --- */
 
-		o = s.taboption('advanced', form.Value, 'ca', _('CA certificate'),
-			_('Path to a PEM CA bundle used to verify the server.'));
-		o.datatype = 'file';
+		if (L.hasSystemFeature('ipv6')) {
+			o = s.taboption('advanced', form.ListValue, 'ppp_ipv6', _('Obtain IPv6 address'),
+				_('Enable IPv6 negotiation on the PPP link. Required if the operator provisions IPv6.'));
+			o.ucioption = 'ipv6';
+			o.value('auto', _('Automatic'));
+			o.value('0', _('Disabled'));
+			o.value('1', _('Manual'));
+			o.default = 'auto';
+		}
 
-		o = s.taboption('advanced', form.Value, 'pin_sha256', _('Certificate fingerprint'),
-			_('Pin the server certificate by its SHA-256 fingerprint.'));
+		o = s.taboption('advanced', form.Value, '_keepalive_failure', _('LCP echo failure threshold'),
+			_('Presume the link dead after this many unanswered LCP echoes, use 0 to ignore failures. This is the only thing that notices a link which is up but no longer passing traffic.'));
+		o.placeholder = '3';
+		o.datatype    = 'uinteger';
+		o.write       = write_keepalive;
+		o.remove      = write_keepalive;
+		o.cfgvalue = function(section_id) {
+			var v = uci.get('network', section_id, 'keepalive');
+			if (typeof(v) == 'string' && v != '') {
+				var m = v.match(/^(\d+)[ ,]\d+$/);
+				return m ? m[1] : v;
+			}
+		};
 
-		o = s.taboption('advanced', form.ListValue, 'obfs_type', _('Obfuscation'),
-			_('Salamander obfuscation must match the server. It cannot be combined with camouflage.'));
-		o.value('', _('None'));
-		o.value('salamander', _('Salamander'));
-		o.default = '';
+		o = s.taboption('advanced', form.Value, '_keepalive_interval', _('LCP echo interval'),
+			_('Send LCP echo requests at this interval in seconds, only effective together with the failure threshold.'));
+		o.placeholder = '5';
+		o.datatype    = 'and(uinteger,min(1))';
+		o.write       = write_keepalive;
+		o.remove      = write_keepalive;
+		o.cfgvalue = function(section_id) {
+			var v = uci.get('network', section_id, 'keepalive');
+			if (typeof(v) == 'string' && v != '') {
+				var m = v.match(/^\d+[ ,](\d+)$/);
+				return m ? m[1] : v;
+			}
+		};
 
-		o = s.taboption('advanced', form.Value, 'obfs_password', _('Obfuscation password'));
-		o.password = true;
-		o.depends('obfs_type', 'salamander');
-
-		o = s.taboption('advanced', form.Value, 'bandwidth_up', _('Upload bandwidth'),
-			_('Advertised upload rate, for example <code>20 mbps</code>.'));
-
-		o = s.taboption('advanced', form.Value, 'bandwidth_down', _('Download bandwidth'),
-			_('Advertised download rate, for example <code>100 mbps</code>.'));
-
-		o = s.taboption('advanced', form.Value, 'hop_interval', _('Port hopping interval'),
-			_('Enables UDP port hopping, for example <code>30s</code>.'));
-
-		o = s.taboption('advanced', form.Flag, 'fast_open', _('Fast open'),
-			_('Sends payload without waiting for the handshake to finish.'));
-		o.default = o.disabled;
-
-		o = s.taboption('advanced', form.Value, 'mtu', _('Override MTU'));
-		o.placeholder = '1400';
+		o = s.taboption('advanced', form.Value, 'mtu', _('Override MTU'),
+			_('Leave empty to let the client size the link from the path it measures.'));
+		o.placeholder = dev ? (dev.getMTU() || '1400') : '1400';
 		o.datatype = 'range(576,1500)';
 
 		o = s.taboption('advanced', form.Value, 'config_file', _('Custom configuration file'),
-			_('Use this YAML file verbatim instead of generating one. It must set <code>ppp.mode: nospawn</code>, otherwise the client spawns its own pppd and the interface will not come up.'));
+			_('Use this YAML file verbatim instead of generating one, for anything this page does not cover. It must set <code>ppp.mode: nospawn</code>, otherwise the client spawns its own pppd and the interface will not come up. When set, every setting above except the PPP account is ignored.'));
 		o.datatype = 'file';
-
-		o = s.taboption('advanced', form.Value, 'camouflage_secret', _('Camouflage secret'),
-			_('Base64 pre-shared key matching one of the server camouflage secrets. Cannot be combined with obfuscation.'));
-		o.password = true;
-
-		o = s.taboption('advanced', form.Value, 'camouflage_server_ip', _('Camouflage server IP'),
-			_('Server address the camouflage token is bound to.'));
-		o.datatype = 'ipaddr';
 	}
 });
