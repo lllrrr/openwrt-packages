@@ -3,15 +3,13 @@ use lanspeedd::{
         ConfigError, ConfigSource, ConfigValue, LegacyNameEligibility, RuntimeConfig,
         DEFAULT_MAX_CLIENTS, DEFAULT_REFRESH_INTERVAL_MS, MIN_REFRESH_INTERVAL_MS,
     },
-    history::{
-        coverage::{
-            ByteTotals, CoverageQuality, CoverageRateAccumulator, CoverageRing, CoverageSample,
-            COVERAGE_WINDOW,
-        },
-        overview::{
-            ConnectionTotals, ConnectionTotalsOverride, OverviewClient, OverviewConfig,
-            OverviewRing, OVERVIEW_WINDOW,
-        },
+    history::overview::{
+        ConnectionTotals, ConnectionTotalsOverride, OverviewClient, OverviewConfig, OverviewRing,
+        OVERVIEW_WINDOW,
+    },
+    platform::x86::coverage::{
+        ByteTotals, CoverageQuality, CoverageRateAccumulator, CoverageRing, CoverageSample,
+        COVERAGE_WINDOW,
     },
     rate::{
         ClientCounters, RateBook, RateWarning, RATE_BASELINE_RETENTION_MS, RATE_WINDOW_COUNT,

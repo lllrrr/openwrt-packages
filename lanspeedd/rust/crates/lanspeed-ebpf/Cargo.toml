@@ -15,5 +15,9 @@ lanspeed-common = { path = "../lanspeed-common" }
 rustversion.workspace = true
 
 [features]
-default = ["conntrack-kfunc"]
-conntrack-kfunc = []
+default = ["x86-tc", "conntrack-kfunc"]
+tc = []
+x86-tc = ["tc"]
+nss-tc = ["tc"]
+nss-ecm = []
+conntrack-kfunc = ["tc"]

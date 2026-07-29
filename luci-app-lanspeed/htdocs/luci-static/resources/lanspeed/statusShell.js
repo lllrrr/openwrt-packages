@@ -170,12 +170,30 @@ function buildShell(viewState) {
 		viewState.refreshLive();
 	});
 
-	refs.intervalSel = E('select', { 'class': 'cbi-input-select' }, fmt.REFRESH_CHOICES.map(function(c) {
-		return fmt.opt(c.value, c.label, prefs.refreshMs === c.value);
+	var nssRefreshRestricted = typeof fmt.nssRefreshRestricted === 'function' &&
+		fmt.nssRefreshRestricted(viewState.status);
+	var refreshValue = nssRefreshRestricted
+		? fmt.normalizeNssRefreshMs(prefs.nssRefreshMs) : prefs.refreshMs;
+	var refreshChoices = nssRefreshRestricted
+		? fmt.NSS_REFRESH_CHOICES
+		: fmt.REFRESH_CHOICES;
+	var refreshAttrs = {
+		'class': 'cbi-input-select',
+		'data-refresh-policy': nssRefreshRestricted ? 'nss' : 'default',
+		'title': nssRefreshRestricted ? _('ECM 采集方案最低每 2 秒刷新') : ''
+	};
+	refs.intervalSel = E('select', refreshAttrs, refreshChoices.map(function(c) {
+		return fmt.opt(c.value, c.label, refreshValue === c.value);
 	}));
 	refs.intervalSel.addEventListener('change', function(ev) {
 		var v = parseInt(ev.target.value, 10);
-		if (!isNaN(v) && v >= fmt.MIN_REFRESH_MS) {
+		var nss = typeof fmt.nssRefreshRestricted === 'function' &&
+			fmt.nssRefreshRestricted(viewState.status);
+		if (nss && fmt.NSS_REFRESH_CHOICES.some(function(choice) { return choice.value === v; })) {
+			viewState.prefs.nssRefreshMs = v;
+			fmt.savePrefs(viewState.prefs);
+			viewState.schedule();
+		} else if (!nss && !isNaN(v) && v >= fmt.MIN_REFRESH_MS) {
 			viewState.prefs.refreshMs = v;
 			fmt.savePrefs(viewState.prefs);
 			viewState.schedule();

@@ -3,12 +3,7 @@ use crate::{
     identity::{ClientIdentity, IdentityTable},
 };
 use serde::Serialize;
-use std::{
-    cmp::Ordering,
-    collections::{BTreeMap, BTreeSet},
-    net::IpAddr,
-    sync::Arc,
-};
+use std::{cmp::Ordering, collections::BTreeMap, net::IpAddr, sync::Arc};
 
 pub const MAX_STORED_CONNECTION_DETAILS: usize = 16_384;
 // Keep a single response bounded for ubus/LuCI while covering high-connection clients.
@@ -181,10 +176,52 @@ struct ConnectionCounterPoint {
     rx_bytes: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DeferredCounterRate {
+    sample_ms: u64,
+    bytes: u64,
+    bps: u64,
+    held_once: bool,
+    history: DeferredRateHistory,
+}
+
+const DEFERRED_RATE_MEDIAN_SAMPLES: usize = 3;
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct DeferredRateHistory {
+    samples: [u64; DEFERRED_RATE_MEDIAN_SAMPLES],
+    len: u8,
+    next: u8,
+}
+
+impl DeferredRateHistory {
+    fn push(&mut self, bps: u64) -> u64 {
+        self.samples[usize::from(self.next)] = bps;
+        self.next = (self.next + 1) % DEFERRED_RATE_MEDIAN_SAMPLES as u8;
+        if usize::from(self.len) < DEFERRED_RATE_MEDIAN_SAMPLES {
+            self.len += 1;
+        }
+        if usize::from(self.len) < DEFERRED_RATE_MEDIAN_SAMPLES {
+            return bps;
+        }
+        let mut ordered = self.samples;
+        ordered.sort_unstable();
+        ordered[DEFERRED_RATE_MEDIAN_SAMPLES / 2]
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DeferredConnectionRate {
+    tx: DeferredCounterRate,
+    rx: DeferredCounterRate,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConnectionRateBook {
     last_sample_ms: Option<u64>,
     previous: Arc<BTreeMap<ConnectionRateKey, ConnectionCounterPoint>>,
+    last_deferred_sample_ms: Option<u64>,
+    deferred: Arc<BTreeMap<ConnectionRateKey, DeferredConnectionRate>>,
 }
 
 impl ConnectionRateBook {
@@ -194,6 +231,10 @@ impl ConnectionRateBook {
         counters: &ConnectionCountersSnapshot,
         details: &mut ConnectionDetailsSnapshot,
     ) {
+        if self.last_deferred_sample_ms.is_some() || !self.deferred.is_empty() {
+            self.last_deferred_sample_ms = None;
+            self.deferred = Arc::default();
+        }
         if self.last_sample_ms == Some(sample_ms) {
             return;
         }
@@ -244,147 +285,134 @@ impl ConnectionRateBook {
         self.last_sample_ms = Some(sample_ms);
     }
 
-    pub fn clear(&mut self) {
-        self.last_sample_ms = None;
-        self.previous = Arc::default();
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct ClientCounterTotals {
-    pub tx_bytes: u64,
-    pub rx_bytes: u64,
-}
-
-/// Converts per-flow conntrack counters into monotonic per-client totals.
-///
-/// Conntrack snapshots contain only currently alive flows. Differencing an
-/// already-aggregated client total therefore loses traffic whenever one flow
-/// expires. Keeping the baseline per kernel flow generation makes flow removal
-/// a no-op while allowing every surviving flow to contribute its own delta.
-/// Ctnetlink generations are retained across transient snapshot/identity gaps;
-/// tuple-only procfs baselines use a much shorter retention window because a
-/// reused five-tuple cannot otherwise be distinguished safely.
-pub const CT_ID_BASELINE_RETENTION_MS: u64 = 60_000;
-pub const TUPLE_BASELINE_RETENTION_MS: u64 = 2_000;
-pub const MAX_RETAINED_FLOW_BASELINES: usize = 32_768;
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct ConntrackClientRateBook {
-    initialized: bool,
-    last_sample_ms: Option<u64>,
-    previous: Arc<BTreeMap<ConnectionRateKey, ConnectionCounterPoint>>,
-    totals: BTreeMap<String, ClientCounterTotals>,
-}
-
-impl ConntrackClientRateBook {
-    pub fn update(
+    /// NSS may defer conntrack counter synchronization for one or more daemon
+    /// samples. Keep each direction anchored to the last counter progress so a
+    /// later multi-sample delta is divided by its real elapsed time. Until that
+    /// progress arrives, retain the last complete rate for one NSS cycle
+    /// instead of publishing a synthetic zero followed by a multiplied spike.
+    pub fn update_deferred(
         &mut self,
         sample_ms: u64,
         counters: &ConnectionCountersSnapshot,
-    ) -> BTreeMap<String, ClientCounterTotals> {
-        if self.last_sample_ms == Some(sample_ms) {
-            return current_client_totals(counters, &self.totals);
-        }
-
-        let time_rollback = self.last_sample_ms.is_some_and(|last| sample_ms < last);
-        let have_baseline = self.initialized && !time_rollback;
-        if time_rollback {
+        details: &mut ConnectionDetailsSnapshot,
+    ) {
+        if self.last_sample_ms.is_some() || !self.previous.is_empty() {
+            self.last_sample_ms = None;
             self.previous = Arc::default();
         }
-        let previous = Arc::make_mut(&mut self.previous);
-        previous.retain(|key, point| {
-            sample_ms.checked_sub(point.sample_ms).is_none_or(|age| {
-                age <= if key.conntrack_id.is_some() {
-                    CT_ID_BASELINE_RETENTION_MS
-                } else {
-                    TUPLE_BASELINE_RETENTION_MS
-                }
-            })
-        });
-        let mut active_clients = BTreeSet::new();
-        let mut active_keys = BTreeSet::new();
-        for (key, counters) in counters.iter() {
-            active_clients.insert(key.identity_key.clone());
-            active_keys.insert(key.clone());
-            let point = ConnectionCounterPoint {
-                sample_ms,
-                tx_bytes: counters.tx_bytes,
-                rx_bytes: counters.rx_bytes,
-            };
-            if have_baseline {
-                let (tx_delta, rx_delta) =
-                    previous
-                        .get(key)
-                        .map_or((point.tx_bytes, point.rx_bytes), |previous| {
-                            if point.tx_bytes < previous.tx_bytes
-                                || point.rx_bytes < previous.rx_bytes
-                            {
-                                // A direction rollback means the conntrack entry
-                                // was reset or replaced. Treat both directions as
-                                // the new generation so counters from two flow
-                                // lifetimes are never mixed.
-                                (point.tx_bytes, point.rx_bytes)
-                            } else {
-                                (
-                                    point.tx_bytes - previous.tx_bytes,
-                                    point.rx_bytes - previous.rx_bytes,
-                                )
-                            }
-                        });
-                let totals = self.totals.entry(key.identity_key.clone()).or_default();
-                totals.tx_bytes = totals.tx_bytes.saturating_add(tx_delta);
-                totals.rx_bytes = totals.rx_bytes.saturating_add(rx_delta);
-            }
-            self.totals.entry(key.identity_key.clone()).or_default();
-            previous.insert(key.clone(), point);
+        if self.last_deferred_sample_ms == Some(sample_ms) {
+            return;
         }
 
-        if previous.len() > MAX_RETAINED_FLOW_BASELINES {
-            let mut retired = previous
-                .iter()
-                .filter(|(key, _)| !active_keys.contains(*key))
-                .map(|(key, point)| (point.sample_ms, key.clone()))
-                .collect::<Vec<_>>();
-            retired.sort_by_key(|(last_seen_ms, _)| *last_seen_ms);
-            let remove = previous.len().saturating_sub(MAX_RETAINED_FLOW_BASELINES);
-            for (_, key) in retired.into_iter().take(remove) {
-                previous.remove(&key);
+        let mut folded = BTreeMap::<ConnectionRateKey, ConnectionCounters>::new();
+        for (key, counters) in counters.iter() {
+            let value = folded.entry(key.clone().without_generation()).or_default();
+            value.tx_bytes = value.tx_bytes.saturating_add(counters.tx_bytes);
+            value.rx_bytes = value.rx_bytes.saturating_add(counters.rx_bytes);
+        }
+        let current = folded
+            .into_iter()
+            .map(|(key, counters)| {
+                let previous = self.deferred.get(&key);
+                (
+                    key,
+                    DeferredConnectionRate {
+                        tx: deferred_counter_rate(
+                            sample_ms,
+                            counters.tx_bytes,
+                            previous.map(|value| value.tx),
+                        ),
+                        rx: deferred_counter_rate(
+                            sample_ms,
+                            counters.rx_bytes,
+                            previous.map(|value| value.rx),
+                        ),
+                    },
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        for (identity_key, set) in Arc::make_mut(details) {
+            for detail in &mut set.connections {
+                detail.tx_bps = 0;
+                detail.rx_bps = 0;
+                let key = ConnectionRateKey::new(identity_key, detail);
+                let Some(rate) = current.get(&key) else {
+                    continue;
+                };
+                detail.tx_bps = rate.tx.bps;
+                detail.rx_bps = rate.rx.bps;
             }
         }
-        self.last_sample_ms = Some(sample_ms);
-        self.initialized = true;
-        active_clients
-            .into_iter()
-            .filter_map(|identity_key| {
-                self.totals
-                    .get(&identity_key)
-                    .copied()
-                    .map(|totals| (identity_key, totals))
-            })
-            .collect()
+
+        self.deferred = Arc::new(current);
+        self.last_deferred_sample_ms = Some(sample_ms);
     }
 
-    pub fn clear_baseline(&mut self) {
-        self.initialized = false;
+    pub fn clear(&mut self) {
         self.last_sample_ms = None;
         self.previous = Arc::default();
+        self.last_deferred_sample_ms = None;
+        self.deferred = Arc::default();
     }
 }
 
-fn current_client_totals(
-    counters: &ConnectionCountersSnapshot,
-    totals: &BTreeMap<String, ClientCounterTotals>,
-) -> BTreeMap<String, ClientCounterTotals> {
-    counters
-        .keys()
-        .filter_map(|key| {
-            totals
-                .get(&key.identity_key)
-                .copied()
-                .map(|value| (key.identity_key.clone(), value))
-        })
-        .collect()
+fn deferred_counter_rate(
+    sample_ms: u64,
+    bytes: u64,
+    previous: Option<DeferredCounterRate>,
+) -> DeferredCounterRate {
+    let Some(previous) = previous else {
+        return DeferredCounterRate {
+            sample_ms,
+            bytes,
+            bps: 0,
+            held_once: false,
+            history: DeferredRateHistory::default(),
+        };
+    };
+    if bytes == previous.bytes {
+        if previous.bps > 0 && !previous.held_once {
+            return DeferredCounterRate {
+                held_once: true,
+                ..previous
+            };
+        }
+        return DeferredCounterRate {
+            sample_ms,
+            bytes,
+            bps: 0,
+            held_once: false,
+            history: DeferredRateHistory::default(),
+        };
+    }
+    let Some(delta_ms) = sample_ms.checked_sub(previous.sample_ms) else {
+        return DeferredCounterRate {
+            sample_ms,
+            bytes,
+            bps: 0,
+            held_once: false,
+            history: DeferredRateHistory::default(),
+        };
+    };
+    if bytes < previous.bytes || delta_ms == 0 {
+        return DeferredCounterRate {
+            sample_ms,
+            bytes,
+            bps: 0,
+            held_once: false,
+            history: DeferredRateHistory::default(),
+        };
+    }
+    let mut history = previous.history;
+    let bps = history.push(rate_from_counters(bytes, previous.bytes, delta_ms));
+    DeferredCounterRate {
+        sample_ms,
+        bytes,
+        bps,
+        held_once: false,
+        history,
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -672,15 +700,37 @@ mod rate_book_tests {
         }
     }
 
-    fn counters(
-        key: ConnectionRateKey,
-        tx_bytes: u64,
-        rx_bytes: u64,
-    ) -> ConnectionCountersSnapshot {
+    fn counters(tx_bytes: u64, rx_bytes: u64) -> ConnectionCountersSnapshot {
         Arc::new(BTreeMap::from([(
-            key,
+            rate_key(Some(7)),
             ConnectionCounters { tx_bytes, rx_bytes },
         )]))
+    }
+
+    fn details() -> ConnectionDetailsSnapshot {
+        Arc::new(BTreeMap::from([(
+            "client".into(),
+            ClientConnectionSet {
+                total_connections: 1,
+                connections: vec![ClientConnectionDetail {
+                    client_ip: "192.0.2.2".parse().unwrap(),
+                    client_port: 12_345,
+                    remote_ip: "198.51.100.2".parse().unwrap(),
+                    remote_port: 443,
+                    protocol: ConnectionProtocol::Tcp,
+                    state: ConnectionState::Established,
+                    direction: ConnectionDirection::Outbound,
+                    tx_bps: 0,
+                    rx_bps: 0,
+                }],
+                truncated: false,
+            },
+        )]))
+    }
+
+    fn rates(details: &ConnectionDetailsSnapshot) -> (u64, u64) {
+        let detail = &details["client"].connections[0];
+        (detail.tx_bps, detail.rx_bps)
     }
 
     #[test]
@@ -696,6 +746,7 @@ mod rate_book_tests {
                     rx_bytes: 200,
                 },
             )])),
+            ..ConnectionRateBook::default()
         };
 
         let checkpoint = book.clone();
@@ -712,86 +763,118 @@ mod rate_book_tests {
     }
 
     #[test]
-    fn conntrack_checkpoint_clone_is_copy_on_write() {
-        let key = rate_key(Some(1));
-        let mut book = ConntrackClientRateBook::default();
-        book.update(1_000, &counters(key.clone(), 100, 200));
-        let checkpoint = book.clone();
-        assert!(Arc::ptr_eq(&book.previous, &checkpoint.previous));
+    fn immediate_mode_keeps_advancing_the_baseline_on_stalled_counters() {
+        let mut book = ConnectionRateBook::default();
+        let mut first = details();
+        book.update(1_000, &counters(100, 200), &mut first);
 
-        book.update(2_000, &counters(key, 150, 275));
+        let mut stalled = details();
+        book.update(3_000, &counters(100, 200), &mut stalled);
+        assert_eq!(rates(&stalled), (0, 0));
 
-        assert!(!Arc::ptr_eq(&book.previous, &checkpoint.previous));
-        assert_eq!(checkpoint.previous.values().next().unwrap().tx_bytes, 100);
-        assert_eq!(book.totals["client"].tx_bytes, 50);
-        assert_eq!(checkpoint.totals["client"].tx_bytes, 0);
+        let mut progressed = details();
+        book.update(5_000, &counters(25_000_100, 2_500_200), &mut progressed);
+        assert_eq!(rates(&progressed), (100_000_000, 10_000_000));
     }
 
     #[test]
-    fn conntrack_time_rollback_rebuilds_the_baseline_without_replaying_bytes() {
-        let key = rate_key(Some(2));
-        let mut book = ConntrackClientRateBook::default();
-        book.update(2_000, &counters(key.clone(), 100, 200));
-        let rollback = book.update(1_000, &counters(key.clone(), 500, 700));
-        assert_eq!(rollback["client"], ClientCounterTotals::default());
+    fn deferred_mode_uses_each_directions_real_progress_window() {
+        let mut book = ConnectionRateBook::default();
+        let mut warmup = details();
+        book.update_deferred(1_000, &counters(100, 200), &mut warmup);
+        assert_eq!(rates(&warmup), (0, 0));
 
-        let resumed = book.update(2_000, &counters(key, 550, 775));
-        assert_eq!(resumed["client"].tx_bytes, 50);
-        assert_eq!(resumed["client"].rx_bytes, 75);
+        let mut first = details();
+        book.update_deferred(3_000, &counters(25_000_100, 2_500_200), &mut first);
+        assert_eq!(rates(&first), (100_000_000, 10_000_000));
+
+        // TX is waiting for an NSS conntrack synchronization while RX moves.
+        let mut tx_stalled = details();
+        book.update_deferred(5_000, &counters(25_000_100, 5_000_200), &mut tx_stalled);
+        assert_eq!(rates(&tx_stalled), (100_000_000, 10_000_000));
+
+        // The next TX counter contains four seconds of traffic. It must use
+        // the four-second progress window, not the latest two-second sample.
+        let mut tx_progressed = details();
+        book.update_deferred(7_000, &counters(75_000_100, 5_000_200), &mut tx_progressed);
+        assert_eq!(rates(&tx_progressed), (100_000_000, 10_000_000));
     }
 
     #[test]
-    fn expired_cta_id_baseline_treats_reappearance_as_a_new_generation() {
-        let key = rate_key(Some(3));
-        let mut book = ConntrackClientRateBook::default();
-        book.update(1_000, &counters(key.clone(), 100, 200));
-        book.update(1_000 + CT_ID_BASELINE_RETENTION_MS + 1, &Arc::default());
-        let totals = book.update(
-            1_000 + CT_ID_BASELINE_RETENTION_MS + 2,
-            &counters(key, 500, 700),
-        );
-        assert_eq!(totals["client"].tx_bytes, 500);
-        assert_eq!(totals["client"].rx_bytes, 700);
+    fn deferred_mode_holds_once_then_rebaselines_a_genuinely_idle_flow() {
+        let mut book = ConnectionRateBook::default();
+        let mut warmup = details();
+        book.update_deferred(1_000, &counters(100, 200), &mut warmup);
+        let mut first = details();
+        book.update_deferred(3_000, &counters(25_000_100, 2_500_200), &mut first);
+        assert_eq!(rates(&first), (100_000_000, 10_000_000));
+
+        let mut held = details();
+        book.update_deferred(5_000, &counters(25_000_100, 2_500_200), &mut held);
+        assert_eq!(rates(&held), rates(&first));
+
+        let mut idle = details();
+        book.update_deferred(7_000, &counters(25_000_100, 2_500_200), &mut idle);
+        assert_eq!(rates(&idle), (0, 0));
+
+        let mut resumed = details();
+        book.update_deferred(9_000, &counters(50_000_100, 5_000_200), &mut resumed);
+        assert_eq!(rates(&resumed), (100_000_000, 10_000_000));
     }
 
     #[test]
-    fn tuple_only_baseline_expires_quickly_to_avoid_cross_generation_deltas() {
-        let key = rate_key(None);
-        let mut book = ConntrackClientRateBook::default();
-        book.update(1_000, &counters(key.clone(), 100, 200));
-        book.update(1_000 + TUPLE_BASELINE_RETENTION_MS + 1, &Arc::default());
-        let totals = book.update(
-            1_000 + TUPLE_BASELINE_RETENTION_MS + 2,
-            &counters(key, 500, 700),
-        );
-        assert_eq!(totals["client"].tx_bytes, 500);
-        assert_eq!(totals["client"].rx_bytes, 700);
-    }
-
-    #[test]
-    fn retired_flow_baseline_count_is_bounded() {
-        let previous = (0..MAX_RETAINED_FLOW_BASELINES + 2)
-            .map(|index| {
-                let key = rate_key(Some(index as u32));
-                (
-                    key,
-                    ConnectionCounterPoint {
-                        sample_ms: 1,
-                        tx_bytes: 1,
-                        rx_bytes: 1,
-                    },
-                )
-            })
-            .collect::<BTreeMap<_, _>>();
-        let mut book = ConntrackClientRateBook {
-            initialized: true,
-            last_sample_ms: Some(1),
-            previous: Arc::new(previous),
-            totals: BTreeMap::new(),
+    fn deferred_mode_rejects_a_paired_low_high_sync_alias_without_clamping() {
+        let mut book = ConnectionRateBook::default();
+        let mut details_at = |sample_ms, tx_bytes, rx_bytes| {
+            let mut value = details();
+            book.update_deferred(sample_ms, &counters(tx_bytes, rx_bytes), &mut value);
+            rates(&value)
         };
 
-        book.update(2, &Arc::default());
+        assert_eq!(details_at(1_000, 100, 200), (0, 0));
+        assert_eq!(
+            details_at(3_000, 25_000_100, 2_500_200),
+            (100_000_000, 10_000_000)
+        );
+        assert_eq!(
+            details_at(5_000, 50_000_100, 5_000_200),
+            (100_000_000, 10_000_000)
+        );
+        assert_eq!(
+            details_at(7_000, 75_000_100, 7_500_200),
+            (100_000_000, 10_000_000)
+        );
 
-        assert_eq!(book.previous.len(), MAX_RETAINED_FLOW_BASELINES);
+        // One empty poll followed by a late partial sync produces a 0.5x raw
+        // window; the next catch-up produces a 1.5x raw window. The median of
+        // three real progress windows publishes neither alias and never sums
+        // or clamps counters.
+        assert_eq!(
+            details_at(9_000, 75_000_100, 7_500_200),
+            (100_000_000, 10_000_000)
+        );
+        assert_eq!(
+            details_at(11_000, 100_000_100, 10_000_200),
+            (100_000_000, 10_000_000)
+        );
+        assert_eq!(
+            details_at(13_000, 137_500_100, 13_750_200),
+            (100_000_000, 10_000_000)
+        );
+    }
+
+    #[test]
+    fn switching_modes_rewarms_instead_of_reusing_an_old_baseline() {
+        let mut book = ConnectionRateBook::default();
+        let mut warmup = details();
+        book.update_deferred(1_000, &counters(100, 200), &mut warmup);
+        let mut deferred = details();
+        book.update_deferred(3_000, &counters(25_000_100, 2_500_200), &mut deferred);
+        assert_eq!(rates(&deferred), (100_000_000, 10_000_000));
+
+        let mut immediate = details();
+        book.update(5_000, &counters(50_000_100, 5_000_200), &mut immediate);
+        assert_eq!(rates(&immediate), (0, 0));
+        assert!(book.deferred.is_empty());
     }
 }

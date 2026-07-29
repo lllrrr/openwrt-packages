@@ -2,7 +2,8 @@ use std::{collections::BTreeMap, path::Path};
 
 use lanspeed_common::{LanspeedCounters, LanspeedKey, DIR_RX, DIR_TX};
 use lanspeedd::{
-    collectors::bpf::{
+    identity::{IdentityObservation, IdentityTable, ObservationSource},
+    platform::x86::{
         runtime::{
             AdapterError, AdapterErrorKind, AttachMode, AyaAdapter, BpfRuntime, HookState,
             LinkDirection, LinkSpec, ObjectFlavor, ReconfigureRateBaseline, ReconfigureStrategy,
@@ -12,7 +13,6 @@ use lanspeedd::{
             SnapshotWarning,
         },
     },
-    identity::{IdentityObservation, IdentityTable, ObservationSource},
     rate::RateWarning,
 };
 
@@ -191,7 +191,7 @@ impl AyaAdapter for FakeAya {
 
 #[test]
 fn production_adapter_uses_only_explicit_legacy_netlink_attach() {
-    let source = include_str!("../src/collectors/bpf/runtime.rs");
+    let source = include_str!("../src/platform/x86/runtime.rs");
     assert!(source.contains("attach_with_options"));
     assert!(source.contains("TcAttachOptions::Netlink"));
     assert!(!source.contains(".attach("));
@@ -200,7 +200,7 @@ fn production_adapter_uses_only_explicit_legacy_netlink_attach() {
 #[test]
 fn production_sampling_uses_the_same_boot_monotonic_epoch_as_bpf() {
     let production = include_str!("../src/production.rs");
-    let ebpf = include_str!("../../lanspeed-ebpf/src/account.rs");
+    let ebpf = include_str!("../../lanspeed-ebpf/src/x86/account.rs");
 
     assert!(
         ebpf.contains("bpf_ktime_get_ns()"),
@@ -287,9 +287,9 @@ fn production_rust_has_no_pidof_probe_path_and_publishes_dae_and_nss_alias_evide
         "\"ppe_offload_active\"",
         "\"direct_state_present\"",
         "\"direct_state_readable\"",
-        "\"direct_supported\"",
-        "\"direct_enabled\"",
-        "\"direct_source\"",
+        "\"node_supported\"",
+        "\"node_enabled\"",
+        "\"node_source\"",
         "\"fallback_reason\"",
         "\"direct_state_errno\"",
         "\"direct_state_major\"",
@@ -319,7 +319,7 @@ fn production_rust_has_no_pidof_probe_path_and_publishes_dae_and_nss_alias_evide
         );
     }
     assert!(production.contains("production_evidence::nss_details("));
-    assert!(nss_evidence.contains("direct_fallback_reason("));
+    assert!(nss_evidence.contains("single_ecm_node_owner"));
 }
 
 #[test]
@@ -908,6 +908,140 @@ fn mode_switch_detach_failure_enters_inconsistent_state_and_blocks_snapshots() {
 }
 
 #[test]
+fn tc_coverage_exports_exact_per_client_byte_and_packet_deltas() {
+    let identities = identities();
+    let mut adapter = FakeAya::default();
+    let mut runtime = BpfRuntime::loaded_for_test();
+    runtime
+        .attach_interface(&mut adapter, "br-lan", AttachMode::Normal)
+        .unwrap();
+    let mut collector = BpfSnapshotCollector::new(16, 5_000);
+
+    let mut baseline = raw(DIR_TX, 1_000, 1_000_000_000);
+    baseline.counters.packets = 10;
+    adapter.map_read = Some(Ok(read(vec![baseline])));
+    let first = runtime
+        .collect_snapshot(
+            &mut adapter,
+            &mut collector,
+            &identities,
+            &ConnectionOverlay::available(),
+            1_000,
+        )
+        .unwrap();
+    assert!(!first.coverage_ready);
+    assert!(first.coverage_deltas.is_empty());
+
+    let mut progressed = raw(DIR_TX, 3_500, 3_000_000_000);
+    progressed.counters.packets = 35;
+    adapter.map_read = Some(Ok(read(vec![progressed])));
+    let second = runtime
+        .collect_snapshot(
+            &mut adapter,
+            &mut collector,
+            &identities,
+            &ConnectionOverlay::available(),
+            3_000,
+        )
+        .unwrap();
+    let delta = second.coverage_deltas.get("02:00:00:00:00:01@lan").unwrap();
+    assert!(second.coverage_ready);
+    assert_eq!(second.coverage_start_ms, Some(1_000));
+    assert_eq!(second.coverage_end_ms, 3_000);
+    assert_eq!((delta.tx_bytes, delta.tx_packets), (2_500, 25));
+    assert_eq!((delta.rx_bytes, delta.rx_packets), (0, 0));
+}
+
+#[test]
+fn tc_coverage_counter_reset_rebaselines_without_publishing_a_spike() {
+    let identities = identities();
+    let mut adapter = FakeAya::default();
+    let mut runtime = BpfRuntime::loaded_for_test();
+    runtime
+        .attach_interface(&mut adapter, "br-lan", AttachMode::Normal)
+        .unwrap();
+    let mut collector = BpfSnapshotCollector::new(16, 5_000);
+
+    for (sample_ms, bytes, packets, ready, delta_bytes) in [
+        (1_000, 10_000, 100, false, None),
+        (3_000, 20_000, 200, true, Some(10_000)),
+        (5_000, 1_000, 10, false, None),
+        (7_000, 4_000, 40, true, Some(3_000)),
+    ] {
+        let mut sample = raw(DIR_TX, bytes, sample_ms * 1_000_000);
+        sample.counters.packets = packets;
+        adapter.map_read = Some(Ok(read(vec![sample])));
+        let snapshot = runtime
+            .collect_snapshot(
+                &mut adapter,
+                &mut collector,
+                &identities,
+                &ConnectionOverlay::available(),
+                sample_ms,
+            )
+            .unwrap();
+        assert_eq!(snapshot.coverage_ready, ready);
+        assert_eq!(
+            snapshot
+                .coverage_deltas
+                .get("02:00:00:00:00:01@lan")
+                .map(|delta| delta.tx_bytes),
+            delta_bytes
+        );
+    }
+}
+
+#[test]
+fn tc_coverage_truncation_never_publishes_partial_deltas() {
+    let identities = identities();
+    let mut adapter = FakeAya::default();
+    let mut runtime = BpfRuntime::loaded_for_test();
+    runtime
+        .attach_interface(&mut adapter, "br-lan", AttachMode::Normal)
+        .unwrap();
+    let mut collector = BpfSnapshotCollector::new(16, 5_000);
+    adapter.map_read = Some(Ok(read(vec![raw(DIR_TX, 1_000, 1_000_000_000)])));
+    runtime
+        .collect_snapshot(
+            &mut adapter,
+            &mut collector,
+            &identities,
+            &ConnectionOverlay::available(),
+            1_000,
+        )
+        .unwrap();
+
+    adapter.map_read = Some(Ok(MapRead {
+        entries: vec![raw(DIR_TX, 2_000, 3_000_000_000)],
+        truncated: true,
+    }));
+    let truncated = runtime
+        .collect_snapshot(
+            &mut adapter,
+            &mut collector,
+            &identities,
+            &ConnectionOverlay::available(),
+            3_000,
+        )
+        .unwrap();
+    assert!(!truncated.coverage_ready);
+    assert!(truncated.coverage_deltas.is_empty());
+
+    adapter.map_read = Some(Ok(read(vec![raw(DIR_TX, 3_000, 5_000_000_000)])));
+    let after = runtime
+        .collect_snapshot(
+            &mut adapter,
+            &mut collector,
+            &identities,
+            &ConnectionOverlay::available(),
+            5_000,
+        )
+        .unwrap();
+    assert!(!after.coverage_ready);
+    assert!(after.coverage_deltas.is_empty());
+}
+
+#[test]
 fn a_foreign_filter_in_the_fixed_slot_is_never_replaced() {
     let mut adapter = FakeAya::default();
     let ingress = LinkSpec::pair("br-lan", AttachMode::Normal)[0].clone();
@@ -1302,7 +1436,14 @@ fn production_bpf_sampling_paths_use_stable_self_heal_reasons() {
         .contains("const EXTERNAL_BPF_SELF_HEAL_REASON: &str = \"production.collect.external\";"));
     assert!(source.contains("bpf_snapshot_fresh"));
     assert!(source.contains("(self.bpf_collector.last_complete().cloned(), false)"));
-    assert!(source.contains("update_coverage(now_ms, &clients, &interfaces, coverage_fresh)"));
+    assert!(source.contains("x86_coverage"));
+    assert!(source.contains("nss_bpf_coverage"));
+    let coverage = include_str!("../src/platform/x86/coverage_state.rs");
+    assert!(coverage.contains("self.clients.update"));
+    assert!(coverage.contains("value.rx_bps"));
+    assert!(coverage.contains("value.tx_bps"));
+    assert!(!coverage.contains("value.rx_bytes"));
+    assert!(!coverage.contains("value.tx_bytes"));
 }
 
 #[test]

@@ -7,6 +7,7 @@
 'require lanspeed.statusRefresh as statusRefresh';
 
 var SOURCE_KEYS = [ 'status', 'clients', 'interfaces', 'uci' ];
+var LIVE_SOURCE_KEYS = [ 'status', 'clients', 'interfaces' ];
 var SOURCE_LABELS = {
 	status: 'status',
 	clients: 'clients',
@@ -52,6 +53,141 @@ function previousValue(previous, key) {
 	if (previous && previous[key] !== undefined && previous[key] !== null)
 		return previous[key];
 	return emptySource(key);
+}
+
+function sampleClock(value) {
+	if (value === undefined || value === null || value === '') return null;
+	var clock = Number(value);
+	return isFinite(clock) && clock >= 0 ? clock : null;
+}
+
+function maxSampleClock(items) {
+	var latest = null;
+	(items || []).forEach(function(item) {
+		var clock = sampleClock(item && item.sample_ms);
+		if (clock !== null && (latest === null || clock > latest)) latest = clock;
+	});
+	return latest;
+}
+
+function collectorEvidence(data) {
+	var evidence = data && data.evidence || {};
+	return {
+		evidence: evidence,
+		collector: evidence.effective_collector ||
+			(evidence.collector && evidence.collector.primary_source) || ''
+	};
+}
+
+function collectorSampleClock(data) {
+	var source = collectorEvidence(data);
+	var evidence = source.evidence;
+	if (source.collector === 'nss_ecm_bpf') {
+		var published = sampleClock(evidence.ecm_bpf_rate_window &&
+			evidence.ecm_bpf_rate_window.window_end_ms);
+		return published !== null ? published
+			: sampleClock(evidence.ecm_bpf && evidence.ecm_bpf.sample_ms);
+	}
+	if (source.collector === 'nss_ecm_node')
+		return sampleClock(evidence.nss_window && evidence.nss_window.window_end_ms);
+	if (source.collector === 'bpf')
+		return sampleClock(evidence.bpf && evidence.bpf.last_complete_snapshot_ms);
+	return null;
+}
+
+function statusBatch(data) {
+	return {
+		sampleMs: collectorSampleClock(data),
+		hasCoverage: !!(data && data.coverage && typeof data.coverage === 'object')
+	};
+}
+
+function clientBatch(data) {
+	data = data || {};
+	var source = collectorEvidence(data);
+	var collector = source.collector;
+	var evidenceClock = collectorSampleClock(data);
+
+	var rateModes = { bpf: true, nss_ecm_node: true, nss_ecm_bpf: true };
+	var rows = Array.isArray(data.clients) ? data.clients : [];
+	var rateRows = rows.filter(function(item) {
+		var mode = String(item && item.collector_mode || '');
+		return collector ? mode === collector : rateModes[mode] === true;
+	});
+	return {
+		sampleMs: evidenceClock !== null ? evidenceClock : maxSampleClock(rateRows),
+		hasRates: rateRows.length > 0
+	};
+}
+
+function interfaceBatch(data) {
+	data = data || {};
+	var clock = sampleClock(data.monotonic_ms);
+	return clock !== null ? clock : maxSampleClock(data.interfaces);
+}
+
+function livePair(data) {
+	var status = statusBatch(data && data.status);
+	var clients = clientBatch(data && data.clients);
+	var interfaces = interfaceBatch(data && data.interfaces);
+	var clocks = [ status.sampleMs, clients.sampleMs, interfaces ].filter(function(value) {
+		return value !== null;
+	});
+	var comparable = clocks.length > 1;
+	var aligned = !comparable || clocks.every(function(value) { return value === clocks[0]; });
+	return {
+		coverageSampleMs: status.sampleMs,
+		clientSampleMs: clients.sampleMs,
+		interfaceSampleMs: interfaces,
+		sampleMs: aligned ? (interfaces !== null ? interfaces :
+			(clients.sampleMs !== null ? clients.sampleMs : status.sampleMs)) : null,
+		aligned: comparable ? aligned : null,
+		hasCoverage: status.hasCoverage,
+		hasClientRates: clients.hasRates,
+		retained: false
+	};
+}
+
+/*
+ * Coverage, clients, and interfaces are separate ubus calls over one atomic
+ * daemon snapshot. A collection may publish between the calls, so hold the
+ * last visible metric set whenever their clocks identify different snapshots.
+ */
+function alignLiveSamples(next, previous) {
+	var pair = livePair(next);
+	if (pair.aligned !== false) {
+		next.livePair = pair;
+		return next;
+	}
+
+	var oldPair = previous && previous.livePair || livePair(previous);
+	var canRetain = !!(previous && oldPair.aligned !== false);
+	if (canRetain) {
+		next.status = previousValue(previous, 'status');
+		next.clients = previousValue(previous, 'clients');
+		next.interfaces = previousValue(previous, 'interfaces');
+	}
+	else {
+		var status = Object.assign({}, next.status || {});
+		status.coverage = null;
+		next.status = status;
+		next.clients = emptySource('clients');
+		next.interfaces = emptySource('interfaces');
+	}
+	next.livePair = {
+		coverageSampleMs: oldPair.coverageSampleMs,
+		clientSampleMs: oldPair.clientSampleMs,
+		interfaceSampleMs: oldPair.interfaceSampleMs,
+		sampleMs: oldPair.sampleMs,
+		aligned: oldPair.aligned,
+		hasCoverage: oldPair.hasCoverage,
+		hasClientRates: oldPair.hasClientRates,
+		retained: canRetain,
+		pendingCoverageSampleMs: pair.coverageSampleMs,
+		pendingClientSampleMs: pair.clientSampleMs,
+		pendingInterfaceSampleMs: pair.interfaceSampleMs
+	};
+	return next;
 }
 
 function sourceSettled(key, loader, previous, clock) {
@@ -125,7 +261,28 @@ function loadAll(previous, clock) {
 	return Promise.all(SOURCE_KEYS.map(function(key) {
 		return sourceSettled(key, loaders[key], previous, clock);
 	})).then(function(results) {
-		return aggregateResults(results, startedAt);
+		var next = aggregateResults(results, startedAt);
+		var pair = livePair(next);
+		var collector = collectorEvidence(next.status).collector;
+		var nss = collector === 'nss_ecm_node' || collector === 'nss_ecm_bpf';
+		var liveSucceeded = LIVE_SOURCE_KEYS.every(function(key) {
+			return next.rpc[key] && next.rpc[key].ok === true;
+		});
+		if (pair.aligned !== false || !liveSucceeded || !nss)
+			return alignLiveSamples(next, previous);
+
+		/* A collection can publish between the three live RPC replies. Retry the
+		 * cheap snapshot reads once inside this refresh cycle so a boundary split
+		 * does not turn a two-second cadence into four seconds. UCI is retained
+		 * from the first round and a persistent split still falls back safely. */
+		var uciResult = results.filter(function(result) { return result.key === 'uci'; })[0];
+		return Promise.all(LIVE_SOURCE_KEYS.map(function(key) {
+			return sourceSettled(key, loaders[key], next, clock);
+		})).then(function(retried) {
+			if (uciResult) retried.push(uciResult);
+			var recovered = aggregateResults(retried, startedAt);
+			return alignLiveSamples(recovered, previous);
+		});
 	});
 }
 
@@ -161,7 +318,8 @@ function normalizeData(data) {
 		checkedAt: Number(data.checkedAt) || 0,
 		error: firstError,
 		degraded: failed.length > 0 && !hardFailure,
-		hardFailure: hardFailure
+		hardFailure: hardFailure,
+		livePair: data.livePair || null
 	};
 }
 
@@ -171,13 +329,14 @@ function snapshot(viewState) {
 		clients: viewState.clients || { clients: [] },
 		interfaces: viewState.interfaces || { interfaces: [] },
 		uci: viewState.uci || {},
-		rpc: viewState.rpc || {}
+		rpc: viewState.rpc || {},
+		livePair: viewState.livePair || null
 	};
 }
 
 function failureData(previous, error, clock) {
 	var at = clock();
-	return aggregateResults(SOURCE_KEYS.map(function(key) {
+	var next = aggregateResults(SOURCE_KEYS.map(function(key) {
 		var old = previous && previous.rpc && previous.rpc[key];
 		var retained = hasPreviousSuccess(previous, key);
 		return {
@@ -192,6 +351,7 @@ function failureData(previous, error, clock) {
 			}
 		};
 	}), at);
+	return alignLiveSamples(next, previous);
 }
 
 function createController(viewState, options) {
@@ -223,16 +383,23 @@ function createController(viewState, options) {
 		timer = null;
 	}
 
-	function schedule() {
+	function schedule(anchorAt) {
 		stopTimer();
 		if (destroyed || pending || (viewState.prefs && viewState.prefs.paused)) return;
-		var interval = Math.max(fmt.MIN_REFRESH_MS,
-			Number(viewState.prefs && viewState.prefs.refreshMs) || fmt.MIN_REFRESH_MS);
+		var interval = typeof fmt.effectiveRefreshMs === 'function'
+			? fmt.effectiveRefreshMs(viewState.status, viewState.prefs)
+			: Math.max(fmt.MIN_REFRESH_MS,
+				Number(viewState.prefs && viewState.prefs.refreshMs) || fmt.MIN_REFRESH_MS);
+		var now = clock();
+		var anchor = Number(anchorAt);
+		if (!isFinite(anchor) || anchor < 0 || anchor > now)
+			anchor = now;
+		var delay = Math.max(0, interval - Math.max(0, now - anchor));
 		if (typeof timerApi.setTimeout !== 'function') return;
 		timer = timerApi.setTimeout(function() {
 			timer = null;
 			reload(false);
-		}, interval);
+		}, delay);
 	}
 
 	function apply(next) {
@@ -250,6 +417,7 @@ function createController(viewState, options) {
 		viewState.error = normalized.error;
 		viewState.degraded = normalized.degraded;
 		viewState.hardFailure = normalized.hardFailure;
+		viewState.livePair = normalized.livePair;
 		return normalized;
 	}
 
@@ -264,6 +432,7 @@ function createController(viewState, options) {
 		}
 
 		stopTimer();
+		var startedAt = clock();
 		var sequence = ++requestSeq;
 		viewState.loading = true;
 		viewState.manualBusy = manual === true;
@@ -285,7 +454,7 @@ function createController(viewState, options) {
 				viewState.manualBusy = false;
 				pending = null;
 				refresh();
-				schedule();
+				schedule(startedAt);
 			}
 			return next;
 		});
@@ -358,13 +527,14 @@ return baseclass.extend({
 			showClientStatus: normalized.showClientStatus,
 			showIpv6: normalized.showIpv6,
 			hidePrivateIpv6: normalized.hidePrivateIpv6,
-			hideIpv6Ranges: normalized.hideIpv6Ranges,
-			rpc: normalized.rpc,
-			checkedAt: normalized.checkedAt,
-			error: normalized.error,
-			degraded: normalized.degraded,
-			hardFailure: normalized.hardFailure,
-			filter: '',
+				hideIpv6Ranges: normalized.hideIpv6Ranges,
+				rpc: normalized.rpc,
+				checkedAt: normalized.checkedAt,
+				error: normalized.error,
+				degraded: normalized.degraded,
+				hardFailure: normalized.hardFailure,
+				livePair: normalized.livePair,
+				filter: '',
 			page: 1,
 			loading: false,
 				manualBusy: false,
@@ -389,6 +559,10 @@ return baseclass.extend({
 	createController: createController,
 	normalizeData: normalizeData,
 	loadAll: loadAll,
+	statusBatch: statusBatch,
+	clientBatch: clientBatch,
+	interfaceBatch: interfaceBatch,
+	alignLiveSamples: alignLiveSamples,
 
 	handleSave: null,
 	handleSaveApply: null,

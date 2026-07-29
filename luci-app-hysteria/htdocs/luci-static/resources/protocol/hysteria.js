@@ -30,6 +30,18 @@ network.registerErrorCode('NO_LNS', _('No LNS in the configured group is availab
 network.registerErrorCode('PATH_NARROWED', _('The path stopped carrying full-size packets; the link will be rebuilt at a smaller MTU'));
 network.registerErrorCode('UNKNOWN', _('The session ended without a stated reason'));
 
+/* Multilink PPP. The first is a fact about the installed system rather than about
+ * this configuration, so it names the package to install: OpenWrt builds pppd
+ * twice and only the ppp-multilink build can bundle links at all. */
+/* pppd's own exit status 2, mapped by ppp_generic_teardown. Newly reachable
+ * because the endpoint discriminator and bundle name are free-text fields, and
+ * pppd exits 2 for an endpoint it cannot parse. */
+network.registerErrorCode('INVALID_OPTIONS', _('pppd rejected an option: check the endpoint discriminator and bundle name'));
+
+network.registerErrorCode('MLPPP_UNSUPPORTED', _('pppd was built without Multilink PPP; install the ppp-multilink package in place of ppp'));
+network.registerErrorCode('MLPPP_CONFIG_FILE_CONFLICT', _('A custom configuration file names one server, so it cannot be combined with additional servers'));
+network.registerErrorCode('MLPPP_DATASTREAMS_CONFLICT', _('Data streams cannot be combined with additional servers: reliable streams stall multilink reassembly instead of protecting it'));
+
 network.registerErrorCode('OBFS_TYPE_INVALID', _('Unknown obfuscation type: use salamander or gecko'));
 network.registerErrorCode('OBFS_PASSWORD_MISSING', _('Obfuscation is enabled but no obfuscation password is set'));
 network.registerErrorCode('OBFS_WITH_CAMOUFLAGE', _('Obfuscation cannot be combined with camouflage, which needs the QUIC header that obfuscation hides'));
@@ -115,8 +127,23 @@ return network.registerProtocol('hysteria', {
 		o.rmempty = false;
 		o.placeholder = 'example.com:443';
 
+		/* One interface, several access concentrators, bundled by Multilink PPP at
+		 * the LNS. Each entry is one more PPP link carrying the same account.
+		 *
+		 * There is no ordering significance. The server above is simply the one
+		 * configured first: the handler pools every address and each link claims
+		 * whichever is free, so losing any one of them costs that link's share and
+		 * nothing more. */
+		o = s.taboption('general', form.DynamicList, 'extra_server', _('Additional servers (Multilink PPP)'),
+			_('Further Hysteria 2 servers, one PPP link each, bundled with the server above into a single connection. All links carry the same account and must reach the same LNS, and the LNS has to support Multilink PPP over L2TP. Leave empty for an ordinary single-server link.'));
+		o.placeholder = 'example2.com:443';
+
+		/* Shared by every link, and that is not merely a simplification. The
+		 * concentrator chooses an LNS by hashing this identity, which is what makes
+		 * two independent concentrators pick the same one; two identities can hash
+		 * apart, and links that land on different LNS cannot be bundled by either. */
 		o = s.taboption('general', form.Value, 'auth', _('Hysteria authentication'),
-			_('Password or token expected by the Hysteria 2 server. This is not your broadband account.'));
+			_('Password or token expected by the Hysteria 2 server. This is not your broadband account. With additional servers it must be the same on all of them: the server picks an LNS from this identity, and links that reach different LNS cannot be bundled.'));
 		o.password = true;
 
 		/* --- the PPP account, which a different machine checks --- */
@@ -138,6 +165,34 @@ return network.registerProtocol('hysteria', {
 		o = s.taboption('general', form.Flag, 'insecure', _('Skip certificate verification'),
 			_('Disables TLS verification entirely. Useful while bringing a link up; prefer a proper certificate afterwards.'));
 		o.default = o.disabled;
+
+		/* Pinning is what lets a self-signed certificate be trusted, and with
+		 * camouflage below it is what removes the need for an ACME certificate on
+		 * the concentrator at all. Prefer it over "Skip certificate verification":
+		 * camouflage proves the CLIENT to the server, never the server to the
+		 * client, so without a pin there is nothing authenticating the far end. */
+		o = s.taboption('general', form.Value, 'pin_sha256', _('Certificate fingerprint'),
+			_('SHA-256 fingerprint of the server certificate, as <code>xx:xx:...</code>. Lets a self-signed certificate be trusted without a public CA, which is what makes ACME unnecessary on the concentrator. Leave empty to use normal CA verification.'));
+
+		/* --- advanced: camouflage --- */
+
+		/* Camouflage is a filter in front of QUIC, not a TLS setting. The client
+		 * carries an HMAC of a shared secret inside the QUIC connection ID, and a
+		 * packet that does not carry a valid one is relayed to a real server
+		 * instead -- so a prober never reaches the TLS handshake and never sees a
+		 * certificate to attribute. That, not the certificate itself, is why a
+		 * self-signed one becomes viable.
+		 *
+		 * Every link of a bundle uses the same secret, like every other Hysteria
+		 * setting here: the links differ only in which concentrator they cross. */
+		o = s.taboption('advanced', form.Value, 'camouflage_secret', _('Camouflage secret'),
+			_('Shared secret that identifies real clients before the QUIC handshake begins. Traffic without it is relayed to a decoy server, so the concentrator does not answer probes at all. Must match the server, and must be the same on every server in the list.'));
+		o.password = true;
+
+		o = s.taboption('advanced', form.Value, 'camouflage_server_ip', _('Camouflage server IP'),
+			_('The address this server is reached at. It is mixed into the token so one secret can serve several concentrators without a token minted for one working against another. Required whenever a camouflage secret is set.'));
+		o.datatype = 'ipaddr';
+		o.depends({ camouflage_secret: /.+/ });
 
 		/* --- advanced: the PPP link itself --- */
 
@@ -192,12 +247,38 @@ return network.registerProtocol('hysteria', {
 		};
 
 		o = s.taboption('advanced', form.Value, 'mtu', _('Override MTU'),
-			_('Leave empty for 1399, which is the largest packet a QUIC datagram can carry once path discovery and the QUIC, AEAD and PPP headers are accounted for. Raise it only if you know the path allows it.'));
+			_('Leave empty for 1399, which is the largest packet a QUIC datagram can carry once path discovery and the QUIC, AEAD and PPP headers are accounted for. Raise it only if you know the path allows it. This is the ceiling for one link: with additional servers the interface itself reports 6 bytes less, which is what the multilink header costs.'));
 		o.placeholder = '1399';
 		o.datatype = 'range(576,1500)';
 
+		/* --- advanced: multilink, only meaningful once a second server exists --- */
+
+		o = s.taboption('advanced', form.ListValue, 'multilink', _('Multilink PPP'),
+			_('Whether the additional servers above are bundled into one connection. <em>Automatic</em> bundles whenever more than one server is configured. <em>Disabled</em> keeps them in the configuration without using them, which is how one concentrator is tested at a time.'));
+		o.value('auto', _('Automatic'));
+		o.value('1', _('Always'));
+		o.value('0', _('Disabled'));
+		o.default = 'auto';
+
+		/* Both of these have defaults derived from the interface name and the PPP
+		 * account, which is what an operator wants unless the LNS has an opinion.
+		 * They are here because when the LNS does have one, there is no other way
+		 * to satisfy it, and the failure it produces -- two single-link bundles
+		 * instead of one bundle of two -- looks exactly like success. */
+		o = s.taboption('advanced', form.Value, 'endpoint', _('Endpoint discriminator'),
+			_('Identifies this router to the LNS, which uses it together with the PPP username to decide which links belong to one bundle. Every link sends the same value. Leave empty to derive one from the interface and account; set it as <code>local:</code> followed by hex digits if the operator requires a particular value.'));
+		o.placeholder = 'local:0011223344556677';
+		o.depends('multilink', 'auto');
+		o.depends('multilink', '1');
+
+		o = s.taboption('advanced', form.Value, 'bundle', _('Local bundle name'),
+			_('Keeps this interface\'s links separate from any other multilink connection on the same router. It is never sent to the LNS. Leave empty to derive one from the interface name.'));
+		o.placeholder = 'hysteria-wan';
+		o.depends('multilink', 'auto');
+		o.depends('multilink', '1');
+
 		o = s.taboption('advanced', form.Value, 'config_file', _('Custom configuration file'),
-			_('Use this YAML file verbatim instead of generating one, for anything this page does not cover. It must set <code>ppp.mode: nospawn</code>, otherwise the client spawns its own pppd and the interface will not come up. When set, every setting above except the PPP account is ignored.'));
+			_('Use this YAML file verbatim instead of generating one, for anything this page does not cover. It must set <code>ppp.mode: nospawn</code>, otherwise the client spawns its own pppd and the interface will not come up. When set, every setting above except the PPP account is ignored, and it cannot be combined with additional servers: the file names one server, and the other links have nowhere to take their address from.'));
 		o.datatype = 'file';
 	}
 });

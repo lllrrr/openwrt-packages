@@ -99,6 +99,30 @@ function refreshAvailability(viewState, refs) {
 	return { failed: failed, hardFailure: hardFailure };
 }
 
+function refreshIntervalControl(viewState, refs, status) {
+	if (!refs || !refs.intervalSel) return;
+	var restricted = typeof fmt.nssRefreshRestricted === 'function' &&
+		fmt.nssRefreshRestricted(status);
+	var state = restricted ? 'nss' : 'default';
+	var choices = restricted
+		? fmt.NSS_REFRESH_CHOICES
+		: fmt.REFRESH_CHOICES;
+	var value = restricted
+		? fmt.normalizeNssRefreshMs(viewState.prefs.nssRefreshMs)
+		: viewState.prefs.refreshMs;
+	if (refs.intervalSel.getAttribute('data-refresh-policy') !== state) {
+		while (refs.intervalSel.firstChild)
+			refs.intervalSel.removeChild(refs.intervalSel.firstChild);
+		choices.forEach(function(choice) {
+			refs.intervalSel.appendChild(fmt.opt(choice.value, choice.label, value === choice.value));
+		});
+		refs.intervalSel.setAttribute('data-refresh-policy', state);
+	}
+	refs.intervalSel.disabled = false;
+	refs.intervalSel.title = restricted ? _('ECM 采集方案最低每 2 秒刷新') : '';
+	refs.intervalSel.value = String(value);
+}
+
 function refreshPagination(viewState, refs, sorted) {
 	var page = typeof fmt.paginate === 'function'
 		? fmt.paginate(sorted, viewState.page, viewState.prefs.pageSize)
@@ -314,6 +338,7 @@ function refreshLive(viewState) {
 	if (!refs) return;
 	var viewport = captureClientViewport(refs);
 	var status = viewState.status || {};
+	refreshIntervalControl(viewState, refs, status);
 	var clientsAll = fmt.asArray(viewState.clients && viewState.clients.clients);
 	var prefs = viewState.prefs;
 	var activeCfg = fmt.activeConfig(status);
@@ -378,7 +403,11 @@ function refreshLive(viewState) {
 
 	var cov = status.coverage || {};
 	var covQuality = cov.quality || 'warmup';
-	if (covQuality === 'ok') {
+	var retainedPending = (covQuality === 'pending' || covQuality === 'counter_skew') &&
+		(typeof cov.tx_pct === 'number' || typeof cov.rx_pct === 'number');
+	var measuredLowTraffic = covQuality === 'low_traffic' &&
+		(typeof cov.tx_pct === 'number' || typeof cov.rx_pct === 'number');
+	if (covQuality === 'ok' || retainedPending || measuredLowTraffic) {
 		var txPct = typeof cov.tx_pct === 'number' ? cov.tx_pct : null;
 		var rxPct = typeof cov.rx_pct === 'number' ? cov.rx_pct : null;
 		var minPct = null;
@@ -386,7 +415,10 @@ function refreshLive(viewState) {
 		else if (rxPct !== null) minPct = rxPct;
 		else if (txPct !== null) minPct = txPct;
 		refs.mCoverage.textContent = minPct !== null ? (minPct + '%') : '-';
-		if ((rxPct !== null && rxPct < 85) || (txPct !== null && txPct < 85)) {
+		if (retainedPending) {
+			refs.mCoverageSub.textContent = '↑' + (txPct !== null ? txPct : '-') +
+				' ↓' + (rxPct !== null ? rxPct : '-') + ' · ' + _('等待新批次');
+		} else if ((rxPct !== null && rxPct < 85) || (txPct !== null && txPct < 85)) {
 			var missingBps = 0;
 			var denomTotal = (Number(cov.denom_rx_bytes) || 0) + (Number(cov.denom_tx_bytes) || 0);
 			var numerTotal = (Number(cov.numer_rx_bytes) || 0) + (Number(cov.numer_tx_bytes) || 0);
@@ -407,12 +439,21 @@ function refreshLive(viewState) {
 	} else if (covQuality === 'low_traffic') {
 		refs.mCoverage.textContent = '-';
 		refs.mCoverageSub.textContent = _('LAN 流量较低，暂不计算覆盖率');
+	} else if (covQuality === 'pending') {
+		refs.mCoverage.textContent = '…';
+		refs.mCoverageSub.textContent = _('LAN 覆盖率窗口正在追平，不影响客户端速率');
+	} else if (covQuality === 'counter_skew') {
+		refs.mCoverage.textContent = '…';
+		refs.mCoverageSub.textContent = _('客户端与 LAN 计数批次错位，等待重新采样');
 	} else if (covQuality === 'warmup' || covQuality === 'counter_reset') {
 		refs.mCoverage.textContent = '…';
 		refs.mCoverageSub.textContent = _('采样中');
-	} else {
+	} else if (covQuality === 'unsupported') {
 		refs.mCoverage.textContent = '-';
 		refs.mCoverageSub.textContent = _('不支持');
+	} else {
+		refs.mCoverage.textContent = '…';
+		refs.mCoverageSub.textContent = _('采样中');
 	}
 
 	var latestSample = fmt.latestClientSampleMs(clientsAll);
@@ -473,12 +514,10 @@ function refreshLive(viewState) {
 			var modeLabel = statusCollector.collectorLabel(mode), modeTitle;
 			if (mode === 'bpf') {
 				modeTitle = _('BPF 在 LAN 接口按 MAC 统计客户端实时速率。');
-			} else if (mode === 'nss_ecm_direct') {
-				modeTitle = _('NSS-direct 直接读取 ECM 流量计数，并归属到对应 LAN 客户端。');
-			} else if (mode === 'nss_ecm_direct+conntrack_ecm_sync') {
-				modeTitle = _('NSS-direct 提供实时数据，NSS sync 补齐未覆盖的客户端。');
-			} else if (mode === 'conntrack_ecm_sync' || mode === 'nss_conntrack_sync') {
-				modeTitle = _('NSS sync 从 conntrack 读取硬件加速流量，更新精度约为 1–2 秒。');
+			} else if (mode === 'nss_ecm_node') {
+				modeTitle = _('NSS ECM node 按客户端 MAC 读取真实字节与包计数并立即发布；独立 LAN 窗口只验证覆盖率。');
+			} else if (mode === 'nss_ecm_bpf') {
+				modeTitle = _('ECM+BPF 在内核区分 NSS 硬件增量与 TC 慢路径增量，同一原始采样窗口只计算一次速率。');
 			} else if (mode === 'conntrack_netlink') {
 				modeTitle = _('CT-Netlink 仅补充当前连接数，不参与非 NSS 设备的实时速率统计。');
 			} else if (mode === 'conntrack_procfs') {
@@ -578,7 +617,10 @@ function refreshLive(viewState) {
 			var ifDn = Number(isLan ? i.tx_bps : i.rx_bps) || 0;
 			var cs = clientSumByIf[n] || { tx: 0, rx: 0 };
 
-			totalIfTx += ifUp; totalIfRx += ifDn;
+			if (isLan) {
+				totalIfTx += ifUp;
+				totalIfRx += ifDn;
+			}
 
 			return E('tr', {}, [
 				E('td', { 'data-label': _('接口') }, n),
@@ -597,7 +639,8 @@ function refreshLive(viewState) {
 		].join(' · ');
 
 		var covHint = status.coverage || {};
-		if (covHint.quality === 'ok') {
+		if (covHint.quality === 'ok' || (covHint.quality === 'low_traffic' &&
+		    (typeof covHint.tx_pct === 'number' || typeof covHint.rx_pct === 'number'))) {
 			var hintTx = typeof covHint.tx_pct === 'number' ? covHint.tx_pct : 100;
 			var hintRx = typeof covHint.rx_pct === 'number' ? covHint.rx_pct : 100;
 			refs.ifacesHint.textContent = (hintTx < 85 || hintRx < 85)
@@ -627,6 +670,7 @@ return baseclass.extend({
 	restoreClientViewport: restoreClientViewport,
 	reconcileClientRows: reconcileClientRows,
 	refreshAvailability: refreshAvailability,
+	refreshIntervalControl: refreshIntervalControl,
 	refreshPagination: refreshPagination,
 
 	refreshLive: function(viewState) {

@@ -22,6 +22,11 @@ pub enum PeriodicConntrackPlan {
 // Reuse concurrent requests, but do not carry a conntrack snapshot across the
 // minimum LuCI refresh interval.
 pub const CLIENT_CONNTRACK_CACHE_TTL_MS: u64 = 1_000;
+// NSS synchronizes offloaded conntrack counters on an approximately two-second
+// cadence. Coalesce concurrent detail viewers inside that cadence, while
+// leaving enough jitter margin for one viewer polling every two seconds to
+// trigger the next read instead of seeing one snapshot for four seconds.
+pub const NSS_CLIENT_CONNTRACK_CACHE_TTL_MS: u64 = 1_900;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ClientConntrackPlan {
@@ -33,14 +38,12 @@ pub const fn client_conntrack_plan(
     now_ms: u64,
     last_attempt_ms: Option<u64>,
     snapshot_available: bool,
+    cache_ttl_ms: u64,
 ) -> ClientConntrackPlan {
     let Some(last_attempt_ms) = last_attempt_ms else {
         return ClientConntrackPlan::Read;
     };
-    if snapshot_available
-        && now_ms >= last_attempt_ms
-        && now_ms - last_attempt_ms < CLIENT_CONNTRACK_CACHE_TTL_MS
-    {
+    if snapshot_available && now_ms >= last_attempt_ms && now_ms - last_attempt_ms < cache_ttl_ms {
         ClientConntrackPlan::ReuseCached
     } else {
         ClientConntrackPlan::Read
@@ -49,10 +52,10 @@ pub const fn client_conntrack_plan(
 
 pub const fn periodic_conntrack_plan(rate_collector: RateCollector) -> PeriodicConntrackPlan {
     match rate_collector {
-        RateCollector::NssConntrackSync => PeriodicConntrackPlan::Read,
-        RateCollector::Bpf | RateCollector::NssEcmDirect | RateCollector::Unsupported => {
-            PeriodicConntrackPlan::Skip
-        }
+        RateCollector::Bpf
+        | RateCollector::NssEcmNode
+        | RateCollector::NssEcmBpf
+        | RateCollector::Unsupported => PeriodicConntrackPlan::Skip,
     }
 }
 
@@ -85,11 +88,7 @@ impl ConntrackObservation {
 
         runtime_health.conntrack_netlink_available = self.netlink_read;
         runtime_health.conntrack_procfs_available = self.procfs_read;
-        runtime_health.nss_sync_read_ok = Some(match self.state {
-            ConntrackObservationState::Succeeded => true,
-            ConntrackObservationState::Failed => false,
-            ConntrackObservationState::Skipped => snapshot_available,
-        });
+        let _ = snapshot_available;
     }
 
     pub fn record_skipped(&mut self) {
@@ -487,9 +486,9 @@ mod tests {
     #[test]
     fn successful_overlay_preserves_independent_nss_diagnostics() {
         let mut snapshot = ResponseSnapshot::unsupported("test");
-        snapshot.clients.nss_ecm_direct_flows_seen = Some(3);
-        snapshot.clients.nss_ecm_direct_flows_matched = Some(2);
-        snapshot.clients.nss_ecm_direct_parse_errors = Some(1);
+        snapshot.clients.nss_ecm_nodes_seen = Some(3);
+        snapshot.clients.nss_ecm_nodes_matched = Some(2);
+        snapshot.clients.nss_ecm_node_parse_errors = Some(1);
         let collected = CollectedSnapshot {
             clients: Vec::new(),
             sample_ms: 0,
@@ -504,8 +503,8 @@ mod tests {
 
         let overlaid = apply_conntrack_success(&snapshot, &collected, "auto");
 
-        assert_eq!(overlaid.clients.nss_ecm_direct_flows_seen, Some(3));
-        assert_eq!(overlaid.clients.nss_ecm_direct_flows_matched, Some(2));
-        assert_eq!(overlaid.clients.nss_ecm_direct_parse_errors, Some(1));
+        assert_eq!(overlaid.clients.nss_ecm_nodes_seen, Some(3));
+        assert_eq!(overlaid.clients.nss_ecm_nodes_matched, Some(2));
+        assert_eq!(overlaid.clients.nss_ecm_node_parse_errors, Some(1));
     }
 }

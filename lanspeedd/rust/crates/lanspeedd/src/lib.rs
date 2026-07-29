@@ -21,6 +21,7 @@ pub mod history;
 pub mod identity;
 pub mod interfaces;
 pub mod model;
+pub mod platform;
 pub mod policy;
 pub mod probe;
 #[cfg(feature = "openwrt")]
