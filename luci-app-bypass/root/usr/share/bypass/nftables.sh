@@ -105,6 +105,39 @@ nft_import_elements() {
 	$NFT -f "$batch" 2>>"$LOG_FILE"
 }
 
+# Print the currently usable default-route devices. The names come from the
+# kernel rather than UCI because nftables must match the runtime L3 device
+# (for example pppoe-wan, not the logical network name wan).
+nft_default_route_devices() {
+	{ ip -o -4 route show default; ip -o -6 route show default; } 2>/dev/null | \
+		awk '{
+			for (i = 1; i <= NF; i++)
+				if ($i == "dev" && $(i + 1) ~ /^[A-Za-z0-9_.:@+-]+$/)
+					print $(i + 1)
+		}' | sort -u
+}
+
+# Reconcile the named WAN-interface set in one nft transaction. fw4 can invoke
+# this backend while an interface is down, leaving the initial set empty; the
+# later ifup hotplug action calls this helper after netifd has restored routes.
+nft_refresh_wan_device_set() {
+	local dev elements="" rc rules="$TMP_PATH2/nft-wan-device-refresh.$$"
+	$NFT list set inet ${NFT_TABLE} bypass_wan >/dev/null 2>&1 || return 1
+	mkdir -p "$TMP_PATH2" || return 1
+	for dev in $(nft_default_route_devices); do
+		elements="${elements:+$elements, }\"$dev\""
+	done
+	{
+		printf 'flush set inet %s bypass_wan\n' "$NFT_TABLE"
+		[ -n "$elements" ] && \
+			printf 'add element inet %s bypass_wan { %s }\n' "$NFT_TABLE" "$elements"
+	} > "$rules"
+	$NFT -f "$rules" 2>>"$LOG_FILE"
+	rc=$?
+	rm -f "$rules"
+	return "$rc"
+}
+
 nft_start() {
 	load_standalone_config || { log 0 "Bypass is disabled or has no active redirect port; skip firewall rules."; return 0; }
 	[ -z "$NFT" ] && { log 0 "nft not found; cannot install nftables rules."; return 1; }
@@ -133,7 +166,7 @@ nft_start() {
 
 	# Sets shared with BypassCore (filled at runtime). Keep router-local
 	# addresses in a set as well so management traffic is never intercepted.
-	local sets local_elements="" local6_elements="" local_ip
+	local sets local_elements="" local6_elements="" local_ip wan_elements="" wan_elements_line="" dev
 	for local_ip in $(ip -o -4 addr show 2>/dev/null | awk '{print $4}' | cut -d/ -f1); do
 		local_elements="${local_elements:+$local_elements, }$local_ip"
 	done
@@ -142,6 +175,10 @@ nft_start() {
 		local6_elements="${local6_elements:+$local6_elements, }$local_ip"
 	done
 	[ -n "$local6_elements" ] || local6_elements=::1
+	for dev in $(nft_default_route_devices); do
+		wan_elements="${wan_elements:+$wan_elements, }\"$dev\""
+	done
+	[ -n "$wan_elements" ] && wan_elements_line="elements = { ${wan_elements} }"
 	sets=$(cat <<EOF
 table inet ${NFT_TABLE} {
 	set bypass_local {
@@ -151,6 +188,11 @@ table inet ${NFT_TABLE} {
 	set bypass_local6 {
 		type ipv6_addr
 		elements = { ${local6_elements} }
+	}
+	set bypass_wan {
+		type ifname
+		size 64
+		${wan_elements_line}
 	}
 	set bypass_direct {
 		type ipv4_addr
@@ -193,11 +235,7 @@ table inet ${NFT_TABLE} {
 EOF
 )
 
-	local wan_accept="" wan_devices="" dev
-	for dev in $({ ip -o -4 route show default; ip -o -6 route show default; } 2>/dev/null | awk '{ for (i=1; i<=NF; i++) if ($i == "dev") print $(i+1) }' | sort -u); do
-		wan_devices="${wan_devices:+$wan_devices, }\"$dev\""
-	done
-	[ -n "$wan_devices" ] && wan_accept="iifname { ${wan_devices} } accept"
+	local wan_accept="iifname @bypass_wan accept"
 	local direct_accept="ip daddr @bypass_direct accept"
 	local direct6_accept="ip6 daddr @bypass_direct6 accept"
 	# Never accept a connection solely because a previous DNS answer placed its
@@ -374,6 +412,13 @@ EOF
 		log 0 "nft ruleset apply failed."
 		return 1
 	}
+	# Reconcile once more after the base transaction in case netifd changed the
+	# active default route while the ruleset was being assembled.
+	nft_refresh_wan_device_set || {
+		$NFT delete table inet ${NFT_TABLE} 2>/dev/null
+		log 0 "WAN interface exemptions could not be loaded; removed the incomplete nftables ruleset."
+		return 1
+	}
 
 	# Passwall2-style Direct IP List: literal prefixes and geoip:CODE entries are
 	# inserted into sets matched before REDIRECT/TPROXY, so they never enter the
@@ -524,9 +569,15 @@ nft_gen_include() {
 	chmod +x "$INCLUDE_FILE" 2>/dev/null
 }
 
-# Cheap WAN-IP refresh on hotplug ifupdate (no full restart).
+# Cheap WAN runtime refresh on hotplug ifup/ifupdate (no full restart).
 nft_update_wan_sets() {
 	[ -z "$NFT" ] && return 0
+	# Reconcile ingress devices as well as WAN addresses. In particular, fw4 may
+	# have rebuilt the table during ifdown, when no default route was visible.
+	nft_refresh_wan_device_set || {
+		log 0 "Could not refresh WAN interface exemptions after a network event."
+		return 1
+	}
 	# Re-add current WAN IPs to bypass_vps so the router's own egress stays direct.
 	local wan
 	for wan in $(get_wan_ips ip4); do

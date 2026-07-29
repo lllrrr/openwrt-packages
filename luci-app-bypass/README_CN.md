@@ -172,7 +172,7 @@ luci-app-bypass/
 │   ├── geo_view.js log.js
 └── root/
     ├── etc/uci-defaults/luci-bypass  # 首次安装：拷默认配置、生成 init、防火墙 include、chmod
-    ├── etc/hotplug.d/iface/98-bypass # ifup 重启 / ifupdate 刷新
+    ├── etc/hotplug.d/iface/98-bypass # WAN 恢复、策略路由与 nftables 运行态刷新
     └── usr/share/bypass/
         ├── bypass.init service.init  # rc.common 包装器模板、锁与服务生命周期
         ├── direct_ip                # 可编辑的直连 IP/CIDR/GeoIP 列表
@@ -213,7 +213,7 @@ Basic Settings → Shunt Rule 为每条规则选择 Close、Default Node、Direc
 - 仅为被引用节点的 NaiveProxy/WireGuard 端点 IPv4/IPv6 目标添加独立路由表和 `ip rule to ...`。路由表及优先级从 `naive_egress_table`、`naive_egress_rule_priority` 开始按节点递增；不改写 fwmark，因此不会覆盖 mwan3/PBR 的标记。
 - `direct_egress_interface` 控制 Direct 分流的默认出口；每条选择 Direct Connection 的规则还可设置自己的 `egress_interface` 覆盖它。优先级为：规则接口 → Default Direct Interface → 系统默认路由。
 - 每条 Proxy 规则可以选择不同 Naive 节点；不同节点会启动独立 Naive 实例并使用各自配置的物理 WAN，多个规则选择同一节点时共享该实例。
-- 节点出口、默认 Direct 出口或规则级 Direct 出口发生 `ifup`、`ifupdate`、`ifdown` 时会重建或撤销对应绑定；节点域名解析结果每小时刷新，瞬时 DNS 失败保留现有健康路径，结果变化时完整重建，避免悄悄改走系统默认 WAN。
+- 节点出口、默认 Direct 出口或规则级 Direct 出口发生 `ifdown` 时保持失败关闭；`ifup`/`ifupdate` 会在网络恢复后修复策略路由，并原子刷新 nftables 的 WAN 设备与地址集合，只有设备绑定确实变化或刷新失败时才完整重启。节点域名解析结果每小时刷新，瞬时 DNS 失败保留现有健康路径，结果变化时完整重建，避免悄悄改走系统默认 WAN。
 - 运行期 watcher 会记录 BypassCore、NaiveProxy 可执行文件的指纹；通过 `opkg`/`apk` 更新并稳定后会执行一次串行完整重启，确保新版本实际生效。关闭进程健康监控不会关闭二进制更新检测。
 - 守护进程默认开启，每十五秒检查受管 PID、真实监听端口和 BypassCore 聚合 readiness（含原生 NFTSet writer）；任一必需组件持续异常时执行一次完整、加锁的服务重启，确保进程、DNS、防火墙和策略路由状态一致。
 

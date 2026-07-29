@@ -78,8 +78,16 @@ is_direct_iface() {
 
 schedule_iface_restart() {
 	local reason=$1
+	restart_scheduled=1
 	log 1 "Restarting Bypass after interface [%s] event [%s]: %s" "$INTERFACE" "$ACTION" "$reason"
 	( /etc/init.d/bypass restart ) >/dev/null 2>&1 &
+}
+
+refresh_firewall_wan_state() {
+	local use_tables
+	use_tables=$(get_cache_var USE_TABLES)
+	[ -n "$use_tables" ] && [ -x "$APP_PATH/${use_tables}.sh" ] || return 0
+	"$APP_PATH/${use_tables}.sh" update_wan_sets 2>/dev/null
 }
 
 # netifd removes custom table defaults when a device disappears. Restore those
@@ -167,9 +175,9 @@ case "$ACTION" in
 				schedule_iface_restart "generated route or device bind is stale"
 			fi
 		fi
-		use_tables=$(get_cache_var USE_TABLES)
-		[ -n "$use_tables" ] && [ -x "$APP_PATH/${use_tables}.sh" ] && \
-			"$APP_PATH/${use_tables}.sh" update_wan_sets 2>/dev/null
+		if [ "$restart_scheduled" != "1" ] && ! refresh_firewall_wan_state; then
+			schedule_iface_restart "firewall WAN state could not be refreshed"
+		fi
 		;;
 	ifup)
 		# A system-default outbound follows kernel route changes without being
@@ -180,11 +188,17 @@ case "$ACTION" in
 		# USB/modem drivers may emit ifup before addresses and routes settle.
 		# Recheck after a short delay instead of rebuilding against half-ready
 		# netifd state.
+		sleep 2
 		if is_managed_iface; then
-			sleep 2
 			if ! refresh_managed_routes || ! managed_runtime_matches; then
 				schedule_iface_restart "generated route or device bind changed after link recovery"
 			fi
+		fi
+		# fw4 can reload the Bypass include while this interface is down. Repair
+		# its runtime-derived WAN device/IP sets after netifd has restored routes,
+		# even when the interface uses only the system-default outbound.
+		if [ "$restart_scheduled" != "1" ] && ! refresh_firewall_wan_state; then
+			schedule_iface_restart "firewall WAN state could not be refreshed after link recovery"
 		fi
 		;;
 	ifdown)
