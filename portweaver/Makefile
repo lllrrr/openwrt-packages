@@ -37,7 +37,7 @@ endef
 define Package/portweaver/description
   PortWeaver is a flexible port forwarding and NAT traversal tool
   for OpenWrt, with UCI configuration support.
-  Includes: frpc, frps, ddns, uci, ubus.
+  Includes: frpc, frps, ddns, uci, ubus, nftables, wol.
 endef
 
 # Macro: build one variant
@@ -62,12 +62,12 @@ define Build/Compile
 		tar xf zig.tar.xz; \
 		$(call BuildVariant, \
 			$(PKG_BUILD_DIR)/zig-tmp/zig-x86_64-linux-0.16.0/zig, \
-			-Duci=true -Dubus=true -Dfrpc=true -Dfrps=true -Dddns=true, \
+			-Duci=true -Dubus=true -Dfrpc=true -Dfrps=true -Dddns=true -Dnftables=true -Dwol=true, \
 			$(PKG_INSTALL_DIR)); \
 	else \
 		$(call BuildVariant, \
 			$(ZIG), \
-			-Duci=true -Dubus=true -Dfrpc=true -Dfrps=true -Dddns=true, \
+			-Duci=true -Dubus=true -Dfrpc=true -Dfrps=true -Dddns=true -Dnftables=true -Dwol=true, \
 			$(PKG_INSTALL_DIR)); \
 	fi
 endef
