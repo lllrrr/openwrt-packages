@@ -1,0 +1,67 @@
+<%#
+	frps 公共顶部 tab 栏（自带样式，不依赖主题 cbi-tabmenu）。
+	LuCI 24+ ucode 重写后，dsp.node() 不可用，所以硬编码 tab 列表，
+	当前 tab 通过 PATH_INFO 解析。
+%>
+<%
+local http = require "luci.http"
+local dsp  = require "luci.dispatcher"
+local pi   = http.getenv("PATH_INFO") or ""
+local current = pi:match("/admin/services/frps/([^/]+)") or ""
+
+local tabs = {
+	{ name = "common",        title = "设置" },
+	{ name = "instances",     title = "FRPS 实例" },
+	{ name = "configuration", title = "查看 TOML 配置" },
+	{ name = "log",           title = "查看日志" },
+	{ name = "self_update",   title = "检查更新" },
+}
+%>
+<style>
+.fmg-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 2px;
+	list-style: none !important;
+	padding: 0 !important;
+	margin: 0 0 14px 0 !important;
+	border-bottom: 2px solid #e5e7eb;
+}
+.fmg-tabs li {
+	list-style: none !important;
+	display: block;
+	margin: 0 !important;
+	padding: 0 !important;
+}
+.fmg-tabs li a {
+	display: inline-block;
+	padding: 9px 16px;
+	font-size: 13px;
+	color: #5e6795;
+	text-decoration: none !important;
+	border-bottom: 2px solid transparent;
+	margin-bottom: -2px;
+	transition: color .15s, border-color .15s, background-color .15s;
+	border-radius: 4px 4px 0 0;
+}
+.fmg-tabs li a:hover {
+	color: #5e72e4;
+	background-color: #f0f3ff;
+	text-decoration: none !important;
+}
+.fmg-tabs li.fmg-active a {
+	color: #5e72e4;
+	border-bottom-color: #5e72e4;
+	font-weight: 600;
+	background-color: #f0f3ff;
+}
+</style>
+<ul class="fmg-tabs">
+<% for _, t in ipairs(tabs) do %>
+	<% if t.name == current then %>
+	<li class="fmg-active"><a href="<%=dsp.build_url("admin","services","frps",t.name)%>"><%=t.title%></a></li>
+	<% else %>
+	<li><a href="<%=dsp.build_url("admin","services","frps",t.name)%>"><%=t.title%></a></li>
+	<% end %>
+<% end %>
+</ul>

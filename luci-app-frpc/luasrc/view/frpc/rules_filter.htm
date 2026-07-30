@@ -1,0 +1,138 @@
+<%
+local uci = require "luci.model.uci".cursor()
+local servers = {}
+uci:foreach("frpc", "server", function(s)
+	servers[#servers+1] = { s[".name"], s.alias or s[".name"] }
+end)
+%>
+<style>
+.frpc-rules-filter { margin: 8px 0; }
+.frpc-rules-filter select { min-width: 200px; }
+tr.cbi-section-table-row.frpc-hidden { display: none; }
+
+/* 归属服务器列里的 select 控紧凑些 */
+.cbi-section-table select[id$=".server_id"] {
+	width: 130px !important;
+	min-width: 130px !important;
+	max-width: 130px !important;
+}
+
+/* 角色徽章：访客 = 紫色实心，代理 = 灰色边框 */
+.frpc-role-badge {
+	display: inline-block;
+	padding: 2px 10px;
+	border-radius: 10px;
+	font-size: 12px;
+	line-height: 18px;
+	font-weight: 500;
+	white-space: nowrap;
+}
+.frpc-role-badge.visitor { background: #6b46e0; color: #fff; }
+.frpc-role-badge.proxy   { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
+</style>
+<div class="frpc-rules-filter">
+	<label>筛选服务器：</label>
+	<select id="frpc_rule_filter">
+		<option value="">全部</option>
+		<% for _, s in ipairs(servers) do %>
+		<option value="<%=s[1]%>"><%=s[2]%></option>
+		<% end %>
+	</select>
+	<span style="margin-left: 20px;">
+		批量改归属到：
+		<select id="frpc_rule_batch_target">
+			<option value="">-- 选择目标 --</option>
+			<% for _, s in ipairs(servers) do %>
+			<option value="<%=s[1]%>"><%=s[2]%></option>
+			<% end %>
+		</select>
+		<button type="button" id="frpc_rule_batch_apply">应用到勾选行</button>
+	</span>
+</div>
+<script>
+(function() {
+	function applyFilter() {
+		var sel = document.getElementById('frpc_rule_filter');
+		var v = sel.value;
+		var rows = document.querySelectorAll('tr.cbi-section-table-row');
+		rows.forEach(function(tr) {
+			if (!v) { tr.classList.remove('frpc-hidden'); return; }
+			var s = tr.querySelector('select[id$=".server_id"]');
+			var rowServer = s ? s.value : '';
+			if (rowServer === v) tr.classList.remove('frpc-hidden');
+			else tr.classList.add('frpc-hidden');
+		});
+	}
+	document.addEventListener('DOMContentLoaded', function() {
+		var sel = document.getElementById('frpc_rule_filter');
+		if (sel) {
+			sel.addEventListener('change', applyFilter);
+			applyFilter();
+		}
+	});
+})();
+</script>
+<script>
+function rowCheckboxes() {
+	// 给表头补占位 th，避免列错位；titles 行额外放「全选」checkbox
+	var headerRows = document.querySelectorAll(
+		'tr.cbi-section-table-titles, tr.cbi-section-table-descr'
+	);
+	headerRows.forEach(function(tr) {
+		if (tr.querySelector('.frpc-row-check-head')) return;
+		var th = document.createElement('th');
+		th.className = 'cbi-section-table-cell frpc-row-check-head';
+		th.style.width = '32px';
+		th.style.textAlign = 'center';
+		if (tr.classList.contains('cbi-section-table-titles')) {
+			var all = document.createElement('input');
+			all.type = 'checkbox';
+			all.id = 'frpc_check_all';
+			all.title = '全选 / 反选';
+			all.addEventListener('change', function() {
+				document.querySelectorAll('.frpc-row-check').forEach(function(c) {
+					c.checked = all.checked;
+				});
+			});
+			th.appendChild(all);
+		}
+		tr.insertBefore(th, tr.firstChild);
+	});
+	// 给每行加 checkbox td（一次性）
+	var rows = document.querySelectorAll('tr.cbi-section-table-row');
+	rows.forEach(function(tr) {
+		if (tr.querySelector('.frpc-row-check')) return;
+		var sid = tr.id.replace('cbi-frpc-', '');
+		var td = document.createElement('td');
+		td.style.width = '32px';
+		td.style.textAlign = 'center';
+		var cb = document.createElement('input');
+		cb.type = 'checkbox';
+		cb.className = 'frpc-row-check';
+		cb.dataset.sid = sid;
+		td.appendChild(cb);
+		tr.insertBefore(td, tr.firstChild);
+	});
+}
+function applyBatch() {
+	var target = document.getElementById('frpc_rule_batch_target').value;
+	if (!target) { alert('请选择目标服务器'); return; }
+	var checked = Array.from(document.querySelectorAll('.frpc-row-check:checked'));
+	if (checked.length === 0) { alert('请勾选至少一条规则'); return; }
+	var rules = checked.map(function(cb){return cb.dataset.sid;}).join(',');
+	var fd = new FormData();
+	fd.append('rules', rules);
+	fd.append('server', target);
+	fetch('<%=luci.dispatcher.build_url("admin/services/frpc/rule_batch_set_server")%>', {
+		method: 'POST', body: fd, credentials: 'same-origin'
+	}).then(function(r){return r.json();}).then(function(j){
+		alert('已更新 ' + j.count + ' 条规则，刷新页面查看');
+		location.reload();
+	});
+}
+document.addEventListener('DOMContentLoaded', function() {
+	rowCheckboxes();
+	var btn = document.getElementById('frpc_rule_batch_apply');
+	if (btn) btn.addEventListener('click', applyBatch);
+});
+</script>

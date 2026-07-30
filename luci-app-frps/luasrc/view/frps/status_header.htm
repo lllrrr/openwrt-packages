@@ -1,0 +1,157 @@
+<%# Multi-instance frps status header — chips per instance %>
+<style>
+.frps-status-bar { padding: 8px; background: #f5f5f5; border-radius: 4px; margin-bottom: 12px; }
+.frps-status-bar .frps-chip { display: inline-block; padding: 4px 10px; margin: 2px; border-radius: 12px; background: #e0e0e0; font-size: 12px; }
+.frps-chip-on   { background: #c8e6c9; }
+.frps-chip-off  { background: #ffcdd2; }
+.frps-chip-warn { background: #ffe0b2; }
+.frps-ver-badge {
+	display: inline-block;
+	margin-left: 12px;
+	padding: 2px 10px;
+	border-radius: 12px;
+	background: #e5e7eb;
+	color: #374151;
+	font-size: 12px;
+	font-weight: normal;
+	vertical-align: middle;
+	text-decoration: none;
+}
+.frps-ver-badge.has-update {
+	background: #fef3c7;
+	color: #92400e;
+	cursor: pointer;
+	font-weight: 500;
+}
+.frps-ver-badge.has-update:hover { background: #fde68a; }
+</style>
+<fieldset class="cbi-section">
+	<legend><%:Frps 状态%><span id="frps_self_ver_badge" class="frps-ver-badge" style="display:none"></span></legend>
+	<div id="frps_status_bar" class="frps-status-bar">加载中…</div>
+</fieldset>
+<script>
+(function() {
+	function render(data) {
+		var bar = document.getElementById('frps_status_bar');
+		if (!data.global_enabled) {
+			bar.innerHTML = '<b style="color:#999">全局已关闭</b>';
+			return;
+		}
+		if (!data.instances || data.instances.length === 0) {
+			bar.innerHTML = '<i>尚未配置 FRPS 实例</i>';
+			return;
+		}
+		var html = '';
+		data.instances.forEach(function(ins) {
+			var cls;
+			if (!ins.enabled || !ins.running) {
+				cls = 'frps-chip-off';
+			} else if (!ins.web_enabled) {
+				// 进程在跑，但未配置 webServer → 视为运行中（无监控信道）
+				cls = 'frps-chip-on';
+			} else if (ins.web_reachable) {
+				cls = 'frps-chip-on';
+			} else {
+				cls = 'frps-chip-warn';
+			}
+			var parts = [];
+			parts.push(':' + (ins.bindPort || '?'));
+			if (ins.vhostHTTPPort)  parts.push('http:' + ins.vhostHTTPPort);
+			if (ins.vhostHTTPSPort) parts.push('https:' + ins.vhostHTTPSPort);
+			var label = ins.alias + ' · ' + parts.join(' / ');
+			html += '<span class="frps-chip ' + cls + '" title="' +
+				(ins.last_error || '') + '">' + label + '</span>';
+		});
+		bar.innerHTML = html;
+	}
+	function poll() {
+		fetch('<%=luci.dispatcher.build_url("admin/services/frps/status")%>', {credentials:'same-origin'})
+			.then(function(r){return r.json();}).then(render);
+	}
+	var pollTimer = null;
+	function startPoll() {
+		if (pollTimer) return;
+		poll();
+		pollTimer = setInterval(poll, 15000);
+	}
+	function stopPoll() {
+		if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+	}
+	document.addEventListener('DOMContentLoaded', function() {
+		if (!document.hidden) startPoll();
+		document.addEventListener('visibilitychange', function() {
+			if (document.hidden) stopPoll();
+			else startPoll();
+		});
+	});
+
+	// ───── 应用自更新：静默检查 + 菜单红点提示 + 状态横幅版本徽标 ─────
+	function fpsCheckSelfUpdate() {
+		var SELF_UPD_URL = '<%=luci.dispatcher.build_url("admin/services/frps/self_update")%>';
+		try {
+			var cached = sessionStorage.getItem('frps_self_update_check');
+			if (cached) {
+				var c = JSON.parse(cached);
+				if (c && c.ts && (Date.now() - c.ts < 30 * 60 * 1000)) {
+					renderVerBadge(c.installed_version, c.latest_version, c.has_update, SELF_UPD_URL);
+					if (c.has_update) markSelfUpdateMenu(c.latest_version);
+					return;
+				}
+			}
+		} catch (e) { /* ignore */ }
+
+		fetch('<%=luci.dispatcher.build_url("admin/services/frps/self_update_check")%>',
+			{ credentials: 'same-origin' })
+			.then(function(r) { return r.json(); })
+			.then(function(d) {
+				if (!d || !d.ok) return;
+				try {
+					sessionStorage.setItem('frps_self_update_check', JSON.stringify({
+						ts: Date.now(),
+						has_update: !!d.has_update,
+						installed_version: d.installed_version || '',
+						latest_version: d.latest_version || ''
+					}));
+				} catch (e) { /* ignore */ }
+				renderVerBadge(d.installed_version, d.latest_version, d.has_update, SELF_UPD_URL);
+				if (d.has_update) markSelfUpdateMenu(d.latest_version);
+			})
+			.catch(function() { /* 静默 */ });
+	}
+
+	function renderVerBadge(installed, latest, hasUpdate, jumpUrl) {
+		var badge = document.getElementById('frps_self_ver_badge');
+		if (!badge || !installed) return;
+		badge.style.display = '';
+		if (hasUpdate && latest) {
+			badge.textContent = 'v' + installed + ' → v' + latest + ' ⬆';
+			badge.classList.add('has-update');
+			badge.title = '点击查看更新详情';
+			badge.style.cursor = 'pointer';
+			badge.onclick = function() { location.href = jumpUrl; };
+		} else {
+			badge.textContent = 'v' + installed;
+			badge.classList.remove('has-update');
+			badge.title = '当前 luci-app-frps 版本';
+			badge.style.cursor = 'default';
+			badge.onclick = null;
+		}
+	}
+
+	function markSelfUpdateMenu(latestVer) {
+		var links = document.querySelectorAll('a[href*="/admin/services/frps/self_update"]');
+		for (var i = 0; i < links.length; i++) {
+			var a = links[i];
+			if (a.getAttribute('data-fps-dot')) continue;
+			a.setAttribute('data-fps-dot', '1');
+			a.title = '发现新版本 v' + latestVer;
+			var dot = document.createElement('span');
+			dot.textContent = ' 🔴';
+			dot.style.cssText = 'font-size:10px;vertical-align:super;margin-left:2px;';
+			a.appendChild(dot);
+		}
+	}
+
+	document.addEventListener('DOMContentLoaded', fpsCheckSelfUpdate);
+})();
+</script>

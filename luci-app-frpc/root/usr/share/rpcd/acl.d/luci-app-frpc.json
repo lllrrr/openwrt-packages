@@ -1,0 +1,19 @@
+{
+  "luci-app-frpc": {
+    "description": "Grant UCI and backup file access for luci-app-frpc",
+    "read": {
+      "uci": ["frpc"],
+      "file": {
+        "/etc/frpc-backup/*": ["read"],
+        "/usr/share/frp/versions/*": ["read"]
+      }
+    },
+    "write": {
+      "uci": ["frpc"],
+      "file": {
+        "/etc/frpc-backup/*": ["write"],
+        "/usr/bin/frpc": ["write"]
+      }
+    }
+  }
+}

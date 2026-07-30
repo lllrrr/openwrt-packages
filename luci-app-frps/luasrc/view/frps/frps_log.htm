@@ -1,0 +1,87 @@
+<%
+local uci = require "luci.model.uci".cursor()
+local instances = {}
+uci:foreach("frps", "instance", function(s)
+	instances[#instances+1] = { s[".name"], s.alias or s[".name"] }
+end)
+%>
+<fieldset class="cbi-section">
+	<legend><%:frps 日志%></legend>
+	<div style="margin-bottom:8px;">
+		查看：
+		<select id="frps_log_instance">
+			<option value="">默认（首个启用实例）</option>
+			<% for _, s in ipairs(instances) do %>
+			<option value="<%=s[1]%>"><%=s[2]%></option>
+			<% end %>
+		</select>
+		<button type="button" onclick="frpsClearLog()">清空日志</button>
+		<span style="color:#999;font-size:12px;margin-left:10px;">
+			若日志时间显示不对，请安装 zoneinfo-asia 后重启设备
+		</span>
+	</div>
+	<textarea id="log_textarea" rows="25" wrap="off" readonly="readonly"
+		style="width:100%;background:#000;color:#0f0;font-family:monospace"></textarea>
+</fieldset>
+<script>
+(function() {
+	function currentInstance() {
+		return document.getElementById('frps_log_instance').value;
+	}
+	function refresh() {
+		var url = '<%=luci.dispatcher.build_url("admin/services/frps/get_log")%>';
+		var s = currentInstance();
+		if (s) url += '?instance=' + s;
+		fetch(url, {credentials:'same-origin'}).then(function(r){return r.text();}).then(function(t){
+			var ta = document.getElementById('log_textarea');
+			var atBottom = (ta.scrollTop + ta.clientHeight + 20 >= ta.scrollHeight);
+			ta.value = t;
+			if (atBottom) ta.scrollTop = ta.scrollHeight;
+		});
+	}
+	window.frpsClearLog = function() {
+		var url = '<%=luci.dispatcher.build_url("admin/services/frps/clear_log")%>';
+		var s = currentInstance();
+		if (s) url += '?instance=' + s;
+		fetch(url, {method:'POST', credentials:'same-origin'}).then(refresh);
+	};
+	function readUrlInstance() {
+		var q = location.search.replace(/^\?/, '');
+		var pairs = q.split('&');
+		for (var i = 0; i < pairs.length; i++) {
+			var kv = pairs[i].split('=');
+			if (kv[0] === 'instance' && kv[1]) {
+				return decodeURIComponent(kv[1]);
+			}
+		}
+		return null;
+	}
+	var refreshTimer = null;
+	function startRefresh() {
+		if (refreshTimer) return;
+		refresh();
+		refreshTimer = setInterval(refresh, 2000);
+	}
+	function stopRefresh() {
+		if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+	}
+	document.addEventListener('DOMContentLoaded', function() {
+		var sel = document.getElementById('frps_log_instance');
+		var initInstance = readUrlInstance();
+		if (initInstance) {
+			for (var i = 0; i < sel.options.length; i++) {
+				if (sel.options[i].value === initInstance) {
+					sel.value = initInstance;
+					break;
+				}
+			}
+		}
+		if (!document.hidden) startRefresh();
+		document.addEventListener('visibilitychange', function() {
+			if (document.hidden) stopRefresh();
+			else startRefresh();
+		});
+		sel.addEventListener('change', refresh);
+	});
+})();
+</script>

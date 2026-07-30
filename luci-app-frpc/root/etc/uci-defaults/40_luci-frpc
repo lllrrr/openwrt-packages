@@ -1,0 +1,246 @@
+#!/bin/sh
+
+uci -q batch <<-EOF >/dev/null
+	delete ucitrack.@frpc[-1]
+	add ucitrack frpc
+	set ucitrack.@frpc[-1].init=frpc
+	commit ucitrack
+EOF
+
+# === 多实例迁移 v2 ===
+migrate_v2() {
+	local migrated
+	migrated=$(uci -q get frpc.main.migrated_v2)
+	[ "$migrated" = "1" ] && return 0
+
+	# 字段集：从 frpc section 下沉到 server section
+	local SERVER_FIELDS="user serverAddr serverPort natHoleStunServer dnsServer loginFailExit \
+		auth__method auth__token \
+		transport__poolCount transport__protocol \
+		transport__tcpMux transport__tcpMuxKeepaliveInterval \
+		transport__quic__keepalivePeriod transport__quic__maxIdleTimeout transport__quic__maxIncomingStreams \
+		transport__proxyURL \
+		transport__tls__enable transport__tls__disableCustomTLSFirstByte \
+		transport__tls__certFile transport__tls__keyFile transport__tls__trustedCaFile transport__tls__serverName \
+		transport__heartbeatInterval transport__heartbeatTimeout \
+		webServer__addr webServer__port webServer__user webServer__password \
+		enable_logging std_redirect \
+		log__to log__level log__maxDays log__disablePrintColor"
+
+	# 遍历所有 frpc section（防御历史上手动建过多个）
+	local frpc_sections
+	frpc_sections=$(uci -q show frpc | awk -F. '/^frpc\.[^=]+=frpc$/ {print $2}' | awk -F= '{print $1}')
+
+	local frpc_sec
+	for frpc_sec in $frpc_sections; do
+		local target_server
+		target_server=$(uci -q get "frpc.${frpc_sec}.server")
+		[ -z "$target_server" ] && continue
+		[ -z "$(uci -q get frpc.${target_server})" ] && continue
+
+		# 下沉 server 字段：仅当目标为空时复制
+		local f
+		for f in $SERVER_FIELDS; do
+			local v dst
+			dst=$(uci -q get "frpc.${target_server}.${f}")
+			[ -n "$dst" ] && continue
+			v=$(uci -q get "frpc.${frpc_sec}.${f}")
+			[ -z "$v" ] && continue
+			uci set "frpc.${target_server}.${f}=${v}"
+		done
+
+		# 复制实例级字段：enabled / client_file / run_user
+		local ef
+		for ef in enabled client_file run_user; do
+			local dst v
+			dst=$(uci -q get "frpc.${target_server}.${ef}")
+			[ -n "$dst" ] && continue
+			v=$(uci -q get "frpc.${frpc_sec}.${ef}")
+			[ -z "$v" ] && continue
+			uci set "frpc.${target_server}.${ef}=${v}"
+		done
+
+		# 清理已下沉字段（仅清字段，不删 section）
+		for f in $SERVER_FIELDS; do
+			uci -q delete "frpc.${frpc_sec}.${f}" 2>/dev/null
+		done
+	done
+
+	# 默认 server：第一个 enabled=1 的 frpc.server，否则第一个 server
+	local default_server
+	default_server=$(uci -q show frpc | awk -F. '/^frpc\.[^=]+=server$/ {print $2}' | awk -F= '{print $1}' | while read s; do
+		[ "$(uci -q get frpc.${s}.enabled)" = "1" ] && { echo "$s"; break; }
+	done)
+	[ -z "$default_server" ] && default_server=$(uci -q show frpc | awk -F. '/^frpc\.[^=]+=server$/ {print $2; exit}' | awk -F= '{print $1}')
+
+	# 给所有未带 server_id 的 rule 写入归属
+	if [ -n "$default_server" ]; then
+		local rules
+		rules=$(uci -q show frpc | awk -F. '/^frpc\.[^=]+=rule$/ {print $2}' | awk -F= '{print $1}')
+		local r
+		for r in $rules; do
+			[ -n "$(uci -q get frpc.${r}.server_id)" ] && continue
+			uci set "frpc.${r}.server_id=${default_server}"
+		done
+	fi
+
+	# 建立 main 段
+	local main_enabled
+	main_enabled=0
+	for frpc_sec in $frpc_sections; do
+		[ "$(uci -q get frpc.${frpc_sec}.enabled)" = "1" ] && main_enabled=1
+	done
+	uci -q get frpc.main >/dev/null 2>&1 || uci set frpc.main=frpc
+	uci set frpc.main.enabled="${main_enabled}"
+
+	# default_client_file 取首个 frpc section 的 client_file
+	local default_cf
+	default_cf=$(uci -q get frpc.main.default_client_file)
+	if [ -z "$default_cf" ]; then
+		for frpc_sec in $frpc_sections; do
+			local cf
+			cf=$(uci -q get "frpc.${frpc_sec}.client_file")
+			[ -n "$cf" ] && { uci set "frpc.main.default_client_file=${cf}"; break; }
+		done
+		[ -z "$(uci -q get frpc.main.default_client_file)" ] && uci set "frpc.main.default_client_file=/usr/bin/frpc"
+	fi
+
+	# default_run_user
+	local default_ru
+	default_ru=$(uci -q get frpc.main.default_run_user)
+	if [ -z "$default_ru" ]; then
+		for frpc_sec in $frpc_sections; do
+			local ru
+			ru=$(uci -q get "frpc.${frpc_sec}.run_user")
+			[ -n "$ru" ] && { uci set "frpc.main.default_run_user=${ru}"; break; }
+		done
+	fi
+
+	# 哨兵
+	uci set frpc.main.migrated_v2=1
+	uci commit frpc
+
+	logger -t luci-app-frpc "Migration v2 done: ${frpc_sections}"
+}
+
+migrate_v2
+
+# === 匿名 server -> 稳定命名（每次安装/升级都跑，幂等自愈）===
+# 背景：libuci 给匿名 section 自动生成的 cfgXXXXXX 名字依赖 section 在文件中的整体位置，
+# 任何插入/删除/重排（加 rule、加 destination、排序、还原备份重写文件）都会让后续匿名 server
+# 的 cfg-id 整体偏移，rule.server_id 会变成悬空引用，UI 表现为下拉静默 fallback 到第一项。
+#
+# 为什么从一次性 migrate_v3 改成「每次都跑」：v3 用 sentinel 防重，只在首次升级时把当时存在的
+# 匿名 server 转稳定名。但「复制服务器」等路径（已在 controller 修复为稳定命名）历史上仍可能
+# 用 uci add 造出新的匿名 server，sentinel 一旦置位就再也不会清理。改为无条件运行后，只要配置里
+# 还残留任何匿名 server，每次升级都会被收编，从根上保证「配置里永不存在匿名 server」。
+#
+# 注意：此自愈只能修复 server_id 仍能匹配到现存 server 的引用；若漂移已经发生、server_id 指向的
+# cfg-id 已不存在（彻底悬空），无法自动还原归属，需用户在 UI 重新选择（已有「⚠ 未知服务器」提示）。
+heal_anonymous_servers() {
+	# uci -X 强制输出真实内部 name（命名 section 显示原名，匿名 section 显示 cfgXXXXXX）
+	local server_ids
+	server_ids=$(uci -X show frpc 2>/dev/null | awk -F'[.=]' '/=server$/{print $2}')
+
+	local ts
+	ts=$(date +%s)
+	local seq=1
+	local renamed=0
+
+	local sid
+	for sid in $server_ids; do
+		# 命名 section（如 'frps' / 'srv_xxx'）跳过，不动用户已选的稳定名
+		case "$sid" in
+			cfg*) ;;
+			*) continue ;;
+		esac
+
+		# 生成稳定新名；极端兜底防碰撞
+		local new_name="srv_${ts}_${seq}"
+		while [ -n "$(uci -q get frpc.${new_name})" ]; do
+			seq=$((seq + 1))
+			new_name="srv_${ts}_${seq}"
+		done
+
+		# rename section（uci rename 会更新文件里的 section 名）
+		if uci -q rename "frpc.${sid}=${new_name}"; then
+			# 同步所有 rule 的 server_id：旧 cfgXXXXXX -> 新 srv_xxx
+			local rule_ids r
+			rule_ids=$(uci -X show frpc 2>/dev/null | awk -F'[.=]' '/=rule$/{print $2}')
+			for r in $rule_ids; do
+				local cur
+				cur=$(uci -q get "frpc.${r}.server_id")
+				if [ "$cur" = "$sid" ]; then
+					uci set "frpc.${r}.server_id=${new_name}"
+				fi
+			done
+			renamed=$((renamed + 1))
+			logger -t luci-app-frpc "heal_anonymous_servers: server ${sid} -> ${new_name}"
+		fi
+
+		seq=$((seq + 1))
+	done
+
+	# 旧的 migrated_v3 sentinel 留着无害（本函数已不再依赖它），不再清理以免产生未提交变更
+	[ "$renamed" -gt 0 ] && uci commit frpc
+	[ "$renamed" -gt 0 ] && logger -t luci-app-frpc "heal_anonymous_servers done: ${renamed} anonymous server(s) renamed to stable IDs"
+}
+
+heal_anonymous_servers
+
+# 每次包安装/升级跑一次自愈：清掉指向不存在文件的 client_file 字段，
+# 避免「程序管理切到某版本后该目录被外部清理」导致服务起不来。
+heal_client_paths() {
+	local fallback="/usr/bin/frpc"
+	local changed=0
+
+	local default
+	default=$(uci -q get frpc.main.default_client_file)
+	if [ -z "$default" ] || [ ! -x "$default" ]; then
+		uci set frpc.main.default_client_file="$fallback"
+		logger -t luci-app-frpc "heal: main.default_client_file → $fallback (was: $default)"
+		changed=1
+	fi
+
+	# main.client_file 是历史遗留字段（main 全局节不该有 client_file），直接清掉
+	if [ -n "$(uci -q get frpc.main.client_file)" ]; then
+		uci -q delete frpc.main.client_file
+		logger -t luci-app-frpc "heal: removed legacy main.client_file"
+		changed=1
+	fi
+
+	# 每个 server.client_file：失效则删除（让 init.d 走 fallback 链）
+	local sid cf
+	for sid in $(uci -q show frpc | awk -F'[.=]' '/=server$/{print $2}'); do
+		cf=$(uci -q get "frpc.${sid}.client_file")
+		if [ -n "$cf" ] && [ ! -x "$cf" ]; then
+			uci -q delete "frpc.${sid}.client_file"
+			logger -t luci-app-frpc "heal: ${sid}.client_file removed (was: $cf, not executable)"
+			changed=1
+		fi
+	done
+
+	[ "$changed" = "1" ] && uci commit frpc
+}
+
+heal_client_paths
+
+rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
+
+# === 备份/还原：兜底创建本地默认 destination ===
+if ! uci -q get frpc.local_default >/dev/null 2>&1; then
+    uci -q batch <<EOF
+set frpc.local_default=destination
+set frpc.local_default.type=local
+set frpc.local_default.name=本地存储
+set frpc.local_default.path=/etc/frpc-backup
+set frpc.local_default.enabled=1
+commit frpc
+EOF
+fi
+
+# 兜底创建备份目录
+mkdir -p /etc/frpc-backup/.auto-snapshots
+chmod 0750 /etc/frpc-backup
+
+exit 0

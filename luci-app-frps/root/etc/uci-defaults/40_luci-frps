@@ -1,0 +1,224 @@
+#!/bin/sh
+
+uci -q batch <<-EOF >/dev/null
+	delete ucitrack.@frps[-1]
+	add ucitrack frps
+	set ucitrack.@frps[-1].init=frps
+	commit ucitrack
+EOF
+
+# === 多实例迁移 v2 ===
+# 旧 schema: config frps 'main' 单 section，所有字段堆在 main
+# 新 schema: config frps 'main'（仅全局字段） + 多个 config instance 'xxx'
+migrate_v2() {
+	local migrated
+	migrated=$(uci -q get frps.main.migrated_v2)
+	[ "$migrated" = "1" ] && return 0
+
+	# 实例级字段：从 main 下沉到新建 instance section
+	local INSTANCE_FIELDS="
+		bindAddr bindPort proxyBindAddr
+		auth__method auth__token
+		transport__tcpMux transport__tcpMuxKeepaliveInterval
+		kcpBindPort quicBindPort vhostHTTPPort vhostHTTPSPort
+		transport__maxPoolCount maxPortsPerClient transport__heartbeatTimeout
+		subDomainHost allowPorts
+		transport__tls__force transport__tls__certFile transport__tls__keyFile transport__tls__trustedCaFile
+		webServer__addr webServer__port webServer__user webServer__password
+		webServer__tls__certFile webServer__tls__keyFile
+		enable_logging std_redirect
+		log__to log__level log__maxDays log__disablePrintColor
+		set_firewall tcp_ports udp_ports
+	"
+	# 实例级 list 字段
+	local INSTANCE_LIST_FIELDS="extra_setting"
+	# 实例级独立字段
+	local INSTANCE_ATTRS="client_file run_user enabled"
+
+	# 探测旧 main 中是否存在实例级字段，决定是否需要迁移
+	local need_migrate=0
+	local f
+	for f in $INSTANCE_FIELDS $INSTANCE_LIST_FIELDS bindPort auth__token; do
+		[ -n "$(uci -q get frps.main.${f})" ] && need_migrate=1
+	done
+
+	# 记录旧 main 上的全局相关字段（迁移完后还要写回 main）
+	local main_enabled main_cf main_ru
+	main_enabled=$(uci -q get frps.main.enabled)
+	main_cf=$(uci -q get frps.main.client_file)
+	main_ru=$(uci -q get frps.main.run_user)
+
+	if [ "$need_migrate" = "1" ]; then
+		# 新建稳定可读的 instance section
+		local new_sid="frps_default"
+		if [ -z "$(uci -q get frps.${new_sid})" ]; then
+			uci set frps.${new_sid}=instance
+		fi
+		uci set frps.${new_sid}.alias="默认实例"
+
+		# 下沉普通字段（仅当目标为空时复制）
+		for f in $INSTANCE_FIELDS; do
+			local v dst
+			dst=$(uci -q get "frps.${new_sid}.${f}")
+			[ -n "$dst" ] && continue
+			v=$(uci -q get "frps.main.${f}")
+			[ -z "$v" ] && continue
+			uci set "frps.${new_sid}.${f}=${v}"
+		done
+
+		# 下沉 list 字段（extra_setting）
+		for f in $INSTANCE_LIST_FIELDS; do
+			local existing
+			existing=$(uci -q show "frps.${new_sid}.${f}" 2>/dev/null)
+			[ -n "$existing" ] && continue
+			# 解析 uci show 输出的多行 list（每行一项，已带引号）
+			uci -q show "frps.main.${f}" 2>/dev/null | \
+				sed -n "s/^frps\.main\.${f}=//p" | \
+				sed "s/^'//;s/'\$//" | \
+			while IFS= read -r line; do
+				[ -z "$line" ] && continue
+				uci add_list "frps.${new_sid}.${f}=${line}" 2>/dev/null
+			done
+		done
+
+		# 下沉实例级独立字段
+		local ef
+		for ef in $INSTANCE_ATTRS; do
+			local v dst
+			dst=$(uci -q get "frps.${new_sid}.${ef}")
+			[ -n "$dst" ] && continue
+			v=$(uci -q get "frps.main.${ef}")
+			[ -z "$v" ] && continue
+			uci set "frps.${new_sid}.${ef}=${v}"
+		done
+
+		# 清理 main 中已下沉的字段（仅清字段，不删 section）
+		for f in $INSTANCE_FIELDS $INSTANCE_LIST_FIELDS $INSTANCE_ATTRS; do
+			uci -q delete "frps.main.${f}" 2>/dev/null
+		done
+
+		logger -t luci-app-frps "Migration v2: moved instance fields into frps.${new_sid}"
+	fi
+
+	# 写回全局字段
+	if [ -z "$(uci -q get frps.main.enabled)" ]; then
+		uci set frps.main.enabled="${main_enabled:-1}"
+	fi
+	if [ -z "$(uci -q get frps.main.default_client_file)" ]; then
+		uci set frps.main.default_client_file="${main_cf:-/usr/bin/frps}"
+	fi
+	if [ -z "$(uci -q get frps.main.default_run_user)" ] && [ -n "$main_ru" ]; then
+		uci set frps.main.default_run_user="${main_ru}"
+	fi
+	if [ -z "$(uci -q get frps.main.download_mirror)" ]; then
+		uci set frps.main.download_mirror=""
+	fi
+
+	# 哨兵
+	uci set frps.main.migrated_v2=1
+	uci commit frps
+
+	# 清理旧防火墙规则（新版改为 frps_<sid>_t_auto / frps_<sid>_u_auto）
+	local fw_changed=0
+	if [ -n "$(uci -q show firewall.frps_t_auto 2>/dev/null)" ]; then
+		uci -q delete firewall.frps_t_auto
+		fw_changed=1
+	fi
+	if [ -n "$(uci -q show firewall.frps_u_auto 2>/dev/null)" ]; then
+		uci -q delete firewall.frps_u_auto
+		fw_changed=1
+	fi
+	if [ "$fw_changed" = "1" ]; then
+		uci commit firewall
+		/etc/init.d/firewall reload >/dev/null 2>&1
+		logger -t luci-app-frps "Migration v2: removed legacy firewall rules frps_t_auto / frps_u_auto"
+	fi
+}
+
+migrate_v2
+
+# 每次包安装/升级跑一次自愈：清掉指向不存在文件的 client_file 字段，
+# 避免「程序管理切到某版本后该目录被外部清理」导致服务起不来。
+heal_client_paths() {
+	local fallback="/usr/bin/frps"
+	local changed=0
+
+	local default
+	default=$(uci -q get frps.main.default_client_file)
+	if [ -z "$default" ] || [ ! -x "$default" ]; then
+		uci set frps.main.default_client_file="$fallback"
+		logger -t luci-app-frps "heal: main.default_client_file → $fallback (was: $default)"
+		changed=1
+	fi
+
+	# main.client_file 是历史遗留字段，直接清掉
+	if [ -n "$(uci -q get frps.main.client_file)" ]; then
+		uci -q delete frps.main.client_file
+		logger -t luci-app-frps "heal: removed legacy main.client_file"
+		changed=1
+	fi
+
+	# 每个 instance.client_file：失效则删除（让 init.d 走 fallback 链）
+	local sid cf
+	for sid in $(uci -q show frps | awk -F'[.=]' '/=instance$/{print $2}'); do
+		cf=$(uci -q get "frps.${sid}.client_file")
+		if [ -n "$cf" ] && [ ! -x "$cf" ]; then
+			uci -q delete "frps.${sid}.client_file"
+			logger -t luci-app-frps "heal: ${sid}.client_file removed (was: $cf, not executable)"
+			changed=1
+		fi
+	done
+
+	[ "$changed" = "1" ] && uci commit frps
+}
+
+heal_client_paths
+
+# === 匿名 instance -> 稳定命名（每次安装/升级都跑，幂等自愈）===
+# 与 frpc 同款思路：libuci 匿名 cfgXXXXXX 名字依赖 section 在文件中的位置，任何排序/增删/还原
+# 都会让它漂移。frps instance 不被任何 UCI 外键引用（不会像 frpc rule.server_id 那样悬空丢数据），
+# 但漂移会让 toml 文件名 frps.<name>.toml、防火墙规则 frps_<sid>_*_auto 跟着变，遗留孤儿规则。
+# 收编所有匿名 instance 为稳定 ins_<ts>_<seq>，保证配置里永不残留匿名 instance。
+heal_anonymous_instances() {
+	local ins_ids
+	ins_ids=$(uci -X show frps 2>/dev/null | awk -F'[.=]' '/=instance$/{print $2}')
+
+	local ts
+	ts=$(date +%s)
+	local seq=1
+	local renamed=0
+
+	local sid
+	for sid in $ins_ids; do
+		# 命名 section（如 'frps_default' / 'ins_xxx'）跳过
+		case "$sid" in
+			cfg*) ;;
+			*) continue ;;
+		esac
+
+		local new_name="ins_${ts}_${seq}"
+		while [ -n "$(uci -q get frps.${new_name})" ]; do
+			seq=$((seq + 1))
+			new_name="ins_${ts}_${seq}"
+		done
+
+		if uci -q rename "frps.${sid}=${new_name}"; then
+			renamed=$((renamed + 1))
+			logger -t luci-app-frps "heal_anonymous_instances: instance ${sid} -> ${new_name}"
+		fi
+
+		seq=$((seq + 1))
+	done
+
+	if [ "$renamed" -gt 0 ]; then
+		uci commit frps
+		logger -t luci-app-frps "heal_anonymous_instances done: ${renamed} anonymous instance(s) renamed; reloading"
+		# 重建 toml / 防火墙等运行时产物，清掉旧名残留
+		/etc/init.d/frps enabled 2>/dev/null && /etc/init.d/frps reload >/dev/null 2>&1
+	fi
+}
+
+heal_anonymous_instances
+
+rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
+exit 0

@@ -1,0 +1,226 @@
+<%# Frps 实例列表轮询 + 操作菜单 + 顶部 bulk actions %>
+<style>
+.frps-bulk-actions { float: right; display: inline-flex; gap: 8px; margin-top: 4px; }
+.frps-bulk-actions button { cursor: pointer; }
+.frps-bulk-actions button:disabled { cursor: wait; opacity: 0.6; }
+</style>
+<style>
+.frps-status-dot { font-size: 18px; vertical-align: middle; margin-right: 4px; }
+.frps-status-running { color: #4caf50; }
+.frps-status-warning { color: #ff9800; }
+.frps-status-stopped { color: #f44336; }
+.frps-status-unknown { color: #9e9e9e; }
+.frps-portinfo { font-size: 12px; color: #666; margin-right: 8px; }
+.frps-actions { display: inline-block; position: relative; }
+.frps-action-menu { position: absolute; top: 100%; right: 0; background: #fff; border: 1px solid #ccc; min-width: 120px; z-index: 100; box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
+.frps-action-menu a { display: block; padding: 6px 12px; text-decoration: none; color: #333; }
+.frps-action-menu a:hover { background: #f0f0f0; }
+.frps-action-menu a.frps-disabled { color: #aaa; pointer-events: none; }
+</style>
+<style>
+#frps_toast_container { position: fixed; top: 16px; right: 16px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.frps-toast { min-width: 220px; max-width: 360px; padding: 10px 14px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-size: 13px; color: #fff; opacity: 0; transform: translateX(20px); transition: opacity 0.2s, transform 0.2s; pointer-events: auto; }
+.frps-toast.show { opacity: 1; transform: translateX(0); }
+.frps-toast-ok   { background: #4caf50; }
+.frps-toast-err  { background: #f44336; }
+.frps-toast-info { background: #607d8b; }
+</style>
+<script>
+function frpsPortInfo(ins) {
+	var parts = [];
+	parts.push(':' + (ins.bindPort || '?'));
+	if (ins.vhostHTTPPort)  parts.push('http:' + ins.vhostHTTPPort);
+	if (ins.vhostHTTPSPort) parts.push('https:' + ins.vhostHTTPSPort);
+	if (ins.kcpBindPort)    parts.push('kcp:' + ins.kcpBindPort);
+	if (ins.quicBindPort)   parts.push('quic:' + ins.quicBindPort);
+	return parts.join(' / ');
+}
+function frpsToast(msg, type) {
+	var c = document.getElementById('frps_toast_container');
+	if (!c) {
+		c = document.createElement('div');
+		c.id = 'frps_toast_container';
+		document.body.appendChild(c);
+	}
+	var t = document.createElement('div');
+	t.className = 'frps-toast frps-toast-' + (type || 'info');
+	t.textContent = msg;
+	c.appendChild(t);
+	requestAnimationFrame(function(){ t.classList.add('show'); });
+	setTimeout(function() {
+		t.classList.remove('show');
+		setTimeout(function(){ t.remove(); }, 250);
+	}, 2800);
+}
+function frpsToggleMenu(sid) {
+	var m = document.getElementById('frps_menu_' + sid);
+	if (!m) return;
+	document.querySelectorAll('.frps-action-menu').forEach(function(el){
+		if (el !== m) el.style.display = 'none';
+	});
+	m.style.display = (m.style.display === 'none') ? 'block' : 'none';
+}
+function frpsAction(sid, op) {
+	var fd = new FormData();
+	fd.append('instance', sid);
+	fd.append('op', op);
+	var opLabel = { start: '启动', stop: '停止', restart: '重启' }[op] || op;
+	frpsToast(opLabel + ' ' + sid + ' …', 'info');
+	fetch('<%=luci.dispatcher.build_url("admin/services/frps/instance_action")%>', {
+		method: 'POST', body: fd, credentials: 'same-origin'
+	}).then(function(r){ return r.json(); }).then(function(j){
+		if (j && j.code === 0) {
+			frpsToast(opLabel + ' ' + sid + ' 成功', 'ok');
+		} else {
+			frpsToast(opLabel + ' ' + sid + ' 失败：' + ((j && j.message) || '未知错误'), 'err');
+		}
+		setTimeout(frpsRefreshStatus, 800);
+	}).catch(function(e){
+		frpsToast(opLabel + ' ' + sid + ' 请求失败：' + e, 'err');
+	});
+}
+function frpsOpenAdmin(sid) {
+	fetch('<%=luci.dispatcher.build_url("admin/services/frps/instance_admin_url")%>?instance=' + sid, {
+		credentials: 'same-origin'
+	}).then(function(r){return r.json();}).then(function(j){
+		if (j.url) window.open(j.url, '_blank');
+		else frpsToast(j.message || 'Admin URL 不可用，请在实例编辑页配置 webServer 端口/用户名/密码', 'err');
+	});
+}
+function frpsRefreshStatus() {
+	fetch('<%=luci.dispatcher.build_url("admin/services/frps/status")%>', {credentials:'same-origin'})
+		.then(function(r){return r.json();})
+		.then(function(j){
+			(j.instances || []).forEach(function(ins) {
+				var dot = document.getElementById('frps_dot_' + ins.name);
+				var px  = document.getElementById('frps_ports_' + ins.name);
+				if (dot) {
+					var cls, title;
+					if (!ins.running) {
+						cls = 'frps-status-stopped';
+						title = '已停止';
+					} else if (!ins.web_enabled) {
+						cls = 'frps-status-running';
+						title = '运行中（未启用 webServer 监控）';
+					} else if (ins.web_reachable) {
+						cls = 'frps-status-running';
+						title = '运行中（webServer 可达）';
+					} else {
+						cls = 'frps-status-warning';
+						title = '运行中（webServer 不可达）';
+					}
+					dot.className = 'frps-status-dot ' + cls;
+					dot.title = title;
+				}
+				if (px) px.textContent = frpsPortInfo(ins);
+				var menu = document.getElementById('frps_menu_' + ins.name);
+				if (menu) {
+					menu.querySelectorAll('a[data-show-when]').forEach(function(a) {
+						var when = a.dataset.showWhen;
+						var show = (when === 'running' && ins.running)
+							|| (when === 'stopped' && !ins.running)
+							|| (when === 'reachable' && ins.web_reachable);
+						a.style.display = show ? '' : 'none';
+					});
+				}
+			});
+		});
+}
+async function frpsRestartAll() {
+	var btn = document.getElementById('frps_btn_restart_all');
+	if (btn) btn.disabled = true;
+	try {
+		var resp = await fetch('<%=luci.dispatcher.build_url("admin/services/frps/status")%>',
+			{ credentials: 'same-origin' });
+		var data = await resp.json();
+		var instances = (data.instances || []).filter(function(i){ return i.enabled; });
+		if (instances.length === 0) {
+			frpsToast('没有启用的实例可重启', 'info');
+			return;
+		}
+		frpsToast('开始重启 ' + instances.length + ' 个实例…', 'info');
+		var okCount = 0, errCount = 0;
+		for (var i = 0; i < instances.length; i++) {
+			var ins = instances[i];
+			var fd = new FormData();
+			fd.append('instance', ins.name);
+			fd.append('op', 'restart');
+			try {
+				var r = await fetch('<%=luci.dispatcher.build_url("admin/services/frps/instance_action")%>',
+					{ method: 'POST', body: fd, credentials: 'same-origin' });
+				var j = await r.json();
+				if (j && j.code === 0) {
+					okCount++;
+					frpsToast('已重启 ' + ins.alias, 'ok');
+				} else {
+					errCount++;
+					frpsToast(ins.alias + ' 重启失败：' + ((j && j.message) || 'unknown'), 'err');
+				}
+			} catch (e) {
+				errCount++;
+				frpsToast(ins.alias + ' 请求失败：' + e, 'err');
+			}
+		}
+		frpsToast('全部重启完成：成功 ' + okCount + '，失败 ' + errCount,
+			errCount > 0 ? 'err' : 'ok');
+	} finally {
+		if (btn) btn.disabled = false;
+		setTimeout(frpsRefreshStatus, 800);
+	}
+}
+function frpsReloadAll() {
+	var btn = document.getElementById('frps_btn_reload_all');
+	if (btn) btn.disabled = true;
+	frpsToast('全局重载中…', 'info');
+	fetch('<%=luci.dispatcher.build_url("admin/services/frps/reload")%>',
+		{ method: 'POST', credentials: 'same-origin' })
+		.then(function(r){ return r.json(); })
+		.then(function(j){
+			if (j && j.code === 0) frpsToast('全局重载成功', 'ok');
+			else frpsToast('全局重载失败（code ' + (j && j.code) + '）', 'err');
+		})
+		.catch(function(e){ frpsToast('请求失败：' + e, 'err'); })
+		.finally(function(){
+			if (btn) btn.disabled = false;
+			setTimeout(frpsRefreshStatus, 800);
+		});
+}
+function frpsInjectBulkActions() {
+	if (document.getElementById('frps_btn_restart_all')) return;
+	var anchor = document.querySelector('.cbi-map > h2')
+		|| document.querySelector('h2[name="content"]')
+		|| document.querySelector('fieldset.cbi-section legend');
+	if (!anchor) return;
+	var bar = document.createElement('div');
+	bar.className = 'frps-bulk-actions';
+	bar.innerHTML =
+		'<button type="button" id="frps_btn_restart_all" class="cbi-button cbi-button-apply">全部重启</button>' +
+		'<button type="button" id="frps_btn_reload_all" class="cbi-button cbi-button-reload">全部重载</button>';
+	anchor.appendChild(bar);
+	document.getElementById('frps_btn_restart_all').addEventListener('click', frpsRestartAll);
+	document.getElementById('frps_btn_reload_all').addEventListener('click', frpsReloadAll);
+}
+var frpsPollTimer = null;
+var FRPS_POLL_INTERVAL = 15000;
+function frpsStartPoll() {
+	if (frpsPollTimer) return;
+	frpsRefreshStatus();
+	frpsPollTimer = setInterval(frpsRefreshStatus, FRPS_POLL_INTERVAL);
+}
+function frpsStopPoll() {
+	if (frpsPollTimer) { clearInterval(frpsPollTimer); frpsPollTimer = null; }
+}
+document.addEventListener('DOMContentLoaded', function() {
+	frpsInjectBulkActions();
+	if (!document.hidden) frpsStartPoll();
+	document.addEventListener('visibilitychange', function() {
+		if (document.hidden) frpsStopPoll();
+		else frpsStartPoll();
+	});
+	document.addEventListener('click', function(e) {
+		if (!e.target.closest('.frps-actions')) {
+			document.querySelectorAll('.frps-action-menu').forEach(function(el){el.style.display='none';});
+		}
+	});
+});
+</script>

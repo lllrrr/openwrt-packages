@@ -1,0 +1,163 @@
+<style>
+.frpc-status-bar { padding: 8px; background: #f5f5f5; border-radius: 4px; margin-bottom: 12px; }
+.frpc-status-bar .frpc-chip { display: inline-block; padding: 4px 10px; margin: 2px; border-radius: 12px; background: #e0e0e0; font-size: 12px; }
+.frpc-chip-on  { background: #c8e6c9; }
+.frpc-chip-off { background: #ffcdd2; }
+.frpc-chip-warn { background: #ffe0b2; }
+.frpc-ver-badge {
+	display: inline-block;
+	margin-left: 12px;
+	padding: 2px 10px;
+	border-radius: 12px;
+	background: #e5e7eb;
+	color: #374151;
+	font-size: 12px;
+	font-weight: normal;
+	vertical-align: middle;
+	text-decoration: none;
+}
+.frpc-ver-badge.has-update {
+	background: #fef3c7;
+	color: #92400e;
+	cursor: pointer;
+	font-weight: 500;
+}
+.frpc-ver-badge.has-update:hover { background: #fde68a; }
+</style>
+<fieldset class="cbi-section">
+	<legend><%:Frpc 状态%><span id="frpc_self_ver_badge" class="frpc-ver-badge" style="display:none"></span></legend>
+	<div id="frpc_status_bar" class="frpc-status-bar">加载中…</div>
+</fieldset>
+<script>
+(function() {
+	function render(data) {
+		var bar = document.getElementById('frpc_status_bar');
+		if (!data.global_enabled) {
+			bar.innerHTML = '<b style="color:#999">全局已关闭</b>';
+			return;
+		}
+		if (!data.instances || data.instances.length === 0) {
+			bar.innerHTML = '<i>尚未配置服务器</i>';
+			return;
+		}
+		var html = '';
+		data.instances.forEach(function(ins) {
+			// admin 未启用时：仅看进程状态；admin 启用时：黄 = admin 不可达；无 proxy 时跳过 admin 检查
+			var cls;
+			if (!ins.enabled || !ins.running) {
+				cls = 'frpc-chip-off';
+			} else if (!ins.admin_enabled) {
+				cls = 'frpc-chip-on';
+			} else if (ins.proxies_total === 0) {
+				cls = 'frpc-chip-on';
+			} else if (ins.admin_reachable) {
+				cls = 'frpc-chip-on';
+			} else {
+				cls = 'frpc-chip-warn';
+			}
+			// 文案：「alias · 代理 N/M · 访客 X/Y」，无规则时仅显示 alias
+			var parts = [];
+			if (ins.proxies_total > 0) parts.push('代理 ' + ins.proxies_online + '/' + ins.proxies_total);
+			if (ins.visitors_total > 0) parts.push('访客 ' + ins.visitors_active + '/' + ins.visitors_total);
+			var label = ins.alias + (parts.length ? ' · ' + parts.join(' · ') : '');
+			html += '<span class="frpc-chip ' + cls + '" title="' +
+				(ins.last_error || '') + '">' + label + '</span>';
+		});
+		bar.innerHTML = html;
+	}
+	function poll() {
+		fetch('<%=luci.dispatcher.build_url("admin/services/frpc/status")%>', {credentials:'same-origin'})
+			.then(function(r){return r.json();}).then(render);
+	}
+	var pollTimer = null;
+	function startPoll() {
+		if (pollTimer) return;
+		poll();
+		pollTimer = setInterval(poll, 15000);
+	}
+	function stopPoll() {
+		if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+	}
+	document.addEventListener('DOMContentLoaded', function() {
+		if (!document.hidden) startPoll();
+		document.addEventListener('visibilitychange', function() {
+			if (document.hidden) stopPoll();
+			else startPoll();
+		});
+	});
+
+	// ───── 应用自更新：静默检查 + 菜单红点提示 ─────
+	// 进 frpc 状态页时打一次代理（<1s），有新版本就给"检查更新"菜单项贴红点。
+	// 仅检查不弹通知，不打扰用户；每次进页面查一次，便宜可靠。
+	function fpcCheckSelfUpdate() {
+		var SELF_UPD_URL = '<%=luci.dispatcher.build_url("admin/services/frpc/self_update")%>';
+		// sessionStorage 缓存：同一标签页 30 分钟内不重复打代理
+		try {
+			var cached = sessionStorage.getItem('frpc_self_update_check');
+			if (cached) {
+				var c = JSON.parse(cached);
+				if (c && c.ts && (Date.now() - c.ts < 30 * 60 * 1000)) {
+					renderVerBadge(c.installed_version, c.latest_version, c.has_update, SELF_UPD_URL);
+					if (c.has_update) markSelfUpdateMenu(c.latest_version);
+					return;
+				}
+			}
+		} catch (e) { /* ignore */ }
+
+		fetch('<%=luci.dispatcher.build_url("admin/services/frpc/self_update_check")%>',
+			{ credentials: 'same-origin' })
+			.then(function(r) { return r.json(); })
+			.then(function(d) {
+				if (!d || !d.ok) return;
+				try {
+					sessionStorage.setItem('frpc_self_update_check', JSON.stringify({
+						ts: Date.now(),
+						has_update: !!d.has_update,
+						installed_version: d.installed_version || '',
+						latest_version: d.latest_version || ''
+					}));
+				} catch (e) { /* ignore */ }
+				renderVerBadge(d.installed_version, d.latest_version, d.has_update, SELF_UPD_URL);
+				if (d.has_update) markSelfUpdateMenu(d.latest_version);
+			})
+			.catch(function() { /* 静默 */ });
+	}
+
+	// 在 legend 旁边显示版本徽标。有新版本时点击跳转到自更新页。
+	function renderVerBadge(installed, latest, hasUpdate, jumpUrl) {
+		var badge = document.getElementById('frpc_self_ver_badge');
+		if (!badge || !installed) return;
+		badge.style.display = '';
+		if (hasUpdate && latest) {
+			badge.textContent = 'v' + installed + ' → v' + latest + ' ⬆';
+			badge.classList.add('has-update');
+			badge.title = '点击查看更新详情';
+			badge.style.cursor = 'pointer';
+			badge.onclick = function() { location.href = jumpUrl; };
+		} else {
+			badge.textContent = 'v' + installed;
+			badge.classList.remove('has-update');
+			badge.title = '当前 luci-app-frpc 版本';
+			badge.style.cursor = 'default';
+			badge.onclick = null;
+		}
+	}
+
+	function markSelfUpdateMenu(latestVer) {
+		// 在侧栏找名为"检查更新"的 frpc 菜单链接，挂红点
+		var links = document.querySelectorAll('a[href*="/admin/services/frpc/self_update"]');
+		for (var i = 0; i < links.length; i++) {
+			var a = links[i];
+			if (a.getAttribute('data-fpc-dot')) continue;  // 已挂过，避免重复
+			a.setAttribute('data-fpc-dot', '1');
+			a.title = '发现新版本 v' + latestVer;
+			var dot = document.createElement('span');
+			dot.textContent = ' 🔴';
+			dot.style.cssText = 'font-size:10px;vertical-align:super;margin-left:2px;';
+			a.appendChild(dot);
+		}
+	}
+
+	document.addEventListener('DOMContentLoaded', fpcCheckSelfUpdate);
+})();
+</script>
