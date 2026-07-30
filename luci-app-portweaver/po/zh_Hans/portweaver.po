@@ -1,10 +1,10 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: luci-app-portweaver\n"
-"POT-Creation-Date: 2026-06-04 10:34+0800\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
-"Language-Team: LANGUAGE <LL@li.org>\n"
+"POT-Creation-Date: 2026-07-30 15:55+0800\n"
+"PO-Revision-Date: \n"
+"Last-Translator: TranslateGemma\n"
+"Language-Team: \n"
 "Language: zh_CN\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -25,6 +25,9 @@ msgstr "协议"
 
 msgid " to "
 msgstr "到"
+
+msgid "-- Select Target --"
+msgstr "-- 选择目标 --"
 
 msgid "[8080][node1:9888]:80/tcp or 8080:80/tcp"
 msgstr "[8080][node1:9888]:80/tcp 或 8080:80/tcp"
@@ -93,6 +96,9 @@ msgstr "协议不支持该地址系列"
 msgid "Address or port already in use (EADDRINUSE)"
 msgstr "地址或端口已被占用 (EADDRINUSE)"
 
+msgid "Advanced Settings"
+msgstr "高级设置"
+
 msgid "Alert"
 msgstr "警报"
 
@@ -148,13 +154,21 @@ msgid "Close"
 msgstr "关闭"
 
 msgid ""
-"Collect traffic statistics (bytes_in/bytes_out) for application-layer forwarding"
-" using zero-cost atomic counters."
+"Collect traffic statistics (bytes_in/bytes_out) for application-layer "
+"forwarding using zero-cost atomic counters."
 msgstr "使用零成本原子计数器，收集应用层转发的流量统计信息（入站字节数/出站字节数）。"
 
 msgid ""
-"Collect traffic statistics using nftables kernel counters (extremely low overhea"
-"d). Requires nftables backend."
+"Collect traffic statistics using nftables kernel counters (extremely low "
+"overhead). <strong style=\"color: #e74c3c;\">(Disabled: requires nftables "
+"backend enabled in Global Settings)</strong>"
+msgstr ""
+"使用 nftables 内核计数器收集流量统计信息（开销极低）。<strong style=\"color: "
+"#e74c3c;\">（已禁用：需要在全局設置中啟用 nftables 后端）</strong>"
+
+msgid ""
+"Collect traffic statistics using nftables kernel counters (extremely low "
+"overhead). Requires nftables backend."
 msgstr "使用 nftables 内核计数器收集流量统计信息（开销极低）。需要 nftables 后端。"
 
 msgid "Command"
@@ -173,9 +187,9 @@ msgid "Configuration name is required"
 msgstr "必须填写配置名称"
 
 msgid ""
-"Configure port forwarding rules. Listen Port and Target Port support single port"
-" (8080) or port range (8080-8090)."
-msgstr "配置端口转发规则。监听端口和目标端口支持单个端口（8080）或端口范围（8080-8090）。"
+"Configure port forwarding rules. Listen Port and Target Port support single "
+"port (8080) or port range (8080-8090). Drag the handle to reorder mappings."
+msgstr "配置端口转发规则。监听端口和目标端口支持单个端口（例如：8080）或端口范围（8080-8090）。拖动句柄重新排序映射。"
 
 msgid "Confirm"
 msgstr "确认"
@@ -187,14 +201,16 @@ msgid "Connecting"
 msgstr "正在连接"
 
 msgid ""
-"Controls how event loop runtimes are shared among listeners. 'per_project' (defa"
-"ult): one runtime shared by all listeners in this project, balanced resource usa"
-"ge. 'per_listener': each listener gets its own dedicated runtime, highest isolat"
-"ion but uses more memory (one thread per listener). 'global': all projects share"
-" a single global runtime, lowest memory usage but no isolation between projects."
+"Controls how event loop runtimes are shared among listeners. 'per_project' "
+"(default): one runtime shared by all listeners in this project, balanced "
+"resource usage. 'per_listener': each listener gets its own dedicated "
+"runtime, highest isolation but uses more memory (one thread per listener). "
+"'global': all projects share a single global runtime, lowest memory usage "
+"but no isolation between projects."
 msgstr ""
-"控制事件循环运行时如何在监听器之间共享。'per_project'（默认）：所有该项目的监听器共享一个运行时，平衡资源使用。'per_listener'：每个监"
-"听器拥有自己的专用运行时，隔离性最高，但会使用更多内存（每个监听器一个线程）。'global'：所有项目共享单个全局运行时，内存使用量最低，但项目之间没有隔离。"
+"控制事件循环运行时如何在监听器之间共享。'per_project'（默认）：所有该项目的监听器共享一个运行时，平衡资源使用。'per_listener'"
+"：每个监听器拥有自己的专用运行时，隔离性最高，但会使用更多内存（每个监听器一个线程）。'global'：所有项目共享单个全局运行时，内存使用量最低，但项"
+"目之间没有隔离。"
 
 msgid "COPY"
 msgstr "复制"
@@ -277,6 +293,9 @@ msgstr "域名"
 msgid "Download Logs"
 msgstr "下载日志"
 
+msgid "Drag to reorder"
+msgstr "拖动以重新排序"
+
 msgid "Dynamic DNS"
 msgstr "动态 DNS"
 
@@ -326,8 +345,8 @@ msgid "Enable TCP multiplexing for better performance"
 msgstr "启用 TCP 多路复用来提高性能"
 
 msgid ""
-"Enable to configure multiple port mappings or port ranges. Disable for single po"
-"rt mode."
+"Enable to configure multiple port mappings or port ranges. Disable for "
+"single port mode."
 msgstr "启用配置多个端口映射或端口范围。禁用则为单端口模式。"
 
 msgid "Enable Wake-on-LAN"
@@ -384,6 +403,9 @@ msgstr "重启项目失败：%s"
 msgid "Failed to restart service"
 msgstr "重启服务失败"
 
+msgid "Failed to restart service: %s"
+msgstr "重启服务失败：%s"
+
 msgid "Failed to toggle runtime state: %s"
 msgstr " 切换运行时状态失败：%s "
 
@@ -391,13 +413,13 @@ msgid "Fast Reverse Proxy for NAT traversal"
 msgstr "用于 NAT 穿透的快速反向代理"
 
 msgid ""
-"Field name varies by provider: AccessKey ID (Aliyun), ID (DNSPod), API Key (Pork"
-"bun), etc."
+"Field name varies by provider: AccessKey ID (Aliyun), ID (DNSPod), API Key "
+"(Porkbun), etc."
 msgstr "字段名称因提供商而异：访问密钥 ID (阿里云), ID (DNSPod), API 密钥 (Porkbun) 等。"
 
 msgid ""
-"Field name varies by provider: Token (Cloudflare/DNSPod), AccessKey Secret (Aliy"
-"un), Password (Namecheap), etc."
+"Field name varies by provider: Token (Cloudflare/DNSPod), AccessKey Secret "
+"(Aliyun), Password (Namecheap), etc."
 msgstr "字段名称因提供商而异：Token (Cloudflare/DNSPod), 访问密钥 (阿里云), 密码 (Namecheap) 等。"
 
 msgid "FOLLOW: OFF"
@@ -450,6 +472,9 @@ msgstr "FRPS 活动代理"
 
 msgid "FRPS Logs - %s"
 msgstr "FRPS 日志 - %s"
+
+msgid "General Settings"
+msgstr "常规设置"
 
 msgid "Global - lowest memory, no isolation"
 msgstr "全局 - 内存占用最低，无隔离"
@@ -580,6 +605,9 @@ msgstr "MAC 地址"
 msgid "MAC addresses of machines to wake (e.g. AA:BB:CC:DD:EE:FF)."
 msgstr "要唤醒的设备的 MAC 地址（例如：AA:BB:CC:DD:EE:FF）。"
 
+msgid "Mapping order"
+msgstr "映射顺序"
+
 msgid "Max Log Backup Files"
 msgstr "最大日志备份文件数"
 
@@ -604,7 +632,9 @@ msgstr "日志文件轮换前的最大大小（默认：1024 KB = 1MB）"
 msgid "Memory allocation failed"
 msgstr "内存分配失败"
 
-msgid "Minimum interval between successive WoL packets in milliseconds (1000–300000)."
+msgid ""
+"Minimum interval between successive WoL packets in milliseconds "
+"(1000–300000)."
 msgstr "连续 WoL 数据包之间的最小间隔，单位为毫秒（1000–300000）。"
 
 msgid "Multi-Port"
@@ -612,6 +642,9 @@ msgstr "多端口"
 
 msgid "N/A"
 msgstr "N/A"
+
+msgid "Name"
+msgstr "名称"
 
 msgid "Network Interface"
 msgstr "网络接口"
@@ -680,9 +713,9 @@ msgid "Only connections matching these protocol signatures will be forwarded."
 msgstr "只有与这些协议特征匹配的连接才会被转发。"
 
 msgid ""
-"Only TLS connections matching these server names will be forwarded. Supports wil"
-"dcards (e.g. *.example.com). Only effective when TLS is in the allowed protocols"
-" list."
+"Only TLS connections matching these server names will be forwarded. Supports "
+"wildcards (e.g. *.example.com). Only effective when TLS is in the allowed "
+"protocols list."
 msgstr "只有与这些服务器名称匹配的 TLS 连接才会被转发。支持通配符（例如：*.example.com）。仅当 TLS 在允许的协议列表中时有效。"
 
 msgid "Open Firewall Port"
@@ -737,8 +770,8 @@ msgid "Port must be between 1 and 65535"
 msgstr "端口必须在 1 到 65535 之间"
 
 msgid ""
-"Port range or list of ports that clients can use. e.g., '10000-20000' or '8080,8"
-"081,8082'"
+"Port range or list of ports that clients can use. e.g., '10000-20000' or "
+"'8080,8081,8082'"
 msgstr "客户端可以使用的端口范围或端口列表。例如：'10000-20000' 或 '8080,8081,8082'"
 
 msgid "Port ranges must have the same size"
@@ -780,6 +813,9 @@ msgstr "协议"
 msgid "Protocol family not supported"
 msgstr "不支持的协议类型"
 
+msgid "Protocol Filter"
+msgstr "协议过滤器"
+
 msgid "Protocol must be `tcp`, `udp`, or `both`"
 msgstr "协议必须是 `tcp`、`udp` 或 `both`"
 
@@ -790,8 +826,8 @@ msgid "Protocol not supported"
 msgstr "不支持的协议"
 
 msgid ""
-"Protocol signatures that trigger WoL. Select from the list or type custom values"
-"."
+"Protocol signatures that trigger WoL. Select from the list or type custom "
+"values."
 msgstr "触发 WoL 的协议特征。从列表中选择或输入自定义值。"
 
 msgid "Protocol wrong type for socket"
@@ -815,6 +851,9 @@ msgstr "代理统计"
 msgid "Recent Activity"
 msgstr "最近活动"
 
+msgid "Record diagnostic logs when triggering WoL for this target."
+msgstr "当触发此目标的 WoL 时，记录诊断日志。"
+
 msgid "REFRESH"
 msgstr "刷新"
 
@@ -822,8 +861,8 @@ msgid "Regular expression to extract IPv6 address from output"
 msgstr "用于从输出中提取 IPv6 地址的正则表达式"
 
 msgid ""
-"Reject connections whose detected application-layer protocol is not in the allow"
-"ed list."
+"Reject connections whose detected application-layer protocol is not in the "
+"allowed list."
 msgstr "拒绝检测到的应用层协议不在允许列表中的连接。"
 
 msgid "Reload"
@@ -834,6 +873,9 @@ msgstr "重新加载配置"
 
 msgid "Remark"
 msgstr "备注"
+
+msgid "Reset"
+msgstr "重置"
 
 msgid "Restart"
 msgstr "重启"
@@ -856,6 +898,9 @@ msgstr " 运行时状态已更新为：%s "
 msgid "Runtime Status"
 msgstr "运行时状态"
 
+msgid "Save"
+msgstr "保存"
+
 msgid "Save & Reload"
 msgstr "保存并重载"
 
@@ -866,11 +911,16 @@ msgid "Search logs..."
 msgstr "搜索日志..."
 
 msgid ""
-"Select FRP nodes and optionally specify custom ports. Leave port empty to use de"
-"fault."
+"Select FRP nodes and optionally specify custom ports. Leave port empty to "
+"use default."
 msgstr "选择 FRP 节点，并可选择指定自定义端口。如果端口为空，则使用默认端口。"
 
-msgid "Send a magic packet to wake remote machines when the first packet is detected."
+msgid "Select the global Wake-on-LAN target configuration for this project."
+msgstr "为该项目选择全局的 Wake-on-LAN 目标配置。"
+
+msgid ""
+"Send a magic packet to wake remote machines when the first packet is "
+"detected."
 msgstr "当检测到第一个数据包时，发送一个魔法数据包以唤醒远程设备。"
 
 msgid "Server address is required"
@@ -912,6 +962,18 @@ msgstr "系统日志"
 msgid "Target Address"
 msgstr "目标地址"
 
+msgid "Target Name"
+msgstr "目标名称"
+
+msgid "Target name already exists. Please choose a different name."
+msgstr "目标名称已存在。请选择一个不同的名称。"
+
+msgid "Target name is required"
+msgstr "必须输入目标名称"
+
+msgid "Target name must contain only alphanumeric characters, underscore, or hyphen"
+msgstr "目标名称只能包含字母、数字、下划线或连字符"
+
 msgid "Target Port"
 msgstr "目标端口"
 
@@ -938,9 +1000,6 @@ msgstr "此字段为必填项"
 
 msgid "This field is required in single port mode"
 msgstr "在单端口模式下，此字段为必填项"
-
-msgid "Toggle"
-msgstr "切换"
 
 msgid "Total Projects"
 msgstr "项目总数"
@@ -993,6 +1052,9 @@ msgstr "无名称的节点"
 msgid "Unnamed project"
 msgstr "无名称的项目"
 
+msgid "Unnamed target"
+msgstr "Unnamed target"
+
 msgid "Updated: %s"
 msgstr " 已更新：%s "
 
@@ -1009,8 +1071,8 @@ msgid "Use nftables"
 msgstr "使用 nftables"
 
 msgid ""
-"Use nftables instead of OpenWrt firewall (fw4). Requires nftables package instal"
-"led."
+"Use nftables instead of OpenWrt firewall (fw4). Requires nftables package "
+"installed."
 msgstr "使用 nftables 代替 OpenWrt 防火墙 (fw4)。需要安装 nftables 软件包。"
 
 msgid "Use Port Mappings Mode"
@@ -1049,15 +1111,20 @@ msgstr "Webhook URL"
 msgid "WoL Cooldown (ms)"
 msgstr "WoL 冷却时间 (毫秒)"
 
+msgid "WoL error: %s"
+msgstr "WoL 错误：%s"
+
 msgid "WoL failed — check configuration."
 msgstr "WoL 失败 — 请检查配置。"
+
+msgid "WoL packets sent to %s device(s)."
+msgstr "已向 %s 个设备发送 WoL 数据包。"
+
+msgid "WoL Target"
+msgstr "唤醒目标"
 
 msgid "WRAP: OFF"
 msgstr "自动换行：关闭"
 
 msgid "WRAP: ON"
 msgstr "自动换行：开启"
-
-msgid "Collect traffic statistics using nftables kernel counters (extremely low overhead). <strong style=\"color: #e74c3c;\">(Disabled: requires nftables backend enabled in Global Settings)</strong>"
-msgstr "使用 nftables 内核计数器收集流量统计信息（开销极低）。<strong style=\"color: #e74c3c;\">（已禁用：需要在全局設置中啟用 nftables 后端）</strong>"
-

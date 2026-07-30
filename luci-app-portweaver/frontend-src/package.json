@@ -13,12 +13,12 @@
     "format": "biome format --write",
     "lint": "biome lint --write --unsafe",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "i18n:export": "dotenvx run -- luci-types i18n -i ../htdocs --po ../po/zh_Hans/portweaver.po --merge -p luci-app-portweaver --translate --batch-size 20 --prompt translate.md"
+    "i18n:export": "dotenvx run -- luci-types i18n"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.0",
     "@dotenvx/dotenvx": "^1.71.3",
-    "@lazulikao/luci-types": "github:LazuliKao/luci-types",
+    "@lazulikao/luci-types": "github:LazuliKao/luci-types#09f4696dacc262fa114fefdd18a95df1c1c23e64",
     "@rsbuild/core": "^2.0.12",
     "@types/node": "^20.19.43",
     "@types/ssh2": "^1.15.5",

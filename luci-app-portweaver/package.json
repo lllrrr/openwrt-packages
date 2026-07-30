@@ -13,5 +13,8 @@
     "format": "pnpm -r --if-present format",
     "lint": "pnpm -r --if-present lint",
     "i18n:export": "pnpm --filter @portweaver/luci-ui i18n:export"
+  },
+  "overrides": {
+    "typescript": "^6.0.3"
   }
 }
