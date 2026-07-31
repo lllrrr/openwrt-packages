@@ -1,0 +1,78 @@
+{
+    "luci-app-rustdeskd": {
+        "description": "Grant access to RustDesk Server configuration",
+        "read": {
+            "uci": [
+                "rustdeskd"
+            ],
+            "ubus": {
+                "luci.rustdeskd": [
+                    "get_status",
+                    "get_public_key",
+                    "get_version"
+                ],
+                "log": [
+                    "read"
+                ],
+                "file": [
+                    "stat",
+                    "exec"
+                ]
+            },
+            "file": {
+                "/usr/bin/hbbs": [
+                    "read"
+                ],
+                "/usr/bin/hbbr": [
+                    "read"
+                ],
+                "/etc/rustdesk/id_ed25519.pub": [
+                    "read"
+                ],
+                "/etc/rustdesk/*": [
+                    "list"
+                ],
+                "/etc/rc.d/S98rustdeskd": [
+                    "read"
+                ]
+            }
+        },
+        "write": {
+            "uci": [
+                "rustdeskd"
+            ],
+            "ubus": {
+                "luci.rustdeskd": [
+                    "service_action",
+                    "regenerate_key",
+                    "update_core",
+                    "create_backup",
+                    "restore_backup"
+                ]
+            },
+            "cgi-io": [
+                "exec"
+            ],
+            "file": {
+                "/etc/init.d/rustdeskd start": [
+                    "exec"
+                ],
+                "/etc/init.d/rustdeskd stop": [
+                    "exec"
+                ],
+                "/etc/init.d/rustdeskd restart": [
+                    "exec"
+                ],
+                "/etc/init.d/rustdeskd reload": [
+                    "exec"
+                ],
+                "/etc/init.d/rustdeskd enable": [
+                    "exec"
+                ],
+                "/etc/init.d/rustdeskd disable": [
+                    "exec"
+                ]
+            }
+        }
+    }
+}

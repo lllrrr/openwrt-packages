@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# luci-app-rustdeskd UCI defaults
+# This script runs on first install to set up sensible defaults
+
+uci -q batch <<-EOF >/dev/null
+	set rustdeskd.@rustdeskd[0]=rustdeskd
+	set rustdeskd.@rustdeskd[0].enabled='0'
+	set rustdeskd.@rustdeskd[0].enabled_relay='0'
+	commit rustdeskd
+EOF
+
+exit 0

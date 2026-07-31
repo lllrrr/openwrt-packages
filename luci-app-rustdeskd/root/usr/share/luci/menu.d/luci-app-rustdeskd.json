@@ -1,0 +1,18 @@
+{
+    "admin/services/rustdeskd": {
+        "title": "RustDesk Server",
+        "order": 60,
+        "action": {
+            "type": "view",
+            "path": "rustdeskd/general"
+        },
+        "depends": {
+            "acl": [
+                "luci-app-rustdeskd"
+            ],
+            "uci": {
+                "rustdeskd": true
+            }
+        }
+    }
+}

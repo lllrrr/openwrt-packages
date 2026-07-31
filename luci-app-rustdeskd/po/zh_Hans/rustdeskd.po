@@ -1,0 +1,431 @@
+msgid ""
+msgstr ""
+"PO-Revision-Date: 2026-06-05 19:01+0000\n"
+"Last-Translator: 大王叫我来巡山 <hamburger2048@users.noreply.hosted.weblate.org>\n"
+"Language-Team: Chinese (Simplified Han script) <https://hosted.weblate.org/projects/openwrt/luciapplicationsrustdeskd/zh_Hans/>\n"
+"Language: zh_Hans\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"X-Generator: Weblate 2026.6\n"
+
+msgid "ALWAYS_USE_RELAY"
+msgstr "始终使用中继"
+
+msgid "Additional rendezvous servers. Add one server per entry (hostname or hostname:port)"
+msgstr "额外的交会服务器。每行输入一个服务器（主机名或主机名:端口）"
+
+msgid "All existing clients will need to be reconfigured."
+msgstr "所有现有客户端都需要重新配置。"
+
+msgid "Backup & Restore"
+msgstr "备份与恢复"
+
+msgid "Backup Data"
+msgstr "数据备份"
+
+msgid "Backup downloaded successfully"
+msgstr "备份下载成功"
+
+msgid "Backup restored successfully. Service restarted."
+msgstr "备份恢复成功，服务已重启。"
+
+msgid "Bandwidth limit per single connection in MB/s (0 = default)"
+msgstr "单条连接的带宽限制，单位 MB/s（0 为默认）"
+
+msgid "Binary"
+msgstr "可执行文件"
+
+msgid "Cannot regenerate: No public key exists yet."
+msgstr "无法重新生成：尚不存在公钥。"
+
+msgid "Cannot start service: Enable the ID Server or Relay Server in the configuration first."
+msgstr "无法启动服务：请先在配置中启用 ID 服务器或中继服务器。"
+
+msgid "Check \"Enable ID Server\" or \"Enable Relay Server\" below and click \"Save & Apply\"."
+msgstr "请在下方的配置中勾选“启用 ID 服务器”或“启用中继服务器”，然后点击“保存并应用”。"
+
+msgid "Client"
+msgstr "客户端"
+
+msgid "Collecting data..."
+msgstr "正在收集数据..."
+
+msgid "Component"
+msgstr "组件"
+
+msgid "Configure in Network → Firewall → Traffic Rules."
+msgstr "请在“网络 → 防火墙 → 通信规则”中进行配置。"
+
+msgid "Continue?"
+msgstr "确认继续？"
+
+msgid "Copied to clipboard"
+msgstr "已复制到剪贴板"
+
+msgid "Copy"
+msgstr "复制"
+
+msgid "Core Management"
+msgstr "核心管理"
+
+msgid "Core downloaded and installed successfully!"
+msgstr "核心下载并安装成功！"
+
+msgid "Creating Backup..."
+msgstr "正在创建备份..."
+
+msgid "DOWNGRADE_START_CHECK"
+msgstr "降级检测启动时间"
+
+msgid "DOWNGRADE_THRESHOLD"
+msgstr "降级阈值"
+
+msgid "Debug"
+msgstr "调试"
+
+msgid "Default"
+msgstr "默认"
+
+msgid "Default relay servers. Add one server per entry (hostname or hostname:port)"
+msgstr "默认中继服务器。每行输入一个服务器（主机名或主机名:端口）"
+
+msgid "Determine if the connection comes from LAN. Use CIDR notation."
+msgstr "判断连接是否来自局域网。使用 CIDR 格式（如 192.168.1.0/24）。"
+
+msgid "Disable"
+msgstr "禁用"
+
+msgid "Disabled"
+msgstr "已禁用"
+
+msgid "Download / Update Core"
+msgstr "下载 / 更新核心"
+
+msgid "Download Backup"
+msgstr "下载备份"
+
+msgid "Download an archive containing your RustDesk public/private keys, device lists, address books, and configurations."
+msgstr "下载包含您的 RustDesk 公钥/私钥、设备列表、地址簿及相关配置的归档文件。"
+
+msgid "Download and install the official RustDesk server core binaries for your OpenWrt architecture."
+msgstr "为您当前的 OpenWrt 架构下载并安装官方 RustDesk 服务器核心文件。"
+
+msgid "Downloading..."
+msgstr "正在下载..."
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "Enable ID Server or Relay Server first"
+msgstr "请先启用 ID 服务器或中继服务器"
+
+msgid "Enable ID Server or Relay Server in Configuration first"
+msgstr "请先在“配置”中启用 ID 服务器或中继服务器"
+
+msgid "Enabled"
+msgstr "已启用"
+
+msgid "Error"
+msgstr "错误"
+
+msgid "Error: "
+msgstr "错误："
+
+msgid "Failed to create backup"
+msgstr "创建备份失败"
+
+msgid "Failed to execute update: "
+msgstr "执行更新失败："
+
+msgid "Failed to read file"
+msgstr "读取文件失败"
+
+msgid "Failed to restart service: "
+msgstr "重启服务失败："
+
+msgid "Failed to restore backup: "
+msgstr "恢复备份失败："
+
+msgid "Failed to start service: "
+msgstr "启动服务失败："
+
+msgid "Failed to stop service: "
+msgstr "停止服务失败："
+
+msgid "Failed to update core: "
+msgstr "更新核心失败："
+
+msgid "Failed: "
+msgstr "失败："
+
+msgid "Firewall Configuration Required"
+msgstr "需要配置防火墙"
+
+msgid "Force all connections to use relay servers"
+msgstr "强制所有连接使用中继服务器"
+
+msgid "Found"
+msgstr "已找到"
+
+msgid "General"
+msgstr "常规"
+
+msgid "Grant access to RustDesk Server configuration"
+msgstr "授予 RustDesk 服务器配置的访问权限"
+
+msgid "HBBR (Relay Server)"
+msgstr "HBBR (中继服务器)"
+
+msgid "HBBS (ID Server)"
+msgstr "HBBS (ID/注册服务器)"
+
+msgid "ID Server (hbbs)"
+msgstr "ID 服务器 (hbbs)"
+
+msgid "Info"
+msgstr "信息"
+
+msgid "Invalid characters detected"
+msgstr "检测到无效字符"
+
+msgid "Invalid characters."
+msgstr "无效字符。"
+
+msgid "Key (-k, --key)"
+msgstr "秘钥 (-k, --key)"
+
+msgid "Key regeneration failed: "
+msgstr "重新生成秘钥失败："
+
+msgid "Keys deleted. Starting service to generate new keys..."
+msgstr "秘钥已删除。正在启动服务以生成新秘钥..."
+
+msgid "LAN Mask (--mask)"
+msgstr "局域网掩码 (--mask)"
+
+msgid "LIMIT_SPEED"
+msgstr "限速"
+
+msgid "Loading..."
+msgstr "正在加载..."
+
+msgid "Log"
+msgstr "日志"
+
+msgid "Logging level for the ID server"
+msgstr "ID 服务器的日志级别"
+
+msgid "Logging level for the relay server"
+msgstr "中继服务器的日志级别"
+
+msgid "No"
+msgstr "不"
+
+msgid "Not Found"
+msgstr "未找到"
+
+msgid "Not generated yet"
+msgstr "尚未生成"
+
+msgid "Only allow clients with the same key. If empty, uses auto-generated key"
+msgstr "仅允许拥有相同秘钥的客户端。如果为空，则使用自动生成的秘钥"
+
+msgid "Only alphanumeric and base64 characters (+/=) allowed."
+msgstr "仅允许字母数字和 base64 字符 (+/=)。"
+
+msgid "Please select a backup file first"
+msgstr "请先选择一个备份文件"
+
+msgid "Port (-p, --port)"
+msgstr "端口 (-p, --port)"
+
+msgid "Processing..."
+msgstr "正在处理..."
+
+msgid "Public Key"
+msgstr "公钥"
+
+msgid "RUST_LOG"
+msgstr "Rust 日志级别 (RUST_LOG)"
+
+msgid "Regenerate Key"
+msgstr "重新生成秘钥"
+
+msgid "Regenerate the key pair (requires existing key)"
+msgstr "重新生成密钥对（需要现有的秘钥）"
+
+msgid "Regenerate the key pair (will restart service)"
+msgstr "重新生成密钥对（将重启服务）"
+
+msgid "Regenerating..."
+msgstr "正在重新生成..."
+
+msgid "Relay Server (hbbr)"
+msgstr "中继服务器 (hbbr)"
+
+msgid "Relay Servers (-r, --relay-servers)"
+msgstr "中继服务器 (-r, --relay-servers)"
+
+msgid "Remote Desktop Software Server configuration."
+msgstr "远程桌面软件服务器配置。"
+
+msgid "Rendezvous Servers (-R, --rendezvous-servers)"
+msgstr "交会服务器 (-R, --rendezvous-servers)"
+
+msgid "Required ports (when using default settings): TCP 21115-21119, UDP 21116."
+msgstr "默认所需端口：TCP 21115-21119，UDP 21116。"
+
+msgid "Restart"
+msgstr "重启"
+
+msgid "Restore Backup"
+msgstr "恢复备份"
+
+msgid "Restore Data"
+msgstr "恢复数据"
+
+msgid "Restore your RustDesk data from a previously downloaded .tar.gz backup archive."
+msgstr "从之前下载的 .tar.gz 备份归档中恢复您的 RustDesk 数据。"
+
+msgid "Restoring..."
+msgstr "正在恢复..."
+
+msgid "Running"
+msgstr "运行中"
+
+msgid "RustDesk Server"
+msgstr "远程桌面"
+
+msgid "RustDesk Server Log"
+msgstr "RustDesk 服务器日志"
+
+msgid "SINGLE_BANDWIDTH"
+msgstr "单连接带宽"
+
+msgid "Serial Number (-s, --serial)"
+msgstr "序列号 (-s, --serial)"
+
+msgid "Service Control"
+msgstr "服务控制"
+
+msgid "Service Status"
+msgstr "服务状态"
+
+msgid "Service disabled at boot"
+msgstr "服务已禁用开机自启"
+
+msgid "Service enabled at boot"
+msgstr "服务已开启开机自启"
+
+msgid "Service start may have failed. Check status above."
+msgstr "服务启动可能失败。请检查上方状态。"
+
+msgid "Service started with new key"
+msgstr "服务已随新秘钥启动"
+
+msgid "Sets UDP receive buffer size (0 = system default)"
+msgstr "设置 UDP 接收缓冲区大小（0 为系统默认）"
+
+msgid "Sets configure update serial number"
+msgstr "设置配置更新序列号"
+
+msgid "Sets the download URL of RustDesk software for clients"
+msgstr "设置客户端 RustDesk 软件的下载 URL"
+
+msgid "Sets the listening port for the ID/Rendezvous server"
+msgstr "设置 ID/交会服务器的监听端口"
+
+msgid "Sets the listening port for the relay server"
+msgstr "设置中继服务器的监听端口"
+
+msgid "Software Download URL (-u, --software-url)"
+msgstr "软件下载 URL (-u, --software-url)"
+
+msgid "Speed limit per connection in Mb/s (0 = default)"
+msgstr "每个连接的限速，单位 Mb/s（0 为默认）"
+
+msgid "Start"
+msgstr "启动"
+
+msgid "Start at Boot"
+msgstr "开机自启"
+
+msgid "Start check time for connection downgrade"
+msgstr "连接降级的启动检查时间"
+
+msgid "Start the service"
+msgstr "启动服务"
+
+msgid "Start the service first to generate the initial key"
+msgstr "请先启动服务以生成初始秘钥"
+
+msgid "Start the service first to generate the initial key."
+msgstr "请先启动服务以生成初始秘钥。"
+
+msgid "Start will only work if at least \"Enable ID Server\" or \"Enable Relay Server\" is checked in the Configuration section below."
+msgstr "只有在下方配置中至少勾选了“启用 ID 服务器”或“启用中继服务器”时，启动操作才会生效。"
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "Stopped"
+msgstr "已停止"
+
+msgid "TOTAL_BANDWIDTH"
+msgstr "总带宽"
+
+msgid "This will download and install the official RustDesk server core. It may take a minute or two. Continue?"
+msgstr "这将下载并安装官方 RustDesk 服务器核心。可能需要一两分钟。确认继续？"
+
+msgid "This will overwrite current data and restart the service."
+msgstr "这将会覆盖当前数据并重新启动服务。"
+
+msgid "This will overwrite your existing RustDesk data and restart the service. Are you sure?"
+msgstr "这将覆盖您现有的 RustDesk 数据并重启服务。您确定吗？"
+
+msgid "This will regenerate the key pair and restart the service."
+msgstr "这将重新生成密钥对并重启服务。"
+
+msgid "Threshold for connection downgrade"
+msgstr "连接降级的阈值"
+
+msgid "Total bandwidth limit in MB/s (0 = default)"
+msgstr "总带宽限制，单位 MB/s（0 为默认）"
+
+msgid "Trace"
+msgstr "追踪"
+
+msgid "UDP Recv Buffer (-M, --rmem)"
+msgstr "UDP 接收缓冲区 (-M, --rmem)"
+
+msgid "URL must start with http:// or https://"
+msgstr "URL 必须以 http:// 或 https:// 开头"
+
+msgid "Unknown error"
+msgstr "未知错误"
+
+msgid "Warning"
+msgstr "警告"
+
+msgid "Yes"
+msgstr "是"
+
+
+msgid "Browse..."
+msgstr "浏览..."
+
+msgid "No file selected"
+msgstr "未选择任何文件"
+
+msgid "Download backup"
+msgstr "下载备份"
+
+msgid "Generate archive"
+msgstr "生成归档"
+
+msgid "Restore backup"
+msgstr "恢复备份"
+
+msgid "Upload archive..."
+msgstr "上传归档..."
