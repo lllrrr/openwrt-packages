@@ -98,6 +98,12 @@ return view.extend({
 		ss.filter = function (sid) {
 			return uci.get('bypass', sid, 'is_default') !== '1';
 		};
+		// Row labels must follow the editable remarks, not the UCI section id:
+		// section names are immutable after creation, so a rename done in the
+		// rule editor would otherwise never show up in this list.
+		ss.sectiontitle = function (sid) {
+			return uci.get('bypass', sid, 'remarks') || sid;
+		};
 		// Keep an explicit order marker in addition to LuCI's native UCI section
 		// move. Older LuCI builds can move the DOM row without committing the UCI
 		// order; sort_order makes the rendered and runtime order deterministic.

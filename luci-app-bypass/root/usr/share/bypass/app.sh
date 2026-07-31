@@ -1399,7 +1399,6 @@ start() {
 	get_config
 	export BYPASSCORE_ASSETS="$V2RAY_LOCATION_ASSET"
 	export ENABLE_DEPRECATED_GEOSITE=true
-	export ENABLE_DEPRECATED_GEOIP=true
 	ulimit -n 65535 2>/dev/null
 
 	NAIVE_OK=0

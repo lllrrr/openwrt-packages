@@ -96,19 +96,60 @@ return view.extend({
 		o.placeholder = '80,443,1000-2000';
 		o.validate = validatePortMatch;
 
+		o = s.option(form.ListValue, 'rule_type', _('Rule Type'));
+		o.value('domain', _('Domain list'));
+		o.value('ip', _('IP / CIDR list'));
+		o.default = 'domain';
+		o.description = _('A rule matches either domains or IPs, not both. Saving keeps only the selected list and discards the other one.');
+		// UI-only selector derived from whichever list is populated; it is never
+		// persisted to UCI. forcewrite normalizes legacy dual-list rules on every
+		// save, so a stale hidden list cannot keep matching in the generated
+		// BypassCore config.
+		o.forcewrite = true;
+		o.cfgvalue = function (section_id) {
+			var dom = uci.get('bypass', section_id, 'domain_list');
+			var ips = uci.get('bypass', section_id, 'ip_list');
+			return (ips && !dom) ? 'ip' : 'domain';
+		};
+		o.write = function (section_id, formvalue) {
+			if (formvalue === 'ip')
+				uci.unset('bypass', section_id, 'domain_list');
+			else
+				uci.unset('bypass', section_id, 'ip_list');
+		};
+
 		o = s.option(form.TextValue, 'domain_list', _('Domain list'));
 		o.rows = 8;
 		o.wrap = 'off';
 		o.placeholder = 'geosite:cn\ngeosite:category-ads-all\ndomain:example.com';
 		o.description = _('One rule per line. v2ray prefixes: geosite:, domain:, full:, regexp:, ext:, or a bare domain.');
+		o.depends('rule_type', 'domain');
 
 		o = s.option(form.TextValue, 'ip_list', _('IP / CIDR list'));
 		o.rows = 8;
 		o.wrap = 'off';
 		o.placeholder = 'geoip:cn\ngeoip:private\n10.0.0.0/8';
 		o.description = _('One rule per line. geoip:, ext:, or a bare CIDR / IP.');
+		o.depends('rule_type', 'ip');
 
-		return m.render();
+		var node = m.render();
+		var legacyDomain = uci.get('bypass', sid, 'domain_list');
+		var legacyIp = uci.get('bypass', sid, 'ip_list');
+		if (legacyDomain && legacyIp) {
+			// Legacy dual-list rule: the selector defaults to "domain", so the
+			// next save discards the IP list. Surface its content now so the
+			// user can move it into a separate rule before saving.
+			return node.then(function (rendered) {
+				return E('div', {}, [
+					E('div', { class: 'alert-message warning' }, [
+						E('p', {}, _('This rule still contains both a domain list and an IP list. Saving keeps only the list of the selected Rule Type; the other list shown below will be discarded. Copy it into a separate rule first if you still need it.')),
+						E('pre', { style: 'white-space:pre-wrap;margin:0' }, legacyIp)
+					]),
+					rendered
+				]);
+			});
+		}
+		return node;
 	},
 
 	addFooter: function () {
