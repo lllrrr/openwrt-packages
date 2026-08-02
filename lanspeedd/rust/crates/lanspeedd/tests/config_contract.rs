@@ -1,10 +1,11 @@
 use lanspeedd::config::{
-    ConfigError, ConfigSource, ConfigValue, ConnectionCollectorMode, InterfaceEligibility,
-    LegacyNameEligibility, RateCollectorMode, RuntimeConfig, DEFAULT_ACTIVE_CLIENT_MIN_BPS,
-    DEFAULT_ACTIVE_CLIENT_WINDOW_MS, DEFAULT_MAX_CLIENTS, DEFAULT_OVERVIEW_WINDOW_SAMPLES,
-    DEFAULT_REFRESH_INTERVAL_MS, MAX_INTERFACE_NAMES, MAX_INTERFACE_NAME_LEN, MAX_MAX_CLIENTS,
-    MAX_OVERVIEW_WINDOW_SAMPLES, MIN_ACTIVE_CLIENT_WINDOW_MS, MIN_MAX_CLIENTS,
-    MIN_OVERVIEW_WINDOW_SAMPLES, MIN_REFRESH_INTERVAL_MS,
+    AccessEdgeMode, ConfigError, ConfigSource, ConfigValue, ConnectionCollectorMode,
+    InterfaceEligibility, LegacyNameEligibility, RateCollectorMode, RuntimeConfig,
+    DEFAULT_ACTIVE_CLIENT_MIN_BPS, DEFAULT_ACTIVE_CLIENT_WINDOW_MS, DEFAULT_MAX_CLIENTS,
+    DEFAULT_OVERVIEW_WINDOW_SAMPLES, DEFAULT_REFRESH_INTERVAL_MS, MAX_INTERFACE_NAMES,
+    MAX_INTERFACE_NAME_LEN, MAX_MAX_CLIENTS, MAX_OVERVIEW_WINDOW_SAMPLES,
+    MIN_ACTIVE_CLIENT_WINDOW_MS, MIN_MAX_CLIENTS, MIN_OVERVIEW_WINDOW_SAMPLES,
+    MIN_REFRESH_INTERVAL_MS,
 };
 use std::collections::HashMap;
 
@@ -91,6 +92,14 @@ fn defaults_and_limits_match_the_legacy_c_contract() {
     assert!(!config.enable_bpf);
     assert!(config.enable_conntrack_fallback);
     assert_eq!(config.rate_collector_mode, RateCollectorMode::Auto);
+    assert_eq!(
+        config.access_edge_mode,
+        if cfg!(feature = "nss-platform") {
+            AccessEdgeMode::Active
+        } else {
+            AccessEdgeMode::Off
+        }
+    );
     assert_eq!(config.conn_collector_mode, ConnectionCollectorMode::Auto);
     assert!(!config.refresh_interval_clamped);
     assert!(!config.active_client_window_clamped);
@@ -104,6 +113,48 @@ fn defaults_and_limits_match_the_legacy_c_contract() {
     assert!(config.configured_excluded.is_empty());
     assert!(config.configured_observed.is_empty());
     assert!(!config.rejected_nssifb_collect);
+}
+
+#[test]
+fn access_edge_parser_is_strict_and_runtime_enforces_the_compiled_profile() {
+    let cases = [
+        ("off", AccessEdgeMode::Off, "off"),
+        ("shadow", AccessEdgeMode::Shadow, "shadow"),
+        ("active", AccessEdgeMode::Active, "active"),
+    ];
+
+    for (input, expected, canonical) in cases {
+        assert_eq!(AccessEdgeMode::parse(input), Some(expected), "{input}");
+        assert_eq!(expected.as_str(), canonical, "{input}");
+        assert_eq!(
+            load(MemorySource::default().with("access_edge_mode", input)).access_edge_mode,
+            if cfg!(feature = "nss-platform") {
+                expected
+            } else {
+                AccessEdgeMode::Off
+            },
+            "{input}"
+        );
+    }
+
+    for invalid in ["", "AUTO", "enabled", "observe", "ACTIVE"] {
+        assert_eq!(AccessEdgeMode::parse(invalid), None, "{invalid}");
+        assert_eq!(
+            load(MemorySource::default().with("access_edge_mode", invalid)).access_edge_mode,
+            if cfg!(feature = "nss-platform") {
+                AccessEdgeMode::Active
+            } else {
+                AccessEdgeMode::Off
+            },
+            "{invalid}"
+        );
+    }
+
+    let mut wrong_type = MemorySource::default().with_list("access_edge_mode", &["active"]);
+    assert!(matches!(
+        RuntimeConfig::load(&mut wrong_type, &LegacyNameEligibility),
+        Err(ConfigError::WrongType { option, .. }) if option == "access_edge_mode"
+    ));
 }
 
 #[test]
@@ -366,6 +417,19 @@ fn list_options_are_preserved_deduplicated_and_bounded() {
         ConfigValue::List(vec![accepted.clone(), rejected]),
     );
     assert_eq!(load(boundary).ifnames, [accepted]);
+}
+
+#[test]
+fn legacy_dedicated_port_has_no_runtime_effect() {
+    let baseline = RuntimeConfig::default();
+    let scalar = load(MemorySource::default().with("dedicated_port", "lan3"));
+    let list = load(
+        MemorySource::default()
+            .with_list("dedicated_port", &["lan1", "lan1", "down0", "nested/name"]),
+    );
+
+    assert_eq!(scalar, baseline);
+    assert_eq!(list, baseline);
 }
 
 #[test]

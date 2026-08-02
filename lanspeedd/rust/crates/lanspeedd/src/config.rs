@@ -80,6 +80,33 @@ impl RateCollectorMode {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum AccessEdgeMode {
+    Off,
+    Shadow,
+    #[default]
+    Active,
+}
+
+impl AccessEdgeMode {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "off" => Some(Self::Off),
+            "shadow" => Some(Self::Shadow),
+            "active" => Some(Self::Active),
+            _ => None,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Shadow => "shadow",
+            Self::Active => "active",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConnectionCollectorMode {
     Auto,
@@ -212,6 +239,7 @@ pub struct RuntimeConfig {
     pub overview_window_samples_clamped: bool,
     pub max_clients_clamped: bool,
     pub rate_collector_mode: RateCollectorMode,
+    pub access_edge_mode: AccessEdgeMode,
     pub conn_collector_mode: ConnectionCollectorMode,
     pub ifnames: Vec<String>,
     pub interface_include: Vec<String>,
@@ -244,6 +272,11 @@ impl Default for RuntimeConfig {
             overview_window_samples_clamped: false,
             max_clients_clamped: false,
             rate_collector_mode: RateCollectorMode::Auto,
+            access_edge_mode: if crate::platform::profile::COMPILED_PROFILE.uses_access_edge() {
+                AccessEdgeMode::Active
+            } else {
+                AccessEdgeMode::Off
+            },
             conn_collector_mode: ConnectionCollectorMode::Auto,
             ifnames: Vec::new(),
             interface_include: Vec::new(),
@@ -258,6 +291,19 @@ impl Default for RuntimeConfig {
 }
 
 impl RuntimeConfig {
+    pub fn enforce_platform_profile(&mut self) {
+        if crate::platform::profile::COMPILED_PROFILE.uses_nss() {
+            return;
+        }
+        if matches!(
+            self.rate_collector_mode,
+            RateCollectorMode::NssEcmNode | RateCollectorMode::NssEcmBpf
+        ) {
+            self.rate_collector_mode = RateCollectorMode::Bpf;
+        }
+        self.access_edge_mode = AccessEdgeMode::Off;
+    }
+
     pub fn runtime_collect_ifnames(&self) -> Vec<String> {
         let mut names = Vec::new();
         for name in self.ifnames.iter().chain(self.interface_include.iter()) {
@@ -356,6 +402,11 @@ impl RuntimeConfig {
                 config.rate_collector_mode = mode;
             }
         }
+        if let Some(value) = scalar(source, "access_edge_mode")? {
+            if let Some(mode) = AccessEdgeMode::parse(&value) {
+                config.access_edge_mode = mode;
+            }
+        }
         if let Some(value) = scalar(source, "conn_collector_mode")? {
             if let Some(mode) = ConnectionCollectorMode::parse(&value) {
                 config.conn_collector_mode = mode;
@@ -419,7 +470,7 @@ impl RuntimeConfig {
             }
             push_unique_bounded(&mut config.observe_ifnames, value);
         }
-
+        config.enforce_platform_profile();
         Ok(config)
     }
 

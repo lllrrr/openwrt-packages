@@ -65,8 +65,6 @@ function buildShell(viewState) {
 	refs.mRx          = E('div', { 'class': 'big' }, '0');
 	refs.mClients     = E('div', { 'class': 'big' }, '0');
 	refs.mClientsSub  = E('div', { 'class': 'hint' }, '-');
-	refs.mCoverage    = E('div', { 'class': 'big' }, '-');
-	refs.mCoverageSub = E('div', { 'class': 'hint' }, '-');
 	refs.mTcpConns    = E('span', { 'class': 'lanspeed-connection-number' }, '-');
 	refs.mUdpConns    = E('span', { 'class': 'lanspeed-connection-number' }, '-');
 	refs.mUdpConnsSub = E('div', { 'class': 'hint' }, '-');
@@ -103,14 +101,6 @@ function buildShell(viewState) {
 			E('div', { 'class': 'caption' }, _('客户端')),
 			refs.mClients,
 			refs.mClientsSub
-		]),
-		E('div', {
-			'class': 'lanspeed-metric',
-			'title': _('客户端速率合计与采集接口总速率的比值，用于判断流量是否完整归属到客户端。')
-		}, [
-			E('div', { 'class': 'caption' }, _('覆盖率')),
-			refs.mCoverage,
-			refs.mCoverageSub
 		]),
 		refs.mConnsWrap
 	]);

@@ -76,8 +76,8 @@ var REASON_LABELS = {
 	unsupported: _('没有受支持的数据源')
 };
 var SUBSYSTEM_LABELS = {
-	bpf: _('BPF 运行时'), tc: _('TC 挂载'), bpf_map: _('BPF 映射表'),
-	conntrack: _('连接跟踪'), nss: _('NSS'), identity: _('客户端归属'), ubus: _('RPC 服务')
+	bpf: _('CPU 慢路径检测（BPF）'), tc: _('CPU 路径挂载（TC）'), bpf_map: _('分类映射表'),
+	conntrack: _('连接跟踪'), nss: _('NSS 加速识别'), identity: _('客户端接入归属'), ubus: _('RPC 服务')
 };
 var HEALTH_REPORT_LABELS = {
 	healthy: _('正常'), degraded: _('降级'), unavailable: _('不可用'), disabled: _('未启用')
@@ -112,9 +112,64 @@ var INTERFACE_STATUS_REPORT_LABELS = {
 	missing: _('缺失'), unsupported: _('不支持'), excluded: _('已排除'), unknown: _('未知')
 };
 var COLLECTOR_REPORT_LABELS = {
-	bpf: _('BPF'), nss_ecm_node: _('ECM'), nss_ecm_bpf: _('ECM+BPF'),
+	access_edge: _('自动精准'), bpf: _('BPF'), nss_ecm_node: _('ECM'), nss_ecm_bpf: _('ECM+BPF'),
 	conntrack_netlink: _('CT-Netlink'), conntrack_procfs: _('CT-Procfs'),
 	conntrack: _('CT'), unsupported: _('不可用')
+};
+var RATE_SOURCE_LABELS = {
+	edge_port: _('Edge-Port'), edge_wifi: _('Edge-WiFi'),
+	ecm_bpf_fallback: _('ECM+BPF 降级'), ecm_nss_lower_bound: _('NSS 下界'),
+	tc_bpf_lower_bound: _('CPU 慢路径下界'), none: _('无来源')
+};
+var RATE_COVERAGE_LABELS = {
+	full: _('完整'), partial: _('部分'), degraded: _('降级'), unavailable: _('不可用')
+};
+var RATE_SCOPE_LABELS = {
+	all_frames: _('全部帧'), unicast: _('单播'), routed_observed: _('已观察路由流量'),
+	lower_bound: _('下界'), none: _('无')
+};
+var CLASSIFICATION_STATE_LABELS = {
+	warmup: _('预热'), aligned: _('已对齐'), partial: _('部分'), stale: _('已过期'),
+	domain_mismatch: _('字节口径不可比'), window_mismatch: _('窗口不一致'),
+	counter_skew: _('计数错位'), map_loss: _('映射丢失'), unavailable: _('不可用')
+};
+var ACCESS_EDGE_REASON_LABELS = {
+	active_attachment_unpublished: _('活动接入点尚未发布为客户端'),
+	attachment_ambiguous: _('客户端接入点存在歧义'),
+	access_edge_shadow: _('精准接入点仅在后台验证，不负责页面总速率'),
+	classification_counter_skew: _('分类计数窗口错位，未发布未分类速率和覆盖率'),
+	classification_domain_mismatch: _('总速率与分类字节口径不同，不能安全相减'),
+	classification_map_loss: _('分类映射读取不完整'),
+	classification_partial: _('分类来源不完整'),
+	classification_stale: _('分类结果已过期'),
+	classification_unavailable: _('当前没有可验证分类结果'),
+	classification_warmup: _('分类比较窗口正在预热'),
+	classification_window_mismatch: _('分类窗口不一致，不能安全合并'),
+	counter_reset: _('接入口计数器重置，正在重新预热'),
+	direction_window_mismatch: _('上下行总速率窗口不同'),
+	duplicate_client_identity: _('同一接入设备匹配到多个客户端身份'),
+	duplicate_mac_attachment: _('同一 MAC 出现在多个接入点'),
+	fdb_dump_failed: _('网桥 FDB 完整读取失败'),
+	fdb_event_monitor_failed: _('网桥 FDB 事件监听失败'),
+	fdb_event_monitor_unavailable: _('网桥 FDB 事件监听不可用'),
+	fdb_fallback_incomplete: _('FDB 后备读取无法证明结果完整'),
+	fresh_edge_owner_missing: _('部分方向缺少当前接入 generation 的新鲜精准总速率来源'),
+	ethernet_full_scope_unproven: _('有线总速率已由 Edge-Port 接管，但当前拓扑最多只能证明 Partial'),
+	nl80211_dump_failed: _('无线客户端计数读取失败'),
+	nl80211_dump_incomplete: _('无线客户端计数读取不完整'),
+	nl80211_station_sample_missing: _('无线客户端缺少本轮计数'),
+	port_counter_missing: _('有线接入口缺少本轮计数'),
+	rate_owner_unavailable: _('客户端没有可用的总速率来源'),
+	shadow_not_rate_owner: _('精准接入点当前不负责页面总速率'),
+	shared_or_unproven_port: _('端口为共享下联或无法证明为直连'),
+	topology_incomplete: _('接入拓扑读取不完整'),
+	warmup: _('接入口计数正在建立基线'),
+	wifi_group_traffic_unattributed: _('Wi-Fi 广播和组播无法逐客户端完整归属'),
+	wifi_shared_or_unproven_interface: _('无线接口为共享接入，全部帧最多为 Partial')
+};
+var FDB_SOURCE_LABELS = {
+	rtnetlink_af_bridge: _('标准 Bridge Netlink'),
+	sysfs_brforward_fallback: _('兼容 brforward 读取')
 };
 
 function asArray(value) { return Array.isArray(value) ? value : []; }
@@ -388,10 +443,76 @@ function validateCoverage(value, path) {
 		(hasOwn(value, 'rx_pct') && value.rx_pct > 100)) return failure(path, _('覆盖率字段无效'));
 	return null;
 }
+function validateRateDirectionMeta(value, path) {
+	if (!onlyFields(value, [ 'source', 'coverage', 'byte_domain', 'sample_ms', 'window_ms', 'stale' ]))
+		return failure(path, _('速率方向元数据无效'));
+	var missing = requireFields(value, [ 'source', 'coverage' ], path);
+	if (missing) return missing;
+	/* Source codes are deliberately forward-compatible.  A newer daemon may
+	 * publish a source this UI does not know yet; rendering falls back to a
+	 * generic label instead of invalidating the complete clients response. */
+	if (!boundedString(value.source, 1, 48) || !/^[A-Za-z0-9_-]+$/.test(value.source) ||
+		!enumValue(value.coverage, [ 'full', 'partial', 'degraded', 'unavailable' ]) ||
+		(hasOwn(value, 'byte_domain') && !enumValue(value.byte_domain,
+			[ 'l2_no_fcs', 'l2_with_fcs', 'station_data', 'ecm_data' ])) ||
+		!optionalIntegers(value, [ 'sample_ms', 'window_ms' ], { window_ms: 1 }) ||
+		(hasOwn(value, 'stale') && typeof value.stale !== 'boolean'))
+		return failure(path, _('速率方向元数据无效'));
+	return null;
+}
+function validateRateMeta(value, path) {
+	var fields = [ 'version', 'scope', 'tx', 'rx', 'attachment', 'generation', 'window_ms',
+		'sample_ms', 'stale', 'reason_codes', 'classification' ];
+	if (!onlyFields(value, fields)) return failure(path, _('客户端速率元数据无效'));
+	var missing = requireFields(value,
+		[ 'version', 'scope', 'tx', 'rx', 'generation', 'stale', 'reason_codes' ], path);
+	if (missing) return missing;
+	if (value.version !== 1 ||
+		!enumValue(value.scope, [ 'all_frames', 'unicast', 'routed_observed', 'lower_bound', 'none' ]) ||
+		!nonNegativeInteger(value.generation) || typeof value.stale !== 'boolean' ||
+		!optionalIntegers(value, [ 'window_ms', 'sample_ms' ]) ||
+		!Array.isArray(value.reason_codes) || value.reason_codes.length > 16 ||
+		!value.reason_codes.every(function(reason) {
+			return boundedString(reason, 1, 48) && /^[A-Za-z0-9_-]+$/.test(reason);
+		})) return failure(path, _('客户端速率元数据无效'));
+	var issue = validateRateDirectionMeta(value.tx, path + '.tx') ||
+		validateRateDirectionMeta(value.rx, path + '.rx');
+	if (issue) return issue;
+	if (hasOwn(value, 'attachment')) {
+		var attachment = value.attachment;
+		if (!onlyFields(attachment, [ 'kind', 'ifname', 'trust' ]))
+			return failure(path + '.attachment', _('物理接入点元数据无效'));
+		var attachmentMissing = requireFields(attachment, [ 'kind', 'trust' ], path + '.attachment');
+		if (attachmentMissing) return attachmentMissing;
+		if (!enumValue(attachment.kind, [ 'ethernet', 'wifi', 'unknown' ]) ||
+			!enumValue(attachment.trust, [ 'associated_station', 'observed_exclusive', 'shared', 'unknown' ]) ||
+			(hasOwn(attachment, 'ifname') && !boundedString(attachment.ifname, 1, 48)))
+			return failure(path + '.attachment', _('物理接入点元数据无效'));
+	}
+	if (hasOwn(value, 'classification')) {
+		var classification = value.classification;
+		var classificationFields = [ 'state', 'sample_ms', 'window_ms', 'comparison_window_ms',
+			'tx_coverage_pct', 'rx_coverage_pct', 'tx_state', 'rx_state' ];
+		var classificationStates = [ 'warmup', 'aligned', 'partial', 'stale',
+			'domain_mismatch', 'window_mismatch', 'counter_skew', 'map_loss', 'unavailable' ];
+		if (!onlyFields(classification, classificationFields) ||
+			requireFields(classification, [ 'state' ], path + '.classification') ||
+			!enumValue(classification.state, classificationStates) ||
+			(hasOwn(classification, 'tx_state') && !enumValue(classification.tx_state, classificationStates)) ||
+			(hasOwn(classification, 'rx_state') && !enumValue(classification.rx_state, classificationStates)) ||
+			!optionalIntegers(classification, [ 'sample_ms', 'window_ms', 'comparison_window_ms',
+				'tx_coverage_pct', 'rx_coverage_pct' ]) ||
+			(hasOwn(classification, 'tx_coverage_pct') && classification.tx_coverage_pct > 100) ||
+			(hasOwn(classification, 'rx_coverage_pct') && classification.rx_coverage_pct > 100))
+			return failure(path + '.classification', _('分类覆盖率元数据无效'));
+	}
+	return null;
+}
 function validateStatusResponse(value) {
 	var fields = [ 'mode', 'confidence', 'warnings', 'evidence', 'refresh_interval_ms',
 		'active_client_window_ms', 'active_client_min_bps', 'overview_window_samples',
-		'collector_mode', 'rate_collector_mode', 'conn_collector_mode', 'version',
+		'collector_mode', 'rate_collector_mode', 'access_edge_mode',
+		'conn_collector_mode', 'version',
 		'capabilities', 'coverage' ];
 	if (!onlyFields(value, fields)) return failure('status', _('存在未定义字段'));
 	var missing = requireFields(value, [ 'mode', 'confidence', 'warnings', 'evidence',
@@ -399,10 +520,13 @@ function validateStatusResponse(value) {
 	if (missing) return missing;
 	if (!enumValue(value.mode, RUNTIME_MODES) || !enumValue(value.confidence, CONFIDENCES) ||
 		!Array.isArray(value.warnings) || !value.warnings.every(function(item) { return boundedString(item, 1, 160); }) ||
-		!safeInteger(value.refresh_interval_ms, 500) ||
-		!enumValue(value.rate_collector_mode, [ 'auto', 'bpf', 'nss_ecm_node', 'nss_ecm_bpf' ]) ||
-		!enumValue(value.conn_collector_mode, [ 'auto', 'conntrack_netlink', 'conntrack_procfs' ]) ||
-		!boundedString(value.version, 1, 64)) return failure('status', _('字段无效'));
+			!safeInteger(value.refresh_interval_ms, 500) ||
+			!enumValue(value.rate_collector_mode, [ 'auto', 'bpf', 'nss_ecm_node', 'nss_ecm_bpf' ]) ||
+			!enumValue(value.conn_collector_mode, [ 'auto', 'conntrack_netlink', 'conntrack_procfs' ]) ||
+			!boundedString(value.version, 1, 64)) return failure('status', _('字段无效'));
+	if (hasOwn(value, 'access_edge_mode') &&
+		!enumValue(value.access_edge_mode, [ 'off', 'shadow', 'active' ]))
+		return failure('status.access_edge_mode', _('字段无效'));
 	if (hasOwn(value, 'collector_mode') && !enumValue(value.collector_mode,
 		[ 'auto', 'bpf', 'nss_ecm_node', 'nss_ecm_bpf', 'conntrack_netlink', 'conntrack_procfs' ]))
 		return failure('status.collector_mode', _('字段无效'));
@@ -442,11 +566,13 @@ function validateClientsResponse(value) {
 	if (!hasOwn(value, 'clients')) return failure('clients.clients', _('字段缺失'));
 	var clientFields = [ 'mac', 'ips', 'identity_key', 'zone', 'interface', 'hostname', 'rx_bps',
 		'tx_bps', 'last_seen', 'sample_ms', 'rx_bytes', 'tx_bytes', 'collector_mode', 'confidence',
-		'warnings', 'tcp_conns', 'udp_conns', 'udp_dns_conns', 'udp_other_conns' ];
+		'warnings', 'tcp_conns', 'udp_conns', 'udp_dns_conns', 'udp_other_conns', 'rate_meta' ];
 	var clientRequired = [ 'mac', 'identity_key', 'zone', 'interface', 'ips', 'hostname', 'rx_bps',
 		'tx_bps', 'last_seen', 'collector_mode', 'confidence', 'warnings' ];
-	if (!Array.isArray(value.clients) || !value.clients.every(function(item) {
-		return onlyFields(item, clientFields) && !requireFields(item, clientRequired, 'client') &&
+	if (!Array.isArray(value.clients) || !value.clients.every(function(item, index) {
+		var metaIssue = hasOwn(item, 'rate_meta')
+			? validateRateMeta(item.rate_meta, 'clients.clients[' + index + '].rate_meta') : null;
+		return !metaIssue && onlyFields(item, clientFields) && !requireFields(item, clientRequired, 'client') &&
 			/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(item.mac || '') &&
 			boundedString(item.identity_key, 1, 160) && boundedString(item.zone, 1, 64) &&
 			boundedString(item.interface, 1, 160) && Array.isArray(item.ips) &&
@@ -831,10 +957,394 @@ function collectorDisplayLabel(value) {
 	return knownCollector(key) ? statusCollector.collectorLabel(key) : _('未知');
 }
 
-function coverageState(status) {
+function nssPlatform(status) {
+	var evidence = status && status.evidence || {};
+	var platform = evidence.platform || {};
+	if (platform.profile !== undefined && platform.profile !== null && platform.profile !== '')
+		return platform.profile === 'nss_aarch64';
+	if (platform.target_arch !== undefined && platform.target_arch !== null && platform.target_arch !== '')
+		return String(platform.target_arch) === 'aarch64' &&
+		(!hasOwn(platform, 'nss_compiled') || platform.nss_compiled !== false) &&
+		(!status.capabilities || status.capabilities.nss !== false);
+	return false;
+}
+
+function currentRateUsesAccessEdge(status) {
+	return nssPlatform(status) && String(status && status.rate_collector_mode || '') === 'auto' &&
+		String(status && status.access_edge_mode || '') === 'active';
+}
+
+function countSummary(counts, labels, preferred) {
+	var keys = [], seen = Object.create(null);
+	(preferred || []).forEach(function(key) {
+		if (counts[key]) { keys.push(key); seen[key] = true; }
+	});
+	Object.keys(counts || {}).sort().forEach(function(key) {
+		if (counts[key] && !seen[key]) keys.push(key);
+	});
+	return keys.map(function(key) {
+		return (labels[key] || _('未知')) + ' ' + counts[key];
+	}).join(' · ') || '-';
+}
+
+function edgeReasonText(code) {
+	return ACCESS_EDGE_REASON_LABELS[String(code || '')] || _('未识别的能力边界');
+}
+
+function collectRateFacts(clientsResponse) {
+	var clients = asArray(clientsResponse && clientsResponse.clients);
+	var sourceCounts = Object.create(null), coverageCounts = Object.create(null), scopeCounts = Object.create(null);
+	var ownerDirections = 0, unavailableDirections = 0, fallbackDirections = 0;
+	var staleClients = 0, staleDirections = 0;
+	var attachmentKinds = Object.create(null), attachmentTrust = Object.create(null), reasonCodes = [];
+	clients.forEach(function(client) {
+		var meta = client && client.rate_meta;
+		if (!plainObject(meta)) {
+			sourceCounts.none = (sourceCounts.none || 0) + 2;
+			coverageCounts.unavailable = (coverageCounts.unavailable || 0) + 2;
+			scopeCounts.none = (scopeCounts.none || 0) + 1;
+			unavailableDirections += 2;
+			return;
+		}
+		if (meta.stale === true) staleClients++;
+		if (plainObject(meta.attachment)) {
+			var kind = String(meta.attachment.kind || 'unknown');
+			var trust = String(meta.attachment.trust || 'unknown');
+			attachmentKinds[kind] = (attachmentKinds[kind] || 0) + 1;
+			attachmentTrust[trust] = (attachmentTrust[trust] || 0) + 1;
+		}
+		var scope = String(meta.scope || 'none');
+		scopeCounts[scope] = (scopeCounts[scope] || 0) + 1;
+		asArray(meta.reason_codes).forEach(function(code) {
+			code = String(code || '');
+			if (code && reasonCodes.indexOf(code) === -1) reasonCodes.push(code);
+		});
+		[ meta.tx, meta.rx ].forEach(function(direction) {
+			var source = plainObject(direction) ? String(direction.source || 'none') : 'none';
+			var coverage = plainObject(direction) ? String(direction.coverage || 'unavailable') : 'unavailable';
+			var directionStale = plainObject(direction) && typeof direction.stale === 'boolean'
+				? direction.stale : meta.stale === true;
+			sourceCounts[source] = (sourceCounts[source] || 0) + 1;
+			coverageCounts[coverage] = (coverageCounts[coverage] || 0) + 1;
+			if (directionStale) staleDirections++;
+			if (source === 'none' || coverage === 'unavailable') unavailableDirections++;
+			else ownerDirections++;
+			if (source === 'ecm_bpf_fallback' || source === 'ecm_nss_lower_bound' || source === 'tc_bpf_lower_bound')
+				fallbackDirections++;
+		});
+	});
+	return {
+		clients: clients, totalClients: clients.length, totalDirections: clients.length * 2,
+		ownerDirections: ownerDirections, unavailableDirections: unavailableDirections,
+		fallbackDirections: fallbackDirections, staleClients: staleClients, staleDirections: staleDirections,
+		sourceCounts: sourceCounts, coverageCounts: coverageCounts, scopeCounts: scopeCounts,
+		attachmentKinds: attachmentKinds, attachmentTrust: attachmentTrust, reasonCodes: reasonCodes
+	};
+}
+
+function rateOwnerStateWithRpc(viewState) {
+	viewState = viewState || {};
+	var status = viewState.status || {}, clients = viewState.clients || {};
+	var facts = collectRateFacts(clients), edgeOwner = currentRateUsesAccessEdge(status);
+	var statusRpc = rpcState(viewState, 'status'), clientsRpc = rpcState(viewState, 'clients');
+	var coverage = coverageState(status, clients), source, state, badge, value, description, meta;
+	var sourceText = countSummary(facts.sourceCounts, RATE_SOURCE_LABELS,
+		[ 'edge_port', 'edge_wifi', 'ecm_bpf_fallback', 'ecm_nss_lower_bound', 'tc_bpf_lower_bound', 'none' ]);
+	var coverageText = countSummary(facts.coverageCounts, RATE_COVERAGE_LABELS,
+		[ 'full', 'partial', 'degraded', 'unavailable' ]);
+	if (edgeOwner) {
+		source = 'access_edge'; state = coverage.state; badge = coverage.badge;
+		value = sourceText === '-' ? _('等待总速率来源') : sourceText;
+		description = coverage.description + ' ' +
+			_('每个方向只使用一个总速率来源（owner）；NSS/CPU 分类不会与总速率相加。');
+		meta = _('%d/%d 个方向已有来源 · 目标窗口 1 秒').format(facts.ownerDirections, facts.totalDirections);
+		if (facts.unavailableDirections || coverage.quality === 'unavailable') {
+			state = 'bad'; badge = _('存在缺失');
+			description += ' ' + _('%d 个方向没有可用的总速率 owner。').format(facts.unavailableDirections);
+		} else if (facts.fallbackDirections || facts.coverageCounts.degraded || coverage.quality === 'degraded') {
+			state = 'warning'; badge = _('降级');
+			description += ' ' + _('部分方向正在使用分类器降级来源，只能代表已观察到的路由流量。');
+		} else if (facts.staleDirections) {
+			state = 'warning'; badge = _('存在陈旧值');
+			description += ' ' + _('%d 个方向的总速率已标记为陈旧。').format(facts.staleDirections);
+		} else if (coverage.quality === 'full' || coverage.quality === 'partial') {
+			/* Partial describes the provable frame scope, not a failed rate sample. */
+			state = 'good'; badge = _('正常');
+			if (facts.coverageCounts.partial)
+				description += ' ' + _('全部方向都有新鲜总速率来源；帧归属边界仅在详细报告中说明。');
+		}
+	} else {
+		var evidence = status.evidence && status.evidence.collector || {};
+		source = collectorKey((status.evidence && status.evidence.effective_collector) ||
+			evidence.primary_source || statusCollector.effectiveCollector(status, clients));
+		state = source === 'unsupported' ? 'bad' : coverage.state;
+		badge = source === 'unsupported' ? _('不可用') : _('手动路径');
+		value = collectorDisplayLabel(source);
+		description = source === 'unsupported' ? _('手动网速模式没有可用采集来源。') :
+			_('当前只显示所选路径能够观察到的流量，不代表全部客户端帧。');
+		meta = _('Access Edge 不负责当前页面总速率 · %s').format(coverage.description);
+	}
+	if (statusRpc.state === 'failed' || statusRpc.state === 'invalid' || statusRpc.state === 'missing' ||
+	    clientsRpc.state === 'failed' || clientsRpc.state === 'invalid' || clientsRpc.state === 'missing') {
+		state = 'bad'; badge = _('不可用');
+		description = _('状态或客户端 RPC 没有返回可验证的总速率来源。');
+	} else if (statusRpc.state === 'loading' || clientsRpc.state === 'loading') {
+		state = 'warning'; badge = _('检查中'); description = _('正在等待总速率 owner 证据。');
+	} else if (statusRpc.state === 'retained' || clientsRpc.state === 'retained') {
+		state = worseState(state, 'warning'); badge = _('沿用旧值');
+		description += ' ' + _('当前显示最近一次成功结果。');
+	}
+	return { state: state, badge: badge, value: value, description: description, meta: meta,
+		source: source, sourceText: sourceText, coverageText: coverageText,
+		scopeText: countSummary(facts.scopeCounts, RATE_SCOPE_LABELS,
+			[ 'all_frames', 'unicast', 'routed_observed', 'lower_bound', 'none' ]),
+		facts: facts, edgeOwner: edgeOwner };
+}
+
+function accessEdgeStateWithRpc(viewState) {
+	viewState = viewState || {};
+	var status = viewState.status || {}, clients = viewState.clients || {};
+	if (!nssPlatform(status)) return { state: 'neutral', badge: _('不适用'), value: _('x86 TC-BPF'),
+		description: _('x86 构建不包含 Access Edge。'), meta: _('编译期已排除'), reasonCodes: [],
+		reasonText: '-', topologyComplete: false, activeAttachments: 0, publishedAttachments: 0,
+		attachmentText: '-', trustText: '-' };
+	var mode = String(status.access_edge_mode || 'off'), owner = currentRateUsesAccessEdge(status);
+	var evidence = clients.evidence && clients.evidence.access_edge;
+	var facts = collectRateFacts(clients), rpc = rpcState(viewState, 'clients');
+	if (mode === 'off') return { state: 'neutral', badge: _('已关闭'), value: _('不参与'),
+		description: _('精准接入点采集已关闭；当前总速率只能来自手动采集路径。'),
+		meta: _('配置模式 off'), reasonCodes: [], reasonText: '-', topologyComplete: false,
+		activeAttachments: 0, publishedAttachments: 0, attachmentText: '-', trustText: '-' };
+	if (!plainObject(evidence)) return { state: rpc.state === 'failed' ? 'bad' : 'warning',
+		badge: rpc.state === 'loading' ? _('检查中') : _('等待采样'), value: '…',
+		description: _('尚未收到精准接入点、FDB 与无线关联覆盖证据。'),
+		meta: mode === 'shadow' ? _('仅后台验证') : _('当前总速率来源'), reasonCodes: [],
+		reasonText: '-', topologyComplete: false, activeAttachments: null,
+		publishedAttachments: null, attachmentText: '-', trustText: '-' };
+	var quality = String(evidence.coverage || 'unavailable');
+	var active = finiteNumber(evidence.active_attachments), published = finiteNumber(evidence.published_attachments);
+	var topologyComplete = evidence.topology_complete === true;
+	var reasons = asArray(evidence.reason_codes).map(String).filter(function(code, index, values) {
+		return code && values.indexOf(code) === index;
+	});
+	var publicationComplete = topologyComplete && published !== null && active !== null && published >= active;
+	var state = quality === 'unavailable' && owner ? 'bad' :
+		(!publicationComplete || (quality === 'degraded' && owner) ? 'warning' : 'good');
+	var badge = owner ? (state === 'good' ? _('正常') :
+		(state === 'bad' ? _('不可用') : quality === 'degraded' ? _('降级') : _('不完整'))) : _('后台验证');
+	var value = active !== null && published !== null ? _('%d/%d 个接入点').format(published, active) : _('接入点未知');
+	var description = owner ? _('精准接入点负责当前客户端总速率。') :
+		_('精准接入点继续采集核对，但当前网速模式不会采用它的速率。');
+	if (reasons.length) description += ' ' + reasons.slice(0, 2).map(edgeReasonText).join('；') + '。';
+	var attachmentText = countSummary(facts.attachmentKinds,
+		{ ethernet: _('有线'), wifi: _('Wi-Fi'), unknown: _('未知') }, [ 'ethernet', 'wifi', 'unknown' ]);
+	var trustText = countSummary(facts.attachmentTrust, {
+		associated_station: _('无线关联'),
+		observed_exclusive: _('单 MAC 观察'), shared: _('共享'), unknown: _('未知')
+	}, [ 'associated_station', 'observed_exclusive', 'shared', 'unknown' ]);
+	if (rpc.state === 'failed' || rpc.state === 'invalid' || rpc.state === 'missing') {
+		state = 'bad'; badge = _('不可用'); description = _('客户端 RPC 没有返回精准接入点证据。');
+	} else if (rpc.state === 'loading') {
+		state = 'warning'; badge = _('检查中'); description = _('正在等待精准接入点证据。');
+	} else if (rpc.state === 'retained') {
+		state = worseState(state, 'warning'); badge = _('沿用旧值'); description += ' ' + _('本轮 RPC 沿用旧值。');
+	}
+	return { state: state, badge: badge, value: value, description: description,
+		meta: _('拓扑 %s · FDB %s').format(topologyComplete ? _('完整') : _('不完整'),
+			FDB_SOURCE_LABELS[String(evidence.fdb_source || '')] || _('未知来源')),
+		reasonCodes: reasons, reasonText: reasons.length ? reasons.map(edgeReasonText).join('；') : _('无'),
+		topologyComplete: topologyComplete, activeAttachments: active, publishedAttachments: published,
+		attachmentText: attachmentText, trustText: trustText, owner: owner, quality: quality };
+}
+
+function classifierMapState(clients) {
+	var maps = clients && clients.evidence && clients.evidence.classifier_maps;
+	var result = { available: false, loss: false, pressure: false, text: '-', detailText: '-' };
+	if (!plainObject(maps)) return result;
+	var labels = { ecm_nss: _('NSS'), tc_bpf: _('CPU') }, parts = [], details = [];
+	[ 'ecm_nss', 'tc_bpf' ].forEach(function(key) {
+		var item = maps[key];
+		if (!plainObject(item)) return;
+		result.available = true;
+		if (item.map_loss === true || item.current_truncated === true) result.loss = true;
+		if (item.pressure === true || item.truncated === true) result.pressure = true;
+		var entries = finiteNumber(item.entries), capacity = finiteNumber(item.capacity);
+		var label = labels[key] || key, entryText = entries === null ? '-' : Math.round(entries);
+		parts.push(label + ' ' + entryText);
+		details.push(label + ' ' + entryText + '/' + (capacity === null ? '-' : Math.round(capacity)));
+	});
+	result.text = parts.join(' · ') || '-';
+	result.detailText = details.join(' · ') || '-';
+	return result;
+}
+
+function minimumNumber(values) {
+	return values.length ? Math.min.apply(Math, values) : null;
+}
+
+function classificationStateWithRpc(viewState) {
+	viewState = viewState || {};
+	if (!nssPlatform(viewState.status || {})) return { state: 'neutral', badge: _('不适用'),
+		value: _('x86 TC-BPF'), description: _('x86 构建不包含 NSS/CPU 分类融合。'), meta: _('编译期已排除'),
+		counts: {}, stateText: '-', aligned: 0, classified: 0, totalClients: 0,
+		txMinimumPct: null, rxMinimumPct: null, coverageText: '-', verificationText: '-',
+		comparableDirections: 0, alignedDirections: 0, wifiObservedDirections: 0,
+		maps: classifierMapState({}), windowMs: null, comparisonWindowMs: null };
+	var clients = viewState.clients || {}, items = asArray(clients.clients), rpc = rpcState(viewState, 'clients');
+	var counts = Object.create(null), classified = 0, txCoverage = [], rxCoverage = [];
+	var comparableDirections = 0, alignedDirections = 0, wifiObservedDirections = 0;
+	var unexpectedDomainMismatch = 0;
+	var windowMs = null, comparisonWindowMs = null;
+	items.forEach(function(client) {
+		var meta = client && client.rate_meta;
+		var classification = meta && meta.classification;
+		var state = plainObject(classification) ? String(classification.state || 'unavailable') : 'unavailable';
+		if (plainObject(classification)) {
+			classified++; counts[state] = (counts[state] || 0) + 1;
+		}
+		[ 'tx', 'rx' ].forEach(function(directionName) {
+			var direction = meta && meta[directionName];
+			if (!plainObject(direction)) return;
+			var source = String(direction.source || ''), domain = String(direction.byte_domain || '');
+			if (source === 'edge_wifi' || domain === 'station_data') {
+				wifiObservedDirections++;
+				return;
+			}
+			if (source !== 'edge_port' || (domain !== 'l2_no_fcs' && domain !== 'l2_with_fcs'))
+				return;
+			comparableDirections++;
+			if (!plainObject(classification)) return;
+			var coverage = finiteNumber(classification[directionName + '_coverage_pct']);
+			var explicitState = classification[directionName + '_state'];
+			var directionState = String(explicitState || state);
+			/* Old v1 payloads can expose one valid percentage without direction states. */
+			var directionAligned = directionState === 'aligned' ||
+				(!explicitState && state === 'counter_skew' && coverage !== null);
+			if (directionAligned) {
+				alignedDirections++;
+				if (coverage !== null) (directionName === 'tx' ? txCoverage : rxCoverage).push(coverage);
+			} else if (directionState === 'domain_mismatch') {
+				unexpectedDomainMismatch++;
+			}
+		});
+		if (!plainObject(classification)) return;
+		var window = finiteNumber(classification.window_ms), comparison = finiteNumber(classification.comparison_window_ms);
+		if (window !== null) windowMs = windowMs === null ? window : Math.max(windowMs, window);
+		if (comparison !== null) comparisonWindowMs = comparisonWindowMs === null ? comparison : Math.max(comparisonWindowMs, comparison);
+	});
+	var missing = Math.max(0, items.length - classified);
+	if (missing) counts.unavailable = (counts.unavailable || 0) + missing;
+	var aligned = counts.aligned || 0, maps = classifierMapState(clients);
+	var pending = missing || counts.warmup || counts.partial || counts.stale ||
+		counts.window_mismatch || counts.unavailable || unexpectedDomainMismatch;
+	var complete = items.length > 0 && classified === items.length && !pending;
+	var state = !classified || pending ? 'warning' : 'good';
+	var badge = !classified ? _('等待分类') : (complete ? _('运行正常') : _('等待稳定'));
+	if (maps.loss || counts.map_loss) { state = 'bad'; badge = _('映射丢失'); }
+	else if (maps.pressure) { state = worseState(state, 'warning'); badge = _('映射压力'); }
+	else if (!maps.available) { state = worseState(state, 'warning'); badge = _('映射未确认'); }
+	var value = items.length ? _('%d/%d 客户端已分类').format(classified, items.length) : _('尚无分类窗口');
+	var stateText = countSummary(counts, CLASSIFICATION_STATE_LABELS,
+		[ 'aligned', 'domain_mismatch', 'counter_skew', 'window_mismatch', 'partial', 'warmup', 'stale', 'map_loss', 'unavailable' ]);
+	var txMin = maps.loss || !maps.available ? null : minimumNumber(txCoverage);
+	var rxMin = maps.loss || !maps.available ? null : minimumNumber(rxCoverage);
+	var coverageParts = [];
+	if (txMin !== null) coverageParts.push(_('上行最低 %s').format(formatPercent(txMin)));
+	if (rxMin !== null) coverageParts.push(_('下行最低 %s').format(formatPercent(rxMin)));
+	var coverageText = coverageParts.join(' · ') || '-';
+	var verificationParts = [];
+	if (comparableDirections)
+		verificationParts.push(_('有线 %d/%d 方向已核对').format(alignedDirections, comparableDirections));
+	if (wifiObservedDirections)
+		verificationParts.push(_('Wi-Fi %d 方向仅观察').format(wifiObservedDirections));
+	var verificationText = verificationParts.join(' · ') || _('暂无可核对方向');
+	var description = !classified ? _('尚未收到每客户端 NSS/CPU 分类结果。') :
+		_('NSS已识别与CPU慢路径已识别只用于分类，不与客户端总速率相加。');
+	if (missing) description += ' ' + _('%d 个客户端尚未发布分类窗口。').format(missing);
+	if (wifiObservedDirections) description += ' ' + _('Wi-Fi 使用独立站点口径，仅观察分类，不计算未分类或覆盖率。');
+	if (unexpectedDomainMismatch) description += ' ' + _('有线字节口径不同，当前省略未分类和覆盖率。');
+	if (maps.loss) description = _('分类映射读取不完整；本轮不得标记为完整，也不得推算未分类流量。');
+	else if (!maps.available) description += ' ' + _('缺少分类映射容量与完整性证据。');
+	if (rpc.state === 'failed' || rpc.state === 'invalid' || rpc.state === 'missing') {
+		state = 'bad'; badge = _('不可用'); description = _('客户端 RPC 没有返回分类元数据。');
+	} else if (rpc.state === 'loading') {
+		state = 'warning'; badge = _('检查中'); description = _('正在等待 NSS/CPU 分类元数据。');
+	} else if (rpc.state === 'retained') {
+		state = worseState(state, 'warning'); badge = _('沿用旧值'); description += ' ' + _('本轮 RPC 沿用旧值。');
+	}
+	return { state: state, badge: badge, value: value, description: description,
+		meta: _('分类窗口 %s · 比较窗口 %s').format(formatDuration(windowMs), formatDuration(comparisonWindowMs)),
+		counts: counts, stateText: stateText, aligned: aligned, classified: classified,
+		totalClients: items.length, txMinimumPct: txMin, rxMinimumPct: rxMin,
+		coverageText: coverageText, verificationText: verificationText,
+		comparableDirections: comparableDirections, alignedDirections: alignedDirections,
+		wifiObservedDirections: wifiObservedDirections, maps: maps, windowMs: windowMs,
+		comparisonWindowMs: comparisonWindowMs };
+}
+
+function integrityStateWithRpc(viewState) {
+	viewState = viewState || {};
+	var clients = viewState.clients || {}, facts = collectRateFacts(clients);
+	var evidence = clients.evidence && clients.evidence.access_edge || {};
+	var reasons = [];
+	asArray(evidence.reason_codes).concat(facts.reasonCodes).forEach(function(code) {
+		code = String(code || '');
+		if (code && reasons.indexOf(code) === -1) reasons.push(code);
+	});
+	var rpc = rpcState(viewState, 'clients');
+	var state = facts.unavailableDirections ? 'bad' :
+		(facts.fallbackDirections || facts.staleDirections || reasons.length ? 'warning' : 'good');
+	var badge = state === 'bad' ? _('有缺失') : (state === 'warning' ? _('需关注') : _('正常'));
+	var value = reasons.length ? _('%d 项限制').format(reasons.length) : _('无未解释缺口');
+	var description = reasons.length ? reasons.slice(0, 3).map(edgeReasonText).join('；') + '。' :
+		_('当前没有发现需要解释的总速率降级或分类边界。');
+	description += ' ' + _('未分类只在同窗口、同字节口径时计算；计数错位不会钳制为零。');
+	if (rpc.state === 'failed' || rpc.state === 'invalid' || rpc.state === 'missing') {
+		state = 'bad'; badge = _('不可用'); description = _('客户端 RPC 失败，无法验证降级与能力边界。');
+	} else if (rpc.state === 'loading') {
+		state = 'warning'; badge = _('检查中'); description = _('正在汇总降级与能力边界。');
+	} else if (rpc.state === 'retained') {
+		state = worseState(state, 'warning'); badge = _('沿用旧值'); description += ' ' + _('本轮 RPC 沿用旧值。');
+	}
+	return { state: state, badge: badge, value: value, description: description,
+		meta: _('回退方向 %d · 不可用方向 %d · 陈旧方向 %d').format(
+			facts.fallbackDirections, facts.unavailableDirections, facts.staleDirections),
+		reasonCodes: reasons, reasonText: reasons.length ? reasons.map(edgeReasonText).join('；') : _('无'),
+		fallbackDirections: facts.fallbackDirections, unavailableDirections: facts.unavailableDirections,
+		staleClients: facts.staleClients, staleDirections: facts.staleDirections };
+}
+
+function accessEdgeCoverageState(clients) {
+	var evidence = clients && clients.evidence && clients.evidence.access_edge;
+	if (!plainObject(evidence)) return { state: 'warning', badge: _('等待采样'), value: '…',
+		description: _('自动精准模式尚未收到接入点覆盖数据。'),
+		meta: _('精准总速率 · 覆盖契约缺失'), quality: 'warmup', source: 'access_edge' };
+	var quality = String(evidence.coverage || 'unavailable');
+	var labels = { full: _('完整'), partial: _('部分'), degraded: _('降级'), unavailable: _('不可用') };
+	var active = finiteNumber(evidence.active_attachments);
+	var published = finiteNumber(evidence.published_attachments);
+	var countText = active !== null && published !== null
+		? _('%d/%d 个接入点已识别').format(Math.round(published), Math.round(active)) : _('接入点数量未知');
+	var publicationComplete = evidence.topology_complete === true && active !== null && published !== null && published >= active;
+	var state = quality === 'unavailable' ? 'bad' :
+		(quality === 'degraded' || !publicationComplete ? 'warning' : 'good');
+	var description = quality === 'full' ? _('所有活动客户端都有完整总速率来源。') :
+		(quality === 'partial' ? _('部分客户端或广播、组播流量无法完整归属。') :
+			(quality === 'degraded' ? _('当前仅有 NSS/CPU 分类器降级速率。') :
+				_('暂无可用的客户端总速率来源。')));
+	return { state: state, badge: state === 'good' ? _('正常') : labels[quality] || labels.unavailable,
+		value: labels[quality] || labels.unavailable, description: countText + ' · ' + description,
+		meta: _('精准总速率 · %s').format(countText), quality: quality,
+		activeAttachments: active, publishedAttachments: published, source: 'access_edge' };
+}
+
+function coverageState(status, clients) {
+	if (String(status && status.rate_collector_mode || '') === 'auto' &&
+	    String(status && status.access_edge_mode || '') === 'active')
+		return accessEdgeCoverageState(clients);
 	var coverage = status && status.coverage;
 	if (!plainObject(coverage)) return { state: 'warning', badge: _('未知'), value: '-',
-		description: _('没有收到覆盖率数据。'), meta: _('覆盖率契约缺失'), quality: '' };
+		description: _('没有收到覆盖率数据。'), meta: _('覆盖率契约缺失'), quality: '', source: 'collector' };
 	var quality = String(coverage.quality || '');
 	var tx = finiteNumber(coverage.tx_pct), rx = finiteNumber(coverage.rx_pct);
 	var minimum = tx !== null && rx !== null ? Math.min(tx, rx) : null;
@@ -867,7 +1377,8 @@ function coverageState(status) {
 	else if (quality === 'unsupported') { state = 'bad'; badge = _('不可用'); value = '-'; description = _('后端没有可用的覆盖率数据源。'); }
 	return { state: state, badge: badge, value: value, description: description,
 		meta: _('%d 个样本 · %s 窗口').format(Math.round(Number(coverage.samples) || 0),
-			formatDuration(coverage.window_ms)), quality: quality, txPct: tx, rxPct: rx, minimumPct: minimum };
+			formatDuration(coverage.window_ms)), quality: quality, txPct: tx, rxPct: rx,
+		minimumPct: minimum, source: 'collector' };
 }
 
 function freshnessFromContract(viewState) {
@@ -1029,10 +1540,25 @@ function pathStateWithRpc(viewState) {
 	var result = Object.assign({}, base, { rpc: { clients: clients.state, status: status.state, health: health.state } });
 	var collectorEvidence = viewState && viewState.status && viewState.status.evidence &&
 		viewState.status.evidence.collector || {};
+	var classifierSource = result.rateSource;
 	var effectiveInterval = finiteNumber(collectorEvidence.effective_interval_ms);
-	if ((result.rateSource === 'nss_ecm_node' || result.rateSource === 'nss_ecm_bpf') &&
-		effectiveInterval !== null && effectiveInterval >= 500)
+	var classifierEvidence = viewState && viewState.clients && viewState.clients.evidence &&
+		viewState.clients.evidence.ecm_bpf || {};
+	var classifierInterval = finiteNumber(classifierEvidence.collector_min_interval_ms);
+	if (currentRateUsesAccessEdge(viewState && viewState.status)) {
+		result.classifierSource = classifierSource;
+		result.classifierLabel = collectorDisplayLabel(classifierSource);
+		result.rateSource = 'access_edge';
+		result.rateLabel = collectorDisplayLabel('access_edge');
+		result.value = result.rateLabel + ' / ' + result.connectionLabel;
+		result.description = _('客户端总速率来自精准接入点；%s 只负责 NSS/CPU 分类。').format(result.classifierLabel);
+		if (classifierInterval === null && (classifierSource === 'nss_ecm_node' || classifierSource === 'nss_ecm_bpf'))
+			classifierInterval = 2000;
+		result.meta = _('总速率周期 1 秒 · 分类周期 %s').format(formatDuration(classifierInterval));
+	} else if ((classifierSource === 'nss_ecm_node' || classifierSource === 'nss_ecm_bpf') &&
+		effectiveInterval !== null && effectiveInterval >= 500) {
 		result.meta += ' · ' + _('数据周期 %s').format(formatDuration(effectiveInterval));
+	}
 	if ([ clients, status, health ].some(function(item) { return item.state === 'failed' || item.state === 'invalid' || item.state === 'missing'; })) {
 		result.state = clients.state === 'failed' || clients.state === 'invalid' || clients.state === 'missing' ? 'bad' : worseState(result.state, 'warning');
 		result.badge = result.state === 'bad' ? _('不可用') : _('未完全确认');
@@ -1129,10 +1655,22 @@ function versionStateWithRpc(viewState, backendVersion, frontendVersion) {
 }
 
 function qualityState(data, progress) {
-	var coverage = coverageState(data && data.status), freshness = freshnessState(data, progress);
+	var coverage = coverageState(data && data.status, data && data.clients), freshness = freshnessState(data, progress);
 	var statusRpc = rpcState(data, 'status');
 	if (statusRpc.state === 'failed' || statusRpc.state === 'invalid' || statusRpc.state === 'missing') coverage.state = 'bad';
 	else if (statusRpc.state === 'loading') { coverage.state = 'warning'; coverage.badge = _('检查中'); }
+	if (coverage.source === 'access_edge') {
+		var clientsRpc = rpcState(data, 'clients');
+		if (clientsRpc.state === 'failed' || clientsRpc.state === 'invalid' || clientsRpc.state === 'missing') {
+			coverage.state = 'bad'; coverage.badge = _('不可用');
+			coverage.description = _('客户端数据接口没有返回当前精准总速率覆盖。');
+		} else if (clientsRpc.state === 'loading') {
+			coverage.state = 'warning'; coverage.badge = _('检查中');
+		} else if (clientsRpc.state === 'retained') {
+			coverage.state = worseState(coverage.state, 'warning'); coverage.badge = _('沿用旧值');
+			coverage.description += ' ' + _('当前显示最近一次成功覆盖结果。');
+		}
+	}
 	var state = worseState(coverage.state, freshness.state);
 	return { state: state, badge: state === 'bad' ? _('异常') : (state === 'warning' ? _('需关注') : coverage.badge),
 		value: coverage.value, description: coverage.description + ' ' + freshness.description,
@@ -1196,6 +1734,13 @@ function warningGroups(status, health, rpc, diagnostics) {
 		seen[id] = { id: id, source: source, severity: severity, text: publicText || '', raw: item };
 		items.push(seen[id]);
 	}
+	function nssArtifact(item) {
+		var id = String(item && item.id || '').toLowerCase();
+		var raw = '';
+		try { raw = JSON.stringify(item && item.raw || item || {}).toLowerCase(); } catch (error) {}
+		return /^(?:nss|ecm|access[_-]?edge|lan[_-]?topology|classifier|classification)(?:[_:\-.]|$)/.test(id) ||
+			/(?:\bnss\b|\becm\b|access[_-]?edge|lan[_-]?topology|classifier|classification)/.test(raw);
+	}
 	if (sourceUsable('status')) asArray(status.warnings).forEach(function(id) {
 		if (id === 'live_metrics_unavailable' && status.capabilities && status.capabilities.live_metrics === true)
 			return;
@@ -1233,6 +1778,12 @@ function warningGroups(status, health, rpc, diagnostics) {
 	var failures = mergeProbeFailureBundles(sourceUsable('status') ? status : null,
 		sourceUsable('health') ? health : null);
 	failures.items.forEach(function(item) { add(item, 'probe', 'warning', probeFailureText(item), 'probe:' + probeFailureKey(item)); });
+	if (!nssPlatform(status)) {
+		failures.items = failures.items.filter(function(item) { return !nssArtifact({ raw: item }); });
+		failures.total = failures.items.length;
+		failures.truncated = false;
+		items = items.filter(function(item) { return !nssArtifact(item); });
+	}
 	var critical = items.filter(function(item) { return item.severity === 'critical'; });
 	var warnings = items.filter(function(item) { return item.severity === 'warning'; });
 	var info = items.filter(function(item) { return item.severity === 'info'; });
@@ -1352,10 +1903,11 @@ function diagnosticPublicText(item, fallback) {
 function stateLabel(state) { return state === 'good' ? _('正常') : state === 'bad' ? _('异常') : state === 'warning' ? _('需关注') : _('信息'); }
 function interfaceReportRole(value) { return INTERFACE_ROLE_REPORT_LABELS[String(value || '').toLowerCase()] || _('其他'); }
 function interfaceReportStatus(value) { return INTERFACE_STATUS_REPORT_LABELS[String(value || '').toLowerCase()] || _('未知'); }
-function subsystemReportText(item) {
+function subsystemReportText(item, isNssPlatform) {
 	item = plainObject(item) ? item : {};
 	var id = String(item.id || ''), code = String(item.code || '');
-	var label = SUBSYSTEM_LABELS[id] || _('未知组件');
+	var label = !isNssPlatform && id === 'identity'
+		? _('客户端身份识别') : SUBSYSTEM_LABELS[id] || _('未知组件');
 	var state = HEALTH_REPORT_LABELS[String(item.state || '')] || _('未知');
 	var detail = '-';
 	if (code && typeof vocab.hasWarning === 'function' && vocab.hasWarning(code) &&
@@ -1366,12 +1918,14 @@ function subsystemReportText(item) {
 
 function buildReport(viewState, frontendVersion) {
 	viewState = viewState || {};
-	var runtime = viewState.status || {}, quality = qualityState(viewState, viewState.progress), path = pathStateWithRpc(viewState),
-		connections = connectionStateWithRpc(viewState), interfaces = interfaceStateWithRpc(viewState),
+	var runtime = viewState.status || {}, rate = rateOwnerStateWithRpc(viewState), edge = accessEdgeStateWithRpc(viewState),
+		classification = classificationStateWithRpc(viewState), integrity = integrityStateWithRpc(viewState),
+		freshness = freshnessState(viewState, viewState.progress), connections = connectionStateWithRpc(viewState),
+		interfaces = interfaceStateWithRpc(viewState),
 		versions = versionStateWithRpc(viewState, runtime.version, frontendVersion), groups = warningGroups(viewState.status, viewState.health, viewState.rpc, viewState.diagnostics),
 		contract = diagnosticsContractState(viewState), backendVersion = contract.usable ? contract.data.versions.daemon : runtime.version,
 		lines = [
-			'LAN Speed ' + _('运行诊断报告 v1'), _('页面状态') + ': ' + reportPageState(viewState.pageState || pageState(viewState)),
+			'LAN Speed ' + _('运行诊断报告 v2'), _('页面状态') + ': ' + reportPageState(viewState.pageState || pageState(viewState)),
 			_('检查时间') + ': ' + reportField(new Date(viewState.checkedAt || Date.now()).toLocaleString()),
 			_('LuCI 版本') + ': ' + reportVersion(frontendVersion), _('后端版本') + ': ' + reportVersion(backendVersion), ''
 		];
@@ -1388,18 +1942,37 @@ function buildReport(viewState, frontendVersion) {
 		lines.push('- ' + RPC_LABELS[key] + ': ' + text +
 			(rpc && !rpc.ok ? ' · ' + rpcReportErrorText(rpc) : ''));
 	});
-	lines.push('', _('采集质量') + ': ' + stateLabel(quality.state) + ' · ' + reportField(quality.value),
-		'- ' + reportField(quality.description), _('数据新鲜度') + ': ' + stateLabel(quality.freshness.state) + ' · ' + reportField(quality.freshness.value),
-		_('数据路径') + ': ' + stateLabel(path.state) + ' · ' + reportCollectorLabel(path.rateSource) + ' / ' + reportCollectorLabel(path.connectionSource),
-		'- ' + reportField(path.description), '- ' + _('路径原因') + ': ' + reportReasonText(path.rateReason || path.connectionReason),
-		'- ' + _('配置路径') + ': ' + reportConfiguredMode(path.configuredRate, 'rate') + ' / ' + reportConfiguredMode(path.configuredConnection, 'connection'),
+	lines.push('', _('客户端总速率') + ': ' + stateLabel(rate.state) + ' · ' + reportCollectorLabel(rate.source),
+			'- ' + _('方向唯一来源') + ': ' + reportField(rate.sourceText),
+		'- ' + _('方向覆盖') + ': ' + reportField(rate.coverageText),
+		'- ' + _('流量范围') + ': ' + reportField(rate.scopeText));
+	if (nssPlatform(runtime)) {
+		lines.push(
+			_('精准接入点') + ': ' + stateLabel(edge.state) + ' · ' + reportField(edge.value),
+			'- ' + _('接入类型') + ': ' + reportField(edge.attachmentText),
+			'- ' + _('归属信任') + ': ' + reportField(edge.trustText),
+			'- ' + _('接入边界') + ': ' + reportField(edge.reasonText),
+			_('NSS/CPU 流量分类') + ': ' + stateLabel(classification.state) + ' · ' + reportField(classification.value),
+			'- ' + _('分类状态') + ': ' + reportField(classification.stateText),
+			'- ' + _('最低分类覆盖率') + ': ' + reportField(classification.coverageText),
+			'- ' + _('分类映射') + ': ' + reportField(classification.maps.detailText));
+	} else {
+		lines.push(
+			_('架构路径') + ': x86 TC-BPF');
+	}
+	lines.push(
+		_('降级与能力边界') + ': ' + stateLabel(integrity.state) + ' · ' + reportField(integrity.value),
+		'- ' + reportField(integrity.reasonText),
+		'- ' + _('安全规则') + ': ' + (nssPlatform(runtime) ? _('N/S 不与 E 相加；不可比较时不生成未分类或覆盖率') : _('x86 仅发布 TC-BPF 单一总速率来源')),
+		_('数据新鲜度') + ': ' + stateLabel(freshness.state) + ' · ' + reportField(freshness.value),
 		_('连接健康') + ': ' + stateLabel(connections.state) + ' · ' + reportCollectorLabel(connections.source),
 		_('版本一致性') + ': ' + stateLabel(versions.state) + ' · ' + reportField(versions.badge),
 		_('接口健康') + ': ' + stateLabel(interfaces.state) + ' · ' + reportField(interfaces.value), '');
 	if (contract.usable) {
 		lines.push(_('子系统状态') + ':');
 		asArray(contract.data.subsystems).forEach(function(item) {
-			lines.push('- ' + subsystemReportText(item));
+			if (!nssPlatform(runtime) && String(item && item.id || '') === 'nss') return;
+			lines.push('- ' + subsystemReportText(item, nssPlatform(runtime)));
 		});
 		lines.push('');
 	}
@@ -1434,8 +2007,11 @@ return baseclass.extend({
 			collector: contract.data.data_path.effective_rate, capabilities: source.capabilities || fallback.capabilities || {} } : {});
 	},
 	formatDuration: formatDuration, sampleAge: sampleAge, formatPercent: formatPercent,
+	nssPlatform: nssPlatform,
 	sampleClock: sampleClock, assessProgress: assessProgress,
 	coverageState: coverageState, freshnessState: freshnessState, qualityState: qualityState,
+	rateOwnerStateWithRpc: rateOwnerStateWithRpc, accessEdgeStateWithRpc: accessEdgeStateWithRpc,
+	classificationStateWithRpc: classificationStateWithRpc, integrityStateWithRpc: integrityStateWithRpc,
 	dataPathState: dataPathState, connectionState: connectionState, interfaceState: interfaceState,
 	versionState: versionState, pathStateWithRpc: pathStateWithRpc, connectionStateWithRpc: connectionStateWithRpc,
 	interfaceStateWithRpc: interfaceStateWithRpc, versionStateWithRpc: versionStateWithRpc,

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, mem::MaybeUninit, rc::Rc, sync::Arc};
+use std::{cell::RefCell, collections::BTreeMap, mem::MaybeUninit, rc::Rc, sync::Arc};
 
 use serde_json::{json, Value};
 
@@ -6,7 +6,7 @@ use crate::{
     config::{RateCollectorMode, RuntimeConfig},
     connection_details::{
         ClientConnectionSummary, ClientConnectionsResponse, ConnectionDetailsSnapshot,
-        PublishedConnectionDetails, MAX_CLIENT_CONNECTION_DETAILS,
+        PublishedConnectionDetails, TrafficClassification, MAX_CLIENT_CONNECTION_DETAILS,
     },
     error::DaemonError,
     model::{
@@ -56,6 +56,7 @@ pub struct ResponseSnapshot {
     diagnostics_collection: DiagnosticCollection,
     config_issues: Vec<DiagnosticConfigIssue>,
     connection_details: PublishedConnectionDetails,
+    traffic_classification: BTreeMap<String, TrafficClassification>,
 }
 
 impl ResponseSnapshot {
@@ -81,6 +82,7 @@ impl ResponseSnapshot {
             diagnostics_collection: DiagnosticCollection::unavailable(refresh_interval_ms),
             config_issues: Vec::new(),
             connection_details: PublishedConnectionDetails::Unavailable,
+            traffic_classification: BTreeMap::new(),
         }
     }
 
@@ -129,6 +131,14 @@ impl ResponseSnapshot {
                 overview_window_samples: 240,
                 collector_mode: "auto".into(),
                 rate_collector_mode: "auto".into(),
+                access_edge_mode: if crate::platform::profile::COMPILED_PROFILE
+                    .uses_access_edge()
+                {
+                    "active"
+                } else {
+                    "off"
+                }
+                .into(),
                 conn_collector_mode: "auto".into(),
                 version: version.clone(),
                 capabilities: capabilities.clone(),
@@ -178,6 +188,7 @@ impl ResponseSnapshot {
             diagnostics_collection: DiagnosticCollection::unavailable(1_000),
             config_issues: Vec::new(),
             connection_details: PublishedConnectionDetails::Unavailable,
+            traffic_classification: BTreeMap::new(),
         }
     }
 
@@ -332,6 +343,7 @@ impl ResponseSnapshot {
             zone: client.zone.clone(),
         });
         let mut warnings = Vec::new();
+        let traffic_classification = self.traffic_classification.get(identity_key).cloned();
         if current_client.is_none() {
             warnings.push("client_not_found".to_owned());
         }
@@ -351,6 +363,7 @@ impl ResponseSnapshot {
                     conn_semantics: CONNECTION_SEMANTICS.to_owned(),
                     connections: Vec::new(),
                     warnings,
+                    traffic_classification,
                 }
             }
             PublishedConnectionDetails::Incomplete {
@@ -370,6 +383,7 @@ impl ResponseSnapshot {
                     conn_semantics: CONNECTION_SEMANTICS.to_owned(),
                     connections: Vec::new(),
                     warnings,
+                    traffic_classification,
                 }
             }
             PublishedConnectionDetails::Available {
@@ -393,9 +407,18 @@ impl ResponseSnapshot {
                     conn_semantics: CONNECTION_SEMANTICS.to_owned(),
                     connections,
                     warnings,
+                    traffic_classification,
                 }
             }
         }
+    }
+
+    #[cfg(feature = "nss-platform")]
+    pub(crate) fn replace_traffic_classification(
+        &mut self,
+        values: BTreeMap<String, TrafficClassification>,
+    ) {
+        self.traffic_classification = values;
     }
 
     pub(crate) fn replace_connection_details(
@@ -559,6 +582,7 @@ fn diagnostic_interfaces(response: &InterfacesResponse) -> DiagnosticInterfaces 
     }
 }
 
+#[cfg(feature = "nss-platform")]
 fn diagnostic_connection(response: &ClientsResponse) -> DiagnosticConnection {
     let source = response.conn_source.as_deref().and_then(safe_code);
     let direct = source.as_deref() == Some("nss_ecm_node");
@@ -591,6 +615,25 @@ fn diagnostic_connection(response: &ClientsResponse) -> DiagnosticConnection {
     }
 }
 
+#[cfg(not(feature = "nss-platform"))]
+fn diagnostic_connection(response: &ClientsResponse) -> DiagnosticConnection {
+    let source = response.conn_source.as_deref().and_then(safe_code);
+    let parse_errors = response.conntrack_parse_errors;
+    let state = match source.as_deref() {
+        Some(_) if parse_errors.unwrap_or(0) > 0 => DiagnosticHealthState::Degraded,
+        Some(_) => DiagnosticHealthState::Healthy,
+        None => DiagnosticHealthState::Unavailable,
+    };
+    DiagnosticConnection {
+        state,
+        source,
+        entries_seen: response.conntrack_entries_seen,
+        entries_matched: response.conntrack_entries_matched,
+        parse_errors,
+    }
+}
+
+#[cfg(feature = "nss-platform")]
 fn diagnostic_subsystems(snapshot: &ResponseSnapshot) -> Vec<DiagnosticSubsystem> {
     let evidence = &snapshot.status.evidence;
     let rate =
@@ -815,13 +858,181 @@ fn diagnostic_subsystems(snapshot: &ResponseSnapshot) -> Vec<DiagnosticSubsystem
             Some("conntrack_unavailable".into()),
         ),
     };
-    let nss = if snapshot.status.capabilities.nss {
+    let identity = if snapshot
+        .status
+        .warnings
+        .iter()
+        .any(|warning| warning == "lan_topology_probe_error")
+    {
+        (
+            DiagnosticHealthState::Degraded,
+            Some("lan_topology_probe_error".into()),
+        )
+    } else {
+        (DiagnosticHealthState::Healthy, None)
+    };
+    let mut subsystems = vec![
+        subsystem("bpf", bpf),
+        subsystem("tc", tc),
+        subsystem("bpf_map", bpf_map),
+        subsystem("conntrack", conntrack),
+        subsystem("identity", identity),
+        subsystem("ubus", (DiagnosticHealthState::Healthy, None)),
+    ];
+    if crate::platform::profile::COMPILED_PROFILE.uses_nss() {
+        let nss = if snapshot.status.capabilities.nss {
+            (DiagnosticHealthState::Healthy, None)
+        } else {
+            (
+                DiagnosticHealthState::Disabled,
+                Some("nss_not_present".into()),
+            )
+        };
+        subsystems.insert(4, subsystem("nss", nss));
+    }
+    subsystems
+}
+
+#[cfg(not(feature = "nss-platform"))]
+fn diagnostic_subsystems(snapshot: &ResponseSnapshot) -> Vec<DiagnosticSubsystem> {
+    let evidence = &snapshot.status.evidence;
+    let rate =
+        evidence_code(evidence, "effective_collector").unwrap_or_else(|| "unsupported".into());
+    let reason = nested_evidence_code(evidence, "bpf", "reason_code");
+    let attach_state = nested_evidence_code(evidence, "bpf", "attach_state");
+    let map_state = nested_evidence_code(evidence, "bpf", "map_state");
+    let enabled = nested_evidence_bool(evidence, "bpf", "enabled").unwrap_or(true);
+    let collect_targets = nested_evidence_u64(evidence, "bpf", "collect_target_count")
+        .unwrap_or_else(|| u64::from(snapshot.status.capabilities.lan_edge));
+    let disabled = !enabled || reason.as_deref() == Some("disabled");
+    let no_target = collect_targets == 0 || reason.as_deref() == Some("no_collect_interface");
+    let unavailable_reason = matches!(
+        reason.as_deref(),
+        Some(
+            "package_missing"
+                | "object_missing"
+                | "object_load_failed"
+                | "tc_unavailable"
+                | "tc_unsupported"
+        )
+    );
+    let bpf = if disabled {
+        (DiagnosticHealthState::Disabled, Some("bpf_disabled".into()))
+    } else if no_target {
+        (
+            DiagnosticHealthState::Disabled,
+            Some("no_collect_interface".into()),
+        )
+    } else if unavailable_reason
+        || !snapshot.status.capabilities.bpf_package
+        || !snapshot.status.capabilities.bpf_object
+        || !snapshot.status.capabilities.bpf_supported
+    {
+        (
+            DiagnosticHealthState::Unavailable,
+            Some(reason.clone().unwrap_or_else(|| "bpf_unavailable".into())),
+        )
+    } else if attach_state.as_deref() == Some("ready")
+        && matches!(map_state.as_deref(), Some("ready") | Some("retained"))
+    {
+        if map_state.as_deref() == Some("retained") {
+            (
+                DiagnosticHealthState::Degraded,
+                Some("map_read_failed".into()),
+            )
+        } else {
+            (DiagnosticHealthState::Healthy, None)
+        }
+    } else if attach_state.as_deref() == Some("partial")
+        || attach_state.as_deref() == Some("failed")
+        || map_state.as_deref() == Some("failed")
+    {
+        (
+            DiagnosticHealthState::Degraded,
+            Some(
+                reason
+                    .clone()
+                    .unwrap_or_else(|| "bpf_runtime_not_ready".into()),
+            ),
+        )
+    } else if rate == "bpf" && snapshot.status.capabilities.live_metrics {
         (DiagnosticHealthState::Healthy, None)
     } else {
         (
             DiagnosticHealthState::Disabled,
-            Some("nss_not_present".into()),
+            Some("bpf_not_selected".into()),
         )
+    };
+    let tc = if disabled {
+        (DiagnosticHealthState::Disabled, Some("bpf_disabled".into()))
+    } else if no_target {
+        (
+            DiagnosticHealthState::Disabled,
+            Some("no_collect_interface".into()),
+        )
+    } else if !snapshot.status.capabilities.tc
+        || !snapshot.status.capabilities.tc_clsact
+        || !snapshot.status.capabilities.bpf_supported
+    {
+        (
+            DiagnosticHealthState::Unavailable,
+            Some(reason.clone().unwrap_or_else(|| "tc_unavailable".into())),
+        )
+    } else if attach_state.as_deref() == Some("ready") {
+        (DiagnosticHealthState::Healthy, None)
+    } else {
+        (
+            DiagnosticHealthState::Degraded,
+            Some(
+                reason
+                    .clone()
+                    .unwrap_or_else(|| "tc_attach_not_ready".into()),
+            ),
+        )
+    };
+    let bpf_map = if disabled {
+        (DiagnosticHealthState::Disabled, Some("bpf_disabled".into()))
+    } else if no_target {
+        (
+            DiagnosticHealthState::Disabled,
+            Some("no_collect_interface".into()),
+        )
+    } else {
+        match map_state.as_deref() {
+            Some("ready") => (DiagnosticHealthState::Healthy, None),
+            Some("retained") => (
+                DiagnosticHealthState::Degraded,
+                Some("map_read_failed".into()),
+            ),
+            Some("failed") => (
+                DiagnosticHealthState::Unavailable,
+                Some("map_read_failed".into()),
+            ),
+            _ if attach_state.as_deref() == Some("failed")
+                || attach_state.as_deref() == Some("partial") =>
+            {
+                (
+                    DiagnosticHealthState::Unavailable,
+                    Some("map_not_started".into()),
+                )
+            }
+            _ => (
+                DiagnosticHealthState::Disabled,
+                Some("bpf_not_selected".into()),
+            ),
+        }
+    };
+    let connection = diagnostic_connection(&snapshot.clients);
+    let conntrack = match connection.state {
+        DiagnosticHealthState::Healthy => (DiagnosticHealthState::Healthy, None),
+        DiagnosticHealthState::Degraded => (
+            DiagnosticHealthState::Degraded,
+            Some("conntrack_parse_errors".into()),
+        ),
+        _ => (
+            DiagnosticHealthState::Unavailable,
+            Some("conntrack_unavailable".into()),
+        ),
     };
     let identity = if snapshot
         .status
@@ -841,7 +1052,6 @@ fn diagnostic_subsystems(snapshot: &ResponseSnapshot) -> Vec<DiagnosticSubsystem
         subsystem("tc", tc),
         subsystem("bpf_map", bpf_map),
         subsystem("conntrack", conntrack),
-        subsystem("nss", nss),
         subsystem("identity", identity),
         subsystem("ubus", (DiagnosticHealthState::Healthy, None)),
     ]
@@ -882,9 +1092,14 @@ fn diagnostic_alerts(
             .into(),
         });
     }
-    let effective_rate = evidence_code(&snapshot.status.evidence, "effective_collector")
-        .unwrap_or_else(|| "unsupported".into());
-    let tc_bpf_relevant = !matches!(effective_rate.as_str(), "nss_ecm_node" | "nss_ecm_bpf");
+    #[cfg(feature = "nss-platform")]
+    let tc_bpf_relevant = {
+        let effective_rate = evidence_code(&snapshot.status.evidence, "effective_collector")
+            .unwrap_or_else(|| "unsupported".into());
+        !matches!(effective_rate.as_str(), "nss_ecm_node" | "nss_ecm_bpf")
+    };
+    #[cfg(not(feature = "nss-platform"))]
+    let tc_bpf_relevant = true;
     let bpf_reason = tc_bpf_relevant
         .then(|| nested_evidence_code(&snapshot.status.evidence, "bpf", "reason_code"))
         .flatten();
@@ -904,6 +1119,7 @@ fn diagnostic_alerts(
         let Some(id) = safe_code(warning) else {
             continue;
         };
+        #[cfg(feature = "nss-platform")]
         if !tc_bpf_relevant && is_tc_bpf_alert(&id) {
             continue;
         }
@@ -954,6 +1170,7 @@ fn diagnostic_alerts(
     alerts
 }
 
+#[cfg(feature = "nss-platform")]
 fn is_tc_bpf_alert(id: &str) -> bool {
     matches!(
         id,
@@ -1055,6 +1272,7 @@ fn alert_component(id: &str) -> &'static str {
 
 fn alert_severity(id: &str, live_metrics: bool) -> &'static str {
     match id {
+        #[cfg(feature = "nss-platform")]
         "nss_ecm_bpf_active" | "nss_ecm_bpf_disjoint_ownership" => "info",
         "live_metrics_unavailable"
         | "no_collect_interface"
@@ -1208,6 +1426,7 @@ mod diagnostics_tests {
             .any(|alert| alert.id == "collection_stale"));
     }
 
+    #[cfg(feature = "nss-platform")]
     #[test]
     fn ecm_bpf_operational_status_is_informational() {
         let mut snapshot = ResponseSnapshot::unsupported("test");
@@ -1270,6 +1489,7 @@ mod diagnostics_tests {
         assert!(!alert.message_public.contains("token=secret"));
     }
 
+    #[cfg(feature = "nss-platform")]
     #[test]
     fn nss_node_connection_health_uses_node_counters_and_reason() {
         let mut snapshot = ResponseSnapshot::unsupported("test");
@@ -1299,6 +1519,7 @@ mod diagnostics_tests {
         assert_eq!(subsystem.code.as_deref(), Some("nss_ecm_node_parse_errors"));
     }
 
+    #[cfg(feature = "nss-platform")]
     #[test]
     fn direct_counters_without_source_metadata_remain_unavailable() {
         let mut response = ClientsResponse::empty(Evidence::default());
@@ -1369,6 +1590,7 @@ mod diagnostics_tests {
         assert_eq!(map.state, DiagnosticHealthState::Unavailable);
     }
 
+    #[cfg(feature = "nss-platform")]
     #[test]
     fn ecm_bpf_diagnostics_require_both_the_kprobe_and_tc_runtime() {
         let mut snapshot = ResponseSnapshot::unsupported("test");
@@ -1446,6 +1668,7 @@ mod diagnostics_tests {
         assert_eq!(find_degraded("tc").state, DiagnosticHealthState::Degraded);
     }
 
+    #[cfg(feature = "nss-platform")]
     #[test]
     fn live_nss_fallback_deduplicates_bpf_failure_without_missing_live_metrics() {
         let mut snapshot = ResponseSnapshot::unsupported("test");

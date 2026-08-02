@@ -62,9 +62,23 @@ function effectiveRateCollector(status) {
 	return String(evidence.effective_collector || collector.primary_source || 'unsupported');
 }
 
+function nssPlatform(status) {
+	var evidence = status && status.evidence || {};
+	var platform = evidence.platform || {};
+	if (platform.profile !== undefined && platform.profile !== null && platform.profile !== '')
+		return platform.profile === 'nss_aarch64';
+	if (platform.target_arch !== undefined && platform.target_arch !== null && platform.target_arch !== '')
+		return String(platform.target_arch) === 'aarch64' &&
+		(!Object.prototype.hasOwnProperty.call(platform, 'nss_compiled') || platform.nss_compiled !== false) &&
+		(!status.capabilities || status.capabilities.nss !== false);
+	/* New daemons always publish a profile. Do not infer NSS from a stray
+	 * capability in an old or mixed response: x86 must fail closed. */
+	return false;
+}
+
 function nssRefreshRestricted(status) {
 	var effective = effectiveRateCollector(status);
-	return effective === 'nss_ecm_node' || effective === 'nss_ecm_bpf';
+	return nssPlatform(status) && (effective === 'nss_ecm_node' || effective === 'nss_ecm_bpf');
 }
 
 function normalizeNssRefreshMs(value) {
@@ -142,7 +156,21 @@ function activeConfig(status, overview) {
 	};
 }
 
-function isActiveClient(c, nowMs, config) {
+function isNssActivityClient(c) {
+	var mode = String(c && c.collector_mode || '');
+	return mode === 'access_edge' || mode === 'nss_ecm_node' || mode === 'nss_ecm_bpf';
+}
+
+function isNssActiveClient(c, nowMs, config) {
+	var sample = Number(nowMs) || clientSampleMs(c);
+	var rate = (Number(c && c.tx_bps) || 0) + (Number(c && c.rx_bps) || 0);
+	var cfg = config || activeConfig();
+	var minBps = positiveNumber(cfg.activeMinBps, ACTIVE_CLIENT_MIN_BPS);
+	// NSS publishes a complete rate batch even when its last kernel event is old.
+	return sample > 0 && rate >= minBps;
+}
+
+function isX86ActiveClient(c, nowMs, config) {
 	var sample = Number(nowMs) || clientSampleMs(c);
 	var last = Number(c && c.last_seen) || 0;
 	var rate = (Number(c && c.tx_bps) || 0) + (Number(c && c.rx_bps) || 0);
@@ -154,6 +182,12 @@ function isActiveClient(c, nowMs, config) {
 	if (sample <= 0 || last <= 0 || last > sample)
 		return false;
 	return sample - last <= windowMs;
+}
+
+function isActiveClient(c, nowMs, config) {
+	return isNssActivityClient(c)
+		? isNssActiveClient(c, nowMs, config)
+		: isX86ActiveClient(c, nowMs, config);
 }
 
 function sumTotals(clients, config) {
@@ -295,6 +329,7 @@ return baseclass.extend({
 	SORT_KEYS:                 SORT_KEYS,
 	DEFAULT_PREFS:             DEFAULT_PREFS,
 	nssRefreshRestricted:      nssRefreshRestricted,
+	nssPlatform:               nssPlatform,
 	normalizeNssRefreshMs:     normalizeNssRefreshMs,
 	effectiveRateCollector:    effectiveRateCollector,
 	effectiveRefreshMs:        effectiveRefreshMs,
@@ -310,6 +345,8 @@ return baseclass.extend({
 	clientSampleMs:    clientSampleMs,
 	latestClientSampleMs: latestClientSampleMs,
 	activeConfig:      activeConfig,
+	isNssActivityClient: isNssActivityClient,
+	isNssActiveClient: isNssActiveClient,
 	isActiveClient:    isActiveClient,
 	sumTotals:         sumTotals,
 	sortClients:       sortClients,

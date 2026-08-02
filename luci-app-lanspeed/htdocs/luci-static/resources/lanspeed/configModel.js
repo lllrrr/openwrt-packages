@@ -18,6 +18,7 @@ var DEFAULTS = {
 	active_client_min_bps: 1,
 	overview_window_samples: 240,
 	rate_collector_mode: 'auto',
+	access_edge_mode: 'active',
 	conn_collector_mode: 'auto',
 	show_client_status: '0',
 	show_ipv6: '1',
@@ -42,16 +43,22 @@ var LIMITS = {
 };
 
 var RATE_MODES = [
-	{ value: 'auto', label: _('自动'), capability: null },
-	{ value: 'bpf', label: _('BPF'), capability: 'bpf' },
-	{ value: 'nss_ecm_node', label: 'ECM', capability: 'nss_ecm_node' },
-	{ value: 'nss_ecm_bpf', label: 'ECM+BPF', capability: 'nss_ecm_bpf' }
+	{ value: 'auto', label: _('自动精准（推荐）'), capability: null },
+	{ value: 'bpf', label: _('仅 CPU 路径（BPF）'), capability: 'bpf' },
+	{ value: 'nss_ecm_node', label: _('仅 NSS 加速（ECM）'), capability: 'nss_ecm_node' },
+	{ value: 'nss_ecm_bpf', label: _('NSS + CPU 路径（ECM+BPF）'), capability: 'nss_ecm_bpf' }
 ];
 
 var CONNECTION_MODES = [
-	{ value: 'auto', label: _('自动'), capability: null },
-	{ value: 'conntrack_netlink', label: 'CT-Netlink', capability: 'conntrack_netlink' },
-	{ value: 'conntrack_procfs', label: 'CT-Procfs', capability: 'conntrack_procfs' }
+	{ value: 'auto', label: _('自动（CT-Netlink 推荐）'), capability: null },
+	{ value: 'conntrack_netlink', label: _('内核连接接口（Netlink）'), capability: 'conntrack_netlink' },
+	{ value: 'conntrack_procfs', label: _('兼容连接接口（Procfs）'), capability: 'conntrack_procfs' }
+];
+
+var ACCESS_EDGE_MODES = [
+	{ value: 'off', label: _('关闭精准检测') },
+	{ value: 'shadow', label: _('仅后台验证（不用于显示）') },
+	{ value: 'active', label: _('精准总速率（推荐）') }
 ];
 
 var FIELD_DEFS = [
@@ -59,8 +66,9 @@ var FIELD_DEFS = [
 	{ name: 'active_client_window_ms', kind: 'integer', label: _('活跃客户端窗口'), unit: 'ms', limits: LIMITS.active_client_window_ms },
 	{ name: 'active_client_min_bps', kind: 'integer', label: _('活跃最小速率'), unit: 'bps', limits: LIMITS.active_client_min_bps },
 	{ name: 'overview_window_samples', kind: 'integer', label: _('历史采样点'), unit: _('个'), limits: LIMITS.overview_window_samples },
-	{ name: 'rate_collector_mode', kind: 'enum', label: _('速率采集') },
-	{ name: 'conn_collector_mode', kind: 'enum', label: _('连接数采集') },
+	{ name: 'rate_collector_mode', kind: 'enum', label: _('客户端网速模式') },
+	{ name: 'access_edge_mode', kind: 'enum', label: _('客户端总速率') },
+	{ name: 'conn_collector_mode', kind: 'enum', label: _('连接详情来源') },
 	{ name: 'show_client_status', kind: 'boolean', label: _('显示客户端状态') },
 	{ name: 'show_ipv6', kind: 'boolean', label: _('显示 IPv6 地址') },
 	{ name: 'hide_private_ipv6', kind: 'boolean', label: _('隐藏私有 IPv6 地址') },
@@ -71,9 +79,16 @@ var FIELD_DEFS = [
 	{ name: 'interface_include', kind: 'interface-list', label: _('采集接口') },
 	{ name: 'interface_exclude', kind: 'interface-list', label: _('排除接口'), compatibility: true },
 	{ name: 'observe', kind: 'interface-list', label: _('观察接口') },
-	{ name: 'enable_bpf', kind: 'boolean', label: _('启用 BPF') },
-	{ name: 'enable_conntrack_fallback', kind: 'boolean', label: _('允许连接跟踪回退') }
+	{ name: 'enable_bpf', kind: 'boolean', label: _('启用 CPU 流量检测（BPF）') },
+	{ name: 'enable_conntrack_fallback', kind: 'boolean', label: _('允许兼容连接详情') }
 ];
+
+/*
+ * The manual direct-port declaration is no longer exposed by LuCI. Read the
+ * old UCI option once so the next save can remove it without overwriting the
+ * rest of the user's configuration.
+ */
+var REMOVED_UCI_FIELDS = [ 'dedicated_port' ];
 
 function clone(value) {
 	if (Array.isArray(value))
@@ -285,6 +300,12 @@ function normalize(raw) {
 	if (!rate.valid && present.rate_collector_mode) errors.rate_collector_mode = rate.reason;
 	if (!conn.valid && present.conn_collector_mode) errors.conn_collector_mode = conn.reason;
 
+	var edgeRaw = raw.access_edge_mode === undefined ? DEFAULTS.access_edge_mode : raw.access_edge_mode;
+	var edge = normalizeEnum(edgeRaw, ACCESS_EDGE_MODES, DEFAULTS.access_edge_mode);
+	values.access_edge_mode = edge.value;
+	present.access_edge_mode = raw.access_edge_mode !== undefined && raw.access_edge_mode !== null;
+	if (!edge.valid && present.access_edge_mode) errors.access_edge_mode = edge.reason;
+
 	[ 'show_client_status', 'show_ipv6', 'hide_private_ipv6', 'enable_bpf', 'enable_conntrack_fallback' ].forEach(function(name) {
 		var result = parseBoolean(raw[name] === undefined ? DEFAULTS[name] : raw[name], DEFAULTS[name]);
 		values[name] = result.value;
@@ -382,6 +403,31 @@ function capabilityState(status, values) {
 	return state;
 }
 
+function platformProfile(status) {
+	var evidence = status && status.evidence || {};
+	var platform = evidence.platform || {};
+	if (platform.profile !== undefined && platform.profile !== null && platform.profile !== '') {
+		if (platform.profile === 'nss_aarch64' || platform.profile === 'x86_tc_bpf')
+			return platform.profile;
+		return 'unknown';
+	}
+	if (platform.target_arch !== undefined && platform.target_arch !== null && platform.target_arch !== '') {
+		if (String(platform.target_arch) === 'aarch64' && platform.nss_compiled !== false)
+			return 'nss_aarch64';
+		if (String(platform.target_arch) === 'x86_64' || platform.nss_compiled === false)
+			return 'x86_tc_bpf';
+	}
+	return 'unknown';
+}
+
+function isNssPlatform(status) {
+	return platformProfile(status) === 'nss_aarch64';
+}
+
+function isX86Platform(status) {
+	return platformProfile(status) === 'x86_tc_bpf';
+}
+
 function validate(values, status, interfaceState) {
 	var normalized = normalize(values);
 	var capabilities = capabilityState(status, normalized.values);
@@ -432,6 +478,7 @@ function buildUciPatch(values, original) {
 	var scalarFields = [
 		'refresh_interval_ms', 'active_client_window_ms', 'active_client_min_bps',
 		'overview_window_samples', 'rate_collector_mode', 'conn_collector_mode',
+		'access_edge_mode',
 		'show_client_status', 'show_ipv6', 'hide_private_ipv6', 'hide_ipv6_ranges',
 		'collector_mode', 'max_clients', 'enable_bpf', 'enable_conntrack_fallback'
 	];
@@ -449,6 +496,11 @@ function buildUciPatch(values, original) {
 			originalValues[name] !== undefined && originalValues[name] !== null)
 			unset.push(name);
 	});
+	REMOVED_UCI_FIELDS.forEach(function(name) {
+		if (Object.prototype.hasOwnProperty.call(originalValues, name) &&
+			originalValues[name] !== undefined && originalValues[name] !== null)
+			unset.push(name);
+	});
 	return { set: set, unset: unique(unset) };
 }
 
@@ -456,8 +508,7 @@ function modeChoices(kind, status, values) {
 	var source = kind === 'rate' ? RATE_MODES : CONNECTION_MODES;
 	var caps = capabilityState(status, values || DEFAULTS);
 	var selected = values && values.rate_collector_mode;
-	var nssKnownAbsent = kind === 'rate' && status && status.capabilities &&
-		status.capabilities.nss === false;
+	var nssKnownAbsent = kind === 'rate' && !isNssPlatform(status);
 	return source.filter(function(item) {
 		var nssMode = item.value === 'nss_ecm_node' || item.value === 'nss_ecm_bpf';
 		return !nssKnownAbsent || !nssMode || item.value === selected;
@@ -465,7 +516,10 @@ function modeChoices(kind, status, values) {
 		var cap = item.capability ? caps[item.capability] : caps.auto;
 		return {
 			value: item.value,
-			label: item.label,
+			label: kind === 'rate' && item.value === 'auto'
+				? (isX86Platform(status) ? _('自动（TC-BPF 推荐）') :
+					(isNssPlatform(status) ? item.label : _('自动')))
+				: item.label,
 			disabled: !!(cap && cap.known && !cap.allowed),
 			reason: cap && cap.reason,
 			pending: !!(cap && !cap.known)
@@ -477,8 +531,10 @@ return baseclass.extend({
 	DEFAULTS: DEFAULTS,
 	LIMITS: LIMITS,
 	FIELDS: FIELD_DEFS,
+	ACCESS_EDGE_MODES: ACCESS_EDGE_MODES,
 	MAX_INTERFACE_NAMES: MAX_INTERFACE_NAMES,
 	MAX_RANGE_ITEMS: MAX_RANGE_ITEMS,
+	REMOVED_UCI_FIELDS: REMOVED_UCI_FIELDS,
 	parseInteger: parseInteger,
 	parseBoolean: parseBoolean,
 	parseCidr: parseCidr,
@@ -487,6 +543,9 @@ return baseclass.extend({
 	normalize: normalize,
 	validate: validate,
 	capabilityState: capabilityState,
+	platformProfile: platformProfile,
+	isNssPlatform: isNssPlatform,
+	isX86Platform: isX86Platform,
 	modeChoices: modeChoices,
 	collectorModeFor: collectorModeFor,
 	buildUciPatch: buildUciPatch

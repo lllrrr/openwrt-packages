@@ -1039,6 +1039,23 @@ fn tc_coverage_truncation_never_publishes_partial_deltas() {
         .unwrap();
     assert!(!after.coverage_ready);
     assert!(after.coverage_deltas.is_empty());
+
+    adapter.map_read = Some(Ok(read(vec![raw(DIR_TX, 4_000, 7_000_000_000)])));
+    let recovered = runtime
+        .collect_snapshot(
+            &mut adapter,
+            &mut collector,
+            &identities,
+            &ConnectionOverlay::available(),
+            7_000,
+        )
+        .unwrap();
+    assert!(recovered.coverage_ready);
+    assert!(!recovered.map_read_truncated);
+    assert_eq!(
+        recovered.coverage_deltas["02:00:00:00:00:01@lan"].tx_bytes,
+        1_000
+    );
 }
 
 #[test]
@@ -1429,11 +1446,15 @@ fn self_healing_collection_skips_map_read_when_hook_reattach_fails() {
 #[test]
 fn production_bpf_sampling_paths_use_stable_self_heal_reasons() {
     let source = include_str!("../src/production.rs");
-    assert_eq!(source.matches("collect_snapshot_self_healing(").count(), 2);
+    // x86 and NSS have separate collect_inner implementations; each retains
+    // one internal and one externally supplied BPF runtime path.
+    assert_eq!(source.matches("collect_snapshot_self_healing(").count(), 4);
     assert!(source
         .contains("const INTERNAL_BPF_SELF_HEAL_REASON: &str = \"production.collect.internal\";"));
     assert!(source
         .contains("const EXTERNAL_BPF_SELF_HEAL_REASON: &str = \"production.collect.external\";"));
+    assert_eq!(source.matches("INTERNAL_BPF_SELF_HEAL_REASON").count(), 3);
+    assert_eq!(source.matches("EXTERNAL_BPF_SELF_HEAL_REASON").count(), 3);
     assert!(source.contains("bpf_snapshot_fresh"));
     assert!(source.contains("(self.bpf_collector.last_complete().cloned(), false)"));
     assert!(source.contains("x86_coverage"));
@@ -1590,7 +1611,7 @@ fn foreign_replacement_invalidates_health_and_is_never_overwritten() {
 }
 
 #[test]
-fn exact_physical_map_capacity_is_reported_as_at_capacity() {
+fn logical_client_limit_is_not_mistaken_for_the_larger_physical_map_capacity() {
     let identities = identities();
     let entries = (0..lanspeed_common::MAX_CLIENTS)
         .map(|_| raw(DIR_TX, 1, 10_000_000_000))
@@ -1616,7 +1637,10 @@ fn exact_physical_map_capacity_is_reported_as_at_capacity() {
             10_000,
         )
         .unwrap();
-    assert!(runtime.map_iteration_truncated_observed());
+    // The physical TC map is now sized to 4 × max_clients. Only the adapter,
+    // which knows the loaded map's actual capacity, may set MapRead::truncated;
+    // the runtime must not infer loss from the old logical client constant.
+    assert!(!runtime.map_iteration_truncated_observed());
 }
 
 #[test]

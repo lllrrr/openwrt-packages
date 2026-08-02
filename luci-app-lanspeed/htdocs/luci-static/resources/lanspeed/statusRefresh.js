@@ -11,6 +11,24 @@ var CLIENT_INFO_WARNINGS = {
 	conntrack_connection_only: true
 };
 
+var RATE_SOURCE_LABELS = {
+	edge_port: 'Edge-Port',
+	edge_wifi: 'Edge-WiFi',
+	ecm_bpf_fallback: 'ECM+BPF fallback',
+	ecm_nss_lower_bound: 'ECM NSS lower-bound',
+	tc_bpf_lower_bound: 'TC-BPF lower-bound',
+	none: _('不可用')
+};
+var RATE_COVERAGE_LABELS = {
+	full: 'Full', partial: 'Partial', degraded: 'Degraded', unavailable: _('不可用')
+};
+var RATE_COVERAGE_RANK = { unavailable: 0, degraded: 1, partial: 2, full: 3 };
+var ATTACHMENT_TRUST_LABELS = {
+	observed_exclusive: _('观测独占'),
+	associated_station: _('已关联终端'),
+	shared: _('共享下联'), unknown: _('接入关系未知')
+};
+
 var RPC_LABELS = {
 	status: _('服务状态'),
 	clients: _('客户端数据'),
@@ -208,6 +226,85 @@ function clientStateCell(stateCells, visible) {
 	return cell;
 }
 
+function rateSourceLabel(source) {
+	return RATE_SOURCE_LABELS[String(source || '')] || _('其他来源');
+}
+
+function combinedDirectionLabel(tx, rx, labelFor) {
+	var txValue = labelFor(tx || {});
+	var rxValue = labelFor(rx || {});
+	return txValue === rxValue ? txValue : '↑ ' + txValue + ' / ↓ ' + rxValue;
+}
+
+function rateMetaCells(meta, nssProfile) {
+	if (!meta || typeof meta !== 'object') return [];
+	if (nssProfile === undefined) nssProfile = true;
+	if (nssProfile !== true) return [];
+	var tx = meta.tx || {}, rx = meta.rx || {};
+	var sourceTitle = [
+		_('当前速率 owner'),
+		_('上行：') + rateSourceLabel(tx.source),
+		_('下行：') + rateSourceLabel(rx.source)
+	].join('\n');
+	var cells = [ E('span', {
+		'class': 'label lanspeed-rate-owner',
+		'title': sourceTitle
+	}, combinedDirectionLabel(tx, rx, function(direction) {
+		return rateSourceLabel(direction.source);
+	})) ];
+
+	var txCoverage = String(tx.coverage || 'unavailable');
+	var rxCoverage = String(rx.coverage || 'unavailable');
+	var worst = (RATE_COVERAGE_RANK[txCoverage] || 0) <= (RATE_COVERAGE_RANK[rxCoverage] || 0)
+		? txCoverage : rxCoverage;
+	var coverageText = combinedDirectionLabel(tx, rx, function(direction) {
+		return RATE_COVERAGE_LABELS[String(direction.coverage || '')] || _('未知覆盖');
+	});
+	cells.push(E('span', {
+		'class': worst === 'full' ? 'label success' :
+			worst === 'unavailable' ? 'label warning' : 'label',
+		'title': _('总速率覆盖语义，与 NSS 分类覆盖率相互独立')
+	}, coverageText));
+
+	var attachment = meta.attachment;
+	if (attachment && attachment.ifname) {
+		cells.push(E('span', {
+			'class': 'label lanspeed-rate-attachment',
+			'title': _('物理接入点：') + String(attachment.ifname) + '\n' +
+				(ATTACHMENT_TRUST_LABELS[String(attachment.trust || '')] || _('接入关系未知'))
+		}, String(attachment.ifname)));
+	}
+
+	var classification = nssProfile && meta.classification;
+	if (classification && typeof classification === 'object') {
+		var txPct = typeof classification.tx_coverage_pct === 'number'
+			? classification.tx_coverage_pct : null;
+		var rxPct = typeof classification.rx_coverage_pct === 'number'
+			? classification.rx_coverage_pct : null;
+		if (txPct !== null || rxPct !== null) {
+			var minimum = txPct === null ? rxPct : rxPct === null ? txPct : Math.min(txPct, rxPct);
+			cells.push(E('span', {
+				'class': classification.state === 'aligned' ? 'label success' : 'label warning',
+				'title': _('NSS分类覆盖率') + '\n' +
+					_('上行：') + (txPct === null ? '—' : txPct + '%') + '\n' +
+					_('下行：') + (rxPct === null ? '—' : rxPct + '%')
+			}, _('NSS分类覆盖率 ') + minimum + '%'));
+		}
+	}
+	var summaryStale = meta.stale === true;
+	var txStale = typeof tx.stale === 'boolean' ? tx.stale : summaryStale;
+	var rxStale = typeof rx.stale === 'boolean' ? rx.stale : summaryStale;
+	if (txStale || rxStale) {
+		cells.push(E('span', {
+			'class': 'label warning',
+			'title': _('当前保留的是旧采样值') + '\n' +
+				_('上行：') + (txStale ? _('已过期') : _('新鲜')) + '\n' +
+				_('下行：') + (rxStale ? _('已过期') : _('新鲜'))
+		}, txStale && rxStale ? _('已过期') : _('部分过期')));
+	}
+	return cells;
+}
+
 function captureClientViewport(refs) {
 	var host = typeof window !== 'undefined' ? window : null;
 	var scrollX = host ? Number(host.scrollX !== undefined ? host.scrollX : host.pageXOffset) || 0 : 0;
@@ -333,11 +430,17 @@ function refreshSortHeaders(refs, prefs) {
 	});
 }
 
+function accessEdgeOwnsCurrentRate(status) {
+	return fmt.nssPlatform(status) && String(status && status.rate_collector_mode || '') === 'auto' &&
+		String(status && status.access_edge_mode || '') === 'active';
+}
+
 function refreshLive(viewState) {
 	var refs = viewState.refs;
 	if (!refs) return;
 	var viewport = captureClientViewport(refs);
 	var status = viewState.status || {};
+	var nssProfile = fmt.nssPlatform(status);
 	refreshIntervalControl(viewState, refs, status);
 	var clientsAll = fmt.asArray(viewState.clients && viewState.clients.clients);
 	var prefs = viewState.prefs;
@@ -349,11 +452,16 @@ function refreshLive(viewState) {
 	setClientStatusVisibility(refs, showClientStatus);
 	var availability = refreshAvailability(viewState, refs);
 
-	var collector = statusCollector.effectiveCollector(status, viewState.clients);
+	var collector = accessEdgeOwnsCurrentRate(status) ? 'access_edge' :
+		statusCollector.effectiveCollector(status, viewState.clients);
+	if (!nssProfile && (collector === 'access_edge' || collector === 'nss_ecm_node' || collector === 'nss_ecm_bpf'))
+		collector = 'bpf';
 	refs.collectorPill.className = statusCollector.collectorClass(collector) +
 		' lanspeed-collector-status';
 	refs.collectorPill.textContent = statusCollector.collectorLabel(collector);
-	refs.collectorPill.title = _('当前实时速率数据源');
+	refs.collectorPill.title = accessEdgeOwnsCurrentRate(status)
+		? _('当前客户端网速模式；每个方向的真实数据源见客户端元数据')
+		: _('当前实时速率数据源');
 	if ((viewState.rpc && viewState.rpc.status && viewState.rpc.status.ok === false) ||
 	    (viewState.rpc && viewState.rpc.clients && viewState.rpc.clients.ok === false)) {
 		refs.collectorPill.className = 'label label-warning lanspeed-collector-status';
@@ -390,7 +498,7 @@ function refreshLive(viewState) {
 		refs.mConnsWrap.style.display = 'none';
 	}
 
-	var nssEv = status.evidence && status.evidence.nss;
+	var nssEv = nssProfile && status.evidence && status.evidence.nss;
 	var subParts = [ _('%d 个活跃').format(totals.active) ];
 	if (nssEv && typeof nssEv.host_count === 'number' &&
 	    nssEv.host_count > clientsAll.length) {
@@ -400,61 +508,6 @@ function refreshLive(viewState) {
 	if (activeCfg.activeMinBps > 1)
 		subParts.push(_('≥ ') + fmt.formatRate(activeCfg.activeMinBps, prefs.unit));
 	refs.mClientsSub.textContent = subParts.join(' · ');
-
-	var cov = status.coverage || {};
-	var covQuality = cov.quality || 'warmup';
-	var retainedPending = (covQuality === 'pending' || covQuality === 'counter_skew') &&
-		(typeof cov.tx_pct === 'number' || typeof cov.rx_pct === 'number');
-	var measuredLowTraffic = covQuality === 'low_traffic' &&
-		(typeof cov.tx_pct === 'number' || typeof cov.rx_pct === 'number');
-	if (covQuality === 'ok' || retainedPending || measuredLowTraffic) {
-		var txPct = typeof cov.tx_pct === 'number' ? cov.tx_pct : null;
-		var rxPct = typeof cov.rx_pct === 'number' ? cov.rx_pct : null;
-		var minPct = null;
-		if (txPct !== null && rxPct !== null) minPct = Math.min(txPct, rxPct);
-		else if (rxPct !== null) minPct = rxPct;
-		else if (txPct !== null) minPct = txPct;
-		refs.mCoverage.textContent = minPct !== null ? (minPct + '%') : '-';
-		if (retainedPending) {
-			refs.mCoverageSub.textContent = '↑' + (txPct !== null ? txPct : '-') +
-				' ↓' + (rxPct !== null ? rxPct : '-') + ' · ' + _('等待新批次');
-		} else if ((rxPct !== null && rxPct < 85) || (txPct !== null && txPct < 85)) {
-			var missingBps = 0;
-			var denomTotal = (Number(cov.denom_rx_bytes) || 0) + (Number(cov.denom_tx_bytes) || 0);
-			var numerTotal = (Number(cov.numer_rx_bytes) || 0) + (Number(cov.numer_tx_bytes) || 0);
-			if (denomTotal > numerTotal && cov.window_ms > 0)
-				missingBps = Math.round(((denomTotal - numerTotal) * 8000) / cov.window_ms);
-			refs.mCoverageSub.textContent = '↑' + (txPct !== null ? txPct : '-') +
-				' ↓' + (rxPct !== null ? rxPct : '-') +
-				' · ' + _('缺口 ') + fmt.formatRate(missingBps, prefs.unit);
-		} else if (txPct !== null && rxPct !== null && Math.abs(txPct - rxPct) <= 2) {
-			refs.mCoverageSub.textContent = _('上下行均衡');
-		} else {
-			refs.mCoverageSub.textContent = '↑' + (txPct !== null ? txPct : '-') +
-				' ↓' + (rxPct !== null ? rxPct : '-');
-		}
-	} else if (covQuality === 'idle') {
-		refs.mCoverage.textContent = '-';
-		refs.mCoverageSub.textContent = _('LAN 无活动流量');
-	} else if (covQuality === 'low_traffic') {
-		refs.mCoverage.textContent = '-';
-		refs.mCoverageSub.textContent = _('LAN 流量较低，暂不计算覆盖率');
-	} else if (covQuality === 'pending') {
-		refs.mCoverage.textContent = '…';
-		refs.mCoverageSub.textContent = _('LAN 覆盖率窗口正在追平，不影响客户端速率');
-	} else if (covQuality === 'counter_skew') {
-		refs.mCoverage.textContent = '…';
-		refs.mCoverageSub.textContent = _('客户端与 LAN 计数批次错位，等待重新采样');
-	} else if (covQuality === 'warmup' || covQuality === 'counter_reset') {
-		refs.mCoverage.textContent = '…';
-		refs.mCoverageSub.textContent = _('采样中');
-	} else if (covQuality === 'unsupported') {
-		refs.mCoverage.textContent = '-';
-		refs.mCoverageSub.textContent = _('不支持');
-	} else {
-		refs.mCoverage.textContent = '…';
-		refs.mCoverageSub.textContent = _('采样中');
-	}
 
 	var latestSample = fmt.latestClientSampleMs(clientsAll);
 	var filtered = clientsAll.filter(function(c) {
@@ -511,8 +564,12 @@ function refreshLive(viewState) {
 			var critClient = specificWarnings.some(function(w) { return vocab.CRITICAL_WARNINGS[w]; });
 
 			var mode = String(c.collector_mode || '-');
+			if (!nssProfile && (mode === 'nss_ecm_node' || mode === 'nss_ecm_bpf'))
+				mode = 'unsupported';
 			var modeLabel = statusCollector.collectorLabel(mode), modeTitle;
-			if (mode === 'bpf') {
+			if (mode === 'access_edge') {
+				modeTitle = _('自动精准按客户端、按方向选择唯一总速率来源；具体来源显示在相邻标签中。');
+			} else if (mode === 'bpf') {
 				modeTitle = _('BPF 在 LAN 接口按 MAC 统计客户端实时速率。');
 			} else if (mode === 'nss_ecm_node') {
 				modeTitle = _('NSS ECM node 按客户端 MAC 读取真实字节与包计数并立即发布；独立 LAN 窗口只验证覆盖率。');
@@ -530,9 +587,11 @@ function refreshLive(viewState) {
 			if (connectionOnly)
 				modeTitle += '\n' + vocab.warningText('conntrack_connection_only');
 
-			var stateCells = [
-				E('span', { 'class': 'label', 'title': modeTitle }, modeLabel)
-			];
+			var stateCells = rateMetaCells(c.rate_meta, nssProfile);
+			stateCells.push(E('span', {
+				'class': 'label',
+				'title': c.rate_meta ? _('采集流水线：') + modeTitle : modeTitle
+			}, c.rate_meta ? _('流水线 ') + modeLabel : modeLabel));
 			if (specificWarnings.length)
 				stateCells.push(E('span', {
 					'class': critClient ? 'label danger' : 'label warning',
@@ -666,6 +725,7 @@ return baseclass.extend({
 	splitClientWarnings: splitClientWarnings,
 	setClientStatusVisibility: setClientStatusVisibility,
 	clientStateCell: clientStateCell,
+	rateMetaCells: rateMetaCells,
 	captureClientViewport: captureClientViewport,
 	restoreClientViewport: restoreClientViewport,
 	reconcileClientRows: reconcileClientRows,
