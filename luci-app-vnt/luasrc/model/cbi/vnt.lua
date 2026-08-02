@@ -2,7 +2,6 @@ local http = luci.http
 local nixio = require "nixio"
 
 m = Map("vnt")
-m.description = translate('vnt是一个简便高效的异地组网、内网穿透工具。<br>官网：<a href="http://rustvnt.com/">rustvnt.com</a>&nbsp;&nbsp;项目地址：<a href="https://github.com/vnt-dev/vnt">github.com/vnt-dev/vnt</a>&nbsp;&nbsp;安卓端、GUI：<a href="https://github.com/lmq8267/VntApp">VntApp</a>&nbsp;&nbsp;<a href="http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=o3Rr9xUWwAAnV9TkU_Nyj3yHNLs9k5F5&authKey=l1FKvqk7%2F256SK%2FHrw0PUhs%2Bar%2BtKYx0pLb7aiwBN9%2BKBCY8sOzWWEqtl4pdXAT7&noverify=0&group_code=1034868233">QQ群</a>')
 
 -- vnt-cli
 m:section(SimpleSection).template  = "vnt/vnt_status"
