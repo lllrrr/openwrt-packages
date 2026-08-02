@@ -677,6 +677,20 @@ local uci = require 'luci.model.uci'.cursor()
 	</div>
 </div>
 
+<!-- Contributors Section -->
+<div id="contributors-section" class="et-contributors-section" style="display: none;">
+	<div class="et-contributors-header">
+		<div class="et-contributors-title"><%:Contributors%></div>
+		<div class="et-contributors-pagination">
+			<span id="contributors-page-info"></span>
+			<div id="contributors-dots" class="et-contributors-dots"></div>
+		</div>
+	</div>
+	<div class="et-contributors-wrapper">
+		<div id="contributors" class="et-contributors-container"></div>
+	</div>
+</div>
+
 <script type="text/javascript">//<![CDATA[
 var translations = {
 	// Peer表格头部 (来自EasyTier CLI源码)
