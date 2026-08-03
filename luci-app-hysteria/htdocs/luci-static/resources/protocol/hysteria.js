@@ -186,13 +186,15 @@ return network.registerProtocol('hysteria', {
 		 * Every link of a bundle uses the same secret, like every other Hysteria
 		 * setting here: the links differ only in which concentrator they cross. */
 		o = s.taboption('advanced', form.Value, 'camouflage_secret', _('Camouflage secret'),
-			_('Shared secret that identifies real clients before the QUIC handshake begins. Traffic without it is relayed to a decoy server, so the concentrator does not answer probes at all. Must match the server, and must be the same on every server in the list.'));
+			_('Shared secret that identifies real clients before the QUIC handshake begins. Traffic without it is relayed to a decoy server, so the concentrator does not answer probes at all. Leave empty to derive it from the Hysteria2 credential above, which is what the server does when it has no secret of its own — then there is one credential to keep in step instead of two. Set it only to override that, and then it must match the server and be the same on every server in the list.'));
 		o.password = true;
 
+		/* The address is what enables camouflage, not the secret: with the secret
+		 * empty there is still a token to mint, just from the credential rather
+		 * than from a separately distributed key. */
 		o = s.taboption('advanced', form.Value, 'camouflage_server_ip', _('Camouflage server IP'),
-			_('The address this server is reached at. It is mixed into the token so one secret can serve several concentrators without a token minted for one working against another. Required whenever a camouflage secret is set.'));
+			_('The address this server is reached at. Setting it turns camouflage on. It is mixed into the token, so a token minted for one concentrator does not work against another — concentrators that do not set their own address accept any of them.'));
 		o.datatype = 'ipaddr';
-		o.depends({ camouflage_secret: /.+/ });
 
 		/* --- advanced: the PPP link itself --- */
 
