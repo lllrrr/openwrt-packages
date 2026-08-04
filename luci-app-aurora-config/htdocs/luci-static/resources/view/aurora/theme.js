@@ -5,6 +5,7 @@
 "require rpc";
 "require ui";
 "require fs";
+"require utils.version-api";
 "require utils.asset-upload as assetUpload";
 
 const CONFIG_IMPORT_PATH = "/tmp/aurora_config_import.tmp";
@@ -1983,6 +1984,7 @@ return view.extend({
               {
                 id: "theme-version",
                 class: "label success",
+                style: "cursor: pointer;",
               },
               `v${themeVersion}`,
             ),
@@ -1994,6 +1996,7 @@ return view.extend({
               {
                 id: "config-version",
                 class: "label success",
+                style: "cursor: pointer;",
               },
               `v${configVersion}`,
             ),
@@ -2842,6 +2845,55 @@ return view.extend({
     return m.render().then((mapNode) => {
       colorEditor.attach();
       enhanceColorTokenGroups(mapNode);
+
+      const updateVersionLabel = (label, hasUpdate) => {
+        if (!label || !hasUpdate) return;
+
+        label.className = "label warning";
+        Object.assign(label.style, {
+          position: "relative",
+          paddingRight: "16px",
+        });
+        const redDot = document.createElement("span");
+        redDot.style.cssText =
+          "position: absolute; top: 3px; right: 4px; width: 6px; height: 6px; background: var(--danger); border-radius: 50%;";
+        label.appendChild(redDot);
+      };
+
+      requestAnimationFrame(() => {
+        const labels = {
+          theme: mapNode.querySelector("#theme-version"),
+          config: mapNode.querySelector("#config-version"),
+        };
+
+        Object.values(labels).forEach((label) => {
+          if (label)
+            label.onclick = () =>
+              (window.location.href = L.url("admin/system/aurora/version"));
+        });
+
+        const applyUpdateStatus = (data) => {
+          if (!data) return;
+          updateVersionLabel(labels.theme, data.theme?.update_available);
+          updateVersionLabel(labels.config, data.config?.update_available);
+        };
+
+        const cached = utils_version_api.versionCache?.get?.();
+        if (cached) {
+          applyUpdateStatus(cached);
+        } else {
+          setTimeout(() => {
+            L.resolveDefault(utils_version_api.callCheckUpdates(), null)
+              .then((data) => {
+                if (data) {
+                  utils_version_api.versionCache.set(data);
+                  applyUpdateStatus(data);
+                }
+              })
+              .catch(() => {});
+          }, 0);
+        }
+      });
 
       // Auto-select uploaded background and auto-generate LQIP if missing
       requestAnimationFrame(() => {

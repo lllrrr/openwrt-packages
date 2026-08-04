@@ -6,10 +6,9 @@ common tasks.
 
 > **What this is.** The configuration app for the Aurora theme
 > (`luci-theme-aurora`). It adds a LuCI admin page where users tune theme
-> colors, layout, branding, and the toolbar, plus a Theme Store page to
-> browse, apply, and share complete configurations with other users. This
-> repo only owns the *configuration UI* and *writes settings into UCI* — the
-> actual rendering lives in the theme package.
+> colors, layout, branding, and the toolbar, and update the theme/config
+> packages with one click. This repo only owns the *configuration UI* and
+> *writes settings into UCI* — the actual rendering lives in the theme package.
 
 ---
 
@@ -38,16 +37,14 @@ device, then reload the page or restart rpcd.
 htdocs/luci-static/resources/
 ├── view/aurora/
 │   ├── theme.js          # Main UI: color editor, layout, branding, toolbar (largest file)
-│   └── gallery.js        # Theme Store: browse/apply, share, and "my shares"
+│   └── version.js        # Version & update UI
 └── utils/
     ├── color.global.js   # Vendored colorjs.io (color conversion; global `Color`)
     ├── tokens.global.js  # ★ Color derivation engine (global `AuroraTokens`) — GENERATED, do not edit
-    ├── hub-api.js         # rpc.declare wrappers for the hub_* RPC methods + list cache
-    └── asset-upload.js   # Shared dropzone/upload widget (fonts, brand assets)
+    └── version-api.js    # Version-check helpers
 
 root/
 ├── etc/uci-defaults/80_aurora          # First-install setup + schema migration
-├── etc/sysupgrade.conf.d/aurora-device # Preserves /etc/aurora/device.{key,hash} across sysupgrade
 ├── usr/libexec/rpcd/luci.aurora        # Backend RPC (shell)
 └── usr/share/aurora/
     ├── *.template                      # Five built-in color presets (UCI fragments) — GENERATED
@@ -305,16 +302,10 @@ the `case "$1" in "list")` block at the end of the script. Common methods:
 | `list_icons` / `upload_icon` / `remove_icon` | Icon management |
 | `prepare_font` / `get_font_presets` / `get_font_status` | Font handling |
 | `upload_font` / `remove_font` | Custom (user-uploaded) font management |
-| `hub_list` / `hub_get` | Theme Store: browse the hub's config list / read one config's full payload |
-| `hub_apply` / `get_hub_status` | Theme Store: kick off an async apply job / poll its progress |
-| `hub_restore_backup` | Theme Store: one-tap rollback to the pre-apply snapshot |
-| `hub_share` / `hub_update` / `hub_delete` | Theme Store: publish the current config / edit / unpublish a share |
-| `hub_my_shares` | Theme Store: list this device's own published shares |
+| `get_installed_versions` / `check_updates` / `download_package` / `install_package` | Versioning & one-click updates |
 
-ACLs live in `root/usr/share/rpcd/acl.d/luci-app-aurora.json`; the menu entries
-(`Theme Settings`, `Theme Store`) in
-`root/usr/share/luci/menu.d/luci-app-aurora.json`. §8 below covers the Theme
-Store in detail.
+ACLs live in `root/usr/share/rpcd/acl.d/luci-app-aurora.json`; the menu entry in
+`root/usr/share/luci/menu.d/luci-app-aurora.json`.
 
 > `load_preset_snapshot()` validates that a template's `option (light|dark)_`
 > line count equals `COLOR_TOKEN_KEYS count × 2`. The key list ships as
@@ -398,136 +389,7 @@ it via `remove_font`):
 
 ---
 
-## 8. Theme Store
-
-The Theme Store lets users browse configurations shared by other users, apply
-one with a single click, and share their own — all through a public hub at
-**`https://themes.eamonxg.fun`**. Nothing about it changes how colors are
-derived or how UCI is structured; it is a distribution layer on top of the
-existing config format.
-
-### 8.1 Pieces
-
-- **`view/aurora/gallery.js`** — the `admin/system/aurora/gallery` page: a
-  card grid (Hot/New sort, swatch preview, downloads count) that opens a
-  detail modal per config (palette, layout, typography, included assets) with
-  an Apply button; a "Share My Configuration" modal; and a "My Shares" table
-  (update-with-current-config / delete) shown only when the device has
-  published at least one share. All hub-sourced text (name, author, hex
-  values, toolbar URLs) is rendered via `E()`'s safe children or
-  `document.createTextNode` — never `innerHTML` — since it is untrusted
-  server content.
-- **`utils/hub-api.js`** — `rpc.declare` wrappers for every `hub_*` method
-  against the `luci.aurora` object, plus a 5-minute `localStorage` cache
-  (`aurora.hub.list`) for the "hot" list so the page can paint instantly from
-  a stale copy while it revalidates.
-- **`root/usr/libexec/rpcd/luci.aurora`** — the backend: talks to the hub over
-  HTTP, validates everything it gets back, and applies it to UCI.
-
-### 8.2 rpcd methods (object `luci.aurora`)
-
-| Method | Purpose |
-| --- | --- |
-| `hub_list(sort, page)` | Fetch a page of the hub's config list (`sort` is `hot` or `new`) |
-| `hub_get(id)` | Fetch one config's full payload + asset list for the detail modal |
-| `hub_apply(id)` | Forks an async apply job (`hub_apply_worker`) in the background, returns a `job_id` immediately |
-| `get_hub_status(job_id)` | Poll a job's `state`/`step`/`error`; the frontend polls this every 1.5s (`gallery.js: pollApplyStatus`) |
-| `hub_restore_backup` | Roll back to the single most recent pre-apply snapshot |
-| `hub_share(name, description, author)` | Publish the current local config as a new hub entry |
-| `hub_my_shares` | List this device's own published shares (re-validates each id against the hub, dropping any that 404) |
-| `hub_update(id, name, author, description)` | Republish this device's share `id` with the current local config |
-| `hub_delete(id)` | Unpublish share `id` |
-
-### 8.3 Device identity
-
-Every hub write (`hub_share`/`hub_update`/`hub_delete`) and the download-count
-ping after an apply are authenticated by a per-device identity, created
-lazily by `ensure_device_identity()` on first use:
-
-- **`/etc/aurora/device.key`** (mode `0600`) — 32 random bytes, hex-encoded,
-  as `device_token`. This is a secret: it is the only thing that lets the hub
-  accept an update/delete against a device's own shares. It is never rendered
-  in any UI and never leaves the router except as the `device_token` field of
-  a `hub_share`/`hub_update`/`hub_delete` POST/PUT/DELETE body.
-- **`/etc/aurora/device.hash`** (mode `0644`) — a second, independent random
-  hex value, `device_hash`, sent only with the download-count ping. It
-  carries no authority (there is nothing it can authenticate) and exists
-  purely for anonymous download deduplication on the hub side.
-- Both files are listed in `/etc/sysupgrade.conf.d/aurora-device`, so a
-  `sysupgrade` that preserves configuration keeps the same device identity
-  (and thus the same ownership over previously published shares) across
-  firmware upgrades.
-
-### 8.4 Apply flow (`hub_apply` → `hub_apply_worker`)
-
-`hub_apply` validates the id, forks `hub_apply_worker` in the background, and
-returns a `job_id` right away; the worker writes each step to a status file
-under `/tmp/aurora_hub_jobs/<job_id>.status` for `get_hub_status` to read:
-
-1. **backup** — copies the current `/etc/config/aurora` to
-   `/etc/aurora/pre-hub-backup.conf` (single slot: only the most recent apply
-   can be rolled back).
-2. **fetch** — `GET`s the full config payload from the hub.
-3. **validate** — `validate_and_apply_hub_payload()` treats the hub as
-   untrusted input and re-checks every field with the *same* rules the
-   frontend/local share path enforces (exact 62 `light_*`/`dark_*` hex keys,
-   enum-checked `nav_type`/font ids, bounded/regex-checked rem values and
-   font stacks, per-item toolbar validation, `has_control_char` guards
-   against embedded-newline UCI injection) using only `case`/`grep -E` — no
-   `eval`. Nothing is written to UCI until every field passes; a single `uci
-   batch` (colors deleted then reset, layout/typography set, `toolbar_item`
-   sections replaced, `hub_applied` + `icon_cache_version` bookkeeping) is
-   then committed atomically, and reverted if the commit fails.
-4. **assets** — any image assets in the payload are fetched from the hub and
-   sha256-verified (`fetch_verified`) before being written under
-   `/www/luci-static/aurora/images/`; a login-background asset also updates
-   `struct_login_bg`. Best-effort: a failed asset fetch doesn't fail the job.
-5. **finalize** — resyncs font CSS, bumps the icon cache timestamp, marks the
-   job `done`.
-6. **download count** — fires a fire-and-forget `POST .../download` with
-   `device_hash` after the job completes, for the hub's download counter.
-
-If validation or fetch fails, the job is marked `error` with a step and error
-code; the frontend maps every code to a result-only message (never surfaces
-words like `bad_payload` or `job`) and never leaves partial state — either the
-whole batch commits or none of it does.
-
-**Rollback**: `hub_restore_backup` copies `pre-hub-backup.conf` back over
-`/etc/config/aurora`, resyncs font CSS and the icon cache timestamp, and
-returns `no_backup` if nothing has been applied yet in this backup slot. The
-gallery page shows a persistent banner ("Applied `<name>`" + "Restore
-previous configuration") whenever `aurora.theme.hub_applied` is set, so
-rollback is always one tap away, not just immediately after applying.
-
-### 8.5 Share v1 scope
-
-`build_share_payload()` assembles the current `/etc/config/aurora` into the
-hub's schema (colors, layout, typography, toolbar, assets) and is shared by
-both `hub_share` and `hub_update`. Deliberate v1 limits:
-
-- **Images only, no custom fonts.** Only the six image asset kinds
-  (`logo_svg`, `favicon_png`, `favicon_ico`, `pwa_icon_192`, `pwa_icon_512`,
-  `login_bg`) are ever uploaded; `typography.font_sans`/`font_mono` are
-  shared as **preset ids** only (`resolve_font_preset_id`), never as uploaded
-  `.woff2` bytes — a custom font a user uploaded locally is never re-uploaded
-  to the public hub.
-- **Skips factory-default images.** An image asset is only included if its
-  UCI value differs from the package's stock filename (`logo.svg`,
-  `favicon.ico`, `app-icon-192x192.png`, `app-icon-512x512.png`,
-  `apple-touch-icon.png`) — an unmodified slot means the user never
-  customized it, so there's nothing worth uploading and nothing
-  copyright-risky to check. Each included asset is also read back from disk,
-  sha256'd, and size-checked before upload, and any filename containing `/`
-  or `..` is rejected outright (defense against path traversal into
-  `$ICON_PATH`).
-- Toolbar entries are re-validated with the hub's exact per-field limits
-  (title 1-30 chars, url ≤200 chars + scheme, icon charset+≤64 chars, ≤12
-  entries) at share time — an out-of-range item is silently dropped from the
-  share rather than rejecting the whole publish.
-
----
-
-## 9. Releasing
+## 8. Releasing
 
 OpenWrt package metadata lives in the `Makefile`:
 
@@ -541,7 +403,7 @@ the OpenWrt SDK.
 
 ---
 
-## 10. Troubleshooting cheat sheet
+## 9. Troubleshooting cheat sheet
 
 - **Changed `brand` but hover/status colors don't follow?** Derived tokens
   weren't written to UCI — check that `tokens.global.js` loaded and that

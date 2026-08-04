@@ -6,16 +6,14 @@
       "ubus": {
         "luci.aurora": [
           "list_icons",
+          "get_installed_versions",
+          "check_updates",
           "get_system_info",
           "get_init_data",
           "get_theme_preset",
           "get_font_presets",
           "get_font_status",
-          "export_config",
-          "hub_list",
-          "hub_get",
-          "get_hub_status",
-          "hub_my_shares"
+          "export_config"
         ],
         "file": ["read", "list", "stat"]
       },
@@ -23,9 +21,9 @@
         "/tmp/aurora_icon.tmp": ["read", "write"],
         "/tmp/aurora_font.tmp": ["read", "write"],
         "/tmp/aurora_config_export.conf": ["read"],
+        "/tmp/aurora_downloads/*": ["read", "list"],
         "/www/luci-static/aurora/images/*": ["read", "list"],
-        "/www/luci-static/aurora/fonts/*": ["read", "list"],
-        "/tmp/aurora_hub_jobs/*": ["read"]
+        "/www/luci-static/aurora/fonts/*": ["read", "list"]
       }
     },
     "write": {
@@ -35,17 +33,14 @@
           "upload_icon",
           "write_pwa_manifest",
           "remove_icon",
+          "download_package",
+          "install_package",
           "reset_defaults",
           "import_config",
           "apply_theme_preset",
           "prepare_font",
           "upload_font",
-          "remove_font",
-          "hub_apply",
-          "hub_restore_backup",
-          "hub_share",
-          "hub_update",
-          "hub_delete"
+          "remove_font"
         ],
         "file": ["write", "remove", "exec", "stat"]
       },
@@ -53,9 +48,9 @@
         "/tmp/aurora_icon.tmp": ["read", "write"],
         "/tmp/aurora_font.tmp": ["read", "write"],
         "/tmp/aurora_config_import.tmp": ["read", "write", "remove"],
+        "/tmp/aurora_downloads/*": ["read", "write", "remove"],
         "/www/luci-static/aurora/images/*": ["read", "write", "remove"],
-        "/www/luci-static/aurora/fonts/*": ["read", "write", "remove"],
-        "/tmp/aurora_hub_jobs/*": ["read", "write"]
+        "/www/luci-static/aurora/fonts/*": ["read", "write", "remove"]
       }
     }
   }

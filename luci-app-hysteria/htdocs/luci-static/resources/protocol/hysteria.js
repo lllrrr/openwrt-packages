@@ -45,7 +45,7 @@ network.registerErrorCode('MLPPP_DATASTREAMS_CONFLICT', _('Data streams cannot b
 network.registerErrorCode('OBFS_TYPE_INVALID', _('Unknown obfuscation type: use salamander or gecko'));
 network.registerErrorCode('OBFS_PASSWORD_MISSING', _('Obfuscation is enabled but no obfuscation password is set'));
 network.registerErrorCode('OBFS_WITH_CAMOUFLAGE', _('Obfuscation cannot be combined with camouflage, which needs the QUIC header that obfuscation hides'));
-network.registerErrorCode('CAMOUFLAGE_INCOMPLETE', _('Camouflage needs both a secret and a server IP'));
+network.registerErrorCode('CAMOUFLAGE_SERVER_IP_MULTILINK', _('A camouflage server IP names one concentrator and cannot be set alongside additional servers; leave it empty so each link takes the address it dials'));
 
 /* keepalive is one UCI option holding "<failures> <interval>", which ppp.sh turns
  * into pppd's lcp-echo-failure and lcp-echo-interval. It is presented as two
@@ -185,16 +185,36 @@ return network.registerProtocol('hysteria', {
 		 *
 		 * Every link of a bundle uses the same secret, like every other Hysteria
 		 * setting here: the links differ only in which concentrator they cross. */
-		o = s.taboption('advanced', form.Value, 'camouflage_secret', _('Camouflage secret'),
-			_('Shared secret that identifies real clients before the QUIC handshake begins. Traffic without it is relayed to a decoy server, so the concentrator does not answer probes at all. Leave empty to derive it from the Hysteria2 credential above, which is what the server does when it has no secret of its own — then there is one credential to keep in step instead of two. Set it only to override that, and then it must match the server and be the same on every server in the list.'));
-		o.password = true;
+		o = s.taboption('advanced', form.Flag, 'camouflage_enabled', _('Enable camouflage'),
+			_('Identify this client to the concentrator before the QUIC handshake begins, so that traffic which cannot do so is relayed to a decoy server and the concentrator never answers a probe. Both settings below are optional overrides: on their own defaults this needs nothing but the credential and server address already configured, and it works unchanged across a multilink bundle.'));
+		o.default = o.disabled;
 
-		/* The address is what enables camouflage, not the secret: with the secret
-		 * empty there is still a token to mint, just from the credential rather
-		 * than from a separately distributed key. */
+		o = s.taboption('advanced', form.Value, 'camouflage_secret', _('Camouflage secret'),
+			_('Shared secret that identifies real clients before the QUIC handshake begins. Traffic without it is relayed to a decoy server, so the concentrator does not answer probes at all. <strong>Normally leave this empty</strong>: the secret is then computed from the Hysteria2 credential above, exactly as the server computes it, and there is one credential to keep in step instead of two. Do not paste the credential here — this field is a separate base64 key, and filling it in overrides the computation. Only do that if the server carries the same key under its own <code>camouflage.secrets</code>.'));
+		o.password = true;
+		o.depends({ camouflage_enabled: '1' });
+
+		/* The credential belongs in "Hysteria authentication", and pasting it here
+		 * instead is the natural misreading of "derived from the credential". It
+		 * fails late and invisibly -- the server relays the link away exactly like
+		 * a probe -- so catch the shape of the value at the point of entry. */
+		o.validate = function (section_id, value) {
+			if (value == null || value === '')
+				return true;
+			if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value))
+				return _('Not base64. To use your Hysteria2 credential, leave this field empty — it is derived automatically. Do not paste the credential here.');
+			return true;
+		};
+
+		/* A token is minted against one concentrator's address, and a bundle
+		 * crosses several. The client resolves the address from the server its own
+		 * link dials, which is the only setting that differs between links -- so
+		 * this override is single-server only, and the proto handler refuses it
+		 * alongside additional servers rather than let all but one link fail. */
 		o = s.taboption('advanced', form.Value, 'camouflage_server_ip', _('Camouflage server IP'),
-			_('The address this server is reached at. Setting it turns camouflage on. It is mixed into the token, so a token minted for one concentrator does not work against another — concentrators that do not set their own address accept any of them.'));
+			_('The concentrator\'s own public address, as an IP rather than a name. <strong>Normally leave this empty</strong>: it is taken from the server address this link dials, which is what lets one configuration cover a bundle whose links each cross a different concentrator. Fill it in only for a single-server link whose address resolves to something the concentrator does not know itself as — split-horizon DNS, or a load balancer in front. It cannot be used together with additional servers.'));
 		o.datatype = 'ipaddr';
+		o.depends({ camouflage_enabled: '1' });
 
 		/* --- advanced: the PPP link itself --- */
 
