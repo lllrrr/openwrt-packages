@@ -679,6 +679,9 @@ msgstr "来源 IP 仍在读取中。"
 msgid "Save and reload to read updated source IP."
 msgstr "保存并重新加载后读取更新后的来源 IP。"
 
+msgid "Probe source IP to preview the current form values."
+msgstr "探测来源 IP 以预览当前表单值。"
+
 msgid "Rule name, provider, source, zone, and record name are required."
 msgstr "规则名称、提供商、来源、域和记录名不能为空。"
 
@@ -903,3 +906,21 @@ msgstr "选择公网 IP 探测服务。"
 
 msgid "Probe URL is required."
 msgstr "探测 URL 不能为空。"
+
+msgid "Public probe outbound interface"
+msgstr "公网探测出站接口"
+
+msgid "Optional for public probe rules. Choose the WAN/upstream interface used for public IP detection; empty uses the system default route."
+msgstr "仅适用于公网探测规则。选择用于公网 IP 探测的 WAN/上游接口；留空则使用系统默认路由。"
+
+msgid "Choose the WAN/upstream interface used by this source IP preview and by the single rule referencing this source; empty uses the system default route."
+msgstr "选择此来源 IP 预览以及唯一引用此来源的规则使用的 WAN/上游接口；留空则使用系统默认路由。"
+
+msgid "Public probe outbound interface only applies to public probe rules."
+msgstr "公网探测出站接口仅适用于公网探测规则。"
+
+msgid "System default route"
+msgstr "系统默认路由"
+
+msgid "Probe source IP before continuing. The public probe interface changed."
+msgstr "继续前请先探测来源 IP。公网探测接口已变更。"

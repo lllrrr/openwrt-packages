@@ -4,6 +4,7 @@
 'require ui';
 'require form';
 'require network';
+'require tools.widgets as widgets';
 'require view.qddns.shared as qddns';
 
 const QDDNS_STYLE_ID = 'qddns-rules-style';
@@ -267,6 +268,34 @@ return view.extend({
 		return dropdown;
 	},
 
+	setWizardInterfaceValue: function(control, value) {
+		const selected = String(value || '').split(/,+/).map(function(item) {
+			return item.trim();
+		}).filter(function(item, index, values) {
+			return item && values.indexOf(item) === index;
+		});
+
+		if (control?.classList?.contains('cbi-dropdown')) {
+			const dropdown = L.dom.findClassInstance(control);
+			const values = {};
+
+			selected.forEach(function(name) {
+				values[name] = true;
+			});
+
+			if (dropdown?.setValues)
+				dropdown.setValues(control, values);
+
+			return;
+		}
+
+		if (!control?.options)
+			return;
+
+		for (let index = 0; index < control.options.length; index++)
+			control.options[index].selected = selected.indexOf(control.options[index].value) > -1;
+	},
+
 	renderWizardSourceIp: function(statusNode) {
 		return E('div', { class: 'qddns-rule-wizard-source-status' }, [
 			statusNode
@@ -335,6 +364,15 @@ return view.extend({
 		return String(source?.family || '').toLowerCase();
 	},
 
+	sourceType: function(sourceId) {
+		const source = this.findById(this.pageData?.catalog?.sources, sourceId);
+		return String(source?.type || '').toLowerCase();
+	},
+
+	isPublicProbeSource: function(sourceId) {
+		return this.sourceType(sourceId) === 'public_probe';
+	},
+
 	validateRecordTypeForSource: function(recordType, sourceId) {
 		const family = this.sourceFamily(sourceId);
 		const type = String(recordType || '').toUpperCase();
@@ -343,6 +381,13 @@ return view.extend({
 			return _('Record type must match the selected source address family.');
 
 		return true;
+	},
+
+	isProbeInterfaceVisible: function(fields) {
+		if ((fields.sourceMode?.value || 'new') === 'new')
+			return fields.sourceType?.value === 'public_probe';
+
+		return this.isPublicProbeSource(this.wizardSourceId(fields));
 	},
 
 	wizardSourceFamily: function(fields, sourceId) {
@@ -525,6 +570,8 @@ return view.extend({
 		uci.set('qddns', sectionId, 'force_interval', '3600');
 		uci.set('qddns', sectionId, 'retry_count', '3');
 		uci.set('qddns', sectionId, 'retry_backoff', '30');
+		if (this.isProbeInterfaceVisible(fields) && this.wizardValue(fields.probeInterface))
+			uci.set('qddns', sectionId, 'probe_interface', this.wizardValue(fields.probeInterface));
 
 		return uci.save().then(function() {
 			feedback.textContent = _('Rule has been saved. Applying changes...');
@@ -574,6 +621,7 @@ return view.extend({
 			]),
 			sourceInterface: this.renderWizardInterfaceSelect(data?.catalog, true),
 			sourceInterfaceSingle: this.renderWizardInterfaceSelect(data?.catalog, false),
+			probeInterface: this.renderWizardInterfaceSelect(data?.catalog, false),
 			sourceDuid: E('input', { type: 'text', class: 'cbi-input-text' }),
 			sourceIaid: E('input', { type: 'text', class: 'cbi-input-text' }),
 			sourceMac: E('input', { type: 'text', class: 'cbi-input-text', placeholder: 'aa:bb:cc:dd:ee:ff' }),
@@ -625,6 +673,7 @@ return view.extend({
 		const sourceFamilyField = this.renderWizardField(_('Family'), fields.sourceFamily);
 		const sourceAddressField = this.renderWizardField(_('Address'), fields.sourceAddress);
 		const sourceProbeUrlField = this.renderWizardField(_('Probe URL'), fields.sourceProbeUrl, _('Select a public IP detection service.'));
+		const probeInterfaceField = this.renderWizardField(_('Public probe outbound interface'), fields.probeInterface, _('Optional for public probe rules. Choose the WAN/upstream interface used for public IP detection; empty uses the system default route.'));
 		const sourceTypeHint = E('div', { class: 'cbi-value-description' });
 		const sourceTypeField = E('div', { class: 'qddns-rule-wizard-field' }, [
 			E('label', {}, _('Source type')),
@@ -682,6 +731,9 @@ return view.extend({
 				this.renderWizardField(_('Source IP'), this.renderWizardSourceIp(sourceIpStatus)),
 				this.renderWizardField(_('Record type'), fields.recordType),
 				E('div', { class: 'qddns-actions qddns-rule-wizard-probe-action-field' }, [saveSourceButton])
+			]),
+			E('div', { class: 'qddns-rule-wizard-grid' }, [
+				probeInterfaceField
 			])
 		]);
 		const newSourcePanel = E('div', { class: 'qddns-rule-wizard-source-panel', 'data-source-panel': 'new' }, [
@@ -830,6 +882,24 @@ return view.extend({
 				updateWizardSummary();
 		}
 
+		function markProbeInterfaceStale() {
+			const message = _('Probe source IP before continuing. The public probe interface changed.');
+			if (currentSourceMode() === 'new') {
+				markNewSourceDirty(message);
+			} else {
+				resetSourceProbe(message, 'warning');
+				fields.source.setAttribute('data-source-ip-error', '1');
+				updateButtons();
+			}
+		}
+
+		function updateProbeInterfaceField() {
+			const visible = viewRef.isProbeInterfaceVisible(fields);
+			probeInterfaceField.style.display = visible ? '' : 'none';
+			if (!visible)
+				viewRef.setWizardInterfaceValue(fields.probeInterface, '');
+		}
+
 		function markNewSourceDirty(message) {
 			sourceCreate.clean = false;
 			sourceCreate.version++;
@@ -901,6 +971,7 @@ return view.extend({
 			sourcePrefixFilterField.style.display = isDhcpv6Source ? '' : 'none';
 			sourceLeasePanel.style.display = isDhcpv6Source ? '' : 'none';
 			updateSourcePrefixText();
+			updateProbeInterfaceField();
 			if (!skipDirty)
 				resetSourceTypeFields(sourceType);
 			else if (isDhcpv6Source)
@@ -969,6 +1040,7 @@ return view.extend({
 				setEffectiveSource(viewRef.wizardValue(fields.source), viewRef.wizardSelectedText(fields.source, _('Unnamed source')));
 				updateWizardSourceProbe();
 			}
+			updateProbeInterfaceField();
 			updateButtons();
 		}
 
@@ -995,10 +1067,14 @@ return view.extend({
 			if (currentSourceMode() === 'new') {
 				if (sourceType === 'interface' || isDhcpv6Source)
 					rows.push(renderSummaryRow(_('WAN/upstream interface'), viewRef.wizardValue(fields.sourceInterface)));
+				if (viewRef.isProbeInterfaceVisible(fields))
+					rows.push(renderSummaryRow(_('Public probe outbound interface'), viewRef.wizardValue(fields.probeInterface) || _('System default route')));
 				if (isDhcpv6Source)
 					rows.push(renderSummaryRow(_('LAN host identity'), sourceType === 'dhcpv6_duid' ? '%s / %s'.format(viewRef.wizardValue(fields.sourceDuid) || '-', viewRef.wizardValue(fields.sourceIaid) || '-') : viewRef.wizardValue(fields.sourceMac)));
 				if (isDhcpv6Source && viewRef.wizardValue(fields.sourcePrefixFilter))
 					rows.push(renderSummaryRow(_('Prefix narrowing'), viewRef.wizardValue(fields.sourcePrefixFilter)));
+			} else if (viewRef.isProbeInterfaceVisible(fields)) {
+				rows.push(renderSummaryRow(_('Public probe outbound interface'), viewRef.wizardValue(fields.probeInterface) || _('System default route')));
 			}
 
 			summary.replaceChildren.apply(summary, rows);
@@ -1048,7 +1124,7 @@ return view.extend({
 			if (stepIndex === 2)
 				updateWizardSummary();
 
-			return qddns.probeSource(sourceId).then(function(result) {
+			return qddns.probeSourceForRuleDraft(sourceId, viewRef.isProbeInterfaceVisible(fields) ? viewRef.wizardValue(fields.probeInterface) : '').then(function(result) {
 				if (token !== sourceProbe.token)
 					return result;
 
@@ -1073,6 +1149,7 @@ return view.extend({
 					fields.source.removeAttribute('data-probed-family');
 				fields.source.removeAttribute('data-source-create-dirty');
 				viewRef.syncWizardRecordType(fields.recordType, sourceProbe.family);
+				updateProbeInterfaceField();
 				setWizardSourceIp(result.address, 'neutral');
 				setWizardProbeFeedback(sourceDetectedMessage(result.address), 'ready');
 				updateButtons();
@@ -1256,6 +1333,7 @@ return view.extend({
 			} else if (sourceType === 'public_probe') {
 				sourceData.family = viewRef.wizardValue(fields.sourceFamily);
 				sourceData.probeUrl = viewRef.wizardValue(fields.sourceProbeUrl);
+				sourceData.probeInterface = viewRef.isProbeInterfaceVisible(fields) ? viewRef.wizardValue(fields.probeInterface) : '';
 			} else if (sourceType === 'interface') {
 				sourceData.family = viewRef.wizardValue(fields.sourceFamily);
 				sourceData.interfaceName = viewRef.wizardValue(fields.sourceInterfaceSingle);
@@ -1437,6 +1515,7 @@ return view.extend({
 
 		fields.recordType.addEventListener('change', L.bind(function() {
 			this.resetWizardFeedback(feedback, stepIndex);
+			updateProbeInterfaceField();
 			if (stepIndex === 2)
 				updateWizardSummary();
 		}, this));
@@ -1444,6 +1523,9 @@ return view.extend({
 		fields.sourceType.addEventListener('change', function() {
 			updateNewSourceFields();
 		});
+
+		fields.probeInterface.addEventListener('change', markProbeInterfaceStale);
+		fields.probeInterface.addEventListener('input', markProbeInterfaceStale);
 
 		[
 			fields.sourceName,
@@ -1693,16 +1775,50 @@ return view.extend({
 		o.validate = L.bind(function(sectionId, value) {
 			return this.validateRecordTypeForSource(uci.get('qddns', sectionId, 'record_type'), value);
 		}, this);
+		const sourceWrite = o.write;
+		o.write = function(sectionId, value) {
+			const result = sourceWrite.apply(this, arguments);
+			if (!viewRef.isPublicProbeSource(value))
+				uci.unset('qddns', sectionId, 'probe_interface');
+			return result;
+		};
+		o = s.option(widgets.DeviceSelect, 'probe_interface', _('Public probe outbound interface'), _('Optional for public probe rules. Choose the WAN/upstream interface used for public IP detection; empty uses the system default route.'));
+		o.modalonly = true;
+		o.multiple = false;
+		o.noaliases = true;
+		o.nocreate = true;
+		sources.forEach(L.bind(function(source) {
+			if (source?.type === 'public_probe')
+				o.depends({ source: source.id });
+		}, this));
+		o.validate = L.bind(function(sectionId, value) {
+			if (!String(value || '').trim())
+				return true;
+			if (!this.isPublicProbeSource(uci.get('qddns', sectionId, 'source')))
+				return _('Public probe outbound interface only applies to public probe rules.');
+			return true;
+		}, this);
+		const probeInterfaceWrite = o.write;
+		o.write = function(sectionId, value) {
+			if (!viewRef.isPublicProbeSource(uci.get('qddns', sectionId, 'source'))) {
+				uci.unset('qddns', sectionId, 'probe_interface');
+				return;
+			}
+			return probeInterfaceWrite.apply(this, arguments);
+		};
 
 		o = s.option(form.DummyValue, '_provider_name', _('Provider'));
 		o.modalonly = false;
 		o.cfgvalue = function(sectionId) {
-			var pid = uci.get('qddns', sectionId, 'provider') || '';
-			for (var i = 0; i < providers.length; i++) {
-				if (providers[i].id === pid)
-					return providers[i].name || _('Unnamed provider');
-			}
-			return pid || '-';
+			var provider = uci.get('qddns', sectionId, 'provider') || '';
+			return provider ? viewRef.getProviderLabel(provider) : '-';
+		};
+
+		o = s.option(form.DummyValue, '_source_name', _('Source'));
+		o.modalonly = false;
+		o.cfgvalue = function(sectionId) {
+			var source = uci.get('qddns', sectionId, 'source') || '';
+			return source ? viewRef.getSourceLabel(source) : '-';
 		};
 
 		o = s.option(form.DummyValue, '_runtime', _('Runtime'));
