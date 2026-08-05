@@ -5,6 +5,7 @@
 			"uci": ["bypass"],
 			"ubus": {
 				"file": ["read", "list", "stat"],
+				"uci": ["changes", "get"],
 				"system": ["info", "board"],
 				"luci": ["getInitList", "setInitAction"]
 			},
@@ -17,6 +18,7 @@
 		"write": {
 			"uci": ["bypass"],
 			"ubus": {
+				"uci": ["add", "apply", "confirm", "delete", "order", "rename", "set"],
 				"file": ["exec"]
 			},
 			"file": {

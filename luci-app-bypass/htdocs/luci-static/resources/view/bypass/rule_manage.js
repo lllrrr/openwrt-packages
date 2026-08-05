@@ -121,10 +121,25 @@ return view.extend({
 				.map(function (section) { return section['.name']; });
 		};
 		function rememberOrder(table) {
-			if (!table) return;
+			if (!table) return Promise.resolve();
+			var changed = false;
 			table.querySelectorAll('tr[data-sid]').forEach(function (row, index) {
 				var rule = row.getAttribute('data-sid');
-				if (rule) uci.set('bypass', rule, 'sort_order', String(index));
+				var order = String(index);
+				if (rule && uci.get('bypass', rule, 'sort_order') !== order) {
+					uci.set('bypass', rule, 'sort_order', order);
+					changed = true;
+				}
+			});
+			if (!changed) return Promise.resolve();
+
+			// Dragging changes the local UCI cache only. Persist the order as a
+			// staged change so LuCI can show it in the top-right change indicator
+			// and include it in the common Save & Apply action.
+			return uci.save().then(function () {
+				return ui.changes.init();
+			}).catch(function (e) {
+				ui.addNotification(null, E('p', {}, _('Failed to save rule order: %s').format(String(e))));
 			});
 		}
 		var inheritedDrop = ss.handleDrop;
@@ -150,11 +165,13 @@ return view.extend({
 			// rule becomes an accidental catch-all during this intermediate apply.
 			uci.set('bypass', sid, 'outbound', '');
 			return uci.save().then(function () {
-				return uci.apply();
-			}).then(function () {
+				// Keep the new rule staged so the editor can save all of its fields
+				// together through LuCI's standard Save & Apply flow. Calling
+				// uci.apply() here performs a second, direct permission-checked
+				// apply while the rule is still incomplete.
 				window.location.assign(L.url('admin/services/bypass/rule_edit') + '?rule=' + encodeURIComponent(sid));
 			}).catch(function (e) {
-				ui.addNotification(null, E('p', {}, _('Save & Apply failed: %s').format(String(e))));
+				ui.addNotification(null, E('p', {}, _('Save failed: %s').format(String(e))));
 			});
 		};
 		ss.handleRemove = function (sid) {
@@ -162,11 +179,11 @@ return view.extend({
 				return Promise.resolve();
 			uci.remove('bypass', sid);
 			return uci.save().then(function () {
-				return uci.apply();
-			}).then(function () {
+				// Match the standard TableSection behavior: deletion is staged and
+				// applied by LuCI's common Save & Apply action.
 				window.location.reload();
 			}).catch(function (e) {
-				ui.addNotification(null, E('p', {}, _('Save & Apply failed: %s').format(String(e))));
+				ui.addNotification(null, E('p', {}, _('Save failed: %s').format(String(e))));
 			});
 		};
 

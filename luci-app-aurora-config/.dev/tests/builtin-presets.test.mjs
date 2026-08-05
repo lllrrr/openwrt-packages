@@ -4,12 +4,13 @@
 // corner radius, spacing, content width and typography -- everything the
 // settings page can actually configure -- stayed wherever the user had left
 // them. These tests hold the three halves of that fix together: the templates
-// carry the structure, rpcd applies it, and the Theme Store's offline copy
+// carry the structure, rpcd applies it, and the Marketplace's offline copy
 // says the same thing the templates do.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -51,7 +52,7 @@ const structOf = (id) => {
 };
 
 const rpcd = read("root/usr/libexec/rpcd/luci.aurora");
-const gallery = read(".dev/src/resource/view/aurora/gallery.js");
+const gallery = read(".dev/src/resource/view/aurora/marketplace.js");
 const browserPresets = JSON.parse(
   read(".dev/src/resource/aurora/presets.json"),
 ).presets;
@@ -201,7 +202,7 @@ test("every preset font stack is a verbatim font-presets.conf roster stack", () 
       const fontId = roster[slot].get(s[`struct_font_${slot}`]);
       assert.ok(fontId, `${id}: struct_font_${slot} matches no ${slot} roster entry`);
 
-      // gallery.js reads typography.font_* to decide whether to warn that the
+      // marketplace.js reads typography.font_* to decide whether to warn that the
       // typeface has to be downloaded first, treating exactly "default" and
       // "system" as already on the router. That rule only holds while those
       // two ids are the ones with no woff2 files to fetch.
@@ -209,7 +210,7 @@ test("every preset font stack is a verbatim font-presets.conf roster stack", () 
       assert.equal(
         files.has(`${slot}/${fontId}`),
         !bundled,
-        `${slot}/${fontId}: BUNDLED_FONT_IDS in gallery.js assumes only ` +
+        `${slot}/${fontId}: BUNDLED_FONT_IDS in marketplace.js assumes only ` +
           `default/system need no download`,
       );
     }
@@ -319,7 +320,7 @@ test("the browser copy of the presets matches the templates", () => {
 // 62 colours cost 7,968 bytes that nothing looked at.
 test("the browser copy carries exactly the swatch keys the store reads", () => {
   const declared = /const SWATCH_KEYS = \[([^\]]*)\]/.exec(gallery);
-  assert.ok(declared, "gallery.js no longer declares SWATCH_KEYS");
+  assert.ok(declared, "marketplace.js no longer declares SWATCH_KEYS");
   const swatchKeys = [...declared[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
   assert.ok(swatchKeys.length > 0, "SWATCH_KEYS parsed empty");
 
@@ -340,7 +341,7 @@ test("the browser copy carries exactly the swatch keys the store reads", () => {
   }
 });
 
-test("the Theme Store no longer promises that a preset only repaints", () => {
+test("the Marketplace no longer promises that a preset only repaints", () => {
   assert.ok(
     !gallery.includes("Layout (unchanged by this preset)"),
     "the built-in drawer must show the preset's own layout, not the current one",
@@ -363,4 +364,33 @@ test("the Theme Store no longer promises that a preset only repaints", () => {
   // is not fully offline until the woff2 files land.
   assert.match(gallery, /const needsFontDownload = /);
   assert.match(gallery, /const BUNDLED_FONT_IDS = \["default", "system"\]/);
+});
+
+// The shape of presets.json changed once already (151e50a moved it from
+// {light,dark} to {colors,layout,typography,toolbar}), and browsers kept
+// serving the old one for months: uhttpd reports Last-Modified as the epoch
+// and sends no Cache-Control, so a browser's heuristic freshness works out to
+// roughly 5.6 years and it never revalidates. A cached copy of the old shape
+// renders every built-in card with the fallback palette and a top nav bar --
+// no colours, no sidebar, no font chip -- and nothing in the UI says why.
+//
+// So the fetch carries a content hash, the way theme.js does for the token
+// engine. gen-presets.mjs stamps it; this checks the two agree.
+test("the store cache-busts presets.json with a hash of its contents", () => {
+  const data = read(".dev/src/resource/aurora/presets.json");
+  const expected = createHash("sha256").update(data).digest("hex").slice(0, 8);
+
+  const stamped = /const PRESETS_VERSION = "([^"]+)";/.exec(gallery)?.[1];
+  assert.ok(stamped, "marketplace.js declares PRESETS_VERSION");
+  assert.equal(
+    stamped,
+    expected,
+    "PRESETS_VERSION is stale -- rerun `pnpm gen-presets`",
+  );
+
+  assert.match(
+    gallery,
+    /L\.resource\("aurora\/presets\.json"\)\s*\+\s*"\?v="\s*\+\s*PRESETS_VERSION/,
+    "the fetch must carry the stamp, or browsers keep the copy they already have",
+  );
 });
