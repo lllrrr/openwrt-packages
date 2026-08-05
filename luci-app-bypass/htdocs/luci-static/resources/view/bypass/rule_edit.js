@@ -124,6 +124,16 @@ return view.extend({
 		o.placeholder = 'geosite:cn\ngeosite:category-ads-all\ndomain:example.com';
 		o.description = _('One rule per line. v2ray prefixes: geosite:, domain:, full:, regexp:, ext:, or a bare domain.');
 		o.depends('rule_type', 'domain');
+		// Refuse to save an empty selected list: normalization discards the other
+		// list, so an empty selection would leave the rule with no match condition
+		// at all. The generator skips such rules loudly, but rejecting the save
+		// here surfaces the mistake immediately.
+		o.rmempty = false;
+		o.validate = function (section_id, value) {
+			if (!value || !value.trim())
+				return _('The selected list must not be empty; a rule without match conditions would be skipped entirely.');
+			return true;
+		};
 
 		o = s.option(form.TextValue, 'ip_list', _('IP / CIDR list'));
 		o.rows = 8;
@@ -131,6 +141,12 @@ return view.extend({
 		o.placeholder = 'geoip:cn\ngeoip:private\n10.0.0.0/8';
 		o.description = _('One rule per line. geoip:, ext:, or a bare CIDR / IP.');
 		o.depends('rule_type', 'ip');
+		o.rmempty = false;
+		o.validate = function (section_id, value) {
+			if (!value || !value.trim())
+				return _('The selected list must not be empty; a rule without match conditions would be skipped entirely.');
+			return true;
+		};
 
 		var node = m.render();
 		var legacyDomain = uci.get('bypass', sid, 'domain_list');

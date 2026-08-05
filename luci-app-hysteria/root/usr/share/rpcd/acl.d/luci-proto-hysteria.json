@@ -1,0 +1,10 @@
+{
+	"luci-proto-hysteria-status": {
+		"description": "Read which servers a Hysteria 2 interface is connected to",
+		"read": {
+			"ubus": {
+				"hysteria": [ "status", "interfaces" ]
+			}
+		}
+	}
+}

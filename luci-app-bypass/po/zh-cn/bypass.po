@@ -1015,6 +1015,12 @@ msgstr ""
 "此规则仍同时包含域名列表和 IP 列表。保存时仅保留所选规则类型的列表，下方显示"
 "的另一个列表将被清除。如仍需要，请先将其复制到单独的规则中。"
 
+#: htdocs/luci-static/resources/view/bypass/rule_edit.js
+msgid ""
+"The selected list must not be empty; a rule without match conditions would "
+"be skipped entirely."
+msgstr "所选列表不能为空；没有任何匹配条件的规则将被整体跳过。"
+
 #: htdocs/luci-static/resources/view/bypass/geo_view.js:29
 msgid "Results appear here."
 msgstr "结果将显示在此。"

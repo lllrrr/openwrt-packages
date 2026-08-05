@@ -2,6 +2,7 @@
 'require uci';
 'require form';
 'require network';
+'require hysteria as hy';
 
 /* ppp.sh names the device "${proto}-${interface}", which would be hysteria-wan.
  * The proto handler overrides that to hy-<interface>, so this pattern and
@@ -9,43 +10,25 @@
  * as a missing physical one and will not show the interface as up. */
 network.registerPatternVirtual(/^hy-.+$/);
 
-network.registerErrorCode('CONFIG_FILE_MISSING', _('Configuration file not found'));
-network.registerErrorCode('CONFIG_WRITE_FAILED', _('Unable to write generated configuration'));
-network.registerErrorCode('MISSING_SERVER', _('No server address specified'));
-network.registerErrorCode('AUTH_FAILED', _('Server rejected the authentication password'));
-network.registerErrorCode('NO_ROUTE', _('The server has no LNS group configured for this account'));
-
-/* Settings this page does not render can still be set with "uci set", and the
+/* Every reason this protocol can report, registered from the one place they are
+ * written down.
+ *
+ * They reach a subscriber by two routes -- netifd's error channel for what the
+ * handler refuses at setup, and the status object for what an individual link
+ * fails with while running -- and the sentence must be the same either way. Two
+ * copies would drift, and the drift would be invisible: each route looks correct
+ * on its own.
+ *
+ * Settings this page does not render can still be set with "uci set", and the
  * proto handler refuses the combinations that cannot work rather than bringing a
- * link up that will never connect. Registering the codes is what turns them into
- * a sentence on the interface status instead of a bare identifier. */
-/* These arrive by a different route: the client writes the reason it ended into
- * a status file, the proto handler reads it back on teardown and reports it. They
- * are the ordinary running failures, so they are the ones most worth spelling
- * out -- ReasonCode.String() in the Go client is the other half of this list. */
-network.registerErrorCode('LINK_DOWN', _('The connection to the Hysteria 2 server was lost'));
-network.registerErrorCode('LNS_UNREACHABLE', _('The server could not establish an L2TP tunnel to the LNS'));
-network.registerErrorCode('LNS_DISCONNECTED', _('The LNS disconnected the session'));
-network.registerErrorCode('NO_LNS', _('No LNS in the configured group is available'));
-network.registerErrorCode('PATH_NARROWED', _('The path stopped carrying full-size packets; the link will be rebuilt at a smaller MTU'));
-network.registerErrorCode('UNKNOWN', _('The session ended without a stated reason'));
-
-/* Multilink PPP. The first is a fact about the installed system rather than about
- * this configuration, so it names the package to install: OpenWrt builds pppd
- * twice and only the ppp-multilink build can bundle links at all. */
-/* pppd's own exit status 2, mapped by ppp_generic_teardown. Newly reachable
- * because the endpoint discriminator and bundle name are free-text fields, and
- * pppd exits 2 for an endpoint it cannot parse. */
-network.registerErrorCode('INVALID_OPTIONS', _('pppd rejected an option: check the endpoint discriminator and bundle name'));
-
-network.registerErrorCode('MLPPP_UNSUPPORTED', _('pppd was built without Multilink PPP; install the ppp-multilink package in place of ppp'));
-network.registerErrorCode('MLPPP_CONFIG_FILE_CONFLICT', _('A custom configuration file names one server, so it cannot be combined with additional servers'));
-network.registerErrorCode('MLPPP_DATASTREAMS_CONFLICT', _('Data streams cannot be combined with additional servers: reliable streams stall multilink reassembly instead of protecting it'));
-
-network.registerErrorCode('OBFS_TYPE_INVALID', _('Unknown obfuscation type: use salamander or gecko'));
-network.registerErrorCode('OBFS_PASSWORD_MISSING', _('Obfuscation is enabled but no obfuscation password is set'));
-network.registerErrorCode('OBFS_WITH_CAMOUFLAGE', _('Obfuscation cannot be combined with camouflage, which needs the QUIC header that obfuscation hides'));
-network.registerErrorCode('CAMOUFLAGE_SERVER_IP_MULTILINK', _('A camouflage server IP names one concentrator and cannot be set alongside additional servers; leave it empty so each link takes the address it dials'));
+ * link up that will never connect. Registering the codes is what turns those
+ * refusals into a sentence on the interface status instead of a bare identifier.
+ *
+ * ReasonCode.String() in the Go client is the other half of the running-failure
+ * half of this list. */
+Object.keys(hy.REASONS).forEach(function(code) {
+	network.registerErrorCode(code, hy.REASONS[code]);
+});
 
 /* keepalive is one UCI option holding "<failures> <interval>", which ppp.sh turns
  * into pppd's lcp-echo-failure and lcp-echo-interval. It is presented as two
@@ -69,8 +52,65 @@ function write_keepalive(section_id, value) {
 }
 
 return network.registerProtocol('hysteria', {
+	/* The Protocol row of the interface status box, and one of exactly two rows
+	 * in that box a protocol gets to fill.
+	 *
+	 * render_status() in luci-mod-network builds the rest of it -- Carrier,
+	 * Uptime, RX, TX, the addresses -- straight off the device, from a fixed
+	 * list. There is no hook for adding a row of one's own, so the count of
+	 * connected servers goes here and the servers that are missing go on the
+	 * Error row below. Counting the norm and naming the exception: when every
+	 * server is carrying nobody needs their names, and when one is not, its
+	 * address is the only thing anybody wants.
+	 *
+	 * The suffix appears only where there is live data for a real interface.
+	 * getI18n is also what fills the protocol dropdown, and those instances are
+	 * created with a placeholder name and no runtime state -- so "Hysteria2 PPP
+	 * — 2 of 3 servers" cannot end up as something an operator is offered to
+	 * choose. */
 	getI18n: function() {
-		return _('Hysteria2 PPP');
+		var base = _('Hysteria2 PPP'),
+		    st = hy.statusOf(this);
+
+		if (!st)
+			return base;
+
+		/* Extra servers configured and switched off. Worth saying, because the
+		 * interface otherwise looks exactly like one that was only ever given a
+		 * single server, and "why is my second concentrator idle" has no answer
+		 * anywhere else on the router. */
+		if (st.servers_ignored > 0)
+			return '%s — %s'.format(base,
+				_('single link, %d server not in use').format(st.servers_ignored));
+
+		/* One server is not a bundle, and "1 of 1 servers" is noise beside an
+		 * Uptime row that already says the link is up. */
+		if (st.links_configured > 1)
+			return '%s — %s'.format(base,
+				_('%d of %d servers').format(st.links_up, st.links_configured));
+
+		return base;
+	},
+
+	/* The Error row, which is where a server that is not connected gets named.
+	 *
+	 * netifd's own errors come first and are untouched: AUTH_FAILED and the rest
+	 * still arrive and still read exactly as they did. What is added is the half
+	 * netifd cannot see, because a member link has no error channel of its own --
+	 * netifd has one per interface and the holder owns it.
+	 *
+	 * A degraded bundle is a genuine fault that is otherwise invisible: the
+	 * interface is up, the traffic counters move, and the only symptom is a
+	 * fraction of the throughput that was configured. It clears itself the moment
+	 * the link comes back. */
+	getErrors: function() {
+		var rv = this.super('getErrors', []) || [],
+		    st = hy.statusOf(this);
+
+		if (st)
+			rv = rv.concat(hy.problems(st));
+
+		return rv.length ? rv : null;
 	},
 
 	/* The live device once netifd reports one, and before that the same name the

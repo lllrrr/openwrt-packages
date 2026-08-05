@@ -3,6 +3,7 @@
 'require lanspeed.vocab as vocab';
 'require lanspeed.format as fmt';
 'require lanspeed.clientConnections as clientConnections';
+'require lanspeed.clientControl as clientControl';
 'require lanspeed.version as lsVersion';
 'require lanspeed.statusIp as statusIp';
 'require lanspeed.statusCollector as statusCollector';
@@ -455,6 +456,10 @@ function refreshLive(viewState) {
 	var viewport = captureClientViewport(refs);
 	var status = viewState.status || {};
 	var nssProfile = fmt.nssPlatform(status);
+	viewState.showClientControl = !nssProfile;
+	if (refs.controlHeader) refs.controlHeader.hidden = nssProfile;
+	if (refs.clientsTable)
+		refs.clientsTable.setAttribute('data-client-control', nssProfile ? 'hidden' : 'shown');
 	refreshIntervalControl(viewState, refs, status);
 	var clientsAll = fmt.asArray(viewState.clients && viewState.clients.clients);
 	var prefs = viewState.prefs;
@@ -663,7 +668,7 @@ function refreshLive(viewState) {
 						: ''
 				}, typeof c.udp_conns === 'number' ? String(c.udp_conns) : '-'),
 				stateCell
-			]);
+			].concat(nssProfile ? [] : [ clientControl.cell(viewState, c) ]));
 		}));
 	}
 

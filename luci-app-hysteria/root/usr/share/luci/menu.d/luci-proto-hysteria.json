@@ -1,0 +1,13 @@
+{
+	"admin/status/hysteria": {
+		"title": "Multilink PPP",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "hysteria/multilink"
+		},
+		"depends": {
+			"acl": [ "luci-proto-hysteria-status" ]
+		}
+	}
+}

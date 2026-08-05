@@ -893,10 +893,24 @@ gen_bypasscore_config() {
 					BYPASSCORE_CONFIG_ERROR=1
 					tag=block
 				}
+				domains=$(config_n_get "$sid" domain_list)
+				ips=$(config_n_get "$sid" ip_list)
+				protocols=$(config_n_get "$sid" protocol)
+				inbound=$(config_n_get "$sid" inbound)
+				sources=$(config_n_get "$sid" source)
+				ports=$(config_n_get "$sid" port)
+				# A rule with no match condition at all becomes a catch-all in the
+				# generated config and silently hijacks every connection to its
+				# outbound. Single-list normalization (or losing a list in the
+				# editor) can strand a rule with both lists empty; skip it loudly
+				# instead of letting it break all shunting.
+				if [ -z "$domains$ips$protocols$inbound$sources$ports" ]; then
+					log 0 "Shunt rule [%s] has no match conditions; skipping it so it cannot catch all traffic. Restore its domain or IP list." "$sid"
+					continue
+				fi
 				json_add_object ''
 					json_add_string ruleTag "$sid"
 					json_add_string outboundTag "$tag"
-					domains=$(config_n_get "$sid" domain_list)
 					if [ -n "$domains" ]; then
 						json_add_array domain
 							local d
@@ -909,7 +923,6 @@ gen_bypasscore_config() {
 							EOF
 						json_close_array
 					fi
-					ips=$(config_n_get "$sid" ip_list)
 					if [ -n "$ips" ]; then
 						json_add_array ip
 							local i
@@ -924,14 +937,12 @@ gen_bypasscore_config() {
 					fi
 					net=$(config_n_get "$sid" network tcp,udp)
 					[ -n "$net" ] && json_add_string network "$net"
-					protocols=$(config_n_get "$sid" protocol)
 					if [ -n "$protocols" ]; then
 						json_add_array protocol
 						local p
 						for p in $protocols; do json_add_string '' "$p"; done
 						json_close_array
 					fi
-					inbound=$(config_n_get "$sid" inbound)
 					case " $inbound " in
 						*" tproxy "*)
 							json_add_array inboundTag
@@ -943,14 +954,12 @@ gen_bypasscore_config() {
 							json_close_array
 							;;
 					esac
-					sources=$(config_n_get "$sid" source)
 					if [ -n "$sources" ]; then
 						json_add_array source
 						local src
 						for src in $sources; do json_add_string '' "$src"; done
 						json_close_array
 					fi
-					ports=$(config_n_get "$sid" port)
 					[ -n "$ports" ] && json_add_string port "$ports"
 				json_close_object
 			done
@@ -1289,6 +1298,14 @@ start_monitor() {
 # When this changes, NaiveProxy, policy routes, nftables, dnsmasq or listener
 # identity must be rebuilt with a full restart. DNS policy and DNS-result set
 # mappings live inside BypassCore and can reload transactionally.
+#
+# Some busybox builds ship without the cksum applet. Falling back to md5sum or
+# sha256sum keeps the signature meaningful there; without any of them the empty
+# signature safely degrades every reload to a full restart (previous behavior).
+runtime_signature_hash() {
+	busybox cksum 2>/dev/null || busybox md5sum 2>/dev/null || busybox sha256sum 2>/dev/null
+}
+
 runtime_restart_signature() {
 	local node sid outbound geo_class
 	{
@@ -1333,8 +1350,10 @@ runtime_restart_signature() {
 				printf 'geo_rule=%s\nclass=%s\nip=%s\n' "$sid" "$geo_class" "$(config_n_get "$sid" ip_list)"
 			done
 		fi
-		busybox cksum "$APP_PATH/direct_ip" 2>/dev/null
-	} | busybox cksum | awk '{print $1 ":" $2}'
+		busybox cksum "$APP_PATH/direct_ip" 2>/dev/null || \
+			busybox md5sum "$APP_PATH/direct_ip" 2>/dev/null || \
+			busybox sha256sum "$APP_PATH/direct_ip" 2>/dev/null
+	} | runtime_signature_hash | awk '{print $1 ":" $2}'
 }
 
 # Return 0 for a live transactional reload, 1 for an invalid candidate, and 2
