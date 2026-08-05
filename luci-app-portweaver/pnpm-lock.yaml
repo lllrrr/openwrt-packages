@@ -4,9 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  typescript: ^6.0.3
-
 importers:
 
   .: {}
@@ -20,8 +17,8 @@ importers:
         specifier: ^1.71.3
         version: 1.71.3
       '@lazulikao/luci-types':
-        specifier: github:LazuliKao/luci-types#09f4696dacc262fa114fefdd18a95df1c1c23e64
-        version: https://codeload.github.com/LazuliKao/luci-types/tar.gz/09f4696dacc262fa114fefdd18a95df1c1c23e64
+        specifier: github:LazuliKao/luci-types#6ac3c20d7a0d05e48e9eadf7eb2baf530bcbbca9
+        version: https://codeload.github.com/LazuliKao/luci-types/tar.gz/6ac3c20d7a0d05e48e9eadf7eb2baf530bcbbca9
       '@rsbuild/core':
         specifier: ^2.0.12
         version: 2.0.12
@@ -274,8 +271,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@lazulikao/luci-types@https://codeload.github.com/LazuliKao/luci-types/tar.gz/09f4696dacc262fa114fefdd18a95df1c1c23e64':
-    resolution: {tarball: https://codeload.github.com/LazuliKao/luci-types/tar.gz/09f4696dacc262fa114fefdd18a95df1c1c23e64}
+  '@lazulikao/luci-types@https://codeload.github.com/LazuliKao/luci-types/tar.gz/6ac3c20d7a0d05e48e9eadf7eb2baf530bcbbca9':
+    resolution: {tarball: https://codeload.github.com/LazuliKao/luci-types/tar.gz/6ac3c20d7a0d05e48e9eadf7eb2baf530bcbbca9}
     version: 0.2.0
     engines: {node: '>=18.18.0'}
     hasBin: true
@@ -771,7 +768,7 @@ snapshots:
   '@esbuild/win32-x64@0.28.1':
     optional: true
 
-  '@lazulikao/luci-types@https://codeload.github.com/LazuliKao/luci-types/tar.gz/09f4696dacc262fa114fefdd18a95df1c1c23e64':
+  '@lazulikao/luci-types@https://codeload.github.com/LazuliKao/luci-types/tar.gz/6ac3c20d7a0d05e48e9eadf7eb2baf530bcbbca9':
     dependencies:
       c12: 3.3.4
       chokidar: 5.0.0
