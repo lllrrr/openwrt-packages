@@ -405,8 +405,8 @@ msgid "IPv6 TProxy"
 msgstr "IPv6 TProxy"
 
 #: htdocs/luci-static/resources/view/bypass/other_settings.js:127
-msgid "Experimental feature. Make sure that your node supports IPv6."
-msgstr "实验性功能，请确保节点支持 IPv6。"
+msgid "Experimental feature. Make sure that your node supports IPv6. When disabled, IPv6 TCP that would otherwise be transparently proxied is blocked instead of leaking through the real egress."
+msgstr "实验性功能，请确保节点支持 IPv6。关闭时，原本需要透明代理的 IPv6 TCP 会被阻止，不再从真实出口泄漏。"
 
 #: htdocs/luci-static/resources/view/bypass/other_settings.js:131
 msgid "Direct IP List"
@@ -556,14 +556,6 @@ msgid ""
 msgstr ""
 "每个被分流规则选中的 NaiveProxy 节点都会获得一个独立的本地 SOCKS 端口，端口从"
 "此处开始分配。"
-
-#: htdocs/luci-static/resources/view/bypass/basic_settings.js:210
-msgid "Node Socks Bind Local"
-msgstr "节点 SOCKS 仅绑定本机"
-
-#: htdocs/luci-static/resources/view/bypass/basic_settings.js:211
-msgid "When selected, it can only be accessed localhost."
-msgstr "当勾选时，只能本机访问。"
 
 #: htdocs/luci-static/resources/view/bypass/basic_settings.js:215
 msgid "BypassCore binary"

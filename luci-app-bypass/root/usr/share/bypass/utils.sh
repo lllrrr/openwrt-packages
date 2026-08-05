@@ -8,6 +8,11 @@
 # no i18n indirection, plain-text logging.
 
 CONFIG=bypass
+# Runtime state contains NaiveProxy credentials and WireGuard private keys.
+# Make every file created by a script sourcing this library private by default;
+# explicitly public artifacts (the fw4 include and Direct IP conffile) set their
+# own modes after creation.
+umask 077
 APP_PATH=/usr/share/${CONFIG}
 TMP_PATH=/tmp/etc/${CONFIG}
 TMP_PATH2=${TMP_PATH}_tmp
@@ -133,7 +138,23 @@ host_for_url() {
 # Logging (plain text; i18n is handled in the LuCI JS frontend)
 # ------------------------------------------------------------------------------
 
+bound_log_file() {
+	local file=$1 maximum=${2:-1048576} keep=${3:-524288} size tmp
+	[ -f "$file" ] && [ ! -L "$file" ] || return 0
+	size=$(wc -c < "$file" 2>/dev/null)
+	[ "${size:-0}" -le "$maximum" ] 2>/dev/null && return 0
+	tmp="${file}.trim.$$"
+	if tail -c "$keep" "$file" > "$tmp" 2>/dev/null; then
+		chmod 600 "$tmp" 2>/dev/null
+		mv -f "$tmp" "$file"
+	else
+		rm -f "$tmp"
+	fi
+}
+
 echolog() {
+	mkdir -p "$(dirname "$LOG_FILE")"
+	bound_log_file "$LOG_FILE" 1048576 524288
 	printf '%b\n' "$*" >>"$LOG_FILE"
 }
 
@@ -600,10 +621,12 @@ get_wan_ips() {
 # ------------------------------------------------------------------------------
 
 get_geoip() {
-	local geo_output_path="$TMP_PATH2/geo_output"
-	mkdir -p "$geo_output_path"
 	local geoip_code=$1
 	local family=$2
+	case "$geoip_code" in ''|*[!A-Za-z0-9_-]*) log 0 "Invalid GeoIP code rejected: %s" "$geoip_code"; return 1 ;; esac
+	case "$family" in ipv4|ipv6) ;; *) return 1 ;; esac
+	local geo_output_path="$TMP_PATH2/geo_output"
+	mkdir -p "$geo_output_path"
 	local output_path="${geo_output_path}/geoip-${geoip_code}-${family}"
 	[ ! -s "${output_path}" ] && {
 		local geoip_path
@@ -616,7 +639,16 @@ get_geoip() {
 			ipv4) flag="-ipv6=false" ;;
 			ipv6) flag="-ipv4=false" ;;
 		esac
-		"$bin" -input "$geoip_path" -list "$geoip_code" $flag -lowmem=true -output "$output_path" 2>/dev/null
+		if ! ( ulimit -f 32768 2>/dev/null; "$bin" -input "$geoip_path" -list "$geoip_code" $flag -lowmem=true -output "$output_path" ) 2>/dev/null; then
+			rm -f "$output_path"
+			log 0 "GeoIP extraction [%s/%s] failed or exceeded 16 MiB." "$geoip_code" "$family"
+			return 1
+		fi
+	}
+	[ ! -e "$output_path" ] || [ "$(wc -c < "$output_path" 2>/dev/null)" -le 16777216 ] 2>/dev/null || {
+		rm -f "$output_path"
+		log 0 "GeoIP extraction [%s/%s] exceeds the 16 MiB safety limit." "$geoip_code" "$family"
+		return 1
 	}
 	# Ensure every record ends with a newline. geoview may omit the final
 	# newline; a bare cat would then fuse its last CIDR with the next line a
@@ -627,7 +659,8 @@ get_geoip() {
 	# with RS="[ \t\n\r]+" and pre-filters with grep -E, so a fusion can no longer
 	# reach nft even if this normalisation is bypassed. Keep it so the collected
 	# files stay line-tidy for sort -u and line counting.
-	[ -s "${output_path}" ] && awk '{print}' "${output_path}"
+	[ ! -s "${output_path}" ] || awk '{print}' "${output_path}"
+	return 0
 }
 
 # BypassCore is normally a native Linux executable, while some packages use an
@@ -725,34 +758,21 @@ get_egress_runtime() {
 # The caller assigns a different table to each selected node, allowing nodes to
 # use different WANs without overwriting packet marks owned by mwan3/PBR.
 
-# Reclaim a policy-rule priority still occupied by orphaned bypass egress rules.
-# Kernel rules survive an aborted run which lost its egress_rules records, and
-# used to make every later start fail with "priority is already in use". Every
-# conflicting rule is logged for diagnosis, but only rules whose lookup table
-# belongs to the bypass egress table range are removed; a genuinely foreign
-# rule keeps the priority and remains fatal. Returns 0 when the priority is
-# free afterwards.
+# Check policy-rule priority ownership without deleting anything not recorded
+# by this runtime. A table number inside the configured Bypass range is not
+# proof of ownership; another PBR package may legitimately use the same range.
 reclaim_egress_priority() {
-	local ip_cmd=$1 priority=$2 base=${NAIVE_EGRESS_TABLE:-20200}
-	local conflicts line ltable attrs
+	local ip_cmd=$1 priority=$2
+	local conflicts line
 	conflicts=$($ip_cmd rule show 2>/dev/null | awk -v p="${priority}:" '$1 == p')
 	[ -n "$conflicts" ] || return 0
-	printf '%s\n' "$conflicts" | while IFS= read -r line; do
+	while IFS= read -r line; do
 		[ -n "$line" ] || continue
 		log 0 "Policy-rule priority [%s] is held by: %s" "$priority" "$line"
-		ltable=$(printf '%s\n' "$line" | awk '{ for (i = 1; i <= NF; i++) if ($i == "lookup" || $i == "table") { print $(i+1); exit } }')
-		case "$ltable" in ''|*[!0-9]*) continue ;; esac
-		[ "$ltable" -ge "$base" ] 2>/dev/null && [ "$ltable" -le $((base + 64)) ] 2>/dev/null || continue
-		# Replay the exact selector set printed by ip(8). A subset delete such as
-		# "priority + lookup" does not match rules carrying a to= selector on some
-		# iproute2 builds, which is how this orphan got stranded in the first place.
-		attrs=$(printf '%s\n' "$line" | sed 's/^[^:]*:[[:space:]]*//')
-		while $ip_cmd rule del $attrs 2>/dev/null; do :; done
-		# Fallback for rule-show formats whose replay ip(8) does not accept.
-		while $ip_cmd rule del priority "$priority" lookup "$ltable" 2>/dev/null; do :; done
-		log 0 "Reclaimed an orphaned bypass egress rule at priority %s (table %s)." "$priority" "$ltable"
-	done
-	! $ip_cmd rule show 2>/dev/null | awk -v p="${priority}:" '$1 == p { found=1 } END { exit !found }'
+	done <<-EOF
+	$conflicts
+	EOF
+	return 1
 }
 
 setup_egress_routing() {
@@ -771,8 +791,8 @@ setup_egress_routing() {
 	}
 
 	local foreign_routes foreign_routes6
-	foreign_routes=$(ip -o route show table "$table" 2>/dev/null | grep -v 'proto 99')
-	foreign_routes6=$(ip -6 -o route show table "$table" 2>/dev/null | grep -v 'proto 99')
+	foreign_routes=$(ip -o route show table "$table" 2>/dev/null)
+	foreign_routes6=$(ip -6 -o route show table "$table" 2>/dev/null)
 	if [ -n "$foreign_routes$foreign_routes6" ]; then
 		log 0 "Egress route table [%s] already contains foreign routes; choose another table." "$table"
 		return 1

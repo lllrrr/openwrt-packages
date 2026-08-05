@@ -2,7 +2,6 @@
 config global
 	option enabled '0'
 	option node_socks_port '1088'
-	option node_socks_bind_local '1'
 	option client_proxy '1'
 	option log_node '1'
 	option loglevel 'error'
@@ -74,29 +73,16 @@ config global_delay
 	option start_week_mode ''
 	option restart_week_mode ''
 
-config shunt_rules 'China'
-	option remarks 'China'
+config shunt_rules 'ChinaSite'
+	option remarks 'ChinaSite'
 	option network 'tcp,udp'
 	option domain_list 'geosite:cn'
-	option ip_list 'geoip:cn'
 	option outbound '_direct'
 
-config shunt_rules 'PrivateIP'
-	option remarks 'PrivateIP'
+config shunt_rules 'ChinaIP'
+	option remarks 'ChinaIP'
 	option network 'tcp,udp'
-	option ip_list '0.0.0.0/8
-10.0.0.0/8
-127.0.0.0/8
-169.254.0.0/16
-172.16.0.0/12
-192.0.0.0/24
-192.0.2.0/24
-192.88.99.0/24
-192.168.0.0/16
-198.51.100.0/24
-203.0.113.0/24
-224.0.0.0/3
-100.64.0.0/10'
+	option ip_list 'geoip:cn'
 	option outbound '_direct'
 
 config shunt_rules 'AdBlock'

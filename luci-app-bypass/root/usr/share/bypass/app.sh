@@ -35,7 +35,6 @@ get_direct_dns() {
 get_config() {
 	ENABLED=$(config_t_get global enabled 0)
 	NODE_SOCKS_PORT=$(config_t_get global node_socks_port 1088)
-	NODE_SOCKS_BIND_LOCAL=$(config_t_get global node_socks_bind_local 1)
 	CLIENT_PROXY=$(config_t_get global client_proxy 1)
 	LOG_NODE=$(config_t_get global log_node 1)
 	LOG_LEVEL=$(config_t_get global loglevel error)
@@ -111,8 +110,9 @@ get_config() {
 	# packet marks. These are base values; each selected node receives +index.
 	NAIVE_EGRESS_TABLE=$(config_t_get global naive_egress_table 20200)
 	NAIVE_EGRESS_RULE_PRIORITY=$(config_t_get global naive_egress_rule_priority 900)
-	echo "$NAIVE_EGRESS_TABLE" | grep -qE '^[0-9]+$' || NAIVE_EGRESS_TABLE=20200
-	echo "$NAIVE_EGRESS_RULE_PRIORITY" | grep -qE '^[0-9]+$' || NAIVE_EGRESS_RULE_PRIORITY=900
+	uint_in_range "$NODE_SOCKS_PORT" 1 65000 || { log 0 "Invalid Naive SOCKS base port [%s]; using 1088." "$NODE_SOCKS_PORT"; NODE_SOCKS_PORT=1088; }
+	uint_in_range "$NAIVE_EGRESS_TABLE" 1 65000 || { log 0 "Invalid Naive egress table base [%s]; using 20200." "$NAIVE_EGRESS_TABLE"; NAIVE_EGRESS_TABLE=20200; }
+	uint_in_range "$NAIVE_EGRESS_RULE_PRIORITY" 1 65000 || { log 0 "Invalid Naive egress priority base [%s]; using 900." "$NAIVE_EGRESS_RULE_PRIORITY"; NAIVE_EGRESS_RULE_PRIORITY=900; }
 
 	get_direct_dns
 }
@@ -233,8 +233,10 @@ run_naive_node() {
 
 	local socks_cfg="${cfg_dir}/naive_${node}.json"
 	json_init
+	# The per-node SOCKS listener is an internal transport, not a LAN service.
+	# Always bind loopback: exposing an unauthenticated 0.0.0.0 listener turns
+	# the router into an open proxy.  The legacy UCI flag is intentionally ignored.
 	local socks_host=127.0.0.1
-	[ "$NODE_SOCKS_BIND_LOCAL" = "1" ] || socks_host=0.0.0.0
 	if [ -n "$username$password" ]; then
 		username=$(uri_encode_userinfo "$username") || return 1
 		password=$(uri_encode_userinfo "$password") || return 1
@@ -1170,6 +1172,9 @@ run_dnsmasq_forward() {
 		unset_cache_var DNSMASQ_INCLUDE
 		unset_cache_var DNSMASQ_MODIFIED
 		log 0 "dnsmasq failed to reload the Bypass runtime forwarding file."
+		if ! /etc/init.d/dnsmasq restart >/dev/null 2>&1; then
+			log 0 "dnsmasq also failed to recover after the Bypass include was removed."
+		fi
 		return 1
 	fi
 	log 0 "dnsmasq DNS -> BypassCore :%s (native domain policy and NFTSet writer)." "$BYPASSCORE_DNS_PORT"
@@ -1197,16 +1202,28 @@ cron_prefix() {
 	local week=$1 time=$2 interval=$3
 	[ -z "$week" ] && { echo ""; return; }
 	local hh mm
-	hh=$(echo "$time" | awk -F: '{print $1}')
-	mm=$(echo "$time" | awk -F: '{print $2}')
-	[ -z "$hh" ] && hh=0
-	[ -z "$mm" ] && mm=0
+	case "$time" in
+		*:*:*) log 0 "Invalid schedule time rejected: %s" "$time"; echo ""; return 1 ;;
+		*:*) hh=${time%%:*}; mm=${time#*:} ;;
+		*) log 0 "Invalid schedule time rejected: %s" "$time"; echo ""; return 1 ;;
+	esac
+	uint_in_range "$hh" 0 23 && uint_in_range "$mm" 0 59 || {
+		log 0 "Invalid schedule time rejected: %s" "$time"
+		echo ""
+		return 1
+	}
 	if [ "$week" = "8" ]; then
 		# Loop mode: every N hours.
-		echo "0 */${interval:-2} * * *"
+		uint_in_range "$interval" 1 23 || {
+			log 0 "Invalid schedule interval rejected: %s" "$interval"
+			echo ""
+			return 1
+		}
+		echo "0 */${interval} * * *"
 	elif [ "$week" = "7" ]; then
 		echo "$mm $hh * * *"
 	else
+		case "$week" in 0|1|2|3|4|5|6) ;; *) log 0 "Invalid schedule weekday rejected: %s" "$week"; echo ""; return 1 ;; esac
 		echo "$mm $hh * * $week"
 	fi
 }
@@ -1309,8 +1326,8 @@ runtime_signature_hash() {
 runtime_restart_signature() {
 	local node sid outbound geo_class
 	{
-		printf 'enabled=%s\nnode_socks_port=%s\nnode_socks_bind_local=%s\nclient_proxy=%s\nlog_node=%s\nlog_level=%s\ndns_redirect=%s\n' \
-			"$ENABLED" "$NODE_SOCKS_PORT" "$NODE_SOCKS_BIND_LOCAL" "$CLIENT_PROXY" "$LOG_NODE" "$LOG_LEVEL" "$DNS_REDIRECT"
+		printf 'enabled=%s\nnode_socks_port=%s\nclient_proxy=%s\nlog_node=%s\nlog_level=%s\ndns_redirect=%s\n' \
+			"$ENABLED" "$NODE_SOCKS_PORT" "$CLIENT_PROXY" "$LOG_NODE" "$LOG_LEVEL" "$DNS_REDIRECT"
 		printf 'bypasscore=%s\nnaive=%s\negress_table=%s\negress_priority=%s\nstart_daemon=%s\n' \
 			"$BYPASSCORE_FILE" "$NAIVE_BIN" "$NAIVE_EGRESS_TABLE" "$NAIVE_EGRESS_RULE_PRIORITY" "$START_DAEMON"
 		uci -q show "${CONFIG}.@global_forwarding[0]"
@@ -1440,6 +1457,12 @@ start() {
 		return 1
 	fi
 	prepare_selected_nodes
+	local selected_count
+	selected_count=$(awk 'NF { n++ } END { print n + 0 }' "$TMP_PATH/selected_nodes")
+	[ "$selected_count" -le 64 ] 2>/dev/null || {
+		log 0 "Too many selected outbound nodes (%s); the safety limit is 64." "$selected_count"
+		return 1
+	}
 	run_naive_nodes || { stop; return 1; }
 	run_bypasscore_core || { stop; return 1; }
 	# Revalidate every listener before installing firewall redirection.
@@ -1513,10 +1536,6 @@ stop() {
 	[ -x "$NFT_BIN" ] && {
 		$NFT_BIN delete table inet bypass 2>/dev/null
 	}
-	while ip rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
-	ip route flush table 20100 proto 99 2>/dev/null
-	while ip -6 rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
-	ip -6 route flush table 20101 proto 99 2>/dev/null
 	teardown_egress_routing
 	restore_dnsmasq_forward
 

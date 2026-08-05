@@ -330,8 +330,8 @@ test("gallery view: a two-row header with a segmented filter row", async () => {
   assert.ok(!src.includes("aurora-store-search"), "bespoke search pill must go");
   assert.ok(!src.includes(".innerHTML"));
 
-  // 标题和搜索、分享按钮同一行,所以 h2 必须在页头容器里,不在它上面
-  assert.match(src, /aurora-store-head" \}, \[\s*titleEl/, "the title must sit in the header row");
+  // 标题那条断言没了:页头里已经不放标题,tab 条自己写着"主题市场"。
+  // 见下方 "the tab strip names the page, so the head carries no heading"。
   // 那句总说明删掉了 —— 分区副标题接管了它的活
   assert.ok(!src.includes("cbi-map-descr"), "the blanket description must give way to section subtitles");
 
@@ -966,4 +966,52 @@ test("my-shares empty state onboards instead of demanding an import", async () =
   );
   assert.ok(!src.includes('_("Import a creator key")'));
   assert.ok(!src.includes('_("Import a key")'));
+});
+
+// The hub soft-deletes: /api/v1/me keeps listing a share this device has
+// already deleted, marked `status: "removed"`. Nothing else in this view reads
+// `status`, so an unfiltered list re-renders that share with live Update and
+// Delete buttons -- which is why a delete looked broken end to end: it
+// succeeded, the row stayed, and the second click hit a 404.
+test("gallery: a share the hub has removed never reaches My Shares", async () => {
+  const src = await readFile(SRC, "utf8");
+  const start = src.indexOf("const renderMyShares");
+  assert.ok(start > 0, "renderMyShares not found");
+  const head = src.slice(start, src.indexOf("TABS.forEach", start));
+  assert.match(
+    head,
+    /status !== "removed"/,
+    "renderMyShares must drop the shares the hub has already removed",
+  );
+});
+
+test("gallery: a delete the hub refuses still re-reads My Shares", async () => {
+  const src = await readFile(SRC, "utf8");
+  const start = src.indexOf("const confirmDeleteShare");
+  assert.ok(start > 0, "confirmDeleteShare not found");
+  const fn = src.slice(start, src.indexOf("const buildMyShareRow", start));
+  // Two refreshes, not one. The failure branch is the only way a row the hub
+  // has already dropped ever leaves the screen.
+  assert.equal(
+    (fn.match(/refreshMyShares\(\)/g) || []).length,
+    2,
+    "both the success and the failure branch must re-read hub_me",
+  );
+});
+
+// Same duplication as studio.js: the tab strip above the content already says
+// "主题市场", and the store head printed it again as an <h2> immediately below.
+test("gallery: the tab strip names the page, so the head carries no heading", async () => {
+  const src = await readFile(SRC, "utf8");
+  assert.ok(
+    !src.includes('_("Theme Marketplace")'),
+    "the tab strip above already names the page",
+  );
+  assert.ok(
+    !/E\("h2"/.test(src),
+    "no page-level h2 belongs in the store head",
+  );
+  // The spacer is what pushes search and share to the right; without the
+  // heading it is the first child, and it still has to be there.
+  assert.match(src, /class: "sp"/);
 });

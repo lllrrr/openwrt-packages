@@ -182,7 +182,7 @@ return view.extend({
 		o.value('tproxy', _('TPROXY'));
 
 		o = sFwd.option(form.Flag, 'ipv6_tproxy', _('IPv6 TProxy'),
-			_('Experimental feature. Make sure that your node supports IPv6.'));
+			_('Experimental feature. Make sure that your node supports IPv6. When disabled, IPv6 TCP that would otherwise be transparently proxied is blocked instead of leaking through the real egress.'));
 		o.default = '0';
 		o.rmempty = false;
 

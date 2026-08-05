@@ -315,7 +315,7 @@ return view.extend({
 			['node_type', 'protocol', 'remarks', 'address', 'port', 'egress_interface',
 				'username', 'password', 'secret_key', 'public_key', 'wireguard_address',
 				'peer_public_key', 'peer_address', 'peer_port', 'pre_shared_key',
-				'keep_alive', 'mtu'].forEach(function (opt) {
+				'local_dns', 'reserved', 'keep_alive', 'mtu'].forEach(function (opt) {
 				if (src[opt] != null) uci.set('bypass', newSid, opt, src[opt]);
 			});
 			uci.set('bypass', newSid, 'remarks', (src.remarks || sid) + ' ' + _('(copy)'));

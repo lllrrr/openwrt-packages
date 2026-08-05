@@ -18,7 +18,7 @@ set_lock() {
 	local tries=0
 	while ! flock -xn 9; do
 		tries=$((tries + 1))
-		if [ "$tries" -ge 10 ]; then
+		if [ "$tries" -ge 30 ]; then
 			exec 9>&-
 			return 1
 		fi
@@ -46,6 +46,10 @@ boot_func() {
 	local delay attempt=1 rc=1
 	trap 'rm -f "$BOOTING_FILE"' EXIT INT TERM
 	delay=$(uci -q get ${CONFIG}.@global_delay[0].start_delay 2>/dev/null || echo 60)
+	uint_in_range "$delay" 0 86400 || {
+		log 0 "Invalid start delay [%s]; using 60 seconds." "$delay"
+		delay=60
+	}
 	[ "$delay" -gt 0 ] 2>/dev/null && {
 		log 0 "Start after a delay of %s seconds." "$delay"
 		sleep "$delay"
@@ -68,7 +72,7 @@ boot() {
 }
 
 start() {
-	set_lock || { log 0 "The service script is already running; skip duplicate start."; return 0; }
+	set_lock || { log 0 "Timed out waiting for another service operation before start."; return 1; }
 	$APP_FILE start
 	local rc=$?
 	update_ready_file "$rc"
@@ -77,14 +81,14 @@ start() {
 }
 
 stop() {
-	set_lock || { log 0 "The service script is already running; skip duplicate stop."; return 0; }
+	set_lock || { log 0 "Timed out waiting for another service operation before stop."; return 1; }
 	$APP_FILE stop
 	rm -f "$READY_FILE"
 	unset_lock
 }
 
 restart() {
-	set_lock || { log 0 "The service script is already running; skip duplicate restart."; return 0; }
+	set_lock || { log 0 "Timed out waiting for another service operation before restart."; return 1; }
 	$APP_FILE stop
 	$APP_FILE start $1
 	local rc=$?
@@ -94,7 +98,7 @@ restart() {
 }
 
 reload() {
-	set_lock || { log 0 "The service script is already running; skip duplicate reload."; return 0; }
+	set_lock || { log 0 "Timed out waiting for another service operation before reload."; return 1; }
 	$APP_FILE reload_core
 	local rc=$? full_restart=0
 	if [ "$rc" = "2" ]; then

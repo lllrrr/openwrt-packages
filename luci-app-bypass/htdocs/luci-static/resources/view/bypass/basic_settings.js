@@ -222,11 +222,6 @@ return view.extend({
 		o.placeholder = '1088';
 		o.default = '1088';
 
-		o = s.taboption('Main', form.Flag, 'node_socks_bind_local', _('Node Socks Bind Local'),
-			_('When selected, it can only be accessed localhost.'));
-		o.default = '1';
-		o.rmempty = false;
-
 		o = s.taboption('Main', form.Value, 'naive_egress_table', _('Egress route table'));
 		o.description = _('Base policy route table number. Each selected NaiveProxy node with an egress interface uses this value plus its node index.');
 		o.datatype = 'uinteger';

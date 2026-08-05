@@ -1,18 +1,46 @@
 #!/bin/sh
 
+umask 077
+
 # Install defaults only for a fresh configuration. Existing UCI state is never
 # rewritten automatically; current code supplies safe defaults for absent keys.
-[ -f /etc/config/bypass ] || cp -f /usr/share/bypass/0_default_config /etc/config/bypass
+[ -e /etc/config/bypass ] || cp /usr/share/bypass/0_default_config /etc/config/bypass
+[ -f /etc/config/bypass ] && [ ! -L /etc/config/bypass ] && chmod 600 /etc/config/bypass 2>/dev/null
 
 chmod +x /usr/share/bypass/*.sh 2>/dev/null
 [ -e /usr/share/bypass/direct_ip ] || \
-	cp -f /usr/share/bypass/0_default_direct_ip /usr/share/bypass/direct_ip
+	cp /usr/share/bypass/0_default_direct_ip /usr/share/bypass/direct_ip
+[ -f /usr/share/bypass/direct_ip ] && [ ! -L /usr/share/bypass/direct_ip ] && \
+	chmod 644 /usr/share/bypass/direct_ip 2>/dev/null
+
+# Split only the untouched legacy stock China rule. Custom rules and any
+# already-migrated configuration are never rewritten.
+if [ "$(uci -q get bypass.China)" = "shunt_rules" ] && \
+   [ "$(uci -q get bypass.China.remarks)" = "China" ] && \
+   [ "$(uci -q get bypass.China.network)" = "tcp,udp" ] && \
+   [ "$(uci -q get bypass.China.domain_list)" = "geosite:cn" ] && \
+   [ "$(uci -q get bypass.China.ip_list)" = "geoip:cn" ] && \
+   [ "$(uci -q get bypass.China.outbound)" = "_direct" ] && \
+   [ -z "$(uci -q get bypass.ChinaSite)$(uci -q get bypass.ChinaIP)" ] && \
+   [ -z "$(uci -q get bypass.China.protocol)$(uci -q get bypass.China.inbound)$(uci -q get bypass.China.source)$(uci -q get bypass.China.port)$(uci -q get bypass.China.egress_interface)" ]; then
+	uci -q rename bypass.China=ChinaSite
+	uci -q set bypass.ChinaSite.remarks=ChinaSite
+	uci -q delete bypass.ChinaSite.ip_list
+	uci -q set bypass.ChinaIP=shunt_rules
+	uci -q set bypass.ChinaIP.remarks=ChinaIP
+	uci -q set bypass.ChinaIP.network='tcp,udp'
+	uci -q set bypass.ChinaIP.ip_list='geoip:cn'
+	uci -q set bypass.ChinaIP.outbound='_direct'
+	uci -q commit bypass
+fi
 
 # Refresh the tiny init wrapper from its canonical package copy. This is
 # executable/package plumbing, not a configuration migration.
 if [ -s /usr/share/bypass/bypass.init ]; then
-	cp -f /usr/share/bypass/bypass.init /etc/init.d/bypass
-	chmod 755 /etc/init.d/bypass
+	init_tmp=/etc/init.d/.bypass.install.$$
+	cp /usr/share/bypass/bypass.init "$init_tmp" && chmod 755 "$init_tmp" && \
+		mv -f "$init_tmp" /etc/init.d/bypass
+	rm -f "$init_tmp"
 	rm -f /etc/init.d/bypass.apk-new /etc/init.d/bypass-opkg 2>/dev/null
 	/etc/init.d/bypass enable >/dev/null 2>&1
 fi

@@ -75,6 +75,11 @@ while [ "$(config_t_get global enabled 0)" = "1" ] && [ -f "$READY_FILE" ]; do
 	# keeps recovery reasonably quick while avoiding a busy five-second probe.
 	sleep 15
 	[ -f "$READY_FILE" ] || exit 0
+	# Long-running core/helper stderr is diagnostic state, not an unbounded data
+	# sink. Keep the newest 512 KiB once a component log exceeds 2 MiB.
+	for component_log in "$TMP_ACL_PATH"/*.log "$TMP_ACL_PATH"/nodes/*.log; do
+		[ -e "$component_log" ] && bound_log_file "$component_log" 2097152 524288
+	done
 
 	# Comparing installed files alone can miss an upgrade when this monitor is
 	# itself restarted after opkg/apk has already replaced the path. Compare the

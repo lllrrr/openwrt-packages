@@ -89,12 +89,14 @@ The generated schema-5 configuration assigns every shunt rule a stable `ruleTag`
 
 Reload classifies configuration changes by ownership. Routing, DNS policies, and DNS-result NFTSet mappings are sent through BypassCore's transactional snapshot reload; candidate sets are probed before the core swaps snapshots. A standalone fw4 reload and the NFTSet-clear action also reprobe the current sets, refreshing kernel metadata and writer deduplication state. Changes requiring NaiveProxy, policy routes, nftables, dnsmasq, or listener reconstruction automatically fall back to a full restart. GeoData file updates still restart because an unchanged config hash intentionally short-circuits snapshot rebuilding. Diagnostics require the running control plane and never launch temporary BypassCore processes.
 
+GeoIP and Geosite update independently with HTTPS conditional requests, per-file validation, and rollback. A failure in one does not discard a successful update of the other, while ETag/Last-Modified responses avoid downloading an unchanged body. The safety ceilings are 34,966,120 bytes for GeoIP and 21,105,968 bytes for Geosite, exactly twice the upstream sizes observed on 2026-08-05.
+
 Per-node NaiveProxy instances are started only for nodes referenced by shunt rules or the virtual Default row. Direct traffic can use a global default interface or a per-rule override. A NaiveProxy node with no explicit egress interface inherits Default Naive Interface; a WireGuard node with no explicit interface uses the system route. Selected node endpoint destinations receive dedicated policy routes based on the effective interface, while existing mwan3/PBR marks remain untouched.
 
 ## Known limitations
 
 - NaiveProxy cannot proxy general UDP. UDP proxying is available through WireGuard nodes; a rule that selects NaiveProxy for UDP fails closed.
-- IPv6 transparent proxying is available when IPv6 TProxy is enabled and the selected outbound supports IPv6.
+- IPv6 transparent proxying is available when IPv6 TProxy is enabled and the selected outbound supports IPv6. When disabled, forwarded IPv6 TCP in the configured transparent-proxy port set is blocked unless explicitly exempted by Direct/No-Redir policy, preventing real-egress leakage.
 - Remote DNS is handled natively by BypassCore. TCP, DoT, and DoH can use either node type; UDP can use Direct or WireGuard, while NaiveProxy UDP is rejected.
 - DNS Redirect uses a single checked BypassCore UDP/TCP listener. Domain-specific direct DNS and node-server DNS use native tagged policies; matching A/AAAA results are asynchronously batched into TTL-based NFTSet elements without a helper process or helper port.
 - Router-local applications are not transparently intercepted by nftables OUTPUT rules.

@@ -147,14 +147,18 @@ config global_rules
     option default_naive_interface 'wan2'
     option default_node 'naive1'       # 虚拟 Default 行；未匹配流量走 naive1
 
-config shunt_rules 'China'
+config shunt_rules 'ChinaSite'
     option network 'tcp,udp'
     option domain_list 'geosite:cn'
-    option ip_list 'geoip:cn'
     option outbound '_direct'         # 空 | _default | _direct | _blackhole | 节点 section id
+
+config shunt_rules 'ChinaIP'
+    option network 'tcp,udp'
+    option ip_list 'geoip:cn'
+    option outbound '_direct'
 ```
 
-Other Settings 中的 Direct IP List 保存在 `/usr/share/bypass/direct_ip`；其中的 IP、CIDR 与 `geoip:CODE` 会在进入 BypassCore 前由 nftables 直接放行。
+Other Settings 中的 Direct IP List 保存在 `/usr/share/bypass/direct_ip`；其中的 IP、CIDR 与 `geoip:CODE` 会在进入 BypassCore 前由 nftables 直接放行。旧版默认 `PrivateIP` 规则会在升级时安全合并进该列表、精确去重后移除。
 
 ---
 
@@ -220,7 +224,8 @@ Basic Settings → Shunt Rule 为每条规则选择 Close、Default Node、Direc
 ## 已知限制 / 待办
 
 - **UDP 透明代理**：无 WireGuard 节点启用时仍默认阻断外部转发 UDP。WireGuard 节点启用后，UDP 由独立 TProxy inbound 送入 BypassCore；规则若把 UDP 交给 NaiveProxy 则失败关闭。UDP No Redir Ports 始终直连，并可能暴露真实出口 IP。
-- **IPv6 数据面**：启用“IPv6 TProxy”后安装 IPv6 TCP/按需 UDP TProxy 链、策略路由与 BypassCore IPv6 listener；所选 outbound 必须支持 IPv6。
+- **IPv6 数据面**：启用“IPv6 TProxy”后安装 IPv6 TCP/按需 UDP TProxy 链、策略路由与 BypassCore IPv6 listener；所选 outbound 必须支持 IPv6。关闭时，原本属于透明代理端口范围且未被 Direct/No-Redir 明确放行的转发 IPv6 TCP 会被 fail-closed 丢弃，不再从真实出口泄漏。
+- **GeoData 更新**：GeoIP 与 Geosite 分别独立执行条件请求、体积限制、解析校验和文件替换；一项失败不会回滚另一项。ETag/Last-Modified 命中时不下载正文。GeoIP 上限为 34,966,120 bytes，Geosite 上限为 21,105,968 bytes（2026-08-05 上游当前体积的两倍）。
 - **国外 DNS**：`Remote DNS Outbound = Remote` 时，TCP、DoT、DoH 可经 NaiveProxy 或 WireGuard；UDP 可经 WireGuard，NaiveProxy UDP 会被拒绝。选择 `Direct` 时可使用 UDP/TCP/DoT/DoH。路径缺失时失败关闭，不会悄悄改走真实 WAN。
 - **DNS Redirect**：开启后，dnsmasq 只有一个上游，即已通过 TCP/UDP 健康检查的 BypassCore DNS inbound。需要直连解析的分流域名与节点域名在核心内匹配带 tag 的国内 DNS policy，其 A/AAAA 结果由同进程的有界异步 writer 合并后写入带 timeout 的 NFTSet。nftables 同时把 LAN 客户端的 TCP/UDP 53 查询（包括硬编码公共 DNS 的客户端）重定向回路由器；运行期配置不会写入 `/etc/config/dhcp`。
 - **路由器本机透明代理**：当前不安装 nftables OUTPUT 重定向，因为 BypassCore 尚未给 outbound socket 设置可排除的专用 mark，强行开启会让 direct outbound 递归回核心。路由器本机程序可显式使用节点 SOCKS 端口。

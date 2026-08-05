@@ -4,16 +4,8 @@
 		"read": {
 			"uci": ["bypass"],
 			"ubus": {
-				"file": ["read", "list", "stat"],
-				"uci": ["changes", "get"],
-				"system": ["info", "board"],
-				"luci": ["getInitList", "setInitAction"]
-			},
-			"file": [
-				"/tmp/log/bypass.log",
-				"/tmp/etc/bypass/bypasscore/config.json",
-				"/usr/share/bypass/"
-			]
+				"uci": ["changes", "get"]
+			}
 		},
 		"write": {
 			"uci": ["bypass"],

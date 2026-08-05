@@ -138,6 +138,37 @@ nft_refresh_wan_device_set() {
 	return "$rc"
 }
 
+cleanup_owned_tproxy_routes() {
+	if [ "$(get_cache_var TPROXY_IPV4_OWNED)" = "1" ]; then
+		while ip rule del priority 998 fwmark 0x10000/0x10000 lookup 20100 2>/dev/null; do :; done
+		ip route flush table 20100 proto 99 2>/dev/null
+		unset_cache_var TPROXY_IPV4_OWNED
+	fi
+	if [ "$(get_cache_var TPROXY_IPV6_OWNED)" = "1" ]; then
+		while ip -6 rule del priority 998 fwmark 0x10000/0x10000 lookup 20101 2>/dev/null; do :; done
+		ip -6 route flush table 20101 proto 99 2>/dev/null
+		unset_cache_var TPROXY_IPV6_OWNED
+	fi
+}
+
+# Refuse to overwrite policy-routing resources which were not created by this
+# service.  Fixed table/priority collisions previously caused silent deletion
+# of another package's routes during both start and stop.
+reserve_tproxy_resources() {
+	cleanup_owned_tproxy_routes
+	if ip rule show 2>/dev/null | grep -qE '^[[:space:]]*998:' || \
+	   [ -n "$(ip route show table 20100 2>/dev/null)" ]; then
+		log 0 "TPROXY IPv4 policy priority 998 or table 20100 is already in use; refusing to overwrite it."
+		return 1
+	fi
+	if [ "$PROXY_IPV6" = "1" ] && { \
+	   ip -6 rule show 2>/dev/null | grep -qE '^[[:space:]]*998:' || \
+	   [ -n "$(ip -6 route show table 20101 2>/dev/null)" ]; }; then
+		log 0 "TPROXY IPv6 policy priority 998 or table 20101 is already in use; refusing to overwrite it."
+		return 1
+	fi
+}
+
 nft_start() {
 	load_standalone_config || { log 0 "Bypass is disabled or has no active redirect port; skip firewall rules."; return 0; }
 	[ -z "$NFT" ] && { log 0 "nft not found; cannot install nftables rules."; return 1; }
@@ -247,7 +278,7 @@ EOF
 		log 0 "Direct DNS/GeoIP NFTSets are informational; ordered traffic decisions remain inside BypassCore."
 	fi
 
-	local nat_chain="" udp_guard_chain="" mangle_chain="" mangle6_chain="" tcp_redirect_rule="" icmp_redirect_rule="" dns_redirect_rule="" dns_tproxy_bypass="" tcp_no_redir_rule="" udp_no_redir_rule=""
+	local nat_chain="" tcp_guard6_chain="" udp_guard_chain="" mangle_chain="" mangle6_chain="" tcp_redirect_rule="" icmp_redirect_rule="" dns_redirect_rule="" dns_tproxy_bypass="" tcp_no_redir_rule="" udp_no_redir_rule=""
 	# REDIRECT mode uses NAT PREROUTING for TCP. ICMP hijacking is implemented
 	# in the same NAT base chain and makes the router answer matching IPv4 pings,
 	# matching Passwall2's nftables behavior without sending ICMP to BypassCore.
@@ -278,6 +309,25 @@ EOF
 	# native BypassCore TPROXY listener below and routed by the same rule order.
 	local udp_dns_accept=""
 	[ "$DNS_REDIRECT" = "1" ] && udp_dns_accept="meta l4proto udp udp dport 53 accept"
+	# When IPv6 TPROXY is disabled there is no IPv6 listener.  Fail closed for
+	# exactly the TCP ports which would otherwise be proxied, while preserving
+	# explicit Direct/No-Redir destinations and local/DNS traffic.
+	if [ "$CLIENT_PROXY" = "1" ] && [ "$PROXY_IPV6" != "1" ] && [ -n "$tcp_expr" ]; then
+		local tcp_dns_accept=""
+		[ "$DNS_REDIRECT" = "1" ] && tcp_dns_accept="meta l4proto tcp tcp dport 53 accept"
+		tcp_guard6_chain="chain tcp_guard6 { type filter hook prerouting priority -152; policy accept;
+			meta l4proto != tcp accept
+			meta nfproto != ipv6 accept
+			${wan_accept}
+			iif lo accept
+			ip6 daddr @bypass_local6 accept
+			${direct6_accept}
+			${tcp_dns_accept}
+			${tcp_no_redir_rule}
+			tcp dport { ${tcp_expr} } counter drop comment \"bypass: IPv6 TCP proxying is disabled\"
+		}"
+		log 0 "IPv6 TProxy is disabled: non-Direct forwarded IPv6 TCP in the proxy port set is blocked to prevent real-egress leakage."
+	fi
 	if [ "$CLIENT_PROXY" = "1" ] && [ "$wireguard_active" != "1" ]; then
 		udp_guard_chain="chain udp_guard { type filter hook prerouting priority -151; policy accept;
 			meta l4proto != udp accept
@@ -320,7 +370,6 @@ EOF
 			${wan_accept}
 			iif lo accept
 			${dns_redirect_rule}
-			ip daddr @bypass_vps accept
 			${direct_accept}
 			ip daddr @bypass_dns meta l4proto { tcp, udp } th dport 53 accept
 			${tcp_no_redir_rule}
@@ -343,7 +392,6 @@ EOF
 	fi
 	if [ -n "$tcp_tproxy_rule$udp_tproxy_rule" ]; then
 		mangle_chain="chain tproxy_prerouting { type filter hook prerouting priority mangle; policy accept;
-			ip daddr @bypass_vps accept
 			ip daddr @bypass_local accept
 			${direct_accept}
 			ip daddr @bypass_dns meta l4proto { tcp, udp } th dport 53 accept
@@ -357,7 +405,6 @@ EOF
 		}"
 		if [ "$PROXY_IPV6" = "1" ] && [ -n "$tcp6_tproxy_rule$udp6_tproxy_rule" ]; then
 			mangle6_chain="chain tproxy_prerouting6 { type filter hook prerouting priority mangle; policy accept;
-				ip6 daddr @bypass_vps6 accept
 				ip6 daddr @bypass_local6 accept
 				${direct6_accept}
 				${wan_accept}
@@ -370,45 +417,42 @@ EOF
 			}"
 		fi
 		# Preserve mwan3/PBR marks in the low bits and reserve one high bit only.
-		while ip rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
+		reserve_tproxy_resources || return 1
 		ip rule add priority 998 fwmark 0x10000/0x10000 lookup 20100 2>/dev/null || {
 			log 0 "Could not install the TPROXY policy rule."
 			return 1
 		}
 		ip route replace local 0.0.0.0/0 dev lo proto 99 table 20100 2>/dev/null || {
-			ip rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null
+			ip rule del priority 998 fwmark 0x10000/0x10000 lookup 20100 2>/dev/null
 			log 0 "Could not install the TPROXY local route."
 			return 1
 		}
+		set_cache_var TPROXY_IPV4_OWNED 1
 		if [ "$PROXY_IPV6" = "1" ]; then
-			while ip -6 rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
 			ip -6 rule add priority 998 fwmark 0x10000/0x10000 lookup 20101 2>/dev/null || {
-				while ip rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
-				ip route flush table 20100 proto 99 2>/dev/null
+				cleanup_owned_tproxy_routes
 				log 0 "Could not install the IPv6 TPROXY policy rule."
 				return 1
 			}
 			ip -6 route replace local ::/0 dev lo proto 99 table 20101 2>/dev/null || {
-				ip -6 rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null
-				while ip rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
-				ip route flush table 20100 proto 99 2>/dev/null
+				ip -6 rule del priority 998 fwmark 0x10000/0x10000 lookup 20101 2>/dev/null
+				cleanup_owned_tproxy_routes
 				log 0 "Could not install the IPv6 TPROXY local route."
 				return 1
 			}
+			set_cache_var TPROXY_IPV6_OWNED 1
 		fi
 	fi
 
 	local ruleset="${sets}
 	${nat_chain}
+	${tcp_guard6_chain}
 	${udp_guard_chain}
 	${mangle_chain}
 	${mangle6_chain}
 	}"
 	nft_apply "$ruleset" || {
-		while ip rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
-		ip route flush table 20100 proto 99 2>/dev/null
-		while ip -6 rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
-		ip -6 route flush table 20101 proto 99 2>/dev/null
+		cleanup_owned_tproxy_routes
 		log 0 "nft ruleset apply failed."
 		return 1
 	}
@@ -416,6 +460,7 @@ EOF
 	# active default route while the ruleset was being assembled.
 	nft_refresh_wan_device_set || {
 		$NFT delete table inet ${NFT_TABLE} 2>/dev/null
+		cleanup_owned_tproxy_routes
 		log 0 "WAN interface exemptions could not be loaded; removed the incomplete nftables ruleset."
 		return 1
 	}
@@ -424,6 +469,18 @@ EOF
 	# inserted into sets matched before REDIRECT/TPROXY, so they never enter the
 	# transparent core. Keep the editable source as an opkg conffile.
 	local direct_file=/usr/share/bypass/direct_ip direct4_file="$TMP_PATH2/direct-ip4" direct6_file="$TMP_PATH2/direct-ip6" direct_entry direct_code lan_device
+	[ ! -L "$direct_file" ] || {
+		$NFT delete table inet ${NFT_TABLE} 2>/dev/null
+		cleanup_owned_tproxy_routes
+		log 0 "Direct IP List is a symbolic link; firewall setup refused."
+		return 1
+	}
+	[ ! -f "$direct_file" ] || [ "$(wc -c < "$direct_file" 2>/dev/null)" -le 196608 ] 2>/dev/null || {
+		$NFT delete table inet ${NFT_TABLE} 2>/dev/null
+		cleanup_owned_tproxy_routes
+		log 0 "Direct IP List exceeds the 192 KiB safety limit; firewall setup refused."
+		return 1
+	}
 	: > "$direct4_file"
 	: > "$direct6_file"
 	if [ -s "$direct_file" ]; then
@@ -433,8 +490,18 @@ EOF
 				''|'#'*) continue ;;
 				geoip:*)
 					direct_code=${direct_entry#geoip:}
-					get_geoip "$direct_code" ipv4 >> "$direct4_file"
-					get_geoip "$direct_code" ipv6 >> "$direct6_file"
+					get_geoip "$direct_code" ipv4 >> "$direct4_file" || {
+						$NFT delete table inet ${NFT_TABLE} 2>/dev/null
+						cleanup_owned_tproxy_routes
+						log 0 "Direct IP GeoData entry [%s] could not be loaded; firewall setup refused." "$direct_entry"
+						return 1
+					}
+					get_geoip "$direct_code" ipv6 >> "$direct6_file" || {
+						$NFT delete table inet ${NFT_TABLE} 2>/dev/null
+						cleanup_owned_tproxy_routes
+						log 0 "Direct IP GeoData entry [%s] could not be loaded; firewall setup refused." "$direct_entry"
+						return 1
+					}
 					;;
 				*:*) printf '%s\n' "$direct_entry" >> "$direct6_file" ;;
 				*) printf '%s\n' "$direct_entry" >> "$direct4_file" ;;
@@ -550,10 +617,7 @@ EOF
 
 nft_stop() {
 	# Remove tproxy local-route scaffolding if present.
-	while ip rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
-	ip route flush table 20100 proto 99 2>/dev/null
-	while ip -6 rule del priority 998 fwmark 0x10000/0x10000 2>/dev/null; do :; done
-	ip -6 route flush table 20101 proto 99 2>/dev/null
+	cleanup_owned_tproxy_routes
 	[ -n "$NFT" ] && $NFT delete table inet ${NFT_TABLE} 2>/dev/null
 	rm -f "$INCLUDE_FILE" 2>/dev/null
 	log 0 "nftables ruleset removed."

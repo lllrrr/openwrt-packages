@@ -11,7 +11,11 @@
 
 LOCK_FILE=/var/lock/bypass_rule_update.lock
 BAK_DIR=/tmp/bypass_bak
-GEODATA_CHANGED=0
+GEODATA_CHANGED=""
+# Exactly twice the upstream sizes observed on 2026-08-05
+# (geoip.dat 17,483,060 bytes; geosite.dat 10,552,984 bytes).
+GEOIP_MAX_BYTES=34966120
+GEOSITE_MAX_BYTES=21105968
 
 set_lock() {
 	mkdir -p "$(dirname "$LOCK_FILE")"
@@ -23,26 +27,63 @@ unset_lock() {
 	flock -u 9
 }
 
-# download_one <name> <url> <dest>
+# download_one <name> <url> <dest> <max-bytes>
+# GeoIP and Geosite are deliberately independent transactions. Conditional
+# requests avoid transferring an unchanged body; cmp remains a fallback for
+# servers which do not implement ETag/Last-Modified correctly.
 download_one() {
-	local name=$1 url=$2 dest=$3
+	local name=$1 url=$2 dest=$3 max_bytes=$4
 	[ -z "$url" ] && { log 0 "No URL for %s, skip." "$name"; return 1; }
+	case "$url" in https://*) ;; *) log 0 "Only HTTPS GeoData URLs are accepted for %s." "$name"; return 1 ;; esac
+	[ ${#url} -le 2048 ] 2>/dev/null || { log 0 "GeoData URL for %s is too long." "$name"; return 1; }
+	printf '%s' "$url" | grep -q '[[:space:]]' && { log 0 "GeoData URL for %s contains whitespace." "$name"; return 1; }
 	log 0 "Downloading %s from %s ..." "$name" "$url"
-	local tmp="${dest}.tmp"
-	if ! curl -fsSL --connect-timeout 15 -m 300 -o "$tmp" "$url" 2>>"$LOG_FILE"; then
+	local metadata_dir="$(dirname "$dest")/.bypass-update" url_file etag_file
+	local tmp="${dest}.bypass-download.$$" headers="${dest}.bypass-headers.$$"
+	local saved_url etag="" http_code new_etag
+	url_file="$metadata_dir/${name}.url"
+	etag_file="$metadata_dir/${name}.etag"
+	mkdir -p "$metadata_dir" || return 1
+	saved_url=$(cat "$url_file" 2>/dev/null)
+	if [ "$saved_url" = "$url" ]; then
+		etag=$(sed -n '1{s/\r$//;p;}' "$etag_file" 2>/dev/null)
+	fi
+	rm -f "$tmp" "$headers"
+	if [ -n "$etag" ]; then
+		http_code=$(curl -fsSL --connect-timeout 15 -m 300 --max-filesize "$max_bytes" \
+			-H "If-None-Match: $etag" -D "$headers" -o "$tmp" \
+			-w '%{http_code}' "$url" 2>>"$LOG_FILE")
+	elif [ "$saved_url" = "$url" ] && [ -s "$dest" ]; then
+		http_code=$(curl -fsSL --connect-timeout 15 -m 300 --max-filesize "$max_bytes" \
+			-z "$dest" -D "$headers" -o "$tmp" -w '%{http_code}' "$url" 2>>"$LOG_FILE")
+	else
+		http_code=$(curl -fsSL --connect-timeout 15 -m 300 --max-filesize "$max_bytes" \
+			-D "$headers" -o "$tmp" -w '%{http_code}' "$url" 2>>"$LOG_FILE")
+	fi
+	if [ $? -ne 0 ]; then
 		log 0 "Download %s failed." "$name"
-		rm -f "$tmp"
+		rm -f "$tmp" "$headers"
 		return 1
 	fi
-	[ -s "$tmp" ] || { log 0 "Downloaded %s is empty." "$name"; rm -f "$tmp"; return 1; }
+	if [ "$http_code" = "304" ]; then
+		log 1 "%s is already current (HTTP 304); no file body was downloaded." "$name"
+		rm -f "$tmp" "$headers"
+		return 0
+	fi
+	[ -s "$tmp" ] || { log 0 "Downloaded %s is empty." "$name"; rm -f "$tmp" "$headers"; return 1; }
 
 	# Verify it looks like a protobuf dat (magic) — crude sanity check by size.
 	local sz
 	sz=$(wc -c <"$tmp" 2>/dev/null)
-	[ "${sz:-0}" -lt 1024 ] && { log 0 "%s too small (%s bytes), rejected." "$name" "$sz"; rm -f "$tmp"; return 1; }
+	[ "${sz:-0}" -lt 1024 ] && { log 0 "%s too small (%s bytes), rejected." "$name" "$sz"; rm -f "$tmp" "$headers"; return 1; }
+	[ "$sz" -le "$max_bytes" ] 2>/dev/null || {
+		log 0 "%s exceeds its %s-byte safety limit, rejected." "$name" "$max_bytes"
+		rm -f "$tmp" "$headers"
+		return 1
+	}
 	if head -c 512 "$tmp" 2>/dev/null | grep -aiqE '<(!doctype|html)|bad gateway|access denied'; then
 		log 0 "Downloaded %s is an HTML/proxy error response, rejected." "$name"
-		rm -f "$tmp"
+		rm -f "$tmp" "$headers"
 		return 1
 	fi
 	# A proxy/CDN error page can be larger than 1 KiB. When geoview is present,
@@ -52,20 +93,33 @@ download_one() {
 	geo_type=${name%.dat}
 	if [ -n "$validator" ] && ! "$validator" -type "$geo_type" -action extract -input "$tmp" -lowmem=true >/dev/null 2>&1; then
 		log 0 "Downloaded %s is not valid GeoData, rejected." "$name"
-		rm -f "$tmp"
+		rm -f "$tmp" "$headers"
 		return 1
 	fi
+	new_etag=$(sed -n 's/^[Ee][Tt][Aa][Gg]:[[:space:]]*//p' "$headers" 2>/dev/null | tail -n 1 | tr -d '\r')
 	if [ -s "$dest" ] && cmp -s "$tmp" "$dest"; then
 		log 1 "%s is already current; no service restart is needed." "$name"
-		rm -f "$tmp"
+		printf '%s\n' "$url" > "$url_file"
+		if [ -n "$new_etag" ]; then printf '%s\n' "$new_etag" > "$etag_file"; else rm -f "$etag_file"; fi
+		rm -f "$tmp" "$headers"
 		return 0
 	fi
 
-	mkdir -p "$BAK_DIR"
-	[ -s "$dest" ] && cp -f "$dest" "$BAK_DIR/$(basename "$dest").bak"
-	mv -f "$tmp" "$dest"
-	GEODATA_CHANGED=1
-	log 0 "%s updated (%s bytes)." "$name" "$sz"
+	if [ -e "$dest" ]; then
+		cp -p "$dest" "$UPDATE_ROLLBACK_DIR/$name" 2>/dev/null || { rm -f "$tmp" "$headers"; return 1; }
+	else
+		touch "$UPDATE_ROLLBACK_DIR/$name.absent"
+	fi
+	if ! mv -f "$tmp" "$dest" 2>/dev/null; then
+		rm -f "$tmp" "$headers"
+		return 1
+	fi
+	chmod 644 "$dest" 2>/dev/null
+	printf '%s\n' "$url" > "$url_file"
+	if [ -n "$new_etag" ]; then printf '%s\n' "$new_etag" > "$etag_file"; else rm -f "$etag_file"; fi
+	GEODATA_CHANGED="${GEODATA_CHANGED} $name"
+	log 0 "%s updated independently (%s bytes)." "$name" "$sz"
+	rm -f "$headers"
 	return 0
 }
 
@@ -75,6 +129,10 @@ update_geodata() {
 	asset_dir=$(config_t_get global_rules v2ray_location_asset /usr/share/v2ray/)
 	asset_dir="${asset_dir%*/}"
 	mkdir -p "$asset_dir" "$TMP_PATH" "$TMP_PATH2"
+	UPDATE_ROLLBACK_DIR=$(mktemp -d "$BAK_DIR.XXXXXX" 2>/dev/null) || {
+		log 0 "Could not create a GeoData rollback directory."
+		return 1
+	}
 
 	local geoip_url geosite_url
 	geoip_url=$(config_t_get global_rules geoip_url "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat")
@@ -82,21 +140,31 @@ update_geodata() {
 
 	local ok=1
 	if [ "$(config_t_get global_rules geoip_update 1)" = "1" ]; then
-		download_one "geoip.dat" "$geoip_url" "${asset_dir}/geoip.dat" || ok=0
+		download_one "geoip.dat" "$geoip_url" "${asset_dir}/geoip.dat" "$GEOIP_MAX_BYTES" || ok=0
 	fi
 	if [ "$(config_t_get global_rules geosite_update 1)" = "1" ]; then
-		download_one "geosite.dat" "$geosite_url" "${asset_dir}/geosite.dat" || ok=0
+		download_one "geosite.dat" "$geosite_url" "${asset_dir}/geosite.dat" "$GEOSITE_MAX_BYTES" || ok=0
 	fi
 
 	unset_lock
 	trap - EXIT INT TERM
-	if [ "$GEODATA_CHANGED" = "1" ] && [ "$(config_t_get global enabled 0)" = "1" ]; then
+	if [ -n "$GEODATA_CHANGED" ] && [ "$(config_t_get global enabled 0)" = "1" ]; then
 		log 0 "GeoData changed; restarting Bypass to reload the validated files."
 		/etc/init.d/bypass restart >/dev/null 2>&1 || {
 			log 0 "Bypass failed to restart after the GeoData update."
+			local name
+			for name in $GEODATA_CHANGED; do
+				[ -f "$UPDATE_ROLLBACK_DIR/$name" ] && cp -p "$UPDATE_ROLLBACK_DIR/$name" "$asset_dir/$name" 2>/dev/null
+				[ -f "$UPDATE_ROLLBACK_DIR/$name.absent" ] && rm -f "$asset_dir/$name"
+				rm -f "$asset_dir/.bypass-update/$name.url" "$asset_dir/.bypass-update/$name.etag"
+			done
+			/etc/init.d/bypass restart >/dev/null 2>&1 || \
+				log 0 "Bypass also failed to restart with the rolled-back GeoData."
+			rm -rf "$UPDATE_ROLLBACK_DIR"
 			return 1
 		}
 	fi
+	rm -rf "$UPDATE_ROLLBACK_DIR"
 	return $((1 - ok))
 }
 

@@ -108,6 +108,9 @@ do_route_test() {
 	if [ -z "$dest" ]; then
 		json_add_int code -1
 		json_add_string error "missing destination"
+	elif [ ${#dest} -gt 512 ] 2>/dev/null; then
+		json_add_int code -1
+		json_add_string error "destination is too long"
 	elif ! is_bypasscore "$BYPASSCORE_FILE"; then
 		json_add_int code -1
 		json_add_string error "bypasscore unavailable (set bypasscore_file from https://github.com/kinmeic/BypassCore/releases)"
@@ -164,6 +167,9 @@ do_resolve() {
 	if [ -z "$domain" ]; then
 		json_add_int code -1
 		json_add_string error "missing domain"
+	elif [ ${#domain} -gt 512 ] 2>/dev/null; then
+		json_add_int code -1
+		json_add_string error "domain is too long"
 	elif ! is_bypasscore "$BYPASSCORE_FILE"; then
 		json_add_int code -1
 		json_add_string error "bypasscore unavailable (set bypasscore_file from https://github.com/kinmeic/BypassCore/releases)"
@@ -514,45 +520,10 @@ do_wireguard_psk() {
 	emit
 }
 
-# config_preview -> { config }  (regenerate + cat)
-do_config_preview() {
-	get_config
-	local gen_rc=0 content="" active_config="$BYPASSCORE_CFG"
-	BYPASSCORE_CFG="${TMP_PATH}/bypasscore/preview.json"
-	rm -f "$BYPASSCORE_CFG"
-	gen_bypasscore_config >/dev/null 2>&1 || gen_rc=$?
-	[ "$gen_rc" = "0" ] && [ -s "$BYPASSCORE_CFG" ] && content=$(cat "$BYPASSCORE_CFG")
-	rm -f "$BYPASSCORE_CFG"
-	BYPASSCORE_CFG=$active_config
-	json_init
-	if [ "$gen_rc" = "0" ] && [ -n "$content" ]; then
-		# Escape into a JSON string via jshn.
-		json_add_string config "$content"
-	else
-		json_add_string config ""
-		json_add_string error "config not generated"
-	fi
-	emit
-}
-
-# rule_update -> { code, msg }
-do_rule_update() {
-	json_init
-	if [ -x "$APP_PATH/rule_update.sh" ]; then
-		local out
-		out=$("$APP_PATH/rule_update.sh" 2>&1)
-		json_add_int code $?
-		json_add_string msg "$out"
-	else
-		json_add_int code -1
-		json_add_string error "rule_update.sh missing"
-	fi
-	emit
-}
-
 # log_tail [n] -> { log }
 do_log_tail() {
 	local n=${1:-200}
+	uint_in_range "$n" 1 1000 || n=200
 	json_init
 	if [ -s "$LOG_FILE" ]; then
 		json_add_string log "$(tail -n "$n" "$LOG_FILE" 2>/dev/null)"
@@ -625,7 +596,15 @@ $(ubus call network.interface dump 2>/dev/null | jsonfilter -e '@.interface[*].i
 do_connect_status() {
 	local type=$1 url=$2
 	local out code use_time node node_kind socks_port request raw error
-	case "$type" in baidu|google|github) ;; *) type="" ;; esac
+	# This root-executed endpoint is called with fixed UI probes only.  Binding
+	# each label to its exact URL prevents it from becoming a LAN-reachable SSRF
+	# primitive through rpcd/file.exec.
+	case "${type}:${url}" in
+		baidu:https://www.baidu.com|\
+		google:https://www.google.com/generate_204|\
+		github:https://github.com) ;;
+		*) type="" ;;
+	esac
 	[ -n "$type" ] && [ -n "$url" ] || { json_init; json_add_int status 0; emit; return; }
 	get_config
 	if [ "$type" = "baidu" ]; then
@@ -695,6 +674,13 @@ do_connect_status() {
 #   lookup:  geoview -type <geoip|geosite> -action lookup  -input <dat> -value <q> -lowmem=true
 #   extract: geoview -type <geoip|geosite> -action extract -input <dat> -list  <c> -lowmem=true
 #   list:    geoview -type <geoip|geosite> -action extract -input <dat>           -lowmem=true
+
+run_bounded_capture() {
+	local output=$1
+	shift
+	# POSIX specifies ulimit -f in 512-byte blocks: cap tool output at 1 MiB.
+	( ulimit -f 2048 2>/dev/null; exec "$@" ) > "$output" 2>&1
+}
 
 # Print shunt-rule section IDs containing a GeoData lookup result. This mirrors
 # passwall2 controller's get_rules(): compare the part after geosite:/geoip:
@@ -818,8 +804,21 @@ do_geo_view() {
 		emit
 		return
 	fi
+	[ ${#value} -le 512 ] 2>/dev/null || {
+		json_add_int code -1
+		json_add_string error "GeoData query is too long"
+		emit
+		return
+	}
 
-	local geo_type file_path out rc route_info
+	local geo_type file_path out rc route_info capture_dir capture
+	capture_dir=$(mktemp -d 2>/dev/null) || {
+		json_add_int code -1
+		json_add_string error "mktemp failed"
+		emit
+		return
+	}
+	capture="$capture_dir/output"
 	if [ "$action" = "lookup" ]; then
 		# IP → geoip; anything else → geosite.
 		value=$(strip_host_brackets "$value")
@@ -835,8 +834,9 @@ do_geo_view() {
 				fi
 				;;
 		esac
-		out=$("$bin" -type "$geo_type" -action lookup -input "$file_path" -value "$value" -lowmem=true 2>&1)
+		run_bounded_capture "$capture" "$bin" -type "$geo_type" -action lookup -input "$file_path" -value "$value" -lowmem=true
 		rc=$?
+		out=$(cat "$capture" 2>/dev/null)
 		if [ "$rc" = "0" ] && [ -n "$out" ]; then
 			local tmp line rules
 			tmp=$(mktemp -d 2>/dev/null)
@@ -879,37 +879,49 @@ ${route_info}"
 				value="${value#geosite:}"
 				;;
 			*)
+				rm -rf "$capture_dir"
 				json_add_int code -1
 				json_add_string error "format: geoip:cn or geosite:gfw"
 				emit
 				return
 				;;
 		esac
-		out=$("$bin" -type "$geo_type" -action extract -input "$file_path" -list "$value" -lowmem=true 2>&1)
+		run_bounded_capture "$capture" "$bin" -type "$geo_type" -action extract -input "$file_path" -list "$value" -lowmem=true
 		rc=$?
+		out=$(cat "$capture" 2>/dev/null)
 	elif [ "$action" = "list" ]; then
 		# Enumerate every entry name in both geoip.dat and geosite.dat.
 		# geoview with -action extract and no -list prints "Available codes:" + names.
-		local geo_codes site_codes
+		local geo_codes site_codes list_ok=1
 		if [ -n "$geoip_path" ] && [ -f "$geoip_path" ]; then
-			geo_codes=$("$bin" -type geoip -action extract -input "$geoip_path" -lowmem=true 2>/dev/null \
-				| sed -e '1{/^Available codes:$/d;}' -e '/^$/d' -e 's/^/geoip:/')
+			run_bounded_capture "$capture" "$bin" -type geoip -action extract -input "$geoip_path" -lowmem=true || list_ok=0
+			geo_codes=$(sed -e '1{/^Available codes:$/d;}' -e '/^$/d' -e 's/^/geoip:/' "$capture")
 		fi
 		if [ -n "$geosite_path" ] && [ -f "$geosite_path" ]; then
-			site_codes=$("$bin" -type geosite -action extract -input "$geosite_path" -lowmem=true 2>/dev/null \
-				| sed -e '1{/^Available codes:$/d;}' -e '/^$/d' -e 's/^/geosite:/')
+			run_bounded_capture "$capture" "$bin" -type geosite -action extract -input "$geosite_path" -lowmem=true || list_ok=0
+			site_codes=$(sed -e '1{/^Available codes:$/d;}' -e '/^$/d' -e 's/^/geosite:/' "$capture")
 		fi
 		out=$(
 			[ -n "$geo_codes" ] && printf '%s\n' "$geo_codes"
 			[ -n "$site_codes" ] && printf '%s\n' "$site_codes"
 		)
-		[ -n "$out" ] && rc=0 || rc=1
+		[ -n "$out" ] && [ "$list_ok" = "1" ] && rc=0 || rc=1
 	else
+		rm -rf "$capture_dir"
 		json_add_int code -1
 		json_add_string error "unknown action: $action"
 		emit
 		return
 	fi
+	# Keep an accidental broad extraction from producing an unbounded rpcd JSON
+	# response.  The 1 MiB cap is ample for interactive inspection; full datasets
+	# should be consumed from the GeoData file directly.
+	if [ ${#out} -gt 1048576 ] 2>/dev/null; then
+		out="$(printf '%s' "$out" | head -c 1048576)
+[output truncated at 1 MiB]"
+		rc=1
+	fi
+	rm -rf "$capture_dir"
 
 	# The optional routing lookup above also uses jshn, so begin a fresh response.
 	json_init
@@ -922,6 +934,14 @@ ${route_info}"
 # Mirrors passwall2's backup feature (single config file, no server config).
 do_create_backup() {
 	local tmp tarball b64
+	if [ ! -f /etc/config/bypass ] || [ -L /etc/config/bypass ] || \
+	   [ "$(wc -c </etc/config/bypass 2>/dev/null)" -gt 3145728 ] 2>/dev/null; then
+		json_init
+		json_add_int code -1
+		json_add_string error "configuration is not a safe regular file"
+		emit
+		return
+	fi
 	tmp=$(mktemp -d 2>/dev/null) || { json_init; json_add_int code -1; json_add_string error "mktemp failed"; emit; return; }
 	tarball="$tmp/bypass-backup.tar.gz"
 	if tar -C / -czf "$tarball" etc/config/bypass 2>/dev/null; then
@@ -942,22 +962,42 @@ do_create_backup() {
 # restore_backup <base64> -> { code }
 # Receives a base64-encoded tar.gz, decodes, extracts over /etc/config/bypass.
 do_restore_backup() {
-	local b64=$1 tmp tarball
+	local b64=$1 tmp tarball members member_type candidate target_tmp
 	[ -z "$b64" ] && { json_init; json_add_int code -1; json_add_string error "missing backup data"; emit; return; }
+	[ ${#b64} -le 4194304 ] 2>/dev/null || {
+		json_init; json_add_int code -1; json_add_string error "backup is too large"; emit; return;
+	}
 	tmp=$(mktemp -d 2>/dev/null) || { json_init; json_add_int code -1; json_add_string error "mktemp failed"; emit; return; }
 	tarball="$tmp/restore.tar.gz"
-	echo "$b64" | base64 -d > "$tarball" 2>/dev/null
-	local members
-	members=$(tar -tzf "$tarball" 2>/dev/null) || members=""
-	if [ "$members" = "etc/config/bypass" ] || [ "$members" = "./etc/config/bypass" ]; then
+	if ! printf '%s' "$b64" | base64 -d > "$tarball" 2>/dev/null; then
+		members=""
+	else
+		members=$(tar -tzf "$tarball" 2>/dev/null) || members=""
+	fi
+	member_type=$(tar -tvzf "$tarball" 2>/dev/null | awk 'NR == 1 { print substr($1, 1, 1) }')
+	if { [ "$members" = "etc/config/bypass" ] || [ "$members" = "./etc/config/bypass" ]; } && \
+	   [ "$member_type" = "-" ]; then
 		mkdir -p "$tmp/extract"
-		tar -C "$tmp/extract" -xzf "$tarball" "$members" 2>/dev/null
-		if [ -s "$tmp/extract/${members#./}" ] && uci -q -c "$tmp/extract/etc/config" show bypass >/dev/null 2>&1; then
-			cp -f "$tmp/extract/${members#./}" /etc/config/bypass
-			chmod 600 /etc/config/bypass 2>/dev/null
-			json_init
-			json_add_int code 0
-			json_add_string msg "restored; restart bypass to apply"
+		( ulimit -f 6144 2>/dev/null; tar -C "$tmp/extract" -xzf "$tarball" "$members" ) 2>/dev/null
+		candidate="$tmp/extract/${members#./}"
+		if [ -s "$candidate" ] && [ -f "$candidate" ] && [ ! -L "$candidate" ] && \
+		   [ "$(wc -c <"$candidate" 2>/dev/null)" -le 3145728 ] 2>/dev/null && \
+		   uci -q -c "$tmp/extract/etc/config" show bypass >/dev/null 2>&1; then
+			# Replace atomically from the destination directory.  cp directly onto
+			# /etc/config/bypass would follow a pre-existing destination symlink.
+			target_tmp="/etc/config/.bypass.restore.$$"
+			if cp "$candidate" "$target_tmp" 2>/dev/null && \
+			   chmod 600 "$target_tmp" 2>/dev/null && \
+			   mv -f "$target_tmp" /etc/config/bypass 2>/dev/null; then
+				json_init
+				json_add_int code 0
+				json_add_string msg "restored; restart bypass to apply"
+			else
+				rm -f "$target_tmp"
+				json_init
+				json_add_int code -1
+				json_add_string error "failed to install restored configuration"
+			fi
 		else
 			json_init
 			json_add_int code -1
@@ -975,19 +1015,24 @@ do_restore_backup() {
 # reset_config -> { code }
 # Restore factory defaults: stop the service, copy 0_default_config, clear log.
 do_reset_config() {
+	local config_tmp=/etc/config/.bypass.reset.$$ direct_tmp=/usr/share/bypass/.direct_ip.reset.$$
 	json_init
 	if [ -n "${IPKG_INSTROOT}" ]; then
 		json_add_int code -1
 		json_add_string error "reset is unavailable during package installation"
 	elif /etc/init.d/bypass stop >/dev/null 2>&1 && \
-	     cp -f /usr/share/bypass/0_default_config /etc/config/bypass 2>/dev/null && \
-	     cp -f /usr/share/bypass/0_default_direct_ip /usr/share/bypass/direct_ip 2>/dev/null; then
-		chmod 600 /etc/config/bypass 2>/dev/null
+	     cp /usr/share/bypass/0_default_config "$config_tmp" 2>/dev/null && \
+	     chmod 600 "$config_tmp" 2>/dev/null && \
+	     cp /usr/share/bypass/0_default_direct_ip "$direct_tmp" 2>/dev/null && \
+	     chmod 644 "$direct_tmp" 2>/dev/null && \
+	     mv -f "$config_tmp" /etc/config/bypass 2>/dev/null && \
+	     mv -f "$direct_tmp" /usr/share/bypass/direct_ip 2>/dev/null; then
 		: > /tmp/log/bypass.log 2>/dev/null
 		# Do not reload rpcd inside its own file.exec request: doing so can
 		# truncate this JSON response in exactly the same way as opkg upgrades.
 		json_add_int code 0
 	else
+		rm -f "$config_tmp" "$direct_tmp"
 		json_add_int code -1
 		json_add_string error "failed to restore the factory configuration"
 	fi
@@ -1000,8 +1045,14 @@ do_reset_config() {
 # are expanded by nftables.sh when the service starts.
 do_get_direct_ip() {
 	json_init
-	json_add_int code 0
-	json_add_string direct_ip "$(cat /usr/share/bypass/direct_ip 2>/dev/null)"
+	if [ -f /usr/share/bypass/direct_ip ] && [ ! -L /usr/share/bypass/direct_ip ] && \
+	   [ "$(wc -c </usr/share/bypass/direct_ip 2>/dev/null)" -le 196608 ] 2>/dev/null; then
+		json_add_int code 0
+		json_add_string direct_ip "$(cat /usr/share/bypass/direct_ip 2>/dev/null)"
+	else
+		json_add_int code -1
+		json_add_string error "Direct IP List is not a safe regular file"
+	fi
 	emit
 }
 
@@ -1061,10 +1112,16 @@ do_set_direct_ip() {
 		json_add_string error "Direct IP List contains an invalid IP address or CIDR"
 	else
 		# Normalize line endings but retain comments and ordering exactly.
-		cp -f "$input" /usr/share/bypass/direct_ip
-		chmod 644 /usr/share/bypass/direct_ip 2>/dev/null
-		json_add_int code 0
-		saved=1
+		local direct_tmp=/usr/share/bypass/.direct_ip.write.$$
+		if cp "$input" "$direct_tmp" 2>/dev/null && chmod 644 "$direct_tmp" 2>/dev/null && \
+		   mv -f "$direct_tmp" /usr/share/bypass/direct_ip 2>/dev/null; then
+			json_add_int code 0
+			saved=1
+		else
+			rm -f "$direct_tmp"
+			json_add_int code -1
+			json_add_string error "failed to save Direct IP List"
+		fi
 	fi
 	emit
 	rm -rf "$tmp"
@@ -1074,7 +1131,7 @@ do_set_direct_ip() {
 }
 
 usage() {
-	echo "Usage: $0 {status|route_test|observe|resolve|node_tcp_probe|node_udp_probe|node_urltest|wireguard_keypair|wireguard_psk|config_preview|rule_update|log_tail|clear_log|clear_nftset|interfaces|connect_status|geo_view|create_backup|restore_backup|reset_config|get_direct_ip|set_direct_ip} [args]" >&2
+	echo "Usage: $0 {status|route_test|observe|resolve|node_tcp_probe|node_udp_probe|node_urltest|wireguard_keypair|wireguard_psk|log_tail|clear_log|clear_nftset|interfaces|connect_status|geo_view|create_backup|restore_backup|reset_config|get_direct_ip|set_direct_ip} [args]" >&2
 }
 
 main() {
@@ -1090,8 +1147,6 @@ main() {
 		node_urltest)   do_node_urltest "$1" "$2" ;;
 		wireguard_keypair) do_wireguard_keypair ;;
 		wireguard_psk) do_wireguard_psk ;;
-		config_preview) do_config_preview ;;
-		rule_update)    do_rule_update ;;
 		log_tail)       do_log_tail "$1" ;;
 		clear_log)      do_clear_log ;;
 		clear_nftset)   do_clear_nftset ;;
