@@ -3,6 +3,7 @@
 "require rpc";
 "require ui";
 "require fs";
+"require uci";
 
 var callReboot = rpc.declare({
   object: "system",
@@ -11,8 +12,12 @@ var callReboot = rpc.declare({
 });
 
 return view.extend({
-  render: function () {
-    return E("div", { class: "cbi-map" }, [
+  load: function () {
+    return uci.changes();
+  },
+
+  render: function (changes) {
+    var body = [
       E("h2", {}, _("PowerManager")),
       E("p", {}, [
         _("Luci plugin that makes OpenWrt poweroff and reboot easy."),
@@ -20,17 +25,30 @@ return view.extend({
         E(
           "a",
           {
-            href: "https://github.com/morouter/luci-app-pm",
+            href: "https://867678.xyz/project/luci-app-pm/",
             target: "_blank",
             rel: "noreferrer noopener",
             style: "color: #007bff; text-decoration: none; margin-left: 5px;",
           },
-          _("GitHub Project Address"),
+          _("Project Address"),
         ),
       ]),
 
       E("hr"),
+    ];
 
+    for (var config in (changes || {})) {
+      body.push(
+        E(
+          "p",
+          { class: "alert-message warning" },
+          _("Warning: There are unsaved changes that will get lost on reboot!"),
+        ),
+      );
+      break;
+    }
+
+    body.push(
       E(
         "div",
         {
@@ -59,7 +77,9 @@ return view.extend({
           ),
         ],
       ),
-    ]);
+    );
+
+    return E("div", { class: "cbi-map" }, body);
   },
 
   handleReboot: function (ev) {
@@ -81,10 +101,26 @@ return view.extend({
                       _("Waiting for device reconnect..."),
                     ),
                   ]);
+                  window.setTimeout(function () {
+                    ui.showModal(_("Rebooting..."), [
+                      E(
+                        "p",
+                        { class: "spinning alert-message warning" },
+                        _("Device unreachable! Still waiting for device..."),
+                      ),
+                    ]);
+                  }, 150000);
                   ui.awaitReconnect();
                 })
                 .catch(function (e) {
-                  ui.addNotification(null, E("p", _("Reboot failed")));
+                  ui.addNotification(
+                    null,
+                    E(
+                      "p",
+                      _("Reboot failed") +
+                        (e.message ? ": " + e.message : ""),
+                    ),
+                  );
                 });
             },
           },
@@ -126,10 +162,28 @@ return view.extend({
                   _("The device is powering off..."),
                 ),
               ]);
+              window.setTimeout(function () {
+                ui.showModal(_("Shutting down..."), [
+                  E(
+                    "p",
+                    { class: "spinning alert-message warning" },
+                    _(
+                      "The device seems to have not powered off. It may not support poweroff.",
+                    ),
+                  ),
+                ]);
+              }, 60000);
               fs.exec("/sbin/poweroff").catch(function (e) {
-  ui.hideModal();
-  ui.addNotification(null, E("p", {}, _("PowerOff failed")));
-});
+                ui.hideModal();
+                ui.addNotification(
+                  null,
+                  E(
+                    "p",
+                    _("PowerOff failed") +
+                      (e.message ? ": " + e.message : ""),
+                  ),
+                );
+              });
             },
           },
           _("PowerOff"),

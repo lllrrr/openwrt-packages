@@ -24,8 +24,8 @@ msgstr "电源管理器"
 msgid "Luci plugin that makes OpenWrt poweroff and reboot easy."
 msgstr "一款让OpenWrt的关机和重启更容易的Luci插件"
 
-msgid "GitHub Project Address"
-msgstr "Github项目地址"
+msgid "Project Address"
+msgstr "项目地址"
 
 msgid "Do you want to reboot this system?"
 msgstr "您要重启此设备吗？"
@@ -50,3 +50,12 @@ msgstr "设备正在关机..."
 
 msgid "PowerOff failed"
 msgstr "关机失败"
+
+msgid "Warning: There are unsaved changes that will get lost on reboot!"
+msgstr "警告：存在未保存的更改，重启后将会丢失！"
+
+msgid "Device unreachable! Still waiting for device..."
+msgstr "设备无法连接！仍在等待设备重连..."
+
+msgid "The device seems to have not powered off. It may not support poweroff."
+msgstr "设备似乎没有关机，可能不支持关机功能。"
