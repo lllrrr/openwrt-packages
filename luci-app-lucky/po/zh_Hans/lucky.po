@@ -207,6 +207,12 @@ msgstr "延迟启动（秒）"
 msgid "Delay before starting after boot (only when uptime < 120s)"
 msgstr "启动后延迟启动（仅当运行时间<120秒时）"
 
+msgid "Restore Backup"
+msgstr "恢复备份"
+
+msgid "Restore Lucky config from a previous backup"
+msgstr "从之前的备份中恢复 Lucky 配置"
+
 msgid "Reset Credentials"
 msgstr "重置凭证"
 
