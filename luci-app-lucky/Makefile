@@ -5,7 +5,7 @@ LUCI_DEPENDS:=+luci-base +curl
 LUCI_PKGARCH:=all
 
 PKG_NAME:=luci-app-lucky
-PKG_VERSION:=2.0.6
+PKG_VERSION:=2.0.7
 PKG_RELEASE:=1
 PKG_PO_VERSION:=$(PKG_VERSION)
 

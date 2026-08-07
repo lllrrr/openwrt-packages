@@ -1,6 +1,6 @@
 # lucky LuCI i18n Chinese (Simplified)
 # zh-cn
-# v2.2
+# v2.3
 
 msgid ""
 msgstr ""
@@ -309,8 +309,41 @@ msgstr "保存失败"
 msgid "Settings saved successfully."
 msgstr "设置已保存。"
 
-msgid "Save failed, please check the log."
-msgstr "保存失败，请检查日志。"
+msgid "Save failed"
+msgstr "保存失败"
+
+msgid "No Backups"
+msgstr "没有备份"
+
+msgid "No backup files found."
+msgstr "未找到备份文件。"
+
+msgid "Restore backup: %s ?"
+msgstr "恢复备份：%s ？"
+
+msgid "Restored"
+msgstr "已恢复"
+
+msgid "Failed"
+msgstr "失败"
+
+msgid "Backup restored successfully."
+msgstr "备份恢复成功。"
+
+msgid "Restore failed"
+msgstr "恢复失败"
+
+msgid "Select Backup to Restore"
+msgstr "选择要恢复的备份"
+
+msgid "Click a file to restore it:"
+msgstr "点击文件以恢复："
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Restore Backup"
+msgstr "恢复备份"
 
 # view/lucky/update.js
 
@@ -364,12 +397,6 @@ msgstr "稳定版"
 
 msgid "Beta"
 msgstr "Beta 版"
-
-msgid "Standard"
-msgstr "标准版"
-
-msgid "Full-featured"
-msgstr "全功能版"
 
 msgid "Retry"
 msgstr "重试"
@@ -520,6 +547,12 @@ msgstr "文件大小:"
 msgid "Progress:"
 msgstr "下载进度:"
 
+msgid "SHA256 verification failed"
+msgstr "SHA256 校验失败"
+
+msgid "SHA256 verified OK"
+msgstr "SHA256 校验成功"
+
 msgid "Download complete:"
 msgstr "下载完成:"
 
@@ -555,6 +588,9 @@ msgstr "语言包安装失败"
 
 msgid "LuCI installed:"
 msgstr "LuCI 安装完成:"
+
+msgid "Config backed up:"
+msgstr "配置已备份："
 
 msgid "WARN: Failed to fetch"
 msgstr "警告: 获取失败"

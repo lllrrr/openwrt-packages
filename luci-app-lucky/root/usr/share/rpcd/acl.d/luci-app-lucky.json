@@ -12,7 +12,8 @@
                     "get_update_status",
                     "get_luci_update_status",
                     "get_auto_update_log",
-                    "get_upstream_version"
+                    "get_upstream_version",
+                    "list_backups"
                 ]
             }
         },
@@ -26,7 +27,8 @@
                     "clean_update",
                     "do_update",
                     "do_update_luci",
-                    "check_luci"
+                    "check_luci",
+                    "restore_backup"
                 ]
             }
         }

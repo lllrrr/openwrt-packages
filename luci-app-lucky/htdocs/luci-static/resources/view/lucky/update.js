@@ -151,21 +151,21 @@ return view.extend({
                     { v: 'github', l: _('GitHub') },
                     { v: 'r66666', l: _('Official') }
                 ], m, function() {
-                    C.setVis('upd_rext', this.value === 'r66666', 'flex');
+                    C.setVis('upd_rrel_wrap', this.value === 'r66666', 'inline-flex');
                 }),
-                E('span', { id: 'upd_rext',
-                    style: 'display:' + (m === 'r66666' ? 'flex' : 'none') +
+                E('span', { id: 'upd_rrel_wrap',
+                    style: 'display:' + (m === 'r66666' ? 'inline-flex' : 'none') +
                            ';gap:8px;align-items:center;'
                 }, [
                     mkSelect('upd_rrel', [
                         { v: 'stable', l: _('Stable') },
                         { v: 'beta',   l: _('Beta')   }
-                    ], r),
-                    mkSelect('upd_rvar', [
-                        { v: 'lucky', l: _('Standard')     },
-                        { v: 'wanji', l: _('Full-featured') }
-                    ], v)
+                    ], r)
                 ]),
+                mkSelect('upd_rvar', [
+                    { v: 'lucky', l: _('Standard (lucky)')     },
+                    { v: 'wanji', l: _('Full-featured (wanji)') }
+                ], v),
                 E('button', { style: C.CSS.btn.primary,
                     click: function() { self._chk('upd', true); }
                 }, _('Retry'))
@@ -249,7 +249,7 @@ return view.extend({
             var mi = retry ? $('upd_rmir').value : (ucig('mirror')       || 'github');
             var re = retry ? $('upd_rrel').value : (ucig('release_type') || 'stable');
             var va = retry ? $('upd_rvar').value : (ucig('variant')      || 'lucky');
-            p = [mi, mi === 'r66666' ? re : '', mi === 'r66666' ? va : ''];
+            p = [mi, mi === 'r66666' ? re : '', va];
         }
 
         L.resolveDefault(api[t + 'Chk'].apply(null, p), {}).then(function(res) {
@@ -310,6 +310,12 @@ return view.extend({
                         var m = lines[i].match(/PROGRESS:(\d+)/);
                         if (m) { C.setBar(t + '_bar', parseInt(m[1])); break; }
                     }
+                    if (t === 'upd' && phase === 'chk') {
+                            var hasError = s.log.indexOf('ERROR') !== -1 ||
+                                           s.log.indexOf('failed') !== -1 ||
+                                           s.log.indexOf('invalid response') !== -1;
+                            if (hasError) C.setVis('upd_retry', true);
+                        }
                 }
 
                 var done = false;
@@ -380,6 +386,14 @@ return view.extend({
         var rel  = rels.filter(function(x) { return x.tag === tv; })[0];
         fs.innerHTML = '';
         if (!rel || !rel.files) return;
+        var files = rel.files;
+            if (t === 'upd') {
+                var variant = ucig('variant') || 'lucky';
+                files = files.filter(function(f) {
+                    var isWanji = f.name.indexOf('wanji') !== -1;
+                    return variant === 'wanji' ? isWanji : !isWanji;
+                });
+            }
         var best = 0;
         rel.files.forEach(function(f, i) {
             fs.appendChild(E('option', {

@@ -149,7 +149,7 @@ const api = {
         let bin       = ucv('binpath');
         let configdir = ucv('configdir');
         let mirror    = ucv('mirror');
-        let variant   = mirror === 'r66666' ? ucv('variant') : 'lucky';
+        let variant = ucv('variant');
         return {
             version:      ucv('installed_version') || '',
             luci_version: getLuciVersion() || 'Unknown',
@@ -279,6 +279,37 @@ const api = {
             log: exists(logfile) ? read(logfile) : ''
         };
     },
+    
+    list_backups: () => {
+        let files = [];
+        let out = exec(`ls -1t '${DIR}'/*.tar.gz 2>/dev/null`);
+        if (!out) return { files: [] };
+        for (let name in split(out, '\n')) {
+            name = trim(name);
+            if (!length(name)) continue;
+            push(files, {
+                name: replace(name, DIR + '/', ''),
+            });
+        }
+        return { files };
+    },
+
+    restore_backup: (a) => {
+        let filename = a.filename || '';
+        if (!length(filename) || index(filename, '/') >= 0)
+            return { result: 'error', msg: 'invalid filename' };
+        let filepath = `${DIR}/${filename}`;
+        if (!exists(filepath))
+            return { result: 'error', msg: 'file not found' };
+        let configdir = ucv('configdir');
+        if (!length(configdir))
+            return { result: 'error', msg: 'configdir not set' };
+        let parent = exec(`dirname '${configdir}'`);
+        let ret = sys(`tar -xzf '${filepath}' -C '${parent}' 2>/dev/null`);
+        if (ret === 0) { sys(`setsid ${INIT} restart >/dev/null 2>&1 &`); }
+        return { result: ret === 0 ? 'ok' : 'error' };
+    },
+    
 };
 
 const SIGS = {
@@ -298,7 +329,9 @@ const SIGS = {
     toggle_service:         { action: 'String' },
     get_upstream_version:   { mirror: 'String', release_type: 'String', variant: 'String' },
     do_update:              { tag: 'String', filename: 'String' },
-    do_update_luci:         { tag: 'String', filename: 'String' }
+    do_update_luci:         { tag: 'String', filename: 'String' },
+    list_backups:    {},
+    restore_backup:  { filename: 'String' },
 };
 
 for (let k in SETTINGS) SIGS.save_settings[k] = 'String';

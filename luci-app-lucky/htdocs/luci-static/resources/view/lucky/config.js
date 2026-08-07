@@ -29,10 +29,12 @@ var KEYS = [
 ];
 
 var api = {
-    settings: mkRpc('get_settings'),
-    arch:     mkRpc('get_arch'),
-    save:     mkRpc('save_settings', KEYS),
-    reset:    mkRpc('reset_user')
+    settings:       mkRpc('get_settings'),
+    arch:           mkRpc('get_arch'),
+    save:           mkRpc('save_settings', KEYS),
+    reset:          mkRpc('reset_user'),
+    listBackups:    mkRpc('list_backups'),
+    restoreBackup:  mkRpc('restore_backup', ['filename'])
 };
 
 return view.extend({
@@ -56,7 +58,7 @@ return view.extend({
                 ok:      ok,
                 title:   ok ? _('Saved') : _('Save Failed'),
                 msg:     ok ? _('Settings saved successfully.')
-                            : _('Save failed, please check the log.'),
+                            : _('Save failed'),
                 timeout: ok ? 2000 : 0
             });
         });
@@ -69,6 +71,103 @@ return view.extend({
 
         var isR        = cfg.mirror === 'r66666';
         var autoUpdate = cfg.auto_update === '1';
+        var restoreBtn = E('button', {
+            style: C.CSS.btn.primary,
+            click: function() {
+                restoreBtn.disabled = true;
+                L.resolveDefault(api.listBackups(), {}).then(function(res) {
+                    restoreBtn.disabled = false;
+                    var files = (res && res.files) ? res.files : [];
+
+                    if (!files.length) {
+                        C.showToast({
+                            ok: false,
+                            title: _('No Backups'),
+                            msg: _('No backup files found.'),
+                            timeout: 2500
+                        });
+                        return;
+                    }
+
+                    function closePanel() {
+                        if (overlay && overlay.parentNode) {
+                            overlay.parentNode.removeChild(overlay);
+                        }
+                    }
+
+                    function buildFileBtn(f) {
+                        return E('button', {
+                            style: 'display:block;width:100%;text-align:left;' +
+                                   'padding:10px 14px;margin-bottom:8px;' +
+                                   'border:1px solid #e0e0e0;border-radius:6px;' +
+                                   'background:#fafafa;color:#333;cursor:pointer;' +
+                                   'font-size:13px;white-space:nowrap;overflow:hidden;' +
+                                   'text-overflow:ellipsis;transition:background .15s,border-color .15s;',
+                            onmouseover: function() {
+                                this.style.background  = '#f0f4ff';
+                                this.style.borderColor = '#a8c1ff';
+                            },
+                            onmouseout: function() {
+                                this.style.background  = '#fafafa';
+                                this.style.borderColor = '#e0e0e0';
+                            },
+                            click: function() {
+                                closePanel();
+                                if (!window.confirm(
+                                    _('Restore backup: %s ?').format(f.name)
+                                )) return;
+                                L.resolveDefault(
+                                    api.restoreBackup({ filename: f.name }), {}
+                                ).then(function(res) {
+                                    var ok = res && res.result === 'ok';
+                                    C.showToast({
+                                        ok:      ok,
+                                        title:   ok ? _('Restored') : _('Failed'),
+                                        msg:     ok
+                                            ? _('Backup restored successfully.')
+                                            : _('Restore failed'),
+                                        timeout: ok ? 2500 : 0
+                                    });
+                                });
+                            }
+                        }, f.name);
+                    }
+
+                    var listWrap = E('div', {
+                        style: 'max-height:320px;overflow-y:auto;' +
+                               'min-width:260px;max-width:480px;padding-right:4px;'
+                    }, files.map(buildFileBtn));
+
+                    var card = E('div', {
+                        style: 'background:#fff;color:#333;border-radius:8px;' +
+                               'padding:18px 20px;box-shadow:0 2px 12px rgba(0,0,0,0.15);' +
+                               'max-width:480px;',
+                        click: function(ev) { ev.stopPropagation(); }
+                    }, [
+                        E('h3', { style: 'margin:0 0 12px;font-size:15px;color:#333;' },
+                            '🗂 ' + _('Select Backup to Restore')),
+                        E('p', { style: 'font-size:13px;color:#666;margin:0 0 12px;' },
+                            _('Click a file to restore it:')),
+                        listWrap,
+                        E('div', { style: 'margin-top:16px;text-align:right;' }, [
+                            E('button', {
+                                style: C.CSS.btn.danger,
+                                click: function() { closePanel(); }
+                            }, _('Cancel'))
+                        ])
+                    ]);
+
+                    var overlay = E('div', {
+                        style: 'position:fixed;top:0;left:0;right:0;bottom:0;' +
+                               'display:flex;align-items:center;justify-content:center;' +
+                               'z-index:10000;',
+                        click: function() { closePanel(); }
+                    }, [card]);
+
+                    document.body.appendChild(overlay);
+                });
+            }
+        }, _('Restore Backup'));
 
         var resetBtn = E('button', {
             style: C.CSS.btn.danger,
@@ -131,6 +230,10 @@ return view.extend({
                     cfg.delay || '60',
                     _('Delay before starting after boot (only when uptime < 120s)'),
                     { style: 'width:80px;', min: '0' }),
+                C.buildFormRow('custom', 'restore',  _('Restore Backup'),
+                    null,
+                    _('Restore Lucky config from a previous backup'),
+                    restoreBtn),
                 C.buildFormRow('custom', 'reset', _('Reset Credentials'),
                     null,
                     _('Reset username and password back to 666'),
@@ -205,7 +308,7 @@ return view.extend({
         if (mirrorEl) {
             mirrorEl.addEventListener('change', function() {
                 C.rowVis('release_type', this.value === 'r66666');
-                C.rowVis('variant',      this.value === 'r66666');
+                C.rowVis('variant',      true);
             });
         }
 
@@ -218,7 +321,7 @@ return view.extend({
 
         window.setTimeout(function() {
             C.rowVis('release_type',    isR);
-            C.rowVis('variant',         isR);
+            C.rowVis('variant',         true);
             C.rowVis('update_interval', autoUpdate);
 
             var elThreshold = mapEl.querySelector('#_f_respawn_threshold');

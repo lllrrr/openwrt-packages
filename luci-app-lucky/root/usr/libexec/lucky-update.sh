@@ -1,5 +1,5 @@
 #!/bin/sh
-# lucky 更新脚本 v2.3
+# lucky 更新脚本 v2.4
 
 UPDATE_DIR="/tmp/lucky_update"
 STATUS_FILE="$UPDATE_DIR/status"
@@ -9,6 +9,7 @@ LUCI_RELEASES_FILE="$UPDATE_DIR/luci_releases.json"
 LUCI_STATUS_FILE="$UPDATE_DIR/luci_status"
 LUCI_LOG_FILE="$UPDATE_DIR/luci_log"
 AUTO_LOG="$UPDATE_DIR/autoupdate.log"
+SHA256_FILE="$UPDATE_DIR/sha256s.txt"
 
 GITHUB_API="https://api.github.com/repos/gdy666/lucky/releases"
 MIRROR_BASE="https://release.66666.host"
@@ -133,6 +134,10 @@ extract_url_from_releases() {
         | grep -o '"url":"[^"]*"' | cut -d'"' -f4 | head -1
 }
 
+extract_sha256s() {
+    printf '%s' "$1" | grep -o 'sha256:[a-f0-9]*' | cut -d: -f2
+}
+
 parse_first_field() {
     grep -o "\"${1}\":\"[^\"]*\"" "$2" | head -1 | cut -d'"' -f4
 }
@@ -146,7 +151,7 @@ fetch_api_lines() {
 }
 
 parse_release_lines() {
-    local lines_file="$1" arch="$2" max_count="${3:-999}"
+    local lines_file="$1" arch="$2" variant="${3:-lucky}" max_count="${4:-999}"
     local result_arr="" count=0
     local cur_tag="" files_json="" best_name="" best_url=""
 
@@ -167,8 +172,16 @@ parse_release_lines() {
                 echo "$files_json" | grep -q "\"${fname}\"" && continue
                 files_json="${files_json:+$files_json,}{\"name\":\"$fname\",\"url\":\"$line\"}"
                 if [ -z "$best_name" ]; then
-                    [ -z "$arch" ] || echo "$fname" | grep -q "_${arch}" \
-                        && { best_name="$fname"; best_url="$line"; }
+                    local match=0
+                    case "$variant" in
+                        wanji) echo "$fname" | grep -q "wanji" && match=1 ;;
+                        *)     echo "$fname" | grep -qv "wanji" && match=1 ;;
+                    esac
+                    if [ "$match" = "1" ]; then
+                        if [ -z "$arch" ] || echo "$fname" | grep -q "_${arch}"; then
+                            best_name="$fname"; best_url="$line"
+                        fi
+                    fi
                 fi
                 ;;
         esac
@@ -181,14 +194,16 @@ parse_release_lines() {
 }
 
 fetch_github_releases() {
-    local arch="$1" url="${GITHUB_API}?per_page=100"
+    local arch="$1" variant="${2:-lucky}" url="${GITHUB_API}?per_page=100"
     local raw; raw=$(http_get_var "$url")
     { [ -z "$raw" ] || ! echo "$raw" | grep -q '"tag_name"'; } \
         && die "" "GitHub API failed or invalid response"
 
+    extract_sha256s "$raw" > "$SHA256_FILE"
+
     local lf="$UPDATE_DIR/gh_lines.txt"
     fetch_api_lines "$raw" "_Linux_[^\"]*\\.tar\\.gz" "$lf"
-    local r; r=$(parse_release_lines "$lf" "$arch")
+    local r; r=$(parse_release_lines "$lf" "$arch" "$variant")
     rm -f "$lf"
     printf '[%s]\n' "$r"
 }
@@ -253,7 +268,11 @@ fetch_luci_releases() {
         [ -z "$api" ] && continue
         log "Trying luci API: $api"
         raw=$(http_get_var "$api" 15)
-        echo "$raw" | grep -q '"tag_name"' && { log "Got response from: $api"; break; }
+        echo "$raw" | grep -q '"tag_name"' && {
+            log "Got response from: $api"
+            extract_sha256s "$raw" > "$SHA256_FILE"
+            break
+        }
         log "WARN: No response from $api"; raw=""
     done << EOF
 $LUCI_APIS
@@ -262,7 +281,7 @@ EOF
 
     local lf="$UPDATE_DIR/luci_lines.txt"
     fetch_api_lines "$raw" "\\.${ext}" "$lf"
-    local r; r=$(parse_release_lines "$lf" "" "$max")
+    local r; r=$(parse_release_lines "$lf" "" "" "$max")
     rm -f "$lf"
 
     local json="[$r]"
@@ -297,7 +316,7 @@ cmd_check() {
     local releases_json
     case "$mirror" in
         github)
-            releases_json=$(fetch_github_releases "$arch")
+            releases_json=$(fetch_github_releases "$arch" "$variant")
             ;;
         r66666)
             local tags_file="$UPDATE_DIR/tags.txt"
@@ -376,6 +395,10 @@ do_download() {
     [ -s "$f" ]    || die "$prefix" "Downloaded file empty"
     local final_size; final_size=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
     log "Download complete: $(fmt_size "$final_size")"
+    if [ -s "$SHA256_FILE" ]; then
+        verify_sha256 "$f" || die "$prefix" "SHA256 verification failed"
+        log "SHA256 verified OK"
+    fi
     echo "$f"
 }
 
@@ -384,7 +407,7 @@ cmd_download() {
     [ -z "$tag" ]      && die "" "download: missing tag"
     [ -z "$filename" ] && die "" "download: missing filename"
 
-    local dl; dl=$(do_download "$RELEASES_FILE" "$tag" "$filename" "")
+    local dl; dl=$(do_download "$RELEASES_FILE" "$tag" "$filename" "") || exit 1
     write_status "" "installing:$tag"
 
     local xdir="$UPDATE_DIR/extract"
@@ -401,6 +424,7 @@ cmd_download() {
     log "Found binary: $bin"
 
     mkdir -p "$(dirname "$binpath")"
+    backup_config
     log "Stopping service..."
     /etc/init.d/lucky stop 2>/dev/null; sleep 1
 
@@ -424,7 +448,7 @@ cmd_download_luci() {
     local pm; pm=$(detect_pm)
     [ -z "$pm" ] && die "luci" "No package manager found"
 
-    local dl; dl=$(do_download "$LUCI_RELEASES_FILE" "$tag" "$filename" "luci")
+    local dl; dl=$(do_download "$LUCI_RELEASES_FILE" "$tag" "$filename" "luci") || exit 1
     write_status "luci" "installing_luci:$tag"
     log "Installing luci package..."
     install_luci_pkg "$pm" "$dl" || die "luci" "Install failed"
@@ -452,6 +476,30 @@ cmd_download_luci() {
 
     log "Luci installed: $tag"
     write_status "luci" "luci_done:$tag"
+}
+
+backup_config() {
+    local configdir
+    configdir=$(uci_get configdir "")
+    { [ -z "$configdir" ] || [ ! -d "$configdir" ]; } && return 0
+    local ver; ver=$(uci_get installed_version "")
+    [ -z "$ver" ] && ver="unknown"
+    local backup_file="$UPDATE_DIR/lucky_${ver}_$(date +%Y%m%d%H%M%S).tar.gz"
+    tar -czf "$backup_file" -C "$(dirname "$configdir")" "$(basename "$configdir")" 2>/dev/null
+    log "Config backed up: $backup_file"
+}
+
+verify_sha256() {
+    local file="$1"
+    [ -s "$SHA256_FILE" ] || return 0
+    local sum
+    sum=$(sha256sum "$file" | awk '{print $1}')
+    log "SHA256: $sum"
+    if grep -q "$sum" "$SHA256_FILE"; then
+        rm -f "$SHA256_FILE"
+        return 0
+    fi
+    return 1
 }
 
 maybe_update() {

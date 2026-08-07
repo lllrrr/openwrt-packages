@@ -27,6 +27,8 @@ return baseclass.extend({
         ['Total size: unknown',                     _('Total size: unknown')],
         ['Total size:',                             _('Total size:')],
         ['PROGRESS:',                               _('Progress:')],
+        ['SHA256 verification failed',              _('SHA256 verification failed')],
+        ['SHA256 verified OK',                      _('SHA256 verified OK')],
         ['Download complete:',                      _('Download complete:')],
         ['Extracting...',                           _('Extracting archive...')],
         ['Found binary:',                           _('Found binary:')],
@@ -41,6 +43,7 @@ return baseclass.extend({
         ['Language pack installed:',                _('Language pack installed:')],
         ['Language pack installation failed',       _('Language pack installation failed')],
         ['Luci installed:',                         _('LuCI installed:')],
+        ['Config backed up:',                       _('Config backed up:')],
 
         // mirror warnings
         ['WARN: Failed',                            _('WARN: Failed to fetch')],
