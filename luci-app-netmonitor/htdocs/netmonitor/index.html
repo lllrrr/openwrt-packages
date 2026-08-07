@@ -1,118 +1,523 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Network Monitor</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    
-    <script>
-        var netdataUrl = window.location.protocol + '//' + window.location.hostname + ':19999/dashboard.js';
-        document.write('<script src="' + netdataUrl + '"><\/script>');
-    </script>
-    
-    <script>
-        var netdataTheme = 'white';
-        var netdataPrepCallback = function() {
-            NETDATA.requiredCSS = [];
-        };
-    </script>
-    
-    <link rel="stylesheet" href="css/gaya.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Network Monitor</title>
+<style>
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+:root {
+  --bg: #f8fafc;
+  --bg-2: #ffffff;
+  --panel: #ffffff;
+  --panel-strong: #f1f5f9;
+  --text: #334155;
+  --muted: #94a3b8;
+  --border: rgba(148, 163, 184, 0.15);
+  --border-w: 1px;
+  --shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+  --track: #e2e8f0;
+  --accent: #64748b;
+  --accent-2: #e11d48;
+  --radius-xl: 32px;
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+}
+body[data-theme="dark"] {
+  --bg: #121214;
+  --bg-2: #1c1c1f;
+  --panel: #1c1c1f;
+  --panel-strong: #27272a;
+  --text: #e4e4e7;
+  --muted: #a1a1aa;
+  --border: rgba(255, 255, 255, 0.06);
+  --shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
+  --track: #27272a;
+  --accent: #818cf8;
+  --accent-2: #f43f5e;
+}
+body[data-theme="sdark"] {
+  --bg: #000000;
+  --bg-2: #0a0a0a;
+  --panel: #0a0a0a;
+  --panel-strong: #141414;
+  --text: #ffffff;
+  --muted: #888888;
+  --border: #222222;
+  --shadow: 0 10px 30px rgba(0,0,0,0.8);
+  --track: #222222;
+  --accent: #3b82f6;
+  --accent-2: #ef4444;
+}
+body[data-theme="glass"] {
+  --bg: #0f172a;
+  --bg-2: rgba(30, 41, 59, 0.25);
+  --panel: rgba(15, 23, 42, 0.45);
+  --panel-strong: rgba(30, 41, 59, 0.55);
+  --text: #f1f5f9;
+  --muted: #94a3b8;
+  --border: rgba(255, 255, 255, 0.08);
+  --shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
+  --track: rgba(255, 255, 255, 0.05);
+  --accent: #38bdf8;
+  --accent-2: #fb7185;
+}
+body[data-theme="glasx"] {
+  --bg: linear-gradient(145deg, #160a2b 0%, #0b0514 50%, #1e1136 100%);
+  --bg-2: rgba(30, 20, 50, 0.25);
+  --panel: rgba(22, 12, 38, 0.45);
+  --panel-strong: rgba(35, 20, 55, 0.55);
+  --text: #f8fafc;
+  --muted: #a78bfa;
+  --border: rgba(167, 139, 250, 0.15);
+  --shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  --track: rgba(255, 255, 255, 0.05);
+  --accent: #a855f7;
+  --accent-2: #ec4899;
+}
+body[data-theme="liquid"] {
+  --bg: linear-gradient(135deg, #e6e9f0 0%, #eef1f5 100%);
+  --bg-2: #e6e9f0;
+  --panel: linear-gradient(135deg, #eef1f5 0%, #e6e9f0 100%);
+  --panel-strong: #dce1e9;
+  --text: #334155;
+  --muted: #64748b;
+  --border: transparent;
+  --track: #cbd5e1;
+  --accent: #475569;
+  --accent-2: #be123c;
+  --neo-out: 6px 6px 12px #c3cad5, -6px -6px 12px #ffffff;
+  --neo-in: inset 4px 4px 8px #c3cad5, inset -4px -4px 8px #ffffff;
+  --neo-btn: 4px 4px 8px #c3cad5, -4px -4px 8px #ffffff;
+}
+body[data-theme="neo"] {
+  --bg: #e6eef5;
+  --bg-2: #e6eef5;
+  --panel: #e6eef5;
+  --panel-strong: #e6eef5;
+  --text: #475569;
+  --muted: #94a3b8;
+  --border: transparent;
+  --track: #d3deea;
+  --accent: #64748b;
+  --accent-2: #e11d48;
+  --neo-out: 6px 6px 12px #c8d3e1, -6px -6px 12px #ffffff;
+  --neo-in: inset 4px 4px 8px #c8d3e1, inset -4px -4px 8px #ffffff;
+  --neo-btn: 4px 4px 8px #c8d3e1, -4px -4px 8px #ffffff;
+}
+body[data-theme="neox"] {
+  --bg: #21252b;
+  --bg-2: #21252b;
+  --panel: #21252b;
+  --panel-strong: #21252b;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --border: transparent;
+  --track: #3a414e;
+  --accent: #818cf8;
+  --accent-2: #f43f5e;
+  --neo-out: 6px 6px 12px #16181d, -6px -6px 12px #2c3239;
+  --neo-in: inset 4px 4px 8px #16181d, inset -4px -4px 8px #2c3239;
+  --neo-btn: 4px 4px 8px #16181d, -4px -4px 8px #2c3239;
+}
+body[data-theme="nixe"] {
+  --bg: #f4f4f0;
+  --bg-2: #ffffff;
+  --panel: #ffffff;
+  --panel-strong: #ffffff;
+  --text: #000000;
+  --muted: #4b5563;
+  --border: #000000;
+  --border-w: 2px;
+  --shadow: 3px 3px 0px #000000;
+  --track: #e2e8f0;
+  --accent: #2563eb;
+  --accent-2: #e11d48;
+  --radius-xl: 6px;
+  --radius-lg: 6px;
+  --radius-md: 6px;
+  --radius-sm: 4px;
+}
+body[data-theme="onix"] {
+  --bg: #1a1a1a;
+  --bg-2: #2d2d2d;
+  --panel: #2d2d2d;
+  --panel-strong: #333333;
+  --text: #ffffff;
+  --muted: #a1a1aa;
+  --border: #000000;
+  --border-w: 2px;
+  --shadow: 3px 3px 0px #000000;
+  --track: #52525b;
+  --accent: #60a5fa;
+  --accent-2: #f43f5e;
+  --radius-xl: 6px;
+  --radius-lg: 6px;
+  --radius-md: 6px;
+  --radius-sm: 4px;
+}
+
+html, body { min-height: 100%; margin: 0; }
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  overflow-x: hidden;
+  transition: background 0.4s ease, color 0.4s ease;
+}
+body::before {
+  content: ""; position: fixed; top: -20%; left: -10%; width: 50vw; height: 50vh;
+  background: radial-gradient(circle, var(--accent), transparent 70%);
+  filter: blur(120px); opacity: 0.12; z-index: -1; pointer-events: none;
+}
+body::after {
+  content: ""; position: fixed; bottom: -20%; right: -10%; width: 50vw; height: 50vh;
+  background: radial-gradient(circle, var(--accent-2), transparent 70%);
+  filter: blur(120px); opacity: 0.12; z-index: -1; pointer-events: none;
+}
+body[data-theme="glass"] .topbar, body[data-theme="glass"] .panel, body[data-theme="glass"] .iface-menu,
+body[data-theme="glasx"] .topbar, body[data-theme="glasx"] .panel, body[data-theme="glasx"] .iface-menu {
+  backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+}
+.app {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 10px;
+}
+.topbar, .panel, .btn-text, .btn-icon, .iface-menu, .summary-box, .tab-btn, .modern-select, .vnstat-img-wrapper, .ip-isp-item {
+  border: var(--border-w) solid var(--border);
+}
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  gap: 10px;
+  background: var(--panel);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  margin-bottom: 12px;
+  transition: all 0.4s ease;
+  position: relative;
+  z-index: 50;
+}
+.brand {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.brand-sub {
+  font-size: 0.65em;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+  font-weight: 700;
+}
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  margin-left: auto;
+}
+.btn-text {
+  background: var(--panel-strong);
+  color: var(--text);
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  letter-spacing: 0.05em;
+}
+.btn-icon {
+  background: var(--panel-strong);
+  color: var(--text);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  padding: 0;
+}
+.ip-isp-bar {
+  display: flex; gap: 6px; margin-bottom: 10px; justify-content: center; flex-wrap: wrap;
+}
+.ip-isp-item {
+  background: var(--panel); border-radius: var(--radius-sm); padding: 6px 12px;
+  font-size: 0.65rem; font-weight: 700; color: var(--muted); cursor: pointer; transition: all 0.3s ease;
+  display: flex; align-items: center; gap: 4px; letter-spacing: 0.04em; user-select: none;
+}
+.ip-isp-item span { color: var(--text); }
+
+body[data-theme^="neo"] .topbar, body[data-theme="liquid"] .topbar,
+body[data-theme^="neo"] .panel, body[data-theme="liquid"] .panel,
+body[data-theme^="neo"] .summary-box, body[data-theme="liquid"] .summary-box,
+body[data-theme^="neo"] .iface-menu, body[data-theme="liquid"] .iface-menu,
+body[data-theme^="neo"] .vnstat-img-wrapper, body[data-theme="liquid"] .vnstat-img-wrapper {
+  box-shadow: var(--neo-out); border-color: transparent; background: var(--bg);
+}
+body[data-theme^="neo"] .dual-stats, body[data-theme="liquid"] .dual-stats,
+body[data-theme^="neo"] .modern-select, body[data-theme="liquid"] .modern-select,
+body[data-theme^="neo"] .tab-btn.active, body[data-theme="liquid"] .tab-btn.active {
+  box-shadow: var(--neo-in); border-color: transparent; background: var(--bg);
+}
+body[data-theme^="neo"] .btn-text, body[data-theme="liquid"] .btn-text,
+body[data-theme^="neo"] .btn-icon, body[data-theme="liquid"] .btn-icon,
+body[data-theme^="neo"] .tab-btn:not(.active), body[data-theme="liquid"] .tab-btn:not(.active),
+body[data-theme^="neo"] .ip-isp-item, body[data-theme="liquid"] .ip-isp-item {
+  box-shadow: var(--neo-btn); border-color: transparent; background: var(--bg);
+}
+body[data-theme^="neo"] .btn-text:active, body[data-theme="liquid"] .btn-text:active,
+body[data-theme^="neo"] .btn-icon:active, body[data-theme="liquid"] .btn-icon:active,
+body[data-theme^="neo"] .ip-isp-item:active, body[data-theme="liquid"] .ip-isp-item:active {
+  box-shadow: var(--neo-in); transform: translateY(0);
+}
+body[data-theme^="neo"] .panel:hover, body[data-theme="liquid"] .panel:hover,
+body[data-theme^="neo"] .summary-box:hover, body[data-theme="liquid"] .summary-box:hover {
+  transform: translateY(0); box-shadow: var(--neo-out);
+}
+body[data-theme="nixe"] .btn-text:hover, body[data-theme="nixe"] .btn-icon:hover, body[data-theme="nixe"] .ip-isp-item:hover,
+body[data-theme="onix"] .btn-text:hover, body[data-theme="onix"] .btn-icon:hover, body[data-theme="onix"] .ip-isp-item:hover {
+  transform: translate(-1px, -1px); box-shadow: 2px 2px 0px #000;
+}
+body[data-theme="dark"] .btn-text:hover, body[data-theme="dark"] .btn-icon:hover, body[data-theme="dark"] .ip-isp-item:hover,
+body[data-theme="sdark"] .btn-text:hover, body[data-theme="sdark"] .btn-icon:hover, body[data-theme="sdark"] .ip-isp-item:hover,
+body[data-theme="glass"] .btn-text:hover, body[data-theme="glass"] .btn-icon:hover, body[data-theme="glass"] .ip-isp-item:hover,
+body[data-theme="glasx"] .btn-text:hover, body[data-theme="glasx"] .btn-icon:hover, body[data-theme="glasx"] .ip-isp-item:hover,
+body[data-theme="light"] .btn-text:hover, body[data-theme="light"] .btn-icon:hover, body[data-theme="light"] .ip-isp-item:hover {
+  transform: translateY(-1px); box-shadow: 0 4px 8px rgba(0,0,0,0.08);
+}
+.iface-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  background: var(--panel-strong);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 15px 30px rgba(0,0,0,0.3);
+  z-index: 100;
+  min-width: 150px;
+}
+.iface-menu.active { display: flex; }
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.summary-box {
+  background: var(--panel);
+  border-radius: var(--radius-md);
+  padding: 8px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+body[data-theme="nixe"] .summary-box:hover, body[data-theme="onix"] .summary-box:hover { transform: translate(-1px, -1px); box-shadow: 2px 2px 0px #000; }
+body:not([data-theme="nixe"]):not([data-theme="onix"]):not([data-theme="neo"]):not([data-theme="neox"]):not([data-theme="liquid"]) .summary-box:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.summary-box span { font-size: 0.5rem; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.summary-box strong { font-size: 0.8rem; letter-spacing: -0.03em; }
+
+.tabs { display: flex; gap: 6px; justify-content: center; margin-bottom: 12px; }
+.tab-btn {
+  flex: 1; max-width: 110px; background: var(--panel); color: var(--muted);
+  padding: 6px 8px; border-radius: 999px; font-size: 0.65rem; font-weight: 700; cursor: pointer; transition: all 0.3s ease;
+}
+.tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.tab-pane { display: none; animation: fade 0.3s ease; }
+.tab-pane.active { display: block; }
+@keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+.grid-container {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 24px; justify-content: center; position: relative; z-index: 10;
+}
+.slider-container {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 24px; justify-content: center; position: relative; z-index: 10;
+}
+.vnstat-panel { width: 100%; max-width: 100%; margin: 0 auto; }
+
+.panel {
+  background: var(--panel); border-radius: var(--radius-md); padding: 10px; position: relative; overflow: hidden; display: flex; flex-direction: column; transition: all 0.4s ease;
+}
+body[data-theme="nixe"] .panel:hover, body[data-theme="onix"] .panel:hover { transform: translate(-1px, -1px); box-shadow: 2px 2px 0px #000; }
+body:not([data-theme="nixe"]):not([data-theme="onix"]):not([data-theme="neo"]):not([data-theme="neox"]):not([data-theme="liquid"]) .panel:hover { box-shadow: var(--shadow); border-color: rgba(255, 255, 255, 0.15); }
+.panel-head { display: flex; justify-content: center; align-items: center; margin-bottom: 8px; z-index: 2; }
+.panel-title { font-size: 0.7rem; font-weight: 800; margin: 0; text-transform: uppercase; letter-spacing: 0.05em; }
+.gauge-wrapper, .sys-gauge-wrapper {
+  position: relative; width: 100%; margin: 0 auto 6px; display: flex; align-items: center; justify-content: center; aspect-ratio: 1;
+}
+.gauge-wrapper { max-width: 80px; }
+.sys-gauge-wrapper { max-width: 65px; margin-bottom: 10px; }
+.gauge-svg { transform: rotate(-90deg); width: 100%; height: 100%; position: absolute; inset: 0; overflow: visible; }
+.gauge-track { fill: none; stroke: var(--track); stroke-linecap: round; }
+.gauge-fill { fill: none; stroke-linecap: round; transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1); }
+.gauge-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.speed-main { font-size: 0.8rem; font-weight: 800; letter-spacing: -0.04em; line-height: 1.1; }
+.sys-val { font-size: 0.8rem; font-weight: 800; letter-spacing: -0.04em; }
+.speed-lbl { font-size: 0.55rem; color: var(--muted); margin-top: 2px; }
+.divider { height: 1px; background: var(--border); margin: 6px -10px; }
+.dual-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--panel-strong); padding: 6px; border-radius: var(--radius-sm); margin-bottom: 6px; }
+.stat-col { display: flex; flex-direction: column; gap: 2px; }
+.stat-lbl { font-size: 0.5rem; color: var(--muted); font-weight: 700; display: flex; align-items: center; gap: 3px; }
+.stat-val { font-size: 0.6rem; font-weight: 800; }
+.dot-rx, .dot-tx { width: 5px; height: 5px; border-radius: 50%; }
+.dot-rx { background: var(--accent); }
+.dot-tx { background: var(--accent-2); }
+.modern-select {
+  appearance: none; background: var(--panel-strong); color: var(--text); padding: 4px 20px 4px 8px; border-radius: var(--radius-sm); font-family: inherit; font-weight: 700; font-size: 0.65rem; cursor: pointer; outline: none; background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 6px center; background-size: 10px; transition: all 0.3s ease;
+}
+.vnstat-img-wrapper { width: 100%; border-radius: var(--radius-sm); overflow: hidden; background: var(--panel-strong); margin-top: 10px; }
+.vnstat-img-wrapper img { width: 100%; display: block; object-fit: contain; cursor: zoom-in; transition: opacity 0.3s ease; }
+.vnstat-img-wrapper img:hover { opacity: 0.8; }
+.lightbox {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 0; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); cursor: zoom-out;
+}
+.lightbox.active { opacity: 1; pointer-events: auto; }
+.lightbox img { width: 100vw; max-height: 100vh; object-fit: contain; border-radius: 0; transform: scale(0.95); transition: transform 0.3s ease; }
+.lightbox.active img { transform: scale(1); }
+
+@media (max-width: 768px) {
+  .topbar { padding: 10px 14px; margin-bottom: 12px; }
+  .btn-text { height: 28px; padding: 0 12px; font-size: 0.7rem; }
+  .btn-icon { width: 28px; height: 28px; font-size: 0.9rem; }
+  .ip-isp-item { padding: 6px 12px; font-size: 0.65rem; }
+}
+@media (min-width: 640px) {
+  .app { padding: 16px; }
+  .topbar { padding: 14px 20px; margin-bottom: 20px; }
+  .btn-text { height: 32px; padding: 0 14px; font-size: 0.75rem; }
+  .btn-icon { width: 32px; height: 32px; font-size: 1rem; }
+  .brand { font-size: 1.15rem; }
+  .ip-isp-item { padding: 8px 16px; font-size: 0.8rem; gap: 6px; }
+  
+  .summary-grid { grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+  .summary-box { padding: 12px; gap: 4px; }
+  .summary-box span { font-size: 0.65rem; }
+  .summary-box strong { font-size: 1.15rem; }
+  .tab-btn { font-size: 0.8rem; padding: 8px 12px; max-width: 130px; }
+  .grid-container { grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  
+  .slider-container {
+    display: flex; overflow-x: auto; gap: 12px; padding-bottom: 16px; margin-bottom: 20px;
+    scroll-snap-type: x mandatory; scroll-behavior: smooth; scrollbar-width: none; -ms-overflow-style: none;
+  }
+  .slider-container::-webkit-scrollbar { display: none; }
+  .slider-item { flex: 0 0 calc((100% - 36px) / 4); padding: 12px; scroll-snap-align: start; }
+  .vnstat-panel { max-width: 480px; }
+  
+  .slider-item .panel-title { font-size: 0.8rem; margin-bottom: 10px; }
+  .slider-item .gauge-wrapper { max-width: 90px; margin-bottom: 12px; }
+  .slider-item .sys-gauge-wrapper { max-width: 75px; margin-bottom: 12px; }
+  .slider-item .speed-main { font-size: 1.1rem; }
+  .slider-item .sys-val { font-size: 1rem; }
+  .slider-item .divider { margin: 10px -12px; }
+  .slider-item .dual-stats { padding: 8px; gap: 6px; margin-bottom: 6px; }
+  .slider-item .stat-val { font-size: 0.75rem; }
+
+  .modern-select { font-size: 0.8rem; padding: 6px 28px 6px 12px; background-size: 12px; background-position: right 10px center; }
+}
+@media (min-width: 1024px) {
+  .slider-item { flex: 0 0 calc((100% - 48px) / 5); }
+  .vnstat-panel { max-width: 520px; }
+}
+</style>
 </head>
-
-<body>
-  <div class="blur-overlay" id="blurOverlay"></div>
-
-  <div class="main-content">
-    <div class="container">
-      <div class="top-ctrl">
-        <div class="ctrl-buttons" id="ctrlButtons">
-          <button class="btn" id="themeBtn"><span id="themeText">Light</span></button>
-          <button class="btn refresh-btn" id="refreshBtn">Refresh</button>
-          <button class="btn stats" id="statsBtn">Statistics</button>
-        </div>
-        <button class="ctrl-toggle" id="ctrlToggle">⚙</button>
-      </div>
-
-      <div class="toast" id="toast">
-        <span id="toastMsg"></span>
-      </div>
-
-      <header class="header">
-        <h1>Network Monitor</h1>
-        <p class="subtitle">Real-time Monitoring Dashboard</p>
-      </header>
-
-      <section class="section">
-        <h2 class="title">All Monitoring | One Dashboard</h2>
-        
-        <div class="grid-charts">
-          <div class="chart">
-            <div data-netdata="net.eth1" data-title="MODEM" data-chart-library="gauge" data-after="-100" data-width="100%" data-points="720" data-gauge-generate-gradient="[0,5,10,60,100]" data-gauge-gradient-percent-color-0="#fa709a" data-gauge-gradient-percent-color-5="#fa709a" data-gauge-gradient-percent-color-10="#f093fb" data-gauge-gradient-percent-color-60="#4facfe" data-gauge-gradient-percent-color-100="#43e97b" data-colors="#667eea"></div>
-          </div>
-          <div class="chart">
-            <div data-netdata="net.wwan0" data-title="RAKITAN" data-chart-library="gauge" data-after="-100" data-width="100%" data-points="720" data-gauge-generate-gradient="[0,5,10,60,100]" data-gauge-gradient-percent-color-0="#fa709a" data-gauge-gradient-percent-color-5="#fa709a" data-gauge-gradient-percent-color-10="#f093fb" data-gauge-gradient-percent-color-60="#4facfe" data-gauge-gradient-percent-color-100="#43e97b" data-colors="#f093fb"></div>
-          </div>
-          <div class="chart">
-            <div data-netdata="net.usb0" data-title="HP" data-chart-library="gauge" data-after="-100" data-width="100%" data-points="720" data-gauge-generate-gradient="[0,5,10,60,100]" data-gauge-gradient-percent-color-0="#fa709a" data-gauge-gradient-percent-color-5="#fa709a" data-gauge-gradient-percent-color-10="#f093fb" data-gauge-gradient-percent-color-60="#4facfe" data-gauge-gradient-percent-color-100="#43e97b" data-colors="#43e97b"></div>
-          </div>
-          <div class="chart">
-            <div data-netdata="net.br-lan" data-title="LAN" data-chart-library="gauge" data-after="-150" data-width="100%" data-points="720" data-colors="#667eea"></div>
-          </div>
-        </div>
-
-        <div class="charts2-container">
-          <div class="grid-charts2">
-            <div class="chart">
-              <div data-netdata="system.net" data-dimensions="received" data-chart-library="easypiechart" data-title="RECEIVED" data-width="100%" data-points="720" data-common-units="system.net.mainhead" data-colors="#4facfe"></div>
-            </div>
-            <div class="chart">
-              <div data-netdata="system.net" data-dimensions="sent" data-chart-library="easypiechart" data-title="SENT" data-width="100%" data-points="720" data-common-units="system.net.mainhead" data-colors="#f093fb"></div>
-            </div>
-            <div class="chart">
-              <div data-netdata="system.ram" data-dimensions="used|buffers|active|wired" data-chart-library="easypiechart" data-title="RAM" data-width="100%" data-points="720" data-colors="#667eea"></div>
-            </div>
-            <div class="chart">
-              <div data-netdata="system.cpu" data-chart-library="easypiechart" data-title="CPU" data-units="%" data-easypiechart-max-value="100" data-width="100%" data-points="720" data-colors="#43e97b"></div>
-            </div>
-            <div class="chart">
-              <div data-netdata="system.load" data-chart-library="easypiechart" data-title="LOAD" data-width="100%" data-points="720" data-colors="#ef4444"></div>
-            </div>
-            <div class="chart">
-              <div data-netdata="netfilter.conntrack_sockets" data-chart-library="easypiechart" data-title="CONNECTIONS" data-width="100%" data-points="720" data-colors="#fbbf24"></div>
-            </div>
-          </div>
-        </div>
-      </section>
+<body data-theme="glass">
+<div class="app">
+  <div class="topbar">
+    <div class="brand">
+      <span>NetMonitor</span>
+      <span class="brand-sub">XIDZsWRT</span>
+    </div>
+    <div class="nav-actions">
+      <button class="btn-icon" id="ifaceBtn">⚙</button>
+      <button class="btn-text" id="themeBtn">GLASS</button>
+      <button class="btn-text" id="resetBtn" style="color:var(--accent-2);">RESET</button>
+      <div class="iface-menu" id="ifaceMenu"></div>
     </div>
   </div>
-
-  <div class="stats-modal" id="statsModal">
-    <button class="close-btn" id="closeBtn">×</button>
-    
-    <h2 class="title">Network Statistics</h2>
-    <p class="subtitle" style="margin-bottom:1.25rem;">Historical network usage data</p>
-    
-    <div class="grid-btns">
-      <button class="chart-btn active" data-chart="summary">Summary</button>
-      <button class="chart-btn" data-chart="minutes">5 Minutes</button>
-      <button class="chart-btn" data-chart="hourly">Hourly</button>
-      <button class="chart-btn" data-chart="daily">Daily</button>
-      <button class="chart-btn" data-chart="monthly">Monthly</button>
-      <button class="chart-btn" data-chart="yearly">Yearly</button>
+  <div class="ip-isp-bar">
+    <div class="ip-isp-item" onclick="copyText('ipValFull')">IP: <span id="ipVal">Loading...</span><span id="ipValFull" style="display:none;"></span></div>
+    <div class="ip-isp-item" onclick="copyText('cityVal')">CITY: <span id="cityVal">Loading...</span></div>
+    <div class="ip-isp-item" onclick="copyText('ispVal')">ISP: <span id="ispVal">Loading...</span></div>
+  </div>
+  <div class="summary-grid">
+    <div class="summary-box">
+      <span>Download</span>
+      <strong id="totalRxPill">0 bps</strong>
     </div>
-    
-    <div class="img-cnt" id="imageContainer">
-      <img id="summary" class="chart-img" src="vnstati/br-lan_vnstat_s.png" alt="Network Summary" style="display:block">
-      <img id="minutes" class="chart-img" src="vnstati/br-lan_vnstat_5.png" alt="5 Minutes Stats">
-      <img id="hourly" class="chart-img" src="vnstati/br-lan_vnstat_h.png" alt="Hourly Stats">
-      <img id="daily" class="chart-img" src="vnstati/br-lan_vnstat_d.png" alt="Daily Stats">
-      <img id="monthly" class="chart-img" src="vnstati/br-lan_vnstat_m.png" alt="Monthly Stats">
-      <img id="yearly" class="chart-img" src="vnstati/br-lan_vnstat_y.png" alt="Yearly Stats">
+    <div class="summary-box">
+      <span>Upload</span>
+      <strong id="totalTxPill">0 bps</strong>
+    </div>
+    <div class="summary-box">
+      <span>Traffic</span>
+      <strong id="totalTrafficPill">0 bps</strong>
+    </div>
+    <div class="summary-box">
+      <span>Usage</span>
+      <strong id="usagePill">0 B</strong>
     </div>
   </div>
-
-  <script src="js/quenx.js"></script>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="network">Network</button>
+    <button class="tab-btn" data-tab="system">System</button>
+    <button class="tab-btn" data-tab="vnstat">vnStat</button>
+  </div>
+  <div id="network" class="tab-pane active">
+    <div class="slider-container" id="trafficGrid"></div>
+  </div>
+  <div id="system" class="tab-pane">
+    <div class="slider-container" id="systemGrid"></div>
+  </div>
+  <div id="vnstat" class="tab-pane">
+    <div style="display:flex; justify-content:center; width:100%;">
+      <div class="panel vnstat-panel">
+        <div class="panel-head" style="margin-bottom:0;justify-content:space-between">
+          <div class="panel-title">Network Statistics</div>
+          <select id="vnstatSelect" class="modern-select">
+            <option value="summary">Summary</option>
+            <option value="minutes">5 Minutes</option>
+            <option value="hourly">Hourly</option>
+            <option value="daily">Daily</option>
+            <option value="monthly">Monthly</option>
+            <option value="yearly">Yearly</option>
+          </select>
+        </div>
+        <div class="vnstat-img-wrapper">
+          <img id="vnstatImg" src="vnstati/br-lan_vnstat_s.png" alt="vnStat">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="lightbox" id="lightbox">
+  <img id="lightboxImg" src="" alt="Zoomed vnStat">
+</div>
+<script src="script.js"></script>
 </body>
 </html>

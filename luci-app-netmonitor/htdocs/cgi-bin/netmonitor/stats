@@ -1,0 +1,142 @@
+#!/bin/ash
+CACHE="/tmp/netmonitor.state"
+TMP_CACHE="/tmp/netmonitor.state.$$"
+NOW="$(date +%s)"
+
+if echo "$QUERY_STRING" | grep -q 'reset_vnstat='; then
+  [ -f /etc/vnstat/vnstat.db ] && cp -f /etc/vnstat/vnstat.db /etc/vnstat/vnstat.bak
+  /www/netmonitor/vnstati/vnstati.sh >/dev/null 2>&1
+  rm -f /etc/vnstat/vnstat.db
+  service vnstat restart
+  sleep 2
+  /www/netmonitor/vnstati/vnstati.sh >/dev/null 2>&1
+  printf "Content-Type: application/json\r\n\r\n{\"status\":\"ok\"}\n"
+  exit 0
+fi
+
+if echo "$QUERY_STRING" | grep -q 'set_theme='; then
+  val="$(echo "$QUERY_STRING" | sed -n 's/.*set_theme=\([^&]*\).*/\1/p')"
+  touch /etc/config/netmonitor 2>/dev/null
+  uci -q get netmonitor.main >/dev/null || uci set netmonitor.main=settings
+  uci set netmonitor.main.theme="$val"
+  uci commit netmonitor
+  printf "Content-Type: application/json\r\n\r\n{\"status\":\"ok\"}\n"
+  exit 0
+fi
+
+if echo "$QUERY_STRING" | grep -q 'set_ifaces='; then
+  val="$(echo "$QUERY_STRING" | sed -n 's/.*set_ifaces=\([^&]*\).*/\1/p')"
+  touch /etc/config/netmonitor 2>/dev/null
+  uci -q get netmonitor.main >/dev/null || uci set netmonitor.main=settings
+  uci -q delete netmonitor.main.iface
+  IFS=','
+  for i in $val; do
+    [ -n "$i" ] && uci add_list netmonitor.main.iface="$i"
+  done
+  uci commit netmonitor
+  printf "Content-Type: application/json\r\n\r\n{\"status\":\"ok\"}\n"
+  exit 0
+fi
+
+json_escape() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r//g' -e 's/\t/\\t/g' -e ':a;N;$!ba;s/\n/\\n/g'
+}
+
+to_num() { awk -v v="$1" 'BEGIN{if(v+0<0) v=0; printf "%.0f", v+0}'; }
+read_file() { [ -r "$1" ] && cat "$1" || printf '%s' "$2"; }
+
+CONF_THEME=$(uci -q get netmonitor.main.theme)
+[ -z "$CONF_THEME" ] && CONF_THEME="glass"
+
+CONF_IFACES=$(uci -q get netmonitor.main.iface)
+if [ -z "$CONF_IFACES" ]; then
+  CONF_IFACES="br-lan usb0 eth1 wwan0"
+fi
+ci_json=""
+fi_ci=1
+for i in $CONF_IFACES; do
+  [ $fi_ci -eq 0 ] && ci_json="$ci_json,"
+  fi_ci=0
+  ci_json="$ci_json\"$(json_escape "$i")\""
+done
+
+get_cpu_now() {
+  set -- $(awk '/^cpu / {print $2, $3, $4, $5, $6, $7, $8, $9}' /proc/stat)
+  t=$((${1:-0} + ${2:-0} + ${3:-0} + ${4:-0} + ${5:-0} + ${6:-0} + ${7:-0} + ${8:-0}))
+  i=$((${4:-0} + ${5:-0}))
+  printf '%s %s' "$t" "$i"
+}
+
+list_ifaces() {
+  for i in br-lan eth1 eth2 usb0 usb1 wwan0 wwan1; do [ -d "/sys/class/net/$i" ] && printf '%s\n' "$i"; done
+  for i in /sys/class/net/*; do
+    [ -e "$i" ] || continue
+    n="${i##*/}"
+    case "$n" in lo|br-lan|eth1|eth2|usb0|usb1|wwan0|wwan1) continue ;; esac
+    printf '%s\n' "$n"
+  done
+}
+
+set -- $(get_cpu_now)
+cn_t="${1:-0}"; cn_i="${2:-0}"
+cp_t="$(awk '$1=="CPU" {print $2}' "$CACHE" 2>/dev/null)"
+cp_i="$(awk '$1=="CPU" {print $3}' "$CACHE" 2>/dev/null)"
+cp_t="${cp_t:-0}"; cp_i="${cp_i:-0}"
+
+c_pct="0.0"
+dt=$((cn_t - cp_t)); di=$((cn_i - cp_i))
+if [ "$cp_t" -gt 0 ] && [ "$dt" -gt 0 ]; then
+  db=$((dt - di))
+  [ "$db" -lt 0 ] && db=0
+  c_pct="$(awk -v b="$db" -v t="$dt" 'BEGIN{printf "%.1f", (b/t)*100}')"
+fi
+
+mt=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null); mt=${mt:-0}
+ma=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null); ma=${ma:-0}
+mu=$((mt - ma)); [ "$mu" -lt 0 ] && mu=0
+m_pct="0.0"
+[ "$mt" -gt 0 ] && m_pct="$(awk -v u="$mu" -v t="$mt" 'BEGIN{printf "%.1f", (u/t)*100}')"
+mu_mb=$((mu / 1024))
+
+mf_pct="0.0"
+[ "$mt" -gt 0 ] && mf_pct="$(awk -v a="$ma" -v t="$mt" 'BEGIN{printf "%.1f", (a/t)*100}')"
+mf_mb=$((ma / 1024))
+
+set -- $(awk '{print $1, $2, $3}' /proc/loadavg 2>/dev/null)
+l1="${1:-0}"; l5="${2:-0}"; l15="${3:-0}"
+
+cc=$(read_file /proc/sys/net/netfilter/nf_conntrack_count 0)
+cm=$(read_file /proc/sys/net/netfilter/nf_conntrack_max 0)
+
+temp="0"
+if [ -f /sys/class/thermal/thermal_zone0/temp ]; then
+  temp=$(awk '{printf "%.1f", $1/1000}' /sys/class/thermal/thermal_zone0/temp 2>/dev/null)
+fi
+
+ij=""
+sl="CPU $cn_t $cn_i $NOW\n"
+fi=1
+
+for i in $(list_ifaces); do
+  rb="$(to_num "$(read_file "/sys/class/net/$i/statistics/rx_bytes" 0)")"
+  tb="$(to_num "$(read_file "/sys/class/net/$i/statistics/tx_bytes" 0)")"
+  os="$(read_file "/sys/class/net/$i/operstate" down)"
+  cs="$(read_file "/sys/class/net/$i/carrier" 0)"
+  on=false
+  if [ "$os" = "up" ] || [ "$cs" = "1" ]; then on=true; fi
+
+  [ $fi -eq 0 ] && ij="$ij,"
+  fi=0
+  ij="$ij{\"name\":\"$(json_escape "$i")\",\"online\":$on,\"rx_bytes\":$rb,\"tx_bytes\":$tb,\"operstate\":\"$(json_escape "$os")\"}"
+  sl="${sl}IFACE $i $rb $tb $NOW\n"
+done
+
+lp="$(awk -v l="$l1" 'BEGIN{v=(l*25); if(v>100)v=100; printf "%.1f", v}')"
+cp="0.0"
+[ "$cm" -gt 0 ] && cp="$(awk -v c="$cc" -v m="$cm" 'BEGIN{v=(c/m)*100; if(v>100)v=100; printf "%.1f", v}')"
+
+echo "CPU $cn_t $cn_i" > "$TMP_CACHE" && mv "$TMP_CACHE" "$CACHE" 2>/dev/null
+
+printf 'Content-Type: application/json\r\nCache-Control: no-store\r\nPragma: no-cache\r\n\r\n'
+printf '{"timestamp":%s,"config_theme":"%s","config_ifaces":[%s],"interfaces":[%s],"system":{"cpu":%.1f,"mem_percent":%.1f,"mem_used_mb":%s,"mem_free_percent":%.1f,"mem_free_mb":%s,"load":[%s,%s,%s],"load_percent":%.1f,"conntrack_sockets":%s,"conntrack_max":%s,"conntrack_percent":%.1f,"temp":%s}}' \
+"$NOW" "$CONF_THEME" "$ci_json" "$ij" "$c_pct" "$m_pct" "$mu_mb" "$mf_pct" "$mf_mb" "$l1" "$l5" "$l15" "$lp" "$cc" "$cm" "$cp" "$temp"

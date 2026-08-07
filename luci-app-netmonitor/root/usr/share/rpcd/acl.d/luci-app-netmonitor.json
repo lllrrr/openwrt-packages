@@ -1,0 +1,11 @@
+{
+	"luci-app-netmonitor": {
+		"description": "Grant UCI access for luci-app-netmonitor",
+		"read": {
+			"uci": [ "netmonitor" ]
+		},
+		"write": {
+			"uci": [ "netmonitor" ]
+		}
+	}
+}
