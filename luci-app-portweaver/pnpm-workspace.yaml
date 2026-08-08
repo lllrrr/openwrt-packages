@@ -1,9 +1,0 @@
-packages:
-  - frontend-src
-
-onlyBuiltDependencies:
-  - '@swc/core'
-  - core-js
-  - cpu-features
-  - esbuild
-  - ssh2
