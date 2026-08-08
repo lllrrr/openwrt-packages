@@ -1,4 +1,4 @@
-# luci-app-pm(PowerManager)
+# LuCI-APP-PowerManager(pm)
 
 Luci plugin that makes OpenWrt poweroff and reboot easy.
 

@@ -10,6 +10,11 @@
 
 const CONFIG_IMPORT_PATH = "/tmp/aurora_config_import.tmp";
 
+// LuCI 客户端渲染的表单控件没有 name 属性，真实 input/select 挂的是
+// id="widget.<cbid>"；按 name 查找永远落空且被 if 守卫静默吞掉。
+const themeFormField = (key) =>
+  document.getElementById("widget.cbid.aurora.theme." + key);
+
 const FEED_HOST = "openwrt.eamonxg.fun";
 const MANIFEST_URL = `https://${FEED_HOST}/manifest.json`;
 const MANIFEST_CACHE_KEY = "aurora.manifest";
@@ -103,16 +108,18 @@ const callPrepareFont = rpc.declare({
   object: "luci.aurora",
   method: "prepare_font",
   params: ["sans", "mono", "sans_stack"],
-  expect: {
-    "": { result: -1, error: "RPC call failed (timeout or transport error)" },
-  },
+  // result -1 marks a dead call (rpcd timeout or transport error). No message
+  // is carried here: this literal would be evaluated at load time, before
+  // LuCI's translation catalogue exists, so the wording lives at the call
+  // site where _() is safe to use.
+  expect: { "": { result: -1 } },
 });
 
 const callGetFontStatus = rpc.declare({
   object: "luci.aurora",
   method: "get_font_status",
   params: ["job_id"],
-  expect: { "": { state: "missing", error: "RPC call failed" } },
+  expect: { "": { state: "missing" } },
 });
 
 const callUploadFont = rpc.declare({
@@ -2157,9 +2164,9 @@ return view.extend({
     const m = new form.Map("aurora");
 
     const themeVersion =
-      installedVersions?.theme?.installed_version || "Unknown";
+      installedVersions?.theme?.installed_version || _("Unknown");
     const configVersion =
-      installedVersions?.config?.installed_version || "Unknown";
+      installedVersions?.config?.installed_version || _("Unknown");
 
     let so;
     const viewCtx = this;
@@ -2350,7 +2357,7 @@ return view.extend({
                                 );
                                 window.location.reload();
                               } else {
-                                const errorMsg = ret?.error || "Unknown error";
+                                const errorMsg = ret?.error || _("Unknown error");
                                 ui.addNotification(
                                   null,
                                   E(
@@ -2426,7 +2433,9 @@ return view.extend({
                               null,
                               E(
                                 "p",
-                                _("Error: %s").format(ret?.error || "Unknown"),
+                                _("Error: %s").format(
+                                  ret?.error || _("Unknown"),
+                                ),
                               ),
                               "error",
                             );
@@ -3132,7 +3141,11 @@ return view.extend({
       return callPrepareFont(selected.sans, selected.mono, selected.sansStack)
         .then((res) => {
           if (!res || res.result !== 0) {
-            throw new Error(res?.error || _("unknown error"));
+            throw new Error(
+              res?.result === -1
+                ? _("The router did not respond. Please try again.")
+                : res?.error || _("Unknown error"),
+            );
           }
 
           pollFontCache(res.job_id, 20, selected);
@@ -3245,7 +3258,7 @@ return view.extend({
                   E(
                     "p",
                     _("Failed to delete: %s").format(
-                      ret?.error || "Unknown",
+                      ret?.error || _("Unknown"),
                     ),
                   ),
                   "error",
@@ -3582,8 +3595,6 @@ return view.extend({
             return m ? m[1] : "";
           };
           const vals = {};
-          const hiddenInput = (tkey) =>
-            document.querySelector('[name="cbid.aurora.theme.' + tkey + '"]');
           // 角色由键名后缀推断(_alpha/_blur/_scrim),login/main 两组键共用
           // 同一段预览联动;无滑杆的实例落到中性默认(不透明、无模糊、无遮罩)。
           const paneDiv = E("div", { "data-bg-pane": key });
@@ -3619,7 +3630,7 @@ return view.extend({
             slider.addEventListener("input", () => {
               vals[tkey] = +slider.value;
               valEl.textContent = slider.value + unit;
-              const hid = hiddenInput(tkey);
+              const hid = themeFormField(tkey);
               if (hid) {
                 // 拖回默认值 = 回到"未设置":不写键,主题 fallback 接管。
                 // 这也是砍掉"恢复默认"按钮的底气——默认位置就是重置。
@@ -3643,9 +3654,7 @@ return view.extend({
           if (select) {
             select.addEventListener("change", function () {
               refresh();
-              const lqipEl = document.querySelector(
-                '[name="cbid.aurora.theme.' + lqipKey + '"]',
-              );
+              const lqipEl = themeFormField(lqipKey);
               if (!this.value) {
                 if (lqipEl) lqipEl.value = "";
                 return;
@@ -3869,12 +3878,8 @@ return view.extend({
           ["struct_login_bg", "struct_login_bg_lqip"],
           ["struct_main_bg", "struct_main_bg_lqip"],
         ].forEach(([key, lqipKey]) => {
-          const bgInput = mapNode.querySelector(
-            '[name="cbid.aurora.theme.' + key + '"]',
-          );
-          const lqipInput = mapNode.querySelector(
-            '[name="cbid.aurora.theme.' + lqipKey + '"]',
-          );
+          const bgInput = themeFormField(key);
+          const lqipInput = themeFormField(lqipKey);
           if (!bgInput || !lqipInput) return;
 
           if (pending && pendingKey === key) {
