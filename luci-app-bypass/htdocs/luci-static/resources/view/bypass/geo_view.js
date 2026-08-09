@@ -35,41 +35,62 @@ return view.extend({
 			listBtn.disabled = state;
 		}
 
+		function renderResponse(r) {
+			if (r.code !== 0)
+				return Promise.resolve(_('Error: ') + (r.error || r.output || _('unknown')));
+
+			if (!r.stream)
+				return Promise.resolve(r.output || _('No results were found!'));
+
+			var chunks = [];
+			var offset = 0;
+
+			function readNext() {
+				return api('geo_view', 'read', r.stream, String(offset)).then(function (part) {
+					if (part.code !== 0)
+						throw new Error(part.error || part.output || _('unknown'));
+
+					chunks.push(part.output || '');
+					var next = Number(part.next_offset);
+					if (part.done === 1 || part.done === true)
+						return chunks.join('');
+					if (!isFinite(next) || next <= offset)
+						throw new Error(_('Invalid Geo View result stream'));
+
+					offset = next;
+					return readNext();
+				});
+			}
+
+			return readNext();
+		}
+
+		function runQuery(btn, request, busyLabel) {
+			setButtonsDisabled(true);
+			var oldLabel = btn.textContent;
+			btn.textContent = busyLabel || _('Querying…');
+			result.value = '';
+			request.then(renderResponse).then(function (text) {
+				result.value = text;
+			}, function (e) {
+				result.value = _('Error: ') + String(e);
+			}).then(function () {
+				setButtonsDisabled(false);
+				btn.textContent = oldLabel;
+			});
+		}
+
 		function doQuery(btn, action, input) {
 			var value = (input.value || '').trim();
 			if (!value) {
 				ui.addNotification(null, E('p', {}, _('Please enter query content!')));
 				return;
 			}
-			setButtonsDisabled(true);
-			var oldLabel = btn.textContent;
-			btn.textContent = _('Querying…');
-			result.value = '';
-			api('geo_view', action, value).then(function (r) {
-				setButtonsDisabled(false);
-				btn.textContent = oldLabel;
-				if (r.code === 0) {
-					result.value = r.output || _('No results were found!');
-				} else {
-					result.value = _('Error: ') + (r.error || r.output || _('unknown'));
-				}
-			});
+			runQuery(btn, api('geo_view', action, value));
 		}
 
 		function doList(btn) {
-			setButtonsDisabled(true);
-			var oldLabel = btn.textContent;
-			btn.textContent = _('Listing…');
-			result.value = '';
-			api('geo_view', 'list').then(function (r) {
-				setButtonsDisabled(false);
-				btn.textContent = oldLabel;
-				if (r.code === 0) {
-					result.value = r.output || _('No results were found!');
-				} else {
-					result.value = _('Error: ') + (r.error || r.output || _('unknown'));
-				}
-			});
+			runQuery(btn, api('geo_view', 'list'), _('Listing…'));
 		}
 
 		function bindEnter(input, btn, action) {

@@ -76,6 +76,7 @@ After installation:
 - **Shunt Rule**: choose Close, Default Node, Direct Connection, Blackhole, or a specific NaiveProxy/WireGuard node. Drag order is persisted explicitly; the virtual Default row remains the final catch-all and is stored in `global_rules.default_node`.
 - **Other Settings**: configure TCP redirection, UDP No Redir Ports, IPv6 TProxy, ICMP handling, and Direct IP List.
 - **Rule Manage**: maintain the ordered shunt-rule list and optional GeoIP/Geosite update schedule. Domain and IP/CIDR lists may coexist in one section; they are emitted as adjacent independent matchers with the same outbound.
+- **Built-in rule priority**: fresh configurations start with `AdBlock`, `China`, `AI`, `DirectGame`, `GFW`, and `Microsoft`, in that highest-to-lowest priority order. AI, GFW, and Microsoft inherit the virtual Default outbound; AdBlock blocks, while China and DirectGame connect directly.
 - **Runtime upgrades**: the always-on lightweight watcher fingerprints the installed BypassCore and NaiveProxy executables and compares them with each running native process image. After an `opkg`/`apk` upgrade settles, Bypass performs one serialized full restart and logs both detection and completion. Disabling process-health supervision does not disable upgrade detection.
 - **Geo View**: query domain/IP matches against installed GeoIP and Geosite data.
 

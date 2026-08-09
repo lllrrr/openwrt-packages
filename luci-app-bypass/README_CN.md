@@ -147,18 +147,16 @@ config global_rules
     option default_naive_interface 'wan2'
     option default_node 'naive1'       # 虚拟 Default 行；未匹配流量走 naive1
 
-config shunt_rules 'ChinaSite'
+config shunt_rules 'China'
     option network 'tcp,udp'
     option domain_list 'geosite:cn'
-    option outbound '_direct'         # 空 | _default | _direct | _blackhole | 节点 section id
-
-config shunt_rules 'ChinaIP'
-    option network 'tcp,udp'
     option ip_list 'geoip:cn'
-    option outbound '_direct'
+    option outbound '_direct'         # 空 | _default | _direct | _blackhole | 节点 section id
 ```
 
 同一个 `shunt_rules` section 可以同时配置 `domain_list` 与 `ip_list`。生成配置时两份列表会分别成为相邻的独立规则（`<section>:domain` 与 `<section>:ip`），共用同一个出口及 Network、Protocol、Inbound、Source、Port 等附加条件，从而实现 Domain 或 IP 任一命中，而不是要求两者同时命中。
+
+全新配置内置规则按优先级从高到低依次为 `AdBlock`、`China`、`AI`、`DirectGame`、`GFW`、`Microsoft`。AI、GFW 和 Microsoft 继承虚拟 Default 出口；AdBlock 拦截，China 和 DirectGame 直连。
 
 Other Settings 中的 Direct IP List 保存在 `/usr/share/bypass/direct_ip`；其中的 IP、CIDR 与 `geoip:CODE` 会在进入 BypassCore 前由 nftables 直接放行。旧版默认 `PrivateIP` 规则会在升级时安全合并进该列表、精确去重后移除。
 

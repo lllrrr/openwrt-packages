@@ -665,7 +665,7 @@ do_connect_status() {
 	emit
 }
 
-# geo_view <action> <value> -> { code, output }
+# geo_view <action> <value> [offset] -> { code, output, stream, ... }
 # Wraps the geoview binary for the Geo View page.
 #   lookup  (domain/IP → geo rule list)
 #   extract (geoip:cc / geosite:name → member list)
@@ -678,8 +678,129 @@ do_connect_status() {
 run_bounded_capture() {
 	local output=$1
 	shift
-	# POSIX specifies ulimit -f in 512-byte blocks: cap tool output at 1 MiB.
-	( ulimit -f 2048 2>/dev/null; exec "$@" ) > "$output" 2>&1
+	# POSIX specifies ulimit -f in 512-byte blocks. Keep the subprocess bounded,
+	# but do not use the rpcd response size as the extraction limit: large,
+	# otherwise valid geosite lists are streamed to the LuCI page in chunks.
+	( ulimit -f 32768 2>/dev/null; exec "$@" ) > "$output" 2>&1
+}
+
+# rpcd/file.exec transports command output through an UBus message, whose size
+# is much smaller than the useful output of a geosite extraction. Keep the
+# inline response comfortably below that limit and let geo_view_read() serve
+# larger results from a short-lived root-owned file.
+GEO_VIEW_MAX_BYTES=16777216
+GEO_VIEW_INLINE_BYTES=16384
+GEO_VIEW_CHUNK_BYTES=16384
+
+cleanup_geo_view_streams() {
+	local root="$TMP_PATH/geo-view" dir
+	[ -d "$root" ] || return 0
+	for dir in "$root"/result.*; do
+		[ -d "$dir" ] || continue
+		# BusyBox find supports -mmin; the directory itself carries the stream's
+		# creation/last-access time and is the only path ever removed here.
+		[ "$(find "$dir" -prune -mmin +10 -print 2>/dev/null)" = "$dir" ] && rm -rf "$dir"
+	done
+}
+
+geo_view_read() {
+	local token=$1 offset=${2:-0}
+	local root="$TMP_PATH/geo-view" dir file total next done chunk block
+	json_init
+
+	case "$token" in
+		result.??????) ;;
+		*)
+			json_add_int code -1
+			json_add_string error "invalid Geo View result token"
+			emit
+			return
+		;;
+	esac
+	case "${token#result.}" in
+		*[!A-Za-z0-9]*)
+			json_add_int code -1
+			json_add_string error "invalid Geo View result token"
+			emit
+			return
+		;;
+	esac
+	case "$offset" in
+		''|*[!0-9]*)
+			json_add_int code -1
+			json_add_string error "invalid Geo View result offset"
+			emit
+			return
+		;;
+	esac
+	uint_in_range "$offset" 0 "$GEO_VIEW_MAX_BYTES" || {
+		json_add_int code -1
+		json_add_string error "invalid Geo View result offset"
+		emit
+		return
+	}
+	[ $((offset % GEO_VIEW_CHUNK_BYTES)) -eq 0 ] || {
+		json_add_int code -1
+		json_add_string error "unaligned Geo View result offset"
+		emit
+		return
+	}
+
+	dir="$root/$token"
+	file="$dir/output"
+	if [ ! -d "$dir" ] || [ ! -f "$file" ] || [ -L "$dir" ] || [ -L "$file" ]; then
+		json_add_int code -1
+		json_add_string error "Geo View result has expired"
+		emit
+		return
+	fi
+	touch "$dir" 2>/dev/null
+
+	total=$(wc -c < "$file" 2>/dev/null | tr -d '[:space:]')
+	case "$total" in
+		''|*[!0-9]*)
+			json_add_int code -1
+			json_add_string error "cannot stat Geo View result"
+			emit
+			return
+		;;
+	esac
+	[ "$offset" -le "$total" ] 2>/dev/null || {
+		json_add_int code -1
+		json_add_string error "Geo View result offset is out of range"
+		emit
+		return
+	}
+
+	if [ "$offset" -lt "$total" ]; then
+		# The sentinel prevents command substitution from stripping trailing
+		# newlines from a chunk. Read in aligned blocks so large results do not
+		# require millions of one-byte reads on a resource-constrained router.
+		block=$((offset / GEO_VIEW_CHUNK_BYTES))
+		chunk=$(dd if="$file" bs="$GEO_VIEW_CHUNK_BYTES" skip="$block" count=1 2>/dev/null; printf x)
+		chunk=${chunk%x}
+		next=$((offset + GEO_VIEW_CHUNK_BYTES))
+		[ "$next" -gt "$total" ] && next=$total
+		done=0
+		[ "$next" -ge "$total" ] && done=1
+	else
+		chunk=""
+		next=$total
+		done=1
+	fi
+
+	json_add_int code 0
+	json_add_string output "$chunk"
+	json_add_int next_offset "$next"
+	json_add_int total "$total"
+	json_add_int done "$done"
+	emit
+	if [ "$done" = "1" ]; then
+		rm -rf "$dir"
+	else
+		# Keep an actively consumed stream out of the stale-result cleanup path.
+		touch "$dir" 2>/dev/null
+	fi
 }
 
 # Print shunt-rule section IDs containing a GeoData lookup result. This mirrors
@@ -787,6 +908,11 @@ geo_lookup_egress() {
 
 do_geo_view() {
 	local action=$1 value=$2
+	if [ "$action" = "read" ]; then
+		geo_view_read "$value" "$3"
+		return
+	fi
+	cleanup_geo_view_streams
 	local bin geoip_path geosite_path
 	bin=$(first_type "$(config_t_get global_app geoview_file /usr/bin/geoview)" geoview)
 	geoip_path=$(get_geo_asset_path geoip)
@@ -888,7 +1014,6 @@ ${route_info}"
 		esac
 		run_bounded_capture "$capture" "$bin" -type "$geo_type" -action extract -input "$file_path" -list "$value" -lowmem=true
 		rc=$?
-		out=$(cat "$capture" 2>/dev/null)
 	elif [ "$action" = "list" ]; then
 		# Enumerate every entry name in both geoip.dat and geosite.dat.
 		# geoview with -action extract and no -list prints "Available codes:" + names.
@@ -913,20 +1038,68 @@ ${route_info}"
 		emit
 		return
 	fi
-	# Keep an accidental broad extraction from producing an unbounded rpcd JSON
-	# response.  The 1 MiB cap is ample for interactive inspection; full datasets
-	# should be consumed from the GeoData file directly.
-	if [ ${#out} -gt 1048576 ] 2>/dev/null; then
-		out="$(printf '%s' "$out" | head -c 1048576)
-[output truncated at 1 MiB]"
-		rc=1
+
+	local output_bytes stream_root stream_dir stream_token error
+	# Lookup/list may have post-processed output. Re-materialize that final text
+	# into the capture file so the same chunked transport is used for every mode.
+	if { [ "$action" = "lookup" ] || [ "$action" = "list" ]; } && [ "$rc" = "0" ]; then
+		printf '%s' "$out" > "$capture"
 	fi
+	output_bytes=$(wc -c < "$capture" 2>/dev/null | tr -d '[:space:]')
+	case "$output_bytes" in
+		''|*[!0-9]*) output_bytes=0 ;;
+	esac
+
+	if [ "$rc" != "0" ]; then
+		if [ "$output_bytes" -ge "$GEO_VIEW_MAX_BYTES" ] 2>/dev/null; then
+			error="geoview failed or its output exceeded the 16 MiB safety limit"
+		else
+			error=$(cat "$capture" 2>/dev/null | head -c 4096)
+			[ -n "$error" ] || error="geoview exited with code ${rc:-1}"
+		fi
+		rm -rf "$capture_dir"
+		json_init
+		json_add_int code "${rc:-1}"
+		json_add_string error "$error"
+		emit
+		return
+	fi
+
+	if [ "$output_bytes" -le "$GEO_VIEW_INLINE_BYTES" ] 2>/dev/null; then
+		[ -n "$out" ] || out=$(cat "$capture" 2>/dev/null)
+		rm -rf "$capture_dir"
+		# The optional routing lookup above also uses jshn, so begin a fresh response.
+		json_init
+		json_add_int code 0
+		json_add_string output "$out"
+		emit
+		return
+	fi
+
+	stream_root="$TMP_PATH/geo-view"
+	stream_dir=""
+	if mkdir -p "$stream_root" 2>/dev/null; then
+		stream_dir=$(mktemp -d "$stream_root/result.XXXXXX" 2>/dev/null)
+	fi
+	if [ -z "$stream_dir" ] || ! mv "$capture" "$stream_dir/output" 2>/dev/null; then
+		[ -n "$stream_dir" ] && rm -rf "$stream_dir"
+		rm -rf "$capture_dir"
+		json_init
+		json_add_int code -1
+		json_add_string error "cannot prepare Geo View result stream"
+		emit
+		return
+	fi
+	chmod 600 "$stream_dir/output" 2>/dev/null
+	stream_token=${stream_dir##*/}
 	rm -rf "$capture_dir"
 
 	# The optional routing lookup above also uses jshn, so begin a fresh response.
 	json_init
-	json_add_int code "${rc:-1}"
-	json_add_string output "$out"
+	json_add_int code 0
+	json_add_string output ""
+	json_add_string stream "$stream_token"
+	json_add_int total "$output_bytes"
 	emit
 }
 
@@ -1152,7 +1325,7 @@ main() {
 		clear_nftset)   do_clear_nftset ;;
 		interfaces)     do_interfaces ;;
 		connect_status) do_connect_status "$1" "$2" ;;
-		geo_view)       do_geo_view "$1" "$2" ;;
+		geo_view)       do_geo_view "$1" "$2" "$3" ;;
 		create_backup)  do_create_backup ;;
 		restore_backup) do_restore_backup "$1" ;;
 		reset_config)   do_reset_config ;;

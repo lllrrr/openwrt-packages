@@ -13,27 +13,6 @@ chmod +x /usr/share/bypass/*.sh 2>/dev/null
 [ -f /usr/share/bypass/direct_ip ] && [ ! -L /usr/share/bypass/direct_ip ] && \
 	chmod 644 /usr/share/bypass/direct_ip 2>/dev/null
 
-# Split only the untouched legacy stock China rule. Custom rules and any
-# already-migrated configuration are never rewritten.
-if [ "$(uci -q get bypass.China)" = "shunt_rules" ] && \
-   [ "$(uci -q get bypass.China.remarks)" = "China" ] && \
-   [ "$(uci -q get bypass.China.network)" = "tcp,udp" ] && \
-   [ "$(uci -q get bypass.China.domain_list)" = "geosite:cn" ] && \
-   [ "$(uci -q get bypass.China.ip_list)" = "geoip:cn" ] && \
-   [ "$(uci -q get bypass.China.outbound)" = "_direct" ] && \
-   [ -z "$(uci -q get bypass.ChinaSite)$(uci -q get bypass.ChinaIP)" ] && \
-   [ -z "$(uci -q get bypass.China.protocol)$(uci -q get bypass.China.inbound)$(uci -q get bypass.China.source)$(uci -q get bypass.China.port)$(uci -q get bypass.China.egress_interface)" ]; then
-	uci -q rename bypass.China=ChinaSite
-	uci -q set bypass.ChinaSite.remarks=ChinaSite
-	uci -q delete bypass.ChinaSite.ip_list
-	uci -q set bypass.ChinaIP=shunt_rules
-	uci -q set bypass.ChinaIP.remarks=ChinaIP
-	uci -q set bypass.ChinaIP.network='tcp,udp'
-	uci -q set bypass.ChinaIP.ip_list='geoip:cn'
-	uci -q set bypass.ChinaIP.outbound='_direct'
-	uci -q commit bypass
-fi
-
 # Refresh the tiny init wrapper from its canonical package copy. This is
 # executable/package plumbing, not a configuration migration.
 if [ -s /usr/share/bypass/bypass.init ]; then
