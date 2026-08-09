@@ -514,6 +514,78 @@ json_add_remote_dns_transport() {
 	[ -n "$remote_port" ] && json_add_int port "$remote_port"
 }
 
+# Return success when a domain/IP list contains at least one effective entry.
+# Empty lines and comments do not create a routing condition. Keeping this
+# check separate from the JSON emitter is important: jshn cannot remove an
+# already-opened empty array, and BypassCore rejects a rule whose fields do not
+# produce an effective matcher.
+has_shunt_list_entries() {
+	printf '%s\n' "$1" |
+		sed 's/\r$//;s/^[[:space:]]*//;s/[[:space:]]*$//' |
+		awk '$0 != "" && substr($0, 1, 1) != "#" { found = 1; exit } END { exit (found ? 0 : 1) }'
+}
+
+# Emit one BypassCore routing rule. Domain and IP matchers are deliberately
+# passed separately by the caller: BypassCore puts every matcher in one
+# ConditionChan, whose semantics are AND. A caller that has both lists must
+# therefore invoke this function twice so the two target match types are ORed
+# by routing-rule order, while the remaining conditions stay shared.
+json_add_shunt_rule() {
+	local rule_tag="$1" outbound_tag="$2" domains="$3" ips="$4" net="$5"
+	local protocols="$6" inbound="$7" sources="$8" ports="$9"
+	local d i p src
+
+	json_add_object ''
+		json_add_string ruleTag "$rule_tag"
+		json_add_string outboundTag "$outbound_tag"
+		if [ -n "$domains" ]; then
+			json_add_array domain
+				while IFS= read -r d; do
+					d=$(printf '%s' "$d" | sed 's/\r$//;s/^[[:space:]]*//;s/[[:space:]]*$//')
+					case "$d" in ''|'#'*) continue ;; esac
+					json_add_string '' "$d"
+				done <<-EOF
+				$domains
+				EOF
+			json_close_array
+		fi
+		if [ -n "$ips" ]; then
+			json_add_array ip
+				while IFS= read -r i; do
+					i=$(printf '%s' "$i" | sed 's/\r$//;s/^[[:space:]]*//;s/[[:space:]]*$//')
+					case "$i" in ''|'#'*) continue ;; esac
+					json_add_string '' "$i"
+				done <<-EOF
+				$ips
+				EOF
+			json_close_array
+		fi
+		[ -n "$net" ] && json_add_string network "$net"
+		if [ -n "$protocols" ]; then
+			json_add_array protocol
+				for p in $protocols; do json_add_string '' "$p"; done
+			json_close_array
+		fi
+		case " $inbound " in
+			*" tproxy "*)
+				json_add_array inboundTag
+				json_add_string '' tcp_redir
+				[ -s "$TMP_PATH/selected_wireguard_nodes" ] && json_add_string '' udp_tproxy
+				[ "$PROXY_IPV6" = "1" ] && json_add_string '' ipv6_tproxy
+				[ "$PROXY_IPV6" = "1" ] && [ -s "$TMP_PATH/selected_wireguard_nodes" ] && \
+					json_add_string '' ipv6_udp_tproxy
+				json_close_array
+				;;
+		esac
+		if [ -n "$sources" ]; then
+			json_add_array source
+				for src in $sources; do json_add_string '' "$src"; done
+			json_close_array
+		fi
+		[ -n "$ports" ] && json_add_string port "$ports"
+	json_close_object
+}
+
 gen_bypasscore_config() {
 	mkdir -p "$(dirname "$BYPASSCORE_CFG")" "$TMP_ACL_PATH"
 	BYPASSCORE_CONFIG_ERROR=0
@@ -877,6 +949,7 @@ gen_bypasscore_config() {
 		json_add_string finalOutboundTag "$default_tag"
 		json_add_array rules
 			local sid tag domains ips net outbound egress protocols inbound sources ports
+			local has_domains has_ips
 			for sid in $(shunt_rule_sections); do
 				[ "$(config_n_get "$sid" is_default 0)" = "1" ] && continue
 				outbound=$(config_n_get "$sid" outbound _direct)
@@ -901,69 +974,37 @@ gen_bypasscore_config() {
 				inbound=$(config_n_get "$sid" inbound)
 				sources=$(config_n_get "$sid" source)
 				ports=$(config_n_get "$sid" port)
-				# A rule with no match condition at all becomes a catch-all in the
-				# generated config and silently hijacks every connection to its
-				# outbound. Single-list normalization (or losing a list in the
-				# editor) can strand a rule with both lists empty; skip it loudly
-				# instead of letting it break all shunting.
-				if [ -z "$domains$ips$protocols$inbound$sources$ports" ]; then
-					log 0 "Shunt rule [%s] has no match conditions; skipping it so it cannot catch all traffic. Restore its domain or IP list." "$sid"
-					continue
+				net=$(config_n_get "$sid" network tcp,udp)
+				has_domains=0
+				has_ips=0
+				has_shunt_list_entries "$domains" && has_domains=1
+				has_shunt_list_entries "$ips" && has_ips=1
+
+				# BypassCore combines all fields in a single rule with AND
+				# semantics. Emit separate domain/IP rules when both lists are
+				# populated, copying the common match fields to each one. The
+				# suffixes keep ruleTag unique while making route explanations
+				# identify which half matched.
+				if [ "$has_domains" = "1" ] && [ "$has_ips" = "1" ]; then
+					json_add_shunt_rule "${sid}:domain" "$tag" "$domains" "" "$net" \
+						"$protocols" "$inbound" "$sources" "$ports"
+					json_add_shunt_rule "${sid}:ip" "$tag" "" "$ips" "$net" \
+						"$protocols" "$inbound" "$sources" "$ports"
+				elif [ "$has_domains" = "1" ]; then
+					json_add_shunt_rule "$sid" "$tag" "$domains" "" "$net" \
+						"$protocols" "$inbound" "$sources" "$ports"
+				elif [ "$has_ips" = "1" ]; then
+					json_add_shunt_rule "$sid" "$tag" "" "$ips" "$net" \
+						"$protocols" "$inbound" "$sources" "$ports"
+				elif [ -n "$protocols$inbound$sources$ports" ]; then
+					# Keep non-domain/IP rules (for example protocol/port-only
+					# rules), but never turn an entirely empty section into a
+					# catch-all rule.
+					json_add_shunt_rule "$sid" "$tag" "" "" "$net" \
+						"$protocols" "$inbound" "$sources" "$ports"
+				else
+					log 0 "Shunt rule [%s] has no effective match conditions; skipping it so it cannot catch all traffic." "$sid"
 				fi
-				json_add_object ''
-					json_add_string ruleTag "$sid"
-					json_add_string outboundTag "$tag"
-					if [ -n "$domains" ]; then
-						json_add_array domain
-							local d
-							while IFS= read -r d; do
-								d=$(printf '%s' "$d" | sed 's/\r$//;s/^[[:space:]]*//;s/[[:space:]]*$//')
-								case "$d" in ''|'#'*) continue ;; esac
-								json_add_string '' "$d"
-							done <<-EOF
-							$domains
-							EOF
-						json_close_array
-					fi
-					if [ -n "$ips" ]; then
-						json_add_array ip
-							local i
-							while IFS= read -r i; do
-								i=$(printf '%s' "$i" | sed 's/\r$//;s/^[[:space:]]*//;s/[[:space:]]*$//')
-								case "$i" in ''|'#'*) continue ;; esac
-								json_add_string '' "$i"
-							done <<-EOF
-							$ips
-							EOF
-						json_close_array
-					fi
-					net=$(config_n_get "$sid" network tcp,udp)
-					[ -n "$net" ] && json_add_string network "$net"
-					if [ -n "$protocols" ]; then
-						json_add_array protocol
-						local p
-						for p in $protocols; do json_add_string '' "$p"; done
-						json_close_array
-					fi
-					case " $inbound " in
-						*" tproxy "*)
-							json_add_array inboundTag
-							json_add_string '' tcp_redir
-							[ -s "$TMP_PATH/selected_wireguard_nodes" ] && json_add_string '' udp_tproxy
-							[ "$PROXY_IPV6" = "1" ] && json_add_string '' ipv6_tproxy
-							[ "$PROXY_IPV6" = "1" ] && [ -s "$TMP_PATH/selected_wireguard_nodes" ] && \
-								json_add_string '' ipv6_udp_tproxy
-							json_close_array
-							;;
-					esac
-					if [ -n "$sources" ]; then
-						json_add_array source
-						local src
-						for src in $sources; do json_add_string '' "$src"; done
-						json_close_array
-					fi
-					[ -n "$ports" ] && json_add_string port "$ports"
-				json_close_object
 			done
 		json_close_array
 	json_close_object

@@ -968,21 +968,15 @@ msgstr "编辑分流规则：%s"
 msgid "Network"
 msgstr "网络"
 
-#: htdocs/luci-static/resources/view/bypass/rule_edit.js:43
-msgid "Rule Type"
-msgstr "规则类型"
+#: htdocs/luci-static/resources/view/bypass/rule_edit.js:69
+msgid "Domain and IP / CIDR lists are independent. If both are non-empty, BypassCore creates two ordered rules with the same outbound."
+msgstr "域名列表与 IP / CIDR 列表彼此独立；两者都不为空时，BypassCore 会使用相同的出口创建两条有序规则。"
 
-#: htdocs/luci-static/resources/view/bypass/rule_edit.js:43
-msgid ""
-"A rule matches either domains or IPs, not both. Saving keeps only the "
-"selected list and discards the other one."
-msgstr "一条规则只匹配域名或 IP 其中一类。保存时仅保留所选类型的列表，另一个列表将被清除。"
-
-#: htdocs/luci-static/resources/view/bypass/rule_edit.js:43
+#: htdocs/luci-static/resources/view/bypass/rule_edit.js:101
 msgid "Domain list"
 msgstr "域名列表"
 
-#: htdocs/luci-static/resources/view/bypass/rule_edit.js:47
+#: htdocs/luci-static/resources/view/bypass/rule_edit.js:105
 msgid ""
 "One rule per line. v2ray prefixes: geosite:, domain:, full:, regexp:, ext:, "
 "or a bare domain."
@@ -990,28 +984,13 @@ msgstr ""
 "每行一条规则，可使用 geosite:、domain:、full:、regexp:、ext: 前缀或直接填写域"
 "名。"
 
-#: htdocs/luci-static/resources/view/bypass/rule_edit.js:49
+#: htdocs/luci-static/resources/view/bypass/rule_edit.js:107
 msgid "IP / CIDR list"
 msgstr "IP / CIDR 列表"
 
-#: htdocs/luci-static/resources/view/bypass/rule_edit.js:53
+#: htdocs/luci-static/resources/view/bypass/rule_edit.js:111
 msgid "One rule per line. geoip:, ext:, or a bare CIDR / IP."
 msgstr "每行一条规则，可使用 geoip:、ext: 或直接填写 CIDR / IP。"
-
-#: htdocs/luci-static/resources/view/bypass/rule_edit.js:55
-msgid ""
-"This rule still contains both a domain list and an IP list. Saving keeps "
-"only the list of the selected Rule Type; the other list shown below will be "
-"discarded. Copy it into a separate rule first if you still need it."
-msgstr ""
-"此规则仍同时包含域名列表和 IP 列表。保存时仅保留所选规则类型的列表，下方显示"
-"的另一个列表将被清除。如仍需要，请先将其复制到单独的规则中。"
-
-#: htdocs/luci-static/resources/view/bypass/rule_edit.js
-msgid ""
-"The selected list must not be empty; a rule without match conditions would "
-"be skipped entirely."
-msgstr "所选列表不能为空；没有任何匹配条件的规则将被整体跳过。"
 
 #: htdocs/luci-static/resources/view/bypass/geo_view.js:29
 msgid "Results appear here."

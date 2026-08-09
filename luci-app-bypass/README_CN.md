@@ -158,6 +158,8 @@ config shunt_rules 'ChinaIP'
     option outbound '_direct'
 ```
 
+同一个 `shunt_rules` section 可以同时配置 `domain_list` 与 `ip_list`。生成配置时两份列表会分别成为相邻的独立规则（`<section>:domain` 与 `<section>:ip`），共用同一个出口及 Network、Protocol、Inbound、Source、Port 等附加条件，从而实现 Domain 或 IP 任一命中，而不是要求两者同时命中。
+
 Other Settings 中的 Direct IP List 保存在 `/usr/share/bypass/direct_ip`；其中的 IP、CIDR 与 `geoip:CODE` 会在进入 BypassCore 前由 nftables 直接放行。旧版默认 `PrivateIP` 规则会在升级时安全合并进该列表、精确去重后移除。
 
 ---
