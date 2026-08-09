@@ -67,6 +67,16 @@ var STATES = {
 	idle: _('Idle')
 };
 
+/* "connected" alone, where there is a bundle for the link to be in.
+ *
+ * The collector emits one state for two situations that a reader has no way to
+ * tell apart from the word: a single-server interface, where a working transport
+ * is the entire story, and a member of a formed bundle whose join was never
+ * confirmed, where it is half of it. Kept out of STATES above rather than folded
+ * into it, because the single-server case must keep reading as the plain success
+ * it is. */
+var CONNECTED_IN_BUNDLE = _('Connected, join unconfirmed');
+
 /* Which of the three colours a state gets. Kept apart from the label because the
  * status page and the compact line want the same judgement in different forms. */
 var SEVERITY = {
@@ -133,11 +143,24 @@ return baseclass.extend({
 		return REASONS[code] || _('Unrecognised failure (%s)').format(code);
 	},
 
-	stateText: function(state) {
+	/* The label for a link state. "bundled" says whether this interface has a
+	 * bundle for the link to be in, which is the one piece of context the state
+	 * word does not carry: without a bundle "connected" is the whole truth, with
+	 * one it leaves out the only thing the reader is asking. Optional, so a
+	 * caller with no interface in hand still gets the plain vocabulary. */
+	stateText: function(state, bundled) {
+		if (bundled && state == 'connected')
+			return CONNECTED_IN_BUNDLE;
 		return STATES[state] || _('Unknown');
 	},
 
-	severity: function(state) {
+	/* Amber for the same case, and for the same reason the label changes: green
+	 * beside "In bundle" green says the two links are equally well understood,
+	 * and one of them is not understood at all. Not red -- nothing is known to
+	 * have failed, and an unsettled verdict is not a fault. */
+	severity: function(state, bundled) {
+		if (bundled && state == 'connected')
+			return 'busy';
 		return SEVERITY[state] || 'idle';
 	},
 
@@ -167,6 +190,34 @@ return baseclass.extend({
 	fetch: function() {
 		start();
 		return refresh();
+	},
+
+	/* How many links are confirmed in the bundle, how many are up without that
+	 * having been settled, and the total of the two.
+	 *
+	 * Here rather than in the status page because links_up -- which is the only
+	 * count the collector publishes -- is the sum, and both surfaces were reading
+	 * it as though it were the first. That is the drift this module exists to
+	 * stop: the interface list said "3 of 3 servers" while the status page said
+	 * one of them was unconfirmed, about the same router, in the same second.
+	 *
+	 * Derived from the links array rather than from a new collector field, so it
+	 * is right against every hysteria2-ppp that has ever shipped this object:
+	 * links_up is carrying + connected by construction, so counting the states
+	 * back out cannot disagree with it. */
+	tally: function(st) {
+		var links = (st && st.links) || [], i,
+		    rv = { carrying: 0, unconfirmed: 0, up: 0 };
+
+		for (i = 0; i < links.length; i++) {
+			if (links[i].state == 'carrying')
+				rv.carrying++;
+			else if (links[i].state == 'connected')
+				rv.unconfirmed++;
+		}
+
+		rv.up = rv.carrying + rv.unconfirmed;
+		return rv;
 	},
 
 	/* What is wrong with this interface, as sentences, or an empty list when the
@@ -201,7 +252,7 @@ return baseclass.extend({
 		limit = limit || 3;
 		if (rv.length > limit)
 			rv = rv.slice(0, limit).concat([
-				_('%d more link problems; see Status → Multilink PPP.').format(rv.length - limit)
+				_('%d more link problems; see Status → Hysteria 2 Links.').format(rv.length - limit)
 			]);
 
 		return rv;

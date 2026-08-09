@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use serde_json::{Map, Value};
 
 use super::TcFilter;
@@ -43,17 +45,28 @@ pub fn has_software_direct_action_semantics(filter: &TcFilterDetails) -> bool {
         && filter.not_in_hw != Some(false)
 }
 
+pub fn dae_preempted_lan_ingress_interfaces(
+    filters: &[TcFilter],
+    attach_ifnames: &[String],
+) -> BTreeSet<String> {
+    filters
+        .iter()
+        .filter(|filter| {
+            filter.owner == "dae"
+                && filter.chain == 0
+                && filter.direction == "ingress"
+                && filter.pref > 0
+                && filter.pref < LANSPEED_PREF
+                && attach_ifnames
+                    .iter()
+                    .any(|ifname| ifname == &filter.interface)
+        })
+        .map(|filter| filter.interface.clone())
+        .collect()
+}
+
 pub fn dae_preempts_lan_ingress(filters: &[TcFilter], attach_ifnames: &[String]) -> bool {
-    filters.iter().any(|filter| {
-        filter.owner == "dae"
-            && filter.chain == 0
-            && filter.direction == "ingress"
-            && filter.pref > 0
-            && filter.pref < LANSPEED_PREF
-            && attach_ifnames
-                .iter()
-                .any(|ifname| ifname == &filter.interface)
-    })
+    !dae_preempted_lan_ingress_interfaces(filters, attach_ifnames).is_empty()
 }
 
 pub fn parse_filter_json(
@@ -111,7 +124,18 @@ pub fn parse_filter_json(
                         .and_then(Value::as_bool)
                 })
             };
-            let owner = owner(program_name.as_deref().unwrap_or_default());
+            /*
+             * tc-full exposes two different BPF names on current daed builds:
+             * `bpf_name` is the stable attachment name (for example
+             * `daed_lan_ingress_l2`), while `prog.name` is the truncated kernel
+             * program name (`tproxy_lan_ingr`). Keep the latter as the runtime
+             * program identity, but prefer the stable attachment name when
+             * determining ownership so the DAE upload path is not missed.
+             */
+            let owner_name = options
+                .and_then(|item| string_field(item, "bpf_name"))
+                .or_else(|| program_name.clone());
+            let owner = owner(owner_name.as_deref().unwrap_or_default());
             let chain = object.get("chain").and_then(value_u32).unwrap_or(0);
 
             Ok(TcFilterDetails {
@@ -218,6 +242,37 @@ fn value_protocol(value: &Value) -> String {
         Value::String(value) => value.clone(),
         Value::Number(value) => value.to_string(),
         _ => "invalid".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn filter(interface: &str, pref: u32, owner: &str) -> TcFilter {
+        TcFilter {
+            interface: interface.into(),
+            direction: "ingress".into(),
+            chain: 0,
+            pref,
+            handle: "0x1".into(),
+            owner: owner.into(),
+            source: "test".into(),
+        }
+    }
+
+    #[test]
+    fn dae_preemption_is_scoped_to_matching_lan_interfaces() {
+        let filters = vec![
+            filter("br-lan", 2, "dae"),
+            filter("br-guest", 3, "dae"),
+            filter("br-lan", 2, "other"),
+            filter("br-lan", LANSPEED_PREF, "dae"),
+        ];
+        assert_eq!(
+            dae_preempted_lan_ingress_interfaces(&filters, &["br-lan".into(), "br-iot".into()]),
+            BTreeSet::from(["br-lan".into()])
+        );
     }
 }
 

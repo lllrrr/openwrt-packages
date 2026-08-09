@@ -1,6 +1,6 @@
 {
 	"admin/status/hysteria": {
-		"title": "Multilink PPP",
+		"title": "Hysteria 2 Links",
 		"order": 30,
 		"action": {
 			"type": "view",

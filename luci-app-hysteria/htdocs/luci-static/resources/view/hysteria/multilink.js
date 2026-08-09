@@ -29,9 +29,18 @@ function duration(s) {
  * Every way this goes wrong goes wrong quietly: a bundle that never formed
  * carries traffic and reports itself up, just at a fraction of the throughput
  * that was configured. So the first line of every card is the verdict, and the
- * table underneath is the follow-up. */
+ * table underneath is the follow-up.
+ *
+ * An unsettled join is one of those quiet ways, which is why it gets a warning
+ * rather than the reassurance it used to get folded into. It is not a failure --
+ * the link may well be carrying its full share -- but nobody can tell, and a
+ * headline that cannot tell must not say "every configured server is in the
+ * bundle". */
 function banner(st) {
-	var cls = 'info', head, body;
+	/* hy.tally rather than st.links_up: that field is the sum of "confirmed in
+	 * the bundle" and "up, membership never settled", and printing the sum under
+	 * the word "carrying" is what made this banner contradict its own table. */
+	var cls = 'info', head, body, t = hy.tally(st), missing;
 
 	if (!st.up) {
 		cls = 'danger';
@@ -52,15 +61,33 @@ function banner(st) {
 			? _('Set Multilink PPP to Automatic on this interface to bundle them.')
 			: _('This interface carries one Hysteria 2 server. Add another to bundle them with Multilink PPP.');
 	}
-	else if (st.links_up >= st.links_configured) {
-		cls = 'info';
-		head = _('Bundle formed — %d of %d servers carrying').format(st.links_up, st.links_configured);
-		body = _('Every configured server is in the bundle.');
-	}
 	else {
-		cls = 'warning';
-		head = _('Bundle formed — %d of %d servers carrying').format(st.links_up, st.links_configured);
-		body = _('The connection is up at reduced capacity. The links below say which server is missing and why.');
+		missing = Math.max(0, st.links_configured - t.up);
+
+		if (missing > 0 && t.unconfirmed > 0) {
+			cls = 'warning';
+			head = _('Bundle formed — %d of %d servers confirmed in it').format(t.carrying, st.links_configured);
+			body = missing == 1 && t.unconfirmed == 1
+				? _('One server is not connected at all, and one more is connected without having reported a join. The table says which is which.')
+				: _('%d servers are not connected at all, and %d more are connected without having reported a join. The table says which is which.').format(missing, t.unconfirmed);
+		}
+		else if (missing > 0) {
+			cls = 'warning';
+			head = _('Bundle formed — %d of %d servers carrying').format(t.carrying, st.links_configured);
+			body = _('The connection is up at reduced capacity. The links below say which server is missing and why.');
+		}
+		else if (t.unconfirmed > 0) {
+			cls = 'warning';
+			head = _('Bundle formed — %d of %d servers confirmed in it').format(t.carrying, st.links_configured);
+			body = t.unconfirmed == 1
+				? _('The remaining server is connected, but never reported joining the bundle, so whether it carries any share of the traffic is unknown. See the note below the table.')
+				: _('The remaining %d servers are connected, but never reported joining the bundle, so whether they carry any share of the traffic is unknown. See the note below the table.').format(t.unconfirmed);
+		}
+		else {
+			cls = 'info';
+			head = _('Bundle formed — %d of %d servers carrying').format(t.carrying, st.links_configured);
+			body = _('Every configured server is confirmed in the bundle.');
+		}
 	}
 
 	return E('div', { 'class': 'alert-message ' + cls }, [
@@ -73,17 +100,45 @@ function banner(st) {
  * parks holding the bundle while a supervisor redials that same server as an
  * ordinary member, so capacity comes back without the interface being rebuilt. */
 function footnotes(st) {
-	var notes = [], links = st.links || [], i, holder = false;
+	var notes = [], links = st.links || [], i, holder = false, t = hy.tally(st);
 
 	for (i = 0; i < links.length; i++)
 		if (links[i].role == 'holder')
 			holder = true;
 
-	if (st.bundle_state == 'formed' && !holder && st.links_up > 0)
+	if (st.bundle_state == 'formed' && !holder && t.up > 0)
 		notes.push(_('The process holding the interface carries no link of its own right now. This is normal after a reconnect.'));
 
-	if (st.supervisors_spare > 0)
-		notes.push(_('%d link supervisor is standing by without a server. One always is: it takes over whichever server drops first.').format(st.supervisors_spare));
+	/* What an unsettled join is, because the state name alone reads as either a
+	 * failure or a success depending on which the reader expected, and it is
+	 * neither. A member announces its join on its own pppd log and nothing else
+	 * on the router reports the fact -- there is no ioctl that asks whether a
+	 * channel is in a bundle -- so a pppd whose wording does not match, or a log
+	 * that could not be opened, leaves the question open for as long as the link
+	 * runs. The remedy is in the system log either way, so say where to look. */
+	if (st.bundle_state == 'formed' && t.unconfirmed > 0)
+		notes.push(_('"Join unconfirmed" is the absence of a verdict, not a refusal: the transport is up, but nothing has confirmed the link joined the bundle. A link that was actually turned away reads "Refused by bundle" instead, and one that failed to stay up would not hold this state for long — so a link that has been here for hours is most likely carrying its share, with only the confirmation missing. That confirmation is a line on the link\'s own pppd log, which stays unread if the log is empty or if this pppd words the line differently.'));
+
+	/* supervisors_spare is not reported here at all, and that is the decision
+	 * rather than an omission.
+	 *
+	 * There is one supervisor per configured server and the interface's own pppd
+	 * occupies a slot without being one of them, so exactly one supervisor is
+	 * idle whenever the bundle is whole. Stated on a page whose every other line
+	 * is about servers, "standing by without a server" reads as a fourth server
+	 * that has gone missing -- and the note was written for a reader counting
+	 * dialling links against configured ones and coming up short, which a table
+	 * listing every configured server with its own state does not leave anybody
+	 * doing.
+	 *
+	 * Nor is a surplus worth reporting, which was the tempting half. A member in
+	 * backoff has released its slot, so the count rises for as long as the sleep
+	 * lasts -- meaning the line would appear exactly when the table already says
+	 * "Retrying", and disappear on the next attempt. A footnote that flaps with
+	 * the retry loop is worse than no footnote.
+	 *
+	 * The field stays in the ubus object and in hysteria-ppp-status, where the
+	 * reader is debugging the pool rather than reading a server list. */
 
 	if (st.bundle_state == 'formed')
 		notes.push(_('Numbers are positions in the server pool, not priorities. Losing any link costs the same as losing any other.'));
@@ -94,8 +149,19 @@ function footnotes(st) {
 		: E('div');
 }
 
+/* Two words the page prints raw and nothing else on the router explains. Which
+ * of them a server gets is decided at dial time and changes at every reconnect,
+ * so an operator who reads "holder" as a rank has been told the opposite of the
+ * truth. Hover text rather than another footnote: the page already carries
+ * three, and this is a question about one cell. */
+var ROLE_HELP = {
+	holder: _('The link netifd itself runs. Its pppd owns the interface device and created the bundle. Which server holds it is decided at dial time, not configured.'),
+	member: _('An extra link dialled into the same bundle. It contributes bandwidth and nothing else — no address, no routes of its own.')
+};
+
 function linkRow(st, l) {
 	var err = l.last_error || {},
+	    bundled = (st.bundle_state == 'formed'),
 	    note = '-';
 
 	if (err.code)
@@ -103,14 +169,22 @@ function linkRow(st, l) {
 			typeof err.ago == 'number' ? _('%s ago').format(duration(err.ago)) : _('just now'));
 	else if (l.state == 'refused')
 		note = hy.REASONS.MLPPP_JOIN_REFUSED;
+	/* The same column the refusal above uses, for the same reason: it is where
+	 * this table says why a link is not known to be carrying. */
+	else if (bundled && l.state == 'connected')
+		note = _('no join reported on this link\'s pppd log');
 
 	return E('tr', { 'class': 'tr' }, [
 		E('td', { 'class': 'td', 'style': 'width:2em;opacity:0.6' }, String(l.slot)),
 		E('td', { 'class': 'td' }, E('code', {}, l.server || '-')),
-		E('td', { 'class': 'td', 'style': 'opacity:0.7' }, l.role || '-'),
+		E('td', {
+			'class': 'td',
+			'style': 'opacity:0.7',
+			'title': ROLE_HELP[l.role] || ''
+		}, l.role || '-'),
 		E('td', { 'class': 'td' }, [
-			E('span', { 'class': 'hy-led hy-' + hy.severity(l.state) }),
-			' ', hy.stateText(l.state)
+			E('span', { 'class': 'hy-led hy-' + hy.severity(l.state, bundled) }),
+			' ', hy.stateText(l.state, bundled)
 		]),
 		E('td', { 'class': 'td', 'style': 'font-variant-numeric:tabular-nums' },
 			duration(l['for'])),
@@ -182,9 +256,9 @@ return view.extend({
 				'.hy-bad{background:#a6322d}' +
 				'.hy-idle{background:transparent;border:1px solid currentColor;opacity:0.5}'
 			]),
-			E('h2', {}, _('Hysteria 2 Multilink PPP')),
+			E('h2', {}, _('Hysteria 2 Links')),
 			E('div', { 'class': 'cbi-map-descr' },
-				_('Which servers each Hysteria 2 interface is connected to. Updates every 5 seconds.')),
+				_('Which servers each Hysteria 2 interface is connected to, and which of them are carrying traffic. Updates every 5 seconds.')),
 			container
 		]);
 	},

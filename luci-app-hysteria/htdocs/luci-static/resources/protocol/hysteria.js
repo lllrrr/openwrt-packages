@@ -70,7 +70,8 @@ return network.registerProtocol('hysteria', {
 	 * choose. */
 	getI18n: function() {
 		var base = _('Hysteria2 PPP'),
-		    st = hy.statusOf(this);
+		    st = hy.statusOf(this),
+		    t;
 
 		if (!st)
 			return base;
@@ -85,9 +86,25 @@ return network.registerProtocol('hysteria', {
 
 		/* One server is not a bundle, and "1 of 1 servers" is noise beside an
 		 * Uptime row that already says the link is up. */
-		if (st.links_configured > 1)
+		if (st.links_configured > 1) {
+			t = hy.tally(st);
+
+			/* Where some link is up without its bundle membership having been
+			 * settled, this row has to say so. The plain count is links_up, which
+			 * includes those links -- so an interface the status page is warning
+			 * about would otherwise read "3 of 3 servers" here, and of the two
+			 * surfaces the reassuring one is the one an operator sees first.
+			 *
+			 * It stays a count rather than becoming a sentence: this is the
+			 * Protocol row, sharing a narrow box with Uptime and RX, and the
+			 * explanation belongs on the page the count is inviting them to. */
+			if (st.bundle_state == 'formed' && t.unconfirmed > 0)
+				return '%s — %s'.format(base,
+					_('%d of %d servers confirmed').format(t.carrying, st.links_configured));
+
 			return '%s — %s'.format(base,
-				_('%d of %d servers').format(st.links_up, st.links_configured));
+				_('%d of %d servers').format(t.up, st.links_configured));
+		}
 
 		return base;
 	},

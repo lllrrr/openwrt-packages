@@ -14,7 +14,42 @@ const LOCAL_PREF_START: u32 = 100;
 const CLIENT_PREF_START: u32 = 10_000;
 const TERMINAL_PREF: u32 = 65_534;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Hook {
+    Ingress,
+    Egress,
+}
+
+impl Hook {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ingress => "ingress",
+            Self::Egress => "egress",
+        }
+    }
+
+    const fn jump_pref(self) -> u32 {
+        match self {
+            // Keep accounting first, then apply direct-LAN control.
+            Self::Ingress => JUMP_PREF,
+            // Upgrade cleanup for the rejected dae0->IFB redirect.  New code
+            // must never install this egress jump because mirred steals the
+            // packet from DAE's veth delivery path.
+            Self::Egress => 100,
+        }
+    }
+}
+
 pub(crate) fn preflight(
+    lan_device: &str,
+    local_prefixes: &[(IpAddr, u8)],
+    rules: &[&ActiveRule],
+) -> Result<(), String> {
+    preflight_on(Hook::Ingress, lan_device, local_prefixes, rules)
+}
+
+fn preflight_on(
+    hook: Hook,
     lan_device: &str,
     local_prefixes: &[(IpAddr, u8)],
     rules: &[&ActiveRule],
@@ -28,8 +63,8 @@ pub(crate) fn preflight(
         }
     }
     validate_capacity(local_prefixes, rules)?;
-    ensure_jump_owned_or_absent(lan_device)?;
-    ensure_chain_owned_or_absent(lan_device)
+    ensure_jump_owned_or_absent(hook, lan_device)?;
+    ensure_chain_owned_or_absent(hook, lan_device)
 }
 
 pub(crate) fn install(
@@ -37,14 +72,24 @@ pub(crate) fn install(
     local_prefixes: &[(IpAddr, u8)],
     rules: &[&ActiveRule],
 ) -> Result<(), String> {
-    preflight(lan_device, local_prefixes, rules)?;
+    install_on(Hook::Ingress, lan_device, local_prefixes, rules)
+}
+
+fn install_on(
+    hook: Hook,
+    lan_device: &str,
+    local_prefixes: &[(IpAddr, u8)],
+    rules: &[&ActiveRule],
+) -> Result<(), String> {
+    preflight_on(hook, lan_device, local_prefixes, rules)?;
     system::ensure_clsact(lan_device)?;
-    deactivate(lan_device)?;
-    clear_chain(lan_device)?;
+    deactivate_on(hook, lan_device)?;
+    clear_chain(hook, lan_device)?;
 
     let mut preference = LOCAL_PREF_START;
     for (address, prefix_len) in local_prefixes {
         add_u32(
+            hook,
             lan_device,
             preference,
             *address,
@@ -57,17 +102,15 @@ pub(crate) fn install(
 
     preference = CLIENT_PREF_START;
     for rule in rules {
-        for address in &rule.ips {
-            add_u32(
-                lan_device,
-                preference,
-                *address,
-                if address.is_ipv4() { 32 } else { 128 },
-                "src",
-                &["action", "mirred", "egress", "redirect", "dev", ifb::DEVICE],
-            )?;
-            preference += 1;
-        }
+        add_mac(
+            hook,
+            lan_device,
+            preference,
+            "src",
+            &rule.mac.to_string(),
+            &["action", "mirred", "egress", "redirect", "dev", ifb::DEVICE],
+        )?;
+        preference += 1;
     }
 
     let chain = CHAIN.to_string();
@@ -76,20 +119,38 @@ pub(crate) fn install(
     system::run(
         "tc",
         &[
-            "filter", "add", "dev", lan_device, "ingress", "chain", &chain, "protocol", "all",
-            "pref", &terminal, "handle", &marker, "matchall", "action", "pass",
+            "filter",
+            "add",
+            "dev",
+            lan_device,
+            hook.as_str(),
+            "chain",
+            &chain,
+            "protocol",
+            "all",
+            "pref",
+            &terminal,
+            "handle",
+            &marker,
+            "matchall",
+            "action",
+            "pass",
         ],
     )?;
-    verify_chain(lan_device, rules)?;
-    activate(lan_device)
+    verify_chain(hook, lan_device, rules)?;
+    activate_on(hook, lan_device)
 }
 
 pub(crate) fn deactivate(lan_device: &str) -> Result<(), String> {
+    deactivate_on(Hook::Ingress, lan_device)
+}
+
+fn deactivate_on(hook: Hook, lan_device: &str) -> Result<(), String> {
     if !system::interface_exists(lan_device) || !system::has_qdisc(lan_device, "clsact", None) {
         return Ok(());
     }
-    ensure_jump_owned_or_absent(lan_device)?;
-    let preference = JUMP_PREF.to_string();
+    ensure_jump_owned_or_absent(hook, lan_device)?;
+    let preference = hook.jump_pref().to_string();
     system::run_ignore_missing(
         "tc",
         &[
@@ -97,7 +158,7 @@ pub(crate) fn deactivate(lan_device: &str) -> Result<(), String> {
             "del",
             "dev",
             lan_device,
-            "ingress",
+            hook.as_str(),
             "pref",
             &preference,
         ],
@@ -106,15 +167,74 @@ pub(crate) fn deactivate(lan_device: &str) -> Result<(), String> {
 }
 
 pub(crate) fn cleanup(lan_device: &str) -> Result<(), String> {
+    cleanup_on(Hook::Ingress, lan_device)
+}
+
+pub(crate) fn cleanup_legacy_dae_egress(device: &str) -> Result<(), String> {
+    cleanup_on(Hook::Egress, device)
+}
+
+pub(crate) fn legacy_dae_egress_owned(device: &str) -> Result<bool, String> {
+    if !system::interface_exists(device) || !system::has_qdisc(device, "clsact", None) {
+        return Ok(false);
+    }
+    let preference = Hook::Egress.jump_pref().to_string();
+    let jump = system::output(
+        "tc",
+        &[
+            "-j",
+            "-d",
+            "filter",
+            "show",
+            "dev",
+            device,
+            Hook::Egress.as_str(),
+            "pref",
+            &preference,
+        ],
+    )?;
+    if !jump.status.success() {
+        return Err("ingress_filter_inspection_failed".into());
+    }
+    let jump: Vec<Value> = serde_json::from_slice(&jump.stdout)
+        .map_err(|_| "ingress_filter_inspection_failed".to_owned())?;
+    if jump.iter().any(|value| contains_goto_chain(value, CHAIN)) {
+        return Ok(true);
+    }
+
+    let chain = CHAIN.to_string();
+    let marker = system::output(
+        "tc",
+        &[
+            "-j",
+            "-d",
+            "filter",
+            "show",
+            "dev",
+            device,
+            Hook::Egress.as_str(),
+            "chain",
+            &chain,
+        ],
+    )?;
+    if !marker.status.success() {
+        return Err("ingress_filter_inspection_failed".into());
+    }
+    let marker: Vec<Value> = serde_json::from_slice(&marker.stdout)
+        .map_err(|_| "ingress_filter_inspection_failed".to_owned())?;
+    Ok(marker.iter().any(contains_owned_chain_marker))
+}
+
+fn cleanup_on(hook: Hook, lan_device: &str) -> Result<(), String> {
     if !system::interface_exists(lan_device) || !system::has_qdisc(lan_device, "clsact", None) {
         return Ok(());
     }
-    deactivate(lan_device)?;
-    clear_chain(lan_device)
+    deactivate_on(hook, lan_device)?;
+    clear_chain(hook, lan_device)
 }
 
-fn activate(lan_device: &str) -> Result<(), String> {
-    let preference = JUMP_PREF.to_string();
+fn activate_on(hook: Hook, lan_device: &str) -> Result<(), String> {
+    let preference = hook.jump_pref().to_string();
     let chain = CHAIN.to_string();
     system::run(
         "tc",
@@ -123,7 +243,7 @@ fn activate(lan_device: &str) -> Result<(), String> {
             "add",
             "dev",
             lan_device,
-            "ingress",
+            hook.as_str(),
             "protocol",
             "all",
             "pref",
@@ -137,20 +257,26 @@ fn activate(lan_device: &str) -> Result<(), String> {
     )
 }
 
-fn clear_chain(lan_device: &str) -> Result<(), String> {
-    ensure_chain_owned_or_absent(lan_device)?;
+fn clear_chain(hook: Hook, lan_device: &str) -> Result<(), String> {
+    ensure_chain_owned_or_absent(hook, lan_device)?;
     let chain = CHAIN.to_string();
     system::run_ignore_missing(
         "tc",
         &[
-            "filter", "del", "dev", lan_device, "ingress", "chain", &chain,
+            "filter",
+            "del",
+            "dev",
+            lan_device,
+            hook.as_str(),
+            "chain",
+            &chain,
         ],
     );
     Ok(())
 }
 
-fn ensure_jump_owned_or_absent(lan_device: &str) -> Result<(), String> {
-    let preference = JUMP_PREF.to_string();
+fn ensure_jump_owned_or_absent(hook: Hook, lan_device: &str) -> Result<(), String> {
+    let preference = hook.jump_pref().to_string();
     let output = system::output(
         "tc",
         &[
@@ -160,7 +286,7 @@ fn ensure_jump_owned_or_absent(lan_device: &str) -> Result<(), String> {
             "show",
             "dev",
             lan_device,
-            "ingress",
+            hook.as_str(),
             "pref",
             &preference,
         ],
@@ -180,12 +306,20 @@ fn ensure_jump_owned_or_absent(lan_device: &str) -> Result<(), String> {
     }
 }
 
-fn ensure_chain_owned_or_absent(lan_device: &str) -> Result<(), String> {
+fn ensure_chain_owned_or_absent(hook: Hook, lan_device: &str) -> Result<(), String> {
     let chain = CHAIN.to_string();
     let output = system::output(
         "tc",
         &[
-            "-j", "-d", "filter", "show", "dev", lan_device, "ingress", "chain", &chain,
+            "-j",
+            "-d",
+            "filter",
+            "show",
+            "dev",
+            lan_device,
+            hook.as_str(),
+            "chain",
+            &chain,
         ],
     )?;
     if !output.status.success() {
@@ -196,18 +330,20 @@ fn ensure_chain_owned_or_absent(lan_device: &str) -> Result<(), String> {
     }
     let values: Vec<Value> = serde_json::from_slice(&output.stdout)
         .map_err(|_| "ingress_filter_inspection_failed".to_owned())?;
-    if values.iter().any(|value| {
-        value.get("kind").and_then(Value::as_str) == Some("matchall")
-            && value
-                .get("options")
-                .and_then(|options| options.get("handle"))
-                .and_then(Value::as_u64)
-                == Some(u64::from(CHAIN))
-    }) {
+    if values.iter().any(contains_owned_chain_marker) {
         Ok(())
     } else {
         Err("ingress_chain_owned_by_external_service".into())
     }
+}
+
+fn contains_owned_chain_marker(value: &Value) -> bool {
+    value.get("kind").and_then(Value::as_str) == Some("matchall")
+        && value
+            .get("options")
+            .and_then(|options| options.get("handle"))
+            .and_then(Value::as_u64)
+            == Some(u64::from(CHAIN))
 }
 
 fn contains_goto_chain(value: &Value, chain: u32) -> bool {
@@ -225,6 +361,7 @@ fn contains_goto_chain(value: &Value, chain: u32) -> bool {
 }
 
 fn add_u32(
+    hook: Hook,
     device: &str,
     preference: u32,
     address: IpAddr,
@@ -245,7 +382,7 @@ fn add_u32(
         "add",
         "dev",
         device,
-        "ingress",
+        hook.as_str(),
         "chain",
         &chain,
         "protocol",
@@ -262,10 +399,41 @@ fn add_u32(
     system::run("tc", &args)
 }
 
+fn add_mac(
+    hook: Hook,
+    device: &str,
+    preference: u32,
+    field: &str,
+    mac: &str,
+    action: &[&str],
+) -> Result<(), String> {
+    let chain = CHAIN.to_string();
+    let preference = preference.to_string();
+    let mut args = vec![
+        "filter",
+        "add",
+        "dev",
+        device,
+        hook.as_str(),
+        "chain",
+        &chain,
+        "protocol",
+        "all",
+        "pref",
+        &preference,
+        "u32",
+        "match",
+        "ether",
+        field,
+        mac,
+    ];
+    args.extend_from_slice(action);
+    system::run("tc", &args)
+}
+
 fn validate_capacity(local_prefixes: &[(IpAddr, u8)], rules: &[&ActiveRule]) -> Result<(), String> {
-    let addresses = rules.iter().map(|rule| rule.ips.len()).sum::<usize>();
     if LOCAL_PREF_START + local_prefixes.len() as u32 >= CLIENT_PREF_START
-        || CLIENT_PREF_START + addresses as u32 >= TERMINAL_PREF
+        || CLIENT_PREF_START + rules.len() as u32 >= TERMINAL_PREF
     {
         Err("control_filter_capacity".into())
     } else {
@@ -273,12 +441,20 @@ fn validate_capacity(local_prefixes: &[(IpAddr, u8)], rules: &[&ActiveRule]) -> 
     }
 }
 
-fn verify_chain(lan_device: &str, rules: &[&ActiveRule]) -> Result<(), String> {
+fn verify_chain(hook: Hook, lan_device: &str, rules: &[&ActiveRule]) -> Result<(), String> {
     let chain = CHAIN.to_string();
     let output = system::output(
         "tc",
         &[
-            "-j", "-d", "filter", "show", "dev", lan_device, "ingress", "chain", &chain,
+            "-j",
+            "-d",
+            "filter",
+            "show",
+            "dev",
+            lan_device,
+            hook.as_str(),
+            "chain",
+            &chain,
         ],
     )?;
     if !output.status.success() {
@@ -286,7 +462,7 @@ fn verify_chain(lan_device: &str, rules: &[&ActiveRule]) -> Result<(), String> {
     }
     let values: Vec<Value> = serde_json::from_slice(&output.stdout)
         .map_err(|_| "ingress_filter_verification_failed".to_owned())?;
-    let expected = rules.iter().map(|rule| rule.ips.len()).sum::<usize>();
+    let expected = rules.len();
     let redirects = values
         .iter()
         .map(|value| count_ifb_redirects(value, ifb::DEVICE))
@@ -334,12 +510,24 @@ mod tests {
         });
         assert!(contains_goto_chain(&value, CHAIN));
         assert!(!contains_goto_chain(&value, CHAIN + 1));
+        assert!(contains_owned_chain_marker(&serde_json::json!({
+            "kind": "matchall",
+            "options": { "handle": CHAIN }
+        })));
+        assert!(!contains_owned_chain_marker(&serde_json::json!({
+            "kind": "matchall",
+            "options": { "handle": CHAIN + 1 }
+        })));
     }
 
     #[test]
     fn capacity_keeps_local_and_client_ranges_separate() {
         let rule = ActiveRule {
             identity_key: "02:00:00:00:00:01@lan".into(),
+            mac: "02:00:00:00:00:01".parse().unwrap(),
+            interface: "br-lan".into(),
+            upload_before_proxy: false,
+            upload_preempted: false,
             ips: vec!["192.0.2.8".parse().unwrap()],
             upload_bps: 10_000_000,
             download_bps: 0,

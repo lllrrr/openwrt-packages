@@ -1,4 +1,5 @@
 mod classifier;
+mod dae;
 mod firewall;
 mod ifb;
 mod shaper;
@@ -11,9 +12,15 @@ use std::{
 
 use crate::control::{ApplyResult, ControlPlan, X86_MAX_RATE_BPS};
 
+/// Resolve bridge-slave ingress devices that run before DAE's bridge-master
+/// redirect. An empty set means the complete pre-DAE path was not proven.
+pub fn dae_upload_devices(bridges: &BTreeSet<String>) -> BTreeSet<String> {
+    dae::upload_devices(bridges)
+}
+
 pub fn apply(plan: &ControlPlan) -> Result<ApplyResult, String> {
     if plan.rules.is_empty() {
-        cleanup(&plan.lan_device)?;
+        cleanup(plan)?;
         return Ok(probe(&plan.lan_device));
     }
     if !system::valid_interface_name(&plan.lan_device)
@@ -31,8 +38,9 @@ pub fn apply(plan: &ControlPlan) -> Result<ApplyResult, String> {
     let upload = plan
         .rules
         .iter()
-        .filter(|rule| rule.upload_bps != 0)
+        .filter(|rule| rule.upload_bps != 0 && !rule.upload_preempted)
         .collect::<Vec<_>>();
+    let upload_by_device = upload_rules_by_device(plan, &upload);
     let download = plan
         .rules
         .iter()
@@ -44,17 +52,22 @@ pub fn apply(plan: &ControlPlan) -> Result<ApplyResult, String> {
         system::require_program("ip")?;
         shaper::preflight(&plan.lan_device, &upload, &download, &plan.local_prefixes)?;
     }
-    if !upload.is_empty() {
-        classifier::preflight(&plan.lan_device, &plan.local_prefixes, &upload)?;
+    for (device, rules) in &upload_by_device {
+        classifier::preflight(device, &plan.local_prefixes, rules)?;
     }
     firewall::preflight(plan)?;
 
     // Deactivate redirection before changing the IFB tree. The new jump is
     // installed only after every queue and filter has been verified.
-    classifier::deactivate(&plan.lan_device)?;
+    for device in control_devices(plan) {
+        classifier::deactivate(&device)?;
+    }
+    // Remove the rejected legacy dae0->IFB redirect before touching queues.
+    // This is upgrade cleanup only; no DAE egress redirect is installed.
+    cleanup_legacy_dae_upload_objects()?;
     let staged = (|| {
         if upload.is_empty() {
-            classifier::cleanup(&plan.lan_device)?;
+            cleanup_upload_classifiers(plan)?;
             shaper::cleanup_upload()?;
             ifb::cleanup()?;
         } else {
@@ -70,12 +83,19 @@ pub fn apply(plan: &ControlPlan) -> Result<ApplyResult, String> {
             shaper::activate_download(&plan.lan_device, &download, &plan.local_prefixes)?;
         }
         if !upload.is_empty() {
-            classifier::install(&plan.lan_device, &plan.local_prefixes, &upload)?;
+            for (device, rules) in &upload_by_device {
+                classifier::install(device, &plan.local_prefixes, rules)?;
+            }
+            for device in control_devices(plan) {
+                if !upload_by_device.contains_key(device.as_str()) {
+                    classifier::cleanup(&device)?;
+                }
+            }
         }
         Ok::<(), String>(())
     })();
     if let Err(error) = staged {
-        rollback(&plan.lan_device);
+        rollback(plan);
         return Err(error);
     }
 
@@ -136,7 +156,9 @@ pub fn observe(plan: &ControlPlan, previous: &ApplyResult) -> ApplyResult {
 
     let current = verification_snapshot(plan);
     let expected = plan.rules.iter().fold(0usize, |count, rule| {
-        count + usize::from(rule.upload_bps != 0) + usize::from(rule.download_bps != 0)
+        count
+            + usize::from(rule.upload_bps != 0 && !rule.upload_preempted)
+            + usize::from(rule.download_bps != 0)
     });
     let mut verified = 0usize;
     for rule in &plan.rules {
@@ -146,6 +168,7 @@ pub fn observe(plan: &ControlPlan, previous: &ApplyResult) -> ApplyResult {
             .copied()
             .unwrap_or(0);
         let upload_verified = rule.upload_bps != 0
+            && !rule.upload_preempted
             && (previous_directions & 1 != 0
                 || verification_delta(
                     previous,
@@ -188,12 +211,19 @@ pub fn observe(plan: &ControlPlan, previous: &ApplyResult) -> ApplyResult {
     next
 }
 
-pub fn cleanup(lan_device: &str) -> Result<(), String> {
+pub fn cleanup(plan: &ControlPlan) -> Result<(), String> {
     let mut errors = Vec::new();
+    for device in control_devices(plan) {
+        if let Err(error) = classifier::cleanup(&device) {
+            errors.push(error);
+        }
+    }
+    if let Err(error) = cleanup_legacy_dae_upload_objects() {
+        errors.push(error);
+    }
     for result in [
-        classifier::cleanup(lan_device),
-        firewall::cleanup(lan_device),
-        shaper::cleanup_download(lan_device),
+        firewall::cleanup(&plan.lan_device),
+        shaper::cleanup_download(&plan.lan_device),
         shaper::cleanup_upload(),
         ifb::cleanup(),
     ] {
@@ -258,18 +288,71 @@ fn probe(lan_device: &str) -> ApplyResult {
     }
 }
 
-fn rollback(lan_device: &str) {
-    let _ = classifier::cleanup(lan_device);
-    let _ = firewall::cleanup(lan_device);
-    let _ = shaper::cleanup_download(lan_device);
+fn rollback(plan: &ControlPlan) {
+    let _ = cleanup_upload_classifiers(plan);
+    let _ = cleanup_legacy_dae_upload_objects();
+    let _ = firewall::cleanup(&plan.lan_device);
+    let _ = shaper::cleanup_download(&plan.lan_device);
     let _ = shaper::cleanup_upload();
     let _ = ifb::cleanup();
+}
+
+fn upload_rules_by_device<'a>(
+    plan: &'a ControlPlan,
+    rules: &[&'a crate::control::ActiveRule],
+) -> BTreeMap<&'a str, Vec<&'a crate::control::ActiveRule>> {
+    let mut grouped = BTreeMap::<&str, Vec<_>>::new();
+    for rule in rules {
+        if rule.upload_before_proxy {
+            for device in &plan.dae_upload_devices {
+                grouped.entry(device.as_str()).or_default().push(*rule);
+            }
+        } else {
+            grouped
+                .entry(rule.interface.as_str())
+                .or_default()
+                .push(*rule);
+        }
+    }
+    grouped
+}
+
+fn control_devices(plan: &ControlPlan) -> BTreeSet<String> {
+    plan.control_devices
+        .iter()
+        .chain(plan.rules.iter().map(|rule| &rule.interface))
+        .chain(plan.dae_upload_devices.iter())
+        .filter(|device| system::valid_interface_name(device))
+        .cloned()
+        .collect()
+}
+
+fn cleanup_upload_classifiers(plan: &ControlPlan) -> Result<(), String> {
+    let mut errors = Vec::new();
+    for device in control_devices(plan) {
+        if let Err(error) = classifier::cleanup(&device) {
+            errors.push(error);
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join(";"))
+    }
+}
+
+fn cleanup_legacy_dae_upload_objects() -> Result<(), String> {
+    dae::cleanup_legacy_objects()
 }
 
 fn queue_drop_snapshot(plan: &ControlPlan) -> BTreeMap<String, u64> {
     let mut counters = BTreeMap::new();
     if let Ok(upload) = shaper::queue_drops(ifb::DEVICE) {
-        for rule in plan.rules.iter().filter(|rule| rule.upload_bps != 0) {
+        for rule in plan
+            .rules
+            .iter()
+            .filter(|rule| rule.upload_bps != 0 && !rule.upload_preempted)
+        {
             if let Some(count) = upload.get(&format!("{:x}:", rule.class_minor)) {
                 counters.insert(
                     verification_key(&rule.identity_key, "upload_queue_drops"),
@@ -294,7 +377,11 @@ fn queue_drop_snapshot(plan: &ControlPlan) -> BTreeMap<String, u64> {
 fn verification_snapshot(plan: &ControlPlan) -> BTreeMap<String, u64> {
     let mut counters = BTreeMap::new();
     if let Ok(upload) = shaper::class_bytes(ifb::DEVICE) {
-        for rule in plan.rules.iter().filter(|rule| rule.upload_bps != 0) {
+        for rule in plan
+            .rules
+            .iter()
+            .filter(|rule| rule.upload_bps != 0 && !rule.upload_preempted)
+        {
             if let Some(bytes) = upload.get(&format!("7a20:{:x}", rule.class_minor)) {
                 counters.insert(
                     verification_key(&rule.identity_key, "upload_class_bytes"),
@@ -352,6 +439,76 @@ fn queue_overflow_identities(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn upload_rule(identity: &str, interface: &str, minor: u16) -> crate::control::ActiveRule {
+        crate::control::ActiveRule {
+            identity_key: identity.into(),
+            mac: identity.split('@').next().unwrap().parse().unwrap(),
+            interface: interface.into(),
+            upload_before_proxy: false,
+            upload_preempted: false,
+            ips: vec!["192.0.2.9".parse().unwrap()],
+            upload_bps: 10_000_000,
+            download_bps: 0,
+            internet_disabled: false,
+            class_minor: minor,
+        }
+    }
+
+    #[test]
+    fn upload_rules_are_grouped_by_their_observed_interfaces() {
+        let first = upload_rule("02:00:00:00:00:01@lan", "br-lan", 0x101);
+        let second = upload_rule("02:00:00:00:00:02@guest", "br-guest", 0x102);
+        let third = upload_rule("02:00:00:00:00:03@guest", "br-guest", 0x103);
+        let plan = ControlPlan {
+            lan_device: "br-lan".into(),
+            control_devices: Vec::new(),
+            dae_upload_devices: Vec::new(),
+            local_prefixes: Vec::new(),
+            rules: Vec::new(),
+        };
+        let grouped = upload_rules_by_device(&plan, &[&first, &second, &third]);
+
+        assert_eq!(grouped["br-lan"].len(), 1);
+        assert_eq!(grouped["br-guest"].len(), 2);
+    }
+
+    #[test]
+    fn dae_upload_uses_bridge_slaves_before_the_proxy_hook() {
+        let mut rule = upload_rule("02:00:00:00:00:01@lan", "br-lan", 0x101);
+        rule.upload_before_proxy = true;
+        let plan = ControlPlan {
+            lan_device: "br-lan".into(),
+            control_devices: vec!["br-lan".into()],
+            dae_upload_devices: vec!["eth1".into(), "wlan0".into()],
+            local_prefixes: Vec::new(),
+            rules: vec![rule.clone()],
+        };
+        let grouped = upload_rules_by_device(&plan, &[&rule]);
+
+        assert!(!grouped.contains_key("br-lan"));
+        assert_eq!(grouped["eth1"].len(), 1);
+        assert_eq!(grouped["wlan0"].len(), 1);
+        assert!(control_devices(&plan).contains("eth1"));
+        assert!(control_devices(&plan).contains("wlan0"));
+    }
+
+    #[test]
+    fn cleanup_devices_include_configured_and_live_edges() {
+        let rule = upload_rule("02:00:00:00:00:01@guest", "br-guest", 0x101);
+        let plan = ControlPlan {
+            lan_device: "br-lan".into(),
+            control_devices: vec!["br-lan".into(), "br-iot".into()],
+            dae_upload_devices: Vec::new(),
+            local_prefixes: Vec::new(),
+            rules: vec![rule],
+        };
+
+        assert_eq!(
+            control_devices(&plan),
+            BTreeSet::from(["br-guest".into(), "br-iot".into(), "br-lan".into()])
+        );
+    }
 
     #[test]
     fn queue_overflow_is_scoped_to_the_changed_client() {
