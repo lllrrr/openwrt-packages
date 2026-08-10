@@ -21,8 +21,8 @@ msgstr "您確定嗎？"
 msgid "PowerManager"
 msgstr "電源管理器"
 
-msgid "Luci plugin that makes OpenWrt poweroff and reboot easy."
-msgstr "一款讓OpenWrt的關機和重新開機更容易的Luci外掛"
+msgid "LuCI plugin that makes OpenWrt poweroff and reboot easy."
+msgstr "一款讓OpenWrt的關機和重新開機更容易的LuCI外掛"
 
 msgid "Project Address"
 msgstr "專案位址"

@@ -20,7 +20,7 @@ return view.extend({
     var body = [
       E("h2", {}, _("PowerManager")),
       E("p", {}, [
-        _("Luci plugin that makes OpenWrt poweroff and reboot easy."),
+        _("LuCI plugin that makes OpenWrt poweroff and reboot easy."),
         " ",
         E(
           "a",
@@ -37,7 +37,7 @@ return view.extend({
       E("hr"),
     ];
 
-    for (var config in (changes || {})) {
+    for (var config in changes || {}) {
       body.push(
         E(
           "p",
@@ -117,8 +117,7 @@ return view.extend({
                     null,
                     E(
                       "p",
-                      _("Reboot failed") +
-                        (e.message ? ": " + e.message : ""),
+                      _("Reboot failed") + (e.message ? ": " + e.message : ""),
                     ),
                   );
                 });
@@ -179,8 +178,7 @@ return view.extend({
                   null,
                   E(
                     "p",
-                    _("PowerOff failed") +
-                      (e.message ? ": " + e.message : ""),
+                    _("PowerOff failed") + (e.message ? ": " + e.message : ""),
                   ),
                 );
               });

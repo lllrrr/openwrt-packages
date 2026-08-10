@@ -1,6 +1,6 @@
 # LuCI-APP-PowerManager(pm)
 
-Luci plugin that makes OpenWrt poweroff and reboot easy.
+LuCI plugin that makes OpenWrt poweroff and reboot easy.
 
 ## 🚀 Features
 
@@ -10,6 +10,8 @@ Luci plugin that makes OpenWrt poweroff and reboot easy.
 
 ## ⬇️ Downloads
 
+[Mirror by Mo](https://867678.xyz/doc/mirror)
+
 [GitHub Release](https://github.com/morouter/luci-app-pm/releases)
 
 ## ⚠️ Warning
@@ -18,7 +20,7 @@ Luci plugin that makes OpenWrt poweroff and reboot easy.
 
 ## 🛠 How to self-build or use
 
-[Generic Guide](https://867678.xyz/doc/OpenWrt)
+[Generic Guide](https://867678.xyz/doc/openwrt)
 
 ## ⚖️ License
 
