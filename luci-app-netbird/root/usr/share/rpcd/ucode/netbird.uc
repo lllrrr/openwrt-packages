@@ -3,7 +3,7 @@
 // Canonical runtime path: /usr/share/rpcd/ucode/netbird.uc
 // Repo canonical source:  root/usr/share/rpcd/ucode/netbird.uc
 //
-// netbird.uc — rpcd 入口对象（注册 luci.netbird，29 methods = 13 read + 16 write）
+// netbird.uc — rpcd 入口对象（注册 luci.netbird，30 methods = 13 read + 17 write）
 // ACL 合约源：root/usr/share/rpcd/acl.d/luci-app-netbird.json
 // 方法名必须与 ACL 一字不差（双向 diff 是 CI 闸门）。
 //
@@ -46,6 +46,7 @@ let probe_iface_backend  = _state.probe_iface_backend;
 let fetch_status_json    = _cli.fetch_status_json;
 let get_opkg_versions    = _cli.get_opkg_versions;
 let probe_running_via_ubus = _cli.probe_running_via_ubus;
+let classify_status_text = _cli.classify_status_text;
 
 // ============================================================================
 // _safe(fn) — 异常网
@@ -469,7 +470,9 @@ function _exec_short_verb(bin, verb) {
 // exit node 在客户端 = 管理端下发的 0.0.0.0/0（及配对 ::/0）网络路由；
 // `networks list/select/deselect` 是官方桌面/移动端同款机制（`routes` 为其别名，
 // 子命令自 0.35 起存在，覆盖 OpenWrt 24.10 官方源的 0.59.x 及以上）。
-// 选择状态由 daemon 持久化（重启保留），不进 UCI —— 避免第二事实源与管理端漂移。
+// 选择状态 daemon 侧存 state.json（/var/lib 下,OpenWrt 上为 tmpfs、重启即丢），
+// 故 LuCI 侧的选择另存 UCI 并在开机后由 watchdog 恢复（见 _persist_exit_node /
+// restore_exit_node）；恢复前必经当前列表白名单校验，不会与管理端漂移。
 
 // _exec_networks(bin, verb, ids, append) → { code, stdout, truncated }
 // verb ∈ {'list','select','deselect'} 由调用方传字面常量；ids 逐个 shell_quote,
@@ -555,6 +558,22 @@ function _collect_exit_nodes(bin) {
             push(nodes, n);
     }
     return { ok: true, exit_nodes: nodes };
+}
+
+// _persist_exit_node(id) — 把 exit node 选择写入 UCI(id 空 = 清除)。
+// daemon 自己的选择态在 state.json,而该文件路径在 /var/lib(OpenWrt 上 /var→/tmp
+// 为 tmpfs)→ 重启必丢(GitHub #10)。UCI 记录用户经 LuCI 表达的选择,重启后由 watchdog 经
+// restore_exit_node 恢复一次;经 CLI/桌面端做的选择不进 UCI(LuCI 只对自己的
+// 操作负责,重启后以 LuCI 配置为准)。
+function _persist_exit_node(id) {
+    let c = uci.cursor();
+    if (c.get('netbird', 'settings') == null)
+        c.set('netbird', 'settings', 'netbird');
+    if (id != null && length(id) > 0)
+        c.set('netbird', 'settings', 'exit_node', id);
+    else
+        c.delete('netbird', 'settings', 'exit_node');
+    c.commit('netbird');
 }
 
 // ============================================================================
@@ -2995,6 +3014,22 @@ return {
                 }
 
                 let reconnect_with_existing_identity = (length(setup_key) == 0);
+                // 注销后/全新设备(daemon NeedsLogin = 无本地身份)上的空 key 连接
+                // 注定失败——daemon 只会反复 "no peer auth method provided",25s 墙钟耗尽
+                // 后才能归因,期间 desired 还被置 1 引来 watchdog 叠加重试。识别到该态
+                // 立即返回明确错误(不置 desired、不跑墙钟)。判定复用 classify_status_text:
+                // 只锚定 NeedsLogin——LoginFailed/Idle 等**有身份**形态的空 key 重连是
+                // 合法恢复路径,不拦;老版本 daemon 注销后文本形态不同(不报 NeedsLogin)
+                // 则识别不出,按原路径走,无回归。
+                if (reconnect_with_existing_identity) {
+                    let stx = _exec_short_verb(bin, 'status');
+                    if (classify_status_text(stx.stdout) == 'needs_login') {
+                        _persist_runtime_error('A setup key is required to log in: this device has no stored NetBird identity.');
+                        return err(CODE.CONNECT_FAILED,
+                            'A setup key is required to log in: this device has no stored NetBird identity.',
+                            'Enter a setup key from the NetBird console and click Connect. Keys are never stored on this device; "Last used" is only a masked hint.');
+                    }
+                }
                 // watchdog 发起的重连只是"执行已有意图",不应改写 desired_connected;只有用户发起的
                 // 连接才预置 desired=1(表达意图,即便本次超时也让 watchdog 续连)。否则 watchdog 会反复
                 // 把刚被认证 fatal/key 超时刻意清成 0 的 desired 重新写回 1,使刻意的停止无法生效。
@@ -3013,6 +3048,26 @@ return {
                 // 安全加固：若 CLI 把 setup_key 回显进 stdout，先脱敏再用于任何错误回传。
                 if (length(setup_key) > 0 && r.stdout != null)
                     r.stdout = replace(r.stdout, setup_key, '***');
+
+                // 认证 fatal 早退：CLI 被墙钟杀掉（stdout 带 wrapper 的 timed out 标记）
+                // 且日志已沉淀可归因的认证错误（如 setup key 被拒）时，_poll_connected
+                // 纯属白等——daemon 对无效/过期 key 无限 backoff，绝不会自行连上；而
+                // uhttpd 对浏览器 /ubus 调用有 60s 硬上限（script_timeout 默认值），多等的轮询会
+                // 把总墙钟推过掐断线，前端只能收到裸 -32003 而非下面的归因文案。
+                // 门槛必须含"CLI 是被杀的"：有效 key 的成功登录 CLI 会在墙钟内自行
+                // 返回（不带标记），不会进此分支——成功路径中 daemon 早期也可能落
+                // PermissionDenied/no peer auth method 之类瞬时行，仅凭日志归因会误杀。
+                let cli_timed_out = !!match(r.stdout || '', /netbird command timed out after/);
+                if (cli_timed_out) {
+                    let early_auth = _auth_failure_from_attempt(r.stdout || '', auth_log_before);
+                    if (early_auth != null) {
+                        setup_key = '';
+                        _exec_short_verb(bin, 'down');
+                        _set_desired_connected(false);
+                        _persist_runtime_error(early_auth.message);
+                        return err(CODE.CONNECT_FAILED, early_auth.message, early_auth.hint);
+                    }
+                }
 
                 // exec 后同步轮询确认（不信任 up 退出码本身）
                 let poll = _poll_connected(bin, from_watchdog ? 3 : 6);
@@ -3334,11 +3389,88 @@ return {
                             ' (other exit nodes may already be deselected; check the current state)');
                 }
 
+                // 选择已在 daemon 生效 → 持久化到 UCI(id 空=清除),供重启后恢复。
+                // 放在回读之前:回读只影响返回值,失败不该丢掉已生效选择的持久化。
+                _persist_exit_node(id);
+
                 // 回读 daemon 实际状态返回（不回显期望值），前端据此原地刷新。
                 let after = _collect_exit_nodes(bin);
                 if (!after.ok)
                     return err(CODE.CLI_ERROR, after.message);
                 return ok({ exit_nodes: after.exit_nodes });
+            }),
+        },
+
+        // restore_exit_node — 恢复 UCI 持久化的 exit node 选择(watchdog 专用,UI 不调,
+        // 不进 acl.d——watchdog 以 root 走本机 ubus,不经 rpcd session ACL)。
+        // 幂等;所有业务结果都走 ok 信封的 result 字段(shell 侧 case 好解析):
+        //   not-configured   UCI 无选择(终态)
+        //   not-connected    daemon 未运行/未连上管理端(调用方下轮重试)
+        //   already-selected 目标已选中且无其他 exit node 选中(终态)
+        //   restored         本次恢复成功(终态)
+        //   not-found        目标不在当前 exit node 列表(管理端已删该路由;终态,
+        //                    绝不选择列表外 id——白名单口径与 select_exit_node 一致)
+        //   error            list/deselect/select 失败(message 带原因;调用方下轮重试)
+        restore_exit_node: {
+            args: {},
+            call: _safe(function() {
+                let c = uci.cursor();
+                let want = c.get('netbird', 'settings', 'exit_node');
+                want = (type(want) == 'string') ? trim(want) : '';
+                if (length(want) == 0)
+                    return ok({ result: 'not-configured' });
+                // 防御同 select_exit_node:超长/控制字符/CLI 保留字 'all' 不进 CLI。
+                if (length(want) > 256 || index(want, '\n') >= 0 || index(want, '\r') >= 0 || want == 'all')
+                    return ok({ result: 'not-found', exit_node: want });
+
+                let g = _require_running();
+                if (g._gate)
+                    return ok({ result: 'not-connected' });
+                let js = g._json;
+                if (!(js != null && js.management != null && js.management.connected))
+                    return ok({ result: 'not-connected' });
+
+                let bin = g._state.bin_path;
+                let res = _collect_exit_nodes(bin);
+                if (!res.ok)
+                    return ok({ result: 'error', message: res.message });
+
+                let target = null;
+                let others = [];
+                let others_selected = false;
+                for (let n in res.exit_nodes) {
+                    if (n.id == want) {
+                        target = n;
+                    } else {
+                        push(others, n.id);
+                        if (n.selected)
+                            others_selected = true;
+                    }
+                }
+                if (target == null)
+                    return ok({ result: 'not-found', exit_node: want });
+                if (target.selected && !others_selected)
+                    return ok({ result: 'already-selected', exit_node: want });
+
+                // 与 select_exit_node 同序:先显式 deselect 其余(压住管理端 auto-apply),
+                // 再 select -a 目标,最后回读确认。
+                if (length(others) > 0) {
+                    let rd = _exec_networks(bin, 'deselect', others, false);
+                    if (rd.code != 0)
+                        return ok({ result: 'error', message: trim(rd.stdout) || 'netbird networks deselect failed' });
+                }
+                let rs = _exec_networks(bin, 'select', [ want ], true);
+                if (rs.code != 0)
+                    return ok({ result: 'error', message: trim(rs.stdout) || 'netbird networks select failed' });
+
+                let after = _collect_exit_nodes(bin);
+                if (after.ok) {
+                    for (let n in after.exit_nodes) {
+                        if (n.id == want && n.selected)
+                            return ok({ result: 'restored', exit_node: want });
+                    }
+                }
+                return ok({ result: 'error', message: 'exit node selection did not take effect' });
             }),
         },
     },
