@@ -663,46 +663,6 @@ return view.extend({
 			]);
 		};
 
-		// 支持作者（基本设置的最后一项）
-		var alipayImage = L.resource('bandix/donate/alipay.jpg');
-		var wechatImage = L.resource('bandix/donate/wechat-pay.png');
-
-		function donationCard(title, imageUrl, altText, dotClass) {
-			return E('div', { 'class': 'bandix-donation-card' }, [
-				E('h4', { 'class': 'bandix-donation-card-title' }, [
-					E('span', { 'class': 'bandix-donation-dot ' + dotClass }),
-					title
-				]),
-				E('a', {
-					'class': 'bandix-donation-image-link',
-					'href': imageUrl,
-					'target': '_blank',
-					'rel': 'noopener noreferrer',
-					'title': altText
-				}, [
-					E('img', {
-						'class': 'bandix-donation-image',
-						'src': imageUrl,
-						'alt': altText,
-						'loading': 'lazy'
-					})
-				])
-			]);
-		}
-
-		o = s.option(form.DummyValue, '_donation_qr_codes', _('Support the Author'));
-		o.renderWidget = function () {
-			return E('div', { 'class': 'bandix-donation-content' }, [
-				E('p', { 'class': 'bandix-donation-description' },
-					_('If Bandix is useful to you, you can support its continued development.')),
-				E('div', { 'class': 'bandix-donation-grid' }, [
-					donationCard(_('Alipay'), alipayImage, _('Scan with Alipay to support'), 'bandix-donation-dot-alipay'),
-					donationCard(_('WeChat Pay'), wechatImage, _('Scan with WeChat Pay to support'), 'bandix-donation-dot-wechat')
-				]),
-				E('p', { 'class': 'bandix-donation-note' }, _('Donations are voluntary. Thank you for supporting Bandix.'))
-			]);
-		};
-
 		// 2. 流量监控设置部分 (traffic)
 		s = m.section(form.NamedSection, 'traffic', 'traffic', _('Traffic Monitor Settings'));
 		s.description = _('Configure traffic monitoring related parameters');
