@@ -1,7 +1,9 @@
-#!/bin/ash
+#!/bin/sh
 CACHE="/tmp/netmonitor.state"
 TMP_CACHE="/tmp/netmonitor.state.$$"
 NOW="$(date +%s)"
+
+sanitize() { printf '%s' "$1" | tr -cd 'A-Za-z0-9_.-'; }
 
 if echo "$QUERY_STRING" | grep -q 'reset_vnstat='; then
   [ -f /etc/vnstat/vnstat.db ] && cp -f /etc/vnstat/vnstat.db /etc/vnstat/vnstat.bak
@@ -16,6 +18,7 @@ fi
 
 if echo "$QUERY_STRING" | grep -q 'set_theme='; then
   val="$(echo "$QUERY_STRING" | sed -n 's/.*set_theme=\([^&]*\).*/\1/p')"
+  val="$(sanitize "$val")"
   touch /etc/config/netmonitor 2>/dev/null
   uci -q get netmonitor.main >/dev/null || uci set netmonitor.main=settings
   uci set netmonitor.main.theme="$val"
@@ -31,6 +34,7 @@ if echo "$QUERY_STRING" | grep -q 'set_ifaces='; then
   uci -q delete netmonitor.main.iface
   IFS=','
   for i in $val; do
+    i="$(sanitize "$i")"
     [ -n "$i" ] && uci add_list netmonitor.main.iface="$i"
   done
   uci commit netmonitor
@@ -43,7 +47,24 @@ json_escape() {
 }
 
 to_num() { awk -v v="$1" 'BEGIN{if(v+0<0) v=0; printf "%.0f", v+0}'; }
-read_file() { [ -r "$1" ] && cat "$1" || printf '%s' "$2"; }
+read_file() { [ -r "$1" ] && cat "$1" 2>/dev/null || printf '%s' "$2"; }
+
+get_temp() {
+  best=""
+  for z in /sys/class/thermal/thermal_zone*/temp; do
+    [ -r "$z" ] || continue
+    v="$(cat "$z" 2>/dev/null)"
+    case "$v" in ''|*[!0-9-]*) continue ;; esac
+    [ "$v" -le 0 ] && continue
+    [ -z "$best" ] && best="$v"
+    [ "$v" -gt "$best" ] && best="$v"
+  done
+  if [ -n "$best" ]; then
+    awk -v v="$best" 'BEGIN{printf "%.1f", v/1000}'
+  else
+    printf '0'
+  fi
+}
 
 CONF_THEME=$(uci -q get netmonitor.main.theme)
 [ -z "$CONF_THEME" ] && CONF_THEME="glass"
@@ -91,16 +112,33 @@ if [ "$cp_t" -gt 0 ] && [ "$dt" -gt 0 ]; then
   c_pct="$(awk -v b="$db" -v t="$dt" 'BEGIN{printf "%.1f", (b/t)*100}')"
 fi
 
-mt=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null); mt=${mt:-0}
-ma=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null); ma=${ma:-0}
-mu=$((mt - ma)); [ "$mu" -lt 0 ] && mu=0
+mem_info() {
+  awk '
+  /^MemTotal:/ {t=$2}
+  /^MemFree:/ {f=$2}
+  /^Buffers:/ {b=$2}
+  /^Cached:/ {c=$2}
+  /^SReclaimable:/ {s=$2}
+  /^Shmem:/ {sh=$2}
+  END{printf "%d %d %d %d %d %d", t+0,f+0,b+0,c+0,s+0,sh+0}
+  ' /proc/meminfo 2>/dev/null
+}
+
+set -- $(mem_info)
+mt="${1:-0}"; mfr="${2:-0}"; mb="${3:-0}"; mc="${4:-0}"; msr="${5:-0}"; msh="${6:-0}"
+
+mu=$((mt - mfr - mb - mc - msr + msh))
+[ "$mu" -lt 0 ] && mu=0
+[ "$mu" -gt "$mt" ] && mu="$mt"
+mf=$((mt - mu))
+
 m_pct="0.0"
 [ "$mt" -gt 0 ] && m_pct="$(awk -v u="$mu" -v t="$mt" 'BEGIN{printf "%.1f", (u/t)*100}')"
 mu_mb=$((mu / 1024))
 
 mf_pct="0.0"
-[ "$mt" -gt 0 ] && mf_pct="$(awk -v a="$ma" -v t="$mt" 'BEGIN{printf "%.1f", (a/t)*100}')"
-mf_mb=$((ma / 1024))
+[ "$mt" -gt 0 ] && mf_pct="$(awk -v f="$mf" -v t="$mt" 'BEGIN{printf "%.1f", (f/t)*100}')"
+mf_mb=$((mf / 1024))
 
 set -- $(awk '{print $1, $2, $3}' /proc/loadavg 2>/dev/null)
 l1="${1:-0}"; l5="${2:-0}"; l15="${3:-0}"
@@ -108,10 +146,7 @@ l1="${1:-0}"; l5="${2:-0}"; l15="${3:-0}"
 cc=$(read_file /proc/sys/net/netfilter/nf_conntrack_count 0)
 cm=$(read_file /proc/sys/net/netfilter/nf_conntrack_max 0)
 
-temp="0"
-if [ -f /sys/class/thermal/thermal_zone0/temp ]; then
-  temp=$(awk '{printf "%.1f", $1/1000}' /sys/class/thermal/thermal_zone0/temp 2>/dev/null)
-fi
+temp="$(get_temp)"
 
 ij=""
 sl="CPU $cn_t $cn_i $NOW\n"
