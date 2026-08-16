@@ -10,8 +10,6 @@ LuCI plugin that makes OpenWrt poweroff and reboot easy.
 
 ## ⬇️ Downloads
 
-[Mirror by Mo](https://867678.xyz/docs/mirrors)
-
 [GitHub Release](https://github.com/morouter/luci-app-pm/releases)
 
 ## ⚠️ Warning
