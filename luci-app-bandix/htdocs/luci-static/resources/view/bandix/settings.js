@@ -663,6 +663,46 @@ return view.extend({
 			]);
 		};
 
+		// 2. 流量监控设置部分 (traffic)
+		s = m.section(form.NamedSection, 'traffic', 'traffic', _('Traffic Monitor Settings'));
+		s.description = _('Configure traffic monitoring related parameters');
+		s.addremove = false;
+
+		o = s.option(form.Flag, 'enabled', _('Enable Traffic Monitoring'),
+			_('Enable Bandix Traffic Monitor Service'));
+		o.default = '0';
+		o.rmempty = false;
+
+		// 添加网速单位选择选项
+		o = s.option(form.ListValue, 'speed_unit', _('Speed Units'),
+			_('Select the speed display unit format'));
+		o.value('bytes', _('Bytes Units (B/s, KB/s, MB/s)'));
+		o.value('bits', _('Bits Units (bps, Kbps, Mbps)'));
+		o.default = 'bytes';
+		o.rmempty = false;
+
+		// 添加离线超时时间（秒）
+		// o = s.option(form.Value, 'offline_timeout', _('Offline Timeout'),
+		// 	_('Set the timeout for device offline detection (seconds). Devices inactive for longer than this time will be marked as offline'));
+		// o.datatype = 'uinteger';
+		// o.placeholder = '120';
+		// o.default = '120';
+		// o.rmempty = true;
+
+		// 添加持久化历史数据选项
+		o = s.option(form.Flag, 'traffic_enable_storage', _('Persist History Data'),
+			_('Enable data persistence functionality, data will only be persisted to disk when this option is enabled'));
+		o.default = '0';
+		o.rmempty = false;
+
+		// 添加数据 flush 间隔（秒）
+		o = s.option(form.ListValue, 'traffic_flush_interval', _('Data Flush Interval'),
+			_('Set the interval for flushing data to disk'));
+		o.value('60', _('1 minute'));
+		o.value('300', _('5 minutes'));
+		o.value('600', _('10 minutes'));
+		o.value('900', _('15 minutes'));
+		o.value('1800', _('30 minutes'));
 		o.value('3600', _('1 hour'));
 		o.value('7200', _('2 hours'));
 		o.value('43200', _('12 hours'));
