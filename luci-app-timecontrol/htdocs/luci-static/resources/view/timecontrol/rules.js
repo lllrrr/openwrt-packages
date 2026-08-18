@@ -498,6 +498,7 @@ if (typeof form.RichListValue !== 'function') {
 if (typeof ui.addTimeLimitedNotification !== 'function') {
 	function addTimeLimitedNotification(title, children, timeout, ...classes) {
 		const msg = ui.addNotification(title, children, ...classes);
+		function fadeOutNotification(element) {
 			if (element) {
 				element.classList.add('fade-out');
 				element.classList.remove('fade-in');
@@ -548,7 +549,6 @@ return view.extend({
 			m, s, o;
 
 		m = new form.Map('timecontrol', _('Internet Time Control'), _('Users can limit Internet usage time by MAC address, support iptables/nftables IPv4/IPv6'));
-			_('Suggestion and feedback') + ": " + "<a href='https://github.com/gaobin89/luci-app-timecontrol.git' target='_blank'>GitHub @gaobin89/luci-app-timecontrol</a>");
 
 		s = m.section(form.TypedSection);
 		s.anonymous = true;
