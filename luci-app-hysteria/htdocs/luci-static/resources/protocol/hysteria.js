@@ -326,8 +326,8 @@ return network.registerProtocol('hysteria', {
 		};
 
 		o = s.taboption('advanced', form.Value, 'mtu', _('Override MTU'),
-			_('Leave empty for 1399, which is the largest packet a QUIC datagram can carry once path discovery and the QUIC, AEAD and PPP headers are accounted for. Raise it only if you know the path allows it. This is the ceiling for one link: with additional servers the interface itself reports 6 bytes less, which is what the multilink header costs.'));
-		o.placeholder = '1399';
+			_('Leave empty for 1390, the largest packet a QUIC datagram can carry once the margin left by path discovery, the framing QUIC reserves on every packet, and the PPP header are accounted for. Raise it only if you know the path allows it. This is the ceiling for one link: with additional servers the interface itself reports 6 bytes less, which is what the multilink header costs.'));
+		o.placeholder = '1390';
 		o.datatype = 'range(576,1500)';
 
 		/* --- advanced: multilink, only meaningful once a second server exists --- */
