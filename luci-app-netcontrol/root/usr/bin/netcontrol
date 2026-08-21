@@ -206,6 +206,9 @@ NFT
         ip6 saddr @blacklist6 drop
         ether saddr @blacklist_mac drop
     }
+    chain accounting {
+        type filter hook prerouting priority -349; policy accept;
+    }
 NFT
     [ "$StrongCHAIN" -eq 1 ] && cat << 'NFT'
     chain input {
@@ -218,6 +221,11 @@ NFT
     printf '}\n'
 }
 
+# accounting 链只放计数规则，由守护进程按“哪些设备要计时”动态填充
+# （见 netcontrolctrl 的 sync_accounting_rules）。这里只把空链建出来。
+# 优先级 -349 紧跟在上面的拦截链 -350 之后：被拦下的包在 -350 就 drop 了，不会
+# 走到这里，配额也就不会被“拦截后仍在重试的连接”继续消耗。nft 的 accept 只结束
+# 当前这条链，包照样会流到后一优先级的基础链，所以放行流量一个不漏。
 # 原子初始化 nftables
 init_firewall() {
     require_nft || return 1
