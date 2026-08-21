@@ -1,0 +1,448 @@
+#!/bin/sh
+
+# Copyright (C) 2006 OpenWrt.org
+# Copyright (C) 2026 rule2c <rule2c@gmail.com>
+
+crrun=$1
+crid=$2
+NAME=netcontrol
+DEBUG=0
+
+config_t_get() {
+    local index="${3:-0}"
+    local ret; ret=$(uci -q get "${NAME}.@${1}[${index}].${2}")
+    echo "${ret:-$4}"
+}
+
+LOG_FILE="/var/log/netcontrol.log"
+IDLIST="/var/$NAME.idlist"
+PERSIST_DIR="/etc/netcontrol"
+DURATION_DIR="/var/lib/netcontrol"
+# 与守护进程共用的 duration.db 写锁，避免并发读改写丢失更新
+DB_LOCK="/var/lock/netcontrol-db.lock"
+
+bin_nft=$(which nft 2>/dev/null)
+bin_conntrack=$(which conntrack 2>/dev/null)
+
+chain=$(config_t_get netcontrol chain 0 "forward")
+[ "$chain" = "input" ] && StrongCHAIN=1 || StrongCHAIN=0
+
+dbg() {
+    [ "$DEBUG" -eq 1 ] || return
+    local d; d=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[$d] FW-DEBUG: $*" >> "$LOG_FILE"
+}
+
+info() {
+    local d; d=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[$d] FW-INFO: $*" >> "$LOG_FILE"
+    echo "FW-INFO: $*"
+}
+
+require_nft() {
+    [ -x "$bin_nft" ] && return 0
+    info "未找到 nft 命令，请先安装 nftables 包"
+    return 1
+}
+
+# 校验字符串中所有以 . - / 分隔的十进制段里的 IPv4 八位组 ≤255
+# （掩码位由各分支单独校验，此处仅拦截 >255 的非法八位组）
+_ipv4_octets_ok() {
+    printf '%s' "$1" | awk -F'[./-]' '{for(i=1;i<=NF;i++) if($i ~ /^[0-9]+$/ && $i+0>255) exit 1}'
+}
+
+# 地址解析：输出 "type:subtype:value"，失败返回 1
+parse_target() {
+    local target; target=$(printf '%s' "$1" | tr -d ' \t')
+    dbg "正在解析地址: $target"
+
+    # IPv4 单地址
+    if printf '%s' "$target" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
+        if printf '%s' "$target" | awk -F. '$1>255||$2>255||$3>255||$4>255{exit 1}'; then
+            printf 'ipv4:single:%s\n' "$target"; return 0
+        fi
+    # IPv4 范围
+    elif printf '%s' "$target" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}-([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
+        _ipv4_octets_ok "$target" && { printf 'ipv4:range:%s\n' "$target"; return 0; }
+    # IPv4 CIDR
+    elif printf '%s' "$target" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$'; then
+        local mask; mask=${target#*/}
+        [ "$mask" -le 32 ] && [ "$mask" -ge 0 ] && _ipv4_octets_ok "${target%/*}" && { printf 'ipv4:cidr:%s\n' "$target"; return 0; }
+    # MAC 地址
+    elif printf '%s' "$target" | grep -qE '^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$'; then
+        printf 'mac:single:%s\n' "$(printf '%s' "$target" | tr 'A-Z' 'a-z')"; return 0
+    # IPv6 地址
+    elif printf '%s' "$target" | grep -qE '^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$'; then
+        printf 'ipv6:single:%s\n' "$target"; return 0
+    # IPv6 CIDR
+    elif printf '%s' "$target" | grep -qE '^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}/[0-9]{1,3}$'; then
+        local mask; mask=${target#*/}
+        [ "$mask" -le 128 ] && [ "$mask" -ge 0 ] && { printf 'ipv6:cidr:%s\n' "$target"; return 0; }
+    fi
+
+    dbg "地址格式无法识别: $target"
+    return 1
+}
+
+# 拆解 parse_target 的 "type:subtype:value"，结果放全局 P_TYPE / P_VALUE / P_SET。
+# 结果放全局而不是用 $(...) 返回，避免每次拆解都 fork 子 shell。value 用两次
+# ${var#*:} 从左剥离，不能用 ${var##*:}——IPv6 地址本身含冒号。
+# P_SET 顺带把地址类型映射成 nftables 集合名，三处调用点不必各写一遍 case。
+_split_parsed() {
+    P_TYPE="${1%%:*}"
+    P_VALUE="${1#*:}"
+    P_VALUE="${P_VALUE#*:}"
+    case "$P_TYPE" in
+        ipv4) P_SET=blacklist ;;
+        ipv6) P_SET=blacklist6 ;;
+        mac)  P_SET=blacklist_mac ;;
+        *)    P_SET="" ;;
+    esac
+}
+
+# 删除某个地址进出方向的 conntrack 条目。
+# fam 为空表示 IPv4，IPv6 要显式传 "-f ipv6"；故意不加引号展开成两个参数。
+_conntrack_del() {
+    local fam="$1" addr="$2"
+    $bin_conntrack -D $fam -s "$addr" >/dev/null 2>&1
+    $bin_conntrack -D $fam -d "$addr" >/dev/null 2>&1
+    dbg "已清理 $addr 的 conntrack 条目"
+}
+
+# 查一个 MAC 当前持有的全部地址（IPv4 + IPv6）。
+# 只取第一个 IP 是不够的：双栈设备同时挂着 v4 和 v6，漏掉哪一个，那一边的存量连接
+# 就继续跑。IPv6 侧只能从邻居表取，/proc/net/arp 里没有。
+_ips_of_mac() {
+    local mac="$1"
+    {
+        awk -v m="$mac" 'NR>1 && tolower($4)==m && $3!="0x0"{print $1}' /proc/net/arp 2>/dev/null
+        ip -6 neigh show 2>/dev/null | \
+            awk -v m="$mac" '$0 !~ /FAILED|INCOMPLETE/ && index(tolower($0), "lladdr " m){print $1}'
+    } | sort -u
+}
+
+# 断开目标的现有连接。
+#
+# 必须做，且与控制强度无关：nftables 规则只作用于新建连接，存量连接会一直跑到自然
+# 结束——开着 flow offloading 时更彻底，连接一旦进了 flowtable，后续包在 ingress 就被
+# fastpath 转走，绕过整个 netfilter，连 priority -100 的链也碰不到它。现象是"到点了
+# 正在播的视频不断，新开的网页却打不开"，重启路由器才恢复正常（重启清空了 conntrack
+# 和 flowtable）。删掉 conntrack 条目会连带让对应的 flowtable 条目失效，拦截才即时生效。
+flush_connections() {
+    local target="$1"
+    [ -x "$bin_conntrack" ] || { dbg "conntrack 不可用，跳过连接清理"; return; }
+
+    local parsed; parsed=$(parse_target "$target") || return
+    _split_parsed "$parsed"
+    local type="$P_TYPE" value="$P_VALUE" ip
+
+    case "$type" in
+        ipv4)
+            # conntrack 的 -s/-d 认单址和 CIDR，但不认 a-b 这种范围写法
+            case "$value" in *-*) dbg "IP 范围无法按源清理连接，跳过：$value"; return ;; esac
+            _conntrack_del "" "$value"
+            ;;
+        ipv6)
+            case "$value" in */*) dbg "IPv6 前缀无法按源清理连接，跳过：$value"; return ;; esac
+            _conntrack_del "-f ipv6" "$value"
+            ;;
+        mac)
+            for ip in $(_ips_of_mac "$value"); do
+                case "$ip" in
+                    *:*) _conntrack_del "-f ipv6" "$ip" ;;
+                    *)   _conntrack_del ""        "$ip" ;;
+                esac
+            done
+            ;;
+    esac
+}
+
+# 生成 nftables 规则文本（函数输出，供 nft -f - 读取）
+# 开头的 “空表占位 + 删除 + 重建” 惯用法让整段在单次 nft -f 内原子完成：
+# 既保证待删的表一定存在（避免删除不存在的表使整段失败），又消除规则空窗期。
+#
+# 参数 $1 = nopre 时不生成 prerouting 链，退回只挂 forward/input 的老形态，
+# 供 init_firewall 在内核缺少 fib 表达式时降级使用。
+_nft_script() {
+    local mode="$1"
+    cat << 'NFT'
+table inet netcontrol {}
+delete table inet netcontrol
+table inet netcontrol {
+    set blacklist {
+        type ipv4_addr
+        flags interval
+    }
+    set blacklist6 {
+        type ipv6_addr
+        flags interval
+    }
+    set blacklist_mac {
+        type ether_addr
+    }
+NFT
+    # 主拦截点挂在 prerouting，且优先级必须早于一切透明代理。passwall / OpenClash 这类
+    # 代理在 prerouting 的 mangle(-150) 做 TPROXY、在 nat 的 dstnat(-100) 做 REDIRECT，
+    # 两种都让包在路由判决时被送去 input 交给本机代理进程代为出网，**根本不经过 forward**。
+    # 只挂 forward 时集合、规则、日志全都正常，匹配次数却是 0（踩过，见 DEVELOPMENT.md）。
+    # -350 早于 fw4 的 raw_prerouting(-300)、conntrack(-200) 和上面两个代理落点。
+    if [ "$mode" != "nopre" ]; then
+        printf '    chain prerouting {\n'
+        printf '        type filter hook prerouting priority -350; policy accept;\n'
+        # 温和模式放行发往路由器自身的流量：DNS、DHCP、LuCI、ARP/ND 都得留着，否则设备
+        # 直接掉出局域网，守护进程赖以判在线的邻居表也跟着失准。这里目的地址还是原始的
+        # 公网地址（TPROXY/REDIRECT 都尚未改写），所以出网流量不会被这一条放掉。
+        [ "$StrongCHAIN" -eq 1 ] || \
+            printf '        fib daddr type { local, broadcast, multicast } accept\n'
+        printf '        ip saddr @blacklist drop\n'
+        printf '        ip6 saddr @blacklist6 drop\n'
+        printf '        ether saddr @blacklist_mac drop\n'
+        printf '    }\n'
+    fi
+    cat << 'NFT'
+    chain forward {
+        type filter hook forward priority -100; policy accept;
+        ip saddr @blacklist drop
+        ip6 saddr @blacklist6 drop
+        ether saddr @blacklist_mac drop
+    }
+NFT
+    [ "$StrongCHAIN" -eq 1 ] && cat << 'NFT'
+    chain input {
+        type filter hook input priority -100; policy accept;
+        ip saddr @blacklist drop
+        ip6 saddr @blacklist6 drop
+        ether saddr @blacklist_mac drop
+    }
+NFT
+    printf '}\n'
+}
+
+# 原子初始化 nftables
+init_firewall() {
+    require_nft || return 1
+    info "正在初始化 nftables 规则（控制模式：$chain）"
+    if _nft_script | nft -f -; then
+        [ "$StrongCHAIN" -eq 1 ] && dbg "强控制模式已启用，INPUT 链同步拦截"
+        info "nftables 规则加载成功"
+        return 0
+    fi
+    # 整段加载失败，最可能是内核没有 nft_fib_inet（prerouting 链里的 fib 表达式）。
+    # 降级成只挂 forward/input 的老形态，至少保住无代理环境下的拦截能力，并把风险写进日志。
+    if _nft_script nopre | nft -f -; then
+        info "内核不支持 fib 表达式，已降级为仅 forward/input 拦截；透明代理（passwall 等）环境下可能拦不住"
+        return 0
+    fi
+    info "nftables 规则加载失败，请检查 nftables 版本"
+    return 1
+}
+
+# 停止并清理 nftables 规则
+stop_firewall() {
+    info "正在清除防火墙规则"
+    [ -x "$bin_nft" ] && nft delete table inet netcontrol 2>/dev/null && info "nftables 规则已全部清除"
+    rm -f "$IDLIST"
+}
+
+# 将设备加入拦截列表
+add_device() {
+    require_nft || return 1
+    local id="$1"
+    local target; target=$(config_t_get device target "$id")
+    [ -z "$target" ] && { dbg "添加失败：规则 $id 未配置目标地址"; return; }
+
+    local comment; comment=$(config_t_get device comment "$id" "设备 $id")
+    info "将设备加入拦截列表：$comment（$target）"
+
+    local parsed; parsed=$(parse_target "$target") || { info "添加失败：地址格式无法识别（$target）"; return; }
+    _split_parsed "$parsed"
+    # 拷进局部变量：下面 flush_connections 会再解析一次同一地址并覆盖 P_* 全局
+    local set="$P_SET" value="$P_VALUE"
+    [ -n "$set" ] || { info "添加失败：不支持的地址类型（$target）"; return; }
+    dbg "地址解析结果：$parsed"
+
+    # nft 的报错只在调试时才有用；DEBUG=0 时直接丢弃，省掉一个子 shell + read 循环
+    if [ "$DEBUG" -eq 1 ]; then
+        nft add element inet netcontrol "$set" "{ $value }" 2>&1 | while IFS= read -r l; do dbg "nft: $l"; done
+    else
+        nft add element inet netcontrol "$set" "{ $value }" 2>/dev/null
+    fi
+
+    # 先落规则再清连接，顺序不能反：反过来的话，清理与规则生效之间的空窗里设备会立刻
+    # 重建连接，又变成拦不住的存量连接。清理无条件执行，不再挂在强控制模式上（见
+    # flush_connections 的说明）。
+    flush_connections "$target"
+    verify_firewall_rule "$target" "$set" "$value"
+}
+
+# 验证规则是否生效。用 nft get element 而非 grep 文本输出——nft 存储时会
+# 规范化地址（如 192.168.10.10/24 → 192.168.10.0/24），grep 原始输入匹配不到。
+# 集合名与地址值由调用方传入，避免把同一个地址解析两遍。
+verify_firewall_rule() {
+    local target="$1" set="$2" value="$3"
+    dbg "验证规则是否生效：$target"
+    [ -n "$set" ] || { dbg "验证失败：地址格式无法识别（$target）"; return 1; }
+    nft get element inet netcontrol "$set" "{ $value }" >/dev/null 2>&1 && {
+        dbg "验证通过：$target 已在 nftables 拦截集合中"; return 0
+    }
+    dbg "验证失败：$target 未在 nftables 拦截集合中找到"; return 1
+}
+
+# 从拦截列表移除设备
+del_device() {
+    require_nft || return 1
+    local id="$1"
+    local target; target=$(config_t_get device target "$id")
+    [ -z "$target" ] && { dbg "移除失败：规则 $id 未配置目标地址"; return; }
+
+    local comment; comment=$(config_t_get device comment "$id" "设备 $id")
+    info "从拦截列表移除设备：$comment（$target）"
+
+    local parsed; parsed=$(parse_target "$target") || { info "移除失败：地址格式无法识别（$target）"; return; }
+    _split_parsed "$parsed"
+    [ -n "$P_SET" ] || { info "移除失败：不支持的地址类型（$target）"; return; }
+
+    nft delete element inet netcontrol "$P_SET" "{ $P_VALUE }" 2>/dev/null
+    dbg "已从 nftables 拦截集合中移除（$P_TYPE）：$P_VALUE"
+}
+
+# 重置设备上网时长计数
+reset_duration() {
+    local target="$1"
+    local key; key=$(printf '%s' "$target" | sed 's/[^A-Za-z0-9_.-]/_/g')
+    local now; now=$(date +%s)
+
+    mkdir -p /var/lock 2>/dev/null
+    for dir in "$DURATION_DIR" "$PERSIST_DIR"; do
+        [ -d "$dir" ] || mkdir -p "$dir" 2>/dev/null || continue
+        local db="$dir/duration.db"
+        local tmp="$db.$$"
+        {
+            flock 9 2>/dev/null
+            # 删除旧记录后立即写入一条清零记录（lc=now,total=0），使守护进程从 0 重新累计。
+            # 不能只删除记录、指望重置周期重建：reset_cycle=never 的设备将永久停止计时。
+            [ -f "$db" ] && awk -F, -v t="$target" '$1!=t' "$db" > "$tmp" && mv "$tmp" "$db"
+            printf '%s,%s,0,%s\n' "$target" "$now" "$now" >> "$db"
+            echo "$now" > "$dir/last_reset_$key"
+            rm -f "$tmp"
+        } 9>"$DB_LOCK"
+    done
+    info "$target 的上网时长计数已重置"
+}
+
+# 显示当前防火墙状态
+show_firewall_status() {
+    printf '\n当前防火墙状态\n'
+    printf '控制强度：%s%s\n' "$chain" "$([ "$StrongCHAIN" -eq 1 ] && printf '（强控制，同时拦截 INPUT 链）')"
+    printf '\nnftables 规则详情：\n'
+    nft list table inet netcontrol 2>/dev/null || echo "  未找到 netcontrol 规则表（服务可能未启动）"
+}
+
+# 系统诊断
+diagnose() {
+    printf '\n=== 时间控制系统诊断 ===\n\n'
+
+    printf '1. 服务运行状态：\n'
+    if ps 2>/dev/null | grep -q '[n]etcontrolctrl'; then
+        echo "   ✓ 守护进程 netcontrolctrl 正在运行"
+    else
+        echo "   ✗ 守护进程 netcontrolctrl 未运行"
+    fi
+
+    printf '\n2. 配置文件：\n'
+    if [ -f "/etc/config/netcontrol" ]; then
+        echo "   ✓ 配置文件存在"
+        # 按段号去重后统计，避免把每个选项行都计入
+        local count; count=$(uci show netcontrol 2>/dev/null | sed -n 's/.*@device\[\([0-9][0-9]*\)\].*/\1/p' | sort -un | wc -l)
+        echo "   已配置 $count 条设备规则"
+    else
+        echo "   ✗ 配置文件不存在"
+    fi
+
+    printf '\n3. 防火墙工具：\n'
+    if [ -x "$bin_nft" ]; then
+        echo "   ✓ nftables 路径：$bin_nft"
+        printf '   版本：%s\n' "$($bin_nft --version 2>/dev/null | head -1)"
+    else
+        echo "   ✗ 未找到 nft 命令，请安装 nftables 包"
+    fi
+
+    show_firewall_status
+
+    printf '\n4. 当前拦截列表：\n'
+    if [ -f "$IDLIST" ] && [ -s "$IDLIST" ]; then
+        echo "   当前被拦截的设备："
+        sed 's/!//g' "$IDLIST" | while IFS= read -r id; do
+            local t; t=$(config_t_get device target "$id")
+            local c; c=$(config_t_get device comment "$id" "设备 $id")
+            echo "   规则 $id：$c（$t）"
+        done
+    else
+        echo "   当前无设备被拦截"
+    fi
+
+    printf '\n=== 诊断完成 ===\n'
+}
+
+# 主命令处理
+case "$crrun" in
+    start)
+        info "正在启动时间控制服务"
+        stop_firewall
+        init_firewall && info "时间控制服务启动成功" || info "时间控制服务启动失败，请查看日志"
+        ;;
+    stop)
+        info "正在停止时间控制服务"
+        stop_firewall
+        info "时间控制服务已停止"
+        ;;
+    add)
+        [ -z "$crid" ] && { echo "错误：请指定设备规则编号"; exit 1; }
+        info "正在为规则 $crid 添加上网拦截"
+        add_device "$crid"
+        ;;
+    del)
+        [ -z "$crid" ] && { echo "错误：请指定设备规则编号"; exit 1; }
+        info "正在为规则 $crid 移除上网拦截"
+        del_device "$crid"
+        ;;
+    reset-duration)
+        [ -z "$crid" ] && { echo "错误：请指定目标地址"; exit 1; }
+        reset_duration "$crid"
+        ;;
+    status)
+        show_firewall_status
+        ;;
+    diagnose)
+        diagnose
+        ;;
+    test)
+        echo "地址格式解析测试："
+        for t in "192.168.1.100" "192.168.1.0/24" "10.0.0.1-10.0.0.255" "00:11:22:33:44:55" "2001:db8::1" "invalid"; do
+            printf '  %s：' "$t"
+            r=$(parse_target "$t" 2>/dev/null) && echo "✓ 格式有效 → $r" || echo "✗ 格式无效"
+        done
+        ;;
+    flush)
+        info "正在强制断开所有网络连接"
+        [ -x "$bin_conntrack" ] && $bin_conntrack -F && info "所有网络连接已断开" || info "conntrack 不可用，无法断开连接"
+        ;;
+    help|"")
+        echo "用法：$0 {start|stop|add <id>|del <id>|reset-duration <addr>|status|diagnose|test|flush|help}"
+        printf '\n  %-28s %s\n' "start"                  "初始化并加载 nftables 规则"
+        printf    '  %-28s %s\n' "stop"                   "停止服务并清除所有 nftables 规则"
+        printf    '  %-28s %s\n' "add <id>"               "将设备加入拦截列表"
+        printf    '  %-28s %s\n' "del <id>"               "从拦截列表移除设备"
+        printf    '  %-28s %s\n' "reset-duration <addr>"  "重置指定设备的上网时长计数"
+        printf    '  %-28s %s\n' "status"                 "查看当前 nftables 规则状态"
+        printf    '  %-28s %s\n' "diagnose"               "运行系统诊断检查"
+        printf    '  %-28s %s\n' "test"                   "测试地址格式解析"
+        printf    '  %-28s %s\n' "flush"                  "强制断开所有网络连接"
+        printf    '  %-28s %s\n' "help"                   "显示此帮助信息"
+        ;;
+    *)
+        echo "错误：未知命令 '$crrun'"
+        echo "请执行 '$0 help' 查看可用命令"
+        exit 1
+        ;;
+esac
