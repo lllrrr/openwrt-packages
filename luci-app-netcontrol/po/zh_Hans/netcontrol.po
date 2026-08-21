@@ -209,3 +209,35 @@ msgstr "共 %d 条"
 
 msgid "Auto-refreshes every 5 seconds. Newest entries first."
 msgstr "每 5 秒自动刷新，最新记录在最前"
+
+msgid "Block Randomized MAC Devices"
+msgstr "拦截随机 MAC 设备"
+
+msgid ""
+"Phones and PCs can generate a random MAC address for each connection, which "
+"defeats any per-MAC rule. When enabled, every device using a randomized MAC "
+"is denied internet access unless listed below."
+msgstr ""
+"手机和电脑可以每次联网都换一个随机 MAC，按 MAC 配的规则会因此失效。启用后，"
+"凡是使用随机 MAC 的设备一律禁止上网，下方名单中的除外。"
+
+msgid "Currently detected:"
+msgstr "当前探测到："
+
+msgid "Randomized MAC Allowlist"
+msgstr "随机 MAC 放行名单"
+
+msgid ""
+"Devices here keep internet access even with a randomized MAC. A device "
+"dropping off the list whenever it re-randomizes is expected behaviour."
+msgstr ""
+"名单中的设备即使使用随机 MAC 也照常上网。设备重新随机化后会掉出名单，这是预期行为。"
+
+msgid "Invalid MAC address format"
+msgstr "MAC 地址格式无效"
+
+msgid "This is not a randomized MAC address; the allowlist has no effect on it."
+msgstr "这不是随机 MAC 地址，放行名单对它没有作用。"
+
+msgid "random MAC"
+msgstr "随机 MAC"

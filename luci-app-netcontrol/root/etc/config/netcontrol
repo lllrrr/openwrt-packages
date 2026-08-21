@@ -1,6 +1,6 @@
-# 只保留总开关段：设备规则由用户在 LuCI 里自行添加，随包附带示例规则只会让新装后
-# 的界面凭空多出无效条目。
+# 只保留总开关段，设备规则由用户在 LuCI 里自行添加
 config netcontrol
 	option enabled '0'
 	option chain 'forward'
+	option rand_mac_block '0'
 

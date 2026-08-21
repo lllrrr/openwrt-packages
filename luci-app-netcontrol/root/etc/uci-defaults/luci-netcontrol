@@ -12,12 +12,12 @@ chmod +x /etc/init.d/netcontrol /usr/bin/netcontrol /usr/bin/netcontrolctrl \
 config netcontrol
 	option enabled '0'
 	option chain 'forward'
+	option rand_mac_block '0'
 DEFCFG
 
 # ── 从旧包 luci-app-timecontrol 迁移 ──────────────────────────────────────────
-# 本包由它重构而来，配置节名和 device 段的地址字段都变了（mac -> target，原名是
-# 历史误称，实际存放任意目标地址）。uci-defaults 只会执行一次，执行后自身被删除，
-# 所以不需要额外的“已迁移”标记。
+# 配置节名和 device 段的地址字段都变了（mac -> target）。uci-defaults 只执行一次，
+# 执行后自身被删除，不需要额外的“已迁移”标记。
 migrate_from_timecontrol() {
     [ -f /etc/config/timecontrol ] || return 0
     # 新配置里已经有设备规则，说明用户已经自行配过，不覆盖

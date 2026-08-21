@@ -19,8 +19,7 @@ STATUS_FILE="$DURATION_DIR/device_status.tsv"
 IDLIST="/var/$NAME.idlist"
 TARGETLIST="/var/$NAME.targets"
 # 计数快照：目标,累计包数,最后一次见到它发包的时刻。每个 tick 由 accrue_all 重写，
-# 在线判定与记账共用这一份——两者依据同一个信号，界面上“在线”与“时长在涨”才不会
-# 互相打架。
+# 在线判定与记账共用这一份。
 ACCT_SNAP="/var/$NAME.acct"
 # 与 netcontrol reset-duration 共用的 duration.db 写锁
 DB_LOCK="/var/lock/netcontrol-db.lock"
@@ -41,9 +40,8 @@ info() {
 
 # ─── 配置读取 ─────────────────────────────────────────────────────────────────
 
-# device 段的标量字段读每轮刷新的缓存（见 refresh_device_cache）。comment 含空格会
-# 破坏缓存的记录格式，故不入缓存，与 netcontrol 段一同回落到 uci；缓存里查不到 id
-# 时同样回落。
+# device 段的标量字段读每轮刷新的缓存（见 refresh_device_cache）。comment 含空格，
+# 会破坏缓存的记录格式，故不入缓存，与 netcontrol 段一同回落到 uci。
 config_t_get() {
     local index="${3:-0}" ret="" rec n=""
     if [ "$1" = "device" ]; then
@@ -63,8 +61,7 @@ config_t_get() {
                 ret="$rec"
                 while [ "$n" -gt 1 ]; do ret="${ret#*|}"; n=$((n - 1)); done
                 ret="${ret%%|*}"
-                # 命中即返回：字段为空代表该选项没配，直接给默认值。不能因为空就回落
-                # 到 uci——period 模式本就没有 duration/reset_cycle，会每轮白跑一次 exec。
+                # 命中即返回：字段为空代表没配，直接给默认值，不再回落到 uci
                 echo "${ret:-$4}"
                 return
             done
@@ -104,8 +101,7 @@ last_connection_action() {
 }
 
 # 按行数截断日志：超过 max 行时只保留最新 keep 行。
-# 用 tail+mv 换文件而非原地截断——两个脚本都是 >> 追加（每次重新打开），
-# 没有长期持有的 fd，换 inode 不会写到旧文件里去。
+# 用 tail+mv 换文件而非原地截断：两个脚本都是 >> 追加，没有长期持有的 fd。
 _rotate_log_file() {
     local file="$1" max="$2" keep="$3" count tmp
     count=$(wc -l < "$file" 2>/dev/null) || return
@@ -119,14 +115,12 @@ _rotate_log_file() {
 
 _rotate_connection_log() { _rotate_log_file "$CONNECTION_LOG" 2000 1000; }
 
-# 主日志同样要有上限：它在 tmpfs 上，且 netcontrol 与本进程都往里写，
-# 长期运行不封顶会吃内存。
+# 主日志在 tmpfs 上，不封顶会吃内存
 _rotate_main_log() { _rotate_log_file "$LOG_FILE" 2000 1000; }
 
 # ─── 持久化 ───────────────────────────────────────────────────────────────────
 
-# 内容没变就不写：PERSIST_DIR 在 /etc（overlay，落在闪存上），而 duration.db 只在
-# 在线状态翻转或周期重置时才变，无条件写等于无谓的闪存磨损。
+# 内容没变就不写：PERSIST_DIR 在 /etc（overlay，落在闪存上），避免无谓磨损
 sync_persist() {
     mkdir -p "$PERSIST_DIR" || return
     {
@@ -147,14 +141,8 @@ init_dirs() {
     mkdir -p "$DURATION_DIR" "$PERSIST_DIR" /var/lock
     touch "$DURATION_DB" "$CONNECTION_LOG" "$STATUS_FILE" "$IDLIST" "$TARGETLIST" 2>/dev/null
 
-    # 从持久化目录恢复数据。**只在运行时账本不存在或为空时恢复**：那才是真正重启过
-    # 路由器（/var 是 tmpfs，重启必空）。若每次启动都无条件覆盖，仅仅重启一次服务就会
-    # 把账本回滚到上一次持久化的时刻——而持久化只在每 10 轮 / 周期重置 / SIGTERM 时
-    # 发生，且守护进程大半时间阻塞在 sleep，ash 的 trap 要等当前命令结束才执行，procd
-    # 默认 5 秒后就 SIGKILL，退出时那次 sync_persist 基本跑不到。
-    # 回滚不止是丢数据：第 2 列（上次计入到的时刻）被拉回旧值后，下一次记账要补的那
-    # 一段会横跨整个回滚窗口。现在这种陈旧锚点必然超过 PRESENCE_GRACE，只会记一个
-    # tick；旧的整段计时模型下是把回滚窗口里的**离线**时间也一并计入（实测多算 62 秒）。
+    # 只在运行时账本不存在或为空时才从持久化恢复：那才是真正重启过路由器
+    # （/var 是 tmpfs，重启必空）。无条件覆盖会让重启一次服务就把账本回滚。
     if [ ! -s "$DURATION_DB" ] && [ -s "$PERSIST_DIR/duration.db" ]; then
         cp "$PERSIST_DIR/duration.db" "$DURATION_DB"
         dbg "运行时账本为空（应为重启后），已从持久化存储恢复上网时长数据"
@@ -181,13 +169,10 @@ trap '_on_sigterm' TERM INT
 # ─── 设备规则查询 ─────────────────────────────────────────────────────────────
 
 # 设备规则缓存，每轮刷新一次，之后所有规则查询纯靠 shell 变量展开，零进程派生。
-# get_rules_for_target 一轮里会被调用多次（update / allow 或 block / clear_idlist），
-# 若每次都去查 uci，派生数是设备数的平方级。
 #
 # 记录格式（字段顺序必须与 config_t_get 的字段号映射一致）：
 #     id|target|enable|time_mode|week|timestart|timeend|duration|reset_cycle
-# 记录之间用空格分隔，以便直接 for 遍历而不必改 IFS。comment 是自由文本、可能含
-# 空格，会撑破这个格式，故不入缓存。
+# 记录之间用空格分隔。comment 是自由文本、可能含空格，故不入缓存。
 DEVICE_CACHE=""
 
 refresh_device_cache() {
@@ -199,9 +184,7 @@ refresh_device_cache() {
             key = $0; sub(/^[^]]*\]\./, "", key); sub(/=.*$/, "", key)
             val = $0; sub(/^[^=]*=/, "", val)
             if (substr(val, 1, 1) == q) val = substr(val, 2, length(val) - 2)
-            # 含空格或 | 的值一律丢弃：前者破坏记录间的分隔，后者破坏字段间的分隔，
-            # 都会让后续字段整体错位。丢弃后 config_t_get 取到空值并回落到默认值。
-            # 前端校验不放行这两种字符，只有命令行 uci set 才可能写进来。
+            # 含空格或 | 的值一律丢弃：会破坏记录/字段分隔，让后续字段整体错位
             if (val ~ /[ |]/) next
             f[idx, key] = val
         }
@@ -282,16 +265,12 @@ clear_idlist_for_target() {
 ensure_firewall_ready() {
     command -v nft >/dev/null 2>&1 || return 1
     nft list table inet netcontrol >/dev/null 2>&1 && return 0
-    # 表缺失才重建。但关总开关时 init.d 会先删表再由 procd 终止本进程，
-    # 这中间若本进程仍在跑会把刚删的表又建回来，留下无人维护的孤儿表。
-    # 故重建前确认总开关仍开启（uci 在 reload 前已提交，关闭时这里读到 0）。
+    # 表缺失才重建。重建前再确认总开关仍开启，避免与关闭流程竞争产生孤儿表。
     [ "$(config_t_get netcontrol enabled 0 0)" = "1" ] || return 1
     netcontrol start >/dev/null 2>&1
 }
 
-# MAC 正则必须大小写兼容，不能依赖先转小写：BusyBox 的 tr 可能未编译字符类支持，
-# [:upper:] 会被当成普通字符集，大写 MAC 原样通过并被判成 ipv6，于是查错集合、
-# 每轮重复拦截而界面始终显示放行中。
+# MAC 正则必须大小写兼容：BusyBox 的 tr 可能未编译字符类支持，[:upper:] 会失效
 target_type() {
     if printf '%s' "$1" | grep -qE '^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$'; then
         echo "mac"
@@ -304,30 +283,12 @@ target_type() {
 
 # ─── 在线状态 ────────────────────────────────────────────────────────────────
 
-# 设备静默多久之后就不再认为它开着。开着的设备哪怕没人用也一定在说话——DHCP 续租、
-# mDNS/SSDP 通告、NTP 对时、各种云端保活，几分钟内必有 IP 包；关机的设备一个也发不
-# 出来。这个值要大于上述后台流量的最长间隔，又要小到关机后不至于白记太久。
-#
-# 注意它并不构成“关机后仍多记一段”的误差：记账是**事后追认**的（见 accrue_all），
-# 静默期先不记，等下一个包来了才回填。设备关机后再没有下一个包，那段静默就永远不会
-# 被计入。这个值只决定“多长的静默算作它还开着”。
+# 设备静默多久之后就不再认为它开着。要大于设备后台流量（DHCP 续租、mDNS、NTP、
+# 云端保活）的最长间隔。记账是事后追认的，这个值不会造成关机后多记（见 accrue_all）。
 PRESENCE_GRACE=300
 
-# 设备是否开机在线。
-#
-# 判据是“最近一次收到它的包距今多久”，包数由 nftables 计数器给出（见 accrue_all）。
-#
-# 曾经用 ip -s neigh 的 used 字段（邻居表项距上次被用来发帧的秒数）做这件事，那是
-# 错的。used 只在慢速路径上更新——邻居项处于 STALE/DELAY/PROBE、需要走
-# neigh_resolve_output 解析时才刷新；一旦进了 REACHABLE 且二层头进了 hh 缓存，
-# 后续包走 neigh_connected_output 根本不碰 used，开了 flow offloading 更是连
-# netfilter 都绕过去。实测 PC 满速下载时 used 一路单调爬到 395 秒，被 NUD 状态机的
-# 一次探测循环清零后再从头爬——它是一条周期约 400 秒的锯齿波，反映的是邻居状态机
-# 走了几圈，与流量无关。同一时段遥控关机的电视反倒因为每次心跳把 STALE 表项唤醒、
-# used 归零而被判成一直在用网。信号整个是反的，详见 DEVELOPMENT.md。
-#
-# 拿不到计数样本时（nft 不可用、计数规则刚建好、该目标压根不计时）回落到邻居表 /
-# conntrack 的存在性判定——那只能证明“设备还在”，不能证明“正在用网”。
+# 设备是否开机在线。判据是最近一次收到它的包距今多久，包数由 nftables 计数器给出
+# （见 accrue_all）。拿不到计数样本时回落到邻居表 / conntrack 的存在性判定。
 target_online() {
     local target="$1" la now lc
     la="$(awk -F, -v t="$target" '$1==t{print $3+0; f=1; exit} END{if(!f) print -1}' \
@@ -357,39 +318,20 @@ target_online() {
     esac
 }
 
-# ─── 精确计时 ─────────────────────────────────────────────────────────────────
+# ─── 计时 ────────────────────────────────────────────────────────────────────
 #
-# 口径是**在线时长**：设备开着就计时，关着就不计。不是“有多少流量才算用网”。
+# 口径是在线时长：设备开着就计时，关着就不计。
 #
-# 信号取自 nftables 计数器：netcontrol 表里有一条 accounting 链，每个要计时的目标
-# 一条 `<地址匹配> counter` 规则（见 sync_accounting_rules）。每个 tick 读一次链，
-# 与上一 tick 的包数相减——**只看有没有包，不看多少字节**。开着的设备哪怕没人用也
-# 一定在说话；关机的设备一个包都发不出来（实测遥控关机的电视整场 packets 0）。
+# 信号取自 accounting 链上每个目标一条的 counter 规则（见 sync_accounting_rules）。
+# 每个 tick 读一次链，与上一 tick 的包数相减，只看有没有包，不看字节数。
 #
-# 记账是事后追认的：本 tick 有包，就把“上次计入到现在”这一整段补记进去；本 tick 没包，
-# 什么都不做，锚点原地不动。于是：
-#   一直开着          每 tick 都有包 → 每 tick 记 10 秒，等于墙钟时长
-#   开着但安静了 200 秒 → 下一个包来时把这 200 秒一并补记（它确实一直开着）
-#   关机              没有下一个包 → 最后那段静默永远不会被计入，**零尾巴**
-#   关机数小时后再开机  静默超过 PRESENCE_GRACE，那段不算开着，只记本 tick
-# 顺带把“守护进程当时没在看”（服务重启、系统卡顿、从持久化恢复出来的旧锚点）一并
-# 收在同一条规则里：那种情况锚点必然陈旧到超过 PRESENCE_GRACE，只记一个 tick。
-#
-# 为什么用计数器：它只增不减，差分就是一次减法，不需要流级快照（conntrack 的字节总和
-# 会因为流过期而回退），不需要把 MAC 反解成一堆轮换的 IPv6 临时地址，跟 NUD 状态机、
-# 透明代理、conntrack 老化全都无关。
-#
-# 已知盲区：被硬件 flow offload 接管的直连流量在 PPE 里转发，包连 CPU 都不进，任何
-# 软件钩子都看不见。但判在线只需要“有没有包”，而 DHCP / DNS / mDNS 这类本机流量
-# 结构上不可能被 offload，必然经过 accounting 链，所以在线判定不受影响。
-# accounting 链在 inet 族，看不到 ARP——纯靠 ARP 维持存在感的设备理论上会漏，实际
-# 不存在（任何 IP 栈都会发 DHCP/mDNS/NTP）。
+# 记账是事后追认的：本 tick 有包就把“上次计入到现在”整段补记；没包则锚点不动，
+# 那段留给下一个包。设备关机后没有下一个包，最后那段静默永远不会被计入。
+# 静默超过 PRESENCE_GRACE 才来包则只记一个 tick（关机后再开机、服务重启、
+# 系统卡顿都落在这一支）。
 ACCRUE_TICK=10
 
-# 目标地址 → accounting 链里的匹配表达式。只计上行（设备发出的包）：下行在
-# prerouting 看不全，走代理时回程包的目的地址是路由器自己，要等本机进程写回去才轮
-# 到设备，那已经是 output/postrouting 了。上行足够做活动信号——任何下载都要回 ACK，
-# 任何浏览都要发请求。
+# 目标地址 → accounting 链里的匹配表达式。只计上行：下行在 prerouting 看不全。
 _acct_match() {
     case "$(target_type "$1")" in
         mac)  printf 'ether saddr %s' "$(printf '%s' "$1" | tr 'A-Z' 'a-z')" ;;
@@ -398,9 +340,10 @@ _acct_match() {
     esac
 }
 
-# 让 accounting 链里的规则集合与当前需要计时的目标一致。
-# 集合有出入就整链重建，不做增量增删：省掉解析 handle 的一堆麻烦，代价只是计数器
-# 归零，而归零下一 tick 会被识别成“没有基线”跳过一轮，不会误记。
+# 上一次尝试过的目标组，用于防止“某个地址永远加不进去 → 每轮 flush 重来”的空转
+ACCT_WANT=""
+
+# 让 accounting 链里的规则集合与当前需要计时的目标一致。集合有出入就整链重建。
 sync_accounting_rules() {
     local list="$1" have want t
     command -v nft >/dev/null 2>&1 || return 0
@@ -409,23 +352,51 @@ sync_accounting_rules() {
         sed -n 's/.*comment "t=\([^"]*\)".*/\1/p' | sort -u)"
     want="$(printf '%s\n' "$list" | sed '/^$/d' | sort -u)"
     [ "$have" = "$want" ] && return 0
-    {
-        printf 'flush chain inet netcontrol accounting\n'
-        printf '%s\n' "$want" | while IFS= read -r t; do
-            [ -n "$t" ] && printf 'add rule inet netcontrol accounting %s counter comment "t=%s"\n' \
-                "$(_acct_match "$t")" "$t"
-        done
-    } | nft -f - 2>/dev/null
+    # 目标组与上次相同且链非空：差异来自加不进去的地址，不再重来。链空则一律重建。
+    [ "$want" = "$ACCT_WANT" ] && [ -n "$have" ] && return 0
+    ACCT_WANT="$want"
+
+    nft flush chain inet netcontrol accounting 2>/dev/null
+    # 被拦截的设备不计时。用链首的 return 显式跳过，不依赖 -349/-350 的优先级
+    # 次序——降级形态（nopre）里拦截落在 forward，排不到 prerouting 前面。
+    for t in 'ip saddr @blacklist' 'ip6 saddr @blacklist6' 'ether saddr @blacklist_mac'; do
+        printf 'add rule inet netcontrol accounting %s return\n' "$t" | nft -f - 2>/dev/null
+    done
+    # 逐条 add，不用一次 nft -f 批量提交：批量是原子的，一个地址不合法会整笔回滚
+    printf '%s\n' "$want" | while IFS= read -r t; do
+        [ -n "$t" ] || continue
+        printf 'add rule inet netcontrol accounting %s counter comment "t=%s"\n' \
+            "$(_acct_match "$t")" "$t" | nft -f - 2>/dev/null || \
+            info "地址 $t 无法建立计时规则，这台设备不会计入上网时长"
+    done
     dbg "已重建流量计数规则"
 }
 
-# duration.db 第 2 列是“上次计入到的时刻”，不是“本段何时开始在线”。只在真的记了账
-# 的 tick 才前推，静默的 tick 原地不动——那段留给下一个包来追认。total 因此永远是
-# 已确认的在线秒数：get_connection_time 不必再做 now - last_connect 的现算，服务
-# 重启也不会丢一整段。
+# ─── 随机 MAC 放行名单 ────────────────────────────────────────────────────────
 #
-# 想确认 tick 循环是否在跑，别看这一列（设备静默时它本来就不动），看 $ACCT_SNAP
-# 的第 2 列包数或它的 mtime——那个每 tick 必然重写。
+# 拦截规则本身无状态（防火墙层按“本地管理位”一刀切），这里只把用户配的例外同步进
+# randmac_allow 集合。集合不存在说明该功能没开。
+#
+# want 侧先用正则筛一遍，保证每一项都加得进去；have 直接从集合内容里抓 MAC 形状的
+# 串，不按行解析——nft 打印元素时会按宽度折行。
+sync_randmac_allow() {
+    local have want t
+    command -v nft >/dev/null 2>&1 || return 0
+    nft list set inet netcontrol randmac_allow >/dev/null 2>&1 || return 0
+    have="$(nft list set inet netcontrol randmac_allow 2>/dev/null | tr -d ' \t' | tr ',' '\n' | \
+        grep -E '^([0-9a-f]{2}:){5}[0-9a-f]{2}$' | sort -u)"
+    want="$(uci -q get "$NAME.@netcontrol[0].rand_mac_allow" 2>/dev/null | tr ' ' '\n' | \
+        tr 'A-Z' 'a-z' | grep -E '^([0-9a-f]{2}:){5}[0-9a-f]{2}$' | sort -u)"
+    [ "$have" = "$want" ] && return 0
+    nft flush set inet netcontrol randmac_allow 2>/dev/null
+    for t in $want; do
+        nft add element inet netcontrol randmac_allow "{ $t }" 2>/dev/null
+    done
+    info "随机 MAC 放行名单已更新（$(printf '%s' "$want" | grep -c . ) 台）"
+}
+
+# duration.db 第 2 列是“上次计入到的时刻”，只在真的记了账的 tick 才前推，
+# total 因此永远是已确认的在线秒数。
 accrue_all() {
     local list="$1" now cur new tmp
     [ -n "$list" ] || return 0
@@ -434,8 +405,8 @@ accrue_all() {
     cur="$ACCT_SNAP.cur.$$"
     new="$ACCT_SNAP.new.$$"
 
-    # 一次 nft 调用取回所有目标的计数。规则打印出来形如：
-    #   ether saddr b4:9e:80:ed:d4:28 counter packets 12 bytes 3456 comment "t=B4:9E:80:ED:D4:28"
+    # 一次 nft 调用取回所有目标的计数，规则打印出来形如：
+    #   ether saddr xx:xx:xx:xx:xx:xx counter packets 12 bytes 3456 comment "t=XX:.."
     # 取包数而非字节数：判的是“开着没有”，一个包和一兆字节等价。
     nft list chain inet netcontrol accounting 2>/dev/null | awk '
         /counter packets/ {
@@ -467,8 +438,7 @@ accrue_all() {
             FILENAME == cf {
                 cp[$1] = $2 + 0
                 ls = ($1 in ps) ? ps[$1] : 0
-                # 没有上一 tick 的基线（首轮 / 计数器刚归零）就只建基线；增量为负同理，
-                # 说明 nft 表被重建过。
+                # 没有上一 tick 的基线（首轮 / 计数器刚归零）就只建基线，增量为负同理
                 if ($1 in pp && cp[$1] - pp[$1] > 0) ls = now
                 lseen[$1] = ls
                 print $1 "," cp[$1] "," ls > sf
@@ -482,12 +452,10 @@ accrue_all() {
                 tc = ($3 == "" ? 0  : $3 + 0)
                 lr = ($4 == "" ? 0  : $4)
                 add = 0
-                # 本 tick 有包，才把“上次计入到现在”这一段追认为在线。没包就什么都不
-                # 做、锚点不动，那段留给下一个包；设备关机后没有下一个包，自然不计。
+                # 本 tick 有包，才把“上次计入到现在”这一段追认为在线
                 if (lseen[t] == now) {
                     d = now - lc
-                    # 静默太久：这段不能算它一直开着（可能关机、也可能守护进程没在看），
-                    # 只记本 tick。
+                    # 静默太久：这段不能算它一直开着，只记本 tick
                     if (d < 0 || d > grace) d = tick
                     add = d
                     lc  = now
@@ -502,8 +470,7 @@ accrue_all() {
     } 9>"$DB_LOCK"
 }
 
-# 需要精确计时的目标：启用且时间控制方式为 duration/combined 的规则所指向的地址。
-# 纯时间段（period）模式不看时长，不必每 tick 采样。
+# 需要计时的目标：启用且时间控制方式为 duration/combined 的规则所指向的地址
 get_duration_targets() {
     local id target mode
     for id in $(get_all_devices); do
@@ -516,9 +483,7 @@ get_duration_targets() {
 }
 
 # 把一次长 sleep 切成 ACCRUE_TICK 秒的小段，每段结束采样记账一次。
-# 控制逻辑（uci 读取、逐设备 nft 查询，都不便宜）仍按 calc_sleep_seconds 的节奏跑，
-# 只有一次 nft list chain + awk 加密到 10 秒——记账粒度就是这个 tick，采样不密就谈
-# 不上精确（60 秒一采时，一次心跳最多虚计 60 秒，一天几十分钟）。
+# 控制逻辑仍按 calc_sleep_seconds 的节奏跑，记账粒度就是这个 tick。
 sleep_with_accrual() {
     local total="$1" list="$2" slept=0 step
     [ -n "$list" ] || { sleep "$total"; return; }
@@ -531,14 +496,11 @@ sleep_with_accrual() {
     done
 }
 
-# 按在线状态记录状态翻转：在线且未记 connect→记 connect；离线且在 connect→记
-# disconnect。**这里只管日志与在线态，不再管记账**（记账见 accrue_all）。
-# 切忌一放行就无条件记 connect——那样设备不在线也会被 UI 显示成在用网。
+# 记录在线状态翻转，只管日志与在线态，不管记账（记账见 accrue_all）
 track_online_state() {
     local target="$1" last
     last="$(last_connection_action "$target")"
-    # 这两条走 info 而非 dbg：DEBUG 默认关闭时，“时长不增加”类问题在日志里将无迹
-    # 可循。只在状态翻转时打印，不是每轮一条，量可控。
+    # 走 info 而非 dbg：只在状态翻转时打印，量可控
     if target_online "$target"; then
         [ "$last" != "connect" ] && {
             record_connection_time "$target" "connect"
@@ -552,11 +514,9 @@ track_online_state() {
     fi
 }
 
-# 用 nft get element 精确查询而非 grep 文本输出：nft 存储时会做规范化
-# （192.168.10.10/24 → 192.168.10.0/24、2001:0db8::1 → 2001:db8::1），
-# grep 原始输入永远匹配不到，导致每轮误判未拦截而重复 add、状态表显示错误。
-# get element 对查询值做同样的规范化，且地址落在已拦截网段内也算命中；表或集合
-# 不存在时它直接失败，无需另做存在性预检。
+# 用 nft get element 精确查询而非 grep 文本输出：nft 存储时会规范化地址
+# （192.168.10.10/24 → 192.168.10.0/24），grep 原始输入匹配不到。
+# 地址落在已拦截网段内也算命中；表或集合不存在时直接失败，无需另做预检。
 target_in_firewall() {
     local target="$1" lc
     command -v nft >/dev/null 2>&1 || return 1
@@ -611,14 +571,8 @@ is_weekday_in_range() {
 
 # ─── 时长管理 ─────────────────────────────────────────────────────────────────
 
-# 只记录在线状态翻转事件，供 last_connection_action / calc_sleep_seconds / UI 判断
-# 在线态。**不参与记账**：已用时长由 accrue_all 每个 tick 增量累加，与
-# connect / disconnect 的时刻无关。
-#
-# 旧实现在这里按 connect→disconnect 的墙钟差计时，于是 300 秒的迟滞窗口整段进配额；
-# 后来给 disconnect 加过“回拨到最后一次用网时刻”的补丁，但那只扣得掉一段的尾巴，
-# 段中间的空闲（心跳间隔小于迟滞窗口时会连成一整段）照样计入。增量记账把这两个问题
-# 一并消掉，回拨补丁随之删除。
+# 只记录在线状态翻转事件，供 last_connection_action / calc_sleep_seconds 使用。
+# 不参与记账：已用时长由 accrue_all 每个 tick 累加。
 record_connection_time() {
     local target="$1" action="$2"
     case "$action" in
@@ -629,12 +583,7 @@ record_connection_time() {
     printf '%s,%s,%s\n' "$(date +%s)" "$target" "$action" >> "$CONNECTION_LOG"
 }
 
-# 已用秒数直接读 duration.db 的 total —— accrue_all 每个 tick 就把增量落进
-# 去了，total 永远是最新值，这里不再做 now - last_connect 的现算（那是旧的整段计时
-# 口径），也不必再读 connections.log 判断是否正在计时。
-#
-# 顺带解决了旧实现的持久化难题：total 一直是最新的，sync_persist 每 10 轮存一次，
-# 重启最多丢那 10 轮，不再需要专门的落账步骤。
+# 已用秒数直接读 duration.db 的 total：accrue_all 每个 tick 就把增量落进去了
 get_connection_time() {
     local target="$1" r
     r="$(awk -F, -v t="$target" '
@@ -724,8 +673,7 @@ write_status_file() {
 
         if target_in_firewall "$target" 2>/dev/null; then blocked=1; else blocked=0; fi
 
-        # 时间段模式没有时长维度，输出 "-" 而非 0/上限，避免界面显示一个永不增长的
-        # “已用 0 分钟”，看起来像计时卡死。
+        # 时间段模式没有时长维度，输出 "-" 而非 0/上限
         used_min="-"; max_min="-"
         if [ "$time_mode" = "duration" ] || [ "$time_mode" = "combined" ]; then
             used_sec="$(get_connection_time "$target")"
@@ -749,12 +697,8 @@ check_device_control() {
     time_mode="$(config_t_get device time_mode "$id" "period")"
     weekdays="$(config_t_get device week    "$id" "0")"
 
-    # 周期重置必须先于星期/时段判断：重置是计数器自身的周期属性，跟设备此刻是否被
-    # 允许上网无关。若放在时段判断之后，像 09:00-23:59 这种窗口在 00:00~09:00 之间
-    # 根本走不到重置，界面会一直停在昨天用满的数值且处于拦截中；星期不匹配的日子
-    # 同理整天不重置。
-    # 同一目标配多条规则时会重复走到这里，但重置后 last_reset 即为当天，本周期内
-    # 不会再次触发，幂等。
+    # 周期重置必须先于星期/时段判断：放在后面的话，像 09:00-23:59 这种窗口在
+    # 00:00~09:00 之间走不到重置，跨天不归零。同一目标配多条规则时幂等。
     case "$time_mode" in
         duration|combined)
             cycle="$(config_t_get device reset_cycle "$id" "daily")"
@@ -784,8 +728,7 @@ check_device_control() {
             start="$(config_t_get device timestart "$id" "00:00")"
             end="$(config_t_get device timeend   "$id" "00:00")"
             is_time_in_range "$start" "$end" || { dbg "当前时间不在允许时段，拒绝 $target 上网"; return 1; }
-            # 组合模式一律叠加时长限制，不设单独的启用开关：关掉的话本模式与"时间段
-            # 控制"完全等价、纯属冗余，还会造成填了时长却不计时的困惑。
+            # 组合模式一律叠加时长限制，不设单独开关：关掉就与“时间段控制”等价
             duration="$(config_t_get device duration "$id" "60")"
             used_sec="$(get_connection_time "$target")"
             used_min=$((used_sec / 60)); max_min="$duration"
@@ -881,12 +824,10 @@ main_loop() {
     reset_runtime_state
 
     while :; do
-        # 每轮开头刷新一次设备缓存，本轮内所有规则查询都读它（见 refresh_device_cache）。
-        # 必须放在总开关分支之前：关闭态下 write_status_file 也要遍历设备。
+        # 每轮开头刷新一次设备缓存。必须放在总开关分支之前：关闭态下也要遍历设备。
         refresh_device_cache
 
-        # 总开关：关闭时立即清除所有拦截规则与运行时状态后空转，
-        # 不依赖 init.d/procd 能否可靠停掉本进程（其在各版本行为不一）。
+        # 总开关：关闭时清除所有拦截规则与运行时状态后空转，不依赖 procd 停掉本进程
         if ! master_enabled; then
             dbg "总开关已关闭：清除所有拦截规则，空转等待"
             teardown_firewall
@@ -915,17 +856,14 @@ main_loop() {
         if [ $((loop_count % 10)) -eq 0 ]; then
             _rotate_connection_log
             _rotate_main_log
-            # duration.db 的 total 由 accrue_all 每个 tick 就地累加，一直是
-            # 最新值，直接持久化即可，无需先落账。
             sync_persist
         fi
 
         write_status_file
-        # 计时目标每轮算一次：先让 accounting 链里的计数规则与之一致，再进 sleep 采样。
-        # 控制逻辑按 calc_sleep_seconds 的节奏跑，计时采样按 ACCRUE_TICK 加密
-        # （见 sleep_with_accrual）。
+        # 计时目标每轮算一次：先同步计数规则，再进 sleep 采样
         duration_targets="$(get_duration_targets)"
         sync_accounting_rules "$duration_targets"
+        sync_randmac_allow
         sleep_with_accrual "$(calc_sleep_seconds)" "$duration_targets"
     done
 }

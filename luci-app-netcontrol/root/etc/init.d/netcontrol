@@ -48,11 +48,9 @@ start_instance() {
 	procd_close_instance
 }
 
-# 守护进程必须无条件注册：实例只能在 start_service 里注册（rc.common 的
-# reload 不经 rc_procd 包裹，procd_open_instance 的数据不会提交给 procd），
-# 若仅在启用时注册，开机时 enabled=0 → 无进程，之后 UI 打开开关走 reload
-# 路径拉不起进程，服务永远无法启动。daemon 在总开关关闭时自行空转（见
-# netcontrolctrl 主循环），常驻无副作用。
+# 守护进程必须无条件注册：实例只能在 start_service 里注册（rc.common 的 reload
+# 不经 rc_procd 包裹，procd_open_instance 的数据提交不上去）。daemon 在总开关
+# 关闭时自行空转，常驻无副作用。
 start_service() {
 	if tc_enabled; then
 		netcontrol start
@@ -63,10 +61,8 @@ start_service() {
 	start_instance
 }
 
-# 配置变更触发。只维护防火墙表状态，不做进程级操作（见上，reload 注册不了
-# 实例；daemon 常驻并自读 enabled 开关）。启用时仅在表缺失才装载——无条件
-# start 会 flush 整表，已生效的拦截要等 daemon 下一轮才恢复；元素增删交给
-# 常驻 daemon 增量处理。
+# 配置变更触发。只维护防火墙表状态，不做进程级操作。启用时仅在表缺失才装载：
+# 无条件 start 会 flush 整表，已生效的拦截要等 daemon 下一轮才恢复。
 reload_service() {
 	if tc_enabled; then
 		nft list table inet netcontrol >/dev/null 2>&1 || netcontrol start

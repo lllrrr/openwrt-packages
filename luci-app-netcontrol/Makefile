@@ -38,6 +38,6 @@ endef
 
 include $(TOPDIR)/feeds/luci/luci.mk
 
-# luci.mk 末尾自己会调 BuildPackage，这里不能再调一次（会重复定义包）。
-# 保留这行注释是因为部分打包脚本靠 grep "BuildPackage" 识别包 Makefile。
+# luci.mk 末尾自己会调 BuildPackage，这里不能再调一次。
+# 保留下面这行是因为部分打包脚本靠 grep "BuildPackage" 识别包 Makefile。
 # call BuildPackage - OpenWrt buildroot signature

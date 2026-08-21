@@ -86,12 +86,10 @@ return view.extend({
 		var pane = E('div', { 'class': 'nc-log-view' },
 			E('div', { 'class': 'nc-placeholder' }, _('Loading...')));
 		var counter = E('span', { 'class': 'nc-log-count' }, '');
-		// 上次渲染内容的标记，用于跳过无变化的刷新。日志正文与错误提示分开存，
-		// 免得两者内容偶然相同时漏掉一次重绘。
+		// 上次渲染内容的标记，用于跳过无变化的刷新。正文与错误提示分开存。
 		var lastText = null, lastNotice = null;
 
-		// 日志由两个进程以 >> 追加写入，天然按时间有序，倒序显示直接 reverse 即可。
-		// 不必逐行解析时间戳再排序——2000 行就是 2000 次 Date 构造，纯属浪费。
+		// 日志以 >> 追加写入，天然按时间有序，倒序显示直接 reverse 即可
 		function build(raw) {
 			var lines = raw.split('\n');
 			var rows = [], prevDate = null;
@@ -132,8 +130,7 @@ return view.extend({
 			dom.content(pane, E('div', { 'class': 'nc-placeholder' }, msg));
 		}
 
-		// 新记录出现在顶部。停在顶部的用户应始终看到最新一条；已经往下翻的用户
-		// 不该被拽走，按新增的高度补偿 scrollTop，让他正在读的那行留在原位。
+		// 新记录出现在顶部。已经往下翻的用户按新增高度补偿 scrollTop，不被拽走。
 		function render(raw) {
 			var atTop = pane.scrollTop <= 2;
 			var before = pane.scrollHeight;
