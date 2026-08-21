@@ -5,12 +5,15 @@
 'require lanspeed.statusIp as statusIp';
 'require lanspeed.statusShell as statusShell';
 'require lanspeed.statusRefresh as statusRefresh';
+'require lanspeed.statusRateMeta as statusRateMeta';
 
 var SOURCE_KEYS = [ 'status', 'clients', 'interfaces', 'uci' ];
 var LIVE_SOURCE_KEYS = [ 'status', 'clients', 'interfaces' ];
 var ACCESS_EDGE_SAMPLE_SKEW_MS = 50;
 var LIVE_RPC_TIMEOUT_MS = 2500;
+var ERROR_NOTICE_MS = 3000;
 var SOURCE_LABELS = {
+	realtime: 'realtime',
 	status: 'status',
 	clients: 'clients',
 	interfaces: 'interfaces',
@@ -25,6 +28,8 @@ function emptySource(key) {
 
 function sourceIsValid(key, value) {
 	if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+	if (key === 'realtime') return sourceIsValid('status', value.status) &&
+		sourceIsValid('clients', value.clients) && sourceIsValid('interfaces', value.interfaces);
 	if (key === 'clients') return Array.isArray(value.clients);
 	if (key === 'interfaces') return Array.isArray(value.interfaces);
 	return true;
@@ -72,6 +77,18 @@ function maxSampleClock(items) {
 	return latest;
 }
 
+function maxRateMetaClock(items) {
+	var latest = null;
+	(items || []).forEach(function(item) {
+		var meta = item && item.rate_meta;
+		[ meta && meta.tx, meta && meta.rx ].forEach(function(direction) {
+			var clock = sampleClock(direction && direction.sample_ms);
+			if (clock !== null && (latest === null || clock > latest)) latest = clock;
+		});
+	});
+	return latest;
+}
+
 function collectorEvidence(data) {
 	var evidence = data && data.evidence || {};
 	return {
@@ -99,12 +116,14 @@ function collectorSampleClock(data) {
 
 function statusBatch(data) {
 	var edgeActive = fmt.nssPlatform(data) && String(data && data.access_edge_mode || '') === 'active';
+	var routedInternet = fmt.nssPlatform(data) && String(data && data.internet_view_mode || '') === 'routed';
 	var edgeSample = sampleClock(data && data.evidence && data.evidence.access_edge &&
 		data.evidence.access_edge.sample_ms);
 	return {
-		// Active Access Edge owns the one-second client rate. The NSS classifier
-		// clock is intentionally two-second and must not gate that live batch.
-		sampleMs: edgeSample !== null ? edgeSample : (edgeActive ? null : collectorSampleClock(data)),
+		// Explicit routed view owns its FastN+FastS clock; Access Edge is only a
+		// background verifier and must not gate or relabel that view.
+		sampleMs: routedInternet ? null : edgeSample !== null ? edgeSample :
+			(edgeActive ? null : collectorSampleClock(data)),
 		hasCoverage: !!(data && data.coverage && typeof data.coverage === 'object')
 	};
 }
@@ -117,7 +136,8 @@ function clientBatch(data, status) {
 	if (!nssPlatform && (collector === 'nss_ecm_node' || collector === 'nss_ecm_bpf'))
 		collector = 'bpf';
 	var evidenceClock = collectorSampleClock(data);
-	var edgeActive = nssPlatform && String(status && status.access_edge_mode || '') === 'active';
+	var routedInternet = nssPlatform && String(status && status.internet_view_mode || '') === 'routed';
+	var edgeActive = nssPlatform && String(status && status.access_edge_mode || '') === 'active' && !routedInternet;
 	var edgeClock = edgeActive ? sampleClock(data.evidence && data.evidence.access_edge &&
 		data.evidence.access_edge.sample_ms) : null;
 
@@ -127,6 +147,9 @@ function clientBatch(data, status) {
 	var rows = Array.isArray(data.clients) ? data.clients : [];
 	var rateRows = rows.filter(function(item) {
 		var mode = String(item && item.collector_mode || '');
+		if (routedInternet) {
+			return !!statusRateMeta.routedCollector(item && item.rate_meta);
+		}
 		// rate_meta is authoritative while active Access Edge owns the total.
 		// Accept it during a rolling daemon/LuCI upgrade even if a response still
 		// carries the identity's old conntrack/NSS collector_mode.
@@ -135,8 +158,9 @@ function clientBatch(data, status) {
 		return collector ? mode === collector : rateModes[mode] === true;
 	});
 	return {
-		sampleMs: edgeClock !== null ? edgeClock :
-			(evidenceClock !== null ? evidenceClock : maxSampleClock(rateRows)),
+		sampleMs: edgeClock !== null ? edgeClock : routedInternet
+			? maxRateMetaClock(rateRows)
+			: (evidenceClock !== null ? evidenceClock : maxSampleClock(rateRows)),
 		hasRates: rateRows.length > 0
 	};
 }
@@ -155,8 +179,10 @@ function livePair(data) {
 		return value !== null;
 	});
 	var comparable = clocks.length > 1;
-	var skew = fmt.nssPlatform(data && data.status) && String(data && data.status && data.status.access_edge_mode || '') === 'active'
-		? ACCESS_EDGE_SAMPLE_SKEW_MS : 0;
+	var nssStatus = data && data.status;
+	var routedInternet = fmt.nssPlatform(nssStatus) && String(nssStatus && nssStatus.internet_view_mode || '') === 'routed';
+	var edgeActive = fmt.nssPlatform(nssStatus) && String(nssStatus && nssStatus.access_edge_mode || '') === 'active' && !routedInternet;
+	var skew = edgeActive ? ACCESS_EDGE_SAMPLE_SKEW_MS : routedInternet ? 2500 : 0;
 	var aligned = !comparable || clocks.every(function(value) {
 		return Math.abs(value - clocks[0]) <= skew;
 	});
@@ -176,14 +202,11 @@ function livePair(data) {
 function nssAccessEdgeRenderable(data, pair) {
 	return fmt.nssPlatform(data && data.status) &&
 		String(data && data.status && data.status.access_edge_mode || '') === 'active' &&
+		String(data && data.status && data.status.internet_view_mode || '') !== 'routed' &&
 		pair && pair.hasClientRates === true;
 }
 
-/*
- * Coverage, clients, and interfaces are separate ubus calls over one atomic
- * daemon snapshot. A collection may publish between the calls, so hold the
- * last visible metric set whenever their clocks identify different snapshots.
- */
+/* Legacy daemons expose three live calls which can straddle publication. */
 function alignLiveSamples(next, previous) {
 	var pair = livePair(next);
 	if (pair.aligned !== false) {
@@ -306,7 +329,7 @@ function loadUiConfig() {
 	return lsRpc.uciGet('lanspeed', 'main');
 }
 
-function loadAll(previous, clock, timeoutMs) {
+function loadLegacy(previous, clock, timeoutMs) {
 	clock = clock || function() { return Date.now(); };
 	var loaders = {
 		status: function() { return lsRpc.status(); },
@@ -338,6 +361,61 @@ function loadAll(previous, clock, timeoutMs) {
 			return alignLiveSamples(recovered, previous);
 		});
 	});
+}
+
+function cachedUci(previous, clock, timeoutMs) {
+	if (!hasPreviousSuccess(previous, 'uci'))
+		return sourceSettled('uci', loadUiConfig, previous, clock, timeoutMs);
+	var old = previous.rpc.uci || {};
+	var checkedAt = clock();
+	return Promise.resolve({
+		key: 'uci',
+		value: previousValue(previous, 'uci'),
+		rpc: {
+			ok: true,
+			retained: false,
+			cached: true,
+			error: null,
+			checkedAt: checkedAt,
+			lastSuccessAt: Number(old.lastSuccessAt) || checkedAt
+		}
+	});
+}
+
+function bundledResult(key, bundle, realtimeResult) {
+	return {
+		key: key,
+		value: bundle[key],
+		rpc: Object.assign({}, realtimeResult.rpc)
+	};
+}
+
+function loadRealtime(previous, clock, timeoutMs) {
+	var startedAt = clock();
+	return Promise.all([
+		sourceSettled('realtime', function() { return lsRpc.realtime(); },
+			previous, clock, timeoutMs),
+		cachedUci(previous, clock, timeoutMs)
+	]).then(function(results) {
+		var realtimeResult = results[0];
+		if (!realtimeResult.rpc.ok)
+			return loadLegacy(previous, clock, timeoutMs);
+		var bundle = realtimeResult.value;
+		var next = aggregateResults([
+			bundledResult('status', bundle, realtimeResult),
+			bundledResult('clients', bundle, realtimeResult),
+			bundledResult('interfaces', bundle, realtimeResult),
+			results[1]
+		], startedAt);
+		return alignLiveSamples(next, previous);
+	});
+}
+
+function loadAll(previous, clock, timeoutMs) {
+	clock = clock || function() { return Date.now(); };
+	return typeof lsRpc.realtime === 'function'
+		? loadRealtime(previous, clock, timeoutMs)
+		: loadLegacy(previous, clock, timeoutMs);
 }
 
 function normalizeData(data) {
@@ -414,6 +492,7 @@ function createController(viewState, options) {
 	var eventTarget = options.eventTarget || hostWindow;
 	var timerApi = options.timerApi || hostWindow || {};
 	var hostDocument = options.document || (typeof document !== 'undefined' ? document : null);
+	var visibilityTarget = options.visibilityTarget || hostDocument;
 	var Observer = options.MutationObserver || (hostWindow && hostWindow.MutationObserver) ||
 		(typeof MutationObserver !== 'undefined' ? MutationObserver : null);
 	var clock = options.now || function() { return Date.now(); };
@@ -421,6 +500,7 @@ function createController(viewState, options) {
 	var pending = null;
 	var requestSeq = 0;
 	var timer = null;
+	var noticeTimer = null;
 	var destroyed = false;
 	var root = null;
 	var observer = null;
@@ -435,6 +515,45 @@ function createController(viewState, options) {
 		if (timer !== null && typeof timerApi.clearTimeout === 'function')
 			timerApi.clearTimeout(timer);
 		timer = null;
+	}
+
+	function clearErrorNoticeTimer() {
+		if (noticeTimer !== null && typeof timerApi.clearTimeout === 'function')
+			timerApi.clearTimeout(noticeTimer);
+		noticeTimer = null;
+	}
+
+	function scheduleErrorNoticeHide() {
+		clearErrorNoticeTimer();
+		if (!viewState.errorNoticeUntil || typeof timerApi.setTimeout !== 'function') return;
+		var delay = Math.max(0, Number(viewState.errorNoticeUntil) - clock());
+		noticeTimer = timerApi.setTimeout(function() {
+			noticeTimer = null;
+			viewState.errorNoticeVisible = false;
+			if (!destroyed) refresh(true);
+		}, delay);
+	}
+
+	function triggerErrorNotice() {
+		viewState.errorNoticeVisible = true;
+		viewState.errorNoticeUntil = clock() + ERROR_NOTICE_MS;
+		scheduleErrorNoticeHide();
+	}
+
+	function visibilityChanged() {
+		var hidden = visibilityTarget &&
+			(visibilityTarget.hidden === true || visibilityTarget.visibilityState === 'hidden');
+		if (hidden) {
+			clearErrorNoticeTimer();
+			viewState.errorNoticeVisible = false;
+			viewState.errorNoticeUntil = 0;
+			if (viewState.refs) refresh(true);
+			return;
+		}
+		if (viewState.errorNoticeSignature) {
+			triggerErrorNotice();
+			if (viewState.refs) refresh(true);
+		}
 	}
 
 	function schedule(anchorAt) {
@@ -521,6 +640,7 @@ function createController(viewState, options) {
 		destroyed = true;
 		requestSeq++;
 		stopTimer();
+		clearErrorNoticeTimer();
 		pending = null;
 		if (observer && typeof observer.disconnect === 'function') observer.disconnect();
 		observer = null;
@@ -528,6 +648,8 @@ function createController(viewState, options) {
 			eventTarget.removeEventListener('pagehide', destroy);
 			eventTarget.removeEventListener('beforeunload', destroy);
 		}
+		if (visibilityTarget && typeof visibilityTarget.removeEventListener === 'function')
+			visibilityTarget.removeEventListener('visibilitychange', visibilityChanged);
 		viewState.destroyed = true;
 	}
 
@@ -547,8 +669,12 @@ function createController(viewState, options) {
 		eventTarget.addEventListener('pagehide', destroy);
 		eventTarget.addEventListener('beforeunload', destroy);
 	}
+	if (visibilityTarget && typeof visibilityTarget.addEventListener === 'function')
+		visibilityTarget.addEventListener('visibilitychange', visibilityChanged);
 
 	viewState.stopTimer = stopTimer;
+	viewState.clearErrorNoticeTimer = clearErrorNoticeTimer;
+	viewState.triggerErrorNotice = triggerErrorNotice;
 	viewState.schedule = schedule;
 	viewState.reload = reload;
 	viewState.destroy = destroy;
@@ -615,6 +741,7 @@ return baseclass.extend({
 	createController: createController,
 	normalizeData: normalizeData,
 	loadAll: loadAll,
+	loadLegacy: loadLegacy,
 	statusBatch: statusBatch,
 	clientBatch: clientBatch,
 	interfaceBatch: interfaceBatch,

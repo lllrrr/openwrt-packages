@@ -1,4 +1,5 @@
 use super::*;
+use crate::config::InternetViewMode;
 
 #[derive(Clone, Copy, Debug)]
 #[cfg(feature = "nss-platform")]
@@ -455,6 +456,76 @@ pub(super) fn published_from_candidate(
 }
 
 #[cfg(feature = "nss-platform")]
+pub(super) fn fast_client_sample_current(now_ms: u64, sample: FastClientSample) -> bool {
+    // NSS FastN publishes in hardware batches that can be longer than the
+    // one-second UI cadence. Keep one complete window usable through the next
+    // expected publication instead of dropping it between two batch notices;
+    // short FastS-only windows remain usable through the 2.5-second quiet
+    // confirmation interval plus one fixed-timer scheduling slot. Without
+    // that slot the old value can expire one tick before the worker publishes
+    // its confirmed zero, producing a false one-frame unavailable/0 gap.
+    let freshness_ms = crate::platform::nss::fast_rate::FAST_WINDOW_QUIET_CONFIRM_MS
+        .saturating_add(ACCESS_EDGE_INTERVAL_MS)
+        .max(sample.window_ms.saturating_add(ACCESS_EDGE_INTERVAL_MS));
+    sample.window_ms != 0
+        && sample.read_end_skew_ms
+            <= crate::platform::nss::fast_rate::FAST_WINDOW_MAX_READ_END_SKEW_MS
+        && sample.sample_ms <= now_ms
+        && now_ms.saturating_sub(sample.sample_ms) <= freshness_ms
+}
+
+#[cfg(feature = "nss-platform")]
+pub(super) fn active_rate_direction(
+    view: RateView,
+    edge: Option<RateCandidate>,
+    fast: Option<FastClientSample>,
+) -> PublishedRateDirection {
+    match view {
+        RateView::EAuthority => edge
+            .filter(|candidate| candidate.fresh)
+            .map(|candidate| published_from_candidate(candidate, false))
+            .unwrap_or_else(|| PublishedRateDirection::unavailable(0)),
+        RateView::RoutedLeaseSubstitute => fast
+            .map(published_from_fast_lease)
+            .unwrap_or_else(|| PublishedRateDirection::unavailable(0)),
+        RateView::RoutedInternet => fast
+            .map(published_from_fast_internet)
+            .unwrap_or_else(|| PublishedRateDirection::unavailable(0)),
+        RateView::Unavailable => PublishedRateDirection::unavailable(0),
+    }
+}
+
+#[cfg(feature = "nss-platform")]
+fn published_from_fast_lease(sample: FastClientSample) -> PublishedRateDirection {
+    PublishedRateDirection {
+        bps: sample.routed_l2_with_fcs_bps,
+        source: ModelRateSource::FastRoutedLease,
+        coverage: ModelRateCoverage::Degraded,
+        scope: ModelRateScope::RoutedObserved,
+        byte_domain: Some(ModelByteDomain::L2WithFcs),
+        sample_ms: Some(sample.sample_ms),
+        window_ms: Some(sample.window_ms),
+        stale: false,
+        mux_owner: true,
+    }
+}
+
+#[cfg(feature = "nss-platform")]
+fn published_from_fast_internet(sample: FastClientSample) -> PublishedRateDirection {
+    PublishedRateDirection {
+        bps: sample.routed_l2_with_fcs_bps,
+        source: ModelRateSource::FastRoutedInternet,
+        coverage: ModelRateCoverage::Degraded,
+        scope: ModelRateScope::RoutedObserved,
+        byte_domain: Some(ModelByteDomain::L2WithFcs),
+        sample_ms: Some(sample.sample_ms),
+        window_ms: Some(sample.window_ms),
+        stale: false,
+        mux_owner: true,
+    }
+}
+
+#[cfg(feature = "nss-platform")]
 pub(super) fn rate_direction_meta(
     direction: PublishedRateDirection,
     summary_sample_ms: Option<u64>,
@@ -743,12 +814,42 @@ pub(super) fn sum_interface_counters(
         })
 }
 
+pub(super) fn interface_display_counters(
+    name: &str,
+    role: InterfaceRole,
+    boundary_names: Option<&[String]>,
+    counters: &BTreeMap<String, InterfaceCounters>,
+) -> Option<InterfaceCounters> {
+    let counters = if role == InterfaceRole::Lan {
+        match boundary_names {
+            Some(names) => sum_interface_counters(names, counters)?,
+            None => counters.get(name).copied()?,
+        }
+    } else {
+        counters.get(name).copied()?
+    };
+    Some(if role == InterfaceRole::Lan {
+        InterfaceCounters {
+            rx_bytes: counters
+                .rx_bytes
+                .saturating_add(counters.rx_packets.saturating_mul(4)),
+            tx_bytes: counters
+                .tx_bytes
+                .saturating_add(counters.tx_packets.saturating_mul(4)),
+            ..counters
+        }
+    } else {
+        counters
+    })
+}
+
 pub(super) fn effective_collection_interval_ms(
     access_edge_mode: AccessEdgeMode,
+    internet_view_mode: InternetViewMode,
     owner: Option<RateCollector>,
     configured_ms: u32,
 ) -> u32 {
-    if access_edge_mode != AccessEdgeMode::Off {
+    if access_edge_mode != AccessEdgeMode::Off || internet_view_mode.uses_fast_rate() {
         return ACCESS_EDGE_INTERVAL_MS as u32;
     }
     if matches!(
@@ -771,6 +872,21 @@ pub(super) const fn active_access_edge_owns_display_rate(
 }
 
 #[cfg(feature = "nss-platform")]
+pub(super) const fn explicit_internet_rate_view(internet_view_mode: InternetViewMode) -> bool {
+    matches!(internet_view_mode, InternetViewMode::Routed)
+}
+
+#[cfg(feature = "nss-platform")]
+pub(super) const fn rate_mux_owns_display_rate(
+    access_edge_mode: AccessEdgeMode,
+    rate_collector_mode: RateCollectorMode,
+    internet_view_mode: InternetViewMode,
+) -> bool {
+    active_access_edge_owns_display_rate(access_edge_mode, rate_collector_mode)
+        || explicit_internet_rate_view(internet_view_mode)
+}
+
+#[cfg(feature = "nss-platform")]
 pub(super) const fn published_rate_collector_mode<'a>(
     active_auto: bool,
     legacy: &'a str,
@@ -786,8 +902,9 @@ pub(super) const fn published_rate_collector_mode<'a>(
 pub(super) const fn legacy_nss_rate_window_enabled(
     access_edge_mode: AccessEdgeMode,
     rate_collector_mode: RateCollectorMode,
+    internet_view_mode: InternetViewMode,
 ) -> bool {
-    !active_access_edge_owns_display_rate(access_edge_mode, rate_collector_mode)
+    !rate_mux_owns_display_rate(access_edge_mode, rate_collector_mode, internet_view_mode)
 }
 
 /// Advance an absolute monotonic deadline to the first slot strictly after

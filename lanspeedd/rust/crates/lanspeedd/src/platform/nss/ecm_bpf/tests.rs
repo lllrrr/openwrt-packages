@@ -3,6 +3,47 @@ mod tests {
     use super::*;
     use crate::identity::{IdentityObservation, ObservationSource};
 
+    #[test]
+    fn event_hint_decoder_accepts_only_fixed_size_non_round_end_events() {
+        let event = EcmCountersUpdatedEvent {
+            timestamp_ns: 10,
+            sequence: 4,
+            source: 2,
+            round_end: 0,
+            reserved: [0; 6],
+        };
+        let bytes = unsafe {
+            std::slice::from_raw_parts(
+                (&event as *const EcmCountersUpdatedEvent).cast::<u8>(),
+                std::mem::size_of::<EcmCountersUpdatedEvent>(),
+            )
+        };
+        assert_eq!(decode_event_hint(bytes), Some(event));
+        assert!(decode_event_hint(&bytes[..bytes.len() - 1]).is_none());
+
+        let mut round_end = event;
+        round_end.round_end = 1;
+        let round_end_bytes = unsafe {
+            std::slice::from_raw_parts(
+                (&round_end as *const EcmCountersUpdatedEvent).cast::<u8>(),
+                std::mem::size_of::<EcmCountersUpdatedEvent>(),
+            )
+        };
+        assert!(decode_event_hint(round_end_bytes).is_none());
+    }
+
+    #[test]
+    fn event_telemetry_buckets_unknown_sources_and_realistic_cadence() {
+        assert_eq!(event_source_bucket(0), 0);
+        assert_eq!(event_source_bucket(4), 4);
+        assert_eq!(event_source_bucket(9), 0);
+        assert_eq!(event_interval_bucket(250_000_000), 0);
+        assert_eq!(event_interval_bucket(500_000_000), 1);
+        assert_eq!(event_interval_bucket(1_000_000_000), 2);
+        assert_eq!(event_interval_bucket(2_000_000_000), 3);
+        assert_eq!(event_interval_bucket(2_000_000_001), 4);
+    }
+
     fn identities() -> IdentityTable {
         let mut identities = IdentityTable::new(4);
         identities
@@ -59,15 +100,20 @@ mod tests {
         .unwrap();
 
         let callbacks = available_nss_context_callbacks(&path).unwrap();
-        fs::remove_file(path).unwrap();
-
         assert_eq!(
             callbacks,
             [
-                "ecm_nss_ipv4_net_dev_callback",
                 "ecm_nss_ipv6_connection_sync_many_callback",
+                "ecm_nss_ipv4_net_dev_callback",
             ]
         );
+
+        let specs = available_nss_callback_specs(&path).unwrap();
+        assert_eq!(specs[0].enter_program, ECM_NSS_ENTER_SYNC_MANY_V6_PROGRAM_NAME);
+        assert_eq!(specs[0].exit_program, ECM_NSS_EXIT_SYNC_MANY_V6_PROGRAM_NAME);
+        assert_eq!(specs[1].enter_program, ECM_NSS_ENTER_NETDEV_V4_PROGRAM_NAME);
+        assert_eq!(specs[1].exit_program, ECM_NSS_EXIT_NETDEV_V4_PROGRAM_NAME);
+        fs::remove_file(&path).unwrap();
     }
 
     #[test]

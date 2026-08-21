@@ -92,9 +92,17 @@ function formatDuration(value) {
 	if (milliseconds < 60000) return _('%s 秒').format(String(Math.round(milliseconds / 100) / 10));
 	return _('%s 分钟').format(String(Math.round(milliseconds / 6000) / 10));
 }
+
+/* The interface aggregate clock is captured before per-interface samples.
+ * A small positive skew therefore still describes the same snapshot, rather
+ * than an interface with no sample. Keep this within the live-pair tolerance so
+ * a genuinely stale or unrelated clock is still reported as unavailable. */
+var INTERFACE_SAMPLE_CLOCK_SKEW_MS = 50;
 function sampleAge(clockValue, sampleValue) {
 	var clock = finiteNumber(clockValue), sample = finiteNumber(sampleValue);
-	return clock === null || sample === null || sample > clock ? null : clock - sample;
+	if (clock === null || sample === null) return null;
+	if (sample > clock) return sample - clock <= INTERFACE_SAMPLE_CLOCK_SKEW_MS ? 0 : null;
+	return clock - sample;
 }
 function formatPercent(value) {
 	var number = finiteNumber(value);
@@ -130,7 +138,12 @@ function nssPlatform(status) {
 
 function currentRateUsesAccessEdge(status) {
 	return nssPlatform(status) && String(status && status.rate_collector_mode || '') === 'auto' &&
-		String(status && status.access_edge_mode || '') === 'active';
+		String(status && status.access_edge_mode || '') === 'active' &&
+		String(status && status.internet_view_mode || '') !== 'routed';
+}
+
+function currentRateUsesRoutedInternet(status) {
+	return nssPlatform(status) && String(status && status.internet_view_mode || '') === 'routed';
 }
 
 function countSummary(counts, labels, preferred) {
@@ -150,12 +163,22 @@ function edgeReasonText(code) {
 	return ACCESS_EDGE_REASON_LABELS[String(code || '')] || _('未识别的能力边界');
 }
 
+function rateWindowText(facts, fallback) {
+	var windowMs = finiteNumber(facts && facts.windowMs);
+	if (windowMs === null || windowMs <= 0) return fallback || _('采样窗口未知');
+	var range = finiteNumber(facts.windowMinMs) !== null && finiteNumber(facts.windowMaxMs) !== null &&
+		facts.windowMinMs !== facts.windowMaxMs ? _('（范围 %s 至 %s）').format(
+			formatDuration(facts.windowMinMs), formatDuration(facts.windowMaxMs)) : '';
+	return _('实际窗口约 %s%s').format(formatDuration(windowMs), range);
+}
+
 function collectRateFacts(clientsResponse) {
 	var clients = asArray(clientsResponse && clientsResponse.clients);
 	var sourceCounts = Object.create(null), coverageCounts = Object.create(null), scopeCounts = Object.create(null);
 	var ownerDirections = 0, unavailableDirections = 0, fallbackDirections = 0;
 	var staleClients = 0, staleDirections = 0;
 	var attachmentKinds = Object.create(null), attachmentTrust = Object.create(null), reasonCodes = [];
+	var windowValues = [];
 	clients.forEach(function(client) {
 		var meta = client && client.rate_meta;
 		if (!plainObject(meta)) {
@@ -178,26 +201,43 @@ function collectRateFacts(clientsResponse) {
 			code = String(code || '');
 			if (code && reasonCodes.indexOf(code) === -1) reasonCodes.push(code);
 		});
+		var metaWindow = finiteNumber(meta.window_ms);
 		[ meta.tx, meta.rx ].forEach(function(direction) {
 			var source = plainObject(direction) ? String(direction.source || 'none') : 'none';
 			var coverage = plainObject(direction) ? String(direction.coverage || 'unavailable') : 'unavailable';
 			var directionStale = plainObject(direction) && typeof direction.stale === 'boolean'
 				? direction.stale : meta.stale === true;
+			var directionWindow = plainObject(direction) ? finiteNumber(direction.window_ms) : null;
+			if (directionWindow === null) directionWindow = metaWindow;
+			if (directionWindow !== null && directionWindow > 0 &&
+				(source !== 'none' && coverage !== 'unavailable' || metaWindow !== null))
+				windowValues.push(directionWindow);
 			sourceCounts[source] = (sourceCounts[source] || 0) + 1;
 			coverageCounts[coverage] = (coverageCounts[coverage] || 0) + 1;
 			if (directionStale) staleDirections++;
 			if (source === 'none' || coverage === 'unavailable') unavailableDirections++;
 			else ownerDirections++;
-			if (source === 'ecm_bpf_fallback' || source === 'ecm_nss_lower_bound' || source === 'tc_bpf_lower_bound')
+			if (source === 'fast_routed_lease' || source === 'ecm_bpf_fallback' ||
+				source === 'ecm_nss_lower_bound' || source === 'tc_bpf_lower_bound')
 				fallbackDirections++;
 		});
 	});
+	windowValues.sort(function(first, second) { return first - second; });
+	var windowMs = null, windowMinMs = null, windowMaxMs = null;
+	if (windowValues.length) {
+		var middle = Math.floor(windowValues.length / 2);
+		windowMs = windowValues.length % 2 ? windowValues[middle] :
+			Math.round((windowValues[middle - 1] + windowValues[middle]) / 2);
+		windowMinMs = windowValues[0];
+		windowMaxMs = windowValues[windowValues.length - 1];
+	}
 	return {
 		clients: clients, totalClients: clients.length, totalDirections: clients.length * 2,
 		ownerDirections: ownerDirections, unavailableDirections: unavailableDirections,
 		fallbackDirections: fallbackDirections, staleClients: staleClients, staleDirections: staleDirections,
 		sourceCounts: sourceCounts, coverageCounts: coverageCounts, scopeCounts: scopeCounts,
-		attachmentKinds: attachmentKinds, attachmentTrust: attachmentTrust, reasonCodes: reasonCodes
+		attachmentKinds: attachmentKinds, attachmentTrust: attachmentTrust, reasonCodes: reasonCodes,
+		windowMs: windowMs, windowMinMs: windowMinMs, windowMaxMs: windowMaxMs
 	};
 }
 
@@ -205,10 +245,12 @@ function rateOwnerStateWithRpc(viewState) {
 	viewState = viewState || {};
 	var status = viewState.status || {}, clients = viewState.clients || {};
 	var facts = collectRateFacts(clients), edgeOwner = currentRateUsesAccessEdge(status);
+	var routedOwner = currentRateUsesRoutedInternet(status);
 	var statusRpc = rpcState(viewState, 'status'), clientsRpc = rpcState(viewState, 'clients');
 	var coverage = coverageState(status, clients), source, state, badge, value, description, meta;
 	var sourceText = countSummary(facts.sourceCounts, RATE_SOURCE_LABELS,
-		[ 'edge_port', 'edge_wifi', 'ecm_bpf_fallback', 'ecm_nss_lower_bound', 'tc_bpf_lower_bound', 'none' ]);
+		[ 'edge_port', 'edge_wifi', 'fast_routed_lease', 'fast_routed_internet', 'ecm_bpf_fallback',
+			'ecm_nss_lower_bound', 'tc_bpf_lower_bound', 'none' ]);
 	var coverageText = countSummary(facts.coverageCounts, RATE_COVERAGE_LABELS,
 		[ 'full', 'partial', 'degraded', 'unavailable' ]);
 	if (edgeOwner) {
@@ -216,13 +258,14 @@ function rateOwnerStateWithRpc(viewState) {
 		value = sourceText === '-' ? _('等待总速率来源') : sourceText;
 		description = coverage.description + ' ' +
 			_('每个方向只使用一个总速率来源（owner）；NSS/CPU 分类不会与总速率相加。');
-		meta = _('%d/%d 个方向已有来源 · 目标窗口 1 秒').format(facts.ownerDirections, facts.totalDirections);
+		meta = _('%d/%d 个方向已有来源 · %s').format(facts.ownerDirections, facts.totalDirections,
+			rateWindowText(facts, _('目标窗口 1 秒')));
 		if (facts.unavailableDirections || coverage.quality === 'unavailable') {
 			state = 'bad'; badge = _('存在缺失');
 			description += ' ' + _('%d 个方向没有可用的总速率 owner。').format(facts.unavailableDirections);
 		} else if (facts.fallbackDirections || facts.coverageCounts.degraded || coverage.quality === 'degraded') {
 			state = 'warning'; badge = _('降级');
-			description += ' ' + _('部分方向正在使用分类器降级来源，只能代表已观察到的路由流量。');
+			description += ' ' + _('部分方向正在使用租约替代或分类器降级来源，只能代表已观察到的路由流量。');
 		} else if (facts.staleDirections) {
 			state = 'warning'; badge = _('存在陈旧值');
 			description += ' ' + _('%d 个方向的总速率已标记为陈旧。').format(facts.staleDirections);
@@ -232,6 +275,18 @@ function rateOwnerStateWithRpc(viewState) {
 			if (facts.coverageCounts.partial)
 				description += ' ' + _('全部方向都有新鲜总速率来源；帧归属边界仅在详细报告中说明。');
 		}
+	} else if (routedOwner) {
+		source = 'nss_ecm_bpf';
+		value = sourceText === '-' ? _('等待路由速率来源') : sourceText;
+		state = facts.unavailableDirections ? 'bad' : facts.staleDirections ? 'warning' : 'good';
+		badge = state === 'bad' ? _('存在缺失') : state === 'warning' ? _('存在陈旧值') : _('路由视图');
+		description = _('显式互联网/路由视图只显示 FastN+FastS 观察到的路由流量，不代表客户端全部帧。');
+		meta = _('%d/%d 个方向已有路由来源 · %s').format(facts.ownerDirections, facts.totalDirections,
+			rateWindowText(facts, _('采样窗口未知')));
+		if (facts.unavailableDirections)
+			description += ' ' + _('%d 个方向没有当前 FastN+FastS 窗口。').format(facts.unavailableDirections);
+		else if (facts.staleDirections)
+			description += ' ' + _('%d 个方向的路由速率已标记为陈旧。').format(facts.staleDirections);
 	} else {
 		var evidence = status.evidence && status.evidence.collector || {};
 		source = collectorKey((status.evidence && status.evidence.effective_collector) ||
@@ -255,9 +310,10 @@ function rateOwnerStateWithRpc(viewState) {
 	}
 	return { state: state, badge: badge, value: value, description: description, meta: meta,
 		source: source, sourceText: sourceText, coverageText: coverageText,
+		windowText: rateWindowText(facts, routedOwner ? _('采样窗口未知') : _('目标窗口 1 秒')),
 		scopeText: countSummary(facts.scopeCounts, RATE_SCOPE_LABELS,
 			[ 'all_frames', 'unicast', 'routed_observed', 'lower_bound', 'none' ]),
-		facts: facts, edgeOwner: edgeOwner };
+		facts: facts, edgeOwner: edgeOwner, routedOwner: routedOwner };
 }
 
 function accessEdgeStateWithRpc(viewState) {
@@ -1079,8 +1135,10 @@ return baseclass.extend({
 	collectorDisplayLabel: collectorDisplayLabel,
 	nssPlatform: nssPlatform,
 	currentRateUsesAccessEdge: currentRateUsesAccessEdge,
+	currentRateUsesRoutedInternet: currentRateUsesRoutedInternet,
 	countSummary: countSummary,
 	edgeReasonText: edgeReasonText,
+	rateWindowText: rateWindowText,
 	collectRateFacts: collectRateFacts,
 	rateOwnerStateWithRpc: rateOwnerStateWithRpc,
 	accessEdgeStateWithRpc: accessEdgeStateWithRpc,

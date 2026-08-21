@@ -4,7 +4,8 @@ use std::{
     fs,
     path::Path,
     rc::Rc,
-    sync::Arc,
+    sync::{mpsc, mpsc::Receiver, Arc},
+    time::{Duration, Instant},
 };
 
 use lanspeed_openwrt_sys::{Timer, UbusConnection, UloopGuard};
@@ -12,20 +13,20 @@ use serde_json::{json, Value};
 
 use crate::{
     clock::monotonic_millis,
-    collectors::conntrack::{self, CollectedSnapshot, CollectorMode as ConntrackMode},
-    config::{AccessEdgeMode, ConnectionCollectorMode, RuntimeConfig, SysfsInterfaceEligibility},
+    collectors::conntrack::CollectedSnapshot,
+    config::{AccessEdgeMode, RuntimeConfig, SysfsInterfaceEligibility},
     connection_details::ConnectionRateBook,
     connections::{
-        apply_conntrack_failure, apply_conntrack_success, before_reply_action,
-        client_conntrack_plan, periodic_conntrack_plan, publish_connection_details,
-        BeforeReplyAction, ClientConntrackPlan, ConntrackObservation, PeriodicConntrackPlan,
-        CLIENT_CONNTRACK_CACHE_TTL_MS, NSS_CLIENT_CONNTRACK_CACHE_TTL_MS,
+        periodic_conntrack_plan, publish_connection_details, ConntrackObservation,
+        PeriodicConntrackPlan,
     },
-    control::{ClientControlDeleteRequest, ClientControlRequest, ControlCommand},
+    control::{
+        ClientControlDeleteRequest, ClientControlRequest, ControlCommand, ControlReconcileOutcome,
+        ControlReconcileWork,
+    },
     daemon::{
-        abort_reload_after_timer_failure, abort_reload_candidate, activate_runtime,
-        collect_and_reschedule, commit_reload, install_control_or_shutdown, reconnect_and_register,
-        shutdown_runtime, CoordinatorState, Runtime, UloopSignalBridge,
+        activate_runtime, install_control_or_shutdown, reconnect_and_register, shutdown_runtime,
+        CoordinatorState, Runtime, RuntimeCollectionSignals, UloopSignalBridge,
     },
     error::DaemonError,
     history::overview::{
@@ -39,7 +40,7 @@ use crate::{
     },
     interfaces::{
         read_interface_counter_snapshot, InterfaceCounterSnapshot, InterfaceCounters,
-        InterfaceRateBook, MIXED_INTERFACE_SOURCE,
+        InterfaceRateBook, LAN_INTERFACE_RATE_WINDOW_MS, MIXED_INTERFACE_SOURCE,
     },
     model::{
         Capabilities, ClientsResponse, Confidence, Conflict, Evidence, HealthResponse, Interface,
@@ -48,39 +49,61 @@ use crate::{
     },
     platform::{
         confidence,
-        x86::{
-            coverage_state::X86Coverage,
-            output::clients_response,
-            runtime::{
-                AdapterError, AdapterErrorKind, AttachMode, BpfCollectionCheckpoint,
-                BpfPostCommitCleanup, BpfReconfigureTxn, BpfRuntime, ReconfigureRateBaseline,
-                ReconfigureStrategy, SystemAyaAdapter, SystemAyaLink, FALLBACK_OBJECT_PATH,
-            },
-            snapshot::{BpfSnapshotCollector, ConnectionCounts, ConnectionOverlay},
-        },
+        x86::{coverage_state::X86Coverage, output::clients_response},
     },
     policy::{self, RateCollector},
     probe::{
         collector::{self, probe_deadline, probe_due, ProbeMethod, SystemProbeCollector},
-        process::{
-            run_dae_mode_tick, DaeModeReloadLatch, DaeModeTickOutcome, DaeModeTickSignals,
-            DaeProcessTracker,
-        },
+        process::{DaeModeReloadLatch, DaeProcessTracker},
         Mode as ProbeMode, ProbeCapabilities, ProbeReport, RuntimeHealth,
     },
-    state::{ResponseSnapshot, CONNECTION_SEMANTICS, OVERVIEW_SAMPLE_SOURCE},
+    runtime_worker::{self, RuntimeCollectionNotice, RuntimeCollectionWorker},
+    state::{diagnostic_now_ms, ResponseSnapshot, CONNECTION_SEMANTICS, OVERVIEW_SAMPLE_SOURCE},
     ubus,
 };
 
+use crate::conntrack_worker::{self, ConntrackTask, CONNTRACK_WORK_INTERVAL_MS};
 use crate::control::ControlManager;
+use crate::control_worker::{self, ControlWorkerNotice, ControlWorkerTask};
+use crate::workers::{QueueError, RuntimeWorker};
+
+#[cfg(not(feature = "nss-platform"))]
+use crate::platform::x86::{
+    runtime::{
+        AdapterErrorKind, AttachMode, BpfCollectionCheckpoint, BpfPostCommitCleanup,
+        BpfReconfigureTxn, BpfRuntime, ReconfigureRateBaseline, ReconfigureStrategy,
+        SystemAyaAdapter, SystemAyaLink, FALLBACK_OBJECT_PATH,
+    },
+    snapshot::{BpfSnapshotCollector, ConnectionCounts, ConnectionOverlay},
+};
+
+#[cfg(feature = "nss-platform")]
+use crate::platform::nss::{
+    tc_bpf_runtime::{
+        AdapterErrorKind, AttachMode, BpfCollectionCheckpoint, BpfPostCommitCleanup,
+        BpfReconfigureTxn, BpfRuntime, ReconfigureRateBaseline, ReconfigureStrategy,
+        SystemAyaAdapter, SystemAyaLink, FALLBACK_OBJECT_PATH,
+    },
+    tc_bpf_snapshot::{BpfSnapshotCollector, ConnectionCounts, ConnectionOverlay},
+};
+
+#[cfg(feature = "nss-platform")]
+use crate::config::ConnectionCollectorMode;
+
+#[cfg(feature = "nss-platform")]
+use crate::collectors::conntrack::{self, CollectorMode as ConntrackMode};
 
 mod evidence;
+#[cfg(feature = "nss-platform")]
+mod fast_rate_overlay;
 mod rate_helpers;
+mod reload_worker;
 mod system;
 #[cfg(all(test, feature = "nss-platform"))]
 mod tests;
 use evidence::*;
 use rate_helpers::*;
+use reload_worker::{ProductionReloadWorker, ReloadNotice, ReloadOutcome};
 
 #[cfg(feature = "nss-platform")]
 use crate::control::{NssPathObservation, NSS_CPU_DOWNLOAD, NSS_CPU_UPLOAD};
@@ -90,19 +113,19 @@ use crate::config::RateCollectorMode;
 
 #[cfg(all(test, feature = "nss-platform"))]
 use crate::platform::nss::fusion::add_traffic_counters;
+#[cfg(feature = "nss-platform")]
+use crate::platform::nss::tc_bpf_snapshot::BpfSnapshot;
 #[cfg(all(test, feature = "nss-platform"))]
 use crate::platform::nss::{
     output::{coverage_response, nss_rate_coverage_values},
     window::{CoverageWindow, EcmBpfRateBatch, RateWindowValue},
 };
-#[cfg(feature = "nss-platform")]
-use crate::platform::x86::snapshot::BpfSnapshot;
 #[cfg(all(test, feature = "nss-platform"))]
 use crate::probe::Confidence as ProbeConfidence;
 #[cfg(feature = "nss-platform")]
 use crate::{
     connection_details::{TrafficClassification, TrafficClassificationDirection},
-    identity::{filter, ClientIdentity},
+    identity::{filter, ClientIdentity, MacAddress},
     model::{
         AttachmentKind as ModelAttachmentKind, AttachmentTrust as ModelAttachmentTrust,
         ByteDomain as ModelByteDomain, ClassificationState, Client, ClientRateMeta, RateAttachment,
@@ -111,7 +134,7 @@ use crate::{
     },
     platform::{
         access_edge::{
-            normalize_l2_with_fcs, AccessEdgeCheckpoint, AccessEdgeRuntime,
+            normalize_l2_with_fcs, AccessEdgeCheckpoint, AccessEdgeRuntime, AccessEdgeSnapshot,
             Attachment as EdgeAttachment, AttachmentKind as EdgeAttachmentKind,
             AttachmentTrust as EdgeAttachmentTrust, ByteDomain as EdgeByteDomain,
             ClassificationEpoch, ClassificationResult, Direction as EdgeDirection, DirectionEpoch,
@@ -125,15 +148,20 @@ use crate::{
             control::{PathProbeBook, PathProbeWindow},
             ecm_bpf::EcmBpfSnapshot,
             evidence::{apply_ecm_bpf_evidence, apply_nss_snapshot_evidence},
+            evidence_lease::{e_usability, EUsability, LeaseClientObservation},
+            fast_rate_clients::FastClientSample,
+            fast_rate_worker::{self, FastRateCommand, FastRateSources, FastRateWakeupNotice},
             fusion::{
                 ecm_bpf_client_interfaces, ecm_bpf_fallback_client_rates,
                 merge_ecm_bpf_client_deltas, merge_ecm_bpf_coverage_delta,
             },
+            interface_rate::NssInterfaceRates,
             output::{
                 apply_ecm_bpf_rate_batch, coverage_evidence, ecm_bpf_clients_response,
                 ecm_bpf_coverage_merge_evidence, ecm_bpf_rate_batch_evidence, nss_rate_coverage,
                 rate_window_interface_counters, window_clients, window_evidence,
             },
+            rate_mux::RateView,
             runtime::{NssRuntime, NssRuntimeCheckpoint},
             tc_snapshot::{NssTcClientSample, NssTcSnapshot},
             window::{LanClock, WindowQuality},
@@ -142,6 +170,8 @@ use crate::{
 };
 
 const RECONNECT_MS: u32 = 1_000;
+const RUNTIME_NOTICE_POLL_MS: u32 = 20;
+const RELOAD_WAIT_MS: u64 = 7_500;
 // Kept as a policy/timer constant so the x86 build does not need to link the
 // NSS platform module merely to compile common scheduling code.
 const ACCESS_EDGE_INTERVAL_MS: u64 = 1_000;
@@ -150,7 +180,7 @@ const CLASSIFIER_INTERVAL_MS: u64 = 2_000;
 const CPU_PATH_PROBE_READ_END_SKEW_MS: u64 = 250;
 const INTERNAL_BPF_SELF_HEAL_REASON: &str = "production.collect.internal";
 const EXTERNAL_BPF_SELF_HEAL_REASON: &str = "production.collect.external";
-const INTERFACE_NOTE: &str = "Per-interface totals from one kernel net-device pass with sysfs fallback; reflect hardware-offloaded and hardware-switched traffic too.";
+const INTERFACE_NOTE: &str = "LAN interface totals use independent physical boundaries from one kernel net-device pass and a two-second rolling window to smooth batched counter updates.";
 
 fn production_now_ms() -> Result<u64, DaemonError> {
     monotonic_millis()
@@ -160,6 +190,8 @@ fn production_now_ms() -> Result<u64, DaemonError> {
 struct ProductionRuntime {
     config: RuntimeConfig,
     control: ControlManager,
+    control_work: Option<ControlReconcileWork>,
+    control_reconcile_pending: bool,
     adapter: SystemAyaAdapter,
     bpf: Option<Bpf>,
     bpf_error: Option<String>,
@@ -204,6 +236,9 @@ struct ProductionRuntime {
 }
 
 struct RuntimeCheckpoint {
+    control: ControlManager,
+    control_work: Option<ControlReconcileWork>,
+    control_reconcile_pending: bool,
     bpf: Option<BpfCollectionCheckpoint>,
     #[cfg(feature = "nss-platform")]
     nss: NssRuntimeCheckpoint,
@@ -258,6 +293,8 @@ impl ProductionRuntime {
         process_tracker.refresh_if_due("/proc", production_now_ms()?);
         let mut preflight = probe.collect(&config, &RuntimeHealth::default(), ProbeMethod::Health);
         process_tracker.overlay_report(&mut preflight);
+        #[cfg(feature = "nss-platform")]
+        let _nss_genl_caps = crate::platform::nss::control::startup_caps();
         let control = ControlManager::load(&config)?;
         Ok(Self {
             bpf_collector: BpfSnapshotCollector::new(
@@ -289,6 +326,8 @@ impl ProductionRuntime {
             hostnames: HostnameCache::new(),
             adapter: SystemAyaAdapter::with_max_clients(config.max_clients),
             control,
+            control_work: None,
+            control_reconcile_pending: false,
             config,
             bpf: None,
             bpf_error: None,
@@ -352,12 +391,12 @@ impl ProductionRuntime {
             self.probe_report = Arc::new(report);
         }
         if !self.config.enable_bpf
-            || !matches!(
+            || (!matches!(
                 self.config.rate_collector_mode,
                 crate::config::RateCollectorMode::Auto
                     | crate::config::RateCollectorMode::Bpf
                     | crate::config::RateCollectorMode::NssEcmBpf
-            )
+            ) && !self.config.internet_view_mode.uses_fast_rate())
             || (!self.probe_report.facts.tc.safe_attach && !recovered_orphan_slots)
         {
             return Ok(());
@@ -395,6 +434,9 @@ impl ProductionRuntime {
 
     fn checkpoint(&self) -> RuntimeCheckpoint {
         RuntimeCheckpoint {
+            control: self.control.clone(),
+            control_work: self.control_work.clone(),
+            control_reconcile_pending: self.control_reconcile_pending,
             bpf: self
                 .bpf
                 .as_ref()
@@ -431,6 +473,9 @@ impl ProductionRuntime {
     }
 
     fn restore(&mut self, checkpoint: RuntimeCheckpoint) {
+        self.control = checkpoint.control;
+        self.control_work = checkpoint.control_work;
+        self.control_reconcile_pending = checkpoint.control_reconcile_pending;
         if let (Some(runtime), Some(checkpoint)) = (self.bpf.as_mut(), checkpoint.bpf) {
             runtime.restore_collection_checkpoint(&mut self.bpf_collector, checkpoint);
         }
@@ -462,6 +507,7 @@ impl ProductionRuntime {
         self.bpf_error_stage = checkpoint.bpf_error_stage;
     }
 
+    #[cfg(feature = "nss-platform")]
     fn read_conntrack(
         &mut self,
         identities: &IdentityTable,
@@ -511,83 +557,6 @@ impl ProductionRuntime {
     fn apply_conntrack_health(&self, runtime_health: &mut RuntimeHealth) {
         self.conntrack_observation
             .apply_runtime_health(self.conntrack_snapshot.is_some(), runtime_health);
-    }
-
-    fn refresh_connections(
-        &mut self,
-        base: &ResponseSnapshot,
-    ) -> Result<ResponseSnapshot, DaemonError> {
-        let now_ms = production_now_ms()?;
-        let defer_connection_rates = matches!(
-            self.rate_owner,
-            Some(RateCollector::NssEcmNode | RateCollector::NssEcmBpf)
-        );
-        let plan = client_conntrack_plan(
-            now_ms,
-            self.conntrack_observation.last_attempt_ms,
-            self.conntrack_snapshot.is_some(),
-            if defer_connection_rates {
-                NSS_CLIENT_CONNTRACK_CACHE_TTL_MS
-            } else {
-                CLIENT_CONNTRACK_CACHE_TTL_MS
-            },
-        );
-        let cached = if plan == ClientConntrackPlan::ReuseCached {
-            self.conntrack_snapshot.as_ref().map(|collected| {
-                apply_conntrack_success(base, collected, self.config.conn_collector_mode.as_str())
-            })
-        } else {
-            None
-        };
-        let (mut snapshot, identity_errors) = if let Some(snapshot) = cached {
-            (snapshot, Vec::new())
-        } else {
-            let (identities, identity_errors) = read_identities(&self.config, now_ms);
-            let snapshot = match self.read_conntrack(&identities, now_ms, defer_connection_rates) {
-                Ok(collected) => apply_conntrack_success(
-                    base,
-                    &collected,
-                    self.config.conn_collector_mode.as_str(),
-                ),
-                Err(error) => apply_conntrack_failure(base, &error),
-            };
-            (snapshot, identity_errors)
-        };
-        if !identity_errors.is_empty() {
-            snapshot
-                .clients
-                .evidence
-                .get_or_insert_default()
-                .details
-                .insert("identity_errors".into(), json!(identity_errors));
-        }
-        #[cfg(feature = "nss-platform")]
-        {
-            // A hot clients/client_connections RPC is also a control
-            // observation. Audit every owned NSS queue, filter, nft object,
-            // and IGS mapping before copying control state into this response.
-            // Use the last authoritative client/attachment inventory: the
-            // conntrack overlay below may contain transient connection-only
-            // rows and must not become topology authority. If an owned object
-            // disappeared, reconcile clears verification and transactionally
-            // rebuilds it in this same request, so stale `verified` is never
-            // returned for one extra polling interval.
-            self.reconcile_control_state();
-        }
-        // The hot clients RPC overlays fresh conntrack-only identities after
-        // the normal collection snapshot. It is not an authoritative identity
-        // inventory: decorating those rows must never withdraw a persistent
-        // rule or rebuild qdiscs between normal collection generations.
-        self.decorate_controls(&mut snapshot.clients);
-        let totals = ConnectionTotals::new(
-            snapshot.clients.tcp_conns_total.unwrap_or(0),
-            snapshot.clients.udp_conns_total.unwrap_or(0),
-            snapshot.clients.udp_dns_conns_total.unwrap_or(0),
-            snapshot.clients.udp_other_conns_total.unwrap_or(0),
-        );
-        self.overview
-            .replace_latest_connections_and_client_count(totals, snapshot.clients.clients.len());
-        Ok(snapshot)
     }
 
     fn collect(&mut self, method: ProbeMethod) -> Result<ResponseSnapshot, DaemonError> {
@@ -901,6 +870,7 @@ impl ProductionRuntime {
             overview_window_samples: self.config.overview_window_samples,
             collector_mode: decision.rate.as_str().into(),
             rate_collector_mode: self.config.rate_collector_mode.as_str().into(),
+            internet_view_mode: self.config.internet_view_mode.as_str().into(),
             access_edge_mode: "off".into(),
             conn_collector_mode: self.config.conn_collector_mode.as_str().into(),
             version: version.clone(),
@@ -1031,6 +1001,21 @@ impl ProductionRuntime {
                 edge_read_end_ms,
             );
         }
+        let published_edge = if access_edge_enabled {
+            self.nss.low_rate_window.observe(
+                self.access_edge.latest(),
+                &interface_counter_snapshot,
+                edge_read_end_ms,
+                self.config.nss_low_rate_window_ms,
+                self.config.nss_low_rate_high_watermark_bps,
+            )
+        } else {
+            self.nss.low_rate_window.reset();
+            self.access_edge.latest().clone()
+        };
+        self.nss
+            .low_rate_window
+            .apply_observe_rates(&mut interfaces);
         // Keep the x86 BPF freshness contract tied to its configured cadence.
         // NSS has a dedicated two-second floor, so its retained ECM snapshot
         // must use that effective cadence rather than the one-second default.
@@ -1122,12 +1107,19 @@ impl ProductionRuntime {
         if let Some(snapshot) = bpf_snapshot.as_ref() {
             now_ms = now_ms.max(snapshot.sample_ms);
         }
+        let ecm_read_begin_ms = production_now_ms().unwrap_or(now_ms);
         let (ecm_bpf_snapshot, ecm_bpf_snapshot_fresh) = self.nss.collect_ecm_bpf(
             &identities,
             &mut now_ms,
             nss_freshness_ms,
             &mut runtime_health,
             classifier_map_read_due,
+        );
+        let ecm_read_end_ms = production_now_ms().unwrap_or(ecm_read_begin_ms.max(now_ms));
+        self.nss.observe_hardware_verifier(
+            ecm_bpf_snapshot.as_ref(),
+            ecm_read_end_ms,
+            ecm_bpf_snapshot_fresh,
         );
         let ecm_classifier_read_end_ms = if ecm_bpf_snapshot_fresh {
             Some(production_now_ms()?)
@@ -1193,11 +1185,19 @@ impl ProductionRuntime {
                 &runtime_health,
             );
         }
+        let fast_reads_ready = self.nss.fast_rate_reads_ready(now_ms);
+        self.reconcile_evidence_leases(
+            &identities,
+            &runtime_health,
+            fast_reads_ready,
+            classifier_due && ecm_bpf_snapshot_fresh && bpf_snapshot_fresh,
+        );
         self.nss
             .transition_rate_owner(&mut self.rate_owner, decision.rate);
         let legacy_nss_rate_window_enabled = legacy_nss_rate_window_enabled(
             self.config.access_edge_mode,
             self.config.rate_collector_mode,
+            self.config.internet_view_mode,
         );
         let mut nss_window = None;
         let mut ecm_bpf_coverage_window = None;
@@ -1340,6 +1340,7 @@ impl ProductionRuntime {
         }
         self.apply_access_edge_rates(
             &mut clients,
+            &published_edge,
             &identities,
             conntrack.as_deref(),
             decision.rate,
@@ -1350,9 +1351,25 @@ impl ProductionRuntime {
             bpf_classifier_read_end_ms,
             &runtime_health,
         );
+        if explicit_internet_rate_view(self.config.internet_view_mode) {
+            // The explicit routed view is owned by the FastRate publication.
+            // Do not let the independent Access Edge/kernel interface sample
+            // leak into the page while that publication is between windows.
+            fast_rate_overlay::apply_routed_interface_rates_from_clients(
+                &mut interfaces,
+                &clients,
+                now_ms,
+            );
+        } else if active_access_edge_owns_display_rate(
+            self.config.access_edge_mode,
+            self.config.rate_collector_mode,
+        ) {
+            NssInterfaceRates::from_published_snapshot(&self.access_edge, &published_edge)
+                .apply(&mut interfaces);
+        }
         if access_edge_enabled {
             let edge_evidence = access_edge_global_evidence(
-                self.access_edge.latest(),
+                &published_edge,
                 &clients,
                 self.config.access_edge_mode,
             );
@@ -1407,6 +1424,12 @@ impl ProductionRuntime {
                     bpf_snapshot_fresh,
                 ),
             );
+            client_evidence
+                .details
+                .insert("evidence_lease".into(), self.nss.evidence_lease_evidence());
+            client_evidence
+                .details
+                .insert("rate_mux".into(), self.nss.rate_mux_evidence());
             if let Some(snapshot) = conntrack.as_deref() {
                 client_evidence.details.insert(
                     "conntrack_generation".into(),
@@ -1539,6 +1562,12 @@ impl ProductionRuntime {
                 bpf_snapshot_fresh,
             ),
         );
+        status_evidence
+            .details
+            .insert("evidence_lease".into(), self.nss.evidence_lease_evidence());
+        status_evidence
+            .details
+            .insert("rate_mux".into(), self.nss.rate_mux_evidence());
         if let Some(window) = nss_window.as_ref() {
             status_evidence
                 .details
@@ -1617,6 +1646,159 @@ impl ProductionRuntime {
                 conntrack_generation_evidence(snapshot),
             );
         }
+        status_evidence.details.insert(
+            "nss_hardware_verifier".into(),
+            self.nss.hardware_verifier_evidence(),
+        );
+        if let Some(fast_s) = self.nss.fast_s_snapshot() {
+            status_evidence.details.insert(
+                "fast_s_shadow".into(),
+                json!({
+                    "sample_ms": fast_s.sample_ms,
+                    "map_entries": fast_s.map_entries,
+                    "valid_entries": fast_s.valid_entries,
+                    "invalid_entries": fast_s.invalid_entries,
+                    "truncated": fast_s.truncated,
+                    "invalid_reads": self.nss.fast_s_invalid_reads(),
+                    "invalid_abi": self.nss.fast_s_invalid_abi(),
+                    "invalid_generation_mismatch": self.nss.fast_s_invalid_generation_mismatch(),
+                    "invalid_sequence": self.nss.fast_s_invalid_sequence(),
+                    "invalid_value": self.nss.fast_s_invalid_value(),
+                    "invalid_cpu": self.nss.fast_s_invalid_cpu(),
+                    "invalid_no_cpu": self.nss.fast_s_invalid_no_cpu(),
+                    "invalid_cpu_count": self.nss.fast_s_invalid_cpu_count(),
+                    "invalid_cpu_generation": self.nss.fast_s_invalid_cpu_generation(),
+                    "last_cpu_generation_expected": self.nss.fast_s_last_cpu_generation_expected(),
+                    "last_cpu_generation_actual": self.nss.fast_s_last_cpu_generation_actual(),
+                    "reset_generation_changes": self.nss.fast_s_reset_generation_changes(),
+                    "truncated_reads": self.nss.fast_s_truncated_reads(),
+                    "read_failures": self.nss.fast_s_read_failures(),
+                    "owner": "nss_rate_worker",
+                    "formal_rate_owner": true,
+                }),
+            );
+        }
+        if let Some(fast_n) = self.nss.fast_n_snapshot() {
+            status_evidence.details.insert(
+                "fast_n_shadow".into(),
+                json!({
+                    "sample_ms": fast_n.sample_ms,
+                    "map_entries": fast_n.map_entries,
+                    "valid_entries": fast_n.valid_entries,
+                    "invalid_entries": fast_n.invalid_entries,
+                    "truncated": fast_n.truncated,
+                    "bytes": fast_n.bytes,
+                    "packets": fast_n.packets,
+                    "reset_generation": fast_n.reset_generation,
+                    "owner": "nss_rate_worker",
+                    "formal_rate_owner": true,
+                }),
+            );
+        } else if self.nss.fast_n_read_failures() != 0 {
+            status_evidence.details.insert(
+                "fast_n_shadow".into(),
+                json!({
+                    "sample_ms": Value::Null,
+                    "map_entries": 0,
+                    "valid_entries": 0,
+                    "invalid_entries": 0,
+                    "truncated": false,
+                    "read_failures": self.nss.fast_n_read_failures(),
+                }),
+            );
+        }
+        let mut fast_client_shadow_entries = 0u64;
+        let mut fast_client_shadow_tx_bps = 0u64;
+        let mut fast_client_shadow_rx_bps = 0u64;
+        let mut fast_client_shadow_routed_tx_bps = 0u64;
+        let mut fast_client_shadow_routed_rx_bps = 0u64;
+        for client in &clients.clients {
+            let Ok(mac) = client.mac.parse::<MacAddress>() else {
+                continue;
+            };
+            let attachment_generation = client.rate_meta.as_ref().map_or(0, |meta| meta.generation);
+            if let Some(sample) = self.nss.fast_rate_shadow_client_rate(
+                mac.octets(),
+                lanspeed_common::DIR_TX,
+                &client.identity_key,
+                attachment_generation,
+            ) {
+                fast_client_shadow_entries = fast_client_shadow_entries.saturating_add(1);
+                fast_client_shadow_tx_bps =
+                    fast_client_shadow_tx_bps.saturating_add(sample.fast_total_bps);
+                fast_client_shadow_routed_tx_bps =
+                    fast_client_shadow_routed_tx_bps.saturating_add(sample.routed_l2_with_fcs_bps);
+            }
+            if let Some(sample) = self.nss.fast_rate_shadow_client_rate(
+                mac.octets(),
+                lanspeed_common::DIR_RX,
+                &client.identity_key,
+                attachment_generation,
+            ) {
+                fast_client_shadow_entries = fast_client_shadow_entries.saturating_add(1);
+                fast_client_shadow_rx_bps =
+                    fast_client_shadow_rx_bps.saturating_add(sample.fast_total_bps);
+                fast_client_shadow_routed_rx_bps =
+                    fast_client_shadow_routed_rx_bps.saturating_add(sample.routed_l2_with_fcs_bps);
+            }
+        }
+        let fast_rate_telemetry = self.nss.fast_rate_shadow_telemetry();
+        if let Some(fast_rate) = self.nss.fast_rate_shadow_latest() {
+            let comparison = self.nss.fast_rate_shadow_comparison();
+            status_evidence.details.insert(
+                "fast_rate_shadow".into(),
+                json!({
+                    "sample_ms": fast_rate.sample_ms,
+                    "window_ms": fast_rate.window_ms,
+                    "read_end_skew_ms": fast_rate.read_end_skew_ms,
+                    "fast_n_bps": fast_rate.fast_n_bps,
+                    "fast_s_bps": fast_rate.fast_s_bps,
+                    "fast_total_bps": fast_rate.fast_total_bps,
+                    "edge_bps": comparison.and_then(|value| value.edge_bps),
+                    "absolute_delta_bps": comparison.and_then(|value| value.absolute_delta_bps),
+                    "valid_windows": fast_rate_telemetry.valid_windows,
+                    "invalid_windows": fast_rate_telemetry.invalid_windows,
+                    "zero_windows": fast_rate_telemetry.zero_windows,
+                    "last_invalid_ms": fast_rate_telemetry.last_invalid_ms,
+                    "last_zero_latency_ms": fast_rate_telemetry.last_zero_latency_ms,
+                    "last_rise_latency_ms": fast_rate_telemetry.last_rise_latency_ms,
+                    "last_error": self.nss.fast_rate_shadow_last_error_code(),
+                    "client_shadow_entries": fast_client_shadow_entries,
+                    "client_shadow_tx_bps": fast_client_shadow_tx_bps,
+                    "client_shadow_rx_bps": fast_client_shadow_rx_bps,
+                    "client_shadow_routed_l2_with_fcs_tx_bps": fast_client_shadow_routed_tx_bps,
+                    "client_shadow_routed_l2_with_fcs_rx_bps": fast_client_shadow_routed_rx_bps,
+                    "client_shadow_invalid_windows": self.nss.fast_rate_shadow_client_invalid_windows(),
+                    "owner": "nss_rate_worker",
+                    "formal_rate_owner": true,
+                }),
+            );
+        } else if fast_rate_telemetry.invalid_windows != 0 {
+            status_evidence.details.insert(
+                "fast_rate_shadow".into(),
+                json!({
+                    "sample_ms": Value::Null,
+                    "window_ms": Value::Null,
+                    "read_end_skew_ms": Value::Null,
+                    "fast_n_bps": Value::Null,
+                    "fast_s_bps": Value::Null,
+                    "fast_total_bps": Value::Null,
+                    "valid_windows": fast_rate_telemetry.valid_windows,
+                    "invalid_windows": fast_rate_telemetry.invalid_windows,
+                    "zero_windows": fast_rate_telemetry.zero_windows,
+                    "last_invalid_ms": fast_rate_telemetry.last_invalid_ms,
+                    "last_error": self.nss.fast_rate_shadow_last_error_code(),
+                    "client_shadow_entries": fast_client_shadow_entries,
+                    "client_shadow_tx_bps": fast_client_shadow_tx_bps,
+                    "client_shadow_rx_bps": fast_client_shadow_rx_bps,
+                    "client_shadow_routed_l2_with_fcs_tx_bps": fast_client_shadow_routed_tx_bps,
+                    "client_shadow_routed_l2_with_fcs_rx_bps": fast_client_shadow_routed_rx_bps,
+                    "client_shadow_invalid_windows": self.nss.fast_rate_shadow_client_invalid_windows(),
+                    "owner": "nss_rate_worker",
+                    "formal_rate_owner": true,
+                }),
+            );
+        }
         let version = version();
         let status = StatusResponse {
             mode,
@@ -1629,6 +1811,7 @@ impl ProductionRuntime {
             overview_window_samples: self.config.overview_window_samples,
             collector_mode: self.config.rate_collector_mode.as_str().into(),
             rate_collector_mode: self.config.rate_collector_mode.as_str().into(),
+            internet_view_mode: self.config.internet_view_mode.as_str().into(),
             access_edge_mode: self.config.access_edge_mode.as_str().into(),
             conn_collector_mode: self.config.conn_collector_mode.as_str().into(),
             version: version.clone(),
@@ -1659,6 +1842,12 @@ impl ProductionRuntime {
                 bpf_snapshot_fresh,
             ),
         );
+        health_evidence
+            .details
+            .insert("evidence_lease".into(), self.nss.evidence_lease_evidence());
+        health_evidence
+            .details
+            .insert("rate_mux".into(), self.nss.rate_mux_evidence());
         if let Some(window) = nss_window.as_ref() {
             health_evidence
                 .details
@@ -1959,11 +2148,48 @@ impl ProductionRuntime {
         self.cpu_path_probe_windows = active_probe_windows;
     }
 
+    #[cfg(feature = "nss-platform")]
+    fn reconcile_evidence_leases(
+        &mut self,
+        identities: &IdentityTable,
+        runtime_health: &RuntimeHealth,
+        fast_reads_ready: bool,
+        proof_cycle_ready: bool,
+    ) {
+        let identities = identity_mac_index(identities);
+        let observations = self
+            .access_edge
+            .latest()
+            .clients
+            .iter()
+            .filter_map(|edge| {
+                let mac = format_edge_mac(edge.attachment.key.mac);
+                let identity = identities.unique.get(&mac)?;
+                let identity_key = identity.key.to_string();
+                Some(LeaseClientObservation::from_edge(
+                    &identity_key,
+                    edge,
+                    self.classification_results.get(&identity_key),
+                    self.access_edge
+                        .attachment_topology_complete(&edge.attachment),
+                ))
+            })
+            .collect::<Vec<_>>();
+        self.nss.reconcile_evidence_leases(
+            runtime_health.now_ms,
+            runtime_health,
+            fast_reads_ready,
+            proof_cycle_ready,
+            &observations,
+        );
+    }
+
     #[allow(clippy::too_many_arguments)]
     #[cfg(feature = "nss-platform")]
     fn apply_access_edge_rates(
         &mut self,
         clients: &mut ClientsResponse,
+        edge_snapshot: &AccessEdgeSnapshot,
         identities: &IdentityTable,
         conntrack: Option<&CollectedSnapshot>,
         pipeline: RateCollector,
@@ -1974,17 +2200,19 @@ impl ProductionRuntime {
         slow_read_end_ms: Option<u64>,
         runtime_health: &RuntimeHealth,
     ) {
-        if self.config.access_edge_mode == AccessEdgeMode::Off {
+        let active_auto = active_access_edge_owns_display_rate(
+            self.config.access_edge_mode,
+            self.config.rate_collector_mode,
+        );
+        let explicit_internet = explicit_internet_rate_view(self.config.internet_view_mode);
+        let rate_mux_active = active_auto || explicit_internet;
+        self.nss.begin_rate_mux_cycle(rate_mux_active);
+        if self.config.access_edge_mode == AccessEdgeMode::Off && !explicit_internet {
             self.access_edge
                 .retain_published_identities(&BTreeSet::new());
             self.classification_results.clear();
             return;
         }
-        let active_auto = active_access_edge_owns_display_rate(
-            self.config.access_edge_mode,
-            self.config.rate_collector_mode,
-        );
-        let edge_snapshot = self.access_edge.latest().clone();
         let edge_index = edge_mac_index(&edge_snapshot.clients);
         let identity_index = identity_mac_index(identities);
         let mut published_identity_keys = clients
@@ -2000,7 +2228,7 @@ impl ProductionRuntime {
             index
         });
 
-        if active_auto {
+        if rate_mux_active {
             for edge in &edge_snapshot.clients {
                 let mac = format_edge_mac(edge.attachment.key.mac);
                 let Some(identity) = identity_index.unique.get(&mac).copied() else {
@@ -2080,17 +2308,38 @@ impl ProductionRuntime {
             if self.config.access_edge_mode == AccessEdgeMode::Shadow {
                 reasons.push("access_edge_shadow".to_owned());
             }
+            let lease_observation = edge.map(|edge| {
+                LeaseClientObservation::from_edge(
+                    &client.identity_key,
+                    edge,
+                    self.classification_results.get(&client.identity_key),
+                    attachment_topology_complete,
+                )
+            });
+            let fast_mac = client
+                .mac
+                .parse::<MacAddress>()
+                .ok()
+                .map(MacAddress::octets);
+            // FastRate map reads run independently of the collection worker.
+            // Its publication timestamp can therefore be a few milliseconds
+            // newer than this cycle's health clock; use the publication clock
+            // for freshness instead of discarding the completed window.
+            let fast_reference_ms = runtime_health
+                .now_ms
+                .max(self.nss.fast_rate_observed_ms().unwrap_or_default());
 
             let mut select_direction = |direction: EdgeDirection, old_bps: u64| {
                 let edge_direction = edge.map(|sample| match direction {
                     EdgeDirection::Tx => &sample.tx,
                     EdgeDirection::Rx => &sample.rx,
                 });
-                let mut candidates = Vec::new();
-                if let Some(observation) = edge_direction {
-                    if let Some(segment) = observation.segment {
-                        if let (Some(bps), Some(window_ms)) = (segment.bps(), segment.window_ms()) {
-                            candidates.push(RateCandidate {
+                let edge_candidate = edge_direction.and_then(|observation| {
+                    observation.segment.and_then(|segment| {
+                        segment
+                            .bps()
+                            .zip(segment.window_ms())
+                            .map(|(bps, window_ms)| RateCandidate {
                                 source: segment.source,
                                 bps,
                                 coverage: observation.coverage,
@@ -2105,10 +2354,50 @@ impl ProductionRuntime {
                                     segment.end_ms,
                                     ACCESS_EDGE_INTERVAL_MS,
                                 ),
+                            })
+                    })
+                });
+                if rate_mux_active {
+                    // Formal RateMux never falls through to the legacy NSS rate
+                    // window. Automatic mode selects Edge authority or a
+                    // lease-authorized same-window FastN+FastS substitute;
+                    // the explicit Internet view selects only routed FastN+FastS.
+                    // No displaced legacy total may become E: no LAN allocation, previous distribution, directional
+                    // max, interface floor, or smoothed rate may become E.
+                    let lease_direction =
+                        lease_observation
+                            .as_ref()
+                            .map(|observation| match direction {
+                                EdgeDirection::Tx => observation.tx,
+                                EdgeDirection::Rx => observation.rx,
                             });
-                        }
-                    }
+                    let e = lease_direction
+                        .map(|observation| e_usability(observation.e))
+                        .unwrap_or(EUsability::StructuralEUnavailable);
+                    let fast_direction = match direction {
+                        EdgeDirection::Tx => lanspeed_common::DIR_TX,
+                        EdgeDirection::Rx => lanspeed_common::DIR_RX,
+                    };
+                    let fast = fast_mac
+                        .and_then(|mac| {
+                            self.nss.fast_rate_shadow_client_rate(
+                                mac,
+                                fast_direction,
+                                &client.identity_key,
+                                attachment_generation,
+                            )
+                        })
+                        .filter(|sample| fast_client_sample_current(fast_reference_ms, *sample));
+                    let view = self.nss.select_rate_view(
+                        &client.identity_key,
+                        direction,
+                        e,
+                        fast.is_some(),
+                        explicit_internet,
+                    );
+                    return active_rate_direction(view, edge_candidate, fast);
                 }
+                let mut candidates = edge_candidate.into_iter().collect::<Vec<_>>();
                 candidates.extend(classifier_rate_candidates(
                     &client.identity_key,
                     direction,
@@ -2181,16 +2470,7 @@ impl ProductionRuntime {
                     &candidates,
                     failure,
                 );
-                if active_auto {
-                    if let Some(selected) = selected.selected {
-                        return published_from_candidate(selected.candidate, selected.stale);
-                    }
-                    // Active Access Edge never falls through to the legacy NSS
-                    // rate window. Warmup or unavailable means exactly that;
-                    // no LAN allocation, previous distribution, directional
-                    // max, interface floor, or smoothed rate may become E.
-                    return PublishedRateDirection::unavailable(0);
-                }
+                let _ = selected;
                 pipeline_direction(
                     pipeline,
                     old_bps,
@@ -2202,7 +2482,19 @@ impl ProductionRuntime {
 
             let tx = select_direction(EdgeDirection::Tx, client.tx_bps);
             let rx = select_direction(EdgeDirection::Rx, client.rx_bps);
-            if active_auto {
+            if tx.source == ModelRateSource::FastRoutedLease {
+                reasons.push("tx_transient_evidence_lease_substitute".to_owned());
+            }
+            if rx.source == ModelRateSource::FastRoutedLease {
+                reasons.push("rx_transient_evidence_lease_substitute".to_owned());
+            }
+            if tx.source == ModelRateSource::FastRoutedInternet {
+                reasons.push("tx_explicit_internet_routed_view".to_owned());
+            }
+            if rx.source == ModelRateSource::FastRoutedInternet {
+                reasons.push("rx_explicit_internet_routed_view".to_owned());
+            }
+            if rate_mux_active {
                 client.tx_bps = tx.bps;
                 client.rx_bps = rx.bps;
                 // `collector_mode` names the pipeline that owns the published
@@ -2226,10 +2518,9 @@ impl ProductionRuntime {
                         .warnings
                         .retain(|warning| warning != "conntrack_connection_only");
                 }
-                // Active-auto rates are owned exclusively by RateMux. Neither
-                // a selected Edge/classifier source nor an unavailable/warmup
-                // state may expose cumulative totals from the displaced legacy
-                // pipeline as if they belonged to the current rate source.
+                // Formal RateMux rates are owned exclusively by the selected
+                // view. Neither a selected legacy source nor an unavailable /
+                // warmup state may expose displaced cumulative totals.
                 client.tx_bytes = None;
                 client.rx_bytes = None;
             }
@@ -2380,34 +2671,29 @@ impl ProductionRuntime {
             let boundary_names = (role == InterfaceRole::Lan)
                 .then(|| independent_lan_boundaries(std::slice::from_ref(&name), &masters))
                 .flatten();
-            let sampled = if let Some(boundaries) = boundary_names.as_ref() {
-                sum_interface_counters(boundaries, &raw_counters)
-            } else {
-                raw_counters.get(&name).copied()
-            };
-            let interface = match sampled {
-                Some(counters) => {
+            let interface = match interface_display_counters(
+                &name,
+                role,
+                boundary_names.as_deref(),
+                raw_counters,
+            ) {
+                Some(display) => {
                     let sampled_names = boundary_names
                         .as_deref()
                         .unwrap_or_else(|| std::slice::from_ref(&name));
                     let counter_source = counter_snapshot
                         .source_for(sampled_names.iter().map(String::as_str))
                         .unwrap_or(MIXED_INTERFACE_SOURCE);
-                    let display = if role == InterfaceRole::Lan {
-                        InterfaceCounters {
-                            rx_bytes: counters
-                                .rx_bytes
-                                .saturating_add(counters.rx_packets.saturating_mul(4)),
-                            tx_bytes: counters
-                                .tx_bytes
-                                .saturating_add(counters.tx_packets.saturating_mul(4)),
-                            ..counters
-                        }
+                    let (rx_bps, tx_bps, delta_ms) = if role == InterfaceRole::Lan {
+                        self.interface_rates.update_windowed(
+                            &name,
+                            display,
+                            now_ms,
+                            LAN_INTERFACE_RATE_WINDOW_MS,
+                        )
                     } else {
-                        counters
+                        self.interface_rates.update(&name, display, now_ms)
                     };
-                    let (rx_bps, tx_bps, delta_ms) =
-                        self.interface_rates.update(&name, display, now_ms);
                     Interface {
                         name,
                         role,
@@ -2502,34 +2788,29 @@ impl ProductionRuntime {
                 let boundary_names = (role == InterfaceRole::Lan)
                     .then(|| independent_lan_boundaries(std::slice::from_ref(&name), &masters))
                     .flatten();
-                let sampled = if let Some(boundaries) = boundary_names.as_ref() {
-                    sum_interface_counters(boundaries, raw_counters)
-                } else {
-                    raw_counters.get(&name).copied()
-                };
-                match sampled {
-                    Some(counters) => {
+                match interface_display_counters(
+                    &name,
+                    role,
+                    boundary_names.as_deref(),
+                    raw_counters,
+                ) {
+                    Some(display) => {
                         let sampled_names = boundary_names
                             .as_deref()
                             .unwrap_or_else(|| std::slice::from_ref(&name));
                         let counter_source = counter_snapshot
                             .source_for(sampled_names.iter().map(String::as_str))
                             .unwrap_or(MIXED_INTERFACE_SOURCE);
-                        let display = if role == InterfaceRole::Lan {
-                            InterfaceCounters {
-                                rx_bytes: counters
-                                    .rx_bytes
-                                    .saturating_add(counters.rx_packets.saturating_mul(4)),
-                                tx_bytes: counters
-                                    .tx_bytes
-                                    .saturating_add(counters.tx_packets.saturating_mul(4)),
-                                ..counters
-                            }
+                        let (rx_bps, tx_bps, delta_ms) = if role == InterfaceRole::Lan {
+                            self.interface_rates.update_windowed(
+                                &name,
+                                display,
+                                now_ms,
+                                LAN_INTERFACE_RATE_WINDOW_MS,
+                            )
                         } else {
-                            counters
+                            self.interface_rates.update(&name, display, now_ms)
                         };
-                        let (rx_bps, tx_bps, delta_ms) =
-                            self.interface_rates.update(&name, display, now_ms);
                         Interface {
                             name,
                             role,
@@ -2634,17 +2915,38 @@ impl ProductionRuntime {
         self.control.decorate_response(clients);
     }
 
-    fn decorate_controls(&self, clients: &mut ClientsResponse) {
-        self.control.decorate_response(clients);
-    }
-
     fn reconcile_control_state(&mut self) {
+        if self.control_reconcile_pending {
+            return;
+        }
         #[cfg(feature = "nss-platform")]
         if !self.control_platform_owner {
             self.control.observe_existing_nss_control();
             return;
         }
-        self.control.reconcile();
+        self.control_work = self.control.begin_reconcile();
+        self.control_reconcile_pending = self.control_work.is_some();
+    }
+
+    fn take_control_work(&mut self) -> Option<ControlReconcileWork> {
+        self.control_work.take()
+    }
+
+    fn restore_control_work(&mut self, work: ControlReconcileWork) {
+        debug_assert!(self.control_reconcile_pending);
+        debug_assert!(self.control_work.is_none());
+        self.control_work = Some(work);
+    }
+
+    fn finish_control_work(&mut self, outcome: ControlReconcileOutcome, continue_reconcile: bool) {
+        if !self.control_reconcile_pending {
+            return;
+        }
+        self.control.finish_reconcile(outcome);
+        self.control_reconcile_pending = false;
+        if continue_reconcile {
+            self.reconcile_control_state();
+        }
     }
 
     fn client_control_set(&mut self, request: ClientControlRequest) -> Result<Value, DaemonError> {
@@ -2662,6 +2964,30 @@ impl ProductionRuntime {
         let _ = self.control.delete(request)?;
         self.reconcile_control_state();
         Ok(self.control.response(&identity_key))
+    }
+
+    #[cfg(feature = "nss-platform")]
+    fn fast_rate_sources(&mut self) -> Result<Option<FastRateSources>, String> {
+        let Some(ecm_bpf) = self.nss.ecm_bpf.as_mut() else {
+            return Ok(None);
+        };
+        let s_reader = self
+            .adapter
+            .fast_counter_reader()
+            .map_err(|error| error.to_string())?;
+        let n_reader = ecm_bpf.fast_n_reader().map_err(|error| error.to_string())?;
+        let event_reader = ecm_bpf.take_event_hint_reader();
+        Ok(Some(FastRateSources::new(n_reader, s_reader, event_reader)))
+    }
+
+    #[cfg(feature = "nss-platform")]
+    fn apply_fast_event_telemetry(
+        &mut self,
+        telemetry: crate::platform::nss::ecm_bpf::EcmEventHintTelemetry,
+    ) {
+        if let Some(ecm_bpf) = self.nss.ecm_bpf.as_mut() {
+            ecm_bpf.apply_event_hint_telemetry(telemetry);
+        }
     }
 
     fn shutdown(&mut self) -> Result<(), DaemonError> {
@@ -2910,15 +3236,25 @@ impl Runtime for ProductionRuntime {
         ProductionRuntime::restore(self, checkpoint);
     }
 
+    fn collection_signals(&mut self) -> RuntimeCollectionSignals {
+        let process_activity_changed = self.refresh_dae_process_state();
+        RuntimeCollectionSignals {
+            has_bpf: self.bpf.is_some(),
+            process_activity_changed,
+            attach_mode_mismatch: self.bpf_attach_mode_mismatch(),
+        }
+    }
+
     fn collect(&mut self) -> Result<ResponseSnapshot, DaemonError> {
-        // collect_and_reschedule owns the hot-cycle transaction. Candidate reload
-        // collection uses ProductionRuntime::collect and keeps its local rollback.
+        // The runtime worker owns the hot-cycle transaction. Candidate reload
+        // collection keeps its separate local rollback path.
         self.collect_inner(ProbeMethod::Status, None)
     }
 
     fn collection_interval_ms(&self, configured_ms: u32) -> u32 {
         effective_collection_interval_ms(
             self.config.access_edge_mode,
+            self.config.internet_view_mode,
             self.rate_owner,
             configured_ms,
         )
@@ -2935,162 +3271,710 @@ struct App {
     ubus: Option<UbusConnection>,
     collection_timer: Option<Timer>,
     collection_deadline_ms: Cell<u64>,
+    runtime_worker: Option<RuntimeCollectionWorker<ProductionRuntime>>,
+    runtime_notices: Receiver<RuntimeCollectionNotice<ProductionRuntime>>,
+    runtime_collection_pending: bool,
+    reload_worker: Option<ProductionReloadWorker>,
+    reload_notices: Receiver<ReloadNotice>,
+    reload_requested: bool,
+    reload_pending: bool,
+    runtime_notice_timer: Option<Timer>,
     reconnect_timer: Option<Timer>,
     reconnect_pending: Cell<bool>,
     mode_reload: DaeModeReloadLatch,
     last_error: Option<String>,
+    conntrack_worker: Option<RuntimeWorker<ConntrackTask>>,
+    last_conntrack_request_ms: Cell<u64>,
+    control_worker: Option<control_worker::ControlWorker>,
+    control_notices: Receiver<ControlWorkerNotice>,
+    control_generation: u64,
+    control_pending_generation: Option<u64>,
+    #[cfg(feature = "nss-platform")]
+    fast_rate_worker: Option<fast_rate_worker::FastRateWorker>,
+    #[cfg(feature = "nss-platform")]
+    fast_rate_notices: Receiver<FastRateWakeupNotice>,
+    #[cfg(feature = "nss-platform")]
+    fast_rate_timer: Option<Timer>,
 }
 
-struct PreparedBpfReload {
-    transaction: BpfReconfigureTxn,
-    collection_checkpoint: BpfCollectionCheckpoint,
+#[cfg(feature = "nss-platform")]
+const fn fast_rate_notices_can_drain(runtime_available: bool) -> bool {
+    runtime_available
 }
 
 impl App {
     fn collection_tick(&mut self) {
-        let (has_bpf, process_activity_changed, attach_mode_mismatch) = {
-            let runtime = self
-                .runtime
-                .as_mut()
-                .expect("collection timer requires a staged runtime");
-            let process_activity_changed = runtime.refresh_dae_process_state();
-            (
-                runtime.bpf.is_some(),
-                process_activity_changed,
-                runtime.bpf_attach_mode_mismatch(),
-            )
+        self.collect_current_tick();
+    }
+
+    fn collect_current_tick(&mut self) {
+        self.drain_control_notices();
+        #[cfg(feature = "nss-platform")]
+        self.drain_fast_rate_notices();
+        self.drain_runtime_notices();
+        self.drain_reload_notices();
+        if self.runtime_collection_pending || self.reload_pending {
+            self.schedule_runtime_notice_poll();
+            return;
+        }
+        let Some(runtime) = self.runtime.take() else {
+            self.last_error = Some("runtime collection ownership unavailable".into());
+            self.schedule_collection_retry();
+            return;
         };
-        let signals =
-            DaeModeTickSignals::new(has_bpf, process_activity_changed, attach_mode_mismatch);
-        let retry_delay = self
+        let Some(worker) = self.runtime_worker.as_ref() else {
+            self.runtime = Some(runtime);
+            self.last_error = Some("runtime collection worker unavailable".into());
+            self.schedule_collection_retry();
+            return;
+        };
+        match worker.try_collect(runtime, self.state.config().refresh_interval_ms) {
+            Ok(()) => {
+                self.runtime_collection_pending = true;
+                self.schedule_runtime_notice_poll();
+            }
+            Err((error, runtime)) => {
+                self.runtime = Some(runtime);
+                self.last_error = Some(match error {
+                    QueueError::Full => "runtime collection worker queue full".into(),
+                    QueueError::Disconnected => "runtime collection worker disconnected".into(),
+                });
+                self.schedule_collection_retry();
+            }
+        }
+    }
+
+    fn runtime_notice_tick(&mut self) {
+        self.drain_runtime_notices();
+        self.drain_reload_notices();
+        if self.runtime_collection_pending || self.reload_pending {
+            self.schedule_runtime_notice_poll();
+        }
+    }
+
+    fn drain_runtime_notices(&mut self) {
+        while let Ok(notice) = self.runtime_notices.try_recv() {
+            if !self.runtime_collection_pending || self.runtime.is_some() {
+                let mut runtime = notice.runtime;
+                let _ = runtime.shutdown();
+                self.last_error = Some("unexpected runtime collection notice".into());
+                continue;
+            }
+            let RuntimeCollectionNotice {
+                runtime,
+                result,
+                collection_interval_ms,
+                signals,
+            } = notice;
+            self.runtime_collection_pending = false;
+            self.runtime = Some(runtime);
+            let collection_ok = match result {
+                Ok(snapshot) => {
+                    let now_ms = diagnostic_now_ms(snapshot.interfaces.monotonic_ms.unwrap_or(0));
+                    self.state
+                        .publish_collection_success(snapshot, now_ms, collection_interval_ms);
+                    true
+                }
+                Err(error) => {
+                    let fallback = self.state.snapshot().interfaces.monotonic_ms.unwrap_or(0);
+                    self.state.publish_collection_failure(
+                        diagnostic_now_ms(fallback),
+                        collection_interval_ms,
+                        &error,
+                    );
+                    self.last_error = Some(error.to_string());
+                    false
+                }
+            };
+            if let Err(error) = schedule_absolute_collection(
+                self.collection_timer
+                    .as_ref()
+                    .expect("collection timer must be installed"),
+                &self.collection_deadline_ms,
+                collection_interval_ms,
+            ) {
+                let message = format!("collection timer failed: {error}");
+                self.last_error = Some(message.clone());
+                *self.state.fatal_cell().borrow_mut() = Some(message);
+                UloopGuard::request_stop();
+                return;
+            }
+            let mode_ready = self.handle_collection_signals(signals);
+            if collection_ok && mode_ready && !self.reload_requested {
+                self.queue_control_work();
+            }
+            self.drain_control_notices();
+            #[cfg(feature = "nss-platform")]
+            self.drain_fast_rate_notices();
+            self.schedule_conntrack(false);
+        }
+    }
+
+    fn handle_collection_signals(&mut self, signals: RuntimeCollectionSignals) -> bool {
+        if !self.mode_reload.observe(
+            signals.has_bpf,
+            signals.process_activity_changed,
+            signals.attach_mode_mismatch,
+        ) {
+            return true;
+        }
+        if self.reload_requested {
+            return false;
+        }
+        match self.queue_reload() {
+            Ok(()) => false,
+            Err(error) => {
+                self.last_error = Some(error.to_string());
+                if self.state.fatal_error().is_some() {
+                    UloopGuard::request_stop();
+                }
+                false
+            }
+        }
+    }
+
+    fn recover_runtime_worker_notice(&mut self) {
+        while let Ok(notice) = self.runtime_notices.try_recv() {
+            if self.runtime.is_none() {
+                self.runtime_collection_pending = false;
+                self.runtime = Some(notice.runtime);
+            } else {
+                let mut runtime = notice.runtime;
+                let _ = runtime.shutdown();
+            }
+        }
+    }
+
+    fn recover_reload_worker_notice(&mut self) {
+        while let Ok(notice) = self.reload_notices.try_recv() {
+            self.reload_pending = false;
+            let mut recovered = notice.outcome.into_runtime();
+            if self.runtime.is_none() {
+                self.runtime = Some(recovered);
+            } else {
+                let _ = recovered.shutdown();
+            }
+        }
+    }
+
+    fn queue_reload(&mut self) -> Result<(), DaemonError> {
+        self.drain_control_notices();
+        if self.reload_pending {
+            return Err(DaemonError::reload("runtime reload pending"));
+        }
+        if self.runtime_collection_pending {
+            return Err(DaemonError::reload("runtime collection pending"));
+        }
+        if self.control_pending_generation.is_some()
+            || self
+                .runtime
+                .as_ref()
+                .is_some_and(|runtime| runtime.control_reconcile_pending)
+        {
+            return Err(DaemonError::reload("control transaction pending"));
+        }
+        let runtime = self
+            .runtime
+            .take()
+            .ok_or_else(|| DaemonError::reload("runtime is not started"))?;
+        let Some(worker) = self.reload_worker.as_ref() else {
+            self.runtime = Some(runtime);
+            return Err(DaemonError::reload("runtime reload worker unavailable"));
+        };
+        match worker.try_reload(runtime) {
+            Ok(()) => {
+                self.reload_pending = true;
+                self.schedule_runtime_notice_poll();
+                Ok(())
+            }
+            Err((error, runtime)) => {
+                self.runtime = Some(runtime);
+                Err(DaemonError::reload(match error {
+                    QueueError::Full => "runtime reload worker queue full",
+                    QueueError::Disconnected => "runtime reload worker disconnected",
+                }))
+            }
+        }
+    }
+
+    fn reload_bounded(&mut self) -> Result<(), DaemonError> {
+        if self.reload_requested || self.reload_pending {
+            return Err(DaemonError::reload("runtime reload pending"));
+        }
+        self.reload_requested = true;
+        let deadline = Instant::now() + Duration::from_millis(RELOAD_WAIT_MS);
+        if let Err(error) = self.wait_for_runtime_ownership(deadline) {
+            self.reload_requested = false;
+            self.schedule_runtime_notice_poll();
+            return Err(error);
+        }
+        self.reload_requested = false;
+        if let Err(error) = self.queue_reload() {
+            if let Some(runtime) = self.runtime.as_mut() {
+                runtime.reconcile_control_state();
+            }
+            self.queue_control_work();
+            return Err(error);
+        }
+        if let Ok(notice) = self.reload_notices.try_recv() {
+            return self.finish_reload_notice(notice);
+        }
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            self.schedule_runtime_notice_poll();
+            return Err(DaemonError::reload("runtime reload pending"));
+        };
+        match self.reload_notices.recv_timeout(remaining) {
+            Ok(notice) => self.finish_reload_notice(notice),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                self.schedule_runtime_notice_poll();
+                Err(DaemonError::reload("runtime reload pending"))
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                self.reload_pending = false;
+                let message = "runtime reload worker disconnected";
+                self.last_error = Some(message.into());
+                *self.state.fatal_cell().borrow_mut() = Some(message.into());
+                UloopGuard::request_stop();
+                Err(DaemonError::reload(message))
+            }
+        }
+    }
+
+    fn wait_for_runtime_ownership(&mut self, deadline: Instant) -> Result<(), DaemonError> {
+        while self.runtime_collection_pending || self.control_pending_generation.is_some() {
+            self.drain_runtime_notices();
+            self.drain_control_notices();
+            if !self.runtime_collection_pending && self.control_pending_generation.is_none() {
+                break;
+            }
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return Err(DaemonError::reload("runtime collection pending"));
+            };
+            std::thread::sleep(
+                remaining.min(Duration::from_millis(u64::from(RUNTIME_NOTICE_POLL_MS))),
+            );
+        }
+        Ok(())
+    }
+
+    fn drain_reload_notices(&mut self) {
+        while let Ok(notice) = self.reload_notices.try_recv() {
+            if let Err(error) = self.finish_reload_notice(notice) {
+                self.last_error = Some(error.to_string());
+            }
+        }
+    }
+
+    fn finish_reload_notice(&mut self, notice: ReloadNotice) -> Result<(), DaemonError> {
+        if !self.reload_pending || self.runtime.is_some() {
+            let mut runtime = notice.outcome.into_runtime();
+            let _ = runtime.shutdown();
+            return Err(DaemonError::reload("unexpected runtime reload notice"));
+        }
+        self.reload_pending = false;
+        match notice.outcome {
+            ReloadOutcome::Success(success) => {
+                let interval = success
+                    .runtime
+                    .collection_interval_ms(success.config.refresh_interval_ms);
+                if let Err(error) = schedule_absolute_collection(
+                    self.collection_timer
+                        .as_ref()
+                        .expect("collection timer must be installed"),
+                    &self.collection_deadline_ms,
+                    interval,
+                ) {
+                    let message = format!("reload committed; collection timer failed: {error}");
+                    self.runtime = Some(success.runtime);
+                    self.last_error = Some(message.clone());
+                    *self.state.fatal_cell().borrow_mut() = Some(message.clone());
+                    UloopGuard::request_stop();
+                    return Err(DaemonError::reload(message));
+                }
+                let now_ms =
+                    diagnostic_now_ms(success.snapshot.interfaces.monotonic_ms.unwrap_or(0));
+                self.state
+                    .commit_collection(success.config, success.snapshot, now_ms, interval);
+                self.runtime = Some(success.runtime);
+                self.mode_reload.complete();
+                #[cfg(feature = "nss-platform")]
+                self.restart_fast_rate_worker();
+                self.queue_control_work();
+                self.schedule_conntrack(true);
+                if let Some(message) = success.fatal_error {
+                    self.last_error = Some(message.clone());
+                    *self.state.fatal_cell().borrow_mut() = Some(message.clone());
+                    UloopGuard::request_stop();
+                    return Err(DaemonError::reload(message));
+                }
+                Ok(())
+            }
+            ReloadOutcome::Failure(failure) => {
+                let error = failure.error;
+                self.runtime = Some(failure.runtime);
+                self.schedule_collection_retry();
+                if failure.fatal {
+                    let message = error.to_string();
+                    *self.state.fatal_cell().borrow_mut() = Some(message);
+                    UloopGuard::request_stop();
+                }
+                Err(error)
+            }
+        }
+    }
+
+    fn schedule_runtime_notice_poll(&mut self) {
+        let result = self
+            .runtime_notice_timer
+            .as_ref()
+            .expect("runtime notice timer must be installed")
+            .schedule(RUNTIME_NOTICE_POLL_MS);
+        if let Err(error) = result {
+            let message = format!("runtime notice timer failed: {error}");
+            self.last_error = Some(message.clone());
+            *self.state.fatal_cell().borrow_mut() = Some(message);
+            UloopGuard::request_stop();
+        }
+    }
+
+    fn schedule_collection_retry(&mut self) {
+        let interval = self
             .runtime
             .as_ref()
             .map_or(self.state.config().refresh_interval_ms, |runtime| {
                 runtime.collection_interval_ms(self.state.config().refresh_interval_ms)
             });
-        let mut mode_reload = std::mem::take(&mut self.mode_reload);
-        let outcome = run_dae_mode_tick(
-            &mut mode_reload,
-            self,
-            signals,
-            |app| app.reload_inner().map_err(|error| error.to_string()),
-            |app| app.state.fatal_error().is_some(),
-            |app| {
-                schedule_absolute_collection(
-                    app.collection_timer.as_ref().unwrap(),
-                    &app.collection_deadline_ms,
-                    retry_delay,
-                )
-                .map_err(|error| error.to_string())
-            },
-            Self::collect_current_tick,
-        );
-        self.mode_reload = mode_reload;
-        match outcome {
-            DaeModeTickOutcome::Collected | DaeModeTickOutcome::Reloaded => {}
-            DaeModeTickOutcome::RetryScheduled { reload_error } => {
-                self.last_error = Some(reload_error);
+        if let Err(error) = schedule_absolute_collection(
+            self.collection_timer
+                .as_ref()
+                .expect("collection timer must be installed"),
+            &self.collection_deadline_ms,
+            interval,
+        ) {
+            let message = format!("collection retry timer failed: {error}");
+            self.last_error = Some(message.clone());
+            *self.state.fatal_cell().borrow_mut() = Some(message);
+            UloopGuard::request_stop();
+        }
+    }
+
+    #[cfg(feature = "nss-platform")]
+    fn drain_fast_rate_notices(&mut self) {
+        // Runtime collection temporarily owns `ProductionRuntime` on its
+        // worker thread. Consuming a FastRate notice while `self.runtime` is
+        // absent would update only the published Arc: the in-flight base
+        // result would then overwrite that overlay with its older FastRate
+        // state. Leave the bounded notices queued until runtime ownership
+        // returns; `drain_runtime_notices()` publishes the new base and then
+        // calls this method, allowing the newest compatible window to be
+        // installed into both runtime state and the same base generation.
+        if !fast_rate_notices_can_drain(self.runtime.is_some()) {
+            return;
+        }
+        loop {
+            let Ok(notice) = self.fast_rate_notices.try_recv() else {
+                break;
+            };
+            if let Some(telemetry) = notice.event_telemetry {
+                if let Some(runtime) = self.runtime.as_mut() {
+                    runtime.apply_fast_event_telemetry(telemetry);
+                }
             }
-            DaeModeTickOutcome::FatalReload { reload_error } => {
-                self.last_error = Some(reload_error);
-                UloopGuard::request_stop();
+            if !notice.sample_attempted || notice.base_generation == 0 {
+                continue;
             }
-            DaeModeTickOutcome::RetryScheduleFailed {
-                reload_error,
-                timer_error,
-            } => {
-                let message = format!(
-                    "dynamic BPF mode reload failed: {reload_error}; collection timer rearm failed: {timer_error}"
+            let snapshots = self.state.snapshot_store();
+            let (current_snapshot, current_generations) = snapshots.load_with_generations();
+            if notice.base_contract.base_generation != notice.base_generation {
+                continue;
+            }
+            let exact_generation = current_generations.base_generation == notice.base_generation;
+            let compatible_retarget = !exact_generation
+                && fast_rate_overlay::publication_matches_snapshot(
+                    &current_snapshot,
+                    &notice.publication,
+                    &notice.base_contract,
                 );
-                self.last_error = Some(message.clone());
-                *self.state.fatal_cell().borrow_mut() = Some(message);
-                UloopGuard::request_stop();
+            if !exact_generation && !compatible_retarget {
+                continue;
+            }
+            if let Some(runtime) = self.runtime.as_mut() {
+                runtime.nss.install_fast_rate_publication(
+                    notice.publication.clone(),
+                    notice.base_contract.clone(),
+                );
+            }
+            let sample = notice.publication.sample.map(|value| {
+                serde_json::json!({
+                    "sample_ms": value.sample_ms,
+                    "window_ms": value.window_ms,
+                    "read_end_skew_ms": value.read_end_skew_ms,
+                    "fast_n_bps": value.fast_n_bps,
+                    "fast_s_bps": value.fast_s_bps,
+                    "fast_total_bps": value.fast_total_bps,
+                })
+            });
+            let telemetry = notice.publication.telemetry;
+            let worker_evidence = serde_json::json!({
+                "sample": sample,
+                "observed_ms": notice.observed_ms,
+                "valid_windows": telemetry.valid_windows,
+                "invalid_windows": telemetry.invalid_windows,
+                "zero_windows": telemetry.zero_windows,
+                "last_sample_ms": telemetry.last_sample_ms,
+                "last_invalid_ms": telemetry.last_invalid_ms,
+                "last_zero_latency_ms": telemetry.last_zero_latency_ms,
+                "last_rise_latency_ms": telemetry.last_rise_latency_ms,
+                "client_shadow_entries": notice.publication.client_samples.len(),
+                "client_shadow_invalid_windows": notice.publication.client_invalid_windows,
+                "event_received": notice.wakeup_telemetry.event_received,
+                "event_coalesced": notice.wakeup_telemetry.event_coalesced,
+                "fixed_timer_wakeups": notice.wakeup_telemetry.fixed_timer_wakeups,
+                "last_event_ms": notice.wakeup_telemetry.last_event_ms,
+                "last_wakeup_event": notice.wakeup.event_hint,
+                "last_wakeup_fixed": notice.wakeup.fixed_timer,
+                "read_valid": notice.publication.read_valid,
+                "sampled_base_generation": notice.base_generation,
+                "published_base_generation": current_generations.base_generation,
+                "retargeted_compatible_base": compatible_retarget,
+                "formal_rate_owner": true,
+            });
+            let _ = snapshots.publish_fast(current_generations.base_generation, |snapshot| {
+                let overlay = fast_rate_overlay::apply_fast_rate_overlay(
+                    snapshot,
+                    &notice.publication,
+                    &notice.base_contract,
+                );
+                let mut evidence = worker_evidence.clone();
+                evidence["overlay_clients"] = serde_json::json!(overlay.clients);
+                evidence["overlay_directions"] = serde_json::json!(overlay.directions);
+                snapshot
+                    .status
+                    .evidence
+                    .details
+                    .insert("fast_rate_worker".into(), evidence.clone());
+                snapshot
+                    .health
+                    .evidence
+                    .details
+                    .insert("fast_rate_worker".into(), evidence);
+            });
+        }
+    }
+
+    #[cfg(feature = "nss-platform")]
+    fn restart_fast_rate_worker(&mut self) {
+        self.drain_fast_rate_notices();
+        if let Some(worker) = self.fast_rate_worker.take() {
+            if worker.join().is_err() {
+                self.last_error = Some("NSS FastRate worker panicked".into());
+            }
+        }
+        let (sender, receiver) = mpsc::sync_channel(8);
+        let sources = match self
+            .runtime
+            .as_mut()
+            .map(ProductionRuntime::fast_rate_sources)
+        {
+            Some(Ok(sources)) => sources,
+            Some(Err(error)) => {
+                self.last_error = Some(format!("NSS FastRate sources: {error}"));
+                None
+            }
+            None => None,
+        };
+        match fast_rate_worker::FastRateWorker::spawn_with_sources(4, sender, sources) {
+            Ok(worker) => self.fast_rate_worker = Some(worker),
+            Err(error) => {
+                self.last_error = Some(format!("NSS FastRate worker: {error}"));
+            }
+        }
+        self.fast_rate_notices = receiver;
+    }
+
+    #[cfg(feature = "nss-platform")]
+    fn fast_rate_timer_tick(&mut self) {
+        let now_ms = production_now_ms().unwrap_or(0);
+        let snapshots = self.state.snapshot_store();
+        let (base_snapshot, generations) = snapshots.load_with_generations();
+        let base_generation = generations.base_generation;
+        let base_contract = Arc::new(fast_rate_overlay::base_contract(
+            &base_snapshot,
+            base_generation,
+        ));
+        let edge_bps = self
+            .runtime
+            .as_ref()
+            .and_then(|runtime| runtime.access_edge.authority_bps());
+        if let Some(worker) = self.fast_rate_worker.as_ref() {
+            match fast_rate_worker::try_queue(
+                &worker.queue(),
+                FastRateCommand::Poll {
+                    now_ms,
+                    base_generation,
+                    base_contract,
+                    edge_bps,
+                },
+            ) {
+                Ok(()) | Err(QueueError::Full) => {}
+                Err(QueueError::Disconnected) => {
+                    self.last_error = Some("NSS FastRate worker disconnected".into());
+                }
+            }
+        }
+        self.drain_fast_rate_notices();
+        if let Some(timer) = self.fast_rate_timer.as_ref() {
+            if let Err(error) = timer.schedule(250) {
+                self.last_error = Some(format!("NSS FastRate timer: {error}"));
+            }
+        }
+    }
+    fn before_reply(&mut self, method: ubus::Method) -> Result<(), DaemonError> {
+        self.drain_runtime_notices();
+        #[cfg(feature = "nss-platform")]
+        // The fixed FastRate worker is independent from the slower runtime
+        // collection. Drain its newest notice immediately before live RPCs
+        // so a 1s LuCI poll cannot observe the previous base snapshot while a
+        // valid FastN+FastS publication is already queued.
+        self.drain_fast_rate_notices();
+        self.drain_reload_notices();
+        self.drain_control_notices();
+        if method == ubus::Method::Reload {
+            self.reload_bounded()
+        } else {
+            if matches!(
+                method,
+                ubus::Method::Realtime
+                    | ubus::Method::Clients
+                    | ubus::Method::ClientConnections
+                    | ubus::Method::Diagnostics
+            ) {
+                self.schedule_conntrack(false);
+            }
+            Ok(())
+        }
+    }
+
+    fn queue_control_work(&mut self) {
+        if self.control_pending_generation.is_some() {
+            return;
+        }
+        let Some(work) = self
+            .runtime
+            .as_mut()
+            .and_then(ProductionRuntime::take_control_work)
+        else {
+            return;
+        };
+        self.control_generation = self.control_generation.wrapping_add(1).max(1);
+        let generation = self.control_generation;
+        let Some(worker) = self.control_worker.as_ref() else {
+            self.runtime
+                .as_mut()
+                .expect("control work requires a runtime")
+                .restore_control_work(work);
+            return;
+        };
+        match control_worker::try_queue(
+            &worker.queue(),
+            ControlWorkerTask {
+                generation,
+                work: work.clone(),
+            },
+        ) {
+            Ok(()) => self.control_pending_generation = Some(generation),
+            Err(QueueError::Full) => {
+                self.runtime
+                    .as_mut()
+                    .expect("control work requires a runtime")
+                    .restore_control_work(work);
+            }
+            Err(QueueError::Disconnected) => {
+                let kind = work.kind;
+                self.runtime
+                    .as_mut()
+                    .expect("control work requires a runtime")
+                    .finish_control_work(
+                        ControlReconcileOutcome::failed(
+                            kind,
+                            "control runtime worker disconnected",
+                        ),
+                        true,
+                    );
+                self.last_error = Some("control runtime worker disconnected".into());
             }
         }
     }
 
-    fn collect_current_tick(&mut self) {
-        let timer = self.collection_timer.as_ref().unwrap();
-        let deadline = &self.collection_deadline_ms;
-        let runtime = self
-            .runtime
-            .as_mut()
-            .expect("collection timer requires a staged runtime");
-        if let Err(error) = collect_and_reschedule(
-            &self.state,
-            runtime,
-            |delay| schedule_absolute_collection(timer, deadline, delay),
-            UloopGuard::request_stop,
-        ) {
-            self.last_error = Some(error.to_string());
+    fn drain_control_notices(&mut self) {
+        if self.runtime.is_none() {
+            return;
+        }
+        while let Ok(notice) = self.control_notices.try_recv() {
+            if self.control_pending_generation != Some(notice.generation) {
+                continue;
+            }
+            self.control_pending_generation = None;
+            if let Some(runtime) = self.runtime.as_mut() {
+                runtime.finish_control_work(notice.outcome, !self.reload_requested);
+            }
+            if !self.reload_requested {
+                self.queue_control_work();
+            }
         }
     }
-    fn refresh_clients_connections(&mut self) -> Result<(), DaemonError> {
-        let base = self.state.snapshot();
-        let runtime = self
-            .runtime
-            .as_mut()
-            .ok_or_else(|| DaemonError::collection("runtime is not started"))?;
-        let checkpoint = runtime.checkpoint();
-        let snapshot = match runtime.refresh_connections(&base) {
-            Ok(snapshot) => snapshot,
-            Err(error) => {
-                runtime.restore(checkpoint);
-                return Err(error);
-            }
+
+    fn schedule_conntrack(&mut self, force: bool) {
+        let Ok(now_ms) = production_now_ms() else {
+            return;
         };
-        self.state.publish_runtime_snapshot(snapshot);
-        Ok(())
-    }
-    #[cfg(feature = "nss-platform")]
-    fn refresh_clients_control_state(&mut self) -> Result<(), DaemonError> {
-        let mut snapshot = (*self.state.snapshot()).clone();
-        let runtime = self
-            .runtime
-            .as_mut()
-            .ok_or_else(|| DaemonError::collection("runtime is not started"))?;
-        // Keep the clients RPC as a structural control observation, but do not
-        // publish a second conntrack overlay between the status and interfaces
-        // reads that form one LuCI refresh. Connection details retain their
-        // explicit hot refresh path below.
-        runtime.reconcile_control_state();
-        runtime.decorate_controls(&mut snapshot.clients);
-        self.state.publish_runtime_snapshot(snapshot);
-        Ok(())
-    }
-    fn before_reply(&mut self, method: ubus::Method) -> Result<(), DaemonError> {
-        #[cfg(feature = "nss-platform")]
-        if method == ubus::Method::Diagnostics {
-            // NSS intentionally skips periodic conntrack reads so conntrack
-            // never becomes a client-rate owner.  Diagnostics still needs an
-            // explicit, cached read-only snapshot to distinguish "not part of
-            // the NSS rate loop" from an actually unavailable conntrack
-            // source.  The existing refresh path is cache-coalesced and does
-            // not touch the NSS/CPU RateMux.
-            self.refresh_clients_connections()?;
-            return self.refresh_clients_control_state();
+        if !force
+            && now_ms.saturating_sub(self.last_conntrack_request_ms.get())
+                < CONNTRACK_WORK_INTERVAL_MS
+        {
+            return;
         }
-        match before_reply_action(method) {
-            BeforeReplyAction::None => Ok(()),
-            BeforeReplyAction::RefreshConnections => {
-                #[cfg(feature = "nss-platform")]
-                if method == ubus::Method::Clients {
-                    return self.refresh_clients_control_state();
-                }
-                self.refresh_clients_connections()
+        let task = ConntrackTask {
+            now_ms,
+            max_clients: self.state.config().max_clients,
+            mode: self.state.config().conn_collector_mode,
+            defer_connection_rates: matches!(
+                self.state.snapshot().status.collector_mode.as_str(),
+                "nss_ecm_node" | "nss_ecm_bpf"
+            ),
+        };
+        let Some(worker) = self.conntrack_worker.as_ref() else {
+            return;
+        };
+        match worker.queue().try_send(task) {
+            Ok(()) => self.last_conntrack_request_ms.set(now_ms),
+            Err(QueueError::Full) => {}
+            Err(QueueError::Disconnected) => {
+                self.last_error = Some("conntrack runtime worker disconnected".into());
             }
-            BeforeReplyAction::Reload => self.reload(),
         }
     }
     fn handle_control(&mut self, command: ControlCommand) -> Result<Value, DaemonError> {
-        let runtime = self
-            .runtime
-            .as_mut()
-            .ok_or_else(|| DaemonError::collection("runtime is not started"))?;
-        match command {
-            ControlCommand::Set(request) => runtime.client_control_set(request),
-            ControlCommand::Delete(request) => runtime.client_control_delete(request),
+        self.drain_runtime_notices();
+        self.drain_reload_notices();
+        self.drain_control_notices();
+        if self.runtime_collection_pending || self.reload_pending {
+            return Err(DaemonError::collection("runtime collection pending"));
         }
+        let result = {
+            let runtime = self
+                .runtime
+                .as_mut()
+                .ok_or_else(|| DaemonError::collection("runtime is not started"))?;
+            match command {
+                ControlCommand::Set(request) => runtime.client_control_set(request),
+                ControlCommand::Delete(request) => runtime.client_control_delete(request),
+            }
+        };
+        if result.is_ok() {
+            self.queue_control_work();
+        }
+        result
     }
     fn schedule_reconnect(&self) {
         if !self.reconnect_pending.replace(true)
@@ -3134,405 +4018,6 @@ impl App {
             self.last_error = Some(error.to_string());
         }
     }
-    fn reload(&mut self) -> Result<(), DaemonError> {
-        let result = self.reload_inner();
-        if result.is_ok() {
-            self.mode_reload.complete();
-        }
-        result
-    }
-
-    fn reload_inner(&mut self) -> Result<(), DaemonError> {
-        if self.runtime.is_none() {
-            return Err(DaemonError::reload("runtime is not started"));
-        }
-        let config = load_config()?;
-        let current = self.runtime.as_ref().unwrap();
-        let process_tracker = current.process_tracker.clone();
-        #[cfg(feature = "nss-platform")]
-        let attachment_generation_floor = current.access_edge.attachment_generation_watermark();
-        let mut candidate =
-            ProductionRuntime::prepare_with_process_tracker(config.clone(), process_tracker)?;
-        #[cfg(feature = "nss-platform")]
-        {
-            let current = self.runtime.as_ref().unwrap();
-            candidate.control.inherit_nss_reload_state(&current.control);
-            candidate.control_platform_owner = false;
-            candidate
-                .access_edge
-                .advance_attachment_generation_floor(attachment_generation_floor);
-        }
-        #[cfg(feature = "nss-platform")]
-        candidate
-            .nss
-            .activate(&candidate.config, &candidate.probe_report);
-        let wants_bpf = config.enable_bpf
-            && matches!(
-                config.rate_collector_mode,
-                crate::config::RateCollectorMode::Auto
-                    | crate::config::RateCollectorMode::Bpf
-                    | crate::config::RateCollectorMode::NssEcmBpf
-            )
-            && candidate.probe_report.facts.tc.safe_attach;
-        let desired_mode = candidate.desired_attach_mode();
-        let current_has_bpf = self
-            .runtime
-            .as_ref()
-            .is_some_and(|runtime| runtime.bpf.is_some());
-        let reconfigure_strategy = if wants_bpf && current_has_bpf {
-            let current_bpf = self.runtime.as_ref().unwrap().bpf.as_ref().unwrap();
-            if current_bpf.attach_mode().is_none() {
-                return Err(DaemonError::reload(
-                    "current BPF topology is not healthy enough to reload",
-                ));
-            }
-            Some(current_bpf.reconfigure_strategy(desired_mode))
-        } else {
-            None
-        };
-        let reuse_bpf = reconfigure_strategy == Some(ReconfigureStrategy::InPlace);
-        let suspended_mode_switch =
-            reconfigure_strategy == Some(ReconfigureStrategy::SuspendThenAttach);
-        let mut prepared_bpf = None;
-        let mut mode_switch_checkpoint = None;
-        let mut snapshot = if reuse_bpf {
-            let current = self.runtime.as_mut().unwrap();
-            if current.config.max_clients == config.max_clients
-                && current.config.active_client_window_ms == config.active_client_window_ms
-            {
-                candidate.bpf_collector = current.bpf_collector.clone();
-            }
-            candidate.bpf_error = current.bpf_error.clone();
-            candidate.bpf_error_stage = current.bpf_error_stage;
-            let runtime = current.bpf.as_mut().unwrap();
-            let transaction = match runtime.prepare_reconfigure(
-                &mut current.adapter,
-                &collect_ifnames(&config),
-                desired_mode,
-            ) {
-                Ok(transaction) => transaction,
-                Err(error) => {
-                    if error.kind() == AdapterErrorKind::DetachFailed {
-                        *self.state.fatal_cell().borrow_mut() =
-                            Some(format!("BPF reconfigure prepare cleanup failed: {error}"));
-                        UloopGuard::request_stop();
-                    }
-                    return Err(DaemonError::reload(error.to_string()));
-                }
-            };
-            if transaction.topology_changed() {
-                candidate.bpf_collector.reset_rates();
-            }
-            match candidate.collect_with_external_bpf(
-                runtime,
-                &mut current.adapter,
-                ProbeMethod::Reload,
-            ) {
-                Ok((snapshot, collection_checkpoint)) => {
-                    prepared_bpf = Some(PreparedBpfReload {
-                        transaction,
-                        collection_checkpoint,
-                    });
-                    snapshot
-                }
-                Err(error) => {
-                    if let Err(rollback) =
-                        runtime.abort_reconfigure(&mut current.adapter, transaction)
-                    {
-                        return Err(record_fatal_cleanup(
-                            "BPF reconfigure abort",
-                            &error.to_string(),
-                            &rollback.to_string(),
-                            self.state.fatal_cell(),
-                        ));
-                    }
-                    return Err(abort_reload_candidate(
-                        &self.state,
-                        &mut candidate,
-                        error,
-                        UloopGuard::request_stop,
-                    ));
-                }
-            }
-        } else {
-            if suspended_mode_switch {
-                let current = self.runtime.as_ref().unwrap();
-                if current.config.max_clients == config.max_clients
-                    && current.config.active_client_window_ms == config.active_client_window_ms
-                {
-                    candidate.bpf_collector = current.bpf_collector.clone();
-                }
-                candidate.bpf_error = current.bpf_error.clone();
-                candidate.bpf_error_stage = current.bpf_error_stage;
-                mode_switch_checkpoint = Some(candidate.checkpoint());
-            } else if wants_bpf {
-                if let Err(error) = candidate.activate_new_bpf() {
-                    *self.state.fatal_cell().borrow_mut() = Some(error.to_string());
-                    UloopGuard::request_stop();
-                    return Err(error);
-                }
-            }
-            match candidate.collect(ProbeMethod::Reload) {
-                Ok(snapshot) => snapshot,
-                Err(error) => {
-                    return Err(abort_reload_candidate(
-                        &self.state,
-                        &mut candidate,
-                        error,
-                        UloopGuard::request_stop,
-                    ));
-                }
-            }
-        };
-        let old_interval = self
-            .runtime
-            .as_ref()
-            .map_or(self.state.config().refresh_interval_ms, |runtime| {
-                runtime.collection_interval_ms(self.state.config().refresh_interval_ms)
-            });
-        let new_interval = candidate.collection_interval_ms(config.refresh_interval_ms);
-        if let Err(error) = schedule_absolute_collection(
-            self.collection_timer.as_ref().unwrap(),
-            &self.collection_deadline_ms,
-            new_interval,
-        ) {
-            let bpf_rollback = prepared_bpf.take().and_then(|prepared| {
-                let current = self.runtime.as_mut().unwrap();
-                let runtime = current.bpf.as_mut().unwrap();
-                runtime.restore_collection_checkpoint(
-                    &mut candidate.bpf_collector,
-                    prepared.collection_checkpoint,
-                );
-                runtime
-                    .abort_reconfigure(&mut current.adapter, prepared.transaction)
-                    .err()
-            });
-            let bpf_rollback_failed = bpf_rollback.is_some();
-            let primary = match bpf_rollback {
-                Some(rollback) => {
-                    DaemonError::reload(format!("{error}; BPF rollback failed: {rollback}"))
-                }
-                None => DaemonError::reload(error.to_string()),
-            };
-            let timer = self.collection_timer.as_ref().unwrap();
-            let deadline = &self.collection_deadline_ms;
-            let failure = abort_reload_after_timer_failure(
-                &self.state,
-                &mut candidate,
-                primary,
-                || schedule_absolute_collection(timer, deadline, old_interval),
-                UloopGuard::request_stop,
-            );
-            if bpf_rollback_failed && self.state.fatal_error().is_none() {
-                *self.state.fatal_cell().borrow_mut() = Some(failure.to_string());
-                UloopGuard::request_stop();
-            }
-            return Err(failure);
-        }
-        if suspended_mode_switch {
-            let suspended = match {
-                let current = self.runtime.as_mut().unwrap();
-                let runtime = current.bpf.as_mut().unwrap();
-                match runtime.suspend_for_replacement(&mut current.adapter) {
-                    Ok(suspended) => Ok(suspended),
-                    Err(error) => {
-                        let old_topology_intact = runtime.is_attached();
-                        Err((error, old_topology_intact))
-                    }
-                }
-            } {
-                Ok(suspended) => suspended,
-                Err((error, old_topology_intact)) => {
-                    let primary =
-                        DaemonError::reload(format!("BPF mode-switch suspend failed: {error}"));
-                    let timer = self.collection_timer.as_ref().unwrap();
-                    let deadline = &self.collection_deadline_ms;
-                    let restore_timer =
-                        || schedule_absolute_collection(timer, deadline, old_interval);
-                    let failure = finish_mode_switch_suspend_failure(
-                        &self.state,
-                        &mut candidate,
-                        primary,
-                        old_topology_intact,
-                        restore_timer,
-                        UloopGuard::request_stop,
-                    );
-                    return Err(failure);
-                }
-            };
-            candidate.restore(
-                mode_switch_checkpoint
-                    .take()
-                    .expect("suspended mode switch checkpointed before collection"),
-            );
-            candidate.bpf_collector.reset_rates();
-            let interfaces = collect_ifnames(&config);
-            let attach_result = {
-                let current = self.runtime.as_mut().unwrap();
-                current.bpf.as_mut().unwrap().attach_suspended(
-                    &mut current.adapter,
-                    &suspended,
-                    &interfaces,
-                    desired_mode,
-                )
-            };
-            if let Err(error) = attach_result {
-                let restore = {
-                    let current = self.runtime.as_mut().unwrap();
-                    current
-                        .bpf
-                        .as_mut()
-                        .unwrap()
-                        .resume_suspended(&mut current.adapter, suspended)
-                };
-                let timer = self.collection_timer.as_ref().unwrap();
-                let deadline = &self.collection_deadline_ms;
-                return Err(finish_mode_switch_rollback(
-                    &self.state,
-                    &mut candidate,
-                    DaemonError::reload(error.to_string()),
-                    restore,
-                    || schedule_absolute_collection(timer, deadline, old_interval),
-                    UloopGuard::request_stop,
-                ));
-            }
-            let collected = {
-                let current = self.runtime.as_mut().unwrap();
-                candidate.collect_with_external_bpf(
-                    current.bpf.as_mut().unwrap(),
-                    &mut current.adapter,
-                    ProbeMethod::Reload,
-                )
-            };
-            snapshot = match collected {
-                Ok((snapshot, _)) => snapshot,
-                Err(error) => {
-                    let restore = {
-                        let current = self.runtime.as_mut().unwrap();
-                        let runtime = current.bpf.as_mut().unwrap();
-                        runtime
-                            .suspend_for_replacement(&mut current.adapter)
-                            .and_then(|_| runtime.resume_suspended(&mut current.adapter, suspended))
-                    };
-                    let timer = self.collection_timer.as_ref().unwrap();
-                    let deadline = &self.collection_deadline_ms;
-                    return Err(finish_mode_switch_rollback(
-                        &self.state,
-                        &mut candidate,
-                        error,
-                        restore,
-                        || schedule_absolute_collection(timer, deadline, old_interval),
-                        UloopGuard::request_stop,
-                    ));
-                }
-            };
-            let current = self.runtime.as_mut().unwrap();
-            candidate.adapter = std::mem::take(&mut current.adapter);
-            candidate.bpf = current.bpf.take();
-        }
-        let postcommit_cleanup: Option<BpfPostCommitCleanup<SystemAyaLink>> =
-            prepared_bpf.take().map(|prepared| {
-                let current = self.runtime.as_mut().unwrap();
-                let runtime = current.bpf.as_mut().unwrap();
-                let cleanup = runtime
-                    .commit_reconfigure(prepared.transaction, ReconfigureRateBaseline::Prepared);
-                candidate.adapter = std::mem::take(&mut current.adapter);
-                candidate.bpf = current.bpf.take();
-                cleanup
-            });
-        #[cfg(feature = "nss-platform")]
-        {
-            // From this point commit_reload cannot reject the candidate. Give
-            // it cleanup authority before the old runtime is retired, and
-            // make the old shutdown preserve the shared dataplane objects.
-            candidate.control_platform_owner = true;
-            self.runtime.as_mut().unwrap().control_platform_owner = false;
-        }
-        commit_reload(
-            &mut self.state,
-            &mut self.runtime,
-            candidate,
-            config,
-            snapshot,
-            UloopGuard::request_stop,
-        );
-        if let Some(cleanup) = postcommit_cleanup {
-            let current = self.runtime.as_mut().unwrap();
-            let runtime = current.bpf.as_mut().unwrap();
-            if let Err(error) = runtime.run_postcommit_cleanup(&mut current.adapter, cleanup) {
-                let message = format!("reload committed; postcommit BPF cleanup failed: {error}");
-                *self.state.fatal_cell().borrow_mut() = Some(message);
-                UloopGuard::request_stop();
-            }
-        }
-        Ok(())
-    }
-}
-
-fn finish_mode_switch_suspend_failure<R: Runtime>(
-    state: &CoordinatorState,
-    candidate: &mut R,
-    primary: DaemonError,
-    old_topology_intact: bool,
-    restore_timer: impl FnOnce() -> Result<(), DaemonError>,
-    request_stop: impl FnOnce(),
-) -> DaemonError {
-    if old_topology_intact {
-        abort_reload_after_timer_failure(state, candidate, primary, restore_timer, request_stop)
-    } else {
-        abort_unrecoverable_mode_switch(state, candidate, primary, restore_timer, request_stop)
-    }
-}
-
-fn abort_unrecoverable_mode_switch<R: Runtime>(
-    state: &CoordinatorState,
-    candidate: &mut R,
-    primary: DaemonError,
-    restore_timer: impl FnOnce() -> Result<(), DaemonError>,
-    request_stop: impl FnOnce(),
-) -> DaemonError {
-    let candidate_cleanup = candidate.shutdown().err();
-    let timer_rollback = restore_timer().err();
-    let mut message = primary.to_string();
-    if let Some(error) = candidate_cleanup {
-        message.push_str(&format!("; candidate cleanup failed: {error}"));
-    }
-    if let Some(error) = timer_rollback {
-        message.push_str(&format!("; timer rollback failed: {error}"));
-    }
-    *state.fatal_cell().borrow_mut() = Some(message.clone());
-    request_stop();
-    DaemonError::reload(message)
-}
-
-fn finish_mode_switch_rollback<R: Runtime>(
-    state: &CoordinatorState,
-    candidate: &mut R,
-    primary: DaemonError,
-    bpf_restore: Result<(), AdapterError>,
-    restore_timer: impl FnOnce() -> Result<(), DaemonError>,
-    request_stop: impl FnOnce(),
-) -> DaemonError {
-    let candidate_cleanup = candidate.shutdown().err();
-    let old_restore = bpf_restore.err();
-    let timer_rollback = restore_timer().err();
-    if candidate_cleanup.is_none() && old_restore.is_none() && timer_rollback.is_none() {
-        return primary;
-    }
-
-    let mut message = primary.to_string();
-    if let Some(error) = candidate_cleanup {
-        message.push_str(&format!("; candidate cleanup failed: {error}"));
-    }
-    if let Some(error) = old_restore {
-        message.push_str(&format!("; old BPF restore failed: {error}"));
-    }
-    if let Some(error) = timer_rollback {
-        message.push_str(&format!("; timer rollback failed: {error}"));
-    }
-    *state.fatal_cell().borrow_mut() = Some(message.clone());
-    request_stop();
-    DaemonError::reload(message)
 }
 
 pub fn run() -> Result<(), DaemonError> {
@@ -3544,16 +4029,57 @@ pub fn run() -> Result<(), DaemonError> {
         Arc::new(ResponseSnapshot::unsupported("starting")),
     );
     let snapshots = state.snapshot_store();
+    let conntrack_worker = conntrack_worker::spawn(snapshots.clone())
+        .map_err(|error| DaemonError::platform(format!("conntrack worker: {error}")))?;
+    let (runtime_notice_sender, runtime_notices) = runtime_worker::notice_channel(1);
+    let runtime_worker = RuntimeCollectionWorker::spawn(1, runtime_notice_sender)
+        .map_err(|error| DaemonError::platform(format!("runtime worker: {error}")))?;
+    let (reload_notice_sender, reload_notices) = reload_worker::notice_channel(1);
+    let reload_worker = ProductionReloadWorker::spawn(1, reload_notice_sender)
+        .map_err(|error| DaemonError::platform(format!("reload worker: {error}")))?;
+    let (control_worker, control_notices) = {
+        let (sender, receiver) = mpsc::sync_channel(4);
+        let worker = control_worker::ControlWorker::spawn(1, sender)
+            .map_err(|error| DaemonError::platform(format!("control worker: {error}")))?;
+        (Some(worker), receiver)
+    };
+    #[cfg(feature = "nss-platform")]
+    let (fast_rate_worker, fast_rate_notices) = {
+        let (sender, receiver) = mpsc::sync_channel(8);
+        let worker = fast_rate_worker::FastRateWorker::spawn(4, sender)
+            .map_err(|error| DaemonError::platform(format!("NSS FastRate worker: {error}")))?;
+        (Some(worker), receiver)
+    };
     let app = Rc::new(RefCell::new(App {
         state,
         runtime: None,
         ubus: None,
         collection_timer: None,
         collection_deadline_ms: Cell::new(0),
+        runtime_worker: Some(runtime_worker),
+        runtime_notices,
+        runtime_collection_pending: false,
+        reload_worker: Some(reload_worker),
+        reload_notices,
+        reload_requested: false,
+        reload_pending: false,
+        runtime_notice_timer: None,
         reconnect_timer: None,
         reconnect_pending: Cell::new(false),
         mode_reload: DaeModeReloadLatch::default(),
         last_error: None,
+        conntrack_worker: Some(conntrack_worker),
+        last_conntrack_request_ms: Cell::new(0),
+        control_worker,
+        control_notices,
+        control_generation: 0,
+        control_pending_generation: None,
+        #[cfg(feature = "nss-platform")]
+        fast_rate_worker,
+        #[cfg(feature = "nss-platform")]
+        fast_rate_notices,
+        #[cfg(feature = "nss-platform")]
+        fast_rate_timer: None,
     }));
     let weak = Rc::downgrade(&app);
     app.borrow_mut().collection_timer = Some(Timer::new(move || {
@@ -3562,11 +4088,26 @@ pub fn run() -> Result<(), DaemonError> {
         }
     }));
     let weak = Rc::downgrade(&app);
+    app.borrow_mut().runtime_notice_timer = Some(Timer::new(move || {
+        if let Some(app) = weak.upgrade() {
+            app.borrow_mut().runtime_notice_tick();
+        }
+    }));
+    let weak = Rc::downgrade(&app);
     app.borrow_mut().reconnect_timer = Some(Timer::new(move || {
         if let Some(app) = weak.upgrade() {
             app.borrow_mut().reconnect();
         }
     }));
+    #[cfg(feature = "nss-platform")]
+    {
+        let weak = Rc::downgrade(&app);
+        app.borrow_mut().fast_rate_timer = Some(Timer::new(move || {
+            if let Some(app) = weak.upgrade() {
+                app.borrow_mut().fast_rate_timer_tick();
+            }
+        }));
+    }
 
     let weak = Rc::downgrade(&app);
     let control_weak = Rc::downgrade(&app);
@@ -3615,6 +4156,19 @@ pub fn run() -> Result<(), DaemonError> {
         )?
     };
     app.borrow_mut().runtime = Some(runtime);
+    app.borrow_mut().queue_control_work();
+    #[cfg(feature = "nss-platform")]
+    app.borrow_mut().restart_fast_rate_worker();
+    #[cfg(feature = "nss-platform")]
+    app.borrow()
+        .fast_rate_timer
+        .as_ref()
+        .expect("NSS FastRate timer must be installed")
+        // The worker owns the 20 ms event poll/debounce and 1 s fixed timer.
+        // This timer only refreshes generation context and drains notices.
+        .schedule(250)
+        .map_err(|error| DaemonError::platform(format!("NSS FastRate timer: {error}")))?;
+    app.borrow_mut().schedule_conntrack(true);
     let _signals = {
         let mut app = app.borrow_mut();
         let App { runtime, ubus, .. } = &mut *app;
@@ -3626,6 +4180,27 @@ pub fn run() -> Result<(), DaemonError> {
     let run_result = event_loop
         .run()
         .map_err(|error| DaemonError::platform(error.to_string()));
+    let runtime_worker = app.borrow_mut().runtime_worker.take();
+    let runtime_worker_result = runtime_worker.map_or(Ok(()), |worker| {
+        worker
+            .join()
+            .map_err(|_| DaemonError::platform("runtime worker panicked"))
+    });
+    app.borrow_mut().recover_runtime_worker_notice();
+    let reload_worker = app.borrow_mut().reload_worker.take();
+    let reload_worker_result = reload_worker.map_or(Ok(()), |worker| {
+        worker
+            .join()
+            .map_err(|_| DaemonError::platform("reload worker panicked"))
+    });
+    app.borrow_mut().recover_reload_worker_notice();
+    let control_worker = app.borrow_mut().control_worker.take();
+    let control_worker_result = control_worker.map_or(Ok(()), |worker| {
+        worker
+            .join()
+            .map_err(|_| DaemonError::platform("control worker panicked"))
+    });
+    app.borrow_mut().drain_control_notices();
     let shutdown_result = {
         let mut app = app.borrow_mut();
         let _connection = app.ubus.take();
@@ -3635,7 +4210,11 @@ pub fn run() -> Result<(), DaemonError> {
     if let Some(error) = fatal {
         return Err(DaemonError::platform(error));
     }
-    run_result.and(shutdown_result)
+    run_result
+        .and(runtime_worker_result)
+        .and(reload_worker_result)
+        .and(control_worker_result)
+        .and(shutdown_result)
 }
 
 fn load_config() -> Result<RuntimeConfig, DaemonError> {
@@ -3725,11 +4304,12 @@ fn version() -> String {
     system::version()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "nss-platform"))]
 fn version_from(version: Option<&str>, release: Option<&str>) -> String {
     system::version_from(version, release)
 }
 
+#[cfg(all(test, feature = "nss-platform"))]
 fn record_fatal_cleanup(
     context: &str,
     primary: &str,

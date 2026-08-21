@@ -24,7 +24,7 @@ function buildShell(viewState) {
 				'class': 'lanspeed-sort-indicator',
 				'aria-hidden': 'true'
 			}, '')
-		]);
+	]);
 		var th = E('th', thAttrs, button);
 		refs.sortHeaders[sortKey] = {
 			th: th,
@@ -121,6 +121,16 @@ function buildShell(viewState) {
 	refs.summaryConnections = E('span', {
 		'class': 'lanspeed-connection-summary-value'
 	}, '—');
+	refs.summaryTx = E('span', {
+		'class': 'lanspeed-connection-summary-value'
+	}, '—');
+	refs.summaryRx = E('span', {
+		'class': 'lanspeed-connection-summary-value'
+	}, '—');
+	refs.summaryRateMeta = E('p', {
+		'class': 'lanspeed-connection-rate-meta',
+		'role': 'status'
+	}, _('总速率采样口径将在加载后显示。'));
 	refs.summaryUpdated = E('span', {
 		'class': 'lanspeed-connection-summary-value'
 	}, '—');
@@ -138,7 +148,15 @@ function buildShell(viewState) {
 			refs.summaryConnections
 		]),
 		E('div', { 'class': 'lanspeed-connection-summary-item' }, [
-			E('span', { 'class': 'lanspeed-connection-summary-label' }, _('更新时间')),
+			E('span', { 'class': 'lanspeed-connection-summary-label' }, _('上行总速率')),
+			refs.summaryTx
+		]),
+		E('div', { 'class': 'lanspeed-connection-summary-item' }, [
+			E('span', { 'class': 'lanspeed-connection-summary-label' }, _('下行总速率')),
+			refs.summaryRx
+		]),
+		E('div', { 'class': 'lanspeed-connection-summary-item' }, [
+			E('span', { 'class': 'lanspeed-connection-summary-label' }, _('页面更新时间')),
 			refs.summaryUpdated
 		])
 	]);
@@ -149,6 +167,7 @@ function buildShell(viewState) {
 		E('div', { 'class': 'lanspeed-header' }, [
 			E('h3', {}, _('客户端身份')),
 			E('span', { 'class': 'spacer' }),
+			refs.summaryRateMeta,
 			refs.connectionState
 		]),
 		E('div', { 'class': 'lanspeed-body' }, [
@@ -161,71 +180,6 @@ function buildShell(viewState) {
 			])
 		])
 	]);
-
-	/* x86 never creates this block. A stale or malformed detail response must
-	 * not resurrect the NSS classifier presentation on the TC-BPF page. */
-	if (viewState.nssPlatform === true) {
-		refs.classificationState = E('span', {
-			'class': 'label lanspeed-classification-state'
-		}, _('等待分类窗口'));
-		refs.classificationWindow = E('span', {
-			'class': 'lanspeed-classification-window'
-		}, '—');
-		refs.classificationTxDirectionState = E('td', { 'class': 'num', 'data-label': _('上行') }, '—');
-		refs.classificationRxDirectionState = E('td', { 'class': 'num', 'data-label': _('下行') }, '—');
-		refs.classificationTxEdge = E('td', { 'class': 'num', 'data-label': _('上行') }, '—');
-		refs.classificationRxEdge = E('td', { 'class': 'num', 'data-label': _('下行') }, '—');
-		refs.classificationTxNss = E('td', { 'class': 'num', 'data-label': _('上行') }, '—');
-		refs.classificationRxNss = E('td', { 'class': 'num', 'data-label': _('下行') }, '—');
-		refs.classificationTxSlow = E('td', { 'class': 'num', 'data-label': _('上行') }, '—');
-		refs.classificationRxSlow = E('td', { 'class': 'num', 'data-label': _('下行') }, '—');
-		refs.classificationTxUnknown = E('td', { 'class': 'num', 'data-label': _('上行') }, '—');
-		refs.classificationRxUnknown = E('td', { 'class': 'num', 'data-label': _('下行') }, '—');
-		refs.classificationTxCoverage = E('td', { 'class': 'num', 'data-label': _('上行') }, '—');
-		refs.classificationRxCoverage = E('td', { 'class': 'num', 'data-label': _('下行') }, '—');
-		refs.classificationCard = E('div', {
-			'class': 'cbi-section lanspeed-classification-card',
-			'hidden': 'hidden'
-		}, [
-			E('div', { 'class': 'lanspeed-header' }, [
-				E('h3', {}, _('流量分类')),
-				E('span', { 'class': 'spacer' }),
-				refs.classificationState
-			]),
-			E('div', { 'class': 'lanspeed-body' }, [
-				E('div', { 'class': 'lanspeed-classification-meta' }, [
-					E('span', {}, _('比较窗口：')),
-					refs.classificationWindow
-				]),
-				E('table', {
-					'class': 'lanspeed-table lanspeed-classification-table',
-					'aria-label': _('客户端 NSS 流量分类')
-				}, [
-					E('thead', {}, E('tr', {}, [
-						E('th', { 'scope': 'col' }, _('分类指标')),
-						E('th', { 'scope': 'col', 'class': 'num' }, _('上行')),
-						E('th', { 'scope': 'col', 'class': 'num' }, _('下行'))
-					])),
-					E('tbody', {}, [
-						E('tr', {}, [ E('th', { 'scope': 'row' }, _('方向状态')),
-							refs.classificationTxDirectionState, refs.classificationRxDirectionState ]),
-						E('tr', {}, [ E('th', { 'scope': 'row' }, _('Edge 同窗总速率')),
-							refs.classificationTxEdge, refs.classificationRxEdge ]),
-						E('tr', {}, [ E('th', { 'scope': 'row' }, _('NSS已识别')),
-							refs.classificationTxNss, refs.classificationRxNss ]),
-						E('tr', {}, [ E('th', { 'scope': 'row' }, _('CPU慢路径已识别')),
-							refs.classificationTxSlow, refs.classificationRxSlow ]),
-						E('tr', {}, [ E('th', { 'scope': 'row' }, _('未分类')),
-							refs.classificationTxUnknown, refs.classificationRxUnknown ]),
-						E('tr', {}, [ E('th', { 'scope': 'row' }, _('分类覆盖率')),
-							refs.classificationTxCoverage, refs.classificationRxCoverage ])
-					])
-				]),
-				E('p', { 'class': 'lanspeed-classification-note' },
-					_('Edge 同窗值只用于核对；NSS 与 CPU 慢路径是可验证分类，不与客户端总速率相加；无法安全比较时不推断未分类流量。'))
-			])
-		]);
-	}
 
 	refs.protocolAll = E('button', {
 		'type': 'button',
@@ -399,8 +353,6 @@ function buildShell(viewState) {
 		refs.error,
 		identityCard
 	];
-	if (refs.classificationCard)
-		rootChildren.push(refs.classificationCard);
 	rootChildren.push(connectionsCard);
 	var root = E('div', {
 		'class': 'cbi-map lanspeed-root lanspeed-connection-detail'

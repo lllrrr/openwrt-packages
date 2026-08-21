@@ -9,18 +9,100 @@ pub const ECM_CLIENTS_MAP_NAME: &str = "lanspeed_ecm_clients";
 pub const ECM_LAYOUT_MAP_NAME: &str = "lanspeed_ecm_layout";
 pub const ECM_NSS_CONTEXT_MAP_NAME: &str = "lanspeed_ecm_nss_context";
 pub const ECM_SOURCE_STATS_MAP_NAME: &str = "lanspeed_ecm_source_stats";
+pub const ECM_EVENT_RINGBUF_MAP_NAME: &str = "lanspeed_ecm_event_ringbuf";
+pub const ECM_EVENT_STATS_MAP_NAME: &str = "lanspeed_ecm_event_stats";
+pub const ECM_FAST_COUNTERS_MAP_NAME: &str = "lanspeed_ecm_fast_counters";
+pub const FAST_COUNTERS_MAP_NAME: &str = "lanspeed_fast_counters";
 
 pub const INGRESS_PROGRAM_NAME: &str = "lanspeed_ingress";
 pub const EGRESS_PROGRAM_NAME: &str = "lanspeed_egress";
 pub const INGRESS_EARLY_PROGRAM_NAME: &str = "lanspeed_ingress_early";
 pub const EGRESS_EARLY_PROGRAM_NAME: &str = "lanspeed_egress_early";
 pub const ECM_UPDATE_PROGRAM_NAME: &str = "lanspeed_ecm_update";
-pub const ECM_NSS_ENTER_PROGRAM_NAME: &str = "lanspeed_ecm_nss_enter";
-pub const ECM_NSS_EXIT_PROGRAM_NAME: &str = "lanspeed_ecm_nss_exit";
+pub const ECM_NSS_ENTER_SYNC_MANY_V4_PROGRAM_NAME: &str = "lanspeed_ecm_nss_enter_sync_many_v4";
+pub const ECM_NSS_EXIT_SYNC_MANY_V4_PROGRAM_NAME: &str = "lanspeed_ecm_nss_exit_sync_many_v4";
+pub const ECM_NSS_ENTER_SYNC_MANY_V6_PROGRAM_NAME: &str = "lanspeed_ecm_nss_enter_sync_many_v6";
+pub const ECM_NSS_EXIT_SYNC_MANY_V6_PROGRAM_NAME: &str = "lanspeed_ecm_nss_exit_sync_many_v6";
+pub const ECM_NSS_ENTER_NETDEV_V4_PROGRAM_NAME: &str = "lanspeed_ecm_nss_enter_netdev_v4";
+pub const ECM_NSS_EXIT_NETDEV_V4_PROGRAM_NAME: &str = "lanspeed_ecm_nss_exit_netdev_v4";
+pub const ECM_NSS_ENTER_NETDEV_V6_PROGRAM_NAME: &str = "lanspeed_ecm_nss_enter_netdev_v6";
+pub const ECM_NSS_EXIT_NETDEV_V6_PROGRAM_NAME: &str = "lanspeed_ecm_nss_exit_netdev_v6";
+
+pub const ECM_SOURCE_SYNC_MANY_V4: u8 = 1;
+pub const ECM_SOURCE_SYNC_MANY_V6: u8 = 2;
+pub const ECM_SOURCE_NETDEV_V4: u8 = 3;
+pub const ECM_SOURCE_NETDEV_V6: u8 = 4;
 
 pub const MAX_CLIENTS: u32 = 2048;
 pub const MAX_CONN_TUPLES: u32 = 8192;
 pub const MAX_ECM_NSS_CONTEXTS: u32 = 4096;
+pub const ECM_EVENT_RINGBUF_BYTES: u32 = 64 * 1024;
+pub const FAST_COUNTER_ABI_VERSION: u32 = 1;
+pub const FAST_COUNTERS_MAP_CAPACITY: u32 = MAX_CLIENTS;
+pub const ECM_FAST_COUNTERS_MAP_CAPACITY: u32 = MAX_CLIENTS * 2;
+
+/// Versioned read-only NSS control ABI. The C module mirrors these values in
+/// its public control header; keeping the Rust side in the common crate makes
+/// every parser and contract test consume one userspace definition.
+pub mod nss_genl {
+    pub const FAMILY_NAME: &str = "LANSPEED_NSS";
+    pub const VERSION: u8 = 1;
+
+    pub const CMD_GET_CAPS: u8 = 1;
+    pub const CMD_GET_STATE: u8 = 2;
+    pub const CMD_GET_STATS: u8 = 3;
+    pub const CMD_GET_HEALTH: u8 = 4;
+    pub const CMD_IGS_STAGE: u8 = 5;
+    pub const CMD_IGS_PUBLISH: u8 = 6;
+    pub const CMD_IGS_UNPUBLISH: u8 = 7;
+    pub const CMD_IGS_DELETE: u8 = 8;
+    pub const CMD_PEER_REPLACE: u8 = 9;
+    pub const CMD_TAG_REPLACE: u8 = 10;
+    pub const CMD_TRUSTED_INGRESS_REPLACE: u8 = 11;
+
+    pub const A_ABI_VERSION: u16 = 1;
+    pub const A_FEATURE_BITS: u16 = 2;
+    pub const A_MAX_IGS: u16 = 3;
+    pub const A_MAX_PEERS: u16 = 4;
+    pub const A_MAX_CLIENT_TAGS: u16 = 5;
+    pub const A_SUPPORTS_WIFI_PEER: u16 = 6;
+    pub const A_SUPPORTS_IGS_STATS: u16 = 7;
+    pub const A_SUPPORTS_PEER_QUERY: u16 = 8;
+    pub const A_IGS_STAGED: u16 = 9;
+    pub const A_IGS_PUBLISHED: u16 = 10;
+    pub const A_IGS_DEGRADED: u16 = 11;
+    pub const A_CONTROL_GENERATION: u16 = 12;
+    pub const A_HARDWARE_GENERATION: u16 = 13;
+    pub const A_PEER_GENERATION: u16 = 14;
+    pub const A_IGS_SYNC_COUNT: u16 = 15;
+    pub const A_IGS_LAST_SYNC_NS: u16 = 16;
+    pub const A_IGS_BYTES: u16 = 17;
+    pub const A_IGS_PACKETS: u16 = 18;
+    pub const A_IGS_DROPS: u16 = 19;
+    pub const A_ACK_LATENCY_LAST_NS: u16 = 20;
+    pub const A_ACK_LATENCY_MAX_NS: u16 = 21;
+    pub const A_ACK_RECEIVED: u16 = 22;
+    pub const A_ACK_TIMEOUT: u16 = 23;
+    pub const A_ACK_LATE: u16 = 24;
+    pub const A_HEALTHY: u16 = 25;
+    pub const A_PEER_REASSERT_COUNT: u16 = 26;
+    pub const A_IFB_NAME: u16 = 27;
+    pub const A_EDGE_NAME: u16 = 28;
+    pub const A_CONFIG: u16 = 29;
+    pub const A_IGS_CADENCE_SAMPLES: u16 = 30;
+    pub const A_IGS_CADENCE_LAST_NS: u16 = 31;
+    pub const A_IGS_CADENCE_MIN_NS: u16 = 32;
+    pub const A_IGS_CADENCE_MAX_NS: u16 = 33;
+    pub const A_IGS_ACTIVE_NODES: u16 = 34;
+
+    pub const FEATURE_IGS: u32 = 1 << 0;
+    pub const FEATURE_WIFI_PEER: u32 = 1 << 1;
+    pub const FEATURE_IGS_STATS: u32 = 1 << 2;
+    pub const FEATURE_PEER_QUERY: u32 = 1 << 3;
+    pub const FEATURE_RCU_TAGS: u32 = 1 << 4;
+    pub const FEATURE_TRUSTED_INGRESS: u32 = 1 << 5;
+    pub const FEATURE_IGS_CADENCE: u32 = 1 << 6;
+}
 
 pub const DIR_TX: u8 = 1;
 pub const DIR_RX: u8 = 2;
@@ -111,6 +193,60 @@ pub struct EcmSourceStats {
     pub slow_path_updates: u64,
 }
 
+/// Per-task state for the ECM NSS callback boundary.
+///
+/// `depth` tracks nested callbacks. `dirty` is set only after the totals
+/// update probe successfully accounts at least one valid client counter while
+/// inside the callback. `source_id` is reserved for the source-specific
+/// callback programs; the initial ABI uses zero until those programs are
+/// attached independently.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(C, align(4))]
+pub struct EcmNssContext {
+    pub depth: u32,
+    pub dirty: u8,
+    pub source_id: u8,
+    pub reserved: u16,
+}
+
+/// A callback-boundary hint. It never claims that a complete NSS round ended;
+/// `round_end` therefore remains zero until a stable vendor completion signal
+/// exists.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(C, align(8))]
+pub struct EcmCountersUpdatedEvent {
+    pub timestamp_ns: u64,
+    pub sequence: u64,
+    pub source: u8,
+    pub round_end: u8,
+    pub reserved: [u8; 6],
+}
+
+/// Kernel-side counters for the best-effort event hint channel.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(C, align(8))]
+pub struct EcmEventStats {
+    pub event_emit: u64,
+    pub ringbuf_reserve_fail: u64,
+}
+
+/// Stable-read ABI for the FastN/FastS counter plane.
+///
+/// Writers publish an odd `seq` before changing the three counter fields and
+/// an even `seq` after the write. Readers must observe the same even sequence
+/// in two bounded lookups before accepting the value. `reset_generation`
+/// changes on BPF reload or counter reset and is never inferred from bytes.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(C, align(8))]
+pub struct FastCounterValue {
+    pub abi_version: u32,
+    pub reset_generation: u32,
+    pub seq: u64,
+    pub bytes: u64,
+    pub packets: u64,
+    pub last_seen_ns: u64,
+}
+
 /// Connection-deduplication key matching `struct lanspeed_conn_key`.
 ///
 /// Every field is naturally contiguous under `repr(C)`: the six-byte MAC and
@@ -170,5 +306,19 @@ const _: [(); 24] = [(); core::mem::size_of::<EcmCounters>()];
 const _: [(); 8] = [(); core::mem::align_of::<EcmCounters>()];
 const _: [(); 48] = [(); core::mem::size_of::<EcmSourceStats>()];
 const _: [(); 8] = [(); core::mem::align_of::<EcmSourceStats>()];
+const _: [(); 8] = [(); core::mem::size_of::<EcmNssContext>()];
+const _: [(); 4] = [(); core::mem::align_of::<EcmNssContext>()];
+const _: [(); 24] = [(); core::mem::size_of::<EcmCountersUpdatedEvent>()];
+const _: [(); 8] = [(); core::mem::align_of::<EcmCountersUpdatedEvent>()];
+const _: [(); 16] = [(); core::mem::size_of::<EcmEventStats>()];
+const _: [(); 8] = [(); core::mem::align_of::<EcmEventStats>()];
+const _: [(); 40] = [(); core::mem::size_of::<FastCounterValue>()];
+const _: [(); 8] = [(); core::mem::align_of::<FastCounterValue>()];
+const _: [(); 0] = [(); core::mem::offset_of!(FastCounterValue, abi_version)];
+const _: [(); 4] = [(); core::mem::offset_of!(FastCounterValue, reset_generation)];
+const _: [(); 8] = [(); core::mem::offset_of!(FastCounterValue, seq)];
+const _: [(); 16] = [(); core::mem::offset_of!(FastCounterValue, bytes)];
+const _: [(); 24] = [(); core::mem::offset_of!(FastCounterValue, packets)];
+const _: [(); 32] = [(); core::mem::offset_of!(FastCounterValue, last_seen_ns)];
 const _: [(); 28] = [(); core::mem::size_of::<LanspeedConnKey>()];
 const _: [(); 2] = [(); core::mem::align_of::<LanspeedConnKey>()];

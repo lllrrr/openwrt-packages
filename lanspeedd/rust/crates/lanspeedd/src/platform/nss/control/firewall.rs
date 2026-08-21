@@ -46,16 +46,10 @@ pub(super) fn quiesce(plan: &ControlPlan) -> Result<(), String> {
 }
 
 pub(super) fn clear_controlled_connections(plan: &ControlPlan) -> Result<(), String> {
-    let mut addresses = plan.conntrack_cleanup_ips.clone();
-    addresses.extend(
-        plan.rules
-            .iter()
-            .filter(|rule| rule.internet_disabled || rule.upload_bps != 0 || rule.download_bps != 0)
-            .flat_map(|rule| rule.ips.iter())
-            .copied(),
-    );
-    for address in addresses {
-        clear_conntrack_address(address)?;
+    // Only classifier-contract transitions or deletions request
+    // reclassification. Pure rate updates retain every live connection.
+    for address in &plan.conntrack_cleanup_ips {
+        clear_conntrack_address(*address)?;
     }
     Ok(())
 }
@@ -424,7 +418,8 @@ fn direction_enabled(plan: &ControlPlan, rule: &ActiveRule, direction: Direction
         Direction::Upload => return false,
         Direction::Download => NSS_CPU_DOWNLOAD,
     };
-    direction.rate(rule) != 0 && plan.nss_direction_path_ready(&rule.identity_key, bit)
+    direction.rate(rule, plan.nss.shaping()) != 0
+        && plan.nss_direction_path_ready(&rule.identity_key, bit)
 }
 
 fn named_object<'a>(value: &'a Value, name: &str) -> Option<&'a Map<String, Value>> {

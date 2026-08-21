@@ -13,6 +13,8 @@ var BOOLEAN_FIELDS = [ 'show_client_status', 'show_ipv6', 'hide_private_ipv6',
 	'enable_bpf', 'enable_conntrack_fallback' ];
 var NUMBER_FIELDS = [ 'refresh_interval_ms', 'active_client_window_ms',
 	'active_client_min_bps', 'overview_window_samples', 'max_clients' ];
+var NSS_NUMBER_FIELDS = [ 'nss_low_rate_window_ms', 'nss_low_rate_high_watermark_bps',
+	'nss_fifo_target_delay_ms', 'nss_fifo_min_queue_packets', 'rate_compensation_factor' ];
 var STATUS_RATE_MODES = [ 'auto', 'bpf', 'nss_ecm_node', 'nss_ecm_bpf' ];
 var STATUS_CONNECTION_MODES = [ 'auto', 'conntrack_netlink', 'conntrack_procfs' ];
 var STATUS_ACCESS_EDGE_MODES = [ 'off', 'shadow', 'active' ];
@@ -99,6 +101,7 @@ function errorMessage(code, field) {
 	var limits = cfgModel.LIMITS[field] || {};
 	var messages = {
 		integer_required: _('请输入完整整数'),
+		decimal_required: _('请输入最多两位小数的系数'),
 		integer_out_of_range: _('数值超出浏览器可安全处理的范围'),
 		below_min: _('数值不得低于 %s').format(limits.min),
 		above_max: _('数值不得高于 %s').format(limits.max),
@@ -219,7 +222,7 @@ function numberInput(name, value) {
 		'id': fieldId(name),
 		'type': 'number',
 		'class': 'cbi-input-text',
-		'inputmode': 'numeric',
+		'inputmode': name === 'rate_compensation_factor' ? 'decimal' : 'numeric',
 		'min': String(limits.min),
 		'max': String(limits.max),
 		'step': String(limits.step),
@@ -384,7 +387,12 @@ function readForm(viewState) {
 	var refs = viewState.daemonRefs;
 	var values = cloneValues(viewState.currentValues || cfgModel.DEFAULTS);
 	NUMBER_FIELDS.forEach(function(name) { values[name] = refs.inputs[name].value; });
+	NSS_NUMBER_FIELDS.forEach(function(name) {
+		if (refs.inputs[name]) values[name] = refs.inputs[name].value;
+	});
 	values.rate_collector_mode = refs.inputs.rate_collector_mode.value;
+	values.internet_view_mode = refs.inputs.internet_view_mode
+		? refs.inputs.internet_view_mode.value : 'off';
 	values.access_edge_mode = refs.inputs.access_edge_mode
 		? refs.inputs.access_edge_mode.value : 'off';
 	values.conn_collector_mode = refs.inputs.conn_collector_mode.value;
@@ -456,6 +464,8 @@ function updateDependencies(viewState) {
 	refs.inputs.hide_private_ipv6.disabled = busy || values.show_ipv6 !== '1';
 	if (refs.inputs.access_edge_mode)
 		refs.inputs.access_edge_mode.disabled = busy || !configPlatform.formPolicy(viewState.runtimeStatus).showAccessEdge;
+	if (refs.inputs.internet_view_mode)
+		refs.inputs.internet_view_mode.disabled = busy || !configPlatform.formPolicy(viewState.runtimeStatus).showAccessEdge;
 	refs.hideIpv6RangeInput.disabled = !rangesEnabled;
 	refs.addRangeBtn.disabled = !rangesEnabled;
 	(refs.rangeRemoveButtons || []).forEach(function(button) { button.disabled = !rangesEnabled; });
@@ -477,7 +487,13 @@ function fillForm(viewState, values) {
 	var refs = viewState.daemonRefs;
 	values = configPlatform.normalizeValues(viewState.runtimeStatus, cfgModel.normalize(values || cfgModel.DEFAULTS).values);
 	NUMBER_FIELDS.forEach(function(name) { refs.inputs[name].value = String(values[name]); });
+	NSS_NUMBER_FIELDS.forEach(function(name) {
+		if (refs.inputs[name] && values[name] !== undefined)
+			refs.inputs[name].value = String(values[name]);
+	});
 	refs.inputs.rate_collector_mode.value = values.rate_collector_mode;
+	if (refs.inputs.internet_view_mode)
+		refs.inputs.internet_view_mode.value = values.internet_view_mode;
 	if (refs.inputs.access_edge_mode)
 		refs.inputs.access_edge_mode.value = values.access_edge_mode;
 	refs.inputs.conn_collector_mode.value = values.conn_collector_mode;
@@ -520,11 +536,17 @@ function buildDaemonSection(data, viewState) {
 	viewState.initialIfaceOriginal.present = Object.assign({}, viewState.ifaceOriginal.present || {});
 
 	NUMBER_FIELDS.forEach(function(name) { refs.inputs[name] = numberInput(name, values[name]); });
+	if (viewState.platformPolicy.showAccessEdge)
+		NSS_NUMBER_FIELDS.forEach(function(name) {
+			refs.inputs[name] = numberInput(name, values[name]);
+		});
 	refs.inputs.rate_collector_mode = choiceSelect('rate_collector_mode',
 		cfgModel.modeChoices('rate', viewState.runtimeStatus, values), values.rate_collector_mode);
 	if (viewState.platformPolicy.showAccessEdge) {
 		refs.inputs.access_edge_mode = choiceSelect('access_edge_mode',
 			cfgModel.ACCESS_EDGE_MODES, values.access_edge_mode);
+		refs.inputs.internet_view_mode = choiceSelect('internet_view_mode',
+			cfgModel.INTERNET_VIEW_MODES, values.internet_view_mode);
 	}
 	refs.inputs.conn_collector_mode = choiceSelect('conn_collector_mode',
 		cfgModel.modeChoices('connection', viewState.runtimeStatus, values), values.conn_collector_mode);
@@ -553,7 +575,27 @@ function buildDaemonSection(data, viewState) {
 			viewState.platformPolicy.rateHint));
 	if (viewState.platformPolicy.showAccessEdge)
 		rows.push(rowFor(viewState, 'access_edge_mode', _('客户端总速率'), refs.inputs.access_edge_mode,
-				viewState.platformPolicy.accessEdgeHint));
+			viewState.platformPolicy.accessEdgeHint));
+	if (viewState.platformPolicy.showAccessEdge)
+		rows.push(rowFor(viewState, 'internet_view_mode', _('互联网/路由视图'), refs.inputs.internet_view_mode,
+			viewState.platformPolicy.internetViewHint));
+	if (viewState.platformPolicy.showAccessEdge) {
+		rows.push(rowFor(viewState, 'nss_low_rate_window_ms', _('NSS 低速对齐窗口'),
+			refs.inputs.nss_low_rate_window_ms,
+			_('低流量时用同一累计窗口对齐接入点与 WAN 接口；默认 18000 ms。')));
+		rows.push(rowFor(viewState, 'nss_low_rate_high_watermark_bps', _('NSS 低速高水位'),
+			refs.inputs.nss_low_rate_high_watermark_bps,
+			_('总速率达到该值后恢复 1 秒原始速率；默认 8000000 bps。')));
+		rows.push(rowFor(viewState, 'nss_fifo_target_delay_ms', _('NSS 队列目标延迟'),
+			refs.inputs.nss_fifo_target_delay_ms,
+			_('按限速值计算 NSSBFIFO 容量；默认 50 ms，可独立调整。')));
+		rows.push(rowFor(viewState, 'nss_fifo_min_queue_packets', _('NSS 最小队列'),
+			refs.inputs.nss_fifo_min_queue_packets,
+			_('低速时的最小 MTU 包数；默认 8，避免沿用旧版 256 KiB 下限。')));
+		rows.push(rowFor(viewState, 'rate_compensation_factor', _('NSS 速率补偿系数'),
+			refs.inputs.rate_compensation_factor,
+			_('NSSHTB 的独立有效速率系数；默认 1.10，严格模式可设为 1.00。')));
+	}
 	rows.push(rowFor(viewState, 'conn_collector_mode', _('连接详情来源'), refs.inputs.conn_collector_mode,
 			viewState.platformPolicy.connectionHint));
 	rows.push(rowFor(viewState, 'enable_bpf', _('启用 CPU 流量检测（BPF）'), refs.toggleWrap.enable_bpf,
@@ -593,7 +635,9 @@ function buildDaemonSection(data, viewState) {
 	refs.hideIpv6RangeInput.addEventListener('keydown', function(event) {
 		if (event.key === 'Enter') { event.preventDefault(); addRange(viewState); }
 	});
-	NUMBER_FIELDS.concat([ 'rate_collector_mode', 'conn_collector_mode' ]).concat(
+	NUMBER_FIELDS.concat(viewState.platformPolicy.showAccessEdge ? NSS_NUMBER_FIELDS : []).concat(
+		[ 'rate_collector_mode', 'conn_collector_mode' ]).concat(
+		refs.inputs.internet_view_mode ? [ 'internet_view_mode' ] : []).concat(
 		refs.inputs.access_edge_mode ? [ 'access_edge_mode' ] : []).forEach(function(name) {
 		refs.inputs[name].addEventListener(name.indexOf('_mode') >= 0 ? 'change' : 'input', function() { formChanged(viewState); });
 	});

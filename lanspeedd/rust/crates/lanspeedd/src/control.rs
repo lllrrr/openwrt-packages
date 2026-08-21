@@ -180,6 +180,46 @@ pub struct ApplyResult {
     pub verification_failures: BTreeMap<String, String>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ControlReconcileKind {
+    Apply,
+    Observe,
+    QuiescePrefixLoss,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ControlReconcileWork {
+    pub(crate) kind: ControlReconcileKind,
+    plan: ControlPlan,
+    #[cfg(feature = "nss-platform")]
+    previous_plan: Option<ControlPlan>,
+    previous: ApplyResult,
+    prefix_error: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ControlReconcileOutcome {
+    pub(crate) kind: ControlReconcileKind,
+    result: Result<ApplyResult, String>,
+    #[cfg(feature = "nss-platform")]
+    reconciled_plan: Option<ControlPlan>,
+    #[cfg(feature = "nss-platform")]
+    processed_conntrack_cleanup_ips: BTreeSet<IpAddr>,
+}
+
+impl ControlReconcileOutcome {
+    pub(crate) fn failed(kind: ControlReconcileKind, error: impl Into<String>) -> Self {
+        Self {
+            kind,
+            result: Err(error.into()),
+            #[cfg(feature = "nss-platform")]
+            reconciled_plan: None,
+            #[cfg(feature = "nss-platform")]
+            processed_conntrack_cleanup_ips: BTreeSet::new(),
+        }
+    }
+}
+
 impl ApplyResult {
     fn ready() -> Self {
         Self {
@@ -206,10 +246,13 @@ pub struct ControlRpcResponse {
     pub control: ClientControlSummary,
 }
 
+#[derive(Clone)]
 pub struct ControlManager {
     rules: BTreeMap<String, ControlRule>,
     live: BTreeMap<String, LiveClient>,
     result: ApplyResult,
+    #[cfg(feature = "nss-platform")]
+    applied_plan: Option<ControlPlan>,
     lan_device: String,
     control_devices: BTreeSet<String>,
     preempted_upload_devices: BTreeSet<String>,
@@ -241,6 +284,8 @@ impl ControlManager {
             rules: load_rules()?,
             live: BTreeMap::new(),
             result: ApplyResult::ready(),
+            #[cfg(feature = "nss-platform")]
+            applied_plan: None,
             lan_device,
             control_devices,
             preempted_upload_devices: BTreeSet::new(),
@@ -253,7 +298,7 @@ impl ControlManager {
             max_rate_bps: platform::max_rate_bps(),
             dirty: true,
             #[cfg(feature = "nss-platform")]
-            nss: NssControlState::default(),
+            nss: NssControlState::from_config(config),
         })
     }
 
@@ -268,6 +313,7 @@ impl ControlManager {
         }
         self.live = current.live.clone();
         self.result = current.result.clone();
+        self.applied_plan = current.applied_plan.clone();
         self.control_devices
             .extend(current.control_devices.iter().cloned());
         self.preempted_upload_devices = current.preempted_upload_devices.clone();
@@ -694,6 +740,13 @@ impl ControlManager {
     }
 
     pub fn reconcile(&mut self) {
+        let Some(work) = self.begin_reconcile() else {
+            return;
+        };
+        self.finish_reconcile(execute_reconcile(work));
+    }
+
+    pub(crate) fn begin_reconcile(&mut self) -> Option<ControlReconcileWork> {
         let has_active_rules = !self.active_rules().is_empty();
         let prefix_error = if has_active_rules {
             self.refresh_local_prefixes().err()
@@ -701,50 +754,77 @@ impl ControlManager {
             None
         };
         let plan = self.plan();
+        let kind = if let Some(error) = prefix_error.as_deref() {
+            if !prefix_loss_needs_quiesce(&self.result, error) {
+                self.dirty = false;
+                return None;
+            }
+            ControlReconcileKind::QuiescePrefixLoss
+        } else if self.dirty {
+            ControlReconcileKind::Apply
+        } else if self.result.state == "error" {
+            // Keep an apply error sticky until a rule or topology change marks
+            // the desired plan dirty again.
+            return None;
+        } else {
+            ControlReconcileKind::Observe
+        };
+        self.dirty = false;
+        Some(ControlReconcileWork {
+            kind,
+            plan,
+            #[cfg(feature = "nss-platform")]
+            previous_plan: self.applied_plan.clone(),
+            previous: self.result.clone(),
+            prefix_error,
+        })
+    }
+
+    pub(crate) fn finish_reconcile(&mut self, outcome: ControlReconcileOutcome) {
+        let kind = outcome.kind;
         #[cfg(feature = "nss-platform")]
-        if let Some(error) = prefix_error.as_deref() {
-            // A failed prefix refresh invalidates the local-access bypass. Do
-            // not keep an older verified queue alive against a changed LAN
-            // topology; remove only this platform's owned control objects and
-            // wait for fresh prefixes before rebuilding.
-            if self.result.state != "error" || self.result.reason.as_deref() != Some(error) {
-                let cleanup_error = crate::platform::nss::control::quiesce_prefix_loss(&plan).err();
-                self.result =
-                    failed_apply_result(cleanup_error.as_deref().unwrap_or(error), &self.result);
-            }
-            self.dirty = false;
-            return;
-        }
-        if !self.dirty {
-            // Observing absent counters after an apply rollback must not turn
-            // a concrete failure into a misleading "waiting for traffic"
-            // state.  Keep the error sticky until a topology change, reload,
-            // or explicit rule update marks the desired plan dirty again.
-            if self.result.state == "error" {
-                return;
-            }
-            self.result = platform::observe(&plan, &self.result);
-            if self.result.reason.as_deref() == Some("control_topology_changed") {
-                #[cfg(feature = "nss-platform")]
-                self.rearm_nss_executor_verification();
-                self.dirty = true;
-                #[cfg(not(feature = "nss-platform"))]
-                return;
-            } else {
-                return;
-            }
-        }
-        if let Some(error) = prefix_error {
-            self.result = failed_apply_result(&error, &self.result);
-            return;
-        }
-        match platform::apply(&plan) {
+        let reconciled_plan = outcome.reconciled_plan;
+        #[cfg(feature = "nss-platform")]
+        let processed_conntrack_cleanup_ips = outcome.processed_conntrack_cleanup_ips;
+        match outcome.result {
             Ok(result) => {
+                if matches!(
+                    kind,
+                    ControlReconcileKind::Apply | ControlReconcileKind::Observe
+                ) {
+                    #[cfg(feature = "nss-platform")]
+                    {
+                        self.applied_plan = reconciled_plan;
+                    }
+                }
+                if kind == ControlReconcileKind::Apply {
+                    #[cfg(feature = "nss-platform")]
+                    self.conntrack_cleanup_ips
+                        .retain(|ip| !processed_conntrack_cleanup_ips.contains(ip));
+                } else if kind == ControlReconcileKind::QuiescePrefixLoss {
+                    #[cfg(feature = "nss-platform")]
+                    {
+                        self.applied_plan = None;
+                    }
+                }
+                if kind == ControlReconcileKind::Observe
+                    && result.reason.as_deref() == Some("control_topology_changed")
+                {
+                    #[cfg(feature = "nss-platform")]
+                    {
+                        self.applied_plan = None;
+                    }
+                    #[cfg(feature = "nss-platform")]
+                    self.rearm_nss_executor_verification();
+                    self.dirty = true;
+                }
                 self.result = result;
-                #[cfg(feature = "nss-platform")]
-                self.conntrack_cleanup_ips.clear();
             }
             Err(error) => {
+                #[cfg(feature = "nss-platform")]
+                {
+                    self.applied_plan = None;
+                }
                 self.result = ApplyResult {
                     state: "error".into(),
                     reason: Some(public_control_error(&error)),
@@ -762,7 +842,6 @@ impl ControlManager {
                 };
             }
         }
-        self.dirty = false;
     }
 
     /// Reload candidates must prove that every inherited NSS object still
@@ -922,6 +1001,7 @@ impl ControlManager {
             "verified_directions": verified_directions,
             "nss_verified_directions": nss_verified_directions,
             "cpu_verified_directions": cpu_verified_directions,
+            "hardware_telemetry": crate::platform::nss::control::hardware_telemetry(),
         })
     }
 
@@ -930,10 +1010,14 @@ impl ControlManager {
             .map_err(|reason| DaemonError::reload(reason))?;
         validate_rate(request.upload_bps)?;
         validate_rate(request.download_bps)?;
+        #[cfg(feature = "nss-platform")]
+        let previous_rule = self.rules.get(&request.identity_key).cloned();
         let live = self
             .live
             .get(&request.identity_key)
             .ok_or_else(|| DaemonError::reload("unknown_identity"))?;
+        #[cfg(feature = "nss-platform")]
+        let conntrack_ips = live.ips.clone();
         if !self.rules.contains_key(&request.identity_key) && self.rules.len() >= MAX_CONTROL_RULES
         {
             return Err(DaemonError::reload("control_rule_limit"));
@@ -944,6 +1028,17 @@ impl ControlManager {
             .is_some_and(|old| control_update_is_not_more_restrictive(old, &request));
         if live.ambiguous && !relaxing_ambiguous_control {
             return Err(DaemonError::reload("ambiguous_identity"));
+        }
+        #[cfg(feature = "nss-platform")]
+        let requires_control =
+            request.upload_bps != 0 || request.download_bps != 0 || request.internet_disabled;
+        #[cfg(feature = "nss-platform")]
+        if requires_control && live.interface.is_none() && !relaxing_ambiguous_control {
+            /* A persisted rule without a trusted attachment is intentionally
+             * kept inactive by active_rules(). Rejecting a new restrictive
+             * request here prevents it from dirtying the global NSS plan and
+             * attempting to tear down an unrelated stale IGS edge. */
+            return Err(DaemonError::reload("identity_interface_unavailable"));
         }
         if live.ips.is_empty()
             && control_requires_address(
@@ -972,8 +1067,19 @@ impl ControlManager {
                 identity_key: request.identity_key,
             });
         }
+        #[cfg(feature = "nss-platform")]
+        let refresh_connections =
+            nss_control_update_requires_conntrack_refresh(previous_rule.as_ref(), &rule);
         persist_rule(&rule)?;
         self.rules.insert(rule.identity_key.clone(), rule);
+        // A pure rate change keeps the same class and classifier contract, so
+        // NSSHTB/NSSBFIFO can be replaced in place without deleting live
+        // conntrack entries. Reclassify only transitions that change which
+        // executor owns an existing flow.
+        #[cfg(feature = "nss-platform")]
+        if refresh_connections {
+            self.conntrack_cleanup_ips.extend(conntrack_ips);
+        }
         self.dirty = true;
         Ok(json!(ControlRpcResponse {
             ok: self.result.state != "error",
@@ -1238,11 +1344,255 @@ impl ControlManager {
 }
 
 #[cfg(feature = "nss-platform")]
+fn preserve_unchanged_nss_verification(
+    previous_plan: Option<&ControlPlan>,
+    plan: &ControlPlan,
+    previous: &ApplyResult,
+    mut next: ApplyResult,
+) -> ApplyResult {
+    let Some(previous_plan) = previous_plan else {
+        return next;
+    };
+    if previous_plan.lan_device != plan.lan_device
+        || previous_plan.control_devices != plan.control_devices
+        || previous_plan.dae_upload_devices != plan.dae_upload_devices
+        || previous_plan.local_prefixes != plan.local_prefixes
+    {
+        return next;
+    }
+
+    let previous_rules = previous_plan
+        .rules
+        .iter()
+        .map(|rule| (rule.identity_key.as_str(), rule))
+        .collect::<BTreeMap<_, _>>();
+    for rule in &plan.rules {
+        if !previous_rules
+            .get(rule.identity_key.as_str())
+            .is_some_and(|previous| nss_flow_contract_unchanged(previous, rule))
+            || !nss_identity_plan_unchanged(previous_plan, plan, &rule.identity_key)
+        {
+            continue;
+        }
+        let required = u8::from(rule.upload_bps != 0) | (u8::from(rule.download_bps != 0) << 1);
+        copy_direction_evidence(
+            &previous.verified_directions,
+            &mut next.verified_directions,
+            &rule.identity_key,
+            required,
+        );
+        copy_direction_evidence(
+            &previous.nss_verified_directions,
+            &mut next.nss_verified_directions,
+            &rule.identity_key,
+            required,
+        );
+        copy_direction_evidence(
+            &previous.cpu_verified_directions,
+            &mut next.cpu_verified_directions,
+            &rule.identity_key,
+            required,
+        );
+        if let Some(reason) = previous.verification_failures.get(&rule.identity_key) {
+            next.verification_failures
+                .insert(rule.identity_key.clone(), reason.clone());
+        }
+    }
+    next.queue_overflow = next
+        .verification_failures
+        .values()
+        .any(|reason| reason == "queue_overflow");
+    refresh_nss_apply_state(plan, &mut next);
+    next
+}
+
+#[cfg(feature = "nss-platform")]
+fn nss_flow_contract_unchanged(previous: &ActiveRule, next: &ActiveRule) -> bool {
+    previous.identity_key == next.identity_key
+        && previous.mac == next.mac
+        && previous.interface == next.interface
+        && previous.upload_before_proxy == next.upload_before_proxy
+        && previous.upload_preempted == next.upload_preempted
+        && previous.ips.iter().collect::<BTreeSet<_>>() == next.ips.iter().collect::<BTreeSet<_>>()
+        && previous.internet_disabled == next.internet_disabled
+        && previous.class_minor == next.class_minor
+        && (previous.upload_bps == 0) == (next.upload_bps == 0)
+        && (previous.download_bps == 0) == (next.download_bps == 0)
+}
+
+#[cfg(feature = "nss-platform")]
+fn nss_identity_plan_unchanged(previous: &ControlPlan, next: &ControlPlan, identity: &str) -> bool {
+    // Proven/active executor maps are rolling traffic evidence and can
+    // change while an existing flow remains on the same classifier path.
+    // Only path readiness is structural for retaining a verified rate-only
+    // update; a lost ready direction still forces fresh verification.
+    previous.nss_path_ready_directions.get(identity) == next.nss_path_ready_directions.get(identity)
+}
+
+#[cfg(feature = "nss-platform")]
+fn copy_direction_evidence(
+    previous: &BTreeMap<String, u8>,
+    next: &mut BTreeMap<String, u8>,
+    identity: &str,
+    required: u8,
+) {
+    let directions = previous.get(identity).copied().unwrap_or(0) & required;
+    if directions != 0 {
+        next.insert(identity.to_owned(), directions);
+    }
+}
+
+#[cfg(feature = "nss-platform")]
+fn refresh_nss_apply_state(plan: &ControlPlan, result: &mut ApplyResult) {
+    let expected = plan.rules.iter().fold(0usize, |count, rule| {
+        count + usize::from(rule.upload_bps != 0) + usize::from(rule.download_bps != 0)
+    });
+    if expected == 0 {
+        return;
+    }
+    let verified = plan
+        .rules
+        .iter()
+        .map(|rule| {
+            let directions = result
+                .verified_directions
+                .get(&rule.identity_key)
+                .copied()
+                .unwrap_or(0);
+            usize::from(rule.upload_bps != 0 && directions & NSS_CPU_UPLOAD != 0)
+                + usize::from(rule.download_bps != 0 && directions & NSS_CPU_DOWNLOAD != 0)
+        })
+        .sum::<usize>();
+    let path_pending = plan.rules.iter().any(|rule| {
+        (rule.upload_bps != 0 && !plan.nss_direction_path_ready(&rule.identity_key, NSS_CPU_UPLOAD))
+            || (rule.download_bps != 0
+                && !plan.nss_direction_path_ready(&rule.identity_key, NSS_CPU_DOWNLOAD))
+    });
+    if verified == expected && !result.queue_overflow && !path_pending {
+        result.state = "verified".into();
+        result.reason = None;
+    } else {
+        result.state = "pending_new_connections".into();
+        result.reason = Some(
+            if path_pending {
+                "nss_path_identity_pending"
+            } else if verified == 0 {
+                "traffic_verification_pending"
+            } else {
+                "direction_verification_pending"
+            }
+            .into(),
+        );
+    }
+}
+
+pub(crate) fn execute_reconcile(work: ControlReconcileWork) -> ControlReconcileOutcome {
+    let kind = work.kind;
+    #[cfg(feature = "nss-platform")]
+    let processed_conntrack_cleanup_ips = work.plan.nss.conntrack_cleanup_ips().clone();
+    let result = match kind {
+        ControlReconcileKind::Apply => platform::apply(&work.plan).map(|result| {
+            #[cfg(feature = "nss-platform")]
+            {
+                preserve_unchanged_nss_verification(
+                    work.previous_plan.as_ref(),
+                    &work.plan,
+                    &work.previous,
+                    result,
+                )
+            }
+            #[cfg(not(feature = "nss-platform"))]
+            {
+                result
+            }
+        }),
+        ControlReconcileKind::Observe => Ok(platform::observe(&work.plan, &work.previous)),
+        ControlReconcileKind::QuiescePrefixLoss => {
+            let primary = work
+                .prefix_error
+                .as_deref()
+                .unwrap_or("local_network_unavailable");
+            let cleanup_error = platform::quiesce_prefix_loss(&work.plan).err();
+            Ok(failed_apply_result(
+                cleanup_error.as_deref().unwrap_or(primary),
+                &work.previous,
+            ))
+        }
+    };
+    #[cfg(feature = "nss-platform")]
+    let reconciled_plan = result.as_ref().ok().and_then(|result| match kind {
+        ControlReconcileKind::Apply => Some(work.plan.clone()),
+        ControlReconcileKind::Observe
+            if result.reason.as_deref() != Some("control_topology_changed") =>
+        {
+            Some(work.plan.clone())
+        }
+        ControlReconcileKind::Observe | ControlReconcileKind::QuiescePrefixLoss => None,
+    });
+    ControlReconcileOutcome {
+        kind,
+        result,
+        #[cfg(feature = "nss-platform")]
+        reconciled_plan,
+        #[cfg(feature = "nss-platform")]
+        processed_conntrack_cleanup_ips,
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn test_reconcile_work() -> ControlReconcileWork {
+    ControlReconcileWork {
+        kind: ControlReconcileKind::Observe,
+        plan: ControlPlan {
+            lan_device: "br-lan".into(),
+            control_devices: vec!["br-lan".into()],
+            dae_upload_devices: Vec::new(),
+            local_prefixes: Vec::new(),
+            rules: Vec::new(),
+            #[cfg(feature = "nss-platform")]
+            nss: NssControlPlan::default(),
+        },
+        #[cfg(feature = "nss-platform")]
+        previous_plan: None,
+        previous: ApplyResult::ready(),
+        prefix_error: None,
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn test_reconcile_outcome(kind: ControlReconcileKind) -> ControlReconcileOutcome {
+    ControlReconcileOutcome {
+        kind,
+        result: Ok(ApplyResult::ready()),
+        #[cfg(feature = "nss-platform")]
+        reconciled_plan: None,
+        #[cfg(feature = "nss-platform")]
+        processed_conntrack_cleanup_ips: BTreeSet::new(),
+    }
+}
+
+#[cfg(feature = "nss-platform")]
 fn deleted_rule_conntrack_ips(client: Option<&LiveClient>) -> Vec<IpAddr> {
     client
         .filter(|client| !client.ambiguous)
         .map(|client| client.ips.clone())
         .unwrap_or_default()
+}
+
+#[cfg(feature = "nss-platform")]
+fn nss_control_update_requires_conntrack_refresh(
+    previous: Option<&ControlRule>,
+    next: &ControlRule,
+) -> bool {
+    let Some(previous) = previous else {
+        return true;
+    };
+    previous.identity_key != next.identity_key
+        || previous.mac != next.mac
+        || previous.class_minor != next.class_minor
+        || previous.internet_disabled != next.internet_disabled
+        || (previous.upload_bps == 0) != (next.upload_bps == 0)
+        || (previous.download_bps == 0) != (next.download_bps == 0)
 }
 
 fn control_update_is_not_more_restrictive(
@@ -1273,6 +1623,11 @@ fn failed_apply_result(error: &str, previous: &ApplyResult) -> ApplyResult {
         cpu_verified_directions: BTreeMap::new(),
         verification_failures: BTreeMap::new(),
     }
+}
+
+fn prefix_loss_needs_quiesce(previous: &ApplyResult, error: &str) -> bool {
+    let reason = public_control_error(error);
+    previous.state != "error" || previous.reason.as_deref() != Some(reason.as_str())
 }
 
 fn public_control_error(error: &str) -> String {

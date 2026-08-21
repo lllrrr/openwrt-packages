@@ -22,6 +22,25 @@ var DEFAULT_RPC_TIMEOUT_MS = 8000;
 var MAX_RPC_TIMEOUT_MS = 60000;
 var DEFAULT_RETAIN_MS = 30000;
 var MAX_RETAIN_MS = 120000;
+var NSS_TELEMETRY_FIELDS = [
+	'sync_count', 'last_sync_ns', 'igs_bytes', 'igs_packets', 'igs_drops',
+	'peer_generation', 'peer_reassert', 'ack_latency_last_ns',
+	'ack_latency_max_ns', 'ack_received', 'ack_timeout', 'ack_late',
+	'control_generation', 'hardware_generation'
+];
+var NSS_GENL_CAP_FIELDS = [ 'state', 'abi_version', 'feature_bits', 'max_igs',
+	'max_peers', 'max_client_tags', 'supports_wifi_peer', 'supports_igs_stats',
+	'supports_peer_query' ];
+var NSS_GENL_STATE_FIELDS = [ 'state', 'staged', 'published', 'degraded' ];
+var NSS_GENL_STATS_FIELDS = [ 'state', 'control_generation', 'hardware_generation',
+	'peer_generation', 'peer_reassert_count', 'igs_sync_count', 'igs_last_sync_ns',
+	'igs_bytes', 'igs_packets', 'igs_drops', 'igs_active_nodes', 'igs_cadence_samples',
+	'igs_cadence_last_ns', 'igs_cadence_min_ns', 'igs_cadence_max_ns', 'ack_latency_last_ns',
+	'ack_latency_max_ns', 'ack_received', 'ack_timeout', 'ack_late' ];
+var NSS_GENL_HEALTH_FIELDS = [ 'state', 'healthy', 'control_generation',
+	'hardware_generation' ];
+var NSS_IGS_CADENCE_FIELDS = [ 'state', 'samples', 'last_interval_ns',
+	'min_interval_ns', 'max_interval_ns', 'active_nodes' ];
 var CAPABILITY_KEYS = [
 	'bpf', 'bpf_supported', 'bpf_package', 'bpf_object', 'bpf_runtime_metrics', 'conntrack_fallback',
 	'live_metrics', 'fw4', 'nft', 'software_flow_offload', 'hardware_flow_offload',
@@ -113,6 +132,8 @@ var COLLECTOR_REPORT_LABELS = {
 };
 var RATE_SOURCE_LABELS = {
 	edge_port: _('Edge-Port'), edge_wifi: _('Edge-WiFi'),
+	fast_routed_lease: _('FastN+FastS 租约替代'),
+	fast_routed_internet: _('FastN+FastS 互联网路由'),
 	ecm_bpf_fallback: _('ECM+BPF 降级'), ecm_nss_lower_bound: _('NSS 下界'),
 	tc_bpf_lower_bound: _('CPU 慢路径下界'), none: _('无来源')
 };
@@ -211,6 +232,58 @@ function requireFields(value, fields, path) {
 	}
 	return null;
 }
+
+function validNssGenlObject(value, fields, integerFields, booleanFields) {
+	if (!plainObject(value) || !onlyFields(value, fields) || value.state !== 'ready')
+		return false;
+	if (integerFields.some(function(field) { return !hasOwn(value, field) ||
+		!nonNegativeInteger(value[field]); })) return false;
+	return booleanFields.every(function(field) {
+		return typeof value[field] === 'boolean';
+	});
+}
+
+function validNssIgsCadence(value) {
+	if (!plainObject(value) || !onlyFields(value, NSS_IGS_CADENCE_FIELDS) ||
+		!enumValue(value.state, [ 'unavailable', 'invalid', 'ready' ])) return false;
+	if (value.state !== 'ready') return Object.keys(value).length === 1;
+	return NSS_IGS_CADENCE_FIELDS.slice(1).every(function(field) {
+		return hasOwn(value, field) && nonNegativeInteger(value[field]);
+	});
+}
+
+function validNssHardwareTelemetry(value) {
+	var fields = [ 'state' ].concat(NSS_TELEMETRY_FIELDS, [
+		'igs_cadence', 'genl_caps', 'genl_state', 'genl_stats', 'genl_health'
+	]);
+	if (!plainObject(value) || !onlyFields(value, fields) ||
+		!enumValue(value.state, [ 'unavailable', 'invalid', 'ready' ])) return false;
+	if (value.state !== 'ready') return true;
+	if (NSS_TELEMETRY_FIELDS.some(function(field) {
+		return !hasOwn(value, field) || !nonNegativeInteger(value[field]);
+	})) return false;
+	if (hasOwn(value, 'igs_cadence') && !validNssIgsCadence(value.igs_cadence))
+		return false;
+	if (hasOwn(value, 'genl_caps') && !validNssGenlObject(value.genl_caps,
+		NSS_GENL_CAP_FIELDS,
+		[ 'abi_version', 'feature_bits', 'max_igs', 'max_peers', 'max_client_tags' ],
+		[ 'supports_wifi_peer', 'supports_igs_stats', 'supports_peer_query' ])) return false;
+	if (hasOwn(value, 'genl_state') && !validNssGenlObject(value.genl_state,
+		NSS_GENL_STATE_FIELDS, [ 'staged', 'published', 'degraded' ], [])) return false;
+	if (hasOwn(value, 'genl_stats') && !validNssGenlObject(value.genl_stats,
+		NSS_GENL_STATS_FIELDS,
+		[ 'control_generation', 'hardware_generation', 'peer_generation',
+			'peer_reassert_count', 'igs_sync_count', 'igs_last_sync_ns', 'igs_bytes',
+			'igs_packets', 'igs_drops', 'igs_active_nodes', 'igs_cadence_samples',
+			'igs_cadence_last_ns', 'igs_cadence_min_ns', 'igs_cadence_max_ns',
+			'ack_latency_last_ns', 'ack_latency_max_ns',
+			'ack_received', 'ack_timeout', 'ack_late' ], [])) return false;
+	if (hasOwn(value, 'genl_health') && !validNssGenlObject(value.genl_health,
+		NSS_GENL_HEALTH_FIELDS, [ 'control_generation', 'hardware_generation' ],
+		[ 'healthy' ])) return false;
+	return true;
+}
+
 function uniqueIds(items) {
 	var seen = Object.create(null);
 	return asArray(items).every(function(item) {
@@ -506,7 +579,7 @@ function validateRateMeta(value, path) {
 function validateStatusResponse(value) {
 	var fields = [ 'mode', 'confidence', 'warnings', 'evidence', 'refresh_interval_ms',
 		'active_client_window_ms', 'active_client_min_bps', 'overview_window_samples',
-		'collector_mode', 'rate_collector_mode', 'access_edge_mode',
+		'collector_mode', 'rate_collector_mode', 'internet_view_mode', 'access_edge_mode',
 		'conn_collector_mode', 'version',
 		'capabilities', 'coverage' ];
 	if (!onlyFields(value, fields)) return failure('status', _('存在未定义字段'));
@@ -522,6 +595,9 @@ function validateStatusResponse(value) {
 	if (hasOwn(value, 'access_edge_mode') &&
 		!enumValue(value.access_edge_mode, [ 'off', 'shadow', 'active' ]))
 		return failure('status.access_edge_mode', _('字段无效'));
+	if (hasOwn(value, 'internet_view_mode') &&
+		!enumValue(value.internet_view_mode, [ 'off', 'routed' ]))
+		return failure('status.internet_view_mode', _('字段无效'));
 	if (hasOwn(value, 'collector_mode') && !enumValue(value.collector_mode,
 		[ 'auto', 'bpf', 'nss_ecm_node', 'nss_ecm_bpf', 'conntrack_netlink', 'conntrack_procfs', 'unsupported' ]))
 		return failure('status.collector_mode', _('字段无效'));
@@ -603,18 +679,27 @@ function validateClientsResponse(value) {
 			'blocking_supported', 'configured_clients', 'active_clients', 'effective_clients',
 			'pending_clients', 'error_clients', 'queue_overflow_clients', 'rate_limited_clients',
 			'internet_disabled_clients', 'block_active_clients', 'required_directions',
+			'verified_directions', 'nss_verified_directions', 'cpu_verified_directions',
+			'hardware_telemetry' ];
+		var controlRequired = controlFields.filter(function(field) {
+			return field !== 'hardware_telemetry';
+		});
+		var controlCounters = [ 'configured_clients', 'active_clients', 'effective_clients',
+			'pending_clients', 'error_clients', 'queue_overflow_clients', 'rate_limited_clients',
+			'internet_disabled_clients', 'block_active_clients', 'required_directions',
 			'verified_directions', 'nss_verified_directions', 'cpu_verified_directions' ];
-		var controlCounters = controlFields.slice(5);
 		var classifiedClients = controlEvidence && (controlEvidence.effective_clients +
 			controlEvidence.pending_clients + controlEvidence.error_clients);
 		if (!plainObject(controlEvidence) || !onlyFields(controlEvidence, controlFields) ||
-			requireFields(controlEvidence, controlFields, 'clients.evidence.nss_control') ||
+			requireFields(controlEvidence, controlRequired, 'clients.evidence.nss_control') ||
 			!enumValue(controlEvidence.state, [ 'inactive', 'pending', 'verified', 'error', 'unavailable' ]) ||
 			!(controlEvidence.reason_code === null || codeString(controlEvidence.reason_code, false)) ||
 			!(controlEvidence.detail_code === null || codeString(controlEvidence.detail_code, false)) ||
 			typeof controlEvidence.shaping_supported !== 'boolean' ||
 			typeof controlEvidence.blocking_supported !== 'boolean' ||
 			!controlCounters.every(function(field) { return nonNegativeInteger(controlEvidence[field]); }) ||
+			(hasOwn(controlEvidence, 'hardware_telemetry') &&
+				!validNssHardwareTelemetry(controlEvidence.hardware_telemetry)) ||
 			controlEvidence.active_clients > controlEvidence.configured_clients ||
 			classifiedClients !== controlEvidence.active_clients ||
 			controlEvidence.queue_overflow_clients > controlEvidence.error_clients ||

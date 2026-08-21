@@ -1,13 +1,21 @@
 use lanspeedd::config::{
     AccessEdgeMode, ConfigError, ConfigSource, ConfigValue, ConnectionCollectorMode,
-    InterfaceEligibility, LegacyNameEligibility, RateCollectorMode, RuntimeConfig,
-    DEFAULT_ACTIVE_CLIENT_MIN_BPS, DEFAULT_ACTIVE_CLIENT_WINDOW_MS, DEFAULT_MAX_CLIENTS,
-    DEFAULT_OVERVIEW_WINDOW_SAMPLES, DEFAULT_REFRESH_INTERVAL_MS, MAX_INTERFACE_NAMES,
-    MAX_INTERFACE_NAME_LEN, MAX_MAX_CLIENTS, MAX_OVERVIEW_WINDOW_SAMPLES,
+    InterfaceEligibility, InternetViewMode, LegacyNameEligibility, RateCollectorMode,
+    RuntimeConfig, DEFAULT_ACTIVE_CLIENT_MIN_BPS, DEFAULT_ACTIVE_CLIENT_WINDOW_MS,
+    DEFAULT_MAX_CLIENTS, DEFAULT_OVERVIEW_WINDOW_SAMPLES, DEFAULT_REFRESH_INTERVAL_MS,
+    MAX_INTERFACE_NAMES, MAX_INTERFACE_NAME_LEN, MAX_MAX_CLIENTS, MAX_OVERVIEW_WINDOW_SAMPLES,
     MIN_ACTIVE_CLIENT_WINDOW_MS, MIN_MAX_CLIENTS, MIN_OVERVIEW_WINDOW_SAMPLES,
     MIN_REFRESH_INTERVAL_MS,
 };
 use std::collections::HashMap;
+
+#[cfg(feature = "nss-platform")]
+use lanspeedd::config::{
+    DEFAULT_NSS_FIFO_MIN_QUEUE_PACKETS, DEFAULT_NSS_FIFO_TARGET_DELAY_MS,
+    DEFAULT_NSS_LOW_RATE_HIGH_WATERMARK_BPS, DEFAULT_NSS_LOW_RATE_WINDOW_MS,
+    DEFAULT_NSS_RATE_COMPENSATION_BASIS_POINTS, MAX_NSS_LOW_RATE_HIGH_WATERMARK_BPS,
+    MAX_NSS_LOW_RATE_WINDOW_MS, MIN_NSS_LOW_RATE_HIGH_WATERMARK_BPS, MIN_NSS_LOW_RATE_WINDOW_MS,
+};
 
 #[derive(Default)]
 struct MemorySource {
@@ -92,6 +100,7 @@ fn defaults_and_limits_match_the_legacy_c_contract() {
     assert!(!config.enable_bpf);
     assert!(config.enable_conntrack_fallback);
     assert_eq!(config.rate_collector_mode, RateCollectorMode::Auto);
+    assert_eq!(config.internet_view_mode, InternetViewMode::Off);
     assert_eq!(
         config.access_edge_mode,
         if cfg!(feature = "nss-platform") {
@@ -113,6 +122,114 @@ fn defaults_and_limits_match_the_legacy_c_contract() {
     assert!(config.configured_excluded.is_empty());
     assert!(config.configured_observed.is_empty());
     assert!(!config.rejected_nssifb_collect);
+    #[cfg(feature = "nss-platform")]
+    {
+        assert_eq!(
+            config.nss_fifo_target_delay_ms,
+            DEFAULT_NSS_FIFO_TARGET_DELAY_MS
+        );
+        assert_eq!(
+            config.nss_fifo_min_queue_packets,
+            DEFAULT_NSS_FIFO_MIN_QUEUE_PACKETS
+        );
+        assert_eq!(
+            config.nss_rate_compensation_basis_points,
+            DEFAULT_NSS_RATE_COMPENSATION_BASIS_POINTS
+        );
+        assert_eq!(
+            config.nss_low_rate_window_ms,
+            DEFAULT_NSS_LOW_RATE_WINDOW_MS
+        );
+        assert_eq!(
+            config.nss_low_rate_high_watermark_bps,
+            DEFAULT_NSS_LOW_RATE_HIGH_WATERMARK_BPS
+        );
+        assert!(!config.nss_fifo_target_delay_clamped);
+        assert!(!config.nss_fifo_min_queue_clamped);
+        assert!(!config.nss_rate_compensation_clamped);
+        assert!(!config.nss_low_rate_window_clamped);
+        assert!(!config.nss_low_rate_high_watermark_clamped);
+    }
+}
+
+#[cfg(feature = "nss-platform")]
+#[test]
+fn nss_low_rate_options_are_independent_and_strictly_bounded() {
+    let configured = load(
+        MemorySource::default()
+            .with("nss_low_rate_window_ms", "12000")
+            .with("nss_low_rate_high_watermark_bps", "16000000"),
+    );
+    assert_eq!(configured.nss_low_rate_window_ms, 12_000);
+    assert_eq!(configured.nss_low_rate_high_watermark_bps, 16_000_000);
+
+    let clamped_low = load(
+        MemorySource::default()
+            .with("nss_low_rate_window_ms", "1")
+            .with("nss_low_rate_high_watermark_bps", "1"),
+    );
+    assert_eq!(
+        clamped_low.nss_low_rate_window_ms,
+        MIN_NSS_LOW_RATE_WINDOW_MS
+    );
+    assert_eq!(
+        clamped_low.nss_low_rate_high_watermark_bps,
+        MIN_NSS_LOW_RATE_HIGH_WATERMARK_BPS
+    );
+    assert!(clamped_low.nss_low_rate_window_clamped);
+    assert!(clamped_low.nss_low_rate_high_watermark_clamped);
+
+    let clamped_high = load(
+        MemorySource::default()
+            .with("nss_low_rate_window_ms", "999999")
+            .with("nss_low_rate_high_watermark_bps", "999999999999"),
+    );
+    assert_eq!(
+        clamped_high.nss_low_rate_window_ms,
+        MAX_NSS_LOW_RATE_WINDOW_MS
+    );
+    assert_eq!(
+        clamped_high.nss_low_rate_high_watermark_bps,
+        MAX_NSS_LOW_RATE_HIGH_WATERMARK_BPS
+    );
+    assert!(clamped_high.nss_low_rate_window_clamped);
+    assert!(clamped_high.nss_low_rate_high_watermark_clamped);
+}
+
+#[cfg(feature = "nss-platform")]
+#[test]
+fn nss_shaping_options_are_independent_and_strictly_bounded() {
+    let configured = load(
+        MemorySource::default()
+            .with("nss_fifo_target_delay_ms", "30")
+            .with("nss_fifo_min_queue_packets", "4")
+            .with("rate_compensation_factor", "1.00"),
+    );
+    assert_eq!(configured.nss_fifo_target_delay_ms, 30);
+    assert_eq!(configured.nss_fifo_min_queue_packets, 4);
+    assert_eq!(configured.nss_rate_compensation_basis_points, 100);
+
+    let clamped = load(
+        MemorySource::default()
+            .with("nss_fifo_target_delay_ms", "999")
+            .with("nss_fifo_min_queue_packets", "1")
+            .with("rate_compensation_factor", "1.99"),
+    );
+    assert_eq!(clamped.nss_fifo_target_delay_ms, 250);
+    assert_eq!(clamped.nss_fifo_min_queue_packets, 2);
+    assert_eq!(clamped.nss_rate_compensation_basis_points, 125);
+    assert!(clamped.nss_fifo_target_delay_clamped);
+    assert!(clamped.nss_fifo_min_queue_clamped);
+    assert!(clamped.nss_rate_compensation_clamped);
+
+    for invalid in ["", "1.001", "+1.10", "1x", ".10"] {
+        assert_eq!(
+            load(MemorySource::default().with("rate_compensation_factor", invalid))
+                .nss_rate_compensation_basis_points,
+            DEFAULT_NSS_RATE_COMPENSATION_BASIS_POINTS,
+            "{invalid}"
+        );
+    }
 }
 
 #[test]
@@ -178,6 +295,27 @@ fn rate_collector_accepts_only_current_modes() {
     assert_eq!(RateCollectorMode::parse("nss_ecm_direct"), None);
     assert_eq!(RateCollectorMode::parse("nss_conntrack_sync"), None);
     assert_eq!(RateCollectorMode::parse("BPF"), None);
+}
+
+#[test]
+fn internet_view_is_a_distinct_optional_nss_projection() {
+    assert_eq!(InternetViewMode::parse("off"), Some(InternetViewMode::Off));
+    assert_eq!(
+        InternetViewMode::parse("routed"),
+        Some(InternetViewMode::Routed)
+    );
+    assert_eq!(InternetViewMode::parse("nss_ecm_bpf"), None);
+    assert_eq!(InternetViewMode::Routed.as_str(), "routed");
+
+    let config = load(MemorySource::default().with("internet_view_mode", "routed"));
+    assert_eq!(
+        config.internet_view_mode,
+        if cfg!(feature = "nss-platform") {
+            InternetViewMode::Routed
+        } else {
+            InternetViewMode::Off
+        }
+    );
 }
 
 #[test]

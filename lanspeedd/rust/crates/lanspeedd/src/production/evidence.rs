@@ -100,6 +100,7 @@ pub(super) fn apply_decision_evidence(
         .insert("effective_collector".into(), json!(effective));
     let effective_interval_ms = effective_collection_interval_ms(
         config.access_edge_mode,
+        config.internet_view_mode,
         Some(decision.rate),
         config.refresh_interval_ms,
     );
@@ -191,6 +192,7 @@ pub(super) fn mode(value: ProbeMode) -> Mode {
     }
 }
 
+#[cfg(feature = "nss-platform")]
 pub(super) fn conntrack_mode(value: ConnectionCollectorMode) -> ConntrackMode {
     match value {
         ConnectionCollectorMode::Auto => ConntrackMode::Auto,

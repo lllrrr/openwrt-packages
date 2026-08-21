@@ -1,4 +1,8 @@
-use std::{cell::RefCell, collections::BTreeMap, mem::MaybeUninit, rc::Rc, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    mem::MaybeUninit,
+    sync::{Arc, RwLock},
+};
 
 use serde_json::{json, Value};
 
@@ -131,6 +135,7 @@ impl ResponseSnapshot {
                 overview_window_samples: 240,
                 collector_mode: "auto".into(),
                 rate_collector_mode: "auto".into(),
+                internet_view_mode: "off".into(),
                 access_edge_mode: if crate::platform::profile::COMPILED_PROFILE
                     .uses_access_edge()
                 {
@@ -356,6 +361,11 @@ impl ResponseSnapshot {
             ips: client.ips.clone(),
             interface: client.interface.clone(),
             zone: client.zone.clone(),
+            rx_bps: client.rx_bps,
+            tx_bps: client.tx_bps,
+            rate_sample_ms: client.sample_ms,
+            rate_collector_mode: client.collector_mode.clone(),
+            rate_meta: client.rate_meta.clone(),
         });
         let mut warnings = Vec::new();
         let traffic_classification = self.traffic_classification.get(identity_key).cloned();
@@ -464,8 +474,13 @@ impl ResponseSnapshot {
         self.connection_details = PublishedConnectionDetails::Unavailable;
     }
 
+    pub(crate) fn preserve_connection_details_from(&mut self, previous: &Self) {
+        self.connection_details = previous.connection_details.clone();
+    }
+
     pub fn response(&self, method: Method) -> Result<Value, DaemonError> {
         Ok(match method {
+            Method::Realtime => crate::realtime::response(self)?,
             Method::Status => serde_json::to_value(&self.status)?,
             Method::Clients => serde_json::to_value(&self.clients)?,
             Method::Overview => serde_json::to_value(&self.overview)?,
@@ -1496,6 +1511,56 @@ fn config_issues(config: &RuntimeConfig) -> Vec<DiagnosticConfigIssue> {
             "The client limit was adjusted to a supported range.",
         );
     }
+    #[cfg(feature = "nss-platform")]
+    if config.nss_fifo_target_delay_clamped {
+        push(
+            "nss_fifo_target_delay_clamped",
+            "warning",
+            "nss_fifo_target_delay_ms",
+            "adjusted",
+            "The NSS FIFO target delay was adjusted to the supported range.",
+        );
+    }
+    #[cfg(feature = "nss-platform")]
+    if config.nss_fifo_min_queue_clamped {
+        push(
+            "nss_fifo_min_queue_clamped",
+            "warning",
+            "nss_fifo_min_queue_packets",
+            "adjusted",
+            "The NSS minimum queue was adjusted to the supported range.",
+        );
+    }
+    #[cfg(feature = "nss-platform")]
+    if config.nss_rate_compensation_clamped {
+        push(
+            "nss_rate_compensation_clamped",
+            "warning",
+            "rate_compensation_factor",
+            "adjusted",
+            "The NSS rate compensation factor was adjusted to the supported range.",
+        );
+    }
+    #[cfg(feature = "nss-platform")]
+    if config.nss_low_rate_window_clamped {
+        push(
+            "nss_low_rate_window_clamped",
+            "warning",
+            "nss_low_rate_window_ms",
+            "adjusted",
+            "The NSS low-rate alignment window was adjusted to the supported range.",
+        );
+    }
+    #[cfg(feature = "nss-platform")]
+    if config.nss_low_rate_high_watermark_clamped {
+        push(
+            "nss_low_rate_high_watermark_clamped",
+            "warning",
+            "nss_low_rate_high_watermark_bps",
+            "adjusted",
+            "The NSS low-rate high watermark was adjusted to the supported range.",
+        );
+    }
     if !config.interface_exclude.is_empty() {
         push(
             "interface_exclude_compatibility_only",
@@ -1508,18 +1573,110 @@ fn config_issues(config: &RuntimeConfig) -> Vec<DiagnosticConfigIssue> {
     issues
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SnapshotGenerations {
+    pub base_generation: u64,
+    pub fast_generation: u64,
+}
+
+struct SnapshotState {
+    published: Arc<ResponseSnapshot>,
+    generations: SnapshotGenerations,
+}
+
 #[derive(Clone)]
-pub struct SnapshotStore(Rc<RefCell<Arc<ResponseSnapshot>>>);
+pub struct SnapshotStore(Arc<RwLock<SnapshotState>>);
 
 impl SnapshotStore {
     pub fn new(snapshot: Arc<ResponseSnapshot>) -> Self {
-        Self(Rc::new(RefCell::new(snapshot)))
+        let base_generation = snapshot.diagnostic_generation();
+        Self(Arc::new(RwLock::new(SnapshotState {
+            published: snapshot,
+            generations: SnapshotGenerations {
+                base_generation,
+                fast_generation: 0,
+            },
+        })))
     }
     pub fn load(&self) -> Arc<ResponseSnapshot> {
-        Arc::clone(&self.0.borrow())
+        match self.0.read() {
+            Ok(state) => Arc::clone(&state.published),
+            Err(poisoned) => Arc::clone(&poisoned.into_inner().published),
+        }
+    }
+    pub fn load_with_generations(&self) -> (Arc<ResponseSnapshot>, SnapshotGenerations) {
+        match self.0.read() {
+            Ok(state) => (Arc::clone(&state.published), state.generations),
+            Err(poisoned) => {
+                let state = poisoned.into_inner();
+                (Arc::clone(&state.published), state.generations)
+            }
+        }
     }
     pub fn publish(&self, snapshot: Arc<ResponseSnapshot>) {
-        *self.0.borrow_mut() = snapshot;
+        let _ = self.publish_base_inner(snapshot);
+    }
+
+    fn publish_base_inner(&self, snapshot: Arc<ResponseSnapshot>) -> SnapshotGenerations {
+        match self.0.write() {
+            Ok(mut state) => {
+                state.generations.base_generation = state
+                    .generations
+                    .base_generation
+                    .saturating_add(1)
+                    .max(snapshot.diagnostic_generation());
+                state.generations.fast_generation = 0;
+                state.published = snapshot;
+                state.generations
+            }
+            Err(poisoned) => {
+                let mut state = poisoned.into_inner();
+                state.generations.base_generation = state
+                    .generations
+                    .base_generation
+                    .saturating_add(1)
+                    .max(snapshot.diagnostic_generation());
+                state.generations.fast_generation = 0;
+                state.published = snapshot;
+                state.generations
+            }
+        }
+    }
+
+    pub fn generations(&self) -> SnapshotGenerations {
+        match self.0.read() {
+            Ok(state) => state.generations,
+            Err(poisoned) => poisoned.into_inner().generations,
+        }
+    }
+
+    /// Publish a base/runtime generation and invalidate any FastRate overlay.
+    pub fn publish_base(&self, snapshot: Arc<ResponseSnapshot>) -> SnapshotGenerations {
+        self.publish_base_inner(snapshot)
+    }
+
+    /// Apply a bounded FastRate overlay only to the exact base generation from
+    /// which it was sampled. The closure runs while the immutable snapshot is
+    /// copied, then readers receive one new Arc atomically.
+    pub fn publish_fast(
+        &self,
+        base_generation: u64,
+        apply: impl FnOnce(&mut ResponseSnapshot),
+    ) -> Option<SnapshotGenerations> {
+        let lock = self.0.write();
+        let mut state = match lock {
+            Ok(state) => state,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if state.generations.base_generation != base_generation {
+            return None;
+        }
+        let mut snapshot = state.published.as_ref().clone();
+        apply(&mut snapshot);
+        state.generations.fast_generation =
+            state.generations.fast_generation.saturating_add(1).max(1);
+        state.published = Arc::new(snapshot);
+        Some(state.generations)
     }
 }
 

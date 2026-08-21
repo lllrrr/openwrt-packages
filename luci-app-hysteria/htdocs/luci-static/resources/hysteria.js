@@ -89,6 +89,83 @@ var SEVERITY = {
 	idle: 'idle'
 };
 
+/* A byte count, in the units and to the precision LuCI's own "%.2mB" produces.
+ *
+ * Decimal rather than binary because that is what Network -> Interfaces prints
+ * for the same interface -- LuCI's %m divides by 1000 unless a "%1024" prefix
+ * says otherwise, and the Interfaces page does not say otherwise. A status page
+ * that reported this router's throughput in GiB beside a page reporting it in GB
+ * would look like two different numbers.
+ *
+ * Written out here rather than delegating to "%.2mB" because hysteria-ppp-status
+ * has no access to LuCI's formatter and prints the same figures on the command
+ * line. This is the shape both of them implement, so the two cannot drift; the
+ * one place the page can use the real thing -- the interface totals, where the
+ * comparison with the Interfaces page is direct -- does exactly that instead.
+ *
+ * The step condition is "greater than", not "at least", which is LuCI's and is
+ * why 1000 prints as "1000 B" rather than "1.00 KB". Reproduced rather than
+ * corrected: matching the page beside it is the point, and a boundary that
+ * disagreed by one unit would be the one an operator noticed.
+ *
+ * Checked against the real cbi.js across the range, and identical to "%.2mB"
+ * everywhere except at an exact half-way boundary -- 1005000000 reads 1.01 GB
+ * here and 1.00 GB there, because this rounds half up while toFixed follows
+ * whichever side the binary representation of 1.005 falls on. Left as it is: the
+ * shell cannot do better without floating point, and shell-to-page agreement is
+ * the property that matters, since no two figures on this page are ever the same
+ * quantity rendered by both routines. */
+/* Stops at TB where LuCI's own units run on to PB and EB, so a hypothetical five
+ * petabytes reads "5000.00 TB" here and "5.00 PB" there. Deliberate: the shell
+ * implementation evaluates div * 1000 as its loop test, and carrying the units up
+ * to EB would make that intermediate 10^21 and overflow int64 on the router. A
+ * cosmetic disagreement at a magnitude no PPP link reaches beats an arithmetic
+ * one that silently prints garbage. */
+var BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
+
+function fmtBytes(n) {
+	var i = 0, div = 1, whole, frac;
+
+	if (typeof n != 'number' || !isFinite(n) || n < 0)
+		return '-';
+
+	n = Math.floor(n);
+
+	/* The unit is chosen by comparing the ORIGINAL value against 1000^(i+1),
+	 * rather than by dividing and re-testing the quotient. Those are not the same
+	 * test, and the difference is a whole unit. LuCI divides in floating point
+	 * and keeps the fraction, so 1000500 steps twice and reads "1.00 MB";
+	 * dividing with truncation leaves exactly 1000, which fails a "greater than
+	 * 1000" test and stops a unit short at "1000.50 KB". Every value in the
+	 * thousand just above a unit boundary lands in that gap. */
+	while (i < BYTE_UNITS.length - 1 && n > div * 1000) {
+		div *= 1000;
+		i++;
+	}
+
+	if (i == 0)
+		return '%d B'.format(n);
+
+	whole = Math.floor(n / div);
+	/* Rounded rather than truncated, because LuCI's toFixed rounds and the
+	 * interface totals are printed with LuCI's own formatter. The carry is not
+	 * theoretical: a remainder a hair under the divisor rounds to 100 hundredths,
+	 * and without it 1999 would print as "1.100 KB". */
+	frac = Math.floor(((n % div) * 100 + div / 2) / div);
+	if (frac >= 100) {
+		frac -= 100;
+		whole++;
+	}
+
+	return '%d.%02d %s'.format(whole, frac, BYTE_UNITS[i]);
+}
+
+/* The longest published rate series this will accept. The client's own window is
+ * sixty one-second samples; this allows an order of magnitude more so that a
+ * finer step is a client-side decision rather than one this page has to be
+ * updated to permit. */
+var MAX_HISTORY_SAMPLES = 600;
+
 var cache = {},
     started = false,
     disabled = false,
@@ -190,6 +267,69 @@ return baseclass.extend({
 	fetch: function() {
 		start();
 		return refresh();
+	},
+
+	/* A byte count as a human figure, identical to what hysteria-ppp-status
+	 * prints for the same number. */
+	fmtBytes: fmtBytes,
+
+	/* A rate, from a byte count and the interval it was measured over. */
+	fmtRate: function(bytes, seconds) {
+		if (typeof bytes != 'number' || !(seconds > 0))
+			return '-';
+		return '%s/s'.format(fmtBytes(bytes / seconds));
+	},
+
+	/* One link's published rate series, as an array of { rx, tx } in bytes per
+	 * second, oldest sample first.
+	 *
+	 * The wire format is the client's own -- comma-separated "rx:tx" byte counts,
+	 * one per hist_step_ms -- and this is the only thing that reads it. Deltas
+	 * rather than totals on purpose: the client sampled them against the router's
+	 * monotonic clock, which is the only clock in this system that is both
+	 * trustworthy and near the counters. Differencing successive polls in the
+	 * browser was the alternative, and it divides by whatever the gap between two
+	 * page timers happened to be.
+	 *
+	 * Anything malformed yields an empty series rather than a partial one. The
+	 * value crosses ubus as a string this collector does not inspect, so it is the
+	 * one field on the page that has had no schema applied to it. */
+	rates: function(link) {
+		var step, parts, rv = [], i, pair, rx, tx;
+
+		if (!L.isObject(link) || typeof link.hist != 'string' || !link.hist.length)
+			return [];
+
+		step = link.hist_step_ms;
+		if (typeof step != 'number' || !(step > 0))
+			return [];
+
+		parts = link.hist.split(',');
+
+		/* The client publishes sixty samples. A far longer series is not a longer
+		 * history, it is a file that is not what this thinks it is -- and it would
+		 * be turned into a polygon with that many points. The bound is generous
+		 * rather than exact so that a future client with a finer step is not
+		 * rejected by a page that has not been updated with it. */
+		if (parts.length > MAX_HISTORY_SAMPLES)
+			return [];
+
+		for (i = 0; i < parts.length; i++) {
+			pair = parts[i].split(':');
+			if (pair.length != 2)
+				return [];
+			rx = parseInt(pair[0], 10) * 1000 / step;
+			tx = parseInt(pair[1], 10) * 1000 / step;
+			/* Checked after the division rather than before it. parseInt of a
+			 * three-hundred-digit token is a finite double, and it is the scaling
+			 * that tips it to Infinity -- which would reach the graph as a scale of
+			 * Infinity and put the literal string "NaN" in an SVG coordinate. */
+			if (!isFinite(rx) || !isFinite(tx) || rx < 0 || tx < 0)
+				return [];
+			rv.push({ rx: rx, tx: tx });
+		}
+
+		return rv;
 	},
 
 	/* How many links are confirmed in the bundle, how many are up without that

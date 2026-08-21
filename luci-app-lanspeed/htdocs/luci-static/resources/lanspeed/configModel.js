@@ -19,7 +19,13 @@ var DEFAULTS = {
 	active_client_min_bps: 1,
 	overview_window_samples: 240,
 	rate_collector_mode: 'auto',
+	internet_view_mode: 'off',
 	access_edge_mode: 'active',
+	nss_low_rate_window_ms: 18000,
+	nss_low_rate_high_watermark_bps: 8000000,
+	nss_fifo_target_delay_ms: 50,
+	nss_fifo_min_queue_packets: 8,
+	rate_compensation_factor: '1.10',
 	conn_collector_mode: 'auto',
 	show_client_status: '0',
 	show_ipv6: '1',
@@ -40,7 +46,12 @@ var LIMITS = {
 	active_client_window_ms: { min: 1000, max: 9007199254740991, step: 1000 },
 	active_client_min_bps: { min: 1, max: 9007199254740991, step: 1 },
 	overview_window_samples: { min: 2, max: 240, step: 1 },
-	max_clients: { min: 64, max: 16384, step: 1 }
+	max_clients: { min: 64, max: 16384, step: 1 },
+	nss_low_rate_window_ms: { min: 2000, max: 60000, step: 1000 },
+	nss_low_rate_high_watermark_bps: { min: 1000000, max: 1000000000, step: 1000000 },
+	nss_fifo_target_delay_ms: { min: 10, max: 250, step: 10 },
+	nss_fifo_min_queue_packets: { min: 2, max: 16, step: 1 },
+	rate_compensation_factor: { min: 1, max: 1.25, step: 0.01 }
 };
 
 var RATE_MODES = [
@@ -48,6 +59,11 @@ var RATE_MODES = [
 	{ value: 'bpf', label: _('仅 CPU 路径（BPF）'), capability: 'bpf' },
 	{ value: 'nss_ecm_node', label: _('仅 NSS 加速（ECM）'), capability: 'nss_ecm_node' },
 	{ value: 'nss_ecm_bpf', label: _('NSS + CPU 路径（ECM+BPF）'), capability: 'nss_ecm_bpf' }
+];
+
+var INTERNET_VIEW_MODES = [
+	{ value: 'off', label: _('关闭') },
+	{ value: 'routed', label: _('路由流量（FastN+FastS）') }
 ];
 
 var CONNECTION_MODES = [
@@ -68,7 +84,13 @@ var FIELD_DEFS = [
 	{ name: 'active_client_min_bps', kind: 'integer', label: _('活跃最小速率'), unit: 'bps', limits: LIMITS.active_client_min_bps },
 	{ name: 'overview_window_samples', kind: 'integer', label: _('历史采样点'), unit: _('个'), limits: LIMITS.overview_window_samples },
 	{ name: 'rate_collector_mode', kind: 'enum', label: _('客户端网速模式') },
+	{ name: 'internet_view_mode', kind: 'enum', label: _('互联网/路由视图') },
 	{ name: 'access_edge_mode', kind: 'enum', label: _('客户端总速率') },
+	{ name: 'nss_low_rate_window_ms', kind: 'integer', label: _('NSS 低速对齐窗口'), unit: 'ms', limits: LIMITS.nss_low_rate_window_ms },
+	{ name: 'nss_low_rate_high_watermark_bps', kind: 'integer', label: _('NSS 低速高水位'), unit: 'bps', limits: LIMITS.nss_low_rate_high_watermark_bps },
+	{ name: 'nss_fifo_target_delay_ms', kind: 'integer', label: _('NSS 队列目标延迟'), unit: 'ms', limits: LIMITS.nss_fifo_target_delay_ms },
+	{ name: 'nss_fifo_min_queue_packets', kind: 'integer', label: _('NSS 最小队列'), unit: _('包'), limits: LIMITS.nss_fifo_min_queue_packets },
+	{ name: 'rate_compensation_factor', kind: 'decimal', label: _('NSS 速率补偿系数'), limits: LIMITS.rate_compensation_factor },
 	{ name: 'conn_collector_mode', kind: 'enum', label: _('连接详情来源') },
 	{ name: 'show_client_status', kind: 'boolean', label: _('显示客户端状态') },
 	{ name: 'show_ipv6', kind: 'boolean', label: _('显示 IPv6 地址') },
@@ -141,6 +163,21 @@ function parseInteger(value, limits) {
 	if (limits && parsed > limits.max)
 		return { valid: false, value: parsed, raw: raw, reason: 'above_max', max: limits.max };
 	return { valid: true, value: parsed, raw: raw };
+}
+
+function parseFactor(value, limits) {
+	var raw = trimAscii(value);
+	var parsed;
+	if (!/^\d+(?:\.\d{1,2})?$/.test(raw))
+		return { valid: false, value: null, raw: raw, reason: 'decimal_required' };
+	parsed = Number(raw);
+	if (!isFinite(parsed))
+		return { valid: false, value: null, raw: raw, reason: 'decimal_required' };
+	if (limits && parsed < limits.min)
+		return { valid: false, value: parsed, raw: raw, reason: 'below_min', min: limits.min };
+	if (limits && parsed > limits.max)
+		return { valid: false, value: parsed, raw: raw, reason: 'above_max', max: limits.max };
+	return { valid: true, value: parsed.toFixed(2), raw: raw };
 }
 
 function parseBoolean(value, fallback) {
@@ -272,7 +309,9 @@ function normalize(raw) {
 	var present = {};
 	var issue;
 	var numberFields = [ 'refresh_interval_ms', 'active_client_window_ms', 'active_client_min_bps',
-		'overview_window_samples', 'max_clients' ];
+		'overview_window_samples', 'max_clients', 'nss_low_rate_window_ms',
+		'nss_low_rate_high_watermark_bps', 'nss_fifo_target_delay_ms',
+		'nss_fifo_min_queue_packets' ];
 	var listFields = [ 'ifname', 'interface_include', 'interface_exclude', 'observe' ];
 
 	numberFields.forEach(function(name) {
@@ -281,6 +320,14 @@ function normalize(raw) {
 		present[name] = raw[name] !== undefined && raw[name] !== null;
 		if (!result.valid && present[name]) errors[name] = result.reason;
 	});
+	var factor = parseFactor(raw.rate_compensation_factor === undefined ?
+		DEFAULTS.rate_compensation_factor : raw.rate_compensation_factor,
+		LIMITS.rate_compensation_factor);
+	values.rate_compensation_factor = factor.valid ? factor.value : DEFAULTS.rate_compensation_factor;
+	present.rate_compensation_factor = raw.rate_compensation_factor !== undefined &&
+		raw.rate_compensation_factor !== null;
+	if (!factor.valid && present.rate_compensation_factor)
+		errors.rate_compensation_factor = factor.reason;
 
 	var legacyRaw = raw.collector_mode === undefined ? DEFAULTS.collector_mode : raw.collector_mode;
 	var legacy = normalizeEnum(legacyRaw, [
@@ -306,6 +353,12 @@ function normalize(raw) {
 	values.access_edge_mode = edge.value;
 	present.access_edge_mode = raw.access_edge_mode !== undefined && raw.access_edge_mode !== null;
 	if (!edge.valid && present.access_edge_mode) errors.access_edge_mode = edge.reason;
+
+	var internetRaw = raw.internet_view_mode === undefined ? DEFAULTS.internet_view_mode : raw.internet_view_mode;
+	var internet = normalizeEnum(internetRaw, INTERNET_VIEW_MODES, DEFAULTS.internet_view_mode);
+	values.internet_view_mode = internet.value;
+	present.internet_view_mode = raw.internet_view_mode !== undefined && raw.internet_view_mode !== null;
+	if (!internet.valid && present.internet_view_mode) errors.internet_view_mode = internet.reason;
 
 	[ 'show_client_status', 'show_ipv6', 'hide_private_ipv6', 'enable_bpf', 'enable_conntrack_fallback' ].forEach(function(name) {
 		var result = parseBoolean(raw[name] === undefined ? DEFAULTS[name] : raw[name], DEFAULTS[name]);
@@ -333,6 +386,8 @@ function normalize(raw) {
 	if (values.enable_bpf === '0' &&
 		(values.rate_collector_mode === 'bpf' || values.rate_collector_mode === 'nss_ecm_bpf'))
 		errors.rate_collector_mode = 'bpf_disabled';
+	if (values.enable_bpf === '0' && values.internet_view_mode === 'routed')
+		errors.internet_view_mode = 'bpf_disabled';
 	if (unique(values.ifname.concat(values.interface_include)).length > MAX_INTERFACE_NAMES)
 		errors.interface_include = 'too_many_interfaces';
 	if (values.observe.length > MAX_INTERFACE_NAMES)
@@ -466,7 +521,9 @@ function buildUciPatch(values, original) {
 	var scalarFields = [
 		'refresh_interval_ms', 'active_client_window_ms', 'active_client_min_bps',
 		'overview_window_samples', 'rate_collector_mode', 'conn_collector_mode',
-		'access_edge_mode',
+		'access_edge_mode', 'internet_view_mode', 'nss_low_rate_window_ms',
+		'nss_low_rate_high_watermark_bps', 'nss_fifo_target_delay_ms',
+		'nss_fifo_min_queue_packets', 'rate_compensation_factor',
 		'show_client_status', 'show_ipv6', 'hide_private_ipv6', 'hide_ipv6_ranges',
 		'collector_mode', 'max_clients', 'enable_bpf', 'enable_conntrack_fallback'
 	];
@@ -520,10 +577,12 @@ return baseclass.extend({
 	LIMITS: LIMITS,
 	FIELDS: FIELD_DEFS,
 	ACCESS_EDGE_MODES: ACCESS_EDGE_MODES,
+	INTERNET_VIEW_MODES: INTERNET_VIEW_MODES,
 	MAX_INTERFACE_NAMES: MAX_INTERFACE_NAMES,
 	MAX_RANGE_ITEMS: MAX_RANGE_ITEMS,
 	REMOVED_UCI_FIELDS: REMOVED_UCI_FIELDS,
 	parseInteger: parseInteger,
+	parseFactor: parseFactor,
 	parseBoolean: parseBoolean,
 	parseCidr: parseCidr,
 	parseCidrList: parseCidrList,

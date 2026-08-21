@@ -6,11 +6,16 @@ use std::{
 
 use aya_obj::{generated::bpf_map_type, obj::ProgramSection, Object};
 use lanspeed_common::{
-    CLIENTS_MAP_NAME, ECM_CLIENTS_MAP_NAME, ECM_LAYOUT_MAP_NAME, ECM_NSS_CONTEXT_MAP_NAME,
-    ECM_NSS_ENTER_PROGRAM_NAME, ECM_NSS_EXIT_PROGRAM_NAME, ECM_SOURCE_STATS_MAP_NAME,
-    ECM_UPDATE_PROGRAM_NAME, EGRESS_EARLY_PROGRAM_NAME, EGRESS_PROGRAM_NAME,
-    INGRESS_EARLY_PROGRAM_NAME, INGRESS_PROGRAM_NAME, MAX_CLIENTS, MAX_CONN_TUPLES,
-    MAX_ECM_NSS_CONTEXTS, SEEN_CONNS_MAP_NAME,
+    CLIENTS_MAP_NAME, ECM_CLIENTS_MAP_NAME, ECM_EVENT_RINGBUF_MAP_NAME, ECM_EVENT_STATS_MAP_NAME,
+    ECM_FAST_COUNTERS_MAP_CAPACITY, ECM_FAST_COUNTERS_MAP_NAME, ECM_LAYOUT_MAP_NAME,
+    ECM_NSS_CONTEXT_MAP_NAME, ECM_NSS_ENTER_NETDEV_V4_PROGRAM_NAME,
+    ECM_NSS_ENTER_NETDEV_V6_PROGRAM_NAME, ECM_NSS_ENTER_SYNC_MANY_V4_PROGRAM_NAME,
+    ECM_NSS_ENTER_SYNC_MANY_V6_PROGRAM_NAME, ECM_NSS_EXIT_NETDEV_V4_PROGRAM_NAME,
+    ECM_NSS_EXIT_NETDEV_V6_PROGRAM_NAME, ECM_NSS_EXIT_SYNC_MANY_V4_PROGRAM_NAME,
+    ECM_NSS_EXIT_SYNC_MANY_V6_PROGRAM_NAME, ECM_SOURCE_STATS_MAP_NAME, ECM_UPDATE_PROGRAM_NAME,
+    EGRESS_EARLY_PROGRAM_NAME, EGRESS_PROGRAM_NAME, FAST_COUNTERS_MAP_CAPACITY,
+    FAST_COUNTERS_MAP_NAME, INGRESS_EARLY_PROGRAM_NAME, INGRESS_PROGRAM_NAME, MAX_CLIENTS,
+    MAX_CONN_TUPLES, MAX_ECM_NSS_CONTEXTS, SEEN_CONNS_MAP_NAME,
 };
 use object::{
     Object as _, ObjectSection as _, ObjectSymbol as _, RelocationTarget, SectionIndex,
@@ -202,6 +207,7 @@ fn production_tc_object_has_exact_maps_programs_and_license() {
         BTreeSet::from([
             CLIENTS_MAP_NAME,
             CONNTRACK_SCRATCH_MAP_NAME,
+            FAST_COUNTERS_MAP_NAME,
             PACKET_SCRATCH_MAP_NAME,
             SEEN_CONNS_MAP_NAME,
         ])
@@ -215,6 +221,17 @@ fn production_tc_object_has_exact_maps_programs_and_license() {
     assert_eq!(clients.key_size(), 16);
     assert_eq!(clients.value_size(), 32);
     assert_eq!(clients.max_entries(), MAX_CLIENTS);
+
+    let fast_counters = &object.maps[FAST_COUNTERS_MAP_NAME];
+    assert_eq!(
+        fast_counters.map_type(),
+        bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH as u32
+    );
+    assert_eq!(
+        (fast_counters.key_size(), fast_counters.value_size()),
+        (16, 40)
+    );
+    assert_eq!(fast_counters.max_entries(), FAST_COUNTERS_MAP_CAPACITY);
 
     let seen = &object.maps[SEEN_CONNS_MAP_NAME];
     assert_eq!(seen.map_type(), bpf_map_type::BPF_MAP_TYPE_LRU_HASH as u32);
@@ -316,7 +333,11 @@ fn fallback_object_preserves_abi_without_kfunc_relocations() {
             .keys()
             .map(String::as_str)
             .collect::<BTreeSet<_>>(),
-        BTreeSet::from([CLIENTS_MAP_NAME, PACKET_SCRATCH_MAP_NAME,])
+        BTreeSet::from([
+            CLIENTS_MAP_NAME,
+            FAST_COUNTERS_MAP_NAME,
+            PACKET_SCRATCH_MAP_NAME,
+        ])
     );
     assert_eq!(
         parsed
@@ -338,6 +359,16 @@ fn fallback_object_preserves_abi_without_kfunc_relocations() {
     );
     assert_eq!((clients.key_size(), clients.value_size()), (16, 32));
     assert_eq!(clients.max_entries(), MAX_CLIENTS);
+    let fast_counters = &parsed.maps[FAST_COUNTERS_MAP_NAME];
+    assert_eq!(
+        fast_counters.map_type(),
+        bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH as u32
+    );
+    assert_eq!(
+        (fast_counters.key_size(), fast_counters.value_size()),
+        (16, 40)
+    );
+    assert_eq!(fast_counters.max_entries(), FAST_COUNTERS_MAP_CAPACITY);
     let packet_scratch = &parsed.maps[PACKET_SCRATCH_MAP_NAME];
     assert_eq!(
         packet_scratch.map_type(),
@@ -382,6 +413,9 @@ fn aarch64_ecm_object_is_isolated_from_tc_and_uses_aarch64_probe_registers() {
             .collect::<BTreeSet<_>>(),
         BTreeSet::from([
             ECM_CLIENTS_MAP_NAME,
+            ECM_EVENT_RINGBUF_MAP_NAME,
+            ECM_EVENT_STATS_MAP_NAME,
+            ECM_FAST_COUNTERS_MAP_NAME,
             ECM_LAYOUT_MAP_NAME,
             ECM_NSS_CONTEXT_MAP_NAME,
             ECM_SOURCE_STATS_MAP_NAME,
@@ -394,8 +428,14 @@ fn aarch64_ecm_object_is_isolated_from_tc_and_uses_aarch64_probe_registers() {
             .map(String::as_str)
             .collect::<BTreeSet<_>>(),
         BTreeSet::from([
-            ECM_NSS_ENTER_PROGRAM_NAME,
-            ECM_NSS_EXIT_PROGRAM_NAME,
+            ECM_NSS_ENTER_NETDEV_V4_PROGRAM_NAME,
+            ECM_NSS_ENTER_NETDEV_V6_PROGRAM_NAME,
+            ECM_NSS_ENTER_SYNC_MANY_V4_PROGRAM_NAME,
+            ECM_NSS_ENTER_SYNC_MANY_V6_PROGRAM_NAME,
+            ECM_NSS_EXIT_NETDEV_V4_PROGRAM_NAME,
+            ECM_NSS_EXIT_NETDEV_V6_PROGRAM_NAME,
+            ECM_NSS_EXIT_SYNC_MANY_V4_PROGRAM_NAME,
+            ECM_NSS_EXIT_SYNC_MANY_V6_PROGRAM_NAME,
             ECM_UPDATE_PROGRAM_NAME,
         ])
     );
@@ -403,14 +443,28 @@ fn aarch64_ecm_object_is_isolated_from_tc_and_uses_aarch64_probe_registers() {
         parsed.programs[ECM_UPDATE_PROGRAM_NAME].section,
         ProgramSection::KProbe
     ));
-    assert!(matches!(
-        parsed.programs[ECM_NSS_ENTER_PROGRAM_NAME].section,
-        ProgramSection::KProbe
-    ));
-    assert!(matches!(
-        parsed.programs[ECM_NSS_EXIT_PROGRAM_NAME].section,
-        ProgramSection::KRetProbe
-    ));
+    for program in [
+        ECM_NSS_ENTER_NETDEV_V4_PROGRAM_NAME,
+        ECM_NSS_ENTER_NETDEV_V6_PROGRAM_NAME,
+        ECM_NSS_ENTER_SYNC_MANY_V4_PROGRAM_NAME,
+        ECM_NSS_ENTER_SYNC_MANY_V6_PROGRAM_NAME,
+    ] {
+        assert!(matches!(
+            parsed.programs[program].section,
+            ProgramSection::KProbe
+        ));
+    }
+    for program in [
+        ECM_NSS_EXIT_NETDEV_V4_PROGRAM_NAME,
+        ECM_NSS_EXIT_NETDEV_V6_PROGRAM_NAME,
+        ECM_NSS_EXIT_SYNC_MANY_V4_PROGRAM_NAME,
+        ECM_NSS_EXIT_SYNC_MANY_V6_PROGRAM_NAME,
+    ] {
+        assert!(matches!(
+            parsed.programs[program].section,
+            ProgramSection::KRetProbe
+        ));
+    }
 
     let clients = &parsed.maps[ECM_CLIENTS_MAP_NAME];
     assert_eq!(
@@ -419,6 +473,16 @@ fn aarch64_ecm_object_is_isolated_from_tc_and_uses_aarch64_probe_registers() {
     );
     assert_eq!((clients.key_size(), clients.value_size()), (24, 24));
     assert_eq!(clients.max_entries(), MAX_CLIENTS * 4);
+    let fast_counters = &parsed.maps[ECM_FAST_COUNTERS_MAP_NAME];
+    assert_eq!(
+        fast_counters.map_type(),
+        bpf_map_type::BPF_MAP_TYPE_PERCPU_HASH as u32
+    );
+    assert_eq!(
+        (fast_counters.key_size(), fast_counters.value_size()),
+        (24, 40)
+    );
+    assert_eq!(fast_counters.max_entries(), ECM_FAST_COUNTERS_MAP_CAPACITY);
     let layout = &parsed.maps[ECM_LAYOUT_MAP_NAME];
     assert_eq!(layout.map_type(), bpf_map_type::BPF_MAP_TYPE_ARRAY as u32);
     assert_eq!((layout.key_size(), layout.value_size()), (4, 16));
@@ -428,7 +492,7 @@ fn aarch64_ecm_object_is_isolated_from_tc_and_uses_aarch64_probe_registers() {
         context.map_type(),
         bpf_map_type::BPF_MAP_TYPE_LRU_HASH as u32
     );
-    assert_eq!((context.key_size(), context.value_size()), (8, 4));
+    assert_eq!((context.key_size(), context.value_size()), (8, 8));
     assert_eq!(context.max_entries(), MAX_ECM_NSS_CONTEXTS);
     let source_stats = &parsed.maps[ECM_SOURCE_STATS_MAP_NAME];
     assert_eq!(
@@ -440,6 +504,19 @@ fn aarch64_ecm_object_is_isolated_from_tc_and_uses_aarch64_probe_registers() {
         (4, 48)
     );
     assert_eq!(source_stats.max_entries(), 1);
+    let event_ringbuf = &parsed.maps[ECM_EVENT_RINGBUF_MAP_NAME];
+    assert_eq!(
+        event_ringbuf.map_type(),
+        bpf_map_type::BPF_MAP_TYPE_RINGBUF as u32
+    );
+    assert_eq!(event_ringbuf.max_entries(), 64 * 1024);
+    let event_stats = &parsed.maps[ECM_EVENT_STATS_MAP_NAME];
+    assert_eq!(
+        event_stats.map_type(),
+        bpf_map_type::BPF_MAP_TYPE_ARRAY as u32
+    );
+    assert_eq!((event_stats.key_size(), event_stats.value_size()), (4, 16));
+    assert_eq!(event_stats.max_entries(), 1);
 
     let elf = object::File::parse(bytes.as_slice()).expect("object crate must parse ECM ELF");
     let section = elf

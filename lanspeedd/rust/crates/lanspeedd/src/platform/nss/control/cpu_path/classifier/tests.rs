@@ -93,6 +93,19 @@ mod tests {
             Some("7cf7:0"),
             "ifb-foreign"
         ));
+
+        let mut offloaded = actions;
+        offloaded[1]["to_dev"] = json!("*");
+        assert!(exact_upload_redirect_actions(
+            &offloaded,
+            Some("7cf7:0"),
+            "lsu12345678"
+        ));
+        assert!(!exact_upload_redirect_actions(
+            &offloaded,
+            Some("7cf7:0"),
+            "ifb-foreign"
+        ));
     }
 
     #[test]
@@ -238,6 +251,24 @@ mod tests {
             579
         );
         assert_eq!(pref, UPLOAD_CLIENT_PREF_START + 2);
+    }
+
+    #[test]
+    fn differential_chain_sync_removes_only_slots_outside_the_desired_plan() {
+        let values = vec![
+            json!({ "protocol": "ip", "pref": 12000, "kind": "u32" }),
+            json!({ "protocol": "ipv6", "pref": 12001, "kind": "u32" }),
+            json!({ "protocol": "ip", "pref": 14000, "kind": "u32" }),
+            json!({ "protocol": "all", "pref": 19999, "kind": "matchall" }),
+        ];
+        let desired = BTreeSet::from([
+            (12000, "ip".to_owned()),
+            (12001, "ipv6".to_owned()),
+        ]);
+        assert_eq!(
+            stale_u32_slots(&values, &desired),
+            BTreeSet::from([(14000, "ip".to_owned())])
+        );
     }
 
     #[test]

@@ -13,6 +13,8 @@ var CLIENT_INFO_WARNINGS = {
 	conntrack_connection_only: true
 };
 
+var ERROR_NOTICE_MS = 3000;
+
 var RPC_LABELS = {
 	status: _('服务状态'),
 	clients: _('客户端数据'),
@@ -88,6 +90,11 @@ function refreshAvailability(viewState, refs) {
 	}
 
 	if (!failed.length) {
+		viewState.errorNoticeSignature = null;
+		viewState.errorNoticeVisible = true;
+		viewState.errorNoticeUntil = 0;
+		if (typeof viewState.clearErrorNoticeTimer === 'function')
+			viewState.clearErrorNoticeTimer();
 		refs.errorBox.style.display = 'none';
 		refs.errorBox.setAttribute('aria-hidden', 'true');
 		refs.errorPre.textContent = '';
@@ -95,21 +102,39 @@ function refreshAvailability(viewState, refs) {
 		return { failed: failed, hardFailure: hardFailure, samplePending: samplePending };
 	}
 
+	var signature = (hardFailure ? 'hard:' : 'partial:') + failed.join(',');
+	if (viewState.errorNoticeSignature !== signature) {
+		viewState.errorNoticeSignature = signature;
+		if (typeof viewState.triggerErrorNotice === 'function')
+			viewState.triggerErrorNotice();
+		else {
+			viewState.errorNoticeVisible = true;
+			viewState.errorNoticeUntil = Date.now() + ERROR_NOTICE_MS;
+		}
+	}
+	var noticeVisible = viewState.errorNoticeVisible !== false &&
+		(!Number(viewState.errorNoticeUntil) || Number(viewState.errorNoticeUntil) > Date.now());
+	if (!noticeVisible) {
+		refs.errorBox.style.display = 'none';
+		refs.errorBox.setAttribute('aria-hidden', 'true');
+		return { failed: failed, hardFailure: hardFailure, samplePending: false };
+	}
+
 	refs.errorBox.style.display = '';
 	refs.errorBox.setAttribute('aria-hidden', 'false');
 	refs.errorTitle.textContent = hardFailure
-		? _('实时状态暂不可用') : _('部分实时数据暂不可用');
+		? _('实时数据暂未更新') : _('部分实时数据暂未更新');
 	refs.errorPre.textContent = hardFailure
 		? _('所有实时请求均失败，请检查服务状态后重试。')
 		: _('其余成功数据仍会显示；标为“沿用上次”的内容可能已经过期。');
 	fmt.replaceChildren(refs.errorList, failed.map(function(key) {
 		var state = rpc[key];
-		return E('li', { 'data-state': state.retained ? 'warning' : 'bad' }, [
-			E('strong', {}, RPC_LABELS[key] + '：'),
-			E('span', {}, rpcErrorText(state)),
-			state.retained
-				? E('span', { 'class': 'label label-warning' }, _('沿用上次'))
-				: E('span', { 'class': 'label label-danger' }, _('不可用'))
+			return E('li', { 'data-state': state.retained ? 'warning' : 'bad' }, [
+				E('strong', {}, RPC_LABELS[key] + '：'),
+				E('span', {}, rpcErrorText(state)),
+				state.retained
+					? E('span', { 'class': 'label label-warning' }, _('沿用上次'))
+					: E('span', { 'class': 'label label-warning' }, _('暂未更新'))
 		]);
 	}));
 	return { failed: failed, hardFailure: hardFailure, samplePending: false };
@@ -351,7 +376,13 @@ function refreshSortHeaders(refs, prefs) {
 
 function accessEdgeOwnsCurrentRate(status) {
 	return fmt.nssPlatform(status) && String(status && status.rate_collector_mode || '') === 'auto' &&
-		String(status && status.access_edge_mode || '') === 'active';
+		String(status && status.access_edge_mode || '') === 'active' &&
+		String(status && status.internet_view_mode || '') !== 'routed';
+}
+
+function routedRate(client, direction) {
+	return statusRateMeta.routedSource(client && client.rate_meta, direction)
+		? Number(client && client[direction + '_bps']) || 0 : 0;
 }
 
 function refreshLive(viewState) {
@@ -360,6 +391,13 @@ function refreshLive(viewState) {
 	var viewport = captureClientViewport(refs);
 	var status = viewState.status || {};
 	var nssProfile = fmt.nssPlatform(status);
+	var routedInternet = nssProfile && String(status.internet_view_mode || '') === 'routed';
+	var routedCollector = routedInternet && (viewState.clients &&
+		Array.isArray(viewState.clients.clients))
+		? viewState.clients.clients.reduce(function(current, client) {
+			var mode = statusRateMeta.routedCollector(client && client.rate_meta);
+			return mode === 'fast_routed_lease' ? mode : current || mode;
+		}, '') : '';
 	viewState.showClientControl = true;
 	if (refs.controlHeader) refs.controlHeader.hidden = false;
 	if (refs.clientsTable)
@@ -375,14 +413,16 @@ function refreshLive(viewState) {
 	setClientStatusVisibility(refs, showClientStatus);
 	var availability = refreshAvailability(viewState, refs);
 
-	var collector = accessEdgeOwnsCurrentRate(status) ? 'access_edge' :
+	var collector = routedInternet ? (routedCollector || 'fast_routed_internet') : accessEdgeOwnsCurrentRate(status) ? 'access_edge' :
 		statusCollector.effectiveCollector(status, viewState.clients);
 	if (!nssProfile && (collector === 'access_edge' || collector === 'nss_ecm_node' || collector === 'nss_ecm_bpf'))
 		collector = 'bpf';
 	refs.collectorPill.className = statusCollector.collectorClass(collector) +
 		' lanspeed-collector-status';
 	refs.collectorPill.textContent = statusCollector.collectorLabel(collector);
-	refs.collectorPill.title = accessEdgeOwnsCurrentRate(status)
+	refs.collectorPill.title = routedInternet
+		? _('当前只显示 NSS FastN+FastS 观察到的互联网/路由流量；不代表客户端全部帧。')
+		: accessEdgeOwnsCurrentRate(status)
 		? _('当前客户端网速模式；每个方向的真实数据源见客户端元数据')
 		: _('当前实时速率数据源');
 	if ((viewState.rpc && viewState.rpc.status && viewState.rpc.status.ok === false) ||
@@ -397,10 +437,21 @@ function refreshLive(viewState) {
 	if (prefs.paused) metaParts.push(_('已暂停'));
 	refs.meta.textContent = metaParts.join(' · ');
 
-	var totals = fmt.sumTotals(clientsAll, activeCfg);
-	refs.mTx.textContent = availability.samplePending ? '—' : fmt.formatRate(totals.tx, prefs.unit);
-	refs.mRx.textContent = availability.samplePending ? '—' : fmt.formatRate(totals.rx, prefs.unit);
-	refs.mClients.textContent = availability.samplePending ? '—' : String(clientsAll.length);
+	var totals = routedInternet ? clientsAll.reduce(function(sum, client) {
+		var tx = routedRate(client, 'tx');
+		var rx = routedRate(client, 'rx');
+		if (tx !== null) sum.tx += tx;
+		if (rx !== null) sum.rx += rx;
+		if ((tx || 0) + (rx || 0) >= activeCfg.activeMinBps) sum.active++;
+		return sum;
+	}, { tx: 0, rx: 0, active: 0 }) : fmt.sumTotals(clientsAll, activeCfg);
+	// A pending/alignment window means the current contribution is unknown, not
+	// that the rate has a special placeholder value.  Keep the numeric zero
+	// contract for rate fields; the surrounding busy/"正在同步" state already
+	// communicates that the next sample is still being assembled.
+	refs.mTx.textContent = fmt.formatRate(totals.tx, prefs.unit);
+	refs.mRx.textContent = fmt.formatRate(totals.rx, prefs.unit);
+	refs.mClients.textContent = String(clientsAll.length);
 
 	var clientsData = viewState.clients || {};
 	var udpSub;
@@ -457,7 +508,11 @@ function refreshLive(viewState) {
 	refs.clientsHeaderSummary.textContent = summaryParts.join(' · ');
 
 	if (!sorted.length) {
-		refs.clientsTable.style.display = 'none';
+		// Keep the table header visible in the empty state so sorting and
+		// accessibility affordances remain available before the first client
+		// sample arrives.
+		refs.clientsTable.style.display = '';
+		reconcileClientRows(refs.tbody, []);
 		refs.empty.style.display = '';
 		refs.empty.setAttribute('data-state', availability.samplePending ? 'loading' : 'empty');
 		var clientsRpc = viewState.rpc && viewState.rpc.clients;
@@ -483,7 +538,8 @@ function refreshLive(viewState) {
 		});
 
 		reconcileClientRows(refs.tbody, page.items.map(function(c) {
-			var tx = Number(c.tx_bps) || 0, rx = Number(c.rx_bps) || 0;
+			var tx = routedInternet ? routedRate(c, 'tx') : Number(c.tx_bps) || 0;
+			var rx = routedInternet ? routedRate(c, 'rx') : Number(c.rx_bps) || 0;
 			var idle = !fmt.isActiveClient(c, latestSample, activeCfg);
 			var ips = statusIp.displayIpsForClient(c.ips, showIpv6, hidePrivateIpv6, hideIpv6Ranges);
 			var rawWarnings = fmt.asArray(c.warnings).map(function(w) {
@@ -495,6 +551,9 @@ function refreshLive(viewState) {
 			var critClient = specificWarnings.some(function(w) { return vocab.CRITICAL_WARNINGS[w]; });
 
 			var mode = String(c.collector_mode || '-');
+			var routedMode = routedInternet && statusRateMeta.routedCollector(c.rate_meta);
+			if (routedMode)
+				mode = routedMode;
 			if (!nssProfile && (mode === 'nss_ecm_node' || mode === 'nss_ecm_bpf'))
 				mode = 'unsupported';
 			var modeLabel = statusCollector.collectorLabel(mode), modeTitle;
@@ -505,7 +564,7 @@ function refreshLive(viewState) {
 			} else if (mode === 'nss_ecm_node') {
 				modeTitle = _('NSS ECM node 按客户端 MAC 读取真实字节与包计数并立即发布；独立 LAN 窗口只验证覆盖率。');
 			} else if (mode === 'nss_ecm_bpf') {
-				modeTitle = _('ECM+BPF 在内核区分 NSS 硬件增量与 TC 慢路径增量，同一原始采样窗口只计算一次速率。');
+				modeTitle = _('ECM+BPF 按原有 NSS + CPU 路径统计客户端流量。');
 			} else if (mode === 'conntrack_netlink') {
 				modeTitle = _('CT-Netlink 仅补充当前连接数，不参与非 NSS 设备的实时速率统计。');
 			} else if (mode === 'conntrack_procfs') {
@@ -596,8 +655,10 @@ function refreshLive(viewState) {
 		clientsAll.forEach(function(c) {
 			var k = c.interface || '-';
 			if (!clientSumByIf[k]) clientSumByIf[k] = { tx: 0, rx: 0 };
-			clientSumByIf[k].tx += Number(c.tx_bps) || 0;
-			clientSumByIf[k].rx += Number(c.rx_bps) || 0;
+			var tx = routedInternet ? routedRate(c, 'tx') : Number(c.tx_bps) || 0;
+			var rx = routedInternet ? routedRate(c, 'rx') : Number(c.rx_bps) || 0;
+			clientSumByIf[k].tx += tx;
+			clientSumByIf[k].rx += rx;
 		});
 
 		var totalIfTx = 0, totalIfRx = 0;

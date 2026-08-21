@@ -1,18 +1,27 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, fs, io,
+    mem::size_of,
+    os::fd::AsFd,
     path::Path,
+    ptr,
 };
 
 use aya::{
-    maps::{Array, HashMap},
+    maps::{Array, HashMap, IterableMap, Map, MapData, PerCpuHashMap, RingBuf},
     programs::{kprobe::KProbeLinkId, KProbe},
     Ebpf, EbpfLoader, Pod,
 };
 use lanspeed_common::{
-    EcmCounters, EcmKey, EcmLayout, EcmSourceStats, DIR_RX, DIR_TX, ECM_CLIENTS_MAP_NAME,
-    ECM_LAYOUT_MAP_NAME, ECM_NSS_ENTER_PROGRAM_NAME, ECM_NSS_EXIT_PROGRAM_NAME,
-    ECM_SOURCE_STATS_MAP_NAME, ECM_UPDATE_PROGRAM_NAME, MAX_CLIENTS,
+    EcmCounters, EcmCountersUpdatedEvent, EcmEventStats, EcmKey, EcmLayout, EcmSourceStats,
+    FastCounterValue, DIR_RX, DIR_TX, ECM_CLIENTS_MAP_NAME, ECM_EVENT_RINGBUF_MAP_NAME,
+    ECM_EVENT_STATS_MAP_NAME, ECM_FAST_COUNTERS_MAP_CAPACITY, ECM_FAST_COUNTERS_MAP_NAME,
+    ECM_LAYOUT_MAP_NAME, ECM_NSS_ENTER_NETDEV_V4_PROGRAM_NAME,
+    ECM_NSS_ENTER_NETDEV_V6_PROGRAM_NAME, ECM_NSS_ENTER_SYNC_MANY_V4_PROGRAM_NAME,
+    ECM_NSS_ENTER_SYNC_MANY_V6_PROGRAM_NAME, ECM_NSS_EXIT_NETDEV_V4_PROGRAM_NAME,
+    ECM_NSS_EXIT_NETDEV_V6_PROGRAM_NAME, ECM_NSS_EXIT_SYNC_MANY_V4_PROGRAM_NAME,
+    ECM_NSS_EXIT_SYNC_MANY_V6_PROGRAM_NAME, ECM_SOURCE_STATS_MAP_NAME, ECM_UPDATE_PROGRAM_NAME,
+    MAX_CLIENTS,
 };
 
 use crate::{
@@ -20,6 +29,8 @@ use crate::{
     merge_split_btf,
     platform::counters::TrafficCounters,
 };
+
+use crate::platform::fast_counter_map::{stable_fast_counter_pair, FAST_COUNTER_MAP_READ_RETRIES};
 
 pub const ECM_BTF_PATH: &str = "/sys/kernel/btf/ecm";
 pub const VMLINUX_BTF_PATH: &str = "/sys/kernel/btf/vmlinux";
@@ -38,6 +49,8 @@ pub const ECM_EVENT_CLOCK_MAX_LAG_MS: u64 = 1_500;
 pub const ECM_EVENT_RATE_MAX_WINDOW_MS: u64 = 5_000;
 const RATE_MEDIAN_SAMPLES: usize = 3;
 const ECM_MAP_STABLE_READ_ATTEMPTS: usize = 3;
+const EVENT_SOURCE_BUCKETS: usize = 5;
+const EVENT_INTERVAL_BUCKETS: usize = 5;
 const BTF_KIND_INT: u32 = 1;
 const BTF_KIND_ARRAY: u32 = 3;
 const BTF_KIND_STRUCT: u32 = 4;
@@ -48,11 +61,34 @@ const BTF_KIND_VAR: u32 = 14;
 const BTF_KIND_DATASEC: u32 = 15;
 const BTF_KIND_DECL_TAG: u32 = 17;
 const BTF_KIND_ENUM64: u32 = 19;
-const NSS_SYNC_CALLBACKS: [&str; 4] = [
-    "ecm_nss_ipv4_connection_sync_many_callback",
-    "ecm_nss_ipv4_net_dev_callback",
-    "ecm_nss_ipv6_connection_sync_many_callback",
-    "ecm_nss_ipv6_net_dev_callback",
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct NssCallbackSpec {
+    symbol: &'static str,
+    enter_program: &'static str,
+    exit_program: &'static str,
+}
+
+const NSS_CALLBACK_SPECS: [NssCallbackSpec; 4] = [
+    NssCallbackSpec {
+        symbol: "ecm_nss_ipv4_connection_sync_many_callback",
+        enter_program: ECM_NSS_ENTER_SYNC_MANY_V4_PROGRAM_NAME,
+        exit_program: ECM_NSS_EXIT_SYNC_MANY_V4_PROGRAM_NAME,
+    },
+    NssCallbackSpec {
+        symbol: "ecm_nss_ipv6_connection_sync_many_callback",
+        enter_program: ECM_NSS_ENTER_SYNC_MANY_V6_PROGRAM_NAME,
+        exit_program: ECM_NSS_EXIT_SYNC_MANY_V6_PROGRAM_NAME,
+    },
+    NssCallbackSpec {
+        symbol: "ecm_nss_ipv4_net_dev_callback",
+        enter_program: ECM_NSS_ENTER_NETDEV_V4_PROGRAM_NAME,
+        exit_program: ECM_NSS_EXIT_NETDEV_V4_PROGRAM_NAME,
+    },
+    NssCallbackSpec {
+        symbol: "ecm_nss_ipv6_net_dev_callback",
+        enter_program: ECM_NSS_ENTER_NETDEV_V6_PROGRAM_NAME,
+        exit_program: ECM_NSS_EXIT_NETDEV_V6_PROGRAM_NAME,
+    },
 ];
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -65,6 +101,90 @@ pub struct RawEcmSample {
 pub struct EcmMapRead {
     pub entries: Vec<RawEcmSample>,
     pub truncated: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RawEcmFastCounterSample {
+    pub key: EcmKey,
+    pub first: Vec<FastCounterValue>,
+    pub second: Vec<FastCounterValue>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct EcmFastCounterMapRead {
+    pub entries: Vec<RawEcmFastCounterSample>,
+    pub truncated: bool,
+}
+
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+struct EcmFastCounterKey(EcmKey);
+
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+struct EcmFastCounterValue(FastCounterValue);
+
+unsafe impl Pod for EcmFastCounterKey {}
+unsafe impl Pod for EcmFastCounterValue {}
+
+/// Read-only duplicate of the ECM FastN map for the bounded rate worker.
+pub struct EcmFastCounterMapReader {
+    counters: PerCpuHashMap<MapData, EcmFastCounterKey, EcmFastCounterValue>,
+}
+
+impl EcmFastCounterMapReader {
+    pub fn read(&self) -> Result<EcmFastCounterMapRead, EcmBpfRuntimeError> {
+        let mut entries = Vec::new();
+        let mut truncated = false;
+        for key in self.counters.keys() {
+            let key = match key {
+                Ok(key) => key,
+                Err(aya::maps::MapError::KeyNotFound) => continue,
+                Err(error) => {
+                    return Err(EcmBpfRuntimeError::new(
+                        ECM_BPF_MAP_READ_STAGE,
+                        error.to_string(),
+                    ));
+                }
+            };
+            if entries.len() >= ECM_FAST_COUNTERS_MAP_CAPACITY as usize {
+                truncated = true;
+                break;
+            }
+            let mut first = Vec::new();
+            let mut second = Vec::new();
+            for _ in 0..FAST_COUNTER_MAP_READ_RETRIES {
+                first = self
+                    .counters
+                    .get(&key, 0)
+                    .map_err(|error| {
+                        EcmBpfRuntimeError::new(ECM_BPF_MAP_READ_STAGE, error.to_string())
+                    })?
+                    .iter()
+                    .map(|value| value.0)
+                    .collect();
+                second = self
+                    .counters
+                    .get(&key, 0)
+                    .map_err(|error| {
+                        EcmBpfRuntimeError::new(ECM_BPF_MAP_READ_STAGE, error.to_string())
+                    })?
+                    .iter()
+                    .map(|value| value.0)
+                    .collect();
+                if stable_fast_counter_pair(&first, &second) {
+                    break;
+                }
+            }
+            entries.push(RawEcmFastCounterSample {
+                key: key.0,
+                first,
+                second,
+            });
+        }
+        truncated |= entries.len() == ECM_FAST_COUNTERS_MAP_CAPACITY as usize;
+        Ok(EcmFastCounterMapRead { entries, truncated })
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -493,6 +613,65 @@ struct SourceStatsValue(EcmSourceStats);
 
 unsafe impl Pod for SourceStatsValue {}
 
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+struct EventStatsValue(EcmEventStats);
+
+unsafe impl Pod for EventStatsValue {}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct EcmEventHintTelemetry {
+    pub(crate) event_received: u64,
+    pub(crate) event_coalesced: u64,
+    pub(crate) event_invalid: u64,
+    pub(crate) event_source_counts: [u64; EVENT_SOURCE_BUCKETS],
+    pub(crate) event_interval_histogram: [u64; EVENT_INTERVAL_BUCKETS],
+    pub(crate) event_last_timestamp_ns: Option<u64>,
+    pub(crate) event_last_sequence: Option<u64>,
+}
+
+pub(crate) struct EcmEventHintReader {
+    ringbuf: RingBuf<MapData>,
+    telemetry: EcmEventHintTelemetry,
+}
+
+impl EcmEventHintReader {
+    pub(crate) fn drain(&mut self, budget: usize) -> u64 {
+        let mut received = 0u64;
+        for _ in 0..budget {
+            let Some(item) = self.ringbuf.next() else {
+                break;
+            };
+            let event = decode_event_hint(&item);
+            drop(item);
+            let Some(event) = event else {
+                self.telemetry.event_invalid = self.telemetry.event_invalid.saturating_add(1);
+                continue;
+            };
+            received = received.saturating_add(1);
+            self.telemetry.event_received = self.telemetry.event_received.saturating_add(1);
+            let source_bucket = event_source_bucket(event.source);
+            self.telemetry.event_source_counts[source_bucket] =
+                self.telemetry.event_source_counts[source_bucket].saturating_add(1);
+            if let Some(previous) = self.telemetry.event_last_timestamp_ns {
+                if event.timestamp_ns > previous {
+                    let interval_bucket =
+                        event_interval_bucket(event.timestamp_ns.saturating_sub(previous));
+                    self.telemetry.event_interval_histogram[interval_bucket] =
+                        self.telemetry.event_interval_histogram[interval_bucket].saturating_add(1);
+                }
+            }
+            self.telemetry.event_last_timestamp_ns = Some(event.timestamp_ns);
+            self.telemetry.event_last_sequence = Some(event.sequence);
+        }
+        received
+    }
+
+    pub(crate) const fn telemetry(&self) -> EcmEventHintTelemetry {
+        self.telemetry
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct EcmBpfHealth {
     pub object_loaded: bool,
@@ -508,6 +687,15 @@ pub struct EcmBpfHealth {
     pub map_iteration_truncated: bool,
     pub nss_context_callbacks: Vec<String>,
     pub source_stats: EcmSourceStats,
+    pub event_stats: EcmEventStats,
+    pub event_received: u64,
+    pub event_coalesced: u64,
+    pub event_invalid: u64,
+    pub event_source_counts: [u64; EVENT_SOURCE_BUCKETS],
+    pub event_interval_histogram: [u64; EVENT_INTERVAL_BUCKETS],
+    pub event_last_timestamp_ns: Option<u64>,
+    pub event_last_sequence: Option<u64>,
+    pub event_last_age_ms: Option<u64>,
     pub layout: Option<EcmLayout>,
     pub error_stage: Option<&'static str>,
     pub error: Option<String>,
@@ -523,6 +711,14 @@ pub struct EcmBpfCollectionCheckpoint {
     matched_entries: usize,
     map_iteration_truncated: bool,
     source_stats: EcmSourceStats,
+    event_stats: EcmEventStats,
+    event_received: u64,
+    event_coalesced: u64,
+    event_invalid: u64,
+    event_source_counts: [u64; EVENT_SOURCE_BUCKETS],
+    event_interval_histogram: [u64; EVENT_INTERVAL_BUCKETS],
+    event_last_timestamp_ns: Option<u64>,
+    event_last_sequence: Option<u64>,
     last_error_stage: Option<&'static str>,
     last_error: Option<String>,
     collector: EcmBpfSnapshotCollector,
@@ -537,9 +733,10 @@ pub struct EcmBpfCollectionCheckpoint {
 pub struct EcmBpfRuntime {
     ebpf: Option<Ebpf>,
     update_link: Option<KProbeLinkId>,
-    nss_enter_links: Vec<KProbeLinkId>,
-    nss_exit_links: Vec<KProbeLinkId>,
+    nss_enter_links: Vec<(String, KProbeLinkId)>,
+    nss_exit_links: Vec<(String, KProbeLinkId)>,
     nss_context_callbacks: Vec<String>,
+    event_ringbuf: Option<RingBuf<MapData>>,
     layout: EcmLayout,
     map_read_attempted: bool,
     last_map_read_ok: bool,
@@ -550,21 +747,36 @@ pub struct EcmBpfRuntime {
     matched_entries: usize,
     map_iteration_truncated: bool,
     source_stats: EcmSourceStats,
+    event_stats: EcmEventStats,
+    event_received: u64,
+    event_coalesced: u64,
+    event_invalid: u64,
+    event_source_counts: [u64; EVENT_SOURCE_BUCKETS],
+    event_interval_histogram: [u64; EVENT_INTERVAL_BUCKETS],
+    event_last_timestamp_ns: Option<u64>,
+    event_last_sequence: Option<u64>,
     last_error_stage: Option<&'static str>,
     last_error: Option<String>,
 }
 
 pub fn available_nss_context_callbacks(path: impl AsRef<Path>) -> Result<Vec<String>, String> {
+    Ok(available_nss_callback_specs(path)?
+        .into_iter()
+        .map(|spec| spec.symbol.to_owned())
+        .collect())
+}
+
+fn available_nss_callback_specs(path: impl AsRef<Path>) -> Result<Vec<NssCallbackSpec>, String> {
     let contents = fs::read_to_string(path.as_ref())
         .map_err(|error| format!("read {}: {error}", path.as_ref().display()))?;
     let available = contents
         .lines()
         .filter_map(|line| line.split_whitespace().nth(2))
         .collect::<BTreeSet<_>>();
-    let callbacks = NSS_SYNC_CALLBACKS
+    let callbacks = NSS_CALLBACK_SPECS
         .iter()
-        .filter(|name| available.contains(**name))
-        .map(|name| (*name).to_owned())
+        .copied()
+        .filter(|spec| available.contains(spec.symbol))
         .collect::<Vec<_>>();
     if callbacks.is_empty() {
         return Err("no supported ECM NSS callback symbol found".into());
@@ -634,73 +846,26 @@ impl EcmBpfRuntime {
                 )
             })?;
         }
-        let nss_context_callbacks =
-            available_nss_context_callbacks(KALLSYMS_PATH).map_err(|error| {
-                EcmBpfRuntimeError::new(
-                    ECM_BPF_ATTACH_STAGE,
-                    format!("resolve NSS callback symbols: {error}"),
-                )
-            })?;
-        let nss_exit_links = {
-            let program: &mut KProbe = ebpf
-                .program_mut(ECM_NSS_EXIT_PROGRAM_NAME)
-                .ok_or_else(|| {
-                    EcmBpfRuntimeError::new(
-                        ECM_BPF_PROGRAM_LOAD_STAGE,
-                        format!("{ECM_NSS_EXIT_PROGRAM_NAME} missing"),
-                    )
-                })?
-                .try_into()
-                .map_err(|error: aya::programs::ProgramError| {
-                    EcmBpfRuntimeError::new(ECM_BPF_PROGRAM_LOAD_STAGE, error.to_string())
-                })?;
-            program.load().map_err(|error| {
-                EcmBpfRuntimeError::new(
-                    ECM_BPF_PROGRAM_LOAD_STAGE,
-                    format!("load {ECM_NSS_EXIT_PROGRAM_NAME}: {error}"),
-                )
-            })?;
-            let mut links = Vec::with_capacity(nss_context_callbacks.len());
-            for symbol in &nss_context_callbacks {
-                links.push(program.attach(symbol, 0).map_err(|error| {
-                    EcmBpfRuntimeError::new(
-                        ECM_BPF_ATTACH_STAGE,
-                        format!("attach {ECM_NSS_EXIT_PROGRAM_NAME} to {symbol}: {error}"),
-                    )
-                })?);
-            }
-            links
-        };
-        let nss_enter_links = {
-            let program: &mut KProbe = ebpf
-                .program_mut(ECM_NSS_ENTER_PROGRAM_NAME)
-                .ok_or_else(|| {
-                    EcmBpfRuntimeError::new(
-                        ECM_BPF_PROGRAM_LOAD_STAGE,
-                        format!("{ECM_NSS_ENTER_PROGRAM_NAME} missing"),
-                    )
-                })?
-                .try_into()
-                .map_err(|error: aya::programs::ProgramError| {
-                    EcmBpfRuntimeError::new(ECM_BPF_PROGRAM_LOAD_STAGE, error.to_string())
-                })?;
-            program.load().map_err(|error| {
-                EcmBpfRuntimeError::new(
-                    ECM_BPF_PROGRAM_LOAD_STAGE,
-                    format!("load {ECM_NSS_ENTER_PROGRAM_NAME}: {error}"),
-                )
-            })?;
-            let mut links = Vec::with_capacity(nss_context_callbacks.len());
-            for symbol in &nss_context_callbacks {
-                links.push(program.attach(symbol, 0).map_err(|error| {
-                    EcmBpfRuntimeError::new(
-                        ECM_BPF_ATTACH_STAGE,
-                        format!("attach {ECM_NSS_ENTER_PROGRAM_NAME} to {symbol}: {error}"),
-                    )
-                })?);
-            }
-            links
-        };
+        let event_ringbuf = ebpf
+            .take_map(ECM_EVENT_RINGBUF_MAP_NAME)
+            .map(|map| {
+                RingBuf::try_from(map).map_err(|error| {
+                    EcmBpfRuntimeError::new(ECM_BPF_MAP_READ_STAGE, error.to_string())
+                })
+            })
+            .transpose()?;
+        let nss_callback_specs = available_nss_callback_specs(KALLSYMS_PATH).map_err(|error| {
+            EcmBpfRuntimeError::new(
+                ECM_BPF_ATTACH_STAGE,
+                format!("resolve NSS callback symbols: {error}"),
+            )
+        })?;
+        let nss_context_callbacks = nss_callback_specs
+            .iter()
+            .map(|spec| spec.symbol.to_owned())
+            .collect::<Vec<_>>();
+        let nss_exit_links = attach_nss_context_links(&mut ebpf, &nss_callback_specs, false)?;
+        let nss_enter_links = attach_nss_context_links(&mut ebpf, &nss_callback_specs, true)?;
         let update_link = {
             let program: &mut KProbe = ebpf
                 .program_mut(ECM_UPDATE_PROGRAM_NAME)
@@ -733,6 +898,7 @@ impl EcmBpfRuntime {
             nss_enter_links,
             nss_exit_links,
             nss_context_callbacks,
+            event_ringbuf,
             layout,
             map_read_attempted: false,
             last_map_read_ok: false,
@@ -743,6 +909,14 @@ impl EcmBpfRuntime {
             matched_entries: 0,
             map_iteration_truncated: false,
             source_stats: EcmSourceStats::default(),
+            event_stats: EcmEventStats::default(),
+            event_received: 0,
+            event_coalesced: 0,
+            event_invalid: 0,
+            event_source_counts: [0; EVENT_SOURCE_BUCKETS],
+            event_interval_histogram: [0; EVENT_INTERVAL_BUCKETS],
+            event_last_timestamp_ns: None,
+            event_last_sequence: None,
             last_error_stage: None,
             last_error: None,
         })
@@ -761,6 +935,14 @@ impl EcmBpfRuntime {
             matched_entries: self.matched_entries,
             map_iteration_truncated: self.map_iteration_truncated,
             source_stats: self.source_stats,
+            event_stats: self.event_stats,
+            event_received: self.event_received,
+            event_coalesced: self.event_coalesced,
+            event_invalid: self.event_invalid,
+            event_source_counts: self.event_source_counts,
+            event_interval_histogram: self.event_interval_histogram,
+            event_last_timestamp_ns: self.event_last_timestamp_ns,
+            event_last_sequence: self.event_last_sequence,
             last_error_stage: self.last_error_stage,
             last_error: self.last_error.clone(),
             collector: collector.clone(),
@@ -780,6 +962,14 @@ impl EcmBpfRuntime {
         self.matched_entries = checkpoint.matched_entries;
         self.map_iteration_truncated = checkpoint.map_iteration_truncated;
         self.source_stats = checkpoint.source_stats;
+        self.event_stats = checkpoint.event_stats;
+        self.event_received = checkpoint.event_received;
+        self.event_coalesced = checkpoint.event_coalesced;
+        self.event_invalid = checkpoint.event_invalid;
+        self.event_source_counts = checkpoint.event_source_counts;
+        self.event_interval_histogram = checkpoint.event_interval_histogram;
+        self.event_last_timestamp_ns = checkpoint.event_last_timestamp_ns;
+        self.event_last_sequence = checkpoint.event_last_sequence;
         self.last_error_stage = checkpoint.last_error_stage;
         self.last_error = checkpoint.last_error;
         *collector = checkpoint.collector;
@@ -792,6 +982,8 @@ impl EcmBpfRuntime {
         now_ms: u64,
     ) -> Result<EcmBpfSnapshot, EcmBpfRuntimeError> {
         self.map_read_attempted = true;
+        self.drain_event_hints();
+        self.event_stats = self.read_event_stats();
         let (read, source_stats) = match self.read_maps() {
             Ok(read) => read,
             Err(error) => {
@@ -830,6 +1022,126 @@ impl EcmBpfRuntime {
             ECM_BPF_MAP_READ_STAGE,
             "ECM NSS counters changed during every bounded map snapshot attempt",
         ))
+    }
+
+    /// Read the independent PerCPU FastN map. This is deliberately separate
+    /// from `collect_snapshot`: Evidence map traversal and one-second FastRate
+    /// windows must never share a partially read ledger or a slow retry loop.
+    pub fn read_fast_n_counters(&self) -> Result<EcmFastCounterMapRead, EcmBpfRuntimeError> {
+        let map = self
+            .ebpf
+            .as_ref()
+            .and_then(|ebpf| ebpf.map(ECM_FAST_COUNTERS_MAP_NAME))
+            .ok_or_else(|| {
+                EcmBpfRuntimeError::new(
+                    ECM_BPF_MAP_READ_STAGE,
+                    format!("{ECM_FAST_COUNTERS_MAP_NAME} missing"),
+                )
+            })?;
+        let counters = PerCpuHashMap::<_, EcmFastCounterKey, EcmFastCounterValue>::try_from(map)
+            .map_err(|error| EcmBpfRuntimeError::new(ECM_BPF_MAP_READ_STAGE, error.to_string()))?;
+        let mut entries = Vec::new();
+        let mut truncated = false;
+        for key in counters.keys() {
+            let key = match key {
+                Ok(key) => key,
+                Err(aya::maps::MapError::KeyNotFound) => continue,
+                Err(error) => {
+                    return Err(EcmBpfRuntimeError::new(
+                        ECM_BPF_MAP_READ_STAGE,
+                        error.to_string(),
+                    ));
+                }
+            };
+            if entries.len() >= ECM_FAST_COUNTERS_MAP_CAPACITY as usize {
+                truncated = true;
+                break;
+            }
+            let mut first = Vec::new();
+            let mut second = Vec::new();
+            for _ in 0..FAST_COUNTER_MAP_READ_RETRIES {
+                first = counters
+                    .get(&key, 0)
+                    .map_err(|error| {
+                        EcmBpfRuntimeError::new(ECM_BPF_MAP_READ_STAGE, error.to_string())
+                    })?
+                    .iter()
+                    .map(|value| value.0)
+                    .collect();
+                second = counters
+                    .get(&key, 0)
+                    .map_err(|error| {
+                        EcmBpfRuntimeError::new(ECM_BPF_MAP_READ_STAGE, error.to_string())
+                    })?
+                    .iter()
+                    .map(|value| value.0)
+                    .collect();
+                if stable_fast_counter_pair(&first, &second) {
+                    break;
+                }
+            }
+            entries.push(RawEcmFastCounterSample {
+                key: key.0,
+                first,
+                second,
+            });
+        }
+        truncated |= entries.len() == ECM_FAST_COUNTERS_MAP_CAPACITY as usize;
+        Ok(EcmFastCounterMapRead { entries, truncated })
+    }
+
+    pub fn fast_n_reader(&self) -> Result<EcmFastCounterMapReader, EcmBpfRuntimeError> {
+        let map = self
+            .ebpf
+            .as_ref()
+            .and_then(|ebpf| ebpf.map(ECM_FAST_COUNTERS_MAP_NAME))
+            .ok_or_else(|| {
+                EcmBpfRuntimeError::new(
+                    ECM_BPF_MAP_READ_STAGE,
+                    format!("{ECM_FAST_COUNTERS_MAP_NAME} missing"),
+                )
+            })?;
+        let counters = PerCpuHashMap::<_, EcmFastCounterKey, EcmFastCounterValue>::try_from(map)
+            .map_err(|error| EcmBpfRuntimeError::new(ECM_BPF_MAP_READ_STAGE, error.to_string()))?;
+        let fd = counters
+            .map()
+            .fd()
+            .as_fd()
+            .try_clone_to_owned()
+            .map_err(|error| EcmBpfRuntimeError::new(ECM_BPF_MAP_READ_STAGE, error.to_string()))?;
+        let map_data = MapData::from_fd(fd)
+            .map_err(|error| EcmBpfRuntimeError::new(ECM_BPF_MAP_READ_STAGE, error.to_string()))?;
+        let map = Map::from_map_data(map_data)
+            .map_err(|error| EcmBpfRuntimeError::new(ECM_BPF_MAP_READ_STAGE, error.to_string()))?;
+        let counters = PerCpuHashMap::try_from(map)
+            .map_err(|error| EcmBpfRuntimeError::new(ECM_BPF_MAP_READ_STAGE, error.to_string()))?;
+        Ok(EcmFastCounterMapReader { counters })
+    }
+
+    pub(crate) fn take_event_hint_reader(&mut self) -> Option<EcmEventHintReader> {
+        let ringbuf = self.event_ringbuf.take()?;
+        Some(EcmEventHintReader {
+            ringbuf,
+            telemetry: EcmEventHintTelemetry {
+                event_received: self.event_received,
+                event_coalesced: self.event_coalesced,
+                event_invalid: self.event_invalid,
+                event_source_counts: self.event_source_counts,
+                event_interval_histogram: self.event_interval_histogram,
+                event_last_timestamp_ns: self.event_last_timestamp_ns,
+                event_last_sequence: self.event_last_sequence,
+            },
+        })
+    }
+
+    pub(crate) fn apply_event_hint_telemetry(&mut self, telemetry: EcmEventHintTelemetry) {
+        self.event_received = telemetry.event_received;
+        self.event_coalesced = telemetry.event_coalesced;
+        self.event_invalid = telemetry.event_invalid;
+        self.event_source_counts = telemetry.event_source_counts;
+        self.event_interval_histogram = telemetry.event_interval_histogram;
+        self.event_last_timestamp_ns = telemetry.event_last_timestamp_ns;
+        self.event_last_sequence = telemetry.event_last_sequence;
     }
 
     fn read_client_map(&self) -> Result<EcmMapRead, EcmBpfRuntimeError> {
@@ -891,6 +1203,76 @@ impl EcmBpfRuntime {
         Ok(source_stats)
     }
 
+    fn read_event_stats(&self) -> EcmEventStats {
+        let Some(event_map) = self
+            .ebpf
+            .as_ref()
+            .and_then(|ebpf| ebpf.map(ECM_EVENT_STATS_MAP_NAME))
+        else {
+            return EcmEventStats::default();
+        };
+        Array::<_, EventStatsValue>::try_from(event_map)
+            .ok()
+            .and_then(|stats| stats.get(&0, 0).ok())
+            .map_or(EcmEventStats::default(), |value| value.0)
+    }
+
+    fn drain_event_hints(&mut self) {
+        let mut received = 0u64;
+        let mut invalid = 0u64;
+        let mut coalesced = 0u64;
+        let mut source_counts = [0u64; EVENT_SOURCE_BUCKETS];
+        let mut interval_histogram = [0u64; EVENT_INTERVAL_BUCKETS];
+        let mut previous_timestamp_ns = self.event_last_timestamp_ns;
+        let mut last = None;
+        if let Some(ringbuf) = self.event_ringbuf.as_mut() {
+            while let Some(item) = ringbuf.next() {
+                // RingBufItem is a byte slice whose lifetime is tied to the
+                // consumer position. Copy before dropping it so the ring can
+                // immediately advance to the next hint.
+                let event = decode_event_hint(&item);
+                drop(item);
+                let Some(event) = event else {
+                    invalid = invalid.saturating_add(1);
+                    continue;
+                };
+                received = received.saturating_add(1);
+                if received > 1 {
+                    coalesced = coalesced.saturating_add(1);
+                }
+                source_counts[event_source_bucket(event.source)] =
+                    source_counts[event_source_bucket(event.source)].saturating_add(1);
+                if let Some(previous) = previous_timestamp_ns {
+                    if event.timestamp_ns > previous {
+                        interval_histogram[event_interval_bucket(event.timestamp_ns - previous)] =
+                            interval_histogram
+                                [event_interval_bucket(event.timestamp_ns - previous)]
+                            .saturating_add(1);
+                    }
+                }
+                previous_timestamp_ns = Some(event.timestamp_ns);
+                last = Some(event);
+            }
+        }
+        self.event_received = self.event_received.saturating_add(received);
+        self.event_coalesced = self.event_coalesced.saturating_add(coalesced);
+        self.event_invalid = self.event_invalid.saturating_add(invalid);
+        for (current, added) in self.event_source_counts.iter_mut().zip(source_counts) {
+            *current = current.saturating_add(added);
+        }
+        for (current, added) in self
+            .event_interval_histogram
+            .iter_mut()
+            .zip(interval_histogram)
+        {
+            *current = current.saturating_add(added);
+        }
+        if let Some(event) = last {
+            self.event_last_timestamp_ns = Some(event.timestamp_ns);
+            self.event_last_sequence = Some(event.sequence);
+        }
+    }
+
     pub fn health(&self, now_ms: u64, freshness_ms: u64) -> EcmBpfHealth {
         let fresh_snapshot = self.last_complete_snapshot_ms.is_some_and(|sample_ms| {
             sample_ms <= now_ms && (freshness_ms == 0 || now_ms - sample_ms <= freshness_ms)
@@ -912,6 +1294,17 @@ impl EcmBpfRuntime {
             map_iteration_truncated: self.map_iteration_truncated,
             nss_context_callbacks: self.nss_context_callbacks.clone(),
             source_stats: self.source_stats,
+            event_stats: self.event_stats,
+            event_received: self.event_received,
+            event_coalesced: self.event_coalesced,
+            event_invalid: self.event_invalid,
+            event_source_counts: self.event_source_counts,
+            event_interval_histogram: self.event_interval_histogram,
+            event_last_timestamp_ns: self.event_last_timestamp_ns,
+            event_last_sequence: self.event_last_sequence,
+            event_last_age_ms: self
+                .event_last_timestamp_ns
+                .map(|timestamp_ns| now_ms.saturating_sub(timestamp_ns.saturating_div(1_000_000))),
             layout: Some(self.layout),
             error_stage: self.last_error_stage,
             error: self.last_error.clone(),
@@ -938,6 +1331,15 @@ impl EcmBpfRuntime {
         runtime.ecm_bpf_map_iteration_truncated = health.map_iteration_truncated;
         runtime.ecm_bpf_nss_context_callbacks = health.nss_context_callbacks;
         runtime.ecm_bpf_source_stats = health.source_stats;
+        runtime.ecm_bpf_event_stats = health.event_stats;
+        runtime.ecm_bpf_event_received = health.event_received;
+        runtime.ecm_bpf_event_coalesced = health.event_coalesced;
+        runtime.ecm_bpf_event_invalid = health.event_invalid;
+        runtime.ecm_bpf_event_source_counts = health.event_source_counts;
+        runtime.ecm_bpf_event_interval_histogram = health.event_interval_histogram;
+        runtime.ecm_bpf_event_last_timestamp_ns = health.event_last_timestamp_ns;
+        runtime.ecm_bpf_event_last_sequence = health.event_last_sequence;
+        runtime.ecm_bpf_event_last_age_ms = health.event_last_age_ms;
         runtime.ecm_bpf_layout = health.layout;
         runtime.ecm_bpf_error_stage = health.error_stage.map(str::to_owned);
         runtime.ecm_bpf_runtime_error = health.error;
@@ -951,12 +1353,14 @@ impl EcmBpfRuntime {
             self.nss_context_callbacks.clear();
             return Ok(());
         };
-        let mut first_error = detach_kprobe_links(
-            ebpf,
-            ECM_NSS_ENTER_PROGRAM_NAME,
-            std::mem::take(&mut self.nss_enter_links),
-        )
-        .err();
+        let mut first_error = None;
+        for (program_name, link) in std::mem::take(&mut self.nss_enter_links) {
+            if let Err(error) = detach_kprobe_links(ebpf, &program_name, vec![link]) {
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
+            }
+        }
         if let Some(link) = self.update_link.take() {
             if let Err(error) = detach_kprobe_links(ebpf, ECM_UPDATE_PROGRAM_NAME, vec![link]) {
                 if first_error.is_none() {
@@ -964,13 +1368,11 @@ impl EcmBpfRuntime {
                 }
             }
         }
-        if let Err(error) = detach_kprobe_links(
-            ebpf,
-            ECM_NSS_EXIT_PROGRAM_NAME,
-            std::mem::take(&mut self.nss_exit_links),
-        ) {
-            if first_error.is_none() {
-                first_error = Some(error);
+        for (program_name, link) in std::mem::take(&mut self.nss_exit_links) {
+            if let Err(error) = detach_kprobe_links(ebpf, &program_name, vec![link]) {
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
             }
         }
         self.nss_context_callbacks.clear();
@@ -983,10 +1385,77 @@ impl EcmBpfRuntime {
     }
 }
 
+fn attach_nss_context_links(
+    ebpf: &mut Ebpf,
+    specs: &[NssCallbackSpec],
+    entering: bool,
+) -> Result<Vec<(String, KProbeLinkId)>, EcmBpfRuntimeError> {
+    let mut links = Vec::with_capacity(specs.len());
+    for spec in specs {
+        let program_name = if entering {
+            spec.enter_program
+        } else {
+            spec.exit_program
+        };
+        let program: &mut KProbe = ebpf
+            .program_mut(program_name)
+            .ok_or_else(|| {
+                EcmBpfRuntimeError::new(
+                    ECM_BPF_PROGRAM_LOAD_STAGE,
+                    format!("{program_name} missing"),
+                )
+            })?
+            .try_into()
+            .map_err(|error: aya::programs::ProgramError| {
+                EcmBpfRuntimeError::new(ECM_BPF_PROGRAM_LOAD_STAGE, error.to_string())
+            })?;
+        program.load().map_err(|error| {
+            EcmBpfRuntimeError::new(
+                ECM_BPF_PROGRAM_LOAD_STAGE,
+                format!("load {program_name}: {error}"),
+            )
+        })?;
+        let link = program.attach(spec.symbol, 0).map_err(|error| {
+            EcmBpfRuntimeError::new(
+                ECM_BPF_ATTACH_STAGE,
+                format!("attach {program_name} to {}: {error}", spec.symbol),
+            )
+        })?;
+        links.push((program_name.to_owned(), link));
+    }
+    Ok(links)
+}
+
 fn same_nss_source_generation(before: EcmSourceStats, after: EcmSourceStats) -> bool {
     before.nss_updates == after.nss_updates
         && before.nss_bytes == after.nss_bytes
         && before.nss_packets == after.nss_packets
+}
+
+fn decode_event_hint(bytes: &[u8]) -> Option<EcmCountersUpdatedEvent> {
+    if bytes.len() != size_of::<EcmCountersUpdatedEvent>() {
+        return None;
+    }
+    // The callback boundary cannot prove a complete vendor sync round.
+    let event = unsafe { ptr::read_unaligned(bytes.as_ptr().cast::<EcmCountersUpdatedEvent>()) };
+    (event.round_end == 0).then_some(event)
+}
+
+fn event_source_bucket(source: u8) -> usize {
+    let source = usize::from(source);
+    (source < EVENT_SOURCE_BUCKETS)
+        .then_some(source)
+        .unwrap_or(0)
+}
+
+fn event_interval_bucket(interval_ns: u64) -> usize {
+    match interval_ns {
+        0..=250_000_000 => 0,
+        250_000_001..=500_000_000 => 1,
+        500_000_001..=1_000_000_000 => 2,
+        1_000_000_001..=2_000_000_000 => 3,
+        _ => 4,
+    }
 }
 
 fn detach_kprobe_links(

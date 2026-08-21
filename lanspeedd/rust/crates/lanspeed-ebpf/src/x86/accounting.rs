@@ -5,13 +5,14 @@ use aya_ebpf::{
     bindings::BPF_NOEXIST,
     helpers::bpf_ktime_get_ns,
     macros::map,
-    maps::{LruHashMap, PerCpuArray},
+    maps::{LruHashMap, PerCpuArray, PerCpuHashMap},
     programs::TcContext,
 };
 use lanspeed_common::{
     accounting::tc_frame_accounting,
     packet::{gro_repeated_header_len, is_valid_client_mac, vlan_zone},
-    LanspeedCounters, LanspeedKey, DIR_TX, MAX_CLIENTS,
+    FastCounterValue, LanspeedCounters, LanspeedKey, DIR_TX, FAST_COUNTERS_MAP_CAPACITY,
+    FAST_COUNTER_ABI_VERSION, MAX_CLIENTS,
 };
 
 use crate::atomics::add_u64;
@@ -35,6 +36,12 @@ struct PacketPrefix {
 #[map(name = "lanspeed_clients")]
 pub static LANSPEED_CLIENTS: LruHashMap<LanspeedKey, LanspeedCounters> =
     LruHashMap::with_max_entries(MAX_CLIENTS, 0);
+
+/// x86 has its own FastS writer; it intentionally keeps its packet accounting
+/// implementation local even though the stable map ABI is platform-neutral.
+#[map(name = "lanspeed_fast_counters")]
+static LANSPEED_FAST_COUNTERS: PerCpuHashMap<LanspeedKey, FastCounterValue> =
+    PerCpuHashMap::with_max_entries(FAST_COUNTERS_MAP_CAPACITY, 0);
 
 #[cfg(feature = "conntrack-kfunc")]
 #[map(name = "lanspeed_seen_conns")]
@@ -104,6 +111,9 @@ pub fn account_frame(ctx: TcContext, direction: u8, action: i32) -> i32 {
         padding: [0; 2],
     };
     let now = unsafe { bpf_ktime_get_ns() };
+    unsafe {
+        update_fast_counter(&key, accounting.bytes, accounting.packets, now);
+    }
 
     let counters = match LANSPEED_CLIENTS.get_ptr_mut(&key) {
         Some(counters) => {
@@ -169,4 +179,48 @@ unsafe fn add_packet(counters: *mut LanspeedCounters, bytes: u64, packets: u64, 
         add_u64(packets_counter, packets);
         addr_of_mut!((*counters).last_seen).write_volatile(now);
     }
+}
+
+unsafe fn update_fast_counter(key: &LanspeedKey, bytes: u64, packets: u64, now: u64) {
+    let Some(counter) = LANSPEED_FAST_COUNTERS.get_ptr_mut(key) else {
+        let initial = FastCounterValue {
+            abi_version: FAST_COUNTER_ABI_VERSION,
+            reset_generation: 1,
+            seq: 2,
+            bytes,
+            packets,
+            last_seen_ns: now,
+        };
+        let _ = LANSPEED_FAST_COUNTERS.insert(key, &initial, BPF_NOEXIST as u64);
+        return;
+    };
+
+    // A new PerCPU hash key leaves non-inserting CPU slots zero-initialized.
+    // Initialize such a slot on its first local write and recover stale
+    // metadata under the same odd/even sequence protocol before counting it.
+    let abi_version = addr_of_mut!((*counter).abi_version).read_volatile();
+    let reset_generation = addr_of_mut!((*counter).reset_generation).read_volatile();
+    let sequence_value = addr_of_mut!((*counter).seq).read_volatile();
+    if abi_version != FAST_COUNTER_ABI_VERSION || reset_generation == 0 || sequence_value & 1 != 0 {
+        addr_of_mut!((*counter).seq).write_volatile(1);
+        addr_of_mut!((*counter).abi_version).write_volatile(FAST_COUNTER_ABI_VERSION);
+        addr_of_mut!((*counter).reset_generation).write_volatile(1);
+        addr_of_mut!((*counter).bytes).write_volatile(bytes);
+        addr_of_mut!((*counter).packets).write_volatile(packets);
+        addr_of_mut!((*counter).last_seen_ns).write_volatile(now);
+        addr_of_mut!((*counter).seq).write_volatile(2);
+        return;
+    }
+
+    // Per-CPU ownership prevents concurrent writers for one map value. The
+    // BPF target only supports the existing relaxed atomic RMW primitive, so
+    // userspace must perform two lookups and accept only one even seq.
+    let sequence = addr_of_mut!((*counter).seq);
+    unsafe { crate::atomics::add_u64(sequence, 1) };
+    unsafe {
+        crate::atomics::add_u64(addr_of_mut!((*counter).bytes), bytes);
+        crate::atomics::add_u64(addr_of_mut!((*counter).packets), packets);
+        addr_of_mut!((*counter).last_seen_ns).write_volatile(now);
+    }
+    unsafe { crate::atomics::add_u64(sequence, 1) };
 }

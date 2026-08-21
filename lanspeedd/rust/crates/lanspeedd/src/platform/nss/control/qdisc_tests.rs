@@ -2,6 +2,10 @@
 mod tests {
     use super::*;
 
+    fn shaping() -> NssShapingPolicy {
+        NssShapingPolicy::default()
+    }
+
     #[test]
     fn nss_tree_has_one_firmware_root_group() {
         assert_eq!(classid(ROOT_CLASS_MINOR), "7d00:1");
@@ -34,7 +38,7 @@ mod tests {
         let values = parse_nss_qdisc_details(
             "qdisc nsshtb 7d00: root refcnt 5 r2q 10 accel_mode 0\n\
              qdisc nssbfifo 7d02: parent 7d00:2 limit 16Mb set_default accel_mode 0\n\
-             qdisc nssbfifo 7c23: parent 7d00:7c23 limit 687500b accel_mode 0\n\
+             qdisc nssbfifo 7c23: parent 7d00:7c23 limit 68750b accel_mode 0\n\
              qdisc clsact ffff: parent ffff:fff1\n",
         )
         .unwrap();
@@ -68,7 +72,7 @@ mod tests {
                     root: false,
                     r2q: None,
                     accel_mode: Some(0),
-                    limit: Some("687500b".into()),
+                    limit: Some("68750b".into()),
                     set_default: false,
                 },
             ]
@@ -108,7 +112,7 @@ mod tests {
         assert_eq!(tc_size_text(16 * 1024 * 1024), "16Mb");
         assert_eq!(tc_size_text(1024 * 1024), "1Mb");
         assert_eq!(tc_size_text(1514), "1514b");
-        assert_eq!(tc_size_text(687_500), "687500b");
+        assert_eq!(tc_size_text(68_750), "68750b");
     }
 
     #[test]
@@ -136,10 +140,53 @@ mod tests {
     }
 
     #[test]
+    fn unchanged_client_queue_fingerprint_is_a_noop_candidate() {
+        let rule = ActiveRule {
+            identity_key: "02:00:00:00:00:01@lan".into(),
+            mac: "02:00:00:00:00:01".parse().unwrap(),
+            interface: "edge0".into(),
+            upload_before_proxy: false,
+            upload_preempted: false,
+            ips: vec!["192.0.2.9".parse().unwrap()],
+            upload_bps: 10_000_000,
+            download_bps: 100_000_000,
+            internet_disabled: false,
+            class_minor: 0x7c23,
+        };
+        let (qdisc, class) = expected_client_details(Direction::Download, &rule, shaping());
+        assert_eq!(exact_detail_count(std::slice::from_ref(&qdisc), &qdisc), 1);
+        assert_eq!(exact_detail_count(std::slice::from_ref(&class), &class), 1);
+
+        let mut changed = rule;
+        changed.download_bps = 50_000_000;
+        let (changed_qdisc, changed_class) =
+            expected_client_details(Direction::Download, &changed, shaping());
+        assert_ne!(changed_qdisc, qdisc);
+        assert_ne!(changed_class, class);
+    }
+
+    #[test]
     fn nss_payload_rate_has_independent_l2_headroom_and_stays_u32_safe() {
-        assert_eq!(payload_rate(10_000_000), 11_000_000);
-        assert_eq!(payload_rate(100_000_000), 110_000_000);
-        assert_eq!(payload_rate(NSS_MAX_RATE_BPS), NSS_MAX_RATE_BPS);
+        assert_eq!(payload_rate(10_000_000, shaping()), 11_000_000);
+        assert_eq!(payload_rate(100_000_000, shaping()), 110_000_000);
+        assert_eq!(payload_rate(NSS_MAX_RATE_BPS, shaping()), NSS_MAX_RATE_BPS);
+    }
+
+    #[test]
+    fn nss_rate_compensation_is_a_replaceable_parameter() {
+        assert_eq!(payload_rate_with_compensation(100_000_000, 110, 100), 110_000_000);
+        assert_eq!(payload_rate_with_compensation(100_000_000, 100, 100), 100_000_000);
+        assert_eq!(payload_rate_with_compensation(100_000_000, 0, 0), NSS_MAX_RATE_BPS);
+    }
+
+    #[test]
+    fn nss_rate_compensation_uses_the_plan_policy() {
+        let strict = NssShapingPolicy {
+            rate_compensation_basis_points: 100,
+            ..shaping()
+        };
+        assert_eq!(payload_rate(100_000_000, strict), 100_000_000);
+        assert_eq!(payload_rate(100_000_000, shaping()), 110_000_000);
     }
 
     #[test]
@@ -158,5 +205,32 @@ mod tests {
         assert_eq!(burst_bytes(11_000_000), 13_750);
         assert_eq!(burst_bytes(110_000_000), 137_500);
         assert_eq!(burst_bytes(NSS_MAX_RATE_BPS), MAX_BURST_BYTES);
+    }
+
+    #[test]
+    fn nss_fifo_uses_a_bounded_delay_target_and_small_floor() {
+        assert_eq!(nss_queue_bytes(8_000, shaping()), 8 * 1514);
+        assert_eq!(nss_queue_bytes(11_000_000, shaping()), 68_750);
+        assert_eq!(
+            nss_queue_bytes(NSS_MAX_RATE_BPS, shaping()),
+            NSS_MAX_QUEUE_BYTES
+        );
+    }
+
+    #[test]
+    fn nss_fifo_delay_formula_is_byte_rate_based() {
+        assert_eq!(nss_queue_bytes(80_000_000, shaping()), 500_000);
+        assert_eq!(nss_queue_bytes(160_000_000, shaping()), 1_000_000);
+    }
+
+    #[test]
+    fn nss_fifo_uses_independent_delay_and_floor_policy() {
+        let tuned = NssShapingPolicy {
+            fifo_target_delay_ms: 30,
+            fifo_min_queue_packets: 4,
+            ..shaping()
+        };
+        assert_eq!(nss_queue_bytes(8_000, tuned), 4 * 1514);
+        assert_eq!(nss_queue_bytes(80_000_000, tuned), 300_000);
     }
 }

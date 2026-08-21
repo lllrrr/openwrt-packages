@@ -121,7 +121,17 @@
     "object_role": "isolated_nss_hardware_context_kprobe",
     "tc_bpf_object": "/usr/lib/bpf/lanspeed-ebpf-fallback",
     "target_arch": "aarch64",
-    "programs": ["lanspeed_ecm_nss_enter", "lanspeed_ecm_nss_exit", "lanspeed_ecm_update"],
+    "programs": [
+      "lanspeed_ecm_nss_enter_sync_many_v4",
+      "lanspeed_ecm_nss_exit_sync_many_v4",
+      "lanspeed_ecm_nss_enter_sync_many_v6",
+      "lanspeed_ecm_nss_exit_sync_many_v6",
+      "lanspeed_ecm_nss_enter_netdev_v4",
+      "lanspeed_ecm_nss_exit_netdev_v4",
+      "lanspeed_ecm_nss_enter_netdev_v6",
+      "lanspeed_ecm_nss_exit_netdev_v6",
+      "lanspeed_ecm_update"
+    ],
     "attach": {
       "totals": "kprobe:ecm_db_connection_data_totals_update",
       "nss_context": [
@@ -144,7 +154,51 @@
       "time_added_type": "uint32_t",
       "pointer_size": 8
     },
-    "maps": ["lanspeed_ecm_clients", "lanspeed_ecm_nss_context", "lanspeed_ecm_source_stats"],
+    "maps": ["lanspeed_ecm_clients", "lanspeed_ecm_fast_counters", "lanspeed_ecm_nss_context", "lanspeed_ecm_source_stats"],
+    "fast_counter": {
+      "map": "lanspeed_fast_counters",
+      "writer_sources": [
+        "rust/crates/lanspeed-ebpf/src/nss/account.rs",
+        "rust/crates/lanspeed-ebpf/src/x86/accounting.rs"
+      ],
+      "map_type": "percpu_hash",
+      "value": [
+        "abi_version",
+        "reset_generation",
+        "seq",
+        "bytes",
+        "packets",
+        "last_seen_ns"
+      ],
+      "abi_version": 1,
+      "stable_read": {
+        "lookups_per_cpu": 2,
+        "require_even_equal_seq": true,
+        "bounded_retries": 3,
+        "partial_cpu_read": "invalid_window",
+        "cpu_count_change": "invalid_window",
+        "reset_generation_change": "rebaseline"
+      },
+      "aggregation": "sum_bytes_packets_max_last_seen",
+      "formal_rate_owner": false
+    },
+    "ecm_fast_counter": {
+      "map": "lanspeed_ecm_fast_counters",
+      "writer_sources": ["rust/crates/lanspeed-ebpf/src/nss/ecm.rs"],
+      "map_type": "percpu_hash",
+      "key": "EcmKey_mac_direction",
+      "capacity": "2_times_max_clients",
+      "value": [
+        "abi_version",
+        "reset_generation",
+        "seq",
+        "bytes",
+        "packets",
+        "last_seen_ns"
+      ],
+      "stable_read": "same_fast_counter_protocol",
+      "formal_rate_owner": false
+    },
     "map_key": ["client_mac", "direction"],
     "map_abi": "EcmKey_v1_with_connection_and_generation_zeroed",
     "map_capacity": "at_least_2_times_max_clients",
@@ -161,7 +215,37 @@
     "conntrack_rate_overlay": false,
     "deduplication": "nss_callback_context_excludes_ecm_slow_path_before_aligned_raw_delta_fusion",
     "nss_context_key": "pid_tgid",
-    "nss_context_value": "nested_callback_depth",
+    "nss_context_value": "nested_callback_depth_dirty_source_id",
+    "event_hint": {
+      "name": "ECM_COUNTERS_UPDATED",
+      "map": "lanspeed_ecm_event_ringbuf",
+      "semantics": "counter_update_hint_only",
+      "round_end": 0,
+      "sources": [
+        "ECM_SYNC_MANY_V4",
+        "ECM_SYNC_MANY_V6",
+        "ECM_NETDEV_V4",
+        "ECM_NETDEV_V6"
+      ],
+      "telemetry": [
+        "event_emit",
+        "event_received",
+        "event_coalesced",
+        "ringbuf_reserve_fail",
+        "source_distribution",
+        "callback_interval_histogram",
+        "last_event_age"
+      ],
+      "drop_effect": "telemetry_only"
+    },
+    "fast_rate_plane": {
+      "fixed_timer_ms": 1000,
+      "event_debounce_ms": 20,
+      "event_is_hint_only": true,
+      "same_window_required": true,
+      "max_read_end_skew_ms": 250,
+      "shadow_only_until_real_machine_validation": true
+    },
     "classification_role": "N_nss_identified_only",
     "active_auto_misaligned_rate_fallback": "forbidden",
     "read_only": true
@@ -306,7 +390,7 @@
     },
     "public_contract": {
       "total_rate_prefers": "E",
-      "edge_missing_fallback": "strictly_aligned_N_plus_S_degraded_only",
+      "edge_missing_fallback": "transient_e_only_valid_evidence_lease_and_current_fast_n_plus_fast_s",
       "unclassified_must_not_be_named_unaccelerated": true,
       "classification_state_granularity": "client_worst_state_plus_sparse_direction_override",
       "main_clients_payload": "rate_meta_with_sparse_directional_rate_freshness_and_classification_coverage_summary",
@@ -402,6 +486,40 @@
     "packet_estimation_forbidden": true,
     "counter_reset": "rebaseline_only_affected_connection_generation",
     "client_wide_reset_forbidden": true
+  },
+  "nss_hardware_verifier": {
+    "module": "rust/crates/lanspeedd/src/platform/nss/hardware_verifier.rs",
+    "client_rate_owner": false,
+    "rate_mux_input": false,
+    "scope": "ecm_bpf_upload_vs_aggregate_current_igs_nodes",
+    "window": "consecutive_fresh_generation_stable_samples",
+    "generation_change": "rebaseline_without_verdict",
+    "counter_reset": "rebaseline_without_verdict",
+    "sync_stall": "diagnostic_only",
+    "outcomes": ["idle", "aligned", "bpf_only", "igs_only", "divergent"]
+  },
+  "evidence_lease": {
+    "module": "rust/crates/lanspeedd/src/platform/nss/evidence_lease.rs",
+    "lifetime_ms": 10000,
+    "issue_requires": ["e_authority", "aligned_classifier_window", "n_s_disjoint"],
+    "transient_e_substitute": "combined_fast_n_plus_fast_s_only",
+    "structural_e_client_total": "forbidden",
+    "formal_selector": "rust/crates/lanspeedd/src/platform/nss/rate_mux.rs",
+    "substitute_rate_source": "fast_routed_lease",
+    "substitute_byte_domain": "l2_with_fcs_from_ecm_plus_18_and_tc_plus_4_per_packet",
+    "fast_window_current_required": true,
+    "explicit_internet_mode": "internet_view_mode_routed",
+    "explicit_internet_rate_source": "fast_routed_internet",
+    "explicit_internet_scope": "routed_observed",
+    "ringbuf_drop_invalidates": false,
+    "fast_window_stale_invalidates": false,
+    "generation_fields": [
+      "attachment_generation",
+      "nss_bpf_load_generation",
+      "nss_map_generation",
+      "tc_attach_generation",
+      "layout_generation"
+    ]
   },
   "diagnostics": {
     "public_client_api_exposes_internal_packets": false,

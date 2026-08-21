@@ -4,6 +4,8 @@
 var RATE_SOURCE_LABELS = {
 	edge_port: 'Edge-Port',
 	edge_wifi: 'Edge-WiFi',
+	fast_routed_lease: 'FastN+FastS lease',
+	fast_routed_internet: 'FastN+FastS routed Internet',
 	ecm_bpf_fallback: 'ECM+BPF fallback',
 	ecm_nss_lower_bound: 'ECM NSS lower-bound',
 	tc_bpf_lower_bound: 'TC-BPF lower-bound',
@@ -27,6 +29,25 @@ function combinedDirectionLabel(tx, rx, labelFor) {
 	var txValue = labelFor(tx || {});
 	var rxValue = labelFor(rx || {});
 	return txValue === rxValue ? txValue : '↑ ' + txValue + ' / ↓ ' + rxValue;
+}
+
+function routedSource(meta, direction) {
+	if (!meta || typeof meta !== 'object' || meta.scope !== 'routed_observed')
+		return '';
+	var value = meta[direction];
+	var source = value && String(value.source || '');
+	return source === 'fast_routed_internet' || source === 'fast_routed_lease'
+		? source : '';
+}
+
+function routedCollector(meta) {
+	if (!meta || typeof meta !== 'object' || meta.scope !== 'routed_observed')
+		return '';
+	var tx = routedSource(meta, 'tx');
+	var rx = routedSource(meta, 'rx');
+	if (!tx || !rx) return '';
+	return tx === 'fast_routed_lease' || rx === 'fast_routed_lease'
+		? 'fast_routed_lease' : 'fast_routed_internet';
 }
 
 function cells(meta, nssProfile) {
@@ -101,5 +122,7 @@ function cells(meta, nssProfile) {
 return baseclass.extend({
 	sourceLabel: sourceLabel,
 	combinedDirectionLabel: combinedDirectionLabel,
+	routedSource: routedSource,
+	routedCollector: routedCollector,
 	cells: cells
 });

@@ -33,7 +33,11 @@ pub mod config;
 pub mod connection_details;
 pub mod connections;
 #[cfg(feature = "openwrt")]
+mod conntrack_worker;
+#[cfg(feature = "openwrt")]
 pub mod control;
+#[cfg(feature = "openwrt")]
+mod control_worker;
 pub mod daemon;
 pub mod error;
 pub mod history;
@@ -48,8 +52,12 @@ pub mod production;
 #[cfg(any(feature = "openwrt", test))]
 mod production_evidence;
 pub mod rate;
+pub mod realtime;
+#[cfg(any(feature = "openwrt", test))]
+mod runtime_worker;
 pub mod state;
 pub mod ubus;
+pub mod workers;
 
 pub const fn is_fresh(now_ms: u64, sample_ms: u64, limit_ms: u64) -> bool {
     sample_ms <= now_ms && now_ms - sample_ms <= limit_ms

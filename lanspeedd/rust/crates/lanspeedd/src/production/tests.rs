@@ -1,4 +1,11 @@
 use super::*;
+use crate::config::InternetViewMode;
+
+#[test]
+fn fast_rate_notices_wait_for_runtime_collection_ownership_to_return() {
+    assert!(!fast_rate_notices_can_drain(false));
+    assert!(fast_rate_notices_can_drain(true));
+}
 
 #[test]
 fn nss_control_path_requires_a_current_nonempty_classifier_epoch() {
@@ -343,40 +350,6 @@ fn nss_control_path_proves_wifi_identity_without_cross_domain_subtraction() {
 }
 use crate::platform::nss::ecm_bpf::EcmBpfClientSample;
 
-#[derive(Default)]
-struct FakeRuntime {
-    shutdowns: usize,
-    fail_shutdown: bool,
-}
-
-impl Runtime for FakeRuntime {
-    type Checkpoint = ();
-
-    fn checkpoint(&self) -> Self::Checkpoint {}
-
-    fn restore(&mut self, _checkpoint: Self::Checkpoint) {}
-
-    fn collect(&mut self) -> Result<ResponseSnapshot, DaemonError> {
-        unreachable!("mode-switch failure tests do not collect")
-    }
-
-    fn shutdown(&mut self) -> Result<(), DaemonError> {
-        self.shutdowns += 1;
-        if self.fail_shutdown {
-            Err(DaemonError::collection("candidate shutdown failed"))
-        } else {
-            Ok(())
-        }
-    }
-}
-
-fn test_state() -> CoordinatorState {
-    CoordinatorState::new(
-        RuntimeConfig::default(),
-        Arc::new(ResponseSnapshot::unsupported("test")),
-    )
-}
-
 #[test]
 fn ecm_bpf_ignores_flowtable_warnings_owned_by_other_offload_paths() {
     let original = vec![
@@ -391,104 +364,6 @@ fn ecm_bpf_ignores_flowtable_warnings_owned_by_other_offload_paths() {
     let mut bpf = original.clone();
     retain_collector_warnings(&mut bpf, RateCollector::Bpf);
     assert_eq!(bpf, original);
-}
-
-#[test]
-fn intact_suspend_failure_restores_timer_without_fatal_stop() {
-    let state = test_state();
-    let mut candidate = FakeRuntime::default();
-    let timer_restores = Cell::new(0);
-    let stopped = Cell::new(false);
-
-    let error = finish_mode_switch_suspend_failure(
-        &state,
-        &mut candidate,
-        DaemonError::reload("inspect failed"),
-        true,
-        || {
-            timer_restores.set(timer_restores.get() + 1);
-            Ok(())
-        },
-        || stopped.set(true),
-    );
-
-    assert!(error.to_string().contains("inspect failed"));
-    assert_eq!(candidate.shutdowns, 1);
-    assert_eq!(timer_restores.get(), 1);
-    assert!(!stopped.get());
-    assert!(state.fatal_error().is_none());
-}
-
-#[test]
-fn mutated_suspend_failure_is_fatal_even_when_cleanup_succeeds() {
-    let state = test_state();
-    let mut candidate = FakeRuntime::default();
-    let timer_restores = Cell::new(0);
-    let stopped = Cell::new(false);
-
-    finish_mode_switch_suspend_failure(
-        &state,
-        &mut candidate,
-        DaemonError::reload("detach failed"),
-        false,
-        || {
-            timer_restores.set(timer_restores.get() + 1);
-            Ok(())
-        },
-        || stopped.set(true),
-    );
-
-    assert_eq!(candidate.shutdowns, 1);
-    assert_eq!(timer_restores.get(), 1);
-    assert!(stopped.get());
-    assert!(state
-        .fatal_error()
-        .is_some_and(|error| error.contains("detach failed")));
-}
-
-#[test]
-fn failed_old_topology_restore_is_fatal_and_preserves_both_causes() {
-    let state = test_state();
-    let mut candidate = FakeRuntime::default();
-    let stopped = Cell::new(false);
-
-    let error = finish_mode_switch_rollback(
-        &state,
-        &mut candidate,
-        DaemonError::reload("candidate collect failed"),
-        Err(AdapterError::new(
-            AdapterErrorKind::DetachFailed,
-            "old restore failed",
-        )),
-        || Ok(()),
-        || stopped.set(true),
-    );
-
-    assert!(error.to_string().contains("candidate collect failed"));
-    assert!(error.to_string().contains("old restore failed"));
-    assert!(stopped.get());
-    assert!(state.fatal_error().is_some());
-}
-
-#[test]
-fn successful_old_topology_restore_returns_plain_reload_error() {
-    let state = test_state();
-    let mut candidate = FakeRuntime::default();
-    let stopped = Cell::new(false);
-
-    let error = finish_mode_switch_rollback(
-        &state,
-        &mut candidate,
-        DaemonError::reload("candidate collect failed"),
-        Ok(()),
-        || Ok(()),
-        || stopped.set(true),
-    );
-
-    assert!(error.to_string().contains("candidate collect failed"));
-    assert_eq!(candidate.shutdowns, 1);
-    assert!(!stopped.get());
-    assert!(state.fatal_error().is_none());
 }
 
 #[test]
@@ -623,22 +498,65 @@ fn lan_clock_deduplicates_overlapping_roots_and_sums_disjoint_boundaries() {
 }
 
 #[test]
+fn interface_display_uses_independent_members_and_fcs() {
+    let counters = BTreeMap::from([
+        (
+            "br-lan".into(),
+            InterfaceCounters {
+                rx_bytes: 1_000,
+                tx_bytes: 2_000,
+                rx_packets: 10,
+                tx_packets: 20,
+            },
+        ),
+        (
+            "phy1-ap0".into(),
+            InterfaceCounters {
+                rx_bytes: 2_000,
+                tx_bytes: 4_000,
+                rx_packets: 20,
+                tx_packets: 40,
+            },
+        ),
+    ]);
+
+    let boundaries = vec!["phy1-ap0".into()];
+    let display =
+        interface_display_counters("br-lan", InterfaceRole::Lan, Some(&boundaries), &counters)
+            .unwrap();
+
+    assert_eq!(display.rx_bytes, 2_080);
+    assert_eq!(display.tx_bytes, 4_160);
+}
+
+#[test]
 fn effective_collector_controls_only_the_nss_timer_floor() {
     assert_eq!(
-        effective_collection_interval_ms(AccessEdgeMode::Off, None, 500),
+        effective_collection_interval_ms(AccessEdgeMode::Off, InternetViewMode::Off, None, 500),
         500
     );
     assert_eq!(
-        effective_collection_interval_ms(AccessEdgeMode::Off, Some(RateCollector::Bpf), 500,),
+        effective_collection_interval_ms(
+            AccessEdgeMode::Off,
+            InternetViewMode::Off,
+            Some(RateCollector::Bpf),
+            500,
+        ),
         500
     );
     assert_eq!(
-        effective_collection_interval_ms(AccessEdgeMode::Off, Some(RateCollector::NssEcmNode), 500,),
+        effective_collection_interval_ms(
+            AccessEdgeMode::Off,
+            InternetViewMode::Off,
+            Some(RateCollector::NssEcmNode),
+            500,
+        ),
         2_000
     );
     assert_eq!(
         effective_collection_interval_ms(
             AccessEdgeMode::Off,
+            InternetViewMode::Off,
             Some(RateCollector::NssEcmBpf),
             1_000,
         ),
@@ -647,6 +565,7 @@ fn effective_collector_controls_only_the_nss_timer_floor() {
     assert_eq!(
         effective_collection_interval_ms(
             AccessEdgeMode::Off,
+            InternetViewMode::Off,
             Some(RateCollector::NssEcmBpf),
             3_000,
         ),
@@ -655,13 +574,28 @@ fn effective_collector_controls_only_the_nss_timer_floor() {
     assert_eq!(
         effective_collection_interval_ms(
             AccessEdgeMode::Shadow,
+            InternetViewMode::Off,
             Some(RateCollector::NssEcmBpf),
             3_000,
         ),
         1_000
     );
     assert_eq!(
-        effective_collection_interval_ms(AccessEdgeMode::Active, Some(RateCollector::Bpf), 500,),
+        effective_collection_interval_ms(
+            AccessEdgeMode::Active,
+            InternetViewMode::Off,
+            Some(RateCollector::Bpf),
+            500,
+        ),
+        1_000
+    );
+    assert_eq!(
+        effective_collection_interval_ms(
+            AccessEdgeMode::Off,
+            InternetViewMode::Routed,
+            Some(RateCollector::NssEcmNode),
+            3_000,
+        ),
         1_000
     );
 }
@@ -674,7 +608,8 @@ fn active_auto_never_executes_the_legacy_inference_rate_window() {
     ));
     assert!(!legacy_nss_rate_window_enabled(
         AccessEdgeMode::Active,
-        RateCollectorMode::Auto
+        RateCollectorMode::Auto,
+        InternetViewMode::Off
     ));
     assert_eq!(
         published_rate_collector_mode(true, "conntrack_netlink"),
@@ -690,11 +625,28 @@ fn active_auto_never_executes_the_legacy_inference_rate_window() {
         (AccessEdgeMode::Shadow, RateCollectorMode::Auto),
         (AccessEdgeMode::Active, RateCollectorMode::Bpf),
         (AccessEdgeMode::Active, RateCollectorMode::NssEcmNode),
-        (AccessEdgeMode::Active, RateCollectorMode::NssEcmBpf),
     ] {
         assert!(!active_access_edge_owns_display_rate(edge, rate));
-        assert!(legacy_nss_rate_window_enabled(edge, rate));
+        assert!(legacy_nss_rate_window_enabled(
+            edge,
+            rate,
+            InternetViewMode::Off
+        ));
     }
+    assert!(!active_access_edge_owns_display_rate(
+        AccessEdgeMode::Active,
+        RateCollectorMode::NssEcmBpf
+    ));
+    assert!(legacy_nss_rate_window_enabled(
+        AccessEdgeMode::Active,
+        RateCollectorMode::NssEcmBpf,
+        InternetViewMode::Off
+    ));
+    assert!(!legacy_nss_rate_window_enabled(
+        AccessEdgeMode::Off,
+        RateCollectorMode::Auto,
+        InternetViewMode::Routed
+    ));
 }
 
 #[test]
@@ -727,6 +679,74 @@ fn direction_rate_meta_emits_only_summary_overrides() {
     );
     assert_eq!(compact_rate_sample_ms(Some(9_000), None), None);
     assert_eq!(compact_rate_sample_ms(None, Some(10_000)), None);
+}
+
+#[test]
+fn active_rate_mux_never_treats_a_classifier_candidate_as_edge_authority() {
+    let classifier = RateCandidate {
+        source: EdgeRateSource::EcmBpfFallback,
+        bps: 8_000,
+        coverage: crate::platform::access_edge::Coverage::Degraded,
+        scope: EdgeTrafficScope::RoutedObserved,
+        byte_domain: EdgeByteDomain::L2WithFcs,
+        sample_ms: 2_000,
+        window_ms: 1_000,
+        cadence_ms: 2_000,
+        attachment_generation: 7,
+        fresh: true,
+    };
+    let unavailable = active_rate_direction(RateView::Unavailable, Some(classifier), None);
+    assert_eq!(unavailable.source, ModelRateSource::None);
+    assert_eq!(unavailable.bps, 0);
+
+    let e_without_edge = active_rate_direction(RateView::EAuthority, None, None);
+    assert_eq!(e_without_edge.source, ModelRateSource::None);
+}
+
+#[test]
+fn active_rate_mux_publishes_only_current_normalized_leased_fast_window() {
+    let sample = FastClientSample {
+        sample_ms: 10_000,
+        window_ms: 1_000,
+        read_end_skew_ms: 5,
+        fast_n_bps: 1_000,
+        fast_s_bps: 500,
+        fast_total_bps: 1_500,
+        routed_l2_with_fcs_bps: 1_800,
+    };
+    assert!(fast_client_sample_current(13_500, sample));
+    assert!(!fast_client_sample_current(13_501, sample));
+    let long_window = FastClientSample {
+        window_ms: 2_000,
+        ..sample
+    };
+    assert!(fast_client_sample_current(13_500, long_window));
+    assert!(!fast_client_sample_current(13_501, long_window));
+    let published = active_rate_direction(RateView::RoutedLeaseSubstitute, None, Some(sample));
+    assert_eq!(published.bps, 1_800);
+    assert_eq!(published.source, ModelRateSource::FastRoutedLease);
+    assert_eq!(published.scope, ModelRateScope::RoutedObserved);
+    assert_eq!(published.byte_domain, Some(ModelByteDomain::L2WithFcs));
+    assert!(published.mux_owner);
+}
+
+#[test]
+fn explicit_internet_view_publishes_routed_fast_window_without_a_lease() {
+    let sample = FastClientSample {
+        sample_ms: 10_000,
+        window_ms: 1_000,
+        read_end_skew_ms: 5,
+        fast_n_bps: 2_000,
+        fast_s_bps: 700,
+        fast_total_bps: 2_700,
+        routed_l2_with_fcs_bps: 3_000,
+    };
+    let published = active_rate_direction(RateView::RoutedInternet, None, Some(sample));
+    assert_eq!(published.bps, 3_000);
+    assert_eq!(published.source, ModelRateSource::FastRoutedInternet);
+    assert_eq!(published.scope, ModelRateScope::RoutedObserved);
+    assert_eq!(published.byte_domain, Some(ModelByteDomain::L2WithFcs));
+    assert!(published.mux_owner);
 }
 
 #[test]

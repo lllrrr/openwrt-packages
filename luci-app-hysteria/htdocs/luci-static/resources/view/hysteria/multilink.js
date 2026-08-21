@@ -24,6 +24,26 @@ function duration(s) {
 	return '%ds'.format(s);
 }
 
+/* A byte count, or a dash where the link published none.
+ *
+ * A dash rather than a zero, and the difference is the whole point: zero is the
+ * claim that this server carried nothing, which is a fault. No figure at all is
+ * what a link that never came up reports, and the state column beside it already
+ * says why. */
+function bytes(n) {
+	return typeof n == 'number' ? hy.fmtBytes(n) : '-';
+}
+
+/* What these two columns are counting, as hover text on every cell.
+ *
+ * They are not the bundle's RX and TX divided up, and an operator who adds them
+ * expecting the interface total will come up short by a few percent and go
+ * looking for the missing traffic. The interface figure is the kernel counting IP
+ * packets after multilink reassembly; these are PPP frames counted by the process
+ * carrying each link, which includes the per-fragment multilink header and every
+ * LCP echo, and excludes everything the QUIC leg adds underneath. */
+var COUNTER_HELP = _('PPP frames this link carried, counted by the process carrying it. Includes multilink and LCP overhead, so the links do not sum exactly to the interface total above.');
+
 /* The banner, which is the point of the page.
  *
  * Every way this goes wrong goes wrong quietly: a bundle that never formed
@@ -176,19 +196,309 @@ function linkRow(st, l) {
 
 	return E('tr', { 'class': 'tr' }, [
 		E('td', { 'class': 'td', 'style': 'width:2em;opacity:0.6' }, String(l.slot)),
-		E('td', { 'class': 'td' }, E('code', {}, l.server || '-')),
+		/* The address in an array rather than as a bare string: LuCI's dom.append
+		 * createTextNode's the items of an array and assigns a lone string to
+		 * innerHTML, so markup in a value would be parsed as markup. Nothing here
+		 * is remote -- a server address comes from this router's own UCI -- but
+		 * the array costs two characters and removes the question. */
+		E('td', { 'class': 'td', 'style': 'white-space:nowrap' },
+			E('code', {}, [l.server || '-'])),
 		E('td', {
 			'class': 'td',
 			'style': 'opacity:0.7',
 			'title': ROLE_HELP[l.role] || ''
 		}, l.role || '-'),
-		E('td', { 'class': 'td' }, [
+		/* Both nowrap, now that two more columns compete for the width: "In bundle"
+		 * broken across two lines reads as two states, and "2h 14m" broken after
+		 * the hours reads as a column of gibberish. The table scrolls sideways
+		 * instead -- its wrapper has always been overflow-x:auto. */
+		E('td', { 'class': 'td', 'style': 'white-space:nowrap' }, [
 			E('span', { 'class': 'hy-led hy-' + hy.severity(l.state, bundled) }),
 			' ', hy.stateText(l.state, bundled)
 		]),
-		E('td', { 'class': 'td', 'style': 'font-variant-numeric:tabular-nums' },
-			duration(l['for'])),
+		E('td', { 'class': 'td hy-num' }, duration(l['for'])),
+		E('td', { 'class': 'td hy-num', 'title': COUNTER_HELP }, bytes(l.rx_bytes)),
+		E('td', { 'class': 'td hy-num', 'title': COUNTER_HELP }, bytes(l.tx_bytes)),
 		E('td', { 'class': 'td' }, note)
+	]);
+}
+
+/* The interface's own counters, in the form Network -> Interfaces states them.
+ *
+ * The same source as that page: one netdev per bundle, read straight out of its
+ * kernel statistics. Shown here so that an operator reading per-server figures
+ * has the total they belong to on the same screen, rather than having to hold a
+ * number in their head across two pages. */
+function interfaceTotals(st) {
+	if (typeof st.rx_bytes != 'number' && typeof st.tx_bytes != 'number')
+		return E('div');
+
+	/* LuCI's own %.2mB rather than hy.fmtBytes, which is the one place on this
+	 * page that delegates. These two figures are the ones a reader will hold up
+	 * against Network -> Interfaces, so they are produced by the expression that
+	 * page uses, character for character. The per-link columns below cannot do
+	 * the same -- hysteria-ppp-status prints them too and has no LuCI -- so they
+	 * go through the shared implementation instead, which reproduces this one. */
+	function line(label, b, pkts) {
+		return E('div', {}, [
+			E('strong', {}, label), ': ',
+			typeof b == 'number' ? '%.2mB'.format(b) : '-',
+			typeof pkts == 'number' ? ' (%d %s)'.format(pkts, _('Pkts.')) : ''
+		]);
+	}
+
+	return E('div', { 'class': 'cbi-value-description hy-num', 'style': 'opacity:0.9' }, [
+		line(_('RX'), st.rx_bytes, st.rx_packets),
+		line(_('TX'), st.tx_bytes, st.tx_packets)
+	]);
+}
+
+/* --- the stacked per-link graph -------------------------------------------
+ *
+ * Why this is drawn here rather than fetched from LuCI's Realtime Graphs.
+ *
+ * That page's data comes from luci-bwc, whose interface sampler is an
+ * opendir("/sys/class/net") loop with no plugin interface and no configuration:
+ * it can sample a network device and nothing else. A member of a Multilink
+ * bundle is not a network device -- it is a channel inside one, absent from
+ * /sys/class/net entirely -- so no amount of configuration makes that feed
+ * per-link. The bundle appears there and is already graphed correctly; the
+ * breakdown below it is the part that has to come from somewhere else.
+ *
+ * What it comes from is the same ubus document the table above reads. Each
+ * link's client publishes the rate series it measured, so the window is drawn
+ * from the router's samples rather than from differences between page polls --
+ * which is also why it is populated the moment the page opens rather than a
+ * minute later, and why a reload does not clear it. */
+
+var SVGNS = 'http://www.w3.org/2000/svg';
+
+function SE(tag, attrs, children) {
+	var el = document.createElementNS(SVGNS, tag), k;
+
+	for (k in (attrs || {}))
+		if (attrs[k] != null)
+			el.setAttribute(k, attrs[k]);
+
+	(Array.isArray(children) ? children : children != null ? [children] : [])
+		.forEach(function(c) {
+			el.appendChild(typeof c == 'object' ? c : document.createTextNode(String(c)));
+		});
+
+	return el;
+}
+
+/* One colour per slot, by position rather than by state.
+ *
+ * A slot keeps its colour for as long as the interface is up -- the server in
+ * slot 2 is the same server from one poll to the next -- so a band that changes
+ * height means throughput changed, and never that the legend was reshuffled
+ * underneath it. Chosen to stay distinguishable on both LuCI themes; the first
+ * three deliberately match the status LEDs above. */
+var LINK_COLOURS = [
+	'#2e7d45', '#1f6fb2', '#96650c', '#7b4ea8',
+	'#a6322d', '#0f7c86', '#8a7300', '#4a4a8a'
+];
+
+function colourOf(i) {
+	return LINK_COLOURS[i % LINK_COLOURS.length];
+}
+
+/* The links that published a usable series, and the window they share.
+ *
+ * Links are aligned by position from the *end* rather than by any timestamp,
+ * because none of them publishes one. Every client writes on the same schedule
+ * and the collector reads them all in a single pass, so the newest sample of one
+ * link is within a write interval of the newest sample of the next -- a skew of
+ * a few seconds on a window of sixty, which is invisible at this scale and is
+ * the only alignment available without a shared clock.
+ *
+ * A link whose step differs is dropped rather than resampled. It cannot happen
+ * between links of one bundle, which run the same binary; if it ever does, one
+ * band drawn at the wrong time base would be worse than one band missing. */
+function series(st) {
+	var links = st.links || [], i, r, step = 0, len = 0, out = [];
+
+	for (i = 0; i < links.length; i++) {
+		r = hy.rates(links[i]);
+		if (!r.length)
+			continue;
+		if (!step)
+			step = links[i].hist_step_ms;
+		else if (links[i].hist_step_ms != step)
+			continue;
+
+		out.push({ link: links[i], rates: r, colour: colourOf(i) });
+		if (r.length > len)
+			len = r.length;
+	}
+
+	return { step: step, len: len, links: out };
+}
+
+/* One link's rate at a position in the shared window, or zero before its series
+ * begins. A link that connected thirty seconds ago carried nothing on this
+ * bundle before that, so zero is the honest value rather than a gap. */
+function valueAt(e, p, len, dir) {
+	var off = len - e.rates.length;
+	return p < off ? 0 : e.rates[p - off][dir];
+}
+
+/* A round number at or above the peak, so the axis label is readable and the
+ * scale does not jitter with every poll the way a bare maximum would. */
+function ceiling(v) {
+	var mag, n;
+
+	if (!(v > 0))
+		return 1;
+
+	mag = Math.pow(10, Math.floor(Math.log(v) / Math.LN10));
+	n = v / mag;
+	n = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
+	return n * mag;
+}
+
+/* The chart itself: one filled band per link, stacked, so the outline is the
+ * bundle's throughput and each band is one server's share of it.
+ *
+ * Stacked rather than overlaid, which is the one decision here that changes what
+ * the picture means. Overlaid bands answer "how fast is this link", which the
+ * table already answers; stacked, the top edge is the bundle and the question it
+ * answers is the one this page exists for -- whether the throughput is coming
+ * from every server or from one.
+ *
+ * preserveAspectRatio="none" so the SVG stretches to whatever width the theme
+ * gives it. Nothing inside is stroked and no text lives in here, so there is
+ * nothing for the non-uniform scale to distort; the labels are HTML alongside. */
+function chart(s, dir) {
+	var W = 600, H = 110, i, p, len = s.len,
+	    totals = [], peak = 0, scale, below = [], bands = [], grid = [];
+
+	for (p = 0; p < len; p++) {
+		totals[p] = 0;
+		below[p] = 0;
+		for (i = 0; i < s.links.length; i++)
+			totals[p] += valueAt(s.links[i], p, len, dir);
+		if (totals[p] > peak)
+			peak = totals[p];
+	}
+
+	/* Two different numbers, and reporting the wrong one is how a graph lies
+	 * quietly. The axis is drawn against a round figure at or above the peak, so
+	 * the picture does not rescale on every poll; the figure printed beside it is
+	 * the peak itself, because that is what the reader is being told. */
+	scale = ceiling(peak);
+
+	/* With one sample there is no interval to plot across, and a polygon whose
+	 * points all share an x is an empty chart beside a legend reporting a live
+	 * rate. Drawn as a flat band spanning the width instead: one sample really
+	 * does describe the whole of the window it is the only measurement of. */
+	function x(p) {
+		return len > 1 ? (p * W / (len - 1)).toFixed(1) : (p ? W : 0);
+	}
+
+	function y(v) {
+		return (H - v * H / scale).toFixed(1);
+	}
+
+	for (i = 0; i < s.links.length; i++) {
+		var top = [], bottom = [], v;
+
+		for (p = 0; p < len; p++) {
+			v = valueAt(s.links[i], p, len, dir);
+			top.push(x(p) + ',' + y(below[p] + v));
+			bottom.unshift(x(p) + ',' + y(below[p]));
+			if (len == 1) {
+				/* The same sample again at the far edge, so the band has width. */
+				top.push(W + ',' + y(below[p] + v));
+				bottom.unshift(W + ',' + y(below[p]));
+			}
+			below[p] += v;
+		}
+
+		bands.push(SE('polygon', {
+			points: top.concat(bottom).join(' '),
+			fill: s.links[i].colour,
+			'fill-opacity': '0.55'
+		}));
+	}
+
+	for (p = 1; p < 4; p++)
+		grid.push(SE('line', {
+			x1: 0, x2: W, y1: (p * H / 4).toFixed(1), y2: (p * H / 4).toFixed(1),
+			stroke: 'currentColor', 'stroke-opacity': '0.15', 'stroke-width': '1',
+			'vector-effect': 'non-scaling-stroke'
+		}));
+
+	return {
+		peak: peak,
+		svg: SE('svg', {
+			viewBox: '0 0 ' + W + ' ' + H,
+			preserveAspectRatio: 'none',
+			width: '100%', height: H,
+			style: 'display:block;border:1px solid rgba(128,128,128,0.3);border-radius:3px'
+		}, grid.concat(bands))
+	};
+}
+
+/* One direction's chart, with its scale and the window it covers. */
+function chartBlock(s, dir, title) {
+	var c = chart(s, dir), seconds = Math.round(s.len * s.step / 1000);
+
+	return E('div', { 'style': 'flex:1 1 20em;min-width:16em' }, [
+		E('div', { 'class': 'hy-num', 'style': 'display:flex;justify-content:space-between;opacity:0.7' }, [
+			E('strong', {}, title),
+			E('span', {}, _('peak %s').format(hy.fmtRate(c.peak, 1)))
+		]),
+		c.svg,
+		E('div', { 'style': 'opacity:0.55;font-size:90%' },
+			_('last %d seconds').format(seconds))
+	]);
+}
+
+/* Which band is which, and what each is carrying right now.
+ *
+ * The current figure is the newest sample rather than an average over the
+ * window, so it answers the same question the colour band's right-hand edge
+ * does. A link that has just stopped reads zero here while its band still shows
+ * the minute it carried, which is the correct pair of statements. */
+function legend(s) {
+	return E('div', { 'style': 'display:flex;flex-wrap:wrap;gap:0.25em 1.5em;margin-top:0.5em' },
+		s.links.map(function(e) {
+			var last = e.rates[e.rates.length - 1];
+
+			return E('span', { 'class': 'hy-num', 'style': 'display:inline-flex;align-items:center;gap:0.4em' }, [
+				E('span', {
+					'style': 'width:10px;height:10px;border-radius:2px;background:' +
+						e.colour + ';opacity:0.75'
+				}),
+				E('code', {}, [e.link.server || _('server %d').format(e.link.slot)]),
+				E('span', { 'style': 'opacity:0.7' }, '↓ ' + hy.fmtRate(last.rx, 1)),
+				E('span', { 'style': 'opacity:0.7' }, '↑ ' + hy.fmtRate(last.tx, 1))
+			]);
+		}));
+}
+
+function graphs(st) {
+	var s = series(st), split = s.links.length > 1;
+
+	/* Nothing to draw is the ordinary state of a bundle that is down, and an
+	 * empty pair of axes reads as "no traffic" rather than "no measurement".
+	 * The banner above has already said which. */
+	if (!s.len || !s.links.length)
+		return E('div');
+
+	return E('div', { 'style': 'margin:0.75em 0' }, [
+		E('div', { 'style': 'display:flex;gap:1.5em;flex-wrap:wrap' }, [
+			/* "by server" only where there is more than one, because with a single
+			 * link the phrase promises a breakdown that the picture does not have
+			 * and the reader would go looking for. */
+			chartBlock(s, 'rx', split ? _('Download, by server') : _('Download')),
+			chartBlock(s, 'tx', split ? _('Upload, by server') : _('Upload'))
+		]),
+		/* One band needs no key: the table below already names the server, and a
+		 * legend of one is a colour swatch beside the only thing it could mean. */
+		split ? legend(s) : E('div')
 	]);
 }
 
@@ -206,6 +516,8 @@ function card(st) {
 			st.bundle ? ' · ' + _('bundle %s').format(st.bundle) : '',
 			st.endpoint ? ' · ' + _('endpoint %s').format(st.endpoint) : ''
 		]),
+		interfaceTotals(st),
+		graphs(st),
 		E('div', { 'style': 'overflow-x:auto' }, E('table', { 'class': 'table' }, [
 			E('tr', { 'class': 'tr table-titles' }, [
 				E('th', { 'class': 'th' }, '#'),
@@ -213,6 +525,8 @@ function card(st) {
 				E('th', { 'class': 'th' }, _('Role')),
 				E('th', { 'class': 'th' }, _('State')),
 				E('th', { 'class': 'th' }, _('For')),
+				E('th', { 'class': 'th hy-num' }, _('RX')),
+				E('th', { 'class': 'th hy-num' }, _('TX')),
 				E('th', { 'class': 'th' }, _('Last event'))
 			])
 		].concat(links.map(function(l) { return linkRow(st, l); })))),
@@ -241,15 +555,21 @@ return view.extend({
 
 		/* Its own poll rather than the module's shared one: this page renders the
 		 * data instead of reading it out of the cache when asked, so it needs the
-		 * refresh and the redraw in the same tick. */
+		 * refresh and the redraw in the same tick.
+		 *
+		 * Three seconds rather than the module's five, matching both the rate at
+		 * which the clients rewrite their counter files and the cadence of LuCI's
+		 * own realtime graphs. Polling faster would redraw the same samples; the
+		 * window itself is the router's and does not depend on this interval. */
 		poll.add(function() {
 			return hy.fetch().then(function(next) {
 				dom.content(container, body(next));
 			});
-		}, 5);
+		}, 3);
 
 		return E('div', {}, [
 			E('style', {}, [
+				'.hy-num{font-variant-numeric:tabular-nums;white-space:nowrap}' +
 				'.hy-led{display:inline-block;width:9px;height:9px;border-radius:2px;vertical-align:baseline}' +
 				'.hy-ok{background:#2e7d45}' +
 				'.hy-busy{background:#96650c}' +
@@ -258,7 +578,7 @@ return view.extend({
 			]),
 			E('h2', {}, _('Hysteria 2 Links')),
 			E('div', { 'class': 'cbi-map-descr' },
-				_('Which servers each Hysteria 2 interface is connected to, and which of them are carrying traffic. Updates every 5 seconds.')),
+				_('Which servers each Hysteria 2 interface is connected to, and how much of the interface\'s traffic each one is carrying. Updates every 3 seconds.')),
 			container
 		]);
 	},

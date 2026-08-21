@@ -6,6 +6,9 @@
   "type": "object",
   "oneOf": [
     {
+      "$ref": "#/$defs/realtime"
+    },
+    {
       "$ref": "#/$defs/status"
     },
     {
@@ -133,6 +136,10 @@
       "type": "string",
       "enum": ["auto", "bpf", "nss_ecm_node", "nss_ecm_bpf"]
     },
+    "internetViewMode": {
+      "type": "string",
+      "enum": ["off", "routed"]
+    },
     "connCollectorMode": {
       "type": "string",
       "enum": ["auto", "conntrack_netlink", "conntrack_procfs"]
@@ -146,6 +153,8 @@
       "enum": [
         "edge_port",
         "edge_wifi",
+        "fast_routed_lease",
+        "fast_routed_internet",
         "ecm_bpf_fallback",
         "ecm_nss_lower_bound",
         "tc_bpf_lower_bound",
@@ -1047,6 +1056,9 @@
         "rate_collector_mode": {
           "$ref": "#/$defs/rateCollectorMode"
         },
+        "internet_view_mode": {
+          "$ref": "#/$defs/internetViewMode"
+        },
         "access_edge_mode": {
           "type": "string",
           "enum": ["off", "shadow", "active"]
@@ -1072,6 +1084,7 @@
         "evidence",
         "refresh_interval_ms",
         "rate_collector_mode",
+        "internet_view_mode",
         "access_edge_mode",
         "conn_collector_mode",
         "version",
@@ -1447,6 +1460,35 @@
         "zone": {
           "type": "string",
           "minLength": 1
+        },
+        "rx_bps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tx_bps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rate_sample_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "rate_collector_mode": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rate_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/clientRateMeta"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -1455,7 +1497,12 @@
         "mac",
         "ips",
         "interface",
-        "zone"
+        "zone",
+        "rx_bps",
+        "tx_bps",
+        "rate_sample_ms",
+        "rate_collector_mode",
+        "rate_meta"
       ]
     },
     "trafficClassificationDirection": {
@@ -1840,6 +1887,81 @@
         }
       },
       "required": [
+        "interfaces"
+      ]
+    },
+    "realtimeInterface": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "lan",
+            "observe",
+            "wan",
+            "excluded",
+            "unknown"
+          ]
+        },
+        "rx_bps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tx_bps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sample_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "name",
+        "role"
+      ]
+    },
+    "realtimeInterfaces": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "interfaces": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/realtimeInterface"
+          }
+        },
+        "monotonic_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "interfaces"
+      ]
+    },
+    "realtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "clients": {
+          "$ref": "#/$defs/clients"
+        },
+        "interfaces": {
+          "$ref": "#/$defs/realtimeInterfaces"
+        }
+      },
+      "required": [
+        "status",
+        "clients",
         "interfaces"
       ]
     },
