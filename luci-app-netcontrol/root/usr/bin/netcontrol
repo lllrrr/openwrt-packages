@@ -66,7 +66,7 @@ _probe_randmac_expr() {
 _randmac_rules() {
     [ "$rand_mac_block" = "1" ] && [ -n "$RANDMAC_EXPR" ] || return 0
     printf '        ether saddr @randmac_allow return\n'
-    printf '        %s drop\n' "$RANDMAC_EXPR"
+    printf '        %s counter drop comment "randmac"\n' "$RANDMAC_EXPR"
 }
 
 # 校验以 . - / 分隔的十进制段里的 IPv4 八位组 ≤255

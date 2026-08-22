@@ -241,3 +241,29 @@ msgstr "这不是随机 MAC 地址，放行名单对它没有作用。"
 
 msgid "random MAC"
 msgstr "随机 MAC"
+
+msgid "Devices Using a Randomized MAC"
+msgstr "使用随机 MAC 的设备"
+
+msgid "MAC Address"
+msgstr "MAC 地址"
+
+msgid "IP Address"
+msgstr "IP 地址"
+
+msgid "Unknown device"
+msgstr "未知设备"
+
+msgid "Blocking disabled"
+msgstr "拦截未启用"
+
+msgid "Blocked devices can still reach the router but have no internet access."
+msgstr "被拦截的设备仍能访问路由器，只是无法上网。"
+
+msgid "Currently blocked:"
+msgstr "当前被拦截："
+
+msgid ""
+"These devices would be blocked if you enable the switch above. Fill the "
+"allowlist first."
+msgstr "开启上方开关后，这些设备将被拦截。请先填好放行名单。"

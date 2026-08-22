@@ -63,6 +63,49 @@ function collectRandomHosts(hosts) {
     return out;
 }
 
+// 随机 MAC 设备一览。被拦下的设备只是突然没网，界面上必须能一眼看出是谁、为什么。
+function renderRandomMacTable(randomHosts, blockOn, allowSet) {
+    if (!randomHosts.length) return null;
+
+    var blockedCount = 0;
+    var rows = [E('tr', { 'class': 'tr table-titles' }, [
+        E('th', { 'class': 'th' }, _('Device')),
+        E('th', { 'class': 'th' }, _('MAC Address')),
+        E('th', { 'class': 'th' }, _('IP Address')),
+        E('th', { 'class': 'th' }, _('Status'))
+    ])];
+
+    randomHosts.forEach(function(h) {
+        var statusEl;
+        if (!blockOn)
+            statusEl = E('span', { 'style': 'color:#888' }, _('Blocking disabled'));
+        else if (allowSet[h.mac])
+            statusEl = E('span', { 'style': 'color:#3d8b40' }, _('Allowed'));
+        else {
+            blockedCount++;
+            statusEl = E('span', { 'style': 'color:#d9534f' }, _('Blocked'));
+        }
+        rows.push(E('tr', { 'class': 'tr' }, [
+            E('td', { 'class': 'td' }, h.name || _('Unknown device')),
+            E('td', { 'class': 'td' }, h.mac),
+            E('td', { 'class': 'td' }, h.addr || '-'),
+            E('td', { 'class': 'td' }, statusEl)
+        ]));
+    });
+
+    var note = blockOn
+        ? (_('Blocked devices can still reach the router but have no internet access.') + ' '
+           + _('Currently blocked:') + ' ' + blockedCount)
+        : _('These devices would be blocked if you enable the switch above. Fill the allowlist first.');
+
+    return E('div', { 'class': 'cbi-section', 'id': 'nc_random_mac' }, [
+        E('h3', {}, _('Devices Using a Randomized MAC')),
+        E('p', { 'style': 'color:#888' }, note),
+        E('div', { 'class': 'table-wrapper' },
+            E('table', { 'class': 'table cbi-section-table' }, rows))
+    ]);
+}
+
 // ── 设备状态表 ────────────────────────────────────────────────────────────────
 
 function renderStatusTable(content) {
@@ -164,6 +207,13 @@ return view.extend({
         var hints = data[1] || {};
         var hosts = hints.hosts || hints;
         var randomHosts = collectRandomHosts(hosts);
+        var globalCfg = uci.sections('netcontrol', 'netcontrol')[0] || {};
+        var allowSet = {};
+        L.toArray(globalCfg.rand_mac_allow).forEach(function(m) {
+            allowSet[String(m).trim().toLowerCase()] = true;
+        });
+        var randomMacSection = renderRandomMacTable(
+            randomHosts, globalCfg.rand_mac_block === '1', allowSet);
 
         // ── 服务状态（行内，注入到启用开关之后） ──
         var serviceStatusView = E('span', {
@@ -514,7 +564,9 @@ return view.extend({
             new MutationObserver(function() { applyColumnWidths(formEl, false); })
                 .observe(formEl, { childList: true, subtree: true });
 
-            return E('div', {}, [E('style', [tableCss]), formEl, deviceStatusSection]);
+            var parts = [E('style', [tableCss]), formEl, deviceStatusSection];
+            if (randomMacSection) parts.push(randomMacSection);
+            return E('div', {}, parts);
         });
     }
 });

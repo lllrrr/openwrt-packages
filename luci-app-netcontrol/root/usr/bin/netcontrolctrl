@@ -21,6 +21,8 @@ TARGETLIST="/var/$NAME.targets"
 # 计数快照：目标,累计包数,最后一次见到它发包的时刻。每个 tick 由 accrue_all 重写，
 # 在线判定与记账共用这一份。
 ACCT_SNAP="/var/$NAME.acct"
+# 已经点过名的随机 MAC，避免每轮重复记日志。/var 是 tmpfs，重启即清。
+RANDMAC_SEEN="/var/$NAME.randseen"
 # 与 netcontrol reset-duration 共用的 duration.db 写锁
 DB_LOCK="/var/lock/netcontrol-db.lock"
 
@@ -153,7 +155,7 @@ init_dirs() {
 }
 
 reset_runtime_state() {
-    rm -f "$IDLIST" "$TARGETLIST" "$ACCT_SNAP"
+    rm -f "$IDLIST" "$TARGETLIST" "$ACCT_SNAP" "$RANDMAC_SEEN"
     touch "$IDLIST" "$TARGETLIST" 2>/dev/null
 }
 
@@ -393,6 +395,38 @@ sync_randmac_allow() {
         nft add element inet netcontrol randmac_allow "{ $t }" 2>/dev/null
     done
     info "随机 MAC 放行名单已更新（$(printf '%s' "$want" | grep -c . ) 台）"
+}
+
+# 局域网在场设备：mac<TAB>ip<TAB>主机名。
+# DHCP 租约有主机名但漏掉静态 IP 的设备，ARP 表反之，两边合并后按 MAC 去重。
+_lan_hosts() {
+    {
+        awk '{ print tolower($2) "\t" $3 "\t" ($4 == "*" ? "" : $4) }' /tmp/dhcp.leases 2>/dev/null
+        awk 'NR > 1 && $3 != "0x0" { print tolower($4) "\t" $1 "\t" }' /proc/net/arp 2>/dev/null
+    } | awk -F'\t' '$1 != "" && !seen[$1]++'
+}
+
+# 随机 MAC 拦截对被拦的设备是静默的：突然没网，日志里一个字都没有，一家子设备排查
+# 起来无从下手。这里把在场、且不在放行名单里的随机 MAC 设备点名记一次。
+#
+# 判定用 glob 而非位运算：本地管理位是第一个字节的 0x02，组播位是 0x01，两者都落在
+# 第二个十六进制位上，所以“单播 + 本地管理”等价于第二位是 2/6/a/e。
+report_random_macs() {
+    local allow mac ip name
+    if [ "$(config_t_get netcontrol rand_mac_block 0 "0")" != "1" ]; then
+        rm -f "$RANDMAC_SEEN"
+        return 0
+    fi
+    [ -f "$RANDMAC_SEEN" ] || : > "$RANDMAC_SEEN"
+    allow=" $(uci -q get "$NAME.@netcontrol[0].rand_mac_allow" 2>/dev/null | \
+        tr 'A-Z' 'a-z' | tr -s ' ') "
+    _lan_hosts | while IFS="$(printf '\t')" read -r mac ip name; do
+        case "$mac" in ?[26ae]:*) ;; *) continue ;; esac
+        case "$allow" in *" $mac "*) continue ;; esac
+        grep -qxF "$mac" "$RANDMAC_SEEN" 2>/dev/null && continue
+        printf '%s\n' "$mac" >> "$RANDMAC_SEEN"
+        info "随机 MAC 设备已被拦截：${name:-未知设备}（$mac${ip:+，$ip}）"
+    done
 }
 
 # duration.db 第 2 列是“上次计入到的时刻”，只在真的记了账的 tick 才前推，
@@ -864,6 +898,7 @@ main_loop() {
         duration_targets="$(get_duration_targets)"
         sync_accounting_rules "$duration_targets"
         sync_randmac_allow
+        report_random_macs
         sleep_with_accrual "$(calc_sleep_seconds)" "$duration_targets"
     done
 }
