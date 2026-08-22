@@ -281,7 +281,7 @@ return view.extend({
         o.rmempty = false;
 
         o = s.option(form.Flag, 'rand_mac_block', _('Block Randomized MAC Devices'),
-            _('Phones and PCs can generate a random MAC address for each connection, which defeats any per-MAC rule. When enabled, every device using a randomized MAC is denied internet access unless listed below.')
+            _('When enabled, every device using a randomized MAC is denied internet access unless listed below.')
             + ' ' + _('Currently detected:') + ' ' + randomHosts.length);
         o.default = '0';
         o.rmempty = false;
