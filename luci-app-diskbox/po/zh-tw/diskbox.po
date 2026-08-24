@@ -1,0 +1,526 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-diskbox 1.26.8\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-23 18:50+0800\n"
+"PO-Revision-Date: 2026-08-23 18:50+0800\n"
+"Last-Translator: permails <permails@github.com>\n"
+"Language-Team: Chinese (Traditional) <zh_Hant@li.org>\n"
+"Language: zh_Hant\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "DiskBox"
+msgstr "磁碟盒子"
+
+msgid "DiskManager"
+msgstr "磁碟管理"
+
+msgid "DiskManger"
+msgstr "磁碟管理"
+
+msgid "DiskBox Disk Manager"
+msgstr "DiskBox 磁碟管理"
+
+msgid "Disk Manager"
+msgstr "磁碟管理"
+
+msgid "Manage disks over LuCI."
+msgstr "透過 LuCI 管理磁碟。"
+
+msgid "Rescan Disks"
+msgstr "重新掃描磁碟"
+
+msgid "Rescanning SCSI and RAID devices..."
+msgstr "正在重新掃描 SCSI 與 RAID 裝置..."
+
+msgid "Disks"
+msgstr "磁碟"
+
+msgid "Path"
+msgstr "路徑"
+
+msgid "Model"
+msgstr "型號"
+
+msgid "Serial Number"
+msgstr "序號"
+
+msgid "Size"
+msgstr "大小"
+
+msgid "Sector Size"
+msgstr "磁區大小"
+
+msgid "Partition Table"
+msgstr "分割表"
+
+msgid "Level"
+msgstr "層級"
+
+msgid "Temp"
+msgstr "溫度"
+
+msgid "Members"
+msgstr "成員"
+
+msgid "SATA Version"
+msgstr "SATA 版本"
+
+msgid "Rotation Rate"
+msgstr "轉速"
+
+msgid "Status"
+msgstr "狀態"
+
+msgid "Health"
+msgstr "健康"
+
+msgid "Health Status"
+msgstr "健康狀態"
+
+msgid "Normal"
+msgstr "正常"
+
+msgid "Passed"
+msgstr "正常"
+
+msgid "Warning"
+msgstr "警告"
+
+msgid "Urgent"
+msgstr "嚴重"
+
+msgid "Failed"
+msgstr "失敗"
+
+msgid "Active"
+msgstr "活動"
+
+msgid "Standby"
+msgstr "待機"
+
+msgid "Sleep"
+msgstr "睡眠"
+
+msgid "Eject"
+msgstr "退出"
+
+msgid "Ejecting"
+msgstr "正在退出"
+
+msgid "Ejecting device..."
+msgstr "正在退出裝置..."
+
+msgid "Failed to eject device."
+msgstr "退出裝置失敗。"
+
+msgid "Are you sure you want to eject/remove this device?"
+msgstr "確定要退出/移除此裝置嗎？"
+
+msgid "Partition is in use! Please unmount it first!"
+msgstr "分割區正在使用中！請先卸載！"
+
+msgid "Edit"
+msgstr "編輯"
+
+msgid "Delete"
+msgstr "刪除"
+
+msgid "RAID Devices"
+msgstr "RAID 裝置"
+
+msgid "RAID Level"
+msgstr "RAID 層級"
+
+msgid "Btrfs"
+msgstr "Btrfs"
+
+msgid "UUID"
+msgstr "UUID"
+
+msgid "Label"
+msgstr "標籤"
+
+msgid "Usage"
+msgstr "使用率"
+
+msgid "Mount Points"
+msgstr "掛載點"
+
+msgid "Device"
+msgstr "裝置"
+
+msgid "File System"
+msgstr "檔案系統"
+
+msgid "Mount Options"
+msgstr "掛載選項"
+
+msgid "Mount Point"
+msgstr "掛載點"
+
+msgid "Mount"
+msgstr "掛載"
+
+msgid "Mounting"
+msgstr "正在掛載"
+
+msgid "Mounting device..."
+msgstr "正在掛載裝置..."
+
+msgid "Failed to mount."
+msgstr "掛載失敗。"
+
+msgid "Unmount"
+msgstr "卸載"
+
+msgid "Unmounting"
+msgstr "正在卸載"
+
+msgid "Unmounting %s..."
+msgstr "正在卸載 %s..."
+
+msgid "Failed to unmount."
+msgstr "卸載失敗。"
+
+msgid "Are you sure you want to unmount %s?"
+msgstr "確定要卸載 %s 嗎？"
+
+msgid "-- Please choose --"
+msgstr "-- 請選擇 --"
+
+msgid "Please select a device and input mount point!"
+msgstr "請選擇裝置並輸入掛載點！"
+
+msgid "Creation"
+msgstr "建立"
+
+msgid "RAID"
+msgstr "RAID"
+
+msgid "Create RAID"
+msgstr "建立 RAID"
+
+msgid "RAID Name"
+msgstr "RAID 名稱"
+
+msgid "RAID Members"
+msgstr "磁碟陣列成員"
+
+msgid "Creating RAID"
+msgstr "正在建立 RAID"
+
+msgid "Creating RAID device..."
+msgstr "正在建立 RAID 裝置..."
+
+msgid "Failed to create RAID."
+msgstr "建立 RAID 失敗。"
+
+msgid "Please select RAID member disks/partitions!"
+msgstr "請選擇 RAID 成員磁碟/分割區！"
+
+msgid "Create Btrfs"
+msgstr "建立 Btrfs"
+
+msgid "Btrfs Label"
+msgstr "Btrfs 標籤"
+
+msgid "Btrfs Raid Level"
+msgstr "Btrfs RAID 層級"
+
+msgid "Btrfs Member"
+msgstr "Btrfs 成員"
+
+msgid "Creating Btrfs"
+msgstr "正在建立 Btrfs"
+
+msgid "Creating Btrfs filesystem..."
+msgstr "正在建立 Btrfs 檔案系統..."
+
+msgid "Failed to create Btrfs."
+msgstr "建立 Btrfs 失敗。"
+
+msgid "Please select Btrfs member disks/partitions!"
+msgstr "請選擇 Btrfs 成員磁碟/分割區！"
+
+msgid "Partition Management"
+msgstr "分割區管理"
+
+msgid "Partition disk over LuCI."
+msgstr "透過 LuCI 分割磁碟。"
+
+msgid "Partitions Info"
+msgstr "分割區資訊"
+
+msgid "Default 2048 sector alignment, support +size{b,k,m,g,t} in End Sector"
+msgstr "預設 2048 磁區對齊，【終止磁區】支援輸入 +容量{b,k,m,g,t} 格式，例如：+500m +10g +1t"
+
+msgid "Name"
+msgstr "名稱"
+
+msgid "Start Sector"
+msgstr "起始磁區"
+
+msgid "End Sector"
+msgstr "終止磁區"
+
+msgid "Used"
+msgstr "已用"
+
+msgid "Free Space"
+msgstr "可用空間"
+
+msgid "Extended Partition"
+msgstr "擴充分割區"
+
+msgid "Primary"
+msgstr "主要分割區"
+
+msgid "Logical"
+msgstr "邏輯分割區"
+
+msgid "Unformatted"
+msgstr "未格式化"
+
+msgid "New"
+msgstr "新建"
+
+msgid "Creating Partition"
+msgstr "正在建立分割區"
+
+msgid "Creating new partition..."
+msgstr "正在建立新分割區..."
+
+msgid "Failed to create partition."
+msgstr "建立分割區失敗。"
+
+msgid "Invalid Start or End sector!"
+msgstr "無效的起始或終止磁區！"
+
+msgid "Deleting Partition"
+msgstr "正在刪除分割區"
+
+msgid "Removing partition..."
+msgstr "正在刪除分割區..."
+
+msgid "Failed to remove partition."
+msgstr "刪除分割區失敗。"
+
+msgid "Are you sure you want to delete partition %s?"
+msgstr "確定要刪除分割區 %s 嗎？"
+
+msgid "Format"
+msgstr "格式化"
+
+msgid "Format partition: /dev/%s"
+msgstr "格式化分割區：/dev/%s"
+
+msgid "Formatting..."
+msgstr "正在格式化..."
+
+msgid "Formatting partition will ERASE all data stored on it."
+msgstr "格式化分割區將清除其上的所有資料！"
+
+msgid "Partition formatted successfully!"
+msgstr "分割區格式化成功！"
+
+msgid "Format failed."
+msgstr "格式化失敗。"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Close"
+msgstr "關閉"
+
+msgid "Back to Overview"
+msgstr "返回至概覽"
+
+msgid "Device Info"
+msgstr "裝置資訊"
+
+msgid "Device /dev/%s not found or has no media."
+msgstr "未找到裝置 /dev/%s 或無媒體。"
+
+msgid "Warning !!\nTHIS WILL OVERWRITE EXISTING PARTITIONS!!\nModify the partition table to %s?"
+msgstr "警告！！\n這將覆蓋現有分割區！！\n確定要將分割表修改為 %s 嗎？"
+
+msgid "Modifying Partition Table"
+msgstr "正在修改分割表"
+
+msgid "Applying partition table..."
+msgstr "正在套用分割表..."
+
+msgid "Failed to modify partition table."
+msgstr "修改分割表失敗。"
+
+msgid "S.M.A.R.T Attributes"
+msgstr "S.M.A.R.T 屬性"
+
+msgid "Collecting data..."
+msgstr "正在收集資料..."
+
+msgid "No SMART attributes to display."
+msgstr "暫無 SMART 屬性顯示。"
+
+msgid "Attribute"
+msgstr "屬性"
+
+msgid "Flag"
+msgstr "標誌"
+
+msgid "Value"
+msgstr "目前值"
+
+msgid "Worst"
+msgstr "最差值"
+
+msgid "Thresh"
+msgstr "閥值"
+
+msgid "Type"
+msgstr "類型"
+
+msgid "Updated"
+msgstr "更新狀態"
+
+msgid "Raw"
+msgstr "原始資料"
+
+msgid "Btrfs Management"
+msgstr "Btrfs 管理"
+
+msgid "Manage Btrfs filesystem, subvolumes and snapshots."
+msgstr "管理 Btrfs 檔案系統、子卷與快照。"
+
+msgid "Select a Btrfs filesystem to manage."
+msgstr "請選擇要管理的 Btrfs 檔案系統。"
+
+msgid "No Btrfs filesystems found on this system."
+msgstr "系統中未找到 Btrfs 檔案系統。"
+
+msgid "Go to DiskBox to Create Btrfs"
+msgstr "前往 DiskBox 建立 Btrfs"
+
+msgid "Available Btrfs Filesystems"
+msgstr "可用的 Btrfs 檔案系統"
+
+msgid "Btrfs Info"
+msgstr "Btrfs 資訊"
+
+msgid "Data"
+msgstr "資料"
+
+msgid "Metadata"
+msgstr "元資料"
+
+msgid "Updating Label"
+msgstr "正在更新標籤"
+
+msgid "Updating Btrfs label..."
+msgstr "正在更新 Btrfs 標籤..."
+
+msgid "Failed to update label."
+msgstr "更新標籤失敗。"
+
+msgid "Update"
+msgstr "更新"
+
+msgid "Subvolumes"
+msgstr "子卷"
+
+msgid "ID"
+msgstr "ID"
+
+msgid "Top Level"
+msgstr "頂層"
+
+msgid "Set Default"
+msgstr "設為預設"
+
+msgid "Default"
+msgstr "預設"
+
+msgid "Setting Default"
+msgstr "正在設為預設"
+
+msgid "Setting default subvolume..."
+msgstr "正在設定預設子卷..."
+
+msgid "Failed to set default subvolume."
+msgstr "設定預設子卷失敗。"
+
+msgid "Deleting Subvolume"
+msgstr "正在刪除子卷"
+
+msgid "Deleting subvolume..."
+msgstr "正在刪除子卷..."
+
+msgid "Failed to delete subvolume."
+msgstr "刪除子卷失敗。"
+
+msgid "Are you sure you want to delete subvolume %s?"
+msgstr "確定要刪除子卷 %s 嗎？"
+
+msgid "Create"
+msgstr "建立"
+
+msgid "New Subvolume"
+msgstr "新建子卷"
+
+msgid "Creating Subvolume"
+msgstr "正在建立子卷"
+
+msgid "Creating subvolume..."
+msgstr "正在建立子卷..."
+
+msgid "Failed to create subvolume."
+msgstr "建立子卷失敗。"
+
+msgid "Subvolume path must start with '/'"
+msgstr "子卷路徑必須以 '/' 開頭"
+
+msgid "New Snapshot"
+msgstr "新建快照"
+
+msgid "Source Path"
+msgstr "來源路徑"
+
+msgid "Source path for creating snapshot (must start with '/')"
+msgstr "建立快照的來源路徑（必須以 '/' 開頭）"
+
+msgid "Read-Only"
+msgstr "唯讀"
+
+msgid "Create as read-only snapshot"
+msgstr "建立為唯讀快照"
+
+msgid "Destination Path (optional)"
+msgstr "目標路徑（可選）"
+
+msgid "Destination path where you want to store the snapshot"
+msgstr "存放快照的目標路徑"
+
+msgid "Create Snapshot"
+msgstr "建立快照"
+
+msgid "Creating Snapshot"
+msgstr "正在建立快照"
+
+msgid "Creating Btrfs snapshot..."
+msgstr "正在建立 Btrfs 快照..."
+
+msgid "Failed to create snapshot."
+msgstr "建立快照失敗。"
+
+msgid "Loading..."
+msgstr "載入中..."
+
+msgid "Loading device info..."
+msgstr "正在載入裝置資訊..."
+
+msgid "Loading Btrfs info..."
+msgstr "正在載入 Btrfs 資訊..."

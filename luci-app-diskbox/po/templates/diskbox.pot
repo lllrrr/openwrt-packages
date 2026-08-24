@@ -1,0 +1,528 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-diskbox 1.26.8\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-23 18:50+0800\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: permails <permails@github.com>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "DiskBox"
+msgstr ""
+
+msgid "DiskManager"
+msgstr ""
+
+msgid "DiskManger"
+msgstr ""
+
+msgid "DiskBox Disk Manager"
+msgstr ""
+
+msgid "Disk Manager"
+msgstr ""
+
+msgid "Manage disks over LuCI."
+msgstr ""
+
+msgid "Rescan Disks"
+msgstr ""
+
+msgid "Rescanning SCSI and RAID devices..."
+msgstr ""
+
+msgid "Disks"
+msgstr ""
+
+msgid "Path"
+msgstr ""
+
+msgid "Model"
+msgstr ""
+
+msgid "Serial Number"
+msgstr ""
+
+msgid "Size"
+msgstr ""
+
+msgid "Sector Size"
+msgstr ""
+
+msgid "Partition Table"
+msgstr ""
+
+msgid "Level"
+msgstr ""
+
+msgid "Temp"
+msgstr ""
+
+msgid "Members"
+msgstr ""
+
+msgid "SATA Version"
+msgstr ""
+
+msgid "Rotation Rate"
+msgstr ""
+
+msgid "Status"
+msgstr ""
+
+msgid "Health"
+msgstr ""
+
+msgid "Health Status"
+msgstr ""
+
+msgid "Normal"
+msgstr ""
+
+msgid "Passed"
+msgstr ""
+
+msgid "Warning"
+msgstr ""
+
+msgid "Urgent"
+msgstr ""
+
+msgid "Failed"
+msgstr ""
+
+msgid "Active"
+msgstr ""
+
+msgid "Standby"
+msgstr ""
+
+msgid "Sleep"
+msgstr ""
+
+msgid "Eject"
+msgstr ""
+
+msgid "Ejecting"
+msgstr ""
+
+msgid "Ejecting device..."
+msgstr ""
+
+msgid "Failed to eject device."
+msgstr ""
+
+msgid "Are you sure you want to eject/remove this device?"
+msgstr ""
+
+msgid "Partition is in use! Please unmount it first!"
+msgstr ""
+
+msgid "Edit"
+msgstr ""
+
+msgid "Delete"
+msgstr ""
+
+msgid "RAID Devices"
+msgstr ""
+
+msgid "RAID Level"
+msgstr ""
+
+msgid "Btrfs"
+msgstr ""
+
+msgid "UUID"
+msgstr ""
+
+msgid "Label"
+msgstr ""
+
+msgid "Usage"
+msgstr ""
+
+msgid "Mount Points"
+msgstr ""
+
+msgid "Device"
+msgstr ""
+
+msgid "File System"
+msgstr ""
+
+msgid "Mount Options"
+msgstr ""
+
+msgid "Mount Point"
+msgstr ""
+
+msgid "Mount"
+msgstr ""
+
+msgid "Mounting"
+msgstr ""
+
+msgid "Mounting device..."
+msgstr ""
+
+msgid "Failed to mount."
+msgstr ""
+
+msgid "Unmount"
+msgstr ""
+
+msgid "Unmounting"
+msgstr ""
+
+msgid "Unmounting %s..."
+msgstr ""
+
+msgid "Failed to unmount."
+msgstr ""
+
+msgid "Are you sure you want to unmount %s?"
+msgstr ""
+
+msgid "-- Please choose --"
+msgstr ""
+
+msgid "Please select a device and input mount point!"
+msgstr ""
+
+msgid "Creation"
+msgstr ""
+
+msgid "RAID"
+msgstr ""
+
+msgid "Create RAID"
+msgstr ""
+
+msgid "RAID Name"
+msgstr ""
+
+msgid "RAID Members"
+msgstr ""
+
+msgid "Creating RAID"
+msgstr ""
+
+msgid "Creating RAID device..."
+msgstr ""
+
+msgid "Failed to create RAID."
+msgstr ""
+
+msgid "Please select RAID member disks/partitions!"
+msgstr ""
+
+msgid "Create Btrfs"
+msgstr ""
+
+msgid "Btrfs Label"
+msgstr ""
+
+msgid "Btrfs Raid Level"
+msgstr ""
+
+msgid "Btrfs Member"
+msgstr ""
+
+msgid "Creating Btrfs"
+msgstr ""
+
+msgid "Creating Btrfs filesystem..."
+msgstr ""
+
+msgid "Failed to create Btrfs."
+msgstr ""
+
+msgid "Please select Btrfs member disks/partitions!"
+msgstr ""
+
+msgid "Partition Management"
+msgstr ""
+
+msgid "Partition disk over LuCI."
+msgstr ""
+
+msgid "Partitions Info"
+msgstr ""
+
+msgid "Default 2048 sector alignment, support +size{b,k,m,g,t} in End Sector"
+msgstr ""
+
+msgid "Name"
+msgstr ""
+
+msgid "Start Sector"
+msgstr ""
+
+msgid "End Sector"
+msgstr ""
+
+msgid "Used"
+msgstr ""
+
+msgid "Free Space"
+msgstr ""
+
+msgid "Extended Partition"
+msgstr ""
+
+msgid "Primary"
+msgstr ""
+
+msgid "Logical"
+msgstr ""
+
+msgid "Unformatted"
+msgstr ""
+
+msgid "New"
+msgstr ""
+
+msgid "Creating Partition"
+msgstr ""
+
+msgid "Creating new partition..."
+msgstr ""
+
+msgid "Failed to create partition."
+msgstr ""
+
+msgid "Invalid Start or End sector!"
+msgstr ""
+
+msgid "Deleting Partition"
+msgstr ""
+
+msgid "Removing partition..."
+msgstr ""
+
+msgid "Failed to remove partition."
+msgstr ""
+
+msgid "Are you sure you want to delete partition %s?"
+msgstr ""
+
+msgid "Format"
+msgstr ""
+
+msgid "Format partition: /dev/%s"
+msgstr ""
+
+msgid "Formatting..."
+msgstr ""
+
+msgid "Formatting partition will ERASE all data stored on it."
+msgstr ""
+
+msgid "Partition formatted successfully!"
+msgstr ""
+
+msgid "Format failed."
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Back to Overview"
+msgstr ""
+
+msgid "Device Info"
+msgstr ""
+
+msgid "Device /dev/%s not found or has no media."
+msgstr ""
+
+msgid "Warning !!\nTHIS WILL OVERWRITE EXISTING PARTITIONS!!\nModify the partition table to %s?"
+msgstr ""
+
+msgid "Modifying Partition Table"
+msgstr ""
+
+msgid "Applying partition table..."
+msgstr ""
+
+msgid "Failed to modify partition table."
+msgstr ""
+
+msgid "S.M.A.R.T Attributes"
+msgstr ""
+
+msgid "Collecting data..."
+msgstr ""
+
+msgid "No SMART attributes to display."
+msgstr ""
+
+msgid "Attribute"
+msgstr ""
+
+msgid "Flag"
+msgstr ""
+
+msgid "Value"
+msgstr ""
+
+msgid "Worst"
+msgstr ""
+
+msgid "Thresh"
+msgstr ""
+
+msgid "Type"
+msgstr ""
+
+msgid "Updated"
+msgstr ""
+
+msgid "Raw"
+msgstr ""
+
+msgid "Btrfs Management"
+msgstr ""
+
+msgid "Manage Btrfs filesystem, subvolumes and snapshots."
+msgstr ""
+
+msgid "Select a Btrfs filesystem to manage."
+msgstr ""
+
+msgid "No Btrfs filesystems found on this system."
+msgstr ""
+
+msgid "Go to DiskBox to Create Btrfs"
+msgstr ""
+
+msgid "Available Btrfs Filesystems"
+msgstr ""
+
+msgid "Btrfs Info"
+msgstr ""
+
+msgid "Data"
+msgstr ""
+
+msgid "Metadata"
+msgstr ""
+
+msgid "Updating Label"
+msgstr ""
+
+msgid "Updating Btrfs label..."
+msgstr ""
+
+msgid "Failed to update label."
+msgstr ""
+
+msgid "Update"
+msgstr ""
+
+msgid "Subvolumes"
+msgstr ""
+
+msgid "ID"
+msgstr ""
+
+msgid "Top Level"
+msgstr ""
+
+msgid "Set Default"
+msgstr ""
+
+msgid "Default"
+msgstr ""
+
+msgid "Setting Default"
+msgstr ""
+
+msgid "Setting default subvolume..."
+msgstr ""
+
+msgid "Failed to set default subvolume."
+msgstr ""
+
+msgid "Deleting Subvolume"
+msgstr ""
+
+msgid "Deleting subvolume..."
+msgstr ""
+
+msgid "Failed to delete subvolume."
+msgstr ""
+
+msgid "Are you sure you want to delete subvolume %s?"
+msgstr ""
+
+msgid "Create"
+msgstr ""
+
+msgid "New Subvolume"
+msgstr ""
+
+msgid "Creating Subvolume"
+msgstr ""
+
+msgid "Creating subvolume..."
+msgstr ""
+
+msgid "Failed to create subvolume."
+msgstr ""
+
+msgid "Subvolume path must start with '/'"
+msgstr ""
+
+msgid "New Snapshot"
+msgstr ""
+
+msgid "Source Path"
+msgstr ""
+
+msgid "Source path for creating snapshot (must start with '/')"
+msgstr ""
+
+msgid "Read-Only"
+msgstr ""
+
+msgid "Create as read-only snapshot"
+msgstr ""
+
+msgid "Destination Path (optional)"
+msgstr ""
+
+msgid "Destination path where you want to store the snapshot"
+msgstr ""
+
+msgid "Create Snapshot"
+msgstr ""
+
+msgid "Creating Snapshot"
+msgstr ""
+
+msgid "Creating Btrfs snapshot..."
+msgstr ""
+
+msgid "Failed to create snapshot."
+msgstr ""
+
+msgid "Source path must start with '/'"
+msgstr ""
+
+msgid "Loading..."
+msgstr ""
+
+msgid "Loading device info..."
+msgstr ""
+
+msgid "Loading Btrfs info..."
+msgstr ""
