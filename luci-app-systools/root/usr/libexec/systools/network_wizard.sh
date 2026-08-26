@@ -62,7 +62,9 @@ restore_network() {
     if [ -f "$tmpdir/dhcp.uci" ]; then
         uci import dhcp < "$tmpdir/dhcp.uci" 2>/dev/null
     fi
-    uci commit
+    uci commit network
+    uci commit firewall
+    uci commit dhcp
     rm -rf "$tmpdir"
     echo "Restored from: $backup_file"
     return 0

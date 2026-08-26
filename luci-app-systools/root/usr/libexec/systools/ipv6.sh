@@ -65,7 +65,8 @@ restore_config() {
         uci import dhcp < "$tmpdir/dhcp.uci" 2>/dev/null
     fi
 
-    uci commit
+    uci commit network
+    uci commit dhcp
 
     rm -rf "$tmpdir"
 

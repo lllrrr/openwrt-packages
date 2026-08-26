@@ -242,11 +242,11 @@ apply_config() {
         done
         # 如果没找到br-lan的device section，创建一个
         if [ "$found" = "0" ]; then
-            uci set network.@device[0]=device 2>/dev/null || uci add network device
-            uci set network.@device[0].name='br-lan'
-            uci set network.@device[0].type='bridge'
+            uci add network device >/dev/null 2>&1
+            uci set network.@device[-1].name='br-lan'
+            uci set network.@device[-1].type='bridge'
             for lp in $lan_ports; do
-                uci add_list network.@device[0].ports="$lp"
+                uci add_list network.@device[-1].ports="$lp"
             done
         fi
         # 确保interface lan引用br-lan
@@ -263,8 +263,20 @@ apply_config() {
     uci delete network.wan.ifname 2>/dev/null
 
     # 3. 更新WAN6口（如果存在）
+    # 注意：wan6通常使用device='@wan'（别名引用wan接口），此时不需要修改
+    # 只有当wan6直接使用物理设备时才更新
     if uci get network.wan6 >/dev/null 2>&1; then
-        uci set network.wan6.device="$wan_port"
+        local wan6_device
+        wan6_device=$(uci get network.wan6.device 2>/dev/null)
+        case "$wan6_device" in
+            @wan|'')
+                # 别名引用或未设置，保留不变（wan的device已更新）
+                ;;
+            *)
+                # 直接使用物理设备，更新为新的WAN口
+                uci set network.wan6.device="$wan_port"
+                ;;
+        esac
         uci delete network.wan6.ifname 2>/dev/null
     fi
 
