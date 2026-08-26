@@ -524,3 +524,20 @@ msgstr "正在加载设备信息..."
 
 msgid "Loading Btrfs info..."
 msgstr "正在加载 Btrfs 信息..."
+msgid "Partitions"
+msgstr "分区"
+
+msgid "Partitions: %d"
+msgstr "分区数: %d"
+
+msgid "Unallocated Space"
+msgstr "未分配空间"
+
+msgid "Unallocated"
+msgstr "未分配"
+
+msgid "No storage partitions found."
+msgstr "未发现存储分区。"
+
+msgid "No disks detected."
+msgstr "未检测到磁盘设备。"

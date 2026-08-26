@@ -863,55 +863,170 @@ return view.extend({
 			])
 		]);
 
-		var devKeys = Object.keys(devices);
-		devKeys.forEach(function(dKey) {
-			var dev = devices[dKey];
-			var colors = ['#2dce89', '#5e72e4', '#11cdef', '#fb6340', '#f5365c', '#8965e0', '#ffd600'];
-
-			var partItems = [];
-			var parts = dev.partitions || [];
-			var totalSize = dev.size || 1;
-
-			parts.forEach(function(p, idx) {
-				var pct = Math.max(((p.size / totalSize) * 100), 2.0).toFixed(2);
-				var color = colors[idx % colors.length];
-				partItems.push(E('div', {
-					'style': 'background-color:' + color + '; width:' + pct + '%; height:100%; display:inline-block; float:left; color:#fff; font-size:10px; font-weight:bold; line-height:22px; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;',
-					'title': p.name + ' (' + p.size_formated + ')' + (p.mount_point !== '-' ? ' -> ' + p.mount_point : '')
-				}, p.name));
-			});
-
-			var partBar = E('div', {
-				'style': 'width:100%; height:22px; background:#444; border-radius:4px; overflow:hidden; margin:4px 0;'
-			}, partItems);
-
+		var devKeys = Object.keys(devices || {});
+		if (devKeys.length === 0) {
 			diskTable.appendChild(E('tr', { 'class': 'tr' }, [
-				E('td', { 'class': 'td' }, E('strong', {}, dev.path)),
-				E('td', { 'class': 'td' }, dev.model || '-'),
-				E('td', { 'class': 'td' }, dev.sn || '-'),
-				E('td', { 'class': 'td' }, dev.size_formated || '-'),
-				E('td', { 'class': 'td' }, dev.temp || '-'),
-				E('td', { 'class': 'td' }, dev.p_table || '-'),
-				E('td', { 'class': 'td' }, dev.sata_ver || '-'),
-				E('td', { 'class': 'td' }, [
-					E('span', { 'style': 'margin-right:6px;' }, translateHealth(dev.health_status)),
-					E('span', { 'style': 'color:#888; font-size:90%;' }, translatePowerStatus(dev.status))
-				]),
-				E('td', { 'class': 'td center' }, [
-					E('button', {
+				E('td', { 'class': 'td', 'colspan': 9, 'style': 'text-align:center; color:#888; font-style:italic; padding:1.5rem;' }, _('No disks detected.'))
+			]));
+		} else {
+			devKeys.forEach(function(dKey) {
+				var dev = devices[dKey];
+				var rawHealth = (dev.health_status || '').trim().replace(/[-\s]+$/, '').trim();
+				var isHealthWarn = rawHealth && (rawHealth.indexOf('Warning') !== -1 || rawHealth.indexOf('Urgent') !== -1 || rawHealth.indexOf('FAILED') !== -1);
+				var healthLink = E('a', {
+					'href': '#',
+					'style': 'text-decoration:underline; font-weight:600; cursor:pointer; color:' + (isHealthWarn ? '#f5365c' : '#2dce89'),
+					'title': _('Click to view SMART & Health details'),
+					'click': function(ev) {
+						ev.preventDefault();
+						self.showSmartModal(dev.name);
+					}
+				}, translateHealth(rawHealth) || '-');
+
+				var pwr = translatePowerStatus(dev.status);
+				var healthCellContent = [ healthLink ];
+				if (pwr && pwr !== '-') {
+					healthCellContent.push(E('span', { 'style': 'color:#888; font-size:85%; margin-left:4px;' }, '(' + pwr + ')'));
+				}
+
+				diskTable.appendChild(E('tr', { 'class': 'tr' }, [
+					E('td', { 'class': 'td' }, E('strong', {}, dev.path)),
+					E('td', { 'class': 'td' }, dev.model || '-'),
+					E('td', { 'class': 'td' }, dev.sn || '-'),
+					E('td', { 'class': 'td' }, dev.size_formated || '-'),
+					E('td', { 'class': 'td' }, dev.temp || '-'),
+					E('td', { 'class': 'td' }, dev.p_table || '-'),
+					E('td', { 'class': 'td' }, dev.sata_ver || '-'),
+					E('td', { 'class': 'td' }, healthCellContent),
+					E('td', { 'class': 'td center' }, [
+						E('button', {
 						'class': 'btn cbi-button cbi-button-action',
 						'click': function() { self.renderPartitionDetailView(container, dev.name, data); }
-					}, _('Edit'))
-				])
-			]));
-
-			diskTable.appendChild(E('tr', { 'class': 'tr' }, [
-				E('td', { 'class': 'td', 'colspan': 9, 'style': 'padding-top:0; padding-bottom:12px;' }, partBar)
-			]));
-		});
+						}, _('Edit'))
+					])
+				]));
+			});
+		}
 
 		diskSection.appendChild(diskTable);
 		viewRoot.appendChild(diskSection);
+
+		// Section: Partitions (Independent section supporting multiple storage drives)
+		var partSection = E('div', { 'class': 'cbi-section' }, [
+			E('legend', {}, _('Partitions') !== 'Partitions' ? _('Partitions') : '分区')
+		]);
+
+		function getPartColorInfo(p, totalSize, idx) {
+			var sizeMB = (p.size || 0) / (1024 * 1024);
+			var sizePct = (p.size || 0) / (totalSize || 1);
+
+			// 1. 系统底层不可用小分区 (<64MB: boot, dtb, env, uboot, kernel等) -> 消极警示/暗灰/暗红/冷灰色
+			if (sizeMB < 64) {
+				var warnColors = ['#57606f', '#747d8c', '#eb3b5a', '#fa8231', '#d63031', '#4b6584'];
+				return {
+					color: warnColors[idx % warnColors.length],
+					tag: _('System Reserved / Unavailable')
+				};
+			}
+
+			// 2. 次级固件/系统小分区 (64MB ~ 512MB) -> 警示橙色
+			if (sizeMB < 512) {
+				return {
+					color: '#f39c12',
+					tag: _('System Firmware Partition')
+				};
+			}
+
+			// 3. 固件根文件系统/Overlay分区 (512MB ~ 3GB 且占比小) -> 沉稳中性紫灰
+			if (sizePct < 0.08 && sizeMB <= 3072) {
+				return {
+					color: '#8854d0',
+					tag: _('System RootFS / Overlay')
+				};
+			}
+
+			// 4. 用户可用主数据分区 -> 长期锁定为明亮健康的绿色
+			var greenColors = ['#20bf6b', '#26de81', '#10b981', '#2ecc71'];
+			return {
+				color: greenColors[idx % greenColors.length],
+				tag: _('Available Storage Partition')
+			};
+		}
+
+		if (devKeys.length === 0) {
+			partSection.appendChild(E('div', { 'style': 'padding:1rem; color:#888; font-style:italic;' }, _('No storage partitions found.')));
+		} else {
+			devKeys.forEach(function(dKey) {
+				var dev = devices[dKey];
+				var parts = dev.partitions || [];
+				var totalSize = dev.size || 1;
+				var totalPartSize = 0;
+
+				var partItems = [];
+				parts.forEach(function(p) {
+					totalPartSize += (p.size || 0);
+				});
+
+				if (parts.length === 0) {
+					partItems.push(E('div', {
+					'style': 'background-color:#e9ecef; width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:#6c757d; font-size:11px; font-style:italic;'
+					}, _('No partitions (Raw Disk / Unpartitioned)')));
+				} else {
+					parts.forEach(function(p, idx) {
+						var growWeight = Math.max(1, Math.round(((p.size || 0) / totalSize) * 100));
+						var colorInfo = getPartColorInfo(p, totalSize, idx);
+						var titleStr = p.name + ' (' + p.size_formated + ') - ' + colorInfo.tag + (p.mount_point !== '-' ? ' -> ' + p.mount_point : '');
+
+						partItems.push(E('div', {
+						'style': 'background-color:' + colorInfo.color + '; flex:' + growWeight + ' 0 auto; min-width:fit-content; height:100%; display:flex; align-items:center; justify-content:center; padding:0 8px; color:#fff; font-size:11px; font-weight:600; white-space:nowrap; box-sizing:border-box; border-right:1px solid rgba(255,255,255,0.4); text-shadow:0 1px 1px rgba(0,0,0,0.2); user-select:none;',
+						'title': titleStr
+						}, p.name));
+					});
+
+					var unallocSize = totalSize - totalPartSize;
+					if (unallocSize > totalSize * 0.02) {
+						var unallocWeight = Math.max(1, Math.round((unallocSize / totalSize) * 100));
+						var unallocStr = (function(bytes) {
+							if (bytes <= 0) return '';
+							var b = bytes, u = ['B', 'KB', 'MB', 'GB', 'TB'], i = 0;
+							while (b >= 1024 && i < 4) { b /= 1024; i++; }
+							return (i === 0 ? b.toFixed(0) : b.toFixed(2)) + ' ' + u[i];
+						})(unallocSize);
+
+						partItems.push(E('div', {
+						'style': 'background-color:#e9ecef; flex:' + unallocWeight + ' 0 auto; min-width:fit-content; height:100%; display:flex; align-items:center; justify-content:center; padding:0 8px; color:#6c757d; font-size:11px; font-style:italic; white-space:nowrap; box-sizing:border-box; user-select:none;',
+						'title': _('Unallocated Space') + ' (' + unallocStr + ')'
+						}, _('Unallocated') + ' ' + unallocStr));
+					}
+				}
+
+				var partBar = E('div', {
+				'style': 'width:100%; height:26px; background:#e9ecef; border-radius:4px; overflow:hidden; margin:6px 0 16px 0; display:flex; border:none; box-shadow:none;'
+				}, partItems);
+
+				var devTitleNode = E('div', {
+				'style': 'display:flex; justify-content:space-between; align-items:center; margin-top:8px; margin-bottom:2px;'
+				}, [
+					E('div', { 'style': 'font-size:13px; font-weight:600; color:#333;' }, [
+						E('span', { 'style': 'color:#5e72e4; margin-right:6px;' }, '●'),
+						dev.path + (dev.model ? ' (' + dev.model + ')' : ''),
+						E('span', { 'style': 'font-weight:normal; color:#888; margin-left:8px; font-size:12px;' }, dev.size_formated + (dev.p_table && dev.p_table !== '-' ? ' · ' + dev.p_table : ''))
+					]),
+					E('div', { 'style': 'font-size:12px; color:#666;' }, [
+						_('Partitions: %d').format(parts.length)
+					])
+				]);
+
+				var devBlock = E('div', { 'style': 'margin-bottom:10px;' }, [
+					devTitleNode,
+					partBar
+				]);
+
+				partSection.appendChild(devBlock);
+			});
+		}
+
+		viewRoot.appendChild(partSection);
 
 		// Section: RAID
 		var raidKeys = Object.keys(raidDevices);

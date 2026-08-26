@@ -192,6 +192,9 @@ action_list_devices() {
 		for partpath in /sys/block/$bname/$bname*; do
 			[ -e "$partpath" ] || continue
 			local pname=$(basename "$partpath")
+			case "$pname" in
+				*boot*|*rpmb*) continue ;;
+			esac
 			local psize_sec=$(cat "$partpath/size" 2>/dev/null || echo 0)
 			local psize_bytes=$((psize_sec * ss))
 			local psize_str=$(format_bytes "$psize_bytes")
@@ -396,54 +399,113 @@ action_get_smart_attr() {
 		return
 	fi
 
-	local output=$(run_smartctl "$dev" "-H -A -i")
 	json_init
 	json_add_array "attributes"
 
-	local old_ifs="$IFS"
-	IFS='
-'
-	if echo "$output" | grep -q "NVMe Version:"; then
-		for line in $output; do
-			IFS="$old_ifs"
-			local k=$(echo "$line" | awk -F': ' '{print $1}' | sed 's/^[ \t]*//;s/[ \t]*$//')
-			local v=$(echo "$line" | awk -F': ' '{print $2}' | sed 's/^[ \t]*//;s/[ \t]*$//')
-			if [ -n "$k" ] && [ -n "$v" ]; then
-				json_add_object
-				json_add_string "key" "$k"
-				json_add_string "value" "$v"
-				json_close_object
+	if echo "$dev" | grep -q "^mmcblk"; then
+		local devpath="/sys/class/block/$dev"
+		[ ! -d "$devpath" ] && devpath="/sys/block/$dev"
+
+		local m_name=$(cat "$devpath/device/name" 2>/dev/null | sed 's/[[:space:]]//g')
+		local m_type=$(cat "$devpath/device/type" 2>/dev/null | sed 's/[[:space:]]//g')
+		local m_cid=$(cat "$devpath/device/cid" 2>/dev/null | sed 's/[[:space:]]//g')
+		local m_csd=$(cat "$devpath/device/csd" 2>/dev/null | sed 's/[[:space:]]//g')
+		local m_rev=$(cat "$devpath/device/rev" 2>/dev/null | sed 's/[[:space:]]//g')
+		local m_oemid=$(cat "$devpath/device/oemid" 2>/dev/null | sed 's/[[:space:]]//g')
+		local m_manfid=$(cat "$devpath/device/manfid" 2>/dev/null | sed 's/[[:space:]]//g')
+		local m_sn=$(cat "$devpath/device/serial" 2>/dev/null | sed 's/[[:space:]]//g')
+		local m_date=$(cat "$devpath/device/date" 2>/dev/null | sed 's/[[:space:]]//g')
+		local life=$(cat "$devpath/device/life_time" 2>/dev/null)
+		local eol=$(cat "$devpath/device/pre_eol_info" 2>/dev/null | sed 's/[[:space:]]//g')
+
+		local eol_str="Normal (0x01)"
+		[ "$eol" = "0x02" ] || [ "$eol" = "2" ] && eol_str="Warning (Consuming >80%)"
+		[ "$eol" = "0x03" ] || [ "$eol" = "3" ] && eol_str="Urgent (Replace)"
+
+		local life_a="Not Available"
+		local life_b="Not Available"
+		if [ -n "$life" ]; then
+			local ta=$(echo "$life" | awk '{print $1}')
+			local tb=$(echo "$life" | awk '{print $2}')
+			if [ -n "$ta" ]; then
+				local a_pct=$((ta * 10))
+				[ "$a_pct" -gt 100 ] && a_pct=100
+				life_a="Used ${a_pct}% (SLC Estimated)"
 			fi
-		done
+			if [ -n "$tb" ]; then
+				local b_pct=$((tb * 10))
+				[ "$b_pct" -gt 100 ] && b_pct=100
+				life_b="Used ${b_pct}% (MLC Estimated)"
+			fi
+		fi
+
+		json_add_object; json_add_string "key" "Storage Standard"; json_add_string "value" "JEDEC eMMC (EXT_CSD Protocol)"; json_close_object
+		json_add_object; json_add_string "key" "Device Type"; json_add_string "value" "${m_type:-eMMC}"; json_close_object
+		[ -n "$m_name" ] && { json_add_object; json_add_string "key" "Product Name"; json_add_string "value" "$m_name"; json_close_object; }
+		[ -n "$m_sn" ] && { json_add_object; json_add_string "key" "Serial Number"; json_add_string "value" "$m_sn"; json_close_object; }
+		[ -n "$m_date" ] && { json_add_object; json_add_string "key" "Manufacturing Date"; json_add_string "value" "$m_date"; json_close_object; }
+		[ -n "$m_rev" ] && { json_add_object; json_add_string "key" "Hardware Revision"; json_add_string "value" "$m_rev"; json_close_object; }
+		[ -n "$m_manfid" ] && { json_add_object; json_add_string "key" "Manufacturer ID"; json_add_string "value" "$m_manfid"; json_close_object; }
+		[ -n "$m_oemid" ] && { json_add_object; json_add_string "key" "OEM / Application ID"; json_add_string "value" "$m_oemid"; json_close_object; }
+		json_add_object; json_add_string "key" "Pre-EOL Health State"; json_add_string "value" "$eol_str"; json_close_object
+		json_add_object; json_add_string "key" "Device Life Time (Type A - SLC)"; json_add_string "value" "$life_a"; json_close_object
+		json_add_object; json_add_string "key" "Device Life Time (Type B - MLC)"; json_add_string "value" "$life_b"; json_close_object
+		if [ -f "/sys/class/thermal/thermal_zone0/temp" ]; then
+			local tz=$(cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null)
+			[ -n "$tz" ] && [ "$tz" -gt 0 ] 2>/dev/null && {
+				local tz_str="$(awk -v t="$tz" 'BEGIN {printf "%.1f °C", t/1000}')"
+				json_add_object; json_add_string "key" "Current Temperature"; json_add_string "value" "$tz_str"; json_close_object
+			}
+		fi
+		[ -n "$m_cid" ] && { json_add_object; json_add_string "key" "CID Register"; json_add_string "value" "$m_cid"; json_close_object; }
+		[ -n "$m_csd" ] && { json_add_object; json_add_string "key" "CSD Register"; json_add_string "value" "$m_csd"; json_close_object; }
 	else
-		for line in $output; do
-			IFS="$old_ifs"
-			if echo "$line" | grep -qE '^[[:space:]]*[0-9]+[[:space:]]+[A-Za-z0-9_-]+'; then
-				local id=$(echo "$line" | awk '{printf "%02X", $1}')
-				local attr=$(echo "$line" | awk '{print $2}')
-				local flag=$(echo "$line" | awk '{print $3}')
-				local val=$(echo "$line" | awk '{print $4}')
-				local worst=$(echo "$line" | awk '{print $5}')
-				local thresh=$(echo "$line" | awk '{print $6}')
-				local type=$(echo "$line" | awk '{print $7}')
-				local updated=$(echo "$line" | awk '{print $8}')
-				local raw=$(echo "$line" | awk '{for(i=10;i<=NF;i++) printf "%s ", $i; if(NF>=10) print ""; else print $9}' | sed 's/[ \t]*$//')
-				
-				json_add_object
-				json_add_string "id" "$id"
-				json_add_string "attrbute" "$attr"
-				json_add_string "flag" "$flag"
-				json_add_string "value" "$val"
-				json_add_string "worst" "$worst"
-				json_add_string "thresh" "$thresh"
-				json_add_string "type" "$type"
-				json_add_string "updated" "$updated"
-				json_add_string "raw" "$raw"
-				json_close_object
-			fi
+		local output=$(run_smartctl "$dev" "-H -A -i")
+		local old_ifs="$IFS"
+		IFS='
+'
+		if echo "$output" | grep -q "NVMe Version:"; then
+			for line in $output; do
+				IFS="$old_ifs"
+				local k=$(echo "$line" | awk -F': ' '{print $1}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+				local v=$(echo "$line" | awk -F': ' '{print $2}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+				if [ -n "$k" ] && [ -n "$v" ]; then
+					json_add_object
+					json_add_string "key" "$k"
+					json_add_string "value" "$v"
+					json_close_object
+				fi
 		done
+		else
+			for line in $output; do
+				IFS="$old_ifs"
+				if echo "$line" | grep -qE '^[[:space:]]*[0-9]+[[:space:]]+[A-Za-z0-9_-]+'; then
+					local id=$(echo "$line" | awk '{printf "%02X", $1}')
+					local attr=$(echo "$line" | awk '{print $2}')
+					local flag=$(echo "$line" | awk '{print $3}')
+					local val=$(echo "$line" | awk '{print $4}')
+					local worst=$(echo "$line" | awk '{print $5}')
+					local thresh=$(echo "$line" | awk '{print $6}')
+					local type=$(echo "$line" | awk '{print $7}')
+					local updated=$(echo "$line" | awk '{print $8}')
+					local raw=$(echo "$line" | awk '{for(i=10;i<=NF;i++) printf "%s ", $i; if(NF>=10) print ""; else print $9}' | sed 's/[ \t]*$//')
+					
+					json_add_object
+					json_add_string "id" "$id"
+					json_add_string "attrbute" "$attr"
+					json_add_string "flag" "$flag"
+					json_add_string "value" "$val"
+					json_add_string "worst" "$worst"
+					json_add_string "thresh" "$thresh"
+					json_add_string "type" "$type"
+					json_add_string "updated" "$updated"
+					json_add_string "raw" "$raw"
+					json_close_object
+				fi
+			done
+		fi
+		IFS="$old_ifs"
 	fi
-	IFS="$old_ifs"
 
 	json_close_array
 	json_dump
