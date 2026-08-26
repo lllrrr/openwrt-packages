@@ -1296,3 +1296,147 @@ msgstr "Static Binding"
 
 msgid "默认网关"
 msgstr "Default Gateway"
+
+msgid "Port Manager"
+msgstr "Port Manager"
+
+msgid "Manage WAN/LAN port assignment. Supports DSA architecture."
+msgstr "Manage WAN/LAN port assignment. Supports DSA architecture."
+
+msgid "Current Port Status"
+msgstr "Current Port Status"
+
+msgid "Port List"
+msgstr "Port List"
+
+msgid "Port"
+msgstr "Port"
+
+msgid "Role"
+msgstr "Role"
+
+msgid "Speed"
+msgstr "Speed"
+
+msgid "Link"
+msgstr "Link"
+
+msgid "WAN"
+msgstr "WAN"
+
+msgid "LAN"
+msgstr "LAN"
+
+msgid "Unused"
+msgstr "Unused"
+
+msgid "Unknown"
+msgstr "Unknown"
+
+msgid "Connected"
+msgstr "Connected"
+
+msgid "Disconnected"
+msgstr "Disconnected"
+
+msgid "Port Configuration"
+msgstr "Port Configuration"
+
+msgid "Select the role for each physical port. At least one LAN port and one WAN port are required."
+msgstr "Select the role for each physical port. At least one LAN port and one WAN port are required."
+
+msgid "Select the role for this port"
+msgstr "Select the role for this port"
+
+msgid "Current speed: %s Mbps"
+msgstr "Current speed: %s Mbps"
+
+msgid "Operations"
+msgstr "Operations"
+
+msgid "Apply Configuration"
+msgstr "Apply Configuration"
+
+msgid "Apply & Restart Network"
+msgstr "Apply & Restart Network"
+
+msgid "Apply the new port configuration and restart network. A 30-second confirmation countdown will start."
+msgstr "Apply the new port configuration and restart network. A 30-second confirmation countdown will start."
+
+msgid "Error: At least one LAN port is required for management."
+msgstr "Error: At least one LAN port is required for management."
+
+msgid "Error: At least one WAN port is required for internet access."
+msgstr "Error: At least one WAN port is required for internet access."
+
+msgid "Error: WAN port cannot be the same as LAN port."
+msgstr "Error: WAN port cannot be the same as LAN port."
+
+msgid "Pending Confirmation"
+msgstr "Pending Confirmation"
+
+msgid "Configuration pending confirmation"
+msgstr "Configuration pending confirmation"
+
+msgid "New port configuration has been applied. If not confirmed within 30 seconds, it will automatically rollback."
+msgstr "New port configuration has been applied. If not confirmed within 30 seconds, it will automatically rollback."
+
+msgid "Confirm Configuration"
+msgstr "Confirm Configuration"
+
+msgid "Confirm"
+msgstr "Confirm"
+
+msgid "Confirm the new configuration and cancel the rollback countdown."
+msgstr "Confirm the new configuration and cancel the rollback countdown."
+
+msgid "Rollback Now"
+msgstr "Rollback Now"
+
+msgid "Rollback"
+msgstr "Rollback"
+
+msgid "Immediately rollback to the previous configuration."
+msgstr "Immediately rollback to the previous configuration."
+
+msgid "Restore Previous Configuration"
+msgstr "Restore Previous Configuration"
+
+msgid "Restore"
+msgstr "Restore"
+
+msgid "Restore from the most recent backup."
+msgstr "Restore from the most recent backup."
+
+msgid "Restore Default Configuration"
+msgstr "Restore Default Configuration"
+
+msgid "Restore Default"
+msgstr "Restore Default"
+
+msgid "Restore to factory default port assignment (LAN: lan2/lan3/lan4, WAN: eth1)."
+msgstr "Restore to factory default port assignment (LAN: lan2/lan3/lan4, WAN: eth1)."
+
+msgid "Help & Notes"
+msgstr "Help & Notes"
+
+msgid "Important Notes"
+msgstr "Important Notes"
+
+msgid "At least one LAN port must be reserved for router management access."
+msgstr "At least one LAN port must be reserved for router management access."
+
+msgid "At least one WAN port must be reserved for internet connection."
+msgstr "At least one WAN port must be reserved for internet connection."
+
+msgid "After applying, you have 30 seconds to confirm. If not confirmed, it will automatically rollback."
+msgstr "After applying, you have 30 seconds to confirm. If not confirmed, it will automatically rollback."
+
+msgid "Changing port assignment will restart the network service and temporarily disconnect all connections."
+msgstr "Changing port assignment will restart the network service and temporarily disconnect all connections."
+
+msgid "The 2.5G port (eth1) is recommended as WAN for maximum internet speed."
+msgstr "The 2.5G port (eth1) is recommended as WAN for maximum internet speed."
+
+msgid "This plugin supports DSA architecture. For swconfig devices, please use the switch VLAN configuration page instead."
+msgstr "This plugin supports DSA architecture. For swconfig devices, please use the switch VLAN configuration page instead."

@@ -1090,3 +1090,147 @@ msgstr "静态绑定"
 
 msgid "默认网关"
 msgstr "默认网关"
+
+msgid "Port Manager"
+msgstr "网口管理"
+
+msgid "Manage WAN/LAN port assignment. Supports DSA architecture."
+msgstr "管理WAN/LAN网口分配，支持DSA架构。"
+
+msgid "Current Port Status"
+msgstr "当前网口状态"
+
+msgid "Port List"
+msgstr "网口列表"
+
+msgid "Port"
+msgstr "网口"
+
+msgid "Role"
+msgstr "角色"
+
+msgid "Speed"
+msgstr "速度"
+
+msgid "Link"
+msgstr "链路"
+
+msgid "WAN"
+msgstr "WAN"
+
+msgid "LAN"
+msgstr "LAN"
+
+msgid "Unused"
+msgstr "未使用"
+
+msgid "Unknown"
+msgstr "未知"
+
+msgid "Connected"
+msgstr "已连接"
+
+msgid "Disconnected"
+msgstr "未连接"
+
+msgid "Port Configuration"
+msgstr "网口配置"
+
+msgid "Select the role for each physical port. At least one LAN port and one WAN port are required."
+msgstr "为每个物理网口选择角色，至少需要一个LAN口和一个WAN口。"
+
+msgid "Select the role for this port"
+msgstr "选择该网口的角色"
+
+msgid "Current speed: %s Mbps"
+msgstr "当前速度：%s Mbps"
+
+msgid "Operations"
+msgstr "操作"
+
+msgid "Apply Configuration"
+msgstr "应用配置"
+
+msgid "Apply & Restart Network"
+msgstr "应用并重启网络"
+
+msgid "Apply the new port configuration and restart network. A 30-second confirmation countdown will start."
+msgstr "应用新的网口配置并重启网络，将启动30秒确认倒计时。"
+
+msgid "Error: At least one LAN port is required for management."
+msgstr "错误：至少需要一个LAN口用于管理。"
+
+msgid "Error: At least one WAN port is required for internet access."
+msgstr "错误：至少需要一个WAN口用于上网。"
+
+msgid "Error: WAN port cannot be the same as LAN port."
+msgstr "错误：WAN口不能与LAN口相同。"
+
+msgid "Pending Confirmation"
+msgstr "待确认"
+
+msgid "Configuration pending confirmation"
+msgstr "配置待确认"
+
+msgid "New port configuration has been applied. If not confirmed within 30 seconds, it will automatically rollback."
+msgstr "新的网口配置已应用，如果30秒内未确认，将自动回滚。"
+
+msgid "Confirm Configuration"
+msgstr "确认配置"
+
+msgid "Confirm"
+msgstr "确认"
+
+msgid "Confirm the new configuration and cancel the rollback countdown."
+msgstr "确认新配置并取消回滚倒计时。"
+
+msgid "Rollback Now"
+msgstr "立即回滚"
+
+msgid "Rollback"
+msgstr "回滚"
+
+msgid "Immediately rollback to the previous configuration."
+msgstr "立即回滚到上一个配置。"
+
+msgid "Restore Previous Configuration"
+msgstr "恢复上一个配置"
+
+msgid "Restore"
+msgstr "恢复"
+
+msgid "Restore from the most recent backup."
+msgstr "从最近的备份恢复。"
+
+msgid "Restore Default Configuration"
+msgstr "恢复默认配置"
+
+msgid "Restore Default"
+msgstr "恢复默认"
+
+msgid "Restore to factory default port assignment (LAN: lan2/lan3/lan4, WAN: eth1)."
+msgstr "恢复出厂默认网口分配（LAN：lan2/lan3/lan4，WAN：eth1）。"
+
+msgid "Help & Notes"
+msgstr "帮助与说明"
+
+msgid "Important Notes"
+msgstr "重要提示"
+
+msgid "At least one LAN port must be reserved for router management access."
+msgstr "必须至少保留一个LAN口用于路由器管理访问。"
+
+msgid "At least one WAN port must be reserved for internet connection."
+msgstr "必须至少保留一个WAN口用于互联网连接。"
+
+msgid "After applying, you have 30 seconds to confirm. If not confirmed, it will automatically rollback."
+msgstr "应用后有30秒确认时间，未确认将自动回滚。"
+
+msgid "Changing port assignment will restart the network service and temporarily disconnect all connections."
+msgstr "修改网口分配将重启网络服务，暂时断开所有连接。"
+
+msgid "The 2.5G port (eth1) is recommended as WAN for maximum internet speed."
+msgstr "建议将2.5G网口（eth1）作为WAN以获得最大上网速度。"
+
+msgid "This plugin supports DSA architecture. For swconfig devices, please use the switch VLAN configuration page instead."
+msgstr "本插件支持DSA架构，swconfig设备请使用交换机VLAN配置页面。"

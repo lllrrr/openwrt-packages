@@ -186,10 +186,8 @@ apply_pppoe() {
     uci set network.wan.username="$username"
     uci set network.wan.password="$password"
 
-    # 确保 WAN 口是 eth0 或默认
-    if ! uci get network.wan.device >/dev/null 2>&1; then
-        uci set network.wan.device='eth0'
-    fi
+    # 保留原有 WAN 口设备配置，不强制修改（不同设备WAN口名不同）
+    # 如 device 未配置，将在网络重启时由系统自动检测或使用默认配置
 
     # 应用高级设置
     if ! apply_advanced_settings; then
@@ -227,10 +225,8 @@ apply_dhcp() {
     # 配置 WAN 为 DHCP
     uci set network.wan.proto='dhcp'
 
-    # 确保 WAN 口是 eth0 或默认
-    if ! uci get network.wan.device >/dev/null 2>&1; then
-        uci set network.wan.device='eth0'
-    fi
+    # 保留原有 WAN 口设备配置，不强制修改（不同设备WAN口名不同）
+    # 如 device 未配置，将在网络重启时由系统自动检测或使用默认配置
 
     # 应用高级设置
     if ! apply_advanced_settings; then
@@ -305,10 +301,8 @@ apply_static() {
     uci set network.wan.netmask="$netmask"
     uci set network.wan.gateway="$gateway"
 
-    # 确保 WAN 口是 eth0 或默认
-    if ! uci get network.wan.device >/dev/null 2>&1; then
-        uci set network.wan.device='eth0'
-    fi
+    # 保留原有 WAN 口设备配置，不强制修改（不同设备WAN口名不同）
+    # 如 device 未配置，将在网络重启时由系统自动检测或使用默认配置
 
     # 设置 DNS（优先用高级参数里的，其次用旧参数）
     if [ -z "$ADV_DNS1" ] && [ -n "$dns" ]; then

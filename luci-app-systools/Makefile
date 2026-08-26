@@ -33,6 +33,7 @@ define Package/luci-app-systools/description
   - Side Route Mode (one-click bypass router mode)
   - Device Manager (device list, nicknames, static IP binding)
   - LAN IP Settings (modify router LAN address)
+  - Port Manager (WAN/LAN port assignment, DSA architecture support)
   - Smart Home Management (Home Assistant focused: images, storage, network)
   - Docker Storage Migration (migrate Docker data to USB drive)
   - Docker Image Pull with mirror acceleration
@@ -47,6 +48,7 @@ define Package/luci-app-systools/description
   - 旁路由模式（一键切换旁路网关模式）
   - 设备管理（设备列表、备注名、静态IP绑定）
   - LAN IP 设置（修改路由器后台地址）
+  - 网口管理（WAN/LAN网口分配，支持DSA架构）
   - 智能家居管理（Home Assistant 专属：镜像、存储、网络）
   - Docker 存储迁移（将 Docker 数据迁移到 U 盘）
   - Docker 镜像拉取（支持国内镜像加速）
@@ -83,6 +85,7 @@ define Package/luci-app-systools/install
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/luasrc/model/cbi/systools/side_route.lua $(1)/usr/lib/lua/luci/model/cbi/systools/side_route.lua
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/luasrc/model/cbi/systools/device_manager.lua $(1)/usr/lib/lua/luci/model/cbi/systools/device_manager.lua
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/luasrc/model/cbi/systools/lan_ip.lua $(1)/usr/lib/lua/luci/model/cbi/systools/lan_ip.lua
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/luasrc/model/cbi/systools/port_manager.lua $(1)/usr/lib/lua/luci/model/cbi/systools/port_manager.lua
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/luasrc/model/cbi/systools/homeassistant.lua $(1)/usr/lib/lua/luci/model/cbi/systools/homeassistant.lua
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/luasrc/model/cbi/systools/smarthome_images.lua $(1)/usr/lib/lua/luci/model/cbi/systools/smarthome_images.lua
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/luasrc/model/cbi/systools/smarthome_storage.lua $(1)/usr/lib/lua/luci/model/cbi/systools/smarthome_storage.lua
@@ -105,6 +108,7 @@ define Package/luci-app-systools/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/libexec/systools/side_route.sh $(1)/usr/libexec/systools/side_route.sh
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/libexec/systools/device_manager.sh $(1)/usr/libexec/systools/device_manager.sh
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/libexec/systools/lan_ip.sh $(1)/usr/libexec/systools/lan_ip.sh
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/libexec/systools/port_manager.sh $(1)/usr/libexec/systools/port_manager.sh
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/libexec/systools/homeassistant.sh $(1)/usr/libexec/systools/homeassistant.sh
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/libexec/systools/smarthome_images.sh $(1)/usr/libexec/systools/smarthome_images.sh
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/libexec/systools/smarthome_storage.sh $(1)/usr/libexec/systools/smarthome_storage.sh

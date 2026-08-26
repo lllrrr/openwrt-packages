@@ -24,6 +24,9 @@ function index()
     
     -- LAN IP 设置
     entry({"admin", "systools", "wizard", "lan_ip"}, cbi("systools/lan_ip"), _("LAN IP 设置"), 5)
+
+    -- 网口管理（WAN/LAN分配）
+    entry({"admin", "systools", "wizard", "port_manager"}, cbi("systools/port_manager"), _("网口管理"), 6)
     
     -- 智能家居分类
     entry({"admin", "systools", "smarthome"}, firstchild(), _("🏠 智能家居"), 20)

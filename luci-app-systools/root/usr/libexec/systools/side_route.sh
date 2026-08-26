@@ -4,6 +4,23 @@
 
 # 加载公共函数库
 . /usr/libexec/systools/systools-common.sh
+
+# 通过zone名称查找索引（避免硬编码@zone[1]）
+get_zone_index() {
+    local zone_name="$1"
+    local idx=0
+    while [ $idx -lt 10 ]; do
+        local name
+        name=$(uci get firewall.@zone[$idx].name 2>/dev/null)
+        if [ "$name" = "$zone_name" ]; then
+            echo "$idx"
+            return 0
+        fi
+        idx=$((idx + 1))
+    done
+    echo "1"  #  fallback到1（默认WAN通常是第二个zone）
+    return 1
+}
 # 自动备份，失败回滚
 
 BACKUP_DIR="/etc/systools/backup/side_route"
@@ -95,8 +112,10 @@ get_status() {
         dhcp_enabled="yes"
     fi
 
+    local wan_zone_idx
+    wan_zone_idx=$(get_zone_index "wan")
     local masq_status
-    masq_status=$(uci get firewall.@zone[1].masq 2>/dev/null)
+    masq_status=$(uci get firewall.@zone[$wan_zone_idx].masq 2>/dev/null)
     if [ "$masq_status" = "1" ]; then
         masq_status="enabled"
     else
@@ -190,12 +209,14 @@ enable_side_route() {
 
     # 5. 关闭 WAN 口的 IP 伪装（masquerade），避免双重 NAT
     # 旁路由模式下，主路由已经做了 NAT，不需要再做一次
-    uci set firewall.@zone[1].masq='0'
+    local wan_zone_idx
+    wan_zone_idx=$(get_zone_index "wan")
+    uci set firewall.@zone[$wan_zone_idx].masq='0'
 
     # 6. 确保 IP 转发开启（旁路由必须开启才能转发流量）
     echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null
     uci set firewall.@defaults[0].forward='ACCEPT'
-    uci set firewall.@defaults[0].syn_flood='0'
+    # 注意：不关闭syn_flood防护，保留原有安全设置
 
     uci commit network
     uci commit dhcp

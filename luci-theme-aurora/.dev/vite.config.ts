@@ -4,6 +4,7 @@
  */
 
 import tailwindcss from "@tailwindcss/vite";
+import { luciRouter } from "@eamonxg/luci-theme-devkit/vite/router";
 import browserslist from "browserslist";
 import { exec } from "child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
@@ -266,7 +267,6 @@ function createLocalServePlugin(): Plugin {
     "/luci-static/resources/view/aurora/sysauth.js":
       "src/resource/view/aurora/sysauth.js",
     "/luci-static/resources/menu-aurora.js": "src/resource/menu-aurora.js",
-    "/luci-static/resources/router-aurora.js": "src/resource/router-aurora.js",
   };
 
   // Any theme CSS (entries, partials, patches) or served JS change must force
@@ -980,6 +980,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       tailwindcss(),
       createRedirectPlugin(),
+      luciRouter({ name: "aurora" }),
       createLocalServePlugin(),
       createMockPlugin(),
       createUtSyncPlugin(OPENWRT_SSH_HOST),
