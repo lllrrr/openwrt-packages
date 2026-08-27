@@ -1,0 +1,11 @@
+#!/bin/sh
+
+uci -q batch <<-EOF >/dev/null
+	delete ucitrack.@portweaver[-1]
+	add ucitrack portweaver
+	set ucitrack.@portweaver[-1].init=portweaver
+	commit ucitrack
+EOF
+
+rm -f /tmp/luci-indexcache
+exit 0

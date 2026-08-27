@@ -1,0 +1,59 @@
+{
+	"luci-app-portweaver": {
+		"description": "Grant UCI and ubus access for LuCI PortWeaver app",
+		"read": {
+			"file": {
+				"/tmp/portweaver.log": [
+					"read"
+				],
+				"/etc/init.d/portweaver": [
+					"exec"
+				],
+				"/usr/bin/portweaver": [
+					"exec"
+				]
+			},
+			"uci": [
+				"portweaver"
+			],
+			"ubus": {
+				"portweaver": [
+					"get_full_status",
+					"get_frps_info",
+					"get_frpc_info",
+					"get_ddns_status",
+					"get_ddns_info",
+					"get_frpc_proxy_stats",
+					"get_frps_proxy_stats",
+					"list_projects",
+					"get_nftables_rules",
+					"wol_status"
+				]
+			}
+		},
+		"write": {
+			"file": {
+				"/tmp/portweaver.log": [
+					"write"
+				]
+			},
+			"uci": [
+				"portweaver"
+			],
+			"ubus": {
+				"uci": [
+					"commit"
+				],
+				"portweaver": [
+					"set_enabled",
+					"clear_frpc_logs",
+					"clear_ddns_logs",
+					"clear_frps_logs",
+					"reload_config",
+					"restart_project",
+					"wol_wake"
+				]
+			}
+		}
+	}
+}

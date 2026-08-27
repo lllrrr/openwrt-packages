@@ -1,0 +1,28 @@
+#!/bin/sh /etc/rc.common
+START=99
+STOP=10
+USE_PROCD=1
+PROG=/usr/bin/portweaver
+
+start_service() {
+	local enabled
+
+	config_load portweaver 2>/dev/null
+	config_get_bool enabled global enabled 1
+
+	[ "$enabled" -eq 0 ] && return 0
+
+	procd_open_instance
+	procd_set_param command $PROG
+	procd_set_param respawn
+	procd_close_instance
+}
+
+service_triggers() {
+	procd_add_reload_trigger portweaver
+}
+
+reload_service() {
+	procd_send_signal portweaver
+}
+
