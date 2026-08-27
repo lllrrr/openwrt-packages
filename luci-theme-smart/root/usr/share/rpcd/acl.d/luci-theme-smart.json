@@ -1,8 +1,0 @@
-{
-  "luci-theme-smart": {
-    "description": "Grant UCI access for luci-theme-smart",
-    "read": {
-      "uci": ["smart"]
-    }
-  }
-}
