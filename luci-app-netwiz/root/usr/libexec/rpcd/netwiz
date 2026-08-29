@@ -2539,15 +2539,23 @@ EOF
                 [ -z "$raw_port" ] && raw_port=80
                 web_port=$(echo "$raw_port" | awk '{print $1}')
 
-                current_fw_port=$(uci -q get firewall.Netwiz_Probe_Allow.dest_port 2>/dev/null)
+                # 清理旧版本的冗余规则
+                if uci -q get firewall.Netwiz_Probe_Allow >/dev/null 2>&1; then
+                    uci -q delete firewall.Netwiz_Probe_Allow
+                    uci -q commit firewall
+                    /etc/init.d/firewall reload &
+                fi
+
+                # 守护进程主规则 netwiz_web 进行保活修复
+                current_fw_port=$(uci -q get firewall.netwiz_web.dest_port 2>/dev/null)
                 if [ "$current_fw_port" != "$raw_port" ]; then
-                    uci -q set firewall.Netwiz_Probe_Allow=rule
-                    uci -q set firewall.Netwiz_Probe_Allow.name='Allow-Netwiz-Probe'
-                    uci -q set firewall.Netwiz_Probe_Allow.src='wan'
-                    uci -q set firewall.Netwiz_Probe_Allow.dest_port="$raw_port"
-                    uci -q set firewall.Netwiz_Probe_Allow.proto='tcp'
-                    uci -q set firewall.Netwiz_Probe_Allow.family='ipv6'
-                    uci -q set firewall.Netwiz_Probe_Allow.target='ACCEPT'
+                    uci -q set firewall.netwiz_web=rule
+                    uci -q set firewall.netwiz_web.name='Netwiz_Web_Custom'
+                    uci -q set firewall.netwiz_web.src='wan'
+                    uci -q set firewall.netwiz_web.dest_port="$raw_port"
+                    uci -q set firewall.netwiz_web.proto='tcp'
+                    # 注：去掉 family='ipv6'，让它同时兼容 IPv4 和 IPv6，一劳永逸
+                    uci -q set firewall.netwiz_web.target='ACCEPT'
                     uci -q commit firewall
                     /etc/init.d/firewall reload &
                 fi
