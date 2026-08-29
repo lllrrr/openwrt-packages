@@ -1,0 +1,909 @@
+#!/usr/bin/ucode
+'use strict';
+
+import { readfile, writefile, stat, lsdir, unlink, popen, open } from "fs";
+import { cursor } from "uci";
+
+const DEFAULTS = {
+    bin_path:      "/usr/bin",
+    config_path:   "/etc/vnt2_config",
+    template_path: "/etc/vnt2_config",
+    update_script: "/usr/libexec/vnt2-update.sh",
+    update_dir:    "/tmp/vnt2_update",
+    init_script:   "/etc/init.d/vnt2",
+};
+
+const START_METHODS = {
+    vnt:  "vnt2_cli",
+    vnts: "vnts2",
+};
+
+const SETTING_DEFS = [
+    ["bin_path",           "/usr/bin",        "string"],
+    ["config_path",        "/etc/vnt2_config","string"],
+    ["arch",               "auto",               "string"],
+    ["mirror",             "github",          "string"],
+    ["web_token",          "",                "string"],
+    ["auto_update",        "0",               "bool"  ],
+    ["update_interval",    "7",               "int"   ],
+    ["upx_compressed",     "0",               "bool"  ],
+    ["respawn_threshold",  "3600",            "int"   ],
+    ["respawn_timeout",    "5",               "int"   ],
+    ["respawn_retry",      "5",               "int"   ],
+    ["log_to_file",        "1",               "bool"  ],
+    ["log_errors_only",    "0",               "bool"  ],
+    ["log_max_kb",         "300",             "int"   ],
+    ["startup_check_window","60",             "int"   ],
+    ["fw_vnt_to_lan",      "1",               "bool"  ],
+    ["fw_lan_to_vnt",      "1",               "bool"  ],
+    ["fw_vnt_to_wan",      "0",               "bool"  ],
+    ["fw_wan_to_vnt",      "0",               "bool"  ],
+    ["fw_vnt_web",         "0",               "bool"  ],
+    ["fw_vnts_web",        "0",               "bool"  ],
+];
+
+const VNT_API_MAP = {
+    info:    "/api/info",
+    ips:     "/api/info",
+    clients: "/api/peers",
+    route:   "/api/routes",
+};
+
+const VNTS_API_MAP = {
+    info:    "/api/networks",
+    clients: "/api/devices",
+    servers: "/api/peer_servers",
+};
+
+let CFG = {
+    bin_path:    "/usr/bin",
+    config_path: "/etc/vnt2_config",
+    run_dir:     "/var/run",
+    log_dir:     "/tmp/vnt2_log",
+};
+
+function system(cmd) {
+    let p = popen(cmd, "r");
+    if (!p) return -1;
+    p.read("all");
+    return p.close();
+}
+
+function execOutput(cmd) {
+    let p   = popen(cmd, "r");
+    let out = p ? p.read("all") : "";
+    if (p) p.close();
+    return out ?? "";
+}
+
+function safeRead(path)           { return readfile(path) ?? ""; }
+function writeFile(path, content) {
+    let r = writefile(path, content);
+    return r != null && r > 0;
+}
+function fileExists(path) { return stat(path) != null; }
+function isExecutable(path) {
+    let s = stat(path);
+    return s != null && s.perm != null && s.perm.user_exec === true;
+}
+
+function pidFile(name)        { return `${CFG.run_dir}/vnt2_${name}.pid`; }
+function confFile(name, type) { return `${CFG.config_path}/${name}.${type}`; }
+
+function updFile(p, ext) { return `${DEFAULTS.update_dir}/${p}.${ext}`; }
+
+function latestEvent(project) {
+    let f = open(updFile(project, "events"), "r");
+    if (!f) return null;
+    let lines = split(f.read("all") ?? "", "\n");
+    f.close();
+    for (let i = length(lines) - 1; i >= 0; i--) {
+        let line = trim(lines[i]);
+        let m = match(line, /^\[[^]]+\] EVENT ([A-Za-z0-9_]+)(.*)$/);
+        if (!m) continue;
+        let args = {};
+        let rest = trim(m[2] ?? "");
+        if (rest) {
+            let parts = split(rest, " ");
+            for (let j = 0; j < length(parts); j++) {
+                let eq = index(parts[j], "=");
+                if (eq > 0)
+                    args[substr(parts[j], 0, eq)] = substr(parts[j], eq + 1);
+            }
+        }
+        return { event: m[1], args };
+    }
+    return null;
+}
+
+function resetUpdateState(project) {
+    system(`mkdir -p '${DEFAULTS.update_dir}'`);
+    system(`rm -f '${updFile(project, "status")}' '${updFile(project, "log")}' '${updFile(project, "events")}'`);
+}
+
+function initPaths() {
+    let uci = cursor();
+    uci.load("vnt2");
+    CFG.bin_path    = uci.get("vnt2", "global", "bin_path")    || DEFAULTS.bin_path;
+    CFG.config_path = uci.get("vnt2", "global", "config_path") || DEFAULTS.config_path;
+    system(`mkdir -p '${CFG.config_path}' '${CFG.run_dir}' '${CFG.log_dir}'`);
+}
+
+function getMirror(args) {
+    if (args.mirror) return args.mirror;
+    let uci = cursor();
+    uci.load("vnt2");
+    return uci.get("vnt2", "global", "mirror") || "github";
+}
+
+function getDeviceModel() {
+    let model = trim(safeRead("/tmp/sysinfo/model"));
+    if (model) return model;
+    return replace(trim(execOutput("cat /proc/device-tree/model 2>/dev/null")), /\x00/g, "");
+}
+
+function readField(file, field) {
+    let lines = split(safeRead(file), "\n");
+    for (let i = 0; i < length(lines); i++) {
+        let line = trim(lines[i]);
+        let m    = match(line, regexp("^" + field + "\\s*=\\s*(.+)$"));
+        if (m) return replace(m[1], /^\s*["']?|["']?\s*$/g, "");
+    }
+    return "";
+}
+
+function normalizeAddr(webAddr) {
+    let addr = replace(webAddr, /^0\.0\.0\.0/, "127.0.0.1");
+    return substr(addr, 0, 1) === ":" ? "127.0.0.1" + addr : addr;
+}
+
+function uciEach(uci, type, cb) {
+    uci.foreach("vnt2", type, (s) => cb(s[".name"], s));
+}
+
+function listConfFiles(filter) {
+    let exts   = (filter && filter !== "all") ? [filter] : ["vnt", "vnts"];
+    let result = [];
+    let files  = lsdir(CFG.config_path) ?? [];
+    for (let ei = 0; ei < length(exts); ei++) {
+        let ext    = exts[ei];
+        let suffix = "." + ext;
+        let slen   = length(suffix);
+        for (let fi = 0; fi < length(files); fi++) {
+            let f    = files[fi];
+            let flen = length(f);
+            if (flen > slen && substr(f, flen - slen) === suffix) {
+                let name = substr(f, 0, flen - slen);
+                push(result, { name, type: ext, file: confFile(name, ext) });
+            }
+        }
+    }
+    return result;
+}
+
+function getActualNames(type) {
+    let files = listConfFiles(type);
+    let names = [];
+    for (let i = 0; i < length(files); i++)
+        push(names, files[i].name);
+    return names;
+}
+
+function pidAlive(pid) {
+    if (!pid || int(pid) <= 0) return false;
+    return fileExists(`/proc/${pid}`);
+}
+
+function isRunning(name) {
+    let pid = trim(safeRead(pidFile(name)));
+    return length(pid) > 0 && pidAlive(pid);
+}
+
+function readPid(name) { return trim(safeRead(pidFile(name))); }
+
+function getType(name) {
+    if (fileExists(confFile(name, "vnt")))  return "vnt";
+    if (fileExists(confFile(name, "vnts"))) return "vnts";
+    return null;
+}
+
+function getStartMethod(name, type) {
+    let uci    = cursor();
+    uci.load("vnt2");
+    let method = null;
+    uciEach(uci, type, (sid, s) => {
+        if (s.name === name) { method = s.start_method; return false; }
+    });
+    return method || START_METHODS[type];
+}
+
+function readCpuTicks(pid) {
+    let pstat  = safeRead(`/proc/${pid}/stat`);
+    let upstat = safeRead("/proc/stat");
+    let pp     = split(pstat, " ");
+    let sp     = split(trim(split(upstat, "\n")[0]), /\s+/);
+    let proc   = int(pp[13]) + int(pp[14]) + int(pp[15]) + int(pp[16]);
+    let total  = 0;
+    for (let i = 1; i < length(sp); i++) total += int(sp[i]);
+    return { proc, total };
+}
+
+function cmdGetCpuTicks(args) {
+    let name = args.name;
+    let pid  = trim(safeRead(pidFile(name)));
+    if (!pid || !pidAlive(pid))
+        return { name, proc: 0, total: 0, alive: false };
+    let ticks = readCpuTicks(pid);
+    return { name, proc: ticks.proc, total: ticks.total, alive: true };
+}
+
+function instanceInfo(name) {
+    let type     = getType(name);
+    let running  = isRunning(name);
+    let pid      = running ? readPid(name) : "";
+    let uptime   = 0;
+    let mem      = "0";
+    let web_addr = "";
+
+    if (running && pid) {
+        let hz     = int(trim(execOutput("getconf CLK_TCK 2>/dev/null"))) || 100;
+        let sparts = split(safeRead(`/proc/${pid}/stat`), " ");
+        let uptSec = int(split(trim(safeRead("/proc/uptime")), " ")[0]);
+        let startJ = int(sparts[21]);
+        if (startJ && uptSec) {
+            uptime = uptSec - int(startJ / hz);
+            if (uptime < 0) uptime = 0;
+        }
+        let mlines = split(safeRead(`/proc/${pid}/status`), "\n");
+        for (let i = 0; i < length(mlines); i++) {
+            let m = match(mlines[i], /^VmRSS:\s*(\d+)/);
+            if (m) { mem = sprintf("%.1f", int(m[1]) / 1024); break; }
+        }
+        let conf = confFile(name, type);
+        web_addr = (type === "vnt")
+            ? readField(conf, "web_addr")
+            : readField(conf, "web_bind");
+    }
+    return { name, type: type ?? "unknown", running, pid, web_addr, uptime, mem };
+}
+
+function instanceAction(name, action) {
+    initPaths();
+    if (name && action === "restart") {
+        let pid = readPid(name);
+        if (pid && pidAlive(pid)) {
+            system(`kill ${pid} 2>/dev/null`);
+            system(`setsid ${DEFAULTS.init_script} start >/dev/null 2>&1 &`);
+            return { result: "ok" };
+        }
+        action = "start";
+    }
+    if (name) {
+        let type = getType(name);
+        if (!type) return { result: "error", msg: "Config file not found" };
+        let uci = cursor();
+        uci.load("vnt2");
+        let sid = null;
+        uciEach(uci, type, (s, sec) => {
+            if (sec.name === name) { sid = s; return false; }
+        });
+        if (!sid) {
+            sid = `cfg_${type}_${name}`;
+            uci.set("vnt2", sid, type);
+            uci.set("vnt2", sid, "name", name);
+        }
+        uci.set("vnt2", sid, "enabled", action === "start" ? "1" : "0");
+        uci.commit("vnt2");
+    }
+    system(`setsid ${DEFAULTS.init_script} ${name ? "start" : action} >/dev/null 2>&1 &`);
+    return { result: "ok" };
+}
+
+function cmdGetLog(args) {
+    initPaths();
+    let name  = args.name;
+    let lines = args.lines != null ? int(args.lines) : null;
+    if (name === "update_all") {
+        let parts = [];
+        let files = ["luci-app-vnt2", "vnt", "vnts"];
+        for (let i = 0; i < length(files); i++) {
+            let fp = open(updFile(files[i], "log"), "r");
+            if (fp) {
+                let c = trim(fp.read("all"));
+                fp.close();
+                if (c) push(parts, c);
+            }
+        }
+        return { content: join("\n", parts) };
+    }
+    let logPath = `${CFG.log_dir}/${name}.log`;
+    if (!fileExists(logPath)) return { content: "" };
+    let cmd = (lines != null && lines > 0)
+        ? `tail -n ${lines} '${logPath}' 2>/dev/null`
+        : `cat '${logPath}' 2>/dev/null`;
+    return { content: trim(execOutput(cmd)) };
+}
+
+function cmdClearLog(args) {
+    initPaths();
+    if (args.name === "update_all") {
+        execOutput(`rm -rf '${DEFAULTS.update_dir}' 2>/dev/null`);
+        return { result: "ok" };
+    }
+    let logPath = `${CFG.log_dir}/${args.name}.log`;
+    let eventPath = `${CFG.log_dir}/${args.name}.events`;
+    if (fileExists(logPath)) {
+        let f = open(logPath, "w");
+        if (f) f.close();
+    }
+    if (fileExists(eventPath)) unlink(eventPath);
+    return { result: "ok" };
+}
+
+function cmdListInstances() {
+    initPaths();
+    let allFiles  = listConfFiles("all");
+    let seen      = {};
+    let instances = [];
+    for (let i = 0; i < length(allFiles); i++) {
+        let f = allFiles[i];
+        if (seen[f.name]) continue;
+        seen[f.name] = true;
+        push(instances, instanceInfo(f.name));
+    }
+    return { instances };
+}
+
+function cmdListConfigs(args) {
+    initPaths();
+    return { configs: listConfFiles(args.filter || "all") };
+}
+
+function cmdReadConfig(args) {
+    initPaths();
+    let file = confFile(args.name, args.type);
+    if (!fileExists(file)) return { error: "File not found", code: "file_not_found" };
+    return { content: safeRead(file) };
+}
+
+function cmdReadTemplate(args) {
+    initPaths();
+    let tmpl = `${DEFAULTS.template_path}/${args.type}.config`;
+    if (!fileExists(tmpl)) return { error: "Template not found", code: "template_not_found" };
+    return { content: safeRead(tmpl) };
+}
+
+function inferType(rawVal) {
+    if (rawVal === "true" || rawVal === "false") return "bool";
+    if (substr(rawVal, 0, 1) === "[")            return "array";
+    if (match(rawVal, /^\d+$/))                  return "int";
+    return "string";
+}
+
+function parseDefaultValue(rawVal, ftype) {
+    if (ftype === "bool")  return rawVal === "true";
+    if (ftype === "int")   return int(rawVal) || 0;
+    if (ftype === "array") {
+        let inner = trim(replace(rawVal, /^\[|\]$/g, ""));
+        if (!inner) return [];
+        let items = [];
+        let parts = split(inner, ",");
+        for (let i = 0; i < length(parts); i++) {
+            let v = trim(replace(trim(parts[i]), /^["']|["']$/g, ""));
+            if (v) push(items, v);
+        }
+        return items;
+    }
+    return replace(rawVal, /^["']|["']$/g, "");
+}
+
+function parseTemplateFields(content) {
+    let fields  = [];
+    let lines   = split(content, "\n");
+    let pending = [];
+    for (let i = 0; i < length(lines); i++) {
+        let line = trim(lines[i]);
+        if (!line) { pending = []; continue; }
+        if (substr(line, 0, 1) === "#") {
+            let text = trim(substr(line, 1));
+            if (!text || match(text, /^[-=*\s]*$/)) { pending = []; continue; }
+            push(pending, text);
+            continue;
+        }
+        let tbl = match(line, /^\[([a-zA-Z_][a-zA-Z0-9_]*)\]$/);
+        if (tbl) {
+            let fullComment = join(" ", pending);
+            let typeM       = match(fullComment, /\[(\w+)\]/);
+            if (typeM && typeM[1] === "section") {
+                push(fields, {
+                    name:      tbl[1],
+                    type:      "section",
+                    "default": {},
+                    comment:   trim(replace(replace(fullComment, /\[\w+\]/g, ""), /\s+/g, " ")),
+                    options:   [],
+                });
+            }
+            pending = [];
+            continue;
+        }
+        let eqIdx = index(line, "=");
+        if (eqIdx < 0) { pending = []; continue; }
+        let key         = trim(substr(line, 0, eqIdx));
+        let rawVal      = trim(substr(line, eqIdx + 1));
+        let fullComment = join(" ", pending);
+        let typeM       = match(fullComment, /\[(\w+)\]/);
+        let fieldType   = typeM ? typeM[1] : inferType(rawVal);
+        let options = [];
+        let optM    = match(fullComment, /选项[：:]\s*([^\n]+)/);
+        if (optM) {
+            let optStr = trim(optM[1]);
+            let raw    = index(optStr, ",") >= 0 ? split(optStr, ",") : split(optStr, " ");
+            for (let oi = 0; oi < length(raw); oi++) {
+                let v = trim(raw[oi]);
+                if (v) push(options, v);
+            }
+        }
+        push(fields, {
+            name:      key,
+            type:      fieldType,
+            "default": parseDefaultValue(rawVal, fieldType),
+            comment:   trim(replace(replace(fullComment, /\[\w+\]/g, ""), /\s+/g, " ")),
+            options,
+        });
+        pending = [];
+    }
+    for (let i = 0; i < length(fields); i++) {
+        if (fields[i].name === "device_name" && fields[i]["default"] === "") {
+            fields[i]["default"] = getDeviceModel();
+            break;
+        }
+    }
+    return fields;
+}
+
+function cmdGetTemplateFields(args) {
+    initPaths();
+    let tmpl = `${DEFAULTS.template_path}/${args.type}.config`;
+    if (!fileExists(tmpl)) return { fields: [] };
+    return { fields: parseTemplateFields(safeRead(tmpl)) };
+}
+
+function cmdSaveConfig(args) {
+    initPaths();
+    let oldName = (args.old_name && args.old_name !== "") ? args.old_name : args.name;
+    let name    = args.name;
+    let type    = args.type;
+    if (!writeFile(confFile(name, type), args.content))
+        return { result: "error", msg: "Write failed", code: "write_failed" };
+    if (oldName !== name) {
+        let uci = cursor();
+        uci.load("vnt2");
+        uciEach(uci, type, (sid, s) => {
+            if (s.name === oldName) {
+                uci.set("vnt2", sid, "name", name);
+                return false;
+            }
+        });
+        uci.commit("vnt2");
+        unlink(confFile(oldName, type));
+        system(`setsid ${DEFAULTS.init_script} start >/dev/null 2>&1 &`);
+    } else {
+        if (isRunning(name)) instanceAction(name, "restart");
+    }
+    return { result: "ok" };
+}
+
+function cmdDeleteConfig(args) {
+    initPaths();
+    instanceAction(args.name, "stop");
+    let file = confFile(args.name, args.type);
+    if (!fileExists(file)) return { result: "error", msg: "File not found" };
+    unlink(file);
+    let uci      = cursor();
+    uci.load("vnt2");
+    let toDelete = [];
+    uciEach(uci, args.type, (sid, s) => {
+        if (s.name === args.name) push(toDelete, sid);
+    });
+    for (let i = 0; i < length(toDelete); i++)
+        uci.delete("vnt2", toDelete[i]);
+    if (length(toDelete)) uci.commit("vnt2");
+    return { result: "ok" };
+}
+
+function getWebToken() {
+    let uci = cursor();
+    uci.load("vnt2");
+    return uci.get("vnt2", "global", "web_token") || "";
+}
+
+function webApiUrl(webAddr, path, name) {
+    let fileName = `${name}.vnt`;
+    return `http://${normalizeAddr(webAddr)}${path}?file_name=${fileName}`;
+}
+
+function fetchWebApi(webAddr, path, name) {
+    let token = getWebToken();
+    let url = webApiUrl(webAddr, path, name);
+    let cmd = token
+        ? sprintf("curl -fsSL --connect-timeout 3 --max-time 5 -H 'Authorization: Bearer %s' '%s' 2>/dev/null", token, url)
+        : sprintf("curl -fsSL --connect-timeout 3 --max-time 5 '%s' 2>/dev/null", url);
+    let raw = execOutput(cmd);
+    return raw ? json(raw) : null;
+}
+
+function vntsLogin(webAddr, name) {
+    let conf = confFile(name, "vnts");
+    let user = readField(conf, "username") || "admin";
+    let pass = readField(conf, "password") || "";
+    let addr = normalizeAddr(webAddr);
+    let body = sprintf('{"username":%J,"password":%J}', user, pass);
+    let raw  = execOutput(sprintf(
+        "curl -fsSL --connect-timeout 5 --max-time 10 " +
+        "-X POST -H 'Content-Type: application/json' " +
+        "-d '%s' 'http://%s/api/login' 2>/dev/null",
+        body, addr
+    ));
+    if (!raw) return null;
+    let r = json(raw);
+    if (!r || r.code !== 200 || !r.data || !r.data.token) return null;
+    return r.data.token;
+}
+
+function fetchVntsApi(webAddr, path, token, params) {
+    let addr = normalizeAddr(webAddr);
+    let url  = params
+        ? sprintf("http://%s%s?%s", addr, path, params)
+        : sprintf("http://%s%s",    addr, path);
+    let raw  = execOutput(sprintf(
+        "curl -fsSL --connect-timeout 5 --max-time 10 " +
+        "-H 'Authorization: Bearer %s' '%s' 2>/dev/null",
+        token, url
+    ));
+    return raw ? json(raw) : null;
+}
+
+function fetchVntsData(webAddr, name, cmd, networkCode) {
+    let api = VNTS_API_MAP[cmd];
+    if (!api) return { error: "Unknown command", code: "unknown_command", cmd };
+    let token = vntsLogin(webAddr, name);
+    if (!token) return { error: "Login failed", code: "login_failed" };
+    let params = null;
+    if (cmd === "clients") {
+        let code = networkCode || null;
+        if (!code) {
+            let nr = fetchVntsApi(webAddr, "/api/networks", token, null);
+            if (!nr || nr.code !== 200 || !nr.data || !length(nr.data))
+                return { error: "No networks found", code: "no_networks_found" };
+            code = nr.data[0].network_code;
+        }
+        params = "code=" + code;
+    }
+    let r = fetchVntsApi(webAddr, api, token, params);
+    if (!r || r.code !== 200) return { error: "Fetch failed", code: "fetch_failed" };
+    return { data: r.data };
+}
+
+function fetchWebData(webAddr, name, cmd) {
+    let api = VNT_API_MAP[cmd];
+    if (!api) return { error: "Unknown command", code: "unknown_command", cmd };
+    let r = fetchWebApi(webAddr, api, name);
+    if (!r || r.code !== 0) return { error: "Fetch failed", code: "fetch_failed" };
+    return { data: r.data };
+}
+
+function cmdGetCtrlInfo(args) {
+    initPaths();
+    let name        = args.name;
+    let cmd         = args.cmd;
+    let networkCode = args.network_code || null;
+    let type        = getType(name);
+    if (type === "vnts") {
+        let webAddr = readField(confFile(name, "vnts"), "web_bind");
+        if (!webAddr) return { error: "web_bind not configured", code: "web_bind_not_configured" };
+        return fetchVntsData(webAddr, name, cmd, networkCode);
+    }
+    if (type !== "vnt") return { error: "Not a client instance", code: "not_a_client_instance" };
+    let conf   = confFile(name, "vnt");
+    let method = getStartMethod(name, "vnt");
+    if (method === "vnt2_web") {
+        let webAddr = readField(conf, "web_addr");
+        if (!webAddr) return { error: "web_addr not configured", code: "web_addr_not_configured" };
+        return fetchWebData(webAddr, name, cmd);
+    }
+    let port = readField(conf, "ctrl_port") || "11233";
+    if (port === "0") return { error: "Control port is disabled", code: "control_port_disabled" };
+    let out = execOutput(`${CFG.bin_path}/vnt2_ctrl -p ${port} ${cmd} 2>&1`);
+    return { text: replace(out, /\x1b\[[0-9;]*m/g, "") };
+}
+
+function cmdGetSystemInfo() {
+    initPaths();
+    let arch = trim(execOutput(`'${DEFAULTS.update_script}' detect_arch 2>/dev/null`));
+    let r    = { arch, bin_path: CFG.bin_path, config_path: CFG.config_path };
+    let vers = [
+        ["vnt_version",  "vnt2_cli"],
+        ["vnts_version", "vnts2"   ],
+    ];
+    for (let i = 0; i < length(vers); i++)
+        r[vers[i][0]] = trim(execOutput(
+            `${CFG.bin_path}/${vers[i][1]} --version 2>/dev/null | head -1`
+        ));
+    r.luci_version =
+        trim(execOutput("apk list 2>/dev/null | grep '^luci-app-vnt2-' | awk '{print $1}' | sed 's/^luci-app-vnt2-//'")) ||
+        trim(execOutput("opkg list-installed 2>/dev/null | grep '^luci-app-vnt2 ' | awk '{print $3}'")) ||
+        "Unknown";
+    return r;
+}
+
+function cmdCheckBinaries() {
+    initPaths();
+    let r    = {};
+    let bins = ["vnt2_cli", "vnt2_web", "vnt2_ctrl", "vnts2"];
+    for (let i = 0; i < length(bins); i++)
+        r[bins[i]] = isExecutable(`${CFG.bin_path}/${bins[i]}`);
+    return r;
+}
+
+function generateWebToken() {
+    return trim(execOutput("hexdump -v -e '1/1 \"%02x\"' -n 32 /dev/urandom 2>/dev/null"));
+}
+
+function validWebToken(token) {
+    return !!token && !!match(token, /^[0-9a-fA-F]{64}$/);
+}
+
+function cmdGenerateWebToken() {
+    let token = generateWebToken();
+    if (!validWebToken(token))
+        return { result: "error", code: "token_generation_failed", msg: "Token generation failed" };
+    return { result: "ok", token };
+}
+
+function cmdGetSettings() {
+    let uci = cursor();
+    uci.load("vnt2");
+    let r = {};
+    for (let i = 0; i < length(SETTING_DEFS); i++)
+        r[SETTING_DEFS[i][0]] = uci.get("vnt2", "global", SETTING_DEFS[i][0])
+                                 || SETTING_DEFS[i][1];
+    return r;
+}
+
+function cmdSaveSettings(args) {
+    let token = args.web_token ?? "";
+    if (!token) {
+        token = generateWebToken();
+        if (!validWebToken(token))
+            return { result: "error", code: "token_generation_failed", msg: "Token generation failed" };
+        args.web_token = token;
+    } else if (!validWebToken(token)) {
+        return { result: "error", code: "invalid_web_token", msg: "Token must be exactly 64 hexadecimal characters" };
+    }
+    let uci = cursor();
+    uci.load("vnt2");
+    for (let i = 0; i < length(SETTING_DEFS); i++) {
+        let k   = SETTING_DEFS[i][0];
+        let def = SETTING_DEFS[i][1];
+        let t   = SETTING_DEFS[i][2];
+        if (t === "string") {
+            uci.set("vnt2", "global", k, args[k] ?? "");
+        } else if (t === "int") {
+            uci.set("vnt2", "global", k, `${int(args[k]) || int(def)}`);
+        } else {
+            uci.set("vnt2", "global", k, args[k] === "1" ? "1" : "0");
+        }
+    }
+    uci.commit("vnt2");
+    initPaths();
+    system(`setsid ${DEFAULTS.init_script} reload >/dev/null 2>&1 &`);
+    return { result: "ok" };
+}
+
+function cmdGetEnabled(args) {
+    initPaths();
+    let type     = args.type;
+    let names    = getActualNames(type);
+    let uci      = cursor();
+    uci.load("vnt2");
+    let uciState = {};
+    uciEach(uci, type, (sid, s) => {
+        if (s.name) uciState[s.name] = {
+            enabled:      s.enabled === "1",
+            start_method: s.start_method || START_METHODS[type],
+            method_set:   s.method_set === "1",
+        };
+    });
+    let configs = [];
+    for (let i = 0; i < length(names); i++) {
+        let name     = names[i];
+        let s        = uciState[name] ?? {
+            enabled: false, start_method: START_METHODS[type], method_set: false
+        };
+        let web_addr = (type === "vnt")
+            ? readField(confFile(name, type), "web_addr") : "";
+        push(configs, {
+            name,
+            enabled:      s.enabled,
+            start_method: s.start_method,
+            method_set:   s.method_set,
+            web_addr
+        });
+    }
+    return { configs };
+}
+
+function cmdSetEnabled(args) {
+    initPaths();
+    let cfgType     = args.type;
+    let uci         = cursor();
+    uci.load("vnt2");
+    let old         = [];
+    uciEach(uci, cfgType, (sid) => push(old, sid));
+    for (let i = 0; i < length(old); i++)
+        uci.delete("vnt2", old[i]);
+    let actualNames = getActualNames(cfgType);
+    let actualSet   = {};
+    for (let i = 0; i < length(actualNames); i++)
+        actualSet[actualNames[i]] = true;
+    let list = (type(args.configs) === "array") ? args.configs : [];
+    let idx  = 0;
+    for (let i = 0; i < length(list); i++) {
+        let item = list[i];
+        if (!item.name || !actualSet[item.name]) continue;
+        let sid = `cfg_${cfgType}_${idx}`;
+        uci.set("vnt2", sid, cfgType);
+        uci.set("vnt2", sid, "name",         item.name);
+        uci.set("vnt2", sid, "enabled",      item.enabled ? "1" : "0");
+        uci.set("vnt2", sid, "start_method", item.start_method || START_METHODS[cfgType]);
+        uci.set("vnt2", sid, "method_set",   "1");
+        idx++;
+    }
+    uci.commit("vnt2");
+    system(`setsid ${DEFAULTS.init_script} start >/dev/null 2>&1 &`);
+    return { result: "ok" };
+}
+
+function statusPrefix(s, prefix) {
+    return substr(s, 0, length(prefix)) === prefix
+        ? substr(s, length(prefix)) : null;
+}
+
+function cmdGetUpstreamVersion(args) {
+    let project = args.project;
+    resetUpdateState(project);
+    system(
+        `setsid '${DEFAULTS.update_script}' check '${project}' '${getMirror(args)}'` +
+        ` >> '${updFile(project, "log")}' 2>&1 &`
+    );
+    return { result: "ok" };
+}
+
+function cmdDoUpdate(args) {
+    let project = args.project;
+    resetUpdateState(project);
+    system(
+        `setsid '${DEFAULTS.update_script}' download` +
+        ` '${project}' '${args.tag}' '${args.filename}' '${args.upx ? "1" : "0"}'` +
+        ` >> '${updFile(project, "log")}' 2>&1 &`
+    );
+    return { result: "ok" };
+}
+
+function cmdGetUpdateStatus(args) {
+    let project = args.project;
+    let statusF = updFile(project, "status");
+    let logF    = updFile(project, "log");
+    let ev      = latestEvent(project);
+    let slimF   = updFile(project, "slim.json");
+    if (!fileExists(statusF)) return { status: "idle" };
+    let status  = trim(safeRead(statusF));
+    let logTail = fileExists(logF)
+        ? trim(execOutput(`cat '${logF}' 2>/dev/null`)) : "";
+    if (status === "checking" || status === "downloading" || status === "installing")
+        return {
+            status,
+            event: ev ? ev.event : null,
+            args: ev ? ev.args : {},
+            code: status === "checking" ? "version_checking"
+                : status === "downloading" ? "download_in_progress"
+                : "installation_in_progress",
+            log: logTail
+        };
+    let readyVal = statusPrefix(status, "ready:");
+    if (readyVal !== null) {
+        let releases = fileExists(slimF) ? json(safeRead(slimF)) : null;
+        return { event: ev ? ev.event : null, args: ev ? ev.args : {}, status: "ready", code: "version_list_ready", count: readyVal, releases, log: logTail };
+    }
+    let doneVal  = statusPrefix(status, "done:");
+    if (doneVal  !== null) return { event: ev ? ev.event : null, args: ev ? ev.args : {}, status: "done", code: "installation_complete", installed: doneVal, log: logTail };
+    let errorVal = statusPrefix(status, "error:");
+    if (errorVal !== null) return { event: ev ? ev.event : null, args: ev ? ev.args : {}, status: "error", code: "update_failed", msg: errorVal, log: logTail };
+    return { status: "idle" };
+}
+
+const METHODS = {
+    list_instances:       cmdListInstances,
+    list_configs:         cmdListConfigs,
+    read_config:          cmdReadConfig,
+    read_template:        cmdReadTemplate,
+    get_template_fields:  cmdGetTemplateFields,
+    save_config:          cmdSaveConfig,
+    delete_config:        cmdDeleteConfig,
+    instance_action:      (a) => instanceAction(a.name, a.action),
+    get_instance_status:  (a) => { initPaths(); return instanceInfo(a.name); },
+    get_ctrl_info:        cmdGetCtrlInfo,
+    get_log:              cmdGetLog,
+    clear_log:            cmdClearLog,
+    get_system_info:      cmdGetSystemInfo,
+    check_binaries:       cmdCheckBinaries,
+    get_settings:         cmdGetSettings,
+    generate_web_token:   cmdGenerateWebToken,
+    save_settings:        cmdSaveSettings,
+    get_upstream_version: cmdGetUpstreamVersion,
+    do_update:            cmdDoUpdate,
+    get_update_status:    cmdGetUpdateStatus,
+    get_enabled:          cmdGetEnabled,
+    set_enabled:          cmdSetEnabled,
+    get_cpu_ticks:        cmdGetCpuTicks,
+};
+
+const SIGNATURES = {
+    list_instances:       {},
+    list_configs:         { filter: "String" },
+    read_config:          { name: "String", type: "String" },
+    read_template:        { type: "String" },
+    get_template_fields:  { type: "String" },
+    save_config:          { name: "String", type: "String", content: "String", old_name: "String" },
+    delete_config:        { name: "String", type: "String" },
+    get_instance_status:  { name: "String" },
+    instance_action:      { name: "String", action: "String" },
+    get_ctrl_info:        { name: "String", cmd: "String", network_code: "String" },
+    get_log:              { name: "String", lines: "Integer" },
+    clear_log:            { name: "String" },
+    get_system_info:      {},
+    check_binaries:       {},
+    get_settings:         {},
+    generate_web_token:   {},
+    save_settings: {
+        bin_path: "String", config_path: "String", arch: "String", mirror: "String", web_token: "String",
+        auto_update: "String", update_interval: "Integer", upx_compressed: "String",
+        respawn_threshold: "Integer", respawn_timeout: "Integer", respawn_retry: "Integer",
+        log_to_file: "String", log_errors_only: "String", log_max_kb: "Integer",
+        startup_check_window: "Integer",
+        fw_vnt_to_lan: "String", fw_lan_to_vnt: "String",
+        fw_vnt_to_wan: "String", fw_wan_to_vnt: "String",
+        fw_vnt_web: "String", fw_vnts_web: "String",
+    },
+    get_upstream_version: { project: "String", mirror: "String" },
+    do_update:            { project: "String", tag: "String", filename: "String", upx: "String" },
+    get_update_status:    { project: "String" },
+    get_enabled:          { type: "String" },
+    set_enabled:          { type: "String", configs: "String" },
+    get_cpu_ticks:        { name: "String" },
+};
+
+let argv = ARGV;
+switch (argv[0]) {
+    case "list":
+        print(sprintf("%J", SIGNATURES), "\n");
+        break;
+    case "call": {
+        let method = argv[1];
+        let input  = json(readfile("/dev/stdin") ?? "{}") ?? {};
+        let fn     = METHODS[method];
+        if (!fn) {
+            print(sprintf("%J", { error: "Unknown method", code: "unknown_method" }), "\n");
+        } else {
+            try {
+                print(sprintf("%J", fn(input)), "\n");
+            } catch(e) {
+                print(sprintf("%J", { error: `${e}` }), "\n");
+            }
+        }
+        break;
+    }
+    default:
+        warn(`Usage: ${argv[0]} {list|call <method>}\n`);
+        exit(1);
+}

@@ -1,0 +1,566 @@
+#!/bin/sh /etc/rc.common
+# /etc/init.d/vnt2
+
+START=99
+STOP=10
+USE_PROCD=1
+
+BIN_PATH="/usr/bin"
+CONFIG_PATH="/etc/vnt2_config"
+LOG_DIR="/tmp/vnt2_log"
+CRON_TAG="vnt2_auto_update"
+UPDATE_SCRIPT="/usr/libexec/vnt2-update.sh"
+CRON_FILE="/etc/crontabs/root"
+FW_ZONE="vnt2_vnt"
+VNT_RUN="/usr/libexec/vnt2-run.sh"
+INITD="/etc/init.d"
+IFACE_PREFIX="vnt2"
+RESPAWN_THRESHOLD=3600
+RESPAWN_TIMEOUT=5
+RESPAWN_RETRY=5
+WEB_TOKEN=""
+ROUTE_FIX_LOCK="${LOG_DIR}/vnt2_route_fixing"
+
+VNT_PORT_FIELDS="tcp_bind quic_bind ws_bind"
+VNTS_PORT_FIELDS="tcp_bind quic_bind ws_bind server_quic_bind"
+
+FW_FORWARD_DEFS="
+fw_lan_to_vnt|lan|${FW_ZONE}
+fw_vnt_to_lan|${FW_ZONE}|lan
+fw_vnt_to_wan|${FW_ZONE}|wan
+fw_wan_to_vnt|wan|${FW_ZONE}
+"
+
+init_paths() {
+    local v
+    v=$(uci -q get vnt2.global.bin_path);          [ -n "$v" ] && BIN_PATH="$v"
+    v=$(uci -q get vnt2.global.config_path);       [ -n "$v" ] && CONFIG_PATH="$v"
+    v=$(uci -q get vnt2.global.respawn_threshold); [ -n "$v" ] && RESPAWN_THRESHOLD="$v"
+    v=$(uci -q get vnt2.global.respawn_timeout);   [ -n "$v" ] && RESPAWN_TIMEOUT="$v"
+    v=$(uci -q get vnt2.global.respawn_retry);     [ -n "$v" ] && RESPAWN_RETRY="$v"
+    WEB_TOKEN=$(uci -q get vnt2.global.web_token)
+    mkdir -p "$CONFIG_PATH" "$LOG_DIR"
+}
+
+make_tmp() {
+    local f
+    f=$(mktemp)
+    echo "$f"
+}
+
+read_field() {
+    grep -m1 "^${2}[[:space:]]*=" "$1" 2>/dev/null \
+        | sed 's/^[^=]*=[[:space:]]*//' \
+        | sed 's/^["'"'"']//;s/["'"'"']$//' \
+        | tr -d '\r\n'
+}
+
+get_tun_name() {
+    local conf="${CONFIG_PATH}/${1}.${2}"
+    [ -f "$conf" ] && read_field "$conf" "tun_name"
+}
+
+iface_sid() {
+    printf '%s_%s' "$IFACE_PREFIX" "$1" | tr -cd 'a-zA-Z0-9_' | cut -c1-15
+}
+
+extract_port() {
+    local v="$1" p
+    p=$(printf '%s' "$v" | grep -oE ':[0-9]+' | tr -d ':' | head -1)
+    [ -z "$p" ] && p=$(printf '%s' "$v" | grep -oE '^[0-9]+$')
+    [ -n "$p" ] && printf '%s\n' "$p"
+}
+
+extract_port_mappings() {
+    grep -E "^port_mapping[[:space:]]*=" "$1" 2>/dev/null \
+        | grep -oE '"[^"]+"' \
+        | tr -d '"' \
+        | while read -r rule; do
+            local proto port
+            proto=$(printf '%s' "$rule" | grep -oE '^[a-z]+')
+            port=$(printf '%s' "$rule" \
+                | sed 's|^[a-z]*://||' \
+                | cut -d'-' -f1 \
+                | grep -oE ':[0-9]+' | tr -d ':')
+            [ -n "$proto" ] && [ -n "$port" ] \
+                && printf '%s:%s\n' "$proto" "$port"
+        done
+}
+
+get_lan_ip() {
+    uci -q get network.lan.ipaddr
+}
+
+_instance_log() {
+    local msg="$2"
+    printf '[%s] >>> %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$msg" \
+        >> "${LOG_DIR}/${1}.log"
+    echo "[${1}] $msg"
+}
+
+is_instance_running() {
+    local pid
+    pid=$(cat "/var/run/vnt2_${1}.pid" 2>/dev/null)
+    [ -z "$pid" ] && return 1
+    kill -0 "$pid" 2>/dev/null
+}
+
+_each_instance() {
+    local callback="$1" enabled_only="$2"
+    local tmp sid name enabled type tun_name
+    tmp=$(make_tmp)
+
+    uci -q show vnt2 2>/dev/null \
+        | grep -E "^vnt2\.[^.]*=(vnt|vnts)$" > "$tmp"
+
+    while IFS='=' read -r key type; do
+        sid=$(printf '%s' "$key" | cut -d. -f2)
+        name=$(uci -q get "vnt2.${sid}.name")
+        [ -z "$name" ] && continue
+        if [ "$enabled_only" = "1" ]; then
+            enabled=$(uci -q get "vnt2.${sid}.enabled")
+            [ "$enabled" != "1" ] && continue
+        fi
+        tun_name=$(get_tun_name "$name" "$type")
+        "$callback" "$name" "$type" "$tun_name"
+    done < "$tmp"
+
+    rm -f "$tmp"
+}
+
+each_enabled_instance() { _each_instance "$1" "1"; }
+each_all_instance()     { _each_instance "$1";     }
+
+setup_cron() {
+    local enabled interval new_entry existing
+    enabled=$(uci -q get vnt2.global.auto_update)
+    interval=$(uci -q get vnt2.global.update_interval)
+    interval="${interval:-7}"
+    new_entry="0 3 */${interval} * * $UPDATE_SCRIPT #${CRON_TAG}"
+    existing=$(grep "${CRON_TAG}" "$CRON_FILE" 2>/dev/null)
+    [ "$enabled" = "1" ] && [ "$existing" = "$new_entry" ] && return
+    [ "$enabled" != "1" ] && [ -z "$existing" ] && return
+    sed -i "/${CRON_TAG}/d" "$CRON_FILE"
+    [ "$enabled" = "1" ] && echo "$new_entry" >> "$CRON_FILE"
+    "$INITD/cron" restart
+}
+
+uci_fw_rule() {
+    local sid="$1" stype key val; shift
+    stype=$(printf '%s' "$1" | cut -d= -f2); shift
+    uci -q delete "firewall.${sid}"
+    uci set "firewall.${sid}=${stype}"
+    for kv in "$@"; do
+        key=$(printf '%s' "$kv" | cut -d= -f1)
+        val=$(printf '%s' "$kv" | cut -d= -f2-)
+        uci set "firewall.${sid}.${key}=${val}"
+    done
+}
+
+_create_iface() {
+    local name="$1" type="$2" tun_name="$3"
+    [ -z "$tun_name" ] && return
+    local sid
+    sid=$(iface_sid "$name")
+    uci -q delete "network.${sid}"
+    uci set "network.${sid}=interface"
+    uci set "network.${sid}.device=${tun_name}"
+    uci set "network.${sid}.proto=none"
+}
+
+_delete_iface() {
+    local name="$1"
+    uci -q delete "network.$(iface_sid "$name")"
+}
+
+_remove_all_vnt2_ifaces() {
+    local tmp sid
+    tmp=$(make_tmp)
+    uci -q show network | grep -oE "network\.[a-zA-Z0-9_]+=interface" \
+        | cut -d. -f2 | cut -d= -f1 > "$tmp"
+    while read -r sid; do
+        printf '%s' "$sid" | grep -q "^${IFACE_PREFIX}_" \
+            && uci -q delete "network.${sid}"
+    done < "$tmp"
+    rm -f "$tmp"
+}
+
+rebuild_network_interfaces() {
+    _remove_all_vnt2_ifaces
+    each_enabled_instance _create_iface
+    uci commit network
+    "$INITD/network" reload 2>/dev/null
+}
+
+cleanup_network_interfaces() {
+    _remove_all_vnt2_ifaces
+    uci commit network
+    "$INITD/network" reload 2>/dev/null
+}
+
+cleanup_fw() {
+    local tmp key
+    tmp=$(make_tmp)
+    uci -q delete "firewall.${FW_ZONE}"
+    uci -q delete "firewall.vnt2_ports"
+    uci -q delete "firewall.vnt2_web_redirect"
+    printf '%s\n' "$FW_FORWARD_DEFS" | grep -v '^$' > "$tmp"
+    while IFS='|' read -r key _ _; do
+        uci -q delete "firewall.vnt2_fwd_${key}"
+    done < "$tmp"
+    rm -f "$tmp"
+}
+
+apply_fw_forwardings() {
+    local tmp key src dest sid
+    tmp=$(make_tmp)
+    printf '%s\n' "$FW_FORWARD_DEFS" | grep -v '^$' > "$tmp"
+    while IFS='|' read -r key src dest; do
+        sid="vnt2_fwd_${key}"
+        uci -q delete "firewall.${sid}"
+        [ "$(uci -q get "vnt2.global.${key}")" != "1" ] && continue
+        uci_fw_rule "$sid" \
+            "type=forwarding" \
+            "src=${src}" \
+            "dest=${dest}"
+    done < "$tmp"
+    rm -f "$tmp"
+}
+
+_collect_instance_ports() {
+    local name="$1" type="$2"
+    local conf="${CONFIG_PATH}/${name}.${type}"
+    local field val port fields
+
+    case "$type" in
+        vnt)  fields="$VNT_PORT_FIELDS"  ;;
+        vnts) fields="$VNTS_PORT_FIELDS" ;;
+    esac
+
+    for field in $fields; do
+        val=$(read_field "$conf" "$field")
+        [ -z "$val" ] && continue
+        port=$(extract_port "$val")
+        [ -n "$port" ] && echo "$port" >> "$_PORTS_TMP"
+    done
+
+    case "$type" in vnt)
+        extract_port_mappings "$conf" | sed 's/.*://' >> "$_PORTS_TMP"
+    esac
+}
+
+apply_fw_ports() {
+    local sid="vnt2_ports" all_ports port
+    uci -q delete "firewall.${sid}"
+
+    _PORTS_TMP=$(make_tmp)
+    each_enabled_instance _collect_instance_ports
+    all_ports=$(sort -un "$_PORTS_TMP" | tr '\n' ' ')
+    all_ports="${all_ports% }"
+    rm -f "$_PORTS_TMP"
+
+    [ -z "$all_ports" ] && return
+
+    uci_fw_rule "$sid" \
+        "type=rule" \
+        "name=vnt2_allow_ports" \
+        "src=wan" \
+        "proto=tcp udp" \
+        "target=ACCEPT"
+
+    for port in $all_ports; do
+        uci add_list "firewall.${sid}.dest_port=${port}"
+    done
+}
+
+_collect_web_ports() {
+    local name="$1" type="$2"
+    local conf="${CONFIG_PATH}/${name}.${type}"
+    local val port field
+
+    case "$type" in
+        vnt)
+            [ "$(uci -q get vnt2.global.fw_vnt_web)" != "1" ] && return
+            val=$(read_field "$conf" "web_addr")
+            [ -z "$val" ] && return
+            port=$(extract_port "$val")
+            [ -n "$port" ] && echo "$port" >> "$_WEB_PORTS_TMP"
+            ;;
+        vnts)
+            if [ "$(uci -q get vnt2.global.fw_vnts_web)" = "1" ]; then
+                val=$(read_field "$conf" "web_bind")
+                [ -n "$val" ] && {
+                    port=$(extract_port "$val")
+                    [ -n "$port" ] && echo "$port" >> "$_WEB_PORTS_TMP"
+                }
+            fi
+            for field in $VNTS_PORT_FIELDS; do
+                val=$(read_field "$conf" "$field")
+                [ -z "$val" ] && continue
+                port=$(extract_port "$val")
+                [ -n "$port" ] && echo "$port" >> "$_WEB_PORTS_TMP"
+            done
+            ;;
+    esac
+}
+
+_collect_sorted_ports() {
+    local collector="$1" tmp all_ports
+    tmp=$(make_tmp)
+    eval "${collector%%_collect*}_PORTS_TMP"='"$tmp"'
+    each_enabled_instance "$collector"
+    all_ports=$(sort -un "$tmp" | tr '\n' ' ')
+    rm -f "$tmp"
+    printf '%s' "${all_ports% }"
+}
+
+apply_fw_web_redirect() {
+    local sid="vnt2_web_redirect"
+    local all_ports min_port max_port port_range lan_ip
+
+    uci -q delete "firewall.${sid}"
+
+    _WEB_PORTS_TMP=$(make_tmp)
+    each_enabled_instance _collect_web_ports
+    all_ports=$(sort -un "$_WEB_PORTS_TMP" | tr '\n' ' ')
+    all_ports="${all_ports% }"
+    rm -f "$_WEB_PORTS_TMP"
+    [ -z "$all_ports" ] && return
+
+    lan_ip=$(get_lan_ip)
+    [ -z "$lan_ip" ] && return
+
+    min_port=$(printf '%s' "$all_ports" | tr ' ' '\n' | awk 'NR==1')
+    max_port=$(printf '%s' "$all_ports" | tr ' ' '\n' | awk 'END{print}')
+
+    if [ "$min_port" = "$max_port" ]; then
+        port_range="$min_port"
+    else
+        port_range="${min_port}-${max_port}"
+    fi
+
+    uci_fw_rule "$sid" \
+        "type=redirect" \
+        "name=vnt2_web_redirect" \
+        "src=wan" \
+        "dest=lan" \
+        "proto=tcp udp" \
+        "src_dport=${port_range}" \
+        "dest_ip=${lan_ip}" \
+        "dest_port=${port_range}" \
+        "target=DNAT"
+}
+
+_add_tun_to_zone() {
+    local name="$1" type="$2" tun_name="$3"
+    [ -z "$tun_name" ] && return
+    local sid
+    sid=$(iface_sid "$name")
+    uci add_list "firewall.${FW_ZONE}.network=${sid}"
+    uci add_list "firewall.${FW_ZONE}.device=${tun_name}"
+}
+
+rebuild_fw_zone() {
+    uci_fw_rule "$FW_ZONE" \
+        "type=zone" \
+        "name=${FW_ZONE}" \
+        "input=ACCEPT" \
+        "output=ACCEPT" \
+        "forward=ACCEPT" \
+        "masq=1"
+    each_enabled_instance _add_tun_to_zone
+}
+
+_fw_reload() {
+    fw4 reload 2>/dev/null || "$INITD/firewall" reload
+}
+
+rebuild_firewall() {
+    rebuild_fw_zone
+    apply_fw_forwardings
+    apply_fw_ports
+    apply_fw_web_redirect
+    uci commit firewall
+    _fw_reload
+}
+
+get_bin_args() {
+    local name="$1" type="$2" conf="$3"
+    local tmp key sid method wa
+    tmp=$(make_tmp)
+
+    uci -q show vnt2 2>/dev/null \
+        | grep "^vnt2\.[^.]*=${type}$" > "$tmp"
+
+    while IFS='=' read -r key _; do
+        sid=$(printf '%s' "$key" | cut -d. -f2)
+        if [ "$(uci -q get "vnt2.${sid}.name")" = "$name" ]; then
+            break
+        fi
+        sid=""
+    done < "$tmp"
+    rm -f "$tmp"
+
+    method=$(uci -q get "vnt2.${sid}.start_method")
+    method="${method:-vnt2_cli}"
+
+    case "$type" in
+        vnt)
+            case "$method" in
+                vnt2_web)
+                    wa=$(read_field "$conf" "web_addr")
+                    if [ -n "$WEB_TOKEN" ]; then
+                        printf '%s|--addr|%s|--conf|%s|--token|%s' \
+                            "${BIN_PATH}/vnt2_web" "$wa" "$conf" "$WEB_TOKEN"
+                    else
+                        printf '%s|--addr|%s|--conf|%s' \
+                            "${BIN_PATH}/vnt2_web" "$wa" "$conf"
+                    fi
+                    ;;
+                *)
+                    printf '%s|--conf|%s' "${BIN_PATH}/vnt2_cli" "$conf"
+                    ;;
+            esac
+            ;;
+        vnts)
+            printf '%s|-c|%s' "${BIN_PATH}/vnts2" "$conf"
+            ;;
+    esac
+}
+
+_try_fix_cidr() {
+    local lan_cidr="$1"
+    local name sid key conf tun_name lan_gw tmp enabled
+    lan_gw=$(printf '%s' "$lan_cidr" | cut -d'/' -f1 | sed 's/\.[0-9]*$/.1/')
+    tmp=$(make_tmp)
+    uci -q show vnt2 | grep -E "^vnt2\.[^.]*=vnt$" > "$tmp"
+    while IFS='=' read -r key _; do
+        sid=$(printf '%s' "$key" | cut -d. -f2)
+        name=$(uci -q get "vnt2.${sid}.name")
+        enabled=$(uci -q get "vnt2.${sid}.enabled")
+        [ -z "$name" ] || [ "$enabled" != "1" ] && continue
+        conf="${CONFIG_PATH}/${name}.vnt"
+        [ -f "$conf" ] || continue
+        grep -qF "$lan_cidr" "$conf" 2>/dev/null || continue
+        tun_name=$(get_tun_name "$name" "vnt")
+        [ -z "$tun_name" ] && continue
+        ip route replace "$lan_cidr" dev "$tun_name" 2>/dev/null || continue
+        _instance_log "$name" "Fix route: ${lan_cidr} dev ${tun_name}"
+        ping -c1 -W2 "$lan_gw" > /dev/null 2>&1 && {
+            echo "$lan_cidr" >> "$_FIXED_CIDRS"
+            rm -f "$tmp"
+            return
+        }
+        _instance_log "$name" "Route switched but still unreachable, try next..."
+    done < "$tmp"
+    rm -f "$tmp"
+}
+
+_collect_cidrs() {
+    local name="$1" type="$2"
+    [ "$type" = "vnts" ] && return
+    local conf="${CONFIG_PATH}/${name}.${type}"
+    local entry lan_cidr
+    grep -qE "^input[[:space:]]*=" "$conf" 2>/dev/null || return
+    for entry in $(grep -E "^input[[:space:]]*=" "$conf" 2>/dev/null \
+        | grep -oE '"[^"]+"' | tr -d '"'); do
+        lan_cidr=$(printf '%s' "$entry" | cut -d',' -f1)
+        [ -z "$lan_cidr" ] && continue
+        printf '%s' "$lan_cidr" \
+            | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' || continue
+        grep -qF "$lan_cidr" "$_ALL_CIDRS" 2>/dev/null && continue
+        echo "$lan_cidr" >> "$_ALL_CIDRS"
+    done
+}
+
+fix_all_routes() {
+    _ALL_CIDRS=$(make_tmp)
+    _FIXED_CIDRS=$(make_tmp)
+    each_enabled_instance _collect_cidrs
+    while read -r cidr; do
+        grep -qF "$cidr" "$_FIXED_CIDRS" 2>/dev/null && continue
+        _try_fix_cidr "$cidr"
+    done < "$_ALL_CIDRS"
+    rm -f "$_ALL_CIDRS" "$_FIXED_CIDRS"
+    rmdir "$ROUTE_FIX_LOCK" 2>/dev/null
+}
+
+_cleanup_tun() {
+    local name="$1" type="$2" tun_name="$3"
+    [ -n "$tun_name" ] && ip link delete "$tun_name" 2>/dev/null
+    _delete_iface "$name"
+}
+
+_do_start_instance() {
+    local name="$1" type="$2" tun_name="$3"
+    local conf="${CONFIG_PATH}/${name}.${type}"
+    local bin_args bin log_file
+    log_file="${LOG_DIR}/${name}.log"
+
+    [ ! -f "$conf" ] && {
+        _instance_log "$name" "Start failed: config file does not exist: $conf"
+        return 1
+    }
+    bin_args=$(get_bin_args "$name" "$type" "$conf")
+    [ -z "$bin_args" ] && {
+        _instance_log "$name" "Start failed: unable to build startup command"
+        return 1
+    }
+    bin=$(printf '%s' "$bin_args" | cut -d'|' -f1)
+    [ ! -x "$bin" ] && {
+        _instance_log "$name" "Start failed: binary is not executable: $bin"
+        return 1
+    }
+    if ! is_instance_running "$name"; then
+        [ -n "$tun_name" ] && ip link delete "$tun_name" 2>/dev/null
+    fi
+
+    procd_open_instance "$name"
+    procd_set_param command "$VNT_RUN" "$name" "$log_file"
+    local IFS='|'
+    procd_append_param command $bin_args
+    unset IFS
+    procd_set_param respawn "$RESPAWN_THRESHOLD" "$RESPAWN_TIMEOUT" "$RESPAWN_RETRY"
+    procd_set_param stdout 0
+    procd_set_param stderr 0
+    procd_set_param pidfile "/var/run/vnt2_${name}.pid"
+    procd_close_instance
+
+    _instance_log "$name" "Registered type=$type bin=$bin tun=${tun_name:-auto}"
+}
+
+service_triggers() {
+    procd_add_reload_trigger "vnt2"
+}
+
+start_service() {
+    init_paths
+    echo "VNT2: starting all enabled instances..."
+    if [ ! -x "${BIN_PATH}/vnt2_cli" ] || [ ! -x "${BIN_PATH}/vnts2" ]; then
+        [ -x "$UPDATE_SCRIPT" ] && {
+            echo "Starting automatic download of vnt2/vnts2..."
+            setsid sh -c "$UPDATE_SCRIPT" >/dev/null 2>&1 &
+        }
+        return 0
+    fi
+    each_enabled_instance _do_start_instance
+    rebuild_network_interfaces
+    rebuild_firewall
+    fix_all_routes
+}
+
+stop_service() {
+    each_all_instance _cleanup_tun
+    cleanup_network_interfaces
+    cleanup_fw
+    uci commit firewall
+    _fw_reload
+}
+
+reload_service() {
+    init_paths
+    setup_cron
+    rebuild_network_interfaces
+    rebuild_firewall
+    fix_all_routes
+}

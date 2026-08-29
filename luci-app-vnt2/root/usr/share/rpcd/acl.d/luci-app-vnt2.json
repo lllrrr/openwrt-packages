@@ -1,0 +1,40 @@
+{
+    "luci-app-vnt2": {
+        "description": "vnt2 管理接口",
+        "read": {
+            "ubus": {
+                "luci.vnt2": [
+                    "list_instances",
+                    "list_configs",
+                    "read_config",
+                    "read_template",
+                    "get_template_fields",
+                    "get_instance_status",
+                    "get_ctrl_info",
+                    "get_log",
+                    "get_system_info",
+                    "check_binaries",
+                    "get_settings",
+                    "generate_web_token",
+                    "get_upstream_version",
+                    "get_update_status",
+                    "get_enabled",
+                    "get_cpu_ticks"
+                ]
+            }
+        },
+        "write": {
+            "ubus": {
+                "luci.vnt2": [
+                    "instance_action",
+                    "save_config",
+                    "delete_config",
+                    "clear_log",
+                    "save_settings",
+                    "do_update",
+                    "set_enabled"
+                ]
+            }
+        }
+    }
+}
