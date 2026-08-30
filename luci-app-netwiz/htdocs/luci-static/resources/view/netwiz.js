@@ -6257,7 +6257,28 @@ return view.extend({
                         uci.set('network', ifc, 'password', p);
                     });
                     uci.save().then(function() { return uci.apply(); }).then(function() { succ(); }).catch(function() { succ(); });
+                } else if (selectedMode === 'wifi') {
+                    // 锁定 12 秒等待无线硬件就绪
+                    callNetSetup(mode, a1, a2, a3, a4, a5, a6).then(function() { 
+                        openModal({
+                            title: '🔄 ' + (T['M_REP_PROC_TIT'] || 'Processing'),
+                            msg: '<div style="color:#3b82f6; font-size:16px; font-weight:bold; margin-bottom: 10px;">' + 
+                                 (T['MSG_WAIT'] || 'Please wait...') + '</div>' + 
+                                 '<div style="font-size:14px; color:#64748b;">' + 
+                                 '正在应用配置并重启无线驱动，大约需要 12 秒...</div>',
+                            spin: true,
+                            hideCancel: true,
+                            hideOk: true // 不传按钮
+                        });
+                        
+                        setTimeout(function() {
+                            window.location.reload();
+                        }, 12000); // 强行挂起 12 秒后刷新
+                    }).catch(function(err) {
+                        openModal({ title: T['M_SYS_ERR'] || 'Error', msg: 'Application failed: ' + err, okText: T['M_CLOSE'] || 'Close' });
+                    });
                 } else {
+                    // 非 WiFi 模式
                     callNetSetup(mode, a1, a2, a3, a4, a5, a6).then(function() { succ(); }).catch(function() { succ(); });
                 }
             } catch (err) {
