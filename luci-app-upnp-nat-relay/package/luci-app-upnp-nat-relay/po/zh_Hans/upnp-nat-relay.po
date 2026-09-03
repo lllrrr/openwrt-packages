@@ -116,6 +116,9 @@ msgstr "重启服务失败："
 msgid "Sync Now"
 msgstr "立即同步"
 
+msgid "Run Once"
+msgstr "运行一次"
+
 msgid "Sync triggered."
 msgstr "同步已触发。"
 
@@ -901,9 +904,6 @@ msgstr "检测中..."
 
 msgid "Auto-detect failed: "
 msgstr "自动检测失败："
-
-msgid "Select the interface connected to the downstream router LAN side. The underlying device is resolved automatically."
-msgstr "选择连接到下游路由器 LAN 侧的接口。底层设备会自动解析。"
 
 msgid "IP address on the read interface. Must be on the same subnet as the downstream router LAN."
 msgstr "读取接口上的 IP 地址。需与下游路由器 LAN 在同一子网。"

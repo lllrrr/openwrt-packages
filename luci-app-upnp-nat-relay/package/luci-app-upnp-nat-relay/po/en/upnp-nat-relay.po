@@ -107,6 +107,9 @@ msgstr "Failed to restart service: "
 msgid "Sync Now"
 msgstr "Sync Now"
 
+msgid "Run Once"
+msgstr "Run Once"
+
 msgid "Sync triggered."
 msgstr "Sync triggered."
 

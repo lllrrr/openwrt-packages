@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-upnp-nat-relay
-PKG_VERSION:=1.3.11
+PKG_VERSION:=1.3.12
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=yunshu

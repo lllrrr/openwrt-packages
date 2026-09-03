@@ -64,6 +64,36 @@ function waitReadyAndReload() {
 	});
 }
 
+function syncNow(button) {
+	utils.setBusy(button, _('Loading...'));
+	return callSyncNow().then(function(result) {
+		var msg;
+		var msgType = 'info';
+		if (result && result.success === true) {
+			var rc = result.read_count || 0;
+			var ac = result.accepted_count || 0;
+			var rj = result.rejected_count || 0;
+			if (ac > 0) {
+				msg = _('Sync completed: %d read, %d accepted, %d rejected.').format(rc, ac, rj);
+			} else if (rj > 0) {
+				msg = _('Sync completed: %d read, 0 accepted, %d rejected. Check Mappings page for details.').format(rc, rj);
+				msgType = 'warning';
+			} else {
+				msg = _('Sync completed: 0 mappings read from downstream router. Ensure the downstream router has UPnP mappings.');
+				msgType = 'warning';
+			}
+		} else {
+			msg = _('Sync failed: %s').format((result && result.error) || _('unknown'));
+			msgType = 'error';
+		}
+		ui.addNotification(null, E('p', msg), msgType);
+		utils.reloadSoon(2500);
+	}).catch(function(e) {
+		ui.addNotification(null, E('p', _('Sync failed: %s').format(e.message)), 'error');
+		utils.resetBusy(button);
+	});
+}
+
 function makeNftBadge(status) {
 	if (status === 'present') {
 		return E('span', { 'class': 'ubr-badge green' }, '\u2714 ' + _('Present'));
@@ -199,26 +229,9 @@ return view.extend({
 				'click': function() {
 					var btn = this;
 					utils.setBusy(btn, _('Loading...'));
-					return callServiceStart().then(utils.requireSuccess).then(function(result) {
-						if (result && result.action === 'oneshot') {
-							var sync = result.sync || {};
-							var rc = sync.read_count || 0;
-							var ac = sync.accepted_count || 0;
-							var rj = sync.rejected_count || 0;
-							var msg, msgType;
-							if (sync.success) {
-								msg = _('One-shot sync completed: %d read, %d accepted, %d rejected.').format(rc, ac, rj);
-								msgType = ac > 0 ? 'info' : 'warning';
-							} else {
-								msg = _('One-shot sync failed: %s').format(sync.error || _('unknown'));
-								msgType = 'error';
-							}
-							ui.addNotification(null, E('p', msg), msgType);
-							utils.reloadSoon(500);
-						} else {
-							ui.addNotification(null, E('p', _('Service started. Waiting for first sync...')), 'info');
-							return waitReadyAndReload();
-						}
+					return callServiceStart().then(utils.requireSuccess).then(function() {
+						ui.addNotification(null, E('p', _('Service started. Waiting for first sync...')), 'info');
+						return waitReadyAndReload();
 					}).catch(function(e) {
 						ui.addNotification(null, E('p', _('Failed to start service: ') + e.message), 'error');
 						utils.resetBusy(btn);
@@ -249,26 +262,9 @@ return view.extend({
 			'click': function() {
 				var btn = this;
 				utils.setBusy(btn, _('Loading...'));
-				return callServiceRestart().then(utils.requireSuccess).then(function(result) {
-					if (result && result.action === 'oneshot') {
-						var sync = result.sync || {};
-						var rc = sync.read_count || 0;
-						var ac = sync.accepted_count || 0;
-						var rj = sync.rejected_count || 0;
-						var msg, msgType;
-						if (sync.success) {
-							msg = _('One-shot sync completed: %d read, %d accepted, %d rejected.').format(rc, ac, rj);
-							msgType = ac > 0 ? 'info' : 'warning';
-						} else {
-							msg = _('One-shot sync failed: %s').format(sync.error || _('unknown'));
-							msgType = 'error';
-						}
-						ui.addNotification(null, E('p', msg), msgType);
-						utils.reloadSoon(500);
-					} else {
-						ui.addNotification(null, E('p', _('Service restarted. Waiting for first sync...')), 'info');
-						return waitReadyAndReload();
-					}
+				return callServiceRestart().then(utils.requireSuccess).then(function() {
+					ui.addNotification(null, E('p', _('Service restarted. Waiting for first sync...')), 'info');
+					return waitReadyAndReload();
 				}).catch(function(e) {
 					ui.addNotification(null, E('p', _('Failed to restart service: ') + e.message), 'error');
 					utils.resetBusy(btn);
@@ -276,43 +272,14 @@ return view.extend({
 			}
 		}, '\u21BB ' + _('Restart')));
 
-		if (running) {
-			btnGroup.appendChild(E('button', {
+		btnGroup.appendChild(E('button', {
 				'class': 'cbi-button cbi-button-apply',
 				'click': function() {
-					var btn = this;
-					utils.setBusy(btn, _('Loading...'));
-					return callSyncNow().then(function(result) {
-						var msg;
-						var msgType = 'info';
-						if (result && result.success === true) {
-							var rc = result.read_count || 0;
-							var ac = result.accepted_count || 0;
-							var rj = result.rejected_count || 0;
-							if (ac > 0) {
-								msg = _('Sync completed: %d read, %d accepted, %d rejected.').format(rc, ac, rj);
-							} else if (rj > 0) {
-								msg = _('Sync completed: %d read, 0 accepted, %d rejected. Check Mappings page for details.').format(rc, rj);
-								msgType = 'warning';
-							} else {
-								msg = _('Sync completed: 0 mappings read from downstream router. Ensure the downstream router has UPnP mappings.');
-								msgType = 'warning';
-							}
-						} else if (!result || result.success !== true) {
-							msg = _('Sync failed: %s').format(result.error || _('unknown'));
-							msgType = 'error';
-						} else {
-							msg = _('Sync triggered.');
-						}
-						ui.addNotification(null, E('p', msg), msgType);
-						utils.reloadSoon(2500);
-					}).catch(function(e) {
-						ui.addNotification(null, E('p', _('Sync failed: %s').format(e.message)), 'error');
-						utils.resetBusy(btn);
-					});
+					return syncNow(this);
 				}
-			}, '\u21C4 ' + _('Sync Now')));
+			}, '\u21C4 ' + (running ? _('Sync Now') : _('Run Once'))));
 
+		if (running) {
 			btnGroup.appendChild(E('button', {
 				'class': 'cbi-button cbi-button-reset',
 				'click': function() {

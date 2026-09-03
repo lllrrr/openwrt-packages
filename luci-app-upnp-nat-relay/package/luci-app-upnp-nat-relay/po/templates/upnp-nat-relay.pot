@@ -105,6 +105,9 @@ msgstr ""
 msgid "Sync Now"
 msgstr ""
 
+msgid "Run Once"
+msgstr ""
+
 msgid "Sync triggered."
 msgstr ""
 

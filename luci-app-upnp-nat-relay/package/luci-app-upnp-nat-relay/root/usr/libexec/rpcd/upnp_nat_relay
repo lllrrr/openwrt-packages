@@ -16,15 +16,8 @@ service_action() {
 	case "$action" in
 		start|restart)
 			_current_enabled="$(uci -q get upnp_nat_relay.main.enabled 2>/dev/null)"
-			if [ "${_current_enabled}" = "0" ]; then
-				# One-shot mode: run sync once without modifying enabled
-				_sync_result="$("$UPNP_NAT_RELAY_BIN" --sync 2>/dev/null)" || true
-				printf '{"success":true,"action":"oneshot","running":false,"sync":%s}\n' "${_sync_result:-{\"success\":false}}"
-				return 0
-			fi
-			# Normal mode: ensure enabled=1 and start daemon
-			# Only uci set+commit if not already enabled to avoid
-			# triggering an extra procd reload
+			# Start and restart always mean continuous automatic synchronization.
+			# Persist enabled=1 before invoking init so procd can launch the daemon.
 			if [ "${_current_enabled}" != "1" ]; then
 				uci set upnp_nat_relay.main.enabled='1' 2>/dev/null
 				uci commit upnp_nat_relay 2>/dev/null
