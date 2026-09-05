@@ -16,9 +16,9 @@ LuCI plugin that makes OpenWrt poweroff and reboot easy.
 
 - Some devices not support poweroff, maybe can't work.
 
-## 🛠 How to self-build or use
+## 🛠 Compile and use
 
-[Install, Compile and init-SDK Generic Guide](https://867678.xyz/docs/openwrt)
+[Generic Guide](https://867678.xyz/docs/openwrt)
 
 ## ⚖️ License
 
