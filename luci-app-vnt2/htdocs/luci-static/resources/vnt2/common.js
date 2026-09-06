@@ -22,20 +22,51 @@ function findInComments(comments, re) {
 }
 
 
-function writeSection(secVals, resultLines) {
+function writeSection(secVals, resultLines, secDef) {
     if (!secVals || typeof secVals !== 'object') return;
     Object.keys(secVals).forEach(function(k) {
         var v = secVals[k];
-        resultLines.push(
-            v && String(v).trim()
-                ? k + ' = "' + escapeStr(String(v)) + '"'
-                : '# ' + k + ' = ""'
-        );
+        if (Array.isArray(v)) {
+            var items = v.filter(function(x) { return String(x).trim() !== ''; });
+            resultLines.push(items.length
+                ? k + ' = [' + items.map(function(x) {
+                    return '"' + escapeStr(x) + '"';
+                  }).join(', ') + ']'
+                : k + ' = []');
+        } else if (typeof v === 'boolean') {
+            resultLines.push(k + ' = ' + (v ? 'true' : 'false'));
+        } else if (v && String(v).trim()) {
+            resultLines.push(k + ' = "' + escapeStr(String(v)) + '"');
+        } else if (secDef && secDef[k] !== undefined && secDef[k] !== '') {
+            var dv = secDef[k];
+            resultLines.push(
+                typeof dv === 'boolean'
+                    ? k + ' = ' + (dv ? 'true' : 'false')
+                    : k + ' = "' + escapeStr(String(dv)) + '"'
+            );
+        } else {
+            resultLines.push('# ' + k + ' = ""');
+        }
     });
 }
 
 function emptyField(key, suffix) {
     return (NO_COMMENT_FIELDS.indexOf(key) >= 0 ? '' : '# ') + key + ' = ' + suffix;
+}
+
+function buildSectionValues(secField, secVals) {
+    var merged = {};
+    Object.keys(secField.keys || {}).forEach(function(k) {
+        merged[k] = (secVals && Object.prototype.hasOwnProperty.call(secVals, k))
+            ? secVals[k] : secField['default'][k];
+    });
+    if (secVals) {
+        Object.keys(secVals).forEach(function(k) {
+            if (!Object.prototype.hasOwnProperty.call(merged, k))
+                merged[k] = secVals[k];
+        });
+    }
+    return merged;
 }
 
 var VNT2ConfigParser = {
@@ -72,6 +103,7 @@ var VNT2ConfigParser = {
         var lines          = content.split('\n');
         var fields         = [];
         var pendingComment = [];
+        var currentSection = null;
 
         for (var i = 0; i < lines.length; i++) {
             var line = lines[i].trim();
@@ -88,13 +120,17 @@ var VNT2ConfigParser = {
             if (tblMatch) {
                 var typeM = findInComments(pendingComment, /\[(\w+)\]/);
                 if (typeM && typeM[1] === 'section') {
-                    fields.push({
+                    currentSection = {
                         name:      tblMatch[1],
                         type:      'section',
                         'default': {},
+                        keys:      {},
                         comment:   this._extractI18nComment(pendingComment),
                         options:   []
-                    });
+                    };
+                    fields.push(currentSection);
+                } else {
+                    currentSection = null;
                 }
                 pendingComment = [];
                 continue;
@@ -116,17 +152,34 @@ var VNT2ConfigParser = {
                     : optStr.split(/\s+/).filter(Boolean);
             }
 
-            var exM     = findInComments(pendingComment, /示例[：:]\s*(\S+)/);
+            var exM     = findInComments(pendingComment, /示例[：:]\s*(?:\w+\s*=\s*)?(\S+)/);
             var example = exM ? exM[1] : '';
 
-            fields.push({
-                name:      key,
-                type:      fieldType,
-                'default': this._parseValue(rawVal, fieldType),
-                comment:   this._extractI18nComment(pendingComment),
-                example:   example,
-                options:   options
-            });
+            var comment = this._extractI18nComment(pendingComment);
+            if (currentSection) {
+                var parsedDefault = this._parseValue(rawVal, fieldType);
+                currentSection.keys[key] = {
+                    type:      fieldType,
+                    'default': parsedDefault,
+                    comment:   comment,
+                    example:   example,
+                    options:   options
+                };
+                if (rawVal !== '' && fieldType !== 'array') {
+                    currentSection['default'][key] =
+                        fieldType === 'bool' ? parsedDefault
+                        : String(parsedDefault).replace(/^["']|["']$/g, '');
+                }
+            } else {
+                fields.push({
+                    name:      key,
+                    type:      fieldType,
+                    'default': this._parseValue(rawVal, fieldType),
+                    comment:   comment,
+                    example:   example,
+                    options:   options
+                });
+            }
             pendingComment = [];
         }
         return fields;
@@ -141,8 +194,11 @@ var VNT2ConfigParser = {
             var trimmed = line.trim();
             if (!trimmed) return;
 
+            var isComment = trimmed.charAt(0) === '#';
+            if (isComment && currentSection) return;
+
             var checkLine = trimmed;
-            if (trimmed.charAt(0) === '#') {
+            if (isComment) {
                 checkLine = trimmed.substring(1).trim();
                 if (!checkLine || checkLine.indexOf('=') < 0) return;
             }
@@ -160,7 +216,14 @@ var VNT2ConfigParser = {
             var val = checkLine.substring(eqIdx + 1).trim();
 
             if (currentSection) {
-                values[currentSection][key] = val.replace(/^["']|["']$/g, '');
+                if (val.charAt(0) === '[') {
+                    values[currentSection][key] =
+                        VNT2ConfigParser._parseArray(val);
+                    return;
+                }
+                var bare = val.replace(/^["']|["']$/g, '');
+                values[currentSection][key] =
+                    (bare === 'true' || bare === 'false') ? (bare === 'true') : bare;
             } else {
                 values[key] = VNT2ConfigParser._parseRawValue(val);
             }
@@ -168,13 +231,30 @@ var VNT2ConfigParser = {
         return values;
     },
 
+    _sectionValToText: function(key, rawVal, type) {
+        if (type === 'bool' || rawVal === 'true' || rawVal === 'false')
+            return rawVal === 'true' ? 'true' : 'false';
+        return rawVal.replace(/^["']|["']$/g, '');
+    },
+
     serializeToToml: function(fields, values, templateContent) {
         if (!templateContent) return '';
         var resultLines    = [];
         var typeMap        = {};
         var currentSection = null;
+        var sectionEmitted = false;
 
-        fields.forEach(function(f) { typeMap[f.name] = f.type; });
+        fields.forEach(function(f) { typeMap[f.name] = f; });
+
+        function emitSectionBody(name) {
+            var secField = typeMap[name];
+            if (secField && secField.type === 'section') {
+                writeSection(buildSectionValues(secField, values[name]),
+                    resultLines, secField['default']);
+            } else {
+                writeSection(values[name], resultLines);
+            }
+        }
 
         templateContent.split('\n').forEach(function(line) {
             var trimmed = line.trim();
@@ -185,18 +265,20 @@ var VNT2ConfigParser = {
 
             var tblMatch = trimmed.match(RE_TOML_TABLE);
             if (tblMatch) {
-                var secName = tblMatch[1];
-                if (currentSection !== null) {
-                    writeSection(values[currentSection], resultLines);
-                    resultLines.push('');
-                }
-                currentSection = secName;
+                if (currentSection !== null) resultLines.push('');
+                currentSection = tblMatch[1];
+                sectionEmitted = false;
                 resultLines.push(line);
-                writeSection(values[secName], resultLines);
+                emitSectionBody(currentSection);
+                sectionEmitted = true;
                 return;
             }
-
             if (currentSection !== null) return;
+            if (!/^[a-zA-Z_][a-zA-Z0-9_.-]*\s*=/.test(trimmed) &&
+                !/^\[/.test(trimmed)) {
+                resultLines.push(trimmed.charAt(0) === '#' ? line : '# ' + line);
+                return;
+            }
 
             var checkLine = trimmed;
             if (trimmed.charAt(0) === '#') checkLine = trimmed.substring(1).trim();
@@ -210,6 +292,8 @@ var VNT2ConfigParser = {
                     : line
             );
         });
+
+        if (currentSection !== null && !sectionEmitted) emitSectionBody(currentSection);
 
         return resultLines.join('\n');
     },

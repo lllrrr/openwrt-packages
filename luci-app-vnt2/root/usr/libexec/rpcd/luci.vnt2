@@ -398,9 +398,10 @@ function parseDefaultValue(rawVal, ftype) {
 }
 
 function parseTemplateFields(content) {
-    let fields  = [];
-    let lines   = split(content, "\n");
-    let pending = [];
+    let fields     = [];
+    let lines      = split(content, "\n");
+    let pending    = [];
+    let curSection = null;
     for (let i = 0; i < length(lines); i++) {
         let line = trim(lines[i]);
         if (!line) { pending = []; continue; }
@@ -415,13 +416,17 @@ function parseTemplateFields(content) {
             let fullComment = join(" ", pending);
             let typeM       = match(fullComment, /\[(\w+)\]/);
             if (typeM && typeM[1] === "section") {
-                push(fields, {
+                curSection = {
                     name:      tbl[1],
                     type:      "section",
                     "default": {},
+                    keys:      {},
                     comment:   trim(replace(replace(fullComment, /\[\w+\]/g, ""), /\s+/g, " ")),
                     options:   [],
-                });
+                };
+                push(fields, curSection);
+            } else {
+                curSection = null;
             }
             pending = [];
             continue;
@@ -443,13 +448,34 @@ function parseTemplateFields(content) {
                 if (v) push(options, v);
             }
         }
-        push(fields, {
-            name:      key,
-            type:      fieldType,
-            "default": parseDefaultValue(rawVal, fieldType),
-            comment:   trim(replace(replace(fullComment, /\[\w+\]/g, ""), /\s+/g, " ")),
-            options,
-        });
+        let fieldComment = trim(replace(replace(fullComment, /\[\w+\]/g, ""), /\s+/g, " "));
+        let exM     = match(fullComment, /示例(：|:)[[:space:]]*([^[:space:]]+)/);
+        let example = exM ? exM[2] : "";
+        let eqM     = match(example, /^[A-Za-z0-9_]+=/);
+        if (eqM) example = substr(example, length(eqM[0]));
+        if (curSection) {
+            let parsedDefault = parseDefaultValue(rawVal, fieldType);
+            curSection.keys[key] = {
+                type:      fieldType,
+                "default": parsedDefault,
+                comment:   fieldComment,
+                example,
+                options,
+            };
+            if (rawVal !== "" && fieldType !== "array")
+                curSection["default"][key] = (fieldType === "bool")
+                    ? parsedDefault
+                    : `${parsedDefault}`;
+        } else {
+            push(fields, {
+                name:      key,
+                type:      fieldType,
+                "default": parseDefaultValue(rawVal, fieldType),
+                comment:   fieldComment,
+                example,
+                options,
+            });
+        }
         pending = [];
     }
     for (let i = 0; i < length(fields); i++) {

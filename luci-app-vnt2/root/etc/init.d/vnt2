@@ -21,7 +21,7 @@ RESPAWN_RETRY=5
 WEB_TOKEN=""
 ROUTE_FIX_LOCK="${LOG_DIR}/vnt2_route_fixing"
 
-VNT_PORT_FIELDS="tcp_bind quic_bind ws_bind"
+VNT_PORT_FIELDS="tcp_bind quic_bind ws_bind tunnel_port"
 VNTS_PORT_FIELDS="tcp_bind quic_bind ws_bind server_quic_bind"
 
 FW_FORWARD_DEFS="
@@ -246,6 +246,18 @@ _collect_instance_ports() {
 
     case "$type" in vnt)
         extract_port_mappings "$conf" | sed 's/.*://' >> "$_PORTS_TMP"
+        ;;
+        vnts)
+        local ike_enabled ike_val
+        ike_enabled=$(read_field "$conf" "enabled")
+        if [ "$ike_enabled" = "true" ]; then
+            for ike_field in ike_bind natt_bind; do
+                ike_val=$(read_field "$conf" "$ike_field")
+                port=$(extract_port "$ike_val")
+                [ -n "$port" ] && echo "$port" >> "$_PORTS_TMP"
+            done
+        fi
+        ;;
     esac
 }
 
@@ -516,7 +528,7 @@ _do_start_instance() {
     fi
 
     procd_open_instance "$name"
-    procd_set_param command "$VNT_RUN" "$name" "$log_file"
+    procd_set_param command "$VNT_RUN" "$name" "$log_file" "$type"
     local IFS='|'
     procd_append_param command $bin_args
     unset IFS

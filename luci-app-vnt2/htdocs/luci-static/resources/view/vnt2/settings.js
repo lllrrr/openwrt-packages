@@ -337,7 +337,7 @@ return view.extend({
                         E('div', {'id':'s-web-token-error',
                             'style':'display:none;color:#dc3545;font-size:12px;margin-top:4px;'},
                             _('Token must be exactly 64 hexadecimal characters'))
-                    ]), _('All vnt2_web instances share this token. Empty means each instance generates its own token.'));
+                    ]), _('All vnt2_web instances share this token. The token must be exactly 64 hexadecimal characters.'));
                 })(),
                 vui.buildFormRow(_('Auto Update'),
                     E('label', { 'style': 'cursor:pointer;user-select:none;' }, [

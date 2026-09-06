@@ -827,8 +827,8 @@ msgstr "VNT Web 访问令牌"
 msgid "Generate Random Token"
 msgstr "随机生成令牌"
 
-msgid "All vnt2_web instances share this token. Empty means each instance generates its own token."
-msgstr "所有 vnt2_web 实例共用此令牌。留空时每个实例自动生成独立令牌。"
+msgid "All vnt2_web instances share this token. The token must be exactly 64 hexadecimal characters."
+msgstr "所有 vnt2_web 实例共用此令牌。令牌必须是 64 位十六进制字符"
 
 msgid "Token generation failed"
 msgstr "令牌生成失败"

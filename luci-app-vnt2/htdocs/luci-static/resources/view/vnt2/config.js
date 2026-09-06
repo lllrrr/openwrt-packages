@@ -380,6 +380,54 @@ function getPlaceholder(f) {
     return '';
 }
 
+function stripKeyPrefix(ph) {
+    if (!ph) return ph || '';
+    var i = ph.indexOf('=');
+    return i > 0 ? ph.substring(i + 1).trim() : ph;
+}
+
+function sectionPlaceholder(def, key) {
+    var ph = stripKeyPrefix(def.example || '');
+    if (!ph && def.comment) {
+        var m = def.comment.match(/示例[：:]\s*(\S+)/);
+        if (m) ph = stripKeyPrefix(m[1]);
+    }
+    return ph || key;
+}
+
+function formatComment(parser, rawComment) {
+    var text = (parser && rawComment)
+        ? parser._extractI18nComment(rawComment)
+        : (rawComment || '');
+    return String(text)
+        .replace(/选项[：:]\s*[^\n]*/gi, '')
+        .replace(/示例[：:]\s*\S+/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function toArrayItems(val, parser) {
+    var items;
+    if (Array.isArray(val)) {
+        items = val.filter(function(v) { return String(v).trim() !== ''; });
+    } else if (typeof val === 'string' && val.trim()) {
+        var s = val.trim();
+        if (s.charAt(0) === '[') {
+            items = (parser && parser._parseArray)
+                ? parser._parseArray(s)
+                : s.replace(/^\[\s*|\s*\]$/g, '').split(',')
+                    .map(function(x) { return x.replace(/^["']|["']$/g, '').trim(); })
+                    .filter(Boolean);
+        } else {
+            items = [s];
+        }
+    } else {
+        items = [];
+    }
+    if (!items.length) items = [''];
+    return items;
+}
+
 function buildFormRow(f, values, parser) {
     var val = Object.prototype.hasOwnProperty.call(values, f.name)
         ? values[f.name]
@@ -388,13 +436,7 @@ function buildFormRow(f, values, parser) {
     var nameEl      = E('div', {'class':'vnt2-field-name'});
     nameEl.appendChild(document.createTextNode(f.name));
     if (isRequired) nameEl.appendChild(E('span', {'class':'vnt2-required-star'}, ' *'));
-    var rawComment  = f.comment || '';
-    var commentText = parser ? parser._extractI18nComment(rawComment) : rawComment;
-    commentText = commentText
-        .replace(/选项[：:]\s*[^\n]*/gi, '')
-        .replace(/示例[：:]\s*\S+/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
+    var commentText = formatComment(parser, f.comment);
     return E('div', {'class':'vnt2-field-row'}, [
         E('div', {'class':'vnt2-field-label'}, [
             nameEl,
@@ -402,7 +444,7 @@ function buildFormRow(f, values, parser) {
                 ? E('div', {'class':'vnt2-field-desc'}, commentText)
                 : E('span', {})
         ]),
-        E('div', {'class':'vnt2-field-input'}, buildInput(f, val, isRequired))
+        E('div', {'class':'vnt2-field-input'}, buildInput(f, val, isRequired, parser))
     ]);
 }
 
@@ -414,8 +456,8 @@ var INPUT_BUILDERS = {
     section: buildSection,
 };
 
-function buildInput(f, val, isRequired) {
-    return (INPUT_BUILDERS[f.type] || buildText)(f, val, isRequired);
+function buildInput(f, val, isRequired, parser) {
+    return (INPUT_BUILDERS[f.type] || buildText)(f, val, isRequired, parser);
 }
 
 function buildBool(f, val) {
@@ -482,24 +524,31 @@ function buildInt(f, val) {
     });
 }
 
-function buildListField(f, items, cls) {
+function buildListField(f, items, cls, opts) {
+    opts = opts || {};
     var pfx       = 'vnt2-' + cls;
     var clsField  = pfx + '-field';
     var clsItem   = pfx + '-item';
     var clsRow    = pfx + '-row';
     var clsBtnAdd = 'btn ' + pfx + '-btn-add';
     var clsBtnDel = 'btn ' + pfx + '-btn-del';
+    var containerAttrs = { 'class': clsField };
+    if (opts.sectionKey != null) {
+        containerAttrs['data-section-key']  = opts.sectionKey;
+        containerAttrs['data-section-type'] = cls;
+    } else {
+        containerAttrs['data-field-name'] = f.name;
+        containerAttrs['data-field-type'] = cls;
+    }
+    var container = E('div', containerAttrs);
 
-    var container = E('div', {
-        'class':           clsField,
-        'data-field-name': f.name,
-        'data-field-type': cls
-    });
+    var ph = (opts.placeholder != null && opts.placeholder !== '')
+        ? opts.placeholder : getPlaceholder(f);
 
     function addRow(v) {
         var input = E('input', {
             'type':'text','class':'vnt2-input ' + clsItem,
-            'value':v||'','placeholder':getPlaceholder(f)
+            'value':v||'','placeholder':ph
         });
         var btnAdd = E('button', {
             'type':'button','class':clsBtnAdd,'title':_('Add a row'),
@@ -532,21 +581,88 @@ function buildListField(f, items, cls) {
     return container;
 }
 
-function buildArray(f, val) {
-    var items = Array.isArray(val)
-        ? val.filter(function(v) { return String(v).trim() !== ''; })
-        : (typeof val === 'string' && val.trim()
-            ? (val.trim().charAt(0) === '['
-                ? VNT2ConfigParser._parseArray(val.trim())
-                : [val.trim()])
-            : []);
-    if (!items.length) items = [''];
-    return buildListField(f, items, 'array');
+function buildArray(f, val, isRequired, parser) {
+    return buildListField(f, toArrayItems(val, parser), 'array');
 }
 
-function buildSection(f, val) {
+function buildSection(f, val, isRequired, parser) {
+    var keyDefs = f.keys || {};
+    var defKeys = Object.keys(keyDefs);
+    if (defKeys.length) {
+        var container = E('div', {
+            'class':           'vnt2-section-fields',
+            'data-field-name': f.name,
+            'data-field-type': 'section'
+        });
+        var gateCb    = null;
+        var gatedRows = [];
+        defKeys.forEach(function(k) {
+            var def  = keyDefs[k];
+            var cur  = (val && Object.prototype.hasOwnProperty.call(val, k))
+                       ? val[k] : def['default'];
+            var input;
+            if (def.type === 'bool') {
+                var checked = (cur === true || cur === 'true');
+                input = E('input', {
+                    'type':'checkbox','class':'vnt2-checkbox',
+                    'data-section-key':k,'data-section-type':'bool'
+                });
+                if (checked) input.setAttribute('checked','checked');
+            } else if (def.type === 'array') {
+                input = buildListField(
+                    { name: f.name + '.' + k, example: def.example, comment: def.comment },
+                    toArrayItems(cur, parser),
+                    'array',
+                    { sectionKey: k, placeholder: sectionPlaceholder(def, k) }
+                );
+            } else {
+                input = E('input', {
+                    'type': def.type === 'int' ? 'number' : 'text',
+                    'class':'vnt2-input' + (def.type === 'int' ? ' vnt2-input-number' : ''),
+                    'data-section-key':k,
+                    'data-section-type': def.type === 'int' ? 'int' : 'string',
+                    'value': cur != null ? String(cur) : '',
+                    'placeholder': sectionPlaceholder(def, k)
+                });
+            }
+            var keyDesc = formatComment(parser, def.comment);
+            var row = E('div', {
+                'class':'vnt2-field-row','style':'border-bottom:1px solid #f5f5f5;'
+            }, [
+                E('div', {'class':'vnt2-field-label'}, [
+                    E('div', {'class':'vnt2-field-name'}, f.name + '.' + k),
+                    keyDesc
+                        ? E('div', {'class':'vnt2-field-desc'}, keyDesc)
+                        : E('span', {})
+                ]),
+                E('div', {'class':'vnt2-field-input'}, input)
+            ]);
+            if (k === 'enabled' && def.type === 'bool' && input.type === 'checkbox' && !gateCb)
+                gateCb = input;
+            else
+                gatedRows.push(row);
+            container.appendChild(row);
+        });
+
+        if (gateCb && gatedRows.length) {
+            var syncGate = function() {
+                gatedRows.forEach(function(r) {
+                    r.style.display = gateCb.checked ? '' : 'none';
+                });
+            };
+            gateCb.addEventListener('change', syncGate);
+            syncGate();
+        }
+        return container;
+    }
     var items = (val && typeof val === 'object' && !Array.isArray(val))
-        ? Object.keys(val).map(function(k) { return (val[k]||'').trim(); }).filter(Boolean)
+        ? Object.keys(val).map(function(k) {
+            var cv = val[k];
+            return k + '=' + (typeof cv === 'boolean' ? (cv ? 'true' : 'false') : (cv||''));
+          }).filter(function(line) {
+            var idx = line.indexOf('=');
+            return idx > 0 && line.substring(idx + 1) !== '';
+          })
         : [];
     if (!items.length) items = [''];
     return buildListField(f, items, 'section');
@@ -571,6 +687,21 @@ function collectValues(formEl) {
             vals[name] = collectItems(el, '.vnt2-array-item');
         } else if (type === 'section') {
             var obj = {}, autoIdx = 1;
+            var typed = el.querySelectorAll('[data-section-key]');
+            if (typed.length) {
+                typed.forEach(function(inp) {
+                    var sk = inp.getAttribute('data-section-key');
+                    var st = inp.getAttribute('data-section-type');
+                    if (st === 'bool') {
+                        obj[sk] = inp.checked;
+                    } else if (st === 'array') {
+                        obj[sk] = collectItems(inp, '.vnt2-array-item');
+                    } else {
+                        var sv = inp.value.trim();
+                        if (sv) obj[sk] = sv;
+                    }
+                });
+            }
             collectItems(el, '.vnt2-section-item').forEach(function(line) {
                 var eqIdx = line.indexOf('=');
                 if (eqIdx > 0) {

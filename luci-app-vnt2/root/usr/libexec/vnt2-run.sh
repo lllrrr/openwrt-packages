@@ -1,10 +1,10 @@
 #!/bin/sh
-# /usr/libexec/vnt2-run.sh  VNT2 wrapper v2.0
+# /usr/libexec/vnt2-run.sh  VNT2 wrapper v2.1
 
 NAME="$1"
 LOG_FILE="$2"
-EVENT_FILE="${LOG_FILE%.log}.events"
-shift 2
+INSTANCE_TYPE="$3"
+shift 3
 ROUTE_FIX_LOCK="/tmp/vnt2_log/vnt2_route_fixing"
 KILL_RECORD="/tmp/vnt2_log/vnt2_kill_record"
 SELF_PID=$$
@@ -12,18 +12,10 @@ START_TIME=$(date +%s)
 CHECK_INTERVAL=100
 ROUTE_FIXED=0
 KILL_INTERVAL=1800
-STARTUP_CHECK_WINDOW="$(uci get vnt2.global.startup_check_window 2>/dev/null || echo 60)"
-case "$STARTUP_CHECK_WINDOW" in
-    ""|*[!0-9]*) STARTUP_CHECK_WINDOW=60 ;;
-esac
+STARTUP_CHECK_WINDOW=60
 GOT_PUBLIC_ADDR=0
 STARTUP_CHECK_DONE=0
 DNS_LIST="223.5.5.5 119.29.29.29 180.76.76.76"
-
-event() {
-    mkdir -p "$(dirname "$EVENT_FILE")" 2>/dev/null
-    printf '[%s] EVENT %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$EVENT_FILE"
-}
 
 log() {
     [ "$LOG_TO_FILE" = "1" ] || return
@@ -45,7 +37,6 @@ _check_and_kill() {
 
     if [ -z "$last_time" ]; then
         printf '%s %s\n' "$NAME" "$now" >> "$KILL_RECORD"
-        event "restart_triggered reason=first_kill"
         log "First kill, triggering restart..."
         kill "$SELF_PID" 2>/dev/null
         return
@@ -55,19 +46,17 @@ _check_and_kill() {
     if [ "$elapsed" -ge "$KILL_INTERVAL" ]; then
         sed -i "/^${NAME} /d" "$KILL_RECORD"
         printf '%s %s\n' "$NAME" "$now" >> "$KILL_RECORD"
-        event "restart_triggered reason=kill_interval"
         log "Kill interval reached, triggering restart..."
         kill "$SELF_PID" 2>/dev/null
     else
-        event "restart_skipped reason=kill_interval elapsed=${elapsed} interval=${KILL_INTERVAL}"
         log "Skip kill, last/interval ${elapsed}s/${KILL_INTERVAL}s"
     fi
 }
 
 _check_startup_timeout() {
+    [ "$INSTANCE_TYPE" = "vnt" ] || return
     [ "$STARTUP_CHECK_DONE" = "1" ] && return
     [ "$GOT_PUBLIC_ADDR" = "1" ] && { STARTUP_CHECK_DONE=1; return; }
-    [ "$STARTUP_CHECK_WINDOW" -gt 0 ] 2>/dev/null || { STARTUP_CHECK_DONE=1; return; }
 
     local now elapsed
     now=$(date +%s)
@@ -76,11 +65,9 @@ _check_startup_timeout() {
 
     STARTUP_CHECK_DONE=1
     if _network_ok; then
-        event "public_addr_timeout timeout=${STARTUP_CHECK_WINDOW} action=restart"
         log "No public_addr obtained within ${STARTUP_CHECK_WINDOW}s and network is normal, triggering restart..."
         _check_and_kill
     else
-        event "restart_skipped reason=network_unavailable"
         log "No public_addr within ${STARTUP_CHECK_WINDOW}s, but network unavailable, skip restart..."
     fi
 }
@@ -139,7 +126,6 @@ reader_loop() {
                     if _network_ok; then
                         _check_and_kill
                     else
-                        event "restart_skipped reason=network_unavailable"
                         log "Network unavailable, skip restart..."
                     fi
                 fi
@@ -148,7 +134,6 @@ reader_loop() {
                 if [ "$ROUTE_FIXED" = "0" ] && _network_ok; then
                     ROUTE_FIXED=1
                     if mkdir "$ROUTE_FIX_LOCK" 2>/dev/null; then
-                        event "route_fix_started reason=server_failure"
                         log "Server failure detected, fixing routes..."
                         setsid sh -c '/etc/init.d/vnt2 reload' > /dev/null 2>&1 &
                     fi
@@ -158,7 +143,6 @@ reader_loop() {
                 case "$line" in *"0.0.0.0:0"*) ;; *)
                     ROUTE_FIXED=0
                     GOT_PUBLIC_ADDR=1
-                    event "public_addr_ready"
                     ;;
                 esac
                 ;;
@@ -175,12 +159,10 @@ reader_loop() {
 }
 
 rotate_log
-event "process_started command=$1"
 log "Starting: $*"
 
 FIFO=$(mktemp -u)
-mkfifo "$FIFO" || { event "process_start_failed reason=mkfifo_failed"
-    log "mkfifo failed"; exit 1; }
+mkfifo "$FIFO" || { log "mkfifo failed"; exit 1; }
 
 reader_loop < "$FIFO" &
 READER_PID=$!
@@ -188,7 +170,6 @@ READER_PID=$!
 exec "$@" > "$FIFO" 2>&1
 EXIT_CODE=$?
 
-event "process_exited exit=${EXIT_CODE}"
 log "Process exited exit=${EXIT_CODE} cmd: $*"
 wait "$READER_PID" 2>/dev/null
 rm -f "$FIFO"
