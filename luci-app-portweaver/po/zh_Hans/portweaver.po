@@ -1128,3 +1128,75 @@ msgstr "自动换行：关闭"
 
 msgid "WRAP: ON"
 msgstr "自动换行：开启"
+
+msgid "Allowed TLS SNIs require TLS in the allowed protocols list."
+msgstr "允许的 TLS SNI 要求允许的协议列表中包含 TLS。"
+
+msgid "Client-first protocol signatures that trigger WoL. Custom or duplicate values are not allowed."
+msgstr "触发 WoL 的客户端先发协议特征。不允许自定义或重复值。"
+
+msgid "Enter a whole number from %d to %d."
+msgstr "请输入介于 %d 和 %d 之间的整数。"
+
+msgid "Invalid TLS SNI pattern: %s"
+msgstr "无效的 TLS SNI 模式：%s"
+
+msgid "Interval between target connection retries while the machine wakes (100–300000)."
+msgstr "设备唤醒期间目标连接重试之间的间隔（100–300000）。"
+
+msgid "Maximum time to retry target connections after waking (1–300000)."
+msgstr "唤醒后重试目标连接的最长时间（1–300000）。"
+
+msgid "On Connection"
+msgstr "连接时"
+
+msgid "On Protocol"
+msgstr "识别协议时"
+
+msgid "Protocol may only be selected once: %s"
+msgstr "协议只能选择一次：%s"
+
+msgid "Retry Interval (ms)"
+msgstr "重试间隔（毫秒）"
+
+msgid "Retry Window (ms)"
+msgstr "重试窗口（毫秒）"
+
+msgid "Retry interval cannot exceed the retry window."
+msgstr "重试间隔不能超过重试窗口。"
+
+msgid "Retry window must be at least the retry interval."
+msgstr "重试窗口必须至少等于重试间隔。"
+
+msgid "Retry window must be at least the wake delay."
+msgstr "重试窗口必须至少等于唤醒延迟。"
+
+msgid "Save and reload the changed WoL configuration before waking a target."
+msgstr "请先保存并重新加载已修改的 WoL 配置，再唤醒目标。"
+
+msgid "Select at least one protocol."
+msgstr "请至少选择一种协议。"
+
+msgid "Unsupported protocol: %s"
+msgstr "不支持的协议：%s"
+
+msgid "Wake Delay (ms)"
+msgstr "唤醒延迟（毫秒）"
+
+msgid "Wake delay cannot exceed the retry window."
+msgstr "唤醒延迟不能超过重试窗口。"
+
+msgid "Wake on connection supports sleeping and server-first targets. Wake on protocol waits for a client-first protocol signature before waking."
+msgstr "连接时唤醒支持休眠和服务端先发数据的目标。协议唤醒会在识别到客户端先发协议特征后再唤醒。"
+
+msgid "Wait after queuing a wake packet before the first target connection attempt (0–300000)."
+msgstr "排队发送唤醒包后，首次尝试连接目标前的等待时间（0–300000）。"
+
+msgid "Wake the selected target before connecting. Choose whether to wake immediately or after a client protocol is recognized."
+msgstr "在连接前唤醒选定目标。选择立即唤醒，或在识别客户端协议后唤醒。"
+
+msgid "WoL queued: %d, skipped: %d, failed: %d."
+msgstr "WoL 已排队：%d，已跳过：%d，失败：%d。"
+
+msgid "WoL Trigger Mode"
+msgstr "WoL 触发方式"
