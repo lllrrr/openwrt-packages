@@ -1,0 +1,14 @@
+{
+	"admin/network/wanip_selector": {
+		"title": "WAN IP Selector",
+		"order": 70,
+		"action": {
+			"type": "view",
+			"path": "wanip_selector/overview"
+		},
+		"depends": {
+			"acl": [ "luci-app-wanip-selector" ],
+			"uci": { "wanip_selector": true }
+		}
+	}
+}

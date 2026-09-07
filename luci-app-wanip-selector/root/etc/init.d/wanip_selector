@@ -1,0 +1,38 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: MIT
+
+START=95
+STOP=10
+USE_PROCD=1
+
+BIN=/usr/sbin/wanip-selector
+
+start_service() {
+	[ "$(uci -q get wanip_selector.config.monitor_enabled)" = "1" ] || {
+		echo "monitor is disabled in /etc/config/wanip_selector"
+		return 0
+	}
+
+	procd_open_instance monitor
+	procd_set_param command "$BIN" monitor
+	procd_set_param respawn 3600 5 0
+	procd_set_param stderr 1
+	procd_close_instance
+}
+
+stop_service() {
+	"$BIN" stop >/dev/null 2>&1
+}
+
+service_triggers() {
+	procd_add_reload_trigger "wanip_selector"
+}
+
+status() { "$BIN" status; }
+check()  { "$BIN" check; }
+force()  { "$BIN" trigger force; }
+
+EXTRA_COMMANDS="status check force"
+EXTRA_HELP="	status	Print current state as JSON
+	check	Test the current address, exit 0 when acceptable
+	force	Start a redial round now in the background, ignoring the enabled flag"

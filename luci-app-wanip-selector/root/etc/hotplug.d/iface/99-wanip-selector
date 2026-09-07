@@ -1,0 +1,18 @@
+#!/bin/sh
+# Start a redial round whenever the watched interface comes up.
+#
+# Our own ifup re-enters this hook; the lock inside wanip-selector makes that
+# harmless, the second run simply exits. The work is detached because netifd
+# waits for hotplug hooks to return and a redial round can take minutes.
+#
+# SPDX-License-Identifier: MIT
+
+[ "$ACTION" = "ifup" ] || exit 0
+[ "$(uci -q get wanip_selector.config.enabled)" = "1" ] || exit 0
+
+watched="$(uci -q get wanip_selector.config.interface)"
+[ -n "$watched" ] || watched=wan
+[ "$INTERFACE" = "$watched" ] || exit 0
+
+/usr/sbin/wanip-selector trigger >/dev/null 2>&1
+exit 0

@@ -1,0 +1,38 @@
+config wanip_selector 'config'
+	# Master switch. Nothing is redialed automatically while this is 0.
+	option enabled '0'
+
+	# Which logical interface to watch and redial (as named in /etc/config/network)
+	option interface 'wan'
+
+	# include -> the address MUST fall inside one of the targets below
+	# exclude -> the address must NOT fall inside any of them
+	option match_mode 'include'
+
+	# Desired pools. Accepts CIDR ("203.0.113.0/24") or a plain prefix
+	# ("203.0.113." / "203.0" -> expanded to /24 and /16 respectively).
+	# Add as many as you like. Empty list = accept anything.
+	#list target '203.0.113.0/24'
+
+	# Redial attempts before giving up. 0 = never give up (see README warning).
+	option max_attempts '10'
+
+	# Seconds to wait between attempts
+	option retry_delay '15'
+
+	# Seconds to wait for the interface to obtain an address after a redial
+	option settle_time '8'
+
+	# Seconds to pause after exhausting max_attempts, so we do not hammer the ISP
+	option cooldown '600'
+
+	# Keep checking the address periodically, not only when the link comes up.
+	# ISPs usually rotate the address every few days on their own, and that
+	# does not always cause an interface event we would see.
+	option monitor_enabled '0'
+
+	# Seconds between checks while the monitor is enabled
+	option check_interval '300'
+
+	# Log every attempt (0 = only important events)
+	option verbose '1'

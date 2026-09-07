@@ -1,0 +1,16 @@
+#!/bin/sh
+# Register the service with procd on first install.
+#
+# Without this the service is never started, so procd has no instance and the
+# reload trigger never fires. Ticking "enable monitoring" in LuCI would then
+# save the option but nothing would pick it up.
+#
+# start_service() creates no instance while monitoring is off, so enabling the
+# service here is cheap: it only registers the reload trigger.
+#
+# SPDX-License-Identifier: MIT
+
+/etc/init.d/wanip_selector enable
+/etc/init.d/wanip_selector start
+
+exit 0

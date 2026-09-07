@@ -1,0 +1,163 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: zh_Hans\n"
+
+msgid "WAN IP Selector"
+msgstr "WAN IP 选段器"
+
+msgid "Status"
+msgstr "运行状态"
+
+msgid "Idle"
+msgstr "空闲"
+
+msgid "Redialing"
+msgstr "重拨中"
+
+msgid "Address accepted"
+msgstr "地址已符合要求"
+
+msgid "Gave up (max attempts reached)"
+msgstr "已放弃（达到最大重试次数）"
+
+msgid "Current address"
+msgstr "当前地址"
+
+msgid "no address"
+msgstr "无地址"
+
+msgid "match"
+msgstr "符合"
+
+msgid "no match"
+msgstr "不符合"
+
+msgid "State"
+msgstr "状态"
+
+msgid "Attempts"
+msgstr "已重拨次数"
+
+msgid "unlimited"
+msgstr "不限"
+
+msgid "Message"
+msgstr "说明"
+
+msgid "Redial now"
+msgstr "立即重拨"
+
+msgid "Check now"
+msgstr "立即检查"
+
+msgid "Stop / clear lock"
+msgstr "停止 / 清除锁"
+
+msgid "Redial loop started. Watch the status above; the connection drops while it runs."
+msgstr "重拨流程已启动。请观察上方状态；执行期间网络会中断。"
+
+msgid "Stopped and lock cleared."
+msgstr "已停止并清除锁。"
+
+msgid "Redial the WAN interface until its public IPv4 address falls inside (or outside) the address pools listed below. Useful when an ISP hands out addresses from several pools of very different quality."
+msgstr "持续重拨 WAN 接口，直到取得的公网 IPv4 地址落在（或避开）下方配置的地址池内。适用于运营商有多个质量差异明显的地址池的情况。"
+
+msgid "General"
+msgstr "基本设置"
+
+msgid "Advanced"
+msgstr "高级设置"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "While disabled nothing is redialed automatically. The buttons above still work."
+msgstr "关闭时不会自动重拨；上方的按钮仍然可用。"
+
+msgid "Interface"
+msgstr "接口"
+
+msgid "Logical interface to watch and redial."
+msgstr "要监控并重拨的逻辑接口。"
+
+msgid "Match mode"
+msgstr "匹配模式"
+
+msgid "Accept only addresses inside the list"
+msgstr "仅接受列表内的地址"
+
+msgid "Accept anything except the list"
+msgstr "接受列表以外的任意地址"
+
+msgid "Address pools"
+msgstr "目标地址池"
+
+msgid "CIDR such as 203.0.113.0/24, or a bare prefix such as 203.0.113. or 203.0 which expand to /24 and /16. An empty list accepts any address."
+msgstr "可填 CIDR（如 203.0.113.0/24），也可只填前缀（如 203.0.113. 或 203.0，分别展开为 /24 和 /16）。留空表示接受任意地址。"
+
+msgid "Max attempts"
+msgstr "最大重试次数"
+
+msgid "Redial at most this many times. 0 means never give up, which keeps the line down until a matching address appears. Use with care."
+msgstr "最多重拨这么多次。填 0 表示一直重试，直到拨到符合的地址为止——期间网络会持续中断，请谨慎使用。"
+
+msgid "Delay between attempts"
+msgstr "重试间隔"
+
+msgid "Seconds. Keep this above a few seconds so the ISP is not hammered."
+msgstr "单位为秒。不要设得太小，以免频繁重连被运营商限制。"
+
+msgid "Settle time"
+msgstr "拨号等待时间"
+
+msgid "Seconds to wait for the interface to obtain an address after a redial. A grace period is added automatically for slow PPPoE links."
+msgstr "重拨后等待接口取得地址的秒数。对较慢的 PPPoE 链路会自动追加一段宽限时间。"
+
+msgid "Cooldown"
+msgstr "冷却时间"
+
+msgid "Seconds to pause after the attempt limit is reached, before a new round may start. 0 disables the pause."
+msgstr "达到重试上限后暂停的秒数，之后才允许开始新一轮。填 0 表示不暂停。"
+
+msgid "Verbose logging"
+msgstr "详细日志"
+
+msgid "Log every attempt to the system log under the tag wanip-selector."
+msgstr "把每次重拨都记录到系统日志（标签 wanip-selector）。"
+
+msgid "Monitor"
+msgstr "后台监听"
+
+msgid "running"
+msgstr "运行中"
+
+msgid "stopped"
+msgstr "已停止"
+
+msgid "checking every %s s"
+msgstr "每 %s 秒检查一次"
+
+msgid "Monitoring"
+msgstr "后台监听"
+
+msgid "Enable monitoring"
+msgstr "启用后台监听"
+
+msgid "Keep checking the address in the background, not only when the link comes up. ISPs usually rotate the address every few days on their own, which does not always produce an interface event."
+msgstr "在后台持续检查地址，而不只在链路重新拨上时检查。运营商通常每隔几天会自行更换一次地址，而这未必会产生接口事件。"
+
+msgid "Check interval"
+msgstr "检查间隔"
+
+msgid "Seconds between checks. A few minutes is plenty; the address changes at most once every few days."
+msgstr "两次检查之间的秒数。几分钟就足够了——地址最多几天才变一次。"
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "Redial round started. Watch the status above; the connection drops while it runs."
+msgstr "重拨流程已在后台启动。请观察上方状态；执行期间网络会中断。"
+
+msgid "Redial loop stopped and the lock was cleared."
+msgstr "已停止重拨并清除锁。"

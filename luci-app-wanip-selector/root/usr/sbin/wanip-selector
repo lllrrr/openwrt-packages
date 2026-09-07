@@ -1,0 +1,378 @@
+#!/bin/sh
+#
+# wanip-selector - Redial a WAN interface until its public IPv4 address matches
+#                  (or avoids) a set of desired prefixes / CIDR ranges.
+#
+# Typical use case: ISPs that hand out addresses from several pools where
+# only some pools give good routing/latency. Redial until you land in a
+# good pool, and keep watching, because the address is usually rotated
+# every few days on its own.
+#
+# SPDX-License-Identifier: MIT
+
+. /lib/functions.sh
+
+CONFIG=wanip_selector
+TAG=wanip-selector
+LOCKDIR=/var/lock/wanip-selector.lock
+STATEFILE=/var/run/wanip-selector.state
+MONITOR_PID=/var/run/wanip-selector-monitor.pid
+
+# ---- defaults (overridden by UCI) ----
+enabled=0
+interface=wan
+match_mode=include
+max_attempts=10
+retry_delay=15
+settle_time=8
+cooldown=600
+monitor_enabled=0
+check_interval=300
+verbose=1
+targets=""
+
+log() {
+	local level="$1"; shift
+	[ "$level" = "debug" ] && [ "$verbose" != "1" ] && return 0
+	logger -t "$TAG" -p "daemon.${level}" -- "$*"
+}
+
+# ---------------------------------------------------------------- config
+
+append_target() { targets="$targets $1"; }
+
+load_config() {
+	config_load "$CONFIG" || return 1
+	config_get_bool enabled         config enabled         0
+	config_get      interface       config interface       wan
+	config_get      match_mode      config match_mode      include
+	config_get      max_attempts    config max_attempts    10
+	config_get      retry_delay     config retry_delay     15
+	config_get      settle_time     config settle_time     8
+	config_get      cooldown        config cooldown        600
+	config_get_bool monitor_enabled config monitor_enabled 0
+	config_get      check_interval  config check_interval  300
+	config_get_bool verbose         config verbose         1
+	targets=""
+	config_list_foreach config target append_target
+}
+
+# ---------------------------------------------------------- ip utilities
+
+ip2int() {
+	local IFS=.
+	set -- $1
+	# shellcheck disable=SC2004
+	echo $(( ($1 << 24) + ($2 << 16) + ($3 << 8) + $4 ))
+}
+
+# Accept "10.0.0.0/8", "10.", "10.0", "10.0.0.5" -> normalised CIDR
+to_cidr() {
+	local t="$1" n rest pad bits
+	case "$t" in
+		*/*) echo "$t"; return 0 ;;
+	esac
+	t="${t%.}"
+	[ -n "$t" ] || return 1
+	n=1; rest="$t"
+	while [ "${rest#*.}" != "$rest" ]; do rest="${rest#*.}"; n=$((n + 1)); done
+	bits=$((n * 8))
+	pad="$t"
+	while [ "$n" -lt 4 ]; do pad="${pad}.0"; n=$((n + 1)); done
+	echo "${pad}/${bits}"
+}
+
+is_ipv4() {
+	local IFS=. o
+	set -- $1
+	[ $# -eq 4 ] || return 1
+	for o in "$@"; do
+		case "$o" in ''|*[!0-9]*) return 1 ;; esac
+		[ "$o" -le 255 ] || return 1
+	done
+	return 0
+}
+
+in_cidr() { # $1=ip  $2=cidr
+	local ip="$1" cidr="$2" net bits mask
+	net="${cidr%%/*}"; bits="${cidr##*/}"
+	[ "$net" = "$cidr" ] && bits=32
+	case "$bits" in ''|*[!0-9]*) return 1 ;; esac
+	[ "$bits" -le 32 ] || return 1
+	is_ipv4 "$ip" || return 1
+	is_ipv4 "$net" || return 1
+	[ "$bits" -eq 0 ] && return 0
+	mask=$(( 0xFFFFFFFF ^ ((1 << (32 - bits)) - 1) ))
+	[ $(( $(ip2int "$ip") & mask )) -eq $(( $(ip2int "$net") & mask )) ]
+}
+
+# --------------------------------------------------------------- runtime
+
+get_ip() {
+	local iface="${1:-$interface}" out
+	out=$(ubus call "network.interface.${iface}" status 2>/dev/null) || return 1
+	echo "$out" | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null
+}
+
+# 0 = the address is acceptable, 1 = it is not
+ip_ok() {
+	local ip="$1" t cidr hit=0
+	[ -n "$ip" ] || return 1
+	[ -n "$targets" ] || return 0   # nothing configured -> everything is fine
+	for t in $targets; do
+		cidr=$(to_cidr "$t") || continue
+		if in_cidr "$ip" "$cidr"; then hit=1; break; fi
+	done
+	case "$match_mode" in
+		exclude) [ "$hit" = "1" ] && return 1 || return 0 ;;
+		*)       [ "$hit" = "1" ] && return 0 || return 1 ;;
+	esac
+}
+
+# ------------------------------------------------------------------ lock
+#
+# mkdir is atomic, so it doubles as a test and set. The owning pid is kept
+# inside so a lock left behind by a killed process can be reclaimed instead
+# of blocking every later run forever.
+
+lock_acquire() {
+	if mkdir "$LOCKDIR" 2>/dev/null; then
+		echo $$ > "$LOCKDIR/pid"
+		return 0
+	fi
+
+	local owner
+	owner=$(cat "$LOCKDIR/pid" 2>/dev/null)
+	if [ -n "$owner" ] && [ -d "/proc/$owner" ]; then
+		return 1                       # a real run is in progress
+	fi
+
+	log warn "clearing stale lock left by pid ${owner:-unknown}"
+	rm -rf "$LOCKDIR"
+	if mkdir "$LOCKDIR" 2>/dev/null; then
+		echo $$ > "$LOCKDIR/pid"
+		return 0
+	fi
+	return 1
+}
+
+lock_release() { rm -rf "$LOCKDIR" 2>/dev/null; }
+
+lock_held_by_running_process() {
+	local owner
+	[ -d "$LOCKDIR" ] || return 1
+	owner=$(cat "$LOCKDIR/pid" 2>/dev/null)
+	[ -n "$owner" ] && [ -d "/proc/$owner" ]
+}
+
+monitor_running() {
+	local pid
+	pid=$(cat "$MONITOR_PID" 2>/dev/null)
+	[ -n "$pid" ] && [ -d "/proc/$pid" ]
+}
+
+# ----------------------------------------------------------------- state
+
+json_escape() {
+	# only the characters that can realistically appear in our messages
+	echo "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+write_state() { # status message ip matched attempts
+	cat > "$STATEFILE" <<EOF
+{ "status": "$1", "message": "$(json_escape "$2")", "ip": "$3", "matched": ${4:-0}, "attempts": ${5:-0} }
+EOF
+}
+
+state_field() { # field default
+	local v
+	[ -f "$STATEFILE" ] || { echo "$2"; return; }
+	v=$(jsonfilter -i "$STATEFILE" -e "@.$1" 2>/dev/null)
+	[ -n "$v" ] && echo "$v" || echo "$2"
+}
+
+redial() {
+	log info "redialing ${interface}"
+	ifdown "$interface" 2>/dev/null
+	sleep 3
+	ifup "$interface" 2>/dev/null
+}
+
+wait_for_ip() {
+	local waited=0 ip
+	while [ "$waited" -lt "$settle_time" ]; do
+		sleep 1; waited=$((waited + 1))
+		ip=$(get_ip) && [ -n "$ip" ] && { echo "$ip"; return 0; }
+	done
+	# grace period: PPPoE can be slow
+	while [ "$waited" -lt $((settle_time + 30)) ]; do
+		sleep 2; waited=$((waited + 2))
+		ip=$(get_ip) && [ -n "$ip" ] && { echo "$ip"; return 0; }
+	done
+	return 1
+}
+
+# --------------------------------------------------------------- actions
+
+cmd_status() {
+	load_config
+	local ip matched=0 running=0 monitor=0 st
+
+	# The address and the verdict are always evaluated live, the rest is
+	# carried over from the last run.
+	ip=$(get_ip)
+	ip_ok "$ip" && matched=1
+	lock_held_by_running_process && running=1
+	monitor_running && monitor=1
+
+	st=$(state_field status idle)
+	# a stored "running" state that no longer has a live process is stale
+	[ "$st" = "running" ] && [ "$running" = "0" ] && st=idle
+
+	cat <<EOF
+{ "status": "$st", "message": "$(json_escape "$(state_field message '')")", "ip": "${ip}", "matched": ${matched}, "attempts": $(state_field attempts 0), "max_attempts": ${max_attempts}, "interface": "${interface}", "match_mode": "${match_mode}", "running": ${running}, "monitor": ${monitor}, "check_interval": ${check_interval}, "updated": $(date +%s) }
+EOF
+}
+
+cmd_check() {
+	load_config
+	local ip
+	ip=$(get_ip)
+	[ -n "$ip" ] || { echo "no address on ${interface}"; return 2; }
+	if ip_ok "$ip"; then
+		echo "$ip matches"
+		return 0
+	fi
+	echo "$ip does not match"
+	return 1
+}
+
+cmd_run() {
+	load_config
+
+	if [ "$enabled" != "1" ] && [ "$1" != "force" ]; then
+		log debug "disabled, not running"
+		return 0
+	fi
+
+	if ! lock_acquire; then
+		log debug "another run is already in progress"
+		return 0
+	fi
+
+	local ip attempts=0
+	ip=$(get_ip)
+
+	if ip_ok "$ip"; then
+		log info "current address ${ip:-<none>} already acceptable"
+		write_state matched "" "$ip" 1 0
+		lock_release
+		return 0
+	fi
+
+	log info "address ${ip:-<none>} not acceptable, starting redial (max=${max_attempts}, mode=${match_mode}, targets=${targets})"
+
+	while :; do
+		if [ "$max_attempts" -gt 0 ] && [ "$attempts" -ge "$max_attempts" ]; then
+			log warn "giving up after ${attempts} attempts, last address ${ip:-<none>}"
+			write_state exhausted "reached max attempts" "$ip" 0 "$attempts"
+			[ "$cooldown" -gt 0 ] && sleep "$cooldown"
+			break
+		fi
+
+		attempts=$((attempts + 1))
+		write_state running "attempt ${attempts}" "$ip" 0 "$attempts"
+
+		redial
+		ip=$(wait_for_ip) || {
+			log warn "attempt ${attempts}: interface did not come up"
+			sleep "$retry_delay"
+			continue
+		}
+
+		if ip_ok "$ip"; then
+			log notice "got acceptable address ${ip} after ${attempts} attempt(s)"
+			write_state matched "" "$ip" 1 "$attempts"
+			break
+		fi
+
+		log info "attempt ${attempts}: got ${ip}, still not acceptable"
+		sleep "$retry_delay"
+	done
+
+	lock_release
+}
+
+# Start a redial round without blocking the caller. The LuCI buttons and the
+# hotplug hook use this, so neither the browser nor netifd waits for a loop
+# that can legitimately run for minutes.
+cmd_trigger() {
+	( setsid "$0" "${1:-run}" >/dev/null 2>&1 & ) &
+	echo "redial round started in the background"
+}
+
+cmd_monitor() {
+	load_config
+	echo $$ > "$MONITOR_PID"
+	trap 'rm -f "$MONITOR_PID"; exit 0' INT TERM
+
+	log notice "monitor started, checking every ${check_interval}s"
+
+	while :; do
+		sleep "$check_interval"
+
+		# re-read every round so option changes apply without a restart
+		load_config
+		[ "$monitor_enabled" = "1" ] || continue
+		[ "$enabled" = "1" ] || continue
+		lock_held_by_running_process && continue
+
+		local ip
+		ip=$(get_ip)
+		[ -n "$ip" ] || continue
+
+		if ip_ok "$ip"; then
+			log debug "monitor: ${ip} still acceptable"
+		else
+			log notice "monitor: ${ip} is outside the desired pools, redialing"
+			cmd_run
+		fi
+	done
+}
+
+cmd_stop() {
+	local owner
+	owner=$(cat "$LOCKDIR/pid" 2>/dev/null)
+	[ -n "$owner" ] && [ -d "/proc/$owner" ] && {
+		log notice "stopping redial loop (pid ${owner})"
+		kill "$owner" 2>/dev/null
+	}
+	lock_release
+	load_config
+	write_state idle "stopped" "$(get_ip)" 0 0
+	echo "stopped"
+}
+
+case "$1" in
+	run)     shift; cmd_run "$@" ;;
+	force)   cmd_run force ;;
+	trigger) cmd_trigger "${2:-run}" ;;
+	monitor) cmd_monitor ;;
+	check)   cmd_check ;;
+	status)  cmd_status ;;
+	stop)    cmd_stop ;;
+	*)
+		cat >&2 <<EOF
+Usage: $0 {run|force|trigger|monitor|check|status|stop}
+
+  run      honour the 'enabled' flag and redial until the address matches
+  force    same as run, but ignore the 'enabled' flag
+  trigger  start a redial round in the background and return immediately
+  monitor  run the periodic checker in the foreground (used by procd)
+  check    test the current address, exit 0 if acceptable
+  status   print machine readable state as JSON
+  stop     abort a running loop, clear the lock, mark the service idle
+EOF
+		exit 1
+		;;
+esac
