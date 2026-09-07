@@ -19,6 +19,8 @@
 			"ubus": {
 				"portweaver": [
 					"get_full_status",
+					"get_rathole_status",
+					"get_rathole_info",
 					"get_frps_info",
 					"get_frpc_info",
 					"get_ddns_status",
@@ -27,6 +29,8 @@
 					"get_frps_proxy_stats",
 					"list_projects",
 					"get_nftables_rules",
+					"read_frp_config",
+					"validate_frp_config",
 					"wol_status"
 				]
 			}
@@ -47,10 +51,12 @@
 				"portweaver": [
 					"set_enabled",
 					"clear_frpc_logs",
+					"clear_rathole_logs",
 					"clear_ddns_logs",
 					"clear_frps_logs",
 					"reload_config",
 					"restart_project",
+					"write_frp_config",
 					"wol_wake"
 				]
 			}
