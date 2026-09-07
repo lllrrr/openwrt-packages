@@ -1,0 +1,773 @@
+#!/bin/sh
+# ==========================================================
+# iStore Self-Extracting Installer for luci-app-autosign
+# OpenWrt (25.12+) Offline Installation Package
+# Pure POSIX Shell - Zero external utilities required
+# ==========================================================
+
+ACTION="${1:-install}"
+
+do_install() {
+    echo "=========================================================="
+    echo ">>> 开始离线安装 luci-app-autosign (定时自动签到)..."
+    echo "=========================================================="
+
+    echo "[1/4] 创建系统目录结构..."
+    mkdir -p /etc/config
+    mkdir -p /etc/init.d
+    mkdir -p /usr/share/autosign
+    mkdir -p /usr/share/luci/menu.d
+    mkdir -p /usr/share/rpcd/acl.d
+    mkdir -p /www/luci-static/resources/view/autosign
+
+    echo "[2/4] 写入核心插件文件..."
+    if [ ! -f /etc/config/autosign ]; then
+        cat << '__AUTOSIGN_EOF__' > /etc/config/autosign
+config autosign 'global'
+	option enabled '0'
+	option run_hour '08'
+	option run_minute '30'
+	option random_delay '60'
+	option retry_count '3'
+	option retry_interval '60'
+	option notify_type 'none'
+	option notify_token ''
+	option notify_secret ''
+
+config task
+	option name '示例签到任务'
+	option enabled '0'
+	option type 'http'
+	option url 'https://httpbin.org/post'
+	option method 'POST'
+	option headers 'User-Agent: Mozilla/5.0
+Content-Type: application/json'
+	option cookie ''
+	option data '{"action": "checkin"}'
+	option match_keyword 'origin'
+	option script_cmd ''
+__AUTOSIGN_EOF__
+    fi
+    cat << '__AUTOSIGN_EOF__' > /etc/init.d/autosign
+#!/bin/sh /etc/rc.common
+# AutoSign Service & Cron Scheduler for OpenWrt
+
+START=95
+USE_PROCD=1
+
+CRON_FILE="/etc/crontabs/root"
+AUTOSIGN_BIN="/usr/share/autosign/autosign.sh"
+CMD="$AUTOSIGN_BIN run >/dev/null 2>&1"
+
+update_cron() {
+	local enabled run_hour run_minute
+	config_load autosign
+	config_get enabled global enabled '0'
+	config_get run_hour global run_hour '08'
+	config_get run_minute global run_minute '30'
+
+	mkdir -p /etc/crontabs
+	touch "$CRON_FILE"
+
+	# 清理旧的签到计划任务
+	sed -i '/autosign.sh/d' "$CRON_FILE" 2>/dev/null
+
+	if [ "$enabled" = "1" ]; then
+		# 去除前导 0 以符合标准 cron 格式 (如 08 -> 8)
+		local cron_min=$(echo "$run_minute" | sed 's/^0*//')
+		[ -z "$cron_min" ] && cron_min=0
+		local cron_hour=$(echo "$run_hour" | sed 's/^0*//')
+		[ -z "$cron_hour" ] && cron_hour=0
+
+		echo "$cron_min $cron_hour * * * $CMD" >> "$CRON_FILE"
+		logger -t autosign "已更新定时签到任务：每天 $cron_hour:$cron_min 执行"
+	else
+		logger -t autosign "定时签到已停用"
+	fi
+
+	/etc/init.d/cron restart >/dev/null 2>&1
+}
+
+start_service() {
+	update_cron
+}
+
+stop_service() {
+	if [ -f "$CRON_FILE" ]; then
+		sed -i '/autosign.sh/d' "$CRON_FILE" 2>/dev/null
+		/etc/init.d/cron restart >/dev/null 2>&1
+	fi
+	logger -t autosign "定时签到服务已停止"
+}
+
+reload_service() {
+	update_cron
+}
+__AUTOSIGN_EOF__
+    cat << '__AUTOSIGN_EOF__' > /usr/share/autosign/autosign.sh
+#!/bin/sh
+# AutoSign Core Execution Engine for OpenWrt
+# Ultra-lightweight POSIX Shell Implementation
+
+LOG_FILE="/var/log/autosign.log"
+MAX_LOG_LINES=300
+CONFIG_NAME="autosign"
+
+. /lib/functions.sh
+
+log() {
+	local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
+	local msg="[$timestamp] $1"
+	echo "$msg"
+	echo "$msg" >> "$LOG_FILE"
+}
+
+rotate_log() {
+	if [ -f "$LOG_FILE" ]; then
+		local line_count=$(wc -l < "$LOG_FILE" 2>/dev/null || echo 0)
+		if [ "$line_count" -gt "$MAX_LOG_LINES" ]; then
+			local tmp_log="${LOG_FILE}.tmp"
+			tail -n 100 "$LOG_FILE" > "$tmp_log" 2>/dev/null && mv "$tmp_log" "$LOG_FILE"
+		fi
+	fi
+}
+
+send_notify() {
+	local title="$1"
+	local content="$2"
+	local notify_type="$3"
+	local token="$4"
+	local secret="$5"
+
+	[ -z "$notify_type" ] || [ "$notify_type" = "none" ] && return 0
+	[ -z "$token" ] && return 0
+
+	log "正在发送消息通知 [$notify_type]..."
+
+	local has_curl=0
+	command -v curl >/dev/null 2>&1 && has_curl=1
+
+	case "$notify_type" in
+		pushplus)
+			if [ "$has_curl" -eq 1 ]; then
+				curl -s -k -m 10 -X POST "http://www.pushplus.plus/send" \
+					-H "Content-Type: application/json" \
+					-d "{\"token\":\"$token\",\"title\":\"$title\",\"content\":\"$content\",\"template\":\"txt\"}" >/dev/null 2>&1
+			else
+				wget -q -O /dev/null --post-data "{\"token\":\"$token\",\"title\":\"$title\",\"content\":\"$content\",\"template\":\"txt\"}" \
+					--header "Content-Type: application/json" "http://www.pushplus.plus/send" 2>/dev/null
+			fi
+			;;
+		serverchan)
+			if [ "$has_curl" -eq 1 ]; then
+				curl -s -k -m 10 -X POST "https://sctapi.ftqq.com/${token}.send" \
+					-d "title=${title}&desp=${content}" >/dev/null 2>&1
+			else
+				wget -q -O /dev/null --no-check-certificate --post-data "title=${title}&desp=${content}" \
+					"https://sctapi.ftqq.com/${token}.send" 2>/dev/null
+			fi
+			;;
+		telegram)
+			if [ -n "$secret" ]; then
+				if [ "$has_curl" -eq 1 ]; then
+					curl -s -k -m 10 -X POST "https://api.telegram.org/bot${token}/sendMessage" \
+						-d "chat_id=${secret}&text=${title}%0A%0A${content}" >/dev/null 2>&1
+				else
+					wget -q -O /dev/null --no-check-certificate --post-data "chat_id=${secret}&text=${title}%0A%0A${content}" \
+						"https://api.telegram.org/bot${token}/sendMessage" 2>/dev/null
+				fi
+			fi
+			;;
+		bark)
+			local encoded_title=$(echo "$title" | tr ' ' '+')
+			local encoded_content=$(echo "$content" | tr ' ' '+')
+			if [ "$has_curl" -eq 1 ]; then
+				curl -s -k -m 10 "https://api.day.app/${token}/${encoded_title}/${encoded_content}" >/dev/null 2>&1
+			else
+				wget -q -O /dev/null --no-check-certificate "https://api.day.app/${token}/${encoded_title}/${encoded_content}" 2>/dev/null
+			fi
+			;;
+		webhook)
+			if [ "$has_curl" -eq 1 ]; then
+				curl -s -k -m 10 -X POST "$token" \
+					-H "Content-Type: application/json" \
+					-d "{\"title\":\"$title\",\"message\":\"$content\"}" >/dev/null 2>&1
+			else
+				wget -q -O /dev/null --no-check-certificate --header "Content-Type: application/json" \
+					--post-data "{\"title\":\"$title\",\"message\":\"$content\"}" "$token" 2>/dev/null
+			fi
+			;;
+	esac
+}
+
+execute_http_task() {
+	local task_id="$1"
+	local name="$2"
+	local url="$3"
+	local method="$4"
+	local headers="$5"
+	local cookie="$6"
+	local data="$7"
+	local match_keyword="$8"
+	local retry_count="$9"
+	local retry_interval="${10:-10}"
+
+	[ -z "$method" ] && method="GET"
+	[ -z "$retry_count" ] && retry_count=1
+
+	local attempt=1
+	local success=0
+
+	while [ "$attempt" -le "$retry_count" ]; do
+		log "[$name] 正在执行 HTTP 请求 (第 $attempt/$retry_count 次)..."
+
+		local has_curl=0
+		command -v curl >/dev/null 2>&1 && has_curl=1
+
+		local full_resp=""
+		local exit_code=0
+		local http_code=""
+		local resp_body=""
+
+		if [ "$has_curl" -eq 1 ]; then
+			local curl_cmd="curl -s -S -k -L -m 30 -X $method"
+
+			# 处理 Cookie
+			if [ -n "$cookie" ]; then
+				curl_cmd="$curl_cmd -H 'Cookie: $cookie'"
+			fi
+
+			# 处理 Headers
+			if [ -n "$headers" ]; then
+				local old_ifs="$IFS"
+				IFS='
+'
+				for h in $headers; do
+					[ -n "$h" ] && curl_cmd="$curl_cmd -H '$h'"
+				done
+				IFS="$old_ifs"
+			fi
+
+			# 处理 POST/PUT 数据
+			if [ "$method" = "POST" ] || [ "$method" = "PUT" ]; then
+				if [ -n "$data" ]; then
+					curl_cmd="$curl_cmd --data '$data'"
+				fi
+			fi
+
+			curl_cmd="$curl_cmd -w '\nHTTP_CODE:%{http_code}' '$url'"
+
+			full_resp=$(eval "$curl_cmd" 2>&1)
+			exit_code=$?
+
+			http_code=$(echo "$full_resp" | grep -o 'HTTP_CODE:[0-9]*' | cut -d: -f2)
+			resp_body=$(echo "$full_resp" | sed 's/HTTP_CODE:[0-9]*$//')
+		else
+			# 没有 curl 时降级使用系统内置 wget / uclient-fetch
+			local wget_cmd="wget -q -O - --no-check-certificate --timeout=30"
+
+			if [ -n "$cookie" ]; then
+				wget_cmd="$wget_cmd --header 'Cookie: $cookie'"
+			fi
+
+			if [ -n "$headers" ]; then
+				local old_ifs="$IFS"
+				IFS='
+'
+				for h in $headers; do
+					[ -n "$h" ] && wget_cmd="$wget_cmd --header '$h'"
+				done
+				IFS="$old_ifs"
+			fi
+
+			if [ "$method" = "POST" ] || [ "$method" = "PUT" ]; then
+				if [ -n "$data" ]; then
+					wget_cmd="$wget_cmd --post-data '$data'"
+				else
+					wget_cmd="$wget_cmd --post-data ''"
+				fi
+			fi
+
+			resp_body=$(eval "$wget_cmd '$url'" 2>&1)
+			exit_code=$?
+			if [ "$exit_code" -eq 0 ]; then
+				http_code=200
+			else
+				http_code=000
+			fi
+		fi
+
+		local body_snippet=$(echo "$resp_body" | head -c 200 | tr '\r\n' ' ')
+
+		if [ "$exit_code" -eq 0 ] && [ -n "$http_code" ]; then
+			local is_keyword_matched=1
+			if [ -n "$match_keyword" ]; then
+				echo "$resp_body" | grep -q "$match_keyword"
+				if [ $? -ne 0 ]; then
+					is_keyword_matched=0
+				fi
+			fi
+
+			if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 400 ] && [ "$is_keyword_matched" -eq 1 ]; then
+				log "[$name] 签到成功！(状态码: $http_code)"
+				[ -n "$body_snippet" ] && log "[$name] 响应摘要: $body_snippet"
+				success=1
+				break
+			else
+				log "[$name] 校验未通过 (状态码: $http_code, 关键字匹配: $is_keyword_matched)"
+				[ -n "$body_snippet" ] && log "[$name] 响应摘要: $body_snippet"
+			fi
+		else
+			log "[$name] 请求发生异常 (curl错误码: $exit_code, HTTP状态: $http_code)"
+		fi
+
+		if [ "$attempt" -lt "$retry_count" ]; then
+			log "[$name] 等待 $retry_interval 秒后重试..."
+			sleep "$retry_interval"
+		fi
+		attempt=$((attempt + 1))
+	done
+
+	return $((1 - success))
+}
+
+execute_script_task() {
+	local task_id="$1"
+	local name="$2"
+	local script_cmd="$3"
+
+	if [ -z "$script_cmd" ]; then
+		log "[$name] 脚本命令为空，跳过执行"
+		return 1
+	fi
+
+	log "[$name] 开始执行自定义脚本..."
+	local script_out=$(eval "$script_cmd" 2>&1)
+	local exit_code=$?
+
+	if [ "$exit_code" -eq 0 ]; then
+		log "[$name] 脚本执行成功 (退出码: 0)"
+		[ -n "$script_out" ] && log "[$name] 输出: $script_out"
+		return 0
+	else
+		log "[$name] 脚本执行失败 (退出码: $exit_code)"
+		[ -n "$script_out" ] && log "[$name] 错误输出: $script_out"
+		return 1
+	fi
+}
+
+run_task() {
+	local section="$1"
+	local enabled name type url method headers cookie data match_keyword script_cmd
+
+	config_get_bool enabled "$section" enabled 0
+	[ "$enabled" -ne 1 ] && return 0
+
+	config_get name "$section" name "$section"
+	config_get type "$section" type "http"
+	config_get url "$section" url ""
+	config_get method "$section" method "GET"
+	config_get headers "$section" headers ""
+	config_get cookie "$section" cookie ""
+	config_get data "$section" data ""
+	config_get match_keyword "$section" match_keyword ""
+	config_get script_cmd "$section" script_cmd ""
+
+	TOTAL_TASKS=$((TOTAL_TASKS + 1))
+
+	local result=0
+	if [ "$type" = "http" ]; then
+		execute_http_task "$section" "$name" "$url" "$method" "$headers" "$cookie" "$data" "$match_keyword" "$RETRY_COUNT" "$RETRY_INTERVAL"
+		result=$?
+	elif [ "$type" = "script" ]; then
+		execute_script_task "$section" "$name" "$script_cmd"
+		result=$?
+	fi
+
+	if [ "$result" -eq 0 ]; then
+		SUCCESS_TASKS=$((SUCCESS_TASKS + 1))
+		SUMMARY_MSG="${SUMMARY_MSG}\n- [$name]: 成功"
+	else
+		FAILED_TASKS=$((FAILED_TASKS + 1))
+		SUMMARY_MSG="${SUMMARY_MSG}\n- [$name]: 失败"
+	fi
+}
+
+do_run() {
+	local force_mode="$1"
+	rotate_log
+
+	config_load "$CONFIG_NAME"
+
+	local global_enabled random_delay notify_type notify_token notify_secret
+	config_get_bool global_enabled global enabled 0
+	config_get random_delay global random_delay 0
+	config_get RETRY_COUNT global retry_count 3
+	config_get RETRY_INTERVAL global retry_interval 60
+	config_get notify_type global notify_type "none"
+	config_get notify_token global notify_token ""
+	config_get notify_secret global notify_secret ""
+
+	if [ "$force_mode" != "force" ] && [ "$global_enabled" -ne 1 ]; then
+		log "AutoSign 插件处于停用状态，跳过本次计划任务"
+		exit 0
+	fi
+
+	log "=================================================="
+	log ">>> AutoSign 签到任务开始启动 <<<"
+
+	if [ "$force_mode" != "force" ] && [ "$random_delay" -gt 0 ]; then
+		# 计算随机延迟（防风控检测）
+		local seed=$(awk 'BEGIN{srand(); print int(rand()*32768)}')
+		local delay=$(( seed % random_delay ))
+		log "已启用随机延迟，随机休眠 $delay 秒后开始签到..."
+		sleep "$delay"
+	fi
+
+	TOTAL_TASKS=0
+	SUCCESS_TASKS=0
+	FAILED_TASKS=0
+	SUMMARY_MSG=""
+
+	config_foreach run_task task
+
+	if [ "$TOTAL_TASKS" -eq 0 ]; then
+		log "未检测到任何已启用的签到任务！请在 Web 界面中添加并启用任务。"
+	else
+		log ">>> 签到完成: 共 $TOTAL_TASKS 个任务，成功: $SUCCESS_TASKS，失败: $FAILED_TASKS <<<"
+		log "=================================================="
+
+		local notify_title="OpenWrt 每日签到通知"
+		local notify_content="签到完成统计: 共 $TOTAL_TASKS 个任务，成功 $SUCCESS_TASKS 个，失败 $FAILED_TASKS 个。详情: $(echo -e "$SUMMARY_MSG")"
+		send_notify "$notify_title" "$notify_content" "$notify_type" "$notify_token" "$notify_secret"
+	fi
+}
+
+case "$1" in
+	run)
+		do_run "$2"
+		;;
+	clearlog)
+		echo "" > "$LOG_FILE"
+		log "日志已清空"
+		;;
+	*)
+		echo "用法: $0 {run [force]|clearlog}"
+		exit 1
+		;;
+esac
+__AUTOSIGN_EOF__
+    cat << '__AUTOSIGN_EOF__' > /usr/share/luci/menu.d/luci-app-autosign.json
+{
+	"admin/services/autosign": {
+		"title": "定时签到",
+		"action": {
+			"type": "view",
+			"path": "autosign/index"
+		},
+		"depends": {
+			"acl": [ "luci-app-autosign" ]
+		}
+	}
+}
+__AUTOSIGN_EOF__
+    cat << '__AUTOSIGN_EOF__' > /usr/share/rpcd/acl.d/luci-app-autosign.json
+{
+	"luci-app-autosign": {
+		"description": "Grant access to AutoSign configuration and execution",
+		"read": {
+			"uci": [ "autosign" ],
+			"file": {
+				"/var/log/autosign.log": [ "read" ]
+			}
+		},
+		"write": {
+			"uci": [ "autosign" ],
+			"file": {
+				"/usr/share/autosign/autosign.sh": [ "exec" ],
+				"/etc/init.d/autosign": [ "exec" ]
+			}
+		}
+	}
+}
+__AUTOSIGN_EOF__
+    cat << '__AUTOSIGN_EOF__' > /www/luci-static/resources/view/autosign/index.js
+'use strict';
+'require view';
+'require form';
+'require fs';
+'require ui';
+'require uci';
+
+return view.extend({
+	load: function() {
+		return Promise.all([
+			uci.load('autosign'),
+			fs.read('/var/log/autosign.log').catch(function() { return ''; })
+		]);
+	},
+
+	render: function(data) {
+		var initial_log = data[1] || '暂无运行日志。可在下方点击【⚡ 立即执行签到测试】运行测试。';
+
+		var m = new form.Map('autosign', _('定时自动签到'),
+			_('超轻量级 OpenWrt 定时自动签到插件。支持每日定时调度、随机防风控延迟、多任务 HTTP/脚本混合配置以及微信/Telegram 推送。'));
+
+		// ==================== 1. 基本与定时设置 ====================
+		var s_gen = m.section(form.NamedSection, 'global', 'autosign', _('基本与定时设置'));
+		s_gen.anonymous = true;
+		s_gen.addremove = false;
+
+		var o;
+
+		o = s_gen.option(form.Flag, 'enabled', _('启用定时签到'), _('开启后，插件将自动在每天设定时间触发签到任务'));
+		o.rmempty = false;
+
+		// 24 小时制小时选择
+		o = s_gen.option(form.ListValue, 'run_hour', _('每天签到时间 (小时)'), _('请选择每天执行签到的小时 (24小时制)'));
+		for (var h = 0; h < 24; h++) {
+			var val = (h < 10 ? '0' : '') + h;
+			o.value(val, val + ' 点 (' + (h < 12 ? '上午' : '下午/晚上') + ')');
+		}
+		o.default = '08';
+
+		// 分钟选择
+		o = s_gen.option(form.ListValue, 'run_minute', _('每天签到时间 (分钟)'), _('请选择每天执行签到的分钟'));
+		for (var min = 0; min < 60; min++) {
+			var val_min = (min < 10 ? '0' : '') + min;
+			o.value(val_min, val_min + ' 分');
+		}
+		o.default = '30';
+
+		o = s_gen.option(form.Value, 'random_delay', _('防封随机延迟 (秒)'), _('在指定签到时间到达后，随机休眠 0 ~ N 秒再执行，防止每天固定时间被检测。设为 0 表示立即执行'));
+		o.datatype = 'range(0, 3600)';
+		o.placeholder = '0';
+		o.default = '0';
+
+		o = s_gen.option(form.Value, 'retry_count', _('失败重试次数'), _('当网络波动或接口请求失败时的自动重试次数'));
+		o.datatype = 'range(1, 10)';
+		o.placeholder = '3';
+		o.default = '3';
+
+		o = s_gen.option(form.Value, 'retry_interval', _('重试间隔 (秒)'), _('每次重试之间的等待间隔时间'));
+		o.datatype = 'range(1, 600)';
+		o.placeholder = '60';
+		o.default = '60';
+
+		// ==================== 2. 签到任务管理 ====================
+		var s_tasks = m.section(form.GridSection, 'task', _('签到任务管理'), _('支持配置多个不同的签到任务。HTTP 模式适合各类 API 接口签到，脚本模式适合复杂网页或校园网认证。'));
+		s_tasks.addremove = true;
+		s_tasks.anonymous = true;
+		s_tasks.sortable = true;
+
+		o = s_tasks.option(form.Flag, 'enabled', _('启用状态'));
+		o.rmempty = false;
+		o.default = '1';
+		o.editable = true;
+
+		o = s_tasks.option(form.Value, 'name', _('任务名称'));
+		o.rmempty = false;
+		o.placeholder = '如：每日论坛打卡';
+
+		o = s_tasks.option(form.ListValue, 'type', _('任务类型'));
+		o.value('http', _('HTTP(S) 请求'));
+		o.value('script', _('自定义脚本/命令'));
+		o.default = 'http';
+
+		// 弹窗编辑详细配置
+		o = s_tasks.option(form.ListValue, 'method', _('请求方式'));
+		o.value('GET', 'GET');
+		o.value('POST', 'POST');
+		o.value('PUT', 'PUT');
+		o.default = 'POST';
+		o.depends('type', 'http');
+		o.modalonly = true;
+
+		o = s_tasks.option(form.Value, 'url', _('接口 URL'));
+		o.placeholder = 'https://example.com/api/checkin';
+		o.depends('type', 'http');
+		o.modalonly = true;
+
+		o = s_tasks.option(form.TextValue, 'headers', _('自定义请求头 (Headers)'), _('每行一个 Header，例如：<br><code>User-Agent: Mozilla/5.0</code><br><code>Content-Type: application/json</code>'));
+		o.placeholder = 'User-Agent: Mozilla/5.0';
+		o.rows = 3;
+		o.depends('type', 'http');
+		o.modalonly = true;
+
+		o = s_tasks.option(form.TextValue, 'cookie', _('Cookie 数据'), _('若接口需要登录鉴权，在此粘贴完整 Cookie 字符串'));
+		o.placeholder = 'session=xxxx; token=yyyy';
+		o.rows = 2;
+		o.depends('type', 'http');
+		o.modalonly = true;
+
+		o = s_tasks.option(form.TextValue, 'data', _('POST/PUT 请求内容 (Body)'), _('JSON 报文或表单数据'));
+		o.placeholder = '{"action":"sign"}';
+		o.rows = 3;
+		o.depends('type', 'http');
+		o.modalonly = true;
+
+		o = s_tasks.option(form.Value, 'match_keyword', _('成功判定关键词'), _('若返回内容中包含此文字则视为签到成功。留空则只依据 HTTP 200 状态码判定'));
+		o.placeholder = '如: success 或 "code":0';
+		o.depends('type', 'http');
+		o.modalonly = true;
+
+		o = s_tasks.option(form.Value, 'script_cmd', _('自定义脚本命令或路径'), _('填入可执行命令或脚本路径（如 <code>/etc/autosign/login.sh</code>），退出码为 0 代表执行成功'));
+		o.placeholder = '/usr/bin/python3 /root/checkin.py 或 bash /etc/autosign/task.sh';
+		o.depends('type', 'script');
+		o.modalonly = true;
+
+		// ==================== 3. 消息通知设置 ====================
+		var s_notify = m.section(form.NamedSection, 'global', 'autosign', _('消息推送设置'));
+		s_notify.anonymous = true;
+		s_notify.addremove = false;
+
+		o = s_notify.option(form.ListValue, 'notify_type', _('通知渠道'));
+		o.value('none', _('关闭通知'));
+		o.value('pushplus', _('PushPlus (微信消息推送)'));
+		o.value('serverchan', _('Server酱·Turbo (微信/企业微信)'));
+		o.value('telegram', _('Telegram 机器人'));
+		o.value('bark', _('Bark (iOS 极速通知)'));
+		o.value('webhook', _('自定义 Webhook (POST JSON)'));
+		o.default = 'none';
+
+		o = s_notify.option(form.Value, 'notify_token', _('Token / Key / URL'), _('填写所选通知渠道的 Token、SendKey 或 Webhook 完整 URL'));
+		o.depends('notify_type', 'pushplus');
+		o.depends('notify_type', 'serverchan');
+		o.depends('notify_type', 'telegram');
+		o.depends('notify_type', 'bark');
+		o.depends('notify_type', 'webhook');
+
+		o = s_notify.option(form.Value, 'notify_secret', _('Chat ID (Telegram 专用)'), _('接收消息的 Telegram 用户 ID 或群组 ID'));
+		o.depends('notify_type', 'telegram');
+
+		// ==================== 4. 运行日志与即时测试 ====================
+		var s_log = m.section(form.NamedSection, 'global', 'autosign', _('运行日志与即时测试'));
+		s_log.anonymous = true;
+		s_log.addremove = false;
+
+		var log_box = E('pre', {
+			'id': 'autosign_log_view',
+			'style': 'background:#181818;color:#00ff66;padding:12px 16px;border-radius:6px;font-family:Consolas,Monaco,monospace;font-size:12px;line-height:1.5;max-height:450px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;box-shadow:inset 0 0 10px rgba(0,0,0,0.5);'
+		}, [ initial_log ]);
+
+		var update_log_content = function() {
+			return fs.read('/var/log/autosign.log').then(function(content) {
+				log_box.textContent = content || '暂无运行记录。';
+				log_box.scrollTop = log_box.scrollHeight;
+			}).catch(function() {
+				log_box.textContent = '暂无运行记录。';
+			});
+		};
+
+		var btn_run_now = E('button', {
+			'class': 'cbi-button cbi-button-action',
+			'style': 'margin-right:10px;',
+			'click': function(ev) {
+				ev.preventDefault();
+				ui.showModal(_('正在执行签到...'), [
+					E('p', { 'class': 'spinning' }, _('正在运行签到任务引擎，请稍候...'))
+				]);
+
+				fs.exec('/usr/share/autosign/autosign.sh', ['run', 'force']).then(function(res) {
+					ui.hideModal();
+					update_log_content();
+					ui.addNotification(null, E('p', _('签到任务执行完毕！请在日志窗口查看详细结果。')), 'info');
+				}).catch(function(err) {
+					ui.hideModal();
+					ui.addNotification(null, E('p', _('执行出错: ') + (err.message || err)), 'error');
+				});
+			}
+		}, [ '⚡ ' + _('立即执行签到测试') ]);
+
+		var btn_refresh_log = E('button', {
+			'class': 'cbi-button cbi-button-neutral',
+			'style': 'margin-right:10px;',
+			'click': function(ev) {
+				ev.preventDefault();
+				update_log_content();
+			}
+		}, [ '🔄 ' + _('刷新日志') ]);
+
+		var btn_clear_log = E('button', {
+			'class': 'cbi-button cbi-button-remove',
+			'click': function(ev) {
+				ev.preventDefault();
+				fs.exec('/usr/share/autosign/autosign.sh', ['clearlog']).then(function() {
+					update_log_content();
+					ui.addNotification(null, E('p', _('日志已清空')), 'info');
+				});
+			}
+		}, [ '🗑️ ' + _('清空日志') ]);
+
+		var toolbar = E('div', { 'style': 'margin: 12px 0;' }, [
+			btn_run_now,
+			btn_refresh_log,
+			btn_clear_log
+		]);
+
+		var custom_log_field = s_log.option(form.DummyValue, '_logview');
+		custom_log_field.render = function() {
+			return E('div', {}, [
+				toolbar,
+				log_box
+			]);
+		};
+
+		// 监听配置保存应用事件，自动同步系统 Crontab
+		document.addEventListener('uci-applied', function() {
+			fs.exec('/etc/init.d/autosign', ['reload']);
+		});
+
+		return m.render();
+	}
+});
+__AUTOSIGN_EOF__
+
+    echo "[3/4] 赋予脚本权限并启动服务..."
+    chmod 755 /etc/init.d/autosign
+    chmod 755 /usr/share/autosign/autosign.sh
+    /etc/init.d/autosign enable
+    /etc/init.d/autosign reload
+
+    echo "[4/4] 刷新 Web 界面缓存与服务..."
+    rm -f /tmp/luci-indexcache /tmp/luci-modulecache/* 2>/dev/null
+    /etc/init.d/rpcd restart 2>/dev/null
+
+    echo "=========================================================="
+    echo "✅ luci-app-autosign 安装成功！"
+    echo "请刷新浏览器管理后台，在【服务】菜单中点击【定时签到】即可！"
+    echo "=========================================================="
+    exit 0
+}
+
+do_uninstall() {
+    echo ">>> 正在卸载 luci-app-autosign..."
+    /etc/init.d/autosign stop 2>/dev/null
+    /etc/init.d/autosign disable 2>/dev/null
+    sed -i '/autosign.sh/d' /etc/crontabs/root 2>/dev/null
+    rm -rf /usr/share/autosign
+    rm -f /usr/share/luci/menu.d/luci-app-autosign.json
+    rm -f /usr/share/rpcd/acl.d/luci-app-autosign.json
+    rm -rf /www/luci-static/resources/view/autosign
+    rm -f /etc/init.d/autosign
+    rm -f /var/log/autosign.log
+    rm -f /tmp/luci-indexcache /tmp/luci-modulecache/* 2>/dev/null
+    /etc/init.d/rpcd restart 2>/dev/null
+    echo "✅ 卸载完成。"
+    exit 0
+}
+
+case "$ACTION" in
+    install|dotrun|run|"")
+        do_install
+        ;;
+    uninstall|remove)
+        do_uninstall
+        ;;
+    *)
+        echo "用法: $0 [install|uninstall]"
+        exit 1
+        ;;
+esac
+
+exit 0

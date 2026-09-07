@@ -1,0 +1,9 @@
+Package: luci-app-autosign
+Version: 1.2.0-1
+Depends: libc, curl
+Architecture: all
+Section: luci
+Category: LuCI
+Title: Modern Daily Auto Check-in Plugin for OpenWrt
+Maintainer: OpenWrt Developer
+Description: A modern, ultra-lightweight daily auto check-in plugin for OpenWrt and iStore with modern LuCI JS interface.

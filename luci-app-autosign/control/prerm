@@ -1,0 +1,6 @@
+#!/bin/sh
+[ -n "${IPKG_INSTROOT}" ] || {
+	/etc/init.d/autosign stop
+	/etc/init.d/autosign disable
+	exit 0
+}

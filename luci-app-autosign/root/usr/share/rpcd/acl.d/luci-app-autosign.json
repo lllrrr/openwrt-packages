@@ -1,0 +1,18 @@
+{
+	"luci-app-autosign": {
+		"description": "Grant access to AutoSign configuration and execution",
+		"read": {
+			"uci": [ "autosign" ],
+			"file": {
+				"/var/log/autosign.log": [ "read" ]
+			}
+		},
+		"write": {
+			"uci": [ "autosign" ],
+			"file": {
+				"/usr/share/autosign/autosign.sh": [ "exec" ],
+				"/etc/init.d/autosign": [ "exec" ]
+			}
+		}
+	}
+}

@@ -1,0 +1,79 @@
+#!/bin/sh /etc/rc.common
+# AutoSign Service & Cron Scheduler for OpenWrt
+
+START=95
+USE_PROCD=1
+
+CRON_FILE="/etc/crontabs/root"
+AUTOSIGN_BIN="/usr/share/autosign/autosign.sh"
+CMD="$AUTOSIGN_BIN run >/dev/null 2>&1"
+
+add_task_cron() {
+	local section="$1"
+	local enabled name run_hour run_minute
+	config_get_bool enabled "$section" enabled 0
+	[ "$enabled" -ne 1 ] && return 0
+
+	config_get name "$section" name "$section"
+	config_get run_hour "$section" run_hour "08"
+	config_get run_minute "$section" run_minute "30"
+
+	[ -z "$run_hour" ] && run_hour="08"
+	[ -z "$run_minute" ] && run_minute="30"
+
+	# 去除前导 0 以符合标准 cron 格式 (如 08 -> 8)
+	local cron_min=$(echo "$run_minute" | sed 's/^0*//')
+	[ -z "$cron_min" ] && cron_min=0
+	local cron_hour=$(echo "$run_hour" | sed 's/^0*//')
+	[ -z "$cron_hour" ] && cron_hour=0
+
+	echo "$cron_min $cron_hour * * * $AUTOSIGN_BIN run $section >/dev/null 2>&1" >> "$CRON_FILE"
+	logger -t autosign "已添加定时任务 [$name]：每天 $cron_hour:$cron_min 执行"
+	CRON_COUNT=$((CRON_COUNT + 1))
+}
+
+update_cron() {
+	local global_enabled
+	config_load autosign
+	config_get_bool global_enabled global enabled 0
+
+	mkdir -p /etc/crontabs
+	touch "$CRON_FILE"
+
+	# 清理旧的签到计划任务
+	sed -i '/autosign.sh/d' "$CRON_FILE" 2>/dev/null
+
+	if [ "$global_enabled" = "1" ]; then
+		CRON_COUNT=0
+		config_foreach add_task_cron task
+
+		if [ "$CRON_COUNT" -eq 0 ]; then
+			logger -t autosign "定时签到服务已启动，但暂无启用的签到任务"
+		else
+			logger -t autosign "定时签到服务已更新，共调度 $CRON_COUNT 个独立任务"
+		fi
+	else
+		logger -t autosign "定时签到已停用"
+	fi
+
+	/etc/init.d/cron enable >/dev/null 2>&1
+	/etc/init.d/cron restart >/dev/null 2>&1
+}
+
+
+
+start_service() {
+	update_cron
+}
+
+stop_service() {
+	if [ -f "$CRON_FILE" ]; then
+		sed -i '/autosign.sh/d' "$CRON_FILE" 2>/dev/null
+		/etc/init.d/cron restart >/dev/null 2>&1
+	fi
+	logger -t autosign "定时签到服务已停止"
+}
+
+reload_service() {
+	update_cron
+}

@@ -1,0 +1,9 @@
+#!/bin/sh
+[ -n "${IPKG_INSTROOT}" ] || {
+	chmod +x /etc/init.d/autosign
+	chmod +x /usr/share/autosign/autosign.sh
+	/etc/init.d/autosign enable
+	/etc/init.d/autosign reload
+	rm -f /tmp/luci-indexcache /tmp/luci-modulecache/* 2>/dev/null
+	exit 0
+}

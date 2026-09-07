@@ -1,0 +1,23 @@
+config autosign 'global'
+	option enabled '0'
+	option random_delay '60'
+	option retry_count '3'
+	option retry_interval '60'
+	option notify_type 'none'
+	option notify_token ''
+	option notify_secret ''
+
+config task
+	option name '示例签到任务'
+	option enabled '0'
+	option run_hour '08'
+	option run_minute '30'
+	option type 'http'
+	option url 'https://httpbin.org/post'
+	option method 'POST'
+	option headers 'User-Agent: Mozilla/5.0
+Content-Type: application/json'
+	option cookie ''
+	option data '{"action": "checkin"}'
+	option match_keyword 'origin'
+	option script_cmd ''

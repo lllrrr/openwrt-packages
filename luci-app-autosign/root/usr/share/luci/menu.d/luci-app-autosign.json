@@ -1,0 +1,12 @@
+{
+	"admin/services/autosign": {
+		"title": "定时签到",
+		"action": {
+			"type": "view",
+			"path": "autosign/tasks"
+		},
+		"depends": {
+			"acl": [ "luci-app-autosign" ]
+		}
+	}
+}
