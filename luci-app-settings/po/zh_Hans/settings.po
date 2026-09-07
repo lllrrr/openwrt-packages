@@ -1,0 +1,209 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-settings\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "%s — %d bytes, last modified: %s"
+msgstr "%s — %d 字节,最后修改时间:%s"
+
+msgid "%s — file does not exist yet, it will be created when saving."
+msgstr "%s — 文件尚不存在,保存时将自动创建。"
+
+msgid "Absolute path under /etc/, e.g. /etc/sysctl.conf."
+msgstr "仅限 /etc/ 下的绝对路径,例如 /etc/sysctl.conf。"
+
+msgid "Add"
+msgstr "添加"
+
+msgid "Add custom file"
+msgstr "添加自定义文件"
+
+msgid "Add custom file…"
+msgstr "添加自定义文件…"
+
+msgid "Apply action: restart service \"%s\"."
+msgstr "应用方式:重启服务“%s”。"
+
+msgid "Apply action: run reload_config (this only reloads services for files under /etc/config)."
+msgstr "应用方式:执行 reload_config(仅会重载 /etc/config 下文件对应的服务)。"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Changed configuration files were applied via reload_config."
+msgstr "已通过 reload_config 重新加载发生变化的配置。"
+
+msgid "Closing brace (\"}\") expected"
+msgstr "此处应为右花括号(“}”)"
+
+msgid "Closing bracket (\"]\") expected"
+msgstr "此处应为右方括号(“]”)"
+
+msgid "Colon (\":\") expected"
+msgstr "此处应为冒号(“:”)"
+
+msgid "Comma (\",\") expected"
+msgstr "此处应为逗号(“,”)"
+
+msgid "Command failed with exit code %d: %s"
+msgstr "命令执行失败,退出码 %d:%s"
+
+msgid "Comments and trailing commas are already accepted, so this is a genuine syntax error. You can still save the file as-is if the target program tolerates it."
+msgstr "注释和尾随逗号已被允许,因此这是真正的语法错误。如果目标程序能够容忍,仍可按原样保存。"
+
+msgid "Configuration Files"
+msgstr "高级设置"
+
+msgid "Contents of %s have been reloaded from disk."
+msgstr "已从磁盘重新载入 %s 的内容。"
+
+msgid "Contents of %s have been saved and applied."
+msgstr "%s 的内容已保存并应用。"
+
+msgid "Contents of %s have been saved."
+msgstr "%s 的内容已保存。"
+
+msgid "Copy"
+msgstr "复制"
+
+msgid "Copying failed. The messages above can be selected and copied by hand."
+msgstr "复制失败,可手动选中上方的错误信息进行复制。"
+
+msgid "DHCP / DNS"
+msgstr "DHCP / DNS"
+
+msgid "Detected init.d script with the same name: \"%s\"."
+msgstr "检测到同名 init.d 脚本:“%s”。"
+
+msgid "Directly edit the raw contents of common UCI configuration files under /etc/config and apply the changes. Custom files can be added to the list with the button below."
+msgstr "直接编辑 /etc/config 下常用 UCI 配置文件的原始内容并使更改生效。也可以通过下方按钮将自定义文件加入列表。"
+
+msgid "End of file expected"
+msgstr "此处应为文件结尾"
+
+msgid "Error messages copied to the clipboard."
+msgstr "错误信息已复制到剪贴板。"
+
+msgid "Failed to update the custom file list: %s"
+msgstr "更新自定义文件列表失败:%s"
+
+msgid "File path"
+msgstr "文件路径"
+
+msgid "File was saved, but applying the changes failed: %s"
+msgstr "文件已保存,但应用更改失败:%s"
+
+msgid "Firewall"
+msgstr "防火墙"
+
+msgid "Init script to restart on apply (optional)"
+msgstr "应用时重启的 init 脚本(可选)"
+
+msgid "Invalid character"
+msgstr "无效的字符"
+
+msgid "Invalid comment token"
+msgstr "无效的注释标记"
+
+msgid "Invalid escape character"
+msgstr "无效的转义字符"
+
+msgid "Invalid file path."
+msgstr "无效的文件路径。"
+
+msgid "Invalid number format"
+msgstr "数字格式无效"
+
+msgid "Invalid service name."
+msgstr "无效的服务名称。"
+
+msgid "Invalid symbol"
+msgstr "无效的符号"
+
+msgid "Invalid unicode escape"
+msgstr "无效的 Unicode 转义"
+
+msgid "JSON syntax check failed at line %d, column %d: %s"
+msgstr "JSON 语法检查失败,第 %d 行第 %d 列:%s"
+
+msgid "JSON syntax error"
+msgstr "JSON 语法错误"
+
+msgid "JSON syntax errors (%d)"
+msgstr "JSON 语法错误(%d)"
+
+msgid "Matched"
+msgstr "已匹配"
+
+msgid "Network"
+msgstr "网络"
+
+msgid "Please enter an absolute file path below /etc/."
+msgstr "请输入 /etc/ 下的绝对文件路径。"
+
+msgid "Property name expected"
+msgstr "此处应为属性名"
+
+msgid "Remove from list"
+msgstr "从列表中移除"
+
+msgid "Reset"
+msgstr "复位"
+
+msgid "Save"
+msgstr "保存"
+
+msgid "Save & Apply"
+msgstr "保存并应用"
+
+msgid "Save anyway"
+msgstr "仍要保存"
+
+msgid "Save cancelled: %s was not modified and no apply action was performed."
+msgstr "已取消保存:%s 未被修改,应用动作也未执行。"
+
+msgid "Service \"%s\" has been restarted."
+msgstr "服务“%s”已重启。"
+
+msgid "System"
+msgstr "系统"
+
+msgid "The file on disk was not modified and no apply action was performed."
+msgstr "磁盘上的文件未被修改,应用动作也未执行。"
+
+msgid "This file is already in the list."
+msgstr "该文件已在列表中。"
+
+msgid "This file uses relaxed JSON syntax (comments and/or trailing commas), which is accepted here. Make sure the target program understands it as well."
+msgstr "该文件使用了宽松 JSON 语法(注释和/或尾随逗号),此处允许通过。请确认目标程序同样支持。"
+
+msgid "UCI syntax check failed: %s"
+msgstr "UCI 语法检查失败:%s"
+
+msgid "Unable to save %s: %s"
+msgstr "无法保存 %s:%s"
+
+msgid "Unterminated comment"
+msgstr "注释未闭合"
+
+msgid "Unterminated number"
+msgstr "数字未正常结束"
+
+msgid "Unterminated string"
+msgstr "字符串未闭合"
+
+msgid "Value expected"
+msgstr "此处应为值"
+
+msgid "init.d service name; leave empty to run reload_config."
+msgstr "init.d 服务名,留空则执行 reload_config。"
+
+msgid "jump to"
+msgstr "定位"
+
+msgid "line %d, column %d: %s"
+msgstr "第 %d 行第 %d 列:%s"

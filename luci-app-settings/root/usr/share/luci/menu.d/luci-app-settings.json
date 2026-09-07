@@ -1,0 +1,13 @@
+{
+	"admin/system/config-files": {
+		"title": "Configuration Files",
+		"order": 55,
+		"action": {
+			"type": "view",
+			"path": "settings/editor"
+		},
+		"depends": {
+			"acl": [ "luci-app-settings" ]
+		}
+	}
+}

@@ -1,0 +1,22 @@
+{
+	"name": "luci-app-settings-vendor",
+	"private": true,
+	"description": "Bundles CodeMirror 6 into htdocs/luci-static/resources/settings/cm6.js (run: npm install && npm run build)",
+	"scripts": {
+		"build": "esbuild cm6-entry.mjs --bundle --minify --format=iife --target=es2019 --outfile=../htdocs/luci-static/resources/settings/cm6.js"
+	},
+	"dependencies": {
+		"@codemirror/commands": "^6",
+		"@codemirror/language": "^6",
+		"@codemirror/legacy-modes": "^6",
+		"@codemirror/lint": "^6",
+		"@codemirror/search": "^6",
+		"@codemirror/state": "^6",
+		"@codemirror/theme-one-dark": "^6",
+		"@codemirror/view": "^6",
+		"jsonc-parser": "^3"
+	},
+	"devDependencies": {
+		"esbuild": ">=0.20"
+	}
+}

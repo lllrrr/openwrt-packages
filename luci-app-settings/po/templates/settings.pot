@@ -1,0 +1,203 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+msgid "%s — %d bytes, last modified: %s"
+msgstr ""
+
+msgid "%s — file does not exist yet, it will be created when saving."
+msgstr ""
+
+msgid "Absolute path under /etc/, e.g. /etc/sysctl.conf."
+msgstr ""
+
+msgid "Add"
+msgstr ""
+
+msgid "Add custom file"
+msgstr ""
+
+msgid "Add custom file…"
+msgstr ""
+
+msgid "Apply action: restart service \"%s\"."
+msgstr ""
+
+msgid "Apply action: run reload_config (this only reloads services for files under /etc/config)."
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "Changed configuration files were applied via reload_config."
+msgstr ""
+
+msgid "Closing brace (\"}\") expected"
+msgstr ""
+
+msgid "Closing bracket (\"]\") expected"
+msgstr ""
+
+msgid "Colon (\":\") expected"
+msgstr ""
+
+msgid "Comma (\",\") expected"
+msgstr ""
+
+msgid "Command failed with exit code %d: %s"
+msgstr ""
+
+msgid "Comments and trailing commas are already accepted, so this is a genuine syntax error. You can still save the file as-is if the target program tolerates it."
+msgstr ""
+
+msgid "Configuration Files"
+msgstr ""
+
+msgid "Contents of %s have been reloaded from disk."
+msgstr ""
+
+msgid "Contents of %s have been saved and applied."
+msgstr ""
+
+msgid "Contents of %s have been saved."
+msgstr ""
+
+msgid "Copy"
+msgstr ""
+
+msgid "Copying failed. The messages above can be selected and copied by hand."
+msgstr ""
+
+msgid "DHCP / DNS"
+msgstr ""
+
+msgid "Detected init.d script with the same name: \"%s\"."
+msgstr ""
+
+msgid "Directly edit the raw contents of common UCI configuration files under /etc/config and apply the changes. Custom files can be added to the list with the button below."
+msgstr ""
+
+msgid "End of file expected"
+msgstr ""
+
+msgid "Error messages copied to the clipboard."
+msgstr ""
+
+msgid "Failed to update the custom file list: %s"
+msgstr ""
+
+msgid "File path"
+msgstr ""
+
+msgid "File was saved, but applying the changes failed: %s"
+msgstr ""
+
+msgid "Firewall"
+msgstr ""
+
+msgid "Init script to restart on apply (optional)"
+msgstr ""
+
+msgid "Invalid character"
+msgstr ""
+
+msgid "Invalid comment token"
+msgstr ""
+
+msgid "Invalid escape character"
+msgstr ""
+
+msgid "Invalid file path."
+msgstr ""
+
+msgid "Invalid number format"
+msgstr ""
+
+msgid "Invalid service name."
+msgstr ""
+
+msgid "Invalid symbol"
+msgstr ""
+
+msgid "Invalid unicode escape"
+msgstr ""
+
+msgid "JSON syntax check failed at line %d, column %d: %s"
+msgstr ""
+
+msgid "JSON syntax error"
+msgstr ""
+
+msgid "JSON syntax errors (%d)"
+msgstr ""
+
+msgid "Matched"
+msgstr ""
+
+msgid "Network"
+msgstr ""
+
+msgid "Please enter an absolute file path below /etc/."
+msgstr ""
+
+msgid "Property name expected"
+msgstr ""
+
+msgid "Remove from list"
+msgstr ""
+
+msgid "Reset"
+msgstr ""
+
+msgid "Save"
+msgstr ""
+
+msgid "Save & Apply"
+msgstr ""
+
+msgid "Save anyway"
+msgstr ""
+
+msgid "Save cancelled: %s was not modified and no apply action was performed."
+msgstr ""
+
+msgid "Service \"%s\" has been restarted."
+msgstr ""
+
+msgid "System"
+msgstr ""
+
+msgid "The file on disk was not modified and no apply action was performed."
+msgstr ""
+
+msgid "This file is already in the list."
+msgstr ""
+
+msgid "This file uses relaxed JSON syntax (comments and/or trailing commas), which is accepted here. Make sure the target program understands it as well."
+msgstr ""
+
+msgid "UCI syntax check failed: %s"
+msgstr ""
+
+msgid "Unable to save %s: %s"
+msgstr ""
+
+msgid "Unterminated comment"
+msgstr ""
+
+msgid "Unterminated number"
+msgstr ""
+
+msgid "Unterminated string"
+msgstr ""
+
+msgid "Value expected"
+msgstr ""
+
+msgid "init.d service name; leave empty to run reload_config."
+msgstr ""
+
+msgid "jump to"
+msgstr ""
+
+msgid "line %d, column %d: %s"
+msgstr ""

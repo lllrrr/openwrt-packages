@@ -1,0 +1,26 @@
+{
+	"luci-app-settings": {
+		"description": "Grant access to the configuration file editor",
+		"read": {
+			"ubus": {
+				"file": [ "read", "stat" ]
+			},
+			"file": {
+				"/etc/*": [ "read" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"file": [ "write", "exec" ]
+			},
+			"file": {
+				"/etc/*": [ "write" ],
+				"/tmp/luci-app-settings/*": [ "write" ],
+				"/bin/mkdir": [ "exec" ],
+				"/sbin/uci": [ "exec" ],
+				"/sbin/reload_config": [ "exec" ],
+				"/etc/init.d/*": [ "exec" ]
+			}
+		}
+	}
+}
