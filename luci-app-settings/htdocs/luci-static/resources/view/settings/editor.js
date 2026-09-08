@@ -113,6 +113,72 @@ function strictJsonCheck(text) {
 	return res;
 }
 
+/* jsonc-parser only knows "//" and "/* ... *\/" comments, but sing-box and
+ * friends also accept "#" to end of line. Blank those out - with spaces, so
+ * every offset the parser reports still points at the original text - while
+ * skipping over strings and real comments, because "#" is an ordinary
+ * character inside them (tags like "HK#01" are common). */
+function maskHashComments(text) {
+	var n = text.length;
+	var out = null;
+	var i = 0;
+
+	while (i < n) {
+		var c = text.charAt(i);
+
+		if (c == '"') {
+			for (i++; i < n; ) {
+				var d = text.charAt(i);
+
+				if (d == '\\') {
+					i += 2;
+					continue;
+				}
+
+				i++;
+
+				/* a raw newline means the string is unterminated; leave that
+				 * for the parser to report and resync on the next line */
+				if (d == '"' || d == '\n')
+					break;
+			}
+
+			continue;
+		}
+
+		if (c == '/' && text.charAt(i + 1) == '/') {
+			while (i < n && text.charAt(i) != '\n')
+				i++;
+
+			continue;
+		}
+
+		if (c == '/' && text.charAt(i + 1) == '*') {
+			for (i += 2; i < n; i++)
+				if (text.charAt(i) == '*' && text.charAt(i + 1) == '/') {
+					i += 2;
+					break;
+				}
+
+			continue;
+		}
+
+		if (c == '#') {
+			if (out == null)
+				out = text.split('');
+
+			while (i < n && text.charAt(i) != '\n')
+				out[i++] = ' ';
+
+			continue;
+		}
+
+		i++;
+	}
+
+	return (out != null) ? out.join('') : text;
+}
+
 /* Validate as JSONC: comments and trailing commas are accepted. Returns
  * { errors: [ { from, to, line, col, message } ], relaxed: bool }, where
  * "relaxed" flags a document that only parses because of that tolerance. */
@@ -128,7 +194,7 @@ function jsoncCheck(text) {
 
 	var raw = [];
 
-	C.jsoncParse(text, raw, { allowTrailingComma: true, disallowComments: false });
+	C.jsoncParse(maskHashComments(text), raw, { allowTrailingComma: true, disallowComments: false });
 
 	res.errors = raw.map(function(e) {
 		var pos = offsetToLineCol(text, e.offset);
@@ -143,7 +209,8 @@ function jsoncCheck(text) {
 	});
 
 	/* Only worth reporting when the document is otherwise clean, and only as a
-	 * single hint - one marker per comment would drown a commented config. */
+	 * single hint - one marker per comment would drown a commented config.
+	 * The strict pass runs on the original text, so "#" counts as relaxed too. */
 	if (res.errors.length == 0) {
 		var strict = [];
 
@@ -220,6 +287,56 @@ function jumpToOffset(entry, offset) {
 	view.focus();
 }
 
+/* A parse error usually knocks the parser out of sync and every later
+ * position becomes noise, so only the leading few are worth listing. */
+var MAX_LISTED_DIAGNOSTICS = 5;
+
+/* Overview ruler along the right edge of the editor: a document that is
+ * hundreds of lines long scrolls its markers out of sight, and this maps
+ * every error onto the full height of the document so they stay visible. */
+function renderRuler(entry, errors) {
+	var node = entry.rulernode;
+	var view = entry.cmView;
+
+	if (node == null)
+		return;
+
+	while (node.firstChild)
+		node.removeChild(node.firstChild);
+
+	if (view == null || errors.length == 0) {
+		node.style.display = 'none';
+		return;
+	}
+
+	/* Pointless while the whole document already fits on screen. */
+	if (view.scrollDOM.scrollHeight <= view.scrollDOM.clientHeight + 4) {
+		node.style.display = 'none';
+		return;
+	}
+
+	var total = view.state.doc.lines;
+	var seen = {};
+
+	node.style.display = '';
+
+	errors.forEach(function(e) {
+		if (seen[e.line])
+			return;
+
+		seen[e.line] = true;
+
+		node.appendChild(E('div', {
+			'style': 'position:absolute; left:0; right:0; height:4px; border-radius:2px; ' +
+			         'background:#d11; box-shadow:0 0 0 1px rgba(0,0,0,.3); ' +
+			         'pointer-events:auto; cursor:pointer; top:' +
+			         (100 * (e.line - 1) / total).toFixed(3) + '%',
+			'title': _('line %d, column %d: %s').format(e.line, e.col, e.message),
+			'click': function() { jumpToOffset(entry, e.from); }
+		}));
+	});
+}
+
 /* Render the always visible diagnostics list below an editor. The CodeMirror
  * lint tooltip only survives while the pointer rests on the gutter marker,
  * which makes the message impossible to select or copy - this panel keeps the
@@ -234,6 +351,9 @@ function renderDiagnostics(entry, check) {
 		node.removeChild(node.firstChild);
 
 	var errors = (check != null) ? check.errors : [];
+
+	entry.check = check;
+	renderRuler(entry, errors);
 
 	if (errors.length == 0) {
 		if (check == null || !check.relaxed) {
@@ -252,8 +372,13 @@ function renderDiagnostics(entry, check) {
 		return _('line %d, column %d: %s').format(e.line, e.col, e.message);
 	});
 
-	node.style.display = '';
-	node.appendChild(E('div', { 'style': 'margin-bottom:.25em' }, [
+	var listed = errors.slice(0, MAX_LISTED_DIAGNOSTICS);
+	var box = E('div', {
+		'style': 'border-left:3px solid #d11; background:rgba(221,17,17,.07); ' +
+		         'padding:.4em .6em; border-radius:0 3px 3px 0'
+	});
+
+	box.appendChild(E('div', { 'style': 'margin-bottom:.25em' }, [
 		E('strong', {}, [ _('JSON syntax errors (%d)').format(errors.length) ]),
 		' ',
 		E('button', {
@@ -262,6 +387,7 @@ function renderDiagnostics(entry, check) {
 			'click': function(ev) {
 				var btn = ev.currentTarget;
 
+				/* copy every error, not just the listed ones */
 				copyText(lines.join('\n') + '\n').then(function() {
 					ui.addNotification(null, E('p', _('Error messages copied to the clipboard.')), 'info');
 				}).catch(function(err) {
@@ -273,9 +399,9 @@ function renderDiagnostics(entry, check) {
 		}, [ _('Copy') ])
 	]));
 
-	node.appendChild(E('ul', {
+	box.appendChild(E('ul', {
 		'style': 'margin:0; padding-left:1.5em; user-select:text; -webkit-user-select:text'
-	}, errors.map(function(e, i) {
+	}, listed.map(function(e, i) {
 		var row = [ document.createTextNode(lines[i]) ];
 
 		if (entry.cmView) {
@@ -291,6 +417,14 @@ function renderDiagnostics(entry, check) {
 
 		return E('li', { 'style': 'margin:.15em 0' }, row);
 	})));
+
+	if (errors.length > listed.length)
+		box.appendChild(E('div', { 'class': 'cbi-section-descr', 'style': 'margin-top:.25em' },
+			_('%d further errors are hidden. They are usually knock-on effects of the first one, so fix that and check again. "Copy" still copies all of them.')
+				.format(errors.length - listed.length)));
+
+	node.style.display = '';
+	node.appendChild(box);
 }
 
 /* Lint source for .json files: tolerates comments and trailing commas, and
@@ -323,8 +457,32 @@ function languageExtensions(entry) {
 	var path = entry.path;
 
 	if (/\.json$/.test(path)) {
-		if (jsonLang == null)
-			jsonLang = C.StreamLanguage.define(C.jsonMode);
+		if (jsonLang == null) {
+			var jsMode = C.jsonMode;
+
+			/* The stream mode knows "//" and "/* ... *\/" but not "#", which
+			 * maskHashComments() lets through - colour those lines here too,
+			 * rather than leaving accepted syntax looking like broken code.
+			 * A "#" inside a string never reaches this point: the mode eats a
+			 * whole string in one token. */
+			jsonLang = C.StreamLanguage.define({
+				name: 'jsonc',
+				startState: jsMode.startState,
+				indent: jsMode.indent,
+				languageData: jsMode.languageData,
+				token: function(stream, state) {
+					if (stream.peek() != '#')
+						return jsMode.token(stream, state);
+
+					if (stream.sol())
+						state.indented = stream.indentation();
+
+					stream.skipToEnd();
+
+					return 'comment';
+				}
+			});
+		}
 
 		return [
 			jsonLang,
@@ -412,7 +570,13 @@ function createEditor(entry) {
 		state: C.EditorState.create({ doc: entry.content, extensions: exts })
 	});
 
-	return entry.cmView.dom;
+	entry.rulernode = E('div', {
+		'class': 'settings-lint-ruler',
+		'style': 'position:absolute; right:1px; top:1px; bottom:1px; width:9px; ' +
+		         'pointer-events:none; display:none'
+	});
+
+	return E('div', { 'style': 'position:relative' }, [ entry.cmView.dom, entry.rulernode ]);
 }
 
 return view.extend({
@@ -850,7 +1014,10 @@ return view.extend({
 		entry.statnode = E('div', { 'class': 'cbi-section-descr' });
 		entry.statnode.textContent = self.statLine(entry);
 
-		entry.diagnode = E('div', { 'style': 'display:none; margin:.5em 0' });
+		entry.diagnode = E('div', {
+			'class': 'settings-diagnostics',
+			'style': 'display:none; margin:.5em 0'
+		});
 
 		var children = [ entry.statnode ];
 
@@ -918,8 +1085,14 @@ return view.extend({
 		}, children);
 
 		pane.addEventListener('cbi-tab-active', function() {
-			if (entry.cmView)
-				entry.cmView.requestMeasure();
+			if (!entry.cmView)
+				return;
+
+			entry.cmView.requestMeasure();
+
+			/* a pane linted while its tab was hidden measured zero height, so
+			 * the ruler suppressed itself - it can be placed now */
+			renderRuler(entry, (entry.check != null) ? entry.check.errors : []);
 		});
 
 		return pane;

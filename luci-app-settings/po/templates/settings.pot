@@ -1,6 +1,9 @@
 msgid ""
 msgstr "Content-Type: text/plain; charset=UTF-8"
 
+msgid "%d further errors are hidden. They are usually knock-on effects of the first one, so fix that and check again. \"Copy\" still copies all of them."
+msgstr ""
+
 msgid "%s — %d bytes, last modified: %s"
 msgstr ""
 

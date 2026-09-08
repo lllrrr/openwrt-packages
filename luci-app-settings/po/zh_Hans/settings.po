@@ -7,6 +7,9 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
+msgid "%d further errors are hidden. They are usually knock-on effects of the first one, so fix that and check again. \"Copy\" still copies all of them."
+msgstr "另有 %d 条错误未列出。它们通常是第一条错误的连锁反应,修好第一条后重新检查即可。“复制”仍会复制全部。"
+
 msgid "%s — %d bytes, last modified: %s"
 msgstr "%s — %d 字节,最后修改时间:%s"
 
