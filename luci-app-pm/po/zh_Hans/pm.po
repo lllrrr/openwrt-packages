@@ -59,3 +59,12 @@ msgstr "设备无法连接！仍在等待设备重连..."
 
 msgid "The device seems to have not powered off. It may not support poweroff."
 msgstr "设备似乎没有关机，可能不支持关机功能。"
+
+msgid "Powered off"
+msgstr "已关机"
+
+msgid "The device has powered off. It is safe to close this page."
+msgstr "设备已关机，您可以安全地关闭此页面。"
+
+msgid "OK"
+msgstr "确定"

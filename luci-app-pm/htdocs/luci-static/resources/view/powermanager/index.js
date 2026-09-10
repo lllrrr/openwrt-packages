@@ -4,12 +4,19 @@
 "require ui";
 "require fs";
 "require uci";
+"require request";
 
 var callReboot = rpc.declare({
   object: "system",
   method: "reboot",
   expect: { result: 0 },
 });
+
+function probeAlive() {
+  /* any HTTP response (even 404) proves the webserver is up; the promise
+     only rejects on network-level failure or timeout */
+  return request.get(L.resource("cbi.js"), { timeout: 3000 });
+}
 
 return view.extend({
   load: function () {
@@ -152,37 +159,7 @@ return view.extend({
           "button",
           {
             class: "btn cbi-button-reset important",
-            click: function () {
-              ui.hideModal();
-              ui.showModal(_("Shutting down..."), [
-                E(
-                  "p",
-                  { class: "spinning" },
-                  _("The device is powering off..."),
-                ),
-              ]);
-              window.setTimeout(function () {
-                ui.showModal(_("Shutting down..."), [
-                  E(
-                    "p",
-                    { class: "spinning alert-message warning" },
-                    _(
-                      "The device seems to have not powered off. It may not support poweroff.",
-                    ),
-                  ),
-                ]);
-              }, 60000);
-              fs.exec("/sbin/poweroff").catch(function (e) {
-                ui.hideModal();
-                ui.addNotification(
-                  null,
-                  E(
-                    "p",
-                    _("PowerOff failed") + (e.message ? ": " + e.message : ""),
-                  ),
-                );
-              });
-            },
+            click: ui.createHandlerFn(this, "doPowerOff"),
           },
           _("PowerOff"),
         ),
@@ -197,6 +174,93 @@ return view.extend({
         ),
       ]),
     ]);
+  },
+
+  doPowerOff: function (ev) {
+    var misses = 0,
+      settled = false,
+      pollTimer = null,
+      warnTimer = null;
+
+    var finish = function (fn) {
+      if (settled) return;
+      settled = true;
+      window.clearInterval(pollTimer);
+      window.clearTimeout(warnTimer);
+      fn();
+    };
+
+    var showPoweredOff = function () {
+      finish(function () {
+        ui.showModal(_("Powered off"), [
+          E(
+            "p",
+            { class: "alert-message success" },
+            _("The device has powered off. It is safe to close this page."),
+          ),
+          E("div", { class: "right" }, [
+            E(
+              "button",
+              {
+                class: "btn",
+                click: ui.hideModal,
+              },
+              _("OK"),
+            ),
+          ]),
+        ]);
+      });
+    };
+
+    ui.showModal(_("Shutting down..."), [
+      E("p", { class: "spinning" }, _("The device is powering off...")),
+    ]);
+
+    pollTimer = window.setInterval(function () {
+      probeAlive()
+        .then(function () {
+          misses = 0;
+        })
+        .catch(function () {
+          if (++misses >= 2) showPoweredOff();
+        });
+    }, 2000);
+
+    warnTimer = window.setTimeout(function () {
+      probeAlive().then(
+        function () {
+          finish(function () {
+            ui.showModal(_("Shutting down..."), [
+              E(
+                "p",
+                { class: "spinning alert-message warning" },
+                _(
+                  "The device seems to have not powered off. It may not support poweroff.",
+                ),
+              ),
+            ]);
+          });
+        },
+        showPoweredOff,
+      );
+    }, 60000);
+
+    fs.exec("/sbin/poweroff").catch(function (e) {
+      /* a failed request usually means the device is already going down;
+         only report an error while it is still reachable */
+      probeAlive().then(
+        function () {
+          finish(function () {
+            ui.hideModal();
+            ui.addNotification(
+              null,
+              E("p", {}, _("PowerOff failed") + (e.message ? ": " + e.message : "")),
+            );
+          });
+        },
+        showPoweredOff,
+      );
+    });
   },
 
   handleSaveApply: null,

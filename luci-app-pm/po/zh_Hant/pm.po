@@ -59,3 +59,12 @@ msgstr "裝置無法連線！仍在等待裝置重新連線..."
 
 msgid "The device seems to have not powered off. It may not support poweroff."
 msgstr "裝置似乎沒有關機，可能不支援關機功能。"
+
+msgid "Powered off"
+msgstr "已關機"
+
+msgid "The device has powered off. It is safe to close this page."
+msgstr "裝置已關機，您可以安全地關閉此頁面。"
+
+msgid "OK"
+msgstr "確定"
