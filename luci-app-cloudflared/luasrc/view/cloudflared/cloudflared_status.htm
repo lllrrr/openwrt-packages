@@ -1,23 +1,76 @@
+<style>
+.cloudflared-st { display: flex; flex-direction: column; gap: 14px; }
+.cf-status-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cf-badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 14px; border-radius: 999px;
+	font-weight: 700; font-size: 13px; }
+.cf-badge svg { width: 14px; height: 14px; }
+.cf-badge.up { background: rgba(16,185,129,0.16); color: #059669; }
+.cf-badge.down { background: rgba(239,68,68,0.16); color: #dc2626; }
+.cf-badge.init { background: rgba(148,163,184,0.14); color: #64748b; }
+.cf-updated { margin-left: auto; font-size: 12px; color: #64748b; }
+.cf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.cf-cell { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px;
+	background: rgba(255,255,255,0.55); border: 1px solid rgba(255,255,255,0.65);
+	-webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%);
+	box-shadow: 0 6px 18px rgba(31,38,135,0.08);
+	transition: transform .2s ease, box-shadow .2s ease; }
+.cf-cell:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(31,38,135,0.14); }
+.cf-cell.cf-link { text-decoration: none; color: inherit; cursor: pointer; }
+.cf-cell svg { width: 18px; height: 18px; flex: 0 0 18px; opacity: .85; color: #6366f1; }
+.cf-cell .l { font-size: 12px; color: #64748b; }
+.cf-cell .v { font-size: 15px; font-weight: 700; color: #1f2937; }
+.cf-upd-dot { font-size: 11px; font-weight: 600; color: #b45309; }
+@media (prefers-color-scheme: dark) {
+	.cf-cell { background: rgba(30,34,44,0.55); border-color: rgba(255,255,255,0.10);
+		box-shadow: 0 6px 18px rgba(0,0,0,0.35); }
+	.cf-cell:hover { box-shadow: 0 10px 24px rgba(0,0,0,0.45); }
+	.cf-cell .l { color: #94a3b8; }
+	.cf-cell .v { color: #e5e7eb; }
+	.cf-updated { color: #94a3b8; }
+}
+@media (max-width: 640px) {
+	.cf-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+	.cf-cell { padding: 10px 10px; }
+	.cf-cell svg { width: 16px; height: 16px; flex: 0 0 16px; }
+	.cf-cell .v { font-size: 14px; }
+}
+</style>
+<fieldset class="cbi-section">
+	<div id="cloudflared_status" class="cloudflared-st">
+		<div class="cf-status-row"><span class="cf-badge init">采集状态中…</span><span class="cf-updated"></span></div>
+	</div>
+</fieldset>
 <script type="text/javascript">//<![CDATA[
-XHR.poll(3, '<%=url([[admin]], [[vpn]], [[cloudflared]], [[status]])%>', null,
-	function(x, data) {
-		var tb = document.getElementById('cloudflared_status');
-		if (data && tb) {
-			var clientStatus = data.running ? "<span style='color:green;'> 运行中</span>" : "<span style='color:red;'> 未运行</span>";
-                       var cfstaContent = data.running ? "已运行：" + "<span style='color:#DA70D6;'>" + data.cfsta + "</span>" : "";    
-                       var cfcpuContent = data.running ? "<br>" + "CPU占用：" + "<span style='color:#6A5ACD;'>" + data.cfcpu + "</span>" : "";  
-                       var cframContent = data.running ? "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;" + "&nbsp;&nbsp;&nbsp;&nbsp;内存占用：" + "<span style='color:#0000CD;'>" + data.cfram + "</span>" : ""; 
-                       var cftagContent = data.running ? "<br>" + "当前版本：" + "<span style='color:#CD853F;'>" + data.cftag + "</span>" : ""; 
-                       var cfnewtagContent = data.running ? "&nbsp;" + "最新版本：" + "<span style='color:#FFA500;'>" + data.cfnewtag + "</span>" : "";    
-                       tb.innerHTML = "<b><em>cloudflared " + clientStatus + cfstaContent + cfcpuContent + cframContent + cftagContent + cfnewtagContent + "</b></em>";          
-        }
-    }
-);
+(function() {
+	var box = document.getElementById('cloudflared_status');
+	function fmt(n) { return n && String(n).trim() ? String(n).trim() : '—'; }
+	function ic(b) { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + b + '</svg>'; }
+	var icCPU = ic('<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/>');
+	var icRAM = ic('<rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 9v6M17 9v6"/>');
+	var icVer = ic('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-3 3l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V22a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-3-3l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H2a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 3-3l.1.1a1.7 1.7 0 0 0 1.9.3H8a1.7 1.7 0 0 0 1-1.6V2a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 3 3l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1H22a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.6 1z"/>');
+	var icRun = ic('<path d="M3 12h4l2-5 4 10 2-5h6"/>');
+	var icStop = ic('<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>');
+	XHR.poll(3, '<%=url([[admin]], [[vpn]], [[cloudflared]], [[status]])%>', null, function(x, data) {
+		if (!box) return;
+		var running = !!(data && data.running);
+		var badgeHtml = running
+			? '<span class="cf-badge up">' + icRun + '运行中</span>'
+			: '<span class="cf-badge down">' + icStop + '未运行</span>';
+		var uptime = running ? fmt(data.cfsta) : '—';
+		var grid = '';
+		if (running) {
+			var cur = fmt(data.cftag), newest = fmt(data.cfnewtag);
+			var hasNew = (cur !== '—' && newest !== '—' && newest !== cur)
+				? ' <span class="cf-upd-dot">  可更新</span>' : '';
+			grid = '<div class="cf-cell">' + icCPU + '<div><div class="l">CPU 占用</div><div class="v">' + fmt(data.cfcpu) + '</div></div></div>'
+				+ '<div class="cf-cell">' + icRAM + '<div><div class="l">内存占用</div><div class="v">' + fmt(data.cfram) + '</div></div></div>'
+				+ '<div class="cf-cell">' + icVer + '<div><div class="l">当前版本</div><div class="v">' + cur + '</div></div></div>'
+				+ '<a class="cf-cell cf-link" href="https://github.com/cloudflare/cloudflared/releases" target="_blank" rel="noopener">' + icVer + '<div><div class="l">最新版本</div><div class="v">' + newest + hasNew + '</div></div></a>';
+		}
+		box.innerHTML = '<div class="cf-status-row">' + badgeHtml
+			+ '<span class="cf-updated">已运行 ' + uptime + '</span></div>'
+			+ '<div class="cf-grid">' + grid + '</div>';
+	});
+})();
 //]]>
 </script>
-<style>.mar-10 {margin-left: 50px; margin-right: 10px;}</style>
-<fieldset class="cbi-section">
-	<p id="cloudflared_status">
-		<em><%:Collecting data...%></em>
-	</p>
-</fieldset>
