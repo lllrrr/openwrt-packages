@@ -4,37 +4,61 @@
         "read": {
             "ubus": {
                 "luci.vnt2": [
+                    "get_theme",
                     "list_instances",
                     "list_configs",
                     "read_config",
                     "read_template",
                     "get_template_fields",
-                    "get_instance_status",
                     "get_ctrl_info",
+                    "get_conf_example",
                     "get_log",
                     "get_system_info",
                     "check_binaries",
                     "get_settings",
-                    "generate_web_token",
+                    "get_web_access",
+                    "list_web_instances",
+                    "get_log_keys",
+                    "sync_web_state",
+                    "restore_web_state",
                     "get_upstream_version",
                     "get_update_status",
                     "get_enabled",
-                    "get_cpu_ticks"
+                    "get_cpu_ticks",
+                    "get_binary_help",
+                    "read_advanced_raw",
+                    "get_template_help",
+                    "read_config_template",
+                    "list_config_templates"
                 ]
             }
         },
         "write": {
             "ubus": {
                 "luci.vnt2": [
+                    "set_theme",
                     "instance_action",
                     "save_config",
                     "delete_config",
                     "clear_log",
                     "save_settings",
+                    "set_web_addr",
+                    "refresh_web_token",
+                    "set_web_token",
+                    "web_instance_action",
+                    "save_log_keys",
+                    "sync_web_state",
+                    "restore_web_state",
                     "do_update",
-                    "set_enabled"
+                    "set_enabled",
+                    "reset_advanced",
+                    "save_advanced_raw",
+                    "set_default_template",
+                    "delete_config_template",
+                    "save_config_template"
                 ]
             }
         }
     }
 }
+

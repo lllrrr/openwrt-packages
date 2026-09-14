@@ -1,5 +1,5 @@
 #!/bin/sh
-# VNT2 更新脚本 v1.8
+# VNT2 更新脚本 v1.9
 
 CACHE_DIR="/tmp/vnt2_update"
 mkdir -p "$CACHE_DIR"
@@ -8,18 +8,27 @@ PM="" EXT=""
 command -v apk  >/dev/null 2>&1 && { PM=apk  EXT=apk; }
 command -v opkg >/dev/null 2>&1 && { PM=opkg EXT=ipk; }
 
-cache_full()  { echo "$CACHE_DIR/$1.full.json"; }
-cache_slim()  { echo "$CACHE_DIR/$1.slim.json"; }
-status_file() { echo "$CACHE_DIR/$1.status";    }
-log_file()    { echo "$CACHE_DIR/$1.log";       }
-event_file()  { echo "$CACHE_DIR/$1.events";     }
-tmp_file()    { echo "$CACHE_DIR/$2";           }
+cache_full()    { echo "$CACHE_DIR/$1.full.json"; }
+cache_slim()    { echo "$CACHE_DIR/$1.slim.json"; }
+status_file()   { echo "$CACHE_DIR/$1.status";    }
+log_file()      { echo "$CACHE_DIR/$1.log";       }
+event_file()    { echo "$CACHE_DIR/$1.events";    }
+tmp_file()      { echo "$CACHE_DIR/$2";           }
+
+wait_for_network() {
+    local i=0
+    while [ $i -lt 30 ]; do
+        ip route show default 2>/dev/null | grep -q . && return 0
+        sleep 1
+        i=$((i+1))
+    done
+    return 1
+}
 
 log() {
     local f="$(log_file "$1")"; shift
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
     echo "$msg" >> "$f"
-    LOG_FILE="$f"
 }
 
 event() {
@@ -29,8 +38,7 @@ event() {
 
 set_status() {
     local f="$(status_file "$1")"
-    echo "$2" > "$f"
-    STATUS_FILE="$f"
+    echo "$2" > "${f}.tmp" && mv "${f}.tmp" "$f"
 }
 
 format_size() {
@@ -44,6 +52,11 @@ pm_install() {
     local pkg="$1" rc=0
     shift
 
+    if [ -z "$PM" ]; then
+        echo "No package manager (apk/opkg) found, cannot install $pkg"
+        return 1
+    fi
+
     if echo "$pkg" | grep -q '/'; then
         case "$PM" in
             apk)  apk add --allow-untrusted "$pkg" >/dev/null 2>&1 || rc=$? ;;
@@ -51,17 +64,17 @@ pm_install() {
         esac
 
     elif ! command -v "$pkg" >/dev/null 2>&1; then
-        echo "[DEP] Installing: $pkg"
+        echo "Installing dependency: $pkg"
         $PM update >/dev/null 2>&1
         case "$PM" in
             apk)  apk add "$pkg" >/dev/null 2>&1 || rc=$? ;;
             opkg) opkg install "$pkg" >/dev/null 2>&1 || rc=$? ;;
         esac
         if [ $rc -ne 0 ] || ! command -v "$pkg" >/dev/null 2>&1; then
-            echo "[DEP] Failed to install: $pkg"
+            echo "Failed to install dependency: $pkg"
             return 1
         fi
-        echo "[DEP] Installed: $pkg"
+        echo "Dependency installed: $pkg"
     fi
 
     [ $rc -eq 0 ] && [ $# -gt 0 ] && "$pkg" "$@"
@@ -72,21 +85,33 @@ manage_service() {
     local action="$1" name="$2"
     [ -z "$action" ] || [ -z "$name" ] && return
     [ "$name" = "luci-app-vnt2" ] && return
-    log "$name" "Service action: $action $name"
     case "$action" in
-        restart|start) setsid /etc/init.d/vnt2 "$action" >/dev/null 2>&1 & ;;
-        *)             /etc/init.d/vnt2 "$action" >/dev/null 2>&1 ;;
+        stop)
+            if pgrep -f vnt2-run.sh >/dev/null 2>&1; then
+                log "$name" "Stopping service before installation"
+                /etc/init.d/vnt2 stop >/dev/null 2>&1
+            fi
+            ;;
+        restart|start)
+            log "$name" "Restarting service to apply the new binaries"
+            setsid /etc/init.d/vnt2 "$action" >/dev/null 2>&1 &
+            ;;
+        *)
+            log "$name" "Running service action $action"
+            /etc/init.d/vnt2 "$action" >/dev/null 2>&1
+            ;;
     esac
 }
 
 api_url() {
-    local mirror="$1" proj="$2"
+    local mirror="$1" proj="$2" owner="vnt-dev"
+    [ "$proj" = "luci-app-vnt2" ] && owner="whzhni1"
     case "$mirror" in
-        github)     echo "https://api.github.com/repos/vnt-dev/${proj}/releases"                ;;
+        github)     echo "https://api.github.com/repos/${owner}/${proj}/releases"               ;;
         gitee)      echo "https://gitee.com/api/v5/repos/whzhni/${proj}/releases"               ;;
         gitlab)     echo "https://gitlab.com/api/v4/projects/whzhni%2F${proj}/releases"         ;;
         cloudflare) echo "https://pub-8a57d35d70d5423aac22a3316867e7ce.r2.dev/${proj}/releases" ;;
-        *)          echo "https://api.github.com/repos/vnt-dev/${proj}/releases"                ;;
+        *)          echo "https://api.github.com/repos/${owner}/${proj}/releases"               ;;
     esac
 }
 
@@ -163,15 +188,15 @@ cmd_check() {
 
     set_status "$proj" "checking"
     event "$proj" "checking_version project=$proj mirror=$mirror"
-    log "$proj" "Checking version: project=$proj mirror=$mirror"
+    log "$proj" "Checking for updates (mirror: $mirror)"
 
     url="$(api_url "$mirror" "$proj")"
-    raw="$(curl -fsSL --connect-timeout 10 --max-time 30 "$url" 2>&1 | sed 's/": /":/g')"
+    raw="$(curl -fsSL --connect-timeout 10 --max-time 30 --retry 2 --retry-delay 3 "$url" 2>&1 | sed 's/": /":/g')"
 
     if [ -z "$raw" ] || ! echo "$raw" | grep -q '"tag_name"'; then
         event "$proj" "api_request_failed project=$proj mirror=$mirror"
-        log "$proj" "API request failed or no version found"
-        set_status "$proj" "error:API request failed, please switch mirror"
+        log "$proj" "Cannot reach the release API, please try another mirror"
+        set_status "$proj" "error:Release API unreachable, please switch mirror"
         return 1
     fi
 
@@ -221,7 +246,7 @@ EOF
     echo "$slim_json" > "$(cache_slim "$proj")"
 
     count="$(echo "$slim_json" | grep -o '"tag":' | wc -l | tr -d ' ')"
-    log "$proj" "Done, found $count versions"
+    log "$proj" "Found $count releases"
 
     if [ "$count" -eq 0 ]; then
         event "$proj" "no_matching_file project=$proj"
@@ -235,17 +260,26 @@ EOF
 
 verify_download() {
     local proj="$1" tmp="$2"
-    local actual
+    local actual cache short
+    cache="$(cache_full "$proj")"
+
+    if ! grep -qi 'sha256' "$cache" 2>/dev/null; then
+        log "$proj" "Upstream publishes no checksum for this release, verification skipped"
+        return 0
+    fi
+
     actual="$(sha256sum "$tmp" 2>/dev/null | cut -d' ' -f1)"
-    [ -z "$actual" ] && { log "$proj" "sha256sum unavailable, skipping verification"; return 0; }
-    log "$proj" "SHA256: $actual"
-    if grep -q "$actual" "$(cache_full "$proj")" 2>/dev/null; then
+    [ -z "$actual" ] && { log "$proj" "sha256sum unavailable, verification skipped"; return 0; }
+
+    if grep -q "$actual" "$cache" 2>/dev/null; then
+        short="$(echo "$actual" | cut -c1-16)"
         event "$proj" "checksum_passed"
-        log "$proj" "SHA256 verification passed"
+        log "$proj" "Checksum OK (sha256 $short...)"
         return 0
     else
         event "$proj" "checksum_failed"
-        log "$proj" "SHA256 verification failed, please re-download"
+        log "$proj" "Checksum mismatch, the download is corrupted (sha256 $actual)"
+        set_status "$proj" "error:Checksum verification failed"
         rm -f "$tmp"
         return 1
     fi
@@ -259,10 +293,10 @@ cmd_download() {
     rm -f "$(log_file "$proj")"
     set_status "$proj" "downloading"
     event "$proj" "download_prepare tag=$tag"
-    log "$proj" "Downloading: tag=$tag files=$fnames upx=$upx"
+    log "$proj" "Downloading $tag ($fnames)"
 
     [ ! -f "$(cache_full "$proj")" ] && {
-        log "$proj" "Cache not found, please check version first"
+        log "$proj" "Version cache missing, please check for updates first"
         set_status "$proj" "error:Please check upstream version first"
         return 1
     }
@@ -274,7 +308,7 @@ cmd_download() {
         if [ $is_lang -eq 1 ]; then
             _download_and_install "$proj" "$fname" "0" \
                 && installed="${installed:+${installed}, }${fname}" \
-                || log "$proj" "Language pack skipped: $fname"
+                || log "$proj" "Skipped language pack $fname"
         else
             _download_and_install "$proj" "$fname" "$upx" || return 1
             installed="${installed:+${installed}, }${fname}"
@@ -289,79 +323,117 @@ _do_install() {
     local proj="$1" src="$2" dst="$3" upx="$4"
     chmod 755 "$src"
     if [ "$upx" = "1" ]; then
-        log "$proj" "UPX compressing: $(basename "$dst")"
-        pm_install upx --no-color -q -q --force "$src" -o "$dst" >> "$(log_file "$proj")" 2>&1 \
-            && log "$proj" "UPX succeeded" \
-            || { log "$proj" "UPX failed, copying directly"; cp "$src" "$dst"; }
+        log "$proj" "Compressing $(basename "$dst") with UPX"
+        if pm_install upx --no-color -q -q --force "$src" -o "$dst" >> "$(log_file "$proj")" 2>&1; then
+            log "$proj" "UPX compression done"
+        else
+            log "$proj" "UPX failed, installing uncompressed"
+            cp "$src" "$dst" 2>>"$(log_file "$proj")" || {
+                log "$proj" "Cannot write $dst, the file may be in use"
+                return 1
+            }
+        fi
     else
-        cp "$src" "$dst"
+        cp "$src" "$dst" 2>>"$(log_file "$proj")" || {
+            log "$proj" "Cannot write $dst, the file may be in use"
+            return 1
+        }
     fi
     chmod 755 "$dst"
-    log "$proj" "Installed: $dst"
+    log "$proj" "Installed $dst"
 }
 
 _download_and_install() {
     local proj="$1" fname="$2" upx="$3"
-    local cache dl_url
+    local cache dl_url esc_fname f total_size progress_pid rc downloaded pct size
+    local avail_kb need_kb i
 
     cache="$(cache_full "$proj")"
-    dl_url="$(grep -o "https://[^\"']*/${fname}" "$cache" | head -1)"
-    [ -z "$dl_url" ] && { log "$proj" "URL not found: $fname"; return 1; }
+    esc_fname="$(printf '%s' "$fname" | sed 's/[][\.*^$/]/\\&/g')"
+    dl_url="$(grep -o "https://[^\"']*/${esc_fname}" "$cache" | head -1)"
+    [ -z "$dl_url" ] && { log "$proj" "Download URL not found for $fname"; return 1; }
 
-    local f="$CACHE_DIR/$fname"
+    f="$CACHE_DIR/$fname"
     rm -f "$f"
 
-    log "$proj" "Downloading: $fname"
+    log "$proj" "Downloading $fname"
     set_status "$proj" "downloading"
 
-    local total_size
-    total_size="$(curl -sIL --connect-timeout 15 "$dl_url" 2>/dev/null \
+    total_size="$(curl -sIL --connect-timeout 15 --retry 2 --retry-delay 3 "$dl_url" 2>/dev/null \
         | grep -i content-length | tail -1 | awk '{print $2}' | tr -d '\r')"
 
     if [ -n "$total_size" ] && [ "$total_size" -gt 0 ] 2>/dev/null; then
-        log "$proj" "Total size: $(format_size "$total_size")"
+        log "$proj" "File size: $(format_size "$total_size")"
+
+        avail_kb="$(df -k /tmp 2>/dev/null | awk 'NR==2{print $4}')"
+        need_kb=$(( total_size / 512 ))
+        if [ -n "$avail_kb" ] && [ "$need_kb" -gt "$avail_kb" ]; then
+            log "$proj" "Not enough space in /tmp, need $(format_size $((need_kb * 1024))) but only $(format_size $((avail_kb * 1024))) available"
+            set_status "$proj" "error:Not enough temporary space"
+            return 1
+        fi
 
         (
-            while true; do
+            i=0
+            while [ $i -lt 330 ]; do
                 sleep 1
+                i=$((i+1))
                 [ -f "$f" ] || continue
                 downloaded=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
-                [ "${downloaded:-0}" -gt 0 ] || continue
-                pct=$(awk "BEGIN{printf \"%d\",$downloaded*100/$total_size}")
-                echo "[$(date '+%Y-%m-%d %H:%M:%S')] PROGRESS:${pct}%" >> "$LOG_FILE"
-                [ "$pct" -ge 100 ] && break
+                [ -n "$downloaded" ] || continue
+                pct=$(( downloaded * 100 / total_size ))
+                [ $pct -gt 100 ] && pct=100
+                set_status "$proj" "downloading:${pct}:${downloaded}:${total_size}"
+                [ $pct -ge 100 ] && break
             done
         ) &
-        local progress_pid=$!
+        progress_pid=$!
 
         curl -fsSL --connect-timeout 15 --max-time 300 \
             --retry 3 --retry-delay 5 \
             -o "$f" "$dl_url"
-        local rc=$?
+        rc=$?
 
         kill "$progress_pid" 2>/dev/null
         wait "$progress_pid" 2>/dev/null
+        [ $rc -eq 0 ] && [ -s "$f" ] && \
+            set_status "$proj" "downloading:100:$(wc -c < "$f" | tr -d ' '):$total_size"
     else
-        log "$proj" "Total size: unknown"
+        log "$proj" "File size unknown, percentage progress unavailable"
+
+        (
+            i=0
+            while [ $i -lt 330 ]; do
+                sleep 1
+                i=$((i+1))
+                [ -f "$f" ] || continue
+                downloaded=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
+                [ -n "$downloaded" ] && [ "$downloaded" -gt 0 ] && \
+                    set_status "$proj" "downloading:-1:${downloaded}:0"
+            done
+        ) &
+        progress_pid=$!
+
         curl -fsSL --connect-timeout 15 --max-time 300 \
             --retry 3 --retry-delay 5 \
             -o "$f" "$dl_url"
-        local rc=$?
+        rc=$?
+
+        kill "$progress_pid" 2>/dev/null
+        wait "$progress_pid" 2>/dev/null
     fi
 
     if [ $rc -ne 0 ] || [ ! -s "$f" ]; then
         event "$proj" "download_failed file=$fname return_code=$rc"
-        log "$proj" "Download failed rc=$rc: $fname"
+        log "$proj" "Download failed (curl exit $rc): $fname"
         set_status "$proj" "error:Download failed"
         rm -f "$f"
         return 1
     fi
 
-    local size
     size="$(wc -c < "$f" | tr -d ' ')"
-    log "$proj" "Downloaded: $fname $(format_size "$size")"
+    log "$proj" "Download complete: $fname ($(format_size "$size"))"
     event "$proj" "download_complete file=$fname"
-    set_status "$proj" "downloading:100"
 
     verify_download "$proj" "$f" || return 1
 
@@ -369,8 +441,8 @@ _download_and_install() {
     set_status "$proj" "installing"
     if [ "$proj" = "luci-app-vnt2" ]; then
         pm_install "$f" \
-            && log "$proj" "Installed: $fname" \
-            || { log "$proj" "Install failed: $fname"; rm -f "$f"; return 1; }
+            && log "$proj" "Package installed: $fname" \
+            || { log "$proj" "Package install failed: $fname"; rm -f "$f"; return 1; }
         rm -f "$f"
     else
         _install_bin "$proj" "$f" "$upx"
@@ -380,50 +452,67 @@ _download_and_install() {
 _install_bin() {
     local proj="$1" tmp="$2" upx="$3"
     local bin_path bins installed="" extract_dir="$CACHE_DIR/${proj}_extract"
+    local ftype b src extract_ok
     bin_path="$(uci get vnt2.global.bin_path 2>/dev/null || echo /usr/bin)"
     [ "$proj" = "vnt" ] && bins="vnt2_cli vnt2_web vnt2_ctrl" || bins="vnts2"
 
-    local ftype
     ftype="$(file_type "$tmp")"
-    log "$proj" "File type: $ftype"
+    case "$ftype" in
+        elf) log "$proj" "Package type: standalone binary" ;;
+        gz)  log "$proj" "Package type: tar.gz archive" ;;
+        zip) log "$proj" "Package type: zip archive" ;;
+        *)   log "$proj" "Package type: unrecognized" ;;
+    esac
     manage_service stop "$proj"
     case "$ftype" in
         elf)
-            local b; b="$(echo "$bins" | cut -d' ' -f1)"
-            _do_install "$proj" "$tmp" "${bin_path}/${b}" "$upx"
-            installed="$b"
+            b="$(echo "$bins" | cut -d' ' -f1)"
+            if _do_install "$proj" "$tmp" "${bin_path}/${b}" "$upx"; then
+                installed="$b"
+            fi
             ;;
         gz|zip)
             rm -rf "$extract_dir"; mkdir -p "$extract_dir"
-            [ "$ftype" = "gz" ] \
-                && tar -xzf "$tmp" -C "$extract_dir" 2>>"$(log_file "$proj")" \
-                || pm_install unzip -o  "$tmp" -d "$extract_dir" 2>>"$(log_file "$proj")"
+            if [ "$ftype" = "gz" ]; then
+                tar -xzf "$tmp" -C "$extract_dir" 2>>"$(log_file "$proj")"
+                extract_ok=$?
+            else
+                pm_install unzip -o "$tmp" -d "$extract_dir" >>"$(log_file "$proj")" 2>&1
+                extract_ok=$?
+            fi
+            if [ "$extract_ok" -ne 0 ]; then
+                log "$proj" "Failed to extract the archive"
+                set_status "$proj" "error:Failed to extract archive"
+                rm -rf "$extract_dir"; rm -f "$tmp"
+                return 1
+            fi
             for b in $bins; do
-                local src
                 src="$(find "$extract_dir" -name "$b" -type f 2>/dev/null | head -1)"
-                [ -z "$src" ] && { log "$proj" "Not found: $b"; continue; }
-                [ "$(file_type "$src")" = "elf" ] || { log "$proj" "Not ELF, skipping: $b"; continue; }
-                _do_install "$proj" "$src" "${bin_path}/${b}" "$upx"
-                installed="${installed:+${installed}, }${b}"
+                [ -z "$src" ] && { log "$proj" "$b not found in the archive, skipped"; continue; }
+                [ "$(file_type "$src")" = "elf" ] || { log "$proj" "$b is not an ELF binary, skipped"; continue; }
+                if _do_install "$proj" "$src" "${bin_path}/${b}" "$upx"; then
+                    installed="${installed:+${installed}, }${b}"
+                fi
             done
             rm -rf "$extract_dir"
             ;;
         *)
             rm -f "$tmp"
-            log "$proj" "Unknown file format"
-            set_status "$proj" "error:Unknown file format"
+            log "$proj" "Unrecognized archive format"
+            set_status "$proj" "error:Unrecognized archive format"
             return 1
             ;;
     esac
 
     rm -f "$tmp"
     if [ -n "$installed" ]; then
-        log "$proj" "Installation complete: $installed"
+        log "$proj" "Installed binaries: $installed"
         manage_service restart "$proj"
         set_status "$proj" "done:$installed"
     else
-        log "$proj" "No installable file found"
-        set_status "$proj" "error:No installable file found"
+        log "$proj" "The archive contains no installable binaries"
+        set_status "$proj" "error:No installable binary found"
+        return 1
     fi
 }
 
@@ -472,7 +561,7 @@ auto_update_one() {
     cmd_check "$proj" "$MIRROR" || return 1
 
     pick_latest "$proj" "$ARCH1" "$ARCH2" || {
-        log "$proj" "No matching file found"
+        log "$proj" "No release file matching this architecture"
         return 1
     }
 
@@ -492,15 +581,15 @@ auto_update_one() {
             ;;
     esac
 
-    log "$proj" "Local: ${cur_ver:-Not installed}  Upstream: ${latest_ver:-Unknown}"
+    log "$proj" "Installed ${cur_ver:-none}, latest ${latest_ver:-unknown}"
 
     if [ -n "$cur_ver" ] && [ -n "$latest_ver" ] && [ "$(printf '%s\n' "$cur_ver" "$latest_ver" | sort -V | tail -1)" = "$cur_ver" ]; then
-        log "$proj" "Already up to date, skipping"
+        log "$proj" "Already up to date ($cur_ver)"
         set_status "$proj" "done:Already up to date($cur_ver)"
         return 0
     fi
 
-    log "$proj" "Updating: $LATEST_TAG  $LATEST_FILE"
+    log "$proj" "Updating to $LATEST_TAG ($LATEST_FILE)"
 
     local fnames="$LATEST_FILE"
     if [ "$proj" = "luci-app-vnt2" ]; then
@@ -516,7 +605,7 @@ auto_update_one() {
             local slim; slim="$(cache_slim "$proj")"
             lang_file=$(grep -oE '"[^"]*i18n[^"]*'"$lang"'[^"]*"' "$slim" | tr -d '"' | head -1)
             [ -n "$lang_file" ] && fnames="$fnames $lang_file" && \
-                log "$proj" "Language pack detected: $lang_file"
+                log "$proj" "Including language pack $lang_file"
         fi
     fi
 
@@ -525,11 +614,12 @@ auto_update_one() {
 
 cmd_auto_update() {
     load_uci
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting auto update mirror=$MIRROR arch=$ARCH"
+    wait_for_network || log "auto" "Network still unavailable after 30s, continuing anyway"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting auto update (mirror: $MIRROR, arch: ${ARCH1}${ARCH2:+ $ARCH2})"
     local projects="${*:-vnt vnts luci-app-vnt2}"
     for proj in $projects; do
         auto_update_one "$proj" || true
-        log "auto" "[$proj] $(cat "$(status_file "$proj")" 2>/dev/null)"
+        log "auto" "$proj -> $(cat "$(status_file "$proj")" 2>/dev/null)"
     done
 
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Done"

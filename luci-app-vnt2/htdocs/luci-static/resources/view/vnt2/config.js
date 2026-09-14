@@ -4,25 +4,35 @@
 'require uci';
 'require rpc';
 'require vnt2.common';
+'require vnt2.reference_editor';
 
 function rpcDeclare(method, params) {
     return rpc.declare({ object:'luci.vnt2', method:method, params:params||[] });
 }
-var callGetTemplateFields = rpcDeclare('get_template_fields', ['type']);
+var callGetTemplateFields = rpcDeclare('get_template_fields', ['type','template']);
 var callListConfigs       = rpcDeclare('list_configs',        ['filter']);
 var callReadConfig        = rpcDeclare('read_config',         ['name','type']);
 var callSaveConfig        = rpcDeclare('save_config',         ['name','type','content','old_name']);
 var callDeleteConfig      = rpcDeclare('delete_config',       ['name','type']);
-var callReadTemplate      = rpcDeclare('read_template',       ['type']);
+var callReadTemplate      = rpcDeclare('read_template',       ['type','template']);
+var callListTemplates     = rpcDeclare('list_config_templates', ['type']);
 var callListInstances     = rpcDeclare('list_instances',      []);
 var callSetEnabled        = rpcDeclare('set_enabled',         ['type','configs']);
 var callGetEnabled        = rpcDeclare('get_enabled',         ['type']);
-var callInstanceAction    = rpcDeclare('instance_action',     ['name','action']);
+var callInstanceAction    = rpcDeclare('instance_action',     ['name','action','type']);
+var callSetWebAddr       = rpcDeclare('set_web_addr',       ['addr']);
+var callRefreshWebToken  = rpcDeclare('refresh_web_token',  []);
+var callSetWebToken       = rpcDeclare('set_web_token',       ['token']);
+var callListWebInstances  = rpcDeclare('list_web_instances',  []);
+var callWebInstanceAction = rpcDeclare('web_instance_action', ['file_name','action']);
+var callGetConfExample    = rpcDeclare('get_conf_example',     ['type']);
 
 var TABS          = { vnt:_('Client'), vnts:_('Server') };
-var START_METHODS = { vnt:['vnt2_cli','vnt2_web'], vnts:['vnts2'] };
+var START_METHODS = { vnt:['vnt2_cli'], vnts:['vnts2'] };
 
-var _tab             = (location.hash === '#vnts') ? 'vnts' : 'vnt';
+function tabLabel(tab) { return tab === 'web' ? 'vnt2_web' : (TABS[tab] || tab); }
+
+var _tab             = 'vnt';
 var _dirty           = false;
 var _listState       = { vnt:{}, vnts:{} };
 var _listStateLoaded = { vnt:false, vnts:false };
@@ -34,6 +44,13 @@ function parseConfigs(r) {
     return (r && Array.isArray(r.configs)) ? r.configs : [];
 }
 
+function parseWebInstances(r) {
+    return {
+        available: !!(r && r.web_available === '1'),
+        items: (r && Array.isArray(r.items)) ? r.items : []
+    };
+}
+
 function resetListState() {
     _listState       = { vnt:{}, vnts:{} };
     _listStateLoaded = { vnt:false, vnts:false };
@@ -42,8 +59,10 @@ function resetListState() {
 function parseInstanceList(instances) {
     var status = {}, webAddr = {};
     (instances || []).forEach(function(inst) {
-        status[inst.name]  = inst.running;
-        webAddr[inst.name] = inst.web_addr || '';
+        if (!inst.name) return;
+        var key = inst.type === 'web' ? inst.name : inst.type + '/' + inst.name;
+        status[key]  = !!inst.running;
+        webAddr[key] = inst.web_addr || '';
     });
     return { status:status, webAddr:webAddr };
 }
@@ -51,33 +70,35 @@ function parseInstanceList(instances) {
 function loadListState(tab) {
     if (_listStateLoaded[tab]) return Promise.resolve();
     return callGetEnabled(tab).then(function(r) {
-        var state = {};
-        ((r && r.configs) || []).forEach(function(item) {
-            if (!item.name) return;
-            var webReady    = !!(item.web_addr && item.web_addr.trim());
-            var startMethod = item.method_set
-                ? item.start_method
-                : (tab === 'vnt' && webReady ? 'vnt2_web' : defaultMethod(tab));
-            state[item.name] = {
-                enabled:      !!item.enabled,
-                start_method: startMethod,
-                _methodSet:   true,
-                _cfgWebAddr:  webReady ? '1' : ''
-            };
-        });
-        _listState[tab]       = state;
-        _listStateLoaded[tab] = true;
+        applyListStateResult(tab, r);
     });
+}
+
+function applyListStateResult(tab, r) {
+    var state = {};
+    ((r && r.configs) || []).forEach(function(item) {
+        if (!item.name) return;
+        var webReady    = !!(item.web_addr && item.web_addr.trim());
+        var startMethod = item.name === 'vnt2_web' ? 'vnt2_web' : (tab === 'vnt' ? 'vnt2_cli' : (item.method_set ? item.start_method : defaultMethod(tab)));
+        state[item.name] = {
+            enabled:      !!item.enabled,
+            start_method: startMethod,
+            _methodSet:   true,
+            _cfgWebAddr:  webReady ? '1' : ''
+        };
+    });
+    _listState[tab] = state;
+    _listStateLoaded[tab] = true;
 }
 
 function saveListState(self, silent) {
     var promises = Object.keys(TABS).map(function(tab) {
-        if (!_listStateLoaded[tab]) return Promise.resolve();
+        if (!_listStateLoaded[tab]) return Promise.resolve({ result: 'ok' });
         var configs = Object.keys(_listState[tab]).map(function(name) {
             return {
                 name:         name,
                 enabled:      _listState[tab][name].enabled,
-                start_method: _listState[tab][name].start_method
+                start_method: name === 'vnt2_web' ? 'vnt2_web' : (tab === 'vnt' ? 'vnt2_cli' : _listState[tab][name].start_method)
             };
         });
         return callSetEnabled(tab, configs);
@@ -96,8 +117,14 @@ function saveListState(self, silent) {
 
 function setTabActive(el, active) {
     if (!el) return;
-    el.style.borderBottom = active ? '2px solid #3498db' : '2px solid transparent';
-    el.style.color        = active ? '#3498db' : '#666';
+    el.classList.toggle('active', !!active);
+}
+
+function updateToolbarForTab(tab) {
+    var localBtn = document.getElementById('vnt2-btn-new-local');
+    var webBtn   = document.getElementById('vnt2-btn-new-web');
+    if (localBtn) localBtn.textContent = (tab === 'vnt') ? _('New vnt2_cli Instance') : _('New Config');
+    if (webBtn) webBtn.style.display = (tab === 'vnt') ? '' : 'none';
 }
 
 function toggleView(showListView) {
@@ -121,6 +148,7 @@ function switchTab(self, tab) {
             setTabActive(document.getElementById('vnt2-tab-' + t), t === tab);
         });
         toggleView(true);
+        updateToolbarForTab(tab);
         if (!self._configs[tab]) {
             Promise.all([callListConfigs(tab), loadListState(tab)]).then(function(res) {
                 self._configs[tab] = parseConfigs(res[0]);
@@ -153,11 +181,16 @@ function refreshStatus(self) {
         var parsed   = parseInstanceList(r && r.instances);
         self._status  = parsed.status;
         self._webAddr = parsed.webAddr;
-        rebuildTable(self);
+        if (_tab === 'vnt')
+            refreshStatusCells(self);
+        else
+            rebuildTable(self);
     }).catch(function() {});
 }
 
 function rebuildTable(self) {
+    var toolbar = document.getElementById('vnt2-config-toolbar');
+    if (toolbar) toolbar.style.display = 'flex';
     var wrap = document.getElementById('vnt2-table-wrap');
     if (!wrap) return;
     var tableWrap  = wrap.querySelector('.vnt2-table-wrap');
@@ -168,82 +201,266 @@ function rebuildTable(self) {
     if (newTableWrap && scrollLeft > 0) newTableWrap.scrollLeft = scrollLeft;
 }
 
-function buildTable(self) {
-    var configs = self._configs[_tab] || [];
+function statusKey(tab, name) {
+    return name === 'vnt2_web' ? name : tab + '/' + name;
+}
+
+function refreshStatusCells(self) {
+    document.querySelectorAll('tr[data-cfg-name]').forEach(function(row) {
+        var name = row.getAttribute('data-cfg-name');
+        var cell = row.querySelector('.vnt2-status-cell');
+        if (!name || !cell) return;
+        var state = ensureState(_tab, name);
+        cell.innerHTML = '';
+        cell.appendChild(self._ui.statusBadge(state.enabled ? (self._status && self._status[statusKey(_tab, name)]) : null));
+    });
+}
+
+function editVntWebAddr(self) {
+    self._web.getAccess().then(function(r) {
+        var oldAddr = (r && r.addr) || '0.0.0.0:19099';
+        var input = E('input', {'type':'text','class':'cbi-input-text','style':'width:100%;','value':oldAddr});
+        var closeM = self._ui.modal(_('Edit vnt2_web Listen Address'), [
+            E('div', {'class':'vnt2-modal-body'}, [
+                self._ui.buildFormRow(_('Listen Address'), input, _('Example: 0.0.0.0:19099'))
+            ]),
+            E('div', {'class':'vnt2-modal-btns'}, [
+                E('button', {'class':'btn','click':function(){ closeM(); }}, _('Cancel')),
+                E('button', {'class':'btn cbi-button-save','click':function() {
+                    var addr = (input.value || '').trim();
+                    if (!addr) { self._ui.notify(_('Listen address cannot be empty'), 'error'); input.focus(); return; }
+                    input.classList.remove('vnt2-input-error');
+                    callSetWebAddr(addr).then(function(res) {
+                        if (!res || res.result !== 'ok') {
+                            input.classList.add('vnt2-input-error');
+                            self._ui.notify(res && res.code === 'port_conflict' ? portErrorMessage(res) : _('Save failed: %s').format((res && (res.msg || res.error)) || ''), 'error');
+                            return;
+                        }
+                        closeM();
+                        self._ui.notify(_('vnt2_web listen address saved'), 'success');
+                        _listStateLoaded.vnt = false; loadListState('vnt').then(function(){ rebuildTable(self); refreshStatus(self); });
+                    });
+                }}, _('Save'))
+            ])
+        ]);
+        window.setTimeout(function(){ input.focus(); input.select(); }, 50);
+    });
+}
+
+function showVntWebToken(self) {
+    self._web.getAccess().then(function(r) {
+        var token = (r && r.token) || '';
+        var input = E('input', {'type':'text','class':'cbi-input-text vnt2-token-input','value':token,'spellcheck':'false'});
+        var closeT = self._ui.modal(_('vnt2_web Access Token'), [
+            E('div', {'class':'vnt2-modal-body'}, [
+                self._ui.buildFormRow(_('Access Token'), input, _('Token must be exactly 64 hexadecimal characters'))
+            ]),
+            E('div', {'class':'vnt2-modal-btns'}, [
+                E('button', {'class':'btn','click':function(){ closeT(); }}, _('Close')),
+                E('button', {'class':'btn cbi-button-save','click':function() {
+                    var val = (input.value || '').trim();
+                    if (!/^[0-9a-fA-F]{64}$/.test(val)) {
+                        input.classList.add('vnt2-input-error');
+                        self._ui.notify(_('Token must be exactly 64 hexadecimal characters'), 'error');
+                        input.focus();
+                        return;
+                    }
+                    input.classList.remove('vnt2-input-error');
+                    if (val === token) { closeT(); return; }
+                    callSetWebToken(val).then(function(res) {
+                        if (!res || res.result !== 'ok') {
+                            self._ui.notify(_('Save failed: %s').format((res && (res.msg || res.code)) || ''), 'error');
+                            return;
+                        }
+                        closeT();
+                        self._ui.notify(res.restarted === '1'
+                            ? _('Token saved, vnt2_web restarted')
+                            : _('Token saved'), 'success');
+                    }).catch(function(err) {
+                        self._ui.notify(_('Save failed: %s').format(String(err)), 'error');
+                    });
+                }}, _('Save'))
+            ])
+        ], 'vnt2-modal-wide');
+        window.setTimeout(function(){ input.focus(); input.select(); }, 50);
+    });
+}
+
+function refreshVntWebToken(self) {
+    self._ui.confirm(_('Refresh vnt2_web Token'), _('Refresh vnt2_web access token? Existing tokenized links and logged-in browsers will become invalid.')).then(function(ok) {
+        if (!ok) return;
+        callRefreshWebToken().then(function(res) {
+            self._ui.notify(res && res.result === 'ok' ? _('vnt2_web token refreshed') : _('Refresh failed: %s').format((res && res.msg) || ''), res && res.result === 'ok' ? 'success' : 'error');
+            _listStateLoaded.vnt = false; loadListState('vnt').then(function(){ rebuildTable(self); refreshStatus(self); });
+        }).catch(function(err) { self._ui.notify(_('Refresh failed: %s').format(String(err)), 'error'); });
+    });
+}
+
+function buildHeadRow() {
+    var heads = [_('Enabled'),_('Name'),_('Status'),_('Actions')];
+    return E('thead', {}, E('tr', {},
+        heads.map(function(h) { return E('th', {}, h); })
+    ));
+}
+
+function buildCliTable(self, configs) {
     if (!configs.length)
         return E('p', {'class':'vnt2-empty'},
             _('No %s configurations yet. Click "New Config" to add one.').format(TABS[_tab]));
-    var thStyle = 'padding:8px 12px;text-align:center;white-space:nowrap;';
-    var heads   = [_('Enabled'),_('Name'),_('Start Method'),_('Status'),_('Actions')];
-    return E('div', {'class':'vnt2-table-wrap','style':
-            'width:100%;max-width:100%;box-sizing:border-box;display:block;overflow-x:auto;'+
-            '-webkit-overflow-scrolling:touch;border:1px solid #ddd;border-radius:8px;'},
-        E('table', {'class':'vnt2-table','style':
-                'width:100%;min-width:480px;border-collapse:collapse;border-spacing:0;box-sizing:border-box;'}, [
-            E('thead', {}, E('tr', {},
-                heads.map(function(h) { return E('th', {'style':thStyle}, h); })
-            )),
+    return E('div', {'class':'vnt2-table-wrap vnt2-table-card'},
+        E('table', {'class':'vnt2-table'}, [
+            buildHeadRow(),
             E('tbody', {}, configs.map(function(cfg) { return buildRow(self, cfg); }))
         ])
     );
 }
 
-function buildRow(self, cfg) {
-    var tab     = _tab;
-    var name    = cfg.name;
-    var tdStyle = 'padding:8px 12px;text-align:center;vertical-align:middle;white-space:nowrap;';
-    var state   = ensureState(tab, name);
+function buildWebInstBadge(self, it) {
+    return self._ui.statusBadge(it.running === '1' ? true : (it.running === '0' ? false : null));
+}
 
-    var cb = E('input', {'type':'checkbox','style':'width:16px;height:16px;cursor:pointer;'});
-    if (state.enabled) cb.setAttribute('checked','checked');
-    cb.addEventListener('change', function() {
-        _listState[tab][name].enabled = cb.checked;
-        var cell = cb.closest('tr').querySelector('.vnt2-status-cell');
-        if (cell) {
-            cell.innerHTML = '';
-            cell.appendChild(self._ui.statusBadge(
-                cb.checked ? (self._status && self._status[name]) : null
-            ));
-        }
-    });
+function updateWebInstCell(self, it) {
+    var row = document.querySelector('tr[data-web-name="' + it.name + '"]');
+    if (!row) return;
+    var cell = row.querySelector('.vnt2-status-cell');
+    if (!cell) return;
+    cell.innerHTML = '';
+    cell.appendChild(buildWebInstBadge(self, it));
+}
 
-    var statusCell = E('td', {'class':'vnt2-status-cell','style':tdStyle},
-        self._ui.statusBadge(state.enabled ? (self._status && self._status[name]) : null));
-
-    return E('tr', {'data-cfg-name':name}, [
-        E('td', {'style':tdStyle+'cursor:pointer;',
-            'click':function(ev) { if (ev.target !== cb) cb.click(); }}, cb),
-        E('td', {'class':'vnt2-col-name','style':tdStyle}, name),
-        E('td', {'style':tdStyle}, buildMethodSelect(self, tab, name)),
-        statusCell,
-        E('td', {'style':tdStyle}, [
-            E('button', {'class':'btn cbi-button-edit','style':'margin-right:6px;',
-                'click':function() { openEditor(self, name, false); }}, _('Edit')),
-            E('button', {'class':'btn cbi-button-negative',
-                'click':function() { deleteConfig(self, name); }}, _('Delete'))
-        ])
+function buildWebInstRow(self, it) {
+    var name   = it.name;
+    var orphan = it.exists === '0';
+    var toggle = self._ui.toggleSwitch('vnt2-web-enabled-' + name, it.enabled === '1', function(ev, input) {
+        var want = input.checked;
+        callWebInstanceAction(name, want ? 'start' : 'stop').then(function(res) {
+            if (res && res.result === 'ok') {
+                it.enabled = want ? '1' : '0';
+                it.running = want ? '1' : '0';
+                updateWebInstCell(self, it);
+                self._ui.notify(_('Instance "%s" %s succeeded').format(name, want ? _('Start') : _('Stop')), 'success');
+            } else {
+                input.checked = !want;
+                self._ui.notify(_('Action failed: %s').format((res && (res.msg || res.code)) || ''), 'error');
+            }
+        }).catch(function(err) {
+            input.checked = !want;
+            self._ui.notify(_('Action failed: %s').format(String(err)), 'error');
+        });
+    }, null, orphan);
+    var actions = orphan ? [
+        self._ui.iconButton('edit', _('Edit'), null, true),
+        self._ui.iconButton('code', _('Edit Raw Config'), null, true),
+        self._ui.iconButton('delete', _('Delete stale record'), function() { deleteWebInst(self, it); }, false)
+    ] : [
+        self._ui.iconButton('edit', _('Edit'), function() { openEditor(self, name, false, null, 'web'); }, false),
+        self._ui.iconButton('code', _('Edit Raw Config'), function() { openRawEditor(self, name, 'web'); }, false),
+        self._ui.iconButton('delete', _('Delete'), function() { deleteWebInst(self, it); }, false)
+    ];
+    var nameAttrs = {'class':'vnt2-col-name'};
+    if (orphan) {
+        nameAttrs['class'] += ' vnt2-muted-text';
+        nameAttrs['title'] = _('This instance no longer exists in vnt2_web');
+    }
+    return E('tr', {'data-web-name':name}, [
+        E('td', {}, toggle),
+        E('td', nameAttrs, it.config_name || name),
+        E('td', {'class':'vnt2-status-cell'}, buildWebInstBadge(self, it)),
+        E('td', {}, E('div', {'class':'vnt2-btn-group'}, actions))
     ]);
 }
 
-function buildMethodSelect(self, tab, name) {
-    var state    = _listState[tab][name];
-    var webReady = !!(state._cfgWebAddr && state._cfgWebAddr.trim());
-    if (!state._methodSet) {
-        state.start_method = (tab === 'vnt' && webReady) ? 'vnt2_web' : defaultMethod(tab);
-        state._methodSet   = true;
-    }
-    var sel = E('select', {'class':'cbi-input-select','style':'width:auto;'},
-        START_METHODS[tab].map(function(m) {
-            var attrs = {'value':m};
-            if (m === state.start_method)      attrs['selected'] = 'selected';
-            if (m === 'vnt2_web' && !webReady) attrs['disabled'] = 'disabled';
-            return E('option', attrs, m);
-        })
-    );
-    sel.addEventListener('change', function() { _listState[tab][name].start_method = sel.value; });
-    sel.addEventListener('focus',  function() { stopStatusTimer(); });
-    sel.addEventListener('blur',   function() { startStatusTimer(self); });
-    return sel;
+function buildWebCard(self) {
+    var web  = self._webInsts || { available:false, items:[] };
+    var rows = [buildRow(self, { name:'vnt2_web', type:'web', locked:true })];
+    web.items.forEach(function(it) { rows.push(buildWebInstRow(self, it)); });
+    var body = [
+        E('div', {'class':'vnt2-table-wrap'},
+            E('table', {'class':'vnt2-table'}, [
+                buildHeadRow(),
+                E('tbody', {}, rows)
+            ]))
+    ];
+    return self._ui.card('vnt2_web', body, 'vnt2-inst-card');
+}
+
+function buildCliCard(self) {
+    return self._ui.card('vnt2_cli', [buildCliTable(self, (self._configs.vnt || []).slice())], 'vnt2-inst-card');
+}
+
+function buildTable(self) {
+    if (_tab === 'vnts')
+        return E('div', {}, [buildCliTable(self, (self._configs[_tab] || []).slice())]);
+    return E('div', {'class':'vnt2-inst-cards'}, [
+        buildWebCard(self),
+        buildCliCard(self)
+    ]);
+}
+
+function refreshWebInstances(self) {
+    return callListWebInstances().then(function(r) {
+        self._webInsts = parseWebInstances(r);
+        rebuildTable(self);
+    }).catch(function() {});
+}
+
+function deleteWebInst(self, it) {
+    var name    = it.name;
+    var running = it.running === '1';
+    self._ui.confirm(_('Confirm Delete'),
+        running
+            ? _('Instance "%s" is running and will be stopped on delete. Are you sure?').format(name)
+            : _('Are you sure to delete config "%s"?').format(name)
+    ).then(function(ok) {
+        if (!ok) return;
+        callDeleteConfig(name, 'web').then(function(r) {
+            if (r && r.result === 'ok') {
+                self._ui.notify(_('Config "%s" has been deleted').format(name), 'success');
+                return refreshWebInstances(self);
+            }
+            self._ui.notify(_('Delete failed: %s').format((r && r.msg)||''), 'error');
+        });
+    });
+}
+
+function buildRow(self, cfg) {
+    var tab     = _tab;
+    var name    = cfg.name;
+    var state   = ensureState(tab, name);
+
+    var cb;
+    var toggle = self._ui.toggleSwitch('vnt2-enabled-' + name, !!state.enabled, function(ev, input) {
+        cb = input;
+        _listState[tab][name].enabled = input.checked;
+        var cell = input.closest('tr').querySelector('.vnt2-status-cell');
+        if (cell) {
+            cell.innerHTML = '';
+            cell.appendChild(self._ui.statusBadge(
+                input.checked ? (self._status && self._status[statusKey(tab, name)]) : null
+            ));
+        }
+    });
+    cb = toggle.querySelector('input');
+
+    var statusCell = E('td', {'class':'vnt2-status-cell'},
+        self._ui.statusBadge(state.enabled ? (self._status && self._status[statusKey(tab, name)]) : null));
+
+    var locked = name === 'vnt2_web' || cfg.locked;
+    var actions = locked ? [
+        self._ui.iconButton('edit', _('Edit Listen Address'), function() { editVntWebAddr(self); }, false),
+        self._ui.iconButton('key', _('View Access Token'), function() { showVntWebToken(self); }, false),
+        self._ui.iconButton('restart', _('Refresh Access Token'), function() { refreshVntWebToken(self); }, false)
+    ] : [
+        self._ui.iconButton('edit', _('Edit'), function() { openEditor(self, name, false); }, false),
+        self._ui.iconButton('code', _('Edit Raw Config'), function() { openRawEditor(self, name); }, false),
+        self._ui.iconButton('delete', _('Delete'), function() { deleteConfig(self, name); }, false)
+    ];
+    return E('tr', {'data-cfg-name':name}, [
+        E('td', {}, toggle),
+        E('td', {'class':'vnt2-col-name'}, name),
+        statusCell,
+        E('td', {}, E('div', {'class':'vnt2-btn-group'}, actions))
+    ]);
 }
 
 function ensureState(tab, name) {
@@ -255,21 +472,60 @@ function ensureState(tab, name) {
     return _listState[tab][name];
 }
 
-function openEditor(self, name, isNew) {
+function filterValuesByTemplateFields(fields, values) {
+    var out = {};
+    fields = fields || [];
+    values = values || {};
+    fields.forEach(function(f) {
+        if (!f || !f.name) return;
+        if (f.type === 'section') {
+            var src = values[f.name] || {};
+            var obj = {};
+            var defKeys = Object.keys(f.keys || {});
+            if (defKeys.length) {
+                defKeys.forEach(function(k) {
+                    if (Object.prototype.hasOwnProperty.call(src, k)) obj[k] = src[k];
+                });
+            } else {
+                Object.keys(src).forEach(function(k) { obj[k] = src[k]; });
+            }
+            out[f.name] = obj;
+        } else if (Object.prototype.hasOwnProperty.call(values, f.name)) {
+            out[f.name] = values[f.name];
+        }
+    });
+    return out;
+}
+
+function openEditor(self, name, isNew, templateName, typeOverride) {
     var ew = document.getElementById('vnt2-edit-wrap');
     if (!ew) return;
     ew.innerHTML = '';
     ew.appendChild(E('div', {'class':'vnt2-loading'}, _('Loading configuration...')));
-    location.hash = _tab + (isNew ? '&new' : '&edit=' + name);
+    var tab = typeOverride || _tab;
+    location.hash = (tab === 'web')
+        ? 'vnt&web=' + (isNew ? 'new' : name)
+        : _tab + (isNew ? '&new' : '&edit=' + name);
     toggleView(false);
-    var tab = _tab;
+    var tplTab = (tab === 'web') ? 'vnt' : tab;
     var p   = (isNew || !name)
-        ? callReadTemplate(tab).then(function(r) {
-            return { content:(r && r.content)||'', values:{} };
+        ? Promise.all([callReadTemplate(tplTab, templateName || ''), callGetTemplateFields(tplTab, templateName || ''), callListTemplates(tplTab)]).then(function(res) {
+            return {
+                content:(res[0] && res[0].content)||'',
+                template:(res[0] && res[0].template) || templateName || 'default',
+                fields:(res[1] && Array.isArray(res[1].fields)) ? res[1].fields : [],
+                templates:(res[2] && Array.isArray(res[2].templates)) ? res[2].templates : [],
+                values:{}
+            };
           })
-        : callReadConfig(name, tab).then(function(r) {
-            var c = (r && r.content)||'';
-            return { content:c, values:self._parser.parseValues(c) };
+        : Promise.all([callReadConfig(name, tab), callReadTemplate(tplTab), callGetTemplateFields(tplTab)]).then(function(res) {
+            var c = (res[0] && res[0].content) || '';
+            return {
+                content:(res[1] && res[1].content) || '',
+                template:(res[1] && res[1].template) || 'default',
+                values:filterValuesByTemplateFields((res[2] && Array.isArray(res[2].fields)) ? res[2].fields : (self._fields[tplTab] || []), self._parser.parseValues(c)),
+                fields:(res[2] && Array.isArray(res[2].fields)) ? res[2].fields : (self._fields[tplTab] || [])
+            };
           });
     p.then(function(res) {
         _dirty = false;
@@ -281,13 +537,110 @@ function openEditor(self, name, isNew) {
     });
 }
 
+function openRawEditor(self, name, typeOverride) {
+    var ew = document.getElementById('vnt2-edit-wrap');
+    if (!ew) return;
+    ew.innerHTML = '';
+    ew.appendChild(E('div', {'class':'vnt2-loading'}, _('Loading configuration...')));
+    var tab = typeOverride || _tab;
+    location.hash = (tab === 'web') ? 'vnt&webraw=' + name : _tab + '&raw=' + name;
+    toggleView(false);
+    Promise.all([
+        callReadConfig(name, tab),
+        callGetConfExample(tab === 'web' ? 'vnt' : tab).catch(function() { return { content:'' }; })
+    ]).then(function(res) {
+        _dirty = false;
+        ew.innerHTML = '';
+        ew.appendChild(buildRawEditor(self, name, tab, (res[0] && res[0].content) || '', (res[1] && res[1].content) || ''));
+    }).catch(function(err) {
+        self._ui.notify(_('Load failed: %s').format(String(err)), 'error');
+        toggleView(true);
+    });
+}
+
+function buildRawEditor(self, name, tab, content, example) {
+    var editor = self._ref.build({
+        referenceTitle: _('Official --conf-example'),
+        editorTitle: _('Raw Config'),
+        referenceText: example || '',
+        value: content || '',
+        insertChips: false,
+        guide: false,
+        highlightUnknownParams: true,
+        includeCommentedParams: false,
+        unknownParamsTitle: '',
+        onInput: function() { _dirty = true; }
+    });
+
+    function backToList() {
+        if (_dirty) {
+            self._ui.confirm(_('Discard Changes'), _('Unsaved changes exist. Are you sure to discard and return?'))
+                .then(function(ok) { if (ok) { _dirty = false; toggleView(true); } });
+        } else toggleView(true);
+    }
+
+    return E('div', {'class':'vnt2-edit-view vnt2-raw-edit-view'}, [
+        E('div', {'class':'vnt2-edit-header'}, [
+            E('div', {'class':'vnt2-breadcrumb'}, [
+                E('span', {'class':'vnt2-breadcrumb-link','click':backToList}, _('%s Config List').format(tabLabel(tab))),
+                E('span', {'class':'vnt2-breadcrumb-sep'}, ' › '),
+                E('span', {}, _('Edit Raw Config')),
+                E('span', {'class':'vnt2-breadcrumb-sep'}, ' › '),
+                E('span', {'class':'vnt2-bold'}, name)
+            ])
+        ]),
+        editor.node,
+        E('div', {'class':'vnt2-edit-footer vnt2-raw-footer'}, [
+            E('button', {'class':'btn','click':backToList}, _('Back to List')),
+            E('button', {'class':'btn cbi-button-save','click':function() {
+                var raw = editor.getValue();
+                var dupErrors = self._validator.validateDuplicateParameters(raw, false);
+                if (dupErrors.length) {
+                    if (editor.showValidationErrors) editor.showValidationErrors(dupErrors);
+                    self._ui.notify(dupErrors.join('\n'), 'error');
+                    return;
+                }
+                function doSave() {
+                    callSaveConfig(name, tab, raw, name).then(function(r) {
+                        if (!r || r.result !== 'ok') {
+                            self._ui.notify(r && r.code === 'port_conflict' ? portErrorMessage(r) : _('Save failed: %s').format((r && (r.msg || r.error)) || ''), 'error');
+                            return;
+                        }
+                        _dirty = false;
+                        if (tab === 'web') {
+                            if (r.restarted === '1')
+                                self._ui.notify(_('Instance "%s" restarted successfully').format(name), 'success');
+                            refreshWebInstances(self).then(function(){ toggleView(true); });
+                            return;
+                        }
+                        refreshStatus(self).then(function(){ toggleView(true); });
+                    }).catch(function(err) {
+                        self._ui.notify(_('Save error: %s').format(String(err)), 'error');
+                    });
+                }
+                var unknown = self._validator.unknownAgainstReference(raw, example || '', false);
+                if (unknown.length) {
+                    if (editor.showValidationErrors) editor.showValidationErrors([]);
+                    self._ui.confirm(_('Unknown Parameters'), self._validator.unknownParamsMessage(unknown)).then(function(ok) {
+                        if (!ok) return;
+                        if (editor.clearValidation) editor.clearValidation();
+                        doSave();
+                    });
+                    return;
+                }
+                doSave();
+            }}, _('Save Raw Config'))
+        ])
+    ]);
+}
+
 function buildEditor(self, name, isNew, tab, res) {
-    var fields = self._fields[tab] || [];
+    var fields = res.fields || self._fields[tab === 'web' ? 'vnt' : tab] || [];
     var formEl = buildForm(fields, res.values, self._parser);
     formEl.addEventListener('input',  function() { _dirty = true; });
     formEl.addEventListener('change', function() { _dirty = true; });
 
-    if (isNew && tab === 'vnt') {
+    if (isNew && (tab === 'vnt' || tab === 'web')) {
         var tunInput = formEl.querySelector('[data-field-name="tun_name"]');
         if (tunInput) {
             tunInput._userEdited = false;
@@ -295,9 +648,7 @@ function buildEditor(self, name, isNew, tab, res) {
         }
     }
 
-    var nameErr   = E('span', {
-        'style':'color:#dc3545;font-size:12px;margin-left:8px;display:none;'
-    });
+    var nameErr   = E('span', {'class':'vnt2-name-error'});
     var nameInput = E('input', {
         'type':'text','class':'cbi-input-text','style':'width:auto;',
         'value':name||'','placeholder':_('Letters, numbers, underscores, hyphens')
@@ -307,7 +658,7 @@ function buildEditor(self, name, isNew, tab, res) {
         nameErr.style.display = 'none';
         if (isNew) {
             var ti = formEl.querySelector('[data-field-name="tun_name"]');
-            if (ti && !ti._userEdited) ti.value = 'vnt_' + nameInput.value.trim();
+            if (ti && !ti._userEdited) ti.value = 'vnt_' + nameInput.value.trim().replace(/\.toml$/, '');
         }
     });
 
@@ -325,27 +676,56 @@ function buildEditor(self, name, isNew, tab, res) {
         E('div', {'class':'vnt2-edit-header'}, [
             E('div', {'class':'vnt2-breadcrumb'}, [
                 E('span', {'class':'vnt2-breadcrumb-link','click':backToList},
-                    _('%s Config List').format(TABS[tab])),
+                    _('%s Config List').format(tabLabel(tab))),
                 E('span', {'class':'vnt2-breadcrumb-sep'}, ' › '),
                 E('span', {}, isNew ? _('New Configuration') : _('Edit Configuration'))
             ]),
-            E('div', {'style':'display:flex;align-items:center;margin-top:8px;'}, [
-                E('label', {'style':'font-weight:bold;margin-right:6px;flex-shrink:0;'},
+            isNew ? E('div', {'class':'vnt2-row-nowrap','style':'margin-top:8px;'}, [
+                E('label', {'style':'flex-shrink:0;'}, _('Template:')),
+                E('select', {'class':'cbi-input-select vnt2-select-auto','change':function(ev) {
+                    var next = ev.target.value;
+                    var reload = function() { openEditor(self, nameInput.value.trim(), true, next, tab); };
+                    if (_dirty) self._ui.confirm(_('Switch Template'), _('Switching template will rebuild the form. Continue?')).then(function(ok){ if (ok) reload(); else ev.target.value = res.template || 'default'; });
+                    else reload();
+                }}, (res.templates || []).map(function(t) {
+                    return E('option', {'value':t.name, 'selected':t.name === (res.template || 'default') ? 'selected' : null}, t.label || t.name);
+                }))
+            ]) : E('span', {}),
+            E('div', {'class':'vnt2-row-nowrap','style':'margin-top:8px;'}, [
+                E('label', {'style':'margin-right:6px;flex-shrink:0;'},
                     _('Configuration Name:')),
                 nameInput, nameErr
             ])
         ]),
         E('div', {'class':'vnt2-edit-body'}, formEl),
-        E('div', {'class':'vnt2-edit-footer','style':'padding-top:60px;display:flex;gap:8px;'}, [
-            E('button', {'class':'btn','click':backToList}, _('← Back to List')),
+        E('div', {'class':'vnt2-edit-footer'}, [
+            E('button', {'class':'btn','click':backToList}, _('Back to List')),
             E('button', {
                 'class':'btn cbi-button-save',
                 'click': function() {
                     var newName = nameInput.value.trim();
-                    if (!newName || !/^[\w-]+$/.test(newName)) {
-                        nameErr.textContent   = _('Name can only contain letters, numbers, underscores, hyphens');
+                    if (!newName || !/^[\w.-]+$/.test(newName) || (tab !== 'web' && /[.]/.test(newName))) {
+                        nameErr.textContent   = (tab === 'web')
+                            ? _('Name can only contain letters, numbers, underscores, hyphens, dots')
+                            : _('Name can only contain letters, numbers, underscores, hyphens');
                         nameErr.style.display = 'inline';
                         nameInput.focus(); return;
+                    }
+                    if (tab === 'web') {
+                        var dot = newName.lastIndexOf('.');
+                        if (dot > 0 && newName.slice(dot) !== '.toml') {
+                            nameErr.textContent   = _('File name extension must be .toml');
+                            nameErr.style.display = 'inline';
+                            nameInput.focus(); return;
+                        }
+                        var finalName = /\.toml$/.test(newName) ? newName : newName + '.toml';
+                        if (isNew && ((self._webInsts && self._webInsts.items) || []).some(function(it) { return it.name === finalName; })) {
+                            nameErr.textContent   = _('Configuration name already exists');
+                            nameErr.style.display = 'inline';
+                            nameInput.focus(); return;
+                        }
+                        saveWebConfig(self, name, newName, formEl, fields, res.content);
+                        return;
                     }
                     if (isNew && self._configs[tab] &&
                         self._configs[tab].some(function(c) { return c.name === newName; })) {
@@ -380,6 +760,98 @@ function getPlaceholder(f) {
     return '';
 }
 
+function cssEscapeName(s) {
+    if (window.CSS && window.CSS.escape) return window.CSS.escape(s);
+    return String(s || '').replace(/(["\\\]\[])/g, '\\$1');
+}
+
+function requiredComment(comment) {
+    return /必填|required/i.test(String(comment || ''));
+}
+
+function closestFieldRow(el) {
+    while (el && el !== document) {
+        if (el.classList && el.classList.contains('vnt2-field-row')) return el;
+        el = el.parentNode;
+    }
+    return null;
+}
+
+function clearFieldErrors(formEl) {
+    if (!formEl) return;
+    formEl.querySelectorAll('.vnt2-input-error').forEach(function(el) {
+        el.classList.remove('vnt2-input-error');
+    });
+    formEl.querySelectorAll('.vnt2-field-row-error').forEach(function(el) {
+        el.classList.remove('vnt2-field-row-error');
+    });
+    formEl.querySelectorAll('.vnt2-field-error').forEach(function(el) {
+        if (el.parentNode) el.parentNode.removeChild(el);
+    });
+}
+
+function setFieldError(target, message) {
+    if (!target) return false;
+    if (target.classList) target.classList.add('vnt2-input-error');
+    var row = closestFieldRow(target);
+    if (row) {
+        row.classList.add('vnt2-field-row-error');
+        var box = row.querySelector('.vnt2-field-input');
+        if (box && message) {
+            var old = box.querySelector('.vnt2-field-error');
+            if (!old) box.appendChild(E('div', {'class':'vnt2-field-error'}, message));
+            else old.textContent = message;
+        }
+    }
+    return true;
+}
+
+function firstVisibleInput(root, selector) {
+    var found = null;
+    if (!root) return null;
+    root.querySelectorAll(selector).forEach(function(el) {
+        if (found) return;
+        var row = closestFieldRow(el);
+        if (row && row.style.display === 'none') return;
+        found = el;
+    });
+    return found;
+}
+
+function markPortErrors(formEl, errors) {
+    if (!formEl || !Array.isArray(errors)) return false;
+    var marked = false;
+    errors.forEach(function(err) {
+        var param = String((err && err.param) || '');
+        if (!param) return;
+        var target = null;
+        var dot = param.indexOf('.');
+        if (dot > 0) {
+            var sec = param.substring(0, dot);
+            var key = param.substring(dot + 1);
+            var cont = formEl.querySelector('[data-field-name="' + cssEscapeName(sec) + '"][data-field-type="section"]');
+            if (cont) {
+                target = cont.querySelector('[data-section-key="' + cssEscapeName(key) + '"]');
+                if (target && target.classList && target.classList.contains('vnt2-array-field'))
+                    target = target.querySelector('.vnt2-array-item');
+            }
+        } else {
+            target = formEl.querySelector('[data-field-name="' + cssEscapeName(param) + '"]');
+            if (target && target.classList && (target.classList.contains('vnt2-array-field') || target.classList.contains('vnt2-section-field')))
+                target = target.querySelector('.vnt2-array-item, .vnt2-section-item');
+        }
+        if (setFieldError(target, (err && err.message) || _('Port conflict detected'))) marked = true;
+    });
+    return marked;
+}
+
+function portErrorMessage(res) {
+    var list = (res && Array.isArray(res.errors)) ? res.errors : [];
+    if (list.length)
+        return list.map(function(e) { return e.message || e.msg || ''; }).filter(Boolean).join('\n');
+    return (res && res.msg) || _('Port conflict detected');
+}
+
 function stripKeyPrefix(ph) {
     if (!ph) return ph || '';
     var i = ph.indexOf('=');
@@ -401,7 +873,7 @@ function formatComment(parser, rawComment) {
         : (rawComment || '');
     return String(text)
         .replace(/选项[：:]\s*[^\n]*/gi, '')
-        .replace(/示例[：:]\s*\S+/g, '')
+        .replace(/示例[：:]\s*[^\n]*/g, '')
         .replace(/\s+/g, ' ')
         .trim();
 }
@@ -432,7 +904,7 @@ function buildFormRow(f, values, parser) {
     var val = Object.prototype.hasOwnProperty.call(values, f.name)
         ? values[f.name]
         : (f.type === 'section' ? {} : f['default']);
-    var isRequired  = !!(f.comment && f.comment.indexOf('必填') !== -1);
+    var isRequired  = requiredComment(f.comment);
     var nameEl      = E('div', {'class':'vnt2-field-name'});
     nameEl.appendChild(document.createTextNode(f.name));
     if (isRequired) nameEl.appendChild(E('span', {'class':'vnt2-required-star'}, ' *'));
@@ -462,16 +934,84 @@ function buildInput(f, val, isRequired, parser) {
 
 function buildBool(f, val) {
     var checked = (val === 'true' || val === true);
-    var span    = E('span', {'class':'vnt2-bool-label'}, checked ? _('Enabled') : _('Disabled'));
-    var cb      = E('input', {
-        'type':'checkbox','class':'vnt2-checkbox',
+    var cb = E('input', {
+        'type':'checkbox','class':'vnt2-toggle-input',
         'data-field-name':f.name,'data-field-type':'bool'
     });
     if (checked) cb.setAttribute('checked','checked');
-    cb.addEventListener('change', function() {
-        span.textContent = cb.checked ? _('Enabled') : _('Disabled');
+    return E('label', {'class':'vnt2-toggle-wrap'}, [
+        cb,
+        E('span', {'class':'vnt2-toggle-slider'}),
+        E('span', {'class':'vnt2-toggle-text'}, _('Enabled'))
+    ]);
+}
+
+function selectExtend(f) {
+    if (!f || !f.extend || f.extend.type !== 'text') return null;
+    return {
+        trigger: f.extend.trigger || f.extend.value || '',
+        prefix: f.extend.prefix || '',
+        placeholder: f.extend.placeholder || ''
+    };
+}
+
+function buildExtendedSelect(f, val, opts) {
+    var ext = selectExtend(f);
+    var raw = val != null ? String(val) : '';
+    var mode = raw;
+    if (ext && ext.prefix && raw.indexOf(ext.prefix) === 0) mode = ext.trigger;
+    var cleanedOpts = opts.map(function(o) {
+        o = String(o || '').trim();
+        var meta = o.search(/(?:extend|扩展)[：:]/i);
+        if (meta >= 0) o = o.substring(0, meta).trim();
+        if (/^(?:prefix|placeholder)\s*=|^text\(/i.test(o)) return '';
+        return o;
+    }).filter(Boolean);
+    var parsed = cleanedOpts.map(function(o) {
+        var i = o.indexOf('=');
+        return i !== -1
+            ? {value:o.substring(0,i).trim(), label:o.substring(0,i).trim()+' — '+o.substring(i+1).trim()}
+            : {value:o, label:o};
     });
-    return E('label', {'class':'vnt2-bool-wrap'}, [cb, span]);
+    var hasMode = parsed.some(function(p) { return p.value === mode; });
+    var options = [];
+    if (!hasMode || mode === '' || mode == null)
+        options.push(E('option', {'value':''}, _('Please select')));
+    parsed.forEach(function(p) {
+        var a = {'value':p.value};
+        if (p.value === mode) a['selected'] = 'selected';
+        options.push(E('option', a, p.label));
+    });
+    var sel = E('select', {'class':'vnt2-input vnt2-select cbi-input-select vnt2-extend-select'}, options);
+    if (!ext) {
+        sel.setAttribute('data-field-name', f.name);
+        sel.setAttribute('data-field-type', 'select');
+        return sel;
+    }
+    var initialExtra = (mode === ext.trigger)
+        ? ((ext.prefix && raw.indexOf(ext.prefix) === 0) ? raw : (raw && raw !== ext.trigger ? raw : ext.prefix))
+        : '';
+    var input = E('input', {
+        'type':'text',
+        'class':'vnt2-input vnt2-extend-input',
+        'value': initialExtra,
+        'placeholder': ext.placeholder || ext.prefix || '',
+        'style': mode === ext.trigger ? '' : 'display:none;'
+    });
+    var wrap = E('div', {
+        'class':'vnt2-select-extend',
+        'data-field-name':f.name,
+        'data-field-type':'select_extend',
+        'data-extend-trigger':ext.trigger,
+        'data-extend-prefix':ext.prefix
+    }, [sel, input]);
+    function sync() {
+        input.style.display = sel.value === ext.trigger ? '' : 'none';
+        if (sel.value === ext.trigger && !input.value.trim()) input.value = ext.prefix || '';
+    }
+    sel.addEventListener('change', function() { sync(); wrap.dispatchEvent(new Event('input', {bubbles:true})); });
+    input.addEventListener('input', function() { wrap.dispatchEvent(new Event('input', {bubbles:true})); });
+    return wrap;
 }
 
 function buildSelect(f, val) {
@@ -485,25 +1025,7 @@ function buildSelect(f, val) {
         var m = f.comment.match(/选项[：:]\s*([^\n]+)/);
         if (m) opts = m[1].split(',').map(function(o) { return o.trim(); }).filter(Boolean);
     }
-    var parsed = opts.map(function(o) {
-        var i = o.indexOf('=');
-        return i !== -1
-            ? {value:o.substring(0,i).trim(),
-               label:o.substring(0,i).trim()+' — '+o.substring(i+1).trim()}
-            : {value:o, label:o};
-    });
-    var options = [];
-    if (!parsed.some(function(p) { return p.value === val; }) || val === '' || val == null)
-        options.push(E('option', {'value':''}, _('— Please select —')));
-    parsed.forEach(function(p) {
-        var a = {'value':p.value};
-        if (p.value === val) a['selected'] = 'selected';
-        options.push(E('option', a, p.label));
-    });
-    return E('select', {
-        'class':'vnt2-input vnt2-select cbi-input-select',
-        'data-field-name':f.name,'data-field-type':'select'
-    }, options);
+    return buildExtendedSelect(f, val, opts);
 }
 
 function buildText(f, val) {
@@ -601,13 +1123,20 @@ function buildSection(f, val, isRequired, parser) {
             var cur  = (val && Object.prototype.hasOwnProperty.call(val, k))
                        ? val[k] : def['default'];
             var input;
+            var boolInput = null;
             if (def.type === 'bool') {
                 var checked = (cur === true || cur === 'true');
-                input = E('input', {
-                    'type':'checkbox','class':'vnt2-checkbox',
+                var cbSec = E('input', {
+                    'type':'checkbox','class':'vnt2-toggle-input',
                     'data-section-key':k,'data-section-type':'bool'
                 });
-                if (checked) input.setAttribute('checked','checked');
+                boolInput = cbSec;
+                if (checked) cbSec.setAttribute('checked','checked');
+                input = E('label', {'class':'vnt2-toggle-wrap'}, [
+                    cbSec,
+                    E('span', {'class':'vnt2-toggle-slider'}),
+                    E('span', {'class':'vnt2-toggle-text'}, _('Enabled'))
+                ]);
             } else if (def.type === 'array') {
                 input = buildListField(
                     { name: f.name + '.' + k, example: def.example, comment: def.comment },
@@ -626,19 +1155,23 @@ function buildSection(f, val, isRequired, parser) {
                 });
             }
             var keyDesc = formatComment(parser, def.comment);
+            var keyRequired = requiredComment(def.comment);
+            var keyNameEl = E('div', {'class':'vnt2-field-name'});
+            keyNameEl.appendChild(document.createTextNode(f.name + '.' + k));
+            if (keyRequired) keyNameEl.appendChild(E('span', {'class':'vnt2-required-star'}, ' *'));
             var row = E('div', {
-                'class':'vnt2-field-row','style':'border-bottom:1px solid #f5f5f5;'
+                'class':'vnt2-field-row'
             }, [
                 E('div', {'class':'vnt2-field-label'}, [
-                    E('div', {'class':'vnt2-field-name'}, f.name + '.' + k),
+                    keyNameEl,
                     keyDesc
                         ? E('div', {'class':'vnt2-field-desc'}, keyDesc)
                         : E('span', {})
                 ]),
                 E('div', {'class':'vnt2-field-input'}, input)
             ]);
-            if (k === 'enabled' && def.type === 'bool' && input.type === 'checkbox' && !gateCb)
-                gateCb = input;
+            if (k === 'enabled' && def.type === 'bool' && boolInput && !gateCb)
+                gateCb = boolInput;
             else
                 gatedRows.push(row);
             container.appendChild(row);
@@ -658,11 +1191,11 @@ function buildSection(f, val, isRequired, parser) {
     var items = (val && typeof val === 'object' && !Array.isArray(val))
         ? Object.keys(val).map(function(k) {
             var cv = val[k];
-            return k + '=' + (typeof cv === 'boolean' ? (cv ? 'true' : 'false') : (cv||''));
-          }).filter(function(line) {
-            var idx = line.indexOf('=');
-            return idx > 0 && line.substring(idx + 1) !== '';
-          })
+            if (cv == null || String(cv).trim() === '') return '';
+            return typeof cv === 'boolean'
+                ? k + ' = ' + (cv ? 'true' : 'false')
+                : k + ' = "' + String(cv) + '"';
+          }).filter(function(line) { return line !== ''; })
         : [];
     if (!items.length) items = [''];
     return buildListField(f, items, 'section');
@@ -685,8 +1218,20 @@ function collectValues(formEl) {
         if (!name) return;
         if (type === 'array') {
             vals[name] = collectItems(el, '.vnt2-array-item');
+        } else if (type === 'select_extend') {
+            var sel = el.querySelector('.vnt2-extend-select');
+            var extra = el.querySelector('.vnt2-extend-input');
+            var trigger = el.getAttribute('data-extend-trigger') || '';
+            var prefix = el.getAttribute('data-extend-prefix') || '';
+            var mode = sel ? sel.value : '';
+            if (mode === trigger) {
+                var v = extra ? extra.value.trim() : '';
+                vals[name] = (prefix && v.indexOf(prefix) !== 0) ? prefix + v : v;
+            } else {
+                vals[name] = mode;
+            }
         } else if (type === 'section') {
-            var obj = {}, autoIdx = 1;
+            var obj = {};
             var typed = el.querySelectorAll('[data-section-key]');
             if (typed.length) {
                 typed.forEach(function(inp) {
@@ -696,6 +1241,9 @@ function collectValues(formEl) {
                         obj[sk] = inp.checked;
                     } else if (st === 'array') {
                         obj[sk] = collectItems(inp, '.vnt2-array-item');
+                    } else if (st === 'int') {
+                        var iv = inp.value.trim();
+                        if (iv) obj[sk] = parseInt(iv) || 0;
                     } else {
                         var sv = inp.value.trim();
                         if (sv) obj[sk] = sv;
@@ -704,13 +1252,12 @@ function collectValues(formEl) {
             }
             collectItems(el, '.vnt2-section-item').forEach(function(line) {
                 var eqIdx = line.indexOf('=');
-                if (eqIdx > 0) {
-                    var k = line.substring(0, eqIdx).trim();
-                    var v = line.substring(eqIdx + 1).trim();
-                    if (k && v) { obj[k] = v; autoIdx++; }
-                } else {
-                    obj['net' + autoIdx++] = line;
-                }
+                if (eqIdx <= 0) return;
+                var k = line.substring(0, eqIdx).trim();
+                var v = line.substring(eqIdx + 1).trim();
+                var qm = v.match(/^"([\s\S]*)"$|^'([\s\S]*)'$/);
+                if (qm) v = qm[1] != null ? qm[1] : qm[2];
+                if (k && v) obj[k] = v;
             });
             vals[name] = obj;
         } else if (el.type === 'checkbox') {
@@ -726,15 +1273,56 @@ function collectValues(formEl) {
 }
 
 function validate(fields, formEl) {
-    formEl.querySelectorAll('.vnt2-input-error').forEach(function(el) {
-        el.classList.remove('vnt2-input-error');
-    });
+    clearFieldErrors(formEl);
     var errors = [];
     fields.forEach(function(f) {
-        if (!f.comment || f.comment.indexOf('必填') === -1) return;
+        if (f.extend && f.extend.type === 'text') {
+            var extEl = formEl.querySelector('[data-field-name="'+cssEscapeName(f.name)+'"][data-field-type="select_extend"]');
+            if (extEl) {
+                var selExt = extEl.querySelector('.vnt2-extend-select');
+                var inputExt = extEl.querySelector('.vnt2-extend-input');
+                var triggerExt = extEl.getAttribute('data-extend-trigger') || '';
+                var prefixExt = extEl.getAttribute('data-extend-prefix') || '';
+                var vExt = inputExt ? inputExt.value.trim() : '';
+                if (selExt && selExt.value === triggerExt && (!vExt || vExt === prefixExt)) {
+                    errors.push(f.name);
+                    setFieldError(inputExt || extEl, _('Required field'));
+                }
+            }
+        }
+        if (f.type === 'section' && f.keys) {
+            var cont = formEl.querySelector('[data-field-name="'+cssEscapeName(f.name)+'"][data-field-type="section"]');
+            if (!cont) return;
+            Object.keys(f.keys).forEach(function(k) {
+                var def = f.keys[k] || {};
+                if (!requiredComment(def.comment)) return;
+                var target = cont.querySelector('[data-section-key="'+cssEscapeName(k)+'"]');
+                if (!target) return;
+                var row = closestFieldRow(target);
+                if (row && row.style.display === 'none') return;
+                var ok = true;
+                if (target.classList && target.classList.contains('vnt2-array-field')) {
+                    ok = false;
+                    target.querySelectorAll('.vnt2-array-item').forEach(function(inp) {
+                        if (inp.value.trim()) ok = true;
+                    });
+                    target = target.querySelector('.vnt2-array-item');
+                } else if (target.type === 'checkbox') {
+                    ok = true;
+                } else {
+                    ok = !!(target.value != null && target.value.trim());
+                }
+                if (!ok) {
+                    errors.push(f.name + '.' + k);
+                    setFieldError(target, _('Required field'));
+                }
+            });
+            return;
+        }
+        if (!requiredComment(f.comment)) return;
         if (f.type === 'array') {
             var c = formEl.querySelector(
-                '[data-field-name="'+f.name+'"][data-field-type="array"]');
+                '[data-field-name="'+cssEscapeName(f.name)+'"][data-field-type="array"]');
             if (!c) return;
             var ok = false;
             c.querySelectorAll('.vnt2-array-item').forEach(function(inp) {
@@ -742,19 +1330,45 @@ function validate(fields, formEl) {
             });
             if (!ok) {
                 errors.push(f.name);
-                var fi = c.querySelector('.vnt2-array-item');
-                if (fi) fi.classList.add('vnt2-input-error');
+                setFieldError(c.querySelector('.vnt2-array-item'), _('Required field'));
             }
         } else {
-            var el = formEl.querySelector('[data-field-name="'+f.name+'"]');
+            var el = formEl.querySelector('[data-field-name="'+cssEscapeName(f.name)+'"]');
             if (!el || el.type === 'checkbox') return;
             if (!el.value.trim()) {
                 errors.push(f.name);
-                el.classList.add('vnt2-input-error');
+                setFieldError(el, _('Required field'));
             }
         }
     });
     return errors;
+}
+function saveWebConfig(self, oldName, newName, formEl, fields, templateContent) {
+    var errors = validate(fields, formEl);
+    if (errors.length) {
+        self._ui.notify(
+            _('The following required fields are not filled: %s').format(errors.join(', ')), 'error');
+        var first = formEl.querySelector('.vnt2-input-error');
+        if (first) first.scrollIntoView({behavior:'smooth', block:'center'});
+        return;
+    }
+    var values = collectValues(formEl);
+    callReadTemplate('vnt').then(function(templateRes) {
+        var currentTemplate = (templateRes && templateRes.content) || templateContent;
+        var content = self._parser.serializeToToml(fields, values, currentTemplate);
+        return callSaveConfig(newName, 'web', content, oldName || '');
+    }).then(function(r) {
+        if (!r || r.result !== 'ok') {
+            self._ui.notify(_('Save failed: %s').format((r && (r.msg || r.error)) || ''), 'error');
+            return;
+        }
+        _dirty = false;
+        if (r.restarted === '1')
+            self._ui.notify(_('Instance "%s" restarted successfully').format(r.name || newName), 'success');
+        return refreshWebInstances(self).then(function() { toggleView(true); });
+    }).catch(function(err) {
+        self._ui.notify(_('Save error: %s').format(String(err)), 'error');
+    });
 }
 
 function saveConfig(self, oldName, newName, tab, formEl, fields, templateContent) {
@@ -775,7 +1389,14 @@ function saveConfig(self, oldName, newName, tab, formEl, fields, templateContent
             var renamed = !!(oldName && oldName !== newName);
             callSaveConfig(newName, tab, content, oldName||'').then(function(r) {
             if (!r || r.result !== 'ok') {
-                self._ui.notify(_('Save failed: %s').format((r && r.msg)||''), 'error');
+                if (r && r.code === 'port_conflict') {
+                    markPortErrors(formEl, r.errors);
+                    self._ui.notify(portErrorMessage(r), 'error');
+                    var firstPort = formEl.querySelector('.vnt2-input-error');
+                    if (firstPort) firstPort.scrollIntoView({behavior:'smooth', block:'center'});
+                } else {
+                    self._ui.notify(_('Save failed: %s').format((r && (r.msg || r.error)) || ''), 'error');
+                }
                 return;
             }
             if (renamed) {
@@ -783,16 +1404,9 @@ function saveConfig(self, oldName, newName, tab, formEl, fields, templateContent
                 delete _listState[tab][oldName];
             }
             _dirty = false;
-            if (tab === 'vnt') {
-                var webReady = self._parser.hasWebAddr(content);
-                var st       = ensureState(tab, newName);
-                st._cfgWebAddr  = webReady ? '1' : '';
-                st.start_method = webReady ? 'vnt2_web' : 'vnt2_cli';
-                st._methodSet   = true;
-            }
             var state = _listState[tab][newName] || ensureState(tab, newName);
             if (state.enabled) {
-                callInstanceAction(newName, 'restart').then(function(res) {
+                callInstanceAction(newName, 'restart', tab).then(function(res) {
                     var ok = res && res.result === 'ok';
                     self._ui.notify(
                         ok ? _('Instance "%s" restarted successfully').format(newName)
@@ -823,7 +1437,7 @@ function saveConfig(self, oldName, newName, tab, formEl, fields, templateContent
 
 function deleteConfig(self, name) {
     var tab     = _tab;
-    var running = !!(self._status && self._status[name]);
+    var running = !!(self._status && self._status[statusKey(tab, name)]);
     self._ui.confirm(_('Confirm Delete'),
         running
             ? _('Instance "%s" is running and will be stopped on delete. Are you sure?').format(name)
@@ -846,14 +1460,17 @@ function deleteConfig(self, name) {
 
 return view.extend({
     load: function() {
-        var initTab = (location.hash === '#vnts') ? 'vnts' : 'vnt';
+        var hash = location.hash.replace('#','');
+        var initTab = hash.indexOf('vnts') === 0 ? 'vnts' : 'vnt';
         return Promise.all([
             L.require('vnt2.common'),
+            L.require('vnt2.reference_editor'),
             L.uci.load('vnt2'),
             callGetTemplateFields('vnt'),
             callGetTemplateFields('vnts'),
             callListConfigs(initTab),
             callListInstances(),
+            callListWebInstances(),
         ]).then(function(data) {
             data._initTab = initTab;
             return data;
@@ -863,48 +1480,52 @@ return view.extend({
     render: function(data) {
         var self    = this;
         var initTab = data._initTab || 'vnt';
-        self._ui     = data[0].VNT2UI;
-        self._parser = data[0].VNT2ConfigParser;
+        self._ui        = data[0].VNT2UI;
+        self._parser    = data[0].VNT2ConfigParser;
+        self._validator = data[0].VNT2Validation;
+        self._web       = data[0].VNT2Web;
+        self._ref       = data[1].VNT2ReferenceEditor;
         self._fields = {
-            vnt:  (data[2] && Array.isArray(data[2].fields)) ? data[2].fields : [],
-            vnts: (data[3] && Array.isArray(data[3].fields)) ? data[3].fields : []
+            vnt:  (data[3] && Array.isArray(data[3].fields)) ? data[3].fields : [],
+            vnts: (data[4] && Array.isArray(data[4].fields)) ? data[4].fields : []
         };
         self._configs          = {vnt:null, vnts:null};
-        self._configs[initTab] = parseConfigs(data[4]);
-        var parsed    = parseInstanceList(data[5] && data[5].instances);
+        self._configs[initTab] = parseConfigs(data[5]);
+        var parsed    = parseInstanceList(data[6] && data[6].instances);
         self._status  = parsed.status;
         self._webAddr = parsed.webAddr;
+        self._webInsts = parseWebInstances(data[7]);
         resetListState();
         _tab   = initTab;
         _dirty = false;
         startStatusTimer(self);
 
         var node = E('div', {'class':'cbi-map'}, [
-            E('h2', {}, _('VNT2 Configuration')),
-            E('div', {'class':'cbi-section'}, [
-                E('div', {'style':'display:flex;border-bottom:2px solid #ddd;margin-bottom:16px;'},
-                    Object.keys(TABS).map(function(t) {
-                        var active = t === initTab;
-                        return E('div', {
-                            'id':    'vnt2-tab-' + t,
-                            'style': [
-                                'padding:8px 24px','cursor:pointer','font-weight:bold',
-                                'margin-bottom:-2px',
-                                'border-bottom:'+(active?'2px solid #3498db':'2px solid transparent'),
-                                'color:'+(active?'#3498db':'#666')
-                            ].join(';'),
-                            'click': function() { switchTab(self, t); }
-                        }, TABS[t]+_('Configuration'));
-                    })
-                ),
+            E('h2', {}, _('Instance Management')),
+            E('div', {'class':'cbi-section vnt2-card'}, [
+                E('div', {'class':'vnt2-page-tabs'}, Object.keys(TABS).map(function(t) {
+                    return E('button', {
+                        'id':'vnt2-tab-' + t,
+                        'type':'button',
+                        'class':'vnt2-page-tab' + (t === _tab ? ' active' : ''),
+                        'click':function() { switchTab(self, t); }
+                    }, TABS[t]);
+                })),
+
                 E('div', {'id':'vnt2-list-wrap'}, [
                     E('div', {
-                        'class':'vnt2-toolbar',
-                        'style':'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;'
+                        'id':'vnt2-config-toolbar',
+                        'class':'vnt2-toolbar'
                     }, [
-                        E('button', {'class':'btn cbi-button-add',
-                            'click':function() { openEditor(self, '', true); }
-                        }, _('+ New Config')),
+                        E('div', {'class':'vnt2-toolbar-group'}, [
+                            E('button', {'id':'vnt2-btn-new-local','class':'btn cbi-button-add',
+                                'click':function() { openEditor(self, '', true); }
+                            }, _tab === 'vnt' ? _('New vnt2_cli Instance') : _('New Config')),
+                            E('button', {'id':'vnt2-btn-new-web','class':'btn cbi-button-add',
+                                'style':'display:' + (_tab === 'vnt' ? '' : 'none') + ';',
+                                'click':function() { openEditor(self, '', true, null, 'web'); }
+                            }, _('New vnt2_web Instance'))
+                        ]),
                         E('button', {'class':'btn cbi-button-save',
                             'click':function() { saveListState(self); }
                         }, _('Save & Apply'))
@@ -919,7 +1540,15 @@ return view.extend({
         loadListState(initTab).then(function() {
             rebuildTable(self);
             var hash = location.hash.replace('#','');
-            if (hash.indexOf('&edit=') !== -1) {
+            if (hash.indexOf('&webraw=') !== -1) {
+                openRawEditor(self, hash.split('&webraw=')[1], 'web');
+            } else if (hash.indexOf('&web=new') !== -1) {
+                openEditor(self, '', true, null, 'web');
+            } else if (hash.indexOf('&web=') !== -1) {
+                openEditor(self, hash.split('&web=')[1], false, null, 'web');
+            } else if (hash.indexOf('&raw=') !== -1) {
+                openRawEditor(self, hash.split('&raw=')[1]);
+            } else if (hash.indexOf('&edit=') !== -1) {
                 openEditor(self, hash.split('&edit=')[1], false);
             } else if (hash.indexOf('&new') !== -1) {
                 openEditor(self, '', true);
@@ -945,3 +1574,4 @@ return view.extend({
     },
     destroy: function() { stopStatusTimer(); }
 });
+

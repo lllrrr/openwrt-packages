@@ -11,15 +11,14 @@ function rpcDeclare(method, params) {
 
 var callGetSystemInfo      = rpcDeclare('get_system_info',      []);
 var callCheckBinaries      = rpcDeclare('check_binaries',       []);
-var callGenerateWebToken   = rpcDeclare('generate_web_token',    []);
 var callGetUpstreamVersion = rpcDeclare('get_upstream_version', ['project', 'mirror']);
 var callGetUpdateStatus    = rpcDeclare('get_update_status',    ['project']);
 var callDoUpdate           = rpcDeclare('do_update',            ['project', 'tag', 'filename', 'upx']);
 var callSaveSettings       = rpcDeclare('save_settings', [
-    'bin_path','config_path','arch','mirror','web_token',
+    'config_path','bin_path','arch','mirror','web_token','web_addr','web_enabled','web_data_dir',
     'auto_update','update_interval','upx_compressed',
     'respawn_threshold','respawn_timeout','respawn_retry',
-    'log_to_file','log_errors_only','log_max_kb','startup_check_window',
+    'log_to_file','log_errors_only','log_max_kb','startup_check_window','kill_interval',
     'fw_vnt_to_lan','fw_lan_to_vnt',
     'fw_vnt_to_wan','fw_wan_to_vnt',
     'fw_vnt_web','fw_vnts_web'
@@ -33,10 +32,10 @@ var MIRROR_OPTIONS = [
 ];
 
 var COMPONENTS = [
-    { name: 'vnt2_cli',  binKey: 'vnt2_cli',  versionKey: 'vnt_version'  },
-    { name: 'vnt2_web',  binKey: 'vnt2_web',  versionKey: 'vnt_version'  },
-    { name: 'vnt2_ctrl', binKey: 'vnt2_ctrl', versionKey: 'vnt_version'  },
-    { name: 'vnts2',     binKey: 'vnts2',     versionKey: 'vnts_version' },
+    { name: 'vnt2_cli',  binKey: 'vnt2_cli',  versionKey: 'vnt_cli_version'  },
+    { name: 'vnt2_ctrl', binKey: 'vnt2_ctrl', versionKey: 'vnt_ctrl_version' },
+    { name: 'vnt2_web',  binKey: 'vnt2_web',  versionKey: 'vnt_version'      },
+    { name: 'vnts2',     binKey: 'vnts2',     versionKey: 'vnts_version'     },
 ];
 
 var FW_OPTIONS = [
@@ -44,27 +43,9 @@ var FW_OPTIONS = [
     { key: 'fw_lan_to_vnt', label: 'LAN → VNT', desc: _('Allow LAN to access virtual network') },
     { key: 'fw_vnt_to_wan', label: 'VNT → WAN', desc: _('Allow virtual network to access WAN')       },
     { key: 'fw_wan_to_vnt', label: 'WAN → VNT', desc: _('Allow WAN to access virtual network')       },
-    { key: 'fw_vnt_web',  label: _('VNT Web External Access'),  desc: _('Requires web_addr configuration') },
+    { key: 'fw_vnt_web',  label: _('VNT Web External Access'),  desc: _('Allow WAN to access the vnt2_web listen port') },
     { key: 'fw_vnts_web', label: _('VNTS Web External Access'), desc: _('Requires web_bind configuration') },
 ];
-
-function detectLang() {
-    var htmlLang = document.documentElement.lang || '';
-    if (htmlLang && htmlLang !== 'auto') return htmlLang.toLowerCase();
-    return (navigator.language || navigator.userLanguage || '').toLowerCase();
-}
-
-(function() {
-    var id = 'vnt2-inline-style';
-    if (document.getElementById(id)) return;
-    var style = document.createElement('style');
-    style.id = id;
-    style.textContent = [
-        '.vnt2-progress-track{background:#eee;border-radius:4px;height:8px;margin-top:8px;overflow:hidden;}',
-        '.vnt2-progress-bar{height:100%;border-radius:4px;background:#4caf50;width:0%;transition:width 0.5s ease,background 0.3s;}'
-    ].join('');
-    document.head.appendChild(style);
-})();
 
 return view.extend({
 
@@ -81,6 +62,7 @@ return view.extend({
         var self       = this;
         self._ui       = data[0].VNT2UI;
         self._events   = data[0].VNT2Events;
+        self._fmt      = data[0].VNT2Format;
         self._sysinfo  = data[2] || {};
         self._binaries = data[3] || {};
         window.requestAnimationFrame(function() {
@@ -99,13 +81,20 @@ return view.extend({
 
     _getUciSettings: function() {
         var g = function(k) { return uci.get('vnt2', 'global', k); };
+        var domVal = function(id, fallback) {
+            var el = document.getElementById(id);
+            return el ? (el.value || '').trim() : fallback;
+        };
         var boolStr = function(v) { return v === '1' ? '1' : '0'; };
         return [
-            g('bin_path')                  || '/usr/bin',
-            g('config_path')               || '/etc/vnt2_config',
-            g('arch')                      || 'auto',
+            domVal('s-config-path', g('config_path') || '/etc/vnt2_config'),
+            domVal('s-bin-path',    g('bin_path')    || '/usr/bin'),
+            domVal('s-arch',        g('arch')        || 'auto'),
             g('mirror')                    || 'github',
-            g('web_token')                 || '',
+            g('web_token')                  || '',
+            g('web_addr')                   || '0.0.0.0:19099',
+            boolStr(g('web_enabled') == null ? '1' : g('web_enabled')),
+            domVal('s-web-data-dir', g('web_data_dir') || '/vnt_config'),
             boolStr(g('auto_update')),
             parseInt(g('update_interval')) || 7,
             boolStr(g('upx_compressed')),
@@ -116,6 +105,7 @@ return view.extend({
             boolStr(g('log_errors_only')),
             parseInt(g('log_max_kb'))        || 300,
             parseInt(g('startup_check_window')) || 60,
+            parseInt(g('kill_interval')) || 1800,
             boolStr(g('fw_vnt_to_lan')),
             boolStr(g('fw_lan_to_vnt')),
             boolStr(g('fw_vnt_to_wan')),
@@ -128,16 +118,17 @@ return view.extend({
     _validateSettings: function() {
         var self = this;
         var fields = [
-            ['s-bin-path', _('Binary Path')],
             ['s-config-path', _('Configuration Path')],
+            ['s-bin-path', _('Binary Path')],
+            ['s-web-data-dir', _('vnt2_web Data Directory')],
             ['s-arch', _('Device Architecture')],
-            ['s-web-token', _('VNT Web Access Token')],
             ['s-interval', _('Update Interval (Days)')],
+            ['s-startup-check-window', _('Public IP Check Timeout (s)')],
+            ['s-kill-interval', _('Restart Cooldown (s)')],
             ['s-respawn-threshold', _('Failure Threshold (s)')],
             ['s-respawn-timeout', _('Restart Delay (s)')],
             ['s-respawn-retry', _('Restart Retries')],
-            ['s-log-max-kb', _('Log Max Size (KB)')],
-            ['s-startup-check-window', _('Public IP Check Timeout (s)')]
+            ['s-log-max-kb', _('Log Max Size (KB)')]
         ];
         var missing = [];
         fields.forEach(function(item) {
@@ -161,26 +152,9 @@ return view.extend({
         return true;
     },
 
-    _validateWebToken: function() {
-        var el = document.getElementById('s-web-token');
-        if (!el) return true;
-        var value = (el.value || '').trim();
-        var valid = /^[0-9a-fA-F]{64}$/.test(value);
-        var error = document.getElementById('s-web-token-error');
-        if (!valid) {
-            el.classList.add('vnt2-input-error');
-            if (error) error.style.display = 'block';
-            el.focus();
-            return false;
-        }
-        el.classList.remove('vnt2-input-error');
-        if (error) error.style.display = 'none';
-        return true;
-    },
-
     handleSave: function() {
         var self = this;
-        if (!self._validateSettings() || !self._validateWebToken()) return Promise.resolve({ result:'error', code:'invalid_settings' });
+        if (!self._validateSettings()) return Promise.resolve({ result:'error', code:'invalid_settings' });
         return callSaveSettings.apply(null, self._getUciSettings()).then(function(r) {
             if (!r || r.result !== 'ok')
                 self._ui.notify(_('Token must be exactly 64 hexadecimal characters'), 'error');
@@ -190,7 +164,7 @@ return view.extend({
 
     handleSaveApply: function() {
         var self = this;
-        if (!self._validateSettings() || !self._validateWebToken()) return Promise.resolve({ result:'error', code:'invalid_settings' });
+        if (!self._validateSettings()) return Promise.resolve({ result:'error', code:'invalid_settings' });
         return callSaveSettings.apply(null, self._getUciSettings())
             .then(function(r) {
                 if (!r || r.result !== 'ok') {
@@ -207,20 +181,17 @@ return view.extend({
 
     _buildTabContainer: function(tabs) {
         var self   = this;
-        var header = E('div', { 'style': 'display:flex;border-bottom:2px solid #ddd;margin-bottom:20px;' });
+        var header = E('div', { 'class':'vnt2-page-tabs' });
         var body   = E('div', {});
         var activeHash = location.hash.replace('#','') || tabs[0].id;
         var hasMatch = tabs.some(function(t){ return t.id === activeHash; });
         if(!hasMatch) activeHash = tabs[0].id;
-        tabs.forEach(function(tab, idx) {
+        tabs.forEach(function(tab) {
             var active = tab.id === activeHash;
-            header.appendChild(E('div', {
+            header.appendChild(E('button', {
+                'type':'button',
                 'data-tab': tab.id,
-                'style': [
-                    'padding:8px 24px', 'cursor:pointer', 'font-weight:bold', 'margin-bottom:-2px',
-                    'border-bottom:' + (active ? '2px solid #3498db' : '2px solid transparent'),
-                    'color:'         + (active ? '#3498db' : '#666')
-                ].join(';'),
+                'class':'vnt2-page-tab' + (active ? ' active' : ''),
                 'click': function(ev) {
                     self._switchTab(ev.currentTarget.getAttribute('data-tab'));
                 }
@@ -236,15 +207,14 @@ return view.extend({
         location.hash = activeId;
         document.querySelectorAll('[data-tab]').forEach(function(el) {
             var active = el.getAttribute('data-tab') === activeId;
-            el.style.borderBottom = active ? '2px solid #3498db' : '2px solid transparent';
-            el.style.color        = active ? '#3498db' : '#666';
+            el.classList.toggle('active', active);
         });
         ['tab-settings', 'tab-update'].forEach(function(id) {
             var el = document.getElementById(id);
             if (el) el.style.display = id === activeId ? 'block' : 'none';
         });
         var footer = document.querySelector('.cbi-page-actions');
-        if (footer) footer.style.display = activeId === 'tab-settings' ? '' : 'none';
+        if (footer) footer.style.display = activeId === 'tab-update' ? 'none' : '';
     },
 
     _buildSettingsTab: function() {
@@ -252,13 +222,9 @@ return view.extend({
         var g    = function(k) { return uci.get('vnt2', 'global', k); };
 
         function buildCheck(id, uciKey) {
-            var cb = E('input', { 'type': 'checkbox', 'id': id,
-                'change': function() {
-                    uci.set('vnt2', 'global', uciKey, this.checked ? '1' : '0');
-                }
-            });
-            if (g(uciKey) === '1') cb.setAttribute('checked', 'checked');
-            return cb;
+            return vui.toggleSwitch(id, g(uciKey) === '1', function(ev, cb) {
+                uci.set('vnt2', 'global', uciKey, cb.checked ? '1' : '0');
+            }, _('Enabled'));
         }
 
         function buildText(id, uciKey, style, fallback) {
@@ -271,10 +237,7 @@ return view.extend({
 
         function buildCheckRow(opt) {
             return vui.buildFormRow(opt.label,
-                E('label', { 'style': 'cursor:pointer;user-select:none;' }, [
-                    buildCheck('s-' + opt.key, opt.key),
-                    E('span', { 'style': 'margin-left:6px;' }, _('Enabled'))
-                ]), opt.desc || '');
+                buildCheck('s-' + opt.key, opt.key), opt.desc || '');
         }
 
         var mirrorSel = E('select', { 'class': 'cbi-input-select', 'id': 's-mirror',
@@ -287,73 +250,28 @@ return view.extend({
         }));
 
         return E('div', {}, [
-            E('div', { 'class': 'cbi-section' }, [
+            E('div', { 'class': 'cbi-section vnt2-settings-card' }, [
                 E('h3', {}, _('Basic Settings')),
-                vui.buildFormRow(_('Binary Path'),
-                    buildText('s-bin-path', 'bin_path'),
-                    _('Directory of binary files, default /usr/bin')),
                 vui.buildFormRow(_('Configuration Path'),
                     buildText('s-config-path', 'config_path'),
                     _('Directory of configuration files, default /etc/vnt2_config')),
+                vui.buildFormRow(_('Binary Path'),
+                    buildText('s-bin-path', 'bin_path', 'width:100%;max-width:360px;box-sizing:border-box;', '/usr/bin'),
+                    _('Directory shared by vnt2_cli, vnt2_ctrl, vnt2_web and vnts2. Default /usr/bin')),
+                vui.buildFormRow(_('vnt2_web Data Directory'),
+                    buildText('s-web-data-dir', 'web_data_dir', 'width:100%;max-width:360px;box-sizing:border-box;', '/vnt_config'),
+                    _('Directory where vnt2_web instance files (*.toml) are stored, default /vnt_config. Restart vnt2_web after changing')),
                 vui.buildFormRow(_('Device Architecture'),
                     buildText('s-arch', 'arch', 'width:100%;max-width:200px;box-sizing:border-box;'),
                     _('Current detected: %s, automatic recognition by auto, or manual specification')
                        .format(self._sysinfo.arch || _('Unknown'))),
                 vui.buildFormRow(_('Download Mirror'), mirrorSel, _('Multiple mirrors ensure successful downloads')),
-                (function() {
-                    var token = E('input', { 'type':'text', 'class':'cbi-input-text',
-                        'id':'s-web-token', 'value':g('web_token') || '',
-                        'style':'width:100%;max-width:360px;box-sizing:border-box;'
-                    });
-                    token.addEventListener('input', function() {
-                        var error = document.getElementById('s-web-token-error');
-                        if (error) error.style.display = 'none';
-                        token.classList.remove('vnt2-input-error');
-                        uci.set('vnt2', 'global', 'web_token', token.value.trim());
-                    });
-                    token.addEventListener('change', function() {
-                        uci.set('vnt2', 'global', 'web_token', this.value.trim());
-                    });
-                    if (!token.value) {
-                        callGenerateWebToken().then(function(r) {
-                            if (r && r.result === 'ok') {
-                                token.value = r.token;
-                                uci.set('vnt2', 'global', 'web_token', r.token);
-                            }
-                        });
-                    }
-                    var generate = E('button', {'type':'button','class':'btn cbi-button-action','style':'margin-left:6px;',
-                        'click':function(){
-                            generate.disabled = true;
-                            callGenerateWebToken().then(function(r){
-                                if (r && r.result === 'ok') { token.value = r.token; uci.set('vnt2','global','web_token',r.token); }
-                                else self._ui.notify(_('Token generation failed'), 'error');
-                            }).catch(function(){ self._ui.notify(_('Token generation failed'), 'error'); })
-                              .finally(function(){ generate.disabled = false; });
-                        }
-                    }, _('Generate Random Token'));
-                    return vui.buildFormRow(_('VNT Web Access Token'), E('div',{},[
-                        token, generate,
-                        E('div', {'id':'s-web-token-error',
-                            'style':'display:none;color:#dc3545;font-size:12px;margin-top:4px;'},
-                            _('Token must be exactly 64 hexadecimal characters'))
-                    ]), _('All vnt2_web instances share this token. The token must be exactly 64 hexadecimal characters.'));
-                })(),
                 vui.buildFormRow(_('Auto Update'),
-                    E('label', { 'style': 'cursor:pointer;user-select:none;' }, [
-                        (function() {
-                            var cb = E('input', { 'type': 'checkbox', 'id': 's-auto-update',
-                                'change': function() {
-                                    uci.set('vnt2', 'global', 'auto_update', this.checked ? '1' : '0');
-                                    var row = document.getElementById('s-interval-row');
-                                    if (row) row.style.display = this.checked ? '' : 'none';
-                                }
-                            });
-                            if (g('auto_update') === '1') cb.setAttribute('checked', 'checked');
-                            return cb;
-                        })(),
-                        E('span', { 'style': 'margin-left:6px;' }, _('Enable auto update'))
-                    ]), _('Automatically check and update programs periodically')),
+                    vui.toggleSwitch('s-auto-update', g('auto_update') === '1', function(ev, cb) {
+                        uci.set('vnt2', 'global', 'auto_update', cb.checked ? '1' : '0');
+                        var row = document.getElementById('s-interval-row');
+                        if (row) row.style.display = cb.checked ? '' : 'none';
+                    }, _('Enable auto update')), _('Automatically check and update programs periodically')),
                 E('div', { 'id': 's-interval-row', 'style': 'display:' + (g('auto_update') === '1' ? '' : 'none') + ';' }, [
                     (function() {
                         var inpInterval = E('input', { 'type': 'number', 'class': 'cbi-input-text',
@@ -372,20 +290,31 @@ return view.extend({
                     })()
                 ]),
                 vui.buildFormRow(_('UPX Compression'),
-                    E('label', { 'style': 'cursor:pointer;user-select:none;' }, [
-                        buildCheck('s-upx', 'upx_compressed'),
-                        E('span', { 'style': 'margin-left:6px;' }, _('Use UPX to compress after installation'))
-                    ]), _('Significantly reduce binary file size'))
+                    buildCheck('s-upx', 'upx_compressed'), _('Significantly reduce binary file size'))
             ]),
-            E('div', { 'class': 'cbi-section' }, [
+            E('div', { 'class': 'cbi-section vnt2-settings-card' }, [
                 E('h3', {}, _('Process Watchdog (Respawn)')),
                 (function() {
                     var inp = E('input', { 'type':'number', 'class':'cbi-input-text',
                         'id':'s-startup-check-window', 'value': g('startup_check_window') || '60', 'min':'0', 'max':'3600', 'style':'width:100px;',
+                        'input': function() {
+                            desc.textContent = _('Restart if no public IP is received within %d seconds; 0 disables this check.').format(this.value || '60');
+                        },
                         'change': function() { uci.set('vnt2', 'global', 'startup_check_window', this.value || '60'); }
                     });
-                    return vui.buildFormRow(_('Public IP Check Timeout (s)'), inp,
-                        _('Restart if no public IP is received within %d seconds; 0 disables this check.').format(inp.value));
+                    var desc = E('span', {}, _('Restart if no public IP is received within %d seconds; 0 disables this check.').format(inp.value));
+                    return vui.buildFormRow(_('Public IP Check Timeout (s)'), inp, desc);
+                })(),
+                (function() {
+                    var inp = E('input', { 'type':'number', 'class':'cbi-input-text',
+                        'id':'s-kill-interval', 'value': g('kill_interval') || '1800', 'min':'0', 'max':'86400', 'style':'width:100px;',
+                        'input': function() {
+                            desc.textContent = _('Do not trigger another wrapper restart within %d seconds; 0 disables cooldown.').format(this.value || '1800');
+                        },
+                        'change': function() { uci.set('vnt2', 'global', 'kill_interval', this.value || '1800'); }
+                    });
+                    var desc = E('span', {}, _('Do not trigger another wrapper restart within %d seconds; 0 disables cooldown.').format(inp.value));
+                    return vui.buildFormRow(_('Restart Cooldown (s)'), inp, desc);
                 })(),
                     ...(function() {
                         var inpThreshold = E('input', { 'type': 'number', 'class': 'cbi-input-text',
@@ -427,43 +356,36 @@ return view.extend({
                         ];
                     })()
                 ]),
-            E('div', { 'class': 'cbi-section' }, [
+            E('div', { 'class': 'cbi-section vnt2-settings-card' }, [
                 E('h3', {}, _('Log Settings')),
                 ...(function() {
                     var logEnabled = g('log_to_file') !== '0';
-                    var cbLog = E('input', { 'type': 'checkbox', 'id': 's-log-to-file',
-                        'change': function() {
-                            uci.set('vnt2', 'global', 'log_to_file', this.checked ? '1' : '0');
-                            var box = document.getElementById('s-log-options');
-                            if (box) box.style.display = this.checked ? '' : 'none';
-                        }
-                    });
-                    if (logEnabled) cbLog.setAttribute('checked', 'checked');
-                    var cbErrors = E('input', { 'type': 'checkbox', 'id': 's-log-errors-only' });
-                    if (g('log_errors_only') === '1') cbErrors.setAttribute('checked', 'checked');
-                    cbErrors.addEventListener('change', function() {
-                        uci.set('vnt2', 'global', 'log_errors_only', this.checked ? '1' : '0');
-                    });
+                    var cbLog = vui.toggleSwitch('s-log-to-file', logEnabled, function(ev, cb) {
+                        uci.set('vnt2', 'global', 'log_to_file', cb.checked ? '1' : '0');
+                        var box = document.getElementById('s-log-options');
+                        if (box) box.style.display = cb.checked ? '' : 'none';
+                    }, _('Save instance output to log file'));
+                    var cbErrors = vui.toggleSwitch('s-log-errors-only', g('log_errors_only') === '1', function(ev, cb) {
+                        uci.set('vnt2', 'global', 'log_errors_only', cb.checked ? '1' : '0');
+                    }, _('Only save WARN and ERROR output'));
                     var inpLogMax = E('input', { 'type': 'number', 'class': 'cbi-input-text',
                         'id': 's-log-max-kb', 'value': g('log_max_kb') || '300',
                         'min': '50', 'max': '10240', 'style': 'width:100px;',
                         'change': function() { uci.set('vnt2', 'global', 'log_max_kb', this.value || '300'); }
                     });
                     return [
-                        vui.buildFormRow(_('Enable instance log'), E('label', {'style':'cursor:pointer;user-select:none;'}, [
-                            cbLog, E('span', {'style':'margin-left:6px;'}, _('Save instance output to log file'))
-                        ]), _('Disabling this only stops saving logs; fault detection and recovery remain active.')),
+                        vui.buildFormRow(_('Enable instance log'), cbLog,
+                            _('Disabling this only stops saving logs; process supervision is still handled by procd respawn.')),
                         E('div', {'id':'s-log-options', 'style':'display:'+(logEnabled?'':'none')+';'}, [
-                            vui.buildFormRow(_('Errors and warnings only'), E('label', {'style':'cursor:pointer;user-select:none;'}, [
-                                cbErrors, E('span', {'style':'margin-left:6px;'}, _('Only save WARN and ERROR output'))
-                            ]), _('Fault detection is still performed for all process output.')),
+                            vui.buildFormRow(_('Errors and warnings only'), cbErrors,
+                                _('Only WARN and ERROR lines are written to the instance log file.')),
                             vui.buildFormRow(_('Log Max Size (KB)'), inpLogMax,
                                 _('Each instance log truncated at %d KB').format(inpLogMax.value))
                         ])
                     ];
                 })()
             ]),
-            E('div', { 'class': 'cbi-section' }, [
+            E('div', { 'class': 'cbi-section vnt2-settings-card' }, [
                 E('h3', {}, _('Firewall Forwarding')),
                 E('div', {}, FW_OPTIONS.map(buildCheckRow))
             ])
@@ -472,50 +394,41 @@ return view.extend({
 
     _buildUpdateTab: function() {
         var self = this, sys = self._sysinfo, bins = self._binaries;
-        var thStyle = 'padding:8px 12px;text-align:center;white-space:nowrap;';
-        var tdStyle = 'padding:8px 12px;text-align:center;vertical-align:middle;white-space:nowrap;';
 
-        return E('div', { 'class': 'cbi-section' }, [
+        return E('div', { 'class': 'cbi-section vnt2-settings-card' }, [
             E('h3', {}, _('Current Version Info')),
-            E('div', { 'style': 'width:100%;max-width:100%;box-sizing:border-box;display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid #ddd;border-radius:8px;margin-bottom:20px;' },
-                E('table', {
-                    'style': [
-                        'width:100%', 'min-width:360px', 'border-collapse:collapse',
-                        'border-spacing:0', 'box-sizing:border-box'
-                    ].join(';')
-                }, [
+            E('div', { 'class':'vnt2-version-box' },
+                E('table', {}, [
                     E('thead', {}, E('tr', {},
                         [_('Component'), _('Version'), _('Status')].map(function(h) {
-                            return E('th', { 'style': thStyle }, h);
+                            return E('th', {}, h);
                         })
                     )),
                     E('tbody', {}, [
                         E('tr', {}, [
-                            E('td', { 'style': tdStyle }, 'luci-app-vnt2'),
-                            E('td', { 'style': tdStyle }, sys.luci_version || _('Unknown')),
-                            E('td', { 'style': tdStyle + 'color:#28a745;font-weight:bold;' }, _('✓ Installed'))
+                            E('td', {}, 'luci-app-vnt2'),
+                            E('td', {}, sys.luci_version || _('Unknown')),
+                            E('td', { 'class':'vnt2-ok-text' }, _('Installed'))
                         ])
                     ].concat(self._buildVersionRows(sys, bins)))
                 ])
             ),
             E('h3', {}, _('Check Update')),
             self._buildUpdateBlock('luci-app-vnt2', _('LuCI Plugin (luci-app-vnt2)')),
-            self._buildUpdateBlock('vnt',  _('VNT Client (vnt2_cli / vnt2_web / vnt2_ctrl)')),
+            self._buildUpdateBlock('vnt',  _('VNT Client Web (vnt2_web)')),
             self._buildUpdateBlock('vnts', _('VNTS Server (vnts2)'))
         ]);
     },
 
     _buildVersionRows: function(sys, bins) {
-        var tdStyle = 'padding:8px 12px;text-align:center;vertical-align:middle;';
         return COMPONENTS.map(function(comp) {
             var installed = !!bins[comp.binKey];
             return E('tr', { 'data-comp': comp.name }, [
-                E('td', { 'style': tdStyle }, comp.name),
-                E('td', { 'style': tdStyle },
+                E('td', {}, comp.name),
+                E('td', {},
                     installed ? (sys[comp.versionKey] || _('Unknown')) : _('Not installed')),
-                E('td', { 'style': tdStyle + 'color:' +
-                    (installed ? '#28a745' : '#dc3545') + ';font-weight:bold;' },
-                    installed ? _('✓ Installed') : _('✗ Not installed'))
+                E('td', { 'class': installed ? 'vnt2-ok-text' : 'vnt2-err-text' },
+                    installed ? _('Installed') : _('Not installed'))
             ]);
         });
     },
@@ -540,27 +453,23 @@ return view.extend({
         var bid    = 'upd-' + project;
         var mirror = uci.get('vnt2', 'global', 'mirror') || 'github';
 
-        return E('div', {
-            'style': 'border:1px solid #e0e0e0;border-radius:6px;padding:16px;margin-bottom:12px;'
-        }, [
-            E('h4', { 'style': 'margin-top:0;margin-bottom:12px;' }, title),
-            E('div', { 'style': 'display:flex;align-items:center;gap:10px;' }, [
+        return E('div', { 'class':'vnt2-update-block' }, [
+            E('h4', {}, title),
+            E('div', { 'class': 'vnt2-row-flex', 'style': 'gap:10px;' }, [
                 E('button', {
                     'class': 'btn cbi-button-action',
                     'id':    bid + '-check-btn',
                     'click': function() { self._checkUpstream(project, bid); }
                 }, _('Check Upstream Version')),
-                E('span', { 'id': bid + '-status', 'style': 'font-size:13px;color:#888;' },
+                E('span', { 'id': bid + '-status', 'class': 'vnt2-update-status' },
                     _('Click to check and get version info'))
             ]),
             E('div', { 'id': bid + '-progress', 'style': 'display:none;margin-top:10px;' }, [
-                E('div', { 'class': 'vnt2-progress-track' }, [
-                E('div', { 'id': bid + '-bar', 'class': 'vnt2-progress-bar' })
-                ])
+                E('div', { 'id': bid + '-meter' }, self._ui.progressBar(0, _('Progress'), 'vnt2-download-meter', 'green'))
             ]),
             E('div', { 'id': bid + '-mirror-row',
                 'style': 'display:none;margin-top:8px;align-items:center;gap:8px;' }, [
-                E('span', { 'style': 'font-size:13px;color:#666;' }, _('Switch mirror and retry:')),
+                E('span', { 'class':'vnt2-update-status' }, _('Switch mirror and retry:')),
                 E('select', {
                     'class': 'cbi-input-select',
                     'id':    bid + '-mirror',
@@ -577,7 +486,7 @@ return view.extend({
             ]),
             E('div', { 'id': bid + '-selects',
                 'style': 'display:none;margin-top:10px;' }, [
-                E('div', { 'style': 'display:flex;flex-wrap:wrap;align-items:center;gap:8px;width:100%;box-sizing:border-box;overflow:hidden;' }, [
+                E('div', { 'class': 'vnt2-row-flex', 'style': 'width:100%;box-sizing:border-box;overflow:hidden;' }, [
                     E('label', {}, _('Version:')),
                     E('select', { 'class': 'cbi-input-select', 'id': bid + '-tag',
                         'style': 'width:auto;max-width:100%;min-width:0;box-sizing:border-box;' }),
@@ -591,31 +500,27 @@ return view.extend({
                     }, _('Update Now'))
                 ])
             ]),
-            E('pre', { 'id': bid + '-log',
-                'style': [
-                    'display:none', 'margin-top:10px', 'background:#1e1e1e',
-                    'color:#d4d4d4', 'padding:10px', 'font-size:12px',
-                    'height:200px', 'overflow-y:auto', 'border-radius:4px',
-                    'white-space:pre-wrap', 'font-family:monospace'
-                ].join(';')
-            })
+            E('pre', { 'id': bid + '-log' })
         ]);
     },
 
     _el: function(id) { return document.getElementById(id); },
 
     _setBar: function(bid, pct) {
-        var bar      = this._el(bid + '-bar');
         var progress = this._el(bid + '-progress');
-        if (!bar || !progress) return;
+        if (!progress) return;
         var p = Math.min(100, Math.max(0, pct || 0));
         progress.style.display = 'block';
-        bar.style.width        = p + '%';
+        var meter = progress.querySelector('.vnt2-meter');
+        if (meter && this._ui && this._ui.updateProgressBar)
+            this._ui.updateProgressBar(meter, p, _('Progress'), 'green');
     },
 
-    _setStatus: function(bid, text, color) {
+    _setStatus: function(bid, text, state) {
         var el = this._el(bid + '-status');
-        if (el) { el.textContent = text; el.style.color = color || '#888'; }
+        if (!el) return;
+        el.textContent = text;
+        el.className = 'vnt2-update-status' + (state ? ' ' + state : '');
     },
 
     _showLog: function(bid, text) {
@@ -627,7 +532,7 @@ return view.extend({
         text.split('\n').forEach(function(line) {
             if (!line) return;
             var span = document.createElement('span');
-            span.style.display = 'block';
+            span.className = 'vnt2-log-line';
             span.textContent = (self._events && self._events.line(line)) || line;
             el.appendChild(span);
         });
@@ -655,12 +560,12 @@ return view.extend({
         self._hide(bid + '-selects');
         self._hide(bid + '-log');
         self._hide(bid + '-progress');
-        self._setStatus(bid, _('Checking...'), '#888');
+        self._setStatus(bid, _('Checking...'), '');
         callGetUpstreamVersion(project, mirror).then(function() {
             self._pollStatus(project, bid, 'check');
         }).catch(function(err) {
             if (checkBtn) checkBtn.disabled = false;
-            self._setStatus(bid, _('✗ Start failed: %s').format(String(err)), '#dc3545');
+            self._setStatus(bid, _('Start failed: %s').format(String(err)), 'err');
             self._show(bid + '-mirror-row', true);
         });
     },
@@ -674,7 +579,7 @@ return view.extend({
         var fname  = fileEl ? fileEl.value : '';
 
         if (!tag || !fname) {
-            self._setStatus(bid, _('✗ Please check version first'), '#dc3545');
+            self._setStatus(bid, _('Please check version first'), 'err');
             return;
         }
 
@@ -682,7 +587,7 @@ return view.extend({
                   !!(this._el('s-upx') || {}).checked;
 
         if (project === 'luci-app-vnt2' && fname.toLowerCase().indexOf('i18n') === -1) {
-            var lang = detectLang();
+            var lang = self._fmt.detectLang();
             var langFile = '';
             var releases = self._currentReleases || [];
             for (var i = 0; i < releases.length; i++) {
@@ -705,19 +610,19 @@ return view.extend({
         self._hide(bid + '-mirror-row');
         self._setBar(bid, 0);
         self._showLog(bid, _('Preparing to download...'));
-        self._setStatus(bid, _('Downloading...'), '#888');
+        self._setStatus(bid, _('Downloading...'), '');
 
         callDoUpdate(project, tag, fname, upx).then(function(r) {
             if (!r || r.result !== 'ok') {
                 if (btn) btn.disabled = false;
-                self._setStatus(bid, _('✗ Download start failed'), '#dc3545');
+                self._setStatus(bid, _('Download start failed'), 'err');
                 self._show(bid + '-mirror-row', true);
                 return;
             }
             self._pollStatus(project, bid, 'download');
         }).catch(function(err) {
             if (btn) btn.disabled = false;
-            self._setStatus(bid, _('✗ Error: %s').format(String(err)), '#dc3545');
+            self._setStatus(bid, _('Error: %s').format(String(err)), 'err');
             self._show(bid + '-mirror-row', true);
         });
     },
@@ -747,38 +652,41 @@ return view.extend({
                 if (done || !s) return;
                 var dot = '.'.repeat(dots % 4 + 1);
                 if (s.status === 'checking') {
-                    self._setStatus(bid, _('Checking') + dot, '#888');
+                    self._setStatus(bid, _('Checking') + dot, '');
                     return;
                 }
                 if (s.status === 'downloading') {
                     if (s.log) self._showLog(bid, s.log);
-                    var pct = 0;
-                    var lines = (s.log || '').split('\n');
-                    for (var i = lines.length - 1; i >= 0; i--) {
-                        var m = lines[i].match(/PROGRESS:(\d+)/);
-                        if (m) { pct = parseInt(m[1]); break; }
+                    var p = s.progress || {};
+                    if (p.pct != null && p.pct >= 0) {
+                        self._setBar(bid, p.pct);
+                        self._setStatus(bid, _('Downloading... %d%%').format(p.pct), '');
+                    } else if (p.done) {
+                        self._setBar(bid, 0);
+                        self._setStatus(bid, _('Downloading... %s').format(self._fmt.bytes(p.done)), '');
+                    } else {
+                        self._setBar(bid, 0);
+                        self._setStatus(bid, _('Downloading...'), '');
                     }
-                    self._setBar(bid, pct);
-                    self._setStatus(bid, _('Downloading... %d%%').format(pct), '#888');
                     return;
                 }
                 if (s.status === 'installing' || s.status === 'processing') {
                     if (s.log) self._showLog(bid, s.log);
                     self._setBar(bid, 100);
-                    self._setStatus(bid, _('Installing...'), '#888');
+                    self._setStatus(bid, _('Installing...'), '');
                     return;
                 }
                 stopAll();
                 if (s.status === 'idle') {
                     if (checkBtn) checkBtn.disabled = false;
                     if (btn) btn.disabled = false;
-                    self._setStatus(bid, _('✗ Update task did not start or status was lost'), '#dc3545');
+                    self._setStatus(bid, _('Update task did not start or status was lost'), 'err');
                     self._show(bid + '-mirror-row', true);
                     return;
                 }
                 if (s.status === 'ready') {
                     if (checkBtn) checkBtn.disabled = false;
-                    self._setStatus(bid, _('✓ Found %d versions').format(s.count), '#28a745');
+                    self._setStatus(bid, _('Found %d versions').format(s.count), 'ok');
                     self._populateReleases(s.releases, bid);
                     self._show(bid + '-selects');
                     return;
@@ -787,7 +695,7 @@ return view.extend({
                     if (btn) btn.disabled = false;
                     self._setBar(bid, 100);
                     var installed = tr(s.installed) || '';
-                    self._setStatus(bid, _('✓ Installation complete: %s').format(installed), '#28a745');
+                    self._setStatus(bid, _('Installation complete: %s').format(installed), 'ok');
                     if (s.log) self._showLog(bid, s.log);
                     self._refreshVersionTable();
                     return;
@@ -799,7 +707,7 @@ return view.extend({
                         ? self._events.text(s.event, s.args || {})
                         : ((s.code && self._events) ? self._events.text(s.code, s.args || {}) : '');
                     msg = msg || tr(s.msg) || _('Failed');
-                    self._setStatus(bid, _('✗ %s').format(msg), '#dc3545');
+                    self._setStatus(bid, msg, 'err');
                     if (s.log) self._showLog(bid, s.log);
                     self._show(bid + '-mirror-row', true);
                     return;
@@ -813,7 +721,7 @@ return view.extend({
             stopAll();
             if (checkBtn) checkBtn.disabled = false;
             if (btn)      btn.disabled      = false;
-            self._setStatus(bid, _('✗ Timeout, please retry'), '#dc3545');
+            self._setStatus(bid, _('Timeout, please retry'), 'err');
             self._show(bid + '-mirror-row', true);
         }, timeoutMs);
     },

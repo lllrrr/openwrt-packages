@@ -5,12 +5,16 @@ LUCI_DEPENDS:=+luci-base +luci-compat +kmod-tun
 LUCI_PKGARCH:=all
 
 PKG_NAME:=luci-app-vnt2
-PKG_VERSION:=1.6.9
+PKG_VERSION:=1.7.0
 PKG_RELEASE:=1
 PKG_PO_VERSION:=$(PKG_VERSION)
 
 LUCI_MINIFY_JS:=0
 LUCI_MINIFY_CSS:=0
+
+PKG_LICENSE:=Apache-2.0
+PKG_MAINTAINER:=whzhni1
+LUCI_TITLE:=LuCI support for VNT2 VNT2S
 
 include $(TOPDIR)/feeds/luci/luci.mk
 
@@ -24,7 +28,7 @@ define Package/$(PKG_NAME)/postinst
 INITD=/etc/init.d
 $${INITD}/vnt2 enable
 $${INITD}/vnt2 start 2>/dev/null || true
-( sleep 3; $${INITD}/rpcd restart ) >/dev/null 2>&1 < /dev/null &
+( sleep 1; $${INITD}/rpcd restart ) >/dev/null 2>&1 < /dev/null &
 rm -rf /tmp/luci-*
 
 exit 0

@@ -1,0 +1,10 @@
+#!/bin/sh
+
+case "$ACTION" in
+    add|remove)
+        [ -x /etc/init.d/vnt2 ] || exit 0
+        /etc/init.d/vnt2 refresh_tuntap_firewall >/dev/null 2>&1 &
+        ;;
+esac
+
+exit 0

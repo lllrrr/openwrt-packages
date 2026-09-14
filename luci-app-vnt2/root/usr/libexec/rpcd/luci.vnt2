@@ -5,7 +5,6 @@ import { readfile, writefile, stat, lsdir, unlink, popen, open } from "fs";
 import { cursor } from "uci";
 
 const DEFAULTS = {
-    bin_path:      "/usr/bin",
     config_path:   "/etc/vnt2_config",
     template_path: "/etc/vnt2_config",
     update_script: "/usr/libexec/vnt2-update.sh",
@@ -18,12 +17,27 @@ const START_METHODS = {
     vnts: "vnts2",
 };
 
+const LOG_KEY_DEFS = [
+    ["web_sync_keys",      "POST /api/config|POST /api/start|POST /api/stop|POST /api/restart"],
+    ["web_start_keys",     "Starting VNT service|启用|启动配置|enable|enabled"],
+    ["web_stop_keys",      "禁用|停用|停止配置|disable|disabled"],
+    ["web_delete_keys",    "删除配置|删除|delete config|deleted config|DELETE /api/config"],
+    ["fault_restart_keys", "Registration failed"],
+    ["fault_route_keys",   "连接服务器失败|kind: AlreadyExists"],
+    ["online_keys",        "public_addr"],
+    ["online_exclude_keys","0.0.0.0:0"],
+];
+
 const SETTING_DEFS = [
-    ["bin_path",           "/usr/bin",        "string"],
     ["config_path",        "/etc/vnt2_config","string"],
+    ["bin_path",           "/usr/bin",        "string"],
     ["arch",               "auto",               "string"],
     ["mirror",             "github",          "string"],
     ["web_token",          "",                "string"],
+    ["web_addr",           "0.0.0.0:19099", "string"],
+    ["web_enabled",        "1",               "bool"  ],
+    ["web_data_dir",       "/vnt_config",     "string"],
+    ["web_sync_timeout",   "60",              "int"   ],
     ["auto_update",        "0",               "bool"  ],
     ["update_interval",    "7",               "int"   ],
     ["upx_compressed",     "0",               "bool"  ],
@@ -34,6 +48,7 @@ const SETTING_DEFS = [
     ["log_errors_only",    "0",               "bool"  ],
     ["log_max_kb",         "300",             "int"   ],
     ["startup_check_window","60",             "int"   ],
+    ["kill_interval",       "1800",            "int"   ],
     ["fw_vnt_to_lan",      "1",               "bool"  ],
     ["fw_lan_to_vnt",      "1",               "bool"  ],
     ["fw_vnt_to_wan",      "0",               "bool"  ],
@@ -42,12 +57,6 @@ const SETTING_DEFS = [
     ["fw_vnts_web",        "0",               "bool"  ],
 ];
 
-const VNT_API_MAP = {
-    info:    "/api/info",
-    ips:     "/api/info",
-    clients: "/api/peers",
-    route:   "/api/routes",
-};
 
 const VNTS_API_MAP = {
     info:    "/api/networks",
@@ -56,8 +65,8 @@ const VNTS_API_MAP = {
 };
 
 let CFG = {
-    bin_path:    "/usr/bin",
     config_path: "/etc/vnt2_config",
+    bin_path:    "/usr/bin",
     run_dir:     "/var/run",
     log_dir:     "/tmp/vnt2_log",
 };
@@ -87,7 +96,10 @@ function isExecutable(path) {
     return s != null && s.perm != null && s.perm.user_exec === true;
 }
 
-function pidFile(name)        { return `${CFG.run_dir}/vnt2_${name}.pid`; }
+function pidFile(name, type)  {
+    if (!type || name === "vnt2_web") return `${CFG.run_dir}/vnt2_${name}.pid`;
+    return `${CFG.run_dir}/vnt2_${name}.${type}.pid`;
+}
 function confFile(name, type) { return `${CFG.config_path}/${name}.${type}`; }
 
 function updFile(p, ext) { return `${DEFAULTS.update_dir}/${p}.${ext}`; }
@@ -124,9 +136,26 @@ function resetUpdateState(project) {
 function initPaths() {
     let uci = cursor();
     uci.load("vnt2");
-    CFG.bin_path    = uci.get("vnt2", "global", "bin_path")    || DEFAULTS.bin_path;
     CFG.config_path = uci.get("vnt2", "global", "config_path") || DEFAULTS.config_path;
+    CFG.bin_path    = uci.get("vnt2", "global", "bin_path") || "/usr/bin";
     system(`mkdir -p '${CFG.config_path}' '${CFG.run_dir}' '${CFG.log_dir}'`);
+}
+
+
+function advancedBinPath(profile, fallbackName) {
+    let u = cursor();
+    u.load("vnt2");
+    let dir = u.get("vnt2", "global", "bin_path") || "/usr/bin";
+    return replace(dir, /\/+$/, "") + `/${fallbackName}`;
+}
+
+function advancedBinaryProfiles() {
+    return [
+        ["vnt2_web", "bin_path", "vnt2_web"],
+        ["vnt2_cli", "bin_path", "vnt2_cli"],
+        ["vnt2_ctrl", "bin_path", "vnt2_ctrl"],
+        ["vnts2", "bin_path", "vnts2"]
+    ];
 }
 
 function getMirror(args) {
@@ -152,13 +181,40 @@ function readField(file, field) {
     return "";
 }
 
+function shQuote(s) {
+    return "'" + replace(`${s || ""}`, /'/g, "'\\''") + "'";
+}
+
+function runDetached(cmd) {
+    system(`setsid sh -c ${shQuote(cmd)} >/dev/null 2>&1 &`);
+}
+
 function normalizeAddr(webAddr) {
     let addr = replace(webAddr, /^0\.0\.0\.0/, "127.0.0.1");
     return substr(addr, 0, 1) === ":" ? "127.0.0.1" + addr : addr;
 }
 
-function uciEach(uci, type, cb) {
-    uci.foreach("vnt2", type, (s) => cb(s[".name"], s));
+function stripConfigExt(name, typ) {
+    let suffix = `.${typ}`;
+    let slen = length(suffix);
+    let nlen = length(name || "");
+    return (nlen > slen && substr(name, nlen - slen) === suffix) ? substr(name, 0, nlen - slen) : name;
+}
+
+
+
+
+
+function stripAnyConfigExt(name) {
+    let n = `${name || ""}`;
+    let exts = [".vnt", ".vnts"];
+    for (let i = 0; i < length(exts); i++) {
+        let ext = exts[i];
+        let elen = length(ext), nlen = length(n);
+        if (nlen > elen && substr(n, nlen - elen) === ext)
+            return substr(n, 0, nlen - elen);
+    }
+    return n;
 }
 
 function listConfFiles(filter) {
@@ -174,12 +230,13 @@ function listConfFiles(filter) {
             let flen = length(f);
             if (flen > slen && substr(f, flen - slen) === suffix) {
                 let name = substr(f, 0, flen - slen);
-                push(result, { name, type: ext, file: confFile(name, ext) });
+                push(result, { name, type: ext, file: confFile(name, ext), config_name: name });
             }
         }
     }
     return result;
 }
+
 
 function getActualNames(type) {
     let files = listConfFiles(type);
@@ -194,27 +251,43 @@ function pidAlive(pid) {
     return fileExists(`/proc/${pid}`);
 }
 
-function isRunning(name) {
-    let pid = trim(safeRead(pidFile(name)));
-    return length(pid) > 0 && pidAlive(pid);
+function readPid(name, type) { return trim(safeRead(pidFile(name, type))); }
+
+function findPidByCommand(pattern) {
+    let out = trim(execOutput(sprintf("pgrep -f '%s' 2>/dev/null | head -1", pattern)));
+    return out || "";
 }
 
-function readPid(name) { return trim(safeRead(pidFile(name))); }
+function readInstancePid(name, type) {
+    let pid = readPid(name, type);
+    if (pid && pidAlive(pid)) return pid;
+    if (name === "vnt2_web") {
+        pid = findPidByCommand("[v]nt2_web");
+        if (pid && pidAlive(pid)) return pid;
+    }
+    if (type === "vnt" || type === "vnts") {
+        pid = findPidByCommand("[v]nt2-run.sh " + name + " [^ ]+ " + type + " ");
+        if (pid && pidAlive(pid)) return pid;
+        pid = findPidByCommand(type === "vnts" ? "/vnts2.*" + name : "/vnt2_cli.*" + name);
+        if (pid && pidAlive(pid)) return pid;
+        return "";
+    }
+    pid = findPidByCommand("[v]nt2-run.sh " + name + " ");
+    if (pid && pidAlive(pid)) return pid;
+    pid = findPidByCommand("/vnts2.*" + name + "|/vnt2_cli.*" + name);
+    if (pid && pidAlive(pid)) return pid;
+    return "";
+}
+
+function isRunning(name, type) {
+    let pid = readInstancePid(name, type);
+    return length(pid) > 0 && pidAlive(pid);
+}
 
 function getType(name) {
     if (fileExists(confFile(name, "vnt")))  return "vnt";
     if (fileExists(confFile(name, "vnts"))) return "vnts";
     return null;
-}
-
-function getStartMethod(name, type) {
-    let uci    = cursor();
-    uci.load("vnt2");
-    let method = null;
-    uciEach(uci, type, (sid, s) => {
-        if (s.name === name) { method = s.start_method; return false; }
-    });
-    return method || START_METHODS[type];
 }
 
 function readCpuTicks(pid) {
@@ -230,17 +303,363 @@ function readCpuTicks(pid) {
 
 function cmdGetCpuTicks(args) {
     let name = args.name;
-    let pid  = trim(safeRead(pidFile(name)));
+    let pid  = readInstancePid(name, args.type);
     if (!pid || !pidAlive(pid))
         return { name, proc: 0, total: 0, alive: false };
     let ticks = readCpuTicks(pid);
     return { name, proc: ticks.proc, total: ticks.total, alive: true };
 }
 
-function instanceInfo(name) {
-    let type     = getType(name);
-    let running  = isRunning(name);
-    let pid      = running ? readPid(name) : "";
+function getWebAddr() {
+    let uci = cursor();
+    uci.load("vnt2");
+    return uci.get("vnt2", "global", "web_addr") || "0.0.0.0:19099";
+}
+
+function getWebToken() {
+    let uci = cursor();
+    uci.load("vnt2");
+    return uci.get("vnt2", "global", "web_token") || "";
+}
+
+function getWebDataDir() {
+    let uci = cursor();
+    uci.load("vnt2");
+    let d = trim(uci.get("vnt2", "global", "web_data_dir") || "");
+    if (!d) d = "/vnt_config";
+    return replace(d, /\/+$/, "") || "/";
+}
+
+function validWebFileName(name) {
+    return !!(name && !match(name, /\.\./) && !match(name, /[\/\\]/));
+}
+
+function normalizeWebFileName(name) {
+    let n = trim(name ?? "");
+    if (!n || !validWebFileName(n)) return "";
+    if (match(n, /\.toml$/)) return n;
+    if (match(n, /\./)) return "";
+    return n + ".toml";
+}
+
+function webSid(fileName) {
+    return "web_" + replace(fileName, /[^A-Za-z0-9_]/g, "_");
+}
+
+function boolOpt(v, def) {
+    if (v == null || v === "") return def;
+    return (v === true || v === 1 || v === "1" || v === "true" || v === "on" || v === "yes") ? true : false;
+}
+
+function listOpt(v) {
+    if (v == null || v === "") return [];
+    if (type(v) === "array") return v;
+    return [v];
+}
+
+function normalizePortParam(p) {
+    let s = trim(`${p || ""}`);
+    let m = match(s, /^\[([^\]]+)\]\.(.+)$/);
+    if (m) return m[1] + "." + m[2];
+    return s;
+}
+
+function getPortDetectConfig() {
+    let cfg = {
+        enabled: true,
+        check_config: true,
+        check_system: true,
+        extra: {},
+        ignore: {}
+    };
+    let defaultsIgnore = ["endpoint", "peer_servers", "server_addr", "server_address", "remote_addr", "remote", "host"];
+    for (let i = 0; i < length(defaultsIgnore); i++) cfg.ignore[defaultsIgnore[i]] = true;
+    let uci = cursor();
+    uci.load("vnt2");
+    uci.foreach("vnt2", "port_detect", (sec) => {
+        let sid = sec[".name"];
+        cfg.enabled = boolOpt(sec.enabled, cfg.enabled);
+        cfg.check_config = boolOpt(sec.check_config, cfg.check_config);
+        cfg.check_system = boolOpt(sec.check_system, cfg.check_system);
+        let extra = listOpt(sec.extra_param);
+        let ignore = listOpt(sec.ignore_param);
+        for (let i = 0; i < length(extra); i++) {
+            let k = normalizePortParam(extra[i]);
+            if (k) cfg.extra[k] = true;
+        }
+        for (let j = 0; j < length(ignore); j++) {
+            let k = normalizePortParam(ignore[j]);
+            if (k) cfg.ignore[k] = true;
+        }
+        return false;
+    });
+    return cfg;
+}
+
+function stringEndsWith(s, suffix) {
+    let sl = length(s || ""), fl = length(suffix || "");
+    return fl <= sl && substr(s, sl - fl) === suffix;
+}
+
+function shouldDetectPort(fullKey, cfg) {
+    let fk = normalizePortParam(fullKey);
+    let parts = split(fk, ".");
+    let key = parts[length(parts) - 1] || fk;
+    if (cfg.ignore[fk] || cfg.ignore[key]) return false;
+    if (cfg.extra[fk] || cfg.extra[key]) return true;
+    if (key === "endpoint" || key === "peer_servers" || key === "server_addr" || key === "server_address" || key === "remote_addr" || key === "remote" || key === "host") return false;
+    if (key === "bind" || key === "web_addr" || key === "ctrl_port") return true;
+    if (stringEndsWith(key, "_bind") || stringEndsWith(key, "_port")) return true;
+    return false;
+}
+
+function stripTomlScalar(v) {
+    let s = trim(`${v || ""}`);
+    s = replace(s, /,\s*$/, "");
+    s = replace(s, /^['"]|['"]$/g, "");
+    return trim(s);
+}
+
+function extractPortNumber(raw) {
+    let v = stripTomlScalar(raw);
+    if (!v) return 0;
+    if (match(v, /^\d+$/)) {
+        let p = int(v);
+        return (p > 0 && p <= 65535) ? p : 0;
+    }
+    let m = match(v, /:([0-9]{1,5})$/);
+    if (!m) m = match(v, /:([0-9]{1,5})\//);
+    if (!m) return 0;
+    let p = int(m[1]);
+    return (p > 0 && p <= 65535) ? p : 0;
+}
+
+function inferPortProto(fullKey) {
+    let fk = normalizePortParam(fullKey);
+    if (match(fk, /(^|\.)(server_quic_bind|quic_bind|wireguard\.bind|wg_bind|ikev2|ipsec)/)) return "udp";
+    return "tcp";
+}
+
+function addPortItem(out, source, typ, name, param, rawVal) {
+    let port = extractPortNumber(rawVal);
+    if (!port) return;
+    push(out, { source, type: typ, name, param, port, proto: inferPortProto(param), value: stripTomlScalar(rawVal) });
+}
+
+function extractConfigPorts(content, typ, source, cfg) {
+    cfg = cfg || getPortDetectConfig();
+    let out = [];
+    let section = "";
+    let lines = split(content || "", "\n");
+    let secHasEnabled = {};
+    let secEnabled = {};
+
+    for (let i = 0; i < length(lines); i++) {
+        let line = trim(lines[i]);
+        if (!line || substr(line, 0, 1) === "#") continue;
+        let sm = match(line, /^\[([A-Za-z_][A-Za-z0-9_]*)\]$/);
+        if (sm) { section = sm[1]; continue; }
+        let m = match(line, /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/);
+        if (!m || !section || m[1] !== "enabled") continue;
+        let v = stripTomlScalar(m[2]);
+        secHasEnabled[section] = true;
+        secEnabled[section] = (v === "true" || v === "1" || v === "on" || v === "yes") ? true : false;
+    }
+
+    section = "";
+    for (let i = 0; i < length(lines); i++) {
+        let line = trim(lines[i]);
+        if (!line || substr(line, 0, 1) === "#") continue;
+        let sm = match(line, /^\[([A-Za-z_][A-Za-z0-9_]*)\]$/);
+        if (sm) { section = sm[1]; continue; }
+        let m = match(line, /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/);
+        if (!m) continue;
+        if (section && secHasEnabled[section] && secEnabled[section] !== true) continue;
+        let param = section ? `${section}.${m[1]}` : m[1];
+        if (!shouldDetectPort(param, cfg)) continue;
+        addPortItem(out, source, typ, source, param, m[2]);
+    }
+    return out;
+}
+
+function extractWebAddrPort(addr, source, cfg) {
+    let out = [];
+    cfg = cfg || getPortDetectConfig();
+    if (!shouldDetectPort("web_addr", cfg)) return out;
+    addPortItem(out, source || "vnt2_web", "web", source || "vnt2_web", "web_addr", addr);
+    return out;
+}
+
+function samePortItem(a, b) {
+    return a && b && int(a.port) === int(b.port) && (a.proto || "tcp") === (b.proto || "tcp");
+}
+
+function portsFromFiles(excludeName, excludeType, cfg) {
+    let out = [];
+    let files = listConfFiles("all");
+    let exName = stripAnyConfigExt(excludeName || "");
+    for (let i = 0; i < length(files); i++) {
+        let it = files[i];
+        if (excludeType && it.type === excludeType && it.name === exName) continue;
+        let ps = extractConfigPorts(safeRead(it.file), it.type, `${it.name}.${it.type}`, cfg);
+        for (let j = 0; j < length(ps); j++) push(out, ps[j]);
+    }
+    return out;
+}
+
+function portUsedBySystem(port) {
+    let p = int(port);
+    if (p <= 0) return false;
+    let cmd = sprintf("(ss -lntu 2>/dev/null || netstat -lntu 2>/dev/null) | awk '{print $4}' | grep -Eq '(^|[^0-9])%d$'", p);
+    return system(cmd) === 0;
+}
+
+function validatePortItems(items, args) {
+    let cfg = getPortDetectConfig();
+    if (!cfg.enabled) return { ok:true, errors:[] };
+    args = args || {};
+    let errors = [];
+    if (cfg.check_config) {
+        let exist = portsFromFiles(args.exclude_name || "", args.exclude_type || "", cfg);
+        let webOld = args.include_web_old === false ? [] : extractWebAddrPort(getWebAddr(), "vnt2_web", cfg);
+        for (let w = 0; w < length(webOld); w++) push(exist, webOld[w]);
+        for (let i = 0; i < length(items); i++) {
+            for (let j = 0; j < length(exist); j++) {
+                if (samePortItem(items[i], exist[j]))
+                    push(errors, { kind:"duplicate_config", param:items[i].param, port:items[i].port, proto:items[i].proto, source:exist[j].source, source_param:exist[j].param, message:`端口 ${items[i].port} 已被 ${exist[j].source} 的 ${exist[j].param} 使用` });
+            }
+        }
+    }
+    if (cfg.check_system) {
+        let oldItems = args.old_items || [];
+        for (let i = 0; i < length(items); i++) {
+            let unchanged = false;
+            for (let j = 0; j < length(oldItems); j++) {
+                if (samePortItem(items[i], oldItems[j])) { unchanged = true; break; }
+            }
+            if (unchanged && args.old_running === true) continue;
+            if (portUsedBySystem(items[i].port))
+                push(errors, { kind:"port_in_use", param:items[i].param, port:items[i].port, proto:items[i].proto, message:`端口 ${items[i].port} 已被当前系统占用` });
+        }
+    }
+    return { ok:length(errors) === 0, errors };
+}
+
+function validateConfigPortsForSave(name, typ, content, oldName) {
+    let cfg = getPortDetectConfig();
+    if (!cfg.enabled) return { ok:true, errors:[] };
+    let items = extractConfigPorts(content || "", typ, `${name}.${typ}`, cfg);
+    let oldItems = [];
+    let exName = oldName || name;
+    let oldFile = confFile(exName, typ);
+    if (fileExists(oldFile)) oldItems = extractConfigPorts(safeRead(oldFile), typ, `${exName}.${typ}`, cfg);
+    return validatePortItems(items, { exclude_name:exName, exclude_type:typ, old_items:oldItems, old_running:isRunning(exName, typ) });
+}
+
+function validateWebAddrPortForSave(addr) {
+    let cfg = getPortDetectConfig();
+    if (!cfg.enabled) return { ok:true, errors:[] };
+    let items = extractWebAddrPort(addr, "vnt2_web", cfg);
+    let oldItems = extractWebAddrPort(getWebAddr(), "vnt2_web", cfg);
+    return validatePortItems(items, { include_web_old:false, old_items:oldItems, old_running:isRunning("vnt2_web") });
+}
+
+function portValidationError(v) {
+    let msg = "端口检测失败";
+    if (v && v.errors && length(v.errors) > 0) msg = v.errors[0].message || msg;
+    return { result:"error", code:"port_conflict", msg, errors:(v && v.errors) || [] };
+}
+
+
+function generateWebToken() {
+    return trim(execOutput("hexdump -v -e '1/1 \"%02x\"' -n 32 /dev/urandom 2>/dev/null"));
+}
+
+function validWebToken(token) {
+    return token && match(token, /^[0-9a-fA-F]{64}$/) ? true : false;
+}
+
+function ensureWebToken() {
+    let token = getWebToken();
+    if (token) return token;
+    token = generateWebToken();
+    if (!validWebToken(token)) return "";
+    let uci = cursor();
+    uci.load("vnt2");
+    uci.set("vnt2", "global", "web_token", token);
+    uci.commit("vnt2");
+    return token;
+}
+
+function cmdGetWebAccess() {
+    initPaths();
+    return { addr: getWebAddr(), token: ensureWebToken() };
+}
+
+function webApi(path, method, body) {
+    let addr  = normalizeAddr(getWebAddr());
+    let token = getWebToken();
+    let hdr   = token ? sprintf("-H 'Authorization: Bearer %s' ", token) : "";
+    let tmp   = "";
+    let data  = "";
+    if (body != null) {
+        tmp = trim(execOutput("mktemp /tmp/vnt2_rpc_body.XXXXXX 2>/dev/null"));
+        if (!tmp || !writefile(tmp, body)) return null;
+        data = sprintf("-H 'Content-Type: application/json' --data-binary '@%s' ", tmp);
+    }
+    let cmd   = sprintf("curl -fsSL --connect-timeout 2 --max-time 5 %s-X %s %s'http://%s%s' 2>/dev/null", hdr, method || "GET", data, addr, path);
+    let raw   = execOutput(cmd);
+    if (tmp) unlink(tmp);
+    if (!raw) return null;
+    try {
+        return json(raw);
+    } catch(e) {
+        return null;
+    }
+}
+
+function asyncWebApi(method, path, data) {
+    let addr  = normalizeAddr(getWebAddr());
+    let token = getWebToken();
+    let hdr   = token ? sprintf("-H 'Authorization: Bearer %s' ", token) : "";
+    let body  = data ? sprintf("-H 'Content-Type: application/json' --data '%s' ", data) : "";
+    runDetached(sprintf("curl -fsSL --connect-timeout 2 --max-time 10 %s%s-X %s 'http://%s%s' >/dev/null 2>&1", hdr, body, method, addr, path));
+}
+
+function webItemName(it) {
+    if (type(it) === "string") return it;
+    if (type(it) !== "object") return "";
+    return it.file_name || it.name || it.config_name || "";
+}
+
+function webItemConfigName(it) {
+    if (type(it) === "string") return it;
+    if (type(it) !== "object") return "";
+    return it.config_name || it.name || it.file_name || "";
+}
+
+function webItemRunning(it) {
+    if (type(it) !== "object") return false;
+    if (it.running === true || it.running === 1 || it.running === "1") return true;
+    let st = trim(`${it.status || it.state || ""}`);
+    return match(st, /^(running|run|started|active)$/i) ? true : false;
+}
+
+function instanceInfo(name, typeHint) {
+    let type     = typeHint || getType(name);
+    let enabled  = false;
+    let cname    = name;
+    if (type === "vnt") {
+        let uci = cursor();
+        uci.load("vnt2");
+        uci.foreach("vnt2", "vnt", (sec) => {
+            let sid = sec[".name"];
+            if (substr(sid || "", 0, 4) === "web_") return;
+            if (sec.name === name || sec.file_name === name || stripConfigExt(sec.name, "vnt") === stripConfigExt(name, "vnt") || stripConfigExt(sec.file_name, "vnt") === stripConfigExt(name, "vnt")) { enabled = sec.enabled === "1"; cname = sec.config_name || name; return false; }
+        });
+    }
+    let running  = isRunning(name, type);
+    let pid      = running ? readInstancePid(name, type) : "";
     let uptime   = 0;
     let mem      = "0";
     let web_addr = "";
@@ -259,44 +678,151 @@ function instanceInfo(name) {
             let m = match(mlines[i], /^VmRSS:\s*(\d+)/);
             if (m) { mem = sprintf("%.1f", int(m[1]) / 1024); break; }
         }
-        let conf = confFile(name, type);
-        web_addr = (type === "vnt")
-            ? readField(conf, "web_addr")
-            : readField(conf, "web_bind");
     }
-    return { name, type: type ?? "unknown", running, pid, web_addr, uptime, mem };
+    let conf = confFile(name, type);
+    if (type === "vnts") web_addr = readField(conf, "web_bind");
+    return { name, config_name: cname, type: type ?? "unknown", running, pid, web_addr, uptime, mem, enabled };
 }
 
-function instanceAction(name, action) {
+function recordWebInstance(fileName, configName, enabled) {
+    if (!fileName) return;
+    let uci = cursor();
+    uci.load("vnt2");
+    let sid = "web_" + replace(fileName, /[^A-Za-z0-9_]/g, "_");
+    uci.set("vnt2", sid, "vnt");
+    uci.set("vnt2", sid, "name", fileName);
+    uci.set("vnt2", sid, "file_name", fileName);
+    uci.set("vnt2", sid, "config_name", configName || fileName);
+    uci.set("vnt2", sid, "enabled", enabled ? "1" : "0");
+    uci.set("vnt2", sid, "start_method", "vnt2_web");
+    uci.set("vnt2", sid, "method_set", "1");
+    uci.commit("vnt2");
+}
+
+
+function instanceAction(name, action, typeHint) {
     initPaths();
+    if (name === "vnt2_web") {
+        let uci = cursor();
+        uci.load("vnt2");
+        if (action === "start" || action === "restart") {
+            uci.set("vnt2", "global", "web_enabled", "1");
+            uci.commit("vnt2");
+            ensureWebToken();
+            if (action === "restart") {
+                let oldPid = readInstancePid("vnt2_web");
+                if (oldPid && pidAlive(oldPid)) system(`kill ${oldPid} 2>/dev/null`);
+            }
+            runDetached(`${DEFAULTS.init_script} start >/dev/null 2>&1`);
+            return { result: "ok" };
+        }
+        if (action === "stop") {
+            uci.set("vnt2", "global", "web_enabled", "0");
+            uci.commit("vnt2");
+            runDetached(`${DEFAULTS.init_script} start >/dev/null 2>&1`);
+            return { result: "ok" };
+        }
+    }
     if (name && action === "restart") {
-        let pid = readPid(name);
+        let pid = readPid(name, typeHint);
         if (pid && pidAlive(pid)) {
             system(`kill ${pid} 2>/dev/null`);
-            system(`setsid ${DEFAULTS.init_script} start >/dev/null 2>&1 &`);
+            runDetached(`${DEFAULTS.init_script} start >/dev/null 2>&1`);
             return { result: "ok" };
         }
         action = "start";
     }
     if (name) {
-        let type = getType(name);
+        let type = typeHint || getType(name);
         if (!type) return { result: "error", msg: "Config file not found" };
         let uci = cursor();
         uci.load("vnt2");
-        let sid = null;
-        uciEach(uci, type, (s, sec) => {
-            if (sec.name === name) { sid = s; return false; }
+        let sid  = null;
+        let want = stripConfigExt(name, type);
+        uci.foreach("vnt2", type, (sec) => {
+            if (sid) return;
+            let s = sec[".name"];
+            if (type === "vnt" && substr(s || "", 0, 4) === "web_") return;
+            if (stripConfigExt(sec.name || "", type) === want || stripConfigExt(sec.file_name || "", type) === want)
+                sid = s;
         });
         if (!sid) {
-            sid = `cfg_${type}_${name}`;
+            sid = `cfg_${type}_${want}`;
             uci.set("vnt2", sid, type);
-            uci.set("vnt2", sid, "name", name);
+            uci.set("vnt2", sid, "name", want);
         }
         uci.set("vnt2", sid, "enabled", action === "start" ? "1" : "0");
         uci.commit("vnt2");
     }
-    system(`setsid ${DEFAULTS.init_script} ${name ? "start" : action} >/dev/null 2>&1 &`);
+    runDetached(`${DEFAULTS.init_script} ${name ? "start" : action} >/dev/null 2>&1`);
     return { result: "ok" };
+}
+
+function cmdSyncWebState() {
+    if (fileExists("/tmp/vnt2_log/vnt2_web_restoring"))
+        return { result: "skipped", code: "restoring" };
+    let runMap = {};
+    let apiOk  = false;
+    let r = webApi("/api/instances", "GET", null);
+    if (r && r.code === 0 && type(r.data) === "array") {
+        apiOk = true;
+        for (let i = 0; i < length(r.data); i++) {
+            let fn = webItemName(r.data[i]);
+            if (fn) runMap[fn] = webItemRunning(r.data[i]);
+        }
+    }
+    let files = {};
+    let r2 = webApi("/api/config/list", "GET", null);
+    if (r2 && r2.code === 0 && type(r2.data) === "array") {
+        apiOk = true;
+        for (let i = 0; i < length(r2.data); i++) {
+            let fn = webItemName(r2.data[i]);
+            if (fn) files[fn] = webItemConfigName(r2.data[i]) || fn;
+        }
+    }
+    if (!apiOk)
+        return { result: "error", code: "fetch_failed" };
+    let uci = cursor();
+    uci.load("vnt2");
+    let uciEnabled = {};
+    uci.foreach("vnt2", "vnt", (s) => {
+        let sid = s[".name"];
+        if (substr(sid || "", 0, 4) !== "web_") return;
+        let fn = s.file_name || s.name || "";
+        if (fn) uciEnabled[fn] = s.enabled === "1";
+    });
+    let all = {};
+    for (let fn in files)  all[fn] = files[fn];
+    for (let fn in runMap) if (!(fn in all)) all[fn] = fn;
+    let count = 0;
+    for (let fn in all) {
+        let enabled;
+        if (fn in runMap)         enabled = runMap[fn];
+        else if (fn in uciEnabled) enabled = uciEnabled[fn];
+        else                       enabled = false;
+        recordWebInstance(fn, all[fn], enabled);
+        count++;
+    }
+    return { result: "ok", count };
+}
+
+function cmdRestoreWebState() {
+    let uci = cursor();
+    uci.load("vnt2");
+    let items = [];
+    uci.foreach("vnt2", "vnt", (s) => {
+        let sid = s[".name"];
+        if (substr(sid || "", 0, 4) === "web_" || (s.start_method || "") === "vnt2_web")
+            push(items, { file: s.file_name || s.name, enabled: s.enabled === "1" });
+    });
+    for (let i = 0; i < length(items); i++) {
+        let body = sprintf('{"file_name":%J}', items[i].file);
+        webApi(items[i].enabled ? "/api/start" : "/api/stop", "POST", body);
+    }
+    cmdSyncWebState();
+    system(`${DEFAULTS.init_script} reload >/dev/null 2>&1`);
+    system("rm -f /tmp/vnt2_log/vnt2_web_restoring 2>/dev/null");
+    return { result: "ok", count: length(items) };
 }
 
 function cmdGetLog(args) {
@@ -316,7 +842,22 @@ function cmdGetLog(args) {
         }
         return { content: join("\n", parts) };
     }
-    let logPath = `${CFG.log_dir}/${name}.log`;
+    let logPath = (args.type === "vnt" || args.type === "vnts")
+        ? `${CFG.log_dir}/${name}.${args.type}.log`
+        : `${CFG.log_dir}/${name}.log`;
+    let n = (lines != null && lines > 0) ? lines : 200;
+    if (name === "vnt2_web") {
+        let content = "";
+        if (fileExists(logPath)) {
+            let cmd = (lines != null && lines > 0)
+                ? `tail -n ${lines} '${logPath}' 2>/dev/null`
+                : `cat '${logPath}' 2>/dev/null`;
+            content = trim(execOutput(cmd));
+        }
+        if (!content)
+            content = trim(execOutput(`logread 2>/dev/null | grep -i 'vnt2_web\|vnt2' | tail -n ${n}`));
+        return { content };
+    }
     if (!fileExists(logPath)) return { content: "" };
     let cmd = (lines != null && lines > 0)
         ? `tail -n ${lines} '${logPath}' 2>/dev/null`
@@ -330,8 +871,9 @@ function cmdClearLog(args) {
         execOutput(`rm -rf '${DEFAULTS.update_dir}' 2>/dev/null`);
         return { result: "ok" };
     }
-    let logPath = `${CFG.log_dir}/${args.name}.log`;
-    let eventPath = `${CFG.log_dir}/${args.name}.events`;
+    let suffix  = (args.type === "vnt" || args.type === "vnts") ? "." + args.type : "";
+    let logPath = `${CFG.log_dir}/${args.name}${suffix}.log`;
+    let eventPath = `${CFG.log_dir}/${args.name}${suffix}.events`;
     if (fileExists(logPath)) {
         let f = open(logPath, "w");
         if (f) f.close();
@@ -342,16 +884,242 @@ function cmdClearLog(args) {
 
 function cmdListInstances() {
     initPaths();
-    let allFiles  = listConfFiles("all");
     let seen      = {};
     let instances = [];
+
+    // LuCI 状态页显示 vnt2_web 入口进程和 config_path 中的 .vnt/.vnts 实例，不显示 vnt2_web 内部 .toml 实例。
+    let webEnabled = (execOutput("uci -q get vnt2.global.web_enabled 2>/dev/null") || "1") !== "0";
+    let webPid = webEnabled ? readInstancePid("vnt2_web") : "";
+    let webRunning = !!webPid;
+    let webInfo = {
+        name: "vnt2_web",
+        type: "web",
+        running: webRunning,
+        pid: webRunning ? webPid : "",
+        web_addr: getWebAddr(),
+        uptime: 0,
+        mem: "0",
+        is_web_process: true,
+        enabled: webEnabled
+    };
+    if (webRunning) {
+        let hz     = int(trim(execOutput("getconf CLK_TCK 2>/dev/null"))) || 100;
+        let sparts = split(safeRead(`/proc/${webPid}/stat`), " ");
+        let uptSec = int(split(trim(safeRead("/proc/uptime")), " ")[0]);
+        let startJ = int(sparts[21]);
+        if (startJ && uptSec) {
+            webInfo.uptime = uptSec - int(startJ / hz);
+            if (webInfo.uptime < 0) webInfo.uptime = 0;
+        }
+        let mlines = split(safeRead(`/proc/${webPid}/status`), "\n");
+        for (let i = 0; i < length(mlines); i++) {
+            let m = match(mlines[i], /^VmRSS:\s*(\d+)/);
+            if (m) { webInfo.mem = sprintf("%.1f", int(m[1]) / 1024); break; }
+        }
+    }
+    push(instances, webInfo);
+    seen["web|vnt2_web"] = true;
+
+    let clientFiles = listConfFiles("vnt");
+    for (let i = 0; i < length(clientFiles); i++) {
+        let f = clientFiles[i];
+        if (seen[f.type + "|" + f.name]) continue;
+        seen[f.type + "|" + f.name] = true;
+        push(instances, instanceInfo(f.name, f.type));
+    }
+
+    // 服务端 vnts 仍按原来的配置文件/UCI 实例显示，运行和停用都能在日志页选择。
+    let allFiles = listConfFiles("vnts");
     for (let i = 0; i < length(allFiles); i++) {
         let f = allFiles[i];
-        if (seen[f.name]) continue;
-        seen[f.name] = true;
-        push(instances, instanceInfo(f.name));
+        if (seen[f.type + "|" + f.name]) continue;
+        seen[f.type + "|" + f.name] = true;
+        push(instances, instanceInfo(f.name, f.type));
     }
     return { instances };
+}
+
+
+function validTemplateName(name) {
+    return name === "default" || match(name || "", /^[A-Za-z0-9_-]+$/);
+}
+
+function templateDir(t) { return `${CFG.config_path}/templates/${t}`; }
+function templatePath(t, name) {
+    return name === "default" ? `${DEFAULTS.template_path}/${t}.config` : `${templateDir(t)}/${name}.config`;
+}
+function getDefaultTemplateName(t) {
+    let u = cursor();
+    u.load("vnt2");
+    let section = `template_${t}`;
+    return u.get("vnt2", section, "name") || u.get("vnt2", "global", `template_${t}`) || "default";
+}
+function setDefaultTemplateName(t, name) {
+    if (t !== "vnt" && t !== "vnts") t = "vnts";
+    let section = `template_${t}`;
+    system(`uci -q set vnt2.${section}=template`);
+    system(`uci -q set vnt2.${section}.type='${t}'`);
+    system(`uci -q set vnt2.${section}.name='${name || "default"}'`);
+    system("uci -q commit vnt2");
+}
+function templateHelpBinary(t) {
+    if (t === "vnt") return advancedBinPath("vnt_cli", "vnt2_cli");
+    return advancedBinPath("vnts", "vnts2");
+}
+
+function isFieldTypeName(n) {
+    return n === "string" || n === "array" || n === "bool" || n === "int" || n === "select" || n === "section";
+}
+
+function collectTemplateKeys(content) {
+    let keys = {};
+    let list = [];
+    let section = "";
+    let lines = split(content || "", "\n");
+    for (let i = 0; i < length(lines); i++) {
+        let line = trim(lines[i]);
+        let sm = match(line, /^#?\s*\[([A-Za-z_][A-Za-z0-9_]*)\]$/);
+        if (sm) { if (!isFieldTypeName(sm[1])) section = sm[1]; continue; }
+        let m = match(line, /^\s*#?\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*=/);
+        if (!m) continue;
+        let key = section ? `${section}.${m[1]}` : m[1];
+        if (!keys[key]) push(list, key);
+        keys[key] = true;
+    }
+    return { keys, list };
+}
+
+function validateTemplateAgainstConfExample(t, content) {
+    let bin = templateHelpBinary(t);
+    if (!isExecutable(bin)) return { ok:false, code:"binary_not_found", msg:"Official --conf-example binary is not executable" };
+    let ref = execOutput(`'${bin}' --conf-example 2>&1`);
+    if (!ref) return { ok:false, code:"conf_example_empty", msg:"Official --conf-example output is empty" };
+    let tpl = collectTemplateKeys(content);
+    let refKeys = collectTemplateKeys(ref).keys;
+    let missing = [];
+    for (let i = 0; i < length(tpl.list); i++) {
+        let k = tpl.list[i];
+        if (!refKeys[k]) push(missing, k);
+    }
+    if (length(missing))
+        return { ok:false, code:"unknown_parameter", msg:`Parameters not found in official --conf-example: ${join(", ", missing)}` };
+    return { ok:true };
+}
+
+function validateTemplateContent(content) {
+    let seen = {};
+    let section = "";
+    let lines = split(content || "", "\n");
+    for (let i = 0; i < length(lines); i++) {
+        let line = trim(lines[i]);
+        let sm = match(line, /^#?\s*\[([A-Za-z_][A-Za-z0-9_]*)\]$/);
+        if (sm) { if (!isFieldTypeName(sm[1])) section = sm[1]; continue; }
+        let m = match(line, /^\s*#?\s*([A-Za-z_][A-Za-z0-9_]*)\s*=/);
+        if (!m) continue;
+        let key = section ? `${section}.${m[1]}` : m[1];
+        if (seen[key]) return { ok: false, code: "duplicate_parameter", msg: `Duplicate parameter: ${key}` };
+        seen[key] = true;
+    }
+    return { ok: true };
+}
+function validateAdvancedRaw(content) {
+    let seenSec = {};
+    let seenKey = { command:{}, query:{}, binary:{} };
+    let curType = "", curName = "";
+    let lines = split(content || "", "\n");
+    for (let i = 0; i < length(lines); i++) {
+        let line = trim(lines[i]);
+        if (!line) continue;
+        let sm = match(line, /^config\s+(\S+)(?:\s+['"]([^'"]+)['"])?/);
+        if (sm) {
+            curType = sm[1]; curName = sm[2] || "";
+            let sid = `${curType}.${curName}`;
+            if (curName && seenSec[sid]) return { ok:false, code:"duplicate_section", msg:`Duplicate section: ${sid}` };
+            seenSec[sid] = true;
+            continue;
+        }
+        let km = match(line, /^option\s+(key|cmd|path|label)\s+['"]?([^'"]+)['"]?/);
+        if (!km || !seenKey[curType]) continue;
+        if (curType === "binary" && km[1] === "path" && curName !== "vnt_cli" && curName !== "vnt_ctrl" && !isExecutable(km[2]))
+            return { ok:false, code:"binary_not_found", msg:`Binary path is not executable: ${km[2]}` };
+        let unique = null;
+        if (curType === "query" && km[1] === "cmd") unique = km[2];
+        else if (curType === "binary" && km[1] === "path") unique = km[2];
+        if (unique && seenKey[curType][unique]) return { ok:false, code:"duplicate_parameter", msg:`Duplicate ${curType} parameter: ${unique}` };
+        if (unique) seenKey[curType][unique] = true;
+    }
+    return { ok:true };
+}
+function cmdListConfigTemplates(args) {
+    initPaths();
+    let t = args.type || "all";
+    let types = t === "all" ? ["vnt", "vnts"] : [t];
+    let out = [];
+    for (let ti = 0; ti < length(types); ti++) {
+        let typ = types[ti];
+        push(out, { name:"default", label: typ === "vnt" ? "Default Client Template" : "Default Server Template", type:typ, readonly:true, selected:getDefaultTemplateName(typ) === "default", path:templatePath(typ, "default") });
+        let dir = templateDir(typ);
+        system(`mkdir -p '${dir}'`);
+        let files = lsdir(dir) ?? [];
+        for (let i = 0; i < length(files); i++) {
+            let f = files[i];
+            let m = match(f, /^([A-Za-z0-9_-]+)\.config$/);
+            if (!m) continue;
+            push(out, { name:m[1], label:m[1], type:typ, readonly:false, selected:getDefaultTemplateName(typ) === m[1], path:`${dir}/${f}` });
+        }
+    }
+    return { templates: out };
+}
+function cmdReadConfigTemplate(args) {
+    initPaths();
+    let t = args.type || "vnts";
+    let name = args.template || args.name || "default";
+    if (!validTemplateName(name)) return { error:"Invalid template name", code:"invalid_name" };
+    let path = templatePath(t, name);
+    if (!fileExists(path)) return { error:"Template not found", code:"template_not_found" };
+    return { content:safeRead(path), readonly:name === "default", name, type:t, path };
+}
+function cmdSaveConfigTemplate(args) {
+    initPaths();
+    let t = args.type || "vnts";
+    let name = args.name || args.template || "";
+    if (!validTemplateName(name) || name === "default") return { result:"error", code:"invalid_name", msg:"Invalid or readonly template name" };
+    let content = args.content || "";
+    let v = validateTemplateContent(content);
+    if (!v.ok) return { result:"error", code:v.code, msg:v.msg };
+    let rv = validateTemplateAgainstConfExample(t, content);
+    if (!rv.ok) return { result:"error", code:rv.code, msg:rv.msg };
+    let dir = templateDir(t);
+    system(`mkdir -p '${dir}'`);
+    if (writefile(`${dir}/${name}.config`, content) == null) return { result:"error", code:"write_failed", msg:"Write failed" };
+    return { result:"ok" };
+}
+function cmdDeleteConfigTemplate(args) {
+    initPaths();
+    let t = args.type || "vnts";
+    let name = args.name || args.template || "";
+    if (!validTemplateName(name) || name === "default") return { result:"error", code:"invalid_name", msg:"Default template is readonly" };
+    let path = templatePath(t, name);
+    if (fileExists(path)) unlink(path);
+    if (getDefaultTemplateName(t) === name) setDefaultTemplateName(t, "default");
+    return { result:"ok" };
+}
+function cmdSetDefaultTemplate(args) {
+    initPaths();
+    let t = args.type || "vnts";
+    let name = args.name || args.template || "default";
+    if (!validTemplateName(name)) return { result:"error", code:"invalid_name", msg:"Invalid template name" };
+    if (!fileExists(templatePath(t, name))) return { result:"error", code:"template_not_found", msg:"Template not found" };
+    setDefaultTemplateName(t, name);
+    return { result:"ok" };
+}
+function cmdGetTemplateHelp(args) {
+    initPaths();
+    let t = args.type || "vnts";
+    let bin = templateHelpBinary(t);
+    if (!isExecutable(bin)) return { result:"error", code:"binary_not_found", msg:"Binary is not executable", bin };
+    let out = execOutput(`'${bin}' --conf-example 2>&1`);
+    return { result:"ok", content:out, bin };
 }
 
 function cmdListConfigs(args) {
@@ -361,16 +1129,25 @@ function cmdListConfigs(args) {
 
 function cmdReadConfig(args) {
     initPaths();
+    if (args.type === "web") {
+        let nn = normalizeWebFileName(args.name);
+        let f  = nn ? `${getWebDataDir()}/${nn}` : "";
+        if (f && fileExists(f)) return { content: safeRead(f) };
+        return { error: "File not found", code: "file_not_found" };
+    }
     let file = confFile(args.name, args.type);
-    if (!fileExists(file)) return { error: "File not found", code: "file_not_found" };
-    return { content: safeRead(file) };
+    if (fileExists(file)) return { content: safeRead(file) };
+    return { error: "File not found", code: "file_not_found" };
 }
 
 function cmdReadTemplate(args) {
     initPaths();
-    let tmpl = `${DEFAULTS.template_path}/${args.type}.config`;
+    let name = args.template || "";
+    if (!name) name = getDefaultTemplateName(args.type || "vnts");
+    let tmpl = templatePath(args.type, name || "default");
+    if (!fileExists(tmpl)) tmpl = templatePath(args.type, "default");
     if (!fileExists(tmpl)) return { error: "Template not found", code: "template_not_found" };
-    return { content: safeRead(tmpl) };
+    return { content: safeRead(tmpl), template: name || "default" };
 }
 
 function inferType(rawVal) {
@@ -397,6 +1174,54 @@ function parseDefaultValue(rawVal, ftype) {
     return replace(rawVal, /^["']|["']$/g, "");
 }
 
+function parseExtendMeta(fullComment) {
+    let m = match(fullComment || "", /(extend|扩展)[：:]\s*([A-Za-z0-9_.-]+)\s*=\s*text\(([^)]*)\)/);
+    if (!m) return null;
+    let ext = { trigger:m[2], type:"text", prefix:"", placeholder:"" };
+    let parts = split(m[3] || "", ",");
+    for (let i = 0; i < length(parts); i++) {
+        let part = trim(parts[i]);
+        let eq = index(part, "=");
+        if (eq <= 0) continue;
+        let k = trim(substr(part, 0, eq));
+        let v = trim(substr(part, eq + 1));
+        if (k === "prefix") ext.prefix = v;
+        else if (k === "placeholder") ext.placeholder = v;
+    }
+    return ext;
+}
+
+function cleanFieldComment(fullComment) {
+    let c = replace(fullComment || "", /\[\w+\]/g, "");
+    c = replace(c, /(选项|options?|extend|扩展|示例)[：:][^#]*/g, "");
+    return trim(replace(c, /\s+/g, " "));
+}
+
+function parseExampleMeta(lines) {
+    for (let i = 0; i < length(lines || []); i++) {
+        let m = match(lines[i] || "", /^(示例|example)[：:]\s*(.+)$/);
+        if (m) return trim(m[2]);
+    }
+    return "";
+}
+
+function parseOptionsMeta(lines) {
+    let options = [];
+    for (let i = 0; i < length(lines || []); i++) {
+        let m = match(lines[i] || "", /^(选项|options?)[：:]\s*(.+)$/);
+        if (!m) continue;
+        let optStr = trim(m[2]);
+        let raw = index(optStr, ",") >= 0 ? split(optStr, ",") : split(optStr, " ");
+        for (let oi = 0; oi < length(raw); oi++) {
+            let v = trim(raw[oi]);
+            if (v) push(options, v);
+        }
+        break;
+    }
+    return options;
+}
+
+
 function parseTemplateFields(content) {
     let fields     = [];
     let lines      = split(content, "\n");
@@ -408,6 +1233,57 @@ function parseTemplateFields(content) {
         if (substr(line, 0, 1) === "#") {
             let text = trim(substr(line, 1));
             if (!text || match(text, /^[-=*\s]*$/)) { pending = []; continue; }
+            let tblC = match(text, /^\[([a-zA-Z_][a-zA-Z0-9_]*)\]$/);
+            if (tblC && !isFieldTypeName(tblC[1])) {
+                let fullCommentC = join(" ", pending);
+                let typeMC = match(fullCommentC, /\[(\w+)\]/);
+                if (typeMC && typeMC[1] === "section") {
+                    curSection = {
+                        name:      tblC[1],
+                        type:      "section",
+                        commented: true,
+                        "default": {},
+                        keys:      {},
+                        comment:   cleanFieldComment(fullCommentC),
+                        example:   parseExampleMeta(pending),
+                        options:   [],
+                        extend:    null,
+                    };
+                    push(fields, curSection);
+                    pending = [];
+                    continue;
+                }
+            }
+            if (curSection && curSection.commented) {
+                let keyC = match(text, /^([a-zA-Z_][A-Za-z0-9_.-]*)\s*=/);
+                if (keyC) {
+                    let eqIdxC   = index(text, "=");
+                    let keyC2    = keyC[1];
+                    let rawValC  = trim(substr(text, eqIdxC + 1));
+                    let fullC    = join(" ", pending);
+                    let typeM2   = match(fullC, /\[(\w+)\]/);
+                    let fTypeC   = typeM2 ? typeM2[1] : inferType(rawValC);
+                    let exMC     = match(fullC, /示例(：|:)[[:space:]]*([^[:space:]]+)/);
+                    let exampleC = exMC ? exMC[2] : "";
+                    let eqMC     = match(exampleC, /^[A-Za-z0-9_]+=/);
+                    if (eqMC) exampleC = substr(exampleC, length(eqMC[0]));
+                    let parsedC  = parseDefaultValue(rawValC, fTypeC);
+                    curSection.keys[keyC2] = {
+                        type:      fTypeC,
+                        "default": parsedC,
+                        comment:   cleanFieldComment(fullC),
+                        example:   exampleC,
+                        options:   parseOptionsMeta(pending),
+                        extend:    parseExtendMeta(fullC),
+                    };
+                    if (rawValC !== "" && fTypeC !== "array")
+                        curSection["default"][keyC2] = (fTypeC === "bool")
+                            ? parsedC
+                            : `${parsedC}`;
+                    pending = [];
+                    continue;
+                }
+            }
             push(pending, text);
             continue;
         }
@@ -421,8 +1297,10 @@ function parseTemplateFields(content) {
                     type:      "section",
                     "default": {},
                     keys:      {},
-                    comment:   trim(replace(replace(fullComment, /\[\w+\]/g, ""), /\s+/g, " ")),
+                    comment:   cleanFieldComment(fullComment),
+                    example:   parseExampleMeta(pending),
                     options:   [],
+                    extend:    null,
                 };
                 push(fields, curSection);
             } else {
@@ -431,6 +1309,7 @@ function parseTemplateFields(content) {
             pending = [];
             continue;
         }
+        if (curSection && curSection.commented) curSection = null;
         let eqIdx = index(line, "=");
         if (eqIdx < 0) { pending = []; continue; }
         let key         = trim(substr(line, 0, eqIdx));
@@ -438,17 +1317,9 @@ function parseTemplateFields(content) {
         let fullComment = join(" ", pending);
         let typeM       = match(fullComment, /\[(\w+)\]/);
         let fieldType   = typeM ? typeM[1] : inferType(rawVal);
-        let options = [];
-        let optM    = match(fullComment, /选项[：:]\s*([^\n]+)/);
-        if (optM) {
-            let optStr = trim(optM[1]);
-            let raw    = index(optStr, ",") >= 0 ? split(optStr, ",") : split(optStr, " ");
-            for (let oi = 0; oi < length(raw); oi++) {
-                let v = trim(raw[oi]);
-                if (v) push(options, v);
-            }
-        }
-        let fieldComment = trim(replace(replace(fullComment, /\[\w+\]/g, ""), /\s+/g, " "));
+        let options = parseOptionsMeta(pending);
+        let fieldComment = cleanFieldComment(fullComment);
+        let extend = parseExtendMeta(fullComment);
         let exM     = match(fullComment, /示例(：|:)[[:space:]]*([^[:space:]]+)/);
         let example = exM ? exM[2] : "";
         let eqM     = match(example, /^[A-Za-z0-9_]+=/);
@@ -461,6 +1332,7 @@ function parseTemplateFields(content) {
                 comment:   fieldComment,
                 example,
                 options,
+                extend,
             };
             if (rawVal !== "" && fieldType !== "array")
                 curSection["default"][key] = (fieldType === "bool")
@@ -474,6 +1346,7 @@ function parseTemplateFields(content) {
                 comment:   fieldComment,
                 example,
                 options,
+                extend,
             });
         }
         pending = [];
@@ -489,46 +1362,155 @@ function parseTemplateFields(content) {
 
 function cmdGetTemplateFields(args) {
     initPaths();
-    let tmpl = `${DEFAULTS.template_path}/${args.type}.config`;
+    let name = args.template || "";
+    if (!name) name = getDefaultTemplateName(args.type || "vnts");
+    let tmpl = templatePath(args.type, name || "default");
+    if (!fileExists(tmpl)) tmpl = templatePath(args.type, "default");
     if (!fileExists(tmpl)) return { fields: [] };
-    return { fields: parseTemplateFields(safeRead(tmpl)) };
+    return { fields: parseTemplateFields(safeRead(tmpl)), template: name || "default" };
+}
+
+function readTomlValue(content, key) {
+    let lines = split(content || "", "\n");
+    for (let i = 0; i < length(lines); i++) {
+        let m = match(lines[i], /^\s*#?\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*$/);
+        if (!m || m[1] !== key) continue;
+        let v = trim(m[2]);
+        v = replace(v, /\s+#.*$/, "");
+        return replace(v, /^\s*["']?|["']?\s*$/g, "");
+    }
+    return "";
 }
 
 function cmdSaveConfig(args) {
     initPaths();
     let oldName = (args.old_name && args.old_name !== "") ? args.old_name : args.name;
     let name    = args.name;
-    let type    = args.type;
-    if (!writeFile(confFile(name, type), args.content))
+    let ct      = args.type;
+    let content = args.content || "";
+    if (ct === "web") {
+        let nn = normalizeWebFileName(name);
+        let on = normalizeWebFileName(oldName);
+        if (!nn || !on) return { result: "error", code: "invalid_name", msg: "Invalid instance file name" };
+        let dir = getWebDataDir();
+        if (!writeFile(`${dir}/${nn}`, content))
+            return { result: "error", msg: "Write failed", code: "write_failed" };
+        let renamed = on !== nn;
+        let uci = cursor();
+        uci.load("vnt2");
+        let sidNew = webSid(nn);
+        let sidOld = webSid(on);
+        let existsNew = false;
+        let wasRunning = false;
+        uci.foreach("vnt2", "vnt", (s) => {
+            let sid = s[".name"];
+            if (sid === sidNew) { existsNew = true; if (!renamed) wasRunning = s.enabled === "1"; }
+            if (renamed && sid === sidOld) wasRunning = s.enabled === "1";
+        });
+        if (renamed && wasRunning)
+            webApi("/api/stop", "POST", sprintf('{"file_name":%J}', on));
+        let restarted = "0";
+        if (wasRunning) {
+            let rs = webApi("/api/start", "POST", sprintf('{"file_name":%J}', nn));
+            if (rs && rs.code === 0) restarted = "1";
+        }
+        if (renamed) {
+            if (wasRunning)
+                webApi(`/api/config?file_name=${on}`, "DELETE", null);
+            uci.delete("vnt2", sidOld);
+            uci.commit("vnt2");
+            let of = `${dir}/${on}`;
+            if (fileExists(of)) unlink(of);
+        }
+        let cfgName = readTomlValue(content, "config_name") || nn;
+        if (renamed) {
+            if (!existsNew) recordWebInstance(nn, cfgName, wasRunning);
+            else { let u2 = cursor(); u2.load("vnt2"); u2.set("vnt2", sidNew, "config_name", cfgName); u2.commit("vnt2"); }
+        } else if (!existsNew) {
+            recordWebInstance(nn, cfgName, wasRunning);
+        } else {
+            uci.set("vnt2", sidNew, "config_name", cfgName);
+            uci.commit("vnt2");
+        }
+        runDetached(`${DEFAULTS.init_script} reload >/dev/null 2>&1`);
+        return { result: "ok", name: nn, restarted };
+    }
+    if (ct === "vnt" || ct === "vnts") {
+        let pv = validateConfigPortsForSave(name, ct, content, oldName);
+        if (!pv.ok) return portValidationError(pv);
+    }
+    if (!writeFile(confFile(name, ct), content)) {
         return { result: "error", msg: "Write failed", code: "write_failed" };
+    }
+    if (ct === "vnt") {
+        let uci = cursor();
+        uci.load("vnt2");
+        let exists = false;
+        uci.foreach("vnt2", "vnt", (s) => {
+            let sid = s[".name"];
+            if (s.name === name) { exists = true; return false; }
+        });
+        if (!exists) {
+            let sid = `cfg_vnt_${replace(name, /[^A-Za-z0-9_]/g, "_")}`;
+            uci.set("vnt2", sid, "vnt");
+            uci.set("vnt2", sid, "name", name);
+            uci.set("vnt2", sid, "enabled", "0");
+            uci.set("vnt2", sid, "start_method", "vnt2_cli");
+            uci.set("vnt2", sid, "method_set", "1");
+            uci.commit("vnt2");
+        }
+    }
     if (oldName !== name) {
         let uci = cursor();
         uci.load("vnt2");
-        uciEach(uci, type, (sid, s) => {
+        uci.foreach("vnt2", ct, (s) => {
+            let sid = s[".name"];
             if (s.name === oldName) {
                 uci.set("vnt2", sid, "name", name);
                 return false;
             }
         });
         uci.commit("vnt2");
-        unlink(confFile(oldName, type));
-        system(`setsid ${DEFAULTS.init_script} start >/dev/null 2>&1 &`);
+        unlink(confFile(oldName, ct));
+        runDetached(`${DEFAULTS.init_script} start >/dev/null 2>&1`);
     } else {
-        if (isRunning(name)) instanceAction(name, "restart");
+        if (isRunning(name, ct)) instanceAction(name, "restart", ct);
     }
     return { result: "ok" };
 }
 
 function cmdDeleteConfig(args) {
     initPaths();
-    instanceAction(args.name, "stop");
+    if (args.type === "web") {
+        let nn = normalizeWebFileName(args.name);
+        if (!nn) return { result: "error", code: "invalid_name", msg: "Invalid instance file name" };
+        let uci = cursor();
+        uci.load("vnt2");
+        let sid = webSid(nn);
+        let wasRunning = false;
+        uci.foreach("vnt2", "vnt", (s) => {
+            if (s[".name"] === sid) { wasRunning = s.enabled === "1"; return false; }
+        });
+        if (wasRunning)
+            webApi("/api/stop", "POST", sprintf('{"file_name":%J}', nn));
+        asyncWebApi("DELETE", `/api/config?file_name=${nn}`);
+        let f = `${getWebDataDir()}/${nn}`;
+        if (fileExists(f)) unlink(f);
+        uci.delete("vnt2", sid);
+        uci.commit("vnt2");
+        runDetached(`${DEFAULTS.init_script} reload >/dev/null 2>&1`);
+        return { result: "ok" };
+    }
+    instanceAction(args.name, "stop", args.type);
     let file = confFile(args.name, args.type);
-    if (!fileExists(file)) return { result: "error", msg: "File not found" };
+    if (!fileExists(file))
+        return { result: "error", msg: "File not found" };
     unlink(file);
     let uci      = cursor();
     uci.load("vnt2");
     let toDelete = [];
-    uciEach(uci, args.type, (sid, s) => {
+    uci.foreach("vnt2", args.type, (s) => {
+        let sid = s[".name"];
         if (s.name === args.name) push(toDelete, sid);
     });
     for (let i = 0; i < length(toDelete); i++)
@@ -537,25 +1519,67 @@ function cmdDeleteConfig(args) {
     return { result: "ok" };
 }
 
-function getWebToken() {
-    let uci = cursor();
-    uci.load("vnt2");
-    return uci.get("vnt2", "global", "web_token") || "";
+
+function getClientCtrlPort(name) {
+    let content = safeRead(confFile(name, "vnt"));
+    let port = readTomlValue(content, "ctrl_port");
+    return port || "";
 }
 
-function webApiUrl(webAddr, path, name) {
-    let fileName = `${name}.vnt`;
-    return `http://${normalizeAddr(webAddr)}${path}?file_name=${fileName}`;
+function advancedQueryTemplate(cmd) {
+    let section = `ctrl_${cmd}`;
+    let u = cursor();
+    u.load("vnt2");
+    let tpl = u.get("vnt2", section, "command") || u.get("vnt2", section, "template") || "";
+    let binProfile = u.get("vnt2", section, "binary") || "vnt_ctrl";
+    let enabled = u.get("vnt2", section, "enabled");
+    if (enabled === "0") return null;
+    if (!tpl) tpl = "{bin} -p {ctrl_port} " + cmd;
+    return { template: tpl, binary: binProfile };
 }
 
-function fetchWebApi(webAddr, path, name) {
-    let token = getWebToken();
-    let url = webApiUrl(webAddr, path, name);
-    let cmd = token
-        ? sprintf("curl -fsSL --connect-timeout 3 --max-time 5 -H 'Authorization: Bearer %s' '%s' 2>/dev/null", token, url)
-        : sprintf("curl -fsSL --connect-timeout 3 --max-time 5 '%s' 2>/dev/null", url);
-    let raw = execOutput(cmd);
-    return raw ? json(raw) : null;
+function advancedProfilePath(profile, fallbackName) {
+    if (profile === "vnt_web") return advancedBinPath("vnt_web", fallbackName || "vnt2_web");
+    if (profile === "vnt_cli") return advancedBinPath("vnt_cli", fallbackName || "vnt2_cli");
+    if (profile === "vnt_ctrl") return advancedBinPath("vnt_ctrl", fallbackName || "vnt2_ctrl");
+    if (profile === "vnt_tools") return advancedBinPath("vnt_ctrl", fallbackName || "vnt2_ctrl");
+    if (profile === "vnts") return advancedBinPath("vnts", fallbackName || "vnts2");
+    return advancedBinPath("vnt_ctrl", fallbackName || "vnt2_ctrl");
+}
+
+function stripAnsiText(s) {
+    return replace(s || "", /\x1b\[[0-9;?]*[ -\/]*[@-~]/g, "");
+}
+
+function renderQueryCommand(tpl, bin, ctrlPort, name, cmd) {
+    let text = tpl || "";
+    text = replace(text, /\{bin\}/g, bin);
+    text = replace(text, /\{ctrl_port\}/g, ctrlPort);
+    text = replace(text, /\{name\}/g, name || "");
+    text = replace(text, /\{cmd\}/g, cmd || "");
+    text = replace(text, /\{file_name\}/g, name || "");
+    return text;
+}
+
+function runClientCtrlQuery(name, cmd) {
+    let q = advancedQueryTemplate(cmd);
+    if (!q) return { error: "Query profile disabled", code: "query_profile_disabled" };
+    let bin = advancedProfilePath(q.binary, "vnt2_ctrl");
+    if (!isExecutable(bin)) return { error: "vnt2_ctrl is not executable.", code: "ctrl_binary_not_found" };
+    let port = getClientCtrlPort(name);
+    if (!port || port === "0") return { error: "ctrl_port not configured in local client config.", code: "ctrl_port_not_configured" };
+    let command = renderQueryCommand(q.template, bin, port, name, cmd);
+    let out = execOutput(`${command} 2>&1`);
+    out = trim(stripAnsiText(out || ""));
+    if (!out) return { error: "No vnt2_ctrl output.", code: "empty_ctrl_output", source: "vnt2_ctrl" };
+    try {
+        let parsed = json(out);
+        if (type(parsed) === "object" && parsed.data != null)
+            return { data: parsed.data, source: "vnt2_ctrl", command };
+        return { data: parsed, source: "vnt2_ctrl", command };
+    } catch(e) {
+        return { text: out, source: "vnt2_ctrl", command };
+    }
 }
 
 function vntsLogin(webAddr, name) {
@@ -610,51 +1634,50 @@ function fetchVntsData(webAddr, name, cmd, networkCode) {
     return { data: r.data };
 }
 
-function fetchWebData(webAddr, name, cmd) {
-    let api = VNT_API_MAP[cmd];
-    if (!api) return { error: "Unknown command", code: "unknown_command", cmd };
-    let r = fetchWebApi(webAddr, api, name);
-    if (!r || r.code !== 0) return { error: "Fetch failed", code: "fetch_failed" };
-    return { data: r.data };
-}
-
 function cmdGetCtrlInfo(args) {
     initPaths();
     let name        = args.name;
     let cmd         = args.cmd;
     let networkCode = args.network_code || null;
-    let type        = getType(name);
+    let type        = (args.type === "vnt" || args.type === "vnts") ? args.type : getType(name);
     if (type === "vnts") {
         let webAddr = readField(confFile(name, "vnts"), "web_bind");
         if (!webAddr) return { error: "web_bind not configured", code: "web_bind_not_configured" };
         return fetchVntsData(webAddr, name, cmd, networkCode);
     }
     if (type !== "vnt") return { error: "Not a client instance", code: "not_a_client_instance" };
-    let conf   = confFile(name, "vnt");
-    let method = getStartMethod(name, "vnt");
-    if (method === "vnt2_web") {
-        let webAddr = readField(conf, "web_addr");
-        if (!webAddr) return { error: "web_addr not configured", code: "web_addr_not_configured" };
-        return fetchWebData(webAddr, name, cmd);
-    }
-    let port = readField(conf, "ctrl_port") || "11233";
-    if (port === "0") return { error: "Control port is disabled", code: "control_port_disabled" };
-    let out = execOutput(`${CFG.bin_path}/vnt2_ctrl -p ${port} ${cmd} 2>&1`);
-    return { text: replace(out, /\x1b\[[0-9;]*m/g, "") };
+    let cr = runClientCtrlQuery(name, cmd);
+    if (cr && !cr.error) return cr;
+    return cr || { error: "vnt2_ctrl query failed.", code: "vnt2_ctrl_failed" };
+}
+
+
+function cmdGetConfExample(args) {
+    initPaths();
+    let type = args.type || "vnts";
+    let bin = type === "vnt" ? advancedBinPath("vnt_cli", "vnt2_cli") : advancedBinPath("vnts", "vnts2");
+    if (type === "vnt" && !isExecutable(bin)) bin = advancedBinPath("vnt_web", "vnt2_web");
+    if (!isExecutable(bin))
+        return { result: "error", code: "binary_not_found", msg: "Binary is not executable" };
+    let out = execOutput(`'${bin}' --conf-example 2>&1`);
+    if (!out) out = execOutput(`'${bin}' --help 2>&1`);
+    return { result: "ok", content: out, bin };
 }
 
 function cmdGetSystemInfo() {
     initPaths();
     let arch = trim(execOutput(`'${DEFAULTS.update_script}' detect_arch 2>/dev/null`));
-    let r    = { arch, bin_path: CFG.bin_path, config_path: CFG.config_path };
-    let vers = [
-        ["vnt_version",  "vnt2_cli"],
-        ["vnts_version", "vnts2"   ],
-    ];
-    for (let i = 0; i < length(vers); i++)
-        r[vers[i][0]] = trim(execOutput(
-            `${CFG.bin_path}/${vers[i][1]} --version 2>/dev/null | head -1`
-        ));
+    let r    = { arch, config_path: CFG.config_path };
+    let webBin = advancedBinPath("vnt_web", "vnt2_web");
+    let vntsBin = advancedBinPath("vnts", "vnts2");
+    r.vnt_bin = webBin;
+    r.vnts_bin = vntsBin;
+    r.vnt_version = trim(execOutput(`'${webBin}' --version 2>/dev/null | head -1`));
+    r.vnts_version = trim(execOutput(`'${vntsBin}' --version 2>/dev/null | head -1`));
+    let cliBin = advancedBinPath("vnt_cli", "vnt2_cli");
+    let ctrlBin = advancedBinPath("vnt_ctrl", "vnt2_ctrl");
+    r.vnt_cli_version = trim(execOutput(`'${cliBin}' --version 2>/dev/null | head -1`));
+    r.vnt_ctrl_version = trim(execOutput(`'${ctrlBin}' --version 2>/dev/null | head -1`));
     r.luci_version =
         trim(execOutput("apk list 2>/dev/null | grep '^luci-app-vnt2-' | awk '{print $1}' | sed 's/^luci-app-vnt2-//'")) ||
         trim(execOutput("opkg list-installed 2>/dev/null | grep '^luci-app-vnt2 ' | awk '{print $3}'")) ||
@@ -664,27 +1687,17 @@ function cmdGetSystemInfo() {
 
 function cmdCheckBinaries() {
     initPaths();
-    let r    = {};
-    let bins = ["vnt2_cli", "vnt2_web", "vnt2_ctrl", "vnts2"];
-    for (let i = 0; i < length(bins); i++)
-        r[bins[i]] = isExecutable(`${CFG.bin_path}/${bins[i]}`);
+    let r = {};
+    let profiles = advancedBinaryProfiles();
+    for (let i = 0; i < length(profiles); i++) {
+        let key = profiles[i][0];
+        let bin = advancedBinPath(profiles[i][1], profiles[i][2]);
+        r[key] = isExecutable(bin);
+        r[`${key}_path`] = bin;
+    }
     return r;
 }
 
-function generateWebToken() {
-    return trim(execOutput("hexdump -v -e '1/1 \"%02x\"' -n 32 /dev/urandom 2>/dev/null"));
-}
-
-function validWebToken(token) {
-    return !!token && !!match(token, /^[0-9a-fA-F]{64}$/);
-}
-
-function cmdGenerateWebToken() {
-    let token = generateWebToken();
-    if (!validWebToken(token))
-        return { result: "error", code: "token_generation_failed", msg: "Token generation failed" };
-    return { result: "ok", token };
-}
 
 function cmdGetSettings() {
     let uci = cursor();
@@ -696,16 +1709,170 @@ function cmdGetSettings() {
     return r;
 }
 
-function cmdSaveSettings(args) {
-    let token = args.web_token ?? "";
-    if (!token) {
-        token = generateWebToken();
-        if (!validWebToken(token))
-            return { result: "error", code: "token_generation_failed", msg: "Token generation failed" };
-        args.web_token = token;
-    } else if (!validWebToken(token)) {
-        return { result: "error", code: "invalid_web_token", msg: "Token must be exactly 64 hexadecimal characters" };
+
+function cmdSetWebAddr(args) {
+    let addr = trim(args.addr ?? "");
+    if (!addr) return { result:"error", code:"invalid_web_addr", msg:"VNT Web listen address cannot be empty" };
+    let pv = validateWebAddrPortForSave(addr);
+    if (!pv.ok) return portValidationError(pv);
+    let uci = cursor();
+    uci.load("vnt2");
+    uci.set("vnt2", "global", "web_addr", addr);
+    uci.commit("vnt2");
+    if (isRunning("vnt2_web")) instanceAction("vnt2_web", "restart");
+    return { result:"ok", addr };
+}
+
+function cmdRefreshWebToken() {
+    let token = generateWebToken();
+    if (!validWebToken(token))
+        return { result:"error", code:"token_generation_failed", msg:"Token generation failed" };
+    let uci = cursor();
+    uci.load("vnt2");
+    uci.set("vnt2", "global", "web_token", token);
+    uci.commit("vnt2");
+    if (isRunning("vnt2_web")) instanceAction("vnt2_web", "restart");
+    return { result:"ok", token };
+}
+
+function cmdSetWebToken(args) {
+    let token = trim(args.token ?? "");
+    if (!validWebToken(token))
+        return { result: "error", code: "invalid_token", msg: "Token must be 64 hex characters" };
+    let uci = cursor();
+    uci.load("vnt2");
+    uci.set("vnt2", "global", "web_token", token);
+    uci.commit("vnt2");
+    let restarted = false;
+    if (isRunning("vnt2_web")) {
+        instanceAction("vnt2_web", "restart");
+        restarted = true;
     }
+    return { result: "ok", restarted: restarted ? "1" : "0" };
+}
+
+function cmdListWebInstances() {
+    let uci = cursor();
+    uci.load("vnt2");
+    let uciMap = {};
+    uci.foreach("vnt2", "vnt", (s) => {
+        let sid = s[".name"];
+        if (substr(sid || "", 0, 4) !== "web_" && (s.start_method || "") !== "vnt2_web") return;
+        let fn = s.file_name || s.name || "";
+        if (!fn) return;
+        uciMap[fn] = { config_name: s.config_name || fn, enabled: s.enabled === "1" ? "1" : "0" };
+    });
+    let runMap = {};
+    let files  = {};
+    let ok = false;
+    let r = webApi("/api/instances", "GET", null);
+    if (r && r.code === 0 && type(r.data) === "array") {
+        ok = true;
+        for (let i = 0; i < length(r.data); i++) {
+            let fn = webItemName(r.data[i]);
+            if (fn) runMap[fn] = webItemRunning(r.data[i]) ? "1" : "0";
+        }
+    }
+    let r2 = webApi("/api/config/list", "GET", null);
+    if (r2 && r2.code === 0 && type(r2.data) === "array") {
+        ok = true;
+        for (let i = 0; i < length(r2.data); i++) {
+            let fn = webItemName(r2.data[i]);
+            if (fn) files[fn] = webItemConfigName(r2.data[i]) || fn;
+        }
+    }
+    let items = [];
+    let seen  = {};
+    let add = (fn) => {
+        if (!fn || seen[fn]) return;
+        seen[fn] = true;
+        let u = uciMap[fn];
+        push(items, {
+            name: fn,
+            config_name: files[fn] || (u ? u.config_name : fn),
+            enabled: u ? u.enabled : "1",
+            running: runMap[fn] || "",
+            exists: ok ? ((fn in files || fn in runMap) ? "1" : "0") : ""
+        });
+    };
+    for (let fn in uciMap) add(fn);
+    for (let fn in files)  add(fn);
+    for (let fn in runMap) add(fn);
+    return { web_available: ok ? "1" : "0", items };
+}
+
+function cmdWebInstanceAction(args) {
+    let fileName = trim(args.file_name ?? "");
+    let action   = trim(args.action ?? "");
+    if (!fileName || !match(action, /^(start|stop|restart)$/))
+        return { result: "error", code: "invalid_args" };
+    if (!isRunning("vnt2_web"))
+        return { result: "error", code: "web_not_running", msg: "vnt2_web is not running" };
+    let body = sprintf('{"file_name":%J}', fileName);
+    asyncWebApi("POST", `/api/${action}`, body);
+    if (action !== "restart") {
+        let uci = cursor();
+        uci.load("vnt2");
+        let sid = "web_" + replace(fileName, /[^A-Za-z0-9_]/g, "_");
+        let cfgName = "";
+        uci.foreach("vnt2", "vnt", (s) => {
+            if (s[".name"] === sid) { cfgName = s.config_name || ""; return false; }
+        });
+        recordWebInstance(fileName, cfgName || fileName, action === "start");
+        runDetached(`${DEFAULTS.init_script} reload >/dev/null 2>&1`);
+    }
+    return { result: "ok" };
+}
+
+function cmdGetLogKeys() {
+    let uci = cursor();
+    uci.load("vnt2");
+    let r = {};
+    for (let i = 0; i < length(LOG_KEY_DEFS); i++) {
+        let k = LOG_KEY_DEFS[i][0];
+        let v = uci.get("vnt2", "global", k);
+        r[k] = (v == null) ? LOG_KEY_DEFS[i][1] : v;
+    }
+    return r;
+}
+
+function cmdSaveLogKeys(args) {
+    let uci = cursor();
+    uci.load("vnt2");
+    for (let i = 0; i < length(LOG_KEY_DEFS); i++) {
+        let k = LOG_KEY_DEFS[i][0];
+        let v = args[k];
+        if (v == null) continue;
+        if (type(v) === "array") v = join("|", v);
+        v = replace(trim(`${v}`), /\|+$/, "");
+        uci.set("vnt2", "global", k, v);
+    }
+    uci.commit("vnt2");
+    return { result: "ok" };
+}
+
+function cmdSaveSettings(args) {
+    args.web_addr = trim(args.web_addr ?? "");
+    if (!args.web_addr)
+        return { result: "error", code: "invalid_web_addr", msg: "VNT Web listen address cannot be empty" };
+    let wdir = trim(args.web_data_dir ?? "");
+    if (wdir) {
+        if (substr(wdir, 0, 1) !== "/" || match(wdir, /\s/))
+            return { result: "error", code: "invalid_web_data_dir", msg: "Data directory must be an absolute path" };
+        args.web_data_dir = replace(wdir, /\/+$/, "") || "/";
+    } else {
+        args.web_data_dir = "/vnt_config";
+    }
+    let token = trim(args.web_token ?? "");
+    if (token) {
+        if (!validWebToken(token))
+            return { result: "error", code: "invalid_web_token", msg: "Token must be exactly 64 hexadecimal characters" };
+    } else {
+        token = ensureWebToken();
+        if (!token)
+            return { result: "error", code: "token_generation_failed", msg: "Token generation failed" };
+    }
+    args.web_token = token;
     let uci = cursor();
     uci.load("vnt2");
     for (let i = 0; i < length(SETTING_DEFS); i++) {
@@ -722,7 +1889,7 @@ function cmdSaveSettings(args) {
     }
     uci.commit("vnt2");
     initPaths();
-    system(`setsid ${DEFAULTS.init_script} reload >/dev/null 2>&1 &`);
+    runDetached(`${DEFAULTS.init_script} restart >/dev/null 2>&1`);
     return { result: "ok" };
 }
 
@@ -733,21 +1900,26 @@ function cmdGetEnabled(args) {
     let uci      = cursor();
     uci.load("vnt2");
     let uciState = {};
-    uciEach(uci, type, (sid, s) => {
-        if (s.name) uciState[s.name] = {
+    uci.foreach("vnt2", type, (s) => {
+        let sid = s[".name"];
+        if (type === "vnt" && substr(sid || "", 0, 4) === "web_") return;
+        if (s.name) uciState[stripConfigExt(s.name, type)] = {
             enabled:      s.enabled === "1",
-            start_method: s.start_method || START_METHODS[type],
+            start_method: (type === "vnt" ? "vnt2_cli" : (s.start_method || START_METHODS[type])),
             method_set:   s.method_set === "1",
         };
     });
     let configs = [];
+    if (type === "vnt") {
+        let webEnabled = (execOutput("uci -q get vnt2.global.web_enabled 2>/dev/null") || "1") !== "0";
+        push(configs, { name:"vnt2_web", enabled:webEnabled, start_method:"vnt2_web", method_set:true, web_addr:getWebAddr(), is_web_process:true, locked:true });
+    }
     for (let i = 0; i < length(names); i++) {
-        let name     = names[i];
+        let name     = stripConfigExt(names[i], type);
         let s        = uciState[name] ?? {
             enabled: false, start_method: START_METHODS[type], method_set: false
         };
-        let web_addr = (type === "vnt")
-            ? readField(confFile(name, type), "web_addr") : "";
+        let web_addr = (type === "vnt") ? getWebAddr() : "";
         push(configs, {
             name,
             enabled:      s.enabled,
@@ -765,28 +1937,56 @@ function cmdSetEnabled(args) {
     let uci         = cursor();
     uci.load("vnt2");
     let old         = [];
-    uciEach(uci, cfgType, (sid) => push(old, sid));
+    let oldInfo     = {};
+    uci.foreach("vnt2", cfgType, (sec) => {
+        let sid = sec[".name"];
+        if (cfgType === "vnt" && substr(sid || "", 0, 4) === "web_") return;
+        push(old, sid);
+        let key = stripConfigExt(sec.name || "", cfgType);
+        if (key) oldInfo[key] = { file_name: sec.file_name || sec.name || key, config_name: sec.config_name || sec.name || key };
+    });
     for (let i = 0; i < length(old); i++)
         uci.delete("vnt2", old[i]);
     let actualNames = getActualNames(cfgType);
     let actualSet   = {};
     for (let i = 0; i < length(actualNames); i++)
-        actualSet[actualNames[i]] = true;
+        actualSet[stripConfigExt(actualNames[i], cfgType)] = true;
     let list = (type(args.configs) === "array") ? args.configs : [];
+    if (cfgType === "vnt") {
+        for (let i = 0; i < length(list); i++) {
+            let item = list[i];
+            if (item.name === "vnt2_web")
+                uci.set("vnt2", "global", "web_enabled", item.enabled ? "1" : "0");
+        }
+    }
     let idx  = 0;
     for (let i = 0; i < length(list); i++) {
         let item = list[i];
-        if (!item.name || !actualSet[item.name]) continue;
+        if (cfgType === "vnt" && item.name === "vnt2_web") continue;
+        let itemName = stripConfigExt(item.name || "", cfgType);
+        if (!itemName || !actualSet[itemName]) continue;
+        let saved = oldInfo[itemName] || {};
+        let apiFile = item.file_name || saved.file_name || item.name;
+        let cfgName = item.config_name || saved.config_name || item.name;
         let sid = `cfg_${cfgType}_${idx}`;
         uci.set("vnt2", sid, cfgType);
-        uci.set("vnt2", sid, "name",         item.name);
+        uci.set("vnt2", sid, "name",         itemName);
+        if (cfgType === "vnt") uci.set("vnt2", sid, "file_name", apiFile);
+        if (cfgType === "vnt" && cfgName) uci.set("vnt2", sid, "config_name", cfgName);
         uci.set("vnt2", sid, "enabled",      item.enabled ? "1" : "0");
-        uci.set("vnt2", sid, "start_method", item.start_method || START_METHODS[cfgType]);
+        let startMethod = cfgType === "vnt" ? (saved.file_name && !fileExists(confFile(itemName, "vnt")) ? "vnt2_web" : "vnt2_cli") : (item.start_method || START_METHODS[cfgType]);
+        uci.set("vnt2", sid, "start_method", startMethod);
         uci.set("vnt2", sid, "method_set",   "1");
+        if (cfgType === "vnt" && startMethod === "vnt2_web") {
+            let apiPath = item.enabled ? "/api/start" : "/api/stop";
+            let body = sprintf('{"file_name":%J}', apiFile);
+            webApi(apiPath, "POST", body);
+        }
         idx++;
     }
+    ensureWebToken();
     uci.commit("vnt2");
-    system(`setsid ${DEFAULTS.init_script} start >/dev/null 2>&1 &`);
+    runDetached(`${DEFAULTS.init_script} start >/dev/null 2>&1`);
     return { result: "ok" };
 }
 
@@ -798,9 +1998,9 @@ function statusPrefix(s, prefix) {
 function cmdGetUpstreamVersion(args) {
     let project = args.project;
     resetUpdateState(project);
-    system(
-        `setsid '${DEFAULTS.update_script}' check '${project}' '${getMirror(args)}'` +
-        ` >> '${updFile(project, "log")}' 2>&1 &`
+    runDetached(
+        `${shQuote(DEFAULTS.update_script)} check ${shQuote(project)} ${shQuote(getMirror(args))}` +
+        ` >> ${shQuote(updFile(project, "log"))} 2>&1`
     );
     return { result: "ok" };
 }
@@ -808,10 +2008,10 @@ function cmdGetUpstreamVersion(args) {
 function cmdDoUpdate(args) {
     let project = args.project;
     resetUpdateState(project);
-    system(
-        `setsid '${DEFAULTS.update_script}' download` +
-        ` '${project}' '${args.tag}' '${args.filename}' '${args.upx ? "1" : "0"}'` +
-        ` >> '${updFile(project, "log")}' 2>&1 &`
+    runDetached(
+        `${shQuote(DEFAULTS.update_script)} download` +
+        ` ${shQuote(project)} ${shQuote(args.tag)} ${shQuote(args.filename)} ${shQuote(args.upx ? "1" : "0")}` +
+        ` >> ${shQuote(updFile(project, "log"))} 2>&1`
     );
     return { result: "ok" };
 }
@@ -826,16 +2026,24 @@ function cmdGetUpdateStatus(args) {
     let status  = trim(safeRead(statusF));
     let logTail = fileExists(logF)
         ? trim(execOutput(`cat '${logF}' 2>/dev/null`)) : "";
-    if (status === "checking" || status === "downloading" || status === "installing")
-        return {
-            status,
+    let dlArg = statusPrefix(status, "downloading:");
+    let base  = dlArg !== null ? "downloading" : status;
+    if (base === "checking" || base === "downloading" || base === "installing") {
+        let r = {
+            status: base,
             event: ev ? ev.event : null,
             args: ev ? ev.args : {},
-            code: status === "checking" ? "version_checking"
-                : status === "downloading" ? "download_in_progress"
+            code: base === "checking" ? "version_checking"
+                : base === "downloading" ? "download_in_progress"
                 : "installation_in_progress",
             log: logTail
         };
+        if (dlArg !== null) {
+            let parts = split(dlArg, ":");
+            r.progress = { pct: int(parts[0]), done: int(parts[1]), total: int(parts[2]) };
+        }
+        return r;
+    }
     let readyVal = statusPrefix(status, "ready:");
     if (readyVal !== null) {
         let releases = fileExists(slimF) ? json(safeRead(slimF)) : null;
@@ -848,23 +2056,182 @@ function cmdGetUpdateStatus(args) {
     return { status: "idle" };
 }
 
+
+const ADVANCED_CONFIG_FILE = "/etc/config/vnt2";
+const DEFAULT_ADVANCED_CONFIG = `config template 'template_vnt'
+	option type 'vnt'
+	option name 'default'
+
+config template 'template_vnts'
+	option type 'vnts'
+	option name 'default'
+
+config port_detect 'default'
+	option enabled '1'
+	option check_config '1'
+	option check_system '1'
+	list ignore_param 'endpoint'
+	list ignore_param 'peer_servers'
+	list ignore_param 'server_addr'
+	list ignore_param 'server_address'
+	list ignore_param 'remote_addr'
+	list ignore_param 'remote'
+
+config command 'start_vnt_web'
+	option role 'client_web'
+	option label 'Startup Parameters'
+	option binary 'vnt_web'
+	option command '{bin} --addr {web_addr} --token {token}'
+
+config command 'start_vnt_cli'
+	option role 'client_cli'
+	option label 'Startup Parameters'
+	option binary 'vnt_cli'
+	option command '{bin} --conf {conf}'
+
+config command 'start_vnts'
+	option role 'server'
+	option label 'Startup Parameters'
+	option binary 'vnts'
+	option command '{bin} -c {conf}'
+
+config query 'ctrl_info'
+	option role 'client_cli'
+	option cmd 'info'
+	option label 'Info'
+	option binary 'vnt_ctrl'
+	option command '{bin} -p {ctrl_port} info'
+
+config query 'ctrl_ips'
+	option role 'client_cli'
+	option cmd 'ips'
+	option label 'IP List'
+	option binary 'vnt_ctrl'
+	option command '{bin} -p {ctrl_port} ips'
+
+config query 'ctrl_clients'
+	option role 'client_cli'
+	option cmd 'clients'
+	option label 'Clients'
+	option binary 'vnt_ctrl'
+	option command '{bin} -p {ctrl_port} clients'
+
+config query 'ctrl_route'
+	option role 'client_cli'
+	option cmd 'route'
+	option label 'Route'
+	option binary 'vnt_ctrl'
+	option command '{bin} -p {ctrl_port} route'`;
+
+function isAdvancedSectionType(t) {
+    return t === "binary" || t === "command" || t === "query" || t === "template" || t === "port_detect";
+}
+
+function splitAdvancedBlocks(raw, wantAdvanced) {
+    let lines = split(raw || "", "\n");
+    let out = [];
+    let include = !wantAdvanced;
+    for (let i = 0; i < length(lines); i++) {
+        let line = lines[i];
+        let m = match(trim(line), /^config\s+(\S+)/);
+        if (m) include = wantAdvanced ? isAdvancedSectionType(m[1]) : !isAdvancedSectionType(m[1]);
+        if (include) push(out, line);
+    }
+    return trim(join("\n", out));
+}
+
+function cmdReadAdvancedRaw() {
+    let content = splitAdvancedBlocks(safeRead(ADVANCED_CONFIG_FILE), true);
+    if (!trim(content)) content = DEFAULT_ADVANCED_CONFIG;
+    return { content };
+}
+
+function cmdSaveAdvancedRaw(args) {
+    let content = trim(args.content ?? "") + "\n";
+    let v = validateAdvancedRaw(content);
+    if (!v.ok) return { result: "error", code: v.code, msg: v.msg };
+    system("mkdir -p /etc/config");
+    let preserved = splitAdvancedBlocks(safeRead(ADVANCED_CONFIG_FILE), false);
+    let merged = (preserved ? preserved + "\n\n" : "") + content;
+    if (writefile(ADVANCED_CONFIG_FILE, merged) == null)
+        return { result: "error", code: "write_failed", msg: "Write failed" };
+    let rc = system("uci -q show vnt2 >/dev/null 2>&1");
+    if (rc !== 0)
+        return { result: "error", code: "invalid_uci", msg: "Invalid UCI format" };
+    system("uci -q commit vnt2");
+    return { result: "ok" };
+}
+
+function cmdResetAdvanced() {
+    system("mkdir -p /etc/config");
+    let preserved = splitAdvancedBlocks(safeRead(ADVANCED_CONFIG_FILE), false);
+    let merged = (preserved ? preserved + "\n\n" : "") + DEFAULT_ADVANCED_CONFIG + "\n";
+    if (!writefile(ADVANCED_CONFIG_FILE, merged))
+        return { result: "error", code: "write_failed", msg: "Write failed" };
+    system("uci -q commit vnt2");
+    return { result: "ok", content: DEFAULT_ADVANCED_CONFIG };
+}
+
+function cmdGetBinaryHelp(args) {
+    let path = trim(args.path ?? "");
+    let mode = args.mode || "help";
+    if (!path || !match(path, /^[A-Za-z0-9_\/\.\-]+$/))
+        return { result: "error", code: "invalid_path", msg: "Invalid binary path" };
+    let flag = mode === "conf_example" ? "--conf-example" : "--help";
+    let out = execOutput(`'${path}' ${flag} 2>&1`);
+    return { result: "ok", content: out };
+}
+
+function cmdGetTheme(args) {
+    let uci = cursor();
+    uci.load("vnt2");
+    let t = uci.get("vnt2", "global", "theme");
+    return { result: "ok", theme: (t == "dark") ? "dark" : "light" };
+}
+
+function cmdSetTheme(args) {
+    let t = (args.theme == "dark") ? "dark" : "light";
+    let uci = cursor();
+    uci.load("vnt2");
+    uci.set("vnt2", "global", "theme", t);
+    uci.commit("vnt2");
+    return { result: "ok", theme: t };
+}
+
 const METHODS = {
+    get_theme:            cmdGetTheme,
+    set_theme:            cmdSetTheme,
     list_instances:       cmdListInstances,
     list_configs:         cmdListConfigs,
     read_config:          cmdReadConfig,
     read_template:        cmdReadTemplate,
     get_template_fields:  cmdGetTemplateFields,
+    list_config_templates: cmdListConfigTemplates,
+    read_config_template: cmdReadConfigTemplate,
+    save_config_template: cmdSaveConfigTemplate,
+    delete_config_template: cmdDeleteConfigTemplate,
+    set_default_template: cmdSetDefaultTemplate,
+    get_template_help:    cmdGetTemplateHelp,
     save_config:          cmdSaveConfig,
     delete_config:        cmdDeleteConfig,
-    instance_action:      (a) => instanceAction(a.name, a.action),
-    get_instance_status:  (a) => { initPaths(); return instanceInfo(a.name); },
+    instance_action:      (a) => instanceAction(a.name, a.action, a.type),
     get_ctrl_info:        cmdGetCtrlInfo,
+    get_conf_example:     cmdGetConfExample,
     get_log:              cmdGetLog,
     clear_log:            cmdClearLog,
     get_system_info:      cmdGetSystemInfo,
     check_binaries:       cmdCheckBinaries,
     get_settings:         cmdGetSettings,
-    generate_web_token:   cmdGenerateWebToken,
+    get_web_access:       cmdGetWebAccess,
+    set_web_addr:         cmdSetWebAddr,
+    refresh_web_token:    cmdRefreshWebToken,
+    set_web_token:        cmdSetWebToken,
+    list_web_instances:   cmdListWebInstances,
+    web_instance_action:  cmdWebInstanceAction,
+    get_log_keys:         cmdGetLogKeys,
+    save_log_keys:        cmdSaveLogKeys,
+    sync_web_state:       cmdSyncWebState,
+    restore_web_state:    cmdRestoreWebState,
     save_settings:        cmdSaveSettings,
     get_upstream_version: cmdGetUpstreamVersion,
     do_update:            cmdDoUpdate,
@@ -872,31 +2239,52 @@ const METHODS = {
     get_enabled:          cmdGetEnabled,
     set_enabled:          cmdSetEnabled,
     get_cpu_ticks:        cmdGetCpuTicks,
+    read_advanced_raw:    cmdReadAdvancedRaw,
+    save_advanced_raw:    cmdSaveAdvancedRaw,
+    reset_advanced:       cmdResetAdvanced,
+    get_binary_help:      cmdGetBinaryHelp,
 };
 
 const SIGNATURES = {
+    get_theme:            {},
+    set_theme:            { theme: "String" },
     list_instances:       {},
     list_configs:         { filter: "String" },
     read_config:          { name: "String", type: "String" },
-    read_template:        { type: "String" },
-    get_template_fields:  { type: "String" },
+    read_template:        { type: "String", template: "String" },
+    get_template_fields:  { type: "String", template: "String" },
+    list_config_templates: { type: "String" },
+    read_config_template: { type: "String", name: "String", template: "String" },
+    save_config_template: { type: "String", name: "String", template: "String", content: "String" },
+    delete_config_template: { type: "String", name: "String", template: "String" },
+    set_default_template: { type: "String", name: "String", template: "String" },
+    get_template_help:    { type: "String" },
     save_config:          { name: "String", type: "String", content: "String", old_name: "String" },
     delete_config:        { name: "String", type: "String" },
-    get_instance_status:  { name: "String" },
-    instance_action:      { name: "String", action: "String" },
-    get_ctrl_info:        { name: "String", cmd: "String", network_code: "String" },
-    get_log:              { name: "String", lines: "Integer" },
-    clear_log:            { name: "String" },
+    instance_action:      { name: "String", action: "String", type: "String" },
+    get_ctrl_info:        { name: "String", cmd: "String", network_code: "String", type: "String" },
+    get_conf_example:     { type: "String" },
+    get_log:              { name: "String", lines: "Integer", type: "String" },
+    clear_log:            { name: "String", type: "String" },
     get_system_info:      {},
     check_binaries:       {},
     get_settings:         {},
-    generate_web_token:   {},
+    get_web_access:       {},
+    set_web_addr:         { addr: "String" },
+    refresh_web_token:    {},
+    set_web_token:        { token: "String" },
+    list_web_instances:   {},
+    web_instance_action:  { file_name: "String", action: "String" },
+    get_log_keys:         {},
+    save_log_keys:        { web_sync_keys: "String", web_start_keys: "String", web_stop_keys: "String", web_delete_keys: "String", fault_restart_keys: "String", fault_route_keys: "String", online_keys: "String", online_exclude_keys: "String" },
+    sync_web_state:       {},
+    restore_web_state:    {},
     save_settings: {
-        bin_path: "String", config_path: "String", arch: "String", mirror: "String", web_token: "String",
+        config_path: "String", bin_path: "String", arch: "String", mirror: "String", web_token: "String", web_addr: "String", web_enabled: "String", web_data_dir: "String", web_sync_timeout: "Integer",
         auto_update: "String", update_interval: "Integer", upx_compressed: "String",
         respawn_threshold: "Integer", respawn_timeout: "Integer", respawn_retry: "Integer",
         log_to_file: "String", log_errors_only: "String", log_max_kb: "Integer",
-        startup_check_window: "Integer",
+        startup_check_window: "Integer", kill_interval: "Integer",
         fw_vnt_to_lan: "String", fw_lan_to_vnt: "String",
         fw_vnt_to_wan: "String", fw_wan_to_vnt: "String",
         fw_vnt_web: "String", fw_vnts_web: "String",
@@ -906,7 +2294,11 @@ const SIGNATURES = {
     get_update_status:    { project: "String" },
     get_enabled:          { type: "String" },
     set_enabled:          { type: "String", configs: "String" },
-    get_cpu_ticks:        { name: "String" },
+    get_cpu_ticks:        { name: "String", type: "String" },
+    read_advanced_raw:    {},
+    save_advanced_raw:    { content: "String" },
+    reset_advanced:       {},
+    get_binary_help:      { path: "String", mode: "String" },
 };
 
 let argv = ARGV;
@@ -922,9 +2314,10 @@ switch (argv[0]) {
             print(sprintf("%J", { error: "Unknown method", code: "unknown_method" }), "\n");
         } else {
             try {
-                print(sprintf("%J", fn(input)), "\n");
+                let ret = fn(input);
+                print(sprintf("%J", ret), "\n");
             } catch(e) {
-                print(sprintf("%J", { error: `${e}` }), "\n");
+                print(sprintf("%J", { error: `${e}`, code:"rpc_exception" }), "\n");
             }
         }
         break;
@@ -933,3 +2326,4 @@ switch (argv[0]) {
         warn(`Usage: ${argv[0]} {list|call <method>}\n`);
         exit(1);
 }
+

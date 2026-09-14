@@ -1,177 +1,96 @@
-# VNT2 LuCI i18n Chinese (Simplified)
-# zh-cn
-# v1.4
-
 msgid ""
 msgstr ""
+"Project-Id-Version: luci-app-vnt2\n"
+"POT-Creation-Date: 2026-09-12 12:00+0800\n"
+"PO-Revision-Date: 2026-09-12 12:00+0800\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Language: zh-cn\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
 
-#: luci-app-vnt2.json
-msgid "Instance Status"
-msgstr "运行状态"
+msgid "Official Website"
+msgstr "官方网站"
 
-msgid "Config Management"
-msgstr "配置管理"
+msgid "Start"
+msgstr "启动"
 
-msgid "Logs"
-msgstr "日志"
+msgid "Restart"
+msgstr "重启"
 
-msgid "Settings & Update"
-msgstr "设置与更新"
-
-#: config.js
-msgid "Client"
-msgstr "客户端"
+msgid "Stop"
+msgstr "停止"
 
 msgid "Server"
 msgstr "服务端"
 
-msgid "Configuration"
-msgstr "配置"
+msgid "Client"
+msgstr "客户端"
 
-msgid "VNT2 Configuration"
-msgstr "VNT2 配置管理"
+msgid "Networks"
+msgstr "网络"
 
-msgid "No %s configurations yet. Click \"New Config\" to add one."
-msgstr "暂无 %s 配置，点击「新建配置」开始添加。"
+msgid "Servers"
+msgstr "服务器"
 
-msgid "%s Config List"
-msgstr "%s 配置列表"
+msgid "Basic Info"
+msgstr "基本信息"
 
-msgid "New Configuration"
-msgstr "新建配置"
+msgid "IP List"
+msgstr "IP 列表"
 
-msgid "Edit Configuration"
-msgstr "编辑配置"
+msgid "Route"
+msgstr "路由"
 
-msgid "Delete"
-msgstr "删除"
+msgid "Online"
+msgstr "在线"
 
-msgid "Save Configuration"
-msgstr "保存配置"
+msgid "Offline"
+msgstr "离线"
 
-msgid "← Back to List"
-msgstr "← 返回列表"
+msgid "Remote"
+msgstr "远程"
 
-msgid "+ New Config"
-msgstr "+ 新建配置"
+msgid "Running"
+msgstr "运行中"
 
-msgid "Save & Apply"
-msgstr "保存并应用"
+msgid "No data"
+msgstr "暂无数据"
 
-msgid "Enabled"
-msgstr "已启用"
+msgid "All"
+msgstr "全部"
 
-msgid "Disabled"
-msgstr "已禁用"
+msgid "Simple and efficient networking tool"
+msgstr "简单高效的组网工具"
 
-msgid "Enable auto update"
-msgstr "启用自动更新"
-
-msgid "Name"
-msgstr "名称"
-
-msgid "Start Method"
-msgstr "启动方式"
-
-msgid "Status"
-msgstr "状态"
-
-msgid "Actions"
-msgstr "操作"
-
-msgid "Configuration Name:"
-msgstr "配置名称："
-
-msgid "Letters, numbers, underscores, hyphens"
-msgstr "字母、数字、下划线、连字符"
-
-msgid "Name can only contain letters, numbers, underscores, hyphens"
-msgstr "名称只能包含字母、数字、下划线、连字符"
-
-msgid "Configuration name already exists"
-msgstr "配置名称已存在"
-
-msgid "— Please select —"
-msgstr "— 请选择 —"
-
-msgid "Loading configuration..."
-msgstr "正在加载配置..."
-
-msgid "Loading..."
-msgstr "加载中..."
-
-msgid "Load failed: %s"
-msgstr "加载失败：%s"
-
-msgid "Template fields are empty, please check the template file."
-msgstr "模板字段为空，请检查模板文件。"
-
-msgid "The following required fields are not filled: %s"
-msgstr "以下必填字段未填写：%s"
-
-msgid "Save failed: %s"
-msgstr "保存失败：%s"
-
-msgid "Save error: %s"
-msgstr "保存出错：%s"
-
-msgid "Restart error: %s"
-msgstr "重启出错：%s"
-
-msgid "Instance \"%s\" restarted successfully"
-msgstr "实例 \"%s\" 重启成功"
-
-msgid "Are you sure to delete config \"%s\"?"
-msgstr "确定要删除配置 \"%s\" 吗？"
-
-msgid "Instance \"%s\" is running and will be stopped on delete. Are you sure?"
-msgstr "实例 \"%s\" 正在运行，删除后将自动停止，确定吗？"
-
-msgid "Config \"%s\" has been deleted"
-msgstr "配置 \"%s\" 已删除"
-
-msgid "Delete failed: %s"
-msgstr "删除失败：%s"
-
-msgid "Confirm Delete"
-msgstr "确认删除"
-
-msgid "Discard Changes"
-msgstr "放弃更改"
-
-msgid "Unsaved changes will be lost when switching tabs. Are you sure?"
-msgstr "切换标签页将丢失未保存的更改，确定吗？"
-
-msgid "Unsaved changes exist. Are you sure to discard and return?"
-msgstr "存在未保存的更改，确定放弃并返回吗？"
-
-msgid "Partial save failed"
-msgstr "部分保存失败"
-
-msgid "Configuration saved"
-msgstr "配置已保存"
-
-msgid "Add a row"
-msgstr "添加一行"
-
-msgid "Delete this row"
-msgstr "删除此行"
-
-msgid "Unknown error"
-msgstr "未知错误"
-
-#: overview.js
 msgid "VNT2 Status"
-msgstr "VNT2 运行状态"
+msgstr "VNT2 状态"
 
 msgid "%d running"
 msgstr "%d 个运行中"
 
 msgid "/ %d total"
 msgstr "/ 共 %d 个"
+
+msgid "Node Information"
+msgstr "节点信息"
+
+msgid "Missing binary files:"
+msgstr "缺少二进制文件:"
+
+msgid "Please go to"
+msgstr "请前往"
+
+msgid "Settings and Update"
+msgstr "设置与更新"
+
+msgid "page to download and install."
+msgstr "页面下载安装。"
+
+msgid "No instances, please create one on the Client or Server configuration page first."
+msgstr "暂无实例,请先在客户端或服务端配置页创建。"
 
 msgid "Instance Name"
 msgstr "实例名称"
@@ -181,6 +100,870 @@ msgstr "类型"
 
 msgid "Uptime"
 msgstr "运行时长"
+
+msgid "Actions"
+msgstr "操作"
+
+msgid "Enter Web UI"
+msgstr "进入 Web 管理端"
+
+msgid "Instance \"%s\" %s succeeded"
+msgstr "实例 \"%s\" %s 成功"
+
+msgid "Instance \"%s\" %s failed: %s"
+msgstr "实例 \"%s\" %s 失败: %s"
+
+msgid "Unknown error"
+msgstr "未知错误"
+
+msgid "Action failed: %s"
+msgstr "操作失败: %s"
+
+msgid "All %s commands sent"
+msgstr "已发送全部 %s 命令"
+
+msgid "No %s instances available for %s"
+msgstr "没有 %s 实例可用于 %s"
+
+msgid "running"
+msgstr "运行中"
+
+msgid "stopped"
+msgstr "已停止"
+
+msgid "%s partially failed: %s"
+msgstr "%s 部分失败: %s"
+
+msgid "All %s succeeded (%d total)"
+msgstr "全部 %s 成功(共 %d 个)"
+
+msgid "Batch %s failed: %s"
+msgstr "批量%s失败: %s"
+
+msgid "No running client instances."
+msgstr "没有正在运行的客户端实例。"
+
+msgid "Loading..."
+msgstr "加载中..."
+
+msgid "Select Instance:"
+msgstr "选择实例:"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "Name"
+msgstr "名称"
+
+msgid "Virtual IP"
+msgstr "虚拟 IP"
+
+msgid "Gateway"
+msgstr "网关"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "NAT Type"
+msgstr "NAT 类型"
+
+msgid "MTU"
+msgstr "MTU"
+
+msgid "Network Code"
+msgstr "网络编号"
+
+msgid "Public IPv4"
+msgstr "公网 IPv4"
+
+msgid "Public IPv6"
+msgstr "公网 IPv6"
+
+msgid "Version"
+msgstr "版本"
+
+msgid "Encrypt"
+msgstr "加密"
+
+msgid "Compress"
+msgstr "压缩"
+
+msgid "Features"
+msgstr "特性"
+
+msgid "RTT: "
+msgstr "RTT: "
+
+msgid "Connected"
+msgstr "已连接"
+
+msgid "Disconnected"
+msgstr "未连接"
+
+msgid "Device ID"
+msgstr "设备 ID"
+
+msgid "No peer data available"
+msgstr "暂无对端数据"
+
+msgid "IP"
+msgstr "IP"
+
+msgid "NAT"
+msgstr "NAT"
+
+msgid "Upload"
+msgstr "上传"
+
+msgid "Download"
+msgstr "下载"
+
+msgid "Loss Rate"
+msgstr "丢包率"
+
+msgid "No route data available"
+msgstr "暂无路由数据"
+
+msgid "No route info available"
+msgstr "暂无路由信息"
+
+msgid "Node"
+msgstr "节点"
+
+msgid "Address"
+msgstr "地址"
+
+msgid "Protocol"
+msgstr "协议"
+
+msgid "Metric"
+msgstr "跃点数"
+
+msgid "RTT"
+msgstr "延迟"
+
+msgid "No network data"
+msgstr "暂无网络数据"
+
+msgid "Config"
+msgstr "配置文件"
+
+msgid "Manual"
+msgstr "手动"
+
+msgid "Device Register"
+msgstr "设备注册"
+
+msgid "Network"
+msgstr "网络"
+
+msgid "Netmask"
+msgstr "子网掩码"
+
+msgid "Lease"
+msgstr "租约"
+
+msgid "Source"
+msgstr "来源"
+
+msgid "Online/Total"
+msgstr "在线/总数"
+
+msgid "No data available"
+msgstr "暂无数据"
+
+msgid "No devices in this network"
+msgstr "该网络下暂无设备"
+
+msgid "Latency"
+msgstr "延迟"
+
+msgid "Last Connect"
+msgstr "最近连接"
+
+msgid "Load failed"
+msgstr "加载失败"
+
+msgid "Outbound Servers"
+msgstr "出站服务器"
+
+msgid "Inbound Servers"
+msgstr "入站服务器"
+
+msgid "Retrying..."
+msgstr "重试中..."
+
+msgid "Partial save failed"
+msgstr "部分保存失败"
+
+msgid "Configuration saved"
+msgstr "配置已保存"
+
+msgid "Save error: %s"
+msgstr "保存出错: %s"
+
+msgid "Discard Changes"
+msgstr "放弃更改"
+
+msgid "Unsaved changes will be lost when switching tabs. Are you sure?"
+msgstr "切换标签将丢失未保存的更改,确定继续吗?"
+
+msgid "Edit vnt2_web Listen Address"
+msgstr "编辑 vnt2_web 监听地址"
+
+msgid "Listen Address"
+msgstr "监听地址"
+
+msgid "Example: 0.0.0.0:19099"
+msgstr "示例: 0.0.0.0:19099"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Listen address cannot be empty"
+msgstr "监听地址不能为空"
+
+msgid "Save failed: %s"
+msgstr "保存失败: %s"
+
+msgid "vnt2_web listen address saved"
+msgstr "vnt2_web 监听地址已保存"
+
+msgid "Save"
+msgstr "保存"
+
+msgid "vnt2_web Access Token"
+msgstr "vnt2_web 访问令牌"
+
+msgid "Close"
+msgstr "关闭"
+
+msgid "Refresh vnt2_web Token"
+msgstr "刷新 vnt2_web 令牌"
+
+msgid "Refresh vnt2_web access token? Existing tokenized links and logged-in browsers will become invalid."
+msgstr "确定刷新 vnt2_web 访问令牌?已有的令牌链接和已登录的浏览器将失效。"
+
+msgid "vnt2_web token refreshed"
+msgstr "vnt2_web 令牌已刷新"
+
+msgid "Refresh failed: %s"
+msgstr "刷新失败: %s"
+
+msgid "No %s configurations yet. Click \"New Config\" to add one."
+msgstr "暂无 %s 配置,点击\"新建配置\"添加。"
+
+msgid "Enabled"
+msgstr "已启用"
+
+msgid "Edit Listen Address"
+msgstr "编辑监听地址"
+
+msgid "View Access Token"
+msgstr "查看访问令牌"
+
+msgid "Refresh Access Token"
+msgstr "刷新访问令牌"
+
+msgid "Edit"
+msgstr "编辑"
+
+msgid "Edit Raw Config"
+msgstr "编辑原始配置"
+
+msgid "Delete"
+msgstr "删除"
+
+msgid "Loading configuration..."
+msgstr "正在加载配置..."
+
+msgid "Load failed: %s"
+msgstr "加载失败: %s"
+
+msgid "Official --conf-example"
+msgstr "官方 --conf-example"
+
+msgid "Raw Config"
+msgstr "原始配置"
+
+msgid "Unsaved changes exist. Are you sure to discard and return?"
+msgstr "存在未保存的更改,确定放弃并返回吗?"
+
+msgid "%s Config List"
+msgstr "%s 配置列表"
+
+msgid "Back to List"
+msgstr "返回列表"
+
+msgid "Save Raw Config"
+msgstr "保存原始配置"
+
+msgid "Letters, numbers, underscores, hyphens"
+msgstr "字母、数字、下划线、连字符"
+
+msgid "New Configuration"
+msgstr "新建配置"
+
+msgid "Edit Configuration"
+msgstr "编辑配置"
+
+msgid "Template:"
+msgstr "模板:"
+
+msgid "Switch Template"
+msgstr "切换模板"
+
+msgid "Switching template will rebuild the form. Continue?"
+msgstr "切换模板将重建表单,是否继续?"
+
+msgid "Configuration Name:"
+msgstr "配置名称:"
+
+msgid "Name can only contain letters, numbers, underscores, hyphens"
+msgstr "名称只能包含字母、数字、下划线、连字符"
+
+msgid "Configuration name already exists"
+msgstr "配置名称已存在"
+
+msgid "Save Configuration"
+msgstr "保存配置"
+
+msgid "Template fields are empty, please check the template file."
+msgstr "模板字段为空,请检查模板文件。"
+
+msgid "Port conflict detected"
+msgstr "检测到端口冲突"
+
+msgid "Please select"
+msgstr "请选择"
+
+msgid "Add a row"
+msgstr "添加一行"
+
+msgid "Delete this row"
+msgstr "删除本行"
+
+msgid "Required field"
+msgstr "必填项"
+
+msgid "The following required fields are not filled: %s"
+msgstr "以下必填项未填写: %s"
+
+msgid "Instance \"%s\" restarted successfully"
+msgstr "实例 \"%s\" 重启成功"
+
+msgid "Instance \"%s\" restart failed: %s"
+msgstr "实例 \"%s\" 重启失败: %s"
+
+msgid "Restart error: %s"
+msgstr "重启出错: %s"
+
+msgid "Confirm Delete"
+msgstr "确认删除"
+
+msgid "Instance \"%s\" is running and will be stopped on delete. Are you sure?"
+msgstr "实例 \"%s\" 正在运行,删除时将停止该实例,确定吗?"
+
+msgid "Are you sure to delete config \"%s\"?"
+msgstr "确定删除配置 \"%s\" 吗?"
+
+msgid "Config \"%s\" has been deleted"
+msgstr "配置 \"%s\" 已删除"
+
+msgid "Delete failed: %s"
+msgstr "删除失败: %s"
+
+msgid "Instance Management"
+msgstr "实例管理"
+
+msgid "New Config"
+msgstr "新建配置"
+
+msgid "Save & Apply"
+msgstr "保存并应用"
+
+msgid "No Instance"
+msgstr "无实例"
+
+msgid "Auto Download & Update"
+msgstr "自动下载并更新"
+
+msgid "VNT2 Log"
+msgstr "VNT2 日志"
+
+msgid "Stopped"
+msgstr "已停止"
+
+msgid "Last %d lines"
+msgstr "最近 %d 行"
+
+msgid "Auto Refresh (5s)"
+msgstr "自动刷新(5 秒)"
+
+msgid "Clear Log"
+msgstr "清空日志"
+
+msgid "Scroll to Top"
+msgstr "滚动到顶部"
+
+msgid "Scroll to Bottom"
+msgstr "滚动到底部"
+
+msgid "Instance:"
+msgstr "实例:"
+
+msgid "(No logs yet)"
+msgstr "(暂无日志)"
+
+msgid "(No logs yet. The instance might not be started or has no output)"
+msgstr "(暂无日志。实例可能未启动或没有输出)"
+
+msgid "Failed to load log"
+msgstr "日志加载失败"
+
+msgid "Allow virtual network to access LAN"
+msgstr "允许虚拟网络访问 LAN"
+
+msgid "Allow LAN to access virtual network"
+msgstr "允许 LAN 访问虚拟网络"
+
+msgid "Allow virtual network to access WAN"
+msgstr "允许虚拟网络访问 WAN"
+
+msgid "Allow WAN to access virtual network"
+msgstr "允许 WAN 访问虚拟网络"
+
+msgid "VNT Web External Access"
+msgstr "VNT Web 外部访问"
+
+msgid "Allow WAN to access the vnt2_web listen port"
+msgstr "允许 WAN 访问 vnt2_web 监听端口"
+
+msgid "VNTS Web External Access"
+msgstr "VNTS Web 外部访问"
+
+msgid "Requires web_bind configuration"
+msgstr "需要配置 web_bind"
+
+msgid "VNT2 Settings & Update"
+msgstr "VNT2 设置与更新"
+
+msgid "Settings"
+msgstr "设置"
+
+msgid "Update"
+msgstr "更新"
+
+msgid "Configuration Path"
+msgstr "配置文件路径"
+
+msgid "Binary Path"
+msgstr "二进制文件路径"
+
+msgid "Device Architecture"
+msgstr "设备架构"
+
+msgid "Update Interval (Days)"
+msgstr "更新间隔(天)"
+
+msgid "Public IP Check Timeout (s)"
+msgstr "公网 IP 检查超时(秒)"
+
+msgid "Restart Cooldown (s)"
+msgstr "重启冷却时间(秒)"
+
+msgid "Failure Threshold (s)"
+msgstr "失败统计窗口(秒)"
+
+msgid "Restart Delay (s)"
+msgstr "重启延迟(秒)"
+
+msgid "Restart Retries"
+msgstr "重启重试次数"
+
+msgid "Log Max Size (KB)"
+msgstr "日志最大大小(KB)"
+
+msgid "Token must be exactly 64 hexadecimal characters"
+msgstr "令牌必须为 64 位十六进制字符"
+
+msgid "Basic Settings"
+msgstr "基本设置"
+
+msgid "Directory of configuration files, default /etc/vnt2_config"
+msgstr "配置文件目录,默认 /etc/vnt2_config"
+
+msgid "Directory shared by vnt2_cli, vnt2_ctrl, vnt2_web and vnts2. Default /usr/bin"
+msgstr "vnt2_cli、vnt2_ctrl、vnt2_web 和 vnts2 共用的目录,默认 /usr/bin"
+
+msgid "Current detected: %s, automatic recognition by auto, or manual specification"
+msgstr "当前检测到: %s;选择 auto 自动识别,或手动指定"
+
+msgid "Unknown"
+msgstr "未知"
+
+msgid "Download Mirror"
+msgstr "下载镜像源"
+
+msgid "Multiple mirrors ensure successful downloads"
+msgstr "多镜像源保障下载成功"
+
+msgid "Auto Update"
+msgstr "自动更新"
+
+msgid "Enable auto update"
+msgstr "启用自动更新"
+
+msgid "Automatically check and update programs periodically"
+msgstr "定期检查并更新程序"
+
+msgid "Check for updates every %d days"
+msgstr "每 %d 天检查一次更新"
+
+msgid "UPX Compression"
+msgstr "UPX 压缩"
+
+msgid "Significantly reduce binary file size"
+msgstr "大幅减小二进制文件体积"
+
+msgid "Process Watchdog (Respawn)"
+msgstr "进程守护(Respawn)"
+
+msgid "Restart if no public IP is received within %d seconds; 0 disables this check."
+msgstr "%d 秒内未获取到公网 IP 则重启;0 表示禁用该检查。"
+
+msgid "Do not trigger another wrapper restart within %d seconds; 0 disables cooldown."
+msgstr "%d 秒内不再触发包装器重启;0 表示禁用冷却。"
+
+msgid "Count crashes within %d seconds, 0 = unlimited"
+msgstr "统计 %d 秒内的崩溃次数,0 = 不限制"
+
+msgid "Wait %d seconds before restart after crash"
+msgstr "崩溃后等待 %d 秒再重启"
+
+msgid "Max %d restarts then give up, 0 = unlimited"
+msgstr "最多重启 %d 次后放弃,0 = 不限制"
+
+msgid "Log Settings"
+msgstr "日志设置"
+
+msgid "Save instance output to log file"
+msgstr "将实例输出保存到日志文件"
+
+msgid "Only save WARN and ERROR output"
+msgstr "仅保存 WARN 和 ERROR 输出"
+
+msgid "Enable instance log"
+msgstr "启用实例日志"
+
+msgid "Disabling this only stops saving logs; process supervision is still handled by procd respawn."
+msgstr "禁用后仅停止保存日志;进程守护仍由 procd respawn 负责。"
+
+msgid "Errors and warnings only"
+msgstr "仅错误和警告"
+
+msgid "Only WARN and ERROR lines are written to the instance log file."
+msgstr "仅 WARN 和 ERROR 行会写入实例日志文件。"
+
+msgid "Each instance log truncated at %d KB"
+msgstr "每个实例日志在 %d KB 处截断"
+
+msgid "Firewall Forwarding"
+msgstr "防火墙转发"
+
+msgid "Current Version Info"
+msgstr "当前版本信息"
+
+msgid "Component"
+msgstr "组件"
+
+msgid "Installed"
+msgstr "已安装"
+
+msgid "Check Update"
+msgstr "检查更新"
+
+msgid "LuCI Plugin (luci-app-vnt2)"
+msgstr "LuCI 插件 (luci-app-vnt2)"
+
+msgid "VNT Client Web (vnt2_web)"
+msgstr "VNT 客户端 Web (vnt2_web)"
+
+msgid "VNTS Server (vnts2)"
+msgstr "VNTS 服务端 (vnts2)"
+
+msgid "Not installed"
+msgstr "未安装"
+
+msgid "Check Upstream Version"
+msgstr "检查上游版本"
+
+msgid "Click to check and get version info"
+msgstr "点击检查并获取版本信息"
+
+msgid "Progress"
+msgstr "进度"
+
+msgid "Switch mirror and retry:"
+msgstr "切换镜像源并重试:"
+
+msgid "Retry"
+msgstr "重试"
+
+msgid "Version:"
+msgstr "版本:"
+
+msgid "File:"
+msgstr "文件:"
+
+msgid "Update Now"
+msgstr "立即更新"
+
+msgid "Checking..."
+msgstr "检查中..."
+
+msgid "Start failed: %s"
+msgstr "启动失败: %s"
+
+msgid "Please check version first"
+msgstr "请先检查版本"
+
+msgid "Preparing to download..."
+msgstr "准备下载..."
+
+msgid "Downloading..."
+msgstr "下载中..."
+
+msgid "Download start failed"
+msgstr "下载启动失败"
+
+msgid "Error: %s"
+msgstr "错误: %s"
+
+msgid "Checking"
+msgstr "检查中"
+
+msgid "Downloading... %d%%"
+msgstr "下载中... %d%%"
+
+msgid "Downloading... %s"
+msgstr "下载中... %s"
+
+msgid "Installing..."
+msgstr "安装中..."
+
+msgid "Update task did not start or status was lost"
+msgstr "更新任务未启动或状态已丢失"
+
+msgid "Found %d versions"
+msgstr "发现 %d 个版本"
+
+msgid "Failed"
+msgstr "失败"
+
+msgid "Timeout, please retry"
+msgstr "超时,请重试"
+
+msgid "Binary Profiles"
+msgstr "二进制配置"
+
+msgid "Port Detection"
+msgstr "端口检测"
+
+msgid "Config Templates"
+msgstr "配置模板"
+
+msgid "Duplicate section: %s"
+msgstr "重复的节: %s"
+
+msgid "Duplicate %s parameter: %s"
+msgstr "重复的 %s 参数: %s"
+
+msgid "No fields can be previewed. Check template comments and parameters."
+msgstr "没有可预览的字段。请检查模板注释和参数。"
+
+msgid "Preview Form"
+msgstr "预览表单"
+
+msgid "Sub section: %s"
+msgstr "子节: %s"
+
+msgid "Parameters not found in official --help: %s"
+msgstr "官方 --help 中未找到的参数: %s"
+
+msgid "VNT2 Advanced Settings"
+msgstr "VNT2 高级设置"
+
+msgid "Query"
+msgstr "查询"
+
+msgid "Startup Parameters"
+msgstr "启动参数"
+
+msgid "Edit with --help"
+msgstr "对照 --help 编辑"
+
+msgid "No command template is bound to this binary."
+msgstr "该二进制未绑定命令模板。"
+
+msgid "Full Path"
+msgstr "完整路径"
+
+msgid "Read-only, derived from Settings Binary Path"
+msgstr "只读,来自设置页的二进制文件路径"
+
+msgid "Example: %s"
+msgstr "示例: %s"
+
+msgid "Reset Defaults"
+msgstr "恢复默认"
+
+msgid "Advanced settings saved"
+msgstr "高级设置已保存"
+
+msgid "Loading official --help..."
+msgstr "正在加载官方 --help..."
+
+msgid "No --help output"
+msgstr "无 --help 输出"
+
+msgid "Query Command"
+msgstr "查询命令"
+
+msgid "Official --help"
+msgstr "官方 --help"
+
+msgid "Edit Query Command"
+msgstr "编辑查询命令"
+
+msgid "Edit Startup Parameters"
+msgstr "编辑启动参数"
+
+msgid "Back"
+msgstr "返回"
+
+msgid "Automatically detects local listening port parameters such as *_port, *_bind, bind, web_addr, and excludes remote endpoint parameters."
+msgstr "自动检测本地监听端口参数,如 *_port、*_bind、bind、web_addr,并排除远端端点参数。"
+
+msgid "Enable Port Detection"
+msgstr "启用端口检测"
+
+msgid "Run silent port checks before saving client, server, or vnt2_web listen address."
+msgstr "在保存客户端、服务端或 vnt2_web 监听地址前执行静默端口检查。"
+
+msgid "Check Duplicate Ports in Configs"
+msgstr "检查配置中的重复端口"
+
+msgid "Scan existing .vnt and .vnts configs, excluding the config currently being edited."
+msgstr "扫描现有的 .vnt 和 .vnts 配置,排除当前正在编辑的配置。"
+
+msgid "Check System Port Usage"
+msgstr "检查系统端口占用"
+
+msgid "Block saving when a newly selected port is already listening on this device. Unchanged running instance ports are ignored."
+msgstr "当新选择的端口已在本机监听时阻止保存。运行中实例未变更的端口将被忽略。"
+
+msgid "Auto-detected parameters"
+msgstr "自动检测的参数"
+
+msgid "Built-in ignored parameters"
+msgstr "内置忽略的参数"
+
+msgid "Extra Detection Parameters"
+msgstr "额外检测参数"
+
+msgid "One parameter per row. Use section.key or [section].key for section fields."
+msgstr "每行一个参数。节内字段使用 section.key 或 [section].key 格式。"
+
+msgid "Ignored Parameters"
+msgstr "忽略的参数"
+
+msgid "One parameter per row. Matching key names or section.key names will be skipped."
+msgstr "每行一个参数。匹配的键名或 section.key 名称将被跳过。"
+
+msgid "Default templates are readonly. Clone a default template, edit the raw template text, then use Preview to see the form that Instance Management will create."
+msgstr "默认模板为只读。可克隆默认模板后编辑原始模板文本,再使用预览查看实例管理将生成的表单。"
+
+msgid "New Custom Template"
+msgstr "新建自定义模板"
+
+msgid "Default"
+msgstr "默认"
+
+msgid "Built-in readonly"
+msgstr "内置只读"
+
+msgid "Custom"
+msgstr "自定义"
+
+msgid "View"
+msgstr "查看"
+
+msgid "Clone"
+msgstr "克隆"
+
+msgid "Use as default"
+msgstr "设为默认"
+
+msgid "New template name"
+msgstr "新模板名称"
+
+msgid "Template name can only contain letters, numbers, underscores and hyphens"
+msgstr "模板名称只能包含字母、数字、下划线和连字符"
+
+msgid "Template cloned"
+msgstr "模板已克隆"
+
+msgid "Clone failed: %s"
+msgstr "克隆失败: %s"
+
+msgid "Default template saved"
+msgstr "默认模板已保存"
+
+msgid "Save failed"
+msgstr "保存失败"
+
+msgid "Delete Template"
+msgstr "删除模板"
+
+msgid "Delete template \"%s\"?"
+msgstr "确定删除模板 \"%s\" 吗?"
+
+msgid "Loading official --conf-example..."
+msgstr "正在加载官方 --conf-example..."
+
+msgid "No --conf-example output"
+msgstr "无 --conf-example 输出"
+
+msgid "Custom template name"
+msgstr "自定义模板名称"
+
+msgid "View Template"
+msgstr "查看模板"
+
+msgid "Edit Template"
+msgstr "编辑模板"
+
+msgid "Template Name"
+msgstr "模板名称"
+
+msgid "Built-in templates are readonly. Clone it before editing."
+msgstr "内置模板为只读,请先克隆再编辑。"
+
+msgid "Preview New Config Form"
+msgstr "预览新建配置表单"
+
+msgid "Back to Editor"
+msgstr "返回编辑器"
+
+msgid "Template saved"
+msgstr "模板已保存"
+
+msgid "Reset advanced settings to built-in defaults?"
+msgstr "确定将高级设置恢复为内置默认值吗?"
+
+msgid "Defaults restored"
+msgstr "已恢复默认值"
 
 msgid "d"
 msgstr "天"
@@ -194,644 +977,233 @@ msgstr "分"
 msgid "s"
 msgstr "秒"
 
-msgid "No instances, please create one on the Client or Server configuration page first."
-msgstr "暂无实例，请先在客户端或服务端配置页面创建配置。"
+msgid "Dark theme"
+msgstr "深色主题"
 
-msgid "All"
-msgstr "全部"
+msgid "Light theme"
+msgstr "浅色主题"
 
-msgid "Start"
-msgstr "启动"
+msgid "Overview"
+msgstr "总览"
 
-msgid "Restart"
-msgstr "重启"
+msgid "Log"
+msgstr "日志"
 
-msgid "Stop"
-msgstr "停止"
+msgid "Advanced"
+msgstr "高级"
 
-msgid "Enter Web UI"
-msgstr "进入 Web 界面"
+msgid "Checking version: %s"
+msgstr "正在检查版本: %s"
 
-msgid "Instance \"%s\" %s succeeded"
-msgstr "实例 \"%s\" %s 成功"
+msgid "Found %s versions"
+msgstr "发现 %s 个版本"
 
-msgid "Instance \"%s\" %s failed: %s"
-msgstr "实例 \"%s\" %s 失败：%s"
+msgid "Download complete: %s"
+msgstr "下载完成: %s"
 
-msgid "Action failed: %s"
-msgstr "操作失败：%s"
+msgid "Starting installation..."
+msgstr "开始安装..."
 
-msgid "All %s commands sent"
-msgstr "全部 %s 指令已发送"
+msgid "Installation complete: %s"
+msgstr "安装完成: %s"
 
-msgid "No %s instances available for %s"
-msgstr "没有可供 %s 操作的 %s 实例"
+msgid "SHA256 verification passed"
+msgstr "SHA256 校验通过"
 
-msgid "running"
-msgstr "运行中"
-
-msgid "stopped"
-msgstr "已停止"
-
-msgid "%s partially failed: %s"
-msgstr "%s 部分失败：%s"
-
-msgid "All %s succeeded (%d total)"
-msgstr "全部 %s 成功（共 %d 个）"
-
-msgid "Batch %s failed: %s"
-msgstr "批量 %s 失败：%s"
-
-msgid "Missing binary files:"
-msgstr "缺少二进制文件: "
-
-msgid "Please go to"
-msgstr "请前往"
-
-msgid "Settings and Update"
-msgstr "设置与更新"
-
-msgid "page to download and install."
-msgstr "页面下载安装。"
-
-msgid "Node Information"
-msgstr "节点信息"
-
-msgid "No running client instances."
-msgstr "暂无运行中的客户端实例。"
-
-msgid "Select Instance:"
-msgstr "选择实例："
-
-msgid "Refresh"
-msgstr "刷新"
-
-msgid "Basic Info"
-msgstr "基本信息"
-
-msgid "IP List"
-msgstr "IP 列表"
-
-msgid "Route"
-msgstr "路由"
-
-msgid "Load failed"
-msgstr "加载失败"
-
-msgid "No data available"
-msgstr "暂无数据"
-
-msgid "Not a client instance"
-msgstr "非客户端实例"
-
-msgid "Control port is disabled"
-msgstr "控制端口已禁用"
-
-msgid "web_addr not configured"
-msgstr "未配置 web_addr"
-
-msgid "Fetch failed"
-msgstr "获取失败"
-
-msgid "No peer data available"
-msgstr "暂无节点数据"
-
-msgid "No route data available"
-msgstr "暂无路由数据"
-
-msgid "No route info available"
-msgstr "暂无路由信息"
-
-msgid "Virtual IP"
-msgstr "虚拟 IP"
-
-msgid "Gateway"
-msgstr "网关"
-
-msgid "NAT Type"
-msgstr "NAT 类型"
-
-msgid "MTU"
-msgstr "MTU"
-
-msgid "Network Code"
-msgstr "网络代码"
-
-msgid "Public IPv4"
-msgstr "公网 IPv4"
-
-msgid "Public IPv6"
-msgstr "公网 IPv6"
-
-msgid "Version"
-msgstr "版本"
-
-msgid "Online"
-msgstr "在线"
-
-msgid "Offline"
-msgstr "离线"
-
-msgid "Features"
-msgstr "功能特性"
-
-msgid "Encrypt"
-msgstr "加密"
-
-msgid "Compress"
-msgstr "压缩"
-
-msgid "── Servers ──"
-msgstr "── 服务器 ──"
-
-msgid "Connected"
-msgstr "已连接"
-
-msgid "Disconnected"
-msgstr "未连接"
-
-msgid "Device ID"
-msgstr "设备 ID"
-
-msgid "IP"
-msgstr "IP"
-
-msgid "Public IP"
-msgstr "公网 IP"
-
-msgid "Sent"
-msgstr "已发送"
-
-msgid "Received"
-msgstr "已接收"
-
-msgid "Loss Rate"
-msgstr "丢包率"
-
-msgid "Upload"
-msgstr "上传"
-
-msgid "Download"
-msgstr "下载"
-
-msgid "Node"
-msgstr "节点"
-
-msgid "Address"
-msgstr "地址"
-
-msgid "Protocol"
-msgstr "协议"
-
-msgid "Metric"
-msgstr "跃点"
-
-msgid "RTT"
-msgstr "延迟"
-
-msgid "Simple and efficient networking tool"
-msgstr "简便高效的异地组网工具"
-
-msgid "Official Website"
-msgstr "官网"
-
-msgid "Actions"
-msgstr "操作"
-
-msgid "Client"
-msgstr "客户端"
-
-msgid "Server"
-msgstr "服务端"
-
-msgid "Loading..."
-msgstr "加载中..."
-
-msgid "Retrying..."
-msgstr "重试中..."
-
-msgid "Networks"
-msgstr "网络列表"
-
-msgid "Servers"
-msgstr "服务器列表"
-
-msgid "Name"
-msgstr "名称"
-
-msgid "Status"
-msgstr "状态"
-
-msgid "NAT"
-msgstr "NAT"
-
-msgid "RTT: "
-msgstr "延迟："
-
-msgid "No network data"
-msgstr "暂无网络数据"
-
-msgid "Network"
-msgstr "网络"
-
-msgid "Netmask"
-msgstr "子网掩码"
-
-msgid "Lease"
-msgstr "租期"
-
-msgid "Source"
-msgstr "来源"
-
-msgid "Online/Total"
-msgstr "在线/总数"
-
-msgid "Config"
-msgstr "配置"
-
-msgid "Manual"
-msgstr "手动"
-
-msgid "Device Register"
-msgstr "设备注册"
-
-msgid "No devices in this network"
-msgstr "该网络暂无设备"
-
-msgid "Latency"
-msgstr "延迟"
-
-msgid "Last Connect"
-msgstr "最后连接"
-
-msgid "Outbound Servers"
-msgstr "出站服务器"
-
-msgid "Inbound Servers"
-msgstr "入站服务器"
-
-msgid "No data"
-msgstr "暂无数据"
-
-msgid "Running"
-msgstr "运行中"
-
-msgid "Remote"
-msgstr "中继"
-
-#: settings.js
-msgid "VNT2 Settings & Update"
-msgstr "VNT2 设置与更新"
-
-msgid "Settings"
-msgstr "设置"
-
-msgid "Update"
-msgstr "更新"
-
-msgid "Basic Settings"
-msgstr "基础设置"
-
-msgid "Binary Path"
-msgstr "二进制文件路径"
-
-msgid "Directory of binary files, default /usr/bin"
-msgstr "二进制文件所在目录，默认 /usr/bin"
-
-msgid "Configuration Path"
-msgstr "配置文件路径"
-
-msgid "Directory of configuration files, default /etc/vnt2_config"
-msgstr "配置文件所在目录，默认 /etc/vnt2_config"
-
-msgid "Device Architecture"
-msgstr "设备架构"
-
-msgid "Current detected: %s, automatic recognition by auto, or manual specification"
-msgstr "当前检测：%s，auto 自动识别，或手动指定"
-
-msgid "Unknown"
-msgstr "未知"
-
-msgid "Download Mirror"
-msgstr "下载镜像源"
-
-msgid "Multiple mirrors ensure successful downloads"
-msgstr "多镜像源保障下载成功率"
-
-msgid "Auto Update"
-msgstr "自动更新"
-
-msgid "Automatically check and update programs periodically"
-msgstr "定期自动检查并更新程序"
-
-msgid "Update Interval (Days)"
-msgstr "更新间隔（天）"
-
-msgid "Check for updates every %d days"
-msgstr "每 %d 天检查一次更新"
-
-msgid "UPX Compression"
-msgstr "UPX 压缩"
-
-msgid "Use UPX to compress after installation"
-msgstr "安装后使用 UPX 压缩"
-
-msgid "Significantly reduce binary file size"
-msgstr "显著减小二进制文件体积"
-
-msgid "Process Watchdog (Respawn)"
-msgstr "进程守护（Respawn）"
-
-msgid "Failure Threshold (s)"
-msgstr "故障统计时长（秒）"
-
-msgid "Count crashes within %d seconds, 0 = unlimited"
-msgstr "在 %d 秒内统计崩溃次数，0 不统计"
-
-msgid "Restart Delay (s)"
-msgstr "重启延迟（秒）"
-
-msgid "Wait %d seconds before restart after crash"
-msgstr "异常退出后等待 %d 秒重启"
-
-msgid "Restart Retries"
-msgstr "最大重启次数"
-
-msgid "Max %d restarts then give up, 0 = unlimited"
-msgstr "最多重启 %d 次后不再重启，0 不限制"
-
-msgid "Log Settings"
-msgstr "日志设置"
-
-msgid "Each instance log truncated at %d KB"
-msgstr "每个实例的日志超过 %d KB 时截断"
-
-msgid "Log Max Size (KB)"
-msgstr "日志最大大小（KB）"
-
-msgid "Firewall Forwarding"
-msgstr "防火墙转发"
-
-msgid "Allow virtual network to access LAN"
-msgstr "允许虚拟网络访问局域网"
-
-msgid "Allow LAN to access virtual network"
-msgstr "允许局域网访问虚拟网络"
-
-msgid "Allow virtual network to access WAN"
-msgstr "允许虚拟网络访问外网"
-
-msgid "Allow WAN to access virtual network"
-msgstr "允许外网访问虚拟网络"
-
-msgid "VNT Web External Access"
-msgstr "VNT Web 外网访问"
-
-msgid "Requires web_addr configuration"
-msgstr "需配置 web_addr"
-
-msgid "VNTS Web External Access"
-msgstr "VNTS Web 外网访问"
-
-msgid "Requires web_bind configuration"
-msgstr "需配置 web_bind"
-
-msgid "Current Version Info"
-msgstr "当前版本信息"
-
-msgid "Component"
-msgstr "组件"
-
-msgid "✓ Installed"
-msgstr "✓ 已安装"
-
-msgid "✗ Not installed"
-msgstr "✗ 未安装"
-
-msgid "Not installed"
-msgstr "未安装"
-
-msgid "Check Update"
-msgstr "检查更新"
-
-msgid "LuCI Plugin (luci-app-vnt2)"
-msgstr "LuCI 插件（luci-app-vnt2）"
-
-msgid "VNT Client (vnt2_cli / vnt2_web / vnt2_ctrl)"
-msgstr "VNT 客户端（vnt2_cli / vnt2_web / vnt2_ctrl）"
-
-msgid "VNTS Server (vnts2)"
-msgstr "VNTS 服务端（vnts2）"
-
-msgid "Check Upstream Version"
-msgstr "检查上游版本"
-
-msgid "Click to check and get version info"
-msgstr "点击检查并获取版本信息"
-
-msgid "Switch mirror and retry:"
-msgstr "切换镜像源重试："
-
-msgid "Retry"
-msgstr "重试"
-
-msgid "Version:"
-msgstr "版本："
-
-msgid "File:"
-msgstr "文件："
-
-msgid "Update Now"
-msgstr "立即更新"
-
-msgid "Preparing to download..."
-msgstr "准备下载..."
-
-msgid "Downloading..."
-msgstr "下载中..."
-
-msgid "✗ Please check version first"
-msgstr "✗ 请先检查版本"
-
-msgid "✗ Download start failed"
-msgstr "✗ 下载启动失败"
-
-msgid "Checking..."
-msgstr "检查中..."
-
-msgid "Checking"
-msgstr "检查中"
-
-msgid "Downloading"
-msgstr "下载中"
-
-msgid "Downloading... %d%%"
-msgstr "正在下载... %d%%"
-
-msgid "Installing..."
-msgstr "安装中..."
-
-msgid "✓ Found %d versions"
-msgstr "✓ 找到 %d 个版本"
-
-msgid "✓ Installation complete: %s"
-msgstr "✓ 安装完成：%s"
-
-msgid "✗ %s"
-msgstr "✗ %s"
-
-msgid "Failed"
-msgstr "失败"
-
-msgid "✗ Timeout, please retry"
-msgstr "✗ 超时，请重试"
-
-msgid "✗ Start failed: %s"
-msgstr "✗ 启动失败：%s"
-
-msgid "✗ Error: %s"
-msgstr "✗ 出错：%s"
-
-msgid "Batch %s failed: %s"
-msgstr "批量 %s 失败：%s"
-
-#: log.js
-msgid "VNT2 Log"
-msgstr "VNT2 日志"
-
-msgid "Loading..."
-msgstr "加载中..."
-
-msgid "No Instance"
-msgstr "无实例"
-
-msgid "Client"
-msgstr "客户端"
-
-msgid "Server"
-msgstr "服务端"
-
-msgid "Running"
-msgstr "运行中"
-
-msgid "Stopped"
-msgstr "已停止"
-
-msgid "Auto Download & Update"
-msgstr "自动下载与更新"
-
-msgid "All"
-msgstr "全部"
-
-msgid "Last %d lines"
-msgstr "最近 %d 行"
-
-msgid "Refresh"
-msgstr "刷新"
-
-msgid "Clear Log"
-msgstr "清空日志"
-
-msgid "Scroll to Top"
-msgstr "滚动到顶部"
-
-msgid "Scroll to Bottom"
-msgstr "滚动到底部"
-
-msgid "Instance:"
-msgstr "实例："
-
-msgid "Auto Refresh (5s)"
-msgstr "自动刷新（5秒）"
-
-msgid "(No logs yet)"
-msgstr "（暂无日志）"
-
-msgid "(No logs yet. The instance might not be started or has no output)"
-msgstr "（暂无日志。实例可能未启动或无输出）"
-
-msgid "Failed to load log"
-msgstr "加载日志失败"
-
-#: common.js
-msgid "Cancel"
-msgstr "取消"
-
-msgid "Confirm"
-msgstr "确认"
-
-msgid "Disabled"
-msgstr "已禁用"
-
-msgid "✓ Running"
-msgstr "✓ 运行中"
-
-msgid "✗ Not running"
-msgstr "✗ 未运行"
-
-msgid "Enable instance log"
-msgstr "启用实例日志"
-
-msgid "Save instance output to log file"
-msgstr "将实例输出保存到日志文件"
-
-msgid "Disabling this only stops saving logs; fault detection and recovery remain active."
-msgstr "关闭后仅停止保存日志，故障检测和恢复功能仍然有效。"
-
-msgid "Errors and warnings only"
-msgstr "仅记录错误和警告"
-
-msgid "Only save WARN and ERROR output"
-msgstr "仅保存 WARN 和 ERROR 输出"
-
-msgid "Fault detection is still performed for all process output."
-msgstr "所有进程输出仍会参与故障检测。"
-
-msgid "Public IP Check Timeout (s)"
-msgstr "公网 IP 检查超时时间（秒）"
-
-msgid "Restart if no public IP is received within %d seconds; 0 disables this check."
-msgstr "%d 秒内未获取公网 IP 时重启；设置为 0 可禁用此检查。"
-
-msgid "version_checking"
-msgstr "正在检查版本"
-
-msgid "download_in_progress"
-msgstr "正在下载"
-
-msgid "installation_in_progress"
-msgstr "正在安装"
-
-msgid "version_list_ready"
-msgstr "版本列表已就绪"
-
-msgid "installation_complete"
-msgstr "安装完成"
-
-msgid "update_failed"
-msgstr "更新失败"
-
-msgid "✗ Update task did not start or status was lost"
-msgstr "✗ 更新任务未启动或状态已丢失"
+msgid "SHA256 verification failed, please re-download"
+msgstr "SHA256 校验失败,请重新下载"
 
 msgid "Download failed"
 msgstr "下载失败"
 
+msgid "API request failed, please switch mirror"
+msgstr "API 请求失败,请切换镜像源"
+
 msgid "No matching file found, please switch mirror"
-msgstr "未找到匹配的文件，请切换镜像源"
+msgstr "未找到匹配文件,请切换镜像源"
 
-msgid "VNT Web Access Token"
-msgstr "VNT Web 访问令牌"
+msgid "Duplicate parameter: %s"
+msgstr "重复的参数: %s"
 
-msgid "Generate Random Token"
-msgstr "随机生成令牌"
+msgid "Unknown Parameters"
+msgstr "未知参数"
 
-msgid "All vnt2_web instances share this token. The token must be exactly 64 hexadecimal characters."
-msgstr "所有 vnt2_web 实例共用此令牌。令牌必须是 64 位十六进制字符"
+msgid "Not found in official --conf-example: %s. Save anyway?"
+msgstr "在官方 --conf-example 中未找到: %s，仍要保存吗？"
 
-msgid "Token generation failed"
-msgstr "令牌生成失败"
+msgid "Confirm"
+msgstr "确定"
 
-msgid "Token must be exactly 64 hexadecimal characters"
-msgstr "令牌必须是 64 位十六进制字符"
+msgid "Disabled"
+msgstr "已禁用"
+
+msgid "No reference output"
+msgstr "无参考输出"
+
+msgid "Text input"
+msgstr "文本输入"
+
+msgid "For network_code, password, device_name, tun_name."
+msgstr "用于 network_code、password、device_name、tun_name。"
+
+msgid "Multi-value textarea"
+msgstr "多值文本域"
+
+msgid "One value per line in the generated form."
+msgstr "生成的表单中每行一个值。"
+
+msgid "Capsule switch"
+msgstr "胶囊开关"
+
+msgid "For rtx, fec, no_punch, enabled."
+msgstr "用于 rtx、fec、no_punch、enabled。"
+
+msgid "Number input"
+msgstr "数字输入"
+
+msgid "For mtu, ctrl_port, ports and timeouts."
+msgstr "用于 mtu、ctrl_port、端口和超时时间。"
+
+msgid "Dropdown"
+msgstr "下拉选择"
+
+msgid "Use an options line, for example: options: tun,tap,no."
+msgstr "需配合 options 行使用,例如: options: tun,tap,no。"
+
+msgid "Sub section"
+msgstr "子节"
+
+msgid "For sections such as [ikev2]."
+msgstr "用于 [ikev2] 等节。"
+
+msgid "Field Type Guide"
+msgstr "字段类型指南"
+
+msgid "Select extra input"
+msgstr "下拉附加输入"
+
+msgid "Place it below a [select] options line. When the selected option is finger, the form shows a text input below the dropdown and saves the text with the finger: prefix."
+msgstr "放置在 [select] 的 options 行下方。当选中 finger 选项时,表单会在下拉框下方显示文本输入框,并以 finger: 前缀保存文本。"
+
+msgid "Unknown parameters, not found in official --conf-example:"
+msgstr "未知参数,官方 --conf-example 中未找到:"
+
+msgid "Hide official reference"
+msgstr "隐藏官方参考"
+
+msgid "Show Tips & Shortcuts"
+msgstr "显示技巧与快捷插入"
+
+msgid "Show official --conf-example"
+msgstr "显示官方 --conf-example"
+
+msgid "Editor"
+msgstr "编辑器"
+
+msgid "Show official reference"
+msgstr "显示官方参考"
+
+msgid "Access Token"
+msgstr "访问令牌"
+
+msgid "Token saved"
+msgstr "令牌已保存"
+
+msgid "Token saved, vnt2_web restarted"
+msgstr "令牌已保存，vnt2_web 已重启"
+
+msgid "New vnt2_web Instance"
+msgstr "新建vnt2_web实例"
+
+msgid "vnt2_web is not running"
+msgstr "vnt2_web 未运行"
+
+msgid "No vnt2_web instances"
+msgstr "暂无 vnt2_web 实例"
+
+msgid "New vnt2_cli Instance"
+msgstr "新建vnt2_cli实例"
+
+msgid "vnt2_web Data Directory"
+msgstr "vnt2_web 数据目录"
+
+msgid "Directory where vnt2_web instance files (*.toml) are stored, default /vnt_config. Restart vnt2_web after changing"
+msgstr "vnt2_web 实例文件（*.toml）的存放目录，默认 /vnt_config，修改后需重启 vnt2_web"
+
+msgid "Name can only contain letters, numbers, underscores, hyphens, dots"
+msgstr "名称只能包含字母、数字、下划线、连字符、点"
+
+msgid "File name extension must be .toml"
+msgstr "文件扩展名必须为 .toml"
+
+msgid "Delete stale record"
+msgstr "删除残留记录"
+
+msgid "This instance no longer exists in vnt2_web"
+msgstr "该实例在 vnt2_web 中已不存在"
+
+msgid "Log Keywords"
+msgstr "日志关键字"
+
+msgid "Keyword"
+msgstr "关键字"
+
+msgid "Keywords saved"
+msgstr "关键字已保存"
+
+msgid "Keywords are matched as substrings against each log line of the instance process. One keyword per row; clear all rows to disable a group."
+msgstr "关键字按子串匹配实例进程的每一行日志。每行一个关键字；清空某组全部行即停用该组匹配。"
+
+msgid "Web Config Change Keywords"
+msgstr "Web 配置变更关键字"
+
+msgid "Request log lines matching these keywords trigger a full vnt2_web instance sync to UCI"
+msgstr "匹配这些关键字的请求日志行会触发 vnt2_web 实例全量同步到 UCI"
+
+msgid "Web Instance Start Keywords"
+msgstr "Web 实例启动关键字"
+
+msgid "Log lines containing a file name matching these keywords mark the instance as enabled in UCI"
+msgstr "含文件名且匹配这些关键字的日志行会将该实例在 UCI 中记为启用"
+
+msgid "Web Instance Stop Keywords"
+msgstr "Web 实例停止关键字"
+
+msgid "Log lines containing a file name matching these keywords mark the instance as disabled in UCI"
+msgstr "含文件名且匹配这些关键字的日志行会将该实例在 UCI 中记为禁用"
+
+msgid "Web Instance Delete Keywords"
+msgstr "Web 实例删除关键字"
+
+msgid "Log lines containing a file name matching these keywords remove the instance record from UCI"
+msgstr "含文件名且匹配这些关键字的日志行会删除该实例的 UCI 记录"
+
+msgid "Fault Restart Keywords"
+msgstr "故障重启关键字"
+
+msgid "Matching lines trigger the network check and process restart logic"
+msgstr "匹配行触发网络检查与进程重启逻辑"
+
+msgid "Route Fix Keywords"
+msgstr "路由修复关键字"
+
+msgid "Matching lines trigger the route repair logic"
+msgstr "匹配行触发路由修复逻辑"
+
+msgid "Online Detect Keywords"
+msgstr "上线检测关键字"
+
+msgid "Matching lines mark the instance as online"
+msgstr "匹配行将实例标记为已上线"
+
+msgid "Online Exclude Keywords"
+msgstr "上线排除关键字"
+
+msgid "Lines also matching these keywords are ignored by online detection"
+msgstr "同时匹配这些关键字的行会被上线检测忽略"
+
+msgid "vnt2_web Startup Wait Timeout (s)"
+msgstr "vnt2_web 启动等待超时（秒）"
+
+msgid "Maximum wait for vnt2_web readiness at boot before restoring instance states, default %s seconds"
+msgstr "开机时等待 vnt2_web 就绪并恢复实例状态的最长时间，默认 %s 秒"
