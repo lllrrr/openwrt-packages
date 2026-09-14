@@ -5,8 +5,44 @@ local function shellquote(value)
     return "'" .. value:gsub("'", "'\"'\"'") .. "'"
 end
 
+local function update_response(command)
+    local sys = require "luci.sys"
+    local jsonc = require "luci.jsonc"
+    local fs = require "nixio.fs"
+    local raw = sys.exec("/bin/sh /usr/lib/minigate/update.sh " .. command .. " 2>/dev/null") or ""
+    local ok, data = pcall(jsonc.parse, raw)
+    if not ok or type(data) ~= "table" then
+        data = {
+            status = "error",
+            progress = 0,
+            current = "",
+            latest = "",
+            available = false,
+            running = false,
+            success = false,
+            message = "更新服务返回了无效结果"
+        }
+    end
+
+    local release_raw = fs.readfile("/tmp/minigate-update-release.json")
+    if release_raw and data.latest and data.latest ~= "" then
+        local release_ok, release = pcall(jsonc.parse, release_raw)
+        if release_ok and type(release) == "table" then
+            local tag = tostring(release.tag_name or ""):gsub("^v", "")
+            if tag == tostring(data.latest) then
+                local title = type(release.name) == "string" and release.name or ("minigate v" .. tag)
+                local notes = type(release.body) == "string" and release.body or ""
+                data.release_title = title
+                data.release_notes = notes
+            end
+        end
+    end
+    luci.http.prepare_content("application/json")
+    luci.http.write_json(data)
+end
+
 function index()
-    entry({"admin","services","minigate"}, alias("admin","services","minigate","general"), "MiniGate", 60).dependent=false
+    entry({"admin","services","minigate"}, alias("admin","services","minigate","general"), "minigate", 60).dependent=false
     entry({"admin","services","minigate","general"}, cbi("minigate/general"), "总览", 10)
     entry({"admin","services","minigate","ddns"}, cbi("minigate/ddns"), "动态DNS", 20)
     entry({"admin","services","minigate","acme"}, cbi("minigate/acme"), "SSL 证书", 30)
@@ -24,6 +60,50 @@ function index()
     entry({"admin","services","minigate","lg_ban"}, call("action_lg_ban")).leaf=true
     entry({"admin","services","minigate","lg_unban"}, call("action_lg_unban")).leaf=true
     entry({"admin","services","minigate","lg_flush"}, call("action_lg_flush")).leaf=true
+    entry({"admin","services","minigate","update_status"}, call("action_update_status")).leaf=true
+    entry({"admin","services","minigate","update_auto"}, call("action_update_auto")).leaf=true
+    entry({"admin","services","minigate","update_check"}, call("action_update_check")).leaf=true
+    entry({"admin","services","minigate","update_apply"}, post("action_update_apply")).leaf=true
+end
+
+function action_update_status()
+    update_response("status")
+end
+
+function action_update_auto()
+    update_response("auto")
+end
+
+function action_update_check()
+    update_response("check")
+end
+
+function action_update_apply()
+    local sys = require "luci.sys"
+    local fs = require "nixio.fs"
+    local version = luci.http.formvalue("version")
+    local ok = false
+
+    if type(version) ~= "string" or #version > 32 or not (
+        version:match("^%d+%.%d+%.%d+$") or version:match("^%d+%.%d+%.%d+%-%d+$")) then
+        luci.http.status(400, "Bad Request")
+        luci.http.prepare_content("application/json")
+        luci.http.write_json({success = false, message = "请先查看更新内容并确认版本"})
+        return
+    end
+
+    if fs.access("/usr/lib/minigate/update.sh") then
+        ok = sys.call("runner=$(mktemp /tmp/minigate-update-run.XXXXXX)" ..
+            " && cp /usr/lib/minigate/update.sh \"$runner\" && chmod 700 \"$runner\"" ..
+            " && ( ( /bin/sh \"$runner\" apply " .. shellquote(version) ..
+            "; rm -f \"$runner\" ) >/dev/null 2>&1 & )") == 0
+    end
+
+    luci.http.prepare_content("application/json")
+    luci.http.write_json({
+        success = ok,
+        message = ok and "更新任务已启动" or "无法启动更新任务"
+    })
 end
 
 function action_status()
