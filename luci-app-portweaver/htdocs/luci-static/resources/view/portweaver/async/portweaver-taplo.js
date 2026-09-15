@@ -11,6 +11,18 @@ const SCHEMA_URLS = (/* unused pure expression or super */ null && ({
     frpc: "https://raw.githubusercontent.com/LazuliKao/frp-schemas/".concat(SCHEMA_COMMIT, "/frpc-schema.json"),
     frps: "https://raw.githubusercontent.com/LazuliKao/frp-schemas/".concat(SCHEMA_COMMIT, "/frps-schema.json")
 }));
+const SCHEMA_CANDIDATE_URLS = (/* unused pure expression or super */ null && ({
+    frpc: [
+        "https://cdn.jsdelivr.net/gh/LazuliKao/frp-schemas@".concat(SCHEMA_COMMIT, "/frpc-schema.json"),
+        "https://fastly.jsdelivr.net/gh/LazuliKao/frp-schemas@".concat(SCHEMA_COMMIT, "/frpc-schema.json"),
+        "https://raw.githubusercontent.com/LazuliKao/frp-schemas/".concat(SCHEMA_COMMIT, "/frpc-schema.json")
+    ],
+    frps: [
+        "https://cdn.jsdelivr.net/gh/LazuliKao/frp-schemas@".concat(SCHEMA_COMMIT, "/frps-schema.json"),
+        "https://fastly.jsdelivr.net/gh/LazuliKao/frp-schemas@".concat(SCHEMA_COMMIT, "/frps-schema.json"),
+        "https://raw.githubusercontent.com/LazuliKao/frp-schemas/".concat(SCHEMA_COMMIT, "/frps-schema.json")
+    ]
+}));
 
 ;// CONCATENATED MODULE: ./utils/frp-editor/taplo-worker.ts
 var taplo_worker_e;

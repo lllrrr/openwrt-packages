@@ -1,5 +1,6 @@
 module("luci.controller.netstat", package.seeall)
 local nixio = require("nixio")
+local uci   = require("luci.model.uci").cursor()
 
 function index()
     entry({"admin", "tools"}, firstchild(), _("Tools"), 50).dependent = false
@@ -55,6 +56,26 @@ function getNetdevStats()
         if not line then return nil end
         line = line:gsub("^%s+",""):gsub("%s+$","")
         return line ~= "" and line or nil
+    end
+
+    -- Resolve the configured preferred interface, falling back to its
+    -- l3_device when it names a logical interface rather than a netdev.
+    local prefer_iface = ""
+    do
+        local prefer = uci:get_first("netstats", "config", "prefer") or ""
+        if prefer ~= "" and prefer:match("^[%w%-%._]+$") then
+            if stats[prefer] then
+                prefer_iface = prefer
+            else
+                local l3 = read_cmd(
+                    "ubus call network.interface." .. prefer ..
+                    " status 2>/dev/null | jsonfilter -e '@.l3_device'"
+                )
+                if l3 and stats[l3] then
+                    prefer_iface = l3
+                end
+            end
+        end
     end
 
     local function is_valid_ip(v)
@@ -202,6 +223,7 @@ function getNetdevStats()
 
     luci.http.prepare_content("application/json")
     luci.http.write_json({ stats = stats, ip = ip, status = status,
+                           prefer_iface = prefer_iface,
                            uptime      = uptime_sec,
                            cpu_pct     = cpu_pct,
                            cpu_temp    = cpu_temp,

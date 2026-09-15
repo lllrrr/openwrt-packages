@@ -1391,6 +1391,18 @@ const SCHEMA_URLS = {
     frpc: "https://raw.githubusercontent.com/LazuliKao/frp-schemas/".concat(SCHEMA_COMMIT, "/frpc-schema.json"),
     frps: "https://raw.githubusercontent.com/LazuliKao/frp-schemas/".concat(SCHEMA_COMMIT, "/frps-schema.json")
 };
+const SCHEMA_CANDIDATE_URLS = {
+    frpc: [
+        "https://cdn.jsdelivr.net/gh/LazuliKao/frp-schemas@".concat(SCHEMA_COMMIT, "/frpc-schema.json"),
+        "https://fastly.jsdelivr.net/gh/LazuliKao/frp-schemas@".concat(SCHEMA_COMMIT, "/frpc-schema.json"),
+        "https://raw.githubusercontent.com/LazuliKao/frp-schemas/".concat(SCHEMA_COMMIT, "/frpc-schema.json")
+    ],
+    frps: [
+        "https://cdn.jsdelivr.net/gh/LazuliKao/frp-schemas@".concat(SCHEMA_COMMIT, "/frps-schema.json"),
+        "https://fastly.jsdelivr.net/gh/LazuliKao/frp-schemas@".concat(SCHEMA_COMMIT, "/frps-schema.json"),
+        "https://raw.githubusercontent.com/LazuliKao/frp-schemas/".concat(SCHEMA_COMMIT, "/frps-schema.json")
+    ]
+};
 
 ;// CONCATENATED MODULE: ./utils/frp-editor/helpers.ts
 function loadStylesheet(e) {
@@ -1611,8 +1623,16 @@ let taplo_e;
 
 
 
-let taplo_n = "portweaver-taplo";
+let taplo_s = "portweaver-taplo";
 class taplo_o {
+    createWorker() {
+        let e = new Worker(new URL(/* worker import */__webpack_require__.p + __webpack_require__.u(50), __webpack_require__.b), Object.assign({}, {
+            name: "portweaver-taplo"
+        }, { type: undefined }));
+        return e.onmessage = (e)=>this.handleWorkerMessage(e.data), e.onerror = (e)=>{
+            console.error("[Taplo Worker onerror]", e.message || e), this.triggerRecovery("worker onerror");
+        }, e;
+    }
     sendWorker(e) {
         this.worker.postMessage(e);
     }
@@ -1624,13 +1644,13 @@ class taplo_o {
         }
         if ("error" === e.type) {
             let t = Error(e.message);
-            console.error("[Taplo Worker Error]", e.message), null == (r = this.readyReject) || r.call(this, t), this.rejectPending(t);
+            console.error("[Taplo Worker Error]", e.message), null == (r = this.readyReject) || r.call(this, t), this.rejectPending(t), this.triggerRecovery(e.message);
             return;
         }
         console.log("[Taplo Worker -> Client]", e.message.method || "reply(".concat(e.message.id, ")"), e.message), this.handleServerMessage(e.message);
     }
     handleServerMessage(e) {
-        var t, r, i, n;
+        var t, r, i, s;
         if ("textDocument/publishDiagnostics" === e.method) {
             let i = e.params;
             (null == i ? void 0 : i.uri) && (null == (r = this.documents.get(i.uri)) || r.onDiagnostics(null != (t = i.diagnostics) ? t : []));
@@ -1657,7 +1677,7 @@ class taplo_o {
                                 maxKeys: 10
                             }
                         }))
-                }), null == (n = this.configuredResolve) || n.call(this);
+                }), null == (s = this.configuredResolve) || s.call(this);
                 return;
             }
             this.notify({
@@ -1678,15 +1698,89 @@ class taplo_o {
         for (let t of this.pending.values())t.reject(e);
         this.pending.clear();
     }
-    notify(e) {
+    triggerRecovery(e) {
+        this.isDisposed || this.isRecovering || (console.warn("[Taplo Client] Triggering self-healing recovery (reason: ".concat(e, ")...")), this.recover().catch((e)=>{
+            console.error("[Taplo Client] Self-healing recovery failed:", e);
+        }));
+    }
+    async recover() {
+        if (!this.isDisposed) return this.recoveryPromise || (this.recoveryPromise = (async ()=>{
+            this.isRecovering = !0, console.log("[Taplo Client] Initiating worker replacement and state restoration...");
+            try {
+                this.worker.terminate();
+            } catch (e) {
+                console.warn("[Taplo Client] Failed to terminate worker:", e);
+            }
+            for (let [e, t] of (this.rejectPending(Error("Taplo worker crashed and is restarting.")), this.configured = new Promise((e)=>{
+                this.configuredResolve = e;
+            }), this.ready = new Promise((e, t)=>{
+                this.readyResolve = e, this.readyReject = t;
+            }), this.initialized = void 0, this.worker = this.createWorker(), this.sendWorker({
+                type: "initialize"
+            }), await this.initialize(), Object.keys(this.lastSchemas).length > 0 && this.sendWorker({
+                type: "setSchemas",
+                schemas: this.lastSchemas
+            }), this.documents.entries())){
+                let r = t.getText(), i = t.schemaUrl;
+                await this.notify({
+                    jsonrpc: "2.0",
+                    method: "textDocument/didOpen",
+                    params: {
+                        textDocument: {
+                            uri: e,
+                            languageId: "toml",
+                            version: t.getVersion(),
+                            text: r
+                        }
+                    }
+                }), await this.notify({
+                    jsonrpc: "2.0",
+                    method: "taplo/associateSchema",
+                    params: {
+                        documentUri: e,
+                        schemaUri: i,
+                        rule: {
+                            url: e
+                        },
+                        priority: 10
+                    }
+                }), await this.notify({
+                    jsonrpc: "2.0",
+                    method: "taplo/associateSchema",
+                    params: {
+                        documentUri: e,
+                        schemaUri: i,
+                        rule: {
+                            regex: ".*"
+                        },
+                        priority: 10
+                    }
+                });
+            }
+            console.log("[Taplo Client] Self-healing recovery finished successfully. Restored ".concat(this.documents.size, " document(s)."));
+        })().finally(()=>{
+            this.isRecovering = !1, this.recoveryPromise = void 0;
+        })), this.recoveryPromise;
+    }
+    async notify(e) {
+        if (this.recoveryPromise && !this.isRecovering) try {
+            await this.recoveryPromise;
+        } catch (e) {
+            return;
+        }
         console.log("[Taplo Client -> Worker]", e.method || "reply(".concat(e.id, ")"), e), this.sendWorker({
             type: "send",
             message: e
         });
     }
-    request(e, t) {
+    async request(e, t) {
+        if (this.recoveryPromise && !this.isRecovering) try {
+            await this.recoveryPromise;
+        } catch (e) {
+            return null;
+        }
         let r = this.nextId++;
-        return new Promise((i, n)=>{
+        return new Promise((i, s)=>{
             let o = setTimeout(()=>{
                 this.pending.has(r) && (this.pending.delete(r), i(null));
             }, 5000);
@@ -1695,13 +1789,16 @@ class taplo_o {
                     clearTimeout(o), i(e);
                 },
                 reject: (e)=>{
-                    clearTimeout(o), n(e);
+                    clearTimeout(o), s(e);
                 }
-            }), this.notify({
-                jsonrpc: "2.0",
-                id: r,
-                method: e,
-                params: t
+            }), this.sendWorker({
+                type: "send",
+                message: {
+                    jsonrpc: "2.0",
+                    id: r,
+                    method: e,
+                    params: t
+                }
             });
         });
     }
@@ -1728,7 +1825,7 @@ class taplo_o {
                 initializationOptions: {
                     configurationSection: "evenBetterToml"
                 }
-            }), this.notify({
+            }), await this.notify({
                 jsonrpc: "2.0",
                 method: "initialized",
                 params: {}
@@ -1739,19 +1836,22 @@ class taplo_o {
         })), this.initialized;
     }
     setSchemas(e) {
-        this.sendWorker({
+        this.lastSchemas = _object_spread({}, this.lastSchemas, e), this.sendWorker({
             type: "setSchemas",
             schemas: e
         });
     }
-    async openDocument(e, t, r, i, n) {
+    async openDocument(e, t, r, i, s) {
         var o;
+        if (this.recoveryPromise && !this.isRecovering) try {
+            await this.recoveryPromise;
+        } catch (e) {}
         await this.initialize();
-        let s = "file:///schemas/".concat(null != (o = t.split("/").pop()) ? o : "schema.json");
+        let n = "file:///schemas/".concat(null != (o = t.split("/").pop()) ? o : "schema.json");
         r && this.setSchemas({
             [t]: r,
-            [s]: r
-        }), this.documents.set(e, n), this.notify({
+            [n]: r
+        }), this.documents.set(e, s), await this.notify({
             jsonrpc: "2.0",
             method: "textDocument/didOpen",
             params: {
@@ -1765,7 +1865,7 @@ class taplo_o {
         }), console.debug("[Taplo] Associating schema:", {
             uri: e,
             schemaUrl: t
-        }), this.notify({
+        }), await this.notify({
             jsonrpc: "2.0",
             method: "taplo/associateSchema",
             params: {
@@ -1776,7 +1876,7 @@ class taplo_o {
                 },
                 priority: 10
             }
-        }), this.notify({
+        }), await this.notify({
             jsonrpc: "2.0",
             method: "taplo/associateSchema",
             params: {
@@ -1833,19 +1933,26 @@ class taplo_o {
             position: t
         });
     }
+    dispose() {
+        this.isDisposed = !0;
+        try {
+            this.sendWorker({
+                type: "dispose"
+            }), this.worker.terminate();
+        } catch (e) {}
+        this.rejectPending(Error("Taplo client disposed.")), this.documents.clear();
+    }
     constructor(){
-        _define_property(this, "worker", void 0), _define_property(this, "documents", new Map()), _define_property(this, "pending", new Map()), _define_property(this, "nextId", 1), _define_property(this, "ready", void 0), _define_property(this, "initialized", void 0), _define_property(this, "readyResolve", void 0), _define_property(this, "readyReject", void 0), _define_property(this, "configuredResolve", void 0), _define_property(this, "configured", new Promise((e)=>{
+        _define_property(this, "worker", void 0), _define_property(this, "documents", new Map()), _define_property(this, "pending", new Map()), _define_property(this, "nextId", 1), _define_property(this, "ready", void 0), _define_property(this, "readyResolve", void 0), _define_property(this, "readyReject", void 0), _define_property(this, "initialized", void 0), _define_property(this, "configured", void 0), _define_property(this, "configuredResolve", void 0), _define_property(this, "lastSchemas", {}), _define_property(this, "isDisposed", !1), _define_property(this, "isRecovering", !1), _define_property(this, "recoveryPromise", void 0), this.configured = new Promise((e)=>{
             this.configuredResolve = e;
-        })), this.worker = new Worker(new URL(/* worker import */__webpack_require__.p + __webpack_require__.u(50), __webpack_require__.b), Object.assign({}, {
-            name: "portweaver-taplo"
-        }, { type: undefined })), this.worker.onmessage = (e)=>this.handleWorkerMessage(e.data), this.worker.onerror = ()=>this.rejectPending(Error("Taplo worker failed.")), this.ready = new Promise((e, t)=>{
+        }), this.ready = new Promise((e, t)=>{
             this.readyResolve = e, this.readyReject = t;
-        }), this.sendWorker({
+        }), this.worker = this.createWorker(), this.sendWorker({
             type: "initialize"
         });
     }
 }
-function taplo_s(e) {
+function taplo_n(e) {
     return {
         startLineNumber: e.start.line + 1,
         startColumn: e.start.character + 1,
@@ -1859,11 +1966,15 @@ function taplo_a(e) {
 function taplo_l(e) {
     return "string" == typeof e.label ? e.label : e.label.label;
 }
-async function attachTaplo(t, c, u, d) {
-    let m = c.uri.toString(), h = 1, p = (null != taplo_e || (taplo_e = new taplo_o()), taplo_e);
-    await p.openDocument(m, u, d, c.getValue(), {
+async function attachTaplo(t, c, d, h) {
+    let u = c.uri.toString(), m = 1, p = (null != taplo_e || (taplo_e = new taplo_o()), taplo_e);
+    await p.openDocument(u, d, h, c.getValue(), {
+        schemaUrl: d,
+        schema: h,
+        getText: ()=>c.getValue(),
+        getVersion: ()=>m,
         onDiagnostics: (e)=>{
-            console.debug("[Taplo] Received diagnostics:", e), t.editor.setModelMarkers(c, taplo_n, e.map((e)=>_object_spread_props(_object_spread({}, taplo_s(e.range)), {
+            console.debug("[Taplo] Received diagnostics:", e), t.editor.setModelMarkers(c, taplo_s, e.map((e)=>_object_spread_props(_object_spread({}, taplo_n(e.range)), {
                     severity: function(e, t) {
                         switch(t){
                             case 2:
@@ -1882,13 +1993,37 @@ async function attachTaplo(t, c, u, d) {
         }
     });
     let g = c.onDidChangeContent(()=>{
-        h += 1, p.changeDocument(m, h, c.getValue());
-    }), v = t.languages.registerCompletionItemProvider("toml", {
+        m += 1, p.changeDocument(u, m, c.getValue());
+    }), y = t.languages.registerCompletionItemProvider("toml", {
         triggerCharacters: [
+            "\n",
             ".",
             "=",
             "[",
+            "]",
+            "{",
+            "}",
+            ":",
+            ",",
             '"',
+            "'",
+            "_",
+            "-",
+            "/",
+            "\\",
+            "@",
+            "$",
+            "#",
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
             "a",
             "b",
             "c",
@@ -1914,74 +2049,163 @@ async function attachTaplo(t, c, u, d) {
             "w",
             "x",
             "y",
-            "z"
+            "z",
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "F",
+            "G",
+            "H",
+            "I",
+            "J",
+            "K",
+            "L",
+            "M",
+            "N",
+            "O",
+            "P",
+            "Q",
+            "R",
+            "S",
+            "T",
+            "U",
+            "V",
+            "W",
+            "X",
+            "Y",
+            "Z"
         ],
-        provideCompletionItems: async (e, r, i, n)=>{
-            let o = {
-                line: r.lineNumber - 1,
-                character: r.column - 1
-            }, c = function(e) {
-                if (Array.isArray(e)) return e;
-                if (e && "object" == typeof e && "items" in e) {
-                    let { items: t } = e;
-                    return null != t ? t : [];
+        provideCompletionItems: async (e, r, i, s)=>{
+            try {
+                let i = {
+                    line: r.lineNumber - 1,
+                    character: r.column - 1
+                }, o = await p.completion(u, i);
+                if (s.isCancellationRequested) return {
+                    suggestions: []
+                };
+                let c = function(e) {
+                    if (Array.isArray(e)) return e;
+                    if (e && "object" == typeof e && "items" in e) {
+                        let { items: t } = e;
+                        return null != t ? t : [];
+                    }
+                    return [];
+                }(o);
+                if (c.length > 0) {
+                    let i = e.getWordUntilPosition(r), s = {
+                        startLineNumber: r.lineNumber,
+                        startColumn: i.startColumn,
+                        endLineNumber: r.lineNumber,
+                        endColumn: i.endColumn
+                    };
+                    return {
+                        suggestions: c.map((e)=>{
+                            let r = e.textEdit;
+                            return {
+                                label: taplo_l(e),
+                                detail: e.detail,
+                                documentation: taplo_a(e.documentation),
+                                kind: void 0 !== e.kind ? e.kind : t.languages.CompletionItemKind.Property,
+                                insertText: (null == r ? void 0 : r.newText) || e.insertText || taplo_l(e),
+                                insertTextRules: 2 === e.insertTextFormat ? t.languages.CompletionItemInsertTextRule.InsertAsSnippet : void 0,
+                                range: r ? taplo_n(r.range) : s
+                            };
+                        })
+                    };
                 }
-                return [];
-            }(await p.completion(m, o));
-            if (c.length > 0) {
-                let i = e.getWordUntilPosition(r), n = {
-                    startLineNumber: r.lineNumber,
-                    startColumn: i.startColumn,
-                    endLineNumber: r.lineNumber,
-                    endColumn: i.endColumn
-                };
-                return {
-                    suggestions: c.map((e)=>{
-                        let r = e.textEdit;
-                        return {
-                            label: taplo_l(e),
-                            detail: e.detail,
-                            documentation: taplo_a(e.documentation),
-                            kind: void 0 !== e.kind ? e.kind : t.languages.CompletionItemKind.Property,
-                            insertText: (null == r ? void 0 : r.newText) || e.insertText || taplo_l(e),
-                            insertTextRules: 2 === e.insertTextFormat ? t.languages.CompletionItemInsertTextRule.InsertAsSnippet : void 0,
-                            range: r ? taplo_s(r.range) : n
-                        };
-                    })
-                };
+            } catch (e) {
+                console.warn("[Taplo Completion Error]", e);
             }
             return {
                 suggestions: []
             };
         }
-    }), f = t.languages.registerHoverProvider("toml", {
+    }), v = t.languages.registerHoverProvider("toml", {
         provideHover: async (e, t)=>{
-            var r;
-            let i = await p.hover(m, {
-                line: t.lineNumber - 1,
-                character: t.column - 1
-            }), n = null == i || null == (r = i.contents) ? void 0 : r.map(taplo_a).filter((e)=>!!e);
-            return (null == n ? void 0 : n.length) ? {
-                contents: n.map((e)=>({
-                        value: e
-                    })),
-                range: (null == i ? void 0 : i.range) ? taplo_s(i.range) : void 0
-            } : null;
+            try {
+                var r;
+                let e = await p.hover(u, {
+                    line: t.lineNumber - 1,
+                    character: t.column - 1
+                }), i = null == e || null == (r = e.contents) ? void 0 : r.map(taplo_a).filter((e)=>!!e);
+                if (!(null == i ? void 0 : i.length)) return null;
+                return {
+                    contents: i.map((e)=>({
+                            value: e
+                        })),
+                    range: (null == e ? void 0 : e.range) ? taplo_n(e.range) : void 0
+                };
+            } catch (e) {
+                return console.warn("[Taplo Hover Error]", e), null;
+            }
         }
     });
     return {
         dispose: ()=>{
-            g.dispose(), v.dispose(), f.dispose(), t.editor.setModelMarkers(c, taplo_n, []), p.closeDocument(m);
+            g.dispose(), y.dispose(), v.dispose(), t.editor.setModelMarkers(c, taplo_s, []), p.closeDocument(u);
         }
     };
 }
 
 ;// CONCATENATED MODULE: ./utils/frp-editor/toml.ts
 let toml_e = !1;
-function registerTomlLanguage(r) {
-    toml_e || (toml_e = !0, r.languages.register({
+function registerTomlLanguage(o) {
+    toml_e || (toml_e = !0, o.languages.register({
         id: "toml"
-    }), r.languages.setMonarchTokensProvider("toml", {
+    }), o.languages.setLanguageConfiguration("toml", {
+        comments: {
+            lineComment: "#"
+        },
+        brackets: [
+            [
+                "{",
+                "}"
+            ],
+            [
+                "[",
+                "]"
+            ]
+        ],
+        autoClosingPairs: [
+            {
+                open: "{",
+                close: "}"
+            },
+            {
+                open: "[",
+                close: "]"
+            },
+            {
+                open: '"',
+                close: '"'
+            },
+            {
+                open: "'",
+                close: "'"
+            }
+        ],
+        surroundingPairs: [
+            {
+                open: "{",
+                close: "}"
+            },
+            {
+                open: "[",
+                close: "]"
+            },
+            {
+                open: '"',
+                close: '"'
+            },
+            {
+                open: "'",
+                close: "'"
+            }
+        ]
+    }), o.languages.setMonarchTokensProvider("toml", {
         tokenizer: {
             root: [
                 [
@@ -2014,47 +2238,85 @@ let yaml_e;
 
 
 
-let yaml_n = new WeakSet(), yaml_r = new WeakSet();
+let yaml_t = new WeakSet(), yaml_l = new WeakSet();
 async function ensureYamlSyntax(e) {
-    if (!yaml_r.has(e.monaco) && (yaml_r.add(e.monaco), e.loadYamlSyntax)) try {
-        let a = await e.loadYamlSyntax();
-        if (!a) return;
-        e.monaco.languages.register({
-            id: "yaml",
-            extensions: [
-                ".yaml",
-                ".yml"
-            ],
-            aliases: [
-                "YAML",
-                "yaml",
-                "YML",
-                "yml"
-            ],
-            mimetypes: [
-                "application/x-yaml",
-                "text/x-yaml"
-            ]
-        }), a.conf && e.monaco.languages.setLanguageConfiguration("yaml", a.conf), a.language && e.monaco.languages.setMonarchTokensProvider("yaml", a.language);
-    } catch (e) {}
+    let o, n;
+    if (!yaml_l.has(e.monaco)) {
+        if (yaml_l.add(e.monaco), e.loadYamlSyntax) try {
+            let a = await e.loadYamlSyntax();
+            (null == a ? void 0 : a.conf) && (o = a.conf), (null == a ? void 0 : a.language) && (n = a.language);
+        } catch (e) {}
+        try {
+            e.monaco.languages.register({
+                id: "yaml",
+                extensions: [
+                    ".yaml",
+                    ".yml"
+                ],
+                aliases: [
+                    "YAML",
+                    "yaml",
+                    "YML",
+                    "yml"
+                ],
+                mimetypes: [
+                    "application/x-yaml",
+                    "text/x-yaml"
+                ]
+            }), e.monaco.languages.setLanguageConfiguration("yaml", _object_spread({
+                wordPattern: /(-?\d*\.\d\w*)|([^`~!@#%^&*()\-=+[{\]}\\|;:'",.<>/?\s]+)/g,
+                comments: {
+                    lineComment: "#"
+                },
+                brackets: [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ]
+                ],
+                autoClosingPairs: [
+                    {
+                        open: "{",
+                        close: "}"
+                    },
+                    {
+                        open: "[",
+                        close: "]"
+                    },
+                    {
+                        open: '"',
+                        close: '"'
+                    },
+                    {
+                        open: "'",
+                        close: "'"
+                    }
+                ]
+            }, o)), n && e.monaco.languages.setMonarchTokensProvider("yaml", n);
+        } catch (e) {}
+    }
 }
 function installYamlWorkerCompatibility(e) {
-    var t;
-    if (yaml_n.has(e)) return;
-    yaml_n.add(e);
-    let r = e.editor.createWebWorker, l = null == (t = globalThis.MonacoEnvironment) ? void 0 : t.getWorker;
-    r && l && (e.editor.createWebWorker = (e)=>{
-        var t, n;
-        if ("worker" in e) return r(e);
-        let i = Promise.resolve(l(null != (t = e.moduleId) ? t : "workerMain.js", null != (n = e.label) ? n : "yaml")).then((a)=>(a.postMessage("ignore"), a.postMessage(e.createData), a));
-        return r(_object_spread_props(_object_spread({}, e), {
-            worker: i
+    var n;
+    if (yaml_t.has(e)) return;
+    yaml_t.add(e);
+    let l = e.editor.createWebWorker, r = null == (n = globalThis.MonacoEnvironment) ? void 0 : n.getWorker;
+    l && r && (e.editor.createWebWorker = (e)=>{
+        var n, t;
+        if ("worker" in e) return l(e);
+        let s = Promise.resolve(r(null != (n = e.moduleId) ? n : "workerMain.js", null != (t = e.label) ? t : "yaml")).then((a)=>(a.postMessage("ignore"), a.postMessage(e.createData), a));
+        return l(_object_spread_props(_object_spread({}, e), {
+            worker: s
         }));
     });
 }
 async function configureYaml(a, o) {
     await ensureYamlSyntax(a);
-    let n = {
+    let t = {
         completion: !0,
         enableSchemaRequest: !1,
         format: {
@@ -2067,7 +2329,7 @@ async function configureYaml(a, o) {
             let [a, o] = e;
             return {
                 fileMatch: [
-                    "inmemory://portweaver/".concat(a, "-*.yaml")
+                    "*"
                 ],
                 schema: o,
                 uri: SCHEMA_URLS[a]
@@ -2076,7 +2338,7 @@ async function configureYaml(a, o) {
         validate: !0,
         yamlVersion: "1.2"
     };
-    yaml_e ? await yaml_e.update(n) : (installYamlWorkerCompatibility(a.monaco), yaml_e = (await a.loadYamlModule()).configureMonacoYaml(a.monaco, n));
+    yaml_e ? await yaml_e.update(t) : (installYamlWorkerCompatibility(a.monaco), yaml_e = (await a.loadYamlModule()).configureMonacoYaml(a.monaco, t));
 }
 
 ;// CONCATENATED MODULE: ./utils/frp-editor/monaco.ts
@@ -2088,94 +2350,143 @@ async function configureYaml(a, o) {
 
 
 
-let monaco_d = new Map(), monaco_p = new Map(), monaco_h = 1, monaco_f = new Map();
-async function createFrpConfigEditor(i, v, w, g, k) {
-    let M = arguments.length > 5 && void 0 !== arguments[5] ? arguments[5] : "esm", [y, W] = await Promise.all([
+let monaco_g = new Map(), monaco_p = new Map(), monaco_f = 1, monaco_h = new Map();
+function monaco_w(e, t) {
+    let o = e.getLineContent(t.lineNumber).slice(0, t.column - 1);
+    return !!(0 === o.trim().length || /^\s*-\s*$/.test(o) || /:\s+$/.test(o) || /=\s*$/.test(o) || /[[{]\s*$/.test(o));
+}
+async function createFrpConfigEditor(c, v, k, y, S) {
+    let E, b = arguments.length > 5 && void 0 !== arguments[5] ? arguments[5] : "esm", [M, W] = await Promise.all([
         function() {
-            var t, n, i;
-            let c, m, u, p, h, f, v, w, g = arguments.length > 0 && void 0 !== arguments[0] ? arguments[0] : "esm", k = monaco_d.get(g);
+            var r, a, s;
+            let c, u, m, d, p, f, h, w, v = arguments.length > 0 && void 0 !== arguments[0] ? arguments[0] : "esm", k = monaco_g.get(v);
             if (k) return k;
-            let M = getProvider(g);
-            if (!M) return Promise.reject(Error("Unknown Monaco source: ".concat(g, ".")));
-            let y = (t = ()=>M.createEditorWorker(), n = ()=>M.createJsonWorker(), i = ()=>M.createYamlWorker(), u = (m = globalThis).MonacoEnvironment, m.MonacoEnvironment = _object_spread_props(_object_spread({}, u), {
-                getWorker: (e, o)=>"yaml" === o || "monaco-yaml/yaml.worker" === e ? i() : (null == u ? void 0 : u.getWorker) ? u.getWorker(e, o) : ("json" === o ? n : t)()
-            }), p = loadStylesheet(M.getStyleUrl()), h = M.loadModule(), f = M.loadJsonDefaults ? M.loadJsonDefaults().then((e)=>{
+            let y = getProvider(v);
+            if (!y) return Promise.reject(Error("Unknown Monaco source: ".concat(v, ".")));
+            let S = (r = ()=>y.createEditorWorker(), a = ()=>y.createJsonWorker(), s = ()=>y.createYamlWorker(), m = (u = globalThis).MonacoEnvironment, u.MonacoEnvironment = _object_spread_props(_object_spread({}, m), {
+                getWorker: (e, t)=>"yaml" === t || "monaco-yaml/yaml.worker" === e ? s() : (null == m ? void 0 : m.getWorker) ? m.getWorker(e, t) : ("json" === t ? a : r)()
+            }), d = loadStylesheet(y.getStyleUrl()), p = y.loadModule(), f = y.loadJsonDefaults ? y.loadJsonDefaults().then((e)=>{
                 if (!e) throw Error("Monaco JSON support is unavailable.");
                 return e;
-            }) : h.then((e)=>{
-                var o, r, t, a;
-                let n = null != (o = null == (t = e.languages) || null == (r = t.json) ? void 0 : r.jsonDefaults) ? o : null == (a = e.json) ? void 0 : a.jsonDefaults;
+            }) : p.then((e)=>{
+                var t, o, r, a;
+                let n = null != (t = null == (r = e.languages) || null == (o = r.json) ? void 0 : o.jsonDefaults) ? t : null == (a = e.json) ? void 0 : a.jsonDefaults;
                 if (!n) throw Error("Monaco JSON support is unavailable.");
                 return n;
-            }), v = M.loadYamlSyntax, w = Promise.all([
-                h,
+            }), h = y.loadYamlSyntax, w = Promise.all([
+                p,
                 f,
-                p
+                d
             ]).then((e)=>{
-                let [o, t, a] = e;
+                let [t, r, a] = e;
                 return {
-                    monaco: o,
-                    jsonDefaults: t,
-                    createEditorWorker: ()=>M.createEditorWorker(),
-                    createJsonWorker: ()=>M.createJsonWorker(),
-                    createYamlWorker: ()=>M.createYamlWorker(),
-                    loadYamlModule: ()=>(null != c || (c = withTimeout(M.loadYamlModule(), (/* inlined export .MONACO_CDN_TIMEOUT */15000))), c),
-                    loadYamlSyntax: v ? ()=>v() : void 0,
+                    monaco: t,
+                    jsonDefaults: r,
+                    createEditorWorker: ()=>y.createEditorWorker(),
+                    createJsonWorker: ()=>y.createJsonWorker(),
+                    createYamlWorker: ()=>y.createYamlWorker(),
+                    loadYamlModule: ()=>(null != c || (c = withTimeout(y.loadYamlModule(), (/* inlined export .MONACO_CDN_TIMEOUT */15000))), c),
+                    loadYamlSyntax: h ? ()=>h() : void 0,
                     style: a
                 };
             }), withTimeout(w, (/* inlined export .MONACO_CDN_TIMEOUT */15000)).catch((e)=>{
-                throw p.then((e)=>e.remove(), ()=>void 0), Error("Unable to load Monaco from ".concat(M.label, "."), {
+                throw d.then((e)=>e.remove(), ()=>void 0), Error("Unable to load Monaco from ".concat(y.label, "."), {
                     cause: e
                 });
             }));
-            return monaco_d.set(g, y), y.catch(()=>{
-                monaco_d.get(g) === y && monaco_d.delete(g);
-            }), y;
-        }(M),
+            return monaco_g.set(v, S), S.catch(()=>{
+                monaco_g.get(v) === S && monaco_g.delete(v);
+            }), S;
+        }(b),
         function(e) {
-            let o = monaco_f.get(e);
+            var t;
+            let o = monaco_h.get(e);
             if (o) return o;
-            let r = fetch(SCHEMA_URLS[e]).then((e)=>{
-                if (!e.ok) throw Error("Unable to load the FRP schema.");
-                return e.json();
-            }).then((o)=>(monaco_p.set(e, o), o)).catch(()=>void 0);
-            return monaco_f.set(e, r), r;
-        }(g)
-    ]), { monaco: j, jsonDefaults: E } = y, b = "toml" === k ? j.Uri.parse("file:///workspace/".concat(g, "-").concat(monaco_h++, ".toml")) : j.Uri.parse("inmemory://portweaver/".concat(g, "-").concat(monaco_h++, ".").concat(k));
-    "json" === k ? E.setDiagnosticsOptions({
+            let n = null != (t = SCHEMA_CANDIDATE_URLS[e]) ? t : [
+                SCHEMA_URLS[e]
+            ], s = (async ()=>{
+                for (let t of n)try {
+                    let o = await fetch(t);
+                    if (o.ok) {
+                        let t = await o.json();
+                        return monaco_p.set(e, t), t;
+                    }
+                } catch (e) {}
+            })();
+            return monaco_h.set(e, s), s;
+        }(y)
+    ]), { monaco: C, jsonDefaults: T } = M, j = "toml" === S ? C.Uri.parse("file:///workspace/".concat(y, "-").concat(monaco_f++, ".toml")) : C.Uri.parse("inmemory://portweaver/".concat(y, "-").concat(monaco_f++, ".").concat(S));
+    "json" === S ? T.setDiagnosticsOptions({
         allowComments: !1,
         enableSchemaRequest: !1,
         schemas: W ? [
             ...monaco_p.entries()
         ].map((e)=>{
-            let [o, r] = e;
+            let [t, o] = e;
             return {
                 fileMatch: [
-                    "inmemory://portweaver/".concat(o, "-*.json")
+                    "*"
                 ],
-                schema: r,
-                uri: SCHEMA_URLS[o]
+                schema: o,
+                uri: SCHEMA_URLS[t]
             };
         }) : [],
         validate: !0
-    }) : "yaml" === k ? await configureYaml(y, monaco_p) : registerTomlLanguage(j);
-    let _ = j.editor.createModel(v(), k, b), S = "toml" === k ? await attachTaplo(j, _, SCHEMA_URLS[g], W) : void 0;
-    j.editor.setTheme(prefersDarkTheme() ? "vs-dark" : "vs");
-    let O = j.editor.create(i, {
+    }) : "yaml" === S ? await configureYaml(M, monaco_p) : registerTomlLanguage(C);
+    let _ = C.editor.createModel(v(), S, j), D = "toml" === S ? await attachTaplo(C, _, SCHEMA_URLS[y], W) : void 0;
+    C.editor.setTheme(prefersDarkTheme() ? "vs-dark" : "vs");
+    let O = C.editor.create(c, {
+        acceptSuggestionOnEnter: "smart",
         automaticLayout: !0,
         minimap: {
             enabled: !1
         },
         model: _,
+        quickSuggestions: {
+            comments: "on",
+            other: "on",
+            strings: "on"
+        },
+        quickSuggestionsDelay: 0,
         scrollBeyondLastLine: !1,
+        suggest: {
+            filterGraceful: !0,
+            localityBonus: !0,
+            preview: !0,
+            shareSuggestSelections: !0,
+            showFields: !0,
+            showKeywords: !0,
+            showProperties: !0,
+            showSnippets: !0,
+            showValues: !0,
+            showWords: !0
+        },
+        suggestOnTriggerCharacters: !0,
+        suggestSelection: "first",
+        tabCompletion: "on",
         tabSize: 2,
+        wordBasedSuggestions: "allDocuments",
         wordWrap: "on"
-    }), D = _.onDidChangeContent(()=>w(_.getValue()));
-    return {
+    }), N = _.onDidChangeContent((e)=>{
+        k(_.getValue()), e.isUndoing || e.isRedoing || e.isFlush || (E && clearTimeout(E), E = window.setTimeout(()=>{
+            let e = O.getPosition();
+            e && monaco_w(_, e) && O.trigger("keyboard", "editor.action.triggerSuggest", {});
+        }, 25));
+    }), P = O.onKeyDown((e)=>{
+        e.keyCode === C.KeyCode.Enter && (E && clearTimeout(E), E = window.setTimeout(()=>{
+            let e = O.getPosition();
+            e && monaco_w(_, e) && O.trigger("keyboard", "editor.action.triggerSuggest", {});
+        }, 30));
+    }), U = (e)=>{
+        let t = e.target;
+        t && !t.isContentEditable && "TEXTAREA" !== t.tagName && "INPUT" !== t.tagName && t.setAttribute("contenteditable", "true");
+    };
+    return c.addEventListener("focusin", U), {
         getValue: ()=>_.getValue(),
         setValue: (e)=>_.setValue(e),
+        focus: ()=>O.focus(),
         dispose: ()=>{
-            D.dispose(), null == S || S.dispose(), O.dispose(), _.dispose();
+            c.removeEventListener("focusin", U), E && clearTimeout(E), N.dispose(), P.dispose(), null == D || D.dispose(), O.dispose(), _.dispose();
         }
     };
 }
@@ -2255,7 +2566,7 @@ class FrpExternalConfigEditor_n extends L.form.Value {
                 i.dispose(), this.startAdvancedEditor(e, t);
                 return;
             }
-            t.editor = i, t.editorFormat = a, t.textarea.style.display = "none", t.editorContainer.style.display = "block", t.editorSettings.style.display = "none", this.setMessage(e, "");
+            t.editor = i, t.editorFormat = a, t.textarea.style.display = "none", t.editorContainer.style.display = "block", t.editorSettings.style.display = "none", this.setMessage(e, ""), i.focus();
         }).catch((i)=>{
             console.error("Failed to load advanced editor:", i), i instanceof Error && i.cause && console.error("Caused by:", i.cause), this.getSession(e) === t && t.editorRequest === d && (t.editorButton.disabled = !1, t.editorSource.disabled = !1, t.editorSettings.style.display = "", t.textarea.style.display = "", t.editorContainer.style.display = "none", this.setMessage(e, _("Advanced editor could not be loaded; using the plain text editor."), "#c60"));
         });
@@ -2333,7 +2644,10 @@ class FrpExternalConfigEditor_n extends L.form.Value {
             message: m,
             unsubscribe: ()=>{}
         };
-        return y.unsubscribe = this.editorOptions.subscribeSourceChanges(e, ()=>this.updateSourceControls(e)), this.sessions.set(e, y), this.updateSourceControls(e), c.onclick = ()=>this.enableEditor(e), p.onclick = ()=>this.loadFile(e), g.onclick = ()=>this.validateContent(e), f.onclick = ()=>this.saveFile(e, !1), v.onclick = ()=>this.saveFile(e, !0), jsxs("div", {
+        return y.unsubscribe = this.editorOptions.subscribeSourceChanges(e, ()=>this.updateSourceControls(e)), this.sessions.set(e, y), this.updateSourceControls(e), c.onclick = ()=>this.enableEditor(e), p.onclick = ()=>this.loadFile(e), g.onclick = ()=>this.validateContent(e), f.onclick = ()=>this.saveFile(e, !1), v.onclick = ()=>this.saveFile(e, !0), d.addEventListener("pointerdown", ()=>{
+            var e;
+            null == (e = y.editor) || e.focus();
+        }), jsxs("div", {
             class: "cbi-value-field",
             children: [
                 jsx("p", {
