@@ -1,0 +1,8 @@
+Package: luci-app-route-tool
+Version: 0.3.33-1
+Architecture: all
+Maintainer: godsun.pro
+Section: luci
+Priority: optional
+Depends: luci-base
+Description: Route Tool - backup/write router key partitions from LuCI. by 数码罗记 · godsun.pro

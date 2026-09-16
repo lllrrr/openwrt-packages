@@ -1,0 +1,8 @@
+#!/bin/sh
+# After uninstall, clear LuCI caches again and restart rpcd/uhttpd.
+# This prevents LuCI backend crash/blank page caused by stale cached dispatcher/controller references.
+rm -f /tmp/luci-indexcache 2>/dev/null || true
+rm -rf /tmp/luci-modulecache /tmp/luci-* 2>/dev/null || true
+[ -x /etc/init.d/rpcd ] && /etc/init.d/rpcd restart >/dev/null 2>&1 || true
+[ -x /etc/init.d/uhttpd ] && /etc/init.d/uhttpd restart >/dev/null 2>&1 || true
+exit 0

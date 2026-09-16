@@ -1,0 +1,8 @@
+#!/bin/sh
+chmod 755 /usr/libexec/route-tool /usr/libexec/route-tool.d/*.sh 2>/dev/null || true
+# LuCI keeps controller/view caches under several /tmp names; clear them before restarting services.
+rm -f /tmp/luci-indexcache 2>/dev/null || true
+rm -rf /tmp/luci-modulecache /tmp/luci-* 2>/dev/null || true
+[ -x /etc/init.d/rpcd ] && /etc/init.d/rpcd restart >/dev/null 2>&1 || true
+[ -x /etc/init.d/uhttpd ] && /etc/init.d/uhttpd restart >/dev/null 2>&1 || true
+exit 0

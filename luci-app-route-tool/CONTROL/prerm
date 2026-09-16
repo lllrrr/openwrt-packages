@@ -1,0 +1,5 @@
+#!/bin/sh
+# Before package files are removed, invalidate LuCI caches so dispatcher will not keep stale route_tool modules.
+rm -f /tmp/luci-indexcache 2>/dev/null || true
+rm -rf /tmp/luci-modulecache /tmp/luci-* 2>/dev/null || true
+exit 0

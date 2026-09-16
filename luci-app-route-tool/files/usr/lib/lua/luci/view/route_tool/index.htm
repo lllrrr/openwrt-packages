@@ -1,0 +1,921 @@
+<%+header%>
+<style>
+.rt-wrap{max-width:1180px}
+.rt-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-top:14px}
+.rt-health-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin:14px 0}
+.rt-card{background:var(--cbi-section-bg,#fff);border:1px solid var(--border-color,#ddd);border-radius:10px;padding:14px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.rt-title{font-size:18px;font-weight:700;margin-bottom:6px}
+.rt-page-version{font-size:13px;font-weight:500;opacity:.62;margin-left:6px;vertical-align:baseline;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px}
+.rt-ota-badge{display:none;font-size:12px;font-weight:600;margin-left:8px;padding:2px 7px;border-radius:999px;background:#fff3cd;border:1px solid #ffd666;color:#8a5a00;cursor:pointer;vertical-align:baseline}
+.rt-ota-badge.show{display:inline-block}
+.rt-meta{font-size:12px;opacity:.82;line-height:1.7;word-break:break-all}
+.rt-val{font-size:26px;font-weight:800;margin:8px 0}
+.good{color:#27ae60}
+.warnc{color:#f39c12}
+.bad{color:#e74c3c}
+.info{color:#3498db}
+.rt-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.rt-danger{border-color:#d9534f}
+.rt-badge{display:inline-block;padding:2px 7px;border-radius:999px;background:#eef;border:1px solid #ccd;font-size:12px;margin-left:6px}
+.rt-badge-ok{background:#e9f7ef;border-color:#b7e1c1}
+.rt-badge-fw{background:#e8f7ee;border-color:#b6dbc2;color:#1e6a39}
+.rt-warn{background:#fff3cd;border:1px solid #ffe69c;border-radius:8px;padding:10px;margin:12px 0;color:#7a5200}
+.rt-footer{opacity:.65;text-align:right;margin-top:18px}
+.rt-upload{display:none}
+.rt-log-wrap{margin-top:12px;border-radius:8px;overflow:hidden;border:1px solid #333;background:#111}
+.rt-log-wrap summary{cursor:pointer;list-style:none;padding:9px 12px;background:#1b1b1b;color:#ddd;font-weight:700}
+.rt-log-wrap summary::-webkit-details-marker{display:none}
+.rt-log-wrap summary:before{content:'▶';display:inline-block;margin-right:7px;transition:transform .15s}
+.rt-log-wrap[open] summary:before{transform:rotate(90deg)}
+.rt-log{white-space:pre-wrap;background:#111;color:#00e676;padding:10px;max-height:420px;overflow:auto}
+.rt-btn-danger{background:#d9534f!important;color:white!important;border-color:#d43f3a!important}
+.rt-kv{display:grid;grid-template-columns:92px 1fr;gap:3px 8px}
+.rt-k{opacity:.65}
+.rt-small{font-size:12px}
+.rt-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0}
+.rt-tab{padding:7px 14px;border:1px solid #ddd;border-radius:20px;background:#fff;cursor:pointer;font-weight:700}
+.rt-tab.active{box-shadow:0 0 0 2px rgba(0,0,0,.08) inset}
+.rt-blue{background:#e8f1ff;border-color:#9ec5fe;color:#084298}
+.rt-green{background:#e8f7ee;border-color:#a8dfb2;color:#16833a}
+.rt-cyan{background:#e7f8fb;border-color:#9eeaf9;color:#087990}
+.rt-orange{background:#fff3cd;border-color:#ffd666;color:#8a5a00}
+.rt-gray{background:#f1f3f5;border-color:#ced4da;color:#495057}
+.rt-purple{background:#f0e8ff;border-color:#c7b2ff;color:#5a32a3}
+.rt-progress{height:8px;background:#e0e0e0;border-radius:8px;overflow:hidden;margin-top:6px}
+.rt-progress>div{height:100%;background:#27ae60;width:0}
+.rt-bar{height:8px;background:#e0e0e0;border-radius:8px;overflow:hidden;margin-top:6px}
+.rt-bar>i{display:block;height:100%;background:#27ae60;width:0;transition:width .3s}
+.rt-life-row{display:grid;grid-template-columns:34px minmax(100px,1fr) 58px;align-items:center;gap:8px;margin-top:7px;font-size:12px}
+.rt-life-label{font-weight:700;color:#666}
+.rt-life-bar{height:22px;position:relative;border-radius:8px;overflow:hidden;background:linear-gradient(to right,#27ae60 0%,#27ae60 80%,#f39c12 80%,#f39c12 90%,#e74c3c 90%,#e74c3c 100%)}
+.rt-life-bar::after{content:'';position:absolute;top:0;bottom:0;right:0;width:var(--rt-left,100%);background:#e0e0e0;transition:width .3s}
+.rt-life-bar>span{position:relative;z-index:1;display:block;line-height:22px;text-align:center;font-weight:800;color:#222}
+.rt-life-analysis{text-align:right;font-weight:700;white-space:nowrap}
+.rt-cap-flex{display:flex;align-items:center;gap:14px;margin:4px 0 8px}
+.rt-cap-ring{--cap:0;position:relative;width:68px;height:68px;border-radius:50%;background:conic-gradient(#27ae60 calc(var(--cap)*1%),#e0e0e0 0);flex:0 0 68px}
+.rt-cap-ring.warn{background:conic-gradient(#f39c12 calc(var(--cap)*1%),#e0e0e0 0)}
+.rt-cap-ring.bad{background:conic-gradient(#e74c3c calc(var(--cap)*1%),#e0e0e0 0)}
+.rt-cap-ring:after{content:'';position:absolute;inset:9px;border-radius:50%;background:var(--cbi-section-bg,#fff)}
+.rt-cap-ring b{position:absolute;inset:0;z-index:1;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:#222}
+.rt-part-wrap{display:grid;grid-template-columns:180px minmax(0,1fr);gap:16px;align-items:start;margin-top:12px}
+.rt-donut-panel{display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px}
+.rt-donut{position:relative;width:150px;height:150px;border-radius:50%}
+.rt-donut:after{content:'';position:absolute;inset:30px;border-radius:50%;background:var(--cbi-section-bg,#fff)}
+.rt-donut-center{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none}
+.rt-donut-center b{font-size:24px}.rt-donut-center span{font-size:11px;opacity:.7}
+.rt-part-total{font-size:12px;opacity:.75;text-align:center}
+.rt-part-list{display:grid;gap:7px}
+.rt-part-row{display:grid;grid-template-columns:minmax(150px,1fr) minmax(120px,auto) auto;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--border-color,#ddd);border-radius:8px;background:var(--cbi-section-bg,#fff)}
+.rt-part-row.rt-danger{border-color:#d9534f}.rt-part-name{display:flex;align-items:center;gap:6px;min-width:0}.rt-part-name>i{width:10px;height:10px;border-radius:50%;flex:0 0 10px}.rt-part-name code{font-size:11px}.rt-part-size{text-align:right;font-size:12px}.rt-part-size code{display:block;font-size:10px;opacity:.75}.rt-part-row .rt-actions{margin:0;flex-wrap:nowrap}.rt-part-row .rt-actions .btn{padding:4px 8px;font-size:11px}.rt-alloc-row{grid-template-columns:minmax(180px,1fr) auto}
+.rt-unalloc-big{border-color:#27ae60;box-shadow:0 0 0 1px #27ae60 inset}
+.rt-unalloc-hl{color:#27ae60;font-weight:900}
+.rt-fw-row{grid-template-columns:58px minmax(180px,1fr) auto}
+.rt-fw-ring{--fw-progress:0;position:relative;width:52px;height:52px;border-radius:50%;background:conic-gradient(#3498db calc(var(--fw-progress)*1%),#e0e0e0 0)}
+.rt-fw-ring:after{content:'';position:absolute;inset:7px;border-radius:50%;background:var(--cbi-section-bg,#fff)}
+.rt-fw-ring>span{position:absolute;inset:0;z-index:1;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800}
+.rt-fw-ring.is-writing{background:conic-gradient(#f39c12 0 24%,#e0e0e0 24% 48%,#f39c12 48% 72%,#e0e0e0 72%);animation:rt-fw-spin .8s linear infinite}
+.rt-fw-ring.is-writing>span{animation:rt-fw-spin .8s linear infinite reverse}
+.rt-fw-ring.is-waiting{background:#27ae60}.rt-fw-ring.is-done{background:#27ae60}
+.rt-fw-row .rt-check{margin-top:4px;font-size:11px}.rt-fw-row #fw-status{margin-top:3px}
+@keyframes rt-fw-spin{to{transform:rotate(360deg)}}
+@media(max-width:700px){.rt-part-wrap{grid-template-columns:1fr}.rt-part-row{grid-template-columns:1fr auto}.rt-part-size{text-align:left}.rt-part-row .rt-actions{grid-column:1/-1}.rt-donut-panel{padding:4px}}
+.rt-section-title{margin-top:18px}
+.rt-fw-card{margin-top:14px;border-color:#bcd8c5;background:linear-gradient(180deg,var(--cbi-section-bg,#fff),#f6fbf7)}
+.rt-check{display:flex;align-items:center;gap:8px;margin-top:10px}
+.rt-check input{margin:0}
+#fw-status{margin-top:8px}
+.rt-ports{display:flex;gap:6px;flex-wrap:wrap}
+.rt-port{display:inline-block;border-radius:8px;padding:4px 8px;font-weight:700;border:1px solid #ddd;background:#fff7e6;color:#9a5b00}
+.rt-port-up{background:#e9f7ef;border-color:#a8dfb2;color:#16833a}
+</style>
+
+<div class="rt-wrap">
+  <h2 name="content"><%:Route Tool + Storage Health 存储诊断分区工具%><span class="rt-page-version" onclick="versionClickUpdate()" title="点击检查 GitHub 更新；有更新时再点一次在线更新">v0.3.33</span><span id="ota-badge" class="rt-ota-badge" onclick="versionClickUpdate()" title="点击在线更新插件">可更新</span></h2>
+  <div class="rt-warn">
+    <b>危险提示：</b>写入分区操作很危险，请确定知道自己在玩什么！对应位置写错文件必砖！
+  </div>
+  <div id="summary" class="rt-meta">正在识别设备存储与分区...</div>
+
+  <div class="rt-tabs">
+    <button class="rt-tab rt-blue active" onclick="runHealth('overview',this)">刷新概览</button>
+    <button class="rt-tab rt-green" onclick="runHealth('capacity',this)">容量详情</button>
+    <button class="rt-tab rt-cyan" onclick="runHealth('ports',this)">网口检测</button>
+    <button class="rt-tab rt-orange" id="emmc-speed-tab" onclick="runHealth('speed',this)">eMMC测速</button>
+    <button class="rt-tab rt-green" onclick="runMemTest(this)">🧠 内存测试</button>
+    <select id="mem-mode" style="padding:6px 10px;border-radius:20px;border:1px solid #ddd;font-weight:700;font-size:13px">
+      <option value="quick">压力(轻 25%)</option>
+      <option value="standard">压力(标准 60%)</option>
+      <option value="full">压力(写满)</option>
+      <option value="capacity" selected>完整性(memtester)</option>
+    </select>
+    <input id="mem-size" type="number" min="16" placeholder="自定义MB" style="width:80px;padding:6px 10px;border-radius:20px;border:1px solid #ddd;font-size:13px">
+    <button class="rt-tab rt-gray" onclick="runHealth('bootlog',this)">开机日志</button>
+    <button class="rt-tab rt-purple" onclick="runHealth('analyze',this)">完整分析</button>
+  </div>
+
+  <div class="rt-health-grid" id="dashboard">
+    <div class="rt-card"><div class="rt-title">🖥 SoC</div><div class="rt-val" id="soc-val">--</div><div class="rt-meta rt-kv" id="soc-kv"></div></div>
+    <div class="rt-card"><div class="rt-title">🌐 网口</div><div class="rt-val" id="port-val">--</div><div class="rt-meta rt-kv" id="port-kv"></div></div>
+    <div class="rt-card"><div class="rt-title">💽 容量</div><div class="rt-cap-flex"><div class="rt-cap-ring" id="storage-ring"><b id="storage-ring-pct">--</b></div><div><div class="rt-val" id="storage-val">--</div><div class="rt-meta" id="storage-sub">等待容量信息</div></div></div><div class="rt-meta rt-kv" id="storage-kv"></div></div>
+    <div class="rt-card" id="emmc-card"><div class="rt-title">🔲 eMMC 寿命 <span class="rt-badge" id="emmc-detect">检测中</span></div><div class="rt-life-row"><span class="rt-life-label">SLC</span><div class="rt-life-bar" id="eol-a-bar"><i></i><span id="eol-a-raw">--</span></div><span class="rt-life-analysis" id="eol-a-text">读取不到</span></div><div class="rt-life-row"><span class="rt-life-label">MLC</span><div class="rt-life-bar" id="eol-b-bar"><i></i><span id="eol-b-raw">--</span></div><span class="rt-life-analysis" id="eol-b-text">读取不到</span></div><div class="rt-meta rt-kv" id="emmc-kv"></div></div>
+    <div class="rt-card" id="emmc-speed-card"><div class="rt-title">🚀 eMMC 读写速度</div><div class="rt-val" id="speed-val">--</div><div class="rt-meta" id="speed-sub">等待测速</div><div class="rt-meta rt-kv" id="speed-kv"></div></div>
+    <div class="rt-card"><div class="rt-title">🧠 内存检测 <span class="rt-badge" style="background:#fff3cd;border-color:#ffc107;color:#856404">下拉选择模式</span></div><div class="rt-val" id="mem-val" style="font-size:20px">--</div><div class="rt-meta" id="mem-sub">下拉选模式，点"内存测试"按钮执行；选"完整性"首次运行会自动从 GitHub 下载 memtester。</div></div>
+    <div class="rt-card" id="nand-card"><div class="rt-title">💾 NAND <span class="rt-badge" id="nand-detect">检测中</span></div><div class="rt-val" id="nand-val">--</div><div class="rt-meta rt-kv" id="nand-kv"></div></div>
+    <div class="rt-card"><div class="rt-title">📜 开机日志</div><div class="rt-val" id="bootlog-val">--</div><div class="rt-meta" id="bootlog-sub">点击“开机日志”查看中文解释</div></div>
+  </div>
+
+  <details id="log-wrap" class="rt-log-wrap">
+    <summary id="log-title">测试输出（点击展开）</summary>
+    <div id="log" class="rt-log">等待执行诊断...</div>
+  </details>
+
+  <h3 class="rt-section-title">可操作分区</h3>
+  <div id="cards" class="rt-part-wrap"></div>
+
+  <div class="rt-footer">by 数码罗记 · godsun.pro</div>
+</div>
+
+<script>
+var API_BASE = '<%=luci.dispatcher.build_url("admin", "system", "route_tool")%>';
+
+function qs(s) {
+  return document.querySelector(s);
+}
+
+function esc(s) {
+  return String(s == null ? '-' : s).replace(/[&<>"']/g, function(c) {
+    return {'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c];
+  });
+}
+
+function hasAny(d, keys) {
+  for (var i = 0; i < keys.length; i++) {
+    if (d[keys[i]] !== undefined && d[keys[i]] !== '') return true;
+  }
+  return false;
+}
+
+function log(msg) {
+  var el = qs('#log');
+  var title = qs('#log-title');
+  el.textContent = msg || '';
+  if (title) title.textContent = '测试输出（点击展开）' + (msg ? ' · 已更新' : '');
+}
+
+function shortHealth(s) {
+  s = String(s || '');
+  return s.length > 64 ? s.slice(0, 64) + '…' : s;
+}
+
+function fmtSize(n) {
+  n = Number(n || 0);
+  if (!n) return '-';
+  var u = ['B', 'KB', 'MB', 'GB'];
+  var i = 0;
+  while (n >= 1024 && i < u.length - 1) {
+    n /= 1024;
+    i++;
+  }
+  return n.toFixed(i ? 2 : 0) + ' ' + u[i];
+}
+
+function fmtMB(n) {
+  n = Number(n || 0);
+  if (!n) return '-';
+  return n >= 1024 ? (n / 1024).toFixed(n >= 10240 ? 0 : 1) + ' GB' : n + ' MB';
+}
+
+function capRow(name, total, free, used, pct, dev, mp) {
+  if (!total && !free) return '';
+  return '<div class="rt-k">' + esc(name) + '</div><div>' +
+    fmtMB(total) + ' / 剩余 ' + fmtMB(free) + ' / 已用 ' + esc(pct || '-') +
+    (mp ? ' <span class="rt-small"><code>' + esc(mp) + '</code></span>' : '') +
+    (dev ? ' <span class="rt-small">' + esc(dev) + '</span>' : '') +
+    '</div>';
+}
+
+function updateCapacity(d) {
+  var val = qs('#storage-val');
+  var sub = qs('#storage-sub');
+  var box = qs('#storage-kv');
+  if (!val || !box) return;
+
+  var typ = d.STORAGE_TYPE || ((d.EMMC_TOTAL_MB || d.EMMC_DATA_TOTAL_MB) ? 'eMMC' : (d.NAND_TOTAL_MB ? 'NAND' : '--'));
+  var mainFree = d.EMMC_DATA_FREE_MB || d.OVERLAY_FREE_MB || d.ROOT_FREE_MB || 0;
+  var mainTotal = d.EMMC_DATA_TOTAL_MB || d.OVERLAY_TOTAL_MB || d.ROOT_TOTAL_MB || 0;
+  var mainUsed = d.EMMC_DATA_USED_MB || d.OVERLAY_USED_MB || d.ROOT_USED_MB || (mainTotal && mainFree ? (parseInt(mainTotal, 10) - parseInt(mainFree, 10)) : 0);
+  var mainPct = d.EMMC_DATA_USED_PCT || d.OVERLAY_USED_PCT || d.ROOT_USED_PCT || '-';
+  var html = '';
+
+  val.textContent = typ + (mainFree ? ' · 剩余' + fmtMB(mainFree) : '');
+  if (sub && mainTotal) sub.textContent = '运行 ' + fmtMB(mainUsed) + ' / 总量 ' + fmtMB(mainTotal) + '，已用 ' + esc(mainPct);
+  // 占比圆环: 颜色随已用比例变化(<70绿 <90黄 ≥90红)
+  var ring = qs('#storage-ring');
+  if (ring) {
+    var capPct = parseFloat(String(mainPct).replace('%', ''));
+    if (isNaN(capPct) && mainTotal && mainUsed) capPct = Math.round(parseInt(mainTotal, 10) ? mainUsed / parseInt(mainTotal, 10) * 100 : 0);
+    if (!isNaN(capPct)) {
+      capPct = Math.max(0, Math.min(100, Math.round(capPct)));
+      ring.style.setProperty('--cap', capPct);
+      ring.className = 'rt-cap-ring' + (capPct >= 90 ? ' bad' : capPct >= 70 ? ' warn' : '');
+      var capTxt = qs('#storage-ring-pct');
+      if (capTxt) capTxt.textContent = capPct + '%';
+    }
+  }
+  if (d.EMMC_TOTAL_MB) html += '<div class="rt-k">eMMC总量</div><div>' + fmtMB(d.EMMC_TOTAL_MB) + '</div>';
+  // 分区明细由下方环形图(#cards)展示, 这里不再重复 ROM/Overlay 行
+
+  if (d.EMMC_DATA_MOUNT) {
+    html += capRow('eMMC数据', d.EMMC_DATA_TOTAL_MB, d.EMMC_DATA_FREE_MB, d.EMMC_DATA_USED_MB, d.EMMC_DATA_USED_PCT, d.EMMC_DATA_DEV, d.EMMC_DATA_MOUNT);
+  } else if (typ === 'eMMC') {
+    html += '<div class="rt-k">eMMC数据</div><div>未发现独立可写挂载点</div>';
+  }
+  if (d.NAND_TOTAL_MB && parseInt(d.NAND_MTD_COUNT || '0') > 0) html += '<div class="rt-k">NAND总量</div><div>' + fmtMB(d.NAND_TOTAL_MB) + ' · MTD ' + esc(d.NAND_MTD_COUNT || '-') + ' 个</div>';
+
+  box.innerHTML = html || '<div class="rt-k">状态</div><div>未读取到容量信息</div>';
+  if (d.OVERLAY_FREE_MB) {
+    var f = parseInt(d.OVERLAY_FREE_MB || 0, 10);
+    var t = parseInt(d.OVERLAY_TOTAL_MB || 0, 10);
+    val.className = 'rt-val ' + (t && f / t < 0.1 ? 'bad' : t && f / t < 0.3 ? 'warnc' : 'good');
+  }
+}
+
+function kv(text) {
+  var r = {};
+  String(text || '').split('\n').forEach(function(line) {
+    var i = line.indexOf('=');
+    if (i > 0) r[line.slice(0, i)] = line.slice(i + 1);
+  });
+  return r;
+}
+
+function tempClass(v) {
+  var t = parseInt(v || 0, 10);
+  if (!t) return '';
+  return t < 50 ? 'good' : (t <= 70 ? 'warnc' : 'bad');
+}
+
+function tempHtml(v, name) {
+  if (!v || v === 'N/A') return 'N/A';
+  return '<span class="' + tempClass(v) + '">' + esc(v) + '℃</span> ' + esc(name || '');
+}
+
+function kindLabel(p) {
+  if (p.kind === 'gpt') return 'eMMC GPT';
+  if (p.kind === 'block') return 'eMMC 块分区';
+  if (p.kind === 'mtd') return 'MTD ' + (p.mtd_type || '');
+  return p.kind || '-';
+}
+
+function partTitle(p) {
+  var n = String((p && p.name) || '').toLowerCase();
+  if (n === 'appsbl') return 'U-Boot';
+  return p.label || p.name || '-';
+}
+
+function fwStatus(msg, cls) {
+  var el = qs('#fw-status');
+  if (!el) return;
+  el.className = 'rt-meta ' + (cls || '');
+  el.textContent = msg || '';
+}
+
+function fwProgress(pct, msg) {
+  var ring = qs('#fw-progress-ring');
+  var lbl = qs('#fw-progress-pct');
+  if (!ring) return;
+  if (pct < 0) {
+    ring.className = 'rt-fw-ring';
+    ring.style.setProperty('--fw-progress', 0);
+    if (lbl) lbl.textContent = '固件';
+    return;
+  }
+  var value = Math.max(0, Math.min(100, pct));
+  ring.className = 'rt-fw-ring';
+  ring.style.setProperty('--fw-progress', value);
+  if (lbl) lbl.textContent = msg || (Math.round(value) + '%');
+}
+
+function fwWriting() {
+  var ring = qs('#fw-progress-ring');
+  var lbl = qs('#fw-progress-pct');
+  if (ring) ring.className = 'rt-fw-ring is-writing';
+  if (lbl) lbl.textContent = '写入';
+}
+
+function fwWaiting() {
+  var ring = qs('#fw-progress-ring');
+  var lbl = qs('#fw-progress-pct');
+  if (ring) ring.className = 'rt-fw-ring is-waiting';
+  if (lbl) lbl.textContent = '等待';
+}
+
+var fwRebootCheckTimer = null;
+var fwSawOffline = false;
+
+function fwRebootCheck() {
+  fetch(API_BASE + '/health', {credentials:'same-origin', cache:'no-store'})
+    .then(function(r) {
+      if (r.ok && fwSawOffline) {
+        fwStatus('✅ 路由器已重启完成，新固件已运行。', 'good');
+        var ring = qs('#fw-progress-ring');
+        var lbl = qs('#fw-progress-pct');
+        if (ring) ring.className = 'rt-fw-ring is-done';
+        if (lbl) lbl.textContent = '完成';
+        if (fwRebootCheckTimer) { clearInterval(fwRebootCheckTimer); fwRebootCheckTimer = null; }
+      }
+    })
+    .catch(function() {
+      if (!fwSawOffline) {
+        fwSawOffline = true;
+        fwWaiting();
+        fwStatus('✅ 固件已刷写，准备重启；请耐心等待 1–2 分钟。', 'good');
+      }
+    });
+}
+
+var otaUpdateReady = false;
+var otaLatestVersion = '';
+
+function setOtaBadge(show, latest) {
+  var el = qs('#ota-badge');
+  if (!el) return;
+  otaUpdateReady = !!show;
+  otaLatestVersion = latest || '';
+  el.className = 'rt-ota-badge' + (show ? ' show' : '');
+  if (latest) {
+    el.textContent = '可更新 ' + latest.replace(/^-?v?/, 'v');
+    el.title = '发现新版本 ' + latest + '，再点一次版本号或此标识即可在线更新';
+  }
+}
+
+function checkPluginUpdate(force, interactive) {
+  var key = 'route_tool_ota_check_v1';
+  var now = Date.now();
+  try {
+    var cached = JSON.parse(localStorage.getItem(key) || '{}');
+    if (!force && cached.ts && now - cached.ts < 86400000) {
+      setOtaBadge(!!cached.update_available, cached.latest);
+      return Promise.resolve(cached);
+    }
+  } catch(e) {}
+  if (interactive) log('正在检查 GitHub 最新版本...');
+  return fetch(API_BASE + '/update?action=check', {credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      var state = {ts: now, latest: j.latest || '', update_available: !!(j.ok && j.update_available)};
+      try { localStorage.setItem(key, JSON.stringify(state)); } catch(e) {}
+      setOtaBadge(state.update_available, state.latest);
+      if (interactive) {
+        if (!j.ok) log('检查更新失败：' + (j.message || '未知错误'));
+        else if (state.update_available) log('发现新版本 ' + j.latest + '。再点一次版本号或“可更新”标识即可在线更新。');
+        else log('已经是最新版本：' + (j.current || '当前版本'));
+      }
+      return state;
+    })
+    .catch(function(e){
+      setOtaBadge(false);
+      if (interactive) log('检查更新失败：' + e);
+      return {update_available:false, error:String(e)};
+    });
+}
+
+function versionClickUpdate() {
+  if (otaUpdateReady) {
+    installPluginUpdate();
+    return;
+  }
+  checkPluginUpdate(true, true);
+}
+
+function installPluginUpdate() {
+  var latest = otaLatestVersion ? ('\n最新版本：' + otaLatestVersion) : '';
+  if (!confirm('确认从 GitHub Releases 下载并更新 Route Tool 插件？' + latest + '\n\n会执行 opkg 覆盖安装，并刷新 LuCI/rpcd/uhttpd。')) return;
+  log('正在下载并安装 GitHub 最新版 IPK...');
+  fetch(API_BASE + '/update?action=install&confirm=YES', {credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      log((j.ok ? '更新完成：' : '更新失败：') + (j.message || ''));
+      if (j.ok) {
+        try { localStorage.removeItem('route_tool_ota_check_v1'); } catch(e) {}
+        setOtaBadge(false);
+      }
+    })
+    .catch(function(e){ log('更新失败：' + e); });
+}
+
+function backup(part) {
+  window.location = API_BASE + '/backup?part=' + encodeURIComponent(part);
+}
+
+function allocStoragePreview(){
+  log('正在检查 eMMC 可用空间...');
+  var lw=qs('#log-wrap'); if(lw) lw.open=true;
+  fetch(API_BASE+'/alloc_storage?action=preview',{credentials:'same-origin'})
+    .then(function(r){return r.json()})
+    .then(function(j){
+      log(j.ok ? '📋 预览：\n'+j.message : '❌ 预览失败：'+j.message);
+      if(!j.ok) alert('预览失败：\n\n'+j.message);
+    })
+    .catch(function(e){log('❌ 请求失败：'+e);});
+}
+function allocStorageCreate(){
+  log('正在检查 eMMC 可用空间...');
+  var lw=qs('#log-wrap'); if(lw) lw.open=true;
+  fetch(API_BASE+'/alloc_storage?action=preview',{credentials:'same-origin'})
+    .then(function(r){return r.json()})
+    .then(function(j){
+      if(!j.ok){ alert('预览失败：\n\n'+j.message); return; }
+      var msg = j.message || '';
+      var isSmall = msg.indexOf('预留') >= 0 || msg.indexOf('仅') >= 0;
+      var confirmMsg = '确认在 eMMC 末尾新建 storage 分区？\n\n将使用 sgdisk 新建分区、mkfs.ext4 格式化并自动挂载。\n\n此操作会修改 GPT 分区表，请确保已备份！';
+      if(isSmall){
+        confirmMsg = '⚠️ 检测到可用空间较小！\n\n' + msg + '\n\n仍然要新建分区吗？\n\n此操作会修改 GPT 分区表，请确保已备份！';
+      }
+      if(!confirm(confirmMsg)) return;
+      log('正在新建 eMMC 存储分区...');
+      fetch(API_BASE+'/alloc_storage?action=create',{credentials:'same-origin'})
+        .then(function(r){return r.json()})
+        .then(function(j2){
+          log(j2.ok ? '✅ '+j2.message : '❌ 失败：'+j2.message);
+          if(j2.ok){ alert('存储分区创建成功！\n\n'+j2.message); }
+          else { alert('创建失败：\n\n'+j2.message); }
+        })
+        .catch(function(e){log('❌ 请求失败：'+e); alert('请求失败：'+e);});
+    })
+    .catch(function(e){log('❌ 预览请求失败：'+e);});
+}
+
+function chooseWrite(part) {
+  var input = qs('#file_' + part.replace(/[^A-Za-z0-9_-]/g, '_'));
+  if (input) input.click();
+}
+
+function chooseSysupgrade() {
+  var input = qs('#fw-file');
+  if (input) input.click();
+}
+function doWrite(part, input){
+  if(!input.files || !input.files[0]) return;
+  var name=input.files[0].name;
+  if(!confirm('确认写入 '+part+' ?\n\n文件：'+name+'\n\n危险操作，写错可能变砖。')) { input.value=''; return; }
+  var fd=new FormData(); fd.append('part',part); fd.append('image',input.files[0]);
+  log('正在上传并写入 '+part+'，请不要断电/刷新页面...');
+  var lw=qs('#log-wrap'); if(lw) lw.open=true;
+  fetch(API_BASE + '/write', {method:'POST', body:fd, credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){
+    if(j.async){
+      log('⏳ '+j.message);
+      pollWriteStatus(part, input, j.status_id || '');
+    } else {
+      log((j.ok?'✅ 完成：':'❌ 失败：')+(j.message||''));
+      if(!j.ok){ alert('写入 '+part+' 失败：\n\n'+(j.message||'未知错误')); }
+      input.value='';
+    }
+  }).catch(function(e){log('❌ 请求失败：'+e); alert('请求失败：'+e); input.value='';});
+}
+function pollWriteStatus(part, input, statusId){
+  setTimeout(function(){
+    var url = API_BASE + '/write_status' + (statusId ? ('?id=' + encodeURIComponent(statusId)) : '');
+    fetch(url, {credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){
+      if(j.running){
+        log('⏳ '+(j.message||'正在写入...'));
+        pollWriteStatus(part, input, statusId);
+      } else {
+        log((j.ok?'✅ 完成：':'❌ 失败：')+(j.message||''));
+        if(j.ok){ alert('写入 '+part+' 完成！\n\n'+(j.message||'')); }
+        else { alert('写入 '+part+' 失败：\n\n'+(j.message||'未知错误')); }
+        input.value='';
+      }
+    }).catch(function(e){
+      log('❌ 轮询失败：'+e+'，3秒后重试...');
+      pollWriteStatus(part, input, statusId);
+    });
+  }, 3000);
+}
+function doSysupgrade(input){
+  if(!input.files || !input.files[0]) return;
+  var keep = !!(qs('#fw-keepcfg') && qs('#fw-keepcfg').checked);
+  var file = input.files[0];
+  var tip = '确认使用 sysupgrade 更新当前 OpenWrt 固件？\n\n文件：'+file.name+'\n大小：'+(file.size > 1048576 ? (file.size/1048576).toFixed(1)+' MB' : (file.size/1024).toFixed(0)+' KB')+'\n配置：'+(keep?'保留当前配置':'不保留配置(-n)')+'\n\n此操作会重启路由器。';
+  if(!confirm(tip)){input.value=''; return;}
+  var fd = new FormData();
+  fd.append('image', file);
+  var url = API_BASE + '/sysupgrade?confirm=YES&keep=' + encodeURIComponent(keep ? '1' : '0');
+
+  fwStatus('正在上传固件...', 'info');
+  fwProgress(0, '0%');
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', url, true);
+  xhr.withCredentials = true;
+  xhr.upload.addEventListener('progress', function(e) {
+    if (e.lengthComputable) {
+      var pct = (e.loaded / e.total) * 100;
+      fwProgress(pct, Math.round(pct) + '%');
+      fwStatus('正在上传固件 ' + (e.loaded > 1048576 ? (e.loaded/1048576).toFixed(1) : (e.loaded/1024).toFixed(0)) + ' / ' + (e.total > 1048576 ? (e.total/1048576).toFixed(1)+' MB' : (e.total/1024).toFixed(0)+' KB'), 'info');
+    }
+  });
+  xhr.addEventListener('load', function() {
+    var j;
+    try { j = JSON.parse(xhr.responseText); } catch(e) {
+      fwStatus('响应解析失败', 'bad'); fwProgress(-1); input.value = ''; return;
+    }
+    if (!j.ok) {
+      fwStatus('失败：' + (j.message || '未知错误'), 'bad'); fwProgress(-1); input.value = ''; return;
+    }
+    fwSawOffline = false;
+    fwWriting();
+    fwStatus('⏳ 固件正在写入，请勿断电；完成后将自动重启。', 'warnc');
+    if (fwRebootCheckTimer) clearInterval(fwRebootCheckTimer);
+    fwRebootCheckTimer = setInterval(fwRebootCheck, 3000);
+    log('sysupgrade 已启动：写入时圆环会旋转，设备离线后请耐心等待 1–2 分钟。');
+    input.value = '';
+  });
+  xhr.addEventListener('error', function() {
+    if (fwSawOffline) return;
+    fwStatus('请求失败：网络错误', 'bad'); fwProgress(-1); input.value = '';
+  });
+  xhr.addEventListener('abort', function() {
+    fwStatus('上传已取消', 'bad'); fwProgress(-1); input.value = '';
+  });
+  xhr.send(fd);
+}
+
+function updateDashFromRoute(data){
+  var st=data.storage||{}, e=st.emmc||{}, n=st.nand||{};
+  var kind=st.kind||'';
+  var showEmmc=kind ? (kind==='emmc'||kind==='spi+emmc') : !!e.present;
+  var showNand=kind ? (kind==='nand'||kind==='spi+nand') : !!n.present;
+  ['#emmc-card','#emmc-speed-card','#emmc-speed-tab'].forEach(function(id){var node=qs(id); if(node) node.hidden=!showEmmc;});
+  var nandCard=qs('#nand-card'); if(nandCard) nandCard.hidden=!showNand;
+  var emmcDet=qs('#emmc-detect'), nandDet=qs('#nand-detect');
+  if(emmcDet){emmcDet.textContent=e.present?'已检测':'未检测'; emmcDet.className='rt-badge '+(e.present?'rt-badge-ok':'')}
+  if(e.present){
+    var mfr = e.manufacturer || '';
+    var isUnknown = mfr.indexOf('未知') >= 0 || mfr.indexOf('Unknown') >= 0 || mfr === '';
+    var reportBtn = isUnknown && e.manufacturer_id ? 
+      '<button class="btn cbi-button rt-btn-danger" style="margin-left:8px;padding:2px 10px;font-size:12px" onclick="reportUnknownEmmc()">上报未知 eMMC</button>' : '';
+    qs('#emmc-kv').innerHTML='<div class="rt-k">设备</div><div><code>'+esc(e.dev)+'</code></div><div class="rt-k">制造商</div><div>'+esc(mfr)+' <span class="rt-small">('+esc(e.manufacturer_id)+')</span>'+reportBtn+'</div><div class="rt-k">容量</div><div>'+fmtSize(e.capacity)+'</div><div class="rt-k">产品/序列</div><div>'+esc(e.product)+' / '+esc(e.serial)+'</div>';
+  } else {qs('#emmc-kv').innerHTML='<div class="rt-k">状态</div><div>未检测到 eMMC</div>';}
+  if(nandDet){nandDet.textContent=n.present?'已检测':'未检测'; nandDet.className='rt-badge '+(n.present?'rt-badge-ok':'')}
+  if(n.present){qs('#nand-val').textContent=(n.bad_blocks||0)+' 坏块'; qs('#nand-val').className='rt-val '+((n.bad_blocks||0)>0?'warnc':'good'); qs('#nand-kv').innerHTML='<div class="rt-k">品牌/型号</div><div>'+esc(n.brand||'未知')+'</div><div class="rt-k">MTD数量</div><div>'+esc(n.chips)+'</div><div class="rt-k">坏块总数</div><div>'+esc(n.bad_blocks)+'</div>';} else {qs('#nand-val').textContent='无'; qs('#nand-kv').innerHTML='<div class="rt-k">状态</div><div>未检测到 NAND</div>';}
+}
+
+function updateSocFromKV(d) {
+  if (!hasAny(d, ['SOC_MODEL', 'SOC_TEMP_C', 'COREMARK_SCORE'])) return;
+  var soc = qs('#soc-val');
+  var skv = qs('#soc-kv');
+  if (soc) {
+    soc.textContent = d.SOC_MODEL ? String(d.SOC_MODEL).replace(/^Qualcomm |^MediaTek /, '') : (d.SOC_TEMP_C && d.SOC_TEMP_C !== 'N/A' ? d.SOC_TEMP_C + '℃' : '--');
+    soc.className = 'rt-val ' + tempClass(d.SOC_TEMP_C);
+  }
+  if (skv) {
+    skv.innerHTML =
+      '<div class="rt-k">🧭 系统</div><div>' + esc(d.SYS_FLAVOR || '-') + '</div>' +
+      '<div class="rt-k">SoC型号</div><div>' + esc(d.SOC_MODEL || '-') + '</div>' +
+      '<div class="rt-k">CPU</div><div>' + esc(d.SOC_CORES || '?') + '核 @ ' + (d.SOC_FREQ_MHZ ? esc(d.SOC_FREQ_MHZ) + 'MHz' : '-') + '</div>' +
+      '<div class="rt-k">温度</div><div>' + tempHtml(d.SOC_TEMP_C, d.SOC_TEMP_NAME) + '</div>' +
+      '<div class="rt-k">CoreMark</div><div>' + esc(d.COREMARK_SCORE || 'N/A') + ' <span class="rt-small">单核≈' + esc(d.COREMARK_SINGLE || 'N/A') + '</span></div>';
+  }
+}
+
+function updateEmmcFromKV(d) {
+  if (!hasAny(d, ['EMMC_LIFE_A_DEC', 'EMMC_LIFE_B_DEC', 'eMMC_SLC_DEC', 'eMMC_MLC_DEC', 'EMMC_FOUND'])) return;
+  var lifeA = d.EMMC_LIFE_A_DEC;
+  var lifeB = d.EMMC_LIFE_B_DEC;
+  if (lifeA === undefined || lifeA === null || lifeA === '') lifeA = d.eMMC_SLC_DEC;
+  if (lifeB === undefined || lifeB === null || lifeB === '') lifeB = d.eMMC_MLC_DEC;
+  var box = qs('#emmc-kv');
+  var det = qs('#emmc-detect');
+
+  if (det && d.EMMC_FOUND) {
+    det.textContent = d.EMMC_FOUND === '1' ? '已检测' : '未检测';
+    det.className = 'rt-badge ' + (d.EMMC_FOUND === '1' ? 'rt-badge-ok' : '');
+  }
+  [[lifeA, '#eol-a-bar', '#eol-a-raw', '#eol-a-text'], [lifeB, '#eol-b-bar', '#eol-b-raw', '#eol-b-text']].forEach(function(item) {
+    var available = item[0] !== undefined && item[0] !== null && item[0] !== '';
+    var used = parseInt(item[0], 10);
+    var hasVal = available && !isNaN(used);
+    // 寿命顺序值: 1=已用0-10% 2=10-20% ... 10=90-100% 11(B)=100%
+    var usedPct = !hasVal ? null : used >= 11 ? 100 : used * 10;
+    var lifeBar = qs(item[1]);
+    var rawText = qs(item[2]);
+    var analysisText = qs(item[3]);
+    if (lifeBar) {
+      lifeBar.className = 'rt-life-bar';
+      lifeBar.style.setProperty('--rt-left', (!hasVal ? 100 : 100 - usedPct) + '%');
+    }
+    if (rawText) rawText.textContent = available ? String(item[0]) : '--';
+    if (analysisText) analysisText.textContent = !hasVal ? '读取不到' : used === 0 ? '0' : used >= 11 ? '100%（到期）' : '已用' + (used - 1) * 10 + '-' + (used * 10) + '%';
+  });
+  if (box) {
+    box.innerHTML =
+      (d.EMMC_MANUFACTURER ? '<div class="rt-k">颗粒品牌</div><div>' + esc(d.EMMC_MANUFACTURER) + (maybeShowReportBtn(d.EMMC_MANUFACTURER) ? ' <button class="btn cbi-button rt-btn-danger rt-small" onclick="reportUnknownEmmc()" style="margin-left:8px;padding:2px 8px;font-size:11px">上报未知厂商</button>' : '') + '</div>' : '') +
+      (d.EMMC_PRODUCT ? '<div class="rt-k">产品型号</div><div>' + esc(d.EMMC_PRODUCT) + '</div>' : '') +
+      (d.EMMC_MFG_DATE ? '<div class="rt-k">生产日期</div><div>' + esc(d.EMMC_MFG_DATE) + '</div>' : '') +
+      (d.EMMC_PRE_EOL_TEXT && d.EMMC_FOUND === '1' ? '<div class="rt-k">预警</div><div>' + esc(d.EMMC_PRE_EOL_TEXT) + '</div>' : '') +
+      (d.EMMC_VERSION ? '<div class="rt-k">eMMC 版本</div><div>' + esc(d.EMMC_VERSION) + '</div>' : '') +
+      (d.EMMC_BOOT1_SIZE_KB ? '<div class="rt-k">BOOT1/2</div><div>' + fmtKB(d.EMMC_BOOT1_SIZE_KB) + ' / ' + fmtKB(d.EMMC_BOOT2_SIZE_KB) + '</div>' : '') +
+      (d.EMMC_RPMB_SIZE_KB && parseInt(d.EMMC_RPMB_SIZE_KB) > 0 ? '<div class="rt-k">RPMB</div><div>' + fmtKB(d.EMMC_RPMB_SIZE_KB) + '</div>' : '') +
+      (d.EMMC_CID ? '<div class="rt-k">CID</div><div><span class="rt-small">' + esc(d.EMMC_CID) + '</span></div>' : '');
+  }
+}
+
+function updateSpeedFromKV(d) {
+  if (!hasAny(d, ['SEQ_WRITE_SPEED', 'SEQ_READ_SPEED'])) return;
+  qs('#speed-val').textContent = (d.SEQ_WRITE_SPEED || '?') + '/' + (d.SEQ_READ_SPEED || '?') + ' MB/s';
+  qs('#speed-sub').textContent = '写入/读取';
+  // eMMC diagnostic info from speed test
+  var skv = qs('#speed-kv');
+  if (skv) {
+    var info = [];
+    if (d.EMMC_MANUFACTURER) info.push('颗粒: ' + d.EMMC_MANUFACTURER);
+    if (d.EMMC_PRODUCT) info.push('型号: ' + d.EMMC_PRODUCT);
+    if (d.EMMC_MFG_DATE) info.push('生产: ' + d.EMMC_MFG_DATE);
+    if (d.EMMC_VERSION) info.push('eMMC ' + d.EMMC_VERSION);
+    if (d.EMMC_PRE_EOL_TEXT) info.push('预警: ' + d.EMMC_PRE_EOL_TEXT);
+    if (d.EMMC_BOOT1_SIZE_KB) info.push('BOOT1: ' + fmtKB(d.EMMC_BOOT1_SIZE_KB));
+    if (d.EMMC_BOOT2_SIZE_KB) info.push('BOOT2: ' + fmtKB(d.EMMC_BOOT2_SIZE_KB));
+    if (d.EMMC_RPMB_SIZE_KB && d.EMMC_RPMB_SIZE_KB !== '0') info.push('RPMB: ' + fmtKB(d.EMMC_RPMB_SIZE_KB));
+    if (d.EMMC_CID) info.push('CID: ' + d.EMMC_CID);
+    skv.innerHTML = info.length ? info.join(' &nbsp;|&nbsp; ') : '';
+  }
+}
+
+function fmtKB(kb) {
+  if (!kb || kb === '0') return '0KB';
+  kb = parseInt(kb);
+  if (kb >= 1048576) return (kb/1048576).toFixed(1) + 'GB';
+  if (kb >= 1024) return (kb/1024).toFixed(0) + 'MB';
+  return kb + 'KB';
+}
+
+function updateMemoryFromKV(d) {
+  if (!hasAny(d, ['MEM_TOTAL_MB', 'MEM_PRESSURE_VERDICT', 'MEM_VERDICT', 'MEM_RESULT_TEXT', 'MEM_WRITTEN_MB', 'MEM_WRITE_SPEED', 'MEM_CAPACITY_STATUS'])) return;
+  var mv = qs('#mem-val');
+  var ms = qs('#mem-sub');
+  if (d.MEM_TOTAL_MB && !d.MEM_CAPACITY_STATUS && !d.MEM_PRESSURE_VERDICT && !d.MEM_VERDICT && !d.MEM_WRITTEN_MB) {
+    var free = d.MEM_AVAILABLE_MB || d.MEM_FREE_MB || 0;
+    var total = d.MEM_TOTAL_MB || 0;
+    var used = d.MEM_USED_MB || (total && free ? (parseInt(total, 10) - parseInt(free, 10)) : 0);
+    if (mv) {
+      mv.textContent = '内存 · 剩余' + fmtMB(free);
+      mv.className = 'rt-val ' + (d.MEM_FREE_PCT && parseInt(d.MEM_FREE_PCT, 10) < 15 ? 'warnc' : 'good');
+    }
+    if (ms) ms.textContent = '运行 ' + fmtMB(used) + ' / 总量 ' + fmtMB(total) + '，剩余 ' + (d.MEM_FREE_PCT || '-') + '%';
+    return;
+  }
+  // Capacity mode (memtester)
+  if (d.MEM_CAPACITY_STATUS) {
+    if (mv) {
+      if (d.MEM_CAPACITY_STATUS === 'PASS') {
+        mv.textContent = '✅ 完整性通过';
+        mv.className = 'rt-val good';
+      } else if (d.MEM_CAPACITY_STATUS === 'NO_MEMTESTER') {
+        mv.textContent = '⚠️ 无 memtester';
+        mv.className = 'rt-val warnc';
+      } else {
+        mv.textContent = '❌ 完整性失败';
+        mv.className = 'rt-val bad';
+      }
+    }
+    if (ms) {
+      var sub = '';
+      if (d.MEM_CAPACITY_STATUS === 'NO_MEMTESTER') {
+        sub = '未能自动下载 memtester，已回退到 tmpfs 压力测试。';
+      } else if (d.MEM_CAPACITY_PASSED_TESTS) {
+        sub = d.MEM_CAPACITY_TEST_MB + 'MB / ' + d.MEM_CAPACITY_TOTAL_MB + 'MB 测试，覆盖率 ' + d.MEM_CAPACITY_COVERAGE + '%，' + d.MEM_CAPACITY_PASSED_TESTS + ' 全通过';
+      } else {
+        sub = d.MEM_RESULT_TEXT || '完整性检测完成';
+      }
+      ms.textContent = sub;
+    }
+    return;
+  }
+  // Original tmpfs pressure mode
+  if (mv) {
+    if (d.MEM_PRESSURE_VERDICT || d.MEM_VERDICT) {
+      var verdict = d.MEM_PRESSURE_VERDICT || d.MEM_VERDICT || '--';
+      mv.textContent = verdict === 'PASS' ? '✅ 通过' : verdict === 'FAIL' ? '❌ 失败' : verdict;
+      mv.className = 'rt-val ' + (verdict === 'PASS' ? 'good' : verdict === 'FAIL' ? 'warnc' : '');
+    } else if (d.MEM_WRITTEN_MB) {
+      mv.textContent = '已写入 ' + d.MEM_WRITTEN_MB + ' MB';
+    }
+  }
+  if (ms) {
+    var sub = '';
+    if (d.MEM_RESULT_TEXT) sub = d.MEM_RESULT_TEXT;
+    else if (d.MEM_WRITTEN_MB) sub = '写入 ' + d.MEM_WRITTEN_MB + ' MB /tmp，' + (d.MEM_VERDICT || '--');
+    else sub = '总内存 ' + fmtMB(d.MEM_TOTAL_MB || 0) + '，可用 ' + fmtMB(d.MEM_AVAILABLE_MB || d.MEM_FREE_MB || 0);
+    if (d.MEM_REFERENCE_ONLY === '1' || d.MEM_NOTE) sub += '（仅供参考）';
+    ms.textContent = sub;
+  }
+}
+
+function runMemTest(btn) {
+  document.querySelectorAll('.rt-tab').forEach(function(x){ x.classList.remove('active'); });
+  if(btn) btn.classList.add('active');
+  var mode = qs('#mem-mode') ? qs('#mem-mode').value : 'quick';
+  var sizeInput = qs('#mem-size') ? qs('#mem-size').value : '';
+  var sizeMB = parseInt(sizeInput) || 0;
+  var w=qs('#log-wrap'); if(w) w.open=true;
+  log('⏳ 正在执行 内存' + (mode === 'capacity' ? '完整性(memtester)' : '压力(' + mode + ')') + ' 测试...');
+  var url = API_BASE + '/health?action=' + encodeURIComponent(mode === 'capacity' ? 'memory_capacity' : 'memory_' + mode);
+  if (sizeMB > 0 && mode === 'capacity') url += '&size_mb=' + encodeURIComponent(sizeMB);
+  else if (sizeMB > 0) url = API_BASE + '/health?action=' + encodeURIComponent('memory_' + mode) + '&size_mb=' + encodeURIComponent(sizeMB);
+  fetch(url, {credentials:'same-origin'})
+    .then(function(r){ return r.text(); })
+    .then(function(t){ log(t); updateDashFromKV(kv(t)); })
+    .catch(function(e){ log('请求失败：'+e); });
+}
+
+function updatePortsFromKV(d) {
+  if (!hasAny(d, ['PORT_TOTAL', 'PORT_UP', 'PORT_LIST', 'WIFI_LIST'])) return;
+  var pv = qs('#port-val');
+  var pk = qs('#port-kv');
+  if (pv) pv.textContent = (d.PORT_UP || '0') + '/' + (d.PORT_TOTAL || '0') + ' 网口 · ' + (d.WIFI_UP || '0') + '/' + (d.WIFI_TOTAL || '0') + ' WiFi';
+  if (!pk) return;
+
+  var html = '';
+  String(d.PORT_LIST || '').split(',').forEach(function(item) {
+    if (!item || item === 'N/A') return;
+    var p = item.split('|');
+    html += '<div class="rt-k">' + esc(p[0]) + '</div><div>' + esc(p[2] || '-') + '</div>';
+  });
+  String(d.WIFI_LIST || '').split(',').forEach(function(item) {
+    if (!item || item === 'N/A') return;
+    var p = item.split('|');
+    html += '<div class="rt-k">📶 ' + esc(p[0]) + '</div><div>' + esc(p[2] || '-') + '</div>';
+  });
+  if (d.WIFI_TEMP_C && d.WIFI_TEMP_C !== 'N/A') html += '<div class="rt-k">无线温度</div><div>' + tempHtml(d.WIFI_TEMP_C, d.WIFI_TEMP_NAME) + '</div>';
+  if (!html) html = '<div class="rt-k">状态</div><div>未检测到端口/无线</div>';
+  pk.innerHTML = html;
+}
+
+function updateNandFromKV(d) {
+  if (!hasAny(d, ['NAND_DONE', 'NAND_HEALTH', 'NAND_MTD_COUNT', 'NAND_DETAIL_COUNT', 'NAND_BAD_BLOCKS_TOTAL'])) return;
+  var val = qs('#nand-val');
+  var box = qs('#nand-kv');
+  var det = qs('#nand-detect');
+  var bad = parseInt(d.NAND_BAD_BLOCKS_TOTAL || '0', 10) || 0;
+  var health = String(d.NAND_HEALTH || 'N/A');
+  var warn = health.indexOf('WARN') === 0 || bad > 0;
+  if (det) {
+    det.textContent = d.NAND_MTD_FOUND === '1' ? '已检测' : '未检测';
+    det.className = 'rt-badge ' + (d.NAND_MTD_FOUND === '1' ? 'rt-badge-ok' : '');
+  }
+  if (val) {
+    val.textContent = d.NAND_MTD_FOUND === '1' ? (bad + ' 坏块') : 'N/A';
+    val.className = 'rt-val ' + (warn ? 'warnc' : 'good');
+  }
+  if (box) {
+    box.innerHTML =
+      '<div class="rt-k">MTD数量</div><div>' + esc(d.NAND_MTD_COUNT || d.NAND_DETAIL_COUNT || '-') + '</div>' +
+      '<div class="rt-k">坏块总数</div><div>' + esc(d.NAND_BAD_BLOCKS_TOTAL || '0') + (d.NAND_BAD_BLOCKS_DETAIL ? ' <span class="rt-small">' + esc(d.NAND_BAD_BLOCKS_DETAIL) + '</span>' : '') + '</div>' +
+      '<div class="rt-k">健康状态</div><div>' + esc(health) + '</div>' +
+      '<div class="rt-k">UBI</div><div>' + esc(d.NAND_UBI_DEVICES || 'N/A') + '</div>';
+  }
+}
+
+function updateBootlogFromKV(d) {
+  if (!hasAny(d, ['BOOTLOG_STATUS', 'BOOTLOG_ERROR_COUNT'])) return;
+  var bv = qs('#bootlog-val');
+  var bs = qs('#bootlog-sub');
+  if (bv) {
+    bv.textContent = d.BOOTLOG_STATUS === 'OK' ? '正常' : (d.BOOTLOG_ERROR_COUNT || 0) + ' 条异常';
+    bv.className = 'rt-val ' + (d.BOOTLOG_STATUS === 'OK' ? 'good' : 'warnc');
+  }
+  if (bs) bs.textContent = d.BOOTLOG_EXPLAIN_SUMMARY || d.BOOTLOG_SUMMARY || '开机日志已读取';
+}
+
+function updateDashFromKV(d){
+  // Split dashboard updates so same-named KV fields from separate health actions cannot trample unrelated cards.
+  if (hasAny(d, ['CAPACITY_DONE', 'STORAGE_TYPE', 'OVERLAY_TOTAL_MB', 'EMMC_DATA_TOTAL_MB'])) updateCapacity(d);
+  updateSocFromKV(d);
+  updateEmmcFromKV(d);
+  updateSpeedFromKV(d);
+  updateMemoryFromKV(d);
+  updatePortsFromKV(d);
+  updateNandFromKV(d);
+  updateBootlogFromKV(d);
+}
+function runHealth(action, btn){
+  document.querySelectorAll('.rt-tab').forEach(function(x){ x.classList.remove('active'); });
+  if(btn) btn.classList.add('active');
+  if(action !== 'overview'){
+    var w=qs('#log-wrap');
+    if(w) w.open=true;
+  }
+  log('⏳ 正在执行 '+action+' ...');
+  fetch(API_BASE + '/health?action=' + encodeURIComponent(action), {credentials:'same-origin'})
+    .then(function(r){ return r.text(); })
+    .then(function(t){ log(t); updateDashFromKV(kv(t)); })
+    .catch(function(e){ log('请求失败：'+e); });
+}
+function render(data){
+  updateDashFromRoute(data);
+  var st=data.storage||{}, e=st.emmc||{}, n=st.nand||{};
+  var media = st.label || (e.present ? 'eMMC' : n.present ? 'NAND' : '未识别');
+  var detail = e.present ? (' <code>'+esc(e.dev)+'</code> / '+esc(e.manufacturer)) : (n.present ? (' / '+esc(n.brand||'未知')) : '');
+  var parts=data.parts||[], colors=['#3498db','#27ae60','#f39c12','#9b59b6','#e74c3c','#16a085','#8e6e53','#607d8b'];
+  qs('#summary').innerHTML = '设备识别：' + esc(media) + detail + '；已发现 ' + parts.length + ' 个可操作分区。';
+  var total=parts.reduce(function(sum,p){return sum+(parseInt(p.size||0,10)||0)},0), cursor=0, stops=[];
+  parts.forEach(function(p,i){var weight=total?(parseInt(p.size||0,10)||0)/total:1/Math.max(parts.length,1);var end=i===parts.length-1?100:cursor+weight*100;stops.push(colors[i%colors.length]+' '+cursor.toFixed(2)+'% '+end.toFixed(2)+'%');cursor=end;});
+  var donut=stops.length?'conic-gradient('+stops.join(',')+')':'#e0e0e0';
+  var html='<div class="rt-donut-panel"><div class="rt-donut" style="background:'+donut+'"><div class="rt-donut-center"><b>'+parts.length+'</b><span>可操作分区</span></div></div><div class="rt-part-total">合计 '+fmtSize(total)+'</div></div><div class="rt-part-list">';
+  parts.forEach(function(p,i){
+    var id=String(p.name).replace(/[^A-Za-z0-9_-]/g,'_');
+    html+='<div class="rt-part-row '+(p.danger?'rt-danger':'')+'" title="'+esc(p.note||'')+'"><div class="rt-part-name"><i style="background:'+colors[i%colors.length]+'"></i><b>'+esc(partTitle(p))+'</b><code>'+esc(p.name)+'</code>'+(p.critical?'<span class="rt-badge">重要</span>':'')+'</div><div class="rt-part-size">'+fmtSize(p.size)+'<code>'+esc(p.dev||'-')+'</code></div><div class="rt-actions"><button class="btn cbi-button cbi-button-apply" onclick="backup(\''+esc(p.name)+'\')">备份</button><button class="btn cbi-button rt-btn-danger" onclick="chooseWrite(\''+esc(p.name)+'\')">写入</button><input class="rt-upload" id="file_'+id+'" type="file" onchange="doWrite(\''+esc(p.name)+'\', this)"></div></div>';
+  });
+  if(!parts.length) html+='<div class="rt-part-row">没有发现支持的分区。</div>';
+  if(e.present){
+    var unalloc=parseInt(data.unallocated_mb||0,10)||0;
+    var big=unalloc>=1024;
+    var unallocDesc = big
+      ? '<span class="rt-unalloc-hl">✨ 检测到 '+fmtSize(unalloc*1024*1024)+' 可用空间，可建立分区</span>'
+      : (unalloc>0 ? '检测到 '+fmtSize(unalloc*1024*1024)+' 未分配空间' : '暂未检测到未分配空间');
+    html+='<div class="rt-part-row rt-alloc-row'+(big?' rt-unalloc-big':'')+'"><div><b>eMMC 未分配空间</b><div class="rt-small">'+unallocDesc+' · 新建 storage 分区并挂载到 /mnt/（自动尾部预留4MB）</div></div><div class="rt-actions"><button class="btn cbi-button cbi-button-apply" onclick="allocStoragePreview()">预览</button><button class="btn cbi-button rt-btn-danger" onclick="allocStorageCreate()">新建</button></div></div>';
+  }
+  html+='<div class="rt-part-row rt-fw-row"><div class="rt-fw-ring" id="fw-progress-ring"><span id="fw-progress-pct">固件</span></div><div><b>更新固件 <span class="rt-badge rt-badge-fw">sysupgrade</span></b><div id="fw-status" class="rt-meta">选择兼容固件；写入时请勿断电。</div><label class="rt-check"><input id="fw-keepcfg" type="checkbox" checked><span>保留当前配置</span></label></div><div class="rt-actions"><button class="btn cbi-button cbi-button-apply" onclick="chooseSysupgrade()">选择固件</button><input class="rt-upload" id="fw-file" type="file" onchange="doSysupgrade(this)"></div></div>';
+  html+='</div>';
+  qs('#cards').innerHTML=html;
+}
+
+fetch(API_BASE + '/api', {credentials:'same-origin'})
+  .then(function(r){ return r.text(); })
+  .then(function(t){
+    try {
+      return JSON.parse(t);
+    } catch(e) {
+      throw new Error('API 未返回 JSON：'+t.slice(0,120));
+    }
+  })
+  .then(function(d){ render(d); runHealth('overview'); checkPluginUpdate(false); })
+  .catch(function(e){ qs('#summary').textContent='加载失败：'+e.message; checkPluginUpdate(false); });
+function reportUnknownEmmc() {
+    // 1. 先拿 WP 配置
+    fetch(API_BASE + '/unknown_emmc_report?action=config', {credentials:'same-origin'})
+      .then(r => r.json())
+      .then(cfg => {
+        if (!cfg.ok || !cfg.wp_site || !cfg.wp_post_id) {
+          alert('⚠️ 请先在路由器后台配置 WP 站点地址和文章 ID：\n' +
+                'uci set route_tool.general.wp_site="https://godsun.pro"\n' +
+                'uci set route_tool.general.wp_post_id="你的文章数字ID"\n' +
+                'uci commit route_tool');
+          return;
+        }
+        // 2. 采集 eMMC 信息
+        fetch(API_BASE + '/unknown_emmc_report?action=info', {credentials:'same-origin'})
+          .then(r => r.json())
+          .then(d => {
+            if (!d.ok) { alert('采集失败：' + (d.message || '未知')); return; }
+
+            var payload = {
+              post: parseInt(cfg.wp_post_id, 10),
+              author_name: 'Route Tool',
+              author_email: 'route-tool@godsun.pro',
+              content: '[Route Tool 未知 eMMC 自动上报]\n' +
+                       '时间: ' + d.timestamp + '\n' +
+                       '设备型号: ' + d.model + '\n' +
+                       '固件版本: ' + d.version + '\n' +
+                       '内核: ' + d.kernel + '\n' +
+                       'CID: ' + d.cid_raw + '\n' +
+                       '厂商ID: ' + d.manfid + '\n' +
+                       'EXT_CSD长度: ' + d.ext_csd_len + ' 字符\n' +
+                       (d.ext_csd ? 'EXT_CSD前256字节: ' + d.ext_csd.substring(0, 512) + '...' : '无EXT_CSD') + '\n' +
+                       '---\n' +
+                       '请将此 CID/MANFID/PNM 加入 storage_common.sh 映射表。'
+            };
+
+            var wpApi = cfg.wp_site.replace(/\/+$/, '') + '/wp-json/wp/v2/comments';
+            log('📤 正在提交到 WordPress 评论...');
+            return fetch(wpApi, {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify(payload)
+            });
+          })
+          .then(r => {
+            if (!r) return;
+            if (r.ok) return r.json();
+            return r.text().then(t => { throw new Error(t); });
+          })
+          .then(res => {
+            if (res) {
+              log('✅ 上报成功！评论 ID: ' + res.id);
+              alert('✅ 上报成功！\n评论 ID: ' + res.id + '\n已进入 WP 后台待审核。');
+            }
+          })
+          .catch(err => {
+            log('❌ 上报失败：' + err);
+            alert('❌ 上报失败：' + err.message + '\n\n可能原因：\n- 站点地址/文章 ID 错误\n- REST API 未开启或禁用了评论端点\n- 文章未开启评论或需登录');
+          });
+      });
+  }
+
+  // 在 eMMC 厂商未知时显示上报按钮
+  function maybeShowReportBtn(manufacturer) {
+    var m = (manufacturer || '').toLowerCase();
+    return (m === '未知' || m === 'unknown' || m.indexOf('未知') === 0 || m.indexOf('unknown') === 0);
+  }
+</script>
+<%+footer%>
