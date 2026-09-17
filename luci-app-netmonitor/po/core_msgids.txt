@@ -1,0 +1,45 @@
+# luci-app-netmonitor —— 与 LuCI 核心语言包同名的 msgid 及其核心译文
+#
+# 为什么需要这张表
+#   LuCI 把核心 base.zh-cn.lmo 与插件语言包一起加载，同名 msgid 上「核心覆盖插件」，
+#   插件自己写的那条被静默丢弃、没有任何提示。实测现象：目标管理页表头
+#   _('Label') 本插件译「标签」，设备上却显示「卷标」——那正是核心 "Label" 的译文。
+#   这张表把「核心也存在、且本插件用得上的 msgid」连同核心译文冻结下来，
+#   由 po/gen_po.py 校验：本插件 po 里若还有这些 msgid，译文必须与核心完全一致。
+#   这样无论哪条生效，界面上看到的都是同一个词。
+#
+# 两种处置方式（详见 gen_po.py 中 ZH 表头的说明）
+#   * 核心译文在本插件语境下不合适 → 换用插件独有的 msgid，本表里就不会再出现它；
+#   * 核心译文同样可用           → 本插件取值直接对齐核心，即下面列出的这些。
+#
+# 维护
+#   新增 _('...') 文案后，用工作区的 _audit_i18n_collide.py 复查（需要设备上的
+#   base.zh-cn.lmo），确认没有「同名不同译」；本表由 _gen_core_msgids.py 重新生成。
+#
+# 格式：<msgid>\t<核心译文>；'#' 开头为注释，空行忽略。
+Actions	操作
+Address	地址
+Cancel	取消
+Debug	调试
+Delete	删除
+Disabled	已禁用
+Edit	编辑
+Enabled	已启用
+Error	错误
+Info	信息
+Interface	接口
+Interval	间隔
+IPv4 only	仅 IPv4
+IPv6 only	仅 IPv6
+Log level	日志级别
+Name	名称
+Overview	概览
+Restart	重启
+Save & Apply	保存并应用
+Search	搜索
+Settings	设置
+Status	状态
+Stop	停止
+Target	目标
+Unknown	未知
+Warning	警告

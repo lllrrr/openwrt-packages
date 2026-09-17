@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: GPL-2.0-only -->
+<!-- Copyright (C) 2026 xiaokeikei -->
+<html lang="zh-CN">
+<head>
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>公网延迟</title>
+<style>
+:root {
+  --bg: #0f1724;
+  --panel: #172033;
+  --line: #263247;
+  --text: #e8eef8;
+  --muted: #8ea0b8;
+  --loss: #ff5d73;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+body { padding: 18px; }
+h1 { margin: 0 0 4px; font-size: 22px; font-weight: 700; }
+.sub { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; position: relative; cursor: grab; user-select: none; touch-action: none; }
+.card:active { cursor: grabbing; }
+.card.dragging { opacity: .45; }
+.card.drag-over { outline: 2px dashed #4d7fd6; }
+.card .name { font-size: 13px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.card .val { font-size: 32px; font-weight: 700; line-height: 1.15; margin: 6px 0 8px; }
+.card .val small { font-size: 16px; color: var(--muted); margin-left: 4px; }
+.meta { font-size: 12px; color: var(--muted); }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+.xbtn { background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 16px; padding: 0 2px; }
+.xbtn:hover { color: var(--loss); }
+.toolbar, .addbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.btn, input, select {
+  background: #101a2b; color: var(--text); border: 1px solid var(--line);
+  border-radius: 10px; padding: 8px 12px; font-size: 13px;
+}
+.btn { cursor: pointer; }
+.btn.active { background: #2a4d86; border-color: #4d7fd6; }
+.btn.preset { border-style: dashed; }
+.btn.disabled { opacity: .45; cursor: default; }
+input { min-width: 160px; }
+.chart-wrap { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px 8px; }
+canvas { width: 100%; height: 420px; display: block; cursor: crosshair; }
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); padding: 6px 4px 2px; flex-wrap: wrap; }
+.foot { margin-top: 10px; color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.tip { position: fixed; pointer-events: none; background: #0c1320; border: 1px solid var(--line); color: var(--text); padding: 8px 10px; border-radius: 10px; font-size: 12px; display: none; z-index: 9; }
+.stale { color: var(--loss); }
+.err { color: var(--loss); font-size: 13px; }
+.method { display:inline-block; margin-left:6px; padding:1px 6px; border:1px solid var(--line); border-radius:999px; font-size:10px; color:var(--muted); }
+
+.series-bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+.series-filters { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.chip {
+  display:inline-flex; align-items:center; gap:6px;
+  background:#101a2b; color:var(--text); border:1px solid var(--line);
+  border-radius:999px; padding:6px 12px; font-size:12px; cursor:pointer; user-select:none;
+}
+.chip.on { background:#2a4d86; border-color:#4d7fd6; }
+.chip.off { opacity:.42; }
+.chip:hover { border-color:#4d7fd6; }
+.series-count { color:var(--muted); font-size:12px; }
+
+@media (max-width: 900px) { canvas { height: 320px; } }
+</style>
+</head>
+<body>
+  <h1>公网延迟</h1>
+  <div class="sub" id="pageSub">从 iStoreOS WAN 经 CPE 探测。探测间隔与存储位置按实际配置显示。</div>
+  <div class="addbar">
+    <span class="sub" style="margin:0">预设</span>
+    <button class="btn preset" id="p_ali">+ 阿里云</button>
+    <button class="btn preset" id="p_tencent">+ 腾讯云</button>
+    <button class="btn preset" id="p_steam">+ Steam</button>
+    <input id="newName" placeholder="名称，可空">
+    <input id="newHost" placeholder="IP 或域名，例如 8.8.8.8">
+    <button class="btn active" id="addBtn">添加目标</button>
+    <span class="err" id="addErr"></span>
+  </div>
+  <div class="cards" id="cards"></div>
+  <div class="toolbar">
+    <button class="btn" data-range="900">15分钟</button>
+    <button class="btn active" data-range="3600">1小时</button>
+    <button class="btn" data-range="21600">6小时</button>
+    <button class="btn" data-range="86400">24小时</button>
+    <button class="btn" data-range="604800">7天</button>
+    <button class="btn" data-range="2592000">30天</button>
+    <button class="btn" data-range="31536000">1年</button>
+    <input id="fromTime" type="datetime-local">
+    <span class="sub" style="margin:0">至</span>
+    <input id="toTime" type="datetime-local">
+    <button class="btn" id="applyCustom">筛选</button>
+    <button class="btn" id="liveBtn">实时跟随</button>
+    <button class="btn" id="exportCsv">导出 CSV</button>
+    <span class="sub" style="margin:0 0 0 8px">探测间隔</span>
+    <select id="pingInterval" class="btn">
+      <option value="2">2秒</option>
+      <option value="5" selected>5秒</option>
+      <option value="10">10秒</option>
+      <option value="15">15秒</option>
+      <option value="30">30秒</option>
+      <option value="60">1分钟</option>
+      <option value="120">2分钟</option>
+      <option value="300">5分钟</option>
+    </select>
+  </div>
+  <div class="series-bar" id="seriesBar">
+    <span class="sub" style="margin:0">显示曲线</span>
+    <button class="btn" id="seriesAll">全选</button>
+    <button class="btn" id="seriesNone">清空</button>
+    <button class="btn" id="seriesInvert">反选</button>
+    <span class="series-count" id="seriesCount"></span>
+    <span class="series-filters" id="seriesFilters"></span>
+  </div>
+  <div class="chart-wrap">
+    <canvas id="chart"></canvas>
+    <div class="legend" id="legend"></div>
+  </div>
+  <div class="foot">
+    <div id="statusLine">正在加载…</div>
+    <div id="storeLine"></div>
+  </div>
+  <div class="tip" id="tip"></div>
+<script>
+const PRESETS = [
+  {id:"ali", name:"阿里云", host:"223.5.5.5"},
+  {id:"tencent", name:"腾讯云", host:"119.29.29.29"},
+  {id:"steam", name:"Steam", host:"store.steampowered.com"}
+];
+const canvas = document.getElementById("chart");
+const tip = document.getElementById("tip");
+let data = null, live = true, rangeSec = 3600, custom = false, pingInterval = Number((document.getElementById("pingInterval")||{}).value)||5, pollTimer = null;
+const HIDDEN_KEY = "wan-latency-hidden";
+let hoverX = null, drag = null, hidden = {};
+function loadHidden(){
+  try { hidden = JSON.parse(localStorage.getItem(HIDDEN_KEY) || "{}") || {}; }
+  catch (e) { hidden = {}; }
+  if (!hidden || typeof hidden !== "object" || Array.isArray(hidden)) hidden = {};
+}
+function saveHidden(){
+  try { localStorage.setItem(HIDDEN_KEY, JSON.stringify(hidden)); } catch (e) {}
+}
+function visibleTargets(){
+  return ((data && data.targets) || []).filter(t => !hidden[t.id]);
+}
+function setHidden(id, isHidden){
+  if (isHidden) hidden[id] = true; else delete hidden[id];
+  saveHidden();
+}
+loadHidden();
+let cardDrag = null;
+
+function pad(n){ return String(n).padStart(2,"0"); }
+function fmtTime(ts){
+  const d = new Date(ts * 1000);
+  return d.getFullYear() + "-" + pad(d.getMonth()+1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+}
+function toLocalInput(ts){
+  const d = new Date(ts * 1000);
+  return d.getFullYear() + "-" + pad(d.getMonth()+1) + "-" + pad(d.getDate()) + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+}
+function fromLocalInput(v){ return v ? Math.floor(new Date(v).getTime()/1000) : null; }
+function fmtMs(v){ return (v==null || isNaN(v)) ? "--" : Number(v).toFixed(1); }
+function esc(v){
+  return String(v == null ? "" : v).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
+}
+function methodLabel(v){ return ({icmp:"ICMP",tcp443:"TCP 443",tcp80:"TCP 80",dns:"DNS",failed:"失败",unknown:"未知"})[v] || String(v || "未知"); }
+
+function updatePresetButtons(){
+  const ids = (data && data.targets || []).map(t => t.id);
+  const hosts = (data && data.targets || []).map(t => t.host);
+  PRESETS.forEach(p => {
+    const btn = document.getElementById("p_" + p.id);
+    const on = ids.includes(p.id) || hosts.includes(p.host);
+    btn.classList.toggle("disabled", on);
+    btn.textContent = on ? ("已有 " + p.name) : ("+ " + p.name);
+  });
+}
+
+function renderCards(){
+  if (cardDrag) return;
+  const box = document.getElementById("cards");
+  const targets = (data && data.targets) || [];
+  const stats = (data && data.stats) || {};
+  const latestItems = ((data && data.latest && data.latest.items) || []);
+  const latestMap = {};
+  latestItems.forEach(it => { latestMap[it.id] = it; });
+  if (!targets.length) {
+    box.innerHTML = '<div class="card"><div class="name">还没有探测目标</div><div class="meta">点上面的预设，或自己填一个地址</div></div>';
+    return;
+  }
+  box.innerHTML = targets.map(t => {
+    const st = stats[t.id] || {};
+    const cur = (latestMap[t.id] && latestMap[t.id].rtt != null) ? latestMap[t.id].rtt : null;
+    const ip = latestMap[t.id] && latestMap[t.id].ip && latestMap[t.id].ip !== t.host ? latestMap[t.id].ip : "";
+    return '<div class="card" draggable="true" data-id="' + t.id + '" title="拖动可调整顺序">' +
+      '<div class="name"><span><span class="dot" style="background:' + esc(t.color) + '"></span>' + esc(t.name) + ' ' + esc(t.host) + (ip ? " / " + esc(ip) : "") + '<span class="method">' + esc(methodLabel(st.method)) + '</span></span>' +
+      '<span><span>' + "丢包 " + fmtMs(st.loss) + '%</span> <button class="xbtn" data-del="' + t.id + '" title="删除">×</button></span></div>' +
+      '<div class="val">' + fmtMs(cur) + '<small>ms</small></div>' +
+      '<div class="meta">min/avg/max ' + fmtMs(st.min) + " / " + fmtMs(st.avg) + " / " + fmtMs(st.max) + " · 抖动 " + fmtMs(st.jitter) + " · P50/P95/P99 " + fmtMs(st.p50) + "/" + fmtMs(st.p95) + "/" + fmtMs(st.p99) + "</div></div>";
+  }).join("");
+  box.querySelectorAll("[data-del]").forEach(btn => {
+    btn.addEventListener("click", ev => { ev.stopPropagation(); delTarget(btn.getAttribute("data-del")); });
+    btn.addEventListener("mousedown", ev => ev.stopPropagation());
+  });
+  box.querySelectorAll(".card[data-id]").forEach(card => {
+    card.addEventListener("dragstart", ev => {
+      cardDrag = card.getAttribute("data-id");
+      card.classList.add("dragging");
+      ev.dataTransfer.effectAllowed = "move";
+      ev.dataTransfer.setData("text/plain", cardDrag);
+    });
+    card.addEventListener("dragend", () => {
+      cardDrag = null;
+      box.querySelectorAll(".card").forEach(c => c.classList.remove("dragging","drag-over"));
+    });
+    card.addEventListener("dragover", ev => {
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = "move";
+      box.querySelectorAll(".card").forEach(c => c.classList.toggle("drag-over", c === card && cardDrag && cardDrag !== card.getAttribute("data-id")));
+    });
+    card.addEventListener("dragleave", () => card.classList.remove("drag-over"));
+    card.addEventListener("drop", ev => {
+      ev.preventDefault();
+      const toId = card.getAttribute("data-id");
+      const fromId = ev.dataTransfer.getData("text/plain") || cardDrag;
+      cardDrag = null;
+      box.querySelectorAll(".card").forEach(c => c.classList.remove("dragging","drag-over"));
+      reorderTargets(fromId, toId);
+    });
+  });
+}
+
+async function reorderTargets(fromId, toId){
+  if (!data || !data.targets || !fromId || !toId || fromId === toId) return;
+  const list = data.targets.slice();
+  const from = list.findIndex(t => t.id === fromId);
+  const to = list.findIndex(t => t.id === toId);
+  if (from < 0 || to < 0) return;
+  const item = list.splice(from, 1)[0];
+  list.splice(to, 0, item);
+  data.targets = list;
+  renderCards();
+  refreshSeriesUi();
+  await api("action=reorder&ids=" + encodeURIComponent(list.map(t => t.id).join(",")));
+}
+
+
+function seriesCountText(){
+  const targets = (data && data.targets) || [];
+  const vis = visibleTargets().length;
+  const el = document.getElementById("seriesCount");
+  if (el) el.textContent = targets.length ? (vis + "/" + targets.length) : "";
+}
+function renderSeriesFilters(){
+  const el = document.getElementById("seriesFilters");
+  if (!el) return;
+  const targets = (data && data.targets) || [];
+  if (!targets.length) { el.innerHTML = ""; seriesCountText(); return; }
+  el.innerHTML = targets.map(t => {
+    const on = !hidden[t.id];
+    return '<label class="chip ' + (on ? "on" : "off") + '" data-sid="' + esc(t.id) + '" title="' + esc(t.host) + '">' +
+      '<span class="dot" style="background:' + esc(t.color) + '"></span>' + esc(t.name) + "</label>";
+  }).join("");
+  el.querySelectorAll("[data-sid]").forEach(s => {
+    s.addEventListener("click", () => {
+      const id = s.getAttribute("data-sid");
+      setHidden(id, !hidden[id]);
+      refreshSeriesUi();
+    });
+  });
+  seriesCountText();
+}
+function refreshSeriesUi(){
+  renderSeriesFilters();
+  renderLegend();
+  draw();
+}
+function renderLegend(){
+  const el = document.getElementById("legend");
+  const targets = (data && data.targets) || [];
+  el.innerHTML = targets.map(t => {
+    const dim = hidden[t.id] ? "opacity:.35;" : "";
+    return '<span data-hid="' + esc(t.id) + '" style="cursor:pointer;' + dim + '"><span class="dot" style="background:' + esc(t.color) + '"></span>' + esc(t.name) + "</span>";
+  }).join("") + '<span>上方可勾选显示哪几条曲线 · 卡片可拖动排序 · 曲线拖拽缩放，双击还原，滚轮放大</span>';
+  el.querySelectorAll("[data-hid]").forEach(s => {
+    s.addEventListener("click", () => {
+      const id = s.getAttribute("data-hid");
+      setHidden(id, !hidden[id]);
+      refreshSeriesUi();
+    });
+  });
+}
+
+async function api(qs){
+  if (!window.parent || typeof window.parent.wanLatencyApi !== "function")
+    throw new Error("请从已登录的 LuCI 公网延迟页面访问");
+  return window.parent.wanLatencyApi(qs);
+}
+
+async function addTarget(name, host){
+  document.getElementById("addErr").textContent = "";
+  const q = "action=add&name=" + encodeURIComponent(name || "") + "&host=" + encodeURIComponent(host || "");
+  const r = await api(q);
+  if (!r.ok) { document.getElementById("addErr").textContent = r.error || "添加失败"; return; }
+  document.getElementById("newName").value = "";
+  document.getElementById("newHost").value = "";
+  await loadQuery();
+}
+
+async function delTarget(id){
+  await api("action=delete&id=" + encodeURIComponent(id));
+  await loadQuery();
+}
+
+async function loadQuery(){
+  const now = Math.floor(Date.now()/1000);
+  let from, to;
+  if (custom) {
+    from = fromLocalInput(document.getElementById("fromTime").value);
+    to = fromLocalInput(document.getElementById("toTime").value);
+    if (!from || !to) return;
+    if (to < from) { const x=from; from=to; to=x; }
+  } else {
+    to = now; from = now - rangeSec;
+  }
+  data = await api("action=query&from=" + from + "&to=" + to);
+  renderCards();
+  renderSeriesFilters();
+  renderLegend();
+  updatePresetButtons();
+  const latest = data.latest || {};
+  const stale = !latest.ts || (now - latest.ts > 20);
+  const iv = data.interval || (data.meta && data.meta.interval) || pingInterval;
+  if (iv && Number(iv) !== pingInterval) {
+    pingInterval = Number(iv);
+    const sel = document.getElementById("pingInterval");
+    if (sel && sel.value !== String(pingInterval)) sel.value = String(pingInterval);
+    schedulePoll();
+  }
+  document.getElementById("statusLine").innerHTML = stale
+    ? '<span class="stale">采集似乎已停止</span> · 原始点 ' + (data.count||0) + " · 步长 " + data.step + "s"
+    : "采集正常 · " + ((data.targets||[]).length) + " 个目标 · 每 " + pingInterval + " 秒探测 · 原始点 " + (data.count||0) + " · 显示步长 " + data.step + "s · " + fmtTime(from) + " 至 " + fmtTime(to);
+  if (data.meta) {
+    const mb = ((data.meta.bytes||0)/1024/1024).toFixed(2);
+    document.getElementById("storeLine").textContent = "已存 " + (data.meta.samples||0) + " 点 / " + mb + " MB，保留 " + (data.meta.retain_days || 366) + " 天";
+  }
+  updatePageSub();
+  if (!custom) {
+    document.getElementById("fromTime").value = toLocalInput(from);
+    document.getElementById("toTime").value = toLocalInput(to);
+  }
+  draw();
+}
+
+function geometry(){
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== Math.floor(w*dpr) || canvas.height !== Math.floor(h*dpr)) {
+    canvas.width = Math.floor(w*dpr); canvas.height = Math.floor(h*dpr);
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  return {ctx,w,h, pad:{l:48,r:16,t:18,b:32}};
+}
+function yMax(){
+  let m = 10;
+  const series = (data && data.series) || {};
+  Object.keys(series).forEach(id => {
+    if (hidden[id]) return;
+    (series[id].max || series[id].avg || []).forEach(v => { if (v!=null && v>m) m=v; });
+  });
+  return Math.ceil(m / 10) * 10;
+}
+function draw(){
+  const {ctx,w,h,pad} = geometry();
+  ctx.clearRect(0,0,w,h);
+  ctx.fillStyle = "#121c2d";
+  ctx.fillRect(0,0,w,h);
+  if (!data || !data.t || !data.t.length) {
+    ctx.fillStyle = "#8ea0b8";
+    ctx.font = "14px sans-serif";
+    ctx.fillText("暂无曲线。添加目标后会在这里画出来", 24, h/2);
+    return;
+  }
+  if (!visibleTargets().length) {
+    ctx.fillStyle = "#8ea0b8";
+    ctx.font = "14px sans-serif";
+    ctx.fillText("已隐藏全部曲线，点上方彩色标签勾选要看的项目", 24, h/2);
+    return;
+  }
+  const t0 = data.t[0], t1 = data.t[data.t.length-1] || t0+1;
+  const maxv = yMax();
+  const x = ts => pad.l + (ts-t0) / Math.max(1,t1-t0) * (w-pad.l-pad.r);
+  const y = v => pad.t + (1 - v/maxv) * (h-pad.t-pad.b);
+  ctx.strokeStyle = "#263247"; ctx.lineWidth = 1;
+  ctx.fillStyle = "#8ea0b8"; ctx.font = "11px sans-serif";
+  for (let i=0;i<=4;i++){
+    const v = maxv * i / 4, yy = y(v);
+    ctx.beginPath(); ctx.moveTo(pad.l, yy); ctx.lineTo(w-pad.r, yy); ctx.stroke();
+    ctx.fillText(v.toFixed(0) + "ms", 8, yy+4);
+  }
+  for (let i=0;i<=6;i++){
+    const ts = t0 + (t1-t0)*i/6;
+    ctx.fillText(fmtTime(ts).slice(5,16), x(ts)-28, h-10);
+  }
+  function band(minA, maxA, color){
+    if (!minA || !maxA) return;
+    ctx.beginPath();
+    let started=false;
+    for (let i=0;i<data.t.length;i++){
+      if (minA[i]==null || maxA[i]==null){ started=false; continue; }
+      const xx=x(data.t[i]), yy=y(maxA[i]);
+      if (!started){ ctx.moveTo(xx,yy); started=true; } else ctx.lineTo(xx,yy);
+    }
+    for (let i=data.t.length-1;i>=0;i--){
+      if (minA[i]==null || maxA[i]==null) continue;
+      ctx.lineTo(x(data.t[i]), y(minA[i]));
+    }
+    ctx.closePath();
+    ctx.fillStyle = color + "22";
+    ctx.fill();
+  }
+  function line(arr, color){
+    ctx.beginPath();
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin="round";
+    let started=false;
+    for (let i=0;i<data.t.length;i++){
+      const v = arr[i];
+      if (v==null){ started=false; continue; }
+      const xx=x(data.t[i]), yy=y(v);
+      if (!started){ ctx.moveTo(xx,yy); started=true; } else ctx.lineTo(xx,yy);
+    }
+    ctx.stroke();
+  }
+  (data.targets||[]).forEach(t => {
+    if (hidden[t.id]) return;
+    const s = (data.series||{})[t.id] || {};
+    band(s.min, s.max, t.color);
+    line(s.avg, t.color);
+  });
+  if (hoverX!=null){
+    const ts = t0 + (hoverX-pad.l)/Math.max(1,w-pad.l-pad.r)*(t1-t0);
+    let idx=0, best=1e18;
+    for (let i=0;i<data.t.length;i++){
+      const d=Math.abs(data.t[i]-ts); if (d<best){best=d; idx=i;}
+    }
+    const xx=x(data.t[idx]);
+    ctx.strokeStyle="#8ea0b8"; ctx.beginPath(); ctx.moveTo(xx,pad.t); ctx.lineTo(xx,h-pad.b); ctx.stroke();
+    tip.style.display="block";
+    const shown = visibleTargets();
+    tip.innerHTML = fmtTime(data.t[idx]) + (shown.length ? shown : (data.targets||[])).map(t => {
+      const s = (data.series||{})[t.id] || {};
+      return "<br>" + esc(t.name) + " " + fmtMs(s.avg && s.avg[idx]) + " ms";
+    }).join("");
+  }
+  if (drag){
+    const a=Math.min(drag.x0, drag.x1), b=Math.max(drag.x0, drag.x1);
+    ctx.fillStyle="rgba(77,127,214,.18)";
+    ctx.fillRect(a, pad.t, b-a, h-pad.t-pad.b);
+  }
+}
+
+function canvasX(ev){ return ev.clientX - canvas.getBoundingClientRect().left; }
+canvas.addEventListener("mousemove", ev => {
+  hoverX = canvasX(ev);
+  tip.style.left = (ev.clientX+14)+"px";
+  tip.style.top = (ev.clientY+14)+"px";
+  if (drag) drag.x1 = hoverX;
+  draw();
+});
+canvas.addEventListener("mouseleave", () => { hoverX=null; tip.style.display="none"; draw(); });
+canvas.addEventListener("mousedown", ev => { drag = {x0: canvasX(ev), x1: canvasX(ev)}; });
+window.addEventListener("mouseup", () => {
+  if (!drag || !data || !data.t || !data.t.length){ drag=null; return; }
+  const w=canvas.clientWidth, padL=48, padR=16;
+  const t0=data.t[0], t1=data.t[data.t.length-1];
+  const toTs = x => t0 + (x-padL)/Math.max(1,w-padL-padR)*(t1-t0);
+  const a=Math.min(drag.x0,drag.x1), b=Math.max(drag.x0,drag.x1);
+  drag=null;
+  if (b-a<12) return;
+  custom = true; live=false;
+  document.getElementById("liveBtn").classList.remove("active");
+  document.querySelectorAll(".btn[data-range]").forEach(btn=>btn.classList.remove("active"));
+  document.getElementById("fromTime").value = toLocalInput(toTs(a));
+  document.getElementById("toTime").value = toLocalInput(toTs(b));
+  loadQuery();
+});
+canvas.addEventListener("dblclick", () => {
+  custom=false; live=true; rangeSec=3600;
+  document.querySelectorAll(".btn[data-range]").forEach(btn=>btn.classList.toggle("active", btn.dataset.range==="3600"));
+  document.getElementById("liveBtn").classList.add("active");
+  loadQuery();
+});
+canvas.addEventListener("wheel", ev => {
+  if (!data || !data.t || !data.t.length) return;
+  ev.preventDefault();
+  custom=true; live=false;
+  const span = data.to - data.from;
+  const next = ev.deltaY>0 ? span*1.4 : span/1.4;
+  const mid = (data.from+data.to)/2;
+  const half = Math.max(60, Math.min(366*86400, next))/2;
+  document.getElementById("fromTime").value = toLocalInput(mid-half);
+  document.getElementById("toTime").value = toLocalInput(mid+half);
+  document.getElementById("liveBtn").classList.remove("active");
+  loadQuery();
+}, {passive:false});
+
+document.querySelectorAll(".btn[data-range]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    rangeSec = parseInt(btn.dataset.range,10);
+    custom=false; live = rangeSec<=3600;
+    document.querySelectorAll(".btn[data-range]").forEach(b=>b.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("liveBtn").classList.toggle("active", live);
+    loadQuery();
+  });
+});
+document.getElementById("applyCustom").addEventListener("click", () => {
+  custom=true; live=false;
+  document.getElementById("liveBtn").classList.remove("active");
+  document.querySelectorAll(".btn[data-range]").forEach(b=>b.classList.remove("active"));
+  loadQuery();
+});
+document.getElementById("liveBtn").addEventListener("click", () => {
+  live = !live; custom=false;
+  document.getElementById("liveBtn").classList.toggle("active", live);
+  if (live) loadQuery();
+});
+document.getElementById("exportCsv").addEventListener("click", () => {
+  if (!data || !data.t) return;
+  const targets = visibleTargets();
+  const rows = [["time"].concat(targets.map(t => t.name))];
+  data.t.forEach((ts, i) => rows.push([fmtTime(ts)].concat(targets.map(t => {
+    const s = (data.series || {})[t.id] || {};
+    return s.avg && s.avg[i] != null ? s.avg[i] : "";
+  }))));
+  const csv = rows.map(row => row.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(",")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], {type:"text/csv;charset=utf-8"}));
+  a.download = "wan-latency-" + Date.now() + ".csv";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
+document.getElementById("seriesAll").addEventListener("click", () => {
+  hidden = {};
+  saveHidden();
+  refreshSeriesUi();
+});
+document.getElementById("seriesNone").addEventListener("click", () => {
+  ((data && data.targets) || []).forEach(t => { hidden[t.id] = true; });
+  saveHidden();
+  refreshSeriesUi();
+});
+document.getElementById("seriesInvert").addEventListener("click", () => {
+  ((data && data.targets) || []).forEach(t => { hidden[t.id] = !hidden[t.id]; });
+  saveHidden();
+  refreshSeriesUi();
+});
+document.getElementById("addBtn").addEventListener("click", () => {
+  addTarget(document.getElementById("newName").value, document.getElementById("newHost").value);
+});
+document.getElementById("newHost").addEventListener("keydown", ev => {
+  if (ev.key === "Enter") addTarget(document.getElementById("newName").value, document.getElementById("newHost").value);
+});
+PRESETS.forEach(p => {
+  document.getElementById("p_" + p.id).addEventListener("click", () => {
+    if (document.getElementById("p_" + p.id).classList.contains("disabled")) return;
+    addTarget(p.name, p.host);
+  });
+});
+window.addEventListener("resize", draw);
+
+function updatePageSub(){
+  const sel = document.getElementById("pingInterval");
+  if (sel && sel.value) pingInterval = Number(sel.value) || pingInterval;
+  const store = (data && (data.storage_label || (data.meta && data.meta.storage_label))) || "傲腾";
+  const el = document.getElementById("pageSub") || document.querySelector("h1 + .sub");
+  if (el) el.textContent = "从 iStoreOS WAN 经 CPE 探测。每 " + pingInterval + " 秒一个点，数据保存在" + store + "上。目标可任意添加，阿里云 / 腾讯云 / Steam 只是一键预设。";
+}
+function schedulePoll(){
+  if (pollTimer) clearInterval(pollTimer);
+  const ms = Math.max(2000, Math.min(5000, pingInterval * 1000));
+  pollTimer = setInterval(() => { if (live) loadQuery(); }, ms);
+}
+document.getElementById("pingInterval").addEventListener("change", async () => {
+  const v = document.getElementById("pingInterval").value;
+  const r = await api("action=interval&value=" + encodeURIComponent(v));
+  if (r && r.ok) {
+    pingInterval = r.interval;
+    updatePageSub();
+    schedulePoll();
+    loadQuery();
+  }
+});
+updatePageSub();
+schedulePoll();
+loadQuery();
+</script>
+</body>
+</html>

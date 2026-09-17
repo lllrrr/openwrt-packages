@@ -1,0 +1,287 @@
+#!/usr/bin/lua
+-- SPDX-License-Identifier: GPL-2.0-only
+-- Copyright (C) 2026 xiaokeikei
+package.path = "/usr/lib/lua/?.lua;" .. package.path
+local wl = require "wanlatency"
+wl.load_paths()
+
+local function urldecode(s)
+  s = tostring(s or ""):gsub("+", " ")
+  s = s:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)
+  return s
+end
+
+local function qs_map(q)
+  local m = {}
+  q = q or ""
+  for k, v in q:gmatch("([^&=]+)=([^&=]*)") do
+    m[urldecode(k)] = urldecode(v)
+  end
+  return m
+end
+
+local function read_input()
+  -- This program is intentionally CLI-only. LuCI invokes it through
+  -- authenticated cgi-io/file ACLs and passes one URL-encoded argument.
+  local input = arg and arg[1] or ""
+  if #input > 8192 then return {} end
+  return qs_map(input)
+end
+
+local function send(body)
+  io.write(body, "\n")
+end
+
+local function file_size(path)
+  local f = io.open(path, "rb")
+  if not f then return 0 end
+  local sz = f:seek("end") or 0
+  f:close()
+  return sz
+end
+
+local function latest_raw()
+  local f = io.open(wl.LATEST_PATH, "r")
+  if not f then return '{"ts":null,"items":[]}' end
+  local s = f:read("*a") or "{}"
+  f:close()
+  return s:gsub("%s+$", "")
+end
+
+local function targets_json(list)
+  local t = {}
+  for i = 1, #list do
+    local x = list[i]
+    t[i] = string.format('{"id":"%s","name":"%s","host":"%s","color":"%s"}',
+      wl.json_escape(x.id), wl.json_escape(x.name), wl.json_escape(x.host), wl.json_escape(x.color or ""))
+  end
+  return "[" .. table.concat(t, ",") .. "]"
+end
+
+local function presets_json()
+  local t = {}
+  for i = 1, #wl.PRESETS do
+    local x = wl.PRESETS[i]
+    t[i] = string.format('{"id":"%s","name":"%s","host":"%s","color":"%s"}',
+      wl.json_escape(x.id), wl.json_escape(x.name), wl.json_escape(x.host), wl.json_escape(x.color))
+  end
+  return "[" .. table.concat(t, ",") .. "]"
+end
+
+local function stats_of(series, total)
+  local n, sum, mn, mx, miss, values, delta_sum, delta_n, previous = 0, 0, nil, nil, 0, {}, 0, 0, nil
+  for i = 1, (total or #series) do
+    local v = series[i]
+    if v == nil then miss = miss + 1
+    else
+      n = n + 1; sum = sum + v; values[#values + 1] = v
+      if previous ~= nil then delta_sum = delta_sum + math.abs(v - previous); delta_n = delta_n + 1 end
+      previous = v
+      if mn == nil or v < mn then mn = v end
+      if mx == nil or v > mx then mx = v end
+    end
+  end
+  table.sort(values)
+  local function percentile(p)
+    if #values == 0 then return nil end
+    return values[math.max(1, math.ceil(#values * p))]
+  end
+  return {
+    avg = n > 0 and math.floor(sum / n * 10 + 0.5) / 10 or nil,
+    min = mn, max = mx,
+    loss = (n + miss) > 0 and math.floor(miss * 1000 / (n + miss) + 0.5) / 10 or 0,
+    jitter = delta_n > 0 and math.floor(delta_sum / delta_n * 10 + 0.5) / 10 or nil,
+    p50 = percentile(0.50), p95 = percentile(0.95), p99 = percentile(0.99)
+  }
+end
+
+local function latest_values()
+  local f = io.open(wl.LATEST_PATH, "r")
+  if not f then return {} end
+  local s = f:read("*a") or ""
+  f:close()
+  local map, methods = {}, {}
+  for object in s:gmatch("{([^{}]+)}") do
+    local id = object:match('"id":"([^"]+)"')
+    local rtt = object:match('"rtt":([^,}]+)')
+    local method = object:match('"method":"([^"]+)"')
+    if id then
+      if rtt and rtt ~= "null" then map[id] = tonumber(rtt) end
+      methods[id] = method or "unknown"
+    end
+  end
+  return map, methods
+end
+
+local q = read_input()
+local action = q.action or "query"
+
+if action == "latest" then
+  send(latest_raw()); os.exit(0)
+end
+
+if action == "presets" then
+  send('{"ok":true,"presets":' .. presets_json() .. '}'); os.exit(0)
+end
+
+if action == "targets" then
+  send('{"ok":true,"targets":' .. targets_json(wl.load_targets()) .. ',"max":' .. wl.MAX_TARGETS .. '}'); os.exit(0)
+end
+
+if action == "add" then
+  local host = tostring(q.host or ""):gsub("^%s+", ""):gsub("%s+$", "")
+  local name = wl.sanitize_name(q.name or "")
+  if not wl.valid_host(host) then
+    send('{"ok":false,"error":"地址不合法，只能填 IP 或域名"}'); os.exit(0)
+  end
+  local lock_ok, result = wl.with_target_lock(function()
+  local list = wl.load_targets()
+  if #list >= wl.MAX_TARGETS then return { error = "最多 " .. wl.MAX_TARGETS .. " 个目标" } end
+  local preset = nil
+  for i = 1, #wl.PRESETS do
+    if wl.PRESETS[i].host == host or wl.PRESETS[i].id == host then preset = wl.PRESETS[i] end
+  end
+  local id = preset and preset.id or wl.make_id(host)
+  if preset and (not name or name == "") then name = preset.name end
+  if not name then name = host end
+  for i = 1, #list do
+    if list[i].id == id or list[i].host == host then
+      return { error = "这个地址已经在列表里" }
+    end
+  end
+  local color = (preset and preset.color) or wl.next_color(list)
+  if preset then host = preset.host end
+  list[#list + 1] = { id = id, name = name, host = host, color = color }
+  wl.save_targets(list)
+  return { list = list }
+  end)
+  if not lock_ok then send('{"ok":false,"error":"' .. wl.json_escape(result) .. '"}'); os.exit(0) end
+  if result.error then send('{"ok":false,"error":"' .. wl.json_escape(result.error) .. '"}'); os.exit(0) end
+  send('{"ok":true,"targets":' .. targets_json(result.list) .. '}'); os.exit(0)
+end
+
+if action == "interval" then
+  local n = wl.load_interval()
+  if q.value and q.value ~= "" then
+    n = wl.save_interval(q.value)
+  end
+  send('{"ok":true,"interval":' .. tostring(n) .. '}'); os.exit(0)
+end
+
+if action == "delete" then
+  local id = q.id or ""
+  local lock_ok, result = wl.with_target_lock(function()
+  local list, keep = wl.load_targets(), {}
+  for i = 1, #list do
+    if list[i].id ~= id then keep[#keep + 1] = list[i] end
+  end
+  wl.save_targets(keep)
+  return keep
+  end)
+  if not lock_ok then send('{"ok":false,"error":"' .. wl.json_escape(result) .. '"}'); os.exit(0) end
+  send('{"ok":true,"targets":' .. targets_json(result) .. '}'); os.exit(0)
+end
+
+if action == "reorder" then
+  local ids = q.ids or ""
+  local lock_ok, result = wl.with_target_lock(function()
+  local list = wl.load_targets()
+  local byid, keep, seen = {}, {}, {}
+  for i = 1, #list do byid[list[i].id] = list[i] end
+  for id in ids:gmatch("[^,]+") do
+    if byid[id] and not seen[id] then
+      keep[#keep + 1] = byid[id]
+      seen[id] = true
+    end
+  end
+  for i = 1, #list do
+    if not seen[list[i].id] then keep[#keep + 1] = list[i] end
+  end
+  wl.save_targets(keep)
+  return keep
+  end)
+  if not lock_ok then send('{"ok":false,"error":"' .. wl.json_escape(result) .. '"}'); os.exit(0) end
+  send('{"ok":true,"targets":' .. targets_json(result) .. '}'); os.exit(0)
+end
+
+local list = wl.load_targets()
+local live_rtts, live_methods = latest_values()
+local now = os.time()
+local first_all, last_all, samples, bytes = nil, nil, 0, 0
+for i = 1, #list do
+  local a, b, n = wl.first_last_ts(wl.raw_path(list[i].id))
+  samples = samples + (n or 0)
+  bytes = bytes + file_size(wl.raw_path(list[i].id)) + file_size(wl.rollup_path(list[i].id))
+  if a and (not first_all or a < first_all) then first_all = a end
+  if b and (not last_all or b > last_all) then last_all = b end
+end
+
+if action == "meta" then
+  send(string.format(
+    '{"ok":true,"first_ts":%s,"last_ts":%s,"samples":%d,"bytes":%d,"retain_days":%d,"interval":%d,"targets":%s}',
+    first_all and tostring(first_all) or "null",
+    last_all and tostring(last_all) or "null",
+    samples, bytes, wl.load_retain_days(), wl.load_interval(), targets_json(list)))
+  os.exit(0)
+end
+
+local function num(s)
+  if not s or not s:match("^%-?%d+$") then return nil end
+  return tonumber(s)
+end
+
+local to_ts = num(q["to"]) or last_all or now
+local from_ts = num(q["from"]) or (to_ts - 3600)
+if from_ts < 0 then from_ts = 0 end
+if to_ts < from_ts then to_ts = from_ts end
+local retain_days = wl.load_retain_days()
+if to_ts - from_ts > retain_days * 86400 then from_ts = to_ts - retain_days * 86400 end
+local ping_iv = wl.load_interval()
+local step = wl.choose_step(from_ts, to_ts, ping_iv)
+local use_1m = step >= 60
+
+local results, ts_set, count = {}, {}, 0
+for i = 1, #list do
+  local t = list[i]
+  local path = wl.raw_path(t.id)
+  if use_1m and wl.file_count(wl.rollup_path(t.id)) > 10 then path = wl.rollup_path(t.id) end
+  local data = wl.query_one(path, from_ts, to_ts, step)
+  results[t.id] = data
+  count = count + (data.count or 0)
+  for j = 1, #data.t do ts_set[data.t[j]] = true end
+end
+local tlist = {}
+for ts, _ in pairs(ts_set) do tlist[#tlist + 1] = ts end
+table.sort(tlist)
+local n = #tlist
+local series_json, stats_json = {}, {}
+for i = 1, #list do
+  local t = list[i]
+  local data = results[t.id]
+  local idx = {}
+  for j = 1, #data.t do idx[data.t[j]] = j end
+  local avg, mn, mx = {}, {}, {}
+  for j = 1, n do
+    local k = idx[tlist[j]]
+    if k then avg[j] = data.avg[k]; mn[j] = data.min[k]; mx[j] = data.max[k] end
+  end
+  local st = stats_of(avg, n)
+  series_json[#series_json + 1] = string.format(
+    '"%s":{"avg":%s,"min":%s,"max":%s}',
+    t.id, wl.json_array(avg, false, n), wl.json_array(mn, false, n), wl.json_array(mx, false, n))
+  stats_json[#stats_json + 1] = string.format(
+    '"%s":{"avg":%s,"min":%s,"max":%s,"loss":%s,"jitter":%s,"p50":%s,"p95":%s,"p99":%s,"cur":%s,"method":"%s"}',
+    t.id, wl.json_num_or_null(st.avg), wl.json_num_or_null(st.min), wl.json_num_or_null(st.max),
+    wl.json_num_or_null(st.loss), wl.json_num_or_null(st.jitter), wl.json_num_or_null(st.p50),
+    wl.json_num_or_null(st.p95), wl.json_num_or_null(st.p99), wl.json_num_or_null(live_rtts[t.id]),
+    wl.json_escape(live_methods[t.id] or "unknown"))
+end
+
+send(string.format(
+  '{"ok":true,"from":%d,"to":%d,"step":%d,"source":"%s","count":%d,"interval":%d,"targets":%s,"t":%s,"series":{%s},"stats":{%s},"meta":{"first_ts":%s,"last_ts":%s,"samples":%d,"bytes":%d,"interval":%d,"retain_days":%d},"latest":%s}',
+  from_ts, to_ts, step, use_1m and "1m" or (tostring(step) .. "s"), count, wl.load_interval(),
+  targets_json(list), wl.json_array(tlist, true, n),
+  table.concat(series_json, ","), table.concat(stats_json, ","),
+  first_all and tostring(first_all) or "null", last_all and tostring(last_all) or "null",
+  samples, bytes, wl.load_interval(), retain_days, latest_raw()
+))

@@ -1,0 +1,69 @@
+{
+	"admin/status/netmonitor": {
+		"title": "Network Monitor",
+		"order": 70,
+		"action": {
+			"type": "view",
+			"path": "netmonitor/overview"
+		},
+		"depends": {
+			"acl": [ "luci-app-netmonitor" ]
+		}
+	},
+	"admin/status/netmonitor/overview": {
+		"title": "Overview",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "netmonitor/overview"
+		}
+	},
+	"admin/status/netmonitor/realtime": {
+		"title": "Realtime",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "netmonitor/realtime"
+		}
+	},
+	"admin/status/netmonitor/charts": {
+		"title": "Latency Charts",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "netmonitor/charts"
+		}
+	},
+	"admin/status/netmonitor/regions": {
+		"title": "CN / Global",
+		"order": 40,
+		"action": {
+			"type": "view",
+			"path": "netmonitor/regions"
+		}
+	},
+	"admin/status/netmonitor/history": {
+		"title": "History",
+		"order": 50,
+		"action": {
+			"type": "view",
+			"path": "netmonitor/history"
+		}
+	},
+	"admin/status/netmonitor/targets": {
+		"title": "Targets",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "netmonitor/targets"
+		}
+	},
+	"admin/status/netmonitor/settings": {
+		"title": "Settings",
+		"order": 70,
+		"action": {
+			"type": "view",
+			"path": "netmonitor/settings"
+		}
+	}
+}

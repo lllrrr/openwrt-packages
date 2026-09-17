@@ -1,0 +1,294 @@
+#!/usr/bin/lua
+-- SPDX-License-Identifier: GPL-2.0-only
+-- Copyright (C) 2026 xiaokeikei
+package.path = "/usr/lib/lua/?.lua;" .. package.path
+local wl = require "wanlatency"
+local ok_nixio, nixio = pcall(require, "nixio")
+
+local INTERVAL = 5
+local FLUSH_EVERY = 12
+local RETAIN_DAYS = 366
+local running = true
+local buffer = {}
+local targets = {}
+local last_compact = 0
+local wan_dev = "eth0"
+local failure_streak = {}
+local high_streak = {}
+local pid = (ok_nixio and nixio.getpid and nixio.getpid()) or tostring(os.time())
+local run_dir = "/tmp/wanlatency." .. tostring(pid)
+
+local function log(msg)
+  if ok_nixio and nixio.syslog then
+    nixio.syslog("info", "wan-latencyd: " .. tostring(msg))
+  else
+    os.execute("logger -t wan-latencyd '" .. tostring(msg):gsub("'", "") .. "'")
+  end
+end
+
+if ok_nixio and nixio.openlog then pcall(nixio.openlog, "wan-latencyd", "pid") end
+
+local function now_sec()
+  if ok_nixio and nixio.gettimeofday then
+    local s = nixio.gettimeofday()
+    return tonumber(s) or os.time()
+  end
+  return os.time()
+end
+
+local function sleep_until(ts)
+  local n = now_sec()
+  local wait = ts - n
+  if wait <= 0 then return end
+  if wait > 10 then wait = 10 end
+  if ok_nixio and nixio.nanosleep then
+    pcall(nixio.nanosleep, math.floor(wait), math.floor((wait - math.floor(wait)) * 1e9))
+  else
+    os.execute("sleep " .. tostring(math.floor(wait)))
+  end
+end
+
+local function safe_token(s)
+  s = tostring(s or "")
+  if not s:match("^[%w%.:_%-]+$") then return nil end
+  return s
+end
+
+local function detect_wan_dev()
+  local f = io.popen("ip route get 223.5.5.5 2>/dev/null")
+  if not f then return wan_dev end
+  local s = f:read("*a") or ""
+  f:close()
+  local dev = s:match(" dev ([^%s]+)")
+  if safe_token(dev) then return dev end
+  return wan_dev
+end
+
+local function file_mtime(path)
+  local f = io.popen("date -r '" .. path .. "' +%s 2>/dev/null")
+  if not f then return 0 end
+  local n = tonumber(f:read("*l") or "0") or 0
+  f:close()
+  return n
+end
+
+local function reload_targets()
+  targets = wl.load_targets()
+end
+
+local function reload_interval()
+  INTERVAL = wl.load_interval()
+  RETAIN_DAYS = wl.load_retain_days()
+end
+
+local function ping_all(iface)
+  iface = safe_token(iface)
+  local rtts, ips, methods = {}, {}, {}
+  if not iface or #targets == 0 then return rtts, ips, methods end
+  local sh = io.open(run_dir .. "/round.sh", "w")
+  if not sh then log("cannot create probe script"); return rtts, ips, methods end
+  sh:write("#!/bin/sh\n")
+  for i = 1, #targets do
+    local t = targets[i]
+    local host = safe_token(t.host)
+    if wl.valid_id(t.id) and host then
+      sh:write(string.format("ping -4 -c 1 -w 1 -W 1 -I %s %s > %s/ping.%s 2>&1 &\n", iface, host, run_dir, t.id))
+    end
+  end
+  sh:write("wait\n")
+  sh:close()
+  os.execute("sh " .. run_dir .. "/round.sh")
+  local missing = {}
+  for i = 1, #targets do
+    local t = targets[i]
+    local f = io.open(run_dir .. "/ping." .. t.id, "r")
+    local out = ""
+    if f then out = f:read("*a") or ""; f:close() end
+    local ip = out:match("%(([%d%.]+)%)")
+    ips[t.id] = ip or t.host
+    local ms = out:match("time[=<]([0-9%.]+)%s*ms")
+    rtts[t.id] = ms and tonumber(ms) or nil
+    if rtts[t.id] ~= nil then methods[t.id] = "icmp" end
+    if rtts[t.id] == nil then missing[#missing + 1] = t.id end
+  end
+  local function take_tcp(id, method)
+    local f = io.open(run_dir .. "/tcp." .. id, "r")
+    if not f then return end
+    local v = tonumber((f:read("*l") or ""):match("[%d%.]+"))
+    f:close()
+    if v and v > 0.0005 then
+      rtts[id] = math.floor(v * 10000 + 0.5) / 10
+      methods[id] = method
+    end
+  end
+  local function leftover()
+    local s = {}
+    for i = 1, #missing do
+      if rtts[missing[i]] == nil then s[#s + 1] = missing[i] end
+    end
+    missing = s
+  end
+  if #missing > 0 then
+    local sh2 = io.open(run_dir .. "/https.sh", "w")
+    if sh2 then
+      sh2:write("#!/bin/sh\n")
+      for _, id in ipairs(missing) do
+        local dest = safe_token(ips[id])
+        if dest then
+          sh2:write(string.format("curl -4 -o /dev/null -s -w '%%{time_connect}\\n' --connect-timeout 1 --max-time 1 --interface %s -k https://%s/ > %s/tcp.%s 2>/dev/null &\n", iface, dest, run_dir, id))
+        end
+      end
+      sh2:write("wait\n")
+      sh2:close()
+      os.execute("sh " .. run_dir .. "/https.sh")
+      for _, id in ipairs(missing) do take_tcp(id, "tcp443") end
+      leftover()
+    end
+  end
+  if #missing > 0 then
+    local sh3 = io.open(run_dir .. "/http.sh", "w")
+    if sh3 then
+      sh3:write("#!/bin/sh\n")
+      for _, id in ipairs(missing) do
+        local dest = safe_token(ips[id])
+        if dest then
+          sh3:write(string.format("curl -4 -o /dev/null -s -w '%%{time_connect}\\n' --connect-timeout 1 --max-time 1 --interface %s http://%s/ > %s/tcp.%s 2>/dev/null &\n", iface, dest, run_dir, id))
+        end
+      end
+      sh3:write("wait\n")
+      sh3:close()
+      os.execute("sh " .. run_dir .. "/http.sh")
+      for _, id in ipairs(missing) do take_tcp(id, "tcp80") end
+      leftover()
+    end
+  end
+  if #missing > 0 then
+    local shd = io.open(run_dir .. "/dns.sh", "w")
+    if shd then
+      shd:write("#!/bin/sh\n")
+      for _, id in ipairs(missing) do
+        local dest = safe_token(ips[id])
+        if dest and dest:match("^%d+%.%d+%.%d+%.%d+$") then
+          shd:write(string.format("/usr/sbin/wan-latency-probe %s > %s/dns.%s 2>/dev/null &\n", dest, run_dir, id))
+        end
+      end
+      shd:write("wait\n")
+      shd:close()
+      os.execute("sh " .. run_dir .. "/dns.sh")
+      for _, id in ipairs(missing) do
+        local f = io.open(run_dir .. "/dns." .. id, "r")
+        if f then
+          local v = tonumber((f:read("*l") or ""):match("[%d%.]+"))
+          f:close()
+          if v and v > 0 then rtts[id] = math.floor(v * 10 + 0.5) / 10; methods[id] = "dns" end
+        end
+      end
+    end
+  end
+  return rtts, ips, methods
+end
+local function write_latest(ts, iface, rtts, ips, methods)
+  local items = {}
+  for i = 1, #targets do
+    local t = targets[i]
+    items[#items + 1] = string.format(
+      '{"id":"%s","name":"%s","host":"%s","ip":"%s","color":"%s","rtt":%s,"method":"%s","failures":%d}',
+      wl.json_escape(t.id), wl.json_escape(t.name), wl.json_escape(t.host),
+      wl.json_escape(ips[t.id] or t.host), wl.json_escape(t.color or ""),
+      wl.json_num_or_null(rtts[t.id]), wl.json_escape(methods[t.id] or "failed"), failure_streak[t.id] or 0
+    )
+  end
+  local f = io.open(wl.LATEST_PATH .. ".tmp", "w")
+  if not f then log("cannot write latest status"); return false end
+  f:write(string.format('{"ts":%d,"iface":"%s","items":[%s]}\n', ts, wl.json_escape(iface or ""), table.concat(items, ",")))
+  f:close()
+  if not os.rename(wl.LATEST_PATH .. ".tmp", wl.LATEST_PATH) then log("cannot publish latest status"); return false end
+  return true
+end
+
+local function flush()
+  if #buffer == 0 then return end
+  wl.ensure_dir()
+  local ids = {}
+  for i = 1, #buffer do
+    for id, _ in pairs(buffer[i].values) do ids[id] = true end
+  end
+  local minute = math.floor(buffer[1].ts / 60) * 60
+  for id, _ in pairs(ids) do
+    if wl.valid_id(id) then
+      local raw, rsum, rn = {}, 0, 0
+      for i = 1, #buffer do
+        local v = buffer[i].values[id]
+        raw[#raw + 1] = wl.pack_rec(buffer[i].ts, v, 0)
+        if v ~= nil then rsum = rsum + v; rn = rn + 1 end
+      end
+      if not wl.append_recs(wl.raw_path(id), table.concat(raw)) then log("cannot append raw data for " .. id) end
+      local avg = nil
+      if rn > 0 then avg = rsum / rn end
+      if not wl.append_recs(wl.rollup_path(id), wl.pack_rec(minute, avg, 0)) then log("cannot append rollup data for " .. id) end
+    end
+  end
+  buffer = {}
+end
+
+local function maybe_compact()
+  local now = os.time()
+  if now - last_compact < 86400 then return end
+  last_compact = now
+  local min_ts = now - RETAIN_DAYS * 86400
+  reload_targets()
+  for i = 1, #targets do
+    pcall(wl.compact, wl.raw_path(targets[i].id), min_ts)
+    pcall(wl.compact, wl.rollup_path(targets[i].id), min_ts)
+  end
+end
+
+if ok_nixio and nixio.signal then
+  pcall(nixio.signal, "term", function() running = false end)
+  pcall(nixio.signal, "int", function() running = false end)
+end
+
+wl.load_paths()
+wl.ensure_dir()
+os.execute("mkdir -m 700 -p '" .. run_dir .. "'")
+pcall(wl.migrate_v1)
+wl.load_targets()
+reload_interval()
+log("started, targets=" .. tostring(#wl.load_targets()) .. " interval=" .. tostring(INTERVAL) .. "s retain=" .. tostring(RETAIN_DAYS) .. "d")
+
+while running do
+  local slot = (math.floor(now_sec() / INTERVAL) + 1) * INTERVAL
+  sleep_until(slot)
+  if not running then break end
+  reload_interval()
+  reload_targets()
+  wan_dev = detect_wan_dev()
+  local rtts, ips, methods = ping_all(wan_dev)
+  local alert_after = wl.load_loss_alert_consecutive()
+  local high_ms = wl.load_latency_threshold()
+  for i = 1, #targets do
+    local id, value = targets[i].id, rtts[targets[i].id]
+    if value == nil then
+      failure_streak[id] = (failure_streak[id] or 0) + 1
+      high_streak[id] = 0
+      if failure_streak[id] == alert_after then log("alert target=" .. id .. " consecutive_failures=" .. failure_streak[id]) end
+    else
+      if (failure_streak[id] or 0) >= alert_after then log("recovered target=" .. id .. " rtt=" .. tostring(value) .. "ms") end
+      failure_streak[id] = 0
+      high_streak[id] = value >= high_ms and ((high_streak[id] or 0) + 1) or 0
+      if high_streak[id] == alert_after then log("alert target=" .. id .. " high_latency=" .. tostring(value) .. "ms threshold=" .. high_ms .. "ms") end
+    end
+  end
+  local rec = { ts = slot, values = rtts }
+  buffer[#buffer + 1] = rec
+  write_latest(slot, wan_dev, rtts, ips, methods)
+  local oldest = buffer[1] and buffer[1].ts or 0
+  if #buffer >= FLUSH_EVERY or (oldest > 0 and now_sec() - oldest >= 60) then
+    flush()
+    maybe_compact()
+  end
+end
+
+flush()
+os.execute("rm -rf '" .. run_dir .. "'")
+log("stopped")

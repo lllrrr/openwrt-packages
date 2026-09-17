@@ -1,6 +1,117 @@
-config settings 'main'
-    option theme 'glass'
-    list iface 'br-lan'
-    list iface 'usb0'
-    list iface 'eth1'
-    list iface 'wwan0'
+# luci-app-netmonitor 出厂默认配置
+#
+# 修改后执行 /etc/init.d/netmonitor reload 生效。
+# 本文件由软件包提供，升级时 opkg/apk 会保留你的修改。
+
+config global 'global'
+	# 总开关：关闭后后台守护进程停止探测
+	option enabled '1'
+	# 全局检测间隔（秒），建议 1/5/10/15/30/60/120/300，范围 1-3600
+	option interval '10'
+	# 单次探测超时（秒）
+	option timeout '3'
+	# 每次探测发包数
+	option count '1'
+	# 并发探测上限
+	option concurrency '5'
+	# 地址族：auto / ipv4 / ipv6
+	option address_family 'auto'
+	# 默认探测方式：icmp = ICMP echo（ping） / tcp = TCP 连接握手
+	# 单个目标可用自己的 option proto 覆盖本项
+	option default_proto 'icmp'
+	# TCP 模式的默认端口，供未单独指定 tcp_port 的目标使用
+	option default_tcp_port '80'
+	# 出接口（可选，留空走默认路由）
+	option interface ''
+	# 源地址（可选）
+	option source ''
+	# 持久化开关：0=只写 tmpfs（保护 Flash），1=定期落盘
+	option persistence '0'
+	# 历史保留时长
+	option history '24h'
+	# 落盘间隔（秒）
+	option persist_interval '300'
+	# 每目标内存采样点数
+	option max_points '4320'
+	# 前端刷新间隔（秒），与探测间隔解耦
+	option ui_refresh '2'
+	# 日志级别：debug / info / warning / error
+	option log_level 'info'
+	# 连续失败告警阈值
+	option fail_warn '3'
+	option fail_critical '5'
+	# 丢包率阈值（%）
+	option loss_warn '5'
+	option loss_critical '20'
+	# 质量等级阈值（毫秒）
+	option latency_excellent '50'
+	option latency_good '100'
+	option latency_fair '200'
+	option latency_poor '500'
+	# 通知（预留）
+	option notify_enabled '0'
+	option notify_url ''
+
+# ---------------------------------------------------------------- 示例目标
+# region 由用户自行指定，不使用任何内置 IP 归属库：
+#   cn=国内  overseas=国外  other=其他
+#
+# 每个目标都可以用 proto 单独选择探测方式：
+#   proto 'icmp'  ICMP echo，最贴近传统 ping
+#   proto 'tcp'   TCP 连接握手，被 ICMP 屏蔽的网络里依然可用
+# TCP 目标需要端口：
+#   tcp_port '0'     跟随全局 default_tcp_port
+#   tcp_port '443'   使用本目标自己的端口
+# TCP 模式下 interval / timeout / 并发 / 地址族照常生效，只是不适用 count。
+
+config target 'baidu'
+	option name 'Baidu'
+	option host 'www.baidu.com'
+	option region 'cn'
+	option label ''
+	option proto 'icmp'
+	option tcp_port '0'
+	option family 'auto'
+	option interval '0'
+	option timeout '3'
+	option enabled '1'
+	option remark ''
+
+config target 'alidns'
+	option name 'AliDNS'
+	option host '223.5.5.5'
+	option region 'cn'
+	option label 'DNS'
+	option proto 'icmp'
+	option tcp_port '0'
+	option family 'ipv4'
+	option interval '0'
+	option timeout '3'
+	option enabled '0'
+	option remark ''
+
+config target 'cloudflare'
+	option name 'Cloudflare'
+	option host '1.1.1.1'
+	option region 'overseas'
+	option label 'DNS'
+	option proto 'icmp'
+	option tcp_port '0'
+	option family 'ipv4'
+	option interval '0'
+	option timeout '3'
+	option enabled '0'
+	option remark ''
+
+config target 'googledns'
+	option name 'GoogleDNS'
+	option host '8.8.8.8'
+	option region 'overseas'
+	option label 'DNS'
+	option proto 'icmp'
+	option tcp_port '0'
+	option family 'ipv4'
+	option interval '0'
+	option timeout '3'
+	option enabled '0'
+	option remark ''

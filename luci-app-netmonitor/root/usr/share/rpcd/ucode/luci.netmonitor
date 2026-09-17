@@ -1,0 +1,1268 @@
+#!/usr/bin/env ucode
+/*
+ * luci.netmonitor - rpcd/ucode RPC 后端
+ *
+ * 说明：
+ *   1. 本文件安装为 /usr/share/rpcd/ucode/luci.netmonitor，
+ *      由 rpcd 以 ubus 对象 luci.netmonitor 暴露，权限由
+ *      /usr/share/rpcd/acl.d/luci-app-netmonitor.json 控制。
+ *   2. 后台检测完全由 procd 守护进程负责，本模块只做「读数据 / 改配置 / 控服务」，
+ *      因此打开多个浏览器标签不会创建多套探测任务。
+ *   3. 所有用户输入都经过白名单校验，主机地址禁止以 '-' 开头，
+ *      杜绝命令注入与路径穿越。
+ */
+
+'use strict';
+
+/* 注意：不同 OpenWrt 版本的 ucode fs 模块导出集合并不完全一致，
+ * 这里只导入确实需要的函数，避免因为缺少某个导出导致整个插件加载失败
+ * （典型例子：部分版本不导出 readdir / writefile）。 */
+import { readfile, stat, unlink, popen } from 'fs';
+import { cursor } from 'uci';
+
+const RUN_DIR = '/tmp/netmonitor';
+const RING_DIR = RUN_DIR + '/ring';
+const HIST_DIR = RUN_DIR + '/hist';
+const STATE_DIR = RUN_DIR + '/state';
+const PERSIST_DIR = '/etc/netmonitor/history';
+const TICK_FILE = RUN_DIR + '/tick';
+const PID_FILE = '/var/run/netmonitor.pid';
+const INIT = '/etc/init.d/netmonitor';
+
+/* 直方图桶上界，必须与 netmon-daemon.sh 中的 BUCKETS 保持一致 */
+const EDGES = [1, 5, 10, 20, 30, 40, 50, 75, 100, 150, 200, 300, 400, 500, 750, 1000];
+const NB = 17;
+
+const REGIONS = ['cn', 'overseas', 'other'];
+const FAMILIES = ['auto', 'ipv4', 'ipv6', 'both'];
+const PROTOS = ['icmp', 'tcp'];
+const RANGES = ['1m', '5m', '15m', '30m', '1h', '6h', '12h', '24h', '3d', '7d', '30d'];
+const HISTORY_KEEP = ['1h', '6h', '12h', '24h', '3d', '7d', '30d'];
+const INTERVALS = [1, 5, 10, 15, 30, 60, 120, 300];
+
+/* 允许通过 set_config 修改的全局选项（白名单 + 取值范围） */
+const GLOBAL_OPTS = {
+	enabled: { type: 'bool' },
+	interval: { type: 'int', min: 1, max: 3600 },
+	timeout: { type: 'int', min: 1, max: 30 },
+	count: { type: 'int', min: 1, max: 20 },
+	concurrency: { type: 'int', min: 1, max: 50 },
+	address_family: { type: 'enum', values: FAMILIES },
+	default_proto: { type: 'enum', values: PROTOS },
+	default_tcp_port: { type: 'int', min: 1, max: 65535 },
+	interface: { type: 'iface' },
+	source: { type: 'iface' },
+	persistence: { type: 'bool' },
+	history: { type: 'enum', values: HISTORY_KEEP },
+	persist_interval: { type: 'int', min: 60, max: 3600 },
+	max_points: { type: 'int', min: 60, max: 200000 },
+	ui_refresh: { type: 'int', min: 1, max: 60 },
+	log_level: { type: 'enum', values: ['debug', 'info', 'warning', 'error'] },
+	fail_warn: { type: 'int', min: 1, max: 100 },
+	fail_critical: { type: 'int', min: 1, max: 1000 },
+	loss_warn: { type: 'int', min: 0, max: 100 },
+	loss_critical: { type: 'int', min: 0, max: 100 },
+	latency_excellent: { type: 'int', min: 1, max: 10000 },
+	latency_good: { type: 'int', min: 1, max: 10000 },
+	latency_fair: { type: 'int', min: 1, max: 10000 },
+	latency_poor: { type: 'int', min: 1, max: 10000 },
+	notify_enabled: { type: 'bool' },
+	notify_url: { type: 'url' }
+};
+
+const DEFAULTS = {
+	enabled: '1',
+	interval: '10',
+	timeout: '3',
+	count: '1',
+	concurrency: '5',
+	address_family: 'auto',
+	default_proto: 'icmp',
+	default_tcp_port: '80',
+	interface: '',
+	source: '',
+	persistence: '0',
+	history: '24h',
+	persist_interval: '300',
+	max_points: '4320',
+	ui_refresh: '2',
+	log_level: 'info',
+	fail_warn: '3',
+	fail_critical: '5',
+	loss_warn: '5',
+	loss_critical: '20',
+	latency_excellent: '50',
+	latency_good: '100',
+	latency_fair: '200',
+	latency_poor: '500',
+	notify_enabled: '0',
+	notify_url: ''
+};
+
+/* ------------------------------------------------------------ 基础工具 */
+
+function now() {
+	return time();
+}
+
+function num(x) {
+	if (x == null || x == '' || x == '-')
+		return 0;
+	return x * 1;
+}
+
+function isNum(x) {
+	if (x == null || x == '')
+		return false;
+	let s = '' + x;
+	for (let i = 0; i < length(s); i++) {
+		let c = substr(s, i, 1);
+		if (c < '0' || c > '9')
+			return false;
+	}
+	return true;
+}
+
+function safeId(id) {
+	if (type(id) != 'string' || id == '')
+		return false;
+	if (length(id) > 64)
+		return false;
+	for (let i = 0; i < length(id); i++) {
+		let c = substr(id, i, 1);
+		let okch = ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		            (c >= '0' && c <= '9') || c == '_' || c == '-');
+		if (!okch)
+			return false;
+	}
+	return true;
+}
+
+function validHost(h) {
+	if (type(h) != 'string' || h == '' || length(h) > 253)
+		return false;
+	if (substr(h, 0, 1) == '-')
+		return false;
+	for (let i = 0; i < length(h); i++) {
+		let c = substr(h, i, 1);
+		let okch = ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		            (c >= '0' && c <= '9') || c == '.' || c == '_' ||
+		            c == ':' || c == '[' || c == ']' || c == '%' || c == '-');
+		if (!okch)
+			return false;
+	}
+	return true;
+}
+
+function validIface(v) {
+	if (v == null || v == '')
+		return true;
+	if (type(v) != 'string' || length(v) > 64)
+		return false;
+	if (substr(v, 0, 1) == '-')
+		return false;
+	for (let i = 0; i < length(v); i++) {
+		let c = substr(v, i, 1);
+		let okch = ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		            (c >= '0' && c <= '9') || c == '.' || c == '_' ||
+		            c == ':' || c == '@' || c == '%' || c == '-');
+		if (!okch)
+			return false;
+	}
+	return true;
+}
+
+function validText(s, maxlen) {
+	if (s == null)
+		return true;
+	if (type(s) != 'string' || length(s) > maxlen)
+		return false;
+	return index(s, '\n') < 0 && index(s, '\r') < 0 && index(s, '\t') < 0;
+}
+
+function inList(v, list) {
+	for (let i = 0; i < length(list); i++)
+		if (list[i] == v)
+			return true;
+	return false;
+}
+
+function clampInt(v, mn, mx) {
+	let n = isNum(v) ? (v * 1) : mn;
+	if (n < mn) n = mn;
+	if (n > mx) n = mx;
+	return n;
+}
+
+function shcmd(cmd) {
+	let fh = popen(cmd);
+	if (!fh)
+		return '';
+	let s = fh.read('all');
+	fh.close();
+	return (s != null) ? trim(s) : '';
+}
+
+function rangeSeconds(r) {
+	switch (r) {
+		case '1m': return 60;
+		case '5m': return 300;
+		case '15m': return 900;
+		case '30m': return 1800;
+		case '1h': return 3600;
+		case '6h': return 21600;
+		case '12h': return 43200;
+		case '24h': return 86400;
+		case '3d': return 259200;
+		case '7d': return 604800;
+		case '30d': return 2592000;
+	}
+	return 3600;
+}
+
+/* ------------------------------------------------------------ 统计聚合 */
+
+function newHist() {
+	let h = [];
+	for (let i = 0; i < NB; i++)
+		push(h, 0);
+	return h;
+}
+
+function parseStats(id) {
+	let res = {
+		count: 0, ok: 0, sum: 0, min: null, max: null, sent: 0, recv: 0, hist: newHist()
+	};
+	let files = [HIST_DIR + '/' + id + '.cur', HIST_DIR + '/' + id + '.seg'];
+
+	for (let fi = 0; fi < length(files); fi++) {
+		let raw = readfile(files[fi]);
+		if (raw == null || raw == '')
+			continue;
+		let lines = split(trim(raw), '\n');
+		for (let li = 0; li < length(lines); li++) {
+			if (lines[li] == '')
+				continue;
+			let F = split(lines[li], '\t');
+			if (length(F) < 9)
+				continue;
+			res.count += num(F[2]);
+			res.ok += num(F[3]);
+			res.sum += num(F[1]);
+			let mn = F[4], mx = F[5];
+			if (mn != '-' && mn != '') {
+				let v = num(mn);
+				if (res.min == null || v < res.min) res.min = v;
+			}
+			if (mx != '-' && mx != '') {
+				let v = num(mx);
+				if (res.max == null || v > res.max) res.max = v;
+			}
+			res.sent += num(F[6]);
+			res.recv += num(F[7]);
+			let H = split(F[8], ' ');
+			for (let hi = 0; hi < length(H) && hi < NB; hi++)
+				res.hist[hi] += num(H[hi]);
+		}
+	}
+	return res;
+}
+
+/* 统一数值精度：避免把 21.460999999999999 这样的浮点尾数直接抛给前端 */
+/* 四舍五入到 d 位小数（d=1 保留 1 位，其余保留 2 位）。
+ *
+ * 注意 ucode 的 int / double 双类型：位运算 `|` 的结果是 int，而
+ * ucode 的 int / int 是「整除」——设备实测 8/10 == 0、2530/100 == 25。
+ * 原先写成 ((v * m + 0.5) | 0) / m，左右两边都是 int，商被直接截断：
+ * 所有 fx(v, 1) 退化成整数、所有 fx(v, 2) 也被截成整数，
+ * 于是「丢包率 0.8%」显示成 0、延迟的小数位全部丢失。
+ * 除数写成 double（m * 1.0）才会走浮点除法。 */
+function fx(v, d) {
+	if (v == null)
+		return null;
+	let m = (d == 1) ? 10 : 100;
+	return ((v * m + 0.5) | 0) / (m * 1.0);
+}
+
+function percentile(hist, total, p) {
+	if (!(total > 0))
+		return null;
+	/* p 是整数百分比（50/95/99），除以 int 的字面量 100 会走整除；
+	 * 写成 100.0 才是浮点除法，后续的 frac 插值也才不会被截成 0/1。 */
+	let target = total * p / 100.0;
+	let cum = 0;
+	for (let i = 0; i < NB; i++) {
+		let c = hist[i];
+		if (c > 0) {
+			if (cum + c >= target) {
+				let lo = (i == 0) ? 0 : EDGES[i - 1];
+				let hi = (i < length(EDGES)) ? EDGES[i] : (lo + 1000);
+				let frac = (target - cum) / c;
+				if (frac > 1) frac = 1;
+				if (frac < 0) frac = 0;
+				return lo + (hi - lo) * frac;
+			}
+			cum += c;
+		}
+	}
+	return EDGES[length(EDGES) - 1];
+}
+
+function gradeOf(lat, loss, cfg) {
+	if (lat == null)
+		return 'down';
+	if (loss >= num(cfg.loss_critical))
+		return 'severe';
+	if (lat >= num(cfg.latency_poor))
+		return 'severe';
+	if (lat >= num(cfg.latency_fair))
+		return 'poor';
+	if (lat >= num(cfg.latency_good))
+		return 'fair';
+	if (lat >= num(cfg.latency_excellent))
+		return 'good';
+	return 'excellent';
+}
+
+/* 丢包率的两种口径，整体统计与分区统计共用。
+ *
+ *   weighted —— 按包样本量加权：Σ(丢包数) / Σ(发送数)。等价于把所有
+ *               目标的探测包倒进同一个池子统计，样本多的目标自然
+ *               权重更大，这是「整体丢包率」的正确口径。ICMP 目标一次
+ *               探测发 count 个包、TCP 目标一次探测只有 1 个包，两者
+ *               样本量本来就不同，因此不能按目标等权平均。
+ *   等权     —— 每个目标一票：Σ(目标丢包率) / 目标数。目标数少时容易被
+ *               单个目标的异常值主导，只作为对照值一并给出。
+ *
+ * 没有任何采样时（sent_sum == 0）两个口径都无定义，统一取 0，
+ * 与前端一直以来的「0%」展示保持一致。 */
+function lossPair(sent_sum, recv_sum, sum, n) {
+	let lost = sent_sum - recv_sum;
+	if (lost < 0) lost = 0;
+	let w = (sent_sum > 0) ? (lost * 100.0 / sent_sum) : 0;
+	if (w < 0) w = 0;
+	if (w > 100) w = 100;
+	return {
+		loss: fx(w, 1),
+		loss_avg: fx((n > 0) ? (sum / n) : 0, 1),
+		loss_lost: lost,
+		loss_samples: sent_sum
+	};
+}
+
+/* 读取目标运行时状态：last next lat ok eno sfail sok last_ok total */
+function readState(id) {
+	let raw = readfile(STATE_DIR + '/' + id);
+	let s = {
+		last_check: 0, last_latency: null, last_ok: 0, last_errno: 0,
+		streak_fail: 0, streak_ok: 0, last_success: 0, total: 0
+	};
+	if (raw == null || raw == '')
+		return s;
+	let F = split(trim(raw), '\t');
+	if (length(F) < 9)
+		return s;
+	s.last_check = num(F[0]);
+	s.last_latency = (F[2] != '-') ? num(F[2]) : null;
+	s.last_ok = num(F[3]);
+	s.last_errno = num(F[4]);
+	s.streak_fail = num(F[5]);
+	s.streak_ok = num(F[6]);
+	s.last_success = num(F[7]);
+	s.total = num(F[8]);
+	return s;
+}
+
+/* ------------------------------------------------------------ 数据读取 */
+
+function readTail(path, n) {
+	if (stat(path) == null)
+		return [];
+	let out = shcmd('tail -n ' + n + ' ' + path);
+	if (out == '')
+		return [];
+	return split(out, '\n');
+}
+
+function readRing(id, cutoff, limit) {
+	let lines = readTail(RING_DIR + '/' + id + '.tsv', limit);
+	let pts = [];
+	for (let i = 0; i < length(lines); i++) {
+		if (lines[i] == '')
+			continue;
+		let F = split(lines[i], '\t');
+		if (length(F) < 4)
+			continue;
+		let t = num(F[0]);
+		if (cutoff > 0 && t < cutoff)
+			continue;
+		let ok = (F[2] == '1') ? 1 : 0;
+		let lat = (ok && F[1] != '-') ? num(F[1]) : null;
+		push(pts, { t: t, l: lat, s: ok, e: num(F[3]) });
+	}
+	return pts;
+}
+
+function readAgg(id, cutoff, limit) {
+	let lines = readTail(PERSIST_DIR + '/' + id + '.agg', limit);
+	let pts = [];
+	for (let i = 0; i < length(lines); i++) {
+		if (lines[i] == '')
+			continue;
+		let F = split(lines[i], '\t');
+		if (length(F) < 7)
+			continue;
+		let t = num(F[0]);
+		if (cutoff > 0 && t < cutoff)
+			continue;
+		let mn = (F[2] != '-') ? num(F[2]) : null;
+		let mx = (F[3] != '-') ? num(F[3]) : null;
+		let ok = num(F[4]);
+		let cnt = num(F[5]);
+		push(pts, {
+			t: t,
+			l: (ok > 0) ? num(F[1]) : null,
+			mn: mn, mx: mx,
+			s: (ok > 0) ? 1 : 0,
+			loss: num(F[6])
+		});
+	}
+	return pts;
+}
+
+/* 等间隔降采样：把点聚合到不超过 maxp 个，保留 min/max 包络 */
+function aggregate(pts, maxp) {
+	let n = length(pts);
+	if (n <= maxp || maxp < 1)
+		return pts;
+	let step = n / maxp;
+	let out = [];
+	let idx = 0;
+	while (idx < n) {
+		let next = (idx + step) | 0;
+		if (next <= idx) next = idx + 1;
+		if (next > n) next = n;
+		let sum = 0, okc = 0, mn = null, mx = null, lastE = 0;
+		for (let j = idx; j < next; j++) {
+			if (pts[j].s) {
+				okc++;
+				sum += pts[j].l;
+				if (mn == null || pts[j].l < mn) mn = pts[j].l;
+				if (mx == null || pts[j].l > mx) mx = pts[j].l;
+			} else {
+				lastE = pts[j].e;
+			}
+		}
+		push(out, {
+			t: pts[idx].t,
+			l: (okc > 0) ? (sum / okc) : null,
+			mn: mn, mx: mx,
+			s: (okc > 0) ? 1 : 0,
+			e: (okc > 0) ? 0 : lastE
+		});
+		idx = next;
+	}
+	return out;
+}
+
+/* ------------------------------------------------------------ UCI 访问 */
+
+function uciOpen() {
+	let u = cursor();
+	u.load('netmonitor');
+	return u;
+}
+
+function getGlobal(u) {
+	let cfg = {};
+	for (let k in DEFAULTS) {
+		let v = u.get('netmonitor', 'global', k);
+		cfg[k] = (v == null) ? DEFAULTS[k] : v;
+	}
+	return cfg;
+}
+
+function getTargets(u) {
+	let out = [];
+	u.foreach('netmonitor', 'target', function(s) {
+		push(out, {
+			id: s['.name'],
+			name: s.name || s['.name'],
+			host: s.host || '',
+			region: (inList(s.region, REGIONS) ? s.region : 'other'),
+			label: s.label || '',
+			proto: (inList(s.proto, PROTOS) ? s.proto : 'icmp'),
+			tcp_port: num(s.tcp_port),
+			family: (inList(s.family, FAMILIES) ? s.family : 'auto'),
+			interface: s.interface || '',
+			source: s.source || '',
+			interval: num(s.interval),
+			timeout: num(s.timeout),
+			enabled: (s.enabled == null || s.enabled == '1') ? 1 : 0,
+			remark: s.remark || ''
+		});
+	});
+	return out;
+}
+
+function statOf(id, cfg) {
+	let st = parseStats(id);
+	let s = readState(id);
+	let loss = 0;
+	if (st.sent > 0)
+		loss = (st.sent - st.recv) * 100.0 / st.sent;
+	if (loss < 0) loss = 0;
+	if (loss > 100) loss = 100;
+	let avg = (st.ok > 0) ? (st.sum / st.ok) : null;
+	let p50 = percentile(st.hist, st.ok, 50);
+	let p95 = percentile(st.hist, st.ok, 95);
+	let p99 = percentile(st.hist, st.ok, 99);
+	let cur = s.last_latency;
+	let grade = gradeOf(cur, loss, cfg);
+
+	/* 连续失败次数达到阈值时，等级直接下沉 */
+	if (s.streak_fail >= num(cfg.fail_critical))
+		grade = 'down';
+	else if (s.streak_fail >= num(cfg.fail_warn) && grade != 'down')
+		grade = 'severe';
+
+	return {
+		count: st.count,
+		ok: st.ok,
+		latency: fx(cur, 2),
+		avg: fx(avg, 2),
+		min: fx(st.min, 2),
+		max: fx(st.max, 2),
+		p50: fx(p50, 2),
+		p95: fx(p95, 2),
+		p99: fx(p99, 2),
+		loss: fx(loss, 1),
+		success_rate: fx((st.count > 0) ? (st.ok * 100.0 / st.count) : 0, 1),
+		streak_fail: s.streak_fail,
+		streak_ok: s.streak_ok,
+		last_check: s.last_check,
+		last_success: s.last_success,
+		last_errno: s.last_errno,
+		total: s.total,
+		/* 包计数直接暴露给上层：整体/分区丢包率要按包样本量加权，
+		 * 不能再只拿每目标的丢包率做等权平均。 */
+		sent: st.sent,
+		recv: st.recv,
+		grade: grade
+	};
+}
+
+function serviceRunning() {
+	let raw = readfile(PID_FILE);
+	if (raw != null) {
+		let pid = trim(raw);
+		if (pid != '' && stat('/proc/' + pid) != null)
+			return true;
+	}
+	let out = shcmd('pgrep -f "netmon-daemon" 2>/dev/null | head -n 1');
+	if (out != '' && isNum(out))
+		return true;
+	return false;
+}
+
+function serviceAction(action) {
+	if (!inList(action, ['start', 'stop', 'restart', 'reload', 'enable', 'disable']))
+		return false;
+	shcmd(INIT + ' ' + action + ' >/dev/null 2>&1 &');
+	return true;
+}
+
+function cleanupTargetFiles(id) {
+	unlink(RING_DIR + '/' + id + '.tsv');
+	unlink(HIST_DIR + '/' + id + '.cur');
+	unlink(HIST_DIR + '/' + id + '.seg');
+	unlink(STATE_DIR + '/' + id);
+	unlink(PERSIST_DIR + '/' + id + '.agg');
+	unlink(PERSIST_DIR + '/' + id + '.last');
+}
+
+/* rpcd-mod-ucode 调用约定：第一个参数是 request 资源，实参位于 request.args。
+ * 未传参时 request.args 为空对象，缺失键读取结果为 null。 */
+function nmArgs(req) {
+	let a = req?.args;
+	return (type(a) == 'object') ? a : {};
+}
+
+function err(msg) {
+	return { error: msg };
+}
+
+/* ------------------------------------------------------------ RPC 方法 */
+
+/* 方法集合。
+ * 注意：新版 rpcd 的 ucode 插件要求返回 { '<ubus 对象名>': methods } 结构，
+ * 旧式的「方法名直接作为顶层键」写法会被忽略，导致对象不注册。 */
+const methods = {
+	get_status: {
+		args: { spark: 'string' },
+		call: function(req) {
+			const a = nmArgs(req);
+			let u = uciOpen();
+			let cfg = getGlobal(u);
+			let targets = getTargets(u);
+			let tickRaw = readfile(TICK_FILE);
+			let tick = (tickRaw != null) ? num(trim(tickRaw)) : 0;
+
+			let list = [];
+			let agg = {
+				total: 0, online: 0, offline: 0, disabled: 0,
+				lat_sum: 0, lat_n: 0, loss_sum: 0, loss_n: 0, down: 0,
+				sent_sum: 0, recv_sum: 0
+			};
+
+			for (let i = 0; i < length(targets); i++) {
+				let t = targets[i];
+				let st = statOf(t.id, cfg);
+				let tpl = 'timeout';
+				if (st.last_errno == 2) tpl = 'dns';
+				else if (st.last_errno == 3) tpl = 'unreachable';
+				else if (st.last_errno == 4) tpl = 'error';
+				else if (st.last_errno == 5) tpl = 'invalid';
+				else if (st.last_errno == 0) tpl = 'ok';
+
+				let item = {
+					id: t.id,
+					name: t.name,
+					host: t.host,
+					region: t.region,
+					label: t.label,
+					proto: t.proto,
+					tcp_port: t.tcp_port,
+					enabled: t.enabled,
+					status: (t.enabled ? (st.streak_fail > 0 ? 'failed' : 'online') : 'disabled'),
+					latency: st.latency,
+					avg: st.avg,
+					min: st.min,
+					max: st.max,
+					p50: st.p50,
+					p95: st.p95,
+					p99: st.p99,
+					loss: st.loss,
+					success_rate: st.success_rate,
+					streak_fail: st.streak_fail,
+					streak_ok: st.streak_ok,
+					last_check: st.last_check,
+					last_success: st.last_success,
+					last_error: (st.streak_fail > 0 ? tpl : ''),
+					/* 每目标的包计数一并返回，前端可以自己复核加权口径。 */
+					sent: st.sent,
+					recv: st.recv,
+					grade: (t.enabled ? st.grade : 'disabled'),
+					samples: st.count
+				};
+
+				if (a != null && a.spark == '1') {
+					let pts = readRing(t.id, 0, 40);
+					let spark = [];
+					for (let k = 0; k < length(pts); k++)
+						push(spark, pts[k].s ? pts[k].l : null);
+					item.spark = spark;
+				}
+
+				push(list, item);
+
+				if (!t.enabled) {
+					agg.disabled++;
+					continue;
+				}
+				agg.total++;
+				if (st.streak_fail > 0) agg.offline++; else agg.online++;
+				if (st.grade == 'down') agg.down++;
+				if (st.latency != null) { agg.lat_sum += st.latency; agg.lat_n++; }
+				if (st.count > 0) {
+					agg.loss_sum += st.loss; agg.loss_n++;
+					agg.sent_sum += st.sent; agg.recv_sum += st.recv;
+				}
+			}
+
+			let regions = {};
+			for (let r = 0; r < length(REGIONS); r++) {
+				let key = REGIONS[r];
+				let total = 0, online = 0, offline = 0;
+				let lat_sum = 0, lat_n = 0, loss_sum = 0, loss_n = 0, p95_sum = 0, p95_n = 0;
+				let reg_sent = 0, reg_recv = 0;
+				for (let i = 0; i < length(list); i++) {
+					if (list[i].region != key || !list[i].enabled)
+						continue;
+					total++;
+					if (list[i].status == 'online') online++; else offline++;
+					if (list[i].latency != null) { lat_sum += list[i].latency; lat_n++; }
+					if (list[i].samples > 0) {
+						loss_sum += list[i].loss; loss_n++;
+						reg_sent += list[i].sent; reg_recv += list[i].recv;
+					}
+					if (list[i].p95 != null) { p95_sum += list[i].p95; p95_n++; }
+				}
+				let rl = lossPair(reg_sent, reg_recv, loss_sum, loss_n);
+				regions[key] = {
+					total: total,
+					online: online,
+					offline: offline,
+					abnormal: offline,
+					avg: fx((lat_n > 0) ? (lat_sum / lat_n) : null, 2),
+					p95: fx((p95_n > 0) ? (p95_sum / p95_n) : null, 2),
+					/* loss 为按包样本量加权的口径，loss_avg 为每目标等权的对照值。 */
+					loss: rl.loss,
+					loss_avg: rl.loss_avg,
+					loss_lost: rl.loss_lost,
+					loss_samples: rl.loss_samples,
+					online_rate: fx((total > 0) ? (online * 100.0 / total) : 0, 1)
+				};
+			}
+
+			let ol = lossPair(agg.sent_sum, agg.recv_sum, agg.loss_sum, agg.loss_n);
+			let overall = {
+				total: agg.total,
+				online: agg.online,
+				offline: agg.offline,
+				disabled: agg.disabled,
+				current: fx((agg.lat_n > 0) ? (agg.lat_sum / agg.lat_n) : null, 2),
+				avg: fx((agg.lat_n > 0) ? (agg.lat_sum / agg.lat_n) : null, 2),
+				/* 按样本量加权的整体丢包率，loss_avg 为每目标等权的对照值。 */
+				loss: ol.loss,
+				loss_avg: ol.loss_avg,
+				loss_lost: ol.loss_lost,
+				loss_samples: ol.loss_samples
+			};
+
+			let health = 'unknown';
+			if (agg.total == 0)
+				health = 'unknown';
+			else if (agg.down > 0 || agg.offline > 0)
+				health = (agg.down > 0) ? 'critical' : 'warning';
+			else
+				health = 'good';
+
+			return {
+				running: serviceRunning(),
+				tick: tick,
+				stale: (tick > 0 && (now() - tick) > 300) ? 1 : 0,
+				updated: now(),
+				health: health,
+				overall: overall,
+				regions: regions,
+				thresholds: {
+					latency_excellent: num(cfg.latency_excellent),
+					latency_good: num(cfg.latency_good),
+					latency_fair: num(cfg.latency_fair),
+					latency_poor: num(cfg.latency_poor),
+					loss_warn: num(cfg.loss_warn),
+					loss_critical: num(cfg.loss_critical),
+					fail_warn: num(cfg.fail_warn),
+					fail_critical: num(cfg.fail_critical)
+				},
+				targets: list
+			};
+		}
+	},
+
+	get_targets: {
+		call: function() {
+			let u = uciOpen();
+			return { targets: getTargets(u) };
+		}
+	},
+
+	get_history: {
+		args: { range: 'string', target: 'string', region: 'string', max_points: 'string', include_disabled: 'string' },
+		call: function(req) {
+			const a = nmArgs(req);
+			let u = uciOpen();
+			let cfg = getGlobal(u);
+			let targets = getTargets(u);
+
+			let range = (a != null && a.range != null) ? a.range : '1h';
+			if (!inList(range, RANGES)) range = '1h';
+			let maxp = clampInt((a != null) ? a.max_points : 0, 10, 2000);
+			if (maxp <= 0) maxp = 600;
+
+			let secs = rangeSeconds(range);
+			let cutoff = now() - secs;
+
+			let want = {};
+			let all = true;
+			if (a != null && a.target != null && a.target != '' && a.target != 'all') {
+				want[a.target] = 1;
+				all = false;
+			}
+			if (a != null && a.region != null && a.region != '' && a.region != 'all') {
+				if (!inList(a.region, REGIONS))
+					return err('invalid region');
+			}
+
+			let memSpan = num(cfg.max_points) * num(cfg.interval);
+			let useAgg = (secs > memSpan) && (cfg.persistence == '1');
+
+			let series = [];
+			for (let i = 0; i < length(targets); i++) {
+				let t = targets[i];
+				if (!all && !want[t.id]) continue;
+				if (a != null && a.region != null && a.region != '' && a.region != 'all' && t.region != a.region)
+					continue;
+				if (!t.enabled && (a == null || a.include_disabled != '1'))
+					continue;
+
+				let pts;
+				if (useAgg)
+					pts = readAgg(t.id, cutoff, 20000);
+				else
+					pts = readRing(t.id, cutoff, 20000);
+
+				pts = aggregate(pts, maxp);
+
+				let st = statOf(t.id, cfg);
+				push(series, {
+					id: t.id,
+					name: t.name,
+					host: t.host,
+					region: t.region,
+					label: t.label,
+					enabled: t.enabled,
+					summary: {
+						avg: st.avg, min: st.min, max: st.max,
+						p95: st.p95, loss: st.loss,
+						success_rate: st.success_rate, samples: st.count
+					},
+					points: pts
+				});
+			}
+
+			return {
+				range: range,
+				source: useAgg ? 'persistent' : 'memory',
+				from: cutoff,
+				to: now(),
+				persistence: num(cfg.persistence),
+				series: series
+			};
+		}
+	},
+
+	get_statistics: {
+		args: { range: 'string', region: 'string', target: 'string' },
+		call: function(req) {
+			const a = nmArgs(req);
+			let u = uciOpen();
+			let cfg = getGlobal(u);
+			let targets = getTargets(u);
+
+			let range = (a != null && a.range != null) ? a.range : '24h';
+			if (!inList(range, RANGES)) range = '24h';
+			let secs = rangeSeconds(range);
+			let cutoff = now() - secs;
+			let memSpan = num(cfg.max_points) * num(cfg.interval);
+			let useAgg = (secs > memSpan) && (cfg.persistence == '1');
+
+			let rows = [];
+			let byRegion = {};
+			for (let r = 0; r < length(REGIONS); r++)
+				byRegion[REGIONS[r]] = { region: REGIONS[r], total: 0, online: 0, offline: 0, avg_sum: 0, avg_n: 0, p95_sum: 0, p95_n: 0, loss_sum: 0, loss_n: 0 };
+
+			for (let i = 0; i < length(targets); i++) {
+				let t = targets[i];
+				if (a != null && a.target != null && a.target != '' && a.target != 'all' && t.id != a.target)
+					continue;
+				if (a != null && a.region != null && a.region != '' && a.region != 'all' && t.region != a.region)
+					continue;
+
+				let pts = useAgg ? readAgg(t.id, cutoff, 20000) : readRing(t.id, cutoff, 20000);
+				let sum = 0, okc = 0, mn = null, mx = null, n = length(pts), sent = 0, recv = 0;
+				for (let k = 0; k < n; k++) {
+					if (pts[k].s) {
+						okc++;
+						sum += pts[k].l;
+						if (mn == null || pts[k].l < mn) mn = pts[k].l;
+						if (mx == null || pts[k].l > mx) mx = pts[k].l;
+					}
+					if (pts[k].mn != null && (mn == null || pts[k].mn < mn)) mn = pts[k].mn;
+					if (pts[k].mx != null && (mx == null || pts[k].mx > mx)) mx = pts[k].mx;
+				}
+				let lat = [];
+				for (let k = 0; k < n; k++)
+					if (pts[k].s) push(lat, pts[k].l);
+				lat = sort(lat);
+
+				let p95 = (length(lat) > 0) ? lat[((length(lat) - 1) * 0.95) | 0] : null;
+				let p50 = (length(lat) > 0) ? lat[((length(lat) - 1) * 0.50) | 0] : null;
+				let loss = (n > 0) ? ((n - okc) * 100.0 / n) : 0;
+
+				push(rows, {
+					id: t.id, name: t.name, host: t.host, region: t.region,
+					label: t.label, enabled: t.enabled,
+					samples: n, ok: okc,
+					avg: fx((okc > 0) ? (sum / okc) : null, 2),
+					min: fx(mn, 2), max: fx(mx, 2), p50: fx(p50, 2), p95: fx(p95, 2),
+					loss: fx(loss, 1),
+					success_rate: fx((n > 0) ? (okc * 100.0 / n) : 0, 1)
+				});
+
+				if (t.enabled) {
+					let o = byRegion[t.region];
+					o.total++;
+					if (okc > 0) { o.online++; o.avg_sum += (sum / okc); o.avg_n++; }
+					else o.offline++;
+					if (p95 != null) { o.p95_sum += p95; o.p95_n++; }
+					o.loss_sum += loss; o.loss_n++;
+				}
+			}
+
+			let regions = [];
+			for (let r = 0; r < length(REGIONS); r++) {
+				let o = byRegion[REGIONS[r]];
+				push(regions, {
+					region: o.region,
+					total: o.total,
+					online: o.online,
+					offline: o.offline,
+					abnormal: o.offline,
+					avg: fx((o.avg_n > 0) ? (o.avg_sum / o.avg_n) : null, 2),
+					p95: fx((o.p95_n > 0) ? (o.p95_sum / o.p95_n) : null, 2),
+					/* 注意：这里的 loss 是「探测次数」口径（未收到回应的探测占比），
+					 * 与 get_status 中按包样本量加权的 loss 不同名不同义，勿混用。 */
+					loss: fx((o.loss_n > 0) ? (o.loss_sum / o.loss_n) : 0, 1),
+					online_rate: fx((o.total > 0) ? (o.online * 100.0 / o.total) : 0, 1)
+				});
+			}
+
+			return { range: range, source: useAgg ? 'persistent' : 'memory', targets: rows, regions: regions };
+		}
+	},
+
+	get_config: {
+		call: function() {
+			let u = uciOpen();
+			let cfg = getGlobal(u);
+			let out = {};
+			for (let k in cfg)
+				out[k] = cfg[k];
+			out.running = serviceRunning() ? 1 : 0;
+			out.intervals = INTERVALS;
+			out.history_options = HISTORY_KEEP;
+			out.ranges = RANGES;
+			return out;
+		}
+	},
+
+	set_config: {
+		args: { enabled: 'string', interval: 'string', timeout: 'string', count: 'string', concurrency: 'string', address_family: 'string', interface: 'string', source: 'string', persistence: 'string', history: 'string', persist_interval: 'string', max_points: 'string', ui_refresh: 'string', log_level: 'string', fail_warn: 'string', fail_critical: 'string', loss_warn: 'string', loss_critical: 'string', latency_excellent: 'string', latency_good: 'string', latency_fair: 'string', latency_poor: 'string', notify_enabled: 'string', notify_url: 'string', default_proto: 'string', default_tcp_port: 'string' },
+		call: function(req) {
+			const a = nmArgs(req);
+			if (a == null || type(a) != 'object')
+				return err('invalid arguments');
+			let u = uciOpen();
+			let changed = 0;
+			for (let k in GLOBAL_OPTS) {
+				if (!exists(a, k))
+					continue;
+				let spec = GLOBAL_OPTS[k];
+				let v = a[k];
+				if (spec.type == 'bool') {
+					v = (v == true || v == 1 || v == '1' || v == 'true') ? '1' : '0';
+				} else if (spec.type == 'int') {
+					if (!isNum(v))
+						return err('invalid value for ' + k);
+					v = '' + clampInt(v, spec.min, spec.max);
+				} else if (spec.type == 'enum') {
+					if (!inList(v, spec.values))
+						return err('invalid value for ' + k);
+				} else if (spec.type == 'iface') {
+					if (!validIface(v))
+						return err('invalid value for ' + k);
+					v = (v == null) ? '' : v;
+				} else if (spec.type == 'url') {
+					if (!validText(v, 512))
+						return err('invalid value for ' + k);
+					v = (v == null) ? '' : v;
+				}
+				u.set('netmonitor', 'global', k, v);
+				changed++;
+			}
+			if (changed == 0)
+				return { changed: 0 };
+			u.commit('netmonitor');
+			serviceAction('reload');
+			return { changed: changed };
+		}
+	},
+
+	add_target: {
+		args: { id: 'string', name: 'string', host: 'string', region: 'string', label: 'string', proto: 'string', tcp_port: 'string', family: 'string', interface: 'string', source: 'string', interval: 'string', timeout: 'string', enabled: 'string', remark: 'string' },
+		call: function(req) {
+			const a = nmArgs(req);
+			if (a == null) return err('invalid arguments');
+			if (!validText(a.name, 64) || a.name == null || a.name == '')
+				return err('invalid name');
+			if (!validHost(a.host))
+				return err('invalid host');
+			let u = uciOpen();
+
+			let sid;
+			if (a.id != null && a.id != '' && safeId(a.id)) {
+				if (u.get('netmonitor', a.id) != null)
+					return err('target id already exists');
+				sid = a.id;
+			} else {
+				sid = u.add('netmonitor', 'target');
+			}
+			if (sid == null || sid == '')
+				return err('cannot create section');
+
+			u.set('netmonitor', sid, 'name', a.name);
+			u.set('netmonitor', sid, 'host', a.host);
+			u.set('netmonitor', sid, 'region', inList(a.region, REGIONS) ? a.region : 'other');
+			u.set('netmonitor', sid, 'label', validText(a.label, 32) ? (a.label || '') : '');
+			u.set('netmonitor', sid, 'proto', inList(a.proto, PROTOS) ? a.proto : 'icmp');
+			u.set('netmonitor', sid, 'tcp_port', '' + clampInt(a.tcp_port, 0, 65535));
+			u.set('netmonitor', sid, 'family', inList(a.family, FAMILIES) ? a.family : 'auto');
+			u.set('netmonitor', sid, 'interface', validIface(a.interface) ? (a.interface || '') : '');
+			u.set('netmonitor', sid, 'source', validIface(a.source) ? (a.source || '') : '');
+			u.set('netmonitor', sid, 'interval', '' + clampInt(a.interval, 0, 3600));
+			u.set('netmonitor', sid, 'timeout', '' + clampInt(a.timeout, 0, 30));
+			u.set('netmonitor', sid, 'enabled', (a.enabled === false || a.enabled === 0 || a.enabled === '0') ? '0' : '1');
+			u.set('netmonitor', sid, 'remark', validText(a.remark, 128) ? (a.remark || '') : '');
+
+			u.commit('netmonitor');
+			serviceAction('reload');
+			return { id: sid };
+		}
+	},
+
+	update_target: {
+		args: { id: 'string', name: 'string', host: 'string', region: 'string', label: 'string', proto: 'string', tcp_port: 'string', family: 'string', interface: 'string', source: 'string', interval: 'string', timeout: 'string', enabled: 'string', remark: 'string' },
+		call: function(req) {
+			const a = nmArgs(req);
+			if (a == null || a.id == null || !safeId(a.id))
+				return err('invalid id');
+			let u = uciOpen();
+			if (u.get('netmonitor', a.id) == null)
+				return err('target not found');
+
+			if (a.name != null) {
+				if (a.name == '' || !validText(a.name, 64))
+					return err('invalid name');
+				u.set('netmonitor', a.id, 'name', a.name);
+			}
+			if (a.host != null) {
+				if (!validHost(a.host))
+					return err('invalid host');
+				u.set('netmonitor', a.id, 'host', a.host);
+			}
+			if (a.region != null) {
+				if (!inList(a.region, REGIONS))
+					return err('invalid region');
+				u.set('netmonitor', a.id, 'region', a.region);
+			}
+			if (a.label != null) {
+				if (!validText(a.label, 32))
+					return err('invalid label');
+				u.set('netmonitor', a.id, 'label', a.label);
+			}
+			if (a.proto != null) {
+				if (!inList(a.proto, PROTOS))
+					return err('invalid proto');
+				u.set('netmonitor', a.id, 'proto', a.proto);
+			}
+			if (a.tcp_port != null)
+				u.set('netmonitor', a.id, 'tcp_port', '' + clampInt(a.tcp_port, 0, 65535));
+			if (a.family != null) {
+				if (!inList(a.family, FAMILIES))
+					return err('invalid family');
+				u.set('netmonitor', a.id, 'family', a.family);
+			}
+			if (a.interface != null) {
+				if (!validIface(a.interface))
+					return err('invalid interface');
+				u.set('netmonitor', a.id, 'interface', a.interface);
+			}
+			if (a.source != null) {
+				if (!validIface(a.source))
+					return err('invalid source');
+				u.set('netmonitor', a.id, 'source', a.source);
+			}
+			if (a.interval != null)
+				u.set('netmonitor', a.id, 'interval', '' + clampInt(a.interval, 0, 3600));
+			if (a.timeout != null)
+				u.set('netmonitor', a.id, 'timeout', '' + clampInt(a.timeout, 0, 30));
+			if (a.enabled != null)
+				u.set('netmonitor', a.id, 'enabled', (a.enabled === false || a.enabled === 0 || a.enabled === '0') ? '0' : '1');
+			if (a.remark != null) {
+				if (!validText(a.remark, 128))
+					return err('invalid remark');
+				u.set('netmonitor', a.id, 'remark', a.remark);
+			}
+
+			u.commit('netmonitor');
+			serviceAction('reload');
+			return { id: a.id };
+		}
+	},
+
+	delete_target: {
+		args: { id: 'string' },
+		call: function(req) {
+			const a = nmArgs(req);
+			if (a == null || a.id == null || !safeId(a.id))
+				return err('invalid id');
+			let u = uciOpen();
+			if (u.get('netmonitor', a.id) == null)
+				return err('target not found');
+			u.delete('netmonitor', a.id);
+			u.commit('netmonitor');
+			cleanupTargetFiles(a.id);
+			serviceAction('reload');
+			return { id: a.id };
+		}
+	},
+
+	move_target: {
+		args: { id: 'string', direction: 'string' },
+		call: function(req) {
+			const a = nmArgs(req);
+			if (a == null || a.id == null || !safeId(a.id))
+				return err('invalid id');
+			let dir = num(a.direction);
+			if (dir != -1 && dir != 1)
+				return err('invalid direction');
+			let u = uciOpen();
+			if (u.get('netmonitor', a.id) == null)
+				return err('target not found');
+
+			/* u.reorder() 的位置参数是 1-based 绝对下标，负数会被 libuci 拒绝，
+			 * 所以不能把 direction 直接传进去：先取当前下标，再换算目标位置。 */
+			let ids = [];
+			u.foreach('netmonitor', 'target', function(s) { push(ids, s['.name']); });
+
+			let idx = -1;
+			for (let i = 0; i < length(ids); i++)
+				if (ids[i] == a.id) {
+					idx = i;
+					break;
+				}
+			if (idx < 0)
+				return err('target not found');
+
+			let pos = idx + 1 + dir;
+			if (pos < 1 || pos > length(ids))
+				return err('already at boundary');
+
+			u.reorder('netmonitor', a.id, pos);
+			u.commit('netmonitor');
+			serviceAction('reload');
+			return { id: a.id, position: pos };
+		}
+	},
+
+	copy_target: {
+		args: { id: 'string' },
+		call: function(req) {
+			const a = nmArgs(req);
+			if (a == null || a.id == null || !safeId(a.id))
+				return err('invalid id');
+			let u = uciOpen();
+			let old = u.get_all('netmonitor', a.id);
+			if (old == null)
+				return err('target not found');
+			let sid = u.add('netmonitor', 'target');
+			if (sid == null || sid == '')
+				return err('cannot create section');
+			let keys = ['name', 'host', 'region', 'label', 'proto', 'tcp_port', 'family',
+			            'interface', 'source', 'interval', 'timeout', 'enabled', 'remark'];
+			for (let i = 0; i < length(keys); i++)
+				if (exists(old, keys[i]))
+					u.set('netmonitor', sid, keys[i], old[keys[i]]);
+			u.set('netmonitor', sid, 'name', (old.name || old['.name'] || 'copy') + '-copy');
+			u.set('netmonitor', sid, 'enabled', '0');
+			u.commit('netmonitor');
+			serviceAction('reload');
+			return { id: sid };
+		}
+	},
+
+	batch_targets: {
+		/* ids 为逗号分隔的目标 id 列表：rpcd 只接受字符串参数，
+		 * 传 JSON 数组会直接被拒绝（Invalid argument）。 */
+		args: { ids: 'string', enabled: 'string' },
+		call: function(req) {
+			const a = nmArgs(req);
+			let ids = (type(a.ids) == 'string') ? split(a.ids, ',') : [];
+			if (length(ids) == 0)
+				return err('invalid ids');
+			let val = (a.enabled === false || a.enabled === 0 || a.enabled === '0') ? '0' : '1';
+			let u = uciOpen();
+			let n = 0;
+			for (let i = 0; i < length(ids); i++) {
+				let id = trim(ids[i]);
+				if (!safeId(id))
+					continue;
+				if (u.get('netmonitor', id) == null)
+					continue;
+				u.set('netmonitor', id, 'enabled', val);
+				n++;
+			}
+			if (n == 0)
+				return { changed: 0 };
+			u.commit('netmonitor');
+			serviceAction('reload');
+			return { changed: n };
+		}
+	},
+
+	clear_history: {
+		args: { id: 'string' },
+		call: function(req) {
+			const a = nmArgs(req);
+			let u = uciOpen();
+			let targets = getTargets(u);
+			if (a != null && a.id != null && safeId(a.id)) {
+				cleanupTargetFiles(a.id);
+				return { cleared: 1 };
+			}
+			for (let i = 0; i < length(targets); i++)
+				cleanupTargetFiles(targets[i].id);
+			shcmd('rm -f ' + PERSIST_DIR + '/*.agg ' + PERSIST_DIR + '/*.last 2>/dev/null');
+			return { cleared: length(targets) };
+		}
+	},
+
+	service_status: {
+		call: function() {
+			let tickRaw = readfile(TICK_FILE);
+			let tick = (tickRaw != null) ? num(trim(tickRaw)) : 0;
+			return {
+				running: serviceRunning() ? 1 : 0,
+				tick: tick,
+				age: (tick > 0) ? (now() - tick) : -1
+			};
+		}
+	},
+
+	start_service: {
+		call: function() {
+			serviceAction('enable');
+			serviceAction('start');
+			return { ok: 1 };
+		}
+	},
+
+	stop_service: {
+		call: function() {
+			serviceAction('stop');
+			return { ok: 1 };
+		}
+	},
+
+	restart_service: {
+		call: function() {
+			serviceAction('enable');
+			serviceAction('restart');
+			return { ok: 1 };
+		}
+	}
+};
+
+return { 'luci.netmonitor': methods };

@@ -1,0 +1,13 @@
+{
+	"admin/status/wan_latency": {
+		"title": "公网延迟",
+		"order": 8,
+		"action": {
+			"type": "view",
+			"path": "status/wan_latency"
+		},
+		"depends": {
+			"acl": [ "luci-app-wan-latency" ]
+		}
+	}
+}

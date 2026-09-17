@@ -1,0 +1,820 @@
+# luci-app-netmonitor translation file
+# Copyright (C) 2026 netmonitor contributors
+# This file is distributed under the same license as the luci-app-netmonitor package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-netmonitor 1.2.0\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: po/gen_po.py\n"
+
+
+msgid "Never checked"
+msgstr "从未检测"
+
+msgid "Just now"
+msgstr "刚刚"
+
+msgid "%d seconds ago"
+msgstr "%d 秒前"
+
+msgid "%d minutes ago"
+msgstr "%d 分钟前"
+
+msgid "%d hours ago"
+msgstr "%d 小时前"
+
+msgid "%d days ago"
+msgstr "%d 天前"
+
+msgid "China"
+msgstr "国内"
+
+msgid "Overseas"
+msgstr "国外"
+
+msgid "Other"
+msgstr "其他"
+
+msgid "Timeout"
+msgstr "超时"
+
+msgid "DNS resolve failed"
+msgstr "DNS 解析失败"
+
+msgid "Network unreachable"
+msgstr "网络不可达"
+
+msgid "Invalid target"
+msgstr "目标无效"
+
+msgid "Check failed"
+msgstr "检测失败"
+
+msgid "Loss"
+msgstr "丢包"
+
+msgid "Availability"
+msgstr "在线率"
+
+msgid "Avg"
+msgstr "平均"
+
+msgid "P95"
+msgstr "P95"
+
+msgid "Icon"
+msgstr "图标"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Time range"
+msgstr "时间范围"
+
+msgid "All targets"
+msgstr "所有目标"
+
+msgid "Quick filter"
+msgstr "快速筛选"
+
+msgid "No target selected"
+msgstr "未选择目标"
+
+msgid "Current"
+msgstr "当前"
+
+msgid "Max"
+msgstr "最大"
+
+msgid "Min"
+msgstr "最小"
+
+msgid "Range"
+msgstr "范围"
+
+msgid "Live sampling"
+msgstr "实时采样"
+
+msgid "Selected targets"
+msgstr "已选目标"
+
+msgid "Data source: persistent history on flash"
+msgstr "数据来源：Flash 持久化历史"
+
+msgid "Data source: in-memory ring buffer"
+msgstr "数据来源：内存环形缓存"
+
+msgid "All regions"
+msgstr "所有区域"
+
+msgid "Region"
+msgstr "区域"
+
+msgid "Target"
+msgstr "目标"
+
+msgid "Query"
+msgstr "查询"
+
+msgid "History persistence is disabled. Ranges longer than the in-memory buffer may have no data."
+msgstr "历史持久化未启用，超出内存缓存范围的时间段可能没有数据。"
+
+msgid "Statistics"
+msgstr "统计"
+
+msgid "Samples"
+msgstr "样本数"
+
+msgid "Average"
+msgstr "平均"
+
+msgid "P50"
+msgstr "P50"
+
+msgid "Latency trend"
+msgstr "延迟趋势"
+
+msgid "Target count"
+msgstr "目标数"
+
+msgid "Average latency"
+msgstr "平均延迟"
+
+msgid "Packet loss"
+msgstr "丢包率"
+
+msgid "Weighted by samples"
+msgstr "按样本加权"
+
+msgid "Success rate"
+msgstr "成功率"
+
+msgid "No data in this range"
+msgstr "该时间范围内没有数据"
+
+msgid "No monitoring data"
+msgstr "暂无监控数据"
+
+msgid "Add and enable monitoring targets to start collecting data."
+msgstr "请添加并启用监控目标以开始采集数据。"
+
+msgid "Network is healthy"
+msgstr "网络正常"
+
+msgid "All monitored targets respond normally."
+msgstr "所有监控目标响应正常。"
+
+msgid "Network problems detected"
+msgstr "网络存在异常"
+
+msgid "Some targets are unreachable or unstable."
+msgstr "部分目标不可达或不稳定。"
+
+msgid "Serious network failure"
+msgstr "网络严重故障"
+
+msgid "One or more targets failed consecutively beyond the threshold."
+msgstr "一个或多个目标连续失败次数已超过阈值。"
+
+msgid "Current latency"
+msgstr "当前延迟"
+
+msgid "Online"
+msgstr "在线"
+
+msgid "Abnormal"
+msgstr "异常"
+
+msgid "Background service is not running. Monitoring is stopped."
+msgstr "后台服务未运行，监控已停止。"
+
+msgid "Background service did not update data recently. Check the service status."
+msgstr "后台服务近期未更新数据，请检查服务状态。"
+
+msgid "No enabled targets. Go to Targets to add one."
+msgstr "没有已启用的目标，请到「目标管理」添加。"
+
+msgid "Weighted loss"
+msgstr "加权丢包率"
+
+msgid "Lost packets"
+msgstr "丢包数"
+
+msgid "Across enabled targets"
+msgstr "所有已启用目标的平均值"
+
+msgid "Latest probe round"
+msgstr "最近一次检测结果"
+
+msgid "Unweighted"
+msgstr "未加权"
+
+msgid "China network"
+msgstr "国内网络"
+
+msgid "Overseas network"
+msgstr "国外网络"
+
+msgid "Online targets"
+msgstr "在线目标"
+
+msgid "Last check"
+msgstr "最后检测"
+
+msgid "Probe settings"
+msgstr "探测设置"
+
+msgid "Interval"
+msgstr "间隔"
+
+msgid "Data source"
+msgstr "数据来源"
+
+msgid "Persistent history"
+msgstr "历史持久化"
+
+msgid "In-memory ring buffer"
+msgstr "内存环形缓存"
+
+msgid "Retention"
+msgstr "保留期"
+
+msgid "Dual stack"
+msgstr "双协议栈"
+
+msgid "Address family"
+msgstr "地址族"
+
+msgid "No targets configured"
+msgstr "尚未配置监控目标"
+
+msgid "Service running"
+msgstr "服务运行中"
+
+msgid "Service stopped"
+msgstr "服务已停止"
+
+msgid "Last update"
+msgstr "最后更新"
+
+msgid "Operation completed"
+msgstr "操作已完成"
+
+msgid "Start"
+msgstr "启动"
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "Restart"
+msgstr "重启"
+
+msgid "All status"
+msgstr "所有状态"
+
+msgid "Failed"
+msgstr "失败"
+
+msgid "Disabled"
+msgstr "已禁用"
+
+msgid "Search name or address"
+msgstr "搜索名称或地址"
+
+msgid "Search"
+msgstr "搜索"
+
+msgid "Pause"
+msgstr "暂停"
+
+msgid "Resume"
+msgstr "继续"
+
+msgid "Name"
+msgstr "名称"
+
+msgid "Address"
+msgstr "地址"
+
+msgid "Fails"
+msgstr "连续失败"
+
+msgid "No matching targets"
+msgstr "没有匹配的目标"
+
+msgid "Updated"
+msgstr "更新时间"
+
+msgid "UI refresh"
+msgstr "界面刷新"
+
+msgid "Region latency comparison"
+msgstr "区域延迟对比"
+
+msgid "Total"
+msgstr "总数"
+
+msgid "No targets"
+msgstr "暂无目标"
+
+msgid "Detection"
+msgstr "检测设置"
+
+msgid "How the background daemon probes every target."
+msgstr "后台守护进程对每个目标使用的探测方式。"
+
+msgid "Enable monitoring"
+msgstr "启用监控"
+
+msgid "Master switch. When disabled the background daemon stops probing."
+msgstr "总开关。关闭后后台服务停止探测。"
+
+msgid "Default probe method"
+msgstr "默认探测方式"
+
+msgid "ICMP echo (ping) by default. TCP connect measures the TCP handshake time to a port and still works on networks that drop ICMP. A target can override this."
+msgstr "默认使用 ICMP echo（ping）。TCP 连接方式测量到指定端口的 TCP 握手耗时，在被丢弃 ICMP 的网络里依然可用。单个目标可单独覆盖此项。"
+
+msgid "ICMP (ping)"
+msgstr "ICMP（ping）"
+
+msgid "TCP connect"
+msgstr "TCP 连接"
+
+msgid "Default TCP port"
+msgstr "默认 TCP 端口"
+
+msgid "Used by TCP targets that do not specify a port of their own. Allowed range 1-65535."
+msgstr "供未单独指定端口的目标使用，允许范围 1-65535。"
+
+msgid "Check interval (seconds)"
+msgstr "检测间隔（秒）"
+
+msgid "Recommended values: 1, 5, 10, 15, 30, 60, 120, 300. Allowed range 1-3600."
+msgstr "推荐值：1、5、10、15、30、60、120、300。允许范围 1-3600。"
+
+msgid "Probe timeout (seconds)"
+msgstr "Ping 超时（秒）"
+
+msgid "Per-packet wait time before a probe is considered lost."
+msgstr "单个探测包的等待时间，超时即判定为丢包。"
+
+msgid "Packets per probe"
+msgstr "每次检测发包数"
+
+msgid "ICMP only. Higher values give better loss statistics but cost more time. TCP always performs a single connect."
+msgstr "仅对 ICMP 有效。数值越大丢包统计越准，但耗时更长；TCP 方式固定只建立一次连接。"
+
+msgid "Concurrent probes"
+msgstr "并发检测数量"
+
+msgid "Maximum number of targets probed in parallel."
+msgstr "同时进行探测的目标数量上限。"
+
+msgid "Which protocol family the probes use. A target can override this."
+msgstr "探测使用的协议族，单个目标可单独覆盖。"
+
+msgid "Auto"
+msgstr "自动"
+
+msgid "IPv4 only"
+msgstr "仅 IPv4"
+
+msgid "IPv6 only"
+msgstr "仅 IPv6"
+
+msgid "Outbound interface (optional)"
+msgstr "出口接口（可选）"
+
+msgid "Example: wan, wwan. Leave empty to use the system default route."
+msgstr "例如 wan、wwan。留空则使用系统默认路由。"
+
+msgid "Source address (optional)"
+msgstr "源地址（可选）"
+
+msgid "Bind probes to a specific source IP address."
+msgstr "将探测绑定到指定的源 IP 地址。"
+
+msgid "Data retention"
+msgstr "数据保留"
+
+msgid "Where samples are kept and how long they survive."
+msgstr "采样数据的存放位置与保留时长。"
+
+msgid "Write aggregated samples to flash periodically. Disabled by default to protect flash lifetime."
+msgstr "定期将聚合数据写入 Flash。默认关闭以保护 Flash 寿命。"
+
+msgid "History retention"
+msgstr "历史保留时间"
+
+msgid "How long aggregated samples are kept on flash when persistence is enabled."
+msgstr "开启持久化后，聚合数据在 Flash 上的保留时长。"
+
+msgid "1 hour"
+msgstr "最近 1 小时"
+
+msgid "6 hours"
+msgstr "最近 6 小时"
+
+msgid "12 hours"
+msgstr "最近 12 小时"
+
+msgid "24 hours"
+msgstr "最近 24 小时"
+
+msgid "3 days"
+msgstr "最近 3 天"
+
+msgid "7 days"
+msgstr "最近 7 天"
+
+msgid "30 days"
+msgstr "最近 30 天"
+
+msgid "Flush interval (seconds)"
+msgstr "落盘间隔（秒）"
+
+msgid "How often aggregated data is written to flash. Larger values mean fewer writes."
+msgstr "聚合数据写入 Flash 的频率，数值越大写入次数越少。"
+
+msgid "In-memory samples per target"
+msgstr "每目标内存采样点数"
+
+msgid "Ring buffer size in tmpfs. 4320 samples at a 10s interval covers about 12 hours."
+msgstr "tmpfs 中环形缓存的大小。10 秒间隔下 4320 点约覆盖 12 小时。"
+
+msgid "Thresholds"
+msgstr "阈值"
+
+msgid "Values used to turn raw measurements into a quality grade."
+msgstr "把原始测量值换算为质量等级所用的阈值。"
+
+msgid "Excellent below (ms)"
+msgstr "优秀（低于，毫秒）"
+
+msgid "Latency below this value is graded Excellent."
+msgstr "延迟低于该值判为「优秀」。"
+
+msgid "Good below (ms)"
+msgstr "良好（低于，毫秒）"
+
+msgid "Latency below this value is graded Good."
+msgstr "延迟低于该值判为「良好」。"
+
+msgid "Fair below (ms)"
+msgstr "一般（低于，毫秒）"
+
+msgid "Latency below this value is graded Fair."
+msgstr "延迟低于该值判为「一般」。"
+
+msgid "Poor below (ms)"
+msgstr "较差（低于，毫秒）"
+
+msgid "Latency at or above this value is graded Severe."
+msgstr "延迟达到或超过该值判为「严重」。"
+
+msgid "Loss warning (%)"
+msgstr "丢包告警阈值（%）"
+
+msgid "Packet loss at or above this percentage is considered a warning."
+msgstr "丢包率达到或超过该百分比时视为告警。"
+
+msgid "Loss critical (%)"
+msgstr "丢包严重阈值（%）"
+
+msgid "Packet loss at or above this percentage is considered critical."
+msgstr "丢包率达到或超过该百分比时视为严重。"
+
+msgid "Consecutive failures to warn"
+msgstr "连续失败告警阈值"
+
+msgid "After this many consecutive failures the target is graded Severe."
+msgstr "连续失败达到该次数后，目标判为「严重」。"
+
+msgid "Consecutive failures to critical"
+msgstr "连续失败严重阈值"
+
+msgid "After this many consecutive failures the target is graded Offline."
+msgstr "连续失败达到该次数后，目标判为「离线」。"
+
+msgid "Interface & logging"
+msgstr "界面与日志"
+
+msgid "Front-end refresh rate and log verbosity."
+msgstr "前端刷新频率与日志详细程度。"
+
+msgid "UI refresh interval (seconds)"
+msgstr "界面刷新间隔（秒）"
+
+msgid "How often the page fetches new state. Independent from the probe interval."
+msgstr "页面获取最新状态的频率，与检测间隔相互独立。"
+
+msgid "Log level"
+msgstr "日志级别"
+
+msgid "Normal probes are never logged. Only state changes and failures produce log entries."
+msgstr "正常探测不写日志，只在状态变化和失败时记录。"
+
+msgid "Debug"
+msgstr "调试"
+
+msgid "Info"
+msgstr "信息"
+
+msgid "Warning"
+msgstr "警告"
+
+msgid "Error"
+msgstr "错误"
+
+msgid "Notification (reserved)"
+msgstr "通知（预留）"
+
+msgid "The notification backend is not implemented yet."
+msgstr "通知后端尚未实现。"
+
+msgid "Enable notification"
+msgstr "启用通知"
+
+msgid "Reserved for future webhook / Telegram / WeCom / DingTalk / mail support. Has no effect yet."
+msgstr "接口预留，后续可扩展 Webhook、Telegram、企业微信、钉钉、邮件等方式；目前不生效。"
+
+msgid "Notification endpoint"
+msgstr "通知地址"
+
+msgid "Reserved. Leave empty until a notification backend is available."
+msgstr "预留项，在通知后端可用之前请留空。"
+
+msgid "Clear all collected samples and persistent history"
+msgstr "清空所有已采集样本与持久化历史"
+
+msgid "Clear history"
+msgstr "清空历史"
+
+msgid "Clear all collected history data?"
+msgstr "确定清空所有历史数据？"
+
+msgid "History cleared"
+msgstr "历史数据已清空"
+
+msgid "Handshake timing to port"
+msgstr "到端口的握手耗时"
+
+msgid "Echo request / reply"
+msgstr "回显请求 / 应答"
+
+msgid "Check interval"
+msgstr "检测间隔"
+
+msgid "Probe timeout"
+msgstr "探测超时"
+
+msgid "Enabled"
+msgstr "已启用"
+
+msgid "Master switch"
+msgstr "总开关"
+
+msgid "Reserved"
+msgstr "预留"
+
+msgid "UI refresh interval"
+msgstr "界面刷新间隔"
+
+msgid "Independent from the probe interval"
+msgstr "与探测间隔相互独立"
+
+msgid "(current)"
+msgstr "（当前值）"
+
+msgid "Please enter a whole number"
+msgstr "请填写整数"
+
+msgid "Allowed range"
+msgstr "允许范围"
+
+msgid "Unsaved changes"
+msgstr "有未保存的修改"
+
+msgid "All changes applied"
+msgstr "所有修改已应用"
+
+msgid "Save & Apply"
+msgstr "保存并应用"
+
+msgid "Discard changes"
+msgstr "放弃修改"
+
+msgid "No changes to save"
+msgstr "没有需要保存的改动"
+
+msgid "Changes discarded"
+msgstr "已放弃修改"
+
+msgid "Add target"
+msgstr "新增目标"
+
+msgid "Enable selected"
+msgstr "批量启用"
+
+msgid "Disable selected"
+msgstr "批量禁用"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "Global interval"
+msgstr "全局间隔"
+
+msgid "Probe method"
+msgstr "探测方式"
+
+msgid "Custom label"
+msgstr "自定义标签"
+
+msgid "Family"
+msgstr "地址族"
+
+msgid "Interface"
+msgstr "接口"
+
+msgid "Actions"
+msgstr "操作"
+
+msgid "Interval and timeout set to 0 inherit the global settings."
+msgstr "间隔与超时填 0 表示继承全局设置。"
+
+msgid "The table scrolls horizontally on small screens."
+msgstr "小屏幕下表格可横向滚动。"
+
+msgid "global default port"
+msgstr "跟随全局默认端口"
+
+msgid "IPv4"
+msgstr "IPv4"
+
+msgid "IPv6"
+msgstr "IPv6"
+
+msgid "IPv4 + IPv6"
+msgstr "IPv4 + IPv6"
+
+msgid "Global"
+msgstr "跟随全局"
+
+msgid "Edit"
+msgstr "编辑"
+
+msgid "Copy"
+msgstr "复制"
+
+msgid "Delete"
+msgstr "删除"
+
+msgid "Delete this target?"
+msgstr "确定删除该目标？"
+
+msgid "Edit target"
+msgstr "编辑目标"
+
+msgid "Not used by ICMP"
+msgstr "ICMP 不使用端口"
+
+msgid "TCP port (0 = global default)"
+msgstr "TCP 端口（0 = 跟随全局默认）"
+
+msgid "Check interval (s, 0 = global)"
+msgstr "检测间隔（秒，0 = 跟随全局）"
+
+msgid "Timeout (s, 0 = global)"
+msgstr "超时（秒，0 = 跟随全局）"
+
+msgid "Interface (optional)"
+msgstr "接口（可选）"
+
+msgid "Remark"
+msgstr "备注"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Name and address are required"
+msgstr "名称与地址为必填项"
+
+msgid "TCP targets need a port or a global default port"
+msgstr "TCP 目标需要填写端口，或先设置一个全局默认端口"
+
+msgid "Network Monitor"
+msgstr "网络质量监控"
+
+msgid "Overview"
+msgstr "概览"
+
+msgid "Realtime"
+msgstr "实时监控"
+
+msgid "Latency Charts"
+msgstr "延迟曲线"
+
+msgid "CN / Global"
+msgstr "国内 / 国外"
+
+msgid "History"
+msgstr "历史数据"
+
+msgid "Targets"
+msgstr "目标管理"
+
+msgid "Settings"
+msgstr "设置"
+
+msgid "Excellent"
+msgstr "优秀"
+
+msgid "Good"
+msgstr "良好"
+
+msgid "Fair"
+msgstr "一般"
+
+msgid "Poor"
+msgstr "较差"
+
+msgid "Severe"
+msgstr "严重"
+
+msgid "Offline"
+msgstr "离线"
+
+msgid "Unknown"
+msgstr "未知"
+
+msgid "1 min"
+msgstr "最近 1 分钟"
+
+msgid "5 min"
+msgstr "最近 5 分钟"
+
+msgid "15 min"
+msgstr "最近 15 分钟"
+
+msgid "30 min"
+msgstr "最近 30 分钟"
+
+msgid "Invalid arguments"
+msgstr "参数无效"
+
+msgid "Invalid ID"
+msgstr "标识无效"
+
+msgid "Invalid target selection"
+msgstr "目标选择无效"
+
+msgid "Invalid name"
+msgstr "名称无效"
+
+msgid "Invalid host"
+msgstr "主机无效"
+
+msgid "Invalid region"
+msgstr "区域无效"
+
+msgid "Invalid label"
+msgstr "标签无效"
+
+msgid "Invalid protocol"
+msgstr "协议无效"
+
+msgid "Invalid address family"
+msgstr "地址族无效"
+
+msgid "Invalid interface"
+msgstr "接口无效"
+
+msgid "Invalid source address"
+msgstr "源地址无效"
+
+msgid "Invalid remark"
+msgstr "备注无效"
+
+msgid "Invalid direction"
+msgstr "方向无效"
+
+msgid "Target not found"
+msgstr "目标不存在"
+
+msgid "Target already exists"
+msgstr "目标已存在"
+
+msgid "Cannot create configuration section"
+msgstr "无法创建配置节"
+
+msgid "Already at the boundary"
+msgstr "已在边界位置"
+
+msgid "Invalid value for %s"
+msgstr "%s 的值无效"

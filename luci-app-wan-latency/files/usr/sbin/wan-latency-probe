@@ -1,0 +1,47 @@
+#!/usr/bin/lua
+-- SPDX-License-Identifier: GPL-2.0-only
+-- Copyright (C) 2026 xiaokeikei
+local nixio = require "nixio"
+local ip = arg[1]
+if not ip or not ip:match("^%d+%.%d+%.%d+%.%d+$") then os.exit(1) end
+local a0, b0 = nixio.gettimeofday()
+math.randomseed((a0 % 100000) * 1000 + ((b0 or 0) % 1000) + (nixio.getpid() or 1))
+
+local function enc_name(s)
+  local out = ""
+  for lab in string.gmatch(s .. ".", "([^.]+)") do
+    out = out .. string.char(#lab) .. lab
+  end
+  return out .. string.char(0)
+end
+
+local function once(pkt, id)
+  local s = nixio.socket("inet", "dgram")
+  if not s then return nil end
+  s:setopt("socket", "rcvtimeo", 1)
+  local a, b = nixio.gettimeofday()
+  if not s:sendto(pkt, ip, 53) then s:close(); return nil end
+  local data, src = s:recvfrom(512)
+  local c, d = nixio.gettimeofday()
+  s:close()
+  if type(data) ~= "string" or #data < 12 then return nil end
+  if type(src) == "string" and src ~= ip then return nil end
+  local rid = data:byte(1) * 256 + data:byte(2)
+  local flags = data:byte(3) * 256 + data:byte(4)
+  if rid ~= id or math.floor(flags / 32768) ~= 1 then return nil end
+  return (c - a) * 1000 + (d - b) / 1000
+end
+
+local id = math.random(1, 65534)
+-- RD=0 NS .
+local pkt1 = string.char(math.floor(id / 256), id % 256, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 1)
+local ms = once(pkt1, id)
+if not ms then
+  id = math.random(1, 65534)
+  local pkt2 = string.char(math.floor(id / 256), id % 256, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0)
+      .. enc_name("a.root-servers.net") .. string.char(0, 1, 0, 1)
+  ms = once(pkt2, id)
+end
+if not ms then os.exit(1) end
+io.write(string.format("%.1f\n", ms))
+os.exit(0)

@@ -1,0 +1,13 @@
+
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (C) 2026 xiaokeikei
+
+config monitor 'global'
+	option enabled '1'
+	option interval '10'
+	option retain_days '366'
+	option latency_threshold_ms '150'
+	option loss_alert_consecutive '3'
+	option ali_host '223.5.5.5'
+	option tencent_host '119.29.29.29'
+	option steam_host 'store.steampowered.com'

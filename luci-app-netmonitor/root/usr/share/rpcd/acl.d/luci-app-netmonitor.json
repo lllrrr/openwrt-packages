@@ -1,10 +1,35 @@
 {
 	"luci-app-netmonitor": {
-		"description": "Grant UCI access for luci-app-netmonitor",
+		"description": "Grant UCI and RPC access for the network quality monitor",
 		"read": {
+			"ubus": {
+				"luci.netmonitor": [
+					"get_status",
+					"get_targets",
+					"get_history",
+					"get_statistics",
+					"get_config",
+					"service_status"
+				]
+			},
 			"uci": [ "netmonitor" ]
 		},
 		"write": {
+			"ubus": {
+				"luci.netmonitor": [
+					"set_config",
+					"add_target",
+					"update_target",
+					"delete_target",
+					"move_target",
+					"copy_target",
+					"batch_targets",
+					"clear_history",
+					"start_service",
+					"stop_service",
+					"restart_service"
+				]
+			},
 			"uci": [ "netmonitor" ]
 		}
 	}

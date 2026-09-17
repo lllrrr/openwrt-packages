@@ -1,0 +1,11 @@
+{
+	"luci-app-wan-latency": {
+		"description": "Manage WAN latency monitoring",
+		"write": {
+			"cgi-io": [ "exec" ],
+			"file": {
+				"/usr/libexec/wan-latency-api": [ "exec" ]
+			}
+		}
+	}
+}

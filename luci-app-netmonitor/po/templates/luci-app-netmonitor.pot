@@ -1,0 +1,820 @@
+# luci-app-netmonitor translation file
+# Copyright (C) 2026 netmonitor contributors
+# This file is distributed under the same license as the luci-app-netmonitor package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-netmonitor 1.2.0\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: po/gen_po.py\n"
+
+
+msgid "Never checked"
+msgstr ""
+
+msgid "Just now"
+msgstr ""
+
+msgid "%d seconds ago"
+msgstr ""
+
+msgid "%d minutes ago"
+msgstr ""
+
+msgid "%d hours ago"
+msgstr ""
+
+msgid "%d days ago"
+msgstr ""
+
+msgid "China"
+msgstr ""
+
+msgid "Overseas"
+msgstr ""
+
+msgid "Other"
+msgstr ""
+
+msgid "Timeout"
+msgstr ""
+
+msgid "DNS resolve failed"
+msgstr ""
+
+msgid "Network unreachable"
+msgstr ""
+
+msgid "Invalid target"
+msgstr ""
+
+msgid "Check failed"
+msgstr ""
+
+msgid "Loss"
+msgstr ""
+
+msgid "Availability"
+msgstr ""
+
+msgid "Avg"
+msgstr ""
+
+msgid "P95"
+msgstr ""
+
+msgid "Icon"
+msgstr ""
+
+msgid "Status"
+msgstr ""
+
+msgid "Time range"
+msgstr ""
+
+msgid "All targets"
+msgstr ""
+
+msgid "Quick filter"
+msgstr ""
+
+msgid "No target selected"
+msgstr ""
+
+msgid "Current"
+msgstr ""
+
+msgid "Max"
+msgstr ""
+
+msgid "Min"
+msgstr ""
+
+msgid "Range"
+msgstr ""
+
+msgid "Live sampling"
+msgstr ""
+
+msgid "Selected targets"
+msgstr ""
+
+msgid "Data source: persistent history on flash"
+msgstr ""
+
+msgid "Data source: in-memory ring buffer"
+msgstr ""
+
+msgid "All regions"
+msgstr ""
+
+msgid "Region"
+msgstr ""
+
+msgid "Target"
+msgstr ""
+
+msgid "Query"
+msgstr ""
+
+msgid "History persistence is disabled. Ranges longer than the in-memory buffer may have no data."
+msgstr ""
+
+msgid "Statistics"
+msgstr ""
+
+msgid "Samples"
+msgstr ""
+
+msgid "Average"
+msgstr ""
+
+msgid "P50"
+msgstr ""
+
+msgid "Latency trend"
+msgstr ""
+
+msgid "Target count"
+msgstr ""
+
+msgid "Average latency"
+msgstr ""
+
+msgid "Packet loss"
+msgstr ""
+
+msgid "Weighted by samples"
+msgstr ""
+
+msgid "Success rate"
+msgstr ""
+
+msgid "No data in this range"
+msgstr ""
+
+msgid "No monitoring data"
+msgstr ""
+
+msgid "Add and enable monitoring targets to start collecting data."
+msgstr ""
+
+msgid "Network is healthy"
+msgstr ""
+
+msgid "All monitored targets respond normally."
+msgstr ""
+
+msgid "Network problems detected"
+msgstr ""
+
+msgid "Some targets are unreachable or unstable."
+msgstr ""
+
+msgid "Serious network failure"
+msgstr ""
+
+msgid "One or more targets failed consecutively beyond the threshold."
+msgstr ""
+
+msgid "Current latency"
+msgstr ""
+
+msgid "Online"
+msgstr ""
+
+msgid "Abnormal"
+msgstr ""
+
+msgid "Background service is not running. Monitoring is stopped."
+msgstr ""
+
+msgid "Background service did not update data recently. Check the service status."
+msgstr ""
+
+msgid "No enabled targets. Go to Targets to add one."
+msgstr ""
+
+msgid "Weighted loss"
+msgstr ""
+
+msgid "Lost packets"
+msgstr ""
+
+msgid "Across enabled targets"
+msgstr ""
+
+msgid "Latest probe round"
+msgstr ""
+
+msgid "Unweighted"
+msgstr ""
+
+msgid "China network"
+msgstr ""
+
+msgid "Overseas network"
+msgstr ""
+
+msgid "Online targets"
+msgstr ""
+
+msgid "Last check"
+msgstr ""
+
+msgid "Probe settings"
+msgstr ""
+
+msgid "Interval"
+msgstr ""
+
+msgid "Data source"
+msgstr ""
+
+msgid "Persistent history"
+msgstr ""
+
+msgid "In-memory ring buffer"
+msgstr ""
+
+msgid "Retention"
+msgstr ""
+
+msgid "Dual stack"
+msgstr ""
+
+msgid "Address family"
+msgstr ""
+
+msgid "No targets configured"
+msgstr ""
+
+msgid "Service running"
+msgstr ""
+
+msgid "Service stopped"
+msgstr ""
+
+msgid "Last update"
+msgstr ""
+
+msgid "Operation completed"
+msgstr ""
+
+msgid "Start"
+msgstr ""
+
+msgid "Stop"
+msgstr ""
+
+msgid "Restart"
+msgstr ""
+
+msgid "All status"
+msgstr ""
+
+msgid "Failed"
+msgstr ""
+
+msgid "Disabled"
+msgstr ""
+
+msgid "Search name or address"
+msgstr ""
+
+msgid "Search"
+msgstr ""
+
+msgid "Pause"
+msgstr ""
+
+msgid "Resume"
+msgstr ""
+
+msgid "Name"
+msgstr ""
+
+msgid "Address"
+msgstr ""
+
+msgid "Fails"
+msgstr ""
+
+msgid "No matching targets"
+msgstr ""
+
+msgid "Updated"
+msgstr ""
+
+msgid "UI refresh"
+msgstr ""
+
+msgid "Region latency comparison"
+msgstr ""
+
+msgid "Total"
+msgstr ""
+
+msgid "No targets"
+msgstr ""
+
+msgid "Detection"
+msgstr ""
+
+msgid "How the background daemon probes every target."
+msgstr ""
+
+msgid "Enable monitoring"
+msgstr ""
+
+msgid "Master switch. When disabled the background daemon stops probing."
+msgstr ""
+
+msgid "Default probe method"
+msgstr ""
+
+msgid "ICMP echo (ping) by default. TCP connect measures the TCP handshake time to a port and still works on networks that drop ICMP. A target can override this."
+msgstr ""
+
+msgid "ICMP (ping)"
+msgstr ""
+
+msgid "TCP connect"
+msgstr ""
+
+msgid "Default TCP port"
+msgstr ""
+
+msgid "Used by TCP targets that do not specify a port of their own. Allowed range 1-65535."
+msgstr ""
+
+msgid "Check interval (seconds)"
+msgstr ""
+
+msgid "Recommended values: 1, 5, 10, 15, 30, 60, 120, 300. Allowed range 1-3600."
+msgstr ""
+
+msgid "Probe timeout (seconds)"
+msgstr ""
+
+msgid "Per-packet wait time before a probe is considered lost."
+msgstr ""
+
+msgid "Packets per probe"
+msgstr ""
+
+msgid "ICMP only. Higher values give better loss statistics but cost more time. TCP always performs a single connect."
+msgstr ""
+
+msgid "Concurrent probes"
+msgstr ""
+
+msgid "Maximum number of targets probed in parallel."
+msgstr ""
+
+msgid "Which protocol family the probes use. A target can override this."
+msgstr ""
+
+msgid "Auto"
+msgstr ""
+
+msgid "IPv4 only"
+msgstr ""
+
+msgid "IPv6 only"
+msgstr ""
+
+msgid "Outbound interface (optional)"
+msgstr ""
+
+msgid "Example: wan, wwan. Leave empty to use the system default route."
+msgstr ""
+
+msgid "Source address (optional)"
+msgstr ""
+
+msgid "Bind probes to a specific source IP address."
+msgstr ""
+
+msgid "Data retention"
+msgstr ""
+
+msgid "Where samples are kept and how long they survive."
+msgstr ""
+
+msgid "Write aggregated samples to flash periodically. Disabled by default to protect flash lifetime."
+msgstr ""
+
+msgid "History retention"
+msgstr ""
+
+msgid "How long aggregated samples are kept on flash when persistence is enabled."
+msgstr ""
+
+msgid "1 hour"
+msgstr ""
+
+msgid "6 hours"
+msgstr ""
+
+msgid "12 hours"
+msgstr ""
+
+msgid "24 hours"
+msgstr ""
+
+msgid "3 days"
+msgstr ""
+
+msgid "7 days"
+msgstr ""
+
+msgid "30 days"
+msgstr ""
+
+msgid "Flush interval (seconds)"
+msgstr ""
+
+msgid "How often aggregated data is written to flash. Larger values mean fewer writes."
+msgstr ""
+
+msgid "In-memory samples per target"
+msgstr ""
+
+msgid "Ring buffer size in tmpfs. 4320 samples at a 10s interval covers about 12 hours."
+msgstr ""
+
+msgid "Thresholds"
+msgstr ""
+
+msgid "Values used to turn raw measurements into a quality grade."
+msgstr ""
+
+msgid "Excellent below (ms)"
+msgstr ""
+
+msgid "Latency below this value is graded Excellent."
+msgstr ""
+
+msgid "Good below (ms)"
+msgstr ""
+
+msgid "Latency below this value is graded Good."
+msgstr ""
+
+msgid "Fair below (ms)"
+msgstr ""
+
+msgid "Latency below this value is graded Fair."
+msgstr ""
+
+msgid "Poor below (ms)"
+msgstr ""
+
+msgid "Latency at or above this value is graded Severe."
+msgstr ""
+
+msgid "Loss warning (%)"
+msgstr ""
+
+msgid "Packet loss at or above this percentage is considered a warning."
+msgstr ""
+
+msgid "Loss critical (%)"
+msgstr ""
+
+msgid "Packet loss at or above this percentage is considered critical."
+msgstr ""
+
+msgid "Consecutive failures to warn"
+msgstr ""
+
+msgid "After this many consecutive failures the target is graded Severe."
+msgstr ""
+
+msgid "Consecutive failures to critical"
+msgstr ""
+
+msgid "After this many consecutive failures the target is graded Offline."
+msgstr ""
+
+msgid "Interface & logging"
+msgstr ""
+
+msgid "Front-end refresh rate and log verbosity."
+msgstr ""
+
+msgid "UI refresh interval (seconds)"
+msgstr ""
+
+msgid "How often the page fetches new state. Independent from the probe interval."
+msgstr ""
+
+msgid "Log level"
+msgstr ""
+
+msgid "Normal probes are never logged. Only state changes and failures produce log entries."
+msgstr ""
+
+msgid "Debug"
+msgstr ""
+
+msgid "Info"
+msgstr ""
+
+msgid "Warning"
+msgstr ""
+
+msgid "Error"
+msgstr ""
+
+msgid "Notification (reserved)"
+msgstr ""
+
+msgid "The notification backend is not implemented yet."
+msgstr ""
+
+msgid "Enable notification"
+msgstr ""
+
+msgid "Reserved for future webhook / Telegram / WeCom / DingTalk / mail support. Has no effect yet."
+msgstr ""
+
+msgid "Notification endpoint"
+msgstr ""
+
+msgid "Reserved. Leave empty until a notification backend is available."
+msgstr ""
+
+msgid "Clear all collected samples and persistent history"
+msgstr ""
+
+msgid "Clear history"
+msgstr ""
+
+msgid "Clear all collected history data?"
+msgstr ""
+
+msgid "History cleared"
+msgstr ""
+
+msgid "Handshake timing to port"
+msgstr ""
+
+msgid "Echo request / reply"
+msgstr ""
+
+msgid "Check interval"
+msgstr ""
+
+msgid "Probe timeout"
+msgstr ""
+
+msgid "Enabled"
+msgstr ""
+
+msgid "Master switch"
+msgstr ""
+
+msgid "Reserved"
+msgstr ""
+
+msgid "UI refresh interval"
+msgstr ""
+
+msgid "Independent from the probe interval"
+msgstr ""
+
+msgid "(current)"
+msgstr ""
+
+msgid "Please enter a whole number"
+msgstr ""
+
+msgid "Allowed range"
+msgstr ""
+
+msgid "Unsaved changes"
+msgstr ""
+
+msgid "All changes applied"
+msgstr ""
+
+msgid "Save & Apply"
+msgstr ""
+
+msgid "Discard changes"
+msgstr ""
+
+msgid "No changes to save"
+msgstr ""
+
+msgid "Changes discarded"
+msgstr ""
+
+msgid "Add target"
+msgstr ""
+
+msgid "Enable selected"
+msgstr ""
+
+msgid "Disable selected"
+msgstr ""
+
+msgid "Refresh"
+msgstr ""
+
+msgid "Global interval"
+msgstr ""
+
+msgid "Probe method"
+msgstr ""
+
+msgid "Custom label"
+msgstr ""
+
+msgid "Family"
+msgstr ""
+
+msgid "Interface"
+msgstr ""
+
+msgid "Actions"
+msgstr ""
+
+msgid "Interval and timeout set to 0 inherit the global settings."
+msgstr ""
+
+msgid "The table scrolls horizontally on small screens."
+msgstr ""
+
+msgid "global default port"
+msgstr ""
+
+msgid "IPv4"
+msgstr ""
+
+msgid "IPv6"
+msgstr ""
+
+msgid "IPv4 + IPv6"
+msgstr ""
+
+msgid "Global"
+msgstr ""
+
+msgid "Edit"
+msgstr ""
+
+msgid "Copy"
+msgstr ""
+
+msgid "Delete"
+msgstr ""
+
+msgid "Delete this target?"
+msgstr ""
+
+msgid "Edit target"
+msgstr ""
+
+msgid "Not used by ICMP"
+msgstr ""
+
+msgid "TCP port (0 = global default)"
+msgstr ""
+
+msgid "Check interval (s, 0 = global)"
+msgstr ""
+
+msgid "Timeout (s, 0 = global)"
+msgstr ""
+
+msgid "Interface (optional)"
+msgstr ""
+
+msgid "Remark"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "Name and address are required"
+msgstr ""
+
+msgid "TCP targets need a port or a global default port"
+msgstr ""
+
+msgid "Network Monitor"
+msgstr ""
+
+msgid "Overview"
+msgstr ""
+
+msgid "Realtime"
+msgstr ""
+
+msgid "Latency Charts"
+msgstr ""
+
+msgid "CN / Global"
+msgstr ""
+
+msgid "History"
+msgstr ""
+
+msgid "Targets"
+msgstr ""
+
+msgid "Settings"
+msgstr ""
+
+msgid "Excellent"
+msgstr ""
+
+msgid "Good"
+msgstr ""
+
+msgid "Fair"
+msgstr ""
+
+msgid "Poor"
+msgstr ""
+
+msgid "Severe"
+msgstr ""
+
+msgid "Offline"
+msgstr ""
+
+msgid "Unknown"
+msgstr ""
+
+msgid "1 min"
+msgstr ""
+
+msgid "5 min"
+msgstr ""
+
+msgid "15 min"
+msgstr ""
+
+msgid "30 min"
+msgstr ""
+
+msgid "Invalid arguments"
+msgstr ""
+
+msgid "Invalid ID"
+msgstr ""
+
+msgid "Invalid target selection"
+msgstr ""
+
+msgid "Invalid name"
+msgstr ""
+
+msgid "Invalid host"
+msgstr ""
+
+msgid "Invalid region"
+msgstr ""
+
+msgid "Invalid label"
+msgstr ""
+
+msgid "Invalid protocol"
+msgstr ""
+
+msgid "Invalid address family"
+msgstr ""
+
+msgid "Invalid interface"
+msgstr ""
+
+msgid "Invalid source address"
+msgstr ""
+
+msgid "Invalid remark"
+msgstr ""
+
+msgid "Invalid direction"
+msgstr ""
+
+msgid "Target not found"
+msgstr ""
+
+msgid "Target already exists"
+msgstr ""
+
+msgid "Cannot create configuration section"
+msgstr ""
+
+msgid "Already at the boundary"
+msgstr ""
+
+msgid "Invalid value for %s"
+msgstr ""

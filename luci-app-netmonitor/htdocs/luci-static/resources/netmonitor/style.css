@@ -1,0 +1,998 @@
+/*
+ * luci-app-netmonitor 样式表
+ *
+ * 约束（主线兼容要求）：
+ *   1. 全部选择器限定在 .nm-* 命名空间内，不修改 body、不覆盖 LuCI 全局 class，
+ *      不影响其它页面与第三方主题。
+ *   2. 优先使用 LuCI 主题提供的 CSS 变量（--background-color / --text-color 等），
+ *      变量缺失时退回系统偏好配色，因此默认主题与常见第三方主题都能正常显示。
+ *   3. 动画只使用 transform / opacity / stroke-dashoffset，避免 blur、filter 与
+ *      大面积 box-shadow，降低低端路由设备的 CPU/GPU 开销。
+ */
+
+/* 变量同时定义在 .nm-root 与 .nm-modal 上。
+ *
+ * 原因：编辑弹窗必须挂在 document.body 下（否则会被祖先的 overflow/transform
+ * 裁掉），于是它不在 .nm-root 的子树里。若变量只定义在 .nm-root，弹窗内
+ * 所有 var(--nm-*) 都会解析为空，var() 又没写回退值时整条声明失效 ——
+ * 实测表现为 .nm-btn-primary 的 background 变成 transparent，
+ * 白字落在透明底上，看起来「保存按钮不见了」。 */
+.nm-root,
+.nm-modal {
+	--nm-bg: var(--background-color, #ffffff);
+	--nm-fg: var(--text-color, #20242c);
+	--nm-card: var(--light-bg-color, #f7f8fa);
+	--nm-card-hi: var(--lighter-bg-color, #ffffff);
+	--nm-border: var(--border-color, rgba(120, 130, 150, 0.20));
+	--nm-muted: var(--light-text-color, #7b8494);
+	--nm-accent: var(--accent-color, #2f6fed);
+
+	--nm-ok: #2e9e5b;
+	--nm-good: #3aa76d;
+	--nm-warn: #d69a1a;
+	--nm-poor: #e0762c;
+	--nm-bad: #cf4437;
+	--nm-idle: #8a93a3;
+
+	/* 动态 SVG 图标专用配色：浅色主题用可辨识的深色变体，
+	 * 深色主题下切换到参考稿的高亮霓虹色，保证两套主题都有足够对比度。 */
+	--nm-cyan: #0f8fb8;
+	--nm-blue: #2f6fed;
+
+	--nm-radius: 14px;
+	--nm-radius-sm: 9px;
+	--nm-gap: 14px;
+}
+
+.nm-root {
+	color: var(--nm-fg);
+	font-size: 14px;
+	line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+	.nm-root,
+	.nm-modal {
+		--nm-bg: var(--background-color, #14171c);
+		--nm-fg: var(--text-color, #e6e9ef);
+		--nm-card: var(--light-bg-color, #1c2027);
+		--nm-card-hi: var(--lighter-bg-color, #23282f);
+		--nm-border: var(--border-color, rgba(255, 255, 255, 0.10));
+		--nm-muted: var(--light-text-color, #98a1b0);
+
+		--nm-cyan: #36d9ff;
+		--nm-blue: #72a9ff;
+	}
+}
+
+/* ---------------------------------------------------------------- 布局 */
+
+.nm-root {
+	display: block;
+	width: 100%;
+}
+
+.nm-page {
+	display: flex;
+	flex-direction: column;
+	gap: var(--nm-gap);
+}
+
+/* 指标栅格。
+ *
+ * 不用 repeat(auto-fill, minmax(...))：列数由容器宽度决定，卡片个数却由
+ * 数据决定，两者对不上时最后一行就会只占半行、右侧留出大片空白
+ * （实测 1440px 下 6 张卡片被排成 4+2，右侧空出整整两列）。
+ * 这里改成按断点显式指定列数，卡片数与列数在常见宽度下都能整除：
+ *   3 列 → 6 张排成 2 行；2 列 → 3 行；1 列 → 6 行，行行铺满。 */
+.nm-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: var(--nm-gap);
+}
+
+@media (max-width: 1100px) {
+	.nm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* 目标卡片栅格。最小列宽压到 275px，使 4 个目标在 1440px 下恰好一行铺满
+ * （1248px 容器 → 4 × 301.5px），不再出现「3 张一行 + 1 张孤零零占左边」。 */
+.nm-grid-wide {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(275px, 1fr));
+	gap: var(--nm-gap);
+}
+
+@media (max-width: 1280px) {
+	.nm-grid-wide { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.nm-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px;
+}
+
+.nm-row-end {
+	justify-content: flex-end;
+}
+
+.nm-spacer {
+	flex: 1 1 auto;
+}
+
+.nm-card {
+	background: var(--nm-card);
+	border: 1px solid var(--nm-border);
+	border-radius: var(--nm-radius);
+	padding: 14px 16px;
+	position: relative;
+	overflow: hidden;
+}
+
+.nm-card-hi {
+	background: var(--nm-card-hi);
+}
+
+.nm-card-title {
+	font-size: 12px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--nm-muted);
+	margin: 0 0 6px 0;
+}
+
+.nm-card-value {
+	font-size: 26px;
+	font-weight: 650;
+	line-height: 1.15;
+	font-variant-numeric: tabular-nums;
+}
+
+.nm-card-sub {
+	font-size: 12px;
+	color: var(--nm-muted);
+	margin-top: 4px;
+}
+
+/* ---------------------------------------------------------------- 顶部大状态 */
+
+.nm-hero {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 18px;
+	padding: 20px 22px;
+	border-radius: var(--nm-radius);
+	border: 1px solid var(--nm-border);
+	background: var(--nm-card-hi);
+	position: relative;
+	overflow: hidden;
+}
+
+.nm-hero::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	opacity: 0.5;
+	background: radial-gradient(120% 140% at 100% 0%, var(--nm-hero-glow, transparent) 0%, transparent 60%);
+}
+
+.nm-hero-icon {
+	flex: 0 0 auto;
+	width: 76px;
+	height: 76px;
+}
+
+.nm-hero-main {
+	flex: 1 1 260px;
+	min-width: 220px;
+}
+
+.nm-hero-title {
+	font-size: 22px;
+	font-weight: 700;
+	margin: 0;
+	letter-spacing: 0.01em;
+}
+
+.nm-hero-desc {
+	font-size: 13px;
+	color: var(--nm-muted);
+	margin-top: 4px;
+}
+
+.nm-hero-stats {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 18px;
+	margin-top: 12px;
+}
+
+.nm-hero-stat {
+	min-width: 78px;
+}
+
+.nm-hero-stat b {
+	display: block;
+	font-size: 17px;
+	font-weight: 650;
+	font-variant-numeric: tabular-nums;
+}
+
+.nm-hero-stat span {
+	display: block;
+	font-size: 11px;
+	color: var(--nm-muted);
+}
+
+/* ---------------------------------------------------------------- 目标卡片 */
+
+.nm-target {
+	background: var(--nm-card-hi);
+	border: 1px solid var(--nm-border);
+	border-radius: var(--nm-radius);
+	padding: 14px 16px 10px 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	min-width: 0;
+}
+
+.nm-target.is-disabled {
+	opacity: 0.55;
+}
+
+.nm-target-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+.nm-target-name {
+	font-weight: 640;
+	font-size: 15px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.nm-target-host {
+	font-size: 11.5px;
+	color: var(--nm-muted);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.nm-tag {
+	font-size: 11px;
+	padding: 1px 8px;
+	border-radius: 999px;
+	border: 1px solid var(--nm-border);
+	color: var(--nm-muted);
+	background: var(--nm-card);
+	white-space: nowrap;
+	flex: 0 0 auto;
+}
+
+.nm-tag-cn { color: var(--nm-accent); border-color: color-mix(in srgb, var(--nm-accent) 40%, transparent); }
+.nm-tag-overseas { color: #8a63d2; border-color: rgba(138, 99, 210, 0.4); }
+.nm-tag-other { color: var(--nm-muted); }
+
+.nm-target-latency {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+}
+
+.nm-latency-num {
+	font-size: 30px;
+	font-weight: 680;
+	font-variant-numeric: tabular-nums;
+	line-height: 1.05;
+}
+
+.nm-latency-unit {
+	font-size: 13px;
+	color: var(--nm-muted);
+}
+
+.nm-latency-note {
+	font-size: 12px;
+	color: var(--nm-muted);
+	margin-left: auto;
+	text-align: right;
+}
+
+.nm-target-metrics {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 4px 12px;
+}
+
+/* 目标卡片内的环形指标行：左侧是真实百分比对应的弧长圆环，
+ * 右侧是数值与名称，两列在窄屏下自动换行。 */
+.nm-target-rings {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px 18px;
+	padding: 6px 0 2px 0;
+	border-top: 1px solid var(--nm-border);
+	margin-top: 2px;
+}
+
+.nm-ring-item {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	min-width: 0;
+}
+
+.nm-ring-svg {
+	flex: 0 0 auto;
+	line-height: 0;
+}
+
+.nm-ring-text {
+	display: flex;
+	flex-direction: column;
+	line-height: 1.25;
+	min-width: 0;
+}
+
+.nm-ring-text b {
+	font-size: 14px;
+	font-weight: 650;
+	font-variant-numeric: tabular-nums;
+}
+
+.nm-ring-text span {
+	font-size: 11px;
+	color: var(--nm-muted);
+}
+
+/* 图标 + 数值一体卡片 */
+.nm-icon-card {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	min-width: 0;
+}
+
+.nm-icon-card-svg {
+	flex: 0 0 auto;
+	line-height: 0;
+}
+
+.nm-icon-card-body {
+	min-width: 0;
+	flex: 1 1 auto;
+}
+
+.nm-icon-card-body .nm-card-value {
+	font-size: 21px;
+}
+
+.nm-metric {
+	display: flex;
+	justify-content: space-between;
+	font-size: 12px;
+	color: var(--nm-muted);
+	gap: 8px;
+}
+
+.nm-metric b {
+	color: var(--nm-fg);
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+}
+
+.nm-spark {
+	width: 100%;
+	height: 46px;
+	display: block;
+	overflow: visible;
+}
+
+/* ---------------------------------------------------------------- 状态色 */
+
+.nm-c-ok { color: var(--nm-ok); }
+.nm-c-good { color: var(--nm-good); }
+.nm-c-warn { color: var(--nm-warn); }
+.nm-c-poor { color: var(--nm-poor); }
+.nm-c-bad { color: var(--nm-bad); }
+.nm-c-idle { color: var(--nm-idle); }
+
+.nm-dot {
+	display: inline-block;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	flex: 0 0 auto;
+	background: var(--nm-idle);
+}
+
+.nm-dot-ok { background: var(--nm-ok); }
+.nm-dot-good { background: var(--nm-good); }
+.nm-dot-warn { background: var(--nm-warn); }
+.nm-dot-poor { background: var(--nm-poor); }
+.nm-dot-bad { background: var(--nm-bad); }
+.nm-dot-idle { background: var(--nm-idle); }
+
+/* ---------------------------------------------------------------- 表格 */
+
+.nm-table-wrap {
+	width: 100%;
+	overflow-x: auto;
+	-webkit-overflow-scrolling: touch;
+	border-radius: var(--nm-radius);
+	border: 1px solid var(--nm-border);
+}
+
+.nm-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 13px;
+	min-width: 560px;
+}
+
+.nm-table th,
+.nm-table td {
+	padding: 8px 12px;
+	text-align: left;
+	border-bottom: 1px solid var(--nm-border);
+	white-space: nowrap;
+}
+
+.nm-table th {
+	font-size: 11.5px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--nm-muted);
+	background: var(--nm-card);
+	font-weight: 600;
+	position: sticky;
+	top: 0;
+}
+
+.nm-table tbody tr:hover {
+	background: var(--nm-card);
+}
+
+.nm-table td.nm-num {
+	font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- 控件 */
+
+.nm-btn,
+.nm-select,
+.nm-input {
+	font: inherit;
+	font-size: 13px;
+	color: var(--nm-fg);
+	background: var(--nm-card);
+	border: 1px solid var(--nm-border);
+	border-radius: var(--nm-radius-sm);
+	padding: 6px 12px;
+	min-height: 32px;
+	box-sizing: border-box;
+}
+
+.nm-btn {
+	cursor: pointer;
+	transition: transform 0.12s ease, background 0.15s ease;
+}
+
+.nm-btn:hover { background: var(--nm-card-hi); }
+.nm-btn:active { transform: translateY(1px); }
+
+/* 主按钮：--nm-accent 一律带字面回退值。
+ * 变量缺失时（例如被移植到别的容器里）回退到与默认主题一致的蓝色，
+ * 而不是让 background 整条失效变成透明。 */
+.nm-btn-primary {
+	background: var(--nm-accent, #2f6fed);
+	border-color: var(--nm-accent, #2f6fed);
+	color: #fff;
+}
+
+/* .nm-btn:hover 会把底色刷成 --nm-card-hi（浅色），若不覆盖，
+ * 主按钮一悬停就变成「白字 + 浅底」，同样看不见。 */
+.nm-btn-primary:hover {
+	background: color-mix(in srgb, var(--nm-accent, #2f6fed) 88%, #000 12%);
+	border-color: color-mix(in srgb, var(--nm-accent, #2f6fed) 88%, #000 12%);
+	color: #fff;
+}
+
+.nm-btn-danger {
+	color: var(--nm-bad);
+	border-color: color-mix(in srgb, var(--nm-bad) 45%, transparent);
+}
+
+.nm-btn-sm {
+	padding: 3px 8px;
+	min-height: 26px;
+	font-size: 12px;
+}
+
+.nm-select { min-width: 120px; }
+.nm-input { min-width: 140px; }
+
+.nm-field {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+}
+
+.nm-field > label {
+	font-size: 11.5px;
+	color: var(--nm-muted);
+}
+
+.nm-switch {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	cursor: pointer;
+	user-select: none;
+}
+
+.nm-switch input { display: none; }
+
+.nm-switch i {
+	width: 34px;
+	height: 18px;
+	border-radius: 999px;
+	background: var(--nm-border);
+	position: relative;
+	transition: background 0.18s ease;
+	flex: 0 0 auto;
+}
+
+.nm-switch i::after {
+	content: "";
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	background: #fff;
+	transition: transform 0.18s ease;
+}
+
+.nm-switch input:checked + i { background: var(--nm-ok); }
+.nm-switch input:checked + i::after { transform: translateX(16px); }
+
+.nm-empty {
+	padding: 34px 16px;
+	text-align: center;
+	color: var(--nm-muted);
+	font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- 图表 */
+
+.nm-chart {
+	width: 100%;
+	display: block;
+	overflow: visible;
+	touch-action: pan-y;
+}
+
+.nm-chart-legend {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	font-size: 12px;
+	color: var(--nm-muted);
+	margin-top: 6px;
+}
+
+.nm-chart-legend span {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+}
+
+.nm-chart-legend i {
+	width: 10px;
+	height: 3px;
+	border-radius: 2px;
+	display: inline-block;
+}
+
+.nm-tip {
+	position: absolute;
+	pointer-events: none;
+	background: var(--nm-card-hi);
+	border: 1px solid var(--nm-border);
+	border-radius: var(--nm-radius-sm);
+	padding: 6px 9px;
+	font-size: 12px;
+	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.10);
+	white-space: nowrap;
+	z-index: 20;
+	opacity: 0;
+	transform: translate(-50%, -120%);
+	transition: opacity 0.12s ease;
+}
+
+.nm-tip.is-on { opacity: 1; }
+
+.nm-chart-box { position: relative; }
+
+/* ---------------------------------------------------------------- SVG 动画 */
+
+@keyframes nm-pulse {
+	0%   { transform: scale(0.85); opacity: 0.85; }
+	70%  { transform: scale(1.35); opacity: 0; }
+	100% { transform: scale(1.35); opacity: 0; }
+}
+
+@keyframes nm-spin {
+	to { transform: rotate(360deg); }
+}
+
+@keyframes nm-dash {
+	to { stroke-dashoffset: -32; }
+}
+
+@keyframes nm-move {
+	0%   { transform: translateX(-6px); opacity: 0; }
+	15%  { opacity: 1; }
+	85%  { opacity: 1; }
+	100% { transform: translateX(46px); opacity: 0; }
+}
+
+@keyframes nm-vanish {
+	0%, 40% { opacity: 1; transform: translateX(0) scale(1); }
+	60%     { opacity: 0.35; transform: translateX(6px) scale(0.6); }
+	70%     { opacity: 0; transform: translateX(10px) scale(0.3); }
+	71%, 100% { opacity: 0; transform: translateX(-6px) scale(1); }
+}
+
+@keyframes nm-ripple {
+	0%   { transform: scale(0.6); opacity: 0.55; }
+	100% { transform: scale(1.9); opacity: 0; }
+}
+
+@keyframes nm-alarm {
+	0%, 100% { opacity: 0.25; transform: scale(1); }
+	50%      { opacity: 0.9; transform: scale(1.12); }
+}
+
+@keyframes nm-wave {
+	0%   { stroke-dashoffset: 0; }
+	100% { stroke-dashoffset: -48; }
+}
+
+@keyframes nm-blink {
+	0%, 100% { opacity: 1; }
+	50%      { opacity: 0.25; }
+}
+
+.nm-svg { display: block; overflow: visible; }
+
+.nm-a-pulse > .nm-pulse-ring {
+	transform-origin: center;
+	animation: nm-pulse 2.6s ease-out infinite;
+}
+
+.nm-a-pulse > .nm-pulse-ring:nth-child(2) { animation-delay: 1.3s; }
+
+.nm-a-spin {
+	transform-origin: center;
+	animation: nm-spin 7s linear infinite;
+}
+
+.nm-a-dash {
+	stroke-dasharray: 6 10;
+	animation: nm-dash 2.4s linear infinite;
+}
+
+.nm-a-move {
+	animation: nm-move 2.2s ease-in-out infinite;
+}
+
+.nm-a-move-slow { animation-duration: 3.4s; }
+.nm-a-move-fast { animation-duration: 1.1s; }
+
+.nm-a-vanish {
+	animation: nm-vanish 2.4s ease-in-out infinite;
+}
+
+.nm-a-ripple > circle {
+	transform-origin: center;
+	animation: nm-ripple 2.8s ease-out infinite;
+}
+
+.nm-a-ripple > circle:nth-child(2) { animation-delay: 0.9s; }
+.nm-a-ripple > circle:nth-child(3) { animation-delay: 1.8s; }
+
+.nm-a-alarm {
+	transform-origin: center;
+	animation: nm-alarm 1.5s ease-in-out infinite;
+}
+
+.nm-a-wave {
+	stroke-dasharray: 10 14;
+	animation: nm-wave 3s linear infinite;
+}
+
+.nm-a-blink { animation: nm-blink 1.6s ease-in-out infinite; }
+
+/* ------------------------------------------------- 动态 SVG 图标（v3 动画集）
+ *
+ * 由参考稿 openwrt-netmonitor-dynamic-svg-v3 的动画方案移植而来，并统一收敛到
+ * .nm- 命名空间。设计要点：
+ *   1. 只驱动 stroke-dashoffset / opacity / transform 三个属性，不触碰
+ *      filter、blur、box-shadow，避免在低端路由器上的合成开销。
+ *   2. 虚线位移量取虚线周期的整数倍（dasharray 5 9 的周期为 14，位移 70 = 5 个
+ *      周期），首尾状态严格重合，循环处不会出现跳帧。
+ *   3. transform 一律配合 transform-box:fill-box 使用，绕元素自身包围盒旋转/
+ *      缩放，规避浏览器对 SVG transform-origin 的解析差异。
+ */
+
+@keyframes nm-dash-v3 { to { stroke-dashoffset: -70; } }
+@keyframes nm-dash-v3-rev { to { stroke-dashoffset: 70; } }
+@keyframes nm-pulse-soft { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+@keyframes nm-ring-scale { 0%, 100% { transform: scale(0.88); opacity: 0.35; } 50% { transform: scale(1.04); opacity: 1; } }
+@keyframes nm-bars { 0%, 100% { transform: scaleY(0.55); } 50% { transform: scaleY(1); } }
+@keyframes nm-blink-soft { 0%, 100% { opacity: 0.2; } 50% { opacity: 1; } }
+@keyframes nm-rotate { to { transform: rotate(360deg); } }
+
+.nm-an-dash { stroke-dasharray: 5 9; animation: nm-dash-v3 2.2s linear infinite; }
+.nm-an-dash-rev { stroke-dasharray: 5 9; animation: nm-dash-v3-rev 2.6s linear infinite; }
+.nm-an-pulse { animation: nm-pulse-soft 1.6s ease-in-out infinite; }
+.nm-an-ring { transform-box: fill-box; transform-origin: center; animation: nm-ring-scale 1.9s ease-in-out infinite; }
+.nm-an-bar { transform-box: fill-box; transform-origin: center bottom; animation: nm-bars 1.5s ease-in-out infinite; }
+.nm-an-blink { animation: nm-blink-soft 1.2s ease-in-out infinite; }
+.nm-an-spin { transform-box: fill-box; transform-origin: center; animation: nm-rotate 5s linear infinite; }
+
+/* 图标配色类：全部走主题变量，浅色 / 深色主题自动切换 */
+.nm-fill-green { fill: var(--nm-ok); }
+.nm-str-green { stroke: var(--nm-ok); }
+.nm-fill-yellow { fill: var(--nm-warn); }
+.nm-str-yellow { stroke: var(--nm-warn); }
+.nm-fill-orange { fill: var(--nm-poor); }
+.nm-str-orange { stroke: var(--nm-poor); }
+.nm-fill-red { fill: var(--nm-bad); }
+.nm-str-red { stroke: var(--nm-bad); }
+.nm-fill-idle { fill: var(--nm-idle); }
+.nm-str-idle { stroke: var(--nm-idle); }
+.nm-fill-accent { fill: var(--nm-accent); }
+.nm-str-accent { stroke: var(--nm-accent); }
+.nm-fill-cyan { fill: var(--nm-cyan); }
+.nm-str-cyan { stroke: var(--nm-cyan); }
+.nm-fill-blue { fill: var(--nm-blue); }
+.nm-str-blue { stroke: var(--nm-blue); }
+.nm-fill-line { fill: var(--nm-border); }
+.nm-str-line { stroke: var(--nm-border); }
+.nm-fill-fg { fill: var(--nm-fg); }
+.nm-str-fg { stroke: var(--nm-fg); }
+.nm-fill-muted { fill: var(--nm-muted); }
+.nm-str-muted { stroke: var(--nm-muted); }
+
+/* 卡片右上角的装饰图标容器 */
+.nm-card-icon {
+	position: absolute;
+	top: 8px;
+	right: 10px;
+	opacity: 0.95;
+	pointer-events: none;
+	line-height: 0;
+}
+
+/* 行内图标容器（表格、列表内使用，避免 baseline 造成的错位） */
+.nm-inline-icon {
+	display: inline-flex;
+	align-items: center;
+	vertical-align: middle;
+	line-height: 0;
+}
+
+/* 尊重用户的减少动效偏好，同时可在低端设备手动关闭动画 */
+@media (prefers-reduced-motion: reduce) {
+	.nm-root * { animation: none !important; }
+}
+
+/* ---------------------------------------------------------------- 响应式 */
+
+@media (max-width: 900px) {
+	.nm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.nm-grid-wide { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+	.nm-root { font-size: 13.5px; }
+	.nm-grid,
+	.nm-grid-wide { grid-template-columns: 1fr; }
+
+	.nm-hero { padding: 16px; gap: 12px; }
+	.nm-hero-icon { width: 56px; height: 56px; }
+	.nm-hero-title { font-size: 18px; }
+	.nm-hero-stats { gap: 12px; }
+	.nm-hero-stat { min-width: 66px; }
+
+	.nm-latency-num { font-size: 26px; }
+	.nm-card-value { font-size: 22px; }
+
+	.nm-btn, .nm-select, .nm-input { min-height: 36px; }
+	.nm-table { min-width: 480px; }
+}
+
+/* 手机端表格横向滚动提示 */
+@media (max-width: 640px) {
+	.nm-table-wrap::after {
+		content: "";
+		display: block;
+	}
+}
+
+/* ---------------------------------------------------------------- 弹窗 */
+
+.nm-modal {
+	position: fixed;
+	inset: 0;
+	z-index: 1000;
+	background: rgba(12, 16, 24, 0.45);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 16px;
+	box-sizing: border-box;
+}
+
+.nm-modal-box {
+	background: var(--nm-bg, #fff);
+	color: var(--nm-fg, #20242c);
+	border: 1px solid var(--nm-border);
+	border-radius: var(--nm-radius);
+	width: 100%;
+	max-width: 420px;
+	max-height: 88vh;
+	overflow-y: auto;
+	/* 底部不留内边距：操作区用 sticky 贴住滚动容器底部，
+	 * 由它自己提供下内边距，否则贴底时会露出一条背景缝。 */
+	padding: 18px 20px 0 20px;
+	box-shadow: 0 12px 34px rgba(0, 0, 0, 0.20);
+}
+
+.nm-modal-title {
+	margin: 0 0 12px 0;
+	font-size: 17px;
+	font-weight: 650;
+}
+
+.nm-modal-box .nm-field { margin-bottom: 10px; }
+.nm-modal-box .nm-input,
+.nm-modal-box .nm-select { width: 100%; }
+
+/* 操作区（取消 / 保存并应用）固定在弹窗可视区底部。
+ *
+ * 实测：字段多时 .nm-modal-box 内容高 960px、可视仅 634px，
+ * 操作区落在滚动折叠区之外（y=952，视口只有 720 高），
+ * 不滚动弹窗内部就完全看不到主按钮。sticky 贴底后无需滚动即可见。 */
+.nm-modal-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 10px;
+	position: sticky;
+	bottom: 0;
+	margin: 14px -20px 0 -20px;
+	padding: 12px 20px;
+	background: var(--nm-bg, #fff);
+	border-top: 1px solid var(--nm-border);
+}
+
+.nm-modal-error {
+	color: var(--nm-bad);
+	font-size: 12.5px;
+	min-height: 16px;
+	margin-top: 6px;
+}
+
+/* ---------------------------------------------------------------- 设置页 */
+
+/* 单行设置：左侧「标题 + 说明」，右侧控件。
+ * 说明文字始终可见，不随取值隐藏，避免出现「选项不见了」的困惑。 */
+.nm-setting {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 10px 0;
+	border-top: 1px solid var(--nm-border);
+}
+
+.nm-setting:first-of-type { border-top: none; }
+
+.nm-setting-main {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.nm-setting-title { font-size: 13.5px; }
+
+.nm-setting-desc {
+	font-size: 11.5px;
+	line-height: 1.45;
+	color: var(--nm-muted);
+	margin-top: 2px;
+}
+
+.nm-setting-ctl {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	min-width: 150px;
+}
+
+.nm-setting-ctl .nm-num-input {
+	width: 132px;
+	min-width: 110px;
+}
+
+.nm-group-head {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.nm-group-icon {
+	flex: 0 0 auto;
+	line-height: 0;
+}
+
+.nm-group-sep {
+	height: 1px;
+	background: var(--nm-border);
+	margin-top: 10px;
+}
+
+.nm-dirty { color: var(--nm-warn); }
+
+/* 探测方式标签：ICMP 用主色、TCP 用绿色，与表格里的其它数值可区分 */
+.nm-proto-badge {
+	display: inline-block;
+	padding: 1px 7px;
+	border: 1px solid var(--nm-border);
+	border-radius: 999px;
+	font-size: 11.5px;
+	font-variant-numeric: tabular-nums;
+	color: var(--nm-muted);
+}
+
+.nm-proto-icmp {
+	color: var(--nm-accent);
+	border-color: color-mix(in srgb, var(--nm-accent) 40%, transparent);
+}
+
+.nm-proto-tcp {
+	color: var(--nm-good);
+	border-color: color-mix(in srgb, var(--nm-good) 45%, transparent);
+}
+
+@media (max-width: 560px) {
+	.nm-setting {
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.nm-setting-ctl {
+		justify-content: flex-start;
+		min-width: 0;
+		width: 100%;
+	}
+
+	.nm-setting-ctl .nm-input,
+	.nm-setting-ctl .nm-select { width: 100%; }
+}
