@@ -21,6 +21,7 @@ var callEnableStart = rpc.declare({ object: 'luci.netbird', method: 'do_enable_a
 var callDoUp        = rpc.declare({ object: 'luci.netbird', method: 'do_up',
 	params: [ 'management_url', 'setup_key' ] });
 var callDoDown      = rpc.declare({ object: 'luci.netbird', method: 'do_down' });
+var callDoReconnect = rpc.declare({ object: 'luci.netbird', method: 'do_reconnect' });
 var callDoLogout    = rpc.declare({ object: 'luci.netbird', method: 'do_logout',
 	params: [ 'local_only' ] });
 var callBinaryInfo  = rpc.declare({ object: 'luci.netbird', method: 'get_binary_info',
@@ -91,9 +92,9 @@ function bannerModel(state, connected) {
 	}
 }
 
-// runAction(btn, promise, okMsg, failMsg) — 统一动作按钮流转：转圈+禁用 →
+// runAction(btn, promise, okMsg, failMsg, timeoutMsg) — 统一动作按钮流转：转圈+禁用 →
 //   then(ok：通知 okMsg + 800ms 刷新 / 否则：通知 _(res.message)||failMsg + 复位)
-//   → catch：通知异常 + 复位。集中原 4 个 handler 的重复样板。
+//   → catch：通知异常(超时类用 timeoutMsg 替代默认友好文案，可省略) + 复位。集中原 4 个 handler 的重复样板。
 function responseMessage(res, fallback) {
 	var msg = (res && res.message) ? _(res.message) : fallback;
 	if (res && res.hint)
@@ -101,12 +102,12 @@ function responseMessage(res, fallback) {
 	return msg;
 }
 
-function exceptionMessage(e) {
+function exceptionMessage(e, timeoutMsg) {
 	// 超时类(客户端 rpctimeout / uhttpd 60s 掐断)统一友好化,其余透传。
-	return nb.friendlyRpcError(e);
+	return nb.friendlyRpcError(e, timeoutMsg);
 }
 
-function runAction(btn, promise, okMsg, failMsg) {
+function runAction(btn, promise, okMsg, failMsg, timeoutMsg) {
 	btn.classList.add('spinning');
 	btn.disabled = true;
 	return promise.then(function (res) {
@@ -119,7 +120,7 @@ function runAction(btn, promise, okMsg, failMsg) {
 			btn.disabled = false;
 		}
 	}).catch(function (e) {
-		ui.addNotification(null, E('p', {}, exceptionMessage(e)), 'error');
+		ui.addNotification(null, E('p', {}, exceptionMessage(e, timeoutMsg)), 'error');
 		btn.classList.remove('spinning');
 		btn.disabled = false;
 	});
@@ -257,17 +258,17 @@ return view.extend({
 			_('NetBird disconnected.'), _('Operation failed.'));
 	},
 
-	// 「重新连接」回调：do_down → do_up（空参=持久身份重连，无需密钥）。仅已连接态出现。
+	// 「重新连接」回调：单次 do_reconnect，由后端完成 down → up（持久身份重连，无需密钥）。仅已连接态出现。
+	// 不能在前端串联 do_down → do_up：经 NetBird 打开本页时，down 会切断承载第二个请求的通道，
+	// 且 do_down 清除「保持连接」意图，设备会停在断开态。
 	// do_up 内置 _flush_reconnect_conntrack（等路由恢复后定向冲在途 conntrack），故重连后转发流自愈。
 	// 用途：一键重连;或在 daemon 自发重连未覆盖的边角(WAN 抖动等)手动触发让转发流恢复。
 	handleReconnect: function (ev) {
 		var self = this;
-		// 空参 do_up → 持久身份重连(do_up 解析已存管理 URL)
 		return runAction(ev.currentTarget,
-				self._withRpcTimeout(90, function () {
-					return callDoDown().then(function () { return callDoUp('', ''); });
-				}),
-			_('NetBird reconnected.'), _('Operation failed.'));
+				self._withRpcTimeout(90, function () { return callDoReconnect(); }),
+			_('NetBird reconnected.'), _('Operation failed.'),
+			_('NetBird is still reconnecting, or the connection to this page was interrupted, which is expected when this page is opened over NetBird. The router finishes reconnecting on its own: reload this page in a few seconds, and check the Logs tab if it is still disconnected.'));
 	},
 
 	// 「注销/登出」回调：二次确认（警告会删本机身份）后 do_logout。

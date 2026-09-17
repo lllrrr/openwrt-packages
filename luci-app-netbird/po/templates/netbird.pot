@@ -784,6 +784,9 @@ msgstr ""
 msgid "NetBird reconnected."
 msgstr ""
 
+msgid "NetBird is still reconnecting, or the connection to this page was interrupted, which is expected when this page is opened over NetBird. The router finishes reconnecting on its own: reload this page in a few seconds, and check the Logs tab if it is still disconnected."
+msgstr ""
+
 #: htdocs/luci-static/resources/view/netbird/overview.js:102
 msgid "NetBird service enabled and started."
 msgstr ""

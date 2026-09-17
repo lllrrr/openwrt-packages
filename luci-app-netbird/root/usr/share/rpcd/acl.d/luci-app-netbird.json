@@ -26,6 +26,7 @@
 				"luci.netbird": [
 					"do_up",
 					"do_down",
+					"do_reconnect",
 					"do_login",
 					"do_logout",
 					"do_enable_and_start",

@@ -887,12 +887,15 @@ msgstr "已自动创建 NetBird 防火墙区域(转发的前置依赖)。"
 msgid "Connection mode"
 msgstr "连接模式"
 
-# 认证页"重新连接"按钮(已连接态;do_down→do_up,转发流自愈)
+# 认证页"重新连接"按钮(已连接态;单次 do_reconnect,后端完成 down→up,转发流自愈)
 msgid "Reconnect"
 msgstr "重新连接"
 
 msgid "NetBird reconnected."
 msgstr "NetBird 已重新连接。"
+
+msgid "NetBird is still reconnecting, or the connection to this page was interrupted, which is expected when this page is opened over NetBird. The router finishes reconnecting on its own: reload this page in a few seconds, and check the Logs tab if it is still disconnected."
+msgstr "NetBird 仍在重新连接，或本页面与路由器的连接已中断（通过 NetBird 打开本页面时属于正常现象）。路由器会自行完成重连：请几秒后刷新本页面；如果仍未连接，请查看“日志”页。"
 
 msgid "Reconnect re-establishes the NetBird session while keeping your identity (down then up)."
 msgstr "重新连接会断开后重新建立 NetBird 会话(down 再 up),登录身份保留。"

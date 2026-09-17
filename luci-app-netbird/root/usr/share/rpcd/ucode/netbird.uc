@@ -3,7 +3,7 @@
 // Canonical runtime path: /usr/share/rpcd/ucode/netbird.uc
 // Repo canonical source:  root/usr/share/rpcd/ucode/netbird.uc
 //
-// netbird.uc — rpcd 入口对象（注册 luci.netbird，30 methods = 13 read + 17 write）
+// netbird.uc — rpcd 入口对象（注册 luci.netbird，31 methods = 13 read + 18 write）
 // ACL 合约源：root/usr/share/rpcd/acl.d/luci-app-netbird.json
 // 方法名必须与 ACL 一字不差（双向 diff 是 CI 闸门）。
 //
@@ -14,7 +14,7 @@
 //
 // 设置应用无独立 apply RPC（曾有 apply_settings，已删）：走标准 Save&Apply
 // （form.Map → UCI commit → procd reload trigger，见 init.d/netbird-settings）。
-// 已实装：do_up / do_down / do_login / do_logout（认证 4 方法）；
+// 已实装：do_up / do_down / do_reconnect / do_login / do_logout（认证 5 方法）；
 // 已实装：do_enable_and_start + setup_firewall_zone/forwarding（zone 直接绑定 netbird 设备，不建 network 接口）。
 //
 // 硬约束：所有 read 方法禁直读 config.json 文件；一律 CLI / ubus / logread / opkg 透传。
@@ -2746,6 +2746,171 @@ function _do_install_iface_backend(req) {
         'If packages installed successfully, reboot the device and check again. Vendor kernels may still lack a matching module.');
 }
 
+// _do_up(req) — do_up 方法主体（流程见方法表 do_up 注释）；do_reconnect 复用。
+function _do_up(req) {
+    let a = (req != null && req.args != null) ? req.args : (req || {});
+    let arg_url = (type(a.management_url) == 'string') ? a.management_url : '';
+    let setup_key = (type(a.setup_key) == 'string') ? a.setup_key : '';  // 瞬时
+
+    let mr = _resolve_mgmt_url(arg_url);
+    if (!mr.ok)
+        return err(CODE.INVALID_INPUT, mr.message);
+
+    // 仅当 caller 显式传入合法 url 才持久化（非机密）
+    if (length(arg_url) > 0)
+        _persist_mgmt_url(arg_url);
+
+    // 首连兜底:配置来源=release(默认)但 release 未就位时,先下载并切到 release
+    // (用户拍板:首连自动下 release;失败则用 feed 兜底,绝不阻断本次连接)。release
+    // 就位后 no-op。注:首次会增加 ~数十秒下载耗时(前端 do_up 已是长调用,见上轮询说明)。
+    _ensure_configured_binary();
+
+    let bin = resolve_netbird_bin();
+    if (bin == null)
+        return err(CODE.NOT_INSTALLED, 'The netbird binary is not installed.');
+
+    // 分叉自愈：daemon 持有的 management URL 与本次期望不一致时，up 前先 down。
+    // daemon 启动时可能从磁盘读入过期/默认 ManagementURL（如旧版本包写下的遗留
+    // 默认值，或配置目录落在 tmpfs、重启后被持久的旧文件重新播种），随后
+    // auto-connect 引擎对旧地址持续重试；引擎忙时 Login 请求推不进，
+    // `up --management-url` 在有界墙钟内写不进新 URL。down 停掉引擎后，同样的
+    // up 数秒内即可把新 URL 写进 daemon 配置（写入先于登录完成，不依赖登录
+    // 成功）。仅在确认分叉时 down：URL 一致的瞬时断连不能无差别 down——
+    // 管理面断连期间 P2P 数据面可能仍在工作。
+    if (mr.url != null) {
+        let held = _daemon_mgmt_url(bin);
+        if (held != null && _norm_mgmt_url(held) != _norm_mgmt_url(mr.url))
+            _exec_short_verb(bin, 'down');
+    }
+
+    let reconnect_with_existing_identity = (length(setup_key) == 0);
+    // 注销后/全新设备(daemon NeedsLogin = 无本地身份)上的空 key 连接
+    // 注定失败——daemon 只会反复 "no peer auth method provided",25s 墙钟耗尽
+    // 后才能归因,期间 desired 还被置 1 引来 watchdog 叠加重试。识别到该态
+    // 立即返回明确错误(不置 desired、不跑墙钟)。判定复用 classify_status_text:
+    // 只锚定 NeedsLogin——LoginFailed/Idle 等**有身份**形态的空 key 重连是
+    // 合法恢复路径,不拦;老版本 daemon 注销后文本形态不同(不报 NeedsLogin)
+    // 则识别不出,按原路径走,无回归。
+    if (reconnect_with_existing_identity) {
+        let stx = _exec_short_verb(bin, 'status');
+        if (classify_status_text(stx.stdout) == 'needs_login') {
+            _persist_runtime_error('A setup key is required to log in: this device has no stored NetBird identity.');
+            return err(CODE.CONNECT_FAILED,
+                'A setup key is required to log in: this device has no stored NetBird identity.',
+                'Enter a setup key from the NetBird console and click Connect. Keys are never stored on this device; "Last used" is only a masked hint.');
+        }
+    }
+    // watchdog 发起的重连只是"执行已有意图",不应改写 desired_connected;只有用户发起的
+    // 连接才预置 desired=1(表达意图,即便本次超时也让 watchdog 续连)。否则 watchdog 会反复
+    // 把刚被认证 fatal/key 超时刻意清成 0 的 desired 重新写回 1,使刻意的停止无法生效。
+    let from_watchdog = (type(a.caller) == 'string' && a.caller == 'watchdog');
+    if (reconnect_with_existing_identity && !from_watchdog)
+        _set_desired_connected(true);
+
+    let auth_log_before = _recent_auth_log_text().text;
+    let cmd = _build_auth_cmd(bin, 'up', mr.url, setup_key);
+    // watchdog 的周期重连用短墙钟 + 短确认轮询:管理端不可达时 netbird up 内部
+    // backoff 不返回,每次尝试都会跑满墙钟;同脚本 RPC 串行使状态页在此期间排队,
+    // 长尝试 = 页面长时间假死。健康恢复场景 up 几秒即返回,10s 足够;真不可达时
+    // 缩短的只是「注定失败的等待」,下一轮尝试与 30s 状态巡检兜底恢复。
+    // 用户点击的连接保持 25s/6 轮:错误归因需要让 CLI/daemon 日志有时间沉淀。
+    let r = _exec_auth_cmd(cmd, 4096, from_watchdog ? 10 : 25); // shell-audit-ok: bin/url/key 均经 shell_quote，verb 字面
+    // 安全加固：若 CLI 把 setup_key 回显进 stdout，先脱敏再用于任何错误回传。
+    if (length(setup_key) > 0 && r.stdout != null)
+        r.stdout = replace(r.stdout, setup_key, '***');
+
+    // 认证 fatal 早退：CLI 被墙钟杀掉（stdout 带 wrapper 的 timed out 标记）
+    // 且日志已沉淀可归因的认证错误（如 setup key 被拒）时，_poll_connected
+    // 纯属白等——daemon 对无效/过期 key 无限 backoff，绝不会自行连上；而
+    // uhttpd 对浏览器 /ubus 调用有 60s 硬上限（script_timeout 默认值），多等的轮询会
+    // 把总墙钟推过掐断线，前端只能收到裸 -32003 而非下面的归因文案。
+    // 门槛必须含"CLI 是被杀的"：有效 key 的成功登录 CLI 会在墙钟内自行
+    // 返回（不带标记），不会进此分支——成功路径中 daemon 早期也可能落
+    // PermissionDenied/no peer auth method 之类瞬时行，仅凭日志归因会误杀。
+    let cli_timed_out = !!match(r.stdout || '', /netbird command timed out after/);
+    if (cli_timed_out) {
+        let early_auth = _auth_failure_from_attempt(r.stdout || '', auth_log_before);
+        if (early_auth != null) {
+            setup_key = '';
+            _exec_short_verb(bin, 'down');
+            _set_desired_connected(false);
+            _persist_runtime_error(early_auth.message);
+            return err(CODE.CONNECT_FAILED, early_auth.message, early_auth.hint);
+        }
+    }
+
+    // exec 后同步轮询确认（不信任 up 退出码本身）
+    let poll = _poll_connected(bin, from_watchdog ? 3 : 6);
+    if (poll.connected) {
+        // 认证成功：把本次 setup_key 算成打码 hint 存 UCI（只存打码串，原始 key 用完即弃）。
+        if (length(setup_key) > 0)
+            _persist_setup_key_hint(setup_key);
+        setup_key = '';  // 立即清零瞬时密钥（密钥绝不入 UCI）
+        // 重连后定向 flush 经 netbird 设备路由的在途 conntrack:断开期间被钉在错误路由
+        // (br-lan)的持续转发流(LAN 主机 ping -t 对端子网)不会自愈,flush 后即恢复
+        // (断开期间被钉错路由的流不自愈,flush 后恢复)。只 flush wtX-routed 目的,绝不全表(安全红线)。
+        _flush_reconnect_conntrack();
+        let mgmt = (poll.json != null && poll.json.management != null) ? poll.json.management : {};
+        _set_desired_connected(true);
+        _clear_runtime_error();
+        return ok({
+            connected: true,
+            management_url: mgmt.url || mr.url || '',
+            netbirdIp: (poll.json != null) ? (poll.json.netbirdIp || '') : '',
+        });
+    }
+    setup_key = '';  // 超时分支同样清零瞬时密钥（密钥绝不入 UCI）
+    let auth = _auth_failure_from_attempt(r.stdout || '', auth_log_before);
+    if (auth != null) {
+        _exec_short_verb(bin, 'down');
+        _set_desired_connected(false);
+        _persist_runtime_error(auth.message);
+        return err(CODE.CONNECT_FAILED, auth.message, auth.hint);
+    }
+    // 先分类 transient(管理端不可达/DNS/连接拒绝/超时),拿到比泛化超时更可定位的原因;
+    // 两条路径都复用它,带 key 路径不再丢失具体原因。
+    let transient = _classify_transient_connect_failure((r.stdout || '') + '\n' + _recent_log_text(80));
+    if (!reconnect_with_existing_identity) {
+        // 带 setup key 的首连超时(非 fatal):netbird daemon 仍会在后台用该 key 续试注册,
+        // 前端已判失败 → 显式 down 停住后台续试,并清 desired_connected:该位可能早被之前的
+        // 成功连接/watchdog adopt 置 1,若不清,watchdog 下一轮会用空 key 把连接拉回、抵消
+        // 这里的 down。停止后需用户重新点击连接。
+        _exec_short_verb(bin, 'down');
+        _set_desired_connected(false);
+        let msg = (transient != null) ? transient.message
+            : 'NetBird did not become connected before the timeout.';
+        _persist_runtime_error(msg);
+        return err(CODE.CONNECT_FAILED, msg,
+            'Check the Logs tab for the last NetBird message, then try again.');
+    }
+    // 空 key 重连超时:desired_connected=1,交 watchdog 继续重连(transient 提示会持续重连)。
+    if (transient != null) {
+        _persist_runtime_error(transient.message);
+        return err(CODE.CONNECT_FAILED, transient.message, transient.hint);
+    }
+    _persist_runtime_error('NetBird did not become connected before the timeout.');
+    return err(CODE.CONNECT_FAILED,
+        'NetBird did not become connected before the timeout.',
+        'Check the Logs tab for the last NetBird message, then try again.');
+}
+
+// _do_reconnect() — 在一次 RPC 内完成 down → up（空 key，沿用已有身份）。
+// 不能由前端串联 do_down + do_up：经 NetBird 隧道访问 LuCI 时，down 会切断承载后续请求的
+// 通道，第二个 RPC 到不了路由器；且 do_down 会把 desired_connected 清 0，watchdog 也不会恢复，
+// 设备停在断开态。在后端一次做完则不依赖浏览器连接：客户端断开或 uhttpd 超时掐断后，
+// rpcd 仍会把方法执行完。down 之前先置 desired_connected=1，本调用中途异常时由 watchdog 连回。
+function _do_reconnect(req) {
+    let bin = resolve_netbird_bin();
+    if (bin == null)
+        return err(CODE.NOT_INSTALLED, 'The netbird binary is not installed.');
+    _set_desired_connected(true);
+    let r = _exec_short_verb(bin, 'down');
+    // 与 do_down 一致：down 因「本就断开」非零退出视为成功；仅 popen 失败(-1)透传。
+    if (r.code == -1)
+        return err(CODE.CLI_ERROR, r.stdout || 'netbird down failed');
+    return _do_up({ args: { management_url: '', setup_key: '', caller: '' } });
+}
+
 return {
     'luci.netbird': {
         // ==== 13 read ====（ACL read.ubus.luci.netbird 对齐）
@@ -2971,7 +3136,7 @@ return {
             call: _safe(_do_check_luci_app_update),
         },
 
-        // ==== 16 write ====（ACL write.ubus.luci.netbird 对齐）— zone 设备直绑设计已移除 setup_network
+        // ==== 17 write ====（ACL write.ubus.luci.netbird 对齐）— zone 设备直绑设计已移除 setup_network
 
         // do_up — 连接（拉起 WireGuard + 连管理端 + 建 P2P）。
         // args { management_url, setup_key } 均瞬时（setup_key 绝不入 UCI/backup）。
@@ -2984,152 +3149,7 @@ return {
         //   6. setup_key 局部变量用完置空；超时 → connect_failed。
         do_up: {
             args: { management_url: '', setup_key: '', caller: '' },
-            call: _safe(function(req) {
-                let a = (req != null && req.args != null) ? req.args : (req || {});
-                let arg_url = (type(a.management_url) == 'string') ? a.management_url : '';
-                let setup_key = (type(a.setup_key) == 'string') ? a.setup_key : '';  // 瞬时
-
-                let mr = _resolve_mgmt_url(arg_url);
-                if (!mr.ok)
-                    return err(CODE.INVALID_INPUT, mr.message);
-
-                // 仅当 caller 显式传入合法 url 才持久化（非机密）
-                if (length(arg_url) > 0)
-                    _persist_mgmt_url(arg_url);
-
-                // 首连兜底:配置来源=release(默认)但 release 未就位时,先下载并切到 release
-                // (用户拍板:首连自动下 release;失败则用 feed 兜底,绝不阻断本次连接)。release
-                // 就位后 no-op。注:首次会增加 ~数十秒下载耗时(前端 do_up 已是长调用,见上轮询说明)。
-                _ensure_configured_binary();
-
-                let bin = resolve_netbird_bin();
-                if (bin == null)
-                    return err(CODE.NOT_INSTALLED, 'The netbird binary is not installed.');
-
-                // 分叉自愈：daemon 持有的 management URL 与本次期望不一致时，up 前先 down。
-                // daemon 启动时可能从磁盘读入过期/默认 ManagementURL（如旧版本包写下的遗留
-                // 默认值，或配置目录落在 tmpfs、重启后被持久的旧文件重新播种），随后
-                // auto-connect 引擎对旧地址持续重试；引擎忙时 Login 请求推不进，
-                // `up --management-url` 在有界墙钟内写不进新 URL。down 停掉引擎后，同样的
-                // up 数秒内即可把新 URL 写进 daemon 配置（写入先于登录完成，不依赖登录
-                // 成功）。仅在确认分叉时 down：URL 一致的瞬时断连不能无差别 down——
-                // 管理面断连期间 P2P 数据面可能仍在工作。
-                if (mr.url != null) {
-                    let held = _daemon_mgmt_url(bin);
-                    if (held != null && _norm_mgmt_url(held) != _norm_mgmt_url(mr.url))
-                        _exec_short_verb(bin, 'down');
-                }
-
-                let reconnect_with_existing_identity = (length(setup_key) == 0);
-                // 注销后/全新设备(daemon NeedsLogin = 无本地身份)上的空 key 连接
-                // 注定失败——daemon 只会反复 "no peer auth method provided",25s 墙钟耗尽
-                // 后才能归因,期间 desired 还被置 1 引来 watchdog 叠加重试。识别到该态
-                // 立即返回明确错误(不置 desired、不跑墙钟)。判定复用 classify_status_text:
-                // 只锚定 NeedsLogin——LoginFailed/Idle 等**有身份**形态的空 key 重连是
-                // 合法恢复路径,不拦;老版本 daemon 注销后文本形态不同(不报 NeedsLogin)
-                // 则识别不出,按原路径走,无回归。
-                if (reconnect_with_existing_identity) {
-                    let stx = _exec_short_verb(bin, 'status');
-                    if (classify_status_text(stx.stdout) == 'needs_login') {
-                        _persist_runtime_error('A setup key is required to log in: this device has no stored NetBird identity.');
-                        return err(CODE.CONNECT_FAILED,
-                            'A setup key is required to log in: this device has no stored NetBird identity.',
-                            'Enter a setup key from the NetBird console and click Connect. Keys are never stored on this device; "Last used" is only a masked hint.');
-                    }
-                }
-                // watchdog 发起的重连只是"执行已有意图",不应改写 desired_connected;只有用户发起的
-                // 连接才预置 desired=1(表达意图,即便本次超时也让 watchdog 续连)。否则 watchdog 会反复
-                // 把刚被认证 fatal/key 超时刻意清成 0 的 desired 重新写回 1,使刻意的停止无法生效。
-                let from_watchdog = (type(a.caller) == 'string' && a.caller == 'watchdog');
-                if (reconnect_with_existing_identity && !from_watchdog)
-                    _set_desired_connected(true);
-
-                let auth_log_before = _recent_auth_log_text().text;
-                let cmd = _build_auth_cmd(bin, 'up', mr.url, setup_key);
-                // watchdog 的周期重连用短墙钟 + 短确认轮询:管理端不可达时 netbird up 内部
-                // backoff 不返回,每次尝试都会跑满墙钟;同脚本 RPC 串行使状态页在此期间排队,
-                // 长尝试 = 页面长时间假死。健康恢复场景 up 几秒即返回,10s 足够;真不可达时
-                // 缩短的只是「注定失败的等待」,下一轮尝试与 30s 状态巡检兜底恢复。
-                // 用户点击的连接保持 25s/6 轮:错误归因需要让 CLI/daemon 日志有时间沉淀。
-                let r = _exec_auth_cmd(cmd, 4096, from_watchdog ? 10 : 25); // shell-audit-ok: bin/url/key 均经 shell_quote，verb 字面
-                // 安全加固：若 CLI 把 setup_key 回显进 stdout，先脱敏再用于任何错误回传。
-                if (length(setup_key) > 0 && r.stdout != null)
-                    r.stdout = replace(r.stdout, setup_key, '***');
-
-                // 认证 fatal 早退：CLI 被墙钟杀掉（stdout 带 wrapper 的 timed out 标记）
-                // 且日志已沉淀可归因的认证错误（如 setup key 被拒）时，_poll_connected
-                // 纯属白等——daemon 对无效/过期 key 无限 backoff，绝不会自行连上；而
-                // uhttpd 对浏览器 /ubus 调用有 60s 硬上限（script_timeout 默认值），多等的轮询会
-                // 把总墙钟推过掐断线，前端只能收到裸 -32003 而非下面的归因文案。
-                // 门槛必须含"CLI 是被杀的"：有效 key 的成功登录 CLI 会在墙钟内自行
-                // 返回（不带标记），不会进此分支——成功路径中 daemon 早期也可能落
-                // PermissionDenied/no peer auth method 之类瞬时行，仅凭日志归因会误杀。
-                let cli_timed_out = !!match(r.stdout || '', /netbird command timed out after/);
-                if (cli_timed_out) {
-                    let early_auth = _auth_failure_from_attempt(r.stdout || '', auth_log_before);
-                    if (early_auth != null) {
-                        setup_key = '';
-                        _exec_short_verb(bin, 'down');
-                        _set_desired_connected(false);
-                        _persist_runtime_error(early_auth.message);
-                        return err(CODE.CONNECT_FAILED, early_auth.message, early_auth.hint);
-                    }
-                }
-
-                // exec 后同步轮询确认（不信任 up 退出码本身）
-                let poll = _poll_connected(bin, from_watchdog ? 3 : 6);
-                if (poll.connected) {
-                    // 认证成功：把本次 setup_key 算成打码 hint 存 UCI（只存打码串，原始 key 用完即弃）。
-                    if (length(setup_key) > 0)
-                        _persist_setup_key_hint(setup_key);
-                    setup_key = '';  // 立即清零瞬时密钥（密钥绝不入 UCI）
-                    // 重连后定向 flush 经 netbird 设备路由的在途 conntrack:断开期间被钉在错误路由
-                    // (br-lan)的持续转发流(LAN 主机 ping -t 对端子网)不会自愈,flush 后即恢复
-                    // (断开期间被钉错路由的流不自愈,flush 后恢复)。只 flush wtX-routed 目的,绝不全表(安全红线)。
-                    _flush_reconnect_conntrack();
-                    let mgmt = (poll.json != null && poll.json.management != null) ? poll.json.management : {};
-                    _set_desired_connected(true);
-                    _clear_runtime_error();
-                    return ok({
-                        connected: true,
-                        management_url: mgmt.url || mr.url || '',
-                        netbirdIp: (poll.json != null) ? (poll.json.netbirdIp || '') : '',
-                    });
-                }
-                setup_key = '';  // 超时分支同样清零瞬时密钥（密钥绝不入 UCI）
-                let auth = _auth_failure_from_attempt(r.stdout || '', auth_log_before);
-                if (auth != null) {
-                    _exec_short_verb(bin, 'down');
-                    _set_desired_connected(false);
-                    _persist_runtime_error(auth.message);
-                    return err(CODE.CONNECT_FAILED, auth.message, auth.hint);
-                }
-                // 先分类 transient(管理端不可达/DNS/连接拒绝/超时),拿到比泛化超时更可定位的原因;
-                // 两条路径都复用它,带 key 路径不再丢失具体原因。
-                let transient = _classify_transient_connect_failure((r.stdout || '') + '\n' + _recent_log_text(80));
-                if (!reconnect_with_existing_identity) {
-                    // 带 setup key 的首连超时(非 fatal):netbird daemon 仍会在后台用该 key 续试注册,
-                    // 前端已判失败 → 显式 down 停住后台续试,并清 desired_connected:该位可能早被之前的
-                    // 成功连接/watchdog adopt 置 1,若不清,watchdog 下一轮会用空 key 把连接拉回、抵消
-                    // 这里的 down。停止后需用户重新点击连接。
-                    _exec_short_verb(bin, 'down');
-                    _set_desired_connected(false);
-                    let msg = (transient != null) ? transient.message
-                        : 'NetBird did not become connected before the timeout.';
-                    _persist_runtime_error(msg);
-                    return err(CODE.CONNECT_FAILED, msg,
-                        'Check the Logs tab for the last NetBird message, then try again.');
-                }
-                // 空 key 重连超时:desired_connected=1,交 watchdog 继续重连(transient 提示会持续重连)。
-                if (transient != null) {
-                    _persist_runtime_error(transient.message);
-                    return err(CODE.CONNECT_FAILED, transient.message, transient.hint);
-                }
-                _persist_runtime_error('NetBird did not become connected before the timeout.');
-                return err(CODE.CONNECT_FAILED,
-                    'NetBird did not become connected before the timeout.',
-                    'Check the Logs tab for the last NetBird message, then try again.');
-            }),
+            call: _safe(_do_up),
         },
 
         // do_down — 仅断开当前会话，保留认证（与 do_logout 语义区别）。
@@ -3148,6 +3168,13 @@ return {
                 _clear_runtime_error();
                 return ok({ connected: false });
             }),
+        },
+
+        // do_reconnect — 重新连接（down → up，沿用已有身份）；返回值同 do_up。
+        // 与 do_down 不同：全程保持 desired_connected=1（「重连」表达的是保持连接的意图）。
+        do_reconnect: {
+            args: {},
+            call: _safe(_do_reconnect),
         },
 
         // do_login — 仅认证不拉起连接（与 do_up 区别）。
