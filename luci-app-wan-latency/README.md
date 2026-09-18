@@ -1,55 +1,35 @@
 # luci-app-wan-latency — OpenWrt WAN 公网延迟监控插件
 
-## v1.3.0
+一个适用于 OpenWrt / ImmortalWrt / iStoreOS 的 LuCI 公网延迟监控插件。它持续从 WAN 接口探测多个目标，将数据保存在路由器本地，并在 LuCI「状态 → 公网延迟」中展示实时状态和历史曲线。
 
-- 新增可选的 HigoOS 原生界面扩展包。
-- 在 HigoOS「其他设置」中显示实时公网延迟卡片，每 5 秒自动刷新。
-- 通用主包与 HigoOS 集成包完全拆分，不影响其他 OpenWrt 类系统。
-- 一键 `.run` 安装器会自动识别 HigoOS；普通系统只安装通用版。
-- 完整历史曲线、统计、目标管理和 CSV 导出仍由经过鉴权的 LuCI 页面提供。
+## v1.4.0
 
-### HigoOS 原生面板
-
-![HigoOS 公网延迟原生面板](docs/screenshots/higoos-native-panel.png)
-
-## v1.2.0
-
-- 所有 API 请求通过 LuCI 已认证的 `cgi-io` RPC 桥接，不再暴露匿名 CGI 接口。
-- 修复自定义目标名称造成的持久型 XSS 风险，并校验曲线颜色。
-- 探测结果标注 ICMP、TCP 443、TCP 80、DNS 或失败，避免混淆不同测量方式。
-- 新增抖动、P50、P95、P99 统计和当前区间 CSV 导出。
-- `enabled` 与 `retain_days` UCI 配置现在会真正生效。
-- 配置写入增加并发锁；探测临时文件改用进程私有目录。
-- 新增连续失败、恢复和高延迟的系统日志告警。
-
-默认告警配置：
-
-```uci
-option latency_threshold_ms '150'
-option loss_alert_consecutive '3'
-```
-
-一个适用于 OpenWrt / iStoreOS 的公网延迟监控插件。它持续从 WAN 接口探测多个目标，将数据保存在路由器本地，并在 LuCI「状态 → 公网延迟」中展示实时状态和历史曲线。
+- 重做监控仪表盘，增加网络健康总览、平均/当前延迟、丢包、国内/国外分组、在线与异常目标统计。
+- 目标支持国内/国外/自动分类；实时卡片展示探测方法、丢包、抖动、P50/P95/P99。
+- 在页面内可调整探测间隔、单目标超时、告警阈值和历史保留天数，设置通过 LuCI 鉴权 API 写入 UCI。
+- 增加 30 分钟历史范围；修复实时延迟显示为 `--` 和历史范围切换不更新的问题；实时数据独立于历史查询刷新。
+- 已在 iStoreOS 24.10.8（Linux 6.6.144，x86_64）上完成实机界面与采集验证。
 
 ## 功能
 
 - 同时监控最多 12 个 IPv4 地址或域名
 - ICMP 不可用时依次尝试 HTTPS、HTTP 和 DNS 探测
 - 支持 2 秒至 5 分钟的采样间隔
-- 支持 15 分钟至 1 年以及自定义时间范围
+- 支持 15 分钟、30 分钟、1 小时、6 小时、24 小时、7 天、30 天、1 年及自定义时间范围
 - 原始数据和 1 分钟汇总数据使用紧凑二进制格式保存
 - 默认保留 366 天数据
 - 自带阿里云、腾讯云和 Steam 三个预设目标
+- 当前区间 CSV 导出及按目标筛选曲线
 
 ## 界面预览
 
-### 实时状态与历史总览
+### 实时状态与监控总览
 
-![公网延迟监控总览](docs/screenshots/dashboard-overview-v2.png)
+![iStoreOS 公网延迟监控总览，显示实时延迟和配置](docs/screenshots/dashboard-overview-v140.jpg)
 
-### 曲线筛选
+### 历史曲线与时间范围
 
-![按目标筛选延迟曲线](docs/screenshots/series-filter-v2.png)
+![公网延迟历史曲线、时间范围和目标筛选](docs/screenshots/history-chart-v140.png)
 
 ## 依赖
 
@@ -65,10 +45,9 @@ option loss_alert_consecutive '3'
 
 | 系统 | 版本 | 内核 | 架构 | 状态 |
 |---|---|---|---|---|
-| iStoreOS | 24.10.8 (2026073111) | 6.6.144 | x86_64 | 通用 LuCI 功能 |
-| Hiveton HigoOS H5000M | 1.26.04.29.09 | 6.6.94 | aarch64 | 通用功能及 HigoOS 原生面板 |
+| iStoreOS | 24.10.8 (2026073111) | 6.6.144 | x86_64 | LuCI 界面、实时探测、历史曲线及时间范围 |
 
-其他 OpenWrt / iStoreOS 版本尚未验证，欢迎提交测试结果。
+其他 OpenWrt / ImmortalWrt / iStoreOS 版本尚未验证，欢迎提交测试结果。
 
 ## 编译
 
@@ -91,27 +70,19 @@ make package/luci-app-wan-latency/compile V=s
 将 `.ipk` 上传到路由器后执行：
 
 ```sh
-opkg install ./luci-app-wan-latency_1.3.0-1_all.ipk
+opkg install ./luci-app-wan-latency_1.4.0-1_all.ipk
 ```
-
-HigoOS 可继续安装可选集成扩展：
-
-```sh
-opkg install ./luci-app-wan-latency-higoos_1.3.0-1_all.ipk
-```
-
-普通 OpenWrt、ImmortalWrt 和 iStoreOS 不需要安装 HigoOS 扩展包。
 
 ### 自解压安装器
 
-无法使用软件包管理器安装本地包时，可以使用 `.run`。它不会覆盖已有的 `/etc/config/wan-latency`、目标列表和历史数据：
+也可以使用 `.run` 安装同一个通用 IPK。它不会覆盖已有的 `/etc/config/wan-latency`、目标列表和历史数据：
 
 ```sh
-chmod +x luci-app-wan-latency-1.3.0-1.run
-./luci-app-wan-latency-1.3.0-1.run
+chmod +x luci-app-wan-latency-1.4.0-1.run
+./luci-app-wan-latency-1.4.0-1.run
 ```
 
-`.run` 不会自动联网安装依赖；缺少依赖时会列出需要执行的 `opkg install` 命令。它会自动识别 HigoOS，并只在匹配时安装原生界面扩展。
+`.run` 不会自动联网安装依赖；缺少依赖时会列出需要执行的 `opkg install` 命令。
 
 OpenWrt 25.12 及以后使用 `.apk` 的系统尚未完成实机或官方 SDK 验证，因此当前 Release 不提供未经验证的 `.apk`。
 

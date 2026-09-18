@@ -66,24 +66,54 @@ canvas { width: 100%; height: 420px; display: block; cursor: crosshair; }
 .series-count { color:var(--muted); font-size:12px; }
 
 @media (max-width: 900px) { canvas { height: 320px; } }
+
+/* Light monitoring dashboard inspired by the supplied reference */
+:root { --bg:#eef4f7; --panel:rgba(255,255,255,.90); --line:#e1e9ee; --text:#26313b; --muted:#84909b; --green:#27a55d; --blue:#159bd1; --yellow:#e7a400; --loss:#e35353; }
+html,body { background:linear-gradient(135deg,#eef6f8 0%,#f8fafb 52%,#eaf1f4 100%); color:var(--text); }
+body { max-width:1280px; margin:0 auto; padding:18px 32px 36px; }
+.topnav { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:18px; }
+.topnav .brand { font-size:20px; font-weight:800; margin-right:16px; color:#1d2c36; }
+.navitem { padding:10px 15px; border:0; border-radius:10px; background:transparent; color:#65727c; font:inherit; font-weight:600; font-size:13px; cursor:pointer; } .navitem:hover { background:rgba(255,255,255,.72); color:#1d2c36; }
+.navitem.active { background:#fff; color:#1d2c36; box-shadow:0 4px 16px rgba(50,80,100,.08); }
+.hero { background:var(--panel); border:1px solid rgba(219,230,236,.9); border-radius:18px; padding:20px 24px; display:flex; align-items:center; gap:18px; box-shadow:0 8px 26px rgba(50,80,100,.06); margin-bottom:14px; }
+.health { width:54px; height:54px; border-radius:50%; border:3px solid var(--green); color:var(--green); display:grid; place-items:center; font-size:32px; font-weight:700; flex:none; }
+.hero h1 { margin:0; font-size:21px; } .hero .sub { margin:3px 0 0; }
+.hero-stats { display:flex; gap:28px; margin-left:18px; flex-wrap:wrap; } .hero-stat b { display:block; font-size:21px; color:#27343d; } .hero-stat span { color:var(--muted); font-size:11px; }
+.overview-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:14px; }
+.overview-card { background:var(--panel); border:1px solid var(--line); border-radius:15px; min-height:90px; padding:15px 16px; box-shadow:0 5px 18px rgba(50,80,100,.04); }
+.overview-card .label { color:#78858f; font-size:12px; font-weight:700; } .overview-card .big { color:var(--green); font-size:27px; font-weight:800; margin-top:5px; } .overview-card .small { color:var(--muted); font-size:11px; margin-top:3px; }
+.cards { grid-template-columns:repeat(3,minmax(240px,1fr)); } .card { background:var(--panel); border-color:var(--line); border-radius:15px; box-shadow:0 5px 18px rgba(50,80,100,.04); }
+.card .val { color:var(--green); } .card .meta,.card .name { color:var(--muted); } .dot { width:9px;height:9px; }
+.toolbar,.addbar,.series-bar { background:rgba(255,255,255,.62); border:1px solid var(--line); border-radius:13px; padding:10px; }
+.btn,input,select { background:#fff; color:var(--text); border-color:#d9e3e8; } .btn.active { background:#e5f6ed; border-color:#a9ddbd; color:#238c50; }
+.btn.preset { border-color:#b8d6e4; } .chart-wrap { background:var(--panel); border-color:var(--line); box-shadow:0 5px 18px rgba(50,80,100,.04); } canvas { height:380px; } .method { border-color:#d7e3e8; }
+.settings { display:grid; grid-template-columns:repeat(4,minmax(150px,1fr)); gap:10px; background:var(--panel); border:1px solid var(--line); border-radius:15px; padding:13px; margin-bottom:14px; }
+.setting { display:flex; flex-direction:column; gap:5px; color:#78858f; font-size:11px; font-weight:700; } .setting .btn { width:100%; }
+.region-select { min-width:120px; } .region-badge { display:inline-block; margin-left:5px; border-radius:999px; padding:2px 7px; font-size:10px; background:#edf7ff; color:#2580b1; }
+@media(max-width:900px){body{padding:14px}.overview-grid{grid-template-columns:repeat(2,1fr)}.cards{grid-template-columns:repeat(2,minmax(220px,1fr))}.settings{grid-template-columns:repeat(2,1fr)}.hero-stats{margin-left:0}}
+@media(max-width:600px){.overview-grid,.cards,.settings{grid-template-columns:1fr}.hero{align-items:flex-start}.hero-stats{gap:15px}}
 </style>
 </head>
 <body>
-  <h1>公网延迟</h1>
-  <div class="sub" id="pageSub">从 iStoreOS WAN 经 CPE 探测。探测间隔与存储位置按实际配置显示。</div>
-  <div class="addbar">
+  <nav class="topnav" aria-label="公网延迟监控导航"><div class="brand">公网延迟监控</div><button type="button" class="navitem active" data-target="overviewSection">概览</button><button type="button" class="navitem" data-target="realtimeSection">实时监控</button><button type="button" class="navitem" data-target="chartSection">延迟曲线</button><button type="button" class="navitem" data-target="regionSection">国内 / 国外</button><button type="button" class="navitem" data-target="historySection">历史数据</button><button type="button" class="navitem" data-target="targetsSection">目标管理</button><button type="button" class="navitem" data-target="settingsSection">设置</button></nav>
+  <section class="hero" id="overviewSection"><div class="health" id="healthIcon">✓</div><div><h1 id="healthTitle">网络正常</h1><div class="sub" id="pageSub">从 iStoreOS WAN 经 CPE 探测。探测间隔与存储位置按实际配置显示。</div></div><div class="hero-stats"><div class="hero-stat"><b id="heroAvg">--</b><span>当前平均延迟</span></div><div class="hero-stat"><b id="heroLoss">--</b><span>丢包率</span></div><div class="hero-stat"><b id="heroOnline">0</b><span>在线目标</span></div><div class="hero-stat"><b id="heroBad">0</b><span>异常目标</span></div></div></section>
+  <section class="overview-grid" id="regionSection"><div class="overview-card"><div class="label">平均延迟</div><div class="big" id="ovAvg">-- ms</div><div class="small">所有已启用目标的平均值</div></div><div class="overview-card"><div class="label">当前延迟</div><div class="big" id="ovCur">-- ms</div><div class="small">最近一次采集结果</div></div><div class="overview-card"><div class="label">丢包率</div><div class="big" id="ovLoss">--%</div><div class="small" id="ovLossDetail">样本数：--</div></div><div class="overview-card"><div class="label">国内网络</div><div class="big" id="ovDomestic">-- ms</div><div class="small">国内目标平均延迟</div></div><div class="overview-card"><div class="label">国外网络</div><div class="big" id="ovForeign">-- ms</div><div class="small">国外目标平均延迟</div></div><div class="overview-card"><div class="label">采集状态</div><div class="big" id="ovLast">--</div><div class="small" id="ovLastDetail">等待数据</div></div></section>
+  <div class="addbar" id="targetsSection">
     <span class="sub" style="margin:0">预设</span>
     <button class="btn preset" id="p_ali">+ 阿里云</button>
     <button class="btn preset" id="p_tencent">+ 腾讯云</button>
     <button class="btn preset" id="p_steam">+ Steam</button>
     <input id="newName" placeholder="名称，可空">
     <input id="newHost" placeholder="IP 或域名，例如 8.8.8.8">
+    <select id="newRegion" class="region-select"><option value="auto">自动分类</option><option value="domestic">国内</option><option value="foreign">国外</option></select>
     <button class="btn active" id="addBtn">添加目标</button>
     <span class="err" id="addErr"></span>
   </div>
-  <div class="cards" id="cards"></div>
-  <div class="toolbar">
+  <section class="settings" id="settingsSection"><label class="setting">探测间隔<select id="pingInterval" class="btn"><option value="2">2 秒</option><option value="5">5 秒</option><option value="10">10 秒</option><option value="15">15 秒</option><option value="30">30 秒</option><option value="60">1 分钟</option><option value="120">2 分钟</option><option value="300">5 分钟</option></select></label><label class="setting">单目标超时<select id="probeTimeout" class="btn"><option value="1">1 秒</option><option value="2">2 秒</option><option value="3">3 秒</option><option value="5">5 秒</option><option value="10">10 秒</option></select></label><label class="setting">告警阈值（毫秒）<input id="latencyThreshold" class="btn" type="number" min="1" max="60000" value="150"></label><label class="setting">数据保留天数<input id="retainDays" class="btn" type="number" min="1" max="3660" value="366"></label></section>
+  <div class="cards" id="realtimeSection"></div>
+  <div class="toolbar" id="historySection">
     <button class="btn" data-range="900">15分钟</button>
+    <button class="btn" data-range="1800">30分钟</button>
     <button class="btn active" data-range="3600">1小时</button>
     <button class="btn" data-range="21600">6小时</button>
     <button class="btn" data-range="86400">24小时</button>
@@ -96,17 +126,6 @@ canvas { width: 100%; height: 420px; display: block; cursor: crosshair; }
     <button class="btn" id="applyCustom">筛选</button>
     <button class="btn" id="liveBtn">实时跟随</button>
     <button class="btn" id="exportCsv">导出 CSV</button>
-    <span class="sub" style="margin:0 0 0 8px">探测间隔</span>
-    <select id="pingInterval" class="btn">
-      <option value="2">2秒</option>
-      <option value="5" selected>5秒</option>
-      <option value="10">10秒</option>
-      <option value="15">15秒</option>
-      <option value="30">30秒</option>
-      <option value="60">1分钟</option>
-      <option value="120">2分钟</option>
-      <option value="300">5分钟</option>
-    </select>
   </div>
   <div class="series-bar" id="seriesBar">
     <span class="sub" style="margin:0">显示曲线</span>
@@ -116,7 +135,7 @@ canvas { width: 100%; height: 420px; display: block; cursor: crosshair; }
     <span class="series-count" id="seriesCount"></span>
     <span class="series-filters" id="seriesFilters"></span>
   </div>
-  <div class="chart-wrap">
+  <div class="chart-wrap" id="chartSection">
     <canvas id="chart"></canvas>
     <div class="legend" id="legend"></div>
   </div>
@@ -181,10 +200,19 @@ function updatePresetButtons(){
   });
 }
 
+function currentTargets(){
+  const configured = data && data.targets;
+  if (Array.isArray(configured)) return configured;
+  return ((data && data.latest && data.latest.items) || []).map(item => ({
+    id: item.id, name: item.name || item.host || item.id, host: item.host || item.ip || "",
+    color: item.color || "#159bd1", region: item.region || "auto"
+  }));
+}
+
 function renderCards(){
   if (cardDrag) return;
-  const box = document.getElementById("cards");
-  const targets = (data && data.targets) || [];
+  const box = document.getElementById("realtimeSection");
+  const targets = currentTargets();
   const stats = (data && data.stats) || {};
   const latestItems = ((data && data.latest && data.latest.items) || []);
   const latestMap = {};
@@ -196,9 +224,11 @@ function renderCards(){
   box.innerHTML = targets.map(t => {
     const st = stats[t.id] || {};
     const cur = (latestMap[t.id] && latestMap[t.id].rtt != null) ? latestMap[t.id].rtt : null;
-    const ip = latestMap[t.id] && latestMap[t.id].ip && latestMap[t.id].ip !== t.host ? latestMap[t.id].ip : "";
+    const liveItem = latestMap[t.id] || {};
+    const ip = liveItem.ip && liveItem.ip !== t.host ? liveItem.ip : "";
+    const region = t.region === "domestic" ? "国内" : (t.region === "foreign" ? "国外" : "自动");
     return '<div class="card" draggable="true" data-id="' + t.id + '" title="拖动可调整顺序">' +
-      '<div class="name"><span><span class="dot" style="background:' + esc(t.color) + '"></span>' + esc(t.name) + ' ' + esc(t.host) + (ip ? " / " + esc(ip) : "") + '<span class="method">' + esc(methodLabel(st.method)) + '</span></span>' +
+      '<div class="name"><span><span class="dot" style="background:' + esc(t.color) + '"></span>' + esc(t.name) + ' ' + esc(t.host) + '<span class="region-badge">' + region + '</span>' + (ip ? " / " + esc(ip) : "") + '<span class="method">' + esc(methodLabel(liveItem.method || st.method)) + '</span></span>' +
       '<span><span>' + "丢包 " + fmtMs(st.loss) + '%</span> <button class="xbtn" data-del="' + t.id + '" title="删除">×</button></span></div>' +
       '<div class="val">' + fmtMs(cur) + '<small>ms</small></div>' +
       '<div class="meta">min/avg/max ' + fmtMs(st.min) + " / " + fmtMs(st.avg) + " / " + fmtMs(st.max) + " · 抖动 " + fmtMs(st.jitter) + " · P50/P95/P99 " + fmtMs(st.p50) + "/" + fmtMs(st.p95) + "/" + fmtMs(st.p99) + "</div></div>";
@@ -302,9 +332,9 @@ async function api(qs){
   return window.parent.wanLatencyApi(qs);
 }
 
-async function addTarget(name, host){
+async function addTarget(name, host, region){
   document.getElementById("addErr").textContent = "";
-  const q = "action=add&name=" + encodeURIComponent(name || "") + "&host=" + encodeURIComponent(host || "");
+  const q = "action=add&name=" + encodeURIComponent(name || "") + "&host=" + encodeURIComponent(host || "") + "&region=" + encodeURIComponent(region || "auto");
   const r = await api(q);
   if (!r.ok) { document.getElementById("addErr").textContent = r.error || "添加失败"; return; }
   document.getElementById("newName").value = "";
@@ -317,7 +347,52 @@ async function delTarget(id){
   await loadQuery();
 }
 
+function updateOverview(){
+  const targets=currentTargets(), stats=(data&&data.stats)||{}, latest=((data&&data.latest&&data.latest.items)||[]);
+  const latestMap={}; latest.forEach(item=>{latestMap[item.id]=item;});
+  const current=[], history=[], domestic=[], foreign=[]; let lossSum=0, lossN=0, bad=0;
+  targets.forEach(t=>{
+    const st=stats[t.id]||{}, cur=latestMap[t.id]&&latestMap[t.id].rtt;
+    if(st.avg!=null) history.push(Number(st.avg));
+    if(st.loss!=null){lossSum+=Number(st.loss);lossN++;}
+    if(cur==null){bad++;return;}
+    const value=Number(cur); current.push(value);
+    if(t.region==='foreign') foreign.push(value); else if(t.region==='domestic') domestic.push(value);
+  });
+  const avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
+  const currentMean=avg(current), historyMean=avg(history), loss=lossN?lossSum/lossN:null;
+  const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;}; const ms=v=>v==null?'--':v.toFixed(1)+' ms';
+  set('heroAvg',ms(currentMean)); set('heroLoss',loss==null?'--':loss.toFixed(1)+'%'); set('heroOnline',current.length); set('heroBad',bad);
+  set('ovAvg',ms(historyMean!=null?historyMean:currentMean)); set('ovCur',ms(currentMean)); set('ovLoss',loss==null?'--%':loss.toFixed(1)+'%'); set('ovLossDetail','样本数：'+(data&&data.count||0)); set('ovDomestic',ms(avg(domestic))); set('ovForeign',ms(avg(foreign)));
+  const stale=!(data&&data.latest&&data.latest.ts)||Math.floor(Date.now()/1000)-data.latest.ts>Math.max(20,pingInterval*3); set('ovLast',stale?'异常':'正常'); set('ovLastDetail',data&&data.latest&&data.latest.ts?'最近更新 '+fmtTime(data.latest.ts):'等待数据');
+  const health=document.getElementById('healthTitle'), icon=document.getElementById('healthIcon'); if(health)health.textContent=stale?'采集异常':'网络正常'; if(icon){icon.textContent=stale?'!':'✓';icon.style.color=stale?'#e35353':'#27a55d';icon.style.borderColor=stale?'#e35353':'#27a55d';}
+}
+
+let realtimeInFlight = false;
+let queryGeneration = 0;
+async function loadRealtime(){
+  if (realtimeInFlight) return;
+  realtimeInFlight = true;
+  try {
+    const results=await Promise.all([api('action=latest'),api('action=targets')]);
+    const latest=results[0]||{}, targetResult=results[1]||{};
+    data=data||{};
+    if(!data.latest || Number(latest.ts)>=Number(data.latest.ts||0)) data.latest=latest;
+    if(targetResult.ok&&Array.isArray(targetResult.targets)) data.targets=targetResult.targets;
+    renderCards(); updateOverview(); updatePresetButtons(); updatePageSub();
+    const status=document.getElementById('statusLine');
+    if(status&&status.textContent==='正在加载…'&&latest.ts) status.textContent='实时数据已加载，正在读取历史曲线…';
+  } catch(err) {
+    const status=document.getElementById('statusLine');
+    if(status&&status.textContent==='正在加载…') status.textContent='实时数据加载失败：'+String(err&&err.message||err);
+  } finally { realtimeInFlight=false; }
+}
+
+async function loadSettings(){ const r=await api('action=settings'); if(!r||!r.ok)return; const map={pingInterval:r.interval,probeTimeout:r.timeout,latencyThreshold:r.latency_threshold_ms,retainDays:r.retain_days}; Object.keys(map).forEach(id=>{const e=document.getElementById(id);if(e&&map[id]!=null)e.value=map[id];}); pingInterval=Number(r.interval)||pingInterval; schedulePoll(); }
+async function saveSetting(name,value){ const r=await api('action=setting&name='+encodeURIComponent(name)+'&value='+encodeURIComponent(value)); if(!r||!r.ok) return; if(name==='interval'){pingInterval=Number(r.value)||pingInterval;schedulePoll();} await loadQuery(); }
+
 async function loadQuery(){
+  const requestGeneration = ++queryGeneration;
   const now = Math.floor(Date.now()/1000);
   let from, to;
   if (custom) {
@@ -328,13 +403,27 @@ async function loadQuery(){
   } else {
     to = now; from = now - rangeSec;
   }
-  data = await api("action=query&from=" + from + "&to=" + to);
+  let response;
+  try { response = await api("action=query&from=" + from + "&to=" + to); }
+  catch(err) {
+    if (requestGeneration !== queryGeneration) return;
+    document.getElementById("statusLine").textContent = '历史数据加载失败：' + String(err&&err.message||err);
+    return;
+  }
+  if (requestGeneration !== queryGeneration) return;
+  if (!response || !response.ok) {
+    document.getElementById("statusLine").textContent = '历史数据加载失败';
+    return;
+  }
+  if(data && data.latest && Number(data.latest.ts)>Number((response.latest||{}).ts||0)) response.latest=data.latest;
+  data = response;
   renderCards();
+  updateOverview();
   renderSeriesFilters();
   renderLegend();
   updatePresetButtons();
   const latest = data.latest || {};
-  const stale = !latest.ts || (now - latest.ts > 20);
+  const stale = !latest.ts || (now - latest.ts > Math.max(20, pingInterval * 3));
   const iv = data.interval || (data.meta && data.meta.interval) || pingInterval;
   if (iv && Number(iv) !== pingInterval) {
     pingInterval = Number(iv);
@@ -379,10 +468,10 @@ function yMax(){
 function draw(){
   const {ctx,w,h,pad} = geometry();
   ctx.clearRect(0,0,w,h);
-  ctx.fillStyle = "#121c2d";
+  ctx.fillStyle = "#fbfdfe";
   ctx.fillRect(0,0,w,h);
   if (!data || !data.t || !data.t.length) {
-    ctx.fillStyle = "#8ea0b8";
+    ctx.fillStyle = "#84909b";
     ctx.font = "14px sans-serif";
     ctx.fillText("暂无曲线。添加目标后会在这里画出来", 24, h/2);
     return;
@@ -397,7 +486,7 @@ function draw(){
   const maxv = yMax();
   const x = ts => pad.l + (ts-t0) / Math.max(1,t1-t0) * (w-pad.l-pad.r);
   const y = v => pad.t + (1 - v/maxv) * (h-pad.t-pad.b);
-  ctx.strokeStyle = "#263247"; ctx.lineWidth = 1;
+  ctx.strokeStyle = "#e4ecef"; ctx.lineWidth = 1;
   ctx.fillStyle = "#8ea0b8"; ctx.font = "11px sans-serif";
   for (let i=0;i<=4;i++){
     const v = maxv * i / 4, yy = y(v);
@@ -563,15 +652,22 @@ document.getElementById("seriesInvert").addEventListener("click", () => {
   refreshSeriesUi();
 });
 document.getElementById("addBtn").addEventListener("click", () => {
-  addTarget(document.getElementById("newName").value, document.getElementById("newHost").value);
+  addTarget(document.getElementById("newName").value, document.getElementById("newHost").value, document.getElementById("newRegion").value);
 });
 document.getElementById("newHost").addEventListener("keydown", ev => {
-  if (ev.key === "Enter") addTarget(document.getElementById("newName").value, document.getElementById("newHost").value);
+  if (ev.key === "Enter") addTarget(document.getElementById("newName").value, document.getElementById("newHost").value, document.getElementById("newRegion").value);
 });
 PRESETS.forEach(p => {
   document.getElementById("p_" + p.id).addEventListener("click", () => {
     if (document.getElementById("p_" + p.id).classList.contains("disabled")) return;
-    addTarget(p.name, p.host);
+    addTarget(p.name, p.host, p.region);
+  });
+});
+document.querySelectorAll(".navitem[data-target]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const target = document.getElementById(btn.dataset.target);
+    if (target) target.scrollIntoView({behavior:"smooth", block:"start"});
+    document.querySelectorAll(".navitem").forEach(item => item.classList.toggle("active", item === btn));
   });
 });
 window.addEventListener("resize", draw);
@@ -579,14 +675,14 @@ window.addEventListener("resize", draw);
 function updatePageSub(){
   const sel = document.getElementById("pingInterval");
   if (sel && sel.value) pingInterval = Number(sel.value) || pingInterval;
-  const store = (data && (data.storage_label || (data.meta && data.meta.storage_label))) || "傲腾";
+  const store = (data && (data.storage_label || (data.meta && data.meta.storage_label))) || "路由器本地存储";
   const el = document.getElementById("pageSub") || document.querySelector("h1 + .sub");
   if (el) el.textContent = "从 iStoreOS WAN 经 CPE 探测。每 " + pingInterval + " 秒一个点，数据保存在" + store + "上。目标可任意添加，阿里云 / 腾讯云 / Steam 只是一键预设。";
 }
 function schedulePoll(){
   if (pollTimer) clearInterval(pollTimer);
   const ms = Math.max(2000, Math.min(5000, pingInterval * 1000));
-  pollTimer = setInterval(() => { if (live) loadQuery(); }, ms);
+  pollTimer = setInterval(() => { loadRealtime(); if (live) loadQuery(); }, ms);
 }
 document.getElementById("pingInterval").addEventListener("change", async () => {
   const v = document.getElementById("pingInterval").value;
@@ -598,8 +694,11 @@ document.getElementById("pingInterval").addEventListener("change", async () => {
     loadQuery();
   }
 });
+['probeTimeout','latencyThreshold','retainDays'].forEach(id=>{ const e=document.getElementById(id); if(e)e.addEventListener('change',()=>saveSetting({probeTimeout:'timeout',latencyThreshold:'latency_threshold_ms',retainDays:'retain_days'}[id],e.value)); });
 updatePageSub();
 schedulePoll();
+loadRealtime();
+loadSettings().catch(err => { document.getElementById('statusLine').textContent = '设置读取失败：' + String(err && err.message || err); });
 loadQuery();
 </script>
 </body>

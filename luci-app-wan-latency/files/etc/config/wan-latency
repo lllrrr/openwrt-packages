@@ -5,6 +5,7 @@
 config monitor 'global'
 	option enabled '1'
 	option interval '10'
+	option timeout '3'
 	option retain_days '366'
 	option latency_threshold_ms '150'
 	option loss_alert_consecutive '3'

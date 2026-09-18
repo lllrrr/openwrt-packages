@@ -12,6 +12,7 @@ TARGET_CONF = "/etc/wan-latency/targets.conf"
 INTERVAL_PATH = "/etc/wan-latency/interval"
 MAX_TARGETS = 12
 ALLOWED_INTERVALS = {2,5,10,15,30,60,120,300}
+ALLOWED_TIMEOUTS = {1,2,3,5,10}
 
 local function uci_number(option, default, minimum, maximum)
   local p = io.popen("uci -q get wan-latency.global." .. option .. " 2>/dev/null")
@@ -33,6 +34,32 @@ end
 
 function load_loss_alert_consecutive()
   return uci_number("loss_alert_consecutive", 3, 1, 100)
+end
+
+function normalize_timeout(n)
+  n = tonumber(n)
+  if not n then return 3 end
+  n = math.floor(n)
+  for i = 1, #ALLOWED_TIMEOUTS do
+    if ALLOWED_TIMEOUTS[i] == n then return n end
+  end
+  return 3
+end
+
+function load_timeout()
+  return normalize_timeout(uci_number("timeout", 3, 1, 10))
+end
+
+function save_setting(option, value)
+  local allowed = { timeout = true, retain_days = true, latency_threshold_ms = true, loss_alert_consecutive = true }
+  if not allowed[option] then return nil end
+  local n
+  if option == "timeout" then n = normalize_timeout(value)
+  elseif option == "retain_days" then n = math.floor(tonumber(value) or 366); if n < 1 then n = 1 elseif n > 3660 then n = 3660 end
+  elseif option == "latency_threshold_ms" then n = math.floor(tonumber(value) or 150); if n < 1 then n = 1 elseif n > 60000 then n = 60000 end
+  else n = math.floor(tonumber(value) or 3); if n < 1 then n = 1 elseif n > 100 then n = 100 end end
+  os.execute("uci -q set wan-latency.global." .. option .. "=" .. tostring(n) .. " ; uci -q commit wan-latency")
+  return n
 end
 
 function normalize_interval(n)
@@ -77,9 +104,9 @@ ROLLUP_PATH = DATA_DIR .. "/rollup_1m.bin"
 PALETTE = {"#ff7a1a","#2ec7ff","#8bdc63","#f6c445","#c084fc","#fb7185","#22d3ee","#a3e635","#f97316","#60a5fa","#e879f9","#34d399"}
 
 PRESETS = {
-  {id="ali", name="阿里云", host="223.5.5.5", color="#ff7a1a"},
-  {id="tencent", name="腾讯云", host="119.29.29.29", color="#2ec7ff"},
-  {id="steam", name="Steam", host="store.steampowered.com", color="#8bdc63"}
+  {id="ali", name="阿里云", host="223.5.5.5", color="#ff7a1a", region="domestic"},
+  {id="tencent", name="腾讯云", host="119.29.29.29", color="#2ec7ff", region="domestic"},
+  {id="steam", name="Steam", host="store.steampowered.com", color="#8bdc63", region="foreign"}
 }
 
 function load_paths()
@@ -381,6 +408,12 @@ function sanitize_name(name)
   return name
 end
 
+function normalize_region(region, fallback)
+  region = tostring(region or "")
+  if region == "domestic" or region == "foreign" then return region end
+  return fallback or "auto"
+end
+
 function normalize_color(color, fallback)
   color = tostring(color or "")
   if color:match("^#[%x][%x][%x][%x][%x][%x]$") then return color end
@@ -394,16 +427,19 @@ function load_targets()
     for line in f:lines() do
       line = line:gsub("\r", "")
       if line ~= "" and not line:match("^#") then
-        local id, name, host, color = line:match("^([^|]+)|([^|]+)|([^|]+)|([^|]+)$")
+        local id, name, host, color, region = line:match("^([^|]+)|([^|]+)|([^|]+)|([^|]*)|([^|]*)$")
+        if not id then id, name, host, color = line:match("^([^|]+)|([^|]+)|([^|]+)|([^|]+)$") end
         if valid_id(id) and valid_host(host) then
-          list[#list + 1] = { id = id, name = sanitize_name(name) or id, host = host, color = normalize_color(color, PALETTE[1]) }
+          local preset_region = "auto"
+          for i = 1, #PRESETS do if PRESETS[i].id == id then preset_region = PRESETS[i].region or "auto" end end
+          list[#list + 1] = { id = id, name = sanitize_name(name) or id, host = host, color = normalize_color(color, PALETTE[1]), region = normalize_region(region, preset_region) }
         end
       end
     end
     f:close()
   end
   if #list == 0 then
-    for i = 1, #PRESETS do list[i] = { id = PRESETS[i].id, name = PRESETS[i].name, host = PRESETS[i].host, color = PRESETS[i].color } end
+    for i = 1, #PRESETS do list[i] = { id = PRESETS[i].id, name = PRESETS[i].name, host = PRESETS[i].host, color = PRESETS[i].color, region = PRESETS[i].region or "auto" } end
     save_targets(list)
   end
   return list
@@ -415,10 +451,10 @@ function save_targets(list)
   local tmp = TARGET_CONF .. ".tmp"
   local f = io.open(tmp, "w")
   if not f then return false end
-  f:write("# id|name|host|color\n")
+  f:write("# id|name|host|color|region\n")
   for i = 1, #list do
     local t = list[i]
-    f:write(string.format("%s|%s|%s|%s\n", t.id, t.name, t.host, normalize_color(t.color, PALETTE[((i-1)%#PALETTE)+1])))
+    f:write(string.format("%s|%s|%s|%s|%s\n", t.id, t.name, t.host, normalize_color(t.color, PALETTE[((i-1)%#PALETTE)+1]), normalize_region(t.region, "auto")))
   end
   f:close()
   os.rename(tmp, TARGET_CONF)

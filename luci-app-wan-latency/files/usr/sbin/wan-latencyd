@@ -83,6 +83,7 @@ end
 
 local function ping_all(iface)
   iface = safe_token(iface)
+  local probe_timeout = wl.load_timeout()
   local rtts, ips, methods = {}, {}, {}
   if not iface or #targets == 0 then return rtts, ips, methods end
   local sh = io.open(run_dir .. "/round.sh", "w")
@@ -92,7 +93,7 @@ local function ping_all(iface)
     local t = targets[i]
     local host = safe_token(t.host)
     if wl.valid_id(t.id) and host then
-      sh:write(string.format("ping -4 -c 1 -w 1 -W 1 -I %s %s > %s/ping.%s 2>&1 &\n", iface, host, run_dir, t.id))
+      sh:write(string.format("ping -4 -c 1 -w %d -W %d -I %s %s > %s/ping.%s 2>&1 &\n", probe_timeout, probe_timeout, iface, host, run_dir, t.id))
     end
   end
   sh:write("wait\n")
@@ -135,7 +136,7 @@ local function ping_all(iface)
       for _, id in ipairs(missing) do
         local dest = safe_token(ips[id])
         if dest then
-          sh2:write(string.format("curl -4 -o /dev/null -s -w '%%{time_connect}\\n' --connect-timeout 1 --max-time 1 --interface %s -k https://%s/ > %s/tcp.%s 2>/dev/null &\n", iface, dest, run_dir, id))
+          sh2:write(string.format("curl -4 -o /dev/null -s -w '%%{time_connect}\\n' --connect-timeout %d --max-time %d --interface %s -k https://%s/ > %s/tcp.%s 2>/dev/null &\n", probe_timeout, probe_timeout, iface, dest, run_dir, id))
         end
       end
       sh2:write("wait\n")
@@ -152,7 +153,7 @@ local function ping_all(iface)
       for _, id in ipairs(missing) do
         local dest = safe_token(ips[id])
         if dest then
-          sh3:write(string.format("curl -4 -o /dev/null -s -w '%%{time_connect}\\n' --connect-timeout 1 --max-time 1 --interface %s http://%s/ > %s/tcp.%s 2>/dev/null &\n", iface, dest, run_dir, id))
+          sh3:write(string.format("curl -4 -o /dev/null -s -w '%%{time_connect}\\n' --connect-timeout %d --max-time %d --interface %s http://%s/ > %s/tcp.%s 2>/dev/null &\n", probe_timeout, probe_timeout, iface, dest, run_dir, id))
         end
       end
       sh3:write("wait\n")
@@ -169,7 +170,7 @@ local function ping_all(iface)
       for _, id in ipairs(missing) do
         local dest = safe_token(ips[id])
         if dest and dest:match("^%d+%.%d+%.%d+%.%d+$") then
-          shd:write(string.format("/usr/sbin/wan-latency-probe %s > %s/dns.%s 2>/dev/null &\n", dest, run_dir, id))
+          shd:write(string.format("/usr/sbin/wan-latency-probe %s %d > %s/dns.%s 2>/dev/null &\n", dest, probe_timeout, run_dir, id))
         end
       end
       shd:write("wait\n")

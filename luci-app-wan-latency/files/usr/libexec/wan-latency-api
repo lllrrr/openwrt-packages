@@ -52,8 +52,8 @@ local function targets_json(list)
   local t = {}
   for i = 1, #list do
     local x = list[i]
-    t[i] = string.format('{"id":"%s","name":"%s","host":"%s","color":"%s"}',
-      wl.json_escape(x.id), wl.json_escape(x.name), wl.json_escape(x.host), wl.json_escape(x.color or ""))
+    t[i] = string.format('{"id":"%s","name":"%s","host":"%s","color":"%s","region":"%s"}',
+      wl.json_escape(x.id), wl.json_escape(x.name), wl.json_escape(x.host), wl.json_escape(x.color or ""), wl.json_escape(x.region or "auto"))
   end
   return "[" .. table.concat(t, ",") .. "]"
 end
@@ -142,6 +142,8 @@ if action == "add" then
     if wl.PRESETS[i].host == host or wl.PRESETS[i].id == host then preset = wl.PRESETS[i] end
   end
   local id = preset and preset.id or wl.make_id(host)
+  local region = (q.region == "domestic" or q.region == "foreign") and q.region or "auto"
+  if preset then region = preset.region or region end
   if preset and (not name or name == "") then name = preset.name end
   if not name then name = host end
   for i = 1, #list do
@@ -151,13 +153,28 @@ if action == "add" then
   end
   local color = (preset and preset.color) or wl.next_color(list)
   if preset then host = preset.host end
-  list[#list + 1] = { id = id, name = name, host = host, color = color }
+  list[#list + 1] = { id = id, name = name, host = host, color = color, region = region }
   wl.save_targets(list)
   return { list = list }
   end)
   if not lock_ok then send('{"ok":false,"error":"' .. wl.json_escape(result) .. '"}'); os.exit(0) end
   if result.error then send('{"ok":false,"error":"' .. wl.json_escape(result.error) .. '"}'); os.exit(0) end
   send('{"ok":true,"targets":' .. targets_json(result.list) .. '}'); os.exit(0)
+end
+
+if action == "settings" then
+  send(string.format('{"ok":true,"interval":%d,"timeout":%d,"retain_days":%d,"latency_threshold_ms":%d,"loss_alert_consecutive":%d}',
+    wl.load_interval(), wl.load_timeout(), wl.load_retain_days(), wl.load_latency_threshold(), wl.load_loss_alert_consecutive()))
+  os.exit(0)
+end
+
+if action == "setting" then
+  local option = q.name or ""
+  local value = wl.save_setting(option, q.value or "")
+  if not value then send('{"ok":false,"error":"不支持的设置项"}') else
+    send(string.format('{"ok":true,"name":"%s","value":%d}', wl.json_escape(option), value))
+  end
+  os.exit(0)
 end
 
 if action == "interval" then

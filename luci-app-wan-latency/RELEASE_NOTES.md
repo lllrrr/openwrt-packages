@@ -1,28 +1,26 @@
-# luci-app-wan-latency v1.3.0
+# luci-app-wan-latency v1.4.0
 
-本版本新增可选的 HigoOS 原生界面集成，同时保持通用 OpenWrt 安装包不受影响。
+本版本带来新的 LuCI 公网延迟监控仪表盘，并修复实时状态和历史时间范围刷新问题。
+
+## 更新内容
+
+- 网络健康总览：平均与当前延迟、丢包率、在线及异常目标、国内与国外目标平均延迟。
+- 逐目标实时卡片：探测方式、丢包、抖动、最小/平均/最大延迟及 P50/P95/P99。
+- 目标可自动或手动归类为国内/国外；页面可调整探测间隔、超时、告警阈值及历史保留天数。
+- 历史曲线支持 15 分钟、30 分钟、1 小时、6 小时、24 小时、7 天、30 天、1 年及自定义时间范围；支持按目标筛选与 CSV 导出。
+- 修复实时延迟显示 `--`、历史范围按钮不更新，以及历史请求竞态影响最新选择的问题；实时状态独立刷新。
+- 发行包仅提供通用 LuCI 安装方式。
 
 ## 发布文件
 
-- `luci-app-wan-latency_1.3.0-1_all.ipk`：通用 LuCI 主包，适用于 OpenWrt、ImmortalWrt、iStoreOS 等。
-- `luci-app-wan-latency-higoos_1.3.0-1_all.ipk`：可选 HigoOS 集成扩展，依赖通用主包。
-- `luci-app-wan-latency-1.3.0-1.run`：自动识别 HigoOS 的一键安装器。
-- `luci-app-wan-latency-1.3.0-1-source.zip`：完整源代码。
-
-## HigoOS 集成
-
-- 在“其他设置”中增加“公网延迟”标签。
-- 原生显示当前探测接口、更新时间、目标延迟、探测方式和连续失败次数。
-- 每 5 秒自动刷新，并可手动刷新。
-- “打开完整图表”继续使用 LuCI 的鉴权页面，保留历史曲线、统计、目标管理和 CSV 导出功能。
-- 扩展安装前严格检测 HigoOS 前端签名；非 HigoOS 系统会安全跳过。
-- 扩展卸载时仅删除自身脚本标签和资源，不覆盖其他前端修改。
+- `luci-app-wan-latency_1.4.0-1_all.ipk`：通用 LuCI 主包。
+- `luci-app-wan-latency-1.4.0-1.run`：内含该 IPK 的自解压安装器。
+- `luci-app-wan-latency-1.4.0-1-source.zip`：源代码快照。
+- `SHA256SUMS`：上述三个文件的 SHA-256 校验值。
 
 ## 已验证环境
 
-- Hiveton HigoOS H5000M
-- ImmortalWrt 24.10-SNAPSHOT / Linux 6.6 / aarch64_cortex-a53
-- 通用包升级安装、服务启动、实时探测及 LuCI 页面
-- HigoOS 原生面板实时数据展示
+- iStoreOS 24.10.8 / Linux 6.6.144 / x86_64。
+- 实时探测、仪表盘、历史曲线及范围切换已在该设备验证。
 
-安装前请使用 `SHA256SUMS` 校验下载文件。
+安装前请使用 `SHA256SUMS` 校验下载文件。其他 OpenWrt 类系统尚未实机验证。

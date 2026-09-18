@@ -15,6 +15,21 @@ log_file()      { echo "$CACHE_DIR/$1.log";       }
 event_file()    { echo "$CACHE_DIR/$1.events";    }
 tmp_file()      { echo "$CACHE_DIR/$2";           }
 
+MIN_FREE_KB=20480
+
+check_free_space() {
+    local mnt avail
+    for mnt in /tmp /; do
+        avail="$(df -k "$mnt" 2>/dev/null | awk 'NR==2{print $4}')"
+        [ -z "$avail" ] && continue
+        if [ "$avail" -lt "$MIN_FREE_KB" ]; then
+            echo "Not enough free space on $mnt: ${avail} KB available, at least ${MIN_FREE_KB} KB required" >&2
+            return 1
+        fi
+    done
+    return 0
+}
+
 wait_for_network() {
     local i=0
     while [ $i -lt 30 ]; do
@@ -51,6 +66,7 @@ format_size() {
 pm_install() {
     local pkg="$1" rc=0
     shift
+    local out="${PM_LOG_FILE:-/dev/null}"
 
     if [ -z "$PM" ]; then
         echo "No package manager (apk/opkg) found, cannot install $pkg"
@@ -59,16 +75,16 @@ pm_install() {
 
     if echo "$pkg" | grep -q '/'; then
         case "$PM" in
-            apk)  apk add --allow-untrusted "$pkg" >/dev/null 2>&1 || rc=$? ;;
-            opkg) opkg install "$pkg" >/dev/null 2>&1 || rc=$? ;;
+            apk)  apk add --allow-untrusted "$pkg" >>"$out" 2>&1 || rc=$? ;;
+            opkg) opkg install "$pkg" >>"$out" 2>&1 || rc=$? ;;
         esac
 
     elif ! command -v "$pkg" >/dev/null 2>&1; then
         echo "Installing dependency: $pkg"
         $PM update >/dev/null 2>&1
         case "$PM" in
-            apk)  apk add "$pkg" >/dev/null 2>&1 || rc=$? ;;
-            opkg) opkg install "$pkg" >/dev/null 2>&1 || rc=$? ;;
+            apk)  apk add "$pkg" >>"$out" 2>&1 || rc=$? ;;
+            opkg) opkg install "$pkg" >>"$out" 2>&1 || rc=$? ;;
         esac
         if [ $rc -ne 0 ] || ! command -v "$pkg" >/dev/null 2>&1; then
             echo "Failed to install dependency: $pkg"
@@ -440,9 +456,11 @@ _download_and_install() {
     event "$proj" "installation_started"
     set_status "$proj" "installing"
     if [ "$proj" = "luci-app-vnt2" ]; then
+        PM_LOG_FILE="$(log_file "$proj")"
         pm_install "$f" \
             && log "$proj" "Package installed: $fname" \
-            || { log "$proj" "Package install failed: $fname"; rm -f "$f"; return 1; }
+            || { PM_LOG_FILE=""; log "$proj" "Package install failed: $fname"; rm -f "$f"; return 1; }
+        PM_LOG_FILE=""
         rm -f "$f"
     else
         _install_bin "$proj" "$f" "$upx"
@@ -626,8 +644,19 @@ cmd_auto_update() {
 }
 
 case "$1" in
+    detect_arch) detect_arch; exit 0 ;;
+esac
+
+if ! check_free_space; then
+    _proj="${2:-auto}"
+    log "$_proj" "Aborted: not enough free space, at least 20 MB required"
+    event "$_proj" "insufficient_space"
+    set_status "$_proj" "error:Not enough storage space, at least 20 MB required"
+    exit 1
+fi
+
+case "$1" in
     check)    cmd_check    "$2" "$3"           ;;
     download) cmd_download "$2" "$3" "$4" "$5" ;;
-    detect_arch)   detect_arch                   ;;
     *)        cmd_auto_update "$@"             ;;
 esac

@@ -3,14 +3,13 @@ import gzip, hashlib, io, os, shutil, stat, tarfile, time, zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 RELEASE = "1"
 OUT = ROOT / "dist"
 
 EXECUTABLES = {
     "etc/init.d/wan-latency", "usr/libexec/wan-latency-api",
     "usr/sbin/wan-latencyd", "usr/sbin/wan-latency-probe",
-    "usr/libexec/wan-latency-higoos-install",
 }
 
 def tar_gz_bytes(files_root=None, virtual=None):
@@ -59,8 +58,8 @@ def build_ipk(name, data_root, depends, description, conffiles="", postinst="", 
     (OUT / filename).write_bytes(blob)
     return filename
 
-def build_run(main_ipk, higo_ipk):
-    payload = tar_gz_bytes(virtual={main_ipk: ((OUT / main_ipk).read_bytes(), 0o644), higo_ipk: ((OUT / higo_ipk).read_bytes(), 0o644)})
+def build_run(main_ipk):
+    payload = tar_gz_bytes(virtual={main_ipk: ((OUT / main_ipk).read_bytes(), 0o644)})
     header = f'''#!/bin/sh
 set -eu
 fail() {{ echo "Error: $*" >&2; exit 1; }}
@@ -76,12 +75,7 @@ trap 'rm -rf "$work"' EXIT INT TERM
 line="$(awk '/^__PAYLOAD_BELOW__$/ {{ print NR + 1; exit }}' "$0")"
 tail -n "+$line" "$0" | gzip -dc | tar -xf - -C "$work"
 opkg install "$work/{main_ipk}"
-if [ -f /www/higoros/index.html ] && grep -Eq 'Hiveton HigoOS|HigoOS' /www/higoros/index.html; then
-  opkg install "$work/{higo_ipk}"
-  echo "HigoOS integration installed"
-else
-  echo "Generic OpenWrt installation completed (HigoOS integration skipped)"
-fi
+echo "luci-app-wan-latency installation completed"
 exit 0
 __PAYLOAD_BELOW__
 '''.encode()
@@ -95,7 +89,7 @@ def source_zip():
     with zipfile.ZipFile(OUT / name, "w", zipfile.ZIP_DEFLATED) as z:
         for p in sorted(ROOT.rglob("*"), key=lambda x: x.as_posix()):
             rel = p.relative_to(ROOT)
-            if not p.is_file() or ".git" in rel.parts or (rel.parts and rel.parts[0] in {"dist", "work"}): continue
+            if not p.is_file() or ".git" in rel.parts or "__pycache__" in rel.parts or p.suffix == ".pyc" or (rel.parts and rel.parts[0] in {"dist", "work"}): continue
             z.write(p, prefix + rel.as_posix())
     return name
 
@@ -109,12 +103,7 @@ def main():
         "/etc/config/wan-latency\n",
         "#!/bin/sh\n[ -n \"$IPKG_INSTROOT\" ] || { mkdir -p /www/wan-latency; /etc/init.d/wan-latency enable; /etc/init.d/wan-latency restart; rm -f /www/cgi-bin/wan-latency /tmp/luci-indexcache; /etc/init.d/rpcd restart; /etc/init.d/uhttpd reload; }\nexit 0\n",
         "#!/bin/sh\n[ -n \"$IPKG_INSTROOT\" ] || /etc/init.d/wan-latency stop\nexit 0\n")
-    higo_ipk = build_ipk(
-        "luci-app-wan-latency-higoos", ROOT / "higoos" / "files",
-        "luci-app-wan-latency (= 1.3.0-1)", "HigoOS native integration for WAN latency monitor",
-        postinst="#!/bin/sh\n[ -n \"$IPKG_INSTROOT\" ] || /usr/libexec/wan-latency-higoos-install install\nexit 0\n",
-        prerm="#!/bin/sh\n[ -n \"$IPKG_INSTROOT\" ] || /usr/libexec/wan-latency-higoos-install remove\nexit 0\n")
-    names = [main_ipk, higo_ipk, build_run(main_ipk, higo_ipk), source_zip()]
+    names = [main_ipk, build_run(main_ipk), source_zip()]
     sums = []
     for name in names:
         sums.append(hashlib.sha256((OUT / name).read_bytes()).hexdigest() + "  " + name)

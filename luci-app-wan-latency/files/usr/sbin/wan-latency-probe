@@ -3,6 +3,8 @@
 -- Copyright (C) 2026 xiaokeikei
 local nixio = require "nixio"
 local ip = arg[1]
+local timeout_s = math.floor(tonumber(arg[2]) or 3)
+if timeout_s < 1 then timeout_s = 1 elseif timeout_s > 10 then timeout_s = 10 end
 if not ip or not ip:match("^%d+%.%d+%.%d+%.%d+$") then os.exit(1) end
 local a0, b0 = nixio.gettimeofday()
 math.randomseed((a0 % 100000) * 1000 + ((b0 or 0) % 1000) + (nixio.getpid() or 1))
@@ -18,7 +20,7 @@ end
 local function once(pkt, id)
   local s = nixio.socket("inet", "dgram")
   if not s then return nil end
-  s:setopt("socket", "rcvtimeo", 1)
+  s:setopt("socket", "rcvtimeo", timeout_s)
   local a, b = nixio.gettimeofday()
   if not s:sendto(pkt, ip, 53) then s:close(); return nil end
   local data, src = s:recvfrom(512)
