@@ -5613,19 +5613,19 @@ let nftables_t = L.form;
 
 ;// CONCATENATED MODULE: ./modules/about.tsx
 
-let about_t = L.form;
-/* export default */ function about(i, l, o, d) {
-    let a = l.taboption(o, about_t.DummyValue, "_about");
+let about_l = L.form;
+/* export default */ function about(t, i, o, d) {
+    let a = i.taboption(o, about_l.DummyValue, "_about");
     a.rawhtml = !0, a.cfgvalue = ()=>{
-        let t = "color:#1a73e8; text-decoration:none; word-break:break-all;", i = "margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--cbi-border-color);", l = "font-weight:600; margin-bottom:4px; display:block;", o = "font-size:0.85em; color:#666;", a = (e)=>"display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:4px; font-size:0.85em; background-color:".concat(e ? "var(--cbi-button-apply-background, #e6f4ea)" : "var(--cbi-button-reset-background, #f1f3f4)", "; color:").concat(e ? "var(--cbi-button-apply-color, #137333)" : "var(--cbi-button-reset-color, #5f6368)", "; border:1px solid ").concat(e ? "#c2e7c9" : "#dadce0", "; margin:2px;");
+        let l = "color:#1a73e8; text-decoration:none; word-break:break-all;", t = "margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--cbi-border-color);", i = "font-weight:600; margin-bottom:4px; display:block;", o = "font-size:0.85em; color:#666;", a = (e)=>"display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:4px; font-size:0.85em; background-color:".concat(e ? "var(--cbi-button-apply-background, #e6f4ea)" : "var(--cbi-button-reset-background, #f1f3f4)", "; color:").concat(e ? "var(--cbi-button-apply-color, #137333)" : "var(--cbi-button-reset-color, #5f6368)", "; border:1px solid ").concat(e ? "#c2e7c9" : "#dadce0", "; margin:2px;");
         return jsxs("div", {
             style: "max-width:600px; line-height:1.6;",
             children: [
                 jsxs("div", {
-                    style: i,
+                    style: t,
                     children: [
                         jsx("span", {
-                            style: l,
+                            style: i,
                             children: _("PortWeaver")
                         }),
                         jsx("p", {
@@ -5639,14 +5639,14 @@ let about_t = L.form;
                                     href: "https://github.com/LazuliKao/PortWeaver",
                                     target: "_blank",
                                     rel: "noopener noreferrer",
-                                    style: t,
+                                    style: l,
                                     children: _("Core (Zig)")
                                 }),
                                 jsx("a", {
                                     href: "https://github.com/LazuliKao/openwrt-portweaver",
                                     target: "_blank",
                                     rel: "noopener noreferrer",
-                                    style: t,
+                                    style: l,
                                     children: _("OpenWrt Package")
                                 })
                             ]
@@ -5660,10 +5660,10 @@ let about_t = L.form;
                 d ? jsxs(Fragment, {
                     children: [
                         jsxs("div", {
-                            style: i,
+                            style: t,
                             children: [
                                 jsx("span", {
-                                    style: l,
+                                    style: i,
                                     children: _("Version Information")
                                 }),
                                 jsx("table", {
@@ -5728,10 +5728,10 @@ let about_t = L.form;
                             ]
                         }),
                         jsxs("div", {
-                            style: i,
+                            style: t,
                             children: [
                                 jsx("span", {
-                                    style: l,
+                                    style: i,
                                     children: _("Compilation Features")
                                 }),
                                 jsxs("div", {
@@ -5813,6 +5813,28 @@ let about_t = L.form;
                                                     children: _("Wake-on-LAN")
                                                 })
                                             ]
+                                        }),
+                                        jsxs("div", {
+                                            style: a(!!d.rathole_client_mode),
+                                            children: [
+                                                jsx("span", {
+                                                    children: d.rathole_client_mode ? "\u2714" : "\u2718"
+                                                }),
+                                                jsx("span", {
+                                                    children: _("Rathole Client")
+                                                })
+                                            ]
+                                        }),
+                                        jsxs("div", {
+                                            style: a(!!d.rathole_server_mode),
+                                            children: [
+                                                jsx("span", {
+                                                    children: d.rathole_server_mode ? "\u2714" : "\u2718"
+                                                }),
+                                                jsx("span", {
+                                                    children: _("Rathole Server")
+                                                })
+                                            ]
                                         })
                                     ]
                                 })
@@ -5820,10 +5842,10 @@ let about_t = L.form;
                         })
                     ]
                 }) : jsxs("div", {
-                    style: i,
+                    style: t,
                     children: [
                         jsx("span", {
-                            style: l,
+                            style: i,
                             children: _("Version Information")
                         }),
                         jsx("p", {
@@ -5833,10 +5855,10 @@ let about_t = L.form;
                     ]
                 }),
                 jsxs("div", {
-                    style: i,
+                    style: t,
                     children: [
                         jsx("span", {
-                            style: l,
+                            style: i,
                             children: _("Open Source Dependencies")
                         }),
                         jsxs("div", {
@@ -5848,7 +5870,7 @@ let about_t = L.form;
                                             href: "https://github.com/fatedier/frp",
                                             target: "_blank",
                                             rel: "noopener noreferrer",
-                                            style: t,
+                                            style: l,
                                             children: "frp"
                                         }),
                                         jsxs("span", {
@@ -5872,7 +5894,7 @@ let about_t = L.form;
                                             href: "https://github.com/jeessy2/ddns-go",
                                             target: "_blank",
                                             rel: "noopener noreferrer",
-                                            style: t,
+                                            style: l,
                                             children: "go-ddns"
                                         }),
                                         jsxs("span", {
@@ -5888,6 +5910,30 @@ let about_t = L.form;
                                             children: _("License: MIT")
                                         })
                                     ]
+                                }),
+                                ((null == d ? void 0 : d.rathole_client_mode) || (null == d ? void 0 : d.rathole_server_mode)) && jsxs("div", {
+                                    children: [
+                                        jsx("a", {
+                                            href: "https://github.com/rapiz1/rathole",
+                                            target: "_blank",
+                                            rel: "noopener noreferrer",
+                                            style: l,
+                                            children: "rathole"
+                                        }),
+                                        jsxs("span", {
+                                            style: o,
+                                            children: [
+                                                " ",
+                                                "\u2014 ",
+                                                _("Secure, stable and high-performance reverse proxy")
+                                            ]
+                                        }),
+                                        jsx("br", {}),
+                                        jsx("span", {
+                                            style: o,
+                                            children: _("License: Apache-2.0")
+                                        })
+                                    ]
                                 })
                             ]
                         })
@@ -5897,14 +5943,14 @@ let about_t = L.form;
                     style: "margin-bottom:8px;",
                     children: [
                         jsx("span", {
-                            style: l,
+                            style: i,
                             children: _("Author")
                         }),
                         jsx("a", {
                             href: "https://github.com/LazuliKao",
                             target: "_blank",
                             rel: "noopener noreferrer",
-                            style: t,
+                            style: l,
                             children: "LazuliKao"
                         })
                     ]
@@ -6034,78 +6080,70 @@ class main extends L.view {
         o.anonymous = !0, o.addremove = !1, o.tab("settings", _("Global Settings")), o.tab("projects", _("Port Forwarding"));
         let f = e[3];
         (null == f ? void 0 : f.rathole_client_mode) && o.tab("rathole_client", _("Rathole Client")), (null == f ? void 0 : f.rathole_server_mode) && o.tab("rathole_server", _("Rathole Server")), isFeatureEnabled("wol_mode") && o.tab("wol", _("Wake-on-LAN")), isFeatureEnabled("ddns_mode") && o.tab("ddns", _("DDNS")), isFeatureEnabled("frpc_mode") && o.tab("frpc", _("FRP Tunnels")), isFeatureEnabled("frps_mode") && o.tab("frps", _("FRP Server")), isFeatureEnabled("nftables_mode") && o.tab("nftables", _("nftables")), o.tab("logs", _("System Logs")), o.tab("about", _("About"));
-        let h = e[2], w = e[3], g = new Client(h);
-        return header(t, o, g, "settings"), config(t, o, g, "projects"), (null == f ? void 0 : f.rathole_client_mode) && rathole_s(o, "client"), (null == f ? void 0 : f.rathole_server_mode) && rathole_s(o, "server"), isFeatureEnabled("wol_mode") && wol(t, o, "wol"), isFeatureEnabled("ddns_mode") && ddns(t, o, "ddns"), isFeatureEnabled("frpc_mode") && frpc(t, o, "frpc"), isFeatureEnabled("frps_mode") && frps(t, o, "frps"), isFeatureEnabled("nftables_mode") && nftables(t, o, "nftables"), logs(t, o, "logs"), about(t, o, "about", w), t.render();
+        let h = e[2], w = e[3], y = new Client(h);
+        return header(t, o, y, "settings"), config(t, o, y, "projects"), (null == f ? void 0 : f.rathole_client_mode) && rathole_s(o, "client"), (null == f ? void 0 : f.rathole_server_mode) && rathole_s(o, "server"), isFeatureEnabled("wol_mode") && wol(t, o, "wol"), isFeatureEnabled("ddns_mode") && ddns(t, o, "ddns"), isFeatureEnabled("frpc_mode") && frpc(t, o, "frpc"), isFeatureEnabled("frps_mode") && frps(t, o, "frps"), isFeatureEnabled("nftables_mode") && nftables(t, o, "nftables"), logs(t, o, "logs"), about(t, o, "about", w), t.render();
     }
-    async handleSaveReload() {
+    async handleSaveRestart(e) {
         try {
-            await this.handleSave(), await L.uci.save(), await rpcClient.uciCommit("portweaver");
-            let e = await rpcClient.reloadConfig();
+            await this.handleSave(e), await rpcClient.uciCommit("portweaver");
+            let o = await L.fs.exec("/etc/init.d/portweaver", [
+                "restart"
+            ]);
+            if (o && 0 !== o.code) throw Error(o.stderr || o.stdout || "Exit code ".concat(o.code));
             L.ui.addNotification(null, jsx("p", {
-                children: _("Config reloaded: %d project(s) restarted").format(e.changes)
-            }), "info"), location.reload();
+                children: _("Service restarted successfully")
+            }), "info"), window.setTimeout(()=>location.reload(), 3500);
         } catch (e) {
             L.ui.addNotification(null, jsx("p", {
-                children: _("Failed to reload config: %s").format(e.toString())
+                children: _("Failed to restart service: %s").format(e.toString())
             }), "error");
         }
     }
-    async handleSaveRestart() {
-        await this.handleSave();
-        let e = L.ui.changes;
-        return (e && "function" == typeof e.apply ? e.apply(!0) : L.uci.apply()).then(()=>L.fs.exec("/etc/init.d/portweaver", [
-                "restart"
-            ]).then(()=>{
-                L.ui.addNotification(null, jsx("p", {
-                    children: _("Service restarted successfully")
-                }), "info");
-            }).catch((e)=>{
-                L.ui.addNotification(null, jsx("p", {
-                    children: _("Failed to restart service: %s").format(e.toString())
-                }), "error");
-            }));
-    }
     addFooter() {
-        let e = document.createDocumentFragment(), a = jsxs("div", {
+        let e = document.createDocumentFragment(), r = jsxs("div", {
             class: "cbi-page-actions",
             children: [
                 jsx("button", {
                     type: "button",
                     class: "cbi-button cbi-button-apply",
-                    onclick: ()=>this.handleSaveReload(),
-                    children: _("Save & Reload")
+                    onclick: (e)=>this.handleSaveApply(e, 0),
+                    children: _("Save & Apply")
                 }),
                 jsx("button", {
                     type: "button",
-                    class: "cbi-button cbi-button-apply",
+                    class: "cbi-button cbi-button-negative",
                     style: "margin-left: 8px;",
-                    onclick: ()=>this.handleSaveRestart(),
+                    onclick: (e)=>this.handleSaveRestart(e),
                     children: _("Save & Restart")
                 }),
                 jsx("button", {
                     type: "button",
                     class: "cbi-button cbi-button-save",
                     style: "margin-left: 8px;",
-                    onclick: ()=>this.handleSave(),
+                    onclick: (e)=>this.handleSave(e),
                     children: _("Save")
                 }),
                 jsx("button", {
                     type: "button",
                     class: "cbi-button cbi-button-reset",
                     style: "margin-left: 8px;",
-                    onclick: ()=>this.handleReset(),
+                    onclick: (e)=>this.handleReset(e),
                     children: _("Reset")
                 })
             ]
         });
-        return e.appendChild(a), e;
+        return e.appendChild(r), e;
     }
     constructor(...t){
-        super(...t), _define_property(this, "mapInstance", void 0), _define_property(this, "handleSave", async ()=>{
-            this.mapInstance && await this.mapInstance.save();
-        }), _define_property(this, "handleReset", async ()=>{
+        var o;
+        super(...t), o = this, _define_property(this, "mapInstance", void 0), _define_property(this, "handleSave", async (e)=>(this.mapInstance && await this.mapInstance.save(), L.uci.save())), _define_property(this, "handleReset", async (e)=>{
             this.mapInstance && await this.mapInstance.reset();
-        }), _define_property(this, "handleSaveApply", null);
+        }), _define_property(this, "handleSaveApply", async function(e) {
+            let t = arguments.length > 1 && void 0 !== arguments[1] ? arguments[1] : 0;
+            await o.handleSave(e);
+            let r = L.ui.changes;
+            return r && "function" == typeof r.apply ? r.apply("0" === t || 0 === t) : L.uci.apply();
+        });
     }
 }
 
