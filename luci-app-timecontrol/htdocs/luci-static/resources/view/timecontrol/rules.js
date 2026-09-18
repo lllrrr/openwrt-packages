@@ -584,7 +584,7 @@ return view.extend({
 		};
 
 		if (fw4) {
-			o = s.taboption('global', form.Flag, 'strong', _('Strong'));
+			o = s.taboption('global', form.Flag, 'strong', _('Strong Control'));
 			o.default = o.disabled;
 			o.rmempty = false;
 
@@ -597,7 +597,7 @@ return view.extend({
 		o = s.taboption('global', form.RichListValue, 'ruleAction', _('Rule Action'));
 		o.modalonly = true;
 		o.default = '1';
-		o.value('0', _('Drop '), _('Drop matched packets'));
+		o.value('0', _('Drop'), _('Drop matched packets'));
 		o.value('1', _('Reject'), _('Reject matched packets with \"TCP reset\" or \"ICMP type port-unreachable\"'));
 
 		o.onchange = function (ev, section_id, value) {
