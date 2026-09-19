@@ -22,7 +22,7 @@ include $(TOPDIR)/rules.mk
 # Depends/Submenu 各异），上百个包共用同一个 Kconfig symbol PACKAGE_luci-app-netmonitor，
 # 最终 .packagedeps/.config 错乱，package/<name>/compile 目标消失。
 # 本仓库曾因此踩坑：CI 工作流定义过 env PKG_NAME=luci-app-netmonitor，已改名。
-PKG_VERSION:=1.2.0
+PKG_VERSION:=1.2.1
 PKG_RELEASE:=1
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_LICENSE_FILES:=LICENSE

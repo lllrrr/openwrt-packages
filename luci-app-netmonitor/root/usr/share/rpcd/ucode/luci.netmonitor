@@ -229,7 +229,7 @@ function newHist() {
 	return h;
 }
 
-function parseStats(id) {
+function parseStats(id, cap) {
 	let res = {
 		count: 0, ok: 0, sum: 0, min: null, max: null, sent: 0, recv: 0, hist: newHist()
 	};
@@ -256,7 +256,10 @@ function parseStats(id) {
 			}
 			if (mx != '-' && mx != '') {
 				let v = num(mx);
-				if (res.max == null || v > res.max) res.max = v;
+				/* 越界的最大值不进入统计：它是「超时」而不是「延迟很大」 */
+				if (cap == null || v <= cap) {
+					if (res.max == null || v > res.max) res.max = v;
+				}
 			}
 			res.sent += num(F[6]);
 			res.recv += num(F[7]);
@@ -375,6 +378,27 @@ function readState(id) {
 
 /* ------------------------------------------------------------ 数据读取 */
 
+/* 单次探测的 RTT 上界（毫秒），必须与守护进程 netmon-daemon.sh 的 lat_cap 同口径：
+ * 超过探测超时预算的响应当作超时，而不是「很慢」。
+ *
+ * 历史文件里可能残留旧版本写入的荒谬值（实测 googledns 出现过 4159330.860 ms），
+ * 只修写入端并不能让已有数据消失，读取侧必须一并过滤，否则图表 Y 轴依旧被拉到
+ * 百万毫秒量级、最大值卡片依旧显示 4159331 ms。
+ *
+ * 取目标的独立 timeout（0 表示继承全局），再夹到 [1s, 30s]，防止配置异常时
+ * 上界本身失真。 */
+function latCap(cfg, t) {
+	let tv = (t != null && t.timeout > 0) ? t.timeout : num(cfg.timeout);
+	if (!(tv > 0))
+		tv = 3;
+	let c = tv * 1000;
+	if (c < 1000)
+		c = 1000;
+	if (c > 30000)
+		c = 30000;
+	return c;
+}
+
 function readTail(path, n) {
 	if (stat(path) == null)
 		return [];
@@ -384,7 +408,7 @@ function readTail(path, n) {
 	return split(out, '\n');
 }
 
-function readRing(id, cutoff, limit) {
+function readRing(id, cutoff, limit, cap) {
 	let lines = readTail(RING_DIR + '/' + id + '.tsv', limit);
 	let pts = [];
 	for (let i = 0; i < length(lines); i++) {
@@ -398,12 +422,20 @@ function readRing(id, cutoff, limit) {
 			continue;
 		let ok = (F[2] == '1') ? 1 : 0;
 		let lat = (ok && F[1] != '-') ? num(F[1]) : null;
-		push(pts, { t: t, l: lat, s: ok, e: num(F[3]) });
+		/* 超过探测超时预算的采样按超时处理：既挡住当前写入端的异常解析结果，
+		 * 也挡住历史文件里早先写入的脏数据。 */
+		let capped = 0;
+		if (lat != null && cap != null && lat > cap) {
+			lat = null;
+			ok = 0;
+			capped = 1;
+		}
+		push(pts, { t: t, l: lat, s: ok, e: capped ? 1 : num(F[3]) });
 	}
 	return pts;
 }
 
-function readAgg(id, cutoff, limit) {
+function readAgg(id, cutoff, limit, cap) {
 	let lines = readTail(PERSIST_DIR + '/' + id + '.agg', limit);
 	let pts = [];
 	for (let i = 0; i < length(lines); i++) {
@@ -419,9 +451,16 @@ function readAgg(id, cutoff, limit) {
 		let mx = (F[3] != '-') ? num(F[3]) : null;
 		let ok = num(F[4]);
 		let cnt = num(F[5]);
+		let l = (ok > 0) ? num(F[1]) : null;
+		/* 与 readRing 同口径：聚合值的均值/最小/最大一旦越界，视为该桶无有效延迟 */
+		if (cap != null) {
+			if (l != null && l > cap) { l = null; ok = 0; }
+			if (mn != null && mn > cap) mn = null;
+			if (mx != null && mx > cap) mx = null;
+		}
 		push(pts, {
 			t: t,
-			l: (ok > 0) ? num(F[1]) : null,
+			l: (ok > 0) ? l : null,
 			mn: mn, mx: mx,
 			s: (ok > 0) ? 1 : 0,
 			loss: num(F[6])
@@ -505,8 +544,8 @@ function getTargets(u) {
 	return out;
 }
 
-function statOf(id, cfg) {
-	let st = parseStats(id);
+function statOf(id, cfg, cap) {
+	let st = parseStats(id, cap);
 	let s = readState(id);
 	let loss = 0;
 	if (st.sent > 0)
@@ -617,7 +656,7 @@ const methods = {
 
 			for (let i = 0; i < length(targets); i++) {
 				let t = targets[i];
-				let st = statOf(t.id, cfg);
+				let st = statOf(t.id, cfg, latCap(cfg, t));
 				let tpl = 'timeout';
 				if (st.last_errno == 2) tpl = 'dns';
 				else if (st.last_errno == 3) tpl = 'unreachable';
@@ -657,7 +696,7 @@ const methods = {
 				};
 
 				if (a != null && a.spark == '1') {
-					let pts = readRing(t.id, 0, 40);
+					let pts = readRing(t.id, 0, 40, latCap(cfg, t));
 					let spark = [];
 					for (let k = 0; k < length(pts); k++)
 						push(spark, pts[k].s ? pts[k].l : null);
@@ -807,15 +846,16 @@ const methods = {
 				if (!t.enabled && (a == null || a.include_disabled != '1'))
 					continue;
 
+				let cap = latCap(cfg, t);
 				let pts;
 				if (useAgg)
-					pts = readAgg(t.id, cutoff, 20000);
+					pts = readAgg(t.id, cutoff, 20000, cap);
 				else
-					pts = readRing(t.id, cutoff, 20000);
+					pts = readRing(t.id, cutoff, 20000, cap);
 
 				pts = aggregate(pts, maxp);
 
-				let st = statOf(t.id, cfg);
+				let st = statOf(t.id, cfg, cap);
 				push(series, {
 					id: t.id,
 					name: t.name,
@@ -870,7 +910,8 @@ const methods = {
 				if (a != null && a.region != null && a.region != '' && a.region != 'all' && t.region != a.region)
 					continue;
 
-				let pts = useAgg ? readAgg(t.id, cutoff, 20000) : readRing(t.id, cutoff, 20000);
+				let cap = latCap(cfg, t);
+				let pts = useAgg ? readAgg(t.id, cutoff, 20000, cap) : readRing(t.id, cutoff, 20000, cap);
 				let sum = 0, okc = 0, mn = null, mx = null, n = length(pts), sent = 0, recv = 0;
 				for (let k = 0; k < n; k++) {
 					if (pts[k].s) {

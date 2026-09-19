@@ -349,6 +349,30 @@ target_timeout() {
 	printf '%s' "$tv"
 }
 
+# 单次探测的 RTT 上界（毫秒）。
+#
+# ping -W <timeout> 的语义是「等 timeout 秒还没回应，这次就算超时」，所以
+# 任何超过 timeout 秒的 RTT，在监控口径里就是超时，而不是「很慢」。
+#
+# 实测踩过一次：某次采样解析出 4159330.860 ms（约 69 分钟），来源是时钟跳变
+# 或输出串味，并非真实延迟。这种值一旦入库，图表 Y 轴被拉到百万毫秒量级，
+# 正常的几十毫秒曲线全被压成贴在底部的直线，最大值卡片也跟着显示 4159331 ms。
+# 因此在写入前先按探测超时预算卡一道：越界的采样一律按超时记账。
+lat_cap() {
+	local tv="$1" c
+	is_uint "$tv" || tv=$G_TIMEOUT
+	[ "$tv" -lt 1 ] && tv=$G_TIMEOUT
+	c=$((tv * 1000))
+	[ "$c" -lt 1000 ] && c=1000
+	printf '%s' "$c"
+}
+
+# RTT 是否超出探测超时预算。超出返回 0（真），否则返回 1（假）。
+# 延迟是浮点，shell 的整数比较用不了，统一交给 awk。
+lat_over_budget() {
+	awk -v v="$1" -v c="$2" 'BEGIN { exit !((v + 0) > (c + 0)) }'
+}
+
 # ---------------------------------------------------------------- TCP 探测
 #
 # 为什么不用 nc 作为默认实现：OpenWrt 固件里的 nc 常见为精简版 busybox applet
@@ -441,7 +465,7 @@ run_check_tcp() {
 	local res="$TMP_DIR/$id.res"
 	local out="$TMP_DIR/$id.out"
 	local errf="$TMP_DIR/$id.err"
-	local lat='-' ok=0 eno=$E_OTHER sent=1 recv=0
+	local lat='-' ok=0 eno=$E_OTHER sent=1 recv=0 cap
 	local dev= fam_opt= tc= url= rc= tcval= parsed= t0= t1= nc_host=
 
 	if [ "$TCP_TOOL" = "none" ]; then
@@ -521,6 +545,15 @@ run_check_tcp() {
 	if [ "$ok" = "1" ]; then
 		eno=$E_OK
 		recv=$sent
+		# 与 ICMP 同一口径：握手耗时超过探测超时预算，按超时记账
+		cap=$(lat_cap "$timeout")
+		if lat_over_budget "$lat" "$cap"; then
+			log_msg info "target $id: TCP handshake ${lat}ms over timeout budget (${cap}ms), counted as timeout"
+			lat='-'
+			ok=0
+			recv=0
+			eno=$E_TIMEOUT
+		fi
 	else
 		lat='-'
 		recv=0
@@ -540,7 +573,7 @@ run_check() {
 	local out="$TMP_DIR/$id.out"
 	local res="$TMP_DIR/$id.res"
 	local cmd=ping
-	local deadline rc parsed lat ok eno sent recv
+	local deadline rc parsed lat ok eno sent recv cap
 
 	if ! valid_host "$host"; then
 		printf '%s\t%s\t%s\t%s\t%s\n' '-' '0' "$E_INVALID" "$G_COUNT" '0' > "$res"
@@ -613,6 +646,16 @@ run_check() {
 			''|*[!0-9.]*) ;;
 			*) lat="$avg" ;;
 		esac
+	fi
+
+	# 上界检查：RTT 超过探测超时预算的采样按超时记账，不入库为成功样本
+	cap=$(lat_cap "$timeout")
+	if [ "$ok" = "1" ] && lat_over_budget "$lat" "$cap"; then
+		log_msg info "target $id: RTT ${lat}ms over timeout budget (${cap}ms), counted as timeout"
+		lat='-'
+		ok=0
+		eno=$E_TIMEOUT
+		recv=0
 	fi
 
 	printf '%s\t%s\t%s\t%s\t%s\n' "$lat" "$ok" "$eno" "$sent" "$recv" > "$res"

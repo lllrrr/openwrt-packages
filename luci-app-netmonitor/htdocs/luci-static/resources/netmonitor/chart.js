@@ -6,6 +6,9 @@
  *   1. 按容器实际像素宽度渲染（不用 preserveAspectRatio 拉伸），保证文字不变形。
  *   2. 只在 transform / opacity 上做交互反馈，绘制过程无动画，避免持续重绘。
  *   3. 支持鼠标与触摸两种查看方式，移动端可用手指滑动查看数据。
+ *   4. 悬停是「按时间切片」而非「按最近点」：一次悬停给出所有曲线在该时刻的
+ *      取值，多目标对比才有意义。命中测试与绘制共用同一套几何参数（见 layout），
+ *      否则鼠标换算出的时间与画出来的曲线会错位。
  */
 
 'use strict';
@@ -47,11 +50,14 @@ function fmtTime(t, spanSec) {
 }
 
 /*
- * 生成 SVG 字符串。
+ * 计算一次绘制用到全部几何参数。
+ * render 与命中测试都必须走这里：两者一旦各算各的，鼠标位置换算出的
+ * 时间戳就会和曲线所在的像素位置对不上。
+ *
  * series: [ { name, color, points: [ {t, l, mn, mx, s} ] } ]
- * opts:   { width, height, yMax, area, padding, showAxis, showLegend }
+ * opts:   { width, height, yMax, padL, padR, padT, padB }
  */
-function render(series, opts) {
+function layout(series, opts) {
 	opts = opts || {};
 	var W = opts.width || 720;
 	var H = opts.height || 220;
@@ -63,7 +69,7 @@ function render(series, opts) {
 	var iw = Math.max(10, W - padL - padR);
 	var ih = Math.max(10, H - padT - padB);
 
-	/* 计算时间范围与 Y 轴范围 */
+	/* 时间范围取所有系列的并集：多目标对比时各曲线共享同一根时间轴 */
 	var t0 = Infinity, t1 = -Infinity, vmax = 0;
 	for (var i = 0; i < series.length; i++) {
 		var pts = series[i].points || [];
@@ -79,10 +85,29 @@ function render(series, opts) {
 	if (t1 - t0 < 1) t1 = t0 + 1;
 
 	var yMax = opts.yMax || niceMax(vmax * 1.15 || 10);
-	var span = t1 - t0;
 
-	function X(t) { return padL + (t - t0) / span * iw; }
-	function Y(v) { return padT + ih - (v / yMax) * ih; }
+	return {
+		W: W, H: H, padL: padL, padR: padR, padT: padT, padB: padB,
+		iw: iw, ih: ih, t0: t0, t1: t1, span: (t1 - t0), yMax: yMax
+	};
+}
+
+/*
+ * 生成 SVG 字符串。
+ * series: [ { name, color, points: [ {t, l, mn, mx, s} ] } ]
+ * opts:   { width, height, yMax, area, padding, showAxis, showLegend, cursor }
+ *
+ * opts.cursor 为真时额外输出一组悬停游标元素（竖直基准线 + 每条曲线一个
+ * 取值圆点），默认不可见，由 mount 在鼠标移动时更新坐标。
+ */
+function render(series, opts) {
+	opts = opts || {};
+	var g = layout(series, opts);
+
+	var W = g.W, H = g.H, padL = g.padL, padT = g.padT, iw = g.iw, ih = g.ih;
+
+	function X(t) { return padL + (t - g.t0) / g.span * iw; }
+	function Y(v) { return padT + ih - (v / g.yMax) * ih; }
 
 	var out = '';
 	out += '<svg class="nm-chart" width="100%" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" role="img">';
@@ -90,7 +115,7 @@ function render(series, opts) {
 	/* 网格与 Y 轴刻度 */
 	var ticks = 4;
 	for (var k = 0; k <= ticks; k++) {
-		var yv = yMax * k / ticks;
+		var yv = g.yMax * k / ticks;
 		var y = Y(yv);
 		out += '<line x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (padL + iw) + '" y2="' + y.toFixed(1) +
 			'" stroke="currentColor" stroke-opacity="0.10" stroke-width="1"/>';
@@ -101,11 +126,11 @@ function render(series, opts) {
 	/* X 轴时间标签 */
 	var xTicks = (W < 420) ? 3 : 5;
 	for (var m = 0; m <= xTicks; m++) {
-		var tt = t0 + span * m / xTicks;
+		var tt = g.t0 + g.span * m / xTicks;
 		var x = X(tt);
 		var anchor = (m === 0) ? 'start' : (m === xTicks ? 'end' : 'middle');
 		out += '<text x="' + x.toFixed(1) + '" y="' + (H - 6) + '" text-anchor="' + anchor +
-			'" font-size="10" fill="currentColor" fill-opacity="0.55">' + fmtTime(tt, span) + '</text>';
+			'" font-size="10" fill="currentColor" fill-opacity="0.55">' + fmtTime(tt, g.span) + '</text>';
 	}
 
 	/* 数据系列 */
@@ -158,6 +183,20 @@ function render(series, opts) {
 			out += '<circle cx="' + X(last.t).toFixed(1) + '" cy="' + Y(last.l).toFixed(1) + '" r="3" fill="' + color + '"/>';
 	}
 
+	/* 悬停游标：竖直基准线 + 每条曲线一个取值圆点。
+	 * 顺序与 series 一一对应，mount 按索引更新。 */
+	if (opts.cursor) {
+		out += '<g class="nm-cursor" opacity="0">';
+		out += '<line class="nm-cur-line" x1="0" y1="' + padT + '" x2="0" y2="' + (padT + ih) +
+			'" stroke="currentColor" stroke-opacity="0.35" stroke-width="1" stroke-dasharray="3 3"/>';
+		for (var c = 0; c < series.length; c++) {
+			var cc = series[c].color || PALETTE[c % PALETTE.length];
+			out += '<circle class="nm-cur-dot" cx="-10" cy="-10" r="3.6" fill="' + cc +
+				'" fill-opacity="1" stroke="' + cc + '" stroke-opacity="0.35" stroke-width="3"/>';
+		}
+		out += '</g>';
+	}
+
 	out += '</svg>';
 	return out;
 }
@@ -170,55 +209,173 @@ function mount(container, series, opts) {
 	var holder = document.createElement('div');
 	var tip = document.createElement('div');
 	tip.className = 'nm-tip';
-	holder.innerHTML = render(series, { width: Math.max(320, container.clientWidth || 720), height: opts.height || 220, area: opts.area, yMax: opts.yMax });
-	container.appendChild(holder);
-	container.appendChild(tip);
 
-	var entry = { container: container, holder: holder, tip: tip, series: series, opts: opts };
+	function width() { return Math.max(320, container.clientWidth || 720); }
+
+	var entry = { container: container, holder: holder, tip: tip, series: series, opts: opts, geo: null };
 	registry.push(entry);
 
-	var iw = Math.max(10, (container.clientWidth || 720) - 42 - 10);
-	var padL = 42;
+	function svgEl() { return holder.firstChild; }
 
-	function hit(clientX) {
-		var rect = holder.getBoundingClientRect();
-		var x = clientX - rect.left;
-		var scale = holder.firstChild ? (rect.width / parseFloat(holder.firstChild.getAttribute('width') || rect.width)) : 1;
-		var vx = x / (scale || 1);
-		/* 找到时间上最近的点 */
-		var best = null, bestD = Infinity;
-		for (var i = 0; i < series.length; i++) {
-			var pts = series[i].points || [];
-			if (!pts.length) continue;
-			var t0 = pts[0].t, t1 = pts[pts.length - 1].t;
-			var span = (t1 - t0) || 1;
-			var ratio = (vx - padL) / iw;
-			var tv = t0 + ratio * span;
-			for (var j = 0; j < pts.length; j++) {
-				var d = Math.abs(pts[j].t - tv);
-				if (d < bestD) { bestD = d; best = { s: series[i], p: pts[j] }; }
-			}
-		}
-		if (!best) return null;
-		var rect2 = holder.getBoundingClientRect();
-		var span2 = ((best.s.points[best.s.points.length - 1].t - best.s.points[0].t) || 1);
-		var xr = (best.p.t - best.s.points[0].t) / span2 * iw + padL;
-		return { x: xr * (rect2.width / (parseFloat(holder.firstChild.getAttribute('width')) || rect2.width)), y: rect2.height / 2, item: best, rect: rect2 };
+	/* 重绘并重建游标引用。render 会覆盖 innerHTML，游标元素必须重新查。 */
+	function redraw() {
+		entry.geo = layout(series, {
+			width: width(), height: opts.height || 220,
+			yMax: opts.yMax, padL: opts.padL, padR: opts.padR, padT: opts.padT, padB: opts.padB
+		});
+		holder.innerHTML = render(series, {
+			width: width(), height: opts.height || 220, area: opts.area,
+			yMax: opts.yMax, padL: opts.padL, padR: opts.padR, padT: opts.padT, padB: opts.padB,
+			cursor: true
+		});
+		var svg = svgEl();
+		entry.cursor = svg ? svg.querySelector('.nm-cursor') : null;
+		entry.curLine = svg ? svg.querySelector('.nm-cur-line') : null;
+		entry.curDots = svg ? svg.querySelectorAll('.nm-cur-dot') : null;
 	}
 
+	container.appendChild(holder);
+	container.appendChild(tip);
+	redraw();
+
+	/* 屏幕坐标 -> viewBox 坐标。
+	 * SVG 是 width="100%" + viewBox，容器宽度变化时缩放比不是 1，
+	 * 必须用 CTM 换算；直接拿 offsetX 或按比例估算都会偏。 */
+	function toViewBox(clientX, clientY) {
+		var svg = svgEl();
+		if (!svg) return null;
+		var m = (svg.getScreenCTM && svg.getScreenCTM()) || null;
+		if (m) {
+			if (svg.createSVGPoint) {
+				var p = svg.createSVGPoint();
+				p.x = clientX; p.y = clientY;
+				var q = p.matrixTransform(m.inverse());
+				return { x: q.x, y: q.y };
+			}
+			try {
+				var p2 = new DOMPoint(clientX, clientY).matrixTransform(m.inverse());
+				return { x: p2.x, y: p2.y };
+			} catch (e) { /* 落到下面的兜底 */ }
+		}
+		var r = svg.getBoundingClientRect();
+		return {
+			x: (clientX - r.left) * (entry.geo.W / (r.width || 1)),
+			y: (clientY - r.top) * (entry.geo.H / (r.height || 1))
+		};
+	}
+
+	/* viewBox x -> 容器内像素 x（tooltip 用容器坐标系定位） */
+	function toClientX(vx) {
+		var svg = svgEl();
+		if (!svg) return vx;
+		var m = (svg.getScreenCTM && svg.getScreenCTM()) || null;
+		if (m) {
+			if (svg.createSVGPoint) {
+				var p = svg.createSVGPoint();
+				p.x = vx; p.y = 0;
+				return p.matrixTransform(m).x;
+			}
+			try {
+				return new DOMPoint(vx, 0).matrixTransform(m).x;
+			} catch (e) { /* 落到下面的兜底 */ }
+		}
+		var r = svg.getBoundingClientRect();
+		return r.left + vx * ((r.width || 1) / entry.geo.W);
+	}
+
+	/* 在一条曲线里找时间上最接近 tv 的采样点。
+	 * 采样按时间升序写入，二分足够；点数很少时线性更省事。 */
+	function nearest(pts, tv) {
+		if (!pts || !pts.length) return null;
+		var lo = 0, hi = pts.length - 1;
+		if (tv <= pts[lo].t) return pts[lo];
+		if (tv >= pts[hi].t) return pts[hi];
+		while (hi - lo > 1) {
+			var mid = (lo + hi) >> 1;
+			if (pts[mid].t <= tv) lo = mid; else hi = mid;
+		}
+		return (tv - pts[lo].t <= pts[hi].t - tv) ? pts[lo] : pts[hi];
+	}
+
+	function X(t) {
+		var g = entry.geo;
+		return g.padL + (t - g.t0) / g.span * g.iw;
+	}
+	function Y(v) {
+		var g = entry.geo;
+		return g.padT + g.ih - (v / g.yMax) * g.ih;
+	}
+
+	/*
+	 * 悬停：先由鼠标横坐标换算出「时间」，再取每条曲线在该时刻的取值。
+	 * 这样 tooltip 一次给出所有曲线的数值——多目标对比时这才是有效信息，
+	 * 只报离鼠标最近的那一个点会让其余曲线无从对照。
+	 */
 	function show(clientX, clientY) {
-		var h = hit(clientX);
-		if (!h) return;
-		var p = h.item.p;
-		var label = h.item.s.name ? esc(h.item.s.name) + ' · ' : '';
-		var val = (p.l == null) ? '—' : (Math.round(p.l * 10) / 10) + ' ms';
-		tip.innerHTML = label + val + '<br><span style="opacity:.7">' + fmtTime(p.t, 3600) + '</span>';
-		tip.style.left = h.x + 'px';
-		tip.style.top = (clientY - holder.getBoundingClientRect().top + 8) + 'px';
+		var vb = toViewBox(clientX, clientY);
+		var g = entry.geo;
+		if (!vb || !g) return;
+
+		var ratio = (vb.x - g.padL) / g.iw;
+		if (ratio < 0) ratio = 0;
+		if (ratio > 1) ratio = 1;
+		var tv = g.t0 + ratio * g.span;
+
+		var rows = '';
+		var shown = 0;
+		for (var i = 0; i < series.length; i++) {
+			var se = series[i];
+			var pts = se.points || [];
+			if (!pts.length) continue;
+			var p = nearest(pts, tv);
+			if (!p) continue;
+			var color = se.color || PALETTE[i % PALETTE.length];
+			var val = (p.l == null) ? '—' : (Math.round(p.l * 10) / 10) + ' ms';
+			rows += '<div class="nm-tip-row">' +
+				'<i style="background:' + color + '"></i>' +
+				'<span class="nm-tip-name">' + esc(se.name || ('#' + (i + 1))) + '</span>' +
+				'<b class="nm-tip-val">' + val + '</b>' +
+				'</div>';
+			shown++;
+
+			/* 游标取值点：无数值的采样不画圆点（曲线在此处断开） */
+			var dot = entry.curDots ? entry.curDots[i] : null;
+			if (dot) {
+				if (p.l == null) {
+					dot.setAttribute('opacity', '0');
+				} else {
+					dot.setAttribute('cx', X(p.t).toFixed(1));
+					dot.setAttribute('cy', Y(p.l).toFixed(1));
+					dot.setAttribute('opacity', '1');
+				}
+			}
+		}
+		if (!shown) { hide(); return; }
+
+		var cx = X(tv);
+		if (entry.curLine) {
+			entry.curLine.setAttribute('x1', cx.toFixed(1));
+			entry.curLine.setAttribute('x2', cx.toFixed(1));
+		}
+		if (entry.cursor) entry.cursor.setAttribute('opacity', '1');
+
+		tip.innerHTML = '<div class="nm-tip-hd">' + fmtTime(tv, g.span) + '</div>' + rows;
+
+		/* 定位：默认跟随光标上方；贴近图表上边缘时翻到下方，
+		 * 贴近左右边缘时夹住，避免 tooltip 被容器裁掉。 */
+		var rect = container.getBoundingClientRect();
+		var px = toClientX(cx) - rect.left;
+		var half = tip.offsetWidth ? (tip.offsetWidth / 2 + 4) : 80;
+		px = Math.max(half, Math.min((rect.width || 0) - half, px));
+		tip.style.left = px + 'px';
+		tip.classList.toggle('is-below', (clientY - rect.top) < 72);
 		tip.classList.add('is-on');
 	}
 
-	function hide() { tip.classList.remove('is-on'); }
+	function hide() {
+		tip.classList.remove('is-on');
+		if (entry.cursor) entry.cursor.setAttribute('opacity', '0');
+	}
 
 	container.addEventListener('mousemove', function(ev) { show(ev.clientX, ev.clientY); });
 	container.addEventListener('mouseleave', hide);
@@ -236,11 +393,15 @@ function mount(container, series, opts) {
 			for (var i = 0; i < registry.length; i++) {
 				var e = registry[i];
 				if (!e.container || !e.container.isConnected) continue;
-				var w = Math.max(320, e.container.clientWidth || 720);
-				e.holder.innerHTML = render(e.series, { width: w, height: e.opts.height || 220, area: e.opts.area, yMax: e.opts.yMax });
+				if (e.redraw) e.redraw();
 			}
 		});
 	}
+
+	/* 容器被清空（切换筛选 / 刷新数据）后旧 entry 仍在 registry 里，
+	 * 这里暴露 redraw 供 resize 回调复用，并让调用方可以主动重绘。 */
+	entry.redraw = redraw;
+	entry.hide = hide;
 
 	return entry;
 }
@@ -249,6 +410,7 @@ return Class.extend({
 	__name__: 'NetMonitor.chart',
 
 	palette: PALETTE,
+	layout: layout,
 	render: render,
 	mount: mount,
 	niceMax: niceMax,

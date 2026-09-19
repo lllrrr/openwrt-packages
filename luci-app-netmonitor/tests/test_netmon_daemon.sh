@@ -203,6 +203,23 @@ ping_case "unknown host(DNS)" "x.example"     "$S/dns_unknown"     1 "-"     0 2
 ping_case "网络不可达"        "192.0.2.1"     "$S/unreachable"     1 "-"     0 3
 ping_case "iputils 成功"      "www.baidu.com" "$S/ok_iputils"      0 "11.3"  1 0
 
+# 7) 异常 RTT：远大于探测超时预算（回归护栏）
+#
+# 实机出现过 time=4159330.860 ms（约 69 分钟）的采样，来源是时钟跳变或输出串味，
+# 并非真实延迟。它一旦入库，图表 Y 轴被拉到百万毫秒量级，正常曲线被压成直线，
+# 最大值卡片也跟着显示 4159331 ms。这里断言此类采样必须按超时记账，
+# 而不是当作一个「很慢但成功」的样本。
+cat > "$S/absurd_rtt" <<'EOF'
+PING 8.8.8.8 (8.8.8.8): 56 data bytes
+64 bytes from 8.8.8.8: seq=0 ttl=117 time=4159330.860 ms
+
+--- 8.8.8.8 ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 4159330.860/4159330.860/4159330.860 ms
+EOF
+
+ping_case "异常 RTT 超预算"    "8.8.8.8"       "$S/absurd_rtt"      0 "-"     0 1
+
 # 7) 非法目标：host 以 '-' 开头（防止参数注入）
 printf '%s\n' "0" > "$STUB_DIR/ping.rc"
 cp "$S/ok_busybox" "$STUB_DIR/ping.out"
@@ -325,6 +342,9 @@ tcp_case() {
 # time_connect 是「秒」，探测结果必须换算成毫秒
 tcp_case "TCP 握手成功"        "0.012345" 0 ""  "12.345" 1 0
 tcp_case "TCP 握手成功(慢)"    "0.500000" 0 ""  "500.000" 1 0
+
+# 握手耗时超过探测超时预算（timeout=3s）时同样按超时记账，与 ICMP 同一口径
+tcp_case "TCP 握手超预算"      "4.000000" 0 ""  "-"      0 1
 
 # 连接被拒绝：curl 输出 0.000000，rc=7
 tcp_case "TCP 被拒绝"          "0.000000" 7 "curl: (7) Failed to connect to 1.1.1.1 port 443: Connection refused" "-" 0 3

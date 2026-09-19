@@ -626,6 +626,43 @@
 
 .nm-tip.is-on { opacity: 1; }
 
+/* 悬停接近图表上边缘时，tooltip 翻到光标下方，避免被容器裁掉 */
+.nm-tip.is-below { transform: translate(-50%, 18%); }
+
+/* 多曲线 tooltip：一行一条曲线（色点 + 名称 + 数值） */
+.nm-tip-hd {
+	font-size: 11px;
+	opacity: 0.65;
+	margin-bottom: 4px;
+}
+
+.nm-tip-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	line-height: 1.6;
+}
+
+.nm-tip-row i {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	display: inline-block;
+	flex: 0 0 auto;
+}
+
+.nm-tip-name {
+	color: var(--nm-muted);
+	white-space: nowrap;
+}
+
+.nm-tip-val {
+	margin-left: auto;
+	padding-left: 12px;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
 .nm-chart-box { position: relative; }
 
 /* ---------------------------------------------------------------- SVG 动画 */
