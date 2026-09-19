@@ -196,36 +196,26 @@ function jsxDEV(e, t) {
 
 ;// CONCATENATED MODULE: ./utils/formatters.ts
 function formatBytes() {
-    let o = arguments.length > 0 && void 0 !== arguments[0] ? arguments[0] : 0;
-    return o < 1024 ? "".concat(parseFloat(o.toFixed(2)), " B") : o < 1048576 ? "".concat(parseFloat((o / 1024).toFixed(2)), " KiB") : o < 1073741824 ? "".concat(parseFloat((o / 1048576).toFixed(2)), " MiB") : "".concat(parseFloat((o / 1073741824).toFixed(2)), " GiB");
+    let t = arguments.length > 0 && void 0 !== arguments[0] ? arguments[0] : 0;
+    return t < 1024 ? "".concat(parseFloat(t.toFixed(2)), " B") : t < 1048576 ? "".concat(parseFloat((t / 1024).toFixed(2)), " KiB") : t < 1073741824 ? "".concat(parseFloat((t / 1048576).toFixed(2)), " MiB") : "".concat(parseFloat((t / 1073741824).toFixed(2)), " GiB");
 }
 function formatUptime() {
-    let o = arguments.length > 0 && void 0 !== arguments[0] ? arguments[0] : 0, t = Math.floor(o / 86400), e = Math.floor(o % 86400 / 3600), r = Math.floor(o % 3600 / 60);
-    return t > 0 ? "".concat(t, "d ").concat(e, "h") : e > 0 ? "".concat(e, "h ").concat(r, "m") : "".concat(r, "m").concat(o % 60, "s");
+    let t = arguments.length > 0 && void 0 !== arguments[0] ? arguments[0] : 0, o = Math.floor(t / 86400), e = Math.floor(t % 86400 / 3600), r = Math.floor(t % 3600 / 60);
+    return o > 0 ? "".concat(o, "d ").concat(e, "h") : e > 0 ? "".concat(e, "h ").concat(r, "m") : "".concat(r, "m").concat(t % 60, "s");
 }
-function getErrorMessage(o) {
-    return void 0 === o || 0 === o ? null : ({
+function getErrorMessage(t) {
+    return void 0 === t || 0 === t ? null : ({
         0: _("OK"),
         "-1": _("Memory allocation failed"),
         "-2": _("Failed to bind to port"),
         "-3": _("Address or port already in use (EADDRINUSE)"),
         "-4": _("Permission denied - unable to bind to port (EACCES)"),
         "-5": _("Invalid address format"),
-        "-98": _("Address already in use"),
-        "-91": _("Protocol wrong type for socket"),
-        "-92": _("Protocol not available"),
-        "-93": _("Protocol not supported"),
-        "-94": _("Socket type not supported"),
-        "-95": _("Operation not supported on transport endpoint"),
-        "-96": _("Protocol family not supported"),
-        "-97": _("Address family not supported by protocol"),
-        "-99": _("Cannot assign requested address"),
-        "-100": _("Network is down"),
-        "-101": _("Network is unreachable")
-    })[String(o)] || "Unknown error (code: ".concat(o, ")");
+        "-99": _("Unexpected listener startup error")
+    })[String(t)] || "Unknown error (code: ".concat(t, ")");
 }
-function translateStatus(o) {
-    return o ? "running" === o ? _("Running") : "stopped" === o ? _("Stopped") : "degraded" === o ? _("Degraded") : "failed" === o ? _("Failed") : "error" === o ? _("Error") : "unknown" === o ? _("Unknown") : o : o;
+function translateStatus(t) {
+    return t ? "running" === t ? _("Running") : "stopped" === t ? _("Stopped") : "degraded" === t || "partial" === t ? _("Degraded") : "failed" === t ? _("Failed") : "error" === t ? _("Error") : "unknown" === t ? _("Unknown") : t : t;
 }
 
 ;// CONCATENATED MODULE: ./utils/rpc-client.ts
@@ -249,82 +239,105 @@ function createRpcClient(e) {
         ]
     }), o = e.declare({
         object: "portweaver",
-        method: "list_projects"
+        method: "read_rathole_config",
+        params: [
+            "mode",
+            "path"
+        ]
     }), c = e.declare({
+        object: "portweaver",
+        method: "validate_rathole_config",
+        params: [
+            "mode",
+            "content"
+        ]
+    }), d = e.declare({
+        object: "portweaver",
+        method: "write_rathole_config",
+        params: [
+            "mode",
+            "path",
+            "content",
+            "reload"
+        ]
+    }), p = e.declare({
+        object: "portweaver",
+        method: "list_projects"
+    }), m = e.declare({
         object: "portweaver",
         method: "set_enabled",
         params: [
             "id",
             "enabled"
         ]
-    }), d = e.declare({
+    }), l = e.declare({
         object: "portweaver",
         method: "get_frpc_info",
         params: [
             "id"
         ]
-    }), p = e.declare({
+    }), s = e.declare({
         object: "portweaver",
         method: "clear_frpc_logs",
         params: [
             "id"
         ]
-    }), m = e.declare({
+    }), _ = e.declare({
         object: "portweaver",
         method: "get_frpc_proxy_stats",
         params: [
             "id"
         ]
-    }), l = e.declare({
+    }), n = e.declare({
         object: "portweaver",
         method: "get_ddns_status"
-    }), s = e.declare({
+    }), h = e.declare({
         object: "portweaver",
         method: "get_ddns_info",
         params: [
             "name"
         ]
-    }), _ = e.declare({
+    }), i = e.declare({
         object: "portweaver",
         method: "clear_ddns_logs",
         params: [
             "name"
         ]
-    }), n = e.declare({
+    }), w = e.declare({
         object: "portweaver",
         method: "get_frps_info",
         params: [
             "id"
         ]
-    }), i = e.declare({
+    }), j = e.declare({
         object: "portweaver",
         method: "clear_frps_logs",
         params: [
             "id"
         ]
-    }), h = e.declare({
+    }), b = e.declare({
         object: "portweaver",
         method: "get_frps_proxy_stats",
         params: [
             "id"
         ]
-    }), j = e.declare({
+    }), v = e.declare({
         object: "portweaver",
         method: "get_full_status"
-    }), w = e.declare({
+    }), f = e.declare({
         object: "portweaver",
         method: "get_nftables_rules"
-    }), b = e.declare({
+    }), g = e.declare({
         object: "portweaver",
         method: "reload_config"
-    }), v = e.declare({
+    }), u = e.declare({
         object: "portweaver",
         method: "read_frp_config",
         params: [
             "kind",
             "path"
         ]
-    }), f = e.declare({
+    }), k = e.declare({
         object: "portweaver",
         method: "validate_frp_config",
         params: [
@@ -332,7 +345,7 @@ function createRpcClient(e) {
             "format",
             "content"
         ]
-    }), g = e.declare({
+    }), x = e.declare({
         object: "portweaver",
         method: "write_frp_config",
         params: [
@@ -342,13 +355,13 @@ function createRpcClient(e) {
             "content",
             "reload"
         ]
-    }), u = e.declare({
+    }), C = e.declare({
         object: "portweaver",
         method: "restart_project",
         params: [
             "id"
         ]
-    }), k = e.declare({
+    }), y = e.declare({
         object: "portweaver",
         method: "wol_wake",
         params: [
@@ -357,28 +370,31 @@ function createRpcClient(e) {
         ]
     });
     return {
-        listProjects: o,
-        setEnabled: c,
-        getFrpcInfo: d,
-        getFrpcProxyStats: m,
-        clearFrpcLogs: p,
-        getDdnsStatus: l,
-        getDdnsInfo: s,
-        clearDdnsLogs: _,
-        getFrpsInfo: n,
+        listProjects: p,
+        setEnabled: m,
+        getFrpcInfo: l,
+        getFrpcProxyStats: _,
+        clearFrpcLogs: s,
+        getDdnsStatus: n,
+        getDdnsInfo: h,
+        clearDdnsLogs: i,
+        getFrpsInfo: w,
         getRatholeStatus: t,
         getRatholeInfo: r,
         clearRatholeLogs: a,
-        clearFrpsLogs: i,
-        getFrpsProxyStats: h,
-        getFullStatus: j,
-        getNftablesRules: w,
-        reloadConfig: b,
-        readFrpConfig: v,
-        validateFrpConfig: f,
-        writeFrpConfig: g,
-        restartProject: u,
-        wolWake: k,
+        readRatholeConfig: o,
+        validateRatholeConfig: c,
+        writeRatholeConfig: d,
+        clearFrpsLogs: j,
+        getFrpsProxyStats: b,
+        getFullStatus: v,
+        getNftablesRules: f,
+        reloadConfig: g,
+        readFrpConfig: u,
+        validateFrpConfig: k,
+        writeFrpConfig: x,
+        restartProject: C,
+        wolWake: y,
         wolStatus: e.declare({
             object: "portweaver",
             method: "wol_status",
@@ -444,19 +460,19 @@ class Client {
                 });
                 a.replaceWith(t), this.projectContainers[s] = t;
             }
-            let i = this.actionContainers[s];
-            if (null == i ? void 0 : i.toggleBtn) {
+            let r = this.actionContainers[s];
+            if (null == r ? void 0 : r.toggleBtn) {
                 let t = (null == l ? void 0 : l.enabled) ? _("Disable") : _("Enable");
-                i.toggleBtn.textContent !== t && (i.toggleBtn.textContent = t);
+                r.toggleBtn.textContent !== t && (r.toggleBtn.textContent = t);
             }
-            if (null == i ? void 0 : i.checkbox) {
+            if (null == r ? void 0 : r.checkbox) {
                 let t = "0" !== L.uci.get("portweaver", s, "enabled");
-                i.checkbox.checked !== t && (i.checkbox.checked = t);
+                r.checkbox.checked !== t && (r.checkbox.checked = t);
             }
         }
     }
     applyFullStatus(t) {
-        var e, s, n, l, a, i;
+        var e, s, n, l, a, r;
         t && (this.globalStatus = {
             status: t.status,
             total_projects: t.total_projects,
@@ -475,43 +491,45 @@ class Client {
                 active_sessions: t.active_sessions,
                 bytes_in: t.bytes_in,
                 bytes_out: t.bytes_out,
-                forwarders: t.forwarders
+                forwarders: t.forwarders,
+                failures: t.failures
             })), this.frpStatus = this.buildFrpStatus(t), this.ddnsGlobalStatus = {
             ddns_enabled: !!(null == (s = t.ddns) ? void 0 : s.enabled),
             ddns_version: null != (e = null == (n = t.ddns) ? void 0 : n.version) ? e : null
-        }, this.ddnsInstances = (null == (l = t.ddns) ? void 0 : l.instances) || [], this.frpClientNodes = (null == (a = t.frp) ? void 0 : a.clients) || [], this.frpServerNodes = (null == (i = t.frp) ? void 0 : i.servers) || [], this.events = t.events || []);
+        }, this.ddnsInstances = (null == (l = t.ddns) ? void 0 : l.instances) || [], this.frpClientNodes = (null == (a = t.frp) ? void 0 : a.clients) || [], this.frpServerNodes = (null == (r = t.frp) ? void 0 : r.servers) || [], this.events = t.events || []);
     }
     applyProjectList(t) {
         if (!t || 0 === t.length) return;
         let e = t.map((t)=>{
-            var e, s, n, l, a, i, r, o, d, c, u, p;
-            let h = t.section_name ? this.projectStatuses.find((e)=>e.section_name === t.section_name) : void 0;
+            var e, s, n, l, a, r, i, o, d, c, u, p, h;
+            let f = t.section_name ? this.projectStatuses.find((e)=>e.section_name === t.section_name) : void 0;
             return {
-                section_name: null != (e = t.section_name) ? e : null == h ? void 0 : h.section_name,
-                enabled: null != (s = null != (n = t.enabled) ? n : null == h ? void 0 : h.enabled) && s,
-                status: null != (l = null != (a = t.status) ? a : null == h ? void 0 : h.status) ? l : "unknown",
-                startup_status: null != (i = t.startup_status) ? i : null == h ? void 0 : h.startup_status,
-                error_code: null != (r = t.error_code) ? r : null == h ? void 0 : h.error_code,
-                active_ports: null != (o = t.active_ports) ? o : null == h ? void 0 : h.active_ports,
-                active_sessions: null != (d = t.active_sessions) ? d : null == h ? void 0 : h.active_sessions,
-                bytes_in: null != (c = t.bytes_in) ? c : null == h ? void 0 : h.bytes_in,
-                bytes_out: null != (u = t.bytes_out) ? u : null == h ? void 0 : h.bytes_out,
-                forwarders: null != (p = t.forwarders) ? p : null == h ? void 0 : h.forwarders
+                section_name: null != (e = t.section_name) ? e : null == f ? void 0 : f.section_name,
+                enabled: null != (s = null != (n = t.enabled) ? n : null == f ? void 0 : f.enabled) && s,
+                status: null != (l = null != (a = t.status) ? a : null == f ? void 0 : f.status) ? l : "unknown",
+                startup_status: null != (r = t.startup_status) ? r : null == f ? void 0 : f.startup_status,
+                error_code: null != (i = t.error_code) ? i : null == f ? void 0 : f.error_code,
+                active_ports: null != (o = t.active_ports) ? o : null == f ? void 0 : f.active_ports,
+                active_sessions: null != (d = t.active_sessions) ? d : null == f ? void 0 : f.active_sessions,
+                bytes_in: null != (c = t.bytes_in) ? c : null == f ? void 0 : f.bytes_in,
+                bytes_out: null != (u = t.bytes_out) ? u : null == f ? void 0 : f.bytes_out,
+                forwarders: null != (p = t.forwarders) ? p : null == f ? void 0 : f.forwarders,
+                failures: null != (h = t.failures) ? h : null == f ? void 0 : f.failures
             };
         });
         e.length > 0 && (this.projectStatuses = e);
     }
     buildFrpStatus(t) {
-        let e = t.frp, s = !!(null == e ? void 0 : e.enabled), n = null == e ? void 0 : e.version, l = (null == e ? void 0 : e.clients) || [], a = (null == e ? void 0 : e.servers) || [], i = l.reduce((t, e)=>t + (e.client_count || 0), 0), r = a.reduce((t, e)=>t + (e.client_count || 0), 0), o = a.reduce((t, e)=>t + (e.proxy_count || 0), 0), d = a.reduce((t, e)=>t + (e.server_count || 0), 0), c = {
+        let e = t.frp, s = !!(null == e ? void 0 : e.enabled), n = null == e ? void 0 : e.version, l = (null == e ? void 0 : e.clients) || [], a = (null == e ? void 0 : e.servers) || [], r = l.reduce((t, e)=>t + (e.client_count || 0), 0), i = a.reduce((t, e)=>t + (e.client_count || 0), 0), o = a.reduce((t, e)=>t + (e.proxy_count || 0), 0), d = a.reduce((t, e)=>t + (e.server_count || 0), 0), c = {
             enabled: s,
             status: this.aggregateFrpStatus(l.map((t)=>t.status)),
             last_error: this.pickFirstError(l.map((t)=>t.last_error)),
-            client_count: i
+            client_count: r
         }, u = {
             enabled: s,
             status: this.aggregateFrpStatus(a.map((t)=>t.status)),
             last_error: this.pickFirstError(a.map((t)=>t.last_error)),
-            client_count: r,
+            client_count: i,
             proxy_count: o,
             server_count: d
         };
@@ -545,47 +563,44 @@ class Client {
                 children: _("N/A")
             })
         ];
-        let i = "failed" === t.startup_status, d = "running" !== t.status || i ? "#dc3545" : "green", c = null;
-        i && void 0 !== t.error_code && 0 !== t.error_code && (c = getErrorMessage(t.error_code));
-        let u = {
+        let r = "failed" === t.startup_status, d = "partial" === t.startup_status, c = r || d, u = "running" !== t.status || c ? d ? "#d97706" : "#dc3545" : "green", p = null;
+        c && void 0 !== t.error_code && 0 !== t.error_code && (p = getErrorMessage(t.error_code));
+        let h = {
             class: "ifacebadge",
             style: ""
         };
-        c && (u.title = c, u.style += " cursor: help;");
-        let p = [
+        p && (h.title = p, h.style += " cursor: help;");
+        let f = [
             jsx("div", {
-                children: jsx("span", _object_spread_props(_object_spread({}, u), {
+                children: jsx("span", _object_spread_props(_object_spread({}, h), {
                     children: jsx("strong", {
-                        style: "font-size: 1em; font-weight: 600; color: ".concat(d, ";"),
-                        children: translateStatus(i ? "failed" : t.status || "unknown")
+                        style: "font-size: 1em; font-weight: 600; color: ".concat(u, ";"),
+                        children: translateStatus(r ? "failed" : d ? "partial" : t.status || "unknown")
                     })
                 }))
             })
         ];
-        if (c && "stopped" !== t.status) p.push(jsx("small", {
+        p && (!t.failures || 0 === t.failures.length) && f.push(jsx("small", {
             style: "color: #dc3545; margin-top: 0.3em;",
-            children: "\u26A0 ".concat(c)
+            children: "\u26A0 ".concat(p)
         }));
-        else {
-            let e = [];
-            (t.active_ports || 0) > 0 && e.push(jsx("span", {
-                children: _("Ports: %d").format(t.active_ports || 0)
-            })), (t.active_sessions || 0) > 0 && (e.length > 0 && e.push(jsx("br", {})), e.push(jsx("span", {
-                children: _("Sessions: %d").format(t.active_sessions || 0)
-            }))), (t.bytes_in || t.bytes_out) && (e.length > 0 && e.push(jsx("br", {})), e.push(jsx("span", {
-                children: "\u2193 " + formatBytes(t.bytes_in || 0) + " \u2191 " + formatBytes(t.bytes_out || 0)
-            }))), t.forwarders && t.forwarders.length > 0 && (e.length > 0 && e.push(jsx("br", {})), e.push(this.renderForwarderStats(t.forwarders))), e.length > 0 && p.push(jsx("small", {
-                children: e
-            }));
-        }
-        return p;
+        let v = [];
+        return (t.active_ports || 0) > 0 && v.push(jsx("span", {
+            children: _("Ports: %d").format(t.active_ports || 0)
+        })), (t.active_sessions || 0) > 0 && (v.length > 0 && v.push(jsx("br", {})), v.push(jsx("span", {
+            children: _("Sessions: %d").format(t.active_sessions || 0)
+        }))), (t.bytes_in || t.bytes_out) && (v.length > 0 && v.push(jsx("br", {})), v.push(jsx("span", {
+            children: "\u2193 " + formatBytes(t.bytes_in || 0) + " \u2191 " + formatBytes(t.bytes_out || 0)
+        }))), t.forwarders && t.forwarders.length > 0 && (v.length > 0 && v.push(jsx("br", {})), v.push(this.renderForwarderStats(t.forwarders))), t.failures && t.failures.length > 0 && (v.length > 0 && v.push(jsx("br", {})), v.push(this.renderForwarderFailures(t.failures))), v.length > 0 && f.push(jsx("small", {
+            children: v
+        })), f;
     }
     renderForwarderStats(t) {
-        let e = getThemeColors(), s = e.isDark ? "#333" : "#eee", i = e.isDark ? "#222" : "#f8f9fa", r = e.isDark ? "#ccc" : "#6c757d", o = t.map((t)=>jsxs("div", {
+        let e = getThemeColors(), s = e.isDark ? "#333" : "#eee", r = e.isDark ? "#222" : "#f8f9fa", i = e.isDark ? "#ccc" : "#6c757d", o = t.map((t)=>jsxs("div", {
                 style: "display: flex; gap: 0.5em; padding: 0.15em 0; font-size: 0.9em; border-bottom: 1px solid ".concat(s, ";"),
                 children: [
                     jsx("span", {
-                        style: "min-width: 35px; color: ".concat(r, ";"),
+                        style: "min-width: 35px; color: ".concat(i, ";"),
                         children: t.protocol.toUpperCase()
                     }),
                     jsxs("span", {
@@ -610,11 +625,21 @@ class Client {
                 ]
             }));
         return jsx("div", {
-            style: "margin-top: 0.3em; padding: 0.3em; background: ".concat(i, "; border-radius: 3px; max-height: 80px; overflow-y: auto;"),
+            style: "margin-top: 0.3em; padding: 0.3em; background: ".concat(r, "; border-radius: 3px; max-height: 80px; overflow-y: auto;"),
             children: o
         });
     }
-    updateFrpCard(t, e, s, l, a, i, r) {
+    renderForwarderFailures(t) {
+        let e = t.map((t)=>jsx("div", {
+                style: "padding: 0.15em 0; font-size: 0.9em; color: #dc3545;",
+                children: "".concat(t.protocol.toUpperCase(), " :").concat(t.local_port, " - ").concat(getErrorMessage(t.error_code) || _("Unknown error"))
+            }));
+        return jsx("div", {
+            style: "margin-top: 0.3em; padding: 0.3em; background: rgba(220, 53, 69, 0.08); border-radius: 3px;",
+            children: e
+        });
+    }
+    updateFrpCard(t, e, s, l, a, r, i) {
         let o = arguments.length > 7 && void 0 !== arguments[7] ? arguments[7] : "frpc", d = (null == t ? void 0 : t.enabled) || !1;
         if (s && (s.textContent = d ? _("Enabled") : _("Disabled"), s.style.color = d ? "#28a745" : "#6c757d"), l && (l.textContent = d && e ? e : ""), a) if (d && (null == t ? void 0 : t.status)) {
             let e = t.status, s = "#6c757d";
@@ -630,24 +655,24 @@ class Client {
             }
             a.textContent = e, a.style.color = s, a.style.display = "block";
         } else a.style.display = "none";
-        if (i) if (d) {
+        if (r) if (d) {
             let e = [];
-            (null == t ? void 0 : t.client_count) !== void 0 && e.push("".concat(t.client_count, " ").concat(_("clients"))), "frps" === o && (void 0 !== t.proxy_count && e.push("".concat(t.proxy_count, " ").concat(_("proxies"))), void 0 !== t.server_count && e.push("".concat(t.server_count, " ").concat(_("servers")))), i.textContent = e.join(" | "), i.style.display = e.length > 0 ? "block" : "none";
-        } else i.style.display = "none";
-        if (r) if (null == t ? void 0 : t.last_error) {
+            (null == t ? void 0 : t.client_count) !== void 0 && e.push("".concat(t.client_count, " ").concat(_("clients"))), "frps" === o && (void 0 !== t.proxy_count && e.push("".concat(t.proxy_count, " ").concat(_("proxies"))), void 0 !== t.server_count && e.push("".concat(t.server_count, " ").concat(_("servers")))), r.textContent = e.join(" | "), r.style.display = e.length > 0 ? "block" : "none";
+        } else r.style.display = "none";
+        if (i) if (null == t ? void 0 : t.last_error) {
             let e = t.last_error.length > 50 ? "".concat(t.last_error.substring(0, 47), "...") : t.last_error;
-            r.title = t.last_error, r.innerHTML = "", r.appendChild(jsx("strong", {
+            i.title = t.last_error, i.innerHTML = "", i.appendChild(jsx("strong", {
                 style: "font-size: 0.95em; font-weight: 600; color: #dc3545;",
                 children: e
-            })), r.style.display = "block";
-        } else r.style.display = "none";
+            })), i.style.display = "block";
+        } else i.style.display = "none";
     }
     updateProjectHealthIndicator() {
         var t, e;
-        let s = (null == (t = this.projectStatuses) ? void 0 : t.filter((t)=>t.enabled)) || [], a = s.filter((t)=>"running" === t.status), i = null == (e = this.statusPanel) ? void 0 : e.projectHealthEl;
-        if (i) {
+        let s = (null == (t = this.projectStatuses) ? void 0 : t.filter((t)=>t.enabled)) || [], a = s.filter((t)=>"running" === t.status), r = null == (e = this.statusPanel) ? void 0 : e.projectHealthEl;
+        if (r) {
             let t = a.length === s.length ? "#28a745" : a.length > 0 ? "#ffc107" : "#dc3545";
-            i.innerHTML = "", i.appendChild(jsxs("span", {
+            r.innerHTML = "", r.appendChild(jsxs("span", {
                 children: [
                     jsxs("strong", {
                         style: "font-size: 1.1em; font-weight: 600; color: ".concat(t, ";"),
@@ -688,7 +713,7 @@ class Client {
             frp_connected: "\uD83D\uDD17",
             frp_disconnected: "\uD83D\uDD0C",
             config_changed: "\u2699"
-        }[t.type] || "\u2022", a = this.formatTimestamp(t.timestamp), i = t.message.length > 60 ? "".concat(t.message.substring(0, 57), "...") : t.message;
+        }[t.type] || "\u2022", a = this.formatTimestamp(t.timestamp), r = t.message.length > 60 ? "".concat(t.message.substring(0, 57), "...") : t.message;
         return jsxs("div", {
             style: "display: flex; align-items: flex-start; padding: 0.3em 0; border-bottom: 1px solid #eee; font-size: 0.85em;",
             children: [
@@ -703,7 +728,7 @@ class Client {
                 jsx("span", {
                     style: "flex: 1; word-break: break-word;",
                     title: t.message,
-                    children: i
+                    children: r
                 })
             ]
         });
@@ -718,16 +743,16 @@ class Client {
             ddns_version: null
         }, this.events = [], this.applyFullStatus(e), L.Poll.add(async ()=>{
             try {
-                var t, e, s, r, c, u, p, h, f, v, g, b, m, y, S, P;
-                let E = this.globalStatus.total_bytes_in || 0, x = this.globalStatus.total_bytes_out || 0, j = Date.now(), [C, w] = await Promise.all([
+                var t, e, s, i, c, u, p, h, f, v, g, b, m, y, S, P;
+                let E = this.globalStatus.total_bytes_in || 0, x = this.globalStatus.total_bytes_out || 0, j = Date.now(), [w, C] = await Promise.all([
                     rpcClient.getFullStatus(),
                     rpcClient.listProjects()
                 ]);
-                if (C && this.applyFullStatus(C), (null == w ? void 0 : w.projects) && this.applyProjectList(w.projects), (null == (t = this.statusPanel) ? void 0 : t.statusValueEl) && (this.statusPanel.statusValueEl.textContent = translateStatus(this.globalStatus.status) || "-", this.statusPanel.statusValueEl.style.color = ({
+                if (w && this.applyFullStatus(w), (null == C ? void 0 : C.projects) && this.applyProjectList(C.projects), (null == (t = this.statusPanel) ? void 0 : t.statusValueEl) && (this.statusPanel.statusValueEl.textContent = translateStatus(this.globalStatus.status) || "-", this.statusPanel.statusValueEl.style.color = ({
                     running: "green",
                     stopped: "red",
                     degraded: "orange"
-                })[this.globalStatus.status || ""] || "gray"), (null == (e = this.statusPanel) ? void 0 : e.totalProjectsEl) && (this.statusPanel.totalProjectsEl.textContent = String(this.globalStatus.total_projects || 0)), (null == (s = this.statusPanel) ? void 0 : s.activePortsEl) && (this.statusPanel.activePortsEl.textContent = String(this.globalStatus.active_ports || 0)), (null == (r = this.statusPanel) ? void 0 : r.activeSessionsEl) && (this.statusPanel.activeSessionsEl.textContent = String(this.globalStatus.active_sessions || 0)), (null == (c = this.statusPanel) ? void 0 : c.uptimeEl) && (this.statusPanel.uptimeEl.textContent = formatUptime(this.globalStatus.uptime || 0)), (null == (u = this.statusPanel) ? void 0 : u.trafficInEl) && (this.statusPanel.trafficInEl.textContent = formatBytes(this.globalStatus.total_bytes_in || 0)), (null == (p = this.statusPanel) ? void 0 : p.trafficOutEl) && (this.statusPanel.trafficOutEl.textContent = formatBytes(this.globalStatus.total_bytes_out || 0)), this.statusPanel && (this.updateFrpCard(this.frpStatus.frpc, this.frpStatus.frp_version, this.statusPanel.frpcEnabledEl, this.statusPanel.frpcVersionEl, this.statusPanel.frpcStatusEl, this.statusPanel.frpcInfoEl, this.statusPanel.frpcErrorEl, "frpc"), this.updateFrpCard(this.frpStatus.frps, this.frpStatus.frp_version, this.statusPanel.frpsEnabledEl, this.statusPanel.frpsVersionEl, this.statusPanel.frpsStatusEl, this.statusPanel.frpsInfoEl, this.statusPanel.frpsErrorEl, "frps")), (null == (h = this.statusPanel) ? void 0 : h.ddnsEnabledEl) && (this.statusPanel.ddnsEnabledEl.textContent = this.ddnsGlobalStatus.ddns_enabled ? _("Enabled") : _("Disabled"), this.statusPanel.ddnsEnabledEl.style.color = this.ddnsGlobalStatus.ddns_enabled ? "#28a745" : "#6c757d"), (null == (f = this.statusPanel) ? void 0 : f.ddnsVersionEl) && this.ddnsGlobalStatus.ddns_version && (this.statusPanel.ddnsVersionEl.textContent = this.ddnsGlobalStatus.ddns_version), this.updateProjectHealthIndicator(), this.updateActivityLog(), (null == (v = this.statusPanel) ? void 0 : v.trafficRateInEl) && this.statusPanel.trafficRateOutEl && this._lastPollTime > 0) {
+                })[this.globalStatus.status || ""] || "gray"), (null == (e = this.statusPanel) ? void 0 : e.totalProjectsEl) && (this.statusPanel.totalProjectsEl.textContent = String(this.globalStatus.total_projects || 0)), (null == (s = this.statusPanel) ? void 0 : s.activePortsEl) && (this.statusPanel.activePortsEl.textContent = String(this.globalStatus.active_ports || 0)), (null == (i = this.statusPanel) ? void 0 : i.activeSessionsEl) && (this.statusPanel.activeSessionsEl.textContent = String(this.globalStatus.active_sessions || 0)), (null == (c = this.statusPanel) ? void 0 : c.uptimeEl) && (this.statusPanel.uptimeEl.textContent = formatUptime(this.globalStatus.uptime || 0)), (null == (u = this.statusPanel) ? void 0 : u.trafficInEl) && (this.statusPanel.trafficInEl.textContent = formatBytes(this.globalStatus.total_bytes_in || 0)), (null == (p = this.statusPanel) ? void 0 : p.trafficOutEl) && (this.statusPanel.trafficOutEl.textContent = formatBytes(this.globalStatus.total_bytes_out || 0)), this.statusPanel && (this.updateFrpCard(this.frpStatus.frpc, this.frpStatus.frp_version, this.statusPanel.frpcEnabledEl, this.statusPanel.frpcVersionEl, this.statusPanel.frpcStatusEl, this.statusPanel.frpcInfoEl, this.statusPanel.frpcErrorEl, "frpc"), this.updateFrpCard(this.frpStatus.frps, this.frpStatus.frp_version, this.statusPanel.frpsEnabledEl, this.statusPanel.frpsVersionEl, this.statusPanel.frpsStatusEl, this.statusPanel.frpsInfoEl, this.statusPanel.frpsErrorEl, "frps")), (null == (h = this.statusPanel) ? void 0 : h.ddnsEnabledEl) && (this.statusPanel.ddnsEnabledEl.textContent = this.ddnsGlobalStatus.ddns_enabled ? _("Enabled") : _("Disabled"), this.statusPanel.ddnsEnabledEl.style.color = this.ddnsGlobalStatus.ddns_enabled ? "#28a745" : "#6c757d"), (null == (f = this.statusPanel) ? void 0 : f.ddnsVersionEl) && this.ddnsGlobalStatus.ddns_version && (this.statusPanel.ddnsVersionEl.textContent = this.ddnsGlobalStatus.ddns_version), this.updateProjectHealthIndicator(), this.updateActivityLog(), (null == (v = this.statusPanel) ? void 0 : v.trafficRateInEl) && this.statusPanel.trafficRateOutEl && this._lastPollTime > 0) {
                     let t = (j - this._lastPollTime) / 1000;
                     if (t > 0) {
                         let e = Math.max(0, (this.globalStatus.total_bytes_in || 0) - E) / t, s = Math.max(0, (this.globalStatus.total_bytes_out || 0) - x) / t;
@@ -741,16 +766,16 @@ class Client {
                         children: _("No projects")
                     }));
                     else for(let s = 0; s < t.length; s++){
-                        let a = t[s], i = a.name || a[".name"] || "#".concat(s + 1), r = this.projectStatuses.find((t)=>t.section_name === a[".name"]), d = (null == r ? void 0 : r.status) === "running" ? "#28a745" : (null == r ? void 0 : r.status) === "stopped" ? "#dc3545" : "#6c757d";
+                        let a = t[s], r = a.name || a[".name"] || "#".concat(s + 1), i = this.projectStatuses.find((t)=>t.section_name === a[".name"]), d = (null == i ? void 0 : i.status) === "running" ? "#28a745" : (null == i ? void 0 : i.status) === "stopped" ? "#dc3545" : "#6c757d";
                         e.appendChild(jsxs("div", {
                             style: "display: flex; justify-content: space-between; font-size: 0.85em; padding: 0.15em 0;",
                             children: [
                                 jsx("span", {
-                                    children: i
+                                    children: r
                                 }),
                                 jsx("span", {
                                     style: "color: ".concat(d, ";"),
-                                    children: translateStatus((null == r ? void 0 : r.status) || "unknown")
+                                    children: translateStatus((null == i ? void 0 : i.status) || "unknown")
                                 })
                             ]
                         }));
@@ -3223,13 +3248,171 @@ let frps_d = {
     f(), L.Poll.add(f, 5);
 }
 
+;// CONCATENATED MODULE: ./components/RatholeConfigSource.tsx
+
+
+
+let RatholeConfigSource_o = L.form;
+class RatholeConfigSource_n {
+    get(e, t, i) {
+        var s;
+        return (null == (s = this.values.get(e)) ? void 0 : s[t]) || i;
+    }
+    set(e, t, i) {
+        let s = this.values.get(e) || {};
+        for (let o of (s[t] = i, this.values.set(e, s), this.listeners.get(e) || []))o();
+    }
+    subscribe(e, t) {
+        let i = this.listeners.get(e) || new Set();
+        return i.add(t), this.listeners.set(e, i), ()=>{
+            i.delete(t), 0 === i.size && this.listeners.delete(e);
+        };
+    }
+    constructor(){
+        _define_property(this, "values", new Map()), _define_property(this, "listeners", new Map());
+    }
+}
+function RatholeConfigSource_a(e, t, i) {
+    let s = L.uci.get("portweaver", e, t);
+    return "string" == typeof s && s ? s : i;
+}
+class RatholeConfigSource_r extends L.form.Value {
+    getValue(e) {
+        var t;
+        return (null == (t = this.sessions.get(e)) ? void 0 : t.textarea.value) || "";
+    }
+    setMessage(e, t) {
+        let i = arguments.length > 2 && void 0 !== arguments[2] ? arguments[2] : "", s = this.sessions.get(e);
+        s && (s.message.style.color = i, s.message.textContent = t);
+    }
+    updateSourceControls(e) {
+        let t = this.sessions.get(e);
+        t && (t.fileActions.style.display = "external_file" === this.editorOptions.getMode(e) ? "flex" : "none");
+    }
+    validate(e) {
+        this.setMessage(e, _("Validating configuration...")), rpcClient.validateRatholeConfig(this.editorOptions.mode, this.getValue(e)).then((t)=>{
+            if (!(null == t ? void 0 : t.success)) throw Error((null == t ? void 0 : t.error) || _("Configuration is invalid."));
+            this.setMessage(e, _("Configuration is valid."), "#1a7f37");
+        }).catch((t)=>{
+            this.setMessage(e, t instanceof Error ? t.message : _("Configuration validation failed."), "#cf222e");
+        });
+    }
+    loadFile(e) {
+        let t = this.editorOptions.getPath(e).trim();
+        t ? (this.setMessage(e, _("Loading configuration file...")), rpcClient.readRatholeConfig(this.editorOptions.mode, t).then((t)=>{
+            if (!(null == t ? void 0 : t.success)) throw Error((null == t ? void 0 : t.error) || _("Unable to load configuration file."));
+            let i = this.sessions.get(e);
+            i && (i.textarea.value = t.content || ""), this.setMessage(e, _("Configuration file loaded."), "#1a7f37");
+        }).catch((t)=>{
+            this.setMessage(e, t instanceof Error ? t.message : _("Unable to load configuration file."), "#cf222e");
+        })) : this.setMessage(e, _("Enter a configuration file path first."), "#cf222e");
+    }
+    saveFile(e, t) {
+        let i = this.editorOptions.getPath(e).trim();
+        i ? (this.setMessage(e, t ? _("Saving and reloading...") : _("Saving configuration file...")), rpcClient.writeRatholeConfig(this.editorOptions.mode, i, this.getValue(e), t).then((i)=>{
+            if (!(null == i ? void 0 : i.success)) throw Error((null == i ? void 0 : i.error) || _("Unable to save configuration file."));
+            this.setMessage(e, t ? _("Configuration file saved and reload requested.") : _("Configuration file saved."), "#1a7f37");
+        }).catch((t)=>{
+            this.setMessage(e, t instanceof Error ? t.message : _("Unable to save configuration file."), "#cf222e");
+        })) : this.setMessage(e, _("Enter a configuration file path first."), "#cf222e");
+    }
+    renderWidget(e, s, o) {
+        var n;
+        null == (n = this.sessions.get(e)) || n.unsubscribe();
+        let a = jsx("textarea", {
+            class: "cbi-input-text",
+            rows: 18,
+            spellcheck: !1,
+            wrap: "off",
+            style: "box-sizing: border-box; font-family: monospace; resize: vertical; width: 100%;",
+            children: o || ""
+        }), r = jsx("button", {
+            type: "button",
+            class: "cbi-button cbi-button-action",
+            children: _("Load File")
+        }), l = jsx("button", {
+            type: "button",
+            class: "cbi-button cbi-button-apply",
+            children: _("Validate")
+        }), c = jsx("button", {
+            type: "button",
+            class: "cbi-button cbi-button-save",
+            children: _("Save File")
+        }), u = jsx("button", {
+            type: "button",
+            class: "cbi-button cbi-button-apply",
+            children: _("Save File & Reload")
+        }), d = jsxs("div", {
+            style: "display:flex; flex-wrap:wrap; gap:8px; margin-top:0.75em;",
+            children: [
+                r,
+                c,
+                u
+            ]
+        }), g = jsx("div", {
+            style: "min-height:1.2em; margin-top:0.75em;"
+        }), f = {
+            textarea: a,
+            fileActions: d,
+            message: g,
+            unsubscribe: ()=>{}
+        };
+        return f.unsubscribe = this.editorOptions.subscribeSourceChanges(e, ()=>this.updateSourceControls(e)), this.sessions.set(e, f), this.updateSourceControls(e), r.onclick = ()=>this.loadFile(e), l.onclick = ()=>this.validate(e), c.onclick = ()=>this.saveFile(e, !1), u.onclick = ()=>this.saveFile(e, !0), jsxs("div", {
+            class: "cbi-value-field",
+            children: [
+                jsx("p", {
+                    style: "margin-top:0;",
+                    children: _("Rathole accepts TOML only. Validate before saving or reloading.")
+                }),
+                a,
+                jsx("div", {
+                    style: "display:flex; flex-wrap:wrap; gap:8px; margin-top:0.75em;",
+                    children: l
+                }),
+                d,
+                g
+            ]
+        });
+    }
+    formvalue(e) {
+        return this.getValue(e);
+    }
+    write(e, t) {
+        return "external_uci" === this.editorOptions.getMode(e) ? L.uci.set("portweaver", e, "config_content", t) : L.uci.unset("portweaver", e, "config_content"), null;
+    }
+    constructor(...t){
+        super(...t), _define_property(this, "sessions", new Map()), _define_property(this, "editorOptions", void 0);
+    }
+}
+function addRatholeNodeConfigSource(t, i) {
+    let s = new RatholeConfigSource_n(), l = t.option(RatholeConfigSource_o.ListValue, "config_mode", _("Configuration Source"));
+    l.modalonly = !0, l.rmempty = !1, l.default = "builtin", l.value("builtin", _("Built-in Configuration")), l.value("external_file", _("External TOML File")), l.value("external_uci", _("UCI TOML Text")), l.description = _("External TOML replaces this node's built-in settings and services. Existing built-in values are retained for later use."), l.onchange = (e, t, i)=>s.set(t, "mode", String(i)), l.write = (e, t)=>{
+        let i = String(t);
+        return L.uci.set("portweaver", e, "config_mode", i), "external_file" === i ? L.uci.unset("portweaver", e, "config_content") : "external_uci" === i ? L.uci.unset("portweaver", e, "config_path") : (L.uci.unset("portweaver", e, "config_path"), L.uci.unset("portweaver", e, "config_content")), null;
+    };
+    let c = t.option(RatholeConfigSource_o.Value, "config_path", _("TOML File Path"));
+    c.modalonly = !0, c.rmempty = !1, c.placeholder = "/etc/portweaver/rathole-".concat(i, ".toml"), c.description = _("Absolute .toml path below the configured external configuration root. Parent directories must already exist."), c.depends("config_mode", "external_file"), c.onchange = (e, t, i)=>s.set(t, "path", String(i));
+    let u = t.option(class extends RatholeConfigSource_r {
+        constructor(...t){
+            super(...t), _define_property(this, "editorOptions", {
+                mode: i,
+                getMode: (e)=>s.get(e, "mode", RatholeConfigSource_a(e, "config_mode", "builtin")),
+                getPath: (e)=>s.get(e, "path", RatholeConfigSource_a(e, "config_path", "")),
+                subscribeSourceChanges: (e, t)=>s.subscribe(e, t)
+            });
+        }
+    }, "config_content", _("Rathole TOML Configuration"));
+    u.modalonly = !0, u.rmempty = !1, u.depends("config_mode", "external_file"), u.depends("config_mode", "external_uci");
+}
+
 ;// CONCATENATED MODULE: ./modules/rathole.tsx
 
 
 
 
-let rathole_i = L.form;
-class rathole_a {
+
+let rathole_l = L.form;
+class rathole_s {
     refresh() {
         rpcClient.getRatholeInfo(this.mode, this.name).then((e)=>{
             this.statusEl && (this.statusEl.textContent = "".concat((null == e ? void 0 : e.status) || "unavailable").concat((null == e ? void 0 : e.last_error) ? ": ".concat(e.last_error) : ""));
@@ -3237,8 +3420,18 @@ class rathole_a {
             console.warn("Rathole status failed", e), this.statusEl && (this.statusEl.textContent = _("Unavailable"));
         });
     }
+    startPolling() {
+        null !== this.pollingTimer && window.clearInterval(this.pollingTimer), this.pollingTimer = window.setInterval(()=>{
+            var e;
+            if (!(null == (e = this.statusEl) ? void 0 : e.isConnected)) {
+                null !== this.pollingTimer && window.clearInterval(this.pollingTimer), this.pollingTimer = null;
+                return;
+            }
+            this.refresh();
+        }, 5000);
+    }
     render() {
-        this.statusEl = jsx("span", {
+        null !== this.pollingTimer && window.clearInterval(this.pollingTimer), this.statusEl = jsx("span", {
             children: _("Loading...")
         });
         let e = jsxs("div", {
@@ -3266,54 +3459,57 @@ class rathole_a {
                 })
             ]
         });
-        return this.refresh(), e;
+        return this.refresh(), window.setTimeout(()=>this.startPolling(), 0), e;
     }
     constructor(t, o){
-        _define_property(this, "mode", void 0), _define_property(this, "name", void 0), _define_property(this, "statusEl", void 0), this.mode = t, this.name = o, this.statusEl = null;
+        _define_property(this, "mode", void 0), _define_property(this, "name", void 0), _define_property(this, "statusEl", void 0), _define_property(this, "pollingTimer", void 0), this.mode = t, this.name = o, this.statusEl = null, this.pollingTimer = null;
     }
 }
-function rathole_s(e, t) {
-    let o = "rathole_".concat(t), r = "".concat(o, "_node"), n = e.taboption(o, rathole_i.SectionValue, "_".concat(r), rathole_i.GridSection, r).subsection;
-    n.anonymous = !0, n.addremove = !0, n.sectiontitle = (e)=>String(L.uci.get("portweaver", e, "name") || e);
-    let s = n.option(rathole_i.Flag, "enabled", _("Enable"));
-    s.default = "1", s.rmempty = !1;
-    let l = n.option(rathole_i.Value, "name", _("Node Name"));
-    l.rmempty = !1, l.validate = (e, t)=>{
+function rathole_a(e, t) {
+    let o = "rathole_".concat(t), i = "".concat(o, "_node"), r = e.taboption(o, rathole_l.SectionValue, "_".concat(i), rathole_l.GridSection, i).subsection;
+    r.anonymous = !0, r.addremove = !0, r.sectiontitle = (e)=>String(L.uci.get("portweaver", e, "name") || e);
+    let a = r.option(rathole_l.Flag, "enabled", _("Enable"));
+    a.default = "1", a.rmempty = !1;
+    let c = r.option(rathole_l.Value, "name", _("Node Name"));
+    c.rmempty = !1, c.validate = (e, t)=>{
         let o = String(t || "");
-        return /^[a-zA-Z0-9_-]+$/.test(o) ? !L.uci.sections("portweaver", r).some((t)=>t[".name"] !== e && t.name === o) || _("Node name must be unique") : _("Use letters, numbers, underscore or hyphen");
-    };
-    let c = n.option(rathole_i.Value, "client" === t ? "remote_addr" : "bind_addr", "client" === t ? _("Server Address:Port") : _("Control Bind Address:Port"));
-    c.rmempty = !1, c.placeholder = "client" === t ? "example.com:2333" : "0.0.0.0:2333";
-    let p = n.option(rathole_i.Value, "default_token", _("Default Service Token"));
-    p.password = !0, p.description = _("Each enabled service requires its own token or this default. TCP transport is not encrypted; use Noise on untrusted networks.");
-    let u = n.option(rathole_i.ListValue, "transport", _("Transport"));
-    u.value("tcp", "TCP"), u.value("noise", "Noise (NK)"), u.default = "tcp";
-    let d = n.option(rathole_i.Value, "client" === t ? "noise_remote_public_key" : "noise_local_private_key", "client" === t ? _("Server Public Key") : _("Server Private Key"));
-    d.depends("transport", "noise"), d.rmempty = !1, d.password = "server" === t;
-    let m = n.option(rathole_i.DummyValue, "_rathole_status", _("Lifecycle Status"));
-    m.description = _("Running means the task is active, not that every service is connected. Logs currently contain lifecycle events only."), m.textvalue = (e)=>new rathole_a(t, String(L.uci.get("portweaver", e, "name") || e)).render();
-    let h = "".concat(o, "_service"), v = e.taboption(o, rathole_i.SectionValue, "_".concat(h), rathole_i.GridSection, h).subsection;
-    v.anonymous = !0, v.addremove = !0;
-    let f = v.option(rathole_i.Flag, "enabled", _("Enable"));
-    f.default = "1", f.rmempty = !1;
-    let y = v.option(rathole_i.ListValue, "node", _("Node"));
-    for (let e of (y.rmempty = !1, L.uci.sections("portweaver", r))){
+        return /^[a-zA-Z0-9_-]+$/.test(o) ? !L.uci.sections("portweaver", i).some((t)=>t[".name"] !== e && t.name === o) || _("Node name must be unique") : _("Use letters, numbers, underscore or hyphen");
+    }, addRatholeNodeConfigSource(r, t);
+    let p = r.option(rathole_l.Value, "client" === t ? "remote_addr" : "bind_addr", "client" === t ? _("Server Address:Port") : _("Control Bind Address:Port"));
+    p.rmempty = !1, p.placeholder = "client" === t ? "example.com:2333" : "0.0.0.0:2333", p.depends("config_mode", "builtin");
+    let d = r.option(rathole_l.Value, "default_token", _("Default Service Token"));
+    d.password = !0, d.description = _("Each enabled service requires its own token or this default. TCP transport is not encrypted; use Noise on untrusted networks."), d.depends("config_mode", "builtin");
+    let u = r.option(rathole_l.ListValue, "transport", _("Transport"));
+    u.value("tcp", "TCP"), u.value("noise", "Noise (NK)"), u.default = "tcp", u.depends("config_mode", "builtin");
+    let m = r.option(rathole_l.Value, "client" === t ? "noise_remote_public_key" : "noise_local_private_key", "client" === t ? _("Server Public Key") : _("Server Private Key"));
+    m.depends({
+        config_mode: "builtin",
+        transport: "noise"
+    }), m.rmempty = !1, m.password = "server" === t;
+    let h = r.option(rathole_l.DummyValue, "_rathole_status", _("Lifecycle Status"));
+    h.description = _("Running means the task is active, not that every service is connected. Logs currently contain lifecycle events only."), h.textvalue = (e)=>new rathole_s(t, String(L.uci.get("portweaver", e, "name") || e)).render();
+    let v = "".concat(o, "_service"), f = e.taboption(o, rathole_l.SectionValue, "_".concat(v), rathole_l.GridSection, v).subsection;
+    f.anonymous = !0, f.addremove = !0;
+    let g = f.option(rathole_l.Flag, "enabled", _("Enable"));
+    g.default = "1", g.rmempty = !1;
+    let y = f.option(rathole_l.ListValue, "node", _("Node"));
+    for (let e of (y.rmempty = !1, L.uci.sections("portweaver", i))){
         let t = String(e.name || e[".name"]);
         y.value(t, t);
     }
-    y.description = _("Save newly created nodes before adding their services.");
-    let g = v.option(rathole_i.Value, "service_name", _("Service Name"));
-    g.rmempty = !1, g.description = _("Client and server must preconfigure the same service name, protocol and token. Public ports are configured on the server.");
-    let b = v.option(rathole_i.ListValue, "protocol", _("Protocol"));
-    if (b.value("tcp", "TCP"), b.value("udp", "UDP"), b.default = "tcp", v.option(rathole_i.Value, "token", _("Service Token")).password = !0, "client" === t) {
-        let e = v.option(rathole_i.ListValue, "project", _("Target Project"));
+    y.description = _("Save newly created nodes before adding their services. Services for nodes using external TOML are retained but inactive.");
+    let b = f.option(rathole_l.Value, "service_name", _("Service Name"));
+    b.rmempty = !1, b.description = _("Client and server must preconfigure the same service name, protocol and token. Public ports are configured on the server.");
+    let w = f.option(rathole_l.ListValue, "protocol", _("Protocol"));
+    if (w.value("tcp", "TCP"), w.value("udp", "UDP"), w.default = "tcp", f.option(rathole_l.Value, "token", _("Service Token")).password = !0, "client" === t) {
+        let e = f.option(rathole_l.ListValue, "project", _("Target Project"));
         for (let t of (e.value("", _("Explicit Target")), L.uci.sections("portweaver", "project")))e.value(t[".name"], String(t.name || t[".name"]));
-        let t = v.option(rathole_i.Value, "project_target_port", _("Project Target Port"));
+        let t = f.option(rathole_l.Value, "project_target_port", _("Project Target Port"));
         t.datatype = "port", t.description = _("With a project reference, leave explicit target fields empty. Specify this port for projects with multiple ports.");
     }
-    let w = v.option(rathole_i.Value, "client" === t ? "local_address" : "bind_address", "client" === t ? _("Explicit Target Address") : _("Public Bind Address"));
-    w.datatype = "host", w.rmempty = "client" === t;
-    let S = v.option(rathole_i.Value, "client" === t ? "local_port" : "bind_port", "client" === t ? _("Explicit Target Port") : _("Public Port"));
+    let T = f.option(rathole_l.Value, "client" === t ? "local_address" : "bind_address", "client" === t ? _("Explicit Target Address") : _("Public Bind Address"));
+    T.datatype = "host", T.rmempty = "client" === t;
+    let S = f.option(rathole_l.Value, "client" === t ? "local_port" : "bind_port", "client" === t ? _("Explicit Target Port") : _("Public Port"));
     S.datatype = "port", S.rmempty = "client" === t;
 }
 
@@ -4732,8 +4928,8 @@ let header_r = L.form;
         }
     }
     {
-        let t = i.taboption(d, header_r.Value, "frp_config_root", _("FRP Configuration Root"));
-        t.rmempty = !1, t.default = "/etc/portweaver", t.placeholder = "/etc/portweaver", t.description = _("Trusted root for external FRPC and FRPS configuration files. Save and reload after changing this path before using file editor actions."), t.validate = (t, e)=>{
+        let t = i.taboption(d, header_r.Value, "frp_config_root", _("External Configuration Root"));
+        t.rmempty = !1, t.default = "/etc/portweaver", t.placeholder = "/etc/portweaver", t.description = _("Trusted root for external FRP and Rathole configuration files. Save and reload after changing this path before using file editor actions."), t.validate = (t, e)=>{
             let a = String(e || "");
             return !!a.startsWith("/") && "/" !== a || _("Configuration root must be an absolute directory other than /.");
         };
@@ -4987,6 +5183,11 @@ const DNS_PROVIDERS_CONFIG = (/* unused pure expression or super */ null && ({
         secretLabel: "Token",
         extParamLabel: ""
     },
+    desec: {
+        idLabel: "",
+        secretLabel: "API Token",
+        extParamLabel: ""
+    },
     namecheap: {
         idLabel: "",
         secretLabel: "Password",
@@ -5091,6 +5292,10 @@ let ddns_n = [
     {
         value: "dnsla",
         label: "DNSLA"
+    },
+    {
+        value: "desec",
+        label: "deSEC"
     },
     {
         value: "nowcn",
@@ -6058,91 +6263,118 @@ class main extends L.view {
         return Promise.all([
             main_w.load("portweaver"),
             main_w.load("firewall"),
-            rpcClient.getFullStatus().then((e)=>e || {}).catch((e)=>(console.warn("ubus get_full_status failed:", e), {})),
+            rpcClient.getFullStatus().then((t)=>t || {}).catch((t)=>(console.warn("ubus get_full_status failed:", t), {})),
             L.fs.exec("/usr/bin/portweaver", [
                 "version",
                 "--json"
-            ]).then((e)=>{
-                if (e && 0 === e.code && e.stdout) try {
-                    let t = JSON.parse(e.stdout);
-                    return setVersionInfo(t), t;
-                } catch (e) {
-                    console.warn("Failed to parse portweaver version JSON:", e);
+            ]).then((t)=>{
+                if (t && 0 === t.code && t.stdout) try {
+                    let e = JSON.parse(t.stdout);
+                    return setVersionInfo(e), e;
+                } catch (t) {
+                    console.warn("Failed to parse portweaver version JSON:", t);
                 }
                 return null;
-            }).catch((e)=>(console.warn("exec portweaver version failed:", e), null))
+            }).catch((t)=>(console.warn("exec portweaver version failed:", t), null))
         ]);
     }
-    render(e) {
-        let t = new main_v.Map("portweaver", _("PortWeaver"), _("Port forwarding and NAT traversal configuration"));
-        this.mapInstance = t;
-        let o = t.section(main_v.NamedSection, "global", "portweaver");
+    render(t) {
+        let e = new main_v.Map("portweaver", _("PortWeaver"), _("Port forwarding and NAT traversal configuration"));
+        this.mapInstance = e;
+        let o = e.section(main_v.NamedSection, "global", "portweaver");
         o.anonymous = !0, o.addremove = !1, o.tab("settings", _("Global Settings")), o.tab("projects", _("Port Forwarding"));
-        let f = e[3];
+        let f = t[3];
         (null == f ? void 0 : f.rathole_client_mode) && o.tab("rathole_client", _("Rathole Client")), (null == f ? void 0 : f.rathole_server_mode) && o.tab("rathole_server", _("Rathole Server")), isFeatureEnabled("wol_mode") && o.tab("wol", _("Wake-on-LAN")), isFeatureEnabled("ddns_mode") && o.tab("ddns", _("DDNS")), isFeatureEnabled("frpc_mode") && o.tab("frpc", _("FRP Tunnels")), isFeatureEnabled("frps_mode") && o.tab("frps", _("FRP Server")), isFeatureEnabled("nftables_mode") && o.tab("nftables", _("nftables")), o.tab("logs", _("System Logs")), o.tab("about", _("About"));
-        let h = e[2], w = e[3], y = new Client(h);
-        return header(t, o, y, "settings"), config(t, o, y, "projects"), (null == f ? void 0 : f.rathole_client_mode) && rathole_s(o, "client"), (null == f ? void 0 : f.rathole_server_mode) && rathole_s(o, "server"), isFeatureEnabled("wol_mode") && wol(t, o, "wol"), isFeatureEnabled("ddns_mode") && ddns(t, o, "ddns"), isFeatureEnabled("frpc_mode") && frpc(t, o, "frpc"), isFeatureEnabled("frps_mode") && frps(t, o, "frps"), isFeatureEnabled("nftables_mode") && nftables(t, o, "nftables"), logs(t, o, "logs"), about(t, o, "about", w), t.render();
+        let h = t[2], w = t[3], g = new Client(h);
+        return header(e, o, g, "settings"), config(e, o, g, "projects"), (null == f ? void 0 : f.rathole_client_mode) && rathole_a(o, "client"), (null == f ? void 0 : f.rathole_server_mode) && rathole_a(o, "server"), isFeatureEnabled("wol_mode") && wol(e, o, "wol"), isFeatureEnabled("ddns_mode") && ddns(e, o, "ddns"), isFeatureEnabled("frpc_mode") && frpc(e, o, "frpc"), isFeatureEnabled("frps_mode") && frps(e, o, "frps"), isFeatureEnabled("nftables_mode") && nftables(e, o, "nftables"), logs(e, o, "logs"), about(e, o, "about", w), e.render();
     }
-    async handleSaveRestart(e) {
+    async handleSaveRestart(t) {
         try {
-            await this.handleSave(e), await rpcClient.uciCommit("portweaver");
+            await this.handleSave(t), await rpcClient.uciCommit("portweaver");
             let o = await L.fs.exec("/etc/init.d/portweaver", [
                 "restart"
             ]);
             if (o && 0 !== o.code) throw Error(o.stderr || o.stdout || "Exit code ".concat(o.code));
             L.ui.addNotification(null, jsx("p", {
                 children: _("Service restarted successfully")
-            }), "info"), window.setTimeout(()=>location.reload(), 3500);
-        } catch (e) {
+            }), "info");
+        } catch (t) {
             L.ui.addNotification(null, jsx("p", {
-                children: _("Failed to restart service: %s").format(e.toString())
+                children: _("Failed to restart service: %s").format(t.toString())
             }), "error");
         }
     }
     addFooter() {
-        let e = document.createDocumentFragment(), r = jsxs("div", {
+        let t = document.createDocumentFragment(), r = jsxs("div", {
             class: "cbi-page-actions",
             children: [
                 jsx("button", {
                     type: "button",
                     class: "cbi-button cbi-button-apply",
-                    onclick: (e)=>this.handleSaveApply(e, 0),
+                    onclick: (t)=>this.handleSaveApply(t),
                     children: _("Save & Apply")
                 }),
                 jsx("button", {
                     type: "button",
                     class: "cbi-button cbi-button-negative",
                     style: "margin-left: 8px;",
-                    onclick: (e)=>this.handleSaveRestart(e),
+                    onclick: (t)=>this.handleSaveRestart(t),
                     children: _("Save & Restart")
                 }),
                 jsx("button", {
                     type: "button",
                     class: "cbi-button cbi-button-save",
                     style: "margin-left: 8px;",
-                    onclick: (e)=>this.handleSave(e),
+                    onclick: async (t)=>{
+                        try {
+                            await this.handleSave(t), await rpcClient.uciCommit("portweaver"), L.ui.addNotification(null, jsx("p", {
+                                children: _("Configuration saved successfully")
+                            }), "info");
+                        } catch (t) {
+                            L.ui.addNotification(null, jsx("p", {
+                                children: t.toString()
+                            }), "error");
+                        }
+                    },
                     children: _("Save")
                 }),
                 jsx("button", {
                     type: "button",
                     class: "cbi-button cbi-button-reset",
                     style: "margin-left: 8px;",
-                    onclick: (e)=>this.handleReset(e),
+                    onclick: async (t)=>{
+                        try {
+                            await this.handleReset(t), L.ui.addNotification(null, jsx("p", {
+                                children: _("Configuration reset successfully")
+                            }), "info");
+                        } catch (t) {
+                            L.ui.addNotification(null, jsx("p", {
+                                children: t.toString()
+                            }), "error");
+                        }
+                    },
                     children: _("Reset")
                 })
             ]
         });
-        return e.appendChild(r), e;
+        return t.appendChild(r), t;
     }
-    constructor(...t){
-        var o;
-        super(...t), o = this, _define_property(this, "mapInstance", void 0), _define_property(this, "handleSave", async (e)=>(this.mapInstance && await this.mapInstance.save(), L.uci.save())), _define_property(this, "handleReset", async (e)=>{
+    constructor(...o){
+        super(...o), _define_property(this, "mapInstance", void 0), _define_property(this, "handleSave", async (t)=>(this.mapInstance && await this.mapInstance.save(), L.uci.save())), _define_property(this, "handleReset", async (t)=>{
             this.mapInstance && await this.mapInstance.reset();
-        }), _define_property(this, "handleSaveApply", async function(e) {
-            let t = arguments.length > 1 && void 0 !== arguments[1] ? arguments[1] : 0;
-            await o.handleSave(e);
-            let r = L.ui.changes;
-            return r && "function" == typeof r.apply ? r.apply("0" === t || 0 === t) : L.uci.apply();
+        }), _define_property(this, "handleSaveApply", async (t)=>{
+            try {
+                var o;
+                await this.handleSave(t), await rpcClient.uciCommit("portweaver");
+                let r = await rpcClient.reloadConfig();
+                L.ui.addNotification(null, jsx("p", {
+                    children: _("Config reloaded: %d project(s) restarted").format(null != (o = null == r ? void 0 : r.changes) ? o : 0)
+                }), "info");
+            } catch (t) {
+                L.ui.addNotification(null, jsx("p", {
+                    children: _("Failed to reload config: %s").format(t.toString())
+                }), "error");
+            }
         });
     }
 }

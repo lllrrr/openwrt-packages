@@ -31,6 +31,8 @@
 					"get_nftables_rules",
 					"read_frp_config",
 					"validate_frp_config",
+					"read_rathole_config",
+					"validate_rathole_config",
 					"wol_status"
 				]
 			}
@@ -57,10 +59,10 @@
 					"reload_config",
 					"restart_project",
 					"write_frp_config",
+					"write_rathole_config",
 					"wol_wake"
 				]
 			}
 		}
 	}
 }
-
