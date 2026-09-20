@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: luci-app-diskbox 1.26.8\n"
+"Project-Id-Version: luci-app-diskbox 1.27.0\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-08-23 18:50+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
@@ -526,3 +526,357 @@ msgstr ""
 
 msgid "Loading Btrfs info..."
 msgstr ""
+
+msgid "Available Storage Partition"
+msgstr ""
+
+msgid "Boot / Firmware (protected)"
+msgstr ""
+
+msgid "Click to view SMART & Health details"
+msgstr ""
+
+msgid "Force Format"
+msgstr ""
+
+msgid "No partitions (Raw Disk / Unpartitioned)"
+msgstr ""
+
+msgid "System"
+msgstr ""
+
+msgid "System Data (in use)"
+msgstr ""
+
+msgid "System Firmware Partition"
+msgstr ""
+
+msgid "System partition - cannot unmount"
+msgstr ""
+
+msgid "System Reserved / Unavailable"
+msgstr ""
+
+msgid "System RootFS / Overlay"
+msgstr ""
+
+msgid "This partition contains data."
+msgstr ""
+
+msgid "Data (in use)"
+msgstr ""
+
+msgid "Data (unmounted)"
+msgstr ""
+
+msgid "Empty (no filesystem)"
+msgstr ""
+
+msgid "System partition, protected"
+msgstr ""
+
+msgid "Not mounted"
+msgstr ""
+
+msgid "Mounted - unmount to delete"
+msgstr ""
+
+msgid "Unmount this partition, then it can be formatted"
+msgstr ""
+
+msgid "Mounted - unmount to format"
+msgstr ""
+
+msgid "Actions"
+msgstr ""
+
+msgid "Detach this partition from its mount point. Data is kept and it can be remounted; required before format or delete."
+msgstr ""
+
+msgid "Remove this partition from the partition table. Its space becomes unallocated and existing data is lost once overwritten."
+msgstr ""
+
+msgid "Filesystem detected - mount it to use the existing data; no formatting needed."
+msgstr ""
+
+msgid "Only use this if the partition cannot be mounted and its data is not needed. Formatting erases all data on the partition."
+msgstr ""
+msgid "-- No mountable partitions --"
+msgstr ""
+
+msgid "Apply Table"
+msgstr ""
+
+msgid "Auto Mount"
+msgstr ""
+
+msgid "Btrfs Pools"
+msgstr ""
+
+msgid "Change Partition Table"
+msgstr ""
+
+msgid "Change mount point / options"
+msgstr ""
+
+msgid "Confirm"
+msgstr ""
+
+msgid "Create Partition"
+msgstr ""
+
+msgid "Create a fresh GPT/MBR partition table"
+msgstr ""
+
+msgid "Create a new partition from the largest free region"
+msgstr ""
+
+msgid "Create a partition in this free region"
+msgstr ""
+
+msgid "Creating Btrfs will ERASE the selected members. Continue?"
+msgstr ""
+
+msgid "Creating a RAID array will ERASE the selected members. Continue?"
+msgstr ""
+
+msgid "Data Profile"
+msgstr ""
+
+msgid "Delete Partition"
+msgstr ""
+
+msgid "Delete Subvolume"
+msgstr ""
+
+msgid "Dest (opt)"
+msgstr ""
+
+msgid "Detach this partition from its mount point; data is kept"
+msgstr ""
+
+msgid "Device is in use! Please unmount all partitions first!"
+msgstr ""
+
+msgid "Disabled"
+msgstr ""
+
+msgid "Edit Mount"
+msgstr ""
+
+msgid "Eject Device"
+msgstr ""
+
+msgid "Enabled"
+msgstr ""
+
+msgid "Failed to load Btrfs subvolumes."
+msgstr ""
+
+msgid "Failed to load disk info."
+msgstr ""
+
+msgid "Formatting erases all data on the partition"
+msgstr ""
+
+msgid "Invalid Partition size!"
+msgstr ""
+
+msgid "Invalid Start sector!"
+msgstr ""
+
+msgid "Manage Partitions"
+msgstr ""
+
+msgid "Manage disks, partitions, RAID and Btrfs over LuCI."
+msgstr ""
+
+msgid "Maximum available: %s"
+msgstr ""
+
+msgid "Mount a device"
+msgstr ""
+
+msgid "Mount this partition"
+msgstr ""
+
+msgid "Mounted"
+msgstr ""
+
+msgid "New Partition"
+msgstr ""
+
+msgid "New partition on /dev/%s. Start sector auto-detected and aligned to 1 MiB."
+msgstr ""
+
+msgid "No Btrfs filesystems."
+msgstr ""
+
+msgid "No RAID arrays."
+msgstr ""
+
+msgid "No disks detected."
+msgstr ""
+
+msgid "Partition Size"
+msgstr ""
+
+msgid "Partitions: %d"
+msgstr ""
+
+msgid "Physical Disks"
+msgstr ""
+
+msgid "RAID Arrays"
+msgstr ""
+
+msgid "Read-only"
+msgstr ""
+
+msgid "Remove this partition from the table; its space becomes unallocated"
+msgstr ""
+
+msgid "Serial: %s"
+msgstr ""
+
+msgid "Size exceeds the available free space."
+msgstr ""
+
+msgid "Snapshot"
+msgstr ""
+
+msgid "Source"
+msgstr ""
+
+msgid "Unallocated"
+msgstr ""
+
+msgid "Unallocated Space"
+msgstr ""
+
+msgid "Unmounted"
+msgstr ""
+
+msgid "sectors"
+msgstr ""
+
+msgid "(Distributed parity redundancy - needs at least 3 partitions)"
+msgstr ""
+
+msgid "(Double parity fault tolerance - needs at least 4 partitions)"
+msgstr ""
+
+msgid "(Mirror + Stripe hybrid - performance with high fault tolerance)"
+msgstr ""
+
+msgid "(Mirror - recommended dual-disk data fault tolerance, doubled read speed)"
+msgstr ""
+
+msgid "(Stripe - high throughput, no redundancy, full capacity)"
+msgstr ""
+
+msgid "(double metadata copies, recommended for important data)"
+msgstr ""
+
+msgid "(multi-device mirror redundancy)"
+msgstr ""
+
+msgid "(multi-device stripe for fast I/O)"
+msgstr ""
+
+msgid "(single-device, maximizes usable capacity)"
+msgstr ""
+
+msgid "Active RAID Arrays"
+msgstr ""
+
+msgid "All currently unmounted free storage partitions are listed automatically."
+msgstr ""
+
+msgid "Are you sure you want to stop and remove RAID array %s?"
+msgstr ""
+
+msgid "Attributes"
+msgstr ""
+
+msgid "Create Btrfs Pool"
+msgstr ""
+
+msgid "Detail"
+msgstr ""
+
+msgid "Failed to load Btrfs pools."
+msgstr ""
+
+msgid "Failed to stop array."
+msgstr ""
+
+msgid "Format and create a modern filesystem with snapshots, transparent compression and online growth"
+msgstr ""
+
+msgid "Healthy / Online"
+msgstr ""
+
+msgid "Linux mdadm redundant array monitoring"
+msgstr ""
+
+msgid "Mount Path"
+msgstr ""
+
+msgid "Please select at least one Btrfs member!"
+msgstr ""
+
+msgid "Pool Label"
+msgstr ""
+
+msgid "RAID Details"
+msgstr ""
+
+msgid "Read/Write"
+msgstr ""
+
+msgid "Reset"
+msgstr ""
+
+msgid "Select at least two RAID members!"
+msgstr ""
+
+msgid "Select two or more free partitions to build a high-reliability or high-performance array"
+msgstr ""
+
+msgid "Standard software RAID block device path, defaults to /dev/md1, /dev/md2..."
+msgstr ""
+
+msgid "Stop"
+msgstr ""
+
+msgid "Stop Array"
+msgstr ""
+
+msgid "Stopping Array"
+msgstr ""
+
+msgid "Stopping RAID array..."
+msgstr ""
+
+msgid "Storage pool volume label, used as the mount / management identifier."
+msgstr ""
+
+msgid "Subvolume"
+msgstr ""
+
+msgid "Subvolumes & Snapshots"
+msgstr ""
+
+msgid "next-gen CoW write-time-copy storage pool"
+msgstr ""
+
+msgid "Kernel-managed (FIT)"
+msgstr ""
+
+msgid "Loaded by the bootloader and kernel from the FIT image; not mounted as a separate filesystem."
+msgstr ""
+
+msgid "No free partitions available to select."
+msgstr ""
+

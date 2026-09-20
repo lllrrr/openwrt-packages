@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: luci-app-diskbox 1.26.8\n"
+"Project-Id-Version: luci-app-diskbox 1.27.0\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-08-23 18:50+0800\n"
 "PO-Revision-Date: 2026-08-23 18:50+0800\n"
@@ -445,7 +445,7 @@ msgid "Default"
 msgstr "預設"
 
 msgid "Setting Default"
-msgstr "正在設为預設"
+msgstr "正在設為預設"
 
 msgid "Setting default subvolume..."
 msgstr "正在設定預設子卷..."
@@ -502,7 +502,7 @@ msgid "Destination Path (optional)"
 msgstr "目標路徑（可選）"
 
 msgid "Destination path where you want to store the snapshot"
-msgstr "存放快照的目标路徑"
+msgstr "存放快照的目標路徑"
 
 msgid "Create Snapshot"
 msgstr "建立快照"
@@ -524,3 +524,95 @@ msgstr "正在載入裝置資訊..."
 
 msgid "Loading Btrfs info..."
 msgstr "正在載入 Btrfs 資訊..."
+msgid "Available Storage Partition"
+msgstr "可用儲存分区"
+
+msgid "Boot / Firmware (protected)"
+msgstr "開機 / 韌體（受保護）"
+
+msgid "Click to view SMART & Health details"
+msgstr "點擊查看 SMART 與健康詳情"
+
+msgid "Force Format"
+msgstr "強制格式化"
+
+msgid "No partitions (Raw Disk / Unpartitioned)"
+msgstr "無分区（裸磁碟 / 未分区）"
+
+msgid "System"
+msgstr "系統"
+
+msgid "System Data (in use)"
+msgstr "系統資料（使用中）"
+
+msgid "System Firmware Partition"
+msgstr "系統韌體分区"
+
+msgid "System partition - cannot unmount"
+msgstr "系統分区 - 無法卸載"
+
+msgid "System Reserved / Unavailable"
+msgstr "系統保留 / 不可用"
+
+msgid "System RootFS / Overlay"
+msgstr "系統 RootFS / 疊加層"
+
+msgid "This partition contains data."
+msgstr "此分区包含資料。"
+
+msgid "No disks detected."
+msgstr "未偵測到磁碟設備。"
+
+msgid "No storage partitions found."
+msgstr "未發現儲存分区。"
+
+msgid "Partitions"
+msgstr "分区"
+
+msgid "Partitions: %d"
+msgstr "分区數: %d"
+
+msgid "Unallocated"
+msgstr "未分配"
+
+msgid "Unallocated Space"
+msgstr "未分配空間"
+
+msgid "Data (in use)"
+msgstr "資料（使用中）"
+
+msgid "Data (unmounted)"
+msgstr "資料（未卸載）"
+
+msgid "Empty (no filesystem)"
+msgstr "空白（無檔案系統）"
+
+msgid "System partition, protected"
+msgstr "系統分區，受保護"
+
+msgid "Not mounted"
+msgstr "未掛載"
+
+msgid "Mounted - unmount to delete"
+msgstr "已掛載 - 卸載後才能刪除"
+
+msgid "Unmount this partition, then it can be formatted"
+msgstr "卸載此分區後即可格式化"
+
+msgid "Mounted - unmount to format"
+msgstr "已掛載 - 卸載後才能格式化"
+
+msgid "Actions"
+msgstr "操作"
+
+msgid "Detach this partition from its mount point. Data is kept and it can be remounted; required before format or delete."
+msgstr "將分區從掛載點分離，資料保留且可再次掛載；格式化或刪除前必須先執行。"
+
+msgid "Remove this partition from the partition table. Its space becomes unallocated and existing data is lost once overwritten."
+msgstr "從分區表中刪除該分區，空間變為未分配，原有資料被覆寫後不可恢復。"
+
+msgid "Filesystem detected - mount it to use the existing data; no formatting needed."
+msgstr "偵測到檔案系統 - 直接掛載即可使用現有資料，無需格式化。"
+
+msgid "Only use this if the partition cannot be mounted and its data is not needed. Formatting erases all data on the partition."
+msgstr "僅當分區無法掛載、且資料確定不再需要時使用；格式化將擦除該分區的全部資料。"
