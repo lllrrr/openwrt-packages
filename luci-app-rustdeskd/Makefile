@@ -3,7 +3,7 @@ include $(TOPDIR)/rules.mk
 PKG_VERSION:=1.26.7
 PKG_RELEASE:=1
 PKG_NAME:=luci-app-rustdeskd
-PKG_MAINTAINER:=konvict <logo@permails.com>
+PKG_MAINTAINER:=permails <logo@permails.com>
 
 LUCI_TITLE:=LuCI support for RustDesk Server
 LUCI_DEPENDS:=+luci-base +rpcd +rpcd-mod-ucode +unzip +curl

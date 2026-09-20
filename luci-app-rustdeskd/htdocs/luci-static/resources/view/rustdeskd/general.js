@@ -173,6 +173,8 @@ let anyServerEnabledGlobal = false;
 // Track boot enabled state
 let bootEnabledGlobal = false;
 
+let updateAllStatusGlobal = null;
+
 function handleUpdateCore(ev) {
 	if (!confirm(_('This will download and install the official RustDesk server core. It may take a minute or two. Continue?'))) {
 		return;
@@ -189,6 +191,9 @@ function handleUpdateCore(ev) {
 	L.resolveDefault(callUpdateCore(), {}).then((res) => {
 		if (res && res.success) {
 			ui.addTimeLimitedNotification(null, E('p', _('Core downloaded and installed successfully!')), 5000, 'notice');
+			if (typeof updateAllStatusGlobal === 'function') {
+				updateAllStatusGlobal();
+			}
 		} else {
 			const errorOutput = (res && res.output) ? res.output : _('Unknown error');
 			ui.addNotification(null, E('p', _('Failed to update core: ') + errorOutput), 'error');
@@ -280,9 +285,9 @@ return view.extend({
 
 				E('h3', { 'style': 'margin-top: 20px;' }, _('Core Management')),
 
-				// Core Management (Vertical Layout)
-				E('div', { 'style': 'margin-top: 8px; margin-bottom: 25px;' }, [
-					E('div', { 'style': 'margin-bottom: 12px;' }, [
+				// Action Button & Description (Above)
+				E('div', { 'style': 'margin-top: 10px; margin-bottom: 16px;' }, [
+					E('div', { 'style': 'margin-bottom: 8px;' }, [
 						E('button', {
 							'class': 'btn cbi-button cbi-button-action',
 							'id': 'download_core_btn',
@@ -290,22 +295,44 @@ return view.extend({
 							'click': handleUpdateCore
 						}, _('Download / Update Core'))
 					]),
-					E('div', { 'class': 'cbi-value-description', 'style': 'color: #666; font-size: 0.9em; margin-top: 4px;' }, [
+					E('div', { 'class': 'cbi-value-description', 'style': 'opacity: 0.8; font-size: 0.9em; margin-top: 2px;' }, [
 						E('em', {}, [
 							_('Download and install the official RustDesk server core binaries for your OpenWrt architecture.')
 						])
 					])
 				]),
 
+				// Binary Information Table (Below)
+				E('table', { 'class': 'table cbi-section-table', 'id': 'binary_table', 'style': 'table-layout: fixed; width: 100%; margin-bottom: 25px;' }, [
+					E('tr', { 'class': 'tr table-titles' }, [
+						E('th', { 'class': 'th', 'style': 'width: 30%;' }, _('Component')),
+						E('th', { 'class': 'th', 'style': 'width: 25%;' }, _('Current Version')),
+						E('th', { 'class': 'th', 'style': 'width: 22%;' }, _('Latest Version')),
+						E('th', { 'class': 'th', 'style': 'width: 23%;' }, _('Architecture'))
+					]),
+					E('tr', { 'class': 'tr', 'id': 'binary_hbbs_row' }, [
+						E('td', { 'class': 'td' }, _('HBBS (ID Server)')),
+						E('td', { 'class': 'td', 'id': 'core_hbbs_info' }, '-'),
+						E('td', { 'class': 'td', 'id': 'core_hbbs_latest' }, '-'),
+						E('td', { 'class': 'td', 'id': 'core_arch_badge' }, '-')
+					]),
+					E('tr', { 'class': 'tr', 'id': 'binary_hbbr_row' }, [
+						E('td', { 'class': 'td' }, _('HBBR (Relay Server)')),
+						E('td', { 'class': 'td', 'id': 'core_hbbr_info' }, '-'),
+						E('td', { 'class': 'td', 'id': 'core_hbbr_latest' }, '-'),
+						E('td', { 'class': 'td', 'id': 'core_arch_badge_hbbr' }, '-')
+					])
+				]),
+
 				// Service Status Title
 				E('h3', _('Service Status')),
 				// Status Table for HBBS and HBBR
-				E('table', { 'class': 'table cbi-section-table', 'id': 'status_table' }, [
+				E('table', { 'class': 'table cbi-section-table', 'id': 'status_table', 'style': 'table-layout: fixed; width: 100%;' }, [
 					E('tr', { 'class': 'tr table-titles' }, [
-						E('th', { 'class': 'th' }, _('Component')),
-						E('th', { 'class': 'th' }, _('Service Status')),
-						E('th', { 'class': 'th' }, _('Binary')),
-						E('th', { 'class': 'th' }, _('Enabled'))
+						E('th', { 'class': 'th', 'style': 'width: 30%;' }, _('Component')),
+						E('th', { 'class': 'th', 'style': 'width: 25%;' }, _('Service Status')),
+						E('th', { 'class': 'th', 'style': 'width: 22%;' }, _('Binary')),
+						E('th', { 'class': 'th', 'style': 'width: 23%;' }, _('Enabled'))
 					]),
 					E('tr', { 'class': 'tr', 'id': 'hbbs_row' }, [
 						E('td', { 'class': 'td' }, _('HBBS (ID Server)')),
@@ -504,15 +531,54 @@ return view.extend({
 		};
 
 		/*
-			Polling for status updates
+			Polling and status updates
 		*/
-		poll.add(() => {
+		function updateAllStatus() {
 			return Promise.all([
 				L.resolveDefault(callGetStatus(), {}),
 				L.resolveDefault(callGetPublicKey(), {}),
 				L.resolveDefault(callGetVersion(), {}),
 				uci.load('rustdeskd')
 			]).then(([status = {}, keyInfo = {}, verInfo = {}]) => {
+
+				// Update Binary Information Table (Architecture & Versions)
+				let archText = '-';
+				if (verInfo.arch) {
+					archText = verInfo.arch;
+					if (verInfo.target_arch && verInfo.target_arch !== 'unknown') {
+						archText += ' (' + verInfo.target_arch + ')';
+					}
+				}
+				const archBadgeEl = document.getElementById('core_arch_badge');
+				if (archBadgeEl) archBadgeEl.textContent = archText;
+				const archBadgeHbbrEl = document.getElementById('core_arch_badge_hbbr');
+				if (archBadgeHbbrEl) archBadgeHbbrEl.textContent = archText;
+
+				const latestVer = verInfo.latest_version || '-';
+				const hbbsLatestEl = document.getElementById('core_hbbs_latest');
+				if (hbbsLatestEl) hbbsLatestEl.textContent = latestVer;
+				const hbbrLatestEl = document.getElementById('core_hbbr_latest');
+				if (hbbrLatestEl) hbbrLatestEl.textContent = latestVer;
+
+				const hbbsInfoEl = document.getElementById('core_hbbs_info');
+				if (hbbsInfoEl) {
+					if (verInfo.hbbs_exists || status.hbbs_exists) {
+						let verText = verInfo.hbbs_version ? verInfo.hbbs_version.replace(/^hbbs\s*/i, '') : _('Installed');
+						hbbsInfoEl.innerHTML = createStatusIndicator(true, verText, _('Not Installed'));
+					} else {
+						hbbsInfoEl.innerHTML = createStatusIndicator(false, _('Installed'), _('Not Installed'));
+					}
+				}
+
+				const hbbrInfoEl = document.getElementById('core_hbbr_info');
+				if (hbbrInfoEl) {
+					if (verInfo.hbbr_exists || status.hbbr_exists) {
+						let verText = verInfo.hbbr_version ? verInfo.hbbr_version.replace(/^hbbr\s*/i, '') : _('Installed');
+						hbbrInfoEl.innerHTML = createStatusIndicator(true, verText, _('Not Installed'));
+					} else {
+						hbbrInfoEl.innerHTML = createStatusIndicator(false, _('Installed'), _('Not Installed'));
+					}
+				}
 
 				// Get enabled status from UCI
 				const sections = uci.sections('rustdeskd', 'rustdeskd');
@@ -545,7 +611,7 @@ return view.extend({
 				// HBBS Enabled column
 				const hbbsEnabledEl = document.getElementById('hbbs_enabled');
 				if (hbbsEnabledEl) {
-					hbbsEnabledEl.innerHTML = createCheckIndicator(hbbsEnabled, _('Yes'), _('No'));
+					hbbsEnabledEl.innerHTML = createCheckIndicator(hbbsEnabled, _('Enabled'), _('Disabled'));
 				}
 
 				// HBBR Status (Service Status column)
@@ -570,7 +636,7 @@ return view.extend({
 				// HBBR Enabled column
 				const hbbrEnabledEl = document.getElementById('hbbr_enabled');
 				if (hbbrEnabledEl) {
-					hbbrEnabledEl.innerHTML = createCheckIndicator(hbbrEnabled, _('Yes'), _('No'));
+					hbbrEnabledEl.innerHTML = createCheckIndicator(hbbrEnabled, _('Enabled'), _('Disabled'));
 				}
 
 				// Public Key - update global state
@@ -620,7 +686,10 @@ return view.extend({
 					bootBtn.textContent = bootEnabledGlobal ? _('Disable') : _('Enable');
 				}
 			});
-		}, CONSTANTS.POLL_INTERVAL);
+		}
+
+		updateAllStatusGlobal = updateAllStatus;
+		poll.add(updateAllStatus, CONSTANTS.POLL_INTERVAL);
 
 		
 

@@ -220,7 +220,7 @@ msgid "Logging level for the relay server"
 msgstr "中继服务器的日志级别"
 
 msgid "No"
-msgstr "不"
+msgstr "否"
 
 msgid "Not Found"
 msgstr "未找到"
@@ -429,3 +429,54 @@ msgstr "恢复备份"
 
 msgid "Upload archive..."
 msgstr "上传归档..."
+
+msgid "Binary Information"
+msgstr "二进制信息"
+
+msgid "ID Server"
+msgstr "ID 服务器"
+
+msgid "Relay Server"
+msgstr "中继服务器"
+
+msgid "Binary Path"
+msgstr "核心路径"
+
+msgid "Installed"
+msgstr "已安装"
+
+msgid "Not Installed"
+msgstr "未安装"
+
+msgid "Architecture"
+msgstr "系统架构"
+
+msgid "Version"
+msgstr "版本"
+
+msgid "Current Version"
+msgstr "当前版本"
+
+msgid "Latest Version"
+msgstr "最新版本"
+
+msgid "Check \"Enable ID Server\" or \"Enable Relay Server\" below and click \"Save & Apply\"."
+msgstr "请在下方勾选“启用 ID 服务器”或“启用中继服务器”，然后点击“保存并应用”。"
+
+msgid "Failed to load log data: "
+msgstr "加载日志数据失败："
+
+msgid "No log entries found."
+msgstr "未找到日志条目。"
+
+msgid "Restore failed: "
+msgstr "恢复失败："
+
+msgid "Restore request failed: "
+msgstr "恢复请求失败："
+
+msgid "Restore successful. Service restarted."
+msgstr "恢复成功。服务已重启。"
+
+msgid "Scroll to bottom"
+msgstr "滚动到底部"

@@ -469,3 +469,192 @@ msgstr ""
 #: applications/luci-app-rustdeskd/htdocs/luci-static/resources/view/rustdeskd/general.js:436
 msgid "Yes"
 msgstr ""
+
+msgid "Additional rendezvous servers. Add one server per entry (hostname or hostname:port)"
+msgstr ""
+
+msgid "Architecture"
+msgstr ""
+
+msgid "Backup & Restore"
+msgstr ""
+
+msgid "Backup Data"
+msgstr ""
+
+msgid "Backup downloaded successfully"
+msgstr ""
+
+msgid "Backup restored successfully. Service restarted."
+msgstr ""
+
+msgid "Binary Information"
+msgstr ""
+
+msgid "Binary Path"
+msgstr ""
+
+msgid "Browse..."
+msgstr ""
+
+msgid "Cannot start service: Enable the ID Server or Relay Server in the configuration first."
+msgstr ""
+
+msgid "Check \"Enable ID Server\" or \"Enable Relay Server\" below and click \"Save & Apply\"."
+msgstr ""
+
+msgid "Collecting data..."
+msgstr ""
+
+msgid "Copied to clipboard"
+msgstr ""
+
+msgid "Core Management"
+msgstr ""
+
+msgid "Core downloaded and installed successfully!"
+msgstr ""
+
+msgid "Creating Backup..."
+msgstr ""
+
+msgid "Current Version"
+msgstr ""
+
+msgid "Default relay servers. Add one server per entry (hostname or hostname:port)"
+msgstr ""
+
+msgid "Download / Update Core"
+msgstr ""
+
+msgid "Download Backup"
+msgstr ""
+
+msgid "Download an archive containing your RustDesk public/private keys, device lists, address books, and configurations."
+msgstr ""
+
+msgid "Download and install the official RustDesk server core binaries for your OpenWrt architecture."
+msgstr ""
+
+msgid "Download backup"
+msgstr ""
+
+msgid "Downloading..."
+msgstr ""
+
+msgid "Error: "
+msgstr ""
+
+msgid "Failed to create backup"
+msgstr ""
+
+msgid "Failed to execute update: "
+msgstr ""
+
+msgid "Failed to load log data: "
+msgstr ""
+
+msgid "Failed to read file"
+msgstr ""
+
+msgid "Failed to restart service: "
+msgstr ""
+
+msgid "Failed to restore backup: "
+msgstr ""
+
+msgid "Failed to start service: "
+msgstr ""
+
+msgid "Failed to stop service: "
+msgstr ""
+
+msgid "Failed to update core: "
+msgstr ""
+
+msgid "Failed: "
+msgstr ""
+
+msgid "Generate archive"
+msgstr ""
+
+msgid "ID Server"
+msgstr ""
+
+msgid "Installed"
+msgstr ""
+
+msgid "Key regeneration failed: "
+msgstr ""
+
+msgid "Latest Version"
+msgstr ""
+
+msgid "No file selected"
+msgstr ""
+
+msgid "No log entries found."
+msgstr ""
+
+msgid "Not Installed"
+msgstr ""
+
+msgid "Not generated yet"
+msgstr ""
+
+msgid "Please select a backup file first"
+msgstr ""
+
+msgid "Relay Server"
+msgstr ""
+
+msgid "Required ports (when using default settings): TCP 21115-21119, UDP 21116."
+msgstr ""
+
+msgid "Restore Backup"
+msgstr ""
+
+msgid "Restore Data"
+msgstr ""
+
+msgid "Restore backup"
+msgstr ""
+
+msgid "Restore failed: "
+msgstr ""
+
+msgid "Restore request failed: "
+msgstr ""
+
+msgid "Restore successful. Service restarted."
+msgstr ""
+
+msgid "Restore your RustDesk data from a previously downloaded .tar.gz backup archive."
+msgstr ""
+
+msgid "Restoring..."
+msgstr ""
+
+msgid "Scroll to bottom"
+msgstr ""
+
+msgid "Start will only work if at least \"Enable ID Server\" or \"Enable Relay Server\" is checked in the Configuration section below."
+msgstr ""
+
+msgid "This will download and install the official RustDesk server core. It may take a minute or two. Continue?"
+msgstr ""
+
+msgid "This will overwrite current data and restart the service."
+msgstr ""
+
+msgid "This will overwrite your existing RustDesk data and restart the service. Are you sure?"
+msgstr ""
+
+msgid "Unknown error"
+msgstr ""
+
+msgid "Upload archive..."
+msgstr ""
+
+msgid "Version"
+msgstr ""

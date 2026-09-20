@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-diskbox
 LUCI_NAME:=luci-app-diskbox
-PKG_VERSION:=1.27.0
+PKG_VERSION:=1.26.9
 PKG_RELEASE:=1
 PKG_MAINTAINER:=permails <https://github.com/permails/luci-app-diskbox>
 PKG_LICENSE:=AGPL-3.0

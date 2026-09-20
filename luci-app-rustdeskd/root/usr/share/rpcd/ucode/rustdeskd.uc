@@ -1,7 +1,7 @@
 #!/usr/bin/env ucode
 'use strict';
 
-import { popen, access, readfile, unlink } from 'fs';
+import { popen, access, readfile, writefile, stat, unlink } from 'fs';
 import { process_list, init_enabled, init_action } from 'luci.sys';
 
 const BIN_DIR = '/usr/bin';
@@ -55,6 +55,27 @@ function readFileContent(path) {
 // Safe file deletion
 function safeUnlink(path) {
 	return unlink(path) || false;
+}
+
+// Get latest version from GitHub releases with cache
+function getLatestVersion() {
+	let cache_file = '/tmp/rustdesk_latest_version';
+	let now = time();
+
+	let file_stat = stat(cache_file);
+	if (file_stat && file_stat.mtime && (now - file_stat.mtime < 1800)) {
+		let cached = readFileContent(cache_file);
+		if (cached) return cached;
+	}
+
+	let cmd = "curl -s -m 4 'https://api.github.com/repos/rustdesk/rustdesk-server/releases/latest' | jsonfilter -e '@.tag_name'";
+	let ver = execCommand('sh', '-c ' + shellquote(cmd));
+	if (ver && length(ver) > 0 && length(ver) < 32) {
+		writefile(cache_file, ver);
+		return ver;
+	}
+
+	return readFileContent(cache_file);
 }
 
 const methods = {
@@ -122,9 +143,34 @@ const methods = {
 
 	get_version: {
 		call: function() {
+			let arch = execCommand('uname', '-m');
+			let target_arch = 'unknown';
+			if (arch == 'x86_64') {
+				target_arch = 'amd64';
+			} else if (arch == 'aarch64') {
+				target_arch = 'arm64v8';
+			} else if (arch == 'armv7l' || arch == 'armv8l') {
+				target_arch = 'armv7';
+			} else if (arch == 'i386' || arch == 'i686') {
+				target_arch = 'i386';
+			}
+
+			let hbbs_exists = fileExists(BIN_DIR + '/hbbs');
+			let hbbr_exists = fileExists(BIN_DIR + '/hbbr');
+
+			let hbbs_ver = hbbs_exists ? execCommand(BIN_DIR + '/hbbs', '--version 2>&1') : null;
+			let hbbr_ver = hbbr_exists ? execCommand(BIN_DIR + '/hbbr', '--version 2>&1') : null;
+
 			return {
-				hbbs_version: fileExists(BIN_DIR + '/hbbs') ? execCommand(BIN_DIR + '/hbbs', '--version 2>&1') : null,
-				hbbr_version: fileExists(BIN_DIR + '/hbbr') ? execCommand(BIN_DIR + '/hbbr', '--version 2>&1') : null
+				arch: arch,
+				target_arch: target_arch,
+				hbbs_exists: hbbs_exists,
+				hbbr_exists: hbbr_exists,
+				hbbs_version: hbbs_ver,
+				hbbr_version: hbbr_ver,
+				latest_version: getLatestVersion(),
+				hbbs_path: BIN_DIR + '/hbbs',
+				hbbr_path: BIN_DIR + '/hbbr'
 			};
 		}
 	},
