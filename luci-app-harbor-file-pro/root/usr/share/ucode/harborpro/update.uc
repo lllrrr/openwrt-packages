@@ -15,8 +15,8 @@ const RC_FILE    = WORK_DIR + '/rc';
 const PROG_FILE  = WORK_DIR + '/progress';
 const RELEASE_FILE = WORK_DIR + '/release.json';
 const SCRIPT     = WORK_DIR + '/update.sh';
-const TMP_MAIN   = WORK_DIR + '/main.pkg';
-const TMP_LANG   = WORK_DIR + '/lang.ipk';
+const TMP_MAIN   = WORK_DIR + '/main';
+const TMP_LANG   = WORK_DIR + '/lang';
 
 const MIRRORS = [
 	{ id: 'gitee',  api: 'https://gitee.com/api/v5/repos/whzhni/luci-app-harbor-file-pro/releases' },
@@ -344,14 +344,15 @@ function task_running(st) {
 
 function build_update_script(main_urls, lang_url, pm) {
 	let fetch = detect_fetcher();
-	let dl, head;
+	let ext = pm == 'apk' ? '.apk' : '.ipk';
+	let download, head;
 
 	if (fetch == 'curl') {
-		dl = '"$FETCH" -fsL --retry 2 --retry-delay 1 --connect-timeout 5 --max-time 120 -o "$out" "$u" >/dev/null 2>&1';
-		head = '$FETCH -sIL --connect-timeout 5 --max-time 8 "$1" 2>/dev/null';
+		download = '"$FETCH" -fsSL --retry 2 --retry-delay 1 --connect-timeout 5 --max-time 120 -o "$part" "$u" >/dev/null';
+		head = '"$FETCH" -sIL --connect-timeout 5 --max-time 8 "$1" 2>/dev/null';
 	}
 	else {
-		dl = '"$FETCH" -q -T 120 -O "$out" "$u" >/dev/null 2>&1';
+		download = '"$FETCH" -q -T 120 -O "$part" "$u" >/dev/null';
 		head = ':';
 	}
 
@@ -360,65 +361,95 @@ function build_update_script(main_urls, lang_url, pm) {
 		'FETCH=' + shellquote(fetch),
 		'PM=' + shellquote(pm ?? 'opkg'),
 		'PROG=' + shellquote(PROG_FILE),
-		'MAIN_OUT=' + shellquote(TMP_MAIN),
-		'LANG_OUT=' + shellquote(TMP_LANG),
+		'MAIN_OUT=' + shellquote(TMP_MAIN + ext),
+		'LANG_OUT=' + shellquote(TMP_LANG + ext),
 		'URLS_MAIN=' + shellquote(join(' ', main_urls)),
 		'URL_LANG=' + shellquote(lang_url ?? ''),
+		'HAY=' + shellquote(RELEASE_FILE),
+		'',
+		'file_size() (',
+		'if [ -f "$1" ]; then',
+		'size=$(wc -c 2>/dev/null < "$1") || size=0',
+		'else',
+		'size=0',
+		'fi',
+		'printf \'%s\' "$size" | tr -dc \'0-9\'',
+		')',
 		'',
 		'total_of() {',
-		'(' + head + ') | awk \'tolower($1)=="content-length:" {v=$2} END {print v}\' | tr -dc \'0-9\'',
+		'(' + head + ') | ' + "awk 'tolower($1)==\"content-length:\" {v=$2} END {print v}' | tr -dc '0-9'",
 		'}',
 		'',
-		'dl() {',
-		'urls="$1"; out="$2"; ph="$3"',
-		'rm -f "$out"',
+		'verify() (',
+		'[ -s "$1" ] || return 1',
+		'[ -s "$HAY" ] || return 0',
+		'grep -qE \'[a-fA-F0-9]{64}\' "$HAY" 2>/dev/null || return 0',
+		'h=$(sha256sum "$1" 2>/dev/null | awk \'{print $1}\')',
+		'[ -n "$h" ] || { echo "cannot calculate package SHA256"; return 1; }',
+		'grep -qi "$h" "$HAY" 2>/dev/null',
+		')',
+		'',
+		'dl() (',
+		'urls="$1"; dest="$2"; ph="$3"; part="$2.part"',
+		'rm -f "$dest" "$part"',
 		'for u in $urls; do',
+		'rm -f "$part"',
 		'tot=$(total_of "$u")',
 		'[ -n "$tot" ] || tot=0',
 		'echo "$ph 0 $tot" > "$PROG"',
-		dl + ' &',
+		download + ' &',
 		'cpid=$!',
-		'while kill -0 $cpid 2>/dev/null; do',
+		'while kill -0 "$cpid" 2>/dev/null; do',
 		'sleep 1',
-		'got=$( (wc -c < "$out" 2>/dev/null || echo 0) | tr -dc 0-9)',
+		'got=$(file_size "$part")',
 		'echo "$ph $got $tot" > "$PROG"',
 		'done',
-		'wait $cpid',
-		'sz=$( (wc -c < "$out" 2>/dev/null || echo 0) | tr -dc 0-9)',
-		'[ "$sz" -gt 0 ] || { rm -f "$out"; continue; }',
-		'if verify "$out"; then',
-		'return 0',
-		'fi',
+		'if wait "$cpid"; then rc=0; else rc=$?; fi',
+		'if [ "$rc" -ne 0 ]; then',
+		'echo "download failed (exit $rc): $u"',
+		'elif [ ! -s "$part" ]; then',
+		'echo "download returned an empty or missing package: $u"',
+		'elif ! verify "$part"; then',
 		'echo "checksum failed: $u"',
-		'rm -f "$out"',
-		'echo "failed 0 0" > "$PROG"',
-		'exit 1',
+		'elif mv -f "$part" "$dest"; then',
+		'got=$(file_size "$dest")',
+		'echo "$ph $got $tot" > "$PROG"',
+		'return 0',
+		'else',
+		'echo "cannot save downloaded package: $dest"',
+		'fi',
+		'rm -f "$part"',
 		'done',
 		'return 1',
+		')',
+		'',
+		'failed() {',
+		'echo "$1"',
+		'echo "failed 0 0" > "$PROG"',
+		'exit 1',
 		'}',
 		'',
-		'HAY=' + shellquote(RELEASE_FILE),
-		'verify() {',
-		'out="$1"',
-		'[ -s "$HAY" ] || return 0',
-		'h=$(sha256sum "$out" 2>/dev/null | awk \'{print $1}\')',
-		'[ -n "$h" ] || return 0',
-		'grep -qE "[a-fA-F0-9]{64}" "$HAY" 2>/dev/null || return 0',
-		'grep -qi "$h" "$HAY" 2>/dev/null',
+		'install_package() {',
+		'if [ "$PM" = apk ]; then',
+		'apk add --allow-untrusted "$1"',
+		'else',
+		'opkg install "$1"',
+		'fi',
 		'}',
-		'dl "$URLS_MAIN" "$MAIN_OUT" main || { echo "main download failed"; echo "failed 0 0" > "$PROG"; exit 1; }',
 		'',
+		'dl "$URLS_MAIN" "$MAIN_OUT" main || failed "main download failed"',
 		'if [ -n "$URL_LANG" ]; then',
-		'dl "$URL_LANG" "$LANG_OUT" lang || rm -f "$LANG_OUT"',
+		'if ! dl "$URL_LANG" "$LANG_OUT" lang; then',
+		'echo "language package download failed; skipping optional language package"',
+		'rm -f "$LANG_OUT"',
+		'fi',
 		'fi',
 		'',
+		'[ -s "$MAIN_OUT" ] || failed "main package is missing before installation"',
 		'echo "install 0 0" > "$PROG"',
-		'if [ "$PM" = apk ]; then',
-		'apk add --allow-untrusted "$MAIN_OUT" || { echo "main install failed"; echo "failed 0 0" > "$PROG"; exit 1; }',
-		'[ -f "$LANG_OUT" ] && apk add --allow-untrusted "$LANG_OUT" || true',
-		'else',
-		'opkg install "$MAIN_OUT" || { echo "main install failed"; echo "failed 0 0" > "$PROG"; exit 1; }',
-		'[ -f "$LANG_OUT" ] && opkg install "$LANG_OUT" || true',
+		'install_package "$MAIN_OUT" || failed "main install failed"',
+		'if [ -s "$LANG_OUT" ]; then',
+		'install_package "$LANG_OUT" || echo "language package install failed"',
 		'fi',
 		'',
 		'rm -f "$MAIN_OUT" "$LANG_OUT"',
@@ -486,14 +517,22 @@ function api_update_start() {
 	if (!ensure_runtime_dir())
 		return fail(http, 1, tr('Cannot create runtime directory'));
 
-	system(sprintf('rm -rf %s && mkdir -p %s && chmod 0700 %s',
-		shellquote(WORK_DIR), shellquote(WORK_DIR), shellquote(WORK_DIR)));
+	if (task_running(read_state()))
+		return write_json_status(http, 409, 'Conflict',
+			{ code: 1, message: tr('another installation is already running') });
 
-	writefile(RELEASE_FILE, api_dump);
-	writefile(SCRIPT, build_update_script(pref_main, pref_lang[0] ?? null, pm));
+	if (system(sprintf('rm -rf %s && mkdir -p %s && chmod 0700 %s',
+		shellquote(WORK_DIR), shellquote(WORK_DIR), shellquote(WORK_DIR))) != 0)
+		return fail(http, 1, tr('Cannot prepare update directory'));
+
+	if (writefile(RELEASE_FILE, api_dump) == null ||
+		writefile(SCRIPT, build_update_script(pref_main, pref_lang[0] ?? null, pm)) == null)
+		return fail(http, 1, tr('Cannot write update files'));
 
 	let task_id = sprintf('update-%d', time());
-	let pid = spawn_logged('sh ' + SCRIPT);
+	let pid = spawn_logged('sh ' + shellquote(SCRIPT));
+	if (!pid)
+		return fail(http, 1, tr('Cannot start update task'));
 
 	let state = {
 		task_id, pid,
@@ -574,4 +613,3 @@ return {
 	all_tags, latest_tag, ver_cmp, asset_urls,
 	build_update_script
 };
-

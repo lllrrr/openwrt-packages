@@ -1,12 +1,12 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: luci-app-diskbox 1.27.0\n"
+"Project-Id-Version: luci-app-diskbox 1.26.9\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-08-23 18:50+0800\n"
 "PO-Revision-Date: 2026-08-23 18:50+0800\n"
 "Last-Translator: permails <permails@github.com>\n"
-"Language-Team: Chinese (Traditional) <zh_Hant@li.org>\n"
-"Language: zh_Hant\n"
+"Language-Team: Chinese (Traditional) <zh_Hant@li.org>
+"Language: zh_Hant
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -74,6 +74,15 @@ msgstr "轉速"
 
 msgid "Status"
 msgstr "狀態"
+
+msgid "Disk Health"
+msgstr "磁碟健康"
+
+msgid "Power Status"
+msgstr "電源狀態"
+
+msgid "Temperature"
+msgstr "溫度"
 
 msgid "Health"
 msgstr "健康"
@@ -492,6 +501,9 @@ msgstr "來源路徑"
 msgid "Source path for creating snapshot (must start with '/')"
 msgstr "建立快照的來源路徑（必須以 '/' 開頭）"
 
+msgid "Source path must start with '/'"
+msgstr "來源路徑必須以 '/' 開頭"
+
 msgid "Read-Only"
 msgstr "唯讀"
 
@@ -616,3 +628,273 @@ msgstr "偵測到檔案系統 - 直接掛載即可使用現有資料，無需格
 
 msgid "Only use this if the partition cannot be mounted and its data is not needed. Formatting erases all data on the partition."
 msgstr "僅當分區無法掛載、且資料確定不再需要時使用；格式化將擦除該分區的全部資料。"
+
+msgid "Change Partition Table"
+msgstr "變更分割表"
+
+msgid "Confirm"
+msgstr "確認"
+
+msgid "Delete Partition"
+msgstr "刪除分區"
+
+msgid "Delete Subvolume"
+msgstr "刪除子卷"
+
+msgid "Eject Device"
+msgstr "彈出裝置"
+
+msgid "Mount a device"
+msgstr "掛載裝置"
+msgid "-- No mountable partitions --"
+msgstr "沒有可掛載的分區"
+
+msgid "Apply Table"
+msgstr "套用分割表"
+
+msgid "Auto Mount"
+msgstr "自動掛載"
+
+msgid "Btrfs Pools"
+msgstr "Btrfs 儲存集區"
+
+msgid "Change mount point / options"
+msgstr "變更掛載點 / 選項"
+
+msgid "Create Partition"
+msgstr "建立分割區"
+
+msgid "Create a fresh GPT/MBR partition table"
+msgstr "建立全新的 GPT/MBR 分割表"
+
+msgid "Create a new partition from the largest free region"
+msgstr "從最大剩餘空間建立新分割區"
+
+msgid "Create a partition in this free region"
+msgstr "在此剩餘空間建立分割區"
+
+msgid "Creating Btrfs will ERASE the selected members. Continue?"
+msgstr "建立 Btrfs 將抹掉所選成員磁碟。是否繼續？"
+
+msgid "Creating a RAID array will ERASE the selected members. Continue?"
+msgstr "建立 RAID 陣列將抹掉所選成員磁碟。是否繼續？"
+
+msgid "Data Profile"
+msgstr "資料設定"
+
+msgid "Dest (opt)"
+msgstr "目標(選填)"
+
+msgid "Detach this partition from its mount point; data is kept"
+msgstr "將此分割區從掛載點卸載；資料保留"
+
+msgid "Device is in use! Please unmount all partitions first!"
+msgstr "裝置使用中！請先卸載所有分割區！"
+
+msgid "Disabled"
+msgstr "已停用"
+
+msgid "Edit Mount"
+msgstr "編輯掛載"
+
+msgid "Enabled"
+msgstr "已啟用"
+
+msgid "Failed to load Btrfs subvolumes."
+msgstr "載入 Btrfs 子卷失敗。"
+
+msgid "Failed to load disk info."
+msgstr "載入磁碟資訊失敗。"
+
+msgid "Formatting erases all data on the partition"
+msgstr "格式化將抹掉分割區上的所有資料"
+
+msgid "Invalid Partition size!"
+msgstr "無效的分割區大小！"
+
+msgid "Invalid Start sector!"
+msgstr "無效的起始扇區！"
+
+msgid "Manage Partitions"
+msgstr "管理分割區"
+
+msgid "Manage disks, partitions, RAID and Btrfs over LuCI."
+msgstr "透過 LuCI 管理磁碟、分割區、RAID 與 Btrfs。"
+
+msgid "Maximum available: %s"
+msgstr "最大可用： %s"
+
+msgid "Mount this partition"
+msgstr "掛載此分割區"
+
+msgid "Mounted"
+msgstr "已掛載"
+
+msgid "New Partition"
+msgstr "建立分割區"
+
+msgid "New partition on /dev/%s. Start sector auto-detected and aligned to 1 MiB."
+msgstr "在 /dev/%s 上建立新分割區。起始扇區自動偵測並對齊到 1 MiB。"
+
+msgid "No Btrfs filesystems."
+msgstr "沒有 Btrfs 檔案系統。"
+
+msgid "No RAID arrays."
+msgstr "沒有 RAID 陣列。"
+
+msgid "Partition Size"
+msgstr "分割區大小"
+
+msgid "Physical Disks"
+msgstr "實體磁碟"
+
+msgid "RAID Arrays"
+msgstr "RAID 陣列"
+
+msgid "Read-only"
+msgstr "唯讀"
+
+msgid "Remove this partition from the table; its space becomes unallocated"
+msgstr "從分割表刪除此分割區；其空間將變成未分配"
+
+msgid "Serial: %s"
+msgstr "序號： %s"
+
+msgid "Size exceeds the available free space."
+msgstr "大小超過可用的剩餘空間。"
+
+msgid "Snapshot"
+msgstr "快照"
+
+msgid "Source"
+msgstr "來源"
+
+msgid "Unmounted"
+msgstr "未掛載"
+
+msgid "sectors"
+msgstr "扇區"
+
+msgid "(Distributed parity redundancy - needs at least 3 partitions)"
+msgstr "（分散式同位元冗餘 - 至少需 3 個分割區）"
+
+msgid "(Double parity fault tolerance - needs at least 4 partitions)"
+msgstr "（雙重同位元容錯 - 至少需 4 個分割區）"
+
+msgid "(Mirror + Stripe hybrid - performance with high fault tolerance)"
+msgstr "（鏡像+條帶混合 - 兼顧效能與高容錯）"
+
+msgid "(Mirror - recommended dual-disk data fault tolerance, doubled read speed)"
+msgstr "（鏡像 - 推薦雙盤數據容錯冗餘，讀取速度加倍）"
+
+msgid "(Stripe - high throughput, no redundancy, full capacity)"
+msgstr "（條帶化 - 高頻寬無冗餘，全盤容量疊加）"
+
+msgid "(double metadata copies, recommended for important data)"
+msgstr "（雙份中繼數據保護，推薦用於重要數據）"
+
+msgid "(multi-device mirror redundancy)"
+msgstr "（多裝置鏡像冗餘保護）"
+
+msgid "(multi-device stripe for fast I/O)"
+msgstr "（多裝置條帶化高速讀寫）"
+
+msgid "(single-device, maximizes usable capacity)"
+msgstr "（單裝置分配，最大化可用容量）"
+
+msgid "Active RAID Arrays"
+msgstr "活動 RAID 陣列"
+
+msgid "All currently unmounted free storage partitions are listed automatically."
+msgstr "已自動列出系統目前所有未掛載的空閒儲存分割區。"
+
+msgid "Are you sure you want to stop and remove RAID array %s?"
+msgstr "確定要停止並移除 RAID 陣列 %s 嗎？"
+
+msgid "Attributes"
+msgstr "屬性"
+
+msgid "Create Btrfs Pool"
+msgstr "建立 Btrfs 儲存池"
+
+msgid "Detail"
+msgstr "詳細"
+
+msgid "Failed to load Btrfs pools."
+msgstr "載入 Btrfs 儲存池失敗。"
+
+msgid "Failed to stop array."
+msgstr "停止陣列失敗。"
+
+msgid "Format and create a modern filesystem with snapshots, transparent compression and online growth"
+msgstr "格式化並建立支援快照、透明壓縮、線上擴容的現代檔案系統"
+
+msgid "Healthy / Online"
+msgstr "健康線上"
+
+msgid "Linux mdadm redundant array monitoring"
+msgstr "Linux mdadm 冗餘陣列監控"
+
+msgid "Mount Path"
+msgstr "掛載路徑"
+
+msgid "Please select at least one Btrfs member!"
+msgstr "請至少選擇一個 Btrfs 成員！"
+
+msgid "Pool Label"
+msgstr "儲存池標籤"
+
+msgid "RAID Details"
+msgstr "RAID 詳細"
+
+msgid "Read/Write"
+msgstr "讀寫"
+
+msgid "Reset"
+msgstr "重設"
+
+msgid "Select at least two RAID members!"
+msgstr "請至少選擇兩個 RAID 成員！"
+
+msgid "Select two or more free partitions to build a high-reliability or high-performance array"
+msgstr "選擇兩個或多個空閒分割區組合成高可靠或高效能陣列"
+
+msgid "Standard software RAID block device path, defaults to /dev/md1, /dev/md2..."
+msgstr "標準軟體 RAID 區塊裝置路徑，預設依序分配 /dev/md1、/dev/md2..."
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "Stop Array"
+msgstr "停止陣列"
+
+msgid "Stopping Array"
+msgstr "正在停止陣列"
+
+msgid "Stopping RAID array..."
+msgstr "正在停止 RAID 陣列..."
+
+msgid "Storage pool volume label, used as the mount / management identifier."
+msgstr "儲存池標籤名稱，作為掛載與管理識別標。"
+
+msgid "Subvolume"
+msgstr "子卷"
+
+msgid "Subvolumes & Snapshots"
+msgstr "子卷與快照"
+
+msgid "next-gen CoW write-time-copy storage pool"
+msgstr "下一代 CoW 寫入時複製儲存池"
+
+msgid "Kernel-managed (FIT)"
+msgstr "核心管理（FIT）"
+
+msgid "Loaded by the bootloader and kernel from the FIT image; not mounted as a separate filesystem."
+msgstr "由開機程序與核心從 FIT 映像載入，不作為獨立檔案系統掛載。"
+
+msgid "No free partitions available to select."
+msgstr "目前沒有可選擇的空閒分割區。"
+
+
+msgid "Key"
+msgstr "鍵"

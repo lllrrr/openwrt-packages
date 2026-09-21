@@ -20,7 +20,8 @@ LUCI_DEPENDS:=+e2fsprogs +parted +smartmontools +blkid \
 	+PACKAGE_$(PKG_NAME)_INCLUDE_kmod_md_raid456:mdadm \
 	+PACKAGE_$(PKG_NAME)_INCLUDE_kmod_md_raid456:kmod-md-raid456 \
 	+PACKAGE_$(PKG_NAME)_INCLUDE_kmod_md_linears:mdadm \
-	+PACKAGE_$(PKG_NAME)_INCLUDE_kmod_md_linears:kmod-md-linear
+	+PACKAGE_$(PKG_NAME)_INCLUDE_kmod_md_linears:kmod-md-linear \
+	+luci-base
 
 LUCI_DESCRIPTION:=Modern Disk and Partition Manager interface for OpenWrt LuCI (JavaScript client-rendered, no luci-compat required)
 

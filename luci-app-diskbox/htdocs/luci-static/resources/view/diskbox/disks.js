@@ -409,7 +409,7 @@ return view.extend({
 			if (attrs[0].key !== undefined) {
 				var table = E('table', { 'class': 'table cbi-section-table' }, [
 					E('tr', { 'class': 'tr table-titles' }, [
-						E('th', { 'class': 'th' }, 'KEY'),
+						E('th', { 'class': 'th' }, _('Key')),
 						E('th', { 'class': 'th' }, _('Value'))
 					])
 				]);
@@ -423,7 +423,7 @@ return view.extend({
 			} else {
 				var table = E('table', { 'class': 'table cbi-section-table' }, [
 					E('tr', { 'class': 'tr table-titles' }, [
-						E('th', { 'class': 'th' }, 'ID'),
+						E('th', { 'class': 'th' }, _('ID')),
 						E('th', { 'class': 'th' }, _('Attribute')),
 						E('th', { 'class': 'th' }, _('Flag')),
 						E('th', { 'class': 'th' }, _('Value')),

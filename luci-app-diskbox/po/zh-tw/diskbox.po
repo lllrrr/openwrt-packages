@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: luci-app-diskbox 1.27.0\n"
+"Project-Id-Version: luci-app-diskbox 1.26.9\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-08-23 18:50+0800\n"
 "PO-Revision-Date: 2026-08-23 18:50+0800\n"
@@ -895,3 +895,6 @@ msgstr "由開機程序與核心從 FIT 映像載入，不作為獨立檔案系�
 msgid "No free partitions available to select."
 msgstr "目前沒有可選擇的空閒分割區。"
 
+
+msgid "Key"
+msgstr "鍵"
