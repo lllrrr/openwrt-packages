@@ -7,19 +7,31 @@ const stat = _fs.stat, readfile = _fs.readfile, writefile = _fs.writefile,
 const PACKAGE_NAME = 'luci-app-harbor-file-pro';
 const FALLBACK_VERSION = '1.0.0';
 
-const WORK_DIR = '/tmp/harbor_file_pro_update';
+const RUNTIME_DIR = '/tmp/harbor_file_pro';
+const WORK_DIR = RUNTIME_DIR + '/update';
 const STATE_FILE = WORK_DIR + '/state.json';
 const LOG_FILE   = WORK_DIR + '/log';
 const RC_FILE    = WORK_DIR + '/rc';
 const PROG_FILE  = WORK_DIR + '/progress';
 const RELEASE_FILE = WORK_DIR + '/release.json';
 const SCRIPT     = WORK_DIR + '/update.sh';
+const TMP_MAIN   = WORK_DIR + '/main.pkg';
+const TMP_LANG   = WORK_DIR + '/lang.ipk';
 
 const MIRRORS = [
 	{ id: 'gitee',  api: 'https://gitee.com/api/v5/repos/whzhni/luci-app-harbor-file-pro/releases' },
 	{ id: 'github', api: 'https://api.github.com/repos/whzhni1/luci-app-harbor-file-pro/releases/latest' },
 	{ id: 'gitlab', api: 'https://gitlab.com/api/v4/projects/whzhni%2Fluci-app-harbor-file-pro/releases' }
 ];
+
+function ensure_runtime_dir() {
+	let st = _fs.lstat(RUNTIME_DIR);
+	if (!st) {
+		_fs.mkdir(RUNTIME_DIR, 0o700);
+		st = _fs.lstat(RUNTIME_DIR);
+	}
+	return st && st.type == 'directory' && _fs.chmod(RUNTIME_DIR, 0o700);
+}
 
 function tr(s) {
 	try { return _(s) ?? s; }
@@ -80,15 +92,15 @@ function fetch_url(url, connect_timeout, max_time) {
 
 function detect_package_manager() {
 	if (stat('/bin/apk') || stat('/usr/bin/apk'))
-		return { pm: 'apk',  ext: '.apk' };
+		return 'apk';
 	if (stat('/bin/opkg') || stat('/usr/bin/opkg'))
-		return { pm: 'opkg', ext: '.ipk' };
+		return 'opkg';
 	return null;
 }
 
 function pkg_query(pm) {
 	let pkg = shellquote(PACKAGE_NAME);
-	let cmd = (pm?.pm == 'apk')
+	let cmd = (pm == 'apk')
 		? sprintf('apk info %s 2>/dev/null | head -1', pkg)
 		: sprintf('opkg info %s 2>/dev/null | grep ^Version:', pkg);
 	let p = popen(cmd, 'r');
@@ -104,7 +116,7 @@ function pkg_version(pm, line) {
 	let prefix = PACKAGE_NAME + '-';
 	let cut;
 
-	if (pm?.pm == 'apk') {
+	if (pm == 'apk') {
 		cut = index(v, ' description:');
 		if (cut >= 0)
 			v = substr(v, 0, cut);
@@ -199,62 +211,18 @@ function latest_tag(body) {
 	return r ? r.tag : null;
 }
 
-function current_lang() {
-	let l = null;
-
-	try { l = dispatcher?.lang; }
-	catch (e) { l = null; }
-
-	if (!length(l)) {
-		try {
-			let uci = require('uci').cursor();
-			uci.load('luci');
-			l = uci.get('luci', 'main', 'lang');
-			uci.unload('luci');
-		}
-		catch (e) { l = null; }
-	}
-
-	l = trim('' + (l ?? ''));
-	return (length(l) && l != 'auto') ? l : 'en';
-}
-
-function lang_tokens(l) {
-	let low = lc(l);
-	let toks = [];
-
-	for (let t in [ replace(low, '_', '-'), replace(low, '-', '_') ])
-		if (length(t) && index(toks, t) < 0)
-			push(toks, t);
-
-	return toks;
-}
-
-function is_lang_asset(url, toks) {
-	let base = lc(replace(replace(url, /[?#].*$/, ''), /^.*\//, ''));
-
-	if (index(base, 'i18n') < 0)
-		return false;
-
-	for (let t in toks)
-		if (match(base, regexp('[-_]' + t + '[-_.]')))
-			return true;
-
-	return false;
-}
-
-function collect_urls(v, ext, main, i18n, seen) {
+function collect_urls(v, ext, main, lang, seen) {
 	let tv = type(v);
 
 	if (tv == 'array') {
 		for (let item in v)
-			collect_urls(item, ext, main, i18n, seen);
+			collect_urls(item, ext, main, lang, seen);
 		return;
 	}
 
 	if (tv == 'object') {
 		for (let k in v)
-			collect_urls(v[k], ext, main, i18n, seen);
+			collect_urls(v[k], ext, main, lang, seen);
 		return;
 	}
 
@@ -268,24 +236,22 @@ function collect_urls(v, ext, main, i18n, seen) {
 		return;
 
 	push(seen, v);
+	let low = lc(v);
 
-	let base = lc(replace(replace(v, /[?#].*$/, ''), /^.*\//, ''));
-	if (index(base, 'i18n') >= 0)
-		push(i18n, v);
+	if (index(low, 'i18n') >= 0 || index(low, 'zh-cn') >= 0 || index(low, 'zh_cn') >= 0 || index(low, 'zh-hans') >= 0)
+		push(lang, v);
 	else
 		push(main, v);
 }
 
 function asset_urls(body, pm) {
-	let ext = pm.ext;
-	let main = [], i18n = [], seen = [];
+	let ext = (pm == 'apk') ? '.apk' : '.ipk';
+	let main = [], lang = [], seen = [];
 	let r = latest_release(body);
 
-	if (r)
-		collect_urls(r.release, ext, main, i18n, seen);
-
-	let toks = lang_tokens(current_lang());
-	let lang = filter(i18n, (u) => is_lang_asset(u, toks));
+	if (r) {
+		collect_urls(r.release, ext, main, lang, seen);
+	}
 
 	return { main, lang };
 }
@@ -322,15 +288,6 @@ function api_update_check() {
 	let pm = detect_package_manager();
 	let current = installed_version(pm);
 
-	if (!pm)
-		return ok(http, {
-			current,
-			latest: null,
-			has_update: false,
-			fetcher: true,
-			pm: null
-		});
-
 	for (let m in mirror_order(read_mirror_pref())) {
 		let body = fetch_url(m.api, 3, 8);
 		if (!body)
@@ -349,10 +306,8 @@ function api_update_check() {
 			mirror: m.id,
 			main_url: urls.main[0] ?? null,
 			lang_url: urls.lang[0] ?? null,
-			lang: current_lang(),
 			fetcher: true,
-			pm: pm.pm,
-			ext: pm.ext
+			pm
 		});
 	}
 
@@ -361,8 +316,7 @@ function api_update_check() {
 		latest: null,
 		has_update: false,
 		fetcher: true,
-		pm: pm.pm,
-		ext: pm.ext
+		pm
 	});
 }
 
@@ -392,9 +346,6 @@ function build_update_script(main_urls, lang_url, pm) {
 	let fetch = detect_fetcher();
 	let dl, head;
 
-	let main_out = WORK_DIR + '/main' + pm.ext;
-	let lang_out = WORK_DIR + '/lang' + pm.ext;
-
 	if (fetch == 'curl') {
 		dl = '"$FETCH" -fsL --retry 2 --retry-delay 1 --connect-timeout 5 --max-time 120 -o "$out" "$u" >/dev/null 2>&1';
 		head = '$FETCH -sIL --connect-timeout 5 --max-time 8 "$1" 2>/dev/null';
@@ -407,18 +358,12 @@ function build_update_script(main_urls, lang_url, pm) {
 	let L = [
 		'#!/bin/sh',
 		'FETCH=' + shellquote(fetch),
-		'PM=' + shellquote(pm.pm),
+		'PM=' + shellquote(pm ?? 'opkg'),
 		'PROG=' + shellquote(PROG_FILE),
-		'MAIN_OUT=' + shellquote(main_out),
-		'LANG_OUT=' + shellquote(lang_out),
+		'MAIN_OUT=' + shellquote(TMP_MAIN),
+		'LANG_OUT=' + shellquote(TMP_LANG),
 		'URLS_MAIN=' + shellquote(join(' ', main_urls)),
 		'URL_LANG=' + shellquote(lang_url ?? ''),
-		'',
-		'fsize() {',
-		's=""',
-		'[ -f "$1" ] && s=$( { wc -c < "$1"; } 2>/dev/null | tr -dc 0-9)',
-		'echo "${s:-0}"',
-		'}',
 		'',
 		'total_of() {',
 		'(' + head + ') | awk \'tolower($1)=="content-length:" {v=$2} END {print v}\' | tr -dc \'0-9\'',
@@ -435,11 +380,11 @@ function build_update_script(main_urls, lang_url, pm) {
 		'cpid=$!',
 		'while kill -0 $cpid 2>/dev/null; do',
 		'sleep 1',
-		'got=$(fsize "$out")',
+		'got=$( (wc -c < "$out" 2>/dev/null || echo 0) | tr -dc 0-9)',
 		'echo "$ph $got $tot" > "$PROG"',
 		'done',
 		'wait $cpid',
-		'sz=$(fsize "$out")',
+		'sz=$( (wc -c < "$out" 2>/dev/null || echo 0) | tr -dc 0-9)',
 		'[ "$sz" -gt 0 ] || { rm -f "$out"; continue; }',
 		'if verify "$out"; then',
 		'return 0',
@@ -535,9 +480,11 @@ function api_update_start() {
 	}
 
 	if (!length(pref_main))
-		return fail(http, 1, pref == 'auto'
-			? sprintf('no %s package found in release (package manager: %s)', pm.ext, pm.pm)
-			: sprintf('no %s package found on mirror %s (package manager: %s)', pm.ext, pref, pm.pm));
+		return fail(http, 1, pref == 'auto' ? 'no release package found'
+			: sprintf('no release package found on mirror %s', pref));
+
+	if (!ensure_runtime_dir())
+		return fail(http, 1, tr('Cannot create runtime directory'));
 
 	system(sprintf('rm -rf %s && mkdir -p %s && chmod 0700 %s',
 		shellquote(WORK_DIR), shellquote(WORK_DIR), shellquote(WORK_DIR)));
@@ -559,9 +506,7 @@ function api_update_start() {
 	ok(http, {
 		task_id,
 		mirrors: length(MIRRORS),
-		urls: length(pref_main),
-		pm: pm.pm,
-		ext: pm.ext
+		urls: length(pref_main)
 	});
 }
 
@@ -626,7 +571,7 @@ return {
 	api_update_start,
 	api_update_status,
 
-	detect_package_manager,
 	all_tags, latest_tag, ver_cmp, asset_urls,
 	build_update_script
 };
+

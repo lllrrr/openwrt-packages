@@ -14,7 +14,8 @@
         }
 
         function is_primary_event(event) {
-            return !event || event.button === undefined || event.button === 0;
+            return !event || (event.isPrimary !== false && (!event.touches || event.touches.length === 1) &&
+                (event.button === undefined || event.button === 0));
         }
 
         function DesktopWindowManager() {
@@ -262,9 +263,20 @@
         };
 
         DesktopWindowManager.prototype.work_area = function() {
+            var workspace = document.getElementById('fm_workspace');
+            var bounds = workspace ? workspace.getBoundingClientRect() : null;
+            var width = Math.max(1, bounds ? bounds.width : window.innerWidth);
+            var bottom = Math.max(1, bounds ? bounds.bottom : window.innerHeight);
+            var top = bounds ? Math.max(0, bounds.top) : 0;
+            return { top: top, width: width, height: Math.max(1, bottom - top), bottom: bottom };
+        };
+
+        DesktopWindowManager.prototype.maximized_rect = function() {
+            var area = this.work_area();
+            var margin = this.is_compact() ? 4 : 8;
             return {
-                width: Math.max(1, Number(window.innerWidth || document.documentElement.clientWidth || 1)),
-                height: Math.max(1, Number(window.innerHeight || document.documentElement.clientHeight || 1))
+                left: margin, top: area.top + margin,
+                width: area.width - margin * 2, height: Math.max(1, area.height - margin * 2)
             };
         };
 
@@ -282,9 +294,9 @@
 
         DesktopWindowManager.prototype.taskbar_top = function(area) {
             if (!this.taskbar || this.taskbar.classList.contains('is-empty')) {
-                return area.height;
+                return area.bottom;
             }
-            return Math.max(0, area.height - Math.max(0, this.taskbar.offsetHeight || 0) - 6);
+            return Math.max(0, area.bottom - Math.max(0, this.taskbar.offsetHeight || 0) - 6);
         };
 
         DesktopWindowManager.prototype.get_rect = function(record) {
@@ -302,7 +314,7 @@
             var margin = compact ? 4 : 8;
             var area = this.work_area();
             var max_width = Math.max(180, area.width - margin * 2);
-            var max_height = Math.max(110, area.height - margin * 2);
+            var max_height = Math.max(1, area.height - margin * 2);
             var min_width = this.min_width(record, max_width);
             var min_height = this.min_height(record, max_height);
             var width = clamp(Number(rect.width || min_width), min_width, max_width);
@@ -313,10 +325,11 @@
             var title_visible_width = Math.min(width, compact ? 96 : 160);
             var min_left = -width + title_visible_width;
             var max_left = Math.max(min_left, area.width - title_visible_width);
-            var max_top = Math.max(margin, taskbar_top - header_height - margin);
+            var min_top = area.top + margin;
+            var max_top = Math.max(min_top, taskbar_top - header_height - margin);
             return {
                 left: clamp(isFinite(Number(rect.left)) ? Number(rect.left) : margin, min_left, max_left),
-                top: clamp(isFinite(Number(rect.top)) ? Number(rect.top) : margin, margin, max_top),
+                top: clamp(isFinite(Number(rect.top)) ? Number(rect.top) : min_top, min_top, max_top),
                 width: width,
                 height: height
             };
@@ -324,20 +337,6 @@
 
         DesktopWindowManager.prototype.apply_rect = function(record, rect) {
             var next = this.clamp_rect(record, rect);
-            record.rect = next;
-            record.element.style.left = Math.round(next.left) + 'px';
-            record.element.style.top = Math.round(next.top) + 'px';
-            record.element.style.width = Math.round(next.width) + 'px';
-            record.element.style.height = Math.round(next.height) + 'px';
-        };
-
-        DesktopWindowManager.prototype.apply_exact_rect = function(record, rect) {
-            var next = {
-                left: Number(rect.left || 0),
-                top: Number(rect.top || 0),
-                width: Number(rect.width || record.options.width || 480),
-                height: Number(rect.height || record.options.height || 320)
-            };
             record.rect = next;
             record.element.style.left = Math.round(next.left) + 'px';
             record.element.style.top = Math.round(next.top) + 'px';
@@ -399,13 +398,13 @@
             var measured = this.get_rect(record);
             var preferred = this.preferred_size(record, measured);
             var max_width = Math.max(180, area.width - margin * 2);
-            var max_height = Math.max(130, area.height - margin * 2);
+            var max_height = Math.max(1, area.height - margin * 2);
             var width = Math.min(preferred.width, max_width);
             var height = Math.min(preferred.height, max_height);
             var taskbar_top = this.taskbar_top(area);
             return {
                 left: Math.max(margin, Math.round((area.width - width) / 2)),
-                top: Math.max(margin, Math.round((taskbar_top - height) / 2)),
+                top: Math.max(area.top + margin, Math.round(area.top + (taskbar_top - area.top - height) / 2)),
                 width: width,
                 height: height
             };
@@ -501,14 +500,7 @@
             }
             record.restore_rect = this.get_rect(record);
             record.maximized = true;
-            var area = this.work_area();
-            var margin = this.is_compact() ? 4 : 8;
-            this.apply_rect(record, {
-                left: margin,
-                top: margin,
-                width: area.width - margin * 2,
-                height: area.height - margin * 2
-            });
+            this.apply_rect(record, this.maximized_rect());
             record.element.classList.add('fm-window-maximized');
             this.set_maximize_button(record);
             this.focus(record);
@@ -541,7 +533,6 @@
                 width: record.rect.width,
                 height: record.rect.height
             };
-            record.minimized_viewport = { width: window.innerWidth, height: window.innerHeight };
             record.minimized = true;
             record.element.style.display = 'none';
             record.element.classList.remove('fm-window-focused');
@@ -559,23 +550,9 @@
             record.minimized = false;
             record.element.style.display = record.display_mode || 'flex';
             if (record.maximized) {
-                var area = this.work_area();
-                var margin = this.is_compact() ? 4 : 8;
-                this.apply_rect(record, {
-                    left: margin,
-                    top: margin,
-                    width: area.width - margin * 2,
-                    height: area.height - margin * 2
-                });
+                this.apply_rect(record, this.maximized_rect());
             } else {
-                var saved_rect = record.minimized_rect || record.rect || this.initial_rect(record);
-                var saved_viewport = record.minimized_viewport;
-                if (saved_viewport && saved_viewport.width === window.innerWidth &&
-                        saved_viewport.height === window.innerHeight) {
-                    this.apply_exact_rect(record, saved_rect);
-                } else {
-                    this.apply_rect(record, saved_rect);
-                }
+                this.apply_rect(record, record.minimized_rect || record.rect || this.initial_rect(record));
             }
             this.focus(record);
         };
@@ -595,6 +572,7 @@
                 if (record.on_close) {
                     record.on_close(record);
                 }
+                if (manager.interaction_record === record && manager.stop_interaction) manager.stop_interaction();
                 record.closed = true;
                 record.minimized = false;
                 record.element.style.display = 'none';
@@ -740,6 +718,10 @@
             if (!record || record.closed || record.minimized) {
                 return;
             }
+            if (this.stop_interaction) this.stop_interaction();
+            if (HF.cancel_touch_operations) HF.cancel_touch_operations();
+            var touch_input = event.pointerType === 'touch' || event.type.indexOf('touch') === 0;
+            if (touch_input && HF.lock_touch_scroll) HF.lock_touch_scroll('window');
             if (event.cancelable) {
                 event.preventDefault();
             }
@@ -772,7 +754,19 @@
             var end_event = this.supports_pointer ? 'pointerup' : (event.type.indexOf('touch') === 0 ? 'touchend' : 'mouseup');
             var cancel_event = this.supports_pointer ? 'pointercancel' : (event.type.indexOf('touch') === 0 ? 'touchcancel' : null);
 
-            function stop() {
+            var stopped = false;
+            function matches(input) {
+                return !input || input.pointerId === undefined || event.pointerId === undefined || input.pointerId === event.pointerId;
+            }
+            function stop(input) {
+                if (stopped || !matches(input)) return;
+                stopped = true;
+                manager.stop_interaction = null;
+                manager.interaction_record = null;
+                if (HF.state && HF.state.cancel_window_touch === stop) HF.state.cancel_window_touch = null;
+                if (touch_input && HF.release_touch_scroll) HF.release_touch_scroll('window');
+                window.removeEventListener('blur', stop);
+                if (interaction_target) interaction_target.removeEventListener('lostpointercapture', stop);
                 document.removeEventListener(move_event, move, false);
                 document.removeEventListener(end_event, stop, false);
                 if (cancel_event) {
@@ -793,6 +787,11 @@
             }
 
             function move(move_event_object) {
+                if (!matches(move_event_object)) return;
+                if (move_event_object.touches && move_event_object.touches.length > 1) {
+                    stop();
+                    return;
+                }
                 if (move_event_object.cancelable) {
                     move_event_object.preventDefault();
                 }
@@ -815,7 +814,7 @@
                 var area = manager.work_area();
                 var margin = manager.is_compact() ? 4 : 8;
                 var max_width = Math.max(180, area.width - margin * 2);
-                var max_height = Math.max(110, area.height - margin * 2);
+                var max_height = Math.max(1, area.height - margin * 2);
                 var min_width = manager.min_width(record, max_width);
                 var min_height = manager.min_height(record, max_height);
                 var next = {
@@ -832,15 +831,20 @@
                     next.width = start_rect.left + start_rect.width - next.left;
                 }
                 if (edge.indexOf('s') >= 0) {
-                    next.height = clamp(start_rect.height + dy, min_height, area.height - margin - start_rect.top);
+                    next.height = clamp(start_rect.height + dy, min_height, area.bottom - margin - start_rect.top);
                 }
                 if (edge.indexOf('n') >= 0) {
-                    next.top = clamp(start_rect.top + dy, margin, start_rect.top + start_rect.height - min_height);
+                    next.top = clamp(start_rect.top + dy, area.top + margin, start_rect.top + start_rect.height - min_height);
                     next.height = start_rect.top + start_rect.height - next.top;
                 }
                 manager.apply_rect(record, next);
             }
 
+            manager.stop_interaction = stop;
+            manager.interaction_record = record;
+            if (HF.state) HF.state.cancel_window_touch = stop;
+            window.addEventListener('blur', stop);
+            if (interaction_target) interaction_target.addEventListener('lostpointercapture', stop);
             document.addEventListener(move_event, move, { passive: false });
             document.addEventListener(end_event, stop, false);
             if (cancel_event) {
@@ -948,14 +952,7 @@
                 record.initialized = true;
                 this.apply_rect(record, this.initial_rect(record));
             } else if (record.maximized) {
-                var area = this.work_area();
-                var margin = this.is_compact() ? 4 : 8;
-                this.apply_rect(record, {
-                    left: margin,
-                    top: margin,
-                    width: area.width - margin * 2,
-                    height: area.height - margin * 2
-                });
+                this.apply_rect(record, this.maximized_rect());
             } else {
                 this.apply_rect(record, record.rect || this.initial_rect(record));
             }
@@ -1054,19 +1051,13 @@
                         return;
                     }
                     if (record.maximized) {
-                        var area = manager.work_area();
-                        var margin = manager.is_compact() ? 4 : 8;
-                        manager.apply_rect(record, {
-                            left: margin,
-                            top: margin,
-                            width: area.width - margin * 2,
-                            height: area.height - margin * 2
-                        });
+                        manager.apply_rect(record, manager.maximized_rect());
                     } else {
                         manager.apply_rect(record, record.rect || manager.get_rect(record));
                     }
                 });
             };
+            this.refresh_layout = refresh;
             window.addEventListener('resize', refresh);
             window.addEventListener('orientationchange', function() { window.setTimeout(refresh, 80); });
         };
@@ -1076,3 +1067,4 @@
     HF.WindowManager = HF.window_manager;
     HF.WindowManager.openLegacy = HF.window_manager.open_legacy;
 })(window.HarborFile = window.HarborFile || {});
+

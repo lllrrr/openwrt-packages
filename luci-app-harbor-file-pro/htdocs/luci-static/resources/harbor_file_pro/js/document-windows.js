@@ -112,6 +112,140 @@
         return opens - closes;
     }
 
+    HF.wm_paste_plain_text = function wm_paste_plain_text(event, editor, max_command_len) {
+        var data = event.clipboardData || window.clipboardData;
+        if (!data || typeof data.getData !== 'function') {
+            return false;
+        }
+        if (data.files && data.files.length) {
+            return false;
+        }
+        var text = data.getData('text/plain') || data.getData('text') || '';
+        event.preventDefault();
+        if (!text) {
+            return true;
+        }
+        var limit = max_command_len === undefined ? 4096 : max_command_len;
+        if (text.length <= limit && document.queryCommandSupported &&
+                document.queryCommandSupported('insertText')) {
+            var before_len = (editor.textContent || '').length;
+            if (document.execCommand('insertText', false, text)) {
+                return true;
+            }
+            if ((editor.textContent || '').length >= before_len + text.length) {
+                return true;
+            }
+        }
+        var selection = window.getSelection && window.getSelection();
+        var range = selection && selection.rangeCount ? selection.getRangeAt(0) : null;
+        if (!range || !editor.contains(range.commonAncestorContainer)) {
+            range = document.createRange();
+            range.selectNodeContents(editor);
+            range.collapse(false);
+        }
+        range.deleteContents();
+        var node = document.createTextNode(text);
+        range.insertNode(node);
+        var after = document.createRange();
+        after.setStart(node, text.length);
+        after.collapse(true);
+        if (selection) {
+            selection.removeAllRanges();
+            selection.addRange(after);
+        }
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+    };
+
+    HF.wm_editor_dom_is_plain = function wm_editor_dom_is_plain(node) {
+        for (var child = node ? node.firstChild : null; child; child = child.nextSibling) {
+            if (child.nodeType === 3) {
+                continue;
+            }
+            if (child.nodeType !== 1 || child.tagName !== 'SPAN' ||
+                    String(child.className).indexOf('fm-memory-text-match') !== 0) {
+                return false;
+            }
+            for (var inner = child.firstChild; inner; inner = inner.nextSibling) {
+                if (inner.nodeType !== 3) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    HF.wm_editor_text = function wm_editor_text(node) {
+        if (!node) {
+            return '';
+        }
+        if (HF.wm_editor_dom_is_plain(node)) {
+            return String(node.textContent || '').replace(/\r/g, '');
+        }
+        return String(node.innerText || node.textContent || '').replace(/\r/g, '');
+    }
+
+    HF.wm_edit_change_offset = function wm_edit_change_offset(before, after) {
+        var a = String(before === null || before === undefined ? '' : before);
+        var b = String(after === null || after === undefined ? '' : after);
+        if (a === b) {
+            return null;
+        }
+        var shared = Math.min(a.length, b.length);
+        var i = 0;
+        while (i < shared && a.charCodeAt(i) === b.charCodeAt(i)) {
+            i++;
+        }
+        return i;
+    }
+
+    HF.wm_scroll_selection_into_view = function wm_scroll_selection_into_view(editor, margin) {
+        if (!editor) {
+            return false;
+        }
+        var selection = window.getSelection && window.getSelection();
+        if (!selection || !selection.rangeCount) {
+            return false;
+        }
+        var range = selection.getRangeAt(0);
+        if (!editor.contains(range.commonAncestorContainer)) {
+            return false;
+        }
+        if (range.collapsed) {
+            var cloned = range.cloneRange();
+            var node = cloned.startContainer;
+            var len = node.nodeType === 3 ? (node.nodeValue || '').length : 0;
+            if (cloned.startOffset < len) {
+                cloned.setEnd(node, cloned.startOffset + 1);
+            } else if (cloned.startOffset > 0) {
+                cloned.setStart(node, cloned.startOffset - 1);
+            }
+            range = cloned;
+        }
+        var box = range.getBoundingClientRect ? range.getBoundingClientRect() : null;
+        if (!box || (!box.width && !box.height)) {
+            return false;
+        }
+        var host = editor.getBoundingClientRect();
+        var pad = margin === undefined ? 10 : margin;
+        var moved = false;
+        if (box.top < host.top + pad) {
+            editor.scrollTop -= host.top + pad - box.top;
+            moved = true;
+        } else if (box.bottom > host.bottom - pad) {
+            editor.scrollTop += box.bottom - host.bottom + pad;
+            moved = true;
+        }
+        if (box.left < host.left + pad) {
+            editor.scrollLeft -= host.left + pad - box.left;
+            moved = true;
+        } else if (box.right > host.right - pad) {
+            editor.scrollLeft += box.right - host.right + pad;
+            moved = true;
+        }
+        return moved;
+    }
+
     HF.wm_add_history_buttons = function wm_add_history_buttons(record, on_undo, on_redo) {
         var header = record.element.querySelector('.fm-window-titlebar');
         var controls = header && header.querySelector('.fm-window-controls');
@@ -867,7 +1001,7 @@
         }
 
         function editor_text() {
-            return (editor.innerText || '').replace(/\r/g, '');
+            return HF.wm_editor_text(editor);
         }
 
         function selection_offset() {
@@ -1293,6 +1427,7 @@
         }
 
         function apply_edit_state(state) {
+            var changed = HF.wm_edit_change_offset(session.text, state.text);
             session.text = state.text;
             session.dirty = state.text !== session.original;
             if (session.query) {
@@ -1302,9 +1437,11 @@
             }
             editor.scrollTop = Number(state.scrollTop) || 0;
             editor.scrollLeft = Number(state.scrollLeft) || 0;
-            if (typeof state.cursor === 'number') {
+            var at = changed === null ? state.cursor : changed;
+            if (typeof at === 'number') {
                 editor.focus();
-                restore_selection(state.cursor);
+                restore_selection(at);
+                HF.wm_scroll_selection_into_view(editor);
                 update_cursor();
             }
             footer.refresh();
@@ -1398,6 +1535,13 @@
                 render_gutter();
             }, 160);
         }
+
+        editor.addEventListener('paste', function(event) {
+            if (session.readonly) {
+                return;
+            }
+            HF.wm_paste_plain_text(event, editor);
+        });
 
         editor.addEventListener('input', function() {
             var next = editor_text();

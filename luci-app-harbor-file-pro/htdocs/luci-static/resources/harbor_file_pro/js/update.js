@@ -1,4 +1,4 @@
-/* HarborFile update.js -- in-app updater (check / download / install) */
+
 (function (HF) {
     'use strict';
 

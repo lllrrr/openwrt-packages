@@ -4,14 +4,22 @@
 
 	var ENDPOINT = '/cgi-bin/harbor-io-pro';
 
+	function validSessionID(value) {
+		return typeof value === 'string' && /^[a-fA-F0-9]{32}$/.test(value) && !/^0{32}$/.test(value);
+	}
+
 	function sessionID() {
-		if (global.rpc && typeof global.rpc.getSessionID === 'function')
-			return global.rpc.getSessionID();
-		if (global.L && global.L.env && global.L.env.sessionid)
-			return global.L.env.sessionid;
-		if (global.HarborFile && global.HarborFile.sessionid)
-			return global.HarborFile.sessionid;
-		return '';
+		var value = '';
+		if (global.rpc && typeof global.rpc.getSessionID === 'function') {
+			try { value = global.rpc.getSessionID(); } catch (error) {}
+		}
+		if (validSessionID(value))
+			return value;
+		value = global.L && global.L.env && global.L.env.sessionid;
+		if (validSessionID(value))
+			return value;
+		value = global.HarborFile && global.HarborFile.sessionid;
+		return validSessionID(value) ? value : '';
 	}
 
 	function qs(params) {
@@ -23,6 +31,8 @@
 	}
 
 	var HarborIO = {
+
+		getSessionID: sessionID,
 
 		download: function (path, filename) {
 			var target = 'harbor_dl_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
@@ -274,3 +284,4 @@
 
 	global.HarborIO = HarborIO;
 })(window);
+

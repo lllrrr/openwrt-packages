@@ -662,6 +662,7 @@
         document.getElementById('fm_property_type').textContent = item.display_type;
         document.getElementById('fm_property_size').textContent = item.display_size;
         document.getElementById('fm_property_mtime').textContent = item.display_mtime;
+        HF.render_sha256(document.getElementById('fm_property_sha256'), item, true);
         
         var mode = item.mode || '---';
         document.getElementById('fm_property_mode_text').textContent = mode;
@@ -734,3 +735,4 @@
         start_nginx_install: HF.start_nginx_install
     };
 })(window.HarborFile = window.HarborFile || {});
+

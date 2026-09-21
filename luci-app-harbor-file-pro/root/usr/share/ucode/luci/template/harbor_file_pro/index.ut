@@ -22,7 +22,7 @@ window.HarborFile = {
 };
 HarborFile.init({
     io: '/cgi-bin/harbor-io-pro',
-    sessionid: '{{ dispatcher.authsession ?? "" }}',
+    sessionid: '{{ ctx.authsession ?? dispatcher.authsession ?? "" }}',
     api: {
         navigation: '{{ dispatcher.build_url('admin', 'harbor_pro', 'navigation') }}',
         terminal_info: '{{ dispatcher.build_url('admin', 'harbor_pro', 'terminal_info') }}',
@@ -432,6 +432,7 @@ window.HarborFile.tr = function (msgid) {
 <script src="{{ resource }}/harbor_file_pro/js/system-windows.js"></script>
 <script src="{{ resource }}/harbor_file_pro/js/file-operations.js"></script>
 
+<div id="fm_workspace">
 <div class="file-manager">
     <div class="fm-toolbar">
         <button id="fm_back" class="fm-tool-button" type="button" title="{{ _('Back') }}" aria-label="{{ _('Back') }}">
@@ -476,13 +477,14 @@ window.HarborFile.tr = function (msgid) {
             </div>
             <div id="fm_drag_overlay" class="fm-drag-overlay"></div>
             <div id="fm_content" class="fm-content"></div>
-            <div class="fm-details">
+            <div id="fm_details" class="fm-details" hidden>
                 <div class="fm-detail"><div class="fm-detail-label">{{ _('Name') }}</div><div id="fm_detail_name" class="fm-detail-value">-</div></div>
                 <div class="fm-detail"><div class="fm-detail-label">{{ _('Path') }}</div><div id="fm_detail_path" class="fm-detail-value">-</div></div>
                 <div class="fm-detail"><div class="fm-detail-label">{{ _('Type') }}</div><div id="fm_detail_type" class="fm-detail-value">-</div></div>
                 <div class="fm-detail"><div class="fm-detail-label">{{ _('Size') }}</div><div id="fm_detail_size" class="fm-detail-value">-</div></div>
                 <div class="fm-detail"><div class="fm-detail-label">{{ _('Permissions') }}</div><div id="fm_detail_mode" class="fm-detail-value">-</div></div>
                 <div class="fm-detail"><div class="fm-detail-label">{{ _('Modified') }}</div><div id="fm_detail_mtime" class="fm-detail-value">-</div></div>
+                <div class="fm-detail fm-detail-hash"><div class="fm-detail-label">SHA256</div><div id="fm_detail_sha256" class="fm-detail-value">-</div></div>
             </div>
         </main>
     </div>
@@ -675,6 +677,7 @@ window.HarborFile.tr = function (msgid) {
                 </div>
             </div>
             <div class="fm-property-label">{{ _('Modified') }}</div><div id="fm_property_mtime" class="fm-property-value">-</div>
+            <div class="fm-property-label">SHA256</div><div id="fm_property_sha256" class="fm-property-value">-</div>
         </div>
     </div>
 </section>
@@ -1302,8 +1305,14 @@ window.HarborFile.tr = function (msgid) {
         </div>
     </div>
 </section>
+</div>
 <script type="text/javascript">
 (function (HF) {
+    HF.fit_frame();
+    HF.bind_details_events();
+    HF.bind_edge_scroll_events();
+    HF.bind_native_touch_navigation();
+    HF.bind_metadata_copy();
     document.getElementById('fm_back').addEventListener('click', function() {
         if (HF.state.history_index > 0) {
             HF.state.history_index--;
@@ -1774,50 +1783,31 @@ window.HarborFile.tr = function (msgid) {
         var isLongPress = false;
         var isDragging = false;
         var isSelecting = false;
-        var scrollInterval = null;
-        var SCROLL_THRESHOLD = 50;
-        var SCROLL_SPEED = 8;
         
-        var DRAG_THRESHOLD = 14;
+        var DRAG_THRESHOLD = 28;   
         var FLICK_VELOCITY = 0.55;   
-        var DIRECTION_RATIO = 1.0;   
-        var MIN_MARQUEE_DX = 14;     
+        var DIRECTION_RATIO = 3.0;   
+        var MIN_MARQUEE_DX = 6;
+        var HOLD_MS = 600;
+        var ARM_MS = 160;            
+        var ARM_DIRECTION_RATIO = 1.5;  
         var touchStartOnBlank = false;
         var touchStartTime = 0;
         var multiTouch = false;
         var isScrolling = false;
-        var scrollStartTop = 0;
-
-        function startScroll(direction) {
-            stopScroll();
-            scrollInterval = setInterval(function() {
-                var scroller = HF.marquee_scroller();
-                scroller.scrollTop += direction * SCROLL_SPEED;
-
-                if (isSelecting) {
-                    updateMarqueeFromTouch();
-                }
-            }, 16);
-        }
-
-        function stopScroll() {
-            if (scrollInterval) {
-                clearInterval(scrollInterval);
-                scrollInterval = null;
-            }
-        }
-
-        function updateMarqueeFromTouch() {
-            if (!isSelecting) return;
-
-            var touch = window._lastTouch;
-            if (!touch) return;
-
-            HF.apply_marquee_selection(touch.clientX, touch.clientY);
-        }
+        var isArmed = false;
+        var armTimer = null;
+        var nativeGesture = false;
+        var nativeDetailsScroll = false;
+        var zoomedGesture = false;
 
         content.addEventListener('touchstart', function(e) {
-            
+            nativeGesture = HF.native_touch_navigation(e);
+            zoomedGesture = HF.page_is_zoomed();
+            if (nativeGesture) {
+                endTouch({ type: 'touchcancel' });
+                return;
+            }
             if (e.touches.length > 1) {
                 multiTouch = true;
                 if (longPressTimer) {
@@ -1830,13 +1820,13 @@ window.HarborFile.tr = function (msgid) {
 
             var touch = e.touches[0];
 
+            nativeDetailsScroll = HF.state.view_mode === 'details' &&
+                content.scrollWidth > content.clientWidth;
             touchStartTime = Date.now();
             touchStartX = touch.clientX;
             touchStartY = touch.clientY;
-            touchStartOnBlank = !HF.is_item_content_at(
-                touchStartX,
-                touchStartY
-            );
+            touchStartOnBlank = !e.target.closest('.fm-item-checkbox') &&
+                !HF.is_item_content_at(touchStartX, touchStartY);
 
             if (!touchStartOnBlank) {
                 return;
@@ -1850,17 +1840,17 @@ window.HarborFile.tr = function (msgid) {
             isDragging = false;
             isSelecting = false;
             isScrolling = false;
-            scrollStartTop = HF.marquee_scroller().scrollTop;
+            isArmed = false;
 
             HF.state.selection_dragging = false;
             HF.state.selection_moved = false;
 
             HF.state.selection_base =
-                (e.ctrlKey || e.metaKey)
+                (HF.state.selection_mode || e.ctrlKey || e.metaKey)
                     ? HF.selected_items()
                     : [];
 
-            if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+            if (!HF.state.selection_mode && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
                 HF.clear_selection();
             }
 
@@ -1892,16 +1882,58 @@ window.HarborFile.tr = function (msgid) {
                     }
                 }
             }, 500);
+
+            if (armTimer) {
+                clearTimeout(armTimer);
+            }
+            armTimer = setTimeout(function() {
+                armTimer = null;
+                if (!isDragging && !isScrolling && !HF.state.drag_item) {
+                    isArmed = true;
+                }
+            }, zoomedGesture ? HOLD_MS : ARM_MS);
         }, { passive: true });
 
         content.addEventListener('touchmove', function(e) {
-            
-            if (e.cancelable === false) {
+            if (nativeGesture || HF.native_touch_navigation(e)) {
+                nativeGesture = true;
+                endTouch({ type: 'touchcancel' });
                 return;
             }
             var touch = e.touches[0];
-
-            window._lastTouch = touch;
+            if (!touch) {
+                return;
+            }
+            var heldMarquee = touchStartOnBlank && isArmed && !isScrolling &&
+                Date.now() - touchStartTime >= HOLD_MS;
+            if (zoomedGesture && !HF.state.drag_item && !isDragging && !heldMarquee) {
+                if (Math.hypot(touch.clientX - touchStartX, touch.clientY - touchStartY) > 8) {
+                    clearTimeout(longPressTimer);
+                    clearTimeout(armTimer);
+                    longPressTimer = null;
+                    armTimer = null;
+                    isArmed = false;
+                    isScrolling = true;
+                }
+                return;
+            }
+            var selectionGesture = heldMarquee || (HF.state.selection_mode && touchStartOnBlank && isArmed && !isScrolling &&
+                Math.abs(touch.clientX - touchStartX) >= MIN_MARQUEE_DX &&
+                Math.abs(touch.clientX - touchStartX) >= Math.abs(touch.clientY - touchStartY) * ARM_DIRECTION_RATIO);
+            if (nativeDetailsScroll && !HF.state.drag_item && !isDragging && !selectionGesture) {
+                if (Math.hypot(touch.clientX - touchStartX, touch.clientY - touchStartY) > 8 || multiTouch) {
+                    clearTimeout(longPressTimer);
+                    clearTimeout(armTimer);
+                    longPressTimer = null;
+                    armTimer = null;
+                    isArmed = false;
+                    isScrolling = true;
+                }
+                return;
+            }
+            if (e.cancelable === false) {
+                return;
+            }
 
             if (HF.state.drag_item) {
                 isSelecting = false;
@@ -1912,18 +1944,7 @@ window.HarborFile.tr = function (msgid) {
                     HF.state.selection_box.style.display = 'none';
                 }
 
-                var dragClientY = touch.clientY;
-                var dragTopDist = dragClientY;
-                var dragBottomDist =
-                    window.innerHeight - dragClientY;
-
-                if (dragTopDist < SCROLL_THRESHOLD) {
-                    startScroll(-1);
-                } else if (dragBottomDist < SCROLL_THRESHOLD) {
-                    startScroll(1);
-                } else {
-                    stopScroll();
-                }
+                HF.update_edge_scroll(touch.clientX, touch.clientY);
 
                 return;
             }
@@ -1939,30 +1960,35 @@ window.HarborFile.tr = function (msgid) {
             var distance = Math.sqrt(dx * dx + dy * dy);
 
             if (!isDragging && !isScrolling) {
-                if (distance < DRAG_THRESHOLD) {
-                    
-                    if (distance > 6) {
-                        e.preventDefault();
-                    }
-                    return;
-                }
-
                 var velocity = distance / Math.max(1, Date.now() - touchStartTime);
-                var wantsMarquee =
-                    !multiTouch &&
+                var armed_drag = isArmed &&
+                    absDx >= MIN_MARQUEE_DX &&
+                    absDx >= absDy * ARM_DIRECTION_RATIO;
+                var slow_flat_drag = !zoomedGesture && distance >= MIN_MARQUEE_DX &&
                     velocity <= FLICK_VELOCITY &&
                     absDx >= MIN_MARQUEE_DX &&
                     absDx >= absDy * DIRECTION_RATIO;
+                var wantsMarquee = !multiTouch && (armed_drag || slow_flat_drag || (heldMarquee && distance >= MIN_MARQUEE_DX));
+
+                if (!wantsMarquee && distance < DRAG_THRESHOLD) {
+                    return;
+                }
 
                 if (longPressTimer) {
                     clearTimeout(longPressTimer);
                     longPressTimer = null;
+                }
+                if (armTimer) {
+                    clearTimeout(armTimer);
+                    armTimer = null;
                 }
 
                 if (wantsMarquee) {
                     isDragging = true;
                     isSelecting = true;
                     HF.state.selection_dragging = true;
+                    HF.hide_context_menus();
+                    HF.lock_touch_scroll('marquee');
 
                     HF.state.selection_base =
                         HF.state.selection_base.length
@@ -1982,16 +2008,10 @@ window.HarborFile.tr = function (msgid) {
                 } else {
                     
                     isScrolling = true;
-                    e.preventDefault();
                 }
             }
 
             if (isScrolling) {
-                
-                e.preventDefault();
-                var scroller = HF.marquee_scroller();
-                scroller.scrollTop =
-                    scrollStartTop + (touchStartY - touch.clientY);
                 return;
             }
 
@@ -2011,42 +2031,29 @@ window.HarborFile.tr = function (msgid) {
                 touch.clientY
             );
 
-            var clientY = touch.clientY;
-            var topDist = clientY;
-            var bottomDist =
-                window.innerHeight - clientY;
-
-            if (topDist < SCROLL_THRESHOLD) {
-                startScroll(-1);
-            } else if (bottomDist < SCROLL_THRESHOLD) {
-                startScroll(1);
-            } else {
-                stopScroll();
-            }
+            HF.update_edge_scroll(touch.clientX, touch.clientY);
         }, { passive: false });
 
-        content.addEventListener('touchend', function(e) {
+        function endTouch(e) {
             if (longPressTimer) {
                 clearTimeout(longPressTimer);
                 longPressTimer = null;
             }
+            if (armTimer) {
+                clearTimeout(armTimer);
+                armTimer = null;
+            }
+            isArmed = false;
 
-            stopScroll();
-            window._lastTouch = null;
+            HF.stop_edge_scroll();
 
             if (isSelecting) {
-                HF.state.selection_dragging = false;
-
-                if (HF.state.selection_box) {
-                    HF.state.selection_box.style.display = 'none';
-                }
-
-                document
-                    .getElementById('fm_content')
-                    .classList.remove('selecting');
+                HF.state.marquee_click_pending = e.type === 'touchend';
+                HF.clear_marquee();
             }
 
-            if (touchStartOnBlank && !HF.state.drag_item) {
+            if (touchStartOnBlank && !HF.state.drag_item && !HF.state.selection_mode &&
+                    !isScrolling && e.type !== 'touchcancel') {
                 if (isSelecting) {
                     if (!isDragging && !isLongPress) {
                         HF.clear_selection();
@@ -2064,7 +2071,13 @@ window.HarborFile.tr = function (msgid) {
             isLongPress = false;
             HF.state.selection_dragging = false;
             touchStartOnBlank = false;
-        }, { passive: true });
+            nativeDetailsScroll = false;
+        }
+        HF.state.cancel_marquee_touch = function() {
+            endTouch({ type: 'touchcancel' });
+        };
+        content.addEventListener('touchend', endTouch, { passive: true });
+        content.addEventListener('touchcancel', endTouch, { passive: true });
     })();
 
     
@@ -2096,3 +2109,4 @@ window.HarborFile.tr = function (msgid) {
 </script>
 
 {% include('footer') %}
+

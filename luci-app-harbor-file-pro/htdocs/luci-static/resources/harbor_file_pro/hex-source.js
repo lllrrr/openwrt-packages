@@ -3,15 +3,15 @@
 	'use strict';
 
 	var PAGE_SIZE = 65536;
-	var MAX_PAGES = 64;            // 4 MiB resident ceiling
+	var MAX_PAGES = 64;            
 
 	function HarborByteSource(path, total) {
 		this.path = path;
 		this.total = total;
-		this.pages = new Map();      // pageIndex -> Uint8Array
-		this.lru = [];               // pageIndex, most recent last
-		this.pending = new Map();    // pageIndex -> Promise
-		this.overlay = new Map();    // absolute offset -> byte value
+		this.pages = new Map();      
+		this.lru = [];               
+		this.pending = new Map();    
+		this.overlay = new Map();    
 	}
 
 	HarborByteSource.prototype._touch = function (index) {
@@ -119,10 +119,6 @@
 	};
 
 	HarborByteSource.prototype.patches = function () {
-		// Contiguous dirty bytes only. NEVER fill gaps from pages here: get()
-		// returns 0x00 for unloaded pages, which once corrupted files by
-		// writing zeros between edits. Bulk equal-length replacement is
-		// handled server-side (replace_all) instead of via the overlay.
 		var offsets = Array.from(this.overlay.keys()).sort(function (a, b) { return a - b; });
 		var runs = [];
 		var current = null;

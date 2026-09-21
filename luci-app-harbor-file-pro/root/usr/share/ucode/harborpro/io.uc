@@ -3,6 +3,7 @@
 'use strict';
 
 const _fs = require('fs');
+const RUNTIME_DIR = '/tmp/harbor_file_pro';
 const open = _fs.open,
       stat = _fs.stat,
       readfile = _fs.readfile,
@@ -19,10 +20,8 @@ const cursor = _uci.cursor;
 
 const CHUNK = 65536;
 
-// A regex match has no fixed length, so the tail carried across chunks is a
-// flat budget instead of needle-1; matches longer than this are not found.
 const REGEX_CARRY = 16384;
-const REPLACE_PROG = '/tmp/harbor_file_pro_replace.progress';
+const REPLACE_PROG = RUNTIME_DIR + '/harbor_file_pro_replace.progress';
 const SLICE_MAX = 1024 * 1024;
 
 const SYSTEM_FOLDER_ROOTS = [
@@ -44,6 +43,15 @@ const MIME_MAP = {
 };
 
 let headers_sent = false;
+
+function ensure_runtime_dir() {
+	let st = _fs.lstat(RUNTIME_DIR);
+	if (!st) {
+		_fs.mkdir(RUNTIME_DIR, 0o700);
+		st = _fs.lstat(RUNTIME_DIR);
+	}
+	return st && st.type == 'directory' && _fs.chmod(RUNTIME_DIR, 0o700);
+}
 
 function header(name, value) {
 	printf('%s: %s\r\n', name, value);
@@ -172,7 +180,7 @@ function authorize(sid, path, perm) {
 		rv = ubus.call('session', 'access', {
 			ubus_rpc_session: sid,
 			scope: 'ubus',
-			object: 'harborpro.file',
+			object: 'harbor.file',
 			function: perm
 		});
 	}
@@ -429,9 +437,6 @@ function do_splice(path, params) {
 	}});
 }
 
-// ucode compiles dynamic patterns with POSIX ERE.  Perl classes are silently
-// ignored there (regexp("\\d{3}") matches nothing at all), so map the few that
-// have an exact ERE equivalent and refuse the rest instead of pretending.
 const RE_CLASSES = {
 	d: '[0-9]', D: '[^0-9]',
 	w: '[A-Za-z0-9_]', W: '[^A-Za-z0-9_]',
@@ -478,11 +483,6 @@ function ere_translate(pattern) {
 	return out;
 }
 
-// regexec stops at the first NUL, so binary data is matched segment by segment
-// while the offsets stay absolute.  ucode exposes no match indices, but split()
-// hands out the pieces between matches, so the offsets are reconstructed from
-// their lengths -- and a pattern able to match the empty string shows up as a
-// piece count that does not add up.
 function regex_scan(hay, base, re_all, re_one) {
 	let out = [], at = 0;
 	let segs = split(hay, chr(0));
@@ -515,7 +515,6 @@ function regex_scan(hay, base, re_all, re_one) {
 
 const RE_EMPTY_MSG = 'pattern may match an empty string';
 
-// Shared by search and replace-all: the same engine, the same refusals.
 function compile_regex(needle, enc, icase) {
 	if (enc == 'hex')
 		return { error: 'regex needs text encoding' };
@@ -536,12 +535,6 @@ function compile_regex(needle, enc, icase) {
 	}
 }
 
-// The fold must never change the byte count, or the offsets we report into the
-// raw file drift (and replace-all rewrites unrelated bytes).  ucode's lc()
-// drops the NULs that file data is full of, so instead of giving up on the whole
-// 64 KiB chunk the haystack is folded NUL-free segment by NUL-free segment --
-// split() keeps the NULs, so the offsets stay absolute.  A segment whose fold
-// still changes length is matched exactly rather than approximately.
 function fold_segments(hay, base, needle, icase) {
 	let out = [];
 
@@ -585,9 +578,6 @@ function decode_needle(q, encoding) {
 	return out;
 }
 
-// Rewrite the byte range [start,end) with `repl` (in-memory string), via the
-// same streamed head/body/tail rewrite do_splice uses. Returns null on
-// success or an error string.
 function splice_string(path, st, start, end, repl) {
 	let tmp = path + '.harbor-replace';
 	let src = open(path, 'r');
@@ -639,13 +629,8 @@ function splice_string(path, st, start, end, repl) {
 	return null;
 }
 
-// Streamed whole-file replace-all for huge files: server-side scan collects
-// every match offset (numbers only, flat memory), then rewrites back-to-front
-// so earlier offsets stay valid. 1 TB costs the same as 1 KB.
-// ONE streaming pass over the file: copy bytes, swapping each match range
-// for the replacement. Progress is written every hit (i/total) so the
-// frontend can show a live percentage; memory stays flat for any file size.
 function rewrite_with_replacements(path, st, offsets, needle, repl, dst_path, lens) {
+	if (!ensure_runtime_dir()) return 'cannot create runtime directory';
 	let out_path = dst_path ?? path;
 	let tmp = out_path + '.harbor-replace';
 	let src = open(path, 'r');
@@ -738,9 +723,6 @@ function do_stage_discard(path) {
 }
 
 function do_replace_all(path, params) {
-	// Staged mode: rewrite SRC into path+'.harbor-stage' instead of the real
-	// file, so the frontend can show the result and only commit on Save.
-	// SRC must be the file itself or its own stage -- never arbitrary.
 	let staging = (params.stage == '1');
 	let src_path = path;
 	let dst_path = null;
@@ -764,8 +746,6 @@ function do_replace_all(path, params) {
 
 	let enc = params.encoding ?? 'text';
 
-	// One known range ("replace this hit only") needs no scan at all: the
-	// frontend already knows where the match is and how long it was.
 	let range = params.range != null ? split(params.range, ':') : null;
 
 	if (range != null && length(range) == 2) {
@@ -805,10 +785,8 @@ function do_replace_all(path, params) {
 	if (rgx != null && rgx.error != null)
 		return json_reply('400 Bad Request', { code: 1, message: rgx.error });
 
-	// a regex hit has no fixed length, so lengths travel alongside the offsets
 	let overlap = rgx != null ? REGEX_CARRY : length(needle) - 1;
 
-	// pagination loop reusing do_search's proven carry scan
 	let offsets = [];
 	let match_lens = rgx != null ? [] : null;
 	let cursor = 0;
@@ -1002,10 +980,6 @@ function do_search(path, params) {
 	let carry = '';
 	let carry_pos = start;
 
-	// Reverse navigation windows: last=1 returns the FINAL `limit` matches of
-	// the file; before=X returns the final `limit` matches strictly below X.
-	// `below` (how many matches precede the window) lets the client compute
-	// absolute numbering; total always counts the whole file.
 	let last_mode = (params.last == '1');
 	let before = +(params.before ?? -1);
 	if (before != before || before < -1)
@@ -1093,6 +1067,49 @@ function do_search(path, params) {
 	}});
 }
 
+function do_sha256(path) {
+	let before = stat(path);
+	if (!before || before.type != 'file')
+		return json_reply('400 Bad Request', { code: 1, message: 'not a regular file' });
+
+	let fd = open(path, 'r');
+	if (!fd)
+		return json_reply('403 Forbidden', { code: 1, message: 'cannot read file for SHA256 calculation' });
+	fd.close();
+
+	let quoted = "'" + replace(path, "'", "'\\''") + "'";
+	let command = 'if command -v sha256sum >/dev/null 2>&1; then set -- sha256sum; ' +
+		'elif command -v busybox >/dev/null 2>&1 && busybox sha256sum </dev/null >/dev/null 2>&1; ' +
+		'then set -- busybox sha256sum; ' +
+		'elif command -v openssl >/dev/null 2>&1; then set -- openssl dgst -sha256; ' +
+		'else printf "SHA256 tool not found: sha256sum, BusyBox sha256sum or OpenSSL is required"; exit 127; fi; ' +
+		'if command -v timeout >/dev/null 2>&1 && timeout 1 sh -c : >/dev/null 2>&1; ' +
+		'then set -- timeout 60 "$@"; fi; "$@" 2>&1 < ' + quoted;
+	let process = _fs.popen(command, 'r');
+	if (!process)
+		return json_reply('500 Internal Server Error', { code: 1, message: 'cannot start SHA256 calculation' });
+
+	let result = process.read(512) ?? '';
+	let status = process.close();
+	let digest = match(result, /[a-fA-F0-9]{64}/);
+	if (status != 0 || !digest)
+		return json_reply(status == 127 ? '503 Service Unavailable' : '500 Internal Server Error', {
+			code: 1,
+			message: status == 124 || status == 137 ? 'SHA256 calculation timed out' :
+				(trim(result) || sprintf('SHA256 calculation failed (exit %d)', status ?? -1))
+		});
+
+	let after = stat(path);
+	if (!after || after.type != 'file' || before.inode != after.inode ||
+		before.dev.major != after.dev.major || before.dev.minor != after.dev.minor ||
+		before.size != after.size || before.mtime != after.mtime || before.ctime != after.ctime)
+		return json_reply('409 Conflict', { code: 1, message: 'file changed during SHA256 calculation' });
+
+	return json_reply('200 OK', { code: 0, data: {
+		path, sha256: lc(digest[0]), size: after.size, mtime: after.mtime
+	}});
+}
+
 function main() {
 	let params = read_params();
 	let mode   = params.mode ?? 'download';
@@ -1141,6 +1158,7 @@ function main() {
 	if (mode == 'replace_progress') return do_replace_progress(path, params);
 	if (mode == 'splice') return do_splice(path, params);
 	if (mode == 'search') return do_search(path, params);
+	if (mode == 'sha256') return do_sha256(path);
 
 	let st = stat(path);
 
@@ -1232,3 +1250,4 @@ function main() {
 return {
 	main
 };
+

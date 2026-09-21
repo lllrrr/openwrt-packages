@@ -3,6 +3,7 @@
 'use strict';
 
 const _fs = require('fs');
+const RUNTIME_DIR = '/tmp/harbor_file_pro';
 const open = _fs.open,
       stat = _fs.stat,
       lsdir = _fs.lsdir,
@@ -25,9 +26,9 @@ const CONFIG          = 'harbor_file_pro';
 const CONFIG_FILE     = '/etc/config/harbor_file_pro';
 const CONFIG_SECTION  = 'main';
 
-const ARCHIVE_STATE_FILE   = '/tmp/harbor_file_pro_archive_state.json';
-const PACKAGE_STATE_FILE   = '/tmp/harbor_file_pro_package_install_state.json';
-const THUMBNAIL_STATE_FILE = '/tmp/harbor_file_pro_thumbnail_state.json';
+const ARCHIVE_STATE_FILE   = RUNTIME_DIR + '/harbor_file_pro_archive_state.json';
+const PACKAGE_STATE_FILE   = RUNTIME_DIR + '/harbor_file_pro_package_install_state.json';
+const THUMBNAIL_STATE_FILE = RUNTIME_DIR + '/harbor_file_pro_thumbnail_state.json';
 const THUMBNAIL_CACHE_VERSION = 'contain-v2';
 
 const OPERATION_SPACE_MARGIN = 16 * 1024 * 1024;
@@ -117,6 +118,15 @@ const BOOLEAN_VALUES  = { "0": true, "1": true };
 const VIEW_MODE_VALUES = {
 	"0": true, "1": true, "2": true, "3": true, "4": true, "5": true
 };
+
+function ensure_runtime_dir() {
+	let st = _fs.lstat(RUNTIME_DIR);
+	if (!st) {
+		_fs.mkdir(RUNTIME_DIR, 0o700);
+		st = _fs.lstat(RUNTIME_DIR);
+	}
+	return st && st.type == 'directory' && _fs.chmod(RUNTIME_DIR, 0o700);
+}
 
 function normalize_path(path) {
 	if (type(path) != 'string' || path == '' || substr(path, 0, 1) != '/')
@@ -264,6 +274,7 @@ function read_json_file(path) {
 
 function write_json_file(path, obj) {
 	try {
+		if (!ensure_runtime_dir()) return false;
 		let tmp = path + '.tmp';
 		if (!writefile(tmp, sprintf('%J', obj)))
 			return false;
@@ -312,11 +323,6 @@ function ensure_config_file() {
 	return writefile(CONFIG_FILE, sprintf("config %s '%s'\n", CONFIG, CONFIG_SECTION)) != null;
 }
 
-// Load the config on a fresh cursor, healing the file when needed:
-//   missing  -> created by ensure_config_file()
-//   unloadable (e.g. parse error from a migrated/edited file)
-//            -> moved to <file>.bak and recreated with defaults
-// Returns { uci, err } -- exactly one is set; err already translated.
 function open_config() {
 	if (!ensure_config_file())
 		return { uci: null, err: sprintf(tr('Cannot create %s'), CONFIG_FILE) };
@@ -848,6 +854,7 @@ function make_task_id(prefix) {
 }
 
 function spawn_background(cmd, logfile, rcfile) {
+	if (!ensure_runtime_dir()) return null;
 	let quoted = replace(cmd, '"', '\\"');
 
 	let full = rcfile
@@ -1018,7 +1025,7 @@ function save_uhttpd_configuration(script_timeout, network_timeout) {
 	if (!rv)
 		return 'failed to update the uHTTPd configuration';
 
-	spawn_background('sleep 1; /etc/init.d/uhttpd reload', '/tmp/harbor_file_pro_uhttpd.log');
+	spawn_background('sleep 1; /etc/init.d/uhttpd reload', RUNTIME_DIR + '/harbor_file_pro_uhttpd.log');
 	return null;
 }
 
@@ -1063,7 +1070,7 @@ function save_nginx_configuration(buffering, body_size) {
 		return sprintf(tr('Nginx rejected the new configuration: %s'), trim(out));
 	}
 
-	spawn_background('sleep 1; /etc/init.d/nginx reload', '/tmp/harbor_file_pro_nginx.log');
+	spawn_background('sleep 1; /etc/init.d/nginx reload', RUNTIME_DIR + '/harbor_file_pro_nginx.log');
 	return null;
 }
 
@@ -1095,7 +1102,7 @@ function save_uwsgi_configuration(values) {
 		return 'failed to write the uwsgi configuration';
 	}
 
-	spawn_background('sleep 1; /etc/init.d/uwsgi reload', '/tmp/harbor_file_pro_uwsgi.log');
+	spawn_background('sleep 1; /etc/init.d/uwsgi reload', RUNTIME_DIR + '/harbor_file_pro_uwsgi.log');
 	return null;
 }
 
@@ -1265,10 +1272,10 @@ function api_save_show_line_numbers() {
 	ok(http, { show_line_numbers: +v });
 }
 
-const PACKAGE_LOG   = '/tmp/harbor_file_pro_package_install.log';
-const THUMBNAIL_LOG = '/tmp/harbor_file_pro_thumbnail.log';
-const PACKAGE_RC    = '/tmp/harbor_file_pro_package_install.rc';
-const THUMBNAIL_RC  = '/tmp/harbor_file_pro_thumbnail.rc';
+const PACKAGE_LOG   = RUNTIME_DIR + '/harbor_file_pro_package_install.log';
+const THUMBNAIL_LOG = RUNTIME_DIR + '/harbor_file_pro_thumbnail.log';
+const PACKAGE_RC    = RUNTIME_DIR + '/harbor_file_pro_package_install.rc';
+const THUMBNAIL_RC  = RUNTIME_DIR + '/harbor_file_pro_thumbnail.rc';
 
 function detect_package_manager() {
 	if (stat('/usr/bin/apk') || stat('/sbin/apk'))
@@ -1314,6 +1321,9 @@ function spawn_package_task(cmd) {
 }
 
 function start_install(packages, label) {
+	if (!ensure_runtime_dir())
+		return fail(http, 1, tr('Cannot create runtime directory'));
+
 
 	if (task_busy(PACKAGE_STATE_FILE))
 		return write_json_status(http, 409, 'Conflict',
@@ -1481,6 +1491,9 @@ function api_tool_install_start() {
 }
 
 function api_package_install_start() {
+	if (!ensure_runtime_dir())
+		return fail(http, 1, tr('Cannot create runtime directory'));
+
 	let path = validate_write_request(http, http.formvalue('path'));
 	if (!path) return;
 
@@ -1532,6 +1545,9 @@ function have_thumbnailer() {
 }
 
 function api_thumbnail_generate_start() {
+	if (!ensure_runtime_dir())
+		return fail(http, 1, tr('Cannot create runtime directory'));
+
 	let dir = normalize_path(http.formvalue('path'));
 
 	if (!dir)
@@ -1597,8 +1613,9 @@ function api_thumbnail_generate_start() {
 			j.path, j.path));
 	}
 
-	let script = '/tmp/harbor_file_pro_thumbnail.sh';
+	let script = RUNTIME_DIR + '/harbor_file_pro_thumbnail.sh';
 	let fd = open(script, 'w', 0o700);
+	if (!fd) return fail(http, 1, tr('Cannot create thumbnail script'));
 	fd.write("#!/bin/sh\n" + join("\n", lines) + "\n");
 	fd.close();
 
@@ -1659,10 +1676,10 @@ function api_thumbnail_generate_status() {
 	ok(http, st);
 }
 
-const ARCHIVE_SEL_FILE = '/tmp/harbor_file_pro_archive_sel.txt';
+const ARCHIVE_SEL_FILE = RUNTIME_DIR + '/harbor_file_pro_archive_sel.txt';
 const ARCHIVE_LIST_LIMIT = 4000;
-const ARCHIVE_LOG = '/tmp/harbor_file_pro_archive.log';
-const ARCHIVE_RC  = '/tmp/harbor_file_pro_archive.rc';
+const ARCHIVE_LOG = RUNTIME_DIR + '/harbor_file_pro_archive.log';
+const ARCHIVE_RC  = RUNTIME_DIR + '/harbor_file_pro_archive.rc';
 
 function note_copy_failure(failed, path) {
 	if (failed)
@@ -1750,7 +1767,8 @@ function transfer_one(src, dest_dir, mode, on_conflict, forced_name) {
 		? forced_name : path_name(src);
 	let target = join_path(dest_dir, name);
 
-	if (target == src)
+	if (target == src && on_conflict != 'skip' &&
+		!(mode == 'copy' && on_conflict == 'rename'))
 		return { ok: false, error: tr('Cannot transfer a directory into itself') };
 
 	if (lstat_safe(target)) {
@@ -1822,8 +1840,6 @@ function read_bookmarks() {
 	return out;
 }
 
-// Rewriting every section keeps ordering portable across ucode-uci builds
-// instead of relying on an optional reorder() binding.
 function write_bookmarks(list) {
 	if (!ensure_config_file())
 		return sprintf(tr('Cannot create %s'), CONFIG_FILE);
@@ -1837,7 +1853,6 @@ function write_bookmarks(list) {
 		if (sec['.name'])
 			push(stale, sec['.name']);
 	});
-	// ucode-uci has no remove(); the method is delete(config, section).
 	for (let sid in stale)
 		uci.delete(CONFIG, sid);
 
@@ -1981,9 +1996,6 @@ function write_fav_expanded(list) {
 	return null;
 }
 
-// Explicit folder sections plus folders that only exist as bookmark.folder
-// values (created before folders were materialized). With persist=true the
-// merged list is written back, so every folder operation sees one namespace.
 function merged_bookmark_folders(persist) {
 	let explicit = read_bookmark_folders();
 	let merged = [ ...explicit ];
@@ -2036,8 +2048,6 @@ function api_bookmark_save() {
 	if (length(clean_folder) > 64)
 		clean_folder = substr(clean_folder, 0, 64);
 
-	// Editing may change the address: original_path names the bookmark being
-	// edited so it is moved (removed at the old path) instead of duplicated.
 	let original = normalize_path(formvalue_any(http,
 		[ 'original_path', 'original', 'old_path' ]));
 
@@ -2224,7 +2234,6 @@ function api_bookmark_folder_delete() {
 	if (err)
 		return fail(http, 2, sprintf(tr('Save failed: %s'), err));
 
-	// Deleting a folder keeps its bookmarks; they fall back to ungrouped.
 	let list = read_bookmarks();
 	let changed = false;
 	for (let b in list)
@@ -2311,6 +2320,8 @@ function api_navigation() {
 	});
 }
 
+const ARCHIVE_ONE_FILE = { bz2: 1, xz: 1, lzma: 1, zst: 1, zstd: 1, lz4: 1, lzo: 1, z: 1, lz: 1, lrz: 1 };
+
 function archive_kind(src, ext) {
 	let lower = lc(src);
 
@@ -2318,18 +2329,46 @@ function archive_kind(src, ext) {
 		return 'zip';
 	if (substr(lower, -7) == '.tar.gz' || ext == 'tgz')
 		return 'targz';
-	if (substr(lower, -8) == '.tar.bz2' || ext == 'tbz')
+	if (substr(lower, -8) == '.tar.bz2' || ext == 'tbz' || ext == 'tbz2')
 		return 'tarbz2';
 	if (substr(lower, -7) == '.tar.xz' || ext == 'txz')
 		return 'tarxz';
 	if (ext == 'tar')
 		return 'tar';
+	if (substr(lower, -8) == '.cpio.gz')
+		return 'cpio';
 	if (ext == 'gz')
 		return 'gz';
 	if (ext == '7z')
 		return '7z';
+	if (ext == 'rar')
+		return 'rar';
 	if (ext == 'iso')
 		return 'iso';
+
+	if (substr(lower, -8) == '.tar.zst' || substr(lower, -9) == '.tar.zstd' || ext == 'tzst')
+		return 'tarzst';
+	if (substr(lower, -9) == '.tar.lzma' || ext == 'tlz')
+		return 'tarlzma';
+	if (substr(lower, -8) == '.tar.lz4')
+		return 'tarlz4';
+	if (substr(lower, -8) == '.tar.lzo')
+		return 'tarlzo';
+	if (substr(lower, -6) == '.tar.z')
+		return 'tarz';
+	if (substr(lower, -8) == '.tar.lrz')
+		return 'tarlrz';
+	if (substr(lower, -7) == '.tar.bz')
+		return 'tarbz';
+	if (ext == 'cab' || ext == 'lha' || ext == 'lzh' || ext == 'xar' || ext == 'warc'
+			|| ext == 'cpio' || ext == 'deb' || ext == 'rpm' || ext == 'zipx')
+		return ext;
+	if (ext == 'ipk')
+		return 'targz';
+	if (ext == 'apk')
+		return 'zip';
+	if (ARCHIVE_ONE_FILE[ext] != null)
+		return ext;
 
 	return null;
 }
@@ -2339,7 +2378,19 @@ const ARCHIVE_TAR_FLAG = { targz: 'z', tarbz2: 'j', tarxz: 'J', tar: '' };
 const ARCHIVE_SUFFIX = { tar: '.tar', 'tar.gz': '.tar.gz', zip: '.zip' };
 
 function archive_bsdtar_kind(kind) {
-	return kind == 'zip' || kind == '7z' || kind == 'iso';
+	if (kind == null || ARCHIVE_TAR_FLAG[kind] != null || kind == 'gz')
+		return false;
+
+	return ARCHIVE_ONE_FILE[kind] == null;
+}
+
+function archive_one_file_name(src, kind) {
+	let base = basename(src);
+
+	if (kind == 'gz')
+		return replace(base, /\.gz$/, '');
+
+	return replace(base, /\.[^.]*$/, '');
 }
 
 function archive_named(name, format) {
@@ -2425,16 +2476,27 @@ function archive_extract_command(src, ext, dest_dir, members) {
 		if (count)
 			return { error: tr('This archive format only supports one regular file') };
 
-		let out = replace(basename(src), /\.gz$/, '');
+		let out = archive_one_file_name(src, kind);
 		return { tool: 'gunzip', kind: kind, target: out,
 			cmd: sprintf('cd %s && gunzip -c %s > %s', dest, arc, shellquote(out)) };
+	}
+
+	if (ARCHIVE_ONE_FILE[kind] != null) {
+		if (count)
+			return { error: tr('This archive format only supports one regular file') };
+
+		let out2 = archive_one_file_name(src, kind);
+		return { tool: 'bsdtar', kind: kind, target: out2,
+			cmd: sprintf('cd %s && bsdtar -xOf %s > %s', dest, arc, shellquote(out2)) };
 	}
 
 	return { error: tr('Unsupported archive format') };
 }
 
-function archive_tool_lines(cmd) {
-	let proc = popen(sprintf('{ %s; } 2>&1; echo "rc=$?"', cmd), 'r');
+function archive_tool_lines(cmd, err_file) {
+	let proc = err_file
+		? popen(sprintf('{ %s; } 2>%s; echo "rc=$?"', cmd, shellquote(err_file)), 'r')
+		: popen(sprintf('{ %s; } 2>&1; echo "rc=$?"', cmd), 'r');
 	if (!proc)
 		return { lines: [], rc: -1 };
 
@@ -2524,23 +2586,28 @@ function archive_listing(src, ext) {
 		cmd = sprintf('bsdtar -tvf %s', arc);
 	else if (ARCHIVE_TAR_FLAG[kind] != null)
 		cmd = sprintf('tar -t%sf %s', ARCHIVE_TAR_FLAG[kind], arc);
-	else if (kind == 'gz')
-		return { entries: [{ name: replace(basename(src), /\.gz$/, ''), dir: false, size: null }], truncated: false };
+	else if (kind == 'gz' || ARCHIVE_ONE_FILE[kind] != null)
+		return { entries: [{ name: archive_one_file_name(src, kind), dir: false, size: null }], truncated: false };
 	else
 		return { error: tr('Unsupported archive format') };
 
-	let res = archive_tool_lines(cmd);
-	let detail = '';
+	let err_file = sprintf('%s.list.err', ARCHIVE_SEL_FILE);
+	let res = archive_tool_lines(cmd, err_file);
+	let err_text = trim(readfile(err_file) ?? '');
+	unlink(err_file);
 
-	if (res.rc != 0) {
-		for (let raw in res.lines)
-			if (detail == '' && trim(raw) != '')
-				detail = trim(raw);
+	let parsed = archive_parse_entries(res.lines, archive_bsdtar_kind(kind), limit);
+
+	if (res.rc != 0 && !length(parsed.entries)) {
+		let detail = err_text;
+
+		if (detail == '')
+			for (let raw in res.lines)
+				if (detail == '' && trim(raw) != '')
+					detail = trim(raw);
 
 		return { error: tr('List failed'), detail: substr(detail, 0, 200) };
 	}
-
-	let parsed = archive_parse_entries(res.lines, archive_bsdtar_kind(kind), limit);
 
 	return { entries: parsed.entries, truncated: parsed.truncated, exit_code: res.rc };
 }
@@ -3204,6 +3271,9 @@ function begin_archive_task(task) {
 
 
 function api_archive_create_start() {
+	if (!ensure_runtime_dir())
+		return fail(http, 1, tr('Cannot create runtime directory'));
+
 	let dest_dir = validate_write_request(http,
 		formvalue_any(http, [ 'target_dir', 'path' ]));
 	if (!dest_dir) return;
@@ -3284,6 +3354,9 @@ function api_archive_create_start() {
 }
 
 function api_archive_extract_start() {
+	if (!ensure_runtime_dir())
+		return fail(http, 1, tr('Cannot create runtime directory'));
+
 	let dest_dir = validate_write_request(http,
 		formvalue_any(http, [ 'target_dir', 'destination' ]));
 	if (!dest_dir) return;
@@ -3418,3 +3491,4 @@ return {
 	api_package_install_start, api_package_install_status,
 	api_thumbnail_generate_start, api_thumbnail_generate_status
 };
+
