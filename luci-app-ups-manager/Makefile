@@ -8,7 +8,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-ups-manager
 PKG_VERSION:=1.0.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_LICENSE:=GPL-2.0-or-later
 PKG_MAINTAINER:=Gilbert Liu & Contributors
 
@@ -17,13 +17,21 @@ LUCI_DESCRIPTION:=Enterprise UPS Power Management System for OpenWrt / iStoreOS 
 LUCI_DEPENDS:=+luci-base +rpcd +rpcd-mod-file +nut +nut-common +nut-server +nut-upsmon +nut-upsc +nut-driver-usbhid-ups +curl
 LUCI_PKGARCH:=all
 
+define Package/$(PKG_NAME)/conffiles
+/etc/config/ups_manager
+endef
+
 define Package/$(PKG_NAME)/postinst
 #!/bin/sh
 if [ -z "$${IPKG_INSTROOT}" ]; then
+	chmod 755 /etc/init.d/ups-manager 2>/dev/null || true
+	chmod 755 /etc/uci-defaults/80_ups_manager 2>/dev/null || true
+	chmod 755 /usr/bin/ups-manager-* 2>/dev/null || true
+	chmod 755 /usr/libexec/rpcd/luci.ups-manager 2>/dev/null || true
 	/etc/uci-defaults/80_ups_manager 2>/dev/null || true
 	/etc/init.d/ups-manager enable
 	/etc/init.d/ups-manager restart 2>/dev/null || true
-	/etc/init.d/rpcd restart 2>/dev/null || true
+	/etc/init.d/rpcd reload 2>/dev/null || true
 	rm -rf /tmp/luci-indexcache /tmp/luci-modulecache/
 fi
 exit 0
@@ -42,7 +50,7 @@ define Package/$(PKG_NAME)/postrm
 #!/bin/sh
 if [ -z "$${IPKG_INSTROOT}" ]; then
 	rm -rf /tmp/run/ups-manager* /tmp/log/ups-manager*
-	/etc/init.d/rpcd restart 2>/dev/null || true
+	/etc/init.d/rpcd reload 2>/dev/null || true
 	rm -rf /tmp/luci-indexcache /tmp/luci-modulecache/
 fi
 exit 0
