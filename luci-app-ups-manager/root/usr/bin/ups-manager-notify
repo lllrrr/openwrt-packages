@@ -1,0 +1,96 @@
+#!/bin/sh
+# UPS Notification Dispatcher
+# Copyright (C) 2026 Gilbert Liu & Contributors
+
+CONF="ups_manager"
+EVENT_TYPE="$1"
+EVENT_MSG="$2"
+
+[ -n "$EVENT_TYPE" ] || exit 0
+[ -n "$EVENT_MSG" ] || EVENT_MSG="UPS 状态事件变更"
+
+ENABLED=$(uci -q get ${CONF}.notification.enabled || echo "0")
+[ "$ENABLED" = "1" ] || exit 0
+
+CHANNEL=$(uci -q get ${CONF}.notification.channel || echo "webhook")
+URL=$(uci -q get ${CONF}.notification.webhook_url)
+SECRET=$(uci -q get ${CONF}.notification.secret)
+REPEAT_INTERVAL=$(uci -q get ${CONF}.notification.repeat_interval || echo "600")
+
+[ -n "$URL" ] || exit 0
+
+# Check event type switch
+case "$EVENT_TYPE" in
+	on_battery)
+		SW=$(uci -q get ${CONF}.notification.notify_on_battery || echo "1")
+		;;
+	online)
+		SW=$(uci -q get ${CONF}.notification.notify_on_online || echo "1")
+		;;
+	low_battery)
+		SW=$(uci -q get ${CONF}.notification.notify_on_low_battery || echo "1")
+		;;
+	overload)
+		SW=$(uci -q get ${CONF}.notification.notify_on_overload || echo "1")
+		;;
+	comm_lost|comm_restored)
+		SW=$(uci -q get ${CONF}.notification.notify_on_comm_lost || echo "1")
+		;;
+	test)
+		SW=1
+		;;
+	*)
+		SW=1
+		;;
+esac
+
+[ "$SW" = "1" ] || exit 0
+
+# Rate limit / Debounce check
+TMP_LOCK="/tmp/run/ups-manager/notify_${EVENT_TYPE}.lock"
+NOW=$(date +%s)
+if [ -f "$TMP_LOCK" ] && [ "$EVENT_TYPE" != "test" ]; then
+	LAST_TS=$(cat "$TMP_LOCK" 2>/dev/null || echo 0)
+	if [ $((NOW - LAST_TS)) -lt "$REPEAT_INTERVAL" ]; then
+		logger -t ups-manager "Notification $EVENT_TYPE suppressed by repeat interval (${REPEAT_INTERVAL}s)."
+		exit 0
+	fi
+fi
+echo "$NOW" > "$TMP_LOCK"
+
+HOSTNAME=$(cat /proc/sys/kernel/hostname 2>/dev/null || echo "OpenWrt")
+TITLE="[UPS告警] $HOSTNAME"
+CONTENT="【设备】$HOSTNAME\n【事件】$EVENT_MSG\n【时间】$(date '+%Y-%m-%d %H:%M:%S')"
+
+case "$CHANNEL" in
+	wechat)
+		# WeChat Work Bot
+		PAYLOAD=$(printf '{"msgtype":"markdown","markdown":{"content":"### %s\n%s"}}' "$TITLE" "$CONTENT")
+		curl -s -m 10 -H "Content-Type: application/json" -d "$PAYLOAD" "$URL" >/dev/null 2>&1
+		;;
+	dingtalk)
+		# DingTalk Bot
+		PAYLOAD=$(printf '{"msgtype":"markdown","markdown":{"title":"%s","text":"### %s\n\n%s"}}' "$TITLE" "$TITLE" "$CONTENT")
+		curl -s -m 10 -H "Content-Type: application/json" -d "$PAYLOAD" "$URL" >/dev/null 2>&1
+		;;
+	feishu)
+		# Feishu Bot
+		PAYLOAD=$(printf '{"msg_type":"text","content":{"text":"%s\n\n%s"}}' "$TITLE" "$CONTENT")
+		curl -s -m 10 -H "Content-Type: application/json" -d "$PAYLOAD" "$URL" >/dev/null 2>&1
+		;;
+	bark)
+		# Bark (iOS)
+		curl -s -m 10 -d "title=$TITLE&body=$EVENT_MSG&group=UPS" "$URL" >/dev/null 2>&1
+		;;
+	serverchan)
+		# ServerChan Turbo
+		curl -s -m 10 -d "title=$TITLE&desp=$CONTENT" "$URL" >/dev/null 2>&1
+		;;
+	*)
+		# Generic Webhook (POST JSON)
+		PAYLOAD=$(printf '{"title":"%s","message":"%s","event":"%s","host":"%s","timestamp":%d}' "$TITLE" "$EVENT_MSG" "$EVENT_TYPE" "$HOSTNAME" "$NOW")
+		curl -s -m 10 -H "Content-Type: application/json" -d "$PAYLOAD" "$URL" >/dev/null 2>&1
+		;;
+esac
+
+exit 0

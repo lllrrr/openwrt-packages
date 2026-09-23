@@ -1,0 +1,151 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2026 Gilbert Liu & Contributors
+
+START=95
+STOP=10
+USE_PROCD=1
+
+PROG=/usr/bin/ups-manager-daemon
+CONF=ups_manager
+
+sync_nut_config() {
+	local mode=$(uci -q get ${CONF}.ups.mode || echo "standalone")
+	local reuse=$(uci -q get ${CONF}.global.reuse_existing_nut || echo "1")
+
+	# If upsd is already active and user chose reuse, keep running configuration untouched
+	if [ "$reuse" = "1" ] && pgrep upsd >/dev/null 2>&1; then
+		logger -t ups-manager "Existing NUT upsd instance detected, reusing current NUT service."
+		return 0
+	fi
+
+	# Ensure /etc/nut directory exists
+	mkdir -p /etc/nut /var/run/nut /var/state/ups 2>/dev/null
+	chown -R nut:nut /var/run/nut /var/state/ups 2>/dev/null || true
+
+	# Backup existing files if first time managing
+	for f in ups.conf upsd.conf upsd.users upsmon.conf; do
+		if [ -f "/etc/nut/$f" ] && [ ! -f "/etc/nut/$f.orig-bak" ]; then
+			cp "/etc/nut/$f" "/etc/nut/$f.orig-bak" 2>/dev/null || true
+		fi
+	done
+
+	local ups_name=$(uci -q get ${CONF}.ups.name || echo "ups")
+	local driver=$(uci -q get ${CONF}.ups.driver || echo "usbhid-ups")
+	local port=$(uci -q get ${CONF}.ups.port || echo "auto")
+	local desc=$(uci -q get ${CONF}.ups.desc || echo "Primary UPS")
+	local vendorid=$(uci -q get ${CONF}.ups.vendorid)
+	local productid=$(uci -q get ${CONF}.ups.productid)
+	local serial=$(uci -q get ${CONF}.ups.serial)
+
+	local listen_addr=$(uci -q get ${CONF}.nut_service.listen_address || echo "127.0.0.1")
+	local listen_port=$(uci -q get ${CONF}.nut_service.listen_port || echo "3493")
+	local admin_user=$(uci -q get ${CONF}.nut_service.admin_user || echo "admin")
+	local admin_pass=$(uci -q get ${CONF}.nut_service.admin_password || echo "adminpass")
+	local mon_user=$(uci -q get ${CONF}.nut_service.mon_user || echo "monuser")
+	local mon_pass=$(uci -q get ${CONF}.nut_service.mon_password || echo "monpass")
+
+	if [ "$mode" != "netclient" ]; then
+		# Generate ups.conf
+		cat <<EOF > /etc/nut/ups.conf
+maxretry = 3
+pollinterval = 2
+
+[$ups_name]
+	driver = $driver
+	port = $port
+	desc = "$desc"
+EOF
+		[ -n "$vendorid" ] && echo "	vendorid = \"$vendorid\"" >> /etc/nut/ups.conf
+		[ -n "$productid" ] && echo "	productid = \"$productid\"" >> /etc/nut/ups.conf
+		[ -n "$serial" ] && echo "	serial = \"$serial\"" >> /etc/nut/ups.conf
+
+		# Generate upsd.conf (Strict LAN / Localhost binding)
+		cat <<EOF > /etc/nut/upsd.conf
+LISTEN $listen_addr $listen_port
+MAXAGE 15
+EOF
+
+		# Generate upsd.users
+		cat <<EOF > /etc/nut/upsd.users
+[$admin_user]
+	password = $admin_pass
+	actions = SET
+	instcmds = ALL
+
+[$mon_user]
+	password = $mon_pass
+	upsmon master
+EOF
+	fi
+
+	# Generate upsmon.conf
+	local remote_host="$listen_addr"
+	local remote_port="$listen_port"
+	[ "$mode" = "netclient" ] && remote_host=$(uci -q get ${CONF}.ups.remote_host || echo "127.0.0.1")
+	[ "$mode" = "netclient" ] && remote_port=$(uci -q get ${CONF}.ups.remote_port || echo "3493")
+	local remote_user=$(uci -q get ${CONF}.ups.remote_user || echo "$mon_user")
+	local remote_pass=$(uci -q get ${CONF}.ups.remote_password || echo "$mon_pass")
+
+	cat <<EOF > /etc/nut/upsmon.conf
+MONITOR ${ups_name}@${remote_host}:${remote_port} 1 ${remote_user} ${remote_pass} master
+MINSUPPLIES 1
+SHUTDOWNCMD "/usr/bin/ups-manager-shutdown trigger"
+POLLFREQ 5
+POLLFREQALERT 2
+HOSTSYNC 15
+DEADTIME 15
+POWERDOWNFLAG /etc/killpower
+EOF
+	chmod 640 /etc/nut/* 2>/dev/null || true
+	chown root:nut /etc/nut/* 2>/dev/null || true
+}
+
+start_service() {
+	local enabled=$(uci -q get ${CONF}.global.enabled || echo "0")
+	[ "$enabled" = "1" ] || return 0
+
+	mkdir -p /tmp/run/ups-manager /tmp/log/ups-manager 2>/dev/null
+
+	sync_nut_config
+
+	# If upsd is not running and we are standalone/netserver, attempt to start driver and upsd
+	local mode=$(uci -q get ${CONF}.ups.mode || echo "standalone")
+	local driver=$(uci -q get ${CONF}.ups.driver || echo "usbhid-ups")
+	if [ "$mode" != "netclient" ]; then
+		# Clean dead socket or stale locks if driver is not actively serving upsd
+		if ! pgrep upsd >/dev/null 2>&1; then
+			killall -9 usbhid-ups blazer_usb blazer_ser 2>/dev/null || true
+			rm -f /var/run/nut/* /var/state/ups/* 2>/dev/null || true
+		fi
+
+		if ! pgrep -f "upsdrvctl" >/dev/null 2>&1 && ! pgrep -f "$driver" >/dev/null 2>&1; then
+			/usr/sbin/upsdrvctl start >/dev/null 2>&1 || true
+		fi
+		if ! pgrep upsd >/dev/null 2>&1; then
+			/usr/sbin/upsd >/dev/null 2>&1 || true
+		fi
+	fi
+
+	procd_open_instance "ups-manager-daemon"
+	procd_set_param command "$PROG"
+	procd_set_param respawn 3600 5 0
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+
+	[ -x "/usr/bin/ups-manager-log-event" ] && /usr/bin/ups-manager-log-event ops "ops" "info" "UPS 配置与服务已加载" "驱动=$driver, 端口=$port, 模式=$mode, 监听=$listen_addr"
+}
+
+stop_service() {
+	# Stop daemon cleanly
+	logger -t ups-manager "Stopping ups-manager service..."
+}
+
+reload_service() {
+	[ -x "/usr/bin/ups-manager-log-event" ] && /usr/bin/ups-manager-log-event ops "ops" "info" "UPS 配置与服务已重载" "系统已根据新的配置参数重载运行环境"
+	restart
+}
+
+service_triggers() {
+	procd_add_reload_trigger "$CONF"
+}

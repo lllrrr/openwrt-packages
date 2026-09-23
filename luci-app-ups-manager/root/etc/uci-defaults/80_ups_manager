@@ -1,0 +1,27 @@
+#!/bin/sh
+# Initial configuration script for luci-app-ups-manager
+
+[ -x /sbin/uci ] || exit 0
+
+# Generate safe random password for local nut monitor user if unset or default
+CURRENT_PASS=$(uci -q get ups_manager.nut_service.mon_password)
+if [ -z "$CURRENT_PASS" ] || [ "$CURRENT_PASS" = "monpass" ]; then
+    RAND_PASS=$(tr -dc 'a-zA-Z0-9' < /dev/urandom 2>/dev/null | head -c 16)
+    [ -n "$RAND_PASS" ] || RAND_PASS="ups_$(date +%s)"
+    uci -q set ups_manager.nut_service.mon_password="$RAND_PASS"
+    uci -q set ups_manager.ups.remote_password="$RAND_PASS"
+fi
+
+CURRENT_ADMIN=$(uci -q get ups_manager.nut_service.admin_password)
+if [ -z "$CURRENT_ADMIN" ] || [ "$CURRENT_ADMIN" = "adminpass" ]; then
+    RAND_ADMIN=$(tr -dc 'a-zA-Z0-9' < /dev/urandom 2>/dev/null | head -c 16)
+    [ -n "$RAND_ADMIN" ] || RAND_ADMIN="admin_$(date +%s)"
+    uci -q set ups_manager.nut_service.admin_password="$RAND_ADMIN"
+fi
+
+uci commit ups_manager
+
+# Create runtime directories in tmpfs
+mkdir -p /tmp/run/ups-manager /tmp/log/ups-manager 2>/dev/null
+
+exit 0

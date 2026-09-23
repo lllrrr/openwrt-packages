@@ -1,0 +1,39 @@
+{
+  "luci-app-ups-manager": {
+    "description": "Grant access to UPS Manager procedures",
+    "read": {
+      "ubus": {
+        "luci.ups-manager": [
+          "get_status",
+          "scan_devices",
+          "test_connection",
+          "get_raw_data",
+          "get_history",
+          "get_energy",
+          "get_logs",
+          "get_quality_events",
+          "get_ops_events",
+          "diagnose",
+          "test_notification"
+        ]
+      },
+      "uci": [
+        "ups_manager"
+      ]
+    },
+    "write": {
+      "ubus": {
+        "luci.ups-manager": [
+          "clear_quality_events",
+          "clear_ops_events",
+          "test_connection",
+          "diagnose",
+          "test_notification"
+        ]
+      },
+      "uci": [
+        "ups_manager"
+      ]
+    }
+  }
+}

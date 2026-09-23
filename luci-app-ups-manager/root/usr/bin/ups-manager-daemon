@@ -1,0 +1,305 @@
+#!/bin/sh
+# UPS Background Daemon
+# Copyright (C) 2026 Gilbert Liu & Contributors
+
+CONF="ups_manager"
+RUNTIME_DIR="/tmp/run/ups-manager"
+LOG_DIR="/tmp/log/ups-manager"
+STATUS_FILE="${RUNTIME_DIR}/status.json"
+HISTORY_FILE="${RUNTIME_DIR}/history.json"
+ENERGY_FILE="${RUNTIME_DIR}/energy.json"
+EVENT_LOG="${LOG_DIR}/events.log"
+NOTIFY_SCRIPT="/usr/bin/ups-manager-notify"
+SHUTDOWN_SCRIPT="/usr/bin/ups-manager-shutdown"
+LOG_SCRIPT="/usr/bin/ups-manager-log-event"
+
+mkdir -p "$RUNTIME_DIR" "$LOG_DIR" 2>/dev/null
+
+uci_get() {
+	if command -v uci >/dev/null 2>&1; then
+		uci -q get "$1" 2>/dev/null
+	else
+		echo "$2"
+	fi
+}
+
+log_event() {
+	local level="$1"
+	local msg="$2"
+	local ts=$(date "+%Y-%m-%d %H:%M:%S")
+	echo "[$ts] [$level] $msg" >> "$EVENT_LOG"
+	logger -t ups-manager "[$level] $msg"
+	# Keep event log size reasonable (max 2000 lines)
+	if [ $(wc -l < "$EVENT_LOG" 2>/dev/null || echo 0) -gt 2500 ]; then
+		tail -n 1500 "$EVENT_LOG" > "${EVENT_LOG}.tmp" && mv "${EVENT_LOG}.tmp" "$EVENT_LOG"
+	fi
+}
+
+trap 'log_event INFO "Daemon stopping..."; rm -f /tmp/run/ups-manager.pid; exit 0' INT TERM
+
+echo $$ > /tmp/run/ups-manager.pid
+log_event INFO "UPS Manager daemon v1.0.0 started."
+[ -x "$LOG_SCRIPT" ] && "$LOG_SCRIPT" ops "ops" "info" "UPS 守护引擎启动" "UPS Manager 后台采集守护进程已就绪运行。"
+
+PREV_ONLINE=1
+PREV_ON_BATTERY=0
+PREV_LOW_BATTERY=0
+ON_BATTERY_START_TS=0
+LAST_FLUSH_TS=$(date +%s)
+LAST_NOTIFY_TS=0
+
+# Initialize history file if empty
+if [ ! -s "$HISTORY_FILE" ]; then
+	echo '{"points":[]}' > "$HISTORY_FILE"
+fi
+
+# Initialize energy file if empty
+if [ ! -s "$ENERGY_FILE" ]; then
+	echo '{"today_kwh":0.00,"month_kwh":0.00,"peak_power":0.0,"avg_power":0.0,"history":[]}' > "$ENERGY_FILE"
+fi
+
+get_field() {
+	echo "$1" | awk -F': ' -v k="$2" '$1==k{print $2}'
+}
+
+while true; do
+	ENABLED=$(uci_get "${CONF}.global.enabled" "1")
+	if [ "$ENABLED" != "1" ]; then
+		sleep 10
+		continue
+	fi
+
+	POLL_INTERVAL=$(uci_get "${CONF}.global.poll_interval" "3")
+	[ "$POLL_INTERVAL" -ge 1 ] 2>/dev/null || POLL_INTERVAL=3
+
+	UPS_NAME=$(uci_get "${CONF}.ups.name" "ups")
+	UPS_HOST=$(uci_get "${CONF}.ups.remote_host" "127.0.0.1")
+	UPS_PORT=$(uci_get "${CONF}.ups.remote_port" "3493")
+	TARGET="${UPS_NAME}@${UPS_HOST}:${UPS_PORT}"
+
+	NOW=$(date +%s)
+	RAW=$(upsc "$TARGET" 2>/dev/null)
+	UPSC_EXIT=$?
+
+	if [ $UPSC_EXIT -ne 0 ]; then
+		# UPS Communication lost
+		if [ $PREV_ONLINE -eq 1 ]; then
+			log_event WARN "Lost communication with UPS ($TARGET)."
+			[ -x "$LOG_SCRIPT" ] && "$LOG_SCRIPT" ops "comm" "warn" "⚠️ 警报: UPS 通信中断，设备已离线！" "UPS 通信中断超过检测周期，主板 USB 接口或 NUT 驱动已断开连接。"
+			if [ -x "$NOTIFY_SCRIPT" ]; then
+				"$NOTIFY_SCRIPT" "comm_lost" "UPS 通信中断: 无法连接 $TARGET" &
+			fi
+			PREV_ONLINE=0
+		fi
+		cat <<EOF > "$STATUS_FILE"
+{"connected":false,"online":false,"status":"COMM_LOST","updated_at":$NOW}
+EOF
+		sleep "$POLL_INTERVAL"
+		continue
+	fi
+
+	if [ $PREV_ONLINE -eq 0 ]; then
+		log_event INFO "Restored communication with UPS ($TARGET)."
+		[ -x "$LOG_SCRIPT" ] && "$LOG_SCRIPT" ops "comm" "success" "⚡ UPS 通信已恢复正常" "与 UPS ($TARGET) 通信链路已重建并连通，设备已恢复在线状态。"
+		if [ -x "$NOTIFY_SCRIPT" ]; then
+			"$NOTIFY_SCRIPT" "comm_restored" "UPS 通信恢复正常: $TARGET" &
+		fi
+		PREV_ONLINE=1
+	fi
+
+	STATUS_VAL=$(get_field "$RAW" "ups.status")
+	CHARGE=$(get_field "$RAW" "battery.charge")
+	RUNTIME=$(get_field "$RAW" "battery.runtime")
+	BATTERY_V=$(get_field "$RAW" "battery.voltage")
+	INPUT_V=$(get_field "$RAW" "input.voltage")
+	INPUT_FREQ=$(get_field "$RAW" "input.frequency")
+	OUTPUT_V=$(get_field "$RAW" "output.voltage")
+	OUTPUT_FREQ=$(get_field "$RAW" "output.frequency")
+	LOAD_PCT=$(get_field "$RAW" "ups.load")
+	TEMP=$(get_field "$RAW" "ups.temperature")
+	MODEL=$(get_field "$RAW" "device.model")
+	[ -z "$MODEL" ] && MODEL=$(get_field "$RAW" "ups.model")
+	MFR=$(get_field "$RAW" "device.mfr")
+	[ -z "$MFR" ] && MFR=$(get_field "$RAW" "ups.mfr")
+	REAL_POWER=$(get_field "$RAW" "ups.realpower")
+
+	IS_OL=0
+	IS_OB=0
+	IS_LB=0
+	case "$STATUS_VAL" in *OL*) IS_OL=1 ;; esac
+	case "$STATUS_VAL" in *OB*) IS_OB=1 ;; esac
+	case "$STATUS_VAL" in *LB*) IS_LB=1 ;; esac
+
+	# Universal Multi-Tier Power Calculation Engine
+	HW_NOM_POWER=$(get_field "$RAW" "ups.realpower.nominal")
+	HW_NOM_VA=$(get_field "$RAW" "ups.power.nominal")
+	HW_CURRENT=$(get_field "$RAW" "output.current")
+	HW_VOLTAGE=$(get_field "$RAW" "output.voltage")
+	USER_NOM_POWER=$(uci_get "${CONF}.ups.nominal_power" "")
+	POWER_SCALE=$(uci_get "${CONF}.ups.power_scale" "1.0")
+
+	POWER="$REAL_POWER"
+	POWER_ESTIMATED=0
+	POWER_SOURCE="unknown"
+	NOMINAL_POWER=""
+
+	if [ -n "$POWER" ] && [ "$POWER" != "0" ]; then
+		# Tier 1: True hardware sensor
+		POWER_SOURCE="sensor"
+		POWER_ESTIMATED=0
+	elif [ -n "$HW_CURRENT" ] && [ -n "$HW_VOLTAGE" ] && [ "$HW_CURRENT" != "0" ]; then
+		# Tier 2: Output Current & Voltage calculation
+		POWER=$(awk "BEGIN {printf \"%.1f\", $HW_VOLTAGE * $HW_CURRENT * 0.9 * ${POWER_SCALE:-1.0}}" 2>/dev/null)
+		POWER_SOURCE="current_calc"
+		POWER_ESTIMATED=0
+	else
+		# Tier 3: Rated Capacity × Load% Decision Tree
+		POWER_ESTIMATED=1
+
+		# 3.1 User manually specified nominal power
+		if [ -n "$USER_NOM_POWER" ] && [ "$USER_NOM_POWER" -gt 0 ] 2>/dev/null; then
+			NOMINAL_POWER="$USER_NOM_POWER"
+			POWER_SOURCE="user_defined"
+		# 3.2 Firmware reported realpower.nominal
+		elif [ -n "$HW_NOM_POWER" ] && [ "$HW_NOM_POWER" -gt 0 ] 2>/dev/null; then
+			NOMINAL_POWER="$HW_NOM_POWER"
+			POWER_SOURCE="firmware_watts"
+		# 3.3 Firmware reported power.nominal VA
+		elif [ -n "$HW_NOM_VA" ] && [ "$HW_NOM_VA" -gt 0 ] 2>/dev/null; then
+			local pf=0.6
+			case "$MODEL" in *Online*|*RT*|*C1K*|*C2K*|*C3K*|*C6K*) pf=0.8 ;; esac
+			NOMINAL_POWER=$(awk "BEGIN {printf \"%d\", $HW_NOM_VA * $pf}" 2>/dev/null)
+			POWER_SOURCE="firmware_va"
+		# 3.4 Smart Model Signature Extraction
+		else
+			POWER_SOURCE="model_inferred"
+			local m_upper=$(echo "$MODEL" | tr 'a-z' 'A-Z')
+			case "$m_upper" in
+				*10K*|*10000*) NOMINAL_POWER=9000 ;;
+				*6K*|*6000*) NOMINAL_POWER=5400 ;;
+				*3K*|*3000*) NOMINAL_POWER=2400 ;;
+				*2K*|*2200*|*2000*) NOMINAL_POWER=1600 ;;
+				*1500*) NOMINAL_POWER=900 ;;
+				*1200*) NOMINAL_POWER=720 ;;
+				*1000*|*1K*) NOMINAL_POWER=600 ;;
+				*850*) NOMINAL_POWER=510 ;;
+				*800*) NOMINAL_POWER=480 ;;
+				*650*|*UT650*|*BK650*) NOMINAL_POWER=360 ;;
+				*600*) NOMINAL_POWER=360 ;;
+				*500*|*TG500*) NOMINAL_POWER=300 ;;
+				*400*) NOMINAL_POWER=240 ;;
+				*) NOMINAL_POWER=360 ;;
+			esac
+		fi
+
+		if [ -n "$LOAD_PCT" ] && [ -n "$NOMINAL_POWER" ]; then
+			POWER=$(awk "BEGIN {printf \"%.1f\", ($LOAD_PCT * $NOMINAL_POWER / 100) * ${POWER_SCALE:-1.0}}" 2>/dev/null)
+		fi
+	fi
+
+	# Atomic write status in tmpfs
+	cat <<EOF > "${STATUS_FILE}.tmp"
+{
+	"connected": true,
+	"status": "$STATUS_VAL",
+	"is_online": $IS_OL,
+	"is_on_battery": $IS_OB,
+	"is_low_battery": $IS_LB,
+	"battery_charge": ${CHARGE:-null},
+	"battery_runtime": ${RUNTIME:-null},
+	"battery_voltage": ${BATTERY_V:-null},
+	"input_voltage": ${INPUT_V:-null},
+	"input_freq": ${INPUT_FREQ:-null},
+	"output_voltage": ${OUTPUT_V:-null},
+	"output_freq": ${OUTPUT_FREQ:-null},
+	"load_percent": ${LOAD_PCT:-null},
+	"power": ${POWER:-null},
+	"power_is_estimated": $POWER_ESTIMATED,
+	"temperature": ${TEMP:-null},
+	"model": "$MODEL",
+	"manufacturer": "$MFR",
+	"updated_at": $NOW
+}
+EOF
+	mv "${STATUS_FILE}.tmp" "$STATUS_FILE"
+
+	# Power grid event detection & debounce
+	if [ $IS_OB -eq 1 ] && [ $PREV_ON_BATTERY -eq 0 ]; then
+		ON_BATTERY_START_TS=$NOW
+		log_event WARN "Power outage detected! Switched to battery power (Charge: ${CHARGE}%, Runtime: ${RUNTIME}s)."
+		[ -x "$LOG_SCRIPT" ] && "$LOG_SCRIPT" ops "power" "warn" "⚠️ 警报: 市电已中断，已切换为电池供电！" "检测到交流市电断开 (输入电压 ${INPUT_V:-0.0}V)，UPS 已瞬间切换至电池组逆变供电 (输出 ${OUTPUT_V:-220.0}V，当前负载 ${LOAD_PCT:-0}%，电池电量 ${CHARGE:-100}%)。"
+		if [ -x "$NOTIFY_SCRIPT" ]; then
+			"$NOTIFY_SCRIPT" "on_battery" "市电供电中断！UPS 已切换至电池供电 (电量: ${CHARGE}%, 预计续航: ${RUNTIME}秒)" &
+		fi
+		PREV_ON_BATTERY=1
+	elif [ $IS_OB -eq 0 ] && [ $PREV_ON_BATTERY -eq 1 ]; then
+		local outage_sec=$((NOW - ON_BATTERY_START_TS))
+		ON_BATTERY_START_TS=0
+		log_event INFO "Mains power restored after ${outage_sec}s. Running on line power."
+		[ -x "$LOG_SCRIPT" ] && "$LOG_SCRIPT" ops "power" "success" "⚡ 市电已恢复正常供电" "输入市电已恢复正常 (${INPUT_V:-220.0}V / ${INPUT_FREQ:-50.0} Hz)，断电持续 ${outage_sec} 秒，输出稳压供电中。"
+		if [ -x "$NOTIFY_SCRIPT" ]; then
+			"$NOTIFY_SCRIPT" "online" "市电已恢复供电！(断电持续: ${outage_sec}秒, 当前电量: ${CHARGE}%)" &
+		fi
+		PREV_ON_BATTERY=0
+	fi
+
+	# Low battery detection
+	if [ $IS_LB -eq 1 ] && [ $PREV_LOW_BATTERY -eq 0 ]; then
+		log_event CRIT "UPS battery is critically low! (Charge: ${CHARGE}%, Runtime: ${RUNTIME}s)."
+		[ -x "$LOG_SCRIPT" ] && "$LOG_SCRIPT" ops "power" "warn" "⚠️ 紧急: UPS 电池电量严重偏低！" "当前电池电量仅剩 ${CHARGE:-0}% (预计续航: ${RUNTIME:-0}秒)，即将达到保护关机阈值。"
+		if [ -x "$NOTIFY_SCRIPT" ]; then
+			"$NOTIFY_SCRIPT" "low_battery" "UPS 电池严重偏低！即将达到保护关机阈值 (当前电量: ${CHARGE}%)" &
+		fi
+		PREV_LOW_BATTERY=1
+	elif [ $IS_LB -eq 0 ]; then
+		PREV_LOW_BATTERY=0
+	fi
+
+	# Check shutdown policies
+	SHUTDOWN_ENABLED=$(uci_get "${CONF}.shutdown.enabled" "1")
+	if [ "$SHUTDOWN_ENABLED" = "1" ] && [ $IS_OB -eq 1 ]; then
+		BATTERY_THRESHOLD=$(uci_get "${CONF}.shutdown.battery_low_percent" "20")
+		RUNTIME_THRESHOLD=$(uci_get "${CONF}.shutdown.runtime_low_seconds" "300")
+		DELAY_THRESHOLD=$(uci_get "${CONF}.shutdown.on_battery_delay" "600")
+
+		TRIGGER_SHUTDOWN=0
+		TRIGGER_REASON=""
+
+		if [ -n "$CHARGE" ] && [ "$CHARGE" -le "$BATTERY_THRESHOLD" ] 2>/dev/null; then
+			TRIGGER_SHUTDOWN=1
+			TRIGGER_REASON="Battery charge ($CHARGE%) fell below limit ($BATTERY_THRESHOLD%)"
+		elif [ -n "$RUNTIME" ] && [ "$RUNTIME" -le "$RUNTIME_THRESHOLD" ] 2>/dev/null; then
+			TRIGGER_SHUTDOWN=1
+			TRIGGER_REASON="Battery runtime ($RUNTIME s) fell below limit ($RUNTIME_THRESHOLD s)"
+		elif [ "$DELAY_THRESHOLD" -gt 0 ] && [ $ON_BATTERY_START_TS -gt 0 ]; then
+			ELAPSED=$((NOW - ON_BATTERY_START_TS))
+			if [ $ELAPSED -ge "$DELAY_THRESHOLD" ]; then
+				TRIGGER_SHUTDOWN=1
+				TRIGGER_REASON="On battery duration ($ELAPSED s) exceeded delay limit ($DELAY_THRESHOLD s)"
+			fi
+		fi
+
+		if [ $TRIGGER_SHUTDOWN -eq 1 ]; then
+			log_event CRIT "Triggering automated emergency shutdown: $TRIGGER_REASON"
+			[ -x "$LOG_SCRIPT" ] && "$LOG_SCRIPT" ops "ops" "warn" "🚨 触发自动化紧急停机保护" "停机判定原因: $TRIGGER_REASON"
+			if [ -x "$SHUTDOWN_SCRIPT" ]; then
+				"$SHUTDOWN_SCRIPT" trigger "$TRIGGER_REASON" &
+			fi
+		fi
+	fi
+
+	# Robust Ring-buffer append in tmpfs (CSV format)
+	# Fields: timestamp,input_v,output_v,charge,load,power,on_battery
+	HISTORY_CSV="${RUNTIME_DIR}/history.csv"
+	echo "$NOW,${INPUT_V:-0},${OUTPUT_V:-0},${CHARGE:-0},${LOAD_PCT:-0},${POWER:-0},$IS_OB" >> "$HISTORY_CSV"
+
+	# Periodic trim: keep last 1200 points (~1 hour at 3s)
+	if [ $((NOW - LAST_FLUSH_TS)) -ge 60 ]; then
+		LAST_FLUSH_TS=$NOW
+		if [ $(wc -l < "$HISTORY_CSV" 2>/dev/null || echo 0) -gt 1300 ]; then
+			tail -n 1200 "$HISTORY_CSV" > "${HISTORY_CSV}.tmp" && mv "${HISTORY_CSV}.tmp" "$HISTORY_CSV"
+		fi
+	fi
+
+	sleep "$POLL_INTERVAL"
+done

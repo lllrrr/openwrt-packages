@@ -1,0 +1,75 @@
+#!/bin/sh
+# UPS Coordinated Shutdown Manager
+# Copyright (C) 2026 Gilbert Liu & Contributors
+
+CONF="ups_manager"
+ACTION="$1"
+REASON="$2"
+FLAG_FILE="/tmp/run/ups-manager/shutdown_in_progress"
+
+log_msg() {
+	echo "[$(date '+%Y-%m-%d %H:%M:%S')] [SHUTDOWN] $1" >> /tmp/log/ups-manager/events.log
+	logger -t ups-manager-shutdown "$1"
+}
+
+case "$ACTION" in
+	cancel)
+		if [ -f "$FLAG_FILE" ]; then
+			rm -f "$FLAG_FILE"
+			log_msg "Shutdown sequence cancelled by user or power restoration."
+			echo '{"success":true,"message":"Shutdown sequence cancelled"}'
+		else
+			echo '{"success":false,"message":"No shutdown in progress"}'
+		fi
+		exit 0
+		;;
+	trigger)
+		if [ -f "$FLAG_FILE" ]; then
+			log_msg "Shutdown already in progress, ignoring duplicate trigger."
+			exit 0
+		fi
+		echo "$$" > "$FLAG_FILE"
+		log_msg "Initiating coordinated shutdown sequence! Reason: $REASON"
+
+		# Notify users
+		/usr/bin/ups-manager-notify "shutdown" "紧急停机保护触发: $REASON" >/dev/null 2>&1 &
+
+		# Phase 1: Notify remote slaves (via NUT upssched/upsmon or SSH)
+		log_msg "Phase 1: Sending shutdown signals to network client nodes..."
+		# Future enhancement: iterate over configured SSH clients
+		
+		# Phase 2: Router wait delay
+		ROUTER_DELAY=$(uci -q get ${CONF}.shutdown.router_delay || echo "180")
+		log_msg "Phase 2: Waiting ${ROUTER_DELAY}s for remote clients to safely unmount and power down..."
+		
+		waited=0
+		while [ $waited -lt "$ROUTER_DELAY" ]; do
+			# If flag file was deleted (e.g. cancelled because power came back), abort!
+			if [ ! -f "$FLAG_FILE" ]; then
+				log_msg "Shutdown sequence aborted before irreversible phase."
+				exit 0
+			fi
+			sleep 2
+			waited=$((waited + 2))
+		done
+
+		# Phase 3: Router local shutdown
+		SHUTDOWN_ROUTER=$(uci -q get ${CONF}.shutdown.shutdown_router || echo "1")
+		if [ "$SHUTDOWN_ROUTER" = "1" ]; then
+			log_msg "Phase 3: Shutting down local system router..."
+			sync
+			# Check if poweroff_ups is explicitly requested
+			POWEROFF_UPS=$(uci -q get ${CONF}.shutdown.poweroff_ups || echo "0")
+			if [ "$POWEROFF_UPS" = "1" ]; then
+				touch /etc/killpower
+			fi
+			/sbin/poweroff &
+		fi
+		;;
+	*)
+		echo "Usage: $0 {trigger [reason]|cancel}"
+		exit 1
+		;;
+esac
+
+exit 0

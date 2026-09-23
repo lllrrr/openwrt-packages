@@ -1,0 +1,50 @@
+#!/bin/sh
+# Real-time event logger for UPS Manager
+# Usage:
+#   ups-manager-log-event ops <category> <level> <title> <desc>
+#   ups-manager-log-event quality <title> <severity> <value> <status> <duration> <detail>
+
+LOG_DIR="/tmp/log/ups-manager"
+mkdir -p "$LOG_DIR" 2>/dev/null
+
+TYPE="$1"
+shift
+
+NOW_STR=$(date "+%Y/%m/%d %H:%M:%S")
+ID=$(date +%s%N 2>/dev/null || date +%s)
+ID="evt_${ID: -8}"
+
+if [ "$TYPE" = "quality" ]; then
+	TITLE="$1"
+	SEVERITY="${2:-warning}"
+	VALUE="$3"
+	STATUS="${4:-recovered}"
+	DURATION="${5:-瞬态}"
+	DETAIL="$6"
+	[ -z "$TITLE" ] && exit 0
+
+	TSV="${LOG_DIR}/quality_events.tsv"
+	printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" "$ID" "$NOW_STR" "$TITLE" "$SEVERITY" "$VALUE" "$STATUS" "$DURATION" "$DETAIL" >> "$TSV"
+	if [ $(wc -l < "$TSV" 2>/dev/null || echo 0) -gt 300 ]; then
+		tail -n 200 "$TSV" > "${TSV}.tmp" && mv "${TSV}.tmp" "$TSV"
+	fi
+else
+	# Ops event: category = comm | power | ops
+	CATEGORY="${1:-ops}"
+	LEVEL="${2:-info}"
+	TITLE="$3"
+	DESC="$4"
+	[ -z "$TITLE" ] && exit 0
+
+	TSV="${LOG_DIR}/ops_events.tsv"
+	EVENT_LOG="${LOG_DIR}/events.log"
+
+	printf "%s\t%s\t%s\t%s\t%s\t%s\n" "$ID" "$NOW_STR" "$CATEGORY" "$LEVEL" "$TITLE" "$DESC" >> "$TSV"
+	echo "[$NOW_STR] [$LEVEL] [$CATEGORY] $TITLE: $DESC" >> "$EVENT_LOG"
+	logger -t ups-manager "[$LEVEL] [$CATEGORY] $TITLE: $DESC"
+
+	if [ $(wc -l < "$TSV" 2>/dev/null || echo 0) -gt 500 ]; then
+		tail -n 400 "$TSV" > "${TSV}.tmp" && mv "${TSV}.tmp" "$TSV"
+	fi
+fi
+exit 0

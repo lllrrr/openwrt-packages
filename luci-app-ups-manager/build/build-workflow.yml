@@ -1,0 +1,147 @@
+name: iStoreOS Package Build & Store Compliance Check
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  verify-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Syntax & Lint Verification
+        run: |
+          echo "=== 1. Validating LuCI JavaScript files ==="
+          for f in htdocs/luci-static/resources/view/ups-manager/*.js; do
+            echo "Checking $f..."
+            node --check "$f"
+          done
+
+          echo "=== 2. Validating JSON configurations ==="
+          sudo apt-get update && sudo apt-get install -y jq
+          for j in root/usr/share/rpcd/acl.d/*.json root/usr/share/luci/menu.d/*.json app.json; do
+            echo "Checking $j..."
+            jq . "$j" > /dev/null
+          done
+
+          echo "=== 3. Validating Shell scripts syntax ==="
+          chmod +x root/etc/init.d/ups-manager root/usr/bin/ups-manager-* root/usr/libexec/rpcd/luci.ups-manager install.sh
+          bash -n root/etc/init.d/ups-manager
+          bash -n root/usr/bin/ups-manager-daemon
+          bash -n root/usr/bin/ups-manager-notify
+          bash -n root/usr/bin/ups-manager-shutdown
+          bash -n root/usr/bin/ups-manager-log-event
+          bash -n root/usr/libexec/rpcd/luci.ups-manager
+          bash -n install.sh
+
+      - name: Run Package Verification Suite
+        run: |
+          chmod +x test/verify_packaging.sh
+          sh test/verify_packaging.sh
+
+      - name: Build Standard OpenWrt / iStoreOS IPK Package
+        run: |
+          PKG_NAME="luci-app-ups-manager"
+          PKG_VERSION="1.0.0"
+          PKG_RELEASE="1"
+          PKG_ARCH="all"
+          BUILD_DIR="/tmp/ipk-build"
+          IPK_NAME="${PKG_NAME}_${PKG_VERSION}-${PKG_RELEASE}_${PKG_ARCH}.ipk"
+
+          rm -rf "$BUILD_DIR"
+          mkdir -p "$BUILD_DIR/data" "$BUILD_DIR/control" "$BUILD_DIR/out"
+
+          # 1. Prepare data.tar.gz
+          mkdir -p "$BUILD_DIR/data/usr" "$BUILD_DIR/data/etc" "$BUILD_DIR/data/www"
+          cp -r root/* "$BUILD_DIR/data/"
+          cp -r htdocs/* "$BUILD_DIR/data/www/"
+
+          # Set strict file permissions
+          chmod 755 "$BUILD_DIR/data/etc/init.d/ups-manager"
+          chmod 755 "$BUILD_DIR/data/usr/bin/ups-manager-"*
+          chmod 755 "$BUILD_DIR/data/usr/libexec/rpcd/luci.ups-manager"
+          chmod 755 "$BUILD_DIR/data/etc/uci-defaults/80_ups_manager"
+
+          cd "$BUILD_DIR/data"
+          tar -czf "$BUILD_DIR/data.tar.gz" .
+          cd -
+
+          # 2. Prepare control.tar.gz
+          cat <<EOF > "$BUILD_DIR/control/control"
+Package: $PKG_NAME
+Version: $PKG_VERSION-$PKG_RELEASE
+Depends: luci-base, rpcd, nut, nut-common, nut-server, nut-upsmon, nut-upsc, nut-driver-usbhid-ups, curl
+Section: luci
+Architecture: $PKG_ARCH
+Maintainer: Gilbert Liu & Contributors
+Title: LuCI support for UPS Manager
+Description: Enterprise UPS Power Management System for iStoreOS / OpenWrt with auto-discovery, telemetry, outage alerts and shutdown protection.
+Source: https://github.com/liuyuhao1023/luci-app-ups-manager
+License: GPL-2.0-or-later
+EOF
+
+          cat <<'EOF' > "$BUILD_DIR/control/postinst"
+#!/bin/sh
+if [ -z "$IPKG_INSTROOT" ]; then
+	/etc/uci-defaults/80_ups_manager 2>/dev/null || true
+	/etc/init.d/ups-manager enable
+	/etc/init.d/ups-manager restart 2>/dev/null || true
+	/etc/init.d/rpcd restart 2>/dev/null || true
+	rm -rf /tmp/luci-indexcache /tmp/luci-modulecache/
+fi
+exit 0
+EOF
+          chmod 755 "$BUILD_DIR/control/postinst"
+
+          cat <<'EOF' > "$BUILD_DIR/control/prerm"
+#!/bin/sh
+if [ -z "$IPKG_INSTROOT" ]; then
+	/etc/init.d/ups-manager stop 2>/dev/null || true
+	/etc/init.d/ups-manager disable 2>/dev/null || true
+fi
+exit 0
+EOF
+          chmod 755 "$BUILD_DIR/control/prerm"
+
+          cat <<'EOF' > "$BUILD_DIR/control/postrm"
+#!/bin/sh
+if [ -z "$IPKG_INSTROOT" ]; then
+	rm -rf /tmp/run/ups-manager* /tmp/log/ups-manager*
+	/etc/init.d/rpcd restart 2>/dev/null || true
+	rm -rf /tmp/luci-indexcache /tmp/luci-modulecache/
+fi
+exit 0
+EOF
+          chmod 755 "$BUILD_DIR/control/postrm"
+
+          cd "$BUILD_DIR/control"
+          tar -czf "$BUILD_DIR/control.tar.gz" .
+          cd -
+
+          # 3. Pack Debian/OpenWrt ar archive (.ipk)
+          echo "2.0" > "$BUILD_DIR/debian-binary"
+          cd "$BUILD_DIR"
+          tar -czf "$IPK_NAME" ./debian-binary ./control.tar.gz ./data.tar.gz
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp "$IPK_NAME" "$GITHUB_WORKSPACE/dist/"
+          cd "$GITHUB_WORKSPACE"
+
+          echo "Built package: dist/$IPK_NAME"
+          ls -lh dist/
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: luci-app-ups-manager-ipk
+          path: dist/*.ipk
