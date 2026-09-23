@@ -9,18 +9,33 @@ WEBUI_DIR="/usr/share/oxidns/webui"
 TARGETS_FILE="${OXIDNS_TARGETS_FILE:-/usr/share/oxidns/targets.json}"
 DEFAULT_CONFIG_PATH="/etc/oxidns/config.yaml"
 DEFAULT_WORKING_DIR="/var/lib/oxidns"
+DEFAULT_RULES_DIR="/etc/oxidns/rule"
 DEFAULT_SERVICE_NAME="oxidns"
 DEFAULT_CORE_REPOSITORY="svenshi/oxidns"
 DEFAULT_CORE_BUNDLE="full"
 GITHUB_API_BASE="https://api.github.com"
+LEARN_RESET_SCRIPT="${OXIDNS_LEARN_RESET_SCRIPT:-/usr/libexec/oxidns/learn-reset.sh}"
+LEARN_CRON_FILE="${OXIDNS_LEARN_CRON_FILE:-/etc/crontabs/root}"
+LEARN_CRON_BEGIN="# BEGIN luci-app-oxidns learn-reset"
+LEARN_CRON_END="# END luci-app-oxidns learn-reset"
 TMP_ROOT="${TMPDIR:-/tmp}"
 CORE_PROGRESS_DIR="$TMP_ROOT/luci-oxidns"
 CORE_PROGRESS_LOG="$CORE_PROGRESS_DIR/core-progress.log"
 CORE_LOCK_DIR="$CORE_PROGRESS_DIR/core-operation.lock"
 CORE_LOCK_HELD=0
 
+# DNS 劫持：状态唯一事实源是 /etc/config/firewall 里的 oxidns_hijack* 段
+# （存在 = 已开启）。段形如 target DNAT + 无 dest_ip，fw4 渲染为
+# nft `redirect to :<dest_port>`（iptables REDIRECT --to-ports 的 nft 等价）。
+FIREWALL_INIT="${OXIDNS_FIREWALL_INIT:-/etc/init.d/firewall}"
+HIJACK_SECT_BOTH="oxidns_hijack"
+HIJACK_SECT_UDP="oxidns_hijack_udp"
+HIJACK_SECT_TCP="oxidns_hijack_tcp"
+HIJACK_MARK="oxidns-dns-hijack"
+
 CONFIG_PATH="$DEFAULT_CONFIG_PATH"
 WORKING_DIR="$DEFAULT_WORKING_DIR"
+RULES_DIR="$DEFAULT_RULES_DIR"
 SERVICE_NAME="$DEFAULT_SERVICE_NAME"
 CORE_REPOSITORY="$DEFAULT_CORE_REPOSITORY"
 CORE_BUNDLE="$DEFAULT_CORE_BUNDLE"
@@ -273,10 +288,19 @@ load_settings() {
 	SERVICE_NAME="$DEFAULT_SERVICE_NAME"
 	CONFIG_PATH="$(uci_get config_path "$DEFAULT_CONFIG_PATH")"
 	WORKING_DIR="$(uci_get working_dir "$DEFAULT_WORKING_DIR")"
+	RULES_DIR="$(uci_get rules_dir "$DEFAULT_RULES_DIR")"
 	CORE_REPOSITORY="$(uci_get core_repository "$DEFAULT_CORE_REPOSITORY")"
 	CORE_BUNDLE="$(uci_get core_bundle "$DEFAULT_CORE_BUNDLE")"
 	DOWNLOAD_PROXY="$(uci_get download_proxy '')"
 	GITHUB_TOKEN="$(uci_get github_token '')"
+	LEARN_RESET_FREQ="$(uci_get learn_reset_freq off)"
+	LEARN_RESET_TIME="$(uci_get learn_reset_time 04:00)"
+	LEARN_RESET_WEEKDAY="$(uci_get learn_reset_weekday 1)"
+	LEARN_RESET_CN="$(uci_get learn_reset_cn 1)"
+	LEARN_RESET_PROXY="$(uci_get learn_reset_proxy 1)"
+	LEARN_RESET_API_URL="$(uci_get learn_reset_api_url http://127.0.0.1:9199)"
+	LEARN_RESET_API_USER="$(uci_get learn_reset_api_user admin)"
+	LEARN_RESET_API_PASS="$(uci_get learn_reset_api_pass '')"
 }
 
 init_script() {
@@ -326,6 +350,109 @@ config_api_listen() {
 			exit;
 		}
 	' "$CONFIG_PATH" | yaml_scalar_clean
+}
+
+config_log_file() {
+	[ -r "$CONFIG_PATH" ] || return 1
+	awk '
+		/^[^[:space:]#][^:]*:/ {
+			top = $0;
+			sub(/:.*/, "", top);
+		}
+		top == "log" && /^[[:space:]]+file:[[:space:]]*[^[:space:]#]/ {
+			sub(/^[[:space:]]+file:[[:space:]]*/, "", $0);
+			print $0;
+			exit;
+		}
+	' "$CONFIG_PATH" | yaml_scalar_clean
+}
+
+# 解析 config.yaml 里 plugins 列表的 udp_server / tcp_server 监听地址。
+# 每类取第一个，输出形如 "udp_server :5335" / "tcp_server :53"，未配置的不输出。
+config_dns_listen() {
+	[ -r "$CONFIG_PATH" ] || return 1
+	awk '
+		/^[^[:space:]#][^:]*:/ {
+			top = $0;
+			sub(/:.*/, "", top);
+		}
+		top != "plugins" { next }
+		/^[[:space:]]*-[[:space:]]/ {
+			item_type = "";
+			in_args = 0;
+			got = 0;
+		}
+		!got && /^[[:space:]]+type:[[:space:]]*[^[:space:]#]/ {
+			t = $0;
+			sub(/^[[:space:]]+type:[[:space:]]*/, "", t);
+			sub(/[[:space:]].*$/, "", t);
+			if (t == "udp_server" || t == "tcp_server")
+				item_type = t;
+		}
+		/^[[:space:]]+args:/ { in_args = 1 }
+		item_type != "" && in_args && !got && /^[[:space:]]+listen:[[:space:]]*[^[:space:]#]/ {
+			l = $0;
+			sub(/^[[:space:]]+listen:[[:space:]]*/, "", l);
+			sub(/[[:space:]]*(#.*)?$/, "", l);
+			gsub(/"/, "", l);
+			print item_type " " l;
+			got = 1;
+		}
+	' "$CONFIG_PATH"
+}
+
+# 从监听地址提取端口（":53" / "0.0.0.0:53" / "[::]:53" → 53）
+hijack_port_of_listen() {
+	[ -n "$1" ] || return 1
+	L="$(printf '%s' "$1" | yaml_scalar_clean)"
+	case "$L" in
+		*:*) PORT="${L##*:}" ;;
+		*) PORT="$L" ;;
+	esac
+	case "$PORT" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+		return 1
+	fi
+	printf '%s' "$PORT"
+}
+
+# 从 config.yaml 解析 DNS 监听端口 → DNS_UDP_PORT / DNS_TCP_PORT（解析不到为空）
+# 注意：这里用 awk 匹配即 exit 取首行，不用 "sed | head"——MSYS 下该组合会随机死锁。
+resolve_dns_ports() {
+	DNS_UDP_PORT=""
+	DNS_TCP_PORT=""
+	[ -r "$CONFIG_PATH" ] || return 1
+	RAW="$(config_dns_listen || true)"
+	UDP_LISTEN="$(printf '%s\n' "$RAW" | awk '/^udp_server /{sub(/^udp_server /,"");print;exit}')"
+	TCP_LISTEN="$(printf '%s\n' "$RAW" | awk '/^tcp_server /{sub(/^tcp_server /,"");print;exit}')"
+	DNS_UDP_PORT="$(hijack_port_of_listen "$UDP_LISTEN" || true)"
+	DNS_TCP_PORT="$(hijack_port_of_listen "$TCP_LISTEN" || true)"
+	if [ -z "$DNS_UDP_PORT" ] && [ -z "$DNS_TCP_PORT" ]; then
+		return 1
+	fi
+	return 0
+}
+
+# 日志文件解析：config.yaml 的 log.file（相对路径按上游语义基于 working_dir 展开）；
+# 未配置时退回默认路径 /var/log/oxidns.log
+resolve_log_file() {
+	load_settings
+	LOG_FILE_CONFIGURED=0
+	LOG_FILE=""
+	if [ -r "$CONFIG_PATH" ]; then
+		LOG_FILE="$(config_log_file || true)"
+	fi
+	if [ -n "$LOG_FILE" ]; then
+		LOG_FILE_CONFIGURED=1
+		case "$LOG_FILE" in
+			/*) ;;
+			*) LOG_FILE="$WORKING_DIR/${LOG_FILE#./}" ;;
+		esac
+	else
+		LOG_FILE="/var/log/oxidns.log"
+	fi
 }
 
 webui_url_from_config() {
@@ -629,6 +756,131 @@ settings_value() {
 	printf '%s' "$VALUE"
 }
 
+# ===== DNS 劫持（fw4 redirect：LAN :53 → 本机 oxidns DNS 端口）=====
+
+hijack_managed_sections() {
+	for SECT in "$HIJACK_SECT_BOTH" "$HIJACK_SECT_UDP" "$HIJACK_SECT_TCP"; do
+		if uci -q get "firewall.$SECT" >/dev/null 2>&1; then
+			printf '%s\n' "$SECT"
+		fi
+	done
+}
+
+hijack_add_section() {
+	SECT="$1"
+	PROTO="$2"
+	PORT="$3"
+	uci -q set "firewall.$SECT=redirect" || return 1
+	uci -q set "firewall.$SECT.name=$HIJACK_MARK" || return 1
+	uci -q set "firewall.$SECT.src=lan" || return 1
+	uci -q set "firewall.$SECT.proto=$PROTO" || return 1
+	uci -q set "firewall.$SECT.src_dport=53" || return 1
+	uci -q set "firewall.$SECT.dest_port=$PORT" || return 1
+	uci -q set "firewall.$SECT.target=DNAT" || return 1
+}
+
+hijack_firewall_reload() {
+	if [ -x "$FIREWALL_INIT" ]; then
+		"$FIREWALL_INIT" reload >/dev/null 2>&1
+		return $?
+	fi
+	return 1
+}
+
+# 输出状态 JSON 片段（调用方负责包一层 {"ok":true,...}）
+emit_hijack_status() {
+	RELOADED="${1:-}"
+	SECT_JSON=""
+	ENABLED=0
+	for SECT in $(hijack_managed_sections); do
+		SECT_JSON="$SECT_JSON\"$SECT\","
+		ENABLED=1
+	done
+	SECT_JSON="${SECT_JSON%,}"
+	UDP_JSON="null"
+	if [ -n "$DNS_UDP_PORT" ]; then
+		UDP_JSON="$DNS_UDP_PORT"
+	fi
+	TCP_JSON="null"
+	if [ -n "$DNS_TCP_PORT" ]; then
+		TCP_JSON="$DNS_TCP_PORT"
+	fi
+	WARN_JSON="null"
+	if [ "$RELOADED" = "0" ]; then
+		WARN_JSON='"firewall_reload_failed"'
+	fi
+	printf '"enabled":%s,"udp_port":%s,"tcp_port":%s,"sections":[%s],"reloaded":%s,"warn":%s}' \
+		"$ENABLED" "$UDP_JSON" "$TCP_JSON" "$SECT_JSON" "${RELOADED:-null}" "$WARN_JSON"
+}
+
+emit_hijack_get() {
+	if ! command -v uci >/dev/null 2>&1; then
+		json_error "uci_unavailable" "uci command not found"
+		return 1
+	fi
+	load_settings
+	resolve_dns_ports || true
+	printf '{"ok":true,'
+	emit_hijack_status
+	printf '\n'
+}
+
+emit_hijack_save() {
+	INPUT="$(cat)"
+	if ! command -v uci >/dev/null 2>&1; then
+		json_error "uci_unavailable" "uci command not found"
+		return 1
+	fi
+	load_settings
+	ENABLED="$(input_bool enabled "$INPUT")"
+	# 先给端口变量兜底：config.yaml 不可读时 resolve_dns_ports 根本不会跑，
+	# 而 set -u 下引用未绑定变量会直接终止整个后端（连 JSON 错误都发不出）。
+	DNS_UDP_PORT=""
+	DNS_TCP_PORT=""
+	if [ -r "$CONFIG_PATH" ]; then
+		resolve_dns_ports || true
+	fi
+	if [ "$ENABLED" = "1" ] && [ -z "$DNS_UDP_PORT" ] && [ -z "$DNS_TCP_PORT" ]; then
+		json_error "no_dns_listen" "could not resolve a udp_server/tcp_server listen port from config.yaml"
+		return 1
+	fi
+	for SECT in $(hijack_managed_sections); do
+		uci -q delete "firewall.$SECT" >/dev/null 2>&1 || true
+	done
+	if [ "$ENABLED" = "1" ]; then
+		if [ -n "$DNS_UDP_PORT" ] && [ "$DNS_UDP_PORT" = "$DNS_TCP_PORT" ]; then
+			hijack_add_section "$HIJACK_SECT_BOTH" "tcp udp" "$DNS_UDP_PORT" || {
+				json_error "hijack_write_failed" "failed to add the firewall redirect section"
+				return 1
+			}
+		else
+			if [ -n "$DNS_UDP_PORT" ]; then
+				hijack_add_section "$HIJACK_SECT_UDP" "udp" "$DNS_UDP_PORT" || {
+					json_error "hijack_write_failed" "failed to add the UDP redirect section"
+					return 1
+				}
+			fi
+			if [ -n "$DNS_TCP_PORT" ]; then
+				hijack_add_section "$HIJACK_SECT_TCP" "tcp" "$DNS_TCP_PORT" || {
+					json_error "hijack_write_failed" "failed to add the TCP redirect section"
+					return 1
+				}
+			fi
+		fi
+	fi
+	if ! uci -q commit firewall; then
+		json_error "hijack_save_failed" "failed to commit firewall changes"
+		return 1
+	fi
+	RELOADED=1
+	if ! hijack_firewall_reload; then
+		RELOADED=0
+	fi
+	printf '{"ok":true,'
+	emit_hijack_status "$RELOADED"
+	printf '\n'
+}
+
 emit_settings_save() {
 	INPUT="$(cat)"
 	if ! command -v uci >/dev/null 2>&1; then
@@ -927,6 +1179,474 @@ emit_config_save() {
 	printf '}\n'
 }
 
+rules_dir_path() {
+	load_settings
+	[ -n "$RULES_DIR" ] || RULES_DIR="$DEFAULT_RULES_DIR"
+	printf '%s' "$RULES_DIR"
+}
+
+valid_rules_dir() {
+	[ -n "$1" ] || return 1
+	case "$1" in
+		/*)
+			return 0
+			;;
+	esac
+	return 1
+}
+
+# 规则文件名只允许一层目录内的普通 .txt 名称，避免跳出规则目录
+valid_rule_name() {
+	case "$1" in
+		''|*[!A-Za-z0-9._-]*)
+			return 1
+			;;
+	esac
+	case "$1" in
+		*.txt)
+			return 0
+			;;
+	esac
+	return 1
+}
+
+rule_file_lines() {
+	if [ -f "$1" ]; then
+		awk 'END { print NR + 0 }' "$1" 2>/dev/null || printf '0'
+	else
+		printf '0'
+	fi
+}
+
+emit_rules_list() {
+	DIR="$(rules_dir_path)"
+	DIR_EXISTS=0
+	if [ -d "$DIR" ]; then
+		DIR_EXISTS=1
+	fi
+	printf '{"ok":true,"dir":'
+	json_string "$DIR"
+	printf ',"rules_dir_exists":'
+	json_bool "$DIR_EXISTS"
+	printf ',"files":['
+	SEP=""
+	if [ "$DIR_EXISTS" = "1" ]; then
+		for FILE in "$DIR"/*.txt; do
+			[ -f "$FILE" ] || continue
+			NAME="$(basename "$FILE")"
+			valid_rule_name "$NAME" || continue
+			printf '%s' "$SEP"
+			printf '{"name":'
+			json_string "$NAME"
+			printf ',"path":'
+			json_string "$FILE"
+			printf ',"exists":true'
+			printf ',"size":'
+			json_string "$(file_size_bytes "$FILE")"
+			printf ',"lines":'
+			json_string "$(rule_file_lines "$FILE")"
+			printf ',"mtime":'
+			json_string "$(stat_mtime "$FILE")"
+			printf '}'
+			SEP=","
+		done
+	fi
+	printf ']}\n'
+}
+
+emit_rules_read() {
+	INPUT="$(cat)"
+	NAME="$(input_value name "$INPUT")"
+	if ! valid_rule_name "$NAME"; then
+		json_error "invalid_name" "rule file name is not allowed"
+		return 1
+	fi
+
+	DIR="$(rules_dir_path)"
+	FILE="$DIR/$NAME"
+	EXISTS=0
+	if [ -f "$FILE" ]; then
+		EXISTS=1
+	fi
+
+	printf '{'
+	printf '"ok":true,"dir":'
+	json_string "$DIR"
+	printf ',"name":'
+	json_string "$NAME"
+	printf ',"path":'
+	json_string "$FILE"
+	printf ',"exists":'
+	json_bool "$EXISTS"
+	printf ',"size":'
+	json_string "$(file_size_bytes "$FILE")"
+	printf ',"lines":'
+	json_string "$(rule_file_lines "$FILE")"
+	printf ',"mtime":'
+	json_string "$(stat_mtime "$FILE")"
+	printf ',"content":'
+	json_file_string "$FILE"
+	printf '}\n'
+}
+
+# 备份规则文件，并只保留最近 10 份（工作目录可能是 tmpfs，不做无限累积）
+backup_rule_file() {
+	BACKUP_SOURCE="$1"
+	BACKUP_NAME="$2"
+	BACKUP_DIR="$WORKING_DIR/config-backups/rules"
+
+	mkdir -p "$BACKUP_DIR" 2>/dev/null || return 0
+	cp "$BACKUP_SOURCE" "$BACKUP_DIR/$BACKUP_NAME.$(date +%Y%m%d%H%M%S)" 2>/dev/null || return 0
+
+	KEEP=0
+	for OLD_BACKUP in "$BACKUP_DIR/$BACKUP_NAME".*; do
+		[ -f "$OLD_BACKUP" ] || continue
+		KEEP="$((KEEP + 1))"
+	done
+	if [ "$KEEP" -gt 10 ]; then
+		ls -1t "$BACKUP_DIR/$BACKUP_NAME".* 2>/dev/null | tail -n +11 | while IFS= read -r STALE; do
+			rm -f "$STALE"
+		done
+	fi
+	return 0
+}
+
+emit_rules_save() {
+	load_settings
+	INPUT="$(cat)"
+	NAME="$(input_value name "$INPUT")"
+	BASE_MTIME="$(input_value base_mtime "$INPUT")"
+	RESTART="$(input_bool restart "$INPUT")"
+
+	if ! valid_rule_name "$NAME"; then
+		json_error "invalid_name" "rule file name is not allowed"
+		return 1
+	fi
+	if ! input_has_key content "$INPUT"; then
+		json_error "missing_content" "rule file content is required"
+		return 1
+	fi
+
+	DIR="$(rules_dir_path)"
+	if ! valid_rules_dir "$DIR"; then
+		json_error "invalid_rules_dir" "rule directory must be an absolute path"
+		return 1
+	fi
+
+	FILE="$DIR/$NAME"
+	if ! path_is_under "$FILE" "$DIR"; then
+		json_error "invalid_name" "rule file path escapes the rule directory"
+		return 1
+	fi
+	if [ ! -d "$DIR" ]; then
+		json_error "rules_dir_missing" "rule directory was not found: $DIR"
+		return 1
+	fi
+	if [ -n "$BASE_MTIME" ] && [ -e "$FILE" ] && [ "$BASE_MTIME" != "$(stat_mtime "$FILE")" ]; then
+		json_error "rule_conflict" "rule file changed since it was loaded"
+		return 1
+	fi
+
+	CONTENT="$(input_value content "$INPUT")"
+
+	TMP_FILE="$(mktemp "$DIR/.oxidns-rule.XXXXXX" 2>/dev/null)" || TMP_FILE=""
+	if [ -z "$TMP_FILE" ]; then
+		json_error "rule_write_failed" "unable to create a temporary file in $DIR"
+		return 1
+	fi
+
+	MODE="644"
+	if [ -e "$FILE" ]; then
+		EXISTING_MODE="$(stat -c %a "$FILE" 2>/dev/null || printf '')"
+		if [ -n "$EXISTING_MODE" ]; then
+			MODE="$EXISTING_MODE"
+		fi
+		backup_rule_file "$FILE" "$NAME"
+	fi
+
+	# 规则表按行解析：统一为 LF，末尾补一个换行（空内容则写成空文件）
+	if [ -n "$CONTENT" ]; then
+		printf '%s\n' "$CONTENT" | tr -d '\r' > "$TMP_FILE"
+	else
+		: > "$TMP_FILE"
+	fi
+
+	chmod "$MODE" "$TMP_FILE" 2>/dev/null || true
+
+	if ! mv -f "$TMP_FILE" "$FILE"; then
+		rm -f "$TMP_FILE"
+		json_error "rule_write_failed" "unable to replace $FILE"
+		return 1
+	fi
+
+	RESTART_STATUS="not_requested"
+	MESSAGE="rule file saved"
+	if [ "$RESTART" = "1" ]; then
+		INIT="$(init_script)"
+		SERVICE_OUT="$(mktemp "$TMP_ROOT/oxidns-service.XXXXXX")"
+		if [ ! -x "$INIT" ]; then
+			rm -f "$SERVICE_OUT"
+			json_error "service_unavailable" "rule file saved, but init script was not found"
+			return 1
+		fi
+		if "$INIT" restart >"$SERVICE_OUT" 2>&1; then
+			RESTART_STATUS="requested"
+			MESSAGE="rule file saved and service restarted"
+		else
+			MSG="$(read_error_detail_file "$SERVICE_OUT" 2>/dev/null || true)"
+			rm -f "$SERVICE_OUT"
+			json_error "service_restart_failed" "rule file saved, but service restart failed: ${MSG:-service restart failed}"
+			return 1
+		fi
+		rm -f "$SERVICE_OUT"
+	fi
+
+	printf '{"ok":true,"dir":'
+	json_string "$DIR"
+	printf ',"name":'
+	json_string "$NAME"
+	printf ',"path":'
+	json_string "$FILE"
+	printf ',"exists":true'
+	printf ',"size":'
+	json_string "$(file_size_bytes "$FILE")"
+	printf ',"lines":'
+	json_string "$(rule_file_lines "$FILE")"
+	printf ',"mtime":'
+	json_string "$(stat_mtime "$FILE")"
+	printf ',"restart":'
+	json_string "$RESTART_STATUS"
+	printf ',"message":'
+	json_string "$MESSAGE"
+	printf '}\n'
+}
+
+valid_reset_time() {
+	case "$1" in
+		[0-2][0-9]:[0-5][0-9]) ;;
+		*) return 1 ;;
+	esac
+	case "${1%%:*}" in
+		00|01|02|03|04|05|06|07|08|09|1[0-9]|2[0-3]) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+valid_weekday() {
+	case "$1" in
+		0|1|2|3|4|5|6) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+# freq + time (+ weekday) -> busybox crontab line "M H * * *|dow"
+learn_reset_cron_line() {
+	FREQ="$1"
+	TIME="$2"
+	WEEKDAY="$3"
+	HOUR="${TIME%%:*}"
+	MINUTE="${TIME##*:}"
+	# crond 对 08/09 的解析因实现而异，去掉前导零
+	HOUR="${HOUR#0}"
+	MINUTE="${MINUTE#0}"
+	case "$FREQ" in
+		daily)
+			printf '%s %s * * *' "$MINUTE" "$HOUR"
+			;;
+		weekly)
+			printf '%s %s * * %s' "$MINUTE" "$HOUR" "$WEEKDAY"
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+# $1 = cron line ("" removes the managed block)
+update_learn_reset_cron() {
+	CRON_LINE="$1"
+	if ! touch "$LEARN_CRON_FILE" 2>/dev/null; then
+		return 1
+	fi
+	if grep -qF "$LEARN_CRON_BEGIN" "$LEARN_CRON_FILE" 2>/dev/null; then
+		# 托管块标记本身以 # 开头，不能用它当 sed 地址分隔符；改用 awk 字面前缀匹配
+		TMP_CRON="$(mktemp "$TMP_ROOT/oxidns-cron.XXXXXX" 2>/dev/null)" || TMP_CRON=""
+		if [ -z "$TMP_CRON" ]; then
+			return 1
+		fi
+		awk -v beg="$LEARN_CRON_BEGIN" -v end="$LEARN_CRON_END" '
+			skip && index($0, end) == 1 { skip = 0; next }
+			skip { next }
+			index($0, beg) == 1 { skip = 1; next }
+			{ print }
+		' "$LEARN_CRON_FILE" > "$TMP_CRON" || { rm -f "$TMP_CRON"; return 1; }
+		cat "$TMP_CRON" > "$LEARN_CRON_FILE" || { rm -f "$TMP_CRON"; return 1; }
+		rm -f "$TMP_CRON"
+	fi
+	if [ -n "$CRON_LINE" ]; then
+		# 补一个换行，避免托管块拼到最后一行已有条目上
+		if [ -s "$LEARN_CRON_FILE" ] && [ -n "$(tail -c 1 "$LEARN_CRON_FILE" 2>/dev/null)" ]; then
+			printf '\n' >> "$LEARN_CRON_FILE"
+		fi
+		{
+			printf '%s\n' "$LEARN_CRON_BEGIN"
+			printf '%s %s\n' "$CRON_LINE" "$LEARN_RESET_SCRIPT"
+			printf '%s\n' "$LEARN_CRON_END"
+		} >> "$LEARN_CRON_FILE"
+	fi
+	if [ -x /etc/init.d/cron ]; then
+		/etc/init.d/cron restart >/dev/null 2>&1 || true
+	fi
+	return 0
+}
+
+learn_reset_cron_installed() {
+	grep -qF "$LEARN_CRON_BEGIN" "$LEARN_CRON_FILE" 2>/dev/null
+}
+
+emit_learn_reset_get() {
+	load_settings
+	CRON_INSTALLED=0
+	SCRIPT_INSTALLED=0
+	if learn_reset_cron_installed; then
+		CRON_INSTALLED=1
+	fi
+	if [ -x "$LEARN_RESET_SCRIPT" ]; then
+		SCRIPT_INSTALLED=1
+	fi
+	printf '{"ok":true,'
+	printf '"reset_cn":'
+	json_bool "$LEARN_RESET_CN"
+	printf ',"reset_proxy":'
+	json_bool "$LEARN_RESET_PROXY"
+	printf ',"freq":'
+	json_string "$LEARN_RESET_FREQ"
+	printf ',"time":'
+	json_string "$LEARN_RESET_TIME"
+	printf ',"weekday":'
+	json_string "$LEARN_RESET_WEEKDAY"
+	printf ',"api_url":'
+	json_string "$LEARN_RESET_API_URL"
+	printf ',"api_user":'
+	json_string "$LEARN_RESET_API_USER"
+	printf ',"has_pass":'
+	if [ -n "$LEARN_RESET_API_PASS" ]; then json_bool 1; else json_bool 0; fi
+	printf ',"cron_installed":'
+	json_bool "$CRON_INSTALLED"
+	printf ',"script_installed":'
+	json_bool "$SCRIPT_INSTALLED"
+	printf ',"script_path":'
+	json_string "$LEARN_RESET_SCRIPT"
+	printf '}\n'
+}
+
+emit_learn_reset_save() {
+	load_settings
+	INPUT="$(cat)"
+	FREQ="$(input_value freq "$INPUT")"
+	TIME="$(input_value time "$INPUT")"
+	WEEKDAY="$(input_value weekday "$INPUT")"
+	RESET_CN="$(input_bool reset_cn "$INPUT")"
+	RESET_PROXY="$(input_bool reset_proxy "$INPUT")"
+	API_URL="$(input_value api_url "$INPUT")"
+	API_USER="$(input_value api_user "$INPUT")"
+	API_PASS="$(input_value api_pass "$INPUT")"
+
+	case "$FREQ" in
+		off|daily|weekly) ;;
+		*)
+			json_error "invalid_freq" "schedule must be off, daily or weekly"
+			return 1
+			;;
+	esac
+	if ! valid_reset_time "$TIME"; then
+		json_error "invalid_time" "reset time must be HH:MM between 00:00 and 23:59"
+		return 1
+	fi
+	if [ "$FREQ" = "weekly" ] && ! valid_weekday "$WEEKDAY"; then
+		json_error "invalid_weekday" "day of week must be 0 (Sunday) to 6 (Saturday)"
+		return 1
+	fi
+	case "$API_URL" in
+		http://*|https://*) ;;
+		*)
+			json_error "invalid_api_url" "API address must start with http:// or https://"
+			return 1
+			;;
+	esac
+	API_URL="${API_URL%/}"
+
+	uci -q set "oxidns.main.learn_reset_freq=$FREQ"
+	uci -q set "oxidns.main.learn_reset_time=$TIME"
+	if [ "$FREQ" = "weekly" ]; then
+		uci -q set "oxidns.main.learn_reset_weekday=$WEEKDAY"
+	fi
+	uci -q set "oxidns.main.learn_reset_cn=$RESET_CN"
+	uci -q set "oxidns.main.learn_reset_proxy=$RESET_PROXY"
+	uci -q set "oxidns.main.learn_reset_api_url=$API_URL"
+	uci -q set "oxidns.main.learn_reset_api_user=$API_USER"
+	# 空密码 = 保持已存密码不变，避免编辑计划时把密码误清掉
+	if [ -n "$API_PASS" ]; then
+		uci -q set "oxidns.main.learn_reset_api_pass=$API_PASS"
+	fi
+	if ! uci -q commit oxidns; then
+		json_error "settings_save_failed" "unable to commit UCI changes"
+		return 1
+	fi
+
+	load_settings
+	CRON_LINE=""
+	if [ "$LEARN_RESET_FREQ" != "off" ]; then
+		CRON_LINE="$(learn_reset_cron_line "$LEARN_RESET_FREQ" "$LEARN_RESET_TIME" "$LEARN_RESET_WEEKDAY")"
+	fi
+	if ! update_learn_reset_cron "$CRON_LINE"; then
+		json_error "cron_update_failed" "unable to update the crontab at $LEARN_CRON_FILE"
+		return 1
+	fi
+
+	printf '{"ok":true,'
+	printf '"freq":'
+	json_string "$LEARN_RESET_FREQ"
+	printf ',"time":'
+	json_string "$LEARN_RESET_TIME"
+	printf ',"weekday":'
+	json_string "$LEARN_RESET_WEEKDAY"
+	printf ',"reset_cn":'
+	json_bool "$LEARN_RESET_CN"
+	printf ',"reset_proxy":'
+	json_bool "$LEARN_RESET_PROXY"
+	printf ',"cron_line":'
+	json_string "$CRON_LINE"
+	printf ',"cron_installed":'
+	if learn_reset_cron_installed; then json_bool 1; else json_bool 0; fi
+	printf '}\n'
+}
+
+emit_learn_reset_run() {
+	load_settings
+	if [ ! -x "$LEARN_RESET_SCRIPT" ]; then
+		json_error "script_missing" "reset script not found: $LEARN_RESET_SCRIPT"
+		return 1
+	fi
+	OUT="$(mktemp "$TMP_ROOT/oxidns-learn-reset.XXXXXX" 2>/dev/null)" || OUT=""
+	if [ -z "$OUT" ]; then
+		json_error "reset_failed" "unable to create a temporary file"
+		return 1
+	fi
+	if "$LEARN_RESET_SCRIPT" >"$OUT" 2>&1; then
+		DETAIL="$(cat "$OUT")"
+		rm -f "$OUT"
+		printf '{"ok":true,"detail":'
+		json_string "$DETAIL"
+		printf '}\n'
+	else
+		DETAIL="$(cat "$OUT")"
+		rm -f "$OUT"
+		json_detailed_error "reset_failed" "one or more learned sets failed to clear" "" "$DETAIL"
+		return 1
+	fi
+}
+
 emit_log_lines_json() {
 	SOURCE="$1"
 	FILE="$2"
@@ -970,6 +1690,16 @@ read_logread_logs() {
 	' | tail -n "$LIMIT" > "$OUT_FILE" || true
 }
 
+read_log_file_logs() {
+	LOG_PATH="$1"
+	LIMIT="$2"
+	OUT_FILE="$3"
+	: > "$OUT_FILE"
+	[ -f "$LOG_PATH" ] || return 1
+	tail -n "$LIMIT" "$LOG_PATH" > "$OUT_FILE" 2>/dev/null || return 1
+	return 0
+}
+
 emit_logs_recent() {
 	INPUT="$(cat)"
 	LIMIT="$(input_value limit "$INPUT")"
@@ -977,10 +1707,62 @@ emit_logs_recent() {
 	case "$LIMIT" in
 		*[!0-9]*|'') LIMIT=200 ;;
 	esac
+	resolve_log_file
 	TMP_FILE="$(mktemp "$TMP_ROOT/oxidns-logs.XXXXXX")"
-	read_logread_logs "$LIMIT" "$TMP_FILE" || true
-	emit_log_lines_json "logread" "$TMP_FILE"
+	SOURCE="logread"
+	if [ "$LOG_FILE_CONFIGURED" = "1" ]; then
+		# config.yaml 配置了 log.file：日志以文件为准，读不到（尚未产生）就返回空
+		read_log_file_logs "$LOG_FILE" "$LIMIT" "$TMP_FILE" || true
+		SOURCE="file"
+	else
+		# 未配置 log.file：oxidns 走 syslog，退回 logread
+		read_logread_logs "$LIMIT" "$TMP_FILE" || true
+	fi
+	emit_log_lines_json "$SOURCE" "$TMP_FILE"
 	rm -f "$TMP_FILE"
+}
+
+# 清空日志文件内容：原地截断（oxidns 追加写，截断后从新 EOF 续写，无需重启）
+emit_logs_clear() {
+	resolve_log_file
+	if path_has_parent_ref "$LOG_FILE"; then
+		json_error "invalid_log_file" "log file path must not contain '..'"
+		return 1
+	fi
+	case "$LOG_FILE" in
+		/*) ;;
+		*)
+			json_error "invalid_log_file" "log file path must be absolute"
+			return 1
+			;;
+	esac
+	if [ "$LOG_FILE" != "/var/log/oxidns.log" ] && ! oxidns_named_path "$LOG_FILE"; then
+		json_error "invalid_log_file" "refusing to clear a file that is not an oxidns log"
+		return 1
+	fi
+	if [ -L "$LOG_FILE" ]; then
+		json_error "invalid_log_file" "refusing to clear a symbolic link"
+		return 1
+	fi
+	if [ ! -f "$LOG_FILE" ]; then
+		printf '{"ok":true,'
+		json_field_string path "$LOG_FILE"
+		printf ',"existed":false'
+		printf ',"cleared_bytes":"0"'
+		printf '}\n'
+		return 0
+	fi
+	CLEARED_SIZE="$(file_size_bytes "$LOG_FILE")"
+	if ! : > "$LOG_FILE"; then
+		json_error "log_clear_failed" "unable to truncate $LOG_FILE"
+		return 1
+	fi
+	printf '{"ok":true,'
+	json_field_string path "$LOG_FILE"
+	printf ',"existed":true'
+	printf ',"cleared_bytes":'
+	json_string "$CLEARED_SIZE"
+	printf '}\n'
 }
 
 read_error_detail_file() {
@@ -1902,7 +2684,16 @@ case "${1:-}" in
 		printf '"config_save":{"content":"string","base_mtime":"string","restart":"boolean"},'
 		printf '"settings_read":{},'
 		printf '"settings_save":{"core_repository":"string","core_bundle":"string","config_path":"string","working_dir":"string","download_proxy":"string","github_token":"string","clear_download_proxy":"boolean","clear_github_token":"boolean"},'
-		printf '"logs_recent":{"limit":"number"}'
+		printf '"rules_list":{},'
+		printf '"rules_read":{"name":"string"},'
+		printf '"rules_save":{"name":"string","content":"string","base_mtime":"string","restart":"boolean"},'
+		printf '"learn_reset_get":{},'
+		printf '"learn_reset_save":{"reset_cn":"boolean","reset_proxy":"boolean","freq":"string","time":"string","weekday":"string","api_url":"string","api_user":"string","api_pass":"string"},'
+		printf '"learn_reset_run":{},'
+		printf '"logs_recent":{"limit":"number"},'
+		printf '"logs_clear":{},'
+		printf '"hijack_get":{},'
+		printf '"hijack_save":{"enabled":"boolean"}'
 		printf '}\n'
 		;;
 	call)
@@ -1949,6 +2740,24 @@ case "${1:-}" in
 			config_save)
 				emit_config_save
 				;;
+			rules_list)
+				emit_rules_list
+				;;
+			rules_read)
+				emit_rules_read
+				;;
+			rules_save)
+				emit_rules_save
+				;;
+			learn_reset_get)
+				emit_learn_reset_get
+				;;
+			learn_reset_save)
+				emit_learn_reset_save
+				;;
+			learn_reset_run)
+				emit_learn_reset_run
+				;;
 			settings_read)
 				emit_settings_read
 				;;
@@ -1957,6 +2766,15 @@ case "${1:-}" in
 				;;
 			logs_recent)
 				emit_logs_recent
+				;;
+			logs_clear)
+				emit_logs_clear
+				;;
+			hijack_get)
+				emit_hijack_get
+				;;
+			hijack_save)
+				emit_hijack_save
 				;;
 			*)
 				printf '{"ok":false,"error":"unknown method"}\n'

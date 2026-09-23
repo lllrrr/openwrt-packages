@@ -183,6 +183,7 @@ return view.extend({
 	},
 
 	render: function(settings) {
+		settings = settings || {};
 		return E('div', { 'class': 'cbi-map' }, [
 			E('h2', {}, _('OxiDNS Settings')),
 			E('div', { 'class': 'cbi-map-descr' },

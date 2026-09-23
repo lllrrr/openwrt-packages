@@ -10,6 +10,19 @@ var callStatus = rpc.declare({
 	expect: {}
 });
 
+var callHijackGet = rpc.declare({
+	object: 'luci.oxidns',
+	method: 'hijack_get',
+	expect: {}
+});
+
+var callHijackSave = rpc.declare({
+	object: 'luci.oxidns',
+	method: 'hijack_save',
+	params: [ 'enabled' ],
+	expect: {}
+});
+
 var serviceCalls = {
 	start: rpc.declare({ object: 'luci.oxidns', method: 'service_start', expect: {} }),
 	stop: rpc.declare({ object: 'luci.oxidns', method: 'service_stop', expect: {} }),
@@ -20,6 +33,7 @@ var serviceCalls = {
 
 var statusState = {};
 var serviceActionsKey = null;
+var hijackState = {};
 
 function valueOrDash(value) {
 	if (value === null || value === undefined || value === '')
@@ -55,6 +69,10 @@ function backendStatusBadge(status) {
 
 function serviceStatusBadge(status) {
 	return serviceRunning(status) ? statusBadge(_('Running'), true) : statusBadge(_('Stopped'), false);
+}
+
+function hijackStatusBadge(hijack) {
+	return hijack && hijack.enabled ? statusBadge(_('Enabled'), true) : statusBadge(_('Disabled'), false);
 }
 
 function localServiceHost(host) {
@@ -327,16 +345,97 @@ function updateServiceActions(status) {
 	});
 }
 
+function hijackPortText(hijack) {
+	if (!hijack || (hijack.udp_port == null && hijack.tcp_port == null))
+		return _('No OxiDNS DNS listener could be detected in config.yaml.');
+	if (hijack.udp_port != null && hijack.udp_port === hijack.tcp_port)
+		return _('Detected OxiDNS DNS listener: port %s (TCP/UDP).').format(hijack.udp_port);
+	return _('Detected OxiDNS DNS listeners: UDP port %s, TCP port %s.')
+		.format(hijack.udp_port == null ? '-' : hijack.udp_port,
+			hijack.tcp_port == null ? '-' : hijack.tcp_port);
+}
+
+function setHijackStatus(message, danger) {
+	var node = document.getElementById('oxidns-hijack-status');
+	if (!node)
+		return;
+	node.textContent = message || '';
+	node.className = danger ? 'alert-message error' : 'alert-message info';
+}
+
+// 每次轮询都按后端状态重绘：勾选框、端口描述、以及「当前生效的规则段」列表
+// 都以 hijack_get 的结果为准，避免界面与实际防火墙状态漂移。
+function applyHijackState(hijack) {
+	hijack = hijack || {};
+
+	var box = document.getElementById('oxidns-hijack-enabled');
+	if (box)
+		box.checked = !!hijack.enabled;
+
+	setNodeContent(document.getElementById('oxidns-hijack-ports'), hijackPortText(hijack));
+	setNodeContent(document.getElementById('oxidns-hijack-sections'), (hijack.sections || []).join(', '));
+}
+
+function refreshHijack() {
+	return L.resolveDefault(callHijackGet(), {}).then(function(hijack) {
+		hijackState = hijack || {};
+		applyHijackState(hijackState);
+		return hijackState;
+	});
+}
+
+function refreshAll() {
+	return Promise.all([ refreshStatus(), refreshHijack() ]);
+}
+
+function saveHijack() {
+	var box = document.getElementById('oxidns-hijack-enabled');
+	var enabled = !!(box && box.checked);
+
+	ui.showModal(_('OxiDNS'), [
+		E('p', {}, _('Applying DNS hijack...'))
+	]);
+
+	return L.resolveDefault(callHijackSave(enabled), null).then(function(result) {
+		ui.hideModal();
+		if (result && result.ok !== false)
+			applyHijackState(result);
+
+		if (!result || result.ok === false) {
+			setHijackStatus((result && (result.message || result.error)) || _('Failed to apply DNS hijack'), true);
+			return refreshHijack();
+		}
+		if (result.warn === 'firewall_reload_failed') {
+			setHijackStatus(_('Rules were written, but the firewall reload failed. The rules take effect on the next firewall reload or reboot.'), true);
+			return;
+		}
+		setHijackStatus(result.enabled
+			? _('DNS hijack enabled. LAN port 53 requests are redirected to OxiDNS.')
+			: _('DNS hijack disabled.'), false);
+	}).catch(function(err) {
+		ui.hideModal();
+		setHijackStatus(err.message || String(err), true);
+		return refreshHijack();
+	});
+}
+
 return view.extend({
 	load: function() {
-		return L.resolveDefault(callStatus(), {
-			ok: false,
-			error: _('Unable to query OxiDNS status')
+		return Promise.all([
+			L.resolveDefault(callStatus(), {
+				ok: false,
+				error: _('Unable to query OxiDNS status')
+			}),
+			L.resolveDefault(callHijackGet(), {})
+		]).then(function(results) {
+			return { status: results[0], hijack: results[1] };
 		});
 	},
 
-	render: function(status) {
-		statusState = status || {};
+	render: function(data) {
+		var status = (data && data.status) || {};
+		statusState = status;
+		hijackState = (data && data.hijack) || {};
 
 		var rows = [
 			renderRow(_('LuCI backend'), backendStatusBadge(status), 'oxidns-backend-status'),
@@ -353,7 +452,7 @@ return view.extend({
 			rows.push(renderRow(_('Error'), status.error));
 
 		serviceActionsKey = serviceActionStateKey(statusState);
-		poll.add(refreshStatus, 5);
+		poll.add(refreshAll, 5);
 
 		return E('div', { 'class': 'cbi-map' }, [
 			E('h2', {}, _('OxiDNS')),
@@ -372,6 +471,36 @@ return view.extend({
 					'class': 'cbi-button-row',
 					'style': 'display: flex; flex-wrap: wrap; gap: .5em;'
 				}, serviceActionButtons(statusState))
+			]),
+			E('div', { 'class': 'cbi-section' }, [
+				E('h3', {}, _('DNS hijack')),
+				E('div', { 'class': 'cbi-section-descr' },
+					_('Redirect LAN DNS requests to port 53 (TCP and UDP, IPv4 and IPv6) to the local OxiDNS DNS listener. The target port is parsed from the OxiDNS config.yaml; implemented as an fw4 firewall redirect, so lookups made by the router itself are not affected.')),
+				E('div', { 'class': 'table cbi-section-table' }, [
+					renderRow(_('Status'), hijackStatusBadge(hijackState)),
+					renderRow(_('Target ports'), '-', 'oxidns-hijack-ports'),
+					renderRow(_('Active firewall sections'), '-', 'oxidns-hijack-sections')
+				]),
+				E('label', { 'style': 'display: block; margin: .5em 0;' }, [
+					E('input', {
+						'id': 'oxidns-hijack-enabled',
+						'type': 'checkbox',
+						'checked': hijackState.enabled ? 'checked' : null,
+						'style': 'margin-right: .5em;'
+					}),
+					_('Enable DNS hijack')
+				]),
+				E('div', { 'class': 'cbi-button-row' }, [
+					E('button', {
+						'id': 'oxidns-hijack-apply',
+						'class': 'btn cbi-button cbi-button-positive',
+						'click': function(ev) {
+							ev.preventDefault();
+							return saveHijack();
+						}
+					}, _('Apply'))
+				]),
+				E('div', { 'id': 'oxidns-hijack-status', 'style': 'margin-top: 1em;' })
 			])
 		]);
 	},

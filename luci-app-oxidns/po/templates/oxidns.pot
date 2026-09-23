@@ -1,17 +1,28 @@
+
+
 msgid ""
 msgstr ""
-"Project-Id-Version: PACKAGE VERSION\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
-"Language-Team: LANGUAGE <LL@li.org>\n"
-"MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=UTF-8\n"
-"Content-Transfer-Encoding: 8bit\n"
 
 msgid "A token is currently configured. Enter a new value to replace it."
 msgstr ""
 
 msgid "Actions"
+msgstr ""
+
+msgid "Active firewall sections"
+msgstr ""
+
+msgid "API address"
+msgstr ""
+
+msgid "API password"
+msgstr ""
+
+msgid "API username"
+msgstr ""
+msgid "Apply"
+msgstr ""
+msgid "Applying DNS hijack..."
 msgstr ""
 
 msgid "Applying service action..."
@@ -23,22 +34,25 @@ msgstr ""
 msgid "Binary path"
 msgstr ""
 
-msgid "Build"
+msgid "Blacklist"
 msgstr ""
 
-msgid "Cancel"
+msgid "Build"
 msgstr ""
 
 msgid "Bundle"
 msgstr ""
 
+msgid "Cancel"
+msgstr ""
+
 msgid "Clear"
 msgstr ""
 
-msgid "Clear configured GitHub token"
+msgid "Clear configured download proxy"
 msgstr ""
 
-msgid "Clear configured download proxy"
+msgid "Clear configured GitHub token"
 msgstr ""
 
 msgid "Close"
@@ -56,6 +70,12 @@ msgstr ""
 msgid "Configuration and working directory data are preserved unless selected below."
 msgstr ""
 
+msgid "Configuration is valid"
+msgstr ""
+
+msgid "Configuration saved and service restarted"
+msgstr ""
+
 msgid "Configure OxiDNS core download sources, runtime paths, and optional download credentials."
 msgstr ""
 
@@ -66,9 +86,6 @@ msgid "Control the OpenWrt init service for OxiDNS."
 msgstr ""
 
 msgid "Core"
-msgstr ""
-
-msgid "Core Status"
 msgstr ""
 
 msgid "Core bundle"
@@ -83,28 +100,76 @@ msgstr ""
 msgid "Core repository"
 msgstr ""
 
+msgid "Core Status"
+msgstr ""
+
+msgid "Cron job"
+msgstr ""
+
+msgid "Daily"
+msgstr ""
+
+msgid "Day of week"
+msgstr ""
+
 msgid "Delete configuration file"
 msgstr ""
 
 msgid "Delete working directory"
 msgstr ""
 
+msgid "Details"
+msgstr ""
+msgid "Detected OxiDNS DNS listener: port %s (TCP/UDP)."
+msgstr ""
+msgid "Detected OxiDNS DNS listeners: UDP port %s, TCP port %s."
+msgstr ""
+
 msgid "Disable"
 msgstr ""
 
-msgid "Download proxy"
+msgid "Disabled"
+msgstr ""
+
+msgid "Discard unsaved changes and load another file?"
+msgstr ""
+
+msgid "Discard unsaved changes and reload this file?"
+msgstr ""
+msgid "DNS hijack"
+msgstr ""
+msgid "DNS hijack disabled."
+msgstr ""
+msgid "DNS hijack enabled. LAN port 53 requests are redirected to OxiDNS."
 msgstr ""
 
 msgid "Download core archive"
 msgstr ""
 
+msgid "Download proxy"
+msgstr ""
+
 msgid "Download release metadata"
+msgstr ""
+
+msgid "Dynamic Domains"
+msgstr ""
+
+msgid "Edit the rule list files that OxiDNS providers read, then restart the service to apply the changes."
 msgstr ""
 
 msgid "Edit, validate, and save the full OxiDNS YAML configuration file."
 msgstr ""
 
+msgid "Editing"
+msgstr ""
+
 msgid "Enable"
+msgstr ""
+msgid "Enable DNS hijack"
+msgstr ""
+
+msgid "Enabled"
 msgstr ""
 
 msgid "Error"
@@ -115,6 +180,8 @@ msgstr ""
 
 msgid "Example: http://127.0.0.1:7890"
 msgstr ""
+msgid "Failed to apply DNS hijack"
+msgstr ""
 
 msgid "Failed to save settings"
 msgstr ""
@@ -122,7 +189,13 @@ msgstr ""
 msgid "Format: http://host:port, https://host:port, socks5://host:port, or socks5h://host:port. Use http://user:pass@host:port when authentication is required."
 msgstr ""
 
+msgid "Friday"
+msgstr ""
+
 msgid "GitHub token"
+msgstr ""
+
+msgid "Greylist"
 msgstr ""
 
 msgid "Install Core"
@@ -131,13 +204,16 @@ msgstr ""
 msgid "Install core files"
 msgstr ""
 
+msgid "Install or repair the OxiDNS core binary. Runtime upgrades are handled by OxiDNS itself."
+msgstr ""
+
 msgid "Install the OxiDNS core before editing the configuration."
 msgstr ""
 
-msgid "Install the OxiDNS core before using service controls."
+msgid "Install the OxiDNS core before editing the rule files."
 msgstr ""
 
-msgid "Install or repair the OxiDNS core binary. Runtime upgrades are handled by OxiDNS itself."
+msgid "Install the OxiDNS core before using service controls."
 msgstr ""
 
 msgid "Installed"
@@ -147,6 +223,30 @@ msgid "Installing OxiDNS core..."
 msgstr ""
 
 msgid "Installing uploaded OxiDNS core..."
+msgstr ""
+
+msgid "Learned files"
+msgstr ""
+
+msgid "Learned files cleared"
+msgstr ""
+
+msgid "learned-cn.txt and learned-proxy.txt are written automatically by the OxiDNS learn_domain executor (dynamic_domain_set). A scheduled reset clears the selected rule sets through the OxiDNS admin API; no service restart is required."
+msgstr ""
+
+msgid "Leave empty to keep the saved password."
+msgstr ""
+
+msgid "Lines"
+msgstr ""
+
+msgid "Loaded rule file"
+msgstr ""
+
+msgid "Loading rule file..."
+msgstr ""
+
+msgid "Local PTR"
 msgstr ""
 
 msgid "Logs"
@@ -161,22 +261,30 @@ msgstr ""
 msgid "Manage the OxiDNS runtime, service, configuration, and logs from LuCI."
 msgstr ""
 
+msgid "Modified"
+msgstr ""
+
+msgid "Monday"
+msgstr ""
+
 msgid "No"
+msgstr ""
+msgid "No OxiDNS DNS listener could be detected in config.yaml."
+msgstr ""
+
+msgid "No rule files were found in the rule directory."
 msgstr ""
 
 msgid "Not installed"
 msgstr ""
 
-msgid "Operation completed."
-msgstr ""
-
-msgid "Operation failed"
-msgstr ""
-
-msgid "Optional. The token is never shown after saving."
+msgid "One rule per line. Lines starting with # are ignored."
 msgstr ""
 
 msgid "Open WebUI"
+msgstr ""
+
+msgid "Optional. The token is never shown after saving."
 msgstr ""
 
 msgid "Overview"
@@ -191,12 +299,6 @@ msgstr ""
 msgid "OxiDNS Core"
 msgstr ""
 
-msgid "OxiDNS Logs"
-msgstr ""
-
-msgid "OxiDNS Settings"
-msgstr ""
-
 msgid "OxiDNS is already disabled on boot."
 msgstr ""
 
@@ -207,6 +309,18 @@ msgid "OxiDNS is already running."
 msgstr ""
 
 msgid "OxiDNS is already stopped."
+msgstr ""
+
+msgid "OxiDNS Logs"
+msgstr ""
+
+msgid "OxiDNS reads rule files when a provider is loaded. Use Save & Restart to apply the changes."
+msgstr ""
+
+msgid "OxiDNS Rule Files"
+msgstr ""
+
+msgid "OxiDNS Settings"
 msgstr ""
 
 msgid "Path"
@@ -221,7 +335,15 @@ msgstr ""
 msgid "Reason"
 msgstr ""
 
+msgid "Redirect"
+msgstr ""
+msgid "Redirect LAN DNS requests to port 53 (TCP and UDP, IPv4 and IPv6) to the local OxiDNS DNS listener. The target port is parsed from the OxiDNS config.yaml; implemented as an fw4 firewall redirect, so lookups made by the router itself are not affected."
+msgstr ""
+
 msgid "Refresh"
+msgstr ""
+
+msgid "Reload"
 msgstr ""
 
 msgid "Remove Core"
@@ -242,6 +364,24 @@ msgstr ""
 msgid "Repair reinstalling OxiDNS core..."
 msgstr ""
 
+msgid "Reset failed"
+msgstr ""
+
+msgid "Reset learned-cn.txt (learned_cn)"
+msgstr ""
+
+msgid "Reset learned-proxy.txt (learned_proxy)"
+msgstr ""
+
+msgid "Reset now"
+msgstr ""
+
+msgid "Reset time"
+msgstr ""
+
+msgid "Resetting learned files..."
+msgstr ""
+
 msgid "Restart"
 msgstr ""
 
@@ -251,7 +391,24 @@ msgstr ""
 msgid "Resume"
 msgstr ""
 
+msgid "Rule directory"
+msgstr ""
+
+msgid "Rule file"
+msgstr ""
+
+msgid "Rule file saved and service restarted"
+msgstr ""
+
+msgid "Rule Files"
+msgstr ""
+msgid "Rules were written, but the firewall reload failed. The rules take effect on the next firewall reload or reboot."
+msgstr ""
+
 msgid "Running"
+msgstr ""
+
+msgid "Saturday"
 msgstr ""
 
 msgid "Save"
@@ -260,7 +417,19 @@ msgstr ""
 msgid "Save & Restart"
 msgstr ""
 
+msgid "Save failed"
+msgstr ""
+
+msgid "Save schedule"
+msgstr ""
+
 msgid "Save Settings"
+msgstr ""
+
+msgid "Saved, but not applied to the running service"
+msgstr ""
+
+msgid "Saved, but the service did not restart"
 msgstr ""
 
 msgid "Saving and restarting service..."
@@ -269,7 +438,28 @@ msgstr ""
 msgid "Saving configuration..."
 msgstr ""
 
+msgid "Saving rule file..."
+msgstr ""
+
+msgid "Saving schedule..."
+msgstr ""
+
 msgid "Saving settings..."
+msgstr ""
+
+msgid "Schedule"
+msgstr ""
+
+msgid "Schedule saved"
+msgstr ""
+
+msgid "Scheduled Reset for Learned Files"
+msgstr ""
+
+msgid "Select at least one learned file to reset."
+msgstr ""
+
+msgid "Select release archive"
 msgstr ""
 
 msgid "Service"
@@ -290,7 +480,7 @@ msgstr ""
 msgid "Settings saved."
 msgstr ""
 
-msgid "Select release archive"
+msgid "Size"
 msgstr ""
 
 msgid "Stage"
@@ -305,31 +495,70 @@ msgstr ""
 msgid "Start the OxiDNS service before opening WebUI."
 msgstr ""
 
+msgid "Status"
+msgstr ""
+
 msgid "Stop"
 msgstr ""
 
 msgid "Stopped"
 msgstr ""
 
+msgid "Sunday"
+msgstr ""
+
 msgid "Target"
 msgstr ""
 
-msgid "Details"
+msgid "Target ports"
 msgstr ""
 
-msgid "Unable to query OxiDNS status"
+msgid "The content changed since it was last checked"
+msgstr ""
+
+msgid "The rule file does not exist yet. Save to create it."
+msgstr ""
+
+msgid "The rule file was modified on disk since it was loaded. Reload it before saving again."
+msgstr ""
+
+msgid "The running service still uses the previous configuration. Use Save & Restart to apply the changes."
+msgstr ""
+
+msgid "There are unsaved changes"
+msgstr ""
+
+msgid "Thursday"
+msgstr ""
+
+msgid "Tuesday"
 msgstr ""
 
 msgid "Unable to load configuration."
 msgstr ""
 
+msgid "Unable to load the rule file"
+msgstr ""
+
+msgid "Unable to load the rule file."
+msgstr ""
+
+msgid "Unable to load the rule files."
+msgstr ""
+
+msgid "Unable to query OxiDNS status"
+msgstr ""
+
 msgid "Unavailable"
 msgstr ""
 
-msgid "Upload has been cancelled"
+msgid "Unpack core archive"
 msgstr ""
 
 msgid "Upload Core"
+msgstr ""
+
+msgid "Upload has been cancelled"
 msgstr ""
 
 msgid "Validate"
@@ -344,7 +573,7 @@ msgstr ""
 msgid "Validating configuration..."
 msgstr ""
 
-msgid "Unpack core archive"
+msgid "Validation failed"
 msgstr ""
 
 msgid "Verify checksum"
@@ -356,7 +585,10 @@ msgstr ""
 msgid "Version"
 msgstr ""
 
-msgid "View recent OxiDNS entries from OpenWrt logread."
+msgid "View the OxiDNS log file configured in config.yaml (log.file). Timestamps are shown in UTC+8. Clearing truncates the log file on the device."
+msgstr ""
+
+msgid "Waiting for command output..."
 msgstr ""
 
 msgid "WebUI"
@@ -368,7 +600,13 @@ msgstr ""
 msgid "WebUI listens on loopback only. Configure the HTTP listen address to a LAN-reachable address, or use an SSH tunnel."
 msgstr ""
 
-msgid "Waiting for command output..."
+msgid "Wednesday"
+msgstr ""
+
+msgid "Weekly"
+msgstr ""
+
+msgid "Whitelist"
 msgstr ""
 
 msgid "Working directory"

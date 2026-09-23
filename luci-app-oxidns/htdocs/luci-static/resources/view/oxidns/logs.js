@@ -10,6 +10,12 @@ var callLogsRecent = rpc.declare({
 	expect: {}
 });
 
+var callLogsClear = rpc.declare({
+	object: 'luci.oxidns',
+	method: 'logs_clear',
+	expect: {}
+});
+
 var state = {
 	lines: [],
 	pending: [],
@@ -24,9 +30,25 @@ function byId(id) {
 	return document.getElementById(id);
 }
 
+/* ISO 8601 UTC 时间戳（…Z / +00:00）转 +08:00 显示，其余行原样保留 */
+function localizeTimestamps(line) {
+	return String(line).replace(
+		/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?(?:Z|\+00:00)/g,
+		function(match, y, mo, d, h, mi, s, frac) {
+			var t = Date.UTC(+y, +mo - 1, +d, +h, +mi, +s) + 8 * 3600 * 1000;
+			var dt = new Date(t);
+			function pad(n) { return (n < 10 ? '0' : '') + n; }
+			return dt.getUTCFullYear() + '-' + pad(dt.getUTCMonth() + 1) + '-' + pad(dt.getUTCDate()) +
+				'T' + pad(dt.getUTCHours()) + ':' + pad(dt.getUTCMinutes()) + ':' + pad(dt.getUTCSeconds()) +
+				(frac || '') + '+08:00';
+		});
+}
+
 function normalizeLines(result) {
 	var lines = result && result.lines;
-	return Array.isArray(lines) ? lines : [];
+	if (!Array.isArray(lines))
+		return [];
+	return lines.map(localizeTimestamps);
 }
 
 function trimClearedLines(lines) {
@@ -131,20 +153,25 @@ function togglePaused() {
 }
 
 function clearLogs() {
-	var currentLines = state.paused && state.pending.length
-		? state.pending.slice()
-		: state.lines.slice();
-	var baseline = state.rawLines.length
-		? state.rawLines.slice()
-		: currentLines;
+	return L.resolveDefault(callLogsClear(), null).then(function(result) {
+		if (result && result.ok === false)
+			return;
 
-	if (baseline.length)
-		state.clearBaseline = baseline;
+		var currentLines = state.paused && state.pending.length
+			? state.pending.slice()
+			: state.lines.slice();
+		var baseline = state.rawLines.length
+			? state.rawLines.slice()
+			: currentLines;
 
-	state.lines = [];
-	state.pending = [];
-	state.followTail = true;
-	renderLines();
+		if (baseline.length)
+			state.clearBaseline = baseline;
+
+		state.lines = [];
+		state.pending = [];
+		state.followTail = true;
+		renderLines();
+	});
 }
 
 function controlButton(label, handler, style) {
@@ -161,7 +188,7 @@ return view.extend({
 	load: function() {
 		return Promise.resolve({
 			ok: true,
-			source: 'logread',
+			source: 'file',
 			lines: []
 		});
 	},
@@ -179,7 +206,7 @@ return view.extend({
 		return E('div', { 'class': 'cbi-map' }, [
 			E('h2', {}, _('OxiDNS Logs')),
 			E('div', { 'class': 'cbi-map-descr' },
-				_('View recent OxiDNS entries from OpenWrt logread.')),
+				_('View the OxiDNS log file configured in config.yaml (log.file). Timestamps are shown in UTC+8. Clearing truncates the log file on the device.')),
 			E('div', { 'class': 'cbi-section' }, [
 				E('div', {
 					'class': 'cbi-button-row',

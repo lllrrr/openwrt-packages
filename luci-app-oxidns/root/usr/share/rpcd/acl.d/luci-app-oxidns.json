@@ -8,7 +8,11 @@
 					"core_progress",
 					"config_read",
 					"settings_read",
-					"logs_recent"
+					"rules_list",
+					"rules_read",
+					"learn_reset_get",
+					"logs_recent",
+					"hijack_get"
 				]
 			}
 		},
@@ -26,7 +30,12 @@
 					"service_disable",
 					"config_validate",
 					"config_save",
-					"settings_save"
+					"rules_save",
+					"learn_reset_save",
+					"learn_reset_run",
+					"settings_save",
+					"logs_clear",
+					"hijack_save"
 				]
 			}
 		}

@@ -42,6 +42,17 @@
 			"acl": [ "luci-app-oxidns" ]
 		}
 	},
+	"admin/services/oxidns/rules": {
+		"title": "Rule Files",
+		"order": 35,
+		"action": {
+			"type": "view",
+			"path": "oxidns/rules"
+		},
+		"depends": {
+			"acl": [ "luci-app-oxidns" ]
+		}
+	},
 	"admin/services/oxidns/logs": {
 		"title": "Logs",
 		"order": 40,

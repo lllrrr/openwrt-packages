@@ -1,7 +1,9 @@
+
+
 msgid ""
 msgstr ""
 "Project-Id-Version: luci-app-oxidns\n"
-"PO-Revision-Date: 2026-06-27 00:00+0000\n"
+"PO-Revision-Date: 2026-09-23 00:00+0000\n"
 "Last-Translator: Sven Shi <isvenshi@gmail.com>\n"
 "Language-Team: Chinese Simplified\n"
 "Language: zh_Hans\n"
@@ -16,6 +18,22 @@ msgstr "当前已配置 Token。输入新值可替换现有 Token。"
 msgid "Actions"
 msgstr "操作"
 
+msgid "Active firewall sections"
+msgstr "生效的防火墙配置段"
+
+msgid "API address"
+msgstr "API 地址"
+
+msgid "API password"
+msgstr "API 密码"
+
+msgid "API username"
+msgstr "API 用户名"
+msgid "Apply"
+msgstr "应用"
+msgid "Applying DNS hijack..."
+msgstr "正在应用 DNS 劫持..."
+
 msgid "Applying service action..."
 msgstr "正在执行服务操作..."
 
@@ -25,23 +43,26 @@ msgstr "可用"
 msgid "Binary path"
 msgstr "二进制路径"
 
+msgid "Blacklist"
+msgstr "黑名单"
+
 msgid "Build"
 msgstr "构建信息"
-
-msgid "Cancel"
-msgstr "取消"
 
 msgid "Bundle"
 msgstr "Bundle"
 
+msgid "Cancel"
+msgstr "取消"
+
 msgid "Clear"
 msgstr "清空"
 
-msgid "Clear configured GitHub token"
-msgstr "清除已配置的 GitHub Token"
-
 msgid "Clear configured download proxy"
 msgstr "清除已配置的下载代理"
+
+msgid "Clear configured GitHub token"
+msgstr "清除已配置的 GitHub Token"
 
 msgid "Close"
 msgstr "关闭"
@@ -58,6 +79,12 @@ msgstr "配置"
 msgid "Configuration and working directory data are preserved unless selected below."
 msgstr "除非勾选下面的选项，否则配置和工作目录数据会保留。"
 
+msgid "Configuration is valid"
+msgstr "配置校验通过"
+
+msgid "Configuration saved and service restarted"
+msgstr "配置已保存并重启服务"
+
 msgid "Configure OxiDNS core download sources, runtime paths, and optional download credentials."
 msgstr "配置 OxiDNS 内核下载源、运行路径和可选下载凭据。"
 
@@ -69,9 +96,6 @@ msgstr "控制 OxiDNS 的 OpenWrt init 服务。"
 
 msgid "Core"
 msgstr "内核"
-
-msgid "Core Status"
-msgstr "内核状态"
 
 msgid "Core bundle"
 msgstr "内核 bundle"
@@ -85,29 +109,77 @@ msgstr "内核操作失败"
 msgid "Core repository"
 msgstr "内核仓库"
 
+msgid "Core Status"
+msgstr "内核状态"
+
+msgid "Cron job"
+msgstr "定时任务"
+
+msgid "Daily"
+msgstr "每天"
+
+msgid "Day of week"
+msgstr "星期"
+
 msgid "Delete configuration file"
 msgstr "删除配置文件"
 
 msgid "Delete working directory"
 msgstr "删除工作目录"
 
+msgid "Details"
+msgstr "详情"
+msgid "Detected OxiDNS DNS listener: port %s (TCP/UDP)."
+msgstr "检测到 OxiDNS DNS 监听：端口 %s（TCP/UDP）。"
+msgid "Detected OxiDNS DNS listeners: UDP port %s, TCP port %s."
+msgstr "检测到 OxiDNS DNS 监听：UDP 端口 %s、TCP 端口 %s。"
+
 msgid "Disable"
 msgstr "禁用"
 
-msgid "Download proxy"
-msgstr "下载代理"
+msgid "Disabled"
+msgstr "关闭"
+
+msgid "Discard unsaved changes and load another file?"
+msgstr "有未保存的修改，确定放弃并切换到另一个文件？"
+
+msgid "Discard unsaved changes and reload this file?"
+msgstr "有未保存的修改，确定放弃并重新载入该文件？"
+msgid "DNS hijack"
+msgstr "DNS 劫持"
+msgid "DNS hijack disabled."
+msgstr "DNS 劫持已关闭。"
+msgid "DNS hijack enabled. LAN port 53 requests are redirected to OxiDNS."
+msgstr "DNS 劫持已开启，局域网发往 53 端口的 DNS 请求将被重定向到 OxiDNS。"
 
 msgid "Download core archive"
 msgstr "下载内核压缩包"
 
+msgid "Download proxy"
+msgstr "下载代理"
+
 msgid "Download release metadata"
 msgstr "下载 release 元数据"
+
+msgid "Dynamic Domains"
+msgstr "动态域名"
+
+msgid "Edit the rule list files that OxiDNS providers read, then restart the service to apply the changes."
+msgstr "编辑 OxiDNS provider 读取的规则列表文件，改完需要重启服务才会生效。"
 
 msgid "Edit, validate, and save the full OxiDNS YAML configuration file."
 msgstr "编辑、校验并保存完整的 OxiDNS YAML 配置文件。"
 
+msgid "Editing"
+msgstr "正在编辑"
+
 msgid "Enable"
 msgstr "启用"
+msgid "Enable DNS hijack"
+msgstr "开启 DNS 劫持"
+
+msgid "Enabled"
+msgstr "已开启"
 
 msgid "Error"
 msgstr "错误"
@@ -117,6 +189,8 @@ msgstr "错误码"
 
 msgid "Example: http://127.0.0.1:7890"
 msgstr "示例：http://127.0.0.1:7890"
+msgid "Failed to apply DNS hijack"
+msgstr "应用 DNS 劫持失败"
 
 msgid "Failed to save settings"
 msgstr "保存设置失败"
@@ -124,8 +198,14 @@ msgstr "保存设置失败"
 msgid "Format: http://host:port, https://host:port, socks5://host:port, or socks5h://host:port. Use http://user:pass@host:port when authentication is required."
 msgstr "格式：http://主机:端口、https://主机:端口、socks5://主机:端口 或 socks5h://主机:端口。需要认证时使用 http://用户:密码@主机:端口。"
 
+msgid "Friday"
+msgstr "星期五"
+
 msgid "GitHub token"
 msgstr "GitHub Token"
+
+msgid "Greylist"
+msgstr "灰名单"
 
 msgid "Install Core"
 msgstr "安装内核"
@@ -133,14 +213,17 @@ msgstr "安装内核"
 msgid "Install core files"
 msgstr "安装内核文件"
 
+msgid "Install or repair the OxiDNS core binary. Runtime upgrades are handled by OxiDNS itself."
+msgstr "安装或修复 OxiDNS 内核二进制。运行时升级由 OxiDNS 自身处理。"
+
 msgid "Install the OxiDNS core before editing the configuration."
 msgstr "请先安装 OxiDNS 内核，再编辑配置。"
 
+msgid "Install the OxiDNS core before editing the rule files."
+msgstr "请先安装 OxiDNS 内核，然后才能编辑规则文件。"
+
 msgid "Install the OxiDNS core before using service controls."
 msgstr "请先安装 OxiDNS 内核，再使用服务控制。"
-
-msgid "Install or repair the OxiDNS core binary. Runtime upgrades are handled by OxiDNS itself."
-msgstr "安装或修复 OxiDNS 内核二进制。运行时升级由 OxiDNS 自身处理。"
 
 msgid "Installed"
 msgstr "已安装"
@@ -150,6 +233,30 @@ msgstr "正在安装 OxiDNS 内核..."
 
 msgid "Installing uploaded OxiDNS core..."
 msgstr "正在安装上传的 OxiDNS 内核..."
+
+msgid "Learned files"
+msgstr "学习文件"
+
+msgid "Learned files cleared"
+msgstr "学习文件已清空"
+
+msgid "learned-cn.txt and learned-proxy.txt are written automatically by the OxiDNS learn_domain executor (dynamic_domain_set). A scheduled reset clears the selected rule sets through the OxiDNS admin API; no service restart is required."
+msgstr "learned-cn.txt 与 learned-proxy.txt 由 OxiDNS 的 learn_domain 执行器（dynamic_domain_set）自动写入。定时重置通过 OxiDNS 管理 API 清空选中的规则集，无需重启服务。"
+
+msgid "Leave empty to keep the saved password."
+msgstr "留空则保持已保存的密码不变。"
+
+msgid "Lines"
+msgstr "行数"
+
+msgid "Loaded rule file"
+msgstr "已载入规则文件"
+
+msgid "Loading rule file..."
+msgstr "正在载入规则文件..."
+
+msgid "Local PTR"
+msgstr "本地 ptr"
 
 msgid "Logs"
 msgstr "日志"
@@ -163,23 +270,31 @@ msgstr "LuCI 可以下载官方 OxiDNS release archive，也可以安装上传�
 msgid "Manage the OxiDNS runtime, service, configuration, and logs from LuCI."
 msgstr "在 LuCI 中管理 OxiDNS 运行时、服务、配置和日志。"
 
+msgid "Modified"
+msgstr "修改时间"
+
+msgid "Monday"
+msgstr "星期一"
+
 msgid "No"
 msgstr "否"
+msgid "No OxiDNS DNS listener could be detected in config.yaml."
+msgstr "未能从 config.yaml 中检测到 OxiDNS 的 DNS 监听端口。"
+
+msgid "No rule files were found in the rule directory."
+msgstr "规则目录下没有找到任何规则文件。"
 
 msgid "Not installed"
 msgstr "未安装"
 
-msgid "Operation completed."
-msgstr "操作已完成。"
-
-msgid "Operation failed"
-msgstr "操作失败"
-
-msgid "Optional. The token is never shown after saving."
-msgstr "可选。保存后不会再显示 Token。"
+msgid "One rule per line. Lines starting with # are ignored."
+msgstr "每行一条规则，以 # 开头的行会被忽略。"
 
 msgid "Open WebUI"
 msgstr "打开 WebUI"
+
+msgid "Optional. The token is never shown after saving."
+msgstr "可选。保存后不会再显示 Token。"
 
 msgid "Overview"
 msgstr "概览"
@@ -193,12 +308,6 @@ msgstr "OxiDNS 配置"
 msgid "OxiDNS Core"
 msgstr "OxiDNS 内核"
 
-msgid "OxiDNS Logs"
-msgstr "OxiDNS 日志"
-
-msgid "OxiDNS Settings"
-msgstr "OxiDNS 设置"
-
 msgid "OxiDNS is already disabled on boot."
 msgstr "OxiDNS 已经禁用开机自启。"
 
@@ -210,6 +319,18 @@ msgstr "OxiDNS 已经在运行。"
 
 msgid "OxiDNS is already stopped."
 msgstr "OxiDNS 已经停止。"
+
+msgid "OxiDNS Logs"
+msgstr "OxiDNS 日志"
+
+msgid "OxiDNS reads rule files when a provider is loaded. Use Save & Restart to apply the changes."
+msgstr "OxiDNS 只在 provider 载入时读取规则文件。要让改动生效请使用「保存并重启」。"
+
+msgid "OxiDNS Rule Files"
+msgstr "OxiDNS 规则文件"
+
+msgid "OxiDNS Settings"
+msgstr "OxiDNS 设置"
 
 msgid "Path"
 msgstr "路径"
@@ -223,8 +344,16 @@ msgstr "准备下载"
 msgid "Reason"
 msgstr "原因"
 
+msgid "Redirect"
+msgstr "重定向"
+msgid "Redirect LAN DNS requests to port 53 (TCP and UDP, IPv4 and IPv6) to the local OxiDNS DNS listener. The target port is parsed from the OxiDNS config.yaml; implemented as an fw4 firewall redirect, so lookups made by the router itself are not affected."
+msgstr "把局域网发往 53 端口（TCP/UDP、IPv4/IPv6）的 DNS 请求重定向到本机 OxiDNS 的 DNS 监听端口。目标端口从 OxiDNS 的 config.yaml 解析；实现为 fw4 防火墙重定向规则，路由器自身的 DNS 查询不受影响。"
+
 msgid "Refresh"
 msgstr "刷新"
+
+msgid "Reload"
+msgstr "重新载入"
 
 msgid "Remove Core"
 msgstr "删除内核"
@@ -235,9 +364,6 @@ msgstr "删除 OxiDNS 内核"
 msgid "Remove the OxiDNS core binary and Web UI files."
 msgstr "删除 OxiDNS 内核二进制和 Web UI 文件。"
 
-msgid "Remove the OxiDNS core binary? Configuration and runtime data will be preserved."
-msgstr "确定删除 OxiDNS 内核二进制？配置和运行时数据会保留。"
-
 msgid "Removing OxiDNS core..."
 msgstr "正在删除 OxiDNS 内核..."
 
@@ -246,6 +372,24 @@ msgstr "修复重装"
 
 msgid "Repair reinstalling OxiDNS core..."
 msgstr "正在修复重装 OxiDNS 内核..."
+
+msgid "Reset failed"
+msgstr "重置失败"
+
+msgid "Reset learned-cn.txt (learned_cn)"
+msgstr "重置 learned-cn.txt (learned_cn)"
+
+msgid "Reset learned-proxy.txt (learned_proxy)"
+msgstr "重置 learned-proxy.txt (learned_proxy)"
+
+msgid "Reset now"
+msgstr "立即重置"
+
+msgid "Reset time"
+msgstr "重置时间"
+
+msgid "Resetting learned files..."
+msgstr "正在重置学习文件..."
 
 msgid "Restart"
 msgstr "重启"
@@ -256,8 +400,25 @@ msgstr "重启服务"
 msgid "Resume"
 msgstr "继续"
 
+msgid "Rule directory"
+msgstr "规则目录"
+
+msgid "Rule file"
+msgstr "规则文件"
+
+msgid "Rule file saved and service restarted"
+msgstr "规则文件已保存，服务已重启"
+
+msgid "Rule Files"
+msgstr "规则文件"
+msgid "Rules were written, but the firewall reload failed. The rules take effect on the next firewall reload or reboot."
+msgstr "规则已写入，但防火墙重载失败。规则将在下次防火墙重载或重启后生效。"
+
 msgid "Running"
 msgstr "运行中"
+
+msgid "Saturday"
+msgstr "星期六"
 
 msgid "Save"
 msgstr "保存"
@@ -265,8 +426,20 @@ msgstr "保存"
 msgid "Save & Restart"
 msgstr "保存并重启"
 
+msgid "Save failed"
+msgstr "保存失败"
+
+msgid "Save schedule"
+msgstr "保存计划"
+
 msgid "Save Settings"
 msgstr "保存设置"
+
+msgid "Saved, but not applied to the running service"
+msgstr "已保存，但未对运行中的服务生效"
+
+msgid "Saved, but the service did not restart"
+msgstr "已保存，但服务未重启"
 
 msgid "Saving and restarting service..."
 msgstr "正在保存并重启服务..."
@@ -274,8 +447,29 @@ msgstr "正在保存并重启服务..."
 msgid "Saving configuration..."
 msgstr "正在保存配置..."
 
+msgid "Saving rule file..."
+msgstr "正在保存规则文件..."
+
+msgid "Saving schedule..."
+msgstr "正在保存计划..."
+
 msgid "Saving settings..."
 msgstr "正在保存设置..."
+
+msgid "Schedule"
+msgstr "计划"
+
+msgid "Schedule saved"
+msgstr "计划已保存"
+
+msgid "Scheduled Reset for Learned Files"
+msgstr "定时重置学习文件"
+
+msgid "Select at least one learned file to reset."
+msgstr "请至少选择一个要重置的学习文件。"
+
+msgid "Select release archive"
+msgstr "选择 release 压缩包"
 
 msgid "Service"
 msgstr "服务"
@@ -295,8 +489,8 @@ msgstr "设置"
 msgid "Settings saved."
 msgstr "设置已保存。"
 
-msgid "Select release archive"
-msgstr "选择 release 压缩包"
+msgid "Size"
+msgstr "大小"
 
 msgid "Stage"
 msgstr "阶段"
@@ -310,32 +504,71 @@ msgstr "开机自启"
 msgid "Start the OxiDNS service before opening WebUI."
 msgstr "请先启动 OxiDNS 服务再打开 WebUI。"
 
+msgid "Status"
+msgstr "状态"
+
 msgid "Stop"
 msgstr "停止"
 
 msgid "Stopped"
 msgstr "已停止"
 
+msgid "Sunday"
+msgstr "星期日"
+
 msgid "Target"
 msgstr "目标架构"
 
-msgid "Details"
-msgstr "详情"
+msgid "Target ports"
+msgstr "目标端口"
 
-msgid "Unable to query OxiDNS status"
-msgstr "无法查询 OxiDNS 状态"
+msgid "The content changed since it was last checked"
+msgstr "内容已修改，请重新校验"
+
+msgid "The rule file does not exist yet. Save to create it."
+msgstr "规则文件尚不存在，保存后创建。"
+
+msgid "The rule file was modified on disk since it was loaded. Reload it before saving again."
+msgstr "该规则文件在载入后被外部修改过，请先重新载入再保存。"
+
+msgid "The running service still uses the previous configuration. Use Save & Restart to apply the changes."
+msgstr "运行中的服务仍在使用旧配置，如需生效请点击「保存并重启」。"
+
+msgid "There are unsaved changes"
+msgstr "有未保存的修改"
+
+msgid "Thursday"
+msgstr "星期四"
+
+msgid "Tuesday"
+msgstr "星期二"
 
 msgid "Unable to load configuration."
 msgstr "无法加载配置。"
 
+msgid "Unable to load the rule file"
+msgstr "无法载入规则文件"
+
+msgid "Unable to load the rule file."
+msgstr "无法载入该规则文件。"
+
+msgid "Unable to load the rule files."
+msgstr "无法载入规则文件列表。"
+
+msgid "Unable to query OxiDNS status"
+msgstr "无法查询 OxiDNS 状态"
+
 msgid "Unavailable"
 msgstr "不可用"
 
-msgid "Upload has been cancelled"
-msgstr "上传已取消"
+msgid "Unpack core archive"
+msgstr "解压内核压缩包"
 
 msgid "Upload Core"
 msgstr "上传内核"
+
+msgid "Upload has been cancelled"
+msgstr "上传已取消"
 
 msgid "Validate"
 msgstr "校验"
@@ -349,8 +582,8 @@ msgstr "校验上传的内核"
 msgid "Validating configuration..."
 msgstr "正在校验配置..."
 
-msgid "Unpack core archive"
-msgstr "解压内核压缩包"
+msgid "Validation failed"
+msgstr "校验未通过"
 
 msgid "Verify checksum"
 msgstr "校验 checksum"
@@ -361,8 +594,11 @@ msgstr "校验 release 摘要"
 msgid "Version"
 msgstr "版本"
 
-msgid "View recent OxiDNS entries from OpenWrt logread."
-msgstr "查看 OpenWrt logread 中最近的 OxiDNS 条目。"
+msgid "View the OxiDNS log file configured in config.yaml (log.file). Timestamps are shown in UTC+8. Clearing truncates the log file on the device."
+msgstr "查看 config.yaml 中 log.file 指定的 OxiDNS 日志文件。时间戳按东八区（UTC+8）显示。「清空」会截断设备上的日志文件。"
+
+msgid "Waiting for command output..."
+msgstr "正在等待命令输出..."
 
 msgid "WebUI"
 msgstr "WebUI"
@@ -373,8 +609,14 @@ msgstr "WebUI 文件尚未安装。"
 msgid "WebUI listens on loopback only. Configure the HTTP listen address to a LAN-reachable address, or use an SSH tunnel."
 msgstr "WebUI 仅监听 loopback。请把 HTTP 监听地址配置为局域网可访问地址，或使用 SSH 隧道。"
 
-msgid "Waiting for command output..."
-msgstr "正在等待命令输出..."
+msgid "Wednesday"
+msgstr "星期三"
+
+msgid "Weekly"
+msgstr "每周"
+
+msgid "Whitelist"
+msgstr "白名单"
 
 msgid "Working directory"
 msgstr "工作目录"

@@ -2,13 +2,33 @@
 
 set -eu
 
-VERSION="${1:-0.1.0}"
+# 用法: build-luci-package.sh [version] [out-dir] [release]
+#   version  形如 0.1.2 或 v0.1.2；留空则读 Makefile 的 PKG_VERSION
+#   out-dir  产物目录，默认 dist
+#   release  形如 2 或 r2；留空则读 Makefile 的 PKG_RELEASE
+#
+# 包版本 = PKG_VERSION-PKG_RELEASE，与 Makefile 保持一致；改这一个地方就能
+# 决定这次发布用哪个修订号（修 bug 只升 PKG_RELEASE）。
+VERSION="${1:-}"
 OUT_DIR="${2:-dist}"
+RELEASE="${3:-${PKG_RELEASE:-}}"
+
+MAKEFILE="${PKG_MAKEFILE:-Makefile}"
+[ -n "$VERSION" ] || VERSION="$(sed -n 's/^PKG_VERSION:=//p' "$MAKEFILE" | head -n 1)"
+[ -n "$RELEASE" ] || RELEASE="$(sed -n 's/^PKG_RELEASE:=//p' "$MAKEFILE" | head -n 1)"
+
 PKG_VERSION="$(printf '%s' "$VERSION" | sed 's/^v//')"
+PKG_RELEASE="$(printf '%s' "$RELEASE" | sed 's/^r//')"
+if [ -z "$PKG_VERSION" ] || [ -z "$PKG_RELEASE" ]; then
+	printf 'could not determine PKG_VERSION/PKG_RELEASE (version=%s release=%s)\n' \
+		"$PKG_VERSION" "$PKG_RELEASE" >&2
+	exit 1
+fi
+
 PKG_NAME="luci-app-oxidns"
-PKG_FILE_BASE="${PKG_NAME}_${PKG_VERSION}-r1_all"
+PKG_FILE_BASE="${PKG_NAME}_${PKG_VERSION}-r${PKG_RELEASE}_all"
 I18N_PKG_NAME="luci-i18n-oxidns-zh-cn"
-I18N_FILE_BASE="${I18N_PKG_NAME}_${PKG_VERSION}-r1_all"
+I18N_FILE_BASE="${I18N_PKG_NAME}_${PKG_VERSION}-r${PKG_RELEASE}_all"
 
 need_cmd() {
 	command -v "$1" >/dev/null 2>&1 || {
@@ -115,6 +135,13 @@ fi
 if [ -x /etc/init.d/rpcd ]; then
 	/etc/init.d/rpcd restart >/dev/null 2>&1 || true
 fi
+# 0.1.4-r1 曾把 learn-reset 脚本装在 /usr/bin，升级时迁移旧 cron 块里的路径
+if [ -f /etc/crontabs/root ] && [ -x /usr/libexec/oxidns/learn-reset.sh ]; then
+	sed -i 's#/usr/bin/oxidns-learn-reset\.sh#/usr/libexec/oxidns/learn-reset.sh#g' /etc/crontabs/root 2>/dev/null || true
+	if [ -x /etc/init.d/cron ]; then
+		/etc/init.d/cron restart >/dev/null 2>&1 || true
+	fi
+fi
 exit 0
 EOF
 	chmod 755 "$out"
@@ -149,7 +176,7 @@ OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 
 cat > "$CONTROL_DIR/control" <<EOF
 Package: $PKG_NAME
-Version: $PKG_VERSION-r1
+Version: $PKG_VERSION-r${PKG_RELEASE}
 Architecture: all
 Maintainer: Sven Shi <isvenshi@gmail.com>
 Depends: luci-base, rpcd, jsonfilter, uclient-fetch, ca-bundle
@@ -168,6 +195,9 @@ if [ -d root ]; then
 fi
 
 chmod 755 "$DATA_DIR/usr/libexec/rpcd/luci.oxidns"
+if [ -f "$DATA_DIR/usr/libexec/oxidns/learn-reset.sh" ]; then
+	chmod 755 "$DATA_DIR/usr/libexec/oxidns/learn-reset.sh"
+fi
 if [ -f "$DATA_DIR/etc/init.d/oxidns" ]; then
 	chmod 755 "$DATA_DIR/etc/init.d/oxidns"
 fi
@@ -181,7 +211,7 @@ create_ipk "$OUT_DIR/${PKG_FILE_BASE}.ipk" "$TMP_DIR/control.tar.gz" "$TMP_DIR/d
 
 cat > "$APK_CONTROL_DIR/.PKGINFO" <<EOF
 pkgname = $PKG_NAME
-pkgver = $PKG_VERSION-r1
+pkgver = $PKG_VERSION-r${PKG_RELEASE}
 pkgdesc = LuCI support for OxiDNS
 url = https://github.com/svenshi/luci-app-oxidns
 builddate = $(date +%s)
@@ -210,7 +240,7 @@ if [ -f po/zh_Hans/oxidns.po ]; then
 
 	cat > "$I18N_CONTROL_DIR/control" <<-EOF
 	Package: $I18N_PKG_NAME
-	Version: $PKG_VERSION-r1
+	Version: $PKG_VERSION-r${PKG_RELEASE}
 	Architecture: all
 	Maintainer: Sven Shi <isvenshi@gmail.com>
 Depends: $PKG_NAME
@@ -235,7 +265,7 @@ Priority: optional
 
 	cat > "$I18N_APK_CONTROL_DIR/.PKGINFO" <<-EOF
 	pkgname = $I18N_PKG_NAME
-	pkgver = $PKG_VERSION-r1
+	pkgver = $PKG_VERSION-r${PKG_RELEASE}
 	pkgdesc = Simplified Chinese translation for luci-app-oxidns
 	url = https://github.com/svenshi/luci-app-oxidns
 	builddate = $(date +%s)
