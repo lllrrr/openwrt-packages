@@ -45,21 +45,52 @@ runtime_images_current() {
 }
 
 schedule_full_restart() {
-	local reason=$1
-	rm -f "$READY_FILE"
+	local reason=$1 restart_pid restart_script restart_marker waited=0
+	restart_marker="/var/run/bypass-restart.$$.started"
+	rm -f "$restart_marker"
 	# Run the delayed restart from a fresh shell whose command line does not
 	# contain TMP_BIN_PATH. stop() intentionally kills every managed helper
 	# matching that path, which would otherwise kill this reporter mid-restart.
-	nohup /bin/sh -c '
+	restart_script='
+		. /usr/share/bypass/utils.sh
+		: > "$1" || exit 1
+		log 0 "Detached Bypass restart process started for %s." "$2"
 		sleep 2
+		log 0 "Starting Bypass restart after %s." "$2"
 		if /etc/init.d/bypass restart >/dev/null 2>&1; then
-			. /usr/share/bypass/utils.sh
-			log 0 "Bypass restart completed after %s." "$1"
+			log 0 "Bypass restart completed after %s." "$2"
 		else
-			. /usr/share/bypass/utils.sh
-			log 0 "Bypass restart failed after %s; check component logs." "$1"
+			log 0 "Bypass restart failed after %s; check component logs." "$2"
 		fi
-	' bypass-restart "$reason" >/dev/null 2>&1 &
+		rm -f "$1"
+	'
+	# nohup is not guaranteed in minimal BusyBox builds. This daemon already has
+	# no controlling terminal, so a redirected background shell is a safe fallback.
+	if command -v nohup >/dev/null 2>&1; then
+		nohup /bin/sh -c "$restart_script" bypass-restart "$restart_marker" "$reason" \
+			</dev/null >/dev/null 2>&1 &
+	else
+		/bin/sh -c "$restart_script" bypass-restart "$restart_marker" "$reason" \
+			</dev/null >/dev/null 2>&1 &
+	fi
+	restart_pid=$!
+	# Confirm the detached shell actually ran before stopping this watcher. If
+	# it cannot start, leave readiness intact and let the monitor retry later.
+	while [ ! -f "$restart_marker" ] && [ "$waited" -lt 5 ]; do
+		sleep 1
+		waited=$((waited + 1))
+	done
+	if [ ! -f "$restart_marker" ]; then
+		log 0 "Detached Bypass restart process %s did not start; keeping the monitor active." "$restart_pid"
+		image_mismatch_count=0
+		binary_candidate=""
+		binary_change_count=0
+		return 1
+	fi
+	rm -f "$restart_marker"
+	log 0 "Queued Bypass restart process %s after %s." "$restart_pid" "$reason"
+	# Clear readiness only after the detached shell confirms it has started.
+	rm -f "$READY_FILE"
 	exit 0
 }
 

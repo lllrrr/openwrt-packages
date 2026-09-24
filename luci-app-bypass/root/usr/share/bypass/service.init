@@ -114,6 +114,12 @@ reload() {
 	return "$rc"
 }
 
+extra_command "status" "Check whether Bypass is running"
 status() {
-	[ -f "$READY_FILE" ] && process_alive bypasscore && bypasscore_ready
+	if [ -f "$READY_FILE" ] && process_alive bypasscore && bypasscore_ready; then
+		echo "Bypass is running."
+		return 0
+	fi
+	echo "Bypass is not running."
+	return 1
 }

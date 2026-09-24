@@ -5,8 +5,8 @@
 set -e
 
 PKG_NAME="luci-app-ups-manager"
-PKG_VERSION="1.0.0"
-PKG_RELEASE="2"
+PKG_VERSION="1.0.1"
+PKG_RELEASE="1"
 PKG_ARCH="all"
 
 OUTPUT_DIR="$(pwd)/dist"
