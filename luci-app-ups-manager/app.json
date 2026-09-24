@@ -1,7 +1,7 @@
 {
   "name": "ups-manager",
   "title": "UPS Manager",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "release": "1",
   "description": "专为 OpenWrt / iStoreOS 设计的现代化企业级 UPS 电源管理系统，支持自动识别、实时监控、电能质量分析、断电保护联动及多通道告警。",
   "author": "Gilbert Liu & Contributors",
