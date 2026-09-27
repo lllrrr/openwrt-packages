@@ -364,6 +364,9 @@ msgstr "删除 OxiDNS 内核"
 msgid "Remove the OxiDNS core binary and Web UI files."
 msgstr "删除 OxiDNS 内核二进制和 Web UI 文件。"
 
+msgid "Remove the OxiDNS core binary. The Web UI files are provided by the oxidns package and are kept; remove that package to get rid of them."
+msgstr "删除 OxiDNS 内核二进制。Web UI 文件由 oxidns 软件包提供，会保留；如需一并删除，请卸载该软件包。"
+
 msgid "Removing OxiDNS core..."
 msgstr "正在删除 OxiDNS 内核..."
 

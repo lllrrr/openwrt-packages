@@ -585,6 +585,7 @@ emit_status() {
 	RUNNING=0
 	CORE_INSTALLED=0
 	WEBUI_INSTALLED=0
+	WEBUI_FROM_PACKAGE=0
 	WEBUI_LOCAL_ONLY=0
 	WEBUI_WILDCARD=0
 	BUILD_JSON="$(build_info_json)"
@@ -597,6 +598,8 @@ emit_status() {
 
 	if [ -x "$OXIDNS_BIN" ]; then CORE_INSTALLED=1; fi
 	if [ -d "$WEBUI_DIR" ]; then WEBUI_INSTALLED=1; fi
+	# Reported so the page can say what Remove Core will actually delete.
+	if [ "$WEBUI_INSTALLED" = "1" ] && webui_owned_by_package; then WEBUI_FROM_PACKAGE=1; fi
 	if is_loopback_host "$WEBUI_HOST"; then WEBUI_LOCAL_ONLY=1; fi
 	if is_wildcard_host "$WEBUI_HOST"; then WEBUI_WILDCARD=1; fi
 	if service_enabled; then ENABLED=1; fi
@@ -631,6 +634,8 @@ emit_status() {
 	printf '}'
 	printf ',"webui":{"installed":'
 	json_bool "$WEBUI_INSTALLED"
+	printf ',"from_package":'
+	json_bool "$WEBUI_FROM_PACKAGE"
 	printf ',"url":'
 	json_string "$WEBUI_URL"
 	printf ',"listen":'
@@ -1058,6 +1063,45 @@ path_has_parent_ref() {
 			return 0
 			;;
 	esac
+	return 1
+}
+
+# Returns 0 when the WebUI directory is provided by an installed package
+# (openwrt-oxidns ships it), 1 when it is not.
+#
+# Remove Core used to delete $WEBUI_DIR unconditionally. That is correct for a
+# WebUI that LuCI itself unpacked, but when the directory comes from the oxidns
+# package the delete leaves the package database pointing at files that no
+# longer exist - `apk fix` then wants to reinstall, and a later package upgrade
+# is a no-op. So the caller must skip the delete in that case.
+#
+# apk-tools: `apk info --who-owns <path>` (alias -W) prints the owning package
+#   and exits non-zero when there is none. Absolute paths are matched verbatim
+#   against the database (apk_query_who_owns), which is what we want: the
+#   directory is recorded without a trailing slash.
+# opkg: `opkg files <pkg>` lists a package's contents; OpenWrt 24.10 and older
+#   have no who-owns query.
+webui_owned_by_package() {
+	[ -n "$WEBUI_DIR" ] || return 1
+
+	# Any package owning the directory is enough - do not hard-code the name,
+	# other packagings of the same layout must keep working too.
+	if command -v apk >/dev/null 2>&1; then
+		owner="$(apk info --who-owns "$WEBUI_DIR" 2>/dev/null || true)"
+		owner="$(printf '%s' "$owner" | head -n1 | tr -d '\r')"
+		[ -n "$owner" ] && return 0
+		# Older apk-tools spell it -W.
+		owner="$(apk info -W "$WEBUI_DIR" 2>/dev/null || true)"
+		owner="$(printf '%s' "$owner" | head -n1 | tr -d '\r')"
+		[ -n "$owner" ] && return 0
+	fi
+
+	if command -v opkg >/dev/null 2>&1; then
+		if opkg files oxidns 2>/dev/null | grep -qxF "$WEBUI_DIR"; then
+			return 0
+		fi
+	fi
+
 	return 1
 }
 
@@ -2623,8 +2667,21 @@ emit_core_remove_locked() {
 	fi
 	core_progress_command "rm -f $OXIDNS_BIN"
 	rm -f "$OXIDNS_BIN"
-	core_progress_command "rm -rf $WEBUI_DIR"
-	rm -rf "$WEBUI_DIR"
+
+	# Only remove the WebUI tree when this plugin put it there. When the
+	# openwrt-oxidns package provides it, deleting it would desync the package
+	# database; removing the package is what removes those files.
+	WEBUI_REMOVED=1
+	WEBUI_FROM_PACKAGE=0
+	if webui_owned_by_package; then
+		WEBUI_REMOVED=0
+		WEBUI_FROM_PACKAGE=1
+		core_progress_command "keep $WEBUI_DIR (provided by the oxidns package)"
+		core_progress_log "info" "leaving $WEBUI_DIR in place: it is owned by the oxidns package"
+	else
+		core_progress_command "rm -rf $WEBUI_DIR"
+		rm -rf "$WEBUI_DIR"
+	fi
 
 	if [ "$REMOVE_CONFIG" = "1" ]; then
 		core_progress_command "rm -f $CONFIG_PATH"
@@ -2654,6 +2711,10 @@ emit_core_remove_locked() {
 	json_bool "$CONFIG_REMOVED"
 	printf ',"working_dir_removed":'
 	json_bool "$WORKDIR_REMOVED"
+	printf ',"webui_removed":'
+	json_bool "$WEBUI_REMOVED"
+	printf ',"webui_from_package":'
+	json_bool "$WEBUI_FROM_PACKAGE"
 	printf ',"config_preserved":'
 	if [ "$CONFIG_REMOVED" = "1" ]; then json_bool 0; else json_bool 1; fi
 	printf ',"working_dir_preserved":'

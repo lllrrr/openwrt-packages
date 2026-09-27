@@ -355,6 +355,9 @@ msgstr ""
 msgid "Remove the OxiDNS core binary and Web UI files."
 msgstr ""
 
+msgid "Remove the OxiDNS core binary. The Web UI files are provided by the oxidns package and are kept; remove that package to get rid of them."
+msgstr ""
+
 msgid "Removing OxiDNS core..."
 msgstr ""
 

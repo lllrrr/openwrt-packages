@@ -335,13 +335,20 @@ function checked(id) {
 	return !!(node && node.checked);
 }
 
+function webuiFromPackage(status) {
+	return !!(status && status.webui && status.webui.installed && status.webui.from_package);
+}
+
 function handleRemove() {
 	return new Promise(function(resolve) {
 		var configPath = statusState.config_path || '-';
 		var workingDir = statusState.working_dir || '-';
+		var fromPackage = webuiFromPackage(statusState);
 
 		ui.showModal(_('Remove OxiDNS Core'), [
-			E('p', {}, _('Remove the OxiDNS core binary and Web UI files.')),
+			E('p', {}, fromPackage
+				? _('Remove the OxiDNS core binary. The Web UI files are provided by the oxidns package and are kept; remove that package to get rid of them.')
+				: _('Remove the OxiDNS core binary and Web UI files.')),
 			E('p', { 'class': 'cbi-section-descr' },
 				_('Configuration and working directory data are preserved unless selected below.')),
 			E('div', { 'class': 'cbi-section' }, [
