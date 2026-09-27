@@ -633,7 +633,10 @@ get_geoip() {
 		geoip_path=$(get_geo_asset_path geoip)
 		local bin
 		bin=$(first_type "$(config_t_get global_app geoview_file /usr/bin/geoview)" geoview)
-		[ -n "$bin" ] && [ -s "$geoip_path" ] || { echo ""; return; }
+		[ -n "$bin" ] && [ -s "$geoip_path" ] || {
+			log 0 "GeoIP extraction requires both geoview and geoip.dat; check the configured tool and asset paths."
+			return 1
+		}
 		local flag=""
 		case "$family" in
 			ipv4) flag="-ipv6=false" ;;

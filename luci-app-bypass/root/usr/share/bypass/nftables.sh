@@ -39,6 +39,29 @@ load_standalone_config() {
 NFT=$(first_type /usr/sbin/nft nft)
 NFT_TABLE=bypass
 INCLUDE_FILE=/var/etc/bypass.include
+NFT_LOCK_FILE=/var/lock/bypass_nft.lock
+
+# fw4 reloads, interface hotplug events, and init restarts can all enter this
+# script independently. Serialize mutations of the shared nft table; use fd 7
+# because service.init, rule_update.sh, and hotplug reserve fds 8 and 9.
+nft_lock() {
+	mkdir -p "$(dirname "$NFT_LOCK_FILE")" || return 1
+	exec 7>"$NFT_LOCK_FILE" || return 1
+	local tries=0
+	while ! flock -xn 7; do
+		tries=$((tries + 1))
+		if [ "$tries" -ge 30 ]; then
+			exec 7>&-
+			return 1
+		fi
+		sleep 1
+	done
+}
+
+nft_unlock() {
+	flock -u 7 2>/dev/null
+	exec 7>&-
+}
 
 # Port-list "1:65535" / "80,443" / "80-90" -> nft range/set syntax helper.
 # Returns empty for "disable" (meaning: do not redirect that protocol).
@@ -57,10 +80,13 @@ nft_port_expr() {
 # Apply a ruleset string via a temp file (atomic).
 nft_apply() {
 	local ruleset=$1
-	local tmp="$TMP_PATH2/nft-ruleset"
+	local tmp="$TMP_PATH2/nft-ruleset.$$" rc
 	mkdir -p "$TMP_PATH2"
-	printf '%s\n' "$ruleset" > "$tmp"
+	printf '%s\n' "$ruleset" > "$tmp" || { rm -f "$tmp"; return 1; }
 	$NFT -f "$tmp" 2>>"$LOG_FILE"
+	rc=$?
+	rm -f "$tmp"
+	return "$rc"
 }
 
 # Import a potentially large CIDR list with one nft process instead of spawning
@@ -70,8 +96,8 @@ nft_import_elements() {
 	local set_name input unique batch
 	set_name=$1
 	input=$2
-	unique="${input}.unique"
-	batch="${input}.nft"
+	unique="${input}.unique.$$"
+	batch="${input}.nft.$$"
 	[ -s "$input" ] || return 0
 	# Drop anything that is not a valid IPv4/IPv6 address or CIDR. Mirrors the
 	# passwall2 defence-in-depth: a fused record such as "223.255.252.0/230.0.0.0/8"
@@ -80,9 +106,12 @@ nft_import_elements() {
 	# left to nft; this is structural filtering only. The IPv6 branch accepts
 	# compressed forms (::, ::1, 2001:db8::/32) and IPv4-mapped tails (::ffff:1.2.3.4)
 	# because it allows hex groups, colons and dots with an optional /prefix.
-	grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$|^([0-9A-Fa-f]{1,4}:)+[0-9A-Fa-f:.]*(/[0-9]{1,3})?$|^[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*(/[0-9]{1,3})?$' "$input" \
-		| sort -u > "$unique" || return 1
-	awk -v table="$NFT_TABLE" -v set_name="$set_name" '
+	if ! grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$|^([0-9A-Fa-f]{1,4}:)+[0-9A-Fa-f:.]*(/[0-9]{1,3})?$|^[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*(/[0-9]{1,3})?$' "$input" \
+		| sort -u > "$unique"; then
+		rm -f "$unique" "$batch"
+		return 1
+	fi
+	if ! awk -v table="$NFT_TABLE" -v set_name="$set_name" '
 		# Treat any run of whitespace as a record separator (passwall2 style) so
 		# splitting never depends on a trailing newline: even if grep lets a line
 		# through whose final newline is missing, it cannot fuse with the next one.
@@ -101,8 +130,14 @@ nft_import_elements() {
 			count++
 		}
 		END { if (count > 0) print " }" }
-	' "$unique" > "$batch" || return 1
+	' "$unique" > "$batch"; then
+		rm -f "$unique" "$batch"
+		return 1
+	fi
 	$NFT -f "$batch" 2>>"$LOG_FILE"
+	local rc=$?
+	rm -f "$unique" "$batch"
+	return "$rc"
 }
 
 # Print the currently usable default-route devices. The names come from the
@@ -170,7 +205,12 @@ reserve_tproxy_resources() {
 }
 
 nft_start() {
-	load_standalone_config || { log 0 "Bypass is disabled or has no active redirect port; skip firewall rules."; return 0; }
+	if ! load_standalone_config; then
+		[ -n "$NFT" ] && $NFT delete table inet ${NFT_TABLE} 2>/dev/null
+		cleanup_owned_tproxy_routes
+		log 0 "Bypass is disabled or has no active redirect port; skip firewall rules."
+		return 0
+	fi
 	[ -z "$NFT" ] && { log 0 "nft not found; cannot install nftables rules."; return 1; }
 	mkdir -p "$(dirname "$INCLUDE_FILE")"
 
@@ -179,6 +219,9 @@ nft_start() {
 	# idempotent without relying on `flush table` (which also errors when the
 	# table is absent and would abort the whole ruleset load below).
 	$NFT delete table inet ${NFT_TABLE} 2>/dev/null
+	# A previous TPROXY table may have left policy routes behind if validation
+	# failed before its replacement ruleset was installed.
+	cleanup_owned_tproxy_routes
 
 	local tcp_expr tcp_no_expr udp_no_expr
 	tcp_expr=$(nft_port_expr "$TCP_REDIR_PORTS") || return 1
@@ -520,6 +563,7 @@ EOF
 	if ! nft_import_elements bypass_direct "$direct4_file" || \
 	   ! nft_import_elements bypass_direct6 "$direct6_file"; then
 		$NFT delete table inet ${NFT_TABLE} 2>/dev/null
+		cleanup_owned_tproxy_routes
 		log 0 "Direct IP List could not be loaded; removed the incomplete nftables ruleset."
 		return 1
 	fi
@@ -611,37 +655,52 @@ EOF
 		fi
 	fi
 
-	nft_gen_include
+	if ! nft_gen_include; then
+		log 0 "Could not persist the fw4 include; refusing to report firewall startup as successful."
+		[ -n "${BYPASS_NFT_ACTION:-}" ] && {
+			$NFT delete table inet ${NFT_TABLE} 2>/dev/null
+			cleanup_owned_tproxy_routes
+			return 1
+		}
+	fi
 	log 0 "nftables ruleset installed (mode=%s, redir_port=%s)." "$mode" "$REDIR_PORT"
 }
 
 nft_stop() {
+	nft_lock || { log 0 "Could not acquire the nftables operation lock for stop."; return 1; }
 	# Remove tproxy local-route scaffolding if present.
 	cleanup_owned_tproxy_routes
 	[ -n "$NFT" ] && $NFT delete table inet ${NFT_TABLE} 2>/dev/null
 	rm -f "$INCLUDE_FILE" 2>/dev/null
 	log 0 "nftables ruleset removed."
+	nft_unlock
 }
 
 # Write the fw4 include script so the ruleset survives firewall reloads.
 nft_gen_include() {
-	mkdir -p "$(dirname "$INCLUDE_FILE")"
-	cat <<-EOF > "$INCLUDE_FILE"
+	local include_tmp="${INCLUDE_FILE}.tmp.$$"
+	mkdir -p "$(dirname "$INCLUDE_FILE")" || return 1
+	cat <<-EOF > "$include_tmp" || { rm -f "$include_tmp"; return 1; }
 		#!/bin/sh
 		${APP_PATH}/nftables.sh start
 	EOF
-	chmod +x "$INCLUDE_FILE" 2>/dev/null
+	chmod 755 "$include_tmp" 2>/dev/null && mv -f "$include_tmp" "$INCLUDE_FILE" 2>/dev/null || {
+		rm -f "$include_tmp"
+		return 1
+	}
 }
 
 # Cheap WAN runtime refresh on hotplug ifup/ifupdate (no full restart).
 nft_update_wan_sets() {
 	[ -z "$NFT" ] && return 0
+	nft_lock || { log 0 "Could not acquire the nftables operation lock for WAN refresh."; return 1; }
 	# Reconcile ingress devices as well as WAN addresses. In particular, fw4 may
 	# have rebuilt the table during ifdown, when no default route was visible.
-	nft_refresh_wan_device_set || {
+	if ! nft_refresh_wan_device_set; then
 		log 0 "Could not refresh WAN interface exemptions after a network event."
+		nft_unlock
 		return 1
-	}
+	fi
 	# Re-add current WAN IPs to bypass_vps so the router's own egress stays direct.
 	local wan
 	for wan in $(get_wan_ips ip4); do
@@ -650,20 +709,25 @@ nft_update_wan_sets() {
 	for wan in $(get_wan_ips ip6); do
 		$NFT add element inet ${NFT_TABLE} bypass_vps6 "{ $wan }" 2>/dev/null
 	done
+	nft_unlock
 }
 
 nft_start_and_resync() {
-	nft_start || return 1
+	nft_lock || { log 0 "Could not acquire the nftables operation lock for start."; return 1; }
+	local rc=0
+	nft_start || rc=$?
 	# A standalone invocation comes from fw4's generated include. The table has
 	# just been recreated, so refresh BypassCore's set metadata and invalidate
 	# its writer-side TTL dedupe state before accepting later DNS results.
-	if [ -z "${BYPASS_NFT_ACTION:-}" ] && \
+	if [ "$rc" = "0" ] && [ -z "${BYPASS_NFT_ACTION:-}" ] && \
 	   [ "$(config_t_get global enabled 0)" = "1" ] && process_alive bypasscore; then
 		if ! bypasscore_control_request POST /v1/dns/nftsets/probe "" >/dev/null 2>&1; then
 			log 0 "Firewall reloaded, but BypassCore could not resynchronize its DNS-result NFTSets."
-			return 1
+			rc=1
 		fi
 	fi
+	nft_unlock
+	return "$rc"
 }
 
 # Dispatch. app.sh sets BYPASS_NFT_ACTION before sourcing; standalone invocations

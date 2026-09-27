@@ -1,0 +1,57 @@
+#!/bin/sh
+# Restart Bypass after a large NTP time step. TLS-based node connections that
+# started before the system clock was corrected may need a fresh handshake.
+
+[ "$ACTION" = "step" ] || exit 0
+
+. /usr/share/bypass/utils.sh
+
+# Normalize a signed, possibly fractional offset to an absolute whole number
+# of seconds. Validate the complete value before dropping its fractional part.
+case "$offset" in
+	''|*[!0-9.+-]*|*[!0-9])
+		log 1 "Ignoring NTP step event with invalid offset [%s]." "${offset:-unset}"
+		exit 0
+		;;
+esac
+printf '%s\n' "$offset" | grep -qE '^[+-]?([0-9]+([.][0-9]+)?|[.][0-9]+)$' || {
+	log 1 "Ignoring NTP step event with invalid offset [%s]." "$offset"
+	exit 0
+}
+ntp_offset=${offset#-}
+ntp_offset=${ntp_offset#+}
+ntp_offset=${ntp_offset%%.*}
+while [ "${ntp_offset#0}" != "$ntp_offset" ]; do
+	ntp_offset=${ntp_offset#0}
+done
+[ -n "$ntp_offset" ] || ntp_offset=0
+
+# Small clock corrections do not need a service restart. For three-digit
+# values, compare numerically; longer values are necessarily above the limit.
+[ "${#ntp_offset}" -ge 3 ] || exit 0
+if [ "${#ntp_offset}" -eq 3 ] && [ "$ntp_offset" -lt 120 ]; then
+	exit 0
+fi
+
+[ "$(uci -q get bypass.@global[0].enabled 2>/dev/null)" = "1" ] || exit 0
+# A clock step while Bypass is stopped or still honoring its configured boot
+# delay must not start it as a side effect of the NTP hotplug event.
+[ -f /var/lock/bypass_ready.lock ] && process_alive bypasscore || exit 0
+
+# Keep a long-running restart from being queued more than once during repeated
+# NTP notifications. The child inherits fd 8 and holds this lock until restart
+# completes; service.init uses fd 9 for its own lifecycle lock.
+mkdir -p /var/lock || exit 0
+exec 8>/var/lock/bypass_ntp.lock || exit 0
+flock -xn 8 || exit 0
+
+(
+	log 0 "Restarting Bypass after NTP time step (%s seconds)." "$ntp_offset"
+	if /etc/init.d/bypass restart >/dev/null 2>&1; then
+		log 0 "Bypass restart after NTP time step completed."
+	else
+		log 0 "Bypass restart after NTP time step failed."
+	fi
+) </dev/null >/dev/null 2>&1 &
+
+exit 0

@@ -1161,6 +1161,19 @@ check_run_environment() {
 # remote DNS, caching and NFTSet writes are all handled inside that process.
 # ------------------------------------------------------------------------------
 
+dnsmasq_generated_config() {
+	local cfgid=$1 candidate
+	[ -n "$cfgid" ] || return 1
+	# OpenWrt releases/builds have used both locations for the generated file.
+	for candidate in "/var/etc/dnsmasq.conf.${cfgid}" "/tmp/etc/dnsmasq.conf.${cfgid}"; do
+		if [ -r "$candidate" ]; then
+			printf '%s\n' "$candidate"
+			return 0
+		fi
+	done
+	return 1
+}
+
 run_dnsmasq_forward() {
 	[ "$(check_port_exists "$BYPASSCORE_DNS_PORT" udp)" -gt 0 ] 2>/dev/null && \
 		[ "$(check_port_exists "$BYPASSCORE_DNS_PORT" tcp)" -gt 0 ] 2>/dev/null || {
@@ -1174,10 +1187,25 @@ run_dnsmasq_forward() {
 	# Use dnsmasq's generated runtime conf-dir instead of committing changes to
 	# /etc/config/dhcp. A power loss therefore cannot leave a persistent upstream
 	# pointing to a service which has not started yet.
-	local cfgid generated conf_dir include_file custom_conf_dir dnsmasq_bin dnsmasq_test_log
+	local cfgid generated conf_dir include_file custom_conf_dir dnsmasq_bin dnsmasq_test_log retry
 	cfgid=$(uci -q show 'dhcp.@dnsmasq[0]' 2>/dev/null | awk 'NR == 1 { split($0, a, /[.=]/); print a[2] }')
-	generated="/tmp/etc/dnsmasq.conf.${cfgid}"
-	conf_dir=$(awk -F= '/^conf-dir=/ { print $2; exit }' "$generated" 2>/dev/null)
+	if [ -n "$cfgid" ]; then
+		generated=$(dnsmasq_generated_config "$cfgid")
+		retry=5
+		while [ -z "$generated" ] && [ "$retry" -gt 0 ]; do
+			sleep 1
+			generated=$(dnsmasq_generated_config "$cfgid")
+			retry=$((retry - 1))
+		done
+		if [ -n "$generated" ]; then
+			log 1 "Using dnsmasq runtime config [%s]." "$generated"
+			conf_dir=$(awk -F= '/^conf-dir=/ { print $2; exit }' "$generated" 2>/dev/null)
+		else
+			log 1 "dnsmasq runtime config for section [%s] was not found after 5 seconds; syntax preflight is unavailable." "$cfgid"
+		fi
+	else
+		log 1 "Could not determine the dnsmasq UCI section ID; runtime config lookup and syntax preflight are unavailable."
+	fi
 	conf_dir=${conf_dir%%,*}
 	conf_dir=${conf_dir%*/}
 	if [ -z "$conf_dir" ]; then

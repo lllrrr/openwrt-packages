@@ -412,9 +412,10 @@ do_node_urltest() {
 	case "$protocol" in quic) ;; *) protocol=https ;; esac
 
 	# Build a minimal SOCKS config (127.0.0.1 only; no egress pinning).
-	local tag="url_test_${node_id}"
+	# Each rpcd invocation needs its own process/config/log names. The node ID
+	# alone collides when the user starts two tests for the same row at once.
+	local tag="url_test_${node_id}_$$"
 	local socks_port
-	socks_port=$(get_new_port 48900 tcp)
 	local auth=""
 	if [ -n "$username$password" ]; then
 		username=$(uri_encode_userinfo "$username") || { json_add_int code -1; json_add_string error "bad credentials"; emit; return; }
@@ -426,35 +427,75 @@ do_node_urltest() {
 
 	mkdir -p "$TMP_PATH2"
 	local cfg="$TMP_PATH2/${tag}.json" log="$TMP_PATH2/${tag}.log"
+	# Serialize port selection until NaiveProxy has bound its listener. This
+	# closes the check-then-bind race between simultaneous URL tests while still
+	# allowing their HTTP probes to run in parallel.
+	mkdir -p /var/lock || {
+		json_init
+		json_add_int code -1
+		json_add_string error "cannot create URL test lock directory"
+		emit
+		return
+	}
+	exec 8>/var/lock/bypass_urltest_port.lock || {
+		json_init
+		json_add_int code -1
+		json_add_string error "cannot open URL test port lock"
+		emit
+		return
+	}
+	if ! flock -x 8; then
+		exec 8>&-
+		json_init
+		json_add_int code -1
+		json_add_string error "cannot acquire URL test port lock"
+		emit
+		return
+	fi
+	socks_port=$(get_new_port 48900 tcp)
 	json_init
 	json_add_string "listen" "socks://127.0.0.1:${socks_port}"
 	json_add_string "proxy" "${protocol}://${auth}${server_host}:${port}"
 	json_dump > "$cfg"
 	: > "$log"
 
-	ln_run 0 "$naive_bin" "$tag" "$log" "$cfg"
-	local use_time="" http_code
+	# Keep the port lock private to this shell; if rpcd abandons the request,
+	# the helper must not inherit fd 8 and pin the lock indefinitely.
+	ln_run 0 "$naive_bin" "$tag" "$log" "$cfg" 8>&-
+	local use_time="" http_code test_error="" listener_ready=0
 	if wait_for_listener "$tag" "$socks_port" tcp 8 "$log"; then
+		listener_ready=1
+	fi
+	flock -u 8 2>/dev/null
+	exec 8>&-
+	if [ "$listener_ready" = "1" ]; then
+		# Use GET and discard the body instead of HEAD.  Several generate_204
+		# endpoints do not reliably complete a HEAD response through a freshly
+		# negotiated Naive tunnel, leaving curl waiting until its hard timeout.
+		# The extra budget covers the Naive handshake plus the actual HTTP probe.
 		# % output: "<http_code> <time_total seconds>"
 		local out curl_rc
-		out=$(curl -o /dev/null -s -I --connect-timeout 3 --max-time 6 \
+		out=$(curl -o /dev/null -sS --request GET --connect-timeout 5 --max-time 12 \
 			-x "socks5h://127.0.0.1:${socks_port}" \
 			-w '%{http_code} %{time_total}' "$url_test_url" 2>/dev/null)
 		curl_rc=$?
 		http_code="${out%% *}"
 		if [ "$curl_rc" -eq 0 ] 2>/dev/null; then
 			case "$http_code" in ''|0|000) ;;
-				*)
+				2[0-9][0-9])
 					local t="${out#* }"
 					use_time=$(echo "$t" | awk '{printf "%d", $1*1000}')
 					;;
+				*) test_error="HTTP ${http_code}" ;;
 			esac
 		fi
 	fi
 
 	# Teardown regardless of outcome.
 	local pid
-	pid=$(cat "$TMP_PID_PATH/${tag}.pid" 2>/dev/null)
+	# PID files can outlive a failed child. Verify the process image before
+	# signalling so a quickly reused PID cannot terminate an unrelated process.
+	pid=$(process_pid "$tag")
 	[ -n "$pid" ] && kill -9 "$pid" >/dev/null 2>&1
 	rm -f "$cfg" "$log" "$TMP_PID_PATH/${tag}.pid"
 
@@ -464,7 +505,7 @@ do_node_urltest() {
 		json_add_string use_time "$use_time"
 	else
 		json_add_int code -1
-		json_add_string error "timeout"
+		json_add_string error "${test_error:-timeout}"
 	fi
 	emit
 }
@@ -608,7 +649,7 @@ do_connect_status() {
 	[ -n "$type" ] && [ -n "$url" ] || { json_init; json_add_int status 0; emit; return; }
 	get_config
 	if [ "$type" = "baidu" ]; then
-		out=$(curl -s -o /dev/null -w '%{time_total}' --connect-timeout 3 --max-time 8 "$url" 2>/dev/null)
+		out=$(curl -fs -o /dev/null -w '%{time_total}' --connect-timeout 3 --max-time 8 "$url" 2>/dev/null)
 		code=$?
 	else
 		prepare_selected_nodes
@@ -645,7 +686,7 @@ do_connect_status() {
 				out=""
 				error="NaiveProxy SOCKS listener is unavailable"
 			else
-				out=$(curl -s -o /dev/null -w '%{time_total}' --socks5-hostname "127.0.0.1:${socks_port}" \
+				out=$(curl -fs -o /dev/null -w '%{time_total}' --socks5-hostname "127.0.0.1:${socks_port}" \
 					--connect-timeout 5 --max-time 12 "$url" 2>/dev/null)
 				code=$?
 			fi
@@ -1231,6 +1272,7 @@ do_get_direct_ip() {
 
 do_set_direct_ip() {
 	local encoded=$1 tmp input rules line v4="" v6="" nft_bin table saved=0
+	local ip_cidr_re='^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$|^([0-9A-Fa-f]{1,4}:)+[0-9A-Fa-f:.]*(/[0-9]{1,3})?$|^[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*(/[0-9]{1,3})?$'
 	json_init
 	[ ${#encoded} -le 262144 ] 2>/dev/null || {
 		json_add_int code -1
@@ -1268,8 +1310,22 @@ do_set_direct_ip() {
 				}
 				continue
 				;;
-			*:*) v6="${v6:+$v6, }$line" ;;
-			*) v4="${v4:+$v4, }$line" ;;
+			*)
+				# Do not splice arbitrary user text into the nft rules passed to
+				# --check. This structural allowlist rejects nft syntax before
+				# nft validates address octets and prefix lengths.
+				printf '%s\n' "$line" | grep -qE "$ip_cidr_re" || {
+					json_add_int code -1
+					json_add_string error "invalid Direct IP entry: $line"
+					emit
+					rm -rf "$tmp"
+					return
+				}
+				case "$line" in
+					*:*) v6="${v6:+$v6, }$line" ;;
+					*) v4="${v4:+$v4, }$line" ;;
+				esac
+				;;
 		esac
 	done < "$input"
 	table="bypass_validate_$$"
