@@ -29,6 +29,45 @@ local function is_valid_uci_id(id)
     return id and id:match("^[A-Za-z0-9_%-]+$")
 end
 
+-- Translate whatever the UI sends into a canonical group id.
+--
+-- The device editor used to offer hardcoded Chinese labels (个人 / IoT / 访客 /
+-- 安全) that do not correspond to any group, so `devicemaster.@device[n].group`
+-- was written with a value that neither api_get_groups nor the group filter ever
+-- produces - the whole grouping feature was dead end to end.
+--
+-- Accept an existing group's id, its UCI section name or its display name, and
+-- refuse anything else. Unknown-but-well-formed ids are still allowed so a group
+-- can be referenced before it is created.
+local function resolve_group_id(value)
+    if value == nil then return nil end
+    if value == "" or value == "all" then return value end
+
+    local found = nil
+    uci:foreach("devicemaster", "group", function(s)
+        if not found and (s.id == value or s.name == value or s[".name"] == value) then
+            found = s.id or s[".name"]
+        end
+    end)
+    if found then return found end
+
+    if is_valid_uci_id(value) then return value end
+    return nil
+end
+
+-- Random / rotating MAC (Locally Administered Address): bit 1 of the first
+-- octet (0x02, 0x06, 0x0A, 0x0E, 0x12, ...).
+--
+-- This is the single implementation for the whole file on purpose. Two of the
+-- three call sites used `first_byte % 2 == 2`, which is always false (a number
+-- mod 2 is 0 or 1), so `randomized` was silently hardcoded to false: the UI
+-- never flagged a rotating MAC, and api_report_sub misclassified them too.
+local function is_random_mac(mac)
+    if not mac or #mac < 2 then return false end
+    local first_byte = tonumber(mac:sub(1, 2), 16)
+    return first_byte ~= nil and (first_byte % 2 == 1)
+end
+
 local function is_valid_remote_api(api)
     return api == "maclookup" or api == "macvendors"
 end
@@ -39,6 +78,23 @@ local function get_remote_api()
         api = "maclookup"
     end
     return api
+end
+
+-- ============================================================
+-- Device-list response cache - the parts that json_response() needs.
+--
+-- Declared up here because json_response() must be able to invalidate the cache
+-- (see its comment). status_cache_read()/status_cache_write() live further down
+-- next to the full explanation, because they depend on get_version().
+-- ============================================================
+local CACHE_TTL = 15
+local CACHE_FILE = "/tmp/devicemaster_status_cache.json"
+local CACHE_META = "/tmp/devicemaster_status_cache.meta"
+
+-- Drop the cached device list so the next /api/status poll recomputes it.
+local function status_cache_invalidate()
+    os.remove(CACHE_FILE)
+    os.remove(CACHE_META)
 end
 
 function index()
@@ -60,7 +116,6 @@ function index()
     entry({"admin", "network", "devicemaster", "api", "create_group"}, call("api_create_group"))
     entry({"admin", "network", "devicemaster", "api", "delete_group"}, call("api_delete_group"))
     entry({"admin", "network", "devicemaster", "api", "snapshot"}, call("api_snapshot"))
-    entry({"admin", "network", "devicemaster", "api", "report"}, call("api_report"))
     local report_sub_node = entry({"admin", "network", "devicemaster", "api", "report_sub"}, call("api_report_sub"))
     report_sub_node.sysauth = false
     report_sub_node.leaf = true
@@ -77,7 +132,15 @@ function index()
 end
 
 -- Helper: JSON response
+--
+-- Answering with JSON means "this was a control/mutation call": api_status -
+-- the only endpoint that fills the device-list cache - deliberately writes its
+-- response directly (see the cache section below) and never comes through here.
+-- So invalidating the cache here guarantees that *no* mutating endpoint can
+-- forget to do it. The handful of read-only callers (api_get_groups,
+-- api_test_api, api_snapshot, api_report*) only cost one needless recompute.
 local function json_response(data)
+    if status_cache_invalidate then status_cache_invalidate() end
     luci.http.prepare_content("application/json")
     luci.http.write(json.stringify(data))
 end
@@ -159,12 +222,18 @@ local function get_local_macs()
 end
 
 -- Helper: Dynamically discover wireless AP interfaces
+--
+-- hostapd BSS interfaces are named <radio>-ap<N>: wl0-ap0 on GL.iNet builds,
+-- phy0-ap0 on plain OpenWrt. Matching that shape - instead of a "^wl" prefix
+-- with a "mesh" exclusion - keeps wlan0-style client names out of the list, and
+-- still picks up an extra SSID such as wl0-ap1. Same rule in
+-- snapshot_writer.lua and sub_report_gen.lua.
 local function get_ap_ifaces()
     local ifaces = {}
-    local out = sys.exec("ls /sys/class/net/ 2>/dev/null | grep '^wl'")
+    local out = sys.exec("ls /sys/class/net/ 2>/dev/null")
     if out and out ~= "" then
         for iface in out:gmatch("%S+") do
-            if not iface:match("mesh") then
+            if iface:match("%-ap%d+$") then
                 table.insert(ifaces, iface)
             end
         end
@@ -180,16 +249,85 @@ local function get_version()
     return "v" .. os.date("%Y%m%d%H%M")
 end
 
+-- ============================================================
+-- Device-list response cache for api_status() - why it lives on disk
+--
+-- The old implementation kept the payload in a Lua local
+-- (`response_cache_str`). That can never work under LuCI: each HTTP request is
+-- served by a freshly forked CGI process, so the variable is gone before the
+-- next poll arrives and every 3s frontend poll re-ran the whole aggregation
+-- (dozens of fork/exec: arp, dhcp.leases, iw, nlbwmon, conntrack, ubus...).
+-- The comment claiming it "eliminates ALL subprocess spawning" was wrong - the
+-- full cost was still paid on every single poll.
+--
+-- The cache now lives in /tmp (RAM). CACHE_TTL / CACHE_FILE / CACHE_META and
+-- status_cache_invalidate() are declared near the top of this file (json_response
+-- needs them); only the read/write pair lives here, because it needs
+-- get_version().
+--
+-- An entry is ignored when
+--   * it is older than CACHE_TTL,
+--   * get_version() (minute resolution) has moved on,
+--   * a mutating API answered through json_response() (-> invalidate),
+--   * the caller passes force=1.
+-- Worst case staleness is therefore ~15s, which matches the UI refresh cadence,
+-- and every user-visible action invalidates immediately.
+-- ============================================================
+
+-- Returns the cached JSON body, or nil when a recomputation is needed.
+local function status_cache_read()
+    local mf = io.open(CACHE_META, "r")
+    if not mf then return nil end
+    local meta = mf:read("*a")
+    mf:close()
+
+    local ts, ver = (meta or ""):match("^(%d+)%s+(%S+)")
+    ts = tonumber(ts)
+    if not ts then return nil end
+    if os.time() - ts >= CACHE_TTL then return nil end
+    if ver ~= get_version() then return nil end
+
+    local f = io.open(CACHE_FILE, "r")
+    if not f then return nil end
+    local body = f:read("*a")
+    f:close()
+
+    -- Reject a truncated document: an incomplete JSON body would blank out the
+    -- whole device list, whereas recomputing costs one extra round of work.
+    if not body or #body < 16 or body:sub(-1) ~= "}" then return nil end
+    return body
+end
+
+local function status_cache_write(body)
+    local f = io.open(CACHE_FILE .. ".tmp", "w")
+    if not f then return end
+    f:write(body)
+    f:close()
+    -- Atomic swap so a concurrent poll never reads a half-written file.
+    os.rename(CACHE_FILE .. ".tmp", CACHE_FILE)
+
+    local mf = io.open(CACHE_META, "w")
+    if mf then
+        mf:write(os.time() .. " " .. get_version())
+        mf:close()
+    end
+end
+
 -- Helper: Get WiFi station list (devices directly connected to this router)
 -- Returns: { ["MAC"] = true }
+--
+-- Uses `iw ... station dump` (kernel direct), NOT `iwinfo ... assoclist`.
+-- iwinfo resolves through ubus into hostapd; device_monitor.sh and
+-- sub_report_gen.lua were already moved off it for exactly that reason, and
+-- this poll runs on every /api/status cache miss.
 local function get_wifi_stations()
     local stations = {}
     for _, iface in ipairs(get_ap_ifaces()) do
-        local output = sys.exec("iwinfo " .. iface .. " assoclist 2>/dev/null")
+        local output = sys.exec("iw dev " .. iface .. " station dump 2>/dev/null")
         if output then
-            for word in output:gmatch("%S+") do
-                if #word == 17 and word:match("^[0-9A-Fa-f:]+$") then
-                    stations[word:upper()] = true
+            for mac in output:gmatch("Station%s+([0-9A-Fa-f:]+)") do
+                if #mac == 17 then
+                    stations[mac:upper()] = true
                 end
             end
         end
@@ -283,7 +421,10 @@ local function get_bandix_uplink()
     end
     
     -- Get port from UCI
+    -- Guard the value before splicing it into a shell command line: it is
+    -- single-quoted, so a quote in the UCI value would break out of the string.
     local port = uci:get("bandix", "general", "port") or "8686"
+    if not tostring(port):match("^%d+$") then port = "8686" end
     
     -- Fetch device list from Bandix API
     local response = sys.exec("curl -s --connect-timeout 1 --max-time 3 'http://127.0.0.1:" .. port .. "/api/traffic/devices' 2>/dev/null")
@@ -367,112 +508,14 @@ local function detect_role()
     return { role = role, master_ip = master_ip, subnet = subnet, iface = iface }
 end
 
--- ============================================================
--- Create full device snapshot (for sub-node consumption)
--- Written to /tmp/dm_snapshot.json, refreshed every 60s
--- ============================================================
-local function create_snapshot()
-    local role_info = detect_role()
-    
-    -- Only master creates snapshot
-    local snap = {
-        _ts = os.time(),
-        role = role_info.role,
-        dhcp_leases = {},
-        arp = {},
-        wifi_stations = {},
-        fdb_macs = {},
-        child_reports = {}  -- reported by sub-nodes via POST /api/report
-    }
-    
-    -- DHCP leases
-    local f = io.open("/tmp/dhcp.leases", "r")
-    if f then
-        for line in f:lines() do
-            local ts, mac, ip, hostname = line:match("^(%d+)%s+(%S+)%s+(%S+)%s+(%S+)")
-            if mac and ip then snap.dhcp_leases[mac:upper()] = { ip = ip, hostname = hostname or "" } end
-        end
-        f:close()
-    end
-    
-    -- ARP table
-    f = io.open("/proc/net/arp", "r")
-    if f then
-        f:read("*l")
-        for line in f:lines() do
-            local ip, hw_type, flags, mac = line:match("^(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)")
-            if mac and mac ~= "00:00:00:00:00:00" and flags ~= "0x0" then
-                snap.arp[mac:upper()] = ip
-            end
-        end
-        f:close()
-    end
-    
-    -- WiFi stations
-    for _, iface in ipairs(get_ap_ifaces()) do
-        local out = sys.exec("iwinfo " .. iface .. " assoclist 2>/dev/null")
-        if out then
-            for word in out:gmatch("%S+") do
-                if #word == 17 and word:match("^[0-9A-Fa-f:]+$") then
-                    snap.wifi_stations[word:upper()] = { iface = iface }
-                end
-            end
-        end
-    end
-    
-    -- Bridge FDB non-local MACs
-    local mesh_vmac = get_mesh_vmac()
-    local fdb = sys.exec("brctl showmacs br-lan 2>/dev/null")
-    if fdb and fdb ~= "" then
-        local mesh_port = nil
-        for line in fdb:gmatch("[^\n]+") do
-            local port, mac, is_local = line:match("^%s*(%d+)%s+([0-9a-fA-F:]+)%s+(%S+)")
-            if port and mac and is_local == "yes" and mesh_vmac and mac:upper() == mesh_vmac then
-                mesh_port = port; break
-            end
-        end
-        if mesh_port then
-            for line in fdb:gmatch("[^\n]+") do
-                local port, mac, is_local = line:match("^%s*(%d+)%s+([0-9a-fA-F:]+)%s+(%S+)")
-                if port and port == mesh_port and mac and is_local == "no" then
-                    snap.fdb_macs[mac:upper()] = true
-                end
-            end
-        end
-    end
-    
-    -- Merge child_reports from file
-    local cf = io.open("/tmp/dm_child_reports.json", "r")
-    if cf then
-        local ok, cr = pcall(json.parse, cf:read("*a"))
-        cf:close()
-        if ok and type(cr) == "table" then
-            snap.child_reports = cr
-        end
-    end
-    
-    -- Device profiles from master UCI (for sub-node enrichment)
-    snap.devices = {}
-    uci:foreach("devicemaster", "device", function(s)
-        if s.mac then
-            snap.devices[s.mac:upper()] = {
-                vendor = s.vendor or "",
-                devtype = s.type or "",
-                name = s.name or "",
-                hostname = s.hostname or ""
-            }
-        end
-    end)
-    
-    -- Write snapshot
-    local tmp = "/tmp/dm_snapshot.json.tmp"
-    local sf = io.open(tmp, "w")
-    if sf then
-        sf:write(json.stringify(snap))
-        sf:close()
-        os.rename(tmp, "/tmp/dm_snapshot.json")  -- atomic
-    end
-end
+-- NOTE: the controller used to carry a create_snapshot() implementation here.
+-- It was dead code: nothing called it. The snapshot is produced by
+-- /usr/libexec/devicemaster/snapshot_writer.lua (cron, every minute), which
+-- writes /tmp/dm_snapshot.json. The copy that sub nodes fetch over HTTP
+-- (/luci-static/resources/dm_snapshot.json) is a symlink to that file, created
+-- by /etc/init.d/devicemaster - it is NOT a second writer: /www is on the
+-- overlay filesystem and a per-minute write there is a per-minute flash write.
+-- api_snapshot() below reads the file, it never builds it.
 
 -- ============================================================
 -- Snapshot API: GET - sub nodes pull master data
@@ -491,49 +534,185 @@ end
 
 -- ============================================================
 -- Report API: POST - sub nodes push their local stations
+--
+-- There used to be a second, authenticated copy of this endpoint
+-- (api/report) that did the same read-merge-write with NO lock and stored a
+-- different payload shape (stations/iface only, no dhcp_leases/arp/devices).
+-- Nothing ever called it - device_monitor.sh posts to api/report_sub - and the
+-- merger in snapshot_writer.lua ignores a report without dhcp_leases/arp/
+-- devices, so it could only ever produce half a report. Removed; this is now
+-- the single writer.
 -- ============================================================
-function api_report()
-    local raw = luci.http.content()
-    if not raw or raw == "" then
-        json_response({ success = false, error = "no data" })
-        return
+local CHILD_REPORTS = "/tmp/dm_child_reports.json"
+local CHILD_REPORTS_LOCK = "/tmp/dm_child_reports.lock"
+-- A lock directory older than this cannot belong to a live merge any more.
+local CHILD_REPORTS_LOCK_STALE = 10
+-- A node report older than this is considered dead and is dropped on the next
+-- merge. Without an expiry the file was append-only in practice: a sub node
+-- that was unplugged, reset or re-flashed kept its whole device list alive on
+-- the master forever, because /tmp/dm_child_reports.json is only ever cleared
+-- by a reboot. device_monitor.sh pushes every 300s, so 900s tolerates two lost
+-- reports before a node is considered gone.
+local REPORT_TTL = 900
+-- A relayed report is data from a node that reached us through another node.
+-- Accept a bounded number per request so one sender cannot balloon the file.
+local MAX_RELAY = 8
+
+-- Take the merge lock, recovering from a lock left behind by a request that was
+-- killed before it could release it (otherwise a single crash would reject every
+-- later report until the next reboot).
+local function child_reports_lock()
+    for _ = 1, 10 do
+        if sys.call("mkdir '" .. CHILD_REPORTS_LOCK .. "' 2>/dev/null") == 0 then
+            return true
+        end
+
+        local mtime = tonumber(sys.exec("stat -c %Y '" .. CHILD_REPORTS_LOCK .. "' 2>/dev/null"))
+        if mtime and (os.time() - mtime) > CHILD_REPORTS_LOCK_STALE then
+            sys.exec("rmdir '" .. CHILD_REPORTS_LOCK .. "' 2>/dev/null")
+        end
+
+        -- usleep is not present in every BusyBox build, plain sleep always is.
+        sys.exec("usleep 100000 2>/dev/null || sleep 1")
     end
-    local ok, data = pcall(json.parse, raw)
-    if not ok or type(data) ~= "table" then
-        json_response({ success = false, error = "invalid json" })
-        return
+    return false
+end
+
+local function child_reports_unlock()
+    sys.exec("rmdir '" .. CHILD_REPORTS_LOCK .. "' 2>/dev/null")
+end
+
+-- Filter a pushed report down to data that is shaped like what it claims to
+-- be, and drop the rest.
+--
+-- This endpoint is unauthenticated (mesh-internal by design), and
+-- snapshot_writer.lua later splices snap.arp / snap.dhcp_leases values into a
+-- shell command line - the `curl ... 'http://<ip>/...'` that polls a peer's
+-- snapshot. So a hostile or merely buggy sub node must not be able to park an
+-- arbitrary string in either map. Enforcement is duplicated in
+-- snapshot_writer.lua on purpose: this is validation at the boundary, that one
+-- is the last line of defence before the shell.
+local function sanitize_report_arp(tbl)
+    local out = {}
+    if type(tbl) ~= "table" then return out end
+    for mac, ip in pairs(tbl) do
+        if type(mac) == "string" and is_valid_mac(mac) and is_valid_ip(ip) then
+            out[mac:upper()] = ip
+        end
     end
-    
-    -- Validate required fields
-    if not data.node_mac or not data.stations then
-        json_response({ success = false, error = "missing node_mac or stations" })
-        return
+    return out
+end
+
+local function sanitize_report_leases(tbl)
+    local out = {}
+    if type(tbl) ~= "table" then return out end
+    for mac, info in pairs(tbl) do
+        if type(mac) == "string" and is_valid_mac(mac) and type(info) == "table" then
+            local ip = info.ip
+            if is_valid_ip(ip) then
+                local hostname = info.hostname
+                if type(hostname) ~= "string" or #hostname > 64 then
+                    hostname = ""
+                end
+                out[mac:upper()] = { ip = ip, hostname = hostname }
+            end
+        end
     end
-    
-    -- Read existing child_reports, merge this node's report
+    return out
+end
+
+-- WiFi stations and UCI device profiles were previously taken from the pushed
+-- report verbatim (`data.stations or {}`). Stations reach the master's device
+-- list as the "which node is this client on" answer, and device profiles are
+-- rendered in the browser, so neither should be a free-form passthrough of
+-- whatever a peer felt like sending. Both are rebuilt here from validated keys.
+local function sanitize_stations(tbl)
+    local out = {}
+    if type(tbl) ~= "table" then return out end
+    for mac, info in pairs(tbl) do
+        if type(mac) == "string" and is_valid_mac(mac) then
+            local iface = type(info) == "table" and info.iface or ""
+            -- Display label only, but keep it a plain interface name.
+            if type(iface) ~= "string" or #iface > 16 or not iface:match("^[%w%-_%.]*$") then
+                iface = ""
+            end
+            out[mac:upper()] = { iface = iface }
+        end
+    end
+    return out
+end
+
+local function sanitize_devices(tbl)
+    local out = {}
+    if type(tbl) ~= "table" then return out end
+    local function text(v, max)
+        if type(v) ~= "string" or #v > max then return "" end
+        return v
+    end
+    for mac, info in pairs(tbl) do
+        if type(mac) == "string" and is_valid_mac(mac) and type(info) == "table" then
+            out[mac:upper()] = {
+                vendor   = text(info.vendor, 64),
+                devtype  = text(info.devtype, 32),
+                name     = text(info.name, 64),
+                hostname = text(info.hostname, 64)
+            }
+        end
+    end
+    return out
+end
+
+-- Merge one or more node reports into the shared file in a single
+-- read-modify-write under one lock. Returns false when the lock could not be
+-- taken; the caller answers with an error and the node retries on its next push
+-- (SUB_REPORT_INTERVAL).
+--
+-- Takes a list rather than a single node because a report may relay reports
+-- from other nodes: merging those one at a time meant re-reading, re-writing
+-- and re-locking the whole file per node, and left the file in a half-merged
+-- state for snapshot_writer.lua to read in between.
+local function merge_child_reports(entries)
+    if not child_reports_lock() then
+        return false
+    end
+
     local reports = {}
-    local cf = io.open("/tmp/dm_child_reports.json", "r")
+    local cf = io.open(CHILD_REPORTS, "r")
     if cf then
-        local ok2, existing = pcall(json.parse, cf:read("*a"))
+        local ok, existing = pcall(json.parse, cf:read("*a"))
         cf:close()
-        if ok2 and type(existing) == "table" then
+        if ok and type(existing) == "table" then
             reports = existing
         end
     end
-    
-    reports[data.node_mac:upper()] = {
-        ts = os.time(),
-        stations = data.stations,
-        iface = data.iface or ""
-    }
-    
-    local wf = io.open("/tmp/dm_child_reports.json", "w")
+
+    local now = os.time()
+
+    -- Expire nodes that stopped reporting (see REPORT_TTL).
+    for mac, rep in pairs(reports) do
+        local ts = type(rep) == "table" and tonumber(rep.ts) or nil
+        if not ts or (now - ts) > REPORT_TTL then
+            reports[mac] = nil
+        end
+    end
+
+    for _, entry in ipairs(entries) do
+        entry.payload.ts = now
+        reports[entry.mac:upper()] = entry.payload
+    end
+
+    -- Atomic replace: readers (snapshot_writer.lua, api_status) must never see
+    -- a half-written file.
+    local tmp = CHILD_REPORTS .. ".tmp"
+    local wf = io.open(tmp, "w")
     if wf then
         wf:write(json.stringify(reports))
         wf:close()
+        os.rename(tmp, CHILD_REPORTS)
     end
-    
-    json_response({ success = true })
+
+    child_reports_unlock()
+    return true
 end
 
 -- Unauthenticated report endpoint for sub-node push (mesh internal communication)
@@ -553,53 +732,64 @@ function api_report_sub()
         json_response({ success = false, error = "missing node_mac" })
         return
     end
-    
-    local reports = {}
-    -- Atomic read-merge-write (use lock file)
-    local lock = "/tmp/dm_child_reports.lock"
-    local locked = false
-    for i = 1, 10 do
-        if sys.call("mkdir '" .. lock .. "' 2>/dev/null") == 0 then
-            locked = true
-            break
+
+    local node_mac = data.node_mac:upper()
+    -- The node's own address, used by snapshot_writer.lua to decide which hosts
+    -- are worth polling. Validated here because it is spliced into a curl
+    -- command line there (which validates again - this is the boundary).
+    local node_ip = is_valid_ip(data.node_ip) and data.node_ip or ""
+
+    local entries = { {
+        mac = node_mac,
+        payload = {
+            stations = sanitize_stations(data.stations),
+            dhcp_leases = sanitize_report_leases(data.dhcp_leases),
+            arp = sanitize_report_arp(data.arp),
+            devices = sanitize_devices(data.devices),
+            iface = (type(data.iface) == "string" and #data.iface <= 16) and data.iface or "",
+            node_ip = node_ip,
+            role = (data.role == "sub") and "sub" or ""
+        }
+    } }
+
+    -- Reports relayed by this node on behalf of nodes further out on the mesh
+    -- (a node whose default gateway is a repeater posts there, not here).
+    -- Merged as first-class nodes so the master sees the whole tree; the depth
+    -- is capped at one hop by only ever accepting `relayed`, never
+    -- `relayed[..].relayed`.
+    local relayed = data.relayed
+    if type(relayed) == "table" then
+        local n = 0
+        for rmac, rep in pairs(relayed) do
+            if n >= MAX_RELAY then break end
+            if type(rmac) == "string" and is_valid_mac(rmac)
+                and rmac:upper() ~= node_mac
+                and type(rep) == "table"
+            then
+                entries[#entries + 1] = {
+                    mac = rmac,
+                    payload = {
+                        stations = sanitize_stations(rep.stations),
+                        dhcp_leases = sanitize_report_leases(rep.dhcp_leases),
+                        arp = sanitize_report_arp(rep.arp),
+                        devices = sanitize_devices(rep.devices),
+                        node_ip = is_valid_ip(rep.node_ip) and rep.node_ip or "",
+                        role = "sub",
+                        relayed_via = node_mac
+                    }
+                }
+                n = n + 1
+            end
         end
-        sys.exec("usleep 100000 2>/dev/null")  -- wait 100ms
     end
-    if not locked then
-        json_response({success = false, error = "Could not acquire lock"})
+
+    local merged = merge_child_reports(entries)
+    if not merged then
+        json_response({ success = false, error = "could not acquire report lock" })
         return
     end
 
-    local cf = io.open("/tmp/dm_child_reports.json", "r")
-    if cf then
-        local ok2, existing = pcall(json.parse, cf:read("*a"))
-        cf:close()
-        if ok2 and type(existing) == "table" then
-            reports = existing
-        end
-    end
-
-    reports[data.node_mac:upper()] = {
-        ts = os.time(),
-        stations = data.stations or {},
-        dhcp_leases = data.dhcp_leases or {},
-        arp = data.arp or {},
-        devices = data.devices or {},
-        iface = data.iface or ""
-    }
-
-    -- Atomic write: temp file + rename
-    local tmp = "/tmp/dm_child_reports.json.tmp"
-    local wf = io.open(tmp, "w")
-    if wf then
-        wf:write(json.stringify(reports))
-        wf:close()
-        os.rename(tmp, "/tmp/dm_child_reports.json")  -- atomic
-    end
-
-    sys.call("rmdir '" .. lock .. "' 2>/dev/null")  -- release lock
-    
-    json_response({ success = true })
+    json_response({ success = true, nodes = #entries })
 end
 
 -- Helper: Identify mesh nodes and children
@@ -732,6 +922,19 @@ local function identify_topology(bandix_uplink, wifi_stations, wired_stations, m
     return mesh_nodes, mesh_children
 end
 
+-- Known IP neighbour (NUD) states, keyed by the exact token the kernel tools
+-- print. Used both to locate the state inside a line and to judge liveness.
+local NUD_STATES = {
+    INCOMPLETE = true, REACHABLE = true, STALE = true, DELAY = true,
+    PROBE = true, FAILED = true, NOARP = true, PERMANENT = true,
+}
+
+-- States that mean "this neighbour has been seen recently enough to count as
+-- present". INCOMPLETE and FAILED are the "no answer" states and are excluded.
+local LIVE_NUD = {
+    REACHABLE = true, PERMANENT = true, STALE = true, DELAY = true,
+}
+
 -- Helper: Get device online status and IPs (Topology-aware)
 -- Returns: online_macs, all_arp, wifi_stations, mesh_info
 local function get_arp_online()
@@ -766,19 +969,60 @@ local function get_arp_online()
         f:close()
     end
 
-    -- Tier 1: WiFi stations are always online
-    -- Try to find IP from ARP, DHCP, or ip neigh (any state)
+    -- `ip neigh show dev br-lan` used to be executed twice per request - once
+    -- here to fill in a missing IP and once below to read the NUD state. Read
+    -- it once and keep both views of the same output.
+    --
+    -- neigh_by_mac  : MAC -> IP, ANY state. Only ever used to fill an IP that
+    --                 ARP and DHCP both lack, so a FAILED/INCOMPLETE entry is
+    --                 harmless here.
+    -- neigh_state   : MAC -> { ip, nud } for entries that carry a state.
+    --                 Drives the liveness decision in Tier 2.
     local neigh_by_mac = {}
+    local neigh_state = {}
     local neigh_raw = sys.exec("ip neigh show dev br-lan 2>/dev/null")
     if neigh_raw and neigh_raw ~= "" then
         for line in neigh_raw:gmatch("[^\n]+") do
-            local nip, nmac = line:match("^(%d+%.%d+%.%d+%.%d+)%s+lladdr%s+([0-9a-fA-F:]+)")
-            if nip and nmac then
-                neigh_by_mac[nmac:upper()] = nip
+            -- Anchor on the address and then search the remainder: the field
+            -- order around it is NOT stable, so the old single pattern
+            -- ("IP <ws> lladdr <ws> token") was unreliable.
+            --
+            --   * BusyBox only prints "dev <ifname>" when no device filter was
+            --     given - ipneigh.c print_neigh():
+            --         if (!G_filter.index && r->ndm_ifindex)
+            --             printf("dev %s ", ll_index_to_name(r->ndm_ifindex));
+            --     so `ip neigh show dev br-lan` yields "IP lladdr ..." while a
+            --     bare `ip neigh show` yields "IP dev br-lan lladdr ...".
+            --     iproute2 prints the dev field in both cases.
+            --   * Both implementations can emit "router"/"proxy" flags and
+            --     "used <a>/<b>/<c>" cache info BEFORE the state, so the token
+            --     straight after the MAC is often "used", not a NUD state.
+            --
+            -- Instead of assuming a column, take the MAC from the lladdr field
+            -- and the state as the first all-caps token that is a known state
+            -- name. (A MAC cannot collide: it is hex only.)
+            local nip, rest = line:match("^(%d+%.%d+%.%d+%.%d+)%s+(.*)$")
+            if nip then
+                local nmac = rest:match("lladdr%s+([0-9a-fA-F:]+)")
+                if nmac then
+                    nmac = nmac:upper()
+                    if not neigh_by_mac[nmac] then neigh_by_mac[nmac] = nip end
+                    local nud = nil
+                    for word in rest:gmatch("%u+") do
+                        if NUD_STATES[word] then
+                            nud = word
+                            break
+                        end
+                    end
+                    if nud then neigh_state[nmac] = { ip = nip, nud = nud } end
+                end
             end
         end
     end
-    
+
+    -- Tier 1: WiFi stations are always online
+    -- Try to find IP from ARP, DHCP, or ip neigh (any state)
+
     -- Build IP→MAC mapping from DHCP (source of truth for IP assignments)
     -- This handles cases where sub-routers (like JI-weixing) assign IPs to downstream devices
     -- and the main router only sees the sub-router's MAC in ARP
@@ -800,26 +1044,17 @@ local function get_arp_online()
     -- parent of MAC A (e.g. a Tuya IoT device).
     local nat_children = {}   -- parent_mac -> { child_mac, ... }
     local nat_parents = {}    -- child_mac -> parent_mac
-    local output = sys.exec("ip neigh show dev br-lan 2>/dev/null")
-    if output and output ~= "" then
-        for line in output:gmatch("[^\n]+") do
-            local ip, mac, state = line:match(
-                "^(%d+%.%d+%.%d+%.%d+)%s+lladdr%s+([0-9a-fA-F:]+)%s+(%S+)"
-            )
-            if mac and state then
-                state = state:upper()
-                mac = mac:upper()
-                if state == "REACHABLE" or state == "PERMANENT" or state == "STALE" or state == "DELAY" then
-                    local dhcp_owner = dhcp_ip_to_mac[ip]
-                    if dhcp_owner and dhcp_owner ~= mac then
-                        -- NAT downstream detected: dhcp_owner is behind mac.
-                        nat_parents[dhcp_owner] = mac
-                        if not nat_children[mac] then nat_children[mac] = {} end
-                        table.insert(nat_children[mac], dhcp_owner)
-                    else
-                        online[mac] = ip
-                    end
-                end
+    for mac, ent in pairs(neigh_state) do
+        local ip, state = ent.ip, ent.nud
+        if LIVE_NUD[state] then
+            local dhcp_owner = dhcp_ip_to_mac[ip]
+            if dhcp_owner and dhcp_owner ~= mac then
+                -- NAT downstream detected: dhcp_owner is behind mac.
+                nat_parents[dhcp_owner] = mac
+                if not nat_children[mac] then nat_children[mac] = {} end
+                table.insert(nat_children[mac], dhcp_owner)
+            else
+                online[mac] = ip
             end
         end
     end
@@ -848,14 +1083,51 @@ local function get_arp_online()
         end
     end
 
-    -- Ping probe
+    -- Ping probe (batched).
+    --
+    -- This queue holds the devices that have NO other evidence of being alive:
+    -- ARP still remembers them but ip neigh carries no live NUD state. That is
+    -- precisely the set most likely to be off the network, so nearly every
+    -- probe burns its entire timeout - and `ping` used to be invoked once per
+    -- device, serially, on a request the devices page polls every few seconds.
+    -- 30 stale ARP entries meant a 30 second stall inside api_status.
+    --
+    -- The probes are independent, so run them as one background batch and read
+    -- the answers back from per-device files. Wall time becomes ~1s regardless
+    -- of how many devices are queued.
+    local probe_list = {}
     for mac, ip in pairs(probe_macs) do
         if not online[mac] and is_valid_ip(ip) then
-            local ping_result = sys.exec("ping -c 1 -W 1 " .. ip .. " 2>/dev/null && echo OK || echo FAIL")
-            if ping_result:match("OK") then
-                online[mac] = ip
+            probe_list[#probe_list + 1] = { mac = mac, ip = ip }
+        end
+    end
+    if #probe_list > 0 then
+        local dir = (sys.exec("mktemp -d /tmp/dm_ping.XXXXXX 2>/dev/null") or ""):gsub("%s+$", "")
+        if dir == "" then
+            -- mktemp is in BusyBox, but do not depend on it.
+            dir = "/tmp/dm_ping_probe"
+            sys.exec("rm -rf " .. dir .. "; mkdir -p " .. dir)
+        end
+        local jobs = {}
+        for i, ent in ipairs(probe_list) do
+            jobs[#jobs + 1] = "ping -c 1 -W 1 " .. ent.ip ..
+                " > '" .. dir .. "/" .. i .. "' 2>&1 &"
+        end
+        sys.exec("( " .. table.concat(jobs, " ") .. " wait ) 2>/dev/null")
+        for i, ent in ipairs(probe_list) do
+            local f = io.open(dir .. "/" .. i, "r")
+            if f then
+                local out = f:read("*a") or ""
+                f:close()
+                -- Only a real reply carries a TTL. The header line
+                -- ("PING 192.168.1.5 (...): 56 data bytes") and every error
+                -- message do not, so this cannot yield a false positive.
+                if out:match("ttl=") or out:match("TTL=") then
+                    online[ent.mac] = ent.ip
+                end
             end
         end
+        sys.exec("rm -rf '" .. dir .. "' 2>/dev/null")
     end
 
     -- Special: Mesh node online if any child is online
@@ -1064,11 +1336,6 @@ local function merge_session_aliases(session, primary_mac, alias_macs)
     session.devices[primary_mac] = primary
 end
 
--- Response cache: avoid heavy computation on every frontend poll
-local response_cache_str = nil
-local response_cache_time = 0
-local CACHE_TTL = 15
-
 -- ============================================================
 -- API: Set device monitor mode (active/idle)
 -- Called by frontend when page opens/closes
@@ -1185,9 +1452,7 @@ function api_merge_devices()
         end
         
         -- Detect if randomized MAC (LAA - Locally Administered Address)
-        -- LAA: second-least significant bit of the first byte is set (0x02).
-        local first_byte = tonumber(new_mac:sub(1,2), 16)
-        local randomized = first_byte and (first_byte % 4 >= 2)
+        local randomized = is_random_mac(new_mac)
 
         -- Create new device section
         local section_name = uci:add("devicemaster", "device")
@@ -1678,12 +1943,16 @@ function api_status()
     local f = io.open("/tmp/dm_page_active", "w")
     if f then f:write(tostring(os.time())); f:close() end
 
-    -- Return cached response if still fresh (eliminates ALL subprocess spawning)
+    -- Serve the /tmp cache when it is still fresh (see CACHE_TTL above).
+    -- force=1 bypasses it (used for the manual refresh and for diagnostics).
     local now = os.time()
-    if response_cache_str and now - response_cache_time < CACHE_TTL then
-        luci.http.prepare_content("application/json")
-        luci.http.write(response_cache_str)
-        return
+    if luci.http.formvalue("force") ~= "1" then
+        local cached = status_cache_read()
+        if cached then
+            luci.http.prepare_content("application/json")
+            luci.http.write(cached)
+            return
+        end
     end
     local online_macs, all_arp, wifi_stations, mesh_info = get_arp_online()
     -- Save local online state before merging master data (for ping probe comparison)
@@ -1809,6 +2078,71 @@ function api_status()
         end
     end
 
+    -- Master: fold in what the sub nodes have reported.
+    --
+    -- /tmp/dm_child_reports.json was written by api_report_sub but read only by
+    -- snapshot_writer.lua, which copies it into the snapshot that the SUB nodes
+    -- then pull back - so the data travelled in a circle and the master's own
+    -- device list never showed any of it. Node attribution is the part that
+    -- cannot be reconstructed locally: `stations` is what says which node a
+    -- wireless client hangs off, and the master's own iw dump only ever sees
+    -- its own radios.
+    local node_macs = {}
+    if role_info.role == "master" then
+        local cr = io.open("/tmp/dm_child_reports.json", "r")
+        if cr then
+            local ok3, child = pcall(json.parse, cr:read("*a"))
+            cr:close()
+            if ok3 and type(child) == "table" then
+                local now3 = os.time()
+                for node_mac, rep in pairs(child) do
+                    if type(rep) == "table" and type(node_mac) == "string"
+                        and tonumber(rep.ts) and (now3 - tonumber(rep.ts)) <= REPORT_TTL then
+                        -- Which node each wireless client is attached to.
+                        -- A client straight off this router is left alone.
+                        for smac, _ in pairs(rep.stations or {}) do
+                            if not local_online[smac] then
+                                node_macs[smac] = node_mac
+                            end
+                        end
+                        -- Device profiles only the sub node knows about become
+                        -- visible here too; the master's own UCI still wins
+                        -- (remote_devices is only consulted as a fallback).
+                        for dmac, dinfo in pairs(rep.devices or {}) do
+                            if not remote_devices[dmac] then
+                                remote_devices[dmac] = dinfo
+                            end
+                        end
+                        -- Leases/ARP from a node that runs its own DHCP. In the
+                        -- usual bridged ("dumb AP") setup this is redundant -
+                        -- one dnsmasq serves the whole mesh and the master
+                        -- already holds every lease - so it only fills gaps.
+                        for lmac, linfo in pairs(rep.dhcp_leases or {}) do
+                            if type(linfo) == "table" then
+                                if not dhcp_macs[lmac] then
+                                    dhcp_macs[lmac] = true
+                                    if linfo.hostname and linfo.hostname ~= "" then
+                                        dhcp_names[lmac] = linfo.hostname
+                                    end
+                                end
+                                if linfo.ip and linfo.ip ~= ""
+                                    and (not online_macs[lmac] or online_macs[lmac] == "") then
+                                    online_macs[lmac] = linfo.ip
+                                end
+                                if linfo.ip and not all_arp[lmac] then
+                                    all_arp[lmac] = linfo.ip
+                                end
+                            end
+                        end
+                        for amac, aip in pairs(rep.arp or {}) do
+                            if not all_arp[amac] then all_arp[amac] = aip end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     local devices = {}
 
     -- Load runtime session data from RAM (tmpfs), not Flash
@@ -1879,7 +2213,11 @@ function api_status()
 
     -- 1. Read all device profiles from UCI
     uci:foreach("devicemaster", "device", function(s)
-        if not s.mac then return end
+        -- `s.mac == ""` must be rejected too: an empty string is truthy in Lua,
+        -- so an empty `config device` stanza (shipped by older packages) used to
+        -- render as a blank device card here and additionally triggered
+        -- sync_to_dnsmasq("").
+        if not s.mac or s.mac == "" then return end
 
         local mac_upper = s.mac:upper()
         local ip = s.last_ip or online_macs[mac_upper] or ""
@@ -1911,7 +2249,9 @@ function api_status()
         -- WAN 侧设备探测：last_ip 在非 LAN 子网的有效设备，最多每 60 秒 ping 一次
         if not is_online then
             local stored_ip = s.last_ip or ""
-            if stored_ip ~= "" and lan_prefix and not stored_ip:match("^" .. lan_prefix:gsub("%.", "%%.")) then
+            -- stored_ip is spliced into a ping command line, so it must be a
+            -- real dotted quad and not e.g. "1.2.3.4; reboot".
+            if stored_ip ~= "" and is_valid_ip(stored_ip) and lan_prefix and not stored_ip:match("^" .. lan_prefix:gsub("%.", "%%.")) then
                 local cache_key = mac_upper .. "|" .. stored_ip
                 local last_probe = probe_cache[cache_key] or 0
                 if os.time() - last_probe > 60 then
@@ -1972,13 +2312,7 @@ function api_status()
         end
 
         -- Check if MAC is randomized (locally administered bit)
-        local randomized = false
-        if s.mac then
-            local first_byte = tonumber(s.mac:sub(1,2), 16)
-            if first_byte and (first_byte % 2 == 2) then
-                randomized = true
-            end
-        end
+        local randomized = is_random_mac(s.mac)
 
         -- Check if device is on a controllable network (not upstream)
         local is_controllable = true
@@ -2091,6 +2425,14 @@ function api_status()
             topology_tier = "remote"  -- Online but not direct (via wire/other)
         end
 
+        -- Attribution reported by the sub node itself: this client is
+        -- associated to that node's radio. Finer than the tier guess above and
+        -- it covers wired clients too, so it fills parent_node when the mesh
+        -- detection could not determine one.
+        if not parent_node and node_macs[mac_upper] then
+            parent_node = node_macs[mac_upper]
+        end
+
         merge_session_aliases(session, mac_upper, alt_macs)
         device_session = session.devices[mac_upper] or device_session
         total_online = tonumber(device_session.total_online_time) or 0
@@ -2140,7 +2482,10 @@ function api_status()
             rate_limit = s.rate_limit or nil,
             group = s.group or s.groups or nil,
             notes = s.notes or nil,
-            alt_macs = alt_macs  -- Array of alternative MAC addresses (for rotating MAC devices)
+            alt_macs = alt_macs,  -- Array of alternative MAC addresses (for rotating MAC devices)
+            -- Node this client was reported associated to by a sub node; nil
+            -- when the master sees it directly or nobody claimed it.
+            node_mac = node_macs[mac_upper] or nil
         }
     end)
 
@@ -2162,11 +2507,7 @@ function api_status()
 
         if not found and not merged_alias_macs[mac] and mac ~= "00:00:00:00:00:00" and not local_macs[mac] then
             local hostname = dhcp_names[mac] or ""
-            local randomized = false
-            local first_byte = tonumber(mac:sub(1,2), 16)
-            if first_byte and (first_byte % 2 == 2) then
-                randomized = true
-            end
+            local randomized = is_random_mac(mac)
 
             local is_controllable = true
             local device_prefix = ip:match("^(%d+%.%d+%.%d+)")
@@ -2195,7 +2536,9 @@ function api_status()
                 blocked = false,
                 rate_limit = nil,
                 group = nil,
-                notes = nil
+                notes = nil,
+                -- Set when a sub node claimed this client's association.
+                node_mac = node_macs[mac] or nil
             }
         end
     end
@@ -2242,9 +2585,10 @@ function api_status()
         return (a.online_seconds or 0) > (b.online_seconds or 0)
     end)
 
-    response_cache_str = json.stringify({devices = devices, _v = get_version()})
-    response_cache_time = now
-    json_response({devices = devices, _v = get_version()})
+    local body = json.stringify({devices = devices, _v = get_version()})
+    status_cache_write(body)
+    luci.http.prepare_content("application/json")
+    luci.http.write(body)
 end
 
 -- ============================================================
@@ -2292,7 +2636,7 @@ local function unique_name(base, current_mac)
     local known_macs = {}
     local alt_macs = {}
     uci:foreach("devicemaster", "device", function(s)
-        if s.mac then known_macs[s.mac:lower()] = true end
+        if s.mac and s.mac ~= "" then known_macs[s.mac:lower()] = true end
         if s.mac and current_mac and s.mac:lower() == current_mac:lower() and s.alt_macs and s.alt_macs ~= "" then
             for am in s.alt_macs:gmatch("[^,]+") do
                 alt_macs[am:trim():lower()] = true
@@ -2363,6 +2707,12 @@ end
 -- Delegates to sync_hostname.sh to avoid UCI cursor index issues
 -- and heredoc problems with sys.exec()
 local function sync_to_dnsmasq(mac, name, ip)
+    -- An empty MAC must never reach sync_hostname.sh: the script greps
+    -- /proc/net/arp for it, with an empty pattern every line matches, and it then
+    -- rewrites an unrelated row of /tmp/dhcp.leases and restarts dnsmasq.
+    -- (Older packages shipped an empty `config device` stanza, which made this
+    -- fire on every single api_status call.)
+    if not is_valid_mac(mac) then return end
     if not name or name == "" then return end
     local script = "/usr/libexec/devicemaster/sync_hostname.sh"
     -- Ensure script exists
@@ -2436,6 +2786,18 @@ function api_set_name()
     if not is_valid_mac(mac) then
         json_response({success = false, error = "Invalid MAC address format"})
         return
+    end
+
+    -- Canonicalise the group up front: the editor may send a display name, and
+    -- an unknown value must be rejected *before* anything is written, otherwise
+    -- the rest of the edits would be applied but never committed.
+    if group ~= nil and group ~= "" then
+        local gid = resolve_group_id(group)
+        if not gid then
+            json_response({success = false, error = "Unknown group: " .. tostring(group)})
+            return
+        end
+        group = gid
     end
 
     -- Find existing section
@@ -2530,6 +2892,15 @@ function api_set_group()
         return
     end
 
+    if group ~= nil and group ~= "" and group ~= "all" then
+        local gid = resolve_group_id(group)
+        if not gid then
+            json_response({success = false, error = "Unknown group: " .. tostring(group)})
+            return
+        end
+        group = gid
+    end
+
     local section = nil
     uci:foreach("devicemaster", "device", function(s)
         if s.mac and s.mac:lower() == mac:lower() then
@@ -2540,11 +2911,6 @@ function api_set_group()
     if not section then
         section = uci:add("devicemaster", "device")
         uci:set("devicemaster", section, "mac", mac)
-    end
-
-    if group and group ~= "" and group ~= "all" and not is_valid_uci_id(group) then
-        json_response({success = false, error = "Invalid group ID"})
-        return
     end
 
     uci:set("devicemaster", section, "group", group or "")
@@ -2606,9 +2972,16 @@ end
 function api_get_groups()
     local groups = {}
     uci:foreach("devicemaster", "group", function(s)
+        -- `id` is what devicemaster.@device[n].group stores and what the group
+        -- filter compares against. It is NOT necessarily the UCI section name:
+        -- built-in groups are created as `devicemaster.phones=group`, but groups
+        -- added through this API get an anonymous `cfg0a1b2c` section whose id
+        -- is the section name. Reporting s.id first keeps both shapes working.
         table.insert(groups, {
-            id = s[".name"],
+            id = s.id or s[".name"],
+            section = s[".name"],
             name = s.name or s.id or s[".name"],
+            icon = s.icon,
             color = s.color,
             rate_limit = s.rate_limit
         })
@@ -2636,16 +3009,34 @@ end
 -- API: Delete group
 function api_delete_group()
     local id = luci.http.formvalue("id")
-    if not id or id == "" or not is_valid_uci_id(id) then
+    if not id or id == "" then
         json_response({success = false, error = "Group ID required"})
         return
     end
+
+    -- `id` may be the group id or the UCI section name (they differ for groups
+    -- with an anonymous section), so resolve to the real section first. The
+    -- previous version passed the id straight to uci:delete(), which silently
+    -- deleted nothing whenever id ~= section name.
+    local target = nil
+    local group_id = id
+    uci:foreach("devicemaster", "group", function(s)
+        if not target and (s[".name"] == id or s.id == id or s.name == id) then
+            target = s[".name"]
+            group_id = s.id or s[".name"]
+        end
+    end)
+    if not target then
+        json_response({success = false, error = "Group not found"})
+        return
+    end
+
     uci:foreach("devicemaster", "device", function(s)
-        if s.group == id then
+        if s.group == group_id or s.group == target then
             uci:delete("devicemaster", s[".name"], "group")
         end
     end)
-    uci:delete("devicemaster", id)
+    uci:delete("devicemaster", target)
     local ok6, err6 = uci:commit("devicemaster")
     if not ok6 then log_msg("WARN: uci commit failed: " .. tostring(err6)) end
     json_response({success = true})

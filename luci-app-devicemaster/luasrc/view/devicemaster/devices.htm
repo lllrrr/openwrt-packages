@@ -64,11 +64,8 @@
             <label>分组</label>
             <select id="edit-group">
                 <option value="">无分组</option>
-                <option value="个人">个人</option>
-                <option value="IoT">IoT</option>
-                <option value="访客">访客</option>
-                <option value="安全">安全</option>
             </select>
+            <div class="field-hint" id="edit-group-hint"></div>
         </div>
         <div class="edit-field">
             <label>备注</label>
@@ -308,6 +305,74 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// escapeHtml() escapes &, < and > only - not quotes - so it must not be used for
+// an attribute value. Group ids come from UCI and may contain quotes if the
+// config was hand-edited.
+function escapeAttr(text) {
+    return String(text == null ? '' : text)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+// ---------------------------------------------------------------------------
+// 分组下拉框
+//
+// 选项曾经是硬编码的中文标签（个人/IoT/访客/安全），而控制器存储和校验的是
+// 分组 id（phones/computers/iot/network）。两者永远对不上，所以从设备编辑框里
+// 选分组根本不会写进正确的分组，分组功能端到端失效。
+// 现在从 api/get_groups 动态填充。
+// ---------------------------------------------------------------------------
+var groupsLoaded = false;   // 分组列表是否已拉取
+var pendingGroup = '';      // 编辑弹窗需要选中的分组 id
+
+function loadGroups(callback) {
+    httpGet(apiUrl + '/get_groups', function(res) {
+        var sel = document.getElementById('edit-group');
+        if (!sel) { if (callback) callback(); return; }
+
+        var groups = (res && res.groups) || [];
+        var html = '<option value="">无分组</option>';
+        for (var i = 0; i < groups.length; i++) {
+            var g = groups[i];
+            var id = g.id || g.section;
+            if (!id) continue;
+            var label = g.name || id;
+            if (g.icon) label = g.icon + ' ' + label;
+            html += '<option value="' + escapeAttr(id) + '">' + escapeHtml(label) + '</option>';
+        }
+        sel.innerHTML = html;
+        groupsLoaded = true;
+        selectGroup(pendingGroup);
+
+        var hint = document.getElementById('edit-group-hint');
+        if (hint) {
+            hint.textContent = groups.length ? '' : '还没有分组，可在「分组配置」页面创建';
+        }
+
+        if (callback) callback();
+    });
+}
+
+// 选中指定分组；若该 id 已不在列表中（分组被删除，或历史遗留的脏值），补一个
+// 占位项。否则浏览器会把 select 静默重置为空值，用户一保存就把原分组清掉了。
+function selectGroup(id) {
+    var sel = document.getElementById('edit-group');
+    if (!sel) return;
+    id = id || '';
+    if (id === '') { sel.value = ''; return; }
+
+    sel.value = id;
+    if (sel.value !== id) {
+        var opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = id + ' (未知分组)';
+        sel.appendChild(opt);
+        sel.value = id;
+    }
+}
+
 function getStatusClass(d) {
     if (d.blocked) return 'blocked';
     if (d.rate_limit) return 'limited';
@@ -325,7 +390,7 @@ function buildCardHTML(d) {
     h += '<div class="device-header"><div class="device-info">';
     h += '<div class="device-name">' + escapeHtml(name) + '</div>';
     var meshBadge = (d.topology === 'mesh_node' && d.mesh_connected) ? ' <span class="device-type mesh" style="background:#4caf50;color:#fff;">mesh</span>' : '';
-    h += '<div class="device-vendor">' + escapeHtml(d.vendor || '未知') + ' <span class="device-type ' + (d.type || 'unknown') + '">' + typeLabel + '</span>' + meshBadge + '</div>';
+    h += '<div class="device-vendor">' + escapeHtml(d.vendor || '未知') + ' <span class="device-type ' + escapeAttr(d.type || 'unknown') + '">' + typeLabel + '</span>' + meshBadge + '</div>';
     h += '</div><span class="device-status ' + getStatusClass(d) + '" id="status-' + d.mac.replace(/:/g,'') + '"></span></div>';
     var detailsHtml = '<div>MAC: ' + d.mac + '</div><div>IP: ' + (d.ip || 'N/A') + '</div>';
     if (d.rate_limit) {
@@ -336,7 +401,15 @@ function buildCardHTML(d) {
         var altCount = d.alt_macs.length;
         var altText = d.alt_macs[0];
         if (altCount > 1) altText += ' (+' + (altCount - 1) + ')';
-        detailsHtml += '<div class="device-alt-macs" title="' + d.alt_macs.join(', ') + '">备用: ' + altText + '</div>';
+        detailsHtml += '<div class="device-alt-macs" title="' + escapeAttr(d.alt_macs.join(', ')) + '">备用: ' + escapeHtml(altText) + '</div>';
+    }
+    // Which sub node reported this client as associated to it (see
+    // api_status: node_mac comes from the node's own push report). Without this
+    // the node attribution the mesh collects was invisible on the master.
+    if (d.node_mac && d.node_mac !== d.mac) {
+        var pn = (typeof deviceMap !== 'undefined' && deviceMap) ? deviceMap[d.node_mac] : null;
+        var pname = pn ? (pn.custom_name || pn.hostname || d.node_mac) : d.node_mac;
+        detailsHtml += '<div class="device-node" title="由子节点上报的关联">接入: ' + escapeHtml(pname) + '</div>';
     }
     h += '<div class="device-details">' + detailsHtml + '</div>';
     h += '<div class="device-actions">';
@@ -489,7 +562,12 @@ window.editDevice = function(mac) {
     document.getElementById('edit-name').value = device.custom_name || device.hostname || '';
     document.getElementById('edit-vendor').value = device.vendor || '';
     document.getElementById('edit-type').value = device.type || 'unknown';
-    document.getElementById('edit-group').value = device.group || '';
+    pendingGroup = device.group || '';
+    if (groupsLoaded) {
+        selectGroup(pendingGroup);
+    } else {
+        loadGroups();  // 首次点开时懒加载，加载完成后自动选回 pendingGroup
+    }
     document.getElementById('edit-notes').value = device.notes || '';
     document.getElementById('edit-title').textContent = '编辑设备 - ' + (device.custom_name || device.hostname || device.mac);
 
@@ -594,6 +672,7 @@ window.confirmDeleteDevice = function(mac) {
 
 document.addEventListener('DOMContentLoaded', function() {
     loadDevices();
+    loadGroups();  // 分组下拉框的选项来自 UCI，不在页面里硬编码
     document.getElementById('btn-refresh').addEventListener('click', loadDevices);
     document.getElementById('btn-scan').addEventListener('click', scanNetwork);
     document.getElementById('filter-input').addEventListener('input', renderDevices);

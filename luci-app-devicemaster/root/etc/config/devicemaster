@@ -1,35 +1,21 @@
 # DeviceMaster Configuration File
 # This file stores device customizations and rules
-
-config devicemaster 'global'
-	option enabled '1'
-	option auto_detect '1'
-	option oui_lookup '1'
-	option traffic_monitor '1'
-	option refresh_interval '5'
-	option history_days '30'
-
-config device
-	option mac ''
-	option name ''
-	option group ''
-	option icon ''
-	option notes ''
-	option blocked '0'
-	option rate_limit ''
-
-config group
-	option id ''
-	option name ''
-	option icon ''
-	option color ''
-	option rate_limit ''
-
-config schedule
-	option id ''
-	option name ''
-	option group ''
-	option days ''
-	option start_time ''
-	option end_time ''
-	option action 'block'
+#
+# NOTE: no section is shipped on purpose.
+#
+#   * device / group / schedule sections are created on demand by the plugin.
+#     Shipping empty template stanzas here produced a blank card in the device
+#     list and empty rows in 分组配置 (an empty `option mac ''` is a present but
+#     empty string, which uci:foreach() hands to Lua as "" - and "" is truthy).
+#
+#   * the old `config global` stanza (enabled / auto_detect / oui_lookup /
+#     traffic_monitor / refresh_interval / history_days) was removed because NO
+#     code in the project ever read it: the switches did nothing. Anything that
+#     needs a default lives in the section that actually consumes it:
+#       - OUI switches  -> the named 'settings' section (created by
+#                          /usr/libexec/devicemaster/uci_init.sh, edited by the
+#                          OUI管理 page, read by luci-app-devicemaster)
+#       - grouping      -> the named group sections created by uci_init.sh
+#
+# Never ship an anonymous *empty* section either: it would be picked up as a
+# real (but blank) device/group row.

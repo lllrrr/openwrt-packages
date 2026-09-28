@@ -273,13 +273,32 @@ if echo "$NAME" | grep -qiE '^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0
     exit 0
 fi
 
-# Concurrent lock (atomic mkdir)
+# Concurrent lock (atomic mkdir).
+#
+# The lock is released by the EXIT trap, which does NOT run when the process is
+# killed. A leftover lock used to make every later sync abort immediately, and
+# this script sits on the critical path of register_device / discover_all - so
+# DHCP hostname synchronisation stayed broken until the next reboot. Wait a
+# little, and steal the lock once it is clearly abandoned.
 LOCK="/tmp/dm_sync_hostname.lock"
-if ! mkdir "$LOCK" 2>/dev/null; then
-    log_msg "ERROR: Another sync in progress, aborting"
-    echo "ERROR: Another sync in progress"
-    exit 1
-fi
+_lock_wait=0
+while ! mkdir "$LOCK" 2>/dev/null; do
+    _lock_mtime=$(stat -c %Y "$LOCK" 2>/dev/null)
+    _lock_age=""
+    [ -n "$_lock_mtime" ] && _lock_age=$(( $(date +%s) - _lock_mtime ))
+    if [ -n "$_lock_age" ] && [ "$_lock_age" -gt 30 ] 2>/dev/null; then
+        log_msg "WARN: removing stale sync lock (age ${_lock_age}s)"
+        rmdir "$LOCK" 2>/dev/null
+    fi
+    # BusyBox sleep has no fractional support; usleep is the portable sub-second wait.
+    usleep 100000 2>/dev/null || sleep 1
+    _lock_wait=$((_lock_wait + 1))
+    if [ "$_lock_wait" -ge 30 ]; then
+        log_msg "ERROR: Another sync in progress, aborting"
+        echo "ERROR: Another sync in progress"
+        exit 1
+    fi
+done
 trap 'rmdir "$LOCK" 2>/dev/null' EXIT
 
 log_msg "START: $MAC -> $NAME ($IP)"
@@ -337,8 +356,13 @@ while true; do
 done
 log_msg "Deleted $deleted old host entries for $MAC"
 
-# 修复：删除后立即 commit，确保检测时旧条目已清除
-uci -q commit dhcp
+# 修复：删除后立即 commit，确保检测时旧条目已清除。
+# 但只在真的删掉了条目时才提交——本脚本会被 discover_all / reidentify 逐个设备
+# 调用，无条件 commit 意味着每个设备至少两次 flash 写（这里一次、Step 3 一次），
+# 对绝大多数（deleted=0）的调用完全是无谓消耗。
+if [ "$deleted" -gt 0 ]; then
+    uci -q commit dhcp
+fi
 
 # Step 2: Check for duplicate hostnames and add suffix if needed
 # 修复：检查 devicemaster 和 dhcp 中的名称，与 LuCI unique_name 保持一致

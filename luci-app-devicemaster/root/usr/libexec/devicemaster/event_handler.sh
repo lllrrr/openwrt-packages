@@ -24,9 +24,11 @@ export PATH="/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 #   11. TTL and WiFi association capability hints
 
 OUI_DB="/usr/share/devicemaster/oui.txt"
-OUI_APPEND="/usr/share/devicemaster/oui_append.txt"
+# User-maintained "PREFIX|BRAND" override table. Kept under /etc, not
+# /usr/share: the latter is the read-only rootfs and anything an administrator
+# writes there is lost on the next firmware upgrade, whereas /etc is preserved.
+OUI_APPEND="/etc/devicemaster/oui_append.txt"
 OUI_LOOKUP="/usr/libexec/devicemaster/oui_lookup.sh"
-COLLECTOR="/usr/libexec/devicemaster/device_collector.sh"
 ARP_TABLE="/proc/net/arp"
 DHCP_LEASES="/tmp/dhcp.leases"
 NLBWMON_CACHE="/tmp/devicemaster_nlbwmon_cache"
@@ -157,14 +159,79 @@ normalize_vendor() {
         MacOS|iOS) echo "Apple"; return ;;
         Windows) echo "Microsoft"; return ;;
     esac
-    echo "$vendor" | sed \
+
+    local short=$(echo "$vendor" | sed \
         -e 's/ Mobile Communication//g' \
         -e 's/ Corporation//g' \
         -e 's/ Incorporated//g' \
         -e 's/ Inc\.//g' \
         -e 's/ Co\..*$//g' \
         -e 's/ TECHNOLOGY CO\.,LTD\.//g' \
-        -e 's/ CO\.,LTD\.//g'
+        -e 's/ CO\.,LTD\.//g')
+
+    # Collapse the IEEE registry's legal-entity names to the consumer brand.
+    #
+    # The OUI table holds *registrant* names, so a lookup legitimately answers
+    # "SHENZHEN CHUANGWEI-RGB ELECTRONICS CO.,LTD" or "Beijing Xiaomi Mobile
+    # Software Co., Ltd." - factually correct, but it is not a vendor label and
+    # one brand spread over several registry rows surfaces as several different
+    # vendors, which breaks grouping and the vendor column.
+    #
+    # Matching the distinctive keyword also rescues the long names the sed pass
+    # above leaves intact. Match on the lowercased string, longest/most
+    # specific first so a narrow brand is never swallowed by a broader rule.
+    local lv=$(echo "$short" | tr 'A-Z' 'a-z')
+    case "$lv" in
+        # Chinese OEMs, whose registry entries are legal entities
+        *hikvision*)                        echo "Hikvision"; return ;;
+        *dahua*)                            echo "Dahua"; return ;;
+        *ezviz*)                            echo "EZVIZ"; return ;;
+        *chuangwei*|*skyworth*)             echo "Skyworth"; return ;;
+        *hisense*)                          echo "Hisense"; return ;;
+        *roborock*)                         echo "Roborock"; return ;;
+        *aqara*|*lumi\ united*)             echo "Aqara"; return ;;
+        *yeelight*)                         echo "Yeelight"; return ;;
+        *broadlink*)                        echo "BroadLink"; return ;;
+        *espressif*)                        echo "Espressif"; return ;;
+        *tuya*)                             echo "Tuya"; return ;;
+        *midea*)                            echo "Midea"; return ;;
+        *haier*)                            echo "Haier"; return ;;
+        *anker*)                            echo "Anker"; return ;;
+        *xiaomi*)                           echo "Xiaomi"; return ;;
+        *honor*)                            echo "Honor"; return ;;
+        *huawei*)                           echo "Huawei"; return ;;
+        *tcl*)                              echo "TCL"; return ;;
+        # Networking
+        *tp-link*|*tplink*)                 echo "TP-Link"; return ;;
+        *tenda*)                            echo "Tenda"; return ;;
+        *mikrotik*|*routerboard*)           echo "MikroTik"; return ;;
+        *ubiquiti*)                         echo "Ubiquiti"; return ;;
+        *netgear*)                          echo "NETGEAR"; return ;;
+        *zyxel*)                            echo "Zyxel"; return ;;
+        *d-link*|*dlink*)                   echo "D-Link"; return ;;
+        *ruckus*)                           echo "Ruckus"; return ;;
+        *aruba*)                            echo "Aruba"; return ;;
+        # Consumer electronics
+        *sonos*)                            echo "Sonos"; return ;;
+        *roku*)                             echo "Roku"; return ;;
+        *amazon\ tech*)                     echo "Amazon"; return ;;
+        *nintendo*)                         echo "Nintendo"; return ;;
+        *sony*)                             echo "Sony"; return ;;
+        # HP's registry name is "Hewlett Packard" / "HP Inc."; neither contains
+        # the brand string a device list should show.
+        *hewlett*|*hp\ inc*)                echo "HP"; return ;;
+        *lg\ electronics*|*lg\ innotek*)    echo "LG"; return ;;
+        *samsung*)                          echo "Samsung"; return ;;
+        *apple*)                            echo "Apple"; return ;;
+        *google*)                           echo "Google"; return ;;
+        *microsoft*)                        echo "Microsoft"; return ;;
+        # "Intel Corporate", NOT *intel* - the latter also matches
+        # "INTELLIGENT ..." in unrelated registrant names.
+        *intel\ corporate*)                 echo "Intel"; return ;;
+        *realtek*)                          echo "Realtek"; return ;;
+    esac
+
+    echo "$short"
 }
 
 score_add() {
@@ -215,27 +282,56 @@ get_original_dports_for_ip() {
 # ============================================================
 # Level 1: Local OUI database lookup
 # ============================================================
+# Longest-prefix search over a "PREFIX|VENDOR" table.
+#
+# The IEEE download carries three assignment lengths: MA-L (24 bit, 6 hex
+# chars), MA-M (28 bit, 7) and MA-S (36 bit, 9). This copy only ever searched
+# the 6-char form, so every MA-M/MA-S row - a large part of the file - was
+# unreachable, and a more specific assignment was ignored even when present.
+# oui_lookup.sh was fixed to try 9/7/6; this is the same lookup and now
+# behaves identically instead of being a second, weaker implementation.
+#
+# The trailing "|" matters: without it a 6-char prefix also matches a 7- or
+# 9-char row that merely begins with those characters.
+oui_lookup_prefix() {
+    local file="$1"
+    local hex="$2"
+    [ -f "$file" ] || return
+    hex=$(echo "$hex" | tr -d ':-' | tr 'a-f' 'A-F')
+    [ -n "$hex" ] || return
+
+    local n hit
+    for n in 9 7 6; do
+        [ ${#hex} -ge "$n" ] || continue
+        hit=$(grep "^$(echo "$hex" | cut -c1-$n)|" "$file" 2>/dev/null | cut -d'|' -f2 | head -1)
+        if [ -n "$hit" ]; then
+            echo "$hit"
+            return
+        fi
+    done
+}
+
 lookup_oui_local() {
     local mac="$1"
-    local oui=$(echo "$mac" | tr -d ':' | cut -c1-6 | tr 'a-f' 'A-F')
+    local hex=$(echo "$mac" | tr -d ':' | tr 'a-f' 'A-F')
+    local vendor=""
 
-    if [ -f "$OUI_DB" ]; then
-        local vendor=$(grep "^${oui}" "$OUI_DB" | cut -d'|' -f2 | head -1)
-        if [ -n "$vendor" ]; then
-            echo "$vendor" | sed 's/ Co\..*$//'
-            return
-        fi
+    # The overlay table is consulted FIRST. The IEEE registry lists the legal
+    # entity, so a genuine lookup answers "SHENZHEN XYZ ELECTRONICS CO.,LTD" -
+    # accurate but useless in a device list, and a vendor whose OUI block was
+    # never registered in IEEE cannot be looked up at all. This file lets an
+    # administrator pin a prefix to the brand they actually know:
+    #
+    #   printf '%s\n' 'A4:C1:38|Tuya' '50:02:91|Espressif' > /etc/devicemaster/oui_append.txt
+    #
+    # Same "PREFIX|VENDOR" format as the downloaded table; prefix may be 6, 7
+    # or 9 hex digits, with or without separators.
+    vendor=$(oui_lookup_prefix "$OUI_APPEND" "$hex")
+    if [ -z "$vendor" ]; then
+        vendor=$(oui_lookup_prefix "$OUI_DB" "$hex")
     fi
 
-    if [ -f "$OUI_APPEND" ]; then
-        local vendor=$(grep -i "$(echo "$mac" | cut -c1-8)" "$OUI_APPEND" | head -1 | awk -F'\t' '{print $2}')
-        if [ -n "$vendor" ]; then
-            echo "$vendor"
-            return
-        fi
-    fi
-
-    echo ""
+    [ -n "$vendor" ] && echo "$vendor" | sed 's/ Co\..*$//'
 }
 
 # ============================================================
@@ -256,6 +352,34 @@ lookup_oui_remote() {
 # ============================================================
 # Level 3: mDNS probe
 # ============================================================
+# One `avahi-browse -a -t -r -p` run, shared by every device in this pass.
+#
+# This is a full multicast enumeration of every mDNS service on the LAN - by a
+# wide margin the most expensive probe in the chain (~20 processes, a full
+# discovery round) - and it used to be re-run once per device from BOTH
+# identify_vendor() and identify_type(). Identifying ten devices meant twenty
+# identical enumerations of the same network.
+#
+# The whole enumeration is a superset of any single device's answer, so dump
+# it once into /tmp (tmpfs) and let every caller grep it.
+MDNS_CACHE_TTL=300
+
+mdns_dump() {
+    command -v avahi-browse >/dev/null 2>&1 || return
+    local age=999999
+    if [ -s "$MDNS_CACHE" ]; then
+        age=$(( $(date +%s) - $(stat -c %Y "$MDNS_CACHE" 2>/dev/null || echo 0) ))
+    fi
+    if [ ! -s "$MDNS_CACHE" ] || [ "$age" -gt "$MDNS_CACHE_TTL" ]; then
+        local tmp="$MDNS_CACHE.$$"
+        if avahi-browse -a -t -r -p 2>/dev/null > "$tmp" && [ -s "$tmp" ]; then
+            mv -f "$tmp" "$MDNS_CACHE"
+        fi
+        rm -f "$tmp"
+    fi
+    cat "$MDNS_CACHE" 2>/dev/null
+}
+
 mdns_probe_ip() {
     local ip="$1"
     local result=""
@@ -275,9 +399,9 @@ mdns_probe_ip() {
         fi
     fi
 
-    # Priority 2: avahi-browse fallback, may contain escaped spaces.
+    # Priority 2: the shared browse dump (may contain escaped spaces).
     if command -v avahi-browse >/dev/null 2>&1; then
-        result=$(avahi-browse -a -t -r -p 2>/dev/null | grep -i "$ip" | head -1)
+        result=$(mdns_dump | grep -i "$ip" | head -1)
         if [ -n "$result" ]; then
             echo "$result" | awk -F';' '{print $4}' | sed 's/\.local$//'
             return
@@ -338,7 +462,9 @@ mdns_service_hints() {
     # the status, then interface, protocol, name, service, domain, host,
     # address, port and TXT. Read with a leading dummy to keep name/service
     # aligned.
-    avahi-browse -a -t -r -p 2>/dev/null | grep -i "$ip" | while IFS=';' read -r _status _iface _proto name service _domain _host address _port _txt; do
+    # Shared dump - see mdns_dump(). The enumeration is identical for every
+    # device, so it is done once per pass instead of once per device.
+    mdns_dump | grep -i "$ip" | while IFS=';' read -r _status _iface _proto name service _domain _host address _port _txt; do
         local all=$(echo "$name $service $_txt" | tr 'A-Z' 'a-z')
         # NOTE: AirPlay/RAOP receivers are commonly implemented by third-party
         # apps on Android TV / Windows / Linux, so they are NOT reliable
@@ -356,6 +482,72 @@ mdns_service_hints() {
         esac
         case "$all" in
             *googlecast*|*chromecast*) echo "vendor|Google|dns-sd" ;;
+        esac
+
+        # ---------------------------------------------------------------
+        # Device-model hints.
+        #
+        # Apple publishes the exact hardware model in the _device-info._tcp
+        # TXT record ("model=MacBookPro18,3", "model=iPhone14,2"). That names
+        # the generation - something no hostname heuristic or OUI lookup can
+        # do, because the OUI only knows the registrant. It is the most
+        # precise identification available on a LAN.
+        # ---------------------------------------------------------------
+        case "$all" in
+            *model=macbook*|*model=imac*|*model=macmini*|*model=macpro*|*model=macstudio*)
+                echo "vendor|Apple|dns-sd"; echo "type|pc|dns-sd" ;;
+        esac
+        case "$all" in
+            *model=iphone*|*model=ipad*|*model=ipod*)
+                echo "vendor|Apple|dns-sd"; echo "type|phone|dns-sd" ;;
+        esac
+        case "$all" in
+            *model=appletv*|*model=audioaccessory*|*model=homepod*)
+                echo "vendor|Apple|dns-sd"; echo "type|tv|dns-sd" ;;
+        esac
+        case "$all" in
+            *model=watch*) echo "vendor|Apple|dns-sd" ;;
+        esac
+
+        # Apple Continuity: _companion-link._tcp is what iOS/macOS devices
+        # advertise to each other; effectively nothing else speaks it.
+        case "$all" in
+            *_companion-link*|*_airdrop*) echo "vendor|Apple|dns-sd" ;;
+        esac
+
+        # ---------------------------------------------------------------
+        # Firmware-identifying services. The service name IS the firmware, so
+        # these are deterministic where a port number or a hostname keyword
+        # can only be a guess.
+        # ---------------------------------------------------------------
+        case "$all" in
+            *_esphome*|*_esphomelib*)
+                echo "vendor|Espressif|dns-sd"; echo "type|iot|dns-sd" ;;
+        esac
+        case "$all" in
+            *_tasmota*) echo "type|iot|dns-sd" ;;
+        esac
+        case "$all" in
+            *_shelly*)
+                echo "vendor|Shelly|dns-sd"; echo "type|iot|dns-sd" ;;
+        esac
+        case "$all" in
+            *_nanoleaf*)
+                echo "vendor|Nanoleaf|dns-sd"; echo "type|iot|dns-sd" ;;
+        esac
+        case "$all" in
+            # Matter / Thread commissioning records
+            *_matter._tcp*|*_matterc*|*_matterd*) echo "type|iot|dns-sd" ;;
+        esac
+
+        # Desktop-only services: nothing but a full computer advertises these.
+        case "$all" in
+            *_rfb._tcp*|*_smb._tcp*|*_afpovertcp*|*_nfs._tcp*) echo "type|pc|dns-sd" ;;
+        esac
+
+        # Cameras / NVRs
+        case "$all" in
+            *_rtsp._tcp*|*_onvif*|*_axis-video*) echo "type|camera|dns-sd" ;;
         esac
         case "$all" in
             *ipp*|*printer*|*pdl-datastream*|*scanner*) echo "type|printer|dns-sd" ;;
@@ -378,8 +570,23 @@ mdns_service_hints() {
             *sonos*) echo "vendor|Sonos|dns-sd" ;;
             *brother*) echo "vendor|Brother|dns-sd" ;;
             *epson*) echo "vendor|Epson|dns-sd" ;;
-            *canon*) echo "vendor|Canon|dns-sd" ;;
-            *hp*) echo "vendor|HP|dns-sd" ;;
+            # NOTE: a bare *canon* is wrong - it also matches "canonical"
+            # (Ubuntu), which would label every Ubuntu box a Canon printer.
+            # Canon hardware always carries the brand at a word boundary.
+            *canon\ *|*canon-*|*ty=canon*|*usb_mfg=canon*) echo "vendor|Canon|dns-sd" ;;
+            # Same reasoning for HP: a bare *hp* matches any TXT containing the
+            # digraph. Anchor it to the forms HP hardware actually advertises.
+            *hewlett*|*laserjet*|*deskjet*|*officejet*|*smart\ tank*|*ty=hp\ *|*usb_mfg=hp*) echo "vendor|HP|dns-sd" ;;
+            *hikvision*) echo "vendor|Hikvision|dns-sd" ;;
+            *dahua*) echo "vendor|Dahua|dns-sd" ;;
+            *ezviz*) echo "vendor|EZVIZ|dns-sd" ;;
+            *aqara*) echo "vendor|Aqara|dns-sd" ;;
+            *yeelight*) echo "vendor|Yeelight|dns-sd" ;;
+            *tuya*) echo "vendor|Tuya|dns-sd" ;;
+            *tplink*|*tp-link*) echo "vendor|TP-Link|dns-sd" ;;
+            *mikrotik*|*routerboard*) echo "vendor|MikroTik|dns-sd" ;;
+            *synology*) echo "vendor|Synology|dns-sd" ;;
+            *qnap*) echo "vendor|QNAP|dns-sd" ;;
         esac
     done | sort -u
 }
@@ -425,21 +632,72 @@ ssdp_hints() {
 http_hints() {
     local ip="$1"
     [ -z "$ip" ] && return
-    command -v wget >/dev/null 2>&1 || return
+
+    # Refuse anything that is not a dotted-quad. The probes below build shell
+    # command lines from this value, and $ip is ultimately whatever the ARP
+    # table / dnsmasq handed us.
+    case "$ip" in
+        *[!0-9.]*|"") return ;;
+    esac
 
     local cache="$HTTP_HINT_CACHE.$ip"
     if [ ! -f "$cache" ] || [ $(($(date +%s) - $(stat -c %Y "$cache" 2>/dev/null || echo 0))) -gt 300 ]; then
+        local dir="/tmp/dm_http.$$"
+        mkdir -p "$dir"
+
+        # Body banners, one background job per port.
+        #
+        # The seven probes are independent and any of them may burn its full
+        # 1s timeout (the common case: nothing is listening), so doing them in
+        # sequence cost up to 7s per device - inside the identification pass
+        # that dnsmasq waits on.
+        if command -v wget >/dev/null 2>&1; then
+            local jobs=""
+            local port scheme
+            for port in 80 443 8080 8443 8008 5000 5001; do
+                scheme="http"
+                case "$port" in 443|8443|5001) scheme="https" ;; esac
+                # -c 4096 keeps the per-port cap the sequential version had:
+                # without it a device serving a large page would dump the whole
+                # body into /tmp. The trailing echo separates the banners - they
+                # otherwise concatenate into one line.
+                jobs="$jobs { wget -T 1 -t 1 -q -O - '$scheme://$ip:$port/' 2>/dev/null | head -c 4096; echo; } > '$dir/b.$port' &"
+            done
+            ( eval "$jobs" wait ) 2>/dev/null
+        fi
+
+        # Response headers.
+        #
+        # The banner is frequently useless ("<html>\r\n" or a bare redirect),
+        # while "Server:" names the software stack outright - lighttpd / Boa /
+        # mini_httpd on embedded gear, GoAhead on IP cameras, IIS on Windows.
+        # Plain HTTP over a socket so there is no extra dependency, and only
+        # for plain-HTTP ports.
+        if command -v nc >/dev/null 2>&1; then
+            local hjobs=""
+            for port in 80 8080 5000; do
+                hjobs="$hjobs { printf 'HEAD / HTTP/1.0\r\nHost: $ip\r\n\r\n' | nc -w 1 '$ip' $port 2>/dev/null | head -c 2048; echo; } > '$dir/h.$port' &"
+            done
+            ( eval "$hjobs" wait ) 2>/dev/null
+        fi
+
         : > "$cache"
-        for port in 80 443 8080 8443 8008 5000 5001; do
-            local scheme="http"
-            [ "$port" = "443" ] || [ "$port" = "8443" ] || [ "$port" = "5001" ] && scheme="https"
-            wget -T 1 -t 1 -q -O - "$scheme://$ip:$port/" 2>/dev/null | head -c 4096 >> "$cache"
-            echo "" >> "$cache"
-        done
+        cat "$dir"/b.* "$dir"/h.* >> "$cache" 2>/dev/null
+        rm -rf "$dir"
     fi
 
     local data=$(cat "$cache" 2>/dev/null | tr 'A-Z' 'a-z')
     [ -z "$data" ] && return
+    case "$data" in
+        # ---- Response headers (hard software-stack signals) ----
+        *server:\ goahead*|*server:\ webs*|*server:\ hikvision*|*server:\ dahua*)
+            echo "type|camera|http" ;;
+        *server:\ lighttpd*|*server:\ boa\ *|*server:\ boa\/*|*server:\ mini_httpd*|*server:\ micro_httpd*|*server:\ openwrt*)
+            echo "type|network|http" ;;
+        *server:\ microsoft-iis*|*server:\ microsoft\ httpapi*)
+            echo "type|pc|http" ;;
+        *server:\ upnp*|*server:\ linux*|*server:\ ubicom*) echo "type|iot|http" ;;
+    esac
     case "$data" in
         *synology*) echo "vendor|Synology|http" ;;
         *qnap*) echo "vendor|QNAP|http" ;;
@@ -453,11 +711,16 @@ http_hints() {
         *brother*) echo "vendor|Brother|http" ;;
         *epson*) echo "vendor|Epson|http" ;;
         *canon*) echo "vendor|Canon|http" ;;
-        *hp*) echo "vendor|HP|http" ;;
+        *hewlett*|*laserjet*|*deskjet*|*officejet*) echo "vendor|HP|http" ;;
+        *tenda*) echo "vendor|Tenda|http" ;;
+        *mikrotik*|*routeros*) echo "vendor|MikroTik|http" ;;
+        *ubiquiti*|*unifi*) echo "vendor|Ubiquiti|http" ;;
+        *netgear*) echo "vendor|NETGEAR|http" ;;
+        *zyxel*) echo "vendor|Zyxel|http" ;;
     esac
     case "$data" in
         *synology*|*qnap*|*nas*) echo "type|nas|http" ;;
-        *router*|*gateway*|*miwifi*|*openwrt*) echo "type|network|http" ;;
+        *router*|*gateway*|*miwifi*|*openwrt*|*routeros*) echo "type|network|http" ;;
         *camera*|*nvr*|*hikvision*|*dahua*) echo "type|camera|http" ;;
         *printer*|*scanner*|*ipp*) echo "type|printer|http" ;;
         *chromecast*|*androidtv*) echo "type|tv|http" ;;
@@ -1067,6 +1330,14 @@ identify_type() {
     local full_identify=0
     is_full_identify_enabled && full_identify=1
 
+    # LAA / randomized MAC (locally administered bit). Must be computed HERE:
+    # the mDNS branch further down is supposed to fall back to -service hints
+    # for LAA devices even in light mode. Previously this function referenced an
+    # undefined $is_laa, so `[ "" -eq 1 ]` failed with
+    # "integer expression expected" and that fallback never ran.
+    local is_laa=0
+    is_laa_mac "$mac" && is_laa=1
+
     # ============================================================
     # EARLY RETURN: Strong hostname signal overrides everything
     # ============================================================
@@ -1376,7 +1647,7 @@ probe_hostname() {
 
     # Method 1: Local DHCP leases (fastest)
     if [ -n "$mac" ]; then
-        result=$(grep -i "$mac" /tmp/dhcp.leases 2>/dev/null | awk '{print $4}')
+        result=$(grep -i "$mac" /tmp/dhcp.leases 2>/dev/null | awk '{print $4; exit}')
         if [ -n "$result" ] && [ "$result" != "*" ]; then
             echo "$result"
             return
@@ -1876,7 +2147,22 @@ register_device() {
     local lock_file="/tmp/dm_register.lock"
     local lock_wait=0
     while ! mkdir "$lock_file" 2>/dev/null; do
-        sleep 0.1
+        # Recover from a lock left behind by a run killed before it could
+        # release it (dnsmasq kills its --dhcp-script on timeout). Without
+        # this, every later registration burns the full timeout and gives up,
+        # silently dropping new devices until the next reboot.
+        local lock_mtime=$(stat -c %Y "$lock_file" 2>/dev/null)
+        if [ -n "$lock_mtime" ]; then
+            local lock_age=$(( $(date +%s) - lock_mtime ))
+            if [ "$lock_age" -gt 30 ] 2>/dev/null; then
+                log_msg "register_device: removing stale lock (age ${lock_age}s)"
+                rmdir "$lock_file" 2>/dev/null
+            fi
+        fi
+        # `sleep 0.1` is not implemented by BusyBox sleep (OpenWrt builds
+        # without FANCY_SLEEP); it fails instantly, which turned this wait into
+        # a tight busy-loop that burned all 50 retries in milliseconds.
+        usleep 100000 2>/dev/null || sleep 1
         lock_wait=$((lock_wait + 1))
         if [ "$lock_wait" -ge 50 ]; then
             log_msg "register_device: timeout waiting for lock for $mac"
@@ -1984,16 +2270,15 @@ register_device() {
         return
     fi
 
-    # Auto-generate name only if hostname is meaningless
+    # Auto-generate a placeholder name only when the hostname carries no usable
+    # signal. Delegates to is_meaningless_hostname() so the three cases (empty /
+    # "*", known junk names, complete MAC-as-hostname) live in exactly one
+    # place. The local copy here used to match a MAC PREFIX instead of the full
+    # address, contradicting the fix already made in is_meaningless_hostname()
+    # and mis-flagging legitimate names such as "ab:cd:ef-server".
     local name=""
     local is_meaningless=0
-    case "$hostname" in
-        ""|"*"|"-"|unknown|wlan0|android-*)
-            is_meaningless=1 ;;
-    esac
-    if [ "$is_meaningless" = "0" ] && echo "$hostname" | grep -qiE '^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}'; then
-        is_meaningless=1
-    fi
+    is_meaningless_hostname "$hostname" && is_meaningless=1
     if [ "$is_meaningless" = "1" ] && [ -n "$vendor" ] && [ "$vendor" != "LAA" ] && [ "$vendor" != "Unknown" ] && [ -n "$devtype" ] && [ "$devtype" != "unknown" ]; then
         name=$(auto_name "$vendor" "$devtype")
     fi
@@ -2086,7 +2371,7 @@ main() {
     # a real client hostname (e.g. iPhone). Fall back to the lease file so the
     # identification chain gets a meaningful hostname.
     if [ -z "$hostname" ] || [ "$hostname" = "*" ]; then
-        hostname=$(grep -i "$mac" /tmp/dhcp.leases 2>/dev/null | awk '{print $4}')
+        hostname=$(grep -i "$mac" /tmp/dhcp.leases 2>/dev/null | awk '{print $4; exit}')
         [ "$hostname" = "*" ] && hostname=""
     fi
     # Sanitize once at entry: strip mDNS/DNS gibberish and unsafe chars.
@@ -2141,9 +2426,16 @@ main() {
             if [ "$updated" = "1" ]; then
                 uci -q commit devicemaster
             fi
-            # Keep last_ip fresh even if nothing else changed
-            uci -q set "devicemaster.@device[$idx].last_ip=$ip"
-            uci -q commit devicemaster
+
+            # Keep last_ip fresh - but only actually write when it changed.
+            # This used to `set` + `commit` unconditionally on every DHCP add,
+            # so a plain reconnect caused two flash writes (one above, one
+            # here) even when every field was already up to date.
+            local stored_ip=$(uci -q get "devicemaster.@device[$idx].last_ip" 2>/dev/null)
+            if [ -n "$ip" ] && [ "$stored_ip" != "$ip" ]; then
+                uci -q set "devicemaster.@device[$idx].last_ip=$ip"
+                uci -q commit devicemaster
+            fi
 
             # Sync DHCP display name for this MAC.  For primary MACs this ensures
             # the static lease is up to date; for alt_macs it adds a hostname-only
@@ -2198,10 +2490,25 @@ discover_all() {
     local lock="/tmp/dm_discover.lock"
     if ! mkdir "$lock" 2>/dev/null; then
         # A previous discover may have died without cleaning up its lock.
-        # If the recorded PID is no longer alive, steal the lock.
+        # Steal it when the recorded PID is gone - or when there is no PID file
+        # at all, which is what a kill in the window between `mkdir` and
+        # `echo $$ > lock/pid` leaves behind. Without that second condition
+        # such a lock would be held forever and discovery would never run again
+        # (the DHCP path also bails out while /tmp/dm_discover.lock exists).
         local old_pid=$(cat "$lock/pid" 2>/dev/null)
-        if [ -n "$old_pid" ] && ! kill -0 "$old_pid" 2>/dev/null; then
-            log_msg "discover_all: removing stale lock from dead pid $old_pid"
+        local lock_mtime=$(stat -c %Y "$lock" 2>/dev/null)
+        local lock_age=""
+        [ -n "$lock_mtime" ] && lock_age=$(( $(date +%s) - lock_mtime ))
+
+        local stale=0
+        if [ -n "$old_pid" ]; then
+            kill -0 "$old_pid" 2>/dev/null || stale=1
+        elif [ -n "$lock_age" ] && [ "$lock_age" -gt 600 ] 2>/dev/null; then
+            stale=1
+        fi
+
+        if [ "$stale" = "1" ]; then
+            log_msg "discover_all: removing stale lock (pid='${old_pid}', age=${lock_age:-?})"
             rm -f "$lock/pid"
             rmdir "$lock" 2>/dev/null
             mkdir "$lock" 2>/dev/null || { log_msg "discover_all: already running, skipping"; return; }
@@ -2266,7 +2573,6 @@ discover_all() {
     while read -r ip mac; do
         [ -z "$mac" ] && continue
         mac=$(echo "$mac" | tr 'A-F' 'a-f')
-        log_msg "DEBUG: arp_loop mac=$mac ip=$ip in_set=$(echo "$mac_set" | grep -q " $mac " && echo yes || echo no)"
 
         # Fast check: is MAC in our set?
         if echo "$mac_set" | grep -q " $mac "; then
@@ -2414,7 +2720,6 @@ discover_all() {
                         fi
                         if [ -n "$sync_name" ]; then
                             local lease_hn=$(awk -v m="$mac" 'tolower($2) == m {print $4; exit}' /tmp/dhcp.leases 2>/dev/null)
-                            log_msg "DEBUG: sync check $mac sync_name=$sync_name lease_hn=$lease_hn ip=$effective_ip"
                             if [ "$lease_hn" != "$sync_name" ]; then
                                 SKIP_DNSMASQ_RESTART=1 /usr/libexec/devicemaster/sync_hostname.sh "$mac" "$sync_name" "$effective_ip" >/dev/null 2>&1
                             fi
@@ -2436,7 +2741,7 @@ discover_all() {
             continue
         fi
 
-        local hostname=$(grep -i "$mac" /tmp/dhcp.leases 2>/dev/null | awk '{print $4}')
+        local hostname=$(grep -i "$mac" /tmp/dhcp.leases 2>/dev/null | awk '{print $4; exit}')
 
         # Fallback: if no DHCP hostname (e.g. Mesh sub-node with dhcp ignore=1),
         # try main router leases + DNS reverse lookup
@@ -2467,7 +2772,7 @@ discover_all() {
                 continue
             fi
             # Get hostname from DHCP leases
-            local hostname=$(grep -i " $mac " /tmp/dhcp.leases 2>/dev/null | awk '{print $4}')
+            local hostname=$(grep -i " $mac " /tmp/dhcp.leases 2>/dev/null | awk '{print $4; exit}')
             [ "$hostname" = "*" ] && hostname=""
             register_device "$mac" "$ip" "$hostname"
             mac_set="$mac_set $mac "
@@ -2557,7 +2862,7 @@ reidentify_all() {
 
         # Refresh hostname from DHCP leases if empty
         if [ -z "$hostname" ]; then
-            hostname=$(grep -i "$mac" /tmp/dhcp.leases 2>/dev/null | awk '{print $4}')
+            hostname=$(grep -i "$mac" /tmp/dhcp.leases 2>/dev/null | awk '{print $4; exit}')
             [ "$hostname" = "*" ] && hostname=""
         fi
         # Fallback: try DHCP lease (by MAC), DNS reverse, and mDNS if still empty

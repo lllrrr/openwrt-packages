@@ -22,11 +22,49 @@ is_day_active() {
     return 1
 }
 
+# Normalise a numeric string to a plain decimal without leading zeros.
+#
+# POSIX arithmetic reads a leading zero as OCTAL, so `$((08 * 60))` is not
+# merely wrong, it is unevaluable: "value too great for base". 08:00 and 09:00
+# are the most ordinary schedule times there are, so without this the executor
+# broke every morning at 8 and 9 sharp. Verified: `sh -c 'echo $((08 * 60))'`
+# fails outright, while `[ "08" -ge 8 ]` succeeds (test compares in base 10) -
+# so the hazard is specifically the arithmetic expansion.
+norm_num() {
+    local v="$1"
+    case "$v" in
+        ''|*[!0-9]*) echo 0; return ;;
+    esac
+    v=$(echo "$v" | sed 's/^0*//')
+    [ -z "$v" ] && v=0
+    echo "$v"
+}
+
+# Strict HH:MM validation (00:00 - 23:59).
+#
+# Config values are validated before they are used at all: `start_time` and
+# `end_time` come straight from UCI, and a value carrying an operator (e.g.
+# "*" or "1+2") reaches $(( )) as a live expression - which in ash aborts the
+# whole script, taking every other schedule down with it, once a minute.
+is_valid_time() {
+    local t="$1"
+    local h="${t%%:*}"
+    local m="${t#*:}"
+    [ "$m" != "$t" ] || return 1                  # no colon at all
+    case "$h" in ''|*[!0-9]*) return 1 ;; esac
+    case "$m" in ''|*[!0-9]*) return 1 ;; esac
+    h=$(norm_num "$h")
+    m=$(norm_num "$m")
+    [ "$h" -le 23 ] 2>/dev/null || return 1
+    [ "$m" -le 59 ] 2>/dev/null || return 1
+    return 0
+}
+
 # Parse time HH:MM to minutes since midnight
 time_to_minutes() {
     local time_str="$1"
-    local hour=$(echo "$time_str" | cut -d':' -f1)
-    local min=$(echo "$time_str" | cut -d':' -f2)
+    local hour=$(norm_num "${time_str%%:*}")
+    local min=$(norm_num "${time_str#*:}")
     echo $((hour * 60 + min))
 }
 
@@ -144,7 +182,11 @@ process_schedule() {
     config_get rate "$section" rate "1mbit"
     config_get custom_rate "$section" custom_rate ""
     config_get days "$section" days "1 2 3 4 5"
-    
+
+    # Never hand an unvalidated string to $(( )) - see is_valid_time().
+    is_valid_time "$start_time" || start_time="22:00"
+    is_valid_time "$end_time" || end_time="08:00"
+
     # Use custom_rate if rate is "custom"
     if [ "$rate" = "custom" ] && [ -n "$custom_rate" ]; then
         rate="$custom_rate"
@@ -200,7 +242,10 @@ show_schedule_status() {
     config_get start_time "$section" start_time "22:00"
     config_get end_time "$section" end_time "08:00"
     config_get days "$section" days "1 2 3 4 5"
-    
+
+    is_valid_time "$start_time" || start_time="22:00"
+    is_valid_time "$end_time" || end_time="08:00"
+
     local active="No"
     if is_day_active "$days"; then
         if is_time_in_range "$start_time" "$end_time"; then

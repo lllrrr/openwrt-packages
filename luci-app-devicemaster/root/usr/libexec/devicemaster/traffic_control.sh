@@ -8,21 +8,59 @@ if command -v tc >/dev/null 2>&1; then
     TC_AVAILABLE=1
 fi
 
+# Fallback class of the root HTB qdisc: every packet that matches no filter is
+# charged to this class. It exists only as a placeholder (we never create it),
+# and mac_to_class_id() must never hand it out to a real device - see below.
+HTB_DEFAULT_CLASS=10
+
+# Reject anything that is not a MAC.
+#
+# Every caller in the plugin validates first, but a hand-edited UCI file or a
+# manual invocation could pass an empty or junk value, and this script is not
+# harmless in that case: `grep -i "" /proc/net/arp` matches every line (so an
+# empty MAC silently becomes some other device's IP) and mac_to_class_id("")
+# evaluates `0x*7` before falling back to class 11 - i.e. an empty MAC could
+# tear down and rebuild the qdisc of the whole LAN, or set blocked=0 on the
+# wrong device section.
+is_valid_mac() {
+    case "$1" in
+        [0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]) return 0 ;;
+    esac
+    return 1
+}
+
+# Set a UCI option only when its value really changes.
+#
+# The schedule executor calls unblock/unlimit for every member of a group once a
+# minute whenever a rule is outside its time window. Writing unconditionally
+# means one `uci commit` per device per minute, i.e. /etc/config/devicemaster
+# (and /etc/config/dhcp) is rewritten to flash forever, for no state change.
+uci_set_if_changed() {
+    local section="$1" option="$2" value="$3"
+    [ -n "$section" ] || return 0
+    [ "$(uci -q get "devicemaster.$section.$option" 2>/dev/null)" = "$value" ] && return 0
+    uci -q set "devicemaster.$section.$option=$value"
+    uci -q commit devicemaster
+    return 0
+}
+
 # Find device section by MAC (using uci directly for reliability)
+#
+# The section itself is tested, not the mac option: @type[idx] addresses every
+# section of that type, so a section without a mac (older packages shipped one)
+# used to make this return "not found" - and the caller then created a second
+# section for a MAC that was already configured.
+#
+# The comparison is case-insensitive: UCI may hold either case and a mismatch
+# would produce exactly the same duplicate-section bug.
 find_device_section() {
-    local mac="$1"
+    local mac=$(echo "$1" | tr 'a-f' 'A-F')
     local idx=0
-    local empty_count=0
-    while [ $empty_count -lt 5 ]; do
-        local m=$(uci -q get "devicemaster.@device[$idx].mac" 2>/dev/null)
+    while uci -q get "devicemaster.@device[$idx]" >/dev/null 2>&1; do
+        local m=$(uci -q get "devicemaster.@device[$idx].mac" 2>/dev/null | tr 'a-f' 'A-F')
         if [ -n "$m" ] && [ "$m" = "$mac" ]; then
             echo "@device[$idx]"
             return
-        fi
-        if [ -z "$m" ]; then
-            empty_count=$((empty_count + 1))
-        else
-            empty_count=0
         fi
         idx=$((idx + 1))
     done
@@ -40,6 +78,11 @@ block_device() {
     local action="$2"  # add or remove
     
     if [ "$action" = "add" ]; then
+        # The table must exist before the set/chain can be added - init.d creates
+        # it, but after a `nft flush ruleset` or a manual delete every later
+        # `nft add ...` below fails silently (stderr is discarded), leaving UCI
+        # saying "blocked" while no packet is actually dropped.
+        nft add table inet devicemaster 2>/dev/null
         # Ensure blocked_macs set exists before adding elements (idempotent)
         nft add set inet devicemaster blocked_macs '{ type ether_addr; }' 2>/dev/null
         # Add MAC to blocked set
@@ -62,12 +105,9 @@ block_device() {
         if [ -z "$section" ]; then
             section=$(uci add devicemaster device)
             uci set "devicemaster.$section.mac=$mac"
+            uci commit devicemaster
         fi
-        uci set "devicemaster.$section.blocked=1"
-        uci commit devicemaster
-        
-        # Invalidate caches so frontend shows updated blocked status
-        rm -f /tmp/devicemaster_device_cache /tmp/devicemaster_custom_cache
+        uci_set_if_changed "$section" blocked 1
         
         logger -t devicemaster "Blocked device: $mac"
         echo "success"
@@ -75,15 +115,13 @@ block_device() {
         # Remove MAC from blocked set
         nft delete element inet devicemaster blocked_macs { "$mac" } 2>/dev/null
         
-        # Update UCI config
+        # Update UCI config - only when the flag is actually set, so that the
+        # once-a-minute unblock sweep stays completely read-only.
         local section=$(find_device_section "$mac")
-        if [ -n "$section" ]; then
-            uci set "devicemaster.$section.blocked=0"
-            uci commit devicemaster
+        if [ -n "$section" ] && [ "$(uci -q get "devicemaster.$section.blocked" 2>/dev/null)" = "1" ]; then
+            uci -q set "devicemaster.$section.blocked=0"
+            uci -q commit devicemaster
         fi
-        
-        # Invalidate caches so frontend shows updated blocked status
-        rm -f /tmp/devicemaster_device_cache /tmp/devicemaster_custom_cache
         
         logger -t devicemaster "Unblocked device: $mac"
         echo "success"
@@ -106,6 +144,7 @@ limit_device_nft() {
     esac
     
     # Ensure limited_macs set exists
+    nft add table inet devicemaster 2>/dev/null
     nft add set inet devicemaster limited_macs '{ type ether_addr; flags timeout; timeout 1h; }' 2>/dev/null
     
     # Add MAC to limited set
@@ -123,12 +162,9 @@ limit_device_nft() {
     if [ -z "$section" ]; then
         section=$(uci add devicemaster device)
         uci set "devicemaster.$section.mac=$mac"
+        uci commit devicemaster
     fi
-    uci set "devicemaster.$section.rate_limit=$rate"
-    uci commit devicemaster
-    
-    # Invalidate cache
-    rm -f /tmp/devicemaster_custom_cache
+    uci_set_if_changed "$section" rate_limit "$rate"
     
     logger -t devicemaster "Rate limited device $mac to $rate (nftables fallback)"
     echo "success"
@@ -143,21 +179,25 @@ unlimit_device_nft() {
     
     # Update UCI config
     local section=$(find_device_section "$mac")
-    if [ -n "$section" ]; then
-        uci delete "devicemaster.$section.rate_limit" 2>/dev/null
-        uci commit devicemaster
+    if [ -n "$section" ] && [ -n "$(uci -q get "devicemaster.$section.rate_limit" 2>/dev/null)" ]; then
+        uci -q delete "devicemaster.$section.rate_limit" 2>/dev/null
+        uci -q commit devicemaster
     fi
-    
-    # Invalidate cache
-    rm -f /tmp/devicemaster_custom_cache
     
     logger -t devicemaster "Removed rate limit for device $mac (nftables)"
     echo "success"
 }
 
-# Generate a stable class_id (1-254) from MAC address using hash
+# Generate a stable class_id from MAC address using hash
 # Uses weighted sum with prime multipliers to minimize collisions
-# Range: 1-254 (0 and 255 are reserved in HTB)
+# Range: 11-254.
+#
+# 1..10 are RESERVED: the root qdisc is created with "htb default 10", so
+# classid 1:10 is the fallback class for every packet that matches no filter
+# (i.e. all traffic of every device that is not rate limited).  If a device's
+# hash landed on 10 its class would become that fallback and the whole LAN
+# would inherit that device's rate.  1:1 is left alone as well because it is
+# the conventional root/aggregate class id.
 mac_to_class_id() {
     local mac="$1"
     local b1 b2 b3 b4 b5 b6
@@ -170,22 +210,27 @@ mac_to_class_id() {
     b6=$(echo "$mac" | cut -d: -f6)
     # Weighted sum with prime multipliers: 7,13,19,29,37,43
     local sum=$(( 0x$b1*7 + 0x$b2*13 + 0x$b3*19 + 0x$b4*29 + 0x$b5*37 + 0x$b6*43 ))
-    echo $(( (sum % 254) + 1 ))
+    echo $(( (sum % 244) + 11 ))
 }
 
 # Limit device bandwidth using tc (traffic control)
 limit_device() {
     local mac="$1"
     local rate="$2"  # e.g., "1mbit", "512kbit"
-    local ip=$(get_ip_from_mac "$mac")
     local lan_dev="br-lan"
     
-    if [ -z "$ip" ]; then
-        echo "error: device not found in ARP table"
-        return 1
-    fi
-    
     if [ -n "$rate" ]; then
+        # Applying a limit needs the device's current IP - the tc filters match
+        # on ip src/dst. Removing one must NOT need it: with the check applied to
+        # both branches, `unlimit` on a device that happens to be offline
+        # returned "device not found in ARP table" and left the rate limit in
+        # UCI (and the class in tc) in place forever.
+        local ip=$(get_ip_from_mac "$mac")
+        if [ -z "$ip" ]; then
+            echo "error: device not found in ARP table"
+            return 1
+        fi
+
         # Check if tc is available
         if [ $TC_AVAILABLE -eq 0 ]; then
             logger -t devicemaster "tc not available, using nftables fallback for $mac"
@@ -194,8 +239,11 @@ limit_device() {
         fi
         
         # Create qdisc root (idempotent)
-        tc qdisc add dev "$lan_dev" root handle 1: htb default 10 2>/dev/null || \
-        tc qdisc replace dev "$lan_dev" root handle 1: htb default 10
+        # NOTE: the default class id is intentionally one that
+        # mac_to_class_id() never returns (see
+        # HTB_DEFAULT_CLASS / the range comment on that function).
+        tc qdisc add dev "$lan_dev" root handle 1: htb default "$HTB_DEFAULT_CLASS" 2>/dev/null || \
+        tc qdisc replace dev "$lan_dev" root handle 1: htb default "$HTB_DEFAULT_CLASS"
         
         # Generate stable class_id from MAC (not IP last octet)
         local class_id=$(mac_to_class_id "$mac")
@@ -217,12 +265,9 @@ limit_device() {
         if [ -z "$section" ]; then
             section=$(uci add devicemaster device)
             uci set "devicemaster.$section.mac=$mac"
+            uci commit devicemaster
         fi
-        uci set "devicemaster.$section.rate_limit=$rate"
-        uci commit devicemaster
-        
-        # Invalidate cache
-        rm -f /tmp/devicemaster_custom_cache
+        uci_set_if_changed "$section" rate_limit "$rate"
         
         logger -t devicemaster "Rate limited device $mac ($ip) to $rate (tc class 1:$class_id)"
         echo "success"
@@ -233,17 +278,16 @@ limit_device() {
             return
         fi
 
-        local class_id=$(mac_to_class_id "$mac")
-
         # Strategy: save all other devices' limits, destroy qdisc, re-create others' limits
         # This is the most reliable way to remove one device's tc rules
+        # (no class_id is needed here: the whole qdisc is dropped and rebuilt.)
         local remaining_limits=""
         local idx=0
-        while true; do
+        local rmac rrate
+        while uci -q get "devicemaster.@device[$idx]" >/dev/null 2>&1; do
             rmac=$(uci -q get "devicemaster.@device[$idx].mac" 2>/dev/null)
-            [ -z "$rmac" ] && break
             rrate=$(uci -q get "devicemaster.@device[$idx].rate_limit" 2>/dev/null)
-            if [ -n "$rrate" ] && [ "$rmac" != "$mac" ]; then
+            if [ -n "$rmac" ] && [ -n "$rrate" ] && [ "$rmac" != "$mac" ]; then
                 remaining_limits="$remaining_limits $rmac $rrate"
             fi
             idx=$((idx + 1))
@@ -263,13 +307,10 @@ limit_device() {
 
         # Update UCI config
         local section=$(find_device_section "$mac")
-        if [ -n "$section" ]; then
-            uci delete "devicemaster.$section.rate_limit" 2>/dev/null
-            uci commit devicemaster
+        if [ -n "$section" ] && [ -n "$(uci -q get "devicemaster.$section.rate_limit" 2>/dev/null)" ]; then
+            uci -q delete "devicemaster.$section.rate_limit" 2>/dev/null
+            uci -q commit devicemaster
         fi
-        
-        # Invalidate cache
-        rm -f /tmp/devicemaster_custom_cache
         
         logger -t devicemaster "Removed rate limit for device $mac (tc)"
         echo "success"
@@ -301,21 +342,34 @@ list_blocked() {
 
 # Entry point - only execute if run directly (not sourced)
 main() {
-    case "$1" in
+    # Normalise the MAC once, in one place.
+    #
+    # Everything downstream compares it against UCI values and stores it in UCI,
+    # and a case mismatch used to be enough to create a duplicate device section
+    # for a MAC that already existed.
+    local cmd="$1"
+    local mac=$(echo "$2" | tr 'a-f' 'A-F')
+
+    case "$cmd" in
         block)
-            block_device "$2" "add"
+            is_valid_mac "$mac" || { echo "error: invalid mac"; exit 1; }
+            block_device "$mac" "add"
             ;;
         unblock)
-            block_device "$2" "remove"
+            is_valid_mac "$mac" || { echo "error: invalid mac"; exit 1; }
+            block_device "$mac" "remove"
             ;;
         limit)
-            limit_device "$2" "$3"
+            is_valid_mac "$mac" || { echo "error: invalid mac"; exit 1; }
+            limit_device "$mac" "$3"
             ;;
         unlimit)
-            limit_device "$2" ""
+            is_valid_mac "$mac" || { echo "error: invalid mac"; exit 1; }
+            limit_device "$mac" ""
             ;;
         status)
-            get_rate_limit "$2"
+            is_valid_mac "$mac" || { echo "error: invalid mac"; exit 1; }
+            get_rate_limit "$mac"
             ;;
         list)
             list_blocked

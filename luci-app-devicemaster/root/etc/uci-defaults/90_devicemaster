@@ -1,72 +1,47 @@
 #!/bin/sh
-# UCI defaults for DeviceMaster
-# This script runs once after package installation
+# UCI defaults for DeviceMaster - runs once after package install/upgrade.
+#
+# NOTE: the old version of this script guarded everything behind
+#   [ ! -f /etc/config/devicemaster ] && { ... }
+# /etc/config/devicemaster is *shipped by the package*, so on every real
+# installation that condition is false and none of the bootstrap ever ran -
+# most notably the four built-in device groups were never created.
+#
+# We now delegate to the shared, idempotent library which is also sourced by
+# /etc/init.d/devicemaster, so first-boot and every-boot behave identically
+# and cannot drift apart again.
 
-# Create default config if not exists
-[ ! -f /etc/config/devicemaster ] && {
-    touch /etc/config/devicemaster
-    
-    uci add devicemaster global
-    uci set devicemaster.@global[0].enabled='1'
-    uci set devicemaster.@global[0].auto_detect='1'
-    uci set devicemaster.@global[0].oui_lookup='1'
-    uci set devicemaster.@global[0].traffic_monitor='1'
-    uci set devicemaster.@global[0].refresh_interval='5'
-    uci set devicemaster.@global[0].history_days='30'
-    
-    # Create default groups
-    uci add devicemaster group
-    uci set devicemaster.@group[-1].id='phones'
-    uci set devicemaster.@group[-1].name='手机'
-    uci set devicemaster.@group[-1].icon='📱'
-    uci set devicemaster.@group[-1].color='#3498db'
-    
-    uci add devicemaster group
-    uci set devicemaster.@group[-1].id='computers'
-    uci set devicemaster.@group[-1].name='电脑'
-    uci set devicemaster.@group[-1].icon='💻'
-    uci set devicemaster.@group[-1].color='#2ecc71'
-    
-    uci add devicemaster group
-    uci set devicemaster.@group[-1].id='iot'
-    uci set devicemaster.@group[-1].name='智能家居'
-    uci set devicemaster.@group[-1].icon='🏠'
-    uci set devicemaster.@group[-1].color='#9b59b6'
-    
-    uci add devicemaster group
-    uci set devicemaster.@group[-1].id='network'
-    uci set devicemaster.@group[-1].name='网络设备'
-    uci set devicemaster.@group[-1].icon='🌐'
-    uci set devicemaster.@group[-1].color='#e74c3c'
-    
-    # Create OUI settings section
-    uci set devicemaster.settings=settings
-    uci set devicemaster.settings.oui_mode='remote'
-    uci set devicemaster.settings.remote_api='maclookup'
+UCI_INIT="/usr/libexec/devicemaster/uci_init.sh"
 
-    uci commit devicemaster
-}
+if [ -f "$UCI_INIT" ]; then
+	. "$UCI_INIT"
+	dm_bootstrap_uci
+fi
 
-# Cleanup: remove duplicate anonymous settings sections (keep only named 'settings')
-# This fixes issues where both @settings[0] and settings existed
-settings_count=$(uci show devicemaster | grep -c '^devicemaster\.@settings\[' 2>/dev/null)
-if [ "$settings_count" -gt 0 ]; then
-    # Delete all anonymous settings sections
-    while uci -q get devicemaster.@settings[0] >/dev/null 2>&1; do
-        uci delete devicemaster.@settings[0]
-    done
-    # Ensure named settings section exists
-    if ! uci -q get devicemaster.settings >/dev/null 2>&1; then
-        uci set devicemaster.settings=settings
-        uci set devicemaster.settings.oui_mode='remote'
-        uci set devicemaster.settings.remote_api='maclookup'
-    fi
-    uci commit devicemaster
+# Remove duplicate ANONYMOUS settings sections (keep the named 'settings' one).
+#
+# This fixes installs that predate the named-section migration, but the old
+# version of this block was destructive: it looped `while uci -q get
+# devicemaster.@settings[0]; do uci delete devicemaster.@settings[0]; done`.
+# @type[i] indexes ALL sections of that type - not just the anonymous ones - so
+# @settings[0] resolves to the named 'settings' section itself, the loop deleted
+# it, and the user's OUI settings were silently reset to the defaults on every
+# package install/upgrade.
+#
+# Collecting the indices that `uci show` reports for the anonymous sections and
+# deleting those (highest index first, so the remaining indices stay valid)
+# leaves the named section untouched.
+anon_settings=$(uci -q show devicemaster 2>/dev/null \
+	| sed -n 's/^devicemaster\.@settings\[\([0-9]\+\)\]=.*/\1/p' | sort -rn)
+if [ -n "$anon_settings" ]; then
+	for idx in $anon_settings; do
+		uci -q delete "devicemaster.@settings[$idx]"
+	done
+	uci -q commit devicemaster
 fi
 
 # Make scripts executable
 chmod +x /usr/libexec/devicemaster/*.sh 2>/dev/null
-chmod +x /usr/libexec/devicemaster/devicemasterd 2>/dev/null
 chmod +x /etc/init.d/devicemaster 2>/dev/null
 
 # Enable the service

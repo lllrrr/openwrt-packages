@@ -9,6 +9,21 @@ local uci = require "luci.model.uci".cursor()
 
 m = Map("devicemaster")
 
+-- Resolve the OUI remote-cache path from the shell module instead of hardcoding
+-- it. The UI used to point at /usr/share/devicemaster/oui_cache.txt (flash)
+-- while oui_lookup.sh actually writes /tmp/devicemaster_oui_cache.txt (RAM), so
+-- the counter below always read 0 and the "clear cache" button was a no-op.
+local function oui_cache_file()
+    local path = sys.exec("/usr/libexec/devicemaster/oui_lookup.sh cache-file 2>/dev/null")
+    if path then
+        path = path:gsub("%s+$", "")
+    end
+    if not path or path == "" then
+        path = "/tmp/devicemaster_oui_cache.txt"
+    end
+    return path
+end
+
 s = m:section(TypedSection, "settings", "OUI数据库设置")
 s.anonymous = true
 s.addremove = false
@@ -108,8 +123,9 @@ o.cfgvalue = function(self, section)
     else
         html = html .. "<b>本地数据库:</b> <span style='color:#888;'>未安装</span><br>"
     end
-    local cache_count = sys.exec("wc -l < /usr/share/devicemaster/oui_cache.txt 2>/dev/null") or "0"
-    local cache_size = sys.exec("du -sh /usr/share/devicemaster/oui_cache.txt 2>/dev/null | cut -f1") or "0"
+    local cache_file = oui_cache_file()
+    local cache_count = sys.exec("wc -l < " .. cache_file .. " 2>/dev/null") or "0"
+    local cache_size = sys.exec("du -sh " .. cache_file .. " 2>/dev/null | cut -f1") or "0"
     html = html .. "<b>远程缓存:</b> " .. cache_count:gsub("\n", "") .. " 条记录 (" .. cache_size:gsub("\n", "") .. ")"
     html = html .. "</div>"
     return html
@@ -199,7 +215,7 @@ o.inputstyle = "reset"
 o.write = function(self, section)
     local clear_opt = luci.http.formvalue("cbid.devicemaster." .. section .. "._clear_option") or "cache"
     if clear_opt == "cache" or clear_opt == "all" then
-        sys.exec("rm -f /usr/share/devicemaster/oui_cache.txt")
+        sys.exec("/usr/libexec/devicemaster/oui_lookup.sh clear-cache 2>/dev/null")
     end
     if clear_opt == "local" or clear_opt == "all" then
         sys.exec("rm -f /usr/share/devicemaster/oui.txt")

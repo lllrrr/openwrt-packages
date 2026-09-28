@@ -20,9 +20,7 @@ log_msg "Stopping services..."
 /etc/init.d/devicemaster disable 2>/dev/null
 
 # Kill any remaining processes
-killall devicemasterd 2>/dev/null
 killall device_monitor.sh 2>/dev/null
-killall traffic_monitor.sh 2>/dev/null
 
 # ============================================================
 # 2. Remove nftables rules
@@ -109,8 +107,11 @@ rm -f /etc/uci-defaults/90_devicemaster
 log_msg "Removing OUI database..."
 rm -f /usr/share/devicemaster/oui.txt
 rm -f /usr/share/devicemaster/oui_cache.txt
-rm -f /usr/share/devicemaster/oui_append.txt
 rmdir /usr/share/devicemaster 2>/dev/null
+
+# User-maintained OUI overrides (oui_lookup.sh / event_handler.sh)
+rm -f /etc/devicemaster/oui_append.txt
+rmdir /etc/devicemaster 2>/dev/null
 
 # ============================================================
 # 11. Remove plugin scripts and program files

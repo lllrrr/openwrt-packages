@@ -2,6 +2,8 @@
 
 增强型 OpenWrt 设备管理插件 - 支持最新版 OpenWrt 24.1 / 25.12
 
+**当前版本：v1.1.0**
+
 ## 关于本项目
 
 本项目由 [small-white-rabbit](https://github.com/small-white-rabbit) 使用 AI 辅助工具构建。
@@ -12,9 +14,14 @@
 
 ### 🔍 智能设备识别
 - **MAC OUI 查询**: 通过 IEEE OUI 数据库识别设备厂商（Apple、Samsung、Xiaomi、Huawei 等）
-- **多源识别**: 支持本地数据库查询、远程 API 查询、主机名模式匹配、mDNS/Bonjour 探测
+- **多源识别**: 支持本地数据库查询、远程 API 查询、主机名模式匹配、mDNS/Bonjour 探测、HTTP 响应头探测
+- **最长前缀匹配**: OUI 前缀按 9 / 7 / 6 位十六进制依次尝试（MA-S / MA-M / MA-L），避免 6 位前缀误吞 7、9 位细分记录
+- **品牌归一化**: 将 IEEE 注册法人名归并到消费品牌（如 `SHENZHEN CHUANGWEI-RGB ELECTRONICS CO.,LTD` → `Skyworth`、`Beijing Xiaomi Mobile Software Co., Ltd.` → `Xiaomi`、`Hewlett Packard` → `HP`），避免同一品牌散成多个"厂商"
+- **Apple 机型识别**: 读取 `_device-info._tcp` 的 TXT `model=` 字段（如 `MacBookPro18,3`、`iPhone14,2`），可达机型级精度
+- **固件/协议识别**: 通过 `_esphome` / `_shelly` / `_tasmota` / `_nanoleaf` / `_matter`、`_rtsp` / `_onvif` 等服务名判断 IoT 与摄像头
 - **设备类型分类**: 自动分类为手机、电脑、IoT设备、网络设备
 - **随机 MAC 检测**: 识别本地管理地址（LAA），标记隐私保护设备
+- **自定义覆盖表**: 支持 `/etc/devicemaster/oui_append.txt` 手动指定前缀对应厂商，优先级高于内置库
 
 ### 📝 设备管理
 - **自定义命名**: 为设备设置自定义名称，支持自动去重
@@ -24,7 +31,7 @@
 - **设备分组**: 将设备组织到自定义分组中
 
 ### 📊 设备监控
-- **在线状态**: 实时监控设备在线/离线状态（基于 ARP 表和 ip neigh）
+- **在线状态**: 实时监控设备在线/离线状态（基于 ARP 表、`ip neigh` 内核 NUD 状态与并行主动探测）
 - **设备发现**: 自动发现新接入网络的设备
 - **网络扫描**: 主动扫描网段发现未识别设备
 
@@ -163,6 +170,26 @@ opkg remove luci-app-devicemaster
 - **远程模式**（默认）: 按需查询在线 API，内存占用低
 - **本地模式**: 下载完整数据库，查询更快但占用存储空间
 
+### 自定义厂商覆盖表
+
+当某个 MAC 前缀识别不准（小厂、DIY 设备，或 IEEE 注册法人名与实际品牌不符）时，可在路由器上创建覆盖表手动指定。**覆盖表优先级高于内置库**，无需重新编译插件：
+
+```sh
+mkdir -p /etc/devicemaster
+vi /etc/devicemaster/oui_append.txt
+```
+
+内容格式为一行一条，`<MAC前缀>|<品牌名>`，前缀为不含冒号的十六进制：
+
+```
+AABBCC|My Brand
+AABBCC1|My Brand Sub
+```
+
+- 前缀支持 **6 / 7 / 9 位**十六进制（对应 MA-L / MA-M / MA-S），查询按**最长前缀优先**，故更长前缀覆盖更短前缀。
+- 文件置于 `/etc` 而非 `/usr/share`：后者是只读 rootfs，**固件升级会丢失**；`/etc` 由 sysupgrade 保留。
+- 该文件为可选，不存在时插件自动跳过，不影响识别流程。
+
 ## 依赖项
 
 必需：
@@ -209,16 +236,19 @@ luci-app-devicemaster/
 │   │       └── 90_devicemaster       # 安装后初始化脚本
 │   └── usr/
 │       ├── libexec/devicemaster/
-│       │   ├── devicemasterd         # 主守护进程
-│       │   ├── device_collector.sh   # 设备数据采集与识别
-│       │   ├── device_monitor.sh     # 设备在线监控
+│       │   ├── device_monitor.sh     # 设备监控守护（idle/active 双模式）
+│       │   ├── event_handler.sh      # dnsmasq 事件处理 + 7 级识别
+│       │   ├── schedule_executor.sh  # 定时封禁/限速执行器（cron 每分钟）
+│       │   ├── snapshot_writer.lua   # 跨节点快照生成（cron 每分钟）
+│       │   ├── sub_report_gen.lua    # 子节点上报报文生成
 │       │   ├── traffic_control.sh    # 流量控制（封禁/限速）
 │       │   ├── oui_lookup.sh         # OUI 查询模块
-│       │   └── sync_hostname.sh      # dnsmasq 同步脚本
+│       │   ├── sync_hostname.sh      # dnsmasq 静态租约同步
+│       │   ├── uci_init.sh           # UCI 引导（幂等）
+│       │   └── uninstall.sh          # 卸载清理
 │       └── share/
 │           ├── devicemaster/
-│           │   ├── oui.txt           # OUI 厂商数据库
-│           │   └── oui_append.txt    # 自定义 OUI 补充
+│           │   └── oui.txt           # OUI 厂商数据库（本地模式下载）
 │           └── rpcd/acl.d/
 │               └── luci-app-devicemaster.json  # ACL 配置
 └── po/
@@ -242,7 +272,7 @@ luci-app-devicemaster/
 ┌─────────────────────────▼───────────────────────────────────┐
 │                  Backend Scripts (Shell)                     │
 │  ┌────────────────┐ ┌────────────────┐ ┌────────────────┐   │
-│  │device_collector│ │  traffic_control│ │   oui_lookup   │   │
+│  │ event_handler  │ │  traffic_control│ │   oui_lookup   │   │
 │  │     .sh        │ │     .sh        │ │     .sh        │   │
 │  └───────┬────────┘ └───────┬────────┘ └───────┬────────┘   │
 └──────────┼──────────────────┼──────────────────┼────────────┘
@@ -252,6 +282,35 @@ luci-app-devicemaster/
 │  /tmp/dhcp.leases  /proc/net/arp  nftables  tc  UCI         │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+## 在线状态检测与探测
+
+### 判定层级
+
+设备在线判定按以下顺序合并，命中即视为在线：
+
+| 层级 | 数据源 | 说明 |
+|------|--------|------|
+| 1 | `/tmp/dhcp.leases` + `/proc/net/arp` | 租约与 ARP 表交集 |
+| 2 | `ip neigh show dev br-lan` | 内核邻居表，仅采信**有效 NUD 状态** |
+| 3 | 主动探测 | 对"有历史记录但当前无有效邻居项"的设备发 ICMP，并行执行 |
+
+### NUD 状态白名单
+
+内核邻居表 `ip neigh` 每行末尾打印的状态词是一个**有限集合**，插件只采信以下四种为"在线"：
+
+```
+REACHABLE   PERMANENT   STALE   DELAY
+```
+
+`INCOMPLETE` / `FAILED` 是"无应答"状态；`PROBE`（正在探测）、`NOARP` 也不计为在线。
+解析时按**已知状态词白名单**匹配，而不是取"MAC 之后的第一个词"——因为 `ip neigh` 还会输出 `used 12/34/56`（缓存计时）与 `router` / `proxy` 标志，取第一个词会把它们误读为状态。
+
+> **实现注记**：BusyBox 与 iproute2 的 `ip neigh` 输出格式不同。**不带** `dev` 过滤时，BusyBox 会在地址与 `lladdr` 之间多打印 `dev br-lan`（见 `networking/libiproute/ipneigh.c` 的 `print_neigh()`：`if (!G_filter.index && r->ndm_ifindex) printf("dev %s ", ...)`）；带 `dev <name>` 过滤时则不打印。插件统一采用"锚定行首 IP → 取 `lladdr` 后的 MAC → 扫已知状态词"的解析顺序，两种格式都能正确处理。
+
+### 并行探测
+
+主动探测（`ping -c 1 -W 1`）以**单次后台批次**并发下发到所有待探设备，再逐个读回结果文件，只把输出中含 `ttl=` 的判为真实应答（超时与错误信息不含该字段）。相比逐台串行等待（每台最坏 1s），批量并发把最坏耗时从 `N × 1s` 降到约 `1s`。
 
 ## 常见问题
 
@@ -268,7 +327,7 @@ A: 确保 tc 和相关内核模块已安装：`opkg install tc-full kmod-sched-c
 A: 检查 dnsmasq 配置是否正确写入：`uci show dhcp | grep host`。重启 dnsmasq：`/etc/init.d/dnsmasq restart`
 
 ### Q: 厂商识别不准确？
-A: 在 OUI 管理页面下载本地数据库，或切换远程 API 接口。对于随机 MAC 设备，可手动设置厂商信息。
+A: 依次尝试：① 在 OUI 管理页面下载本地数据库，或切换远程 API 接口；② 若该前缀的 IEEE 记录与实际品牌不符，用 `/etc/devicemaster/oui_append.txt` 覆盖表手动指定（见[自定义厂商覆盖表](#自定义厂商覆盖表)）；③ 对于随机 MAC 设备，可手动设置厂商信息。
 
 ## 设备合并机制（旋转 MAC 处理）
 
@@ -372,7 +431,7 @@ config device
 | 5228 (Google Play), 8009/9000 (Chromecast) | Google |
 | 其他 IoT 端口 | Amazon / Samsung 等 |
 
-此识别在 `device_collector.sh` 的 `detect_vendor_by_conntrack()` 函数中实现，优先级高于通用的 "Mobile Device" / "LAA Device" 标签。
+此识别在 `event_handler.sh` 的 `detect_vendor_by_conntrack()` 函数中实现，优先级高于通用的 "Mobile Device" / "LAA Device" 标签。
 
 ## 许可证
 

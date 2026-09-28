@@ -1,18 +1,14 @@
 'use strict';
+'require view';
 'require form';
-'require fs';
 'require uci';
 
-return L.view.extend({
+return view.extend({
     load: function() {
-        return Promise.all([
-            L.resolveDefault(fs.read('/tmp/devicemaster_device_cache'), '{}'),
-            uci.load('devicemaster')
-        ]);
+        return uci.load('devicemaster');
     },
 
-    render: function(data) {
-        var cacheContent = data[0] || '{}';
+    render: function() {
         var m, s, o;
 
         m = new form.Map('devicemaster');
@@ -28,37 +24,35 @@ return L.view.extend({
         o = s.option(form.MultiValue, '_devices', _('设备'));
         o.modalonly = false;
 
-        // Load devices from cache or UCI
+        // Device list straight from UCI.
+        //
+        // This used to read /tmp/devicemaster_device_cache first and fall back
+        // to UCI; nothing has written that cache file for a long time (init.d
+        // deletes it on every start), so the read only ever cost a syscall and
+        // an extra `fs` dependency.
         var devices = [];
-        try {
-            var parsed = JSON.parse(cacheContent);
-            if (parsed && parsed.devices && Array.isArray(parsed.devices)) {
-                devices = parsed.devices;
-            }
-        } catch (e) {}
-
-        if (devices.length === 0) {
-            var sections = uci.sections('devicemaster', 'device') || [];
-            for (var i = 0; i < sections.length; i++) {
-                var sec = sections[i];
-                if (sec.mac) {
-                    devices.push({
-                        mac: sec.mac,
-                        hostname: sec.hostname || sec.name || '',
-                        last_ip: sec.last_ip || '',
-                        is_controllable: sec.is_controllable !== '0'
-                    });
-                }
+        var sections = uci.sections('devicemaster', 'device') || [];
+        for (var i = 0; i < sections.length; i++) {
+            var sec = sections[i];
+            if (sec.mac) {
+                devices.push({
+                    mac: sec.mac,
+                    hostname: sec.hostname || sec.name || '',
+                    last_ip: sec.last_ip || '',
+                    is_controllable: sec.is_controllable !== '0'
+                });
             }
         }
 
         // Populate device options
         devices.forEach(function(dev) {
             if (dev.is_controllable === false) return;
+            // Do not skip devices without a known IP: a device that is currently
+            // offline (or only ever seen in the ARP table) must still be
+            // assignable to a group, it simply gets no IP in the label.
             var ip = dev.ip || dev.last_ip || '';
-            if (!ip) return;
             var name = dev.custom_name || dev.hostname || dev.mac;
-            o.value(dev.mac, name + ' (' + ip + ')');
+            o.value(dev.mac, ip ? name + ' (' + ip + ')' : name);
         });
 
         o.cfgvalue = function(section_id) {
