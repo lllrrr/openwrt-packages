@@ -326,18 +326,21 @@ function createRpcClient(e) {
         method: "get_full_status"
     }), f = e.declare({
         object: "portweaver",
-        method: "get_nftables_rules"
+        method: "get_loop_topology"
     }), g = e.declare({
         object: "portweaver",
-        method: "reload_config"
+        method: "get_nftables_rules"
     }), u = e.declare({
+        object: "portweaver",
+        method: "reload_config"
+    }), k = e.declare({
         object: "portweaver",
         method: "read_frp_config",
         params: [
             "kind",
             "path"
         ]
-    }), k = e.declare({
+    }), x = e.declare({
         object: "portweaver",
         method: "validate_frp_config",
         params: [
@@ -345,7 +348,7 @@ function createRpcClient(e) {
             "format",
             "content"
         ]
-    }), x = e.declare({
+    }), C = e.declare({
         object: "portweaver",
         method: "write_frp_config",
         params: [
@@ -355,13 +358,13 @@ function createRpcClient(e) {
             "content",
             "reload"
         ]
-    }), C = e.declare({
+    }), y = e.declare({
         object: "portweaver",
         method: "restart_project",
         params: [
             "id"
         ]
-    }), y = e.declare({
+    }), R = e.declare({
         object: "portweaver",
         method: "wol_wake",
         params: [
@@ -388,13 +391,14 @@ function createRpcClient(e) {
         clearFrpsLogs: j,
         getFrpsProxyStats: b,
         getFullStatus: v,
-        getNftablesRules: f,
-        reloadConfig: g,
-        readFrpConfig: u,
-        validateFrpConfig: k,
-        writeFrpConfig: x,
-        restartProject: C,
-        wolWake: y,
+        getLoopTopology: f,
+        getNftablesRules: g,
+        reloadConfig: u,
+        readFrpConfig: k,
+        validateFrpConfig: x,
+        writeFrpConfig: C,
+        restartProject: y,
+        wolWake: R,
         wolStatus: e.declare({
             object: "portweaver",
             method: "wol_status",
@@ -4261,7 +4265,7 @@ class PortMappingEditor_o extends L.form.Value {
 
 
 
-let config_n = L.form, config_i = L.uci, config_s = [
+let config_n = L.form, config_i = L.uci, config_d = [
     [
         "ssh",
         "SSH"
@@ -4306,7 +4310,7 @@ let config_n = L.form, config_i = L.uci, config_s = [
         "smb",
         "SMB/CIFS"
     ]
-], config_d = new Set(config_s.map((e)=>{
+], config_s = new Set(config_d.map((e)=>{
     let [t] = e;
     return t;
 })), config_p = new Set([
@@ -4343,18 +4347,18 @@ function config_m(t) {
         children: o
     }), t.failed_count ? "error" : "info");
 }
-/* export default */ function config(g, f, b, h) {
-    let w = f.taboption(h, config_n.SectionValue, "_projects", config_n.GridSection, "project").subsection;
-    w.anonymous = !0, w.addremove = !0, w.sortable = !0, w.cloneable = !0, w.modaltitle = (e)=>{
+/* export default */ function config(g, f, h, b) {
+    let v = f.taboption(b, config_n.SectionValue, "_projects", config_n.GridSection, "project").subsection;
+    v.anonymous = !0, v.addremove = !0, v.sortable = !0, v.cloneable = !0, v.modaltitle = (e)=>{
         var t;
         return (null == (t = config_i.get("portweaver", e, "remark")) ? void 0 : t.toString()) || _("Unnamed project");
     };
     {
-        let e = w.option(config_n.Flag, "enabled", _("Enabled"));
+        let e = v.option(config_n.Flag, "enabled", _("Enabled"));
         e.modalonly = !1, e.default = "1", e.editable = !0;
     }
     {
-        let t = w.option(config_n.DummyValue, "_project_name", _("Name"));
+        let t = v.option(config_n.DummyValue, "_project_name", _("Name"));
         t.modalonly = !1, t.textvalue = (t)=>{
             var o;
             return jsx("div", {
@@ -4366,18 +4370,18 @@ function config_m(t) {
         };
     }
     {
-        let t = w.option(config_n.DummyValue, "_runtime_status", _("Status"));
+        let t = v.option(config_n.DummyValue, "_runtime_status", _("Status"));
         t.modalonly = !1, t.textvalue = (t)=>{
-            let o = b.getProjectStatus(t), l = jsx("div", {
-                children: b.renderStatusElements(o, t)
+            let o = h.getProjectStatus(t), l = jsx("div", {
+                children: h.renderStatusElements(o, t)
             });
-            return b.projectContainers = b.projectContainers || {}, b.projectContainers[t] = l, l;
+            return h.projectContainers = h.projectContainers || {}, h.projectContainers[t] = l, l;
         };
     }
     {
-        let o = w.option(config_n.DummyValue, "_runtime_actions", _("Actions"));
+        let o = v.option(config_n.DummyValue, "_runtime_actions", _("Actions"));
         o.modalonly = !1, o.textvalue = (o)=>{
-            let l = b.getProjectStatus(o), a = jsx("button", {
+            let l = h.getProjectStatus(o), a = jsx("button", {
                 type: "button",
                 class: "btn cbi-button cbi-button-neutral",
                 style: "margin-bottom: 4px; width: 100%; min-width: 60px;",
@@ -4396,31 +4400,31 @@ function config_m(t) {
                     r
                 ]
             });
-            return b.actionContainers = b.actionContainers || {}, b.actionContainers[o] = b.actionContainers[o] || {}, b.actionContainers[o].container = n, b.actionContainers[o].toggleBtn = a, b.actionContainers[o].restartBtn = r, n;
+            return h.actionContainers = h.actionContainers || {}, h.actionContainers[o] = h.actionContainers[o] || {}, h.actionContainers[o].container = n, h.actionContainers[o].toggleBtn = a, h.actionContainers[o].restartBtn = r, n;
         };
     }
     {
-        let o = w.option(config_n.DummyValue, "_preview", _("Overview"));
+        let o = v.option(config_n.DummyValue, "_preview", _("Overview"));
         o.modalonly = !1, o.textvalue = (o)=>{
-            var l, a, r, n, s;
-            let d = (null == (l = config_i.get("portweaver", o, "protocol")) ? void 0 : l.toString()) || "tcp", p = (null == (a = config_i.get("portweaver", o, "family")) ? void 0 : a.toString()) || "any", c = (null == (r = config_i.get("portweaver", o, "listen_port")) ? void 0 : r.toString()) || "", u = (null == (n = config_i.get("portweaver", o, "target_address")) ? void 0 : n.toString()) || "", m = (null == (s = config_i.get("portweaver", o, "target_port")) ? void 0 : s.toString()) || "", g = L.toArray(config_i.get("portweaver", o, "port_mapping")), f = L.toArray(config_i.get("portweaver", o, "src_zone")), b = L.toArray(config_i.get("portweaver", o, "dest_zone")), h = {
+            var l, a, r, n, d;
+            let s = (null == (l = config_i.get("portweaver", o, "protocol")) ? void 0 : l.toString()) || "tcp", p = (null == (a = config_i.get("portweaver", o, "family")) ? void 0 : a.toString()) || "any", c = (null == (r = config_i.get("portweaver", o, "listen_port")) ? void 0 : r.toString()) || "", u = (null == (n = config_i.get("portweaver", o, "target_address")) ? void 0 : n.toString()) || "", m = (null == (d = config_i.get("portweaver", o, "target_port")) ? void 0 : d.toString()) || "", g = L.toArray(config_i.get("portweaver", o, "port_mapping")), f = L.toArray(config_i.get("portweaver", o, "src_zone")), h = L.toArray(config_i.get("portweaver", o, "dest_zone")), b = {
                 both: _("TCP and UDP"),
                 tcp: _("TCP"),
                 udp: _("UDP")
-            }[d] || String(d).toUpperCase(), w = {
+            }[s] || String(s).toUpperCase(), v = {
                 any: _("IPv4 and IPv6"),
                 ipv4: _("IPv4"),
                 ipv6: _("IPv6")
-            }[p] || p, v = [];
-            if (v.push(jsxs("span", {
+            }[p] || p, w = [];
+            if (w.push(jsxs("span", {
                 children: [
                     _("Incoming "),
                     jsx("var", {
-                        children: w
+                        children: v
                     }),
                     _(" protocol "),
                     jsx("var", {
-                        children: h
+                        children: b
                     })
                 ]
             })), f.length > 0) {
@@ -4433,7 +4437,7 @@ function config_m(t) {
                             })
                         })
                     }));
-                v.push(jsx("br", {})), v.push(jsxs("span", {
+                w.push(jsx("br", {})), w.push(jsxs("span", {
                     children: [
                         _("From "),
                         ...o
@@ -4441,7 +4445,7 @@ function config_m(t) {
                 }));
             }
             if (g.length > 0) {
-                v.push(jsx("br", {})), v.push(jsxs("span", {
+                w.push(jsx("br", {})), w.push(jsxs("span", {
                     children: [
                         jsx("strong", {
                             style: "color: #09c;",
@@ -4455,7 +4459,7 @@ function config_m(t) {
                     ]
                 }));
                 let o = g[0];
-                v.push(jsx("br", {})), v.push(jsxs("span", {
+                w.push(jsx("br", {})), w.push(jsxs("span", {
                     children: [
                         _("e.g. "),
                         jsx("var", {
@@ -4463,7 +4467,7 @@ function config_m(t) {
                         })
                     ]
                 }));
-            } else c && (v.push(jsx("br", {})), v.push(jsxs("span", {
+            } else c && (w.push(jsx("br", {})), w.push(jsxs("span", {
                 children: [
                     _("Port "),
                     jsx("var", {
@@ -4471,7 +4475,7 @@ function config_m(t) {
                     })
                 ]
             })));
-            if (v.push(jsx("br", {})), v.push(jsxs("span", {
+            if (w.push(jsx("br", {})), w.push(jsxs("span", {
                 children: [
                     jsx("var", {
                         "data-tooltip": "Forward",
@@ -4479,8 +4483,8 @@ function config_m(t) {
                     }),
                     _(" to ")
                 ]
-            })), b.length > 0) {
-                let t = b.map((t)=>jsx("span", {
+            })), h.length > 0) {
+                let t = h.map((t)=>jsx("span", {
                         class: "zonebadge",
                         style: fwmodel.getZoneColorStyle(t),
                         children: jsx("strong", {
@@ -4489,16 +4493,16 @@ function config_m(t) {
                             })
                         })
                     }));
-                v.push(...t), v.push(_(" "));
+                w.push(...t), w.push(_(" "));
             }
-            return u && v.push(jsxs("span", {
+            return u && w.push(jsxs("span", {
                 children: [
                     _("IP "),
                     jsx("var", {
                         children: u
                     })
                 ]
-            })), 0 === g.length && m && v.push(jsxs("span", {
+            })), 0 === g.length && m && w.push(jsxs("span", {
                 children: [
                     _(" port "),
                     jsx("var", {
@@ -4506,11 +4510,11 @@ function config_m(t) {
                     })
                 ]
             })), jsx("small", {
-                children: v
+                children: w
             });
         };
     }
-    w.addModalOptions = (t)=>{
+    v.addModalOptions = (t)=>{
         let g;
         t.tab("general", _("General Settings")), t.tab("advanced", _("Advanced Settings")), isFeatureEnabled("wol_mode") && t.tab("project_wol", _("Wake-on-LAN")), t.tab("protocol_filter", _("Protocol Filter"));
         {
@@ -4566,8 +4570,8 @@ function config_m(t) {
             e.modalonly = !0, e.default = "0";
         }
         {
-            let e = t.taboption("advanced", config_n.ListValue, "app_forward_loop_mode", _("Loop Mode"), _("Controls how event loop runtimes are shared among listeners. 'per_project' (default): one runtime shared by all listeners in this project, balanced resource usage. 'per_listener': each listener gets its own dedicated runtime, highest isolation but uses more memory (one thread per listener). 'global': all projects share a single global runtime, lowest memory usage but no isolation between projects."));
-            e.modalonly = !0, e.value("per_project", _("Per Project (default) - balanced")), e.value("per_listener", _("Per Listener - highest isolation, more memory")), e.value("global", _("Global - lowest memory, no isolation")), e.default = "per_project", e.depends("enable_app_forward", "1");
+            let e = t.taboption("advanced", config_n.ListValue, "app_forward_loop_mode", _("Event-loop Attachment"), _("Selects where this project's listeners are attached. Project-shared uses one event loop for this project. Listener-dedicated gives every listener its own event loop and thread. Globally shared attaches listeners from all projects to one event loop."));
+            e.modalonly = !0, e.value("per_project", _("Project-shared (default)")), e.value("per_listener", _("Listener-dedicated (highest isolation)")), e.value("global", _("Globally shared (lowest memory)")), e.default = "per_project", e.depends("enable_app_forward", "1");
         }
         {
             let e = t.taboption("advanced", config_n.Flag, "reuseaddr", _("Reuse Address"));
@@ -4608,7 +4612,7 @@ function config_m(t) {
                 for (let [t, o] of (e.modalonly = !0, e.rmempty = !1, e.depends({
                     enable_wol: "1",
                     wol_trigger_mode: "on_protocol"
-                }), config_s))config_p.has(t) && e.value(t, o);
+                }), config_d))config_p.has(t) && e.value(t, o);
                 e.validate = (e, t)=>config_u(t, config_p, !0), o.push(e);
             }
             {
@@ -4639,8 +4643,8 @@ function config_m(t) {
         }
         {
             let e = t.taboption("protocol_filter", config_n.DynamicList, "allowed_protocols", _("Allowed Protocols"), _("Only connections matching these protocol signatures will be forwarded."));
-            for (let [t, o] of (e.modalonly = !0, e.rmempty = !1, e.depends("enable_protocol_filter", "1"), config_s))e.value(t, o);
-            e.validate = (e, t)=>config_u(t, config_d, !0), g = e;
+            for (let [t, o] of (e.modalonly = !0, e.rmempty = !1, e.depends("enable_protocol_filter", "1"), config_d))e.value(t, o);
+            e.validate = (e, t)=>config_u(t, config_s, !0), g = e;
         }
         {
             let e = t.taboption("protocol_filter", config_n.DynamicList, "tls_allowed_snis", _("Allowed TLS SNIs"), _("Only TLS connections matching these server names will be forwarded. Supports wildcards (e.g. *.example.com). Only effective when TLS is in the allowed protocols list."));
@@ -5816,6 +5820,249 @@ let nftables_t = L.form;
     r.taboption(l, nftables_t.DummyValue, "_nftables_rules", _("nftables Rules")).render = ()=>new NftablesRulesViewer().render();
 }
 
+;// CONCATENATED MODULE: ./components/EventLoopTopology.tsx
+
+
+
+
+class EventLoopTopology {
+    render() {
+        let { isDark: o } = getThemeColors();
+        this.statusEl = jsx("span", {
+            class: "pw-loop-status",
+            children: _("Loading topology...")
+        }), this.refreshButton = jsx("button", {
+            type: "button",
+            class: "cbi-button cbi-button-neutral pw-loop-refresh",
+            onclick: ()=>this.loadTopology(),
+            children: _("Refresh topology")
+        }), this.contentEl = jsx("div", {
+            class: "pw-loop-content",
+            children: jsx("div", {
+                class: "pw-loop-empty",
+                children: _("Loading event-loop topology...")
+            })
+        });
+        let t = jsxs("div", {
+            class: "pw-loop-topology",
+            children: [
+                jsx("style", {
+                    children: "\n            .pw-loop-topology {\n              --pw-loop-panel: ".concat(o ? "rgba(255, 255, 255, 0.035)" : "#f7f9fc", ";\n              --pw-loop-card: ").concat(o ? "rgba(255, 255, 255, 0.055)" : "#ffffff", ";\n              --pw-loop-border: ").concat(o ? "rgba(255, 255, 255, 0.12)" : "rgba(22, 50, 79, 0.13)", ";\n              --pw-loop-muted: ").concat(o ? "#aeb8c4" : "#627184", ";\n              --pw-loop-text: ").concat(o ? "#edf2f7" : "#1d2b3a", ';\n              color: var(--pw-loop-text);\n            }\n            .pw-loop-toolbar {\n              display: flex;\n              align-items: center;\n              justify-content: space-between;\n              gap: 12px;\n              margin-bottom: 14px;\n              padding: 12px 14px;\n              border: 1px solid var(--pw-loop-border);\n              border-radius: 10px;\n              background: var(--pw-loop-panel);\n            }\n            .pw-loop-heading { font-size: 14px; font-weight: 700; }\n            .pw-loop-subtitle, .pw-loop-status {\n              color: var(--pw-loop-muted);\n              font-size: 12px;\n              line-height: 1.5;\n            }\n            .pw-loop-actions { display: flex; align-items: center; gap: 10px; }\n            .pw-loop-refresh[disabled] { opacity: 0.55; cursor: wait; }\n            .pw-loop-summary {\n              display: grid;\n              grid-template-columns: repeat(5, minmax(110px, 1fr));\n              gap: 9px;\n              margin-bottom: 14px;\n            }\n            .pw-loop-metric {\n              padding: 11px 12px;\n              border: 1px solid var(--pw-loop-border);\n              border-radius: 9px;\n              background: var(--pw-loop-card);\n            }\n            .pw-loop-metric-value { font-size: 19px; font-weight: 750; line-height: 1.2; }\n            .pw-loop-metric-label { color: var(--pw-loop-muted); font-size: 11px; margin-top: 3px; }\n            .pw-loop-runtime-list { display: grid; gap: 12px; }\n            .pw-loop-runtime {\n              overflow: hidden;\n              border: 1px solid var(--pw-loop-border);\n              border-left: 4px solid var(--pw-loop-accent);\n              border-radius: 11px;\n              background: var(--pw-loop-card);\n            }\n            .pw-loop-runtime-header {\n              display: flex;\n              align-items: flex-start;\n              justify-content: space-between;\n              gap: 12px;\n              padding: 13px 15px;\n              border-bottom: 1px solid var(--pw-loop-border);\n              background: var(--pw-loop-panel);\n            }\n            .pw-loop-runtime-title { font-size: 14px; font-weight: 750; }\n            .pw-loop-runtime-meta { color: var(--pw-loop-muted); font-size: 11px; margin-top: 4px; }\n            .pw-loop-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }\n            .pw-loop-badge {\n              display: inline-flex;\n              align-items: center;\n              padding: 3px 8px;\n              border-radius: 999px;\n              background: color-mix(in srgb, var(--pw-loop-accent) 14%, transparent);\n              color: var(--pw-loop-text);\n              font-size: 10px;\n              font-weight: 650;\n              white-space: nowrap;\n            }\n            .pw-loop-projects { padding: 8px 15px 13px 21px; }\n            .pw-loop-project {\n              position: relative;\n              margin-top: 9px;\n              padding: 9px 11px;\n              border-left: 2px solid var(--pw-loop-accent);\n              background: var(--pw-loop-panel);\n              border-radius: 0 8px 8px 0;\n            }\n            .pw-loop-project::before {\n              content: "";\n              position: absolute;\n              left: -9px;\n              top: 18px;\n              width: 8px;\n              border-top: 2px solid var(--pw-loop-accent);\n            }\n            .pw-loop-project-title { font-size: 12px; font-weight: 700; }\n            .pw-loop-listeners { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }\n            .pw-loop-listener {\n              display: inline-flex;\n              align-items: center;\n              gap: 5px;\n              padding: 4px 8px;\n              border: 1px solid var(--pw-loop-border);\n              border-radius: 6px;\n              background: var(--pw-loop-card);\n              font-family: ui-monospace, SFMono-Regular, Consolas, monospace;\n              font-size: 11px;\n            }\n            .pw-loop-protocol { color: var(--pw-loop-accent); font-weight: 800; }\n            .pw-loop-empty {\n              padding: 28px 16px;\n              border: 1px dashed var(--pw-loop-border);\n              border-radius: 10px;\n              color: var(--pw-loop-muted);\n              text-align: center;\n            }\n            .pw-loop-error { color: #d64545; }\n            @media (max-width: 800px) {\n              .pw-loop-summary { grid-template-columns: repeat(2, minmax(110px, 1fr)); }\n              .pw-loop-toolbar, .pw-loop-runtime-header { align-items: stretch; flex-direction: column; }\n              .pw-loop-actions, .pw-loop-badges { justify-content: flex-start; }\n            }\n          ')
+                }),
+                jsxs("div", {
+                    class: "pw-loop-toolbar",
+                    children: [
+                        jsxs("div", {
+                            children: [
+                                jsx("div", {
+                                    class: "pw-loop-heading",
+                                    children: _("Observed Event-loop Tree")
+                                }),
+                                jsx("div", {
+                                    class: "pw-loop-subtitle",
+                                    children: _("Grouped by actual runtime instances. Runtime IDs are process-local and change after a service restart.")
+                                })
+                            ]
+                        }),
+                        jsxs("div", {
+                            class: "pw-loop-actions",
+                            children: [
+                                this.statusEl,
+                                this.refreshButton
+                            ]
+                        })
+                    ]
+                }),
+                this.contentEl
+            ]
+        });
+        return this.loadTopology(), t;
+    }
+    loadTopology() {
+        this.loading || (this.loading = !0, this.setLoading(!0), rpcClient.getLoopTopology().then((o)=>{
+            this.renderTopology(o), this.statusEl && (this.statusEl.textContent = _("Live snapshot"), this.statusEl.classList.remove("pw-loop-error"));
+        }).catch((o)=>{
+            console.error("Failed to load event-loop topology:", o), this.renderError(o);
+        }).finally(()=>{
+            this.loading = !1, this.setLoading(!1);
+        }));
+    }
+    setLoading(o) {
+        this.refreshButton && (this.refreshButton.disabled = o), this.statusEl && o && (this.statusEl.textContent = _("Loading topology..."), this.statusEl.classList.remove("pw-loop-error"));
+    }
+    renderTopology(o) {
+        var t, l, r, p, i;
+        if (!this.contentEl) return;
+        let s = null != (t = null == o ? void 0 : o.runtimes) ? t : [], a = jsxs("div", {
+            class: "pw-loop-summary",
+            children: [
+                this.metric(String(null != (l = null == o ? void 0 : o.generation) ? l : 0), _("Generation")),
+                this.metric((null == o ? void 0 : o.backend) || _("Unknown"), _("Backend")),
+                this.metric(String(null != (r = null == o ? void 0 : o.runtime_count) ? r : 0), _("Runtimes")),
+                this.metric(String(null != (p = null == o ? void 0 : o.project_count) ? p : 0), _("Projects")),
+                this.metric(String(null != (i = null == o ? void 0 : o.listener_count) ? i : 0), _("Listeners"))
+            ]
+        });
+        if (0 === s.length) return void this.contentEl.replaceChildren(a, jsx("div", {
+            class: "pw-loop-empty",
+            children: _("No active application-forwarding event loops were found.")
+        }));
+        let d = jsx("div", {
+            class: "pw-loop-runtime-list"
+        });
+        for (let o of s)d.appendChild(this.renderRuntime(o));
+        this.contentEl.replaceChildren(a, d);
+    }
+    metric(o, t) {
+        return jsxs("div", {
+            class: "pw-loop-metric",
+            children: [
+                jsx("div", {
+                    class: "pw-loop-metric-value",
+                    children: o
+                }),
+                jsx("div", {
+                    class: "pw-loop-metric-label",
+                    children: t
+                })
+            ]
+        });
+    }
+    renderRuntime(o) {
+        var t, l, r, p;
+        let i = this.modeAccent(o.mode), s = null != (t = o.projects) ? t : [], a = jsx("div", {
+            class: "pw-loop-projects"
+        });
+        if (0 === s.length) a.appendChild(jsx("div", {
+            class: "pw-loop-empty",
+            children: _("No active listeners are attached to this runtime.")
+        }));
+        else for (let o of s)a.appendChild(this.renderProject(o));
+        return jsxs("div", {
+            class: "pw-loop-runtime",
+            style: "--pw-loop-accent: ".concat(i, ";"),
+            children: [
+                jsxs("div", {
+                    class: "pw-loop-runtime-header",
+                    children: [
+                        jsxs("div", {
+                            children: [
+                                jsx("div", {
+                                    class: "pw-loop-runtime-title",
+                                    children: _("Runtime #%s").format(String(o.runtime_id))
+                                }),
+                                jsx("div", {
+                                    class: "pw-loop-runtime-meta",
+                                    children: _("%d project(s), %d listener(s), %d reference(s)").format(null != (l = o.project_count) ? l : s.length, null != (r = o.listener_count) ? r : 0, null != (p = o.reference_count) ? p : 0)
+                                })
+                            ]
+                        }),
+                        jsxs("div", {
+                            class: "pw-loop-badges",
+                            children: [
+                                jsx("span", {
+                                    class: "pw-loop-badge",
+                                    children: this.modeLabel(o.mode)
+                                }),
+                                jsx("span", {
+                                    class: "pw-loop-badge",
+                                    children: this.stateLabel(o.state)
+                                })
+                            ]
+                        })
+                    ]
+                }),
+                a
+            ]
+        });
+    }
+    renderProject(o) {
+        var t, l;
+        let r = null != (t = o.listeners) ? t : [], p = jsx("div", {
+            class: "pw-loop-listeners"
+        });
+        for (let o of r)p.appendChild(jsxs("span", {
+            class: "pw-loop-listener",
+            children: [
+                jsx("span", {
+                    class: "pw-loop-protocol",
+                    children: (o.protocol || "?").toUpperCase()
+                }),
+                jsx("span", {
+                    children: String(null != (l = o.local_port) ? l : 0)
+                })
+            ]
+        }));
+        return jsxs("div", {
+            class: "pw-loop-project",
+            children: [
+                jsx("div", {
+                    class: "pw-loop-project-title",
+                    children: o.section_name || _("Unnamed project")
+                }),
+                jsx("div", {
+                    class: "pw-loop-runtime-meta",
+                    children: _("Project ID: %s").format(String(o.id))
+                }),
+                p
+            ]
+        });
+    }
+    modeLabel(o) {
+        switch(o){
+            case "global":
+                return _("Globally shared");
+            case "per_project":
+                return _("Project-shared");
+            case "per_listener":
+                return _("Listener-dedicated");
+            default:
+                return o || _("Unknown mode");
+        }
+    }
+    stateLabel(o) {
+        switch(o){
+            case "starting":
+                return _("Starting");
+            case "running":
+                return _("Running");
+            case "stopping":
+                return _("Stopping");
+            case "stopped":
+                return _("Stopped");
+            default:
+                return o || _("Unknown state");
+        }
+    }
+    modeAccent(o) {
+        switch(o){
+            case "global":
+                return "#6c63ff";
+            case "per_listener":
+                return "#e17b31";
+            default:
+                return "#2188b6";
+        }
+    }
+    renderError(o) {
+        let n = o instanceof Error ? o.message : String(o);
+        this.statusEl && (this.statusEl.textContent = _("Topology unavailable"), this.statusEl.classList.add("pw-loop-error")), this.contentEl && this.contentEl.replaceChildren(jsx("div", {
+            class: "pw-loop-empty pw-loop-error",
+            children: _("Failed to load event-loop topology: %s").format(n)
+        }));
+    }
+    constructor(){
+        _define_property(this, "contentEl", null), _define_property(this, "statusEl", null), _define_property(this, "refreshButton", null), _define_property(this, "loading", !1);
+    }
+}
+
+;// CONCATENATED MODULE: ./modules/event-loops.tsx
+
+let event_loops_e = L.form;
+/* export default */ function event_loops(t, n, p) {
+    n.taboption(p, event_loops_e.DummyValue, "_event_loop_topology", _("Event-loop Topology")).render = ()=>new EventLoopTopology().render();
+}
+
 ;// CONCATENATED MODULE: ./modules/about.tsx
 
 let about_l = L.form;
@@ -6257,40 +6504,41 @@ function wol_n(t) {
 
 
 
-let main_v = L.form, main_w = L.uci;
+
+let main_w = L.form, main_g = L.uci;
 class main extends L.view {
     async load() {
         return Promise.all([
-            main_w.load("portweaver"),
-            main_w.load("firewall"),
-            rpcClient.getFullStatus().then((t)=>t || {}).catch((t)=>(console.warn("ubus get_full_status failed:", t), {})),
+            main_g.load("portweaver"),
+            main_g.load("firewall"),
+            rpcClient.getFullStatus().then((e)=>e || {}).catch((e)=>(console.warn("ubus get_full_status failed:", e), {})),
             L.fs.exec("/usr/bin/portweaver", [
                 "version",
                 "--json"
-            ]).then((t)=>{
-                if (t && 0 === t.code && t.stdout) try {
-                    let e = JSON.parse(t.stdout);
-                    return setVersionInfo(e), e;
-                } catch (t) {
-                    console.warn("Failed to parse portweaver version JSON:", t);
+            ]).then((e)=>{
+                if (e && 0 === e.code && e.stdout) try {
+                    let t = JSON.parse(e.stdout);
+                    return setVersionInfo(t), t;
+                } catch (e) {
+                    console.warn("Failed to parse portweaver version JSON:", e);
                 }
                 return null;
-            }).catch((t)=>(console.warn("exec portweaver version failed:", t), null))
+            }).catch((e)=>(console.warn("exec portweaver version failed:", e), null))
         ]);
     }
-    render(t) {
-        let e = new main_v.Map("portweaver", _("PortWeaver"), _("Port forwarding and NAT traversal configuration"));
-        this.mapInstance = e;
-        let o = e.section(main_v.NamedSection, "global", "portweaver");
-        o.anonymous = !0, o.addremove = !1, o.tab("settings", _("Global Settings")), o.tab("projects", _("Port Forwarding"));
-        let f = t[3];
-        (null == f ? void 0 : f.rathole_client_mode) && o.tab("rathole_client", _("Rathole Client")), (null == f ? void 0 : f.rathole_server_mode) && o.tab("rathole_server", _("Rathole Server")), isFeatureEnabled("wol_mode") && o.tab("wol", _("Wake-on-LAN")), isFeatureEnabled("ddns_mode") && o.tab("ddns", _("DDNS")), isFeatureEnabled("frpc_mode") && o.tab("frpc", _("FRP Tunnels")), isFeatureEnabled("frps_mode") && o.tab("frps", _("FRP Server")), isFeatureEnabled("nftables_mode") && o.tab("nftables", _("nftables")), o.tab("logs", _("System Logs")), o.tab("about", _("About"));
-        let h = t[2], w = t[3], g = new Client(h);
-        return header(e, o, g, "settings"), config(e, o, g, "projects"), (null == f ? void 0 : f.rathole_client_mode) && rathole_a(o, "client"), (null == f ? void 0 : f.rathole_server_mode) && rathole_a(o, "server"), isFeatureEnabled("wol_mode") && wol(e, o, "wol"), isFeatureEnabled("ddns_mode") && ddns(e, o, "ddns"), isFeatureEnabled("frpc_mode") && frpc(e, o, "frpc"), isFeatureEnabled("frps_mode") && frps(e, o, "frps"), isFeatureEnabled("nftables_mode") && nftables(e, o, "nftables"), logs(e, o, "logs"), about(e, o, "about", w), e.render();
+    render(e) {
+        let t = new main_w.Map("portweaver", _("PortWeaver"), _("Port forwarding and NAT traversal configuration"));
+        this.mapInstance = t;
+        let o = t.section(main_w.NamedSection, "global", "portweaver");
+        o.anonymous = !0, o.addremove = !1, o.tab("settings", _("Global Settings")), o.tab("projects", _("Port Forwarding")), o.tab("event_loops", _("Event Loops"));
+        let h = e[3];
+        (null == h ? void 0 : h.rathole_client_mode) && o.tab("rathole_client", _("Rathole Client")), (null == h ? void 0 : h.rathole_server_mode) && o.tab("rathole_server", _("Rathole Server")), isFeatureEnabled("wol_mode") && o.tab("wol", _("Wake-on-LAN")), isFeatureEnabled("ddns_mode") && o.tab("ddns", _("DDNS")), isFeatureEnabled("frpc_mode") && o.tab("frpc", _("FRP Tunnels")), isFeatureEnabled("frps_mode") && o.tab("frps", _("FRP Server")), isFeatureEnabled("nftables_mode") && o.tab("nftables", _("nftables")), o.tab("logs", _("System Logs")), o.tab("about", _("About"));
+        let v = e[2], g = e[3], y = new Client(v);
+        return header(t, o, y, "settings"), config(t, o, y, "projects"), event_loops(t, o, "event_loops"), (null == h ? void 0 : h.rathole_client_mode) && rathole_a(o, "client"), (null == h ? void 0 : h.rathole_server_mode) && rathole_a(o, "server"), isFeatureEnabled("wol_mode") && wol(t, o, "wol"), isFeatureEnabled("ddns_mode") && ddns(t, o, "ddns"), isFeatureEnabled("frpc_mode") && frpc(t, o, "frpc"), isFeatureEnabled("frps_mode") && frps(t, o, "frps"), isFeatureEnabled("nftables_mode") && nftables(t, o, "nftables"), logs(t, o, "logs"), about(t, o, "about", g), t.render();
     }
-    async handleSaveRestart(t) {
+    async handleSaveRestart(e) {
         try {
-            await this.handleSave(t), await rpcClient.uciCommit("portweaver");
+            await this.handleSave(e), await rpcClient.uciCommit("portweaver");
             let o = await L.fs.exec("/etc/init.d/portweaver", [
                 "restart"
             ]);
@@ -6298,41 +6546,41 @@ class main extends L.view {
             L.ui.addNotification(null, jsx("p", {
                 children: _("Service restarted successfully")
             }), "info");
-        } catch (t) {
+        } catch (e) {
             L.ui.addNotification(null, jsx("p", {
-                children: _("Failed to restart service: %s").format(t.toString())
+                children: _("Failed to restart service: %s").format(e.toString())
             }), "error");
         }
     }
     addFooter() {
-        let t = document.createDocumentFragment(), r = jsxs("div", {
+        let e = document.createDocumentFragment(), r = jsxs("div", {
             class: "cbi-page-actions",
             children: [
                 jsx("button", {
                     type: "button",
                     class: "cbi-button cbi-button-apply",
-                    onclick: (t)=>this.handleSaveApply(t),
+                    onclick: (e)=>this.handleSaveApply(e),
                     children: _("Save & Apply")
                 }),
                 jsx("button", {
                     type: "button",
                     class: "cbi-button cbi-button-negative",
                     style: "margin-left: 8px;",
-                    onclick: (t)=>this.handleSaveRestart(t),
+                    onclick: (e)=>this.handleSaveRestart(e),
                     children: _("Save & Restart")
                 }),
                 jsx("button", {
                     type: "button",
                     class: "cbi-button cbi-button-save",
                     style: "margin-left: 8px;",
-                    onclick: async (t)=>{
+                    onclick: async (e)=>{
                         try {
-                            await this.handleSave(t), await rpcClient.uciCommit("portweaver"), L.ui.addNotification(null, jsx("p", {
+                            await this.handleSave(e), await rpcClient.uciCommit("portweaver"), L.ui.addNotification(null, jsx("p", {
                                 children: _("Configuration saved successfully")
                             }), "info");
-                        } catch (t) {
+                        } catch (e) {
                             L.ui.addNotification(null, jsx("p", {
-                                children: t.toString()
+                                children: e.toString()
                             }), "error");
                         }
                     },
@@ -6342,14 +6590,14 @@ class main extends L.view {
                     type: "button",
                     class: "cbi-button cbi-button-reset",
                     style: "margin-left: 8px;",
-                    onclick: async (t)=>{
+                    onclick: async (e)=>{
                         try {
-                            await this.handleReset(t), L.ui.addNotification(null, jsx("p", {
+                            await this.handleReset(e), L.ui.addNotification(null, jsx("p", {
                                 children: _("Configuration reset successfully")
                             }), "info");
-                        } catch (t) {
+                        } catch (e) {
                             L.ui.addNotification(null, jsx("p", {
-                                children: t.toString()
+                                children: e.toString()
                             }), "error");
                         }
                     },
@@ -6357,22 +6605,22 @@ class main extends L.view {
                 })
             ]
         });
-        return t.appendChild(r), t;
+        return e.appendChild(r), e;
     }
     constructor(...o){
-        super(...o), _define_property(this, "mapInstance", void 0), _define_property(this, "handleSave", async (t)=>(this.mapInstance && await this.mapInstance.save(), L.uci.save())), _define_property(this, "handleReset", async (t)=>{
+        super(...o), _define_property(this, "mapInstance", void 0), _define_property(this, "handleSave", async (e)=>(this.mapInstance && await this.mapInstance.save(), L.uci.save())), _define_property(this, "handleReset", async (e)=>{
             this.mapInstance && await this.mapInstance.reset();
-        }), _define_property(this, "handleSaveApply", async (t)=>{
+        }), _define_property(this, "handleSaveApply", async (e)=>{
             try {
                 var o;
-                await this.handleSave(t), await rpcClient.uciCommit("portweaver");
+                await this.handleSave(e), await rpcClient.uciCommit("portweaver");
                 let r = await rpcClient.reloadConfig();
                 L.ui.addNotification(null, jsx("p", {
                     children: _("Config reloaded: %d project(s) restarted").format(null != (o = null == r ? void 0 : r.changes) ? o : 0)
                 }), "info");
-            } catch (t) {
+            } catch (e) {
                 L.ui.addNotification(null, jsx("p", {
-                    children: _("Failed to reload config: %s").format(t.toString())
+                    children: _("Failed to reload config: %s").format(e.toString())
                 }), "error");
             }
         });

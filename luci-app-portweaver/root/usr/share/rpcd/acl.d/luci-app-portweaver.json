@@ -19,6 +19,7 @@
 			"ubus": {
 				"portweaver": [
 					"get_full_status",
+					"get_loop_topology",
 					"get_rathole_status",
 					"get_rathole_info",
 					"get_frps_info",

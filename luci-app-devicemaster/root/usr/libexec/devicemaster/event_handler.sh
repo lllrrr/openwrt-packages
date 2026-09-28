@@ -234,6 +234,53 @@ normalize_vendor() {
     echo "$short"
 }
 
+# ============================================================
+# Scratch file reaping
+# ============================================================
+# Several helpers fan their work into a per-process scratch file or directory
+# named "<base>_$$" (or "<base>.$$") and clean it up with an explicit `rm` plus
+# a `trap ... EXIT INT TERM`. That is NOT enough, and the leftovers were
+# observed on a live router:
+#
+#   * dnsmasq runs event_handler.sh as its --dhcp-script. When the script
+#     exceeds dnsmasq's script timeout, dnsmasq SIGKILLs the whole process
+#     group. SIGKILL cannot be trapped, so the scratch file survives.
+#   * A signal delivered to the parent shell does not reach the subshell that
+#     actually owns the trap when the function was invoked as `$(identify_...)`
+#     (the usual call shape here), so even SIGTERM can leave the file behind.
+#   * Several early `return`s fire before the explicit `rm -f`, leaving only
+#     the trap between us and a leak.
+#
+# Ten dead /tmp/devicemaster_{vendor,type}_score_<pid> files with long-gone
+# PIDs were found this way. dm_sweep_tmp_orphans() is the backstop: it runs at
+# each entry point and removes scratch artefacts whose owning PID no longer
+# exists. It is idempotent, cheap (a handful of readdirs), and immune to
+# SIGKILL because it never relies on the dying process doing anything.
+#
+# Keep this list in sync with every "<base>_$$" / "<base>.$$" created below.
+dm_sweep_tmp_orphans() {
+    local f pid
+    for f in /tmp/devicemaster_vendor_score_* /tmp/devicemaster_type_score_* \
+             /tmp/devicemaster_debug_vendor_* /tmp/devicemaster_debug_type_* \
+             /tmp/nlbw_proto_* /tmp/dm_cleanup_seen.* /tmp/devicemaster_mdns_cache.* \
+             /tmp/dm_http.*; do
+        [ -e "$f" ] || continue
+        pid="${f##*[._]}"
+        case "$pid" in
+            ''|*[!0-9]*) continue ;;
+        esac
+        # Live PID -> an in-flight identification owns it, leave it alone.
+        [ -d "/proc/$pid" ] && continue
+        rm -rf "$f" 2>/dev/null
+    done
+}
+
+# Kept as a thin alias: identify_vendor()/identify_type()/debug_identify() call
+# this by name before creating their scratch file.
+score_sweep_orphans() {
+    dm_sweep_tmp_orphans
+}
+
 score_add() {
     local file="$1"
     local key="$2"
@@ -372,6 +419,7 @@ mdns_dump() {
     fi
     if [ ! -s "$MDNS_CACHE" ] || [ "$age" -gt "$MDNS_CACHE_TTL" ]; then
         local tmp="$MDNS_CACHE.$$"
+        trap 'rm -f "$tmp"' EXIT INT TERM
         if avahi-browse -a -t -r -p 2>/dev/null > "$tmp" && [ -s "$tmp" ]; then
             mv -f "$tmp" "$MDNS_CACHE"
         fi
@@ -644,6 +692,7 @@ http_hints() {
     if [ ! -f "$cache" ] || [ $(($(date +%s) - $(stat -c %Y "$cache" 2>/dev/null || echo 0))) -gt 300 ]; then
         local dir="/tmp/dm_http.$$"
         mkdir -p "$dir"
+        trap 'rm -rf "$dir"' EXIT INT TERM
 
         # Body banners, one background job per port.
         #
@@ -944,6 +993,8 @@ detect_by_nlbwmon() {
     # Cache is JSON: {"columns":[...],"data":[["TCP",443,"mac",...,"layer7"],...]}
     # Split data rows, filter by MAC, extract layer7 (last field)
     local tmpfile="/tmp/nlbw_proto_$$"
+    : > "$tmpfile"
+    trap 'rm -f "$tmpfile"' EXIT INT TERM
     grep -i "$mac_lower" "$NLBWMON_CACHE" | sed 's/\],\[/\n/g' | grep -i "$mac_lower" | while IFS=',' read -r row; do
         layer7=$(echo "$row" | sed 's/^.*"\([^"]*\)"$/\1/' | awk -F'"' '{print $(NF-1)}')
         # Skip null/empty, non-identifying, and non-protocol values
@@ -1226,6 +1277,7 @@ identify_vendor() {
     local mac="$1"
     local ip="$2"
     local hostname="$3"
+    score_sweep_orphans
     local score_file="/tmp/devicemaster_vendor_score_$$"
     : > "$score_file"
     trap 'rm -f "$score_file"' EXIT INT TERM
@@ -1250,6 +1302,7 @@ identify_vendor() {
     # probes (mDNS service hints, conntrack ports) mis-classify the device.
     if [ "$is_laa" -eq 1 ] && [ -n "$l4" ] && [ "$l4" != "LAA" ] && [ "$l4" != "Unknown" ]; then
         log_msg "Identify vendor $mac -> $l4 via strong hostname signal ($hostname)"
+        rm -f "$score_file"
         echo "$l4"
         return
     fi
@@ -1324,6 +1377,7 @@ identify_type() {
     local ip="$2"
     local hostname="$3"
     local vendor="$4"
+    score_sweep_orphans
     local score_file="/tmp/devicemaster_type_score_$$"
     : > "$score_file"
     trap 'rm -f "$score_file"' EXIT INT TERM
@@ -1350,6 +1404,7 @@ identify_type() {
         # Obvious phones/tablets — these names never come from IoT devices
         *iphone*|*ipad*|*redmi-k*|*redmi-note*|*redmi-book*|*poco*|*galaxy-s*|*galaxy-note*|*galaxy-z*|*galaxy-tab*|*pixel-[0-9]*|*pixel-tablet*|*huawei-mate*|*huawei-p-[0-9]*|*honor-[0-9]*|*honor-magic*|*oneplus-[0-9]*|*realme-[0-9]*|*oppo-find*|*vivo-x[0-9]*|*vivo-v[0-9]*|*mixfold*|*mi-11t*|*mi-12t*|*mi-13t*|*mi-14t*)
             log_msg "Identify type $mac -> phone via strong hostname signal ($hostname)"
+            rm -f "$score_file"
             echo "phone"
             return
             ;;
@@ -1363,6 +1418,7 @@ identify_type() {
             case "$v_lower" in
                 xiaomi|huawei|apple|samsung|google|oppo|vivo|oneplus|realme|sony|motorola|nokia|android|lg|honor|zte|tcl)
                     log_msg "Identify type $mac -> phone via hostname+vendor match ($vendor / $hostname)"
+                    rm -f "$score_file"
                     echo "phone"
                     return
                     ;;
@@ -1437,10 +1493,12 @@ debug_identify() {
     echo "ARP $(grep -i "$mac" /proc/net/arp 2>/dev/null)"
     echo "UCI $(uci show devicemaster 2>/dev/null | grep -i "$mac" | head -1)"
 
+    score_sweep_orphans
     local vscore="/tmp/devicemaster_debug_vendor_$$"
     local tscore="/tmp/devicemaster_debug_type_$$"
     : > "$vscore"
     : > "$tscore"
+    trap 'rm -f "$vscore" "$tscore"' EXIT INT TERM
 
     local oui_local=""
     local oui_remote=""
@@ -2318,7 +2376,8 @@ register_device() {
 # ============================================================
 cleanup_duplicate_devices() {
     local seen_file="/tmp/dm_cleanup_seen.$$"
-    > "$seen_file"
+    : > "$seen_file"
+    trap 'rm -f "$seen_file"' EXIT INT TERM
     local changed=0
     local idx=0
     local to_delete=""
@@ -2358,6 +2417,12 @@ main() {
     local mac="$2"
     local ip="$3"
     local hostname="$4"
+
+    # Reap scratch files left by a previous run that was SIGKILLed (dnsmasq
+    # kills its dhcp-script on timeout) or interrupted before its trap could
+    # fire. Deliberately before the early `exit 0`s below so it still runs for
+    # events we end up ignoring. See score_sweep_orphans().
+    score_sweep_orphans
 
     # Lowercase MAC - must work without external commands (dnsmasq jail has no tr/awk)
     # Use printf + sed as fallback; if sed also unavailable, skip (non-critical for DHCP events)

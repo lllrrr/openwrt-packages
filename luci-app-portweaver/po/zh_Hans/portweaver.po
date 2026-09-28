@@ -1218,3 +1218,99 @@ msgstr "WoL 已排队：%d，已跳过：%d，失败：%d。"
 
 msgid "WoL Trigger Mode"
 msgstr "WoL 触发方式"
+
+msgid "%d project(s), %d listener(s), %d reference(s)"
+msgstr "%d 个项目，%d 个监听，%d 个引用"
+
+msgid "Backend"
+msgstr "后端"
+
+msgid "Event Loops"
+msgstr "事件循环"
+
+msgid "Event-loop Attachment"
+msgstr "挂载事件循环"
+
+msgid "Event-loop Topology"
+msgstr "事件循环拓扑"
+
+msgid "Failed to load event-loop topology: %s"
+msgstr "加载事件循环拓扑失败：%s"
+
+msgid "Generation"
+msgstr "配置代次"
+
+msgid "Globally shared"
+msgstr "全局共享"
+
+msgid "Globally shared (lowest memory)"
+msgstr "全局共享（内存占用最低）"
+
+msgid "Grouped by actual runtime instances. Runtime IDs are process-local and change after a service restart."
+msgstr "按实际运行时实例分组。运行时 ID 仅在当前进程内有效，服务重启后会变化。"
+
+msgid "Listener-dedicated"
+msgstr "监听独占"
+
+msgid "Listener-dedicated (highest isolation)"
+msgstr "监听独占（隔离性最高）"
+
+msgid "Listeners"
+msgstr "监听"
+
+msgid "Live snapshot"
+msgstr "实时快照"
+
+msgid "Loading event-loop topology..."
+msgstr "正在加载事件循环拓扑..."
+
+msgid "Loading topology..."
+msgstr "正在加载拓扑..."
+
+msgid "No active application-forwarding event loops were found."
+msgstr "未发现活动的应用层转发事件循环。"
+
+msgid "No active listeners are attached to this runtime."
+msgstr "此运行时当前没有挂载活动监听。"
+
+msgid "Observed Event-loop Tree"
+msgstr "实际事件循环树"
+
+msgid "Project ID: %s"
+msgstr "项目 ID：%s"
+
+msgid "Project-shared"
+msgstr "项目共享"
+
+msgid "Project-shared (default)"
+msgstr "项目共享（默认）"
+
+msgid "Projects"
+msgstr "项目"
+
+msgid "Refresh topology"
+msgstr "刷新拓扑"
+
+msgid "Runtime #%s"
+msgstr "运行时 #%s"
+
+msgid "Runtimes"
+msgstr "运行时"
+
+msgid "Selects where this project's listeners are attached. Project-shared uses one event loop for this project. Listener-dedicated gives every listener its own event loop and thread. Globally shared attaches listeners from all projects to one event loop."
+msgstr "选择此项目的监听挂载位置。项目共享会为本项目使用一个事件循环；监听独占会为每个监听分配独立事件循环和线程；全局共享会将所有项目的监听挂载到同一个事件循环。"
+
+msgid "Starting"
+msgstr "正在启动"
+
+msgid "Stopping"
+msgstr "正在停止"
+
+msgid "Topology unavailable"
+msgstr "拓扑不可用"
+
+msgid "Unknown mode"
+msgstr "未知模式"
+
+msgid "Unknown state"
+msgstr "未知状态"

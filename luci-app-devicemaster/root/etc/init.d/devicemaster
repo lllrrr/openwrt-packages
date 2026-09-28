@@ -42,6 +42,17 @@ start_service() {
 	# Clean up old cache files (no longer needed)
 	rm -f /tmp/devicemaster_device_cache /tmp/devicemaster_custom_cache
 
+	# Sweep scratch files orphaned by a previous run that was SIGKILLed.
+	# dnsmasq kills its --dhcp-script on timeout and SIGKILL cannot be trapped,
+	# so event_handler.sh can leave /tmp/nlbw_proto_<pid>, /tmp/dm_http.<pid>
+	# directories and score files behind. event_handler.sh reaps them on every
+	# entry as well; this is the belt-and-braces pass for a cold boot, when a
+	# PID from the previous boot may have been reused by an unrelated process.
+	rm -rf /tmp/nlbw_proto_* /tmp/dm_http.* /tmp/dm_cleanup_seen.* \
+	       /tmp/devicemaster_mdns_cache.* \
+	       /tmp/devicemaster_vendor_score_* /tmp/devicemaster_type_score_* \
+	       /tmp/devicemaster_debug_vendor_* /tmp/devicemaster_debug_type_* 2>/dev/null
+
 	# Setup nftables chain for traffic control
 	setup_nftables
 
@@ -156,6 +167,10 @@ service_cleanup() {
 	rm -f /tmp/devicemaster_mdns_cache /tmp/devicemaster_nlbwmon_cache
 	rm -f /tmp/oui_download_result.txt /tmp/oui_api_test_result.txt
 	rm -f /tmp/oui.csv /tmp/nlbw_proto_*
+	# Scratch artefacts from event_handler.sh (see dm_sweep_tmp_orphans there)
+	rm -rf /tmp/dm_http.* /tmp/dm_cleanup_seen.* /tmp/devicemaster_mdns_cache.*
+	rm -f /tmp/devicemaster_vendor_score_* /tmp/devicemaster_type_score_*
+	rm -f /tmp/devicemaster_debug_vendor_* /tmp/devicemaster_debug_type_*
 
 	# Remove ACL config
 	rm -f /usr/share/rpcd/acl.d/luci-app-devicemaster.json
