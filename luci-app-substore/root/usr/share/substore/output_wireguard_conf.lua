@@ -11,9 +11,46 @@ local function is_wireguard(n)
 	return p == "wireguard" or p == "wg"
 end
 
--- amnezia-wg-option 键 → .conf 键：首字母大写（jc → Jc，jmin → Jmin，itime → Itime）
+-- amnezia-wg-option 子键 → .conf 键。
+-- 只输出能**确定**名字的键：多词键并不是把首字母大写就能得到 .conf 名
+-- （header-protection-key 的正确写法是 HeaderProtectionKey，不是 Header-protection-key），
+-- 靠规则猜出来的名字会被 AmneziaWG 客户端当成未知键，可能整份配置被拒。
+-- 因此用显式映射，映射不到的键一律不输出（§110：不输出未经验证的 AWG 字段）。
+local AWG_CONF_KEY_MAP = {
+	jc = "Jc", jmin = "Jmin", jmax = "Jmax",
+	s1 = "S1", s2 = "S2", s3 = "S3", s4 = "S4",
+	h1 = "H1", h2 = "H2", h3 = "H3", h4 = "H4",
+	i1 = "I1", i2 = "I2", i3 = "I3", i4 = "I4", i5 = "I5",
+	j1 = "J1", j2 = "J2", j3 = "J3", itime = "Itime",
+	-- AWG 3.0 / 3.1（键名核对自 amneziawg-tools src/config.c）
+	["header-protection-key"] = "HeaderProtectionKey",
+	["content-padding-addition"] = "ContentPaddingAddition",
+	["rekey-after-time"] = "RekeyAfterTime",
+	["rekey-timeout"] = "RekeyTimeout",
+	["reject-after-time"] = "RejectAfterTime",
+	["keepalive-timeout"] = "KeepaliveTimeout",
+	["max-handshake-attempts"] = "MaxHandshakeAttempts",
+	["random-trailers"] = "RandomTrailers",
+	["disable-cookies"] = "DisableCookies",
+	["advanced-security"] = "AdvancedSecurity",
+}
+
+-- 布尔键在 .conf 里必须写成 on/off：amneziawg-tools 的 parse_bool 只接受
+-- on/off（大小写不敏感）或十进制数，写 true/false 会被判为非法值。
+local AWG_BOOL_CONF_KEYS = {
+	RandomTrailers = true, DisableCookies = true, AdvancedSecurity = true,
+}
+
 local function conf_key(k)
-	return (k:gsub("^%l", string.upper))
+	return AWG_CONF_KEY_MAP[k]
+end
+
+-- 值 → .conf 文本：布尔转 on/off，其余 tostring
+local function conf_val(conf_key_name, v)
+	if AWG_BOOL_CONF_KEYS[conf_key_name] and type(v) == "boolean" then
+		return v and "on" or "off"
+	end
+	return tostring(v)
 end
 
 -- 值可能是标量或数组，统一转为 "a, b, c"
@@ -60,14 +97,18 @@ local function build_section(n)
 	put("MTU", n.mtu)
 	put("DNS", join_list(n.dns))
 
-	-- AmneziaWG 参数：按 .conf 键名排序输出，保证可 diff
+	-- AmneziaWG 参数：按 .conf 键名排序输出，保证可 diff；
+	-- 无法确定 .conf 名的键直接跳过（见 AWG_CONF_KEY_MAP 说明）
 	local opt = n["amnezia-wg-option"]
 	if type(opt) == "table" then
-		local keys = {}
-		for k in pairs(opt) do keys[#keys + 1] = k end
-		table.sort(keys)
-		for _, k in ipairs(keys) do
-			put(conf_key(k), tostring(opt[k]))
+		local mapped = {}
+		for k, v in pairs(opt) do
+			local ck = conf_key(k)
+			if ck then mapped[#mapped + 1] = { ck, v } end
+		end
+		table.sort(mapped, function(x, y) return x[1] < y[1] end)
+		for _, kv in ipairs(mapped) do
+			put(kv[1], conf_val(kv[1], kv[2]))
 		end
 	end
 
@@ -85,23 +126,39 @@ local function build_section(n)
 end
 
 -- nodes → wg-quick .conf 文本
--- 注意：wg-quick / AmneziaWG 客户端一个文件导入一条隧道。单节点时输出即为标准单接口
--- .conf；多节点时各段以 "# <名称>" 注释分隔，便于查看与手工拆分。
+-- §55/§56：一个 .conf 文件 = 一个 [Interface]。wg-quick / AmneziaWG 客户端按「单条隧道」
+-- 导入，把多个 [Interface] 段拼进同一个文件会得到客户端无法导入（或只取首段）的畸形配置，
+-- 因此多于一个 WireGuard 节点时明确报错，而不是静默拼接。
 function M.generate(nodes, options)
-	local blocks = {}
+	local wg = {}
 	for _, n in ipairs(nodes or {}) do
 		if type(n) == "table" and is_wireguard(n) then
-			local sec = build_section(n)
-			local named = { "# " .. (n.name or ((n.server or "") .. ":" .. tostring(n.port or ""))) }
-			for _, line in ipairs(sec) do named[#named + 1] = line end
-			blocks[#blocks + 1] = table.concat(named, "\n")
+			wg[#wg + 1] = n
 		end
 	end
-	if #blocks == 0 then
+	if #wg == 0 then
 		-- 明确报错优于返回空文件：用户能知道是"没有 WireGuard 节点"而非订阅坏了
 		return nil, "没有可导出的 WireGuard 节点"
 	end
-	return table.concat(blocks, "\n\n") .. "\n"
+	if #wg > 1 then
+		return nil, string.format(
+			"WireGuard .conf 每个文件只能包含一条隧道，当前有 %d 个 WireGuard 节点；请只导出单个节点",
+			#wg)
+	end
+
+	local n = wg[1]
+
+	-- PrivateKey 是 wg-quick / AmneziaWG 的必填项：缺了它导出的 .conf 连本项目的
+	-- parser.detect 都认不出来（detect 要求 [Interface] + PrivateKey 同时存在），
+	-- 客户端更是无法导入。宁可不导出，也不要产出这种「看起来成功」的残缺文件。
+	local priv = n["private-key"] or n.private_key
+	if priv == nil or priv == "" then
+		return nil, "该 WireGuard 节点没有私钥 (private-key)，无法导出 .conf"
+	end
+
+	local lines = { "# " .. (n.name or ((n.server or "") .. ":" .. tostring(n.port or ""))) }
+	for _, line in ipairs(build_section(n)) do lines[#lines + 1] = line end
+	return table.concat(lines, "\n") .. "\n"
 end
 
 return M

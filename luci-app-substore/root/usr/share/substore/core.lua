@@ -7,7 +7,7 @@ local parser = require("substore.parser")
 
 local M = {}
 
-M.version = "2.1.3"
+M.version = "2.5.1"
 M.DATA_DIR = "/etc/substore"
 M.LIST_FILE = M.DATA_DIR .. "/subscriptions.json"
 M.NODES_DIR = M.DATA_DIR .. "/nodes"
@@ -171,13 +171,18 @@ function M.generate_link(token, target, opts)
 	return content, ct, filename, nil
 end
 
+-- save_meta 补丁里的「清除」哨兵值。
+-- Lua 的 pairs 永远不会产出值为 nil 的键，所以补丁表里写 `k = nil` 等于什么都没写，
+-- 调用方无法表达「把这个字段删掉」。需要清除时传 M.CLEAR，save_meta 会还原成 nil。
+M.CLEAR = setmetatable({}, { __tostring = function() return "substore.CLEAR" end })
+
 function M.save_meta(id, patch)
 	if not id_is_valid(id) then return false, "非法 ID" end
 	local seq, items = load()
 	local meta = items[id]
 	if not meta then return false, "订阅不存在" end
 	for k, v in pairs(patch or {}) do
-		if v == nil then meta[k] = nil else meta[k] = v end
+		if v == nil or v == M.CLEAR then meta[k] = nil else meta[k] = v end
 	end
 	return save(seq, items)
 end
@@ -227,7 +232,7 @@ end
 
 -- 下载并解析订阅，写入节点文件并更新状态。成功返回 node_count，失败返回 nil, err
 function M.sync(id)
-	local log = function(msg) os.execute("logger -t luci-app-substore " .. string.format("%q", msg)) end
+	local log = function(msg) os.execute("logger -t luci-app-substore " .. util.shq(msg)) end
 	log("Sync start id="..tostring(id))
 	local meta = M.get(id)
 	if not meta then log("Sync fail: subscription not found"); return nil, "订阅不存在" end
@@ -243,13 +248,14 @@ function M.sync(id)
 		log("Sync local subscription")
 		local content = meta.raw_content or ""
 		if content == "" then
-			M.save_meta(id, { error = "本地订阅内容为空", node_count = 0, last_update = os.time() })
+			-- 失败路径一律不改 node_count：磁盘上的旧节点仍在，订阅链接仍在下发（§35）
+			M.save_meta(id, { error = "本地订阅内容为空", last_update = os.time() })
 			return nil, "本地订阅内容为空"
 		end
 		local res, perr = parser.parse_local(content, meta.local_mode or "text")
 		if not res or not res.nodes then
 			log("Parse local fail: " .. tostring(perr))
-			M.save_meta(id, { error = perr or "本地解析失败", node_count = 0, last_update = os.time() })
+			M.save_meta(id, { error = perr or "本地解析失败", last_update = os.time() })
 			return nil, perr or "本地解析失败"
 		end
 		log("Parse local ok nodes="..#res.nodes)
@@ -267,23 +273,29 @@ function M.sync(id)
 	end
 	if not meta.url or meta.url == "" then log("Sync fail: no URL"); return nil, "无订阅 URL" end
 
-	-- 订阅代理：开启且代理地址有效时，通过代理下载订阅
+	-- 订阅代理：开启时代理地址必须有效。无效就明确失败——
+	-- 静默直连会让用户以为流量走了代理，属于必须避免的 silent fallback（§12）。
 	local proxy = ""
 	if meta.proxy_enable == true or meta.proxy_enable == "1" then
 		local p, perr = http.parse_proxy(meta.proxy or "")
-		if p and p ~= "" then
-			proxy = p
-		elseif perr then
-			log("Proxy ignored: " .. tostring(perr))
+		if not p or p == "" then
+			local msg = perr or "代理地址为空"
+			log("Proxy invalid: " .. tostring(msg))
+			M.save_meta(id, { error = "代理配置无效: " .. tostring(msg), last_update = os.time() })
+			return nil, "代理配置无效: " .. tostring(msg)
 		end
+		proxy = p
 	end
-	if proxy ~= "" then log("Using proxy " .. proxy) end
+	-- 日志不记录代理凭据（§39）
+	if proxy ~= "" then log("Using proxy " .. http.redact_proxy(proxy)) end
 
 	local content, headers, err = http.download(meta.url, { max_size = M.MAX_SIZE, timeout = M.TIMEOUT, proxy = proxy })
 	if not content then
-		log("Download fail: " .. tostring(err))
-		M.save_meta(id, { error = err, last_update = os.time() })
-		return nil, err
+		-- 下载工具的报错可能回显含凭据的 URL，写日志与入库前先抹掉（§39）
+		local safe_err = http.scrub_credentials(err or "下载失败")
+		log("Download fail: " .. safe_err)
+		M.save_meta(id, { error = safe_err, last_update = os.time() })
+		return nil, safe_err
 	end
 	log("Download ok size="..#content)
 
@@ -293,7 +305,7 @@ function M.sync(id)
 	local res, perr = parser.parse(content)
 	if not res or not res.nodes then
 		log("Parse fail: " .. tostring(perr))
-		M.save_meta(id, { error = perr or "解析失败", node_count = 0, last_update = os.time() })
+		M.save_meta(id, { error = perr or "解析失败", last_update = os.time() })
 		return nil, perr or "解析失败"
 	end
 	log("Parse ok nodes="..#res.nodes)
@@ -306,7 +318,12 @@ function M.sync(id)
 
 	local ok = M.save_meta(id, {
 		node_count = #nodes, format = res.format, error = "", last_update = os.time(),
-		upload = ui and ui.upload, download = ui and ui.download, total = ui and ui.total, expire = ui and ui.expire,
+		-- 机场不再下发 subscription-userinfo 时必须把旧数值清掉，
+		-- 否则列表页会一直显示早已过期的流量/到期时间。用 M.CLEAR 表达「清除」。
+		upload = (ui and ui.upload) or M.CLEAR,
+		download = (ui and ui.download) or M.CLEAR,
+		total = (ui and ui.total) or M.CLEAR,
+		expire = (ui and ui.expire) or M.CLEAR,
 	})
 	if not ok then return nil, "更新状态失败" end
 	-- 源订阅更新后，刷新引用它的组合订阅
