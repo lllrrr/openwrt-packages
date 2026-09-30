@@ -122,28 +122,32 @@ create_apk() {
 	cat "$apk_control_tar" "$apk_data_tar" > "$apk_out"
 }
 
-write_rpcd_restart_script() {
+# postinst / postrm 一律从 Makefile 里取，不在这脚本里再抄一份。
+#
+# 发版走的是官方 SDK（.github/workflows/build-packages.yml），它的脚本只来自
+# Makefile；本地打包若自带一份，两者迟早漂移 —— 0.1.5-r5 之前就正好漂了：
+# 本地这份有 cron 路径迁移、没有 nginx 片段，而线上那份恰好相反。于是「本地打
+# 包解出来核对」永远核不到真正发布出去的东西，离线验证形同虚设。
+# 注意用 exit 而不是 break —— 规则体不在循环里，break 会直接报
+# "break is not allowed outside a loop or switch"（mawk/busybox awk 都是）。
+makefile_block() {
+	awk -v want="$1" '
+		$0 == "define Package/luci-app-oxidns/" want { inside = 1; next }
+		inside && $0 == "endef" { exit }
+		inside { print }
+	' "$MAKEFILE"
+}
+
+# Makefile 里是双写转义（$$），取出来要还原成单写才是能执行的脚本。
+write_makefile_script() {
 	out="$1"
-	cat > "$out" <<'EOF'
-#!/bin/sh
-[ -n "${IPKG_INSTROOT:-}" ] && exit 0
-rm -f /tmp/luci-indexcache* 2>/dev/null || true
-rm -rf /tmp/luci-modulecache/* 2>/dev/null || true
-if [ -d /www/luci-static/resources/view/oxidns ]; then
-	find /www/luci-static/resources/view/oxidns -type f -name '*.js' -exec touch {} + 2>/dev/null || true
-fi
-if [ -x /etc/init.d/rpcd ]; then
-	/etc/init.d/rpcd restart >/dev/null 2>&1 || true
-fi
-# 0.1.4-r1 曾把 learn-reset 脚本装在 /usr/bin，升级时迁移旧 cron 块里的路径
-if [ -f /etc/crontabs/root ] && [ -x /usr/libexec/oxidns/learn-reset.sh ]; then
-	sed -i 's#/usr/bin/oxidns-learn-reset\.sh#/usr/libexec/oxidns/learn-reset.sh#g' /etc/crontabs/root 2>/dev/null || true
-	if [ -x /etc/init.d/cron ]; then
-		/etc/init.d/cron restart >/dev/null 2>&1 || true
+	block="$2"
+	makefile_block "$block" | sed 's/\$\$/$/g' > "$out"
+	if ! grep -q '^#!/bin/sh' "$out"; then
+		printf 'Makefile 里没有可用的 Package/luci-app-oxidns/%s 块（%s）\n' \
+			"$block" "$MAKEFILE" >&2
+		exit 1
 	fi
-fi
-exit 0
-EOF
 	chmod 755 "$out"
 }
 
@@ -201,8 +205,8 @@ fi
 if [ -f "$DATA_DIR/etc/init.d/oxidns" ]; then
 	chmod 755 "$DATA_DIR/etc/init.d/oxidns"
 fi
-write_rpcd_restart_script "$CONTROL_DIR/postinst"
-write_rpcd_restart_script "$CONTROL_DIR/postrm"
+write_makefile_script "$CONTROL_DIR/postinst" postinst
+write_makefile_script "$CONTROL_DIR/postrm" postrm
 
 printf '2.0\n' > "$TMP_DIR/debian-binary"
 tar_create_gz "$TMP_DIR/control.tar.gz" -C "$CONTROL_DIR" .
@@ -226,9 +230,12 @@ depend = jsonfilter
 depend = uclient-fetch
 depend = ca-bundle
 EOF
-write_rpcd_restart_script "$APK_CONTROL_DIR/.post-install"
+# apk 的三个脚本成员一一对应 Makefile 的 postinst / postrm：
+# 安装、升级跑 postinst，卸载跑 postrm（原先 .post-deinstall 是 postinst 的副本，
+# 卸载时会去做安装期的事，与 Makefile 的语义对不上）。
+write_makefile_script "$APK_CONTROL_DIR/.post-install" postinst
 cp "$APK_CONTROL_DIR/.post-install" "$APK_CONTROL_DIR/.post-upgrade"
-cp "$APK_CONTROL_DIR/.post-install" "$APK_CONTROL_DIR/.post-deinstall"
+write_makefile_script "$APK_CONTROL_DIR/.post-deinstall" postrm
 
 create_apk "$OUT_DIR/${PKG_FILE_BASE}.apk" "$APK_CONTROL_DIR" "$DATA_DIR"
 

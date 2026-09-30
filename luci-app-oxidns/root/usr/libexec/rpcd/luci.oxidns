@@ -18,7 +18,8 @@ LEARN_RESET_SCRIPT="${OXIDNS_LEARN_RESET_SCRIPT:-/usr/libexec/oxidns/learn-reset
 LEARN_CRON_FILE="${OXIDNS_LEARN_CRON_FILE:-/etc/crontabs/root}"
 LEARN_CRON_BEGIN="# BEGIN luci-app-oxidns learn-reset"
 LEARN_CRON_END="# END luci-app-oxidns learn-reset"
-TMP_ROOT="${TMPDIR:-/tmp}"
+# 临时目录。离线测试要能把它指到别处，所以单独留一个覆盖点。
+TMP_ROOT="${OXIDNS_RPC_TMPDIR:-${TMPDIR:-/tmp}}"
 CORE_PROGRESS_DIR="$TMP_ROOT/luci-oxidns"
 CORE_PROGRESS_LOG="$CORE_PROGRESS_DIR/core-progress.log"
 CORE_LOCK_DIR="$CORE_PROGRESS_DIR/core-operation.lock"
@@ -43,6 +44,12 @@ DOWNLOAD_PROXY=""
 GITHUB_TOKEN=""
 DOWNLOAD_ERROR=""
 DOWNLOAD_RC=""
+
+# 分块上传（详见 resolve_content_file 上方的说明）
+UPLOAD_DIR="$TMP_ROOT/oxidns-upload"
+UPLOAD_MAX_BYTES=16777216
+UPLOAD_CHUNK_MAX_BYTES=4096
+UPLOAD_STALE_MINUTES=60
 
 json_escape_stream() {
 	awk 'BEGIN { ORS = "" }
@@ -1006,6 +1013,202 @@ input_bool() {
 	esac
 }
 
+# 取一个非负整数字段，缺省或不是数字时给出兜底值（字段都是自己前端发的，
+# 这里只做兜底，不做语义校验 —— 语义校验在 resolve_content_file 里）。
+input_uint() {
+	KEY="$1"
+	INPUT="$2"
+	DEFAULT="$3"
+	VALUE="$(input_value "$KEY" "$INPUT")"
+	case "$VALUE" in
+		'')
+			printf '%s' "$DEFAULT"
+			;;
+		*[!0-9]*)
+			printf '%s' "$DEFAULT"
+			;;
+		*)
+			printf '%s' "$VALUE"
+			;;
+	esac
+}
+
+file_byte_size() {
+	if [ ! -e "$1" ]; then
+		printf '0'
+		return 0
+	fi
+	wc -c < "$1" 2>/dev/null | tr -d '[:space:]'
+}
+
+# upload_id 会直接进文件名，所以只允许 [A-Za-z0-9_-]（顺带挡掉路径穿越）。
+upload_is_valid_id() {
+	case "${1:-}" in
+		'')
+			return 1
+			;;
+		*[!A-Za-z0-9_-]*)
+			return 1
+			;;
+	esac
+	[ "${#1}" -le 64 ]
+}
+
+upload_path() {
+	printf '%s/%s.%s' "$UPLOAD_DIR" "$1" "$2"
+}
+
+# 追加一块内容。$2 是客户端摘掉尾随换行之后剩下的正文，$3 是被摘掉的换行个数
+# —— 见 resolve_content_file 里对"为什么要摘"的说明。
+append_upload_chunk() {
+	APPEND_FILE="$1"
+	APPEND_TEXT="$2"
+	APPEND_NEWLINES="$3"
+
+	if [ -n "$APPEND_TEXT" ]; then
+		printf '%s' "$APPEND_TEXT" >> "$APPEND_FILE" || return 1
+	fi
+	while [ -n "$APPEND_NEWLINES" ] && [ "$APPEND_NEWLINES" -gt 0 ]; do
+		printf '\n' >> "$APPEND_FILE" || return 1
+		APPEND_NEWLINES=$((APPEND_NEWLINES - 1))
+	done
+	return 0
+}
+
+# ---- 分块上传 -------------------------------------------------------------
+#
+# 为什么整份内容必须切成小块送上来：Web 服务对 /ubus 的请求体有硬上限，
+# 而且 nginx 那条不是"报错"而是"崩掉"。
+#
+#   * uhttpd-mod-ubus：UH_UBUS_MAX_POST_SIZE = 65536，超了中途放弃解析并关闭
+#     连接（uhttpd/ubus.c 的 uh_ubus_data_send）。
+#   * nginx 的 ubus 模块：请求体超过 client_body_buffer_size（nginx 默认 =
+#     两个内存页，8192）时，nginx 会把 body 落到临时文件，r->request_body->bufs
+#     变成文件 buf（pos == NULL，ngx_buf_size() 返回文件长度）；模块却在
+#     ngx_http_ubus_module.c:756 用 ngx_memcpy(buffer + pos, in->buf->pos, len)
+#     去拷它 ⇒ memcpy(dst, NULL, len) ⇒ worker SIGSEGV ⇒ 进程被拉起、连接被
+#     重置，浏览器拿不到任何 HTTP 响应，只报 "XHR request aborted by browser"。
+#       https://github.com/Ansuel/nginx-ubus-module/issues/2  （open）
+#       https://github.com/Ansuel/nginx-ubus-module/issues/3  （修复 PR，未合并）
+#
+# 两个门限都是编译期常量 / 模块内部语义，改不动，所以只能让请求体本身变小。
+#
+# 协议（与 htdocs/luci-static/resources/view/oxidns/upload.js 一一对应）：
+#   content_chunk   本块正文，尾随换行已被客户端摘掉
+#   chunk_newlines  被摘掉的尾随换行个数
+#   chunk_bytes     本块真实字节数（含尾随换行），用来证明没在 JSON 里被截断
+#   chunk_offset    本块之前已收到的字节数，用来证明分块没丢、没重、没乱序
+#   upload_id       本次上传的随机标识（[A-Za-z0-9_-]{1,64}）
+#   done            本块是最后一块 → 内容齐了，可以校验 / 落盘
+#
+# 为什么要把尾随换行摘下来单独计数：内容是用 jsonfilter 取的，而取值走的是
+# shell 的命令替换，命令替换会吃掉所有尾随换行 —— 不单独带个数过来，凡是
+# 落在块边界上的换行都会被静默吞掉。offset/chunk_bytes 两个校验就是为了让
+# "悄悄少了几个字节"变成一条明确的报错。
+#
+# 返回码：
+#   0 内容已齐（$UPLOAD_FILE 就是完整内容）
+#   1 本块已收下但还没收完（$UPLOAD_FILE 是当前累计文件，$UPLOAD_RECEIVED 是字节数）
+#   2 出错（已经输出过 json_error）
+#   3 请求里既没有 content 也没有 content_chunk，调用方按旧逻辑处理
+resolve_content_file() {
+	RESOLVE_INPUT="$1"
+	RESOLVE_KIND="$2"
+	UPLOAD_FILE=""
+	UPLOAD_RECEIVED="0"
+
+	if input_has_key content_chunk "$RESOLVE_INPUT"; then
+		UPLOAD_ID="$(input_value upload_id "$RESOLVE_INPUT")"
+		if ! upload_is_valid_id "$UPLOAD_ID"; then
+			json_error "invalid_upload_id" "upload_id must match [A-Za-z0-9_-]{1,64}"
+			return 2
+		fi
+
+		CHUNK="$(input_value content_chunk "$RESOLVE_INPUT")"
+		CHUNK_BYTES="$(input_uint chunk_bytes "$RESOLVE_INPUT" 0)"
+		CHUNK_NEWLINES="$(input_uint chunk_newlines "$RESOLVE_INPUT" 0)"
+		OFFSET="$(input_uint chunk_offset "$RESOLVE_INPUT" 0)"
+
+		if [ "$CHUNK_BYTES" -gt "$UPLOAD_CHUNK_MAX_BYTES" ]; then
+			json_error "upload_chunk_too_large" "each chunk must stay below $UPLOAD_CHUNK_MAX_BYTES bytes"
+			return 2
+		fi
+
+		UPLOAD_FILE="$(upload_path "$UPLOAD_ID" "$RESOLVE_KIND")"
+		mkdir -p "$UPLOAD_DIR" 2>/dev/null || true
+
+		if [ "$OFFSET" -eq 0 ]; then
+			# 新的一轮上传：丢弃上一次中断留下的半截内容，顺便收拾过期的残片
+			# （内容存在 /tmp，是 tmpfs，别让它们一直占着内存）
+			: > "$UPLOAD_FILE" || {
+				json_error "upload_write_failed" "unable to start an upload in $UPLOAD_DIR"
+				return 2
+			}
+			find "$UPLOAD_DIR" -type f -mmin "+$UPLOAD_STALE_MINUTES" -exec rm -f {} \; 2>/dev/null || true
+		fi
+
+		if [ ! -f "$UPLOAD_FILE" ]; then
+			json_error "upload_out_of_order" "upload chunk arrived before the first chunk"
+			return 2
+		fi
+
+		UPLOAD_RECEIVED="$(file_byte_size "$UPLOAD_FILE")"
+		if [ "$UPLOAD_RECEIVED" != "$OFFSET" ]; then
+			json_error "upload_out_of_order" "chunk offset $OFFSET does not match the $UPLOAD_RECEIVED bytes already received"
+			return 2
+		fi
+
+		# 命令替换吃掉尾随换行是这里"顺手做的体检"：拿到的字节数应当正好等于
+		# chunk_bytes 减去被摘掉的那些换行。对不上说明 payload 在路上变了形，
+		# 宁可报错也不要静默写进去半截内容。
+		CHUNK_EXPECT="0"
+		if [ "$CHUNK_BYTES" -gt "$CHUNK_NEWLINES" ]; then
+			CHUNK_EXPECT=$((CHUNK_BYTES - CHUNK_NEWLINES))
+		fi
+		CHUNK_SIZE="$(printf '%s' "$CHUNK" | wc -c | tr -d '[:space:]')"
+		if [ "$CHUNK_SIZE" != "$CHUNK_EXPECT" ]; then
+			json_error "upload_chunk_mismatch" "chunk payload was altered in transit: got $CHUNK_SIZE bytes, expected $CHUNK_EXPECT"
+			return 2
+		fi
+
+		if ! append_upload_chunk "$UPLOAD_FILE" "$CHUNK" "$CHUNK_NEWLINES"; then
+			json_error "upload_write_failed" "unable to append to $UPLOAD_FILE"
+			return 2
+		fi
+
+		UPLOAD_RECEIVED="$(file_byte_size "$UPLOAD_FILE")"
+		if [ "$UPLOAD_RECEIVED" -gt "$UPLOAD_MAX_BYTES" ]; then
+			rm -f "$UPLOAD_FILE"
+			json_error "upload_too_large" "content must stay below $UPLOAD_MAX_BYTES bytes"
+			return 2
+		fi
+
+		if [ "$(input_bool done "$RESOLVE_INPUT")" = "1" ]; then
+			return 0
+		fi
+		return 1
+	fi
+
+	if input_has_key content "$RESOLVE_INPUT"; then
+		CONTENT="$(input_value content "$RESOLVE_INPUT")"
+		UPLOAD_FILE="$(mktemp "$TMP_ROOT/oxidns-rpc.XXXXXX")" || {
+			json_error "upload_write_failed" "unable to create a temporary file in $TMP_ROOT"
+			return 2
+		}
+		printf '%s' "$CONTENT" > "$UPLOAD_FILE"
+		UPLOAD_RECEIVED="$(file_byte_size "$UPLOAD_FILE")"
+		return 0
+	fi
+
+	return 3
+}
+
+# 把 resolve_content_file 的结果翻译成"还要继续收"的回包。分块期间前端只看
+# pending 字段，真正的结论要等最后一块。
+upload_pending_response() {
+	printf '{"ok":true,"pending":true,"received":%s}\n' "${UPLOAD_RECEIVED:-0}"
+}
+
 path_is_under() {
 	CHILD="$1"
 	PARENT="$2"
@@ -1130,29 +1333,43 @@ validate_config_file() {
 
 emit_config_validate() {
 	INPUT="$(cat)"
-	CONTENT="$(input_value content "$INPUT")"
-	TMP_FILE="$(mktemp "$TMP_ROOT/oxidns-config.XXXXXX")"
-	if input_has_key content "$INPUT"; then
-		if [ -z "$CONTENT" ]; then
-			rm -f "$TMP_FILE"
-			json_error "missing_content" "configuration content is required"
+
+	RESOLVE_RC=0
+	resolve_content_file "$INPUT" "config" || RESOLVE_RC=$?
+	case "$RESOLVE_RC" in
+		0)
+			;;
+		1)
+			upload_pending_response
+			return 0
+			;;
+		2)
 			return 1
-		fi
-		printf '%s' "$CONTENT" > "$TMP_FILE"
-	elif [ -r "$CONFIG_PATH" ]; then
-		cp "$CONFIG_PATH" "$TMP_FILE"
-	else
-		rm -f "$TMP_FILE"
-		json_error "config_missing" "no configuration content or file available"
+			;;
+		*)
+			# 请求里没带内容：退回磁盘上的配置文件（与旧行为一致）
+			if [ -r "$CONFIG_PATH" ]; then
+				UPLOAD_FILE="$(mktemp "$TMP_ROOT/oxidns-config.XXXXXX")"
+				cp "$CONFIG_PATH" "$UPLOAD_FILE"
+			else
+				json_error "config_missing" "no configuration content or file available"
+				return 1
+			fi
+			;;
+	esac
+
+	if [ ! -s "$UPLOAD_FILE" ]; then
+		rm -f "$UPLOAD_FILE"
+		json_error "missing_content" "configuration content is required"
 		return 1
 	fi
-	if OUTPUT="$(validate_config_file "$TMP_FILE")"; then
-		rm -f "$TMP_FILE"
+	if OUTPUT="$(validate_config_file "$UPLOAD_FILE")"; then
+		rm -f "$UPLOAD_FILE"
 		printf '{"ok":true,"message":'
 		json_string "${OUTPUT:-configuration is valid}"
 		printf '}\n'
 	else
-		rm -f "$TMP_FILE"
+		rm -f "$UPLOAD_FILE"
 		json_error "config_invalid" "$OUTPUT"
 		return 1
 	fi
@@ -1161,24 +1378,42 @@ emit_config_validate() {
 emit_config_save() {
 	load_settings
 	INPUT="$(cat)"
-	CONTENT="$(input_value content "$INPUT")"
 	BASE_MTIME="$(input_value base_mtime "$INPUT")"
 	RESTART="$(input_value restart "$INPUT")"
 	[ -n "$RESTART" ] || RESTART="$(input_value reload "$INPUT")"
 
-	if [ -z "$CONTENT" ]; then
+	RESOLVE_RC=0
+	resolve_content_file "$INPUT" "config" || RESOLVE_RC=$?
+	case "$RESOLVE_RC" in
+		0)
+			;;
+		1)
+			upload_pending_response
+			return 0
+			;;
+		2)
+			return 1
+			;;
+		*)
+			json_error "missing_content" "configuration content is required"
+			return 1
+			;;
+	esac
+
+	if [ ! -s "$UPLOAD_FILE" ]; then
+		rm -f "$UPLOAD_FILE"
 		json_error "missing_content" "configuration content is required"
 		return 1
 	fi
+	# 冲突检查放在"内容收齐"之后：分块期间用户可能已经改过盘上的文件
 	if [ -n "$BASE_MTIME" ] && [ -e "$CONFIG_PATH" ] && [ "$BASE_MTIME" != "$(stat_mtime "$CONFIG_PATH")" ]; then
+		rm -f "$UPLOAD_FILE"
 		json_error "config_conflict" "configuration file changed since it was loaded"
 		return 1
 	fi
 
-	TMP_FILE="$(mktemp "$TMP_ROOT/oxidns-config.XXXXXX")"
-	printf '%s' "$CONTENT" > "$TMP_FILE"
-	if ! OUTPUT="$(validate_config_file "$TMP_FILE")"; then
-		rm -f "$TMP_FILE"
+	if ! OUTPUT="$(validate_config_file "$UPLOAD_FILE")"; then
+		rm -f "$UPLOAD_FILE"
 		json_error "config_invalid" "$OUTPUT"
 		return 1
 	fi
@@ -1188,7 +1423,7 @@ emit_config_save() {
 		mkdir -p "$WORKING_DIR/config-backups"
 		cp "$CONFIG_PATH" "$WORKING_DIR/config-backups/config.yaml.$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
 	fi
-	mv "$TMP_FILE" "$CONFIG_PATH"
+	mv "$UPLOAD_FILE" "$CONFIG_PATH"
 
 	RESTART_STATUS="not_requested"
 	MESSAGE="configuration saved"
@@ -1366,7 +1601,7 @@ emit_rules_save() {
 		json_error "invalid_name" "rule file name is not allowed"
 		return 1
 	fi
-	if ! input_has_key content "$INPUT"; then
+	if ! input_has_key content "$INPUT" && ! input_has_key content_chunk "$INPUT"; then
 		json_error "missing_content" "rule file content is required"
 		return 1
 	fi
@@ -1391,7 +1626,28 @@ emit_rules_save() {
 		return 1
 	fi
 
-	CONTENT="$(input_value content "$INPUT")"
+	RESOLVE_RC=0
+	resolve_content_file "$INPUT" "rule" || RESOLVE_RC=$?
+	case "$RESOLVE_RC" in
+		0)
+			;;
+		1)
+			upload_pending_response
+			return 0
+			;;
+		2)
+			return 1
+			;;
+		*)
+			json_error "missing_content" "rule file content is required"
+			return 1
+			;;
+	esac
+
+	# 与旧路径保持同一套归一化（去掉尾随换行再由 printf 补一个换行），
+	# 命令替换在这里是刻意的：它等价于旧代码里 $(input_value content ...) 的语义。
+	CONTENT="$(cat "$UPLOAD_FILE")"
+	rm -f "$UPLOAD_FILE"
 
 	TMP_FILE="$(mktemp "$DIR/.oxidns-rule.XXXXXX" 2>/dev/null)" || TMP_FILE=""
 	if [ -z "$TMP_FILE" ]; then
@@ -2741,13 +2997,13 @@ case "${1:-}" in
 		printf '"service_enable":{},'
 		printf '"service_disable":{},'
 		printf '"config_read":{},'
-		printf '"config_validate":{"content":"string"},'
-		printf '"config_save":{"content":"string","base_mtime":"string","restart":"boolean"},'
+		printf '"config_validate":{"content":"string","content_chunk":"string","upload_id":"string","chunk_offset":"integer","chunk_newlines":"integer","chunk_bytes":"integer","done":"boolean"},'
+		printf '"config_save":{"content":"string","content_chunk":"string","upload_id":"string","chunk_offset":"integer","chunk_newlines":"integer","chunk_bytes":"integer","done":"boolean","base_mtime":"string","restart":"boolean"},'
 		printf '"settings_read":{},'
 		printf '"settings_save":{"core_repository":"string","core_bundle":"string","config_path":"string","working_dir":"string","download_proxy":"string","github_token":"string","clear_download_proxy":"boolean","clear_github_token":"boolean"},'
 		printf '"rules_list":{},'
 		printf '"rules_read":{"name":"string"},'
-		printf '"rules_save":{"name":"string","content":"string","base_mtime":"string","restart":"boolean"},'
+		printf '"rules_save":{"name":"string","content":"string","content_chunk":"string","upload_id":"string","chunk_offset":"integer","chunk_newlines":"integer","chunk_bytes":"integer","done":"boolean","base_mtime":"string","restart":"boolean"},'
 		printf '"learn_reset_get":{},'
 		printf '"learn_reset_save":{"reset_cn":"boolean","reset_proxy":"boolean","freq":"string","time":"string","weekday":"string","api_url":"string","api_user":"string","api_pass":"string"},'
 		printf '"learn_reset_run":{},'

@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-oxidns
 PKG_VERSION:=0.1.5
-PKG_RELEASE:=4
+PKG_RELEASE:=5
 
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_MAINTAINER:=Sven Shi <isvenshi@gmail.com>
@@ -21,6 +21,19 @@ if [ -d /www/luci-static/resources/view/oxidns ]; then
 fi
 if [ -x /etc/init.d/rpcd ]; then
 	/etc/init.d/rpcd restart >/dev/null 2>&1 || true
+fi
+# 0.1.4-r1 把 learn-reset 脚本从 /usr/bin 挪到了 /usr/libexec/oxidns，旧 cron 块里的
+# 路径要跟着改，否则定时重置只会在 cron 日志里静默失败。
+#
+# 这段必须写在这里：发版走官方 SDK（.github/workflows/build-packages.yml 用
+# gh-action-sdk），它的 postinst 只来自本文件的 define 块，不读
+# scripts/build-luci-package.sh 里的任何东西。它原先只写在那个脚本的 heredoc 里，
+# 于是线上安装从来没有跑过这段迁移 —— 本地造包解出来核对也永远核不到。
+if [ -f /etc/crontabs/root ] && [ -x /usr/libexec/oxidns/learn-reset.sh ]; then
+	sed -i 's#/usr/bin/oxidns-learn-reset\.sh#/usr/libexec/oxidns/learn-reset.sh#g' /etc/crontabs/root 2>/dev/null || true
+	if [ -x /etc/init.d/cron ]; then
+		/etc/init.d/cron restart >/dev/null 2>&1 || true
+	fi
 fi
 exit 0
 endef

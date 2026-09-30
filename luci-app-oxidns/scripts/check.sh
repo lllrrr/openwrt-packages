@@ -2,7 +2,7 @@
 
 set -eu
 
-node -e "for (const f of ['htdocs/luci-static/resources/view/oxidns/overview.js','htdocs/luci-static/resources/view/oxidns/core.js','htdocs/luci-static/resources/view/oxidns/config.js','htdocs/luci-static/resources/view/oxidns/rules.js','htdocs/luci-static/resources/view/oxidns/logs.js','htdocs/luci-static/resources/view/oxidns/settings.js']) new Function(require('fs').readFileSync(f,'utf8'));"
+node -e "const fs=require('fs'); const dir='htdocs/luci-static/resources/view/oxidns/'; for (const n of ['overview','core','config','rules','logs','settings','upload']) { const f=dir+n+'.js'; if (fs.existsSync(f)) new Function(fs.readFileSync(f,'utf8')); }"
 node -e "for (const f of ['root/usr/share/luci/menu.d/luci-app-oxidns.json','root/usr/share/rpcd/acl.d/luci-app-oxidns.json','root/usr/share/oxidns/targets.json']) JSON.parse(require('fs').readFileSync(f,'utf8'));"
 node <<'NODE'
 const fs = require('fs');
@@ -92,6 +92,52 @@ if (crlf.length) {
 		console.error(`  ${file}`);
 	console.error('These files are packaged for the router, where the rpcd backend and init script are executed.');
 	console.error('Keep them LF: check .gitattributes and core.autocrlf, then rebuild.');
+	process.exit(1);
+}
+NODE
+node <<'NODE'
+const fs = require('fs');
+
+const failures = [];
+
+// ------------------------------------------------------------ 包控制脚本
+// 发版走官方 SDK（.github/workflows/build-packages.yml 用 gh-action-sdk），它的
+// postinst/postrm 只来自 Makefile 的 define 块；scripts/build-luci-package.sh 里
+// 那份 heredoc 只在本地造包时会被跑到。两份一旦漂移，"本地解包核对"核的就不是
+// 线上那个包 —— 0.1.5-r5 之前正是如此：heredoc 里有 cron 路径迁移，Makefile 里
+// 没有，于是那段迁移在线上安装从来没执行过。
+const makefile = fs.readFileSync('Makefile', 'utf8');
+
+function block(name) {
+	const m = new RegExp(`^define Package/luci-app-oxidns/${name}$([\\s\\S]*?)^endef$`, 'm').exec(makefile);
+	return m ? m[1] : null;
+}
+
+const postinst = block('postinst');
+const postrm = block('postrm');
+
+if (!postinst)
+	failures.push('Makefile: 找不到 Package/luci-app-oxidns/postinst');
+if (!postrm)
+	failures.push('Makefile: 找不到 Package/luci-app-oxidns/postrm');
+
+for (const [label, needle] of [
+	['IPKG_INSTROOT 守卫', '[ -n "$${IPKG_INSTROOT:-}" ] && exit 0'],
+	['cron 路径迁移', 's#/usr/bin/oxidns-learn-reset\\.sh#/usr/libexec/oxidns/learn-reset.sh#g'],
+	['迁移后重启 cron', '/etc/init.d/cron restart'],
+]) {
+	if (postinst && !postinst.includes(needle))
+		failures.push(`Makefile postinst 缺少「${label}」`);
+}
+
+const builder = fs.readFileSync('scripts/build-luci-package.sh', 'utf8');
+if (!builder.includes('makefile_block'))
+	failures.push('build-luci-package.sh: 没有从 Makefile 里取 postinst/postrm');
+if (/^write_rpcd_restart_script\(\)/m.test(builder))
+	failures.push('build-luci-package.sh: 那份重复的 postinst heredoc 又回来了');
+
+if (failures.length) {
+	console.error(failures.join('\n'));
 	process.exit(1);
 }
 NODE

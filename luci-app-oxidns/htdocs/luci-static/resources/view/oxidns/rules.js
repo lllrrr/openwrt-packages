@@ -2,6 +2,7 @@
 'require view';
 'require rpc';
 'require ui';
+'require view.oxidns.upload as chunkedUpload';
 
 var callRulesList = rpc.declare({
 	object: 'luci.oxidns',
@@ -16,10 +17,15 @@ var callRulesRead = rpc.declare({
 	expect: {}
 });
 
+/*
+ * 规则文件可能很大（黑名单动辄几 MB），整份内容同样不能一次发过去：
+ * nginx 下请求体超过 client_body_buffer_size 会把 ubus 模块打崩，详见 upload.js。
+ */
 var callRulesSave = rpc.declare({
 	object: 'luci.oxidns',
 	method: 'rules_save',
-	params: [ 'name', 'content', 'base_mtime', 'restart' ],
+	params: [ 'content_chunk', 'upload_id', 'chunk_offset', 'chunk_newlines', 'chunk_bytes', 'done',
+		'name', 'base_mtime', 'restart' ],
 	expect: {}
 });
 

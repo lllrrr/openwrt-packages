@@ -2,6 +2,7 @@
 'require view';
 'require rpc';
 'require ui';
+'require view.oxidns.upload as chunkedUpload';
 
 var callConfigRead = rpc.declare({
 	object: 'luci.oxidns',
@@ -15,17 +16,23 @@ var callStatus = rpc.declare({
 	expect: {}
 });
 
+/*
+ * 整份 YAML 不是一次发过去的，而是切成小块分多次请求（原因见 upload.js 顶部
+ * 的说明：nginx 的 ubus 模块在请求体超过 client_body_buffer_size 时会 SIGSEGV）。
+ * 所以三个方法都只收 content_chunk 加一小串分块元信息。
+ */
 var callConfigValidate = rpc.declare({
 	object: 'luci.oxidns',
 	method: 'config_validate',
-	params: [ 'content' ],
+	params: [ 'content_chunk', 'upload_id', 'chunk_offset', 'chunk_newlines', 'chunk_bytes', 'done' ],
 	expect: {}
 });
 
 var callConfigSave = rpc.declare({
 	object: 'luci.oxidns',
 	method: 'config_save',
-	params: [ 'content', 'base_mtime', 'restart' ],
+	params: [ 'content_chunk', 'upload_id', 'chunk_offset', 'chunk_newlines', 'chunk_bytes', 'done',
+		'base_mtime', 'restart' ],
 	expect: {}
 });
 
@@ -137,13 +144,31 @@ function setBusy(activeButton, busy) {
 	});
 }
 
-function runConfigCall(button, busyText, call, args) {
+/*
+ * 分块上传要跑好几轮 RPC，给个百分比让用户知道还在动。
+ * 只有三块以上才值得显示 —— 小块内容一闪而过反而像卡顿。
+ */
+function progressReporter(busyText) {
+	var shown = '';
+
+	return function(done, total) {
+		var suffix = chunkedUpload.progressSuffix(done, total);
+
+		if (!suffix || suffix === shown)
+			return;
+
+		shown = suffix;
+		renderResult('notice', busyText + suffix);
+	};
+}
+
+function runConfigCall(button, busyText, run) {
 	setBusy(button, true);
 	renderResult('notice', busyText);
 
 	/* 直接接住 RPC 抛出的错误，L.resolveDefault() 会把失败吞成 null，错误文案就丢了 */
 	return Promise.resolve().then(function() {
-		return call.apply(null, args || []);
+		return run(progressReporter(busyText));
 	}).catch(function(err) {
 		return {
 			ok: false,
@@ -159,9 +184,11 @@ function runConfigCall(button, busyText, call, args) {
 function validateYaml(button) {
 	var content = textareaValue();
 
-	return runConfigCall(button, _('Validating configuration...'), callConfigValidate, [
-		content
-	]).then(function(result) {
+	return runConfigCall(button, _('Validating configuration...'), function(progress) {
+		return chunkedUpload.uploadText(content, function(chunk, last, uploadId) {
+			return callConfigValidate(chunk.text, uploadId, chunk.offset, chunk.newlines, chunk.bytes, last);
+		}, progress);
+	}).then(function(result) {
 		if (!result || result.ok === false) {
 			renderResult('error', _('Validation failed'), result && (result.message || result.error));
 			notifyResult('error', _('Validation failed'));
@@ -176,12 +203,14 @@ function validateYaml(button) {
 
 function saveYaml(button, restart) {
 	var content = textareaValue();
+	var busyText = restart ? _('Saving and restarting service...') : _('Saving configuration...');
 
-	return runConfigCall(button, restart ? _('Saving and restarting service...') : _('Saving configuration...'), callConfigSave, [
-		content,
-		configState.mtime,
-		restart
-	]).then(function(result) {
+	return runConfigCall(button, busyText, function(progress) {
+		return chunkedUpload.uploadText(content, function(chunk, last, uploadId) {
+			return callConfigSave(chunk.text, uploadId, chunk.offset, chunk.newlines, chunk.bytes, last,
+				configState.mtime, restart);
+		}, progress);
+	}).then(function(result) {
 		var code = result && result.code;
 		var message = result && (result.message || result.error);
 
