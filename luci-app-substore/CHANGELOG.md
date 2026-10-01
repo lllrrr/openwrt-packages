@@ -2,6 +2,340 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.6.7-r1] - P2 批次五：控制器健壮性（L3 / L4）
+
+P2 批次五，修控制器的两项缺陷：一类是**未登录可达的 500**，一类是
+**点了按钮却什么都没发生**。两者都属于「静默」——不报错、看起来正常。
+
+### L3 重复表单字段让 `formvalue` 返回 table，直接崩在 `:gsub` 上
+
+- LuCI 的 `formvalue` **不保证返回字符串**。依据上游 `luci/http.lua` 的
+  `urldecode_message_body`：
+
+  ```lua
+  elseif what == parser.VALUE and name then
+      local val = msg.params[name]
+      if type(val) == "table" then val[#val+1] = ...
+      elseif val ~= nil then msg.params[name] = { val, ... }   -- ← 第二次出现变成 table
+  ```
+
+  而 `formvalue` 原样返回 `msg.params[name]`；上游 luadoc 也写着
+  `@return HTTP input value or table of all input value`。
+- 控制器有 ~30 处直接对返回值做 `:gsub` / `util.trim` / `urlencode`，
+  遇到 table 会抛 `attempt to call method 'gsub'` → **HTTP 500**。
+  实测复现：`action_create` / `action_save` / `action_local_create` /
+  `action_local_save` / `action_combo_save` / `action_node_set_group` /
+  `action_probe` / `action_download` 共 8 个 action 崩溃。
+- **攻击面不限于已登录用户**：`/substore/download` 是无需登录的入口
+  （供 Passwall / OpenClash 拉取），对它 POST 一个重复的 `token` 字段即可触发。
+- 现新增 `fv(http, key)` 统一取值：table 取最后一个（与「同名参数后者覆盖
+  前者」一致），`nil` 保持 `nil`（`post_ok` 依赖它区分「无 token」与
+  「空 token」）。全部调用点收敛到这一处。
+- **更正审计表的表述**：触发条件是 **POST 重复字段**，不是 GET。GET 查询串
+  走的是 `urldecode_params`，它只做 `params[name] = ...` 覆盖、**不建表**。
+- 顺带清理：`action_node_delete` 里 `if type(idx_param) == "table"` 的兜底
+  在 `fv` 之后已成为死代码，移除。
+
+### L4 `combo_save` / `delete` / `update` / `node_delete` 静默失败
+
+违反项目 §18（失败必须让用户看见，不能「失败了却看起来像成功」）：
+
+- `action_delete`：`core.remove` 的返回值被整个丢弃。非法 ID / 订阅不存在时
+  返回 `false`，页面照常跳回列表 —— 用户点了删除，订阅还在。
+- `action_combo_save`：名称留空、或一个来源都没勾选时整段跳过直接跳回列表；
+  `add_combo` / `save_combo` 的返回值同样被丢弃（非法 ID、未选来源、写入失败
+  一律静默）。
+- `action_update`：订阅不存在（ID 拼错 / 已被删除）时静默跳回列表。
+- `action_node_delete`：下标解析不出数字、或下标全部越界时静默跳回列表；
+  `write_nodes` 失败也不提示。
+- 现四处全部补上原因回显。
+
+### 测试
+
+- 新增 `tests/controller_robustness_test.lua`，27 项断言：
+  - 12 个 action 逐个在「所有字段都重复提交」下调用，断言**不抛错**；
+  - 重复字段取值语义（取最后一个）；
+  - L4 四处的失败回显 + 成功路径不带 `err` 的守卫。
+- **反向验证**：指向 `HEAD` 版控制器重跑，**27 项中 18 项失败**，
+  崩溃点正是审计表标注的行（`substore.lua:90/118/146/170/321` 与
+  `util.lua:9`），确认测试覆盖的是真实缺陷而非恒真。
+- 全量回归：41 个 Lua 测试文件（1809 项断言）+ `cron_result_test.sh`(14)
+  全部通过。
+- 版本号 2.6.6-r1 → 2.6.7-r1。
+
+## [2.6.6-r1] - P2 批次四：核心数据层（代理解析 / 去重 / cron 退出码 / 规则字段）
+
+P2 批次四，修四项缺陷（审计表 M16 / M17 / M18 / M30）。前三项在数据通路上，
+症状都是「静默失效」——不报错、看起来正常，但结果不对或故障无人知晓；
+M30 则是「字段读得到、界面写不了」的静默数据丢失。
+
+### M16 未加方括号的 IPv6 代理地址被拼成非法代理串
+
+- `M.parse_proxy` 用 `^([^:]+):(%d+)$` 拆 host:port。IPv6 字面量里全是冒号，
+  这个模式必然失配，于是整个 `::1:1080` 落进「无端口」分支当作**主机名**，
+  再原样拼回去得到 `http://::1:1080` —— 冒号歧义，`curl -x` 与 `http_proxy=`
+  都解析不了（curl 会把 `::1:1080` 整个当主机名），**代理静默失效**。
+  更糟的是走 `[::1]:1080` 这条正确写法时，为做主机校验把方括号拆掉后
+  **没有拼回去**，同样得到 `http://::1:1080`。
+- 现分三处修正：① 记录是否带方括号；② 未加方括号却含多个冒号时**明确报错**
+  并给出正确写法（`::1:1080` 到底是「地址 ::1 + 端口 1080」还是地址
+  `::1:1080`，语法上无法判定 —— 与其猜一个再拼一条解析不了的串，不如让用户
+  补方括号）；③ 拼回代理串时，主机含冒号就补上方括号。
+
+### M17 去重键不含凭据，同入口的多账号被误删
+
+- `M.dedup` 此前只按 `proto|server|port` 去重。同一台服务器上的**多账号**是
+  极常见的形态（同一入口不同 uuid / 不同密码），这些节点会被判为重复而
+  只剩第一个 —— 用户看到节点数莫名变少，且**丢的是哪个不可预期**。
+- 现抽出 `identity_key()`，按协议取各自的凭据参与去重键：
+  vmess/vless → uuid；shadowsocks → method+password；ssr → method+password+
+  protocol+obfs；trojan/hysteria/hysteria2 → password；tuic → uuid+password；
+  socks/http → username+password；wireguard → peer 公钥（沿用原有逻辑）。
+  凭据完全相同的节点仍然照常去重。
+
+### M18 cron 脚本把「Lua 根本没跑完」当成成功
+
+- `substore-cron.sh` 的退出码判定是 `''|0) exit 0`。结果行**缺失**被和
+  「0 个失败」归为一类 —— 而结果行缺失的真实含义是 Lua 没跑到最后：
+  模块加载失败、`core.list()` 抛异常（它在 `pcall` 之外）、解释器中途死掉。
+  于是一次彻底失败的订阅更新在 cron 与外部监控看来**与成功无异**，
+  故障永远不会被发现。
+- 现把空结果行单列：写 stderr 诊断并 `exit 1`。
+
+### M30 「协议筛选 / 重命名」字段读得到、界面写不了
+
+- 控制器 `read_rules_fields` 一直在读 `proto_filter_*` 与 `rename_map`，
+  但三个表单（form.htm / local_form.htm / combo.htm）**都没有提交它们的控件**。
+  后果有两层：① 功能不可达，用户永远设不了这两项；② 更严重的是
+  **静默数据丢失** —— 控制器每次把 `formvalue` 的 `nil` 落成 `""`，
+  于是通过 UCI 手工设过的值在下一次保存时被抹掉。
+- 现三个表单补齐控件（协议勾选框 + 重命名文本域），并把协议清单收敛到
+  `core.RULE_PROTOS` 单一来源，由控制器与三个模板共用：两边各写一份的话，
+  一旦漂移，勾选框就会生成一个永远匹配不到任何节点的 `proto_filter`，
+  而症状是「勾了没用」——不报错，最难查。清单用的是 `node.normalize` 产出的
+  **规范**协议名（`socks5` 在解析阶段已归一成 `socks`，故不在清单内）。
+  已有值在编辑页回填，避免「打开编辑页看不到当前设置，一保存就被覆盖」。
+
+### 测试
+
+- 新增 `tests/rules_fields_test.lua`，42 项断言：`RULE_PROTOS` 的形态 /
+  唯一性 / 规范性，三个模板与控制器的静态检查，以及「控制器收集逻辑产出的
+  CSV 真的能被 `node.apply_rules` 用来筛选、`rename_map` 真的生效」的行为检查。
+  **反向验证**：指向 `HEAD` 版模板与控制器重跑，**17 项失败**。
+- `tests/node_extended_test.lua` 扩充 dedup 段（6 项新断言）。原有用例
+  「两个 uuid 不同的 vmess 应合并成 1 个」正是 M17 要修的**错误行为**，
+  已改为断言修复后的正确结果。
+  **反向验证**：指向 `HEAD` 版 `node.lua` 重跑，**6 项失败**。
+- `tests/cron_result_test.sh` 增加两项用例（`core.list()` 抛异常、
+  模块加载失败），共 14 项。**反向验证**：指向 `HEAD` 版脚本重跑，**3 项失败**。
+- `tests/controller_local_test.lua` 的 `substore.core` stub 补上 `RULE_PROTOS`
+  （控制器现在会遍历它）。
+- 全量回归：40 个 Lua 测试文件（1782 项断言）+ `cron_result_test.sh`(14)
+  全部通过。
+- 版本号 2.6.5-r1 → 2.6.6-r1。
+
+## [2.6.5-r1] - P2 批次三：输出层合法性（配置能否被目标客户端加载）
+
+P2 批次三，修输出层七项缺陷（审计表 M19 / M23 / M24 / M25 / M27 / L21 / L22）。
+共同判据只有一条：**生成的文件/链接必须能被目标客户端真正加载**，
+而不是「看起来像那么回事」。
+
+### M23 wireguard 数组字段以字符串形态原样透传
+
+- 节点模型里 `allowed-ips` / `reserved` / `dns` 的形态取决于来源：Clash YAML 的
+  嵌套列表解析后是 table，表单导入 / URI 导入 / `.conf` 导入后是
+  `"0.0.0.0/0, ::/0"` 这样的**字符串**。输出层此前不看类型直接透传，于是
+  sing-box 出 `"allowed_ips":"0.0.0.0/0"`、`"reserved":"1,2,3"`，
+  clash-meta 出 `allowed-ips: 0.0.0.0/0` 这个**标量**。
+- 而 mihomo 的 `allowed-ips` / `dns` 是 `[]string`、`reserved` 是 `[]uint8`，
+  sing-box 同名字段亦然 —— 标量反序列化失败，**整份配置拒绝加载**。
+- 现统一归一为列表：clash-meta 的 `yaml_value` 改为「数组或逗号分隔字符串 →
+  YAML 列表」；sing-box 的 `allowed_ips` / `dns` 走 `as_list`，
+  `reserved` 走 `as_num_list`（sing-box 要求 `[1,2,3]` 数字，字符串数组同样失败）。
+  空值不输出该键（`allowed-ips: []` 也是非法值）。
+
+### M27 未加引号的 YAML 标量里反斜杠被静默翻倍
+
+- `esc_yaml` 先无条件执行 `gsub("\\", "\\\\")` 再判断是否需要引号。而反斜杠
+  **不在** `need_quote` 的触发集里，所以 `pa\ss` 走的是「不加引号」这条路：
+  输出 `password: pa\ss` 的字面文本是 `pa\\ss`，YAML 按 plain scalar 回读
+  得到**两个反斜杠** —— 密码 / 路径直接错。
+- 现把转义链移进 `if need_quote` 分支：未加引号时反斜杠就是字面反斜杠，
+  加引号时才需要转义。`pa\ss` → `pa\ss`；`pa\ss: x`（含 `:`，需引号）
+  → `"pa\\ss: x"`。
+
+### M24 hysteria2/hysteria 分享链接丢掉「跳过证书校验」
+
+- 该分支只读 `n.insecure`。但按 `parser.lua` 自身的注释，模型里的**权威字段是
+  `skip-cert-verify`**（sing-box JSON 的 `tls.insecure` 也映射到它），
+  而 `insecure` 只是 URI 参数名、**只有 URI 解析器会写它**。
+- 于是 Clash YAML / sing-box JSON / 表单导入的节点在导出分享链接时，
+  「跳过证书校验」被整个丢掉，客户端按严格校验握手直接失败。
+- 现按 `skip-cert-verify` → `skip_cert_verify` → `insecure` 的优先级读取，
+  统一归一为 `insecure=1` / `insecure=0`（falsy 判定与 `output_singbox.lua`
+  的 `bool()` 一致：`false` / `"false"` / `0` / `"0"` 视为否）。
+
+### M25 trojan/tuic 分享链接的 alpn 数组未归一
+
+- 这两个分支把 `n.alpn` 直接交给 `url_encode`，而 `url_encode` 会
+  `tostring()` —— alpn 为 table 时（Clash YAML 的 alpn 列表、sing-box JSON 的
+  `tls.alpn` 导入后都是 table）链接里出现 `alpn=table%3A%200x...`，
+  客户端解析失败。vless 分支早已做了归一，这两处漏了。
+- 现抽出 `alpn_str()` 统一处理，三处共用。
+
+### L21 成员列表里含逗号的名字被当成两个成员
+
+- Surge 家族 `[Proxy Group]` 与 QX `[policy]` 的成员列表是
+  `NAME = select, X, Y, DIRECT`，语法里**没有引号 / 转义机制**。名字里的逗号
+  会被当成成员分隔符：`A,B` 被读成两个成员 `A` 与 `B`，两个都不存在 ——
+  Surge / QX 会因「引用不存在的代理」**拒绝加载整份配置**。
+- 现 `names_of()` 排除含逗号的名字（节点定义仍留在 `[Proxy]` / `[server_local]`
+  中，只是不进成员列表），并统一先过 `util.one_line()`：定义行本就经过
+  `one_line`（换行→空格），成员列表若用原始名就对不上定义行，同样是悬空引用。
+
+### M19 QX `[policy]` 引用未定义的服务器
+
+- QX 的 `[server_local]` 只输出 shadowsocks / vmess / vless / trojan 四类协议，
+  而 `[policy]` 用**未过滤**的 `names_of(nodes)` 收集全部节点名 ——
+  hysteria2 / tuic / socks / wireguard 等没有定义行，列进 `static=` 就是
+  **悬空引用**。
+- 现按「真正写出了 `[server_local]` 行的节点」收集成员。
+
+### L22 非数字 port 原样输出
+
+- `port: abc` / `port: 443/tcp` 这类非数字值会让 mihomo 拒绝加载整份配置。
+  sing-box / v2ray 输出一直用 `tonumber() or 0` 兜底，clash-meta 漏了。
+  现对齐。
+
+### 已核实无需修改
+
+- **M26**（hysteria/hysteria2/tuic 缺 `security` 时不输出 TLS）已在 P0 批次四
+  修复（`fb51e6e` 为三者补了 `node.normalize` 的 `security` 默认值），
+  经探针复核：raw 节点经 `normalize` 后 sing-box / clash 均正确输出 TLS。
+
+### 测试
+
+- 新增 `tests/output_legal_test.lua`，39 项断言，覆盖上述七项，
+  并对「本就正确的行为」加了守卫（数组形态不被破坏、字符串 alpn 不受影响、
+  数字端口不被改写、无 `insecure` 时不输出该参数）。
+- **反向验证**：把测试指向 `HEAD` 版输出模块重跑，39 项中 **28 项失败**，
+  确认它们覆盖了缺陷而非恒真；其余 11 项是行为守卫，本就应当通过。
+- 全量回归：41 个 Lua 测试文件（1786 项断言）+ `cron_result_test.sh`(11) 全部通过。
+- 版本号 2.6.4-r1 → 2.6.5-r1。
+
+## [2.6.4-r1] - P2 批次二：wg-quick 导入健壮性与 IPv6 内网判定
+
+P2 批次二，修 `parser.lua` 的五项缺陷（审计表 M9 / L20 / L16 / L17 / L18）。
+每项均先复现、后修改，并新增回归测试。
+
+### M9 wg-quick `.conf` 一个坏 `[Peer]` 废掉整份文件
+
+- **首个失败对端即中止**：`if not host … then return nil, … end` 位于
+  `for _, p in ipairs(peers)` **循环体内**，于是第一个缺 `Endpoint`（或
+  `Endpoint` 解析不出端口）的 `[Peer]` 会让整份 `.conf` 返回 `nil`，
+  同文件里其它完好的对端全部丢失。现在只跳过该对端；若一个可用对端都没有
+  （`#peers > 0` 已保证走不到「没有 [Peer]」分支），返回错误而**不是空列表** ——
+  空列表会被上层当成「解析成功但 0 节点」的静默失败。
+- **不剥行内注释**：行扫描只跳**整行** `#` / `;` 注释，而 wg-quick 的
+  `parse_options` 用 `stripped="${line%%\#*}"`，即从**第一个** `#` 起全部丢弃
+  （不要求 `#` 前有空白）。于是 `Endpoint = 1.2.3.4:51820 # 备用` 会把
+  `# 备用` 当成值的一部分，`split_hostport` 取不到端口，同样整份作废。
+  现对齐 wg-quick 语义做行内剥离；`;` 按上游行为**不**作注释符，
+  仅保留本实现原有的整行容忍。
+
+### L20 多 `[Peer]` 时数组字段被所有节点共享
+
+- `for k, v in pairs(common) do out[k] = v end` 是浅拷贝，而 `common.dns`
+  （多值时为数组）与 `common.reserved`（恒为数组）是 **table**，于是所有生成的
+  节点指向**同一个表** —— 按节点编辑 DNS 会同时改到全部节点。紧邻的
+  `amnezia-wg-option` 子块本就做了副本（注释还专门说明了这个隐患），这两个漏了。
+  现统一走一层表拷贝。
+
+### L16 `parse_local_link` 丢掉 query 与 userinfo
+
+- **无路径时 query 全丢**：authority 用 `^([^/]*)` 切分，`?` 不在排除集内，
+  于是 `http://host:port?target=ClashMeta&name=Foo` 的 authority 变成
+  `host:port?target=ClashMeta&name=Foo` —— `host` 被污染，`target` / `name` /
+  `uid` 全部丢失。现改为 `^([^/?]*)`。
+- **不剥 userinfo**：`detect_local_link` 一直会剥 `user@`，此处漏了。
+  现同样剥离（按**最后一个** `@`，与 M10 的约定一致）。
+
+### L17 `is_private_host` 的 IPv6 判定可被等价写法绕过
+
+- 旧实现拿字符串比前缀（`^::` / `^f[cd]` / `^fe[89ab]`）并只对 `^0*` 做一次
+  去零，于是 `[0::1]`、`[0000::1]`、`[0:0:0:0:0:0:0:1]`（同一个回环地址的
+  不同写法）**全部被判成公网**，而 `[::ffff:8.8.8.8]` 反被判成内网。
+  现先把 IPv6 字面量**展开成 8 组 16 位数值**（含 `::` 压缩、zone id、
+  嵌入式 IPv4 写法）再判定：`::` / `::1`、IPv4 映射地址按 IPv4 规则递归判定、
+  ULA `fc00::/7`、链路本地 `fe80::/10`。该函数目前未被生产代码接线
+  （仅 `detect_local_link` 调用，而后者只被测试引用），属**潜在** SSRF 缺口，
+  非当前可利用路径。
+
+### L18 纯空白 / 只有 BOM 的内容报「无法识别的订阅格式」
+
+- `M.detect` 会 trim 并去 BOM 后判为 `empty`，而 `M.parse` 只挡住了完全空串
+  （`content == ""`），`format == "empty"` 不匹配任何分支，于是掉到末尾报
+  「无法识别的订阅格式」。内容确实是空的，不是格式不认识 —— 提示误导。
+  现返回与空串一致的 `{ nodes = {}, format = "empty" }`。
+
+### 测试
+
+- `tests/wireguard_conf_test.lua` 新增 23 项断言（行内注释、坏 `[Peer]` 跳过、
+  全部对端不可用报错、多对端数组字段不共享）。
+- `tests/parser_local_link_test.lua` 新增 28 项断言（无路径 query、userinfo、
+  IPv6 内网判定的 16 种写法与 4 种公网反例、空白 / BOM 内容）。
+- **反向验证**：把两个测试文件指向 `HEAD` 版 `parser.lua` 重跑，
+  新增断言分别失败 16 项 / 13 项，确认它们确实覆盖了缺陷而非恒真。
+- 全量回归：40 个 Lua 测试文件（1747 项断言）+ `cron_result_test.sh`(11) 全部通过。
+- 版本号 2.6.3-r1 → 2.6.4-r1。
+
+## [2.6.3-r1] - P2 批次一：JSON 编解码保真与主机名拆分
+
+P2 批次一，修 `util.lua` 的三项缺陷（审计表 M13 / M14 / L13）。
+每项均先复现、后修改，并新增回归测试。
+
+### M14 `json_decode` 永不返回错误串
+
+- **错误被丢弃**：结尾写成 `local v = parse(); return v` —— `parse` 的第二返回值
+  （错误串）被直接丢掉。后果是所有调用方的
+  `local data, err = util.json_decode(...)` 里 **`err` 判断全是死代码**，
+  畸形输入一律表现为「解出来是 nil」，与「内容本来就是 `null`」无法区分。
+  现在 `parse` 的错误逐层透出（对象、数组、键、值四处），顶层再判一次。
+- **内层错误被吞**：数组循环里无条件 `if val == nil then val = JSON_NULL end`，
+  于是 `[1,]` 这种畸形输入被静默接受（`parse` 报错后游标不前进，下一轮读到 `]`
+  就当作数组结束），解出 `{1, <null占位>}`。现在内层错误直接上抛。
+- **尾部脏数据被忽略**：`parse` 只消费一个值，`"1 2"` / `"[1] junk"` /
+  `"1.2.3"`（数字模式只吃 `1.2`）都被当成合法值，尾部内容凭空消失。
+  现在解析后必须确认无剩余内容（尾随空白仍允许）。
+
+### M13 数组 `null` 与空对象往返被改写
+
+- **数组里的 `null` 变成 `[]`**：解码时用 `JSON_NULL` 占位保留位置，但
+  `json_encode` **没有对应的编码分支**，占位符落进 `is_array` 判定（空表判为数组）
+  被编成 `[]` —— `[null,1]` 往返变成 `[[],1]`，结构被悄悄改写。已补分支还原为
+  `null`。
+- **空对象变成空数组**：`{"tls":{}}` 解出的裸 `{}` 会被 `is_array` 判成数组、
+  编码回 `[]`，于是 `{"tls":{}}` 往返变成 `{"tls":[]}`。sing-box / Xray 里要求是
+  **对象**的字段（`tls` / `settings`）会因此被客户端拒绝。现在解码空对象时返回
+  既有的 `M.JSON_EMPTY_OBJECT` 占位（该常量的注释本就说明了这个用途），
+  空数组仍编码为 `[]`。
+
+### L13 `split_hostport` 把尾随冒号当成主机名
+
+- `"example.com:"` 原样返回 `host="example.com:"`（端口匹配失败后直接返回整串）。
+  调用方拿这个带冒号的串当主机名去解析 DNS 必然失败，而失败点离此处很远、
+  很难定位。现在剥掉**结尾**的冒号；`"::1"` 这类不带方括号的裸 IPv6 不受影响，
+  剥完为空则返回 `nil, nil`。
+
+### 测试
+
+- 新增 `tests/util_json_test.lua`（29 项断言）：错误上报、尾部脏数据、
+  `null` / 空对象 / 空数组往返、以及既有行为的回归（转义、unicode、数字、字符串）。
+- `tests/run_tests.lua` 的 `split_hostport` 段扩 4 项（尾随冒号、`[::1]:`、
+  裸 `::1`、裸 `:`）。
+- 全量回归：40 个 Lua 测试文件 + `cron_result_test.sh`(11) 全部通过，0 失败。
+- 版本号 2.6.2-r1 → 2.6.3-r1。
+
 ## [2.6.2-r1] - 更新日志补记与遗留缺陷汇总
 
 **文档批次，无代码改动。**

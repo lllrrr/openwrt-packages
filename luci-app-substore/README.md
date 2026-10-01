@@ -40,16 +40,21 @@
   或 `port` 不在 1–65535 的残缺节点在**解析阶段即丢弃**（否则会被写成 `server:` /
   `port: 0`，mihomo 与 sing-box 会拒绝加载整份配置 —— 一个坏节点废掉整个订阅）；
   含 `@` 的密码按**最后一个** `@` 切分；sing-box YAML 的嵌套 `tls:` 块
-  （含 `alpn` 列表与 `utls.fingerprint`）完整展开
+  （含 `alpn` 列表与 `utls.fingerprint`）完整展开；wg-quick `.conf` 支持行内
+  `#` 注释（与 wg-quick 自身的切分语义一致），且单个坏 `[Peer]` 只跳过它自己、
+  不作废整份文件；纯空白内容按「空订阅」处理，而非报「无法识别的订阅格式」
 
 **节点处理**
 - 浏览节点，按分组 / 协议筛选、关键词搜索、排序
 - 节点分组：「分组」列单元格内直接修改单节点分组（XHR 无刷新保存），配合「分组:」下拉筛选
 - 单节点编辑 / 删除（行尾「操作」列）；表头复选框全选、行复选框勾选后点「删除」批量删除；
   「刷新」按钮重载列表（保留当前筛选条件）
-- 每次更新时生效的按订阅规则：
+- 每次更新时生效的按订阅规则（订阅 / 组合 / 本地订阅三种表单均提供）：
   - 关键词包含 / 排除（逗号分隔，支持多关键词）
-  - 去重
+  - 协议筛选（勾选保留哪些协议，全不勾选 = 不筛选）
+  - 去重（同一入口的多账号不会被误合并：去重键含各协议各自的凭据）
+  - 重命名（每行一条：`旧名=新名` 精确匹配、`模式 -> 替换` 正则替换、
+    `{server}_{port}_{proto}` 占位符模板）
 
 **网络探测**（节点页）
 - Ping（ICMP 延迟）、TCPing（连接延迟）、URL 测试（HTTP 延迟）
@@ -82,6 +87,16 @@
       请在你自己的配置里维护；把本输出合并进已有配置即可
     - ⚠️ 与 2.3.x 不兼容：2.3.x 输出的是仅含 `outbounds` 的片段，需要粘进已有配置使用；
       2.4.0 起是完整配置，可直接作为单文件配置启动
+- **输出合法性**：只输出目标客户端真正能加载的内容，而不是「看起来像那么回事」
+  - WireGuard 的 `allowed-ips` / `reserved` / `dns` 无论来源是 YAML 列表还是逗号分隔
+    字符串，一律输出为目标客户端要求的数组（mihomo 是 `[]string` / `[]uint8`，
+    sing-box 是 `[]string` / `[]uint8`）；写成标量会让客户端**拒绝加载整份配置**
+  - Surge 家族 / Quantumult X 的策略组成员列表会剔除**含逗号**的节点名：这些格式的
+    成员列表没有引号或转义机制，名字里的逗号会被当成成员分隔符，产出两个都不存在的
+    成员，客户端因「引用不存在的代理」拒绝加载整份配置；Quantumult X 的 `[policy]`
+    同时只收录真正写出了 `[server_local]` 行的节点，不再产生悬空引用
+  - hysteria / hysteria2 分享链接的 `insecure` 以权威字段 `skip-cert-verify` 为准，
+    Clash YAML / sing-box JSON / 表单导入的节点不再丢掉「跳过证书校验」
 
 **订阅链接**
 - 每个订阅独立随机 token → 公开下载端点
@@ -93,18 +108,18 @@
 ## 安装
 
 > 包名中的版本号必须与 [Makefile](Makefile) 的 `PKG_VERSION` / `PKG_RELEASE` 保持一致
-> （当前 `2.6.2-r1`）。
+> （当前 `2.6.7-r1`）。
 
 opkg（OpenWrt / ImmortalWrt 24.10 及更早）：
 
 ```bash
-opkg install luci-app-substore-2.6.2-r1.ipk
+opkg install luci-app-substore-2.6.7-r1.ipk
 ```
 
 apk（OpenWrt / ImmortalWrt 25.12+）：
 
 ```bash
-apk add --allow-untrusted luci-app-substore-2.6.2-r1.apk
+apk add --allow-untrusted luci-app-substore-2.6.7-r1.apk
 ```
 
 然后在 LuCI 菜单打开：**服务 → 订阅**。
