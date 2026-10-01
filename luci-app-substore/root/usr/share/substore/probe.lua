@@ -8,6 +8,11 @@ local M = {}
 
 M.TIMEOUT = 2 -- 每个目标的超时（秒）
 
+-- 批量探测时同时存在的子进程上限。
+-- 每个探测占 1 个进程 + 1 个管道 fd，节点数由订阅内容决定（可上千），
+-- 不限并发会把路由器的 fd/进程额度打满，之后 io.popen 静默失败。
+M.MAX_PARALLEL = 16
+
 -- shell 引号：用单引号转义（util.shq），配合 safe_host 校验，双重防命令注入。
 -- 不能用 string.format("%q")：它生成双引号字符串，sh 在双引号内仍会做 $() / ``
 -- 命令替换，实测可注入。
@@ -15,7 +20,14 @@ local function q(s) return util.shq(s) end
 
 -- 校验目标主机名/IP：仅允许 [A-Za-z0-9._-] 与冒号（IPv6），杜绝命令注入
 local function safe_host(host)
-	return type(host) == "string" and host ~= "" and host:match("^[%w%.%-%:]+$") ~= nil
+	if type(host) ~= "string" or host == "" then return false end
+	if not host:match("^[%w%.%-%:]+$") then return false end
+	-- 以 "-" 开头会被 busybox 的 getopt 当成**选项**而不是参数：
+	-- 命令是 `ping -c 1 -W 2 <host>`，host="--help" / "-c" 会改变 ping 的行为。
+	-- 引号（util.shq）挡不住这个 —— 引号由 shell 剥掉，getopt 看到的仍是 -x。
+	-- 合法主机名（RFC 1123 要求首字符为字母或数字）与 IP 都不会以 "-" 开头。
+	if host:sub(1, 1) == "-" then return false end
+	return true
 end
 
 -- 构造 http URL：IPv6 字面量必须写成 [addr]:port，否则 "2001:db8::1:443" 不是合法 URL，
@@ -138,26 +150,39 @@ end
 -- 返回结果数组 { name=, server=, port=, latency=number|nil }
 function M.probe(nodes, mode)
 	local jobs = {}
+	-- 分批：一批最多 MAX_PARALLEL 个进程，读完并关闭这一批再起下一批。
+	--
+	-- 原来是「先把全部节点的 io.popen 起完，再统一读取」。并行度确实最高
+	-- （总耗时≈单节点超时），但代价是无界的：每个节点占 1 个进程 + 1 个管道 fd，
+	-- 而节点数由订阅内容决定（上千个很常见）。路由器上 fd 与进程数都是硬上限，
+	-- 打满之后 io.popen 直接失败 —— 表现是一大片节点探测不出来，
+	-- 而不是报错。分批后并发度封顶，总耗时仍是「批数 × 单节点超时」。
+	local out = {}
+	local batch = {}
+	local function drain()
+		for _, j in ipairs(batch) do
+			local latency
+			if j.f then
+				local raw = j.f:read("*a") or ""
+				j.f:close()
+				latency = j.parse and j.parse(raw) or nil
+			end
+			out[#out + 1] = {
+				name = j.name, server = j.server, port = j.port, latency = latency,
+			}
+		end
+		batch = {}
+	end
 	for _, n in ipairs(nodes or {}) do
 		local cmd, parse = build_job(mode, n.server, n.port)
 		local f = cmd and io.popen(cmd) or nil
-		jobs[#jobs + 1] = {
+		batch[#batch + 1] = {
 			f = f, parse = parse,
 			name = n.name or "", server = n.server or "", port = n.port or "",
 		}
+		if #batch >= M.MAX_PARALLEL then drain() end
 	end
-	local out = {}
-	for _, j in ipairs(jobs) do
-		local latency
-		if j.f then
-			local raw = j.f:read("*a") or ""
-			j.f:close()
-			latency = j.parse and j.parse(raw) or nil
-		end
-		out[#out + 1] = {
-			name = j.name, server = j.server, port = j.port, latency = latency,
-		}
-	end
+	drain()
 	return out
 end
 

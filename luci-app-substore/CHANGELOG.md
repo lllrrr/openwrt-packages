@@ -2,6 +2,192 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.6.9-r1] - P2 批次七：界面 / 探测 / 转换 / 权限（L1 / L5 / L6 / L8 / L9 / L23 / L24 / L25 / L26）
+
+P2 最后一批，九项分布在界面、探测、转换与文件权限四处。共同点是**问题都不报错**：
+界面显示错语言、探测悄悄漏节点、模板把名字吃掉一个字符、正则写错却毫无提示 ——
+全部是「看起来正常，实际不对」的类型。
+
+### L1 中文 msgid 在英文界面原样显示（`subscriptions.htm` / `nodes.htm` / `po/zh-cn/substore.po`）
+
+三个界面串用了**中文当 msgid**：`<%:操作失败%>`、`<%:选择格式后生成订阅链接，格式可随时切换%>`。
+LuCI 的翻译方向是「msgid（英文）→ msgstr（当前语言）」，拿中文当 msgid 且 `.po` 里没有
+对应条目时，英文界面会**原样显示中文**。
+
+现在 msgid 一律用英文，中文只作为 `po/zh-cn/substore.po` 里的 `msgstr`。
+新增条目：`Operation failed`、`Pick a format to generate the subscription link; you can
+switch formats at any time`，并补齐此前缺失的 `Type`。
+
+### L5 只转义 `</` 挡不住 `<!--`（7 个视图模板）
+
+注入到 `<script>` 里的 JSON 此前只做 `:gsub("</", "<\\/")`。这挡得住 `</script>` 提前闭合，
+但挡不住 `<!--`：HTML 词法阶段遇到 `<!--` 会进入 **script data escaped** 状态，
+其后的 `</script>` **不再结束脚本块**，页面剩下的部分全被当成脚本文本吞掉。
+
+节点名来自订阅内容，一个叫 `<!--x` 的节点就能把整页搞坏（是页面破坏，不是 XSS）。
+现在改为 `:gsub("<", "\\u003c")` —— HTML 词法阶段再也看不到任何 `<`，两个坑一并堵上；
+而 `<` 在 JSON 与 JS 字符串字面量里都还原成 `<`，取值不受影响。
+
+### L6 批量探测的进程/fd 无界占用（`probe.lua`）
+
+`M.probe` 原来是「先把全部节点的 `io.popen` 起完，再统一读取」。并行度最高，但代价无界：
+每个节点占 1 个进程 + 1 个管道 fd，而节点数由订阅内容决定（上千个很常见）。
+路由器上 fd 与进程数都是硬上限，打满之后 `io.popen` 直接失败 —— 表现是一大片节点
+探测不出来，**而不是报错**。
+
+改为分批：一批最多 `M.MAX_PARALLEL`（16）个进程，读完并关闭这一批再起下一批。
+并发度封顶，总耗时仍是「批数 × 单节点超时」。
+
+### L8 空 format 绕过默认格式（`output.lua`）
+
+`?target=` 会传进来空串 `""`，而 `""` 在 Lua 里是**真值**，`format or DEFAULT_FORMAT`
+兜不住它，于是一路落到 `return nil, "unsupported format: "` —— 冒号后面什么都没有。
+用户拿到的是一个说不出原因的错误页（控制器只在 nil 时兜底，覆盖不到空串）。
+
+现在 `M.generate` 先归一：非字符串按 `""` 处理，再去掉首尾空白，为空则用默认格式。
+空白串（`"   "`）同样归为「未指定」。
+
+### L9 两行安装指令挂错块（`Makefile`）
+
+`output.htm` / `combo.htm` 的 `INSTALL_DATA` 挂在 `/www/luci-static` 的 `INSTALL_DIR`
+块下面。**目标路径本身是对的**，但归错了块 —— 一旦有人调整块顺序就会被装到错误的目录。
+现已移入 view 块。
+
+### L23 trojan → vmess/vless 生成的不是合法 UUID（`converter.lua` / `util.lua`）
+
+原实现取 `base64(seed)` 的前 36 字符当 uuid。base64 只产出 24 个字符，
+`sub(1,36)` 是空操作，且结果里可能带 `+` `/` `=` —— 根本不是 UUID。
+客户端的 uuid 字段按 16 字节解析，格式不对时多数客户端**直接拒绝该节点**。
+
+新增 `util.uuid()` 生成 RFC 4122 v4 UUID（8-4-4-4-12，第 13 位固定 `4`，
+第 17 位取 8/9/a/b），转换时用它。
+
+### L24 `gsub` 替换串里的 `%` 未转义（`converter.lua` / `node.lua`）
+
+`gsub` 的替换串里 `%` 有语义：`%1` 是捕获引用，裸 `%` 会被吞掉，结尾的 `%` 会注入 NUL 字节。
+节点名与服务器地址都来自订阅内容，直接当替换串用会把用户的内容改掉。
+
+新增 `util.gsub_literal()` 把 `%` 转义成 `%%`，`converter.apply_template`（`{{name}}` 等四个
+占位符）与 `node.apply_rules` 的 `{server}` / `{port}` / `{uuid}` / `{name}` 模板全部改用它。
+`node.expand_template` 里原有的局部 `esc` 也统一到同一实现。
+
+### L25 非法正则被静默吞掉（`node.lua` / 控制器）
+
+`rename_with_rules` 用 `pcall` 包住 `gsub`，用户写出非法 pattern（未闭合的 `[` 等）时
+错误被吞掉，结果是「规则明明写了却完全不生效，页面上没有任何提示」。
+
+新增 `M.validate_rename_map()`：在**保存时**逐条校验（含 `split_alternatives` 展开的每个
+备选分支），失败返回「重命名规则第 N 行：正则表达式无效（pattern）」。
+控制器在 `read_rules_fields` 这个唯一入口处调用，5 个保存动作全部回显该错误。
+`parse_rename_rules` 同时补记 `line_no`，让行号指向真正出错的那一行。
+
+### L26 数据文件 0644 世界可读（`util.lua` / `core.lua`）
+
+`io.open` 按 umask 创建文件（通常是 0644），而 `/etc/substore` 下的
+`subscriptions.json` 含订阅 URL 与公开下载 token，`nodes/*.json` 含 uuid / 密码 / 私钥。
+同机任何用户都能读到。
+
+- `util.atomic_write(path, content, mode)` 新增可选 mode，在 `os.rename` **之后** chmod
+  （先 chmod 再 rename 的话，临时文件名可猜，中间窗口里仍能读到）
+- `util.ensure_dir(path, mode)` 新增可选 mode，走 `mkdir -p -m`
+- `core.ensure_dirs` 建目录带 `700`，并对**已存在**的目录补一次 `chmod 700`
+  （从旧版本升级上来的机器上目录已存在，`mkdir -m` 不生效）；每进程只做一次，
+  因为 `load()` 每次读列表都会调用它
+- 两个数据写入点传 `"600"`；cron 文件不传，权限语义保持不变
+
+Lua 5.1 标准库没有 `os.chmod`（那是 nixio/posix 才有的），实现走 busybox `chmod`，
+路径经 `util.shq` 引用。
+
+### 测试
+
+新增 `tests/p2_batch7_test.lua`（56 项，全离线）：
+
+- L1 扫全部视图模板的 `<%:...%>` 与 `luci.i18n.translate()`，断言 msgid 不含 CJK
+  （按 UTF-8 三字节区间判定），并断言 `.po` 里新条目齐全
+- L6 替换 `io.popen` 为记录桩，统计**同时存活**的句柄峰值，断言 `== MAX_PARALLEL`
+  且 100 个节点全部关闭、顺序不变
+- L8 断言 `""` / `"   "` / `"\t\n "` / `nil` 四种写法输出一致，非法名仍报错
+- L9 按行号断言两行 `INSTALL_DATA` 落在 view 块与 luci-static 块之间
+- L23/L24/L25 断言 UUID 形状、`%` 字面保留、非法正则报错并指出行号
+- L26 替换 `os.execute` 为记录桩，断言 chmod 600 出现在 rename 之后、
+  不带 mode 时**不** chmod、`ensure_dirs` 只 chmod 一次
+
+`tests/view_injection_test.lua` 的转义断言更新为「转义全部 `<`」，并新增两条反向对照：
+只转 `</` 时 `<!--` 仍然留存（证明放宽转义范围的理由成立），转全部 `<` 后
+`</script` 与 `<!--` 都不复存在。
+
+`tests/controller_robustness_test.lua` 的 `substore.node` 桩补上 `validate_rename_map`
+（控制器新增的依赖；缺失会让整条保存路径 nil 调用 500 —— 是桩缺口，不是产品缺陷）。
+
+**反向验证**：新断言在修复前的 `HEAD` 上 **34 条失败**
+（L1×5 / L6×3 / L8×4 / L9×2 / L23×5 / L24×6 / L25×5 / L26×4），
+修复后全绿；全量 43 个测试文件 + `cron_result_test.sh` 全部通过。
+
+## [2.6.8-r1] - P2 批次六：网络安全与健壮性（L10 / L11 / L12 / L14）
+
+P2 批次六，四项都围绕「**检查的强度不能低于被检查者**」这条线：
+前两项让校验真正拦得住，后两项让失败路径不再留下副作用。
+
+### L10 DNS 解析失败改为 fail-closed（`http.lua`）
+
+`M.check_public` 在 `resolve()` 返回 nil 时**放行**，理由写的是「无 DNS 解析能力时
+尽力而为」。那是一个 SSRF 绕过口：
+
+- 检查侧：`resolve()` 返回 nil → 跳过全部私网判定 → 放行
+- 实际连接侧：curl 自己做解析，`127.0.0.1.nip.io` 这类**公网可解析到内网**的域名
+  会被它解析到 `127.0.0.1` 并连上去
+
+只要本机这一刻解析不出来（nixio 缺失、解析器临时故障、超时），两者就分叉。
+检查的强度不能低于被检查者，现在解析失败一律拒绝。
+
+代价为零：本包依赖 `luci-lua-runtime`，后者在 Makefile 里硬依赖 `+luci-lib-nixio`
+（已核对上游），所以 `resolve()` 返回 nil 只意味着「真的解析不了」——
+那种情况下 curl 同样解析不了，下载本来就会失败，只是错误信息会从「连接失败」
+变成「无法解析目标主机名」，反而指对了方向。
+
+### L11 `parse_url` 补端口范围校验（`http.lua`）
+
+`hostport:match("^([^:]+):(%d+)$")` 只保证端口是数字，`http://host:99999/` 与
+`http://host:0/` 都能通过。这两个端口连不出去，下载必然失败，却会先经过一轮
+DNS/SSRF 检查，最终报出「连接失败」这种指错方向的原因。`parse_proxy` 早已做了
+同样的 1–65535 校验，这里对齐。
+
+IPv6 字面量分支（`[::1]:port`）走的是另一条赋值路径，同样纳入校验。
+
+### L12 探测目标拒绝以 `-` 开头的主机名（`probe.lua`）
+
+命令形如 `ping -c 1 -W 2 <host>`，`host` 若为 `--help` / `-c`，会被 busybox 的
+**getopt 当成选项**而不是参数。`util.shq` 的单引号由 shell 剥掉，getopt 看到的
+仍然是 `-x` —— 引号挡不住这一层。
+
+合法主机名（RFC 1123 要求首字符为字母或数字）与 IP 都不会以 `-` 开头，所以直接拒绝。
+`ping` / `tcping` / `url_test` / 批量 `probe` 四条路径共用 `safe_host`，一处收口。
+
+### L14 下载临时文件在每一条退出路径上清理（`http.lua`）
+
+`fetch_curl` 此前只在「本轮开始」和「2xx 成功」两处 `os.remove`，其余失败路径
+（curl 报错、超过大小限制、重定向无 Location、重定向目标无效/不安全、
+HTTP 4xx-5xx、重定向次数过多）都把 `/tmp/substore_dl_*.tmp{,.hdr,.err}` 留在原地。
+
+OpenWrt 的 `/tmp` 是 tmpfs —— 占的是内存。订阅更新失败后 cron 会定时重试，
+于是一轮轮往内存里堆文件，其中 `.tmp` 可能是部分下载的响应体，最大到 `max-size`。
+
+现在收敛成一个 `cleanup()` 闭包，在**每一条** `return` 之前调用。
+
+### 测试
+
+- 新增 `tests/network_security_test.lua`（38 条断言）：L10 的 fail-closed 与
+  「公网字面量仍放行」对照；L11 的 `:0` / `:65536` / `:99999` 拒绝与
+  `:1` / `:65535` / 默认端口接受（含 IPv6 分支）；L12 用 `io.popen` 替身断言
+  「以 `-` 开头的主机名**一个子进程都不启动**」，并用合法主机名反向确认替身有效；
+  L14 用模拟 curl 写盘的替身，逐条验证三条失败路径后 `/tmp` 无残留
+- 全部用例不触网
+- `tests/http_proxy_test.lua` 的重定向链用例改用**公网 IP 字面量**而非
+  `cdn.example.com`：`check_public` 现在解析失败即拒绝，用域名会让
+  「公网目标应放行」变成「取决于本机有没有 DNS」，测试不可复现
+- 反向验证：新断言在修复前的 `HEAD` 上 **19 条失败**（L10×2 / L11×4 / L12×4 / L14×9），
+  在修复后全部通过
+
 ## [2.6.7-r1] - P2 批次五：控制器健壮性（L3 / L4）
 
 P2 批次五，修控制器的两项缺陷：一类是**未登录可达的 500**，一类是
