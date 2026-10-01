@@ -3,7 +3,6 @@
 
 local util = require("substore.util")
 local node = require("substore.node")
-local parser_yaml = require("substore.parser_yaml")
 local parser_clash_yaml = require("substore.parser_clash_yaml")
 local parser_json_config = require("substore.parser_json_config")
 local parser_surge = require("substore.parser_surge")
@@ -1087,6 +1086,42 @@ local function parse_yaml_content(content)
 					end
 				end
 			end
+			-- sing-box 的 transport 同样是嵌套 map：{type, path, headers.Host,
+			-- service_name, host}。字段名对照 parser_json_config.parse_singbox_json
+			-- （本项目读取 sing-box 出站的权威实现），不另立一套。
+			-- 不展开的话 net 只会取到 n.net / n.network —— sing-box 出站里这两个
+			-- 字段都不存在，ws / grpc 节点会全部按 tcp 导入，客户端拿明文 tcp 去连
+			-- 只开了 ws 的端口，握手必然失败且不报错。
+			local transport_map = type(n.transport) == "table" and n.transport or nil
+			local t_net, t_path, t_host
+			if transport_map then
+				local tt = transport_map.type
+				if tt == "ws" then
+					t_net = "ws"
+					t_path = transport_map.path
+					if type(transport_map.headers) == "table" then
+						t_host = transport_map.headers.Host or transport_map.headers.host
+					end
+				elseif tt == "grpc" then
+					t_net = "grpc"
+					t_path = transport_map.service_name
+				elseif tt == "http" then
+					t_net = "http"
+					t_path = transport_map.path
+					-- http 的 host 是数组，取首个；httpupgrade 的是单个字符串
+					if type(transport_map.host) == "table" then
+						t_host = transport_map.host[1]
+					elseif type(transport_map.host) == "string" and transport_map.host ~= "" then
+						t_host = transport_map.host
+					end
+				elseif tt == "httpupgrade" then
+					t_net = "http"
+					t_path = transport_map.path
+					if type(transport_map.host) == "string" and transport_map.host ~= "" then
+						t_host = transport_map.host
+					end
+				end
+			end
 			-- 注意不能用 `(cond) and nil or x` 写法：Lua 的 and/or 在 cond 为真时
 			-- 结果是 nil，会被后面的 or 继续兜底，等于没生效
 			local tls_security = n.security
@@ -1127,7 +1162,12 @@ local function parse_yaml_content(content)
 				-- 行解析器读出来的是字符串，而 "false" / "0" 在 Lua 里也是真值，
 				-- 直接透传会让 skip-cert-verify=false 变成「跳过证书校验」，故显式判假。
 				["skip-cert-verify"] = skip_cert_verify,
-				net = n.net or n.network,
+				-- transport 展开的传输层优先：它才是 sing-box 的权威写法
+				net = t_net or n.net or n.network,
+				-- 简易解析器此前**完全没有**把 path / host 带进 node_data，
+				-- 于是走这条回退路径的 ws / grpc 节点连 path 与 Host 都丢了
+				path = t_path or n.path,
+				host = t_host or n.host,
 				alterId = tonumber(n.alterId),
 			}
 			result[#result + 1] = node.normalize(node_data)
@@ -1322,6 +1362,23 @@ function M.parse_local_link(url)
 end
 
 -- 解析订阅内容，返回 { nodes = {...}, format = "..." } 或 nil, err
+-- 统一兜底：丢弃残缺节点（缺 server，或端口为空 / 不在 1–65535）。
+--
+-- 这类节点会被写成客户端加载不了的配置，而 mihomo / sing-box / Xray 都是
+-- 「一个坏节点废掉整份文件」——用户看到的是整个订阅不可用，而不是少一个节点。
+-- URI 路径一直在各解析器内部做这个校验（valid_hostport），Clash YAML /
+-- sing-box JSON / Surge 路径漏了：一份 `port: 1e999` 的 YAML 能产出 port=inf
+-- 的节点，落盘读回来又是 nil。各解析器只管把字段填对，校验统一放在这里。
+local function finish(nodes, format)
+	local out = {}
+	for _, n in ipairs(nodes or {}) do
+		if type(n) == "table" and valid_hostport(n.server, n.port) then
+			out[#out + 1] = n
+		end
+	end
+	return { nodes = out, format = format }
+end
+
 function M.parse(content)
 	if not content or content == "" then return { nodes = {}, format = "empty" } end
 	local format = M.detect(content)
@@ -1332,7 +1389,7 @@ function M.parse(content)
 		-- 不是格式不认识。与空串保持同一返回形态（0 节点、格式 empty）。
 		return { nodes = {}, format = "empty" }
 	elseif format == "uri" then
-		return { nodes = parse_lines(split_lines(content)), format = "uri" }
+		return finish(parse_lines(split_lines(content)), "uri")
 	elseif format == "base64" then
 		-- 兼容标准 base64 与 base64url（- _ 无 padding）：base64_url_decode 两者皆可
 		local decoded = util.base64_url_decode(content)
@@ -1348,21 +1405,21 @@ function M.parse(content)
 			if res then res.format = "base64" end
 			return res, err
 		end
-		return { nodes = parse_lines(split_lines(decoded)), format = "base64" }
+		return finish(parse_lines(split_lines(decoded)), "base64")
 	elseif format == "json" then
 		local nodes, err = parse_json_content(content)
 		if not nodes then return nil, err end
-		return { nodes = nodes, format = "json" }
+		return finish(nodes, "json")
 	elseif format == "yaml" then
 		local nodes = M.parse_yaml(content)
-		return { nodes = nodes, format = "yaml" }
+		return finish(nodes, "yaml")
 	elseif format == "surge" then
 		local nodes = parser_surge.parse(content)
-		return { nodes = nodes, format = "surge" }
+		return finish(nodes, "surge")
 	elseif format == "wireguard-conf" then
 		local nodes, err = parse_wireguard_conf(content)
 		if not nodes then return nil, err end
-		return { nodes = nodes, format = "wireguard-conf" }
+		return finish(nodes, "wireguard-conf")
 	end
 	return nil, "无法识别的订阅格式"
 end
