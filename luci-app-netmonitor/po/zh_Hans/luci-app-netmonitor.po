@@ -54,6 +54,15 @@ msgstr "目标无效"
 msgid "Check failed"
 msgstr "检测失败"
 
+msgid "Confirm"
+msgstr "确认"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "OK"
+msgstr "确定"
+
 msgid "Loss"
 msgstr "丢包"
 
@@ -309,6 +318,9 @@ msgstr "默认探测方式"
 msgid "Global interval"
 msgstr "全局间隔"
 
+msgid "Select all targets"
+msgstr "全选所有目标"
+
 msgid "Address"
 msgstr "地址"
 
@@ -336,6 +348,30 @@ msgstr "间隔与超时填 0 表示继承全局设置。"
 msgid "The table scrolls horizontally on small screens."
 msgstr "小屏幕下表格可横向滚动。"
 
+msgid "Edit"
+msgstr "编辑"
+
+msgid "Move up"
+msgstr "上移"
+
+msgid "Move down"
+msgstr "下移"
+
+msgid "Copy"
+msgstr "复制"
+
+msgid "Delete"
+msgstr "删除"
+
+msgid "Delete target"
+msgstr "删除目标"
+
+msgid "Delete this target?"
+msgstr "确定删除该目标？"
+
+msgid "Select"
+msgstr "选择"
+
 msgid "TCP connect"
 msgstr "TCP 连接"
 
@@ -359,18 +395,6 @@ msgstr "IPv4 + IPv6"
 
 msgid "Global"
 msgstr "跟随全局"
-
-msgid "Edit"
-msgstr "编辑"
-
-msgid "Copy"
-msgstr "复制"
-
-msgid "Delete"
-msgstr "删除"
-
-msgid "Delete this target?"
-msgstr "确定删除该目标？"
 
 msgid "Edit target"
 msgstr "编辑目标"
@@ -401,9 +425,6 @@ msgstr "源地址（可选）"
 
 msgid "Remark"
 msgstr "备注"
-
-msgid "Cancel"
-msgstr "取消"
 
 msgid "Save & Apply"
 msgstr "保存并应用"

@@ -54,6 +54,15 @@ msgstr ""
 msgid "Check failed"
 msgstr ""
 
+msgid "Confirm"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "OK"
+msgstr ""
+
 msgid "Loss"
 msgstr ""
 
@@ -309,6 +318,9 @@ msgstr ""
 msgid "Global interval"
 msgstr ""
 
+msgid "Select all targets"
+msgstr ""
+
 msgid "Address"
 msgstr ""
 
@@ -336,6 +348,30 @@ msgstr ""
 msgid "The table scrolls horizontally on small screens."
 msgstr ""
 
+msgid "Edit"
+msgstr ""
+
+msgid "Move up"
+msgstr ""
+
+msgid "Move down"
+msgstr ""
+
+msgid "Copy"
+msgstr ""
+
+msgid "Delete"
+msgstr ""
+
+msgid "Delete target"
+msgstr ""
+
+msgid "Delete this target?"
+msgstr ""
+
+msgid "Select"
+msgstr ""
+
 msgid "TCP connect"
 msgstr ""
 
@@ -358,18 +394,6 @@ msgid "IPv4 + IPv6"
 msgstr ""
 
 msgid "Global"
-msgstr ""
-
-msgid "Edit"
-msgstr ""
-
-msgid "Copy"
-msgstr ""
-
-msgid "Delete"
-msgstr ""
-
-msgid "Delete this target?"
 msgstr ""
 
 msgid "Edit target"
@@ -400,9 +424,6 @@ msgid "Source address (optional)"
 msgstr ""
 
 msgid "Remark"
-msgstr ""
-
-msgid "Cancel"
 msgstr ""
 
 msgid "Save & Apply"

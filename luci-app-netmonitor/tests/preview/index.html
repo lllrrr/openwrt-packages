@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<!--
+ * luci-app-netmonitor · TDesign 重构本地预览
+ *
+ * 用途：在桌面浏览器里离线预览 7 个视图页的视觉效果与交互，
+ * 无需真实路由器 / rpcd / ubus。加载方式：
+ *
+ *   cd /workspace && python3 -m http.server 8000
+ *   打开 http://localhost:8000/tests/preview/index.html
+ *
+ * 实现要点：
+ *   - 用 fetch 直接读取各 .js 源文件，解析 LuCI 的 'require x as y'
+ *     指令并注入最小垫片模块（view / poll / rpc / ui / uci），
+ *     new Function 组装成与 LuCI 一致的模块工厂。
+ *   - common.api 被替换为内存假数据（getStatus / getHistory /
+ *     getStatistics / getTargets / getConfig 等），交互保存走
+ *     内存 uci 垫片，不会触碰任何真实系统。
+ *   - TDesign 库与业务 CSS 仍由 common.css() / common.tdesign()
+ *     经 L.resource() 注入，验证的是与实机完全相同的渲染路径。
+ *   - 中文翻译直接从 po/zh_Hans/luci-app-netmonitor.po 加载，
+ *     与实机 LuCI 的 i18n 表一致；翻译不可用时回退原文。
+ *
+ * 本文件属于开发测试工具，随 tests/ 目录保留，不参与 ipk 打包。
+ -->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>luci-app-netmonitor · TDesign 预览</title>
+<style>
+	/* 预览外壳样式，全部限定在 #nm-preview-* 命名空间，不干扰业务样式 */
+	body { margin: 0; background: #f5f6f8; font-family: -apple-system, "Segoe UI", "PingFang SC",
+		"Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif; color: #20242c; }
+	#nm-preview-top { background: #0b1f33; color: #fff; padding: 14px 22px;
+		display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+	#nm-preview-top h1 { font-size: 16px; margin: 0; font-weight: 600; }
+	#nm-preview-top .nm-preview-note { font-size: 12px; opacity: .72; }
+	#nm-preview-tabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 22px;
+		background: #fff; border-bottom: 1px solid rgba(120,130,150,.25);
+		position: sticky; top: 0; z-index: 50; }
+	#nm-preview-tabs button { border: 1px solid rgba(120,130,150,.3); background: #fafbfc;
+		color: #20242c; font-size: 13px; padding: 6px 14px; border-radius: 6px; cursor: pointer; }
+	#nm-preview-tabs button.on { background: #0052d9; border-color: #0052d9; color: #fff; }
+	#nm-preview-host { padding: 18px; }
+	#nm-preview-host .nm-preview-err { background: #fff1f0; border: 1px solid #ffccc7; color: #cf1322;
+		padding: 14px 18px; border-radius: 8px; font-size: 13px; white-space: pre-wrap; word-break: break-all; }
+	#nm-preview-toasts { position: fixed; right: 18px; bottom: 18px; display: flex;
+		flex-direction: column; gap: 8px; z-index: 9999; }
+	.nm-preview-toast { background: #20242c; color: #fff; font-size: 13px;
+		padding: 10px 16px; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.18);
+		max-width: 340px; }
+	.nm-preview-toast.error { background: #cf1322; }
+	.nm-preview-toast.warning { background: #d46b08; }
+</style>
+</head>
+<body>
+<div id="nm-preview-top">
+	<h1>luci-app-netmonitor · TDesign Web Components 预览</h1>
+	<span class="nm-preview-note">离线假数据驱动 · 交互保存走内存 uci 垫片 · 翻译取自 po/zh_Hans</span>
+</div>
+<div id="nm-preview-tabs"></div>
+<div id="nm-preview-host"></div>
+<div id="nm-preview-toasts"></div>
+
+<script>
+'use strict';
+
+/* ================================================================ 全局垫片 */
+window._ = function(s) { return (window.__NM_TR && window.__NM_TR[s]) ? window.__NM_TR[s] : s; };
+window.Class = { extend: function(props) { return props; }, isSubclass: function() { return true; } };
+window.E = function(tag) { return document.createElement(tag); };
+window.L = {
+	resource: function(p) { return '/htdocs/luci-static/resources/' + p; },
+	env: { sessionid: 'preview' }   /* 仅用于让 applyChanges 走官方路径分支 */
+};
+
+/* 加载中文翻译（po 文件单行 msgid/msgstr 对；失败静默回退英文原文） */
+(function loadPo() {
+	fetch('/po/zh_Hans/luci-app-netmonitor.po').then(function(r) {
+		if (!r.ok) throw new Error(r.status);
+		return r.text();
+	}).then(function(text) {
+		var TR = {};
+		var cur = null;
+		var lines = text.split('\n');
+		for (var i = 0; i < lines.length; i++) {
+			var line = lines[i];
+			var mi = /^msgid\s+"((?:[^"\\]|\\.)*)"\s*$/.exec(line);
+			var ms = /^msgstr\s+"((?:[^"\\]|\\.)*)"\s*$/.exec(line);
+			var ct = /^"((?:[^"\\]|\\.)*)"\s*$/.exec(line);
+			if (mi) { cur = { id: mi[1], str: '' }; }
+			else if (ms) { if (cur) cur.str = ms[1]; }
+			else if (ct) { if (cur) cur.str += ct[1]; }
+			else if (/^msgctxt|^#/.test(line)) { cur = null; }
+			else if (line === '') { if (cur) TR[cur.id] = cur.str; cur = null; }
+		}
+		if (cur) TR[cur.id] = cur.str;
+		window.__NM_TR = TR;
+	}).catch(function() { /* 翻译不可用：_() 回退原文 */ });
+})();
+
+/* ================================================================ 垫片模块 */
+var pollMock = {
+	_ids: [],
+	add: function(fn, seconds) {
+		if (typeof fn !== 'function') return;
+		fn();   /* LuCI poll.add 首次立即执行，页面据此完成首帧渲染 */
+		var ms = Math.max(1000, (seconds || 2) * 1000);
+		this._ids.push(setInterval(fn, ms));
+	},
+	reset: function() {
+		for (var i = 0; i < this._ids.length; i++) clearInterval(this._ids[i]);
+		this._ids = [];
+	}
+};
+
+var uiMock = {
+	changes: { apply: function() { return Promise.resolve(); } },
+	addNotification: function(id, el, type) {
+		var box = document.getElementById('nm-preview-toasts');
+		var t = document.createElement('div');
+		t.className = 'nm-preview-toast ' + (type || 'info');
+		t.textContent = el && el.textContent ? el.textContent : String(el || '');
+		box.appendChild(t);
+		setTimeout(function() { if (t.parentNode) t.parentNode.removeChild(t); }, 3200);
+	}
+};
+
+var uciMock = {
+	load: function() { return Promise.resolve(); },
+	get: function() { return null; },
+	set: function() {}, unset: function() {},
+	add: function() { return 'preview.sid'; },
+	save: function() { return Promise.resolve(); },
+	apply: function() { return Promise.resolve(); },
+	revert: function() { return Promise.resolve(); }
+};
+
+var rpcMock = { declare: function() { return function() { return Promise.resolve({}); }; } };
+
+/* ================================================================ 假数据 */
+var NOW = Math.floor(Date.now() / 1000);
+
+var CFG = {
+	enabled: '1', default_proto: 'icmp', default_tcp_port: '80',
+	interval: '10', timeout: '3', count: '1', concurrency: '5',
+	address_family: 'auto', interface: '', source: '',
+	persistence: '0', history: '24h', persist_interval: '300', max_points: '4320',
+	latency_excellent: '50', latency_good: '100', latency_fair: '200', latency_poor: '500',
+	loss_warn: '3', loss_critical: '5', fail_warn: '3', fail_critical: '5',
+	ui_refresh: '2', log_level: 'info', notify_enabled: '0', notify_url: ''
+};
+
+var SEED_TARGETS = [
+	{ id: 'baidu',     name: '百度',      host: 'www.baidu.com',      region: 'cn',       label: '搜索服务', proto: 'icmp', tcp_port: 0, family: 'auto', interval: 0, timeout: 0, interface: '', source: '', enabled: true,  remark: '核心业务检测' },
+	{ id: 'qq',        name: '腾讯',      host: 'www.qq.com',         region: 'cn',       label: '',         proto: 'icmp', tcp_port: 0, family: 'auto', interval: 0, timeout: 0, interface: '', source: '', enabled: true,  remark: '' },
+	{ id: 'github',    name: 'GitHub',    host: 'github.com',         region: 'overseas', label: '代码托管', proto: 'tcp',  tcp_port: 443, family: 'auto', interval: 0, timeout: 0, interface: '', source: '', enabled: true,  remark: '' },
+	{ id: 'cloudflare',name: 'Cloudflare',host: '1.1.1.1',            region: 'overseas', label: '',         proto: 'tcp',  tcp_port: 443, family: 'auto', interval: 0, timeout: 0, interface: '', source: '', enabled: true,  remark: '' },
+	{ id: 'google',    name: 'Google',    host: 'google.com',         region: 'overseas', label: '',         proto: 'icmp', tcp_port: 0, family: 'auto', interval: 0, timeout: 0, interface: '', source: '', enabled: true,  remark: '演示 DNS 失败' },
+	{ id: 'lab',       name: '内网测试',  host: '192.168.1.10',       region: 'other',    label: '',         proto: 'icmp', tcp_port: 0, family: 'auto', interval: 0, timeout: 0, interface: '', source: '', enabled: false, remark: '演示停用' }
+];
+
+/* 各目标延迟画像：base null 表示不可用（DNS 失败 / 停用） */
+var PROFILE = {
+	baidu:      { base: 23,  jitter: 6 },
+	qq:         { base: 41,  jitter: 10 },
+	github:     { base: 187, jitter: 30 },
+	cloudflare: { base: 72,  jitter: 12 },
+	google:     { base: null, dns: true },
+	lab:        { base: null, disabled: true }
+};
+
+/* 可复现伪随机：同一时间窗内数值稳定，避免每次轮询图形乱跳 */
+function mulberry32(a) {
+	return function() {
+		a |= 0; a = (a + 0x6D2B79F5) | 0;
+		var t = Math.imul(a ^ (a >>> 15), 1 | a);
+		t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
+}
+
+function clone(o) { return JSON.parse(JSON.stringify(o)); }
+
+function gradeOf(ms) {
+	if (ms == null || isNaN(ms)) return 'unknown';
+	if (ms <= 50) return 'excellent';
+	if (ms <= 100) return 'good';
+	if (ms <= 200) return 'fair';
+	if (ms <= 500) return 'poor';
+	return 'severe';
+}
+
+function sparkOf(rnd, base, jitter, n) {
+	var arr = [];
+	for (var i = 0; i < n; i++) {
+		if (rnd() < 0.05) arr.push(null);
+		else arr.push(Math.max(1, Math.round((base + (rnd() - 0.5) * 2 * jitter) * 10) / 10));
+	}
+	return arr;
+}
+
+function buildStatus(withSpark) {
+	var rnd = mulberry32(Math.floor(NOW / 8));  /* 8 秒窗口内稳定 */
+	var targets = SEED_TARGETS.map(function(t) {
+		var p = PROFILE[t.id] || { base: 50, jitter: 8 };
+		var latency = null, status = 'online', last_error = null, grade = 'unknown';
+		if (!t.enabled) { status = 'disabled'; grade = 'disabled'; }
+		else if (p.dns) { status = 'failed'; last_error = 'dns'; grade = 'down'; }
+		else {
+			latency = Math.max(1, Math.round((p.base + (rnd() - 0.5) * 2 * p.jitter) * 10) / 10);
+			grade = gradeOf(latency);
+		}
+		var loss = (status === 'online') ? (rnd() < 0.18 ? +(rnd() * 3).toFixed(1) : 0) : 100;
+		var success_rate = (status === 'online') ? (100 - loss) : 0;
+		return {
+			id: t.id, name: t.name, host: t.host, region: t.region, label: t.label,
+			enabled: !!t.enabled, status: status, last_error: last_error, grade: grade,
+			latency: latency,
+			avg: latency, p95: (latency != null) ? Math.round(latency * 1.3) : null,
+			loss: loss, success_rate: success_rate,
+			streak_fail: (status === 'failed') ? 4 : 0,
+			last_check: NOW - Math.floor(rnd() * 8),
+			samples: 120 + Math.floor(rnd() * 300),
+			spark: (withSpark && status === 'online' && p.base != null)
+				? sparkOf(rnd, p.base, p.jitter, 24) : []
+		};
+	});
+
+	var enabled = targets.filter(function(t) { return t.enabled; });
+	var online = targets.filter(function(t) { return t.enabled && t.status === 'online'; });
+	var offline = targets.filter(function(t) { return t.enabled && t.status !== 'online'; });
+	var cur = online.filter(function(t) { return t.latency != null; });
+	var avg = cur.length
+		? +(cur.reduce(function(a, b) { return a + b.latency; }, 0) / cur.length).toFixed(1) : null;
+	var samples = 0, lost = 0;
+	for (var i = 0; i < enabled.length; i++) {
+		var e = enabled[i];
+		if (e.samples > 0) { samples += e.samples; lost += e.samples * (e.loss / 100); }
+	}
+	var weighted = (samples > 0) ? +(lost / samples * 100).toFixed(1) : null;
+
+	var overall = {
+		current: cur.length ? cur[cur.length - 1].latency : null,
+		avg: avg, loss: weighted, loss_avg: weighted, loss_lost: Math.round(lost),
+		loss_samples: samples, online: online.length, offline: offline.length, total: enabled.length
+	};
+
+	var cn = targets.filter(function(t) { return t.region === 'cn'; });
+	var ov = targets.filter(function(t) { return t.region === 'overseas'; });
+	function agg(list) {
+		var ls = 0, n = 0, bad = 0, on = 0, sum = 0, an = 0, mx = 0;
+		for (var i = 0; i < list.length; i++) {
+			var t = list[i];
+			if (!t.enabled) continue;
+			ls += t.samples; n += t.samples; bad += t.samples * (t.loss / 100);
+			if (t.status === 'online') on++; else bad++;
+			if (t.latency != null) { sum += t.latency; an++; if (t.latency > mx) mx = t.latency; }
+		}
+		return {
+			avg: an ? +(sum / an).toFixed(1) : null,
+			p95: an ? Math.round(mx * 1.05) : null,
+			loss: n ? +(bad / n * 100).toFixed(1) : 0,
+			online_rate: n ? +(100 - bad / n * 100).toFixed(1) : 0,
+			loss_lost: Math.round(bad), loss_samples: n,
+			online: on, abnormal: list.filter(function(t) { return t.enabled && t.status !== 'online'; }).length,
+			total: list.filter(function(t) { return t.enabled; }).length
+		};
+	}
+
+	return {
+		running: true, stale: false, health: offline.length ? 'warning' : 'good',
+		tick: NOW - 3, updated: NOW - 3,
+		overall: overall,
+		regions: { cn: agg(cn), overseas: agg(ov) },
+		thresholds: clone(CFG),
+		targets: targets
+	};
+}
+
+var RANGE_SECS = { '1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '6h': 21600, '12h': 43200, '24h': 86400, '3d': 259200, '7d': 604800, '30d': 2592000 };
+
+function buildHistory(range) {
+	var secs = RANGE_SECS[range] || 900;
+	var to = NOW, from = NOW - secs;
+	var POINTS = 120;
+	var rnd = mulberry32(from + secs);
+	var series = SEED_TARGETS.map(function(t) {
+		var p = PROFILE[t.id] || { base: 50, jitter: 8 };
+		var points = [], max = null, min = null, sum = 0, cnt = 0;
+		for (var i = 0; i < POINTS; i++) {
+			var ts = from + Math.floor(i * secs / POINTS);
+			var l = null;
+			if (t.enabled && p.base != null && !p.dns) {
+				l = Math.max(1, Math.round((p.base + (rnd() - 0.5) * 2 * p.jitter) * 10) / 10);
+				if (rnd() < 0.06) l = null;
+				else { sum += l; cnt++; if (max == null || l > max) max = l; if (min == null || l < min) min = l; }
+			}
+			points.push({ t: ts, l: l });
+		}
+		return {
+			id: t.id, name: t.name || t.id, region: t.region, points: points,
+			summary: { max: max, min: min, avg: cnt ? +(sum / cnt).toFixed(1) : null, samples: cnt, loss: cnt ? +(100 - cnt / POINTS * 100).toFixed(1) : 100 }
+		};
+	});
+	return { from: from, to: to, source: 'memory', series: series };
+}
+
+function buildStats() {
+	var rnd = mulberry32(Math.floor(NOW / 16));
+	var targets = SEED_TARGETS.map(function(t) {
+		var p = PROFILE[t.id] || { base: 50, jitter: 8 };
+		var usable = t.enabled && p.base != null && !p.dns;
+		var avg = usable ? +(p.base + (rnd() - 0.5) * 4).toFixed(1) : null;
+		var loss = usable ? (rnd() < 0.2 ? +(rnd() * 2.5).toFixed(1) : 0) : 100;
+		return {
+			id: t.id, name: t.name || t.id, region: t.region,
+			samples: usable ? 60 + Math.floor(rnd() * 400) : 0,
+			avg: avg, min: usable ? Math.max(1, Math.round(avg * 0.7)) : null,
+			max: usable ? Math.round(avg * 1.4) : null,
+			p50: avg, p95: usable ? Math.round(avg * 1.25) : null,
+			loss: loss, success_rate: usable ? 100 - loss : 0
+		};
+	});
+	return { targets: targets };
+}
+
+var mockApi = {
+	getConfig:    function() { return Promise.resolve(clone(CFG)); },
+	getTargets:   function() { return Promise.resolve({ targets: clone(SEED_TARGETS) }); },
+	getStatus:    function(o) { return Promise.resolve(buildStatus(!!(o && o.spark))); },
+	getHistory:   function(o) { return Promise.resolve(buildHistory(o && o.range)); },
+	getStatistics:function() { return Promise.resolve(buildStats()); },
+	serviceStatus:function() { return Promise.resolve({ running: true, tick: NOW - 2 }); },
+	startService: function() { return Promise.resolve({}); },
+	stopService:  function() { return Promise.resolve({}); },
+	restartService:function() { return Promise.resolve({}); },
+	clearHistory: function() { return Promise.resolve({}); },
+	updateTarget: function() { return Promise.resolve({}); },
+	addTarget:    function() { return Promise.resolve({}); },
+	deleteTarget: function() { return Promise.resolve({}); },
+	moveTarget:   function() { return Promise.resolve({}); },
+	copyTarget:   function() { return Promise.resolve({}); },
+	batchTargets: function() { return Promise.resolve({}); },
+	setConfig:    function() { return Promise.resolve({}); }
+};
+
+/* ================================================================ 模块加载器 */
+var SOURCES = {
+	'netmonitor.common': '/htdocs/luci-static/resources/netmonitor/common.js',
+	'netmonitor.icons':  '/htdocs/luci-static/resources/netmonitor/icons.js',
+	'netmonitor.chart':  '/htdocs/luci-static/resources/netmonitor/chart.js'
+};
+var VIEW_SOURCES = {
+	overview: '/htdocs/luci-static/resources/view/netmonitor/overview.js',
+	realtime: '/htdocs/luci-static/resources/view/netmonitor/realtime.js',
+	charts:   '/htdocs/luci-static/resources/view/netmonitor/charts.js',
+	regions:  '/htdocs/luci-static/resources/view/netmonitor/regions.js',
+	history:  '/htdocs/luci-static/resources/view/netmonitor/history.js',
+	targets:  '/htdocs/luci-static/resources/view/netmonitor/targets.js',
+	settings: '/htdocs/luci-static/resources/view/netmonitor/settings.js'
+};
+
+var BUILTIN = {
+	view: { extend: function(props) { return props; } },
+	poll: pollMock,
+	rpc: rpcMock,
+	ui: uiMock,
+	uci: uciMock
+};
+
+var _cache = {};
+
+function fetchText(url) {
+	return fetch(url).then(function(r) {
+		if (!r.ok) throw new Error('GET ' + url + ' -> ' + r.status);
+		return r.text();
+	});
+}
+
+function parseRequires(src) {
+	var deps = [], m, re = /^'require\s+([\w.]+)(?:\s+as\s+(\w+))?';/gm;
+	while ((m = re.exec(src)))
+		deps.push({ mod: m[1], alias: m[2] || m[1].split('.').pop() });
+	return deps;
+}
+
+function loadModule(name) {
+	if (_cache[name]) return Promise.resolve(_cache[name]);
+	if (BUILTIN[name]) { _cache[name] = BUILTIN[name]; return Promise.resolve(_cache[name]); }
+	var url = SOURCES[name] || VIEW_SOURCES[name.replace('view.netmonitor.', '')];
+	if (!url) return Promise.reject(new Error('未知模块: ' + name));
+	return fetchText(url).then(function(src) {
+		var deps = parseRequires(src);
+		var clean = src
+			.replace(/^'use strict';\s*/m, '')
+			.replace(/^'require\s+[\w.]+(?:\s+as\s+\w+)?';/gm, '');
+		var loads = deps.map(function(d) { return loadModule(d.mod); });
+		return Promise.all(loads).then(function(modules) {
+			var fn = new (Function.bind.apply(Function, [null].concat(deps.map(function(d) { return d.alias; }), [clean])))();
+			var mod = fn.apply(null, modules);
+			_cache[name] = mod;
+			return mod;
+		});
+	});
+}
+
+/* ================================================================ 页签挂载 */
+var VIEW_NAMES = [
+	['overview', '总览'],
+	['realtime', '实时监控'],
+	['charts', '延迟曲线'],
+	['regions', '国内 / 国外'],
+	['history', '历史数据'],
+	['targets', '目标管理'],
+	['settings', '设置']
+];
+
+var tabBar = document.getElementById('nm-preview-tabs');
+var host = document.getElementById('nm-preview-host');
+
+function showError(e) {
+	var box = document.createElement('div');
+	box.className = 'nm-preview-err';
+	box.textContent = '渲染失败：' + (e && (e.stack || e.message) ? (e.stack || e.message) : String(e));
+	return box;
+}
+
+function mountView(name) {
+	pollMock.reset();
+	host.innerHTML = '';
+
+	var btns = tabBar.querySelectorAll('button');
+	for (var i = 0; i < btns.length; i++)
+		btns[i].className = (btns[i].getAttribute('data-view') === name) ? 'on' : '';
+
+	loadModule('netmonitor.common').then(function(common) {
+		common.api = mockApi;   /* 统一替换为内存假数据 */
+		return loadModule('view.netmonitor.' + name).then(function(viewDef) {
+			return viewDef.load().then(function(res) {
+				return viewDef.render(res);
+			});
+		});
+	}).then(function(root) {
+		if (root) host.appendChild(root);
+	}).catch(function(e) {
+		host.appendChild(showError(e));
+	});
+}
+
+VIEW_NAMES.forEach(function(v) {
+	var b = document.createElement('button');
+	b.setAttribute('data-view', v[0]);
+	b.textContent = v[1];
+	b.addEventListener('click', function() { mountView(v[0]); });
+	tabBar.appendChild(b);
+});
+
+/* 默认加载总览页 */
+mountView('overview');
+</script>
+</body>
+</html>

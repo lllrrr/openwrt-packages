@@ -12,7 +12,10 @@
 'require netmonitor.icons as icons';
 
 var CSS_ID = 'nm-netmonitor-css';
+var TD_CSS_ID = 'nm-tdesign-css';
+var TD_JS_ID = 'nm-tdesign-js';
 var I18N_DOMAIN = 'luci-app-netmonitor';
+var _tdReady = null;
 
 function resourceUrl(path) {
 	if (typeof L !== 'undefined' && L && L.resource)
@@ -31,6 +34,44 @@ function ensureCss() {
 	link.type = 'text/css';
 	link.href = resourceUrl('netmonitor/style.css');
 	document.head.appendChild(link);
+	/* TDesign 组件样式：只注入一次，与业务样式分开便于后续升级替换 */
+	if (!document.getElementById(TD_CSS_ID)) {
+		var td = document.createElement('link');
+		td.id = TD_CSS_ID;
+		td.rel = 'stylesheet';
+		td.type = 'text/css';
+		td.href = resourceUrl('netmonitor/tdesign/tdesign.css');
+		document.head.appendChild(td);
+	}
+}
+
+/* 动态加载 TDesign Web Components 库（UMD，全局注册 <t-*> 自定义元素）。
+ *
+ * 返回 Promise，resolve 后组件树已可用。加载过程只发生一次（_tdReady 缓存）；
+ * 失败时清空缓存并 reject，便于页面在 render 阶段降级或提示。
+ *
+ * 注意：LuCI 的 require 体系不支持动态 import / ESM，因此这里用经典的
+ * <script> 注入方式挂载 UMD 构建，组件库自己负责注册 custom elements。 */
+function tdesign() {
+	if (_tdReady)
+		return _tdReady;
+	_tdReady = new Promise(function(resolve, reject) {
+		if (window.customElements &&
+			typeof window.customElements.get('t-button') !== 'undefined') {
+			resolve();
+			return;
+		}
+		var s = document.createElement('script');
+		s.id = TD_JS_ID;
+		s.src = resourceUrl('netmonitor/tdesign/tdesign.min.js');
+		s.onload = function() { resolve(); };
+		s.onerror = function() {
+			_tdReady = null;
+			reject(new Error('TDesign library failed to load'));
+		};
+		document.head.appendChild(s);
+	});
+	return _tdReady;
 }
 
 /* 加载插件自己的 i18n domain。
@@ -151,8 +192,12 @@ var api = {
 	getHistory: function(o) { return call('get_history', strParams(o)); },
 	getStatistics: function(o) { return call('get_statistics', strParams(o)); },
 	getConfig: function() { return call('get_config', {}); },
-	setConfig: function(o) { return call('set_config', strParams(o)); },
-	addTarget: function(o) { return call('add_target', strParams(o)); },
+	/* 配置写入刻意不走后端 set_config / add_target：那些方法虽然也写
+	 * 同一份 uci 配置，但自成一个没有提交/回滚/触发器语义的平行通道。
+	 * 与两条通道并存，就会出现「界面已保存、系统未重载」这类难以定位的
+	 * 差异（详见上方「UCI 事务」注释）。前端一律改用 saveConfig() /
+	 * addSection() + applyChanges()，走 LuCI 原生「保存并应用」链路。
+	 * 后端两个方法本身保持注册，仍可供 ubus CLI / 第三方脚本使用。 */
 	updateTarget: function(o) { return call('update_target', strParams(o)); },
 	deleteTarget: function(id) { return call('delete_target', { id: String(id) }); },
 	moveTarget: function(id, dir) { return call('move_target', { id: String(id), direction: String(dir) }); },
@@ -407,6 +452,147 @@ function errorText(e) {
 	return '';
 }
 
+/* ---------------------------------------------------------------- 弹窗 */
+
+/* TDesign 确认弹窗：替换 window.confirm。
+ *
+ * 为什么不用原生 confirm：它是阻塞式同步调用，会冻结整个主线程，在低端
+ * 路由器的 LuCI 页面上表现为点一下「删除」后整页无响应数百毫秒；且样式
+ * 完全由浏览器决定，与本插件的 TDesign 视觉体系割裂。
+ *
+ * 事件与属性契约（逐条核对随包 tdesign.min.js 的 propTypes 后确定，勿凭印象改）：
+ *   · 关闭出口只有一个 close 事件，由内部 onClose({ e, trigger }) 派发，
+     trigger 取值为 'confirm' | 'cancel' | 'overlay' | 'esc'。
+     —— 组件没有 visible-change 事件，早期误用会导致弹窗关不掉。
+ *   · ESC 开关的属性名是 closeOnEscKeydown，不是 closeOnEsc。
+ *   · footer 传 true 时按钮由组件自行生成，此时 confirmBtn / cancelBtn
+     这两个 prop 并未在 t-dialog 的 propTypes 中声明（那是 popconfirm 的），
+     设了也不生效。因此这里与 targets.js 的编辑弹窗保持一致，改用
+     footer slot 自带按钮 —— 走的是组件明确支持的渲染路径。
+ *
+ * 返回 Promise<boolean>：确认 resolve(true)，取消/ESC/点遮罩 resolve(false)。
+ * 调用方无需 try/catch —— 用户主动取消不是错误。 */
+function confirmDialog(opts) {
+	opts = opts || {};
+	return tdesign().then(function() {
+		return new Promise(function(resolve) {
+			var settled = false;
+			function done(v) {
+				if (settled) return;
+				settled = true;
+				/* 解除 keydown 监听后再移除节点，避免关闭瞬间的 ESC
+				 * 把焦点抢回一个已经离场的元素。 */
+				document.removeEventListener('keydown', onKey, true);
+				try { modal.visible = false; } catch (e) { /* 组件已卸载 */ }
+				if (modal.parentNode) modal.parentNode.removeChild(modal);
+				resolve(v);
+			}
+			/* 兜底：焦点在 shadow 外时组件可能收不到 ESC，这里在 capture
+			 * 阶段拦一道。注意只在弹窗仍在文档中时处理。 */
+			function onKey(e) {
+				if (e.key === 'Escape' && modal.isConnected) {
+					e.stopPropagation();
+					done(false);
+				}
+			}
+
+			var modal = document.createElement('t-dialog');
+			modal.setAttribute('header', opts.header || _('Confirm'));
+			modal.setAttribute('width', 'min(420px, calc(100vw - 32px))');
+			/* 自带关闭按钮 + ESC 关闭，属性名必须是 closeOnEscKeydown */
+			modal.setAttribute('closeOnEscKeydown', 'true');
+			modal.setAttribute('closeOnOverlayClick', 'true');
+			/* 自行提供 footer，故关掉组件默认 footer */
+			modal.setAttribute('footer', 'false');
+			modal.visible = true;
+			/* 弹窗同样需要焦点落点，否则打开后焦点仍在背后的页面上 */
+			modal.setAttribute('tabindex', '-1');
+
+			modal.appendChild(el('div', 'nm-confirm-body', opts.message || ''));
+
+			var footer = el('div', 'nm-modal-actions');
+			var btnCancel = document.createElement('t-button');
+			btnCancel.setAttribute('theme', 'default');
+			btnCancel.setAttribute('variant', 'outline');
+			btnCancel.textContent = opts.cancel || _('Cancel');
+			btnCancel.addEventListener('click', function() { done(false); });
+
+			var btnOk = document.createElement('t-button');
+			btnOk.setAttribute('theme', opts.danger ? 'danger' : 'primary');
+			btnOk.textContent = opts.ok || _('OK');
+			btnOk.addEventListener('click', function() { done(true); });
+
+			footer.appendChild(btnCancel);
+			footer.appendChild(btnOk);
+			var slot = el('div');
+			slot.setAttribute('slot', 'footer');
+			slot.appendChild(footer);
+			modal.appendChild(slot);
+
+			/* 唯一关闭出口：读 trigger 区分确认与其它来源 */
+			modal.addEventListener('close', function(e) {
+				var d = e && e.detail;
+				var trigger = d && d.trigger ? d.trigger : '';
+				done(trigger === 'confirm');
+			});
+
+			document.addEventListener('keydown', onKey, true);
+			document.body.appendChild(modal);
+			window.setTimeout(function() {
+				try { btnCancel.focus(); } catch (e) { /* 未就绪则跳过 */ }
+			}, 60);
+		});
+	});
+}
+
+/* 焦点陷阱：把 Tab 键循环限制在 container 内。
+ *
+ * t-dialog 走 shadow DOM，宿主元素上拿不到内部可聚焦节点列表，因此这里
+ * 只做「宿主级别的兜底」：Tab 到最后一个可聚焦元素时绕回第一个。真正的
+ * 内部循环由组件自身负责，本函数只防止焦点跑到弹窗背后的页面上 ——
+ * 对键盘用户而言，跑出去就意味着看不见焦点落在哪，比顺序错更糟。
+ *
+ * 返回 release()，在弹窗关闭时调用以解除监听。
+ *
+ * onEscape: 可选回调。传入后在 capture 阶段拦下 Escape 并调用它。
+ * 这一层兜底是必需的，不是冗余：t-dialog 的 ESC 关闭依赖组件内部的
+ * uid 栈（Gw.top === this.uid），而 uid 只在 receiveProps 检测到 visible
+ * 真实变化时才入栈。经实测，本项目用 modal.visible = true 打开弹窗时
+ * 该入栈动作不会发生，closeOnEscKeydown 属性设了也不生效——事件能到达
+ * document，组件却不响应。因此 ESC 关闭必须由我们在 document 上兜住。 */
+function trapFocus(container, onEscape) {
+	function onKey(e) {
+		/* ESC 兜底：必须在 capture 阶段抢在组件自己的监听之前，
+		 * 否则组件一旦（在别的路径上）也响应 ESC，会双触发。 */
+		if (e.key === 'Escape' && typeof onEscape === 'function') {
+			if (!container.isConnected) return;
+			e.stopPropagation();
+			e.preventDefault();
+			onEscape();
+			return;
+		}
+		if (e.key !== 'Tab') return;
+		var f = container.querySelectorAll(
+			'a[href], button:not([disabled]), input:not([disabled]), ' +
+			'select:not([disabled]), textarea:not([disabled]), ' +
+			'[tabindex]:not([tabindex="-1"])'
+		);
+		if (!f.length) return;
+		var first = f[0], last = f[f.length - 1];
+		if (e.shiftKey && document.activeElement === first) {
+			last.focus();
+			e.preventDefault();
+		} else if (!e.shiftKey && document.activeElement === last) {
+			first.focus();
+			e.preventDefault();
+		}
+	}
+	document.addEventListener('keydown', onKey, true);
+	return function release() {
+		document.removeEventListener('keydown', onKey, true);
+	};
+}
+
 /* ---------------------------------------------------------------- DOM 辅助 */
 
 function el(tag, cls, html) {
@@ -580,6 +766,20 @@ function iconCard(title, value, sub, svg, valueCls) {
 	return c;
 }
 
+/* TDesign 视觉卡片容器（普通 div，替代 <t-card>）。
+ *
+ * 为什么不直接用 <t-card>：t-card 在 shadow DOM 里克隆 light DOM 内容，
+ * 外部样式表（.nm-* 布局类）无法穿透 shadow 边界，卡片内部 flex/grid/
+ * 宽度全部失效（实测 .nm-card-inner 退化为 block、图例粘连、输入框零宽）。
+ * 这里用 div + TDesign CSS 变量复刻 t-card 的视觉（背景 / 边框 / 圆角 /
+ * 内边距），布局样式照常生效；页面交互组件（按钮 / 开关 / 选择 / 输入 /
+ * 弹窗）仍为 <t-*>。 */
+function tcard(extraCls) {
+	var c = el('div', 'nm-tcard');
+	if (extraCls) c.classList.add(extraCls);
+	return c;
+}
+
 /* 统一的状态横幅（服务未运行 / 数据不足 等） */
 function banner(msg, kind) {
 	var b = el('div', 'nm-card');
@@ -598,6 +798,7 @@ return Class.extend({
 	__name__: 'NetMonitor.common',
 
 	css: ensureCss,
+	tdesign: tdesign,
 	loadI18n: loadI18n,
 	api: api,
 	call: call,
@@ -622,8 +823,11 @@ return Class.extend({
 	localizeError: localizeError,
 	el: el,
 	svgBox: svgBox,
+	tcard: tcard,
 	cardIcon: cardIcon,
 	inlineIcon: inlineIcon,
+	confirmDialog: confirmDialog,
+	trapFocus: trapFocus,
 	icons: icons,
 	clear: clear,
 	notify: notify,

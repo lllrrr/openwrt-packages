@@ -8,17 +8,28 @@
  *      变量缺失时退回系统偏好配色，因此默认主题与常见第三方主题都能正常显示。
  *   3. 动画只使用 transform / opacity / stroke-dashoffset，避免 blur、filter 与
  *      大面积 box-shadow，降低低端路由设备的 CPU/GPU 开销。
+ *   4. 本文件自 v6 起与 TDesign Web Components 协同：页面级 UI（按钮/表单/表格/
+ *      弹窗/开关/选择器/标签）由 <t-*> 组件承载，本文件负责 .nm-* 布局、状态色、
+ *      动态 SVG 动效与 TDesign 主题变量对接。
  */
 
-/* 变量同时定义在 .nm-root 与 .nm-modal 上。
+/* 变量定义在 .nm-root、.nm-modal 与 t-dialog 上。
  *
  * 原因：编辑弹窗必须挂在 document.body 下（否则会被祖先的 overflow/transform
  * 裁掉），于是它不在 .nm-root 的子树里。若变量只定义在 .nm-root，弹窗内
  * 所有 var(--nm-*) 都会解析为空，var() 又没写回退值时整条声明失效 ——
  * 实测表现为 .nm-btn-primary 的 background 变成 transparent，
- * 白字落在透明底上，看起来「保存按钮不见了」。 */
+ * 白字落在透明底上，看起来「保存按钮不见了」。
+ *
+ * 注意：.nm-modal 是插件自绘弹窗的类，而 targets/settings 页的编辑弹窗
+ * 早已改用 TDesign 的 <t-dialog>（自定义元素，挂在 body 下）。若只保留
+ * .nm-modal，t-dialog 内部与 light DOM 里的一切 var(--nm-*) 全部失效 ——
+ * 表单 label 变透明（--nm-muted 空）、错误提示不可见（--nm-bad 空）、
+ * 弹窗底色回退成白（--nm-bg 空，在暗色主题下刺眼）。因此这里必须把
+ * t-dialog 一并纳入变量作用域。 */
 .nm-root,
-.nm-modal {
+.nm-modal,
+t-dialog {
 	--nm-bg: var(--background-color, #ffffff);
 	--nm-fg: var(--text-color, #20242c);
 	--nm-card: var(--light-bg-color, #f7f8fa);
@@ -44,6 +55,56 @@
 	--nm-gap: 14px;
 }
 
+/* ------------------------------------------------- TDesign 主题对接
+ *
+ * TDesign Web Components 的样式表把默认值定义在 :root（--td-* 变量）。
+ * 这里在 .nm-root 内把品牌/背景/文本/边框变量映射到 LuCI 主题变量，
+ * 实现三件事：
+ *   1. 品牌色跟随主题的 --accent-color（而非固定 TDesign 蓝 #0052d9）；
+ *   2. 背景 / 文本 / 边框跟随 LuCI 明暗主题，第三方主题与深色模式自动适配
+ *      （--nm-* 已在上面及 @media dark 里完成映射）；
+ *   3. 弹窗 / 气泡 / 消息会渲染到 document.body（脱离 .nm-root 子树），
+ *      因此把 t-dialog / t-popup / t-message 也列入选择器，让它们内部
+ *      的组件同样继承这套映射。
+ *
+ * color-mix 依赖较新浏览器；LuCI 页面的受众浏览器普遍已支持，且原样式
+ * 表里已有 color-mix 先例。变量缺失时按字面回退值兜底。
+ */
+.nm-root,
+t-dialog,
+t-popup,
+t-message {
+	--td-brand-color: var(--nm-accent, #0052d9);
+	--td-brand-color-hover: color-mix(in srgb, var(--nm-accent, #0052d9) 90%, #fff 10%);
+	--td-brand-color-active: color-mix(in srgb, var(--nm-accent, #0052d9) 92%, #000 8%);
+	--td-brand-color-focus: color-mix(in srgb, var(--nm-accent, #0052d9) 40%, transparent);
+	--td-brand-color-light: color-mix(in srgb, var(--nm-accent, #0052d9) 12%, transparent);
+	--td-brand-color-light-hover: color-mix(in srgb, var(--nm-accent, #0052d9) 20%, transparent);
+	--td-brand-color-disabled: color-mix(in srgb, var(--nm-accent, #0052d9) 35%, transparent);
+	--td-text-color-brand: var(--nm-accent, #0052d9);
+	--td-text-color-link: color-mix(in srgb, var(--nm-accent, #0052d9) 85%, #000 15%);
+
+	--td-bg-color-page: var(--background-color, #f5f6f8);
+	--td-bg-color-container: var(--light-bg-color, #ffffff);
+	--td-bg-color-container-hover: var(--lighter-bg-color, #fafbfc);
+	--td-bg-color-container-active: color-mix(in srgb, var(--light-bg-color, #ffffff) 96%, #000 4%);
+	--td-bg-color-container-select: var(--light-bg-color, #ffffff);
+	--td-bg-color-secondarycontainer: var(--light-bg-color, #f5f6f8);
+
+	--td-text-color-primary: var(--text-color, #20242c);
+	--td-text-color-secondary: var(--light-text-color, #7b8494);
+	--td-text-color-placeholder: var(--light-text-color, #98a1b0);
+	--td-text-color-disabled: color-mix(in srgb, var(--light-text-color, #98a1b0) 60%, transparent);
+
+	--td-border-level-1-color: var(--border-color, rgba(120, 130, 150, 0.20));
+	--td-border-level-2-color: var(--border-color, rgba(120, 130, 150, 0.30));
+	--td-border-level-3-color: var(--border-color, rgba(120, 130, 150, 0.40));
+
+	--td-success-color: var(--nm-ok, #2e9e5b);
+	--td-warning-color: var(--nm-warn, #d69a1a);
+	--td-error-color: var(--nm-bad, #cf4437);
+}
+
 .nm-root {
 	color: var(--nm-fg);
 	font-size: 14px;
@@ -52,7 +113,8 @@
 
 @media (prefers-color-scheme: dark) {
 	.nm-root,
-	.nm-modal {
+	.nm-modal,
+	t-dialog {
 		--nm-bg: var(--background-color, #14171c);
 		--nm-fg: var(--text-color, #e6e9ef);
 		--nm-card: var(--light-bg-color, #1c2027);
@@ -69,7 +131,20 @@
 
 .nm-root {
 	display: block;
+	/* 必须显式 border-box：.nm-root 同时声明了 width:100% 与左右 padding
+	 * （窄屏断点为 10px），默认 content-box 下实际占位 = 100% + 20px，
+	 * 恒定撑出 20px 横向溢出 —— 实测 375px 视口下 document.scrollWidth
+	 * 为 377，手机上会多出一条无意义的横向滚动条。
+	 * 同时向下传递，保证卡片/栅格项自身的 padding 也不会追加宽度。 */
+	box-sizing: border-box;
 	width: 100%;
+	max-width: 100%;
+}
+
+.nm-root *,
+.nm-root *::before,
+.nm-root *::after {
+	box-sizing: border-box;
 }
 
 .nm-page {
@@ -121,6 +196,196 @@
 .nm-spacer {
 	flex: 1 1 auto;
 }
+
+/* TDesign 视觉卡片容器（普通 div，替代 <t-card>）。
+ *
+ * 背景 / 边框 / 圆角全部走 TDesign 变量（--td-*），与真 t-card 视觉一致，
+ * 且内边距 / 布局类可被本样式表正常作用（t-card 的 shadow DOM 克隆会隔离
+ * 外部样式，导致卡片内部 .nm-* 布局全部失效，因此容器改用 div）。 */
+.nm-tcard {
+	--td-comp-paddingTB-l: 18px;
+	--td-comp-paddingLR-xl: 24px;
+	background: var(--td-bg-color-container, var(--nm-card-hi, #ffffff));
+	border: 1px solid var(--td-border-level-1-color, var(--nm-border));
+	border-radius: var(--td-radius-medium, var(--nm-radius, 14px));
+	box-sizing: border-box;
+	min-width: 0;
+	/* TDesign t-card body 的水平内边距为 32px，与 .nm-* 内部排版偏宽；
+	 * 这里固定为与 t-card 变量覆盖一致的内边距（18px / 24px）。 */
+	padding: 18px 24px;
+}
+
+/* ------------------------------------------------- 总览页布局（TDesign 平面化） */
+
+.nm-banner-box {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.nm-hero-showcase {
+	display: flex;
+	align-items: center;
+	gap: 26px;
+}
+
+.nm-hero-orb-wrap {
+	flex: 0 0 auto;
+	width: 104px;
+	height: 104px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.nm-hero-main {
+	flex: 1 1 260px;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.nm-hero-title {
+	margin: 0;
+	font-size: 22px;
+	font-weight: 700;
+	letter-spacing: -0.01em;
+	color: var(--nm-fg);
+	line-height: 1.25;
+}
+
+.nm-hero-desc {
+	font-size: 13px;
+	line-height: 1.55;
+	color: var(--nm-muted);
+	max-width: 780px;
+}
+
+.nm-hero-stats-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	margin-top: 4px;
+}
+
+.nm-stat-badge {
+	background: var(--nm-card);
+	border: 1px solid var(--nm-border);
+	border-radius: var(--nm-radius-sm);
+	padding: 8px 16px;
+	display: flex;
+	flex-direction: column;
+	min-width: 96px;
+}
+
+.nm-stat-badge b {
+	font-size: 18px;
+	font-weight: 700;
+	color: var(--nm-fg);
+	font-variant-numeric: tabular-nums;
+}
+
+.nm-stat-badge span {
+	font-size: 11px;
+	color: var(--nm-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	font-weight: 600;
+	margin-top: 2px;
+}
+
+/* KPI / 实时卡片内部排版（外层为 <t-card>，内边距由 t-card 变量提供） */
+.nm-card-inner {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	position: relative;
+	min-width: 0;
+}
+
+.nm-card-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 10px;
+	gap: 10px;
+}
+
+.nm-card-label {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--nm-muted);
+}
+
+.nm-card-icon-box {
+	width: 40px;
+	height: 40px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex: 0 0 auto;
+	border-radius: 10px;
+	background: var(--nm-card);
+}
+
+.nm-card-icon-box svg { width: 40px; height: 40px; }
+
+.nm-card-number {
+	font-size: 26px;
+	font-weight: 700;
+	color: var(--nm-fg);
+	letter-spacing: -0.02em;
+	line-height: 1.15;
+	font-variant-numeric: tabular-nums;
+}
+
+.nm-card-description {
+	margin-top: 8px;
+	font-size: 12px;
+	color: var(--nm-muted);
+	line-height: 1.5;
+}
+
+/* 底部控制台 */
+.nm-footer-panel {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 16px;
+}
+
+/* ------------------------------------------------- Hero 动态 SVG 动效
+ *
+ * 这些动画类原先由各页面注入的 <style> 提供，删除注入样式后统一收口到
+ * 本表，避免每个页面各自维护一份。只驱动 transform / opacity，无 filter
+ * 与大面积阴影，符合低端设备性能约束。 */
+@keyframes nm-pulse-glow {
+	0%   { transform: scale(0.88); opacity: 0.75; }
+	50%  { transform: scale(1.18); opacity: 0.15; }
+	100% { transform: scale(0.88); opacity: 0.75; }
+}
+
+@keyframes nm-ring-spin {
+	from { transform: rotate(0deg); }
+	to   { transform: rotate(360deg); }
+}
+
+@keyframes nm-bar-osc {
+	0%, 100% { transform: scaleY(0.45); }
+	50%      { transform: scaleY(1.15); }
+}
+
+.nm-svg-radar-1 { transform-origin: center; animation: nm-pulse-glow 2.8s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.nm-svg-radar-2 { transform-origin: center; animation: nm-pulse-glow 2.8s cubic-bezier(0.4, 0, 0.6, 1) 0.9s infinite; }
+.nm-svg-rotate-dash { transform-origin: center; animation: nm-ring-spin 24s linear infinite; }
+.nm-svg-rotate-dash-rev { transform-origin: center; animation: nm-ring-spin 14s linear infinite reverse; }
+
+.nm-bar-dyn-1 { transform-origin: 50% 100%; animation: nm-bar-osc 1.5s ease-in-out infinite; }
+.nm-bar-dyn-2 { transform-origin: 50% 100%; animation: nm-bar-osc 1.5s ease-in-out 0.25s infinite; }
+.nm-bar-dyn-3 { transform-origin: 50% 100%; animation: nm-bar-osc 1.5s ease-in-out 0.5s infinite; }
+.nm-bar-dyn-4 { transform-origin: 50% 100%; animation: nm-bar-osc 1.5s ease-in-out 0.75s infinite; }
+.nm-bar-dyn-5 { transform-origin: 50% 100%; animation: nm-bar-osc 1.5s ease-in-out 1s infinite; }
 
 .nm-card {
 	background: var(--nm-card);
@@ -466,6 +731,9 @@
 
 .nm-table td.nm-num {
 	font-variant-numeric: tabular-nums;
+	/* 数值列统一右对齐，便于同列个位对齐、快速比对；
+	 * 名称/地址/状态等文本列保持左对齐。 */
+	text-align: right;
 }
 
 /* ---------------------------------------------------------------- 控件 */
@@ -534,41 +802,6 @@
 	font-size: 11.5px;
 	color: var(--nm-muted);
 }
-
-.nm-switch {
-	display: inline-flex;
-	align-items: center;
-	gap: 6px;
-	cursor: pointer;
-	user-select: none;
-}
-
-.nm-switch input { display: none; }
-
-.nm-switch i {
-	width: 34px;
-	height: 18px;
-	border-radius: 999px;
-	background: var(--nm-border);
-	position: relative;
-	transition: background 0.18s ease;
-	flex: 0 0 auto;
-}
-
-.nm-switch i::after {
-	content: "";
-	position: absolute;
-	top: 2px;
-	left: 2px;
-	width: 14px;
-	height: 14px;
-	border-radius: 50%;
-	background: #fff;
-	transition: transform 0.18s ease;
-}
-
-.nm-switch input:checked + i { background: var(--nm-ok); }
-.nm-switch input:checked + i::after { transform: translateX(16px); }
 
 .nm-empty {
 	padding: 34px 16px;
@@ -942,7 +1175,6 @@
 	}
 
 	/* 按钮与输入框触控面积 */
-	.nm-root .nm-btn-glass { min-height: 36px; }
 	.nm-root .nm-btn-mini { padding: 7px 12px; min-height: 34px; }
 	.nm-root .nm-btn,
 	.nm-root .nm-select,
@@ -978,13 +1210,11 @@
 	.nm-root .nm-summary-pill { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
 	.nm-root .nm-svc-panel { padding: 18px 16px; }
 	.nm-root .nm-action-bar-glass { flex-wrap: wrap; gap: 10px; }
-	.nm-root .nm-action-bar-glass .nm-btn-glass { flex: 1 1 auto; }
 
 	/* 弹窗：窄屏贴边显示，操作按钮通栏 */
 	body .nm-modal { padding: 10px; }
 	body .nm-modal-box { padding: 20px 18px 12px; max-height: 92vh; }
 	body .nm-modal-actions { flex-wrap: wrap; gap: 8px; }
-	body .nm-modal-actions .nm-btn-glass { flex: 1 1 auto; min-height: 38px; }
 
 	/* 设置项数字输入框占满一行 */
 	.nm-root .nm-num-input { width: 100%; }
@@ -1119,7 +1349,17 @@
 	display: flex;
 	align-items: center;
 	justify-content: flex-end;
-	min-width: 150px;
+	width: 210px;
+	min-width: 210px;
+}
+
+/* 设置页右侧控件统一宽度：下拉 / 文本输入占满 210px 控制区，
+ * 数字输入保持紧凑步进宽度（132px），所有控件右缘对齐。 */
+.nm-setting-ctl t-select,
+.nm-setting-ctl t-input {
+	width: 100%;
+	min-width: 0;
+	box-sizing: border-box;
 }
 
 .nm-setting-ctl .nm-num-input {
@@ -1182,3 +1422,626 @@
 	.nm-setting-ctl .nm-input,
 	.nm-setting-ctl .nm-select { width: 100%; }
 }
+
+/* ------------------------------------------------- TDesign 平面化页面布局
+ *
+ * 全量迁移到 TDesign Web Components 后，各页面不再注入私有 <style>（毛玻璃
+ * 主题已移除），所有 .nm-* 布局类统一收口到本表。这些类只负责排版、状态色
+ * 与响应式，视觉外层由 <t-card> / <t-button> 等组件提供。 */
+
+/* 指标速览条（realtime / history / settings 顶部 KPI 卡栅格） */
+.nm-strip-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+	gap: var(--nm-gap);
+}
+
+/* 工具栏（t-card 内部行容器） */
+.nm-toolbar-row {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 16px;
+	width: 100%;
+}
+
+/* 图表页工具栏：多行容器（筛选行 + 目标胶囊行） */
+.nm-chart-toolbar {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+/* 筛选字段组：label + 控件 */
+.nm-field-glass {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-width: 0;
+}
+
+.nm-field-glass > label {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--nm-muted);
+	white-space: nowrap;
+}
+
+/* 工具栏筛选字段等宽铺排：宽度不再由 label 长度决定，
+ * 三个字段（区域/状态/搜索 等）在行内自动分占剩余空间，
+ * 视觉上左右对齐、节奏统一；窄屏由 flex-wrap 折行。 */
+.nm-toolbar-row .nm-field-glass {
+	flex: 1 1 200px;
+	min-width: 190px;
+	max-width: 340px;
+}
+
+.nm-field-glass t-select,
+.nm-field-glass t-input,
+.nm-field-glass t-input-number {
+	flex: 1 1 auto;
+	min-width: 0;
+	width: 100%;
+	box-sizing: border-box;
+}
+
+/* 目标多选胶囊容器（图表页） */
+.nm-chips-container {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.nm-chip-tag {
+	cursor: pointer;
+	user-select: none;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+
+/* 底部数据源提示条（图表页） */
+.nm-chart-hint-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 12px;
+	color: var(--nm-muted);
+	margin-top: 10px;
+}
+
+/* 实时页：桌面表格 / 窄屏卡片流切换 */
+.nm-cards-mobile {
+	display: none;
+	grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+	gap: var(--nm-gap);
+}
+
+@media (max-width: 860px) {
+	.nm-cards-mobile { display: grid; }
+	.nm-realtime-table-wrap { display: none; }
+	/* 目标管理页表格有 12 列，窄屏同样切卡片流：横拖两层才能够到的
+	 * 「操作」列在手机上等于不可用。 */
+	.nm-targets-table-wrap { display: none; }
+}
+
+/* 目标卡片：勾选 + 名称 + 启用开关的头部条 */
+.nm-target-card-shell {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.nm-target-card-top {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+}
+
+.nm-target-card-check {
+	margin-top: 4px;
+	/* 触控目标不小于 20px，手机上才点得中 */
+	width: 18px;
+	height: 18px;
+	flex: 0 0 auto;
+}
+
+.nm-target-card-meta {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.nm-target-card-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+	padding-top: 8px;
+	border-top: 1px solid var(--nm-border);
+}
+
+/* 手机上目标卡片必须单列。目标卡片内含延迟 / 丢包 / 抖动三段统计，
+ * 两列并排时每张卡只剩 ~160px，统计项会被压成「平 均」「包」这种
+ * 逐字换行的碎块，可读性反而比桌面表格更差 —— 手机上宁可多滚一屏。 */
+@media (max-width: 640px) {
+	.nm-root .nm-targets-cards {
+		grid-template-columns: 1fr !important;
+		gap: 10px !important;
+	}
+}
+
+/* ---------------------------------------------------------------- 可访问性
+ *
+ * 焦点可见性：全站此前没有任何 :focus 样式，浏览器默认焦点环在
+ * TDesign 自绘控件与深色背景上几乎不可见，键盘用户无法判断焦点位置。
+ * 这里统一补一条与主题色一致的焦点环，且只在键盘操作时出现
+ * （:focus-visible），避免鼠标点击时出现多余描边。 */
+.nm-root :focus-visible,
+.nm-modal :focus-visible,
+t-dialog :focus-visible {
+	outline: 2px solid var(--nm-accent, #2f6fed);
+	outline-offset: 2px;
+	border-radius: 4px;
+}
+
+/* 勾选框与开关的焦点环在部分浏览器会被 appearance 抹掉，显式补回 */
+.nm-root input[type="checkbox"]:focus-visible,
+.nm-target-card-check:focus-visible {
+	outline: 2px solid var(--nm-accent, #2f6fed);
+	outline-offset: 2px;
+}
+
+/* 仅供读屏的文本：视觉隐藏但保留在无障碍树中 */
+.nm-sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* 确认弹窗正文：允许长目标名换行，避免溢出弹窗 */
+.nm-confirm-body {
+	font-size: 13.5px;
+	line-height: 1.6;
+	color: var(--nm-fg);
+	overflow-wrap: anywhere;
+}
+
+/* 弹窗 footer slot 里的按钮行。
+ *
+ * t-dialog 的 header/footer/title 都被渲染进 shadow DOM（closed 模式），
+ * 外部样式表无法穿透，因此这里只负责 slot 内 light DOM 的排版：
+ * 按钮在窄屏时通栏排布，避免 375px 下两个按钮互相挤压换行。 */
+t-dialog .nm-modal-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 10px;
+	width: 100%;
+}
+
+@media (max-width: 480px) {
+	t-dialog .nm-modal-actions {
+		flex-direction: row-reverse;
+		gap: 8px;
+	}
+
+	/* 危险操作在左、取消在右：与主流移动端弹窗的按钮顺序一致 */
+	t-dialog .nm-modal-actions t-button {
+		flex: 1 1 0;
+		min-height: 40px;
+	}
+}
+
+/* 实时页底部状态条 */
+.nm-foot-sub {
+	display: flex;
+	align-items: center;
+	font-size: 12px;
+	color: var(--nm-muted);
+}
+
+/* 汇总胶囊（targets 页工具栏右侧摘要） */
+.nm-summary-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 12px;
+	color: var(--nm-muted);
+}
+
+/* 图表页统计摘要卡 */
+.nm-chart-summary-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+	gap: var(--nm-gap);
+	margin-bottom: 16px;
+}
+
+.nm-sum-card {
+	background: var(--nm-card-hi);
+	border: 1px solid var(--nm-border);
+	border-radius: var(--nm-radius);
+	padding: 14px 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	min-width: 0;
+}
+
+.nm-sum-card-title {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--nm-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.nm-sum-card-val {
+	font-size: 22px;
+	font-weight: 700;
+	letter-spacing: -0.02em;
+	color: var(--nm-fg);
+	font-variant-numeric: tabular-nums;
+	line-height: 1.2;
+}
+
+/* 图表卡片内容容器（外层 <t-card>，内部布局） */
+.nm-chart-main-card,
+.nm-compare-card {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.nm-chart-box-glass {
+	background: var(--nm-card);
+	border: 1px solid var(--nm-border);
+	border-radius: var(--nm-radius-sm);
+	padding: 14px 10px;
+	margin-top: 10px;
+}
+
+/* 统计表卡片（history 页） */
+.nm-table-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.nm-panel-title-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.nm-panel-title {
+	font-size: 16px;
+	font-weight: 700;
+	color: var(--nm-fg);
+}
+
+/* 分区对比页 */
+.nm-regions-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(340px, 520px));
+	justify-content: center;
+	gap: 18px;
+}
+
+.nm-region-card {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.nm-region-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+}
+
+.nm-region-title {
+	font-size: 16px;
+	font-weight: 700;
+	color: var(--nm-fg);
+	letter-spacing: -0.01em;
+}
+
+.nm-region-hero {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	background: var(--nm-card);
+	border: 1px solid var(--nm-border);
+	border-radius: var(--nm-radius-sm);
+	padding: 12px 16px;
+}
+
+.nm-region-svg-box {
+	flex-shrink: 0;
+	width: 64px;
+	height: 64px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.nm-region-svg-box svg {
+	width: 100%;
+	height: 100%;
+}
+
+.nm-region-hero-right {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.nm-region-avg-val {
+	font-size: 26px;
+	font-weight: 700;
+	letter-spacing: -0.03em;
+	line-height: 1.1;
+	font-variant-numeric: tabular-nums;
+}
+
+.nm-region-avg-label {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--nm-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.nm-region-metrics-grid {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 8px;
+}
+
+.nm-mini-metric {
+	background: var(--nm-card);
+	border: 1px solid var(--nm-border);
+	border-radius: var(--nm-radius-sm);
+	padding: 8px 10px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.nm-mini-metric span {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--nm-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.nm-mini-metric b {
+	font-size: 15px;
+	font-weight: 700;
+	color: var(--nm-fg);
+	font-variant-numeric: tabular-nums;
+}
+
+.nm-target-rings-row {
+	display: flex;
+	gap: 12px;
+}
+
+.nm-ring-card {
+	flex: 1 1 0;
+	min-width: 0;
+	background: var(--nm-card);
+	border: 1px solid var(--nm-border);
+	border-radius: var(--nm-radius-sm);
+	padding: 10px 14px;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+.nm-ring-text {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.nm-ring-text b {
+	font-size: 16px;
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+}
+
+.nm-ring-text span {
+	font-size: 11px;
+	color: var(--nm-muted);
+	font-weight: 600;
+}
+
+.nm-tables-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+	gap: 20px;
+}
+
+.nm-subtable-card {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+/* 设置页 */
+.nm-svc-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+.nm-svc-row-top {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 16px;
+}
+
+.nm-svc-info {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+.nm-svc-text {
+	font-size: 14px;
+	font-weight: 600;
+	color: var(--nm-fg);
+}
+
+.nm-svc-clear-row {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding-top: 12px;
+	border-top: 1px solid var(--nm-border);
+}
+
+.nm-group-card {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+.nm-group-header {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+}
+
+.nm-group-icon-wrap {
+	width: 44px;
+	height: 44px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: var(--nm-card);
+	border-radius: var(--nm-radius-sm);
+	border: 1px solid var(--nm-border);
+	flex: 0 0 auto;
+}
+
+.nm-group-title {
+	font-size: 17px;
+	font-weight: 700;
+	color: var(--nm-fg);
+	letter-spacing: -0.02em;
+}
+
+.nm-group-desc {
+	font-size: 12px;
+	color: var(--nm-muted);
+	margin-top: 2px;
+}
+
+.nm-group-divider {
+	height: 1px;
+	background: var(--nm-border);
+}
+
+/* 动作栏（t-card 内部）：保存 / 放弃 / 状态胶囊 */
+.nm-action-bar-glass {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 14px;
+}
+
+.nm-dirty-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 13px;
+	font-weight: 600;
+	padding: 6px 14px;
+	border-radius: 999px;
+	border: 1px solid var(--nm-border);
+}
+
+.nm-dirty-pill.dirty {
+	color: var(--nm-warn);
+	background: color-mix(in srgb, var(--nm-warn) 12%, transparent);
+	border-color: color-mix(in srgb, var(--nm-warn) 40%, transparent);
+}
+
+.nm-dirty-pill.clean {
+	color: var(--nm-ok);
+	background: color-mix(in srgb, var(--nm-ok) 12%, transparent);
+	border-color: color-mix(in srgb, var(--nm-ok) 40%, transparent);
+}
+
+.nm-dirty-pill.staged {
+	color: var(--nm-accent);
+	background: color-mix(in srgb, var(--nm-accent) 12%, transparent);
+	border-color: color-mix(in srgb, var(--nm-accent) 40%, transparent);
+}
+
+/* 弹窗表单容器（t-dialog body） */
+.nm-dialog-body {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	margin: 4px 0 8px 0;
+}
+
+.nm-dialog-body .nm-field > label {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--nm-muted);
+}
+
+.nm-dialog-body t-input,
+.nm-dialog-body t-input-number,
+.nm-dialog-body t-select {
+	width: 100%;
+}
+
+.nm-modal-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 10px;
+}
+
+/* 弹窗错误提示（t-dialog footer 上方） */
+.nm-modal-error {
+	color: var(--nm-bad);
+	font-size: 12.5px;
+	min-height: 16px;
+}
+
+/* 设置页数字输入宽度 */
+.nm-num-input {
+	width: 132px;
+}
+
+/* 手机端 TDesign 控件适配 */
+@media (max-width: 640px) {
+	.nm-field-glass { width: 100%; gap: 8px; }
+	.nm-field-glass > label { font-size: 12px; }
+	.nm-field-glass t-select,
+	.nm-field-glass t-input,
+	.nm-field-glass t-input-number { min-width: 0; }
+	.nm-num-input { width: 100%; }
+}
+
