@@ -118,19 +118,23 @@ function render(series, opts) {
 		var yv = g.yMax * k / ticks;
 		var y = Y(yv);
 		out += '<line x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (padL + iw) + '" y2="' + y.toFixed(1) +
-			'" stroke="currentColor" stroke-opacity="0.10" stroke-width="1"/>';
-		out += '<text x="' + (padL - 6) + '" y="' + (y + 3.5).toFixed(1) + '" text-anchor="end" font-size="10" fill="currentColor" fill-opacity="0.55">' +
+			'" stroke="currentColor" stroke-opacity="0.15" stroke-width="1"/>';
+		out += '<text x="' + (padL - 6) + '" y="' + (y + 3.5).toFixed(1) + '" text-anchor="end" font-size="11" fill="currentColor" fill-opacity="0.72">' +
 			(Math.round(yv * 10) / 10) + '</text>';
 	}
 
-	/* X 轴时间标签 */
+	/* X 轴时间标签。
+	 * 窄图（W < 420）本来就只放 3 个刻度；日期格式（跨 2 天以上）
+	 * 的标签更宽，再降到 2 个刻度，避免 11px 字号下标签互相重叠。 */
 	var xTicks = (W < 420) ? 3 : 5;
+	var longFmt = g.span > 86400 * 2;
+	if (longFmt && W < 420) xTicks = 2;
 	for (var m = 0; m <= xTicks; m++) {
 		var tt = g.t0 + g.span * m / xTicks;
 		var x = X(tt);
 		var anchor = (m === 0) ? 'start' : (m === xTicks ? 'end' : 'middle');
 		out += '<text x="' + x.toFixed(1) + '" y="' + (H - 6) + '" text-anchor="' + anchor +
-			'" font-size="10" fill="currentColor" fill-opacity="0.55">' + fmtTime(tt, g.span) + '</text>';
+			'" font-size="11" fill="currentColor" fill-opacity="0.72">' + fmtTime(tt, g.span) + '</text>';
 	}
 
 	/* 数据系列 */
@@ -167,20 +171,21 @@ function render(series, opts) {
 		}
 
 		if (d)
-			out += '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>';
+			out += '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>';
 
 		/* 失败点标记 */
 		for (var q = 0; q < pts2.length; q++) {
 			if (pts2[q].s === 0 || pts2[q].l == null) {
 				out += '<line x1="' + X(pts2[q].t).toFixed(1) + '" y1="' + (padT + 2) + '" x2="' + X(pts2[q].t).toFixed(1) +
-					'" y2="' + (padT + ih) + '" stroke="#cf4437" stroke-opacity="0.28" stroke-width="1"/>';
+					'" y2="' + (padT + ih) + '" stroke="#cf4437" stroke-opacity="0.42" stroke-width="1.3"/>';
 			}
 		}
 
-		/* 当前值圆点 */
+		/* 当前值圆点：白描边在任何背景上都醒目，圆点尺寸照顾手机可读性 */
 		var last = pts2[pts2.length - 1];
 		if (last && last.l != null)
-			out += '<circle cx="' + X(last.t).toFixed(1) + '" cy="' + Y(last.l).toFixed(1) + '" r="3" fill="' + color + '"/>';
+			out += '<circle cx="' + X(last.t).toFixed(1) + '" cy="' + Y(last.l).toFixed(1) + '" r="3.5" fill="' + color +
+				'" stroke="#ffffff" stroke-width="1.5"/>';
 	}
 
 	/* 悬停游标：竖直基准线 + 每条曲线一个取值圆点。
@@ -188,11 +193,11 @@ function render(series, opts) {
 	if (opts.cursor) {
 		out += '<g class="nm-cursor" opacity="0">';
 		out += '<line class="nm-cur-line" x1="0" y1="' + padT + '" x2="0" y2="' + (padT + ih) +
-			'" stroke="currentColor" stroke-opacity="0.35" stroke-width="1" stroke-dasharray="3 3"/>';
+			'" stroke="currentColor" stroke-opacity="0.45" stroke-width="1.2" stroke-dasharray="4 3"/>';
 		for (var c = 0; c < series.length; c++) {
 			var cc = series[c].color || PALETTE[c % PALETTE.length];
-			out += '<circle class="nm-cur-dot" cx="-10" cy="-10" r="3.6" fill="' + cc +
-				'" fill-opacity="1" stroke="' + cc + '" stroke-opacity="0.35" stroke-width="3"/>';
+			out += '<circle class="nm-cur-dot" cx="-10" cy="-10" r="4.5" fill="' + cc +
+				'" fill-opacity="1" stroke="#ffffff" stroke-opacity="0.95" stroke-width="1.5"/>';
 		}
 		out += '</g>';
 	}
@@ -210,7 +215,12 @@ function mount(container, series, opts) {
 	var tip = document.createElement('div');
 	tip.className = 'nm-tip';
 
-	function width() { return Math.max(320, container.clientWidth || 720); }
+	/* 直接取容器实际宽度，不再设 320 下限：
+	 * 之前窄容器（手机卡片 ~264-284px）会被垫高到 320 的 viewBox，
+	 * 再由 preserveAspectRatio 等比压缩回容器宽，导致文字/线宽全部
+	 * 跟着缩小（10px 字压到 ~8px）。viewBox 与容器 1:1 时文字、
+	 * 线宽在任何设备上都按名义像素渲染，窄屏只会变窄、不会变小。 */
+	function width() { return container.clientWidth || 720; }
 
 	var entry = { container: container, holder: holder, tip: tip, series: series, opts: opts, geo: null };
 	registry.push(entry);

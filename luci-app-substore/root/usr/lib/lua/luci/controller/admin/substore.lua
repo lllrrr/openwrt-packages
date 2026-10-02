@@ -90,6 +90,20 @@ local function read_cron_fields()
 	return cron_enable, cron_time
 end
 
+-- read subscription client type (User-Agent) from form, return ua string, err
+--
+-- 部分机场按 User-Agent 决定返回真实节点还是占位内容。表单提交的是
+-- 「预设 key（ua_preset）+ 自定义文本（ua_custom）」，这里解析成最终要存的 UA。
+-- 非法值必须回显（与规则校验同理）：静默存空会让用户以为设置生效了，
+-- 实际更新出来的仍是占位节点。
+local function read_ua_fields()
+	local http = require("luci.http")
+	local core = require("substore.core")
+	local ua, err = core.resolve_user_agent(fv(http, "ua_preset"), fv(http, "ua_custom"))
+	if not ua then return nil, err end
+	return ua
+end
+
 -- read subscription level rules from form, return rules table, err
 --
 -- 第二个返回值是**用户可见**的校验错误。目前只有重命名规则的正则需要校验：
@@ -135,8 +149,10 @@ function action_create()
 		-- 规则校验失败（如非法正则）必须回显，否则用户看到的是「规则没生效」
 		local rules, rules_err = read_rules_fields()
 		if not rules then return back_to_list(rules_err or "规则无效") end
+		local user_agent, ua_err = read_ua_fields()
+		if user_agent == nil then return back_to_list(ua_err or "订阅客户端类型无效") end
 		local id, err = core.add(name, url, {
-			proxy_enable = proxy_enable, proxy = proxy,
+			proxy_enable = proxy_enable, proxy = proxy, user_agent = user_agent,
 			cron_enable = cron_enable, cron_time = cron_time,
 			rules_enable = rules.rules_enable, proto_filter = rules.proto_filter,
 			keyword_include = rules.keyword_include, keyword_exclude = rules.keyword_exclude,
@@ -166,8 +182,11 @@ function action_save()
 		-- 规则校验失败（如非法正则）必须回显，否则用户看到的是「规则没生效」
 		local rules, rules_err = read_rules_fields()
 		if not rules then return back_to_list(rules_err or "规则无效") end
+		local user_agent, ua_err = read_ua_fields()
+		if user_agent == nil then return back_to_list(ua_err or "订阅客户端类型无效") end
 		local ok, err = core.save_meta(id, {
 			name = name, url = url, proxy_enable = proxy_enable, proxy = proxy,
+			user_agent = user_agent,
 			cron_enable = cron_enable, cron_time = cron_time,
 			rules_enable = rules.rules_enable, proto_filter = rules.proto_filter,
 			keyword_include = rules.keyword_include, keyword_exclude = rules.keyword_exclude,
@@ -243,8 +262,33 @@ function action_delete()
 		-- §18：删除失败必须让用户看见。core.remove 对「非法 ID / 订阅不存在」
 		-- 返回 false（或 false, err），此前返回值被整个丢弃 —— 用户点了删除，
 		-- 页面正常跳回，订阅却还在，看起来像「删了但没生效」。
-		local ok, err = core.remove(fv(http, "id") or "")
-		if not ok then return back_to_list(err or "删除失败：订阅不存在") end
+		--
+		-- id 支持单个（行内删除按钮）或逗号分隔多个（勾选批量删除），
+		-- 与节点页 action_node_delete 的 idx 同一套约定。订阅 id 是 "s%08x"，
+		-- 不含逗号，切分不会切坏。
+		local ids = {}
+		for s in tostring(fv(http, "id") or ""):gmatch("[^,%s]+") do
+			ids[#ids + 1] = s
+		end
+		if #ids == 0 then return back_to_list("未指定要删除的订阅") end
+		local removed, first_err = 0, nil
+		for _, id in ipairs(ids) do
+			local ok, err = core.remove(id)
+			if ok then
+				removed = removed + 1
+			elseif not first_err then
+				first_err = err
+			end
+		end
+		-- 部分失败也必须说：勾了 5 个只删掉 3 个却显示「成功」，
+		-- 用户不会再回头管剩下那 2 个。
+		if removed < #ids then
+			if removed == 0 then
+				return back_to_list(first_err or "删除失败：订阅不存在")
+			end
+			return back_to_list(string.format("已删除 %d 个，另有 %d 个删除失败",
+				removed, #ids - removed))
+		end
 		core.write_cron()
 	end
 	back_to_list()

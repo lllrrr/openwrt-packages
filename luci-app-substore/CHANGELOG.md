@@ -2,6 +2,149 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.6.14-r1] - 订阅列表页勾选批量删除 + 「自定义」User-Agent 用法说明
+
+### 新增：订阅列表页的勾选批量删除
+
+订阅一多，只能一条条点行内的「删除」。改成与节点页一致的勾选批量删除：
+
+- 「名称」列**之前**新增选择框列：表头的选择框**全选 / 全不选**，每条订阅另有独立选择框
+- 「添加组合订阅」**之后**新增「删除」按钮：勾选后删除单条或多条；
+  **一个都没勾选时不删除任何东西**（只提示，与节点页 `substore_delete_selected` 同一套交互）
+- 批量删除走一个位于表格**之外**的隐藏表单（每一行已各有一个删除表单，HTML 不允许表单嵌套），
+  选中订阅的 id 以逗号拼接后写入
+
+控制器 `action_delete` 的 `id` 参数改为支持「单个」或「逗号分隔多个」，与节点页
+`action_node_delete` 的 `idx` 是同一套约定。订阅 id 形如 `s%08x`，不含逗号，切分不会切坏。
+
+**部分失败必须回显**（§18）：勾了 3 条只删掉 1 条时显示「已删除 1 个，另有 2 个删除失败」，
+而不是显示成功 —— 否则用户不会再回头管剩下那两条。全部失败时回显 `core.remove` 给出的原因；
+一个可用 id 都没有时报「未指定要删除的订阅」，不静默跳回。
+
+### 优化：「订阅客户端类型」的提示补充「自定义」用法
+
+原提示只说了「不确定就保持『默认』」，没说「自定义」该怎么填。补充说明：填**要原样发送的
+User-Agent 请求头**，格式与预设里的值同形（`客户端名/版本号`，例如 `clash-verge/v2.5.0`、
+`v2rayN/7.22.0`、`mihomo.party/v2.0.0 (clash.meta)`）；可含空格、括号、分号、下划线等可见字符
+（整串原样发送，不解析、不改写），不能含换行等控制字符，最长 256 字符；版本号填机场要求的
+最低可用版本；选「自定义」但留空 = 不发送 UA（等同「默认」）。以上均与
+`http.validate_user_agent` / `core.resolve_user_agent` 的实际行为一致，不是另写一套说法。
+
+### 测试
+
+- 新增 `tests/subscriptions_bulk_delete_test.lua`（34 项）：把 `subscriptions.htm` 按 LuCI 的
+  方式重建成 Lua chunk **真的渲染一遍**，再对生成的 HTML 断言 —— 选择框列在「名称」之前、
+  每行一个且 value 是订阅 id、删除按钮在「添加组合订阅」之后、隐藏表单在表格之外且带 token/id、
+  **空选时先 `alert` 且不提交**、id 以逗号拼接、全选同步所有行、空列表 `colspan` 与表头列数一致
+- `tests/controller_robustness_test.lua` 增加 7 项：多个 id 逐个删除、逗号两侧带空格、
+  成功后写一次 cron、部分失败回显且**每个 id 都尝试过**、全部失败回显原因、无可用 id 报错、
+  纯分隔符不得交给 core
+- 反向验证：拆掉本次改动后，视图侧 27 项、控制器侧 6 项断言确实失败（不是恒真断言）
+
+### 文档
+
+`README.md` / `README.en.md` / `docs/INSTALL.md` 同步版本号与批量删除说明，
+`docs/TESTING.md` 补测试清单。
+
+## [2.6.13-r1] - 新增「订阅客户端类型」（User-Agent）支持
+
+### 新增：按订阅指定下载用的 User-Agent
+
+**用户实测**：同一机场（Allblue 加速器，`8.217.0.49`）的 4 个订单链接，
+分别只有用 Clash Verge / v2rayN / Clash Party / FlClash 才解析得出节点；
+本应用只能解析出 7 个「描述信息」节点：
+
+```
+- name: 当前更新的订阅链接      type: ss  server: 127.0.0.1  port: 1080
+- name: 与您使用客户端不兼容     type: ss  server: 127.0.0.1  port: 1080
+- name: 请复制 curl/8.22.0 类型  type: ss  server: 127.0.0.1  port: 1080
+...（共 7 条，密码均为 00000000-0000-0000-0000-000000000000）
+```
+
+**根因**：机场按请求的 `User-Agent` 决定返回真实节点还是占位内容。本应用此前
+**完全不发送 UA**，curl 用的是自带的 `curl/x.y.z`，被机场判为「不兼容的客户端」，
+于是返回一段把提示语写进节点名的占位内容 —— 服务器把请求方的 UA 回显进了那句
+提示里（所以路由器上看到的是 `curl/8.22.0`，沙箱里看到的是 `curl/8.18.0`）。
+占位内容本身是**合法**的 `ss` 节点，所以解析不报错，症状是「更新成功但节点全不可用」。
+每个订单链接绑定**唯一**一种客户端：用错客户端的 UA 同样只拿到占位内容，
+不存在一个通用 UA 能同时适配四种链接。
+
+**修复**：新增按订阅的「订阅客户端类型」设置，下载时以 `-A`（curl）/ `-U`（busybox wget）
+发送对应 UA。四个预设的 UA 字符串**取自各客户端源码**（非猜测），版本号取用户给出的
+最低可用版本：
+
+| 预设 | User-Agent | 来源 |
+|------|-----------|------|
+| Clash Verge | `clash-verge/v2.5.0` | clash-verge-rev `src-tauri/src/utils/network.rs` |
+| v2rayN | `v2rayN/7.22.0` | v2rayN `ServiceLib/Common/Utils.cs`（无 `v` 前缀） |
+| Clash Party | `mihomo.party/v2.0.0 (clash.meta)` | Clash Party `src/main/config/profile.ts` |
+| FlClash | `FlClash/v0.8.93 clash-verge Platform/linux` | FlClash `lib/common/package.dart`（三段空格分隔） |
+
+另可选「自定义」自行填写。默认「不设置」= 保持原行为（发送下载工具自带的 UA）。
+
+**验证**：4 个链接各用对应预设，均解析出 **310 个 vless 节点**（Clash 系 UA 返回
+Clash YAML，v2rayN 返回 base64 URI 列表）；交叉验证用错预设仍是占位内容，
+不设 UA 仍是 7 个假节点。
+
+**安全**：UA 来自表单，属不可信输入。`http.validate_user_agent` 拒绝控制字符
+（换行会让 curl 把它当成额外请求头拼进去）与超过 256 字符的值；进入命令行前经
+`util.shq` 引用。与代理一致，**非法值明确失败而非静默忽略**（§12）：静默忽略会让
+用户以为 UA 已生效，实际拿到的仍是占位节点。
+
+**新增测试** `tests/user_agent_test.lua`（64 项，全部不触网）：UA 取值校验、
+`-A`/`-U` 确实进入命令行且经 shell 引用、**重定向的每一跳**都带 UA、预设解析与往返、
+`core.add`/`core.sync` 的存储与透传、非法 UA 不发起下载、以及「表单 → 控制器 →
+core」整条接线的端到端断言。已按反向验证确认：拆掉接线后对应断言确实失败
+（http 侧 6 项、控制器侧 5 项）。
+
+## [2.6.12-r1] - 修复 [2.6.8-r1] 引入的「无法解析目标主机名」回归 + 格式下拉启用条件
+
+### 修复：所有域名订阅在缺少 luci-lib-nixio 的设备上报「无法解析目标主机名」
+
+**用户实测**：2.6.7-r1 能正常解析的订阅（`update.glados-config.com` 的 mihomo YAML、
+`s.feijiyunduijie999999.com` 的 quantumult / quantumultx / shadowrocket 三种格式），
+从 2.6.8-r1 起状态一律变成「无法解析目标主机名」。
+
+**根因**（`392c658`，2.6.8-r1）：`http.check_public` 里「解析不出 IP」被改成一律
+fail-closed 拒绝，理由是「本包依赖 luci-lua-runtime，后者硬依赖 luci-lib-nixio，
+所以解析失败只意味着真的解析不了，代价为零」。这个前提在用户设备上不成立：
+`resolve()` 只有 `nixio.getaddrinfo` 一条路，nixio 取不到时恒返回 `nil`，
+于是**每一个域名**都被判成「解析失败」——而 curl/wget 自带 libc 解析器，
+照样能把域名解析出来并下载。真正的错误是把「本机没有解析手段」与
+「这个域名解析不出来」合并成了同一个 `nil`。
+
+**修复**：
+- `resolve()` 改为多级回退：`nixio.getaddrinfo` → busybox `nslookup`（`io.popen`，
+  只取 `Name:` 段之后的 `Address:` 行，避免把 DNS 服务器自己的地址当解析结果）。
+- 返回值拆成 `ips, have_resolver`：有解析手段却解析不出来 → 仍 fail-closed
+  （`127.0.0.1.nip.io` 这类绕过口必须继续堵死）；完全没有解析手段 → 放行，
+  但返回第三个值 `unverified = true`。
+- 新增连接时对端校验 `verify_peer_ip`：`fetch_curl` 的 `-w` 同时取
+  `%{http_code}` 与 `%{remote_ip}`，用**真正建立连接的那个 IP** 复核。
+  这既补上了 `unverified` 放行路径的校验，也顺带免疫「预检时解析到公网、
+  连接时解析到内网」的 DNS rebinding。重定向的**第一跳**同样复核
+  （`Location` 检查只能拦第二跳）。走代理时跳过（`%{remote_ip}` 是代理地址）。
+- `unverified` 且拿不到对端 IP → 拒绝：「无法校验」不等于「放行」。
+
+**验证**：同一台机器上对上述真实主机名调用 `check_public`，
+`HEAD` 返回 `false / 无法解析目标主机名`，修复后返回 `ok = true`。
+新增 `tests/dns_fallback_test.lua`（36 断言，覆盖 nslookup 解析、Server 段误用、
+NXDOMAIN fail-closed、无解析手段放行、连接时对端校验、代理跳过），
+对 `HEAD` 反向验证 **14 条失败**，修复后全绿。
+
+### 优化：订阅列表「订阅链接转换」的格式下拉，未解析出节点时禁用
+
+刚添加还没点「更新」、更新失败、或解析结果为空的订阅，`node_count` 为 0，
+此时格式下拉置灰不可选（`disabled="disabled"` + `opacity:0.5` +
+`cursor:not-allowed` + `title` 提示），下方说明文案同步切换为
+「更新并解析出节点后才能选择格式」（新增 msgid，已补 `po/zh-cn/substore.po`）。
+避免用户选出一个必然为空的订阅链接。
+
+新增 `tests/subscriptions_format_gate_test.lua`（20 断言）：把模板按 LuCI 的方式
+重建成 Lua chunk 并用替身环境**真实渲染**，再对生成的 HTML 断言
+（含「同一行在 node_count 变大后必须立刻变为可选」的反面对照）。
+对 `HEAD` 反向验证 **8 条失败**。
+
 ## [2.6.11-r1] - P4：遗留项决策后实施（1.1 / 1.3 / 1.4 / 1.5 / 2.5，3.3 补文档）
 
 `docs/LEGACY_ISSUES.md`「五」的推荐方案中，除标记为**暂缓**的（2.1 / 2.2 / 2.4 /

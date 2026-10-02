@@ -1,5 +1,7 @@
 /*
  * 目标管理页面：新增 / 编辑 / 删除 / 启用 / 禁用 / 上下移动 / 复制 / 批量操作
+ * 白色毛玻璃质感 + 高级动态 SVG 动效重构版本
+ * 针对管理工具条、目标列表表格与编辑弹窗进行一体化视觉重构。
  */
 
 'use strict';
@@ -24,16 +26,497 @@ return view.extend({
 		var cfg = (res && res[2]) || {};
 		var checked = {};
 
+		// 注入系统级白色毛玻璃、排版体系与动态 SVG 微动效
+		(function injectTargetsStyles() {
+			if (document.getElementById('nm-targets-glass-theme')) return;
+			var style = document.createElement('style');
+			style.id = 'nm-targets-glass-theme';
+			style.textContent = `
+				:root {
+					--nm-bg-canvas: radial-gradient(120% 120% at 50% 0%, #f1f5f9 0%, #f8fafc 50%, #edf2f7 100%);
+					--nm-glass-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(255, 255, 255, 0.65) 100%);
+					--nm-glass-card-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.82) 0%, rgba(255, 255, 255, 0.65) 100%);
+					--nm-glass-border: rgba(255, 255, 255, 0.95);
+					--nm-glass-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.05), 0 2px 8px -2px rgba(15, 23, 42, 0.03);
+					--nm-glass-shadow-hover: 0 20px 38px -8px rgba(15, 23, 42, 0.09), 0 6px 14px -3px rgba(15, 23, 42, 0.05);
+					--nm-blur: blur(20px) saturate(190%);
+					
+					--nm-c-ok: #10b981;
+					--nm-c-warn: #f59e0b;
+					--nm-c-bad: #ef4444;
+					--nm-c-primary: #3b82f6;
+					
+					--nm-txt-title: #0f172a;
+					--nm-txt-body: #334155;
+					--nm-txt-sub: #64748b;
+					--nm-txt-light: #94a3b8;
+				}
+
+				.nm-root {
+					background: var(--nm-bg-canvas);
+					min-height: 100%;
+					padding: 24px 20px 48px;
+					font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+					color: var(--nm-txt-body);
+					-webkit-font-smoothing: antialiased;
+				}
+
+				.nm-page {
+					max-width: 1440px;
+					margin: 0 auto;
+					display: flex;
+					flex-direction: column;
+					gap: 20px;
+				}
+
+				/* 毛玻璃卡片通用基类 */
+				.nm-glass-card {
+					background: var(--nm-glass-card-bg);
+					backdrop-filter: var(--nm-blur);
+					-webkit-backdrop-filter: var(--nm-blur);
+					border: 1px solid var(--nm-glass-border);
+					border-radius: 20px;
+					box-shadow: var(--nm-glass-shadow);
+					transition: transform 0.25s ease, box-shadow 0.25s ease;
+					position: relative;
+				}
+
+				/* 顶部管理工具栏 */
+				.nm-toolbar-glass {
+					padding: 16px 24px;
+					display: flex;
+					align-items: center;
+					flex-wrap: wrap;
+					gap: 16px;
+				}
+
+				.nm-btn-glass {
+					background: rgba(255, 255, 255, 0.88);
+					border: 1px solid rgba(255, 255, 255, 0.95);
+					border-radius: 12px;
+					padding: 8px 16px;
+					font-size: 0.86rem;
+					font-weight: 650;
+					color: var(--nm-txt-body);
+					box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+					cursor: pointer;
+					display: inline-flex;
+					align-items: center;
+					gap: 7px;
+					transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+				}
+
+				.nm-btn-glass:hover:not(:disabled) {
+					background: #ffffff;
+					transform: translateY(-1.5px);
+					box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+					color: var(--nm-txt-title);
+				}
+
+				.nm-btn-glass:disabled {
+					opacity: 0.55;
+					cursor: not-allowed;
+				}
+
+				.nm-btn-primary-glass {
+					background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+					color: #ffffff !important;
+					border: 1px solid rgba(255, 255, 255, 0.25) !important;
+					box-shadow: 0 4px 14px rgba(37, 99, 235, 0.28) !important;
+				}
+
+				.nm-btn-primary-glass:hover:not(:disabled) {
+					background: linear-gradient(135deg, #60a5fa 0%, #2563eb 100%) !important;
+					box-shadow: 0 6px 20px rgba(37, 99, 235, 0.38) !important;
+				}
+
+				/* 工具栏右侧状态胶囊 */
+				.nm-summary-pill {
+					display: inline-flex;
+					align-items: center;
+					gap: 12px;
+					background: rgba(255, 255, 255, 0.65);
+					border: 1px solid rgba(255, 255, 255, 0.9);
+					border-radius: 14px;
+					padding: 6px 14px;
+					font-size: 0.82rem;
+					color: var(--nm-txt-sub);
+				}
+
+				/* 目标表格毛玻璃容器 */
+				.nm-table-glass-wrap {
+					background: var(--nm-glass-card-bg);
+					backdrop-filter: var(--nm-blur);
+					-webkit-backdrop-filter: var(--nm-blur);
+					border: 1px solid var(--nm-glass-border);
+					border-radius: 20px;
+					box-shadow: var(--nm-glass-shadow);
+					overflow-x: auto;
+					-webkit-overflow-scrolling: touch;
+				}
+
+				.nm-table-glass {
+					width: 100%;
+					border-collapse: separate;
+					border-spacing: 0;
+					text-align: left;
+					font-size: 0.88rem;
+				}
+
+				.nm-table-glass thead th {
+					background: rgba(248, 250, 252, 0.9);
+					backdrop-filter: blur(12px);
+					-webkit-backdrop-filter: blur(12px);
+					padding: 15px 16px;
+					font-weight: 700;
+					font-size: 0.8rem;
+					color: var(--nm-txt-sub);
+					text-transform: uppercase;
+					letter-spacing: 0.05em;
+					border-bottom: 1px solid rgba(226, 232, 240, 0.85);
+					position: sticky;
+					top: 0;
+					z-index: 2;
+					white-space: nowrap;
+				}
+
+				.nm-table-glass tbody tr {
+					transition: background 0.18s ease;
+				}
+
+				.nm-table-glass tbody tr:hover {
+					background: rgba(241, 245, 249, 0.7);
+				}
+
+				.nm-table-glass tbody td {
+					padding: 13px 16px;
+					border-bottom: 1px solid rgba(241, 245, 249, 0.85);
+					color: var(--nm-txt-body);
+					vertical-align: middle;
+					white-space: nowrap;
+				}
+
+				.nm-table-glass tbody tr:last-child td {
+					border-bottom: none;
+				}
+
+				.nm-target-name {
+					font-weight: 700;
+					color: var(--nm-txt-title);
+				}
+
+				.nm-target-host {
+					font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+					font-size: 0.82rem;
+					color: var(--nm-txt-sub);
+				}
+
+				.nm-num {
+					font-variant-numeric: tabular-nums;
+					font-weight: 650;
+					color: var(--nm-txt-title);
+				}
+
+				/* 协议胶囊 */
+				.nm-proto-badge-glass {
+					display: inline-flex;
+					align-items: center;
+					padding: 3px 9px;
+					border-radius: 8px;
+					font-size: 0.75rem;
+					font-weight: 700;
+					letter-spacing: 0.02em;
+				}
+
+				.nm-proto-badge-glass.icmp {
+					background: rgba(236, 253, 245, 0.95);
+					border: 1px solid rgba(167, 243, 208, 0.9);
+					color: #047857;
+				}
+
+				.nm-proto-badge-glass.tcp {
+					background: rgba(239, 246, 255, 0.95);
+					border: 1px solid rgba(191, 219, 254, 0.9);
+					color: #1d4ed8;
+				}
+
+				/* 区域胶囊 */
+				.nm-tag-pill {
+					display: inline-flex;
+					align-items: center;
+					padding: 3px 9px;
+					border-radius: 8px;
+					font-size: 0.76rem;
+					font-weight: 650;
+					background: rgba(241, 245, 249, 0.9);
+					border: 1px solid rgba(226, 232, 240, 0.9);
+					color: #475569;
+				}
+
+				.nm-tag-pill.cn {
+					background: rgba(239, 246, 255, 0.9);
+					border-color: rgba(191, 219, 254, 0.9);
+					color: #1d4ed8;
+				}
+
+				.nm-tag-pill.overseas {
+					background: rgba(245, 243, 255, 0.9);
+					border-color: rgba(221, 214, 254, 0.9);
+					color: #6d28d9;
+				}
+
+				/* 操作微按钮 */
+				.nm-btn-mini {
+					background: rgba(255, 255, 255, 0.85);
+					border: 1px solid rgba(226, 232, 240, 0.9);
+					border-radius: 8px;
+					padding: 4px 10px;
+					font-size: 0.78rem;
+					font-weight: 600;
+					color: var(--nm-txt-body);
+					cursor: pointer;
+					transition: all 0.15s ease;
+					margin-right: 4px;
+				}
+
+				.nm-btn-mini:hover:not(:disabled) {
+					background: #ffffff;
+					border-color: var(--nm-c-primary);
+					color: var(--nm-c-primary);
+					box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+				}
+
+				.nm-btn-mini.danger:hover:not(:disabled) {
+					border-color: var(--nm-c-bad);
+					color: var(--nm-c-bad);
+				}
+
+				/* 开关切换器优化 */
+				.nm-switch {
+					position: relative;
+					display: inline-block;
+					width: 36px;
+					height: 20px;
+					vertical-align: middle;
+					margin-left: 6px;
+				}
+
+				.nm-switch input {
+					opacity: 0;
+					width: 0;
+					height: 0;
+				}
+
+				.nm-switch i {
+					position: absolute;
+					cursor: pointer;
+					top: 0; left: 0; right: 0; bottom: 0;
+					background-color: #cbd5e1;
+					transition: .24s;
+					border-radius: 20px;
+				}
+
+				.nm-switch i:before {
+					position: absolute;
+					content: "";
+					height: 16px;
+					width: 16px;
+					left: 2px;
+					bottom: 2px;
+					background-color: white;
+					transition: .24s;
+					border-radius: 50%;
+					box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+				}
+
+				.nm-switch input:checked + i {
+					background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+				}
+
+				.nm-switch input:checked + i:before {
+					transform: translateX(16px);
+				}
+
+				/* 底部提示胶囊卡片 */
+				.nm-tip-glass-bar {
+					padding: 14px 22px;
+					display: flex;
+					align-items: center;
+					gap: 12px;
+					font-size: 0.82rem;
+					color: var(--nm-txt-sub);
+				}
+
+				/* 毛玻璃编辑模态弹窗 */
+				.nm-modal {
+					position: fixed;
+					top: 0; left: 0; right: 0; bottom: 0;
+					background: rgba(15, 23, 42, 0.38);
+					backdrop-filter: blur(12px);
+					-webkit-backdrop-filter: blur(12px);
+					display: flex;
+					align-items: center;
+					justify-content: center;
+					z-index: 1000;
+					padding: 20px;
+				}
+
+				.nm-modal-box {
+					background: linear-gradient(145deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.88) 100%);
+					backdrop-filter: blur(24px);
+					-webkit-backdrop-filter: blur(24px);
+					border: 1px solid rgba(255, 255, 255, 0.98);
+					border-radius: 24px;
+					box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
+					max-width: 640px;
+					width: 100%;
+					max-height: 90vh;
+					overflow-y: auto;
+					padding: 28px 32px;
+					display: flex;
+					flex-direction: column;
+					gap: 16px;
+				}
+
+				.nm-modal-title {
+					margin: 0 0 6px 0;
+					font-size: 1.35rem;
+					font-weight: 800;
+					color: var(--nm-txt-title);
+					letter-spacing: -0.02em;
+				}
+
+				.nm-field {
+					display: flex;
+					flex-direction: column;
+					gap: 6px;
+				}
+
+				.nm-field label {
+					font-size: 0.84rem;
+					font-weight: 700;
+					color: var(--nm-txt-sub);
+				}
+
+				.nm-input, .nm-select {
+					background: rgba(255, 255, 255, 0.85);
+					border: 1px solid rgba(203, 213, 225, 0.85);
+					border-radius: 12px;
+					padding: 8px 14px;
+					font-size: 0.88rem;
+					color: var(--nm-txt-title);
+					outline: none;
+					transition: all 0.2s ease;
+				}
+
+				.nm-input:focus, .nm-select:focus {
+					background: #ffffff;
+					border-color: var(--nm-c-primary);
+					box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16);
+				}
+
+				.nm-modal-error {
+					color: var(--nm-c-bad);
+					font-size: 0.84rem;
+					font-weight: 600;
+					min-height: 20px;
+				}
+
+				.nm-modal-actions {
+					display: flex;
+					justify-content: flex-end;
+					gap: 12px;
+					margin-top: 10px;
+				}
+			`;
+			document.head.appendChild(style);
+
+			/* 统一增强：卡片高光 / 弹性上浮 / 键盘可达 / 减弱动效偏好 */
+			if (!document.getElementById('nm-glass-enhance')) {
+				var enh = document.createElement('style');
+				enh.id = 'nm-glass-enhance';
+				enh.textContent = `
+					.nm-page { max-width: 1360px; gap: 22px; }
+
+					.nm-glass-card::before {
+						content: '';
+						position: absolute;
+						top: 0; left: 0; right: 0; height: 1px;
+						background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.95) 25%, rgba(255, 255, 255, 0.95) 75%, transparent 100%);
+						pointer-events: none;
+						z-index: 1;
+					}
+
+					.nm-glass-card:hover {
+						transform: translateY(-3px);
+						border-color: #ffffff;
+					}
+
+					.nm-btn-glass:focus-visible,
+					.nm-btn-mini:focus-visible,
+					.nm-select-glass:focus-visible,
+					.nm-input-glass:focus-visible,
+					.nm-input:focus-visible,
+					.nm-select:focus-visible {
+						outline: 2px solid rgba(59, 130, 246, 0.5);
+						outline-offset: 2px;
+					}
+
+					input[type="checkbox"] { accent-color: var(--nm-c-primary); }
+
+					.nm-switch:focus-within i { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3); }
+
+					@media (max-width: 640px) {
+						.nm-root { padding: 16px 12px 40px; }
+						.nm-page { gap: 16px; }
+					}
+
+					@media (prefers-reduced-motion: reduce) {
+						.nm-glass-card,
+						.nm-btn-glass,
+						.nm-stat-badge,
+						.nm-sum-card,
+						.nm-chip-btn,
+						.nm-led-ping-ring,
+						.nm-svg-radar-1,
+						.nm-svg-radar-2,
+						.nm-svg-rotate-dash,
+						.nm-svg-rotate-dash-rev,
+						.nm-svg-dial-glow,
+						.nm-bar-dyn-1, .nm-bar-dyn-2, .nm-bar-dyn-3, .nm-bar-dyn-4, .nm-bar-dyn-5,
+						.nm-wave-b1, .nm-wave-b2, .nm-wave-b3, .nm-wave-b4, .nm-wave-b5,
+						.nm-svg-soft-pulse,
+						.nm-led-ping {
+							animation: none !important;
+							transition: none !important;
+						}
+					}
+				`;
+				document.head.appendChild(enh);
+			}
+		})();
+
 		var root = common.el('div', 'nm-root');
 		var page = common.el('div', 'nm-page');
 		root.appendChild(page);
 
 		/* 工具栏 */
-		var bar = common.el('div', 'nm-card');
+		var bar = common.el('div', 'nm-glass-card nm-toolbar-glass');
 		var row = common.el('div', 'nm-row');
+		row.style.display = 'flex';
+		row.style.alignItems = 'center';
+		row.style.flexWrap = 'wrap';
+		row.style.gap = '12px';
+		row.style.width = '100%';
 
-		function toolBtn(label, fn, cls) {
-			var b = common.el('button', 'nm-btn ' + (cls || ''), label);
+		function toolBtn(label, fn, isPrimary, svgIcon) {
+			var b = common.el('button', 'nm-btn-glass' + (isPrimary ? ' nm-btn-primary-glass' : ''));
+			if (svgIcon) {
+				var icBox = common.el('span', '');
+				icBox.innerHTML = svgIcon;
+				b.appendChild(icBox);
+			}
+			b.appendChild(document.createTextNode(label));
 			b.addEventListener('click', function() {
 				b.disabled = true;
 				Promise.resolve(fn()).then(function() {
@@ -45,27 +528,32 @@ return view.extend({
 			return b;
 		}
 
-		row.appendChild(toolBtn(_('Add target'), function() { return openEditor(null); }, 'nm-btn-primary'));
+		var addSvg = `<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a1 1 0 0 1 1 1v4h4a1 1 0 1 1 0 2H9v4a1 1 0 1 1-2 0V9H3a1 1 0 0 1 0-2h4V3a1 1 0 0 1 1-1z"/></svg>`;
+		var okSvg = `<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M13.485 1.929a1 1 0 0 1 1.414 1.414L6.343 11.899 1.1 6.657a1 1 0 0 1 1.414-1.414l3.829 3.829 7.142-7.143z"/></svg>`;
+		var disSvg = `<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="2" fill="none"/><line x1="3.5" y1="3.5" x2="12.5" y2="12.5" stroke="currentColor" stroke-width="2"/></svg>`;
+		var refSvg = `<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z"/><path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5.002 5.002 0 0 0 8 3zM3.1 9a5.002 5.002 0 0 0 8.9 4.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9H3.1z"/></svg>`;
+
+		row.appendChild(toolBtn(_('Add target'), function() { return openEditor(null); }, true, addSvg));
 		row.appendChild(toolBtn(_('Enable selected'), function() {
 			return common.api.batchTargets(selectedIds(), true);
-		}));
+		}, false, okSvg));
 		row.appendChild(toolBtn(_('Disable selected'), function() {
 			return common.api.batchTargets(selectedIds(), false);
-		}));
-		row.appendChild(toolBtn(_('Refresh'), function() { return Promise.resolve(); }));
-		row.appendChild(common.el('div', 'nm-spacer'));
+		}, false, disSvg));
+		row.appendChild(toolBtn(_('Refresh'), function() { return Promise.resolve(); }, false, refSvg));
 
-		/* 工具条右侧：多目标图标的圆点数量与目标配置一致，蓝色表示已启用、
-		 * 灰色表示已禁用（本页不采集延迟，因此图标只表达配置状态，不冒充链路健康）；
-		 * 齿轮图标与左侧的全局间隔 / 超时数值一一对应。 */
-		var summary = common.el('div', 'nm-row');
+		var spacer = common.el('div', 'nm-spacer');
+		spacer.style.flex = '1';
+		row.appendChild(spacer);
+
+		var summary = common.el('div', 'nm-summary-pill');
 		var sumIconBox = common.el('span', 'nm-inline-icon');
-		sumIconBox.innerHTML = icons.multiTarget(targets, 34);
+		sumIconBox.innerHTML = icons.multiTarget(targets, 30);
 		summary.appendChild(sumIconBox);
-		summary.appendChild(common.inlineIcon(icons.gear(30)));
+		summary.appendChild(common.inlineIcon(icons.gear(26)));
 		var sumProto = (cfg.default_proto === 'tcp')
 			? ('TCP:' + (cfg.default_tcp_port || 80)) : 'ICMP';
-		summary.appendChild(common.el('span', 'nm-card-sub',
+		summary.appendChild(common.el('span', '',
 			_('Default probe method') + ': ' + sumProto + ' · ' +
 			_('Global interval') + ': ' + (cfg.interval || 10) + 's · ' +
 			_('Timeout') + ': ' + (cfg.timeout || 3) + 's'));
@@ -73,8 +561,8 @@ return view.extend({
 		bar.appendChild(row);
 		page.appendChild(bar);
 
-		var wrap = common.el('div', 'nm-table-wrap');
-		var table = common.el('table', 'nm-table');
+		var wrap = common.el('div', 'nm-table-glass-wrap');
+		var table = common.el('table', 'nm-table-glass');
 		var thead = common.el('thead', '');
 		var tbody = common.el('tbody', '');
 		var htr = common.el('tr', '');
@@ -88,11 +576,11 @@ return view.extend({
 		wrap.appendChild(table);
 		page.appendChild(wrap);
 
-		var tipRow = common.el('div', 'nm-row');
-		tipRow.appendChild(common.inlineIcon(icons.responsive(30)));
-		var tipText = common.el('div', 'nm-card-sub');
+		var tipRow = common.el('div', 'nm-glass-card nm-tip-glass-bar');
+		tipRow.appendChild(common.inlineIcon(icons.responsive(28)));
+		var tipText = common.el('div', '');
 		tipText.innerHTML = _('Interval and timeout set to 0 inherit the global settings.') +
-			'<br>' + _('The table scrolls horizontally on small screens.');
+			' · ' + _('The table scrolls horizontally on small screens.');
 		tipRow.appendChild(tipText);
 		page.appendChild(tipRow);
 
@@ -106,11 +594,14 @@ return view.extend({
 		function renderList(list) {
 			common.clear(tbody);
 			targets = list;
-			sumIconBox.innerHTML = icons.multiTarget(list, 34);
+			sumIconBox.innerHTML = icons.multiTarget(list, 30);
 			if (!list.length) {
 				var tr0 = common.el('tr', '');
 				var td0 = common.el('td', 'nm-empty', _('No targets'));
 				td0.colSpan = 12;
+				td0.style.padding = '36px';
+				td0.style.textAlign = 'center';
+				td0.style.color = 'var(--nm-txt-sub)';
 				tr0.appendChild(td0);
 				tbody.appendChild(tr0);
 				return;
@@ -119,11 +610,10 @@ return view.extend({
 			for (var i = 0; i < list.length; i++) {
 				(function(t, idx) {
 					var tr = common.el('tr', '');
-					/* UCI 段名挂到行上：实机验证脚本据此定位「哪一行是哪个目标」，
-					 * 不必依赖行序（行序会被新增/删除打乱）。 */
 					tr.setAttribute('data-id', t.id);
 
 					var tdChk = common.el('td', '');
+					tdChk.style.textAlign = 'center';
 					var cb = common.el('input', '');
 					cb.type = 'checkbox';
 					cb.checked = !!checked[t.id];
@@ -131,14 +621,13 @@ return view.extend({
 					tdChk.appendChild(cb);
 					tr.appendChild(tdChk);
 
-					tr.appendChild(common.el('td', '', t.name || t.id));
+					tr.appendChild(common.el('td', 'nm-target-name', t.name || t.id));
 					tr.appendChild(common.el('td', 'nm-target-host', t.host || ''));
 
-					/* 探测方式列：显示的端口取自该目标的 tcp_port，
-					 * 未单独指定时回落到全局默认端口（与守护进程的取值规则一致）。 */
+					// 探测协议胶囊
 					var tdMethod = common.el('td', '');
-					var badge, badgeTitle;
-					if (t.proto === 'tcp') {
+					var badge, badgeTitle, isTcp = (t.proto === 'tcp');
+					if (isTcp) {
 						var tport = (t.tcp_port || 0) > 0
 							? t.tcp_port : (cfg.default_tcp_port || 80);
 						badge = 'TCP:' + tport;
@@ -149,13 +638,14 @@ return view.extend({
 						badgeTitle = _('ICMP (ping)');
 					}
 					var bspan = common.el('span',
-						'nm-proto-badge nm-proto-' + (t.proto === 'tcp' ? 'tcp' : 'icmp'), badge);
+						'nm-proto-badge-glass ' + (isTcp ? 'tcp' : 'icmp'), badge);
 					bspan.title = badgeTitle;
 					tdMethod.appendChild(bspan);
 					tr.appendChild(tdMethod);
 
 					var tdR = common.el('td', '');
-					tdR.appendChild(common.el('span', common.regionTagClass(t.region), common.regionText(t.region)));
+					var regCls = (t.region === 'cn') ? 'cn' : ((t.region === 'overseas') ? 'overseas' : '');
+					tdR.appendChild(common.el('span', 'nm-tag-pill ' + regCls, common.regionText(t.region)));
 					tr.appendChild(tdR);
 
 					tr.appendChild(common.el('td', '', t.label || '—'));
@@ -163,17 +653,18 @@ return view.extend({
 					var fam = { auto: _('Auto'), ipv4: _('IPv4'), ipv6: _('IPv6'), both: _('IPv4 + IPv6') };
 					var tdFam = common.el('td', '');
 					tdFam.style.whiteSpace = 'nowrap';
-					/* 双栈图标直接反映该目标配置的地址族：ipv4/ipv6 时另一侧变灰 */
-					tdFam.appendChild(common.inlineIcon(icons.dualStack(t.family, true, true, 22)));
+					tdFam.appendChild(common.inlineIcon(icons.dualStack(t.family, true, true, 20)));
 					tdFam.appendChild(document.createTextNode(' ' + (fam[t.family] || t.family)));
 					tr.appendChild(tdFam);
+
 					tr.appendChild(common.el('td', 'nm-num', (t.interval || 0) === 0 ? _('Global') : (t.interval + 's')));
 					tr.appendChild(common.el('td', 'nm-num', (t.timeout || 0) === 0 ? _('Global') : (t.timeout + 's')));
 					tr.appendChild(common.el('td', '', t.interface || '—'));
 
+					// 启用状态切换开关
 					var tdEn = common.el('td', '');
 					tdEn.style.whiteSpace = 'nowrap';
-					tdEn.appendChild(common.inlineIcon(icons.online(20, !!t.enabled)));
+					tdEn.appendChild(common.inlineIcon(icons.online(18, !!t.enabled)));
 					var lab = common.el('label', 'nm-switch');
 					var inp = common.el('input', '');
 					inp.type = 'checkbox';
@@ -189,12 +680,12 @@ return view.extend({
 					tdEn.appendChild(lab);
 					tr.appendChild(tdEn);
 
+					// 操作按钮组
 					var tdAct = common.el('td', '');
 					tdAct.style.whiteSpace = 'nowrap';
 
-					function mini(label, fn) {
-						var b = common.el('button', 'nm-btn nm-btn-sm', label);
-						b.style.marginRight = '4px';
+					function mini(label, fn, isDanger) {
+						var b = common.el('button', 'nm-btn-mini' + (isDanger ? ' danger' : ''), label);
 						b.addEventListener('click', function() {
 							b.disabled = true;
 							Promise.resolve(fn()).then(reload).catch(function(e) {
@@ -212,7 +703,7 @@ return view.extend({
 						if (!window.confirm(_('Delete this target?') + ' (' + (t.name || t.id) + ')'))
 							return Promise.resolve();
 						return common.api.deleteTarget(t.id);
-					}));
+					}, true));
 
 					tr.appendChild(tdAct);
 					tbody.appendChild(tr);
@@ -220,7 +711,7 @@ return view.extend({
 			}
 		}
 
-		/* 编辑弹窗 */
+		/* 编辑模态弹窗 */
 		function openEditor(t) {
 			var modal = common.el('div', 'nm-modal');
 			var box = common.el('div', 'nm-modal-box');
@@ -231,10 +722,6 @@ return view.extend({
 
 			function field(label, key, control) {
 				var f = common.el('div', 'nm-field');
-				/* 把 UCI 键名挂到「控件」上（不要挂到 .nm-field 容器：
-				 * 容器在 DOM 里排在前面，会让 [data-nm-key=x] 选中容器，
-				 * 赋值变成给 div 挂临时属性，输入框纹丝不动，
-				 * 实机验证会得到「看起来成功、实际没保存」的假象）。 */
 				control.setAttribute('data-nm-key', key);
 				f.appendChild(common.el('label', '', label));
 				f.appendChild(control);
@@ -260,8 +747,6 @@ return view.extend({
 				return s;
 			}
 
-			/* 探测方式：icmp 默认；tcp 需要端口，端口留 0 表示跟随全局默认端口。
-			 * 端口输入框在 icmp 下置灰（而不是隐藏），避免出现「选项不见了」的困惑。 */
 			var protoSel = select([
 				['icmp', _('ICMP (ping)')], ['tcp', _('TCP connect')]
 			], t ? (t.proto || 'icmp') : (cfg.default_proto || 'icmp'));
@@ -277,7 +762,7 @@ return view.extend({
 				portInp.placeholder = isTcp
 					? String(cfg.default_tcp_port || 80)
 					: _('Not used by ICMP');
-				portInp.style.opacity = isTcp ? '' : '0.5';
+				portInp.style.opacity = isTcp ? '1' : '0.5';
 			}
 			protoSel.addEventListener('change', syncProto);
 
@@ -300,26 +785,26 @@ return view.extend({
 			syncProto();
 
 			var enRow = common.el('div', 'nm-row');
+			enRow.style.display = 'flex';
+			enRow.style.alignItems = 'center';
+			enRow.style.gap = '10px';
+			enRow.style.margin = '8px 0';
 			var lab = common.el('label', 'nm-switch');
 			var enInp = common.el('input', '');
 			enInp.type = 'checkbox';
 			enInp.checked = t ? !!t.enabled : true;
 			lab.appendChild(enInp);
 			lab.appendChild(common.el('i', ''));
-			lab.appendChild(common.el('span', '', _('Enabled')));
 			enRow.appendChild(lab);
+			enRow.appendChild(common.el('span', '', _('Enabled')));
 			box.appendChild(enRow);
 
 			var errBox = common.el('div', 'nm-modal-error');
 			box.appendChild(errBox);
 
 			var actions = common.el('div', 'nm-modal-actions');
-			var btnCancel = common.el('button', 'nm-btn', _('Cancel'));
-			/* 弹窗里唯一的保存入口。它是模态对话框自己的确认动作，
-			 * 不是页面级的第二个「保存并应用」——页面底部那组由 LuCI 主题
-			 * 渲染的按钮保持原样，插件不另外添加，避免两个入口并存。
-			 * 弹窗打开时它被遮罩完全盖住，两者不会同时出现在视野里。 */
-			var btnSave = common.el('button', 'nm-btn nm-btn-primary', _('Save & Apply'));
+			var btnCancel = common.el('button', 'nm-btn-glass', _('Cancel'));
+			var btnSave = common.el('button', 'nm-btn-glass nm-btn-primary-glass', _('Save & Apply'));
 
 			function close() {
 				if (modal.parentNode) modal.parentNode.removeChild(modal);
@@ -331,7 +816,6 @@ return view.extend({
 				var port = parseInt(fields.tcp_port.value, 10);
 				if (isNaN(port) || port < 0) port = 0;
 				if (port > 65535) port = 65535;
-				/* ICMP 目标不保留端口，统一存 0，避免切换协议后残留旧端口 */
 				if (proto !== 'tcp') port = 0;
 
 				var data = {
@@ -360,22 +844,6 @@ return view.extend({
 				btnSave.disabled = true;
 				btnCancel.disabled = true;
 
-				/* 「保存」与「应用」都复用 OpenWRT 自带的机制：
-				 *
-				 *   写配置  common.saveConfig / common.addSection
-				 *           → 原生 uci 事务（uci.set/unset/add），把改动推入
-				 *             rpcd 会话的「待应用更改」；此时只进会话，不落盘
-				 *
-				 *   应用    common.applyChanges()
-				 *           → LuCI「保存并应用」按钮背后的 ui.changes.apply(true)，
-				 *             即 POST admin/uci/apply_rollback →
-				 *             ubus call uci apply { rollback:true, timeout>=90 }
-				 *             → 提交配置 + /sbin/reload_config → procd reload
-				 *               trigger 触发 /etc/init.d/netmonitor reload
-				 *
-				 * 应用过程本身也由 LuCI 负责：官方的「正在应用配置更改… Ns」
-				 * 提示、连接性变更确认、应用后失联的自动回滚、成功后重载页面，
-				 * 插件都不再自建一套，因此不存在两条提交通道并存的差异。 */
 				var p;
 				if (t) {
 					var ops = [];
@@ -386,24 +854,15 @@ return view.extend({
 					p = common.addSection('netmonitor', 'target', data);
 				}
 				p.then(function(changed) {
-					/* changed 为 0 表示填的值与设备现状完全一致。此时不能调用
-					 * applyChanges()：没有待提交改动时 rpcd 的 uci.apply 会直接
-					 * 报错（实测 ubus code 5）。 */
 					if (changed === 0) {
 						close();
 						common.notify(_('No changes to save'));
 						return;
 					}
 					close();
-					/* 这里刻意不刷新表格：改动还在 rpcd 会话里、尚未落盘，
-					 * 立即回读只会拿到旧值。官方 apply 完成后 LuCI 会重载页面，
-					 * 届时读到的就是新配置。 */
 					return common.applyChanges();
 				}).catch(function(e) {
-					/* 写入阶段失败时弹窗还在，错误照常显示在弹窗内；
-					 * 应用阶段失败时弹窗已关闭，由 LuCI 自己的状态提示负责告知。 */
-					if (!modal.parentNode)
-						return;
+					if (!modal.parentNode) return;
 					errBox.textContent = String(e.message || e);
 					btnSave.disabled = false;
 					btnCancel.disabled = false;

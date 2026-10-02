@@ -293,6 +293,16 @@ function applyChanges() {
 	});
 }
 
+/* 撤回指定配置的全部待应用改动（标准 API：uci.revert）。
+ * 与 LuCI 原生「放弃更改」语义一致；没有待应用改动时是空操作。
+ * 用于设置页「放弃修改」：先把本页暂存的改动从会话中撤回，
+ * 再复位表单，避免「表单已还原、底部原生栏仍显示待应用」的割裂状态。 */
+function revertConfig(conf) {
+	return uci.load(conf).then(function() {
+		uci.revert(conf);
+	});
+}
+
 /* ---------------------------------------------------------------- 格式化 */
 
 function num(v, digits) {
@@ -594,6 +604,7 @@ return Class.extend({
 	saveConfig: saveConfig,
 	addSection: addSection,
 	applyChanges: applyChanges,
+	revertConfig: revertConfig,
 	fmt: {
 		num: num,
 		latency: latency,

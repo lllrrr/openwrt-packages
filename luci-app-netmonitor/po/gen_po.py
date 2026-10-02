@@ -120,8 +120,12 @@ ZH = {
     'All monitored targets respond normally.': '所有监控目标响应正常。',
     'Network problems detected': '网络存在异常',
     'Some targets are unreachable or unstable.': '部分目标不可达或不稳定。',
+    'Some targets are unreachable or unstable. Check detailed target cards below.':
+        '部分目标不可达或不稳定，详见下方目标卡片。',
     'Serious network failure': '网络严重故障',
     'One or more targets failed consecutively beyond the threshold.': '一个或多个目标连续失败次数已超过阈值。',
+    'One or more targets failed consecutively beyond the threshold limit.':
+        '一个或多个目标连续失败次数已超过阈值上限。',
     'Current latency': '当前延迟',
     'Packet loss': '丢包率',
     'Background service is not running. Monitoring is stopped.': '后台服务未运行，监控已停止。',
@@ -515,9 +519,15 @@ def collect():
     seen = set()
 
     def add(s):
-        if s and s not in seen:
-            seen.add(s)
-            strings.append(s)
+        # 已经是中文的字面量（_('中文')）跳过：它们运行时直接显示中文，
+        # 不依赖 po 翻译，也不应作为 msgid 进入 po（msgid 必须是英文原文）。
+        # v1.3.0「前端文案全面汉化」起源码里出现大量这种硬编码中文，
+        # 若照旧收集会在检查阶段全部报 MISSING、CI 无法通过。
+        # 判定覆盖 CJK 统一表意文字与全角标点/字母（如 _('ICMP（ping）')）。
+        if not s or re.search(r'[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]', s) or s in seen:
+            return
+        seen.add(s)
+        strings.append(s)
 
     for dirpath, dirnames, filenames in os.walk(RES):
         # 目录枚举顺序由文件系统决定（NTFS 与 ext4 就不一样），只排序 filenames 不够：

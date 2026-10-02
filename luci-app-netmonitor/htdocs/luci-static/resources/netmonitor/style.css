@@ -842,26 +842,167 @@
 
 /* ---------------------------------------------------------------- 响应式 */
 
+/* 桌面 / 平板断点：显式列数，保证卡片数与列数可整除。
+ *
+ * 各页面会在运行时注入自己的 .nm-grid / .nm-grid-wide（auto-fit minmax），
+ * 那些规则与公共样式表同特异性（0-1-0）且晚注入，会覆盖这里的断点，
+ * 导致 6 张 KPI 卡被排成 4+2、4 张目标卡被排成 3+1（右侧空出一列）。
+ * 这里用 .nm-root 前缀把特异性提到 0-2-0，稳压注入规则，恢复整除排布。 */
+@media (min-width: 1101px) {
+	.nm-root .nm-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (min-width: 641px) and (max-width: 1100px) {
+	.nm-root .nm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (min-width: 1281px) {
+	.nm-root .nm-grid-wide { grid-template-columns: repeat(auto-fill, minmax(275px, 1fr)); }
+}
+
+@media (min-width: 641px) and (max-width: 1280px) {
+	.nm-root .nm-grid-wide { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* 非毛玻璃页面的基础栅格（style.css 自有组件） */
 @media (max-width: 900px) {
 	.nm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 	.nm-grid-wide { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+/* 手机端（≤640px）：统一排版规则，覆盖各页面注入的毛玻璃主题。
+ * 弹窗挂在 body 下（不在 .nm-root 内），需用 body 前缀单独覆盖。 */
 @media (max-width: 640px) {
-	.nm-root { font-size: 13.5px; }
-	.nm-grid,
-	.nm-grid-wide { grid-template-columns: 1fr; }
+	body .nm-root { padding: 14px 10px 40px; }
+	.nm-root .nm-page { gap: 12px; }
 
+	/* 手机端栅格：卡片型栅格两列并排（缩短下拉距离），
+	 * 大卡片与明细表保持单列，避免内容过挤。 */
+	.nm-root .nm-grid,
+	.nm-root .nm-grid-wide,
+	.nm-root .nm-strip-grid,
+	.nm-root .nm-chart-summary-grid,
+	.nm-root .nm-cards-mobile {
+		grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+		gap: 12px !important;
+	}
+	.nm-root .nm-regions-grid,
+	.nm-root .nm-tables-grid {
+		grid-template-columns: 1fr !important;
+		gap: 14px !important;
+	}
+
+	/* 两列布局下的紧凑排版：收紧卡内边距、图标与字号 */
+	.nm-root .nm-card-inner { padding: 14px 14px !important; }
+	.nm-root .nm-card-header { margin-bottom: 6px; }
+	.nm-root .nm-card-number { font-size: 1.3rem; }
+	.nm-root .nm-card-description { font-size: 0.74rem; margin-top: 5px; }
+	.nm-root .nm-card-icon-box { width: 34px; height: 34px; }
+	.nm-root .nm-card-icon-box svg { width: 34px; height: 34px; }
+	.nm-root .nm-sum-card { padding: 12px 14px !important; }
+	.nm-root .nm-sum-card-val { font-size: 1.25rem; }
+
+	/* 目标卡片（概览 / 实时窄屏卡）两列下的紧凑适配 */
+	.nm-root .nm-target-head { flex-wrap: wrap; row-gap: 4px; }
+	.nm-root .nm-target-name { font-size: 14px; }
+	.nm-root .nm-target-host { font-size: 11px; }
+	.nm-root .nm-latency-num { font-size: 24px; }
+	.nm-root .nm-target-rings { gap: 8px 10px; }
+	.nm-root .nm-ring-svg svg { width: 34px; height: 34px; }
+	.nm-root .nm-target-metrics { gap: 3px 10px; font-size: 12.5px; }
+
+	/* Hero 状态徽章：3 个一行紧凑排布，减少换行后的参差 */
+	.nm-root .nm-hero-stats-row { gap: 10px; }
+	.nm-root .nm-stat-badge {
+		min-width: 0;
+		flex: 1 1 calc(33.333% - 10px);
+		padding: 8px 12px;
+	}
+	.nm-root .nm-stat-badge b { font-size: 1.12rem; }
+	.nm-root .nm-stat-badge span { font-size: 0.66rem; }
+
+	/* Hero 展台：内边距收紧，SVG 随容器等比缩放（避免 104px 图标在 76px 盒内溢出） */
+	.nm-root .nm-hero-showcase { padding: 20px 16px; gap: 16px; }
+	.nm-root .nm-hero-orb-wrap { width: 76px; height: 76px; }
+	.nm-root .nm-hero-orb-wrap svg,
+	.nm-root .nm-region-svg-box svg { width: 100%; height: 100%; }
+	.nm-root .nm-hero-title { font-size: 1.35rem; }
+	.nm-root .nm-hero-desc { font-size: 0.9rem; }
+
+	/* 工具栏：筛选控件通栏、触控目标加大 */
+	.nm-root .nm-toolbar-glass,
+	.nm-root .nm-chart-toolbar { padding: 14px 16px; gap: 12px; }
+	.nm-root .nm-field-glass { width: 100%; gap: 8px; }
+	.nm-root .nm-field-glass select,
+	.nm-root .nm-field-glass input,
+	.nm-root .nm-input-glass,
+	.nm-root .nm-select-glass {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+
+	/* 按钮与输入框触控面积 */
+	.nm-root .nm-btn-glass { min-height: 36px; }
+	.nm-root .nm-btn-mini { padding: 7px 12px; min-height: 34px; }
+	.nm-root .nm-btn,
+	.nm-root .nm-select,
+	.nm-root .nm-input { min-height: 38px; }
+
+	/* 时间范围胶囊（图表页 / 区域页）：加大触控面积，窄屏下折行更整齐 */
+	.nm-root .nm-chip-btn {
+		min-height: 34px;
+		padding: 8px 14px;
+	}
+
+	/* 表格：收紧单元格内边距，缩短横向滚动距离 */
+	.nm-root .nm-table-glass thead th { padding: 11px 12px; }
+	.nm-root .nm-table-glass tbody td { padding: 10px 12px; }
+
+	/* 区域对比卡片 */
+	.nm-root .nm-region-card,
+	.nm-root .nm-subtable-card,
+	.nm-root .nm-chart-main-card,
+	.nm-root .nm-compare-card,
+	.nm-root .nm-table-panel { padding: 18px 16px; }
+	.nm-root .nm-region-hero { gap: 14px; padding: 12px 14px; }
+	.nm-root .nm-region-svg-box { width: 56px; height: 56px; }
+	.nm-root .nm-region-avg-val { font-size: 1.45rem; }
+	.nm-root .nm-target-rings-row { flex-wrap: wrap; }
+	.nm-root .nm-ring-card { flex: 1 1 140px; min-width: 0; }
+
+	/* 区域细化指标：6 项固定 3 列在手机上过挤，改为 2 列铺排更均衡 */
+	.nm-root .nm-region-metrics-grid { grid-template-columns: repeat(2, 1fr); }
+
+	/* 底部操作区 / 状态胶囊 */
+	.nm-root .nm-footer-panel { padding: 14px 16px; gap: 14px; }
+	.nm-root .nm-summary-pill { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+	.nm-root .nm-svc-panel { padding: 18px 16px; }
+	.nm-root .nm-action-bar-glass { flex-wrap: wrap; gap: 10px; }
+	.nm-root .nm-action-bar-glass .nm-btn-glass { flex: 1 1 auto; }
+
+	/* 弹窗：窄屏贴边显示，操作按钮通栏 */
+	body .nm-modal { padding: 10px; }
+	body .nm-modal-box { padding: 20px 18px 12px; max-height: 92vh; }
+	body .nm-modal-actions { flex-wrap: wrap; gap: 8px; }
+	body .nm-modal-actions .nm-btn-glass { flex: 1 1 auto; min-height: 38px; }
+
+	/* 设置项数字输入框占满一行 */
+	.nm-root .nm-num-input { width: 100%; }
+
+	/* 图表 Tooltip：手机上加大字号、允许折行，避免多条曲线数值溢出屏外 */
+	.nm-root .nm-tip { font-size: 13px; max-width: 78vw; white-space: normal; }
+	.nm-root .nm-tip-row { flex-wrap: wrap; row-gap: 2px; }
+	.nm-root .nm-tip-val { padding-left: 6px; }
+
+	/* 基础组件（非毛玻璃）手机排版 */
+	.nm-root { font-size: 13.5px; }
 	.nm-hero { padding: 16px; gap: 12px; }
 	.nm-hero-icon { width: 56px; height: 56px; }
 	.nm-hero-title { font-size: 18px; }
 	.nm-hero-stats { gap: 12px; }
 	.nm-hero-stat { min-width: 66px; }
-
 	.nm-latency-num { font-size: 26px; }
 	.nm-card-value { font-size: 22px; }
-
-	.nm-btn, .nm-select, .nm-input { min-height: 36px; }
 	.nm-table { min-width: 480px; }
 }
 
@@ -872,6 +1013,14 @@
 		display: block;
 	}
 }
+
+/* 表格横向滚动条（毛玻璃表格容器） */
+.nm-root .nm-table-glass-wrap::-webkit-scrollbar { height: 6px; }
+.nm-root .nm-table-glass-wrap::-webkit-scrollbar-track { background: rgba(241, 245, 249, 0.5); }
+.nm-root .nm-table-glass-wrap::-webkit-scrollbar-thumb { background: rgba(203, 213, 225, 0.8); border-radius: 4px; }
+.nm-table-wrap::-webkit-scrollbar { height: 6px; }
+.nm-table-wrap::-webkit-scrollbar-track { background: var(--nm-card); }
+.nm-table-wrap::-webkit-scrollbar-thumb { background: var(--nm-border); border-radius: 4px; }
 
 /* ---------------------------------------------------------------- 弹窗 */
 
