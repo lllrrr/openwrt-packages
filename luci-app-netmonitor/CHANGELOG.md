@@ -16,6 +16,11 @@
 
 ## [Unreleased]
 
+（暂无内容）
+
+
+## [1.4.0] - 2026-10-03
+
 ### 新增
 
 - **TDesign Web Components 组件库本地化**。`tdesign.min.js`（UMD）与
@@ -92,6 +97,7 @@
 
 
 ## [1.2.1] - 2026-09-19
+
 
 ### 修复
 
@@ -242,6 +248,8 @@
 - 动态 SVG 图标与动画系统，环形弧长等视觉元素由真实测量值换算，非固定长度的装饰。
 - 中文翻译（`po/zh_Hans`），随 `luci.mk` 打包为独立 i18n 包。
 
+[1.4.0]: https://github.com/LianXia233/luci-app-netmonitor/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/LianXia233/luci-app-netmonitor/compare/v1.2.1...v1.3.0
 [1.2.0]: https://github.com/LianXia233/luci-app-netmonitor/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/LianXia233/luci-app-netmonitor/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/LianXia233/luci-app-netmonitor/compare/v1.0.0...v1.0.1
