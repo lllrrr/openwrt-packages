@@ -1,0 +1,54 @@
+#!/bin/sh
+
+PENDING_FILE="${VNT2_PREVIEW_PENDING_FILE:-/tmp/vnt2-preview-check.pending}"
+CLAIMED_FILE="${VNT2_PREVIEW_CLAIMED_FILE:-/tmp/vnt2-preview-check.claimed}"
+LOG_FILE="${VNT2_PREVIEW_LOG_FILE:-/tmp/vnt2-download.log}"
+CHECK_COMMAND="${VNT2_PREVIEW_CHECK_COMMAND:-/etc/init.d/vnt2}"
+POLL_INTERVAL="${VNT2_PREVIEW_POLL_INTERVAL:-5}"
+MIN_INTERVAL="${VNT2_PREVIEW_MIN_INTERVAL:-3600}"
+STATE_FILE="${VNT2_PREVIEW_STATE_FILE:-/tmp/vnt2-preview.state}"
+
+log_worker() {
+	printf '%s download : %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"${LOG_FILE}"
+}
+
+last_checked() {
+	sed -n 's/^checked=//p' "${STATE_FILE}" 2>/dev/null | head -n1
+}
+
+claim_request() {
+	[ -f "$PENDING_FILE" ] || return 1
+	mv -f "$PENDING_FILE" "$CLAIMED_FILE" 2>/dev/null
+}
+
+run_check() {
+	local now checked
+	now="$(date +%s)"
+	checked="$(last_checked)"
+	case "$checked" in
+		''|*[!0-9]*) checked=0 ;;
+	esac
+	if [ $((now - checked)) -lt "$MIN_INTERVAL" ]; then
+		rm -f "$CLAIMED_FILE"
+		return 0
+	fi
+	log_worker "preview version worker starts prerelease check"
+	if "$CHECK_COMMAND" refresh_preview_version </dev/null >/dev/null 2>&1; then
+		log_worker "preview version worker completed prerelease check"
+	else
+		log_worker "preview version worker prerelease check failed"
+	fi
+	rm -f "$CLAIMED_FILE"
+}
+
+trap 'exit 0' INT TERM
+
+while :; do
+	if [ ! -f "$CLAIMED_FILE" ]; then
+		claim_request || {
+			sleep "$POLL_INTERVAL"
+			continue
+		}
+	fi
+	run_check
+done
