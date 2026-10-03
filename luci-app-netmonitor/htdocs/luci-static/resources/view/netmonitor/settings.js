@@ -197,7 +197,13 @@ return view.extend({
 		return Promise.all([
 			common.loadI18n(),
 			common.tdesign(),
-			common.api.getConfig(),
+			/* 取不到配置不能整体失败：getConfig 的 RPC 被 rpcd 拒绝（ubus 对象未注册 /
+			 * 会话 ACL 未刷新）时 Promise.all 会 reject，LuCI 框架直接显示「加载失败」，
+			 * 用户连表单和诊断横幅都看不到。这里降级成 null，交给 render 的
+			 * cfgEmpty 判断去渲染「无法从后端读取配置」横幅。 */
+			common.api.getConfig().catch(function() {
+				return null;
+			}),
 			common.api.serviceStatus().catch(function() {
 				return { running: false, tick: 0 };
 			})
@@ -221,6 +227,27 @@ return view.extend({
 		function setDisabled(el, on) {
 			if (on) el.setAttribute('disabled', '');
 			else el.removeAttribute('disabled');
+		}
+
+		/* 配置读取失败兜底：get_config 正常时必然带齐全部全局键，一个都不在
+		 * 说明 RPC 返回为空（rpcd 缓存旧 ucode / 会话 ACL 未刷新 / 浏览器缓存
+		 * 旧页面 都会造成这个现象）。此时不再静默渲染一张空白表单，而是先给出
+		 * 可操作的诊断提示，避免「表单全空又看不出原因」的困惑。
+		 * 必须放在 default_proto / default_tcp_port 兜底之前：那两个兜底会往
+		 * 空对象里写键，导致下面的 some() 误判 cfg 非空。 */
+		var cfgEmpty = !['enabled', 'interval', 'timeout', 'count', 'concurrency',
+			'address_family', 'default_proto', 'default_tcp_port', 'interface', 'source',
+			'persistence', 'history', 'persist_interval', 'max_points', 'ui_refresh',
+			'log_level', 'fail_warn', 'fail_critical', 'loss_warn', 'loss_critical',
+			'latency_excellent', 'latency_good', 'latency_fair', 'latency_poor',
+			'notify_enabled', 'notify_url'].some(function(k) {
+			return Object.prototype.hasOwnProperty.call(cfg, k);
+		});
+		if (cfgEmpty) {
+			page.appendChild(common.banner(
+				'无法从后端读取配置（RPC 调用失败或返回为空）。请重启 rpcd 后重新登录 LuCI，' +
+					'并执行 ubus call luci.netmonitor get_config 检查后端。',
+				'warn'));
 		}
 
 		if (!Object.prototype.hasOwnProperty.call(cfg, 'default_proto'))
@@ -419,30 +446,37 @@ return view.extend({
 			));
 		}
 
-		/* ---------------------------------------------------- 表单控件工厂（TDesign） */
+		/* ---------------------------------------------------- 表单控件工厂（原生控件）
+		 *
+		 * 原 TDesign Web Components（t-switch / t-select / t-input-number / t-input）
+		 * 基于 Omi 框架，受控模式下点击与下拉交互实测失效（真实浏览器点击也打不开
+		 * 下拉、开关不切换状态）。这里改用原生 HTML 控件并保持 TDesign 观感
+		 * （样式见 style.css 的 .nm-switch / .nm-select / .nm-input），
+		 * 交互由浏览器原生保证，兼容 LuCI 全部目标浏览器。 */
 		function switchControl(key, value) {
-			var sw = document.createElement('t-switch');
-			sw.value = (value === '1' || value === 1 || value === true);
-			sw.addEventListener('change', function(e) {
-				sw.value = !!(e.detail && e.detail.value);
-				markDirty();
-			});
+			var sw = document.createElement('input');
+			sw.type = 'checkbox';
+			sw.className = 'nm-switch';
+			sw.checked = (value === '1' || value === 1 || value === true);
+			sw.addEventListener('change', markDirty);
 			return { kind: 'flag', el: sw };
 		}
 
 		function intControl(key, value, min, max) {
-			var n = document.createElement('t-input-number');
+			var n = document.createElement('input');
+			n.type = 'number';
 			n.className = 'nm-num-input';
 			n.min = min;
 			n.max = max;
-			n.value = (value == null || value === '') ? null : Number(value);
+			n.value = (value == null || value === '') ? '' : Number(value);
 			n.addEventListener('input', markDirty);
 			n.addEventListener('change', markDirty);
 			return { kind: 'int', el: n, min: min, max: max };
 		}
 
 		function enumControl(key, value, values) {
-			var sel = document.createElement('t-select');
+			var sel = document.createElement('select');
+			sel.className = 'nm-select';
 			var options = values.map(function(o) {
 				return { label: o[1], value: o[0] };
 			});
@@ -454,14 +488,21 @@ return view.extend({
 			}
 			if (!found && cur !== '')
 				options.push({ label: cur + ' ' + _('（当前）'), value: cur });
-			sel.options = options;
+			options.forEach(function(o) {
+				var opt = document.createElement('option');
+				opt.value = o.value;
+				opt.textContent = o.label;
+				sel.appendChild(opt);
+			});
 			sel.value = cur;
 			sel.addEventListener('change', markDirty);
 			return { kind: 'enum', el: sel };
 		}
 
 		function textControl(key, value) {
-			var i = document.createElement('t-input');
+			var i = document.createElement('input');
+			i.type = 'text';
+			i.className = 'nm-input';
 			i.value = (value == null ? '' : String(value));
 			i.addEventListener('input', markDirty);
 			i.addEventListener('change', markDirty);
@@ -519,7 +560,7 @@ return view.extend({
 		/* ---------------------------------------------------- 采集与保存 */
 		function valueOf(k) {
 			var c = controls[k];
-			if (c.kind === 'flag') return c.el.value ? '1' : '0';
+			if (c.kind === 'flag') return c.el.checked ? '1' : '0';
 			return String(c.el.value == null ? '' : c.el.value).trim();
 		}
 
@@ -652,9 +693,9 @@ return view.extend({
 				var raw = v[k];
 				var s = (raw == null) ? '' : String(raw);
 				if (c.kind === 'flag') {
-					c.el.value = (s === '1');
+					c.el.checked = (s === '1');
 				} else if (c.kind === 'int') {
-					c.el.value = (s === '') ? null : Number(s);
+					c.el.value = (s === '') ? '' : Number(s);
 				} else if (c.el.value !== s) {
 					c.el.value = s;
 				}

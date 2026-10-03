@@ -61,17 +61,42 @@ function tdesign() {
 			resolve();
 			return;
 		}
-		var s = document.createElement('script');
-		s.id = TD_JS_ID;
-		s.src = resourceUrl('netmonitor/tdesign/tdesign.min.js');
-		s.onload = function() { resolve(); };
-		s.onerror = function() {
-			_tdReady = null;
-			reject(new Error('TDesign library failed to load'));
-		};
-		document.head.appendChild(s);
+		injectTDesign(resolve, reject, 0);
 	});
 	return _tdReady;
+}
+
+/* 注入 tdesign.min.js。外部 <script src> 的 load 事件在「下载 + 执行完成」后
+ * 触发——即使脚本执行过程中抛错也会触发（实测），因此仅靠 onload 判断成功
+ * 会把「执行失败、组件未注册」误判为加载成功，导致页面带着一堆裸 <t-*> 标签
+ * 渲染（开关 / 下拉 / 按钮全部无样式无交互）。这里必须在 onload 后校验组件
+ * 是否真的注册（customElements.get('t-button')），未注册按失败处理：重试一次
+ * （移除旧节点后重新注入，排除偶发失败），仍失败才 reject，不再假装成功。 */
+function injectTDesign(resolve, reject, attempt) {
+	var s = document.createElement('script');
+	s.id = TD_JS_ID;
+	s.src = resourceUrl('netmonitor/tdesign/tdesign.min.js');
+	s.onload = function() {
+		if (window.customElements &&
+			typeof window.customElements.get('t-button') !== 'undefined') {
+			resolve();
+			return;
+		}
+		if (attempt === 0) {
+			_tdReady = null; /* 清掉失败缓存，允许重试 */
+			var old = document.getElementById(TD_JS_ID);
+			if (old && old.parentNode)
+				old.parentNode.removeChild(old);
+			injectTDesign(resolve, reject, 1);
+			return;
+		}
+		reject(new Error('TDesign loaded but components not registered'));
+	};
+	s.onerror = function() {
+		_tdReady = null;
+		reject(new Error('TDesign library failed to load'));
+	};
+	document.head.appendChild(s);
 }
 
 /* 加载插件自己的 i18n domain。

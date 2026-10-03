@@ -1354,9 +1354,13 @@ t-message {
 }
 
 /* 设置页右侧控件统一宽度：下拉 / 文本输入占满 210px 控制区，
- * 数字输入保持紧凑步进宽度（132px），所有控件右缘对齐。 */
+ * 数字输入保持紧凑步进宽度（132px），所有控件右缘对齐。
+ * 自 v1.4.2 起表单控件改为原生元素（select / input），此处覆盖
+ * .nm-select / .nm-input，保留 t-* 选择器兼容历史主题覆盖。 */
 .nm-setting-ctl t-select,
-.nm-setting-ctl t-input {
+.nm-setting-ctl t-input,
+.nm-setting-ctl .nm-select,
+.nm-setting-ctl .nm-input {
 	width: 100%;
 	min-width: 0;
 	box-sizing: border-box;
@@ -1365,6 +1369,57 @@ t-message {
 .nm-setting-ctl .nm-num-input {
 	width: 132px;
 	min-width: 110px;
+}
+
+/* 原生开关（替代 t-switch）。
+ *
+ * 自 v1.4.2 起开关控件统一改为原生 checkbox + 纯 CSS 滑块：appearance:none
+ * 抹掉原生勾选框，用 ::before 画滑块。只驱动 background-color / transform，
+ * 符合本文件性能约束；勾选态轨道用品牌色，滑块右移 20px（轨道 44px - 滑块
+ * 20px - 2*2px 边距）。设置页 / 目标表格 / 卡片 / 弹窗共用同一套样式。
+ * 焦点环复用下方 .nm-root input[type="checkbox"]:focus-visible 规则。 */
+.nm-switch {
+	appearance: none;
+	-webkit-appearance: none;
+	width: 44px;
+	height: 24px;
+	margin: 0;
+	padding: 0;
+	flex: 0 0 auto;
+	position: relative;
+	border: none;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--nm-muted, #7b8494) 35%, transparent);
+	cursor: pointer;
+	/* 表格单元格内与行内图标并排时保持中线对齐 */
+	vertical-align: middle;
+	transition: background-color 0.15s ease;
+}
+
+.nm-switch::before {
+	content: "";
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+	background: #fff;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+	transition: transform 0.15s ease;
+}
+
+.nm-switch:checked {
+	background: var(--nm-accent, #2f6fed);
+}
+
+.nm-switch:checked::before {
+	transform: translateX(20px);
+}
+
+.nm-switch:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
 }
 
 .nm-group-head {
@@ -1478,7 +1533,9 @@ t-message {
 
 .nm-field-glass t-select,
 .nm-field-glass t-input,
-.nm-field-glass t-input-number {
+.nm-field-glass t-input-number,
+.nm-field-glass select,
+.nm-field-glass input {
 	flex: 1 1 auto;
 	min-width: 0;
 	width: 100%;
@@ -2005,6 +2062,7 @@ t-dialog .nm-modal-actions {
 	margin: 4px 0 8px 0;
 }
 
+/* 弹窗表单（t-dialog body）：原生控件占满整行 */
 .nm-dialog-body .nm-field > label {
 	font-size: 12px;
 	font-weight: 600;
@@ -2013,8 +2071,12 @@ t-dialog .nm-modal-actions {
 
 .nm-dialog-body t-input,
 .nm-dialog-body t-input-number,
-.nm-dialog-body t-select {
+.nm-dialog-body t-select,
+.nm-dialog-body .nm-input,
+.nm-dialog-body .nm-select,
+.nm-dialog-body .nm-num-input {
 	width: 100%;
+	box-sizing: border-box;
 }
 
 .nm-modal-actions {
@@ -2041,7 +2103,9 @@ t-dialog .nm-modal-actions {
 	.nm-field-glass > label { font-size: 12px; }
 	.nm-field-glass t-select,
 	.nm-field-glass t-input,
-	.nm-field-glass t-input-number { min-width: 0; }
+	.nm-field-glass t-input-number,
+	.nm-field-glass select,
+	.nm-field-glass input { min-width: 0; }
 	.nm-num-input { width: 100%; }
 }
 

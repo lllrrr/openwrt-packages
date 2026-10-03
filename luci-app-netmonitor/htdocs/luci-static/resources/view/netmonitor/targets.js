@@ -305,14 +305,16 @@ return view.extend({
 					meta.appendChild(sub);
 					top.appendChild(meta);
 
-					var sw = document.createElement('t-switch');
-					sw.value = !!t.enabled;
+					var sw = document.createElement('input');
+					sw.type = 'checkbox';
+					sw.className = 'nm-switch';
+					sw.checked = !!t.enabled;
 					sw.setAttribute('aria-label', _('Enabled'));
-					sw.addEventListener('change', function(e) {
-						var v = !!(e.detail && e.detail.value);
+					sw.addEventListener('change', function() {
+						var v = sw.checked;
 						common.api.updateTarget({ id: t.id, enabled: v }).then(reload).catch(function(err) {
 							common.notify(String(err.message || err), 'error');
-							sw.value = !v;
+							sw.checked = !v;
 						});
 					});
 					top.appendChild(sw);
@@ -400,17 +402,20 @@ return view.extend({
 					tr.appendChild(common.el('td', 'nm-num', (t.timeout || 0) === 0 ? _('Global') : (t.timeout + 's')));
 					tr.appendChild(common.el('td', '', t.interface || '—'));
 
-					/* 启用状态切换开关（TDesign） */
+					/* 启用状态切换开关（原生 checkbox） */
 					var tdEn = common.el('td', '');
 					tdEn.style.whiteSpace = 'nowrap';
 					tdEn.appendChild(common.inlineIcon(icons.online(18, !!t.enabled)));
-					var sw = document.createElement('t-switch');
-					sw.value = !!t.enabled;
-					sw.addEventListener('change', function(e) {
-						var v = !!(e.detail && e.detail.value);
+					var sw = document.createElement('input');
+					sw.type = 'checkbox';
+					sw.className = 'nm-switch';
+					sw.checked = !!t.enabled;
+					sw.setAttribute('aria-label', _('Enabled'));
+					sw.addEventListener('change', function() {
+						var v = sw.checked;
 						common.api.updateTarget({ id: t.id, enabled: v }).then(reload).catch(function(err) {
 							common.notify(String(err.message || err), 'error');
-							sw.value = !v;
+							sw.checked = !v;
 						});
 					});
 					tdEn.appendChild(sw);
@@ -431,7 +436,7 @@ return view.extend({
 			syncBatchButtons();
 		}
 
-		/* 编辑弹窗（TDesign t-dialog + t-input / t-select / t-input-number / t-switch） */
+		/* 编辑弹窗（TDesign t-dialog + 原生 input / select / number 控件） */
 		function openEditor(t) {
 			var modal = document.createElement('t-dialog');
 			modal.setAttribute('header', t ? _('Edit target') : _('Add target'));
@@ -465,7 +470,9 @@ return view.extend({
 			}
 
 			function tinput(value, extra) {
-				var i = document.createElement('t-input');
+				var i = document.createElement('input');
+				i.type = 'text';
+				i.className = 'nm-input';
 				if (value != null && value !== '') i.value = String(value);
 				if (extra) {
 					if (extra.placeholder) i.setAttribute('placeholder', extra.placeholder);
@@ -475,7 +482,9 @@ return view.extend({
 			}
 
 			function tnum(value, extra) {
-				var n = document.createElement('t-input-number');
+				var n = document.createElement('input');
+				n.type = 'number';
+				n.className = 'nm-num-input';
 				if (value != null) n.value = value;
 				if (extra) {
 					if (extra.min != null) n.min = extra.min;
@@ -485,10 +494,26 @@ return view.extend({
 			}
 
 			function tselect(options, value) {
-				var s = document.createElement('t-select');
-				s.options = options;
-				s.value = value;
-				return s;
+				var sel = document.createElement('select');
+				sel.className = 'nm-select';
+				/* 当前值不在选项列表时（例如旧配置），补一个「当前值」兜底选项 */
+				var cur = (value == null) ? '' : String(value);
+				var found = false;
+				options.forEach(function(o) {
+					var opt = document.createElement('option');
+					opt.value = o.value;
+					opt.textContent = o.label;
+					sel.appendChild(opt);
+					if (String(o.value) === cur) found = true;
+				});
+				if (!found && cur !== '') {
+					var optCur = document.createElement('option');
+					optCur.value = cur;
+					optCur.textContent = cur + ' ' + _('（当前）');
+					sel.appendChild(optCur);
+				}
+				sel.value = cur;
+				return sel;
 			}
 
 			var protoSel = tselect([
@@ -536,8 +561,10 @@ return view.extend({
 			enRow.style.alignItems = 'center';
 			enRow.style.gap = '10px';
 			enRow.style.margin = '10px 0';
-			var enSw = document.createElement('t-switch');
-			enSw.value = t ? !!t.enabled : true;
+			var enSw = document.createElement('input');
+			enSw.type = 'checkbox';
+			enSw.className = 'nm-switch';
+			enSw.checked = t ? !!t.enabled : true;
 			enRow.appendChild(enSw);
 			enRow.appendChild(common.el('span', '', _('Enabled')));
 			body.appendChild(enRow);
@@ -602,7 +629,7 @@ return view.extend({
 					interface: String(fields.interface.value || '').trim(),
 					source: String(fields.source.value || '').trim(),
 					remark: String(fields.remark.value || '').trim(),
-					enabled: enSw.value ? '1' : '0'
+					enabled: enSw.checked ? '1' : '0'
 				};
 				if (!data.name || !data.host) {
 					errBox.textContent = _('Name and address are required');
@@ -642,10 +669,8 @@ return view.extend({
 
 			document.body.appendChild(modal);
 			/* 打开后把焦点送进弹窗，键盘用户不再需要先 Tab 穿过背后的整页。
-			 * 落点选弹窗容器本身而非内部 t-input：t-input 是自定义元素，
-			 * 未显式 tabindex 时 focus() 会被浏览器忽略（实测焦点仍留在 body），
-			 * 给容器加 tabindex="-1" 则任何情况下都能稳定接住焦点，
-			 * 用户按一次 Tab 即进入第一个输入框。 */
+			 * 落点选弹窗容器本身而非内部输入框：给容器加 tabindex="-1"
+			 * 则任何情况下都能稳定接住焦点，用户按一次 Tab 即进入第一个输入框。 */
 			modal.setAttribute('tabindex', '-1');
 			window.setTimeout(function() {
 				try { modal.focus(); } catch (e) { /* 组件未就绪则跳过 */ }

@@ -14,9 +14,67 @@
 条目分类：`新增` / `变更` / `修复` / `移除` / `弃用` / `安全`。
 
 
-## [Unreleased]
+## [1.4.2] - 2026-10-02
 
-（暂无内容）
+### 修复
+
+- **CI「产物完整性护栏」把「容器缺 node」误判成「JS 被压缩破坏」**。
+  护栏步骤（`.github/workflows/build.yml` 的 *Verify payload integrity against
+  source*）用 `node --check` 校验打包产物里的每个 `.js` 文件，但 `openwrt/sdk`
+  容器默认不装 node，命令以 `node: not found`（exit 127）退出，护栏随即把第一个
+  被检文件（`netmonitor/chart.js`）误报为 `INVALID JAVASCRIPT in payload` 并终止
+  构建——实际上 chart.js 与源码逐字节一致、语法完全合法。修复：护栏开头检测
+  `node` 是否存在，缺则直接从 nodejs.org 下载官方静态二进制放入
+  `/usr/local/bin`（架构按 `uname -m` 映射，Alpine/musl 基座自动改用 musl 构建），
+  再执行校验。不用系统包管理器补装：SDK 容器的 Debian 11 (bullseye) 基座
+  2026-08 已 EOL，软件源随之 404（1.4.1 CI 实测 `apt-get install nodejs` 报
+  `Unable to fetch some archives`，exit 100）；且即便源可用，装上的也是 node 12，
+  太老、`node --check` 认不得本项目前端用的现代 JS 语法，仍会误报。下载方案与
+  系统包源解耦后，护栏恢复对 jsmin 类破坏的真实检出能力。
+- **TDesign 表单控件在受控模式下交互失效（开关 / 下拉 / 输入）**。基于 Omi 框架的
+  `t-switch` / `t-select` / `t-input` / `t-input-number` 在受控模式（通过 value
+  属性赋值）下实测：开关点击后状态不切换（`innerChecked` 未随 `receiveProps` 同步）、
+  下拉菜单无法打开（`state.innerPopupVisible` 未正确初始化、合成事件无法穿透
+  shadow DOM），七个视图页上的开关按钮与下拉菜单因此无法正常使用。修复：全部改为
+  原生 HTML 控件（`checkbox` / `select` / `number` / `text`），样式保留 TDesign
+  观感（`.nm-switch` 纯 CSS 滑块、`.nm-select` / `.nm-input` / `.nm-num-input`
+  统一样式），交互由浏览器原生保证，兼容 LuCI 全部目标浏览器。改造范围：
+  设置页（已先行）、目标管理页（表格 / 卡片启用开关、编辑弹窗表单）、实时页
+  （区域 / 状态筛选、关键字搜索）、延迟曲线页（时间范围、快捷筛选）、区域页
+  （时间范围）、历史页（时间范围 / 区域 / 目标筛选）。`t-dialog` / `t-button` /
+  `t-tag` / `t-alert` 等展示与动作组件不受受控模式缺陷影响，保留使用。
+- **配置页在取不到后端配置时静默渲染空白表单 / 整页加载失败，用户无从判断原因**。
+  `get_config` 的 RPC 一旦拿不到完整配置（rpcd 缓存旧 ucode、会话 ACL 未刷新、
+  浏览器缓存旧页面、ubus 对象未注册 都会造成），旧版设置页只有两种表现：返回空对象
+  时渲染一张所有控件为空的表单，或调用被拒时 `Promise.all` 整体失败、LuCI 直接显示
+  「加载失败」——用户既看不到值也看不到原因。修复：① `render()` 顶部加诊断判断，
+  当 26 个全局配置键一个都不在时显示横幅「无法从后端读取配置（RPC 调用失败或返回
+  为空），请重启 rpcd 后重新登录 LuCI，并执行 `ubus call luci.netmonitor get_config`
+  检查后端」，并给出可操作的排查路径；该判断必须放在 `default_proto` /
+  `default_tcp_port` 兜底赋值**之前**，否则兜底会往空对象写入键、导致 `some()` 误判
+  配置非空。② `load()` 里 `getConfig().catch()` 降级为 `null`，使 RPC 拒绝时页面照常
+  渲染出表单与诊断横幅，而不是整页加载失败。验证：JSDOM 模拟环境三种场景全部通过——
+  RPC 返回完整配置（26 控件正确填充、无横幅）/ 返回空对象（26 控件渲染 + 横幅）/
+  RPC 直接拒绝（26 控件渲染 + 横幅，load 不再 reject）。
+
+
+## [1.4.1] - 2026-10-03
+
+### 修复
+
+- **TDesign 组件库在打包时被压坏，1.4.0 的组件体系实际不生效**。1.4.0 引入的
+  `tdesign.min.js`（7 MB 第三方 UMD bundle）经 `jsmin` 压缩后被破坏：文件从
+  28 行压成 3 行、删掉 691636 字节，删除点落在语句中间
+  （`var fu=...self:{};` 与紧随的 `!function(e){if(!e.WeakMap){` 之间），
+  产出的文件 `node --check` 直接报 `SyntaxError`，浏览器报
+  `missing ) after argument list`，`window.TDesign` 未定义。
+  现象极具迷惑性：页面框架、响应式布局、动态 SVG 动效全部正常，
+  DOM 里 `t-button` / `t-tag` / `t-switch` 与 `.nm-tcard` 计数也都非零，
+  但那只是**未升级的自定义标签**，无样式、无行为——组件体系等于没装。
+  修复：`Makefile` 在 `include luci.mk` 之前显式 `LUCI_MINIFY_JS:=0` 与
+  `LUCI_MINIFY_CSS:=0`。luci.mk 里是 `?=` 而非 `:=`，故可被覆盖；
+  位置必须在 include 之前（`JsMin` / `CssTidy` 宏在 include 时展开）。
+  验证：把仓库源文件直接放上设备后 `window.TDesign` 立即为 true，七页无 JS 错误。
 
 
 ## [1.4.0] - 2026-10-03
@@ -248,6 +306,7 @@
 - 动态 SVG 图标与动画系统，环形弧长等视觉元素由真实测量值换算，非固定长度的装饰。
 - 中文翻译（`po/zh_Hans`），随 `luci.mk` 打包为独立 i18n 包。
 
+[1.4.1]: https://github.com/LianXia233/luci-app-netmonitor/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/LianXia233/luci-app-netmonitor/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/LianXia233/luci-app-netmonitor/compare/v1.2.1...v1.3.0
 [1.2.0]: https://github.com/LianXia233/luci-app-netmonitor/compare/v1.1.0...v1.2.0

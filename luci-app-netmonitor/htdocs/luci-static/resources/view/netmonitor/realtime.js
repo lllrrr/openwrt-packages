@@ -38,20 +38,34 @@ return view.extend({
 		var page = common.el('div', 'nm-page');
 		root.appendChild(page);
 
+		/* 原生下拉工厂：替代 t-select（TDesign 下拉在受控模式下无法打开，
+		 * 见 settings.js 同类改造说明）。样式沿用 .nm-select，兼容 LuCI
+		 * 全部目标浏览器。 */
+		function makeSelect(options, value) {
+			var sel = document.createElement('select');
+			sel.className = 'nm-select';
+			options.forEach(function(o) {
+				var opt = document.createElement('option');
+				opt.value = o.value;
+				opt.textContent = o.label;
+				sel.appendChild(opt);
+			});
+			sel.value = value;
+			return sel;
+		}
+
 		/* 工具栏（TDesign 视觉卡） */
 		var bar = common.tcard();
 		var barRow = common.el('div', 'nm-toolbar-row');
 
 		/* 区域筛选 */
 		var fRegion = common.el('div', 'nm-field-glass');
-		var selRegion = document.createElement('t-select');
-		selRegion.options = [
+		var selRegion = makeSelect([
 			{ label: _('全部区域'), value: 'all' },
 			{ label: _('国内'), value: 'cn' },
 			{ label: _('国外'), value: 'overseas' },
 			{ label: _('其他'), value: 'other' }
-		];
-		selRegion.value = 'all';
+		], 'all');
 		selRegion.addEventListener('change', function() {
 			filterRegion = selRegion.value;
 			renderTable();
@@ -62,14 +76,12 @@ return view.extend({
 
 		/* 状态筛选 */
 		var fStatus = common.el('div', 'nm-field-glass');
-		var selStatus = document.createElement('t-select');
-		selStatus.options = [
+		var selStatus = makeSelect([
 			{ label: _('全部状态'), value: 'all' },
 			{ label: _('在线'), value: 'online' },
 			{ label: _('失败'), value: 'failed' },
 			{ label: _('停用'), value: 'disabled' }
-		];
-		selStatus.value = 'all';
+		], 'all');
 		selStatus.addEventListener('change', function() {
 			filterStatus = selStatus.value;
 			renderTable();
@@ -80,7 +92,9 @@ return view.extend({
 
 		/* 关键字搜索 */
 		var fKw = common.el('div', 'nm-field-glass');
-		var inKw = document.createElement('t-input');
+		var inKw = document.createElement('input');
+		inKw.type = 'text';
+		inKw.className = 'nm-input';
 		inKw.setAttribute('placeholder', _('搜索名称或地址'));
 		inKw.addEventListener('input', function() {
 			keyword = String(inKw.value || '').toLowerCase();

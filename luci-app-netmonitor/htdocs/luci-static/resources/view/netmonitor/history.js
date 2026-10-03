@@ -51,44 +51,53 @@ return view.extend({
 		var page = common.el('div', 'nm-page');
 		root.appendChild(page);
 
+		/* 原生下拉工厂：替代 t-select（TDesign 下拉在受控模式下无法打开，
+		 * 见 settings.js 同类改造说明）。样式沿用 .nm-select。 */
+		function makeSelect(options, value) {
+			var sel = document.createElement('select');
+			sel.className = 'nm-select';
+			options.forEach(function(o) {
+				var opt = document.createElement('option');
+				opt.value = o.value;
+				opt.textContent = o.label;
+				sel.appendChild(opt);
+			});
+			sel.value = value;
+			return sel;
+		}
+
 		/* 工具栏（TDesign 视觉卡） */
 		var bar = common.tcard();
 		var row = common.el('div', 'nm-toolbar-row');
 
 		/* 时间范围 */
 		var fRange = common.el('div', 'nm-field-glass');
-		var selRange = document.createElement('t-select');
-		selRange.options = RANGES.map(function(r) {
+		var selRange = makeSelect(RANGES.map(function(r) {
 			return { label: _(r[1]), value: r[0] };
-		});
-		selRange.value = '6h';
+		}), '6h');
 		fRange.appendChild(common.el('label', '', _('Time range')));
 		fRange.appendChild(selRange);
 		row.appendChild(fRange);
 
 		/* 区域 */
 		var fRegion = common.el('div', 'nm-field-glass');
-		var selRegion = document.createElement('t-select');
-		selRegion.options = [
+		var selRegion = makeSelect([
 			{ label: _('All regions'), value: 'all' },
 			{ label: _('China'), value: 'cn' },
 			{ label: _('Overseas'), value: 'overseas' },
 			{ label: _('Other'), value: 'other' }
-		];
-		selRegion.value = 'all';
+		], 'all');
 		fRegion.appendChild(common.el('label', '', _('Region')));
 		fRegion.appendChild(selRegion);
 		row.appendChild(fRegion);
 
 		/* 目标 */
 		var fTarget = common.el('div', 'nm-field-glass');
-		var selTarget = document.createElement('t-select');
 		var targetOptions = [{ label: _('All targets'), value: 'all' }];
 		targets.forEach(function(t) {
 			targetOptions.push({ label: t.name || t.id, value: t.id });
 		});
-		selTarget.options = targetOptions;
-		selTarget.value = 'all';
+		var selTarget = makeSelect(targetOptions, 'all');
 		fTarget.appendChild(common.el('label', '', _('Target')));
 		fTarget.appendChild(selTarget);
 		row.appendChild(fTarget);

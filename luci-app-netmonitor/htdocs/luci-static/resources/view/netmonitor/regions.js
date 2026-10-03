@@ -40,16 +40,29 @@ return view.extend({
 		var page = common.el('div', 'nm-page');
 		root.appendChild(page);
 
+		/* 原生下拉工厂：替代 t-select（TDesign 下拉在受控模式下无法打开，
+		 * 见 settings.js 同类改造说明）。样式沿用 .nm-select。 */
+		function makeSelect(options, value) {
+			var sel = document.createElement('select');
+			sel.className = 'nm-select';
+			options.forEach(function(o) {
+				var opt = document.createElement('option');
+				opt.value = o.value;
+				opt.textContent = o.label;
+				sel.appendChild(opt);
+			});
+			sel.value = value;
+			return sel;
+		}
+
 		/* 工具栏（TDesign 视觉卡） */
 		var bar = common.tcard();
 		var row = common.el('div', 'nm-toolbar-row');
 
 		var fRange = common.el('div', 'nm-field-glass');
-		var selRange = document.createElement('t-select');
-		selRange.options = RANGES.map(function(r) {
+		var selRange = makeSelect(RANGES.map(function(r) {
 			return { label: _(r[1]), value: r[0] };
-		});
-		selRange.value = range;
+		}), range);
 		selRange.addEventListener('change', function() { range = selRange.value; reload(true); });
 		fRange.appendChild(common.el('label', '', _('Time range')));
 		fRange.appendChild(selRange);
