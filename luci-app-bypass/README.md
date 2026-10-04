@@ -77,7 +77,7 @@ After installation:
 - **Other Settings**: configure TCP redirection, UDP No Redir Ports, IPv6 TProxy, ICMP handling, and Direct IP List.
 - **Rule Manage**: maintain the ordered shunt-rule list and optional GeoIP/Geosite update schedule. Domain and IP/CIDR lists may coexist in one section; they are emitted as adjacent independent matchers with the same outbound.
 - **Built-in rule priority**: fresh configurations start with `AdBlock`, `China`, `AI`, `DirectGame`, `GFW`, and `Microsoft`, in that highest-to-lowest priority order. AI, GFW, and Microsoft inherit the virtual Default outbound; AdBlock blocks, while China and DirectGame connect directly.
-- **Runtime upgrades**: the always-on lightweight watcher fingerprints the installed BypassCore and NaiveProxy executables and compares them with each running native process image. After an `opkg`/`apk` upgrade settles, Bypass performs one serialized full restart and logs both detection and completion. Disabling process-health supervision does not disable upgrade detection.
+- **Runtime upgrades**: the always-on lightweight watcher fingerprints the installed BypassCore and NaiveProxy executables and compares them with each running native process image. It waits for APK's package transaction to finish before restarting and retries a failed full restart up to three times. Disabling process-health supervision does not disable upgrade detection.
 - **Large clock corrections**: when Bypass is already ready, an NTP step of at least 120 seconds restarts the service so TLS-based node connections can establish fresh handshakes against the corrected system time.
 - **Geo View**: query domain/IP matches against installed GeoIP and Geosite data.
 

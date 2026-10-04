@@ -56,6 +56,39 @@ function api(/* action, ...args */) {
 	}).catch(function (e) { return { code: -1, error: String(e) }; });
 }
 
+// Keep every file.exec argument and response below rpcd's message limit.
+function readBackup(result) {
+	if (!result.backup_stream) return Promise.resolve(result.backup || '');
+	var chunks = [], offset = 0;
+	function next() {
+		return api('geo_view', 'read', result.backup_stream, String(offset)).then(function (part) {
+			if (part.code !== 0) throw new Error(part.error || _('Backup failed'));
+			chunks.push(part.output || '');
+			if (part.done === 1) return chunks.join('');
+			if (!(part.next_offset > offset)) throw new Error(_('Invalid API response.'));
+			offset = part.next_offset;
+			return next();
+		});
+	}
+	return next();
+}
+
+function uploadBackup(encoded) {
+	var token = 'new', offset = 0;
+	function next() {
+		var chunk = encoded.slice(offset, offset + 16384);
+		var done = offset + chunk.length === encoded.length;
+		return api('restore_backup_upload', token, String(offset), chunk, done ? '1' : '0').then(function (r) {
+			if (r.code !== 0 || done) return r;
+			if (r.next_offset !== offset + chunk.length) throw new Error(_('Invalid API response.'));
+			token = r.token;
+			offset = r.next_offset;
+			return next();
+		});
+	}
+	return next().catch(function (e) { return { code: -1, error: String(e) }; });
+}
+
 // Redirect an option's cfgvalue/write/remove to a different UCI section than
 // the one its parent TypedSection is bound to. Used so all tabs can live on a
 // single 'global' TypedSection while their options physically reside in
@@ -496,10 +529,10 @@ return view.extend({
 				dlBtn.disabled = true;
 				dlBtn.textContent = _('Backing up…');
 				api('create_backup').then(function (r) {
-					dlBtn.disabled = false;
-					dlBtn.textContent = _('DL Backup');
-					if (r.code === 0 && r.backup) {
-						var blob = b64toBlob(r.backup, 'application/gzip');
+					if (r.code !== 0) throw new Error(r.error || _('Backup failed'));
+					return readBackup(r).then(function (encoded) {
+						if (!encoded) throw new Error(_('Backup failed'));
+						var blob = b64toBlob(encoded, 'application/gzip');
 						var a = document.createElement('a');
 						a.href = URL.createObjectURL(blob);
 						a.download = r.filename || 'bypass-backup.tar.gz';
@@ -507,9 +540,12 @@ return view.extend({
 						a.click();
 						document.body.removeChild(a);
 						URL.revokeObjectURL(a.href);
-					} else {
-						ui.addNotification(null, E('p', {}, _('Backup failed: ') + (r.error || _('unknown'))));
-					}
+					});
+				}).catch(function (e) {
+					ui.addNotification(null, E('p', {}, _('Backup failed: ') + String(e)));
+				}).then(function () {
+					dlBtn.disabled = false;
+					dlBtn.textContent = _('DL Backup');
 				});
 			}
 		}, _('DL Backup'));
@@ -523,12 +559,17 @@ return view.extend({
 		ulFile.addEventListener('change', function () {
 			var f = ulFile.files && ulFile.files[0];
 			if (!f) return;
+			if (f.size > 3145728) {
+				ui.addNotification(null, E('p', {}, _('Restore failed: ') + _('Backup is too large.')));
+				ulFile.value = '';
+				return;
+			}
 			ulBtn.disabled = true;
 			ulBtn.textContent = _('Restoring…');
 			var reader = new FileReader();
 			reader.onload = function () {
 				var b64 = reader.result.split(',')[1];
-				api('restore_backup', b64).then(function (r) {
+				uploadBackup(b64).then(function (r) {
 					ulBtn.disabled = false;
 					ulBtn.textContent = _('Restore Backup');
 					ulFile.value = '';
@@ -538,6 +579,12 @@ return view.extend({
 						ui.addNotification(null, E('p', {}, _('Restore failed: ') + (r.error || _('unknown'))));
 					}
 				});
+			};
+			reader.onerror = function () {
+				ulBtn.disabled = false;
+				ulBtn.textContent = _('Restore Backup');
+				ulFile.value = '';
+				ui.addNotification(null, E('p', {}, _('Restore failed: ') + _('Cannot read backup file.')));
 			};
 			reader.readAsDataURL(f);
 		});
@@ -550,8 +597,13 @@ return view.extend({
 				if (!confirm(_('Are you sure? This cannot be undone.'))) return;
 				rstBtn.disabled = true;
 				rstBtn.textContent = _('Resetting…');
-				api('reset_config').then(function () {
-					window.location.reload();
+				api('reset_config').then(function (r) {
+					if (r.code === 0) window.location.reload();
+					else {
+						rstBtn.disabled = false;
+						rstBtn.textContent = _('Do Reset');
+						ui.addNotification(null, E('p', {}, r.error || _('Operation failed.')));
+					}
 				});
 			}
 		}, _('Do Reset'));

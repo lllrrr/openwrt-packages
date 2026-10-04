@@ -14,10 +14,10 @@
 # with the configured boot delay while its marker exists.
 if [ ! -f /var/lock/bypass_ready.lock ]; then
 	if { [ "$ACTION" = "ifup" ] || [ "$ACTION" = "ifupdate" ]; } && \
-	   [ ! -f /var/lock/bypass_booting.lock ]; then
+	   [ ! -f /var/lock/bypass_booting.lock ] && [ ! -f /var/lock/bypass_stopped.lock ]; then
 		if mkdir /var/lock/bypass_recovering 2>/dev/null; then
 			log 1 "Interface [%s] became usable before Bypass was ready; scheduling service recovery." "$INTERFACE"
-			( /etc/init.d/bypass restart; rmdir /var/lock/bypass_recovering 2>/dev/null ) >/dev/null 2>&1 &
+			( /etc/init.d/bypass restart recovery; rmdir /var/lock/bypass_recovering 2>/dev/null ) >/dev/null 2>&1 &
 		fi
 	fi
 	exit 0
@@ -64,23 +64,20 @@ rule_direct_ifaces=$(
 is_managed_iface() {
 	[ -n "$INTERFACE" ] || return 1
 	[ "$INTERFACE" = "$direct_iface" ] && return 0
-	case " $node_egress_ifaces " in *" $INTERFACE "*) return 0 ;; esac
-	case " $rule_direct_ifaces " in *" $INTERFACE "*) return 0 ;; esac
-	return 1
+	printf '%s\n' "$node_egress_ifaces" "$rule_direct_ifaces" | grep -Fxq "$INTERFACE"
 }
 
 is_direct_iface() {
 	[ -n "$INTERFACE" ] || return 1
 	[ "$INTERFACE" = "$direct_iface" ] && return 0
-	case " $rule_direct_ifaces " in *" $INTERFACE "*) return 0 ;; esac
-	return 1
+	printf '%s\n' "$rule_direct_ifaces" | grep -Fxq "$INTERFACE"
 }
 
 schedule_iface_restart() {
 	local reason=$1
 	restart_scheduled=1
 	log 1 "Restarting Bypass after interface [%s] event [%s]: %s" "$INTERFACE" "$ACTION" "$reason"
-	( /etc/init.d/bypass restart ) >/dev/null 2>&1 &
+	( /etc/init.d/bypass restart recovery ) >/dev/null 2>&1 &
 }
 
 refresh_firewall_wan_state() {

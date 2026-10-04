@@ -34,7 +34,10 @@ return view.extend({
 		function refreshLog() {
 			var wasBottom = isAtBottom();
 			return api('log_tail', '500').then(function (r) {
-				ta.value = r.log || '';
+				if (r.log_base64 != null) {
+					var bytes = Uint8Array.from(atob(r.log_base64), function (c) { return c.charCodeAt(0); });
+					ta.value = new TextDecoder().decode(bytes);
+				} else ta.value = r.log || (r.error ? _('Error: ') + r.error : '');
 				// Auto-scroll on first load, or if the user was already at the bottom.
 				if (firstLoad || wasBottom) {
 					ta.scrollTop = ta.scrollHeight;
@@ -47,9 +50,11 @@ return view.extend({
 			type: 'button',
 			class: 'cbi-button cbi-button-remove',
 			click: function () {
-				api('clear_log').then(function () {
-					ta.value = '';
-					ta.scrollTop = ta.scrollHeight;
+				api('clear_log').then(function (r) {
+					if (r.code === 0) {
+						ta.value = '';
+						ta.scrollTop = ta.scrollHeight;
+					} else ui.addNotification(null, E('p', {}, r.error || _('Operation failed.')));
 				});
 			}
 		}, _('Clear logs'));

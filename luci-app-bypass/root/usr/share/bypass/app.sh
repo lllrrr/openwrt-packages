@@ -30,6 +30,7 @@ get_direct_dns() {
 			DOMESTIC_DNS=$DOMESTIC
 			;;
 	esac
+	return 0
 }
 
 get_config() {
@@ -68,7 +69,7 @@ get_config() {
 	# this, merely opening a status/preview page while the service is running
 	# would select a different free port and overwrite the live config preview.
 	REDIR_PORT=$(get_cache_var ACL_GLOBAL_redir_port)
-	[ -n "$REDIR_PORT" ] || REDIR_PORT=$(get_new_port 1041 tcp)
+	[ -n "$REDIR_PORT" ] || REDIR_PORT=$(get_new_port 1041 tcp,udp) || return 1
 	TCP_PROXY_WAY=$(config_t_get global_forwarding tcp_proxy_way redirect)
 	TCP_NO_REDIR_PORTS=$(config_t_get global_forwarding tcp_no_redir_ports 'disable')
 	UDP_NO_REDIR_PORTS=$(config_t_get global_forwarding udp_no_redir_ports 'disable')
@@ -95,14 +96,8 @@ get_config() {
 	BYPASSCORE_DNS_PORT=$(get_cache_var BYPASSCORE_DNS_PORT)
 	if [ -z "$BYPASSCORE_DNS_PORT" ]; then
 		BYPASSCORE_DNS_PORT=$(config_t_get global_dns bypasscore_dns_listen_port 10554)
-		echo "$BYPASSCORE_DNS_PORT" | grep -qE '^[0-9]+$' || BYPASSCORE_DNS_PORT=10554
-		[ "$BYPASSCORE_DNS_PORT" -ge 1 ] 2>/dev/null && [ "$BYPASSCORE_DNS_PORT" -le 65535 ] 2>/dev/null || BYPASSCORE_DNS_PORT=10554
-		while [ "$BYPASSCORE_DNS_PORT" = "$REDIR_PORT" ] || \
-			[ "$(check_port_exists "$BYPASSCORE_DNS_PORT" tcp)" -gt 0 ] 2>/dev/null || \
-			[ "$(check_port_exists "$BYPASSCORE_DNS_PORT" udp)" -gt 0 ] 2>/dev/null; do
-			BYPASSCORE_DNS_PORT=$((BYPASSCORE_DNS_PORT + 1))
-			[ "$BYPASSCORE_DNS_PORT" -le 65535 ] || BYPASSCORE_DNS_PORT=10554
-		done
+		uint_in_range "$BYPASSCORE_DNS_PORT" 1 65535 || BYPASSCORE_DNS_PORT=10554
+		BYPASSCORE_DNS_PORT=$(get_new_port "$BYPASSCORE_DNS_PORT" tcp,udp "$REDIR_PORT") || return 1
 	fi
 	DNS_SPLIT_DOMAIN=$(config_t_get global_dns dns_split_domain geosite:cn)
 
@@ -114,6 +109,9 @@ get_config() {
 	uint_in_range "$NAIVE_EGRESS_TABLE" 1 65000 || { log 0 "Invalid Naive egress table base [%s]; using 20200." "$NAIVE_EGRESS_TABLE"; NAIVE_EGRESS_TABLE=20200; }
 	uint_in_range "$NAIVE_EGRESS_RULE_PRIORITY" 1 65000 || { log 0 "Invalid Naive egress priority base [%s]; using 900." "$NAIVE_EGRESS_RULE_PRIORITY"; NAIVE_EGRESS_RULE_PRIORITY=900; }
 
+	NODE_SOCKS_PORT=$(printf '%s\n' "$NODE_SOCKS_PORT" | awk '{ printf "%d", $1 }')
+	NAIVE_EGRESS_TABLE=$(printf '%s\n' "$NAIVE_EGRESS_TABLE" | awk '{ printf "%d", $1 }')
+	NAIVE_EGRESS_RULE_PRIORITY=$(printf '%s\n' "$NAIVE_EGRESS_RULE_PRIORITY" | awk '{ printf "%d", $1 }')
 	get_direct_dns
 }
 
@@ -134,7 +132,7 @@ node_egress_interface() {
 # the native WireGuard outbound.
 prepare_selected_nodes() {
 	mkdir -p "$TMP_PATH"
-	local sid outbound index=0 port
+	local sid outbound port next_port=$NODE_SOCKS_PORT reserved="$REDIR_PORT $BYPASSCORE_DNS_PORT"
 	: > "$TMP_PATH/selected_nodes"
 	: > "$TMP_PATH/selected_naive_nodes"
 	: > "$TMP_PATH/selected_wireguard_nodes"
@@ -182,9 +180,11 @@ prepare_selected_nodes() {
 	: > "$TMP_PATH/node_ports"
 	while read -r sid; do
 		[ -n "$sid" ] || continue
-		port=$(get_new_port $((NODE_SOCKS_PORT + index)) tcp)
+		port=$(get_new_port "$next_port" tcp "$reserved") || return 1
 		printf '%s %s\n' "$sid" "$port" >> "$TMP_PATH/node_ports"
-		index=$((index + 1))
+		reserved="$reserved $port"
+		next_port=$((port + 1))
+		[ "$next_port" -le 65535 ] || next_port=1
 	done < "$TMP_PATH/selected_naive_nodes"
 }
 
@@ -288,7 +288,7 @@ run_naive_node() {
 }
 
 run_naive_nodes() {
-	prepare_selected_nodes
+	prepare_selected_nodes || return 1
 	teardown_egress_routing
 	[ -s "$TMP_PATH/selected_nodes" ] || {
 		log 0 "No active rule selects an outbound node."
@@ -589,7 +589,7 @@ json_add_shunt_rule() {
 gen_bypasscore_config() {
 	mkdir -p "$(dirname "$BYPASSCORE_CFG")" "$TMP_ACL_PATH"
 	BYPASSCORE_CONFIG_ERROR=0
-	prepare_selected_nodes
+	prepare_selected_nodes || return 1
 	prepare_native_dns_policy_lists
 	DNS_PROXY_NODE=$(default_proxy_node)
 	DNS_PROXY_PORT=$(node_socks_port "$DNS_PROXY_NODE")
@@ -756,7 +756,7 @@ gen_bypasscore_config() {
 		local _sid _outbound _egress
 		for _sid in $(shunt_rule_sections); do
 			[ "$(config_n_get "$_sid" is_default 0)" = "1" ] && continue
-			_outbound=$(config_n_get "$_sid" outbound _direct)
+			_outbound=$(config_n_get "$_sid" outbound)
 			_egress=$(config_n_get "$_sid" egress_interface)
 			[ "$_outbound" = "_direct" ] && [ -n "$_egress" ] || continue
 			json_add_object ''
@@ -952,7 +952,7 @@ gen_bypasscore_config() {
 			local has_domains has_ips
 			for sid in $(shunt_rule_sections); do
 				[ "$(config_n_get "$sid" is_default 0)" = "1" ] && continue
-				outbound=$(config_n_get "$sid" outbound _direct)
+				outbound=$(config_n_get "$sid" outbound)
 				[ -n "$outbound" ] || continue
 				egress=$(config_n_get "$sid" egress_interface)
 				if [ "$outbound" = "_default" ]; then
@@ -1116,7 +1116,7 @@ run_bypasscore_core() {
 	local log_file="${cfg_dir}/bypasscore.log"
 	: > "$log_file"
 	ln_run 0 "$BYPASSCORE_FILE" "bypasscore" "$log_file" -config "$BYPASSCORE_CFG" -log-level "$LOG_LEVEL" -run || return 1
-	wait_for_listener bypasscore "$REDIR_PORT" tcp 20 "$log_file" || return 1
+	wait_for_listener bypasscore "$REDIR_PORT" tcp "$BYPASSCORE_START_TIMEOUT" "$log_file" || return 1
 	wait_for_listener bypasscore "$BYPASSCORE_DNS_PORT" udp 5 "$log_file" || return 1
 	wait_for_listener bypasscore "$BYPASSCORE_DNS_PORT" tcp 5 "$log_file" || return 1
 	set_cache_var ACL_GLOBAL_redir_port "$REDIR_PORT"
@@ -1283,12 +1283,12 @@ cron_prefix() {
 	}
 	if [ "$week" = "8" ]; then
 		# Loop mode: every N hours.
-		uint_in_range "$interval" 1 23 || {
+		uint_in_range "$interval" 1 24 || {
 			log 0 "Invalid schedule interval rejected: %s" "$interval"
 			echo ""
 			return 1
 		}
-		echo "0 */${interval} * * *"
+		[ "$interval" = "24" ] && echo "0 0 * * *" || echo "0 */${interval} * * *"
 	elif [ "$week" = "7" ]; then
 		echo "$mm $hh * * *"
 	else
@@ -1323,6 +1323,14 @@ start_crontab() {
 	# the old unconditional hourly stop/start.
 	echo "0 * * * * ${APP_PATH}/rule_update.sh refresh_uplink >>${LOG_FILE} 2>&1" >> /etc/crontabs/root
 
+	append_lifecycle_crontab
+
+	/etc/init.d/cron restart >/dev/null 2>&1
+}
+
+append_lifecycle_crontab() {
+	[ "$(config_t_get global enabled 0)" = "1" ] || return 0
+	local week time interval prefix
 	# Scheduled stop / start / restart (global_delay.*_week_mode).
 	local verb
 	for verb in stop start restart; do
@@ -1334,12 +1342,13 @@ start_crontab() {
 		[ -n "$prefix" ] && echo "$prefix /etc/init.d/bypass ${verb} >/dev/null 2>&1" >> /etc/crontabs/root
 	done
 
-	/etc/init.d/cron restart >/dev/null 2>&1
 }
 
 stop_crontab() {
-	# Remove only the lines this app added (rule_update + init.d/bypass).
+	# Scheduled starts must survive a scheduled stop. Rebuild lifecycle jobs
+	# from current UCI, while removing update jobs which need a running service.
 	remove_owned_crontab_entries
+	append_lifecycle_crontab
 	/etc/init.d/cron restart >/dev/null 2>&1
 }
 
@@ -1431,7 +1440,7 @@ runtime_restart_signature() {
 		if [ "$ENABLE_GEOVIEW_IP" = "1" ]; then
 			for sid in $(shunt_rule_sections); do
 				[ "$(config_n_get "$sid" is_default 0)" = "1" ] && continue
-				outbound=$(config_n_get "$sid" outbound _direct)
+				outbound=$(config_n_get "$sid" outbound)
 				[ "$outbound" = "_direct" ] && geo_class=direct || geo_class=other
 				printf 'geo_rule=%s\nclass=%s\nip=%s\n' "$sid" "$geo_class" "$(config_n_get "$sid" ip_list)"
 			done
@@ -1445,10 +1454,10 @@ runtime_restart_signature() {
 # Return 0 for a live transactional reload, 1 for an invalid candidate, and 2
 # when external runtime state or listener identity requires a full restart.
 reload_core() {
-	get_config
+	get_config || return 2
 	[ "$ENABLED" = "1" ] || return 2
 	process_alive bypasscore && bypasscore_ready || return 2
-	prepare_selected_nodes
+	prepare_selected_nodes || return 1
 	local previous_signature next_signature backup response
 	previous_signature=$(get_cache_var RUNTIME_RESTART_SIGNATURE)
 	next_signature=$(runtime_restart_signature)
@@ -1501,7 +1510,9 @@ start() {
 	}
 	mkdir -p /tmp/etc /tmp/log "$TMP_PATH" "$TMP_BIN_PATH" "$TMP_PID_PATH" "$TMP_ACL_PATH" "$TMP_PATH2"
 
-	get_config
+	get_config || return 1
+	# GeoIP expansions belong to the asset snapshot of this startup.
+	rm -rf "$TMP_PATH2/geo_output"
 	export BYPASSCORE_ASSETS="$V2RAY_LOCATION_ASSET"
 	export ENABLE_DEPRECATED_GEOSITE=true
 	ulimit -n 65535 2>/dev/null
@@ -1525,7 +1536,7 @@ start() {
 		log 0 "BypassCore 1.4.0 schema-5 WireGuard, native NFTSet and TCP probe capabilities are required; service not started."
 		return 1
 	fi
-	prepare_selected_nodes
+	prepare_selected_nodes || return 1
 	local selected_count
 	selected_count=$(awk 'NF { n++ } END { print n + 0 }' "$TMP_PATH/selected_nodes")
 	[ "$selected_count" -le 64 ] 2>/dev/null || {
@@ -1635,7 +1646,8 @@ if [ "${APP_SOURCED:-0}" != "1" ]; then
 	arg1=$1
 	shift
 	case "$arg1" in
-		gen_config) get_config; gen_bypasscore_config ;;
+		gen_config) get_config && gen_bypasscore_config ;;
+		remove_crontab) remove_owned_crontab_entries; /etc/init.d/cron restart >/dev/null 2>&1 ;;
 		reload_core) reload_core ;;
 		start)     start "$@" ;;
 		stop)      stop ;;

@@ -9,6 +9,7 @@ LOCK_FILE_DIR=/var/lock
 LOCK_FILE=${LOCK_FILE_DIR}/${CONFIG}.lock
 READY_FILE=${LOCK_FILE_DIR}/${CONFIG}_ready.lock
 BOOTING_FILE=${LOCK_FILE_DIR}/${CONFIG}_booting.lock
+STOPPED_FILE=${LOCK_FILE_DIR}/${CONFIG}_stopped.lock
 
 set_lock() {
 	[ ! -d "$LOCK_FILE_DIR" ] && mkdir -p "$LOCK_FILE_DIR"
@@ -55,6 +56,8 @@ boot_func() {
 		sleep "$delay"
 	}
 	while [ "$attempt" -le 3 ]; do
+		# An explicit stop/start/restart during the boot delay cancels this job.
+		[ -f "$BOOTING_FILE" ] || { rc=0; break; }
 		restart boot && { rc=0; break; }
 		[ "$attempt" = "3" ] && break
 		log 0 "Boot startup attempt %s failed; retrying in 10 seconds." "$attempt"
@@ -67,12 +70,16 @@ boot_func() {
 }
 
 boot() {
+	mkdir -p "$LOCK_FILE_DIR" || return 1
+	rm -f "$STOPPED_FILE"
 	touch "$BOOTING_FILE"
 	boot_func >/dev/null 2>&1 &
 }
 
 start() {
+	rm -f "$BOOTING_FILE"
 	set_lock || { log 0 "Timed out waiting for another service operation before start."; return 1; }
+	rm -f "$STOPPED_FILE"
 	$APP_FILE start
 	local rc=$?
 	update_ready_file "$rc"
@@ -81,14 +88,33 @@ start() {
 }
 
 stop() {
+	rm -f "$BOOTING_FILE"
 	set_lock || { log 0 "Timed out waiting for another service operation before stop."; return 1; }
-	$APP_FILE stop
+	touch "$STOPPED_FILE"
 	rm -f "$READY_FILE"
+	$APP_FILE stop
 	unset_lock
 }
 
 restart() {
+	case "$1" in boot|recovery) ;; *) rm -f "$BOOTING_FILE" ;; esac
 	set_lock || { log 0 "Timed out waiting for another service operation before restart."; return 1; }
+	# Automatic work may have waited behind an explicit stop. Recheck after
+	# acquiring the lifecycle lock so a queued recovery cannot undo that stop.
+	case "$1" in
+		boot)
+			[ -f "$BOOTING_FILE" ] || { unset_lock; return 0; }
+			;;
+		recovery)
+			if [ -f "$STOPPED_FILE" ] || [ -f "$BOOTING_FILE" ] || \
+			   [ "$(uci -q get ${CONFIG}.@global[0].enabled)" != "1" ]; then
+				unset_lock
+				return 0
+			fi
+			;;
+	esac
+	rm -f "$STOPPED_FILE"
+	rm -f "$READY_FILE"
 	$APP_FILE stop
 	$APP_FILE start $1
 	local rc=$?
@@ -104,6 +130,7 @@ reload() {
 	if [ "$rc" = "2" ]; then
 		full_restart=1
 		log 0 "Reload touches external runtime state; performing a full restart."
+		rm -f "$READY_FILE"
 		$APP_FILE stop
 		$APP_FILE start
 		rc=$?

@@ -47,7 +47,7 @@ flock -xn 8 || exit 0
 
 (
 	log 0 "Restarting Bypass after NTP time step (%s seconds)." "$ntp_offset"
-	if /etc/init.d/bypass restart >/dev/null 2>&1; then
+	if /etc/init.d/bypass restart recovery >/dev/null 2>&1; then
 		log 0 "Bypass restart after NTP time step completed."
 	else
 		log 0 "Bypass restart after NTP time step failed."

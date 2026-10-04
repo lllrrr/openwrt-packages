@@ -21,6 +21,42 @@ function requireSuccess(promise) {
 	});
 }
 
+function readDirectIp(data) {
+	if (data.code !== 0) throw new Error(data.error || _('Operation failed.'));
+	if (!data.direct_ip_stream) return Promise.resolve(data);
+	var chunks = [], offset = 0;
+	function next() {
+		return requireSuccess(api('geo_view', 'read', data.direct_ip_stream, String(offset))).then(function (part) {
+			chunks.push(part.output || '');
+			if (part.done === 1) {
+				data.direct_ip = decodeURIComponent(escape(atob(chunks.join(''))));
+				return data;
+			}
+			if (!(part.next_offset > offset)) throw new Error(_('Invalid API response.'));
+			offset = part.next_offset;
+			return next();
+		});
+	}
+	return next();
+}
+
+function uploadDirectIp(encoded) {
+	if (encoded.length > 262144) return Promise.reject(new Error(_('Direct IP List is too large.')));
+	var token = 'new', offset = 0;
+	function next() {
+		var chunk = encoded.slice(offset, offset + 16384);
+		var done = offset + chunk.length === encoded.length;
+		return requireSuccess(api('set_direct_ip_upload', token, String(offset), chunk, done ? '1' : '0')).then(function (r) {
+			if (done) return r;
+			if (r.next_offset !== offset + chunk.length) throw new Error(_('Invalid API response.'));
+			token = r.token;
+			offset = r.next_offset;
+			return next();
+		});
+	}
+	return next();
+}
+
 function encodeBase64(value) {
 	return btoa(unescape(encodeURIComponent(value)));
 }
@@ -80,7 +116,7 @@ return view.extend({
 	load: function () {
 		return Promise.all([
 			uci.load('bypass'),
-			api('get_direct_ip')
+			api('get_direct_ip').then(readDirectIp)
 		]);
 	},
 
@@ -198,9 +234,9 @@ return view.extend({
 		o.validate = validateDirectIpList;
 		o.cfgvalue = function () { return data[1].direct_ip || ''; };
 		o.write = function (_sid, value) {
-			return requireSuccess(api('set_direct_ip', encodeBase64(String(value || '').replace(/\r\n/g, '\n'))));
+			return uploadDirectIp(encodeBase64(String(value || '').replace(/\r\n/g, '\n')));
 		};
-		o.remove = function () { return requireSuccess(api('set_direct_ip', encodeBase64(''))); };
+		o.remove = function () { return uploadDirectIp(encodeBase64('')); };
 
 		return m.render();
 	}

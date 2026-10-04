@@ -1,0 +1,67 @@
+# 代码审计与修复记录
+
+日期：2026-10-04。范围为本仓库全部运行脚本、LuCI 页面、默认配置、RPC ACL、安装/卸载脚本和构建工作流。审计基于当前工作区，保留了原先未提交的 2.1.1 版本及 APK 更新监控修改；后续补丁版本为 2.1.2、2.1.3、2.1.4，当前补丁版本为 2.1.5。
+
+## 确认并修复的问题
+
+优先级中的 P1 表示可导致错误路由、服务失效或恢复机制失效；P2 表示诊断、维护和调度行为错误。以下均为代码层面结论，不代表已在真实 OpenWrt 内核上完成流量验证。
+
+| 优先级 | 问题与触发条件 | 修复位置与结果 |
+| --- | --- | --- |
+| P1 | LuCI 将规则设为关闭或删除节点引用后，后端把空 outbound 补成 `_direct`，让规则继续生效。 | `app.sh` 不再为普通规则补直连出口，也不为关闭的规则生成 Direct bind。 |
+| P1 | 基础端口被占用时，相邻 Naive 节点会分配到同一个尚未开始监听的 SOCKS 端口；还可能与核心/DNS 的预留端口冲突。 | `utils.sh`、`app.sh` 使用带预留列表的迭代分配，覆盖 1–65535、回绕及 TCP/UDP 检查，并传播分配失败。 |
+| P1 | WireGuard 测试及连接检查调用节点准备函数，覆盖正在运行的节点列表和端口映射。 | `api.sh` 的诊断只读取已经建立的运行状态，不再重写这些文件。 |
+| P1 | NTP 重启启动的长期子进程继承 fd 8，继续持有 NTP 锁，后续时间校正事件可能永远无法取得锁。 | `ln_run()` 在子进程执行前关闭操作锁 fd 5–9；新增真实文件描述符继承测试。 |
+| P1 | 当前未提交的后台重启修改在新 Shell 中没有定义 `READY_FILE`，因此排队的重启会被跳过。 | `monitor.sh` 在后台 worker 内显式设置路径；覆盖重启执行和失败重试。 |
+| P1 | OpenWrt 25 的 APK post-install 在数据库事务锁仍持有时直接重启 Bypass；连续更新 BypassCore 和 LuCI 包时会与文件替换并行，造成启动失败或暂时没有日志。 | post-install 和运行期监控统一等待 APK 事务锁释放后再重启；新增锁释放回归测试。 |
+| P2 | OpenWrt 25 默认 BusyBox 镜像可能没有 `base64` 小程序；日志 RPC 的编码命令失败后仍返回空的 `log_base64`，LuCI 因此显示空白。 | 声明 `coreutils-base64` 运行依赖；日志 RPC 在命令缺失或编码失败时返回原文和明确错误，不再静默返回空日志。 |
+| P2 | 清空日志后，日志 RPC 将正常的空文件返回为 `no log yet` 错误，下一次页面轮询显示 `Error: no log yet`。 | `api.sh` 对空文件或尚未创建的日志返回空结果；新增清空、重复轮询及已有写入进程继续记录的回归测试。 |
+| P1 | OpenWrt 25/新 BypassCore 在冷启动时加载 GeoData 和路由快照可能超过原 20 秒监听等待上限；核心仍在工作时被 LuCI 应用主动停止。 | `utils.sh` 将核心启动等待上限提高到 120 秒，并每 10 秒记录仍在初始化的进度；真正无响应的进程仍会超时并失败关闭。 |
+| P1 | Naive 进程仍存活但 SOCKS 监听失效时，监控只检查 PID，不能恢复服务。 | `monitor.sh` 同时检查监听端口，保留连续失败阈值。 |
+| P1 | 多个接口名称以换行分隔，热插拔函数却按空格匹配，漏掉需要修复路由的接口。 | `98-bypass` 使用整行精确匹配。 |
+| P1 | 生命周期与 fw4 使用不同操作锁，却同时对共享缓存执行非原子的删除/追加，可能丢失路由所有权和运行状态。 | `utils.sh` 增加独立缓存锁，以临时文件原子替换缓存。 |
+| P1 | GeoData 更新在重启/回滚前释放更新锁；并发更新可能被较早事务的回滚覆盖。 | `rule_update.sh` 将更新锁保持到事务结束。 |
+| P1 | WireGuard UDP TProxy 未独立豁免 DHCP 广播；用户移除默认 Direct IP 条目后，DHCP 请求可能被送入隧道。 | `nftables.sh` 显式放行 DHCP 广播，并限定 IPv4/IPv6 TProxy 链的地址族。 |
+| P2 | 裁剪组件日志时替换 inode，长期打开的 stderr 后续写入已删除文件，页面无法再看到新日志。 | `bound_log_file()` 保留 inode，以原文件截断写回尾部。 |
+| P2 | 定时停止会删除之后的定时启动任务；界面提供的 24 小时循环也被后端拒绝。 | `app.sh` 停止时按当前配置保留生命周期任务；24 小时转换为每天零点；重置和卸载清除遗留任务。 |
+| P2 | 启动延迟期间手动停止不会取消延迟任务；自动重启等待锁期间，手动停止也可能被后续恢复覆盖。 | `service.init` 增加停止标记并在取得锁后复查；接口、NTP、监控和 GeoData 自动重启采用 recovery 模式，尊重停止/启动延迟/禁用状态；重启前撤销就绪状态。 |
+| P2 | 含 IPv4 文本的域名被误判为 IP；带括号 IPv6 和跨地址族字面量处理不一致。 | `utils.sh` 仅匹配完整 IPv4 字面量，规范 IPv6 括号，并避免将字面量交给错误地址族的解析器。 |
+| P2 | GeoIP 展开缓存持久保留在临时目录中，数据更新或资产路径调整后仍可能读取旧 CIDR。 | 在完整启动、GeoData 更新和回滚后清理展开缓存。 |
+| P2 | NFTSet 重同步只看 curl 是否成功，控制端返回 HTTP 成功但 `ready:false` 时仍报告成功。 | `utils.sh` 提供语义 readiness 检查，供 fw4 重同步与清理 API 使用。 |
+| P2 | 大备份、Direct IP 列表及长日志一次性经 `file.exec` 传输，可能超过 RPC 消息或 Linux 参数长度限制。 | 备份下载、恢复及 Direct IP 读写分块传输；上传校验 token、偏移、重放、总大小并加锁；Direct IP 大结果编码以保留中文；日志最多返回 12 KiB 并使用 base64。 |
+| P2 | 恢复备份忽略 tar 解压返回值；重置或清空日志失败时页面仍表现为成功。 | `api.sh` 要求完整解压成功，保留已有成员/链接/UCI 校验；页面显示失败并恢复按钮；日志清理返回真实结果。 |
+
+复查撤回：曾怀疑 `${path%*/}` 截断无结尾斜杠的目录，但 Shell 复测证明原实现正确。相关修改已撤回，仍保留路径回归检查。
+
+APK 数据库使用 flock 的假设与 [apk-tools 官方源码](https://github.com/alpinelinux/apk-tools/blob/master/src/database.c)一致，本次保留该检测方式。
+
+## 验证
+
+新增 `tests/test_runtime.py`，当前有 **33 项**测试：在临时目录中执行仓库的真实 Shell 函数，替换 UCI、网络和服务边界；前端分块传输使用 Node.js 执行实际页面函数。覆盖关闭规则、端口冲突、慢速 BypassCore 冷启动、只读诊断、文件描述符继承、缓存并发写入、日志 inode、清空后的日志轮询、缺少 base64 时的日志回退、调度、APK 事务等待、后台重启、等待锁期间取消恢复、GeoData 回滚、备份恶意成员、分块传输及全部 Shell/JS/JSON 语法。
+
+运行命令：
+
+```sh
+python3 -m unittest discover -s tests -v
+BYPASS_TEST_SHELL=/bin/dash python3 -m unittest discover -s tests -v
+shellcheck -s ash -S warning -e SC1090,SC2034,SC2154 \
+  root/usr/share/bypass/*.sh root/usr/share/bypass/*.init \
+  root/etc/uci-defaults/* root/etc/hotplug.d/*/*
+git diff --check
+```
+
+已通过本机 `/bin/sh` 与 `dash` 回归测试、ShellCheck 0.11.0 的 ash 模式检查、JavaScript/JSON 语法检查及 diff 格式检查。ShellCheck 仅排除动态 source、跨脚本变量和热插拔环境变量对应的三类告警。新增 `.github/workflows/audit.yml` 在 push/PR 上重复运行这些检查；2.1.4 的远端审计及三个 SDK 构建已通过。
+
+## 验证边界与设备验收
+
+当前执行环境是 macOS，未连接路由器，也没有本地 OpenWrt SDK。IPK/APK 编译由远端工作流执行；本机没有执行真实 BypassCore/NaiveProxy 启动、Linux nft 内核规则加载、netifd/fw4/dnsmasq 联动或 LuCI 浏览器端端到端测试。用户反馈 2.1.4 在 OpenWrt 25 已成功启动。测试替身不验证这些外部组件的实际行为，也不是穷尽性安全证明。
+
+发布前在目标固件验证：
+
+1. 编译相应 OpenWrt SDK 包，分别启动 Naive 与 WireGuard，检查 DNS、TCP、UDP、IPv6 及核心 readiness。
+2. 使用两个 WAN 测试 ifdown/ifup/ifupdate，确认接口恢复、实际出口与所选接口一致。
+3. 测试 NTP 连续大幅校正及 APK 核心升级，确认锁可再次取得、更新等待与失败重试生效。
+4. 配置定时停止/启动，测试启动延迟中手动停止及停止后的接口事件；重置/卸载后确认没有遗留 cron 任务。
+5. 经 LuCI 往返传输超过 16 KiB 的备份、含中文的大 Direct IP 列表及长日志，检查 RPC 响应与 UI 提示。
+
+运维行为限制：当前完整停止/重启仍会撤除 Bypass 的透明代理规则，期间转发行为由 fw4 决定；本次没有增加独立的“重启期间阻断转发”机制，因此不能把进程内出口绑定的失败关闭等同于全生命周期无泄漏保证。

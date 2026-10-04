@@ -5,7 +5,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-bypass
-PKG_VERSION:=2.1.0
+PKG_VERSION:=2.1.5
 PKG_RELEASE:=1
 PKG_PO_VERSION:=$(PKG_VERSION)
 PKG_LICENSE:=MIT
@@ -24,7 +24,7 @@ LUCI_PKGARCH:=all
 # This application only supports fw4/nftables. Keep the firewall userspace and
 # kernel expressions as runtime dependencies so installing the generated
 # package also installs everything required by REDIRECT and TPROXY modes.
-LUCI_DEPENDS:=+ca-bundle +curl +ip-full +resolveip +libubox \
+LUCI_DEPENDS:=+ca-bundle +coreutils-base64 +curl +ip-full +resolveip +libubox \
 	+nftables +kmod-nft-nat +kmod-nft-tproxy +kmod-nft-socket
 
 define Package/$(PKG_NAME)/config
@@ -67,7 +67,11 @@ define Package/$(PKG_NAME)/postinst
 		rm -f /tmp/luci-indexcache /tmp/luci-indexcache.*
 		rm -rf /tmp/luci-modulecache/
 		if [ "$$(uci -q get bypass.@global[0].enabled)" = "1" ]; then
-			( sleep 2; /etc/init.d/bypass restart ) >/dev/null 2>&1 &
+			( . /usr/share/bypass/utils.sh
+				wait_for_apk_transaction
+				sleep 2
+				/etc/init.d/bypass restart
+			) </dev/null >/dev/null 2>&1 &
 		fi
 		exit 0
 	}
@@ -78,6 +82,7 @@ endef
 define Package/$(PKG_NAME)/prerm
 	[ -n "$${IPKG_INSTROOT}" ] || [ "$${PKG_UPGRADE}" = "1" ] || { \
 		/etc/init.d/bypass stop >/dev/null 2>&1
+		/usr/share/bypass/app.sh remove_crontab >/dev/null 2>&1
 		/etc/init.d/bypass disable >/dev/null 2>&1
 		rm -f /etc/init.d/bypass
 	}

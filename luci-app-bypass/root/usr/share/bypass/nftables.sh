@@ -435,6 +435,8 @@ EOF
 	fi
 	if [ -n "$tcp_tproxy_rule$udp_tproxy_rule" ]; then
 		mangle_chain="chain tproxy_prerouting { type filter hook prerouting priority mangle; policy accept;
+			meta nfproto != ipv4 accept
+			ip daddr 255.255.255.255 udp sport 68 udp dport 67 accept
 			ip daddr @bypass_local accept
 			${direct_accept}
 			ip daddr @bypass_dns meta l4proto { tcp, udp } th dport 53 accept
@@ -448,6 +450,7 @@ EOF
 		}"
 		if [ "$PROXY_IPV6" = "1" ] && [ -n "$tcp6_tproxy_rule$udp6_tproxy_rule" ]; then
 			mangle6_chain="chain tproxy_prerouting6 { type filter hook prerouting priority mangle; policy accept;
+				meta nfproto != ipv6 accept
 				ip6 daddr @bypass_local6 accept
 				${direct6_accept}
 				${wan_accept}
@@ -721,7 +724,7 @@ nft_start_and_resync() {
 	# its writer-side TTL dedupe state before accepting later DNS results.
 	if [ "$rc" = "0" ] && [ -z "${BYPASS_NFT_ACTION:-}" ] && \
 	   [ "$(config_t_get global enabled 0)" = "1" ] && process_alive bypasscore; then
-		if ! bypasscore_control_request POST /v1/dns/nftsets/probe "" >/dev/null 2>&1; then
+		if ! bypasscore_nftsets_ready; then
 			log 0 "Firewall reloaded, but BypassCore could not resynchronize its DNS-result NFTSets."
 			rc=1
 		fi

@@ -283,8 +283,6 @@ do_node_udp_probe() {
 		emit
 		return
 	fi
-	get_config
-	prepare_selected_nodes
 	if ! grep -Fxq "$node_id" "$TMP_PATH/selected_wireguard_nodes" 2>/dev/null; then
 		json_add_int code -1
 		json_add_string error "WireGuard node is not selected by an active rule or the Default row"
@@ -352,8 +350,6 @@ do_node_urltest() {
 	type=$(node_type "$node_id")
 	if [ "$type" = "wireguard" ]; then
 		local request raw latency control_error rc=1
-		get_config
-		prepare_selected_nodes
 		if ! grep -Fxq "$node_id" "$TMP_PATH/selected_wireguard_nodes" 2>/dev/null; then
 			json_add_int code -1
 			json_add_string error "WireGuard node is not selected by an active rule or the Default row"
@@ -563,23 +559,45 @@ do_wireguard_psk() {
 
 # log_tail [n] -> { log }
 do_log_tail() {
-	local n=${1:-200}
+	local n=${1:-200} text encoded
 	uint_in_range "$n" 1 1000 || n=200
 	json_init
 	if [ -s "$LOG_FILE" ]; then
-		json_add_string log "$(tail -n "$n" "$LOG_FILE" 2>/dev/null)"
+		# A line limit alone does not bound verbose component diagnostics. Encode
+		# at most 12 KiB so the JSON response fits rpcd and byte-boundary cuts do
+		# not make a UTF-8 JSON string invalid.
+		text=$(tail -n "$n" "$LOG_FILE" 2>/dev/null | tail -c 12288)
+		if command -v base64 >/dev/null 2>&1; then
+			encoded=$(printf '%s' "$text" | base64 2>/dev/null | tr -d '\n')
+			if [ -n "$encoded" ] || [ -z "$text" ]; then
+				json_add_string log_base64 "$encoded"
+			else
+				json_add_string log "$text"
+				json_add_string error "base64 encoding failed; install coreutils-base64"
+			fi
+		else
+			# OpenWrt images may omit the optional BusyBox base64 applet. Keep
+			# the log page useful while the package dependency is repaired.
+			json_add_string log "$text"
+			json_add_string error "base64 command unavailable; install coreutils-base64"
+		fi
 	else
+		# A missing/empty log is normal before the first message and after
+		# clear_log. Return an empty result so polling keeps the page blank.
 		json_add_string log ""
-		json_add_string error "no log yet"
 	fi
 	emit
 }
 
 # clear_log
 do_clear_log() {
-	: > "$LOG_FILE"
 	json_init
-	json_add_int code 0
+	if mkdir -p "$(dirname "$LOG_FILE")" && : > "$LOG_FILE"; then
+		json_add_int code 0
+	else
+		json_add_int code -1
+		json_add_string error "cannot clear log"
+	fi
 	emit
 }
 
@@ -600,7 +618,7 @@ do_clear_nftset() {
 		# core writer's TTL dedupe state, allowing later DNS answers to repopulate
 		# elements removed by this operation.
 		if process_alive bypasscore && \
-		   ! bypasscore_control_request POST /v1/dns/nftsets/probe "" >/dev/null 2>&1; then
+	   ! bypasscore_nftsets_ready; then
 			rc=1
 			error="BypassCore NFTSet resynchronization failed"
 		fi
@@ -652,7 +670,6 @@ do_connect_status() {
 		out=$(curl -fs -o /dev/null -w '%{time_total}' --connect-timeout 3 --max-time 8 "$url" 2>/dev/null)
 		code=$?
 	else
-		prepare_selected_nodes
 		node=$(default_proxy_node)
 		node_kind=$(node_type "$node")
 		if [ -z "$node" ]; then
@@ -746,7 +763,7 @@ cleanup_geo_view_streams() {
 
 geo_view_read() {
 	local token=$1 offset=${2:-0}
-	local root="$TMP_PATH/geo-view" dir file total next done chunk block
+	local root="$TMP_PATH/geo-view" dir file total next finished chunk block
 	json_init
 
 	case "$token" in
@@ -822,21 +839,21 @@ geo_view_read() {
 		chunk=${chunk%x}
 		next=$((offset + GEO_VIEW_CHUNK_BYTES))
 		[ "$next" -gt "$total" ] && next=$total
-		done=0
-		[ "$next" -ge "$total" ] && done=1
+		finished=0
+		[ "$next" -ge "$total" ] && finished=1
 	else
 		chunk=""
 		next=$total
-		done=1
+		finished=1
 	fi
 
 	json_add_int code 0
 	json_add_string output "$chunk"
 	json_add_int next_offset "$next"
 	json_add_int total "$total"
-	json_add_int done "$done"
+	json_add_int "done" "$finished"
 	emit
-	if [ "$done" = "1" ]; then
+	if [ "$finished" = "1" ]; then
 		rm -rf "$dir"
 	else
 		# Keep an actively consumed stream out of the stale-result cleanup path.
@@ -1147,7 +1164,8 @@ ${route_info}"
 # create_backup -> { code, backup }  (backup = base64-encoded tar.gz of /etc/config/bypass)
 # Mirrors passwall2's backup feature (single config file, no server config).
 do_create_backup() {
-	local tmp tarball b64
+	local tmp tarball b64 stream_dir
+	cleanup_geo_view_streams
 	if [ ! -f /etc/config/bypass ] || [ -L /etc/config/bypass ] || \
 	   [ "$(wc -c </etc/config/bypass 2>/dev/null)" -gt 3145728 ] 2>/dev/null; then
 		json_init
@@ -1162,7 +1180,20 @@ do_create_backup() {
 		b64=$(base64 "$tarball" 2>/dev/null | tr -d '\n')
 		json_init
 		json_add_int code 0
-		json_add_string backup "$b64"
+		if [ "${#b64}" -le "$GEO_VIEW_INLINE_BYTES" ]; then
+			json_add_string backup "$b64"
+		else
+			mkdir -p "$TMP_PATH/geo-view"
+			stream_dir=$(mktemp -d "$TMP_PATH/geo-view/result.XXXXXX") || {
+				rm -rf "$tmp"
+				json_init; json_add_int code -1; json_add_string error "cannot stream backup"; emit; return
+			}
+			if ! printf '%s' "$b64" > "$stream_dir/output"; then
+				rm -rf "$tmp" "$stream_dir"
+				json_init; json_add_int code -1; json_add_string error "cannot stream backup"; emit; return
+			fi
+			json_add_string backup_stream "${stream_dir##*/}"
+		fi
 		json_add_string filename "bypass-$(date +%y%m%d%H%M)-backup.tar.gz"
 	else
 		json_init
@@ -1192,9 +1223,10 @@ do_restore_backup() {
 	if { [ "$members" = "etc/config/bypass" ] || [ "$members" = "./etc/config/bypass" ]; } && \
 	   [ "$member_type" = "-" ]; then
 		mkdir -p "$tmp/extract"
-		( ulimit -f 6144 2>/dev/null; tar -C "$tmp/extract" -xzf "$tarball" "$members" ) 2>/dev/null
+		local extract_ok=0
+		( ulimit -f 6144 2>/dev/null; tar -C "$tmp/extract" -xzf "$tarball" "$members" ) 2>/dev/null && extract_ok=1
 		candidate="$tmp/extract/${members#./}"
-		if [ -s "$candidate" ] && [ -f "$candidate" ] && [ ! -L "$candidate" ] && \
+		if [ "$extract_ok" = "1" ] && [ -s "$candidate" ] && [ -f "$candidate" ] && [ ! -L "$candidate" ] && \
 		   [ "$(wc -c <"$candidate" 2>/dev/null)" -le 3145728 ] 2>/dev/null && \
 		   uci -q -c "$tmp/extract/etc/config" show bypass >/dev/null 2>&1; then
 			# Replace atomically from the destination directory.  cp directly onto
@@ -1226,6 +1258,77 @@ do_restore_backup() {
 	rm -rf "$tmp"
 }
 
+# rpcd output and Linux argv are much smaller than a useful backup. Receive
+# base64 in bounded chunks, then call the same archive validator in-process.
+do_upload() {
+	local operation=$1 maximum
+	shift
+	case "$operation" in
+		backup) maximum=4194304 ;;
+		direct-ip) maximum=262144 ;;
+		*) return 1 ;;
+	esac
+	local token=$1 offset=$2 chunk=$3 finished=$4 root="$TMP_PATH/$operation-upload" dir size rc
+	json_init
+	if ! uint_in_range "$offset" 0 "$maximum" || [ "${#chunk}" -gt 16384 ] ||
+	   { [ "$finished" != "0" ] && [ "$finished" != "1" ]; } ||
+	   printf '%s' "$chunk" | grep -q '[^A-Za-z0-9+/=]'; then
+		json_add_int code -1; json_add_string error "invalid backup chunk"; emit; return
+	fi
+	if [ "$token" = "new" ] && [ "$offset" = "0" ]; then
+		mkdir -p "$root" || { json_add_int code -1; json_add_string error "cannot create upload directory"; emit; return; }
+		# Reuse the stream cleanup policy for abandoned uploads as well.
+		local old
+		for old in "$root"/result.*; do
+			[ -d "$old" ] || continue
+			[ "$(find "$old" -prune -mmin +10 -print 2>/dev/null)" = "$old" ] && rm -rf "$old"
+		done
+		dir=$(mktemp -d "$root/result.XXXXXX") || { json_add_int code -1; json_add_string error "cannot create upload"; emit; return; }
+		token=${dir##*/}
+	else
+		case "$token" in
+			result.??????) ;;
+			*) json_add_int code -1; json_add_string error "invalid backup token"; emit; return ;;
+		esac
+		case "${token#result.}" in
+			*[!A-Za-z0-9]*) json_add_int code -1; json_add_string error "invalid backup token"; emit; return ;;
+		esac
+		dir="$root/$token"
+	fi
+	if [ ! -d "$dir" ] || [ -L "$dir" ] || [ -L "$dir/data" ]; then
+		json_add_int code -1; json_add_string error "backup upload expired"; emit; return
+	fi
+	# Reject overlapping requests and replayed/out-of-order chunks.
+	exec 6>"$dir/lock" || { json_add_int code -1; json_add_string error "cannot open upload lock"; emit; return; }
+	flock -xn 6 || { exec 6>&-; json_add_int code -1; json_add_string error "backup upload busy"; emit; return; }
+	size=0
+	[ ! -f "$dir/data" ] || size=$(wc -c < "$dir/data" | tr -d '[:space:]')
+	if [ "$size" != "$offset" ] || [ $((size + ${#chunk})) -gt "$maximum" ]; then
+		exec 6>&-
+		json_add_int code -1; json_add_string error "backup chunk offset or size is invalid"; emit; return
+	fi
+	if ! printf '%s' "$chunk" >> "$dir/data"; then
+		exec 6>&-
+		json_add_int code -1; json_add_string error "cannot save backup chunk"; emit; return
+	fi
+	touch "$dir"
+	if [ "$finished" = "1" ]; then
+		case "$operation" in
+			backup) do_restore_backup "$(cat "$dir/data")" ;;
+			direct-ip) do_set_direct_ip "$(cat "$dir/data")" ;;
+		esac
+		rc=$?
+		rm -rf "$dir"
+		exec 6>&-
+		return "$rc"
+	fi
+	exec 6>&-
+	json_add_int code 0
+	json_add_string token "$token"
+	json_add_int next_offset $((size + ${#chunk}))
+	emit
+}
+
 # reset_config -> { code }
 # Restore factory defaults: stop the service, copy 0_default_config, clear log.
 do_reset_config() {
@@ -1242,6 +1345,7 @@ do_reset_config() {
 	     mv -f "$config_tmp" /etc/config/bypass 2>/dev/null && \
 	     mv -f "$direct_tmp" /usr/share/bypass/direct_ip 2>/dev/null; then
 		: > /tmp/log/bypass.log 2>/dev/null
+		stop_crontab
 		# Do not reload rpcd inside its own file.exec request: doing so can
 		# truncate this JSON response in exactly the same way as opkg upgrades.
 		json_add_int code 0
@@ -1258,11 +1362,30 @@ do_reset_config() {
 # authoritative validator for literal IPv4/IPv6 prefixes; geoip:CODE entries
 # are expanded by nftables.sh when the service starts.
 do_get_direct_ip() {
+	local stream_dir
+	cleanup_geo_view_streams
 	json_init
 	if [ -f /usr/share/bypass/direct_ip ] && [ ! -L /usr/share/bypass/direct_ip ] && \
 	   [ "$(wc -c </usr/share/bypass/direct_ip 2>/dev/null)" -le 196608 ] 2>/dev/null; then
 		json_add_int code 0
-		json_add_string direct_ip "$(cat /usr/share/bypass/direct_ip 2>/dev/null)"
+		if [ "$(wc -c </usr/share/bypass/direct_ip)" -le "$GEO_VIEW_INLINE_BYTES" ]; then
+			json_add_string direct_ip "$(cat /usr/share/bypass/direct_ip 2>/dev/null)"
+		else
+			mkdir -p "$TMP_PATH/geo-view"
+			stream_dir=$(mktemp -d "$TMP_PATH/geo-view/result.XXXXXX") || {
+				json_init; json_add_int code -1; json_add_string error "cannot stream Direct IP List"; emit; return
+			}
+			# Base64 keeps UTF-8 comments intact across arbitrary byte boundaries.
+			if ! base64 /usr/share/bypass/direct_ip > "$stream_dir/encoded"; then
+				rm -rf "$stream_dir"
+				json_init; json_add_int code -1; json_add_string error "cannot encode Direct IP List"; emit; return
+			fi
+			if ! tr -d '\n' < "$stream_dir/encoded" > "$stream_dir/output"; then
+				rm -rf "$stream_dir"
+				json_init; json_add_int code -1; json_add_string error "cannot stream Direct IP List"; emit; return
+			fi
+			json_add_string direct_ip_stream "${stream_dir##*/}"
+		fi
 	else
 		json_add_int code -1
 		json_add_string error "Direct IP List is not a safe regular file"
@@ -1384,9 +1507,11 @@ main() {
 		geo_view)       do_geo_view "$1" "$2" "$3" ;;
 		create_backup)  do_create_backup ;;
 		restore_backup) do_restore_backup "$1" ;;
+		restore_backup_upload) do_upload backup "$1" "$2" "$3" "$4" ;;
 		reset_config)   do_reset_config ;;
 		get_direct_ip)  do_get_direct_ip ;;
 		set_direct_ip)  do_set_direct_ip "$1" ;;
+		set_direct_ip_upload) do_upload direct-ip "$1" "$2" "$3" "$4" ;;
 		*) usage; exit 1 ;;
 	esac
 }

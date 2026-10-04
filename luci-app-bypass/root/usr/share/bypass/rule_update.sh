@@ -38,7 +38,8 @@ download_one() {
 	[ ${#url} -le 2048 ] 2>/dev/null || { log 0 "GeoData URL for %s is too long." "$name"; return 1; }
 	printf '%s' "$url" | grep -q '[[:space:]]' && { log 0 "GeoData URL for %s contains whitespace." "$name"; return 1; }
 	log 0 "Downloading %s from %s ..." "$name" "$url"
-	local metadata_dir="$(dirname "$dest")/.bypass-update" url_file etag_file
+	local metadata_dir url_file etag_file
+	metadata_dir="$(dirname "$dest")/.bypass-update"
 	local tmp="${dest}.bypass-download.$$" headers="${dest}.bypass-headers.$$"
 	local saved_url etag="" http_code new_etag
 	url_file="$metadata_dir/${name}.url"
@@ -146,11 +147,11 @@ update_geodata() {
 		download_one "geosite.dat" "$geosite_url" "${asset_dir}/geosite.dat" "$GEOSITE_MAX_BYTES" || ok=0
 	fi
 
-	unset_lock
-	trap - EXIT INT TERM
+	# Retain the lock through restart/rollback to protect this transaction.
+	[ -z "$GEODATA_CHANGED" ] || rm -rf "$TMP_PATH2/geo_output"
 	if [ -n "$GEODATA_CHANGED" ] && [ "$(config_t_get global enabled 0)" = "1" ]; then
 		log 0 "GeoData changed; restarting Bypass to reload the validated files."
-		/etc/init.d/bypass restart >/dev/null 2>&1 || {
+		/etc/init.d/bypass restart recovery >/dev/null 2>&1 || {
 			log 0 "Bypass failed to restart after the GeoData update."
 			local name
 			for name in $GEODATA_CHANGED; do
@@ -158,7 +159,8 @@ update_geodata() {
 				[ -f "$UPDATE_ROLLBACK_DIR/$name.absent" ] && rm -f "$asset_dir/$name"
 				rm -f "$asset_dir/.bypass-update/$name.url" "$asset_dir/.bypass-update/$name.etag"
 			done
-			/etc/init.d/bypass restart >/dev/null 2>&1 || \
+			rm -rf "$TMP_PATH2/geo_output"
+			/etc/init.d/bypass restart recovery >/dev/null 2>&1 || \
 				log 0 "Bypass also failed to restart with the rolled-back GeoData."
 			rm -rf "$UPDATE_ROLLBACK_DIR"
 			return 1

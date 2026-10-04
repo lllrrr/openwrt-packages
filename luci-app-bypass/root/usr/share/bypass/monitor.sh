@@ -53,16 +53,39 @@ schedule_full_restart() {
 	# matching that path, which would otherwise kill this reporter mid-restart.
 	restart_script='
 		. /usr/share/bypass/utils.sh
+		READY_FILE=/var/lock/bypass_ready.lock
 		: > "$1" || exit 1
 		log 0 "Detached Bypass restart process started for %s." "$2"
+		wait_for_apk_transaction
 		sleep 2
-		log 0 "Starting Bypass restart after %s." "$2"
-		if /etc/init.d/bypass restart >/dev/null 2>&1; then
-			log 0 "Bypass restart completed after %s." "$2"
-		else
-			log 0 "Bypass restart failed after %s; check component logs." "$2"
-		fi
+		[ -f "$READY_FILE" ] || {
+			log 0 "Bypass was stopped while waiting for the package transaction; skipping the queued restart."
+			rm -f "$1"
+			exit 0
+		}
+		[ "$(config_t_get global enabled 0)" = "1" ] || {
+			log 0 "Bypass was disabled while waiting to restart; leaving it stopped."
+			rm -f "$1"
+			exit 0
+		}
+		rm -f "$READY_FILE"
+		attempt=1
+		while [ "$attempt" -le 3 ]; do
+			[ ! -f /var/lock/bypass_stopped.lock ] && [ "$(config_t_get global enabled 0)" = "1" ] || exit 0
+			log 0 "Starting Bypass restart attempt %s after %s." "$attempt" "$2"
+			if /etc/init.d/bypass restart recovery >> "$LOG_FILE" 2>&1 && /etc/init.d/bypass status >/dev/null 2>&1; then
+				log 0 "Bypass restart completed after %s." "$2"
+				rm -f "$1"
+				exit 0
+			fi
+			log 0 "Bypass restart attempt %s failed after %s." "$attempt" "$2"
+			[ "$attempt" = "3" ] && break
+			sleep 5
+			attempt=$((attempt + 1))
+		done
+		log 0 "Bypass restart failed after three attempts following %s; check component logs." "$2"
 		rm -f "$1"
+		exit 1
 	'
 	# nohup is not guaranteed in minimal BusyBox builds. This daemon already has
 	# no controlling terminal, so a redirected background shell is a safe fallback.
@@ -89,8 +112,7 @@ schedule_full_restart() {
 	fi
 	rm -f "$restart_marker"
 	log 0 "Queued Bypass restart process %s after %s." "$restart_pid" "$reason"
-	# Clear readiness only after the detached shell confirms it has started.
-	rm -f "$READY_FILE"
+	# The detached worker clears readiness only after any APK transaction settles.
 	exit 0
 }
 
@@ -165,7 +187,8 @@ while [ "$(config_t_get global enabled 0)" = "1" ] && [ -f "$READY_FILE" ]; do
 	if [ -z "$failed_name" ] && [ -s "$TMP_PATH/node_ports" ]; then
 		while read -r node port; do
 			[ -n "$node" ] && [ -n "$port" ] || continue
-			if ! process_alive "naive_${node}"; then
+			if ! process_alive "naive_${node}" || \
+			   [ "$(check_port_exists "$port" tcp)" = "0" ]; then
 				failed_name="NaiveProxy node [$node]"
 				failed_process="naive_${node}"
 				failed_log="$TMP_ACL_PATH/nodes/naive_${node}.log"
