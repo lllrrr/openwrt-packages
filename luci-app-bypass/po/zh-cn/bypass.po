@@ -250,6 +250,51 @@ msgstr "更新中…"
 msgid "Manually update"
 msgstr "手动更新"
 
+#: htdocs/luci-static/resources/view/bypass/rule_manage.js
+msgid "Update failed; check Runtime Logs for details."
+msgstr "更新失败；请查看运行日志了解详情。"
+
+#: htdocs/luci-static/resources/view/bypass/rule_manage.js
+msgid "Update GeoIP and Geosite using the saved URLs. Save & Apply URL changes first."
+msgstr "使用已保存的 URL 更新 GeoIP 和 Geosite。修改 URL 后请先保存并应用。"
+
+#: htdocs/luci-static/resources/view/bypass/rule_manage.js
+msgid "Save & Apply changes before updating rules."
+msgstr "更新规则前，请先保存并应用修改。"
+
+#: htdocs/luci-static/resources/view/bypass/rule_manage.js
+msgid "Unable to call the rule updater."
+msgstr "无法调用规则更新程序。"
+
+#: htdocs/luci-static/resources/view/bypass/rule_manage.js
+msgid "Invalid update response."
+msgstr "更新程序返回了无效响应。"
+
+#: htdocs/luci-static/resources/view/bypass/rule_manage.js
+#, javascript-format
+msgid "Unable to query update status: %s"
+msgstr "无法查询更新状态：%s"
+
+#: htdocs/luci-static/resources/view/bypass/rule_manage.js
+msgid "Another rule update is already running. Try again later."
+msgstr "另一项规则更新正在运行，请稍后重试。"
+
+#: root/usr/share/bypass/api.sh
+msgid "Rule updater is unavailable."
+msgstr "规则更新程序不可用。"
+
+#: root/usr/share/bypass/api.sh
+msgid "Unable to create the update job."
+msgstr "无法创建规则更新任务。"
+
+#: root/usr/share/bypass/api.sh
+msgid "Invalid update job."
+msgstr "无效的规则更新任务。"
+
+#: root/usr/share/bypass/api.sh
+msgid "The update was interrupted or its result is unavailable."
+msgstr "更新已中断，或无法获取更新结果。"
+
 #: htdocs/luci-static/resources/view/bypass/rule_manage.js:129
 msgid "Done"
 msgstr "完成"

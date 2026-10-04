@@ -193,6 +193,103 @@ do_resolve() {
 	emit
 }
 
+# Keep jobs outside TMP_PATH: updating GeoData can restart the service, whose
+# stop action deletes TMP_PATH. Only fixed commands are run by these endpoints.
+RULE_UPDATE_STATE=/var/run/bypass-rule-update
+
+# rule_update_status [job] -> { code, state: idle|running|done, job, error? }
+do_rule_update_status() (
+	local job=$1 dir rc=-1 state='done'
+	json_init
+	[ -n "$job" ] || job=$(cat "$RULE_UPDATE_STATE/current" 2>/dev/null)
+	if [ -z "$job" ]; then
+		json_add_int code 0
+		json_add_string state idle
+		emit
+		return
+	fi
+	case "$job" in
+		job.??????) ;;
+		*) json_add_int code -1; json_add_string error "Invalid update job."; emit; return ;;
+	esac
+	case "${job#job.}" in
+		*[!A-Za-z0-9]*) json_add_int code -1; json_add_string error "Invalid update job."; emit; return ;;
+	esac
+	dir="$RULE_UPDATE_STATE/$job"
+	if [ -s "$dir/result" ]; then
+		rc=$(cat "$dir/result")
+	elif [ -d "$dir" ] && exec 6>"$RULE_UPDATE_STATE/lock"; then
+		if ! flock -xn 6 && [ "$job" = "$(cat "$RULE_UPDATE_STATE/current" 2>/dev/null)" ]; then
+			state=running
+			rc=0
+		else
+			# Re-read after probing the lock: a worker may have just completed.
+			[ ! -s "$dir/result" ] || rc=$(cat "$dir/result")
+		fi
+		exec 6>&-
+	fi
+	uint_in_range "$rc" 0 255 || rc=-1
+	json_add_int code "$rc"
+	json_add_string state "$state"
+	json_add_string job "$job"
+	[ "$rc" != -1 ] || json_add_string error "The update was interrupted or its result is unavailable."
+	emit
+)
+
+# rule_update -> start a detached job and return immediately. The worker
+# retains fd 7 until its result is published, serializing requests from tabs.
+do_rule_update() (
+	local dir job old rc
+	json_init
+	if [ ! -x "$APP_PATH/rule_update.sh" ]; then
+		json_add_int code -1
+		json_add_string error "Rule updater is unavailable."
+		emit
+		return
+	fi
+	if ! mkdir -p "$RULE_UPDATE_STATE" "$(dirname "$LOG_FILE")" ||
+	   ! { exec 7>"$RULE_UPDATE_STATE/lock"; }; then
+		json_add_int code -1
+		json_add_string error "Unable to create the update job."
+		emit
+		return
+	fi
+	if ! flock -xn 7; then
+		# The lock owner may still be publishing the new job ID. Returning an
+		# older job's status here could report success for the wrong request.
+		json_add_int code 2
+		json_add_string error "Another rule update is already running. Try again later."
+		emit
+		return
+	fi
+	# Retain recent results for other tabs, but bound their lifetime.
+	for old in "$RULE_UPDATE_STATE"/job.*; do
+		[ -d "$old" ] || continue
+		[ "$(find "$old" -prune -mmin +1440 -print 2>/dev/null)" != "$old" ] || rm -rf "$old"
+	done
+	dir=$(mktemp -d "$RULE_UPDATE_STATE/job.XXXXXX") || {
+		json_add_int code -1; json_add_string error "Unable to create the update job."; emit; return
+	}
+	job=${dir##*/}
+	if ! printf '%s\n' "$job" > "$RULE_UPDATE_STATE/current.tmp" ||
+	   ! mv -f "$RULE_UPDATE_STATE/current.tmp" "$RULE_UPDATE_STATE/current"; then
+		rm -rf "$dir"
+		json_add_int code -1; json_add_string error "Unable to create the update job."; emit; return
+	fi
+	(
+		trap '' HUP
+		# Only this short-lived wrapper retains the job lock, not restarted
+		# services or their long-lived children. Close all RPC standard streams.
+		"$APP_PATH/rule_update.sh" manual 7>&- >>"$LOG_FILE" 2>&1
+		rc=$?
+		printf '%s\n' "$rc" > "$dir/result.tmp" && mv -f "$dir/result.tmp" "$dir/result"
+	) </dev/null >/dev/null 2>&1 &
+	json_add_int code 0
+	json_add_string state running
+	json_add_string job "$job"
+	emit
+)
+
 # node_tcp_probe <node_id> -> { code, latency_ms, raw }
 do_node_tcp_probe() {
 	local node_id=$1
@@ -1483,7 +1580,7 @@ do_set_direct_ip() {
 }
 
 usage() {
-	echo "Usage: $0 {status|route_test|observe|resolve|node_tcp_probe|node_udp_probe|node_urltest|wireguard_keypair|wireguard_psk|log_tail|clear_log|clear_nftset|interfaces|connect_status|geo_view|create_backup|restore_backup|reset_config|get_direct_ip|set_direct_ip} [args]" >&2
+	echo "Usage: $0 {status|route_test|observe|resolve|node_tcp_probe|node_udp_probe|node_urltest|wireguard_keypair|wireguard_psk|rule_update|rule_update_status|log_tail|clear_log|clear_nftset|interfaces|connect_status|geo_view|create_backup|restore_backup|reset_config|get_direct_ip|set_direct_ip} [args]" >&2
 }
 
 main() {
@@ -1499,6 +1596,8 @@ main() {
 		node_urltest)   do_node_urltest "$1" "$2" ;;
 		wireguard_keypair) do_wireguard_keypair ;;
 		wireguard_psk) do_wireguard_psk ;;
+		rule_update)    do_rule_update ;;
+		rule_update_status) do_rule_update_status "$1" ;;
 		log_tail)       do_log_tail "$1" ;;
 		clear_log)      do_clear_log ;;
 		clear_nftset)   do_clear_nftset ;;

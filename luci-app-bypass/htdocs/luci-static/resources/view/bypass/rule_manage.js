@@ -2,7 +2,22 @@
 'require view';
 'require form';
 'require uci';
+'require fs';
 'require ui';
+'require poll';
+
+function api(/* action, ...args */) {
+	return fs.exec('/usr/share/bypass/api.sh', Array.prototype.slice.call(arguments)).then(function (res) {
+		if (res.code !== 0)
+			throw new Error(res.stderr || _('Unable to call the rule updater.'));
+		var result;
+		try { result = JSON.parse(res.stdout); }
+		catch (e) { throw new Error(_('Invalid update response.')); }
+		if (!result || typeof result !== 'object' || typeof result.code !== 'number')
+			throw new Error(_('Invalid update response.'));
+		return result;
+	});
+}
 
 // Rule Manage — mirrors passwall2's client/rule.lua:
 //   1. "Rule status" section (global_rules): geoip/geosite update URLs and the
@@ -18,10 +33,13 @@ function validateTime(_sid, value) {
 
 return view.extend({
 	load: function () {
-		return uci.load('bypass');
+		return Promise.all([
+			uci.load('bypass'),
+			api('rule_update_status').catch(function () { return {}; })
+		]).then(function (res) { return res[1]; });
 	},
 
-	render: function () {
+	render: function (updateStatus) {
 		var m = new form.Map('bypass');
 
 		/* ---- Section 1: global_rules ---- */
@@ -38,6 +56,7 @@ return view.extend({
 		o.value('https://gh-proxy.org/https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geoip.dat', _('MetaCubeX/geoip (gh-proxy)'));
 		o.value('https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat', _('MetaCubeX/geoip (CDN)'));
 		o.default = 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat';
+		var geoipUrl = o;
 
 		o = gs.option(form.Value, 'geosite_url', _('Geosite Update URL'));
 		o.value('https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat', _('Loyalsoldier/geosite'));
@@ -47,6 +66,7 @@ return view.extend({
 		o.value('https://gh-proxy.org/https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geosite.dat', _('MetaCubeX/geosite (gh-proxy)'));
 		o.value('https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat', _('MetaCubeX/geosite (CDN)'));
 		o.default = 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat';
+		var geositeUrl = o;
 
 		o = gs.option(form.ListValue, 'update_week_mode', _('Auto Update Mode'));
 		o.default = '';
@@ -85,6 +105,81 @@ return view.extend({
 		for (var h = 1; h <= 24; h++) o.value(String(h), h + ' ' + _('hour'));
 		o.default = '1';
 		o.depends('update_week_mode', '8');
+
+		var activeJob = updateStatus && updateStatus.state === 'running' ? updateStatus.job : null;
+		var updating = !!activeJob, updateButton, statusErrorShown = false;
+		function setUpdating(value) {
+			updating = value;
+			if (updateButton) {
+				updateButton.disabled = updating || !!m.readonly;
+				updateButton.textContent = updating ? _('Updating…') : _('Manually update');
+			}
+		}
+		function handleUpdateResult(result) {
+			if (result.state === 'running' && /^job\.[A-Za-z0-9]{6}$/.test(result.job || '') && result.code === 0) {
+				activeJob = result.job;
+				setUpdating(true);
+				return;
+			}
+			if (result.state !== 'done' && !result.error)
+				throw new Error(_('Invalid update response.'));
+			activeJob = null;
+			setUpdating(false);
+			if (result.state === 'done' && result.code === 0)
+				ui.addNotification(null, E('p', {}, _('Done')), 'info');
+			else {
+				var message = result.code === 2 ? _('Another rule update is already running. Try again later.') :
+					(result.error ? _(result.error) : _('Update failed; check Runtime Logs for details.'));
+				ui.addNotification(null, E('p', {}, message), 'error');
+			}
+		}
+		function refreshRuleUpdate() {
+			if (!activeJob) return Promise.resolve();
+			var job = activeJob;
+			return api('rule_update_status', job).then(function (result) {
+				if (activeJob !== job) return;
+				if (result.job !== job)
+					throw new Error(_('Invalid update response.'));
+				handleUpdateResult(result);
+				statusErrorShown = false;
+			}).catch(function (e) {
+				// A temporary RPC failure says nothing about the detached worker.
+				// Keep querying instead of reporting the update itself as failed.
+				if (!statusErrorShown) {
+					ui.addNotification(null, E('p', {}, _('Unable to query update status: %s').format(String(e))), 'error');
+					statusErrorShown = true;
+				}
+			});
+		}
+		o = gs.option(form.DummyValue, '_manual_rule_update', _('Rule files'),
+			_('Update GeoIP and Geosite using the saved URLs. Save & Apply URL changes first.'));
+		o.renderWidget = function (sid) {
+			// A plain button lets polling own its disabled state. LuCI's default
+			// Button handler would re-enable it as soon as the start RPC returns.
+			updateButton = E('button', {
+				type: 'button',
+				class: 'cbi-button cbi-button-apply',
+				click: function () {
+					if (updating || m.readonly) return Promise.resolve();
+					setUpdating(true);
+					return Promise.resolve().then(function () {
+						if ([geoipUrl, geositeUrl].some(function (option) {
+							return option.formvalue(sid) !== (option.cfgvalue(sid) || option.default);
+						})) throw new Error(_('Save & Apply changes before updating rules.'));
+						return uci.changes();
+					}).then(function (changes) {
+						if ((changes.bypass || []).length)
+							throw new Error(_('Save & Apply changes before updating rules.'));
+						return api('rule_update');
+					}).then(handleUpdateResult).catch(function (e) {
+						setUpdating(false);
+						ui.addNotification(null, E('p', {}, String(e)), 'error');
+					});
+				}
+			}, _('Manually update'));
+			setUpdating(updating);
+			return updateButton;
+		};
 
 		/* ---- Section 2: shunt_rules (list-first table) ---- */
 		var ss = m.section(form.TableSection, 'shunt_rules',
@@ -187,6 +282,9 @@ return view.extend({
 			});
 		};
 
-		return m.render();
+		return m.render().then(function (node) {
+			poll.add(refreshRuleUpdate, 3);
+			return node;
+		});
 	}
 });

@@ -4,7 +4,7 @@
 #
 # Download and verify geoip.dat / geosite.dat into the BypassCore / v2ray asset
 # directory, then refresh the Naive server destination route. Invoked by LuCI
-# rule_update page (via api.sh) and by the periodic cron job.
+# Rule Manage page (via api.sh) and by the periodic cron job.
 
 . /lib/functions.sh
 . ${APP_PATH:-/usr/share/bypass}/utils.sh
@@ -20,7 +20,7 @@ GEOSITE_MAX_BYTES=21105968
 set_lock() {
 	mkdir -p "$(dirname "$LOCK_FILE")"
 	exec 9>"$LOCK_FILE"
-	flock -xn 9 || { log 0 "rule_update already running, abort."; exit 1; }
+	flock -xn 9 || { log 0 "rule_update already running, abort."; exit 2; }
 	trap 'unset_lock' EXIT INT TERM
 }
 unset_lock() {
@@ -126,7 +126,7 @@ download_one() {
 
 update_geodata() {
 	set_lock
-	local asset_dir
+	local asset_dir force=${1:-0}
 	asset_dir=$(config_t_get global_rules v2ray_location_asset /usr/share/v2ray/)
 	asset_dir="${asset_dir%*/}"
 	mkdir -p "$asset_dir" "$TMP_PATH" "$TMP_PATH2"
@@ -140,10 +140,10 @@ update_geodata() {
 	geosite_url=$(config_t_get global_rules geosite_url "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat")
 
 	local ok=1
-	if [ "$(config_t_get global_rules geoip_update 1)" = "1" ]; then
+	if [ "$force" = 1 ] || [ "$(config_t_get global_rules geoip_update 1)" = "1" ]; then
 		download_one "geoip.dat" "$geoip_url" "${asset_dir}/geoip.dat" "$GEOIP_MAX_BYTES" || ok=0
 	fi
-	if [ "$(config_t_get global_rules geosite_update 1)" = "1" ]; then
+	if [ "$force" = 1 ] || [ "$(config_t_get global_rules geosite_update 1)" = "1" ]; then
 		download_one "geosite.dat" "$geosite_url" "${asset_dir}/geosite.dat" "$GEOSITE_MAX_BYTES" || ok=0
 	fi
 
@@ -257,9 +257,12 @@ refresh_uplink_mode() {
 
 case "${1:-update}" in
 	update|geodata) update_geodata ;;
+	# Explicit manual requests update both files even when automatic updates
+	# were disabled in a configuration written by an older UI.
+	manual) update_geodata 1 ;;
 	refresh_uplink) refresh_uplink_mode ;;
 	*)
-		echo "Usage: $0 {update|refresh_uplink}" >&2
+		echo "Usage: $0 {update|manual|refresh_uplink}" >&2
 		exit 1
 		;;
 esac

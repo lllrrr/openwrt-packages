@@ -8,6 +8,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import time
 import tarfile
 import io
 import unittest
@@ -72,6 +73,7 @@ TMP_BIN_PATH="$TMP_PATH/bin"
 TMP_PID_PATH="$TMP_PATH/pids"
 BYPASSCORE_CFG="$TMP_PATH/config.json"
 APP_PATH={shlex.quote(str(self.root / 'app'))}
+RULE_UPDATE_STATE={shlex.quote(str(self.root / 'rule-update'))}
 LOG_FILE="$TMP_PATH/log"
 mkdir -p "$TMP_PATH2" "$TMP_ACL_PATH" "$APP_PATH"
 EVENTS={shlex.quote(str(self.events))}
@@ -406,6 +408,184 @@ update_geodata
 [ "$?" = 1 ] || exit 1
 [ "$(cat "$asset_dir/geoip.dat")" = old ]
 ''')
+
+    def wait_for_update_result(self, job):
+        result = self.root / 'rule-update' / job / 'result'
+        deadline = time.monotonic() + 5
+        while not result.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(result.exists(), 'detached updater did not publish its result')
+
+    def test_manual_update_detaches_and_rejects_duplicates_across_restart(self):
+        updater = self.root / 'app' / 'rule_update.sh'
+        updater.parent.mkdir(exist_ok=True)
+        release = self.root / 'release-update'
+        self.addCleanup(release.touch)
+        updater.write_text(f'''#!/bin/sh
+printf '%s\\n' "$*" >> {shlex.quote(str(self.root / 'update-args'))}
+while [ ! -e {shlex.quote(str(release))} ]; do sleep 0.05; done
+# Simulate service restart deleting its runtime state during the update.
+rm -rf {shlex.quote(str(self.state))}
+exit 0
+''')
+        updater.chmod(0o700)
+        started = time.monotonic()
+        first = json.loads(self.run_shell('main rule_update ignored-argument', timeout=3))
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertEqual(first['state'], 'running')
+        second = json.loads(self.run_shell('do_rule_update'))
+        self.assertEqual(second['code'], 2)
+        self.assertEqual(json.loads(self.run_shell('do_rule_update_status'))['state'], 'running')
+        release.touch()
+        self.wait_for_update_result(first['job'])
+        done = json.loads(self.run_shell('do_rule_update_status ' + first['job']))
+        self.assertEqual((done['state'], done['code']), ('done', 0))
+        self.assertEqual((self.root / 'update-args').read_text().splitlines(), ['manual'])
+
+    def test_manual_update_reports_failure_busy_interruption_and_bad_tokens(self):
+        self.assertEqual(json.loads(self.run_shell('do_rule_update_status'))['state'], 'idle')
+        self.assertNotEqual(json.loads(self.run_shell('do_rule_update'))['code'], 0)
+        updater = self.root / 'app' / 'rule_update.sh'
+        updater.parent.mkdir(exist_ok=True)
+        jobs = []
+        for exit_code in [1, 2, 0]:
+            updater.write_text(f'#!/bin/sh\nexit {exit_code}\n')
+            updater.chmod(0o700)
+            start = json.loads(self.run_shell('do_rule_update'))
+            jobs.append(start['job'])
+            self.wait_for_update_result(start['job'])
+            done = json.loads(self.run_shell('do_rule_update_status ' + start['job']))
+            self.assertEqual((done['state'], done['code']), ('done', exit_code))
+        # A start RPC holding the lock may not have published its job yet.
+        # Another caller must get busy, not the previous job's success.
+        busy = json.loads(self.run_shell('''
+exec 7>"$RULE_UPDATE_STATE/lock"
+flock -x 7
+do_rule_update
+'''))
+        self.assertEqual(busy['code'], 2)
+        # A later job must not replace the result returned to an older tab.
+        self.assertEqual(json.loads(self.run_shell('do_rule_update_status ' + jobs[0]))['code'], 1)
+        interrupted = self.root / 'rule-update' / 'job.abcdef'
+        interrupted.mkdir()
+        (interrupted.parent / 'current').write_text(interrupted.name)
+        done = json.loads(self.run_shell('do_rule_update_status'))
+        self.assertEqual((done['state'], done['code']), ('done', -1))
+        self.assertIn('interrupted', done['error'])
+        for token in ['../../unexpected', 'job.abc/ef', 'job.abc\nef']:
+            done = json.loads(self.run_shell('do_rule_update_status ' + shlex.quote(token)))
+            self.assertEqual(done['code'], -1)
+
+    def test_manual_update_service_children_do_not_inherit_job_lock(self):
+        updater = self.root / 'app' / 'rule_update.sh'
+        updater.parent.mkdir(exist_ok=True)
+        # Model a service starting a process which outlives the update script.
+        updater.write_text('#!/bin/sh\nsleep 2 </dev/null >/dev/null 2>&1 &\nexit 0\n')
+        updater.chmod(0o700)
+        first = json.loads(self.run_shell('do_rule_update'))
+        self.wait_for_update_result(first['job'])
+        second = json.loads(self.run_shell('do_rule_update'))
+        self.assertEqual(second['state'], 'running')
+        self.assertNotEqual(second['job'], first['job'])
+        self.wait_for_update_result(second['job'])
+
+    def test_manual_geodata_updates_both_files_with_auto_flags_disabled(self):
+        output = self.run_shell(source('rule_update.sh') + r'''
+BAK_DIR="$TMP_PATH/bak"
+config_t_get() {
+ case "$1.$2" in global_rules.v2ray_location_asset) echo "$TMP_PATH/assets/" ;;
+ global_rules.geoip_update|global_rules.geosite_update) echo 0 ;;
+ *) echo "$3" ;; esac
+}
+set_lock() { :; }
+download_one() { echo "$1"; [ "$1" != geoip.dat ]; }
+update_geodata
+echo "auto:$?"
+update_geodata 1
+echo "manual:$?"
+''')
+        self.assertEqual(output.splitlines(), ['auto:0', 'geoip.dat', 'geosite.dat', 'manual:1'])
+
+    def test_geodata_lock_contention_has_distinct_busy_result(self):
+        output = self.run_shell(source('rule_update.sh') + r'''
+LOCK_FILE="$TMP_PATH/update.lock"
+exec 8>"$LOCK_FILE"
+flock -x 8
+( set_lock )
+echo "$?"
+''')
+        self.assertEqual(output, '2')
+
+    def test_rule_update_frontend_pending_changes_polling_and_errors(self):
+        node = shutil.which('node')
+        if not node:
+            self.skipTest('Node.js is needed for frontend behavior tests')
+        script = r'''
+const assert = require('assert');
+const code = require('fs').readFileSync(process.argv[1], 'utf8');
+String.prototype.format = function (...args) { let i=0; return this.replace(/%s/g,()=>args[i++]); };
+function makePage(status = {}, readonly = false) {
+    const options = {}, calls = [], notices = [];
+    let pending = {}, poller, button, response;
+    class Map {
+        constructor() { this.readonly = readonly; }
+        section() { return { option: (_type, key) => {
+            const option = {value(){},depends(){},cfgvalue(){return this.default;},
+                formvalue(){return this.edited === undefined ? this.default : this.edited;}};
+            options[key] = option;
+            return option;
+        }}; }
+        render() { button = options._manual_rule_update.renderWidget('rules'); return Promise.resolve(button); }
+    }
+    const uci = {changes:async()=>pending};
+    const fs = {exec:async(_path,args)=>{ calls.push(args); return await response(args); }};
+    const E = (_tag, attrs, text) => ({attrs,textContent:text,disabled:!!attrs.disabled});
+    const ui = {addNotification:(_title,content,type)=>notices.push({text:content.textContent,type})};
+    const poll = {add:fn=>{poller=fn;}};
+    const view = new Function('view','form','uci','fs','ui','poll','E','L','_',code)
+        ({extend:x=>x},{Map},uci,fs,ui,poll,E,{url:()=>''},s=>s);
+    const json = result => ({code:0,stdout:JSON.stringify(result)});
+    response = async(args) => json({code:0,state:'running',job:'job.abcdef'});
+    return {calls,notices,options,ready:()=>view.render(status),
+        button:()=>button,click:()=>button.attrs.click(),poll:()=>poller(),
+        pending:value=>{pending=value;},response:fn=>{response=fn;},json};
+}
+(async()=>{
+    let p = makePage(); await p.ready();
+    p.options.geoip_url.edited = 'https://example.com/new.dat';
+    await p.click(); assert.strictEqual(p.calls.length,0); assert(!p.button().disabled);
+    assert(p.notices[0].text.includes('Save & Apply'));
+    p = makePage(); await p.ready(); p.pending({bypass:[['set','rules','geoip_url','new']]});
+    await p.click(); assert.strictEqual(p.calls.length,0); assert(!p.button().disabled);
+    p = makePage(); await p.ready();
+    await p.click(); assert(p.button().disabled); assert.strictEqual(p.button().textContent,'Updating…');
+    await p.click(); assert.strictEqual(p.calls.length,1);
+    p.response(async()=>({code:1,stderr:'Permission denied'}));
+    await p.poll(); await p.poll(); assert(p.button().disabled);
+    assert.strictEqual(p.notices.length,1); assert(p.notices[0].text.includes('Permission denied'));
+    p.response(async()=>p.json({code:0})); // malformed status must retain the active job
+    await p.poll(); assert(p.button().disabled);
+    p.response(async()=>p.json({code:0,state:'done',job:'job.abcdef'}));
+    await p.poll(); assert(!p.button().disabled); assert.strictEqual(p.notices.at(-1).text,'Done');
+    const n=p.calls.length; await p.poll(); assert.strictEqual(p.calls.length,n);
+    for (const exitCode of [1,2,-1]) {
+        p=makePage({code:0,state:'running',job:'job.abcdef'}); await p.ready(); assert(p.button().disabled);
+        p.response(async()=>p.json({code:exitCode,state:'done',job:'job.abcdef',
+            error:exitCode===-1 ? 'The update was interrupted or its result is unavailable.' : undefined}));
+        await p.poll(); assert(!p.button().disabled); assert.strictEqual(p.notices.at(-1).type,'error');
+        if(exitCode===2) assert(p.notices.at(-1).text.includes('already running'));
+    }
+    p=makePage(); await p.ready(); p.response(async()=>({code:0,stdout:'null'}));
+    await p.click(); assert(!p.button().disabled); assert(p.notices[0].text.includes('Invalid update response'));
+    p=makePage(); await p.ready(); p.response(async()=>({code:1,stderr:'Permission denied'}));
+    await p.click(); assert(!p.button().disabled); assert(p.notices[0].text.includes('Permission denied'));
+    p=makePage({},true); await p.ready(); assert(p.button().disabled);
+    await p.click(); assert.strictEqual(p.calls.length,0);
+})().catch(e=>{console.error(e);process.exitCode=1;});
+'''
+        path = REPO / 'htdocs/luci-static/resources/view/bypass/rule_manage.js'
+        result = subprocess.run([node, '-e', script, str(path)], capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_wireguard_firewall_keeps_dhcp_broadcast_direct(self):
         nft = source('nftables.sh').split('# Dispatch.')[0]
