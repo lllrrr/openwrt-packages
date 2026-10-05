@@ -442,11 +442,16 @@
 
 .lucky-dot { font-size: 20px; font-weight: 700; line-height: 1.3; }
 .lucky-dot--run { color: var(--lucky-success); }
+.lucky-dot--starting { color: var(--lucky-warning); }
 .lucky-dot--stop { color: var(--lucky-danger); }
 .lucky-dot--idle { color: var(--lucky-text-3); }
 
 .lucky-uptime { font-size: 13px; color: var(--lucky-text-2); margin-top: 6px; }
 .lucky-uptime.is-off { color: var(--lucky-text-3); }
+.lucky-uptime.is-starting {
+    color: var(--lucky-warning);
+    animation: lucky-breathe 1.8s ease-in-out infinite;
+}
 
 .lucky-metric-value {
     font-size: 22px;
@@ -959,6 +964,7 @@
 @media (prefers-reduced-motion: reduce) {
     .lucky-card,
     .lucky-state--busy,
+    .lucky-uptime.is-starting,
     .lucky-pulse,
     .lucky-flip,
     .lucky-curtain,
@@ -1006,4 +1012,5 @@
     .lucky-form-ctrl { width: 100%; }
     .lucky-input { max-width: 100%; }
 }
+
 

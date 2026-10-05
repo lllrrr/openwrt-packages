@@ -13,6 +13,7 @@ local CLIENT_LOG_DIR = "/tmp/logs"
 local DOWNLOAD_LOG_FILE = "/tmp/vnt2-download.log"
 local DOWNLOAD_STATE_FILE = "/tmp/vnt2-download-cli.state"
 local RESTART_PENDING_FILE = "/tmp/vnt2-restart.pending"
+local RUNTIME_TOML_FILE = "/tmp/vnt2cli.toml"
 
 function index()
 	if not fs.access("/etc/config/vnt2") then
@@ -20,7 +21,7 @@ function index()
 	end
 
 	entry({ "admin", "vpn", "vnt2" }, alias("admin", "vpn", "vnt2", "config"), _("VNT2"), 45).dependent = true
-	entry({ "admin", "vpn", "vnt2", "config" }, cbi("vnt2"), _("基本设置"), 10).leaf = true
+	entry({ "admin", "vpn", "vnt2", "config" }, cbi("vnt2"), _("插件设置"), 10).leaf = true
 	entry({ "admin", "vpn", "vnt2", "info" }, cbi("vnt2_status"), _("运行信息"), 20).leaf = true
 	entry({ "admin", "vpn", "vnt2", "runtime_log" }, cbi("vnt2_runtime_log"), _("运行日志"), 30).leaf = true
 
@@ -524,322 +525,11 @@ function clear_runtime_log()
 	json_write({ ok = true })
 end
 
+
 -- ---------- 编辑配置：UCI <-> TOML 文本往返 ----------
--- The editor never touches /tmp/vnt2cli.toml itself (that file is re-exported
--- from UCI on every start). Reading serializes the UCI config to TOML text;
--- saving parses the text back into UCI and queues a worker restart.
-
-local TOML_EDIT_STR_KEYS = {
-	subscription = true,
-	network_code = true,
-	ip = true,
-	device_mode = true,
-	tun_name = true,
-	device_id = true,
-	device_name = true,
-	outbound_interface = true,
-	password = true,
-	cert_mode = true,
-	event_script = true
-}
-
-local TOML_EDIT_LIST_KEYS = {
-	server = true,
-	peer_address = true,
-	turn = true,
-	punch_model = true,
-	input = true,
-	subnet_mapping = true,
-	output = true,
-	port_mapping = true,
-	udp_stun = true,
-	tcp_stun = true,
-	tunnel_addr = true
-}
-
-local TOML_EDIT_BOOL_KEYS = {
-	no_punch = true,
-	no_broadcast = true,
-	allow_ikev2 = true,
-	allow_wireguard = true,
-	rtx = true,
-	compress = true,
-	fec = true,
-	auto_sync_subnet = true,
-	no_nat = true,
-	allow_mapping = true
-}
-
-local TOML_EDIT_NUM_KEYS = {
-	mtu = true,
-	tunnel_port = true
-}
-
-local TOML_EDIT_KEY_ORDER = {
-	"subscription", "server", "peer_address", "turn", "punch_model",
-	"network_code", "ip", "no_punch", "no_broadcast", "allow_ikev2",
-	"allow_wireguard", "rtx", "compress", "fec", "input",
-	"subnet_mapping", "output", "auto_sync_subnet", "no_nat", "device_mode",
-	"mtu", "port_mapping", "allow_mapping", "device_id", "device_name",
-	"tun_name", "outbound_interface", "password", "cert_mode", "udp_stun",
-	"tcp_stun", "tunnel_addr", "tunnel_port", "event_script"
-}
-
-local function toml_quote(value)
-	local s = tostring(value or "")
-	s = s:gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("[%z\r\n]", " ")
-	return '"' .. s .. '"'
-end
-
-local function toml_serialize_uci()
-	local section = uci:get_first("vnt2", "vnt2_cli")
-	if not section then
-		return "# 未找到 vnt2_cli 配置节，请重新安装本插件\n"
-	end
-
-	local out = {}
-	out[#out + 1] = "# VNT 客户端配置（与基本设置页同源；保存后写回插件配置并排队重启生效）"
-
-	for _, key in ipairs(TOML_EDIT_KEY_ORDER) do
-		local value = uci:get("vnt2", section, key)
-		if value ~= nil and value ~= "" then
-			if TOML_EDIT_BOOL_KEYS[key] then
-				out[#out + 1] = key .. " = " .. (value == "1" and "true" or "false")
-			elseif TOML_EDIT_LIST_KEYS[key] then
-				local items = {}
-				if type(value) == "table" then
-					for _, item in ipairs(value) do
-						item = trim(item)
-						if item ~= "" then
-							items[#items + 1] = toml_quote(item)
-						end
-					end
-				elseif trim(tostring(value)) ~= "" then
-					items[#items + 1] = toml_quote(trim(tostring(value)))
-				end
-				if #items > 0 then
-					out[#out + 1] = key .. " = [" .. table.concat(items, ", ") .. "]"
-				end
-			elseif TOML_EDIT_NUM_KEYS[key] then
-				local n = tonumber(trim(tostring(value)))
-				if n then
-					out[#out + 1] = key .. " = " .. tostring(math.floor(n))
-				end
-			else
-				out[#out + 1] = key .. " = " .. toml_quote(trim(tostring(value)))
-			end
-		end
-	end
-
-	return table.concat(out, "\n") .. "\n"
-end
-
-local function toml_strip_comment(line)
-	local out = {}
-	local in_str = false
-	local esc = false
-	for i = 1, #line do
-		local c = line:sub(i, i)
-		if in_str then
-			out[#out + 1] = c
-			if esc then
-				esc = false
-			elseif c == "\\" then
-				esc = true
-			elseif c == '"' then
-				in_str = false
-			end
-		else
-			if c == "#" then
-				break
-			end
-			out[#out + 1] = c
-			if c == '"' then
-				in_str = true
-			end
-		end
-	end
-	return table.concat(out)
-end
-
-local function toml_unquote(s)
-	s = s:gsub("\\\\", "\001")
-	s = s:gsub('\\"', '"')
-	s = s:gsub("\001", "\\")
-	return s
-end
-
-local function toml_parse_array(inner)
-	local items = {}
-	local pos = 1
-
-	while pos <= #inner do
-		local c = inner:sub(pos, pos)
-		if c == " " or c == "\t" or c == "," then
-			pos = pos + 1
-		elseif c == '"' then
-			pos = pos + 1
-			local item = {}
-			local esc = false
-			local closed = false
-			while pos <= #inner do
-				local ch = inner:sub(pos, pos)
-				if esc then
-					item[#item + 1] = ch
-					esc = false
-					pos = pos + 1
-				elseif ch == "\\" then
-					item[#item + 1] = ch
-					esc = true
-					pos = pos + 1
-				elseif ch == '"' then
-					closed = true
-					pos = pos + 1
-					break
-				else
-					item[#item + 1] = ch
-					pos = pos + 1
-				end
-			end
-			if not closed then
-				return nil
-			end
-			items[#items + 1] = toml_unquote(table.concat(item))
-		else
-			return nil
-		end
-	end
-
-	return items
-end
-
-local function toml_parse_config(text)
-	local values = {}
-	local unknown = {}
-	local lineno = 0
-
-	for line in tostring(text or ""):gmatch("[^\r\n]+") do
-		lineno = lineno + 1
-		local content = trim(toml_strip_comment(line))
-		if content ~= "" then
-			local key, val = content:match("^([A-Za-z_][A-Za-z0-9_]*)%s*=%s*(.-)$")
-			val = val and trim(val) or ""
-			if not key or val == "" then
-				return nil, "第 " .. lineno .. " 行不是有效的 TOML 键值"
-			end
-			if key == "no_tun" then
-				return nil, "已废弃键 no_tun：请改用 device_mode"
-			end
-			if not (TOML_EDIT_STR_KEYS[key] or TOML_EDIT_LIST_KEYS[key]
-				or TOML_EDIT_BOOL_KEYS[key] or TOML_EDIT_NUM_KEYS[key]) then
-				unknown[#unknown + 1] = key .. " (第 " .. lineno .. " 行)"
-			elseif val:sub(1, 1) == "[" then
-				if val:sub(-1) ~= "]" then
-					return nil, "第 " .. lineno .. " 行数组未闭合"
-				end
-				local items = toml_parse_array(val:sub(2, -2))
-				if not items then
-					return nil, "第 " .. lineno .. " 行数组格式无效"
-				end
-				values[key] = items
-			elseif val == "true" or val == "false" then
-				if not TOML_EDIT_BOOL_KEYS[key] then
-					return nil, "第 " .. lineno .. " 行的键不接受布尔值"
-				end
-				values[key] = (val == "true")
-			elseif val:sub(1, 1) == '"' then
-				if #val < 2 or val:sub(-1) ~= '"' then
-					return nil, "第 " .. lineno .. " 行字符串未闭合"
-				end
-				if not TOML_EDIT_STR_KEYS[key] then
-					return nil, "第 " .. lineno .. " 行的键不接受字符串值"
-				end
-				values[key] = toml_unquote(val:sub(2, -2))
-			elseif val:match("^%d+$") then
-				if not (TOML_EDIT_NUM_KEYS[key] or TOML_EDIT_STR_KEYS[key] or TOML_EDIT_LIST_KEYS[key]) then
-					return nil, "第 " .. lineno .. " 行的键不接受数值"
-				end
-				values[key] = val
-			else
-				return nil, "第 " .. lineno .. " 行的值类型无效"
-			end
-		end
-	end
-
-	return values, nil, unknown
-end
-
-local function toml_apply_to_uci(values)
-	local section = uci:get_first("vnt2", "vnt2_cli")
-	if not section then
-		return nil, "未找到 vnt2_cli 配置节"
-	end
-
-	if values.device_mode and values.device_mode ~= "no"
-		and values.device_mode ~= "tun" and values.device_mode ~= "tap" then
-		return nil, "device_mode 仅支持 no、tun、tap"
-	end
-	if values.cert_mode and values.cert_mode ~= ""
-		and values.cert_mode ~= "skip" and values.cert_mode ~= "standard"
-		and not values.cert_mode:match("^finger:[0-9a-fA-F]+$") then
-		return nil, "cert_mode 仅支持 skip、standard 或 finger:指纹"
-	end
-	if values.mtu then
-		local n = tonumber(values.mtu)
-		if not n or math.floor(n) ~= n or n < 1 or n > 65535 then
-			return nil, "mtu 必须为 1~65535 的整数"
-		end
-	end
-	if values.tunnel_port then
-		local n = tonumber(values.tunnel_port)
-		if not n or n < 0 or n > 65535 then
-			return nil, "tunnel_port 必须为 0~65535 的整数"
-		end
-	end
-	if values.tunnel_addr and #values.tunnel_addr > 0 and values.tunnel_port then
-		return nil, "tunnel_addr 与 tunnel_port 互斥，不能同时填写"
-	end
-
-	for _, key in ipairs(TOML_EDIT_KEY_ORDER) do
-		local value = values[key]
-		if value == nil then
-			uci:delete("vnt2", section, key)
-		elseif TOML_EDIT_BOOL_KEYS[key] then
-			uci:set("vnt2", section, key, value == true and "1" or "0")
-		elseif TOML_EDIT_NUM_KEYS[key] then
-			uci:set("vnt2", section, key, tostring(value))
-		elseif TOML_EDIT_LIST_KEYS[key] then
-			local items = {}
-			if type(value) == "table" then
-				for _, item in ipairs(value) do
-					item = trim(tostring(item))
-					if item ~= "" then
-						items[#items + 1] = item
-					end
-				end
-			else
-				local item = trim(tostring(value))
-				if item ~= "" then
-					items[#items + 1] = item
-				end
-			end
-			uci:delete("vnt2", section, key)
-			if #items > 0 then
-				uci:set_list("vnt2", section, key, items)
-			end
-		else
-			local s = trim(tostring(value))
-			if s == "" then
-				uci:delete("vnt2", section, key)
-			else
-				uci:set("vnt2", section, key, s)
-			end
-		end
-	end
-
-	uci:commit("vnt2")
-	return true
-end
+-- The TOML serialization, parsing and merge helpers live in vnt2_text so the
+-- settings model can run the very same partial merge when the edit-config tab
+-- is saved together with the form.
 
 local function queue_restart()
 	local stat = fs.readfile("/proc/self/stat") or ""
@@ -855,11 +545,34 @@ local function queue_restart()
 	return ok
 end
 
+local function config_audit(message)
+	local f = io.open("/tmp/vnt2-download.log", "a")
+	if f then
+		f:write(os.date("%Y-%m-%d %H:%M:%S") .. " config : " .. message .. "\n")
+		f:close()
+	end
+end
+
 function act_toml_read()
-	json_write({
-		ok = true,
-		content = textutil.sanitize_text(toml_serialize_uci())
-	})
+	-- Reload prefers the runtime TOML - the complete config the client
+	-- actually loaded - but only while the client is running: when it is
+	-- stopped the file is not regenerated and would go stale, so the always
+	-- current UCI serialization is shown instead.
+	local content = nil
+	local source = "uci"
+	local pid = get_cli_pid()
+	if pid and fs.access(RUNTIME_TOML_FILE) then
+		local stat = fs.stat(RUNTIME_TOML_FILE)
+		if stat and stat.type == "reg" and (tonumber(stat.size) or 0) > 0 then
+			content = textutil.sanitize_text(fs.readfile(RUNTIME_TOML_FILE) or "")
+			source = "file"
+		end
+	end
+	if content == nil or content == "" then
+		content = textutil.sanitize_text(textutil.toml_serialize_uci(uci))
+	end
+
+	json_write({ ok = true, content = content, source = source })
 end
 
 function act_toml_save()
@@ -874,47 +587,31 @@ function act_toml_save()
 		return
 	end
 
-	local values, err, unknown = toml_parse_config(content)
+	local values, err, unknown = textutil.toml_parse_config(content)
 	if not values then
 		json_write({ ok = false, error = err })
 		return
 	end
 
-	-- The text is authoritative: omitted keys are cleared. Warn when keys that
-	-- currently hold values are about to be removed by this save.
-	local cleared = {}
-	local section = uci:get_first("vnt2", "vnt2_cli")
-	if section then
-		for _, key in ipairs(TOML_EDIT_KEY_ORDER) do
-			local current = uci:get("vnt2", section, key)
-			local has_value = false
-			if type(current) == "table" then
-				has_value = #current > 0
-			elseif current ~= nil and current ~= "" then
-				has_value = true
-			end
-			if has_value and values[key] == nil then
-				cleared[#cleared + 1] = key
-			end
-		end
-	end
-
-	local ok, apply_err = toml_apply_to_uci(values)
+	local ok, applied_or_err = textutil.toml_apply_to_uci(uci, values, true)
 	if not ok then
-		json_write({ ok = false, error = apply_err })
+		json_write({ ok = false, error = applied_or_err })
 		return
 	end
 
-	local restart_queued = queue_restart()
-	local hint = ""
-	if #cleared > 0 then
-		hint = "注意：以下键未出现在文本中，已被清除：" .. table.concat(cleared, "、") .. "。"
-	end
-	hint = hint .. "已保存并写回插件配置。"
-	if restart_queued then
-		hint = hint .. "后台将重启客户端使配置生效。"
+	local restart_queued = false
+	local hint
+	if applied_or_err == 0 then
+		hint = "配置未发生变化，无需重启。"
 	else
-		hint = hint .. "排队重启失败，请手动重启客户端。"
+		config_audit("编辑配置保存：部分合并 " .. tostring(applied_or_err) .. " 个键（其余保持不变）")
+		restart_queued = queue_restart()
+		hint = "已保存：部分合并 " .. tostring(applied_or_err) .. " 个键，其余键保持不变。"
+		if restart_queued then
+			hint = hint .. "后台将重启客户端使配置生效。"
+		else
+			hint = hint .. "排队重启失败，请手动重启客户端。"
+		end
 	end
 	if #unknown > 0 then
 		hint = hint .. "已忽略未知字段：" .. table.concat(unknown, "、") .. "。"

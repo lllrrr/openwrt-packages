@@ -262,19 +262,21 @@ fetch_r66666_tags() {
 fetch_r66666_release_files() {
     local tag="$1" variant="$2" arch="$3"
     local ver="${tag#v}" ver_url="${MIRROR_BASE}/${tag}/" tmp="$UPDATE_DIR/r66666_ver.html"
+    ver=$(echo "$ver" | sed 's/beta.*$//')
+
+    case "$variant" in
+        lucky|wanji|xiaojv|xiaojv_waf|xiaoman|lucky_docker|wanji_docker) ;;
+        *) log "WARN: Unsupported variant $variant"; return ;;
+    esac
 
     http_get "$ver_url" "$tmp" || { log "WARN: Failed to fetch $ver_url"; return; }
     [ -s "$tmp" ]              || { log "WARN: Empty directory for tag $tag"; return; }
 
     local subdirs chosen_sub
     subdirs=$(parse_dir_listing "$tmp" | grep '/$' | sed 's|/$||' \
-              | grep "$variant")
-    case "$variant" in
-        *docker*) ;;
-        *)        subdirs=$(echo "$subdirs" | grep -v 'docker') ;;
-    esac
-    chosen_sub=$(echo "$subdirs" | grep -E "^${ver}_${variant}$" | head -1)
-    [ -z "$chosen_sub" ] && chosen_sub=$(echo "$subdirs" | head -1)
+              | grep -E "_${variant}$")
+    chosen_sub=$(printf '%s\n' "$subdirs" | grep -E "^${ver}_${variant}$" | head -1)
+    [ -z "$chosen_sub" ] && chosen_sub=$(printf '%s\n' "$subdirs" | head -1)
     [ -z "$chosen_sub" ] && { log "WARN: No $variant subdirectory for tag $tag"; return; }
 
     local sub_url="${MIRROR_BASE}/${tag}/${chosen_sub}/" tmp2="$UPDATE_DIR/r66666_sub.html"
@@ -622,5 +624,6 @@ case "$1" in
         echo "Usage: $0 {check|download|check_luci|download_luci|auto|detect_arch|detect_pm}"
         exit 1 ;;
 esac
+
 
 

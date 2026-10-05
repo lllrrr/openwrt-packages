@@ -34,9 +34,10 @@ function mkSelect(id, opts, cur, onChange) {
 
 function buildInfoGrid() {
     var items = [
-        [_('Lucky Version'), 'ii_ver'],  [_('LuCI Version'), 'ii_luci'],
-        [_('Variant'),       'ii_var'],  [_('Architecture'), 'ii_arch'],
-        [_('Binary Path'),   'ii_bin'],  [_('Data Dir'),     'ii_cfg']
+        [_('Lucky Version'), 'ii_ver'],  [_('Release Tag'), 'ii_tag'],
+        [_('LuCI Version'),  'ii_luci'], [_('Variant'),     'ii_var'],
+        [_('Architecture'),  'ii_arch'], [_('Build Date'),  'ii_build'],
+        [_('Binary Path'),   'ii_bin'],  [_('Data Dir'),    'ii_cfg']
     ];
     return C.buildCard(_('Current Installation'),
         C.buildInfoTiles(items, 150, true), { icon: 'info' });
@@ -349,12 +350,14 @@ return view.extend({
         L.resolveDefault(api.info(), {}).then(function(s) {
             if (!s) return;
             [
-                ['ii_ver',  s.version      ],
-                ['ii_luci', s.luci_version ],
-                ['ii_var',  s.variant      ],
-                ['ii_arch', s.arch         ],
-                ['ii_bin',  s.binpath      ],
-                ['ii_cfg',  s.configdir    ]
+                ['ii_ver',   s.version      ],
+                ['ii_tag',   s.release_tag  ],
+                ['ii_luci',  s.luci_version ],
+                ['ii_var',   s.variant      ],
+                ['ii_arch',  s.arch         ],
+                ['ii_build', s.build_date   ],
+                ['ii_bin',   s.binpath      ],
+                ['ii_cfg',   s.configdir    ]
             ].forEach(function(kv) {
                 var e = $(kv[0]);
                 if (!e) return;
@@ -364,4 +367,5 @@ return view.extend({
         });
     }
 });
+
 

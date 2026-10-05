@@ -44,12 +44,8 @@ apply_runtime_conf() {
     "$PROG" -setconf -key AdminWebListenPort -value "$PORT" \
         -cd "$CONFDIR" >/dev/null 2>&1
 
-    if [ -z "$SAFE" ]; then
-        "$PROG" -rCancelSafeURL -cd "$CONFDIR" >/dev/null 2>&1
-    else
-        "$PROG" -setconf -key SafeURL -value "$SAFE" \
-            -cd "$CONFDIR" >/dev/null 2>&1
-    fi
+    "$PROG" -setconf -key SafeURL -value "$SAFE" \
+        -cd "$CONFDIR" >/dev/null 2>&1
 
     if [ "$INTERNET" = "1" ]; then
         "$PROG" -setconf -key AllowInternetaccess -value true \
@@ -63,17 +59,28 @@ apply_runtime_conf() {
 }
 
 kill_all_lucky() {
-    local pids
+    local pids pid filtered
     pids=$(pidof lucky 2>/dev/null)
+    filtered=""
+    for pid in $pids; do
+        [ "$pid" = "$$" ] && continue
+        filtered="$filtered $pid"
+    done
+    pids="$filtered"
     if [ -n "$pids" ]; then
         log_msg "Stopping existing Lucky processes: $pids"
         kill $pids 2>/dev/null
         sleep 1
         pids=$(pidof lucky 2>/dev/null)
+        filtered=""
+        for pid in $pids; do
+            [ "$pid" = "$$" ] && continue
+            filtered="$filtered $pid"
+        done
+        pids="$filtered"
         if [ -n "$pids" ]; then
             log_msg "Force killing Lucky processes: $pids"
             kill -9 $pids 2>/dev/null
-            sleep 1
         fi
     fi
 }
@@ -113,8 +120,6 @@ start_service() {
 
     [ "$ENABLED" = "1" ] || { log_msg "Lucky is disabled, skipping start."; return 0; }
 
-    kill_all_lucky
-
     [ "$(awk -F. '{print $1}' /proc/uptime)" -lt 120 ] && {
         log_msg "Delaying start by ${DELAY}s..."
         sleep "$DELAY"
@@ -134,6 +139,10 @@ start_service() {
 }
 
 stop_service() {
+    log_msg "Lucky stop requested."
+}
+
+service_stopped() {
     kill_all_lucky
     log_msg "Lucky stopped."
 }
@@ -142,6 +151,27 @@ reload_service() {
     init_config
     sync_cron
     apply_runtime_conf
+}
+
+stop_for_restart() {
+    procd_lock
+    stop_service "$@"
+    if procd_running lucky; then
+        procd_kill lucky "$@" >/dev/null 2>&1
+    fi
+    service_stopped
+}
+
+restart() {
+    log_msg "Lucky restart requested."
+    stop_for_restart "$@"
+    init_config
+    if [ "$ENABLED" = "1" ]; then
+        log_msg "Restarting Lucky because it is enabled."
+        start "$@"
+    else
+        log_msg "Lucky restart skipped because it is disabled."
+    fi
 }
 
 service_triggers() { procd_add_reload_trigger lucky; }

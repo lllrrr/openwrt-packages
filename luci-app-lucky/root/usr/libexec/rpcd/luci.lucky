@@ -31,6 +31,23 @@ function exec(c)   { let p = popen(c, 'r'); let o = p ? p.read('all') : ''; if (
 function read(p)   { return readfile(p) ?? ''; }
 function exists(p) { return stat(p) != null; }
 function uf(n)     { return `${DIR}/${n}`; }
+function shellQuote(s) { return "'" + replace(`${s}`, "'", "'\\''") + "'"; }
+
+function getLuckyInfo(bin) {
+    if (!bin || !exists(bin)) return {};
+
+    let command = shellQuote(bin);
+    let raw = exec(
+        `if command -v timeout >/dev/null 2>&1; then timeout 2 ${command} -info 2>&1; else ${command} -info 2>&1; fi`
+    );
+
+    try {
+        let info = json(raw);
+        if (info && info.Version) return info;
+    } catch (e) {}
+
+    return {};
+}
 
 function ucv(k) {
     let c = cursor(); c.load('lucky');
@@ -105,6 +122,16 @@ function runTask(prefix, state, args) {
     if (f) { f.write(state); f.close(); }
     sys(`setsid '${SCRIPT}' ${args} >/dev/null 2>&1 &`);
     return { result: 'ok' };
+}
+
+function scheduleShellCommand(command) {
+    return sys(`setsid sh -c ${shellQuote(command)} </dev/null >/dev/null 2>&1 &`) === 0;
+}
+
+function scheduleServiceAction(action) {
+    if (action !== 'start' && action !== 'stop' && action !== 'restart')
+        return false;
+    return scheduleShellCommand(`${shellQuote(INIT)} ${action}`);
 }
 
 function getTaskStatus(prefix, doneTag) {
@@ -194,7 +221,19 @@ const api = {
             if (!writeUciOption('enabled', value))
                 return { result: 'error', msg: 'uci_commit_failed' };
         }
-        sys(`setsid '${INIT}' restart >/dev/null 2>&1 &`);
+
+        if (action === 'disable') {
+            if (!scheduleServiceAction('stop'))
+                return { result: 'error', msg: 'service_action_failed' };
+        } else if (action === 'enable') {
+            if (!scheduleServiceAction('start'))
+                return { result: 'error', msg: 'service_action_failed' };
+        } else {
+            if (readUciOption('enabled', '0') !== '1')
+                return { result: 'error', msg: 'service_disabled' };
+            if (!scheduleServiceAction('restart'))
+                return { result: 'error', msg: 'service_action_failed' };
+        }
         return { result: 'ok' };
     },
 
@@ -241,13 +280,15 @@ const api = {
     get_system_info: () => {
         let bin       = ucv('binpath');
         let configdir = ucv('configdir');
-        let mirror    = ucv('mirror');
-        let variant = ucv('variant');
+        let releaseTag = ucv('installed_version') || '';
+        let luckyInfo = getLuckyInfo(bin);
         return {
-            version:      ucv('installed_version') || '',
+            version:      luckyInfo.Version || releaseTag,
+            release_tag:  releaseTag,
             luci_version: getLuciVersion() || 'Unknown',
-            variant:      variant,
-            arch:         exec(`'${SCRIPT}' detect_arch 2>/dev/null`),
+            variant:      luckyInfo.VersionName || '',
+            arch:         luckyInfo.ARCH || exec(`'${SCRIPT}' detect_arch 2>/dev/null`),
+            build_date:   luckyInfo.Date || '',
             binpath:      bin,
             configdir:    configdir
         };
@@ -273,19 +314,24 @@ const api = {
             if (a[k] !== null) u.set('lucky', 'lucky', k, a[k]);
         }
         if (!commitUci(u)) return { result: 'error', msg: 'uci_commit_failed' };
-        if (needRestart) {
-            sys(`setsid ${INIT} restart >/dev/null 2>&1 &`);
-        }
+        if (needRestart && !scheduleServiceAction('restart'))
+            return { result: 'error', msg: 'service_action_failed' };
         return { result: 'ok' };
     },
 
     reset_user: () => {
         let bin = ucv('binpath'), cfg = ucv('configdir');
-        return { result: sys(`'${bin}' -rResetUser -cd '${cfg}' >/dev/null 2>&1`) === 0 };
+        if (!exists(bin)) return { result: false };
+        let command = `${shellQuote(bin)} -rResetUser -cd ${shellQuote(cfg)} && ${shellQuote(INIT)} restart`;
+        return { result: scheduleShellCommand(command) };
     },
 
     get_process_stats: () => {
-        let pid = exec('pidof lucky 2>/dev/null');
+        let pid = 0;
+        for (let candidate in split(exec('pidof lucky 2>/dev/null'), ' ')) {
+            pid = int(trim(candidate)) || 0;
+            if (pid) break;
+        }
         if (!pid || !exists(`/proc/${pid}`))
             return { pid: null, proc_ticks: 0, total_ticks: 0,
                      cores: 1, mem_rss: 0, mem_percent: 0,
@@ -402,7 +448,8 @@ const api = {
             return { result: 'error', msg: 'configdir not set' };
         let parent = exec(`dirname '${configdir}'`);
         let ret = sys(`tar -xzf '${filepath}' -C '${parent}' 2>/dev/null`);
-        if (ret === 0) { sys(`setsid ${INIT} restart >/dev/null 2>&1 &`); }
+        if (ret === 0 && !scheduleServiceAction('restart'))
+            return { result: 'error' };
         return { result: ret === 0 ? 'ok' : 'error' };
     },
 
@@ -450,5 +497,6 @@ if (ARGV[0] === 'list') {
 } else {
     exit(1);
 }
+
 
 

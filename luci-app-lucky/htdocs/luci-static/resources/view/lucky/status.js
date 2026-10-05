@@ -119,20 +119,57 @@ return view.extend({
 
     _prevProc:  0,
     _prevTotal: 0,
+    _startPending: false,
+    _startPendingAt: 0,
+    _startPendingUntil: 0,
 
     load: function() {
+        this._startPending = false;
+        this._startPendingAt = 0;
+        this._startPendingUntil = 0;
         return Promise.all([
             L.resolveDefault(api.status(),   {}),
-            L.resolveDefault(api.info(),     {}),
-            L.resolveDefault(api.settings(), {})
+            L.resolveDefault(api.settings(), {}),
+            L.resolveDefault(api.stats(),    {})
         ]);
     },
 
     render: function(data) {
-        var self   = this;
-        var status = data[0] || {};
-        var info   = data[1] || {};
-        var cfg    = data[2] || {};
+        var self         = this;
+        var status       = data[0] || {};
+        var cfg          = data[1] || {};
+        var initialStats = data[2] || {};
+        var initialRun   = !!status.running;
+
+        if (initialRun) {
+            self._prevProc = initialStats.proc_ticks || 0;
+            self._prevTotal = initialStats.total_ticks || 0;
+        }
+
+        function showStarting() {
+            self._startPending = true;
+            self._startPendingAt = Date.now();
+            self._startPendingUntil = self._startPendingAt + 5000;
+
+            var dotEl = document.getElementById('st_dot');
+            if (dotEl) {
+                dotEl.textContent = '◌ Lucky — ' + _('STARTING');
+                dotEl.className = 'lucky-dot lucky-dot--starting lucky-pulse';
+            }
+
+            var uptimeEl = document.getElementById('st_uptime');
+            if (uptimeEl) {
+                uptimeEl.textContent = _('Please wait for Lucky to start…');
+                uptimeEl.classList.remove('is-off');
+                uptimeEl.classList.add('is-starting');
+            }
+        }
+
+        function clearStarting() {
+            self._startPending = false;
+            self._startPendingAt = 0;
+            self._startPendingUntil = 0;
+        }
 
         var port     = cfg.port || '16601';
         var safe     = cfg.safe || '';
@@ -141,26 +178,55 @@ return view.extend({
                        ':' + port + '/' + (safe ? safe + '/' : '');
 
         var toggleInput = null;
+        var restartBtn = null;
+        var enabledState = cfg.enabled === '1';
+
+        function syncToggleState() {
+            L.resolveDefault(api.settings(), {}).then(function(settings) {
+                settings = settings || {};
+                enabledState = settings.enabled === '1';
+                if (toggleInput) toggleInput.checked = enabledState;
+                if (restartBtn) restartBtn.disabled = !enabledState;
+            });
+        }
+
         var toggleEl = C.buildToggle('st_enabled', cfg.enabled === '1',
             function() {
                 toggleInput = this;
                 var action = this.checked ? 'enable' : 'disable';
+                enabledState = action === 'enable';
+
+                if (action === 'enable') {
+                    showStarting();
+                    if (restartBtn) restartBtn.disabled = false;
+                } else {
+                    clearStarting();
+                    if (restartBtn) restartBtn.disabled = true;
+                }
+
                 L.resolveDefault(api.toggle(action), {}).then(function(res) {
-                    if (!res || res.result !== 'ok')
-                        toggleInput.checked = !toggleInput.checked;
+                    if (!res || res.result !== 'ok') {
+                        clearStarting();
+                        syncToggleState();
+                    }
                 });
             });
 
-        var restartBtn = C.buildIconBtn('refresh', _('Restart Lucky'), function() {
+        restartBtn = C.buildIconBtn('refresh', _('Restart Lucky'), function() {
+            if (!enabledState) return;
             this.disabled = true;
             this.classList.add('is-spinning');
-            L.resolveDefault(api.toggle('restart'), {}).then(function() {
+            showStarting();
+            L.resolveDefault(api.toggle('restart'), {}).then(function(res) {
+                if (!res || res.result !== 'ok')
+                    clearStarting();
                 window.setTimeout(function() {
-                    restartBtn.disabled = false;
+                    restartBtn.disabled = !enabledState;
                     restartBtn.classList.remove('is-spinning');
                 }, 3000);
             });
         });
+        restartBtn.disabled = cfg.enabled !== '1';
 
         var bannerEl = E('div', { class: 'lucky-card' }, [
             E('div', { class: 'lucky-banner-row' }, [
@@ -170,10 +236,19 @@ return view.extend({
             ]),
             E('div', { class: 'lucky-banner-status' }, [
                 E('div', {}, [
-                    E('div', { id: 'st_dot',
-                        class: 'lucky-dot lucky-dot--idle' },
-                        '○ Lucky — ' + _('Checking…')),
-                    E('div', { id: 'st_uptime', class: 'lucky-uptime' }, '—')
+                    E('div', {
+                        id: 'st_dot',
+                        class: 'lucky-dot ' + (initialRun
+                            ? 'lucky-dot--run lucky-pulse' : 'lucky-dot--stop')
+                    }, initialRun
+                        ? '● Lucky — ' + _('RUNNING')
+                        : '○ Lucky — ' + _('NOT RUNNING')),
+                    E('div', {
+                        id: 'st_uptime',
+                        class: 'lucky-uptime' + (initialRun ? '' : ' is-off')
+                    }, initialRun
+                        ? _('Uptime:') + fmtUptime(initialStats.uptime_seconds)
+                        : '—')
                 ]),
                 E('div', { id: 'st_btn' })
             ])
@@ -201,10 +276,12 @@ return view.extend({
 
         var infoGrid = C.buildGrid(240, [
             C.buildCard(_('Version Info'), C.buildKVGrid([
-                ['Lucky',      'si_ver',  info.version      || _('Unknown')],
-                ['LuCI',       'si_luci', info.luci_version || _('Unknown')],
-                [_('Variant'), 'si_var',  info.variant      || _('Unknown')],
-                [_('Arch'),    'si_arch', info.arch         || _('Unknown')]
+                ['Lucky',              'si_ver',   _('Loading…')],
+                [_('Release Tag'),     'si_tag',   _('Loading…')],
+                ['LuCI',               'si_luci',  _('Loading…')],
+                [_('Variant'),         'si_var',   _('Loading…')],
+                [_('Arch'),            'si_arch',  _('Loading…')],
+                [_('Build Date'),      'si_build', _('Loading…')]
             ]), { icon: 'info' }),
             C.buildCard(_('Access Info'), C.buildKVGrid([
                 [_('Port'),            'si_port', port],
@@ -213,6 +290,21 @@ return view.extend({
                 [_('URL'),             'si_url', url]
             ]), { icon: 'globe' })
         ]);
+
+        L.resolveDefault(api.info(), {}).then(function(info) {
+            info = info || {};
+            [
+                ['si_ver',   info.version],
+                ['si_tag',   info.release_tag],
+                ['si_luci',  info.luci_version],
+                ['si_var',   info.variant],
+                ['si_arch',  info.arch],
+                ['si_build', info.build_date]
+            ].forEach(function(item) {
+                var el = infoGrid.querySelector('#' + item[0]);
+                if (el) el.textContent = item[1] || _('Unknown');
+            });
+        });
 
         var linkCard = C.buildCard(null,
             E('div', {
@@ -241,19 +333,37 @@ return view.extend({
                 var st  = r[0] || {}, ps = r[1] || {};
                 var run = !!st.running;
 
+                var starting = self._startPending &&
+                    (!run || Date.now() < self._startPendingUntil);
+                if (run && !starting) clearStarting();
+
                 var dotEl = document.getElementById('st_dot');
                 if (dotEl) {
-                    dotEl.textContent = (run ? '● ' : '○ ') + 'Lucky — ' +
-                        (run ? _('RUNNING') : _('NOT RUNNING'));
+                    if (run)
+                        dotEl.textContent = '● Lucky — ' + _('RUNNING');
+                    else if (starting)
+                        dotEl.textContent = '◌ Lucky — ' + _('STARTING');
+                    else
+                        dotEl.textContent = '○ Lucky — ' + _('NOT RUNNING');
+
                     dotEl.className = 'lucky-dot lucky-dot--' +
-                        (run ? 'run' : 'stop') + (run ? ' lucky-pulse' : '');
+                        (run ? 'run' : starting ? 'starting' : 'stop') +
+                        (run || starting ? ' lucky-pulse' : '');
                 }
 
                 var uptEl = document.getElementById('st_uptime');
                 if (uptEl) {
+                    var waited = self._startPendingAt
+                        ? Date.now() - self._startPendingAt : 0;
                     uptEl.textContent = run
-                        ? _('Uptime:') + fmtUptime(ps.uptime_seconds) : '—';
-                    uptEl.classList.toggle('is-off', !run);
+                        ? _('Uptime:') + fmtUptime(ps.uptime_seconds)
+                        : starting
+                            ? (waited > 30000
+                                ? _('Still starting. Check the log if this takes much longer.')
+                                : _('Please wait for Lucky to start…'))
+                            : '—';
+                    uptEl.classList.toggle('is-off', !run && !starting);
+                    uptEl.classList.toggle('is-starting', starting);
                 }
 
                 var btnEl = document.getElementById('st_btn');
@@ -300,3 +410,4 @@ return view.extend({
         return mapEl;
     }
 });
+

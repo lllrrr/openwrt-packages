@@ -444,8 +444,17 @@ msgstr "Lucky — 状态"
 msgid "RUNNING"
 msgstr "运行中"
 
+msgid "STARTING"
+msgstr "正在启动"
+
 msgid "NOT RUNNING"
 msgstr "未运行"
+
+msgid "Please wait for Lucky to start…"
+msgstr "Lucky 正在启动，请稍候…"
+
+msgid "Still starting. Check the log if this takes much longer."
+msgstr "仍在启动；若持续时间较长，请检查日志。"
 
 msgid "Uptime:"
 msgstr "运行时间："
@@ -566,3 +575,10 @@ msgstr "恢复全部默认"
 
 msgid "Close"
 msgstr "关闭"
+
+msgid "Release Tag"
+msgstr "发布标签"
+
+msgid "Build Date"
+msgstr "构建日期"
+

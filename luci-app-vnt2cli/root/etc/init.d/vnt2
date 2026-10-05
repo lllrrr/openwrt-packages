@@ -2004,13 +2004,11 @@ sync_network_state() {
 	fi
 
 	if [ -z "$tun_name" ]; then
-		log_service "network sync waiting for ${mode} device"
 		cleanup_network || return 1
 		NETWORK_SYNC_RESULT="missing-runtime-device"
 		return 0
 	fi
 	if ! device_has_any_ipv4_address "$tun_name"; then
-		log_service "network sync waiting for IPv4 address on ${tun_name}"
 		cleanup_network || return 1
 		NETWORK_SYNC_RESULT="missing-runtime-address"
 		return 0
@@ -2031,7 +2029,14 @@ sync_network_command() {
 	rc=$?
 	if [ "$rc" -eq 0 ]; then
 		if [ -n "$NETWORK_SYNC_RESULT" ]; then
-			log_service "network sync result: ${NETWORK_SYNC_RESULT}"
+			# The worker polls every second; record the result only when it
+			# changes so the running log is not flooded by steady state.
+			local last
+			last="$(cat /tmp/vnt2-sync.last 2>/dev/null)"
+			if [ "$last" != "$NETWORK_SYNC_RESULT" ]; then
+				log_service "network sync result: ${NETWORK_SYNC_RESULT}"
+				printf '%s\n' "$NETWORK_SYNC_RESULT" > /tmp/vnt2-sync.last
+			fi
 		fi
 		return 0
 	fi
@@ -2204,6 +2209,19 @@ start_cli_instance() {
 	local enabled cli_bin ctrl_bin ctrl_port log_level
 
 	config_get_bool enabled "$cfg" "enabled" "0"
+
+	# Always refresh the runtime TOML, even while the client is stopped: the
+	# config editor reads this file and it must mirror UCI.
+	if ! export_client_config "$cfg"; then
+		if [ "$enabled" = "1" ]; then
+			log_service 'start failed: runtime toml export failed'
+			return 1
+		fi
+		log_service 'client disabled; runtime toml export failed'
+		cleanup_network
+		return 0
+	fi
+
 	if [ "$enabled" != "1" ]; then
 		log_service 'not enabled, skip start'
 		cleanup_network
@@ -2211,11 +2229,6 @@ start_cli_instance() {
 	fi
 
 	log_service 'start requested'
-
-	export_client_config "$cfg" || {
-		log_service 'start failed: runtime toml export failed'
-		return 1
-	}
 
 	cli_bin="$(prepare_binary "$cfg" "vnt2_cli_bin" "/usr/bin/vnt2_cli" "vnt2_cli" "$DOWNLOAD_CLI_STATE" "cli")" || {
 		log_service 'start failed: missing executable vnt2_cli'
