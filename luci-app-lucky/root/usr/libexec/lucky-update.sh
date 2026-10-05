@@ -205,8 +205,13 @@ parse_release_lines() {
                 if [ -z "$best_name" ]; then
                     local match=0
                     case "$variant" in
-                        wanji) echo "$fname" | grep -q "wanji" && match=1 ;;
-                        *)     echo "$fname" | grep -qv "wanji" && match=1 ;;
+                        wanji)        echo "$fname" | grep -q "wanji" && echo "$fname" | grep -qv "docker" && match=1 ;;
+                        xiaojv)       echo "$fname" | grep -q "xiaojv" && echo "$fname" | grep -qv "waf" && match=1 ;;
+                        xiaojv_waf)   echo "$fname" | grep -q "xiaojv_waf" && match=1 ;;
+                        xiaoman)      echo "$fname" | grep -q "xiaoman" && match=1 ;;
+                        lucky_docker) echo "$fname" | grep -q "docker" && echo "$fname" | grep -qv "wanji" && match=1 ;;
+                        wanji_docker) echo "$fname" | grep -q "wanji" && echo "$fname" | grep -q "docker" && match=1 ;;
+                        *)            echo "$fname" | grep -qv "wanji" && echo "$fname" | grep -qv "xiaojv" && echo "$fname" | grep -qv "xiaoman" && echo "$fname" | grep -qv "docker" && match=1 ;;
                     esac
                     if [ "$match" = "1" ]; then
                         if [ -z "$arch" ] || echo "$fname" | grep -q "_${arch}"; then
@@ -263,7 +268,11 @@ fetch_r66666_release_files() {
 
     local subdirs chosen_sub
     subdirs=$(parse_dir_listing "$tmp" | grep '/$' | sed 's|/$||' \
-              | grep "$variant" | grep -v 'docker')
+              | grep "$variant")
+    case "$variant" in
+        *docker*) ;;
+        *)        subdirs=$(echo "$subdirs" | grep -v 'docker') ;;
+    esac
     chosen_sub=$(echo "$subdirs" | grep -E "^${ver}_${variant}$" | head -1)
     [ -z "$chosen_sub" ] && chosen_sub=$(echo "$subdirs" | head -1)
     [ -z "$chosen_sub" ] && { log "WARN: No $variant subdirectory for tag $tag"; return; }
@@ -320,15 +329,13 @@ do_download() {
         log "Total size: $(fmt_size "$total_size")"
         (
             while true; do
-                if [ -f "$f" ]; then
-                    downloaded=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
-                    if [ "${downloaded:-0}" -gt 0 ] 2>/dev/null; then
-                        pct=$(awk "BEGIN{printf \"%d\", $downloaded*100/$total_size}")
-                        echo "$pct" > "$progress"
-                        [ "$pct" -ge 100 ] && break
-                    fi
-                fi
                 sleep 1
+                [ -f "$f" ] || continue
+                downloaded=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
+                [ "${downloaded:-0}" -gt 0 ] 2>/dev/null || continue
+                pct=$(awk "BEGIN{printf \"%d\", $downloaded*100/$total_size}")
+                echo "$pct" > "$progress"
+                [ "$pct" -ge 100 ] && break
             done
         ) &
         local progress_pid=$!
@@ -434,10 +441,9 @@ cmd_check_luci() {
 }
 
 install_luci_pkg() {
-    local logfile="${LOG_TO_FILE:-/dev/null}"
     case "$1" in
-        apk)  apk  add --allow-untrusted "$2" 2>&1 | tr -d '\r' >> "$logfile" ;;
-        opkg) opkg install               "$2" 2>&1 | tr -d '\r' >> "$logfile" ;;
+        apk)  apk  add --allow-untrusted "$2" >/dev/null 2>&1 ;;
+        opkg) opkg install               "$2" >/dev/null 2>&1 ;;
         *)    return 1 ;;
     esac
 }
@@ -528,7 +534,7 @@ cmd_download_luci() {
         fi
     fi
 
-    log "Installation complete: $tag"
+    log "LuCI installed: $tag"
     write_status "luci" "luci_done:$tag"
 }
 

@@ -10,6 +10,10 @@ local MAX_UPLOAD_SIZE = 256 * 1024 * 1024
 
 local m = Map("vnt2")
 
+-- Page-scoped CSS: pull the label column back to the left edge so the form
+-- rows start at the section border instead of after a wide empty gutter.
+m:section(SimpleSection).template = "vnt2/vnt2_form_css"
+
 local function trim(v)
 	if v == nil then
 		return ""
@@ -778,7 +782,7 @@ local function add_flag(tab, name, label, description)
 	return flag
 end
 
-add_flag("tunnel", "rtx", "启用 quic 优化传输", "损失部分兼容性换取更好的弱网表现")
+add_flag("tunnel", "rtx", "启用 quic 优化传输", nil)
 add_flag("tunnel", "compress", "启用 LZ4 压缩", nil)
 add_flag("tunnel", "fec", "启用 FEC 前向纠错", "损失一定带宽提升网络稳定性")
 add_flag("tunnel", "no_punch", "关闭自动 P2P 打洞", "显式直连节点地址仍可连接")

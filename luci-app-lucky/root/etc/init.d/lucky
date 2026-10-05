@@ -62,6 +62,22 @@ apply_runtime_conf() {
     log_msg "Runtime conf applied (port=${PORT} safe=${SAFE:-off} internet=${INTERNET})"
 }
 
+kill_all_lucky() {
+    local pids
+    pids=$(pidof lucky 2>/dev/null)
+    if [ -n "$pids" ]; then
+        log_msg "Stopping existing Lucky processes: $pids"
+        kill $pids 2>/dev/null
+        sleep 1
+        pids=$(pidof lucky 2>/dev/null)
+        if [ -n "$pids" ]; then
+            log_msg "Force killing Lucky processes: $pids"
+            kill -9 $pids 2>/dev/null
+            sleep 1
+        fi
+    fi
+}
+
 sync_cron() {
     local current
     current=$(grep "$CRON_TAG" "$CRON_FILE" 2>/dev/null)
@@ -97,6 +113,8 @@ start_service() {
 
     [ "$ENABLED" = "1" ] || { log_msg "Lucky is disabled, skipping start."; return 0; }
 
+    kill_all_lucky
+
     [ "$(awk -F. '{print $1}' /proc/uptime)" -lt 120 ] && {
         log_msg "Delaying start by ${DELAY}s..."
         sleep "$DELAY"
@@ -115,7 +133,10 @@ start_service() {
     log_msg "Lucky started (port=${PORT} configdir=${CONFDIR})"
 }
 
-stop_service() { log_msg "Lucky stopped."; }
+stop_service() {
+    kill_all_lucky
+    log_msg "Lucky stopped."
+}
 
 reload_service() {
     init_config

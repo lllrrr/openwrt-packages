@@ -232,9 +232,14 @@ return view.extend({
                         ]),
                     C.buildFormRow('select', 'variant', _('Lucky Variant'),
                         cfg.variant || 'lucky',
-                        _('Standard: smaller. Full-featured: more functions'), [
-                            { v: 'lucky', l: _('Standard (lucky)') },
-                            { v: 'wanji', l: _('Full-featured (wanji)') }
+                        _('Choose the variant that suits your needs'), [
+                            { v: 'lucky',        l: _('Standard (lucky)') },
+                            { v: 'wanji',        l: _('Full-featured (wanji)') },
+                            { v: 'xiaojv',       l: _('XiaoJV') },
+                            { v: 'xiaojv_waf',   l: _('XiaoJV WAF') },
+                            { v: 'xiaoman',      l: _('XiaoMan') },
+                            { v: 'lucky_docker', l: _('Lucky Docker') },
+                            { v: 'wanji_docker', l: _('Wanji Docker') }
                         ])
                 ], { icon: 'download' })
             ]),
@@ -306,3 +311,4 @@ return view.extend({
         return mapEl;
     }
 });
+

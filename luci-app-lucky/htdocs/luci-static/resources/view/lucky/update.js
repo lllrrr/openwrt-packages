@@ -64,8 +64,13 @@ function buildRetryRow(self) {
                 ], r)
             ]),
             mkSelect('upd_rvar', [
-                { v: 'lucky', l: _('Standard (lucky)') },
-                { v: 'wanji', l: _('Full-featured (wanji)') }
+                { v: 'lucky',        l: _('Standard (lucky)') },
+                { v: 'wanji',        l: _('Full-featured (wanji)') },
+                { v: 'xiaojv',       l: _('XiaoJV') },
+                { v: 'xiaojv_waf',   l: _('XiaoJV WAF') },
+                { v: 'xiaoman',      l: _('XiaoMan') },
+                { v: 'lucky_docker', l: _('Lucky Docker') },
+                { v: 'wanji_docker', l: _('Wanji Docker') }
             ], v),
             E('button', {
                 type: 'button',
@@ -91,7 +96,7 @@ function buildUpdateSection(t, title, iconKey, chkLabel, self, extraEl) {
         extraEl || '',
         E('div', { id: t + '_sels', class: 'lucky-sels', style: 'display:none;' }, [
             E('label', { class: 'lucky-inline-label' }, _('Version:')),
-            E('select', { id: t + '_tag', class: 'lucky-select lucky-select--tag' }),
+            E('select', { id: t + '_tag', class: 'lucky-select lucky-select--tag', change: function() { self._sel(t); } }),
             E('label', { class: 'lucky-inline-label' }, _('File:')),
             E('select', { id: t + '_file', class: 'lucky-select lucky-select--file' }),
             E('button', {
@@ -322,8 +327,14 @@ return view.extend({
         if (t === 'upd') {
             var variant = ucig('variant') || 'lucky';
             files = files.filter(function(f) {
-                var isWanji = f.name.indexOf('wanji') !== -1;
-                return variant === 'wanji' ? isWanji : !isWanji;
+                var n = f.name;
+                if (variant === 'wanji')        return n.indexOf('wanji') !== -1 && n.indexOf('docker') === -1;
+                if (variant === 'xiaojv')       return n.indexOf('xiaojv') !== -1 && n.indexOf('waf') === -1;
+                if (variant === 'xiaojv_waf')   return n.indexOf('xiaojv_waf') !== -1;
+                if (variant === 'xiaoman')      return n.indexOf('xiaoman') !== -1;
+                if (variant === 'lucky_docker') return n.indexOf('lucky_docker') !== -1 || (n.indexOf('docker') !== -1 && n.indexOf('wanji') === -1);
+                if (variant === 'wanji_docker') return n.indexOf('wanji_docker') !== -1 || (n.indexOf('wanji') !== -1 && n.indexOf('docker') !== -1);
+                return n.indexOf('wanji') === -1 && n.indexOf('xiaojv') === -1 && n.indexOf('xiaoman') === -1 && n.indexOf('docker') === -1;
             });
         }
         var best = 0;

@@ -303,6 +303,24 @@ msgstr "标准版（lucky）"
 msgid "Full-featured (wanji)"
 msgstr "全功能版（wanji）"
 
+msgid "XiaoJV"
+msgstr "小杰版"
+
+msgid "XiaoJV WAF"
+msgstr "小杰 WAF 版"
+
+msgid "XiaoMan"
+msgstr "小满版"
+
+msgid "Lucky Docker"
+msgstr "Lucky Docker 版"
+
+msgid "Wanji Docker"
+msgstr "万吉 Docker 版"
+
+msgid "Choose the variant that suits your needs"
+msgstr "选择适合你需求的变体"
+
 msgid "Respawn Policy"
 msgstr "重启策略"
 
@@ -548,4 +566,3 @@ msgstr "恢复全部默认"
 
 msgid "Close"
 msgstr "关闭"
-
