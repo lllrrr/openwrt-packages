@@ -1,6 +1,8 @@
 #!/bin/sh
 
 UPDATE_DIR="/tmp/lucky_update"
+RUN_DIR="$UPDATE_DIR/.run_$$"
+trap 'rm -rf "$RUN_DIR"' EXIT
 STATUS_FILE="$UPDATE_DIR/status"
 LOG_FILE="$UPDATE_DIR/log"
 RELEASES_FILE="$UPDATE_DIR/releases.json"
@@ -26,7 +28,10 @@ log() {
     [ -n "$LOG_TO_FILE" ] && echo "$msg" >> "$LOG_TO_FILE"
 }
 
-init_dir() { [ -d "$UPDATE_DIR" ] || mkdir -p "$UPDATE_DIR"; }
+init_dir() {
+    [ -d "$UPDATE_DIR" ] || mkdir -p "$UPDATE_DIR"
+    mkdir -p "$RUN_DIR"
+}
 
 tag_to_ver() { echo "$1" | sed 's/^v//'; }
 
@@ -50,6 +55,11 @@ die() {
 http_get() {
     local url="$1" out="$2" t="${3:-60}"
     curl -fsSL --connect-timeout 15 --max-time "$t" -o "$out" "$url"
+}
+
+http_get_html() {
+    local url="$1" out="$2" t="${3:-60}"
+    curl -fsSL --connect-timeout 15 --max-time "$t" -H 'Accept: text/html' -o "$out" "$url"
 }
 
 http_get_var() {
@@ -134,7 +144,11 @@ get_luci_version() {
 }
 
 parse_dir_listing() {
-    grep -oE 'href="\./[^"]*"' "$1" | sed 's|href="\./||;s|"||g' | grep -v '^$'
+    {
+        grep -oE 'href="\./[^"]*"' "$1" | sed 's|href="\./||;s|"||g'
+        grep -oE '"url"[[:space:]]*:[[:space:]]*"\./[^"]*"' "$1" \
+            | sed 's|.*"url"[[:space:]]*:[[:space:]]*"\./||;s|"$||'
+    } | grep -v '^$' | sort -u
 }
 
 extract_url_from_releases() {
@@ -231,7 +245,7 @@ parse_release_lines() {
 
 build_releases() {
     local raw="$1" ext="$2" arch="$3" variant="$4" max="${5:-999}"
-    local lf="$UPDATE_DIR/.api_lines"
+    local lf="$RUN_DIR/.api_lines"
     fetch_api_lines "$raw" "$ext" "$lf"
     local r
     r=$(parse_release_lines "$lf" "$arch" "$variant" "$max")
@@ -240,15 +254,17 @@ build_releases() {
 }
 
 check_releases_count() {
-    local json="$1" label="$2" prefix="$3"
-    { [ -z "$json" ] || [ "$json" = "[]" ]; } && die "$prefix" "no_releases" "No $label versions found"
-    printf '%s' "$json" | grep -o '"tag"' | wc -l | tr -d ' '
+    local json="$1" count
+    { [ -z "$json" ] || [ "$json" = "[]" ]; } && return 1
+    count=$(printf '%s' "$json" | grep -o '"tag"' | wc -l | tr -d ' ')
+    [ "$count" -gt 0 ] 2>/dev/null || return 1
+    printf '%s' "$count"
 }
 
 fetch_r66666_tags() {
     local release_type="$1" out="$2"
-    local tmp="$UPDATE_DIR/r66666_root.html"
-    http_get "${MIRROR_BASE}/" "$tmp" || die "" "check_failed" "Failed to fetch mirror version list"
+    local tmp="$RUN_DIR/r66666_root.html"
+    http_get_html "${MIRROR_BASE}/" "$tmp" || die "" "check_failed" "Failed to fetch mirror version list"
     [ -s "$tmp" ]                     || die "" "no_releases" "Mirror version list is empty"
 
     local all; all=$(parse_dir_listing "$tmp" | grep '^v' | grep '/$' | sed 's|/$||')
@@ -256,12 +272,12 @@ fetch_r66666_tags() {
         stable) echo "$all" | grep -E  '^v[0-9]+\.[0-9]+\.[0-9]+$' ;;
         beta)   echo "$all" | grep -Ev '^v[0-9]+\.[0-9]+\.[0-9]+$' ;;
         *)      echo "$all" ;;
-    esac | sort -Vr > "$out"
+    esac | sed '/^$/d' | sort -Vr > "$out"
 }
 
 fetch_r66666_release_files() {
     local tag="$1" variant="$2" arch="$3"
-    local ver="${tag#v}" ver_url="${MIRROR_BASE}/${tag}/" tmp="$UPDATE_DIR/r66666_ver.html"
+    local ver="${tag#v}" ver_url="${MIRROR_BASE}/${tag}/" tmp="$RUN_DIR/r66666_ver.html"
     ver=$(echo "$ver" | sed 's/beta.*$//')
 
     case "$variant" in
@@ -269,7 +285,7 @@ fetch_r66666_release_files() {
         *) log "WARN: Unsupported variant $variant"; return ;;
     esac
 
-    http_get "$ver_url" "$tmp" || { log "WARN: Failed to fetch $ver_url"; return; }
+    http_get_html "$ver_url" "$tmp" || { log "WARN: Failed to fetch $ver_url"; return; }
     [ -s "$tmp" ]              || { log "WARN: Empty directory for tag $tag"; return; }
 
     local subdirs chosen_sub
@@ -279,8 +295,8 @@ fetch_r66666_release_files() {
     [ -z "$chosen_sub" ] && chosen_sub=$(printf '%s\n' "$subdirs" | head -1)
     [ -z "$chosen_sub" ] && { log "WARN: No $variant subdirectory for tag $tag"; return; }
 
-    local sub_url="${MIRROR_BASE}/${tag}/${chosen_sub}/" tmp2="$UPDATE_DIR/r66666_sub.html"
-    http_get "$sub_url" "$tmp2" || { log "WARN: Failed to fetch $sub_url"; return; }
+    local sub_url="${MIRROR_BASE}/${tag}/${chosen_sub}/" tmp2="$RUN_DIR/r66666_sub.html"
+    http_get_html "$sub_url" "$tmp2" || { log "WARN: Failed to fetch $sub_url"; return; }
     [ -s "$tmp2" ]              || { log "WARN: Empty subdirectory $chosen_sub"; return; }
 
     local fnames; fnames=$(parse_dir_listing "$tmp2" \
@@ -384,7 +400,7 @@ cmd_check() {
         r66666)
             rm -f "$SHA256_FILE"
             log "Mirror does not provide sha256, verification will be skipped"
-            local tags_file="$UPDATE_DIR/tags.txt"
+            local tags_file="$RUN_DIR/tags.txt"
             fetch_r66666_tags "$release_type" "$tags_file"
             [ -s "$tags_file" ] || die "" "no_releases" "No matching version tags found"
             local entry result_arr=""
@@ -398,7 +414,7 @@ cmd_check() {
         *) die "" "unknown_mirror" "Unknown mirror: $mirror" ;;
     esac
 
-    local count; count=$(check_releases_count "$releases_json" "lucky" "")
+    local count; count=$(check_releases_count "$releases_json") || die "" "no_releases" "No lucky versions found"
     printf '%s\n' "$releases_json" > "$RELEASES_FILE"
     log "Found $count versions"
     write_status "" "ready:$count"
@@ -437,7 +453,7 @@ cmd_check_luci() {
     write_status "luci" "checking"
     local json
     json=$(fetch_luci_releases "$pm" 5)
-    local count; count=$(check_releases_count "$json" "LuCI" "luci")
+    local count; count=$(check_releases_count "$json") || die "luci" "no_releases" "No LuCI versions found"
     log "LuCI: found $count versions"
     write_status "luci" "ready:$count"
 }

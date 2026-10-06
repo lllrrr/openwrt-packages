@@ -18,7 +18,8 @@ get_zone_index() {
         fi
         idx=$((idx + 1))
     done
-    echo "1"  #  fallback到1（默认WAN通常是第二个zone）
+    # 未找到时回退到1（默认WAN通常是第二个zone）
+    echo "1"
     return 1
 }
 # 自动备份，失败回滚

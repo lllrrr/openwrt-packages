@@ -658,12 +658,13 @@ crontab 里，`substore-cron.sh` 会拿着已不存在的 id 反复执行，每�
 | 7.6 | 修复 | **已修复**（第一轮，见下） |
 | 7.7 | A：后端错误串 msgid 化 | **已实施**（第四轮，见下） |
 | 7.8 | A：删除 `age.lua` / `age_test.lua` | **已删除**（第一轮） |
-| 7.9 | 记录（第二轮实施时新发现） | 待决策 |
+| 7.9 | (a)(b)(c)(d) 全部实施；(e) 保持保守；(g)(h) 实施；(i) 保持现状 | **已实施**（第五、六轮，见下） |
 
 7.5 / 7.6 的修复见本节末尾「7.5 / 7.6 修复记录」，
 7.1 / 7.3 / 7.4 的实施见「第二轮修复记录」，
 7.2 的实施见「第三轮修复记录」，
-7.7 的实施见「第四轮修复记录」。
+7.7 的实施见「第四轮修复记录」，
+7.9 的 (a)–(e) 见「第五轮修复记录」，(g)(h) 见「第六轮修复记录」。
 
 | # | 问题 | 位置 | 依据 | 影响 |
 |---|---|---|---|---|
@@ -675,7 +676,7 @@ crontab 里，`substore-cron.sh` 会拿着已不存在的 id 反复执行，每�
 | 7.6 | ~~Loon 的 `transport=ws` 未映射到 `net`~~ **已修复** | `parser_surge.parse_surge_line` 的 `transport=` 分支 | 只认 `ws=true`（Surge 旧写法）与 `obfs=ws`（QX）；`nsloon.app/docs/Node/` 用 `transport=ws` + `path=` + `host=` | Loon 的 ws 节点导入后 `net=tcp`，`path` / `host` 全丢 → 导出到任何格式都按 tcp 连，握手失败**且不报错** |
 | 7.7 | ~~后端模块仍有 **113 处**硬编码中文字符串字面量（注释外）~~ **已实施** | `core.lua` 47 / `http.lua` 47 / `parser.lua` 9 / `util.lua` 5 / `output_wireguard_conf.lua` 3 / `node.lua` 2 | 扫描脚本（去注释后提取含 CJK / 全角的字符串字面量），见下 | 控制器文案已接入 i18n，但这些来自后端的失败原因经 `?err=` **原样**显示，英文界面下仍是中文。**已按 A 实施**：全部改为语言中立的英文 msgid，组合消息用 `msg.lua` 的分隔符机制，翻译只在显示边界发生（详见「第四轮修复记录」） |
 | 7.8 | ~~`root/usr/share/substore/age.lua` 与 `tests/age_test.lua` 未被 git 跟踪，且 `age.lua` 未被任何模块 `require`~~ **已删除** | 仓库根 | `grep -rn require` 无引用 | 未随包发布；留在工作区会被后续审计反复重新评估 |
-| 7.9 | Loon 的节点行仍有**多处**与官方文档不一致；Surfboard 的 trojan / vmess / vless 凭据同样是位置参数；Loon 的双引号其实**能**保住逗号 | `output_formats.surge_line` | `nsloon.app/docs/Node/`；`getsurfboard.com` | 逐条见下「7.9 的明细」。均未实施（本轮只做决策里点名的 7.4-A） |
+| 7.9 | ~~Loon 的节点行仍有**多处**与官方文档不一致~~ **已实施** | `output_formats.surge_line` / `parser_surge.parse_surge_line` | `nsloon.app/docs/Node/`；`manual.nssurge.com`；`getsurfboard.com` | 逐条见下「7.9 的明细」。**已按 (a)(b)(c)(d) 全部实施、(e) 保持保守**：Loon 的 TLS 开关改 `over-tls`（Trojan 除外）、UDP 改 `udp`、Surge 家族补 `encrypt-method`、Loon 的 ss/ssr/hysteria2 改位置参数；解析端同步跟进以保住回环（详见「第五轮修复记录」）。实施中新发现三条待决策项，见下「第五轮新发现」；其中 (g)(h) 已于第六轮实施、(i) 决定保持现状，另发现 (j) Surge 家族同样没有 Hysteria v1（待决策） |
 
 ### 7.7 的统计口径与例外（修复前必读）
 
@@ -708,11 +709,13 @@ crontab 里，`substore-cron.sh` 会拿着已不存在的 id 反复执行，每�
 （英文），翻译只发生在显示边界（视图 / 控制器），后端模块不得 `require("luci.i18n")`
 —— `substore-cron.sh` 会在独立的 lua 进程里跑 `core.sync`，那里没有 LuCI 环境。
 
-### 7.9 的明细（第二轮实施时新发现，**均未实施**）
+### 7.9 的明细（第二轮实施时新发现，**第五轮已实施**）
 
 第二轮为实施 7.4-A 去核对 Loon 的节点行文档（`nsloon.app/docs/Node/`），顺带发现
 Loon 与 Surge 家族的不一致远不止「凭据位置」。以下每条都对照官方文档原文，
 **没有推测项**；本轮按用户的轮次安排只做决策里点名的 7.4-A，其余记录在此待决策。
+**第五轮（2.7.2-r6）已按 (a)(b)(c)(d) 全部实施、(e) 保持保守**，各条下方的
+「→ 实施」注明落点。
 
 **(a) Loon 的 TLS 开关写作 `over-tls`，本生成器写 `tls`** —— 影响最大的一条。
 Loon 文档的通用参数表与 Reality 示例都用 `over-tls=true`：
@@ -730,8 +733,17 @@ Loon 文档**只**为传输参数明说了旧写法别名（`ws=true` ↔ `trans
 **包括本轮新支持的 Reality 节点**（公钥写了、TLS 标志却没生效）。
 这条不修，7.4-A 与 Reality 支持在真机 Loon 上的收益都要打折。
 
+**→ 实施（第五轮）**：`surge_line` 引入 `tls_flag`（`is_loon and "over-tls=true"
+or "tls=true"`），vmess / vless 用它。**Trojan 例外**：复核 Loon 文档的明文与
+Reality 两条 Trojan 示例，**都没有任何 TLS 键** —— Trojan 本身就建立在 TLS 之上，
+Loon 不再要这个开关，所以 Loon 的 Trojan 行整个不写 TLS 参数（Surge 家族的
+`tls=true` 是文档要求的，保持不变）。解析端早已同时认 `tls` 与 `over-tls`
+（`parser_surge.lua`），回环不受影响。
+
 **(b) Loon 的 UDP 参数写作 `udp`，本生成器写 `udp-relay`** —— 同上，Loon 文档是
 `udp=true`。影响较小（UDP 转发失效，节点本身还能用）。
+
+**→ 实施（第五轮）**：`udp = is_loon and "udp=true" or "udp-relay=true"`。
 
 **(c) Surge 家族的 vmess 不输出 `encrypt-method`** —— Surge 手册的 vmess 页有
 `encrypt-method` 参数，取值 `aes-128-gcm`（默认）或 `chacha20-ietf-poly1305`。
@@ -739,6 +751,11 @@ Loon 文档**只**为传输参数明说了旧写法别名（`ws=true` ↔ `trans
 `aes-128-gcm` 去连 —— **静默用错算法**，与 F5/F6 同一类失效。注意拼写差异：
 统一模型写 `chacha20-poly1305`，Surge / Loon 都写 `chacha20-ietf-poly1305`
 （Loon 侧本轮已用 `LOON_VMESS_CIPHER` 映射，Surge 侧没有对应参数可写）。
+
+**→ 实施（第五轮）**：新增 `SURGE_VMESS_CIPHER`（`aes-128-gcm` → `aes-128-gcm`、
+`chacha20-poly1305` → `chacha20-ietf-poly1305`），在**非 Loon** 的 vmess 分支输出
+`encrypt-method=`。取值不在 Surge 清单里时（`zero` / `none` / `auto` /
+`aes-128-cfb`）不写该参数、节点保留 —— 写一个客户端读不懂的取值比不写更糟。
 
 **(d) Loon 的 shadowsocks / ssr / hysteria2 凭据也是位置参数** —— Loon 文档：
 
@@ -749,6 +766,12 @@ Loon 文档**只**为传输参数明说了旧写法别名（`ws=true` ↔ `trans
 ```
 
 本生成器对这些协议一律写具名参数（`encrypt-method=` / `password=`）。
+
+**→ 实施（第五轮）**：Loon 分支下 ss / ssr 的加密方式与密码、hysteria2 的密码
+一律改位置参数（密码走 `loon_positional` 加双引号）；ssr 的 `protocol=` / `obfs=`
+及其参数仍是具名。**解析端同步跟进**（`parser_surge.parse_surge_line`）——
+其中 **SSR 此前根本没有取字段的分支**，任何写法导入后加密方式、密码、协议插件、
+混淆方式全是 nil，是这一轮顺带修掉的既有缺陷。
 
 **(e) Loon 的双引号确实能保住逗号** —— 文档原文「参数值中含有英文逗号时，
 请使用双引号包裹」。本文件此前注释写的「Loon 的那对引号只是标记，值里的逗号
@@ -762,6 +785,69 @@ vmess 页：其 Format 模板写 `{username}` 位置，但**实际示例与参�
 （`ProxyVMess = vmess, 1.2.3.4, 8000, username=0233d11c-…`）；Surge 手册的 vmess /
 trojan 页同样写 `username=` / `password=`。所以 Surge / Surfboard / SurgeMac 的
 具名写法**是对的**，7.4 只该改 Loon —— 7.4 行已按此更正。
+
+**(e) 实施说明（第五轮）**：保持不变。生成端仍按「位置参数或具名值里含英文逗号
+就整条丢弃」处理，并在 `tests/output_formats_test.lua` 钉了一条断言防止日后被
+无意改成半截输出。
+
+### 第五轮新发现（(g)(h) 第六轮已实施，(i)(j) 待决策）
+
+第五轮实施 (a)–(d) 时对照 `nsloon.app/docs/Node/` 全文复核，另发现三处不一致。
+每条都只陈述**文档写了什么**与**本实现写了什么**，不推测客户端的实际行为。
+第六轮按决策实施了 (g)(h)，(i) 决定保持现状，实施过程中又发现 (j)。
+
+**(g) Loon 没有 Hysteria v1，本生成器会把 `hysteria` 行输出给它** —— Loon 文档的
+节点类型清单里只有 **Hysteria2**，没有 Hysteria（v1）。而 `FAMILY_CAPS` 只按
+vless / ssr 分客户端能力，`hysteria` 不在过滤表里，所以统一模型里的 hysteria v1
+节点会生成一条 Loon 读不懂的行。
+
+**→ 实施（第六轮）**：`FAMILY_CAPS.loon` 加 `hysteria = false`，整条丢弃
+（与丢弃 wireguard / ssr 同一约定）。同时把 `surge_config` 的过滤从逐协议写死的
+`elseif p == "ssr" and not caps.ssr` 改成数据驱动的 `elseif caps[p] == false` ——
+每加一个维度就要再加一条分支，漏掉的那条默认是「保留」，正是本条缺陷的成因。
+**注意 hysteria 2 是各家通用的**，被丢的只有上一代 v1。
+
+**(h) `skip-cert-verify` 写成 `1`，两家文档都没写这个取值** —— Loon 文档的示例
+一律写 `skip-cert-verify=false`；Surge 手册的 TLS 页只写「Optional, boolean,
+default: false」，**没有**列出可接受的字面量。本生成器一律写
+`skip-cert-verify=1`。`1` 是否被接受**无依据**。解析端两种都认（`parser_surge`
+把非 `0` / 非 `false` 都当 true），所以回环不受影响。
+
+**→ 实施（第六轮）**：改写成 `skip-cert-verify=true`。判据是「Loon 自己的示例写了
+`false`，直接证明 `false` 是合法字面量、`true` 同理；而 `1` 在任何一家文档里都
+找不到」。既有测试里没有任何一条断言过**生成端**的 `skip-cert-verify=1`
+（`anytls_reality_test` 里那一处是把 `=1` 当**输入**喂给解析器，仍然有效）。
+
+**(i) 协议名大小写：Loon 文档一律首字母大写，本生成器一律小写** —— Loon 文档写
+`Hysteria2` / `VMess` / `VLESS` / `Shadowsocks` / `AnyTLS`；本生成器输出
+`hysteria2` / `vmess` / `vless` / `shadowsocks` / `anytls`。Loon 官方定位是
+「兼容 Surge 配置」，而 Surge 手册的语法行用的是小写（`Name = vmess, <host>, …`），
+所以小写**很可能**被接受，但**没有文档明说**。
+
+**→ 决定：保持现状（第六轮）**。没有任何证据显示小写会失败，而改动面覆盖全部
+协议；若日后确认大小写敏感，应改的是 Loon 分支的类型名映射。
+
+### 第六轮新发现（**未实施，待决策**）
+
+**(j) Surge 家族同样没有 Hysteria v1，本生成器仍会把 `hysteria` 行输出给它们** ——
+第五轮实施 (g) 时顺带复核了 Surge 的协议清单，发现与 Loon 是**同一个缺口**：
+
+* `manual.nssurge.com` 的 Proxy Protocols 一节列的是 **Hysteria 2**，没有 Hysteria；
+* 直接的页面探针：`manual.nssurge.com/policies/hysteria.html` → **HTTP 404**，
+  而 `manual.nssurge.com/policies/hysteria2.html` → **存在**（语法行
+  `Proxy-Hysteria = hysteria2, 192.168.20.6, 443, password=pwd, download-bandwidth=100`）。
+
+也就是说 Surge / SurgeMac 的 `hysteria`（v1）行同样是一条客户端读不懂的行。
+**(g) 的决策只点名了 Loon**，所以第六轮**没有**顺手改 Surge 家族 ——
+`tests/output_formats_test.lua` 里有一条断言如实钉住了当前行为
+（`surge still keeps hysteria v1 (finding j pending)`），实施 (j) 时要一并翻转。
+
+Surfboard 未获证据：`getsurfboard.com/docs/profile-format/proxy/external-proxy/`
+与其无斜杠形式本轮都返回 404，没能取到协议清单。
+
+修法：给 `FAMILY_CAPS` 的 surge / surfboard / surgemac 三行都加 `hysteria = false`
+（过滤逻辑第六轮已改成数据驱动，加一个键即可），或把 `hysteria` 与 `wireguard`
+一样无条件丢弃。
 
 ## 7.1 / 7.2 / 7.3 的实测探针
 
@@ -1173,6 +1259,156 @@ message"` 后跑 `tests/backend_i18n_test.lua`，得到 **1 条 FAIL**（`no po 
 … A brand new untranslated message`），确认扫描面不是空转；还原后 **15 条全 PASS**。
 
 全套 **59 个测试文件、0 失败**。
+
+---
+
+## 第五轮修复记录（7.9）
+
+**7.9 (a)(b)(c)(d) 按官方文档对齐 Loon / Surge 家族的写法**，(e) 保持保守。
+全部改动集中在 `root/usr/share/substore/output_formats.lua` 的 `M.surge_line`
+（生成端）与 `root/usr/share/substore/parser_surge.lua` 的 `parse_surge_line`
+（解析端）—— 两端必须成对，否则导出的配置再导入回来会静默丢字段。
+
+### (a) TLS 开关：Loon 用 `over-tls`，Trojan 例外
+
+```lua
+local is_loon  = (flavor == "loon")
+local tls_flag = is_loon and "over-tls=true" or "tls=true"
+```
+
+vmess / vless 的 `if tls then … end` 改用 `tls_flag`。**Trojan 反过来**：Loon 文档
+的明文与 Reality 两条示例都**没有**任何 TLS 键（Trojan 本身建立在 TLS 之上），
+所以 Loon 的 trojan 行整个不写 TLS 参数，Surge 家族的 `tls=true` 保持不动。
+
+### (b) UDP 开关：Loon 用 `udp`
+
+```lua
+if n.udp then e[#e + 1] = is_loon and "udp=true" or "udp-relay=true" end
+```
+
+### (c) Surge 家族补 `encrypt-method`
+
+新增 `SURGE_VMESS_CIPHER`（`aes-128-gcm` → `aes-128-gcm`、
+`chacha20-poly1305` → `chacha20-ietf-poly1305`），在**非 Loon** 的 vmess 分支写出。
+映射不到的取值（`zero` / `none` / `auto` / `aes-128-cfb`）**不写该参数**、节点保留：
+Surge 的清单只有那两个取值，写一个客户端读不懂的比不写更糟（写与不写都是
+`aes-128-gcm` 默认值，语义等价）。Loon 侧加密方式本就在位置参数上，不受影响。
+
+### (d) Loon 的 ss / ssr / hysteria2 改位置参数
+
+```
+Shadowsocks,服务器,端口,加密方式,"密码"
+ShadowsocksR,服务器,端口,加密方式,"密码",protocol=…,obfs=…
+Hysteria2,服务器,端口,"密码"
+```
+
+密码走 `loon_positional`（加双引号，值里含双引号则整条丢弃）；ssr 的
+`protocol=` / `obfs=` / `obfs-param=` / `protocol-param=` 仍是具名参数。
+
+### 解析端同步（**并修掉一个既有缺陷**）
+
+`parse_surge_line` 的字段提取补上位置参数：
+
+| 协议 | 生成端（Loon） | 解析端 |
+|---|---|---|
+| shadowsocks | `加密方式,"密码"` | `kv.* or pos[1]` / `kv.password or pos[2]` |
+| ssr | 同上 + 具名插件参数 | **新增分支**（此前 ssr 没有任何取字段的分支） |
+| hysteria2 | `"密码"` | `kv.password or pos[1]` |
+
+**SSR 此前根本没有取字段的分支** —— 不论哪种写法导入，加密方式、密码、协议插件、
+混淆方式全是 nil，节点带着空凭据进入统一模型，导出时再被静默丢掉。这是本轮顺带
+修掉的既有缺陷，不是 (d) 引入的。`obfs-param` / `protocol-param` 两种拼写都写一份
+（`PROTO_FIELDS` / `DEFAULTS` 用带连字符的规范写法，各输出模块读的是下划线别名，
+与 `parser.lua` 同时写 `method` / `cipher` 同一理由）。
+
+### 顺手更正的陈旧注释
+
+`surge_line` 里 anytls 分支上方原写着「这是本文件里唯一按 flavor 分叉的协议：
+trojan / vmess / vless 一律用具名参数」—— 7.4-A 之后就不成立了，已改写。
+
+### 测试
+
+* `tests/ssr_test.lua`：`loon encrypt-method` 一条改为断言位置参数写法，并新增
+  **9 条 Loon 输出 → 导入回环**断言。
+* `tests/output_formats_test.lua`：新增 **7.9 专节 24 条**（(a) 6 / (b) 3 / (c) 4 /
+  (d) 4 / (e) 1 / 回环 6）。
+* **反向验证**（逐条把代码改回旧行为，确认测试变红）：`tls_flag` 写死 `tls=true`
+  → 3 条 FAIL；UDP 写死 `udp-relay` → 2 条 FAIL；去掉 `encrypt-method` → 2 条 FAIL；
+  Loon 的 ss / hysteria2 改回具名 → 2 条 FAIL；解析端 ssr 分支停用 → 5 条 FAIL；
+  解析端 hysteria2 / ss 位置参数去掉 → 各 1 条 FAIL。还原后全部 PASS。
+
+全套 **59 个测试文件、0 失败**。
+
+### 本轮新发现（见上文「第五轮新发现」）
+
+(g) Loon 没有 Hysteria v1；(h) `skip-cert-verify=1` 的取值无文档依据；
+(i) 协议名大小写。三条当时只记录、不动代码；(g)(h) 已在第六轮实施，
+(i) 决定保持现状。
+
+---
+
+## 第六轮修复记录（7.9 的 g / h）
+
+第五轮新发现里经决策要实施的两条。(i) 决定保持现状，不动代码。
+
+### (g) Loon 丢弃 Hysteria v1
+
+```lua
+loon = { vless = true, ssr = true, hysteria = false },
+```
+
+判据：Loon 的节点类型清单里只有 **Hysteria2**（`nsloon.app/docs/Node/`）。
+**hysteria 2 是各家通用的**，被丢的只有上一代 v1 —— 两者共用同一个输出分支
+（`elseif proto == "hysteria2" or proto == "hysteria"`），最容易误伤。
+
+**顺带把过滤逻辑改成数据驱动**。此前是逐协议写死的：
+
+```lua
+elseif p == "ssr" and not caps.ssr then      -- 旧
+elseif p == "vless" and not caps.vless then  -- 旧
+```
+
+```lua
+elseif caps[p] == false then                 -- 新
+```
+
+每加一个维度就要再加一条分支，**漏掉的那条默认是「保留」** —— 这正是本条缺陷的
+成因（`hysteria` 从没进过这张表）。改成查表后，`FAMILY_CAPS` 里标一个 `false`
+即可，不会再有「忘了加分支」这种漏法。`caps[p]` 为 nil（表没表态）一律保留。
+
+### (h) `skip-cert-verify` 改写 `true`
+
+```lua
+if n["skip-cert-verify"] then e[#e + 1] = "skip-cert-verify=true" end
+```
+
+判据：Loon 文档的示例就是 `skip-cert-verify=false`，直接证明 `false` 是合法
+字面量、`true` 同理；而 `1` 在任何一家文档里都找不到（Surge 手册的 TLS 页只写
+「Optional, boolean, default: false」）。解析端两种都认，回环不受影响。
+
+**断言面审计**：全仓库只有 `output_formats.lua` 一处写这个串；既有测试里**没有**
+任何一条断言过生成端的 `skip-cert-verify=1` —— `anytls_reality_test.lua:151` 那处
+是把 `=1` 当**输入**喂给解析器，改写后仍然有效。
+
+### (i) 协议名大小写：保持现状
+
+无证据显示小写会失败（Loon 定位是兼容 Surge 配置，Surge 手册的语法行就是小写），
+改动面却覆盖全部协议。不改。
+
+### 测试
+
+* `tests/protocol_registry_test.lua`：`hysteria` 的丢弃表加 `loon` 一条。
+* `tests/output_formats_test.lua`：新增 (g) 5 条 / (h) 4 条断言，含回环。
+  其中一条如实钉住 **Surge 家族当前仍输出 hysteria v1**（发现 (j)，待决策），
+  实施 (j) 时要一并翻转。
+* 反向验证：`FAMILY_CAPS.loon.hysteria` 改回不设 / `skip-cert-verify` 改回 `=1`，
+  确认测试变红。
+* 全套 **59 个测试文件、0 失败**。
+
+### 本轮新发现（见上文「第六轮新发现」）
+
+(j) Surge 家族同样没有 Hysteria v1（`manual.nssurge.com/policies/hysteria.html`
+是 404、`hysteria2.html` 存在）。本轮**没有**顺手改 —— (g) 的决策只点名了 Loon。
 
 ---
 

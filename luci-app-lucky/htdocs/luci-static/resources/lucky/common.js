@@ -845,16 +845,30 @@ var TASK_MESSAGES = {
 
 function taskMessage(s) {
     s = s || {};
-    var code = s.code || s.status_code || s.status || 'error';
+    var code = s.error_code || s.code || s.status_code || s.status || 'error';
     return TASK_MESSAGES[code] || _('Error');
 }
 
 function LogPoller(opts) {
     var timer = null;
+    var active = false;
+    var inFlight = false;
+    var generation = 0;
 
     function tick() {
-        opts.status().then(function(s) {
+        if (!active || inFlight) return;
+        inFlight = true;
+        var currentGeneration = generation;
+
+        Promise.resolve().then(function() {
+            return opts.status();
+        }).then(function(s) {
+            if (!active || currentGeneration !== generation) return;
             s = s || {};
+            if (s.status === 'error' && s.code !== 'error') {
+                s.error_code = s.code || s.error_code || 'error';
+                s.code = 'error';
+            }
             var code = s.code || s.status;
 
             if (opts.textEl) {
@@ -880,16 +894,22 @@ function LogPoller(opts) {
                 stop();
                 if (opts.onDone) opts.onDone(s);
             }
+        }).catch(function() {}).then(function() {
+            if (currentGeneration === generation) inFlight = false;
         });
     }
 
     function start(interval) {
         stop();
+        active = true;
         timer = setInterval(tick, interval || opts.interval || 1500);
         tick();
     }
 
     function stop() {
+        active = false;
+        generation++;
+        inFlight = false;
         if (timer) { clearInterval(timer); timer = null; }
     }
 
@@ -966,4 +986,5 @@ function parseHex8(hex8) {
     }
     return { hex: hex8 || '', a: 100 };
 }
+
 

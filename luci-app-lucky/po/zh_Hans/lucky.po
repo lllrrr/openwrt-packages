@@ -57,6 +57,9 @@ msgstr "未找到包管理器"
 msgid "No releases found"
 msgstr "未找到版本"
 
+msgid "No %s variant files"
+msgstr "无%s变体文件"
+
 msgid "Update check failed"
 msgstr "更新检查失败"
 
@@ -276,8 +279,8 @@ msgstr "下载镜像"
 msgid "GitHub (github.com/gdy666/lucky)"
 msgstr "GitHub（github.com/gdy666/lucky）"
 
-msgid "Official (release.66666.plus)"
-msgstr "官方版（release.66666.plus）"
+msgid "Official (release.66666.host)"
+msgstr "官方版（release.66666.host）"
 
 msgid "Release Channel"
 msgstr "发布渠道"

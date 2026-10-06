@@ -445,6 +445,87 @@
 .lucky-link-btn:hover { border-color: var(--lucky-primary); filter: brightness(1.06); }
 .lucky-link-btn:active { transform: scale(0.96); }
 
+.lucky-panel-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: grid;
+    place-items: center;
+    padding: 18px;
+    box-sizing: border-box;
+    background: var(--lucky-overlay);
+    -webkit-backdrop-filter: blur(5px);
+    backdrop-filter: blur(5px);
+}
+.lucky-panel {
+    box-sizing: border-box;
+    width: min(560px, 100%);
+    max-height: min(90vh, 720px);
+    max-height: min(90dvh, 720px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    color: var(--lucky-text);
+    background: var(--lucky-card-bg-solid);
+    border: 1px solid var(--lucky-card-border);
+    border-radius: var(--lucky-radius);
+    box-shadow: var(--lucky-card-shadow);
+}
+.lucky-panel-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    padding: 18px 20px 12px;
+    color: var(--lucky-text);
+    font-size: 18px;
+    line-height: 1.35;
+}
+.lucky-panel-desc {
+    margin: 0;
+    padding: 0 20px 14px;
+    color: var(--lucky-text-3);
+    font-size: 13px;
+}
+.lucky-file-list {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+    overflow: auto;
+    padding: 4px 20px 16px;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+}
+.lucky-file-btn {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 11px 13px;
+    border: 1px solid var(--lucky-input-border);
+    border-radius: 9px;
+    background: var(--lucky-inset-bg);
+    color: var(--lucky-text);
+    font: inherit;
+    text-align: left;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+    transition: border-color 0.18s, background 0.18s, transform 0.15s;
+}
+.lucky-file-btn:hover {
+    border-color: var(--lucky-primary);
+    background: var(--lucky-cell-bg);
+}
+.lucky-file-btn:active { transform: scale(0.99); }
+.lucky-file-btn:focus-visible { outline: 2px solid var(--lucky-primary); outline-offset: 2px; }
+.lucky-panel-foot {
+    display: flex;
+    justify-content: flex-end;
+    padding: 12px 20px;
+    border-top: 1px solid var(--lucky-divider);
+}
+
 body.lucky-variant-modal-open { overflow: hidden; }
 .lucky-variant-overlay {
     position: fixed;

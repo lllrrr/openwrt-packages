@@ -197,11 +197,12 @@ return view.extend({
         C.setState(t + '_stat', _('Checking upstream…'), 'busy');
 
         var p = [];
+        var checkVariant = ucig('variant') || 'lucky';
         if (t === 'upd') {
             var mi = retry ? $('upd_rmir').value : (ucig('mirror')       || 'github');
             var re = retry ? $('upd_rrel').value : (ucig('release_type') || 'stable');
-            var va = retry ? $('upd_rvar').value : (ucig('variant')      || 'lucky');
-            p = [mi, mi === 'r66666' ? re : '', va];
+            checkVariant = retry ? ($('upd_rvar').value || 'lucky') : checkVariant;
+            p = [mi, mi === 'r66666' ? re : '', checkVariant];
         }
 
         L.resolveDefault(api[t + 'Chk'].apply(null, p), {}).then(function(res) {
@@ -211,7 +212,7 @@ return view.extend({
                 if (t === 'upd') C.setVis('upd_retry', true);
                 return;
             }
-            self._poll(t, 'chk');
+            self._poll(t, 'chk', checkVariant);
         });
     },
 
@@ -241,7 +242,7 @@ return view.extend({
         });
     },
 
-    _poll: function(t, phase) {
+    _poll: function(t, phase, checkVariant) {
         var self = this;
         var tk   = t + '_' + phase + '_poller';
         if (self[tk]) self[tk].stop();
@@ -292,6 +293,7 @@ return view.extend({
                 if (phase === 'chk') {
                     if (code === 'ready' && s.releases) {
                         self['_R' + t] = s.releases;
+                        if (t === 'upd' && checkVariant) self._RupdVariant = checkVariant;
                         var ts = $(t + '_tag');
                         ts.innerHTML = '';
                         s.releases.forEach(function(r) {
@@ -319,14 +321,18 @@ return view.extend({
         var rels = this['_R' + t] || [];
         var tv   = ($(t + '_tag') || {}).value;
         var fs   = $(t + '_file');
+        var doBtn = t === 'upd' ? $('upd_do') : null;
+        if (doBtn) doBtn.disabled = true;
         if (!tv || !fs) return;
         var rel  = rels.filter(function(x) { return x.tag === tv; })[0];
         fs.innerHTML = '';
+        fs.disabled = false;
         if (!rel || !rel.files) return;
 
         var files = rel.files;
+        var variant = '';
         if (t === 'upd') {
-            var variant = ucig('variant') || 'lucky';
+            variant = rel.variant || this._RupdVariant || ucig('variant') || 'lucky';
             files = files.filter(function(f) {
                 var n = f.name;
                 if (variant === 'wanji')        return n.indexOf('wanji') !== -1 && n.indexOf('docker') === -1;
@@ -337,7 +343,13 @@ return view.extend({
                 if (variant === 'wanji_docker') return n.indexOf('wanji_docker') !== -1 || (n.indexOf('wanji') !== -1 && n.indexOf('docker') !== -1);
                 return n.indexOf('wanji') === -1 && n.indexOf('xiaojv') === -1 && n.indexOf('xiaoman') === -1 && n.indexOf('docker') === -1;
             });
+            if (!files.length) {
+                fs.appendChild(E('option', { value: '' }, _('No %s variant files').format(variant)));
+                fs.disabled = true;
+                return;
+            }
         }
+        if (doBtn) doBtn.disabled = false;
         var best = 0;
         files.forEach(function(f, i) {
             fs.appendChild(E('option', { value: f.name }, f.name));

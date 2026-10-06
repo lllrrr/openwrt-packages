@@ -183,9 +183,9 @@ EOF
 restart_docker() {
     log_info "正在重启 Docker 服务..."
     
-    if command -v /etc/init.d/dockerd >/dev/null 2>&1; then
+    if [ -x /etc/init.d/dockerd ]; then
         /etc/init.d/dockerd restart >/dev/null 2>&1
-    elif command -v /etc/init.d/docker >/dev/null 2>&1; then
+    elif [ -x /etc/init.d/docker ]; then
         /etc/init.d/docker restart >/dev/null 2>&1
     else
         # 尝试直接重启 dockerd 进程
@@ -213,9 +213,9 @@ restart_docker() {
 stop_docker() {
     log_info "正在停止 Docker 服务..."
     
-    if command -v /etc/init.d/dockerd >/dev/null 2>&1; then
+    if [ -x /etc/init.d/dockerd ]; then
         /etc/init.d/dockerd stop >/dev/null 2>&1
-    elif command -v /etc/init.d/docker >/dev/null 2>&1; then
+    elif [ -x /etc/init.d/docker ]; then
         /etc/init.d/docker stop >/dev/null 2>&1
     else
         killall dockerd 2>/dev/null

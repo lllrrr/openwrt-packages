@@ -200,6 +200,7 @@ return view.extend({
 
         var restoreBtn = E('button', {
             type: 'button',
+            id: '_f_restore',
             class: 'lucky-btn lucky-btn-primary',
             click: function() {
                 restoreBtn.disabled = true;
@@ -234,7 +235,7 @@ return view.extend({
                                     _('Restore backup: %s ?').format(f.name)
                                 )) return;
                                 L.resolveDefault(
-                                    api.restoreBackup({ filename: f.name }), {}
+                                    api.restoreBackup(f.name), {}
                                 ).then(function(r) {
                                     var ok = r && r.result === 'ok';
                                     C.showToast({
@@ -278,6 +279,7 @@ return view.extend({
 
         var resetBtn = E('button', {
             type: 'button',
+            id: '_f_reset',
             class: 'lucky-btn lucky-btn-danger',
             click: function() {
                 if (!window.confirm(
@@ -380,7 +382,7 @@ return view.extend({
                     C.buildFormRow('select', 'mirror', _('Download Mirror'),
                         cfg.mirror || 'github', null, [
                             { v: 'github', l: _('GitHub (github.com/gdy666/lucky)') },
-                            { v: 'r66666', l: _('Official (release.66666.plus)') }
+                            { v: 'r66666', l: _('Official (release.66666.host)') }
                         ]),
                     C.buildFormRow('select', 'release_type', _('Release Channel'),
                         cfg.release_type || 'stable',
