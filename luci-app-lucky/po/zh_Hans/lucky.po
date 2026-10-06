@@ -294,32 +294,101 @@ msgstr "测试版"
 msgid "Lucky Variant"
 msgstr "Lucky 变体"
 
-msgid "Standard: smaller. Full-featured: more functions"
-msgstr "标准版：体积更小；全功能版：功能更多"
+msgid "Standard Edition (Lucky)"
+msgstr "标准版（Lucky）"
 
-msgid "Standard (lucky)"
-msgstr "标准版（lucky）"
+msgid "Full-featured Edition (Wanji)"
+msgstr "全功能版（Wanji）"
 
-msgid "Full-featured (wanji)"
-msgstr "全功能版（wanji）"
+msgid "Basic Lite (XiaoJV)"
+msgstr "基础精简版（XiaoJV）"
 
-msgid "XiaoJV"
-msgstr "小杰版"
+msgid "Lite + WAF (XiaoJV WAF)"
+msgstr "精简版 + WAF（XiaoJV WAF）"
 
-msgid "XiaoJV WAF"
-msgstr "小杰 WAF 版"
+msgid "Wanji Lite (xiaoman)"
+msgstr "万吉精简版（xiaoman）"
 
-msgid "XiaoMan"
-msgstr "小满版"
-
-msgid "Lucky Docker"
+msgid "Lucky Docker Edition"
 msgstr "Lucky Docker 版"
 
-msgid "Wanji Docker"
-msgstr "万吉 Docker 版"
+msgid "Wanji Docker Edition"
+msgstr "Wanji Docker 版"
 
 msgid "Choose the variant that suits your needs"
 msgstr "选择适合你需求的变体"
+
+msgid "Compare variants"
+msgstr "查看各变体区别"
+
+msgid "Common features"
+msgstr "共有功能"
+
+msgid "FTP / WebDAV / storage / WOL / terminal"
+msgstr "FTP / WebDAV / 存储 / 网络唤醒 / Web 终端"
+
+msgid "Coraza WAF / gRPC"
+msgstr "Coraza WAF / gRPC"
+
+msgid "FileBrowser / Rclone"
+msgstr "FileBrowser / Rclone"
+
+msgid "DLNA / Cloudflared / FRP / Samba"
+msgstr "DLNA / Cloudflared / FRP / Samba"
+
+msgid "Passkey / LuckyID"
+msgstr "Passkey / LuckyID"
+
+msgid "Docker management"
+msgstr "Docker 管理"
+
+msgid "Recommended for"
+msgstr "适用场景"
+
+msgid "Included"
+msgstr "包含"
+
+msgid "Not included"
+msgstr "不包含"
+
+msgid "Everyday use with standard features"
+msgstr "日常使用，需要标准版功能"
+
+msgid "Full feature set"
+msgstr "需要完整功能"
+
+msgid "Lightweight, core features"
+msgstr "只需基础功能，追求轻量"
+
+msgid "Lightweight WAF and gRPC"
+msgstr "轻量使用，同时需要 WAF 和 gRPC"
+
+msgid "Wanji features without FileBrowser and Rclone"
+msgstr "需要万吉功能，但不需要 FileBrowser 和 Rclone"
+
+msgid "Standard features plus Docker management"
+msgstr "标准版功能，并管理 Docker 容器"
+
+msgid "Wanji features plus Docker management"
+msgstr "万吉版功能，并管理 Docker 容器"
+
+msgid "Docker management is a module and is separate from the Docker image used to run Lucky."
+msgstr "Docker 管理是功能模块，与运行 Lucky 的 Docker 镜像是两回事。"
+
+msgid "Lucky variant comparison"
+msgstr "Lucky 变体功能对比"
+
+msgid "Feature availability may vary by platform and build."
+msgstr "功能支持可能因平台和构建版本而异。"
+
+msgid "Scrollable variant comparison table"
+msgstr "可滚动的变体对比表格"
+
+msgid "All variants include: Web service, ACME certificates, DDNS, port forwarding, STUN, scheduled tasks, third-party authentication, IP database, icon library, log center and embedded admin interface."
+msgstr "所有版本均包含：Web 服务、ACME 证书、DDNS、端口转发、STUN、计划任务、第三方认证、IP 地址库、图标库、日志中心及内嵌管理界面。"
+
+msgid "✓ Included; — not included."
+msgstr "✓ 包含；— 不包含。"
 
 msgid "Respawn Policy"
 msgstr "重启策略"

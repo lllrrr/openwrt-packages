@@ -20,6 +20,152 @@ var api = {
     restoreBackup: C.rpc('restore_backup', ['filename'])
 };
 
+var variantRows = [
+    {
+        name: _('Standard Edition (Lucky)'),
+        standard: true, waf: false, filebrowser: false, wanji: false,
+        identity: true, docker: false,
+        recommend: _('Everyday use with standard features')
+    },
+    {
+        name: _('Full-featured Edition (Wanji)'),
+        standard: true, waf: true, filebrowser: true, wanji: true,
+        identity: true, docker: false,
+        recommend: _('Full feature set')
+    },
+    {
+        name: _('Basic Lite (XiaoJV)'),
+        standard: false, waf: false, filebrowser: false, wanji: false,
+        identity: false, docker: false,
+        recommend: _('Lightweight, core features')
+    },
+    {
+        name: _('Lite + WAF (XiaoJV WAF)'),
+        standard: false, waf: true, filebrowser: false, wanji: false,
+        identity: false, docker: false,
+        recommend: _('Lightweight WAF and gRPC')
+    },
+    {
+        name: _('Wanji Lite (xiaoman)'),
+        standard: true, waf: true, filebrowser: false, wanji: true,
+        identity: true, docker: false,
+        recommend: _('Wanji features without FileBrowser and Rclone')
+    },
+    {
+        name: _('Lucky Docker Edition'),
+        standard: true, waf: false, filebrowser: false, wanji: false,
+        identity: true, docker: true,
+        recommend: _('Standard features plus Docker management')
+    },
+    {
+        name: _('Wanji Docker Edition'),
+        standard: true, waf: true, filebrowser: true, wanji: true,
+        identity: true, docker: true,
+        recommend: _('Wanji features plus Docker management')
+    }
+];
+
+function showVariantComparison(trigger) {
+    var headers = [
+        _('Variant'),
+        _('Common features'),
+        _('FTP / WebDAV / storage / WOL / terminal'),
+        _('Coraza WAF / gRPC'),
+        _('FileBrowser / Rclone'),
+        _('DLNA / Cloudflared / FRP / Samba'),
+        _('Passkey / LuckyID'),
+        _('Docker management'),
+        _('Recommended for')
+    ];
+
+    function featureCell(included) {
+        return E('td', {
+            class: included ? 'lucky-variant-yes' : 'lucky-variant-no',
+            title: included ? _('Included') : _('Not included'),
+            'aria-label': included ? _('Included') : _('Not included')
+        }, included ? '✓' : '—');
+    }
+
+    var table = E('table', { class: 'lucky-variant-table' }, [
+        E('thead', {}, E('tr', {}, headers.map(function(label) {
+            return E('th', { scope: 'col' }, label);
+        }))),
+        E('tbody', {}, variantRows.map(function(row) {
+            return E('tr', {}, [
+                E('th', { scope: 'row' }, row.name),
+                featureCell(true),
+                featureCell(row.standard),
+                featureCell(row.waf),
+                featureCell(row.filebrowser),
+                featureCell(row.wanji),
+                featureCell(row.identity),
+                featureCell(row.docker),
+                E('td', { class: 'lucky-variant-recommend' }, row.recommend)
+            ]);
+        }))
+    ]);
+
+    var closeBtn;
+    var overlay;
+
+    function close() {
+        document.removeEventListener('keydown', onKeydown);
+        document.body.classList.remove('lucky-variant-modal-open');
+        if (overlay && overlay.parentNode)
+            overlay.parentNode.removeChild(overlay);
+        if (trigger && trigger.focus)
+            trigger.focus();
+    }
+
+    function onKeydown(ev) {
+        if (ev.key === 'Escape') close();
+    }
+
+    closeBtn = E('button', {
+        type: 'button',
+        class: 'lucky-variant-close',
+        title: _('Close'),
+        'aria-label': _('Close'),
+        click: close
+    }, [C.icon('close', 18)]);
+
+    overlay = E('div', { class: 'lucky-variant-overlay' }, [
+        E('section', {
+            class: 'lucky-variant-dialog',
+            role: 'dialog',
+            'aria-modal': 'true',
+            'aria-labelledby': 'lucky-variant-title'
+        }, [
+            E('div', { class: 'lucky-variant-head' }, [
+                E('div', {}, [
+                    E('h3', { id: 'lucky-variant-title' }, _('Lucky variant comparison')),
+                    E('p', {}, _('Feature availability may vary by platform and build.'))
+                ]),
+                closeBtn
+            ]),
+            E('div', {
+                class: 'lucky-variant-table-wrap',
+                tabindex: '0',
+                'aria-label': _('Scrollable variant comparison table')
+            }, [table]),
+            E('div', { class: 'lucky-variant-foot' }, [
+                E('p', {}, _('All variants include: Web service, ACME certificates, DDNS, port forwarding, STUN, scheduled tasks, third-party authentication, IP database, icon library, log center and embedded admin interface.')),
+                E('p', {}, _('Docker management is a module and is separate from the Docker image used to run Lucky.')),
+                E('div', { class: 'lucky-variant-legend' },
+                    _('✓ Included; — not included.'))
+            ])
+        ])
+    ]);
+
+    overlay.addEventListener('click', function(ev) {
+        if (ev.target === overlay) close();
+    });
+    document.addEventListener('keydown', onKeydown);
+    document.body.classList.add('lucky-variant-modal-open');
+    document.body.appendChild(overlay);
+    closeBtn.focus();
+}
+
 return view.extend({
     load: function() {
         return Promise.all([
@@ -174,6 +320,18 @@ return view.extend({
         descTimeout.textContent   = fmtTimeout(cfg.respawn_timeout     || '30');
         descRetry.textContent     = fmtRetry(cfg.respawn_retry         || '5');
 
+        var variantHelp = E('button', {
+            type: 'button',
+            class: 'lucky-variant-help',
+            title: _('Compare variants'),
+            'aria-label': _('Compare variants'),
+            click: function() { showVariantComparison(this); }
+        }, '?');
+        var variantDesc = E('span', { class: 'lucky-variant-desc' }, [
+            E('span', {}, _('Choose the variant that suits your needs')),
+            variantHelp
+        ]);
+
         var mapEl = E('div', { class: 'cbi-map lucky-page' }, [
             E('h2', {}, _('Lucky — Settings')),
 
@@ -232,14 +390,14 @@ return view.extend({
                         ]),
                     C.buildFormRow('select', 'variant', _('Lucky Variant'),
                         cfg.variant || 'lucky',
-                        _('Choose the variant that suits your needs'), [
-                            { v: 'lucky',        l: _('Standard (lucky)') },
-                            { v: 'wanji',        l: _('Full-featured (wanji)') },
-                            { v: 'xiaojv',       l: _('XiaoJV') },
-                            { v: 'xiaojv_waf',   l: _('XiaoJV WAF') },
-                            { v: 'xiaoman',      l: _('XiaoMan') },
-                            { v: 'lucky_docker', l: _('Lucky Docker') },
-                            { v: 'wanji_docker', l: _('Wanji Docker') }
+                        variantDesc, [
+                            { v: 'lucky',        l: _('Standard Edition (Lucky)') },
+                            { v: 'wanji',        l: _('Full-featured Edition (Wanji)') },
+                            { v: 'xiaojv',       l: _('Basic Lite (XiaoJV)') },
+                            { v: 'xiaojv_waf',   l: _('Lite + WAF (XiaoJV WAF)') },
+                            { v: 'xiaoman',      l: _('Wanji Lite (xiaoman)') },
+                            { v: 'lucky_docker', l: _('Lucky Docker Edition') },
+                            { v: 'wanji_docker', l: _('Wanji Docker Edition') }
                         ])
                 ], { icon: 'download' })
             ]),

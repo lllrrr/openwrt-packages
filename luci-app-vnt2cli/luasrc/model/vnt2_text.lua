@@ -42,6 +42,8 @@ local log_message_exact_map = {
 	["start failed: missing executable vnt2_cli"] = "启动失败：缺少可执行文件 vnt2_cli",
 	["start failed: runtime toml export failed"] = "启动失败：运行配置导出失败",
 	["client disabled; runtime toml export failed"] = "客户端已停用；运行配置导出失败，保留原运行配置文件",
+	["export skipped: client config missing network_code and subscription"] = "导出跳过：客户端配置缺少 network_code 和 subscription",
+	["client enabled but not configured; start skipped"] = "客户端已启用但未填写 network_code/subscription，已跳过启动",
 	["export failed: client config missing network_code and subscription"] = "导出失败：客户端配置缺少 network_code 和 subscription",
 	["export failed: tunnel_addr and tunnel_port are mutually exclusive"] = "导出失败：tunnel_addr 与 tunnel_port 互斥，不能同时填写",
 	["export failed: unable to publish runtime toml"] = "导出失败：无法写入运行配置文件",
@@ -259,8 +261,37 @@ function M.read_log_file(path, max_lines)
 	return M.normalize_log_text(content)
 end
 
+-- The merged log blends two sources with different timestamp styles:
+--   * LuCI/plugin logs: "2026-10-05 22:31:39 config : ..." (local time, space separator)
+--   * Rust client logs: "2026-10-05T14:31:47.033195971+00:00 ..." (UTC, T separator)
+-- The old matcher only recognised the space form, so every client line fell
+-- back to an empty timestamp and was sorted to the very front of the merged
+-- output - making the timeline look scrambled. We now parse both into a real
+-- epoch (seconds) so the merge is chronologically correct regardless of the
+-- device timezone.
+local TZ_OFFSET = (function()
+	local t = os.time()
+	return os.difftime(t, os.time(os.date("!*t", t)))
+end)()
+
 local function log_timestamp(line)
-	return tostring(line or ""):match("^(%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d)") or ""
+	local y, mo, d, h, mi, s = tostring(line or ""):match(
+		"^(%d%d%d%d)%-(%d%d)%-(%d%d) (%d%d):(%d%d):(%d%d)")
+	if y then
+		return os.time({ year = tonumber(y), month = tonumber(mo),
+			day = tonumber(d), hour = tonumber(h), min = tonumber(mi),
+			sec = tonumber(s) })
+	end
+	y, mo, d, h, mi, s = tostring(line or ""):match(
+		"^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d):(%d%d):(%d%d)")
+	if y then
+		-- os.time interprets the broken-down time as local; the client
+		-- timestamp is UTC, so subtract the local offset to recover epoch.
+		return os.time({ year = tonumber(y), month = tonumber(mo),
+			day = tonumber(d), hour = tonumber(h), min = tonumber(mi),
+			sec = tonumber(s) }) - TZ_OFFSET
+	end
+	return nil
 end
 
 local function append_log_record(records, record)
@@ -278,7 +309,7 @@ local function parse_log_records(content, records)
 	for line in (tostring(content or "") .. "\n"):gmatch("(.-)\n") do
 		if line ~= "" then
 			local timestamp = log_timestamp(line)
-			if timestamp ~= "" then
+			if timestamp ~= nil then
 				append_log_record(records, current)
 				current = { timestamp = timestamp, lines = { line } }
 			elseif current then
@@ -286,7 +317,7 @@ local function parse_log_records(content, records)
 			else
 				-- A tail can begin in the middle of a multiline error. Keep that
 				-- continuation together instead of sorting each line separately.
-				current = { timestamp = "", lines = { line } }
+				current = { timestamp = nil, lines = { line } }
 			end
 		end
 	end
@@ -301,16 +332,17 @@ function M.merge_log_files(paths, max_lines)
 	end
 
 	table.sort(records, function(a, b)
-		if a.timestamp == b.timestamp then
+		local ta, tb = a.timestamp, b.timestamp
+		if ta == tb then
 			return a.order < b.order
 		end
-		if a.timestamp == "" then
+		if ta == nil then
 			return true
 		end
-		if b.timestamp == "" then
+		if tb == nil then
 			return false
 		end
-		return a.timestamp < b.timestamp
+		return ta < tb
 	end)
 
 	local output = {}

@@ -65,13 +65,13 @@ function buildRetryRow(self) {
                 ], r)
             ]),
             mkSelect('upd_rvar', [
-                { v: 'lucky',        l: _('Standard (lucky)') },
-                { v: 'wanji',        l: _('Full-featured (wanji)') },
-                { v: 'xiaojv',       l: _('XiaoJV') },
-                { v: 'xiaojv_waf',   l: _('XiaoJV WAF') },
-                { v: 'xiaoman',      l: _('XiaoMan') },
-                { v: 'lucky_docker', l: _('Lucky Docker') },
-                { v: 'wanji_docker', l: _('Wanji Docker') }
+                { v: 'lucky',        l: _('Standard Edition (Lucky)') },
+                { v: 'wanji',        l: _('Full-featured Edition (Wanji)') },
+                { v: 'xiaojv',       l: _('Basic Lite (XiaoJV)') },
+                { v: 'xiaojv_waf',   l: _('Lite + WAF (XiaoJV WAF)') },
+                { v: 'xiaoman',      l: _('Wanji Lite (xiaoman)') },
+                { v: 'lucky_docker', l: _('Lucky Docker Edition') },
+                { v: 'wanji_docker', l: _('Wanji Docker Edition') }
             ], v),
             E('button', {
                 type: 'button',

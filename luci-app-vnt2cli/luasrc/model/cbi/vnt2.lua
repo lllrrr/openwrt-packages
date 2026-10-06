@@ -34,10 +34,15 @@ end
 -- CBI validators may need values from sibling fields in the same form post.
 local cbi_options = {}
 
+-- Options whose stored value the request explicitly cleared. The post-save
+-- audit restores every other list that lost its value during the save.
+local authorized_clear = {}
+local list_options = {}
+
 -- Bumped whenever the save path changes. Every form save logs it, so a report
 -- can be matched against the code that produced it instead of guessing which
 -- build the device is running.
-local FORM_BUILD = "2026-10-05.4"
+local FORM_BUILD = "2026-10-05.9"
 
 -- Audit trail for config mutations: when a populated list gets cleared the
 -- running log records who did it, so silent losses are diagnosable.
@@ -220,6 +225,47 @@ local function normalized_list_values(value)
 	end
 
 	return result
+end
+
+-- The page script reports a widget's item list as one value per line.
+local function split_posted_values(value)
+	if value == nil then
+		return {}
+	end
+
+	local result = {}
+	for line in tostring(value):gmatch("[^\r\n]+") do
+		line = trim(line)
+		if line ~= "" then
+			result[#result + 1] = line
+		end
+	end
+	return result
+end
+
+local function option_is_empty(value)
+	if value == nil then
+		return true
+	end
+	if type(value) == "table" then
+		return #normalized_list_values(value) == 0
+	end
+	return trim(value) == ""
+end
+
+-- Compact single-line rendering of a value for the save audit. Secrets are
+-- only reported by length so an audit line never leaks them into the log.
+local function audit_value(option, value)
+	if option == "password" or option == "subscription" then
+		if option_is_empty(value) then
+			return "空"
+		end
+		return "已设置(" .. #tostring(type(value) == "table" and (value[1] or "") or value) .. ")"
+	end
+	if type(value) == "table" then
+		return "[" .. table.concat(normalized_list_values(value), "|") .. "]"
+	end
+	return tostring(value)
 end
 
 local function same_list(a, b)
@@ -677,50 +723,70 @@ local function bind_list_option(option)
 	-- placeholder so hydration can never remove them. An empty post is
 	-- ambiguous - the user may have removed the last item, or the widget may
 	-- never have reported its state - and writing an empty list would silently
-	-- drop the stored configuration. Only clear the list when the request
-	-- positively confirms the emptied widget:
-	--   * __empty   - set by the page script after a real item removal
-	--   * __present - rendered by server side widgets that always post
-	-- Anything else keeps whatever __stored says was configured when the page
-	-- was rendered, and records the decision in the log.
+	-- drop the stored configuration. The page script resolves it: __hyd says
+	-- the widget took over, and __values then carries exactly what it holds
+	-- (an empty value means the user removed every item). Server rendered
+	-- widgets post __present instead, which always arrives when the widget is
+	-- in the form. Without either signal the stored values win, and every
+	-- decision is recorded in the log.
 	option.__vnt2_managed_parse = true
+	list_options[option.option] = true
 	option.parse = function(self, section, novld)
 		local cbid = self:cbid(section)
 		local posted = self:formvalue(section)
 		local values = normalized_list_values(posted)
 		local stored = normalized_list_values(self.map:formvalue(cbid .. ".__stored"))
-		local emptied = (self.map:formvalue(cbid .. ".__empty") == "1")
-			or (self.map:formvalue(cbid .. ".__present") ~= nil)
+		-- Server rendered presence marker (multi value widgets): it always
+		-- posts, so "marker without values" is a real user deselection.
+		local present = self.map:formvalue(cbid .. ".__present") ~= nil
+		local hyd = self.map:formvalue(cbid .. ".__hyd")
+		local diag = self.map:formvalue(cbid .. ".__diag") or ""
+		local seen_diag = diag:match("s=1") ~= nil
+		local touched_diag = diag:match("t=1") ~= nil
 
-		-- Diagnostic from the page script: h=hydrated, i=item count, s=the
-		-- widget was seen with at least one item. When the browser reported it,
-		-- only believe a clear request from a widget that really displayed the
-		-- stored items - a widget that never showed an item cannot have had it
-		-- removed by the user.
-		local diag = tostring(self.map:formvalue(cbid .. ".__diag") or "-")
-		if emptied and diag ~= "-" then
-			emptied = diag:find("s=1", 1, true) ~= nil
+		-- Map.parse runs Node.parse a second time with novld=true after
+		-- on_after_save. The save-audit has already restored any list that was
+		-- silently cleared during the first pass; letting the second pass run
+		-- the same widget logic with the original form values would undo that
+		-- correction, so managed lists must be a no-op during the re-parse.
+		if novld then
+			return nil
+		end
+
+		local function list_parse_audit(decision, extra)
+			config_audit("列表解析 " .. tostring(self.option)
+				.. " [" .. decision .. "]"
+				.. " hyd=" .. tostring(hyd)
+				.. " values=" .. #values
+				.. " stored=" .. #stored
+				.. " present=" .. tostring(present)
+				.. " diag=" .. tostring(diag)
+				.. " post=" .. dump_post_keys(self.map, cbid)
+				.. (extra or ""))
+		end
+
+		if hyd == "1" then
+			-- The widget owns this list: take its own item list verbatim.
+			values = split_posted_values(self.map:formvalue(cbid .. ".__values"))
+			-- An empty authoritative list with stored values is only trusted
+			-- when the browser confirms it actually displayed the items and
+			-- the user removed them. Otherwise a hydration race or rebuilt
+			-- widget would wipe the configuration.
+			if #values == 0 and #stored > 0 and not (seen_diag and touched_diag) then
+				list_parse_audit("拒信空列表", "，已回退到 stored")
+				return nil
+			end
+			authorized_clear[self.option] = true
+		elseif #values == 0 and #stored > 0 and not present then
+			list_parse_audit("保留原值")
+			return nil
 		end
 
 		if #values == 0 then
-			if emptied then
-				if #stored > 0 then
-					config_audit("用户清空了 " .. tostring(self.option) .. "（原有 "
-						.. #stored .. " 项，diag=" .. diag .. "）")
-				end
-			elseif #stored > 0 then
-				-- The widget reported nothing and the browser never confirmed
-				-- a removal: keep what the page rendered. Writing the stored
-				-- values back is unnecessary, UCI already holds them.
-				config_audit("表单未提交 " .. tostring(self.option)
-					.. " 的取值（posted=" .. dump_posted(posted)
-					.. "，stored=" .. #stored
-					.. "，diag=" .. diag
-					.. "，post=" .. dump_post_keys(self.map, cbid)
-					.. "），已保留原有 " .. #stored .. " 项")
-				return nil
-			else
-				return nil
+			authorized_clear[self.option] = true
+			if #stored > 0 then
+				config_audit("用户清空了 " .. tostring(self.option)
+					.. "（原有 " .. #stored .. " 项，hyd=" .. tostring(hyd) .. "）")
 			end
 		end
 
@@ -728,7 +794,7 @@ local function bind_list_option(option)
 		if type(self.validate) == "function" then
 			local err
 			result, err = self:validate(values, section)
-			if not result and not novld then
+			if not result then
 				self:add_error(section, "invalid", err)
 				return nil
 			end
@@ -1158,12 +1224,87 @@ add_file_upload_handler({
 	cbi_options.cli_upload_note
 })
 
+-- ---------- save audit ----------
+-- The stored configuration is captured before anything in this request can
+-- change it and compared again once the map has saved: every list that lost
+-- its value without the request asking for it is written back. This is the
+-- last line of defence against a silent loss and it does not depend on which
+-- code path dropped the value - a widget that posted nothing, a merge that
+-- skipped a key, or a CBI rule that removed an option it thought was empty.
+local save_sid = nil
+local save_before = nil
+
+local function capture_save_state()
+	save_sid = m.uci:get_first("vnt2", "vnt2_cli")
+	save_before = save_sid and m.uci:get_all("vnt2", save_sid) or nil
+end
+
+m.on_after_save = function()
+	if not save_sid or not save_before then
+		return
+	end
+
+	local now = m.uci:get_all("vnt2", save_sid) or {}
+	local restored = {}
+	local changed = {}
+
+	for key, before in pairs(save_before) do
+		if key:sub(1, 1) ~= "." then
+			local after = now[key]
+			if option_is_empty(after) and not option_is_empty(before) then
+				if list_options[key] and not authorized_clear[key] then
+					m.uci:delete("vnt2", save_sid, key)
+					if type(before) == "table" then
+						local items = normalized_list_values(before)
+						if #items > 0 then
+							m.uci:set_list("vnt2", save_sid, key, items)
+						end
+					else
+						m.uci:set("vnt2", save_sid, key, tostring(before))
+					end
+					restored[#restored + 1] = key
+						.. "(" .. #normalized_list_values(before) .. " 项)"
+				else
+					changed[#changed + 1] = key .. " 已清空"
+				end
+			else
+				local was = audit_value(key, before)
+				local is = audit_value(key, after)
+				if was ~= is then
+					changed[#changed + 1] = key .. ": " .. was .. " → " .. is
+				end
+			end
+		end
+	end
+
+	if #restored > 0 then
+		table.sort(restored)
+		config_audit("保存审计：已恢复被清空的 " .. table.concat(restored, "、")
+			.. "（本次请求未提交清空）")
+		-- The restores above were written after Map.parse had already taken its
+		-- UCI savepoint (uci:save runs before on_after_save). LuCI's deferred
+		-- apply commits from that savepoint, not from the live cursor, so the
+		-- corrected lists would otherwise be thrown away by the later commit.
+		-- Re-take the savepoint so the restored values actually persist.
+		m.uci:save("vnt2")
+	end
+	if #changed > 0 then
+		table.sort(changed)
+		config_audit("保存审计：变更 " .. table.concat(changed, "；"))
+	end
+end
+
 -- The edit-config tab's textarea posts with the form (name=_toml_editor_text).
 -- Save its content before the form options parse so the documented order
 -- holds: the text config is merged first, the form's own values are applied
 -- on top of it. Only text the user actually edited participates - an
 -- untouched runtime snapshot must never overwrite the stored configuration.
 m.on_parse = function()
+	-- Snapshot first: the audit compares the state before this request
+	-- against the state the map saved, which is what makes a silent loss
+	-- visible instead of merely suspected.
+	capture_save_state()
+
 	-- The editor textarea posts with every form save, so its presence marks a
 	-- real POST (page views never carry it). Log the build once per save.
 	if http.formvalue("_toml_editor_text") ~= nil then
@@ -1188,9 +1329,19 @@ m.on_parse = function()
 		return
 	end
 
-	if http.formvalue("_toml_editor_text_dirty") ~= "1" then
-		config_audit("编辑配置随表单保存：文本与页面渲染内容不同但未标记为已编辑"
-			.. "（长度 " .. #content .. "），按运行时快照处理，未写入")
+	-- The JS dirty flag is set on input/change, but LuCI's cbi_submit()
+	-- calls form.submit() directly and that does NOT dispatch a submit event,
+	-- so the capture-phase syncDirty() may be missed. The original purpose of
+	-- the flag was to avoid overwriting stored config with a runtime snapshot
+	-- loaded by "重新加载". We achieve the same protection server-side by
+	-- comparing the posted text against the current runtime snapshot.
+	local snapshot = ""
+	local stat = fs.stat("/tmp/vnt2cli.toml")
+	if stat and stat.type == "reg" and (tonumber(stat.size) or 0) > 0 then
+		snapshot = textutil.sanitize_text(fs.readfile("/tmp/vnt2cli.toml") or "")
+	end
+	if snapshot ~= "" and textutil.text_fingerprint(content) == textutil.text_fingerprint(snapshot) then
+		config_audit("编辑配置随表单保存：文本与运行时快照一致（未编辑），未写入")
 		return
 	end
 
