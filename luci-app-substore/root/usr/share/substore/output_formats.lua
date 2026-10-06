@@ -85,22 +85,28 @@ local REALITY_FLAVORS = { loon = true }
 --   * Surge / SurgeMac：manual.nssurge.com 的 Proxy Protocols 一节只列
 --     HTTP and HTTP/2、SOCKS5、Shadowsocks、Snell、VMess、Trojan、TUIC、
 --     Hysteria 2、MASQUE、AnyTLS、Trust Tunnel、SSH、WireGuard、Tailscale
---     —— 没有 VLESS，也没有 ShadowsocksR。
+--     —— 没有 VLESS、没有 ShadowsocksR，也没有 Hysteria（v1）。
+--     Hysteria v1 的证据：清单里写的是 "Hysteria 2"，且同目录下
+--     manual.nssurge.com/policies/hysteria2.html 存在而 hysteria.html 是 404。
 --   * Surfboard：getsurfboard.com 的 external-proxy 清单同样没有 VLESS / SSR。
+--     （Surfboard 是否有 Hysteria v1 未获证据：该站文档的
+--     profile-format/proxy/external-proxy 一节及其无斜杠形式都返回 404。
+--     既然无法证实「读不懂」，就不替它丢弃 —— 见 LEGACY_ISSUES 的 (j)，
+--     该条已实施：Surge / SurgeMac 丢弃 Hysteria v1，Surfboard 按此保留。）
 --   * Loon：nsloon.app/docs/Node/ 有独立的 VLESS 与 ShadowsocksR 两节，都支持；
 --     但节点类型清单里**只有 Hysteria2**，没有 Hysteria（v1）—— 与 Surge 家族
 --     相反的两处之一（另一处是 VLESS / SSR）。
---     （Surge 家族同样没有 Hysteria v1：手册的协议清单写的是 "Hysteria 2"，
---     且 manual.nssurge.com/policies/hysteria.html 是 404，而 hysteria2.html 存在。
---     那一条是否一并按本表丢弃，见 LEGACY_ISSUES 的第五轮新发现 (j)。）
 --
 -- Egern **不在**这张表里：它的配置是 YAML，已由 output_egern.lua 单独实现
 -- （7.2 已实施）。它的协议清单与 Surge 家族本就不同（有 VLESS 与 WireGuard，
 -- 没有 SSR 与 Hysteria v1），能力判定一并搬到了那个模块里。
+--
+-- 注意 hysteria 指的是**上一代 v1**：Hysteria 2 是各家通用的，被丢的只有 v1
+-- （两者在 surge_line 里共用同一个输出分支，靠 proto 区分）。
 local FAMILY_CAPS = {
-	surge     = { vless = false, ssr = false },
+	surge     = { vless = false, ssr = false, hysteria = false },
 	surfboard = { vless = false, ssr = false },
-	surgemac  = { vless = false, ssr = false },
+	surgemac  = { vless = false, ssr = false, hysteria = false },
 	-- Loon 支持 VLESS 与 SSR（与 Surge 家族相反），但没有 Hysteria v1
 	-- （节点类型清单里只有 Hysteria2）。标 false 即整条丢弃，与丢弃 wireguard
 	-- 同一约定：不输出客户端读不懂的东西。
@@ -370,15 +376,23 @@ function M.surge_line(n, flavor)
 		local v = kv:match("^[^=]*=(.*)$")
 		if v and v:find(",", 1, true) then return nil end
 	end
-	-- 位置参数（Loon 的凭据写法）按官方文档是带双引号包裹的，而 Loon 文档明说
-	-- 「参数值中含有英文逗号时，请使用双引号包裹」（nsloon.app/docs/Node/）——
-	-- 也就是说那对引号**确实**能保住逗号。这里仍然按「值里含逗号就整条丢弃」
-	-- 处理，是刻意的保守选择：本行的具名参数（sni= / ws-path= / ws-headers=Host:）
-	-- 一律不带引号，同一行里两种约定混用会让「哪个值被包裹」变成依赖客户端实现
-	-- 的行为；统一丢弃最容易验证，代价只是极少见的「密码里带逗号」的节点。
-	-- （值里本身带双引号的情况已由 loon_positional 在构造时挡掉。）
+	-- 位置参数（Loon 的凭据写法）与上面的具名参数不同：它**带双引号**，而 Loon
+	-- 文档明说「参数值中含有英文逗号时，请使用双引号包裹」（nsloon.app/docs/Node/）
+	-- —— 也就是说那对引号**确实**能保住逗号。所以这里放行「被引号完整包裹」的值：
+	--   `Trojan, h, 443, "pa,ss", sni=x.com` 的密码就是 pa,ss。
+	--
+	-- 判据不是「is_loon」而是「这个值是不是引号包裹的」：loon_positional 只在
+	-- Loon 分支里被调用，Surfboard 的 anytls 走的是**裸**位置参数，两者由这个
+	-- 判据自动分开，不必在这里再分叉一次。裸值（含加密方式这类不带引号的位置
+	-- 参数）仍按「值里含逗号就整条丢弃」处理 —— 它们没有引号语义。
+	--
+	-- 安全性来自 loon_positional 的两条保证：值里含 `"` 时它直接返回 nil（节点
+	-- 已被丢弃，走不到这里），所以引号包裹的值内部不可能出现落单引号 ——
+	-- parser_surge.split_fields 的「奇数引号回退」分支不会被本行的输出触发。
+	-- （本行的具名参数仍然一律不带引号，含逗号的照样丢：Surge 家族的引号语义
+	-- 未获文档证据，且解析端不对具名值做 unquote，加了引号回环就断。）
 	for _, v in ipairs(positional) do
-		if v:find(",", 1, true) then return nil end
+		if v:find(",", 1, true) and not v:match('^".*"$') then return nil end
 	end
 
 	for _, v in ipairs(positional) do head_parts[#head_parts + 1] = v end
@@ -417,6 +431,8 @@ local function surge_config(nodes, group_name, flavor)
 	local list = nodes or {}
 	-- 过滤 Surge 家族无法用单行 [Proxy] 表达的协议：
 	--   vless / ssr：按 FAMILY_CAPS 分客户端（Surge/Surfboard/SurgeMac 两个都不认）
+	--   hysteria：同样按 FAMILY_CAPS（Surge/SurgeMac 只有 Hysteria 2，没有 v1；
+	--     Surfboard 未获证据，本表没对它表态，故保留）
 	--   wireguard：Surge 需专用多段 [WireGuard] 配置，单行无法表达，统一丢弃（不输出损坏行）
 	local kept = {}
 	for _, n in ipairs(list) do

@@ -225,12 +225,18 @@ check("surge hysteria2 named", fmts.surge_line(hy_node, "surge"):find("password=
 check("loon hysteria2 positional",
 	fmts.surge_line(hy_node, "loon"):find('hysteria2, 1.1.1.1, 443, "pw"', 1, true) ~= nil)
 
--- (e) 值里含英文逗号：Loon 的引号按文档确实能保住逗号，本实现仍按「整条丢弃」
--- 处理（具名参数不带引号，同一行混用两种约定会让「哪个值被包裹」变成依赖客户端
--- 实现的行为）。这里钉住这个保守选择，避免日后被无意改成半截输出。
+-- (e) 值里含英文逗号：Loon 的位置参数带双引号，而文档明说「参数值中含有英文逗号时
+-- 请使用双引号包裹」（nsloon.app/docs/Node/）—— 那对引号**能**保住逗号，所以
+-- 引号包裹的位置参数放行。具名参数（Surge 家族）没有引号语义，仍整条丢弃；
+-- Surfboard 的 anytls 是**裸**位置参数，同样丢弃（见 anytls_reality_test.lua）。
 local ss_comma = { proto = "shadowsocks", name = "S", server = "1.1.1.1", port = 8388,
 	method = "aes-256-gcm", password = "pa,ss" }
-check("loon comma password drops node", fmts.surge_line(ss_comma, "loon") == nil)
+local ss_comma_line = fmts.surge_line(ss_comma, "loon")
+-- 用 type() 兜一下再 :find：surge_line 退回 nil 时直接 :find 会抛错、把整个
+-- 文件后面的断言全吞掉 —— 那样反向验证只能看到「崩了」，看不到是哪条行为变了。
+check("loon comma password kept (quoted positional)",
+	type(ss_comma_line) == "string" and ss_comma_line:find('aes-256-gcm, "pa,ss"', 1, true) ~= nil)
+check("surge comma password drops node", fmts.surge_line(ss_comma, "surge") == nil)
 
 -- ---------- Loon 输出 → 导入回环 ----------
 -- 生成端与解析端必须成对改动：只改生成端的话，导出的 Loon 配置再导入回来会静默
@@ -244,6 +250,11 @@ end
 local rt_ss = loon_roundtrip(ss_node)
 check("loon rt ss method", rt_ss and rt_ss.method == "aes-256-gcm")
 check("loon rt ss password", rt_ss and rt_ss.password == "pw")
+
+-- 含逗号的密码同样要能原样回环 —— 这是「放行」的前提（见上面的 (e)）
+local rt_comma = loon_roundtrip(ss_comma)
+check("loon rt comma password", rt_comma and rt_comma.password == "pa,ss")
+check("loon rt comma method", rt_comma and rt_comma.method == "aes-256-gcm")
 
 local rt_hy = loon_roundtrip(hy_node)
 check("loon rt hysteria2 password", rt_hy and rt_hy.password == "pw")
@@ -262,7 +273,7 @@ local rt_tj = loon_roundtrip(tj_node)
 check("loon rt trojan password", rt_tj and rt_tj.password == "p")
 check("loon rt trojan security", rt_tj and rt_tj.security == "tls")
 
--- ---------- 7.9(g)：Loon 没有 Hysteria v1 ----------
+-- ---------- 7.9(g)+(j)：Loon / Surge / SurgeMac 都没有 Hysteria v1 ----------
 -- Loon 的节点类型清单里只有 Hysteria2（nsloon.app/docs/Node/）。注意 hysteria
 -- **2** 是各家通用的，被丢的只有上一代 v1 —— 两者共用同一个输出分支，容易误伤。
 local hy1_node = { proto = "hysteria", name = "H1", server = "1.1.1.1", port = 443, password = "p" }
@@ -273,13 +284,19 @@ check("loon keeps hysteria2", loon_hy:find('hysteria2, 1.1.1.1, 443, "p"', 1, tr
 -- 被丢弃的节点也不能留在 [Proxy Group] 的成员列表里（否则组引用一个不存在的代理）
 check("loon group has no hysteria v1", loon_hy:find("H1", 1, true) == nil)
 check("loon group keeps hysteria2", loon_hy:find("H2", 1, true) ~= nil)
--- Surge 家族当前仍输出 hysteria v1 —— 手册的协议清单同样只写 "Hysteria 2"，
+
+-- (j)：Surge / SurgeMac 的手册协议清单写的也是 "Hysteria 2"，
 -- manual.nssurge.com/policies/hysteria.html 是 404 而 hysteria2.html 存在。
--- 这一条是**待决策**（LEGACY_ISSUES 第五轮新发现 (j)），此处如实钉住当前行为，
--- 实施 (j) 时这条断言要一并翻转。
-local surge_hy = fmts.to_surge({ hy1_node }, { name = "P" })
-check("surge still keeps hysteria v1 (finding j pending)",
-	surge_hy:find("hysteria, 1.1.1.1", 1, true) ~= nil)
+-- Surfboard 未获证据（其文档 404），**不**跟着丢 —— 这条断言防止有人顺手扩大范围。
+local surge_hy = fmts.to_surge({ hy1_node, hy2_node }, { name = "P" })
+check("surge drops hysteria v1", surge_hy:find("hysteria, 1.1.1.1", 1, true) == nil)
+check("surge keeps hysteria2", surge_hy:find("hysteria2, 1.1.1.1", 1, true) ~= nil)
+check("surge group has no hysteria v1", surge_hy:find("H1", 1, true) == nil)
+local mac_hy = fmts.to_surgemac({ hy1_node }, { name = "P" })
+check("surgemac drops hysteria v1", mac_hy:find("hysteria, 1.1.1.1", 1, true) == nil)
+local sb_hy = fmts.to_surfboard({ hy1_node }, { name = "P" })
+check("surfboard keeps hysteria v1 (no evidence to drop)",
+	sb_hy:find("hysteria, 1.1.1.1", 1, true) ~= nil)
 
 -- ---------- 7.9(h)：skip-cert-verify 写 true/false ----------
 -- Loon 文档的示例是 skip-cert-verify=false；Surge 手册只写 "boolean"。

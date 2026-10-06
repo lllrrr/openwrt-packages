@@ -11,7 +11,7 @@
 |---|---|---|
 | P0 | 14 项高危（输出整份不可用 / 数据永久丢失 / 安全） | ✅ 已完成（4 次推送，见 CHANGELOG `[2.6.0-r2]`～`[2.6.0-r5]`） |
 | P1 | 13 项中危 + 审计中实测确认的 4 项新缺陷 | ✅ 已完成（`[2.6.1-r1]`） |
-| P2 | 其余 M / L 项 | ✅ 已完成（批次一 `[2.6.3-r1]`、批次二 `[2.6.4-r1]`、批次三 `[2.6.5-r1]`、批次四 `[2.6.6-r1]`、批次五 `[2.6.7-r1]`、批次六 `[2.6.8-r1]`、批次七 `[2.6.9-r1]`「P2 最后一批」） |
+| P2 | 其余 M / L 项 | ✅ 已完成（批次一 `[2.6.3-r1]`、批次二 `[2.6.4-r1]`、批次三 `[2.6.5-r1]`、批次四 `[2.6.6-r1]`、批次五 `[2.6.7-r1]`、批次六 `[2.6.8-r1]`、批次七 `[2.6.9-r1]`「P2 最后一批」）。范围定义里有 **M6 / L15 / L19** 三项无据可查，见文末「附」 |
 | P3 | 输出层代码级复审（10 项）+ shadowsocks SIP003 插件全链路（1 项） | ✅ 已完成（`[2.6.10-r1]`，见下文「四」） |
 | P4 | 遗留项决策后实施（1.1 / 1.3 / 1.4 / 1.5 / 2.5 五项，3.3 补文档） | ✅ 已完成（`[2.6.11-r1]`，见下文「五」） |
 | P5 | 决策项实施（wget 路径 SSRF、删除部分失败漏写 cron、混合格式静默丢弃、写入失败被忽略、M28 token、M29 ACL；wget 体积/重定向记文档） | ✅ 已完成（`[2.6.16-r1]`，见下文「六」） |
@@ -658,13 +658,13 @@ crontab 里，`substore-cron.sh` 会拿着已不存在的 id 反复执行，每�
 | 7.6 | 修复 | **已修复**（第一轮，见下） |
 | 7.7 | A：后端错误串 msgid 化 | **已实施**（第四轮，见下） |
 | 7.8 | A：删除 `age.lua` / `age_test.lua` | **已删除**（第一轮） |
-| 7.9 | (a)(b)(c)(d) 全部实施；(e) 保持保守；(g)(h) 实施；(i) 保持现状 | **已实施**（第五、六轮，见下） |
+| 7.9 | (a)(b)(c)(d) 全部实施；(e) 具名保持保守、Loon 位置参数放行（第八轮修订）；(g)(h) 实施；(i) 保持现状；(j) 实施（Surge/SurgeMac） | **已实施**（第五～八轮，见下） |
 
 7.5 / 7.6 的修复见本节末尾「7.5 / 7.6 修复记录」，
 7.1 / 7.3 / 7.4 的实施见「第二轮修复记录」，
 7.2 的实施见「第三轮修复记录」，
 7.7 的实施见「第四轮修复记录」，
-7.9 的 (a)–(e) 见「第五轮修复记录」，(g)(h) 见「第六轮修复记录」。
+7.9 的 (a)–(e) 见「第五轮修复记录」，(g)(h) 见「第六轮修复记录」，(j) 见「第七轮修复记录」，(e) 的修订见「第八轮修复记录」。
 
 | # | 问题 | 位置 | 依据 | 影响 |
 |---|---|---|---|---|
@@ -676,7 +676,7 @@ crontab 里，`substore-cron.sh` 会拿着已不存在的 id 反复执行，每�
 | 7.6 | ~~Loon 的 `transport=ws` 未映射到 `net`~~ **已修复** | `parser_surge.parse_surge_line` 的 `transport=` 分支 | 只认 `ws=true`（Surge 旧写法）与 `obfs=ws`（QX）；`nsloon.app/docs/Node/` 用 `transport=ws` + `path=` + `host=` | Loon 的 ws 节点导入后 `net=tcp`，`path` / `host` 全丢 → 导出到任何格式都按 tcp 连，握手失败**且不报错** |
 | 7.7 | ~~后端模块仍有 **113 处**硬编码中文字符串字面量（注释外）~~ **已实施** | `core.lua` 47 / `http.lua` 47 / `parser.lua` 9 / `util.lua` 5 / `output_wireguard_conf.lua` 3 / `node.lua` 2 | 扫描脚本（去注释后提取含 CJK / 全角的字符串字面量），见下 | 控制器文案已接入 i18n，但这些来自后端的失败原因经 `?err=` **原样**显示，英文界面下仍是中文。**已按 A 实施**：全部改为语言中立的英文 msgid，组合消息用 `msg.lua` 的分隔符机制，翻译只在显示边界发生（详见「第四轮修复记录」） |
 | 7.8 | ~~`root/usr/share/substore/age.lua` 与 `tests/age_test.lua` 未被 git 跟踪，且 `age.lua` 未被任何模块 `require`~~ **已删除** | 仓库根 | `grep -rn require` 无引用 | 未随包发布；留在工作区会被后续审计反复重新评估 |
-| 7.9 | ~~Loon 的节点行仍有**多处**与官方文档不一致~~ **已实施** | `output_formats.surge_line` / `parser_surge.parse_surge_line` | `nsloon.app/docs/Node/`；`manual.nssurge.com`；`getsurfboard.com` | 逐条见下「7.9 的明细」。**已按 (a)(b)(c)(d) 全部实施、(e) 保持保守**：Loon 的 TLS 开关改 `over-tls`（Trojan 除外）、UDP 改 `udp`、Surge 家族补 `encrypt-method`、Loon 的 ss/ssr/hysteria2 改位置参数；解析端同步跟进以保住回环（详见「第五轮修复记录」）。实施中新发现三条待决策项，见下「第五轮新发现」；其中 (g)(h) 已于第六轮实施、(i) 决定保持现状，另发现 (j) Surge 家族同样没有 Hysteria v1（待决策） |
+| 7.9 | ~~Loon 的节点行仍有**多处**与官方文档不一致~~ **已实施** | `output_formats.surge_line` / `parser_surge.parse_surge_line` | `nsloon.app/docs/Node/`；`manual.nssurge.com`；`getsurfboard.com` | 逐条见下「7.9 的明细」。**已按 (a)(b)(c)(d) 全部实施、(e) 具名保持保守而 Loon 位置参数于第八轮改为放行**：Loon 的 TLS 开关改 `over-tls`（Trojan 除外）、UDP 改 `udp`、Surge 家族补 `encrypt-method`、Loon 的 ss/ssr/hysteria2 改位置参数；解析端同步跟进以保住回环（详见「第五轮修复记录」）。实施中新发现三条待决策项，见下「第五轮新发现」；其中 (g)(h) 已于第六轮实施、(i) 决定保持现状，另发现 (j) Surge 家族同样没有 Hysteria v1，**已于第七轮实施**（Surge / SurgeMac 丢弃，Surfboard 因无证据保留） |
 
 ### 7.7 的统计口径与例外（修复前必读）
 
@@ -715,7 +715,8 @@ crontab 里，`substore-cron.sh` 会拿着已不存在的 id 反复执行，每�
 Loon 与 Surge 家族的不一致远不止「凭据位置」。以下每条都对照官方文档原文，
 **没有推测项**；本轮按用户的轮次安排只做决策里点名的 7.4-A，其余记录在此待决策。
 **第五轮（2.7.2-r6）已按 (a)(b)(c)(d) 全部实施、(e) 保持保守**，各条下方的
-「→ 实施」注明落点。
+「→ 实施」注明落点；**(e) 已于第八轮（2.7.2-r9）部分修订**（具名参数保持保守、
+Loon 的引号包裹位置参数改为放行），见「第八轮修复记录」。
 
 **(a) Loon 的 TLS 开关写作 `over-tls`，本生成器写 `tls`** —— 影响最大的一条。
 Loon 文档的通用参数表与 Reality 示例都用 `over-tls=true`：
@@ -779,6 +780,13 @@ Loon 不再要这个开关，所以 Loon 的 Trojan 行整个不写 TLS 参数�
 （保守：本行的具名参数一律不带引号，两种约定混用会让行为依赖客户端实现），
 代价是极少见的「密码里带逗号」的节点在 Loon 上被丢弃。
 
+**→ 部分修订（第八轮，2.7.2-r9）**：既然引号**确实**能保住逗号，上述保守决策的
+依据（「引号救不了逗号」）就不成立。第八轮只推翻**位置参数那一半** —— Loon 的
+引号包裹位置参数放行含逗号的值；**具名参数仍按「含逗号就丢弃」**（Surge 家族的
+引号语义未获文档证据，且解析端不对具名值 unquote）。判据是「值是否被引号完整
+包裹」而非「是否 Loon」，Surfboard 的裸位置参数因此自动落在丢弃一侧。详见
+「第八轮修复记录」。
+
 **(f) 更正：Surfboard 的 trojan / vmess / vless 凭据是具名写法，不是位置参数** ——
 本节 7.4 行原先把 Surfboard 与 Loon 并列，是**误判**。复核 `getsurfboard.com` 的
 vmess 页：其 Format 模板写 `{username}` 位置，但**实际示例与参数表都是 `key=value`**
@@ -790,11 +798,16 @@ trojan 页同样写 `username=` / `password=`。所以 Surge / Surfboard / Surge
 就整条丢弃」处理，并在 `tests/output_formats_test.lua` 钉了一条断言防止日后被
 无意改成半截输出。
 
-### 第五轮新发现（(g)(h) 第六轮已实施，(i)(j) 待决策）
+**(e) 修订说明（第八轮）**：位置参数那一半被**部分推翻**。第五轮那条断言
+（`loon comma password drops node`）已按新行为翻转成 `loon comma password kept
+(quoted positional)`，并补了「导出 → 导入拿到同一个密码」的回环断言 —— 放行的
+前提就是能原样回环。具名参数那一半保持不变，护栏断言仍在。
+
+### 第五轮新发现（(g)(h) 第六轮已实施，(i) 保持现状，(j) 第七轮已实施）
 
 第五轮实施 (a)–(d) 时对照 `nsloon.app/docs/Node/` 全文复核，另发现三处不一致。
 每条都只陈述**文档写了什么**与**本实现写了什么**，不推测客户端的实际行为。
-第六轮按决策实施了 (g)(h)，(i) 决定保持现状，实施过程中又发现 (j)。
+第六轮按决策实施了 (g)(h)，(i) 决定保持现状，实施过程中又发现 (j)（第七轮已实施）。
 
 **(g) Loon 没有 Hysteria v1，本生成器会把 `hysteria` 行输出给它** —— Loon 文档的
 节点类型清单里只有 **Hysteria2**，没有 Hysteria（v1）。而 `FAMILY_CAPS` 只按
@@ -827,7 +840,7 @@ default: false」，**没有**列出可接受的字面量。本生成器一律�
 **→ 决定：保持现状（第六轮）**。没有任何证据显示小写会失败，而改动面覆盖全部
 协议；若日后确认大小写敏感，应改的是 Loon 分支的类型名映射。
 
-### 第六轮新发现（**未实施，待决策**）
+### 第六轮新发现（(j) **第七轮已实施**）
 
 **(j) Surge 家族同样没有 Hysteria v1，本生成器仍会把 `hysteria` 行输出给它们** ——
 第五轮实施 (g) 时顺带复核了 Surge 的协议清单，发现与 Loon 是**同一个缺口**：
@@ -848,6 +861,18 @@ Surfboard 未获证据：`getsurfboard.com/docs/profile-format/proxy/external-pr
 修法：给 `FAMILY_CAPS` 的 surge / surfboard / surgemac 三行都加 `hysteria = false`
 （过滤逻辑第六轮已改成数据驱动，加一个键即可），或把 `hysteria` 与 `wireguard`
 一样无条件丢弃。
+
+**→ 实施（第七轮，2.7.2-r8）**：`FAMILY_CAPS.surge` / `FAMILY_CAPS.surgemac` 各加
+`hysteria = false`，整条丢弃。被丢的仍然只有上一代 v1 —— Hysteria 2 三家都支持，
+两者在 `surge_line` 里共用同一个输出分支，靠 `proto` 区分，容易误伤，测试里专门
+断言了「丢 v1、留 v2」。
+
+**没有**给 `surfboard` 加这一条：文档 404、证据不足，能力表对它保持沉默
+（`caps[p] == nil` 一律保留）。上面那条「三家都加」的修法**没有**采纳 ——
+第七轮的决策是「Surge + SurgeMac 一起丢」，Surfboard 维持现状。
+`tests/output_formats_test.lua` 里留了一条 `surfboard keeps hysteria v1
+(no evidence to drop)` 钉住这点，防止日后有人「顺手统一」。
+第六轮那条 `finding j pending` 的占位断言已按计划翻转成 `surge drops hysteria v1`。
 
 ## 7.1 / 7.2 / 7.3 的实测探针
 
@@ -1264,7 +1289,8 @@ message"` 后跑 `tests/backend_i18n_test.lua`，得到 **1 条 FAIL**（`no po 
 
 ## 第五轮修复记录（7.9）
 
-**7.9 (a)(b)(c)(d) 按官方文档对齐 Loon / Surge 家族的写法**，(e) 保持保守。
+**7.9 (a)(b)(c)(d) 按官方文档对齐 Loon / Surge 家族的写法**，(e) 保持保守
+（**该保守决策已于第八轮部分修订**，见「第八轮修复记录」）。
 全部改动集中在 `root/usr/share/substore/output_formats.lua` 的 `M.surge_line`
 （生成端）与 `root/usr/share/substore/parser_surge.lua` 的 `parse_surge_line`
 （解析端）—— 两端必须成对，否则导出的配置再导入回来会静默丢字段。
@@ -1331,7 +1357,7 @@ trojan / vmess / vless 一律用具名参数」—— 7.4-A 之后就不成立�
 * `tests/ssr_test.lua`：`loon encrypt-method` 一条改为断言位置参数写法，并新增
   **9 条 Loon 输出 → 导入回环**断言。
 * `tests/output_formats_test.lua`：新增 **7.9 专节 24 条**（(a) 6 / (b) 3 / (c) 4 /
-  (d) 4 / (e) 1 / 回环 6）。
+  (d) 4 / (e) 1 / 回环 6）。**(e) 那 1 条已于第八轮随修订改写**，见「第八轮修复记录」。
 * **反向验证**（逐条把代码改回旧行为，确认测试变红）：`tls_flag` 写死 `tls=true`
   → 3 条 FAIL；UDP 写死 `udp-relay` → 2 条 FAIL；去掉 `encrypt-method` → 2 条 FAIL；
   Loon 的 ss / hysteria2 改回具名 → 2 条 FAIL；解析端 ssr 分支停用 → 5 条 FAIL；
@@ -1409,12 +1435,161 @@ if n["skip-cert-verify"] then e[#e + 1] = "skip-cert-verify=true" end
 
 (j) Surge 家族同样没有 Hysteria v1（`manual.nssurge.com/policies/hysteria.html`
 是 404、`hysteria2.html` 存在）。本轮**没有**顺手改 —— (g) 的决策只点名了 Loon。
+**→ 已于第七轮实施。**
 
 ---
 
-# 附：P2 修复范围（不含本文件所列项）
+## 第七轮修复记录（7.9 的 j）
+
+第六轮新发现 (j)：Surge 家族的手册协议清单里写的也是 **"Hysteria 2"**，
+`manual.nssurge.com/policies/hysteria.html` 是 404 而同目录的 `hysteria2.html`
+存在 —— 与 Loon 同一情形。本轮按决策把丢弃延伸到 Surge / SurgeMac。
+
+### 改动
+
+* `root/usr/share/substore/output_formats.lua`
+  * `FAMILY_CAPS.surge` / `FAMILY_CAPS.surgemac` 各加 `hysteria = false`。
+    **Surfboard 不加** —— 文档 404、证据不足（决策是「Surge + SurgeMac 一起丢」）。
+  * `FAMILY_CAPS` 上方的依据注释同步更新：Surge / SurgeMac 的清单补上「也没有
+    Hysteria v1」及其探针证据；Surfboard 一段写明「未获证据，故保留」。
+  * `surge_config` 的过滤注释补上 `hysteria` 一行，说明它同样按 `FAMILY_CAPS`
+    分客户端、Surfboard 因本表沉默而保留。
+  * 过滤**逻辑**本身不动：第六轮已改成数据驱动（`elseif caps[p] == false`），
+    本轮只是往表里加键 —— 这正是第六轮那次重构要买的东西。
+
+### 测试
+
+* `tests/protocol_registry_test.lua`：`hysteria` 的丢弃表加 `surge` / `surgemac`
+  两条，并注明 Surfboard 不在其中。
+* `tests/output_formats_test.lua`：(j) 新增 5 条断言 —— surge 丢 v1 / 留 v2 /
+  组不含 v1、surgemac 丢 v1、**surfboard 留 v1（无证据丢弃）**；第六轮那条
+  `surge still keeps hysteria v1 (finding j pending)` 占位断言已删除（被
+  `surge drops hysteria v1` 取代）。
+* 反向验证：把 `hysteria = false` 从 surge / surgemac 两行撤掉 → **4 条 FAIL**
+  （output_formats 3 条 + registry 1 条），而 `surfboard keeps hysteria v1`
+  那条**始终绿**（本轮没碰 Surfboard，它本就不该受影响）→ 说明断言确实指向
+  本轮改动，且没有误伤范围外的行为。还原后全绿。
+* 全套 **59 个测试文件、0 失败**。
+
+### 本轮新发现
+
+无。这是 7.9 决策链的最后一条；实施完 (j) 后 7.9 的 (a)–(e)、(g)–(j) 全部结清
+（(f) 复核确认本来就对，(i) 决定保持现状）。
+
+**(e) 的例外**：(e) 当时按「保持保守」结清，但第八轮复核发现该保守决策建立在一个
+**错误的注释**上（详见「第八轮修复记录」），于是对**位置参数那一半**做了修订 ——
+具名参数仍保持保守。这是 7.9 唯一一处「结清后又修订」的条目。
+
+---
+
+## 第八轮修复记录（7.9 (e) 的修订）
+
+**7.9 (e) 的保守决策被部分推翻：Loon 引号包裹的位置参数放行含英文逗号的值。**
+
+### 起因
+
+第五轮把 (e) 判为「保持保守：位置参数或具名值里含英文逗号就整条丢弃」，
+并在 `surge_line` 里写下一段理由，其中一句是错的：
+
+> Loon 的那对引号只是标记，值里的逗号照样是分隔符。
+
+Loon 官方文档（`nsloon.app/docs/Node/`）原文是「**参数值中含有英文逗号时，请使用
+双引号包裹**」—— 这句话只有在**客户端解析是引号感知**的前提下才成立，也就是说那对
+双引号**确实**能保住值里的逗号。原注释把「引号」当成了纯粹的装饰，据此推出的
+「引号救不了逗号」不成立，整条丢弃的代价（极少见的「密码里带逗号」的节点在 Loon
+上被丢弃）也就失去了依据。
+
+### 精确范围（用户确认）
+
+只改 **Loon 的引号包裹位置参数**这一种情形，其余一律不动：
+
+| 情形 | 第五轮 | 第八轮 |
+|---|---|---|
+| Loon 位置参数，值被 `"…"` 完整包裹 | 丢弃 | **放行** |
+| Loon 位置参数，裸值（无引号，如加密方式） | 丢弃 | 丢弃（无引号语义） |
+| 具名参数（Surge 家族 + Loon 的 `sni=` / `ws-path=` 等） | 丢弃 | 丢弃（Surge 引号语义未获文档证据，且解析端不对具名值 unquote，加引号会断回环） |
+| Surfboard 的裸位置参数（anytls） | 丢弃 | 丢弃（无引号语义） |
+
+判据**不是** `is_loon` 而是「这个值是不是引号包裹的」（`v:match('^".*"$')`）：
+`loon_positional` 只在 Loon 分支被调用，Surfboard 的 anytls 走裸位置参数，
+两者由这个判据自动分开，不必再分叉一次。
+
+### 安全性依据
+
+放行不会让生成端产出解析端读不动的行，因为 `loon_positional` 有两条保证：
+
+1. 它**无条件**把 Loon 的位置凭据包成 `"…"`，所以引号是 Loon 语法的一部分；
+2. 值里含 `"` 时它直接返回 `nil`（整条丢弃，走不到这一行）—— 于是引号包裹的值
+   内部不可能出现落单引号，`parser_surge.split_fields` 的「奇数引号回退」分支
+   不会被本行的输出触发。
+
+### 改动
+
+* `root/usr/share/substore/output_formats.lua`：`surge_line` 的位置参数检查
+  `if v:find(",", 1, true) then return nil end` 改为
+  `if v:find(",", 1, true) and not v:match('^".*"$') then return nil end`；
+  上方注释整段重写（说明引号语义、判据选择与安全性依据）。
+* 具名参数检查（上一段 `for _, kv in ipairs(e)`）**原样不动**。
+
+### 测试
+
+* `tests/output_formats_test.lua`：第五轮那条 `loon comma password drops node`
+  改为 `loon comma password kept (quoted positional)`，并新增回环断言
+  `loon rt comma password` / `loon rt comma method`；同时保留
+  `surge comma password drops node` 作为反向护栏。
+* `tests/anytls_reality_test.lua`：新增 `surge_line comma in quoted positional
+  password kept`、`loon comma password round-trips`、`surge_line comma in loon
+  vless uuid kept`；保留 `surge_line comma in named password -> nil` 与
+  `surge_line comma in bare positional password -> nil` 两条护栏。
+* 断言一律先 `local line = fmts.surge_line(...)` 再判 `type(line) == "string"`：
+  直接在 `nil` 上调 `:find` 会抛错、把同文件后续断言全吞掉，反向验证就只能看到
+  「崩了」而看不到是哪条行为变了。
+* **反向验证**：把谓词改回 `if v:find(",", 1, true) then`（撤掉放行）→ **6 条 FAIL**
+  全部指向本轮改动（output_formats 3 条 + anytls 3 条），4 条护栏断言
+  （`surge comma password drops node`、具名密码、裸位置密码、具名 uuid）**始终绿**
+  → 说明断言确实指向改动，且没有误伤范围外的行为。还原后全绿。
+* 全套 **59 个测试文件、0 失败**。
+
+---
+
+# 附：P2 修复范围（**历史范围定义，已结清**）
+
+> **本节不是待办清单**，是 P2 **开工时**写下的范围定义（`2d29250`，即 P2 批次一
+> 那次提交），原文用的是「**例如** … 等」，本身即带示例性质。P2 已由批次一～批次七
+> 全部实施完毕（见文件开头的进度表）。保留本节是为了说明**当时**划定的边界；
+> 若日后有人照着它去「补修 P2」，那是在修一份已经修完的清单。
 
 P2 为审计表中**其余中危 / 低危**项中性质明确、无需另行决策的缺陷，例如
 M6 / M9 / M13 / M14 / M16 / M17 / M18 / M19 / M23 / M24 / M25 / M26 / M27 / M30
 与 L1 / L3～L6 / L8～L26 等。逐项修复并补回归测试，完成后在 CHANGELOG 中记录。
 本文件所列各项**不在** P2 范围内。
+
+## 逐条落点（38 项，35 项有据）
+
+| 批次 | 版本 | 覆盖的 ID |
+|---|---|---|
+| 批次一 | `[2.6.3-r1]` | M13 / M14 / L13 |
+| 批次二 | `[2.6.4-r1]` | M9 / L16 / L17 / L18 / L20 |
+| 批次三 | `[2.6.5-r1]` | M19 / M23 / M24 / M25 / M27 / L21 / L22 |
+| 批次四 | `[2.6.6-r1]` | M16 / M17 / M18 / M30 |
+| 批次五 | `[2.6.7-r1]` | L3 / L4 |
+| 批次六 | `[2.6.8-r1]` | L10 / L11 / L12 / L14 |
+| 批次七 | `[2.6.9-r1]` | L1 / L5 / L6 / L8 / L9 / L23 / L24 / L25 / L26 |
+| P0 批次四 | `[2.6.0-r5]` | M26（P2 开工前即已修复，此处仅备查） |
+
+每一项的内容见对应版本的 CHANGELOG；本表只做 ID → 落点的索引，不重复描述。
+
+## 三项查无实据：M6 / L15 / L19
+
+这三项落在上面的范围区间内，但仓库里**没有任何记录** —— 既无 CHANGELOG 落点，
+也无缺陷描述。原因见文件开头的「编写纪律」：**原始 70 项审计表（高危 14 /
+中危 30 / 低危 26）从未落盘**。其中 M6 只在上面那一行范围定义里被提及过一次；
+**L15 / L19 连提及都没有**，它们是被 `L8～L26` 这个区间顺带覆盖进去的。
+
+**处置：不追补。** 编号本身不指向任何模块或文件，无从复核当时指的是什么。按
+「不猜」原则，本节不为它们补写描述，也不假装它们已被评估过 —— 只如实记下
+「无据可查」这一事实。若日后拿到原始审计表，再按当时的口径单独决策。
+
+**两个区间外的编号**，一并备查：**L2** 是 `converter.lua` / `node_converter.lua`
+死代码（见上文 1.4），已在 P4 删除（`[2.6.11-r1]`），本就不在 P2 区间内；
+**L7** 同样查无记录，且不在本区间内。

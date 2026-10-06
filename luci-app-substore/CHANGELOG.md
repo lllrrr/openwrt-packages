@@ -2,6 +2,104 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.7.3-r1] - 结清「附：P2 修复范围」：改写为历史范围定义（仅文档）
+
+`docs/LEGACY_ISSUES.md` 末尾的「附：P2 修复范围」一节，是 P2 **开工时**写下的范围
+定义（`2d29250`，即 P2 批次一那次提交），原文用「**例如** … 等」，本身即带示例
+性质。它此前读起来像一份待办清单，容易让人以为还剩一批中危 / 低危项没修。
+
+本轮核对后的结论：**P2 已全部结清**。范围区间共 38 项，其中 **35 项**能逐一对到
+CHANGELOG 落点 —— 批次一～批次七（`[2.6.3-r1]`～`[2.6.9-r1]`），M26 更早在
+P0 批次四（`[2.6.0-r5]`）就已修复。该节现在补了一张 ID → 落点的索引表。
+
+**三项查无实据：M6 / L15 / L19。** 原始 70 项审计表（高危 14 / 中危 30 / 低危 26）
+从未落盘（见该文件开头的「编写纪律」）：M6 只在那一行范围定义里被提及过一次，
+L15 / L19 连提及都没有、是被 `L8～L26` 区间顺带覆盖进去的。编号不指向任何模块，
+无从复核当时指的是什么 —— 按「不猜」原则**不为它们补写描述**，也不假装它们已被
+评估过，只在该节如实写明「无据可查」。区间外的 L2（死代码，P4 已删）与同样查无
+记录的 L7 一并备查。
+
+### 影响
+
+**仅文档，无代码、无测试变更。** PKG_RELEASE 按 Makefile 的版本约定滚动：
+`2.7.2` 已用到 r9，达到 r10 触发 PKG_VERSION 末位 +1、PKG_RELEASE 重置为 1，
+故本轮为 `2.7.3-r1`。
+
+全套 **59 个测试文件、0 失败**（未改动任何被测代码，跑一遍确认无意外）。
+
+## [2.7.2-r9] - Loon 引号包裹的位置参数放行逗号（LEGACY_ISSUES 7.9 e 修订）
+
+第五轮把 7.9(e) 判为「含英文逗号就整条丢弃」，理由里有一句是错的。本轮复核后
+只推翻其中的**位置参数**那一半。
+
+### 修复 — 7.9(e) 修订：Loon 引号包裹的位置参数放行逗号
+
+第五轮 `surge_line` 的注释写着「Loon 的那对引号只是标记，值里的逗号照样是分隔符」。
+Loon 官方文档（`nsloon.app/docs/Node/`）的原文是「**参数值中含有英文逗号时，请使用
+双引号包裹**」—— 这句话只在客户端解析是**引号感知**的前提下才成立，也就是说那对
+双引号**确实**能保住值里的逗号。原注释把引号当成了纯装饰，据此推出的「引号救不了
+逗号」不成立，整条丢弃的代价（极少见的「密码里带逗号」的节点在 Loon 上被丢弃）
+也就失去了依据。
+
+判据改成「这个值是不是引号完整包裹的」（`v:match('^".*"$')`），**不是** `is_loon`：
+
+* Loon 位置参数（`loon_positional` 无条件加引号）→ **放行**含逗号的值；
+* Loon 的裸位置参数（无引号，如加密方式）→ 仍丢弃（无引号语义）；
+* 具名参数（Surge 家族，以及 Loon 的 `sni=` / `ws-path=` 等）→ 仍丢弃：Surge 家族的
+  引号语义未获文档证据，且解析端不对具名值 unquote，加引号会直接断掉回环；
+* Surfboard 的裸位置参数（anytls）→ 仍丢弃。
+
+判据选「是否引号包裹」而非「是否 Loon」，让上述四种情形自动分开，不必再分叉一次。
+
+**安全性**来自 `loon_positional` 的两条既有保证：它无条件把 Loon 的位置凭据包成
+`"…"`（引号是 Loon 语法的一部分），且值里含 `"` 时直接返回 `nil`（整条丢弃，走不到
+这一行）—— 于是引号包裹的值内部不可能出现落单引号，
+`parser_surge.split_fields` 的「奇数引号回退」分支不会被本行的输出触发。
+
+具名参数检查原样不动。
+
+### 测试
+
+* `tests/output_formats_test.lua`：第五轮那条 `loon comma password drops node` 翻转成
+  `loon comma password kept (quoted positional)`，并补 `loon rt comma password` /
+  `loon rt comma method` 两条回环断言（放行的前提就是能原样回环）；`surge comma
+  password drops node` 保留为反向护栏。
+* `tests/anytls_reality_test.lua`：新增 `surge_line comma in quoted positional
+  password kept`、`loon comma password round-trips`、`surge_line comma in loon vless
+  uuid kept`；保留具名密码、裸位置密码两条护栏。
+* 断言先取 `local line = fmts.surge_line(...)` 再判 `type(line) == "string"`：直接在
+  `nil` 上调 `:find` 会抛错、吞掉同文件后续断言，反向验证就只剩「崩了」。
+* 反向验证：把谓词改回无条件丢弃 → **6 条 FAIL** 全部指向本轮改动，4 条护栏断言
+  始终绿；还原后全绿。
+* 全套 **59 个测试文件、0 失败**。
+
+## [2.7.2-r8] - Surge / SurgeMac 一并丢弃 Hysteria v1（LEGACY_ISSUES 7.9 j）
+
+第六轮把 Loon 的 Hysteria v1 丢弃了，本轮把同一条证据链延伸到 Surge 家族。
+
+### 修复 — 7.9(j)：Surge / SurgeMac 丢弃 Hysteria v1
+
+第六轮新发现 (j)：Surge 家族的手册协议清单里写的也是 **"Hysteria 2"**，
+`manual.nssurge.com/policies/hysteria.html` 是 404 而同目录的 `hysteria2.html`
+存在 —— 与 Loon 同一情形，而本生成器仍会给这两家输出 `hysteria, ...` 行。
+
+`FAMILY_CAPS.surge` / `FAMILY_CAPS.surgemac` 各加 `hysteria = false`，整条丢弃。
+被丢的仍然只有上一代 **v1**：Hysteria 2 三家都支持，不受影响。
+
+**Surfboard 不在其中**：`getsurfboard.com` 的 `profile-format/proxy/external-proxy`
+一节及其无斜杠形式都返回 404，无法证实它读不懂 v1。既然没有证据，就不替它丢弃 ——
+能力表对 Surfboard 保持沉默（`caps[p] == nil` 一律保留）。测试里有一条断言钉住这点，
+防止日后有人「顺手统一」。
+
+### 测试
+
+* `tests/protocol_registry_test.lua`：`hysteria` 的丢弃表加 `surge` / `surgemac` 两条。
+* `tests/output_formats_test.lua`：(j) 新增 5 条断言（surge 丢/留、组不含 v1、
+  surgemac 丢、surfboard 留），并删去第六轮那条 `finding j pending` 的占位断言。
+* 反向验证：把 `hysteria = false` 从 surge / surgemac 撤掉，确认测试变红
+  （output_formats 3 条 + registry 1 条），且 surfboard 那条**始终绿**（本就无关）。
+* 全套 **59 个测试文件、0 失败**。
+
 ## [2.7.2-r7] - Loon 丢弃 Hysteria v1、skip-cert-verify 改写 true（LEGACY_ISSUES 7.9 g/h）
 
 第五轮新发现里经决策要实施的两条。第三条（协议名大小写）决定保持现状。
