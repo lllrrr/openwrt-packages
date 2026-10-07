@@ -1,0 +1,31 @@
+{
+	"admin/services/migu": {
+		"title": "咪咕直播",
+		"order": 55,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-migu-iptv" ],
+			"fs": { "/usr/share/ucode/migu.uc": "readable" }
+		}
+	},
+
+	"admin/services/migu/config": {
+		"title": "设置",
+		"order": 5,
+		"action": {
+			"type": "view",
+			"path": "migu/config"
+		}
+	},
+
+	"admin/services/migu/status": {
+		"title": "运行状态",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "migu/status"
+		}
+	}
+}

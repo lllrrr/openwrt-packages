@@ -1,0 +1,5 @@
+msgid "IPTV-Tool"
+msgstr "IPTV工具箱"
+
+msgid "IPTV Toolbox: EPG, Live Source, and Logo Management."
+msgstr "IPTV工具箱：EPG节目单、直播源与台标管理"

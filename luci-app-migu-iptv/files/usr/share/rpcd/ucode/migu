@@ -1,0 +1,442 @@
+#!/usr/bin/ucode
+// rpcd ucode 插件：为 LuCI 提供咪咕直播的状态查询、服务控制与账号设置。
+//
+// 设计约定：
+//   - 配置本体存在 UCI 的 migu 里，LuCI 侧用原生 form.Map 读写，本插件不重复维护。
+//   - 本插件只负责 LuCI 做不到的三件事：查运行状态、控服务、测频道。
+//   - 账号（userId/token）属敏感字段，单独走 setaccount 写入并掩码回显。
+//
+// 依据 rpcd 官方 ucode 插件约定（参考 /usr/share/rpcd/ucode/workbuddy）：
+//   脚本返回 { '对象名': methods }，方法用 args:{字段:类型} 声明入参，
+//   call(req) 里取 req.args?.字段。
+//
+// 两条硬约束（踩过的坑）：
+//   1. ubus 参数类型校验很严，声明 String 的字段传布尔/数字会被拒
+//      （Invalid argument），所以开关类参数一律声明为 String，服务端归一。
+//   2. rpcd 是单线程的，禁止在方法内部再发 ubus 请求（例如
+//      `ubus call service list`），会自等待卡死。只用文件系统与进程表判断。
+
+'use strict';
+
+import { popen, access, readfile } from 'fs';
+import * as uci from 'uci';
+
+const CONF = 'migu';
+const SECTION = 'main';
+const HTTP_TIMEOUT = 8;
+
+// ---------- 基础工具 ----------
+
+function run(cmdline) {
+	let buf = '';
+	try {
+		let p = popen(cmdline, 'r');
+		if (!p) return null;
+		let chunk;
+		while ((chunk = p.read(8192)) !== null && length(chunk) > 0)
+			buf += chunk;
+		p.close();
+	} catch (e) {
+		return null;
+	}
+	return buf;
+}
+
+function quote(s) {
+	return "'" + replace('' + s, "'", "'\\''") + "'";
+}
+
+function loadConf() {
+	let conf = {
+		enabled: true,
+		port: 8788,
+		host: '0.0.0.0',
+		rateType: 3,
+		enableH265: true,
+		enableHDR: true,
+		cacheMinutes: 360,
+		debug: false,
+		userId: '',
+		token: '',
+		publicAccess: '0',
+		publicToken: '',
+		publicBaseUrl: '',
+		publicProxyHint: '',
+	};
+
+	let ctx;
+	try {
+		ctx = uci.cursor();
+	} catch (e) {
+		return conf;
+	}
+
+	let all = ctx.get_all(CONF) || {};
+	let main = all[SECTION] || {};
+
+	for (let k in main) {
+		// uci 会带出 .anonymous / .type / .name / .index 这类元数据键，
+		// 带点号的键塞进返回值会让 rpcd 的 ubus 序列化失败。
+		if (substr('' + k, 0, 1) === '.') continue;
+		if (main[k] === '' || main[k] === null) continue;
+		conf[k] = main[k];
+	}
+	// 显式覆盖空值时也要保留 token/userId 的"空"语义
+	if (main.token === null || main.token === '') conf.token = '';
+	if (main.userId === null || main.userId === '') conf.userId = '';
+
+	conf.port = +conf.port || 8788;
+	conf.cacheMinutes = +conf.cacheMinutes || 360;
+	conf.rateType = +conf.rateType || 3;
+	conf.enabled = ('' + conf.enabled) !== '0';
+	conf.enableH265 = ('' + conf.enableH265) !== '0';
+	conf.enableHDR = ('' + conf.enableHDR) !== '0';
+	conf.debug = ('' + conf.debug) === '1';
+	conf.userId = '' + (conf.userId || '');
+	conf.token = '' + (conf.token || '');
+	return conf;
+}
+
+function isRunning() {
+	// 只用文件系统与进程表判断，绝不调用 ubus（见文件头约束 2）
+	let out = run('ps w 2>/dev/null');
+	if (out === null) return false;
+	for (let line in split(out, '\n')) {
+		if (index(line, 'grep') >= 0) continue;
+		if (index(line, 'migu.uc') >= 0) return true;
+	}
+	return false;
+}
+
+// 取本地服务的一个接口，返回原始字符串
+function localGet(path, timeout) {
+	let conf = loadConf();
+	let url = 'http://127.0.0.1:' + conf.port + path;
+	let t = +timeout || HTTP_TIMEOUT;
+	return run('curl -sS -m ' + t + ' ' + quote(url) + ' 2>/dev/null');
+}
+
+function maskToken(t) {
+	if (type(t) !== 'string' || length(t) === 0) return { length: 0, tail: '' };
+	return { length: length(t), tail: substr(t, length(t) - 6) };
+}
+
+// rpcd 可能把布尔参数以字符串形式传入（"true"/"1"），这里统一判定
+function truthy(v) {
+	return (v === true || v === 1 || v === '1' || v === 'true' || v === 'on' || v === 'yes');
+}
+
+// ---------- 插件方法 ----------
+
+return {
+	migu: {
+		// 运行状态总览：给状态页用
+		status: {
+			call: function() {
+				let conf = loadConf();
+				let running = isRunning();
+				let reachable = false;
+				let health = null;
+
+				if (running) {
+					let h = localGet('/health', 5);
+					if (h !== null && index(h, '"ok"') >= 0) {
+						reachable = true;
+						try { health = json(h); } catch (e) { }
+					}
+				}
+
+				let mask = maskToken(conf.token);
+				// 监听 0.0.0.0 时对用户没用，交给前端用浏览器主机名拼
+				let hostForUrl = (conf.host === '0.0.0.0' || conf.host === '::') ? '' : conf.host;
+
+				// /health 里的运行指标（1.4.0 起提供）。老版本没有这些字段，
+				// 所以每个都按类型取值并给默认，前端始终能拿到稳定结构。
+				let h = health || {};
+				let num = function(k) { return (type(h[k]) === 'int') ? h[k] : 0; };
+				let str = function(k) { return (type(h[k]) === 'string') ? h[k] : ''; };
+				let bool = function(k) { return (type(h[k]) === 'bool') ? h[k] : false; };
+
+				return {
+					enabled: conf.enabled,
+					running: running,
+					reachable: reachable,
+					port: conf.port,
+					host: conf.host,
+					rateType: conf.rateType,
+					enableH265: conf.enableH265,
+					enableHDR: conf.enableHDR,
+					cacheMinutes: conf.cacheMinutes,
+					debug: conf.debug,
+					channels: (health && type(health.channels) === 'int') ? health.channels : 0,
+					groups: (health && type(health.groups) === 'int') ? health.groups : 0,
+					guest: (health && type(health.guest) === 'bool') ? health.guest : (length(conf.token) === 0),
+					liveRateType: (health && type(health.rateType) === 'int') ? health.rateType : conf.rateType,
+					cacheAge: (health && type(health.cacheAge) === 'int') ? health.cacheAge : 0,
+					version: (health && type(health.version) === 'string') ? health.version : '',
+					account: {
+						present: length(conf.userId) > 0,
+						userId: conf.userId,
+						tokenLength: mask.length,
+						tokenTail: '' + mask.tail,
+					},
+					baseUrl: 'http://' + (hostForUrl || '127.0.0.1') + ':' + conf.port,
+					// 公网访问相关（令牌只回显长度，不回显明文）
+					publicAccess: ('' + conf.publicAccess) === '1',
+					publicTokenSet: length('' + conf.publicToken) > 0,
+					publicTokenLength: length('' + conf.publicToken),
+					publicBaseUrl: '' + (conf.publicBaseUrl || ''),
+					publicProxyHint: '' + (conf.publicProxyHint || ''),
+
+					// ---- 运行指标（1.4.0，来自 /health）----
+					uptime: num('uptime'),
+					requests: num('requests'),
+					denied: num('denied'),
+					rejectedByLimit: num('rejectedByLimit'),
+					activeConns: num('activeConns'),
+					maxConns: num('maxConns') || 64,
+					chRequests: num('chRequests'),
+					chCacheHits: num('chCacheHits'),
+					chCacheMisses: num('chCacheMisses'),
+					chHitRatePct: num('chHitRatePct'),
+					avgResolveMs: num('avgResolveMs'),
+					chFallback: num('chFallback'),
+					streamCacheOk: num('streamCacheOk'),
+					streamCacheFail: num('streamCacheFail'),
+					streamTtl: num('streamTtl'),
+					failTtl: num('failTtl'),
+					// ---- 节目单状态 ----
+					epgEnabled: bool('epgEnabled'),
+					epgUrl: str('epgUrl'),
+					epgIds: num('epgIds'),
+					epgAge: num('epgAge'),
+					epgOk: bool('epgOk'),
+					recentPids: (health && type(health.recentPids) === 'array') ? health.recentPids : [],
+				};
+			}
+		},
+
+		// 频道分组概览 + 频道明细（供状态页展示与测试选择）
+		channels: {
+			call: function() {
+				let out = localGet('/m3u', 30);
+				if (out === null || length(trim(out)) === 0)
+					return { ok: false, error: '无法获取频道列表（服务未运行？）', groups: [], list: [], total: 0 };
+
+				let groups = [];
+				let list = [];
+				let seen = {};
+				let total = 0;
+				let pending = null;   // 暂存上一条 #EXTINF 解析出的频道信息
+
+				for (let raw in split(out, '\n')) {
+					let line = trim(raw);
+
+					if (index(line, '#EXTINF') === 0) {
+						total++;
+						let name = '';
+						let group = '';
+						let mn = match(line, /,(.+)$/);
+						if (mn && length(mn) > 1) name = trim(mn[1]);
+						let mg = match(line, /group-title="([^"]*)"/);
+						if (mg && length(mg) > 1) group = mg[1];
+
+						if (length(group) > 0) {
+							if (seen[group]) seen[group].count++;
+							else {
+								seen[group] = { name: group, count: 1 };
+								push(groups, seen[group]);
+							}
+						}
+						pending = { name: name, group: group, pid: '' };
+						continue;
+					}
+
+					// 紧跟在 #EXTINF 后面的 URL 行，从 /ch/<pid> 里取 pID
+					if (pending !== null && index(line, '/ch/') >= 0) {
+						let mp = match(line, /\/ch\/([0-9]+)/);
+						if (mp && length(mp) > 1) {
+							pending.pid = mp[1];
+							push(list, pending);
+						}
+						pending = null;
+					}
+				}
+				return { ok: true, total: total, groups: groups, list: list };
+			}
+		},
+
+		// 测单个频道的取流结果（给"频道测试"用）
+		testchannel: {
+			args: { pid: 'String' },
+			call: function(req) {
+				let pid = '' + ((req.args && req.args.pid) ? req.args.pid : '');
+				if (length(pid) === 0 || match(pid, /[^0-9]/))
+					return { ok: false, error: '频道 ID 必须是纯数字' };
+
+				let out = run('curl -sS -m 25 -o /dev/null -w ' +
+					quote('%{http_code}|%{redirect_url}') + ' ' +
+					quote('http://127.0.0.1:' + loadConf().port + '/ch/' + pid) + ' 2>/dev/null');
+
+				if (out === null || length(trim(out)) === 0)
+					return { ok: false, error: '请求无响应' };
+
+				let parts = split(trim(out), '|');
+				let code = trim(parts[0]);
+				let location = (length(parts) > 1) ? trim(parts[1]) : '';
+
+				if (code === '302' && length(location) > 0) {
+					// 顺带看一下最终地址落在哪个域名，便于判断是否真能播
+					let host = '';
+					let m = match(location, /^https?:\/\/([^\/:]+)/);
+					if (m && length(m) > 1) host = m[1];
+					return { ok: true, code: '302', url: location, host: host };
+				}
+				if (code === '502') {
+					// 取流失败时服务端会回 JSON 说明原因
+					let body = run('curl -sS -m 25 ' +
+						quote('http://127.0.0.1:' + loadConf().port + '/ch/' + pid) + ' 2>/dev/null');
+					let err = '';
+					let rid = '';
+					try {
+						let j = json(body);
+						err = '' + (j.error || '');
+						rid = '' + (j.rid || '');
+					} catch (e) { }
+					return { ok: false, code: code, error: err || '取流失败', rid: rid };
+				}
+				return { ok: false, code: code, error: 'HTTP ' + code };
+			}
+		},
+
+		// 保存咪咕账号（userId + token），随后重启服务使其生效
+		setaccount: {
+			args: { userId: 'String', token: 'String' },
+			call: function(req) {
+				let userId = trim('' + ((req.args && req.args.userId) ? req.args.userId : ''));
+				let token = trim('' + ((req.args && req.args.token) ? req.args.token : ''));
+				userId = replace(replace(userId, '\n', ''), '\r', '');
+				token = replace(replace(token, '\n', ''), '\r', '');
+
+				if (length(userId) > 64) return { ok: false, error: 'userId 过长' };
+				if (length(token) > 2048) return { ok: false, error: 'token 过长' };
+				// 两者要么都给，要么都留空（游客模式）
+				if ((length(userId) > 0) !== (length(token) > 0))
+					return { ok: false, error: 'userId 与 token 需要同时填写，或同时留空（游客模式）' };
+
+				let ctx;
+				try {
+					ctx = uci.cursor();
+				} catch (e) {
+					return { ok: false, error: '无法打开 uci: ' + e };
+				}
+
+				ctx.set(CONF, SECTION, 'userId', userId);
+				ctx.set(CONF, SECTION, 'token', token);
+				let rc = ctx.commit(CONF);
+				if (rc !== true && rc !== 0 && rc !== null)
+					return { ok: false, error: '保存失败' };
+
+				// 重启让新账号立即生效
+				run('/etc/init.d/migu restart 2>/dev/null');
+				return { ok: true, guest: (length(token) === 0) };
+			}
+		},
+
+		// 清空账号回到游客模式
+		clearaccount: {
+			call: function() {
+				let ctx;
+				try {
+					ctx = uci.cursor();
+				} catch (e) {
+					return { ok: false, error: '无法打开 uci: ' + e };
+				}
+				ctx.set(CONF, SECTION, 'userId', '');
+				ctx.set(CONF, SECTION, 'token', '');
+				let rc = ctx.commit(CONF);
+				if (rc !== true && rc !== 0 && rc !== null)
+					return { ok: false, error: '保存失败' };
+				run('/etc/init.d/migu restart 2>/dev/null');
+				return { ok: true };
+			}
+		},
+
+		// 生成一个随机公网访问令牌（32 位十六进制）
+		//
+		// 只生成并返回，不写盘 —— 由用户点「保存 & 应用」时随表单一起提交，
+		// 避免在这里直接改 UCI 造成和设置页表单状态不一致。
+		gentoken: {
+			call: function() {
+				let raw = run('head -c 16 /dev/urandom | od -An -tx1 | tr -d " \\n" 2>/dev/null');
+				let tok = trim('' + (raw || ''));
+				if (length(tok) !== 32) {
+					// 退化方案：用两次时间戳 + pid 拼一个够长的串
+					let p1 = run('date +%s%N 2>/dev/null');
+					let p2 = run('cat /proc/sys/kernel/random/uuid 2>/dev/null');
+					tok = replace(replace(trim('' + (p1 || '')) + trim('' + (p2 || '')), '-', ''), '\n', '');
+					tok = substr(tok, 0, 32);
+				}
+				if (length(tok) < 8) return { ok: false, error: '无法生成令牌' };
+				return { ok: true, token: tok };
+			}
+		},
+
+		// ---------- 服务控制 ----------
+
+		restart: {
+			call: function() {
+				let out = run('/etc/init.d/migu restart 2>&1');
+				// 重启是异步的：进程要过一会儿才起来，立刻查进程表会误判成失败。
+				// 这里轮询等待，最多约 8 秒。
+				let up = false;
+				for (let i = 0; i < 16; i++) {
+					sleep(500);
+					if (isRunning()) { up = true; break; }
+				}
+				return { ok: up, output: '' + (out || '') };
+			}
+		},
+
+		stop: {
+			call: function() {
+				run('/etc/init.d/migu stop 2>/dev/null');
+				let down = false;
+				for (let i = 0; i < 16; i++) {
+					sleep(300);
+					if (!isRunning()) { down = true; break; }
+				}
+				return { ok: down };
+			}
+		},
+
+		start: {
+			call: function() {
+				run('/etc/init.d/migu start 2>/dev/null');
+				let up = false;
+				for (let i = 0; i < 16; i++) {
+					sleep(500);
+					if (isRunning()) { up = true; break; }
+				}
+				return { ok: up };
+			}
+		},
+
+		// 服务日志（最近若干行）
+		logs: {
+			args: { lines: 'String' },
+			call: function(req) {
+				let n = +((req.args && req.args.lines) ? req.args.lines : 50) || 50;
+				if (n < 1) n = 1;
+				if (n > 300) n = 300;
+				let out = run('logread -e migu 2>/dev/null | tail -n ' + n);
+				if (out === null) return { ok: false, error: '无法读取日志', lines: [] };
+				let list = [];
+				for (let l in split(trim(out), '\n')) {
+					if (length(trim(l)) > 0) push(list, '' + l);
+				}
+				return { ok: true, lines: list };
+			}
+		}
+	}
+};

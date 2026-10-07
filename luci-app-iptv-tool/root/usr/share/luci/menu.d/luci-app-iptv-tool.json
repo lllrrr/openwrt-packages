@@ -1,0 +1,13 @@
+{
+	"admin/services/iptv-tool": {
+		"title": "IPTV-TOOL",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "iptv-tool/overview"
+		},
+		"depends": {
+			"acl": [ "luci-app-iptv-tool" ]
+		}
+	}
+}

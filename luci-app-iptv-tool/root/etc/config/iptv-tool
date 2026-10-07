@@ -1,0 +1,5 @@
+
+config iptv-tool 'settings'
+    option enabled '0'
+    option data_dir '/etc/iptv-tool/data'
+    option log_dir '/etc/iptv-tool/logs'
