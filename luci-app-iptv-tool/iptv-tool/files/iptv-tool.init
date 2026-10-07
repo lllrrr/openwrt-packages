@@ -9,7 +9,7 @@ start_service() {
 
     local data_dir log_dir
     config_get data_dir settings data_dir "/etc/iptv-tool/data"
-    config_get log_dir  settings log_dir  "/etc/iptv-tool/logs"
+    config_get log_dir  settings log_dir  "/tmp/iptv-tool"
 
     mkdir -p "$data_dir"
     mkdir -p "$log_dir"
@@ -22,6 +22,22 @@ start_service() {
     procd_set_param stdout 1
     procd_set_param stderr 1
     procd_close_instance
+}
+
+service_triggers() {
+    procd_add_reload_trigger "iptv-tool"
+}
+
+reload_service() {
+    config_load iptv-tool
+    local enabled
+    config_get_bool enabled settings enabled 0
+
+    if [ "$enabled" -eq 1 ]; then
+        restart
+    else
+        stop
+    fi
 }
 
 boot() {

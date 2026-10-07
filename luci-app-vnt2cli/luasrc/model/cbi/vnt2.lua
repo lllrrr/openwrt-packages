@@ -47,7 +47,7 @@ local text_changed_keys = {}
 -- Bumped whenever the save path changes. Every form save logs it, so a report
 -- can be matched against the code that produced it instead of guessing which
 -- build the device is running.
-local FORM_BUILD = "2026-10-05.12"
+local FORM_BUILD = "2026-10-07.1"
 
 -- Audit trail for config mutations: when a populated list gets cleared the
 -- running log records who did it, so silent losses are diagnosable.
@@ -460,7 +460,7 @@ local function is_domain(value)
 	return not value:match("^%.") and not value:match("%.$")
 end
 
-local function validate_cidr(self, value)
+local function validate_cidr(value)
 	value = trim(value)
 	if value == "" then
 		return value
@@ -484,7 +484,7 @@ local function ipv4_network_key(value)
 end
 
 local function is_ipv4_or_cidr(value)
-	return validate_cidr(nil, value) or trim(value):match("^%d+%.%d+%.%d+%.%d+$")
+	return validate_cidr(value) or trim(value):match("^%d+%.%d+%.%d+%.%d+$")
 end
 
 local function validate_turn_item(value)
@@ -524,7 +524,7 @@ local function validate_subnet_mapping_item(value)
 
 	local first, second = value:match("^([^,]+),([^,]+)$")
 	if not first or not second
-		or not validate_cidr(nil, first) or not validate_cidr(nil, second) then
+		or not validate_cidr(first) or not validate_cidr(second) then
 		return nil, translate("格式错误，应为映射 CIDR,实际 CIDR")
 	end
 	local _, mapped_prefix = first:match("^(%d+%.%d+%.%d+%.%d+)/(%d+)$")
@@ -649,7 +649,7 @@ local function validate_virtual_ip(self, value)
 	if is_ipv4(value) then
 		return value
 	end
-	return validate_cidr(self, value)
+	return validate_cidr(value)
 end
 
 local function validate_uint_range(minimum, maximum, message)
@@ -746,8 +746,6 @@ local function bind_list_option(option)
 		local present = self.map:formvalue(cbid .. ".__present") ~= nil
 		local hyd = self.map:formvalue(cbid .. ".__hyd")
 		local diag = self.map:formvalue(cbid .. ".__diag") or ""
-		local seen_diag = diag:match("s=1") ~= nil
-		local touched_diag = diag:match("t=1") ~= nil
 
 		-- Map.parse runs Node.parse a second time with novld=true after
 		-- on_after_save. The save-audit has already restored any list that was
@@ -755,13 +753,6 @@ local function bind_list_option(option)
 		-- the same widget logic with the original form values would undo that
 		-- correction, so managed lists must be a no-op during the re-parse.
 		if novld then
-			return nil
-		end
-
-		-- The editor textarea merged this list first (in m.on_parse); the
-		-- rendered form widget still carries the old stored items, so parsing
-		-- it would overwrite the text edit. Skip the form and keep the edit.
-		if text_changed_keys[self.option] then
 			return nil
 		end
 
@@ -777,17 +768,20 @@ local function bind_list_option(option)
 				.. (extra or ""))
 		end
 
+		-- The editor textarea merged this list first (in m.on_parse); the
+		-- rendered form widget still carries the old stored items, so parsing
+		-- it would overwrite the text edit. Skip the form and keep the edit.
+		if text_changed_keys[self.option] then
+			list_parse_audit("文本已改跳过", "，保留编辑配置的值")
+			return nil
+		end
+
 		if hyd == "1" then
-			-- The widget owns this list: take its own item list verbatim.
+			-- The widget has hydrated and is authoritative: use its own item
+			-- list verbatim. Empty authoritative lists are allowed because the
+			-- JS only sets hyd=1 when the widget really took over.
 			values = split_posted_values(self.map:formvalue(cbid .. ".__values"))
-			-- An empty authoritative list with stored values is only trusted
-			-- when the browser confirms it actually displayed the items and
-			-- the user removed them. Otherwise a hydration race or rebuilt
-			-- widget would wipe the configuration.
-			if #values == 0 and #stored > 0 and not (seen_diag and touched_diag) then
-				list_parse_audit("拒信空列表", "，已回退到 stored")
-				return nil
-			end
+			list_parse_audit("widget 接管", "，使用 __values=" .. #values)
 			authorized_clear[self.option] = true
 		elseif #values == 0 and #stored > 0 and not present then
 			list_parse_audit("保留原值")
@@ -822,10 +816,12 @@ local function bind_list_option(option)
 			if not same_list(current, result) then
 				self:write(section, result)
 				self.section.changed = true
+				list_parse_audit("写入", "，新值=" .. dump_posted(result))
 			end
 		elseif #current > 0 then
 			self:remove(section)
 			self.section.changed = true
+			list_parse_audit("删除", "，清空原 " .. #current .. " 项")
 		end
 	end
 end
@@ -857,10 +853,20 @@ local function keep_absent_options(section)
 			and name ~= "upload_cli" and name ~= "_toml_edit" and name ~= "_upload_note_cli" then
 			-- Flags carry their own parse (existence marker based); every other
 			-- widget inherits AbstractValue.parse.
-			local is_flag = opt.template == "cbi/fvalue"
-			local base = (is_flag and flag_parse) or AbstractValue.parse
+		local is_flag = opt.template == "cbi/fvalue"
+		local base = (is_flag and flag_parse) or AbstractValue.parse
 
-			opt.parse = function(self, sect, novld)
+		-- FR1.2: a user who explicitly empties a plain field (clears the text,
+		-- or empties a select/list) must have that parameter cleared in UCI.
+		-- LuCI's default rmempty keeps the old value on an empty submission, so
+		-- mark these fields optional: an empty post then removes the stored
+		-- option instead of silently preserving it. Flags carry their own
+		-- existence-marker (cbi.cbe) semantics and are left untouched.
+		if not is_flag then
+			opt.optional = true
+		end
+
+		opt.parse = function(self, sect, novld)
 				-- The editor textarea merged this key first; the form field still
 				-- carries the old rendered value, so parsing it would overwrite
 				-- the text edit. Skip it and let the merged value persist.
