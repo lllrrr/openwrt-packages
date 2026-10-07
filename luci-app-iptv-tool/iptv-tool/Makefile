@@ -4,8 +4,8 @@ PKG_NAME:=iptv-tool
 PKG_VERSION:=2.0.11
 PKG_RELEASE:=1
 
-PKG_SOURCE:=v$(PKG_VERSION).tar.gz
-PKG_SOURCE_URL:=https://github.com/super321/iptv-tool/archive/refs/tags/
+PKG_SOURCE:=iptv-tool-v$(PKG_VERSION).tar.gz
+PKG_SOURCE_URL:=https://github.com/super321/iptv-tool/archive/refs/tags/v$(PKG_VERSION).tar.gz?
 PKG_HASH:=a4bc813dc7f73d68ea062cb6cbc79e73e2f8728adfffb708c5cde5f4c1383599
 
 PKG_LICENSE:=AGPL-3.0-only
@@ -35,7 +35,6 @@ endef
 define Package/iptv-tool/description
   Aggregates IPTV live sources and EPG, and publishes M3U/TXT/XMLTV
   subscriptions with a built-in web UI (default port 8023).
-  Upstream: https://github.com/super321/iptv-tool
 endef
 
 define Package/iptv-tool/conffiles
