@@ -1,0 +1,374 @@
+#!/bin/sh /etc/rc.common
+# frpc-multi: 每个 UCI "server" 段 = 一个独立 frpc 进程（连接一个主端 frps）。
+# 配置 /etc/config/frpc_multi；运行时生成 /var/etc/frpc-multi/<id>.toml（600）。
+
+START=99
+STOP=10
+USE_PROCD=1
+
+PROG=/usr/bin/frpc
+CONFIG=frpc_multi
+RUNDIR=/var/etc/frpc-multi
+BINDIR=/var/run/frpc-multi
+ADMIN_BASE=27400
+# Alternate UCI dir (tests only). Empty = system default /etc/config.
+UCI_DIR=${FRPCM_UCI_DIR:-}
+
+uci_cli() {
+	if [ -n "$UCI_DIR" ]; then uci -c "$UCI_DIR" "$@"; else uci "$@"; fi
+}
+
+EXTRA_COMMANDS="checkconfig"
+EXTRA_HELP="	checkconfig [id]	Generate config(s) and run frpc verify"
+
+_log() { logger -t frpc-multi "$*"; }
+
+# TOML basic string with escaping
+q() {
+	printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
+}
+
+is_true() {
+	case "$1" in 1|true|on|yes|enabled) return 0 ;; esac
+	return 1
+}
+
+# Write "key = value" only when value non-empty. $3=raw writes value unquoted (numbers/bools)
+emit() {
+	local key="$1" val="$2" raw="$3"
+	[ -n "$val" ] || return 0
+	if [ "$raw" = raw ]; then
+		echo "$key = $val"
+	else
+		echo "$key = $(q "$val")"
+	fi
+}
+
+emit_bool() {
+	local key="$1" val="$2"
+	[ -n "$val" ] || return 0
+	if is_true "$val"; then echo "$key = true"; else echo "$key = false"; fi
+}
+
+emit_list() {
+	# $1 key, rest: values
+	local key="$1"; shift
+	[ $# -gt 0 ] || return 0
+	local out="" v
+	for v in "$@"; do
+		[ -n "$v" ] || continue
+		out="${out:+$out, }$(q "$v")"
+	done
+	[ -n "$out" ] && echo "$key = [ $out ]"
+}
+
+_list_collect() { LIST_ACC="${LIST_ACC}${LIST_ACC:+
+}$1"; }
+
+get_list() {
+	# $1 section, $2 option -> sets LIST_ACC (newline separated)
+	LIST_ACC=""
+	config_list_foreach "$1" "$2" _list_collect
+}
+
+admin_port_of() {
+	local sid="$1" port
+	config_get port "$sid" admin_port
+	echo "${port:-}"
+}
+
+# ---------- proxy rendering ----------
+render_proxy() {
+	local pid="$1" want="$2"
+	local server enabled name type
+	config_get server "$pid" server
+	[ "$server" = "$want" ] || return 0
+	config_get enabled "$pid" enabled 1
+	is_true "$enabled" || return 0
+	config_get name "$pid" name
+	config_get type "$pid" type tcp
+	[ -n "$name" ] || return 0
+
+	local role local_ip local_port remote_port enc comp bw
+	config_get role "$pid" role server
+
+	if [ "$type" = stcp ] || [ "$type" = xtcp ] || [ "$type" = sudp ]; then
+		if [ "$role" = visitor ]; then
+			local sname sk bind_addr bind_port
+			config_get sname "$pid" server_name
+			config_get sk "$pid" secret_key
+			config_get bind_addr "$pid" bind_addr 127.0.0.1
+			config_get bind_port "$pid" bind_port
+			echo ""
+			echo "[[visitors]]"
+			emit name "$name"
+			emit type "$type"
+			emit serverName "$sname"
+			emit secretKey "$sk"
+			emit bindAddr "$bind_addr"
+			emit bindPort "$bind_port" raw
+			config_get enc "$pid" use_encryption
+			config_get comp "$pid" use_compression
+			emit_bool transport.useEncryption "$enc"
+			emit_bool transport.useCompression "$comp"
+			return 0
+		fi
+	fi
+
+	echo ""
+	echo "[[proxies]]"
+	emit name "$name"
+	emit type "$type"
+
+	local plugin
+	config_get plugin "$pid" plugin
+	if [ -z "$plugin" ]; then
+		config_get local_ip "$pid" local_ip 127.0.0.1
+		config_get local_port "$pid" local_port
+		emit localIP "$local_ip"
+		emit localPort "$local_port" raw
+	fi
+
+	case "$type" in
+	tcp|udp)
+		config_get remote_port "$pid" remote_port
+		emit remotePort "$remote_port" raw
+		;;
+	http|https|tcpmux)
+		get_list "$pid" custom_domains
+		# shellcheck disable=SC2086
+		IFS='
+'
+		set -- $LIST_ACC
+		unset IFS
+		emit_list customDomains "$@"
+		local sub
+		config_get sub "$pid" subdomain
+		emit subdomain "$sub"
+		if [ "$type" = http ]; then
+			get_list "$pid" locations
+			IFS='
+'
+			set -- $LIST_ACC
+			unset IFS
+			emit_list locations "$@"
+			local hu hp hr
+			config_get hu "$pid" http_user
+			config_get hp "$pid" http_password
+			config_get hr "$pid" host_header_rewrite
+			emit httpUser "$hu"
+			emit httpPassword "$hp"
+			emit hostHeaderRewrite "$hr"
+		fi
+		[ "$type" = tcpmux ] && echo 'multiplexer = "httpconnect"'
+		;;
+	stcp|xtcp|sudp)
+		local sk
+		config_get sk "$pid" secret_key
+		emit secretKey "$sk"
+		get_list "$pid" allow_users
+		IFS='
+'
+		set -- $LIST_ACC
+		unset IFS
+		emit_list allowUsers "$@"
+		;;
+	esac
+
+	config_get enc "$pid" use_encryption
+	config_get comp "$pid" use_compression
+	config_get bw "$pid" bandwidth_limit
+	emit_bool transport.useEncryption "$enc"
+	emit_bool transport.useCompression "$comp"
+	emit transport.bandwidthLimit "$bw"
+
+	if [ -n "$plugin" ]; then
+		echo "[proxies.plugin]"
+		emit type "$plugin"
+		local pu pp up
+		case "$plugin" in
+		http_proxy)
+			config_get pu "$pid" plugin_user
+			config_get pp "$pid" plugin_password
+			emit httpUser "$pu"; emit httpPassword "$pp" ;;
+		socks5)
+			config_get pu "$pid" plugin_user
+			config_get pp "$pid" plugin_password
+			emit username "$pu"; emit password "$pp" ;;
+		unix_domain_socket)
+			config_get up "$pid" plugin_unix_path
+			emit unixPath "$up" ;;
+		static_file)
+			config_get up "$pid" plugin_local_path
+			emit localPath "$up"
+			config_get pu "$pid" plugin_user
+			config_get pp "$pid" plugin_password
+			emit httpUser "$pu"; emit httpPassword "$pp" ;;
+		esac
+	fi
+}
+
+# ---------- server (connection) rendering ----------
+render_server() {
+	local sid="$1" out="$2"
+	local addr port token proto tls lfe hb_int hb_to pool tcpmux user dns proxy_url
+	local log_level admin_port admin_pass
+
+	config_get addr "$sid" server_addr
+	config_get port "$sid" server_port 7000
+	config_get token "$sid" token
+	config_get proto "$sid" protocol tcp
+	# frp >= 0.50 enables TLS by default; keep that default when the option is unset
+	config_get tls "$sid" tls_enable 1
+	config_get lfe "$sid" login_fail_exit 0
+	config_get hb_int "$sid" heartbeat_interval
+	config_get hb_to "$sid" heartbeat_timeout
+	config_get pool "$sid" pool_count
+	config_get tcpmux "$sid" tcp_mux
+	config_get user "$sid" user
+	config_get dns "$sid" dns_server
+	config_get proxy_url "$sid" http_proxy
+	config_get log_level "$sid" log_level info
+	config_get admin_port "$sid" admin_port
+	config_get admin_pass "$sid" admin_password
+
+	umask 077
+	{
+		echo "# Generated by /etc/init.d/frpc-multi from /etc/config/frpc_multi section '$sid'. Do not edit."
+		emit serverAddr "$addr"
+		emit serverPort "$port" raw
+		emit user "$user"
+		emit dnsServer "$dns"
+		emit_bool loginFailExit "$lfe"
+		[ -n "$token" ] && { echo 'auth.method = "token"'; emit auth.token "$token"; }
+		emit transport.protocol "$proto"
+		emit_bool transport.tls.enable "$tls"
+		emit_bool transport.tcpMux "$tcpmux"
+		emit transport.poolCount "$pool" raw
+		emit transport.heartbeatInterval "$hb_int" raw
+		emit transport.heartbeatTimeout "$hb_to" raw
+		emit transport.proxyURL "$proxy_url"
+		echo 'log.to = "console"'
+		# syslog has no terminal: drop ANSI colour codes from log lines
+		echo 'log.disablePrintColor = true'
+		emit log.level "$log_level"
+		# local status API for LuCI (loopback only)
+		if [ -n "$admin_port" ] && [ -n "$admin_pass" ]; then
+			echo 'webServer.addr = "127.0.0.1"'
+			emit webServer.port "$admin_port" raw
+			echo 'webServer.user = "luci"'
+			emit webServer.password "$admin_pass"
+		fi
+		get_list "$sid" extra
+		[ -n "$LIST_ACC" ] && printf '%s\n' "$LIST_ACC"
+		config_foreach render_proxy proxy "$sid"
+	} > "$out"
+}
+
+valid_id() {
+	case "$1" in
+	''|*[!A-Za-z0-9_]*) return 1 ;;
+	esac
+	return 0
+}
+
+# ensure each server has a unique loopback admin port + random password (persisted)
+ensure_admin() {
+	local sid="$1" port pass
+	config_get port "$sid" admin_port
+	config_get pass "$sid" admin_password
+	local changed=0
+	if [ -z "$pass" ]; then
+		# no base64 on stock OpenWrt: md5 of random bytes -> 32 hex chars
+		pass="$(head -c 64 /dev/urandom | md5sum | cut -c1-32)"
+		[ ${#pass} -eq 32 ] || { _log "$sid: cannot generate admin password"; return 1; }
+		uci_cli -q set "$CONFIG.$sid.admin_password=$pass"
+		changed=1
+	fi
+	if [ -z "$port" ]; then
+		local p=$ADMIN_BASE used listening
+		used="$(uci_cli -q show $CONFIG | sed -n "s/^$CONFIG\.[^.]*\.admin_port='\{0,1\}\([0-9]*\)'\{0,1\}$/\1/p")"
+		listening="$(netstat -tln 2>/dev/null | awk '{print $4}')"
+		while echo "$used" | grep -qx "$p" || echo "$listening" | grep -q ":$p\$"; do
+			p=$((p + 1))
+			[ $p -gt 27999 ] && { _log "$sid: no free admin port"; return 1; }
+		done
+		uci_cli -q set "$CONFIG.$sid.admin_port=$p"
+		changed=1
+	fi
+	[ "$changed" = 1 ] && uci_cli -q commit "$CONFIG"
+	chmod 600 "${UCI_DIR:-/etc/config}/$CONFIG" 2>/dev/null
+	return 0
+}
+
+start_server() {
+	local sid="$1" only="$2"
+	[ -n "$only" ] && [ "$only" != "$sid" ] && return 0
+	valid_id "$sid" || { _log "skip section '$sid': id must be [A-Za-z0-9_]"; return 0; }
+
+	local enabled
+	config_get enabled "$sid" enabled 1
+	is_true "$enabled" || return 0
+
+	local addr
+	config_get addr "$sid" server_addr
+	[ -n "$addr" ] || { _log "$sid: server_addr empty, skipped"; return 0; }
+
+	ensure_admin "$sid" || return 0
+	config_load "$CONFIG"   # reload after possible commit
+
+	local conf="$RUNDIR/$sid.toml"
+	render_server "$sid" "$conf"
+	if ! "$PROG" verify -c "$conf" >/dev/null 2>&1; then
+		_log "$sid: generated config failed 'frpc verify', not started"
+		return 0
+	fi
+
+	# per-connection argv0 => syslog tag "frpc-<id>[pid]"
+	ln -sf "$PROG" "$BINDIR/frpc-$sid"
+
+	local respawn
+	config_get respawn "$sid" respawn 1
+
+	procd_open_instance "$sid"
+	procd_set_param command "$BINDIR/frpc-$sid" -c "$conf"
+	procd_set_param file "$conf"
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	is_true "$respawn" && procd_set_param respawn 3600 5 0
+	procd_close_instance
+}
+
+start_service() {
+	mkdir -p "$RUNDIR" "$BINDIR"
+	chmod 700 "$RUNDIR"
+	config_load "$CONFIG"
+	local global_enabled
+	config_get global_enabled global enabled 1
+	is_true "$global_enabled" || return 0
+	config_foreach start_server server "$1"
+}
+
+service_triggers() {
+	procd_add_reload_trigger "$CONFIG"
+}
+
+reload_service() {
+	# rebuild all instances; procd only restarts instances whose command/config file changed
+	start
+}
+
+_check_one() {
+	local sid="$1" only="$2" tmp
+	[ -n "$only" ] && [ "$only" != "$sid" ] && return 0
+	tmp="$(mktemp /tmp/frpc-multi-check.XXXXXX)" || return 1
+	render_server "$sid" "$tmp"
+	printf '%s: ' "$sid"
+	"$PROG" verify -c "$tmp" 2>&1 | tail -1
+	rm -f "$tmp"
+}
+
+checkconfig() {
+	config_load "$CONFIG"
+	config_foreach _check_one server "$1"
+}

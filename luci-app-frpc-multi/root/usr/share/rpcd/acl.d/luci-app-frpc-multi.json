@@ -1,0 +1,17 @@
+{
+	"luci-app-frpc-multi": {
+		"description": "Grant access to luci-app-frpc-multi",
+		"read": {
+			"ubus": {
+				"luci.frpc-multi": [ "status", "log" ]
+			},
+			"uci": [ "frpc_multi" ]
+		},
+		"write": {
+			"ubus": {
+				"luci.frpc-multi": [ "action" ]
+			},
+			"uci": [ "frpc_multi" ]
+		}
+	}
+}

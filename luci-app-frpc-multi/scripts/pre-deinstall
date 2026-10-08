@@ -1,0 +1,14 @@
+#!/bin/sh
+# pre-deinstall: stop all connections, remove watchdog cron line. Config file is kept.
+[ -n "${IPKG_INSTROOT}" ] && exit 0
+
+/etc/init.d/frpc-multi stop 2>/dev/null
+/etc/init.d/frpc-multi disable 2>/dev/null
+
+CRON=/etc/crontabs/root
+if [ -f "$CRON" ] && grep -q '/usr/sbin/frpc-multi-watchdog' "$CRON"; then
+	sed -i '\#/usr/sbin/frpc-multi-watchdog#d' "$CRON"
+	/etc/init.d/cron restart >/dev/null 2>&1
+fi
+rm -rf /var/etc/frpc-multi /var/run/frpc-multi
+exit 0

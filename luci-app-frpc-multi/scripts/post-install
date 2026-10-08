@@ -1,0 +1,22 @@
+#!/bin/sh
+# post-install: add watchdog cron line, lock down config, reload rpcd/LuCI, enable+start.
+[ -n "${IPKG_INSTROOT}" ] && exit 0
+
+chmod 600 /etc/config/frpc_multi 2>/dev/null
+
+CRON=/etc/crontabs/root
+touch "$CRON"
+grep -q '/usr/sbin/frpc-multi-watchdog' "$CRON" || \
+	echo '* * * * * /usr/sbin/frpc-multi-watchdog' >> "$CRON"
+/etc/init.d/cron enabled 2>/dev/null || /etc/init.d/cron enable
+/etc/init.d/cron restart >/dev/null 2>&1
+
+/etc/init.d/rpcd reload 2>/dev/null
+rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache 2>/dev/null
+
+/etc/init.d/frpc-multi enable
+# reload (not start): on upgrade this regenerates every TOML with the new script and
+# procd restarts only the instances whose generated config actually changed
+/etc/init.d/frpc-multi reload
+rm -f /etc/config/frpc_multi.apk-new
+exit 0

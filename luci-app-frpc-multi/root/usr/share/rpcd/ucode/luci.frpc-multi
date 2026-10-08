@@ -1,0 +1,166 @@
+#!/usr/bin/ucode
+// rpcd backend for luci-app-frpc-multi.
+// status: per connection running state + live proxy status from each frpc's loopback admin API.
+// log:    recent syslog lines tagged frpc-<id>.
+// action: start / stop / restart one connection (validated id).
+
+'use strict';
+
+import { cursor } from 'uci';
+import { connect as ubus_connect } from 'ubus';
+import { popen, readfile } from 'fs';
+import * as socket from 'socket';
+
+const CONFIG = 'frpc_multi';
+const SERVICE = 'frpc-multi';
+
+function valid_id(id) {
+	return type(id) == 'string' && match(id, /^[A-Za-z0-9_]{1,32}$/) != null;
+}
+
+// Minimal HTTP/1.0 GET with Basic auth over loopback; bounded by poll timeouts.
+function http_get(port, path, user, pass) {
+	let s = socket.connect('127.0.0.1', `${port}`, null, 800);
+	if (!s)
+		return null;
+
+	s.send(`GET ${path} HTTP/1.0\r\nHost: 127.0.0.1\r\nAuthorization: Basic ${b64enc(user + ':' + pass)}\r\n\r\n`);
+
+	let buf = '';
+	const deadline = time() + 2;
+	while (time() <= deadline) {
+		const r = socket.poll(500, [ s, socket.POLLIN ]);
+		if (!r || !length(r) || !r[0][1])
+			continue;
+		const chunk = s.recv(16384);
+		if (chunk == null || !length(chunk))
+			break;
+		buf += chunk;
+		if (length(buf) > 1048576)
+			break;
+	}
+	s.close();
+
+	const sep = index(buf, '\r\n\r\n');
+	if (sep < 0)
+		return null;
+	const code = +(match(substr(buf, 0, sep), /^HTTP\/1\.[01] (\d+)/)?.[1] ?? 0);
+	return { code, body: substr(buf, sep + 4) };
+}
+
+function proc_state(ub) {
+	const res = ub.call('service', 'list', { name: SERVICE, verbose: true }) ?? {};
+	return res[SERVICE]?.instances ?? {};
+}
+
+// [proxies]/[visitors] of a connection as configured
+function configured_proxies(c, sid) {
+	const list = [];
+	c.foreach(CONFIG, 'proxy', (s) => {
+		if (s.server != sid)
+			return;
+		push(list, {
+			id: s['.name'],
+			name: s.name,
+			type: s.type ?? 'tcp',
+			role: s.role ?? 'server',
+			enabled: s.enabled != '0',
+			local: s.plugin ? `plugin:${s.plugin}` : `${s.local_ip ?? '127.0.0.1'}:${s.local_port ?? ''}`,
+			remote: s.remote_port ?? s.subdomain ?? (type(s.custom_domains) == 'array' ? join(',', s.custom_domains) : s.custom_domains) ?? s.bind_port ?? ''
+		});
+	});
+	return list;
+}
+
+const methods = {
+	status: {
+		call: function() {
+			const c = cursor();
+			const ub = ubus_connect();
+			const inst = proc_state(ub);
+			const out = [];
+
+			c.foreach(CONFIG, 'server', (s) => {
+				const sid = s['.name'];
+				const i = inst[sid];
+				const entry = {
+					id: sid,
+					name: s.alias ?? sid,
+					enabled: s.enabled != '0',
+					server: `${s.server_addr ?? ''}:${s.server_port ?? '7000'}`,
+					running: !!i?.running,
+					pid: i?.pid ?? null,
+					api: 'unavailable',
+					proxies: configured_proxies(c, sid),
+					live: {}
+				};
+
+				if (entry.running && s.admin_port && s.admin_password) {
+					const r = http_get(s.admin_port, '/api/status', 'luci', s.admin_password);
+					if (r && r.code == 200) {
+						entry.api = 'ok';
+						let st = null;
+						try { st = json(r.body); } catch (e) { st = null; }
+						for (let ptype in (st ?? {}))
+							for (let p in st[ptype])
+								entry.live[p.name] = { status: p.status, err: p.err ?? '', remote: p.remote_addr ?? '' };
+					}
+					else if (r) {
+						entry.api = `http ${r.code}`;
+					}
+				}
+				push(out, entry);
+			});
+
+			return { connections: out };
+		}
+	},
+
+	log: {
+		args: { id: 'id', lines: 0 },
+		call: function(req) {
+			const id = req.args?.id;
+			if (!valid_id(id))
+				return { error: 'invalid id' };
+			let n = +(req.args?.lines ?? 100);
+			if (n < 10 || n > 500)
+				n = 100;
+			// frpc output (tag frpc-<id>) + init/watchdog messages about this connection
+			const p = popen(`logread 2>/dev/null | grep -E 'frpc-${id}\\[|frpc-multi: ${id}:|frpc-multi-watchdog: ${id} ' | tail -n ${n}`, 'r');
+			const text = p ? p.read('all') : '';
+			p?.close();
+			// strip ANSI colour escapes written by older frpc configs
+			return { log: replace(text ?? '', /\x1b\[[0-9;]*m/g, '') };
+		}
+	},
+
+	action: {
+		args: { id: 'id', op: 'op' },
+		call: function(req) {
+			const id = req.args?.id;
+			const op = req.args?.op;
+			if (!valid_id(id) || !(op in [ 'restart', 'enable', 'disable' ]))
+				return { error: 'invalid arguments' };
+
+			const c = cursor();
+			if (c.get(CONFIG, id) != 'server')
+				return { error: 'no such connection' };
+
+			let rc;
+			if (op == 'restart') {
+				// runtime only; does not change configuration
+				system([ '/etc/init.d/frpc-multi', 'stop', id ]);
+				rc = system([ '/etc/init.d/frpc-multi', 'start', id ]);
+			}
+			else {
+				// persistent: survives reboot and is respected by the watchdog
+				c.set(CONFIG, id, 'enabled', op == 'enable' ? '1' : '0');
+				c.commit(CONFIG);
+				rc = system([ '/etc/init.d/frpc-multi', 'reload' ]);
+			}
+			return { code: rc };
+		}
+	}
+};
+
+return { 'luci.frpc-multi': methods };

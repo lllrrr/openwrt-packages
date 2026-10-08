@@ -1,0 +1,18 @@
+luci-app-frpc-multi
+
+New plugin code is provided under the Apache License, Version 2.0.
+
+The init script's UCI/procd lifecycle follows the OpenWrt packages FRPC init
+implementation. That upstream package declares GPL-2.0; a copy of that license
+is provided as LICENSES/GPL-2.0.txt. Consult its upstream history for the original
+contributors: https://github.com/openwrt/packages/tree/master/net/frp
+Treat retained upstream-derived portions of root/etc/init.d/frpc-multi under
+the upstream license; do not assume that the package metadata alone relicenses
+them. The service file is not claimed as exclusively Apache-2.0.
+
+LuCI and OpenWrt are external dependencies:
+https://github.com/openwrt/luci
+https://github.com/openwrt/openwrt
+
+FRP binaries are external dependencies and are not distributed in this package:
+https://github.com/fatedier/frp

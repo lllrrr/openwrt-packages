@@ -1,0 +1,4 @@
+
+config global 'global'
+	option enabled '1'
+	option watchdog '1'

@@ -1,0 +1,14 @@
+{
+	"admin/services/frpc-multi": {
+		"title": "frp 多客户端",
+		"order": 52,
+		"action": {
+			"type": "view",
+			"path": "frpc-multi"
+		},
+		"depends": {
+			"acl": [ "luci-app-frpc-multi" ],
+			"uci": { "frpc_multi": true }
+		}
+	}
+}
