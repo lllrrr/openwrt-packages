@@ -4,7 +4,7 @@
 set -eu
 SRC=${1:?srcdir}
 OUT=${2:?outdir}
-VER=${VER:-1.0.0-r8}
+VER=${VER:-1.0.0-r10}
 NAME=luci-app-frpc-multi
 PROJECT_URL=${PROJECT_URL:-https://github.com/myc2002/luci-app-frpc-multi}
 APK_LICENSE=${APK_LICENSE:-Apache-2.0 AND GPL-2.0-only}
@@ -41,6 +41,17 @@ cp "$SRC/scripts/pre-deinstall" "$W/pre-deinstall"
 chmod 755 "$W/post-install" "$W/post-upgrade" "$W/pre-deinstall"
 mkdir -p "$OUT"
 
+# Set APK_MKPKG to an apk v3 executable for local, reproducible builds.
+# Otherwise retain the Docker/alpine:edge build path.
+if [ -n "${APK_MKPKG:-}" ]; then
+ "$APK_MKPKG" mkpkg \
+  -I name:$NAME -I version:$VER \
+  -I 'description:LuCI app for independent multi-server frpc connections' \
+  -I arch:$APK_ARCH -I license:Apache-2.0 -I origin:$NAME -I url:$PROJECT_URL \
+  -I 'depends:frpc luci-base rpcd-mod-ucode ucode-mod-uci ucode-mod-ubus ucode-mod-fs ucode-mod-socket' \
+  -s post-install:$W/post-install -s post-upgrade:$W/post-upgrade \
+  -s pre-deinstall:$W/pre-deinstall -F "$W/root" -o "$OUT/$NAME-$VER.apk"
+else
 docker run --rm -v "$W:/w" -v "$OUT:/out" alpine:edge sh -c "
 	apk mkpkg \
 		-I name:$NAME \
@@ -57,4 +68,5 @@ docker run --rm -v "$W:/w" -v "$OUT:/out" alpine:edge sh -c "
 		-F /w/root \
 		-o /out/$NAME-$VER.apk
 "
+fi
 ls -l "$OUT/$NAME-$VER.apk"

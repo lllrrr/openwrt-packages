@@ -1,5 +1,19 @@
 # 更新记录
 
+## 1.0.0-r10
+
+- 修复 APK 用 Alpine `aarch64` 标签导致 OpenWrt `aarch64_generic` 等系统提示不兼容；脚本插件改为标准 `noarch` APK。
+- IPK 统一发布 `all` 包，取消按 CPU 重复命名的文件；不使用强制架构/跳过依赖。
+- 一键安装的 CPU 检测仅选择官方 FRPC 二进制，插件包不再绑定 CPU 名。
+- 构建支持本地 apk v3 工具；新增 aarch64_generic / aarch64_cortex-a53 / aarch64 / x86_64 安装器测试。
+
+## 1.0.0-r9
+
+- 修复 r8 IPK 外层错误使用 Debian ar，导致 OpenWrt opkg 报 Malformed package file。改用 OpenWrt gzip/tar 格式。
+- 补齐数据归档目录项，保证新系统可以创建所需路径。
+- 使用真实 OpenWrt opkg 原版源码构建的工具在隔离根目录验证安装、权限和升级配置保留；不再把 dpkg-deb 可读视为 opkg 兼容验收。依赖用测试占位元数据，未覆盖实际设备启动和完整软件源下载。
+- 一键安装默认切换到 r9，r8 IPK 标注为不可用。
+
 ## 1.0.0-r7
 
 - 去掉新建连接前的内部 ID 输入框，直接点击「添加连接…」。
@@ -24,7 +38,7 @@
 
 ## 已知限制
 
-- 当前仅发布 APK，不支持直接用于 opkg。
+- 已发布 APK noarch / IPK all；一键安装官方 FRPC 内核目前支持 ARM64 和 x86_64。
 - 自动状态 API 端口为 27400–27999，实际容量受占用端口和设备资源限制。
 - 状态 RPC 顺序查询连接；很多连接或无响应 API 会增加刷新耗时。
 - 无代理或 visitor-only 连接的卡片状态不能单凭 API 列表准确证明已登录；可结合日志确认。

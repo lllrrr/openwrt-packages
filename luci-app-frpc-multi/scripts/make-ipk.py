@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a legacy OpenWrt IPK (ar + control/data tar.gz) from staged files."""
+"""Build an OpenWrt opkg IPK: gzip/tar outer archive, not Debian ar."""
 import argparse, io, os, pathlib, stat, tarfile
 p=argparse.ArgumentParser()
 p.add_argument('--root',required=True);p.add_argument('--out',required=True)
@@ -21,18 +21,23 @@ control='\n'.join([f'Package: {a.name}',f'Version: {a.version}',f'Architecture: 
 def tar_bytes(entries):
     f=io.BytesIO()
     with tarfile.open(fileobj=f,mode='w:gz',format=tarfile.USTAR_FORMAT) as t:
+        dirs=set()
         for arc,src,mode in entries:
+            parent=pathlib.PurePosixPath(arc).parent
+            parents=[]
+            while str(parent) not in ('.','/'):
+                parents.append(str(parent));parent=parent.parent
+            for directory in reversed(parents):
+                if directory in dirs:continue
+                dirs.add(directory)
+                ti=tarfile.TarInfo('./'+directory+'/');ti.type=tarfile.DIRTYPE;ti.mode=0o755;ti.uid=ti.gid=0;ti.mtime=0;t.addfile(ti)
             data=src if isinstance(src,bytes) else pathlib.Path(src).read_bytes()
-            ti=tarfile.TarInfo(arc);ti.size=len(data);ti.mode=mode;ti.uid=ti.gid=0;ti.uname='root';ti.gname='root';ti.mtime=0;t.addfile(ti,io.BytesIO(data))
+            ti=tarfile.TarInfo(arc if arc.startswith('./') else './'+arc);ti.size=len(data);ti.mode=mode;ti.uid=ti.gid=0;ti.uname='root';ti.gname='root';ti.mtime=0;t.addfile(ti,io.BytesIO(data))
     return f.getvalue()
 control_tar=tar_bytes([('control',control.encode(),0o644),('conffiles',b'/etc/config/frpc_multi\n',0o644),('postinst',scripts/'post-install',0o755),('prerm',scripts/'pre-deinstall',0o755)])
 def file_mode(f):
     rel=str(f.relative_to(root))
     return 0o755 if rel in ('etc/init.d/frpc-multi','usr/sbin/frpc-multi-watchdog') else (0o600 if rel=='etc/config/frpc_multi' else 0o644)
 data_tar=tar_bytes([(str(f.relative_to(root)),f,file_mode(f)) for f in sorted(root.rglob('*')) if f.is_file() and 'usr/lib/opkg/info' not in str(f.relative_to(root))])
-def ar_member(name,data):
-    h=((name[:15]+'/').ljust(16)+str(0).ljust(12)+str(0).ljust(6)+str(0).ljust(6)+format(0o100644,'o').ljust(8)+str(len(data)).ljust(10)+'`\n').encode('ascii')
-    if len(h)!=60:raise ValueError('invalid ar header')
-    return h+data+(b'\n' if len(data)%2 else b'')
-blob=b'!<arch>\n'+ar_member('debian-binary',b'2.0\n')+ar_member('control.tar.gz',control_tar)+ar_member('data.tar.gz',data_tar)
+blob=tar_bytes([('./debian-binary',b'2.0\n',0o644),('./control.tar.gz',control_tar,0o644),('./data.tar.gz',data_tar,0o644)])
 out.mkdir(parents=True,exist_ok=True);target=out/f'{a.name}_{a.version}_{a.arch}.ipk';target.write_bytes(blob);os.chmod(target,0o644);print(target,len(blob))

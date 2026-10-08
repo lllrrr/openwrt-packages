@@ -7,6 +7,8 @@ STOP=10
 USE_PROCD=1
 
 PROG=/usr/bin/frpc
+# Dedicated compatible core installed when system feed frpc is too old; never overwrite it.
+[ -x /usr/lib/frpc-multi/frpc ] && PROG=/usr/lib/frpc-multi/frpc
 CONFIG=frpc_multi
 RUNDIR=/var/etc/frpc-multi
 BINDIR=/var/run/frpc-multi
