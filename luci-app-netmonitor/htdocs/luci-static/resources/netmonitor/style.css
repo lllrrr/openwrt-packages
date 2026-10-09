@@ -13,23 +13,19 @@
  *      动态 SVG 动效与 TDesign 主题变量对接。
  */
 
-/* 变量定义在 .nm-root、.nm-modal 与 t-dialog 上。
+/* 变量定义在 .nm-root、.nm-modal 与 .nm-dlg-host 上。
  *
- * 原因：编辑弹窗必须挂在 document.body 下（否则会被祖先的 overflow/transform
- * 裁掉），于是它不在 .nm-root 的子树里。若变量只定义在 .nm-root，弹窗内
- * 所有 var(--nm-*) 都会解析为空，var() 又没写回退值时整条声明失效 ——
- * 实测表现为 .nm-btn-primary 的 background 变成 transparent，
- * 白字落在透明底上，看起来「保存按钮不见了」。
+ * 原因：.nm-dlg-host 供「需要挂在页面容器之外」的弹窗使用（例如确认框
+ * 可能被调用方挂在 body 上）。若变量只定义在 .nm-root，弹窗内所有
+ * var(--nm-*) 都会解析为空，var() 又没写回退值时整条声明失效 ——
+ * 实测表现为按钮背景变成 transparent，白字落在透明底上，
+ * 看起来「保存按钮不见了」。
  *
- * 注意：.nm-modal 是插件自绘弹窗的类，而 targets/settings 页的编辑弹窗
- * 早已改用 TDesign 的 <t-dialog>（自定义元素，挂在 body 下）。若只保留
- * .nm-modal，t-dialog 内部与 light DOM 里的一切 var(--nm-*) 全部失效 ——
- * 表单 label 变透明（--nm-muted 空）、错误提示不可见（--nm-bad 空）、
- * 弹窗底色回退成白（--nm-bg 空，在暗色主题下刺眼）。因此这里必须把
- * t-dialog 一并纳入变量作用域。 */
+ * 本项目弹窗默认挂在页面 root 下（随 SPA 路由销毁），此时仍在 .nm-root
+ * 子树里；但确认框允许外部挂载，故保留这一作用域兜底。 */
 .nm-root,
 .nm-modal,
-t-dialog {
+.nm-dlg-host {
 	--nm-bg: var(--background-color, #ffffff);
 	--nm-fg: var(--text-color, #20242c);
 	--nm-card: var(--light-bg-color, #f7f8fa);
@@ -55,56 +51,14 @@ t-dialog {
 	--nm-gap: 14px;
 }
 
-/* ------------------------------------------------- TDesign 主题对接
+/* ------------------------------------------------- 主题对接
  *
- * TDesign Web Components 的样式表把默认值定义在 :root（--td-* 变量）。
- * 这里在 .nm-root 内把品牌/背景/文本/边框变量映射到 LuCI 主题变量，
- * 实现三件事：
- *   1. 品牌色跟随主题的 --accent-color（而非固定 TDesign 蓝 #0052d9）；
- *   2. 背景 / 文本 / 边框跟随 LuCI 明暗主题，第三方主题与深色模式自动适配
- *      （--nm-* 已在上面及 @media dark 里完成映射）；
- *   3. 弹窗 / 气泡 / 消息会渲染到 document.body（脱离 .nm-root 子树），
- *      因此把 t-dialog / t-popup / t-message 也列入选择器，让它们内部
- *      的组件同样继承这套映射。
+ * 组件一律使用 --nm-* 变量（见上方定义），它们已经映射到 LuCI 主题变量，
+ * 因此换主题 / 明暗模式自动适配，无需为组件单独对接。
  *
- * color-mix 依赖较新浏览器；LuCI 页面的受众浏览器普遍已支持，且原样式
- * 表里已有 color-mix 先例。变量缺失时按字面回退值兜底。
+ * color-mix 依赖较新浏览器；LuCI 页面的受众浏览器普遍已支持。变量缺失时
+ * 按字面回退值兜底。
  */
-.nm-root,
-t-dialog,
-t-popup,
-t-message {
-	--td-brand-color: var(--nm-accent, #0052d9);
-	--td-brand-color-hover: color-mix(in srgb, var(--nm-accent, #0052d9) 90%, #fff 10%);
-	--td-brand-color-active: color-mix(in srgb, var(--nm-accent, #0052d9) 92%, #000 8%);
-	--td-brand-color-focus: color-mix(in srgb, var(--nm-accent, #0052d9) 40%, transparent);
-	--td-brand-color-light: color-mix(in srgb, var(--nm-accent, #0052d9) 12%, transparent);
-	--td-brand-color-light-hover: color-mix(in srgb, var(--nm-accent, #0052d9) 20%, transparent);
-	--td-brand-color-disabled: color-mix(in srgb, var(--nm-accent, #0052d9) 35%, transparent);
-	--td-text-color-brand: var(--nm-accent, #0052d9);
-	--td-text-color-link: color-mix(in srgb, var(--nm-accent, #0052d9) 85%, #000 15%);
-
-	--td-bg-color-page: var(--background-color, #f5f6f8);
-	--td-bg-color-container: var(--light-bg-color, #ffffff);
-	--td-bg-color-container-hover: var(--lighter-bg-color, #fafbfc);
-	--td-bg-color-container-active: color-mix(in srgb, var(--light-bg-color, #ffffff) 96%, #000 4%);
-	--td-bg-color-container-select: var(--light-bg-color, #ffffff);
-	--td-bg-color-secondarycontainer: var(--light-bg-color, #f5f6f8);
-
-	--td-text-color-primary: var(--text-color, #20242c);
-	--td-text-color-secondary: var(--light-text-color, #7b8494);
-	--td-text-color-placeholder: var(--light-text-color, #98a1b0);
-	--td-text-color-disabled: color-mix(in srgb, var(--light-text-color, #98a1b0) 60%, transparent);
-
-	--td-border-level-1-color: var(--border-color, rgba(120, 130, 150, 0.20));
-	--td-border-level-2-color: var(--border-color, rgba(120, 130, 150, 0.30));
-	--td-border-level-3-color: var(--border-color, rgba(120, 130, 150, 0.40));
-
-	--td-success-color: var(--nm-ok, #2e9e5b);
-	--td-warning-color: var(--nm-warn, #d69a1a);
-	--td-error-color: var(--nm-bad, #cf4437);
-}
-
 .nm-root {
 	color: var(--nm-fg);
 	font-size: 14px;
@@ -114,7 +68,7 @@ t-message {
 @media (prefers-color-scheme: dark) {
 	.nm-root,
 	.nm-modal,
-	t-dialog {
+	.nm-dlg-host {
 		--nm-bg: var(--background-color, #14171c);
 		--nm-fg: var(--text-color, #e6e9ef);
 		--nm-card: var(--light-bg-color, #1c2027);
@@ -197,21 +151,16 @@ t-message {
 	flex: 1 1 auto;
 }
 
-/* TDesign 视觉卡片容器（普通 div，替代 <t-card>）。
+/* 卡片容器：普通 div。
  *
- * 背景 / 边框 / 圆角全部走 TDesign 变量（--td-*），与真 t-card 视觉一致，
- * 且内边距 / 布局类可被本样式表正常作用（t-card 的 shadow DOM 克隆会隔离
- * 外部样式，导致卡片内部 .nm-* 布局全部失效，因此容器改用 div）。 */
+ * 保持 div 而非任何组件库卡片：Web Components 的 shadow DOM 会克隆
+ * light DOM 内容并隔离外部样式，导致卡片内部的 .nm-* 布局类全部失效。 */
 .nm-tcard {
-	--td-comp-paddingTB-l: 18px;
-	--td-comp-paddingLR-xl: 24px;
-	background: var(--td-bg-color-container, var(--nm-card-hi, #ffffff));
-	border: 1px solid var(--td-border-level-1-color, var(--nm-border));
-	border-radius: var(--td-radius-medium, var(--nm-radius, 14px));
+	background: var(--nm-card-hi, #ffffff);
+	border: 1px solid var(--nm-border, rgba(120, 130, 150, 0.2));
+	border-radius: var(--nm-radius, 14px);
 	box-sizing: border-box;
 	min-width: 0;
-	/* TDesign t-card body 的水平内边距为 32px，与 .nm-* 内部排版偏宽；
-	 * 这里固定为与 t-card 变量覆盖一致的内边距（18px / 24px）。 */
 	padding: 18px 24px;
 }
 
@@ -738,7 +687,6 @@ t-message {
 
 /* ---------------------------------------------------------------- 控件 */
 
-.nm-btn,
 .nm-select,
 .nm-input {
 	font: inherit;
@@ -752,41 +700,10 @@ t-message {
 	box-sizing: border-box;
 }
 
-.nm-btn {
-	cursor: pointer;
-	transition: transform 0.12s ease, background 0.15s ease;
-}
-
-.nm-btn:hover { background: var(--nm-card-hi); }
-.nm-btn:active { transform: translateY(1px); }
-
-/* 主按钮：--nm-accent 一律带字面回退值。
- * 变量缺失时（例如被移植到别的容器里）回退到与默认主题一致的蓝色，
- * 而不是让 background 整条失效变成透明。 */
-.nm-btn-primary {
-	background: var(--nm-accent, #2f6fed);
-	border-color: var(--nm-accent, #2f6fed);
-	color: #fff;
-}
-
-/* .nm-btn:hover 会把底色刷成 --nm-card-hi（浅色），若不覆盖，
- * 主按钮一悬停就变成「白字 + 浅底」，同样看不见。 */
-.nm-btn-primary:hover {
-	background: color-mix(in srgb, var(--nm-accent, #2f6fed) 88%, #000 12%);
-	border-color: color-mix(in srgb, var(--nm-accent, #2f6fed) 88%, #000 12%);
-	color: #fff;
-}
-
-.nm-btn-danger {
-	color: var(--nm-bad);
-	border-color: color-mix(in srgb, var(--nm-bad) 45%, transparent);
-}
-
-.nm-btn-sm {
-	padding: 3px 8px;
-	min-height: 26px;
-	font-size: 12px;
-}
+/* 按钮样式统一在文件末尾的「原生 UI 组件」段定义（.nm-btn 系列）。
+ * 此处刻意不再重复：同一个类被定义两次时，后写的规则会静默覆盖前者，
+ * 而「主题色」与「变体」分处两处时优先级相同、书写顺序又不可见，
+ * 极易出现「危险按钮被文本变体的颜色盖掉」这类问题（已实际发生过）。 */
 
 .nm-select { min-width: 120px; }
 .nm-input { min-width: 140px; }
@@ -1373,12 +1290,20 @@ t-message {
 
 /* 原生开关（替代 t-switch）。
  *
- * 自 v1.4.2 起开关控件统一改为原生 checkbox + 纯 CSS 滑块：appearance:none
- * 抹掉原生勾选框，用 ::before 画滑块。只驱动 background-color / transform，
- * 符合本文件性能约束；勾选态轨道用品牌色，滑块右移 20px（轨道 44px - 滑块
- * 20px - 2*2px 边距）。设置页 / 目标表格 / 卡片 / 弹窗共用同一套样式。
- * 焦点环复用下方 .nm-root input[type="checkbox"]:focus-visible 规则。 */
-.nm-switch {
+ * 开关控件统一改为原生 checkbox + 纯 CSS 滑块：appearance:none 抹掉原生
+ * 勾选框，用 ::before 画滑块。只驱动 background-color / transform，符合本文件
+ * 性能约束；勾选态轨道用品牌色，滑块右移 20px（轨道 44px - 滑块 20px - 2*2px
+ * 边距）。设置页 / 目标表格 / 卡片 / 弹窗共用同一套样式。
+ * 焦点环复用下方 .nm-root input[type="checkbox"]:focus-visible 规则。
+ *
+ * 选择器必须写成 input[type="checkbox"].nm-switch 而不能只写 .nm-switch：
+ * LuCI 主题（Aurora main.css）里有
+ *     input[type="radio"], input[type="checkbox"] { width: calc(var(--spacing)*4) }
+ * 即 (元素+属性) 优先级 0,1,1，而单类选择器只有 0,1,0 —— 主题规则胜出，
+ * 实测把开关从 44x24 压成 16x16：圆角与底色仍然生效（主题没定义这两项），
+ * 于是渲染成一个 16px 蓝色圆点，20x20 的白色滑块 ::before 直接溢出容器，
+ * 开关在视觉上完全失效。加上元素+属性前缀后优先级变为 0,2,1，稳定胜出。 */
+input[type="checkbox"].nm-switch {
 	appearance: none;
 	-webkit-appearance: none;
 	width: 44px;
@@ -1396,7 +1321,7 @@ t-message {
 	transition: background-color 0.15s ease;
 }
 
-.nm-switch::before {
+input[type="checkbox"].nm-switch::before {
 	content: "";
 	position: absolute;
 	top: 2px;
@@ -1409,15 +1334,15 @@ t-message {
 	transition: transform 0.15s ease;
 }
 
-.nm-switch:checked {
+input[type="checkbox"].nm-switch:checked {
 	background: var(--nm-accent, #2f6fed);
 }
 
-.nm-switch:checked::before {
+input[type="checkbox"].nm-switch:checked::before {
 	transform: translateX(20px);
 }
 
-.nm-switch:disabled {
+input[type="checkbox"].nm-switch:disabled {
 	opacity: 0.5;
 	cursor: not-allowed;
 }
@@ -1549,12 +1474,78 @@ t-message {
 	gap: 8px;
 }
 
+/* 目标多选胶囊（可切换的开关）。
+ *
+ * 完整样式在此定义。迁移自 TDesign 的 t-tag 时曾只保留了布局三行，
+ * 漏掉选中态与圆点，实测后果：
+ *   · .nm-chip-dot 无任何规则 -> getBoundingClientRect() 为 0x0，圆点
+ *     完全不可见；
+ *   · .is-on / .is-off 无规则 -> 选中与未选中渲染结果完全相同。
+ * 于是图表页的目标胶囊全部长成一个样，无法分辨哪个目标已选中、
+ * 也无法把胶囊与折线颜色对应起来。
+ *
+ * 目标色由 charts.js 通过 --nm-chip-color 注入（与折线、图例同源，
+ * 都取自 common.palette 的同一索引），CSS 只负责把变量应用到
+ * 边框 / 文字 / 底色，不在样式层硬编码任何具体颜色。 */
 .nm-chip-tag {
 	cursor: pointer;
 	user-select: none;
 	display: inline-flex;
 	align-items: center;
 	gap: 6px;
+	padding: 5px 12px;
+	min-height: 32px;
+	box-sizing: border-box;
+	font: inherit;
+	font-size: 13px;
+	line-height: 1.4;
+	white-space: nowrap;
+	border-radius: 999px;
+	border: 1px solid var(--nm-border, rgba(120, 130, 150, 0.28));
+	background: var(--nm-card-hi, #ffffff);
+	color: var(--nm-fg, #20242c);
+	transition: background-color .15s ease, border-color .15s ease, opacity .15s ease;
+}
+
+/* 圆点：必须显式给宽高，否则 span 无内容时尺寸为 0 */
+.nm-chip-tag .nm-chip-dot {
+	display: inline-block;
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	flex: 0 0 auto;
+}
+
+/* 选中：边框与文字取目标色，底色为同色极淡填充 */
+.nm-chip-tag.is-on {
+	border-color: var(--nm-chip-color, var(--nm-accent, #2f6fed));
+	color: var(--nm-chip-color, var(--nm-accent, #2f6fed));
+	background: color-mix(in srgb, var(--nm-chip-color, var(--nm-accent, #2f6fed)) 10%, transparent);
+}
+
+.nm-chip-tag.is-on:hover {
+	background: color-mix(in srgb, var(--nm-chip-color, var(--nm-accent, #2f6fed)) 18%, transparent);
+}
+
+/* 未选中：整体置灰、圆点去色，与选中态形成明确对比 */
+.nm-chip-tag.is-off {
+	opacity: .55;
+	border-color: var(--nm-border, rgba(120, 130, 150, 0.28));
+	background: transparent;
+	color: var(--nm-muted, #7b8494);
+}
+
+.nm-chip-tag.is-off .nm-chip-dot {
+	filter: grayscale(1);
+}
+
+.nm-chip-tag.is-off:hover {
+	opacity: .8;
+}
+
+.nm-chip-tag:focus-visible {
+	outline: 2px solid var(--nm-accent, #2f6fed);
+	outline-offset: 2px;
 }
 
 /* 底部数据源提示条（图表页） */
@@ -1635,7 +1626,7 @@ t-message {
  * （:focus-visible），避免鼠标点击时出现多余描边。 */
 .nm-root :focus-visible,
 .nm-modal :focus-visible,
-t-dialog :focus-visible {
+.nm-dlg :focus-visible {
 	outline: 2px solid var(--nm-accent, #2f6fed);
 	outline-offset: 2px;
 	border-radius: 4px;
@@ -1669,12 +1660,8 @@ t-dialog :focus-visible {
 	overflow-wrap: anywhere;
 }
 
-/* 弹窗 footer slot 里的按钮行。
- *
- * t-dialog 的 header/footer/title 都被渲染进 shadow DOM（closed 模式），
- * 外部样式表无法穿透，因此这里只负责 slot 内 light DOM 的排版：
- * 按钮在窄屏时通栏排布，避免 375px 下两个按钮互相挤压换行。 */
-t-dialog .nm-modal-actions {
+/* 弹窗底部按钮行：窄屏时通栏排布，避免 375px 下两个按钮互相挤压换行。 */
+.nm-dlg-foot {
 	display: flex;
 	flex-wrap: wrap;
 	justify-content: flex-end;
@@ -1683,13 +1670,13 @@ t-dialog .nm-modal-actions {
 }
 
 @media (max-width: 480px) {
-	t-dialog .nm-modal-actions {
+	.nm-dlg-foot {
 		flex-direction: row-reverse;
 		gap: 8px;
 	}
 
 	/* 危险操作在左、取消在右：与主流移动端弹窗的按钮顺序一致 */
-	t-dialog .nm-modal-actions t-button {
+	.nm-dlg-foot .nm-btn {
 		flex: 1 1 0;
 		min-height: 40px;
 	}
@@ -2054,7 +2041,7 @@ t-dialog .nm-modal-actions {
 	border-color: color-mix(in srgb, var(--nm-accent) 40%, transparent);
 }
 
-/* 弹窗表单容器（t-dialog body） */
+/* 弹窗表单容器 */
 .nm-dialog-body {
 	display: flex;
 	flex-direction: column;
@@ -2062,16 +2049,13 @@ t-dialog .nm-modal-actions {
 	margin: 4px 0 8px 0;
 }
 
-/* 弹窗表单（t-dialog body）：原生控件占满整行 */
+/* 弹窗表单：原生控件占满整行 */
 .nm-dialog-body .nm-field > label {
 	font-size: 12px;
 	font-weight: 600;
 	color: var(--nm-muted);
 }
 
-.nm-dialog-body t-input,
-.nm-dialog-body t-input-number,
-.nm-dialog-body t-select,
 .nm-dialog-body .nm-input,
 .nm-dialog-body .nm-select,
 .nm-dialog-body .nm-num-input {
@@ -2085,7 +2069,7 @@ t-dialog .nm-modal-actions {
 	gap: 10px;
 }
 
-/* 弹窗错误提示（t-dialog footer 上方） */
+/* 弹窗错误提示（表单末尾） */
 .nm-modal-error {
 	color: var(--nm-bad);
 	font-size: 12.5px;
@@ -2109,3 +2093,466 @@ t-dialog .nm-modal-actions {
 	.nm-num-input { width: 100%; }
 }
 
+
+/* ================================================================ 原生 UI 组件
+ *
+ * 替代原随包分发的 TDesign Web Components（tdesign.min.js 7.3 MB + 残缺的
+ * tdesign.css）。迁移原因见 netmonitor/ui.js 文件头：那份样式表只有 CSS
+ * 变量、没有任何 dialog 定位规则，导致编辑弹窗停在 display:none 而完全失效。
+ *
+ * 组件与 ui.js 的导出一一对应：
+ *   .nm-btn      <- ui.button()
+ *   .nm-chip     <- ui.chip()
+ *   .nm-alert    <- ui.alert()
+ *   .nm-dlg-*    <- ui.dialog() / ui.confirm()
+ */
+
+/* ------------------------------------------------------------ 按钮 */
+
+.nm-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 6px 14px;
+	min-height: 32px;
+	font-family: inherit;
+	font-size: 13px;
+	font-weight: 500;
+	line-height: 1.4;
+	white-space: nowrap;
+	cursor: pointer;
+	user-select: none;
+	border-radius: 8px;
+	border: 1px solid var(--nm-border, rgba(120, 130, 150, 0.28));
+	background: var(--nm-card-hi, #ffffff);
+	color: var(--nm-fg, #20242c);
+	transition: background-color .15s ease, border-color .15s ease, opacity .15s ease;
+}
+
+.nm-btn:hover:not([disabled]):not(.is-disabled) {
+	background: color-mix(in srgb, var(--nm-card-hi, #fff) 94%, var(--nm-fg, #000) 6%);
+}
+
+.nm-btn:active:not([disabled]):not(.is-disabled) {
+	background: color-mix(in srgb, var(--nm-card-hi, #fff) 88%, var(--nm-fg, #000) 12%);
+}
+
+.nm-btn-primary {
+	background: var(--nm-accent, #2f6fed);
+	border-color: var(--nm-accent, #2f6fed);
+	color: #ffffff;
+}
+
+.nm-btn-primary:hover:not([disabled]):not(.is-disabled) {
+	background: color-mix(in srgb, var(--nm-accent, #2f6fed) 90%, #000 10%);
+	border-color: color-mix(in srgb, var(--nm-accent, #2f6fed) 90%, #000 10%);
+}
+
+.nm-btn-danger {
+	color: var(--nm-bad, #cf4437);
+	border-color: color-mix(in srgb, var(--nm-bad, #cf4437) 45%, transparent);
+	background: color-mix(in srgb, var(--nm-bad, #cf4437) 8%, transparent);
+}
+
+.nm-btn-danger:hover:not([disabled]):not(.is-disabled) {
+	background: color-mix(in srgb, var(--nm-bad, #cf4437) 15%, transparent);
+}
+
+.nm-btn-text {
+	border-color: transparent;
+	background: transparent;
+	padding: 4px 8px;
+	min-height: 28px;
+	color: var(--nm-accent, #2f6fed);
+}
+
+.nm-btn-text:hover:not([disabled]):not(.is-disabled) {
+	background: color-mix(in srgb, var(--nm-accent, #2f6fed) 10%, transparent);
+	color: var(--nm-accent, #2f6fed);
+}
+
+.nm-btn-sm {
+	font-size: 12px;
+	padding: 3px 8px;
+	min-height: 26px;
+}
+
+/* 主题色 × 文本变体的组合必须显式声明。
+ *
+ * 原因：`.nm-btn-danger` 与 `.nm-btn-text` 同为单类选择器（优先级 0,1,0），
+ * 谁写在后面谁生效。文本变体为去掉边框底色必须声明 color/background，
+ * 于是「危险 + 文本」的按钮（目标管理页的「删除」）颜色被文本变体覆盖，
+ * 实测渲染成与「编辑 / 复制」相同的强调蓝 rgb(47,111,237)，而不是
+ * 警示红 rgb(207,68,55) —— 危险操作在视觉上完全无法与普通操作区分。
+ *
+ * 这里用双类选择器（优先级 0,2,0）显式抬高主题色，与书写顺序解耦。 */
+.nm-btn-danger.nm-btn-text {
+	color: var(--nm-bad, #cf4437);
+}
+
+.nm-btn-danger.nm-btn-text:hover:not([disabled]):not(.is-disabled) {
+	background: color-mix(in srgb, var(--nm-bad, #cf4437) 12%, transparent);
+	color: var(--nm-bad, #cf4437);
+}
+
+.nm-btn-primary.nm-btn-text {
+	color: var(--nm-accent, #2f6fed);
+}
+
+.nm-btn-primary.nm-btn-text:hover:not([disabled]):not(.is-disabled) {
+	background: color-mix(in srgb, var(--nm-accent, #2f6fed) 12%, transparent);
+	color: var(--nm-accent, #2f6fed);
+}
+
+.nm-btn-icon {
+	display: inline-flex;
+	align-items: center;
+	flex: 0 0 auto;
+}
+
+.nm-btn-icon svg {
+	display: block;
+	width: 15px;
+	height: 15px;
+}
+
+/* 禁用态：同时覆盖原生 [disabled] 与 JS 设置的 .is-disabled。
+ * 指针事件一并关掉，避免「看起来禁用但仍能触发 click」。 */
+.nm-btn[disabled],
+.nm-btn.is-disabled {
+	opacity: .5;
+	cursor: not-allowed;
+	pointer-events: none;
+}
+
+/* 请求进行中：额外压暗并禁用指针，与普通禁用态区分开 */
+.nm-btn.is-busy {
+	opacity: .65;
+	cursor: progress;
+}
+
+/* ------------------------------------------------------------ 状态标签 */
+
+.nm-chip {
+	display: inline-flex;
+	align-items: center;
+	box-sizing: border-box;
+	padding: 2px 9px;
+	border-radius: 999px;
+	font-size: 11.5px;
+	font-weight: 600;
+	line-height: 1.6;
+	white-space: nowrap;
+	border: 1px solid transparent;
+}
+
+.nm-chip-ok {
+	color: var(--nm-ok, #2e9e5b);
+	background: color-mix(in srgb, var(--nm-ok, #2e9e5b) 12%, transparent);
+	border-color: color-mix(in srgb, var(--nm-ok, #2e9e5b) 30%, transparent);
+}
+
+.nm-chip-info {
+	color: var(--nm-accent, #2f6fed);
+	background: color-mix(in srgb, var(--nm-accent, #2f6fed) 12%, transparent);
+	border-color: color-mix(in srgb, var(--nm-accent, #2f6fed) 30%, transparent);
+}
+
+.nm-chip-warn {
+	color: var(--nm-warn, #d69a1a);
+	background: color-mix(in srgb, var(--nm-warn, #d69a1a) 14%, transparent);
+	border-color: color-mix(in srgb, var(--nm-warn, #d69a1a) 34%, transparent);
+}
+
+.nm-chip-bad {
+	color: var(--nm-bad, #cf4437);
+	background: color-mix(in srgb, var(--nm-bad, #cf4437) 12%, transparent);
+	border-color: color-mix(in srgb, var(--nm-bad, #cf4437) 32%, transparent);
+}
+
+.nm-chip-idle {
+	color: var(--nm-muted, #7b8494);
+	background: color-mix(in srgb, var(--nm-muted, #7b8494) 12%, transparent);
+	border-color: color-mix(in srgb, var(--nm-muted, #7b8494) 28%, transparent);
+}
+
+/* ------------------------------------------------------------ 提示条 */
+
+.nm-alert {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	box-sizing: border-box;
+	margin: 8px 0;
+	padding: 10px 14px;
+	border-radius: 10px;
+	font-size: 13px;
+	line-height: 1.55;
+	border: 1px solid transparent;
+}
+
+.nm-alert-text {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.nm-alert-dot {
+	flex: 0 0 auto;
+	width: 8px;
+	height: 8px;
+	margin-top: 6px;
+	border-radius: 50%;
+	background: currentColor;
+}
+
+.nm-alert-icon {
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: center;
+}
+
+.nm-alert-icon svg {
+	display: block;
+	width: 16px;
+	height: 16px;
+}
+
+.nm-alert-info {
+	color: var(--nm-accent, #2f6fed);
+	background: color-mix(in srgb, var(--nm-accent, #2f6fed) 8%, transparent);
+	border-color: color-mix(in srgb, var(--nm-accent, #2f6fed) 26%, transparent);
+}
+
+.nm-alert-warning {
+	color: var(--nm-warn, #b4830c);
+	background: color-mix(in srgb, var(--nm-warn, #d69a1a) 10%, transparent);
+	border-color: color-mix(in srgb, var(--nm-warn, #d69a1a) 30%, transparent);
+}
+
+.nm-alert-error {
+	color: var(--nm-bad, #cf4437);
+	background: color-mix(in srgb, var(--nm-bad, #cf4437) 9%, transparent);
+	border-color: color-mix(in srgb, var(--nm-bad, #cf4437) 28%, transparent);
+}
+
+.nm-alert-success {
+	color: var(--nm-ok, #2e9e5b);
+	background: color-mix(in srgb, var(--nm-ok, #2e9e5b) 9%, transparent);
+	border-color: color-mix(in srgb, var(--nm-ok, #2e9e5b) 26%, transparent);
+}
+
+/* ------------------------------------------------------------ 弹窗 */
+
+.nm-dlg-mask {
+	position: fixed;
+	inset: 0;
+	z-index: 2500;
+	background: rgba(0, 0, 0, .42);
+	opacity: 0;
+	transition: opacity .18s ease;
+}
+
+.nm-dlg-mask.is-open {
+	opacity: 1;
+}
+
+.nm-dlg {
+	position: fixed;
+	z-index: 2501;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -48%) scale(.98);
+	opacity: 0;
+	box-sizing: border-box;
+	max-width: calc(100vw - 32px);
+	max-height: calc(100vh - 48px);
+	display: flex;
+	flex-direction: column;
+	background: var(--nm-card-hi, #ffffff);
+	color: var(--nm-fg, #20242c);
+	border: 1px solid var(--nm-border, rgba(120, 130, 150, 0.24));
+	border-radius: 14px;
+	box-shadow: 0 18px 48px rgba(0, 0, 0, .22);
+	transition: opacity .18s ease, transform .18s ease;
+}
+
+.nm-dlg.is-open {
+	opacity: 1;
+	transform: translate(-50%, -50%) scale(1);
+}
+
+.nm-dlg-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	flex: 0 0 auto;
+	padding: 16px 18px;
+	border-bottom: 1px solid var(--nm-border, rgba(120, 130, 150, 0.2));
+}
+
+.nm-dlg-title {
+	font-size: 15px;
+	font-weight: 600;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.nm-dlg-close {
+	flex: 0 0 auto;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--nm-muted, #7b8494);
+	font-size: 20px;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.nm-dlg-close:hover {
+	background: color-mix(in srgb, var(--nm-fg, #000) 8%, transparent);
+	color: var(--nm-fg, #20242c);
+}
+
+.nm-dlg-body {
+	flex: 1 1 auto;
+	overflow-y: auto;
+	padding: 18px;
+	min-height: 0;
+}
+
+.nm-dlg-foot {
+	flex: 0 0 auto;
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 10px;
+	padding: 14px 18px;
+	border-top: 1px solid var(--nm-border, rgba(120, 130, 150, 0.2));
+}
+
+/* 窄屏：底部按钮通栏，避免两个按钮互相挤压换行。
+ * 危险操作在左、取消在右，与主流移动端弹窗的按钮顺序一致。 */
+@media (max-width: 480px) {
+	.nm-dlg-foot {
+		flex-direction: row-reverse;
+		gap: 8px;
+	}
+
+	.nm-dlg-foot .nm-btn {
+		flex: 1 1 0;
+		min-height: 40px;
+	}
+}
+
+/* 工具栏行：按钮组换行布局 */
+.nm-row-toolbar {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 12px;
+	width: 100%;
+}
+
+/* 表单内的启用开关行 */
+.nm-row-inline {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin: 10px 0;
+}
+
+
+/* ================================================================ 补遗样式
+ *
+ * 以下类此前在 JS 里被引用、但样式表中从未定义（v1.4.2 起即缺失），
+ * 均以 getBoundingClientRect() 实测确认过渲染异常。集中补在这里，
+ * 并保留判定依据，避免日后被当作冗余删除。
+ */
+
+/* ------------------------------------------------------------ 状态 LED
+ *
+ * 实时页表格首列的「动态呼吸 LED」。缺失时的实测结果：
+ *   .nm-led-box    -> { w: 14, h: 0 }（高度塌陷）
+ *   .nm-led-center -> { w: 0,  h: 0 }、背景透明
+ * 整个状态指示列渲染为空，四个 LED 全部不可见。
+ *
+ * 配色沿用全局等级体系（good / warn / bad / off），呼吸与扩散直接复用
+ * 既有的 @keyframes（nm-pulse-soft / nm-ripple），不新增动画定义。 */
+.nm-led-box {
+	position: relative;
+	display: inline-block;
+	width: 14px;
+	height: 14px;
+	flex: 0 0 auto;
+	vertical-align: middle;
+	/* 默认取「停用」色；状态类负责覆盖 */
+	--nm-led-color: var(--nm-muted, #7b8494);
+}
+
+.nm-led-center {
+	position: absolute;
+	inset: 3px;
+	border-radius: 50%;
+	background: var(--nm-led-color);
+	box-shadow: 0 0 6px color-mix(in srgb, var(--nm-led-color) 70%, transparent);
+	animation: nm-pulse-soft 2.4s ease-in-out infinite;
+}
+
+.nm-led-ping-ring {
+	position: absolute;
+	inset: 0;
+	border-radius: 50%;
+	border: 1.5px solid var(--nm-led-color);
+	transform-origin: center;
+	animation: nm-ripple 2.4s ease-out infinite;
+}
+
+.nm-led-off  { --nm-led-color: var(--nm-muted, #7b8494); }
+.nm-led-good { --nm-led-color: var(--nm-ok, #2e9e5b); }
+.nm-led-warn { --nm-led-color: var(--nm-warn, #d69a1a); }
+.nm-led-bad  { --nm-led-color: var(--nm-bad, #cf4437); }
+
+/* 停用目标不做呼吸动效：静止的灰点是「无监控」的正确表达，
+ * 闪烁会让用户误以为该目标正在被探测。 */
+.nm-led-off > .nm-led-center,
+.nm-led-off > .nm-led-ping-ring {
+	animation: none;
+}
+
+.nm-led-off > .nm-led-ping-ring {
+	opacity: 0;
+}
+
+/* 尊重系统的「减少动态效果」偏好 */
+@media (prefers-reduced-motion: reduce) {
+	.nm-led-center,
+	.nm-led-ping-ring {
+		animation: none;
+	}
+}
+
+/* ------------------------------------------------------------ 表格次要文本 */
+.nm-txt-sub {
+	color: var(--nm-muted, #7b8494);
+	font-size: 12px;
+	white-space: nowrap;
+}
+
+/* ------------------------------------------------------------ 区域页图标呼吸 */
+.nm-svg-soft-pulse {
+	animation: nm-pulse-soft 3.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.nm-svg-soft-pulse {
+		animation: none;
+	}
+}

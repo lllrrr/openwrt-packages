@@ -21,7 +21,6 @@ return view.extend({
 		common.css();
 		return Promise.all([
 			common.loadI18n(),
-			common.tdesign(),
 			common.api.getConfig(),
 			common.api.getTargets()
 		]);
@@ -30,8 +29,8 @@ return view.extend({
 	render: function(res) {
 		common.css();
 
-		var cfg = (res && res[2]) || {};
-		var targets = ((res && res[3]) || {}).targets || [];
+		var cfg = (res && res[1]) || {};
+		var targets = ((res && res[2]) || {}).targets || [];
 
 		/* 与后端一致的等级判定，阈值取自 UCI（getConfig） */
 		function gradeOf(ms) {
@@ -106,25 +105,26 @@ return view.extend({
 		spacer.style.flex = '1';
 		row.appendChild(spacer);
 
-		/* 查询按钮（t-button） */
-		var btnQuery = document.createElement('t-button');
-		btnQuery.setAttribute('theme', 'primary');
-		var qIcon = common.el('span', 'nm-inline-icon');
-		qIcon.innerHTML = '<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>';
-		btnQuery.appendChild(qIcon);
-		btnQuery.appendChild(document.createTextNode(_('Query')));
+		/* 查询按钮 */
+		var qIcon = '<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">' +
+			'<path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>';
+		var btnQuery = common.ui.button({
+			label: _('Query'),
+			theme: 'primary',
+			icon: qIcon
+		});
 		row.appendChild(btnQuery);
 		bar.appendChild(row);
 
 		if (cfg.persistence !== '1') {
-			var note = document.createElement('t-alert');
-			note.setAttribute('theme', 'warning');
-			note.style.marginTop = '6px';
-			var noteText = common.el('div', '');
-			noteText.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:-2px;margin-right:6px"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 3a.9.9 0 0 1 .9.9v4.2a.9.9 0 0 1-1.8 0V4.9A.9.9 0 0 1 8 4zm0 8.2a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>' +
-				_('History persistence is disabled. Ranges longer than the in-memory buffer may have no data.');
-			note.appendChild(noteText);
-			bar.appendChild(note);
+			/* 持久化关闭时，超出内存缓冲区的区间必然无数据，提前告知，
+			 * 否则用户会以为图表坏了。 */
+			bar.appendChild(common.ui.alert({
+				kind: 'warning',
+				icon: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">' +
+					'<path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 3a.9.9 0 0 1 .9.9v4.2a.9.9 0 0 1-1.8 0V4.9A.9.9 0 0 1 8 4zm0 8.2a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>',
+				text: _('History persistence is disabled. Ranges longer than the in-memory buffer may have no data.')
+			}));
 		}
 		page.appendChild(bar);
 
@@ -214,16 +214,12 @@ return view.extend({
 			return card;
 		}
 
-		/* 区域胶囊标签（t-tag） */
+		/* 区域胶囊标签 */
 		function regionTag(region) {
-			var tag = document.createElement('t-tag');
-			var theme = 'default', variant = 'outline';
-			if (region === 'cn') { theme = 'primary'; variant = 'light-outline'; }
-			else if (region === 'overseas') { theme = 'warning'; variant = 'light-outline'; }
-			tag.setAttribute('theme', theme);
-			tag.setAttribute('variant', variant);
-			tag.textContent = common.regionText(region);
-			return tag;
+			return common.ui.chip({
+				text: common.regionText(region),
+				kind: (region === 'cn') ? 'info' : ((region === 'overseas') ? 'warn' : 'idle')
+			});
 		}
 
 		function renderStrip(rows) {

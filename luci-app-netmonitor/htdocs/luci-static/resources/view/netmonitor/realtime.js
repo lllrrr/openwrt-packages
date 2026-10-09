@@ -1,8 +1,12 @@
 /*
  * 实时监控页面：以表格形式列出所有目标的实时状态
- * TDesign Web Components 重构版本
- * 工具栏 / 筛选 / 指标速览卡由 <t-*> 组件承载，
+ *
+ * UI 结构：暂停/恢复按钮用 ui.button()（原生 <button>），区域标记用 ui.chip()。
+ * 不再依赖 TDesign Web Components —— 原 <t-dialog> 因随包样式表残缺
+ * （无 dialog 定位规则）而停在 display:none 状态，详见 netmonitor/ui.js 文件头。
+ *
  * 明细表格保留 .nm-table 平面结构，动态呼吸 LED 与实时指标条保留。
+ * 筛选下拉沿用原生 <select>：TDesign 的 t-select 在受控模式下实测无法展开。
  * 手机端表格可横向平滑滚动，并支持自适应卡片流展示。
  */
 
@@ -17,7 +21,6 @@ return view.extend({
 		common.css();
 		return Promise.all([
 			common.loadI18n(),
-			common.tdesign(),
 			common.api.getConfig()
 		]);
 	},
@@ -25,7 +28,7 @@ return view.extend({
 	render: function(res) {
 		common.css();
 
-		var cfg = (res && res[2]) || {};
+		var cfg = (res && res[1]) || {};
 		var refresh = Math.max(1, parseInt(cfg.ui_refresh, 10) || 2);
 
 		var filterRegion = 'all';
@@ -38,9 +41,8 @@ return view.extend({
 		var page = common.el('div', 'nm-page');
 		root.appendChild(page);
 
-		/* 原生下拉工厂：替代 t-select（TDesign 下拉在受控模式下无法打开，
-		 * 见 settings.js 同类改造说明）。样式沿用 .nm-select，兼容 LuCI
-		 * 全部目标浏览器。 */
+		/* 原生下拉：沿用 .nm-select 样式，交互由浏览器保证，
+		 * 兼容 LuCI 全部目标浏览器。 */
 		function makeSelect(options, value) {
 			var sel = document.createElement('select');
 			sel.className = 'nm-select';
@@ -54,7 +56,7 @@ return view.extend({
 			return sel;
 		}
 
-		/* 工具栏（TDesign 视觉卡） */
+		/* 工具栏 */
 		var bar = common.tcard();
 		var barRow = common.el('div', 'nm-toolbar-row');
 
@@ -108,28 +110,27 @@ return view.extend({
 		spacer.style.flex = '1';
 		barRow.appendChild(spacer);
 
-		/* 暂停 / 恢复按钮（t-button） */
-		var btnPause = document.createElement('t-button');
-		btnPause.setAttribute('theme', 'default');
-		btnPause.setAttribute('variant', 'outline');
-		function updatePauseBtn() {
-			common.clear(btnPause);
-			var ic = common.el('span', 'nm-inline-icon');
-			if (paused) {
-				ic.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 3l9 5-9 5V3z"/></svg>';
-				btnPause.appendChild(ic);
-				btnPause.appendChild(document.createTextNode(_('Resume')));
-			} else {
-				ic.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 3h3v10H4V3zm5 0h3v10H9V3z"/></svg>';
-				btnPause.appendChild(ic);
-				btnPause.appendChild(document.createTextNode(_('暂停')));
-			}
+		/* 暂停 / 恢复按钮。图标与文案都随 paused 变化，而 ui.button 的
+		 * label / icon 是创建时定死的，所以每次切换整个换成一个新按钮，
+		 * 而不是去改已有节点的子节点。 */
+		var icoPause = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 3h3v10H4V3zm5 0h3v10H9V3z"/></svg>';
+		var icoResume = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 3l9 5-9 5V3z"/></svg>';
+
+		function makePauseBtn() {
+			return common.ui.button({
+				label: paused ? _('Resume') : _('暂停'),
+				icon: paused ? icoResume : icoPause,
+				variant: 'outline',
+				onClick: function() {
+					paused = !paused;
+					var next = makePauseBtn();
+					barRow.replaceChild(next, btnPause);
+					btnPause = next;
+				}
+			});
 		}
-		updatePauseBtn();
-		btnPause.addEventListener('click', function() {
-			paused = !paused;
-			updatePauseBtn();
-		});
+
+		var btnPause = makePauseBtn();
 		barRow.appendChild(btnPause);
 
 		bar.appendChild(barRow);
@@ -171,7 +172,7 @@ return view.extend({
 		var cards = common.el('div', 'nm-cards-mobile');
 		page.appendChild(cards);
 
-		/* 底部状态提示条（TDesign 视觉卡） */
+		/* 底部状态提示条 */
 		var foot = common.tcard('nm-foot-sub');
 		page.appendChild(foot);
 
@@ -224,19 +225,17 @@ return view.extend({
 			return 'severe';
 		}
 
-		/* 区域胶囊标签（t-tag） */
+		/* 区域标记 */
 		function regionTag(t) {
-			var tag = document.createElement('t-tag');
-			var theme = 'default', variant = 'outline';
-			if (t.region === 'cn') { theme = 'primary'; variant = 'light-outline'; }
-			else if (t.region === 'overseas') { theme = 'warning'; variant = 'light-outline'; }
-			tag.setAttribute('theme', theme);
-			tag.setAttribute('variant', variant);
-			tag.textContent = t.label ? t.label : common.regionText(t.region);
-			return tag;
+			var kind = (t.region === 'cn') ? 'info'
+				: ((t.region === 'overseas') ? 'warn' : 'idle');
+			return common.ui.chip({
+				text: t.label ? t.label : common.regionText(t.region),
+				kind: kind
+			});
 		}
 
-		/* 指标速览小卡（外层 .nm-tcard） */
+		/* 指标速览小卡 */
 		function makeStripCard(title, val, subText, svgIcon, valCls) {
 			var card = common.tcard();
 			var inner = common.el('div', 'nm-card-inner');
@@ -246,6 +245,7 @@ return view.extend({
 
 			if (svgIcon) {
 				var icoBox = common.el('div', 'nm-card-icon-box');
+				/* 图标来自 icons.js（内置常量字符串，不含用户输入），可安全走 innerHTML */
 				if (typeof svgIcon === 'string') icoBox.innerHTML = svgIcon;
 				else icoBox.appendChild(svgIcon);
 				head.appendChild(icoBox);
@@ -335,10 +335,10 @@ return view.extend({
 				// 3. 地址
 				row.appendChild(common.el('td', 'nm-target-host', t.host || ''));
 
-				// 4. 区域胶囊
-				var tdRegion = common.el('td', '');
-				tdRegion.appendChild(regionTag(t));
-				row.appendChild(tdRegion);
+			// 4. 区域标记
+			var tdRegion = common.el('td', '');
+			tdRegion.appendChild(regionTag(t));
+			row.appendChild(tdRegion);
 
 			// 5. 状态与诊断图标
 			/* 状态文案：停用优先，其次具体错误类型（DNS/超时/不可达），
@@ -379,7 +379,25 @@ return view.extend({
 				' · ' + _('界面刷新') + ': ' + refresh + 's';
 		}
 
+		/* 首次加载标记。
+		 *
+		 * update() 在 render() 末尾被同步调用一次，那时 LuCI 还没把 root
+		 * 挂到文档上，root.isConnected 为 false。而 poll 触发的后续调用
+		 * 是页面已挂载后才发生的。两者必须区分：
+		 *   - 首次调用：此时 root 尚未入文档，不能据此判定「页面已卸载」；
+		 *     若误判会立刻自注销并短路返回，latest 永远拿不到数据，
+		 *     表格与卡片流全部空白（只剩工具栏的几十个字符）。
+		 *   - 轮询调用：root.isConnected 为 false 才真正代表页面被 SPA
+		 *     路由换掉，此时自注销，避免访问 N 次累积 N 路轮询打 rpcd。
+		 */
+		var firstRun = true;
+
 		function update() {
+			if (!firstRun && !root.isConnected) {
+				poll.remove(update);
+				return Promise.resolve();
+			}
+			firstRun = false;
 			if (paused) return Promise.resolve();
 			return common.api.getStatus(false).then(function(d) {
 				latest = d;

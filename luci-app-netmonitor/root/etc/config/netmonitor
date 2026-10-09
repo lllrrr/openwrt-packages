@@ -53,6 +53,10 @@ config global 'global'
 	option notify_url ''
 
 # ---------------------------------------------------------------- 示例目标
+# 出厂默认四个目标全部启用（国内 2 个 + 国外 2 个），装完即可看到完整的
+# 区域对比曲线；不需要的目标可在「综合状态 → 网络监控 → 目标管理」里停用，
+# 停用后既不再发包，也不会出现在曲线中。
+#
 # region 由用户自行指定，不使用任何内置 IP 归属库：
 #   cn=国内  overseas=国外  other=其他
 #
@@ -87,12 +91,12 @@ config target 'alidns'
 	option family 'ipv4'
 	option interval '0'
 	option timeout '3'
-	option enabled '0'
+	option enabled '1'
 	option remark ''
 
 config target 'cloudflare'
 	option name 'Cloudflare'
-	option host '1.1.1.1'
+	option host '1.0.0.1'
 	option region 'overseas'
 	option label 'DNS'
 	option proto 'icmp'
@@ -100,7 +104,7 @@ config target 'cloudflare'
 	option family 'ipv4'
 	option interval '0'
 	option timeout '3'
-	option enabled '0'
+	option enabled '1'
 	option remark ''
 
 config target 'googledns'
@@ -113,5 +117,5 @@ config target 'googledns'
 	option family 'ipv4'
 	option interval '0'
 	option timeout '3'
-	option enabled '0'
+	option enabled '1'
 	option remark ''

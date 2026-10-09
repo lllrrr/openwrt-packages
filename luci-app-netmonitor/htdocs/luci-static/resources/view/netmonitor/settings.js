@@ -1,9 +1,16 @@
 /*
  * 设置页面：全局参数、后台服务控制、历史数据维护
- * TDesign Web Components 重构版本
- * 服务控制 / 速览指标卡 / 分组表单 / 动作栏由 <t-*> 组件承载，
- * 开关 / 数字输入 / 下拉选择 / 文本输入分别对应 t-switch / t-input-number /
- * t-select / t-input，动态 SVG 状态图标保留原有实现。
+ *
+ * UI 结构：服务控制 / 保存 / 放弃等按钮用 ui.button()（原生 <button>），
+ * 确认弹窗用 ui.confirm()，状态胶囊为纯 DOM。
+ * 不再依赖 TDesign Web Components —— 原 <t-dialog> 因随包样式表残缺
+ * （无 dialog 定位规则）而停在 display:none 状态，导致弹窗点了毫无反应，
+ * 详见 netmonitor/ui.js 文件头。
+ *
+ * 表单控件（开关 / 数字 / 下拉 / 文本）本来就是原生 HTML 元素：早期版本的
+ * t-switch / t-input-number / t-select / t-input 基于 Omi 框架，受控模式下
+ * 点击与下拉交互实测失效，故早已改为原生控件，本次不再改动。
+ *
  * 采用纯 DOM 渲染，杜绝 CBI/JSONMap 静默吞选项问题。
  */
 
@@ -196,7 +203,6 @@ return view.extend({
 		common.css();
 		return Promise.all([
 			common.loadI18n(),
-			common.tdesign(),
 			/* 取不到配置不能整体失败：getConfig 的 RPC 被 rpcd 拒绝（ubus 对象未注册 /
 			 * 会话 ACL 未刷新）时 Promise.all 会 reject，LuCI 框架直接显示「加载失败」，
 			 * 用户连表单和诊断横幅都看不到。这里降级成 null，交给 render 的
@@ -213,8 +219,8 @@ return view.extend({
 	render: function(res) {
 		common.css();
 
-		var cfg = (res && res[2]) || {};
-		var svc = (res && res[3]) || {};
+		var cfg = (res && res[1]) || {};
+		var svc = (res && res[2]) || {};
 
 		var root = common.el('div', 'nm-root');
 		var page = common.el('div', 'nm-page');
@@ -223,11 +229,6 @@ return view.extend({
 		var controls = {};
 		var baseline = {};
 		var btnSave = null, btnDiscard = null, dirtyTag = null;
-
-		function setDisabled(el, on) {
-			if (on) el.setAttribute('disabled', '');
-			else el.removeAttribute('disabled');
-		}
 
 		/* 配置读取失败兜底：get_config 正常时必然带齐全部全局键，一个都不在
 		 * 说明 RPC 返回为空（rpcd 缓存旧 ucode / 会话 ACL 未刷新 / 浏览器缓存
@@ -245,8 +246,8 @@ return view.extend({
 		});
 		if (cfgEmpty) {
 			page.appendChild(common.banner(
-				'无法从后端读取配置（RPC 调用失败或返回为空）。请重启 rpcd 后重新登录 LuCI，' +
-					'并执行 ubus call luci.netmonitor get_config 检查后端。',
+				_('无法从后端读取配置（RPC 调用失败或返回为空）。') +
+					_('请重启 rpcd 后重新登录 LuCI，并执行 ubus call luci.netmonitor get_config 检查后端。'),
 				'warn'));
 		}
 
@@ -255,7 +256,7 @@ return view.extend({
 		if (!Object.prototype.hasOwnProperty.call(cfg, 'default_tcp_port'))
 			cfg.default_tcp_port = '80';
 
-		/* ---------------------------------------------------- 服务控制面板（TDesign 视觉卡） */
+		/* ---------------------------------------------------- 服务控制面板 */
 		var svcCard = common.tcard('nm-svc-panel');
 		var svcRow = common.el('div', 'nm-svc-row-top');
 
@@ -274,20 +275,18 @@ return view.extend({
 		var btnStart, btnStop;
 
 		function svcBtn(label, fn, isPrimary) {
-			var b = document.createElement('t-button');
-			b.setAttribute('theme', isPrimary ? 'primary' : 'default');
-			if (!isPrimary) b.setAttribute('variant', 'outline');
-			b.textContent = label;
-			b.addEventListener('click', function() {
-				setDisabled(b, true);
-				Promise.resolve().then(fn).then(function() {
-					common.notify(_('操作已完成'));
-					refreshSvc();
-				}).catch(function(e) {
-					common.notify(String(e.message || e), 'error');
-				}).then(function() { setDisabled(b, false); });
+			return common.ui.button({
+				label: label,
+				theme: isPrimary ? 'primary' : 'default',
+				variant: 'outline',
+				onClick: function() {
+					/* 请求期间的禁用与失败提示由 ui.button 统一处理 */
+					return Promise.resolve().then(fn).then(function() {
+						common.notify(_('操作已完成'));
+						refreshSvc();
+					});
+				}
 			});
-			return b;
 		}
 
 		btnStart = svcBtn(_('启动'), common.api.startService, true);
@@ -306,48 +305,66 @@ return view.extend({
 		spacerClear.style.flex = '1';
 		clearRow.appendChild(spacerClear);
 
-		var btnClear = document.createElement('t-button');
-		btnClear.setAttribute('theme', 'danger');
-		btnClear.setAttribute('variant', 'outline');
-		btnClear.textContent = _('清空历史');
-		btnClear.addEventListener('click', function() {
-			/* 不可撤销的破坏性操作：用 TDesign 确认弹窗（与全站视觉一致），
-			 * 且不阻塞主线程 —— 原生 confirm 在低端路由器上会整页卡死。 */
-			common.confirmDialog({
-				header: _('清空历史'),
-				message: _('确定清空所有历史数据？'),
-				ok: _('清空历史'),
-				danger: true
-			}).then(function(ok) {
-				if (!ok) return;
-				setDisabled(btnClear, true);
-				/* confirmDialog 关闭后焦点已释放，此处重新接管禁用态 */
-				return common.api.clearHistory(null).then(function() {
-					common.notify(_('历史已清空'));
-				}).catch(function(e) {
-					common.notify(String(e.message || e), 'error');
-				}).then(function() { setDisabled(btnClear, false); });
-			});
+		var btnClear = common.ui.button({
+			label: _('清空历史'),
+			theme: 'danger',
+			variant: 'outline',
+			onClick: function() {
+				/* 不可撤销的破坏性操作：用项目自建确认弹窗（与全站视觉一致），
+				 * 且不阻塞主线程 —— 原生 confirm 在低端路由器上会整页卡死。
+				 * 删除动作放在 onOk 里：用户点「取消」时不应执行。 */
+				common.ui.confirm({
+					host: root,
+					header: _('清空历史'),
+					message: _('确定清空所有历史数据？'),
+					ok: _('清空历史'),
+					danger: true,
+					onOk: function() {
+						common.ui.setDisabled(btnClear, true);
+						return common.api.clearHistory(null).then(function() {
+							common.notify(_('历史已清空'));
+						}).then(function() {
+							common.ui.setDisabled(btnClear, false);
+						});
+					}
+				});
+			}
 		});
 		clearRow.appendChild(btnClear);
 		svcCard.appendChild(clearRow);
 		page.appendChild(svcCard);
 
+		/* 首次加载标记：与 realtime.js 同理，refreshSvc 在 render() 末尾被
+		 * 同步调用一次，此时 root 尚未挂到文档、isConnected 为 false。
+		 * 若不加区分，首次调用就会自注销并短路，服务状态条永远停在初始
+		 * 文案（「启动/停止」按钮的可用态也不跟随实时运行态）。 */
+		var svcFirstRun = true;
+
 		function refreshSvc() {
+			/* LuCI 是 SPA：切页只替换 view 容器，不会清空 poll 队列。
+			 * 本闭包除了注册点外无人持有引用，页面离开后既没人调用
+			 * poll.remove 也拿不到引用，轮询会一直打 rpcd —— 访问 N 次
+			 * 就有 N 个并发。承载的 DOM 已离开文档即说明页面已被卸载，
+			 * 此时自注销。 */
+			if (!svcFirstRun && !root.isConnected) {
+				poll.remove(refreshSvc);
+				return Promise.resolve();
+			}
+			svcFirstRun = false;
 			return common.api.serviceStatus().then(function(d) {
 				common.clear(svcIcon);
 				svcIcon.appendChild(common.svgBox(icons.service(!!d.running, 30), ''));
 				svcText.textContent = (d.running ? _('服务运行中') : _('服务已停止')) +
 					' · ' + _('最后更新') + ': ' + (d.tick ? common.fmt.ago(d.tick) : _('从未检测'));
 				/* 按钮可用态跟随实时运行态：已在跑就别让用户再点「启动」 */
-				setDisabled(btnStart, !!d.running);
-				setDisabled(btnStop, !d.running);
+				common.ui.setDisabled(btnStart, !!d.running);
+				common.ui.setDisabled(btnStop, !d.running);
 			}).catch(function() {
 				common.clear(svcIcon);
 				svcIcon.appendChild(common.svgBox(icons.service(false, 30), ''));
 				svcText.textContent = _('服务已停止');
-				setDisabled(btnStart, false);
-				setDisabled(btnStop, true);
+				common.ui.setDisabled(btnStart, false);
+				common.ui.setDisabled(btnStop, true);
 			});
 		}
 
@@ -364,6 +381,7 @@ return view.extend({
 
 			if (svgIcon) {
 				var icoBox = common.el('div', 'nm-card-icon-box');
+				/* 图标来自 icons.js（内置常量字符串，不含用户输入），可安全走 innerHTML */
 				if (typeof svgIcon === 'string') icoBox.innerHTML = svgIcon;
 				else icoBox.appendChild(svgIcon);
 				head.appendChild(icoBox);
@@ -448,10 +466,11 @@ return view.extend({
 
 		/* ---------------------------------------------------- 表单控件工厂（原生控件）
 		 *
-		 * 原 TDesign Web Components（t-switch / t-select / t-input-number / t-input）
-		 * 基于 Omi 框架，受控模式下点击与下拉交互实测失效（真实浏览器点击也打不开
-		 * 下拉、开关不切换状态）。这里改用原生 HTML 控件并保持 TDesign 观感
-		 * （样式见 style.css 的 .nm-switch / .nm-select / .nm-input），
+		 * 表单控件一开始就是原生 HTML 元素，早期尝试过用 TDesign 的
+		 * t-switch / t-select / t-input-number / t-input，但它们基于 Omi 框架，
+		 * 受控模式下点击与下拉交互实测失效（真实浏览器点击也打不开下拉、
+		 * 开关不切换状态）。这里保持原生控件并沿用自有样式
+		 * （见 style.css 的 .nm-switch / .nm-select / .nm-input），
 		 * 交互由浏览器原生保证，兼容 LuCI 全部目标浏览器。 */
 		function switchControl(key, value) {
 			var sw = document.createElement('input');
@@ -606,14 +625,17 @@ return view.extend({
 		function markDirty() {
 			var isDirty = !sameAsBaseline(collect());
 			setPill(isDirty ? 'dirty' : 'clean');
-			setDisabled(btnSave, !isDirty);
-			setDisabled(btnDiscard, !isDirty);
+			common.ui.setDisabled(btnSave, !isDirty);
+			common.ui.setDisabled(btnDiscard, !isDirty);
 		}
 
 		/* 状态胶囊：clean（无改动）/ dirty（有未保存的修改）/ staged（已暂存待应用） */
 		function setPill(mode) {
 			if (!dirtyTag) return;
 			dirtyTag.className = 'nm-dirty-pill ' + mode;
+			/* 这里必须用 innerHTML 拼 SVG + 文本：胶囊的圆点本身就是一段
+			 * 内联图形，不是文字。用 textContent 会把标签整个显示成源码。
+			 * 插入内容只有常量 SVG 与经 _() 的文案，不含用户输入。 */
 			if (mode === 'dirty')
 				dirtyTag.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="6" fill="#f59e0b"/></svg><span>${_('有未保存的修改')}</span>`;
 			else if (mode === 'staged')
@@ -622,61 +644,66 @@ return view.extend({
 				dirtyTag.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M13.485 1.929a1 1 0 0 1 1.414 1.414L6.343 11.899 1.1 6.657a1 1 0 0 1 1.414-1.414l3.829 3.829 7.142-7.143z" fill="#10b981"/></svg><span>${_('所有修改已生效')}</span>`;
 		}
 
-		/* 动作栏（TDesign 视觉卡）：保存 / 放弃 / 状态胶囊 */
+		/* 动作栏：保存 / 放弃 / 状态胶囊 */
 		var actCard = common.tcard('nm-action-bar-glass');
 
-		btnSave = document.createElement('t-button');
-		btnSave.setAttribute('theme', 'primary');
-		btnSave.textContent = _('保存更改');
+		btnSave = common.ui.button({
+			label: _('保存更改'),
+			theme: 'primary',
+			/* onClick 刻意不返回 Promise：ui.button 会在 Promise 结束后
+			 * 无条件解禁按钮，而本页保存按钮的可用态由「表单 vs 基线」决定
+			 * （保存成功后应保持禁用）。自动解禁会把它错误地亮起来，
+			 * 所以这里自行管理禁用态与错误提示。 */
+			onClick: function() {
+				var v = collect();
+				var bad = validate(v);
+				if (bad) { common.notify(bad, 'error'); return; }
 
-		btnDiscard = document.createElement('t-button');
-		btnDiscard.setAttribute('theme', 'default');
-		btnDiscard.setAttribute('variant', 'outline');
-		btnDiscard.textContent = _('放弃修改');
+				var ops = [];
+				for (var k in v)
+					ops.push({ sid: 'global', opt: k, val: v[k] });
+
+				/* 保存只做「暂存」：把改动经标准 UCI API（uci.set/unset + uci.save）写入
+				 * 会话的待应用更改，提交（落盘 + reload）交给 OpenWrt 原生「保存并应用」栏。
+				 * 刻意不再在这里调 ui.changes.apply() —— 那会让本页自带的按钮和原生栏
+				 * 出现两套应用入口，互相冲突。 */
+				common.ui.setDisabled(btnSave, true);
+				common.saveConfig(ops).then(function(changed) {
+					if (changed === 0) {
+						markDirty();
+						common.notify(_('没有需要保存的修改'));
+						return;
+					}
+					baseline = takeBaseline(v);
+					renderStrip(v);
+					setPill('staged');
+					common.notify(_('更改已暂存，请点击页面底部的「保存并应用」使其生效'));
+					/* 已暂存 ≠ 无改动：仍允许「放弃修改」把暂存撤回 */
+					common.ui.setDisabled(btnDiscard, false);
+				}).catch(function(e) {
+					common.notify(String(e.message || e), 'error');
+					common.ui.setDisabled(btnSave, false);
+				});
+			}
+		});
+
+		btnDiscard = common.ui.button({
+			label: _('放弃修改'),
+			variant: 'outline',
+			/* 同样不返回 Promise，理由同上：applyConfig() 会按 dirty 状态
+			 * 把按钮禁用，交给 ui.button 自动解禁会覆盖这个结论。 */
+			onClick: function() {
+				applyConfig(cfg);
+				/* 同步撤回本页暂存的会话改动，避免「表单已还原、底部原生栏仍显示待应用」 */
+				common.revertConfig('netmonitor').catch(function() {
+					/* 撤回失败不阻断表单复位 */
+				}).then(function() {
+					common.notify(_('修改已放弃'));
+				});
+			}
+		});
 
 		dirtyTag = common.el('div', 'nm-dirty-pill clean');
-
-		/* 保存只做「暂存」：把改动经标准 UCI API（uci.set/unset + uci.save）写入
-		 * 会话的待应用更改，提交（落盘 + reload）交给 OpenWrt 原生「保存并应用」栏。
-		 * 刻意不再在这里调 ui.changes.apply() —— 那会让本页自带的按钮和原生栏
-		 * 出现两套应用入口，互相冲突。 */
-		btnSave.addEventListener('click', function() {
-			var v = collect();
-			var bad = validate(v);
-			if (bad) { common.notify(bad, 'error'); return; }
-			setDisabled(btnSave, true);
-
-			var ops = [];
-			for (var k in v)
-				ops.push({ sid: 'global', opt: k, val: v[k] });
-
-			common.saveConfig(ops).then(function(changed) {
-				if (changed === 0) {
-					markDirty();
-					common.notify(_('没有需要保存的修改'));
-					return;
-				}
-				baseline = takeBaseline(v);
-				setDisabled(btnSave, true);
-				setDisabled(btnDiscard, false);
-				renderStrip(v);
-				setPill('staged');
-				common.notify(_('更改已暂存，请点击页面底部的「保存并应用」使其生效'));
-			}).catch(function(e) {
-				setDisabled(btnSave, false);
-				common.notify(String(e.message || e), 'error');
-			});
-		});
-
-		btnDiscard.addEventListener('click', function() {
-			applyConfig(cfg);
-			/* 同步撤回本页暂存的会话改动，避免「表单已还原、底部原生栏仍显示待应用」 */
-			return common.revertConfig('netmonitor').catch(function() {
-				/* 撤回失败不阻断表单复位 */
-			}).then(function() {
-				common.notify(_('修改已放弃'));
-			});
-		});
 
 		actCard.appendChild(btnSave);
 		actCard.appendChild(btnDiscard);
@@ -715,7 +742,9 @@ return view.extend({
 		applyConfig(cfg);
 
 		refreshSvc();
-		poll.add(refreshSvc, 10);
+		/* 轮询间隔读配置里的 ui_refresh：硬编码 10 秒会让用户在本页改的
+		 * 「界面刷新间隔」对本页自己无效（其他页面都遵守该值）。 */
+		poll.add(refreshSvc, Math.max(1, parseInt(cfg.ui_refresh, 10) || 2));
 
 		return root;
 	}

@@ -3,6 +3,12 @@
  *
  * 提供：RPC 封装、格式化、等级判定、卡片与迷你曲线渲染、样式注入、i18n 加载。
  * 所有页面共用，避免重复代码。
+ *
+ * UI 组件（按钮 / 标签 / 提示条 / 弹窗）由 ui.js 提供。
+ * 本项目不再依赖 TDesign Web Components —— 原因见 ui.js 文件头的说明：
+ * 随包分发的 tdesign.min.js 有7.3 MB，而实际只用到四个组件；且随包的
+ * tdesign.css 是残缺样式表（578 个 CSS 变量齐全，dialog 规则 0 条），
+ * 导致 t-dialog 的定位容器拿不到display 规则、编辑弹窗点了毫无反应。
  */
 
 'use strict';
@@ -10,20 +16,18 @@
 'require ui';
 'require uci';
 'require netmonitor.icons as icons';
+'require netmonitor.ui as nmui';
 
 var CSS_ID = 'nm-netmonitor-css';
-var TD_CSS_ID = 'nm-tdesign-css';
-var TD_JS_ID = 'nm-tdesign-js';
 var I18N_DOMAIN = 'luci-app-netmonitor';
-var _tdReady = null;
+
+/* ---------------------------------------------------------------- 资源 */
 
 function resourceUrl(path) {
 	if (typeof L !== 'undefined' && L && L.resource)
 		return L.resource(path);
 	return '/luci-static/resources/' + path;
 }
-
-/* ---------------------------------------------------------------- 资源 */
 
 function ensureCss() {
 	if (document.getElementById(CSS_ID))
@@ -34,69 +38,6 @@ function ensureCss() {
 	link.type = 'text/css';
 	link.href = resourceUrl('netmonitor/style.css');
 	document.head.appendChild(link);
-	/* TDesign 组件样式：只注入一次，与业务样式分开便于后续升级替换 */
-	if (!document.getElementById(TD_CSS_ID)) {
-		var td = document.createElement('link');
-		td.id = TD_CSS_ID;
-		td.rel = 'stylesheet';
-		td.type = 'text/css';
-		td.href = resourceUrl('netmonitor/tdesign/tdesign.css');
-		document.head.appendChild(td);
-	}
-}
-
-/* 动态加载 TDesign Web Components 库（UMD，全局注册 <t-*> 自定义元素）。
- *
- * 返回 Promise，resolve 后组件树已可用。加载过程只发生一次（_tdReady 缓存）；
- * 失败时清空缓存并 reject，便于页面在 render 阶段降级或提示。
- *
- * 注意：LuCI 的 require 体系不支持动态 import / ESM，因此这里用经典的
- * <script> 注入方式挂载 UMD 构建，组件库自己负责注册 custom elements。 */
-function tdesign() {
-	if (_tdReady)
-		return _tdReady;
-	_tdReady = new Promise(function(resolve, reject) {
-		if (window.customElements &&
-			typeof window.customElements.get('t-button') !== 'undefined') {
-			resolve();
-			return;
-		}
-		injectTDesign(resolve, reject, 0);
-	});
-	return _tdReady;
-}
-
-/* 注入 tdesign.min.js。外部 <script src> 的 load 事件在「下载 + 执行完成」后
- * 触发——即使脚本执行过程中抛错也会触发（实测），因此仅靠 onload 判断成功
- * 会把「执行失败、组件未注册」误判为加载成功，导致页面带着一堆裸 <t-*> 标签
- * 渲染（开关 / 下拉 / 按钮全部无样式无交互）。这里必须在 onload 后校验组件
- * 是否真的注册（customElements.get('t-button')），未注册按失败处理：重试一次
- * （移除旧节点后重新注入，排除偶发失败），仍失败才 reject，不再假装成功。 */
-function injectTDesign(resolve, reject, attempt) {
-	var s = document.createElement('script');
-	s.id = TD_JS_ID;
-	s.src = resourceUrl('netmonitor/tdesign/tdesign.min.js');
-	s.onload = function() {
-		if (window.customElements &&
-			typeof window.customElements.get('t-button') !== 'undefined') {
-			resolve();
-			return;
-		}
-		if (attempt === 0) {
-			_tdReady = null; /* 清掉失败缓存，允许重试 */
-			var old = document.getElementById(TD_JS_ID);
-			if (old && old.parentNode)
-				old.parentNode.removeChild(old);
-			injectTDesign(resolve, reject, 1);
-			return;
-		}
-		reject(new Error('TDesign loaded but components not registered'));
-	};
-	s.onerror = function() {
-		_tdReady = null;
-		reject(new Error('TDesign library failed to load'));
-	};
-	document.head.appendChild(s);
 }
 
 /* 加载插件自己的 i18n domain。
@@ -209,13 +150,110 @@ function strParams(o) {
 	return r;
 }
 
+/* ---------------------------------------------------- 数值归一化
+ *
+ * 后端把延迟 / 丢包率等浮点字段以**字符串**返回（见 rpcd/ucode/luci.netmonitor
+ * 的 fx()：ucode 的 blobmsg 序列化器对 double 一律输出 17 位有效数字，
+ * 连字面量 26.51 都会变成 26.510000000000002，该限制在算式层面无解，
+ * 只能在服务端 sprintf 成字符串）。
+ *
+ * 但字符串在 JS 里参与 `+` 会走**拼接**而非相加：
+ *     sum += "18.96"        -> "0" + "18.96" = "018.96"
+ *     sum += "25.3"         -> "018.9625.3"
+ *     "018.9625.3" / 3      -> NaN
+ * 实测后果（1.5.0 引入的回归）：
+ *   · regions 页的分区平均曲线全部算成 NaN，path 变成
+ *     `M42.0 NaN L61.4 NaN ...`，曲线完全不可见、Y 轴退化为 0~10；
+ *   · charts 页「当前」摘要卡显示「—」（NaN）。
+ * 注意 `/`、`*`、`-` 的隐式转换是正确的，所以只有**累加**会踩这个坑 ——
+ * 这也解释了为何问题只在少数位置暴露、且不易一眼看出。
+ *
+ * 因此在 RPC 出口统一转成数值：所有消费方都拿到 number，
+ * 不必每个调用点自己记得 parseFloat。
+ */
+/* 需要转数值的字段名。
+ *
+ * 注意 'l'（曲线点位的延迟）与 'latency'（目标当前延迟）是两个不同的键，
+ * 分属 get_history 的 points 与 get_status 的 targets，必须都列上 ——
+ * 首次修复时漏掉 'l'，曲线因此仍然算出 NaN。 */
+var FLOAT_KEYS = ['l', 'avg', 'min', 'max', 'p50', 'p95', 'p99', 'loss', 'loss_avg',
+	'success_rate', 'latency', 'current', 'online_rate', 'mn', 'mx', 'value'];
+
+function numifyNode(o) {
+	if (!o || typeof o !== 'object')
+		return o;
+	for (var i = 0; i < FLOAT_KEYS.length; i++) {
+		var k = FLOAT_KEYS[i];
+		if (o[k] != null)
+			o[k] = toNum(o[k]);
+	}
+	return o;
+}
+
+/* get_history：series[].points[].{l,mn,mx} 与 series[].summary.* */
+function numifyHistory(d) {
+	if (!d || !d.series)
+		return d;
+	for (var i = 0; i < d.series.length; i++) {
+		var se = d.series[i];
+		if (se.summary)
+			numifyNode(se.summary);
+		if (se.points) {
+			for (var j = 0; j < se.points.length; j++)
+				numifyNode(se.points[j]);
+		}
+	}
+	return d;
+}
+
+/* get_status：overall / regions / targets[]
+ * （targets 与 regions 在下面按字段单独处理） */
+function numifyStatus(d) {
+	if (!d)
+		return d;
+	numifyNode(d.overall);
+	if (d.regions) {
+		for (var rk in d.regions)
+			numifyNode(d.regions[rk]);
+	}
+	if (d.targets) {
+		for (var i = 0; i < d.targets.length; i++) {
+			var t = d.targets[i];
+			numifyNode(t);
+			if (t.spark) {
+				for (var k = 0; k < t.spark.length; k++)
+					t.spark[k] = toNum(t.spark[k]);
+			}
+		}
+	}
+	return d;
+}
+
+/* get_statistics：targets[] 与 regions[] */
+function numifyStats(d) {
+	if (!d)
+		return d;
+	var i;
+	if (d.targets)
+		for (i = 0; i < d.targets.length; i++)
+			numifyNode(d.targets[i]);
+	if (d.regions)
+		for (i = 0; i < d.regions.length; i++)
+			numifyNode(d.regions[i]);
+	return d;
+}
+
 var api = {
 	getStatus: function(withSpark) {
-		return call('get_status', withSpark ? { spark: '1' } : {});
+		return call('get_status', withSpark ? { spark: '1' } : {}).then(numifyStatus);
 	},
 	getTargets: function() { return call('get_targets', {}); },
-	getHistory: function(o) { return call('get_history', strParams(o)); },
-	getStatistics: function(o) { return call('get_statistics', strParams(o)); },
+	getHistory: function(o) {
+		return call('get_history', strParams(o)).then(numifyHistory);
+	},
+	getStatistics: function(o) {
+		return call('get_statistics', strParams(o)).then(numifyStats);
+	},
 	getConfig: function() { return call('get_config', {}); },
 	/* 配置写入刻意不走后端 set_config / add_target：那些方法虽然也写
 	 * 同一份 uci 配置，但自成一个没有提交/回滚/触发器语义的平行通道。
@@ -375,22 +413,41 @@ function revertConfig(conf) {
 
 /* ---------------------------------------------------------------- 格式化 */
 
+/* 后端把延迟 / 丢包率等浮点字段以**已格式化的字符串**返回
+ * （见 rpcd/ucode/luci.netmonitor 的 fx()：ucode 的 blobmsg 序列化器对
+ * double 一律输出 17 位有效数字，字面量 26.51 也会变成 26.510000000000002，
+ * 该限制在算式层面无法消除，只能在传输前就固化成字符串）。
+ *
+ * 这里统一先转成 number 再做展示运算，保证：
+ *   - 空值（后端给 null）与非法值统一显示为占位符；
+ *   - 后续的算术与比较（>、+）走数值语义而非字符串拼接。
+ */
+function toNum(v) {
+	if (v == null || v === '')
+		return null;
+	var n = parseFloat(v);
+	return isNaN(n) ? null : n;
+}
+
 function num(v, digits) {
-	if (v == null || isNaN(v)) return '—';
+	var n = toNum(v);
+	if (n == null) return '—';
 	var p = Math.pow(10, digits == null ? 1 : digits);
-	return String(Math.round(v * p) / p);
+	return String(Math.round(n * p) / p);
 }
 
 function latency(v) {
-	if (v == null || isNaN(v)) return '—';
-	if (v >= 100) return String(Math.round(v));
-	return String(Math.round(v * 10) / 10);
+	var n = toNum(v);
+	if (n == null) return '—';
+	if (n >= 100) return String(Math.round(n));
+	return String(Math.round(n * 10) / 10);
 }
 
 function percent(v, digits) {
-	if (v == null || isNaN(v)) return '—';
+	var n = toNum(v);
+	if (n == null) return '—';
 	var p = Math.pow(10, digits == null ? 1 : digits);
-	return (Math.round(v * p) / p) + '%';
+	return (Math.round(n * p) / p) + '%';
 }
 
 function pad2(x) { return (x < 10 ? '0' : '') + x; }
@@ -479,159 +536,42 @@ function errorText(e) {
 
 /* ---------------------------------------------------------------- 弹窗 */
 
-/* TDesign 确认弹窗：替换 window.confirm。
+/* 确认弹窗。转调 ui.js 的 confirm()，这里只补文案默认值。
  *
- * 为什么不用原生 confirm：它是阻塞式同步调用，会冻结整个主线程，在低端
- * 路由器的 LuCI 页面上表现为点一下「删除」后整页无响应数百毫秒；且样式
- * 完全由浏览器决定，与本插件的 TDesign 视觉体系割裂。
+ * 此前本文件另有一份基于 <t-dialog> 的完整实现，与 targets.js 的编辑弹窗
+ * 脚手架逐行重复（属性名、footer slot、ESC 兜底、focus 收尾各写一遍），
+ * 现已统一到 ui.dialog 一处。
  *
- * 事件与属性契约（逐条核对随包 tdesign.min.js 的 propTypes 后确定，勿凭印象改）：
- *   · 关闭出口只有一个 close 事件，由内部 onClose({ e, trigger }) 派发，
-     trigger 取值为 'confirm' | 'cancel' | 'overlay' | 'esc'。
-     —— 组件没有 visible-change 事件，早期误用会导致弹窗关不掉。
- *   · ESC 开关的属性名是 closeOnEscKeydown，不是 closeOnEsc。
- *   · footer 传 true 时按钮由组件自行生成，此时 confirmBtn / cancelBtn
-     这两个 prop 并未在 t-dialog 的 propTypes 中声明（那是 popconfirm 的），
-     设了也不生效。因此这里与 targets.js 的编辑弹窗保持一致，改用
-     footer slot 自带按钮 —— 走的是组件明确支持的渲染路径。
- *
- * 返回 Promise<boolean>：确认 resolve(true)，取消/ESC/点遮罩 resolve(false)。
- * 调用方无需 try/catch —— 用户主动取消不是错误。 */
+ * message 以 textContent 填充：用户自填的目标名不会被当作 HTML 解析。
+ * 取消 / ESC / 点遮罩 / 关闭按钮都只是关闭弹窗，不产生错误。 */
 function confirmDialog(opts) {
 	opts = opts || {};
-	return tdesign().then(function() {
-		return new Promise(function(resolve) {
-			var settled = false;
-			function done(v) {
-				if (settled) return;
-				settled = true;
-				/* 解除 keydown 监听后再移除节点，避免关闭瞬间的 ESC
-				 * 把焦点抢回一个已经离场的元素。 */
-				document.removeEventListener('keydown', onKey, true);
-				try { modal.visible = false; } catch (e) { /* 组件已卸载 */ }
-				if (modal.parentNode) modal.parentNode.removeChild(modal);
-				resolve(v);
-			}
-			/* 兜底：焦点在 shadow 外时组件可能收不到 ESC，这里在 capture
-			 * 阶段拦一道。注意只在弹窗仍在文档中时处理。 */
-			function onKey(e) {
-				if (e.key === 'Escape' && modal.isConnected) {
-					e.stopPropagation();
-					done(false);
-				}
-			}
-
-			var modal = document.createElement('t-dialog');
-			modal.setAttribute('header', opts.header || _('Confirm'));
-			modal.setAttribute('width', 'min(420px, calc(100vw - 32px))');
-			/* 自带关闭按钮 + ESC 关闭，属性名必须是 closeOnEscKeydown */
-			modal.setAttribute('closeOnEscKeydown', 'true');
-			modal.setAttribute('closeOnOverlayClick', 'true');
-			/* 自行提供 footer，故关掉组件默认 footer */
-			modal.setAttribute('footer', 'false');
-			modal.visible = true;
-			/* 弹窗同样需要焦点落点，否则打开后焦点仍在背后的页面上 */
-			modal.setAttribute('tabindex', '-1');
-
-			modal.appendChild(el('div', 'nm-confirm-body', opts.message || ''));
-
-			var footer = el('div', 'nm-modal-actions');
-			var btnCancel = document.createElement('t-button');
-			btnCancel.setAttribute('theme', 'default');
-			btnCancel.setAttribute('variant', 'outline');
-			btnCancel.textContent = opts.cancel || _('Cancel');
-			btnCancel.addEventListener('click', function() { done(false); });
-
-			var btnOk = document.createElement('t-button');
-			btnOk.setAttribute('theme', opts.danger ? 'danger' : 'primary');
-			btnOk.textContent = opts.ok || _('OK');
-			btnOk.addEventListener('click', function() { done(true); });
-
-			footer.appendChild(btnCancel);
-			footer.appendChild(btnOk);
-			var slot = el('div');
-			slot.setAttribute('slot', 'footer');
-			slot.appendChild(footer);
-			modal.appendChild(slot);
-
-			/* 唯一关闭出口：读 trigger 区分确认与其它来源 */
-			modal.addEventListener('close', function(e) {
-				var d = e && e.detail;
-				var trigger = d && d.trigger ? d.trigger : '';
-				done(trigger === 'confirm');
-			});
-
-			document.addEventListener('keydown', onKey, true);
-			document.body.appendChild(modal);
-			window.setTimeout(function() {
-				try { btnCancel.focus(); } catch (e) { /* 未就绪则跳过 */ }
-			}, 60);
-		});
+	nmui.confirm({
+		host: opts.host,
+		header: opts.header,
+		message: opts.message == null ? '' : String(opts.message),
+		ok: opts.ok,
+		cancel: opts.cancel,
+		danger: !!opts.danger
 	});
 }
 
-/* 焦点陷阱：把 Tab 键循环限制在 container 内。
- *
- * t-dialog 走 shadow DOM，宿主元素上拿不到内部可聚焦节点列表，因此这里
- * 只做「宿主级别的兜底」：Tab 到最后一个可聚焦元素时绕回第一个。真正的
- * 内部循环由组件自身负责，本函数只防止焦点跑到弹窗背后的页面上 ——
- * 对键盘用户而言，跑出去就意味着看不见焦点落在哪，比顺序错更糟。
- *
- * 返回 release()，在弹窗关闭时调用以解除监听。
- *
- * onEscape: 可选回调。传入后在 capture 阶段拦下 Escape 并调用它。
- * 这一层兜底是必需的，不是冗余：t-dialog 的 ESC 关闭依赖组件内部的
- * uid 栈（Gw.top === this.uid），而 uid 只在 receiveProps 检测到 visible
- * 真实变化时才入栈。经实测，本项目用 modal.visible = true 打开弹窗时
- * 该入栈动作不会发生，closeOnEscKeydown 属性设了也不生效——事件能到达
- * document，组件却不响应。因此 ESC 关闭必须由我们在 document 上兜住。 */
-function trapFocus(container, onEscape) {
-	function onKey(e) {
-		/* ESC 兜底：必须在 capture 阶段抢在组件自己的监听之前，
-		 * 否则组件一旦（在别的路径上）也响应 ESC，会双触发。 */
-		if (e.key === 'Escape' && typeof onEscape === 'function') {
-			if (!container.isConnected) return;
-			e.stopPropagation();
-			e.preventDefault();
-			onEscape();
-			return;
-		}
-		if (e.key !== 'Tab') return;
-		var f = container.querySelectorAll(
-			'a[href], button:not([disabled]), input:not([disabled]), ' +
-			'select:not([disabled]), textarea:not([disabled]), ' +
-			'[tabindex]:not([tabindex="-1"])'
-		);
-		if (!f.length) return;
-		var first = f[0], last = f[f.length - 1];
-		if (e.shiftKey && document.activeElement === first) {
-			last.focus();
-			e.preventDefault();
-		} else if (!e.shiftKey && document.activeElement === last) {
-			first.focus();
-			e.preventDefault();
-		}
-	}
-	document.addEventListener('keydown', onKey, true);
-	return function release() {
-		document.removeEventListener('keydown', onKey, true);
-	};
-}
 
 /* ---------------------------------------------------------------- DOM 辅助 */
 
-function el(tag, cls, html) {
-	var e = document.createElement(tag);
-	if (cls) e.className = cls;
-	if (html != null) e.innerHTML = html;
-	return e;
+function el(tag, cls, text) {
+	return nmui.el(tag, cls, text);
 }
 
+/* 需要插入 HTML 时显式调用，让「哪里有 innerHTML」一目了然。 */
+function elHtml(tag, cls, html) {
+	return nmui.elHtml(tag, cls, html);
+}
+
+/* SVG 片段容器：内容来自本项目自带的 icons.js / chart.js，
+ * 均为内置常量字符串，不含用户输入，故可安全走 innerHTML。 */
 function svgBox(svg, cls) {
-	var d = document.createElement('div');
-	if (cls) d.className = cls;
-	d.innerHTML = svg;
-	return d;
+	return nmui.elHtml('div', cls, svg);
 }
 
 /* 把一个动态 SVG 挂到卡片的右上角。
@@ -713,7 +653,7 @@ function targetCard(t, opts) {
 	var nm = el('div', '', '');
 	nm.style.minWidth = '0';
 	nm.style.flex = '1 1 auto';
-	nm.appendChild(el('div', 'nm-target-name', t.name ? String(t.name).replace(/[<>&]/g, '') : t.id));
+	nm.appendChild(el('div', 'nm-target-name', t.name ? t.name : t.id));
 	nm.appendChild(el('div', 'nm-target-host', (t.host || '') + (t.last_error ? ' · ' + errorText(t.last_error) : '')));
 	head.appendChild(nm);
 	head.appendChild(el('span', regionTagClass(t.region), t.label ? t.label : regionText(t.region)));
@@ -823,7 +763,6 @@ return Class.extend({
 	__name__: 'NetMonitor.common',
 
 	css: ensureCss,
-	tdesign: tdesign,
 	loadI18n: loadI18n,
 	api: api,
 	call: call,
@@ -839,6 +778,8 @@ return Class.extend({
 		dateTime: dateTimeOf,
 		ago: ago
 	},
+	/* 后端浮点字段以字符串返回，算术/比较前必须先过这道转换 */
+	toNum: toNum,
 	gradeClass: gradeClass,
 	gradeText: gradeText,
 	dotClass: dotClass,
@@ -847,12 +788,12 @@ return Class.extend({
 	errorText: errorText,
 	localizeError: localizeError,
 	el: el,
+	elHtml: elHtml,
 	svgBox: svgBox,
 	tcard: tcard,
 	cardIcon: cardIcon,
 	inlineIcon: inlineIcon,
 	confirmDialog: confirmDialog,
-	trapFocus: trapFocus,
 	icons: icons,
 	clear: clear,
 	notify: notify,
@@ -861,5 +802,8 @@ return Class.extend({
 	kpiCard: kpiCard,
 	iconCard: iconCard,
 	banner: banner,
+	/* 原生UI 组件：按钮 / 标签 / 提示条 / 弹窗。页面直接 common.ui.button(...)
+	 * 即可，无需各自 require ui.js。 */
+	ui: nmui,
 	palette: ['#2f6fed', '#2e9e5b', '#8a63d2', '#e0762c', '#00a3b4', '#d69a1a', '#cf4437', '#5c6b7a']
 });

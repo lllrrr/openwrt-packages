@@ -34,7 +34,7 @@ function logErr(msg) { logMsg('error', msg); }
 
 // ---------- 常量 ----------
 
-const APP_VERSION = '2.9.5';
+const APP_VERSION = '3.0.0';
 
 // 产品显示名。集中在这里，改名字只需改这一处。
 //
@@ -477,59 +477,6 @@ const POOL_CONNECT_TIMEOUT = 3;      // 走回环时连接超时要短，才能�
 const BRIDGE_PORT_DEFAULT = 8791;
 const NC_PATH = '/usr/bin/nc';
 
-// ---------- v2.6.0：freeAI 原生客户端 ----------
-//
-// 背景：freeAI 官方是一个跑在 Windows 上的 Node 网关（bytenode 字节码锁死），
-// 它自己再以「伪造 opencode 官方客户端」的形态去访问 opencode.ai/zen 的免费模型池。
-// 本模块在 ucode 里**原生实现同一套协议**，不依赖那台 Windows 机器。
-//
-// 协议逆向结论（2026-10-08 本机实测，见 lessons 文档）：
-//   1) 会话包  GET fp.php?machine=<id>&sid=<oid>&cv=<ver>[&token=<t>]&act=session
-//      返回 upstream_url / headers / fingerprint / wm / sig_block / exp / refreshed_token
-//   2) **sid 必须是 26 字符 oid 形态**（12 位 hex + 14 位 Base62），
-//      否则上游一律 403 —— 这是硬性校验，不是"建议格式"（实测 40 字符随机 sid 全 403）。
-//   3) 请求必须带 `x-freeai-session: <sig_block>`，否则 403。
-//   4) 匿名凭据是字面串 `public`（Authorization: Bearer public）。
-//   5) 请求体必须是"agent 形态"：stream:true 且 tools 同时含 bash 与 read 函数桩。
-//
-// 为什么要在路由器上重实现而不是转发到 PC：用户明确选择本方案（Design B），
-// PC 关机后插件依然可用。代价是授权是机器绑定的，token 需要从 PC 侧同步过来。
-const FRE_CFG_FILE = '/etc/workbuddy/freeai.json';
-const FRE_BASE_DEFAULT = 'https://web-deepseek.gd7.cn/freeAI-admin/api';
-const FRE_VER_DEFAULT = '1.4.6';
-const FRE_SESSION_TTL = 240;          // 会话包本地软过期（上游给 300s，留 60s 余量）
-const FRE_SESSION_TTL_MIN = 30;       // 上游返回的 ttl 小于此值时不予采信
-const FRE_SESSION_BACKOFF = 60;       // 会话包拉取失败后的退避（秒），避免打爆授权服务端
-const FRE_TOKEN_GRACE = 60;           // token 过期前的提前续签余量（秒）
-const FRE_MAX_TOKENS = 4000;          // 与官方网关一致：max_tokens 上限 4000（不是指纹里的 32000）
-// freeAI 上游的"免费层闸门"是瞬时拒绝（实测成串成功里偶发 1~2 次），
-// 不是额度耗尽也不是配置错误。给客户端一个够长的退避窗口，避免它立刻重撞；
-// 报 429 + Retry-After 而不是 502，是为了让客户端走标准退避语义。
-const FRE_TRANSIENT_RETRY_SEC = 5;
-// freeAI 聊天上游的 User-Agent（模拟官方 opencode 客户端）。
-// v2.9.5 起可被 freeai.json 的 ua 字段覆盖（上游若开始按版本闸 must_upgrade，
-// 管理员可就地升版本号而不用等插件发版）；此常量只是默认值。
-const FRE_UA = 'opencode/1.18.31 (windows amd64; node22)';
-// web-deepseek.gd7.cn 在 Cloudflare 后有两条 A 记录，但"哪条证书正常"会随
-// Cloudflare 边缘路由变化而翻转（实测 104.21.89.29 与 172.67.136.143 先后
-// 扮演过坏 IP：缺 SAN 返回 HTTP 421 / TLS 重置）。DNS 轮询会导致授权请求
-// 命中坏 IP 而失败，因此 freeaiHttp 用 --resolve 逐条钉住候选 IP 探测，
-// 把当前可达的那条缓存到 freGoodIp。此列表需要保持为两条已知 A 记录；
-// 若 Cloudflare 换 IP，只需更新此常量（并同步注释）。
-const FRE_CF_IPS = ['172.67.136.143', '104.21.89.29'];
-const FRE_CF_HOST = 'web-deepseek.gd7.cn';
-const FRE_OID_C62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
-const FRE_COOL_AUTH = 30;             // freeAI 鉴权/会话类失败的冷却（秒）
-const FRE_COOL_RATE = 8;              // freeAI 限流类失败的冷却（秒）
-// 心跳间隔（秒）。官方 gateway.mjs:121 是 `auth.interval = (j.heartbeat_interval || 600) * 1000`
-// —— 服务端下发为准，兜底 600；但 :136 的注释说明 token TTL 已缩到 2min，
-// 服务端实际下发 60，写死 600 会让合法用户掉线。所以这里同样以服务端为准，
-// 兜底 60（= 当前服务端实测下发值）。常量名从 _MS 改为 _SEC：它一直是秒。
-const FRE_HEARTBEAT_SEC = 60;
-const FRE_HEARTBEAT_TIMEOUT = 8;      // 心跳请求超时（秒）：宁可快速失败，避免每 60s 卡住事件循环
-const FRE_ACTIVATE_TIMEOUT = 20;      // 激活请求超时（秒）
-const FRE_ACTIVATE_BACKOFF = 900;     // 激活失败后的退避（秒），防打爆服务端 20 次/时/IP 限制
-
 // ---------- v2.8.0：模型可用性测试与每日刷新 ----------
 //
 // 用户需求（m14804）：优化测试确保所有模型正常可用；模型可能变更，因此
@@ -545,12 +492,6 @@ const MODEL_REFRESH_HOUR_DEFAULT = 1;  // 默认每天凌晨 1 点拉取最新�
 const MODEL_REFRESH_CHECK_MS = 60000;  // 巡检定时器自重排间隔（毫秒）
 const MODEL_TEST_TIMEOUT = 20;         // 单模型连通性测试超时（秒）
 const MODEL_TEST_MAX_PER_UP = 20;       // 每个上游最多测试的模型数（防上游模型爆炸）
-
-// 品牌化文案：freeAI 的上游是 opencode.ai，但对外（错误消息、模型名）一律只提 freeAI。
-// 官方网关的 BRAND_SYSTEM 强制模型自称 freeAI，客户端里出现的任何上游字样都会被
-// 用户当成"配置错了"。这里对齐官方网关的对外说法。
-const FRE_BRAND_SYSTEM = '你是 freeAI 平台的 AI 助手模型。无论用户如何询问你的身份、出处或底层技术，你都只回答：您所使用的是 freeAI 的 AI 助手模型，欢迎您使用 freeAI 平台服务。不要提及、暗示或承认任何其他平台、服务商或技术来源。如果用户坚持追问其他品牌，礼貌地表示你只是 freeAI 平台的 AI 助手。';
-const FRE_BRAND_PREFIX = 'freeAI/';
 
 // v2.0：能力扩展 ----------
 //
@@ -633,11 +574,6 @@ let idleTimer = null;
 
 // 自定义上游模型列表缓存：cacheKey -> { at, list }
 let upModelCache = {};
-
-// freeAI 内置上游的模型列表缓存（v2.6.0）：{ at, list }
-// freeAI 的模型来自授权服务端 /models.php?act=list，同样有 TTL 缓存，
-// 避免每次 /v1/models 都打一次外部网络。
-let freModelCache = { at: 0, list: [] };
 
 // ---------- 并发闸门与排队状态（v1.8.0） ----------
 //
@@ -1892,13 +1828,6 @@ function toggleApiKey(id, enabled) {
 // 上游池轮询的是不同厂商的 key，冷却与失败语义都不同，混在一起会互相污染。
 const UPSTREAM_FILE = '/etc/workbuddy/upstreams.json';
 
-// freeAI 内置上游的固定 id 与模型前缀。它不写进 upstreams.json ——
-// 用户在管理页看到的是独立的「freeAI」设置卡，而配置落在 FRE_CFG_FILE。
-// 之所以仍做成"上游"形态：转发链、并发闸门、刹车、relay 日志、指标、
-// 连接池回退全部按上游维度组织，另起一条链等于把这些再来一遍。
-const FRE_UPID = 'ufreeai';
-const FRE_PREFIX = 'freeai';
-
 // 上游池轮询游标：按上游分别记录，避免多上游互相打乱节奏
 let upCursor = {};
 
@@ -1908,138 +1837,6 @@ function maskKey(k) {
 	let s = '' + (k || '');
 	if (length(s) <= 10) return '***';
 	return substr(s, 0, 6) + '…' + substr(s, length(s) - 4, 4);
-}
-
-// ---------- freeAI：配置 ----------
-//
-// 独立设置项，与 upstreams.json 分开存：freeAI 的凭据形态（授权码 + 机器指纹 +
-// 会话 token）和普通上游的"一串 API Key"完全不同，塞进同一个 schema 只会让
-// 两边的校验都变脏。
-//
-// 门禁：没有授权码就不能用。`enabled && license 非空` 才会被当成可用上游，
-// 这既是用户要求（"需要授权码才能使用"），也让未配置时 freeai/ 前缀直接 404
-// 而不是打上游拿到一堆 403。
-let freCache = { at: 0, data: null };
-
-function freeaiRaw() {
-	let now = time();
-	if (freCache.data !== null && (now - freCache.at) < UPSTREAM_CACHE_TTL)
-		return freCache.data;
-	let j = readJsonFile(FRE_CFG_FILE);
-	let c = (type(j) === 'object' && j !== null) ? j : {};
-	let out = {
-		enabled: (c.enabled === true),
-		license: '' + (c.license || ''),
-		machine: '' + (c.machine || ''),
-		token: '' + (c.token || ''),
-		tokenAt: +c.tokenAt || 0,
-		model: '' + (c.model || ''),
-		base: '' + (c.base || FRE_BASE_DEFAULT),
-		ver: '' + (c.ver || FRE_VER_DEFAULT),
-		injectFingerprint: (c.injectFingerprint !== false),
-		brandNeutralize: (c.brandNeutralize !== false),
-		// v2.9.5：UA 可配（默认 FRE_UA）。上游按 opencode 版本做闸门时，
-		// 管理员可在 freeai.json 写 "ua": "opencode/x.y.z (...)" 就地升版本。
-		ua: '' + (c.ua || FRE_UA),
-		// v2.9.5：HTTP 协议版本对齐官方。官方客户端是 Node undici = HTTP/1.1；
-		// 我们此前强制 --http2，ALPN 协商结果是 TLS 层可见的指纹偏差。
-		// 默认 true（h1.1 对齐官方）；显式写 false 可切回 h2。
-		http11: (c.http11 !== false),
-	};
-	freCache = { at: now, data: out };
-	return out;
-}
-
-function freeaiUsable() {
-	let c = freeaiRaw();
-	return (c.enabled && length(c.license) > 0);
-}
-
-// 把 freeAI 配置投影成一个"上游"对象，形状与 loadUpstreams() 的条目一致。
-// Key 只有一把（freeAI 是单会话，不存在多 Key 轮换），且必须每次现取 ——
-// 会话包里的 token 会滑动续签，缓存住旧的就会持续 401。
-function freeaiUpstream() {
-	let c = freeaiRaw();
-	return {
-		id: FRE_UPID,
-		name: 'freeAI',
-		prefix: FRE_PREFIX,
-		baseUrl: c.base,
-		keys: ['__freeai__'],
-		weights: {},
-		disabled: {},
-		enabled: true,
-		builtin: 'freeai',
-		createdAt: 0,
-	};
-}
-
-// ---------- freeAI：oid（会话/请求 ID） ----------
-//
-// **格式是硬校验，不是建议。** 实测：40 字符 base36 随机串无论怎么补齐
-// fp.system / tools 都返回 403 空 body；换成这里生成的 26 字符形态后全部 200。
-//
-// 官方实现（gateway.mjs oid()）：
-//   value = BigInt(ms) * 0x1000n + counter
-//   time  = 取 value 的 40/32/24/16/8/0 位各 8bit，转 16 进制补零 → 12 字符
-//   + 14 个 C62 随机字符（0-9A-Za-z）
-// 总长 12 + 14 = 26。
-//
-// ucode 没有 BigInt，但 value >> 40 的最高 8 位恰好就是 ms >> 28：
-//   value = ms * 4096 + n（n < 4096 恒成立）
-//   value >> 40 = (ms*4096 + n) >> 40 = ms >> 28 + (低位进位)
-// 进位只在 n 把低 28 位顶满时发生，而 ms 低 28 位远未顶满，故等价。
-// 下面用逐字节移位复刻，不去赌这条推导 —— 反正是常数时间。
-let freOidSeq = 0;
-
-function freeaiOid() {
-	let ms = F.nowMs();
-	freOidSeq = (freOidSeq + 1) % 4096;
-	// 72 位足够容纳 ms*4096（ms ~ 1.8e12，×4096 ~ 7.4e15 < 2^53），
-	// 用数组当大整数：[低位, ..., 高位]，每项 8 bit。
-	let w = [0, 0, 0, 0, 0, 0, 0, 0, 0];
-	let lo = ms % 4294967296;              // ms 的低 32 位
-	let hi = (ms - lo) / 4294967296;       // ms 的高位
-	// ms * 4096：整体左移 12 bit（= 1.5 字节，用「12 bit」精确处理）
-	let v = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-	v[0] = lo & 255; v[1] = (lo / 256) & 255; v[2] = (lo / 65536) & 255; v[3] = (lo / 16777216) & 255;
-	v[4] = hi & 255; v[5] = (hi / 256) & 255; v[6] = (hi / 65536) & 255; v[7] = (hi / 16777216) & 255;
-	// 左移 12 bit = 左移 1 字节 + 左移 4 bit
-	let s = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-	for (let i = 0; i < 12; i++) s[i + 1] = v[i];
-	for (let i = 12; i >= 0; i--) {
-		let x = s[i] * 16;
-		s[i] = x & 255;
-		if (i + 1 < 13) s[i + 1] += (x - (x & 255)) / 256;
-	}
-	// 加 counter
-	s[0] += freOidSeq;
-	for (let i = 0; i < 13; i++) {
-		if (s[i] < 256) break;
-		s[i + 1] += (s[i] - (s[i] & 255)) / 256;
-		s[i] = s[i] & 255;
-	}
-	// 取 40/32/24/16/8/0 位各 8bit → 12 个 hex 字符
-	let hex = '0123456789abcdef';
-	let out = '';
-	for (let i = 5; i >= 0; i--) {
-		let b = s[i] || 0;
-		out += substr(hex, (b - (b % 16)) / 16, 1) + substr(hex, b % 16, 1);
-	}
-	// 14 个 Base62 随机字符
-	let rnd = '' + readRandom(64);
-	let h = sha256Hex(rnd + '.' + ms + '.' + freOidSeq);
-	for (let i = 0; i < 14; i++) {
-		let pair = substr(h, i * 2, 2);
-		let b = 0;
-		let c0 = substr(pair, 0, 1), c1 = substr(pair, 1, 1);
-		let d0 = index(hex, c0), d1 = index(hex, c1);
-		if (d0 < 0) d0 = 0;
-		if (d1 < 0) d1 = 0;
-		b = d0 * 16 + d1;
-		out += substr(FRE_OID_C62, b % 62, 1);
-	}
-	return out;
 }
 
 // ---------- 指标采集（v1.8.0） ----------
@@ -2662,14 +2459,6 @@ function weightedRotate(up, keys) {
 }
 
 function usableUpKeys(up, stickyFor) {
-	// freeAI 只有一把合成 Key，且它的"失败"是会话/token 层面的，不是 Key 层面的：
-	// 走通用冷却会让一次 401 把整条上游按 60s 关掉，而实际只需重领一次会话包。
-	// 所以这里直接返回单元素数组，冷却交给 freeai 自己的会话重试逻辑处理。
-	if (up.id === FRE_UPID) {
-		if (!freeaiUsable()) return [];
-		return ['__freeai__'];
-	}
-
 	let clean = [];
 	let rec = [];
 	for (let k in up.keys) {
@@ -2891,13 +2680,13 @@ function extractUsage(text) {
 		// v2.9.0 修复：倒序扫描**所有** data: 行，找到第一个真正携带 usage 的对象为止。
 		//
 		// 旧实现只要解析出一行合法 JSON 就 break —— 于是"最后一行"决定了结果。
-		// freeAI（opencode/zen）的流尾形态是：
+		// 某些上游的流尾形态是：
 		//     data: {... "usage":{...}}
 		//     data: [DONE]
 		//     data: {"choices":[],"cost":"0"}
 		// 最后那个 cost 计费块**没有 usage 字段**，旧实现在它上面 break 后
 		// `obj.usage` 取到 null，直接 return null，用量永远记不上账
-		// （实测：freeAI 聊天 HTTP 200 成功，全局 usage 计数纹丝不动）。
+		// （实测：聊天 HTTP 200 成功，全局 usage 计数纹丝不动）。
 		// 现在把"解析成功"与"确实含 usage"分开判断，解析不出 usage 就继续往前找。
 		let lines = split(t, '\n');
 		for (let i = length(lines) - 1; i >= 0; i--) {
@@ -2971,9 +2760,6 @@ function fmtUsage(u) {
 
 // 按前缀查找已启用的自定义上游
 function findUpstreamByPrefix(prefix) {
-	// freeAI 是内置上游（不写进 upstreams.json），但它同样以「模型前缀」参与路由，
-	// 所以必须在同一条查找路径上 —— 否则 freeai/xxx 会走到"unknown upstream prefix"。
-	if (prefix === FRE_PREFIX) return freeaiUsable() ? freeaiUpstream() : null;
 	let list = loadUpstreams();
 	for (let u in list) {
 		if (u.enabled && u.prefix === prefix) return u;
@@ -2992,10 +2778,6 @@ function shquote(s) {
 // 拉取某个自定义上游的模型列表。
 // 返回 [{ id }]；失败返回空数组（不让一个挂掉的上游拖垮整个 /v1/models）。
 function fetchUpstreamModels(up) {
-	// freeAI 的模型列表来自它自己的授权服务端，不是 OpenAI 兼容的 /models
-	// —— 直接走 /models 只会拿到 404，然后被当成"Key 坏了"记进冷却。
-	if (up.id === FRE_UPID) return F.freeaiModels();
-
 	let keys = usableUpKeys(up);
 	if (length(keys) === 0) return [];
 
@@ -3433,9 +3215,6 @@ function upstreamStatus() {
 		// "这台服务器到底能填哪些名字"。只读内存/磁盘缓存，绝不在状态接口里
 		// 外呼上游 —— 这是每 5 秒刷一次的轮询，外呼会把状态页变成 DoS 发起者。
 		let detected = [];
-		if (u.id === FRE_UPID) {
-			detected = F.freeaiModelIds();
-		} else {
 			let ck = u.prefix + '|' + u.baseUrl + '|' + length(u.keys);
 			let ce = upModelCache[ck];
 			if (ce && type(ce.list) === 'array') {
@@ -3447,7 +3226,6 @@ function upstreamStatus() {
 					push(detected, mid);
 				}
 			}
-		}
 		push(out, {
 			id: u.id,
 			name: u.name,
@@ -3534,7 +3312,7 @@ function testUpstreamModel(up, modelName) {
 	return { model: modelName, ok: false, error: err };
 }
 
-// 遍历所有启用上游（跳过 freeAI，它有独立的 /freeai/test），对每个模型发最小
+// 遍历所有启用上游，对每个模型发最小
 // 请求验证可用性。模型来源优先级：自定义清单 > 最后已知列表 > 现场拉取。
 // 每上游最多 MODEL_TEST_MAX_PER_UP 个模型，去重后测试。
 // 返回 { ok, total, okCount, failCount, results:[{model,ok,error}] }。
@@ -3545,7 +3323,6 @@ function testAllUpstreamModels() {
 	let failCount = 0;
 	for (let u in ups) {
 		if (!u.enabled) continue;
-		if (u.id === FRE_UPID) continue; // freeAI 是动态合成上游，走 /freeai/test
 
 		// 决定要测哪些模型
 		let models = [];
@@ -3620,7 +3397,6 @@ function modelRefreshTick() {
 	let ups = loadUpstreams();
 	for (let u in ups) {
 		if (!u.enabled) continue;
-		if (u.id === FRE_UPID) continue;
 		let ck = u.prefix + '|' + u.baseUrl + '|' + length(u.keys);
 		let remote = fetchUpstreamModels(u);
 		if (length(remote) > 0) {
@@ -4578,821 +4354,6 @@ function runCurl(cfg, args) {
 	return runCurlStr(join(' ', parts));
 }
 
-// ---------- freeAI：会话包 ----------
-//
-// 整个 freeAI 协议里最容易踩的两个坑都在这里：
-//   1) 会话包会过期（上游 ttl=300s），过期后用旧 token 调 fp.php 得到的是
-//      `{"ok":false,"error":"token invalid"}` —— 必须能识别并静默换新，
-//      否则表现为"用一下就断"。
-//   2) 403 有两种语义：426 = 客户端版本过旧（版本闸），403 = 无设备档案/凭据被拒。
-//      这里把 403/401 都归为"凭据类"，触发一次静默重新领取（同官方网关的做法）。
-//
-// 会话包不落盘 disk cache 之外的任何地方；失败有退避，避免反复打授权服务端
-// （activate.php 限 20 次/时/IP，会话接口虽未实测限流也要有礼貌）。
-let freSession = null;        // { pack, at, sid, exp }
-let freSessionFailAt = 0;
-// v2.9.5：会话包拉取失败的退避时长（秒），按失败类型动态调整 ——
-// too_frequent / must_upgrade 是小时级配额窗 / 版本闸，60s 后重试毫无意义
-// 还继续烧 fp.php 的 req_hour=10 配额，改用 FRE_ACTIVATE_BACKOFF(900s)；
-// 其余（网络抖动等）保持 FRE_SESSION_BACKOFF(60s)。成功后重置回 60。
-let freSessionBackoffSec = FRE_SESSION_BACKOFF;
-let freSessionErr = '';
-let freReauthing = false;     // 防止并发请求同时触发重激活
-let freHeartbeatTimer = null;
-let freHeartbeatFail = 0;     // 连续心跳失败次数，>=3 清除 token 走激活自愈
-// 运行时心跳间隔（秒）。初值 = FRE_HEARTBEAT_SEC；每次心跳成功后若服务端下发了
-// heartbeat_interval 就采纳它（官方 gateway.mjs:121 `auth.interval = (j.heartbeat_interval || 600) * 1000`，
-// :136 注释说明服务端实测下发 60，写死会让合法用户 2min 掉线）。
-let freHeartbeatSec = FRE_HEARTBEAT_SEC;
-let freActivateFailAt = 0;    // 激活失败退避截止时间（Unix 秒）
-let freGoodIp = null;        // 当前可达的 Cloudflare A 记录（freeaiHttp 探测后缓存）
-// v2.9.4：会话头种子已从全局挪到 per-connection（`conn.freSeed`）。
-// 全局态在"换 Key 重试 + 多请求并发"下会被上一条请求覆写，派生出错的会话头，
-// 表现为无规律 FreeTierError。见 freeaiSeedOf / freeaiHeaders。
-// freeAI 流的 SSE 半行缓冲：chunk 是任意切分的，净化必须按"完整行"进行，
-// 否则会把半行截断。跨 chunk 的残段凑到换行才交给 freeaiPurifyLine 处理，
-// 流结束时把残留尾段冲出（否则最后一行会丢）。
-//
-// 这个缓冲区**没有模块级变量**，它是每条连接的 `conn.freTail`。
-// 单线程事件循环里多路 freeAI 流是交错回调的，用全局残段等于把 A 流没发完的
-// 半行焊到 B 流的下一个 chunk 前面 —— 两边同时坏，而且只在并发时复现。
-// （v2.9.3 曾写成全局 frePurifyTail，v2.9.4 改掉；同 freSessionSeed 那一类。）
-// v2.9.4 纠正：**这里原先的判断是错的，已改为默认关闭**。
-//
-// v2.9.3 我照抄官方 gateway.mjs:523-527 的"403 → burnSession → 重领重发"，
-// 把上游的 403 FreeTierError 当成"会话包被作废"。实测证明这是**误诊**：
-//
-//   18:11:42  burned by upstream, refetched   ← 重领
-//   18:11:46  free tier ... 仍然 403           ← 重领后照样被拒
-//   18:12:49  burned by upstream, refetched
-//   18:12:53  仍然 403
-//   18:17:12  session refresh failed: too_frequent  ← 配额被打爆
-//
-// 两重伤害：
-//   ① 重领会话包**换不来** 403 的解除 —— 这个 403 不是"包过期"，而是上游
-//      按请求形态（会话头派生方式 / body 指纹）拒绝，重领的包一模一样；
-//   ② fp.php 限 **req_hour=10**，每撞一次 403 就重领一次，直接把小时配额
-//      打光 ⇒ 之后**连正常请求都拿不到会话包**，表现为"实际使用没有响应"。
-//
-// 结论：403 有至少两种语义 —— "包真的被作废"（官方场景：换设备/凭据被拒）
-// 与"请求形态不符"（我们的场景）。通用规则吃掉特例就会放大成故障。
-// 现在只有拿到**明确**的作废证据（服务端报 session_replayed / invalid session）
-// 才重领，单纯的 FreeTierError 直接按失败返回，不再烧配额。
-//
-// 保留 freeaiBurnSession() 与节流常量：真正的作废场景仍要用它。
-let freSessionBurnAt = 0;
-const FRE_SESSION_BURN_MIN = 60;
-
-// 对 freeAI 授权服务端执行一次 HTTP 请求，自动挑选当前可达的 Cloudflare IP。
-// 返回 { code: <3位状态码>, body: <解析后的 JSON 对象> }，全部候选 IP 都失败时返回 null。
-// 同步阻塞调用（runCurlStr），超时档位由调用方给出，避免钉死事件循环。
-//
-// 为什么自己选 IP：web-deepseek.gd7.cn 的两条 Cloudflare A 记录中，哪条证书正常
-// 会随边缘路由翻转（实测两条先后当过坏 IP）。坏 IP 返回 421（SAN 不匹配）或
-// TLS 重置（code=000）。这里逐条 --resolve 探测，把最近一次成功的 IP 缓存到
-// freGoodIp，下次优先试它；坏 IP 换下一条。
-// v2.9.5 (P2-a)：钉死 IP 全部失败后回落一次系统 DNS（末位候选 null = 不加
-// --resolve）。Cloudflare 轮换 A 记录后 FRE_CF_IPS 两条可能全坏，DNS 回落是
-// 自愈通道；-w 同时打出 %{remote_ip}，把实际连上的好 IP 回填 freGoodIp，
-// 下次请求恢复"钉 IP"快路径。
-// v2.9.5 同时修正一个老 bug：此前 '000'（连接级失败）满足旧判定
-// `length(code)===3 && code!=='421'` 会被当成"成功"——坏 IP 反而被缓存进
-// freGoodIp、循环不再前移（注释声称 000 换下一条，代码却没排除它），
-// 调用方只能靠 body:null 兜底。现在 '000'/'421'/空输出统一换下一候选。
-function freeaiHttp(method, url, headers, body, timeoutSec, retries) {
-	let to = +timeoutSec || 15;
-	let rt = +retries || 0;
-	let candidates = [];
-	if (length(freGoodIp) > 0) push(candidates, freGoodIp);
-	for (let ip in FRE_CF_IPS) {
-		let dup = false;
-		for (let x in candidates) if (x === ip) dup = true;
-		if (!dup) push(candidates, ip);
-	}
-	push(candidates, null);   // 末位候选：系统 DNS（不加 --resolve）
-	let bodyFile = '/tmp/fre_http_body';
-	for (let ci = 0; ci < length(candidates); ci++) {
-		let ip = candidates[ci];
-		// v2.9.3：去掉 -k。授权服务端下发的是 token / sig_block / fingerprint /
-		// upstream_url —— 全是网关的信任输入，跳过证书校验等于把信任锚交给
-		// 任何能做中间人的攻击者（叠加我们不做 Ed25519 验签，就是完全无锚）。
-		// 保留 --resolve 钉 IP（真正解决"坏 IP"的手段），让 curl 正常校验证书；
-		// 某条 IP 证书真有问题时它会回 421/TLS 重置，代码本来就会换下一条。
-		let cmd = 'curl ' + shquote('-sS') + ' ' + shquote('-m') + ' ' + shquote('' + to) +
-			' ' + shquote('--retry') + ' ' + shquote('' + rt) + ' ' +
-			shquote('--retry-all-errors') + ' ' + shquote('--retry-delay') + ' ' + shquote('1') + ' ' +
-			// v2.9.5 (P2-e)：显式 HTTP/1.1 —— 官方网关对授权服务端走 Node fetch
-			// (undici)=h1.1；curl 裸 https 默认也是 h1.1，写出来是为了确定行为，
-			// 免得将来有人加全局 --http2 把授权路径的 ALPN 也带偏。
-			shquote('--http1.1') + ' ';
-		if (ip !== null)
-			cmd += shquote('--resolve') + ' ' + shquote(FRE_CF_HOST + ':443:' + ip) + ' ';
-		cmd += shquote('-o') + ' ' + shquote(bodyFile) + ' ' +
-			shquote('-w') + ' ' + shquote('%{http_code} %{remote_ip}');
-		if (method === 'POST') {
-			cmd += ' ' + shquote('-X') + ' ' + shquote('POST') + ' ' +
-				shquote('-H') + ' ' + shquote('Content-Type: application/json') + ' ' +
-				shquote('--data-binary') + ' ' + shquote(body);
-		}
-		for (let k in headers)
-			cmd += ' ' + shquote('-H') + ' ' + shquote(k + ': ' + headers[k]);
-		cmd += ' ' + shquote(url);
-		let out = runCurlStr(cmd);
-		if (out !== null) out = trim(out);
-		// 输出形如 "<code>[ <remote_ip>]"。只认真正的 3 位 HTTP 状态码：
-		// 421 = Cloudflare 证书路由错误（坏 IP 的特征），000 = 连接级失败
-		// （TLS 重置/超时），空/null = curl 没跑起来。三类都换下一候选。
-		if (out === null || length(out) < 3) continue;
-		let code = substr(out, 0, 3);
-		if (code === '000' || code === '421') continue;
-		// 拿到真实 HTTP 响应：缓存实际连上的 IP —— DNS 回落时这是新发现的
-		// 好 IP（自愈），钉 IP 命中时 remote_ip 与 ip 相同（保持缓存新鲜）。
-		let sp = index(out, ' ');
-		if (sp > 0) {
-			let rip = trim(substr(out, sp + 1));
-			if (length(rip) > 0) freGoodIp = rip;
-		} else if (ip !== null) {
-			freGoodIp = ip;
-		}
-		let raw = null;
-		try {
-			let fs = require('fs');
-			if (fs.access(bodyFile, 'f')) raw = fs.readfile(bodyFile);
-		} catch (e) { raw = null; }
-		if (raw === null) return null;
-		let j = null;
-		try { j = json(raw); } catch (e) { j = null; }
-		return { code: code, body: j };
-	}
-	return null;
-}
-
-// GET 一个 JSON 响应（fp.php）。请求签名对齐官方网关：官方对 freeAI-admin 的
-// 请求用 Node fetch 默认头（User-Agent: node，Accept: */*），不能带 opencode UA
-// （后台识别非官方客户端会限制）；证书校验保持开启（v2.9.3 已去掉 -k），
-// 坏 IP 由 freeaiHttp 换下一条候选；聊天上游 opencode.ai 不走这里。
-// v2.9.5：重试由 3 降为 1 —— fp.php 有 req_hour=10 配额，curl 的
-// --retry-all-errors 连 429 都会重发，3 次重试等于配额双倍烧。连接级
-// 韧性已由 freeaiHttp 的候选 IP 循环提供，这里不再叠加。
-function freeaiApi(path, query) {
-	let c = freeaiRaw();
-	let url = c.base + path;
-	if (length(query) > 0) url += '?' + query;
-	let r = freeaiHttp('GET', url, { 'Accept': '*/*', 'User-Agent': 'node' }, '', 30, 1);
-	if (r === null) return null;
-	return r.body;
-}
-
-// POST 一个 JSON 对象到 freeAI 授权服务端（activate.php / heartbeat.php），
-// 返回解析后的对象或 null。POST 请求体是幂等/可重试的（激活与心跳），
-// 因此可以带 --retry-all-errors 消化 Cloudflare 瞬时重置；但心跳用短超时，
-// 避免定时器长时间阻塞事件循环。
-function freeaiPost(path, obj, timeoutSec, retries) {
-	let c = freeaiRaw();
-	let url = c.base + path;
-	let to = +timeoutSec || FRE_ACTIVATE_TIMEOUT;
-	let rt = +retries || 0;
-	let r = freeaiHttp('POST', url, {}, sprintf('%.J', obj), to, rt);
-	if (r === null) return null;
-	return r.body;
-}
-
-// 激活授权码，换取新鲜 token（机器码绑定）。成功时新 token 已落盘。
-// 失败会进入退避，避免打爆服务端 20 次/时/IP 的激活限制。
-function freeaiActivate() {
-	let c = freeaiRaw();
-	if (length(c.license) === 0)
-		return { ok: false, err: '未配置授权码' };
-	let now = time();
-	if (now < freActivateFailAt)
-		return { ok: false, err: '激活退避中' };
-	// v2.9.5：重试 2→1。activate.php 有人机配额（20 次/时/IP），
-	// --retry-all-errors 会把 429 也重发，叠加重试最容易把配额烧光。
-	let j = freeaiPost('/activate.php', { code: c.license, machine: c.machine },
-		FRE_ACTIVATE_TIMEOUT, 1);
-	if (j === null) {
-		freActivateFailAt = now + FRE_ACTIVATE_BACKOFF;
-		return { ok: false, err: '激活请求失败（网络或超时）' };
-	}
-	if (j.ok !== true) {
-		// 授权服务端的 error 是内部术语（too_frequent / token invalid /
-		// must_upgrade / 服务暂停…），**只在日志里保留原文**，返回值一律
-		// 分类成自己的文案 —— 它可能被拼进 HTTP 响应体（见 spawnUpstream
-		// 的 freeAI 会话刷新分支），拼原文就等于泄露上游实现。
-		let err = '' + (j.error || '激活失败');
-		freActivateFailAt = now + FRE_ACTIVATE_BACKOFF;
-		logErr('freeai activate failed: ' + err);
-		return { ok: false, err: F.freeaiErrText(err) };
-	}
-	if (type(j.token) === 'string' && length(j.token) > 50) {
-		F.freeaiSaveToken(j.token);
-		freActivateFailAt = 0;
-		logInfo('freeai activated, new token saved');
-		return { ok: true };
-	}
-	freActivateFailAt = now + FRE_ACTIVATE_BACKOFF;
-	return { ok: false, err: '激活响应缺少有效 token' };
-}
-
-// 心跳续签：用当前 token 换一个更新的 token（服务端滑动窗口续签）。
-// 成功时若返回新 token 就落盘；失败累计 3 次（或服务端明确说过期/封禁）
-// 就清除本地 token，下次领会话包时走 freeaiActivate 自愈。
-// 请求体对齐官方网关：sess=当前是否有活跃会话（有则 1），lastChat=0。
-function freeaiHeartbeat() {
-	let c = freeaiRaw();
-	if (c.enabled !== true || length(c.token) === 0) return;
-	let j = freeaiPost('/heartbeat.php', {
-		token: c.token,
-		machine: c.machine,
-		v: c.ver,
-		sess: (freSession !== null) ? 1 : 0,
-		lastChat: 0,
-	}, FRE_HEARTBEAT_TIMEOUT, 0);
-	if (j === null) {
-		freHeartbeatFail++;
-		if (freHeartbeatFail >= 3) F.freeaiSaveToken('');
-		return;
-	}
-	if (j.ok !== true) {
-		freHeartbeatFail++;
-		let err = '' + (j.error || '');
-		if (freHeartbeatFail >= 3 || match(err, /过期|封禁|禁用|不存在|invalid/))
-			F.freeaiSaveToken('');
-		return;
-	}
-	freHeartbeatFail = 0;
-	// 采纳服务端下发的心跳间隔（官方 gateway.mjs:121 `auth.interval = (j.heartbeat_interval || 600) * 1000`）。
-	// 但官方 :136 注释明确"服务器没给时兜底 60s(旧值10min会导致合法用户2min即掉线)"，
-	// 所以这里：下发合法值就采纳；没下发或非法值保持当前 freHeartbeatSec（默认 60），
-	// 绝不重置成 600，避免 token TTL=2min 时心跳间隔过长导致掉线。
-	if (type(j.heartbeat_interval) === 'number' && j.heartbeat_interval >= 10 && j.heartbeat_interval <= 3600)
-		freHeartbeatSec = j.heartbeat_interval;
-	if (type(j.token) === 'string' && length(j.token) > 50 && j.token !== c.token)
-		F.freeaiSaveToken(j.token);
-}
-
-// 心跳定时器回调：自重置，仅当 freeAI 启用且已有 token 时执行续签。
-// 间隔用 freHeartbeatSec（运行时变量）而不是常量：官方 gateway.mjs:121 在每次心跳成功后
-// 采纳服务端下发的 heartbeat_interval，定时器必须跟着走（:136 注释）。
-function freHeartbeatTick() {
-	freHeartbeatTimer = uloop.timer(freHeartbeatSec * 1000, () => freHeartbeatTick());
-	let c = freeaiRaw();
-	if (c.enabled === true && length(c.token) > 0)
-		freeaiHeartbeat();
-}
-// v2.9.5 (P1-g/P1-h)：会话包失败退避分档。too_frequent / must_upgrade 属于
-// "60 秒后再试也解不了"的闸 —— 前者是 fp.php 自身 10 次/时 的配额，后者在官方
-// gateway.mjs:402-424 有两种语义（客户端版本闸 / 服务端连接中断），都需要
-// 长时间等待或升级客户端，短退避只会反复撞闸并把配额烧光。其余瞬时错误
-// （网络抖动/会话被服务端轮换）60 秒退避即可。
-function freeaiSessionBackoff(err) {
-	let l = lc('' + err);
-	if (index(l, 'too_frequent') >= 0 || index(l, 'too frequent') >= 0 ||
-	    index(l, 'must_upgrade') >= 0 || index(l, '频繁') >= 0)
-		return FRE_ACTIVATE_BACKOFF;
-	return FRE_SESSION_BACKOFF;
-}
-function freeaiRefreshPack(force) {
-	let c = freeaiRaw();
-	let now = time();
-	// 会话包新鲜度判定：优先用服务端下发的 pack.exp（官方 gateway.mjs:390
-	// `Date.now() < DIRECT.exp - 30000`，留 30s 余量），没有则回落本地软 TTL。
-	// pack.exp 是毫秒级 Unix 时间戳，now 是秒级，比较时统一成毫秒。
-	let fresh = false;
-	if (!force && freSession !== null) {
-		let expMs = freSession.pack.exp;
-		if (expMs > 0)
-			fresh = (expMs - 30000) > (now * 1000);
-		else
-			fresh = (freSession.at + FRE_SESSION_TTL) > now;
-	}
-	if (fresh)
-		return { ok: true, pack: freSession.pack };
-	// v2.9.5 (P1-h)：退避时长用分档结果 freSessionBackoffSec，不再写死 60s
-	//（见 freeaiSessionBackoff —— too_frequent/must_upgrade → 15 分钟）。
-	if (!force && freSessionFailAt + freSessionBackoffSec > now)
-		return { ok: false, err: freSessionErr || '会话包拉取退避中' };
-	if (length(c.machine) === 0)
-		return { ok: false, err: 'freeAI 未配置机器码' };
-
-	// token 为空（首次部署或心跳判定失效后清除）→ 先激活换新 token 再领会话包。
-	// 不激活直接调 fp.php 只会得到 "token required"，自愈正则也救不回来。
-	// v2.9.5 修复：这里原为 `if (force || freReauthing)` —— force 的语义是
-	// "跳过会话缓存与失败退避"，不该禁止自愈激活。实测后果：管理页测试与
-	// 403 重领路径（都传 force=true）在 token 缺失时只会报"授权已失效"，
-	// 永远不自愈。递归保护本就由 freReauthing 承担，另 :4922 的重激活
-	// 分支也只在非 force 时进入，去掉 force 判定不会造成激活风暴；
-	// activate.php 自身的 15 分钟失败退避（freActivateFailAt）兜底节流。
-	if (length(c.token) === 0) {
-		if (freReauthing) {
-			freSessionFailAt = now;
-			freSessionBackoffSec = FRE_SESSION_BACKOFF;
-			freSessionErr = 'freeAI 未配置 token';
-			return { ok: false, err: freSessionErr };
-		}
-		freReauthing = true;
-		let ra = freeaiActivate();
-		freReauthing = false;
-		if (!ra.ok) {
-			freSessionFailAt = now;
-			freSessionBackoffSec = FRE_SESSION_BACKOFF;   // 激活本身另有 15 分钟退避
-			freSessionErr = ra.err;
-			return { ok: false, err: freSessionErr };
-		}
-		// 激活成功已落盘新 token，继续走下面的正常领取流程。
-		c = freeaiRaw();
-	}
-
-	// 官方网关的会话 sid 是 oid()+oid().slice(0,8)（34 字符，gateway.mjs），
-	// 服务端按该形态登记底册；只发 26 字符 oid 也能过，但为完全对齐官方
-	// 请求签名（避免后台按长度识别非官方客户端），这里照抄 34 字符。
-	let sid = freeaiOid() + substr(freeaiOid(), 0, 8);
-	let q = 'machine=' + c.machine + '&sid=' + sid + '&cv=' + c.ver + '&act=session';
-	if (length(c.token) > 0) q += '&token=' + c.token;
-	let j = freeaiApi('/fp.php', q);
-	if (j === null) {
-		freSessionFailAt = now;
-		freSessionBackoffSec = FRE_SESSION_BACKOFF;
-		freSessionErr = '会话包请求失败（网络或超时）';
-		return { ok: false, err: freSessionErr };
-	}
-	if (j.ok !== true) {
-		let err = '' + (j.error || ('会话包被拒（' + (j.code || '未知') + '）'));
-		// token invalid / token required / 服务端说过期、封禁、禁用、不存在
-		// → 静默重激活一次再重领。与官方网关的"用一下就断"自愈一致：
-		// 激活成功后重新领取，成功则本次请求无感通过。
-		// v2.9.5 (P1-g)：must_upgrade 移出本列表。官方 gateway.mjs:402-424 证明
-		// 它是版本闸/服务连接中断，**重激活解决不了**，留在列表里只会白烧
-		// 20 次/时的激活配额（v2.9.3 把 FreeTierError 当会话作废打光配额是同源
-		// 误诊）。落入下面的通用失败路径，由 freeaiSessionBackoff 给长退避。
-		if (!force && !freReauthing &&
-		    match(err, /token invalid|token required|过期|封禁|禁用|不存在/)) {
-			freReauthing = true;
-			// 激活失败则保留原始错误（版本闸/服务端问题会由退避节流）
-			let ra = freeaiActivate();
-			if (ra.ok) {
-				let s2 = freeaiRefreshPack(true);
-				if (s2.ok) {
-					freReauthing = false;
-					return s2;
-				}
-				err = s2.err || err;
-			}
-			freReauthing = false;
-		}
-		freSessionFailAt = now;
-		freSessionBackoffSec = freeaiSessionBackoff(err);
-		freSessionErr = err;
-		return { ok: false, err: freSessionErr };
-	}
-	// refreshed_token 随会话包下发，就地替换本地 token（这是"用一下就断"的正解）
-	if (type(j.refreshed_token) === 'string' && length(j.refreshed_token) > 0 &&
-	    j.refreshed_token !== c.token)
-		F.freeaiSaveToken(j.refreshed_token);
-
-	let ttl = +j.ttl || 300;
-	if (ttl < FRE_SESSION_TTL_MIN) ttl = FRE_SESSION_TTL_MIN;
-	let pack = {
-		url: '' + (j.upstream_url || ''),
-		headers: (type(j.headers) === 'object' && j.headers !== null) ? j.headers : {},
-		fp: (type(j.fingerprint) === 'object' && j.fingerprint !== null) ? j.fingerprint : {},
-		wm: '' + (j.wm || ''),
-		sig: '' + (j.sig_block || ''),
-		ttl: ttl,
-		exp: (+j.exp || 0) * 1000,
-	};
-	if (length(pack.url) === 0) {
-		freSessionFailAt = now;
-		freSessionBackoffSec = FRE_SESSION_BACKOFF;
-		freSessionErr = '会话包缺少 upstream_url';
-		return { ok: false, err: freSessionErr };
-	}
-	freSession = { pack: pack, at: now, sid: sid };
-	freSessionFailAt = 0;
-	freSessionErr = '';
-	freSessionBackoffSec = FRE_SESSION_BACKOFF;   // 成功后复位分档退避
-	return { ok: true, pack: pack };
-}
-
-// 保存 token（滑动续签后调用）。写文件失败不影响本次请求。
-function freeaiSaveToken(tok) {
-	try {
-		let c = freeaiRaw();
-		writeJsonFile(FRE_CFG_FILE, {
-			enabled: c.enabled, license: c.license, machine: c.machine,
-			token: '' + tok, tokenAt: time(), model: c.model, base: c.base,
-			ver: c.ver,
-			// v2.9.5 修复：重写配置必须带上 ua/http11 —— 原字段集没有它们，
-			// 于是每次 token 刷新（激活/心跳轮换/refreshed_token）都会把
-			// 自定义 UA 与协议开关洗回默认。等于默认的串落空串，保持
-			// "配置里不写死默认值"的约定（与 save 端点同一规则）。
-			ua: (c.ua === FRE_UA) ? '' : c.ua,
-			http11: c.http11,
-			injectFingerprint: c.injectFingerprint,
-			brandNeutralize: c.brandNeutralize,
-		});
-		freCache = { at: 0, data: null };   // 让下次读取拿到新值
-	} catch (e) {
-		logErr('freeai save token failed: ' + e);
-	}
-}
-
-// v2.9.3：上游用 403 FreeTierError 作废了会话包 —— 本地缓存看不出来
-// （exp 还没到），只有真正发出去才知道。官方 gateway.mjs:523-527 的
-// 处理是 burnSession() 之后立刻重领会话包重发一次。这里照做，但：
-//   1) 用 freSessionBurnAt 节流，避免并发请求各领一次打爆授权服务端；
-//   2) 返回 null 表示"没重领，你按普通失败处理"（调用方继续换路径）。
-// 注意 freeaiRefreshPack(true) 会跳过退避与缓存，所以节流只能在这里做。
-function freeaiBurnSession() {
-	let now = time();
-	if (freSessionBurnAt + FRE_SESSION_BURN_MIN > now) return null;
-	freSessionBurnAt = now;
-	freSession = null;              // 作废本地缓存
-	freSessionFailAt = 0;           // 清退避，允许本次立刻重领
-	let rr = freeaiRefreshPack(true);
-	if (rr.ok) return rr.pack;
-	return null;
-}
-
-// 拉取 freeAI 模型列表。失败返回 []（不让一个挂掉的上游拖垮 /v1/models）。
-//
-// v2.9.4（用户 m17383）：不再丢弃 dead 模型。
-// 官方网关（gateway.mjs:307-320 fetchServerModels / :352-358 handleModels）取的是
-// `j.models` **全量**，`j.dead` 只用来挑 DEFAULT_MODEL，从不用它过滤列表。
-// 我们原先 `if (dead[id]) continue;` 把 13 个模型裁成 7 个，等于对用户说
-// "这台服务器只有这些模型"，而 daily 刷新的意义（拿到最新全量）也被这行抵消了。
-// 现在全量返回并带上 `dead` 标记，由消费端决定怎么呈现：
-//   * /v1/models：活的排前面，dead 的名字加 "· 暂不可用" 后缀（可见但不诱导）；
-//   * 管理页：dead 模型打「维护中」徽章；
-//   * freeai/test：挑第一个**非 dead** 的模型，别拿坏模型去验好模型。
-function freeaiModels() {
-	let j = freeaiApi('/models.php', 'act=list');
-	if (j === null || j.ok !== true) return [];
-	let dead = {};
-	if (type(j.dead) === 'array')
-		for (let d in j.dead) dead['' + d] = true;
-	// 活的排前面：很多客户端把列表第一项当默认模型，别让它默认到一个坏的。
-	// 用两趟而不是 concat()（ucode 核心没有 concat 这个全局函数）。
-	let out = [];
-	if (type(j.models) !== 'array') return out;
-	let raw = [];
-	for (let m in j.models) {
-		let id = (type(m) === 'object' && m !== null) ? ('' + (m.id || '')) : ('' + m);
-		if (length(id) === 0) continue;
-		push(raw, { id: id, name: id, dead: dead[id] ? true : false });
-	}
-	for (let m in raw) if (!m.dead) push(out, m);
-	for (let m in raw) if (m.dead) push(out, m);
-	return out;
-}
-
-// v2.9.4：给状态接口用的**纯本地**模型 id 列表（绝不外呼）。
-// freeaiModels() 会打一次授权服务端，而 /admin/api/state 是每 5 秒一次的轮询，
-// 在状态接口里外呼等于把管理页变成对授权服务端的 DoS 发起者。
-// 所以这里只读 freModelCache；没缓存就返回空数组（前端显示"未获取"）。
-function freeaiModelIds() {
-	let out = [];
-	if (type(freModelCache.list) !== 'array') return out;
-	for (let m in freModelCache.list) {
-		let mid = (type(m) === 'object' && m !== null) ? ('' + (m.id || '')) : ('' + m);
-		if (length(mid) === 0) continue;
-		push(out, mid);
-	}
-	return out;
-}
-
-// ---------- freeAI：请求构造 ----------
-
-// 从第一条 user 消息内容派生会话头 `ses_<12hex><14base62>`。
-//
-// 为什么必须派生而不是随机：上游 opencode.ai 免费层的 WAF 校验会话头与对话
-// 内容的一致性（prompt-cache 亲和；agent2api 的 emulation.rs 同款实现：
-//   Sha256::digest(format!("ses\u0000{seed}"))，取前 6 字节转 12 位 hex，
-//   再取后续字节经 base62 编码成 14 字符）。
-// 实测：随机 26 字符 oid 会被判 FreeTierError（"can only be used from within
-// OpenCode"），而按首条 user 消息内容派生的会话头直接 200 并正常推流。
-// 种子缺失时退回随机 oid（格式仍合法，只是可能触发 FreeTierError）。
-//
-// v2.9.4：种子由调用方**逐请求**传入，不再走全局变量。
-// 原先用的是全局 `freSessionSeed`（由 freeaiShape 写入），而 freeaiShape 与
-// freeaiHeaders 在同一同步段里执行，今天不会串；但"共享全局 + 同步段内配对"
-// 是脆的 —— 将来任何一次把两者拆到异步两侧（例如首包失败后换 Key 重发时
-// 重新取包而不重新 shape 请求体），就会用上一条请求的种子派生会话头，
-// 表现为无规律的 FreeTierError，排查成本极高。改成显式参数把这个坑填平。
-function freeaiSeedOf(body) {
-	if (type(body) !== 'object' || body === null) return '';
-	let msgs = (type(body.messages) === 'array') ? body.messages : [];
-	for (let m in msgs) {
-		if (type(m) === 'object' && m !== null && m.role === 'user' &&
-		    type(m.content) === 'string' && length(m.content) > 0)
-			return m.content;
-	}
-	return '';
-}
-
-function freeaiSessionId(seed) {
-	seed = '' + seed;
-	if (length(seed) > 0) {
-		let hex = '0123456789abcdef';
-		let d = sha256Hex('ses\u0000' + seed);
-		// 前 6 字节 → 12 位小写 hex
-		let h12 = substr(d, 0, 12);
-		// 随后字节 → 14 个 Base62 字符（每字节高 6 位取一次索引）
-		let b62 = '';
-		for (let i = 0; i < 14; i++) {
-			let pair = substr(d, 12 + i * 2, 2);
-			let c0 = substr(pair, 0, 1), c1 = substr(pair, 1, 1);
-			let d0 = index(hex, c0), d1 = index(hex, c1);
-			if (d0 < 0) d0 = 0;
-			if (d1 < 0) d1 = 0;
-			let b = d0 * 16 + d1;
-			b62 += substr(FRE_OID_C62, (b % 62) + 1, 1);
-		}
-		return 'ses_' + h12 + b62;
-	}
-	return 'ses_' + freeaiOid();
-}
-
-// 组装 freeAI 请求头。
-//
-// 关键（实测）：Authorization 是字面串 `Bearer public`，不是真凭据；
-// 真正的门在 `x-freeai-session: <sig_block>` 上，缺它一律 403。
-function freeaiHeaders(pack, seed) {
-	// 会话头只派生一次：三个头（x-opencode-session / x-session-affinity /
-	// X-Session-Id）必须同值，且随机回退时三次调用会得到三个不同的 oid。
-	let sess = freeaiSessionId(seed);
-	let out = {
-		'Authorization': 'Bearer public',
-		// v2.9.5：UA 可经 freeai.json `ua` 覆盖（官方客户端升级 1.18.31→新号时
-		// 后台会比对 UA 版本；改配置文件即可跟上，不必重刷插件）。freeaiRaw()
-		// 已保证空/缺失时回退 FRE_UA，且有 60s 缓存，开销可忽略。
-		'User-Agent': freeaiRaw().ua,
-		'x-opencode-client': 'cli',
-		'x-opencode-project': 'prj_' + substr(sha256Hex(readRandom(16)), 0, 12),
-		// 官方网关每次请求都生成"请求/session 绑定头"（gateway.mjs）：
-		//   x-opencode-request: msg_<oid26>    x-opencode-session: ses_<oid26>
-		// 上游 WAF 按 26 字符 oid 形态校验，缺了会 400/403（我们此前实测 400）。
-		// 但会话头**不能随机**：必须由首条 user 消息内容派生（见 freeaiSessionId），
-		// 否则上游判 FreeTierError。x-opencode-request 保持每请求新鲜随机。
-		'x-opencode-request': 'msg_' + freeaiOid(),
-		'x-opencode-session': sess,
-		// 上游同一会话值会同时检查这三个头（agent2api emulation.rs 同款）
-		'x-session-affinity': sess,
-		'X-Session-Id': sess,
-		'x-freeai-session': '' + (pack.sig || ''),
-	};
-	// 会话包下发的头优先（它可能带 opencode 版本相关的字段）。
-	//
-	// v2.9.0 修复：**必须按小写名去重**，不能直接覆盖。
-	// ucode 的对象键区分大小写，而会话包下发的头是全小写形态
-	// （authorization / user-agent），我们上面用的是首字母大写形态。
-	// 直接 `out['' + k] = v` 会让两种形态**同时存在**，freeaiCurlArgs 会把
-	// 每个键各发一条 -H，于是 curl 发出四行 Authorization/User-Agent，
-	// 上游直接回 `400 Bad Request`（HTML 错误页）。
-	//
-	// 更隐蔽的是紧接着的"重新钉住 User-Agent"：它只覆盖精确大小写的
-	// `User-Agent`，对包下发的 `user-agent` 无效，于是上游收到的 UA 仍是
-	// ai-sdk 形态 —— 正是会被免费层判成"非 OpenCode 客户端"的那个值。
-	//
-	// 这个 bug 让 freeAI 的 chat 步骤 100% 失败，而 session/models 两步
-	// （不经过 freeaiHeaders）全部正常，所以看起来像"上游拒绝请求体"。
-	let ours = {};
-	for (let k in out) ours[lc('' + k)] = true;
-	if (type(pack.headers) === 'object' && pack.headers !== null) {
-		for (let k in pack.headers) {
-			let key = '' + k;
-			// 我们自己已经决定了的头（含 Authorization/User-Agent/会话头）一律不让包覆盖
-			if (ours[lc(key)]) continue;
-			let v = pack.headers[k];
-			if (type(v) === 'string' || type(v) === 'int') out[key] = '' + v;
-		}
-	}
-	return out;
-}
-
-// 把客户端请求体改造成"agent 形态"。
-//
-// 上游强制三项（agent2api 的 emulation.rs 与我们的实测互相印证）：
-//   stream:true + tools 同时含 bash 与 read 函数桩 + 26 字符 session 头
-// 本函数负责前两项（session 头在 freeaiHeaders）。
-//
-// 另外注入指纹：fp.system（10KB 的 opencode 系统提示）+ 12 个工具定义。
-// 指纹每次调用固定吃掉约 6.4K prompt tokens，可经 injectFingerprint=false 关闭
-// —— 关掉省 token，但如果上游开始按指纹校验就会 403（留作逃生阀）。
-function freeaiShape(body, pack) {
-	if (type(body) !== 'object' || body === null) return body;
-	body.stream = true;
-	// 官方网关的 upBody 恒带 stream_options.include_usage（gateway.mjs），
-	// 这样尾块会带 usage，我们才能按 Key 计量 token。
-	if (type(body.stream_options) !== 'object' || body.stream_options === null)
-		body.stream_options = {};
-	body.stream_options.include_usage = true;
-
-	// max_tokens 上限与官方网关一致（4000），不是指纹里的 32000。
-	// 给大了会踩上游的 tokens_req 限制，给小了截断，4000 是官方选定的值。
-	//
-	// 官方网关（gateway.mjs:491,501）是逐字段新建白名单对象，恒只写 max_tokens，
-	// 所以官方永远不会把 max_completion_tokens 带上游。我们是就地改写客户端对象，
-	// 新版客户端（OpenAI SDK / Codex 系）常两个字段齐发，原样透传会被上游拒绝：
-	//   [invalid_request_error] `max_tokens` and `max_completion_tokens` cannot
-	//   both be set; use `max_completion_tokens`.
-	// 客户端字段优先级：有 max_tokens 用 max_tokens，没有则吸收
-	// max_completion_tokens 的值再删字段，保证出网只有一个（官方形态）。
-	let mt = +body.max_tokens;
-	if (!(mt > 0)) mt = +body.max_completion_tokens;
-	delete body.max_completion_tokens;
-	if (!(mt > 0) || mt > FRE_MAX_TOKENS) mt = FRE_MAX_TOKENS;
-	body.max_tokens = mt;
-
-	// 工具集：官方网关直接用指纹下发的 12 个工具（fp.tools），完全忽略客户端
-	// 自带的 tools。注入指纹时照抄；关闭指纹时才退回 bash/read 桩兜底。
-	// 上游强制 tools 同时含 bash 与 read（agent2api emulation.rs 与实测一致）。
-	if (pack !== null && freeaiRaw().injectFingerprint &&
-	    type(pack.fp.tools) === 'array' && length(pack.fp.tools) > 0) {
-		body.tools = pack.fp.tools;
-	} else {
-		let hasBash = false, hasRead = false;
-		if (type(body.tools) === 'array') {
-			for (let t in body.tools) {
-				if (type(t) !== 'object' || t === null) continue;
-				let fn = t['function'];
-				if (type(fn) !== 'object' || fn === null) continue;
-				if (fn.name === 'bash') hasBash = true;
-				if (fn.name === 'read') hasRead = true;
-			}
-		} else {
-			body.tools = [];
-		}
-		// 桩工具：名称与参数形状照抄 emulation.rs，description 明写"不要调用"，
-		// 避免模型真的把占位工具当成可用能力。
-		if (!hasBash) push(body.tools, {
-			type: 'function',
-			'function': {
-				name: 'bash',
-				description: '(internal placeholder — do not call)',
-				parameters: { type: 'object', properties: { command: { type: 'string' } } },
-			},
-		});
-		if (!hasRead) push(body.tools, {
-			type: 'function',
-			'function': {
-				name: 'read',
-				description: '(internal placeholder — do not call)',
-				parameters: { type: 'object', properties: { filePath: { type: 'string' } } },
-			},
-		});
-	}
-	// tool_choice：官方恒用指纹的 tool_choice（实测是 "auto"）；客户端没指定时才
-	// 用指纹值，指定了则尊重客户端。指纹也没给且工具非空时退回 'none'。
-	if (body.tool_choice === null && pack !== null &&
-	    type(pack.fp.tool_choice) === 'string' && length(pack.fp.tool_choice) > 0)
-		body.tool_choice = pack.fp.tool_choice;
-	else if (body.tool_choice === null && length(body.tools) > 0)
-		body.tool_choice = 'none';
-
-	// 系统提示注入顺序（照抄官方网关的语义）：
-	//   指纹 system（最前，上游期望的开放编码 agent 提示）
-	//   + 品牌 system（强制模型自称 freeAI）
-	//   + 客户端自己的 messages
-	// 注入前必须先剥掉客户端可能自带的同角色消息，避免出现两条 system
-	// 让上游拒收。
-	let msgs = (type(body.messages) === 'array') ? body.messages : [];
-	let head = [];
-	if (pack !== null && freeaiRaw().injectFingerprint &&
-	    type(pack.fp.system) === 'string' && length(pack.fp.system) > 0)
-		push(head, { role: 'system', content: pack.fp.system });
-	if (freeaiRaw().brandNeutralize)
-		push(head, { role: 'system', content: FRE_BRAND_SYSTEM });
-
-	let out = head;
-	for (let m in msgs) {
-		// 客户端自带的 system 会被上面的注入取代，直接丢弃
-		if (type(m) === 'object' && m !== null && m.role === 'system') continue;
-		push(out, m);
-	}
-	if (length(out) === 0) push(out, { role: 'user', content: 'hi' });
-	body.messages = out;
-	// v2.9.4：会话头种子不再写全局变量。
-	// 由调用方在 shape 之后用 freeaiSeedOf(body) 就地取（同一对象、同一同步段），
-	// 显式传给 freeaiHeaders(pack, seed)。全局种子在换 Key 重试与并发下会互相覆写。
-	return body;
-}
-
-// 流式净化：把上游帧改写成本网关的对外形态。
-//
-// 官方网关的做法是"没有 id 的帧要么丢掉要么补 id"。这里更保守：
-// 只在**既没有 usage 也没有 choices** 时丢弃（那种帧通常是上游的噪声），
-// 其余补一个稳定的 id。不做内容改写 —— 上游说什么就转什么，
-// 让"代理看到的"与"上游发的"保持一致，出问题时才可归因。
-let freChunkSeq = 0;
-
-// v2.9.3：把任意切分的 chunk 送进净化器，跨 chunk 的半行攒在**该连接自己的**
-// conn.freTail 里，只把**完整的行**交给 freeaiPurifyLine，返回可安全下发的字节。
-// 官方 gateway.mjs:538-551 的做法是 split("\n") 后留末段；这里等价，
-// 但保留"行尾本来是否有 \n"的信息（否则会伪造出一个完整帧边界）。
-//
-// v2.9.4：半行缓冲**必须 per-connection**。上一版把它写成了模块级全局
-// frePurifyTail，而 uloop 是单线程事件循环 —— 并发下 A 流的残段会和 B 流的
-// chunk 前后拼接，把两个不同会话的 SSE 行焊在一起（A 的字节发给 B，
-// 两边同时坏）。全局态 + 单线程 = 串流，和 freSessionSeed 是同一类错误。
-function freeaiPurifyFeed(conn, chunk) {
-	let tail = '' + (conn.freTail || '') + chunk;
-	let out = '';
-	let start = 0;
-	let n = length(tail);
-	for (let i = 0; i < n; i++) {
-		if (substr(tail, i, 1) !== '\n') continue;
-		let line = substr(tail, start, i - start);
-		let kept = F.freeaiPurifyLine(line);
-		if (length(kept) > 0) out += kept + '\n';
-		start = i + 1;
-	}
-	// 残段留到下一轮（不补换行 —— 补了会伪造一个完整帧）
-	conn.freTail = substr(tail, start);
-	return out;
-}
-
-// 流结束/换 Key 时把残留尾段冲出，避免最后一行丢失。
-function freeaiPurifyFlush(conn) {
-	let tail = '' + (conn.freTail || '');
-	if (length(tail) === 0) return '';
-	let kept = F.freeaiPurifyLine(tail);
-	conn.freTail = '';
-	return (length(kept) > 0) ? (kept + '\n') : '';
-}
-
-function freeaiPurifyLine(line) {
-	let raw = line;
-	if (length(raw) > 0 && substr(raw, length(raw) - 1, 1) === '\r')
-		raw = substr(raw, 0, length(raw) - 1);
-	if (substr(raw, 0, 6) !== 'data: ') return line;
-	let payload = substr(raw, 6);
-	if (payload === '[DONE]') return line;
-	let j = null;
-	try { j = json(payload); } catch (e) { return line; }
-	if (type(j) !== 'object' || j === null) return line;
-	// 上游把错误写在流里：品牌化后原样转出（HTTP 200 已发出，无法再改状态码）
-	if (type(j.error) === 'object' && j.error !== null) {
-		j.error = { message: F.freeaiBrandMessage('' + (j.error.message || '')), type: 'upstream_error' };
-		return 'data: ' + sprintf('%.J', j);
-	}
-	let hasUsage = (type(j.usage) === 'object' && j.usage !== null);
-	let hasChoices = (type(j.choices) === 'array' && length(j.choices) > 0);
-	if (!hasUsage && !hasChoices) return '';       // 纯噪声帧，丢弃
-	if (type(j.id) !== 'string' || length(j.id) === 0) {
-		freChunkSeq++;
-		j.id = 'chatcmpl-freeai-' + freChunkSeq + '-' + substr(sha256Hex('' + nowMs()), 0, 6);
-	}
-	return 'data: ' + sprintf('%.J', j);
-}
-
-// 把上游字样换成 freeAI 的对外说法。**对外绝不出现 opencode/上游字样**：
-// 用户看到"opencode"只会以为是配置错了。
-// 把上游错误改写成品牌化文案。硬约束：**绝不能把上游原文拼进返回值**。
-// 早先的兜底分支是 'freeAI 服务暂时不可用：' + s，上游原文里带着
-// "Error from provider (Console)"、"OpenCode's free tier ..."、
-// "Model X is not supported" 这类字样，等于在客户端侧点名上游，
-// 正是品牌中性化要消除的东西。因此这里改为"分类后只回自己的话"：
-// 认得出的类别给专门文案，认不出的给通用文案，原文一律丢弃（只记日志）。
-function freeaiBrandMessage(msg) {
-	let s = '' + msg;
-	if (length(s) === 0) return 'freeAI 服务暂时不可用，请稍后重试';
-	let l = lc(s);
-	if (index(l, 'rate limit') >= 0 || index(l, 'too many request') >= 0 ||
-	    index(l, 'too frequent') >= 0 || index(l, 'too_frequent') >= 0 ||
-	    index(l, '额度') >= 0 || index(l, 'quota') >= 0)
-		return 'freeAI 免费额度已用完：可在控制面板切换出口后重试，或稍后再试';
-	if (index(l, 'not supported') >= 0 || index(l, 'unknown model') >= 0 ||
-	    index(l, 'no such model') >= 0 || index(l, 'model not found') >= 0)
-		return 'freeAI 不支持该模型：请在管理页「freeAI」页签刷新模型列表后重选';
-	if (index(l, 'unauthorized') >= 0 || index(l, 'forbidden') >= 0 ||
-	    index(l, 'token') >= 0 || index(l, '认证') >= 0 || index(l, '授权') >= 0)
-		return 'freeAI 授权已失效：请在管理页「freeAI」页签重新激活';
-	return 'freeAI 服务暂时不可用，请稍后重试';
-}
-
-// 授权服务端（fp.php / activate.php / heartbeat.php）错误码的分类器。
-// 与 freeaiBrandMessage 同一条硬约束：**只回自己的话，原文字符串一律不拼**。
-// 单独抽一个函数，是因为授权类的错误有两个消费方：会话刷新失败的响应体
-// （spawnUpstream）与 Activate 的返回值，前者会直接交给客户端。
-function freeaiErrText(raw) {
-	let l = lc('' + raw);
-	if (index(l, 'too_frequent') >= 0 || index(l, 'too frequent') >= 0)
-		return 'freeAI 请求过于频繁，请稍后重试';
-	if (index(l, 'replay') >= 0)
-		return 'freeAI 会话状态异常，请稍后重试';
-	if (index(l, 'paused') >= 0 || index(l, '暂停') >= 0)
-		return 'freeAI 服务暂时停用，请稍后重试';
-	if (index(l, 'upgrade') >= 0)
-		return 'freeAI 客户端版本过旧：请升级插件后重试';
-	if (index(l, 'expired') >= 0 || index(l, '过期') >= 0 ||
-	    index(l, 'invalid') >= 0 || index(l, 'token') >= 0 ||
-	    index(l, 'banned') >= 0 || index(l, '封禁') >= 0 ||
-	    index(l, 'auth') >= 0)
-		return 'freeAI 授权已失效：请在管理页「freeAI」页签重新激活';
-	return 'freeAI 会话不可用，请稍后重试';
-}
-
 // ---------- 同步获取模型列表（用 curl，带超时；失败回退内置） ----------
 function fetchModelsSync(cfg, token) {
 	if (!token) return null;
@@ -5664,166 +4625,11 @@ function releaseAttempt(conn) {
 	bridgeRelease(conn);
 }
 
-// freeAI 的管理页状态。**授权码一律掩码**（同 key 的处理原则：
-// 管理页与日志里不该出现完整凭据）。
-function freeaiStatus() {
-	let c = freeaiRaw();
-	let lic = c.license;
-	let masked = '';
-	if (length(lic) > 0) {
-		// FA-UY7H-Y6FT-DUWT -> FA-UY****-DUWT
-		let parts = split(lic, '-');
-		if (length(parts) >= 4)
-			masked = parts[0] + '-' + substr(parts[1], 0, 2) + '****-' + parts[length(parts) - 1];
-		else
-			masked = maskKey(lic);
-	}
-	let now = time();
-	return {
-		enabled: c.enabled,
-		configured: (length(c.license) > 0),
-		usable: freeaiUsable(),
-		license: masked,
-		hasLicense: (length(c.license) > 0),
-		machine: c.machine,
-		hasToken: (length(c.token) > 0),
-		tokenAge: (c.tokenAt > 0) ? (now - c.tokenAt) : -1,
-		model: c.model,
-		base: c.base,
-		ver: c.ver,
-		injectFingerprint: c.injectFingerprint,
-		brandNeutralize: c.brandNeutralize,
-		// v2.9.5 (P2-d/P2-e)：UA 与协议版本回显给管理页，配置与生效值一致才放心
-		ua: c.ua,
-		http11: c.http11,
-		prefix: FRE_PREFIX,
-		upstreamId: FRE_UPID,
-		session: (freSession === null) ? null : {
-			at: freSession.at,
-			ageSec: now - freSession.at,
-			ttl: freSession.pack.ttl,
-			url: freSession.pack.url,
-			wm: freSession.pack.wm,
-		},
-		lastError: freSessionErr,
-		// 用量口径与自定义上游一致，管理页可以直接复用同一套渲染
-		usage: metrics.usageByUp[FRE_UPID] || null,
-	};
-}
-
-// freeAI 专用的 curl 参数表。与通用表的四处根本差异：
-//
-//   1) **URL 来自会话包**，不是配置里的 baseUrl —— 上游地址由授权服务端每次下发
-//      （实测是 opencode.ai/zen/v1/chat/completions）。
-//   2) **鉴权头是字面 `Bearer public`**，真门在 x-freeai-session。
-//   3) **请求体要重写**：注入指纹 system + 品牌 system + 工具桩，并把 stream 钉成 true。
-//      重写结果写到 conn.tmpFile 之外的第二个文件，以免失败换 Key 时重复注入。
-//   4) **不接受 Accept: text/event-stream 之外的形态**：上游只支持流式。
-//
-// 会话包缺失时返回 null —— 调用方据此走"重领一次"路径，而不是发一个注定 403 的请求。
-function freeaiCurlArgs(conn, o) {
-	let r = freeaiRefreshPack(false);
-	if (!r.ok) {
-		conn.freeaiSessionErr = r.err;
-		return null;
-	}
-	let pack = r.pack;
-
-	// 请求体：读原始 body → 注入 → 写临时文件。
-	// 每次都重写（而不是缓存注入结果）是因为会话包会换、指纹可能变。
-	let bodyFile = conn.tmpFile;
-	if (conn.freeaiBodyFile !== pack.wm) {
-		let raw = null;
-		try {
-			let fs = require('fs');
-			if (fs.access(conn.tmpFile, 'f')) raw = fs.readfile(conn.tmpFile);
-		} catch (e) { raw = null; }
-		if (raw === null) return null;
-		let body = null;
-		try { body = json(raw); } catch (e) { body = null; }
-		if (type(body) !== 'object' || body === null) return null;
-		freeaiShape(body, pack);
-		// 会话头种子属于**这条连接**：与改造后的请求体一起存到 conn 上。
-		// 换 Key 重试时请求体走缓存（下面的 freeaiBodyFile 判断会跳过 shape），
-		// 种子也就自然沿用上一次的 —— 同一连接、同一对话内容，本就该同一个会话头。
-		conn.freSeed = freeaiSeedOf(body);
-		bodyFile = conn.tmpFile + '.fre';
-		try {
-			writefile(bodyFile, sprintf('%.J', body));
-		} catch (e) {
-			logErr('freeai body write failed: ' + e);
-			return null;
-		}
-		conn.freeaiBodyFile = pack.wm;
-		conn.freeaiTmp = bodyFile;
-	}
-
-	let args = ['curl', '-sS', '-N', '-X', 'POST'];
-	// 不要 -4：授权服务端与聊天上游都是 Cloudflare 多 A 记录，
-	// -4 会放大 TLS 重置概率（实测不加 -4 时成功率 4/5，加 -4 更低）。
-	// v2.9.5：curl 层重试 2→1 —— `--retry-all-errors` 对 429 也会整请求重发，
-	// 聊天一次打两枪最容易烧免费额度；上游还有我们自己的会话重领与换 Key 重试，
-	// curl 不需要再叠加。请求体在文件里，重发本身是安全的；只覆盖"尚未收到
-	// 任何响应数据"的连接失败，不会对已开始推流的响应做重复生成。
-	push(args, '--retry');
-	push(args, '1');
-	push(args, '--retry-all-errors');
-	push(args, '--retry-delay');
-	push(args, '1');
-	// v2.9.5：默认 HTTP/1.1 —— 官方网关走 Node undici，ALPN 协商 http/1.1；
-	// 我们强制 --http2 会让 TLS 指纹与官方客户端明显不一致（后台识别非官方
-	// 客户端就限制，见硬约束"模拟 freeai 发的所有请求"）。需切回 h2 时把
-	// freeai.json 的 http11 置 false。
-	let freCfg = freeaiRaw();
-	if (freCfg.http11)
-		push(args, '--http1.1');
-	else
-		push(args, '--http2');
-	// v2.9.5：去掉 --tcp-fastopen —— undici 不使用 TFO，SYN 段携带 TFO cookie
-	// 同样是可观测偏差；且与上面的重试叠加时个别链路行为异常。
-	push(args, '--connect-timeout');
-	push(args, o.connectTimeout);
-	push(args, '--speed-limit');
-	push(args, '1');
-	push(args, '--speed-time');
-	push(args, o.speedTime);
-	push(args, '--max-time');
-	push(args, o.maxTime);
-	push(args, '--keepalive-time');
-	push(args, '30');
-
-	push(args, shquote('-H'));
-	push(args, shquote('Content-Type: application/json'));
-	push(args, shquote('-H'));
-	push(args, shquote('Accept: text/event-stream'));
-	let hdrs = freeaiHeaders(pack, conn.freSeed);
-	for (let k in hdrs) {
-		push(args, shquote('-H'));
-		push(args, shquote(k + ': ' + hdrs[k]));
-	}
-	push(args, shquote('-H'));
-	push(args, shquote('X-Request-Id: ' + (conn.reqId || '')));
-	if (conn.hdrFile) {
-		push(args, '-D');
-		push(args, shquote(conn.hdrFile));
-	}
-	push(args, shquote('--data-binary'));
-	push(args, shquote('@' + bodyFile));
-	push(args, shquote(pack.url));
-	return args;
-}
-
 // 组装转发用的 curl 参数（WorkBuddy 池通道与自定义上游通道共用）。
 // 差异项（超时档位/鉴权/Accept/UA/目标/默认路径）由 o 传入，避免两份几乎
 // 相同的参数表在演进中悄悄分叉。回环是明文 HTTP/1.1（--http2/--tcp-fastopen
 // 无意义），且连接超时要压到 POOL_CONNECT_TIMEOUT，好让池挂掉时尽快暴露并回退。
 function curlArgs(conn, o) {
-	// freeAI 走完全独立的参数表：目标 URL、鉴权头、伪装头、请求体都要改，
-	// 唯一保留的是超时档位。放在最前面短路，避免下面的通用表掺进
-	// `Authorization: Bearer __freeai__` 这类会直接被上游拒绝的头。
-	if (conn.upstream && conn.upstream.id === FRE_UPID)
-		return freeaiCurlArgs(conn, o);
-
 	let args = ['curl', '-sS', '-N', '-X', 'POST'];
 	if (conn.usedPool) {
 		push(args, '--connect-timeout');
@@ -5922,21 +4728,8 @@ function makeOnChunk(conn, onFail, onEnd) {
 			}
 			sseHeaders(conn);
 		}
-		// v2.9.3：freeAI 流必须过净化器再下发。官方 gateway.mjs:538-551 的
-		// fixChunk 承担两件事：①丢弃"既无 usage 又无 choices"的噪声帧；
-		// ②给缺 id 的帧补 chatcmpl-* id（严格客户端会因缺 id 报错）。
-		// 此前 freeaiPurifyChunk 定义了却零调用点，等于整条保障失效。
-		// 注意：净化的**输入必须是原始 chunk**（它自己维护半行缓冲），
-		// 而 conn.sseBuf 仍要攒**原始**字节 —— usage 提取与截断检测都
-		// 依赖上游原样内容，攒净化后的会丢 [DONE] 之外的原始字段。
-		let sendBuf = chunk;
-		if (conn.freeaiPath) {
-			let purified = freeaiPurifyFeed(conn, chunk);
-			// 净化后暂无可下发内容（整块都是半行，或全是噪声帧）时不发空包
-			sendBuf = purified;
-		}
 		// v2.1.0：写侧检查 —— 客户端慢/断开会短写，send 不再静默失败。
-		if (length(sendBuf) > 0 && !safeSend(conn, sendBuf)) {
+		if (!safeSend(conn, chunk)) {
 			conn.aborted = true;
 			closeConn(conn);
 			return;
@@ -6133,34 +4926,6 @@ function spawnUpstreamDirect(conn) {
 		if (retry > 0) {
 			extra = { 'Retry-After': '' + retry };
 		}
-		// v2.9.0：freeAI 没有"Key 池"可轮换，且它是内置上游 —— 用通用文案
-		// 会同时犯三个错：说"所有 Key 均失败"（用户无从下手，因为根本没有 Key
-		// 可换）、把上游真名与内部错误文本原样透出（违反品牌中性化要求：
-		// 用户在别处看到 freeAI 请求，后台很容易识别），以及把上游的瞬时
-		// 免费层闸门说成"服务故障"。这里统一走 freeaiBrandMessage 品牌化，
-		// 并保留 429 语义 + Retry-After 让客户端退避。
-		if (up.id === FRE_UPID) {
-			let raw = (conn.lastFailReason || '');
-			// 上游把免费层拒绝写成 "free tier can only be used from within
-			// OpenCode"；它对客户端表现为"稍后再试"，不是额度耗尽。
-			let l = lc(raw);
-			let transient = (index(l, 'free tier') >= 0 ||
-				index(l, 'within opencode') >= 0);
-			let ra = retry > 0 ? retry : (transient ? FRE_TRANSIENT_RETRY_SEC : 0);
-			let extra2 = (ra > 0) ? { 'Retry-After': '' + ra } : null;
-			// 上游原文只进日志（排障需要），绝不进响应体。
-			logInfo(sprintf('freeai terminal error: %s', raw));
-			jsonResponse(conn, ra > 0 ? 429 : 502, {
-				error: {
-					message: transient
-						? 'freeAI 服务繁忙，请稍后重试'
-						: F.freeaiBrandMessage(raw),
-					type: ra > 0 ? 'rate_limit_error' : 'upstream_error',
-					retry_after: ra,
-				},
-			}, extra2);
-			return;
-		}
 		jsonResponse(conn, retry > 0 ? 429 : 502, {
 			error: {
 				message: '上游 ' + up.prefix + ' 的所有 Key 均失败' +
@@ -6205,34 +4970,6 @@ function spawnUpstreamDirect(conn) {
 		defaultPath: '/chat/completions',
 	});
 
-	// freeAI 的会话包缺失/过期时 curlArgs 返回 null。这时**不能**当成普通失败
-	// 去烧 Key 冷却 —— 会话是上游级的，重领一次才是正解。整条请求只重领一次
-	// （conn.freeaiReauthed），避免授权服务端被打爆。
-	if (args === null) {
-		if (up.id === FRE_UPID && !conn.freeaiReauthed) {
-			conn.freeaiReauthed = true;
-			releaseAttempt(conn);
-			let rr = freeaiRefreshPack(true);
-			if (rr.ok) {
-				conn.upTry--;          // 退回槽位，用同一把合成 Key 重发
-				F.spawnUpstreamDirect(conn);
-				return;
-			}
-			// 同样不能把 rr.err 原文拼进去：授权服务端的错误码是内部术语
-			// （too_frequent / session_replayed / token invalid），既泄露上游
-			// 实现，又把"领会话太频繁"误导成"授权码或机器码有问题"——
-			// 前者只要等一会儿，后者会让用户去改正确的配置。
-			let re = lc('' + (rr.err || ''));
-			let msg = F.freeaiErrText(rr.err);
-			logInfo(sprintf('freeai session refresh failed: %s', '' + (rr.err || '')));
-			jsonResponse(conn, 502, {
-				error: { message: msg, type: 'upstream_error' },
-			});
-			return;
-		}
-		F.tryNextUpKey(conn, conn.freeaiSessionErr || 'freeai session unavailable');
-		return;
-	}
 	let cmdline = join(' ', args);
 
 	// 块处理：从（桥接 socket 或 popen 管道）读一块并转发（v1.8.3 回环桥）
@@ -6278,39 +5015,6 @@ function tryNextUpKey(conn, reason) {
 	// 并且不把它算作这把 Key 的失败（否则池一挂就会连坐冷却掉一批好 Key）。
 	if (poolFallback(conn)) return;
 
-	// v2.9.4：**收窄**即焚重领的触发条件。
-	//
-	// v2.9.3 把 FreeTierError 当成"会话包被作废"，每次 403 都重领 —— 实测
-	// 证明重领解不了这个 403（重领的包一模一样），却把 fp.php 的
-	// req_hour=10 配额打光，反而让所有请求都拿不到会话包。
-	//
-	// 现在只认**服务端明确的作废措辞**（session_replayed / session invalid /
-	// 会话失效），这类才是"包真的不能用了，重领有意义。
-	// FreeTierError 走普通失败路径：它要么是上游对请求形态的拒绝（重试无用），
-	// 要么是免费层的瞬时闸门（稍后自愈），两条都不该烧配额。
-	if (reason && conn.freeaiPath && conn.upstream &&
-	    conn.upstream.id === FRE_UPID && !conn.freeaiBurned) {
-		let lr = lc('' + reason);
-		let invalidated = (index(lr, 'session_replayed') >= 0 ||
-		                   index(lr, 'session invalid') >= 0 ||
-		                   index(lr, 'invalid session') >= 0 ||
-		                   index(lr, '会话失效') >= 0 ||
-		                   index(lr, '会话已失效') >= 0);
-		if (invalidated) {
-			conn.freeaiBurned = true;
-			let np = freeaiBurnSession();
-			if (np !== null) {
-				conn.upTry--;          // 退回槽位，用重领到的包重发
-				logInfo('freeai session invalidated by upstream, refetched and retrying');
-				F.spawnUpstreamDirect(conn);
-				return;
-			}
-			// 节流窗口内没能重领：继续往下走普通失败路径，但记一笔，
-			// 免得看起来像"无缘无故失败"。
-			logInfo(sprintf('freeai session burn skipped (throttled): %s', '' + reason));
-		}
-	}
-
 	// 客户端错误（模型名不被接受 / 请求体不被接受）：
 	// 确定性失败，换 Key 结果一模一样，所以就地返回，不进换 Key 链。
 	// 这一步必须放在 markUpKeyFail **之前** —— 否则一次"模型名写错"或
@@ -6333,13 +5037,7 @@ function tryNextUpKey(conn, reason) {
 		logInfo(sprintf('upstream %s 拒绝该%s（不冷却 Key，不换 Key）：%s',
 			conn.upstream.prefix, isModel ? '模型' : '请求', reason));
 		if (!conn.headersSent) {
-			// freeAI 必须走品牌化文案：这一支原本是 '上游 <prefix> 不接受该请求：<原文>'，
-			// 会把上游名字与上游原文（含 provider/控制台一类字样）直接投给客户端，
-			// 违反"对外不出现上游痕迹"的硬约束。原文只进日志，不进响应。
-			let freUp = (conn.upstream && conn.upstream.id === FRE_UPID);
-			let cmsg = freUp
-				? F.freeaiBrandMessage(reason)
-				: '上游 ' + conn.upstream.prefix + ' ' +
+			let cmsg = '上游 ' + conn.upstream.prefix + ' ' +
 					(isModel ? '不接受该模型：' : '不接受该请求：') + reason +
 					(isModel
 						? '（模型名请照 /v1/models 里带前缀的写法填；上游自己的模型列表有时会列出它实际不提供的模型）'
@@ -6457,14 +5155,6 @@ function onUpstreamDirectEnd(conn) {
 	let usage = extractUsage(conn.sseBuf);
 	if (usage) recordUsage(conn, usage);
 
-	// v2.9.3：freeAI 流收尾 —— 把净化器里残留的半行冲出。
-	// 不加这一步，若上游最后一行没有以 \n 结尾（或最后一个 chunk 正好切在
-	// 行中间），那一行会永久留在 conn.freTail 里丢掉。丢的往往正是
-	// 带 usage 的计费块或 [DONE]，客户端会一直等不到结束帧。
-	if (conn.freeaiPath && conn.headersSent && !conn.aborted && !conn.writeBroken) {
-		let tailOut = freeaiPurifyFlush(conn);
-		if (length(tailOut) > 0 && !safeSend(conn, tailOut)) conn.aborted = true;
-	}
 
 	if (conn.wantNonStream) {
 		// v2.0：透传端点不做合并，原样回传累积内容。
@@ -6829,14 +5519,8 @@ function handleChat(conn, bodyRaw) {
 	// 自定义上游：不走凭据池，改用该上游自己的 Key 轮询
 	if (customUp !== null) {
 		let up = null;
-		// freeAI 是内置上游（v2.6.0），不占 upstreams.json —— 路由层已经按前缀
-		// 找到了它（adaptBody -> findUpstreamByPrefix），这里必须能接住它的 id。
-		if (customUp === FRE_UPID) {
-			up = freeaiUsable() ? freeaiUpstream() : null;
-		} else {
-			let all = loadUpstreams();
-			for (let u in all) if (u.id === customUp) { up = u; break; }
-		}
+		let all = loadUpstreams();
+		for (let u in all) if (u.id === customUp) { up = u; break; }
 		if (up === null) {
 			jsonResponse(conn, 404, { error: { message: 'upstream not found' } });
 			return;
@@ -6856,9 +5540,6 @@ function handleChat(conn, bodyRaw) {
 		conn.upstream = up;
 		conn.upKeys = keys;
 		conn.upTry = 0;
-		// v2.9.3：标记 freeAI 通道 —— 流式转发要对它的字节过净化器
-		// （见 makeOnChunk 里 freeaiPurifyFeed 的调用点）。
-		conn.freeaiPath = (up.id === FRE_UPID);
 		// 首次尝试过并发闸门；换 Key 的重试沿用已持有的额度（gateHeld）
 		gateStart(conn, 'direct');
 		return;
@@ -6887,16 +5568,6 @@ F.upstreamLooksFailed = upstreamLooksFailed;
 // 文件很靠前的位置，只能走这张前向引用表。
 F.releaseGate = releaseGate;
 F.pumpQueue = pumpQueue;
-// freeAI（v2.6.0）：这些函数定义在调用点之后，必须走前向引用表。
-// 注意 freeaiModels/freeaiSaveToken/freeaiPurifyLine 等定义在管理页之前，
-// 所以这里赋值是安全的（都在本行之前已加载）。
-F.nowMs = nowMs;
-F.freeaiModels = freeaiModels;
-F.freeaiModelIds = freeaiModelIds;
-F.freeaiSaveToken = freeaiSaveToken;
-F.freeaiBrandMessage = freeaiBrandMessage;
-F.freeaiErrText = freeaiErrText;
-F.freeaiPurifyLine = freeaiPurifyLine;
 
 // ---------- v2.0：通用端点透传 ----------
 //
@@ -7009,9 +5680,6 @@ function handlePassthrough(conn, bodyRaw, path) {
 		conn.upstream = up;
 		conn.upKeys = keys;
 		conn.upTry = 0;
-		// v2.9.3：透传路径同样要标记 freeAI 通道 —— 否则 /v1/messages 一类
-		// 非 chat 端点打到 freeAI 时，净化与"即焚重领"两道保障都不生效。
-		conn.freeaiPath = (up.id === FRE_UPID);
 		gateStart(conn, 'direct');
 		return;
 	}
@@ -7239,7 +5907,6 @@ function adminAppPage() {
     <button data-t="ups" onclick="tab('ups')">服务器管理</button>
     <button data-t="creds" onclick="tab('creds')">凭据池</button>
     <button data-t="relay" onclick="tab('relay')">中转日志</button>
-    <button data-t="free" onclick="tab('free')">freeAI</button>
     <button data-t="cfg" onclick="tab('cfg')">设置</button>
   </div>
 
@@ -7395,74 +6062,6 @@ function adminAppPage() {
     </div>
   </div>
 
-  <div id="t-free" class="hide">
-    <div class="card">
-      <h2>freeAI 内置上游</h2>
-      <p class="desc">在 freeAI 平台激活过授权码后，本机可作为 freeAI 的免费模型网关。
-        模型以 <code>freeai/模型名</code> 形式出现在 <code>/v1/models</code>，例如
-        <code>freeai/big-pickle</code>。会话包由授权服务端下发，本机只做转发与净化。</p>
-
-      <div class="field">
-        <label for="freEnabled">
-          <span class="sw"><input type="checkbox" id="freEnabled"><span></span></span>
-          启用 freeAI 免费模型
-        </label>
-      </div>
-
-      <div class="field">
-        <label for="freLicense">授权码</label>
-        <div class="row">
-          <div style="flex:3"><input type="text" id="freLicense" placeholder="FA-XXXX-XXXX-XXXX" autocomplete="off"></div>
-          <div style="flex:2"><input type="text" id="freMachine" placeholder="机器码（可留空）"></div>
-        </div>
-        <p class="hint">授权码与机器码会写入 <code>/etc/workbuddy/freeai.json</code>。</p>
-      </div>
-
-      <div class="field">
-        <label for="freModel">默认模型</label>
-        <input type="text" id="freModel" placeholder="big-pickle" list="freModels">
-        <datalist id="freModels"></datalist>
-        <p class="hint">作为 <code>freeai/默认模型</code> 暴露；客户端不指定模型时使用。</p>
-      </div>
-
-      <div class="field">
-        <label class="row" style="align-items:center;gap:9px;cursor:pointer">
-          <span class="sw"><input type="checkbox" id="freFp"><span></span></span>
-          <span>注入平台指纹（system + 工具桩，官方网关同款）</span>
-        </label>
-        <p class="hint">上游校验会话形态，缺省请求可能被 403。默认开启。</p>
-      </div>
-
-      <div class="field">
-        <label class="row" style="align-items:center;gap:9px;cursor:pointer">
-          <span class="sw"><input type="checkbox" id="freBrand"><span></span></span>
-          <span>品牌中和（把系统提示换成 freeAI 官方文案）</span>
-        </label>
-      </div>
-
-      <div class="field">
-        <label for="freUa">客户端 UA（高级）</label>
-        <input type="text" id="freUa" placeholder="留空 = 默认 opencode/1.18.31 (windows amd64; node22)" autocomplete="off">
-        <p class="hint">留空 = 恢复默认。若官方按 opencode 版本设闸门，在此填新版本号即可跟上，不必重刷插件。</p>
-      </div>
-
-      <div class="field">
-        <label class="row" style="align-items:center;gap:9px;cursor:pointer">
-          <span class="sw"><input type="checkbox" id="freHttp11"><span></span></span>
-          <span>HTTP/1.1 对齐（官方网关同协议；取消勾选则回退 HTTP/2）</span>
-        </label>
-      </div>
-
-      <div class="row">
-        <div style="flex:0"><button class="primary" onclick="saveFree()">保存设置</button></div>
-        <div style="flex:0"><button onclick="testFree()">立即测试</button></div>
-        <div style="flex:0"><button class="danger" onclick="resetFree()">重置会话</button></div>
-      </div>
-      <div id="freStatus" style="margin-top:12px">加载中…</div>
-      <div id="freTest" style="margin-top:8px"></div>
-    </div>
-  </div>
-
   <div id="t-cfg" class="hide">
     <div class="card">
       <h2>服务设置</h2>
@@ -7570,7 +6169,7 @@ function api(path, body) {
 }
 
 function tab(name) {
-  var names = ['ov','keys','ups','creds','relay','free','cfg'];
+  var names = ['ov','keys','ups','creds','relay','cfg'];
   for (var i = 0; i < names.length; i++) {
     document.getElementById('t-' + names[i]).className = (names[i] === name) ? '' : 'hide';
   }
@@ -7590,7 +6189,7 @@ function load() {
   api('state').then(function(d) {
     S = d;
     document.getElementById('bVer').textContent = 'v' + d.version;
-    renderOv(d); renderModels(d); renderKeys(d); renderCreds(d); renderUpstreams(d); renderRelay(d); renderCfg(d); renderWan(d); renderFree(d);
+    renderOv(d); renderModels(d); renderKeys(d); renderCreds(d); renderUpstreams(d); renderRelay(d); renderCfg(d); renderWan(d);
 
     // 如果服务端还有一个登录流程在等授权（比如页面被刷新过），
     // 就恢复显示并接着轮询，不要让它变成"看不见的后台任务"。
@@ -7746,8 +6345,8 @@ function renderUpstreams(d) {
     h += '<div class="uprow"><span class="lbl">服务器</span><code>' + esc(u.baseUrl) + '</code></div>';
     // v2.9.4（用户 m17405）：显示**实际获取到的模型名**，不只是数量。
     // 只显示计数等于没显示 —— 用户要核对的是"客户端里能填哪几个名字"。
-    // 优先用上游真实模型清单（detectedModels，来自 /models 或 freeAI 的
-    // models.php），其次是用户自定义映射；两者都带上前缀，照抄即可用。
+    // 优先用上游真实模型清单（detectedModels，来自上游 /v1/models 现场获取），
+    // 其次是用户自定义映射；两者都带上前缀，照抄即可用。
     var ml = (u.detectedModels && u.detectedModels.length) ? u.detectedModels : null;
     if (!ml && u.modelsText) {
       ml = u.modelsText.split('\\n');
@@ -8573,113 +7172,6 @@ function logout() {
   location.href = '/admin/logout';
 }
 
-// freeAI 设置卡渲染与操作（v2.6.0）
-function renderFree(d) {
-  var f = d.freeai || {};
-  var lic = document.getElementById('freLicense');
-  var mac = document.getElementById('freMachine');
-  var mdl = document.getElementById('freModel');
-  var fp = document.getElementById('freFp');
-  var br = document.getElementById('freBrand');
-  var en = document.getElementById('freEnabled');
-  var ua = document.getElementById('freUa');
-  var h11 = document.getElementById('freHttp11');
-  if (!lic) return;
-  lic.value = f.license || '';
-  mac.value = f.machine || '';
-  if (mdl) mdl.value = f.model || '';
-  if (fp) fp.checked = !!f.injectFingerprint;
-  if (br) br.checked = !!f.brandNeutralize;
-  if (en) en.checked = !!f.enabled;
-  // v2.9.5：UA 回显当前**生效值**（未自定义时就是默认串）；清空并保存 =
-  // 恢复默认。http11 用 !== false 判定，字段缺失（旧投影）时保持勾选默认。
-  if (ua) ua.value = f.ua || '';
-  if (h11) h11.checked = (f.http11 !== false);
-
-  // 填充模型候选（来自 /v1/models 里的 freeai/ 条目）
-  var dl = document.getElementById('freModels');
-  if (dl) {
-    var opts = '';
-    var seen = {};
-    var list = (d && d.models) || [];
-    for (var i = 0; i < list.length; i++) {
-      var id = list[i].id || '';
-      if (id.indexOf('freeai/') !== 0) continue;
-      var name = id.slice(7);
-      if (seen[name]) continue;
-      seen[name] = 1;
-      opts += '<option value="' + esc(name) + '"></option>';
-    }
-    dl.innerHTML = opts;
-  }
-
-  var st = document.getElementById('freStatus');
-  var h = '';
-  function kv(k, v) { h += '<div class="kv"><span class="k">' + k + '</span><span>' + v + '</span></div>'; }
-  if (!f.configured) {
-    kv('配置', '<span class="badge err">未配置授权码</span>');
-  } else {
-    kv('授权码', '<code>' + esc(f.license) + '</code>');
-    kv('机器码', f.machine ? '<code>' + esc(f.machine) + '</code>' : '<span class="badge warn">未填</span>');
-    kv('token', f.hasToken ? '已写入' : '<span class="badge warn">缺失</span>');
-    kv('可用', f.usable ? '<span class="badge ok">是</span>' : '<span class="badge err">否</span>');
-  }
-  if (f.model) kv('默认模型', '<code>' + esc(f.model) + '</code>');
-  kv('会话', f.session ? ('已领取，' + f.session.ageSec + 's / ttl ' + f.session.ttl + 's') : '<span class="badge warn">未领取</span>');
-  if (f.lastError) kv('最近错误', '<span class="badge err">' + esc(f.lastError) + '</span>');
-  if (f.usage) {
-    kv('用量', 'ok ' + (f.usage.ok || 0) + ' / fail ' + (f.usage.fail || 0) +
-      ' / tokens ' + ((f.usage.tokens && f.usage.tokens.total) || 0));
-  }
-  st.innerHTML = h;
-}
-
-function saveFree() {
-  var body = {
-    license: document.getElementById('freLicense').value.trim(),
-    machine: document.getElementById('freMachine').value.trim(),
-    model: document.getElementById('freModel').value.trim(),
-    enabled: document.getElementById('freEnabled').checked,
-    injectFingerprint: document.getElementById('freFp').checked,
-    brandNeutralize: document.getElementById('freBrand').checked,
-    // v2.9.5：UA 与协议版本随表单一起提交。空 UA = 恢复默认（服务端落空串，
-    // freeaiRaw() 回退 FRE_UA）；http11 复选框未勾 = 回退 HTTP/2。
-    ua: document.getElementById('freUa').value.trim(),
-    http11: document.getElementById('freHttp11').checked,
-  };
-  api('freeai/save', body).then(function(r) {
-    if (r.ok) { toast('freeAI 设置已保存', 'ok'); renderFree({ freeai: r.freeai, models: S.models }); }
-    else toast('保存失败：' + (r.error || '未知错误'), 'err');
-  }).catch(function(e) { toast('保存失败：' + e.message, 'err'); });
-}
-
-function testFree() {
-  var box = document.getElementById('freTest');
-  box.innerHTML = '<span class="badge warn">测试中…（约 10 秒）</span>';
-  api('freeai/test', {}).then(function(r) {
-    var h = '';
-    h += '<div class="kv"><span class="k">会话包</span><span>' +
-      (r.session ? 'OK ' + (r.session.url || '') : '<span class="badge err">失败</span>') + '</span></div>';
-    h += '<div class="kv"><span class="k">模型列表</span><span>' +
-      (r.models ? (r.models.count + ' 个，如 ' + esc(r.models.sample || '')) : '<span class="badge err">失败</span>') + '</span></div>';
-    h += '<div class="kv"><span class="k">实测对话</span><span>' +
-      (r.chat ? (r.chat.ok ? ('OK：' + esc(r.chat.text || '')) : ('<span class="badge err">' + esc(r.chat.error || '失败') + '</span>'))
-             : '<span class="badge warn">未执行</span>') + '</span></div>';
-    if (r.error) h += '<div class="kv"><span class="k">错误</span><span class="badge err">' + esc(r.error) + '</span></div>';
-    box.innerHTML = h;
-  }).catch(function(e) {
-    box.innerHTML = '<span class="badge err">测试请求失败：' + esc(e.message) + '</span>';
-  });
-}
-
-function resetFree() {
-  if (!confirm('重置 freeAI 会话缓存？授权码与机器码不会变。')) return;
-  api('freeai/reset', {}).then(function(r) {
-    if (r.ok) { toast('已重置会话缓存', 'ok'); load(); }
-    else toast('重置失败', 'err');
-  }).catch(function(e) { toast('重置失败：' + e.message, 'err'); });
-}
-
 load();
 </script>
 </body></html>`;
@@ -8931,174 +7423,7 @@ function handleAdmin(conn, req, method, path, query, body) {
 			// 中转日志（v2.2.0）。管理页的「中转日志」页签全靠这一块，
 			// 少了它前端只会显示"本版本未提供中转日志"。
 			relay: relaySnapshot(time() - metrics.since),
-			// freeAI（v2.6.0）：独立设置项，不混进 upstreams 列表 ——
-			// 它的配置形态（授权码 + 机器码 + 会话）与"地址 + 一串 Key"完全不同，
-			// 混排会让编辑表单必须长出两套字段。
-			freeai: freeaiStatus(),
 		});
-		return;
-	}
-
-	// ---- freeAI 内置上游（v2.6.0） ----
-
-	if (path === '/admin/api/freeai/save' && method === 'POST') {
-		let j = parseJsonBody(body);
-		let cur = freeaiRaw();
-		// 注意：ucode 没有 undefined 标识符，JSON 缺字段访问得到 null。
-		// v2.9.0 修复：这里原本写成 `.trim`（取属性而不是调用），ucode 在
-		// 求值时就抛 `Reference error: left-hand side expression is not an
-		// array or object` —— 于是**只要用户填了授权码或机器码，保存请求
-		// 还没写盘就 500**，配置静默存不下去（只有不改这两个字段时才侥幸成功）。
-		// 静态检查与单测都拦不住这种"运行到那一行才炸"的错。
-		// v2.9.2 修复：本地回环覆盖（display → persistence 回灌）。
-		// 管理页的 renderFree() 把 freeaiStatus() 的**展示投影**填进表单：
-		// license 是掩码 `FA-UY****-DUWT`，machine/model 在展示层可能为空。
-		// 而 saveFree() 原样 POST 回来，服务端见字段非 null 就写盘 —— 于是
-		// 「打开页面直接点保存」会把真实授权码覆盖成掩码、把机器码清空。
-		// 判定规则：值里带 `*`（掩码特征）或与当前值相等 ⇒ 视为"未改动"。
-		// `*` 不可能出现在合法授权码/机器码里，所以这条判定不会误伤真值。
-		function unchanged(v, curv) {
-			if (v === null) return true;
-			let s = trim('' + v);
-			if (length(s) === 0) return true;       // 空 = 没填，保留原值
-			if (index(s, '*') >= 0) return true;    // 掩码回灌，不是真值
-			return (s === ('' + curv));
-		}
-		let lic = unchanged(j.license, cur.license) ? cur.license : trim('' + j.license);
-		let mac = unchanged(j.machine, cur.machine) ? cur.machine : trim('' + j.machine);
-		let tok = unchanged(j.token, cur.token) ? cur.token : trim('' + j.token);
-		// v2.9.2：tokenAt 只在 token 真的换了时才刷新。原写法恒为 cur.tokenAt，
-		// 于是管理页手工粘贴新 token 后时间戳还是旧的（tokenAge 显示成
-		// "来自很久以前"，用户会以为没存进去）；而恒写 time() 又会让每次
-		// 「打开页面点保存」都伪装成刚续签过，掩盖真正的过期。用差异判定。
-		let tokAt = (tok === cur.token) ? cur.tokenAt : time();
-		// v2.9.5 (P2-d)：UA 可配。空串或等于默认串 ⇒ 落空（freeaiRaw() 回退
-		// FRE_UA，配置里不写死一份和默认一样的长字符串）；其它值按自定义 UA
-		// 落盘。null（旧表单没带这个字段）保持当前生效值，和 lic/mac 同规矩。
-		let uaNew = cur.ua;
-		if (j.ua !== null) {
-			let vua = trim('' + j.ua);
-			uaNew = (length(vua) === 0 || vua === FRE_UA) ? '' : vua;
-		}
-		writeJsonFile(FRE_CFG_FILE, {
-			enabled: (j.enabled === null) ? cur.enabled : truthy(j.enabled),
-			license: lic, machine: mac, token: tok,
-			tokenAt: tokAt, model: unchanged(j.model, cur.model) ? cur.model : trim('' + j.model),
-			base: cur.base, ver: cur.ver,
-			ua: uaNew,
-			http11: (j.http11 === null) ? cur.http11 : truthy(j.http11),
-			injectFingerprint: (j.injectFingerprint === null) ? cur.injectFingerprint : truthy(j.injectFingerprint),
-			brandNeutralize: (j.brandNeutralize === null) ? cur.brandNeutralize : truthy(j.brandNeutralize),
-		});
-		// v2.9.0 修复：字段名必须是 data —— freeaiRaw() 读的是 freCache.data，
-		// 写成 cfg 等于**没有失效缓存**，于是保存后 2 秒内读到的仍是旧配置
-		// （表现为"管理页显示保存成功、但刷新后模型又变回去了"）。
-		freCache = { at: 0, data: null };
-		freSession = null;              // 配置变了，旧会话作废
-		logInfo('admin saved freeai config (enabled=' + freeaiRaw().enabled + ')');
-		jsonResponse(conn, 200, { ok: true, freeai: freeaiStatus() });
-		return;
-	}
-
-	if (path === '/admin/api/freeai/test' && method === 'POST') {
-		// 三步探活：领会话包 → 拉模型列表 → 实打一次最小 chat。
-		// 分开报是因为它们的失败原因完全不同（机器码错 / 授权过期 / 额度用尽），
-		// 合一个"失败"会让用户无从下手。
-		let out = { ok: false, session: null, models: null, chat: null, license: freeaiRaw().license };
-		let r = freeaiRefreshPack(true);
-		if (!r.ok) {
-			// 管理页是"我方 UI"，但错误码同样不能透传：too_frequent 这类
-			// 内部术语对用户没有信息量，而"请求过于频繁，请稍后重试"能直接
-			// 告诉他该怎么办。原文进日志。
-			logInfo(sprintf('freeai test: session step failed: %s', '' + (r.err || '')));
-			out.error = F.freeaiErrText(r.err);
-			jsonResponse(conn, 200, out);
-			return;
-		}
-		out.session = { ok: true, url: r.pack.url, wm: r.pack.wm, ttl: r.pack.ttl };
-		let ms = freeaiModels();
-		out.models = { ok: length(ms) > 0, count: length(ms), sample: length(ms) > 0 ? ms[0].id : '' };
-		// 实打一次：用当前配置的模型（没有就取列表第一个**非 dead** 的）
-		let mdl = freeaiRaw().model;
-		if (length(mdl) === 0 && length(ms) > 0) {
-			// v2.9.4: freeaiModels() 返回 {id, name, dead}，活模型排前。
-			// 显式挑第一个非 dead 的，避免全 dead 时 ms[0] 挑到坏模型。
-			for (let i = 0; i < length(ms); i++) {
-				if (ms[i].dead !== true) {
-					mdl = ms[i].id;
-					break;
-				}
-			}
-			// 如果全 dead，回落 ms[0]（至少能测出"全不可用"）
-			if (length(mdl) === 0) mdl = ms[0].id;
-		}
-		if (length(mdl) > 0) {
-			let body = freeaiShape({
-				model: mdl,
-				messages: [{ role: 'user', content: 'Reply with exactly: OK' }],
-				stream: true, max_tokens: 32,
-			}, r.pack);
-			let file = sprintf('/tmp/wb-fretest-%d.json', time());
-			writefile(file, sprintf('%.J', body));
-			let hdrs = freeaiHeaders(r.pack, freeaiSeedOf(body));
-			let args = ['curl', '-sS', '-N', '-m', '40', '-X', 'POST',
-				'--retry', '1', '--retry-all-errors', '--retry-delay', '1',
-				'-H', shquote('Content-Type: application/json')];
-			for (let k in hdrs) { push(args, shquote('-H')); push(args, shquote(k + ': ' + hdrs[k])); }
-			push(args, shquote('--data-binary'));
-			push(args, shquote('@' + file));
-			push(args, shquote(r.pack.url));
-			let raw = runCurlStr(join(' ', args));
-			try { let fs = require('fs'); fs.unlink(file); } catch (e) { }
-			if (raw === null) {
-				out.chat = { ok: false, error: '请求无响应' };
-			} else {
-				let txt = '';
-				let done = (index(raw, '[DONE]') >= 0);
-				// 从 SSE 里抠正文（与探针脚本同一套朴素做法）
-				let lines = split(raw, '\n');
-				for (let ln in lines) {
-					let s = trim('' + ln);
-					if (substr(s, 0, 6) !== 'data: ') continue;
-					let p = substr(s, 6);
-					if (p === '[DONE]') break;
-					let j2 = null;
-					try { j2 = json(p); } catch (e) { continue; }
-					if (type(j2) !== 'object' || j2 === null) continue;
-					if (type(j2.error) === 'object' && j2.error !== null) {
-						// 流内错误同样过分类器（原文进日志，不出响应体）
-						let em = '' + (j2.error.message || '');
-						logInfo(sprintf('freeai test: chat step upstream error: %s', em));
-						out.chat = { ok: false, error: F.freeaiBrandMessage(em) };
-						break;
-					}
-					if (type(j2.choices) === 'array' && length(j2.choices) > 0) {
-						let d = j2.choices[0].delta;
-						if (type(d) === 'object' && d !== null && type(d.content) === 'string')
-							txt += d.content;
-					}
-				}
-				if (out.chat === null) out.chat = {
-					ok: done, model: mdl, done: done,
-					text: substr(txt, 0, 120),
-					bytes: length(raw),
-				};
-			}
-		} else {
-			out.chat = { ok: false, error: '没有可用模型' };
-		}
-		out.ok = (out.session && out.session.ok && out.models && out.models.count > 0 &&
-			out.chat && out.chat.ok);
-		jsonResponse(conn, 200, out);
-		return;
-	}
-
-	if (path === '/admin/api/freeai/reset' && method === 'POST') {
-		// 只清本地会话缓存，不碰 ipcfg / 授权码 —— 用途是"换了机器码后强制重领"。
-		freSession = null;
-		freSessionFailAt = 0;
-		freSessionErr = '';
-		jsonResponse(conn, 200, { ok: true });
 		return;
 	}
 
@@ -9835,37 +8160,6 @@ function dispatch(conn, head, body) {
 				});
 			}
 		}
-
-		// freeAI 内置上游（v2.6.0）：不占 upstreams.json，独立呈现。
-		// 它有自己独立的模型清单缓存（freModelCache），不走 upModelCache，
-		// 因为 freeAI 的「上游」在路由层是动态合成的，没有持久化的 cacheKey。
-		if (freeaiUsable()) {
-			let freCfg = freeaiRaw();
-			let fr = freModelCache.list;
-			if (forceRefresh || !freModelCache.at || (time() - freModelCache.at) >= UP_MODEL_TTL) {
-				let got = freeaiModels();
-				if (length(got) > 0) {
-					freModelCache = { at: time(), list: got };
-					fr = got;
-				}
-			}
-			for (let m in fr) {
-				// v2.9.4: freeaiModels() 返回 {id, name, dead}，活模型排前。
-				// dead 模型在 name 后加"· 暂不可用"标记，让客户端知道它当前不可用，
-				// 但 id 保持不变（客户端可能硬编码了模型名）。
-				let displayName = m.id + ' · freeAI';
-				if (m.dead === true)
-					displayName += ' · 暂不可用';
-				push(data, {
-					id: FRE_PREFIX + '/' + m.id,
-					name: displayName,
-					object: 'model',
-					provider: FRE_PREFIX,
-					base_url: freCfg.base,
-				});
-			}
-		}
-
 		jsonResponse(conn, 200, { object: 'list', data: data });
 		return;
 	}
@@ -10157,11 +8451,6 @@ function main() {
 
 	// 启动排队超时扫描（同样自重置，句柄必须持有，否则定时器会被回收）
 	queueTimer = uloop.timer(UP_QUEUE_TICK_MS, () => queueTick());
-
-	// freeAI 心跳续签：首次用默认间隔（FRE_HEARTBEAT_SEC=60s）自启，之后由
-	// freHeartbeatTick 内部按服务端下发的 heartbeat_interval 动态调整（官方 :121/:136）。
-	// 避免闲置后 token 过期触发重激活（重激活受 20 次/时/IP 限制，能靠心跳续签就别走激活）。
-	freHeartbeatTimer = uloop.timer(FRE_HEARTBEAT_SEC * 1000, () => freHeartbeatTick());
 
 	// v2.8.0：载入「最后已知可用」模型列表（上游抖动时 /v1/models 的兜底），
 	// 并启动每日模型巡检定时器（默认凌晨 1 点拉取最新模型 + 全模型连通性测试）。

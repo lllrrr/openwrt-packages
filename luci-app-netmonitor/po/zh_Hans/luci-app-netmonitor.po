@@ -54,15 +54,6 @@ msgstr "目标无效"
 msgid "Check failed"
 msgstr "检测失败"
 
-msgid "Confirm"
-msgstr "确认"
-
-msgid "Cancel"
-msgstr "取消"
-
-msgid "OK"
-msgstr "确定"
-
 msgid "Loss"
 msgstr "丢包"
 
@@ -80,6 +71,15 @@ msgstr "图标"
 
 msgid "Status"
 msgstr "状态"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Confirm"
+msgstr "确认"
+
+msgid "OK"
+msgstr "确定"
 
 msgid "Time range"
 msgstr "时间范围"
@@ -170,6 +170,9 @@ msgstr "请添加并启用监控目标以开始采集数据。"
 
 msgid "Network is healthy"
 msgstr "网络正常"
+
+msgid "All monitored targets respond normally."
+msgstr "所有监控目标响应正常。"
 
 msgid "Network problems detected"
 msgstr "网络存在异常"
@@ -348,6 +351,18 @@ msgstr "间隔与超时填 0 表示继承全局设置。"
 msgid "The table scrolls horizontally on small screens."
 msgstr "小屏幕下表格可横向滚动。"
 
+msgid "TCP connect"
+msgstr "TCP 连接"
+
+msgid "global default port"
+msgstr "跟随全局默认端口"
+
+msgid "ICMP (ping)"
+msgstr "ICMP（ping）"
+
+msgid "Select"
+msgstr "选择"
+
 msgid "Edit"
 msgstr "编辑"
 
@@ -369,18 +384,6 @@ msgstr "删除目标"
 msgid "Delete this target?"
 msgstr "确定删除该目标？"
 
-msgid "Select"
-msgstr "选择"
-
-msgid "TCP connect"
-msgstr "TCP 连接"
-
-msgid "global default port"
-msgstr "跟随全局默认端口"
-
-msgid "ICMP (ping)"
-msgstr "ICMP（ping）"
-
 msgid "Auto"
 msgstr "自动"
 
@@ -396,8 +399,8 @@ msgstr "IPv4 + IPv6"
 msgid "Global"
 msgstr "跟随全局"
 
-msgid "Edit target"
-msgstr "编辑目标"
+msgid "(current)"
+msgstr "（当前值）"
 
 msgid "Not used by ICMP"
 msgstr "ICMP 不使用端口"
@@ -426,9 +429,6 @@ msgstr "源地址（可选）"
 msgid "Remark"
 msgstr "备注"
 
-msgid "Save & Apply"
-msgstr "保存并应用"
-
 msgid "Name and address are required"
 msgstr "名称与地址为必填项"
 
@@ -437,6 +437,12 @@ msgstr "TCP 目标需要填写端口，或先设置一个全局默认端口"
 
 msgid "No changes to save"
 msgstr "没有需要保存的改动"
+
+msgid "Edit target"
+msgstr "编辑目标"
+
+msgid "Save & Apply"
+msgstr "保存并应用"
 
 msgid "Network Monitor"
 msgstr "网络质量监控"

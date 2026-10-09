@@ -14,6 +14,229 @@
 条目分类：`新增` / `变更` / `修复` / `移除` / `弃用` / `安全`。
 
 
+## [1.5.2] - 2026-10-10
+
+### 修复
+
+- **区域页「延迟对比」曲线整条不可见（图表空白）**。
+  该页的分区平均曲线在聚合时对后端返回值做累加，
+  而 `fx()` 自 1.5.0 起把浮点字段以**字符串**返回 —— JS 的 `+` 对字符串
+  是拼接而非相加：
+  ```
+  sum += "18.96"   ->  0 + "18.96" = "018.96"
+  sum += "25.3"    ->  "018.9625.3"
+  sum / cnt        ->  "018.9625.3" / 3 = NaN
+  ```
+  于是所有采样点的 Y 坐标都成了 NaN，生成的 path 是
+  `M42.0 NaN L61.4 NaN L80.8 NaN ...` —— 曲线元素存在、但一个点都画不出来；
+  Y 轴也因取不到最大值而退化成默认的 0~10，实际延迟 20~180 ms 全部落在图外。
+  同一原因还让「延迟曲线」页的「当前」摘要卡显示成「—」（NaN）。
+
+  复现关键：`/`、`*`、`-` 的隐式类型转换是正确的，**只有累加会踩这个坑**，
+  因此该问题只在少数位置暴露、不易一眼看出。
+
+  修复：在 RPC 出口统一做数值归一化（`common.js` 新增
+  `numifyHistory` / `numifyStatus` / `numifyStats`），`get_history` /
+  `get_status` / `get_statistics` 的浮点字段一律转成 number，
+  所有消费方都拿到数值，不必每个调用点自己记得 `parseFloat`。
+
+  首次修复时 `FLOAT_KEYS` 漏掉了曲线点位的延迟键 `l`（与目标当前延迟
+  `latency` 是两个不同的键），曲线仍为 NaN；已补上并回归验证。
+
+### 变更
+
+- **出厂默认启用全部四个示例目标**（此前只启用 `baidu`）。
+  出厂配置只启用 1 个国内目标时，区域页的「区域延迟对比」只能画出一条曲线，
+  「对比」这一功能实际上看不到效果。现在默认启用：
+  | 目标 | 地址 | 区域 |
+  |---|---|---|
+  | Baidu | www.baidu.com | 国内 |
+  | AliDNS | 223.5.5.5 | 国内 |
+  | Cloudflare | 1.0.0.1 | 国外 |
+  | GoogleDNS | 8.8.8.8 | 国外 |
+  装完即可看到国内 / 国外两条对比曲线。不需要的目标可在目标管理页停用，
+  停用后既不发包也不进入曲线。
+  同步更新了 `root/etc/uci-defaults/luci-app-netmonitor`（配置缺失时的补齐路径）。
+
+- **Cloudflare 探测地址由 `1.1.1.1` 改为 `1.0.0.1`**。
+  `1.0.0.1` 是 Cloudflare 的同一组任播地址，在国内网络下 ICMP 可达性更稳定
+  （实测 `1.1.1.1` 常被丢弃、`1.0.0.1` 正常回包）。
+
+  注意：这两项只影响**新安装**的默认值。OpenWrt 的包管理器在升级时保留
+  `/etc/config/netmonitor`，已有安装不会被覆盖 —— 需要生效请在目标管理页
+  自行启用，或删除该配置文件后重装。
+
+### 验证
+
+- **曲线修复**：「延迟曲线」页的「当前」摘要卡由「— ms」恢复为实测值
+  （如 74.5 ms），Y 轴由退化的 0~10 恢复为 0~250；区域页 Y 轴恢复 0~200，
+  两条曲线 path 中均无 NaN，图例与曲线颜色一致。
+- **默认配置**：部署后守护进程生效清单为 4 个目标（2 国内 + 2 国外），
+  四个目标均有回包（实测 27.7 / 23.4 / 247.5 / 53.8 ms）；区域页在默认配置下
+  即渲染两条曲线（国内 ~25 ms 平稳、国外随目标波动）。
+- **整体回归**：七个页面全部无异常值（无 NaN / undefined / 「— ms」占位），
+  0 JS 错误。
+
+
+## [1.5.1] - 2026-10-10
+
+承接 1.5.0 的组件层重构，修复重构后暴露的一批**视觉与交互缺陷**。
+以下每条都以实机 `getComputedStyle` / `getBoundingClientRect` 实测确认，
+而非目测。
+
+### 修复
+
+- **危险按钮与普通按钮无法区分（删除按钮显示为蓝色）**。
+  `.nm-btn-danger` 与 `.nm-btn-text` 同为单类选择器（优先级 0,1,0），
+  谁写在样式表后面谁生效；文本变体为去掉边框底色必须声明 color，
+  于是「危险 + 文本」按钮的颜色被覆盖。实测目标管理页的「删除」渲染为
+  `rgb(47,111,237)`（与「编辑 / 复制」相同的强调蓝），而不是警示红
+  `rgb(207,68,55)` —— 危险操作在视觉上完全无法与普通操作区分。
+  修复：新增 `.nm-btn-danger.nm-btn-text` 双类规则（优先级 0,2,0），
+  与书写顺序解耦；同时删除样式表中重复定义的第二份 `.nm-btn` 规则块
+  （同一类被定义两次是这类问题的温床）。
+
+- **图表页目标胶囊四个全部长得一样，无法分辨选中状态与目标身份**。
+  从 TDesign 的 `t-tag` 迁移到原生 `<button>` 时只保留了布局样式，
+  漏掉了状态与圆点规则，实测：
+  `· .nm-chip-dot` 无任何规则 → `getBoundingClientRect()` 为 **0×0**，
+  圆点完全不可见；
+  `· .is-on / .is-off` 无规则 → 选中与未选中渲染结果完全相同。
+  修复：补齐 `.nm-chip-tag` 完整样式、`.nm-chip-dot` 尺寸（9×9 圆形）、
+  以及 `.is-on`（目标色边框 + 同色淡底 + 同色文字）与
+  `.is-off`（置灰 + 圆点去色）两个状态；目标色由 `charts.js` 通过
+  `--nm-chip-color` 注入，与折线、图例同源，三处不会漂移。
+
+- **实时页状态指示列渲染为空（四个 LED 全部不可见）**。
+  `.nm-led-box` / `.nm-led-center` / `.nm-led-ping-ring` 及
+  `nm-led-off|good|warn|bad` 共 7 个类**从 v1.4.2 起就没有任何样式规则**，
+  实测 `.nm-led-box` 高 0、`.nm-led-center` 为 0×0 且背景透明。
+  修复：补齐 LED 样式，配色沿用全局等级体系，呼吸与扩散直接复用既有的
+  `@keyframes nm-pulse-soft` / `nm-ripple`，不新增动画定义；停用目标
+  静止不呼吸（闪烁会让人误以为该目标仍在被探测），并遵循
+  `prefers-reduced-motion`。
+
+- **开关控件被主题样式压成 16×16 蓝点**。
+  LuCI 主题（Aurora `main.css`）中的
+  `input[type="radio"], input[type="checkbox"] { width: calc(var(--spacing)*4) }`
+  优先级为 0,1,1，高于单类选择器 `.nm-switch` 的 0,1,0，因此主题胜出，
+  把开关从 44×24 压到 16×16；而圆角与底色仍由本项目规则生效（主题未定义
+  这两项），最终渲染成一个 16px 蓝色圆点，20×20 的白色滑块 `::before`
+  溢出容器。修复：选择器改为 `input[type="checkbox"].nm-switch`
+  （优先级 0,2,1），稳定胜出。
+
+- **实时页与设置页首次加载拿不到数据**。
+  自注销逻辑（`poll.remove`）在首次同步调用时误触发：那时 LuCI 尚未把
+  `root` 挂到文档，`root.isConnected` 为 false，被当作「页面已卸载」而
+  立刻短路返回，`latest` 永远为 null —— 实时页表格与卡片流整片空白
+  （实测页面文本长度仅 79，修复后 419）。修复：增加 `firstRun` 标记，
+  只在**轮询调用**时才据 `isConnected` 判定卸载。
+
+- **后端聚合值恒为 0**。`fx()` 改为返回格式化字符串后，`statOf()` 的
+  返回值被上层拿去做算术累加（`agg.lat_sum += st.latency`），而 ucode 的
+  `string += number` 会静默得 0，导致 `overall.current` / `regions.avg`
+  恒为 `"0.00"`。修复：新增 `fxNum()` 返回**数值**供内部聚合，
+  `statOf()` 改用 `fxNum()`；格式化统一推迟到 JSON 输出边界
+  （`get_status` 的逐目标字段、`get_history` 的 summary 与 points）。
+
+- **补齐两处从未定义的样式类**：`.nm-txt-sub`（表格次要文本）、
+  `.nm-svg-soft-pulse`（区域页图标呼吸）。
+  另移除 `ui.js` 中创建后从未挂载的死代码 `nm-dlg-wrap`。
+
+### 安全
+
+- 无新增安全问题。1.5.0 的 XSS 修复继续有效。
+
+
+## [1.5.0] - 2026-10-10
+
+### 移除
+
+- **移除 TDesign Web Components 依赖，前端资源从 7.4 MB 降到 152 KB**。
+  本项目此前随包分发 TDesign UMD 构建（`tdesign.min.js`，7.3 MB），但实际只用到
+  `t-button` / `t-tag` / `t-dialog` / `t-alert` 四个组件。改为自建的原生组件层
+  `htdocs/luci-static/resources/netmonitor/ui.js`（原生 DOM 实现，无第三方依赖），
+  删除整个 `htdocs/luci-static/resources/netmonitor/tdesign/` 目录。
+  代价是每个标签页不再需要重新解析 7.3 MB UMD，低端 CPU 上首屏不再卡顿。
+- **`tdesign/` 目录整体删除**。随包的 `tdesign.css` 是一份**残缺的组件样式表**：
+  578 条 `--td-*` CSS 变量齐全，但 `dialog` 相关规则一条都没有（实测
+  `grep -c dialog` = 0，规则总数仅 71），实质上只是一份变量表。
+
+### 修复
+
+- **目标管理页「编辑」功能完全失效（最严重）**。实机抓 DOM 证据：
+  `t-dialog` 宿主元素 `getBoundingClientRect()` 为 `{x:0, y:900, w:1430, h:0}`，
+  shadow 根容器 `display:none`，容器类名停在 `t-dialog__mask-web-zoom-leave-active`
+  —— 组件处于关闭动画的离开态，`visible = true` 根本没触发进入动画，点击编辑后
+  界面毫无反应。根因即上一条的残缺样式表：`.t-dialog__ctx` 拿不到任何 `display`
+  规则，组件永久隐藏。修复：随 TDesign 一并移除，改用 `ui.dialog()`（class 驱动
+  显示状态）。修复后同位置实测 `{x:435, y:24, w:560, h:852}`、`display:flex`、
+  `elementFromPoint` 命中链为 `div.nm-dlg-head → div.nm-dlg → div.nm-root`。
+- **存储型 XSS**。目标名 / 地址 / 标签 / 备注等用户可控字段直接拼接进 `innerHTML`，
+  后端仅校验长度与字符集，`<img src=x onerror=alert(1)>` 可完整落进
+  `/etc/config/netmonitor` 并在每个访问该页的管理员会话中执行（LuCI 会话等价于 root）。
+  原有转义策略亦不自洽：`common.targetCard` 对 `name` 做了不完整的
+  `.replace(/[<>&]/g,'')`，同一函数里紧邻的 `host`、`label` 却完全没转义。
+  修复：`common.el()` 第三个参数语义改为**纯文本**（`textContent`），
+  需要 HTML 时必须显式调用 `common.elHtml()`；SVG 片段走 `svgBox()`
+  （内容来自内置的 `icons.js` / `chart.js`，不含用户输入）。
+- **后端浮点精度尾数**。`get_status` 等接口返回 `26.510000000000002` 这类带尾数的值。
+  根因不是本代码的浮点误差，而是 **ucode/blobmsg 序列化层的固有限制**——对 double
+  一律以 17 位有效数字输出，实测连字面量 `26.51` 都会被展开成 `26.510000000000002`，
+  算式层面无法消除。修复：`fx()` 改为返回 `sprintf()` 格式化的字符串，精度在服务端
+  固化；前端新增 `common.toNum()` 统一转数值后再做算术与比较。
+- **批量操作整批失败**。`checked` 对象从不剪枝，删除一个已勾选的目标后残留「幽灵 id」，
+  导致 `selectedIds()` 数量超出实际、全选框三态彻底失真，且 `batch_targets` 收到
+  不存在的 id 后整批报错，一条都改不了且界面无任何提示。修复：`renderList()`
+  按当前列表重建 `checked`。
+- **负数可绕过校验写入配置**。`<input type=number min=0>` 的 `min` 只是表单校验提示，
+  用户键入 `-5` 不会被拦下；原代码 `parseInt(v) || 0` 对负数无效，负数原样提交。
+  `tcp_port` 做了钳位而 `interval` / `timeout` 漏了。修复：新增
+  `intOf(input, min, max)` 统一解析并夹取范围。
+- **SPA 路由切换导致弹窗与轮询泄漏**。弹窗挂在 `document.body` 上，而 LuCI 的 SPA
+  路由切换只替换 view 容器、不碰 body：开着弹窗点侧边栏导航，旧弹窗的遮罩与
+  document 级事件拦截全部留存，新页面被完全盖住，只能刷 F5。`settings.js` 的
+  `poll.add(refreshSvc, 10)` 同理——LuCI 不在路由切换时清理 poll 队列，
+  `refreshSvc` 是 `render()` 内的闭包，切页后无人能引用它、永远无法 `poll.remove`，
+  访问 N 次就有 N 个 10 秒轮询并发打 rpcd。修复：弹窗改为挂载到页面 `root`
+  （随路由销毁）；轮询回调首行判断 `root.isConnected`，失联即自我注销。
+- **禁用状态显示错误**。`sw.checked = !!t.enabled` 在后端返回字符串 `'0'` 时
+  （`!!'0' === true`）会把已禁用目标显示为「已启用」，且表格流与卡片流同时回弹。
+  修复：新增 `boolOf(v)` 统一判定真值。
+- **快速连点导致状态错乱**。启用开关的 change 回调直接发请求，无 in-flight 标志
+  也不禁用控件；用户在响应返回前再次点击会发出两个 `enabled` 相反的请求，
+  响应顺序不保证与点击顺序一致，最终状态由后到的响应决定。修复：请求期间禁用自身。
+
+### 变更
+
+- **`common.el()` 第三个参数语义变更**：由 HTML 片段（`innerHTML`）改为纯文本
+  （`textContent`）。这是修复 XSS 的根本手段，属**行为变更**：依赖它渲染标记的
+  调用点已改为显式 `common.elHtml()`。
+- **`common.confirmDialog()` 不再返回 Promise**。此前返回 `Promise<boolean>`，
+  现改为同步调用，副作用放在 `ui.confirm({ onOk })` 回调内
+  （`onOk` 仅在用户点确认时触发，取消 / ESC / 点遮罩均不触发）。
+- **`common.trapFocus()` 已移除**，焦点陷阱与 ESC 处理内置于 `ui.dialog()`。
+- **`common.tdesign()` 已移除**，UI 组件统一走 `common.ui.*`。
+- **Makefile 恢复 JS/CSS 压缩**（`LUCI_MINIFY_JS` / `LUCI_MINIFY_CSS` 由 `0` 改为 `1`）。
+  此前必须关掉，是因为 jsmin 处理 7 MB 的 TDesign UMD 会从语句中间切断
+  （28 行压成 3 行、删掉 691636 字节），产出语法错误的文件。移除该依赖后前端全部是
+  自有源码（约 150 KB），压缩无风险。
+
+### 新增
+
+- **`htdocs/luci-static/resources/netmonitor/ui.js`** —— 原生 UI 组件层：
+  `button()` / `iconButton()` / `chip()` / `alert()` / `dialog()` / `confirm()` /
+  `setDisabled()`。按钮工厂统一处理「请求期间禁用、失败提示、结束解禁」，
+  此前这份逻辑在三个页面各写一遍。
+- **`REFACTOR.md`** —— 本次重构的变更说明、根因分析与实机验证记录。
+
+### 安全
+
+- 修复存储型 XSS（详见「修复」一节）。实机验证：注入
+  `<img src=x onerror=alert(1)>` 后，页面渲染出 0 个 `img` 元素、原文以文本形式
+  可见、`alert` 未触发。
+
+
 ## [1.4.2] - 2026-10-02
 
 ### 修复

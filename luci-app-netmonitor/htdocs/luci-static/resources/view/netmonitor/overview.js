@@ -1,9 +1,9 @@
 /*
  * 总览页面：总体健康状态、关键指标、目标卡片
- * TDesign Web Components 重构版本
+ *
  * 采用局部刷新（LuCI poll），不整页重载，不触发额外 Ping。
- * 页面级 UI 由 <t-*> 组件承载（t-card / t-alert / t-button），
- * 动态 SVG 徽章与实时声波柱保留（TDesign 图标集无法替代状态动效）。
+ * 界面由本项目自有样式承载（.nm-tcard / .nm-alert / .nm-btn），
+ * 动态 SVG 徽章与实时声波柱用于表达实时状态。
  */
 
 'use strict';
@@ -17,7 +17,6 @@ return view.extend({
 		common.css();
 		return Promise.all([
 			common.loadI18n(),
-			common.tdesign(),
 			common.api.getConfig(),
 			common.api.getStatus(true)
 		]);
@@ -26,8 +25,8 @@ return view.extend({
 	render: function(res) {
 		common.css();
 
-		var cfg = (res && res[2]) || {};
-		var first = (res && res[3]) || null;
+		var cfg = (res && res[1]) || {};
+		var first = (res && res[2]) || null;
 		var refresh = Math.max(1, parseInt(cfg.ui_refresh, 10) || 2);
 
 		var root = common.el('div', 'nm-root');
@@ -147,7 +146,7 @@ return view.extend({
 
 			if (state === 'good') {
 				title = _('Network is healthy');
-				desc = _('所有监控目标均正常响应，延迟低、吞吐稳定。');
+				desc = _('All monitored targets respond normally.');
 			} else if (state === 'warning') {
 				title = _('Network problems detected');
 				desc = _('Some targets are unreachable or unstable. Check detailed target cards below.');
@@ -179,11 +178,8 @@ return view.extend({
 
 		function renderBanners(d) {
 			common.clear(bannerBox);
-			function alertMsg(msg, theme) {
-				var a = document.createElement('t-alert');
-				a.setAttribute('theme', theme);
-				a.textContent = msg;
-				bannerBox.appendChild(a);
+			function alertMsg(msg, kind) {
+				bannerBox.appendChild(common.ui.alert({ text: msg, kind: kind }));
 			}
 			if (!d.running) {
 				alertMsg(_('Background service is not running. Monitoring is stopped.'), 'warning');
@@ -365,21 +361,17 @@ return view.extend({
 			 * 每次 renderFoot 重绘时重新计算，因此状态变化后按钮态
 			 * 会自动跟上，不需要额外的状态同步代码。 */
 			function btn(label, fn, isPrimary, disabled) {
-				var b = document.createElement('t-button');
-				b.setAttribute('theme', isPrimary ? 'primary' : 'default');
-				if (!isPrimary) b.setAttribute('variant', 'outline');
-				b.textContent = label;
-				if (disabled) b.setAttribute('disabled', '');
-				b.addEventListener('click', function() {
-					b.setAttribute('disabled', '');
-					fn().then(function() {
-						common.notify(_('Operation completed'));
-						update();
-					}).catch(function(e) {
-						common.notify(String(e.message || e), 'error');
-					}).then(function() { b.removeAttribute('disabled'); });
+				return common.ui.button({
+					label: label,
+					theme: isPrimary ? 'primary' : 'default',
+					disabled: disabled,
+					onClick: function () {
+						return fn().then(function () {
+							common.notify(_('Operation completed'));
+							update();
+						});
+					}
 				});
-				return b;
 			}
 
 			actRow.appendChild(btn(_('Start'), common.api.startService, true, d.running));

@@ -74,12 +74,12 @@ if ! uci -q show "$NM_CFG" >/dev/null 2>&1; then
 		printf "set %s.alidns.family='ipv4'\n" "$NM_CFG"
 		printf "set %s.alidns.interval='0'\n" "$NM_CFG"
 		printf "set %s.alidns.timeout='3'\n" "$NM_CFG"
-		printf "set %s.alidns.enabled='0'\n" "$NM_CFG"
+		printf "set %s.alidns.enabled='1'\n" "$NM_CFG"
 		printf "set %s.alidns.remark=''\n" "$NM_CFG"
 
 		printf 'set %s.cloudflare=target\n' "$NM_CFG"
 		printf "set %s.cloudflare.name='Cloudflare'\n" "$NM_CFG"
-		printf "set %s.cloudflare.host='1.1.1.1'\n" "$NM_CFG"
+		printf "set %s.cloudflare.host='1.0.0.1'\n" "$NM_CFG"
 		printf "set %s.cloudflare.region='overseas'\n" "$NM_CFG"
 		printf "set %s.cloudflare.label='DNS'\n" "$NM_CFG"
 		printf "set %s.cloudflare.proto='icmp'\n" "$NM_CFG"
@@ -87,7 +87,7 @@ if ! uci -q show "$NM_CFG" >/dev/null 2>&1; then
 		printf "set %s.cloudflare.family='ipv4'\n" "$NM_CFG"
 		printf "set %s.cloudflare.interval='0'\n" "$NM_CFG"
 		printf "set %s.cloudflare.timeout='3'\n" "$NM_CFG"
-		printf "set %s.cloudflare.enabled='0'\n" "$NM_CFG"
+		printf "set %s.cloudflare.enabled='1'\n" "$NM_CFG"
 		printf "set %s.cloudflare.remark=''\n" "$NM_CFG"
 
 		printf 'set %s.googledns=target\n' "$NM_CFG"
@@ -100,7 +100,7 @@ if ! uci -q show "$NM_CFG" >/dev/null 2>&1; then
 		printf "set %s.googledns.family='ipv4'\n" "$NM_CFG"
 		printf "set %s.googledns.interval='0'\n" "$NM_CFG"
 		printf "set %s.googledns.timeout='3'\n" "$NM_CFG"
-		printf "set %s.googledns.enabled='0'\n" "$NM_CFG"
+		printf "set %s.googledns.enabled='1'\n" "$NM_CFG"
 		printf "set %s.googledns.remark=''\n" "$NM_CFG"
 	} | uci -q batch
 

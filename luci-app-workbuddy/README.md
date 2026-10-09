@@ -596,7 +596,7 @@ v2.8.0 增加真正走推理路径的测试：
 | 函数 | 行为 |
 | --- | --- |
 | `testUpstreamModel(up, modelName)` @3431 | 直连 `POST {baseUrl}/chat/completions`，body `{model, messages:[{role:'user',content:'ping'}], max_tokens:1, stream:false}`，`curl -sS -m 20`。**能过鉴权 + 能完成一次推理**才算可用 |
-| `testAllUpstreamModels()` @3487 | 遍历所有启用上游的每个模型；模型来源优先级 = 自定义清单 > 最后已知列表 > 现场拉取；去重 + 每上游上限 20 个；跳过 freeAI（它有独立的 `/freeai/test`） |
+| `testAllUpstreamModels()` | 遍历所有启用上游的每个模型；模型来源优先级 = 自定义清单 > 最后已知列表 > 现场拉取；去重 + 每上游上限 20 个 |
 
 端点 `POST /admin/api/upstreams/test-all`，管理页「服务器管理」页签的「批量操作」
 行新增 **「测试全部模型」** 按钮，结果以 ✅/❌ 清单弹窗展示，失败项附上游原始
@@ -1123,6 +1123,75 @@ v2.9.4 让 freeAI 通道恢复可用并把模型全量暴露。本版落地移�
 > 验收方法论：脚本**按 UI 真实发值的形态**（含 null / 空串 / 掩码三态）发
 > 保存请求，才暴露了"UI 表单不带 token 字段"掩护下的端点清空缺陷——
 > 只测 UI 会永远漏掉它。
+
+### freeAI 子系统整体移除与 sensenova 全量模型（v3.0.0）
+
+freeAI 上游授权已停摆，用户拍板整体删除（"这个用不了，单独删除完这个项"）。
+本版**净删 1711 行 / 88597 字节**（10196→8485 行，437137→348540 字节），
+删除后对 `freeai|FRE_|ufreeai|t-free` 做大小写不敏感全文检索为 **0 命中**——
+真删，无桩、无悬挂引用。
+
+#### ① 删除范围（一次自底向上的带断言批删脚本）
+
+| 层 | 删除内容 |
+| --- | --- |
+| 配置与常量 | `FRE_*` 全部常量、`/etc/workbuddy/freeai.json` 读写链路、品牌替换文案、`freModelCache` 等专用缓存 |
+| 协议簇 | `freeaiHttp / Api / Activate / Heartbeat / RefreshPack / Headers / Shape / Purify* / ErrText / Models / SeedOf / SessionId / Status / CurlArgs / Raw / Usable / Upstream` 25 个函数（约 800 行） |
+| 转发路由 | 内置上游 `ufreeai`、`usableUpKeys` / `upstreamStatus` / `extractUsage` / `findUpstreamByPrefix` / `fetchUpstreamModels` / `testAllUpstreamModels` / `modelRefreshTick` 里的 `FRE_UPID` 特判全部拆除；`makeOnChunk` 净化分支还原为直接 `safeSend`；"所有 Key 均失败"与 `args===null` 的 freeAI 专属兜底删除 |
+| 管理页 | 「freeAI」页签按钮、`t-free` 卡片、`renderFree/saveFree/testFree/resetFree`、`/admin/api/freeai/{save,test,reset}` 三端点 |
+| 其他 | `/v1/models` 的 freeAI 合并分支、心跳启动调用、`names` 数组中的 `'free'` 项、state 快照的 `freeai:` 字段 |
+
+**保留未动**：`FREE_MODELS` / `freeModelIds` / `only_free_models` 配置链——
+那是 WorkBuddy 凭据池的免费模型过滤（与 freeAI 无关），一字未改。
+`/etc/workbuddy/freeai.json` 在路由器上一并删除，避免留孤儿配置。
+
+> 删除方法论：40 条边界断言的自底向上批删脚本。断言当场抓出三处侦察笔记与
+> 实际不符（相邻区间被大区间吸收、边界行内容差一行）——没有逐条断言，
+> 这会是一次静默错删。
+
+#### ② sensenova 全量模型暴露（"sensenova 要获取所有模型映射"）
+
+真机验证发现网关 `/v1/models` 只列出 2 个 sensenova 模型。根因是 v2.7.0 的
+短路设计：`routeModels` 一旦看到非空自定义 `modelList`，就**只暴露清单内
+别名、完全不外呼**（防上游挂/限流洗空列表）。每日凌晨刷新
+`modelRefreshTick` 只写模型缓存、**不回填** `modelList`，所以清单遮蔽不会
+自行恢复。
+
+修法走配置层，不改码：用管理 API 清空该上游的自定义清单
+（`/admin/api/upstreams/edit` 的 `models` 传空串 → `modelList/modelMap =
+null`），`/v1/models` 立刻走缓存/现场分支，暴露上游全部 **7 个模型**
+（deepseek-flash / deepseek-v4-flash / deepseek-v4.1-flash / glm-5.2 /
+kimi-k3 / sensenova-6.8-flash-lite / sensenova-u1.5-lite）。
+
+- 模型映射机制完整保留：任何时候再配 `alias=real` 清单即可用别名；
+- 旧的 `gpt-4o→glm-5.2` 别名随清空失效——上游真名已全量可见，建议直接用
+  `sensenova/glm-5.2`；
+- **设计张力（已知取舍）**：再配非空自定义清单会重新遮蔽全量列表。要"全量
+  可见"就不要配自定义清单，这是刻意的防洗空设计，不是 bug；
+- `/metrics` 的 `usage.byUp` 键名本就是上游 id（`u1790326707`），不受影响。
+
+#### ③ 每日 01:00 全模型刷新（确认覆盖 sensenova）
+
+`modelRefreshTick()`（60s tick 判时，`modelRefreshHour` 默认 1）每天对**每个
+enabled 上游**强制 `fetchUpstreamModels` 全量拉取 → 写缓存 +
+`saveModelCache()`（持久化 `/etc/workbuddy/modelcache.json`），随后
+`testAllUpstreamModels()` 逐模型真实 min-chat 探活。删除 `FRE_UPID` 特判后
+该循环覆盖所有剩余上游（含 sensenova），无需额外配置。
+
+#### ④ 上线验收（真机 192.168.69.1，v3.0.0）
+
+| 判据 | 结果 |
+| --- | --- |
+| 静态六项 + 单测 + `ucode -c` | 全部通过（顶层函数 253） |
+| 残留检索 | `freeai\|FRE_\|ufreeai\|t-free` 大小写不敏感 **0 命中**（本地与路由器一致） |
+| 文件一致性 | 本地与路由器 md5 `cac6693d83ae550decba9537b14ecab1`（348540 字节），`/health` `3.0.0` |
+| 旧端点 | `/admin/api/freeai/{test,save}` 登录态访问返回 404 `no such admin endpoint` |
+| 管理页 | `/admin` 66402 字节，内联 JS 47166 字节 `node --check` RC=0；`renderFree`/`t-free` 0 命中 |
+| `/v1/models?refresh=1` | 10 个模型：7 个 sensenova 全量 + 3 个 workbuddy 免费池（`only_free_models` 生效），0 个 freeai |
+| E2E 流式（`sensenova/sensenova-6.8-flash-lite`） | 1719 字节，`data: [DONE]` 收尾，流内 usage `94/16/110` |
+| E2E 非流式（`workbuddy/hy3`） | 1058 字节，`reasoning_content` 正常返回 |
+| 用量记账 | `/metrics` `usage.byUp.u1790326707 = 94/16/110` 与流内**完全一致**；`chat.ok=2 / truncated=0` |
+| 配置清理 | `/etc/workbuddy/freeai.json` 已删除；UCI 无 freeai 残留项 |
 
 ### 管理页安全设计
 

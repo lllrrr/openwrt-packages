@@ -22,7 +22,7 @@ include $(TOPDIR)/rules.mk
 # Depends/Submenu 各异），上百个包共用同一个 Kconfig symbol PACKAGE_luci-app-netmonitor，
 # 最终 .packagedeps/.config 错乱，package/<name>/compile 目标消失。
 # 本仓库曾因此踩坑：CI 工作流定义过 env PKG_NAME=luci-app-netmonitor，已改名。
-PKG_VERSION:=1.4.2
+PKG_VERSION:=1.5.2
 PKG_RELEASE:=1
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_LICENSE_FILES:=LICENSE
@@ -72,28 +72,20 @@ ifeq ($(NETMONITOR_LUCI_MK),)
 $(error Cannot locate luci.mk - please build this package inside an OpenWrt source tree with the LuCI feed installed)
 endif
 
-# 关闭 luci.mk 的 JS/CSS 压缩：jsmin / csstidy 会破坏随包分发的 TDesign bundle。
+# 启用 luci.mk 的 JS/CSS 压缩。
 #
-# luci.mk 里是 `LUCI_MINIFY_JS?=1` / `LUCI_MINIFY_CSS?=1`（?= 而非 :=），
-# 因此只要在 include luci.mk 之前显式赋 0，?= 不会覆盖，本包即跳过压缩。
-# 位置很关键：必须在本行之前，include 之后就晚了（JsMin/CssTidy 在 include 时展开）。
+# 此前必须关掉压缩（LUCI_MINIFY_JS:=0 / LUCI_MINIFY_CSS:=0），原因是被打包
+# 的 TDesign Web Components：tdesign.min.js 是 7 MB 的第三方 UMD bundle，
+# jsmin 处理它会从语句中间切断（28 行压成 3 行、删掉 691636 字节），
+# 产出的文件语法错误，TDesign 运行时整个不加载。
 #
-# 为什么必须关：TDesign Web Components 的 tdesign.min.js 是 7 MB 的第三方 UMD
-# bundle（v1.2.10），内含 /*! ... */ 许可证注释与超长行。实测 jsmin 处理它会
-# 把 28 行压成 3 行、删掉 691636 字节，且删除点落在语句中间
-# （`var fu=...self:{};` 与紧随其后的 `!function(e){if(!e.WeakMap){` 之间），
-# 产出的文件 node --check 直接报 SyntaxError，浏览器报
-# `missing ) after argument list`，TDesign 运行时整个不加载（window.TDesign
-# 未定义，七个页面全部退化成无样式的自定义标签）。
+# TDesign 依赖已整体移除（改为项目自建的 htdocs/.../netmonitor/ui.js 原生
+# 组件层），前端全部是自有源码，总量约 150 KB，jsmin/csstidy 处理起来没有
+# 风险，因此这里恢复 OpenWrt 默认的压缩行为。
 #
-# 同一现象也解释了 13 个文件「大小对不上」：jsmin 对每个 .js 都剥掉头部注释，
-# csstidy 同理，这是压缩的正常行为，真正致命的只有 tdesign.min.js 被切坏。
-#
-# 本包前端代码本就是压缩过的成品，源文件不含可再压缩的冗余；关掉压缩换来的是
-# 「包内文件与仓库源码逐字节一致」，实测校验方式见 README 第十二章。
-# 代价是包体积略大（tdesign.min.js 未压缩 7 MB），对 modern 存储的路由器可接受。
-LUCI_MINIFY_JS:=0
-LUCI_MINIFY_CSS:=0
+# 收益：ipk/apk 体积与传输量下降（style.css 58 KB -> 约 44 KB）。
+LUCI_MINIFY_JS:=1
+LUCI_MINIFY_CSS:=1
 
 include $(NETMONITOR_LUCI_MK)
 

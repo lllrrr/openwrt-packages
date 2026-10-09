@@ -22,7 +22,6 @@ return view.extend({
 		common.css();
 		return Promise.all([
 			common.loadI18n(),
-			common.tdesign(),
 			common.api.getConfig()
 		]);
 	},
@@ -30,7 +29,7 @@ return view.extend({
 	render: function(res) {
 		common.css();
 
-		var cfg = (res && res[2]) || {};
+		var cfg = (res && res[1]) || {};
 		var refresh = Math.max(5, parseInt(cfg.ui_refresh, 10) || 2);
 		var range = '1h';
 		var data = null;
@@ -99,14 +98,13 @@ return view.extend({
 		function regionCard(title, x, icon, regKey) {
 			var c = common.tcard('nm-region-card');
 
-			/* 头部：标题与目标数胶囊（t-tag） */
+			/* 头部：标题与目标数胶囊 */
 			var head = common.el('div', 'nm-region-header');
 			head.appendChild(common.el('div', 'nm-region-title', title));
-			var tag = document.createElement('t-tag');
-			tag.setAttribute('theme', regKey === 'cn' ? 'primary' : 'warning');
-			tag.setAttribute('variant', 'light');
-			tag.textContent = (x.total || 0) + ' ' + _('Target count');
-			head.appendChild(tag);
+			head.appendChild(common.ui.chip({
+				text: (x.total || 0) + ' ' + _('Target count'),
+				kind: (regKey === 'cn') ? 'info' : 'warn'
+			}));
 			c.appendChild(head);
 
 			/* 主视觉展台：SVG 与主读数 */

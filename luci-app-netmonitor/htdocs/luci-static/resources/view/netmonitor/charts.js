@@ -27,7 +27,6 @@ return view.extend({
 		common.css();
 		return Promise.all([
 			common.loadI18n(),
-			common.tdesign(),
 			common.api.getConfig()
 		]);
 	},
@@ -35,7 +34,7 @@ return view.extend({
 	render: function(res) {
 		common.css();
 
-		var cfg = (res && res[2]) || {};
+		var cfg = (res && res[1]) || {};
 		var refresh = Math.max(3, parseInt(cfg.ui_refresh, 10) || 2);
 		var range = '15m';
 		var selected = {};
@@ -107,7 +106,7 @@ return view.extend({
 		row.appendChild(spacer);
 		bar.appendChild(row);
 
-		/* 目标多选胶囊（t-tag，可点击切换） */
+		/* 目标多选胶囊（原生 button，可点击切换） */
 		var chips = common.el('div', 'nm-chips-container');
 		bar.appendChild(chips);
 		page.appendChild(bar);
@@ -174,17 +173,19 @@ return view.extend({
 				(function(s, idx) {
 					var on = !!selected[s.id];
 					var seriesColor = common.palette[idx % common.palette.length];
-					var tag = document.createElement('t-tag');
-					tag.className = 'nm-chip-tag';
-					tag.setAttribute('theme', on ? 'primary' : 'default');
-					tag.setAttribute('variant', on ? 'light' : 'outline');
-					/* 胶囊是可点切换的开关，语义上等同 checkbox：
-					 * 给 role / tabindex / aria-pressed 后，键盘用户能聚焦
-					 * 并用 Enter / 空格切换，读屏也会播报「已按下」状态。 */
-					tag.setAttribute('role', 'button');
-					tag.setAttribute('tabindex', '0');
+					/* 可点切换的胶囊：用原生 <button> 而非 div/自定义元素。
+					 * 原生按钮自带键盘可达与回车激活，无需再手工补 keydown；
+					 * aria-pressed 让读屏播报「已按下 / 未按下」。 */
+					var tag = common.el('button', 'nm-chip-tag');
+					tag.type = 'button';
+					tag.classList.add(on ? 'is-on' : 'is-off');
 					tag.setAttribute('aria-pressed', on ? 'true' : 'false');
 					tag.setAttribute('aria-label', (s.name || s.id));
+					/* 把该目标在曲线上的颜色以自定义属性交给 CSS。
+					 * 选中态的边框 / 文字 / 底色都由它派生，从而保证
+					 * 「胶囊颜色 == 折线颜色 == 图例颜色」，三处不会漂移；
+					 * 颜色也不需要在样式表里重复硬编码。 */
+					tag.style.setProperty('--nm-chip-color', seriesColor);
 
 					var dot = common.el('span', 'nm-chip-dot');
 					dot.style.backgroundColor = seriesColor;
@@ -198,14 +199,6 @@ return view.extend({
 						drawChart();
 					}
 					tag.addEventListener('click', toggle);
-					/* 自定义元素默认不响应 Enter / 空格，需手动补，
-					 * 否则 role="button" 承诺了可操作性却只有鼠标能用。 */
-					tag.addEventListener('keydown', function(e) {
-						if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
-							e.preventDefault();
-							toggle();
-						}
-					});
 					chips.appendChild(tag);
 				})(data.series[i], i);
 			}

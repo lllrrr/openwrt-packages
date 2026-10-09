@@ -27,7 +27,7 @@
 - 🧮 **轻量流式统计**：基于内存环形缓冲区与 17 桶直方图进行 $O(1)$ 增量计算，实时输出 P50 / P95 / P99 百分位分位数，CPU 消耗与历史长度彻底解耦。
 - 🛡️ **Flash 零损耗设计**：高频点阵全量驻留 `/tmp`（tmpfs），仅可选开启低频聚合落盘；无磁盘写放大，保障路由器闪存寿命。
 - 🎨 **自研动态矢量可视化**：内置 24 个动态响应式 SVG 状态仪表与多维度面积折线图，支持时间切片对齐 Tooltip 与丢包异常标记。
-- 🧩 **TDesign 组件体系**：七个视图页全面采用 TDesign Web Components（卡片 / 按钮 / 标签 / 开关 / 弹窗 / 表单控件），组件库本地随包分发、离线可用，主题变量对接 LuCI 现有主题与暗色模式；动态 SVG 状态动效由真实测量值驱动，与 TDesign 组件按职责分工共存。
+- 🧩 **零依赖原生组件层**：七个视图页的卡片 / 按钮 / 标签 / 提示条 / 弹窗全部由项目自建的 `ui.js` 提供，纯原生 DOM 实现、**不携带任何第三方运行时**（1.5.0 起移除 TDesign，前端资源由 7.4 MB 降到 152 KB）；主题变量对接 LuCI 现有主题与暗色模式；动态 SVG 状态动效由真实测量值驱动。
 
 ---
 
@@ -36,7 +36,7 @@
 ```mermaid
 graph TD
     subgraph Frontend [LuCI 现代前端视图]
-        UI["TDesign Web Components + HTML5 + CSS3 + 原生 ES6 + 自研 SVG 引擎"]
+        UI["自研原生组件层 ui.js + HTML5 + CSS3 + 原生 ES6 + 自研 SVG 引擎"]
     end
 
     subgraph Middleware [ubus / rpcd 鉴权中枢]
@@ -251,7 +251,7 @@ luci-app-netmonitor/
     │   ├── common.js                               # RPC 数据格式化与异常处理中间层
     │   ├── chart.js                                # 自研轻量级 SVG 时序图表库
     │   ├── icons.js                                # 24 个数据驱动内嵌 SVG 动态矢量图标
-    │   └── tdesign/                                # TDesign Web Components 本地化组件库
+    │   └── ui.js                                   # 原生 UI 组件层：按钮 / 标签 / 提示条 / 弹窗（无第三方依赖）
     └── view/netmonitor/                            # 纯客户端渲染单页视图
         ├── overview.js   realtime.js   charts.js
         ├── regions.js    history.js    targets.js  settings.js
