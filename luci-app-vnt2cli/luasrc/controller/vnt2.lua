@@ -513,7 +513,11 @@ function act_ctrl_query()
 		e.error = err or "查询失败"
 	else
 		e.ok = true
-		e.text = text
+		-- vnt2_ctrl emits timestamps in UTC (vnt-ipc ts_to_string). The clients
+		-- list carries a "Last Connected Time" column in that format; rewrite any
+		-- "YYYY-MM-DD HH:MM:SS" token to the device local timezone. route/ips
+		-- output has no such token, so the gsub is a no-op there.
+		e.text = text:gsub("(%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d)", utc_str_to_local)
 	end
 	json_write(e)
 end
@@ -527,9 +531,9 @@ end
 
 local function write_runtime_log()
 	plain_write(textutil.merge_log_files({
-		CLIENT_LOG_FILE,
-		CLI_STDERR_LOG,
-		DOWNLOAD_LOG_FILE
+		{ path = CLIENT_LOG_FILE, utc = true },
+		{ path = CLI_STDERR_LOG, utc = true },
+		{ path = DOWNLOAD_LOG_FILE, utc = false }
 	}, LOG_DISPLAY_LINES))
 end
 
@@ -540,6 +544,7 @@ end
 -- to the responsible setting (e.g. invalid IP -> 虚拟IP/网段设置).
 local function get_cli_start_error()
 	local tail = textutil.read_log_file(CLI_STDERR_LOG, 30) or ""
+	tail = tail:gsub("(%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d)", utc_str_to_local)
 	tail = tail:gsub("%s+$", "")
 	if tail ~= "" then
 		-- Keep only the last ~12 lines to stay readable.
@@ -556,6 +561,7 @@ local function get_cli_start_error()
 	end
 
 	local log = textutil.read_log_file(CLIENT_LOG_FILE, 60) or ""
+	log = log:gsub("(%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d)", utc_str_to_local)
 	local errors = {}
 	for line in (log .. "\n"):gmatch("(.-)\n") do
 		if line:match("ERROR") or line:lower():match("panic")
