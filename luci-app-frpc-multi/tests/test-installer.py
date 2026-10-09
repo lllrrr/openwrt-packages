@@ -14,7 +14,7 @@ for mode,arch,pkgarch,old in cases:
   with tarfile.open(archive,'w:gz') as f:
    m=tarfile.TarInfo('frp_0.66.0_linux_'+frparch+'/frpc');m.size=len(core);m.mode=0o755;f.addfile(m,io.BytesIO(core))
   sha=hashlib.sha256(archive.read_bytes()).hexdigest()
-  filename='luci-app-frpc-multi-1.0.0-r10-noarch.apk' if mode=='apk' else 'luci-app-frpc-multi_1.0.0-r10_all.ipk'
+  filename='luci-app-frpc-multi-1.0.0-r11-noarch.apk' if mode=='apk' else 'luci-app-frpc-multi_1.0.0-r11_all.ipk'
   (t/'sums').write_text(digest+'  '+filename+'\n');(t/'package').write_bytes(payload)
   def executable(path,content):path.parent.mkdir(parents=True,exist_ok=True);path.write_text(content);path.chmod(0o755)
   executable(bin/'id','#!/bin/sh\necho 0\n')

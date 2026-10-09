@@ -2,8 +2,8 @@
 # OpenWrt one-command installer: native dependencies + compatible FRPC core if required.
 set -eu
 REPO=https://github.com/myc2002/luci-app-frpc-multi
-TAG=v1.0.0-r10
-VERSION=1.0.0-r10
+TAG=v1.0.0-r11
+VERSION=1.0.0-r11
 PKG=luci-app-frpc-multi
 [ "$(id -u)" = 0 ] || { echo '请以 root 运行。' >&2; exit 1; }
 ARCH=$(uname -m)

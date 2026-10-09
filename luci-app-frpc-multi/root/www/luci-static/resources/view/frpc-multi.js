@@ -15,9 +15,10 @@ const callAction = rpc.declare({ object: 'luci.frpc-multi', method: 'action', pa
 
 const STYLE = E('style', {}, [`
 .fm-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;margin:8px 0 18px}
-.fm-card{border:1px solid var(--border-color-medium,#ddd);border-radius:10px;padding:12px 14px;background:var(--background-color-high,#fff)}
+.fm-card{border:1px solid var(--border-color-medium,#ddd);border-radius:8px;padding:12px 16px;background:var(--background-color-high,#fff)}
 .fm-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .fm-head b{font-size:1.05em}
+.fm-head>span{margin-left:auto;font-size:.9em}
 .fm-dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex:0 0 auto}
 .fm-ok{background:#2e9e44}.fm-warn{background:#e0a100}.fm-bad{background:#d63b3b}.fm-off{background:#999}
 .fm-sub{opacity:.75;font-size:.9em;margin:2px 0 8px}
@@ -35,11 +36,11 @@ function badge(cls, text) {
 function connBadge(c) {
 	if (!c.enabled) return badge('fm-off', _('已停用'));
 	if (!c.running) return badge('fm-bad', _('未运行'));
-	if (c.api != 'ok') return badge('fm-warn', _('运行中（状态读取中）'));
+	if (c.api != 'ok') return badge('fm-warn', _('运行中'));
 	const live = Object.values(c.live);
 	if (live.length && live.every(p => p.status == 'running')) return badge('fm-ok', _('已连接'));
-	if (live.some(p => p.status == 'running')) return badge('fm-warn', _('部分代理异常'));
-	return badge('fm-warn', _('运行中，未连上服务器'));
+	if (live.some(p => p.status == 'running')) return badge('fm-warn', _('部分异常'));
+	return badge('fm-warn', _('未连接'));
 }
 
 function proxyBadge(c, p) {
@@ -55,16 +56,16 @@ function showLog(id, name) {
 	ui.showModal(_('日志') + ' — ' + name, [
 		pre,
 		E('div', { 'class': 'right', 'style': 'margin-top:8px' }, [
-			E('button', { 'class': 'btn', 'click': () => callLog(id, 300).then(t => { pre.textContent = t || _('（暂无日志）'); pre.scrollTop = pre.scrollHeight; }) }, _('刷新')),
+			E('button', { 'class': 'btn', 'click': () => callLog(id, 300).then(t => { pre.textContent = t || _('暂无日志'); pre.scrollTop = pre.scrollHeight; }) }, _('刷新')),
 			' ',
 			E('button', { 'class': 'btn cbi-button-neutral', 'click': ui.hideModal }, _('关闭'))
 		])
 	]);
-	callLog(id, 300).then(t => { pre.textContent = t || _('（暂无日志）'); pre.scrollTop = pre.scrollHeight; });
+	callLog(id, 300).then(t => { pre.textContent = t || _('暂无日志'); pre.scrollTop = pre.scrollHeight; });
 }
 
 function doAction(id, op) {
-	if (op == 'disable' && !confirm(_('停用后该连接会断开，开机和看门狗都不会再启动它，直到重新启用。确定停用？')))
+	if (op == 'disable' && !confirm(_('停用后该连接将断开，开机和看门狗都不会再启动它。确定停用？')))
 		return Promise.resolve();
 	return callAction(id, op).then(r => {
 		if (r && r.error) {
@@ -84,7 +85,7 @@ let cardsEl;
 
 function renderCards(conns) {
 	if (!conns.length)
-		return E('p', { 'class': 'fm-sub' }, _('还没有连接。点击下方「添加连接…」新建一个连接到主端（frps）。'));
+		return E('p', { 'class': 'fm-sub' }, _('暂无连接，点击下方「添加连接…」开始配置。'));
 	return E('div', { 'class': 'fm-cards' }, conns.map(c => {
 		const rows = c.proxies.map(p => {
 			const l = c.live[p.name];
@@ -96,8 +97,8 @@ function renderCards(conns) {
 		});
 		return E('div', { 'class': 'fm-card' }, [
 			E('div', { 'class': 'fm-head' }, [E('b', {}, c.name), connBadge(c)]),
-			E('div', { 'class': 'fm-sub' }, [_('主端') + ' ' + c.server, c.pid ? '  ·  PID ' + c.pid : '']),
-			rows.length ? E('table', { 'class': 'fm-plist' }, rows) : E('div', { 'class': 'fm-sub' }, _('没有代理规则')),
+			E('div', { 'class': 'fm-sub' }, [c.server, c.pid ? '  ·  PID ' + c.pid : '']),
+			rows.length ? E('table', { 'class': 'fm-plist' }, rows) : E('div', { 'class': 'fm-sub' }, _('暂无代理规则')),
 			E('div', { 'class': 'fm-btns' }, [
 				c.enabled
 					? E('button', { 'class': 'btn cbi-button-action', 'click': ui.createHandlerFn(this, doAction, c.id, 'restart') }, _('重启'))
@@ -142,7 +143,7 @@ return view.extend({
 
 	render(data) {
 		const m = new form.Map(CONFIG, _('frp 多客户端'),
-			_('每个「连接」都是一个独立的 frpc 进程，连接到一台主端（frps）。可以无限添加，互不影响；崩溃或连不上会自动无限重试，并有每分钟看门狗兜底。'));
+			_('每个连接对应一个独立的 frpc 进程，可同时连接多个 frp 服务端。'));
 
 		let s, o;
 
@@ -159,11 +160,11 @@ return view.extend({
 		s.addremove = false;
 		o = s.option(form.Flag, 'enabled', _('启用插件'));
 		o.default = '1'; o.rmempty = false;
-		o = s.option(form.Flag, 'watchdog', _('看门狗'), _('每分钟检查：已启用但没在运行的连接会被重新启动。'));
+		o = s.option(form.Flag, 'watchdog', _('看门狗'), _('每分钟检查一次，自动拉起意外退出的连接。'));
 		o.default = '1'; o.rmempty = false;
 
 		// --- connections ---
-		s = m.section(form.GridSection, 'server', _('连接（主端）'));
+		s = m.section(form.GridSection, 'server', _('连接'));
 		s.addremove = true;
 		// anonymous: no section-name input box; the visible name is the 名称 (alias) field.
 		// Sections still get a stable internal ID (auto-generated for new ones) that is
@@ -182,8 +183,8 @@ return view.extend({
 		s.tab('advanced', _('高级'));
 
 		o = s.taboption('basic', form.Value, 'alias', _('名称'),
-			_('在本页面显示的名字，可以随时修改，支持中文。'));
-		o.placeholder = _('例如：家宽-日本 VPS');
+			_('仅用于本页面显示，可随时修改。'));
+		o.placeholder = _('例如：香港节点');
 		o.rmempty = false;
 		o.validate = function(sid, value) {
 			value = (value || '').trim();
@@ -195,26 +196,26 @@ return view.extend({
 		o = s.taboption('basic', form.Flag, 'enabled', _('启用'));
 		o.default = '1'; o.rmempty = false; o.editable = true;
 		o = s.taboption('basic', form.DummyValue, '_id', _('内部 ID'),
-			_('自动生成，不可修改；仅用于进程名和日志标识（frpc-ID）。'));
+			_('自动生成，用于进程名和日志标识。'));
 		o.modalonly = true;
 		o.cfgvalue = (sid) => sid;
-		o = s.taboption('basic', form.Value, 'server_addr', _('主端地址'));
+		o = s.taboption('basic', form.Value, 'server_addr', _('服务端地址'));
 		o.datatype = 'host'; o.rmempty = false;
-		o = s.taboption('basic', form.Value, 'server_port', _('主端端口'));
+		o = s.taboption('basic', form.Value, 'server_port', _('服务端端口'));
 		o.datatype = 'port'; o.placeholder = '7000';
-		o = s.taboption('basic', form.Value, 'token', _('令牌（token）'));
+		o = s.taboption('basic', form.Value, 'token', _('令牌'));
 		o.password = true; o.modalonly = true;
 		o = s.taboption('basic', form.Flag, 'login_fail_exit', _('登录失败即退出'),
-			_('建议关闭：关闭后连不上主端会一直重试，开机时网络晚就绪也能自动连上。'));
+			_('建议关闭，关闭后连接失败会持续重试，开机时网络较晚就绪也能自动连上。'));
 		o.default = '0'; o.modalonly = true;
-		o = s.taboption('basic', form.Value, 'user', _('用户名前缀（user）'),
-			_('多台客户端连同一主端时用于区分代理名，留空即可。'));
+		o = s.taboption('basic', form.Value, 'user', _('用户名前缀'),
+			_('多台客户端连接同一服务端时，用于区分代理名，一般留空。'));
 		o.modalonly = true;
 
 		o = s.taboption('transport', form.ListValue, 'protocol', _('协议'));
 		['tcp', 'kcp', 'quic', 'websocket', 'wss'].forEach(v => o.value(v));
 		o.default = 'tcp'; o.modalonly = true;
-		o = s.taboption('transport', form.Flag, 'tls_enable', _('TLS 加密'), _('frp 0.50+ 默认开启；主端未开启时请关闭。'));
+		o = s.taboption('transport', form.Flag, 'tls_enable', _('TLS 加密'), _('需与服务端设置一致。'));
 		o.default = '1'; o.rmempty = false; o.modalonly = true;
 		o = s.taboption('transport', form.Flag, 'tcp_mux', _('TCP 多路复用'));
 		o.default = '1'; o.modalonly = true;
@@ -224,8 +225,8 @@ return view.extend({
 		o.datatype = 'integer'; o.placeholder = '30'; o.modalonly = true;
 		o = s.taboption('transport', form.Value, 'heartbeat_timeout', _('心跳超时（秒）'));
 		o.datatype = 'integer'; o.placeholder = '90'; o.modalonly = true;
-		o = s.taboption('transport', form.Value, 'http_proxy', _('经代理连接主端'),
-			_('例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:7891，留空直连。'));
+		o = s.taboption('transport', form.Value, 'http_proxy', _('通过代理连接'),
+			_('如 http://127.0.0.1:7890 或 socks5://127.0.0.1:7891，留空为直连。'));
 		o.modalonly = true;
 
 		o = s.taboption('advanced', form.Value, 'dns_server', _('DNS 服务器'));
@@ -233,13 +234,13 @@ return view.extend({
 		o = s.taboption('advanced', form.ListValue, 'log_level', _('日志级别'));
 		['trace', 'debug', 'info', 'warn', 'error'].forEach(v => o.value(v));
 		o.default = 'info'; o.modalonly = true;
-		o = s.taboption('advanced', form.Flag, 'respawn', _('崩溃后自动重启'), _('无限次重启。'));
+		o = s.taboption('advanced', form.Flag, 'respawn', _('异常退出后自动重启'));
 		o.default = '1'; o.modalonly = true;
 		o = s.taboption('advanced', form.DynamicList, 'extra', _('附加 TOML 行'),
-			_('直接写入该连接配置的 TOML 行，例如 <code>transport.dialServerTimeout = 10</code>。'));
+			_('直接写入该连接配置，如 <code>transport.dialServerTimeout = 10</code>。'));
 		o.modalonly = true;
 
-		o = s.option(form.DummyValue, '_addr', _('主端'));
+		o = s.option(form.DummyValue, '_addr', _('服务端'));
 		o.modalonly = false;
 		o.textvalue = (sid) => (uci.get(CONFIG, sid, 'server_addr') || '?') + ':' + (uci.get(CONFIG, sid, 'server_port') || '7000');
 
@@ -273,13 +274,13 @@ return view.extend({
 		o.datatype = 'host'; o.placeholder = '127.0.0.1'; o.modalonly = true;
 		o = s.taboption('general', form.Value, 'local_port', _('本地端口'));
 		o.datatype = 'port';
-		o = s.taboption('general', form.Value, 'remote_port', _('远程端口'), _('主端上开放的端口；0 表示由主端分配。'));
+		o = s.taboption('general', form.Value, 'remote_port', _('远程端口'), _('服务端对外开放的端口，填 0 由服务端分配。'));
 		o.datatype = 'port'; o.depends('type', 'tcp'); o.depends('type', 'udp');
 		o = s.taboption('general', form.Flag, 'use_encryption', _('加密'));
 		o.modalonly = true;
 		o = s.taboption('general', form.Flag, 'use_compression', _('压缩'));
 		o.modalonly = true;
-		o = s.taboption('general', form.Value, 'bandwidth_limit', _('带宽限制'), _('例如 1MB、500KB，留空不限。'));
+		o = s.taboption('general', form.Value, 'bandwidth_limit', _('带宽限制'), _('如 1MB、500KB，留空不限制。'));
 		o.modalonly = true;
 
 		o = s.taboption('http', form.DynamicList, 'custom_domains', _('自定义域名'));
@@ -296,7 +297,7 @@ return view.extend({
 		o.depends('type', 'http'); o.modalonly = true;
 
 		o = s.taboption('secret', form.ListValue, 'role', _('角色'));
-		o.value('server', _('被访问端（server）')); o.value('visitor', _('访问端（visitor）'));
+		o.value('server', _('被访问端')); o.value('visitor', _('访问端'));
 		['stcp', 'xtcp', 'sudp'].forEach(t => o.depends('type', t)); o.modalonly = true;
 		o = s.taboption('secret', form.Value, 'secret_key', _('密钥（secretKey）'));
 		o.password = true; ['stcp', 'xtcp', 'sudp'].forEach(t => o.depends('type', t)); o.modalonly = true;
@@ -309,7 +310,7 @@ return view.extend({
 		o = s.taboption('secret', form.DynamicList, 'allow_users', _('允许的访问用户'));
 		o.depends('role', 'server'); o.modalonly = true;
 
-		o = s.taboption('plugin', form.ListValue, 'plugin', _('插件'), _('使用插件时不需要本地地址和端口。'));
+		o = s.taboption('plugin', form.ListValue, 'plugin', _('插件'), _('使用插件时无需填写本地地址和端口。'));
 		o.value('', _('不使用'));
 		['http_proxy', 'socks5', 'static_file', 'unix_domain_socket'].forEach(v => o.value(v));
 		o.modalonly = true;

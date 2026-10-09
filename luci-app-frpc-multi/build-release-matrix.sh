@@ -1,7 +1,7 @@
 #!/bin/sh
 # Script-only packages: APK noarch and IPK all. CPU-specific frpc stays separate.
 set -eu
-VER=${VER:-1.0.0-r10}
+VER=${VER:-1.0.0-r11}
 SRC=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 OUT=${OUT:-$SRC/dist}
 mkdir -p "$OUT"

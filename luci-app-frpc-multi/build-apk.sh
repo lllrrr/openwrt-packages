@@ -4,7 +4,7 @@
 set -eu
 SRC=${1:?srcdir}
 OUT=${2:?outdir}
-VER=${VER:-1.0.0-r10}
+VER=${VER:-1.0.0-r11}
 NAME=luci-app-frpc-multi
 PROJECT_URL=${PROJECT_URL:-https://github.com/myc2002/luci-app-frpc-multi}
 APK_LICENSE=${APK_LICENSE:-Apache-2.0 AND GPL-2.0-only}
