@@ -1,0 +1,379 @@
+#!/usr/bin/ucode
+// rpcd ucode 插件：为 LuCI 提供 WorkBuddy 代理的只读状态与管理页密码设置。
+//
+// 职责划分（v1.3.0 起）：
+//   - LuCI 侧：仅展示运行状态，并设置「管理页管理员密码」
+//   - 管理网页 /admin：API 密钥、凭据池、模型策略等日常管理
+// 因此这里不再暴露密钥增删改方法，避免两处维护同一份配置。
+//
+// 依据 rpcd 官方 ucode 插件约定（参考 /usr/share/rpcd/ucode/luci.homeproxy）：
+//   脚本返回 { '对象名': methods }，方法用 args:{字段:类型} 声明入参，
+//   call(req) 里取 req.args?.字段。
+//
+// 注意：ubus 对参数类型校验很严，声明为 String 的字段传布尔/数字会被拒
+// （Invalid argument），因此启用/禁用一类的参数一律声明为 String，
+// 由 truthy() 在服务端归一。
+
+'use strict';
+
+import { readfile, popen, unlink, access } from 'fs';
+import * as uci from 'uci';
+
+const TOKEN_DEFAULT = '/etc/workbuddy/token.json';
+const POOL_FILE = '/etc/workbuddy/pool.json';
+const KEY_FILE = '/etc/workbuddy/apikeys.json';
+const ENDPOINT_DEFAULT = 'https://www.workbuddy.ai';
+const CLIENT_VERSION = '5.5.2';
+
+// ---------- 基础工具 ----------
+
+function loadConf() {
+	let conf = {
+		enabled: true,
+		port: 8789,
+		host: '0.0.0.0',
+		endpoint: ENDPOINT_DEFAULT,
+		token_file: TOKEN_DEFAULT,
+		share_token: '',
+		client_version: CLIENT_VERSION,
+		only_free_models: '1',
+		auto_client_version: '1',
+		admin_password: '',
+	};
+
+	let ctx;
+	try {
+		ctx = uci.cursor();
+	} catch (e) {
+		return conf;
+	}
+
+	let all = ctx.get_all('workbuddy') || {};
+	let main = all.main || {};
+	for (let k in main) {
+		// uci 会带出 .anonymous / .type / .name / .index 这类元数据键。
+		// 它们必须以点号开头，直接塞进返回对象会让 rpcd 的 ubus
+		// 序列化失败（表现为 "Command failed: ... (Unknown error)"）。
+		if (substr('' + k, 0, 1) === '.') continue;
+		if (main[k] === '' || main[k] === null) continue;
+		conf[k] = main[k];
+	}
+
+	conf.port = +conf.port || 8789;
+	conf.enabled = ('' + conf.enabled) !== '0';
+	conf.onlyFree = ('' + conf.only_free_models) !== '0';
+	conf.autoVersion = ('' + conf.auto_client_version) !== '0';
+	conf.adminPass = '' + (conf.admin_password || '');
+	return conf;
+}
+
+function run(cmdline) {
+	let buf = '';
+	try {
+		let p = popen(cmdline, 'r');
+		if (!p) return null;
+		let chunk;
+		while ((chunk = p.read(8192)) !== null && length(chunk) > 0)
+			buf += chunk;
+		p.close();
+	} catch (e) {
+		return null;
+	}
+	return buf;
+}
+
+function readJsonFile(path) {
+	try {
+		if (!access(path, 'f')) return null;
+		let raw = readfile(path);
+		if (!raw) return null;
+		return json(raw);
+	} catch (e) {
+		return null;
+	}
+}
+
+function readToken(conf) {
+	try {
+		let raw = readfile(conf.token_file);
+		if (!raw) return null;
+		let j = json(raw);
+		if (type(j) !== 'object' || j === null) return null;
+		if (type(j.accessToken) !== 'string' || length(j.accessToken) === 0) return null;
+		return j;
+	} catch (e) {
+		return null;
+	}
+}
+
+function readKeys() {
+	let j = readJsonFile(KEY_FILE);
+	if (j === null || type(j.keys) !== 'array') return [];
+	return j.keys;
+}
+
+function readPool() {
+	let j = readJsonFile(POOL_FILE);
+	if (j === null || type(j.credentials) !== 'array') return [];
+	return j.credentials;
+}
+
+function isRunning() {
+	// 注意：不要在这里调用 ubus（例如 `ubus call service list`）。
+	// rpcd 是单线程的，从 rpcd 方法内部再发 ubus 请求会自等待并卡死，
+	// 表现为 ubus 调用方收到 "Command failed: ... (Unknown error)"。
+	// 因此只用文件系统与进程表判断。
+	try {
+		if (access('/var/run/workbuddy.pid', 'f')) return true;
+	} catch (e) { }
+
+	let out = run('ps w 2>/dev/null');
+	if (out === null) return false;
+	for (let line in split(out, '\n')) {
+		if (index(line, 'grep') >= 0) continue;
+		if (index(line, 'workbuddy.uc') >= 0) return true;
+	}
+	return false;
+}
+
+function quote(s) {
+	return "'" + replace('' + s, "'", "'\\''") + "'";
+}
+
+function maskToken(t) {
+	if (type(t) !== 'string' || length(t) === 0) return { length: 0, tail: '' };
+	return { length: length(t), tail: substr(t, length(t) - 8) };
+}
+
+// rpcd 可能把布尔参数以字符串形式传入（"true"/"1"），这里统一判定
+function truthy(v) {
+	return (v === true || v === 1 || v === '1' || v === 'true' || v === 'on' || v === 'yes');
+}
+
+// ---------- 插件方法 ----------
+
+return {
+	workbuddy: {
+		status: {
+			call: function() {
+				let conf = loadConf();
+				let token = readToken(conf);
+				let running = isRunning();
+				let reachable = false;
+				let health = null;
+
+				if (running) {
+					let h = run('curl -sS -m 5 ' + quote('http://127.0.0.1:' + conf.port + '/health') + ' 2>/dev/null');
+					if (h !== null && index(h, '"ok"') >= 0) {
+						reachable = true;
+						try { health = json(h); } catch (e) { }
+					}
+				}
+
+				let tokenInfo = {
+					present: token !== null,
+					file: '' + conf.token_file,
+					syncedAt: token ? ('' + (token.syncedAt || '')) : '',
+				};
+				if (token && type(token.accessToken) === 'string') {
+					let m = maskToken(token.accessToken);
+					tokenInfo.length = m.length;
+					tokenInfo.tail = '' + m.tail;
+				}
+
+				let keys = readKeys();
+				let pool = readPool();
+				let credCount = length(pool);
+				if (token) credCount++;
+
+				// 定义过的密钥（含被禁用的）决定是否强制鉴权
+				let keysDefined = 0;
+				let keysActive = 0;
+				for (let k in keys) {
+					if (type(k.key) !== 'string' || length(k.key) === 0) continue;
+					keysDefined++;
+					if (k.enabled !== false) keysActive++;
+				}
+
+				// 管理页地址：优先用浏览器当前访问 LuCI 的主机名，
+				// 让用户点开就能用（而不是显示 0.0.0.0）
+				let hostForUrl = (conf.host === '0.0.0.0' || conf.host === '::') ? '' : conf.host;
+
+				return {
+					enabled: conf.enabled,
+					running: running,
+					reachable: reachable,
+					port: conf.port,
+					host: conf.host,
+					endpoint: conf.endpoint,
+					shareToken: (length('' + conf.share_token) > 0),
+					onlyFree: conf.onlyFree,
+					autoVersion: conf.autoVersion,
+					clientVersion: (health && type(health.clientVersion) === 'string')
+						? health.clientVersion
+						: ('' + conf.client_version),
+					credentials: (health && type(health.credentials) === 'int') ? health.credentials : credCount,
+					apiKeys: keysActive,
+					apiKeysDefined: keysDefined,
+					adminEnabled: (length(conf.adminPass) > 0),
+					token: tokenInfo,
+					baseUrl: 'http://' + (hostForUrl || '127.0.0.1') + ':' + conf.port,
+					adminPath: '/admin',
+				};
+			}
+		},
+
+		models: {
+			call: function() {
+				let conf = loadConf();
+
+				// /models 与 /v1/models 走的是同一套鉴权：
+				// 一旦定义过 API 密钥就强制校验，所以本机也要带上密钥。
+				// 这里借用第一条启用中的密钥，仅用于本地回环请求。
+				let key = '';
+				for (let k in readKeys()) {
+					if (type(k) !== 'object' || k === null) continue;
+					if (k.enabled === false) continue;
+					if (type(k.key) !== 'string' || length(k.key) === 0) continue;
+					key = k.key;
+					break;
+				}
+				if (length(key) === 0) key = '' + (conf.share_token || '');
+
+				let url = 'http://127.0.0.1:' + conf.port + '/v1/models';
+				let cmd = 'curl -sS -m 30 ' + quote(url) + ' 2>/dev/null';
+				if (length(key) > 0)
+					cmd = 'curl -sS -m 30 -H ' + quote('Authorization: Bearer ' + key) + ' ' + quote(url) + ' 2>/dev/null';
+
+				let out = run(cmd);
+				if (out === null || length(trim(out)) === 0)
+					return { ok: false, error: '无法获取模型列表（服务未运行或未登录）', models: [] };
+
+				let j;
+				try {
+					j = json(out);
+				} catch (e) {
+					return { ok: false, error: '模型列表解析失败', models: [] };
+				}
+				if (type(j) !== 'object' || j === null || type(j.data) !== 'array')
+					return { ok: false, error: '模型列表格式异常', models: [] };
+
+				let list = [];
+				for (let m in j.data) {
+					if (type(m) !== 'object' || m === null) continue;
+					push(list, {
+						id: '' + (m.id || ''),
+						name: '' + (m.name || m.id || ''),
+						contextWindow: +m.context_window || 0,
+						maxTokens: +m.max_tokens || 0,
+					});
+				}
+				return { ok: true, count: length(list), models: list };
+			}
+		},
+
+		creds_list: {
+			call: function() {
+				let conf = loadConf();
+				let out = [];
+
+				for (let c in readPool()) {
+					if (type(c) !== 'object' || c === null) continue;
+					let m = maskToken(c.accessToken);
+					push(out, {
+						id: '' + (c.id || ''),
+						name: '' + (c.name || ''),
+						source: 'pool',
+						enabled: (c.enabled !== false),
+						length: m.length,
+						tail: '' + m.tail,
+						syncedAt: '' + (c.syncedAt || ''),
+					});
+				}
+
+				let legacy = readToken(conf);
+				if (legacy && type(legacy.accessToken) === 'string') {
+					let m = maskToken(legacy.accessToken);
+					push(out, {
+						id: 'default',
+						name: '网页登录凭据',
+						source: 'legacy',
+						enabled: true,
+						length: m.length,
+						tail: '' + m.tail,
+						syncedAt: '' + (legacy.syncedAt || ''),
+					});
+				}
+
+				return { ok: true, count: length(out), credentials: out };
+			}
+		},
+
+		// ---------- 管理页密码 ----------
+
+		admin_status: {
+			call: function() {
+				let conf = loadConf();
+				return {
+					ok: true,
+					enabled: (length(conf.adminPass) > 0),
+					// 只回传长度，不回传密码本身
+					passwordLength: length(conf.adminPass),
+					adminUrl: 'http://<路由器IP>:' + conf.port + '/admin',
+				};
+			}
+		},
+
+		admin_set_password: {
+			// 用 String 声明：ubus 会拒绝布尔/数字，字符串对两者都兼容
+			args: { password: 'password' },
+			call: function(req) {
+				let pw = '' + (req.args && req.args.password ? req.args.password : '');
+				// 去掉换行，避免写进 UCI 后出现跨行配置
+				pw = replace(pw, '\n', '');
+				pw = replace(pw, '\r', '');
+				pw = trim(pw);
+
+				if (length(pw) > 0 && length(pw) < 6)
+					return { ok: false, error: '密码至少 6 位' };
+				if (length(pw) > 128)
+					return { ok: false, error: '密码过长（最多 128 位）' };
+
+				let ctx;
+				try {
+					ctx = uci.cursor();
+				} catch (e) {
+					return { ok: false, error: '无法打开 uci: ' + e };
+				}
+
+				ctx.set('workbuddy', 'main', 'admin_password', pw);
+				let rc = ctx.commit('workbuddy');
+				if (rc !== true && rc !== 0 && rc !== null)
+					return { ok: false, error: '保存失败' };
+
+				return { ok: true, enabled: (length(pw) > 0) };
+			}
+		},
+
+		// 退出 WorkBuddy 账号（删除网页登录凭据）
+		logout: {
+			call: function() {
+				let conf = loadConf();
+				try {
+					unlink(conf.token_file);
+				} catch (e) {
+					return { ok: false, error: '删除 token 失败: ' + e };
+				}
+				return { ok: true };
+			}
+		},
+
+		// 让服务重载配置（改完管理员密码后调用，使新密码立即生效）
+		reload: {
+			call: function() {
+				run('/etc/init.d/workbuddy reload 2>/dev/null');
+				return { ok: true };
+			}
+		}
+	}
+};

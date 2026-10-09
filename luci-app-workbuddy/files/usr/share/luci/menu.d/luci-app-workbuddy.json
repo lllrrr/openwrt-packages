@@ -1,0 +1,22 @@
+{
+	"admin/services/workbuddy": {
+		"title": "AI 中转服务器",
+		"order": 45,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-workbuddy" ],
+			"fs": { "/usr/share/ucode/workbuddy.uc": "readable" }
+		}
+	},
+
+	"admin/services/workbuddy/status": {
+		"title": "运行状态",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "workbuddy/status"
+		}
+	}
+}

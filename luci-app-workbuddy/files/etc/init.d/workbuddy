@@ -1,0 +1,108 @@
+#!/bin/sh /etc/rc.common
+
+START=95
+STOP=10
+USE_PROCD=1
+
+PROG=/usr/bin/ucode
+SCRIPT=/usr/share/ucode/workbuddy.uc
+POOL=/usr/bin/workbuddy-pool
+CONF=workbuddy
+
+# 上游连接池（workbuddy-pool）。
+#
+# 为什么单独做成一个 procd 实例而不是后台 fork：
+#   - 池挂了要能自愈（procd respawn），而不是靠主服务重启发觉；
+#   - 池的 stdout/stderr 要进 logread，出事才查得到；
+#   - 改配置能跟着 reload 一起重启。
+#
+# 起不来的所有情况都只是「回退直连」，绝不能让整个服务起不来 ——
+# ucode 侧对池的失败是静默降级的（poolFallback），这里只需要如实记录原因。
+start_pool() {
+	local use_pool pool_port keepalive
+
+	config_get_bool use_pool main use_pool 1
+	if [ "$use_pool" -ne 1 ]; then
+		logger -t workbuddy "connection pool disabled by config, using direct curl"
+		return 0
+	fi
+
+	config_get pool_port main pool_port 8790
+	case "$pool_port" in
+		''|*[!0-9]*)
+			logger -t workbuddy "invalid pool_port '$pool_port', pool disabled"
+			return 0
+			;;
+	esac
+	if [ "$pool_port" -lt 1 ] || [ "$pool_port" -gt 65535 ]; then
+		logger -t workbuddy "pool_port $pool_port out of range, pool disabled"
+		return 0
+	fi
+
+	if [ ! -x "$POOL" ]; then
+		logger -t workbuddy "pool binary not found at $POOL, using direct curl"
+		return 0
+	fi
+
+	config_get keepalive main pool_keepalive 30
+	case "$keepalive" in
+		''|*[!0-9]*) keepalive=30 ;;
+	esac
+
+	# 只绑回环：主服务可能对公网开放（wan_access），这个池绝不能跟着暴露出去，
+	# 否则任何人都能拿它当跳板访问任意地址。
+	procd_open_instance pool
+	procd_set_param command "$POOL" -listen "127.0.0.1:$pool_port" -keepalive "${keepalive}s"
+	procd_set_param respawn 3600 5 5
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param file /etc/config/$CONF
+	procd_close_instance
+
+	logger -t workbuddy "connection pool listening on 127.0.0.1:$pool_port (keepalive ${keepalive}s)"
+}
+
+start_service() {
+	config_load "$CONF"
+
+	local enabled port host
+	config_get_bool enabled main enabled 1
+	if [ "$enabled" -ne 1 ]; then
+		logger -t workbuddy "service disabled in /etc/config/$CONF"
+		return 0
+	fi
+
+	config_get port main port 8789
+	config_get host main host '0.0.0.0'
+
+	# 凭据目录：确保存在且权限收敛
+	mkdir -p /etc/workbuddy
+	chmod 700 /etc/workbuddy
+
+	# 必须先起池、再起主服务：主服务一监听就可能有请求进来，
+	# 池还没起来的话第一个请求要先白等一次连接超时才会回退直连。
+	start_pool
+
+	procd_open_instance workbuddy
+	procd_set_param command "$PROG" "$SCRIPT"
+	procd_set_param respawn 3600 5 5
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param file /etc/config/$CONF
+	procd_close_instance
+
+	logger -t workbuddy "starting on $host:$port"
+}
+
+stop_service() {
+	logger -t workbuddy "stopping"
+}
+
+service_triggers() {
+	procd_add_reload_trigger "$CONF"
+}
+
+reload_service() {
+	stop
+	start
+}

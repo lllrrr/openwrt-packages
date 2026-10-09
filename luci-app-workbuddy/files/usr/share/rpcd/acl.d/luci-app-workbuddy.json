@@ -1,0 +1,20 @@
+{
+	"luci-app-workbuddy": {
+		"description": "Grant access to AI relay server (AI 中转服务器) status and admin password",
+		"read": {
+			"ubus": {
+				"workbuddy": [ "status", "models", "creds_list", "admin_status" ]
+			},
+			"uci": [ "workbuddy" ]
+		},
+		"write": {
+			"ubus": {
+				"workbuddy": [ "admin_set_password", "logout", "reload" ]
+			},
+			"uci": [ "workbuddy" ],
+			"file": {
+				"/etc/workbuddy/token.json": [ "write" ]
+			}
+		}
+	}
+}

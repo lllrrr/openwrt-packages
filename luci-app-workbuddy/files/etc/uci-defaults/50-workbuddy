@@ -1,0 +1,119 @@
+#!/bin/sh
+# 首次安装时准备运行环境
+
+[ -f /etc/config/workbuddy ] || exit 0
+
+mkdir -p /etc/workbuddy
+chmod 700 /etc/workbuddy
+
+# 旧版本可能残留的 token 位置，迁移到新路径
+if [ -f /etc/workbuddy.json ] && [ ! -f /etc/workbuddy/token.json ]; then
+	mv /etc/workbuddy.json /etc/workbuddy/token.json 2>/dev/null
+fi
+[ -f /etc/workbuddy/token.json ] && chmod 600 /etc/workbuddy/token.json
+[ -f /etc/workbuddy/pool.json ] && chmod 600 /etc/workbuddy/pool.json
+[ -f /etc/workbuddy/apikeys.json ] && chmod 600 /etc/workbuddy/apikeys.json
+
+# 补充旧配置缺失的默认项（幂等）
+uci -q get workbuddy.main.only_free_models >/dev/null 2>&1 || uci -q set workbuddy.main.only_free_models='1'
+
+# v1.8.0：并发上限 / 排队 / 连接池。
+#
+# 这些项在 ucode 里都有内置默认值，不写进 UCI 也能正常工作 ——
+# 补写的目的只是让升级用户能在 /etc/config/workbuddy 里看到并调整它们，
+# 否则这些新旋钮对老用户等于不存在。
+uci -q get workbuddy.main.up_max_inflight  >/dev/null 2>&1 || uci -q set workbuddy.main.up_max_inflight='4'
+uci -q get workbuddy.main.wb_max_inflight  >/dev/null 2>&1 || uci -q set workbuddy.main.wb_max_inflight='6'
+uci -q get workbuddy.main.queue_max        >/dev/null 2>&1 || uci -q set workbuddy.main.queue_max='32'
+uci -q get workbuddy.main.queue_timeout    >/dev/null 2>&1 || uci -q set workbuddy.main.queue_timeout='20'
+uci -q get workbuddy.main.use_pool         >/dev/null 2>&1 || uci -q set workbuddy.main.use_pool='1'
+uci -q get workbuddy.main.pool_port        >/dev/null 2>&1 || uci -q set workbuddy.main.pool_port='8790'
+uci -q get workbuddy.main.pool_keepalive   >/dev/null 2>&1 || uci -q set workbuddy.main.pool_keepalive='30'
+
+# v1.8.1：上游限流刹车。
+uci -q get workbuddy.main.rl_brake_hits     >/dev/null 2>&1 || uci -q set workbuddy.main.rl_brake_hits='4'
+uci -q get workbuddy.main.rl_brake_window   >/dev/null 2>&1 || uci -q set workbuddy.main.rl_brake_window='20'
+uci -q get workbuddy.main.rl_brake_sec      >/dev/null 2>&1 || uci -q set workbuddy.main.rl_brake_sec='8'
+uci -q get workbuddy.main.rl_brake_max_ra   >/dev/null 2>&1 || uci -q set workbuddy.main.rl_brake_max_ra='15'
+
+# v1.8.2：静默看门狗两档阈值。
+#
+# 必须补写而不是只靠 ucode 内置默认值：老用户升级后如果这两项在 UCI 里
+# 不存在，就看不到也调不了；而首字节档正是 v1.8.2 解决客户端长尾的关键旋钮。
+uci -q get workbuddy.main.up_first_byte_sec >/dev/null 2>&1 || uci -q set workbuddy.main.up_first_byte_sec='12'
+uci -q get workbuddy.main.up_idle_sec       >/dev/null 2>&1 || uci -q set workbuddy.main.up_idle_sec='25'
+uci -q get workbuddy.main.wb_idle_sec       >/dev/null 2>&1 || uci -q set workbuddy.main.wb_idle_sec='75'
+
+# v1.8.3：上游响应回环桥（v1.8.4 修好）。
+#
+# 修的是一个只在并发下暴露的静默截断缺陷（ucode 的 popen 管道 + uloop 读循环
+# 会丢可读事件，响应在 16384 字节整数倍处被当成流结束），详见 ucode 里的长注释。
+# v1.8.3 的桥漏了管道尾部的 ` &`，导致 proc.close() 阻塞单线程事件循环、
+# 60 并发即全站瘫痪；v1.8.4 已在 bridgeWrap() 里补上，故这里仍默认开启。
+# 同样必须补写：老用户升级后要能看到并关掉它（bridge_port='0' 回退旧读法）。
+uci -q get workbuddy.main.bridge_port >/dev/null 2>&1 || uci -q set workbuddy.main.bridge_port='8791'
+
+# v2.0：会话粘性 / 内网上游白名单。
+uci -q get workbuddy.main.up_sticky_sec        >/dev/null 2>&1 || uci -q set workbuddy.main.up_sticky_sec='900'
+uci -q get workbuddy.main.allow_private_upstream >/dev/null 2>&1 || uci -q set workbuddy.main.allow_private_upstream='1'
+
+# ---------- 端口转发规则 ----------
+#
+# 为「公网访问」预建一条端口转发规则（默认禁用，需在
+# 网络 → 防火墙 → 端口转发 中手动启用，或自行调整）。
+# 默认不启用、不 reload 防火墙，绝不打断现有网络。
+#
+# 实现要点：重定向是以**匿名段**加入的，UCI 分配 @redirect[N] 作为段名，
+# 段上的 name 只是一个普通选项。因此：
+#   - `uci get firewall.workbuddy_wan` 取不到（段名不是这个）
+#   - `uci get firewall.@redirect`     也取不到（该写法对段列表无效）
+# 必须用 `uci show firewall` 输出里的 `@redirect[N].name='workbuddy_wan'`
+# 反查真实索引，再做增删。
+
+workbuddy_wan_index() {
+	uci -q show firewall 2>/dev/null \
+		| sed -n "s/^firewall\.\(@redirect\[[0-9]*\]\)\.name='workbuddy_wan'$/\1/p" \
+		| head -n 1
+}
+
+# 清理历史重复（早期版本判断有误，可能留下多条），只保留一条。
+#
+# 关键：删除 @redirect[N] 后，后面的匿名段索引会整体前移，
+# 按正序删除会错位。因此先收集全部索引，再**从大到小**删除。
+cleanup_dups() {
+	local idxs n i
+	idxs=$(uci -q show firewall 2>/dev/null \
+		| sed -n "s/^firewall\.\(@redirect\[[0-9]*\]\)\.name='workbuddy_wan'$/\1/p")
+	n=$(echo "$idxs" | grep -c .)
+	[ "$n" -le 1 ] && return 0
+	# 保留第一条（最小索引），其余从最大索引开始删
+	i="$n"
+	while [ "$i" -gt 1 ]; do
+		idx=$(echo "$idxs" | sed -n "${i}p")
+		uci -q delete "firewall.$idx"
+		i=$((i - 1))
+	done
+	uci -q commit firewall
+}
+
+if [ -n "$(workbuddy_wan_index)" ]; then
+	cleanup_dups
+else
+	uci -q batch <<-EOF
+		add firewall redirect
+		set firewall.@redirect[-1].name='workbuddy_wan'
+		set firewall.@redirect[-1].src='wan'
+		set firewall.@redirect[-1].src_dport='8789'
+		set firewall.@redirect[-1].dest='lan'
+		set firewall.@redirect[-1].dest_ip='192.168.69.1'
+		set firewall.@redirect[-1].dest_port='8789'
+		set firewall.@redirect[-1].proto='tcp'
+		set firewall.@redirect[-1].target='DNAT'
+		set firewall.@redirect[-1].enabled='0'
+		commit firewall
+	EOF
+fi
+
+uci -q commit workbuddy
+
+exit 0
