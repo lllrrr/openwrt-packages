@@ -1,0 +1,526 @@
+# 纯逻辑库：日子类型判定 / 额度状态 / 用量读写 / 配额计算
+# 被 /etc/init.d/parentcontrol source。
+# 依赖：uci，以及 busybox 基础工具 date/sed/grep/tr/awk/sort/find。
+# 测试（test/common_test.sh）只给 date 与 uci 打桩，其余走真实命令。
+
+PC_CONF=${PC_CONF:-parentcontrol}
+PC_CONF_DIR=${PC_CONF_DIR:-/etc/config}
+# 三个模块的固定顺序（唯一来源，别在各处再硬编码）
+PC_MODULES=${PC_MODULES:-"time protocol weburl"}
+HOLIDAY_CACHE=${HOLIDAY_CACHE:-/etc/parentcontrol/holiday}
+USAGE_DIR=${USAGE_DIR:-/etc/parentcontrol/usage}
+BACKUP_DIR=${BACKUP_DIR:-/etc/parentcontrol/backup}
+
+# ---------- 基础 ----------
+pc_uget() { uci -q get "$PC_CONF.$1"; }
+
+# 把 uci show 规范化成 `类型|下标|字段|值` 流（节行输出 `类型|下标||类型`）。
+#
+# 为什么需要它：条目可以是匿名节（uci show 输出 `parentcontrol.@weburl[3]=weburl`）或命名节
+# （输出 `parentcontrol.kids=weburl`）。真机实测：**命名节在 @weburl[N] 下标空间里同样占位**
+# ——「匿名 / kids / 匿名」三节依次可用 @weburl[0] / [1] / [2] 取到；但 uci show 对命名节只打印
+# 它的名字。所以必须自己编号，否则该条目会被整条链路静默跳过：不下规则、不计数、不执行配额，
+# 且不报任何错（F5）。
+#
+# 下标口径：匿名节用 uci 自己打印的位置下标（权威）；命名节用「已见同类型节数」补位。
+# 兼容老行为：匿名节的选项行即使没有对应节行，也能凭地址取到下标。
+pc_uci_scan() {
+	uci show "$PC_CONF" 2>/dev/null | awk -F= -v c="$PC_CONF" '
+		{
+			k = $1
+			if (index(k, c ".") != 1) next
+			k = substr(k, length(c) + 2)
+			if (k == "") next
+			v = $2
+			gsub(/\047/, "", v)
+			gsub(/"/, "", v)
+			is_sec = 0
+			if (index(k, "@") == 1) {              # 匿名节地址 @type[N][.opt]
+				p = index(k, "]")
+				if (p == 0) next
+				addr = substr(k, 1, p)
+				opt = ""
+				if (p < length(k)) {
+					if (substr(k, p + 1, 1) != ".") next
+					opt = substr(k, p + 2)
+				}
+				typ = substr(addr, 2, index(addr, "[") - 2)
+				idx = substr(addr, index(addr, "[") + 1)
+				sub(/\]$/, "", idx)
+				if (opt == "") is_sec = 1
+			} else {                                # 命名节 addr[.opt]
+				q = index(k, ".")
+				addr = (q == 0) ? k : substr(k, 1, q - 1)
+				opt = (q == 0) ? "" : substr(k, q + 1)
+				if (opt == "") {
+					is_sec = 1
+					typ = v
+					idx = cnt[typ] + 0
+				} else {
+					typ = name2typ[addr]
+					idx = idx_of[addr]
+				}
+			}
+			if (typ == "") next
+			if (is_sec) {
+				cnt[typ]++
+				if (index(k, "@") != 1) { name2typ[addr] = typ; idx_of[addr] = idx }
+			}
+			print typ "|" idx "|" opt "|" v
+		}'
+}
+
+# 某模块全部 section 下标（不论是否勾选）
+pc_ids_all() { pc_uci_scan | awk -F'|' -v t="$1" '$1 == t { print $2 }' | sort -un; }
+
+# 某模块已勾选 enable='1' 的 section 下标（匿名/命名节等价）
+pc_ids_on() { pc_uci_scan | awk -F'|' -v t="$1" '$1 == t && $3 == "enable" && $4 == "1" { print $2 }' | sort -un; }
+
+# 某模块所有节的某字段取值（匿名/命名节等价），去重。用于收集 mac / ip。
+pc_opts_all() { # $1=模块 $2=字段
+	pc_uci_scan | awk -F'|' -v t="$1" -v o="$2" '$1 == t && $3 == o && $4 != "" { print $4 }' | sort -u
+}
+
+# ---------- 日期 ----------
+pc_today() { date +%Y-%m-%d; }
+pc_weekday() { date +%u; }   # 1=Mon .. 7=Sun
+
+# ---------- 节假日数据（holiday-cn 格式）----------
+# 判定 d(YYYY-MM-DD) 的法定属性：
+#   输出 1 = 法定放假(isOffDay:true)；0 = 法定调休上班(isOffDay:false)；空 = 无数据
+pc_holiday_flag() {
+	local _d _y _f _o
+	_d="$1"
+	_y=${_d%%-*}
+	_f="$HOLIDAY_CACHE/$_y.json"
+	[ -f "$_f" ] || return 1
+	# 首选 OpenWrt 规范工具 jsonfilter；它不可用/无该日期时落到下面的兜底
+	if command -v jsonfilter >/dev/null 2>&1; then
+		case "$(jsonfilter -i "$_f" -e "@.days[@.date='$_d'].isOffDay" 2>/dev/null)" in
+		true)  echo 1; return 0 ;;
+		false) echo 0; return 0 ;;
+		esac
+	fi
+	# 兜底：去掉所有空白后按扁平对象精确匹配（不假设缩进/换行/空格）
+	_o=$(tr -d ' \t\n\r' < "$_f" | grep -o "{[^{}]*\"date\":\"$_d\"[^{}]*}")
+	case "$_o" in
+	*'"isOffDay":true'*)  echo 1 ;;
+	*'"isOffDay":false'*) echo 0 ;;
+	*)                    return 1 ;;
+	esac
+}
+
+# 是否落在某个 vacation 区间内。输出 1/0。
+# start/end 支持 MM-DD（每年重复，自动补当年/跨年）或 YYYY-MM-DD（绝对）。
+pc_in_vacation() {
+	local _d _y _i _s _e _ss _ee
+	_d="$1"
+	_y=${_d%%-*}
+	for _i in $(pc_ids_all vacation); do
+		_s=$(pc_uget "@vacation[$_i].start")
+		_e=$(pc_uget "@vacation[$_i].end")
+		[ -n "$_s" ] && [ -n "$_e" ] || continue
+		case "$_s" in *-*-*) _ss="$_s" ;; *) _ss="$_y-$_s" ;; esac
+		case "$_e" in *-*-*) _ee="$_e" ;; *) _ee="$_y-$_e" ;; esac
+		# ISO 日期串按字典序即时间序；ss>ee 表示跨年（寒假 12-20 ~ 01-05）
+		if awk -v d="$_d" -v a="$_ss" -v b="$_ee" \
+			'BEGIN { exit (a > b) ? !(d >= a || d <= b) : !(d >= a && d <= b) }'; then
+			echo 1; return 0
+		fi
+	done
+	echo 0
+}
+
+# 今天是什么日子：school | holiday
+pc_today_type() {
+	local _d _h
+	_d=$(pc_today)
+	[ "$(pc_in_vacation "$_d")" = "1" ] && { echo holiday; return; }
+	_h=$(pc_holiday_flag "$_d")
+	if [ "$_h" = "1" ]; then echo holiday; return; fi
+	if [ "$_h" = "0" ]; then echo school;  return; fi
+	# 无当年数据 → 降级：周末=节假日，周中=平日
+	case "$(pc_weekday)" in
+	6|7) echo holiday ;;
+	*)   echo school ;;
+	esac
+}
+
+# 把 school/holiday 映射成配置前缀 sd/hd
+pc_suffix() { [ "$1" = "holiday" ] && echo hd || echo sd; }
+
+# ---------- 配额基础 ----------
+# 额度按自然日重置（用量文件按 YYYYMMDD 分文件），不再有「发放时刻」概念。
+
+# HH:MM[:SS] → 当天秒数（非法/空 → 无输出）
+pc_hhmmss_to_sec() {
+	local _h _m _s
+	case "$1" in
+	*:*:*) _h=${1%%:*}; _m=${1#*:}; _s=${_m#*:}; _m=${_m%%:*} ;;
+	*:*)   _h=${1%%:*}; _m=${1#*:}; _s=0 ;;
+	*)     return 0 ;;
+	esac
+	_h=${_h#0}; [ -z "$_h" ] && _h=0
+	_m=${_m#0}; [ -z "$_m" ] && _m=0
+	_s=${_s#0}; [ -z "$_s" ] && _s=0
+	case "$_h$_m$_s" in *[!0-9]*) return 0 ;; esac
+	[ "$_h" -le 23 ] 2>/dev/null || return 0
+	[ "$_m" -le 59 ] 2>/dev/null || return 0
+	[ "$_s" -le 59 ] 2>/dev/null || return 0
+	echo $((_h * 3600 + _m * 60 + _s))
+}
+
+# 当天秒数 → HH:MM:SS
+pc_sec_hhmmss() {
+	printf '%02d:%02d:%02d' $(( $1 / 3600 )) $(( ($1 % 3600) / 60 )) $(( $1 % 60 ))
+}
+
+# 本地秒区间 [起,止] → -m time 用的 UTC 区间。跨 UTC 零点时切成两段，逐行输出「起 止」。
+# 偏移固定 UTC+8（与渲染层一致），不依赖内核时区（--kerneltz 在 OpenWrt 上不可靠）。
+pc_utc_ranges() { # $1=起秒 $2=止秒
+	local _s _e
+	_s=$(( ($1 - 28800 + 86400) % 86400 ))
+	_e=$(( ($2 - 28800 + 86400) % 86400 ))
+	if [ "$_s" -le "$_e" ]; then
+		echo "$_s $_e"
+	else
+		echo "$_s 86399"
+		echo "0 $_e"
+	fi
+}
+
+# 该条目今天是否勾了「不限额度」（输出 1=不限）。
+# 这是 shell 侧唯一的「谁受额度限制」判定口径：build_quota_blocks / pool_usage / stats_tsv 都读它
+# （ui.lua 渲染列表时因不能调 shell 而有一份镜像，改这里要同步改它）。
+pc_entry_unlimited() { # $1=module $2=idx $3=school|holiday
+	local _v _q
+	_v=$(pc_uget "@$1[$2].$(pc_suffix "$3")_unlimited")
+	[ "$_v" = "1" ] && { echo 1; return 0; }
+	[ -n "$_v" ] && { echo 0; return 0; }          # 显式写了 0 → 按有限额处理
+	# _unlimited 没设：看额度/共享池来决定。凡是「没有任何额度来源」都算不限（fail-open）——
+	# 否则“新条目还没配额度”“老配置漏了额度”“挂了池但池没额度”都会被静默当成 0 分钟 = 全天全禁。
+	_q=$(pc_uget "@$1[$2].$(pc_suffix "$3")_quota")
+	[ -n "$_q" ] && { echo 0; return 0; }
+	# 没填自己的额度：挂了池且池确实有额度 → 限制由池负责，算“有限额”
+	# 「池是否提供额度」只有一份判据（见 pc_pool_provided_quota）
+	[ -n "$(pc_pool_provided_quota "$1" "$2" "$3")" ] && { echo 0; return 0; }
+	echo 1
+}
+
+# 可用时段（本地秒）「起 止」；未设 / 全天 / 非法 → 无输出（= 不限制时段）
+pc_qwin_sec() { # $1=module $2=idx $3=school|holiday
+	local _s _e _ss _ee _sfx
+	_sfx=$(pc_suffix "$3")
+	_s=$(pc_uget "@$1[$2].${_sfx}_qstart")
+	_e=$(pc_uget "@$1[$2].${_sfx}_qend")
+	[ -n "$_s" ] && [ -n "$_e" ] || return 0
+	_ss=$(pc_hhmmss_to_sec "$_s"); _ee=$(pc_hhmmss_to_sec "$_e")
+	[ -n "$_ss" ] && [ -n "$_ee" ] || return 0
+	# 起必须 < 止（表单已拦，这里兜底）：不合法就按“不限制”处理，绝不因为脏数据把设备整天封死
+	[ "$_ss" -lt "$_ee" ] 2>/dev/null || return 0
+	[ "$_ss" = 0 ] && [ "$_ee" = 86399 ] && return 0
+	echo "$_ss $_ee"
+}
+
+# 可用时段「以外」的 UTC 区间（逐行输出「起秒 止秒」），供 -m time 正向匹配。
+pc_qwin_out_ranges() { # $1=module $2=idx $3=school|holiday
+	local _w _s _e
+	_w=$(pc_qwin_sec "$1" "$2" "$3")
+	[ -n "$_w" ] || return 0
+	set -- $_w
+	_s=$1; _e=$2
+	[ "$_s" -gt 0 ] && pc_utc_ranges 0 $((_s - 1))
+	[ "$_e" -lt 86399 ] && pc_utc_ranges $((_e + 1)) 86399
+	return 0
+}
+
+# ---------- 用量读写 ----------
+pc_usage_file() { echo "$USAGE_DIR/$(date +%Y%m%d)"; }
+
+pc_usage_get() {
+	local _f
+	_f=$(pc_usage_file)
+	[ -f "$_f" ] || { echo 0; return; }
+	awk -v k="$1" '$1==k{s+=$2} END{printf "%d\n", s+0}' "$_f"
+}
+
+pc_usage_add() {
+	local _f
+	_f=$(pc_usage_file)
+	mkdir -p "$USAGE_DIR"
+	printf '%s %s\n' "$1" "$2" >> "$_f"
+}
+
+# ---------- 配额计算 ----------
+# 池额度（分钟）。输出空串表示不限。
+pc_pool_quota() {
+	local _sfx _i _v
+	# $1=池名 $2=school|holiday
+	_sfx=$(pc_suffix "$2")
+	for _i in $(pc_ids_all quota); do
+		[ "$(pc_uget "@quota[$_i].name")" = "$1" ] || continue
+		_v=$(pc_uget "@quota[$_i].${_sfx}_quota")
+		[ -z "$_v" ] && _v=$(pc_uget "@quota[$_i].quota")
+		echo "$_v"; return
+	done
+}
+
+# 条目生效的池名（空=私有）
+pc_entry_pool() {
+	local _sfx
+	_sfx=$(pc_suffix "$3")
+	pc_uget "@$1[$2].${_sfx}_pool"
+}
+
+# 条目自己的额度（分钟，空=不限）
+pc_entry_quota() {
+	local _sfx
+	_sfx=$(pc_suffix "$3")
+	pc_uget "@$1[$2].${_sfx}_quota"
+}
+
+# 该条目今天从共享池拿到的额度（空 = 池没提供额度）。
+# 「池是否提供额度」这个判据 shell 侧只此一处（ui.lua 有镜像）—— pc_entry_unlimited / entry_effective /
+# pc_effective_quota 都读它，别再各自内联 `pc_pool_quota && [ -n ... ]`。
+pc_pool_provided_quota() { # $1=module $2=idx $3=school|holiday
+	local _p
+	_p=$(pc_entry_pool "$1" "$2" "$3")
+	[ -n "$_p" ] && pc_pool_quota "$_p" "$3"
+}
+
+# 条目今天「生效的原始额度」——shell 侧的池优先取值只此一份：池提供了额度 → 用池的额度，
+# 否则用条目自己的。只输出额度值本身（不夹带池名，避免空格分隔的隐式协议）。
+# 空 = 没有额度来源，它代表"不限"还是"全禁"由调用方按语义决定。
+# 注意：ui.lua 渲染列表时需要同一份判定，但 Lua 不能调 shell 函数，那边有一份**镜像**
+# （luasrc/model/cbi/parentcontrol/ui.lua 的 qmin/pool_quota）—— 改这里必须同步改它。
+pc_effective_quota() { # $1=module $2=idx $3=school|holiday
+	local _pq
+	_pq=$(pc_pool_provided_quota "$1" "$2" "$3")
+	if [ -n "$_pq" ]; then
+		echo "$_pq"
+	else
+		pc_entry_quota "$1" "$2" "$3"
+	fi
+}
+
+# 所有已启用条目的 key（模块序 time/protocol/weburl）。
+# 统一模型里没有"模式"了：每个条目都有「可用时段 + 额度」，是否真的限制由这两个字段决定
+# （额度 0 = 全禁；勾了不限额度 + 时段全天 = 完全不限制，此时只计数不封锁）。
+pc_active_keys() {
+	local _m _i
+	for _m in $PC_MODULES; do
+		for _i in $(pc_ids_on "$_m"); do
+			echo "${_m}_${_i}"
+		done
+	done
+}
+
+# 局域网网段（IPv4，UCI 里所有 proto=static 的 network 节）。
+# 用途：封锁规则前面先放行「到局域网/路由器自身」的流量，避免把自己锁在门外。
+pc_lan_nets() {
+	local _s _ip _nm
+	uci -q show network 2>/dev/null \
+		| sed -n "s/^network\.\([A-Za-z0-9_-]*\)\.proto='static'$/\1/p" \
+		| while read -r _s; do
+			_ip=$(uci -q get "network.$_s.ipaddr")
+			_nm=$(uci -q get "network.$_s.netmask")
+			[ -n "$_ip" ] && [ -n "$_nm" ] && echo "$_ip/$_nm"
+		done
+}
+
+# 局域网 on-link IPv6 前缀（一行一个 "<prefix>/<len>"，F3）。
+# 数据源只能是内核路由表：v6 的 GUA 是 ISP 动态委派（UCI 里根本没有）、ULA 在 UCI 里
+# 是 /48 聚合（比 br-lan 实际的 /64 宽，拿去放行会比 v4 还宽）—— F3 ADR-2。
+# 只取「直连（on-link）」路由：直连 = 「这个网段就在这块网卡上」，正是「家里」的定义。
+# loopback 节产出为空是正确结果：其路由行首全是 unreachable；::1 不出主机栈、不经过
+# PREROUTING，无需 v4 127.0.0.0/8 那样的机械移植（F3 ADR-6）。
+pc_lan_nets6() {
+	local _s _dev _pfx _rest
+	uci -q show network 2>/dev/null \
+		| sed -n "s/^network\.\([A-Za-z0-9_-]*\)\.proto='static'$/\1/p" \
+		| while read -r _s; do
+			_dev=$(uci -q get "network.$_s.device")
+			[ -n "$_dev" ] || _dev=$(uci -q get "network.$_s.ifname")
+			[ -n "$_dev" ] || continue
+			ip -6 route show dev "$_dev" 2>/dev/null
+		done \
+		| while read -r _pfx _rest; do
+			# 带 " via " 的转发路由不是直连（哪怕行首是合法前缀——如下游路由器经
+			# br-lan 通告的 "<prefix> via fe80::1 dev br-lan"），必须排除，否则
+			# 会把别家的网段也当「家里」放行（F3 词表/ADR-3）。
+			#（read 吃掉了第 1 个字段后的分隔空格，所以行首就是 via 本身）
+			case "$_rest" in "via "*|*" via "*) continue ;; esac
+			# 零长前缀（::/0、0:0:…:0/0 等）必须排除：进链会生成 "-d ::/0 -j RETURN"
+			# = 放行一切，IPv6 封锁静默失效。行首白名单挡不住数字形式的全零前缀
+			#（它完全匹配上面的格式），故在此单独拒掉一切以 "/0" 结尾的字段
+			#（F3 阶段 5 SF-1 / ADR-3 增补）。
+			case "$_pfx" in */0) continue ;; esac
+			printf '%s\n' "$_pfx"
+		done \
+		| grep -E '^([0-9A-Fa-f]*:)+[0-9A-Fa-f:]*/[0-9]+$' \
+		| sort -u
+}
+
+# shell 侧唯一的额度归一器（ui.lua 有一份必须同步的镜像 qmin）：非纯数字（空/"abc"/"-1"/"+5"/" 5"/"00"）一律归 0，纯数字原样输出。
+# 这是老版本（c4fe179..a1ae0e9）就在用的口径，迁移端也读它 —— 迁移与运行必须用
+# 同一套解析，否则同一个脏值会在两边得出不同结论（B1′/S1′ 的教训）。
+# 注意新语义：0 = 一分钟都不给；「到底受不受额度限制」由 pc_entry_unlimited 决定。
+pc_quota_positive() {
+	case "$1" in ''|*[!0-9]*) echo 0 ;; *) echo "$1" ;; esac
+}
+
+# ============================================================================
+# 配置迁移（安装/升级时调用一次，幂等）：
+#   1) 补 basic 默认值；2) 老 word(关键词) → domains；3) 统一为「可用时段 + 额度」模型
+# 只改 uci，不 commit（由调用方决定）。
+# ============================================================================
+pc_migrate_config() {
+	local _k _i _m _w _d _f _has_sd _has_hd _sfx _md _ws _we _on _had_dual _unl _dt _eq
+	# 0) 迁移会删老字段、并可能改变封锁行为，不可逆 —— 先留一份带时间戳的备份。
+	#    （README 里承诺了这件事，就必须真的做；$PC_CONF_DIR 下没有配置文件时自动跳过。
+	#      PC_CONF_DIR / BACKUP_DIR 是可覆盖钩子（默认值 = 生产路径），供白盒测试把
+	#      备份分支指到临时目录。）
+	if [ -f "$PC_CONF_DIR/$PC_CONF" ]; then
+		mkdir -p "$BACKUP_DIR" 2>/dev/null
+		cp -a "$PC_CONF_DIR/$PC_CONF" "$BACKUP_DIR/$PC_CONF.$(date +%Y%m%d%H%M%S).bak" 2>/dev/null
+	fi
+	# 1) 默认值
+	for _k in usage_keep usage_min_kb; do
+		[ -n "$(pc_uget "@basic[0].$_k")" ] && continue
+		case "$_k" in
+		usage_keep)                 uci -q set "$PC_CONF.@basic[0].$_k=90" ;;
+		usage_min_kb)               uci -q set "$PC_CONF.@basic[0].$_k=8" ;;
+		esac
+	done
+
+	# 2) 老配置里只填了 word 的，搬到 domains（否则升级后匹配串为空，静默失效）
+	for _i in $(pc_ids_all weburl); do
+		_w=$(pc_uget "@weburl[$_i].word")
+		_d=$(pc_uget "@weburl[$_i].domains")
+		if [ -n "$_w" ] && [ -z "$_d" ]; then
+			uci -q set "$PC_CONF.@weburl[$_i].domains=$_w"
+		fi
+		# 老 word 一律删除：否则改了域名后，旧关键词仍会生成幽灵匹配规则
+		[ -n "$_w" ] && uci -q delete "$PC_CONF.@weburl[$_i].word"
+	done
+
+	# 3) 统一为「可用时段 + 额度」模型。老配置有两代：
+	#      a) 双档案时代：<sfx>_mode ∈ off|time|quota|block（另有 <sfx>_start/<sfx>_end）
+	#      b) 更早的「按星期」时代：week + timestart/timeend（由 week 决定哪个档案生效）
+	#    映射（既定方案）：
+	#      time  → 不限额度 + 09:00-21:00（老语义是"封某一段"，新模型只有"可用时段"，
+	#              无法无损换算；给 WhatsApp 工作时段、并在日志里留痕）
+	#      quota → 额度字段**原样保留**（不动它本身、也不额外加时段：老 quota 本来全天
+	#              24h 可用，加 09:00-21:00 会把存量用户静默收紧成每天 12 小时）。
+	#              但「不限额度」开关必须按老判据重写：老运行时是「归一后有效额度 > 0 才算
+	#              有限额」，所以有效额度 ≤ 0（空/0/负数/非数字）一律**强制**写成 unlimited=1
+	#      block → 额度 0（0 = 一分钟都不给）
+	#      off   → 不限额度（不写时段 = 全天可用）
+	#      week  → 该档案在老模型里生效 = 当年有时段限制 → 不限额度 + 09:00-21:00
+	#              没生效 → 不限额度（不写时段）
+	#    幂等的关键：**已是新模型的条目一个字段都不动**（见 _had_dual 判定）；只有还带着
+	#    老 mode（或处在「按星期」时代）的条目才被翻译，而这一类必须**强制写** —— 否则
+	#    老配置里那个无意义的 unlimited=0 会把「不限」翻译成新语义的全天全禁（B1″）。
+	#    老键（mode/start/end/week/timestart/timeend）一次性清掉，断掉重跑触发源。
+	for _m in $PC_MODULES; do
+		for _i in $(pc_ids_all "$_m"); do
+			# 这个条目属于哪个时代？有 <sfx>_mode（双档案时代）或任一新模型字段 → 已经是新模型，
+			# 此时残留的 week 只是垃圾：删掉即可，绝不能用它给没配过的档案凭空造出一条限制。
+			_had_dual=0
+			for _sfx in sd hd; do
+				[ -n "$(pc_uget "@$_m[$_i].${_sfx}_mode")" ] && _had_dual=1
+				for _f in unlimited qstart qend quota pool; do
+					[ -n "$(pc_uget "@$_m[$_i].${_sfx}_$_f")" ] && _had_dual=1
+				done
+			done
+			# 老 week：决定哪几个档案在老模型里是"生效"的（没设 week = 不是"按星期"时代）
+			_w=$(pc_uget "@$_m[$_i].week")
+			_has_sd=1; _has_hd=1
+			if [ -n "$_w" ]; then
+				case "$_w" in
+				*'*'*) ;;
+				*)
+					_has_sd=0; _has_hd=0
+					for _d in $(echo "$_w" | tr ',' ' '); do
+						case "$_d" in 6|7) _has_hd=1 ;; *) _has_sd=1 ;; esac
+					done ;;
+				esac
+			fi
+			for _sfx in sd hd; do
+				_md=$(pc_uget "@$_m[$_i].${_sfx}_mode")
+				_ws=; _we=
+				case "$_md" in
+				time)
+					uci -q set "$PC_CONF.@$_m[$_i].${_sfx}_unlimited=1"
+					_ws=09:00:00; _we=21:00:00
+					_pclog "migrate: $_m[$_i] ${_sfx}: 老「时段」→ 不限额度 + 09:00-21:00" ;;
+				block)
+					uci -q set "$PC_CONF.@$_m[$_i].${_sfx}_unlimited=0"
+					uci -q set "$PC_CONF.@$_m[$_i].${_sfx}_quota=0"
+					_pclog "migrate: $_m[$_i] ${_sfx}: 老「全天禁止」→ 额度 0" ;;
+				quota)
+					# 依据：额度模型是 8ab43a2 引入的，**从那一刻到 a0c7936 之前的每一个版本**，
+					# 运行时判据都是「归一后的有效额度 > 0 才算有限额」（build_quota_blocks 里那句
+					# `[ "$1" -gt 0 ] || continue`）。所以在这段历史里额度为空/0/负数/非数字
+					# **都是"不限"**。这里把"老=不限"显式写成 unlimited=1。
+					# （注意：更早的版本根本没有额度/unlimited 模型，所以不要说"一直如此"。）
+					#
+					# 已知的不可判别之处（不要再试图用标记去猜）：我的中间开发版 a0c7936 曾短暂把
+					# 「额度 0/空」定义成"全天禁止"，那种配置与老配置**形状完全一样**，没有任何字段
+					# 能区分（试过用 week 当标记：无 week 会被误判成全禁、有 week 会被误判成不限，
+					# 两个方向都是 bug，已放弃）。这里统一按**额度模型早期的老判据**解释：
+					# 该判据从额度模型引入（8ab43a2）起一直沿用到 a0c7936 之前。受影响的只有
+					# "用过那个中间开发版、并把额度填 0 表示全天禁止"的极窄情况，迁移会为这类
+					# 条目打日志，README 也写明了怎么复核。
+					# 注意 entry_effective 是池优先：判定必须跟着它走。
+					_unl=0
+					[ "$(pc_uget "@$_m[$_i].${_sfx}_unlimited")" = "1" ] && _unl=1
+					if [ "$_unl" = 0 ]; then
+						if [ "$_sfx" = "sd" ]; then _dt=school; else _dt=holiday; fi
+						# 池优先的有效额度在 shell 侧只有一份实现（common.sh 的 pc_effective_quota，
+						# ui.lua 有必须同步的镜像）
+						_eq=$(pc_effective_quota "$_m" "$_i" "$_dt")
+						if [ "$(pc_quota_positive "$_eq")" -gt 0 ] 2>/dev/null; then
+							uci -q set "$PC_CONF.@$_m[$_i].${_sfx}_unlimited=0"
+						else
+							uci -q set "$PC_CONF.@$_m[$_i].${_sfx}_unlimited=1"
+							_pclog "migrate: $_m[$_i] ${_sfx}: 老额度非正/非法 → 不限（额度模型 8ab43a2 引入、a0c7936 之前的老判据）。若你本来要的是「全天禁止」，请在界面上把额度填 0 并取消勾选「不限额度」"
+						fi
+					fi ;;
+				off)
+					uci -q set "$PC_CONF.@$_m[$_i].${_sfx}_unlimited=1" ;;
+				'')
+					# 只有真的处在「按星期」时代的老条目才推窗口；已经是新模型的条目
+					# 完全不动（这样"只配了某一边档案"的条目不会被造出另一边）
+					if [ "$_had_dual" = 0 ]; then
+						if [ "$_sfx" = "sd" ]; then _on=$_has_sd; else _on=$_has_hd; fi
+						uci -q set "$PC_CONF.@$_m[$_i].${_sfx}_unlimited=1"
+						if [ -n "$_w" ] && [ "$_on" = 1 ]; then
+							_ws=09:00:00; _we=21:00:00
+							_pclog "migrate: $_m[$_i] ${_sfx}: 老「按星期 + 时段」→ 不限额度 + 09:00-21:00"
+						fi
+					fi ;;
+				esac
+				# 只在确定存在"老时段限制"时才补窗口；其余一律不写时段（= 全天可用），
+				# 避免把本来 24h 可用的条目静默收紧。这里只写 qstart/qend 这两个"新模式字段"，
+				# 语义字段（unlimited/quota）一律由上面的分支按老判据（8ab43a2..a0c7936 之前）决定。
+				if [ -n "$_ws" ]; then
+					uci -q set "$PC_CONF.@$_m[$_i].${_sfx}_qstart=$_ws"
+					uci -q set "$PC_CONF.@$_m[$_i].${_sfx}_qend=$_we"
+				fi
+				uci -q delete "$PC_CONF.@$_m[$_i].${_sfx}_mode"
+				uci -q delete "$PC_CONF.@$_m[$_i].${_sfx}_start"
+				uci -q delete "$PC_CONF.@$_m[$_i].${_sfx}_end"
+			done
+			uci -q delete "$PC_CONF.@$_m[$_i].week"
+			uci -q delete "$PC_CONF.@$_m[$_i].timestart"
+			uci -q delete "$PC_CONF.@$_m[$_i].timeend"
+		done
+	done
+}
+
+# 迁移期的日志：uci-defaults 环境没有 elog（那是 init.d 的），这里自带兜底格式
+_pclog() {
+	mkdir -p /tmp/log 2>/dev/null
+	echo "$(date '+%Y-%m-%d %H:%M:%S'): $*" >> "${LOG_FILE:-/tmp/log/parentcontrol.log}"
+}

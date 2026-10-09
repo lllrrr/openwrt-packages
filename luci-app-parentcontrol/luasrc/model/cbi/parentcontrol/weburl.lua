@@ -1,12 +1,10 @@
- local o = require "luci.sys"
-local fs = require "nixio.fs"
-local ipc = require "luci.ip"
-local net = require "luci.model.network".init()
-local sys = require "luci.sys"
+local disp = require "luci.dispatcher"
+local ui = require "luci.model.cbi.parentcontrol.ui"
 
 local a, t, e
-a = Map("parentcontrol", translate("Parent Control"), translate("<b><font color=\"green\">利用iptables来管控数据包过滤以禁止符合设定条件的用户连接互联网的工具软件。</font> </b></br>\
-网址过滤：指定“关键词/URL”过滤,可以是字符串或网址.包括IPV4和IPV6</br>不指定MAC就是代表限制所有机器,星期用1-7表示，多个日期用自定义：1,5表示星期一和星期五" ))
+a = Map("parentcontrol", translate("家长控制"),
+	translate("网址过滤：按域名/CIDR 管控，支持 IPv4 与 IPv6。</br>\
+列表只显示摘要，点每行的 <b>编辑</b> 进去给「平日 / 节假日」两套档案各自设「可用时段」+「每日额度」。只有时段内能用，时段外的流量不计入额度；额度 <b>0</b> = 一分钟都不给（全禁）。"))
 
 a.template = "parentcontrol/index"
 
@@ -15,7 +13,7 @@ t.anonymous = true
 
 e = t:option(DummyValue, "parentcontrol_status", translate("当前状态"))
 e.template = "parentcontrol/parentcontrol"
-e.value = translate("Collecting data...")
+e.value = translate("获取数据中…")
 
 e = t:option(Flag, "enabled", translate("开启"))
 e.rmempty = false
@@ -25,66 +23,58 @@ e:value("bm", "一般过滤")
 e:value("kmp", "强效过滤")
 e.default = "kmp"
 
-e = t:option(ListValue, "control_mode",translate("管控强度"), translate("普通管控：管控国内网站，出国插件的国外网站无法管控"))
-e.rmempty = false
-e:value("0", "普通管控")
-e.default = "0"
+e = t:option(Value, "ip_refresh", translate("IP封锁自动更新间隔(分钟)"),
+	translate("定时重新解析域名刷新 IP，0=关闭。"))
+e.default = "30"
+e.datatype = "uinteger"
+e.rmempty = true
+
+e = t:option(ListValue, "ip_mask", translate("IP封锁粒度"),
+	translate("/24 可兜住 CDN 换节点，推荐。"))
+e:value("24", "整个 /24 网段（推荐）")
+e:value("32", "仅精确 IP")
+e.default = "24"
+e.rmempty = true
+
+e = t:option(Value, "usage_min_kb", translate("用量判定阈值(KB/分钟)"),
+	translate("一分钟内至少这么多流量才算“在用”，滤掉后台心跳；0=任何流量都算。"))
+e.default = "8"
+e.datatype = "uinteger"
+e.rmempty = true
 
 t = a:section(TypedSection, "weburl", translate("网址过滤列表"))
 t.template = "cbi/tblsection"
 t.anonymous = true
 t.addremove = true
-
-remarks = t:option(Value, 'remarks', translate('Remarks'))
+t.extedit = disp.build_url("admin", "control", "parentcontrol", "weburl_edit") .. "/%s"
 
 e = t:option(Flag, "enable", translate("开启"))
 e.rmempty = false
 e.default = '1'
 
-e = t:option(Value, "mac", translate("MAC地址<font color=\"green\">(必指定客户端)</font>"))
-e.rmempty = true
-o.net.mac_hints(function(t, a) e:value(t, "%s (%s)" % {t, a}) end)
+t:option(Value, 'remarks', translate('备注'))
 
-e = t:option( Value, "word", translate("关键词/URL<font color=\"green\">(可留空)</font>"))
-e.rmempty = true
-    function validate_time(self, value, section)
-        local hh, mm, ss
-        hh, mm, ss = string.match (value, "^(%d?%d):(%d%d)$")
-        hh = tonumber (hh)
-        mm = tonumber (mm)
-        if hh and mm and hh <= 23 and mm <= 59 then
-            return value
-        else
-            return nil, "时间格式必须为 HH:MM 或者留空"
-        end
-    end
-    
-e = t:option(Value, "timestart", translate("起控时间"))
-e.placeholder = '00:00'
-e.default = '00:00'
-e.validate = validate_time
+e = t:option(DummyValue, "mac", translate("设备"))
+e.cfgvalue = ui.mac
 e.rmempty = true
 
-e = t:option(Value, "timeend", translate("停控时间"))
-e.placeholder = '00:00'
-e.default = '00:00'
-e.validate = validate_time
+e = t:option(DummyValue, "ip", translate("静态IP"))
 e.rmempty = true
 
-week=t:option(Value,"week",translate("Week Day"))
-week.rmempty = false
-week.optional = false
-week:value('*',translate("Everyday"))
-week:value(7,translate("Sunday"))
-week:value(1,translate("Monday"))
-week:value(2,translate("Tuesday"))
-week:value(3,translate("Wednesday"))
-week:value(4,translate("Thursday"))
-week:value(5,translate("Friday"))
-week:value(6,translate("Saturday"))
-week.default='*'
+e = t:option(DummyValue, "domains", translate("域名/IP"))
+e.rmempty = true
 
+e = t:option(DummyValue, "_profiles", translate("档案"))
+e.cfgvalue = ui.profiles
+e.rmempty = true
+
+e = t:option(DummyValue, "_used", translate("今日额度"))
+e.cfgvalue = function(self, section) return ui.used(self, section, "weburl") end
+e.rmempty = true
+
+e = t:option(DummyValue, "_reset", translate("重置"))
+e.template = "parentcontrol/resetbtn"
+e.cfgvalue = function(self, section) return ui.quota_key(self, section, "weburl") end
+e.rmempty = true
 
 return a
-
-

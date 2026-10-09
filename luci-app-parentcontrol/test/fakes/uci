@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""极简 uci 模拟器（白盒测试用）。
+
+状态 = $FAKE_UCI_FILE，JSON：{"parentcontrol.@weburl[0].enable": "1", ...}
+节本身也存一条：{"parentcontrol.@weburl[0]": "weburl"}（值=节类型）。
+
+支持 init.d 与迁移逻辑用到的子集：-q / get / show / set key=value / add /
+delete / commit / batch（吞掉 stdin）。
+"""
+import json
+import os
+import re
+import sys
+
+FILE = os.environ.get("FAKE_UCI_FILE", "/tmp/fake-uci.json")
+
+
+def sections(d, cfg, typ):
+    """按插入顺序返回某 config 下指定类型的节名。
+
+    匿名节存的就是 `@type[N]` 这个名字，命名节存的是字面名。
+    真机 uci 的 `@type[N]` 下标空间**对命名节同样计数**，本函数就是它的模型。
+    """
+    out = []
+    for k, v in d.items():
+        if not k.startswith(cfg + "."):
+            continue
+        rest = k[len(cfg) + 1:]
+        if "." in rest:      # 选项行，不是节行
+            continue
+        if v == typ:
+            out.append(rest)
+    return out
+
+
+def resolve(d, key):
+    """把 `cfg.@type[N][.opt]` 解析成实际存储的键（字面键优先，与真机行为一致）。"""
+    if key in d:
+        return key
+    cfg, _, rest = key.partition(".")
+    if not rest:
+        return key
+    m = re.match(r"^@([A-Za-z0-9_]+)\[(\d+)\](.*)$", rest)
+    if not m:
+        return key
+    names = sections(d, cfg, m.group(1))
+    idx = int(m.group(2))
+    if idx >= len(names):
+        return key
+    return "%s.%s%s" % (cfg, names[idx], m.group(3))
+
+
+def load():
+    try:
+        with open(FILE) as fh:
+            return json.load(fh)
+    except (FileNotFoundError, ValueError):
+        return {}
+
+
+def save(d):
+    parent = os.path.dirname(FILE)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(FILE, "w") as fh:
+        json.dump(d, fh, ensure_ascii=False)
+
+
+def main():
+    argv = sys.argv[1:]
+    if argv and argv[0] == "-q":
+        argv = argv[1:]
+    if not argv:
+        return 1
+    cmd, rest = argv[0], argv[1:]
+    d = load()
+
+    if cmd == "get":
+        if not rest:
+            return 1
+        k = resolve(d, rest[0])
+        if k in d:
+            print(d[k])
+            return 0
+        return 1
+
+    if cmd == "show":
+        prefix = rest[0] if rest else None
+        for k, v in d.items():
+            if prefix and not k.startswith(prefix + "."):
+                continue
+            print("%s='%s'" % (k, v))
+        return 0
+
+    if cmd == "set":
+        for kv in rest:
+            if "=" in kv:
+                k, v = kv.split("=", 1)
+                d[resolve(d, k)] = v
+        save(d)
+        return 0
+
+    if cmd == "add":
+        cfg, typ = rest[0], rest[1]
+        name = rest[2] if len(rest) > 2 else None
+        if not name:
+            idx = 0
+            while "%s.@%s[%d]" % (cfg, typ, idx) in d:
+                idx += 1
+            name = "@%s[%d]" % (typ, idx)
+        d["%s.%s" % (cfg, name)] = typ
+        save(d)
+        print(name)
+        return 0
+
+    if cmd == "delete":
+        for k in rest:
+            k = resolve(d, k)
+            for kk in [x for x in d if x == k or x.startswith(k + ".")]:
+                del d[kk]
+        save(d)
+        return 0
+
+    if cmd == "commit":
+        return 0
+
+    if cmd == "batch":
+        sys.stdin.read()
+        return 0
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

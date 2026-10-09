@@ -1,11 +1,25 @@
 <% include("cbi/map") %>
+<style type="text/css">
+	/* 表格里的输入框被主题设成了 width:100%（选择器
+	   .cbi-section-table-row>.cbi-value-field .cbi-input-text ），特异性比单个属性选择器高，
+	   所以这里走同等路径 + !important，把「关键词/域名」那一栏单独收窄，不影响其它字段。 */
+	.cbi-section-table-row .cbi-value-field input[id$=".domains"] { width: 13em !important; }
+</style>
 <script type="text/javascript">//<![CDATA[
+	function pcResetQuota(k) {
+		if (!k) return;
+		if (!confirm('<%=translate("确定把这个条目今天的额度清零？此操作会记入重置记录。")%>')) return;
+		XHR.post('<%=url("admin/control/parentcontrol/reset_quota")%>',
+			{ key: k, token: '<%=token%>' },
+			function() { location.reload(); });
+	}
+
 	XHR.poll(2, '<%=luci.dispatcher.build_url("admin", "control", "parentcontrol", "status")%>', null,
 		function (x, result) {
 			var status = document.getElementsByClassName('parentcontrol_status')[0];
 			status.setAttribute("style", "font-weight:bold;");
 			status.setAttribute("color", result.status ? "green" : "red");
-			status.innerHTML = result.status ? '<%=translate("RUNNING")%>' : '<%=translate("NOT RUNNING")%>';
+			status.innerHTML = result.status ? '<%=translate("运行中")%>' : '<%=translate("未运行")%>';
 		}
 	)
 //]]>

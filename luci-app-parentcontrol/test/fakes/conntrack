@@ -1,0 +1,9 @@
+#!/bin/sh
+# conntrack 桩：默认退出 0（什么都不记）。
+# FAKE_CONNTRACK_LOG=<file>：记录每次调用的参数（W11：断言对受管设备执行了 -D）。
+# FAKE_NO_CONNTRACK=1：一律退非 0 —— 模拟「conntrack 不可用」。生产侧 command -v 仍能找到
+# 桩，但每次调用都失败，可观测行为与「没有 conntrack」一致（不 purge、不报错、构建不受
+# 影响）；且不会像「移走桩」那样在装了 conntrack-tools 的 CI 上误调真二进制（复审 N2）。
+[ "$FAKE_NO_CONNTRACK" = "1" ] && exit 1
+[ -n "$FAKE_CONNTRACK_LOG" ] && printf '%s\n' "$*" >> "$FAKE_CONNTRACK_LOG"
+exit 0
