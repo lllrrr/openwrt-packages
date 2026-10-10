@@ -172,7 +172,7 @@ return view.extend({
 			for (var i = 0; i < data.series.length; i++) {
 				(function(s, idx) {
 					var on = !!selected[s.id];
-					var seriesColor = common.palette[idx % common.palette.length];
+					var seriesColor = chart.palette[idx % chart.palette.length];
 					/* 可点切换的胶囊：用原生 <button> 而非 div/自定义元素。
 					 * 原生按钮自带键盘可达与回车激活，无需再手工补 keydown；
 					 * aria-pressed 让读屏播报「已按下 / 未按下」。 */
@@ -235,7 +235,7 @@ return view.extend({
 				if (!selected[s.id]) continue;
 				series.push({
 					name: s.name,
-					color: common.palette[data.series.indexOf(s) % common.palette.length],
+					color: chart.palette[data.series.indexOf(s) % chart.palette.length],
 					points: s.points
 				});
 				var last = null;

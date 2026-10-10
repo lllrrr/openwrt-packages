@@ -118,7 +118,7 @@ return view.extend({
 
 		function makePauseBtn() {
 			return common.ui.button({
-				label: paused ? _('Resume') : _('暂停'),
+				label: paused ? _('继续') : _('暂停'),
 				icon: paused ? icoResume : icoPause,
 				variant: 'outline',
 				onClick: function() {
@@ -161,7 +161,7 @@ return view.extend({
 			/* 首列是状态指示列（原为空表头），补上列名；
 			 * 其余列加 scope，读屏逐格导航时能正确播报列名。 */
 			if (hi === 0)
-				th.setAttribute('aria-label', _('Status'));
+				th.setAttribute('aria-label', _('状态'));
 			else
 				th.setAttribute('scope', 'col');
 			tr.appendChild(th);
@@ -306,7 +306,7 @@ return view.extend({
 			var list = (latest.targets || []).filter(match);
 			if (!list.length) {
 				var tr0 = common.el('tr', '');
-				var td0 = common.el('td', 'nm-empty', _('No matching targets'));
+				var td0 = common.el('td', 'nm-empty', _('没有匹配的目标'));
 				td0.colSpan = heads.length;
 				td0.style.padding = '38px';
 				td0.style.textAlign = 'center';
@@ -314,7 +314,7 @@ return view.extend({
 				tbody.appendChild(tr0);
 
 				var emptyCard = common.tcard();
-				emptyCard.appendChild(common.el('div', 'nm-empty', _('No matching targets')));
+				emptyCard.appendChild(common.el('div', 'nm-empty', _('没有匹配的目标')));
 				cards.appendChild(emptyCard);
 				return;
 			}

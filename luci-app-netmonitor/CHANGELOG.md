@@ -6,13 +6,313 @@
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
 - 使用说明与当前版本的行为描述见 [`README.md`](README.md)。
-- 逐条变更背后的技术背景、根因分析与实机验证方法见 README 第十二章
-  「开发约定与踩坑记录」——那一章按**技术主题**组织，记录的是至今仍生效的硬约束，
+- 逐条变更背后的技术背景、根因分析与实机验证方法见 README 的
+  「🛠️ 关键开发约定与工业级避坑指南」一章——该章按**技术主题**组织，记录的是至今仍生效的硬约束，
   不随版本变动，因此留在 README 而未迁入本文件。
 - 版本号与 `Makefile` 的 `PKG_VERSION`、git tag `v<版本>` 三者必须一致。
 
-条目分类：`新增` / `变更` / `修复` / `移除` / `弃用` / `安全`。
+条目分类：`新增` / `变更` / `修复` / `移除` / `弃用` / `安全`；
+辅助小节另用 `验证`（该版的验证结论）/`文档`（纯文档同步）/`撤回`（推翻上一版的决定）。
 
+
+## [1.5.8] - 2026-10-10
+
+### 文档
+
+按仓库现状逐条校准文档，本版**无代码行为变更**。数字均经实测核验，不沿用旧值。
+
+- **版本徽章**：`README.md` 顶部的版本徽章仍写着 `1.2.0`，与 `PKG_VERSION:=1.5.7`
+  差了 5 个版本，是第一眼就会误导的门面。改为 `1.5.7`。
+- **测试断言数**（实测）：
+
+  | 位置 | 旧值 | 实测 | 说明 |
+  |---|---|---|---|
+  | 徽章 `tests-536 passing` | 536 | **538** | 437（图标）+ 101（守护进程） |
+  | 目录树 / 运行说明 `test_netmon_daemon.sh` | 94 | **101** | 两处都写 |
+  | 运行说明 `test_icons.js` | 442 | **437** | 与同文件目录树里的 437 自相矛盾 |
+
+- **前端资源体积**：`152 KB` → **159 KB**（`htdocs/luci-static/resources/netmonitor`
+  实测 163095 B）。`README.md` / `REFACTOR.md` / `Makefile` 三处同步；
+  `Makefile` 里「style.css 58 KB」也按实测更新为 66.6 KB。
+- **新增「前端模块职责边界」约定**（README 开发约定章 §2.1）：
+  1.5.6 拆分后必须写清「新代码用哪个模块」，否则新提交会继续往 `common.js` 里堆。
+  含一张职责对照表与两条硬约束（数据层不依赖展示层 / 组件层不发请求）。
+- **`REFACTOR.md`**：删除指向 `probe/verify.js` 与 `probe/xss.js` 的命令 ——
+  该目录已随重构删除，照做必然失败；改为当前实际的验证入口。
+- **`CHANGELOG.md` 文件头**：修正对「README 第十二章」的失效引用（真实章节名为
+  「🛠️ 关键开发约定与工业级避坑指南」，且编号并非第十二章）；补登记正文里实际在用的
+  `验证` / `文档` / `撤回` 三类小节。
+- **预览页启动路径**：`cd /workspace` 改为 `cd /workspace/luci-app-netmonitor`，
+  并注明服务器根必须是仓库根（页面资源用绝对路径，根起错会全部 404）。
+- **图标数量口径统一**：`icons.js` 导出 26 项，其中 `gradeColor` 是返回类名的辅助
+  函数、真正产出 SVG 的是 24 个编号图标 + `dot`。改为写清构成，避免与
+  「24 个动态图标」的表述打架。
+
+### 修复
+
+- 两处代码注释与事实不符：`common.js` 自称「使用 `Class.singleton`」（实际是
+  `Class.extend`，而 README 开发约定明确禁止 `Class.singleton`）；`icons.js` 的
+  `LABEL_ZH` 注释称「与 `common.js` 的 `BACKEND_MSG` 同理」，该表已在 1.5.6 迁至
+  `format.js`。
+
+## [1.5.7] - 2026-10-10
+
+本版源自一次全仓冗余审查，处理其中**证据确凿、可静态验证**的部分。
+
+### 移除
+
+- **删除 `style.css` 中被取代的旧动画类 `nm-a-*`（11 个类 + 5 个孤儿 keyframes，共 76 行）**。
+  图标动画实际使用的是 `nm-an-*`（`nm-an-dash` / `nm-an-pulse` / `nm-an-ring` /
+  `nm-an-blink` / `nm-an-bar` / `nm-an-spin` / `nm-an-dash-rev`，共 7 个，定义在
+  style.css 且被 JS 引用 46 次）。`nm-a-*` 是更早一版的命名，重构换名后
+  整套遗留下来，**全仓零引用**。
+
+  删除前逐条核对了 keyframes 的归属，避免误删仍在用的：
+
+  | keyframes | 引用者 | 处理 |
+  |---|---|---|
+  | `nm-spin` / `nm-move` / `nm-vanish` / `nm-alarm` / `nm-wave` | **仅** `.nm-a-*` | 随类一并删除 |
+  | `nm-pulse` | `.nm-an-pulse`、`.nm-svg-radar-*`、`.nm-led-center` | 保留 |
+  | `nm-dash` | `.nm-an-dash`、`.nm-an-dash-rev` | 保留 |
+  | `nm-ripple` | `.nm-led-ping-ring` | 保留 |
+  | `nm-blink` | `.nm-an-blink` | 保留 |
+
+  删除后校验：`nm-a-` 归零、`nm-an-` 7 条完整、在用的 keyframes 全部健在、大括号平衡。
+
+### 修复
+
+- **本地预览页（`tests/preview/index.html`）模块表缺 4 个模块，打开必然白屏**。
+  预览页用自己的加载器按 `'require x as y'` 递归组装模块，
+  而 `SOURCES` 表是**手工维护**的，`loadModule()` 遇到未登记模块直接
+  `Promise.reject(new Error('未知模块: ' + name))` —— 漏一个就整页白屏。
+
+  | 缺失模块 | 性质 |
+  |---|---|
+  | `netmonitor.ui` | **既存缺陷**：`common.js` 一直 require 它，而表中从未登记 |
+  | `netmonitor.format` / `netmonitor.api` / `netmonitor.widgets` | 1.5.6 拆分引入 |
+
+  已补齐，并在文件头注释里写明「漏一个就白屏」的约束。
+  实测：无头 Chromium 加载预览页，渲染出 **31 个 SVG 图标节点 + 115 个卡片节点**，
+  总览页数据完整（延迟 / 丢包 / 分区 / 目标卡全渲染），**零运行时错误**。
+
+### 文档
+
+- `README.md`：目录树补上 `format.js` / `api.js` / `widgets.js`，`common.js` 的
+  描述由「RPC 数据格式化与异常处理中间层」改为「资源加载 + 向后兼容聚合转发」；
+  图标数 24 → 26；测试断言数 442 → 437（均为实测值）。
+- `REFACTOR.md`：`toNum` 归属改指 `format.js`；`confirmDialog` 现状更新为
+  「兼容转发、零调用点」；变更文件清单补上拆分出的三个模块。
+- `tests/preview/index.html`：去除「TDesign 重构预览」等过时文案（1.5.0 起已移除）。
+- `CHANGELOG.md`：1.5.6 节里的模块行数由估算值改为实测值（156 / 214 / 344 / 247）。
+
+### 审查中确认、但本次**未处理**的冗余
+
+以下内容证据同样明确，但涉及行为变更或需要实机验证，留待后续单独处理，
+此处登记以免遗失：
+
+- **图标库 5 个导出零调用**：`health` / `liveBars` / `responsive` / `dot` / `iface`。
+  这些并非「没用」，而是页面各有一份自绘替代（如 `overview.js` 的
+  `buildHeroSvg()` / `buildLiveBarsSvg()`）。正确方向是**把自绘收敛回 icons.js**
+  而不是删图标——与「图标必须始终能表达状态」的目标相悖，且 `test_icons.js`
+  的 437 条断言依赖它们。
+- **页面横向重复**：`makeSelect` 下拉工厂 ×4、`makeStripCard` 速览卡 ×3（其中两份
+  逐字相同）、等级阈值判定 ×4（三份 md5 相同）、空状态/错误提示 ×8。
+- **后端零调用**：`netmon-daemon.sh` 的 `zeros_hist()`、ucode 的 `fxInt()`。
+  改动后端需实机验证，不在静态审查范围内处理。
+
+## [1.5.6] - 2026-10-10
+
+### 变更
+
+- **`common.js` 按职责拆分为三个专职模块**（809 行 → 聚合层 156 行 + 三个专职模块）。
+  此前 `common.js` 同时装着六类互不相干的职责，是典型的「上帝模块」：
+  改任何一个格式化函数、任何一个 RPC 方法、任何一张卡片，都要动同一个文件，
+  也无法单独测试。现按职责边界拆开：
+
+  | 模块 | 职责 | 依赖 | 行数 |
+  |---|---|---|---|
+  | `format.js` | 数值→文本、状态→类名/文案、后端报错→可翻译文案 | **无**（纯函数，不碰 DOM） | 214 |
+  | `api.js` | RPC 调用、字符串数值归一化、UCI 读改写与提交 | rpc / uci / format | 344 |
+  | `widgets.js` | 目标卡 / KPI 卡 / 图标卡 / 横幅 / 迷你曲线 / 通知 | ui / icons / format | 247 |
+  | `common.js` | 资源加载（样式表注入、i18n）+ **向后兼容转发** | 上述三者 + icons + ui | 156 |
+
+  依赖方向严格单向，**无环**：
+
+  ```
+  view/*.js → common ┬→ widgets → {ui, icons, format}
+                     ├→ api     → {rpc, uci, format}
+                     ├→ chart
+                     └→ icons / ui
+  ```
+
+  两条硬约束写进了各文件的头部注释：
+  - **数据层不依赖展示层**：`api.js` 不许 require `ui` / `icons`，
+    否则会出现「为了拿一个 `percent()` 而把图标库拖进来」的反向耦合；
+  - **业务组件层不发请求**：`widgets.js` 只负责把数据画成 DOM。
+
+  本次为**渐进式拆分**：`common.*` 的 33 项历史导出逐项转发到新模块，
+  既有页面零改动；新代码请直接 require 专职模块。
+
+### 移除
+
+- **删除 `common.palette`**（配色双真源）。
+  它与 `chart.js` 里的 `PALETTE` 是**逐字节相同**的两份副本 —— 改一处漏
+  另一处就会让图例与曲线配色错位。现统一取 `chart.palette`。
+  这是本次唯一的破坏性改动，涉及 3 处调用（charts.js 两处、history.js 一处），
+  且这两页本就已 require `chart`，无需经由 common 再绕一层
+  （保留转发反而会让**所有**页面都多加载一个图表模块）。
+
+- **删除 `common.confirmDialog` 的实现**（死代码 + 双实现）。
+  它与 `ui.confirm` 是两套确认框；全仓检索确认 `confirmDialog` **零调用点**
+  （页面一律用 `common.ui.confirm`）。导出名保留并直接指向 `ui.confirm`，
+  消除双实现，老代码若引用也不会报错。
+
+### 修复
+
+- **`po/gen_po.py` 的后端报错映射表解析指向已失效的文件**。
+  该脚本硬编码从 `common.js` 解析 `BACKEND_MSG` / `BACKEND_MSG_ARG`
+  （这些文案以变量形式传给 `_()`，正则抓不到字面量，必须解析映射表）。
+  拆分后映射表搬到了 `format.js`，若不改，全部后端报错文案会静默退出 po，
+  运行时 `_()` 查表落空、直接回落英文。现改为解析 `format.js`。
+  修复后自检：`strings: 184, untranslated: 0`（较拆分前少 1 条，
+  是 1.5.5 把 `dot()` 的 `_('Status')` 改为中文直出的预期结果）。
+
+### 验证
+
+- 模块导出完整性：view 层用到 `common.*` 20 项、`icons.*` 19 项、`chart.*` 2 项，**零缺失**；
+  33 项历史导出**全部保留**，且转发为同一引用（`common.el === widgets.el`），非副本。
+- 依赖图静态解析：**无循环依赖**，`format.js` 为零依赖叶子节点。
+- 运行时冒烟：`targetCard` / `kpiCard` / `iconCard` / `banner` / `sparkline` 正常产出；
+  `numify.status()` 仍把后端字符串 `"26.510000000000002"` 正确转回数值 `26.51`。
+- `node tests/test_icons.js`：437 通过 / 0 失败；全部 JS 文件 `node --check` 通过。
+
+## [1.5.5] - 2026-10-10
+
+### 变更
+
+- **动态 SVG 图标加兜底色：样式表没加载也能看见、也能表达状态**。
+  这是本版最重要的一项。图标的颜色此前**完全**依赖 `style.css` 的
+  `.nm-str-*` / `.nm-fill-*`，而该样式表是**运行时由 JS 注入**的
+  （`common.css()` 动态插 `<link>`）。一旦注入失败、被 CSP 拦下、
+  或样式表还没加载完图标就已经渲染，SVG 的 `stroke` / `fill` 会落到
+  默认值 `none` —— 整片图标直接隐形，状态信息全丢。
+
+  现在在 `<svg>` 根元素上写 `stroke="currentColor" fill="currentColor"`
+  作兜底。这两条是 **presentation attribute**，优先级低于 CSS 规则，
+  因此样式表正常时配色照旧、兜底不生效；只有样式表缺席时才接管：
+
+  | 场景 | 改前 | 改后 |
+  |---|---|---|
+  | 样式表正常加载 | 分级配色 | 分级配色（不变） |
+  | 样式表未加载 / 被拦 | 全隐形（非背景像素 0.35%） | 单色可见（非背景像素 4.42%） |
+
+  （上表数值为无头浏览器截图的实测非背景像素占比；对照组「样式表正常」
+  为 3.31%，可见兜底态与正常态的可辨识度处于同一量级。）
+
+  `currentColor` 取自父级文字色（`.nm-root` 的 `--nm-fg`），明暗主题自动跟随，
+  因此兜底态不会出现「白底白图标」。另外补了
+  `.nm-svg [class*="nm-fill-"] { stroke: none; }`：填充类图形不该继承描边兜底，
+  否则实心圆点会多出一圈轮廓。
+
+- **图标无障碍标签全量汉化**。
+  此前 `aria-label` 直接写源码标识符（`'health-ok'`、`'service-running'`、
+  `'iface-up'`…），读屏念出来的是一串英文连字符。现新增 `LABEL_ZH` 映射表，
+  导出前统一转成人话，共覆盖 32 个标签：
+
+  | 标识符 | 读屏实际念出 |
+  |---|---|
+  | `health-ok` / `health-warning` / `health-critical` / `health-unknown` | 网络正常 / 网络告警 / 网络严重故障 / 状态未知 |
+  | `service-running` / `service-stopped` | 服务运行中 / 服务已停止 |
+  | `iface-up` / `iface-down` | 接口已连接 / 接口未连接 |
+  | `alert` / `no-alert` | 有告警 / 无告警 |
+  | `loss` / `no-loss` | 存在丢包 / 无丢包 |
+  | `dns-error` | DNS 解析失败（技术术语保留） |
+
+  映射表集中一处，新增图标时登记一行即可，不会出现「同一个图标两处两种叫法」。
+
+- **插件不再自写背景色板，底色交给主题**。
+  容器类（卡片 / 徽标 / 标签 / 表头 / 提示条 / 图表框 / 图标盒等约 20 处）
+  的背景统一改为 `transparent`，由主题自己的底色承载；变量改为 CSS 系统色
+  关键字兜底（`Canvas` / `CanvasText` / `GrayText`），主题没给变量时也不会
+  塌成黑块或白块。
+
+  交互反馈（表格行 hover、按钮 hover / active）不再用固定灰阶，改由
+  `color-mix(in srgb, var(--nm-fg) 6%/7%/13%, transparent)` 从当前文字色推导，
+  明暗主题下都成立。弹窗 / 对话框底色保留 `var(--nm-bg)` —— 它们必须不透明，
+  否则会与背后的页面内容叠字。
+
+### 修复
+
+- **`service()` 把「已停止」判成「运行中」**。
+  旧实现是 `var on = !!state`，对布尔入参没问题，但后端一旦回字符串
+  （`'stopped'` / `'error'`），非空字符串会被 `!!` 一律判成 `true` ——
+  已停止的服务被画成绿色运行中，图形、配色、`aria-label` 三处同时错。
+  总览页正是把 `d.running` 原值直接传进来的，命中这条路径。
+  现改为显式列出「停止类」取值（`stopped` / `stop` / `down` / `error` /
+  `inactive` / `disabled` / `offline` / `''` / `'0'` / `'false'`），
+  布尔与字符串两种入参都判得对。
+
+## [1.5.4] - 2026-10-10
+
+### 变更
+
+- **开关控件重写样式，并加固为「不被主题覆盖」**。
+  开关仍是原生 checkbox + 纯 CSS 滑块（设置页 / 目标表格 / 窄屏卡片 / 编辑弹窗共用），
+  本版把外观与防覆盖一起重做：
+
+  | 防线 | 做法 | 针对的实测/常见问题 |
+  |---|---|---|
+  | 特异性 | 选择器统一为 `.nm-root input[type="checkbox"].nm-switch`（0,3,1） | Aurora 主题 `input[type=checkbox]{width:calc(var(--spacing)*4)}` 曾把 44x24 压成 16x16，滑块溢出、开关失效 |
+  | `!important` | 尺寸 / 外观 / 轨道底色 / 滑块位移全部加 `!important` | 对抗主题同样带 `!important` 的规则；本样式表由 JS 注入 head 末尾，同级后来者胜 |
+  | 清零 | 组合选择器把 `::after`（主题画的勾）、`background-image`（svg 勾）、`border` / `outline` 一律归零 | 只在特定主题下才暴露的「开关外多一个勾 / 多一圈边框」 |
+
+  视觉与交互一并精修：
+  - 尺寸改由变量集中管理（`--nm-switch-w/h/knob/pad`，46x26 轨道 + 22px 滑块），
+    行程改为 `calc(轨道 - 滑块 - 2*内边距)` 推导，不再硬编码 20px；
+  - 新增 hover 轨道加深、`:active` 滑块微增宽、`:disabled` 降透明度等状态；
+  - 轨道加 1px 内描边，弱配色下轮廓更清晰；过渡统一 0.18s；
+  - 补 `:focus-visible` 焦点环（上方清零把 outline 归零了，键盘可达性不能丢）；
+  - 新增 `prefers-reduced-motion` 与 `forced-colors: active`（高对比度）适配。
+
+### 撤回
+
+- **撤回 1.5.3 引入的「设置页动作栏吸底」（`position: sticky`）**。
+  吸底栏长期浮在内容之上，会与主题自带浮层、以及 LuCI 应用配置时的官方弹层
+  争夺视觉焦点；该改动未经实机验证，收益（少滚一次）抵不上不确定性。
+  动作栏回到常规文档流的页面末尾，层级问题随之消失（原 `z-index`
+  讨论一并作废）。
+
+## [1.5.3] - 2026-10-10
+
+### 变更
+
+- **总览页底部栏重排**：服务状态行与「启动 / 停止 / 重启」操作行合并为
+  同一弹性行（宽屏状态居左、操作靠右，窄屏自动折行），
+  替代此前垂直堆叠的两行，减少一屏占用；
+  相应内联样式收编为 `.nm-foot-bar / .nm-foot-status /
+  .nm-foot-livebars / .nm-foot-actions` 类。
+
+- **设置页动作栏吸底**：`.nm-action-bar-glass` 改为 `position: sticky`
+  悬浮在视口底部（附投影与毛玻璃背景），长表单改动后无需滚到页底
+  即可「保存更改 / 放弃修改」，状态胶囊始终可见。
+
+### 修复
+
+- **补齐界面残留英文**  - **设置页动作栏层级收敛**：动作栏不设 `z-index`（此前为 5）。取证 LuCI master `ui.js`：「保存并应用」入口是**顶部** `#indicators` 的
+    Unsaved Changes 指示器、点击后走 `showModal()`，页面底部并无原生固定栏；唯一会叠在一起的是官方
+    modal / alert-message 浮层（应用配置时的「正在应用配置更改…」）。该浮层按 DOM 顺序追加在 body 末尾，
+    与 sticky 元素同属根层叠上下文且同为 `z-index:auto`，按「后来居上」绘制在上方；本栏保持 auto 即不会遮挡，
+    若把 z-index 调高反而会压住官方浮层。已核对 `.nm-root` / `.nm-page` 不含 transform / filter / opacity 等
+    会创建层叠上下文的属性。
+
+（专业术语 IPv4 / IPv6 / P95 / TCP 等保持原样）：
+  - 弹窗关闭按钮的 `aria-label` 由硬编码 `Close` 改走 i18n（`_('Close')`，
+    po 新增 `Close -> 关闭`，已核对核心语言包无同名冲突）；
+  - 实时监控页 4 处英文 msgid（`Resume` / `No matching targets` /
+    `Status`）改为与本页一致的中文写法；
+  - 设置页速览条 2 处英文 msgid（`UI refresh interval` /
+    `Independent from the probe interval`）改为中文写法，与本页其余文案统一；
+  - 重新生成 po/pot（188 -> 185 条），`gen_po.py` 全部通过、零未翻译。
 
 ## [1.5.2] - 2026-10-10
 

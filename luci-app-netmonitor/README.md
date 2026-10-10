@@ -5,12 +5,12 @@
 **面向 OpenWrt 主线（Mainline）的高性能网络延迟与连通性实时监控系统**
 
 [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.2.0-informational.svg?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.5.8-informational.svg?style=flat-square)](CHANGELOG.md)
 [![OpenWrt](https://img.shields.io/badge/OpenWrt-23.05%20%7C%2024.10%20%7C%2025.x-00A0D0.svg?logo=openwrt&logoColor=white&style=flat-square)](#-系统与版本兼容性)
 [![LuCI Architecture](https://img.shields.io/badge/LuCI-JS%20View%20%2B%20ucode%20RPC-FF6B35.svg?style=flat-square)](#-系统架构)
 [![Package arch](https://img.shields.io/badge/arch-all%20(PKGARCH%3Dall)-lightgrey.svg?style=flat-square)](#-快速安装与验证)
 [![Build](https://github.com/LianXia233/luci-app-netmonitor/actions/workflows/build.yml/badge.svg?style=flat-square)](https://github.com/LianXia233/luci-app-netmonitor/actions/workflows/build.yml)
-[![Tests](https://img.shields.io/badge/tests-536%20passing-2e9e5b.svg?style=flat-square)](#-测试与断言规范)
+[![Tests](https://img.shields.io/badge/tests-538%20passing-2e9e5b.svg?style=flat-square)](#-测试与断言规范)
 [![i18n](https://img.shields.io/badge/i18n-zh__Hans%20%7C%20en%20(100%25)-2e9e5b.svg?style=flat-square)](#-关键开发约定与工业级避坑指南)
 
 *基于 procd 常驻守护进程与轻量 tmpfs 直方图存储 · 关闭网页后台持续采样 · 拒绝虚假 0ms 延迟*
@@ -27,7 +27,7 @@
 - 🧮 **轻量流式统计**：基于内存环形缓冲区与 17 桶直方图进行 $O(1)$ 增量计算，实时输出 P50 / P95 / P99 百分位分位数，CPU 消耗与历史长度彻底解耦。
 - 🛡️ **Flash 零损耗设计**：高频点阵全量驻留 `/tmp`（tmpfs），仅可选开启低频聚合落盘；无磁盘写放大，保障路由器闪存寿命。
 - 🎨 **自研动态矢量可视化**：内置 24 个动态响应式 SVG 状态仪表与多维度面积折线图，支持时间切片对齐 Tooltip 与丢包异常标记。
-- 🧩 **零依赖原生组件层**：七个视图页的卡片 / 按钮 / 标签 / 提示条 / 弹窗全部由项目自建的 `ui.js` 提供，纯原生 DOM 实现、**不携带任何第三方运行时**（1.5.0 起移除 TDesign，前端资源由 7.4 MB 降到 152 KB）；主题变量对接 LuCI 现有主题与暗色模式；动态 SVG 状态动效由真实测量值驱动。
+- 🧩 **零依赖原生组件层**：七个视图页的卡片 / 按钮 / 标签 / 提示条 / 弹窗全部由项目自建的 `ui.js` 提供，纯原生 DOM 实现、**不携带任何第三方运行时**（1.5.0 起移除 TDesign，前端资源由 7.4 MB 降到 159 KB）；主题变量对接 LuCI 现有主题与暗色模式；动态 SVG 状态动效由真实测量值驱动。
 
 ---
 
@@ -232,8 +232,9 @@ luci-app-netmonitor/
 │   ├── gen_po.py                                   # 跨平台 AST 翻译提取与冲突检测工具
 │   └── zh_Hans/luci-app-netmonitor.po
 ├── tests/                                          # 自动化断言测试套件
-│   ├── test_netmon_daemon.sh                       # 守护进程核心算法单元测试 (94 assertions)
-│   └── test_icons.js                               # SVG 动态图标与渲染断言 (442 assertions)
+│   ├── test_netmon_daemon.sh                       # 守护进程核心算法单元测试 (101 assertions)
+│   ├── test_icons.js                               # SVG 动态图标与渲染断言 (437 assertions)
+│   └── preview/index.html                          # 本地离线预览页（无需路由器，假数据驱动）
 ├── root/                                           # 系统根预置资产
 │   ├── etc/
 │   │   ├── init.d/netmonitor                       # procd 进程托管脚本
@@ -248,10 +249,13 @@ luci-app-netmonitor/
 └── htdocs/luci-static/resources/
     ├── netmonitor/
     │   ├── style.css                               # 限定于 .nm- 命名空间的自适应主题样式
-    │   ├── common.js                               # RPC 数据格式化与异常处理中间层
-    │   ├── chart.js                                # 自研轻量级 SVG 时序图表库
-    │   ├── icons.js                                # 24 个数据驱动内嵌 SVG 动态矢量图标
-    │   └── ui.js                                   # 原生 UI 组件层：按钮 / 标签 / 提示条 / 弹窗（无第三方依赖）
+    │   ├── format.js                               # 纯函数层：数值格式化 / 状态→类名文案 / 后端报错本地化（零依赖）
+    │   ├── api.js                                  # 数据访问层：RPC 调用 / 字符串数值归一化 / UCI 读改写与提交
+    │   ├── widgets.js                              # 业务组件层：目标卡 / KPI 卡 / 图标卡 / 横幅 / 迷你曲线
+    │   ├── chart.js                                # 自研轻量级 SVG 时序图表库（含配色 palette）
+    │   ├── icons.js                                # 动态 SVG 图标库：24 个编号图标 + dot 状态点 + gradeColor 辅助（共 26 个导出）
+    │   ├── ui.js                                   # 原生 UI 组件层：按钮 / 标签 / 提示条 / 弹窗（无第三方依赖）
+    │   └── common.js                               # 资源加载（样式表注入 / i18n）+ 向后兼容聚合转发
     └── view/netmonitor/                            # 纯客户端渲染单页视图
         ├── overview.js   realtime.js   charts.js
         ├── regions.js    history.js    targets.js  settings.js
@@ -274,6 +278,21 @@ LuCI 模块加载器强制执行类检查（`Class.isSubclass(_class)`），随�
 
 * 工具模块统一使用 `return Class.extend({...});`。
 * 严禁使用 `Class.singleton({...})`，其返回的静态实例会触发 `factory yields invalid constructor` 异常。
+
+### 2.1 前端模块职责边界（1.5.6 起）
+
+`common.js` 曾是一个 809 行的上帝模块，现已按职责拆开。**新代码请直接 require 专职模块，
+不要再经由 `common` 转发**，`common.*` 的转发项只是让既有页面零改动的兼容层，会随页面迁移逐项退场。
+
+| 要做什么 | 用哪个模块 | 硬约束 |
+|---|---|---|
+| 数值格式化、状态→类名/文案、后端报错本地化 | `format.js` | **零依赖**：不 require rpc/ui/uci，不碰 DOM，因此可被任意模块安全依赖 |
+| RPC 调用、字符串数值归一化、UCI 读改写与提交 | `api.js` | **数据层不依赖展示层**：不许 require `ui` / `icons` / `widgets` |
+| 目标卡 / KPI 卡 / 图标卡 / 横幅 / 迷你曲线 | `widgets.js` | **组件层不发请求**：只负责把数据画成 DOM，不调 RPC |
+| 按钮 / 标签 / 提示条 / 弹窗（无业务语义） | `ui.js` | 通用控件原语，不认识 target / grade / region 等领域概念 |
+| 动态 SVG 图标 | `icons.js` | 状态驱动；配色来自 CSS，另有 `currentColor` 兜底保证样式表缺失时仍可见 |
+
+反向依赖（数据层引用组件层）是被禁止的，否则会出现「为拿一个 `percent()` 而把图标库拖进来」的耦合。
 
 ### 3. TSV 空字段塌陷灾难（POSIX IFS 陷阱）
 
@@ -351,11 +370,11 @@ LuCI 加载翻译时，`base.zh-cn.lmo` 的词频优先级高于插件。若插�
 项目在本地及 GitHub Actions CI 流水线中集成了多层自动化验证护栏：
 
 ```sh
-# 1. 运行守护进程核心逻辑单元测试 (94 assertions)
+# 1. 运行守护进程核心逻辑单元测试 (101 assertions)
 # 涵盖: 异常错误分类、TSV 占位容错、分段直方图数学模型、TCP 握手判定
 sh tests/test_netmon_daemon.sh
 
-# 2. 运行 SVG 动态矢量图标自动化断言 (442 assertions)
+# 2. 运行 SVG 动态矢量图标自动化断言 (437 assertions)
 # 涵盖: 零三方依赖、数据变化敏感性、空值边界防御、视口尺寸阈值
 node tests/test_icons.js
 

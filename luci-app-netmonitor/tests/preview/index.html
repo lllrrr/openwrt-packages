@@ -1,13 +1,15 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <!--
- * luci-app-netmonitor · TDesign 重构本地预览
+ * luci-app-netmonitor · 本地预览（自研原生组件层，1.5.0 起已移除 TDesign）
  *
  * 用途：在桌面浏览器里离线预览 7 个视图页的视觉效果与交互，
  * 无需真实路由器 / rpcd / ubus。加载方式：
  *
- *   cd /workspace && python3 -m http.server 8000
+ *   cd /workspace/luci-app-netmonitor && python3 -m http.server 8000
  *   打开 http://localhost:8000/tests/preview/index.html
+ *   （服务器根必须是**仓库根**：页面内资源用绝对路径 /htdocs/... 与 /po/...，
+ *     根目录起错会全部 404）
  *
  * 实现要点：
  *   - 用 fetch 直接读取各 .js 源文件，解析 LuCI 的 'require x as y'
@@ -16,8 +18,12 @@
  *   - common.api 被替换为内存假数据（getStatus / getHistory /
  *     getStatistics / getTargets / getConfig 等），交互保存走
  *     内存 uci 垫片，不会触碰任何真实系统。
- *   - TDesign 库与业务 CSS 仍由 common.css() / common.tdesign()
- *     经 L.resource() 注入，验证的是与实机完全相同的渲染路径。
+ *   - 业务 CSS 由 common.css() 经 L.resource() 注入，
+ *     验证的是与实机完全相同的渲染路径。
+ *   - 模块清单 SOURCES 必须覆盖真实存在的所有 netmonitor.* 模块：
+ *     漏一个就会在 loadModule 处 reject（'未知模块'），整页白屏。
+ *     1.5.6 拆分后 common.js 依赖 format/api/widgets/icons/ui 五个模块，
+ *     且 netmonitor.ui 此前就漏登记 —— 一并补齐。
  *   - 中文翻译直接从 po/zh_Hans/luci-app-netmonitor.po 加载，
  *     与实机 LuCI 的 i18n 表一致；翻译不可用时回退原文。
  *
@@ -26,7 +32,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>luci-app-netmonitor · TDesign 预览</title>
+<title>luci-app-netmonitor · 本地预览</title>
 <style>
 	/* 预览外壳样式，全部限定在 #nm-preview-* 命名空间，不干扰业务样式 */
 	body { margin: 0; background: #f5f6f8; font-family: -apple-system, "Segoe UI", "PingFang SC",
@@ -55,7 +61,7 @@
 </head>
 <body>
 <div id="nm-preview-top">
-	<h1>luci-app-netmonitor · TDesign Web Components 预览</h1>
+	<h1>luci-app-netmonitor · 本地预览（自研原生组件层）</h1>
 	<span class="nm-preview-note">离线假数据驱动 · 交互保存走内存 uci 垫片 · 翻译取自 po/zh_Hans</span>
 </div>
 <div id="nm-preview-tabs"></div>
@@ -347,9 +353,13 @@ var mockApi = {
 
 /* ================================================================ 模块加载器 */
 var SOURCES = {
-	'netmonitor.common': '/htdocs/luci-static/resources/netmonitor/common.js',
-	'netmonitor.icons':  '/htdocs/luci-static/resources/netmonitor/icons.js',
-	'netmonitor.chart':  '/htdocs/luci-static/resources/netmonitor/chart.js'
+	'netmonitor.common':  '/htdocs/luci-static/resources/netmonitor/common.js',
+	'netmonitor.format':  '/htdocs/luci-static/resources/netmonitor/format.js',
+	'netmonitor.api':     '/htdocs/luci-static/resources/netmonitor/api.js',
+	'netmonitor.widgets': '/htdocs/luci-static/resources/netmonitor/widgets.js',
+	'netmonitor.icons':   '/htdocs/luci-static/resources/netmonitor/icons.js',
+	'netmonitor.ui':      '/htdocs/luci-static/resources/netmonitor/ui.js',
+	'netmonitor.chart':   '/htdocs/luci-static/resources/netmonitor/chart.js'
 };
 var VIEW_SOURCES = {
 	overview: '/htdocs/luci-static/resources/view/netmonitor/overview.js',

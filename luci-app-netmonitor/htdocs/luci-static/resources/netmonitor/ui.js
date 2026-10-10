@@ -227,7 +227,8 @@ function dialog(opts) {
 	box.setAttribute('aria-labelledby', titleId);
 	var btnX = el('button', 'nm-dlg-close', '×');
 	btnX.type = 'button';
-	btnX.setAttribute('aria-label', 'Close');
+	/* 读屏播报用：与弹窗其他按钮文案一致走 i18n，不硬编码英文 */
+	btnX.setAttribute('aria-label', _('Close'));
 	head.appendChild(btnX);
 	box.appendChild(head);
 

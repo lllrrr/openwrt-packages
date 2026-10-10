@@ -95,11 +95,83 @@ function bigEnough(size, min) {
 	return (size == null) || (size >= min);
 }
 
-/* 统一的外层封装：所有图标共用 0 0 120 120 视口，保证在不同尺寸下比例一致 */
+/* 无障碍标签本地化表。
+ *
+ * 图标内部一律用**英文标识**作 label（'ping' / 'trend' / 'region-cn' …），
+ * 只在导出前经本表转成人话再写进 aria-label —— 读屏念的是「延迟」「探测」，
+ * 而不是 'latency' 'ping' 这类源码标识。
+ *
+ * 与 format.js 的 BACKEND_MSG 同理：集中一张表，新增图标时在此登记即可，
+ * 不必在每个绘制分支里各写一遍文案，也不会出现「同一个图标两处两种叫法」。
+ * 未登记的标识按原样透出，便于发现漏登记项。 */
+var LABEL_ZH = {
+	'health-ok': '网络正常',
+	'health-warning': '网络告警',
+	'health-critical': '网络严重故障',
+	'health-unknown': '状态未知',
+	latency: '延迟',
+	ping: '探测',
+	online: '在线',
+	offline: '离线',
+	'packet-loss': '丢包率',
+	loss: '存在丢包',
+	'no-loss': '无丢包',
+	'high-latency': '高延迟',
+	'dns-error': 'DNS 解析失败',
+	'region-cn': '国内',
+	'region-overseas': '国外',
+	'grade-gauge': '质量等级',
+	trend: '延迟趋势',
+	iface: '接口',
+	'iface-up': '接口已连接',
+	'iface-down': '接口未连接',
+	service: '服务状态',
+	'service-running': '服务运行中',
+	'service-stopped': '服务已停止',
+	targets: '监控目标',
+	'targets-empty': '暂无目标',
+	'availability': '在线率',
+	'success-rate': '成功率',
+	'loss-ring': '丢包率',
+	'clock': '最后检测',
+	'last-check': '最后检测',
+	gear: '设置',
+	settings: '设置',
+	database: '历史数据',
+	history: '历史数据',
+	bell: '告警',
+	alert: '有告警',
+	'no-alert': '无告警',
+	'dual-stack': '双协议栈',
+	'live-stats': '实时采样',
+	responsive: '响应度',
+	dot: '状态'
+};
+
+function labelText(label) {
+	var s = String(label == null ? '' : label);
+	return LABEL_ZH[s] || (s || _('Icon'));
+}
+
+/* 统一的外层封装：所有图标共用 0 0 120 120 视口，保证在不同尺寸下比例一致。
+ *
+ * 兜底色是本函数存在的另一半理由：
+ * 图标的描边/填充色由 style.css 的 .nm-str-* / .nm-fill-* 提供，而该样式表是
+ * **运行时由 JS 注入**的（common.js 的 ensureCss 动态插 <link>）。一旦注入失败、
+ * 被 CSP 拦下、或样式表尚未加载完而图标已渲染，所有 stroke / fill 都会落空
+ * （SVG 的 stroke 默认值是 none），整片图标直接隐形 —— 状态信息全丢。
+ * 这里在根元素写上 stroke / fill 的 currentColor 兜底：
+ *   · 子元素显式写了 fill="none" 的描边图形 → 继承 stroke=currentColor，可见；
+ *   · 未写 fill 的填充图形 → 继承 fill=currentColor，可见；
+ *   · 样式表正常加载时，.nm-str-* / .nm-fill-* 是 CSS 规则，
+ *     优先级高于 presentation attribute 与继承值，配色照旧，兜底不生效。
+ * currentColor 取自父级文字色（.nm-root 的 --nm-fg），明暗主题都自动跟随，
+ * 因此兜底态下也不会出现「白底白图标」。 */
 function wrap(size, inner, label) {
 	var s = (size == null) ? 40 : size;
 	return '<svg class="nm-svg" width="' + s + '" height="' + s + '" viewBox="0 0 120 120" ' +
-		'role="img" aria-label="' + esc(label || _('Icon')) + '">' + inner + '</svg>';
+		'stroke="currentColor" fill="currentColor" ' +
+		'role="img" aria-label="' + esc(labelText(label)) + '">' + inner + '</svg>';
 }
 
 /* 环形进度：track 为底环，progress 为真实数据对应的弧长 */
@@ -127,31 +199,32 @@ function health(state, size) {
 	          (state === 'critical') ? 'red' : 'idle';
 	var sf = fc(col), ss = sc(col);
 
-	if (state === 'good') {
-		return wrap(size,
-			'<circle cx="60" cy="60" r="45" fill="none" class="' + ss + ' nm-an-dash" stroke-width="2"/>' +
-			'<circle cx="60" cy="60" r="35" fill="none" class="' + ss + '" stroke-width="5"/>' +
-			'<circle cx="60" cy="60" r="43" fill="none" class="' + ss + ' nm-an-ring" stroke-width="2"/>' +
-			'<path d="M43 60l11 11 24-27" fill="none" class="' + ss +
-				'" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>',
-			'health-ok');
-	}
-
-	if (state === 'warning' || state === 'critical') {
-		return wrap(size,
-			'<circle cx="60" cy="60" r="45" fill="none" class="' + ss + ' nm-an-dash-rev" stroke-width="2"/>' +
-			'<circle cx="60" cy="60" r="35" fill="none" class="' + ss + '" stroke-width="5"/>' +
-			'<circle cx="60" cy="60" r="43" fill="none" class="' + ss + ' nm-an-ring" stroke-width="2"/>' +
-			'<path d="M60 40v27M60 76v2" fill="none" class="' + ss +
-				'" stroke-width="7" stroke-linecap="round"/>',
-			'health-' + (state === 'critical' ? 'critical' : 'warning'));
-	}
+	/* 三种状态共用同一组「外环 + 中环 + 光环」骨架，差异只在
+	 *   ① 外环动画方向（异常态反向旋转）② 中心符号（对勾 / 感叹号 / 脉冲点）
+	 *   ③ 未知态没有光环、中环更细更淡。
+	 * 早先三个分支各写一遍骨架，改一个半径要改三处且容易漏 —— 这里收敛成
+	 * 「骨架 + 差异表」，状态与画法一一对应，新增状态只加一行。 */
+	var known = (state === 'good' || state === 'warning' || state === 'critical');
+	var anim = (state === 'warning' || state === 'critical') ? ' nm-an-dash-rev' : ' nm-an-dash';
+	var midAttr = known ? 'stroke-width="5"' : 'stroke-width="4" opacity="0.45"';
+	var halo = known
+		? '<circle cx="60" cy="60" r="43" fill="none" class="' + ss + ' nm-an-ring" stroke-width="2"/>'
+		: '';
+	var glyph = (state === 'good')
+		? '<path d="M43 60l11 11 24-27" fill="none" class="' + ss +
+			'" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>'
+		: (known
+			? '<path d="M60 40v27M60 76v2" fill="none" class="' + ss +
+				'" stroke-width="7" stroke-linecap="round"/>'
+			: '<circle cx="60" cy="60" r="10" class="' + sf + ' nm-an-pulse"/>');
 
 	return wrap(size,
-		'<circle cx="60" cy="60" r="45" fill="none" class="' + ss + ' nm-an-dash" stroke-width="2"/>' +
-		'<circle cx="60" cy="60" r="35" fill="none" class="' + ss + '" stroke-width="4" opacity="0.45"/>' +
-		'<circle cx="60" cy="60" r="10" class="' + sf + ' nm-an-pulse"/>',
-		'health-unknown');
+		'<circle cx="60" cy="60" r="45" fill="none" class="' + ss + anim + '" stroke-width="2"/>' +
+		'<circle cx="60" cy="60" r="35" fill="none" class="' + ss + '" ' + midAttr + '/>' +
+		halo + glyph,
+		(state === 'good') ? 'health-ok'
+			: (state === 'critical') ? 'health-critical'
+			: known ? 'health-warning' : 'health-unknown');
 }
 
 /* ---------------------------------------------------------------- 03 Ping 探测 */
@@ -371,8 +444,25 @@ function iface(up, size) {
 
 /* ---------------------------------------------------------------- 14 服务状态 */
 
+/* 「停止类」取值表。后端（ubus / ucode）对服务状态既可能回布尔，也可能回
+ * 字符串，两种入参都必须判对。 */
+var SERVICE_OFF = {
+	'': 1, '0': 1, 'false': 1, stopped: 1, stop: 1, down: 1,
+	error: 1, inactive: 1, disabled: 1, offline: 1
+};
+
+/* 旧实现写 `var on = !!state`：布尔入参没问题，但字符串入参下
+ * 'stopped' / 'error' 这类**非空**字符串会被 !! 一律判成 true ——
+ * 已停止的服务被画成绿色运行中，图形、配色、aria-label 三处同时错。
+ * overview.js 正是直接把 d.running 原值传进来的，命中这条路径。 */
+function serviceOn(state) {
+	if (typeof state === 'string')
+		return !SERVICE_OFF[String(state).toLowerCase()];
+	return !!state;
+}
+
 function service(state, size) {
-	var on = !!state;
+	var on = serviceOn(state);
 	var col = on ? 'green' : 'red';
 	var d = fc(col) + (on ? ' nm-an-pulse' : ' nm-an-blink');
 	return wrap(size,
@@ -598,8 +688,10 @@ function responsive(size) {
 
 function dot(grade, size) {
 	var s = size || 10;
+	/* 小圆点视口是 0 0 10 10，不走 wrap()，兜底色同样要带上 */
 	return '<svg class="nm-svg" width="' + s + '" height="' + s + '" viewBox="0 0 10 10" ' +
-		'role="img" aria-label="' + esc(_('Status')) + '">' +
+		'stroke="currentColor" fill="currentColor" ' +
+		'role="img" aria-label="' + esc(labelText('dot')) + '">' +
 		'<circle cx="5" cy="5" r="4" class="' + fc(gradeColor(grade)) + '"/></svg>';
 }
 

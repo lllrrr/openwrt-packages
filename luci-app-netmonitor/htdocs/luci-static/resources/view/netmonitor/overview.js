@@ -320,40 +320,30 @@ return view.extend({
 
 		function renderFoot(d) {
 			common.clear(foot);
-			var row = common.el('div', 'nm-row');
-			row.style.display = 'flex';
-			row.style.alignItems = 'center';
-			row.style.gap = '14px';
-			row.style.flex = '1';
+			foot.classList.add('nm-foot-bar');
 
+			/* 状态行：服务状态 + 动态 SVG 均衡柱图，占满剩余空间 */
+			var row = common.el('div', 'nm-foot-status');
 			row.appendChild(common.inlineIcon(icons.service(d.running, 30)));
 			row.appendChild(common.el('div', '',
 				(d.running ? _('Service running') : _('Service stopped')) +
 				' · ' + _('Last update') + ': ' + common.fmt.ago(d.tick)));
 
-			/* 动态 SVG 均衡柱图 */
 			var bars = [];
 			var tl = d.targets || [];
 			for (var i = 0; i < tl.length && i < 5; i++)
 				bars.push(tl[i].latency);
 
-			var lb = common.el('div', 'nm-row');
-			lb.style.display = 'flex';
-			lb.style.alignItems = 'center';
-			lb.style.gap = '10px';
-			lb.style.marginLeft = '20px';
-
+			var lb = common.el('div', 'nm-foot-livebars');
 			var liveBarsHolder = common.el('div', '');
 			liveBarsHolder.innerHTML = buildLiveBarsSvg(bars);
 			lb.appendChild(liveBarsHolder);
 			lb.appendChild(common.el('span', 'nm-card-description', _('Live sampling')));
 			row.appendChild(lb);
-
 			foot.appendChild(row);
 
-			var actRow = common.el('div', 'nm-row');
-			actRow.style.display = 'flex';
-			actRow.style.gap = '10px';
+			/* 操作行：靠右排布，与状态行同行展示（窄屏自动折行） */
+			var actRow = common.el('div', 'nm-foot-actions');
 
 			/* 服务控制按钮：按当前运行态禁用无意义的操作 ——
 			 * 服务已在运行时「启动」无事可做，已停止时「停止」同理。

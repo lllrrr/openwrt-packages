@@ -457,9 +457,9 @@ return view.extend({
 			));
 
 			strip.appendChild(makeStripCard(
-				_('UI refresh interval'),
+				_('界面刷新间隔'),
 				String(v.ui_refresh == null ? '2' : v.ui_refresh) + ' s',
-				_('Independent from the probe interval'),
+				_('与探测间隔相互独立'),
 				icons.clock(null, 44)
 			));
 		}

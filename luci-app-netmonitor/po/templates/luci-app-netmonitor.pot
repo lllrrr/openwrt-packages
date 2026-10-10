@@ -54,6 +54,21 @@ msgstr ""
 msgid "Check failed"
 msgstr ""
 
+msgid "Icon"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "Confirm"
+msgstr ""
+
+msgid "OK"
+msgstr ""
+
 msgid "Loss"
 msgstr ""
 
@@ -64,21 +79,6 @@ msgid "Avg"
 msgstr ""
 
 msgid "P95"
-msgstr ""
-
-msgid "Icon"
-msgstr ""
-
-msgid "Status"
-msgstr ""
-
-msgid "Cancel"
-msgstr ""
-
-msgid "Confirm"
-msgstr ""
-
-msgid "OK"
 msgstr ""
 
 msgid "Time range"
@@ -279,12 +279,6 @@ msgstr ""
 msgid "Restart"
 msgstr ""
 
-msgid "Resume"
-msgstr ""
-
-msgid "No matching targets"
-msgstr ""
-
 msgid "Region latency comparison"
 msgstr ""
 
@@ -295,12 +289,6 @@ msgid "Name"
 msgstr ""
 
 msgid "No targets"
-msgstr ""
-
-msgid "UI refresh interval"
-msgstr ""
-
-msgid "Independent from the probe interval"
 msgstr ""
 
 msgid "Add target"

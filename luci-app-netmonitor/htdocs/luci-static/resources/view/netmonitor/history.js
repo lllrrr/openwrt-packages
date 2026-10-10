@@ -320,7 +320,7 @@ return view.extend({
 				if (!hi.series[i].points.length) continue;
 				series.push({
 					name: hi.series[i].name,
-					color: common.palette[i % common.palette.length],
+					color: chart.palette[i % chart.palette.length],
 					points: hi.series[i].points
 				});
 			}

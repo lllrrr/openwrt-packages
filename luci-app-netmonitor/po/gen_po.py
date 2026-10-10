@@ -22,7 +22,10 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RES = os.path.join(BASE, 'htdocs', 'luci-static', 'resources')
 MENU = os.path.join(BASE, 'root', 'usr', 'share', 'luci', 'menu.d', 'luci-app-netmonitor.json')
 UCODE = os.path.join(BASE, 'root', 'usr', 'share', 'rpcd', 'ucode', 'luci.netmonitor')
-COMMON_JS = os.path.join(RES, 'netmonitor', 'common.js')
+# 后端错误映射表（BACKEND_MSG / BACKEND_MSG_ARG）随模块拆分搬到了 format.js：
+# 它属于「格式化与文案」职责，与 RPC / UCI 无关，不应留在 common.js。
+# common.js 现在是聚合转发层（见该文件头注释），不再持有任何映射表。
+FORMAT_JS = os.path.join(RES, 'netmonitor', 'format.js')
 
 DOMAIN = 'luci-app-netmonitor'
 
@@ -357,7 +360,7 @@ ZH = {
 
     # ------------------------------------------------- 后端 err() 的前端兜底翻译
     # rpcd 的 ucode 插件没有 LuCI i18n 运行时，只能返回英文原文，
-    # 由 common.js 的 localizeError() 在浏览器侧查表翻译（见该函数注释）。
+    # 由 format.js 的 localizeError() 在浏览器侧查表翻译（见该函数注释）。
     # 新增后端 err() 字面量时，务必同步在此登记，否则会以英文原样透出。
     'Invalid arguments': '参数无效',
     'Invalid ID': '标识无效',
@@ -380,6 +383,7 @@ ZH = {
 
     # ------------------------------------------------------- 无障碍 / 图标标签
     'Icon': '图标',
+    'Close': '关闭',
 
     # --------------------------------------------------- 加权丢包率（总览页）
     'Weighted loss': '加权丢包率',
@@ -405,7 +409,7 @@ PREFIXVAL = re.compile(r"\bprefix:\s*'((?:[^'\\]|\\.)*)'")
 
 
 def _map_block(src, var, term):
-    """截出 common.js 里某个映射表的源码块；找不到返回 None。"""
+    """截出 format.js 里某个映射表的源码块；找不到返回 None。"""
     i = src.find('var %s' % var)
     if i < 0:
         sys.stderr.write('warn: 未找到 %s 映射表\n' % var)
@@ -418,16 +422,16 @@ def _map_block(src, var, term):
 
 
 def backend_map():
-    """解析 common.js 的后端错误映射表 → (待翻译文案, 精确键, 前缀键)。
+    """解析 format.js 的后端错误映射表 → (待翻译文案, 精确键, 前缀键)。
 
     这些文案是以变量形式传给 _() 的（_(BACKEND_MSG[s])），PAT 抓不到字面量，
     必须直接解析映射表，否则不会进 po，运行时 _() 查表落空、回落英文。
     映射表因此是唯一事实来源：后端新增 err() 后登记进表即可，这里自动跟上。"""
-    if not os.path.isfile(COMMON_JS):
-        sys.stderr.write('warn: 找不到 %s，后端错误文案未纳入翻译\n' % COMMON_JS)
+    if not os.path.isfile(FORMAT_JS):
+        sys.stderr.write('warn: 找不到 %s，后端错误文案未纳入翻译\n' % FORMAT_JS)
         return [], set(), set()
 
-    with io.open(COMMON_JS, encoding='utf-8') as fh:
+    with io.open(FORMAT_JS, encoding='utf-8') as fh:
         src = fh.read()
 
     strings, keys, prefixes = [], set(), set()
@@ -444,7 +448,7 @@ def backend_map():
         prefixes.update(PREFIXVAL.findall(blk))
 
     if not strings:
-        sys.stderr.write('warn: %s 未解析出任何后端错误文案\n' % COMMON_JS)
+        sys.stderr.write('warn: %s 未解析出任何后端错误文案\n' % FORMAT_JS)
     return strings, keys, prefixes
 
 
@@ -613,7 +617,7 @@ def main():
     for s in missing:
         sys.stdout.write('  MISSING: %s\n' % s)
 
-    # 漂移审计：ucode 后端新增 err('...') 却忘了登记进 common.js 的映射表时，
+    # 漂移审计：ucode 后端新增 err('...') 却忘了登记进 format.js 的映射表时，
     # 该英文串会绕过翻译直接透出，这里提前告警。
     known = backend_keys()
     if os.path.isfile(UCODE):
@@ -623,7 +627,7 @@ def main():
         for s in unregistered:
             sys.stdout.write('  UNREGISTERED backend error: %s\n' % s)
         if unregistered:
-            sys.stdout.write('  => 需在 common.js 的 BACKEND_MSG 中登记并补中文\n')
+            sys.stdout.write('  => 需在 format.js 的 BACKEND_MSG 中登记并补中文\n')
 
     # ZH 字典自检：重复键会让被覆盖的那条翻译静默失效，且不会出现在 MISSING 里
     if audit_duplicate_keys():

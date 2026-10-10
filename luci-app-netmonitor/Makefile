@@ -22,7 +22,7 @@ include $(TOPDIR)/rules.mk
 # Depends/Submenu 各异），上百个包共用同一个 Kconfig symbol PACKAGE_luci-app-netmonitor，
 # 最终 .packagedeps/.config 错乱，package/<name>/compile 目标消失。
 # 本仓库曾因此踩坑：CI 工作流定义过 env PKG_NAME=luci-app-netmonitor，已改名。
-PKG_VERSION:=1.5.2
+PKG_VERSION:=1.5.8
 PKG_RELEASE:=1
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_LICENSE_FILES:=LICENSE
@@ -80,10 +80,10 @@ endif
 # 产出的文件语法错误，TDesign 运行时整个不加载。
 #
 # TDesign 依赖已整体移除（改为项目自建的 htdocs/.../netmonitor/ui.js 原生
-# 组件层），前端全部是自有源码，总量约 150 KB，jsmin/csstidy 处理起来没有
+# 组件层），前端全部是自有源码，总量约 159 KB，jsmin/csstidy 处理起来没有
 # 风险，因此这里恢复 OpenWrt 默认的压缩行为。
 #
-# 收益：ipk/apk 体积与传输量下降（style.css 58 KB -> 约 44 KB）。
+# 收益：ipk/apk 体积与传输量下降（style.css 源文件 66.6 KB，压缩后进一步减小）。
 LUCI_MINIFY_JS:=1
 LUCI_MINIFY_CSS:=1
 

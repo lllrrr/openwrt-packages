@@ -54,6 +54,21 @@ msgstr "目标无效"
 msgid "Check failed"
 msgstr "检测失败"
 
+msgid "Icon"
+msgstr "图标"
+
+msgid "Close"
+msgstr "关闭"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Confirm"
+msgstr "确认"
+
+msgid "OK"
+msgstr "确定"
+
 msgid "Loss"
 msgstr "丢包"
 
@@ -65,21 +80,6 @@ msgstr "平均"
 
 msgid "P95"
 msgstr "P95"
-
-msgid "Icon"
-msgstr "图标"
-
-msgid "Status"
-msgstr "状态"
-
-msgid "Cancel"
-msgstr "取消"
-
-msgid "Confirm"
-msgstr "确认"
-
-msgid "OK"
-msgstr "确定"
 
 msgid "Time range"
 msgstr "时间范围"
@@ -279,12 +279,6 @@ msgstr "停止"
 msgid "Restart"
 msgstr "重启"
 
-msgid "Resume"
-msgstr "继续"
-
-msgid "No matching targets"
-msgstr "没有匹配的目标"
-
 msgid "Region latency comparison"
 msgstr "区域延迟对比"
 
@@ -296,12 +290,6 @@ msgstr "名称"
 
 msgid "No targets"
 msgstr "暂无目标"
-
-msgid "UI refresh interval"
-msgstr "界面刷新间隔"
-
-msgid "Independent from the probe interval"
-msgstr "与探测间隔相互独立"
 
 msgid "Add target"
 msgstr "新增目标"
