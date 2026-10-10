@@ -2,14 +2,18 @@
 
 import { popen } from 'fs';
 import { query } from 'resolv';
+import { cursor } from 'uci';
+
+let uci = cursor();
+let localdomain = uci.get_first('dhcp', 'dnsmasq', 'domain');
 
 function resolve_hostname(ip) {
-	let result = query(ip, { type: ['PTR'] });
-	let ptr = keys(result)?.[0];
-	let records = result?.[ptr]?.PTR;
-	if (records && length(records) > 0)
-		return replace(records[0], /\.home\.arpa\.?$/, '');
-	return '';
+    let result = query(ip, { type: ['PTR'] });
+    let ptr = keys(result)?.[0];
+    let records = result?.[ptr]?.PTR;
+    if (records && length(records) > 0)
+		return replace(records[0], "." + localdomain, '');
+    return '';
 }
 
 return {
