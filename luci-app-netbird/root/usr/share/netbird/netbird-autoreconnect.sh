@@ -9,6 +9,12 @@
 
 TAG="luci-netbird-watchdog"
 INTERVAL="${NB_AUTORECONNECT_INTERVAL:-30}"
+# 路径存在不保证 BusyBox 编译了 timeout applet，启动时实际探测一次。
+if timeout 1 true >/dev/null 2>&1; then
+	HAS_TIMEOUT=1
+else
+	HAS_TIMEOUT=0
+fi
 # 重连连续失败时指数退避(INTERVAL→2x→…→封顶 MAX_INTERVAL),连上即复位;
 # 避免长时间 outage 每 INTERVAL 秒一次高成本 do_up + 日志刷屏。
 MAX_INTERVAL="${NB_AUTORECONNECT_MAX_INTERVAL:-300}"
@@ -68,7 +74,7 @@ _clear_error() {
 _with_timeout_status() {
 	bin="$1"
 	shift
-	if command -v timeout >/dev/null 2>&1; then
+	if [ "$HAS_TIMEOUT" = 1 ]; then
 		timeout 6 "$bin" status "$@" 2>&1
 	else
 		"$bin" status "$@" 2>&1

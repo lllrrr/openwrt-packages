@@ -31,19 +31,11 @@ let classify_status_text = _cli.classify_status_text;
 let probe_running_via_ubus = _cli.probe_running_via_ubus;
 let shell_quote = _shell.shell_quote;
 
-// _HAS_TIMEOUT：BusyBox 1.36.1 默认未携带 timeout applet；
-// 缺失时降级为透传命令；保留字面 "timeout 5s" 标明超时(5s)设计。
-const _HAS_TIMEOUT = access('/usr/bin/timeout', 'x') || access('/bin/timeout', 'x');
+let _t = _shell.with_timeout;
 
 // OpenWrt 把 .ko 平铺在 /lib/modules/<ver>/；一棵树通常几十个条目。
 // lsdir 上限防止异常目录把 get_status 热路径拖垮。
 const _MOD_LSDIR_CAP = 256;
-
-function _t(cmd) {
-    if (_HAS_TIMEOUT)
-        return 'timeout 5s ' + cmd;
-    return cmd;
-}
 
 // 读小文件；失败返 null。只读、有上限，避免把大文件拖进 get_status 热路径。
 function _read_small(path, max_bytes) {

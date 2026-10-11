@@ -67,7 +67,8 @@ rt_emmc_manf_name() {
     # Manufacturer mapping: JEDEC CID MID + mmc-utils lsmmc.c + 实测补充
     case "$id" in
         # 国际大厂
-        01) echo "Samsung(三星)" ;;
+        # 实测(Nokia Beacon 10/2402b, 芯片丝印 SkyHigh S40FC002 9×7.5mm): MID 01=SkyHigh Memory(原瑞萨), 非三星
+        01) echo "SkyHigh Memory(原瑞萨)" ;;
         02) echo "SK Hynix(海力士)/Kingston(金士顿)" ;;
         03) echo "Toshiba(东芝)" ;;
         04) echo "Intel(英特尔)" ;;

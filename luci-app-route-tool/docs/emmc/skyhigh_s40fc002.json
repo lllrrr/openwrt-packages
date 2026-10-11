@@ -1,0 +1,25 @@
+{
+  "manufacturer": "SkyHigh Memory (ex-Renesas)",
+  "mid": "0x01",
+  "mid_note": "NOT Samsung(0x15) — fixed in storage_common.sh rt_emmc_manf_name",
+  "pnm": "S40004",
+  "package": "9x7.5mm (industry smallest eMMC package)",
+  "family_rule": {
+    "S40FC002": { "capacity": "2GB", "user_area_bytes": 1954545664 },
+    "S40FC004": { "capacity": "4GB", "user_area_bytes": 3909091328 }
+  },
+  "device_sample": {
+    "model": "Nokia Beacon 10",
+    "soc": "Qualcomm IPQ9574",
+    "firmware": "2402b.04.09.A17",
+    "cid": "01010053343030303401443820d8ba00",
+    "psn": "0x443820d8",
+    "mfg_date": "2023-11",
+    "user_area_bytes": 1954545664,
+    "enhanced_area_mb": 977,
+    "rpmb_mb": 4,
+    "boot_partitions": "4MB x2, all-zero (boot chain uses user-area GPT)",
+    "life_time": "0x01/0x01",
+    "pre_eol_info": "0x01 Normal"
+  }
+}

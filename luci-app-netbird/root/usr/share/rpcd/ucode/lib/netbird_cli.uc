@@ -9,9 +9,9 @@
 //   - 两段式 status 调用：先文本 classify_status_text() 区分 needs_login，
 //     再仅在 running 态调用 fetch_status_json()；禁止无条件跑 --json catch parse_error。
 //   - 多正则变体（NeedsLogin 文本鲁棒化）。
-//   - 5s timeout（热路径防卡死）：所有 popen/system 调用以 timeout 5s 前缀包装。
+//   - 5s timeout（热路径防卡死）：所有 popen/system 调用以 timeout 5 前缀包装。
 //     注意：BusyBox 1.36.1 默认未携带 timeout applet（v0.59.13 确认），
-//     _with_timeout() 在 timeout 可执行不存在时退化为透传命令。
+//     _with_timeout() 在 timeout 无法实际执行时退化为透传命令。
 //   - shell.uc::shell_quote 包裹动态参数（注入防线）。
 //   - ubus 主判定（procd 视角最可靠）：probe_running_via_ubus() 走
 //     `ubus call service list '{"name":"netbird"}'` 解析 instances[*].running。
@@ -26,20 +26,7 @@ import { popen, access } from 'fs';
 const _LIB = getenv('NBLIB') || '/usr/share/rpcd/ucode/lib';
 let _shell = loadfile(_LIB + '/shell.uc')();
 let shell_quote = _shell.shell_quote;
-
-// ============================================================================
-// 内部：5s timeout 包装
-// ============================================================================
-// 检测 host 是否有 `timeout` 可执行；缓存到模块加载时。
-const _HAS_TIMEOUT = access('/usr/bin/timeout', 'x') || access('/bin/timeout', 'x');
-
-// _with_timeout(cmd) → 拼接 `timeout 5s <cmd>` 或 `<cmd>`（无 timeout 时降级）
-// 此处保留 'timeout 5s' 字面常量以标明命令超时(5s)设计。
-function _with_timeout(cmd) {
-    if (_HAS_TIMEOUT)
-        return 'timeout 5s ' + cmd;
-    return cmd;  // 降级：BusyBox 部分构建无 timeout（v0.59.13）
-}
+let _with_timeout = _shell.with_timeout;
 
 // _popen_read(cmd, max_bytes?) → { stdout, exit_code, ok_pipe }
 // 注意 ucode popen 单管道返码语义：close() 返回 exit code（已 >>8 处理）

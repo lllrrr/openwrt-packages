@@ -36,6 +36,7 @@ let _state    = loadfile(_LIB + '/state.uc')();
 let _cli      = loadfile(_LIB + '/netbird_cli.uc')();
 
 let shell_quote          = _shell.shell_quote;
+let _to                  = _shell.with_timeout;
 let resolve_netbird_bin  = _paths.resolve_netbird_bin;
 let ok                   = _envelope.ok;
 let err                  = _envelope.err;
@@ -104,24 +105,15 @@ function _require_running() {
 // 不变量（安全/性能）：
 //   - action 非枚举 → die()：防 caller 注入 `'; rm -rf /` 等恶意 action
 //   - /etc/init.d/netbird 字面命令；action 亦是字面常量，无需 shell_quote
-//   - 5s timeout 前缀包装：BusyBox 部分构建无 timeout applet，与 state.uc
-//     _HAS_TIMEOUT 模式一致 —— 降级透传；源码字面保留 'timeout 5s' 以满足
-//     源码字面保留以记录设计意图。
+//   - 5s timeout 前缀包装：共享 shell 模块实际探测能力，不可用则降级透传。
 const _INIT_ACTIONS = { enable: true, start: true, stop: true };
-const _RUN_INIT_HAS_TIMEOUT = access('/usr/bin/timeout', 'x') || access('/bin/timeout', 'x');
-
-// _to(cmd) — 给命令加 5s 墙钟前缀(timeout applet 在才加;缺失透传)。集中原 5 处重复的
-// `_RUN_INIT_HAS_TIMEOUT ? ('timeout 5s '+x) : x` 三元(ucode 不 hoist 函数,helper 定义在所有调用方之上)。
-function _to(cmd) {
-    return _RUN_INIT_HAS_TIMEOUT ? ('timeout 5s ' + cmd) : cmd;
-}
 
 function _run_init(action) {
     // 白名单 assert（防 caller 注入恶意 action）
     if (!_INIT_ACTIONS[action])
         die(sprintf('_run_init: illegal action "%s" (not in whitelist enable/start/stop)', action));
 
-    // 命令拼接：timeout 5s /etc/init.d/netbird <action>
+    // 命令拼接：timeout 5 /etc/init.d/netbird <action>
     // 注：action 经白名单 assert 后是字面常量，命令字面安全；2>&1 合并便于截 stderr。
     let base = '/etc/init.d/netbird ' + action + ' 2>&1';
     let cmd = _to(base);
@@ -452,7 +444,7 @@ function _poll_connected(bin, rounds) {
 // _exec_short_verb(bin, verb) → { code, stdout }
 // 短认证命令（down / deregister）：5s timeout 包装（与 _run_init 同模式，BusyBox 无 timeout 降级）；
 // verb 是字面常量（调用方传 'down'/'deregister'），bin 经 shell_quote。
-// timeout applet 探测复用 _RUN_INIT_HAS_TIMEOUT（同值，避免重复定义）。
+// timeout 能力探测复用共享 shell 模块。
 function _exec_short_verb(bin, verb) {
     let base = shell_quote(bin) + ' ' + verb + ' 2>&1';
     let cmd = _to(base);
@@ -1266,6 +1258,13 @@ function _download_headers(headers, kind) {
     return out;
 }
 
+// _dl_tool() → 'curl'|'uclient-fetch'|'wget':_dl_cmd 实际使用的下载器(同一优先级)。
+function _dl_tool() {
+    if (access('/usr/bin/curl', 'x') || access('/bin/curl', 'x'))
+        return 'curl';
+    return (access('/bin/uclient-fetch', 'x') || access('/usr/bin/uclient-fetch', 'x')) ? 'uclient-fetch' : 'wget';
+}
+
 // _dl_cmd(url, out, secs, progress_total, headers) → 拼下载命令(优先 curl,回落 uclient-fetch,再 BusyBox wget)。
 // out 空串=输出到 stdout(读 body 用);非空=写入该文件。url/out 经 shell_quote(注入防线)。
 // OWRT25 最小化镜像常无 curl,但有 uclient-fetch(HTTPS via libustream)——多下载器回落,
@@ -1278,7 +1277,8 @@ function _dl_cmd(url, out, secs, progress_total, headers) {
     let q = shell_quote(url);
     let to_file = (out != null && length(out) > 0);
     let bounded = (secs != null && secs > 0);
-    if (access('/usr/bin/curl', 'x') || access('/bin/curl', 'x')) {
+    let tool = _dl_tool();
+    if (tool == 'curl') {
         let curl_to = bounded ? (' --max-time ' + secs) : ' --connect-timeout 20';
         let curl_headers = _download_headers(headers, 'curl');
         if (!to_file)
@@ -1288,7 +1288,6 @@ function _dl_cmd(url, out, secs, progress_total, headers) {
             return _progress_download_cmd(fetcher, out, secs, progress_total);
         return fetcher;
     }
-    let tool = (access('/bin/uclient-fetch', 'x') || access('/usr/bin/uclient-fetch', 'x')) ? 'uclient-fetch' : 'wget';
     let fetch_headers = _download_headers(headers, 'fetch');
     if (!to_file)
         return tool + ' -q -T ' + (bounded ? secs : 20) + fetch_headers + ' -O - ' + q + ' 2>/dev/null';
@@ -1344,8 +1343,22 @@ function _popen_simple(cmd) {
     return { code: (rc == null ? -1 : rc), out: raw };
 }
 
+// _dl_sends_headers() → 当前下载器能否附加请求头(API asset 下载必须带 Accept 头)。
+//   curl 恒可;uclient-fetch 到 24.10 才有 --header,22.03/23.05 自带版本遇到该参数会直接报用法错误、
+//   整条下载失败,故按 --help 实测。结果在本进程内缓存。
+let _dl_headers_ok = null;
+function _dl_sends_headers() {
+    if (_dl_headers_ok == null) {
+        let tool = _dl_tool();
+        _dl_headers_ok = (tool == 'curl') || index(_popen_simple(tool + ' --help 2>&1').out, '--header') >= 0;
+    }
+    return _dl_headers_ok;
+}
+
+// _github_asset_api_url(ver, filename) → 该 release 资产的 API 下载地址 | ''。
+//   下载器不能带请求头时返回 '',调用方回落 releases/download 直链。
 function _github_asset_api_url(ver, filename) {
-    if (!match(ver || '', _SEMVER_RE) || length(filename || '') == 0)
+    if (!match(ver || '', _SEMVER_RE) || length(filename || '') == 0 || !_dl_sends_headers())
         return '';
     let api = 'https://api.github.com/repos/netbirdio/netbird/releases/tags/v' + ver;
     let r = _popen_simple(_dl_cmd(api, '', 15));
@@ -2406,6 +2419,9 @@ function _update_binary_locked(req) {
                            ' > ' + shell_quote(target_path) + ' && chmod 0755 ' + shell_quote(target_path) + ' ; } 2>&1');
     let to = (wr.code == 0) ? _file_version(target_path) : '';
     if (wr.code != 0 || length(to) == 0) {
+        // 写入成功却读不到版本:回滚前用同一命令再跑一次并保留 stderr,让错误明细带上真实退出码与输出
+        //   (例如包装命令本身不可用时的 127),而不是一律归为文件损坏。
+        let ver_diag = (wr.code == 0) ? _popen_simple(_to(shell_quote(target_path) + ' version 2>&1')) : null;
         // 失败兜底:有备份(=target 原已存在)则还原旧二进制;无备份(=本就是新文件)则删掉**半成品**——
         //   `cat > target` 即便写失败也已 create/truncate 出 target,且因 `&&` 短路 chmod 没跑 → 残片为
         //   非可执行的 0644;若不删,会被 _list_custom_versions 当成「已下载版本」列出(幽灵版本),切换时
@@ -2435,8 +2451,11 @@ function _update_binary_locked(req) {
             detail = substr(raw, 0, 200);
         else if (wr.code != 0)
             detail = sprintf('write command exited %d with no output (storage may be full or read-only)', wr.code);
-        else
-            detail = 'the written file could not report its version (truncated or corrupt)';
+        else {
+            let diag_out = substr(trim(ver_diag.out), 0, 160);
+            detail = sprintf('the written file could not report its version (exit %d%s)', ver_diag.code,
+                             length(diag_out) > 0 ? ': ' + diag_out : ', no output; truncated or corrupt');
+        }
         let write_msg = 'Failed to write the binary' + (restored ? '; restored the previous one' : '') + ': ' + detail;
         _progress_phase('failed', write_msg, tgz_path, progress_total);
         return err(CODE.INSTALL_FAILED, write_msg);
