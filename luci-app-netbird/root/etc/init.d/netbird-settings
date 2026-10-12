@@ -157,6 +157,7 @@ _redact_psk() {
 #   enable_ipv6(默认1)          → --disable-ipv6=<取反>                            [gate]
 #   rosenpass_enabled(默认0)    → --enable-rosenpass=<原值>                        [gate]
 #   rosenpass_permissive(默认0) → --rosenpass-permissive=<原值>                    [gate]
+#   allow_remote_jobs(默认0)    → --allow-remote-jobs=<原值>                       [gate]
 #   取值 flag：--wireguard-port / --interface-name 同样挂门（0.17/0.24 的 up --help 无此 flag）。
 #   [gate] = 该版本 `netbird up --help` 无此 flag 则整条跳过——不支持的 flag 在 daemon 侧
 #   无持久值、跳过零粘滞风险；输出反而因 unknown flag 使 netbird up 硬失败。gate 只看
@@ -258,6 +259,11 @@ _render_and_apply() {
 	fi
 	if _has_flag --rosenpass-permissive; then
 		set -- "$@" --rosenpass-permissive="$(_tf_sub rosenpass_enabled 1 rosenpass_permissive 1)"
+	fi
+
+	# 0.78 起管理端发起的远程任务(目前只有收集诊断包)须本机同意,否则一律拒绝。
+	if _has_flag --allow-remote-jobs; then
+		set -- "$@" "--allow-remote-jobs=$(_tf allow_remote_jobs 1)"
 	fi
 
 	# dry-run：只打印、不执行（验收取反/门控用）。$* 不含 PSK（见上），仅追加静态占位。

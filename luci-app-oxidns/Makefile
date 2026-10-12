@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-oxidns
 PKG_VERSION:=0.1.5
-PKG_RELEASE:=5
+PKG_RELEASE:=6
 
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_MAINTAINER:=Sven Shi <isvenshi@gmail.com>
@@ -33,6 +33,30 @@ if [ -f /etc/crontabs/root ] && [ -x /usr/libexec/oxidns/learn-reset.sh ]; then
 	sed -i 's#/usr/bin/oxidns-learn-reset\.sh#/usr/libexec/oxidns/learn-reset.sh#g' /etc/crontabs/root 2>/dev/null || true
 	if [ -x /etc/init.d/cron ]; then
 		/etc/init.d/cron restart >/dev/null 2>&1 || true
+	fi
+fi
+# 0.1.5-r6 修 DNS 劫持漏掉 IPv6。
+#
+# fw4 对「没有 family」的 redirect 按 IPv4 兜底（fw4.uc 的 parse_redirect：
+# "for backwards compatibility, treat unspecified family as IPv4 unless user
+# explicitly requested any (0)"），所以 0.1.5-r5 及更早写下的 oxidns_hijack*
+# 段只劫持了 IPv4，IPv6 的 :53 查询原样放行。这里就地补 family=any。
+#
+# 只认我们自己打的 name 标记；只在 family 确实为空时补 —— 用户手工指定的 ipv4
+# 有他自己的理由，不动。幂等，可以反复跑。
+if command -v uci >/dev/null 2>&1; then
+	hijack_changed=0
+	for hijack_sect in oxidns_hijack oxidns_hijack_udp oxidns_hijack_tcp; do
+		[ "$$(uci -q get "firewall.$$hijack_sect.name" 2>/dev/null || true)" = "oxidns-dns-hijack" ] || continue
+		[ -n "$$(uci -q get "firewall.$$hijack_sect.family" 2>/dev/null || true)" ] && continue
+		if uci -q set "firewall.$$hijack_sect.family=any"; then
+			hijack_changed=1
+		fi
+	done
+	if [ "$$hijack_changed" = "1" ] && uci -q commit firewall; then
+		if [ -x /etc/init.d/firewall ]; then
+			/etc/init.d/firewall reload >/dev/null 2>&1 || true
+		fi
 	fi
 fi
 exit 0

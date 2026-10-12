@@ -34,6 +34,7 @@ config netbird 'settings'
 	option rosenpass_permissive '0'
 	# 日志
 	option log_level 'info'
+	option allow_remote_jobs '0'
 	# 敏感：WireGuard 预共享密钥（0600；get_settings 仅回 preshared_key_configured）
 	option preshared_key ''
 	# 安装密钥打码 hint（非机密：已消费 key 的部分前缀，由 do_up/do_login 成功后写入）

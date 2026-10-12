@@ -90,6 +90,8 @@ elif head -n1 "$CONFIG_FILE" | grep -qF 'schema v1' || ! head -n1 "$CONFIG_FILE"
 	_set_if_missing rosenpass_permissive 0
 	# 日志
 	_set_if_missing log_level info
+	# 远程诊断任务(0.78+,默认关)
+	_set_if_missing allow_remote_jobs 0
 	# 敏感
 	_set_if_missing preshared_key ''
 	# 安装密钥打码 hint（非机密；do_up/do_login 成功后写入，绝不存原始 key）

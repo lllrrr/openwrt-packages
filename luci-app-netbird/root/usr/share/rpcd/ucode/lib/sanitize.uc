@@ -96,6 +96,7 @@ function sanitize_settings(raw) {
         rosenpass_permissive:  _b(raw.rosenpass_permissive),
         // 日志
         log_level:             _log_level(raw.log_level),
+        allow_remote_jobs:     _b(raw.allow_remote_jobs),
         // 敏感：仅回是否已配置布尔；原文绝不回传
         preshared_key_configured: psk_configured,
         // 改动 2：安装密钥打码 hint（非机密——已消费 key 的部分前缀；无则空串）。

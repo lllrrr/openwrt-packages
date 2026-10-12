@@ -778,6 +778,38 @@ hijack_managed_sections() {
 	done
 }
 
+# 这个段是否覆盖 IPv6。
+#
+# ★ fw4 对「没有 family」的 redirect 按 **IPv4** 兜底，不是 any：
+#   fw4.uc 的 parse_redirect 里
+#     if (!family && !has_any_addr) {
+#         /* for backwards compatibility, treat unspecified family as IPv4
+#            unless user explicitly requested any (0) */
+#         if (family == null) family = 4;
+#         add_rule(family, ...);
+#     }
+#   只有显式 any（parse_family 返回 0）才走 add_rule(0, ...) 那条 AF-agnostic
+#   分支、同时进 ip 与 ip6。所以旧版写下的段（无 family）只劫持 IPv4。
+#
+# 判定照抄 fw4 的 parse_family：any/all/* → 0、'inet' 或含 '4' → 4、含 '6' → 6。
+hijack_family_covers_ipv6() {
+	case "$(uci -q get "firewall.$1.family" 2>/dev/null || true)" in
+		any | all | '*')
+			return 0
+			;;
+		*4*)
+			return 1
+			;;
+		*6*)
+			return 0
+			;;
+		*)
+			# 空 / 未设（'inet'、拼错的值也落这里）⇒ fw4 退回 IPv4
+			return 1
+			;;
+	esac
+}
+
 hijack_add_section() {
 	SECT="$1"
 	PROTO="$2"
@@ -786,6 +818,9 @@ hijack_add_section() {
 	uci -q set "firewall.$SECT.name=$HIJACK_MARK" || return 1
 	uci -q set "firewall.$SECT.src=lan" || return 1
 	uci -q set "firewall.$SECT.proto=$PROTO" || return 1
+	# family=any 必须显式写。省略它 fw4 会按 IPv4 兜底（见上面 hijack_family_covers_ipv6
+	# 的注释），IPv6 的 :53 查询就完全不受劫持 —— 0.1.5-r5 及更早就是这个 bug。
+	uci -q set "firewall.$SECT.family=any" || return 1
 	uci -q set "firewall.$SECT.src_dport=53" || return 1
 	uci -q set "firewall.$SECT.dest_port=$PORT" || return 1
 	uci -q set "firewall.$SECT.target=DNAT" || return 1
@@ -804,10 +839,22 @@ emit_hijack_status() {
 	RELOADED="${1:-}"
 	SECT_JSON=""
 	ENABLED=0
+	IPV6=0
 	for SECT in $(hijack_managed_sections); do
 		SECT_JSON="$SECT_JSON\"$SECT\","
 		ENABLED=1
 	done
+	# ipv6 = 劫持不仅开着、而且每个受管段都覆盖 IPv6。旧版留下的段没有 family
+	# ⇒ 这里是 false，正好把「只劫持了 IPv4」这件事暴露出来。
+	if [ "$ENABLED" = "1" ]; then
+		IPV6=1
+		for SECT in $(hijack_managed_sections); do
+			if ! hijack_family_covers_ipv6 "$SECT"; then
+				IPV6=0
+				break
+			fi
+		done
+	fi
 	SECT_JSON="${SECT_JSON%,}"
 	UDP_JSON="null"
 	if [ -n "$DNS_UDP_PORT" ]; then
@@ -821,8 +868,8 @@ emit_hijack_status() {
 	if [ "$RELOADED" = "0" ]; then
 		WARN_JSON='"firewall_reload_failed"'
 	fi
-	printf '"enabled":%s,"udp_port":%s,"tcp_port":%s,"sections":[%s],"reloaded":%s,"warn":%s}' \
-		"$ENABLED" "$UDP_JSON" "$TCP_JSON" "$SECT_JSON" "${RELOADED:-null}" "$WARN_JSON"
+	printf '"enabled":%s,"udp_port":%s,"tcp_port":%s,"ipv6":%s,"sections":[%s],"reloaded":%s,"warn":%s}' \
+		"$ENABLED" "$UDP_JSON" "$TCP_JSON" "$IPV6" "$SECT_JSON" "${RELOADED:-null}" "$WARN_JSON"
 }
 
 emit_hijack_get() {

@@ -125,6 +125,7 @@ for (const [label, needle] of [
 	['IPKG_INSTROOT 守卫', '[ -n "$${IPKG_INSTROOT:-}" ] && exit 0'],
 	['cron 路径迁移', 's#/usr/bin/oxidns-learn-reset\\.sh#/usr/libexec/oxidns/learn-reset.sh#g'],
 	['迁移后重启 cron', '/etc/init.d/cron restart'],
+	['DNS 劫持 family 迁移（否则只劫持 IPv4）', 'firewall.$$hijack_sect.family=any'],
 ]) {
 	if (postinst && !postinst.includes(needle))
 		failures.push(`Makefile postinst 缺少「${label}」`);

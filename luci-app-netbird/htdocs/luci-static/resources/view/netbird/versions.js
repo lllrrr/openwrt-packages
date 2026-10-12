@@ -27,6 +27,19 @@ var callLuciAppUpdate = rpc.declare({ object: 'luci.netbird', method: 'update_lu
 
 function fmtVer(v) { return (v && v.length) ? ('v' + v) : null; }
 
+// NetBird 0.76.0 / 0.76.1 修复了本地服务 socket 的两个安全问题(本地提权、读取 root 文件)。
+// 运行版本低于 0.76.1 时在版本页提示升级;版本号解析不出时不提示。
+function belowSecureVersion(v) {
+	var m = /^(\d+)\.(\d+)\.(\d+)/.exec(v || '');
+	if (!m)
+		return false;
+	var a = [ +m[1], +m[2], +m[3] ], b = [ 0, 76, 1 ];
+	for (var i = 0; i < 3; i++)
+		if (a[i] !== b[i])
+			return a[i] < b[i];
+	return false;
+}
+
 function pkgMgrName(d) {
 	return (d && d.pkg_mgr === 'apk') ? 'apk' : 'opkg';
 }
@@ -135,7 +148,19 @@ return view.extend({
 						nb.statusPill('connected', srcLabel(d.active_source || 'release'))
 					])
 				]),
-				nb.pair(_('Running version'), fmtVer(d.running_version) || '-'),
+				E('div', { 'class': 'nb-pair' }, [
+					E('span', { 'class': 'nb-pair-label' }, _('Running version')),
+					E('div', { 'class': 'nb-pair-value nb-pair-value-block' }, [
+						fmtVer(d.running_version) || '-',
+						belowSecureVersion(d.running_version)
+							? E('div', { 'class': 'cbi-section-descr', 'style': 'color:#a00;margin-top:.3em' }, [
+								_('NetBird versions before 0.76.1 have security issues in the local service socket (local privilege escalation and reading root-owned files). Switch to or update the official release below.'),
+								' ',
+								E('a', { 'href': 'https://github.com/netbirdio/netbird/security/advisories', 'target': '_blank', 'rel': 'noopener noreferrer' }, _('Details'))
+							])
+							: E('span', {})
+					])
+				]),
 				E('div', { 'class': 'nb-pair' }, [
 					E('span', { 'class': 'nb-pair-label' }, _('luci-app-netbird')),
 					E('div', { 'class': 'nb-pair-value nb-pair-value-block' }, [

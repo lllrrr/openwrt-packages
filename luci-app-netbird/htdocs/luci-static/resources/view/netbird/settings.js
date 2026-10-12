@@ -251,6 +251,11 @@ return view.extend({
 		o.default = 'info';
 		o.rmempty = false;
 
+		o = s.taboption('logging', form.Flag, 'allow_remote_jobs', _('Allow remote diagnostics'),
+			_('Let the NetBird management server collect a debug bundle from this router on request (for example from the dashboard). Debug bundles contain logs and network details and are uploaded to NetBird or to your self-hosted upload service. Requires netbird 0.78 or newer; ignored on older versions.'));
+		o.default = '0';
+		o.rmempty = false;
+
 		// 标准 Save & Apply（form.Map 默认页脚「保存并应用/保存/复位」）会写 UCI → commit
 		// → 经 procd reload trigger 自动应用（netbird-settings service_triggers 注册
 		// procd_add_reload_trigger "netbird"，见 build-and-test §7）。无自定义 apply 按钮。

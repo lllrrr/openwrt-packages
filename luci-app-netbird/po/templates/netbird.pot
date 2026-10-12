@@ -1655,3 +1655,15 @@ msgstr ""
 
 msgid "Not enough temporary space to back up the current binary; nothing was changed."
 msgstr ""
+
+msgid "Allow remote diagnostics"
+msgstr ""
+
+msgid "Let the NetBird management server collect a debug bundle from this router on request (for example from the dashboard). Debug bundles contain logs and network details and are uploaded to NetBird or to your self-hosted upload service. Requires netbird 0.78 or newer; ignored on older versions."
+msgstr ""
+
+msgid "NetBird versions before 0.76.1 have security issues in the local service socket (local privilege escalation and reading root-owned files). Switch to or update the official release below."
+msgstr ""
+
+msgid "Details"
+msgstr ""
