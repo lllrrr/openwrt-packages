@@ -1,0 +1,177 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "Basic settings"
+msgstr ""
+
+msgid "Basic settings saved."
+msgstr ""
+
+msgid "Configuration file"
+msgstr ""
+
+msgid "Configuration file contents"
+msgstr ""
+
+msgid "Configuration file path"
+msgstr ""
+
+msgid "Configuration file saved."
+msgstr ""
+
+msgid "Discard unsaved file changes and reload?"
+msgstr ""
+
+msgid "Discard all unsaved changes?"
+msgstr ""
+
+msgid "Executable check"
+msgstr ""
+
+msgid "Executable path"
+msgstr ""
+
+msgid "Load a readable configuration file before saving."
+msgstr ""
+
+msgid "Manage VirtualHere service and configuration"
+msgstr ""
+
+msgid "Manage a separately installed VirtualHere USB Server. Download the executable for your router from the official website."
+msgstr ""
+
+msgid "Not running (service is registered)"
+msgstr ""
+
+msgid "Reload file"
+msgstr ""
+
+msgid "Restart"
+msgstr ""
+
+msgid "Running"
+msgstr ""
+
+msgid "Save & Apply file"
+msgstr ""
+
+msgid "Save file"
+msgstr ""
+
+msgid "Save or discard file edits before changing the configuration path."
+msgstr ""
+
+msgid "Save or discard pending edits before controlling the service."
+msgstr ""
+
+msgid "Service actions use saved settings. The page footer saves basic settings only."
+msgstr ""
+
+msgid "Service control"
+msgstr ""
+
+msgid "Install the server executable at the configured path and grant execution permission before starting."
+msgstr ""
+
+msgid "Your account has read-only access. Service control is unavailable."
+msgstr ""
+
+msgid "Service status"
+msgstr ""
+
+msgid "Settings were saved, but updating service autostart failed."
+msgstr ""
+
+msgid "Start"
+msgstr ""
+
+msgid "Start on boot"
+msgstr ""
+
+msgid "Stop"
+msgstr ""
+
+msgid "Stop the service before saving the file, or use Save & Apply."
+msgstr ""
+
+msgid "Stopped"
+msgstr ""
+
+msgid "The configuration file must be text without NUL characters."
+msgstr ""
+
+msgid "The configuration file must not exceed 16 KiB."
+msgstr ""
+
+msgid "The configuration file or directory is not readable and writable. Check the system log."
+msgstr ""
+
+msgid "The configuration path changed. Save basic settings and reload the file first."
+msgstr ""
+
+msgid "The configuration path is not a regular file."
+msgstr ""
+
+msgid "The executable does not exist or is not a regular file."
+msgstr ""
+
+msgid "File check passed: the executable exists, is non-empty and has execution permission. Architecture and startup are not verified."
+msgstr ""
+
+msgid "The executable has no execution permission."
+msgstr ""
+
+msgid "The executable is empty."
+msgstr ""
+
+msgid "The file changed since it was read, possibly during service shutdown. Reload it before saving."
+msgstr ""
+
+msgid "The file does not exist. Enter contents and save to create it."
+msgstr ""
+
+msgid "The file is loaded. Use the buttons below to save its contents."
+msgstr ""
+
+msgid "The file was saved, but restoring the service failed."
+msgstr ""
+
+msgid "Unable to lock VirtualHere settings."
+msgstr ""
+
+msgid "Unable to query the service manager."
+msgstr ""
+
+msgid "Unable to read the configuration file or its directory."
+msgstr ""
+
+msgid "Unable to save basic settings."
+msgstr ""
+
+msgid "Unable to start the service. Check the executable, configuration and system log."
+msgstr ""
+
+msgid "Unable to stop the service completely. Check the system log and retry."
+msgstr ""
+
+msgid "Unable to write the configuration file."
+msgstr ""
+
+msgid "Unsupported service action."
+msgstr ""
+
+msgid "Use an absolute file path without control characters or a trailing slash."
+msgstr ""
+
+msgid "Use separate paths for the executable, server configuration and UCI settings."
+msgstr ""
+
+msgid "VirtualHere"
+msgstr ""
+
+msgid "VirtualHere official download page"
+msgstr ""
+
+msgid "VirtualHere writes its configuration while running. Save & Apply stops the service before writing and restores it afterwards. Save requires a stopped service."
+msgstr ""

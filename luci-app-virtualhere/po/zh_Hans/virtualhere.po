@@ -1,0 +1,182 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-virtualhere\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "Basic settings"
+msgstr "基本设置"
+
+msgid "Basic settings saved."
+msgstr "基本设置已保存。"
+
+msgid "Configuration file"
+msgstr "配置文件"
+
+msgid "Configuration file contents"
+msgstr "配置文件内容"
+
+msgid "Configuration file path"
+msgstr "配置文件路径"
+
+msgid "Configuration file saved."
+msgstr "配置文件已保存。"
+
+msgid "Discard unsaved file changes and reload?"
+msgstr "放弃尚未保存的文件修改并重新读取？"
+
+msgid "Discard all unsaved changes?"
+msgstr "放弃所有尚未保存的修改？"
+
+msgid "Executable check"
+msgstr "程序检查"
+
+msgid "Executable path"
+msgstr "可执行文件路径"
+
+msgid "Load a readable configuration file before saving."
+msgstr "请先读取可访问的配置文件，再保存修改。"
+
+msgid "Manage VirtualHere service and configuration"
+msgstr "管理 VirtualHere 服务及配置"
+
+msgid "Manage a separately installed VirtualHere USB Server. Download the executable for your router from the official website."
+msgstr "管理自行安装的 VirtualHere USB Server。请从官网下载适合路由器架构的可执行程序。"
+
+msgid "Not running (service is registered)"
+msgstr "未运行（服务已注册）"
+
+msgid "Reload file"
+msgstr "重新读取文件"
+
+msgid "Restart"
+msgstr "重启"
+
+msgid "Running"
+msgstr "运行中"
+
+msgid "Save & Apply file"
+msgstr "保存文件并应用"
+
+msgid "Save file"
+msgstr "保存文件"
+
+msgid "Save or discard file edits before changing the configuration path."
+msgstr "修改配置文件路径前，请先保存或放弃文件编辑内容。"
+
+msgid "Save or discard pending edits before controlling the service."
+msgstr "控制服务前，请先保存或放弃尚未保存的修改。"
+
+msgid "Service actions use saved settings. The page footer saves basic settings only."
+msgstr "服务操作使用已保存的设置。页面底部的按钮只保存基本设置。"
+
+msgid "Service control"
+msgstr "服务控制"
+
+msgid "Install the server executable at the configured path and grant execution permission before starting."
+msgstr "请先将服务端程序安装到已配置的路径，并赋予执行权限，再启动服务。"
+
+msgid "Your account has read-only access. Service control is unavailable."
+msgstr "当前账号只有只读权限，不能控制服务。"
+
+msgid "Service status"
+msgstr "服务状态"
+
+msgid "Settings were saved, but updating service autostart failed."
+msgstr "设置已保存，但更新开机启动状态失败。"
+
+msgid "Start"
+msgstr "启动"
+
+msgid "Start on boot"
+msgstr "开机启动"
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "Stop the service before saving the file, or use Save & Apply."
+msgstr "保存文件前请先停止服务，或使用“保存文件并应用”。"
+
+msgid "Stopped"
+msgstr "已停止"
+
+msgid "The configuration file must be text without NUL characters."
+msgstr "配置文件必须是文本，不能含有 NUL 字符。"
+
+msgid "The configuration file must not exceed 16 KiB."
+msgstr "配置文件不能超过 16 KiB。"
+
+msgid "The configuration file or directory is not readable and writable. Check the system log."
+msgstr "配置文件或目录无法读写，请查看系统日志。"
+
+msgid "The configuration path changed. Save basic settings and reload the file first."
+msgstr "配置文件路径已改变，请先保存基本设置并重新读取文件。"
+
+msgid "The configuration path is not a regular file."
+msgstr "配置路径不是普通文件。"
+
+msgid "The executable does not exist or is not a regular file."
+msgstr "可执行文件不存在，或不是普通文件。"
+
+msgid "File check passed: the executable exists, is non-empty and has execution permission. Architecture and startup are not verified."
+msgstr "文件检查通过：程序文件存在、大小大于零且具有执行权限。此检查不验证架构是否匹配，也不代表服务已启动。"
+
+msgid "The executable has no execution permission."
+msgstr "可执行文件没有执行权限。"
+
+msgid "The executable is empty."
+msgstr "可执行文件为空。"
+
+msgid "The file changed since it was read, possibly during service shutdown. Reload it before saving."
+msgstr "文件在读取后发生变化，可能是服务退出时回写了配置。请重新读取后再保存。"
+
+msgid "The file does not exist. Enter contents and save to create it."
+msgstr "文件尚不存在，填写内容并保存即可创建。"
+
+msgid "The file is loaded. Use the buttons below to save its contents."
+msgstr "文件已读取，请使用下方按钮保存文件内容。"
+
+msgid "The file was saved, but restoring the service failed."
+msgstr "文件已保存，但恢复服务运行失败。"
+
+msgid "Unable to lock VirtualHere settings."
+msgstr "无法锁定 VirtualHere 设置。"
+
+msgid "Unable to query the service manager."
+msgstr "无法查询服务管理器。"
+
+msgid "Unable to read the configuration file or its directory."
+msgstr "无法读取配置文件或访问其目录。"
+
+msgid "Unable to save basic settings."
+msgstr "无法保存基本设置。"
+
+msgid "Unable to start the service. Check the executable, configuration and system log."
+msgstr "无法启动服务，请检查可执行文件、配置和系统日志。"
+
+msgid "Unable to stop the service completely. Check the system log and retry."
+msgstr "无法完全停止服务，请检查系统日志后重试。"
+
+msgid "Unable to write the configuration file."
+msgstr "无法写入配置文件。"
+
+msgid "Unsupported service action."
+msgstr "不支持的服务操作。"
+
+msgid "Use an absolute file path without control characters or a trailing slash."
+msgstr "请输入不含控制字符且不以斜杠结尾的文件绝对路径。"
+
+msgid "Use separate paths for the executable, server configuration and UCI settings."
+msgstr "可执行文件、服务配置和 UCI 设置必须使用不同的路径。"
+
+msgid "VirtualHere"
+msgstr "VirtualHere"
+
+msgid "VirtualHere official download page"
+msgstr "VirtualHere 官方下载页面"
+
+msgid "VirtualHere writes its configuration while running. Save & Apply stops the service before writing and restores it afterwards. Save requires a stopped service."
+msgstr "VirtualHere 会在运行时回写配置。“保存文件并应用”会先停止服务再写入，之后恢复原有运行状态。“保存文件”要求服务已停止。"

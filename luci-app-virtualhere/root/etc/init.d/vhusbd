@@ -1,0 +1,85 @@
+#!/bin/sh /etc/rc.common
+
+USE_PROCD=1
+START=95
+STOP=10
+
+EXTRA_COMMANDS="check"
+EXTRA_HELP="\tcheck\tValidate the executable and configuration paths\n"
+
+fail() {
+	logger -t virtualhere "$1"
+	echo "$1" >&2
+	return 1
+}
+
+valid_path() {
+	case "$1" in
+		/*) ;;
+		*) return 1 ;;
+	esac
+	case "$1" in
+		*"$(printf '\r')"*|*'
+'*) return 1 ;;
+	esac
+	[ "$1" != / ]
+}
+
+check() {
+	config_load virtualhere
+	config_get BIN main binary_path /usr/bin/vhusbd
+	config_get CONFIG main config_path /etc/vhusbd.conf
+
+	valid_path "$BIN" && valid_path "$CONFIG" || {
+		fail "Use absolute paths without line breaks"
+		return 1
+	}
+	[ -f "$BIN" ] && [ -s "$BIN" ] && [ -x "$BIN" ] || {
+		fail "vhusbd is missing, empty or not executable: $BIN"
+		return 1
+	}
+	[ "$BIN" != "$CONFIG" ] || {
+		fail "The executable and configuration paths must differ"
+		return 1
+	}
+	[ -d "$(dirname "$CONFIG")" ] && [ -w "$(dirname "$CONFIG")" ] || {
+		fail "The configuration directory is missing or not writable: $CONFIG"
+		return 1
+	}
+	if [ -e "$CONFIG" ] || [ -L "$CONFIG" ]; then
+		[ -f "$CONFIG" ] && [ -r "$CONFIG" ] && [ -w "$CONFIG" ] || {
+			fail "The configuration file is not a readable, writable regular file: $CONFIG"
+			return 1
+		}
+		[ "$(readlink -f "$BIN")" != "$(readlink -f "$CONFIG")" ] || {
+			fail "The executable and configuration paths must differ"
+			return 1
+		}
+	fi
+}
+
+start_service() {
+	START_RESULT=0
+	config_load virtualhere
+	config_get BIN main binary_path /usr/bin/vhusbd
+	# The server binary is optional. Package installation also invokes start.
+	# Keep an undeployed service stopped; explicit RPC actions use check first.
+	[ -f "$BIN" ] && [ -s "$BIN" ] && [ -x "$BIN" ] || return 0
+	check || {
+		START_RESULT=1
+		return 1
+	}
+	procd_open_instance main
+	procd_set_param command "$BIN" -c "$CONFIG"
+	procd_set_param respawn 3600 5 5
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param term_timeout 5
+	procd_close_instance
+}
+
+# rc.common otherwise hides a start_service() validation failure behind
+# procd_close_service(). Return its result without checking or logging twice.
+service_started() {
+	return "${START_RESULT:-0}"
+}

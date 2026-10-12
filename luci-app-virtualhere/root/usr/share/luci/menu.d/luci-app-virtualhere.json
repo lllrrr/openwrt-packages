@@ -1,0 +1,14 @@
+{
+	"admin/services/virtualhere": {
+		"title": "VirtualHere",
+		"order": 90,
+		"action": {
+			"type": "view",
+			"path": "virtualhere/config"
+		},
+		"depends": {
+			"acl": [ "luci-app-virtualhere" ],
+			"uci": { "virtualhere": true }
+		}
+	}
+}
