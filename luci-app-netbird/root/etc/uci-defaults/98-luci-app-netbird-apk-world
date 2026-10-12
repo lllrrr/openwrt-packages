@@ -1,0 +1,33 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+#
+# 从本地文件安装(应用内更新器、手动 `apk add file.apk`)时,apk 把 world 记成
+# `luci-app-netbird><Q1…` 这种按文件哈希锁定的约束,之后 `apk upgrade` 不会再从软件源升级它。
+# 本脚本在 apk 事务内运行:此时 apk 持有数据库锁,事务结束还会重写 world,不能在这里直接改。
+# 因此只派生一个脱离的后台任务,等本次 apk 进程退出后再把锁定项改回按名约束;
+# `apk add <name>` 只改约束、不改变已装版本。opkg 没有 world,直接跳过。
+# 后台任务的标准输入输出必须全部断开,否则 apk 会一直等安装脚本的输出管道关闭。
+
+[ -x /usr/bin/apk ] || exit 0
+
+# 安装脚本由 apk 直接启动,父进程即本次 apk;按进程名等待不可靠(pidof 可能匹配到自身)。
+# 开机执行 uci-defaults 时父进程是启动脚本,等它结束后同样只在存在锁定项时才动作。
+_installer_pid=$PPID
+
+(
+	_waited=0
+	while kill -0 "$_installer_pid" 2>/dev/null && [ "$_waited" -lt 300 ]; do
+		sleep 1
+		_waited=$((_waited + 1))
+	done
+	names=$(sed -nE 's/^(luci-app-netbird|luci-i18n-netbird-[A-Za-z0-9_-]+)><.*/\1/p' /etc/apk/world 2>/dev/null)
+	[ -n "$names" ] || exit 0
+	# names 为多行包名,此处需要按空白拆分成多个参数
+	if out=$(apk add $names 2>&1); then
+		logger -t luci-app-netbird "apk world：已把本地文件安装的锁定约束改回按名约束：$(echo $names)"
+	else
+		logger -t luci-app-netbird "警告：apk world 锁定约束未能改回($(echo $names))：$(echo "$out" | tail -n 3)"
+	fi
+) </dev/null >/dev/null 2>&1 &
+
+exit 0

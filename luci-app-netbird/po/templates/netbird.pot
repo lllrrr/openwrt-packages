@@ -1631,3 +1631,27 @@ msgstr ""
 
 msgid "Login failed before NetBird accepted the setup key."
 msgstr ""
+
+msgid "The NetBird client rejected the command; it may be too old for this action."
+msgstr ""
+
+msgid "The NetBird service is not running or not responding. Start it, then try again."
+msgstr ""
+
+msgid "The %s package lists are not loaded (they are cleared on reboot), so netbird cannot be looked up. Run \"%s update\", then reload this page."
+msgstr ""
+
+msgid "NetBird could not determine the active profile. Restart the NetBird service, then try again."
+msgstr ""
+
+msgid "The downloaded binary was built for a different word size or byte order than this device; installation aborted."
+msgstr ""
+
+msgid "Lost contact with the router while waiting for the download. Reload the page to see the result."
+msgstr ""
+
+msgid "The download worker stopped unexpectedly. Try again."
+msgstr ""
+
+msgid "Not enough temporary space to back up the current binary; nothing was changed."
+msgstr ""

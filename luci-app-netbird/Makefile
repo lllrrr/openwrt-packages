@@ -21,16 +21,18 @@ LUCI_DESCRIPTION:=LuCI web interface to manage the NetBird mesh-VPN client \
 # SDK 的 GetABISuffix 在 SDK 上下文取不到其 ABI 后缀 → 渲染成裸 libuci>=0 在目标无法解析
 # (apk add 下 breaks);且 libuci 被 rpcd/rpcd-mod-ucode/uci 传递依赖保证存在,无需显式列。
 LUCI_DEPENDS:=
+# ucode / ucode-mod-fs / ucode-mod-uci:后端 import 'fs'/'uci',后台下载任务调用 ucode 命令行;
+# 22.03 的 luci-base 不依赖它们(靠 firewall4 间接装上),精简或 fw3 固件上会缺。
 # conntrack:网络页「删除转发规则即时断开已建连接」靠 conntrack 定向 flush;缺它会静默
 # 退化为只挡新流、已建流持续。列入依赖使该行为在所有部署一致可靠。
-LUCI_EXTRA_DEPENDS:=netbird (>=0), rpcd (>=0), rpcd-mod-ucode (>=0), luci-base (>=0), conntrack (>=0)
+LUCI_EXTRA_DEPENDS:=netbird (>=0), rpcd (>=0), rpcd-mod-ucode (>=0), ucode (>=0), ucode-mod-fs (>=0), ucode-mod-uci (>=0), luci-base (>=0), conntrack (>=0)
 LUCI_PKGARCH:=all
 LUCI_URL:=https://github.com/looong-cat/luci-app-netbird
 LUCI_MAINTAINER:=looong-cat <foxhis11@gmail.com>
 
 PKG_NAME:=luci-app-netbird
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=23
+PKG_RELEASE:=25
 PKG_MAINTAINER:=looong-cat <foxhis11@gmail.com>
 PKG_LICENSE:=Apache-2.0
 PKG_LICENSE_FILES:=LICENSE

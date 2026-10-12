@@ -1178,3 +1178,27 @@ msgstr "请查看“日志”页中的最后一条 NetBird 消息，然后重试
 
 msgid "Login failed before NetBird accepted the setup key."
 msgstr "NetBird 接受安装密钥前登录失败。"
+
+msgid "The NetBird client rejected the command; it may be too old for this action."
+msgstr "NetBird 客户端拒绝了该命令，可能版本太旧，不支持此操作。"
+
+msgid "The NetBird service is not running or not responding. Start it, then try again."
+msgstr "NetBird 服务未运行或无响应，请先启动后再试。"
+
+msgid "The %s package lists are not loaded (they are cleared on reboot), so netbird cannot be looked up. Run \"%s update\", then reload this page."
+msgstr "%s 的软件包列表尚未加载（重启后会被清空），因此查不到 netbird。请先运行“%s update”，再刷新本页。"
+
+msgid "NetBird could not determine the active profile. Restart the NetBird service, then try again."
+msgstr "NetBird 无法确定当前 profile，请重启 NetBird 服务后再试。"
+
+msgid "The downloaded binary was built for a different word size or byte order than this device; installation aborted."
+msgstr "下载的二进制与本机的字长或字节序不符，已中止安装。"
+
+msgid "Lost contact with the router while waiting for the download. Reload the page to see the result."
+msgstr "等待下载时与路由器失去联系，请刷新页面查看结果。"
+
+msgid "The download worker stopped unexpectedly. Try again."
+msgstr "后台下载任务意外终止，请重试。"
+
+msgid "Not enough temporary space to back up the current binary; nothing was changed."
+msgstr "临时空间不足，无法备份当前二进制，未做任何更改。"

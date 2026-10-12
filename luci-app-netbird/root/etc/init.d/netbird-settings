@@ -29,6 +29,14 @@ USE_PROCD=1
 
 TAG="netbird-settings"
 NB_SERVICE="/etc/init.d/netbird"   # 上游 daemon 生命周期 init
+# 未登录时保存的设置待登录后应用的标记(后端在登录成功后检查并补一次应用)。
+NB_SETTINGS_PENDING="/etc/netbird-settings.pending"
+# 上次成功应用的 up 参数指纹(tmpfs)。/etc/config/netbird 里还存着连接状态、出口节点等运行时字段,
+# 它们的写入会让之后任何页面的 Save&Apply(reload_config)对本包发出 config.change;参数没变时
+# 不再 down→up,避免已连接的隧道无故中断。注销、登录后补应用、关闭服务时作废。
+NB_SETTINGS_APPLIED="/var/run/netbird-settings.applied"
+# 有界执行(timeout 不可用时的可移植实现),与 watchdog 共用。
+. /usr/share/netbird/nb-run-bounded.sh
 
 # ── 二进制路径运行时探测（运行时探测，不硬编码路径；对齐 paths.uc）─────────────
 # 候选：command -v netbird → /usr/bin/netbird → /usr/sbin/netbird；全无返非零。
@@ -157,7 +165,7 @@ _redact_psk() {
 #   （UI depends 隐藏控件但不清值），既防「父关子开」的悬空 flag，也让 daemon 明确收到关闭。
 _render_and_apply() {
 	local bin="$1"
-	local port iface host mgmt loglevel psk psk_disp tmp rc
+	local port iface host mgmt loglevel psk psk_disp tmp rc fp
 
 	_load_up_help "$bin"
 
@@ -259,21 +267,34 @@ _render_and_apply() {
 		return 0
 	fi
 
+	# 参数与上次成功应用的完全相同:无需重连(见 NB_SETTINGS_APPLIED)。
+	fp="$(printf '%s\n' "$bin" "$@" "$psk" | md5sum | cut -d' ' -f1)"
+	if [ -n "$fp" ] && [ "$fp" = "$(cat "$NB_SETTINGS_APPLIED" 2>/dev/null)" ]; then
+		logger -t "$TAG" "settings unchanged since the last apply; not reconnecting"
+		return 0
+	fi
+
 	# 先 down 再 up：netbird up 对「已连接」daemon 会短路（"Already connected"），
 	# 接口级参数（WG 端口 / 接口名等）不会重配。down 让接口重建以使新参数生效
 	# （接口级参数变了须 down→up 才生效；apply 是显式动作，短暂断连可接受）。
 	# down 幂等：未连接时非零退出也无妨，忽略其退出码。
-	"$bin" down >/dev/null 2>&1
+	nb_run_bounded 10 "$bin" down >/dev/null 2>&1
 
 	logger -t "$TAG" "applying: netbird $*$psk_disp"
 	tmp="$(mktemp 2>/dev/null || echo /tmp/nb-settings-$$.log)"
 	# PSK 不在 $@ 里，仅在执行时作为位置参数追加（防注入）；其值绝不进上面的日志串。
 	if [ -n "$psk" ]; then
-		"$bin" "$@" --preshared-key "$psk" >"$tmp" 2>&1
+		nb_run_bounded 45 "$bin" "$@" --preshared-key "$psk" >"$tmp" 2>&1
 	else
-		"$bin" "$@" >"$tmp" 2>&1
+		nb_run_bounded 45 "$bin" "$@" >"$tmp" 2>&1
 	fi
 	rc=$?
+	[ "$rc" -eq 124 ] && logger -t "$TAG" "netbird up did not finish within 45s; stopped waiting"
+	if [ "$rc" -eq 0 ]; then
+		printf '%s\n' "$fp" > "$NB_SETTINGS_APPLIED"
+	else
+		rm -f "$NB_SETTINGS_APPLIED"
+	fi
 	# 把 netbird 输出回灌 logread（截断防刷屏）。netbird 正常不回显 PSK，但万一回显命令行形态，
 	# 仍经 _redact_psk 兜底脱敏（防御纵深；非主防线——主防线是 PSK 根本不进渲染串）。
 	[ -s "$tmp" ] && head -c 4096 "$tmp" | _redact_psk | logger -t "$TAG"
@@ -346,7 +367,8 @@ reload_service() {
 	# service_enabled=0：断开 + 停 + disable daemon，不 apply up。默认开(0)。
 	if ! _bool service_enabled 0; then
 		logger -t "$TAG" "service_enabled=0: down + stop + disable netbird daemon"
-		"$bin" down >/dev/null 2>&1
+		rm -f "$NB_SETTINGS_APPLIED"
+		nb_run_bounded 10 "$bin" down >/dev/null 2>&1
 		if [ -x "$NB_SERVICE" ]; then
 			"$NB_SERVICE" stop >/dev/null 2>&1
 			"$NB_SERVICE" disable >/dev/null 2>&1
@@ -359,6 +381,21 @@ reload_service() {
 		"$NB_SERVICE" enabled >/dev/null 2>&1 || "$NB_SERVICE" enable >/dev/null 2>&1
 		"$NB_SERVICE" start >/dev/null 2>&1
 	fi
+
+	# 未登录时 netbird up 会进入 SSO 登录等待、不会自行返回;procd 的触发队列全局串行,
+	# 卡在这里会让整台路由器后续的配置重载(防火墙、网络、DHCP 等)全部停摆。
+	# 此时只记待应用标记,登录成功后由后端补一次应用。daemon 刚启动时可能尚未就绪,重试一次。
+	st="$(nb_run_bounded 6 "$bin" status 2>&1)"
+	if printf '%s' "$st" | grep -q 'failed to connect to daemon'; then
+		sleep 2
+		st="$(nb_run_bounded 6 "$bin" status 2>&1)"
+	fi
+	if printf '%s' "$st" | grep -qiE 'Daemon status: *Needs ?Login|login required'; then
+		: > "$NB_SETTINGS_PENDING"
+		logger -t "$TAG" "not logged in: settings saved; they are applied after the next successful login"
+		return 0
+	fi
+	rm -f "$NB_SETTINGS_PENDING"
 
 	# 先把 netbird firewall zone 的 device 同步到当前接口名（+ 重载 firewall;设备直绑不动 network），
 	# **再** _render_and_apply 让 netbird 最后 down→up 重建。顺序关键：netbird 必须在 fw 变更
