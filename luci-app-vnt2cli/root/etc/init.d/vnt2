@@ -417,7 +417,9 @@ check_free_space() {
 detect_file_magic() {
 	local f="$1" magic
 	[ -s "$f" ] || { echo "unknown"; return; }
-	magic="$(dd if="$f" bs=1 count=4 2>/dev/null | od -An -tx1 | tr -dc '0-9a-fA-F')"
+	# Read 6 bytes: xz's magic is fd 37 7a 58 5a 00, so a 4-byte read can never
+	# match it. elf/gz/zip magics are all <= 4 bytes and still match by prefix.
+	magic="$(dd if="$f" bs=1 count=6 2>/dev/null | od -An -tx1 | tr -dc '0-9a-fA-F')"
 	case "$magic" in
 		7f454c46*) echo "elf" ;;
 		1f8b*)     echo "gz" ;;
@@ -445,6 +447,101 @@ classify_archive() {
 		*.tar.xz|*.txz) echo "tar.xz" ;;
 		*) echo "unknown" ;;
 	esac
+}
+
+# Decompress an xz/gz stream to a plain file, trying every decompressor the
+# device may provide. Some BusyBox builds ship `tar` without xz (or gzip)
+# support even when a standalone xz-utils binary exists on the device, so the
+# native tar flag alone is not enough. Returns 1 when no decompressor is
+# available or the data is corrupt.
+decompress_to_file() {
+	local kind="$1" src="$2" dst="$3"
+
+	[ -s "$src" ] || return 1
+	case "$kind" in
+		xz|tar.xz)
+			if command -v xz >/dev/null 2>&1; then
+				xz -dc "$src" >"$dst" 2>/dev/null && [ -s "$dst" ] && return 0
+			fi
+			if command -v xzcat >/dev/null 2>&1; then
+				xzcat "$src" >"$dst" 2>/dev/null && [ -s "$dst" ] && return 0
+			fi
+			if command -v unxz >/dev/null 2>&1; then
+				unxz -c "$src" >"$dst" 2>/dev/null && [ -s "$dst" ] && return 0
+			fi
+		;;
+		gz|tar.gz)
+			if command -v gzip >/dev/null 2>&1; then
+				gzip -dc "$src" >"$dst" 2>/dev/null && [ -s "$dst" ] && return 0
+			fi
+			if command -v gunzip >/dev/null 2>&1; then
+				gunzip -c "$src" >"$dst" 2>/dev/null && [ -s "$dst" ] && return 0
+			fi
+			if command -v busybox >/dev/null 2>&1; then
+				busybox gunzip -c "$src" >"$dst" 2>/dev/null && [ -s "$dst" ] && return 0
+			fi
+		;;
+	esac
+	rm -f "$dst" 2>/dev/null
+	return 1
+}
+
+# List the entries of a tar.gz/tar.xz archive (pass "v" as the third argument
+# for the verbose listing). Tries the native tar flag first, then falls back to
+# an external decompressor plus plain tar. This is what keeps .tar.xz assets
+# (such as the self-fetched upx release) unpackable on minimal firmwares.
+tar_list_entries() {
+	local kind="$1" f="$2" verbose="${3:-}"
+	local out tmp rc vopt="" flag=""
+
+	case "$verbose" in
+		v) vopt="v" ;;
+	esac
+	case "$kind" in
+		tar.gz) flag="z" ;;
+		tar.xz) flag="J" ;;
+		*) return 1 ;;
+	esac
+	out="$(tar -t${vopt}${flag}f "$f" 2>/dev/null)" && {
+		printf '%s\n' "$out"
+		return 0
+	}
+	tmp="$(mktemp /tmp/vnt2-tl.XXXXXX)" || return 1
+	if decompress_to_file "$kind" "$f" "$tmp"; then
+		out="$(tar -t${vopt}f "$tmp" 2>/dev/null)"
+		rc=$?
+		rm -f "$tmp"
+		[ "$rc" -eq 0 ] || return 1
+		printf '%s\n' "$out"
+		return 0
+	fi
+	rm -f "$tmp"
+	return 1
+}
+
+# Extract a tar.gz/tar.xz archive into dest_dir with the same fallback chain.
+tar_extract_entries() {
+	local kind="$1" f="$2" dest="$3"
+	local tmp rc flag=""
+
+	case "$kind" in
+		tar.gz) flag="z" ;;
+		tar.xz) flag="J" ;;
+		*) return 1 ;;
+	esac
+	mkdir -p "$dest" 2>/dev/null
+	if tar -x${flag}f "$f" -C "$dest" >/dev/null 2>&1; then
+		return 0
+	fi
+	tmp="$(mktemp /tmp/vnt2-tx.XXXXXX)" || return 1
+	if decompress_to_file "$kind" "$f" "$tmp"; then
+		tar -xf "$tmp" -C "$dest" >/dev/null 2>&1
+		rc=$?
+		rm -f "$tmp"
+		return $rc
+	fi
+	rm -f "$tmp"
+	return 1
 }
 
 # Post-install sanity check: actually execute the binary and confirm it runs.
@@ -861,137 +958,114 @@ ensure_runtime_deps() {
 		log_download "runtime install of wget failed or unavailable"
 	pm_install_pkg unzip >/dev/null 2>&1 || log_download "runtime install of unzip failed or unavailable"
 	[ "$want_upx" = "1" ] && {
-		if command -v upx >/dev/null 2>&1; then
-			: # upx already available on the device
+		# x86_64: the package bundles a static upx at /usr/bin/upx, already on
+		# PATH and needs no download. On any other architecture ensure_upx_binary()
+		# asks the distro package manager (apk/opkg) for the correct-arch upx —
+		# both paths need no xz, so xz is intentionally NOT installed here.
+		# NOTE: we health-check upx (upx_is_usable), not just `command -v upx`.
+		# On a non-x86_64 device the bundled x86_64 binary is still on PATH but
+		# cannot exec, so a bare `command -v` would short-circuit and leave
+		# compression silently broken (Exec format error at compress time).
+		if upx_is_usable; then
+			: # upx already available AND runs on this arch
 		elif ensure_upx_binary; then
-			log_download "upx 静态二进制已自动下载并安装"
+			log_download "upx 已自动安装（包管理器）"
 		else
 			log_download "upx 不可用，将安装未压缩版本（功能不受影响）"
 		fi
 	}
 }
 
-# Map the detected device architecture to the upx release asset arch token.
-# upx publishes linux-musl static binaries per arch; hard/soft-float ARM both
-# use the single "arm" asset (a static armv5/armv7 little-endian binary).
-upx_arch_for_device() {
-	local a
-	a="$(detect_arch_name)"
-	case "$a" in
-		x86_64)      echo "amd64" ;;
-		aarch64)     echo "arm64" ;;
-		mipsel)      echo "mipsel" ;;
-		mips)        echo "mips" ;;
-		arm-*|armv7*) echo "arm" ;;
-		*)           echo "" ;;
-	esac
+# True only when an upx binary is on PATH AND it actually executes on this
+# device. The package bundles a static x86_64 upx for the common x86_64 case,
+# but on a non-x86_64 device `command -v upx` would still find that bundled
+# (wrong-arch) binary; we must exec-check it so the correct arch is fetched
+# instead of silently failing compression later with Exec format error.
+upx_is_usable() {
+	local p
+	p="$(command -v upx 2>/dev/null)"
+	[ -n "$p" ] && binary_health_check "$p"
 }
 
-# Print the release asset download URL for the given upx arch token from a
-# GitHub release API JSON file. Only linux tarballs are considered (Windows /
-# macOS / source archives are skipped). Prints nothing when nothing matches,
-# so callers can fall back to conventionally-named URLs.
-select_upx_asset_url() {
-	local json="$1" arch="$2"
-	[ -n "$json" ] && [ -f "$json" ] || return 1
-	grep -o '"browser_download_url"[[:space:]]*:[[:space:]]*"[^"]*"' "$json" 2>/dev/null | \
-		sed -E 's/.*"browser_download_url"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/' | \
-		grep -E -- "[-._]${arch}([-_]linux)?\.tar\.xz$" | head -n1
+# Returns 0 iff the file at $1 is a UPX-packed ELF. Prefers `upx -t` (authoritative)
+# when upx is usable; falls back to scanning for the "UPX!" packer signature so a
+# compressed binary is still detected even if upx was later removed from the system.
+is_upx_compressed() {
+	local f="$1"
+	[ -f "$f" ] || return 1
+	if upx_is_usable; then
+		upx -t "$f" >/dev/null 2>&1 && return 0
+	fi
+	# Fallback signature scan (BusyBox grep -a reads binary content).
+	grep -aq 'UPX!' "$f" 2>/dev/null && return 0
+	return 1
 }
 
-# Path B: when the package manager cannot provide `upx` (e.g. iStoreOS/OpenWrt
-# builds whose feed has no upx package), fetch a statically-linked upx release
-# binary for this device architecture and install it to /usr/bin/upx. On any
-# failure we return 1 so the caller's UPX branch (which only runs when
-# `command -v upx` succeeds) simply installs the uncompressed binary instead.
-# The downloaded upx persists in overlay, so it is fetched at most once.
+# Reconcile the on-disk binary's compression state with the user's setting so that
+# toggling "启用 UPX 压缩" actually takes effect without a manual reinstall:
+#   - compression OFF but a binary is currently UPX-packed  -> delete it so the
+#     download path below re-fetches the UNCOMPRESSED original.
+#   - compression ON  but a binary is uncompressed AND upx is usable -> delete it
+#     so the download path re-fetches and compresses. (Guarded by upx availability
+#     to avoid re-downloading in a loop when upx cannot be obtained on this arch.)
+# Deleting the files simply defeats the "skip-download" gate (which only checks for
+# the binaries' presence); the subsequent download reinstalls them in the desired form.
+reconcile_upx_state() {
+	local want_compress="$1"
+	local cli="${INSTALL_BIN_DIR}/vnt2_cli"
+	local ctrl="${INSTALL_BIN_DIR}/vnt2_ctrl"
+	local cli_c ctrl_c
+	cli_c=0; ctrl_c=0
+	[ -f "$cli" ]  && is_upx_compressed "$cli"  && cli_c=1
+	[ -f "$ctrl" ] && is_upx_compressed "$ctrl" && ctrl_c=1
+
+	if [ "$want_compress" = "1" ]; then
+		if { [ -f "$cli" ]  && [ "$cli_c"  = "0" ]; } || \
+		   { [ -f "$ctrl" ] && [ "$ctrl_c" = "0" ]; }; then
+			# Only re-fetch when we can actually compress; otherwise we would
+			# delete+redownload+stay-uncompressed on every download action.
+			upx_is_usable || return 0
+			log_download "压缩已启用但现有程序未压缩，将重新下载并压缩"
+			rm -f "$cli" "$ctrl" 2>/dev/null
+		fi
+	else
+		if [ "$cli_c" = "1" ] || [ "$ctrl_c" = "1" ]; then
+			log_download "压缩已关闭但现有程序仍为压缩版，将删除并重新下载未压缩程序"
+			rm -f "$cli" "$ctrl" 2>/dev/null
+		fi
+	fi
+}
+
+# Path B (borrowed from luci-app-vnt2 1.7.2's pm_install idiom): make `upx`
+# available on THIS architecture by letting the distribution's package manager
+# install it — `apk add upx` on iStoreOS/Alpine, `opkg install upx` on OpenWrt.
+# Unlike hand-scraping a release mirror, the PM resolves the correct arch+libc
+# automatically, so aarch64/armv7/x86 all get a working upx with no per-arch
+# code. The bundled static x86_64 upx (fast/offline path for x86_64) is checked
+# first via upx_is_usable(); we only reach the PM path on a non-x86_64 device
+# (or when the bundle is absent). On any failure we return 1 so the caller's UPX
+# branch (which only runs when upx_is_usable succeeds) installs the uncompressed
+# binary instead. The installed upx persists in overlay, fetched at most once.
 ensure_upx_binary() {
-	command -v upx >/dev/null 2>&1 && return 0
+	# Health-check, not a bare `command -v`: the bundled x86_64 upx is on PATH
+	# on every arch (the package is PKGARCH:=all), but it cannot exec on a
+	# non-x86_64 device. Treat only a running upx as "available".
+	upx_is_usable && return 0
 
-	local upx_arch json_file api_url upx_ver tarball work_dir bin_found
-	local candidates candidate got=0 m
-	upx_arch="$(upx_arch_for_device)"
-	[ -n "$upx_arch" ] || {
-		log_download "未识别的架构，跳过自动下载 upx"
-		return 1
-	}
-
-	# Resolve the latest upx release tag via the GitHub API (through the mirror
-	# chain). Fall back to a known-good version if the API is unreachable.
-	json_file="$(mktemp /tmp/upx-rel.XXXXXX)"
-	api_url="https://api.github.com/repos/upx/upx/releases/latest"
-	if download_file "$api_url" "$json_file" "api" "gh-proxy" || \
-	   download_file "$api_url" "$json_file" "api" "github"; then
-		upx_ver="$(grep -o '"tag_name"[^,}]*' "$json_file" 2>/dev/null | head -n1 | \
-			sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
-	fi
-	[ -n "$upx_ver" ] || upx_ver="v4.2.4"
-
-	# Candidate asset URLs in priority order: the exact URL advertised by the
-	# release API first (robust against upstream asset renames), then the
-	# conventional upstream names as fallback (in case the API was blocked).
-	candidates="$(select_upx_asset_url "$json_file" "$upx_arch")"
-	rm -f "$json_file"
-	for candidate in \
-		"https://github.com/upx/upx/releases/download/${upx_ver}/upx-${upx_ver#v}-${upx_arch}_linux.tar.xz" \
-		"https://github.com/upx/upx/releases/download/${upx_ver}/upx-${upx_ver#v}-${upx_arch}.tar.xz"
-	do
-		case "$candidates" in
-			*"$candidate"*) ;;
-			*) candidates="${candidates}
-${candidate}" ;;
-		esac
-	done
-
-	tarball="$(mktemp /tmp/upx-dl.XXXXXX)"
-	for candidate in $candidates; do
-		[ -n "$candidate" ] || continue
-		for m in gh-proxy github; do
-			if download_file "$candidate" "$tarball" "asset" "$m"; then
-				got=1
-				break
-			fi
-		done
-		[ "$got" = "1" ] && break
-	done
-	[ "$got" = "1" ] || {
-		rm -f "$tarball"
-		log_download "自动下载 upx 静态二进制失败 (arch=${upx_arch})，将安装未压缩版本"
-		return 1
-	}
-
-	work_dir="$(mktemp -d /tmp/upx-work.XXXXXX)"
-	if ! extract_release_asset "$tarball" "$work_dir"; then
-		rm -rf "$work_dir"; rm -f "$tarball"
-		log_download "解压 upx 静态二进制失败"
-		return 1
-	fi
-	rm -f "$tarball"
-
-	bin_found="$(find "$work_dir" -type f -name upx 2>/dev/null | head -n1)"
-	if [ -z "$bin_found" ] || ! is_elf_binary "$bin_found"; then
-		rm -rf "$work_dir"
-		log_download "upx 压缩包内未找到有效的 upx 可执行文件"
-		return 1
-	fi
-	# Verify the binary actually runs on this device (wrong arch would fail at
-	# exec time even though the ELF header looks valid).
-	if ! "$bin_found" --version >/dev/null 2>&1; then
-		rm -rf "$work_dir"
-		log_download "下载的 upx 无法在本机执行 (可能架构不匹配)"
-		return 1
+	# Let the distro provide upx for the current arch. pm_install_pkg resolves
+	# apk/opkg, is a no-op if upx is already present, and returns 0 only when
+	# `upx` ends up on PATH.
+	if pm_install_pkg upx >/dev/null 2>&1 && upx_is_usable; then
+		log_download "已通过包管理器安装 upx ($(upx --version 2>/dev/null | head -n1))"
+		log_event "upx_installed" "method=pm"
+		return 0
 	fi
 
-	cp -f "$bin_found" /usr/bin/upx >/dev/null 2>&1 || {
-		rm -rf "$work_dir"
-		log_download "安装 upx 到 /usr/bin 失败"
-		return 1
-	}
-	chmod 755 /usr/bin/upx >/dev/null 2>&1
-	rm -rf "$work_dir"
-	log_download "已自动下载并安装 upx 静态二进制 ($(upx --version 2>/dev/null | head -n1))"
-	log_event "upx_installed" "arch=${upx_arch} version=${upx_ver#v}"
-	command -v upx >/dev/null 2>&1
+	# Unsupported/no-upx-feed: drop the dead bundled x86_64 binary (if present)
+	# so it does not masquerade as a working upx, then fall back to uncompressed.
+	[ "$(command -v upx 2>/dev/null)" = "/usr/bin/upx" ] && rm -f /usr/bin/upx 2>/dev/null
+	log_download "无法通过包管理器获取 upx，将安装未压缩版本"
+	return 1
 }
 
 get_downloader() {
@@ -1654,19 +1728,10 @@ archive_is_safe() {
 
 	kind="$(classify_archive "$asset_file")"
 	case "$kind" in
-		tar.gz)
-			entries="$(tar -tzf "$asset_file" 2>/dev/null)" || return 1
+		tar.gz|tar.xz)
+			entries="$(tar_list_entries "$kind" "$asset_file")" || return 1
 			printf '%s\n' "$entries" | archive_paths_are_safe || return 1
-			details="$(tar -tvzf "$asset_file" 2>/dev/null)" || return 1
-			printf '%s\n' "$details" | awk '
-				{ type = substr($0, 1, 1); if (type != "-" && type != "d") bad = 1 }
-				END { exit bad }
-			' || return 1
-		;;
-		tar.xz)
-			entries="$(tar -tJf "$asset_file" 2>/dev/null)" || return 1
-			printf '%s\n' "$entries" | archive_paths_are_safe || return 1
-			details="$(tar -tvJf "$asset_file" 2>/dev/null)" || return 1
+			details="$(tar_list_entries "$kind" "$asset_file" v)" || return 1
 			printf '%s\n' "$details" | awk '
 				{ type = substr($0, 1, 1); if (type != "-" && type != "d") bad = 1 }
 				END { exit bad }
@@ -1705,10 +1770,12 @@ archive_is_safe() {
 
 validate_asset_file() {
 	local asset_file="$1"
+	local kind
 
 	[ -s "$asset_file" ] || return 1
 
-	case "$(classify_archive "$asset_file")" in
+	kind="$(classify_archive "$asset_file")"
+	case "$kind" in
 		zip)
 			if command -v unzip >/dev/null 2>&1; then
 				unzip -t "$asset_file" >/dev/null 2>&1 && return 0
@@ -1721,12 +1788,8 @@ validate_asset_file() {
 			fi
 			return 1
 		;;
-		tar.gz)
-			tar -tzf "$asset_file" >/dev/null 2>&1
-			return $?
-		;;
-		tar.xz)
-			tar -tJf "$asset_file" >/dev/null 2>&1
+		tar.gz|tar.xz)
+			tar_list_entries "$kind" "$asset_file" >/dev/null 2>&1
 			return $?
 		;;
 		*)
@@ -1745,19 +1808,20 @@ validate_release_asset() {
 extract_release_asset() {
 	local asset_file="$1"
 	local dest_dir="$2"
-	local base
+	local base kind
 
 	archive_is_safe "$asset_file" || return 1
 
 	rm -rf "$dest_dir"
 	mkdir -p "$dest_dir"
 
-	case "$(classify_archive "$asset_file")" in
+	kind="$(classify_archive "$asset_file")"
+	case "$kind" in
 		tar.gz)
-			tar -xzf "$asset_file" -C "$dest_dir" >/dev/null 2>&1 || return 1
+			tar_extract_entries tar.gz "$asset_file" "$dest_dir" || return 1
 		;;
 		tar.xz)
-			tar -xJf "$asset_file" -C "$dest_dir" >/dev/null 2>&1 || return 1
+			tar_extract_entries tar.xz "$asset_file" "$dest_dir" || return 1
 		;;
 		zip)
 			extract_zip_asset "$asset_file" "$dest_dir" || return 1
@@ -1831,8 +1895,8 @@ install_binary_to_usrbin() {
 	}
 	# Optional UPX compression to shrink the on-disk binary (helps small-flash
 	# routers). UPX rewrites the file in place; the result stays a valid ELF.
-	upx_compress="${VNT2_UPX_COMPRESS:-1}"
-	if [ "$upx_compress" = "1" ] && command -v upx >/dev/null 2>&1; then
+	upx_compress="${VNT2_UPX_COMPRESS:-0}"
+	if [ "$upx_compress" = "1" ] && upx_is_usable; then
 		if upx -q -q --force "$temp_path" >/dev/null 2>&1; then
 			log_download "UPX compressed ${target_name}"
 		else
@@ -1924,7 +1988,7 @@ auto_download_bundle_for_mode() {
 			return 1
 		;;
 	esac
-	config_get_bool VNT2_UPX_COMPRESS "$cfg" "upx_compress" "1"
+	config_get_bool VNT2_UPX_COMPRESS "$cfg" "upx_compress" "0"
 	ensure_runtime_deps "$VNT2_UPX_COMPRESS"
 	download_mirror="$(normalize_download_mirror "$download_mirror")"
 	custom_mirror_url="$(normalize_custom_mirror_url "$custom_mirror_url")"
@@ -1947,6 +2011,11 @@ auto_download_bundle_for_mode() {
 			return 1
 		;;
 	esac
+
+	# Reconcile compression state BEFORE the skip gate: if the user toggled
+	# compression, delete the on-disk binary so the download below re-fetches it
+	# in the desired (compressed/uncompressed) form instead of skipping.
+	reconcile_upx_state "$VNT2_UPX_COMPRESS"
 
 	# Skip-download gate: the upstream asset is an UNCOMPRESSED original, while
 	# the locally installed binary may be UPX-compressed. Their SHA256 can never

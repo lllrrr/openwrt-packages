@@ -193,17 +193,8 @@ msgstr "VirtualHere 官方下载页面"
 msgid "VirtualHere writes its configuration while running. Save & Apply stops it before writing, then starts it only when Enable is saved as on. Save requires a stopped service."
 msgstr "VirtualHere 会在运行时回写配置。“保存文件并应用”会先停止服务再写入，仅在已保存的启用开关打开时启动服务。“保存文件”要求服务已停止。"
 
-msgid "VirtualHere started."
-msgstr "VirtualHere 已启动。"
-
-msgid "VirtualHere stopped."
-msgstr "VirtualHere 已停止。"
-
 msgid "Stopping VirtualHere; waiting for the process to exit…"
 msgstr "正在停止 VirtualHere，等待进程退出…"
-
-msgid "VirtualHere restarted."
-msgstr "VirtualHere 已重启。"
 
 msgid "Runtime log"
 msgstr "运行日志"

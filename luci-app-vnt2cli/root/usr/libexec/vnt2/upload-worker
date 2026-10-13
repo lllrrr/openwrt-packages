@@ -129,7 +129,9 @@ check_free_space() {
 detect_file_magic() {
 	local f="$1" magic
 	[ -s "$f" ] || { echo "unknown"; return; }
-	magic="$(dd if="$f" bs=1 count=4 2>/dev/null | od -An -tx1 | tr -dc '0-9a-fA-F')"
+	# Read 6 bytes: xz's magic is fd 37 7a 58 5a 00, so a 4-byte read can never
+	# match it. elf/gz/zip magics are all <= 4 bytes and still match by prefix.
+	magic="$(dd if="$f" bs=1 count=6 2>/dev/null | od -An -tx1 | tr -dc '0-9a-fA-F')"
 	case "$magic" in
 		7f454c46*) echo "elf" ;;
 		1f8b*)     echo "gz" ;;
@@ -155,6 +157,101 @@ classify_archive() {
 		*.tar.xz|*.txz) echo "tar.xz" ;;
 		*) echo "unknown" ;;
 	esac
+}
+
+# Decompress an xz/gz stream to a plain file, trying every decompressor the
+# device may provide. Some BusyBox builds ship `tar` without xz (or gzip)
+# support even when a standalone xz-utils binary exists on the device, so the
+# native tar flag alone is not enough. Returns 1 when no decompressor is
+# available or the data is corrupt.
+decompress_to_file() {
+	local kind="$1" src="$2" dst="$3"
+
+	[ -s "$src" ] || return 1
+	case "$kind" in
+		xz|tar.xz)
+			if command -v xz >/dev/null 2>&1; then
+				xz -dc "$src" >"$dst" 2>/dev/null && [ -s "$dst" ] && return 0
+			fi
+			if command -v xzcat >/dev/null 2>&1; then
+				xzcat "$src" >"$dst" 2>/dev/null && [ -s "$dst" ] && return 0
+			fi
+			if command -v unxz >/dev/null 2>&1; then
+				unxz -c "$src" >"$dst" 2>/dev/null && [ -s "$dst" ] && return 0
+			fi
+		;;
+		gz|tar.gz)
+			if command -v gzip >/dev/null 2>&1; then
+				gzip -dc "$src" >"$dst" 2>/dev/null && [ -s "$dst" ] && return 0
+			fi
+			if command -v gunzip >/dev/null 2>&1; then
+				gunzip -c "$src" >"$dst" 2>/dev/null && [ -s "$dst" ] && return 0
+			fi
+			if command -v busybox >/dev/null 2>&1; then
+				busybox gunzip -c "$src" >"$dst" 2>/dev/null && [ -s "$dst" ] && return 0
+			fi
+		;;
+	esac
+	rm -f "$dst" 2>/dev/null
+	return 1
+}
+
+# List the entries of a tar.gz/tar.xz archive (pass "v" as the third argument
+# for the verbose listing). Tries the native tar flag first, then falls back to
+# an external decompressor plus plain tar. This is what keeps .tar.xz assets
+# (such as the self-fetched upx release) unpackable on minimal firmwares.
+tar_list_entries() {
+	local kind="$1" f="$2" verbose="${3:-}"
+	local out tmp rc vopt="" flag=""
+
+	case "$verbose" in
+		v) vopt="v" ;;
+	esac
+	case "$kind" in
+		tar.gz) flag="z" ;;
+		tar.xz) flag="J" ;;
+		*) return 1 ;;
+	esac
+	out="$(tar -t${vopt}${flag}f "$f" 2>/dev/null)" && {
+		printf '%s\n' "$out"
+		return 0
+	}
+	tmp="$(mktemp /tmp/vnt2-tl.XXXXXX)" || return 1
+	if decompress_to_file "$kind" "$f" "$tmp"; then
+		out="$(tar -t${vopt}f "$tmp" 2>/dev/null)"
+		rc=$?
+		rm -f "$tmp"
+		[ "$rc" -eq 0 ] || return 1
+		printf '%s\n' "$out"
+		return 0
+	fi
+	rm -f "$tmp"
+	return 1
+}
+
+# Extract a tar.gz/tar.xz archive into dest_dir with the same fallback chain.
+tar_extract_entries() {
+	local kind="$1" f="$2" dest="$3"
+	local tmp rc flag=""
+
+	case "$kind" in
+		tar.gz) flag="z" ;;
+		tar.xz) flag="J" ;;
+		*) return 1 ;;
+	esac
+	mkdir -p "$dest" 2>/dev/null
+	if tar -x${flag}f "$f" -C "$dest" >/dev/null 2>&1; then
+		return 0
+	fi
+	tmp="$(mktemp /tmp/vnt2-tx.XXXXXX)" || return 1
+	if decompress_to_file "$kind" "$f" "$tmp"; then
+		tar -xf "$tmp" -C "$dest" >/dev/null 2>&1
+		rc=$?
+		rm -f "$tmp"
+		return $rc
+	fi
+	rm -f "$tmp"
+	return 1
 }
 
 # Post-install sanity check: actually execute the binary and confirm it runs,
@@ -290,7 +387,7 @@ pm_install_pkg() {
 get_upx_setting() {
 	local v=""
 	command -v uci >/dev/null 2>&1 && v="$(uci -q get vnt2.@vnt2_cli[0].upx_compress 2>/dev/null || true)"
-	[ "$v" = "0" ] && echo "0" || echo "1"
+	[ "$v" = "1" ] && echo "1" || echo "0"
 }
 
 ensure_runtime_deps_upload() {
@@ -302,10 +399,17 @@ ensure_runtime_deps_upload() {
 		log_worker "runtime install of wget failed or unavailable"
 	pm_install_pkg unzip >/dev/null 2>&1 || log_worker "runtime install of unzip failed or unavailable"
 	if [ "$VNT2_UPX_COMPRESS" = "1" ]; then
-		if command -v upx >/dev/null 2>&1; then
-			: # upx already available on the device
+		# x86_64: the package bundles a static upx at /usr/bin/upx, already on
+		# PATH (no download). On any other arch ensure_upx_binary() asks the
+		# distro package manager (apk/opkg) for the correct-arch upx — no xz.
+		# NOTE: health-check (upx_is_usable), not a bare `command -v upx` — the
+		# bundled x86_64 binary is on PATH on every arch but cannot exec on a
+		# non-x86_64 device, so a bare check would short-circuit and leave
+		# compression silently broken.
+		if upx_is_usable; then
+			: # upx already available AND runs on this arch
 		elif ensure_upx_binary; then
-			log_worker "upx 静态二进制已自动下载并安装"
+			log_worker "upx 已自动安装（包管理器）"
 		else
 			log_worker "upx 不可用，将安装未压缩版本（功能不受影响）"
 		fi
@@ -343,116 +447,48 @@ fetch_url() {
 	return 1
 }
 
-# Map the detected device architecture to the upx release asset arch token.
-upx_arch_for_device() {
-	local a
-	a="$(detect_arch_name)"
-	case "$a" in
-		x86_64)      echo "amd64" ;;
-		aarch64)     echo "arm64" ;;
-		mipsel)      echo "mipsel" ;;
-		mips)        echo "mips" ;;
-		arm-*|armv7*) echo "arm" ;;
-		*)           echo "" ;;
-	esac
+# Map the detected device architecture to the Alpine Linux package arch token.
+# Alpine ships musl-linked upx packages that run on OpenWrt/iStoreOS, and the
+# .apk is gzip-compressed so it decompresses with gunzip (no xz, no glibc).
+# True only when an upx binary is on PATH AND it actually executes on this
+# device. The package bundles a static x86_64 upx for the common x86_64 case,
+# but on a non-x86_64 device `command -v upx` would still find that bundled
+# (wrong-arch) binary; we must exec-check it so the correct arch is fetched
+# instead of silently failing compression later with Exec format error.
+upx_is_usable() {
+	local p
+	p="$(command -v upx 2>/dev/null)"
+	[ -n "$p" ] && binary_health_check "$p"
 }
 
-# Print the release asset download URL for the given upx arch token from a
-# GitHub release API JSON file. Only linux tarballs are considered (Windows /
-# macOS / source archives are skipped). Prints nothing when nothing matches,
-# so callers can fall back to conventionally-named URLs.
-select_upx_asset_url() {
-	local json="$1" arch="$2"
-	[ -n "$json" ] && [ -f "$json" ] || return 1
-	grep -o '"browser_download_url"[[:space:]]*:[[:space:]]*"[^"]*"' "$json" 2>/dev/null | \
-		sed -E 's/.*"browser_download_url"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/' | \
-		grep -E -- "[-._]${arch}([-_]linux)?\.tar\.xz$" | head -n1
-}
-
-# Path B: when the package manager cannot provide `upx`, fetch a statically-linked
-# upx release binary for this device architecture and install it to /usr/bin/upx.
-# Returns 1 on any failure so the caller installs the uncompressed binary instead.
-# The downloaded upx persists in overlay, so it is fetched at most once.
+# Path B (borrowed from luci-app-vnt2 1.7.2's pm_install idiom): make `upx`
+# available on THIS architecture by letting the distro package manager install
+# it — `apk add upx` on iStoreOS/Alpine, `opkg install upx` on OpenWrt. The PM
+# resolves the correct arch+libc automatically, so aarch64/armv7/x86 all get a
+# working upx with no per-arch code. The bundled x86_64 upx (fast/offline path)
+# is checked first via upx_is_usable(); we only reach the PM path on a non-x86_64
+# device. Returns 1 on failure so the caller installs the uncompressed binary.
+# The installed upx persists in overlay, fetched at most once.
 ensure_upx_binary() {
-	command -v upx >/dev/null 2>&1 && return 0
+	# Health-check, not a bare `command -v`: the bundled x86_64 upx is on PATH
+	# on every arch (the package is PKGARCH:=all), but it cannot exec on a
+	# non-x86_64 device. Treat only a running upx as "available".
+	upx_is_usable && return 0
 
-	local upx_arch api_json upx_ver tarball work_dir bin_found
-	local candidates candidate got=0
-	upx_arch="$(upx_arch_for_device)"
-	[ -n "$upx_arch" ] || {
-		log_worker "未识别的架构，跳过自动下载 upx"
-		return 1
-	}
-
-	upx_ver="v4.2.4"
-	api_json="$(mktemp /tmp/upx-rel.XXXXXX)"
-	if fetch_url "https://api.github.com/repos/upx/upx/releases/latest" "$api_json" 30; then
-		local v
-		v="$(grep -o '"tag_name"[^,}]*' "$api_json" 2>/dev/null | head -n1 | \
-			sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
-		[ -n "$v" ] && upx_ver="$v"
+	# Let the distro provide upx for the current arch. pm_install_pkg resolves
+	# apk/opkg, is a no-op if upx is already present, and returns 0 only when
+	# `upx` ends up on PATH.
+	if pm_install_pkg upx >/dev/null 2>&1 && upx_is_usable; then
+		log_worker "已通过包管理器安装 upx ($(upx --version 2>/dev/null | head -n1))"
+		log_event "upx_installed" "method=pm"
+		return 0
 	fi
 
-	# Candidate asset URLs in priority order: the exact URL advertised by the
-	# release API first (robust against upstream asset renames), then the
-	# conventional upstream names as fallback (in case the API was blocked).
-	candidates="$(select_upx_asset_url "$api_json" "$upx_arch")"
-	rm -f "$api_json"
-	for candidate in \
-		"https://github.com/upx/upx/releases/download/${upx_ver}/upx-${upx_ver#v}-${upx_arch}_linux.tar.xz" \
-		"https://github.com/upx/upx/releases/download/${upx_ver}/upx-${upx_ver#v}-${upx_arch}.tar.xz"
-	do
-		case "$candidates" in
-			*"$candidate"*) ;;
-			*) candidates="${candidates}
-${candidate}" ;;
-		esac
-	done
-
-	tarball="$(mktemp /tmp/upx-dl.XXXXXX)"
-	for candidate in $candidates; do
-		[ -n "$candidate" ] || continue
-		if fetch_url "$candidate" "$tarball" 180; then
-			got=1
-			break
-		fi
-	done
-	[ "$got" = "1" ] || {
-		rm -f "$tarball"
-		log_worker "自动下载 upx 静态二进制失败 (arch=${upx_arch})，将安装未压缩版本"
-		return 1
-	}
-
-	work_dir="$(mktemp -d /tmp/upx-work.XXXXXX)"
-	if ! extract_archive "$tarball" "$work_dir"; then
-		rm -rf "$work_dir"; rm -f "$tarball"
-		log_worker "解压 upx 失败"
-		return 1
-	fi
-	rm -f "$tarball"
-
-	bin_found="$(find "$work_dir" -type f -name upx 2>/dev/null | head -n1)"
-	if [ -z "$bin_found" ] || ! is_elf_binary "$bin_found"; then
-		rm -rf "$work_dir"
-		log_worker "upx 压缩包内未找到有效的 upx 可执行文件"
-		return 1
-	fi
-	if ! "$bin_found" --version >/dev/null 2>&1; then
-		rm -rf "$work_dir"
-		log_worker "下载的 upx 无法在本机执行 (可能架构不匹配)"
-		return 1
-	fi
-
-	cp -f "$bin_found" /usr/bin/upx >/dev/null 2>&1 || {
-		rm -rf "$work_dir"
-		log_worker "安装 upx 到 /usr/bin 失败"
-		return 1
-	}
-	chmod 755 /usr/bin/upx >/dev/null 2>&1
-	rm -rf "$work_dir"
-	log_worker "已自动下载并安装 upx 静态二进制"
-	log_event "upx_installed" "arch=${upx_arch} version=${upx_ver#v}"
-	command -v upx >/dev/null 2>&1
+	# Unsupported/no-upx-feed: drop the dead bundled x86_64 binary (if present)
+	# so it does not masquerade as a working upx, then fall back to uncompressed.
+	[ "$(command -v upx 2>/dev/null)" = "/usr/bin/upx" ] && rm -f /usr/bin/upx 2>/dev/null
+	log_worker "无法通过包管理器获取 upx，将安装未压缩版本"
+	return 1
 }
 
 is_elf_binary() {
@@ -565,15 +601,10 @@ tar_archive_is_safe() {
 
 	kind="$(classify_archive "$archive")"
 	case "$kind" in
-		tar.gz)
-			entries="$(tar -tzf "$archive" 2>/dev/null)" || return 1
+		tar.gz|tar.xz)
+			entries="$(tar_list_entries "$kind" "$archive")" || return 1
 			printf '%s\n' "$entries" | archive_paths_are_safe || return 1
-			details="$(tar -tvzf "$archive" 2>/dev/null)" || return 1
-		;;
-		tar.xz)
-			entries="$(tar -tJf "$archive" 2>/dev/null)" || return 1
-			printf '%s\n' "$entries" | archive_paths_are_safe || return 1
-			details="$(tar -tvJf "$archive" 2>/dev/null)" || return 1
+			details="$(tar_list_entries "$kind" "$archive" v)" || return 1
 		;;
 		*)
 			return 1
@@ -633,11 +664,11 @@ extract_archive() {
 			return 1
 		;;
 		tar.gz)
-			tar -xzf "$archive" -C "$dest_dir" >/dev/null 2>&1
+			tar_extract_entries tar.gz "$archive" "$dest_dir"
 			return $?
 		;;
 		tar.xz)
-			tar -xJf "$archive" -C "$dest_dir" >/dev/null 2>&1
+			tar_extract_entries tar.xz "$archive" "$dest_dir"
 			return $?
 		;;
 		elf|*)
@@ -662,7 +693,7 @@ install_binary_atomic() {
 	}
 	# Compress with UPX when enabled (shrinks the on-disk binary). UPX rewrites
 	# the file in place and the result stays a valid ELF.
-	if [ "$VNT2_UPX_COMPRESS" = "1" ] && command -v upx >/dev/null 2>&1; then
+	if [ "$VNT2_UPX_COMPRESS" = "1" ] && upx_is_usable; then
 		if upx -q -q --force "$temp_path" >/dev/null 2>&1; then
 			log_worker "UPX compressed $(basename "$target")"
 		else
@@ -842,7 +873,7 @@ process_claimed() {
 			if ! tar_archive_is_safe "$upload_path"; then
 				log_worker "upload rejected: unsafe or invalid tar.gz archive"
 				write_state "failed" "upload rejected: unsafe or invalid tar.gz archive" "$upload_asset" "" "$arch" ""
-			elif ! tar -xzf "$upload_path" -C "$work_dir" >/dev/null 2>&1; then
+			elif ! tar_extract_entries tar.gz "$upload_path" "$work_dir"; then
 				log_worker "upload rejected: archive extraction failed"
 				write_state "failed" "upload rejected: archive extraction failed" "$upload_asset" "" "$arch" ""
 			elif ! source_bin="$(locate_extracted_bin "$work_dir" "vnt2_cli")"; then

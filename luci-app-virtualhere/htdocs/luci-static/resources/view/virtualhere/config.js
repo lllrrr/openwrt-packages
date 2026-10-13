@@ -137,7 +137,7 @@ return view.extend({
 			return;
 		}
 		dom.content(this.statusNode, [
-			E('span', { 'class': status.running ? (enabled ? 'label success' : 'label warning') : 'label' },
+			E('span', { 'class': status.running ? 'label success' : 'label' },
 				status.running ? (enabled ? _('Running') : _('Running (not enabled)')) : _('Stopped')),
 			E('span', { 'class': 'virtualhere-status-meta' }, _('PID: %s').format(status.pids.length ? status.pids.join(', ') : '-'))
 		]);
@@ -285,14 +285,7 @@ return view.extend({
 		this.pendingAction = action;
 		++this.statusRequest;
 		this.updateButtons();
-		return callAction(action).then(checked).then(() => {
-			const messages = {
-				start: _('VirtualHere started.'),
-				stop: _('VirtualHere stopped.'),
-				restart: _('VirtualHere restarted.')
-			};
-			ui.addNotification(null, E('p', {}, messages[action]), 'info');
-		}).finally(() => this.finishOperation());
+		return callAction(action).then(checked).finally(() => this.finishOperation());
 	},
 
 	render: function(data) {

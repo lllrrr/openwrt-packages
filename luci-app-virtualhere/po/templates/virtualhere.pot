@@ -188,16 +188,7 @@ msgstr ""
 msgid "VirtualHere writes its configuration while running. Save & Apply stops it before writing, then starts it only when Enable is saved as on. Save requires a stopped service."
 msgstr ""
 
-msgid "VirtualHere started."
-msgstr ""
-
-msgid "VirtualHere stopped."
-msgstr ""
-
 msgid "Stopping VirtualHere; waiting for the process to exit…"
-msgstr ""
-
-msgid "VirtualHere restarted."
 msgstr ""
 
 msgid "Runtime log"
