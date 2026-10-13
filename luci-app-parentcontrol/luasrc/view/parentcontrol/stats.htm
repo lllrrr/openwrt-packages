@@ -1,4 +1,3 @@
-<%+cbi/valueheader%>
 <%
 	local stats = require "luci.model.cbi.parentcontrol.statsdata"
 	local d = stats.collect()
@@ -32,9 +31,21 @@
 	.pc-chart-x > div { flex: 1; text-align: center; overflow: hidden; }
 	.pc-kv { margin: 4px 0; }
 	.pc-kv b { color: #ccc; }
+	.pc-matrix th, .pc-matrix td { white-space: nowrap; text-align: right; }
+	.pc-matrix th:first-child, .pc-matrix td:first-child { text-align: left; }
+	.pc-dev-group td { background: rgba(255, 255, 255, 0.05); border-top: 2px solid #3c3c3c; color: #ccc; }
+	/* F3（A1 判据②）：「保存并应用 / 保存 / 复位」动作条由 dispatcher 的 cbi/footer 在
+	   页面层注入（stats.lua 仍是 cbi 节点，模板层删不掉；nofooter 会连 </form> 与主题
+	   页脚一起跳过，风险更大）—— 页内隐藏。判据 = 三按钮不可见（is_visible=false），
+	   DOM 存在可接受（见 design §9.9）。 */
+	.cbi-page-actions { display: none; }
 </style>
 
+<div class="cbi-map">
 <div class="pc-dash">
+	<% if d.invariant_drift then %>
+	<div class="pc-badge bad" style="margin:4px 0"><%=T("统计台账校验失败（D12 不变式失配）：本页数字可能不可信，请把本行内容反馈给开发者。")%> <%=pcdata(d.invariant_drift)%></div>
+	<% end %>
 	<div class="pc-kv">
 		<b><%=pcdata(m.date or "-")%></b>
 		（<%=pcdata(m.daytype == "holiday" and T("节假日") or T("平日"))%>）
@@ -72,7 +83,7 @@
 			<td class="num muted"><% if (u.projected or 0) > 0 then %><%=u.projected%> <%=T("分")%><% else %>-<% end %></td>
 			<td><input type="button" class="btn cbi-button cbi-button-reset" style="padding:2px 8px"
 				value="<%=T("重置")%>" data-key="<%=u.kind == "pool" and ("pool:" .. u.name) or (u.key or "")%>"
-				onclick="pcResetQuota(this.getAttribute('data-key'))" /></td>
+				onclick="pcResetQuota(this.getAttribute('data-key'), '<%=url("admin/control/parentcontrol/reset_quota")%>', '<%=translate("确定把这个条目今天的额度清零？此操作会记入重置记录。")%>', '<%=token%>')" /></td>
 		</tr>
 		<% end %>
 	</table>
@@ -96,7 +107,7 @@
 				local h = (d.days_max > 0) and math.floor(day.minutes * 100 / d.days_max) or 0
 			%>
 			<div class="<%=day.has and '' or 'nodata'%>" style="height:<%=h%>%"
-				title="<%=pcdata(day.date)%><%=day.has and ('  '..day.minutes..' 分钟') or '  无数据'%>"></div>
+				title="<%=pcdata(day.date_iso)%><%=(day.minutes and day.minutes > 0) and ('  '..day.minutes..' 分钟') or '  无数据'%>"></div>
 			<% end %>
 		</div>
 		<div class="pc-chart-x">
@@ -114,20 +125,30 @@
 			<%=T("最高一天")%> <b><%=d.hist_max%></b> <%=T("分钟")%>
 		</div>
 		<% if #d.key_rows > 0 then %>
-		<h3><%=T("按条目分析（最近 30 天）")%></h3>
+		<h3><%=T("按设备+条目（最近 30 天）")%></h3>
 		<table>
-			<tr><th><%=T("名称")%></th><th><%=T("设备")%></th><th class="num"><%=T("合计")%></th>
+			<tr><th><%=T("名称条目")%></th><th class="num"><%=T("合计")%></th>
 				<th class="num"><%=T("日均")%></th><th><%=T("占比")%></th></tr>
-			<% for _, r in ipairs(d.key_rows) do %>
+			<% local cur_dev = nil
+			for _, r in ipairs(d.key_rows) do
+				if r.device ~= cur_dev then
+					cur_dev = r.device
+			%>
+			<tr class="pc-dev-group">
+				<td colspan="4"><b><%=T("设备")%>：<%=pcdata(r.device ~= "" and r.device or T("未指定设备"))%></b></td>
+			</tr>
+			<% end %>
 			<tr>
 				<td><%=pcdata(r.name)%></td>
-				<td class="muted"><%=pcdata(r.device or "")%></td>
 				<td class="num"><%=r.minutes%> <%=T("分")%></td>
 				<td class="num"><%=math.floor(r.minutes / (d.hist_days > 0 and d.hist_days or 1) + 0.5)%> <%=T("分")%></td>
 				<td><%=bar(r.share)%> <span class="muted"><%=r.share%>%</span></td>
 			</tr>
 			<% end %>
 		</table>
+		<div class="muted" style="margin-top:6px">
+			<%=T("条目按设备分组展示；条目即「要封锁的名称」（按其域名/IP 计时）。")%>
+		</div>
 		<% end %>
 		<% if #d.dev_rows > 0 then %>
 		<h3><%=T("按设备分析（最近 30 天）")%></h3>
@@ -139,6 +160,37 @@
 			<% end %>
 		</table>
 		<% end %>
+	<% end %>
+
+	<h3><%=T("按设备每日用量（最近 30 天）")%></h3>
+	<% if #d.dev_day_rows == 0 then %>
+		<div class="muted"><%=T("还没有按设备统计的用量数据。")%></div>
+	<% else %>
+	<div style="overflow-x:auto">
+		<table class="pc-matrix">
+			<tr>
+				<th><%=T("设备")%></th>
+				<% for _, day in ipairs(d.days) do %>
+				<th title="<%=pcdata(day.date_iso)%>"><%=pcdata(day.label)%></th>
+				<% end %>
+				<th><%=T("合计")%></th>
+			</tr>
+			<% for _, r in ipairs(d.dev_day_rows) do %>
+			<tr>
+				<td><%=pcdata(r.device)%></td>
+				<% for _, day in ipairs(d.days) do
+					local v = r.by[day.date]
+				%>
+				<td><%=v and v or "-"%></td>
+				<% end %>
+				<td><b><%=r.total%></b></td>
+			</tr>
+			<% end %>
+		</table>
+	</div>
+	<div class="muted" style="margin-top:6px">
+		<%=T("每格是该设备当天计入额度统计的分钟数；「-」= 当天没有该设备的用量记录。列顺序与上方柱状图一致，可横向滚动。")%>
+	</div>
 	<% end %>
 
 	<h3><%=T("重置记录")%></h3>
@@ -169,7 +221,7 @@
 			（<%=T("一分钟内目标流量低于此值不计；心跳/通知通常 < 5KB，真实访问 200KB 起")%>）</td></tr>
 		<tr><td><%=T("历史保留")%></td><td class="muted"><%=m.keep or 90%> <%=T("天")%></td></tr>
 		<tr><td><%=T("计时口径")%></td><td class="muted">
-			<%=T("每个条目只算「它自己规则命中的流量」：机器条目=该设备全部流量；协议条目=该端口的流量；网址条目=目标 IP + 明文 DNS/SNI 命中的流量。")%>
+			<%=T("每个条目只算「它自己规则命中的流量」：机器条目=该设备全部流量；协议条目=该端口的流量；名称条目（域名/IP）=目标 IP + 明文 DNS/SNI 命中的流量。")%>
 		</td></tr>
 		<tr><td><%=T("三态")%></td><td class="muted">
 			<%=T("① 可用时段之外→封（时段外的流量不计入额度）② 时段内且额度没用完→放行 ③ 额度用完→封到当天 24:00。额度按自然日结算、不结转。")%>
@@ -178,8 +230,9 @@
 			<%=T("额度条目可点「重置额度」立刻清零今天的用量（并写入重置记录）。重置不影响已累计的历史与实际用量。")%>
 		</td></tr>
 		<tr><td><%=T("可能少计的情况")%></td><td class="muted">
-			<%=T("网址条目在 IPv4 上只能按解析出的目标 IP 计时，CDN 换到全新段时会短暂漏计；QUIC/HTTP3 的 SNI 加密，任何方案都拦不到。")%>
+			<%=T("名称条目（按其域名/IP 计时）在 IPv4 上只能按解析出的目标 IP 匹配，CDN 换到全新段时会短暂漏计；QUIC/HTTP3 的 SNI 加密，任何方案都拦不到。")%>
 		</td></tr>
 	</table>
 </div>
-<%+cbi/valuefooter%>
+</div>
+<script src="<%=resource%>/parentcontrol/pc-ui.js"></script>

@@ -30,10 +30,16 @@ local function weekday_cn(ymd)
 	return cn[w + 1] or ""
 end
 
+-- 只用于显示：YYYYMMDD → YYYY-MM-DD（date 字段仍是历史文件键与排序键，两者并存）
+local function date_iso(ymd)
+	if not ymd then return "" end
+	return (ymd:gsub("^(%d%d%d%d)(%d%d)(%d%d)$", "%1-%2-%3"))
+end
+
 -- 采集 + 分析
 function M.collect()
 	local d = tsv.read(false)
-	d.reset_by_day, d.reset_by_key = {}, {}
+	d.reset_by_day = {}
 	d.units, d.key_totals, d.dev_totals, d.days = {}, {}, {}, {}
 
 	-- ---------- 分析 ----------
@@ -111,15 +117,14 @@ function M.collect()
 	-- 窗口外的重置不参与任何统计，也不出现在「重置记录」里。
 	local inwin = {}
 	for _, dt in ipairs(dates) do inwin[dt] = true end
-	local rday, rkey, rrows = {}, {}, {}
+	local rday, rrows = {}, {}
 	for _, r in ipairs(d.resets) do
 		if inwin[r.date] then
 			rday[r.date] = (rday[r.date] or 0) + r.before
-			rkey[r.key] = (rkey[r.key] or 0) + r.before
 			rrows[#rrows + 1] = r
 		end
 	end
-	d.reset_by_day, d.reset_by_key, d.resets = rday, rkey, rrows
+	d.reset_by_day, d.resets = rday, rrows
 
 	-- 今日口径：当前用量 + 今日被重置掉的量（只加一次）
 	local today_total = 0
@@ -133,15 +138,37 @@ function M.collect()
 	d.today_reset = (meta.date and d.reset_by_day[meta.date:gsub("-", "")]) or 0
 	d.today_actual = today_total + d.today_reset
 
-	-- 每天的分钟数只有一个口径：历史文件用量 + 当天被重置掉的量
+	-- D12 单源台账：(day × key) = hist_key 叠加窗口内重置，全文件唯一的分钟数推导。
+	-- 不变式：Σ_day dev_day_rows[dev].by == dev_rows[dev].minutes；设备合计 == 条目合计。
+	-- d.days / d.key_rows / d.dev_rows / d.dev_day_rows 全部只从本台账纯归约得出。
+	local ledger, hist_seen = {}, {}
+	for _, dt in ipairs(dates) do ledger[dt] = {} end
+	for _, dt in ipairs(dates) do
+		-- hist（当天总量）只取「有没有」这个存在位；分钟数一律由台账给出
+		if d.hist[dt] ~= nil then hist_seen[dt] = true end
+		local per = d.hist_key[dt]
+		if per then
+			hist_seen[dt] = true
+			for key, v in pairs(per) do
+				ledger[dt][key] = (ledger[dt][key] or 0) + v
+			end
+		end
+	end
+	for _, r in ipairs(rrows) do
+		ledger[r.date][r.key] = (ledger[r.date][r.key] or 0) + r.before
+	end
+
+	-- 每天的分钟数 = 台账当日合计（含重置）；label 直接挂在条目上，
+	-- 「按设备每日用量」矩阵表头直接遍历 d.days（不再单设独立的日期列投影）。
 	local maxmin = 0
 	for _, dt in ipairs(dates) do
-		local rst = d.reset_by_day[dt] or 0
-		local v = (d.hist[dt] or 0) + rst
-		if v > maxmin then maxmin = v end
+		local minutes = 0
+		for _, v in pairs(ledger[dt]) do minutes = minutes + v end
+		if minutes > maxmin then maxmin = minutes end
 		d.days[#d.days + 1] = {
-			date = dt, minutes = v, weekday = weekday_cn(dt),
-			reset = rst, has = (d.hist[dt] ~= nil),
+			date = dt, date_iso = date_iso(dt), label = dt:sub(5, 6) .. "-" .. dt:sub(7, 8),
+			minutes = minutes, weekday = weekday_cn(dt),
+			reset = rday[dt] or 0, has = (hist_seen[dt] == true),
 		}
 	end
 	d.days_max = maxmin
@@ -160,19 +187,14 @@ function M.collect()
 	d.hist_avg = (cnt > 0) and math.floor(sum / cnt + 0.5) or 0
 	d.hist_max = mx
 
-	-- 5) 按条目（最近 30 天合计 + 占比）
+	-- 5) 按条目（最近 30 天合计 + 占比）—— 台账按 key 归约（重置已在台账里，不再另加）
+	--    R7：行带 device 维度，排序挪到 6) 之后按设备分组（见 devrank）
 	local labels = {}
 	for _, e in ipairs(d.entries) do labels[e.key] = e end
 	for _, day in ipairs(d.days) do
-		local per = d.hist_key[day.date]
-		if per then
-			for key, v in pairs(per) do
-				d.key_totals[key] = (d.key_totals[key] or 0) + v
-			end
+		for key, v in pairs(ledger[day.date]) do
+			d.key_totals[key] = (d.key_totals[key] or 0) + v
 		end
-	end
-	for key, v in pairs(d.reset_by_key) do
-		d.key_totals[key] = (d.key_totals[key] or 0) + v
 	end
 	local rows = {}
 	for key, v in pairs(d.key_totals) do
@@ -185,13 +207,11 @@ function M.collect()
 			share = (sum > 0) and math.floor(v * 100 / sum + 0.5) or 0,
 		}
 	end
-	table.sort(rows, function(a, b) return a.minutes > b.minutes end)
-	d.key_rows = rows
 
-	-- 6) 按设备（把该设备下各条目 30 天用量相加）
+	-- 6) 按设备（把该设备下各条目 30 天用量相加；设备口径：能映射到设备名 device ~= ""）
 	for _, r in ipairs(rows) do
-		local dev = (r.device ~= "" and r.device) or nil
-		if dev then
+		local dev = r.device or ""
+		if dev ~= "" then
 			d.dev_totals[dev] = (d.dev_totals[dev] or 0) + r.minutes
 		end
 	end
@@ -202,6 +222,82 @@ function M.collect()
 	end
 	table.sort(drows, function(a, b) return a.minutes > b.minutes end)
 	d.dev_rows = drows
+
+	-- R7：key_rows 按设备分组排序 —— 设备顺序沿用 dev_rows（30 天用量多者在前），
+	-- 组内按条目分钟降序；映射不到设备名（device == ""）的条目整体排最后。
+	-- 纯归约：只重排上面的 rows，不动台账、不动数据源口径，也不动 D12 守卫。
+	local devrank = {}
+	for i, dr in ipairs(drows) do devrank[dr.device] = i end
+	table.sort(rows, function(x, y)
+		local rx = x.device ~= "" and devrank[x.device] or math.huge
+		local ry = y.device ~= "" and devrank[y.device] or math.huge
+		if rx ~= ry then return rx < ry end
+		return x.minutes > y.minutes
+	end)
+	d.key_rows = rows
+
+	-- 6b) 按设备每日矩阵：台账按 (设备, day) 归约；设备判定与「按设备分析」同一口径
+	--     （能映射到设备名 device ~= "" 的条目才进表，与上面 dev_totals 完全一致）。
+	local devmap = {}
+	for _, day in ipairs(d.days) do
+		for key, v in pairs(ledger[day.date]) do
+			local ent = labels[key]
+			local dev = (ent and ent.device) or ""
+			if dev ~= "" then
+				devmap[dev] = devmap[dev] or {}
+				devmap[dev][day.date] = (devmap[dev][day.date] or 0) + v
+			end
+		end
+	end
+	d.dev_days = devmap
+	local ddrows = {}
+	for dev, by in pairs(devmap) do
+		local total = 0
+		for _, v in pairs(by) do total = total + v end
+		ddrows[#ddrows + 1] = { device = dev, total = total, by = by }
+	end
+	table.sort(ddrows, function(x, y)
+		if x.total ~= y.total then return x.total > y.total end
+		return x.device < y.device
+	end)
+	d.dev_day_rows = ddrows
+
+	-- D12 不变式守卫（F-R2-3）：真守卫，不是注释 —— 归约一旦与源数据对不上
+	-- （如重置被重复叠加、归约口径漂移），页面顶部给出可见标记并留系统日志，
+	-- 绝不静默输出错数。两条不变式：
+	--   ① Σ_day dev_day_rows[dev].by == dev_rows[dev].minutes（矩阵 vs 设备合计）
+	--   ② 台账合计 == Σ hist_key(窗口) + Σ 窗口内重置（台账是唯一源，不被二次计数；
+	--     第 2 轮复审的注入实验证明：只有②能在 r.before 翻倍时报警）
+	local drift
+	for _, row in ipairs(d.dev_rows) do
+		local byday = devmap[row.device]
+		local total = 0
+		if byday then
+			for _, v in pairs(byday) do total = total + v end
+		end
+		if total ~= row.minutes then
+			drift = (drift and (drift .. "; ") or "")
+				.. row.device .. " matrix=" .. total .. " != rows=" .. row.minutes
+		end
+	end
+	local total_ledger, total_source = 0, 0
+	for _, day in ipairs(d.days) do
+		for _, v in pairs(ledger[day.date]) do total_ledger = total_ledger + v end
+	end
+	for _, dt in ipairs(dates) do
+		for _, v in pairs(d.hist_key[dt] or {}) do total_source = total_source + v end
+	end
+	for _, r in ipairs(rrows) do total_source = total_source + r.before end
+	if total_ledger ~= total_source then
+		drift = (drift and (drift .. "; ") or "")
+			.. "ledger=" .. total_ledger .. " != source=" .. total_source
+	end
+	if drift then
+		d.invariant_drift = drift
+		pcall(function()
+			(require "luci.sys").log("parentcontrol: D12 invariant drift: " .. drift)
+		end)
+	end
 
 	-- 7) 重置记录（倒序，带条目名与设备名）
 	local rr = {}

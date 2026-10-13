@@ -1,9 +1,14 @@
 #!/bin/sh
 
-if [ "$(uci -q get virtualhere.main.autostart)" = '1' ]; then
-	/etc/init.d/vhusbd enable
-else
-	/etc/init.d/vhusbd disable
+# Preserve the old setting when upgrading from the autostart-only model.
+if ! uci -q get virtualhere.main.enabled >/dev/null; then
+	enabled="$(uci -q get virtualhere.main.autostart)"
+	uci set virtualhere.main.enabled="${enabled:-0}" || exit 1
 fi
+uci -q delete virtualhere.main.autostart
+uci commit virtualhere || exit 1
+
+# Boot always invokes the script; UCI enabled decides whether to run.
+/etc/init.d/vhusbd enable || exit 1
 
 exit 0

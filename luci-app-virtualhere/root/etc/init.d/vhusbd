@@ -4,8 +4,11 @@ USE_PROCD=1
 START=95
 STOP=10
 
-EXTRA_COMMANDS="check"
-EXTRA_HELP="\tcheck\tValidate the executable and configuration paths\n"
+EXTRA_COMMANDS="check start_now stop_now restart_now"
+EXTRA_HELP="\tcheck\tValidate the executable and configuration paths
+\tstart_now\tStart VirtualHere once without changing UCI enabled
+\tstop_now\tStop VirtualHere and ignore a missing procd service
+\trestart_now\tRestart VirtualHere once without changing UCI enabled\n"
 
 fail() {
 	logger -t virtualhere "$1"
@@ -60,10 +63,14 @@ check() {
 
 start_service() {
 	START_RESULT=0
+	local enabled legacy_enabled
+
 	config_load virtualhere
+	config_get_bool legacy_enabled main autostart 0
+	config_get_bool enabled main enabled "$legacy_enabled"
+	[ "$enabled" -eq 1 ] || [ "$START_NOW" = 1 ] || return 0
 	config_get BIN main binary_path /usr/bin/vhusbd
-	# The server binary is optional. Package installation also invokes start.
-	# Keep an undeployed service stopped; explicit RPC actions use check first.
+	# The binary is installed separately. Explicit actions validate it first.
 	[ -f "$BIN" ] && [ -s "$BIN" ] && [ -x "$BIN" ] || return 0
 	check || {
 		START_RESULT=1
@@ -83,3 +90,71 @@ start_service() {
 service_started() {
 	return "${START_RESULT:-0}"
 }
+
+wait_for_running() {
+	local deadline
+
+	deadline=$(($(date +%s) + 8))
+	while [ "$(date +%s)" -le "$deadline" ]; do
+		service_running main && return 0
+		sleep 1
+	done
+	fail "VirtualHere did not stay running"
+}
+
+start_now() {
+	check || return 1
+	START_NOW=1
+	start || return 1
+	wait_for_running
+}
+
+stop_now() {
+	local services pids pid pending attempt=0
+
+	services="$(ubus call service list '{"name":"vhusbd"}' 2>/dev/null)" || return 1
+	printf '%s\n' "$services" | grep -q '"vhusbd"[[:space:]]*:' || return 0
+	pids="$(printf '%s\n' "$services" | jsonfilter -e '@.vhusbd.instances.*.pid')"
+	stop || return 1
+	while :; do
+		pending=0
+		for pid in $pids; do
+			[ ! -d "/proc/$pid" ] || pending=1
+		done
+		[ "$pending" -eq 0 ] && return 0
+		[ "$attempt" -lt 6 ] || break
+		# Some BusyBox builds only support integer sleep arguments.
+		# Check once more after the last wait before reporting a timeout.
+		sleep 1 || return 1
+		attempt=$((attempt + 1))
+	done
+	fail "Unable to stop VirtualHere completely"
+}
+
+restart_now() {
+	(
+		flock -n 9 || return 1
+		check || return 1
+		stop_now || return 1
+		start_now
+	) 9>/var/lock/luci-virtualhere.lock
+}
+
+reload_service() {
+	# Share the RPC transaction lock. Never restart during a file write.
+	(
+		local enabled legacy_enabled
+
+		flock -n 9 || return 1
+		config_load virtualhere
+		config_get_bool legacy_enabled main autostart 0
+		config_get_bool enabled main enabled "$legacy_enabled"
+		[ "$enabled" -ne 1 ] || check || return 1
+		stop_now || return 1
+		start || return 1
+		[ "$enabled" -ne 1 ] || wait_for_running
+	) 9>/var/lock/luci-virtualhere.lock
+}
+
+# The RPC applies settings explicitly while holding the transaction lock.
+# Do not also register a reload trigger, which could race that transaction.

@@ -46,8 +46,20 @@ msgstr "管理 VirtualHere 服务及配置"
 msgid "Manage a separately installed VirtualHere USB Server. Download the executable for your router from the official website."
 msgstr "管理自行安装的 VirtualHere USB Server。请从官网下载适合路由器架构的可执行程序。"
 
-msgid "Not running (service is registered)"
-msgstr "未运行（服务已注册）"
+msgid "Not enabled"
+msgstr "未启用"
+
+msgid "The service is not running"
+msgstr "服务当前未运行"
+
+msgid "Running (not enabled)"
+msgstr "运行中（未启用）"
+
+msgid "PID: %s"
+msgstr "PID：%s"
+
+msgid "Status and actions"
+msgstr "状态与操作"
 
 msgid "Reload file"
 msgstr "重新读取文件"
@@ -67,11 +79,8 @@ msgstr "保存文件"
 msgid "Save or discard file edits before changing the configuration path."
 msgstr "修改配置文件路径前，请先保存或放弃文件编辑内容。"
 
-msgid "Save or discard pending edits before controlling the service."
-msgstr "控制服务前，请先保存或放弃尚未保存的修改。"
-
-msgid "Service actions use saved settings. The page footer saves basic settings only."
-msgstr "服务操作使用已保存的设置。页面底部的按钮只保存基本设置。"
+msgid "Service actions use saved settings without changing Enable. Save & Apply starts or stops the service according to Enable. The page footer saves basic settings only."
+msgstr "服务操作使用已保存的设置，不改变启用开关。“保存并应用”根据启用开关启动或停止服务。页面底部的按钮只保存基本设置。"
 
 msgid "Service control"
 msgstr "服务控制"
@@ -82,8 +91,8 @@ msgstr "请先将服务端程序安装到已配置的路径，并赋予执行权
 msgid "Your account has read-only access. Service control is unavailable."
 msgstr "当前账号只有只读权限，不能控制服务。"
 
-msgid "Service status"
-msgstr "服务状态"
+msgid "Current status"
+msgstr "当前状态"
 
 msgid "Settings were saved, but updating service autostart failed."
 msgstr "设置已保存，但更新开机启动状态失败。"
@@ -91,8 +100,8 @@ msgstr "设置已保存，但更新开机启动状态失败。"
 msgid "Start"
 msgstr "启动"
 
-msgid "Start on boot"
-msgstr "开机启动"
+msgid "Enable"
+msgstr "启用"
 
 msgid "Stop"
 msgstr "停止"
@@ -139,8 +148,11 @@ msgstr "文件尚不存在，填写内容并保存即可创建。"
 msgid "The file is loaded. Use the buttons below to save its contents."
 msgstr "文件已读取，请使用下方按钮保存文件内容。"
 
-msgid "The file was saved, but restoring the service failed."
-msgstr "文件已保存，但恢复服务运行失败。"
+msgid "Changes were saved, but applying the service settings failed."
+msgstr "修改已保存，但应用服务设置失败。"
+
+msgid "Restoring the previous service also failed: %s"
+msgstr "恢复之前的服务也失败了：%s"
 
 msgid "Unable to lock VirtualHere settings."
 msgstr "无法锁定 VirtualHere 设置。"
@@ -178,5 +190,38 @@ msgstr "VirtualHere"
 msgid "VirtualHere official download page"
 msgstr "VirtualHere 官方下载页面"
 
-msgid "VirtualHere writes its configuration while running. Save & Apply stops the service before writing and restores it afterwards. Save requires a stopped service."
-msgstr "VirtualHere 会在运行时回写配置。“保存文件并应用”会先停止服务再写入，之后恢复原有运行状态。“保存文件”要求服务已停止。"
+msgid "VirtualHere writes its configuration while running. Save & Apply stops it before writing, then starts it only when Enable is saved as on. Save requires a stopped service."
+msgstr "VirtualHere 会在运行时回写配置。“保存文件并应用”会先停止服务再写入，仅在已保存的启用开关打开时启动服务。“保存文件”要求服务已停止。"
+
+msgid "VirtualHere started."
+msgstr "VirtualHere 已启动。"
+
+msgid "VirtualHere stopped."
+msgstr "VirtualHere 已停止。"
+
+msgid "Stopping VirtualHere; waiting for the process to exit…"
+msgstr "正在停止 VirtualHere，等待进程退出…"
+
+msgid "VirtualHere restarted."
+msgstr "VirtualHere 已重启。"
+
+msgid "Runtime log"
+msgstr "运行日志"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "Shows the latest 200 log lines. Refreshes every 5 seconds while this tab is open."
+msgstr "显示最近 200 行日志，打开此标签页时每 5 秒自动刷新。"
+
+msgid "Logs have not been loaded."
+msgstr "尚未读取日志。"
+
+msgid "No VirtualHere log entries."
+msgstr "暂无 VirtualHere 日志。"
+
+msgid "Only the most recent log entries are shown."
+msgstr "仅显示最近的日志记录。"
+
+msgid "Unable to read the runtime log."
+msgstr "无法读取运行日志。"

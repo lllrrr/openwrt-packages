@@ -1,0 +1,14 @@
+.virtualhere-status-meta {
+	margin-left: 1em;
+}
+
+.virtualhere-action-group {
+	display: flex;
+	gap: .5em;
+	flex-wrap: wrap;
+	align-items: center;
+}
+
+.virtualhere-action-footer {
+	margin-top: .5em;
+}

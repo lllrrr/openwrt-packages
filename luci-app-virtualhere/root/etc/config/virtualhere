@@ -1,4 +1,4 @@
 config virtualhere 'main'
-	option autostart '0'
+	option enabled '0'
 	option binary_path '/usr/bin/vhusbd'
 	option config_path '/etc/vhusbd.conf'

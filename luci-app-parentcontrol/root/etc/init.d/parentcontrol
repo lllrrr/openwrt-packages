@@ -36,14 +36,15 @@ CRON_TAG_IP="#pc_ip_refresh"
 
 . "${PC_LIB:-/usr/lib/parentcontrol/common.sh}"
 
-EXTRA_COMMANDS="tick refresh_ip refresh_holiday stats_tsv reset_quota"
+EXTRA_COMMANDS="tick refresh_ip refresh_holiday stats_tsv reset_quota ai_http"
 EXTRA_HELP="
 	tick             Re-evaluate quota state and account usage (cron, every minute)
 	refresh_ip       Re-resolve domains and rebuild IP rules (cron)
 	refresh_holiday  Fetch statutory-holiday data for this year and next
 	stats_tsv [brief]  Print dashboard/list data as TSV (brief: meta+entry only)
 	stats_tsv        Print full stats for the dashboard as TSV
-	reset_quota      Reset an entry's (or pool's) quota for today; logged to /etc/parentcontrol/resets.log"
+	reset_quota      Reset an entry's (or pool's) quota for today; logged to /etc/parentcontrol/resets.log
+	ai_http          GET/POST a URL via curl/uclient-fetch/wget (used by the AI domain helper)"
 
 elog() {
 	echo "$(date '+%Y-%m-%d %H:%M:%S'): $*" >>$LOG_FILE
@@ -219,16 +220,8 @@ refresh_ips() {
 # ============================================================================
 # 节假日数据
 # ============================================================================
-fetch_url() { # $1=url $2=out
-	if command -v wget >/dev/null 2>&1; then
-		wget -q -T 8 -O "$2" "$1"
-	elif command -v uclient-fetch >/dev/null 2>&1; then
-		uclient-fetch -q -T 8 -O "$2" "$1"
-	elif command -v curl >/dev/null 2>&1; then
-		curl -fsS --max-time 8 -o "$2" "$1"
-	else
-		return 1
-	fi
+fetch_url() { # $1=url $2=out —— 唯一实现在 common.sh 的 pc_http（D9：curl→uclient-fetch→wget 单一阶梯）
+	pc_http GET "$1" "$2"
 }
 
 refresh_holiday() { # [$1=force|novet]
@@ -788,6 +781,14 @@ reset_quota() {
 	return 0
 }
 
+# AI 辅助解析的 HTTP 转发：唯一实现在 common.sh 的 pc_http（D9），这里只做参数换位。
+#   ai_http GET  <url> <infile|-> <outfile>   （GET 忽略 infile）
+#   ai_http POST <url> <infile>   <outfile>
+# exit 0 = HTTP 2xx（响应体已写入 outfile）；非 0 = 失败（可读原因已写入 outfile）。
+ai_http() {
+	pc_http "$1" "$2" "$4" "$3"
+}
+
 # 看板/列表数据：结构化 TSV（Lua 侧解析；不在 shell 里手拼 JSON）。
 # 列定义同时写在 luasrc/model/cbi/parentcontrol/tsv.lua（唯一解析器），改列必须两边一起改。
 #   stats_tsv brief  只输出 meta + entry（列表页够用，跳过历史/池/重置/计数器）
@@ -843,9 +844,10 @@ stats_tsv() {
 			awk -v d="$_f" '{s[$1]+=$2} END{for(k in s) printf "histkey\t%s\t%s\t%d\n", d, k, s[k]}' "$USAGE_DIR/$_f" 2>/dev/null
 		done
 		# 重置记录：reset <YYYYMMDD> <HH:MM:SS> <key> <重置前已用分钟>
-		# 只取最近 200 条事件，30 天窗口由 Lua 侧按日期过滤（shell 不做日期算术）。
+		# 取最近 2000 条事件（与写日志侧 reset_quota 的 tail -n 2000 保留上限对齐，见 RESET_LOG 注释），
+		# 30 天窗口由 Lua 侧按日期过滤（shell 不做日期算术）。
 		if [ -f "$RESET_LOG" ]; then
-			tail -n 200 "$RESET_LOG" 2>/dev/null | awk -F'\t' 'NF >= 4 {gsub(/-/,"",$1); printf "reset\t%s\t%s\t%s\t%s\n", $1, $2, $3, $4}'
+			tail -n 2000 "$RESET_LOG" 2>/dev/null | awk -F'\t' 'NF >= 4 {gsub(/-/,"",$1); printf "reset\t%s\t%s\t%s\t%s\n", $1, $2, $3, $4}'
 		fi
 		[ -n "$_dump" ] && rm -f "$_dump"
 	fi

@@ -15,6 +15,7 @@ local DOWNLOAD_LOG_FILE = "/tmp/vnt2-download.log"
 local DOWNLOAD_STATE_FILE = "/tmp/vnt2-download-cli.state"
 local RESTART_PENDING_FILE = "/tmp/vnt2-restart.pending"
 local RUNTIME_TOML_FILE = "/tmp/vnt2cli.toml"
+local DOWNLOAD_EVENTS_FILE = "/tmp/vnt2-download.events"
 
 function index()
 	if not fs.access("/etc/config/vnt2") then
@@ -464,6 +465,17 @@ function act_status()
 	-- blocked binary must not delay LuCI while an apply-triggered restart runs.
 	e.cli_tag = get_local_tag(get_cli_bin())
 	e.cli_target_tag = FIXED_VNT2_VERSION
+	-- F: installed-vs-target version compare, derived for the status view.
+	if e.cli_tag == "" then
+		e.cli_version_status = "unknown"
+		e.cli_version_match = false
+	elseif e.cli_tag == FIXED_VNT2_VERSION then
+		e.cli_version_status = "latest"
+		e.cli_version_match = true
+	else
+		e.cli_version_status = "outdated"
+		e.cli_version_match = false
+	end
 	e.log_level = uci_first("vnt2_cli", "log_level", "info")
 
 	e.download_log_size = #(get_log_content(DOWNLOAD_LOG_FILE, LOG_DISPLAY_LINES) or "")
@@ -533,7 +545,8 @@ local function write_runtime_log()
 	plain_write(textutil.merge_log_files({
 		{ path = CLIENT_LOG_FILE, utc = true },
 		{ path = CLI_STDERR_LOG, utc = true },
-		{ path = DOWNLOAD_LOG_FILE, utc = false }
+		{ path = DOWNLOAD_LOG_FILE, utc = false },
+		{ path = DOWNLOAD_EVENTS_FILE, utc = false }
 	}, LOG_DISPLAY_LINES))
 end
 
@@ -584,6 +597,9 @@ function clear_runtime_log()
 	clear_log_file(CLIENT_LOG_FILE)
 	clear_log_file(DOWNLOAD_LOG_FILE)
 	clear_log_file(CLI_STDERR_LOG)
+	-- The download events file is merged into the runtime log, so clearing the
+	-- log must clear it too, otherwise the events would immediately reappear.
+	clear_log_file(DOWNLOAD_EVENTS_FILE)
 	-- Also drop rotated client log files (log4rs fixed window: vnt2.N.log).
 	if fs.access(CLIENT_LOG_DIR) then
 		for name in fs.dir(CLIENT_LOG_DIR) do

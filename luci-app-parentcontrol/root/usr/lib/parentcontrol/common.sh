@@ -524,3 +524,149 @@ _pclog() {
 	mkdir -p /tmp/log 2>/dev/null
 	echo "$(date '+%Y-%m-%d %H:%M:%S'): $*" >> "${LOG_FILE:-/tmp/log/parentcontrol.log}"
 }
+
+# ============================================================================
+# HTTP 客户端探测（可选依赖：curl / uclient-fetch / wget；AI 辅助解析与节假日
+# 下载共用，D9：全仓库唯一的 curl→uclient-fetch→wget 阶梯就在下面这一个函数里）。
+#
+# 只做运行时探测，不写进 LUCI_DEPENDS。约定：
+#   * 成功 = HTTP 2xx，响应体写 <outfile>，返回 0；
+#   * 失败 = 返回非 0，并把可读原因（≤2KB）写 <outfile>；
+#   * 鉴权：若设置了 PC_AI_KEY_FILE，读其内容作为 Bearer token（不进命令行/ps）；
+#   * 超时：PC_HTTP_TIMEOUT（秒，默认 15；兼容旧名 PC_AI_TIMEOUT）。
+# 用法：pc_http <GET|POST> <url> <outfile> [infile|-] [header]...
+#   * GET 忽略 infile（占位传 "-"）；POST 需要 infile，"-" 解释为 /dev/null 空请求体；
+#   * 其余参数逐个作为附加请求头。
+# ============================================================================
+
+_pc_ai_key() {
+	[ -n "$PC_AI_KEY_FILE" ] && [ -f "$PC_AI_KEY_FILE" ] && tr -d '\r\n' < "$PC_AI_KEY_FILE"
+}
+
+_pc_http_timeout() {
+	# F-R2-1：匹配与回显必须用**同一个**取过默认值的变量 —— 曾经 case 匹配
+	# ${PC_HTTP_TIMEOUT:-${PC_AI_TIMEOUT:-15}} 而 *) 分支回显未取默认的
+	# $PC_HTTP_TIMEOUT 原变量，生产环境（两变量都未设）回显空串，
+	# curl --max-time "" 秒挂，所有 pc_http 调用（AI + fetch_url）全灭。
+	local _v
+	_v="${PC_HTTP_TIMEOUT:-${PC_AI_TIMEOUT:-15}}"
+	case "$_v" in
+		''|*[!0-9]*) echo 15 ;;
+		*) echo "$_v" ;;
+	esac
+}
+
+# 把可读失败原因写进 outfile（截断到 2KB）并返回非 0。
+_pc_ai_fail() {
+	local _o
+	_o="$1"; shift
+	printf '%s\n' "$*" 2>/dev/null | head -c 2048 > "$_o"
+	return 1
+}
+
+# D10/F-12：从客户端 stderr 与响应体开头嗅探 HTTP 4xx/5xx 状态。
+# 背景：curl -f 自带可靠判定，但 busybox-wget / uclient-fetch（尤其老版本）在
+# 4xx/5xx 上可能 exit 0 并把错误体写进 outfile —— 不嗅探就会把鉴权失败等
+# HTTP 错误当成「成功响应」，页面只能报「响应不是 JSON」（原因失真，复审 F-12）。
+# 命中返回可读原因（"HTTP <状态>" 或明示「无法判定」）；未命中输出空串。
+# 真机上各客户端的确切报错形态由阶段 6 黑盒 B63 收口（design.md R11）；这里是唯一修点。
+_pc_http_fail_status() { # <客户端名> <stderr文本> <outfile>
+	local _cl _txt _hit
+	_cl="$1"; _txt="$2"
+	if [ -f "$3" ]; then
+		_txt="$_txt
+$(head -c 256 "$3" 2>/dev/null | tr '\r' '\n')"
+	fi
+	_txt=$(printf '%s' "$_txt" | tr '\r' '\n')
+	# 只取状态码（"HTTP/1.1 401"）：不要在字符类里写 \n（POSIX 括号表达式里反斜杠不转义，
+	# BSD grep 会把它当字面 backslash/n，GNU grep 才当换行 —— 两边行为不一致）。
+	_hit=$(printf '%s\n' "$_txt" | grep -aoE 'HTTP/1\.[01][[:space:]]+[45][0-9][0-9]' | head -n 1)
+	if [ -n "$_hit" ]; then
+		printf 'HTTP %s' "$(printf '%s' "$_hit" | sed -E 's#^HTTP/1\.[01][[:space:]]+##')"
+	elif printf '%s\n' "$_txt" | grep -aq 'server returned error'; then
+		printf '%s' "HTTP 状态无法判定（客户端 $_cl）"
+	fi
+}
+
+pc_http() { # <GET|POST> <url> <outfile> [infile|-] [header]...
+	local _m _u _o _i _t _k _err _r _st _cl _h _n
+	_m="$1"; _u="$2"; _o="$3"; _i=""
+	if [ "$#" -ge 4 ]; then _i="$4"; shift 4; else shift 3; fi
+	_t=$(_pc_http_timeout); _k=$(_pc_ai_key); _err="${_o}.err"
+	# "$@" 此时 = 调用方附加请求头（每个一个参数，裸 "Name: value" 串）。鉴权头
+	# （PC_AI_KEY_FILE 单点注入）与 POST 的 Content-Type 在这里前置补齐。
+	if [ -n "$_k" ]; then set -- "Authorization: Bearer $_k" "$@"; fi
+	if [ "$_m" = "POST" ]; then
+		set -- "Content-Type: application/json" "$@"
+		if [ -z "$_i" ] || [ "$_i" = "-" ]; then _i="/dev/null"; fi
+		[ -f "$_i" ] || { _pc_ai_fail "$_o" "请求体临时文件不存在：$_i"; return 1; }
+	fi
+	if command -v curl >/dev/null 2>&1; then
+		_cl="curl"
+	elif command -v uclient-fetch >/dev/null 2>&1; then
+		_cl="uclient-fetch"
+	elif command -v wget >/dev/null 2>&1; then
+		_cl="wget"
+	else
+		_pc_ai_fail "$_o" "路由器缺少 HTTP 客户端，请安装 curl 或 uclient-fetch（访问 https 还需 libustream-ssl 与 ca-bundle）"
+		return 1
+	fi
+	# F-R2-2：头串必须用客户端认的 flag 形态传 —— curl 用 `-H <h>`，uclient-fetch 与
+	# busybox-wget 用 `--header=<h>`（长选项只认 = 形态）。绝不能把头串作裸位置参数
+	# 传给客户端：那会落在 URL 位置，curl 把它当第二个 URL 且 exit 0 静默假成功，
+	# Bearer/Content-Type 从未真正发出（复审实弹抓包复现过）。
+	# 实现：for 词表在循环开始前展开完毕，循环内 set -- 只往尾部追加包装副本，
+	# 最后把前段的裸头串 shift 掉 —— "$@" 就地变成包装后的 argv。
+	_n=$#
+	for _h in "$@"; do
+		if [ "$_cl" = "curl" ]; then
+			set -- "$@" "-H" "$_h"
+		else
+			set -- "$@" "--header=$_h"
+		fi
+	done
+	shift "$_n"
+	if [ "$_cl" = "curl" ]; then
+		# curl -f：4xx/5xx 自带可靠失败判定（三客户端里唯一，见 D10）
+		if [ "$_m" = "POST" ]; then
+			curl -fsS --max-time "$_t" --data-binary "@$_i" "$@" "$_u" > "$_o" 2>"$_err"
+		else
+			curl -fsS --max-time "$_t" "$@" "$_u" > "$_o" 2>"$_err"
+		fi
+		if [ $? -eq 0 ]; then rm -f "$_err"; return 0; fi
+		_r=$(head -c 1024 "$_err" 2>/dev/null | tr '\n' ' '); rm -f "$_err"
+		_pc_ai_fail "$_o" "curl 请求失败：${_r:-HTTP 错误或网络不可达}"
+	elif [ "$_cl" = "uclient-fetch" ]; then
+		if [ "$_m" = "POST" ]; then
+			uclient-fetch -q -T "$_t" -O "$_o" --post-file="$_i" "$@" "$_u" >/dev/null 2>"$_err"
+		else
+			uclient-fetch -q -T "$_t" -O "$_o" "$@" "$_u" >/dev/null 2>"$_err"
+		fi
+		if [ $? -eq 0 ]; then
+			# D10：uclient-fetch 老版本可能 exit 0 + 4xx 错误体 —— 嗅探状态行，不得 fail-open
+			_st=$(_pc_http_fail_status uclient-fetch "$(cat "$_err" 2>/dev/null)" "$_o")
+			rm -f "$_err"
+			[ -n "$_st" ] || return 0
+			_pc_ai_fail "$_o" "uclient-fetch 请求失败：$_st"
+			return 1
+		fi
+		_r=$(head -c 1024 "$_err" 2>/dev/null | tr '\n' ' '); rm -f "$_err"
+		_pc_ai_fail "$_o" "uclient-fetch 请求失败：${_r:-HTTP 错误或网络不可达}"
+	else # wget（_cl 探测已保证非 curl/uclient-fetch 必为 wget）
+		if [ "$_m" = "POST" ]; then
+			wget -q -T "$_t" -O "$_o" --post-file="$_i" "$@" "$_u" >/dev/null 2>"$_err"
+		else
+			wget -q -T "$_t" -O "$_o" "$@" "$_u" >/dev/null 2>"$_err"
+		fi
+		if [ $? -eq 0 ]; then
+			# D10：wget 分支同上（busybox-wget 无 --fail，用等价状态行判定）
+			_st=$(_pc_http_fail_status wget "$(cat "$_err" 2>/dev/null)" "$_o")
+			rm -f "$_err"
+			[ -n "$_st" ] || return 0
+			_pc_ai_fail "$_o" "wget 请求失败：$_st"
+			return 1
+		fi
+		_r=$(head -c 1024 "$_err" 2>/dev/null | tr '\n' ' '); rm -f "$_err"
+		_pc_ai_fail "$_o" "wget 请求失败：${_r:-HTTP 错误或网络不可达}"
+	fi
+}

@@ -108,6 +108,7 @@ local ctrl_query_url = dsp.build_url("admin", "vpn", "vnt2", "ctrl_query")
 			<tr><td>日志级别</td><td id="cli_log_level">-</td></tr>
 			<tr><td>本地版本</td><td id="cli_tag">-</td></tr>
 			<tr><td>目标版本</td><td id="cli_target_tag">-</td></tr>
+			<tr><td>版本比对</td><td id="cli_version_status">-</td></tr>
 			<tr><td>下载状态</td><td id="cli_download">-</td></tr>
 			<tr id="cli_start_error_row" style="display:none;"><td>最近启动错误</td><td id="cli_start_error">-</td></tr>
 		</table>
@@ -198,6 +199,19 @@ local ctrl_query_url = dsp.build_url("admin", "vpn", "vnt2", "ctrl_query")
 		return out;
 	}
 
+	// F: installed-vs-target version compare label.
+	function versionStatusText(data) {
+		var tag = data.cli_tag || "";
+		var target = data.cli_target_tag || "";
+		if (tag === "") {
+			return "未知（手动上传或非插件安装）";
+		}
+		if (tag === target) {
+			return "已是最新 " + escapeHtml(tag);
+		}
+		return "低于目标：本地 " + escapeHtml(tag) + " / 目标 " + escapeHtml(target);
+	}
+
 	function checked(id) {
 		var node = byId(id);
 		return node && node.checked;
@@ -223,9 +237,10 @@ local ctrl_query_url = dsp.build_url("admin", "vpn", "vnt2", "ctrl_query")
 		setHtml("cli_log_level", text(data.log_level));
 		setHtml("cli_tag", text(data.cli_tag));
 		setHtml("cli_target_tag", text(data.cli_target_tag));
-		setHtml("cli_download", stateText(data.cli_download));
+		setHtml("cli_version_status", versionStatusText(data));
+	setHtml("cli_download", stateText(data.cli_download));
 
-		var errRow = byId("cli_start_error_row");
+	var errRow = byId("cli_start_error_row");
 		if (errRow) {
 			if (!running && data.cli_start_error) {
 				errRow.style.display = "";

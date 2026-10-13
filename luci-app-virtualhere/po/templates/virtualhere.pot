@@ -41,7 +41,19 @@ msgstr ""
 msgid "Manage a separately installed VirtualHere USB Server. Download the executable for your router from the official website."
 msgstr ""
 
-msgid "Not running (service is registered)"
+msgid "Not enabled"
+msgstr ""
+
+msgid "The service is not running"
+msgstr ""
+
+msgid "Running (not enabled)"
+msgstr ""
+
+msgid "PID: %s"
+msgstr ""
+
+msgid "Status and actions"
 msgstr ""
 
 msgid "Reload file"
@@ -62,10 +74,7 @@ msgstr ""
 msgid "Save or discard file edits before changing the configuration path."
 msgstr ""
 
-msgid "Save or discard pending edits before controlling the service."
-msgstr ""
-
-msgid "Service actions use saved settings. The page footer saves basic settings only."
+msgid "Service actions use saved settings without changing Enable. Save & Apply starts or stops the service according to Enable. The page footer saves basic settings only."
 msgstr ""
 
 msgid "Service control"
@@ -77,7 +86,7 @@ msgstr ""
 msgid "Your account has read-only access. Service control is unavailable."
 msgstr ""
 
-msgid "Service status"
+msgid "Current status"
 msgstr ""
 
 msgid "Settings were saved, but updating service autostart failed."
@@ -86,7 +95,7 @@ msgstr ""
 msgid "Start"
 msgstr ""
 
-msgid "Start on boot"
+msgid "Enable"
 msgstr ""
 
 msgid "Stop"
@@ -134,7 +143,10 @@ msgstr ""
 msgid "The file is loaded. Use the buttons below to save its contents."
 msgstr ""
 
-msgid "The file was saved, but restoring the service failed."
+msgid "Changes were saved, but applying the service settings failed."
+msgstr ""
+
+msgid "Restoring the previous service also failed: %s"
 msgstr ""
 
 msgid "Unable to lock VirtualHere settings."
@@ -173,5 +185,38 @@ msgstr ""
 msgid "VirtualHere official download page"
 msgstr ""
 
-msgid "VirtualHere writes its configuration while running. Save & Apply stops the service before writing and restores it afterwards. Save requires a stopped service."
+msgid "VirtualHere writes its configuration while running. Save & Apply stops it before writing, then starts it only when Enable is saved as on. Save requires a stopped service."
+msgstr ""
+
+msgid "VirtualHere started."
+msgstr ""
+
+msgid "VirtualHere stopped."
+msgstr ""
+
+msgid "Stopping VirtualHere; waiting for the process to exit…"
+msgstr ""
+
+msgid "VirtualHere restarted."
+msgstr ""
+
+msgid "Runtime log"
+msgstr ""
+
+msgid "Refresh"
+msgstr ""
+
+msgid "Shows the latest 200 log lines. Refreshes every 5 seconds while this tab is open."
+msgstr ""
+
+msgid "Logs have not been loaded."
+msgstr ""
+
+msgid "No VirtualHere log entries."
+msgstr ""
+
+msgid "Only the most recent log entries are shown."
+msgstr ""
+
+msgid "Unable to read the runtime log."
 msgstr ""

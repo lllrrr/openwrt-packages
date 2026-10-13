@@ -2,7 +2,7 @@
 	"luci-app-virtualhere": {
 		"description": "Manage VirtualHere service and configuration",
 		"read": {
-			"ubus": { "luci.virtualhere": [ "settings", "status", "read_config" ] }
+			"ubus": { "luci.virtualhere": [ "settings", "status", "read_config", "logs" ] }
 		},
 		"write": {
 			"ubus": { "luci.virtualhere": [ "save_settings", "write_config", "action" ] }

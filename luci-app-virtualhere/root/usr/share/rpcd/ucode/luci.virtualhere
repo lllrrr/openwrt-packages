@@ -12,7 +12,8 @@ function settings() {
 	return {
 		binary_path: uci.get('virtualhere', 'main', 'binary_path') ?? '/usr/bin/vhusbd',
 		config_path: uci.get('virtualhere', 'main', 'config_path') ?? '/etc/vhusbd.conf',
-		autostart: system([init, 'enabled'], 2000) == 0 ? '1' : '0'
+		enabled: uci.get('virtualhere', 'main', 'enabled') ??
+			uci.get('virtualhere', 'main', 'autostart') ?? '0'
 	};
 }
 
@@ -31,10 +32,13 @@ function state() {
 		return { error: 'service_unavailable' };
 	let instances = result.vhusbd?.instances ?? {};
 	let pids = [];
-	for (let name, instance in instances)
-		if (instance.running && instance.pid)
-			push(pids, instance.pid);
-	return { running: length(pids) > 0, active: length(instances) > 0, pids };
+	let running = false;
+	for (let name, instance in instances) {
+		if (!instance.running) continue;
+		running = true;
+		if (instance.pid) push(pids, instance.pid);
+	}
+	return { running, active: length(instances) > 0, pids };
 }
 
 function binary_error(path) {
@@ -65,20 +69,76 @@ function read_config() {
 	return { path, exists: true, content };
 }
 
-function stop_and_wait(before) {
-	if (system([init, 'stop'], 8000) != 0)
-		return false;
-	// procd may return before SIGTERM/SIGKILL has reaped the previous process.
-	for (let i = 0; i < 60; i++) {
-		if (!length(filter(before.pids, pid => fs.access('/proc/' + pid))))
-			return true;
-		system(['/bin/sleep', '0.1'], 1000);
+function logs() {
+	// Both paths are fixed; no client input reaches the shell. logread -e uses
+	// basic regular expressions, so filter the snapshot here without -e.
+	let reader = fs.access('/sbin/logread', 'x') ? '/sbin/logread' : '/usr/sbin/logread';
+	let pipe = fs.popen('exec ' + reader + ' 2>/dev/null', 'r');
+	if (!pipe) return { error: 'logs_failed' };
+	const max_bytes = 262144;
+	let lines = [], bytes = 0, pending = '', chunk, clipped = false, discard = false;
+	let keep_line = line => {
+		if (index(line, 'vhusbd') < 0 && index(line, 'virtualhere') < 0)
+			return;
+		if (length(line) + 1 > max_bytes) {
+			clipped = true;
+			return;
+		}
+		push(lines, line);
+		bytes += length(line) + 1;
+		while (length(lines) > 200 || bytes > max_bytes) {
+			bytes -= length(shift(lines)) + 1;
+			clipped = true;
+		}
+	};
+	// Filter before limiting the tail, so unrelated messages cannot displace it.
+	while (length(chunk = pipe.read(4096))) {
+		pending += chunk;
+		let newline;
+		while ((newline = index(pending, '\n')) >= 0) {
+			if (!discard)
+				keep_line(substr(pending, 0, newline));
+			pending = substr(pending, newline + 1);
+			discard = false;
+		}
+		if (length(pending) > max_bytes) {
+			// Drop an oversized line through its newline without splitting UTF-8.
+			pending = '';
+			discard = true;
+			clipped = true;
+		}
 	}
-	return false;
+	let code = pipe.close();
+	if (chunk == null || code == null || code != 0)
+		return { error: 'logs_failed' };
+	if (length(pending) && !discard)
+		keep_line(pending);
+	return { content: join('\n', lines), truncated: clipped };
+}
+
+function stop_and_wait(before) {
+	const timeout = 8000;
+	const started = clock(true);
+	if (system([init, 'stop_now'], timeout) != 0)
+		return false;
+	// Allow procd to finish removing the instance after the process exits.
+	// Share the helper's timeout budget instead of adding another full wait.
+	while (true) {
+		let after = state();
+		if (after.error) return false;
+		if (!after.active && !length(filter(before.pids, pid => fs.access('/proc/' + pid))))
+			return true;
+		let now = clock(true);
+		let elapsed = (now[0] - started[0]) * 1000 + (now[1] - started[1]) / 1000000;
+		if (elapsed >= timeout) return false;
+		// Native milliseconds do not depend on BusyBox fractional sleep support.
+		sleep(100);
+	}
 }
 
 function locked(callback) {
-	let lock = fs.open('/var/lock/luci-virtualhere.lock', 'a', 0600);
+	// Keep spawned helpers from retaining the transaction lock after exec.
+	let lock = fs.open('/var/lock/luci-virtualhere.lock', 'ae', 0600);
 	if (!lock || !lock.lock('xn')) {
 		lock?.close();
 		return { error: 'lock_failed' };
@@ -93,6 +153,22 @@ function locked(callback) {
 	return result;
 }
 
+function config_target(path, exists) {
+	if (exists) return fs.realpath(path);
+	let parent = fs.realpath(fs.dirname(path));
+	return parent ? parent + '/' + fs.basename(path) : null;
+}
+
+function check_snapshot(current, target) {
+	let latest = read_config();
+	if (latest.error) return latest;
+	if (latest.path != current.path || config_target(latest.path, latest.exists) != target)
+		return { error: 'path_changed' };
+	if (latest.content != current.content || latest.exists != current.exists)
+		return { error: 'conflict' };
+	return null;
+}
+
 function write_config(args) {
 	if (type(args.content) != 'string' || type(args.original) != 'string' ||
 		length(args.content) > limit || length(args.original) > limit)
@@ -105,26 +181,22 @@ function write_config(args) {
 		return { error: 'conflict' };
 	let config = settings();
 	if (config.config_path != current.path) return { error: 'path_changed' };
-	let target = current.exists ? fs.realpath(current.path) :
-		fs.realpath(fs.dirname(current.path)) + '/' + fs.basename(current.path);
+	let target = config_target(current.path, current.exists);
 	if (!target || target == fs.realpath(config.binary_path) ||
-		target == '/etc/config/virtualhere') return { error: 'same_path' };
+		target == '/etc/config/virtualhere' || target == fs.realpath('/etc/config/virtualhere'))
+		return { error: 'same_path' };
 	let before = state();
 	if (before.error) return before;
 	if (before.active && !args.apply) return { error: 'stop_before_save' };
-	if (before.active && binary_error(config.binary_path))
+	if (args.apply && config.enabled == '1' && binary_error(config.binary_path))
 		return { error: binary_error(config.binary_path) };
 	if (before.active && !stop_and_wait(before)) return { error: 'stop_failed' };
 	let tempdir, tempfile, file;
 	let result;
 	try {
 		// VirtualHere can flush configuration at shutdown. Compare once more.
-		let stopped = read_config();
-		if (stopped.error) result = stopped;
-		else if (stopped.path != current.path) result = { error: 'path_changed' };
-		else if (stopped.content != current.content || stopped.exists != current.exists)
-			result = { error: 'conflict' };
-		else {
+		result = check_snapshot(current, target);
+		if (!result) {
 			let st = fs.stat(target);
 			tempdir = fs.mkdtemp(fs.dirname(target) + '/.virtualhere-XXXXXX');
 			if (tempdir) {
@@ -135,16 +207,30 @@ function write_config(args) {
 			if (file && !file.close()) ok = false;
 			file = null;
 			if (ok && st) ok = fs.chown(tempfile, st.uid, st.gid) && fs.chmod(tempfile, st.mode & 0777);
-			if (ok) ok = fs.rename(tempfile, target);
-			result = ok ? { saved: true } : { error: 'write_failed', detail: fs.error() };
+			// Detect another writer or a retargeted symlink before replacement.
+			if (ok) result = check_snapshot(current, target);
+			if (!result) {
+				if (ok) ok = fs.rename(tempfile, target);
+				result = ok ? { saved: true } : { error: 'write_failed', detail: fs.error() };
+			}
 		}
 	}
 	catch (e) { result = { error: 'write_failed', detail: '' + e }; }
 	file?.close();
 	if (tempfile) fs.unlink(tempfile);
 	if (tempdir) fs.rmdir(tempdir);
-	if (before.active && system([init, 'start'], 8000) != 0)
-		return { error: 'start_failed', saved: result.saved ?? false };
+	// A successful apply follows enabled; a failed write restores even a
+	// temporarily started service without changing its persistent setting.
+	let should_start = result.saved && args.apply ? config.enabled == '1' : before.active;
+	if (should_start) {
+		let start_error = binary_error(config.binary_path);
+		if (!start_error && system([init, 'start_now'], 12000) != 0)
+			start_error = 'start_failed';
+		if (start_error) {
+			if (result.error) result.restore_error = start_error;
+			else result.error = start_error;
+		}
+	}
 	return result;
 }
 
@@ -154,37 +240,43 @@ const methods = {
 		call: () => {
 			let config = settings();
 			let result = state();
+			result.enabled = config.enabled;
 			result.binary_error = binary_error(config.binary_path);
 			return result;
 		}
 	},
 	read_config: { call: () => read_config() },
+	logs: { call: () => logs() },
 	save_settings: {
-		args: { binary_path: '', config_path: '', autostart: '', apply: false },
+		args: { binary_path: '', config_path: '', enabled: '', apply: false },
 		call: request => locked(() => {
 			let args = request.args;
 			if (!valid_path(args.binary_path) || !valid_path(args.config_path) ||
-				(args.autostart != '0' && args.autostart != '1')) return { error: 'invalid_path' };
+				(args.enabled != '0' && args.enabled != '1')) return { error: 'invalid_path' };
 			let config_target = fs.realpath(args.config_path);
 			if (args.binary_path == args.config_path || config_target == '/etc/config/virtualhere' ||
+				(config_target && config_target == fs.realpath('/etc/config/virtualhere')) ||
 				(config_target && config_target == fs.realpath(args.binary_path)))
 				return { error: 'same_path' };
 			let before = state();
 			if (before.error) return before;
-			if (args.apply && before.active && binary_error(args.binary_path))
+			if (args.apply && args.enabled == '1' && binary_error(args.binary_path))
 				return { error: binary_error(args.binary_path) };
 			let uci = cursor();
 			uci.set('virtualhere', 'main', 'virtualhere');
 			uci.set('virtualhere', 'main', 'binary_path', args.binary_path);
 			uci.set('virtualhere', 'main', 'config_path', args.config_path);
-			uci.set('virtualhere', 'main', 'autostart', args.autostart);
+			uci.set('virtualhere', 'main', 'enabled', args.enabled);
+			uci.delete('virtualhere', 'main', 'autostart');
 			if (!uci.commit('virtualhere')) return { error: 'settings_failed' };
-			if (system([init, args.autostart == '1' ? 'enable' : 'disable'], 2000) != 0)
-				return { error: 'autostart_failed' };
-			if (args.apply && before.active) {
-				if (system([init, 'check'], 2000) != 0) return { error: 'config_invalid' };
-				if (!stop_and_wait(before)) return { error: 'stop_failed' };
-				if (system([init, 'start'], 8000) != 0) return { error: 'start_failed' };
+			if (system([init, 'enable'], 2000) != 0)
+				return { error: 'autostart_failed', saved: true };
+			if (args.apply) {
+				if (args.enabled == '1' && system([init, 'check'], 2000) != 0)
+					return { error: 'config_invalid', saved: true };
+				if (!stop_and_wait(before)) return { error: 'stop_failed', saved: true };
+				if (args.enabled == '1' && system([init, 'start_now'], 12000) != 0)
+					return { error: 'start_failed', saved: true };
 			}
 			return { saved: true };
 		})
@@ -207,7 +299,7 @@ const methods = {
 			let before = state();
 			if (before.error) return before;
 			if (action != 'start' && !stop_and_wait(before)) return { error: 'stop_failed' };
-			if (action != 'stop' && system([init, 'start'], 8000) != 0)
+			if (action != 'stop' && system([init, 'start_now'], 12000) != 0)
 				return { error: 'start_failed' };
 			return { success: true };
 		})
