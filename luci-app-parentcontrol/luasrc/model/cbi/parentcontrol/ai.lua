@@ -2,7 +2,7 @@
 --
 -- R6（名称条目模型）：解析输入 = 本条目的 remarks（一个条目一个名称；含逗号/
 -- 顿号分隔的多个名称也接受，一次请求返回全部名称的域名**并集**）。前端把并集
--- **去重合并追加**进本条 domains（不清空已有内容，见 ai_parse.htm）。
+-- **去重合并追加**进当前行（不清空已有内容，见 view/parentcontrol/apps_rows.htm + pc-ui.js）。
 --
 -- 设计要点（见 docs/superpowers/specs/pc-ui-ai-rework-*）：
 --  * 本模块是纯逻辑 + HTTP 代理：真正的网络请求交给 shell 子命令
@@ -326,9 +326,18 @@ function M.config()
 	local conf = { endpoint = "", model = "", apikey = "" }
 	pcall(function()
 		local uci = require("luci.model.uci").cursor()
-		conf.endpoint = uci:get("parentcontrol", "@ai[0]", "endpoint") or ""
-		conf.model    = uci:get("parentcontrol", "@ai[0]", "model") or ""
-		conf.apikey   = uci:get("parentcontrol", "@ai[0]", "apikey") or ""
+		-- A29/D21：段身份统一为命名节 `ai`，逐字段先读命名节，
+		-- 为空再回落 `@ai[0]`（兼容未迁移、仍为匿名节的老安装）。
+		local function pick(opt)
+			local v = uci:get("parentcontrol", "ai", opt)
+			if v == nil or v == "" then
+				v = uci:get("parentcontrol", "@ai[0]", opt)
+			end
+			return v or ""
+		end
+		conf.endpoint = pick("endpoint")
+		conf.model    = pick("model")
+		conf.apikey   = pick("apikey")
 	end)
 	return conf
 end

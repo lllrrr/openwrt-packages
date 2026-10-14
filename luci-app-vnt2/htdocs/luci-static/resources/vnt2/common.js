@@ -21,7 +21,9 @@ var VNT2_ICON_PATHS = {
     copy:    'M8 8h11v13H8V8zm-3 8H3V3h13v2H5v11z',
     key:     'M6 6.5a5.5 5.5 0 1 0 0 11a5.5 5.5 0 1 0 0-11z M6 7.5a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9z M11.5 10H21V14H19V17H16V14H11.5Z',
     sun:     'M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.8 1.42-1.42zM1 13h3v-2H1v2zm10-12v3h2V1h-2zm9.45 3.46l-1.41-1.41-1.8 1.79 1.42 1.42 1.79-1.8zM17.24 19.16l1.8 1.79 1.41-1.41-1.79-1.8-1.42 1.42zM20 11v2h3v-2h-3zM12 6a6 6 0 1 0 0 12A6 6 0 0 0 12 6zm-1 17h2v-3h-2v3zm-7.45-3.46l1.41 1.41 1.8-1.79-1.42-1.42-1.79 1.8z',
-    moon:    'M21 14.6A8 8 0 0 1 9.4 3a7 7 0 1 0 11.6 11.6z'
+    moon:    'M21 14.6A8 8 0 0 1 9.4 3a7 7 0 1 0 11.6 11.6z',
+    auto:    'M12 3A9 9 0 1 0 12 21A9 9 0 0 0 12 3zM12 5A7 7 0 1 1 12 19A7 7 0 0 1 12 5zM12 5A7 7 0 0 1 12 19z',
+    upload:  'M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z'
 };
 
 function vnt2IconSvg(name) {
@@ -113,10 +115,30 @@ var VNT2Web = {
     if (typeof document === 'undefined') return;
     var THEME_KEY = 'vnt2-theme';
 
+    var MEDIA = (window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null);
+    var autoHandler = null;
+
     function savedTheme() {
         var v = '';
         try { v = window.localStorage.getItem(THEME_KEY) || ''; } catch(e) {}
-        return (v === 'light' || v === 'dark') ? v : 'light';
+        return (v === 'light' || v === 'dark') ? v : 'auto';
+    }
+
+    function resolveTheme(theme) {
+        if (theme !== 'dark' && theme !== 'light')
+            theme = (MEDIA && MEDIA.matches) ? 'dark' : 'light';
+        return theme;
+    }
+
+    function watchAuto() {
+        if (!MEDIA || !MEDIA.addEventListener) return;
+        if (autoHandler) {
+            MEDIA.removeEventListener('change', autoHandler);
+            autoHandler = null;
+        }
+        if (savedTheme() !== 'auto') return;
+        autoHandler = function() { applyTheme('auto'); };
+        MEDIA.addEventListener('change', autoHandler);
     }
 
     function persistTheme(theme) {
@@ -125,19 +147,21 @@ var VNT2Web = {
 
     function syncThemeFromUci() {
         callGetTheme().then(function(r) {
-            var t = (r && (r.theme === 'dark' || r.theme === 'light')) ? r.theme : 'light';
+            var t = (r && (r.theme === 'dark' || r.theme === 'light')) ? r.theme : 'auto';
             try { window.localStorage.setItem(THEME_KEY, t); } catch(e) {}
             applyTheme(t);
         }).catch(function() {});
     }
 
     function applyTheme(theme) {
-        document.documentElement.setAttribute('data-vnt2-theme', theme);
+        document.documentElement.setAttribute('data-vnt2-theme', resolveTheme(theme));
         var btn = document.getElementById('vnt2-theme-toggle');
-        if (!btn) return;
-        btn.innerHTML = '';
-        btn.appendChild(vnt2IconSvg('sun'));
-        btn.title = theme === 'dark' ? _('Dark theme') : _('Light theme');
+        if (btn) {
+            btn.innerHTML = '';
+            btn.appendChild(vnt2IconSvg(theme === 'auto' ? 'auto' : 'sun'));
+            btn.title = theme === 'dark' ? _('Dark theme') : (theme === 'light' ? _('Light theme') : _('Auto theme'));
+        }
+        watchAuto();
     }
 
     applyTheme(savedTheme());
@@ -177,7 +201,8 @@ var VNT2Web = {
             btn.className = 'vnt2-icon-btn vnt2-theme-toggle';
             btn.addEventListener('click', function(ev) {
                 ev.preventDefault();
-                var next = document.documentElement.getAttribute('data-vnt2-theme') === 'dark' ? 'light' : 'dark';
+                var cur = savedTheme();
+                var next = cur === 'auto' ? 'dark' : (cur === 'dark' ? 'light' : 'auto');
                 try { window.localStorage.setItem(THEME_KEY, next); } catch(e) {}
                 applyTheme(next);
                 persistTheme(next);
@@ -186,7 +211,7 @@ var VNT2Web = {
         }
         if (host.firstChild) host.insertBefore(nav, host.firstChild);
         else host.appendChild(nav);
-        applyTheme(document.documentElement.getAttribute('data-vnt2-theme') || savedTheme());
+        applyTheme(savedTheme());
     }
 
     function markTabActive() {

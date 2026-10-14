@@ -15,7 +15,7 @@ log_file()      { echo "$CACHE_DIR/$1.log";       }
 event_file()    { echo "$CACHE_DIR/$1.events";    }
 tmp_file()      { echo "$CACHE_DIR/$2";           }
 
-MIN_FREE_KB=20480
+MIN_FREE_KB=10240
 
 check_free_space() {
     local mnt avail
@@ -28,6 +28,14 @@ check_free_space() {
         fi
     done
     return 0
+}
+
+bin_selected() {
+    case ",$INSTALL_BINS," in
+        *,none,*) return 1 ;;
+        *,"$1",*) return 0 ;;
+    esac
+    return 1
 }
 
 wait_for_network() {
@@ -124,7 +132,6 @@ api_url() {
     [ "$proj" = "luci-app-vnt2" ] && owner="whzhni1"
     case "$mirror" in
         github)     echo "https://api.github.com/repos/${owner}/${proj}/releases"               ;;
-        gitee)      echo "https://gitee.com/api/v5/repos/whzhni/${proj}/releases"               ;;
         gitlab)     echo "https://gitlab.com/api/v4/projects/whzhni%2F${proj}/releases"         ;;
         cloudflare) echo "https://pub-8a57d35d70d5423aac22a3316867e7ce.r2.dev/${proj}/releases" ;;
         *)          echo "https://api.github.com/repos/${owner}/${proj}/releases"               ;;
@@ -190,6 +197,7 @@ load_uci() {
         [ "$_det1" = "$ARCH1" ] && [ "$_det2" != "$_det1" ] && ARCH2="$_det2"
     fi
     BIN_PATH="$(uci get vnt2.global.bin_path      2>/dev/null || echo /usr/bin)"
+    INSTALL_BINS="$(uci get vnt2.global.install_bins 2>/dev/null || echo vnt2_web,vnt2_cli,vnt2_ctrl,vnts2)"
     UPX="$(uci get vnt2.global.upx_compressed     2>/dev/null || echo 0)"
     AUTO_UPDATE="$(uci get vnt2.global.auto_update 2>/dev/null || echo 0)"
 }
@@ -301,10 +309,33 @@ verify_download() {
     fi
 }
 
+check_download_allowed() {
+    local proj="$1" b
+    if [ "$proj" = "vnts" ] && ! bin_selected vnts2; then
+        log "$proj" "vnts2 is not selected in install selection, download aborted"
+        set_status "$proj" "error:vnts2 is not selected in install binaries"
+        return 1
+    fi
+    if [ "$proj" = "vnt" ]; then
+        for b in vnt2_cli vnt2_web vnt2_ctrl; do
+            bin_selected "$b" && return 0
+        done
+        log "$proj" "No vnt binaries selected in install selection, download aborted"
+        set_status "$proj" "error:No vnt binaries selected in install binaries"
+        return 1
+    fi
+    return 0
+}
+
 cmd_download() {
     local proj="$1" tag="$2" fnames="$3" upx="${4:-}"
     [ -z "$upx" ] || [ "$upx" = "0" ] && \
         upx="$(uci get vnt2.global.upx_compressed 2>/dev/null || echo 0)"
+
+    load_uci
+    if [ "$proj" != "luci-app-vnt2" ]; then
+        check_download_allowed "$proj" || return 1
+    fi
 
     rm -f "$(log_file "$proj")"
     set_status "$proj" "downloading"
@@ -471,8 +502,24 @@ _install_bin() {
     local proj="$1" tmp="$2" upx="$3"
     local bin_path bins installed="" extract_dir="$CACHE_DIR/${proj}_extract"
     local ftype b src extract_ok
-    bin_path="$(uci get vnt2.global.bin_path 2>/dev/null || echo /usr/bin)"
-    [ "$proj" = "vnt" ] && bins="vnt2_cli vnt2_web vnt2_ctrl" || bins="vnts2"
+    load_uci
+    bin_path="$BIN_PATH"
+    if [ "$proj" = "vnt" ]; then
+        bins=""
+        for b in vnt2_cli vnt2_web vnt2_ctrl; do
+            bin_selected "$b" && bins="$bins $b"
+        done
+    else
+        bin_selected vnts2 && bins=" vnts2" || bins=""
+    fi
+    set -- $bins
+    bins="$*"
+    [ -z "$bins" ] && {
+        log "$proj" "No binaries of $proj selected in install selection, skipping installation"
+        set_status "$proj" "done:none selected"
+        rm -f "$tmp"
+        return 0
+    }
 
     ftype="$(file_type "$tmp")"
     case "$ftype" in
@@ -587,7 +634,14 @@ auto_update_one() {
     latest_ver="$(echo "$LATEST_TAG" | extract_version)"
 
     case "$proj" in
-        vnt)  cur_ver="$(installed_version "$BIN_PATH/vnt2_cli")" ;;
+        vnt)
+            cur_ver=""
+            for b in vnt2_cli vnt2_web vnt2_ctrl; do
+                bin_selected "$b" || continue
+                cur_ver="$(installed_version "$BIN_PATH/$b")"
+                [ -n "$cur_ver" ] && break
+            done
+            ;;
         vnts) cur_ver="$(installed_version "$BIN_PATH/vnts2")"    ;;
         luci-app-vnt2)
             case "$PM" in
@@ -632,9 +686,30 @@ auto_update_one() {
 
 cmd_auto_update() {
     load_uci
+    _sel_any=""
+    for _b in vnt2_cli vnt2_web vnt2_ctrl vnts2; do
+        bin_selected "$_b" && { _sel_any=1; break; }
+    done
+    if [ -z "$_sel_any" ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] No binaries selected for install, skipping auto update"
+        exit 0
+    fi
+    if ! check_free_space; then
+        log "auto" "Aborted: not enough free space, at least 10 MB required"
+        event "auto" "insufficient_space"
+        exit 1
+    fi
     wait_for_network || log "auto" "Network still unavailable after 30s, continuing anyway"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting auto update (mirror: $MIRROR, arch: ${ARCH1}${ARCH2:+ $ARCH2})"
-    local projects="${*:-vnt vnts luci-app-vnt2}"
+    local projects="$*"
+    if [ -z "$projects" ]; then
+        local b
+        for b in vnt2_cli vnt2_web vnt2_ctrl; do
+            bin_selected "$b" && { projects="vnt"; break; }
+        done
+        bin_selected vnts2 && projects="${projects:+$projects }vnts"
+        projects="${projects:+$projects }luci-app-vnt2"
+    fi
     for proj in $projects; do
         auto_update_one "$proj" || true
         log "auto" "$proj -> $(cat "$(status_file "$proj")" 2>/dev/null)"
@@ -647,13 +722,18 @@ case "$1" in
     detect_arch) detect_arch; exit 0 ;;
 esac
 
-if ! check_free_space; then
-    _proj="${2:-auto}"
-    log "$_proj" "Aborted: not enough free space, at least 20 MB required"
-    event "$_proj" "insufficient_space"
-    set_status "$_proj" "error:Not enough storage space, at least 20 MB required"
-    exit 1
-fi
+case "$1" in
+    check|download) ;;
+    *)
+        if ! check_free_space; then
+            _proj="${2:-auto}"
+            log "$_proj" "Aborted: not enough free space, at least 10 MB required"
+            event "$_proj" "insufficient_space"
+            set_status "$_proj" "error:Not enough storage space, at least 10 MB required"
+            exit 1
+        fi
+        ;;
+esac
 
 case "$1" in
     check)    cmd_check    "$2" "$3"           ;;

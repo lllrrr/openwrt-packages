@@ -15,6 +15,12 @@ e = t:option(DummyValue, "parentcontrol_status", translate("当前状态"))
 e.template = "parentcontrol/parentcontrol"
 e.value = translate("获取数据中…")
 
+-- R10/D18：绑定失效汇总（页顶一行；没有失效条目时整块不渲染）。只看不改。
+e = t:option(DummyValue, "_bindwarn", "")
+e.template = "parentcontrol/bindwarn"
+e.cfgvalue = function(self, section) return ui.offline_bindings(self.map) end
+e.rmempty = true
+
 e = t:option(Flag, "enabled", translate("开启"))
 e.rmempty = false
 
@@ -37,7 +43,8 @@ e.default = "24"
 e.rmempty = true
 
 e = t:option(Value, "usage_min_kb", translate("用量判定阈值(KB/分钟)"),
-	translate("一分钟内至少这么多流量才算“在用”，滤掉后台心跳；0=任何流量都算。"))
+	translate("一分钟内至少这么多流量才算“在用”，滤掉后台心跳；0=任何流量都算。\
+「使用统计」页的<b>诊断明细</b>共用此阈值：调大它会让诊断看起来“无绕过”，请按需调整。"))
 e.default = "8"
 e.datatype = "uinteger"
 e.rmempty = true
@@ -52,13 +59,13 @@ e = t:option(Flag, "enable", translate("开启"))
 e.rmempty = false
 e.default = '1'
 
--- R6：一个条目 = 一个要封锁的名称。名称列显示 remarks（原「备注」列并入这里），
--- 存量数据兜底：旧 apps 大框的首项 → domains 首项（老条目照常显示，零迁移）。
-e = t:option(DummyValue, "remarks", translate("名称"))
+-- 第 8 轮 D17/R11：一个条目 = 一台设备 + 若干行封锁名称。
+-- 「条目名称」列读 remarks（设备别名）；空则兜底：首个封锁名称 → 首个域名 → "-"。
+e = t:option(DummyValue, "remarks", translate("条目名称"))
 e.cfgvalue = function(self, section)
 	local v = self.map:get(section, "remarks") or ""
 	if v ~= "" then return v end
-	local first = (self.map:get(section, "apps") or ""):match("[^,;%s、，；]+")
+	local first = ui.app_names(self.map:get(section, "apps") or "")[1]
 	if first then return first end
 	first = (self.map:get(section, "domains") or ""):match("[^,;%s、，；]+")
 	if first then return first end
@@ -73,7 +80,12 @@ e.rmempty = true
 e = t:option(DummyValue, "ip", translate("静态IP"))
 e.rmempty = true
 
-e = t:option(DummyValue, "domains", translate("域名/IP"))
+-- 「封锁条目」列（R11/D17）：apps 各行的名称，逐个 HTML 转义后用 <br> 连接。
+-- 原「域名/IP」列已删（生效列表就在行表里，且 domains 迁移后不再作为数据源）。
+e = t:option(DummyValue, "apps", translate("封锁条目"))
+e.cfgvalue = function(self, section) return ui.apps_html(self.map:get(section, "apps") or "") end
+e.template = "parentcontrol/apps_col"
+e.rawhtml = true
 e.rmempty = true
 
 e = t:option(DummyValue, "_profiles", translate("档案"))

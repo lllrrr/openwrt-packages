@@ -18,6 +18,7 @@ var callTplRead        = rpcDeclare('read_config_template', ['type','name']);
 var callTplSave        = rpcDeclare('save_config_template', ['type','name','content']);
 var callTplDelete      = rpcDeclare('delete_config_template', ['type','name']);
 var callTplDefault     = rpcDeclare('set_default_template', ['type','name']);
+
 var callTplHelp        = rpcDeclare('get_template_help', ['type']);
 var callGetSettings    = rpcDeclare('get_settings', []);
 var callGetLogKeys     = rpcDeclare('get_log_keys', []);

@@ -26,10 +26,12 @@ var callSaveSettings       = rpcDeclare('save_settings', [
 
 var MIRROR_OPTIONS = [
     { value: 'github',     label: 'GitHub'     },
-    { value: 'gitee',      label: 'Gitee'      },
     { value: 'gitlab',     label: 'GitLab'     },
     { value: 'cloudflare', label: 'Cloudflare' },
 ];
+
+var callSaveInstallBins   = rpcDeclare('save_install_bins',   ['install_bins']);
+var callUploadChunk       = rpcDeclare('upload_chunk',        ['name','offset','data','final','total']);
 
 var COMPONENTS = [
     { name: 'vnt2_cli',  binKey: 'vnt2_cli',  versionKey: 'vnt_cli_version'  },
@@ -37,6 +39,8 @@ var COMPONENTS = [
     { name: 'vnt2_web',  binKey: 'vnt2_web',  versionKey: 'vnt_version'      },
     { name: 'vnts2',     binKey: 'vnts2',     versionKey: 'vnts_version'     },
 ];
+
+var INSTALL_BIN_NAMES = ['vnt2_web','vnt2_cli','vnt2_ctrl','vnts2'];
 
 var FW_OPTIONS = [
     { key: 'fw_vnt_to_lan', label: 'VNT → LAN', desc: _('Allow virtual network to access LAN') },
@@ -396,24 +400,26 @@ return view.extend({
         var self = this, sys = self._sysinfo, bins = self._binaries;
 
         return E('div', { 'class': 'cbi-section vnt2-settings-card' }, [
-            E('h3', {}, _('Current Version Info')),
+            E('h3', {}, _('Current Installation Info')),
             E('div', { 'class':'vnt2-version-box' },
                 E('table', {}, [
                     E('thead', {}, E('tr', {},
-                        [_('Component'), _('Version'), _('Status')].map(function(h) {
+                        [_('Component'), _('Install'), _('Version'), _('Status'), _('Upload')].map(function(h) {
                             return E('th', {}, h);
                         })
                     )),
                     E('tbody', {}, [
                         E('tr', {}, [
-                            E('td', {}, 'luci-app-vnt2'),
+                            E('td', { 'class':'vnt2-bold' }, 'Luci'),
+                            E('td', {}, self._ui.toggleSwitch('vnt2-install-luci', true, null, '', true)),
                             E('td', {}, sys.luci_version || _('Unknown')),
-                            E('td', { 'class':'vnt2-ok-text' }, _('Installed'))
+                            E('td', { 'class':'vnt2-ok-text' }, _('Installed')),
+                            E('td', {}, self._ui.iconButton('upload', _('Upload'), null, true))
                         ])
                     ].concat(self._buildVersionRows(sys, bins)))
                 ])
             ),
-            E('h3', {}, _('Check Update')),
+            E('h3', { 'style':'margin-top:14px;' }, _('Check Update')),
             self._buildUpdateBlock('luci-app-vnt2', _('LuCI Plugin (luci-app-vnt2)')),
             self._buildUpdateBlock('vnt',  _('VNT Client Web (vnt2_web)')),
             self._buildUpdateBlock('vnts', _('VNTS Server (vnts2)'))
@@ -421,15 +427,53 @@ return view.extend({
     },
 
     _buildVersionRows: function(sys, bins) {
+        var self = this;
+        var raw = String(bins.install_bins || '');
+        var state = {};
+        raw.split(',').forEach(function(n) { if (n && n !== 'none') state[n] = true; });
         return COMPONENTS.map(function(comp) {
             var installed = !!bins[comp.binKey];
+            var toggle = self._ui.toggleSwitch('vnt2-install-bin-' + comp.binKey, !!state[comp.binKey], function(ev, input) {
+                var want = input.checked;
+                state[comp.binKey] = want;
+                var chosen = INSTALL_BIN_NAMES.filter(function(n) { return state[n]; });
+                callSaveInstallBins(chosen.length ? chosen.join(',') : 'none').then(function(res) {
+                    if (res && res.result === 'ok') {
+                        self._binaries.install_bins = (res && res.install_bins) || '';
+                        self._updateDownloadBtns();
+                        self._refreshVersionTable();
+                    } else {
+                        input.checked = !want;
+                        state[comp.binKey] = !want;
+                        self._ui.notify(_('Save failed: %s').format((res && (res.msg || res.code)) || ''), 'error');
+                    }
+                }).catch(function(err) {
+                    input.checked = !want;
+                    state[comp.binKey] = !want;
+                    self._ui.notify(_('Save failed: %s').format(String(err)), 'error');
+                });
+            });
             return E('tr', { 'data-comp': comp.name }, [
                 E('td', {}, comp.name),
-                E('td', {},
-                    installed ? (sys[comp.versionKey] || _('Unknown')) : _('Not installed')),
+                E('td', {}, toggle),
+                E('td', {}, installed ? (sys[comp.versionKey] || _('Unknown')) : '—'),
                 E('td', { 'class': installed ? 'vnt2-ok-text' : 'vnt2-err-text' },
-                    installed ? _('Installed') : _('Not installed'))
+                    installed ? _('Installed') : _('Not installed')),
+                E('td', {}, self._ui.iconButton('upload', _('Upload'), function() { self._openUploadModal(comp.binKey); }))
             ]);
+        });
+    },
+
+    _binsEmpty: function() {
+        var b = String((this._binaries || {}).install_bins || '');
+        return !b || b === 'none';
+    },
+
+    _updateDownloadBtns: function() {
+        var self = this, dis = self._binsEmpty();
+        ['luci-app-vnt2', 'vnt', 'vnts'].forEach(function(p) {
+            var el = self._el('upd-' + p + '-btn');
+            if (el) el.disabled = dis;
         });
     },
 
@@ -446,6 +490,110 @@ return view.extend({
             old.forEach(function(el) { el.parentNode.removeChild(el); });
             newRows.forEach(function(row) { tbody.appendChild(row); });
         });
+    },
+
+    _releaseUrl: function(bin) {
+        var proj = (bin === 'vnts2') ? 'vnts' : 'vnt';
+        return {
+            github: 'https://github.com/vnt-dev/' + proj + '/releases',
+            gitlab: 'https://gitlab.com/whzhni/' + proj + '/-/releases'
+        };
+    },
+
+    _openUploadModal: function(bin) {
+        var self = this;
+        var gh = E('a', { 'class':'vnt2-link-pill', 'href':self._releaseUrl(bin).github, 'target':'_blank', 'rel':'noopener' }, 'GitHub');
+        var gl = E('a', { 'class':'vnt2-link-pill', 'href':self._releaseUrl(bin).gitlab, 'target':'_blank', 'rel':'noopener' }, 'GitLab');
+        var file = E('input', { 'type':'file', 'style':'display:none;' });
+        var fileName = E('span', { 'class':'vnt2-upload-file', 'style':'margin-left:8px;' }, _('No file selected'));
+        var browse = E('button', { 'class':'btn cbi-button-action', 'click':function(ev) { ev.preventDefault(); file.click(); } }, _('Browse…'));
+        file.addEventListener('change', function() {
+            fileName.textContent = (file.files && file.files.length) ? file.files[0].name : _('No file selected');
+        });
+        var meterWrap = E('div', { 'style':'display:none;margin-top:10px;' });
+        var showProgress = function(pct) {
+            meterWrap.style.display = 'block';
+            meterWrap.innerHTML = '';
+            meterWrap.appendChild(self._ui.progressBar(pct, _('Upload'), 'vnt2-upload-meter', 'green'));
+        };
+        var btn = E('button', { 'class':'btn cbi-button-save' }, _('Upload'));
+        var closeM = self._ui.modal(_('Manual Upload'), [
+            E('div', { 'class':'vnt2-modal-body' }, [
+                E('div', { 'class':'vnt2-form-desc' }, _('Select the %s binary file to upload').format(bin)),
+                E('div', { 'style':'display:flex;gap:8px;align-items:center;margin:2px 0;' }, [gh, gl]),
+                E('div', { 'style':'display:flex;align-items:center;margin-top:6px;' }, [browse, fileName, file]),
+                meterWrap
+            ]),
+            E('div', { 'class':'vnt2-modal-btns' }, [
+                E('button', { 'class':'btn', 'click':function(){ closeM(); } }, _('Cancel')),
+                btn
+            ])
+        ]);
+        btn.addEventListener('click', function() {
+            var name = bin;
+            if (!file.files || !file.files.length) {
+                self._ui.notify(_('Please select a file'), 'error');
+                return;
+            }
+            btn.disabled = true;
+            self._doUpload(name, file.files[0], showProgress, function(ok, msg) {
+                btn.disabled = false;
+                if (ok) {
+                    closeM();
+                    var cur = String((self._binaries || {}).install_bins || '').split(',').filter(function(n) { return n && n !== 'none'; });
+                    if (cur.indexOf(name) < 0) cur.push(name);
+                    callSaveInstallBins(cur.join(',')).then(function(res) {
+                        if (res && res.result === 'ok')
+                            self._binaries.install_bins = res.install_bins || cur.join(',');
+                        self._updateDownloadBtns();
+                        self._refreshVersionTable();
+                    }).catch(function() {
+                        self._refreshVersionTable();
+                    });
+                }
+                self._ui.notify(msg, ok ? 'success' : 'error');
+            });
+        });
+    },
+
+    _doUpload: function(name, fileObj, showProgress, done) {
+        var self = this;
+        var reader = new FileReader();
+        reader.onload = function(e) {
+            var buf   = new Uint8Array(e.target.result);
+            var CHUNK = 32768;
+            var total = buf.length;
+            var version = '';
+            var seq = Promise.resolve();
+            for (var off = 0; off < total; off += CHUNK) {
+                (function(off) {
+                    seq = seq.then(function() {
+                        var end = Math.min(off + CHUNK, total);
+                        var fin = (end >= total) ? '1' : '0';
+                        return callUploadChunk(name, off, self._bytesToB64(buf.subarray(off, end)), fin, total).then(function(r) {
+                            if (!r || r.result !== 'ok')
+                                throw new Error((r && (r.msg || r.code)) || 'upload failed');
+                            if (r.version) version = r.version;
+                            showProgress(Math.min(100, Math.round(end * 100 / total)));
+                        });
+                    });
+                })(off);
+            }
+            seq.then(function() {
+                done(true, _('Upload complete: %s').format(version || name));
+            }).catch(function(err) {
+                done(false, _('Upload failed: %s').format(String((err && err.message) || err)));
+            });
+        };
+        reader.onerror = function() { done(false, _('Upload failed: %s').format('read error')); };
+        reader.readAsArrayBuffer(fileObj);
+    },
+
+    _bytesToB64: function(bytes) {
+        var str = '';
+        for (var i = 0; i < bytes.length; i += 8192)
+            str += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + 8192, bytes.length)));
+        return btoa(str);
     },
 
     _buildUpdateBlock: function(project, title) {
@@ -496,6 +644,7 @@ return view.extend({
                     E('button', {
                         'class': 'btn cbi-button-apply',
                         'id':    bid + '-btn',
+                        'disabled': self._binsEmpty() ? 'disabled' : null,
                         'click': function() { self._doUpdate(project, bid); }
                     }, _('Update Now'))
                 ])
@@ -572,6 +721,10 @@ return view.extend({
 
     _doUpdate: function(project, bid) {
         var self   = this;
+        if (self._binsEmpty()) {
+            self._setStatus(bid, _('No binaries selected for install'), 'err');
+            return;
+        }
         var tagEl  = this._el(bid + '-tag');
         var fileEl = this._el(bid + '-file');
         var btn    = this._el(bid + '-btn');
@@ -776,3 +929,4 @@ return view.extend({
         updateFiles();
     }
 });
+

@@ -682,15 +682,33 @@ service_triggers() {
     procd_add_reload_trigger "vnt2"
 }
 
+_install_selection() {
+    local sel
+    sel=$(uci -q get vnt2.global.install_bins 2>/dev/null)
+    [ "$sel" = "none" ] && return 0
+    [ -n "$sel" ] || sel="vnt2_web,vnt2_cli,vnt2_ctrl,vnts2"
+    printf '%s' "$sel" | tr ',' ' ' | tr -s ' '
+}
+
 start_service() {
     init_paths
-    local missing=""
-    [ -x "${BIN_PATH}/vnt2_cli" ] || missing="vnt"
-    [ -x "${BIN_PATH}/vnts2" ]    || missing="${missing:+$missing }vnts"
-    if [ -n "$missing" ]; then
+    local b need_vnt="" need_vnts="" projects=""
+    for b in $(_install_selection); do
+        case "$b" in
+            vnt2_web|vnt2_cli|vnt2_ctrl)
+                [ -x "${BIN_PATH}/${b}" ] || need_vnt=1
+                ;;
+            vnts2)
+                [ -x "${BIN_PATH}/${b}" ] || need_vnts=1
+                ;;
+        esac
+    done
+    [ "$need_vnt" = "1" ]  && projects="vnt"
+    [ "$need_vnts" = "1" ] && projects="${projects:+$projects }vnts"
+    if [ -n "$projects" ]; then
         [ -x "$UPDATE_SCRIPT" ] && {
-            echo "Starting automatic download of $missing ..."
-            setsid sh -c "$UPDATE_SCRIPT $missing" >/dev/null 2>&1 &
+            echo "Starting automatic download of $projects ..."
+            setsid sh -c "$UPDATE_SCRIPT $projects" >/dev/null 2>&1 </dev/null &
         }
         return 0
     fi

@@ -370,12 +370,37 @@ pc_quota_positive() {
 }
 
 # ============================================================================
+# apps 行解析（第 8 轮 D14/ADR-018）：apps 是「封锁名称行表」的唯一数据源，
+# 每行 = `名称|域名列表`（名称不得含 | 与换行；域名列表可用逗号/空格/换行分隔）。
+# 解析只此一份：init.d 的 entry_domains 与下面的迁移共用，别处不得再写第二份拆分。
+# 输出：逐行 `名称<TAB>域名列表`；`|` 缺失的行按「纯名称」处理（域名列表为空）；空行跳过。
+# ============================================================================
+pc_apps_rows() { # $1=apps 多行文本
+	printf '%s\n' "$1" | awk -F'|' '
+		{
+			name = $1
+			gsub(/[\r\t\n]/, " ", name); gsub(/ +/, " ", name)
+			sub(/^ /, "", name); sub(/ $/, "", name)
+			d = ""
+			for (i = 2; i <= NF; i++) d = (d == "") ? $i : d "|" $i
+			gsub(/[\r\t\n]/, " ", d); gsub(/,/, " ", d)
+			gsub(/ +/, " ", d); sub(/^ /, "", d); sub(/ $/, "", d)
+			# A30/D23：丢弃条件 = 名称与域名**都**空（与 pc-ui.js 的 sync() 同口径）。
+			# `|a.com`（名称空、域名非空）是**有效行**：名称空时用域名列表首项兜底显示名，
+			# 该行域名照常进入封锁目标/解析（不得静默丢弃）。
+			if (name == "" && d == "") next
+			if (name == "") { n = d; sub(/[ |].*$/, "", n); name = n }
+			print name "\t" d
+		}'
+}
+
+# ============================================================================
 # 配置迁移（安装/升级时调用一次，幂等）：
 #   1) 补 basic 默认值；2) 老 word(关键词) → domains；3) 统一为「可用时段 + 额度」模型
 # 只改 uci，不 commit（由调用方决定）。
 # ============================================================================
 pc_migrate_config() {
-	local _k _i _m _w _d _f _has_sd _has_hd _sfx _md _ws _we _on _had_dual _unl _dt _eq
+	local _k _i _m _w _d _f _has_sd _has_hd _sfx _md _ws _we _on _had_dual _unl _dt _eq _a _r _out _n _ai_ep _ai_md _ai_key _ai_v _ai_del _ai_secs
 	# 0) 迁移会删老字段、并可能改变封锁行为，不可逆 —— 先留一份带时间戳的备份。
 	#    （README 里承诺了这件事，就必须真的做；$PC_CONF_DIR 下没有配置文件时自动跳过。
 	#      PC_CONF_DIR / BACKUP_DIR 是可覆盖钩子（默认值 = 生产路径），供白盒测试把
@@ -403,6 +428,92 @@ pc_migrate_config() {
 		# 老 word 一律删除：否则改了域名后，旧关键词仍会生成幽灵匹配规则
 		[ -n "$_w" ] && uci -q delete "$PC_CONF.@weburl[$_i].word"
 	done
+
+	# 2b) apps 归一化（第 8 轮 D14/ADR-018）：apps 成为「封锁名称行表」的唯一数据源，
+	#     一行 = 一台设备 + N 行 `名称|域名列表`。四种形态：
+	#       ① R6 形态（有 remarks/domains、无 apps）→ 一行 apps（名称 = remarks，空则首域名），
+	#          域名 = 原 domains 内容，随后**删除 domains**（防双源幽灵匹配，与 word 同理）
+	#       ② ≤1.8.2 老 apps（纯名称、整个值不含 `|`）→ 每个名称一行，域名 = 该条目原 domains
+	#       ③ 已是新形态（apps 含 `|`）→ 一个字段都不动（幂等）
+	#       ④ 都没有 → 不动
+	#     写进 apps 的域名列表必须是**单行**（换行在 apps 里是行分隔符，会把域名变成幽灵名称行），
+	#     所以先把 domains 的逗号/换行压成空格再拼。
+	for _i in $(pc_ids_all weburl); do
+		_a=$(pc_uget "@weburl[$_i].apps")
+		case "$_a" in *\|*) continue ;; esac
+		_d=$(pc_uget "@weburl[$_i].domains")
+		_d=$(printf '%s' "$_d" | tr ',\r\n' '   ' | awk '{ $1 = $1; print }')
+		_r=$(pc_uget "@weburl[$_i].remarks")
+		_r=$(printf '%s' "$_r" | tr '|\r\n\t' '    ' | awk '{ $1 = $1; print }')
+		if [ -n "$_a" ]; then
+			# ② 老 apps：纯名称列表（换行/逗号/空格分隔）→ 每名称一行，域名取该条目 domains 并集
+			_out=""
+			for _n in $(printf '%s' "$_a" | tr ',\r\n' '   '); do
+				_out="${_out}${_n}|${_d}
+"
+			done
+			[ -n "$_out" ] || continue
+			uci -q set "$PC_CONF.@weburl[$_i].apps=$_out"
+		elif [ -n "$_d" ]; then
+			# ① R6 形态：名称为空时用首个域名兜底
+			[ -n "$_r" ] || { set -- $_d; _r=$1; }
+			uci -q set "$PC_CONF.@weburl[$_i].apps=${_r}|${_d}"
+		else
+			continue
+		fi
+		uci -q delete "$PC_CONF.@weburl[$_i].domains"
+		_pclog "migrate: weburl[$_i] apps 归一化（domains 已并入 apps 行并删除）"
+	done
+
+	# 2c) AI 段身份统一为命名节 `ai`（第 9 轮 A29/D21 修订，取代第 8 轮的「盲保下标 0」）：
+	#     目标：最多 1 个 ai 段，段名 == ai（命名节），且用户既有值**不丢**。
+	#     算法对「@ai[N] 下标是否计入命名节」这一未证实语义**不敏感**（本机无 uci/Lua，
+	#     真机语义未证实；`pc_ids_all` 的下标在命名节与匿名节混排时可能撞号，故不能用它判数量）：
+	#       * 段数用 `pc_uci_scan` 的**节行**直接计数（不依赖下标语义）。
+	#       * 段数 0 → 不动（不凭空造段，交给安装自愈 / 设置页 0 段自愈；沿用第 8 轮 W95⑧）。
+	#       * 段数 1 且为命名节 ai → 已收敛，**一个字节都不改**（保证 `uci show` 逐字节幂等）。
+	#       * 否则按下述语义无关算法收敛：
+	#         ① 先按命名节读三字段（`parentcontrol.ai.<opt>`，无歧义）；
+	#         ⑥ 再把各 ai 段的非空值按序并入（仅补命名节里为空的字段）—— 老匿名值不丢，
+	#            命名节已有的值优先；只补空位 ⇒ @ai[N] 语义无论是否计入命名节都无害；
+	#         ② 删除命名节 `parentcontrol.ai`（按名删，与下标语义无关）；
+	#         ③ 此时剩余 ai 段必定全是匿名节（下标空间无歧义）⇒ `pc_ids_all ai` 取下标、
+	#            **倒序**全部删除（每删一个后 @ai[N] 下标会前移，故倒序），逐个留 _pclog；
+	#         ④ `uci -q set parentcontrol.ai=ai` 重建命名节，再把①/⑥拿到的非空字段写回。
+	_ai_secs=$(pc_uci_scan | awk -F'|' -v t="ai" '$1 == t && $3 == "" { n++ } END { print n + 0 }')
+	if [ "$_ai_secs" = "0" ]; then
+		: # 无 ai 段：交给安装自愈 / 设置页自愈
+	elif [ "$_ai_secs" = "1" ] && [ "$(pc_uget ai)" = "ai" ]; then
+		: # 已收敛：唯一 ai 段且为命名节
+	else
+		_ai_ep=$(pc_uget "ai.endpoint")
+		_ai_md=$(pc_uget "ai.model")
+		_ai_key=$(pc_uget "ai.apikey")
+		for _i in $(pc_ids_all ai); do
+			_ai_v=$(pc_uget "@ai[$_i].endpoint")
+			[ -z "$_ai_ep" ] && [ -n "$_ai_v" ] && _ai_ep="$_ai_v"
+			_ai_v=$(pc_uget "@ai[$_i].model")
+			[ -z "$_ai_md" ] && [ -n "$_ai_v" ] && _ai_md="$_ai_v"
+			_ai_v=$(pc_uget "@ai[$_i].apikey")
+			[ -z "$_ai_key" ] && [ -n "$_ai_v" ] && _ai_key="$_ai_v"
+		done
+		# 类型守卫：按名删节前先确认该节确实是 ai 类型 —— 模板里若恰好有「异类型但名为 ai」
+		# 的节（如 config weburl 'ai'），直接 uci -q delete 会误删。命名节不存在时
+		# pc_uget ai 为空 ⇒ 本就不需要删，跳过即可。
+		if [ "$(pc_uget ai)" = "ai" ]; then uci -q delete "$PC_CONF.ai"; fi
+		_ai_del=""
+		for _i in $(pc_ids_all ai); do
+			_ai_del="$_i $_ai_del"
+		done
+		for _i in $_ai_del; do
+			uci -q delete "$PC_CONF.@ai[$_i]"
+			_pclog "migrate: 删除匿名 config ai 段（@ai[$_i]）—— AI 段身份统一为命名节 ai"
+		done
+		uci -q set "$PC_CONF.ai=ai"
+		[ -n "$_ai_ep" ]  && uci -q set "$PC_CONF.ai.endpoint=$_ai_ep"
+		[ -n "$_ai_md" ]  && uci -q set "$PC_CONF.ai.model=$_ai_md"
+		[ -n "$_ai_key" ] && uci -q set "$PC_CONF.ai.apikey=$_ai_key"
+	fi
 
 	# 3) 统一为「可用时段 + 额度」模型。老配置有两代：
 	#      a) 双档案时代：<sfx>_mode ∈ off|time|quota|block（另有 <sfx>_start/<sfx>_end）

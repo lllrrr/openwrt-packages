@@ -4,6 +4,7 @@
 local i18n = require "luci.i18n"
 local devnames = require "luci.model.cbi.parentcontrol.devnames"
 local tsv = require "luci.model.cbi.parentcontrol.tsv"
+local hosts = require "luci.model.cbi.parentcontrol.hosts"
 
 local M = {}
 
@@ -30,6 +31,75 @@ end
 
 local function get(map, section, key)
 	return map:get(section, key)
+end
+
+-- ============================================================================
+-- 封锁名称行表（第 8 轮 R9/R11/D17/ADR-018）：Lua 侧解析与展示的唯一实现。
+-- 数据格式与 shell 侧 pc_apps_rows 同源：每行 `名称|域名列表`；缺 `|` 的行按纯名称处理；
+-- 空行跳过。名称不得含 `|` 与换行（写入时由前端保证）。
+-- ============================================================================
+local function trim(s)
+	return (tostring(s or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+-- HTML 转义（列表页「封锁条目」列要求：pcdata 转义后再拼 <br>，名称里的 < & " 不能破坏页面）
+local function escape(s)
+	s = tostring(s or "")
+	s = s:gsub("&", "&amp;")
+	s = s:gsub("<", "&lt;")
+	s = s:gsub(">", "&gt;")
+	s = s:gsub('"', "&quot;")
+	return s
+end
+
+function M.apps_rows(text)
+	local rows = {}
+	for line in tostring(text or ""):gmatch("[^\r\n]+") do
+		if line:match("%S") then
+			local name, dom = line:match("^([^|]*)|(.*)$")
+			if name then
+				rows[#rows + 1] = { name = trim(name), domains = trim(dom) }
+			else
+				rows[#rows + 1] = { name = trim(line), domains = "" }
+			end
+		end
+	end
+	return rows
+end
+
+-- 行的显示名（A30：名称空时用域名列表首项兜底）。四处只保证「有效性判据」一致
+-- （名称与域名都空才丢弃）；首项切分在中英标点/竖线上可能不同，且只影响展示名，
+-- 不影响封锁目标集与解析。
+-- 注意：不要用本函数改编辑页输入框的值（apps_rows.htm 走 M.apps_rows，名称必须原样、可为空）。
+local function disp_name(r)
+	if r.name ~= "" then return r.name end
+	return r.domains:match("^[^%s,;、，；]+") or ""
+end
+
+-- 行表里的名称列表（保持行序；两者都空的行才跳过）
+function M.app_names(text)
+	local out = {}
+	for _, r in ipairs(M.apps_rows(text)) do
+		local n = disp_name(r)
+		if n ~= "" then out[#out + 1] = n end
+	end
+	return out
+end
+
+-- 列表页「封锁条目」列：每个名称先 HTML 转义、再用 <br> 连接（转义在前、拼接在后）
+function M.apps_html(text)
+	local out = {}
+	for _, r in ipairs(M.apps_rows(text)) do
+		local n = disp_name(r)
+		if n ~= "" then out[#out + 1] = escape(n) end
+	end
+	return table.concat(out, "<br>")
+end
+
+-- 条目的名单模式：缺失/非 white 一律按 black（与 shell 侧 _quota_emit_rules 同一判据）
+function M.mode(map, section)
+	if tostring(map:get(section, "mode") or "") == "white" then return "white" end
+	return "black"
 end
 
 -- 与后端 pc_quota_positive 同口径的归一：纯数字 → 该数；非纯数字 → 0（新语义 0 = 全禁）；
@@ -97,7 +167,8 @@ function M.profiles(self, section)
 	return i18n.translate("平日") .. " " .. sd .. " · " .. i18n.translate("节假日") .. " " .. hd
 end
 
--- 列表里的「设备」列：MAC（已知设备名）；没填 MAC 就是全部客户端；填了静态IP 也一并显示
+-- 列表里的「设备」列：MAC（已知设备名）；没填 MAC 就是全部客户端；填了静态IP 也一并显示。
+-- 第 8 轮（R10/D18）：绑定设备不在网时加一个 ⚠（只看不改 —— 绝不自动修改用户配置）。
 function M.mac(self, section)
 	local mac = self.map:get(section, "mac") or ""
 	local ip = self.map:get(section, "ip") or ""
@@ -108,7 +179,21 @@ function M.mac(self, section)
 	end
 	if ip ~= "" then out[#out + 1] = ip end
 	if #out == 0 then return i18n.translate("全部客户端") end
-	return table.concat(out, " / ")
+	local s = table.concat(out, " / ")
+	if mac ~= "" and hosts.online(mac) == false then s = s .. " ⚠" end
+	return s
+end
+
+-- 绑定已失效（绑了 MAC 但该 MAC 不在网）的已启用条目数 —— 列表页页顶汇总提示用。
+-- 判定与编辑页「绑定状态」同源（hosts.lua）：不自动改配置，只提示。
+function M.offline_bindings(map)
+	local n = 0
+	map.uci:foreach("parentcontrol", "weburl", function(s)
+		if s.enable == "1" and s.mac and s.mac ~= "" and hosts.online(s.mac) == false then
+			n = n + 1
+		end
+	end)
+	return n
 end
 
 -- 列表页「重置」按钮的 key：统一模型下没有模式了，任何条目都能重置当天用量，

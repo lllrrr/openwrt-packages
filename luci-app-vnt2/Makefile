@@ -5,7 +5,7 @@ LUCI_DEPENDS:=+luci-base +luci-compat +kmod-tun
 LUCI_PKGARCH:=all
 
 PKG_NAME:=luci-app-vnt2
-PKG_VERSION:=1.7.2
+PKG_VERSION:=1.7.3
 PKG_RELEASE:=1
 PKG_PO_VERSION:=$(PKG_VERSION)
 
@@ -26,7 +26,7 @@ define Package/$(PKG_NAME)/postinst
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
 INITD=/etc/init.d
 $${INITD}/vnt2 enable
-$${INITD}/vnt2 start || true
+( setsid "$${INITD}/vnt2" start </dev/null >/dev/null 2>&1 & )
 $${INITD}/rpcd reload >/dev/null 2>&1 || true
 rm -rf /tmp/luci-*
 
@@ -44,3 +44,4 @@ exit 0
 endef
 
 $(eval $(call BuildPackage,$(PKG_NAME)))
+

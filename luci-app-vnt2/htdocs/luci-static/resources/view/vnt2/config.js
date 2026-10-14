@@ -1649,4 +1649,3 @@ return view.extend({
     destroy: function() { stopStatusTimer(); }
 });
 
-

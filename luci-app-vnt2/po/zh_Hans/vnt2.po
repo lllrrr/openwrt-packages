@@ -671,8 +671,8 @@ msgstr "每个实例日志在 %d KB 处截断"
 msgid "Firewall Forwarding"
 msgstr "防火墙转发"
 
-msgid "Current Version Info"
-msgstr "当前版本信息"
+msgid "Current Installation Info"
+msgstr "当前安装信息"
 
 msgid "Component"
 msgstr "组件"
@@ -1201,3 +1201,45 @@ msgstr "vnt2_web 启动等待超时（秒）"
 
 msgid "Maximum wait for vnt2_web readiness at boot before restoring instance states, default %s seconds"
 msgstr "开机时等待 vnt2_web 就绪并恢复实例状态的最长时间，默认 %s 秒"
+
+
+msgid "Install Binaries"
+msgstr "安装二进制文件"
+
+
+msgid "Manual Upload"
+msgstr "手动上传"
+
+msgid "Target Binary"
+msgstr "目标二进制"
+
+msgid "The file is staged in memory, verified by version check, then replaces the target binary."
+msgstr "文件先暂存在内存中，校验版本通过后替换目标二进制文件。"
+
+msgid "Please select a file"
+msgstr "请选择文件"
+
+msgid "Upload complete: %s"
+msgstr "上传完成：%s"
+
+msgid "Upload failed: %s"
+msgstr "上传失败：%s"
+
+msgid "Browse…"
+msgstr "浏览文件…"
+
+msgid "No file selected"
+msgstr "未选择文件"
+
+msgid "Install"
+msgstr "安装"
+msgid "Select the %s binary file to upload"
+msgstr "请选择 %s 二进制文件上传"
+msgid "Auto theme"
+msgstr "自动主题"
+msgid "VNT binaries are not installed"
+msgstr "VNT 二进制文件未安装"
+msgid "page to select the binaries to install."
+msgstr "页面选择需要安装的二进制文件。"
+msgid "No binaries selected for install"
+msgstr "未选择需要安装的二进制文件"

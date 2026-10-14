@@ -1,6 +1,7 @@
 config global 'global'
 	option config_path '/etc/vnt2_config'
 	option bin_path '/usr/bin'
+	option install_bins 'none'
 	option arch 'auto'
 	option mirror 'github'
 	option web_token ''
@@ -98,3 +99,4 @@ config query 'ctrl_route'
 	option label 'Route'
 	option binary 'vnt_ctrl'
 	option command '{bin} -p {ctrl_port} route'
+

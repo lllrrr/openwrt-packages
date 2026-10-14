@@ -1029,9 +1029,9 @@ function validateAdvancedRaw(content) {
     for (let i = 0; i < length(lines); i++) {
         let line = trim(lines[i]);
         if (!line) continue;
-        let sm = match(line, /^config\s+(\S+)(?:\s+['"]([^'"]+)['"])?/);
+        let sm = match(line, /^config\s+(\S+)(\s+['"]([^'"]+)['"])?/);
         if (sm) {
-            curType = sm[1]; curName = sm[2] || "";
+            curType = sm[1]; curName = sm[3] || "";
             let sid = `${curType}.${curName}`;
             if (curName && seenSec[sid]) return { ok:false, code:"duplicate_section", msg:`Duplicate section: ${sid}` };
             seenSec[sid] = true;
@@ -1684,9 +1684,103 @@ function cmdGetSystemInfo() {
     return r;
 }
 
+const INSTALL_BINARIES = ["vnt2_web", "vnt2_cli", "vnt2_ctrl", "vnts2"];
+
+function normalizeInstallBins(raw) {
+    let parts = split(replace(trim(`${raw ?? ""}`), /\s+/g, ""), ",");
+    let clean = [];
+    for (let i = 0; i < length(parts); i++) {
+        let p = parts[i];
+        if (!p) continue;
+        if (p === "none") return "none";
+        if (index(INSTALL_BINARIES, p) < 0) return null;
+        if (index(clean, p) < 0) push(clean, p);
+    }
+    return length(clean) ? join(",", clean) : "none";
+}
+
+function cmdSaveInstallBins(args) {
+    let bins = normalizeInstallBins(args.install_bins ?? "");
+    if (bins == null)
+        return { result: "error", code: "invalid_install_bins", msg: "Invalid install binaries selection" };
+    initPaths();
+    let uci = cursor();
+    uci.load("vnt2");
+    let old = uci.get("vnt2", "global", "install_bins");
+    uci.set("vnt2", "global", "install_bins", bins);
+    uci.commit("vnt2");
+    let keep = {};
+    let sel = (bins == "none") ? [] : split(bins, ",");
+    for (let i = 0; i < length(sel); i++) keep[sel[i]] = true;
+    let prev = INSTALL_BINARIES;
+    if (old != null && old != "")
+        prev = (old == "none") ? [] : split(old, ",");
+    let running = false;
+    for (let i = 0; i < length(prev); i++) {
+        if (keep[prev[i]]) continue;
+        let f = `${CFG.bin_path}/${prev[i]}`;
+        if (stat(f) != null) {
+            unlink(f);
+            if (!running && trim(execOutput(`pidof '${prev[i]}' 2>/dev/null`)) != "")
+                running = true;
+        }
+    }
+    if (running)
+        runDetached(`${DEFAULTS.init_script} restart >/dev/null 2>&1`);
+    return { result: "ok", install_bins: bins };
+}
+
+function cmdUploadChunk(args) {
+    initPaths();
+    let name = trim(args.name ?? "");
+    if (index(INSTALL_BINARIES, name) < 0)
+        return { result: "error", code: "invalid_name", msg: "Invalid binary name" };
+    let stage  = `/tmp/vnt2_upload_${name}`;
+    let offset = int(args.offset ?? 0);
+    let total  = int(args.total ?? 0);
+    let data   = `${args.data ?? ""}`;
+    let chunk  = b64dec(data);
+    let f, st, size, vm, ver;
+    if (offset == 0) {
+        if (substr(chunk, 0, 4) != "\x7fELF")
+            return { result: "error", code: "not_elf", msg: "Not an ELF binary file" };
+        unlink(stage);
+        f = open(stage, "w");
+    } else {
+        f = open(stage, "a");
+    }
+    if (!f) return { result: "error", code: "open_failed", msg: "Cannot open staging file" };
+    f.write(chunk);
+    f.close();
+    st = stat(stage);
+    size = st ? st.size : 0;
+    if (args.final != "1")
+        return { result: "ok", size };
+    if (total > 0 && size != total) {
+        unlink(stage);
+        return { result: "error", code: "size_mismatch", msg: "Uploaded size mismatch" };
+    }
+    system(`chmod 755 '${stage}' 2>/dev/null`);
+    ver = trim(execOutput(`'${stage}' --version 2>&1`));
+    vm = match(ver, /[0-9]+(\.[0-9]+)+/);
+    if (!vm) {
+        unlink(stage);
+        return { result: "error", code: "verify_failed", msg: "Version check failed, not a valid VNT binary" };
+    }
+    system(`${DEFAULTS.init_script} stop >/dev/null 2>&1`);
+    system(`cp '${stage}' '${CFG.bin_path}/${name}'`);
+    unlink(stage);
+    system(`chmod 755 '${CFG.bin_path}/${name}'`);
+    runDetached(`${DEFAULTS.init_script} restart >/dev/null 2>&1`);
+    return { result: "ok", version: vm[0], size };
+}
+
 function cmdCheckBinaries() {
     initPaths();
+    let uci = cursor();
+    uci.load("vnt2");
     let r = {};
+    r.install_bins = normalizeInstallBins(uci.get("vnt2", "global", "install_bins")) || join(",", INSTALL_BINARIES);
     let profiles = advancedBinaryProfiles();
     for (let i = 0; i < length(profiles); i++) {
         let key = profiles[i][0];
@@ -1705,6 +1799,7 @@ function cmdGetSettings() {
     for (let i = 0; i < length(SETTING_DEFS); i++)
         r[SETTING_DEFS[i][0]] = uci.get("vnt2", "global", SETTING_DEFS[i][0])
                                  || SETTING_DEFS[i][1];
+    r.install_bins = normalizeInstallBins(uci.get("vnt2", "global", "install_bins")) || join(",", INSTALL_BINARIES);
     return r;
 }
 
@@ -2185,11 +2280,11 @@ function cmdGetTheme(args) {
     let uci = cursor();
     uci.load("vnt2");
     let t = uci.get("vnt2", "global", "theme");
-    return { result: "ok", theme: (t == "dark") ? "dark" : "light" };
+    return { result: "ok", theme: (t == "dark" || t == "light") ? t : "auto" };
 }
 
 function cmdSetTheme(args) {
-    let t = (args.theme == "dark") ? "dark" : "light";
+    let t = (args.theme == "dark" || args.theme == "light") ? args.theme : "auto";
     let uci = cursor();
     uci.load("vnt2");
     uci.set("vnt2", "global", "theme", t);
@@ -2221,6 +2316,8 @@ const METHODS = {
     get_system_info:      cmdGetSystemInfo,
     check_binaries:       cmdCheckBinaries,
     get_settings:         cmdGetSettings,
+    save_install_bins:    cmdSaveInstallBins,
+    upload_chunk:         cmdUploadChunk,
     get_web_access:       cmdGetWebAccess,
     set_web_addr:         cmdSetWebAddr,
     refresh_web_token:    cmdRefreshWebToken,
@@ -2268,6 +2365,8 @@ const SIGNATURES = {
     get_system_info:      {},
     check_binaries:       {},
     get_settings:         {},
+    save_install_bins:    { install_bins: "String" },
+    upload_chunk:         { name: "String", offset: "Integer", data: "String", final: "String", total: "Integer" },
     get_web_access:       {},
     set_web_addr:         { addr: "String" },
     refresh_web_token:    {},
@@ -2325,4 +2424,3 @@ switch (argv[0]) {
         warn(`Usage: ${argv[0]} {list|call <method>}\n`);
         exit(1);
 }
-

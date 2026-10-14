@@ -37,6 +37,8 @@
             "ubus": {
                 "luci.vnt2": [
                     "set_theme",
+                    "save_install_bins",
+                    "upload_chunk",
                     "instance_action",
                     "save_config",
                     "delete_config",

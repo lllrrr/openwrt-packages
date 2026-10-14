@@ -261,9 +261,24 @@ return view.extend({
     },
 
     _renderBinaryAlert: function(binaries) {
-        var missing=[];
-        BIN_KEYS.forEach(function(p){if (!binaries[p[0]]) missing.push(p[1]);});
+        var sel = String(binaries && binaries.install_bins || '');
+        var selected = {};
+        sel.split(',').forEach(function(n) { if (n && n !== 'none') selected[n] = true; });
+        var hasSel = Object.keys(selected).length > 0;
+        var missing = [];
+        BIN_KEYS.forEach(function(p) {
+            if (hasSel && !selected[p[0]]) return;
+            if (!binaries[p[0]]) missing.push(p[1]);
+        });
         if (!missing.length) return E('span',{});
+        if (!hasSel)
+            return E('div',{'class':'alert-message warning','style':'margin-bottom:16px;'},[
+                E('strong',{},'\u26a0 ' + _('VNT binaries are not installed')),
+                E('span',{},' '+_('Please go to')),E('span',{},' '),
+                E('a',{'class':'vnt2-breadcrumb-link','href':L.url('admin/vpn/vnt2/settings')},
+                    _('Settings and Update')),
+                E('span',{},' '+_('page to select the binaries to install.'))
+            ]);
         return E('div',{'class':'alert-message warning','style':'margin-bottom:16px;'},[
             E('strong',{},'\u26a0 ' + _('Missing binary files:')),
             E('span',{},' '+missing.join(', ')),E('br'),
@@ -921,5 +936,4 @@ return view.extend({
         if (this._pollFn) poll.remove(this._pollFn);
     }
 });
-
 
