@@ -9,6 +9,10 @@ dependency_ready() {
         openssl-util)
             command -v openssl >/dev/null 2>&1 && openssl version >/dev/null 2>&1
             ;;
+        luci-compat)
+            # 页面基于 CBI，由 luci-compat 提供；模块已存在时不依赖包数据库记录
+            [ -f "${MINIGATE_LUCI_DIR:-/usr/lib/lua/luci}/cbi.lua" ]
+            ;;
         *)
             return 1
             ;;
@@ -19,13 +23,13 @@ install_dependencies() {
     local p
     if command -v opkg >/dev/null 2>&1; then
         PKG="opkg"
-        for p in curl jsonfilter nftables nginx-mod-stream openssl-util; do
+        for p in curl jsonfilter nftables nginx-mod-stream openssl-util luci-compat; do
             dependency_ready "$p" && continue
             opkg list-installed 2>/dev/null | grep -q "^${p} " || { opkg update 2>/dev/null; opkg install "$p" 2>/dev/null; }
         done
     elif command -v apk >/dev/null 2>&1; then
         PKG="apk"
-        for p in curl jsonfilter nftables nginx-mod-stream openssl-util; do
+        for p in curl jsonfilter nftables nginx-mod-stream openssl-util luci-compat; do
             dependency_ready "$p" && continue
             apk info -e "$p" >/dev/null 2>&1 || apk add "$p" 2>/dev/null
         done
@@ -34,6 +38,20 @@ install_dependencies() {
 
 # 检测包管理器 + 安装依赖（stream 用于同端口 HTTP/HTTPS 识别）
 install_dependencies
+
+# 旧版 init 脚本停止登录防护时不会结束 logread/tail 子进程，升级前先按进程树结束
+stop_process_tree() {
+    local child
+    for child in $(pgrep -P "$1" 2>/dev/null); do
+        stop_process_tree "$child"
+    done
+    kill "$1" 2>/dev/null || true
+}
+if command -v pgrep >/dev/null 2>&1; then
+    for pid in $(pgrep -f '^/bin/sh /usr/lib/minigate/login_guard.sh run' 2>/dev/null); do
+        stop_process_tree "$pid"
+    done
+fi
 
 [ -f /etc/init.d/minigate ] && /etc/init.d/minigate stop 2>/dev/null || true
 

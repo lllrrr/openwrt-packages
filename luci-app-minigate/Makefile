@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=minigate
-PKG_VERSION:=2026.10.14
+PKG_VERSION:=2026.10.14-3
 PKG_RELEASE:=
 PKG_LICENSE:=MIT
 PKG_MAINTAINER:=MiniGate
@@ -13,7 +13,7 @@ define Package/$(PKG_NAME)
 	CATEGORY:=LuCI
 	SUBMENU:=3. Applications
 	TITLE:=LuCI - MiniGate (DDNS + ACME + Reverse Proxy + Login Guard)
-	DEPENDS:=+luci-base +nginx-ssl +nginx-mod-stream +openssl-util +wget +curl +jsonfilter +coreutils-stat +nftables
+	DEPENDS:=+luci-base +luci-compat +nginx-ssl +nginx-mod-stream +openssl-util +wget +curl +jsonfilter +coreutils-stat +nftables
 	PROVIDES:=luci-app-minigate
 	CONFLICTS:=luci-app-minigate
 	VERSION:=$(if $(CONFIG_USE_APK),$(subst -,-r,$(PKG_VERSION)),$(PKG_VERSION))
@@ -50,6 +50,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) ./root/usr/lib/minigate/login_guard.sh $(1)/usr/lib/minigate/
 	$(INSTALL_BIN) ./root/usr/lib/minigate/update.sh $(1)/usr/lib/minigate/
 	$(INSTALL_BIN) ./root/usr/lib/minigate/uninstall.sh $(1)/usr/lib/minigate/
+	$(INSTALL_BIN) ./root/usr/lib/minigate/after_commit.sh $(1)/usr/lib/minigate/
 
 	# Config
 	$(INSTALL_DIR) $(1)/etc/config

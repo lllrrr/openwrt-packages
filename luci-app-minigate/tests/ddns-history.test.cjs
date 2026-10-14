@@ -17,6 +17,7 @@ function runHistory(script, options = {}) {
         'set -eu',
         'export MINIGATE_DDNS_LIBRARY_ONLY=1',
         `export MINIGATE_HISTORY_DIR=${JSON.stringify(historyDir)}`,
+        `export MINIGATE_CACHE_DIR=${JSON.stringify(historyDir)}`,
         `export MINIGATE_HISTORY_WINDOW=${options.window || 86400}`,
         `. ${JSON.stringify(ddnsScript)}`,
         script
@@ -176,6 +177,102 @@ test('Cloudflare updater distinguishes unchanged records from authoritative chan
     const failure = runCloudflareScenario('failure');
     assert.notEqual(failure.status, 0);
     assert.equal(failure.stdout.trim(), 'false');
+});
+
+test('Cloudflare token stays out of curl arguments and every API call is time-bounded', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minigate-cf-token-'));
+    const calls = path.join(tempDir, 'calls.log');
+    const command = `
+        set -u
+        export MINIGATE_DDNS_LIBRARY_ONLY=1
+        . ${JSON.stringify(ddnsScript)}
+        curl() { printf 'args %s\\n' "\$*" >> ${JSON.stringify(calls)}; sed 's/^/stdin /' >> ${JSON.stringify(calls)}; printf '{}'; }
+        jsonfilter() { cat >/dev/null; [ "\${2:-}" = '$.success' ] && printf 'true\\n'; return 0; }
+        cf_update zone secret-token example.com 198.51.100.20 A
+    `;
+    const result = spawnSync('/bin/sh', ['-c', command], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(result.stdout.trim(), 'changed');
+    const lines = readRows(calls);
+    const args = lines.filter(line => line.startsWith('args '));
+    assert.equal(args.length, 2, 'list + create');
+    for (const line of args) {
+        assert.doesNotMatch(line, /secret-token/);
+        assert.match(line, /--max-time \d+/);
+        assert.match(line, /-H @-/);
+    }
+    assert.equal(lines.filter(line => line === 'stdin Authorization: Bearer secret-token').length, 2);
+});
+
+test('scheduled and manual DDNS runs share section names and serialize with a lock', () => {
+    const source = fs.readFileSync(ddnsScript, 'utf8');
+    assert.match(source, /uci -q -X show minigate \| grep '=ddns\$'/);
+    assert.match(source, /if \[ "\$1" = "single" \] && \[ -n "\$2" \]; then\n    lock_ddns wait/);
+    assert.match(source, /elif ! lock_ddns; then/);
+    for (const line of source.split('\n').filter(item => /\bcurl -[46]/.test(item))) {
+        assert.match(line, /--max-time \d+/, line.trim());
+    }
+});
+
+function runScheduled({ force = false, checked }) {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minigate-ddns-interval-'));
+    const calls = path.join(tempDir, 'calls.log');
+    for (const [sec, ts] of Object.entries(checked)) fs.writeFileSync(path.join(tempDir, `minigate_ddns_${sec}.checked`), `${ts}\n`);
+    const command = `
+        export MINIGATE_DDNS_LIBRARY_ONLY=1
+        export MINIGATE_CACHE_DIR=${JSON.stringify(tempDir)}
+        export MINIGATE_DDNS_LOCK=${JSON.stringify(path.join(tempDir, 'ddns.lock'))}
+        export MINIGATE_DDNS_LOG=${JSON.stringify(path.join(tempDir, 'ddns.log'))}
+        . ${JSON.stringify(ddnsScript)}
+        date() { [ "\${1:-}" = '+%s' ] && printf '1000000\\n' || printf 'now\\n'; }
+        uci() {
+            [ "\${1:-}" = "-q" ] && shift
+            [ "\${1:-}" = "-X" ] && shift
+            case "\${1:-}:\${2:-}" in
+                get:minigate.global.enabled|get:minigate.cfg01.enabled|get:minigate.cfg02.enabled) printf '1\\n' ;;
+                get:minigate.cfg03.enabled) printf '0\\n' ;;
+                get:minigate.cfg01.check_interval) printf '300\\n' ;;
+                get:minigate.cfg02.check_interval) printf '900\\n' ;;
+                show:minigate) printf 'minigate.cfg01=ddns\\nminigate.cfg02=ddns\\nminigate.cfg03=ddns\\n' ;;
+                commit:minigate) printf 'commit\\n' >> ${JSON.stringify(calls)} ;;
+            esac
+            return 0
+        }
+        update_one() { printf '%s %s\\n' "\$1" "\$2" >> ${JSON.stringify(calls)}; }
+        main ${force ? 'force' : ''}
+    `;
+    const result = spawnSync('/bin/sh', ['-c', command], { encoding: 'utf8' });
+    assert.equal(result.stderr, '');
+    return {
+        calls: fs.existsSync(calls) ? readRows(calls) : [],
+        logged: fs.existsSync(path.join(tempDir, 'ddns.log'))
+    };
+}
+
+test('scheduled DDNS checks honour each record interval and skip disabled records', () => {
+    const due = runScheduled({ checked: { cfg01: 1000000 - 280, cfg02: 1000000 - 600 } });
+    assert.deepEqual(due.calls, ['cfg01 0', 'commit']);
+
+    const idle = runScheduled({ checked: { cfg01: 1000000 - 100, cfg02: 1000000 - 600 } });
+    assert.deepEqual(idle.calls, [], 'nothing due: no update and no config commit');
+    assert.equal(idle.logged, false, 'nothing due: no log noise every five minutes');
+
+    const forced = runScheduled({ force: true, checked: { cfg01: 1000000 - 10, cfg02: 1000000 - 10 } });
+    assert.deepEqual(forced.calls, ['cfg01 1', 'cfg02 1', 'commit']);
+});
+
+test('DDNS interval is at least five minutes and the next run matches the cron grid', () => {
+    const { output } = runHistory(`
+        uci() { printf '%s\\n' "\${INTERVAL}"; }
+        date() { [ "\${1:-}" = '+%s' ] && printf '300150\\n' || printf '%s\\n' "\${2:-}"; }
+        INTERVAL=60; printf '%s ' "$(ddns_interval cfg01)"
+        INTERVAL=abc; printf '%s ' "$(ddns_interval cfg01)"
+        INTERVAL=600; printf '%s ' "$(ddns_interval cfg01)"
+        printf '%s %s ' "$(calc_next 300)" "$(calc_next 600)"
+        printf '%s\\n' 300300 > "\${MINIGATE_CACHE_DIR}/minigate_ddns_cfg09.checked"
+        INTERVAL=300; ddns_due cfg09 && printf 'clock-back-due'
+    `);
+    assert.equal(output, '300 300 600 @300600 @300900 clock-back-due');
 });
 
 test('successful Cloudflare changes refresh local DNS caches once', () => {
