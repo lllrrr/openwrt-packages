@@ -263,12 +263,7 @@
         };
 
         DesktopWindowManager.prototype.work_area = function() {
-            var workspace = document.getElementById('fm_workspace');
-            var bounds = workspace ? workspace.getBoundingClientRect() : null;
-            var width = Math.max(1, bounds ? bounds.width : window.innerWidth);
-            var bottom = Math.max(1, bounds ? bounds.bottom : window.innerHeight);
-            var top = bounds ? Math.max(0, bounds.top) : 0;
-            return { top: top, width: width, height: Math.max(1, bottom - top), bottom: bottom };
+            return { top: 0, width: Math.max(1, window.innerWidth), height: Math.max(1, window.innerHeight), bottom: Math.max(1, window.innerHeight) };
         };
 
         DesktopWindowManager.prototype.maximized_rect = function() {
@@ -319,14 +314,10 @@
             var min_height = this.min_height(record, max_height);
             var width = clamp(Number(rect.width || min_width), min_width, max_width);
             var height = clamp(Number(rect.height || min_height), min_height, max_height);
-            var header = record.element.querySelector('.fm-window-titlebar, .fm-dialog-header');
-            var header_height = header ? Math.max(32, Number(header.getBoundingClientRect().height || 42)) : 42;
-            var taskbar_top = this.taskbar_top(area);
-            var title_visible_width = Math.min(width, compact ? 96 : 160);
-            var min_left = -width + title_visible_width;
-            var max_left = Math.max(min_left, area.width - title_visible_width);
+            var min_left = margin;
+            var max_left = Math.max(min_left, area.width - width - margin);
             var min_top = area.top + margin;
-            var max_top = Math.max(min_top, taskbar_top - header_height - margin);
+            var max_top = Math.max(min_top, area.bottom - height - margin);
             return {
                 left: clamp(isFinite(Number(rect.left)) ? Number(rect.left) : margin, min_left, max_left),
                 top: clamp(isFinite(Number(rect.top)) ? Number(rect.top) : min_top, min_top, max_top),
@@ -1067,4 +1058,3 @@
     HF.WindowManager = HF.window_manager;
     HF.WindowManager.openLegacy = HF.window_manager.open_legacy;
 })(window.HarborFile = window.HarborFile || {});
-

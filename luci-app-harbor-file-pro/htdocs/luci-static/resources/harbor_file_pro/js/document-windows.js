@@ -112,6 +112,27 @@
         return opens - closes;
     }
 
+    HF.wm_clean_text = function wm_clean_text(text) {
+        return String(text == null ? '' : text).replace(/\u200b/g, '');
+    };
+
+    HF.wm_clean_editor = function wm_clean_editor(editor) {
+        var selection = window.getSelection();
+        var inside = selection && editor.contains(selection.anchorNode) && editor.contains(selection.focusNode);
+        var ends = inside ? [selection.anchorNode, selection.anchorOffset, selection.focusNode, selection.focusOffset] : null;
+        var walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+        var node;
+        while ((node = walker.nextNode())) {
+            if (node.data.indexOf('\u200b') < 0) continue;
+            if (ends) {
+                if (ends[0] === node) ends[1] = HF.wm_clean_text(node.data.slice(0, ends[1])).length;
+                if (ends[2] === node) ends[3] = HF.wm_clean_text(node.data.slice(0, ends[3])).length;
+            }
+            node.data = HF.wm_clean_text(node.data);
+        }
+        if (ends && selection.setBaseAndExtent) selection.setBaseAndExtent(ends[0], ends[1], ends[2], ends[3]);
+    };
+
     HF.wm_paste_plain_text = function wm_paste_plain_text(event, editor, max_command_len) {
         var data = event.clipboardData || window.clipboardData;
         if (!data || typeof data.getData !== 'function') {
@@ -120,7 +141,7 @@
         if (data.files && data.files.length) {
             return false;
         }
-        var text = data.getData('text/plain') || data.getData('text') || '';
+        var text = HF.wm_clean_text(data.getData('text/plain') || data.getData('text') || '');
         event.preventDefault();
         if (!text) {
             return true;
@@ -180,9 +201,9 @@
             return '';
         }
         if (HF.wm_editor_dom_is_plain(node)) {
-            return String(node.textContent || '').replace(/\r/g, '');
+            return HF.wm_clean_text(node.textContent || '').replace(/\r/g, '');
         }
-        return String(node.innerText || node.textContent || '').replace(/\r/g, '');
+        return HF.wm_clean_text(node.innerText || node.textContent || '').replace(/\r/g, '');
     }
 
     HF.wm_edit_change_offset = function wm_edit_change_offset(before, after) {
@@ -452,9 +473,9 @@
     }
 
     
-    HF.wm_decode_utf8 = function wm_decode_utf8(bytes) {
+    HF.wm_decode_utf8 = function wm_decode_utf8(bytes, preserve_bom) {
         if (window.TextDecoder) {
-            return new TextDecoder('utf-8').decode(bytes);
+            return new TextDecoder('utf-8', { ignoreBOM: !!preserve_bom }).decode(bytes);
         }
         var binary = '';
         for (var index = 0; index < bytes.length; index++) {
@@ -592,12 +613,12 @@
         });
     }
 
-    HF.wm_upload_editor_blob = function wm_upload_editor_blob(item, blob, progress) {
+    HF.wm_upload_editor_blob = function wm_upload_editor_blob(item, blob, progress, text_mode) {
         return new Promise(function(resolve, reject) {
             var xhr = new XMLHttpRequest();
             var form = new FormData();
             form.append('content', blob, item.name || 'content.bin');
-            xhr.open('POST', HF.api.save_editor_upload + '?path=' + encodeURIComponent(item.path), true);
+            xhr.open('POST', HF.api.save_editor_upload + '?path=' + encodeURIComponent(item.path) + (text_mode ? '&text=1' : ''), true);
             xhr.upload.onprogress = function(event) {
                 if (event.lengthComputable && progress) {
                     progress(event.loaded, event.total);
@@ -1306,11 +1327,12 @@
             }
             session.saving = true;
             footer.refresh();
+            session.text = HF.wm_clean_text(session.text);
             var value = session.eol === '\r\n' ? session.text.replace(/\n/g, '\r\n') : session.text;
             var bytes = HF.wm_encode_utf8(value);
             HF.wm_upload_editor_blob(item, new Blob([bytes], { type: 'application/octet-stream' }), function(loaded, total) {
                 progress.set(loaded, total);
-            }).then(function(data) {
+            }, true).then(function(data) {
                 session.saving = false;
                 session.original = session.text;
                 session.dirty = false;
@@ -1428,8 +1450,8 @@
 
         function apply_edit_state(state) {
             var changed = HF.wm_edit_change_offset(session.text, state.text);
-            session.text = state.text;
-            session.dirty = state.text !== session.original;
+            session.text = HF.wm_clean_text(state.text);
+            session.dirty = session.text !== session.original;
             if (session.query) {
                 search_text(session.query, false, session.caseSensitive, 0);
             } else {
@@ -1474,6 +1496,7 @@
             clear: clear,
             search: search_text,
             replaceStep: function(value, all, direction) {
+                value = HF.wm_clean_text(value);
                 if (!session.matches.length) {
                     return;
                 }
@@ -1543,7 +1566,9 @@
             HF.wm_paste_plain_text(event, editor);
         });
 
-        editor.addEventListener('input', function() {
+        editor.addEventListener('input', function(event) {
+            if (event.isComposing) return;
+            HF.wm_clean_editor(editor);
             var next = editor_text();
             if (next === session.text) {
                 return;
@@ -1564,6 +1589,8 @@
             history_buttons.refresh(history.canUndo(), history.canRedo());
             recovery_save();
         });
+
+        editor.addEventListener('compositionend', function() { editor.dispatchEvent(new Event('input', { bubbles: true })); });
 
         var profile = HF.state.preferences.editor_auto_indent === 1 ?
             HF.wm_indent_profile_for(item.path, session.text) : null;
@@ -1621,10 +1648,11 @@
         function start_load() {
             tip_text(HF.tr('Reading full file…'));
             HF.wm_read_editor_file(item).then(function(data) {
-                var raw = HF.wm_decode_utf8(data.bytes);
+                var raw = HF.wm_decode_utf8(data.bytes, true);
                 session.eol = raw.indexOf('\r\n') >= 0 ? '\r\n' : '\n';
                 session.original = raw.replace(/\r\n/g, '\n');
-                session.text = session.original;
+                session.text = HF.wm_clean_text(session.original);
+                session.dirty = session.text !== session.original;
                 last_cursor = 0;
                 render_dom(false);
                 footer.refresh();
@@ -1639,10 +1667,10 @@
                 var rec = HF.Recovery.getBuffer(item.path);
                 var recovered = rec && rec.payload && typeof rec.payload.text === 'string' ? rec.payload.text : '';
                 HF.wm_read_editor_file(item).then(function(data) {
-                    var raw = HF.wm_decode_utf8(data.bytes);
+                    var raw = HF.wm_decode_utf8(data.bytes, true);
                     session.eol = raw.indexOf('\r\n') >= 0 ? '\r\n' : '\n';
                     session.original = raw.replace(/\r\n/g, '\n');
-                    session.text = recovered;
+                    session.text = HF.wm_clean_text(recovered);
                     session.dirty = session.text !== session.original;
                     render_dom(false);
                     var payload = rec && rec.payload || {};
@@ -1658,7 +1686,7 @@
                     recovery_save();
                     tip_text('');
                 }).catch(function() {
-                    session.text = recovered;
+                    session.text = HF.wm_clean_text(recovered);
                     session.original = '';
                     session.dirty = true;
                     render_dom(false);

@@ -602,6 +602,8 @@
                 document.getElementById('fm_archive_task_dialog').style.display !== 'none') {
             return;
         }
+        HF.property_size_token = (HF.property_size_token || 0) + 1;
+        if (HF.state.target_picker) HF.close_target_dialog();
         var cancel_pending = document.getElementById('fm_overwrite_dialog').style.display !== 'none' && HF.state.pending_upload;
         var dialogs = document.querySelectorAll('.fm-dialog');
         for (var i = 0; i < dialogs.length; i++) {
@@ -652,10 +654,54 @@
         return mode.toString(8).padStart(3, '0');
     }
     
+    HF.measure_property_directory = function measure_property_directory(item, token) {
+        var field = document.getElementById('fm_property_size');
+        var dialog = document.getElementById('fm_property_dialog');
+        var pending = [item.path], visited = new Set();
+        var size = 0, files = 0, folders = 0, skipped = 0;
+        function active() {
+            return HF.property_size_token === token &&
+                (dialog._fmWindow ? !dialog._fmWindow.closed : dialog.style.display !== 'none');
+        }
+        function show(done) {
+            field.textContent = (done ? '' : HF.labels.folder_size_loading + ' · ') +
+                (skipped ? '≥ ' : '') + HF.format_size(size) + ' (' + size + ' ' + HF.labels.bytes + ')' +
+                ' · ' + files + ' ' + HF.labels.files + ' · ' + folders + ' ' + HF.labels.folders +
+                (skipped ? ' · ' + HF.labels.skip + ': ' + skipped : '');
+        }
+        function next() {
+            if (!active()) return;
+            if (!pending.length) { show(true); return; }
+            var path = pending.pop();
+            HF.request_json(HF.api.list, { path: path, directory_size: 1 }, function(data) {
+                if (!active()) return;
+                if (!visited.has(data.identity)) {
+                    visited.add(data.identity);
+                    if (path !== item.path) folders++;
+                    size += Number(data.size || 0);
+                    files += Number(data.files || 0);
+                    skipped += Number(data.skipped || 0);
+                    (data.directories || []).forEach(function(child) { pending.push(child); });
+                }
+                show(false);
+                setTimeout(next, 0);
+            }, function(message) {
+                if (!active()) return;
+                if (path === item.path) { field.textContent = message || HF.labels.request_failed; return; }
+                skipped++;
+                show(false);
+                setTimeout(next, 0);
+            });
+        }
+        field.textContent = HF.labels.folder_size_loading;
+        next();
+    };
+
     HF.open_properties = function open_properties(item) {
         if (!item) {
             return;
         }
+        var size_token = HF.property_size_token = (HF.property_size_token || 0) + 1;
         document.getElementById('fm_property_icon').src = HF.icon_url(item.icon_name || HF.item_icon_name(item, 'file'));
         document.getElementById('fm_property_name').textContent = item.name;
         document.getElementById('fm_property_path').textContent = item.path;
@@ -723,6 +769,7 @@
             });
         });
         HF.open_modal('fm_property_dialog');
+        if (item.type === 'directory' && !item.is_symlink) HF.measure_property_directory(item, size_token);
     }
 
     HF.SystemWindows = {
@@ -735,4 +782,3 @@
         start_nginx_install: HF.start_nginx_install
     };
 })(window.HarborFile = window.HarborFile || {});
-

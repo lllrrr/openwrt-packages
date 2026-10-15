@@ -1687,68 +1687,85 @@ function note_copy_failure(failed, path) {
 	return false;
 }
 
+function create_staging_directory(parent, prefix) {
+	let random = open('/dev/urandom', 'r');
+	if (!random) return null;
+	let path = null;
+	for (let attempt = 0; attempt < 8; attempt++) {
+		let bytes = random.read(16);
+		if (length(bytes) != 16) break;
+		let token = '';
+		for (let i = 0; i < length(bytes); i++) token += sprintf('%02x', ord(bytes, i));
+		let candidate = join_path(parent, prefix + token);
+		if (mkdir(candidate, 0o700)) { path = candidate; break; }
+		if (!lstat_safe(candidate)) break;
+	}
+	random.close();
+	return path;
+}
+
+function finish_output(fd, path, written) {
+	fd.flush();
+	let closed = fd.close();
+	let st = lstat_safe(path);
+	return closed && st && st.type == 'file' && st.size == written;
+}
+
 function copy_file(src, dst) {
 	let src_st = lstat_safe(src);
-	if (src_st && src_st.type == 'directory')
-		return false;
+	if (!src_st || src_st.type != 'file') return false;
 	let inf = open(src, 'r');
-	if (!inf)
-		return false;
-
-	let outf = open(dst, 'w');
+	if (!inf) return false;
+	let staging = create_staging_directory(parent_path(dst), '.harbor-copy.');
+	let tmp = staging ? staging + '/data' : null;
+	let outf = tmp ? open(tmp, 'w', src_st.mode & 0o7777) : null;
 	if (!outf) {
 		inf.close();
+		if (staging) rmdir(staging);
 		return false;
 	}
-
-	let okay = true;
+	let okay = true, written = 0;
 	while (true) {
 		let chunk = inf.read(65536);
-		if (!length(chunk))
-			break;
-		if (outf.write(chunk) == null) {
-			okay = false;
-			break;
-		}
+		if (chunk == null) { okay = false; break; }
+		if (!length(chunk)) break;
+		if (outf.write(chunk) != length(chunk)) { okay = false; break; }
+		written += length(chunk);
 	}
-
 	inf.close();
-	outf.close();
-
-	if (okay) {
-		let st = stat(src);
-		if (st)
-			chmod(dst, st.mode & 0o7777);
-	}
-	else {
-		unlink(dst);
-	}
-
+	if (!finish_output(outf, tmp, written) || written != src_st.size) okay = false;
+	if (okay) okay = chmod(tmp, src_st.mode & 0o7777) && rename(tmp, dst);
+	if (!okay) unlink(tmp);
+	rmdir(staging);
 	return okay;
 }
 
 function copy_recursive(src, dst, failed) {
 	let st = lstat_safe(src);
-	if (!st)
-		return note_copy_failure(failed, src);
-
-	if (st.type == 'link') {
-		let link = readlink(src);
-		if (link != null && symlink(link, dst))
-			return true;
-		return copy_file(src, dst) ? true : note_copy_failure(failed, src);
-	}
-
+	let target = lstat_safe(dst);
+	if (!st || (target && (st.type == 'directory') != (target.type == 'directory')))
+		return note_copy_failure(failed, dst);
 	if (st.type == 'directory') {
-		if (!mkdir_p(dst))
-			return note_copy_failure(failed, src);
-		for (let name in (lsdir(src) ?? []))
+		if (!target && !mkdir(dst, st.mode & 0o7777))
+			return note_copy_failure(failed, dst);
+		let entries = lsdir(src);
+		if (entries == null) return note_copy_failure(failed, src);
+		for (let name in entries)
 			if (!copy_recursive(join_path(src, name), join_path(dst, name), failed))
 				return false;
 		return true;
 	}
-
-	return copy_file(src, dst) ? true : note_copy_failure(failed, src);
+	if (st.type == 'link') {
+		let link = readlink(src);
+		let staging = create_staging_directory(parent_path(dst), '.harbor-copy.');
+		if (!staging) return note_copy_failure(failed, dst);
+		let tmp = staging + '/link';
+		let okay = link != null && symlink(link, tmp) && rename(tmp, dst);
+		if (!okay) unlink(tmp);
+		rmdir(staging);
+		return okay ? true : note_copy_failure(failed, dst);
+	}
+	return copy_file(src, dst) ? true : note_copy_failure(failed, dst);
 }
 
 function is_descendant(parent, child) {
@@ -1760,7 +1777,8 @@ function transfer_one(src, dest_dir, mode, on_conflict, forced_name) {
 	if (!st)
 		return { ok: false, error: tr('Source not found') };
 
-	if (st.type == 'directory' && is_descendant(src, dest_dir))
+	if (st.type == 'directory' && (is_descendant(src, dest_dir) ||
+		is_descendant(_fs.realpath(src) ?? src, _fs.realpath(dest_dir) ?? dest_dir)))
 		return { ok: false, error: tr('Cannot transfer a directory into itself') };
 
 	let name = forced_name && valid_component(forced_name)
@@ -1776,8 +1794,10 @@ function transfer_one(src, dest_dir, mode, on_conflict, forced_name) {
 			return { ok: true, error: 'skipped' };
 		else if (on_conflict == 'rename')
 			target = unique_target(dest_dir, name);
-		else if (on_conflict == 'overwrite')
-			remove_recursive(target);
+		else if (on_conflict == 'overwrite') {
+			if ((st.type == 'directory') != (lstat_safe(target).type == 'directory'))
+				return { ok: false, error: tr('File and directory types conflict'), failed_item: target };
+		}
 		else
 			return { ok: false, error: tr('Target already exists') };
 
@@ -1785,8 +1805,11 @@ function transfer_one(src, dest_dir, mode, on_conflict, forced_name) {
 			return { ok: false, error: tr('Cannot allocate a unique name') };
 	}
 
+	if (st.type == 'directory' && is_descendant(target, src))
+		return { ok: false, error: tr('Cannot transfer a directory into itself') };
+
 	if (mode == 'move') {
-		if (rename(src, target))
+		if (!(st.type == 'directory' && lstat_safe(target)) && rename(src, target))
 			return { ok: true, error: null };
 		let move_fail = {};
 		if (!copy_recursive(src, target, move_fail))
@@ -2642,11 +2665,35 @@ function archive_entries(src, ext) {
 	return out;
 }
 
+function directory_size_page(path) {
+	let st = lstat_safe(path);
+	if (!st || st.type != 'directory')
+		return fail(http, 1, tr('Not a directory'));
+	path = _fs.realpath(path);
+	if (!path) return fail(http, 1, tr('Path not found'));
+	let names = lsdir(path);
+	if (names == null) return fail(http, 2, tr('Permission denied'));
+	let size = 0, files = 0, skipped = 0, links = 0, directories = [];
+	for (let name in names) {
+		if (name == '.' || name == '..') continue;
+		let child = join_path(path, name);
+		let info = lstat_safe(child);
+		if (!info) { skipped++; continue; }
+		if (info.type == 'directory') push(directories, child);
+		else if (info.type == 'file') { size += info.size; files++; }
+		else if (info.type == 'link') links++;
+	}
+	return ok(http, { path, size, files, directories, skipped, links,
+		identity: sprintf('%J:%J', st.dev, st.inode) });
+}
+
 function api_list() {
 	let path = normalize_path(http.formvalue('path'));
 
 	if (!path)
 		return fail(http, 1, tr('Invalid path'));
+
+	if (http.formvalue('directory_size') == '1') return directory_size_page(path);
 
 	let st = stat(path);
 
@@ -3000,7 +3047,7 @@ function api_save_text() {
 	let path = validate_write_request(http, http.formvalue('path'));
 	if (!path) return;
 
-	let content = http.formvalue('content') ?? '';
+	let content = replace(http.formvalue('content') ?? '', '\u200b', '');
 	let st = lstat_safe(path);
 
 	if (st && st.type == 'directory')
@@ -3044,7 +3091,7 @@ function api_save_editor_upload() {
 
 	let mode = existing ? (existing.mode & 0o7777) : 0o644;
 	let tmp = target + '.harbor-tmp';
-	let state = { fd: null, written: 0, error: null };
+	let state = { fd: null, written: 0, error: null, carry: '' };
 
 	http.setfilehandler(function(meta, chunk, eof) {
 		if (state.error)
@@ -3056,6 +3103,19 @@ function api_save_editor_upload() {
 				state.error = 'cannot create the temporary file';
 				return;
 			}
+		}
+
+		if (q.text == '1') {
+			chunk = state.carry + (chunk ?? '');
+			state.carry = '';
+			if (!eof) {
+				let tail = ord(chunk, -2) == 0xe2 && ord(chunk, -1) == 0x80 ? 2 : (ord(chunk, -1) == 0xe2 ? 1 : 0);
+				if (tail) {
+					state.carry = substr(chunk, -tail);
+					chunk = substr(chunk, 0, length(chunk) - tail);
+				}
+			}
+			chunk = replace(chunk, '\u200b', '');
 		}
 
 		if (length(chunk)) {
@@ -3097,150 +3157,109 @@ function api_save_editor_upload() {
 	ok(http, { path: target, size: st?.size ?? state.written, mtime: st?.mtime ?? 0 });
 }
 
+function upload_target(dir, relative, directory, create) {
+	if (type(relative) != 'string' || !length(relative) || index(relative, '\\') >= 0)
+		return null;
+	let parts = split(relative, '/');
+	let target = dir;
+	for (let i = 0; i < length(parts); i++) {
+		if (!valid_component(parts[i])) return null;
+		target = join_path(target, parts[i]);
+		let want_dir = directory || i < length(parts) - 1;
+		let st = lstat_safe(target);
+		if (st && st.type != (want_dir ? 'directory' : 'file')) return null;
+		if (!st && want_dir && create && !mkdir(target, 0o755)) {
+			st = lstat_safe(target);
+			if (!st || st.type != 'directory') return null;
+		}
+	}
+	return target;
+}
+
+function upload_base(dir, prefs) {
+	let actual = _fs.realpath(dir);
+	let st = actual ? stat(actual) : null;
+	return st && st.type == 'directory' &&
+		(prefs.allow_system_operations || (!is_system_path(dir) && !is_system_path(actual)));
+}
+
 function api_upload_check() {
 	let dir = normalize_path(formvalue_any(http, [ 'target_dir', 'path' ]));
-
-	if (!dir)
-		return fail(http, 1, tr('Invalid path'));
-
-	let names = parse_path_array(http, 'names') ?? [];
-	let total_size = +(http.formvalue('total_size') ?? 0);
-	if (total_size != total_size)
-		total_size = 0;
-
 	let prefs = read_preferences();
+	if (!dir || !upload_base(dir, prefs)) return fail(http, 1, tr('Invalid upload directory'));
+	let names = parse_path_array(http, 'names') ?? [];
+	let directories = parse_path_array(http, 'directories') ?? [];
+	let total_size = +(http.formvalue('total_size') ?? 0);
+	if (total_size != total_size || total_size < 0) total_size = 0;
 	let conflicts = [], blocked = [];
-
 	for (let name in names) {
-		if (!valid_component(name)) {
-			push(blocked, name);
-			continue;
-		}
-
-		let target = join_path(dir, name);
-		let st = lstat_safe(target);
-
-		if (!st)
-			continue;
-
-		if (st.type == 'directory' ||
-		    (is_system_path(target) && !prefs.allow_system_operations))
-			push(blocked, name);
-		else
-			push(conflicts, name);
+		let target = upload_target(dir, name, false, false);
+		if (!target) push(blocked, name);
+		else if (lstat_safe(target)) push(conflicts, name);
 	}
-
+	for (let name in directories)
+		if (!upload_target(dir, name, true, false)) push(blocked, name);
 	let space = get_directory_space_info(dir);
 	let margin = space.margin ?? 0;
-
-	let enough = (space.available == null) ||
-		(space.available >= total_size + margin);
-
+	let enough = space.available == null || space.available >= total_size + margin;
 	ok(http, {
-		path: dir,
-		target_dir: dir,
-		conflicts,
-		blocked_conflicts: blocked,
-		enough_space: enough,
-		space_message: enough ? '' : 'space_less_than_50mb',
-		total_size,
-		available_bytes: space.available ?? 0,
-		operation_space_margin: margin
+		path: dir, target_dir: dir, conflicts, blocked_conflicts: blocked,
+		enough_space: enough, space_message: enough ? '' : 'space_less_than_50mb',
+		total_size, available_bytes: space.available ?? 0, operation_space_margin: margin
 	});
 }
 
 function api_upload() {
 	let q = query_params(http);
-
 	let dir = normalize_path(q.target_dir ?? q.path);
-	if (!dir)
-		return fail(http, 1, tr('Invalid target directory'));
-
-	let prefs = read_preferences();
-	if (is_system_path(dir) && !prefs.allow_system_operations)
-		return write_json_status(http, 403, 'Forbidden',
-			{ code: 1, message: tr('System folder operations are disabled') });
-
-	let dst = stat(dir);
-	if (!dst || dst.type != 'directory')
-		return fail(http, 1, tr('Target directory does not exist'));
-
-	let overwrite = (q.overwrite == '1');
-	let expected  = (q.expected_size != null) ? +q.expected_size : -1;
-	if (expected != expected)
-		expected = -1;
-
-	let state = { fd: null, path: null, written: 0, error: null };
-
+	if (!dir || !upload_base(dir, read_preferences()))
+		return fail(http, 1, tr('Invalid upload directory'));
+	if (q.directory == '1') {
+		let path = upload_target(dir, q.relative_path, true, true);
+		return path ? ok(http, { path, directory: true }) : fail(http, 1, tr('Invalid directory path'));
+	}
+	let overwrite = q.overwrite == '1';
+	let expected = q.expected_size != null ? +q.expected_size : -1;
+	if (expected != expected) expected = -1;
+	let state = { fd: null, path: null, staging: null, tmp: null, written: 0, error: null, finished: false };
 	http.setfilehandler(function(meta, chunk, eof) {
-		if (state.error)
-			return;
-
+		if (state.error) return;
+		if (state.finished) { state.error = 'multiple files in one upload are not supported'; return; }
 		if (!state.fd && meta?.file) {
-			let name = basename(meta.file);
-			if (!valid_component(name)) {
-				state.error = 'invalid file name';
-				return;
-			}
-
-			let target = join_path(dir, name);
-
-			if (lstat_safe(target) && !overwrite) {
-				let unique = unique_target(dir, name);
-				if (!unique) {
-					state.error = 'target already exists';
-					return;
-				}
-				target = unique;
-			}
-
+			let relative = q.relative_path ?? basename(meta.file);
+			let target = upload_target(dir, relative, false, true);
+			if (!target) { state.error = 'invalid upload path or conflicting type'; return; }
+			if (lstat_safe(target) && !overwrite)
+				target = unique_target(parent_path(target), path_name(target));
+			if (!target) { state.error = 'cannot allocate a unique name'; return; }
 			state.path = target;
-			state.fd = open(target + '.part', 'w', 0o644);
-
-			if (!state.fd) {
-				state.error = 'cannot create target file';
-				return;
-			}
+			state.staging = create_staging_directory(parent_path(target), '.harbor-upload.');
+			state.tmp = state.staging ? state.staging + '/data' : null;
+			state.fd = state.tmp ? open(state.tmp, 'w', 0o644) : null;
+			if (!state.fd) { state.error = 'cannot create target file'; return; }
 		}
-
 		if (state.fd && length(chunk)) {
-			if (state.fd.write(chunk) == null) {
-				state.error = 'write failed (disk full?)';
-				state.fd.close();
-				unlink(state.path + '.part');
-				state.fd = null;
-				return;
-			}
-			state.written += length(chunk);
+			if (state.fd.write(chunk) != length(chunk)) state.error = 'write failed (disk full?)';
+			else state.written += length(chunk);
 		}
-
 		if (eof && state.fd) {
-			state.fd.flush();
-			state.fd.close();
+			if (!finish_output(state.fd, state.tmp, state.written)) state.error = 'written file size mismatch';
 			state.fd = null;
-
-			if (expected >= 0 && state.written != expected) {
-				unlink(state.path + '.part');
-				state.error = sprintf(tr('Size mismatch: got %d bytes, expected %d'),
-					state.written, expected);
-				return;
-			}
-
-			if (!rename(state.path + '.part', state.path)) {
-				unlink(state.path + '.part');
-				state.error = 'finalize failed';
-			}
+			if (expected >= 0 && state.written != expected) state.error = 'uploaded size mismatch';
+			state.finished = true;
 		}
 	});
-
-	http.formvalue('__harbor_parse__');
-
-	if (state.error)
-		return fail(http, 1, state.error);
-
-	if (!state.path)
-		return fail(http, 1, tr('No file received'));
-
+	try { http.formvalue('__harbor_parse__'); }
+	catch (e) { state.error = 'invalid or interrupted upload request'; }
+	if (state.fd) {
+		state.fd.close();
+		state.error = state.error ?? 'upload interrupted';
+	}
+	if (!state.error && state.finished && !rename(state.tmp, state.path)) state.error = 'finalize failed';
+	if (state.tmp) unlink(state.tmp);
+	if (state.staging) rmdir(state.staging);
+	if (state.error) return fail(http, 1, state.error);
+	if (!state.path) return fail(http, 1, tr('No file received'));
 	ok(http, { path: state.path, size: state.written });
 }
 
@@ -3491,4 +3510,3 @@ return {
 	api_package_install_start, api_package_install_status,
 	api_thumbnail_generate_start, api_thumbnail_generate_status
 };
-

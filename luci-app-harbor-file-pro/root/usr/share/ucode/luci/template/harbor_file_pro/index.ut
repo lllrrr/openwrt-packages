@@ -1,5 +1,5 @@
 {%
-const harbor_asset_version = '20260922.1';
+const harbor_asset_version = '20260922.6';
 function harbor_asset_url(path) {
     return resource + '/harbor_file_pro/' + path + '?v=' + harbor_asset_version;
 }
@@ -78,6 +78,8 @@ HarborFile.init({
         bookmark_folder_move: '{{ dispatcher.build_url('admin', 'harbor_pro', 'bookmark_folder_move') }}'
     },
     labels: {
+        folder_size_loading: '{{ _('Read size') }}…',
+        choose_directory: '{{ _('Select destination folder') }}',
         video_format_error: '{{ _('This video format or codec is not supported by the browser') }}',
         video_no_range: '{{ _('Web server does not support Range requests and available memory is too small to play this video') }}',
         quick_access: '{{ _('Quick access') }}',
@@ -497,6 +499,7 @@ window.HarborFile.tr = function (msgid) {
 </div>
 
 <input id="fm_upload_input" type="file" multiple hidden style="display:none">
+<input id="fm_upload_folder_input" type="file" webkitdirectory multiple hidden style="display:none">
 
     <div id="fm_fav_panel" class="fm-fav-panel" data-anchor-menu="fm_favorites"></div>
 
@@ -564,9 +567,13 @@ window.HarborFile.tr = function (msgid) {
         <span class="fm-menu-image" style="--fm-icon:url('{{ resource }}/harbor_file_pro/icons/paste.svg')" aria-hidden="true"></span>
         <span>{{ _('Paste') }}</span>
     </button>
-    <button id="fm_menu_upload" type="button">
+    <button id="fm_menu_upload" type="button" data-upload-picker="file">
         <span class="fm-menu-image" style="--fm-icon:url('{{ resource }}/harbor_file_pro/icons/upload.svg')" aria-hidden="true"></span>
         <span>{{ _('Upload files') }}</span>
+    </button>
+    <button id="fm_menu_upload_folder" type="button" data-upload-picker="folder">
+        <span class="fm-menu-image" style="--fm-icon:url('{{ resource }}/harbor_file_pro/icons/upload.svg')" aria-hidden="true"></span>
+        <span>{{ _('Upload') }} {{ _('Folder') }}</span>
     </button>
     <button id="fm_menu_rename" type="button">
         <span class="fm-menu-image" style="--fm-icon:url('{{ resource }}/harbor_file_pro/icons/rename.svg')" aria-hidden="true"></span>
@@ -612,9 +619,13 @@ window.HarborFile.tr = function (msgid) {
         <span class="fm-menu-image" style="--fm-icon:url('{{ resource }}/harbor_file_pro/icons/paste.svg')" aria-hidden="true"></span>
         <span>{{ _('Paste') }}</span>
     </button>
-    <button id="fm_menu_upload_here" type="button">
+    <button id="fm_menu_upload_here" type="button" data-upload-picker="file" data-upload-here="1">
         <span class="fm-menu-image" style="--fm-icon:url('{{ resource }}/harbor_file_pro/icons/upload.svg')" aria-hidden="true"></span>
         <span>{{ _('Upload files') }}</span>
+    </button>
+    <button id="fm_menu_upload_folder_here" type="button" data-upload-picker="folder" data-upload-here="1">
+        <span class="fm-menu-image" style="--fm-icon:url('{{ resource }}/harbor_file_pro/icons/upload.svg')" aria-hidden="true"></span>
+        <span>{{ _('Upload') }} {{ _('Folder') }}</span>
     </button>
     <button id="fm_menu_terminal_here" type="button">
         <span class="fm-menu-image" style="--fm-icon:url('{{ resource }}/harbor_file_pro/icons/terminal.svg')" aria-hidden="true"></span>
@@ -1142,8 +1153,9 @@ window.HarborFile.tr = function (msgid) {
         <div id="fm_target_source" class="fm-target-source">-</div>
         <div class="fm-target-toolbar">
             <button id="fm_target_up" class="fm-target-up" type="button" aria-label="{{ _('Up') }}"><span class="fm-target-image" style="--fm-icon:url('{{ resource }}/harbor_file_pro/icons/up.svg')" aria-hidden="true"></span></button>
-            <div id="fm_target_path" class="fm-target-path">/</div>
+            <div id="fm_target_path" class="fm-target-path fm-address-body"></div>
         </div>
+        <div id="fm_target_error" class="fm-target-error" role="status" hidden></div>
         <div id="fm_target_list" class="fm-target-list"></div>
     </div>
     <div class="fm-dialog-actions">
@@ -1167,8 +1179,11 @@ window.HarborFile.tr = function (msgid) {
         </select>
         <label class="fm-form-label" for="fm_archive_name">{{ _('Archive name') }}</label>
         <input id="fm_archive_name" class="fm-form-input" type="text" maxlength="255" autocomplete="off">
-        <label class="fm-form-label" for="fm_archive_target">{{ _('Target path') }}</label>
-        <input id="fm_archive_target" class="fm-form-input" type="text" autocomplete="off">
+        <label class="fm-form-label" for="fm_archive_target">{{ _('Save') }} → {{ _('Folder') }}</label>
+        <div class="fm-path-picker">
+            <input id="fm_archive_target" class="fm-form-input" type="text" autocomplete="off">
+            <button id="fm_archive_browse" class="fm-dialog-action" type="button">{{ _('Browse') }}…</button>
+        </div>
     </div>
     <div class="fm-dialog-actions">
         <button id="fm_archive_cancel" class="fm-dialog-action" type="button">{{ _('Cancel') }}</button>
@@ -1183,8 +1198,11 @@ window.HarborFile.tr = function (msgid) {
     </div>
     <div class="fm-form-body">
         <div id="fm_extract_source" class="fm-form-help">-</div>
-        <label class="fm-form-label" for="fm_extract_target">{{ _('Target path') }}</label>
-        <input id="fm_extract_target" class="fm-form-input" type="text" autocomplete="off">
+        <label class="fm-form-label" for="fm_extract_target">{{ _('Extract') }} → {{ _('Folder') }}</label>
+        <div class="fm-path-picker">
+            <input id="fm_extract_target" class="fm-form-input" type="text" autocomplete="off">
+            <button id="fm_extract_browse" class="fm-dialog-action" type="button">{{ _('Browse') }}…</button>
+        </div>
         <div class="fm-extract-head">
             <label class="fm-extract-all" for="fm_extract_all">
                 <input id="fm_extract_all" type="checkbox" checked>
@@ -1421,14 +1439,18 @@ window.HarborFile.tr = function (msgid) {
             HF.apply_directory_sort(null, this.getAttribute('data-sort-order'));
         });
     }
-    document.getElementById('fm_upload_input').addEventListener('change', function() {
-        var files = Array.prototype.slice.call(this.files || []);
-        var target = HF.state.upload_target;
-        this.value = '';
-        HF.state.upload_target = null;
-        if (target) {
-            HF.begin_upload(files, target.path, target.label);
-        }
+    ['fm_upload_input', 'fm_upload_folder_input'].forEach(function(id) {
+        document.getElementById(id).addEventListener('change', function() {
+            var files = Array.prototype.slice.call(this.files || []);
+            var target = HF.state.upload_target;
+            this.value = '';
+            HF.state.upload_target = null;
+            if (id === 'fm_upload_folder_input' && files.some(function(file) { return !file.webkitRelativePath; })) {
+                HF.set_warning_status(HF.labels.folder_not_supported);
+                return;
+            }
+            if (target) HF.begin_upload(files, target.path, target.label);
+        });
     });
     document.getElementById('fm_name_cancel').addEventListener('click', HF.close_modal);
     document.getElementById('fm_delete_cancel').addEventListener('click', HF.close_modal);
@@ -1533,12 +1555,18 @@ window.HarborFile.tr = function (msgid) {
             HF.run_paste(item.path);
         }
     });
-    document.getElementById('fm_menu_upload').addEventListener('click', function() {
-        var item = HF.state.context_item;
-        HF.hide_context_menus();
-        if (item && item.type === 'directory') {
-            HF.trigger_upload(item.path, item.name);
-        }
+    document.querySelectorAll('[data-upload-picker]').forEach(function(button) {
+        button.addEventListener('click', function() {
+            var here = this.hasAttribute('data-upload-here');
+            var item = here ? HF.state.current : HF.state.context_item;
+            HF.hide_context_menus();
+            if (item && (here ? item.kind : item.type) === 'directory') {
+                HF.trigger_upload(item.path, here ? HF.path_title(item.path) : item.name,
+                    this.getAttribute('data-upload-picker') === 'folder');
+            } else if (here) {
+                HF.set_write_block_status(HF.labels.system_folder_blocked);
+            }
+        });
     });
     document.getElementById('fm_menu_rename').addEventListener('click', function() {
         var item = HF.state.context_item;
@@ -1584,14 +1612,6 @@ window.HarborFile.tr = function (msgid) {
             HF.set_warning_status(HF.labels.clipboard_empty);
         }
     });
-    document.getElementById('fm_menu_upload_here').addEventListener('click', function() {
-        HF.hide_context_menus();
-        if (HF.state.current && HF.state.current.kind === 'directory' && HF.can_upload_to_path(HF.state.current.path)) {
-            HF.trigger_upload(HF.state.current.path, HF.path_title(HF.state.current.path));
-        } else {
-            HF.set_write_block_status(HF.state.current ? HF.get_write_block_reason(HF.state.current.path) : HF.labels.system_folder_blocked);
-        }
-    });
     document.getElementById('fm_menu_terminal_here').addEventListener('click', function() {
         HF.open_terminal(null);
     });
@@ -1629,7 +1649,11 @@ window.HarborFile.tr = function (msgid) {
             });
         }
     });
-    document.getElementById('fm_target_cancel').addEventListener('click', HF.close_modal);
+    ['archive', 'extract'].forEach(function(kind) {
+        document.getElementById('fm_' + kind + '_browse').addEventListener('click', function() { HF.choose_archive_directory(kind); });
+    });
+    document.getElementById('fm_archive_target').addEventListener('input', function() { HF.state.archive_target_dir = this.value; });
+    document.getElementById('fm_target_cancel').addEventListener('click', HF.close_target_dialog);
     document.getElementById('fm_target_confirm').addEventListener('click', HF.confirm_transfer);
     document.getElementById('fm_target_up').addEventListener('click', function() {
         if (HF.state.target_path !== '/') {
@@ -1668,11 +1692,11 @@ window.HarborFile.tr = function (msgid) {
             !writable_page || !HF.can_paste_to_path(current_path),
             system_reason
         );
-        HF.set_button_state(
-            'fm_menu_upload_here',
-            !writable_page || HF.state.uploading || !HF.can_upload_to_path(current_path),
-            system_reason
-        );
+        ['fm_menu_upload_here', 'fm_menu_upload_folder_here'].forEach(function(id) {
+            HF.set_button_state(id,
+                !writable_page || HF.state.uploading || !HF.can_upload_to_path(current_path),
+                system_reason);
+        });
         HF.set_button_state('fm_menu_terminal_here', false, '');
         if (system_reason) {
             HF.set_write_block_status(system_reason);
@@ -1752,7 +1776,10 @@ window.HarborFile.tr = function (msgid) {
     });
     var close_buttons = document.querySelectorAll('.fm-dialog-close');
     for (var close_index = 0; close_index < close_buttons.length; close_index++) {
-        close_buttons[close_index].addEventListener('click', HF.close_modal);
+        close_buttons[close_index].addEventListener('click', function() {
+            if (this.closest('#fm_target_dialog')) HF.close_target_dialog();
+            else HF.close_modal();
+        });
     }
     document.addEventListener('dragend', HF.clear_drag_state);
     document.addEventListener('dragover', function(event) {
@@ -1769,6 +1796,7 @@ window.HarborFile.tr = function (msgid) {
     });
     window.addEventListener('scroll', function(event) {
         HF.hide_item_hover_card();
+        if (event.target === document.getElementById('fm_content') && HF.state.details_adjusting) return;
         if (HF.scroll_inside_overlay(event && event.target)) {
             return;
         }
@@ -1777,7 +1805,8 @@ window.HarborFile.tr = function (msgid) {
     document.addEventListener('keydown', function(event) {
         if (event.key === 'Escape') {
             HF.hide_context_menus();
-            HF.close_modal();
+            if (HF.state.target_picker) HF.close_target_dialog();
+            else HF.close_modal();
         }
     });
 
