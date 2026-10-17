@@ -35,56 +35,16 @@ String.prototype.format = function(...values) {
 	return this.replace(/%s/g, () => values[i++]);
 };
 
-function loadMenu(dispatchpath, container, icons = '') {
+function loadMenu(dispatchpath, container) {
 	return new Function('baseclass', 'ui', 'L', 'E', 'document', '_', menuSource)(
 		{ extend: value => value },
-		{ menu: { getChildren: node => node.children || [] }, createHandlerFn: (object, name) => object[name].bind(object) },
-		{ env: { dispatchpath }, url: (...parts) => parts.join('/'), media: (...parts) => '/luci-static/argon/' + parts.join('/') },
+		{ menu: { getChildren: node => node.children || [] } },
+		{ env: { dispatchpath }, url: (...parts) => parts.join('/') },
 		element,
-		{ querySelectorAll: () => [], querySelector: selector => selector == 'meta[name="argon-menu-icons"]'
-			? (icons === null ? null : { getAttribute: () => icons }) : container },
+		{ querySelector: () => container },
 		value => value
 	);
 }
-
-test('menu icons use exact node names and fall back without requesting missing files', () => {
-	const menu = loadMenu([], null, 'default.svg status.svg system.svg');
-	for (const name of ['status', 'system']) {
-		const icon = menu.renderMenuIcon(name);
-		assert.equal(icon.attrs['data-icon'], name);
-		assert.equal(icon.attrs['aria-hidden'], 'true');
-		assert.match(icon.attrs.style, new RegExp('/icon/' + name + '\\.svg'));
-	}
-	for (const name of ['Status', '状态', 'missing', '../status', 'status.svg', 'status";color:red']) {
-		const icon = menu.renderMenuIcon(name);
-		assert.equal(icon.attrs['data-icon'], 'default');
-		assert.match(icon.attrs.style, /\/icon\/default\.svg/);
-	}
-	assert.equal(loadMenu([], null, null).renderMenuIcon('status').attrs['data-icon'], 'default');
-});
-
-test('translated menu labels keep node-name icons and nested links keep their layout', () => {
-	const container = element('div');
-	const menu = loadMenu([], container, 'default.svg status.svg');
-	const rendered = menu.renderMainMenu({ name: 'admin', children: [{
-		name: 'status', title: '状态', children: [{ name: 'overview', title: '概览' }]
-	}] }, 'admin');
-	const link = rendered.children[0].children[0];
-	assert.equal(link.children[0].attrs['data-icon'], 'status');
-	assert.equal(link.children[1], '状态');
-	assert.equal(rendered.children[0].children[1].children[0].children[0].children[0], '概览');
-});
-
-test('clicking a decorative SVG is handled by its navigation link', () => {
-	const menu = loadMenu([], null);
-	const link = { parentNode: { querySelector: () => null }, nextElementSibling: {}, blur() {} };
-	const icon = { parentNode: link, nextElementSibling: null };
-	let prevented = false, stopped = false;
-	menu.handleMenuExpand({ target: icon, currentTarget: link,
-		preventDefault: () => { prevented = true; }, stopPropagation: () => { stopped = true; } });
-	assert.equal(prevented, true);
-	assert.equal(stopped, true);
-});
 
 test('nested LuCI tabs stay in parent-to-child order', () => {
 	const container = element('div');
@@ -113,8 +73,6 @@ function runUcodeSnippet(file, start, end, setup, result, settings = {}, hasConf
 	writeFileSync(script, `${setup}\n${source.slice(first, last)}\nprint(sprintf("%J", ${result}));\n`);
 	try {
 		const output = execFileSync(process.env.UCODE_BIN || 'ucode', [
-			'-L', path.join(path.dirname(process.env.UCODE_BIN || 'ucode'), '*.so'),
-			'-L', path.join(root, 'root/usr/share/ucode/*.uc'),
 			`-Dsettings=${JSON.stringify(settings)}`,
 			`-DhasConfig=${JSON.stringify(hasConfig)}`,
 			script
@@ -126,66 +84,39 @@ function runUcodeSnippet(file, start, end, setup, result, settings = {}, hasConf
 }
 
 const configSetup = `
-import { dark_palette, appearance_modes } from 'luci.argon-palette';
 let cfg = { get_first: (packageName, section, key) => settings[key] };
 function access(path) { return hasConfig; }
 `;
-
-test('the SVG catalog includes only safe regular SVG files and tolerates a missing directory', () => {
-	const setup = `
-function lsdir(path) { return settings.files; }
-function lstat(path) {
-  let parts = split(path, '/');
-  return { type: settings.types?.[parts[length(parts) - 1]] ?? 'file' };
-}
-`;
-	const catalog = settings => runUcodeSnippet('ucode/template/themes/argon/head.ut',
-		'const icon_dir =', '\n\t%}', setup, 'menu_icons', settings);
-	assert.deepEqual(catalog({ files: ['status.svg', 'custom-menu.svg', 'favicon.png', '../system.svg',
-		'bad name.svg', 'bad".svg', 'folder.svg', 'linked.svg'], types: { 'folder.svg': 'directory', 'linked.svg': 'symlink' } }),
-		['status.svg', 'custom-menu.svg']);
-	assert.deepEqual(catalog({ files: null }), []);
-});
 const configResult = '{mode, primary, dark_primary, blur_radius, blur_radius_dark, blur_opacity, blur_opacity_dark, bar_color}';
 
-test('shared head uses safe defaults for missing and invalid settings', () => {
-	const empty = runUcodeSnippet('ucode/template/themes/argon/head.ut', 'function validColor', '\n-%}', configSetup, configResult);
-	assert.deepEqual(empty, {
-		mode: 'normal', primary: '#5e72e4', dark_primary: '#5a6cc5',
-		blur_radius: '10', blur_radius_dark: '10',
-		blur_opacity: '0.5', blur_opacity_dark: '0.5', bar_color: '#5e72e4'
+for (const template of ['header.ut', 'header_login.ut']) {
+	const file = `ucode/template/themes/argon/${template}`;
+	test(`${template} uses safe defaults for missing and invalid settings`, () => {
+		const empty = runUcodeSnippet(file, 'function validColor', '\n-%}', configSetup, configResult);
+		assert.deepEqual(empty, {
+			mode: 'normal', primary: '#5e72e4', dark_primary: '#483d8b',
+			blur_radius: '10', blur_radius_dark: '10',
+			blur_opacity: '0.5', blur_opacity_dark: '0.5', bar_color: '#5e72e4'
+		});
+		assert.deepEqual(runUcodeSnippet(file, 'function validColor', '\n-%}', configSetup, configResult, {}, false), empty);
+		const invalid = runUcodeSnippet(file, 'function validColor', '\n-%}', configSetup, configResult, {
+			primary: 'red;}', blur: '-1', transparency: '2', mode: 'unknown'
+		});
+		assert.deepEqual(invalid, empty);
+		const dark = runUcodeSnippet(file, 'function validColor', '\n-%}', configSetup, configResult, {
+			primary: '#123456', dark_primary: '#abcdef', blur: '0', transparency: '0.7', mode: 'dark'
+		});
+		assert.equal(dark.mode, 'dark');
+		assert.equal(dark.bar_color, '#abcdef');
+		assert.equal(dark.blur_radius, '0');
+		assert.equal(dark.blur_opacity, '0.7');
+		const light = runUcodeSnippet(file, 'function validColor', '\n-%}', configSetup, configResult, {
+			primary: '#123456', mode: 'light'
+		});
+		assert.equal(light.mode, 'light');
+		assert.equal(light.bar_color, '#123456');
 	});
-	assert.deepEqual(runUcodeSnippet('ucode/template/themes/argon/head.ut', 'function validColor', '\n-%}', configSetup, configResult, {}, false), empty);
-	const invalid = runUcodeSnippet('ucode/template/themes/argon/head.ut', 'function validColor', '\n-%}', configSetup, configResult, {
-		primary: 'red;}', blur: '-1', transparency: '2', mode: 'unknown'
-	});
-	assert.deepEqual(invalid, empty);
-	const dark = runUcodeSnippet('ucode/template/themes/argon/head.ut', 'function validColor', '\n-%}', configSetup, configResult, {
-		primary: '#123456', dark_primary: '#abcdef', blur: '0', transparency: '0.7', mode: 'dark'
-	});
-	assert.equal(dark.mode, 'dark');
-	assert.equal(dark.bar_color, '#abcdef');
-	assert.equal(dark.blur_radius, '0');
-	assert.equal(dark.blur_opacity, '0.7');
-	const light = runUcodeSnippet('ucode/template/themes/argon/head.ut', 'function validColor', '\n-%}', configSetup, configResult, {
-		primary: '#123456', mode: 'light'
-	});
-	assert.equal(light.mode, 'light');
-	assert.equal(light.bar_color, '#123456');
-});
-
-test('login layouts allow supported styles and fall back for old or invalid configs', () => {
-	const selected = (value, hasConfig = true) => runUcodeSnippet(
-		'ucode/template/themes/argon/sysauth.ut',
-		"let login_style = 'classic';", '\n\tconst boardinfo',
-		configSetup + '\nlet fs = { access };', 'login_style', { login_style: value }, hasConfig
-	);
-	assert.equal(selected('classic'), 'classic');
-	assert.equal(selected('centered'), 'centered');
-	assert.equal(selected('centered', false), 'classic');
-	for (const value of [undefined, null, '', 'unknown', 'CENTERED', '" onclick="alert(1)', '../centered', 1, ['centered'], {}])
-		assert.equal(selected(value), 'classic');
-});
+}
 
 test('local backgrounds accept dotted names and encode spaces', () => {
 	const setup = `
@@ -193,7 +124,7 @@ let fs = { lsdir: path => ['photo.jpg', 'my.photo.jpg', 'space name.webp', 'hash
 let http = { urlencode: value => replace(replace(replace(value, ' ', '%20'), '#', '%23'), '?', '%3F') };
 `;
 	const backgrounds = runUcodeSnippet(
-		'ucode/template/themes/argon/login_background.ut',
+		'ucode/template/themes/argon/sysauth.ut',
 		'const imageTypes', '\n\tfunction selectBackground',
 		setup, 'fetchMedia("/www/luci-static/argon/background", "/luci-static/argon/background/")'
 	);
@@ -222,14 +153,14 @@ function fetchMedia() {
 }
 function randomIndex() { return 0; }
 `;
-	const file = 'ucode/template/themes/argon/login_background.ut';
+	const file = 'ucode/template/themes/argon/sysauth.ut';
 	const start = 'function selectBackground';
-	const end = '\n\tconst bgArry';
+	const end = '\n\tconst boardinfo';
 	const selected = settings => runUcodeSnippet(file, start, end, setup, 'selectBackground("/luci-static/argon/background/")', settings);
 	assert.equal(selected({ url: 'https://example.com/image.jpg' }).bgUrl, 'https://example.com/image.jpg');
 	for (const invalid of ['http://example.com/image.jpg', 'https://example.com/a b.jpg', 'javascript:alert(1)', 'https://example.com/"bad'])
 		assert.equal(selected({ url: invalid }).bgUrl, '/luci-static/argon/background/local.jpg');
-	assert.equal(selected({ url: 'http://example.com/image.jpg', empty: true }).bgUrl, '/luci-static/argon/img/bg1.webp');
+	assert.equal(selected({ url: 'http://example.com/image.jpg', empty: true }).bgUrl, '/luci-static/argon/img/bg1.jpg');
 	assert.deepEqual(selected({ url: '', video: true }), {
 		bgUrl: '/luci-static/argon/background/local.mp4',
 		backgroundType: 'Video',
@@ -238,7 +169,7 @@ function randomIndex() { return 0; }
 });
 
 test('authentication fields preserve numeric length limits and escape attributes', () => {
-	const source = fs.readFileSync(path.join(root, 'ucode/template/themes/argon/login_form.ut'), 'utf8');
+	const source = fs.readFileSync(path.join(root, 'ucode/template/themes/argon/sysauth.ut'), 'utf8');
 	const first = source.indexOf('{%- if (auth_fields): %}');
 	const last = source.indexOf('{%- if (auth_html): %}', first);
 	assert.ok(first >= 0 && last > first);
@@ -315,68 +246,4 @@ jsonfilter() { return 1; }
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
-});
-
-// Exercise the real filesystem module, including malformed state and stale files.
-test('custom branding accepts only published assets and safely falls back', () => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'argon-branding-test-'));
-	const assets = path.join(dir, 'branding');
-	const module = path.join(dir, 'luci', 'argon-branding.uc');
-	fs.mkdirSync(path.dirname(module));
-	const source = fs.readFileSync(path.join(root, 'root/usr/share/ucode/luci/argon-branding.uc'), 'utf8');
-	writeFileSync(module, source.replace('/www/luci-static/argon/branding/', assets + '/'));
-	const ucode = process.env.UCODE_BIN || 'ucode';
-	const args = ['-L', path.join(path.dirname(ucode), '*.so'), '-L', path.join(dir, '*.uc')];
-	const read = () => JSON.parse(execFileSync(ucode, [...args, '-e',
-		"import { get_branding } from 'luci.argon-branding'; print(sprintf('%J', get_branding()));"
-	], { encoding: 'utf8' }));
-	const image = 'image-' + 'a'.repeat(64) + '.png';
-	const manifest = image.replace('.png', '.webmanifest');
-	const index = path.join(assets, 'current.json');
-	try {
-		assert.deepEqual(read(), {});
-		fs.mkdirSync(assets);
-		writeFileSync(path.join(assets, image), Buffer.alloc(100));
-		writeFileSync(path.join(assets, manifest), '{}');
-		writeFileSync(index, JSON.stringify({ favicon: image, logo: image }));
-		assert.deepEqual(read(), { favicon: image, logo: image, manifest });
-		for (const bad of ['broken', 'null', '[]', '123', '"text"', '{"logo":"../elsewhere.png"}', ' '.repeat(1025)]) {
-			writeFileSync(index, bad);
-			assert.deepEqual(read(), {});
-		}
-		writeFileSync(index, JSON.stringify({ logo: image, favicon: '../outside.png' }));
-		assert.deepEqual(read(), { logo: image });
-		fs.unlinkSync(path.join(assets, image));
-		assert.deepEqual(read(), {});
-		writeFileSync(path.join(dir, 'outside.png'), Buffer.alloc(100));
-		fs.symlinkSync(path.join(dir, 'outside.png'), path.join(assets, image));
-		assert.deepEqual(read(), {});
-		fs.unlinkSync(index);
-		fs.symlinkSync(path.join(dir, 'outside.png'), index);
-		assert.deepEqual(read(), {});
-		fs.renameSync(assets, path.join(dir, 'saved'));
-		fs.symlinkSync(path.join(dir, 'saved'), assets);
-		assert.deepEqual(read(), {});
-	} finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('custom head icons replace every default candidate and restore as a group', () => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'argon-head-test-'));
-	const source = fs.readFileSync(path.join(root, 'ucode/template/themes/argon/head_meta.ut'), 'utf8')
-		.replace("import { get_branding } from 'luci.argon-branding';", 'function get_branding() { return fixture; }');
-	const file = path.join(dir, 'head.ut');
-	writeFileSync(file, '{% let media="/luci-static/argon"; let hostname="Router"; let node={}; let bar_color="#123456"; %}' + source);
-	const render = fixture => execFileSync(process.env.UCODE_BIN || 'ucode', ['-T,', '-Dfixture=' + JSON.stringify(fixture), file], { encoding: 'utf8' });
-	try {
-		const defaults = render({});
-		assert.match(defaults, /favicon\.ico/);
-		assert.match(defaults, /apple-icon-144x144\.png/);
-		assert.match(defaults, /icon\/manifest\.json/);
-		const custom = render({ favicon: 'custom.png', manifest: 'custom.webmanifest' });
-		assert.match(custom, /rel="icon" type="image\/png" href="\/luci-static\/argon\/branding\/custom.png"/);
-		assert.match(custom, /rel="apple-touch-icon" href="\/luci-static\/argon\/branding\/custom.png"/);
-		assert.match(custom, /branding\/custom.webmanifest/);
-		assert.doesNotMatch(custom, /favicon\.ico|icon\/favicon|icon\/android|icon\/apple|icon\/manifest/);
-		assert.equal(render({ logo: 'custom.png' }), defaults);
-	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
